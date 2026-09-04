@@ -217,11 +217,15 @@
 }
 
 .xhs-note .lb-author-dot {
-  width: 30px;
-  height: 30px;
-  flex: 0 0 30px;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--interactive-accent) 24%, var(--background-secondary));
+  /* 它不是图片，是占位圆点（UI 返工时定的"紫色圆点 + 作者名"）。
+     饱和度压下来 + 一圈细边，看着像头像位而不是一坨色块。 */
+  background: color-mix(in srgb, var(--interactive-accent) 16%, var(--background-secondary));
+  border: 1px solid color-mix(in srgb, var(--text-normal) 8%, transparent);
+  box-sizing: border-box;
 }
 
 .xhs-note .lb-author-copy {
@@ -274,6 +278,10 @@
 
 .xhs-note .callout[data-callout="link-brain-file"] p {
   margin: 0;
+  /* `原文 · 机读版 · 附件` 里那个点两边太挤（Owner 2026-09-05）：
+     只撑空格、不动汉字间距，中文读起来不会松垮 */
+  word-spacing: 0.32em;
+  line-height: 1.75;
 }
 
 .xhs-note .callout[data-callout="link-brain-file"] p + p {
