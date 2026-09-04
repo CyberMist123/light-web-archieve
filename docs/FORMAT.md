@@ -312,7 +312,11 @@ D:\LIGHT WEB ARCHIEVE\vault\
 
 ---
 
-## 6. 可见 md 模板（`vault/Web/Xiaohongshu/<标题>__<id8>.md`）
+## 6. 可见 md 模板（`vault/Web/Xiaohongshu/<标题>.md`）
+
+文件名就是清洗过的标题，**不带 `__<id8>` 后缀**（Owner 2026-09-04 点名）。
+只有那个名字已经被别的笔记、或者 Owner 手写的同名老文件占了，才退回 `<标题>__<id8>.md`——
+判断靠读对方 frontmatter 里的 `link_brain.item_id`，绝不覆盖不属于自己的文件。
 
 文件名：标题过 Windows 非法字符 sanitizer（`< > : " / \ | ? *`、控制字符、保留名 CON/PRN/AUX/NUL/COM1-9/LPT1-9、结尾点和空格）→ 截断到 60 字符 → 加 `__<note_id 后 8 位>`。
 
@@ -598,7 +602,7 @@ CREATE INDEX IF NOT EXISTS idx_relations_item ON relations(item_id);
       "summary": "小模型概要；没有 extracted.json 就退回正文前 120 字",
       "tags": ["ai编程", "教程"],
       "kind": "image",
-      "visible_note": "D:\\LIGHT WEB ARCHIEVE\\vault\\Web\\Xiaohongshu\\ClaudeCode自建前端-P模式全教__1502522c.md",
+      "visible_note": "D:\\LIGHT WEB ARCHIEVE\\vault\\Web\\Xiaohongshu\\ClaudeCode自建前端-P模式全教.md",
       "agent_md": "D:\\LIGHT WEB ARCHIEVE\\vault\\_archive\\xiaohongshu\\6a49b7ff000000001502522c\\derived\\agent.md",
       "attachments": {
         "status": "downloaded",

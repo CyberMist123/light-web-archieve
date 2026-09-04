@@ -42,8 +42,32 @@ def sanitize_title(title: str) -> str:
     return f"{cleaned}_" if cleaned.upper() in RESERVED_NAMES else cleaned
 
 
-def visible_filename(title: str, note_id: str) -> str:
-    return f"{sanitize_title(title)}__{note_id[-8:]}.md"
+def visible_filename(title: str, note_id: str | None = None) -> str:
+    """可见笔记的文件名。
+
+    Owner 2026-09-04：文件名里那截 `__080119fe` 别写，就要干净的标题。
+    `note_id` 只在**撞名**时才拿来当后缀（见 `resolve_visible_path`），保证不会覆盖别人的文件。
+    """
+    stem = sanitize_title(title)
+    return f"{stem}__{note_id[-8:]}.md" if note_id else f"{stem}.md"
+
+
+def owner_item_id(path: Path) -> str | None:
+    """一个已存在的可见 md 属于哪个对象；Owner 手写的老文件没有这个键，返回 None。"""
+    try:
+        fm = parse_frontmatter(path.read_text(encoding="utf-8"))
+    except OSError:
+        return None
+    block = fm.get("link_brain")
+    return block.get("item_id") if isinstance(block, dict) else None
+
+
+def resolve_visible_path(visible_dir: Path, title: str, source_id: str, item_id: str) -> Path:
+    """干净标题优先；那个名字已经被**别的**笔记（或 Owner 手写的老文件）占了才退回带 id8 后缀。"""
+    clean = visible_dir / visible_filename(title)
+    if not clean.exists() or owner_item_id(clean) == item_id:
+        return clean
+    return visible_dir / visible_filename(title, source_id)
 
 
 def _clean_links_in_text(text: str, links: list[dict[str, Any]]) -> str:
@@ -616,8 +640,12 @@ def render_object(
 
     visible_dir = storage.visible_dir()
     visible_dir.mkdir(parents=True, exist_ok=True)
-    filename = visible_filename(source_doc["note"].get("title") or meta.get("title") or "", source_id)
-    visible_path = visible_dir / filename
+    visible_path = resolve_visible_path(
+        visible_dir,
+        source_doc["note"].get("title") or meta.get("title") or "",
+        source_id,
+        meta["item_id"],
+    )
 
     existing_text = None
     old_visible = meta.get("visible_note")
