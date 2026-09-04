@@ -113,3 +113,42 @@ def test_catch_stops_at_first_blocked_link(tmp_path, monkeypatch, capsys):
     assert payload["found"] == 1  # 第二条根本没试
     assert payload["items"][0]["status"] == "blocked"
     assert calls["n"] == 1
+
+
+# --------------------------------------------------------------------------
+# 偶发起不来要先重试，别一抖就停车
+# --------------------------------------------------------------------------
+
+
+def test_ingest_retries_flaky_browser_launch_before_giving_up(tmp_path, monkeypatch):
+    """本机内存紧时 MCP 的 Chrome 会偶发起不来；第二次就成的话不该惊动人。"""
+    monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
+    monkeypatch.setattr(ingest.time, "sleep", lambda *_: None)
+    calls = {"n": 0}
+
+    def flaky(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise xhs.ServiceDownError("[launcher] Failed to get the debug url")
+        return {"ok": True}
+
+    monkeypatch.setattr(xhs, "fetch_detail", flaky)
+    assert ingest._fetch_with_retry({"note_id": "x", "xsec_token": "t"}, log=lambda _: None) == {"ok": True}
+    assert calls["n"] == 2
+
+
+def test_ingest_gives_up_after_all_retries(tmp_path, monkeypatch):
+    monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
+    monkeypatch.setattr(ingest.time, "sleep", lambda *_: None)
+    calls = {"n": 0}
+
+    def always_down(*a, **k):
+        calls["n"] += 1
+        raise xhs.ServiceDownError("[launcher] Failed to get the debug url")
+
+    monkeypatch.setattr(xhs, "fetch_detail", always_down)
+    import pytest
+
+    with pytest.raises(xhs.ServiceDownError):
+        ingest._fetch_with_retry({"note_id": "x", "xsec_token": "t"}, log=lambda _: None)
+    assert calls["n"] == ingest.SERVICE_RETRIES
