@@ -97,8 +97,10 @@
 
 .xhs-note .lb-media {
   float: left;
-  width: 47%;
-  margin: 2px 3% 14px 0;
+  /* 还原成老那套等宽两栏：grid 是 1fr + 1fr、gap clamp(16px,2vw,28px)，
+     换算过来就是图片列 48.5% + 2% 间距 + 正文 49.5%（Owner 2026-09-05 要"原有比例"） */
+  width: 48.5%;
+  margin: 2px 2% 14px 0;
   min-width: 0;
 }
 
