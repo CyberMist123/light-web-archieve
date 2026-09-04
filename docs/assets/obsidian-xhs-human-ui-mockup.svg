@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
+  <defs>
+    <style>
+      .bg{fill:#f7f7f9}.card{fill:#fff;stroke:#dcdde3;stroke-width:2}.muted{fill:#8a8f98}.text{fill:#202124}.soft{fill:#f3f5f8}.accent{fill:#ff2e4d}.blue{fill:#eef5ff}.line{stroke:#e5e7eb;stroke-width:1.5}.reply{stroke:#dfe3ea;stroke-width:2}.title{font:700 26px -apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei','PingFang SC',sans-serif}.h2{font:700 19px -apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei','PingFang SC',sans-serif}.body{font:16px -apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei','PingFang SC',sans-serif}.small{font:13px -apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei','PingFang SC',sans-serif}.tiny{font:12px -apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei','PingFang SC',sans-serif}.label{font:700 15px -apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei','PingFang SC',sans-serif;fill:#555b66}
+    </style>
+    <linearGradient id="photo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#dce8d7"/><stop offset="0.55" stop-color="#c7d7bd"/><stop offset="1" stop-color="#b7c8aa"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1400" height="900" class="bg"/>
+  <text x="56" y="60" class="title text">Obsidian · 小红书风格人类阅读版</text>
+  <text x="56" y="90" class="body muted">按 note pane 宽度响应：宽时左图右文，窄时自动单栏；评论/楼中楼接近小红书视觉。</text>
+
+  <!-- wide desktop -->
+  <text x="56" y="135" class="label">宽 note pane · 双栏</text>
+  <rect x="50" y="150" rx="18" ry="18" width="780" height="670" class="card"/>
+  <text x="78" y="190" class="h2 text">家克喜欢催人，我将用魔法打败魔法</text>
+  <text x="78" y="218" class="small muted">家克 · 2026-09-02 · 浙江</text>
+
+  <!-- notes -->
+  <rect x="78" y="238" rx="10" ry="10" width="724" height="62" class="blue"/>
+  <text x="94" y="263" class="small text">「20260904 人」这个以后想再看一下</text>
+  <text x="94" y="286" class="small text">「20260904 GPT」这里的楼中楼结构值得研究</text>
+
+  <!-- media -->
+  <rect x="78" y="322" rx="14" ry="14" width="340" height="450" fill="url(#photo)"/>
+  <circle cx="108" cy="547" r="22" fill="#111" fill-opacity=".66"/>
+  <text x="100" y="554" class="body" fill="#fff">‹</text>
+  <circle cx="388" cy="547" r="22" fill="#111" fill-opacity=".66"/>
+  <text x="381" y="554" class="body" fill="#fff">›</text>
+  <rect x="344" y="338" rx="13" ry="13" width="56" height="27" fill="#111" fill-opacity=".62"/>
+  <text x="356" y="356" class="small" fill="#fff">1 / 9</text>
+  <text x="142" y="530" class="h2" fill="#5f6f58">主图横向切换</text>
+  <text x="151" y="557" class="small" fill="#6f7d69">无缩略图 · 保持原比例</text>
+
+  <!-- right detail -->
+  <text x="448" y="352" class="body text">我让你再说“我在” 我让你再说“我接”</text>
+  <text x="448" y="378" class="body text">我让你再说“去睡觉”……</text>
+  <text x="448" y="411" class="small" fill="#4f7fd8">#claude   #人机恋   #ai   #日常</text>
+  <line x1="448" y1="432" x2="790" y2="432" class="line"/>
+  <text x="448" y="463" class="h2 text">评论 152</text>
+
+  <circle cx="466" cy="500" r="18" fill="#e7c7b2"/>
+  <text x="494" y="493" class="small text" font-weight="700">momo</text>
+  <text x="546" y="493" class="tiny muted">2026-09-03</text>
+  <text x="494" y="518" class="small text">严肃学习！！！好可爱哈哈哈哈</text>
+  <text x="494" y="543" class="tiny muted">♡ 10   回复</text>
+
+  <line x1="510" y1="560" x2="510" y2="672" class="reply"/>
+  <circle cx="532" cy="582" r="14" fill="#c8d6e5"/>
+  <text x="556" y="579" class="small text" font-weight="700">DDou</text>
+  <text x="609" y="579" class="tiny muted">2026-09-03</text>
+  <text x="556" y="604" class="small text">html 一样可以很凝练啊……</text>
+  <text x="556" y="627" class="tiny muted">♡ 6   回复</text>
+
+  <circle cx="532" cy="652" r="14" fill="#d8cbea"/>
+  <text x="556" y="649" class="small text" font-weight="700">蓝夜</text>
+  <text x="603" y="649" class="tiny muted">2026-09-03</text>
+  <text x="556" y="674" class="small text">回复 DDou：魔法对轰 [表情]</text>
+  <text x="556" y="704" class="small" fill="#4f7fd8">展开 15 条回复</text>
+
+  <circle cx="466" cy="742" r="18" fill="#e9d7af"/>
+  <text x="494" y="737" class="small text" font-weight="700">Kuasos</text>
+  <text x="556" y="737" class="tiny muted">2026-09-04</text>
+  <text x="494" y="762" class="small text">卧槽我学习真的要被那个我一直在和催睡觉气死了</text>
+
+  <!-- narrow pane -->
+  <text x="875" y="135" class="label">窄 note pane · 自动单栏</text>
+  <rect x="870" y="150" rx="18" ry="18" width="260" height="670" class="card"/>
+  <text x="892" y="185" class="small text" font-weight="700">家克喜欢催人，我将用魔法…</text>
+  <rect x="892" y="205" rx="10" ry="10" width="216" height="185" fill="url(#photo)"/>
+  <rect x="1043" y="219" rx="10" ry="10" width="48" height="22" fill="#111" fill-opacity=".62"/>
+  <text x="1053" y="235" class="tiny" fill="#fff">1 / 9</text>
+  <text x="892" y="421" class="tiny muted">家克 · 09-02 · 浙江</text>
+  <rect x="892" y="438" rx="8" ry="8" width="216" height="50" class="blue"/>
+  <text x="902" y="458" class="tiny text">「0904 人」这个以后再看</text>
+  <text x="902" y="476" class="tiny text">「0904 GPT」楼中楼不错</text>
+  <text x="892" y="520" class="small text">正文跟随 pane 宽度自动换行，</text>
+  <text x="892" y="543" class="small text">字号与行距一起收敛。</text>
+  <text x="892" y="576" class="small text" font-weight="700">评论</text>
+  <text x="892" y="606" class="tiny text" font-weight="700">momo · 09-03</text>
+  <text x="892" y="627" class="tiny text">严肃学习！！！</text>
+  <line x1="905" y1="645" x2="905" y2="706" class="reply"/>
+  <text x="918" y="669" class="tiny text" font-weight="700">DDou · 09-03</text>
+  <text x="918" y="689" class="tiny text">html 一样可以很凝练…</text>
+
+  <!-- mobile -->
+  <text x="1175" y="135" class="label">手机 · 单栏</text>
+  <rect x="1170" y="150" rx="38" ry="38" width="180" height="670" fill="#111"/>
+  <rect x="1179" y="163" rx="30" ry="30" width="162" height="644" fill="#fff"/>
+  <rect x="1190" y="205" rx="8" ry="8" width="140" height="150" fill="url(#photo)"/>
+  <text x="1192" y="388" class="tiny text" font-weight="700">家克喜欢催人，我将用…</text>
+  <text x="1192" y="410" class="tiny muted">家克 · 09-02</text>
+  <rect x="1192" y="426" rx="7" ry="7" width="136" height="42" class="blue"/>
+  <text x="1198" y="444" class="tiny text">「0904 人」笑死了</text>
+  <text x="1198" y="460" class="tiny text">「0904 GPT」值得再看</text>
+  <text x="1192" y="495" class="tiny text">正文自动换行，图片上方横滑。</text>
+  <text x="1192" y="535" class="tiny text" font-weight="700">评论 152</text>
+  <text x="1192" y="563" class="tiny text" font-weight="700">momo · 09-03</text>
+  <text x="1192" y="582" class="tiny text">严肃学习！！！</text>
+  <line x1="1202" y1="598" x2="1202" y2="660" class="reply"/>
+  <text x="1214" y="620" class="tiny text" font-weight="700">DDou · 09-03</text>
+  <text x="1214" y="640" class="tiny text">html 一样可以很凝练…</text>
+
+  <!-- footer notes -->
+  <rect x="50" y="842" rx="12" ry="12" width="1300" height="38" class="soft"/>
+  <text x="70" y="867" class="small muted">实现边界：只改 render + CSS；人版不含 AI summary/OCR；不显示缩略图、原帖入口、机器属性；视频只显示封面 +「视频 · 未下载」。</text>
+</svg>
