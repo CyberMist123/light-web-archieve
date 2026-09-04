@@ -74,18 +74,22 @@
   margin: 0.25em 0;
 }
 
-.xhs-note .lb-cols {
-  display: grid !important;
-  grid-template-columns: repeat(auto-fit, minmax(min(390px, 100%), 1fr));
-  gap: var(--lb-gap);
-  align-items: start;
+/* 2026-09-05：正文从 HTML 里搬出去变成纯 Markdown 了（Owner 要能划重点、别一点就掉进源码）。
+   左图右文改用 float：图片块浮到左边，后面的 Markdown 段落自然绕在右侧，
+   视觉上和原来的两栏一样，但正文是真 Markdown。窄 pane / 手机取消浮动，自动上下堆叠。 */
+.xhs-note .lb-note {
   width: 100%;
   min-width: 0;
   container-type: inline-size;
 }
 
-.xhs-note .lb-cols.lb-no-media {
-  grid-template-columns: minmax(0, 1fr);
+.xhs-note .lb-note::after {
+  content: "";
+  display: block;
+  clear: both;
+}
+
+.xhs-note .lb-note.lb-no-media {
   max-width: 780px;
   margin-inline: auto;
 }
@@ -96,10 +100,32 @@
 }
 
 .xhs-note .lb-media {
-  position: sticky;
-  top: 16px;
-  align-self: start;
+  float: left;
+  width: 38%;
+  margin: 2px 20px 14px 0;
   min-width: 0;
+}
+
+/* 评论区自己起一行，别绕着图片排 */
+.xhs-note .lb-detail {
+  clear: both;
+}
+
+/* pane 窄了（或手机）就不浮动，回到上下堆叠 */
+@container link-brain-note (max-width: 700px) {
+  .xhs-note .lb-media {
+    float: none;
+    width: 100%;
+    margin: 0 0 14px;
+  }
+}
+
+@media (max-width: 700px) {
+  .xhs-note .lb-media {
+    float: none;
+    width: 100%;
+    margin: 0 0 14px;
+  }
 }
 
 .xhs-note .lb-carousel {
@@ -240,12 +266,22 @@
   color: var(--lb-muted);
 }
 
-.xhs-note .lb-post-body {
+/* 正文现在是**纯 Markdown 段落**（2026-09-05），不再包在 .lb-post-body 里。
+   直接给笔记正文里的段落排版；callout / 评论区有自己更具体的规则，不会被这条盖到。 */
+.markdown-preview-view.xhs-note .markdown-preview-sizer > p,
+.xhs-note .lb-note > p {
+  font-size: var(--lb-body-size);
+  line-height: 1.72;
   color: var(--text-normal);
+  margin: 0 0 0.82em;
+  overflow-wrap: anywhere;
 }
 
-.xhs-note .lb-post-body p {
-  margin: 0 0 0.82em;
+/* 划重点：Owner 自己打的 ==高亮==，rerender 会原样贴回来 */
+.xhs-note mark {
+  background: color-mix(in srgb, var(--text-accent) 22%, transparent);
+  border-radius: 3px;
+  padding: 0 2px;
 }
 
 /* 笔记附件（小红书的"文件"）：一行卡片，未下载时也要看得见它存在。
@@ -404,13 +440,10 @@
 }
 
 @container link-brain-note (max-width: 800px) {
-  .xhs-note .lb-cols {
-    grid-template-columns: minmax(0, 1fr);
-    gap: clamp(14px, 3cqi, 22px);
-  }
-
   .xhs-note .lb-media {
-    position: static;
+    float: none;
+    width: 100%;
+    margin: 0 0 14px;
   }
 
   .xhs-note .lb-slide img {
