@@ -80,13 +80,9 @@
 .xhs-note .lb-note {
   width: 100%;
   min-width: 0;
-  container-type: inline-size;
-}
-
-.xhs-note .lb-note::after {
-  content: "";
-  display: block;
-  clear: both;
+  /* 这里**绝对不能**加 container-type / contain / overflow / display:flow-root：
+     它们都会建立独立格式化上下文，把 .lb-media 的浮动关在里面，正文就不绕图了，
+     变成上下堆叠（2026-09-05 Owner 实机报的就是这个）。同理不能加 ::after 清除浮动。 */
 }
 
 .xhs-note .lb-note.lb-no-media {
@@ -101,8 +97,8 @@
 
 .xhs-note .lb-media {
   float: left;
-  width: 38%;
-  margin: 2px 20px 14px 0;
+  width: 47%;
+  margin: 2px 3% 14px 0;
   min-width: 0;
 }
 
