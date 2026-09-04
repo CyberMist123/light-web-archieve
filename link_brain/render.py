@@ -251,6 +251,38 @@ def split_layers(existing_text: str | None) -> tuple[str | None, str | None]:
     return existing_text[start:end], None
 
 
+def merge_existing(primary: str | None, secondary: str | None) -> str | None:
+    """同一个对象有两份可见 md 时（改名前后各一份），把**手写的部分**并成一份再渲染。
+
+    2026-09-04 去掉文件名的 `__<id8>` 后缀时踩到：`家克…` 那篇的干净名字上已经躺着一份旧文件，
+    里面有 Owner 手写的 `time/finder/from/comment`。直接改名会把她的东西盖掉，所以这里做并集：
+    tag 取并、Owner 自己加的 frontmatter 键 primary 优先、留言层把 secondary 里多出来的行接上。
+    机器生成的 content 层不用管，本来就要重写。
+    """
+    if not secondary or not primary:
+        return primary or secondary
+
+    tags = existing_tags(primary) + [t for t in existing_tags(secondary) if t not in existing_tags(primary)]
+    extras = {k: v for k, v in parse_frontmatter(secondary).items() if k not in MANAGED_FM_KEYS}
+    extras.update({k: v for k, v in parse_frontmatter(primary).items() if k not in MANAGED_FM_KEYS})
+
+    block, _ = split_layers(primary)
+    other, _ = split_layers(secondary)
+    lines = (block or f"{COMMENTS_START}\n{COMMENTS_END}").split("\n")
+    if other:
+        seen = set(lines)
+        tail = [x for x in other.split("\n") if x not in seen and x not in (COMMENTS_START, COMMENTS_END)]
+        if tail:
+            lines = lines[:-1] + tail + [lines[-1]]
+
+    fm = ["---", "tags: [" + ", ".join(tags) + "]"]
+    if extras:
+        dumped = yaml.safe_dump(extras, allow_unicode=True, sort_keys=False, default_flow_style=False)
+        fm += dumped.rstrip("\n").split("\n")
+    fm += ["---", ""]
+    return "\n".join(fm + lines)
+
+
 def render_comments_block(note_text: str | None, note_links: list[dict[str, Any]]) -> str:
     lines = [COMMENTS_START]
     if note_text:
@@ -647,12 +679,20 @@ def render_object(
         meta["item_id"],
     )
 
-    existing_text = None
+    # 目标文件上可能已经躺着同一个对象的另一份（改名前后各一份）——先并、再删旧的，别盖掉手写内容
+    target_text = None
+    if visible_path.exists() and owner_item_id(visible_path) == meta["item_id"]:
+        target_text = visible_path.read_text(encoding="utf-8")
+
+    existing_text = target_text
     old_visible = meta.get("visible_note")
     if old_visible:
         old_path = storage.vault_root() / old_visible
         if old_path.exists():
-            existing_text = old_path.read_text(encoding="utf-8")
+            old_text = old_path.read_text(encoding="utf-8")
+            existing_text = (
+                merge_existing(target_text, old_text) if target_text is not None else old_text
+            )
             if old_path != visible_path:
                 old_path.unlink()
 
