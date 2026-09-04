@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import io
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -235,6 +236,26 @@ def _build_meta(
     }
 
 
+# 18060 那个服务每次调用都新开一个 Chrome，本机内存紧的时候会偶发起不来
+# （`[launcher] Failed to get the debug url`，2026-09-04 半夜实测：只剩 0.9G 可用内存时高发）。
+# 这是**偶发**不是**死了**：先自己歇一会儿重试，全试完还不行才停车叫人。
+SERVICE_RETRIES = 3
+SERVICE_BACKOFF = (20, 60)
+
+
+def _fetch_with_retry(parsed: dict[str, Any], *, log) -> Any:
+    for attempt in range(1, SERVICE_RETRIES + 1):
+        try:
+            return xhs.fetch_detail(parsed["note_id"], parsed["xsec_token"])
+        except xhs.ServiceDownError as exc:
+            if attempt == SERVICE_RETRIES:
+                raise
+            wait = SERVICE_BACKOFF[min(attempt - 1, len(SERVICE_BACKOFF) - 1)]
+            log(f"服务没起来（第 {attempt}/{SERVICE_RETRIES} 次）：{str(exc)[:120]}；{wait}s 后重试")
+            time.sleep(wait)
+    raise AssertionError("unreachable")
+
+
 def ingest_url(
     target: str,
     *,
@@ -295,7 +316,7 @@ def ingest_url(
             }
 
         log(f"MCP {xhs.MCP_TOOL} @ {xhs.MCP_ENDPOINT}")
-        raw = xhs.fetch_detail(parsed["note_id"], parsed["xsec_token"])
+        raw = _fetch_with_retry(parsed, log=log)
 
         # 附件元数据只有笔记网页版有（MCP 不返回），游客可见；失败不阻断
         log(f"网页探测附件 {xhs.CANONICAL_FMT.format(note_id=parsed['note_id'])}")
