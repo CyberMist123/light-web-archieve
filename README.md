@@ -14,7 +14,8 @@
 | 小红书链接 → 不可变 RAW（正文/图片/评论） | ✅ Lot 1 |
 | SQLite 索引 + 去重（HIT 不重抓）+ `--refresh` 版本比对 | ✅ Lot 2 |
 | `read` / `search` / `reindex` | ✅ Lot 2 |
-| Obsidian 可见笔记 + AI 版渲染 | ⬜ Lot 3 |
+| 图片 OCR（`derived/vision.json`）+ Obsidian 可见笔记 + AI 版渲染（`derived/agent.md`） | ✅ Lot 3 |
+| `render` 子命令、`read --brief/--full`、`search` 一行格式 | ✅ Lot 3 |
 | 小模型摘要/标签/外链推荐 | ⬜ Lot 4 |
 | 留言层 / 戳一下 / 收件箱 | ⬜ Lot 5 |
 | 收藏同步 | ⬜ Lot 6（可选） |
@@ -31,7 +32,14 @@ python -m link_brain ingest "<同一条链接>" --refresh     # 重抓，内容�
 python -m link_brain read xhs-<note_id>                  # 打印 meta.json
 python -m link_brain search "关键词"                     # 按标题/正文 LIKE 查询
 python -m link_brain reindex                              # 从已有 raw/ 回填 index.db，不重抓
+python -m link_brain render xhs-<note_id>                  # 拼可见笔记 + derived/agent.md（先跑图片 OCR）
+python -m link_brain render --all                           # 对索引里所有对象重渲染一遍（幂等）
+python -m link_brain read xhs-<note_id> --brief             # 标题 + 正文前120字，≤5行
+python -m link_brain read xhs-<note_id> --full              # 打印整个 derived/agent.md
 ```
+
+`ingest` 归档成功后会自动跑一遍 vision + render；`vault\Web\Xiaohongshu\<标题>__<id8>.md` 是人唯一要看的文件，
+`<!-- link-brain:comments:start/end -->` 里的留言层手写内容 rerender 不会被覆盖，只有 `<!-- link-brain:content:start/end -->` 里的正文/图片/评论会被重写。
 
 退出码：`0` 成功 / `1` 一般错误 / `2` 缺内容 gate（图片没下全）/ `3` 子命令未实现。
 

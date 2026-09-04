@@ -51,6 +51,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("reindex", help="从已有 raw/ 回填 index.db（不重抓、不联网）")
 
+    p = sub.add_parser("render", help="拼可见 md + derived/agent.md（先跑 vision，纯程序拼模板）")
+    p.add_argument("target", nargs="?", default=None, help="item_id；配合 --all 时可省略")
+    p.add_argument("--all", action="store_true", help="对索引里所有对象都渲染一遍")
+
     p = sub.add_parser("sync-favorites", help="同步小红书收藏（Lot 6，可选）")
     p.add_argument("--limit", type=int, default=50)
 
@@ -104,6 +108,11 @@ def main(argv: list[str] | None = None) -> int:
             conn.close()
         print(f"回填 {len(done)} 个对象：" + (", ".join(done) if done else "(空)"))
         return EXIT_OK
+
+    if args.command == "render":
+        from . import render as render_mod
+
+        return render_mod.run(args)
 
     print(
         f"`{args.command}` 尚未实现（Lot 0 占位）。当前进度见 docs/STATE.md。",
