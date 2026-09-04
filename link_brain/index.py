@@ -219,6 +219,18 @@ def add_relation(
     conn.commit()
 
 
+def set_attachments_status(conn: sqlite3.Connection, item_id: str, status: str) -> None:
+    """附件字节下完之后把索引里的状态也拨过来。
+
+    2026-09-05 踩到：只改了 meta.json，索引还停在 metadata_only，
+    于是 `pdf2md --all` 按索引挑对象，一个都没挑中。
+    """
+    conn.execute(
+        "UPDATE objects SET attachments_status = ? WHERE item_id = ?", (status, item_id)
+    )
+    conn.commit()
+
+
 def search(conn: sqlite3.Connection, query: str, *, limit: int = 20) -> list[sqlite3.Row]:
     like = f"%{query}%"
     cur = conn.execute(

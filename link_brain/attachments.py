@@ -335,6 +335,13 @@ def run(args) -> int:
                 if blocked:
                     account_blocked = True
         render_mod.render_object(source_key, source_id)
+        meta_now = storage.read_json(storage.object_dir(source_key, source_id) / "meta.json")
+        if meta_now.get("attachments_status") == "downloaded":
+            conn2 = index_mod.connect()
+            try:
+                index_mod.set_attachments_status(conn2, meta_now["item_id"], "downloaded")
+            finally:
+                conn2.close()
         if account_blocked:
             print("停车：小号登录态/风控，剩下的不再试", file=sys.stderr)
             return EXIT_NEEDS_HUMAN
