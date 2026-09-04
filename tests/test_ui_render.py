@@ -210,10 +210,13 @@ def test_downloaded_attachment_points_at_local_file():
     assert "已存本地" in text
     # 下下来的字节：Obsidian 自己的 wikilink（`<a href="../../…">` 在 Obsidian 里点不开，
     # 2026-09-04 Owner 实机踩到过），且这一行在 content 的 HTML 容器之外
-    link = "[[_archive/xiaohongshu/0000000000000000deadbeef/raw/v0001/attachments/教程.pdf|"
+    link = "> [[_archive/xiaohongshu/0000000000000000deadbeef/raw/v0001/attachments/教程.pdf|"
     assert link in text
-    assert text.index(link) > text.rindex("</div>")
+    # 卡片是 callout，且整块在正文 HTML 容器**之前**（在里面就点不开了）
+    assert "> [!link-brain-file]" in text
+    assert text.index(link) < text.index('<div class="lb-cols')
     assert "<a href=" not in text
+    assert "📎" not in text
 
 
 def test_no_attachments_renders_nothing():

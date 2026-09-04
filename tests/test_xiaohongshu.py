@@ -44,6 +44,21 @@ def test_share_text_parses_to_same_note_id():
     assert parsed["input_kind"] == "share_text"
 
 
+def test_user_profile_url_takes_note_id_not_author_id():
+    """从作者主页 / 收藏列表复制出来的形状：/user/profile/<作者id>/<note_id>。
+
+    前面那截是作者 id，抠错了会归档成一个不存在的笔记（Owner 2026-09-04 给的 31 条收藏全长这样）。
+    """
+    url = (
+        "https://www.xiaohongshu.com/user/profile/636263e9000000001f018365/"
+        "6a2f8a55000000001602731b?xsec_token=ABhBPbEjB3Xjnug4WhT18XX=&xsec_source=pc_user"
+    )
+    parsed = xhs.parse_input(url)
+    assert parsed["note_id"] == "6a2f8a55000000001602731b"
+    assert parsed["xsec_token"] == "ABhBPbEjB3Xjnug4WhT18XX="
+    assert parsed["canonical_url"].endswith("/explore/6a2f8a55000000001602731b")
+
+
 def test_shortlink_classified_and_resolved(monkeypatch):
     monkeypatch.setattr(xhs, "resolve_shortlink", lambda url, client=None: REAL_URL)
     parsed = xhs.parse_input("https://xhslink.cn/o/2yNuSBjolWo")

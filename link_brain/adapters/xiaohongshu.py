@@ -41,7 +41,12 @@ INITIAL_STATE_RE = re.compile(r"window\.__INITIAL_STATE__\s*=\s*(.+?)</script>",
 FILE_PREVIEW_FMT = "https://www.xiaohongshu.com/file/{doc_id}"
 
 URL_RE = re.compile(r"https?://[^\s<>\"'，。、）)\]]+")
-NOTE_ID_RE = re.compile(r"/(?:explore|discovery/item|item)/([0-9a-fA-F]{16,32})")
+NOTE_ID_RE = re.compile(
+    # 从作者主页 / 收藏列表里复制出来的是这种：/user/profile/<user_id>/<note_id>?xsec_token=…
+    # 前面那截是**作者 id**，别当成 note_id（2026-09-04 Owner 那批收藏全是这个形状）
+    r"/user/profile/[0-9a-fA-F]{16,32}/([0-9a-fA-F]{16,32})"
+    r"|/(?:explore|discovery/item|item)/([0-9a-fA-F]{16,32})"
+)
 HASHTAG_RE = re.compile(r"#([^#\[\]]{1,30})\[话题\]#")
 # 「文件 / 附件」线索：小红书笔记可以挂文件，但 MCP 完全不返回附件字段
 ATTACHMENT_HINT_RE = re.compile(r"[^\n。！？]{0,40}(?:附件|在文件|文件里|笔记文件)[^\n。！？]{0,40}")
@@ -77,6 +82,7 @@ def _parse_note_url(url: str) -> tuple[str, str | None]:
     match = NOTE_ID_RE.search(url)
     if not match:
         raise AdapterError(f"URL 里没有 note_id: {url}")
+    note_id = match.group(1) or match.group(2)
     token = None
     query = url.partition("?")[2]
     for pair in query.split("&"):
@@ -84,7 +90,7 @@ def _parse_note_url(url: str) -> tuple[str, str | None]:
         if key == "xsec_token" and value:
             token = value
             break
-    return match.group(1), token
+    return note_id, token
 
 
 def resolve_shortlink(url: str, *, client: httpx.Client | None = None) -> str:
