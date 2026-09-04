@@ -1,0 +1,38 @@
+{
+  "feed_id": "0000000000000000deadbeef",
+  "data": {
+    "note": {
+      "noteId": "0000000000000000deadbeef",
+      "xsecToken": "FAKE_TOKEN_FOR_TESTS",
+      "title": "脱敏样例笔记",
+      "desc": "第一行正文。\n附件里放了速查表。\n看看 https://example.com/a 这个链接\n#测试[话题]# #样例[话题]#",
+      "type": "normal",
+      "time": 1780000000000,
+      "ipLocation": "示例",
+      "user": {"userId": "u0000", "nickname": "示例用户", "nickName": "", "avatar": "https://example.invalid/avatar.jpg"},
+      "interactInfo": {"liked": false, "likedCount": "12", "sharedCount": "", "commentCount": "2", "collectedCount": "3", "collected": false},
+      "imageList": [
+        {"width": 1200, "height": 1600, "urlDefault": "https://example.invalid/broken-image-1", "urlPre": "https://example.invalid/broken-image-1-pre"}
+      ]
+    },
+    "comments": {
+      "list": [
+        {
+          "id": "c0001", "noteId": "0000000000000000deadbeef", "content": "一级评论示例",
+          "likeCount": "1", "createTime": 1780000100000, "ipLocation": "示例", "liked": false,
+          "userInfo": {"userId": "u0001", "nickname": "评论者甲", "nickName": "", "avatar": ""},
+          "subCommentCount": "1",
+          "subComments": [
+            {"id": "c0002", "noteId": "0000000000000000deadbeef", "content": "楼中楼示例",
+             "likeCount": "0", "createTime": 1780000200000, "ipLocation": "示例", "liked": false,
+             "userInfo": {"userId": "u0002", "nickname": "评论者乙", "nickName": "", "avatar": ""},
+             "subCommentCount": "", "subComments": null, "showTags": []}
+          ],
+          "showTags": []
+        }
+      ],
+      "cursor": "c0001",
+      "hasMore": false
+    }
+  }
+}
