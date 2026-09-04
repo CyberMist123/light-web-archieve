@@ -199,7 +199,7 @@ AI 独立账号：需要第二个 xiaohongshu-mcp 实例（另一端口 + 另一
 ## Owner 要准备的（开 Lot 1 前）
 - 5 条样本见文末；Lot 4 后想要更准的成本数再补到 20 条
 - 确认 18060 在线：`Get-ScheduledTaskInfo XiaohongshuMCP`
-- 想好 Obsidian vault 指哪（不想就先用 `vault-dev`）
+- Lot 3 验收前把 `D:ight web archieveault` 加进 obsidian（打开 vault → 选这个文件夹）
 - ~~改路径~~ 已定 `D:\LIGHT WEB ARCHIEVE`（2026-09-04 挪好）
 
 ---
