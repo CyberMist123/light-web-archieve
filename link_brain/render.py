@@ -170,7 +170,8 @@ def render_content_block(
         file_rel = entry["file"]  # 已是 "raw/vNNNN/assets/xxx"
         src, raw = _img_srcs(object_rel, file_rel)
         img_srcs.append((src, raw))
-        parts.append(f'<img src="{src}">')
+        # HTML <img src> 按笔记所在目录解析（vault/Web/Xiaohongshu/），wikilink 才是 vault 全局
+        parts.append(f'<img src="../../{src}">')
     parts.append('</div><div class="lb-body">')
     parts.append("")
     body_text = note.get("body") or "（无正文）"
@@ -183,7 +184,7 @@ def render_content_block(
     if is_video:
         parts.append(f"🎬 视频 · 未下载 · [原链接]({note.get('canonical_url')})")
     elif img_srcs:
-        link_bits = [f"[{i}]({raw})" if i > 1 else f"[原图 {i}]({raw})" for i, (_, raw) in enumerate(img_srcs, start=1)]
+        link_bits = [f"[[{raw}|{i}]]" if i > 1 else f"[[{raw}|原图 {i}]]" for i, (_, raw) in enumerate(img_srcs, start=1)]
         parts.append(" · ".join(link_bits))
     parts.append("")
 
