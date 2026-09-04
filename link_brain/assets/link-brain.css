@@ -1,0 +1,53 @@
+/* link-brain 可见笔记排版。Owner 需在 设置 → 外观 → CSS 片段 里打开一次（名字：link-brain）。
+   由 render.py 在 vault/.obsidian/snippets/link-brain.css 不存在时写入一份；已存在不覆盖，改坏了手动删掉重 render 即可。 */
+
+.link-brain .lb-cols {
+  display: flex;
+  gap: 1em;
+  align-items: flex-start;
+}
+
+.link-brain .lb-imgs {
+  flex: 0 0 35%;
+  max-width: 35%;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+
+.link-brain .lb-imgs img {
+  width: 100%;
+  max-width: 120px;
+  height: auto;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.link-brain .lb-body {
+  flex: 1 1 65%;
+  min-width: 0;
+}
+
+@media (max-width: 700px) {
+  .link-brain .lb-cols {
+    flex-direction: column;
+  }
+  .link-brain .lb-imgs {
+    max-width: 100%;
+    flex-basis: auto;
+  }
+}
+
+/* 属性面板藏掉，tags 是 frontmatter 字段之一但 Obsidian 侧栏另有 tag 面板显示，不受影响 */
+.link-brain .metadata-container {
+  display: none;
+}
+
+/* 「评论区」「归档信息」这类段落标题降到浅色小字，别抢正文注意力 */
+.link-brain h2 {
+  font-size: 0.85em;
+  font-weight: normal;
+  color: var(--text-faint);
+  margin-top: 1.5em;
+  margin-bottom: 0.3em;
+}

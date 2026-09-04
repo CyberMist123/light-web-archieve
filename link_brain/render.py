@@ -83,16 +83,26 @@ def _comment_image_files(comment_id: str, manifest: dict[str, Any]) -> list[str]
     ]
 
 
+LIKE_COUNT_THRESHOLD = 10
+
+
 def _comment_body_lines(
-    comment: dict[str, Any], object_rel: str, manifest: dict[str, Any], *, indent: str = ""
+    comment: dict[str, Any], object_rel: str, manifest: dict[str, Any], *, quote: str = ">"
 ) -> list[str]:
+    """一条评论渲染成 blockquote。楼中楼用 `>>` 多一层嵌套（`quote` 传 `>>`）。"""
     author = (comment.get("author") or {}).get("nickname") or "匿名"
+    date = (comment.get("created_at") or "")[:10]
     text = comment.get("text") or ""
     target = comment.get("target_nickname")
-    prefix = f"回复 {target}：" if target else "："
-    lines = [f"{indent}- **{author}**{prefix}{text}"]
+    if target:
+        text = f"回复 {target}：{text}"
+    like_count = comment.get("like_count") or 0
+    header = f"{quote} **{author}** · {date}"
+    if like_count > LIKE_COUNT_THRESHOLD:
+        header += f" · {like_count} 赞"
+    lines = [header, f"{quote} {text}"]
     for file in _comment_image_files(comment.get("comment_id"), manifest):
-        lines.append(f"{indent}  {_img_from_manifest(object_rel, file)}")
+        lines.append(f"{quote} {_img_from_manifest(object_rel, file)}")
     return lines
 
 
@@ -131,7 +141,8 @@ def render_comments_block(note_text: str | None, note_links: list[dict[str, Any]
     if note_text:
         cleaned = _clean_links_in_text(note_text, note_links)
         today = datetime.now().strftime("%Y%m%d")
-        lines.append(f"「{today} 人」{cleaned}")
+        lines.append("> [!quote] 留言")
+        lines.append(f"> 「{today} 人」{cleaned}")
         lines.append("<!-- link-brain: id=cmt1 actor=human target=none status=open -->")
     lines.append(COMMENTS_END)
     return "\n".join(lines)
@@ -147,25 +158,33 @@ def render_content_block(
     note = source["note"]
     parts: list[str] = [CONTENT_START]
 
-    # 图片
-    parts.append("## 图片")
-    parts.append("")
+    # 图文两栏：左图右文，容器是一整块 HTML（HTML 块里的 Markdown 段落要空行才渲染）
+    is_video = note.get("kind") == "video"
     image_entries = [
         m for m in manifest.get("media", [])
         if m.get("role") in ("note_image", "video_cover") and m.get("file")
     ]
-    if image_entries:
-        for entry in image_entries:
-            file_rel = entry["file"]  # 已是 "raw/vNNNN/assets/xxx"
-            parts.append(_img_from_manifest(object_rel, file_rel))
-    else:
-        parts.append("（无）")
+    parts.append('<div class="lb-cols"><div class="lb-imgs">')
+    img_srcs: list[tuple[str, str]] = []
+    for entry in image_entries:
+        file_rel = entry["file"]  # 已是 "raw/vNNNN/assets/xxx"
+        src, raw = _img_srcs(object_rel, file_rel)
+        img_srcs.append((src, raw))
+        parts.append(f'<img src="{src}">')
+    parts.append('</div><div class="lb-body">')
+    parts.append("")
+    body_text = note.get("body") or "（无正文）"
+    for para in body_text.split("\n"):
+        parts.append(para)
+        parts.append("")
+    parts.append("</div></div>")
     parts.append("")
 
-    # 正文
-    parts.append("## 正文")
-    parts.append("")
-    parts.append(note.get("body") or "（无正文）")
+    if is_video:
+        parts.append(f"🎬 视频 · 未下载 · [原链接]({note.get('canonical_url')})")
+    elif img_srcs:
+        link_bits = [f"[{i}]({raw})" if i > 1 else f"[原图 {i}]({raw})" for i, (_, raw) in enumerate(img_srcs, start=1)]
+        parts.append(" · ".join(link_bits))
     parts.append("")
 
     # 评论
@@ -174,9 +193,11 @@ def render_content_block(
     comments = source.get("comments") or []
     if comments:
         for comment in comments:
-            parts.extend(_comment_body_lines(comment, object_rel, manifest))
+            parts.extend(_comment_body_lines(comment, object_rel, manifest, quote=">"))
+            parts.append(">")
             for sub in comment.get("sub_comments") or []:
-                parts.extend(_comment_body_lines(sub, object_rel, manifest, indent="  "))
+                parts.extend(_comment_body_lines(sub, object_rel, manifest, quote=">>"))
+                parts.append(">")
     else:
         parts.append("（无评论）")
     parts.append("")
@@ -195,15 +216,27 @@ def render_content_block(
     return "\n".join(parts)
 
 
-def _img_from_manifest(object_rel: str, file_rel: str) -> str:
-    """`file_rel` 是 manifest 里的 `raw/vNNNN/assets/xxx.ext`（相对对象目录）。"""
+def _img_srcs(object_rel: str, file_rel: str) -> tuple[str, str]:
+    """`file_rel` 是 manifest 里的 `raw/vNNNN/assets/xxx.ext`（相对对象目录）。
+
+    返回 (`<img src>` 用的路径, 原图链接用的路径)。Obsidian 显示不了的格式（avif/heic）
+    src 指向 derived/previews 的转码结果，原图链接仍指向 raw。
+    """
+    raw_target = f"{object_rel}/{file_rel}"
     suffix = Path(file_rel).suffix.lower()
     if suffix in PREVIEW_UNSUPPORTED_SUFFIXES:
         preview_name = Path(file_rel).stem + ".png"
         preview_target = f"{object_rel}/derived/previews/{preview_name}"
-        raw_target = f"{object_rel}/{file_rel}"
-        return f"![[{preview_target}]] （原图：[[{raw_target}]]）"
-    return f"![[{object_rel}/{file_rel}]]"
+        return preview_target, raw_target
+    return raw_target, raw_target
+
+
+def _img_from_manifest(object_rel: str, file_rel: str) -> str:
+    """兼容旧调用点（评论图仍用 `![[ ]]`，不进两栏容器）。"""
+    src, raw = _img_srcs(object_rel, file_rel)
+    if src != raw:
+        return f"![[{src}]] （原图：[[{raw}]]）"
+    return f"![[{src}]]"
 
 
 def render_visible_md(
@@ -217,6 +250,7 @@ def render_visible_md(
     note = source["note"]
     frontmatter_tags = note.get("hashtags") or []
     fm_lines = ["---"]
+    fm_lines.append("cssclasses: [link-brain]")
     fm_lines.append("tags: [" + ", ".join(frontmatter_tags) + "]")
     fm_lines.append("link_brain:")
     fm_lines.append(f"  item_id: {meta['item_id']}")
@@ -230,10 +264,11 @@ def render_visible_md(
     fm_lines.append(f"  first_archived: {meta.get('first_archived_at')}")
     fm_lines.append(f"  current_version: {meta['current_version']}")
     fm_lines.append(f"  images_complete: {str(meta.get('images_complete')).lower()}")
-    fm_lines.append(f"  comments_complete: {meta.get('comments_complete')}")
+    comments_complete = meta.get("comments_complete")
+    if isinstance(comments_complete, bool):
+        comments_complete = str(comments_complete).lower()
+    fm_lines.append(f"  comments_complete: {comments_complete}")
     fm_lines.append("---")
-
-    title = note.get("title") or meta.get("title") or "（无标题）"
 
     comments_block, _ = split_layers(existing_text)
     if comments_block is None:
@@ -241,7 +276,7 @@ def render_visible_md(
 
     content_block = render_content_block(source=source, manifest=manifest, meta=meta, object_rel=object_rel)
 
-    body = "\n".join(fm_lines) + "\n\n" + f"# {title}\n\n" + comments_block + "\n\n" + content_block + "\n"
+    body = "\n".join(fm_lines) + "\n\n" + comments_block + "\n\n" + content_block + "\n"
     return body
 
 
@@ -317,7 +352,18 @@ def brief_summary(source: dict[str, Any]) -> str:
 # --------------------------------------------------------------------------
 
 
+def ensure_css_snippet() -> None:
+    """`vault/.obsidian/snippets/link-brain.css` 不存在就写一份；存在就不动（Owner 可能改过）。"""
+    target = storage.vault_root() / ".obsidian" / "snippets" / "link-brain.css"
+    if target.exists():
+        return
+    template = Path(__file__).resolve().parent / "assets" / "link-brain.css"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
+
+
 def render_object(source_key: str, source_id: str, *, verbose: bool = False) -> dict[str, Any]:
+    ensure_css_snippet()
     object_dir = storage.object_dir(source_key, source_id)
     meta_path = object_dir / "meta.json"
     if not meta_path.exists():

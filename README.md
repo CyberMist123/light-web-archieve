@@ -41,6 +41,9 @@ python -m link_brain read xhs-<note_id> --full              # 打印整个 deriv
 `ingest` 归档成功后会自动跑一遍 vision + render；`vault\Web\Xiaohongshu\<标题>__<id8>.md` 是人唯一要看的文件，
 `<!-- link-brain:comments:start/end -->` 里的留言层手写内容 rerender 不会被覆盖，只有 `<!-- link-brain:content:start/end -->` 里的正文/图片/评论会被重写。
 
+`render` 会顺手写一份 `vault/.obsidian/snippets/link-brain.css`（已存在就不覆盖）。**排版要生效需要 Owner 在 Obsidian
+设置 → 外观 → CSS 片段 里手动打开一次 `link-brain` 开关**（每个 vault 只用开一次）。
+
 退出码：`0` 成功 / `1` 一般错误 / `2` 缺内容 gate（图片没下全）/ `3` 子命令未实现。
 
 ## 环境
