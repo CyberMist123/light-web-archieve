@@ -12,11 +12,11 @@
   --lb-muted: var(--text-muted);
   --lb-faint: var(--text-faint);
   --lb-line: color-mix(in srgb, var(--text-normal) 12%, transparent);
+  --lb-reply-line: color-mix(in srgb, var(--text-muted) 24%, transparent);
   --lb-surface: color-mix(in srgb, var(--background-secondary) 88%, transparent);
   --file-line-width: 1380px;
 }
 
-/* Reading View 与 Live Preview 都建立 note-pane 宽度容器。 */
 .markdown-preview-view.xhs-note .markdown-preview-sizer,
 .markdown-source-view.xhs-note .cm-contentContainer {
   container-type: inline-size;
@@ -31,18 +31,14 @@
   padding-right: clamp(10px, 2vw, 28px);
 }
 
-/* 人版不展示机器属性。 */
 .xhs-note .metadata-container {
   display: none !important;
 }
 
-/* Live Preview 里把 link-brain 的 HTML comment 标记行藏掉。
-   这些标记仍保留在 md 文件中供 rerender 定位。 */
 .markdown-source-view.xhs-note .cm-line:has(.cm-comment) {
   display: none !important;
 }
 
-/* 文件名就是唯一标题。 */
 .xhs-note .inline-title {
   font-size: clamp(1.42rem, 2.4vw, 2.1rem);
   line-height: 1.22;
@@ -50,7 +46,6 @@
   letter-spacing: -0.015em;
 }
 
-/* 顶部人 / AI 留言。 */
 .xhs-note .callout[data-callout="link-brain-comment"],
 .xhs-note .callout[data-callout="quote"] {
   margin: 0 0 clamp(14px, 2vw, 22px);
@@ -79,8 +74,6 @@
   margin: 0.25em 0;
 }
 
-/* 主体：根据当前 note pane 可用宽度自动决定 2 栏 / 1 栏。
-   不依赖设备型号，也不只依赖整个窗口宽度。 */
 .xhs-note .lb-cols {
   display: grid !important;
   grid-template-columns: repeat(auto-fit, minmax(min(390px, 100%), 1fr));
@@ -102,7 +95,6 @@
   min-width: 0;
 }
 
-/* 图片：一屏一张、横向切换、无缩略图。 */
 .xhs-note .lb-media {
   position: sticky;
   top: 16px;
@@ -178,8 +170,6 @@
   pointer-events: none;
 }
 
-/* Chromium / Electron 支持 CSS scroll buttons 时，桌面 hover 出现左右箭头。
-   不支持的版本仍然可以触控板/横向滚动/手机滑动。 */
 @supports selector(.lb-carousel::scroll-button(left)) {
   .xhs-note .lb-carousel {
     scrollbar-width: none;
@@ -202,13 +192,8 @@
     cursor: pointer;
   }
 
-  .xhs-note .lb-carousel::scroll-button(left) {
-    content: "‹";
-  }
-
-  .xhs-note .lb-carousel::scroll-button(right) {
-    content: "›";
-  }
+  .xhs-note .lb-carousel::scroll-button(left) { content: "‹"; }
+  .xhs-note .lb-carousel::scroll-button(right) { content: "›"; }
 
   .xhs-note .lb-carousel:hover::scroll-button(left),
   .xhs-note .lb-carousel:hover::scroll-button(right),
@@ -218,7 +203,6 @@
   }
 }
 
-/* 右栏正文。 */
 .xhs-note .lb-detail {
   font-size: var(--lb-body-size);
   line-height: 1.72;
@@ -287,82 +271,71 @@
   flex-wrap: wrap;
   gap: 14px;
   margin: 9px 0 0;
-  padding-bottom: 13px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--lb-line);
   font-size: 0.78em;
   color: var(--lb-muted);
 }
 
-/* 评论区：小红书式轻量评论树。 */
+/* 评论：去日期/地点/总数量。作者弱化，正文用楷体。 */
 .xhs-note .lb-comments {
-  margin-top: 15px;
-}
-
-.xhs-note .lb-comments-count {
-  margin-bottom: 14px;
-  font-size: 0.82em;
-  font-weight: 650;
-  color: var(--text-normal);
+  margin-top: 14px;
 }
 
 .xhs-note .lb-comment {
-  margin: 0 0 18px;
+  margin: 0 0 17px;
   padding: 0;
   border: 0;
   background: transparent;
   font-size: var(--lb-comment-size);
-  line-height: 1.58;
-}
-
-.xhs-note .lb-comment-head {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin-bottom: 3px;
+  line-height: 1.62;
 }
 
 .xhs-note .lb-comment-author {
-  font-weight: 700;
-  color: var(--text-normal);
-}
-
-.xhs-note .lb-comment-date {
-  font-size: 0.78em;
-  color: var(--lb-faint);
+  margin-bottom: 2px;
+  font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 0.86em;
+  font-weight: 600;
+  color: var(--text-muted);
 }
 
 .xhs-note .lb-comment-text {
+  font-family: "Kaiti SC", STKaiti, KaiTi, "楷体", serif;
+  font-size: 1.04em;
   color: var(--text-normal);
   overflow-wrap: anywhere;
 }
 
 .xhs-note .lb-reply-target {
-  color: var(--lb-muted);
+  color: var(--text-muted);
 }
 
 .xhs-note .lb-comment-actions {
-  margin-top: 4px;
-  font-size: 0.78em;
-  color: var(--lb-muted);
+  margin-top: 2px;
+  font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 0.72em;
+  color: var(--text-faint);
 }
 
+/* 楼中楼：缩进更轻，线更淡，避免像 Markdown quote。 */
 .xhs-note .lb-replies {
-  margin-top: 9px;
-  margin-left: clamp(12px, 2vw, 24px);
-  padding-left: clamp(9px, 1.3vw, 15px);
-  border-left: 1px solid var(--lb-line);
+  position: relative;
+  margin-top: 8px;
+  margin-left: clamp(8px, 1.25vw, 15px);
+  padding-left: clamp(11px, 1.45vw, 17px);
+  border-left: 1px solid var(--lb-reply-line);
 }
 
 .xhs-note .lb-reply {
-  margin-bottom: 11px;
-  font-size: 0.96em;
+  margin-bottom: 10px;
+  font-size: 0.97em;
 }
 
 .xhs-note .lb-more-replies {
-  margin-top: 2px;
-  font-size: 0.82em;
-  color: var(--interactive-accent);
+  margin-top: 1px;
+  font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 0.76em;
+  color: var(--text-muted);
 }
 
 .xhs-note .lb-comment-media {
@@ -386,7 +359,6 @@
   font-size: 0.9em;
 }
 
-/* note pane 窄时，正文/评论/缩进一起收敛。 */
 @container link-brain-note (max-width: 800px) {
   .xhs-note .lb-cols {
     grid-template-columns: minmax(0, 1fr);
@@ -407,8 +379,8 @@
   }
 
   .xhs-note .lb-replies {
-    margin-left: clamp(7px, 2.5cqi, 13px);
-    padding-left: clamp(7px, 2.1cqi, 11px);
+    margin-left: 6px;
+    padding-left: 10px;
   }
 
   .xhs-note .lb-comment {
@@ -433,7 +405,7 @@
   }
 
   .xhs-note .lb-replies {
-    margin-left: 5px;
+    margin-left: 3px;
     padding-left: 8px;
   }
 }
