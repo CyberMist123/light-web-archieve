@@ -17,7 +17,7 @@
 | 图片 OCR（`derived/vision.json`）+ Obsidian 可见笔记 + AI 版渲染（`derived/agent.md`） | ✅ Lot 3 |
 | `render` 子命令、`read --brief/--full`、`search` 一行格式 | ✅ Lot 3 |
 | **Obsidian 人类版响应式小红书详情页：宽 pane 左图右文、窄 pane / 手机自动单栏、横向切图、轻量楼中楼评论树、行内话题标签** | ✅ UI 稳定基线 |
-| 笔记附件元数据（名字 / 页数 / docId，走笔记网页版；字节要登录，未做） | ✅ 元数据 |
+| 笔记附件：元数据（走笔记网页版，游客可达）+ **字节下载**（`attachments` 子命令，要小号登录态） | ✅ |
 | 小模型摘要/标签/外链推荐（`derived/extracted.json`、`docs/BENCH.md`） | ✅ Lot 4 |
 | 留言层 / 戳一下 / 收件箱 | ⬜ Lot 5 |
 | 收藏同步 | ⬜ Lot 6（可选） |
@@ -40,6 +40,8 @@ python -m link_brain read xhs-<note_id> --brief           # 标题 + 正文前12
 python -m link_brain read xhs-<note_id> --full            # 打印整个 derived/agent.md
 python -m link_brain render --all --extract               # 缺 extracted.json 才调小模型（Lot 4）
 python -m link_brain render xhs-<note_id> --re-extract    # 强制重调小模型，覆盖旧结果
+python -m link_brain attachments xhs-<note_id>            # 下载笔记附件字节（开浏览器，见下）
+python -m link_brain attachments --all                    # 所有有附件的对象都下一遍
 ```
 
 `ingest` 归档成功后会自动跑一遍 vision + render；`vault\Web\Xiaohongshu\<标题>__<id8>.md` 是人唯一要看的文件，
@@ -52,6 +54,26 @@ python -m link_brain render xhs-<note_id> --re-extract    # 强制重调小模�
 图片切换暂不依赖自定义按钮、radio 或网页跳转；这类 Obsidian 交互实验曾在实机出现错误，当前以横向滚动 / 触控滑动为稳定方案。详情见 `docs/STATE.md`。
 
 `render` 会把仓库内 `link_brain/assets/link-brain.css` **同步**到 `vault/.obsidian/snippets/link-brain.css`，因此 UI 更新会跟随 rerender 生效。第一次使用时，Owner 仍需在 Obsidian 设置 → 外观 → CSS 片段里打开一次 `link-brain` 开关。
+
+### 笔记附件
+
+小红书的「笔记文件」MCP 完全不返回。`ingest` 会顺手 GET 一次笔记网页版，从
+`__INITIAL_STATE__...note.relatedFile` 拿到**元数据**（文件名 / `doc_id` / 页数 / 下载数）——
+这一步**游客可达**，不用登录。
+
+**字节**要登录才给，而且下载接口带签名头，所以本仓不复刻签名，直接让浏览器去点那个下载按钮：
+
+```bash
+python -m link_brain attachments xhs-<note_id>
+```
+
+前提（只需配一次）：agent-browser 的 profile（`C:\\Users\\18717\\Tools\\agent-browser\\profile`）
+里登录**另一个小红书小号**——**不能用主号**，主号在 18060 的 MCP 那侧，两边同时在线会互相顶掉。
+其余的（headed 模式、关掉“每次都问保存位置”、进程树超时）代码里都处理了，细节见
+`docs/POC-xiaohongshu.md` 第 4b 节。
+
+字节落对象级 `_archive/<source>/<id>/attachments/`，**不进已封存的 `raw/vNNNN/`**；
+下完可见 md 里那行 📎 会从“未下载”变成指向本地文件的链接。
 
 ### 小模型派生（Lot 4）
 

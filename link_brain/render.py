@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 
 from . import index as index_mod, storage
+from . import attachments as attachments_mod
 from . import llm as llm_mod
 from . import vision as vision_mod
 
@@ -550,6 +551,16 @@ def render_object(
     vision_path = derived_dir / "vision.json"
     vision_doc = storage.read_json(vision_path) if vision_path.exists() else {"images": []}
     object_rel = f"_archive/{source_key}/{source_id}"
+
+    # 附件字节是事后补下来的（对象级 attachments/），这里回填到 source 的附件条目上
+    downloaded = attachments_mod.load_downloaded(source_key, source_id)
+    for att in source_doc["note"].get("attachments") or []:
+        got = downloaded.get(att.get("doc_id"))
+        if got and (object_dir / "attachments" / got["file"]).exists():
+            att["file"] = f"attachments/{got['file']}"
+            att["status"] = "downloaded"
+            att["bytes"] = got.get("bytes")
+            att["sha256"] = got.get("sha256")
 
     extracted_doc = llm_mod.load_extracted(source_key, source_id)
     if llm or re_extract:

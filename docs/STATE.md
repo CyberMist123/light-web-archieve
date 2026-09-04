@@ -66,16 +66,23 @@ repo_path: D:\LIGHT WEB ARCHIEVE
   但页面 200 却没有这条笔记（登录墙/已删/占位页）算探测失败，退回正文线索。
 - 样本 A 已 `--refresh` 出 `v0002`（v0001 字节不变），`附件=metadata_only`，
   拿到 `p模式教程-机教版.pdf` / 19 页 / docId `7658854832003020032`。
-- **字节还没拿到**：游客打开 `/file/<docId>` 显示「登录即可下载该文件」。见「下一步」。
+- **字节也拿到了（2026-09-04 当天打通）**：`python -m link_brain attachments <item_id>` 用
+  agent-browser 的小号登录态开 headed 浏览器点下载，字节落对象级 `attachments/`，
+  写 `attachments.json`（doc_id / sha256 / 大小），`meta.attachments_status=downloaded`，
+  可见 md 的 📎 变成指向本地文件。**`raw/vNNNN/` 一个字节不动。**
+- 样本 A 实测：`p模式教程-机教版.pdf` 1,436,001 字节，自动下的 sha256 与手工点击下载完全一致。
+- 踩到并记进 `docs/POC-xiaohongshu.md` 第 4b 节的坑：headless 下载 POST 会挂死（必须 headed）、
+  Chrome“问保存位置”会让自动点击变成取消、`open <url>` 在登录态小红书页面永不返回、
+  Windows 上 `subprocess.run(capture_output, timeout)` 杀不掉 `.cmd` 的子孙进程会假超时。
 
 ## 已知缺口
 
 - 图片左右箭头暂不作为稳定功能；当前主要用横向滚动 / 触控滑动切图。
 - 复杂评论数据仍受 MCP 返回结构限制；V1 不为了 UI 自建额外小红书抓取器。
 - 评论图如 MCP 未返回对应媒体字段则无法补抓。
-- 附件**字节**还没下载（只有元数据）。要下必须有一个小红书登录态；Owner 已同意
-  「给 agent-browser 另开一个小红书号」这条路（不能用主号，agent-browser 扫码会把
-  18060 MCP 那侧顶下线，TG 端会掉线）。等号开好再接下载那一段。
+- 附件下载依赖 agent-browser profile 里的**小号登录态**；那个登录掉了就要重扫
+  （主号绝不能扫这个 profile——会顶掉 18060 MCP / TG 端，2026-09-04 实际发生过一次）。
+- 附件下载要开 headed 浏览器，会在屏幕上弹窗口，跑批量时会打扰 Owner。
 - `inbox / resolve / comment / sync-favorites` 尚未完成。
 - BENCH.md 的「漏正文 / 误删细节 / 广告当信息」三列还空着，等 Owner 人工判定；样本补到 20 条后要重跑。
 - token 数是字符估算（`media.py text` 不回传 usage），只能横向比较，不是账单。
@@ -89,13 +96,8 @@ repo_path: D:\LIGHT WEB ARCHIEVE
 
 ## 下一步
 
-1. **附件字节**：Owner 用 agent-browser 的 profile 开一个**新的**小红书号登录一次
-   （`agent-browser close --all` → 普通 Chrome 带 `--user-data-dir=C:\Users\18717\Tools\agent-browser\profile`
-   打开小红书 → 她本人扫码 → 关窗）。之后实现 `attachments` 下载：走 `/file/<docId>` 页面
-   拿真实下载 URL → 落 `raw/vNNNN/attachments/` → `status="downloaded"`。
-   **别用主号扫**（会顶掉 18060 MCP / TG 端）。
-2. 给主模型的摘要通路（issue #41 第 17 节）：TG / CMX / CC 收到链接 → `ingest` →
+1. 给主模型的摘要通路（issue #41 第 17 节）：TG / CMX / CC 收到链接 → `ingest` →
    回 `item_id` + 极短概要 + 本地路径。目前只有 CLI，没有给主模型用的入口。
-3. Lot 5（`comment / inbox / resolve` + `scripts/smoke.py`）——人和 AI 互相留言那层。
-4. Issue #2 的 UI 仍欠 Owner 一次实机验收。
-5. `docs/BENCH.md` 最后三列 Owner 说不做 20 条了，以后手工填，不再挡路。
+2. Lot 5（`comment / inbox / resolve` + `scripts/smoke.py`）——人和 AI 互相留言那层。
+3. Issue #2 的 UI 仍欠 Owner 一次实机验收。
+4. `docs/BENCH.md` 最后三列 Owner 说不做 20 条了，以后手工填，不再挡路。
