@@ -138,10 +138,12 @@ def test_css_supports_reading_and_live_preview_with_pane_responsiveness():
     assert ".markdown-source-view.xhs-note .cm-contentContainer" in css
     assert "container-name: link-brain-note" in css
 
-    # 左图右文现在靠 float（正文是 Markdown，不能再包在 grid 的 div 里）
-    assert ".xhs-note .lb-note" in css
-    assert "float: left" in css
-    assert "float: none" in css
+    # 正文是 Markdown（sizer 的直接子节点），所以两栏 grid 建在 sizer 上，
+    # 图片列 sticky 跟随滚动——和改造前视觉一致
+    assert ".markdown-preview-view.xhs-note .markdown-preview-sizer > .lb-note" in css
+    assert "grid-row: span 500" in css
+    assert "position: sticky" in css
+    assert "max-width: 795px" in css  # 窄 pane 收单栏
     assert ".xhs-note mark" in css  # 划重点要有底色
 
     assert "scroll-snap-type: x mandatory" in css
