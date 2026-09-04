@@ -1,7 +1,7 @@
 # Current State
 
 current_lot: 4
-current_main: b4916a5  # catch + 附件链接回归修复（本文件的这条 docs 提交在它后面一格）
+current_main: 5330cbb  # catch + 报警 + 实机反馈那批（docs 提交在它后面）
 repo_path: D:\LIGHT WEB ARCHIEVE
 
 ## 已真实通过
@@ -111,6 +111,41 @@ repo_path: D:\LIGHT WEB ARCHIEVE
 - 真要拿到只能照附件那条路：agent-browser 小号登录态开 headed 浏览器抓评论区（硬约束 10 允许）。
   是独立一个 Lot 的量，且会弹窗口打扰 Owner —— **等 Owner 点头再排**。
 
+### Owner 实机反馈这一轮（2026-09-04 夜 → 09-05）
+- **附件点不开**（她报的）：真因是裸 HTML 里的 `<a href="../../_archive/…">`——Obsidian 一律当外部
+  URL，本地文件打不开；`<img src>` 能显示是另一条通路，别拿它当反证。现在附件/原文/机读版是
+  content 层最上面一个 callout（`> [!link-brain-file]`，CSS `data-callout="link-brain-file"`），
+  **必须在 HTML 容器外面**，本地文件用 `[[vault 路径]]`。
+- 那条灰字长这样：`原文 · 机读版 · 附件`。「机读版」直接进 `derived/agent.md`（她说在 Obsidian 里
+  看不到机读视角）。样式按她要求：**没有灰框、字是灰的**，不写 📎 字符，悬停才变强调色。
+- **文件名去掉 `__<id8>`**（她原话「__080119fe 就这些别写」）。撞名才退回带后缀：判断读对方
+  frontmatter 的 `link_brain.item_id`，Owner 手写的同名老文件绝不覆盖。同一对象有两份 md 时
+  `merge_existing` 把 tag / 她手写的 frontmatter 键 / 留言层并起来再删旧的
+  （`家克…` 那篇的 `time/finder/from/comment` 就是这么保住的）。
+- **收藏链接的形状**：从主页/收藏页复制出来是 `/user/profile/<作者id>/<note_id>`，
+  老正则一条都解不出来（前面那截是作者 id）。已加分支 + 回归测试。
+
+### 报警：出事不许不知不觉挂着跑（2026-09-05）
+- 三类分开：`AccountBlockedError`（登录态失效/验证码/限流）、`ServiceDownError`（18060 或它的
+  浏览器起不来/连不上）、普通 `AdapterError`（这篇没了，批量继续）。前两类 → 退出码 **5** + 报警 + 停车。
+- `link_brain/alert.py` 只认环境变量 `LINK_BRAIN_ALERT_CMD`（stdin 收 UTF-8 JSON），
+  **公开仓里没有任何推送地址/key**。本机出口是 `cyberlink\Fluffy-SelfHood\tools\scripts\lwa-alert.py`
+  = Bark（`bark.mjs`，key 在 `~/.bark/config.json`）+ TG（`tg-mirror.py --send --force`，
+  末尾写「Fable 不用处理」）。两条都实测通过。
+- anyio 把 `ConnectError` 包进 `ExceptionGroup`，`str()` 只剩「unhandled errors in a TaskGroup」——
+  要 `xhs.flatten_exc` 摊开子异常才认得出"连不上 18060"。
+- **18060 挂掉的真因是本机内存**，不是掉登录也不是风控：它每次调用都新开一个 Chrome，
+  可用物理内存 <1G 时高发 `[launcher] Failed to get the debug url`（2026-09-04 夜实测：
+  0.5–0.9G 时连挂 14 条）。所以 ingest 对 ServiceDown **先退避重试 3 次（20s/60s）** 再停车；
+  批量脚本另加内存闸（<1.4G 就等）。重启服务只是治标。
+
+### Owner 的 31 条收藏（2026-09-04 夜）
+- 源文件 `C:\Users\18717\Downloads\_.md`，31 条去重后 31 篇。第一轮 17 篇成功落盘，
+  14 篇卡在上面那个内存问题；补抓脚本带内存闸在等（会自己跑完再统一 `render --all --extract`）。
+- 有附件（`metadata_only`）的 7 篇；只有 P 模式那篇的字节已经在本地。
+- `vault/Web/Xiaohongshu/` 里有一个 `20260904-文档体系整理-裁决.md` 不是归档产物，是别的会话丢进来的
+  cyberlink 文档，没敢动，等 Owner 处置。
+
 ## 已知缺口
 
 - 图片左右箭头暂不作为稳定功能；当前主要用横向滚动 / 触控滑动切图。
@@ -123,6 +158,10 @@ repo_path: D:\LIGHT WEB ARCHIEVE
 - `catch` 只在**第一次**归档时把消息写成留言 cmt1；已经归档过的（HIT）那条消息只进 relations 表，
   不会追加到可见 md 的留言层——那是 Lot 5 `comment` 的活，等 Lot 5 一起接。
 - 评论区图片全库为 0，MCP 不返回该字段（见上）。
+- PDF 附件还没转成 md。通路是现成的（`media.py pdf`，本地 pymupdf + 扫描页走 CMX OCR），
+  但实测 `p模式教程-机教版.pdf` 的文字层字形映射是坏的（人→⼈、：→9、括号→df，子集化字体），
+  这类必须退回「页面渲成图 → OCR」。判据用康熙部首 / CJK 兼容区字符占比。
+- 附件字节要 headed 浏览器，批量下会在屏幕上弹窗打扰 Owner；还没接进 ingest 自动跑。
 - BENCH.md 的「漏正文 / 误删细节 / 广告当信息」三列还空着，等 Owner 人工判定；样本补到 20 条后要重跑。
 - token 数是字符估算（`media.py text` 不回传 usage），只能横向比较，不是账单。
 - 广告/噪音判定偏激进（C 条 19 条评论标了 12 条噪音）；只影响 agent.md 标注，不删内容。
@@ -135,8 +174,12 @@ repo_path: D:\LIGHT WEB ARCHIEVE
 
 ## 下一步
 
-1. Lot 5（`comment / inbox / resolve` + `scripts/smoke.py`）——人和 AI 互相留言那层。
-   顺带把 `catch` 在 HIT 时追加留言接上（现在只进 relations 表）。
-2. Issue #2 的 UI 仍欠 Owner 一次实机验收；这次多一项要看的：附件那行 📎 点不点得开。
-3. `docs/BENCH.md` 最后三列 Owner 说不做 20 条了，以后手工填，不再挡路。
-4. 评论区图片要不要走 agent-browser 补抓，等 Owner 决定（见上）。
+1. 把剩下 14 条收藏补抓完（脚本在等内存），然后 `render --all` 统一铺新样式。
+2. 6 篇 `metadata_only` 的附件字节下下来（`attachments --all`，会弹 headed 浏览器）。
+3. **Lot 6 收藏同步**（Owner 2026-09-04 已批：两个号都可以给 AI 用）。第一步先花十分钟试
+   `get_my_profile(tab="fav")`，能走通就不用她扫码；走不通再谈第二个 MCP 实例。
+4. 附件自动接线：ingest 发现 `metadata_only` 就自动下一次字节；批量用 `--no-browser` 跳过 + 结尾汇总。
+5. PDF → md（见已知缺口那条）。
+6. Lot 5（`comment / inbox / resolve` + `scripts/smoke.py`）；顺带把 `catch` 在 HIT 时追加留言接上。
+7. Issue #2 的 UI 仍欠 Owner 一次实机验收；这次要看的：顶部灰字那行、附件点不点得开、干净文件名。
+8. `docs/BENCH.md` 最后三列 Owner 说不做 20 条了，以后手工填，不再挡路。
