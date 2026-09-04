@@ -1,0 +1,8 @@
+.link-brain/
+vault-dev/
+*.local.*
+.env
+see-tmp/
+__pycache__/
+*.pyc
+.pytest_cache/
