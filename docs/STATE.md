@@ -1,6 +1,6 @@
 # Current State
 
-current_lot: 3
+current_lot: 3b
 last_verified_commit: (本次 commit)
 
 ## 已真实通过
@@ -41,6 +41,16 @@ last_verified_commit: (本次 commit)
 - 修了一个 Windows 控制台编码坑：`__main__.py` 里把 stdout/stderr 强制 `reconfigure(encoding="utf-8", errors="replace")`，否则打印含 emoji/生僻字的文件名（如样本"‼️"）在 gbk 控制台直接 `UnicodeEncodeError` 崩溃
 - 5 条样本 `render --all` 实测：`vault/Web/Xiaohongshu/` 下恰好 5 个 md，无重复文件；两次 `render --all` 输出 md5 完全一致（幂等）
 - `python -m pytest -q` 28 项全绿（Lot 3 新增 `tests/test_render.py`）
+
+### Lot 3b（Owner 真机反馈返工，只动 render.py content 层 + CSS）
+- 可见 md 去 H1、去「## 图片/## 正文」（Obsidian 用文件名当标题，`cssclasses: [link-brain]` 配 CSS 隐藏属性面板+浅色化剩余小节标题）
+- 图文两栏：`<div class="lb-cols"><div class="lb-imgs"><img src="...">…</div><div class="lb-body">正文</div></div>`，原图链接是容器外的一行普通 Markdown 链接（`[原图 1](...) · [2](...)`）；视频型只放封面 + `🎬 视频 · 未下载 · [原链接](...)`
+- 留言层改渲染成 `> [!quote] 留言` callout，仍是 frontmatter 之后第一块（comments:start/end 标记不变）
+- 评论区改 blockquote 嵌套（`>` 一级 / `>>` 楼中楼），显示昵称+日期，点赞数 > 10 才附加显示（先做能读版本，精修留后续）
+- `link_brain/assets/link-brain.css`：render 时 `vault/.obsidian/snippets/link-brain.css` 不存在就写、存在不覆盖；README 已加 Owner 需手动在 设置→外观→CSS 片段 打开 `link-brain` 一次
+- 顺手把 `comments_complete` 的 Python 布尔大写改成小写（`images_complete` 早就是小写，两者现在一致）
+- 5 条真实样本 `render --all` 重渲染实测通过：无 H1、无「## 图片/## 正文」、留言 callout 在最顶、图文两栏 + 原图链接行、评论 blockquote 嵌套、视频样本 B 有 🎬 行；两次 `render --all` 输出 md5 一致（幂等）
+- `python -m pytest -q` 28 项全绿（`test_render.py` 的 content 层断言从 `## 正文` 改成 `class="lb-cols"`）
 
 ## 已知缺口
 

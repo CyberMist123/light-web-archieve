@@ -304,6 +304,7 @@ D:\LIGHT WEB ARCHIEVE\vault\
 
 ```markdown
 ---
+cssclasses: [link-brain]
 tags: [摄影, 相机]
 link_brain:
   item_id: xhs-6512ab34cd7e9f0011223344
@@ -320,28 +321,33 @@ link_brain:
   comments_complete: unknown
 ---
 
-# P 模式到底怎么用
-
 <!-- link-brain:comments:start -->
-「20260904 人」顺手存的，回头看 P 模式那段
+> [!quote] 留言
+> 「20260904 人」顺手存的，回头看 P 模式那段
 <!-- link-brain: id=cmt1 actor=human target=none status=open -->
 <!-- link-brain:comments:end -->
 
 <!-- link-brain:content:start -->
-## 图片
-
-![[_archive/xiaohongshu/6512ab34cd7e9f0011223344/raw/v0001/assets/image-001.webp]]
-
-## 正文
+<div class="lb-cols"><div class="lb-imgs">
+<img src="_archive/xiaohongshu/6512ab34cd7e9f0011223344/raw/v0001/assets/image-001.webp">
+</div><div class="lb-body">
 
 第一段正文。
+
 第二段正文 #摄影 #相机
+
+</div></div>
+
+[原图 1](_archive/xiaohongshu/6512ab34cd7e9f0011223344/raw/v0001/assets/image-001.webp)
 
 ## 评论
 
-- **路人甲**：所以 P 模式能锁快门吗
-  ![[_archive/xiaohongshu/6512ab34cd7e9f0011223344/raw/v0001/assets/comment-651300aa000000000a01-001.webp]]
-  - **小相机** 回复 路人甲：能，转盘拨一下
+> **路人甲** · 2026-09-01
+> 所以 P 模式能锁快门吗
+>
+>> **小相机** · 2026-09-01
+>> 回复 路人甲：能，转盘拨一下
+>
 
 ## 归档信息
 
@@ -352,10 +358,14 @@ link_brain:
 ```
 
 硬规则：
-- **顺序固定**：标题 → 留言层 → 图片 → 正文 → 评论 → 归档信息。
+- **顺序固定**：frontmatter → 留言层（callout） → 图文两栏容器 + 原图链接行 → 评论 → 归档信息。**没有 H1**（Obsidian 用文件名当标题），也没有「## 图片」「## 正文」这类小节标题。
 - 两个分层标记 `<!-- link-brain:comments:start/end -->` 与 `<!-- link-brain:content:start/end -->` 必须成对存在。
   rerender **只重写 content 层**；comments 层里 Owner 手写的行原样保留。
-- 图片用 vault 相对路径的 `![[...]]`，指向 `raw/vNNNN/assets/` 原图；只有 Obsidian 显示不了的格式（如 avif）才改指 `derived/previews/`，同时在同一行后面保留原图链接。
+- 留言层渲染成 Obsidian callout（`> [!quote] 留言`），是 frontmatter 之后第一块可见内容。
+- 图文两栏：`<div class="lb-cols"><div class="lb-imgs">…</div><div class="lb-body">…</div></div>`，图片用 `<img src="vault相对路径">`（HTML 块里 `![[ ]]` 不渲染）；HTML 块内的 Markdown 段落之间要空行才生效。原图/视频原链接是容器**外面**的一行普通 Markdown 链接，这样 Obsidian 才能点。视频型（`note.kind == "video"`）图片栏只放封面，链接行换成 `🎬 视频 · 未下载 · [原链接](canonical_url)`。
+- Obsidian 显示不了的格式（如 avif）`<img src>` 改指 `derived/previews/` 转码结果，原图链接仍指向 `raw/vNNNN/assets/`。
+- 评论区渲染成 blockquote：一级评论 `> **昵称** · 日期` 换行接文本；楼中楼多一层 `>>` 嵌套；点赞数 > 10 才在头一行追加显示。
+- `cssclasses: [link-brain]` 配 `vault/.obsidian/snippets/link-brain.css`（render 时不存在就写、存在不覆盖）：两栏 flex 布局、缩略图网格、隐藏属性面板、`## 评论`/`## 归档信息` 调成浅色小字。**Owner 要在 设置 → 外观 → CSS 片段 里手动打开一次 `link-brain`**。
 - 可见 tag 只放原帖 hashtag（Lot 4 起可加小模型建议 tag）；用户手写 tag 永不被覆盖。
 - 留言层永远不出现 `@ # todo` 之类协议词，人看到的就是「日期 角色」引用行。
 
