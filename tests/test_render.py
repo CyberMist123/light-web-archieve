@@ -63,9 +63,30 @@ def test_sanitize_title_strips_illegal_chars_and_reserved_names():
     assert len(render_mod.sanitize_title(long_title)) <= 60
 
 
-def test_visible_filename_uses_last_8_of_note_id():
-    name = render_mod.visible_filename("标题", "0000000000000000deadbeef")
-    assert name == "标题__deadbeef.md"
+def test_visible_filename_is_clean_title(tmp_path):
+    """Owner 2026-09-04：文件名不要 `__<id8>` 那截，只有撞名时才退回带后缀的。"""
+    assert render_mod.visible_filename("标题") == "标题.md"
+    assert render_mod.visible_filename("标题", "0000000000000000deadbeef") == "标题__deadbeef.md"
+
+    vd = tmp_path / "Web"
+    vd.mkdir()
+    item = "xhs-0000000000000000deadbeef"
+    # 干净名字没人占 → 用干净的
+    assert render_mod.resolve_visible_path(vd, "标题", "0000000000000000deadbeef", item).name == "标题.md"
+
+    # 自己上次写的那份 → 还是它，不要每次换名
+    (vd / "标题.md").write_text(
+        "---\ncssclasses: [link-brain]\nlink_brain:\n  item_id: " + item + "\n---\n",
+        encoding="utf-8",
+    )
+    assert render_mod.resolve_visible_path(vd, "标题", "0000000000000000deadbeef", item).name == "标题.md"
+
+    # Owner 手写的同名老文件（没有 link_brain 块）→ 退回后缀名，绝不覆盖她的东西
+    (vd / "标题.md").write_text("我手写的笔记\n", encoding="utf-8")
+    assert (
+        render_mod.resolve_visible_path(vd, "标题", "0000000000000000deadbeef", item).name
+        == "标题__deadbeef.md"
+    )
 
 
 # --------------------------------------------------------------------------

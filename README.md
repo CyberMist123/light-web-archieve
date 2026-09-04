@@ -48,7 +48,7 @@ python -m link_brain read xhs-<note_id> --brief --json    # 同一份 JSON 结�
 python -m link_brain search "关键词" --json               # 查本地索引，机器可读
 ```
 
-`ingest` 归档成功后会自动跑一遍 vision + render；`vault\Web\Xiaohongshu\<标题>__<id8>.md` 是人唯一要看的文件，
+`ingest` 归档成功后会自动跑一遍 vision + render；`vault\Web\Xiaohongshu\<标题>.md` 是人唯一要看的文件（撞名才带 `__<id8>` 后缀），
 `<!-- link-brain:comments:start/end -->` 里的留言层手写内容 rerender 不会被覆盖，只有 `<!-- link-brain:content:start/end -->` 里的正文/图片/评论会被重写。
 
 人类版使用 `cssclasses: [link-brain, xhs-note]`。宽 note pane 时左图右文；pane 变窄、桌面打开侧栏或手机端时自动切单栏。图片不做缩略图墙，而是在媒体区横向 `scroll-snap`。
