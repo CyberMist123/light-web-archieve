@@ -16,7 +16,7 @@
 | `read` / `search` / `reindex` | ✅ Lot 2 |
 | 图片 OCR（`derived/vision.json`）+ Obsidian 可见笔记 + AI 版渲染（`derived/agent.md`） | ✅ Lot 3 |
 | `render` 子命令、`read --brief/--full`、`search` 一行格式 | ✅ Lot 3 |
-| **Obsidian 人类版响应式小红书详情页：宽 pane 左图右文、窄 pane / 手机自动单栏、横向切图、轻量楼中楼评论树** | ✅ UI 返工 |
+| **Obsidian 人类版响应式小红书详情页：宽 pane 左图右文、hover 左右切图/页码、稳定彩色头像、作者 badge、复杂楼中楼、独立评论滚动；窄 pane/手机自动单栏** | ✅ UI 返工 |
 | 小模型摘要/标签/外链推荐 | ⬜ Lot 4 |
 | 留言层 / 戳一下 / 收件箱 | ⬜ Lot 5 |
 | 收藏同步 | ⬜ Lot 6（可选） |
@@ -42,9 +42,9 @@ python -m link_brain read xhs-<note_id> --full            # 打印整个 derived
 `ingest` 归档成功后会自动跑一遍 vision + render；`vault\Web\Xiaohongshu\<标题>__<id8>.md` 是人唯一要看的文件，
 `<!-- link-brain:comments:start/end -->` 里的留言层手写内容 rerender 不会被覆盖，只有 `<!-- link-brain:content:start/end -->` 里的正文/图片/评论会被重写。
 
-人类版使用 `cssclasses: [link-brain, xhs-note]`。宽 note pane 时左图右文；pane 变窄、桌面打开侧栏或手机端时自动切单栏。图片不做缩略图墙，而是在媒体区横向 `scroll-snap`。
+人类版使用 `cssclasses: [link-brain, xhs-note]`。宽 note pane 时左图右文：图片横向 `scroll-snap`，鼠标移入媒体区才出现灰底页码和左右切图按钮；右侧正文保持不动，评论区独立上下滚动。pane 变窄、桌面打开侧栏或手机端时自动切回自然单栏。
 
-原站评论只保留阅读真正需要的信息：**不显示评论日期、地点或总评论数量**；评论者名字用灰色弱化，评论正文优先使用楷体；楼中楼用轻缩进 + 淡竖线表示层级。
+原站评论只保留阅读真正需要的信息：**不显示评论日期、地点或总评论数量**；评论者名字用灰色弱化，正文优先使用楷体；每个评论者按 `user_id/昵称` 生成稳定彩色头像。同一作者每次颜色一致，楼主回复复用帖子作者头像并显示 `作者` badge；楼中楼递归渲染，用轻缩进 + 淡竖线表示层级。话题标签显示成小红书式行内 `#tag`，不做胶囊。
 
 `render` 会把仓库内 `link_brain/assets/link-brain.css` **同步**到 `vault/.obsidian/snippets/link-brain.css`，因此 UI 更新会跟随 rerender 生效。第一次使用时，Owner 仍需在 Obsidian 设置 → 外观 → CSS 片段里打开一次 `link-brain` 开关。
 
