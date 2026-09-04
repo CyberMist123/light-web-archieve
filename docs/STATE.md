@@ -57,12 +57,25 @@ repo_path: D:\LIGHT WEB ARCHIEVE
 - 5 条样本实跑：JSON 一次成功 5/5，单条平均估算成本 $0.000125，见 `docs/BENCH.md`。
   D 条（原帖没有裸 URL）确实被点出了 `Yinglianchun/Ombre-Brain`。
 
+### 附件（2026-09-04，Owner 点名的最高优先级）
+- **元数据这一半做完了，游客可达、没动登录态。** 笔记网页版 SSR 的
+  `__INITIAL_STATE__...note.relatedFile` 有 `docId` / 名字 / 页数 / 下载数，MCP 不返回它。
+  `ingest` 现在顺手 GET 一次笔记页（`xhs.fetch_related_file`），结果落 `raw/vNNNN/web_raw.json`，
+  写成 `attachments[].status="metadata_only"`，人看的笔记里出现一行 📎 卡片，agent.md 的「外链」也带上。
+- 顺带修掉了老启发式的误报：网页探测成功且没有 `relatedFile` = 这篇确实没挂文件；
+  但页面 200 却没有这条笔记（登录墙/已删/占位页）算探测失败，退回正文线索。
+- 样本 A 已 `--refresh` 出 `v0002`（v0001 字节不变），`附件=metadata_only`，
+  拿到 `p模式教程-机教版.pdf` / 19 页 / docId `7658854832003020032`。
+- **字节还没拿到**：游客打开 `/file/<docId>` 显示「登录即可下载该文件」。见「下一步」。
+
 ## 已知缺口
 
 - 图片左右箭头暂不作为稳定功能；当前主要用横向滚动 / 触控滑动切图。
 - 复杂评论数据仍受 MCP 返回结构限制；V1 不为了 UI 自建额外小红书抓取器。
 - 评论图如 MCP 未返回对应媒体字段则无法补抓。
-- 附件只能从正文线索标记 `unavailable`。
+- 附件**字节**还没下载（只有元数据）。要下必须有一个小红书登录态；Owner 已同意
+  「给 agent-browser 另开一个小红书号」这条路（不能用主号，agent-browser 扫码会把
+  18060 MCP 那侧顶下线，TG 端会掉线）。等号开好再接下载那一段。
 - `inbox / resolve / comment / sync-favorites` 尚未完成。
 - BENCH.md 的「漏正文 / 误删细节 / 广告当信息」三列还空着，等 Owner 人工判定；样本补到 20 条后要重跑。
 - token 数是字符估算（`media.py text` 不回传 usage），只能横向比较，不是账单。
@@ -76,6 +89,13 @@ repo_path: D:\LIGHT WEB ARCHIEVE
 
 ## 下一步
 
-1. Owner `git pull` + `python -m link_brain render --all`，确认稳定 UI 已恢复（Issue #2 仍未实机验收）。
-2. Owner 看 5 篇的概要/标签质量，把 `docs/BENCH.md` 最后三列填上。
-3. 继续 Lot 5（`comment / inbox / resolve` + `scripts/smoke.py`）。
+1. **附件字节**：Owner 用 agent-browser 的 profile 开一个**新的**小红书号登录一次
+   （`agent-browser close --all` → 普通 Chrome 带 `--user-data-dir=C:\Users\18717\Tools\agent-browser\profile`
+   打开小红书 → 她本人扫码 → 关窗）。之后实现 `attachments` 下载：走 `/file/<docId>` 页面
+   拿真实下载 URL → 落 `raw/vNNNN/attachments/` → `status="downloaded"`。
+   **别用主号扫**（会顶掉 18060 MCP / TG 端）。
+2. 给主模型的摘要通路（issue #41 第 17 节）：TG / CMX / CC 收到链接 → `ingest` →
+   回 `item_id` + 极短概要 + 本地路径。目前只有 CLI，没有给主模型用的入口。
+3. Lot 5（`comment / inbox / resolve` + `scripts/smoke.py`）——人和 AI 互相留言那层。
+4. Issue #2 的 UI 仍欠 Owner 一次实机验收。
+5. `docs/BENCH.md` 最后三列 Owner 说不做 20 条了，以后手工填，不再挡路。

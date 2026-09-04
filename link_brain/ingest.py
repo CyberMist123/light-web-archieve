@@ -192,7 +192,15 @@ def _build_meta(
     first_archived: str,
 ) -> dict[str, Any]:
     attachments = source["note"]["attachments"]
-    attachments_status = "none" if not attachments else "unavailable"
+    statuses = {a.get("status") for a in attachments}
+    if not attachments:
+        attachments_status = "none"
+    elif "downloaded" in statuses:
+        attachments_status = "downloaded"
+    elif "metadata_only" in statuses:
+        attachments_status = "metadata_only"
+    else:
+        attachments_status = "unavailable"
     return {
         "schema_version": 1,
         "item_id": f"xhs-{parsed['note_id']}",
@@ -288,8 +296,14 @@ def ingest_url(
         log(f"MCP {xhs.MCP_TOOL} @ {xhs.MCP_ENDPOINT}")
         raw = xhs.fetch_detail(parsed["note_id"], parsed["xsec_token"])
 
+        # 附件元数据只有笔记网页版有（MCP 不返回），游客可见；失败不阻断
+        log(f"网页探测附件 {xhs.CANONICAL_FMT.format(note_id=parsed['note_id'])}")
+        web_probe = xhs.fetch_related_file(parsed["note_id"], parsed.get("xsec_token"))
+        if not web_probe["ok"]:
+            log(f"网页探测失败（退回正文线索）: {web_probe['error']}")
+
         captured_at = now_iso()
-        source = xhs.normalize(raw, parsed, captured_at=captured_at)
+        source = xhs.normalize(raw, parsed, captured_at=captured_at, web_probe=web_probe)
         new_sha = index_mod.normalized_source_sha256(source)
 
         object_dir = storage.object_dir(xhs.SOURCE, parsed["note_id"])
@@ -336,6 +350,8 @@ def ingest_url(
         log(f"RAW → {raw_dir}")
 
         storage.write_json(raw_dir / "mcp_raw.json", raw)
+        # 网页探测的原始结果单独存一份，方便以后回溯"当时页面上有没有附件"
+        storage.write_json(raw_dir / "web_raw.json", web_probe)
         storage.write_json(raw_dir / "source.json", source)
         manifest = download_media(source, raw_dir, rel_prefix)
         storage.write_json(raw_dir / "manifest.json", manifest)

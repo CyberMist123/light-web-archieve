@@ -32,6 +32,14 @@ MOBILE_UA = (
     "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 )
 
+DESKTOP_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+)
+# 笔记网页版的 SSR 状态；MCP 不返回的 relatedFile（笔记附件）在这里面
+INITIAL_STATE_RE = re.compile(r"window\.__INITIAL_STATE__\s*=\s*(.+?)</script>", re.S)
+FILE_PREVIEW_FMT = "https://www.xiaohongshu.com/file/{doc_id}"
+
 URL_RE = re.compile(r"https?://[^\s<>\"'，。、）)\]]+")
 NOTE_ID_RE = re.compile(r"/(?:explore|discovery/item|item)/([0-9a-fA-F]{16,32})")
 HASHTAG_RE = re.compile(r"#([^#\[\]]{1,30})\[话题\]#")
@@ -270,20 +278,100 @@ def _links(body: str, comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def _attachments(body: str) -> list[dict[str, Any]]:
-    """MCP 完全不返回附件字段，只能从正文里找线索并标 unavailable（见 POC 第 5 条）。"""
-    out = []
-    for hint in ATTACHMENT_HINT_RE.findall(body or ""):
-        out.append(
-            {
-                "name": None,
-                "hint": hint.strip(),
-                "url": None,
-                "status": "unavailable",
-                "reason": "xiaohongshu-mcp 的 get_feed_detail 不返回笔记文件附件",
-            }
+def fetch_related_file(note_id: str, xsec_token: str | None, *, timeout: int = 30) -> dict[str, Any]:
+    """去笔记网页版拿附件元数据（MCP 的 `get_feed_detail` 不返回它）。
+
+    网页 SSR 的 `__INITIAL_STATE__.note.noteDetailMap[<id>].note.relatedFile` **游客可见**，
+    带 `docId` / `name` / `bizExtra`（页数、下载数、浏览数）。字节要登录才给
+    （`/file/<docId>` 页面对游客显示"登录即可下载该文件"），所以这里只取元数据。
+
+    返回 `{"ok": bool, "related_file": dict|None, "url": str, "error": str|None}`；
+    抓不到不抛异常——附件是附加信息，不该阻断主体归档。
+    """
+    url = CANONICAL_FMT.format(note_id=note_id)
+    if xsec_token:
+        url = f"{url}?xsec_token={xsec_token}&xsec_source=pc_feed"
+    result: dict[str, Any] = {"ok": False, "related_file": None, "url": url, "error": None}
+    try:
+        resp = httpx.get(
+            url,
+            headers={"User-Agent": DESKTOP_UA, "Accept-Language": "zh-CN,zh;q=0.9"},
+            timeout=timeout,
+            follow_redirects=True,
         )
-    return out
+        resp.raise_for_status()
+        match = INITIAL_STATE_RE.search(resp.text)
+        if not match:
+            result["error"] = "笔记页里没有 __INITIAL_STATE__"
+            return result
+        # SSR 状态里会出现裸 undefined，不是合法 JSON
+        state = json.loads(match.group(1).strip().rstrip(";").replace("undefined", "null"))
+        detail = ((state.get("note") or {}).get("noteDetailMap") or {}).get(note_id) or {}
+        note = detail.get("note") or {}
+        if not note:
+            # 页面回了 200 但没有这条笔记（登录墙 / 已删 / 反爬占位页）——
+            # 这种情况**不能**当作"这篇没有附件"，否则会把正文线索一起吞掉
+            result["error"] = "笔记页里没有这条笔记（登录墙 / 已删 / 反爬占位页？）"
+            return result
+        result["ok"] = True
+        result["related_file"] = note.get("relatedFile") or None
+    except Exception as exc:  # noqa: BLE001 - 探测失败退回正文启发式，不阻断
+        result["error"] = f"{type(exc).__name__}: {exc}"
+    return result
+
+
+def _attachments(body: str, probe: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """附件条目。
+
+    网页探测成功时它就是**权威**：`relatedFile` 有就出一条带真名字/docId 的记录，
+    没有就说明这篇根本没挂文件——正文里提到"文件"也不再误报。
+    探测失败才退回正文正则线索（会漏也会误报，见 `docs/POC-xiaohongshu.md`）。
+    """
+    hints = [h.strip() for h in ATTACHMENT_HINT_RE.findall(body or "")]
+
+    if probe and probe.get("ok"):
+        related = probe.get("related_file")
+        if not related:
+            return []
+        extra = {}
+        try:
+            extra = json.loads(related.get("bizExtra") or "{}")
+        except (TypeError, ValueError):
+            extra = {}
+        doc_id = related.get("docId")
+        return [
+            {
+                "name": related.get("name"),
+                "doc_id": doc_id,
+                "hint": hints[0] if hints else None,
+                "url": FILE_PREVIEW_FMT.format(doc_id=doc_id) if doc_id else None,
+                "icon_url": related.get("icon"),
+                "page_num": _int_or_none(extra.get("page_num")),
+                "download_num": _int_or_none(extra.get("download_num")),
+                "view_num": _int_or_none(extra.get("view_num")),
+                "file": None,
+                "status": "metadata_only",
+                "reason": "小红书网页版要登录才给附件字节；元数据取自笔记页 relatedFile",
+            }
+        ]
+
+    return [
+        {
+            "name": None,
+            "doc_id": None,
+            "hint": hint,
+            "url": None,
+            "icon_url": None,
+            "page_num": None,
+            "download_num": None,
+            "view_num": None,
+            "file": None,
+            "status": "unavailable",
+            "reason": "MCP 不返回附件字段，网页探测也失败："
+            + ((probe or {}).get("error") or "没探测"),
+        }
+        for hint in hints
+    ]
 
 
 def _comment(raw: dict[str, Any], floor: int) -> dict[str, Any]:
@@ -310,7 +398,13 @@ def _comment(raw: dict[str, Any], floor: int) -> dict[str, Any]:
     return entry
 
 
-def normalize(raw: dict[str, Any], parsed: dict[str, Any], *, captured_at: str) -> dict[str, Any]:
+def normalize(
+    raw: dict[str, Any],
+    parsed: dict[str, Any],
+    *,
+    captured_at: str,
+    web_probe: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """MCP 原始响应 → `source.json`（docs/FORMAT.md §3）。"""
     data = raw.get("data") or {}
     note = data.get("note") or {}
@@ -352,7 +446,7 @@ def normalize(raw: dict[str, Any], parsed: dict[str, Any], *, captured_at: str) 
             },
             "images": _images(note.get("imageList")),
             "video": _video(note),
-            "attachments": _attachments(body),
+            "attachments": _attachments(body, web_probe),
         },
         "comments": comments,
         "capture": {
@@ -364,6 +458,11 @@ def normalize(raw: dict[str, Any], parsed: dict[str, Any], *, captured_at: str) 
             "mcp_tool": MCP_TOOL,
             "comments_complete": comments_complete,
             "comments_cursor": comments_block.get("cursor"),
+            "web_probe": (
+                None
+                if web_probe is None
+                else {"ok": web_probe.get("ok"), "url": web_probe.get("url"), "error": web_probe.get("error")}
+            ),
             "notes": [],
         },
     }

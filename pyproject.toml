@@ -26,3 +26,6 @@ include = ["link_brain*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "real_web_probe: 跳过 conftest 的联网拦截（用例自己 monkeypatch httpx）",
+]

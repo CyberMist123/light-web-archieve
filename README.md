@@ -17,6 +17,7 @@
 | 图片 OCR（`derived/vision.json`）+ Obsidian 可见笔记 + AI 版渲染（`derived/agent.md`） | ✅ Lot 3 |
 | `render` 子命令、`read --brief/--full`、`search` 一行格式 | ✅ Lot 3 |
 | **Obsidian 人类版响应式小红书详情页：宽 pane 左图右文、窄 pane / 手机自动单栏、横向切图、轻量楼中楼评论树、行内话题标签** | ✅ UI 稳定基线 |
+| 笔记附件元数据（名字 / 页数 / docId，走笔记网页版；字节要登录，未做） | ✅ 元数据 |
 | 小模型摘要/标签/外链推荐（`derived/extracted.json`、`docs/BENCH.md`） | ✅ Lot 4 |
 | 留言层 / 戳一下 / 收件箱 | ⬜ Lot 5 |
 | 收藏同步 | ⬜ Lot 6（可选） |

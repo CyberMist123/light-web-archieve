@@ -10,7 +10,7 @@
 | 1 | 楼中楼能不能拿到、拿到几层 | **能，且能拿全。小红书本身只有 2 层**（一级评论 + 回复），MCP 也只返回 2 层 |
 | 2 | 评论图有没有 | **没有。** MCP 的评论对象结构里根本不存在图片字段，拿不到 |
 | 3 | 高清档位 | **`urlDefault` 就是能拿到的最高档**，改/去后缀一律 403（URL 带签名）；实拿 1080×1440，页面声明 1200×1600 |
-| 4 | 附件 | **确实拿不到。** 响应里没有任何附件字段，只能从正文抠线索并标 `unavailable` |
+| 4 | 附件 | **MCP 拿不到**（响应里没有附件字段）；**网页版游客能拿到元数据**（`relatedFile`），字节要登录。见第 4 节 |
 | 5 | MCP 返回的完整键列表 | 见下面第 5 节 |
 
 ---
@@ -67,15 +67,42 @@ MCP 评论对象的键是固定的 11 个：
 - 格式恒为 `webp`，**原 bytes 原样落盘不转码**，扩展名按响应 `Content-Type` 定。
 - 下载要带 `Referer: https://www.xiaohongshu.com/` 和移动端 UA（不带也能过，但保险）。
 
-## 4. 附件：确实拿不到
+## 4. 附件：MCP 拿不到，但**网页版游客就能看到元数据**（2026-09-04 更新）
 
-`get_feed_detail` 的 `data.note` 只有 10~11 个键（见下），**没有附件/文件相关字段**。
-样本 A 正文写着"给小机看的版本在文件～"，MCP 响应里搜不到任何对应对象。
+`get_feed_detail` 的 `data.note` 只有 10~11 个键（见下），**没有附件/文件相关字段**——这条结论不变。
 
-adapter 的处理（`ATTACHMENT_HINT_RE`）：从正文里正则抠出含「附件 / 在文件 / 文件里 / 笔记文件」的短句作为**线索**，
-写成 `attachments[{name:null, hint:"给小机看的版本在文件～", url:null, status:"unavailable", reason:...}]`，
-`meta.json.attachments_status = "unavailable"`。**主体照常归档、不阻断、不开浏览器。**
-这是启发式，会漏（正文没提就发现不了）、也会误报（正文提"文件"但没真挂附件），POC 里说明白，不假装它可靠。
+但笔记**网页版**的 SSR 状态里有：
+
+```
+window.__INITIAL_STATE__
+  .note.noteDetailMap["<note_id>"].note.relatedFile
+    = {docId, name, icon, bizExtra:"{download_num,page_num,view_num}"}
+```
+
+**不需要登录**，一个普通 `httpx.get(笔记URL?xsec_token=..&xsec_source=pc_feed)` 就能拿到。
+样本 A 实测：`name="p模式教程-机教版.pdf"`、`docId=7658854832003020032`、19 页、644 次下载。
+
+前端路由（从 `index.*.js` 里读出来的）：`FilePreviewPath = "/file/:docId"`，
+点附件卡片就是 `window.open("/file/<docId>?noteId=..&fileName=..&xsec_token=..&xsec_source=note_detail_file")`。
+
+**字节要登录。** 游客打开那个预览页，页面写死一句「登录即可下载该文件 / 登录后可下载 / 无法查看，原文件不可见」
+（in-app 浏览器实测，2026-09-04）。所以：
+
+| | 游客 | 登录后 |
+|---|---|---|
+| 附件元数据（名字/页数/docId） | ✅ | ✅ |
+| 附件字节 | ❌ | 待验（需要一个登录态） |
+
+adapter 现在的处理（`fetch_related_file` + `_attachments`）：
+
+- ingest 时顺手 GET 一次笔记页，`relatedFile` 有就写成一条带真名字/`doc_id`/页数/预览 URL 的
+  `attachments[]`，`status="metadata_only"`，`meta.attachments_status="metadata_only"`；
+- `relatedFile` 是 `None` 且页面确实解析到了这条笔记 → **这篇就是没挂文件**，正文里提到"文件"也不再误报；
+- 页面 200 但状态里没有这条笔记（登录墙 / 已删 / 反爬占位页）→ 当**探测失败**处理，退回正文
+  `ATTACHMENT_HINT_RE` 线索、`status="unavailable"`。这一步很重要，否则会把线索一起吞掉；
+- 探测原始结果落 `raw/vNNNN/web_raw.json`，方便以后回溯"当时页面上到底有没有附件"。
+
+**没动登录态、没开 agent-browser**——这条路整条是游客可达的。
 
 ## 5. MCP 返回的完整键列表
 

@@ -72,7 +72,7 @@ D:\LIGHT WEB ARCHIEVE\vault\
   "visible_note": "Web/Xiaohongshu/P 模式到底怎么用__11223344.md",
   "images_complete": true,
   "comments_complete": "unknown",
-  "attachments_status": "unavailable",
+  "attachments_status": "metadata_only",
   "origin": "cli",
   "actor": "human",
   "ingest_kind": "shared",
@@ -92,7 +92,7 @@ D:\LIGHT WEB ARCHIEVE\vault\
 | `kind` | `image` / `video` / `text` | 视频型笔记只记 `video_url` + 封面，不下载视频 |
 | `images_complete` | `true` / `false` | 与 `manifest.json` 顶层同名字段一致；`false` 时 CLI 退出码 2 |
 | `comments_complete` | `"unknown"` / `true` / `false` | 抓不全无法证明时是 `"unknown"`，**不阻断** |
-| `attachments_status` | `"none"` / `"unavailable"` / `"ok"` | 笔记文件附件；MCP 拿不到就是 `"unavailable"`，主体照常归档 |
+| `attachments_status` | `"none"` / `"metadata_only"` / `"downloaded"` / `"unavailable"` | 由 `attachments[].status` 取最好的一个汇总而来；见 `source.json` 那节 |
 | `origin` | `tg` / `cmx` / `cc` / `cli` | 从哪个端进来的 |
 | `actor` | `human` / `ai:<name>` | 谁把它丢进来的 |
 | `ingest_kind` | `shared` / `favorite` | 主动分享还是收藏同步 |
@@ -140,10 +140,16 @@ D:\LIGHT WEB ARCHIEVE\vault\
     "attachments": [
       {
         "name": "P模式速查表.pdf",
+        "doc_id": "7658854832003020032",
         "hint": "正文提到「文件已放在笔记附件」",
-        "url": null,
-        "status": "unavailable",
-        "reason": "xiaohongshu-mcp 不返回笔记文件附件"
+        "url": "https://www.xiaohongshu.com/file/7658854832003020032",
+        "icon_url": "https://fe-platform.xhscdn.com/platform/xxx",
+        "page_num": 19,
+        "download_num": 644,
+        "view_num": 1468,
+        "file": null,
+        "status": "metadata_only",
+        "reason": "小红书网页版要登录才给附件字节；元数据取自笔记页 relatedFile"
       }
     ]
   },
@@ -193,7 +199,15 @@ D:\LIGHT WEB ARCHIEVE\vault\
 - `comments[]` 只放**一级评论**；楼中楼进 `comments[].sub_comments[]`，`floor` 一级=1、楼中楼=2（V1 小红书只有两层）。
 - `comments[].images[]` 与 `note.images[]` 字段同构（`url` / `width` / `height` 可为 null）。
 - `video` 非 null 时形如 `{"video_url": "...", "cover_url": "...", "duration_sec": 70, "downloaded": false}`。
-- `attachments[]` 里 `status` 只有 `"unavailable"` / `"ok"`；拿不到就保留线索，**不阻断归档**。
+- `attachments[]` 的 `status`：
+  | 值 | 含义 |
+  |---|---|
+  | `"metadata_only"` | 网页版 `relatedFile` 拿到了名字 / `doc_id` / 页数，**字节还没拿到**（小红书要登录才给文件）。`url` 是网页预览地址，`file` 为 `null` |
+  | `"downloaded"` | 字节已落 `raw/vNNNN/attachments/`，`file` 是相对对象目录的路径 |
+  | `"unavailable"` | 网页探测失败，只有正文正则抠出来的 `hint`，其余字段全 `null` |
+
+  网页探测成功且 `relatedFile` 为空 = 这篇**确实没挂文件**，此时 `attachments` 直接是 `[]`
+  （正文提到"文件"也不再误报）。拿不到附件**永不阻断归档**。
 - 去重只认 `source` + `source_id`；`xsec_token` 是抓取参数，会过期，不参与身份。
 
 ---
