@@ -77,11 +77,6 @@ def _stable_avatar_color(author: dict[str, Any] | None) -> str:
     return f"hsl({hue} {sat}% {light}%)"
 
 
-def _avatar_initial(author: dict[str, Any] | None) -> str:
-    name = str((author or {}).get("nickname") or "?").strip()
-    return (name[:1] or "?").upper()
-
-
 def _same_author(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:
     a = a or {}
     b = b or {}
@@ -144,9 +139,10 @@ def _comment_image_files(comment_id: str | None, manifest: dict[str, Any]) -> li
 
 
 def _avatar_html(author: dict[str, Any] | None, *, cls: str) -> str:
+    """Minimal avatar: stable per-person colour, no letters/images."""
     return (
-        f'<span class="{cls}" style="--lb-avatar-color: {_stable_avatar_color(author)};" aria-hidden="true">'
-        f'<span>{_safe(_avatar_initial(author))}</span></span>'
+        f'<span class="{cls}" style="--lb-avatar-color: {_stable_avatar_color(author)};" '
+        'aria-hidden="true"></span>'
     )
 
 
@@ -283,20 +279,35 @@ def _media_html(note: dict[str, Any], manifest: dict[str, Any], object_rel: str)
 
     total = len(entries)
     key = hashlib.sha1(object_rel.encode("utf-8", errors="ignore")).hexdigest()[:10]
+    group = f"lb-pages-{key}"
+    canonical_url = note.get("canonical_url") or ""
+
     parts = ['<section class="lb-media"><div class="lb-carousel">']
     for i, entry in enumerate(entries, 1):
+        toggle_id = f"lb-{key}-page-{i}"
+        parts.append(
+            f'<input class="lb-slide-toggle" type="radio" name="{group}" id="{toggle_id}"'
+            + (" checked" if i == 1 else "")
+            + ">"
+        )
         src, _ = _img_srcs(object_rel, entry["file"])
-        slide_id = f"lb-{key}-slide-{i}"
         prev_i = total if i == 1 else i - 1
         next_i = 1 if i == total else i + 1
         parts += [
-            f'<figure class="lb-slide" id="{slide_id}">',
+            f'<figure class="lb-slide" data-page="{i}">',
+            '<div class="lb-image-double" tabindex="0" title="双击打开小红书原帖">',
             f'<img src="../../{_safe(src)}" loading="lazy" alt="图片 {i} / {total}">',
         ]
+        if canonical_url:
+            parts.append(
+                f'<a class="lb-image-open" href="{_safe(canonical_url)}" target="_blank" '
+                'rel="noopener noreferrer" aria-label="双击打开小红书原帖"></a>'
+            )
+        parts.append("</div>")
         if total > 1:
             parts += [
-                f'<a class="lb-arrow lb-arrow-left" href="#lb-{key}-slide-{prev_i}" aria-label="上一张">‹</a>',
-                f'<a class="lb-arrow lb-arrow-right" href="#lb-{key}-slide-{next_i}" aria-label="下一张">›</a>',
+                f'<label class="lb-arrow lb-arrow-left" for="lb-{key}-page-{prev_i}" aria-label="上一张">‹</label>',
+                f'<label class="lb-arrow lb-arrow-right" for="lb-{key}-page-{next_i}" aria-label="下一张">›</label>',
                 f'<figcaption class="lb-counter">{i} / {total}</figcaption>',
             ]
         parts.append("</figure>")
