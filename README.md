@@ -16,12 +16,12 @@
 | `read` / `search` / `reindex` | ✅ Lot 2 |
 | 图片 OCR（`derived/vision.json`）+ Obsidian 可见笔记 + AI 版渲染（`derived/agent.md`） | ✅ Lot 3 |
 | `render` 子命令、`read --brief/--full`、`search` 一行格式 | ✅ Lot 3 |
-| **Obsidian 人类版响应式小红书详情页：宽 pane 左图右文、窄 pane / 手机自动单栏、横向切图、轻量楼中楼评论树** | ✅ UI 返工 |
+| **Obsidian 人类版响应式小红书详情页：宽 pane 左图右文、窄 pane / 手机自动单栏、横向切图、轻量楼中楼评论树、行内话题标签** | ✅ UI 稳定基线 |
 | 小模型摘要/标签/外链推荐 | ⬜ Lot 4 |
 | 留言层 / 戳一下 / 收件箱 | ⬜ Lot 5 |
 | 收藏同步 | ⬜ Lot 6（可选） |
 
-当前真实进度以 `docs/STATE.md` 为准。
+当前真实进度与 UI 取舍以 `docs/STATE.md` 为准。
 
 ## 用法
 
@@ -44,7 +44,9 @@ python -m link_brain read xhs-<note_id> --full            # 打印整个 derived
 
 人类版使用 `cssclasses: [link-brain, xhs-note]`。宽 note pane 时左图右文；pane 变窄、桌面打开侧栏或手机端时自动切单栏。图片不做缩略图墙，而是在媒体区横向 `scroll-snap`。
 
-原站评论只保留阅读真正需要的信息：**不显示评论日期、地点或总评论数量**；评论者名字用灰色弱化，评论正文优先使用楷体；楼中楼用轻缩进 + 淡竖线表示层级。
+当前 UI 以**稳定阅读**为优先：顶部作者保持简单圆点 + 作者名，不显示作者 badge；原站评论不显示日期、地点或总评论数量，评论者名字灰色弱化，评论正文优先使用楷体，楼中楼用轻缩进 + 淡竖线表示层级；话题标签显示为小红书式行内 `#标签`，不使用胶囊底色。
+
+图片切换暂不依赖自定义按钮、radio 或网页跳转；这类 Obsidian 交互实验曾在实机出现错误，当前以横向滚动 / 触控滑动为稳定方案。详情见 `docs/STATE.md`。
 
 `render` 会把仓库内 `link_brain/assets/link-brain.css` **同步**到 `vault/.obsidian/snippets/link-brain.css`，因此 UI 更新会跟随 rerender 生效。第一次使用时，Owner 仍需在 Obsidian 设置 → 外观 → CSS 片段里打开一次 `link-brain` 开关。
 
@@ -67,7 +69,7 @@ commit 前跑一次 `git status` 核对。
 - `docs/TASKBOOK.md` — 唯一执行文档（做什么、验收标准、5 条样本）
 - `docs/FORMAT.md` — 数据格式唯一真相
 - `docs/POC-xiaohongshu.md` — 小红书 MCP 能拿到什么、拿不到什么
-- `docs/STATE.md` — 当前进度
+- `docs/STATE.md` — 当前进度、已回滚实验、下一步
 
 ## 测试
 
