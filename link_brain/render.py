@@ -83,9 +83,10 @@ def _tag_html(tags: list[str]) -> str:
 
 
 def _engagement_html(note: dict[str, Any]) -> str:
+    """Human view keeps only like/collect counts; comment count is visual noise here."""
     e = note.get("engagement") or {}
     bits = []
-    for key, label in (("liked", "♡"), ("collected", "☆"), ("comment_count", "评论")):
+    for key, label in (("liked", "♡"), ("collected", "☆")):
         value = e.get(key)
         if value not in (None, "", 0, "0"):
             bits.append(f"<span>{label} {_safe(value)}</span>")
@@ -123,8 +124,8 @@ def _comment_html(
     *,
     nested: bool = False,
 ) -> str:
+    """Human comment row: author + text only; no date/location/overall count."""
     author = (comment.get("author") or {}).get("nickname") or "匿名"
-    meta = " · ".join(x for x in (_date(comment.get("created_at")), comment.get("ip_location")) if x)
     text = _safe(comment.get("text") or "")
     target = comment.get("target_nickname")
     if target:
@@ -144,10 +145,9 @@ def _comment_html(
 
     cls = "lb-comment lb-reply" if nested else "lb-comment"
     parts = [
-        f'<article class="{cls}"><div class="lb-comment-head">',
-        f'<span class="lb-comment-author">{_safe(author)}</span>',
-        f'<span class="lb-comment-date">{_safe(meta)}</span>' if meta else "",
-        f'</div><div class="lb-comment-text">{text}</div>{media}{actions}',
+        f'<article class="{cls}">',
+        f'<div class="lb-comment-author">{_safe(author)}</div>',
+        f'<div class="lb-comment-text">{text}</div>{media}{actions}',
     ]
 
     if not nested:
@@ -224,9 +224,6 @@ def _media_html(note: dict[str, Any], manifest: dict[str, Any], object_rel: str)
 def _detail_html(note: dict[str, Any], comments: list[dict[str, Any]], manifest: dict[str, Any], object_rel: str) -> str:
     author = (note.get("author") or {}).get("nickname") or "匿名"
     meta = " · ".join(x for x in (_date(note.get("published_at")), note.get("ip_location")) if x)
-    comment_total = (note.get("engagement") or {}).get("comment_count")
-    if comment_total in (None, ""):
-        comment_total = len(comments)
 
     parts = [
         '<section class="lb-detail">',
@@ -238,7 +235,6 @@ def _detail_html(note: dict[str, Any], comments: list[dict[str, Any]], manifest:
         _tag_html(note.get("hashtags") or []),
         _engagement_html(note),
         '<div class="lb-comments">',
-        f'<div class="lb-comments-count">评论 {_safe(comment_total)}</div>',
     ]
     if comments:
         parts.extend(_comment_html(c, object_rel, manifest) for c in comments)
