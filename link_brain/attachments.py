@@ -30,7 +30,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import storage
+from . import alert as alert_mod, storage
+from .adapters import xiaohongshu as xhs
+
+EXIT_NEEDS_HUMAN = 5  # 小号登录态失效 / 风控，要人处理（和 ingest 同一套码）
 
 PROFILE_PREFS = Path(r"C:\Users\18717\Tools\agent-browser\profile\Default\Preferences")
 FILE_PAGE_FMT = (
@@ -305,6 +308,7 @@ def run(args) -> int:
     from . import render as render_mod
 
     failed = False
+    account_blocked = False
     for source_key, source_id in targets:
         outcome = download_for_object(
             source_key, source_id, force=getattr(args, "force", False), verbose=getattr(args, "verbose", False)
@@ -314,9 +318,25 @@ def run(args) -> int:
                 print(f"{outcome['item_id']}  ↓ {r['file']}  {r['bytes']} 字节  {r['sha256'][:12]}…")
             elif r["status"] == "already":
                 print(f"{outcome['item_id']}  = {r['file']}（已有，--force 可重下）")
+            elif r["status"] == "skipped":
+                print(f"{outcome['item_id']}  - {r.get('error')}", file=sys.stderr)
             else:
                 failed = True
-                print(f"{outcome['item_id']}  ✗ {r.get('error')}", file=sys.stderr)
+                message = str(r.get("error") or "")
+                print(f"{outcome['item_id']}  ✗ {message}", file=sys.stderr)
+                # 附件要登录态，挂了很可能是小号掉线/撞风控 —— 这种不能默默地就过去了
+                blocked = xhs.looks_blocked(message)
+                alert_mod.alert(
+                    alert_mod.KIND_ACCOUNT if blocked else alert_mod.KIND_ATTACHMENT,
+                    "附件没拿到" + ("（小号登录态/风控）" if blocked else ""),
+                    f"{outcome['item_id']}: {message[:300]}",
+                    item_id=outcome["item_id"],
+                )
+                if blocked:
+                    account_blocked = True
         render_mod.render_object(source_key, source_id)
+        if account_blocked:
+            print("停车：小号登录态/风控，剩下的不再试", file=sys.stderr)
+            return EXIT_NEEDS_HUMAN
 
     return 1 if failed else 0

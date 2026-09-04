@@ -56,6 +56,56 @@ class AdapterError(RuntimeError):
     """输入解析或抓取失败。"""
 
 
+class NeedsHumanError(AdapterError):
+    """要停车叫人的那一类失败（和"这篇笔记没了"必须分开）。
+
+    后者只是这一条抓不到，批量可以接着跑；这一类接着跑只会把剩下的全刷成失败。
+    """
+
+
+class AccountBlockedError(NeedsHumanError):
+    """**号出事了**：登录态失效 / 撞风控验证码 / 被限流。"""
+
+
+class ServiceDownError(NeedsHumanError):
+    """**服务出事了**：18060 没在听、MCP 内部错、它那个浏览器起不来。
+
+    2026-09-04 实际发生过：批量跑到第 19 条，MCP 回
+    「[launcher] Failed to get the debug url」，后面 7 条全 3 秒失败——
+    这种必须当场停车报警，不然就是 Owner 说的"不知不觉挂了"。
+    """
+
+
+# 号出事的迹象（MCP 报错文本 / 网页返回里出现这些词）。宁可多报一次，也别不知不觉挂着跑
+BLOCKED_HINTS = (
+    "未登录", "请登录", "登录后", "登录态", "重新登录", "cookie 失效", "cookie失效",
+    "not logged in", "login required", "unauthorized", "登录即可",
+    "验证码", "captcha", "滑块", "安全验证", "行为异常", "账号异常", "风控",
+    "访问频繁", "操作频繁", "too many requests", "rate limit", "429",
+)
+
+
+# 服务本身出事的迹象：18060 没在听、MCP 内部错、它那个 headless 浏览器起不来
+SERVICE_DOWN_HINTS = (
+    "launcher", "debug url", "内部错误", "internal error", "服务端日志",
+    "connection refused", "connectionrefused", "econnrefused",
+    "all connection attempts failed", "connecterror", "connecttimeout",
+    "远程主机强迫关闭", "actively refused",
+)
+
+
+def looks_blocked(text: str | None) -> bool:
+    """一段错误文本/页面内容看起来像不像"号出事了"。"""
+    low = (text or "").lower()
+    return any(hint.lower() in low for hint in BLOCKED_HINTS)
+
+
+def looks_service_down(text: str | None) -> bool:
+    """看起来像不像"18060 那个服务/它的浏览器出事了"。"""
+    low = (text or "").lower()
+    return any(hint.lower() in low for hint in SERVICE_DOWN_HINTS)
+
+
 # --------------------------------------------------------------------------
 # 1. 输入解析
 # --------------------------------------------------------------------------
@@ -146,7 +196,17 @@ async def _call_mcp(tool: str, arguments: dict[str, Any], *, endpoint: str, time
             result = await session.call_tool(tool, arguments)
             if result.isError:
                 texts = [getattr(c, "text", "") for c in result.content]
-                raise AdapterError(f"MCP {tool} 报错: {' '.join(texts)[:400]}")
+                joined = " ".join(texts)[:400]
+                if looks_blocked(joined):
+                    raise AccountBlockedError(
+                        f"小红书那侧要人处理（登录态失效 / 风控验证码）：MCP {tool} 说「{joined}」"
+                    )
+                if looks_service_down(joined):
+                    raise ServiceDownError(
+                        f"18060 那个服务出事了（先 Start-ScheduledTask XiaohongshuMCP 再重试）："
+                        f"MCP {tool} 说「{joined}」"
+                    )
+                raise AdapterError(f"MCP {tool} 报错: {joined}")
             for chunk in result.content:
                 text = getattr(chunk, "text", None)
                 if text:
@@ -158,9 +218,39 @@ async def _call_mcp(tool: str, arguments: dict[str, Any], *, endpoint: str, time
             raise AdapterError(f"MCP {tool} 返回空内容")
 
 
+def flatten_exc(exc: BaseException) -> str:
+    """把异常（含 ExceptionGroup 的子异常）摊成一行文本，用来判是不是"服务挂了"。
+
+    anyio 会把 ConnectError 包进 ExceptionGroup，`str(exc)` 只剩
+    「unhandled errors in a TaskGroup」——不摊开就永远认不出连不上 18060。
+    """
+    parts = [f"{type(exc).__name__}: {exc}"]
+    for sub in getattr(exc, "exceptions", ()) or ():
+        parts.append(flatten_exc(sub))
+    if exc.__cause__ is not None:
+        parts.append(flatten_exc(exc.__cause__))
+    return " | ".join(parts)
+
+
+def call_tool(tool: str, arguments: dict[str, Any], *, endpoint: str = MCP_ENDPOINT,
+              timeout: float = 300) -> Any:
+    """同步调一个 MCP 工具；连不上/服务内部错一律升级成 `ServiceDownError`。"""
+    try:
+        return asyncio.run(_call_mcp(tool, arguments, endpoint=endpoint, timeout=timeout))
+    except NeedsHumanError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - 连不上 18060 是"服务出事了"，不是这条链接的问题
+        text = flatten_exc(exc)
+        if looks_service_down(text) or isinstance(exc, (OSError, ConnectionError)):
+            raise ServiceDownError(
+                f"连不上 18060 的 MCP（先 Start-ScheduledTask XiaohongshuMCP 再重试）：{text[:300]}"
+            ) from exc
+        raise
+
+
 def check_login_status(*, endpoint: str = MCP_ENDPOINT, timeout: float = 60) -> Any:
     """确认 MCP 登录态还在（浏览器补抓之后必须跑一次）。"""
-    return asyncio.run(_call_mcp("check_login_status", {}, endpoint=endpoint, timeout=timeout))
+    return call_tool("check_login_status", {}, endpoint=endpoint, timeout=timeout)
 
 
 def fetch_detail(
@@ -184,7 +274,7 @@ def fetch_detail(
         "reply_limit": reply_limit,
         "scroll_speed": "normal",
     }
-    return asyncio.run(_call_mcp(MCP_TOOL, arguments, endpoint=endpoint, timeout=timeout))
+    return call_tool(MCP_TOOL, arguments, endpoint=endpoint, timeout=timeout)
 
 
 # --------------------------------------------------------------------------
@@ -318,6 +408,8 @@ def fetch_related_file(note_id: str, xsec_token: str | None, *, timeout: int = 3
             # 页面回了 200 但没有这条笔记（登录墙 / 已删 / 反爬占位页）——
             # 这种情况**不能**当作"这篇没有附件"，否则会把正文线索一起吞掉
             result["error"] = "笔记页里没有这条笔记（登录墙 / 已删 / 反爬占位页？）"
+            # 页面上直接写着"验证码/请登录"这类词 = 被拦了，调用方要报警，不是"这篇没附件"
+            result["blocked"] = looks_blocked(resp.text[:8000])
             return result
         result["ok"] = True
         result["related_file"] = note.get("relatedFile") or None
