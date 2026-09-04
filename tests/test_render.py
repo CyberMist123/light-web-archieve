@@ -128,8 +128,8 @@ def test_rerender_preserves_hand_written_comments_layer(tmp_path, monkeypatch):
     render_mod.render_item(source, source_id)
     after_text = md_path.read_text(encoding="utf-8")
     assert hand_written_line in after_text, "rerender 后 comments 层手写行应原样保留"
-    # content 层仍然存在且被重写（两栏容器 + 评论/归档信息标题）
-    assert 'class="lb-cols"' in after_text
+    # content 层仍然存在且被重写（两栏容器；无图时容器带 lb-no-media 修饰类）
+    assert 'class="lb-cols' in after_text
     assert render_mod.CONTENT_START in after_text and render_mod.CONTENT_END in after_text
 
 
