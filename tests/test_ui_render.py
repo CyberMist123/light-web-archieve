@@ -112,10 +112,31 @@ def test_video_human_view_marks_not_downloaded_without_original_link():
     assert "原链接" not in text
 
 
-def test_css_uses_pane_container_query_and_hides_machine_metadata():
+def test_css_supports_reading_and_live_preview_with_pane_responsiveness():
     css = (Path(render.__file__).resolve().parent / "assets" / "link-brain.css").read_text(encoding="utf-8")
+
+    # Reading View + Live Preview 都必须建立 pane 宽度容器。
+    assert ".markdown-preview-view.xhs-note .markdown-preview-sizer" in css
+    assert ".markdown-source-view.xhs-note .cm-contentContainer" in css
     assert "container-name: link-brain-note" in css
-    assert "@container link-brain-note (max-width: 760px)" in css
-    assert ".metadata-container" in css
+
+    # 主布局不能只绑定 reading view；Live Preview 也必须吃得到。
+    assert ".xhs-note .lb-cols" in css
+    assert "repeat(auto-fit" in css
+    assert "grid-template-columns: minmax(0, 1fr)" in css
+
+    # 图片一屏一张 + 横切，而不是 7 张纵向堆。
     assert "scroll-snap-type: x mandatory" in css
+    assert "flex: 0 0 100%" in css
+    assert "overflow-x: auto" in css
+
+    # Live Preview 不露 link-brain marker；机器属性也不显示。
+    assert ".cm-line:has(.cm-comment)" in css
+    assert ".metadata-container" in css
+
+    # Electron 支持时桌面 hover 出现左右滚动箭头。
+    assert "::scroll-button(left)" in css
+    assert "::scroll-button(right)" in css
+
+    # 楼中楼样式仍在。
     assert ".lb-replies" in css
