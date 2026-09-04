@@ -1,10 +1,11 @@
-"""把 source.json 渲染成 Obsidian 可见 md + derived/agent.md。纯模板拼接，不经过模型。
+"""Obsidian human view + agent view renderer.
 
-规格见 docs/FORMAT.md §6/§7。rerender 只重写可见 md 的 content 层，comments 层原样保留。
+Human view is a responsive Xiaohongshu-like detail page. RAW/agent/index are unchanged.
+Rerender replaces only the managed content layer and preserves the comments layer.
 """
-
 from __future__ import annotations
 
+import html
 import re
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +20,7 @@ CONTENT_START = "<!-- link-brain:content:start -->"
 CONTENT_END = "<!-- link-brain:content:end -->"
 
 WINDOWS_ILLEGAL_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+TOPIC_TOKEN_RE = re.compile(r"#([^#\[\]]{1,30})\[话题\]#")
 RESERVED_NAMES = {
     "CON", "PRN", "AUX", "NUL",
     *(f"COM{i}" for i in range(1, 10)),
@@ -26,101 +28,145 @@ RESERVED_NAMES = {
 }
 MAX_TITLE_LEN = 60
 PREVIEW_UNSUPPORTED_SUFFIXES = {".avif", ".heic"}
-
 ACTOR_LABELS = {"human": "人", "gpt": "gpt", "fable": "fable"}
 
 
-# --------------------------------------------------------------------------
-# 文件名 sanitizer
-# --------------------------------------------------------------------------
-
-
 def sanitize_title(title: str) -> str:
-    """Windows 非法字符 + 控制字符 → 下划线；截断；保留名加后缀；去掉结尾点/空格。"""
     cleaned = WINDOWS_ILLEGAL_RE.sub("_", title or "").strip()
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    if not cleaned:
-        cleaned = "untitled"
-    cleaned = cleaned[:MAX_TITLE_LEN]
-    cleaned = cleaned.rstrip(". ")
-    if not cleaned:
-        cleaned = "untitled"
-    if cleaned.upper() in RESERVED_NAMES:
-        cleaned = f"{cleaned}_"
-    return cleaned
+    cleaned = re.sub(r"\s+", " ", cleaned).strip() or "untitled"
+    cleaned = cleaned[:MAX_TITLE_LEN].rstrip(". ") or "untitled"
+    return f"{cleaned}_" if cleaned.upper() in RESERVED_NAMES else cleaned
 
 
 def visible_filename(title: str, note_id: str) -> str:
     return f"{sanitize_title(title)}__{note_id[-8:]}.md"
 
 
-# --------------------------------------------------------------------------
-# 小工具
-# --------------------------------------------------------------------------
-
-
 def _clean_links_in_text(text: str, links: list[dict[str, Any]]) -> str:
-    """把附言里出现的原始 URL 换成 `[标题](url)`（没有对应标题的原样保留）。"""
     if not text:
         return text
     for link in links or []:
         url = link.get("url")
         if url and url in text:
-            label = link.get("text") or url
-            text = text.replace(url, f"[{label}]({url})")
+            text = text.replace(url, f"[{link.get('text') or url}]({url})")
     return text
 
 
-def _comment_image_files(comment_id: str, manifest: dict[str, Any]) -> list[str]:
-    """从 manifest.json 里按 comment_id 找评论图（source.json 的 comments[].images[] 没有 file 字段）。
+def _first_n_chars(text: str, n: int) -> str:
+    return (text or "").strip()[:n]
 
-    实测（docs/POC-xiaohongshu.md）MCP 结构上不返回评论图，这里恒为空——评论没有图就不输出图片段。
-    """
+
+def _safe(value: Any) -> str:
+    return html.escape("" if value is None else str(value), quote=True)
+
+
+def _date(value: Any) -> str:
+    return str(value or "")[:10]
+
+
+def _body_html(text: str) -> str:
+    text = TOPIC_TOKEN_RE.sub("", text or "")
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    if not text:
+        return '<p class="lb-empty">（无正文）</p>'
+    return "".join(
+        f"<p>{_safe(p).replace(chr(10), '<br>')}</p>"
+        for p in re.split(r"\n\s*\n", text)
+        if p.strip()
+    )
+
+
+def _tag_html(tags: list[str]) -> str:
+    chips = "".join(f'<span class="lb-tag">#{_safe(x)}</span>' for x in tags or [] if x)
+    return f'<div class="lb-tags">{chips}</div>' if chips else ""
+
+
+def _engagement_html(note: dict[str, Any]) -> str:
+    e = note.get("engagement") or {}
+    bits = []
+    for key, label in (("liked", "♡"), ("collected", "☆"), ("comment_count", "评论")):
+        value = e.get(key)
+        if value not in (None, "", 0, "0"):
+            bits.append(f"<span>{label} {_safe(value)}</span>")
+    return '<div class="lb-engagement">' + "".join(bits) + "</div>" if bits else ""
+
+
+def _img_srcs(object_rel: str, file_rel: str) -> tuple[str, str]:
+    raw = f"{object_rel}/{file_rel}"
+    if Path(file_rel).suffix.lower() in PREVIEW_UNSUPPORTED_SUFFIXES:
+        preview = f"{object_rel}/derived/previews/{Path(file_rel).stem}.png"
+        return preview, raw
+    return raw, raw
+
+
+def _img_from_manifest(object_rel: str, file_rel: str) -> str:
+    src, raw = _img_srcs(object_rel, file_rel)
+    return f"![[{src}]]" if src == raw else f"![[{src}]] （原图：[[{raw}]]）"
+
+
+def _comment_image_files(comment_id: str | None, manifest: dict[str, Any]) -> list[str]:
+    if not comment_id:
+        return []
     return [
-        m["file"]
-        for m in manifest.get("media", [])
-        if m.get("role") == "comment_image" and m.get("comment_id") == comment_id and m.get("file")
+        m["file"] for m in manifest.get("media", [])
+        if m.get("role") == "comment_image"
+        and m.get("comment_id") == comment_id
+        and m.get("file")
     ]
 
 
-LIKE_COUNT_THRESHOLD = 10
-
-
-def _comment_body_lines(
-    comment: dict[str, Any], object_rel: str, manifest: dict[str, Any], *, quote: str = ">"
-) -> list[str]:
-    """一条评论渲染成 blockquote。楼中楼用 `>>` 多一层嵌套（`quote` 传 `>>`）。"""
+def _comment_html(
+    comment: dict[str, Any],
+    object_rel: str,
+    manifest: dict[str, Any],
+    *,
+    nested: bool = False,
+) -> str:
     author = (comment.get("author") or {}).get("nickname") or "匿名"
-    date = (comment.get("created_at") or "")[:10]
-    text = comment.get("text") or ""
+    meta = " · ".join(x for x in (_date(comment.get("created_at")), comment.get("ip_location")) if x)
+    text = _safe(comment.get("text") or "")
     target = comment.get("target_nickname")
     if target:
-        text = f"回复 {target}：{text}"
-    like_count = comment.get("like_count") or 0
-    header = f"{quote} **{author}** · {date}"
-    if like_count > LIKE_COUNT_THRESHOLD:
-        header += f" · {like_count} 赞"
-    lines = [header, f"{quote} {text}"]
-    for file in _comment_image_files(comment.get("comment_id"), manifest):
-        lines.append(f"{quote} {_img_from_manifest(object_rel, file)}")
-    return lines
+        text = f'<span class="lb-reply-target">回复 {_safe(target)}：</span>{text}'
 
+    media = "".join(
+        f'<img class="lb-comment-image" src="../../{_safe(_img_srcs(object_rel, f)[0])}" '
+        'loading="lazy" alt="评论图片">'
+        for f in _comment_image_files(comment.get("comment_id"), manifest)
+    )
+    media = f'<div class="lb-comment-media">{media}</div>' if media else ""
 
-def _first_n_chars(text: str, n: int) -> str:
-    text = (text or "").strip()
-    return text[:n]
+    likes = comment.get("like_count")
+    actions = ""
+    if likes not in (None, "", 0, "0"):
+        actions = f'<div class="lb-comment-actions">♡ {_safe(likes)}</div>'
 
+    cls = "lb-comment lb-reply" if nested else "lb-comment"
+    parts = [
+        f'<article class="{cls}"><div class="lb-comment-head">',
+        f'<span class="lb-comment-author">{_safe(author)}</span>',
+        f'<span class="lb-comment-date">{_safe(meta)}</span>' if meta else "",
+        f'</div><div class="lb-comment-text">{text}</div>{media}{actions}',
+    ]
 
-# --------------------------------------------------------------------------
-# comments 层解析（分层保护）
-# --------------------------------------------------------------------------
+    if not nested:
+        subs = comment.get("sub_comments") or []
+        if subs:
+            parts.append('<div class="lb-replies">')
+            parts.extend(_comment_html(s, object_rel, manifest, nested=True) for s in subs)
+            try:
+                declared = int(comment.get("sub_comment_count") or 0)
+            except (TypeError, ValueError):
+                declared = 0
+            if declared > len(subs):
+                parts.append(f'<div class="lb-more-replies">展开 {declared} 条回复</div>')
+            parts.append("</div>")
+    parts.append("</article>")
+    return "".join(parts)
 
 
 def split_layers(existing_text: str | None) -> tuple[str | None, str | None]:
-    """从已有可见 md 里抠出 comments 层块（含标记本身）和标题之外无关内容。
-
-    返回 (comments_block_text_including_markers, None)；找不到就 (None, None)。
-    """
     if not existing_text:
         return None, None
     start = existing_text.find(COMMENTS_START)
@@ -131,21 +177,75 @@ def split_layers(existing_text: str | None) -> tuple[str | None, str | None]:
     return existing_text[start:end], None
 
 
-# --------------------------------------------------------------------------
-# 渲染主体
-# --------------------------------------------------------------------------
-
-
 def render_comments_block(note_text: str | None, note_links: list[dict[str, Any]]) -> str:
     lines = [COMMENTS_START]
     if note_text:
         cleaned = _clean_links_in_text(note_text, note_links)
-        today = datetime.now().strftime("%Y%m%d")
-        lines.append("> [!quote] 留言")
-        lines.append(f"> 「{today} 人」{cleaned}")
-        lines.append("<!-- link-brain: id=cmt1 actor=human target=none status=open -->")
+        lines += [
+            "> [!link-brain-comment]",
+            f"> 「{datetime.now().strftime('%Y%m%d')} 人」{cleaned}",
+            "<!-- link-brain: id=cmt1 actor=human target=none status=open -->",
+        ]
     lines.append(COMMENTS_END)
     return "\n".join(lines)
+
+
+def _upgrade_comments_block(block: str) -> str:
+    return block.replace("> [!quote] 留言", "> [!link-brain-comment]", 1)
+
+
+def _media_html(note: dict[str, Any], manifest: dict[str, Any], object_rel: str) -> tuple[str, bool]:
+    entries = [
+        m for m in manifest.get("media", [])
+        if m.get("role") in ("note_image", "video_cover")
+        and m.get("file")
+        and m.get("download_status", "ok") == "ok"
+    ]
+    if not entries:
+        return "", False
+
+    total = len(entries)
+    parts = ['<section class="lb-media"><div class="lb-carousel">']
+    for i, entry in enumerate(entries, 1):
+        src, _ = _img_srcs(object_rel, entry["file"])
+        parts += [
+            '<figure class="lb-slide">',
+            f'<img src="../../{_safe(src)}" loading="lazy" alt="图片 {i} / {total}">',
+            f'<figcaption class="lb-counter">{i} / {total}</figcaption>' if total > 1 else "",
+            "</figure>",
+        ]
+    parts.append("</div>")
+    if note.get("kind") == "video":
+        parts.append('<div class="lb-video-badge">视频 · 未下载</div>')
+    parts.append("</section>")
+    return "".join(parts), True
+
+
+def _detail_html(note: dict[str, Any], comments: list[dict[str, Any]], manifest: dict[str, Any], object_rel: str) -> str:
+    author = (note.get("author") or {}).get("nickname") or "匿名"
+    meta = " · ".join(x for x in (_date(note.get("published_at")), note.get("ip_location")) if x)
+    comment_total = (note.get("engagement") or {}).get("comment_count")
+    if comment_total in (None, ""):
+        comment_total = len(comments)
+
+    parts = [
+        '<section class="lb-detail">',
+        '<div class="lb-author-row"><div class="lb-author-dot" aria-hidden="true"></div><div class="lb-author-copy">',
+        f'<div class="lb-author-name">{_safe(author)}</div>',
+        f'<div class="lb-post-meta">{_safe(meta)}</div>' if meta else "",
+        "</div></div>",
+        f'<div class="lb-post-body">{_body_html(note.get("body") or "")}</div>',
+        _tag_html(note.get("hashtags") or []),
+        _engagement_html(note),
+        '<div class="lb-comments">',
+        f'<div class="lb-comments-count">评论 {_safe(comment_total)}</div>',
+    ]
+    if comments:
+        parts.extend(_comment_html(c, object_rel, manifest) for c in comments)
+    else:
+        parts.append('<div class="lb-empty">暂无评论</div>')
+    parts += ["</div>", "</section>"]
+    return "".join(parts)
 
 
 def render_content_block(
@@ -156,88 +256,11 @@ def render_content_block(
     object_rel: str,
 ) -> str:
     note = source["note"]
-    parts: list[str] = [CONTENT_START]
-
-    # 图文两栏：左图右文，容器是一整块 HTML（HTML 块里的 Markdown 段落要空行才渲染）
-    is_video = note.get("kind") == "video"
-    image_entries = [
-        m for m in manifest.get("media", [])
-        if m.get("role") in ("note_image", "video_cover") and m.get("file")
-    ]
-    parts.append('<div class="lb-cols"><div class="lb-imgs">')
-    img_srcs: list[tuple[str, str]] = []
-    for entry in image_entries:
-        file_rel = entry["file"]  # 已是 "raw/vNNNN/assets/xxx"
-        src, raw = _img_srcs(object_rel, file_rel)
-        img_srcs.append((src, raw))
-        # HTML <img src> 按笔记所在目录解析（vault/Web/Xiaohongshu/），wikilink 才是 vault 全局
-        parts.append(f'<img src="../../{src}">')
-    parts.append('</div><div class="lb-body">')
-    parts.append("")
-    body_text = note.get("body") or "（无正文）"
-    for para in body_text.split("\n"):
-        parts.append(para)
-        parts.append("")
-    parts.append("</div></div>")
-    parts.append("")
-
-    if is_video:
-        parts.append(f"🎬 视频 · 未下载 · [原链接]({note.get('canonical_url')})")
-    elif img_srcs:
-        link_bits = [f"[[{raw}|{i}]]" if i > 1 else f"[[{raw}|原图 {i}]]" for i, (_, raw) in enumerate(img_srcs, start=1)]
-        parts.append(" · ".join(link_bits))
-    parts.append("")
-
-    # 评论
-    parts.append("## 评论")
-    parts.append("")
     comments = source.get("comments") or []
-    if comments:
-        for comment in comments:
-            parts.extend(_comment_body_lines(comment, object_rel, manifest, quote=">"))
-            parts.append(">")
-            for sub in comment.get("sub_comments") or []:
-                parts.extend(_comment_body_lines(sub, object_rel, manifest, quote=">>"))
-                parts.append(">")
-    else:
-        parts.append("（无评论）")
-    parts.append("")
-
-    # 归档信息
-    parts.append("## 归档信息")
-    parts.append("")
-    parts.append(f"- 原链接：{note.get('canonical_url')}")
-    version_name = storage.version_name(meta["current_version"])
-    first_archived_date = (meta.get("first_archived_at") or "")[:10]
-    parts.append(f"- 首次归档：{first_archived_date} · 版本 {version_name}")
-    parts.append(f"- 附件：{meta.get('attachments_status')}" + (
-        "（笔记文件 MCP 拿不到，线索见 source.json）" if meta.get("attachments_status") == "unavailable" else ""
-    ))
-    parts.append(CONTENT_END)
-    return "\n".join(parts)
-
-
-def _img_srcs(object_rel: str, file_rel: str) -> tuple[str, str]:
-    """`file_rel` 是 manifest 里的 `raw/vNNNN/assets/xxx.ext`（相对对象目录）。
-
-    返回 (`<img src>` 用的路径, 原图链接用的路径)。Obsidian 显示不了的格式（avif/heic）
-    src 指向 derived/previews 的转码结果，原图链接仍指向 raw。
-    """
-    raw_target = f"{object_rel}/{file_rel}"
-    suffix = Path(file_rel).suffix.lower()
-    if suffix in PREVIEW_UNSUPPORTED_SUFFIXES:
-        preview_name = Path(file_rel).stem + ".png"
-        preview_target = f"{object_rel}/derived/previews/{preview_name}"
-        return preview_target, raw_target
-    return raw_target, raw_target
-
-
-def _img_from_manifest(object_rel: str, file_rel: str) -> str:
-    """兼容旧调用点（评论图仍用 `![[ ]]`，不进两栏容器）。"""
-    src, raw = _img_srcs(object_rel, file_rel)
-    if src != raw:
-        return f"![[{src}]] （原图：[[{raw}]]）"
-    return f"![[{src}]]"
+    media, has_media = _media_html(note, manifest, object_rel)
+    detail = _detail_html(note, comments, manifest, object_rel)
+    cls = "lb-cols" if has_media else "lb-cols lb-no-media"
+    return "\n".join([CONTENT_START, f'<div class="{cls}">', media, detail, "</div>", CONTENT_END])
 
 
 def render_visible_md(
@@ -249,73 +272,67 @@ def render_visible_md(
     existing_text: str | None,
 ) -> str:
     note = source["note"]
-    frontmatter_tags = note.get("hashtags") or []
-    fm_lines = ["---"]
-    fm_lines.append("cssclasses: [link-brain]")
-    fm_lines.append("tags: [" + ", ".join(frontmatter_tags) + "]")
-    fm_lines.append("link_brain:")
-    fm_lines.append(f"  item_id: {meta['item_id']}")
-    fm_lines.append(f"  source: {meta['source']}")
-    fm_lines.append(f"  source_id: {meta['source_id']}")
-    fm_lines.append(f"  canonical_url: {meta['canonical_url']}")
-    fm_lines.append(f"  origin: {meta.get('origin')}")
-    fm_lines.append(f"  ingest_kind: {meta.get('ingest_kind')}")
-    fm_lines.append(f"  actor: {meta.get('actor')}")
-    fm_lines.append(f"  actor_id: null")
-    fm_lines.append(f"  first_archived: {meta.get('first_archived_at')}")
-    fm_lines.append(f"  current_version: {meta['current_version']}")
-    fm_lines.append(f"  images_complete: {str(meta.get('images_complete')).lower()}")
-    comments_complete = meta.get("comments_complete")
-    if isinstance(comments_complete, bool):
-        comments_complete = str(comments_complete).lower()
-    fm_lines.append(f"  comments_complete: {comments_complete}")
-    fm_lines.append("---")
+    tags = note.get("hashtags") or []
+    fm = [
+        "---",
+        "cssclasses: [link-brain, xhs-note]",
+        "tags: [" + ", ".join(tags) + "]",
+        "link_brain:",
+        f"  item_id: {meta['item_id']}",
+        f"  source: {meta['source']}",
+        f"  source_id: {meta['source_id']}",
+        f"  canonical_url: {meta['canonical_url']}",
+        f"  origin: {meta.get('origin')}",
+        f"  ingest_kind: {meta.get('ingest_kind')}",
+        f"  actor: {meta.get('actor')}",
+        "  actor_id: null",
+        f"  first_archived: {meta.get('first_archived_at')}",
+        f"  current_version: {meta['current_version']}",
+        f"  images_complete: {str(meta.get('images_complete')).lower()}",
+    ]
+    cc = meta.get("comments_complete")
+    if isinstance(cc, bool):
+        cc = str(cc).lower()
+    fm += [f"  comments_complete: {cc}", "---"]
 
     comments_block, _ = split_layers(existing_text)
     if comments_block is None:
         comments_block = render_comments_block(meta.get("note"), note.get("links") or [])
+    else:
+        comments_block = _upgrade_comments_block(comments_block)
 
-    content_block = render_content_block(source=source, manifest=manifest, meta=meta, object_rel=object_rel)
-
-    body = "\n".join(fm_lines) + "\n\n" + comments_block + "\n\n" + content_block + "\n"
-    return body
+    content = render_content_block(source=source, manifest=manifest, meta=meta, object_rel=object_rel)
+    return "\n".join(fm) + "\n\n" + comments_block + "\n\n" + content + "\n"
 
 
 def render_agent_md(*, source: dict[str, Any], vision: dict[str, Any], meta: dict[str, Any]) -> str:
     note = source["note"]
     title = note.get("title") or meta.get("title") or "（无标题）"
-    lines: list[str] = [f"# {title}"]
-
-    lines += ["", "## 概要", ""]  # Lot 3 阶段留空占位
-
-    lines += ["", "## 重要细节", ""]  # Lot 3 阶段留空占位
+    lines = [f"# {title}", "", "## 概要", "", "", "## 重要细节", ""]
 
     lines += ["", "## 数据点", ""]
     engagement = note.get("engagement") or {}
     if engagement:
-        for key, value in engagement.items():
-            lines.append(f"- {key}: {value}")
+        lines.extend(f"- {k}: {v}" for k, v in engagement.items())
     else:
         lines.append("（未生成）")
 
     lines += ["", "## 外链", ""]
     links = note.get("links") or []
     if links:
-        for link in links:
-            lines.append(f"- [{link.get('text') or link.get('url')}]({link.get('url')})（{link.get('where')}）")
+        lines.extend(
+            f"- [{x.get('text') or x.get('url')}]({x.get('url')})（{x.get('where')}）"
+            for x in links
+        )
     else:
         lines.append("（未生成）")
 
-    lines += ["", "## 原文", ""]
-    lines.append(note.get("body") or "（未生成）")
-
-    lines += ["", "## 图片 OCR", ""]
+    lines += ["", "## 原文", "", note.get("body") or "（未生成）", "", "## 图片 OCR", ""]
     images = (vision or {}).get("images") or []
     if images:
         for image in images:
             if image.get("status") == "ok":
-                ocr_text = (image.get("ocr") or "").strip() or "（无文字）"
-                lines.append(f"- {image['asset']}：{ocr_text}")
+                lines.append(f"- {image['asset']}：{(image.get('ocr') or '').strip() or '（无文字）'}")
             else:
                 lines.append(f"- {image['asset']}：（识别失败：{image.get('error')}）")
     else:
@@ -324,23 +341,22 @@ def render_agent_md(*, source: dict[str, Any], vision: dict[str, Any], meta: dic
     lines += ["", "## 评论", ""]
     comments = source.get("comments") or []
     if comments:
-        for comment in comments:
-            author = (comment.get("author") or {}).get("nickname") or "匿名"
-            lines.append(f"- {author}：{comment.get('text')}")
-            for sub in comment.get("sub_comments") or []:
-                sub_author = (sub.get("author") or {}).get("nickname") or "匿名"
-                lines.append(f"  - {sub_author}：{sub.get('text')}")
+        for c in comments:
+            lines.append(f"- {(c.get('author') or {}).get('nickname') or '匿名'}：{c.get('text')}")
+            for s in c.get("sub_comments") or []:
+                lines.append(f"  - {(s.get('author') or {}).get('nickname') or '匿名'}：{s.get('text')}")
     else:
         lines.append("（未生成）")
 
-    lines += ["", "## 元信息", ""]
-    lines.append(f"- item_id: {meta['item_id']}")
-    lines.append(f"- canonical_url: {meta.get('canonical_url')}")
-    lines.append(f"- current_version: {meta['current_version']}")
-    lines.append(f"- images_complete: {meta.get('images_complete')}")
-    lines.append(f"- comments_complete: {meta.get('comments_complete')}")
-    lines.append(f"- attachments_status: {meta.get('attachments_status')}")
-
+    lines += [
+        "", "## 元信息", "",
+        f"- item_id: {meta['item_id']}",
+        f"- canonical_url: {meta.get('canonical_url')}",
+        f"- current_version: {meta['current_version']}",
+        f"- images_complete: {meta.get('images_complete')}",
+        f"- comments_complete: {meta.get('comments_complete')}",
+        f"- attachments_status: {meta.get('attachments_status')}",
+    ]
     return "\n".join(lines) + "\n"
 
 
@@ -348,19 +364,15 @@ def brief_summary(source: dict[str, Any]) -> str:
     return _first_n_chars((source.get("note") or {}).get("body"), 120)
 
 
-# --------------------------------------------------------------------------
-# 落盘：单对象渲染
-# --------------------------------------------------------------------------
-
-
 def ensure_css_snippet() -> None:
-    """`vault/.obsidian/snippets/link-brain.css` 不存在就写一份；存在就不动（Owner 可能改过）。"""
+    """Sync managed CSS into the vault so UI changes actually reach existing vaults."""
     target = storage.vault_root() / ".obsidian" / "snippets" / "link-brain.css"
-    if target.exists():
-        return
     template = Path(__file__).resolve().parent / "assets" / "link-brain.css"
+    content = template.read_text(encoding="utf-8")
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
+    if target.exists() and target.read_text(encoding="utf-8") == content:
+        return
+    target.write_text(content, encoding="utf-8")
 
 
 def render_object(source_key: str, source_id: str, *, verbose: bool = False) -> dict[str, Any]:
@@ -369,16 +381,15 @@ def render_object(source_key: str, source_id: str, *, verbose: bool = False) -> 
     meta_path = object_dir / "meta.json"
     if not meta_path.exists():
         raise FileNotFoundError(f"没有归档过: {source_key}/{source_id}")
+
     meta = storage.read_json(meta_path)
-    version = meta["current_version"]
-    raw_dir = storage.raw_dir(source_key, source_id, version)
+    raw_dir = storage.raw_dir(source_key, source_id, meta["current_version"])
     source_doc = storage.read_json(raw_dir / "source.json")
     manifest = storage.read_json(raw_dir / "manifest.json")
 
     derived_dir = storage.derived_dir(source_key, source_id)
     vision_path = derived_dir / "vision.json"
     vision_doc = storage.read_json(vision_path) if vision_path.exists() else {"images": []}
-
     object_rel = f"_archive/{source_key}/{source_id}"
 
     visible_dir = storage.visible_dir()
@@ -386,9 +397,8 @@ def render_object(source_key: str, source_id: str, *, verbose: bool = False) -> 
     filename = visible_filename(source_doc["note"].get("title") or meta.get("title") or "", source_id)
     visible_path = visible_dir / filename
 
-    # 若标题变了，旧文件名可能不同：找并删掉此对象名下的旧可见文件，只留新的一份
-    old_visible = meta.get("visible_note")
     existing_text = None
+    old_visible = meta.get("visible_note")
     if old_visible:
         old_path = storage.vault_root() / old_visible
         if old_path.exists():
@@ -396,14 +406,22 @@ def render_object(source_key: str, source_id: str, *, verbose: bool = False) -> 
             if old_path != visible_path:
                 old_path.unlink()
 
-    visible_md = render_visible_md(
-        source=source_doc, manifest=manifest, meta=meta, object_rel=object_rel, existing_text=existing_text
+    visible_path.write_text(
+        render_visible_md(
+            source=source_doc,
+            manifest=manifest,
+            meta=meta,
+            object_rel=object_rel,
+            existing_text=existing_text,
+        ),
+        encoding="utf-8",
     )
-    visible_path.write_text(visible_md, encoding="utf-8")
 
-    agent_md = render_agent_md(source=source_doc, vision=vision_doc, meta=meta)
-    (derived_dir).mkdir(parents=True, exist_ok=True)
-    (derived_dir / "agent.md").write_text(agent_md, encoding="utf-8")
+    derived_dir.mkdir(parents=True, exist_ok=True)
+    (derived_dir / "agent.md").write_text(
+        render_agent_md(source=source_doc, vision=vision_doc, meta=meta),
+        encoding="utf-8",
+    )
 
     rel_visible = str(visible_path.relative_to(storage.vault_root())).replace("\\", "/")
     if meta.get("visible_note") != rel_visible:
@@ -412,12 +430,10 @@ def render_object(source_key: str, source_id: str, *, verbose: bool = False) -> 
 
     if verbose:
         print(f"[render] {meta['item_id']} -> {rel_visible}")
-
     return {"item_id": meta["item_id"], "visible_note": rel_visible, "agent_md": str(derived_dir / "agent.md")}
 
 
 def render_item(source_key: str, source_id: str, *, verbose: bool = False) -> dict[str, Any]:
-    """先跑 vision（按 sha256 跳过已识别），再渲染。"""
     vision_mod.build_vision(source_key, source_id, verbose=verbose)
     return render_object(source_key, source_id, verbose=verbose)
 
@@ -428,15 +444,14 @@ def run(args) -> int:
     conn = index_mod.connect()
     try:
         if getattr(args, "all", False):
-            cur = conn.execute("SELECT source, source_id FROM objects ORDER BY item_id")
-            targets = [(row["source"], row["source_id"]) for row in cur.fetchall()]
+            rows = conn.execute("SELECT source, source_id FROM objects ORDER BY item_id").fetchall()
+            targets = [(r["source"], r["source_id"]) for r in rows]
         elif args.target:
             row = index_mod.get_object(conn, args.target)
-            if row:
-                targets = [(row["source"], row["source_id"])]
-            else:
+            if not row:
                 print(f"没有归档过: {args.target}", file=sys.stderr)
                 return 1
+            targets = [(row["source"], row["source_id"])]
         else:
             print("需要 target 或 --all", file=sys.stderr)
             return 1
