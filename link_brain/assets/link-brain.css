@@ -76,7 +76,6 @@
   margin: 0.25em 0;
 }
 
-/* 默认单栏；note pane 足够宽时才切左右两栏。 */
 .xhs-note .lb-cols {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr);
@@ -96,7 +95,6 @@
   min-width: 0;
 }
 
-/* 图片：一屏一张，横向切换，无缩略图。 */
 .xhs-note .lb-media {
   position: relative;
   min-width: 0;
@@ -104,37 +102,46 @@
 
 .xhs-note .lb-carousel {
   position: relative;
-  display: flex !important;
   width: 100%;
   min-width: 0;
-  overflow-x: auto !important;
-  overflow-y: hidden;
-  overscroll-behavior-inline: contain;
-  scroll-snap-type: x mandatory;
-  scroll-behavior: smooth;
+  overflow: hidden;
   border-radius: var(--lb-radius);
   background: var(--background-secondary);
-  scrollbar-width: none;
 }
 
-.xhs-note .lb-carousel::-webkit-scrollbar {
-  display: none;
+.xhs-note .lb-slide-toggle {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 
 .xhs-note .lb-slide {
   position: relative;
-  flex: 0 0 100% !important;
+  display: none;
   width: 100%;
-  min-width: 100% !important;
+  min-width: 0;
   margin: 0 !important;
-  scroll-snap-align: start;
-  scroll-snap-stop: always;
-  display: grid;
   place-items: center;
   overflow: hidden;
 }
 
-.xhs-note .lb-slide img {
+.xhs-note .lb-slide-toggle:checked + .lb-slide {
+  display: grid;
+}
+
+.xhs-note .lb-image-double {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-width: 0;
+  outline: none;
+  cursor: default;
+}
+
+.xhs-note .lb-image-double img {
   display: block;
   width: 100%;
   height: auto;
@@ -143,14 +150,29 @@
   object-position: center;
   border-radius: var(--lb-radius);
   margin: 0;
+  pointer-events: none;
 }
 
-/* 页数灰底，PC 上移入图片区才出现。 */
+.xhs-note .lb-image-open {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  cursor: default;
+  text-decoration: none !important;
+}
+
+.xhs-note .lb-image-double:focus .lb-image-open,
+.xhs-note .lb-image-double:focus-within .lb-image-open {
+  pointer-events: auto;
+  cursor: alias;
+}
+
 .xhs-note .lb-counter {
   position: absolute;
   top: 12px;
   right: 12px;
-  z-index: 5;
+  z-index: 6;
   padding: 4px 8px;
   border-radius: 999px;
   font-size: 12px;
@@ -168,11 +190,10 @@
   opacity: 1;
 }
 
-/* 左右切图：真实 anchor，避免依赖 Electron 是否支持 CSS scroll-button。 */
 .xhs-note .lb-arrow {
   position: absolute;
   top: 50%;
-  z-index: 8;
+  z-index: 9;
   display: grid;
   place-items: center;
   width: 42px;
@@ -180,7 +201,6 @@
   border-radius: 50%;
   color: white !important;
   background: var(--lb-arrow-bg);
-  text-decoration: none !important;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 31px;
   font-weight: 300;
@@ -189,6 +209,8 @@
   transform: translateY(-50%);
   backdrop-filter: blur(5px);
   transition: opacity 120ms ease, background 120ms ease, transform 120ms ease;
+  cursor: pointer;
+  user-select: none;
 }
 
 .xhs-note .lb-arrow-left { left: 12px; }
@@ -210,7 +232,7 @@
   position: absolute;
   left: 12px;
   bottom: 12px;
-  z-index: 4;
+  z-index: 10;
   padding: 6px 10px;
   border-radius: 999px;
   font-size: 12px;
@@ -220,7 +242,6 @@
   pointer-events: none;
 }
 
-/* 右栏正文。 */
 .xhs-note .lb-detail {
   font-size: var(--lb-body-size);
   line-height: 1.72;
@@ -240,22 +261,16 @@
 
 .xhs-note .lb-author-avatar,
 .xhs-note .lb-comment-avatar {
-  display: grid;
-  place-items: center;
+  display: block;
   flex: 0 0 auto;
   border-radius: 50%;
   background: var(--lb-avatar-color);
-  color: rgb(255 255 255 / 0.92);
-  font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-weight: 700;
-  user-select: none;
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.45);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.42);
 }
 
 .xhs-note .lb-author-avatar {
-  width: 34px;
-  height: 34px;
-  font-size: 15px;
+  width: 31px;
+  height: 31px;
 }
 
 .xhs-note .lb-author-copy {
@@ -263,15 +278,15 @@
   line-height: 1.3;
 }
 
-.xhs-note .lb-author-line {
+.xhs-note .lb-author-line,
+.xhs-note .lb-comment-head {
   display: flex;
   align-items: center;
-  gap: 7px;
   flex-wrap: wrap;
+  gap: 6px;
 }
 
 .xhs-note .lb-author-name {
-  font-size: 1.05em;
   font-weight: 750;
   color: var(--text-normal);
 }
@@ -283,16 +298,16 @@
   padding: 1px 6px;
   border-radius: 999px;
   font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 0.7em;
+  font-size: 0.68em;
+  line-height: 1.45;
   font-weight: 650;
-  line-height: 1.5;
-  color: color-mix(in srgb, var(--interactive-accent) 82%, var(--text-normal));
+  color: color-mix(in srgb, var(--interactive-accent) 76%, var(--text-normal));
   background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
 }
 
 .xhs-note .lb-post-meta {
   margin-top: 2px;
-  font-size: 0.76em;
+  font-size: 0.78em;
   color: var(--lb-faint);
 }
 
@@ -304,11 +319,10 @@
   margin: 0 0 0.82em;
 }
 
-/* 小红书式行内话题，不做胶囊。 */
 .xhs-note .lb-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px 12px;
+  gap: 10px;
   margin: 10px 0 4px;
 }
 
@@ -329,14 +343,17 @@
   margin: 11px 0 0;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--lb-line);
-  font-size: 0.76em;
+  font-size: 0.78em;
   color: var(--lb-muted);
 }
 
-/* 评论区：不显示日期/地点/总评论数；独立滚动在宽 pane 开启。 */
 .xhs-note .lb-comments-scroller {
   min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding-top: 15px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 26%, transparent) transparent;
 }
 
 .xhs-note .lb-comments {
@@ -359,10 +376,9 @@
 }
 
 .xhs-note .lb-comment-avatar {
-  width: 22px;
-  height: 22px;
-  margin-top: 1px;
-  font-size: 10px;
+  width: 18px;
+  height: 18px;
+  margin-top: 0.18em;
 }
 
 .xhs-note .lb-comment-main {
@@ -371,10 +387,6 @@
 }
 
 .xhs-note .lb-comment-head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
   margin-bottom: 2px;
 }
 
@@ -383,11 +395,6 @@
   font-size: 0.86em;
   font-weight: 600;
   color: var(--lb-muted);
-}
-
-.xhs-note .lb-is-op .lb-comment-author {
-  color: color-mix(in srgb, var(--text-normal) 82%, var(--background-primary));
-  font-weight: 700;
 }
 
 .xhs-note .lb-comment-text {
@@ -408,28 +415,12 @@
   color: var(--lb-faint);
 }
 
-/* 楼中楼：递归支持，视觉最多加强到 3 层，避免越缩越窄。 */
 .xhs-note .lb-replies {
   position: relative;
   margin-top: 8px;
-  margin-left: clamp(8px, 1.25vw, 14px);
-  padding-left: clamp(10px, 1.35vw, 15px);
+  margin-left: clamp(8px, 1.2vw, 15px);
+  padding-left: clamp(10px, 1.35vw, 16px);
   border-left: 1px solid var(--lb-reply-line);
-}
-
-.xhs-note .lb-replies .lb-replies {
-  margin-left: clamp(5px, 0.9vw, 10px);
-  padding-left: clamp(8px, 1vw, 12px);
-}
-
-.xhs-note .lb-replies .lb-replies .lb-replies {
-  margin-left: 2px;
-  padding-left: 8px;
-}
-
-.xhs-note .lb-replies .lb-replies .lb-replies .lb-replies {
-  margin-left: 0;
-  padding-left: 6px;
 }
 
 .xhs-note .lb-reply {
@@ -437,11 +428,17 @@
   font-size: 0.97em;
 }
 
+.xhs-note .lb-depth-2 > .lb-replies,
+.xhs-note .lb-depth-3 > .lb-replies {
+  margin-left: 5px;
+  padding-left: 9px;
+}
+
 .xhs-note .lb-more-replies {
   margin-top: 1px;
   font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 0.76em;
-  color: var(--lb-faint);
+  color: var(--lb-muted);
 }
 
 .xhs-note .lb-comment-media {
@@ -465,7 +462,6 @@
   font-size: 0.9em;
 }
 
-/* 宽 pane：左图右文。滚评论时，图片和正文保持不动。 */
 @container link-brain-note (min-width: 980px) {
   .xhs-note .lb-cols {
     grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr);
@@ -475,53 +471,76 @@
   .xhs-note .lb-detail {
     position: sticky;
     top: 14px;
-    align-self: start;
   }
 
-  .xhs-note .lb-comments-scroller {
-    max-height: clamp(280px, 43vh, 540px);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--text-muted) 28%, transparent) transparent;
-    padding-right: 4px;
-  }
-
-  .xhs-note .lb-comments-scroller::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  .xhs-note .lb-comments-scroller::-webkit-scrollbar-thumb {
-    background: color-mix(in srgb, var(--text-muted) 24%, transparent);
-    border-radius: 999px;
+  .xhs-note .lb-detail {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    max-height: min(80vh, 920px);
+    overflow: hidden;
   }
 }
 
-/* 窄 pane / 手机：回到自然单栏，评论不套固定滚动框。 */
 @container link-brain-note (max-width: 979px) {
   .xhs-note .lb-media,
   .xhs-note .lb-detail {
     position: static;
   }
 
-  .xhs-note .lb-slide img {
-    max-height: 70vh;
-  }
-
   .xhs-note .lb-detail {
+    display: block;
+    max-height: none;
+    overflow: visible;
     font-size: clamp(15px, 3.6cqi, 16px);
     line-height: 1.68;
   }
 
   .xhs-note .lb-comments-scroller {
-    max-height: none;
     overflow: visible;
     padding-top: 14px;
   }
 
+  .xhs-note .lb-carousel {
+    display: flex;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+    scrollbar-width: none;
+  }
+
+  .xhs-note .lb-carousel::-webkit-scrollbar {
+    display: none;
+  }
+
+  .xhs-note .lb-slide-toggle {
+    display: none !important;
+  }
+
+  .xhs-note .lb-slide,
+  .xhs-note .lb-slide-toggle:checked + .lb-slide {
+    display: grid;
+    flex: 0 0 100%;
+    min-width: 100%;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+  }
+
+  .xhs-note .lb-arrow {
+    display: none !important;
+  }
+
+  .xhs-note .lb-counter {
+    opacity: 0.72;
+  }
+
+  .xhs-note .lb-image-double img {
+    max-height: 70vh;
+  }
+
   .xhs-note .lb-replies {
     margin-left: 6px;
-    padding-left: 9px;
+    padding-left: 10px;
   }
 
   .xhs-note .lb-comment {
@@ -540,30 +559,17 @@
   }
 
   .xhs-note .lb-author-avatar {
-    width: 31px;
-    height: 31px;
-    font-size: 13px;
+    width: 28px;
+    height: 28px;
   }
 
   .xhs-note .lb-comment-avatar {
-    width: 20px;
-    height: 20px;
-    font-size: 9px;
+    width: 16px;
+    height: 16px;
   }
 
   .xhs-note .lb-replies {
     margin-left: 3px;
-    padding-left: 7px;
-  }
-}
-
-/* 触屏没有 hover；保留页数提示，但不显示箭头，继续用手势横滑。 */
-@media (hover: none) {
-  .xhs-note .lb-counter {
-    opacity: 0.72;
-  }
-
-  .xhs-note .lb-arrow {
-    display: none;
+    padding-left: 8px;
   }
 }
