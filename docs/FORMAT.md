@@ -654,6 +654,8 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
 | `tags` | 可见 md frontmatter 里的 `tags`（原帖 hashtag + 小模型建议 + Owner 手写都在里面） |
 | `attachments.status` | `none` / `unavailable` / `metadata_only` / `downloaded`（见 §7a） |
 | `error` | 只在出问题时出现：`status=error` 是这条没归档成；归档成了但渲染失败也会带这个键 |
+| `url` | `canonical_url`，**只当去重键**（硬约束 7） |
+| `open_url` | 能真正点开的地址：canonical + 抓取时那个 `xsec_token`。光有 `/explore/<id>` 小红书现在回 404（2026-09-05 实机），给人看链接一律用这个 |
 
 `status=error` 的条目只有 `item_id`（可能是 `null`）/ `status` / `url` / `error` 四个键：
 
