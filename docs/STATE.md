@@ -1,7 +1,7 @@
 # Current State
 
 current_lot: 4
-current_main: e80245a60d7c01044fc8d70cea508ffea5ec02e4
+current_main: b4916a5  # catch + 附件链接回归修复（本文件的这条 docs 提交在它后面一格）
 repo_path: D:\LIGHT WEB ARCHIEVE
 
 ## 已真实通过
