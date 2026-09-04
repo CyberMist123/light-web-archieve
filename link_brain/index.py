@@ -223,7 +223,7 @@ def search(conn: sqlite3.Connection, query: str, *, limit: int = 20) -> list[sql
     like = f"%{query}%"
     cur = conn.execute(
         """
-        SELECT item_id, title, body, tags, first_archived_at FROM objects
+        SELECT item_id, title, body, tags, kind, canonical_url, first_archived_at FROM objects
         WHERE title LIKE ? OR body LIKE ?
         ORDER BY first_archived_at DESC
         LIMIT ?

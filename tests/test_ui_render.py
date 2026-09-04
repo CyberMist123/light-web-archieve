@@ -191,10 +191,11 @@ def test_attachment_row_shows_name_pages_and_not_downloaded():
         object_rel="_archive/xiaohongshu/0000000000000000deadbeef",
         existing_text=None,
     )
-    assert 'class="lb-files"' in text
     assert "p模式教程-机教版.pdf" in text
     assert "19 页" in text and "未下载" in text
-    assert 'href="https://www.xiaohongshu.com/file/7658854832003020032"' in text
+    # 只有元数据时指原站：普通 Markdown 链接，且必须在 HTML 块外面才点得开
+    assert "](https://www.xiaohongshu.com/file/7658854832003020032)" in text
+    assert "<a href=" not in text.split("</div>")[-1]
 
 
 def test_downloaded_attachment_points_at_local_file():
@@ -207,7 +208,12 @@ def test_downloaded_attachment_points_at_local_file():
         existing_text=None,
     )
     assert "已存本地" in text
-    assert "../../_archive/xiaohongshu/0000000000000000deadbeef/raw/v0001/attachments/教程.pdf" in text
+    # 下下来的字节：Obsidian 自己的 wikilink（`<a href="../../…">` 在 Obsidian 里点不开，
+    # 2026-09-04 Owner 实机踩到过），且这一行在 content 的 HTML 容器之外
+    link = "[[_archive/xiaohongshu/0000000000000000deadbeef/raw/v0001/attachments/教程.pdf|"
+    assert link in text
+    assert text.index(link) > text.rindex("</div>")
+    assert "<a href=" not in text
 
 
 def test_no_attachments_renders_nothing():

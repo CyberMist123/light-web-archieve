@@ -39,15 +39,30 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--note", default=None, help="原始附言，渲染成留言层 cmt1")
     p.add_argument("--refresh", action="store_true", help="重新抓取；有变化才写新 RAW 版本（Lot 2）")
 
+    p = sub.add_parser(
+        "catch",
+        help="给主模型用：吃一整条消息，自己找小红书链接归档，只打一个 JSON",
+    )
+    p.add_argument("message", help="原始消息全文（整条会当作留言 cmt1 存进可见笔记）")
+    p.add_argument("--origin", choices=ORIGINS, default="cli", help="从哪个端进来的")
+    p.add_argument("--actor", default="human", help="human 或 ai:<name>")
+    p.add_argument(
+        "--extract",
+        action="store_true",
+        help="顺手调小模型补 extracted.json（默认不调，概要退回正文前 120 字）",
+    )
+
     p = sub.add_parser("read", help="打印一个已归档对象")
     p.add_argument("target", help="item_id 或 URL")
     g = p.add_mutually_exclusive_group()
     g.add_argument("--brief", action="store_true", help="只打印标题 + 概要（≤5 行）")
     g.add_argument("--full", action="store_true", help="打印整个 derived/agent.md")
+    p.add_argument("--json", action="store_true", help="机器可读版（给主模型），配合 --brief/--full")
 
     p = sub.add_parser("search", help="按关键词搜标题/正文")
     p.add_argument("query")
     p.add_argument("--limit", type=int, default=20)
+    p.add_argument("--json", action="store_true", help="机器可读版（给主模型）")
 
     p = sub.add_parser("reindex", help="从已有 raw/ 回填 index.db（不重抓、不联网）")
 
@@ -92,6 +107,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows 控制台默认 GBK：给人看的 print 一碰到 emoji（小红书标题里到处是）就
+    # UnicodeEncodeError 整条命令崩。只把错误策略降成 replace，不改编码——Owner 的中文照常显示。
+    # 机器可读的 JSON 不走这条路，直接写 UTF-8 字节，见 `read.dump_json`。
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):  # pytest 的捕获流没有 reconfigure
+            pass
+
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -103,6 +127,11 @@ def main(argv: list[str] | None = None) -> int:
         from . import ingest as ingest_mod
 
         return ingest_mod.run(args)
+
+    if args.command == "catch":
+        from . import catch as catch_mod
+
+        return catch_mod.run(args)
 
     if args.command == "read":
         from . import read as read_mod

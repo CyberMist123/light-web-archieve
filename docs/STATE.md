@@ -75,6 +75,42 @@ repo_path: D:\LIGHT WEB ARCHIEVE
   Chrome“问保存位置”会让自动点击变成取消、`open <url>` 在登录态小红书页面永不返回、
   Windows 上 `subprocess.run(capture_output, timeout)` 杀不掉 `.cmd` 的子孙进程会假超时。
 
+### 给主模型的摘要通路（2026-09-04，STATE 上一版「下一步 1」）
+- `catch "<消息全文>" --origin tg|cmx|cc --actor human`：自己从消息里找小红书链接
+  （`xhs.URL_RE` + host 白名单 `xiaohongshu.com`/`xhslink.cn`/`xhslink.com`）→ 逐条 `ingest`
+  （命中索引就是 HIT，不联网）→ **stdout 只有一行 JSON**，日志全在 stderr。
+  没链接就是 `{"found": 0, "items": []}`，零成本。同一篇在一条消息里出现两次只算一条。
+- item 字段：`item_id / status(new|hit|error) / title / summary / tags / kind /
+  visible_note / agent_md / attachments / url`，路径全是绝对路径。整条消息当 `--note` 传下去。
+  `summary` 用 `derived/extracted.json` 的小模型概要，没有退回正文前 120 字（`--extract` 才花钱调模型）。
+- 一条链接抓挂了只让那条变成 `status=error`（带 `error` 文本），其余照常，退出码 1、JSON 照样打全。
+- 顺手加了 `read --brief --json`（同一份 item 结构，没有 status 键）、`read --full --json`
+  （带整篇 agent.md 的 `markdown`）、`search --json`（只查 SQLite，所以 summary 是正文前 120 字）。
+- **不做 HTTP / MCP 服务**（硬约束 8）：TG/CMX 就是 Bash 直调 CLI。结构写死在 `docs/FORMAT.md` §10。
+- 机器可读输出走 `read.dump_json`，直接写 stdout 的 UTF-8 字节：Windows 控制台是 GBK，
+  `print()` 碰到标题里的 emoji（如「无线水吧台‼️」）会 UnicodeEncodeError 让调用方拿到崩溃而不是 JSON。
+  人看的那几条 print 也顺手降成 `errors="replace"`（在 `cli.main` 里），不改编码、中文照常。
+- `tests/test_catch.py`：链接检测/白名单、无链接零成本、new→hit 不联网、一条消息两个同篇算一条、
+  抓失败仍是合法 JSON、`--json` 三条通路。全套 78 个测试绿。
+
+### 附件链接回归修复（2026-09-04，Owner 实机报的）
+- 症状：上个版本的 📎 点得开，附件字节下下来之后点不开了。
+- 真因：字节下下来后 href 从 `https://www.xiaohongshu.com/file/<docId>` 换成了本地相对路径，
+  而**裸 HTML 里的 `<a href="../../_archive/…">` Obsidian 一律当外部 URL**，本地文件打不开。
+  `<img src>` 能显示是另一条通路，别拿它当反证。跟 Lot 3b 第 2 条「原图链接要放 HTML 块外面」同一个坑。
+- 修法：`render._attachments_md` 取代 `_attachments_html`，附件行改成 content 层里、
+  HTML 容器**外面**的一行 Markdown——本地文件 `📎 [[_archive/…/attachments/x.pdf|x.pdf（19 页 · 已存本地）]]`，
+  只有元数据的仍是普通 Markdown 链接指原站。5 篇已 `render --all` 重渲染过。
+  **等 Owner 在 Obsidian 里点一下确认。**
+
+### 评论区图片（Owner 问的）
+- 现在拿不到，**不是解析漏了**：MCP `get_feed_detail` 返回的评论对象只有
+  `id/noteId/content/likeCount/createTime/ipLocation/liked/userInfo/subCommentCount/subComments/showTags`，
+  64 条评论里 `pictures`/`picture`/`image` 一个键都没有；全库 6 份 manifest 的 `comment_image` 数都是 0。
+- 下载通路其实早写好了（`ingest.download_media` 认 `comment_image` role），数据源一给字段就自动下。
+- 真要拿到只能照附件那条路：agent-browser 小号登录态开 headed 浏览器抓评论区（硬约束 10 允许）。
+  是独立一个 Lot 的量，且会弹窗口打扰 Owner —— **等 Owner 点头再排**。
+
 ## 已知缺口
 
 - 图片左右箭头暂不作为稳定功能；当前主要用横向滚动 / 触控滑动切图。
@@ -84,6 +120,9 @@ repo_path: D:\LIGHT WEB ARCHIEVE
   （主号绝不能扫这个 profile——会顶掉 18060 MCP / TG 端，2026-09-04 实际发生过一次）。
 - 附件下载要开 headed 浏览器，会在屏幕上弹窗口，跑批量时会打扰 Owner。
 - `inbox / resolve / comment / sync-favorites` 尚未完成。
+- `catch` 只在**第一次**归档时把消息写成留言 cmt1；已经归档过的（HIT）那条消息只进 relations 表，
+  不会追加到可见 md 的留言层——那是 Lot 5 `comment` 的活，等 Lot 5 一起接。
+- 评论区图片全库为 0，MCP 不返回该字段（见上）。
 - BENCH.md 的「漏正文 / 误删细节 / 广告当信息」三列还空着，等 Owner 人工判定；样本补到 20 条后要重跑。
 - token 数是字符估算（`media.py text` 不回传 usage），只能横向比较，不是账单。
 - 广告/噪音判定偏激进（C 条 19 条评论标了 12 条噪音）；只影响 agent.md 标注，不删内容。
@@ -96,19 +135,8 @@ repo_path: D:\LIGHT WEB ARCHIEVE
 
 ## 下一步
 
-1. **给主模型的摘要通路**（issue #41 第 17 节）。现在只有给人用的 CLI，主模型没法用。
-   已经想好的做法（下个窗口照做即可，别再重新设计）：
-   - 新增 `catch` 子命令：`python -m link_brain catch "<原始消息全文>" --origin tg|cmx|cc --actor human`
-     → 自己从消息里检测小红书链接（复用 `xhs.URL_RE` + host 过滤）→ 有就 `ingest`
-     （命中索引就是 HIT，不联网）→ **只在 stdout 打一个 JSON**：
-     `{"found": N, "items": [{item_id, status: new|hit, title, summary, tags, kind,
-     visible_note(绝对路径), agent_md(绝对路径), attachments, url}]}`；
-     没有链接就 `{"found": 0, "items": []}`，让调用方一眼判断要不要展开。
-   - `summary` 用 `derived/extracted.json` 的小模型概要，没有就退回正文前 120 字。
-   - 原始消息整条当 `--note` 传下去（就是可见 md 顶部那条留言 cmt1）。
-   - 顺手给 `read --brief` / `search` 加 `--json`，主模型换窗口后能直接查本地索引。
-   - **不做 HTTP 服务、不做 MCP 服务**（硬约束 8）。TG/CMX 端就是 Bash 直调这个 CLI，
-     用绝对路径 python。调用方拿到 JSON 自己决定要不要读 `agent_md`。
-2. Lot 5（`comment / inbox / resolve` + `scripts/smoke.py`）——人和 AI 互相留言那层。
-3. Issue #2 的 UI 仍欠 Owner 一次实机验收。
-4. `docs/BENCH.md` 最后三列 Owner 说不做 20 条了，以后手工填，不再挡路。
+1. Lot 5（`comment / inbox / resolve` + `scripts/smoke.py`）——人和 AI 互相留言那层。
+   顺带把 `catch` 在 HIT 时追加留言接上（现在只进 relations 表）。
+2. Issue #2 的 UI 仍欠 Owner 一次实机验收；这次多一项要看的：附件那行 📎 点不点得开。
+3. `docs/BENCH.md` 最后三列 Owner 说不做 20 条了，以后手工填，不再挡路。
+4. 评论区图片要不要走 agent-browser 补抓，等 Owner 决定（见上）。

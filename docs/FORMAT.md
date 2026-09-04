@@ -569,3 +569,101 @@ CREATE INDEX IF NOT EXISTS idx_relations_item ON relations(item_id);
 | 1 | 一般错误（解析不出 note_id、MCP 不在线等） |
 | 2 | 缺内容 gate：明确知道缺东西（图片没下全） |
 | 3 | 子命令尚未实现 |
+
+---
+
+## 10. `catch` / `--json` 输出（给主模型的摘要通路）
+
+给人用的是 CLI 文本，给主模型用的是**一行 JSON**。约定：
+
+- **stdout 只有那一个 JSON**，一行，UTF-8 字节（不受 Windows 控制台 GBK 影响）；
+  所有日志、错误说明都走 stderr。调用方可以直接 `json.loads(stdout)`。
+- 路径一律**绝对路径**（调用方的 cwd 不确定）；文件不在盘上就是 `null`。
+- 不起 HTTP / MCP 服务（硬约束 8），TG / CMX 端就是 Bash 直调这个 CLI。
+
+### `catch "<消息全文>"`
+
+消息全文里自己找小红书链接（host 白名单：`xiaohongshu.com` / `xhslink.cn` / `xhslink.com`），
+每条链接跑一次 `ingest`（命中索引就是 `hit`，不联网），整条消息当 `--note` 存成留言 cmt1。
+没有链接就是 `{"found": 0, "items": []}`，零成本、不碰网络。同一篇笔记在一条消息里出现两次只算一条。
+
+```json
+{
+  "found": 1,
+  "items": [
+    {
+      "item_id": "xhs-6a49b7ff000000001502522c",
+      "status": "new",
+      "title": "ClaudeCode自建前端-P模式全教",
+      "summary": "小模型概要；没有 extracted.json 就退回正文前 120 字",
+      "tags": ["ai编程", "教程"],
+      "kind": "image",
+      "visible_note": "D:\\LIGHT WEB ARCHIEVE\\vault\\Web\\Xiaohongshu\\ClaudeCode自建前端-P模式全教__1502522c.md",
+      "agent_md": "D:\\LIGHT WEB ARCHIEVE\\vault\\_archive\\xiaohongshu\\6a49b7ff000000001502522c\\derived\\agent.md",
+      "attachments": {
+        "status": "downloaded",
+        "items": [
+          {
+            "name": "p模式教程-机教版.pdf",
+            "doc_id": "7658854832003020032",
+            "status": "downloaded",
+            "pages": 19,
+            "url": "https://www.xiaohongshu.com/file/7658854832003020032",
+            "file": "D:\\LIGHT WEB ARCHIEVE\\vault\\_archive\\xiaohongshu\\6a49b7ff000000001502522c\\attachments\\p模式教程-机教版.pdf"
+          }
+        ]
+      },
+      "url": "https://www.xiaohongshu.com/explore/6a49b7ff000000001502522c"
+    }
+  ]
+}
+```
+
+字段：
+
+| 字段 | 说明 |
+|---|---|
+| `status` | `new`（这次才归档）/ `hit`（早就有了，没联网）/ `error`（这条链接没抓成） |
+| `summary` | `derived/extracted.json` 的小模型概要；没有就是正文前 120 字 |
+| `tags` | 可见 md frontmatter 里的 `tags`（原帖 hashtag + 小模型建议 + Owner 手写都在里面） |
+| `attachments.status` | `none` / `unavailable` / `metadata_only` / `downloaded`（见 §7a） |
+| `error` | 只在出问题时出现：`status=error` 是这条没归档成；归档成了但渲染失败也会带这个键 |
+
+`status=error` 的条目只有 `item_id`（可能是 `null`）/ `status` / `url` / `error` 四个键：
+
+```json
+{"found": 1, "items": [{"item_id": null, "status": "error", "url": "https://xhslink.cn/o/xxxx", "error": "AdapterError: 短链解不出笔记 URL"}]}
+```
+
+退出码：全部成功 `0`；有任何一条 `status=error` 是 `1`（JSON 照样打全）。
+
+### `read <target> --brief --json`
+
+和 `catch` 的 item 同一份结构，只是没有 `status` 键（它没有 new/hit 的概念）。
+
+### `read <target> --full --json`
+
+```json
+{"item_id": "xhs-6a49b7ff000000001502522c", "agent_md": "D:\\...\\derived\\agent.md", "markdown": "# 标题\\n## 概要\\n..."}
+```
+
+### `search <词> --json`
+
+只查 SQLite，不读对象目录（快），所以 `summary` 是正文前 120 字而不是小模型概要：
+
+```json
+{
+  "found": 1,
+  "items": [
+    {
+      "item_id": "xhs-6a2758e00000000008031731",
+      "title": "ombre二改更新介绍：跨窗口/平台无缝对话",
+      "summary": "正文前 120 字",
+      "tags": ["人机恋"],
+      "kind": "image",
+      "url": "https://www.xiaohongshu.com/explore/6a2758e00000000008031731",
+      "first_archived": "2026-09-04"
+    }
+  ]
+}
+```
