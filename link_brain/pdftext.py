@@ -218,8 +218,10 @@ def run(args) -> int:
     try:
         if getattr(args, "all", False):
             rows = conn.execute(
-                "SELECT source, source_id FROM objects WHERE attachments_status = 'downloaded'"
-                " ORDER BY item_id"
+                # 索引里的状态可能落后（附件是事后补下来的），凡是"有附件"的都扫一遍，
+                # 真没下过 PDF 的在 convert_object_attachments 里自然跳过
+                "SELECT source, source_id FROM objects WHERE attachments_status IN"
+                " ('downloaded', 'metadata_only') ORDER BY item_id"
             ).fetchall()
             targets = [(r["source"], r["source_id"]) for r in rows]
         elif args.target:
