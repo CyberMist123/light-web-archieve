@@ -28,4 +28,4 @@ def test_help_exits_zero():
 
 
 def test_unimplemented_subcommand_returns_3():
-    assert main(["read", "abc"]) == 3
+    assert main(["inbox", "--for", "fable"]) == 3
