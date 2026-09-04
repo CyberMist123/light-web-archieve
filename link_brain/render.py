@@ -149,7 +149,13 @@ def _attachments_md(attachments: list[dict[str, Any]], object_rel: str) -> list[
             if any(ch in target for ch in "[]|#^"):
                 rows.append(f"> {label} — `{target}`")
             else:
-                rows.append(f"> [[{target}|{label}]]")
+                row = f"> [[{target}|{label}]]"
+                # PDF 转出来的全文（pdf2md）在的话给个入口，人和 AI 都能直接读
+                doc_id = att.get("doc_id")
+                text_rel = f"{object_rel}/derived/attachments/{doc_id}.md" if doc_id else None
+                if text_rel and (storage.vault_root() / text_rel).exists():
+                    row += f" · [[{text_rel}|全文]]"
+                rows.append(row)
             continue
         url = att.get("url")
         rows.append(f"> [{label}]({url})" if url else f"> {label}")

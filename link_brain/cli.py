@@ -86,6 +86,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--all", action="store_true", help="对所有带附件元数据的对象都下一遍")
     p.add_argument("--force", action="store_true", help="已经下过也重下")
 
+    p = sub.add_parser("pdf2md", help="把已下载的 PDF 附件转成 Markdown（文字层坏了自动退回逐页 OCR）")
+    p.add_argument("target", nargs="?", default=None, help="item_id；配合 --all 时可省略")
+    p.add_argument("--all", action="store_true", help="所有下过附件的对象都转一遍")
+    p.add_argument("--force", action="store_true", help="已经转过也重转")
+    p.add_argument("--force-ocr", dest="force_ocr", action="store_true",
+                   help="跳过文字层，直接逐页 OCR")
+
     p = sub.add_parser("sync-favorites", help="同步小红书收藏（Lot 6，可选）")
     p.add_argument("--limit", type=int, default=50)
 
@@ -158,6 +165,11 @@ def main(argv: list[str] | None = None) -> int:
         from . import attachments as attachments_mod
 
         return attachments_mod.run(args)
+
+    if args.command == "pdf2md":
+        from . import pdftext as pdftext_mod
+
+        return pdftext_mod.run(args)
 
     if args.command == "render":
         from . import render as render_mod
