@@ -89,6 +89,24 @@ def test_visible_filename_is_clean_title(tmp_path):
     )
 
 
+def test_merge_existing_keeps_handwriting_from_both_files():
+    """改名时同一个对象有两份 md：Owner 手写的 frontmatter 键和留言必须都活下来。"""
+    primary = (
+        "---\ntags: [claude]\ntime: \"20260902\"\n---\n\n"
+        "<!-- link-brain:comments:start -->\n> 「20260902 人」笑死了\n<!-- link-brain:comments:end -->\n"
+    )
+    secondary = (
+        "---\ntags: [人机恋]\nfinder: ler\n---\n\n"
+        "<!-- link-brain:comments:start -->\n> 「20260903 人」另一边写的\n<!-- link-brain:comments:end -->\n"
+    )
+    merged = render_mod.merge_existing(primary, secondary)
+    assert render_mod.existing_tags(merged) == ["claude", "人机恋"]
+    extras = render_mod.parse_frontmatter(merged)
+    assert extras["time"] == "20260902" and extras["finder"] == "ler"
+    assert "笑死了" in merged and "另一边写的" in merged
+    assert merged.count(render_mod.COMMENTS_START) == 1
+
+
 # --------------------------------------------------------------------------
 # render_object：可见 md 只有一份 + vision.json 结构
 # --------------------------------------------------------------------------
