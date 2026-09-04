@@ -85,6 +85,38 @@ def _tag_html(tags: list[str]) -> str:
     return f'<div class="lb-tags">{chips}</div>' if chips else ""
 
 
+def attachment_label(att: dict[str, Any]) -> str:
+    """附件的一行人话：名字 + 页数 + 拿没拿到字节。"""
+    name = att.get("name") or att.get("hint") or "笔记附件"
+    bits = []
+    if att.get("page_num"):
+        bits.append(f"{att['page_num']} 页")
+    status = att.get("status")
+    if status == "downloaded":
+        bits.append("已存本地")
+    elif status == "metadata_only":
+        bits.append("未下载（小红书要登录才给文件）")
+    else:
+        bits.append("拿不到")
+    return f"{name}（{' · '.join(bits)}）"
+
+
+def _attachments_html(attachments: list[dict[str, Any]], object_rel: str) -> str:
+    if not attachments:
+        return ""
+    rows = []
+    for att in attachments:
+        label = _safe(attachment_label(att))
+        local = att.get("file")
+        if local:
+            href = f"../../{_safe(object_rel)}/{_safe(local)}"
+        else:
+            href = _safe(att.get("url") or "")
+        inner = f'<a href="{href}">{label}</a>' if href else label
+        rows.append(f'<div class="lb-file-row">📎 {inner}</div>')
+    return f'<div class="lb-files">{"".join(rows)}</div>'
+
+
 def _engagement_html(note: dict[str, Any]) -> str:
     """Human view keeps only like/collect counts; comment count is visual noise here."""
     e = note.get("engagement") or {}
@@ -235,6 +267,7 @@ def _detail_html(note: dict[str, Any], comments: list[dict[str, Any]], manifest:
         f'<div class="lb-post-meta">{_safe(meta)}</div>' if meta else "",
         "</div></div>",
         f'<div class="lb-post-body">{_body_html(note.get("body") or "")}</div>',
+        _attachments_html(note.get("attachments") or [], object_rel),
         _tag_html(note.get("hashtags") or []),
         _engagement_html(note),
         '<div class="lb-comments">',
@@ -415,6 +448,9 @@ def render_agent_md(
     link_lines = [
         f"- [{x.get('text') or x.get('url')}]({x.get('url')})（{x.get('where')}）" for x in links
     ]
+    for att in note.get("attachments") or []:
+        target = att.get("file") or att.get("url") or ""
+        link_lines.append(f"- 📎 附件：{attachment_label(att)}{(' ' + target) if target else ''}")
     for x in ex.get("links_worth_opening") or []:
         why = x.get("why") or ""
         if x.get("url"):

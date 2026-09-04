@@ -248,6 +248,23 @@
   margin: 0 0 0.82em;
 }
 
+/* 笔记附件（小红书的"文件"）：一行卡片，未下载时也要看得见它存在。 */
+.xhs-note .lb-files {
+  margin: 12px 0 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--lb-line);
+  border-radius: 8px;
+  font-size: 0.86em;
+}
+
+.xhs-note .lb-file-row + .lb-file-row {
+  margin-top: 6px;
+}
+
+.xhs-note .lb-file-row a {
+  text-decoration: none;
+}
+
 /* 小红书式行内话题：蓝紫链接色，无胶囊底。 */
 .xhs-note .lb-tags {
   display: flex;

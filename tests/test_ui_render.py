@@ -159,3 +159,63 @@ def test_comment_css_uses_kaiti_grey_author_and_subtle_reply_line():
     assert "color: var(--text-muted)" in css
     assert "--lb-reply-line" in css
     assert "border-left: 1px solid var(--lb-reply-line)" in css
+
+
+# --------------------------------------------------------------------------
+# 笔记附件（小红书的"文件"）
+# --------------------------------------------------------------------------
+
+
+def _with_attachment(**over):
+    source = _source()
+    source["note"]["attachments"] = [
+        {
+            "name": "p模式教程-机教版.pdf",
+            "doc_id": "7658854832003020032",
+            "hint": "给小机看的版本在文件～",
+            "url": "https://www.xiaohongshu.com/file/7658854832003020032",
+            "page_num": 19,
+            "file": None,
+            "status": "metadata_only",
+            **over,
+        }
+    ]
+    return source
+
+
+def test_attachment_row_shows_name_pages_and_not_downloaded():
+    text = render.render_visible_md(
+        source=_with_attachment(),
+        manifest=_manifest(),
+        meta=_meta(),
+        object_rel="_archive/xiaohongshu/0000000000000000deadbeef",
+        existing_text=None,
+    )
+    assert 'class="lb-files"' in text
+    assert "p模式教程-机教版.pdf" in text
+    assert "19 页" in text and "未下载" in text
+    assert 'href="https://www.xiaohongshu.com/file/7658854832003020032"' in text
+
+
+def test_downloaded_attachment_points_at_local_file():
+    source = _with_attachment(status="downloaded", file="raw/v0001/attachments/教程.pdf")
+    text = render.render_visible_md(
+        source=source,
+        manifest=_manifest(),
+        meta=_meta(),
+        object_rel="_archive/xiaohongshu/0000000000000000deadbeef",
+        existing_text=None,
+    )
+    assert "已存本地" in text
+    assert "../../_archive/xiaohongshu/0000000000000000deadbeef/raw/v0001/attachments/教程.pdf" in text
+
+
+def test_no_attachments_renders_nothing():
+    text = render.render_visible_md(
+        source=_source(),
+        manifest=_manifest(),
+        meta=_meta(),
+        object_rel="_archive/xiaohongshu/0000000000000000deadbeef",
+        existing_text=None,
+    )
+    assert "lb-files" not in text

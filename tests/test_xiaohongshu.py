@@ -128,3 +128,97 @@ def test_raw_version_is_immutable(tmp_path, monkeypatch):
     with pytest.raises(FileExistsError):
         storage.ensure_raw_dir("xiaohongshu", NOTE_ID, 1)
     assert storage.next_version("xiaohongshu", NOTE_ID) == 2
+
+
+# --------------------------------------------------------------------------
+# 附件：网页探测（MCP 不返回 relatedFile）
+# --------------------------------------------------------------------------
+
+REAL_RELATED_FILE = {
+    "name": "p模式教程-机教版.pdf",
+    "docId": "7658854832003020032",
+    "icon": "https://fe-platform.xhscdn.com/platform/xxx",
+    "bizExtra": '{"download_num":644,"page_num":19,"view_num":1468}',
+}
+
+
+def _probe(ok, related=None, error=None):
+    return {"ok": ok, "related_file": related, "url": "https://example.invalid/note", "error": error}
+
+
+def test_web_probe_gives_real_attachment_metadata():
+    body = "给小机看的版本在文件～"
+    out = xhs._attachments(body, _probe(True, REAL_RELATED_FILE))
+    assert len(out) == 1
+    a = out[0]
+    assert a["name"] == "p模式教程-机教版.pdf"
+    assert a["doc_id"] == "7658854832003020032"
+    assert a["url"] == "https://www.xiaohongshu.com/file/7658854832003020032"
+    assert (a["page_num"], a["download_num"], a["view_num"]) == (19, 644, 1468)
+    assert a["status"] == "metadata_only"  # 字节要登录才拿得到
+    assert a["hint"] == body  # 正文线索仍保留
+
+
+def test_web_probe_says_no_file_kills_false_positive():
+    """正文提到"文件"但页面上没挂附件 → 不再误报出一条 unavailable。"""
+    out = xhs._attachments("详细的在文件里说了", _probe(True, None))
+    assert out == []
+
+
+def test_web_probe_failure_falls_back_to_body_hint():
+    out = xhs._attachments("给小机看的版本在文件～", _probe(False, error="连不上"))
+    assert len(out) == 1 and out[0]["status"] == "unavailable"
+    assert "连不上" in out[0]["reason"]
+
+
+@pytest.mark.real_web_probe
+def test_probe_treats_missing_note_as_failure(monkeypatch):
+    """页面 200 但状态里没有这条笔记时不能当作"没有附件"。"""
+    class FakeResp:
+        text = '<script>window.__INITIAL_STATE__={"note":{"noteDetailMap":{}}}</script>'
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(xhs.httpx, "get", lambda *a, **k: FakeResp())
+    result = xhs.fetch_related_file("deadbeef", "tok")
+    assert result["ok"] is False and "没有这条笔记" in result["error"]
+
+
+@pytest.mark.real_web_probe
+def test_probe_reads_related_file_from_initial_state(monkeypatch):
+    state = json.dumps({"note": {"noteDetailMap": {"n1": {"note": {"relatedFile": REAL_RELATED_FILE}}}}},
+                       ensure_ascii=False)
+
+    class FakeResp:
+        text = f"<script>window.__INITIAL_STATE__={state};</script>"
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(xhs.httpx, "get", lambda *a, **k: FakeResp())
+    result = xhs.fetch_related_file("n1", "tok")
+    assert result["ok"] is True
+    assert result["related_file"]["docId"] == "7658854832003020032"
+
+
+def test_attachments_status_reflects_metadata_only(tmp_path, monkeypatch):
+    monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
+    monkeypatch.setattr(
+        xhs, "parse_input",
+        lambda text, client=None: {
+            "note_id": NOTE_ID,
+            "xsec_token": "FAKE_TOKEN_FOR_TESTS",
+            "canonical_url": xhs.CANONICAL_FMT.format(note_id=NOTE_ID),
+            "input_url": text,
+            "input_kind": "url",
+        },
+    )
+    monkeypatch.setattr(xhs, "fetch_detail", lambda *a, **k: load_fixture())
+    monkeypatch.setattr(xhs, "fetch_related_file", lambda *a, **k: _probe(True, REAL_RELATED_FILE))
+
+    cli.main(["ingest", "https://example.invalid/share"])
+    meta = json.loads(
+        (tmp_path / "_archive" / "xiaohongshu" / NOTE_ID / "meta.json").read_text(encoding="utf-8")
+    )
+    assert meta["attachments_status"] == "metadata_only"
+    raw = tmp_path / "_archive" / "xiaohongshu" / NOTE_ID / "raw" / "v0001"
+    assert json.loads((raw / "web_raw.json").read_text(encoding="utf-8"))["ok"] is True
