@@ -77,11 +77,12 @@ python -m link_brain attachments xhs-<note_id>
 `docs/POC-xiaohongshu.md` 第 4b 节。
 
 字节落对象级 `_archive/<source>/<id>/attachments/`，**不进已封存的 `raw/vNNNN/`**；
-下完可见 md 里那行 📎 会从“未下载”变成指向本地文件的链接。
+下完，笔记顶上那行附件会从“未下载”变成指向本地文件的链接。
 
-那行 📎 在笔记**最下面、HTML 块外面**，本地文件用 Obsidian 自己的 `[[…]]` 链接：裸 HTML 里的
-`<a href="../../_archive/…">` Obsidian 一律当外部 URL，点不开（2026-09-04 Owner 实机踩到），
-和 Lot 3b「原图链接放 HTML 块外面」是同一个坑。
+笔记最上面是一条灰色小字：`原文 · 机读版 · 附件`（原网址、`derived/agent.md`、附件文件）。
+它必须在正文 HTML 块**外面**、并且用 Obsidian 自己的链接形式（`[…](http)` / `[[vault 路径]]`）：
+裸 HTML 里的 `<a href="../../_archive/…">` Obsidian 一律当外部 URL，本地文件点不开
+（2026-09-04 Owner 实机踩到），和 Lot 3b「原图链接放 HTML 块外面」是同一个坑。
 
 ### 给主模型的摘要通路（`catch`）
 
