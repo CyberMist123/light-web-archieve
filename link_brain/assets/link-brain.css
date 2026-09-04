@@ -248,22 +248,22 @@
   margin: 0 0 0.82em;
 }
 
+/* 小红书式行内话题：蓝紫链接色，无胶囊底。 */
 .xhs-note .lb-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 10px;
   margin: 10px 0 6px;
 }
 
 .xhs-note .lb-tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 0.78em;
+  display: inline;
+  padding: 0;
+  border-radius: 0;
+  font-size: 0.92em;
   line-height: 1.65;
-  color: var(--interactive-accent);
-  background: color-mix(in srgb, var(--interactive-accent) 9%, transparent);
+  color: var(--link-color);
+  background: transparent;
 }
 
 .xhs-note .lb-engagement {
