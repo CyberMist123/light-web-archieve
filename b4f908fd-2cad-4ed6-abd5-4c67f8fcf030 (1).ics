@@ -1,0 +1,267 @@
+BEGIN:VCALENDAR
+PRODID:-//Allocate//iCal4j 1.0//EN
+VERSION:2.0
+CALSCALE:GREGORIAN
+BEGIN:VTIMEZONE
+TZID:Australia/Sydney
+TZURL:http://tzurl.org/zoneinfo-outlook/Australia/Sydney
+X-LIC-LOCATION:Australia/Sydney
+BEGIN:STANDARD
+TZOFFSETFROM:+1100
+TZOFFSETTO:+1000
+TZNAME:AEST
+DTSTART:19700405T030000
+RRULE:FREQ=YEARLY;BYMONTH=4;BYDAY=1SU
+END:STANDARD
+BEGIN:DAYLIGHT
+TZOFFSETFROM:+1000
+TZOFFSETTO:+1100
+TZNAME:AEDT
+DTSTART:19701004T020000
+RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=1SU
+END:DAYLIGHT
+END:VTIMEZONE
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20261022T090000
+DTEND;TZID=Australia/Sydney:20261022T170000
+SUMMARY:Govt Regulation\, Health Policy and Ethics\, Seminar
+LOCATION:A22.03.306.Old Teachers College.Teachers College Lecture Theatre 306 (22/10)\, F10A.01.104.Law Building Annex.Law Annex Lecture Theatre 104 (29/10)
+DESCRIPTION:LAWS6052-S2CINO-BM-CC\, Seminar\, 01-P1\nGovt Regulation\, Health Policy and Ethics\nStaff: -\nLocation: A22.03.306.Old Teachers College.Teachers College Lecture Theatre 306 (22/10)\, F10A.01.104.Law Building Annex.Law Annex Lecture Theatre 104 (29/10)
+UID:uid0
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20261029T090000
+DTEND;TZID=Australia/Sydney:20261029T170000
+SUMMARY:Govt Regulation\, Health Policy and Ethics\, Seminar
+LOCATION:A22.03.306.Old Teachers College.Teachers College Lecture Theatre 306 (22/10)\, F10A.01.104.Law Building Annex.Law Annex Lecture Theatre 104 (29/10)
+DESCRIPTION:LAWS6052-S2CINO-BM-CC\, Seminar\, 01-P1\nGovt Regulation\, Health Policy and Ethics\nStaff: -\nLocation: A22.03.306.Old Teachers College.Teachers College Lecture Theatre 306 (22/10)\, F10A.01.104.Law Building Annex.Law Annex Lecture Theatre 104 (29/10)
+UID:uid1
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20261023T090000
+DTEND;TZID=Australia/Sydney:20261023T170000
+SUMMARY:Govt Regulation\, Health Policy and Ethics\, Seminar
+LOCATION:F10A.00.024.Law Building Annex.Law Annex Lecture Theatre 024
+DESCRIPTION:LAWS6052-S2CINO-BM-CC\, Seminar\, 01-P2\nGovt Regulation\, Health Policy and Ethics\nStaff: -\nLocation: F10A.00.024.Law Building Annex.Law Annex Lecture Theatre 024
+UID:uid2
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20261030T090000
+DTEND;TZID=Australia/Sydney:20261030T170000
+SUMMARY:Govt Regulation\, Health Policy and Ethics\, Seminar
+LOCATION:F10A.00.024.Law Building Annex.Law Annex Lecture Theatre 024
+DESCRIPTION:LAWS6052-S2CINO-BM-CC\, Seminar\, 01-P2\nGovt Regulation\, Health Policy and Ethics\nStaff: -\nLocation: F10A.00.024.Law Building Annex.Law Annex Lecture Theatre 024
+UID:uid3
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20260824T090000
+DTEND;TZID=Australia/Sydney:20260824T160000
+SUMMARY:Legal Reasoning and the Common Law System\, Seminar
+LOCATION:B19.02.247.RMC Gunn Building.H R Carne Lecture Theatre (24/8)\, - (31/8)
+DESCRIPTION:LAWS6252-S2CISE-BM-CC\, Seminar\, 02-P1\nLegal Reasoning and the Common Law System\nStaff: -\nLocation: B19.02.247.RMC Gunn Building.H R Carne Lecture Theatre (24/8)\, - (31/8)
+UID:uid4
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20260831T090000
+DTEND;TZID=Australia/Sydney:20260831T160000
+SUMMARY:Legal Reasoning and the Common Law System\, Seminar
+LOCATION:B19.02.247.RMC Gunn Building.H R Carne Lecture Theatre (24/8)\, - (31/8)
+DESCRIPTION:LAWS6252-S2CISE-BM-CC\, Seminar\, 02-P1\nLegal Reasoning and the Common Law System\nStaff: -\nLocation: B19.02.247.RMC Gunn Building.H R Carne Lecture Theatre (24/8)\, - (31/8)
+UID:uid5
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20260825T120000
+DTEND;TZID=Australia/Sydney:20260825T160000
+SUMMARY:Legal Reasoning and the Common Law System\, Seminar
+LOCATION:F10A.00.026.Law Building Annex.Law Annex Lecture Theatre 026
+DESCRIPTION:LAWS6252-S2CISE-BM-CC\, Seminar\, 02-P2\nLegal Reasoning and the Common Law System\nStaff: -\nLocation: F10A.00.026.Law Building Annex.Law Annex Lecture Theatre 026
+UID:uid6
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20260901T120000
+DTEND;TZID=Australia/Sydney:20260901T160000
+SUMMARY:Legal Reasoning and the Common Law System\, Seminar
+LOCATION:F10A.00.026.Law Building Annex.Law Annex Lecture Theatre 026
+DESCRIPTION:LAWS6252-S2CISE-BM-CC\, Seminar\, 02-P2\nLegal Reasoning and the Common Law System\nStaff: -\nLocation: F10A.00.026.Law Building Annex.Law Annex Lecture Theatre 026
+UID:uid7
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20260912T100000
+DTEND;TZID=Australia/Sydney:20260912T130000
+SUMMARY:Legal Reasoning and the Common Law System\, Seminar
+LOCATION:F10A.00.026.Law Building Annex.Law Annex Lecture Theatre 026
+DESCRIPTION:LAWS6252-S2CISE-BM-CC\, Seminar\, 02-P3\nLegal Reasoning and the Common Law System\nStaff: -\nLocation: F10A.00.026.Law Building Annex.Law Annex Lecture Theatre 026
+UID:uid8
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20260926T100000
+DTEND;TZID=Australia/Sydney:20260926T130000
+SUMMARY:Legal Reasoning and the Common Law System\, Seminar
+LOCATION:F10A.00.026.Law Building Annex.Law Annex Lecture Theatre 026
+DESCRIPTION:LAWS6252-S2CISE-BM-CC\, Seminar\, 02-P3\nLegal Reasoning and the Common Law System\nStaff: -\nLocation: F10A.00.026.Law Building Annex.Law Annex Lecture Theatre 026
+UID:uid9
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20260804T180000
+DTEND;TZID=Australia/Sydney:20260804T200000
+SUMMARY:Competition Law\, Seminar
+LOCATION:F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+DESCRIPTION:LAWS6838-S2C-NE-CC\, Seminar\, 01\nCompetition Law\nStaff: -\nLocation: F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+UID:uid10
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20260811T180000
+DTEND;TZID=Australia/Sydney:20260811T200000
+SUMMARY:Competition Law\, Seminar
+LOCATION:F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+DESCRIPTION:LAWS6838-S2C-NE-CC\, Seminar\, 01\nCompetition Law\nStaff: -\nLocation: F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+UID:uid11
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20260818T180000
+DTEND;TZID=Australia/Sydney:20260818T200000
+SUMMARY:Competition Law\, Seminar
+LOCATION:F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+DESCRIPTION:LAWS6838-S2C-NE-CC\, Seminar\, 01\nCompetition Law\nStaff: -\nLocation: F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+UID:uid12
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20260825T180000
+DTEND;TZID=Australia/Sydney:20260825T200000
+SUMMARY:Competition Law\, Seminar
+LOCATION:F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+DESCRIPTION:LAWS6838-S2C-NE-CC\, Seminar\, 01\nCompetition Law\nStaff: -\nLocation: F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+UID:uid13
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20260901T180000
+DTEND;TZID=Australia/Sydney:20260901T200000
+SUMMARY:Competition Law\, Seminar
+LOCATION:F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+DESCRIPTION:LAWS6838-S2C-NE-CC\, Seminar\, 01\nCompetition Law\nStaff: -\nLocation: F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+UID:uid14
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20260908T180000
+DTEND;TZID=Australia/Sydney:20260908T200000
+SUMMARY:Competition Law\, Seminar
+LOCATION:F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+DESCRIPTION:LAWS6838-S2C-NE-CC\, Seminar\, 01\nCompetition Law\nStaff: -\nLocation: F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+UID:uid15
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20260915T180000
+DTEND;TZID=Australia/Sydney:20260915T200000
+SUMMARY:Competition Law\, Seminar
+LOCATION:F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+DESCRIPTION:LAWS6838-S2C-NE-CC\, Seminar\, 01\nCompetition Law\nStaff: -\nLocation: F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+UID:uid16
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20260922T180000
+DTEND;TZID=Australia/Sydney:20260922T200000
+SUMMARY:Competition Law\, Seminar
+LOCATION:F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+DESCRIPTION:LAWS6838-S2C-NE-CC\, Seminar\, 01\nCompetition Law\nStaff: -\nLocation: F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+UID:uid17
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20261006T180000
+DTEND;TZID=Australia/Sydney:20261006T200000
+SUMMARY:Competition Law\, Seminar
+LOCATION:F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+DESCRIPTION:LAWS6838-S2C-NE-CC\, Seminar\, 01\nCompetition Law\nStaff: -\nLocation: F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+UID:uid18
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20261013T180000
+DTEND;TZID=Australia/Sydney:20261013T200000
+SUMMARY:Competition Law\, Seminar
+LOCATION:F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+DESCRIPTION:LAWS6838-S2C-NE-CC\, Seminar\, 01\nCompetition Law\nStaff: -\nLocation: F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+UID:uid19
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20261020T180000
+DTEND;TZID=Australia/Sydney:20261020T200000
+SUMMARY:Competition Law\, Seminar
+LOCATION:F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+DESCRIPTION:LAWS6838-S2C-NE-CC\, Seminar\, 01\nCompetition Law\nStaff: -\nLocation: F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+UID:uid20
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20261027T180000
+DTEND;TZID=Australia/Sydney:20261027T200000
+SUMMARY:Competition Law\, Seminar
+LOCATION:F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+DESCRIPTION:LAWS6838-S2C-NE-CC\, Seminar\, 01\nCompetition Law\nStaff: -\nLocation: F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+UID:uid21
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20261103T180000
+DTEND;TZID=Australia/Sydney:20261103T200000
+SUMMARY:Competition Law\, Seminar
+LOCATION:F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+DESCRIPTION:LAWS6838-S2C-NE-CC\, Seminar\, 01\nCompetition Law\nStaff: -\nLocation: F10A.01.102.Law Building Annex.Law Annex Seminar Room 102
+UID:uid22
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20260814T090000
+DTEND;TZID=Australia/Sydney:20260814T170000
+SUMMARY:Fundamentals of Contract Law\, Seminar
+LOCATION:F10A.00.026.Law Building Annex.Law Annex Lecture Theatre 026
+DESCRIPTION:LAWS6991-S2CRA-BM-CC\, Seminar\, 02-P1\nFundamentals of Contract Law\nStaff: -\nLocation: F10A.00.026.Law Building Annex.Law Annex Lecture Theatre 026
+UID:uid23
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20260904T090000
+DTEND;TZID=Australia/Sydney:20260904T170000
+SUMMARY:Fundamentals of Contract Law\, Seminar
+LOCATION:F10A.00.026.Law Building Annex.Law Annex Lecture Theatre 026
+DESCRIPTION:LAWS6991-S2CRA-BM-CC\, Seminar\, 02-P1\nFundamentals of Contract Law\nStaff: -\nLocation: F10A.00.026.Law Building Annex.Law Annex Lecture Theatre 026
+UID:uid24
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20260815T090000
+DTEND;TZID=Australia/Sydney:20260815T170000
+SUMMARY:Fundamentals of Contract Law\, Seminar
+LOCATION:F10A.00.024.Law Building Annex.Law Annex Lecture Theatre 024
+DESCRIPTION:LAWS6991-S2CRA-BM-CC\, Seminar\, 02-P2\nFundamentals of Contract Law\nStaff: -\nLocation: F10A.00.024.Law Building Annex.Law Annex Lecture Theatre 024
+UID:uid25
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260903T101535Z
+DTSTART;TZID=Australia/Sydney:20260905T090000
+DTEND;TZID=Australia/Sydney:20260905T170000
+SUMMARY:Fundamentals of Contract Law\, Seminar
+LOCATION:F10A.00.024.Law Building Annex.Law Annex Lecture Theatre 024
+DESCRIPTION:LAWS6991-S2CRA-BM-CC\, Seminar\, 02-P2\nFundamentals of Contract Law\nStaff: -\nLocation: F10A.00.024.Law Building Annex.Law Annex Lecture Theatre 024
+UID:uid26
+END:VEVENT
+END:VCALENDAR
