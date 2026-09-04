@@ -168,7 +168,7 @@ def test_rerender_preserves_hand_written_comments_layer(tmp_path, monkeypatch):
     after_text = md_path.read_text(encoding="utf-8")
     assert hand_written_line in after_text, "rerender 后 comments 层手写行应原样保留"
     # content 层仍然存在且被重写（两栏容器；无图时容器带 lb-no-media 修饰类）
-    assert 'class="lb-cols' in after_text
+    assert 'class="lb-note' in after_text
     assert render_mod.CONTENT_START in after_text and render_mod.CONTENT_END in after_text
 
 
@@ -203,3 +203,37 @@ def test_search_output_has_five_pipe_fields(tmp_path, monkeypatch, capsys):
     for line in lines:
         fields = line.split(" | ")
         assert len(fields) == 5, f"应是 5 个字段: {line!r}"
+
+
+def test_rerender_keeps_owner_highlights_in_body(tmp_path, monkeypatch):
+    """Owner 2026-09-05：正文改成纯 Markdown 就是为了能划重点，重渲染不许把重点洗掉。"""
+    setup_env(tmp_path, monkeypatch)
+    cli.main(["ingest", "https://example.invalid/share"])
+    item_id, source, source_id = _get_item_id(tmp_path)
+    render_mod.render_item(source, source_id)
+
+    md_path = list(storage.visible_dir().glob("*.md"))[0]
+    text = md_path.read_text(encoding="utf-8")
+
+    # 从正文里挑一段真实文字来划重点
+    body = storage.read_json(
+        storage.raw_dir(source, source_id, 1) / "source.json"
+    )["note"]["body"]
+    phrase = next(line.strip() for line in body.splitlines() if len(line.strip()) >= 6)[:12]
+    assert phrase in text, "挑的这段应该在渲染结果里"
+
+    md_path.write_text(text.replace(phrase, f"=={phrase}==", 1), encoding="utf-8")
+    render_mod.render_item(source, source_id)
+
+    after = md_path.read_text(encoding="utf-8")
+    assert f"=={phrase}==" in after, "重渲染之后她划的重点应该还在"
+    assert after.count(f"=={phrase}==") == 1, "不该重复包"
+
+
+def test_highlights_that_no_longer_match_are_dropped_quietly():
+    """原文被作者改过、对不上了就悄悄丢掉，不去猜、更不能把 == 乱贴。"""
+    content = "第一段正文。\n\n第二段正文。"
+    assert render_mod.reapply_highlights(content, ["不存在的句子"]) == content
+    once = render_mod.reapply_highlights(content, ["第二段"])
+    assert "==第二段==" in once
+    assert render_mod.reapply_highlights(once, ["第二段"]) == once  # 已经有了不重复包
