@@ -213,3 +213,33 @@ userInfo{userId,nickname,nickName,avatar}, subCommentCount, subComments, showTag
 
 D 的 GitHub 外链：**正文和评论里都没有裸 URL**，只有文字提及（"GitHub 里面搜不到"、"github 仓库喔"、影子仓库名 `Haven-Ombre`）。
 评论正文原样进 `source.json`，所以信息保留了，但 `note.links[]` 是空的——Lot 4 让小模型点它时要从正文/评论文本里认，不能指望 `links[]`。
+
+---
+
+## 9. 18060 那个服务为什么会"挂"（2026-09-05 查清，批量必读）
+
+批量跑 31 条收藏时，跑到第 19 条开始每条都秒失败：
+
+```
+MCP get_feed_detail 报错: 工具 get_feed_detail 执行时发生内部错误: [launcher] Failed to get the debug url
+```
+
+**不是掉登录、不是风控、服务进程也活得好好的。** 机制是这样：
+
+1. `xiaohongshu-mcp` **每次工具调用都新开一个自带的 Chrome**（`newBrowser()` 在每个 handler 里，
+   二进制在 `%LOCALAPPDATA%\xiaohongshu-mcp\browser\<版本>\browser\chrome.exe`）。
+2. 调用超时/客户端断开时，**那个 Chrome 不回收**，变成孤儿进程常驻。
+3. 孤儿越堆越多 → 可用物理内存被吃干 → 下一次 `MustLaunch` 拿不到 DevTools 的 debug url → panic。
+4. 于是后面每一条都在 3 秒内失败，看起来像"服务挂了"。
+
+实测数据：可用内存 0.5–0.9 GB 时连挂 14 条；杀掉 7 个孤儿 Chrome + 重启服务后回到 2.77 GB，恢复正常。
+`xhs-ensure.log` 里那串「登录态查询失败：(500) 内部服务器错误」也是同一个根因，不是登录问题。
+
+**批量脚本要做的三件事**（本仓的 CLI 只负责报警和退避重试，杀进程属于机器维护，不写进仓库）：
+
+- 每条之前回收孤儿：`Get-Process chrome | Where-Object { $_.Path -like '*xiaohongshu-mcp*' } | Stop-Process -Force`
+  ——**按二进制路径认**，Owner 自己的 Chrome 一根汗毛都不碰。
+- 可用内存低于 ~1.4 GB 就等着，别硬跑。
+- 撞退出码 5 先自愈一次（回收 + `Start-ScheduledTask XiaohongshuMCP`），第二次才停车报警。
+
+CLI 这侧对应的行为：`ServiceDownError` + 退避重试 3 次（20s/60s），见 `link_brain/ingest.py`。
