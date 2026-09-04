@@ -11,9 +11,10 @@ def _source():
             "title": "测试标题",
             "kind": "image",
             "body": "第一段正文。\n\n第二段正文。\n#AI[话题]#",
-            "hashtags": ["AI", "Claude"],
+            "hashtags": ["AI", "人机恋"],
             "links": [],
-            "author": {"user_id": "u-owner", "nickname": "示例作者"},
+            "canonical_url": "https://www.xiaohongshu.com/explore/0000000000000000deadbeef",
+            "author": {"user_id": "op-1", "nickname": "示例作者"},
             "published_at": "2026-09-04T12:00:00+10:00",
             "ip_location": "浙江",
             "engagement": {"liked": 83, "collected": 38, "comment_count": 152},
@@ -30,7 +31,7 @@ def _source():
                 "sub_comments": [
                     {
                         "comment_id": "c2",
-                        "author": {"user_id": "u-owner", "nickname": "示例作者"},
+                        "author": {"user_id": "op-1", "nickname": "示例作者"},
                         "created_at": "2026-09-03T11:00:00+08:00",
                         "ip_location": "北京",
                         "target_nickname": "momo",
@@ -39,9 +40,9 @@ def _source():
                         "sub_comments": [
                             {
                                 "comment_id": "c3",
-                                "author": {"user_id": "u-zen", "nickname": "Zen"},
+                                "author": {"user_id": "u-d", "nickname": "DDou"},
                                 "target_nickname": "示例作者",
-                                "text": "三级回复",
+                                "text": "第三级回复",
                                 "like_count": 0,
                             }
                         ],
@@ -91,12 +92,10 @@ def test_human_view_is_xhs_layout_without_debug_sections():
     assert 'class="lb-cols"' in text
     assert 'class="lb-carousel"' in text
     assert 'class="lb-detail"' in text
-    assert 'class="lb-comments-scroller"' in text
+    assert 'class="lb-comments"' in text
     assert 'class="lb-replies"' in text
     assert "1 / 2" in text and "2 / 2" in text
-    assert 'class="lb-arrow lb-arrow-left"' in text
-    assert 'class="lb-arrow lb-arrow-right"' in text
-    assert "#AI" in text and "#Claude" in text
+    assert "#AI" in text and "#人机恋" in text
     assert "#AI[话题]#" not in text
 
     assert "## 评论" not in text
@@ -106,56 +105,56 @@ def test_human_view_is_xhs_layout_without_debug_sections():
     assert "# 测试标题" not in text
 
 
-def test_author_badge_stable_avatar_and_op_reply_follow_author():
-    source = _source()
-    text = render.render_content_block(
-        source=source,
-        manifest=_manifest(),
-        meta=_meta(),
-        object_rel="_archive/xiaohongshu/0000000000000000deadbeef",
-    )
-
-    assert 'class="lb-author-badge">作者<' in text
-    assert 'class="lb-op-badge">作者<' in text
-    assert "lb-is-op" in text
-    assert "lb-author-avatar" in text
-    assert "lb-comment-avatar" in text
-    assert "示" in text
-
-    owner_color = render._stable_avatar_color(source["note"]["author"])
-    assert text.count(owner_color) >= 2
-    assert render._stable_avatar_color({"user_id": "u-momo", "nickname": "momo"}) != owner_color
-
-
-def test_complex_nested_replies_are_recursive_and_keep_reply_targets():
+def test_arrows_are_real_radio_labels_and_image_has_double_click_open_target():
     text = render.render_content_block(
         source=_source(),
         manifest=_manifest(),
         meta=_meta(),
         object_rel="_archive/xiaohongshu/0000000000000000deadbeef",
     )
+
+    assert 'class="lb-slide-toggle" type="radio"' in text
+    assert 'class="lb-arrow lb-arrow-left" for=' in text
+    assert 'class="lb-arrow lb-arrow-right" for=' in text
+    assert '<a class="lb-arrow' not in text
+
+    assert 'class="lb-image-double" tabindex="0"' in text
+    assert 'class="lb-image-open"' in text
+    assert 'href="https://www.xiaohongshu.com/explore/0000000000000000deadbeef"' in text
+    assert 'target="_blank"' in text
+
+
+def test_author_avatar_is_minimal_dot_and_op_is_marked_in_comments():
+    text = render.render_content_block(
+        source=_source(),
+        manifest=_manifest(),
+        meta=_meta(),
+        object_rel="_archive/xiaohongshu/0000000000000000deadbeef",
+    )
+
+    assert 'class="lb-author-avatar"' in text
+    assert 'class="lb-comment-avatar"' in text
+    assert 'class="lb-author-badge">作者</span>' in text
+    assert 'class="lb-op-badge">作者</span>' in text
+    assert "lb-avatar-initial" not in text
+    assert ">示<" not in text
+
+
+def test_human_comments_hide_date_location_and_overall_count_and_render_recursive_depth():
+    text = render.render_content_block(
+        source=_source(),
+        manifest=_manifest(),
+        meta=_meta(),
+        object_rel="_archive/xiaohongshu/0000000000000000deadbeef",
+    )
+    assert "momo" in text and "示例作者" in text and "DDou" in text
+    assert "一级评论" in text and "楼主回复" in text and "第三级回复" in text
     assert 'data-depth="0"' in text
     assert 'data-depth="1"' in text
     assert 'data-depth="2"' in text
-    assert "回复 momo：" in text
-    assert "回复 示例作者：" in text
-    assert "三级回复" in text
-
-
-def test_human_comments_hide_date_location_and_overall_count():
-    text = render.render_content_block(
-        source=_source(),
-        manifest=_manifest(),
-        meta=_meta(),
-        object_rel="_archive/xiaohongshu/0000000000000000deadbeef",
-    )
-    assert "momo" in text and "示例作者" in text
-    assert "一级评论" in text and "楼主回复" in text
-    assert "lb-comment-date" not in text
     assert "2026-09-03" not in text
-    assert "上海" not in text and "北京" not in text
+    assert "上海" not in text and "北京" not in text and "浙江" not in text
     assert "评论 152" not in text
-    assert "浙江" not in text
 
 
 def test_video_human_view_marks_not_downloaded_without_original_link():
@@ -176,41 +175,36 @@ def test_video_human_view_marks_not_downloaded_without_original_link():
     assert "原链接" not in text
 
 
-def test_css_supports_hover_arrows_inline_tags_and_independent_comment_scroll():
+def test_css_supports_clickable_desktop_carousel_mobile_swipe_and_double_click_open():
     css = (Path(render.__file__).resolve().parent / "assets" / "link-brain.css").read_text(encoding="utf-8")
 
     assert ".markdown-preview-view.xhs-note .markdown-preview-sizer" in css
     assert ".markdown-source-view.xhs-note .cm-contentContainer" in css
     assert "container-name: link-brain-note" in css
-    assert "@container link-brain-note (min-width: 980px)" in css
+
+    assert ".lb-slide-toggle:checked + .lb-slide" in css
+    assert ".lb-arrow" in css and "cursor: pointer" in css
+    assert ".lb-image-double:focus .lb-image-open" in css
+    assert "pointer-events: auto" in css
 
     assert "scroll-snap-type: x mandatory" in css
     assert "flex: 0 0 100%" in css
-    assert ".lb-arrow-left" in css and ".lb-arrow-right" in css
-    assert ".lb-media:hover .lb-arrow" in css
-    assert ".lb-media:hover .lb-counter" in css
-
-    assert ".lb-tag" in css
-    assert "background: transparent" in css
+    assert "overflow-x: auto" in css
 
     assert ".lb-comments-scroller" in css
     assert "overflow-y: auto" in css
-    assert "max-height: clamp(280px, 43vh, 540px)" in css
     assert "position: sticky" in css
 
     assert ".cm-line:has(.cm-comment)" in css
     assert ".metadata-container" in css
 
 
-def test_comment_css_uses_kaiti_grey_author_avatar_and_subtle_reply_line():
+def test_comment_css_uses_kaiti_grey_author_subtle_reply_line_and_plain_tags():
     css = (Path(render.__file__).resolve().parent / "assets" / "link-brain.css").read_text(encoding="utf-8")
     assert '"Kaiti SC"' in css
     assert "STKaiti" in css
     assert "KaiTi" in css
     assert ".lb-comment-author" in css
-    assert "color: var(--lb-muted)" in css
-    assert ".lb-comment-avatar" in css
-    assert "--lb-avatar-color" in css
     assert "--lb-reply-line" in css
     assert "border-left: 1px solid var(--lb-reply-line)" in css
-    assert ".lb-op-badge" in css
+    assert ".lb-tag" in css and "background: transparent" in css
