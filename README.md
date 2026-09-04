@@ -17,7 +17,7 @@
 | 图片 OCR（`derived/vision.json`）+ Obsidian 可见笔记 + AI 版渲染（`derived/agent.md`） | ✅ Lot 3 |
 | `render` 子命令、`read --brief/--full`、`search` 一行格式 | ✅ Lot 3 |
 | **Obsidian 人类版响应式小红书详情页：宽 pane 左图右文、窄 pane / 手机自动单栏、横向切图、轻量楼中楼评论树、行内话题标签** | ✅ UI 稳定基线 |
-| 小模型摘要/标签/外链推荐 | ⬜ Lot 4 |
+| 小模型摘要/标签/外链推荐（`derived/extracted.json`、`docs/BENCH.md`） | ✅ Lot 4 |
 | 留言层 / 戳一下 / 收件箱 | ⬜ Lot 5 |
 | 收藏同步 | ⬜ Lot 6（可选） |
 
@@ -37,6 +37,8 @@ python -m link_brain render xhs-<note_id>                 # 拼可见笔记 + de
 python -m link_brain render --all                         # 对索引里所有对象重渲染一遍（幂等）
 python -m link_brain read xhs-<note_id> --brief           # 标题 + 正文前120字，≤5行
 python -m link_brain read xhs-<note_id> --full            # 打印整个 derived/agent.md
+python -m link_brain render --all --extract               # 缺 extracted.json 才调小模型（Lot 4）
+python -m link_brain render xhs-<note_id> --re-extract    # 强制重调小模型，覆盖旧结果
 ```
 
 `ingest` 归档成功后会自动跑一遍 vision + render；`vault\Web\Xiaohongshu\<标题>__<id8>.md` 是人唯一要看的文件，
@@ -49,6 +51,19 @@ python -m link_brain read xhs-<note_id> --full            # 打印整个 derived
 图片切换暂不依赖自定义按钮、radio 或网页跳转；这类 Obsidian 交互实验曾在实机出现错误，当前以横向滚动 / 触控滑动为稳定方案。详情见 `docs/STATE.md`。
 
 `render` 会把仓库内 `link_brain/assets/link-brain.css` **同步**到 `vault/.obsidian/snippets/link-brain.css`，因此 UI 更新会跟随 rerender 生效。第一次使用时，Owner 仍需在 Obsidian 设置 → 外观 → CSS 片段里打开一次 `link-brain` 开关。
+
+### 小模型派生（Lot 4）
+
+`render --extract` 会把「正文 + 图片 OCR + 带编号的评论」喂给 `media.py text`（默认 qwen3.7-flash），
+拿回一份固定 JSON 落到 `derived/extracted.json`：概要、要点、标签、值得点开的链接、
+有价值/是广告的评论。它只读本地文件，**不会重抓网页**；删掉 `extracted.json` 重跑就只是重新调一次模型。
+
+- 概要和要点回填进 `derived/agent.md`，`read --brief` 优先用模型概要；抽取失败时写"（未生成）"，不阻断。
+- 标签按 `docs/tag-vocab.yaml` 归一后并进可见 md 的 `tags:`。**只增不减**：原帖 hashtag、
+  Owner 手写的 tag、frontmatter 里 Owner 自己加的键（`time` / `finder` / `comment` …）rerender 都原样保留。
+- 模型输出一律当不可信数据：非 `http(s)` 的"链接"降级成线索文本、标签洗成 Obsidian 合法字符、
+  正文/评论渲染前 HTML 转义。评论里写"忽略以上指令…"也只是普通文本。
+- 模型 id 和价格在 `link_brain/assets/llm-config.yaml`，跑分见 `docs/BENCH.md`（首轮 5/5 一次成功，单条约 $0.000125）。
 
 退出码：`0` 成功 / `1` 一般错误 / `2` 缺内容 gate（图片没下全）/ `3` 子命令未实现。
 
@@ -70,6 +85,8 @@ commit 前跑一次 `git status` 核对。
 - `docs/FORMAT.md` — 数据格式唯一真相
 - `docs/POC-xiaohongshu.md` — 小红书 MCP 能拿到什么、拿不到什么
 - `docs/STATE.md` — 当前进度、已回滚实验、下一步
+- `docs/BENCH.md` — 小模型跑分（成功率 / token / 成本，Owner 填人工判定列）
+- `docs/tag-vocab.yaml` — 标签归一词表
 
 ## 测试
 

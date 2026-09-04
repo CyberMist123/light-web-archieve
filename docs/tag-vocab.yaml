@@ -1,0 +1,27 @@
+# 标签归一词表（Lot 4）
+#
+# 用法：小模型吐回来的 tags 逐个按「canonical: [别名…]」大小写不敏感匹配，
+#       命中就换成 canonical，没命中的保留原样（只做去空白/去 # 清洗）。
+# 规矩：用户在 Obsidian 里手写的 tag 永远不被覆盖、不被删除，只做并集。
+# 先放 20 个常用词，跑够样本后再按 BENCH.md 的结果增删。
+
+AI: [ai, 人工智能, AIGC, aigc, 大模型, LLM, llm]
+Claude: [claude, claudecode, "claude code", CC, cc]
+GPT: [gpt, chatgpt, ChatGPT, openai, OpenAI, GPTs]
+提示词: [prompt, Prompt, prompts, 咒语, 指令词]
+编程: [代码, coding, 程序员, 开发, 写代码]
+开源: [opensource, "open source", github, GitHub, 开源项目]
+效率工具: [效率, 生产力, 工具推荐, 神器, 效率软件]
+教程: [攻略, 保姆级教程, howto, 手把手, 全攻略]
+避坑: [踩坑, 坑, 翻车, 避雷]
+数码: [digital, 电子产品, 3C, 数码好物]
+充电宝: [移动电源, 充电宝推荐, 磁吸充电宝]
+家居改造: [家装, 改造, 装修, 低成本家居改造, 旧房改造]
+DIY: [diy, 手工, 自制, 邪修, 动手做]
+家电: [电器, 小家电, 家用电器]
+留学: [留学生, 海外求学, 出国留学]
+悉尼: [sydney, Sydney, 澳洲, 澳大利亚, USYD, usyd]
+生活记录: [日常, vlog, Vlog, 生活, 记录生活]
+好物推荐: [好物, 种草, 推荐, 好物分享]
+省钱: [平价, 便宜, 白菜价, 薅羊毛, 性价比]
+广告: [推广, 恰饭, 商单, 软广]

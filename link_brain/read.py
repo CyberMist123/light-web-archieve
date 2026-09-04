@@ -1,6 +1,7 @@
 """`read` / `search` 子命令。
 
-`read`：默认打印 `meta.json`；`--brief` 打印标题+概要（≤5 行，概要=正文前 120 字）；
+`read`：默认打印 `meta.json`；`--brief` 打印标题+概要（≤5 行；有小模型 summary 就用它，
+没有则退回正文前 120 字）；
 `--full` 打印整个 `derived/agent.md`（Lot 3）。
 `search`：按标题/正文 LIKE 查询，每条一行 `item_id | title | 1行概要 | tags | 日期`。
 """
@@ -10,7 +11,7 @@ from __future__ import annotations
 import json
 import sys
 
-from . import index as index_mod, storage
+from . import index as index_mod, llm as llm_mod, storage
 from .adapters import xiaohongshu as xhs
 
 EXIT_OK = 0
@@ -58,7 +59,8 @@ def run(args) -> int:
             body = ""
             if source_path.exists():
                 body = (storage.read_json(source_path).get("note") or {}).get("body") or ""
-            summary = _one_line(body, 120)
+            extracted = llm_mod.extracted_data(llm_mod.load_extracted(source, source_id))
+            summary = _one_line((extracted or {}).get("summary") or body, 120)
             title = meta.get("title") or "（无标题）"
             print(f"# {title}")
             print(summary or "（无概要）")
