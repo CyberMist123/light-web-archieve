@@ -23,7 +23,7 @@ def _source():
                 "comment_id": "c1",
                 "author": {"nickname": "momo"},
                 "created_at": "2026-09-03T10:00:00+08:00",
-                "ip_location": "浙江",
+                "ip_location": "上海",
                 "text": "一级评论",
                 "like_count": 10,
                 "sub_comment_count": 2,
@@ -32,6 +32,7 @@ def _source():
                         "comment_id": "c2",
                         "author": {"nickname": "DDou"},
                         "created_at": "2026-09-03T11:00:00+08:00",
+                        "ip_location": "北京",
                         "text": "楼中楼",
                         "like_count": 1,
                     }
@@ -83,7 +84,6 @@ def test_human_view_is_xhs_layout_without_debug_sections():
     assert 'class="lb-comments"' in text
     assert 'class="lb-replies"' in text
     assert "1 / 2" in text and "2 / 2" in text
-    assert "评论 152" in text
     assert "#AI" in text
     assert "#AI[话题]#" not in text
 
@@ -92,6 +92,21 @@ def test_human_view_is_xhs_layout_without_debug_sections():
     assert "原图 1" not in text
     assert "原链接" not in text
     assert "# 测试标题" not in text
+
+
+def test_human_comments_hide_date_location_and_overall_count():
+    text = render.render_content_block(
+        source=_source(),
+        manifest=_manifest(),
+        meta=_meta(),
+        object_rel="_archive/xiaohongshu/0000000000000000deadbeef",
+    )
+    assert "momo" in text and "DDou" in text
+    assert "一级评论" in text and "楼中楼" in text
+    assert "lb-comment-date" not in text
+    assert "2026-09-03" not in text
+    assert "上海" not in text and "北京" not in text
+    assert "评论 152" not in text
 
 
 def test_video_human_view_marks_not_downloaded_without_original_link():
@@ -115,28 +130,32 @@ def test_video_human_view_marks_not_downloaded_without_original_link():
 def test_css_supports_reading_and_live_preview_with_pane_responsiveness():
     css = (Path(render.__file__).resolve().parent / "assets" / "link-brain.css").read_text(encoding="utf-8")
 
-    # Reading View + Live Preview 都必须建立 pane 宽度容器。
     assert ".markdown-preview-view.xhs-note .markdown-preview-sizer" in css
     assert ".markdown-source-view.xhs-note .cm-contentContainer" in css
     assert "container-name: link-brain-note" in css
 
-    # 主布局不能只绑定 reading view；Live Preview 也必须吃得到。
     assert ".xhs-note .lb-cols" in css
     assert "repeat(auto-fit" in css
     assert "grid-template-columns: minmax(0, 1fr)" in css
 
-    # 图片一屏一张 + 横切，而不是 7 张纵向堆。
     assert "scroll-snap-type: x mandatory" in css
     assert "flex: 0 0 100%" in css
     assert "overflow-x: auto" in css
 
-    # Live Preview 不露 link-brain marker；机器属性也不显示。
     assert ".cm-line:has(.cm-comment)" in css
     assert ".metadata-container" in css
 
-    # Electron 支持时桌面 hover 出现左右滚动箭头。
     assert "::scroll-button(left)" in css
     assert "::scroll-button(right)" in css
-
-    # 楼中楼样式仍在。
     assert ".lb-replies" in css
+
+
+def test_comment_css_uses_kaiti_grey_author_and_subtle_reply_line():
+    css = (Path(render.__file__).resolve().parent / "assets" / "link-brain.css").read_text(encoding="utf-8")
+    assert '"Kaiti SC"' in css
+    assert "STKaiti" in css
+    assert "KaiTi" in css
+    assert ".lb-comment-author" in css
+    assert "color: var(--text-muted)" in css
+    assert "--lb-reply-line" in css
+    assert "border-left: 1px solid var(--lb-reply-line)" in css
