@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "link-brain"
+version = "0.1.0"
+description = "light-web-archieve: 小红书链接归档基座（RAW 不可变 + Obsidian 可见笔记）"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.27",
+    "httpx>=0.27",
+    "pyyaml>=6.0",
+    "pillow>=10.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+link-brain = "link_brain.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["link_brain*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
