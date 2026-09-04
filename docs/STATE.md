@@ -189,19 +189,27 @@ repo_path: D:\LIGHT WEB ARCHIEVE
 
 ## 下一步
 
-1. **Lot 5**（主线最后一块）：`comment / inbox / resolve` + `scripts/smoke.py`——人和 AI 互相留言、
-   戳一下、收件箱；顺带把 `catch` 在 HIT 时追加留言接上（现在只进 relations 表）。
-2. **Lot 6 收藏同步**（Owner 已批：两个号都可以给 AI 用）。第一步先试 `get_my_profile(tab="fav")`，
-   能走通就不用她扫码；走不通再谈第二个 MCP 实例。
-3. **目录页**（Owner 2026-09-05 提）：vault 里一篇自动维护的索引 md——按标签/时间列全部笔记，
-   每条一行（标题链接 + 一行概要 + tag + 日期）。`render --all` 时顺手重写，纯程序拼。
-4. **docx → 文本**（Owner 提）：4 个附件是 .docx，`pdf2md` 只吃 PDF。通路加进 `media.py`
-   （和 pdf 一条路，硬约束 3 不自研），再让 `pdf2md` 认 .docx。
-5. **附件自动接线**：ingest 发现 `metadata_only` 就自动下一次字节；批量用 `--no-browser` 跳过 +
-   结尾汇总。
-6. **高亮**（挂起，等 Owner 说做）：不碰布局的做法是 `<mark>`——给一条命令把选中的句子写进 content 层，
-   并在 rerender 时按原文匹配贴回去。**不要**再为了高亮去改两栏布局。
-7. 评论图要不要走 agent-browser 补抓（MCP 真没有那个字段），等 Owner 拍板。
-8. `6a74946c…` 那条笔记每次抓都 300s 超时，单独查（评论特别多？）。
-9. Issue #2 的 UI 实机验收：回滚之后重新确认一次。
-10. `docs/BENCH.md` 最后三列 Owner 说不做 20 条了，以后手工填，不再挡路。
+按这个顺序做，都不需要再问 Owner 要决定（她 2026-09-05 凌晨已经拍完板）。
+
+1. **Lot 5 留言层**（主线最后一块）：`comment / inbox / resolve` + `scripts/smoke.py`；
+   顺带把 `catch` 在 HIT 时把新消息追加成留言接上（现在只进 relations 表）。
+2. **Lot 7 评论图补抓**（Owner 已批，规格见 `docs/TASKBOOK.md` Lot 7）：MCP 没有那个字段，
+   走 agent-browser 小号登录态读页面 DOM 拿 URL、httpx 下字节，落**对象级** `comment-media/`，
+   不碰已封存的 `raw/`。
+3. **目录页**：vault 里一篇自动维护的索引 md——按标签/时间列全部笔记，一行一条
+   （标题链接 + 一行概要 + tags + 日期），`render --all` 时顺手重写，纯程序拼、不过模型。
+4. **docx → 文本**：4 个附件是 .docx，`pdf2md` 只吃 PDF。通路加进
+   `Fluffy-SelfHood/tools/scripts/media.py`（硬约束 3：不自研，和 pdf 一条路），再让 `pdf2md` 认 .docx。
+5. **Lot 6 收藏同步**（Owner 已批：两个号都能给 AI 用）：先花十分钟试
+   `get_my_profile(tab="fav")`，能走通就不用她扫码；走不通再谈第二个 MCP 实例。
+6. **附件自动接线**：ingest 发现 `metadata_only` 就自动下一次字节；批量用 `--no-browser` 跳过 +
+   结尾汇总缺哪几篇。
+7. **高亮**（等 Owner 说做才做）：唯一可行的是 `<mark>` 这条**不碰布局**的路——给一条命令把她选中的
+   句子写进 content 层，rerender 时按原文匹配贴回去。**不要**再为了高亮去动两栏布局（今晚栽了两次）。
+8. Issue #2 的 UI 实机验收：回滚之后再确认一次。
+9. `docs/BENCH.md` 最后三列 Owner 说不做 20 条了，以后手工填，不再挡路。
+
+### 明确不做 / 不用管（Owner 2026-09-05 拍板）
+- `6a74946c…` 那条笔记每次抓都 300s 超时——**不用管**，别再花时间查。
+- `vault/Web/Xiaohongshu/20260904-文档体系整理-裁决.md`（别的会话丢进来的 cyberlink 文档）
+  ——**不用管**，别动它。

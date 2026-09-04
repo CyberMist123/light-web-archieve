@@ -217,6 +217,42 @@ AI 独立账号：需要第二个 xiaohongshu-mcp 实例（另一端口 + 另一
 
 ---
 
+---
+
+## Lot 7 · 评论区图片补抓（Owner 2026-09-05 拍板要做）
+
+**为什么要单开一个 Lot**：MCP 的 `get_feed_detail` 返回的评论对象**根本没有图片字段**
+（实测某条 64 个评论，`pictures` / `picture` / `image` 一个键都没有；全库 manifest 的
+`comment_image` 计数全是 0）。下载通路早写好了（`ingest.download_media` 认 `comment_image` role），
+缺的只是数据源。硬约束 10 允许"MCP 拿不到就退回浏览器登录态"，这一条就是那种情况。
+
+**做**
+- `link_brain/comment_media.py`（新文件）：
+  - 用 agent-browser（**小号** profile，和附件同一套；见 `attachments.py` 里那四个坑）打开
+    `https://www.xiaohongshu.com/explore/<note_id>?xsec_token=<token>&xsec_source=pc_feed`。
+    导航别用 `open <url>`（登录态小红书页面永不返回），一律 `open` 空白页再 `eval` 改 `location.href`。
+  - 从渲染后的 DOM 里抠评论图 URL（`eval` 一段 JS，按评论节点分组，拿 `img` 的最大档位 src）。
+    结论写进 `docs/POC-xiaohongshu.md`：页面上到底能不能拿到、拿到几张、要不要展开"查看更多回复"。
+  - 拿到 URL 之后**用 httpx 下字节**（评论图和正文图同一个 CDN，公开可取，不用浏览器下载），
+    复用 `ingest.download_image` 的三检（HTTP 2xx / Content-Type 是图 / Pillow 读得出宽高）。
+- **落盘位置**（RAW 不可变，硬约束 4）：和附件同一个思路，走**对象级**目录，
+  `_archive/<source>/<id>/comment-media/<comment_id>-NNN.webp` + 对象级 `comment_media.json`
+  （`comment_id` → `[{file, bytes, sha256, original_url, fetched_at}]`）。
+  **绝不回头改已封存的 `raw/vNNNN/manifest.json`。**
+- `render.py` 的 `_comment_image_files` 现在只看 manifest，要改成"manifest + comment_media.json 合并"，
+  这样评论图就能出现在人类版的评论树里（`<img class="lb-comment-image">` 那条路已经有了）。
+- 子命令 `comment-media <item_id> [--all] [--force]`；跑完照例 `check_login_status` 确认没把
+  18060 的主号顶下线，顶掉了就 `Start-ScheduledTask XiaohongshuMCP` 并在 POC 记一笔。
+- 每次开浏览器前后回收 MCP 的孤儿 Chrome（见 POC 第 9 节），别把内存吃干。
+
+**验收**
+- 样本 D（Ombre 二改，`6a2758e0…`）：至少抓到 1 张评论图，`comment_media.json` 里 sha256 与文件一致
+- 可见 md 的评论树里能看到那张图；`raw/vNNNN/` 目录字节数不变（比对 sha256）
+- 抓不到的评论不阻断、不写空记录；MCP 登录态在跑完之后仍然 OK
+- `python -m pytest -q` 全绿（新加的解析函数要有 fixture 级单测，别依赖网络）
+
+**注意**：这一步会开 headed 浏览器弹窗，批量跑会打扰 Owner——做成可 `--all` 但默认单篇。
+
 ## 派车建议
 
 | Lot | 车 | 理由 |
@@ -224,6 +260,7 @@ AI 独立账号：需要第二个 xiaohongshu-mcp 实例（另一端口 + 另一
 | 0, 1 | Opus | FORMAT 是以后所有 adapter 的地基；小红书 CDN 档位、MCP 返回结构、楼中楼深度都是未知，要判断力 |
 | 2–5 | Sonnet | 规格已定死、验收可跑命令核；每个 Lot 独立、返工面小 |
 | 6 | Opus | 要读上游源码/许可证做取舍 |
+| 7 | Opus | 页面结构未知、要判断能拿到什么，且涉及登录态互顶 |
 
 给 Sonnet 派车时**只贴对应 Lot + 第 0 节**，别整份塞；开工先读 `docs/FORMAT.md` 和 `docs/POC-xiaohongshu.md`。
 
