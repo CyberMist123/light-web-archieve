@@ -19,6 +19,7 @@
 | **Obsidian 人类版响应式小红书详情页：宽 pane 左图右文、窄 pane / 手机自动单栏、横向切图、轻量楼中楼评论树、行内话题标签** | ✅ UI 稳定基线 |
 | 笔记附件：元数据（走笔记网页版，游客可达）+ **字节下载**（`attachments` 子命令，要小号登录态） | ✅ |
 | 小模型摘要/标签/外链推荐（`derived/extracted.json`、`docs/BENCH.md`） | ✅ Lot 4 |
+| **给主模型的摘要通路**：`catch "<消息全文>"` 一条 JSON、`read --brief/--full --json`、`search --json` | ✅ |
 | 留言层 / 戳一下 / 收件箱 | ⬜ Lot 5 |
 | 收藏同步 | ⬜ Lot 6（可选） |
 
@@ -42,6 +43,9 @@ python -m link_brain render --all --extract               # 缺 extracted.json �
 python -m link_brain render xhs-<note_id> --re-extract    # 强制重调小模型，覆盖旧结果
 python -m link_brain attachments xhs-<note_id>            # 下载笔记附件字节（开浏览器，见下）
 python -m link_brain attachments --all                    # 所有有附件的对象都下一遍
+python -m link_brain catch "<聊天消息全文>" --origin tg    # 给主模型：自己找链接、归档、只打一个 JSON
+python -m link_brain read xhs-<note_id> --brief --json    # 同一份 JSON 结构，给主模型查已归档的
+python -m link_brain search "关键词" --json               # 查本地索引，机器可读
 ```
 
 `ingest` 归档成功后会自动跑一遍 vision + render；`vault\Web\Xiaohongshu\<标题>__<id8>.md` 是人唯一要看的文件，
@@ -74,6 +78,31 @@ python -m link_brain attachments xhs-<note_id>
 
 字节落对象级 `_archive/<source>/<id>/attachments/`，**不进已封存的 `raw/vNNNN/`**；
 下完可见 md 里那行 📎 会从“未下载”变成指向本地文件的链接。
+
+那行 📎 在笔记**最下面、HTML 块外面**，本地文件用 Obsidian 自己的 `[[…]]` 链接：裸 HTML 里的
+`<a href="../../_archive/…">` Obsidian 一律当外部 URL，点不开（2026-09-04 Owner 实机踩到），
+和 Lot 3b「原图链接放 HTML 块外面」是同一个坑。
+
+### 给主模型的摘要通路（`catch`）
+
+TG / CMX / CC 端的主模型不需要懂这个仓库，Bash 直调一条命令就行（**不起 HTTP 服务、不起 MCP 服务**）：
+
+```bash
+python -m link_brain catch "<她发来的整条消息>" --origin tg --actor human
+```
+
+它自己从消息里找小红书链接（`xiaohongshu.com` / `xhslink.cn` / `xhslink.com`），
+有就归档（命中索引就是 `hit`，不联网不重抓），**stdout 只有一行 JSON**，日志全走 stderr：
+
+```json
+{"found": 1, "items": [{"item_id": "xhs-…", "status": "new", "title": "…", "summary": "…", "tags": ["…"], "kind": "image", "visible_note": "D:\\LIGHT WEB ARCHIEVE\\vault\\Web\\Xiaohongshu\\….md", "agent_md": "D:\\LIGHT WEB ARCHIEVE\\vault\\_archive\\xiaohongshu\\…\\derived\\agent.md", "attachments": {"status": "downloaded", "items": []}, "url": "https://…"}]}
+```
+
+- 没有链接 → `{"found": 0, "items": []}`，零成本、不碰网络，调用方一眼判断要不要展开。
+- 整条消息会当留言 cmt1 写进可见笔记（**只在第一次归档时**，见 `docs/STATE.md` 已知缺口）。
+- `summary` 用小模型概要，没有就退回正文前 120 字；想顺手花钱生成加 `--extract`。
+- 路径都是绝对路径，调用方要细节就自己去读 `agent_md`。
+- 字段表和 `read --json` / `search --json` 的结构在 `docs/FORMAT.md` §10。
 
 ### 小模型派生（Lot 4）
 

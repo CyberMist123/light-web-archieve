@@ -102,20 +102,30 @@ def attachment_label(att: dict[str, Any]) -> str:
     return f"{name}（{' · '.join(bits)}）"
 
 
-def _attachments_html(attachments: list[dict[str, Any]], object_rel: str) -> str:
-    if not attachments:
-        return ""
+def _attachments_md(attachments: list[dict[str, Any]], object_rel: str) -> list[str]:
+    """附件行：**Markdown，放在 HTML 块外面**。
+
+    2026-09-04 Owner 报的回归：附件字节下下来之后点不开了。原因是 `<a href="../../_archive/…">`
+    ——Obsidian 把裸 HTML 里的 href 一律当外部 URL，本地相对路径打不开（之前指小红书网页
+    是 http 链接，所以能点）。跟 Lot 3b 第 2 条「原图链接放 HTML 块外面」同一个坑，
+    这里也改成 Obsidian 自己的链接：本地文件用 `[[vault相对路径|说明]]`，只有元数据的用普通
+    Markdown 链接指原站。
+    """
     rows = []
     for att in attachments:
-        label = _safe(attachment_label(att))
+        label = attachment_label(att).replace("[", "（").replace("]", "）").replace("|", "·")
         local = att.get("file")
         if local:
-            href = f"../../{_safe(object_rel)}/{_safe(local)}"
-        else:
-            href = _safe(att.get("url") or "")
-        inner = f'<a href="{href}">{label}</a>' if href else label
-        rows.append(f'<div class="lb-file-row">📎 {inner}</div>')
-    return f'<div class="lb-files">{"".join(rows)}</div>'
+            target = f"{object_rel}/{local}"
+            # wikilink 里出现这些字符会被当成别名/块引用分隔符，退回纯文本免得链接歪掉
+            if any(ch in target for ch in "[]|#^"):
+                rows.append(f"📎 {label} — `{target}`")
+            else:
+                rows.append(f"📎 [[{target}|{label}]]")
+            continue
+        url = att.get("url")
+        rows.append(f"📎 [{label}]({url})" if url else f"📎 {label}")
+    return rows
 
 
 def _engagement_html(note: dict[str, Any]) -> str:
@@ -268,7 +278,6 @@ def _detail_html(note: dict[str, Any], comments: list[dict[str, Any]], manifest:
         f'<div class="lb-post-meta">{_safe(meta)}</div>' if meta else "",
         "</div></div>",
         f'<div class="lb-post-body">{_body_html(note.get("body") or "")}</div>',
-        _attachments_html(note.get("attachments") or [], object_rel),
         _tag_html(note.get("hashtags") or []),
         _engagement_html(note),
         '<div class="lb-comments">',
@@ -293,7 +302,14 @@ def render_content_block(
     media, has_media = _media_html(note, manifest, object_rel)
     detail = _detail_html(note, comments, manifest, object_rel)
     cls = "lb-cols" if has_media else "lb-cols lb-no-media"
-    return "\n".join([CONTENT_START, f'<div class="{cls}">', media, detail, "</div>", CONTENT_END])
+    # 附件行必须落在 HTML 块**外面**，Obsidian 才认得那是本仓库里的文件（见 _attachments_md）
+    parts = [CONTENT_START, f'<div class="{cls}">', media, detail, "</div>"]
+    tail = _attachments_md(note.get("attachments") or [], object_rel)
+    if tail:
+        parts.append("")
+        parts.extend(tail)
+    parts.append(CONTENT_END)
+    return "\n".join(parts)
 
 
 FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.S)
