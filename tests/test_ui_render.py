@@ -219,6 +219,22 @@ def test_downloaded_attachment_points_at_local_file():
     assert "📎" not in text
 
 
+def test_meta_line_has_source_url_and_agent_md():
+    """Owner 2026-09-04：Obsidian 里要能点回原网址、要看得到机读版（derived/agent.md）。"""
+    text = render.render_visible_md(
+        source=_source(),
+        manifest=_manifest(),
+        meta=_meta(),
+        object_rel="_archive/xiaohongshu/0000000000000000deadbeef",
+        existing_text=None,
+    )
+    assert "[原文](" in text and _meta()["canonical_url"] in text
+    agent_link = "[[_archive/xiaohongshu/0000000000000000deadbeef/derived/agent.md|机读版]]"
+    assert agent_link in text
+    # 必须在 HTML 容器之前，不然 Obsidian 点不开
+    assert text.index(agent_link) < text.index('<div class="lb-cols')
+
+
 def test_no_attachments_renders_nothing():
     text = render.render_visible_md(
         source=_source(),

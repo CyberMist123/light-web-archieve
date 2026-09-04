@@ -115,7 +115,7 @@ def _attachments_md(attachments: list[dict[str, Any]], object_rel: str) -> list[
     """
     if not attachments:
         return []
-    rows = ["> [!link-brain-file]"]
+    rows = []
     for att in attachments:
         label = attachment_label(att).replace("[", "（").replace("]", "）").replace("|", "·")
         local = att.get("file")
@@ -294,6 +294,30 @@ def _detail_html(note: dict[str, Any], comments: list[dict[str, Any]], manifest:
     return "".join(parts)
 
 
+def _meta_md(note: dict[str, Any], meta: dict[str, Any], object_rel: str) -> list[str]:
+    """笔记顶上那条灰色小字：原文链接 · 机读版 · 附件。
+
+    全是 Obsidian 自己的链接（`[…](http)` / `[[vault 路径]]`），所以必须在 HTML 块外面。
+    机读版就是 `derived/agent.md`——Owner 说她在 Obsidian 里看不到机读视角，这条就是入口。
+    """
+    first = []
+    url = meta.get("canonical_url") or note.get("canonical_url")
+    if url:
+        first.append(f"[原文]({url})")
+    agent_rel = f"{object_rel}/derived/agent.md"
+    if not any(ch in agent_rel for ch in "[]|#^"):
+        first.append(f"[[{agent_rel}|机读版]]")
+    rows = ["> [!link-brain-file]"]
+    if first:
+        rows.append("> " + " · ".join(first))
+    files = _attachments_md(note.get("attachments") or [], object_rel)
+    if files:
+        if first:
+            rows.append(">")  # 空行才会被拆成两段，不然会黏成一行
+        rows.extend(files)
+    return rows if len(rows) > 1 else []
+
+
 def render_content_block(
     *,
     source: dict[str, Any],
@@ -306,13 +330,11 @@ def render_content_block(
     media, has_media = _media_html(note, manifest, object_rel)
     detail = _detail_html(note, comments, manifest, object_rel)
     cls = "lb-cols" if has_media else "lb-cols lb-no-media"
-    # 附件卡片必须落在 HTML 块**外面**，Obsidian 才认得那是本仓库里的文件（见 _attachments_md）；
-    # 放在正文两栏之前 —— 有附件的笔记，附件就是她要点的东西，别埋到评论底下。
+    # 这一条灰色小字必须落在 HTML 块**外面**，Obsidian 才认得那是本仓库里的文件/笔记
+    # （见 _attachments_md）；放在正文两栏之前——原文链接、机读版、附件都是她要点的东西。
     parts = [CONTENT_START]
-    card = _attachments_md(note.get("attachments") or [], object_rel)
-    if card:
-        parts.extend(card)
-        parts.append("")
+    parts.extend(_meta_md(note, meta, object_rel))
+    parts.append("")
     parts += [f'<div class="{cls}">', media, detail, "</div>", CONTENT_END]
     return "\n".join(parts)
 
