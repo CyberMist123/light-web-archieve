@@ -660,6 +660,11 @@ def render_object(
             att["status"] = "downloaded"
             att["bytes"] = got.get("bytes")
             att["sha256"] = got.get("sha256")
+            # meta 里那个总状态也要跟上：ingest 写完 v0002 之后它会退回 metadata_only，
+            # 而字节其实早就在盘上了（catch / search 的 JSON 都读这个字段）
+            if meta.get("attachments_status") != "downloaded":
+                meta["attachments_status"] = "downloaded"
+                storage.write_json(meta_path, meta)
 
     extracted_doc = llm_mod.load_extracted(source_key, source_id)
     if llm or re_extract:
