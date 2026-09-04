@@ -5,7 +5,6 @@ Rerender replaces only the managed content layer and preserves the comments laye
 """
 from __future__ import annotations
 
-import hashlib
 import html
 import re
 from datetime import datetime
@@ -29,6 +28,7 @@ RESERVED_NAMES = {
 }
 MAX_TITLE_LEN = 60
 PREVIEW_UNSUPPORTED_SUFFIXES = {".avif", ".heic"}
+ACTOR_LABELS = {"human": "人", "gpt": "gpt", "fable": "fable"}
 
 
 def sanitize_title(title: str) -> str:
@@ -64,27 +64,6 @@ def _date(value: Any) -> str:
     return str(value or "")[:10]
 
 
-def _author_key(author: dict[str, Any] | None) -> str:
-    author = author or {}
-    return str(author.get("user_id") or author.get("nickname") or "anonymous")
-
-
-def _stable_avatar_color(author: dict[str, Any] | None) -> str:
-    digest = hashlib.sha1(_author_key(author).encode("utf-8", errors="ignore")).digest()
-    hue = round(digest[0] / 255 * 360)
-    sat = 56 + digest[1] % 16
-    light = 61 + digest[2] % 8
-    return f"hsl({hue} {sat}% {light}%)"
-
-
-def _same_author(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:
-    a = a or {}
-    b = b or {}
-    if a.get("user_id") and b.get("user_id"):
-        return str(a["user_id"]) == str(b["user_id"])
-    return bool(a.get("nickname")) and a.get("nickname") == b.get("nickname")
-
-
 def _body_html(text: str) -> str:
     text = TOPIC_TOKEN_RE.sub("", text or "")
     text = re.sub(r"[ \t]+\n", "\n", text)
@@ -99,12 +78,12 @@ def _body_html(text: str) -> str:
 
 
 def _tag_html(tags: list[str]) -> str:
-    items = [f'<span class="lb-tag">#{_safe(x)}</span>' for x in tags or [] if x]
-    return f'<div class="lb-tags">{" ".join(items)}</div>' if items else ""
+    chips = "".join(f'<span class="lb-tag">#{_safe(x)}</span>' for x in tags or [] if x)
+    return f'<div class="lb-tags">{chips}</div>' if chips else ""
 
 
 def _engagement_html(note: dict[str, Any]) -> str:
-    """Human view keeps like/collect only; comment count is intentionally hidden."""
+    """Human view keeps only like/collect counts; comment count is visual noise here."""
     e = note.get("engagement") or {}
     bits = []
     for key, label in (("liked", "♡"), ("collected", "☆")):
@@ -138,45 +117,15 @@ def _comment_image_files(comment_id: str | None, manifest: dict[str, Any]) -> li
     ]
 
 
-def _avatar_html(author: dict[str, Any] | None, *, cls: str) -> str:
-    """Minimal avatar: stable per-person colour, no letters/images."""
-    return (
-        f'<span class="{cls}" style="--lb-avatar-color: {_stable_avatar_color(author)};" '
-        'aria-hidden="true"></span>'
-    )
-
-
-def _author_row_html(author: dict[str, Any] | None, published_at: Any) -> str:
-    author = author or {}
-    name = author.get("nickname") or "匿名"
-    published = _date(published_at)
-    parts = [
-        '<div class="lb-author-row">',
-        _avatar_html(author, cls="lb-author-avatar"),
-        '<div class="lb-author-copy">',
-        '<div class="lb-author-line">',
-        f'<span class="lb-author-name">{_safe(name)}</span>',
-        '<span class="lb-author-badge">作者</span>',
-        '</div>',
-    ]
-    if published:
-        parts.append(f'<div class="lb-post-meta">{_safe(published)}</div>')
-    parts += ["</div>", "</div>"]
-    return "".join(parts)
-
-
 def _comment_html(
     comment: dict[str, Any],
     object_rel: str,
     manifest: dict[str, Any],
     *,
-    post_author: dict[str, Any] | None,
-    depth: int = 0,
+    nested: bool = False,
 ) -> str:
-    author = comment.get("author") or {}
-    name = author.get("nickname") or "匿名"
-    is_op = _same_author(author, post_author)
-
+    """Human comment row: author + text only; no date/location/overall count."""
+    author = (comment.get("author") or {}).get("nickname") or "匿名"
     text = _safe(comment.get("text") or "")
     target = comment.get("target_nickname")
     if target:
@@ -194,47 +143,25 @@ def _comment_html(
     if likes not in (None, "", 0, "0"):
         actions = f'<div class="lb-comment-actions">♡ {_safe(likes)}</div>'
 
-    depth_class = min(max(depth, 0), 3)
-    cls = f"lb-comment lb-depth-{depth_class}"
-    if depth:
-        cls += " lb-reply"
-    if is_op:
-        cls += " lb-is-op"
-
+    cls = "lb-comment lb-reply" if nested else "lb-comment"
     parts = [
-        f'<article class="{cls}" data-depth="{depth}">',
-        '<div class="lb-comment-row">',
-        _avatar_html(post_author if is_op else author, cls="lb-comment-avatar"),
-        '<div class="lb-comment-main">',
-        '<div class="lb-comment-head">',
-        f'<span class="lb-comment-author">{_safe(name)}</span>',
-        '<span class="lb-op-badge">作者</span>' if is_op else "",
-        '</div>',
+        f'<article class="{cls}">',
+        f'<div class="lb-comment-author">{_safe(author)}</div>',
         f'<div class="lb-comment-text">{text}</div>{media}{actions}',
-        '</div></div>',
     ]
 
-    subs = comment.get("sub_comments") or []
-    if subs:
-        parts.append('<div class="lb-replies">')
-        parts.extend(
-            _comment_html(
-                sub,
-                object_rel,
-                manifest,
-                post_author=post_author,
-                depth=depth + 1,
-            )
-            for sub in subs
-        )
-        try:
-            declared = int(comment.get("sub_comment_count") or 0)
-        except (TypeError, ValueError):
-            declared = 0
-        if declared > len(subs):
-            parts.append(f'<div class="lb-more-replies">展开 {declared} 条回复</div>')
-        parts.append("</div>")
-
+    if not nested:
+        subs = comment.get("sub_comments") or []
+        if subs:
+            parts.append('<div class="lb-replies">')
+            parts.extend(_comment_html(s, object_rel, manifest, nested=True) for s in subs)
+            try:
+                declared = int(comment.get("sub_comment_count") or 0)
+            except (TypeError, ValueError):
+                declared = 0
+            if declared > len(subs):
+                parts.append(f'<div class="lb-more-replies">展开 {declared} 条回复</div>')
+            parts.append("</div>")
     parts.append("</article>")
     return "".join(parts)
 
@@ -278,39 +205,15 @@ def _media_html(note: dict[str, Any], manifest: dict[str, Any], object_rel: str)
         return "", False
 
     total = len(entries)
-    key = hashlib.sha1(object_rel.encode("utf-8", errors="ignore")).hexdigest()[:10]
-    group = f"lb-pages-{key}"
-    canonical_url = note.get("canonical_url") or ""
-
     parts = ['<section class="lb-media"><div class="lb-carousel">']
     for i, entry in enumerate(entries, 1):
-        toggle_id = f"lb-{key}-page-{i}"
-        parts.append(
-            f'<input class="lb-slide-toggle" type="radio" name="{group}" id="{toggle_id}"'
-            + (" checked" if i == 1 else "")
-            + ">"
-        )
         src, _ = _img_srcs(object_rel, entry["file"])
-        prev_i = total if i == 1 else i - 1
-        next_i = 1 if i == total else i + 1
         parts += [
-            f'<figure class="lb-slide" data-page="{i}">',
-            '<div class="lb-image-double" tabindex="0" title="双击打开小红书原帖">',
+            '<figure class="lb-slide">',
             f'<img src="../../{_safe(src)}" loading="lazy" alt="图片 {i} / {total}">',
+            f'<figcaption class="lb-counter">{i} / {total}</figcaption>' if total > 1 else "",
+            "</figure>",
         ]
-        if canonical_url:
-            parts.append(
-                f'<a class="lb-image-open" href="{_safe(canonical_url)}" target="_blank" '
-                'rel="noopener noreferrer" aria-label="双击打开小红书原帖"></a>'
-            )
-        parts.append("</div>")
-        if total > 1:
-            parts += [
-                f'<label class="lb-arrow lb-arrow-left" for="lb-{key}-page-{prev_i}" aria-label="上一张">‹</label>',
-                f'<label class="lb-arrow lb-arrow-right" for="lb-{key}-page-{next_i}" aria-label="下一张">›</label>',
-                f'<figcaption class="lb-counter">{i} / {total}</figcaption>',
-            ]
-        parts.append("</figure>")
     parts.append("</div>")
     if note.get("kind") == "video":
         parts.append('<div class="lb-video-badge">视频 · 未下载</div>')
@@ -319,25 +222,25 @@ def _media_html(note: dict[str, Any], manifest: dict[str, Any], object_rel: str)
 
 
 def _detail_html(note: dict[str, Any], comments: list[dict[str, Any]], manifest: dict[str, Any], object_rel: str) -> str:
-    post_author = note.get("author") or {}
+    author = (note.get("author") or {}).get("nickname") or "匿名"
+    meta = " · ".join(x for x in (_date(note.get("published_at")), note.get("ip_location")) if x)
+
     parts = [
         '<section class="lb-detail">',
-        '<div class="lb-detail-top">',
-        _author_row_html(post_author, note.get("published_at")),
+        '<div class="lb-author-row"><div class="lb-author-dot" aria-hidden="true"></div><div class="lb-author-copy">',
+        f'<div class="lb-author-name">{_safe(author)}</div>',
+        f'<div class="lb-post-meta">{_safe(meta)}</div>' if meta else "",
+        "</div></div>",
         f'<div class="lb-post-body">{_body_html(note.get("body") or "")}</div>',
         _tag_html(note.get("hashtags") or []),
         _engagement_html(note),
-        '</div>',
-        '<div class="lb-comments-scroller"><div class="lb-comments">',
+        '<div class="lb-comments">',
     ]
     if comments:
-        parts.extend(
-            _comment_html(c, object_rel, manifest, post_author=post_author, depth=0)
-            for c in comments
-        )
+        parts.extend(_comment_html(c, object_rel, manifest) for c in comments)
     else:
         parts.append('<div class="lb-empty">暂无评论</div>')
-    parts += ["</div></div>", "</section>"]
+    parts += ["</div>", "</section>"]
     return "".join(parts)
 
 
