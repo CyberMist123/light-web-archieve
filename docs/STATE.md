@@ -96,8 +96,19 @@ repo_path: D:\LIGHT WEB ARCHIEVE
 
 ## 下一步
 
-1. 给主模型的摘要通路（issue #41 第 17 节）：TG / CMX / CC 收到链接 → `ingest` →
-   回 `item_id` + 极短概要 + 本地路径。目前只有 CLI，没有给主模型用的入口。
+1. **给主模型的摘要通路**（issue #41 第 17 节）。现在只有给人用的 CLI，主模型没法用。
+   已经想好的做法（下个窗口照做即可，别再重新设计）：
+   - 新增 `catch` 子命令：`python -m link_brain catch "<原始消息全文>" --origin tg|cmx|cc --actor human`
+     → 自己从消息里检测小红书链接（复用 `xhs.URL_RE` + host 过滤）→ 有就 `ingest`
+     （命中索引就是 HIT，不联网）→ **只在 stdout 打一个 JSON**：
+     `{"found": N, "items": [{item_id, status: new|hit, title, summary, tags, kind,
+     visible_note(绝对路径), agent_md(绝对路径), attachments, url}]}`；
+     没有链接就 `{"found": 0, "items": []}`，让调用方一眼判断要不要展开。
+   - `summary` 用 `derived/extracted.json` 的小模型概要，没有就退回正文前 120 字。
+   - 原始消息整条当 `--note` 传下去（就是可见 md 顶部那条留言 cmt1）。
+   - 顺手给 `read --brief` / `search` 加 `--json`，主模型换窗口后能直接查本地索引。
+   - **不做 HTTP 服务、不做 MCP 服务**（硬约束 8）。TG/CMX 端就是 Bash 直调这个 CLI，
+     用绝对路径 python。调用方拿到 JSON 自己决定要不要读 `agent_md`。
 2. Lot 5（`comment / inbox / resolve` + `scripts/smoke.py`）——人和 AI 互相留言那层。
 3. Issue #2 的 UI 仍欠 Owner 一次实机验收。
 4. `docs/BENCH.md` 最后三列 Owner 说不做 20 条了，以后手工填，不再挡路。
