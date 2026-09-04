@@ -244,3 +244,21 @@ def test_no_attachments_renders_nothing():
         existing_text=None,
     )
     assert "lb-files" not in text
+
+
+def test_source_link_carries_xsec_token():
+    """光有 /explore/<id> 现在会 404，原文链接必须带上抓取时那个 xsec_token（Owner 2026-09-05 实机）。"""
+    note = {"xsec_token": "TOK123", "canonical_url": "https://www.xiaohongshu.com/explore/abc"}
+    meta = {"canonical_url": "https://www.xiaohongshu.com/explore/abc"}
+    url = render.source_open_url(note, meta)
+    assert url == "https://www.xiaohongshu.com/explore/abc?xsec_token=TOK123&xsec_source=pc_feed"
+
+    # 老对象 source.json 里没存 token 时，从当初那条 input_url 里捞
+    fallback = render.source_open_url(
+        {}, {"canonical_url": "https://www.xiaohongshu.com/explore/abc",
+             "input_url": "https://www.xiaohongshu.com/explore/abc?xsec_token=OLD9&xsec_source=pc_user"}
+    )
+    assert "xsec_token=OLD9" in fallback
+
+    # 实在没有 token 就退回 canonical，别拼个坏链接出来
+    assert render.source_open_url({}, {"canonical_url": "https://x/explore/abc"}) == "https://x/explore/abc"

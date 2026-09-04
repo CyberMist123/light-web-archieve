@@ -356,6 +356,27 @@ def _detail_html(note: dict[str, Any], comments: list[dict[str, Any]], manifest:
     return "".join(parts)
 
 
+def source_open_url(note: dict[str, Any], meta: dict[str, Any]) -> str | None:
+    """给人点的原文链接。
+
+    光有 `canonical_url`（`/explore/<id>`）现在**会 404**——小红书要求带 `xsec_token`
+    （2026-09-05 Owner 实机报的）。所以显示用的链接把抓取时那个 token 带上；
+    `canonical_url` 仍然只当去重键用（硬约束 7），不动它。
+    """
+    canonical = meta.get("canonical_url") or note.get("canonical_url")
+    if not canonical:
+        return None
+    token = note.get("xsec_token")
+    if not token:
+        # 老对象的 source.json 可能没存 token，从当初那条 input_url 里捞
+        raw_input = meta.get("input_url") or ""
+        match = re.search(r"[?&]xsec_token=([^&\s]+)", raw_input)
+        token = match.group(1) if match else None
+    if not token:
+        return canonical
+    return f"{canonical}?xsec_token={token}&xsec_source=pc_feed"
+
+
 def _meta_md(note: dict[str, Any], meta: dict[str, Any], object_rel: str) -> list[str]:
     """笔记顶上那条灰色小字：原文链接 · 机读版 · 附件。
 
@@ -363,7 +384,7 @@ def _meta_md(note: dict[str, Any], meta: dict[str, Any], object_rel: str) -> lis
     机读版就是 `derived/agent.md`——Owner 说她在 Obsidian 里看不到机读视角，这条就是入口。
     """
     first = []
-    url = meta.get("canonical_url") or note.get("canonical_url")
+    url = source_open_url(note, meta)
     if url:
         first.append(f"[原文]({url})")
     agent_rel = f"{object_rel}/derived/agent.md"

@@ -139,6 +139,11 @@ def item_payload(source_key: str, source_id: str, *, status: str | None = None) 
         attachments=_attachments_payload(note, meta, source_key, source_id),
         url=meta.get("canonical_url"),
     )
+    # canonical 只当去重键；直接点它现在会 404（小红书要 xsec_token），
+    # 所以再给一个能真正打开的地址，调用方要给人看链接就用这个
+    from .render import source_open_url
+
+    payload["open_url"] = source_open_url(note, meta)
     return payload
 
 
