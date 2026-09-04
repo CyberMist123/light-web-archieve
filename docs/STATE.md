@@ -146,6 +146,21 @@ repo_path: D:\LIGHT WEB ARCHIEVE
 - `vault/Web/Xiaohongshu/` 里有一个 `20260904-文档体系整理-裁决.md` 不是归档产物，是别的会话丢进来的
   cyberlink 文档，没敢动，等 Owner 处置。
 
+### 2026-09-05 凌晨这一轮做完的
+- 31 条收藏全部补抓完（30 篇落盘，`6a74946c…` 那条每次都在 MCP 侧 300s 超时，单独挂着）。
+- 附件字节 10 个已下（含 4 个 .docx）；`pdf2md` 把 8 个 PDF 转成 `derived/attachments/<doc_id>.md`，
+  坏字形全部 0%——只有子集化字体那份走了逐页 OCR，其余直接抽文字层。
+- 原文链接带 `xsec_token`（裸 canonical 会 404，实测验过）；顶部灰字变成
+  `原文 · 机读版 · 附件 · 全文`。
+- **布局折腾了两轮最后回滚**：想把正文从 HTML 搬出来变 Markdown（为了能划 `==重点==`），
+  试过 float、也试过把 grid 建到 sizer 上，Owner 实机两次都说更差，最后 `git checkout 62c9024`
+  整体回到她认可的那版（`.lb-cols` 两栏 grid + 图片 sticky + 正文在 `.lb-detail` 里）。
+  **教训写在这里，别再重蹈**：正文一旦是 Markdown，它在 DOM 里必然是 sizer 的直接子节点
+  （Obsidian 遇空行闭合 HTML 块），两栏只能靠 sizer 级 grid / float 兜，视觉细节对不齐；
+  真要划重点得走 `<mark>` 这条不碰布局的路。
+  过程中量到两条硬知识：**元素响应不了自己的容器查询**（sizer 自己当容器时 display 改不动、
+  子节点规则却生效）；老 `auto-fit(minmax(390px,1fr))` 在 795px 仍是两栏，断点别定在 700/800。
+
 ## 已知缺口
 
 - 图片左右箭头暂不作为稳定功能；当前主要用横向滚动 / 触控滑动切图。
@@ -174,12 +189,19 @@ repo_path: D:\LIGHT WEB ARCHIEVE
 
 ## 下一步
 
-1. 把剩下 14 条收藏补抓完（脚本在等内存），然后 `render --all` 统一铺新样式。
-2. 6 篇 `metadata_only` 的附件字节下下来（`attachments --all`，会弹 headed 浏览器）。
-3. **Lot 6 收藏同步**（Owner 2026-09-04 已批：两个号都可以给 AI 用）。第一步先花十分钟试
-   `get_my_profile(tab="fav")`，能走通就不用她扫码；走不通再谈第二个 MCP 实例。
-4. 附件自动接线：ingest 发现 `metadata_only` 就自动下一次字节；批量用 `--no-browser` 跳过 + 结尾汇总。
-5. PDF → md（见已知缺口那条）。
-6. Lot 5（`comment / inbox / resolve` + `scripts/smoke.py`）；顺带把 `catch` 在 HIT 时追加留言接上。
-7. Issue #2 的 UI 仍欠 Owner 一次实机验收；这次要看的：顶部灰字那行、附件点不点得开、干净文件名。
-8. `docs/BENCH.md` 最后三列 Owner 说不做 20 条了，以后手工填，不再挡路。
+1. **Lot 5**（主线最后一块）：`comment / inbox / resolve` + `scripts/smoke.py`——人和 AI 互相留言、
+   戳一下、收件箱；顺带把 `catch` 在 HIT 时追加留言接上（现在只进 relations 表）。
+2. **Lot 6 收藏同步**（Owner 已批：两个号都可以给 AI 用）。第一步先试 `get_my_profile(tab="fav")`，
+   能走通就不用她扫码；走不通再谈第二个 MCP 实例。
+3. **目录页**（Owner 2026-09-05 提）：vault 里一篇自动维护的索引 md——按标签/时间列全部笔记，
+   每条一行（标题链接 + 一行概要 + tag + 日期）。`render --all` 时顺手重写，纯程序拼。
+4. **docx → 文本**（Owner 提）：4 个附件是 .docx，`pdf2md` 只吃 PDF。通路加进 `media.py`
+   （和 pdf 一条路，硬约束 3 不自研），再让 `pdf2md` 认 .docx。
+5. **附件自动接线**：ingest 发现 `metadata_only` 就自动下一次字节；批量用 `--no-browser` 跳过 +
+   结尾汇总。
+6. **高亮**（挂起，等 Owner 说做）：不碰布局的做法是 `<mark>`——给一条命令把选中的句子写进 content 层，
+   并在 rerender 时按原文匹配贴回去。**不要**再为了高亮去改两栏布局。
+7. 评论图要不要走 agent-browser 补抓（MCP 真没有那个字段），等 Owner 拍板。
+8. `6a74946c…` 那条笔记每次抓都 300s 超时，单独查（评论特别多？）。
+9. Issue #2 的 UI 实机验收：回滚之后重新确认一次。
+10. `docs/BENCH.md` 最后三列 Owner 说不做 20 条了，以后手工填，不再挡路。
