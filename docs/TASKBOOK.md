@@ -137,6 +137,37 @@
 
 ---
 
+## Lot 3b · 可见笔记排版返工（Sonnet，Owner 2026-09-04 真机反馈）
+
+Owner 在 Obsidian 看过 Lot 3 的 5 篇，图片显示正常。要改的（全部只动 `render.py` 的 content 层 + 一个 CSS 片段，不碰 RAW / agent.md / FORMAT 的数据结构）：
+
+1. **图文并排两栏**：左栏图片、右栏正文（不是一行一排，也不是左右切换轮播）。实现：content 层输出一个 HTML 容器
+   ```html
+   <div class="lb-cols"><div class="lb-imgs"><img src="_archive/xiaohongshu/<id>/raw/v0001/assets/image-001.webp"> …</div><div class="lb-body">
+   ```
+   正文 Markdown 放 `lb-body` 里（HTML 块内的 Markdown 要各段之间空行才渲染；先在 Obsidian 里验一条，不行就 `lb-body` 里改用 `<p>`）。图片必须用 `<img src="vault相对路径">`（`![[ ]]` 在 HTML 块里不渲染）。
+2. **图片紧凑**：`lb-imgs` 里缩略图两列网格、每张 ~120px 宽，点开原图靠图片下面一行小字 `[原图 1](_archive/...) · [2](...)…`（普通 Markdown 链接放在 HTML 块**外面**，Obsidian 才能点）。
+3. **视频型**：图片栏只放封面，封面下标一行 `🎬 视频 · 未下载 · [原链接](…)`。
+4. **标题只留一个**：去掉正文里的 `# 标题` H1，Obsidian 用文件名当标题。
+5. **属性隐藏**：frontmatter 保留（数据要），但用 CSS 把属性面板藏掉；`tags` 留着可见（Obsidian 侧栏要用）。
+6. **段落标题隐身**：不再输出「## 图片」「## 正文」这类 H2；「评论区」「归档信息」保留但用 CSS 调成和底色接近的浅色小字。
+7. **留言层要在最顶上肉眼可见**：frontmatter 之后第一样东西就是留言层，渲染成 callout：
+   ```md
+   > [!quote] 留言
+   > 「20260904 人」……
+   ```
+   comments:start/end 标记仍包住它。
+8. **评论区换格式**（先做个能读的版本，精修留后续）：一级评论 `> **昵称** · 日期` 换行接文本；楼中楼在下面用 `>>` 嵌套一层；点赞数 > 10 才显示。
+9. **CSS 片段**：render 时确保 `vault/.obsidian/snippets/link-brain.css` 存在（没有就写、有就不覆盖），内容：`.lb-cols` 两栏 flex（图栏 35%、文栏 65%，窗口窄于 700px 时上下堆叠）、`.lb-imgs img` 网格缩略图、隐藏 `.link-brain .metadata-container`、`.link-brain h2` 浅色小字。frontmatter 加 `cssclasses: [link-brain]`。README 写一句：Owner 在 设置 → 外观 → CSS 片段 里打开 `link-brain` 一次。
+
+**验收**
+- 5 篇重新 render，每篇：无 H1、无「## 图片/## 正文」、留言 callout 是 frontmatter 后第一块、图片是 `<img>` 网格 + 外面一行原图链接、评论用 blockquote 嵌套
+- `python -m pytest -q` 全绿（现有 comments 层保护测试仍过）
+- 幂等：render 两次 md5 相同
+- Owner 打开 CSS 片段后肉眼验：两栏、缩略图、属性面板消失、留言在顶上。**如果 `<img src>` 相对路径在她那里不显示**，退回方案：两列 Markdown 表格，左格 `![[img\|120]]` 多张、右格正文（表格内不能多段，正文用 `<br>` 连）——只在 Owner 说不显示时才做
+
+---
+
 ## Lot 4 · 小模型派生（Sonnet）
 
 **做**
