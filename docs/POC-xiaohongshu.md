@@ -102,7 +102,37 @@ adapter 现在的处理（`fetch_related_file` + `_attachments`）：
   `ATTACHMENT_HINT_RE` 线索、`status="unavailable"`。这一步很重要，否则会把线索一起吞掉；
 - 探测原始结果落 `raw/vNNNN/web_raw.json`，方便以后回溯"当时页面上到底有没有附件"。
 
-**没动登录态、没开 agent-browser**——这条路整条是游客可达的。
+**元数据这条路整条是游客可达的**，不用登录、不用开浏览器。
+
+### 4b. 附件字节：要登录 + 必须开浏览器（2026-09-04 打通）
+
+下载走：
+
+```
+POST https://webapi.rednote.com/web_api/sns/v1/file/download
+body: {"document_id": "<docId>", "note_id": "<noteId>"}
+```
+
+**直接回文件字节**（不是回一个 URL）。但它要 `X-s` / `X-t` / `X-S-Common` 三个签名头，
+签名逻辑在小红书自己的前端 bundle 里且会变——**本仓不复刻签名**，让浏览器自己去发这个请求。
+
+实测出来的硬约束（`link_brain/attachments.py` 就是按这几条写的）：
+
+| 坑 | 现象 | 对策 |
+|---|---|---|
+| headless | 那个 POST 一直挂着不返回，页面不报错 | **必须 `--headed`** |
+| Chrome 问保存位置 | 自动点击被当成"下载已取消" | 先改 profile 的 `Preferences`：`download.prompt_for_download=false` + `default_directory` |
+| `agent-browser open <url>` | 登录态的小红书页面不进 idle，命令永不返回 | `open` 空白页，再 `eval` 改 `location.href` |
+| `subprocess.run(capture_output, timeout)` | Windows 上超时只杀 `cmd.exe`，node 攥着管道，`run()` 永远挂住 | Popen + 输出重定向到文件 + 超时 `taskkill /T /F` |
+| 账号 | 主号在 18060 MCP 那侧，两边不能同时在线 | agent-browser profile 用**另一个小号**登录 |
+| 权限 | 游客调 `file/preview` 回 `{"code":-104,"msg":"您当前登录的账号没有权限访问"}`，`user/me` 回 `guest:true` | 登录后即可 |
+
+样本 A 实测：`p模式教程-机教版.pdf`，1,436,001 字节，
+sha256 `13543169d7010630c0b74670d1000c9e79a5de88074bbe22cacbc0e84a965f23`
+（手工点击下载和 `python -m link_brain attachments` 自动下的字节完全一致）。
+
+顺带发现：评论走 `GET /api/sns/web/v2/comment/page?note_id=..&image_formats=jpg,webp,avif&xsec_token=..`，
+**参数里明写了 image_formats**——以后要补评论图，这条是入口（V1 不做）。
 
 ## 5. MCP 返回的完整键列表
 

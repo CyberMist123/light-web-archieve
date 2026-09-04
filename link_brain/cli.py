@@ -66,6 +66,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="强制重调小模型，覆盖已有的 extracted.json",
     )
 
+    p = sub.add_parser("attachments", help="下载笔记附件字节（要 agent-browser 小号登录态）")
+    p.add_argument("target", nargs="?", default=None, help="item_id；配合 --all 时可省略")
+    p.add_argument("--all", action="store_true", help="对所有带附件元数据的对象都下一遍")
+    p.add_argument("--force", action="store_true", help="已经下过也重下")
+
     p = sub.add_parser("sync-favorites", help="同步小红书收藏（Lot 6，可选）")
     p.add_argument("--limit", type=int, default=50)
 
@@ -119,6 +124,11 @@ def main(argv: list[str] | None = None) -> int:
             conn.close()
         print(f"回填 {len(done)} 个对象：" + (", ".join(done) if done else "(空)"))
         return EXIT_OK
+
+    if args.command == "attachments":
+        from . import attachments as attachments_mod
+
+        return attachments_mod.run(args)
 
     if args.command == "render":
         from . import render as render_mod

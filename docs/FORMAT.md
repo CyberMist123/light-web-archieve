@@ -203,7 +203,7 @@ D:\LIGHT WEB ARCHIEVE\vault\
   | 值 | 含义 |
   |---|---|
   | `"metadata_only"` | 网页版 `relatedFile` 拿到了名字 / `doc_id` / 页数，**字节还没拿到**（小红书要登录才给文件）。`url` 是网页预览地址，`file` 为 `null` |
-  | `"downloaded"` | 字节已落 `raw/vNNNN/attachments/`，`file` 是相对对象目录的路径 |
+  | `"downloaded"` | 字节已落**对象级** `attachments/`，`file` 是相对对象目录的路径（见下） |
   | `"unavailable"` | 网页探测失败，只有正文正则抠出来的 `hint`，其余字段全 `null` |
 
   网页探测成功且 `relatedFile` 为空 = 这篇**确实没挂文件**，此时 `attachments` 直接是 `[]`
@@ -414,6 +414,38 @@ link_brain:
 `概要` / `重要细节` 由 `derived/extracted.json`（第 7b 节）填；没有或抽取失败时写"（未生成）"。
 `外链` 除原帖里的裸链接外，还会附上小模型建议的线索行；`评论` 每行前缀评论编号
 （一级 `c1`、楼中楼 `c1.1`），被小模型标为有价值/广告的会在行尾加标注。
+
+---
+
+## 7a. `attachments/` + `attachments.json`（对象级，可变）
+
+附件字节是**事后**补下来的（小红书要登录才给文件），而 RAW 版本写完就封存，
+所以字节**不进 `raw/vNNNN/`**，落对象级目录：
+
+```
+_archive/xiaohongshu/<note_id>/
+├─ attachments/<原文件名>          ← 字节原样落盘
+└─ attachments.json               ← 索引：doc_id / sha256 / 大小 / 下载时间
+```
+
+```json
+{
+  "schema_version": 1,
+  "files": [
+    {
+      "doc_id": "7658854832003020032",
+      "name": "p模式教程-机教版.pdf",
+      "file": "p模式教程-机教版.pdf",
+      "bytes": 1436001,
+      "sha256": "13543169d7010630c0b74670d1000c9e79a5de88074bbe22cacbc0e84a965f23",
+      "downloaded_at": "2026-09-04T21:49:03+10:00"
+    }
+  ]
+}
+```
+
+`render` 按 `doc_id` 把它回填到 `source.json` 的附件条目上（`file` / `status="downloaded"`），
+可见 md 里那行 📎 就从"未下载"变成指向本地文件的链接。**RAW 目录一个字节都不动。**
 
 ---
 
