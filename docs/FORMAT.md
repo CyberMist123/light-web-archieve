@@ -573,6 +573,28 @@ CREATE INDEX IF NOT EXISTS idx_relations_item ON relations(item_id);
 | 1 | 一般错误（解析不出 note_id、MCP 不在线等） |
 | 2 | 缺内容 gate：明确知道缺东西（图片没下全） |
 | 3 | 子命令尚未实现 |
+| 5 | **要人处理**：登录态失效 / 风控验证码 / 18060 的 MCP 挂了。批量脚本看到这个码就该停车，接着跑只会把剩下的全刷成失败 |
+
+退出码 5 同时会走一次报警（见下）。
+
+### 报警
+
+出这种事不许不知不觉挂着跑（Owner 2026-09-04 点名）。`link_brain/alert.py` 只认一个环境变量，
+**本仓库公开，所以这里不含任何推送地址/key**：
+
+```
+LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
+```
+
+那条命令从 **stdin 收一个 UTF-8 JSON**，自己决定怎么送（Bark / TG / 邮件）：
+
+```json
+{"kind": "service_down", "title": "小红书归档停了：18060 的服务要人管", "body": "MCP get_feed_detail 说「[launcher] Failed to get the debug url」", "url": "https://www.xiaohongshu.com/explore/..."}
+```
+
+`kind` 四种：`account_blocked`（登录态/风控）、`service_down`（18060 或它的浏览器挂了）、
+`attachment_failed`（附件字节没拿到）、`batch_aborted`（批量停车）。
+没配这个变量就退化成 stderr 一行；报警命令自己挂了也**不会**影响归档。
 
 ---
 

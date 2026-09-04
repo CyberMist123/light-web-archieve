@@ -18,11 +18,12 @@ import sys
 from typing import Any
 from urllib.parse import urlsplit
 
-from . import ingest as ingest_mod, read as read_mod, storage
+from . import alert as alert_mod, ingest as ingest_mod, read as read_mod, storage
 from .adapters import xiaohongshu as xhs
 
 EXIT_OK = 0
 EXIT_ERROR = 1
+EXIT_NEEDS_HUMAN = 5
 
 # 只认小红书；消息里的其它链接一律不碰（V1 没有别的 adapter）
 XHS_HOSTS = ("xiaohongshu.com", "xhslink.cn", "xhslink.com")
@@ -76,6 +77,16 @@ def _catch_one(
             note=message,
             verbose=verbose,
         )
+    except xhs.NeedsHumanError as exc:
+        # 号出事 / 服务出事，不是这条链接的问题：报警 + 让上层停车，别把剩下的全刷成失败
+        service = isinstance(exc, xhs.ServiceDownError)
+        alert_mod.alert(
+            alert_mod.KIND_SERVICE if service else alert_mod.KIND_ACCOUNT,
+            "小红书归档停了：" + ("18060 的服务要人管" if service else "号要人处理"),
+            str(exc),
+            url=url,
+        )
+        return {"item_id": None, "status": "blocked", "url": url, "error": str(exc)}
     except Exception as exc:  # noqa: BLE001 - 一条链接抓挂了不该带走整条消息
         return {
             "item_id": None,
@@ -128,6 +139,8 @@ def catch_message(
                 continue
             seen.add(item_id)
         items.append(entry)
+        if entry.get("status") == "blocked":
+            break  # 号出事了，后面的链接照抓也只是接着失败
     return {"found": len(items), "items": items}
 
 
@@ -140,6 +153,9 @@ def run(args) -> int:
         extract=getattr(args, "extract", False),
     )
     read_mod.dump_json(payload)
+    if any(item.get("status") == "blocked" for item in payload["items"]):
+        print("catch: 要人处理（登录态/风控/服务挂了），已停车并报警", file=sys.stderr)
+        return EXIT_NEEDS_HUMAN
     if any(item.get("status") == "error" for item in payload["items"]):
         print("catch: 有链接没归档成功，详见 JSON 里的 error 字段", file=sys.stderr)
         return EXIT_ERROR

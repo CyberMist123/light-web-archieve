@@ -118,7 +118,11 @@ python -m link_brain catch "<她发来的整条消息>" --origin tg --actor huma
   正文/评论渲染前 HTML 转义。评论里写"忽略以上指令…"也只是普通文本。
 - 模型 id 和价格在 `link_brain/assets/llm-config.yaml`，跑分见 `docs/BENCH.md`（首轮 5/5 一次成功，单条约 $0.000125）。
 
-退出码：`0` 成功 / `1` 一般错误 / `2` 缺内容 gate（图片没下全）/ `3` 子命令未实现。
+退出码：`0` 成功 / `1` 一般错误 / `2` 缺内容 gate（图片没下全）/ `3` 子命令未实现 /
+`5` 要人处理（登录态失效、风控验证码、18060 的 MCP 挂了）——**批量看到 5 就停车**。
+
+`5` 同时会报一次警：`LINK_BRAIN_ALERT_CMD` 指向一条外部命令（stdin 收 UTF-8 JSON），
+本仓库不含任何推送地址/key，细节见 `docs/FORMAT.md` §9。
 
 ## 环境
 

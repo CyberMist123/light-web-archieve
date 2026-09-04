@@ -15,12 +15,13 @@ from typing import Any
 
 import httpx
 
-from . import __version__, index as index_mod, storage
+from . import __version__, alert as alert_mod, index as index_mod, storage
 from .adapters import xiaohongshu as xhs
 
 EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_MISSING_CONTENT = 2
+EXIT_NEEDS_HUMAN = 5  # 要人处理：登录态失效 / 风控验证码 / 18060 的服务挂了
 
 MIME_EXT = {
     "image/webp": ".webp",
@@ -301,6 +302,14 @@ def ingest_url(
         web_probe = xhs.fetch_related_file(parsed["note_id"], parsed.get("xsec_token"))
         if not web_probe["ok"]:
             log(f"网页探测失败（退回正文线索）: {web_probe['error']}")
+            if web_probe.get("blocked"):
+                # 网页那侧被拦了（验证码/登录墙）。MCP 还能抓就不中止，但必须让人知道
+                alert_mod.alert(
+                    alert_mod.KIND_ACCOUNT,
+                    "小红书网页那侧被拦了（附件元数据会缺）",
+                    f"{parsed['note_id']}: {web_probe['error']}",
+                    url=web_probe["url"],
+                )
 
         captured_at = now_iso()
         source = xhs.normalize(raw, parsed, captured_at=captured_at, web_probe=web_probe)
@@ -429,6 +438,17 @@ def run(args) -> int:
             verbose=getattr(args, "verbose", False),
             refresh=getattr(args, "refresh", False),
         )
+    except xhs.NeedsHumanError as exc:
+        # 号出事 / 服务出事：单独一个退出码 + 报警，别让批量脚本闷头把剩下的全刷成失败
+        service = isinstance(exc, xhs.ServiceDownError)
+        alert_mod.alert(
+            alert_mod.KIND_SERVICE if service else alert_mod.KIND_ACCOUNT,
+            "小红书归档停了：" + ("18060 的服务要人管" if service else "号要人处理"),
+            str(exc),
+            url=args.target,
+        )
+        print(f"归档中止（{'服务' if service else '账号/风控'}）: {exc}", file=sys.stderr)
+        return EXIT_NEEDS_HUMAN
     except xhs.AdapterError as exc:
         print(f"归档失败: {exc}", file=sys.stderr)
         return EXIT_ERROR
