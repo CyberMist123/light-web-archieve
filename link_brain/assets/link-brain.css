@@ -17,17 +17,10 @@
   --file-line-width: 1380px;
 }
 
-/* 容器建在**父节点**上：元素响应不了自己的容器查询——
-   2026-09-05 踩到，sizer 自己当容器时 display 改不动，子节点的规则却生效了，
-   于是断点半生效：两栏收不拢、sticky 反而被打回 static。 */
-.markdown-preview-view.xhs-note,
-.markdown-source-view.xhs-note {
-  container-type: inline-size;
-  container-name: link-brain-note;
-}
-
 .markdown-preview-view.xhs-note .markdown-preview-sizer,
 .markdown-source-view.xhs-note .cm-contentContainer {
+  container-type: inline-size;
+  container-name: link-brain-note;
   width: min(100%, 1380px);
   max-width: min(100%, 1380px) !important;
   box-sizing: border-box;
@@ -81,61 +74,31 @@
   margin: 0.25em 0;
 }
 
-/* 2026-09-05：正文是**纯 Markdown**（Owner 要能划重点、别一点就掉进源码模式），
-   所以它在 DOM 里是 .markdown-preview-sizer 的直接子节点——Obsidian 遇到空行会闭合 HTML 块，
-   正文不可能待在某个 <div> 里。于是两栏 grid 建在 **sizer** 上：
-   图片列（.lb-note）占左栏并 `grid-row: span 500` 一直贯到底 + sticky（跟随滚动，和老版一样），
-   其余子节点默认进右栏，标题/属性/顶部灰字横跨两栏。
-   等宽两栏、gap 与老版同一个变量，视觉上和改造前一致。 */
-.markdown-preview-view.xhs-note .markdown-preview-sizer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  column-gap: var(--lb-gap);
+.xhs-note .lb-cols {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(390px, 100%), 1fr));
+  gap: var(--lb-gap);
   align-items: start;
-}
-
-.markdown-preview-view.xhs-note .markdown-preview-sizer > * {
-  grid-column: 2;
-  min-width: 0;
-}
-
-.markdown-preview-view.xhs-note .markdown-preview-sizer > .metadata-container,
-.markdown-preview-view.xhs-note .markdown-preview-sizer > .inline-title,
-.markdown-preview-view.xhs-note .markdown-preview-sizer > .mod-header,
-.markdown-preview-view.xhs-note .markdown-preview-sizer > .mod-footer,
-.markdown-preview-view.xhs-note .markdown-preview-sizer > .callout[data-callout="link-brain-file"],
-.markdown-preview-view.xhs-note .markdown-preview-sizer > .callout[data-callout="link-brain-comment"] {
-  grid-column: 1 / -1;
-}
-
-.markdown-preview-view.xhs-note .markdown-preview-sizer > .lb-note {
-  grid-column: 1;
-  grid-row: span 500;   /* 贯穿右栏所有行，sticky 才有滑动空间 */
-  align-self: start;
-  position: sticky;
-  top: 16px;
-}
-
-/* pane 窄了就收成单栏（老版 auto-fit 的等效断点：两列各要 390px + gap） */
-@container link-brain-note (max-width: 795px) {
-  .markdown-preview-view.xhs-note .markdown-preview-sizer {
-    display: block;
-  }
-
-  .markdown-preview-view.xhs-note .markdown-preview-sizer > .lb-note {
-    position: static;
-    margin-bottom: 14px;
-  }
-}
-
-/* 编辑（实时预览）模式不做两栏：那边的 DOM 是 CodeMirror 的行，强行布局会把编辑体验搞坏。
-   划重点在编辑模式里做，读还是回阅读视图。 */
-.xhs-note .lb-note {
   width: 100%;
+  min-width: 0;
+  container-type: inline-size;
+}
+
+.xhs-note .lb-cols.lb-no-media {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 780px;
+  margin-inline: auto;
+}
+
+.xhs-note .lb-media,
+.xhs-note .lb-detail {
   min-width: 0;
 }
 
 .xhs-note .lb-media {
+  position: sticky;
+  top: 16px;
+  align-self: start;
   min-width: 0;
 }
 
@@ -277,22 +240,12 @@
   color: var(--lb-muted);
 }
 
-/* 正文现在是**纯 Markdown 段落**（2026-09-05），不再包在 .lb-post-body 里。
-   直接给笔记正文里的段落排版；callout / 评论区有自己更具体的规则，不会被这条盖到。 */
-.markdown-preview-view.xhs-note .markdown-preview-sizer > p,
-.xhs-note .lb-note > p {
-  font-size: var(--lb-body-size);
-  line-height: 1.72;
+.xhs-note .lb-post-body {
   color: var(--text-normal);
-  margin: 0 0 0.82em;
-  overflow-wrap: anywhere;
 }
 
-/* 划重点：Owner 自己打的 ==高亮==，rerender 会原样贴回来 */
-.xhs-note mark {
-  background: color-mix(in srgb, var(--text-accent) 22%, transparent);
-  border-radius: 3px;
-  padding: 0 2px;
+.xhs-note .lb-post-body p {
+  margin: 0 0 0.82em;
 }
 
 /* 笔记附件（小红书的"文件"）：一行卡片，未下载时也要看得见它存在。
@@ -451,8 +404,13 @@
 }
 
 @container link-brain-note (max-width: 800px) {
+  .xhs-note .lb-cols {
+    grid-template-columns: minmax(0, 1fr);
+    gap: clamp(14px, 3cqi, 22px);
+  }
+
   .xhs-note .lb-media {
-    width: 100%;
+    position: static;
   }
 
   .xhs-note .lb-slide img {
