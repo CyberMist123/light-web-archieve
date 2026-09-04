@@ -103,15 +103,19 @@ def attachment_label(att: dict[str, Any]) -> str:
 
 
 def _attachments_md(attachments: list[dict[str, Any]], object_rel: str) -> list[str]:
-    """附件行：**Markdown，放在 HTML 块外面**。
+    """附件卡片：**Markdown callout，放在 HTML 块外面**，样式靠 CSS 还原成原来那张小卡片。
 
     2026-09-04 Owner 报的回归：附件字节下下来之后点不开了。原因是 `<a href="../../_archive/…">`
     ——Obsidian 把裸 HTML 里的 href 一律当外部 URL，本地相对路径打不开（之前指小红书网页
-    是 http 链接，所以能点）。跟 Lot 3b 第 2 条「原图链接放 HTML 块外面」同一个坑，
-    这里也改成 Obsidian 自己的链接：本地文件用 `[[vault相对路径|说明]]`，只有元数据的用普通
-    Markdown 链接指原站。
+    是 http 链接，所以能点）。跟 Lot 3b 第 2 条「原图链接放 HTML 块外面」同一个坑。
+    所以链接必须是 Obsidian 自己的：本地文件 `[[vault相对路径|说明]]`，只有元数据的指原站。
+
+    用 callout 是为了还能有边框卡片的样子（和留言层同一套路），CSS 见
+    `assets/link-brain.css` 的 `data-callout="link-brain-file"`；不放 📎 字符，图标交给 CSS。
     """
-    rows = []
+    if not attachments:
+        return []
+    rows = ["> [!link-brain-file]"]
     for att in attachments:
         label = attachment_label(att).replace("[", "（").replace("]", "）").replace("|", "·")
         local = att.get("file")
@@ -119,12 +123,12 @@ def _attachments_md(attachments: list[dict[str, Any]], object_rel: str) -> list[
             target = f"{object_rel}/{local}"
             # wikilink 里出现这些字符会被当成别名/块引用分隔符，退回纯文本免得链接歪掉
             if any(ch in target for ch in "[]|#^"):
-                rows.append(f"📎 {label} — `{target}`")
+                rows.append(f"> {label} — `{target}`")
             else:
-                rows.append(f"📎 [[{target}|{label}]]")
+                rows.append(f"> [[{target}|{label}]]")
             continue
         url = att.get("url")
-        rows.append(f"📎 [{label}]({url})" if url else f"📎 {label}")
+        rows.append(f"> [{label}]({url})" if url else f"> {label}")
     return rows
 
 
@@ -302,13 +306,14 @@ def render_content_block(
     media, has_media = _media_html(note, manifest, object_rel)
     detail = _detail_html(note, comments, manifest, object_rel)
     cls = "lb-cols" if has_media else "lb-cols lb-no-media"
-    # 附件行必须落在 HTML 块**外面**，Obsidian 才认得那是本仓库里的文件（见 _attachments_md）
-    parts = [CONTENT_START, f'<div class="{cls}">', media, detail, "</div>"]
-    tail = _attachments_md(note.get("attachments") or [], object_rel)
-    if tail:
+    # 附件卡片必须落在 HTML 块**外面**，Obsidian 才认得那是本仓库里的文件（见 _attachments_md）；
+    # 放在正文两栏之前 —— 有附件的笔记，附件就是她要点的东西，别埋到评论底下。
+    parts = [CONTENT_START]
+    card = _attachments_md(note.get("attachments") or [], object_rel)
+    if card:
+        parts.extend(card)
         parts.append("")
-        parts.extend(tail)
-    parts.append(CONTENT_END)
+    parts += [f'<div class="{cls}">', media, detail, "</div>", CONTENT_END]
     return "\n".join(parts)
 
 

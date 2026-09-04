@@ -248,20 +248,37 @@
   margin: 0 0 0.82em;
 }
 
-/* 笔记附件（小红书的"文件"）：一行卡片，未下载时也要看得见它存在。 */
-.xhs-note .lb-files {
-  margin: 12px 0 4px;
+/* 笔记附件（小红书的"文件"）：一行卡片，未下载时也要看得见它存在。
+   卡片是 callout（`> [!link-brain-file]`）而不是裸 HTML —— 裸 HTML 里的 <a href> 指本地文件
+   Obsidian 点不开（2026-09-04 实机踩到）。标题行藏掉，正文里也不写 📎（Owner 不要那个字符）。 */
+.xhs-note .callout[data-callout="link-brain-file"] {
+  margin: 12px 0 16px;
   padding: 8px 10px;
   border: 1px solid var(--lb-line);
+  border-left: 1px solid var(--lb-line);
   border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
   font-size: 0.86em;
 }
 
-.xhs-note .lb-file-row + .lb-file-row {
+.xhs-note .callout[data-callout="link-brain-file"] .callout-title {
+  display: none;
+}
+
+.xhs-note .callout[data-callout="link-brain-file"] .callout-content {
+  padding: 0;
+}
+
+.xhs-note .callout[data-callout="link-brain-file"] p {
+  margin: 0;
+}
+
+.xhs-note .callout[data-callout="link-brain-file"] p + p {
   margin-top: 6px;
 }
 
-.xhs-note .lb-file-row a {
+.xhs-note .callout[data-callout="link-brain-file"] a {
   text-decoration: none;
 }
 
