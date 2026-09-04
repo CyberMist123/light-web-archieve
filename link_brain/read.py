@@ -1,4 +1,9 @@
-"""`read` / `search` 子命令。Lot 2：`read` 打印 `meta.json`；`search` 按标题/正文 LIKE 查询。"""
+"""`read` / `search` 子命令。
+
+`read`：默认打印 `meta.json`；`--brief` 打印标题+概要（≤5 行，概要=正文前 120 字）；
+`--full` 打印整个 `derived/agent.md`（Lot 3）。
+`search`：按标题/正文 LIKE 查询，每条一行 `item_id | title | 1行概要 | tags | 日期`。
+"""
 
 from __future__ import annotations
 
@@ -10,6 +15,12 @@ from .adapters import xiaohongshu as xhs
 
 EXIT_OK = 0
 EXIT_ERROR = 1
+
+
+def _one_line(text: str | None, limit: int = 120) -> str:
+    text = (text or "").strip()
+    text = " ".join(text.split())  # 折叠换行/空白成一行
+    return text[:limit]
 
 
 def _resolve_source_id(conn, target: str) -> tuple[str, str] | None:
@@ -34,11 +45,33 @@ def run(args) -> int:
             print(f"解析不出对象: {args.target}", file=sys.stderr)
             return EXIT_ERROR
         source, source_id = resolved
-        meta_path = storage.object_dir(source, source_id) / "meta.json"
+        object_dir = storage.object_dir(source, source_id)
+        meta_path = object_dir / "meta.json"
         if not meta_path.exists():
             print(f"没有归档过: {args.target}", file=sys.stderr)
             return EXIT_ERROR
         meta = storage.read_json(meta_path)
+
+        if getattr(args, "brief", False):
+            raw_dir = storage.raw_dir(source, source_id, meta["current_version"])
+            source_path = raw_dir / "source.json"
+            body = ""
+            if source_path.exists():
+                body = (storage.read_json(source_path).get("note") or {}).get("body") or ""
+            summary = _one_line(body, 120)
+            title = meta.get("title") or "（无标题）"
+            print(f"# {title}")
+            print(summary or "（无概要）")
+            return EXIT_OK
+
+        if getattr(args, "full", False):
+            agent_md_path = object_dir / "derived" / "agent.md"
+            if not agent_md_path.exists():
+                print(f"还没渲染过 agent.md（先跑 render {meta['item_id']}）", file=sys.stderr)
+                return EXIT_ERROR
+            print(agent_md_path.read_text(encoding="utf-8"))
+            return EXIT_OK
+
         print(json.dumps(meta, ensure_ascii=False, indent=2))
         return EXIT_OK
     finally:
@@ -50,7 +83,11 @@ def run_search(args) -> int:
     try:
         rows = index_mod.search(conn, args.query, limit=args.limit)
         for row in rows:
-            print(f"{row['item_id']} | {row['title'] or '(无标题)'} | {row['first_archived_at']}")
+            tags = json.loads(row["tags"] or "[]")
+            tags_str = ",".join(tags) if tags else "(无)"
+            summary = _one_line(row["body"], 60)
+            date = (row["first_archived_at"] or "")[:10]
+            print(f"{row['item_id']} | {row['title'] or '(无标题)'} | {summary or '(无概要)'} | {tags_str} | {date}")
         return EXIT_OK
     finally:
         conn.close()

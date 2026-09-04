@@ -428,6 +428,16 @@ def run(args) -> int:
         print(f"REFRESH（无变化）  {summary['item_id']}  {summary['raw_dir']}")
         return summary["exit_code"]
 
+    # ingest 落盘成功（含缺内容 gate 的情况）后自动 vision + render，不阻断 ingest 本身的退出码
+    if summary.get("item_id"):
+        try:
+            from . import render as render_mod
+
+            source_key, source_id = xhs.SOURCE, summary["note_id"]
+            render_mod.render_item(source_key, source_id, verbose=getattr(args, "verbose", False))
+        except Exception as exc:  # noqa: BLE001 - 渲染失败不应回退 ingest 的退出码
+            print(f"[ingest] vision/render 失败（不影响归档）: {type(exc).__name__}: {exc}", file=sys.stderr)
+
     manifest = summary["manifest"]
     print(f"{summary['item_id']}  kind={summary['kind']}  {summary['raw_dir']}")
     print(
