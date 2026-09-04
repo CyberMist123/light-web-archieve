@@ -49,6 +49,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("query")
     p.add_argument("--limit", type=int, default=20)
 
+    p = sub.add_parser("reindex", help="从已有 raw/ 回填 index.db（不重抓、不联网）")
+
     p = sub.add_parser("sync-favorites", help="同步小红书收藏（Lot 6，可选）")
     p.add_argument("--limit", type=int, default=50)
 
@@ -81,6 +83,27 @@ def main(argv: list[str] | None = None) -> int:
         from . import ingest as ingest_mod
 
         return ingest_mod.run(args)
+
+    if args.command == "read":
+        from . import read as read_mod
+
+        return read_mod.run(args)
+
+    if args.command == "search":
+        from . import read as read_mod
+
+        return read_mod.run_search(args)
+
+    if args.command == "reindex":
+        from . import index as index_mod
+
+        conn = index_mod.connect()
+        try:
+            done = index_mod.reindex_all(conn, verbose=getattr(args, "verbose", False))
+        finally:
+            conn.close()
+        print(f"回填 {len(done)} 个对象：" + (", ".join(done) if done else "(空)"))
+        return EXIT_OK
 
     print(
         f"`{args.command}` 尚未实现（Lot 0 占位）。当前进度见 docs/STATE.md。",

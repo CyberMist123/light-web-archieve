@@ -12,7 +12,8 @@
 | `python -m link_brain --help` / 子命令骨架 | ✅ Lot 0 |
 | 数据格式规范 `docs/FORMAT.md` | ✅ Lot 0 |
 | 小红书链接 → 不可变 RAW（正文/图片/评论） | ✅ Lot 1 |
-| SQLite 索引 + 去重 + 版本比对 | ⬜ Lot 2 |
+| SQLite 索引 + 去重（HIT 不重抓）+ `--refresh` 版本比对 | ✅ Lot 2 |
+| `read` / `search` / `reindex` | ✅ Lot 2 |
 | Obsidian 可见笔记 + AI 版渲染 | ⬜ Lot 3 |
 | 小模型摘要/标签/外链推荐 | ⬜ Lot 4 |
 | 留言层 / 戳一下 / 收件箱 | ⬜ Lot 5 |
@@ -25,6 +26,11 @@
 ```bash
 python -m link_brain --help
 python -m link_brain ingest "https://xhslink.cn/o/xxxxxxxx" --origin cli --note "顺手存的"
+python -m link_brain ingest "<同一条链接>"              # 第二次命中索引，打印 HIT，不联网不重抓
+python -m link_brain ingest "<同一条链接>" --refresh     # 重抓，内容无变化不产生新 RAW 版本
+python -m link_brain read xhs-<note_id>                  # 打印 meta.json
+python -m link_brain search "关键词"                     # 按标题/正文 LIKE 查询
+python -m link_brain reindex                              # 从已有 raw/ 回填 index.db，不重抓
 ```
 
 退出码：`0` 成功 / `1` 一般错误 / `2` 缺内容 gate（图片没下全）/ `3` 子命令未实现。

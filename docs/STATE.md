@@ -1,6 +1,6 @@
 # Current State
 
-current_lot: 1
+current_lot: 2
 last_verified_commit: (本次 commit)
 
 ## 已真实通过
@@ -21,6 +21,16 @@ last_verified_commit: (本次 commit)
 - `docs/POC-xiaohongshu.md`：楼中楼 / 评论图 / CDN 档位 / 附件 / MCP 完整键列表 5 条结论全部有"能 / 不能 / 只能到 X"
 - `python -m pytest -q` 16 项全绿
 
+### Lot 2
+- `index.py`：SQLite `vault/_archive/index.db`，`objects/sources/relations` 三表按 `docs/FORMAT.md §8` 建，`(source, source_id)` 唯一约束
+- `ingest`：canonicalize → 查索引 → 命中打 `HIT`（`--verbose` 可见"不调用 MCP"、raw 下仍只有已有版本，不联网不下载）→ 未命中才走 Lot 1 adapter
+- `ingest --refresh`：规范化比对（忽略 `engagement` 与 `captured_at`）；无变化只更新 `last_checked_at`、不产生新版本；有变化写 `raw/v0002`，`v0001` 字节不变（sha256 验证过）
+- `read <item_id|url>` 打印 `meta.json`；`search <词>` LIKE 查标题/正文，输出 `item_id | 标题 | 首次归档日期`
+- 每次 ingest 把 `origin/actor/ingest_kind/note` 写进 `relations` 表；同一对象多次进入只加 relation 不重抓
+- 新增 `reindex` 子命令：从已有 `raw/vNNNN/source.json` + `meta.json` 回填索引，不重抓不联网（用于 5 条 Lot 1 样本首次建库）
+- 真机验证：5 条样本 `reindex` 回填成功；`ingest`（真链接）第二次打 `HIT`、`--verbose` 确认无 MCP 调用、`raw/` 仍只有 `v0001`；`search "P模式"` 命中样本 A
+- `tests/test_index.py` 5 个用例（唯一约束、HIT 无网络、refresh 无变化不产生 v0002、refresh 有变化产生 v0002 且 v0001 sha256 不变、search 命中）；`python -m pytest -q` 21 项全绿
+
 ## 已知缺口
 
 - **评论图 MCP 结构上就没有**（评论对象 11 个键里没有任何媒体字段）。Lot 1 没有开 agent-browser 补抓；收尾复查 `check_login_status` 仍在线。要评论图得走硬约束 10 的浏览器路，留到 Lot 3 视觉验收时决定。
@@ -28,10 +38,11 @@ last_verified_commit: (本次 commit)
 - **图片拿到的是 1080 宽的 CDN 降采样档**（页面声明 1200）。URL 带签名，去后缀/换档位一律 403，客户端无解。
 - 样本 D 的 GitHub 外链在原帖里就**没有裸 URL**，只有文字提及；`note.links[]` 为空，文字本身在 `source.json` 里原样保留。
 - 任务书 Lot 0 验收写"列出 6 个子命令"，同 Lot"做"那节列了 7 个；按 7 个实现。
-- `read / search / inbox / resolve / comment / sync-favorites` 仍是占位（退出码 3）；`ingest --refresh` 属 Lot 2，当前直接报错退 1。
-- 没有索引、没有去重：同一链接再 ingest 一次会因 `raw/v0001` 已存在而报错退 1（Lot 2 接 `HIT` 逻辑）。
+- `inbox / resolve / comment / sync-favorites` 仍是占位（退出码 3）——Lot 5/6 才做。
+- `read` 目前只打印 `meta.json`；`--brief`/`--full`（概要、`derived/agent.md`）是 Lot 3 的活，当前会被忽略。
 - D 那条抓满评论约 3 分钟（MCP 在无头浏览器里真滚页面），批量抓要留够超时。
+- `index.db` 不入版本控制（在 `vault/` 下），新克隆仓库/换机器要先跑一次 `python -m link_brain reindex` 把 5 条样本的 raw 回填进索引。
 
 ## 下一步
 
-Lot 2：`index.py` 建 SQLite 三表、`ingest` 接去重（命中打 `HIT` 不联网）、`--refresh` 做规范化比对决定是否写 `v0002`、`read` / `search` 落地。
+Lot 3：可见笔记渲染（`Web/Xiaohongshu/<标题>__<id8>.md`）+ `derived/agent.md`（概要/重要细节两节先占位）、`read --brief/--full` 落地。

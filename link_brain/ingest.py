@@ -15,7 +15,7 @@ from typing import Any
 
 import httpx
 
-from . import __version__, storage
+from . import __version__, index as index_mod, storage
 from .adapters import xiaohongshu as xhs
 
 EXIT_OK = 0
@@ -178,50 +178,22 @@ def download_media(source: dict[str, Any], raw_version_dir: Path, rel_prefix: st
 # --------------------------------------------------------------------------
 
 
-def ingest_url(
-    target: str,
+def _build_meta(
     *,
-    origin: str = "cli",
-    actor: str = "human",
-    ingest_kind: str = "shared",
-    note: str | None = None,
-    verbose: bool = False,
+    parsed: dict[str, Any],
+    source: dict[str, Any],
+    manifest: dict[str, Any],
+    version: int,
+    captured_at: str,
+    origin: str,
+    actor: str,
+    ingest_kind: str,
+    note: str | None,
+    first_archived: str,
 ) -> dict[str, Any]:
-    """抓一条链接并落一份不可变 RAW。返回摘要 dict（含 exit_code）。"""
-
-    def log(message: str) -> None:
-        if verbose:
-            print(f"[ingest] {message}", file=sys.stderr)
-
-    parsed = xhs.parse_input(target)
-    log(f"input_kind={parsed['input_kind']} note_id={parsed['note_id']}")
-
-    log(f"MCP {xhs.MCP_TOOL} @ {xhs.MCP_ENDPOINT}")
-    raw = xhs.fetch_detail(parsed["note_id"], parsed["xsec_token"])
-
-    captured_at = now_iso()
-    source = xhs.normalize(raw, parsed, captured_at=captured_at)
-
-    version = storage.next_version(xhs.SOURCE, parsed["note_id"])
-    raw_dir = storage.ensure_raw_dir(xhs.SOURCE, parsed["note_id"], version)
-    rel_prefix = f"raw/{storage.version_name(version)}"
-    log(f"RAW → {raw_dir}")
-
-    storage.write_json(raw_dir / "mcp_raw.json", raw)
-    storage.write_json(raw_dir / "source.json", source)
-    manifest = download_media(source, raw_dir, rel_prefix)
-    storage.write_json(raw_dir / "manifest.json", manifest)
-
     attachments = source["note"]["attachments"]
     attachments_status = "none" if not attachments else "unavailable"
-    object_dir = storage.object_dir(xhs.SOURCE, parsed["note_id"])
-    meta_path = object_dir / "meta.json"
-    first_archived = (
-        storage.read_json(meta_path).get("first_archived_at")
-        if meta_path.exists()
-        else captured_at
-    )
-    meta = {
+    return {
         "schema_version": 1,
         "item_id": f"xhs-{parsed['note_id']}",
         "source": xhs.SOURCE,
@@ -252,29 +224,185 @@ def ingest_url(
             "mcp_endpoint": xhs.MCP_ENDPOINT,
         },
     }
-    storage.write_json(meta_path, meta)
 
-    failed = [m for m in manifest["media"] if m["download_status"] == "failed"]
-    return {
-        "item_id": meta["item_id"],
-        "note_id": parsed["note_id"],
-        "kind": meta["kind"],
-        "raw_dir": raw_dir,
-        "version": version,
-        "manifest": manifest,
-        "failed": failed,
-        "comments": len(source["comments"]),
-        "sub_comments": sum(len(c.get("sub_comments") or []) for c in source["comments"]),
-        "comments_complete": source["capture"]["comments_complete"],
-        "attachments_status": attachments_status,
-        "exit_code": EXIT_MISSING_CONTENT if failed else EXIT_OK,
-    }
+
+def ingest_url(
+    target: str,
+    *,
+    origin: str = "cli",
+    actor: str = "human",
+    ingest_kind: str = "shared",
+    note: str | None = None,
+    verbose: bool = False,
+    refresh: bool = False,
+) -> dict[str, Any]:
+    """抓一条链接并落一份不可变 RAW。返回摘要 dict（含 exit_code）。
+
+    去重：`(source, source_id)` 命中索引且非 `--refresh` → 直接返回已有对象，不联网不下载。
+    `--refresh`：重新抓取，规范化比对与最新版本一致就不写新 RAW，只更新 `last_checked_at`；
+    有变化才写新版本（`raw/v0001` 字节绝不动）。
+    """
+
+    def log(message: str) -> None:
+        if verbose:
+            print(f"[ingest] {message}", file=sys.stderr)
+
+    parsed = xhs.parse_input(target)
+    log(f"input_kind={parsed['input_kind']} note_id={parsed['note_id']}")
+
+    conn = index_mod.connect()
+    created_at = now_iso()
+    try:
+        existing = index_mod.find_object(conn, xhs.SOURCE, parsed["note_id"])
+
+        if existing is not None and not refresh:
+            log("index HIT，不调用 MCP，不下载")
+            item_id = existing["item_id"]
+            index_mod.add_relation(
+                conn,
+                item_id=item_id,
+                origin=origin,
+                actor=actor,
+                ingest_kind=ingest_kind,
+                note=note,
+                created_at=created_at,
+            )
+            meta_path = storage.object_dir(xhs.SOURCE, parsed["note_id"]) / "meta.json"
+            meta = storage.read_json(meta_path)
+            return {
+                "hit": True,
+                "item_id": item_id,
+                "note_id": parsed["note_id"],
+                "kind": existing["kind"],
+                "raw_dir": storage.raw_dir(xhs.SOURCE, parsed["note_id"], meta["current_version"]),
+                "version": meta["current_version"],
+                "manifest": None,
+                "failed": [],
+                "comments": None,
+                "sub_comments": None,
+                "comments_complete": existing["comments_complete"],
+                "attachments_status": existing["attachments_status"],
+                "exit_code": EXIT_OK,
+            }
+
+        log(f"MCP {xhs.MCP_TOOL} @ {xhs.MCP_ENDPOINT}")
+        raw = xhs.fetch_detail(parsed["note_id"], parsed["xsec_token"])
+
+        captured_at = now_iso()
+        source = xhs.normalize(raw, parsed, captured_at=captured_at)
+        new_sha = index_mod.normalized_source_sha256(source)
+
+        object_dir = storage.object_dir(xhs.SOURCE, parsed["note_id"])
+        meta_path = object_dir / "meta.json"
+
+        if refresh and existing is not None:
+            prior_sha = index_mod.latest_source_sha256(conn, existing["item_id"])
+            if prior_sha is not None and prior_sha == new_sha:
+                log("refresh：规范化比对无变化，不写新 RAW 版本，只更新 last_checked_at")
+                meta = storage.read_json(meta_path)
+                meta["last_checked_at"] = captured_at
+                storage.write_json(meta_path, meta)
+                index_mod.upsert_object(conn, meta, source)
+                index_mod.add_relation(
+                    conn,
+                    item_id=meta["item_id"],
+                    origin=origin,
+                    actor=actor,
+                    ingest_kind=ingest_kind,
+                    note=note,
+                    created_at=created_at,
+                )
+                return {
+                    "hit": False,
+                    "refreshed_unchanged": True,
+                    "item_id": meta["item_id"],
+                    "note_id": parsed["note_id"],
+                    "kind": meta["kind"],
+                    "raw_dir": storage.raw_dir(xhs.SOURCE, parsed["note_id"], meta["current_version"]),
+                    "version": meta["current_version"],
+                    "manifest": None,
+                    "failed": [],
+                    "comments": len(source["comments"]),
+                    "sub_comments": sum(len(c.get("sub_comments") or []) for c in source["comments"]),
+                    "comments_complete": source["capture"]["comments_complete"],
+                    "attachments_status": meta["attachments_status"],
+                    "exit_code": EXIT_OK,
+                }
+            log("refresh：规范化比对有变化，写新 RAW 版本")
+
+        version = storage.next_version(xhs.SOURCE, parsed["note_id"])
+        raw_dir = storage.ensure_raw_dir(xhs.SOURCE, parsed["note_id"], version)
+        rel_prefix = f"raw/{storage.version_name(version)}"
+        log(f"RAW → {raw_dir}")
+
+        storage.write_json(raw_dir / "mcp_raw.json", raw)
+        storage.write_json(raw_dir / "source.json", source)
+        manifest = download_media(source, raw_dir, rel_prefix)
+        storage.write_json(raw_dir / "manifest.json", manifest)
+
+        first_archived = (
+            storage.read_json(meta_path).get("first_archived_at")
+            if meta_path.exists()
+            else captured_at
+        )
+        meta = _build_meta(
+            parsed=parsed,
+            source=source,
+            manifest=manifest,
+            version=version,
+            captured_at=captured_at,
+            origin=origin,
+            actor=actor,
+            ingest_kind=ingest_kind,
+            note=note,
+            first_archived=first_archived,
+        )
+        storage.write_json(meta_path, meta)
+
+        index_mod.upsert_object(conn, meta, source)
+        index_mod.add_source_version(
+            conn,
+            item_id=meta["item_id"],
+            version=version,
+            raw_dir=raw_dir,
+            captured_at=captured_at,
+            adapter=xhs.ADAPTER_VERSION,
+            input_url=parsed["input_url"],
+            input_kind=parsed["input_kind"],
+            source_sha256=new_sha,
+        )
+        index_mod.add_relation(
+            conn,
+            item_id=meta["item_id"],
+            origin=origin,
+            actor=actor,
+            ingest_kind=ingest_kind,
+            note=note,
+            created_at=created_at,
+        )
+
+        failed = [m for m in manifest["media"] if m["download_status"] == "failed"]
+        return {
+            "hit": False,
+            "refreshed_unchanged": False,
+            "item_id": meta["item_id"],
+            "note_id": parsed["note_id"],
+            "kind": meta["kind"],
+            "raw_dir": raw_dir,
+            "version": version,
+            "manifest": manifest,
+            "failed": failed,
+            "comments": len(source["comments"]),
+            "sub_comments": sum(len(c.get("sub_comments") or []) for c in source["comments"]),
+            "comments_complete": source["capture"]["comments_complete"],
+            "attachments_status": meta["attachments_status"],
+            "exit_code": EXIT_MISSING_CONTENT if failed else EXIT_OK,
+        }
+    finally:
+        conn.close()
 
 
 def run(args) -> int:
-    if args.refresh:
-        print("`--refresh` 属于 Lot 2，尚未实现。", file=sys.stderr)
-        return EXIT_ERROR
     try:
         summary = ingest_url(
             args.target,
@@ -283,6 +411,7 @@ def run(args) -> int:
             ingest_kind=args.ingest_kind,
             note=args.note,
             verbose=getattr(args, "verbose", False),
+            refresh=getattr(args, "refresh", False),
         )
     except xhs.AdapterError as exc:
         print(f"归档失败: {exc}", file=sys.stderr)
@@ -290,6 +419,14 @@ def run(args) -> int:
     except FileExistsError as exc:
         print(f"归档失败: {exc}", file=sys.stderr)
         return EXIT_ERROR
+
+    if summary.get("hit"):
+        print(f"HIT  {summary['item_id']}  kind={summary['kind']}  {summary['raw_dir']}")
+        return summary["exit_code"]
+
+    if summary.get("refreshed_unchanged"):
+        print(f"REFRESH（无变化）  {summary['item_id']}  {summary['raw_dir']}")
+        return summary["exit_code"]
 
     manifest = summary["manifest"]
     print(f"{summary['item_id']}  kind={summary['kind']}  {summary['raw_dir']}")
