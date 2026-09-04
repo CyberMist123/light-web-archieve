@@ -11,7 +11,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from . import index as index_mod, storage
+from . import llm as llm_mod
 from . import vision as vision_mod
 
 COMMENTS_START = "<!-- link-brain:comments:start -->"
@@ -259,6 +262,77 @@ def render_content_block(
     return "\n".join([CONTENT_START, f'<div class="{cls}">', media, detail, "</div>", CONTENT_END])
 
 
+FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.S)
+# 这几个键由 render 生成，每次重写；其余键都当成 Owner 手写的，原样搬过去
+MANAGED_FM_KEYS = {"cssclasses", "tags", "link_brain"}
+
+
+def parse_frontmatter(text: str | None) -> dict[str, Any]:
+    """读回已有可见 md 的 frontmatter。
+
+    用 YAML 解析而不是正则：Obsidian 会把 `tags: [a, b]` 改写成块状列表，
+    正则版本会读不到、于是把 Owner 手写的 tag 弄丢。
+    """
+    if not text:
+        return {}
+    m = FRONTMATTER_RE.match(text)
+    if not m:
+        return {}
+    try:
+        data = yaml.safe_load(m.group(1))
+    except yaml.YAMLError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def existing_tags(text: str | None) -> list[str]:
+    """从已有可见 md 的 frontmatter 里读回 tags（含 Owner 手写的）。"""
+    tags = parse_frontmatter(text).get("tags")
+    if isinstance(tags, str):
+        tags = tags.split(",")
+    if not isinstance(tags, list):
+        return []
+    return [str(x).strip() for x in tags if str(x).strip()]
+
+
+def extra_frontmatter_lines(text: str | None) -> list[str]:
+    """Owner 自己加的 frontmatter 键（time / finder / from / comment …）原样保留。"""
+    extras = {k: v for k, v in parse_frontmatter(text).items() if k not in MANAGED_FM_KEYS}
+    if not extras:
+        return []
+    dumped = yaml.safe_dump(extras, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    return dumped.rstrip("\n").split("\n")
+
+
+def suggested_tags(extracted: dict[str, Any] | None) -> list[str]:
+    """小模型建议的 tag：Obsidian 的 tag 不能带空格，这里兜底再清一次。"""
+    out = []
+    for tag in (extracted or {}).get("tags") or []:
+        cleaned = llm_mod.sanitize_tag(tag)
+        if cleaned:
+            out.append(cleaned)
+    return out
+
+
+def merge_tags(
+    hashtags: list[str], prior: list[str], suggested: list[str], *, limit: int = 20
+) -> list[str]:
+    """小红书原 hashtag 在前，其次是已存在的（含手写）tag，最后才是小模型建议。
+
+    只做并集：Owner 手写的 tag 永不被覆盖或删除。
+    """
+    merged: list[str] = []
+    seen: set[str] = set()
+    for group in (hashtags, prior, suggested):
+        for tag in group or []:
+            tag = str(tag).strip()
+            # 大小写不敏感去重：原帖 hashtag 是 `claude`，小模型给 `Claude`，只留前者
+            if tag and tag.casefold() not in seen:
+                seen.add(tag.casefold())
+                merged.append(tag)
+    return merged[:limit]
+
+
 def render_visible_md(
     *,
     source: dict[str, Any],
@@ -266,9 +340,14 @@ def render_visible_md(
     meta: dict[str, Any],
     object_rel: str,
     existing_text: str | None,
+    extracted: dict[str, Any] | None = None,
 ) -> str:
     note = source["note"]
-    tags = note.get("hashtags") or []
+    tags = merge_tags(
+        note.get("hashtags") or [],
+        existing_tags(existing_text),
+        suggested_tags(extracted),
+    )
     fm = [
         "---",
         "cssclasses: [link-brain, xhs-note]",
@@ -289,7 +368,9 @@ def render_visible_md(
     cc = meta.get("comments_complete")
     if isinstance(cc, bool):
         cc = str(cc).lower()
-    fm += [f"  comments_complete: {cc}", "---"]
+    fm += [f"  comments_complete: {cc}"]
+    fm += extra_frontmatter_lines(existing_text)
+    fm += ["---"]
 
     comments_block, _ = split_layers(existing_text)
     if comments_block is None:
@@ -301,10 +382,26 @@ def render_visible_md(
     return "\n".join(fm) + "\n\n" + comments_block + "\n\n" + content + "\n"
 
 
-def render_agent_md(*, source: dict[str, Any], vision: dict[str, Any], meta: dict[str, Any]) -> str:
+def render_agent_md(
+    *,
+    source: dict[str, Any],
+    vision: dict[str, Any],
+    meta: dict[str, Any],
+    extracted: dict[str, Any] | None = None,
+) -> str:
     note = source["note"]
     title = note.get("title") or meta.get("title") or "（无标题）"
-    lines = [f"# {title}", "", "## 概要", "", "", "## 重要细节", ""]
+    ex = extracted or {}
+
+    lines = [f"# {title}", "", "## 概要", ""]
+    lines.append(ex.get("summary") or "（未生成）")
+
+    lines += ["", "## 重要细节", ""]
+    key_points = ex.get("key_points") or []
+    if key_points:
+        lines.extend(f"- {x}" for x in key_points)
+    else:
+        lines.append("（未生成）")
 
     lines += ["", "## 数据点", ""]
     engagement = note.get("engagement") or {}
@@ -315,11 +412,17 @@ def render_agent_md(*, source: dict[str, Any], vision: dict[str, Any], meta: dic
 
     lines += ["", "## 外链", ""]
     links = note.get("links") or []
-    if links:
-        lines.extend(
-            f"- [{x.get('text') or x.get('url')}]({x.get('url')})（{x.get('where')}）"
-            for x in links
-        )
+    link_lines = [
+        f"- [{x.get('text') or x.get('url')}]({x.get('url')})（{x.get('where')}）" for x in links
+    ]
+    for x in ex.get("links_worth_opening") or []:
+        why = x.get("why") or ""
+        if x.get("url"):
+            link_lines.append(f"- {x['url']}（小模型建议：{why}）")
+        elif x.get("hint"):
+            link_lines.append(f"- {x['hint']}（小模型建议，原帖没给链接：{why}）")
+    if link_lines:
+        lines.extend(link_lines)
     else:
         lines.append("（未生成）")
 
@@ -337,10 +440,17 @@ def render_agent_md(*, source: dict[str, Any], vision: dict[str, Any], meta: dic
     lines += ["", "## 评论", ""]
     comments = source.get("comments") or []
     if comments:
-        for c in comments:
-            lines.append(f"- {(c.get('author') or {}).get('nickname') or '匿名'}：{c.get('text')}")
-            for s in c.get("sub_comments") or []:
-                lines.append(f"  - {(s.get('author') or {}).get('nickname') or '匿名'}：{s.get('text')}")
+        valuable = {x.get("id"): x.get("why") or "" for x in ex.get("valuable_comments") or []}
+        noise = set(ex.get("ads_or_noise") or [])
+        for label, c in llm_mod.comment_labels(comments):
+            indent = "  " if "." in label else ""
+            mark = ""
+            if label in valuable:
+                mark = f"（值得看：{valuable[label]}）"
+            elif label in noise:
+                mark = "（广告/噪音）"
+            nickname = (c.get("author") or {}).get("nickname") or "匿名"
+            lines.append(f"{indent}- [{label}] {nickname}：{c.get('text')}{mark}")
     else:
         lines.append("（未生成）")
 
@@ -352,11 +462,16 @@ def render_agent_md(*, source: dict[str, Any], vision: dict[str, Any], meta: dic
         f"- images_complete: {meta.get('images_complete')}",
         f"- comments_complete: {meta.get('comments_complete')}",
         f"- attachments_status: {meta.get('attachments_status')}",
+        f"- extracted: {'ok' if extracted else '未生成'}",
     ]
     return "\n".join(lines) + "\n"
 
 
-def brief_summary(source: dict[str, Any]) -> str:
+def brief_summary(source: dict[str, Any], extracted: dict[str, Any] | None = None) -> str:
+    """有小模型概要就用它，没有就退回正文前 120 字（Lot 3 行为）。"""
+    summary = (extracted or {}).get("summary")
+    if summary:
+        return summary
     return _first_n_chars((source.get("note") or {}).get("body"), 120)
 
 
@@ -371,7 +486,19 @@ def ensure_css_snippet() -> None:
     target.write_text(content, encoding="utf-8")
 
 
-def render_object(source_key: str, source_id: str, *, verbose: bool = False) -> dict[str, Any]:
+def render_object(
+    source_key: str,
+    source_id: str,
+    *,
+    verbose: bool = False,
+    llm: bool = False,
+    re_extract: bool = False,
+) -> dict[str, Any]:
+    """拼可见 md + agent.md。
+
+    `llm=True` 时才会调小模型生成 `derived/extracted.json`（缺了或上次失败才调，
+    `re_extract=True` 强制重调）。不管调没调，已有的 `extracted.json` 都会被读进来用。
+    """
     ensure_css_snippet()
     object_dir = storage.object_dir(source_key, source_id)
     meta_path = object_dir / "meta.json"
@@ -387,6 +514,15 @@ def render_object(source_key: str, source_id: str, *, verbose: bool = False) -> 
     vision_path = derived_dir / "vision.json"
     vision_doc = storage.read_json(vision_path) if vision_path.exists() else {"images": []}
     object_rel = f"_archive/{source_key}/{source_id}"
+
+    extracted_doc = llm_mod.load_extracted(source_key, source_id)
+    if llm or re_extract:
+        stale = re_extract or not extracted_doc or extracted_doc.get("status") != "ok"
+        if stale:
+            extracted_doc = llm_mod.extract(
+                source_key, source_id, force=re_extract, verbose=verbose
+            )
+    extracted = llm_mod.extracted_data(extracted_doc)
 
     visible_dir = storage.visible_dir()
     visible_dir.mkdir(parents=True, exist_ok=True)
@@ -409,13 +545,16 @@ def render_object(source_key: str, source_id: str, *, verbose: bool = False) -> 
             meta=meta,
             object_rel=object_rel,
             existing_text=existing_text,
+            extracted=extracted,
         ),
         encoding="utf-8",
     )
 
     derived_dir.mkdir(parents=True, exist_ok=True)
     (derived_dir / "agent.md").write_text(
-        render_agent_md(source=source_doc, vision=vision_doc, meta=meta),
+        render_agent_md(
+            source=source_doc, vision=vision_doc, meta=meta, extracted=extracted
+        ),
         encoding="utf-8",
     )
 
@@ -429,9 +568,18 @@ def render_object(source_key: str, source_id: str, *, verbose: bool = False) -> 
     return {"item_id": meta["item_id"], "visible_note": rel_visible, "agent_md": str(derived_dir / "agent.md")}
 
 
-def render_item(source_key: str, source_id: str, *, verbose: bool = False) -> dict[str, Any]:
+def render_item(
+    source_key: str,
+    source_id: str,
+    *,
+    verbose: bool = False,
+    llm: bool = False,
+    re_extract: bool = False,
+) -> dict[str, Any]:
     vision_mod.build_vision(source_key, source_id, verbose=verbose)
-    return render_object(source_key, source_id, verbose=verbose)
+    return render_object(
+        source_key, source_id, verbose=verbose, llm=llm, re_extract=re_extract
+    )
 
 
 def run(args) -> int:
@@ -460,7 +608,13 @@ def run(args) -> int:
 
     for source_key, source_id in targets:
         try:
-            result = render_item(source_key, source_id, verbose=getattr(args, "verbose", False))
+            result = render_item(
+                source_key,
+                source_id,
+                verbose=getattr(args, "verbose", False),
+                llm=getattr(args, "extract", False) or getattr(args, "re_extract", False),
+                re_extract=getattr(args, "re_extract", False),
+            )
         except FileNotFoundError as exc:
             print(f"跳过 {source_key}/{source_id}: {exc}", file=sys.stderr)
             continue

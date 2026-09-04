@@ -54,6 +54,17 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("render", help="拼可见 md + derived/agent.md（先跑 vision，纯程序拼模板）")
     p.add_argument("target", nargs="?", default=None, help="item_id；配合 --all 时可省略")
     p.add_argument("--all", action="store_true", help="对索引里所有对象都渲染一遍")
+    p.add_argument(
+        "--extract",
+        action="store_true",
+        help="缺 derived/extracted.json（或上次失败）时调小模型生成（Lot 4，不重抓网页）",
+    )
+    p.add_argument(
+        "--re-extract",
+        dest="re_extract",
+        action="store_true",
+        help="强制重调小模型，覆盖已有的 extracted.json",
+    )
 
     p = sub.add_parser("sync-favorites", help="同步小红书收藏（Lot 6，可选）")
     p.add_argument("--limit", type=int, default=50)

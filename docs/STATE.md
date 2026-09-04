@@ -1,6 +1,6 @@
 # Current State
 
-current_lot: 3b-ui
+current_lot: 4
 current_main: e80245a60d7c01044fc8d70cea508ffea5ec02e4
 repo_path: D:\LIGHT WEB ARCHIEVE
 
@@ -43,6 +43,20 @@ repo_path: D:\LIGHT WEB ARCHIEVE
 
 当前恢复基线来自 `a1f6f3b36a8a69796811f59371238fcd96b109dd` 的 UI 状态；`main` 在此基础上只保留小红书式行内标签，当前提交为 `e80245a60d7c01044fc8d70cea508ffea5ec02e4`。
 
+### Lot 4：小模型派生
+- `llm.py`：正文 + 图片 OCR + 带编号评论 → `media.py text`（qwen3.7-flash）→ 固定 JSON →
+  schema 校验（失败重试 1 次）→ `derived/extracted.json`。只读本地文件，不重抓网页。
+- 概要 / 要点回填 `derived/agent.md`；`read --brief` 优先用模型概要；抽取失败写"（未生成）"，不阻断。
+- 标签按 `docs/tag-vocab.yaml`（20 个常用词）归一后并进可见 md 的 `tags:`，**只增不减**。
+- 顺手补的两个数据保护：可见 md 的 frontmatter 改用 YAML 解析（Obsidian 会把 `tags: [a, b]`
+  改写成块状列表，旧的正则版本读不到、会把 Owner 手写 tag 弄丢）；非 `cssclasses/tags/link_brain`
+  的键当作 Owner 手写，rerender 原样保留。
+- 模型输出全程当不可信数据：非 http(s) 的"链接"降级成线索、标签只留 Obsidian 合法字符、
+  评论编号必须在输入里出现过、渲染前 HTML 转义。`tests/test_llm.py` 里有端到端注入用例。
+- 模型 id / 价格在 `link_brain/assets/llm-config.yaml`（不写死在代码里）。
+- 5 条样本实跑：JSON 一次成功 5/5，单条平均估算成本 $0.000125，见 `docs/BENCH.md`。
+  D 条（原帖没有裸 URL）确实被点出了 `Yinglianchun/Ombre-Brain`。
+
 ## 已知缺口
 
 - 图片左右箭头暂不作为稳定功能；当前主要用横向滚动 / 触控滑动切图。
@@ -50,11 +64,18 @@ repo_path: D:\LIGHT WEB ARCHIEVE
 - 评论图如 MCP 未返回对应媒体字段则无法补抓。
 - 附件只能从正文线索标记 `unavailable`。
 - `inbox / resolve / comment / sync-favorites` 尚未完成。
-- Lot 4 小模型派生尚未开始。
+- BENCH.md 的「漏正文 / 误删细节 / 广告当信息」三列还空着，等 Owner 人工判定；样本补到 20 条后要重跑。
+- token 数是字符估算（`media.py text` 不回传 usage），只能横向比较，不是账单。
+- 广告/噪音判定偏激进（C 条 19 条评论标了 12 条噪音）；只影响 agent.md 标注，不删内容。
+- 小红书原 hashtag 里带空格的（如 `Operit AI`）仍原样写进 `tags:`，Obsidian 认不了这种 tag；
+  只清洗了小模型给的标签，没动原帖的（改原帖 hashtag 会动到 Owner 已有的文件）。
+- `vault/Web/Xiaohongshu/家克喜欢催人，我将用魔法打败魔法.md`（没有 `__<id8>` 后缀那个）是
+  旧命名留下的重复文件，里面有 Owner 手写的 `time/finder/from/comment`。没敢动，等 Owner 决定
+  是并进正式那篇还是删掉。
 - Owner Windows 上 Git 已安装，但普通 PowerShell 的 PATH 仍可能找不到 `git`；必要时临时使用 `C:\Program Files\Git\cmd\git.exe`。
 
 ## 下一步
 
-1. Owner `git pull` + `python -m link_brain render --all`，确认回滚后的稳定 UI 已恢复。
-2. Issue #2 只做小幅视觉修正，不再加入高风险图片交互。
-3. 人类版稳定后继续 Lot 4。
+1. Owner `git pull` + `python -m link_brain render --all`，确认稳定 UI 已恢复（Issue #2 仍未实机验收）。
+2. Owner 看 5 篇的概要/标签质量，把 `docs/BENCH.md` 最后三列填上。
+3. 继续 Lot 5（`comment / inbox / resolve` + `scripts/smoke.py`）。

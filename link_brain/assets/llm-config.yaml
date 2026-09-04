@@ -1,0 +1,22 @@
+# 小模型派生（Lot 4）的可配置项。
+# 规矩：provider / model id / 价格都不写死在代码里（issue #41 第 16 节）。
+# 调用一律经 media.py text，本仓不自己包 provider 抽象。
+
+# media.py text 的 --model 传什么；留空则用 media.py 自己的默认（qwen3.7-flash）
+model: qwen3.7-flash
+
+# 价格快照（USD / 1M token），2026-09-04 取自 Qwen 官方 model-pricing 页；
+# 换模型时连价格一起改，BENCH.md 的成本列直接按这里算。
+pricing:
+  input_usd_per_1m: 0.028
+  output_usd_per_1m: 0.110
+
+# 输入裁剪上限：喂给模型的只有正文 + OCR + 评论，绝不塞 mcp_raw.json
+limits:
+  body_chars: 4000
+  ocr_chars_per_image: 500
+  comment_chars: 300
+  max_comments: 40
+  max_tags: 8
+
+timeout_sec: 180

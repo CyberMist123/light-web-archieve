@@ -397,6 +397,63 @@ link_brain:
 ## 元信息
 ```
 
+`概要` / `重要细节` 由 `derived/extracted.json`（第 7b 节）填；没有或抽取失败时写"（未生成）"。
+`外链` 除原帖里的裸链接外，还会附上小模型建议的线索行；`评论` 每行前缀评论编号
+（一级 `c1`、楼中楼 `c1.1`），被小模型标为有价值/广告的会在行尾加标注。
+
+---
+
+## 7b. `derived/extracted.json`（小模型派生，Lot 4）
+
+对象级、可重生成：删掉它重跑 `render --extract` 只会重新调模型，**不会重抓网页**。
+`data` 只有 `status == "ok"` 时才可信；`status == "failed"` 时 `data` 为 `null`，
+渲染层退回"（未生成）"并且**不阻断**。
+
+```json
+{
+  "schema_version": 1,
+  "status": "ok",
+  "version": 1,
+  "model": "qwen3.7-flash",
+  "generated_at": "2026-09-04T19:20:31+10:00",
+  "attempts": 1,
+  "first_try_ok": true,
+  "usage": {
+    "input_tokens_est": 3979,
+    "output_tokens_est": 593,
+    "cost_usd_est": 0.00017664,
+    "note": "media.py 不回传 usage，token 数为字符估算"
+  },
+  "error": null,
+  "data": {
+    "summary": "不超过 3 行的概要",
+    "key_points": ["要点"],
+    "tags": ["AI", "开源"],
+    "links_worth_opening": [
+      {"url": "https://example.com/a", "hint": "", "why": "正文里的链接"},
+      {"url": "", "hint": "Yinglianchun/Ombre-Brain", "why": "原帖只提到仓库名，没给链接"}
+    ],
+    "valuable_comments": [{"id": "c3", "why": "有实操细节"}],
+    "ads_or_noise": ["c8"]
+  }
+}
+```
+
+字段规则：
+
+| 字段 | 规则 |
+|---|---|
+| `version` | 派生自哪个 RAW 版本；`current_version` 变了要重跑 |
+| `attempts` | 1 或 2（schema 校验失败只重试 1 次） |
+| `usage` | media.py 不回传 usage，token 是按字符估的；价格取 `link_brain/assets/llm-config.yaml` |
+| `data.tags` | 先按 `docs/tag-vocab.yaml` 归一，再洗成 Obsidian 合法 tag（只留字母数字 `_ - /`，空格转 `-`） |
+| `data.links_worth_opening[].url` | 只可能是 `http(s)://` 开头；模型给的其他东西（仓库名、`javascript:` 之类）一律降级进 `hint`，永不当链接渲染 |
+| `data.valuable_comments[].id` / `ads_or_noise[]` | 只能是输入里出现过的评论编号，其余丢弃 |
+
+可见 md 的 `tags:` = 原帖 hashtag ∪ 文件里已有的（含 Owner 手写）∪ 小模型建议，
+大小写不敏感去重，**只增不减**。frontmatter 里非 `cssclasses` / `tags` / `link_brain` 的键
+一律当作 Owner 手写，rerender 原样保留。
+
 ---
 
 ## 8. SQLite（`vault/_archive/index.db`）
