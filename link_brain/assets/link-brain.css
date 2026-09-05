@@ -127,8 +127,9 @@
   padding-bottom: 8px;
 }
 
-/* 窄 pane / 手机收成单栏；这时不固定，避免吃掉宝贵高度。 */
-@container link-brain-note (max-width: 795px) {
+/* 只有手机大小的窄 pane（< 600px）才收成单栏；其余一律默认两栏。
+   这时不固定，避免吃掉宝贵高度。 */
+@container link-brain-note (max-width: 600px) {
   .markdown-preview-view.xhs-note .markdown-preview-sizer {
     display: block;
   }
@@ -459,7 +460,7 @@
   font-size: 0.9em;
 }
 
-@container link-brain-note (max-width: 800px) {
+@container link-brain-note (max-width: 600px) {
   .xhs-note .lb-media {
     width: 100%;
   }

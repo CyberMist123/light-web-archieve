@@ -1,6 +1,12 @@
 const { Plugin } = require("obsidian");
 
-const CAROUSEL_SELECTOR = '.callout[data-callout="link-brain-media"] .callout-content';
+// 直接驱动标准两栏渲染里的图片滑动条 `.lb-carousel`（`<figure class="lb-slide">`），
+// 不再依赖整宽的 `[!link-brain-media]` callout —— 这样「左图右文」两栏保留，
+// ←/→ 只翻左边那一列的图。稳一点的老规矩仍在：只有先点/聚焦过图片区才接管，
+// 正文编辑区、输入框、CodeMirror、文字选中状态都不抢键。
+const CAROUSEL_SELECTOR = ".xhs-note .lb-carousel";
+const NOTE_ROOT_SELECTOR =
+  ".markdown-preview-view.xhs-note, .markdown-reading-view.xhs-note, .markdown-source-view.xhs-note";
 const BLOCKED_SELECTOR = [
   "input",
   "textarea",
@@ -18,14 +24,15 @@ function getCarouselFromTarget(target) {
 }
 
 function getSlides(carousel) {
-  return Array.from(carousel.children).filter((el) => el.tagName === "P");
+  return Array.from(carousel.children).filter(
+    (el) => el.classList && el.classList.contains("lb-slide")
+  );
 }
 
 function getNearestIndex(carousel, slides) {
   const left = carousel.scrollLeft;
   let bestIndex = 0;
   let bestDist = Infinity;
-
   for (let i = 0; i < slides.length; i += 1) {
     const dist = Math.abs(slides[i].offsetLeft - left);
     if (dist < bestDist) {
@@ -65,11 +72,7 @@ module.exports = class LinkBrainNativeMediaNavPlugin extends Plugin {
 
       const carousel = getCarouselFromTarget(target) || this.activeCarousel;
       if (!carousel || !carousel.isConnected) return;
-
-      const noteRoot = carousel.closest(
-        ".markdown-preview-view.xhs-note, .markdown-reading-view.xhs-note"
-      );
-      if (!noteRoot) return;
+      if (!carousel.closest(NOTE_ROOT_SELECTOR)) return;
 
       const slides = getSlides(carousel);
       if (slides.length < 2) return;
@@ -83,11 +86,8 @@ module.exports = class LinkBrainNativeMediaNavPlugin extends Plugin {
 
       if (nextIndex === currentIndex) return;
 
-      slides[nextIndex].scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-        inline: "start"
-      });
+      // 只横向滚动这个滑动条，不用 scrollIntoView，避免连带把整页/两栏跳动。
+      carousel.scrollTo({ left: slides[nextIndex].offsetLeft, behavior: "smooth" });
 
       this.activeCarousel = carousel;
       event.preventDefault();
