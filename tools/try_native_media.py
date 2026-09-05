@@ -6,7 +6,8 @@ Why this exists:
 - archived RAW must stay immutable, so editable copies live under Web/Xiaohongshu/_media/.
 
 This is deliberately a post-render experiment, not a core renderer migration yet.
-Run `python -m link_brain render --all` to restore the current renderer output.
+Run `python -m link_brain render --all` to restore the current renderer output/style.
+Editable copies under `_media/` are intentionally kept because they may contain user/plugin edits.
 """
 from __future__ import annotations
 
@@ -17,7 +18,12 @@ import shutil
 from pathlib import Path
 
 from link_brain import storage
-from link_brain.render import CONTENT_END, CONTENT_START, parse_frontmatter
+from link_brain.render import (
+    CONTENT_END,
+    CONTENT_START,
+    ensure_css_snippet,
+    parse_frontmatter,
+)
 
 MEDIA_RE = re.compile(
     r'<section class="lb-media"><div class="lb-carousel">(?P<body>.*?)</div>'
@@ -27,6 +33,7 @@ MEDIA_RE = re.compile(
 IMG_RE = re.compile(r'<img\s+src="(?P<src>[^"]+)"[^>]*>', re.S)
 NOTE_OPEN_RE = re.compile(r'<div class="lb-note(?: lb-no-media)?">\s*')
 NOTE_CLOSE_RE = re.compile(r'\s*</div>\s*\Z')
+CSS_MARKER = '/* link-brain native-media experiment: appended by tools/try_native_media.py */'
 
 
 def _safe_dir_name(value: str) -> str:
@@ -35,10 +42,19 @@ def _safe_dir_name(value: str) -> str:
 
 
 def _install_css(vault: Path) -> None:
+    """Append the experiment to the already-enabled managed link-brain snippet.
+
+    No second Obsidian toggle is needed. A normal `render --all` calls ensure_css_snippet()
+    again and restores the managed base CSS, so rollback stays one command.
+    """
+    ensure_css_snippet()
     source = Path(__file__).resolve().parents[1] / 'link_brain' / 'assets' / 'link-brain-native-media.css'
-    target = vault / '.obsidian' / 'snippets' / 'link-brain-native-media.css'
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, target)
+    target = vault / '.obsidian' / 'snippets' / 'link-brain.css'
+    base = target.read_text(encoding='utf-8')
+    if CSS_MARKER in base:
+        return
+    experiment = source.read_text(encoding='utf-8')
+    target.write_text(base.rstrip() + '\n\n' + CSS_MARKER + '\n' + experiment + '\n', encoding='utf-8')
 
 
 def _editable_copy(note_path: Path, src: str, item_id: str, index: int, vault: Path) -> str | None:
@@ -86,18 +102,20 @@ def convert_note(path: Path, vault: Path) -> bool:
     if not rels:
         return False
 
-    # Remove the renderer's outer lb-note wrapper for this experiment. The native media callout,
-    # author row, Markdown body and comment section then become normal sizer children.
-    layer = NOTE_OPEN_RE.sub('', layer, count=1)
-    layer = NOTE_CLOSE_RE.sub('\n', layer)
-
     rows = ['> [!link-brain-media]']
     for i, rel in enumerate(rels):
         if i:
             rows.append('>')
         rows.append(f'> ![[{rel}]]')
     native = '\n'.join(rows)
+
+    # Replace media first while match offsets are still valid.
     layer = layer[:media.start()] + '\n\n' + native + '\n\n' + layer[media.end():]
+
+    # Then remove the renderer's outer lb-note wrapper. The native media callout,
+    # author row, Markdown body and comment section become normal sizer children.
+    layer = NOTE_OPEN_RE.sub('', layer, count=1)
+    layer = NOTE_CLOSE_RE.sub('\n', layer)
 
     new_text = text[:start + len(CONTENT_START)] + layer + text[end:]
     path.write_text(new_text, encoding='utf-8')
@@ -126,8 +144,9 @@ def main() -> int:
         if path.is_file() and convert_note(path, vault):
             changed += 1
             print(f'[native-media] {path.name}')
-    print(f'[native-media] converted={changed}; css=link-brain-native-media.css')
-    print('[native-media] Obsidian 设置 → 外观 → CSS 片段：打开 link-brain-native-media')
+    print(f'[native-media] converted={changed}; uses existing link-brain CSS snippet')
+    print('[native-media] rollback layout/source: python -m link_brain render --all')
+    print('[native-media] _media copies are never overwritten; plugin drawings/edits stay there')
     return 0
 
 
