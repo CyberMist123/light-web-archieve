@@ -17,9 +17,7 @@
   --file-line-width: 1380px;
 }
 
-/* 容器建在**父节点**上：元素响应不了自己的容器查询——
-   2026-09-05 踩到，sizer 自己当容器时 display 改不动，子节点的规则却生效了，
-   于是断点半生效：两栏收不拢、sticky 反而被打回 static。 */
+/* 容器必须建在父节点上；sizer 自己当容器时会出现断点半生效。 */
 .markdown-preview-view.xhs-note,
 .markdown-source-view.xhs-note {
   container-type: inline-size;
@@ -81,12 +79,11 @@
   margin: 0.25em 0;
 }
 
-/* 2026-09-05：正文是**纯 Markdown**（Owner 要能划重点、别一点就掉进源码模式），
-   所以它在 DOM 里是 .markdown-preview-sizer 的直接子节点——Obsidian 遇到空行会闭合 HTML 块，
-   正文不可能待在某个 <div> 里。于是两栏 grid 建在 **sizer** 上：
-   图片列（.lb-note）占左栏并 `grid-row: span 500` 一直贯到底 + sticky（跟随滚动，和老版一样），
-   其余子节点默认进右栏，标题/属性/顶部灰字横跨两栏。
-   等宽两栏、gap 与老版同一个变量，视觉上和改造前一致。 */
+/*
+  正文必须是真 Markdown，才能在 Live Preview 里直接 ==划重点==。
+  因此 Reading View 的两栏不能再依赖一个包住正文的 HTML div，而是直接把
+  markdown-preview-sizer 当 grid：左边图片，右边作者/正文/评论，比例仍然 1:1。
+*/
 .markdown-preview-view.xhs-note .markdown-preview-sizer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -108,28 +105,45 @@
   grid-column: 1 / -1;
 }
 
+/* 左图保持原来的 1:1 比例并跟随页面。 */
 .markdown-preview-view.xhs-note .markdown-preview-sizer > .lb-note {
   grid-column: 1;
-  grid-row: span 500;   /* 贯穿右栏所有行，sticky 才有滑动空间 */
+  grid-row: span 500;
   align-self: start;
   position: sticky;
   top: 16px;
 }
 
-/* pane 窄了就收成单栏（老版 auto-fit 的等效断点：两列各要 390px + gap） */
+/*
+  新实验：作者头也固定。正文 Markdown、标签和评论仍按页面自然向上滚。
+  背景用 Obsidian 自己的主背景，避免正文从作者字下面穿过去。
+*/
+.markdown-preview-view.xhs-note .markdown-preview-sizer > .lb-author-row {
+  grid-column: 2;
+  position: sticky;
+  top: 16px;
+  z-index: 7;
+  background: var(--background-primary);
+  padding-bottom: 8px;
+}
+
+/* 窄 pane / 手机收成单栏；这时不固定，避免吃掉宝贵高度。 */
 @container link-brain-note (max-width: 795px) {
   .markdown-preview-view.xhs-note .markdown-preview-sizer {
     display: block;
   }
 
-  .markdown-preview-view.xhs-note .markdown-preview-sizer > .lb-note {
+  .markdown-preview-view.xhs-note .markdown-preview-sizer > .lb-note,
+  .markdown-preview-view.xhs-note .markdown-preview-sizer > .lb-author-row {
     position: static;
+  }
+
+  .markdown-preview-view.xhs-note .markdown-preview-sizer > .lb-note {
     margin-bottom: 14px;
   }
 }
 
-/* 编辑（实时预览）模式不做两栏：那边的 DOM 是 CodeMirror 的行，强行布局会把编辑体验搞坏。
-   划重点在编辑模式里做，读还是回阅读视图。 */
+/* Live Preview 保持 CodeMirror 的自然编辑结构；正文已是真 Markdown，点击正文不会掉进 HTML 源码块。 */
 .xhs-note .lb-note {
   width: 100%;
   min-width: 0;
@@ -253,6 +267,7 @@
   margin: 2px 0 14px;
 }
 
+/* 恢复 9/4 晚上稳定版：30px、无外框，不再用 9/5 凌晨的 28px + border。 */
 .xhs-note .lb-author-dot {
   width: 30px;
   height: 30px;
@@ -277,8 +292,7 @@
   color: var(--lb-muted);
 }
 
-/* 正文现在是**纯 Markdown 段落**（2026-09-05），不再包在 .lb-post-body 里。
-   直接给笔记正文里的段落排版；callout / 评论区有自己更具体的规则，不会被这条盖到。 */
+/* 正文现在是纯 Markdown；样式保持原来的字号/行高。 */
 .markdown-preview-view.xhs-note .markdown-preview-sizer > p,
 .xhs-note .lb-note > p {
   font-size: var(--lb-body-size);
@@ -288,18 +302,14 @@
   overflow-wrap: anywhere;
 }
 
-/* 划重点：Owner 自己打的 ==高亮==，rerender 会原样贴回来 */
 .xhs-note mark {
   background: color-mix(in srgb, var(--text-accent) 22%, transparent);
   border-radius: 3px;
   padding: 0 2px;
 }
 
-/* 笔记附件（小红书的"文件"）：一行卡片，未下载时也要看得见它存在。
-   卡片是 callout（`> [!link-brain-file]`）而不是裸 HTML —— 裸 HTML 里的 <a href> 指本地文件
-   Obsidian 点不开（2026-09-04 实机踩到）。标题行藏掉，正文里也不写 📎（Owner 不要那个字符）。 */
+/* 顶部原文/机读版/附件：保留 9/5 已确认的分隔符间距。 */
 .xhs-note .callout[data-callout="link-brain-file"] {
-  /* Owner 2026-09-04：不要灰框、字要灰的 —— 只留一行淡淡的灰字 */
   margin: 2px 0 14px;
   padding: 0;
   border: 0;
@@ -321,6 +331,8 @@
 
 .xhs-note .callout[data-callout="link-brain-file"] p {
   margin: 0;
+  word-spacing: 0.32em;
+  line-height: 1.75;
 }
 
 .xhs-note .callout[data-callout="link-brain-file"] p + p {
@@ -339,7 +351,6 @@
   text-decoration: underline;
 }
 
-/* 小红书式行内话题：蓝紫链接色，无胶囊底。 */
 .xhs-note .lb-tags {
   display: flex;
   flex-wrap: wrap;
@@ -368,7 +379,6 @@
   color: var(--lb-muted);
 }
 
-/* 评论：去日期/地点/总数量。作者弱化，正文用楷体。 */
 .xhs-note .lb-comments {
   margin-top: 14px;
 }
@@ -408,7 +418,6 @@
   color: var(--text-faint);
 }
 
-/* 楼中楼：缩进更轻，线更淡，避免像 Markdown quote。 */
 .xhs-note .lb-replies {
   position: relative;
   margin-top: 8px;
