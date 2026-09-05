@@ -460,7 +460,7 @@
   font-size: 0.9em;
 }
 
-@container link-brain-note (max-width: 600px) {
+@container link-brain-note (max-width: 800px) {
   .xhs-note .lb-media {
     width: 100%;
   }
