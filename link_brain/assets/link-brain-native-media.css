@@ -1,6 +1,6 @@
 /* Experimental native-media layer.
-   Applied after tools/try_native_media.py converts HTML <img> blocks to normal Obsidian ![[image]] embeds.
-   Keep this separate from link-brain.css until real Obsidian validation passes. */
+   tools/try_native_media.py converts HTML <img> blocks to normal Obsidian ![[image]] embeds.
+   Images remain native/plugin-friendly while this CSS only supplies the XHS carousel chrome. */
 
 .xhs-note .callout[data-callout="link-brain-media"] {
   margin: 0;
@@ -26,13 +26,18 @@
   overscroll-behavior-inline: contain;
   scroll-snap-type: x mandatory;
   scroll-behavior: smooth;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--text-muted) 28%, transparent) transparent;
+  scrollbar-width: none;
   border-radius: var(--lb-radius);
   background: var(--background-secondary);
 }
 
+.xhs-note .callout[data-callout="link-brain-media"] .callout-content::-webkit-scrollbar {
+  display: none;
+}
+
+/* Every Markdown paragraph is one real Obsidian image slide. */
 .xhs-note .callout[data-callout="link-brain-media"] .callout-content > p {
+  position: relative;
   flex: 0 0 100%;
   min-width: 100%;
   display: grid;
@@ -41,6 +46,7 @@
   padding: 0 !important;
   scroll-snap-align: start;
   scroll-snap-stop: always;
+  overflow: hidden;
 }
 
 .xhs-note .callout[data-callout="link-brain-media"] .internal-embed.image-embed,
@@ -62,6 +68,89 @@
   margin: 0;
 }
 
+/* Fragment target used by the real previous/next links. It has no visible footprint. */
+.xhs-note .lb-native-anchor {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  scroll-margin-inline: 0;
+}
+
+/* Page badge follows the current slide, so 2 / 12 naturally replaces 1 / 12 when sliding. */
+.xhs-note .lb-native-counter {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 7;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: white;
+  background: rgb(90 90 90 / 0.62);
+  backdrop-filter: blur(5px);
+  font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Xiaohongshu-style circular arrows. They are normal fragment links, not JS widgets,
+   so the actual image remains a native Obsidian embed and image plugins can still own clicks. */
+.xhs-note .lb-native-arrow {
+  position: absolute;
+  top: 50%;
+  z-index: 9;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 50%;
+  color: white !important;
+  background: rgb(128 128 128 / 0.48);
+  backdrop-filter: blur(5px);
+  box-shadow: 0 1px 5px rgb(0 0 0 / 0.12);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 31px;
+  font-weight: 300;
+  line-height: 1;
+  text-decoration: none !important;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 120ms ease, background 120ms ease, transform 120ms ease;
+  cursor: pointer;
+  user-select: none;
+}
+
+.xhs-note .lb-native-arrow-left {
+  left: 12px;
+}
+
+.xhs-note .lb-native-arrow-right {
+  right: 12px;
+}
+
+.xhs-note .callout[data-callout="link-brain-media"]:hover .lb-native-arrow,
+.xhs-note .callout[data-callout="link-brain-media"]:focus-within .lb-native-arrow {
+  opacity: 0.9;
+}
+
+.xhs-note .lb-native-arrow:hover,
+.xhs-note .lb-native-arrow:focus-visible {
+  opacity: 1 !important;
+  background: rgb(78 78 78 / 0.82);
+  transform: translateY(-50%) scale(1.04);
+  outline: none;
+}
+
 /* Reading View: native media replaces .lb-note as the left sticky grid item. */
 .markdown-preview-view.xhs-note .markdown-preview-sizer > .callout[data-callout="link-brain-media"] {
   grid-column: 1;
@@ -79,5 +168,13 @@
 
   .xhs-note .callout[data-callout="link-brain-media"] img {
     max-height: 70vh;
+  }
+
+  /* Touch/narrow panes do not have a meaningful hover state; keep arrows reachable. */
+  .xhs-note .lb-native-arrow {
+    opacity: 0.78;
+    width: 38px;
+    height: 38px;
+    font-size: 28px;
   }
 }
