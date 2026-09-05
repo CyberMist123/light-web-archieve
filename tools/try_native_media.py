@@ -13,7 +13,16 @@ import argparse
 import html
 import re
 import shutil
+import sys
 from pathlib import Path
+
+# Windows 控制台默认 gbk，打印中文文件名/emoji 会 UnicodeEncodeError 崩溃；
+# 强制 stdout/stderr 用 utf-8（和 link_brain/__main__.py 同一守卫）。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 from link_brain import storage
 from link_brain.render import (
