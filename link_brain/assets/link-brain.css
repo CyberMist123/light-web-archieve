@@ -80,78 +80,37 @@
 }
 
 /*
-  正文必须是真 Markdown，才能在 Live Preview 里直接 ==划重点==。
-  因此 Reading View 的两栏不能再依赖一个包住正文的 HTML div，而是直接把
-  markdown-preview-sizer 当 grid：左边图片，右边作者/正文/评论，比例仍然 1:1。
+  两栏恢复为 float：它只依赖 `.lb-note` 内部的 `.lb-media`，不依赖 Obsidian
+  Reading View 是否给顶层块额外包 div.el-*，因此 Reading / Live Preview 共用同一条规则。
+  正文继续保持真 Markdown；不要给 .lb-note 加 overflow / contain / flow-root / container-type，
+  否则会建立新的 BFC，把 float 关在里面，正文又会掉回图片下面。
+
+  48.5% + 2% 间距是此前等宽两栏的等效比例；图片本身的 width/max-height/object-fit 不动。
 */
-.markdown-preview-view.xhs-note .markdown-preview-sizer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  column-gap: var(--lb-gap);
-  align-items: start;
-}
-
-.markdown-preview-view.xhs-note .markdown-preview-sizer > * {
-  grid-column: 2;
-  min-width: 0;
-}
-
-.markdown-preview-view.xhs-note .markdown-preview-sizer > .metadata-container,
-.markdown-preview-view.xhs-note .markdown-preview-sizer > .inline-title,
-.markdown-preview-view.xhs-note .markdown-preview-sizer > .mod-header,
-.markdown-preview-view.xhs-note .markdown-preview-sizer > .mod-footer,
-.markdown-preview-view.xhs-note .markdown-preview-sizer > .callout[data-callout="link-brain-file"],
-.markdown-preview-view.xhs-note .markdown-preview-sizer > .callout[data-callout="link-brain-comment"] {
-  grid-column: 1 / -1;
-}
-
-/* 左图保持原来的 1:1 比例并跟随页面。 */
-.markdown-preview-view.xhs-note .markdown-preview-sizer > .lb-note {
-  grid-column: 1;
-  grid-row: span 500;
-  align-self: start;
-  position: sticky;
-  top: 16px;
-}
-
-/*
-  新实验：作者头也固定。正文 Markdown、标签和评论仍按页面自然向上滚。
-  背景用 Obsidian 自己的主背景，避免正文从作者字下面穿过去。
-*/
-.markdown-preview-view.xhs-note .markdown-preview-sizer > .lb-author-row {
-  grid-column: 2;
-  position: sticky;
-  top: 16px;
-  z-index: 7;
-  background: var(--background-primary);
-  padding-bottom: 8px;
-}
-
-/* 只有手机大小的窄 pane（< 600px）才收成单栏；其余一律默认两栏。
-   这时不固定，避免吃掉宝贵高度。 */
-@container link-brain-note (max-width: 600px) {
-  .markdown-preview-view.xhs-note .markdown-preview-sizer {
-    display: block;
-  }
-
-  .markdown-preview-view.xhs-note .markdown-preview-sizer > .lb-note,
-  .markdown-preview-view.xhs-note .markdown-preview-sizer > .lb-author-row {
-    position: static;
-  }
-
-  .markdown-preview-view.xhs-note .markdown-preview-sizer > .lb-note {
-    margin-bottom: 14px;
-  }
-}
-
-/* Live Preview 保持 CodeMirror 的自然编辑结构；正文已是真 Markdown，点击正文不会掉进 HTML 源码块。 */
 .xhs-note .lb-note {
   width: 100%;
   min-width: 0;
 }
 
+.xhs-note .lb-note.lb-no-media {
+  max-width: 780px;
+  margin-inline: auto;
+}
+
 .xhs-note .lb-media {
+  float: left;
+  width: 48.5%;
+  margin: 2px 2% 14px 0;
   min-width: 0;
+}
+
+/* 只有手机大小才收成单栏。桌面 / 普通窄 pane 继续左图右文。 */
+@container link-brain-note (max-width: 600px) {
+  .xhs-note .lb-media {
+    float: none;
+    width: 100%;
+    margin: 0 0 14px;
+  }
 }
 
 .xhs-note .lb-carousel {
@@ -460,11 +419,8 @@
   font-size: 0.9em;
 }
 
+/* 600–800px 仍保持两栏；这里只保留原来的图片高度/文字响应规则，不再改 lb-media 宽度。 */
 @container link-brain-note (max-width: 800px) {
-  .xhs-note .lb-media {
-    width: 100%;
-  }
-
   .xhs-note .lb-slide img {
     max-height: 70vh;
   }
