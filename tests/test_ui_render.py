@@ -78,7 +78,7 @@ def test_human_view_is_xhs_layout_without_debug_sections():
     )
 
     assert "cssclasses: [link-brain, xhs-note]" in text
-    assert 'class="lb-cols"' in text
+    assert 'class="lb-note"' in text
     assert 'class="lb-carousel"' in text
     assert 'class="lb-detail"' in text
     assert 'class="lb-comments"' in text
@@ -86,6 +86,10 @@ def test_human_view_is_xhs_layout_without_debug_sections():
     assert "1 / 2" in text and "2 / 2" in text
     assert "#AI" in text
     assert "#AI[话题]#" not in text
+
+    # 正文是**纯 Markdown**：不再包在 lb-post-body 里，也不是 <p> 标签（Owner 要能划重点）
+    assert "lb-post-body" not in text
+    assert "第一段正文。" in text and "<p>第一段正文。</p>" not in text
 
     assert "## 评论" not in text
     assert "## 归档信息" not in text
@@ -134,9 +138,13 @@ def test_css_supports_reading_and_live_preview_with_pane_responsiveness():
     assert ".markdown-source-view.xhs-note .cm-contentContainer" in css
     assert "container-name: link-brain-note" in css
 
-    assert ".xhs-note .lb-cols" in css
-    assert "repeat(auto-fit" in css
-    assert "grid-template-columns: minmax(0, 1fr)" in css
+    # 正文是 Markdown（sizer 的直接子节点），所以两栏 grid 建在 sizer 上，
+    # 图片列 sticky 跟随滚动——和改造前视觉一致
+    assert ".markdown-preview-view.xhs-note .markdown-preview-sizer > .lb-note" in css
+    assert "grid-row: span 500" in css
+    assert "position: sticky" in css
+    assert "max-width: 795px" in css  # 窄 pane 收单栏
+    assert ".xhs-note mark" in css  # 划重点要有底色
 
     assert "scroll-snap-type: x mandatory" in css
     assert "flex: 0 0 100%" in css
@@ -214,7 +222,7 @@ def test_downloaded_attachment_points_at_local_file():
     assert link in text
     # 卡片是 callout，且整块在正文 HTML 容器**之前**（在里面就点不开了）
     assert "> [!link-brain-file]" in text
-    assert text.index(link) < text.index('<div class="lb-cols')
+    assert text.index(link) < text.index('<div class="lb-note')
     assert "<a href=" not in text
     assert "📎" not in text
 
@@ -232,7 +240,7 @@ def test_meta_line_has_source_url_and_agent_md():
     agent_link = "[[_archive/xiaohongshu/0000000000000000deadbeef/derived/agent.md|机读版]]"
     assert agent_link in text
     # 必须在 HTML 容器之前，不然 Obsidian 点不开
-    assert text.index(agent_link) < text.index('<div class="lb-cols')
+    assert text.index(agent_link) < text.index('<div class="lb-note')
 
 
 def test_no_attachments_renders_nothing():

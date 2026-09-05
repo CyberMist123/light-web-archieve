@@ -333,17 +333,90 @@ def _media_html(note: dict[str, Any], manifest: dict[str, Any], object_rel: str)
     return "".join(parts), True
 
 
-def _detail_html(note: dict[str, Any], comments: list[dict[str, Any]], manifest: dict[str, Any], object_rel: str) -> str:
+# Markdown 里这些字符出现在行首会变成标题/列表/引用，正文照抄会走样，转义掉。
+LEADING_MD_RE = re.compile(r"^(\s*)([#>\-+*=]|\d+[.)])")
+
+
+def _body_markdown(text: str) -> str:
+    """正文渲染成**纯 Markdown**（不再包在 <div> 里）。
+
+    Owner 2026-09-05：包在 HTML 块里的正文，Obsidian 既不给高亮（`==` 在 HTML 块内不解析）
+    又一点就掉进源码模式。搬出来之后正文是真 Markdown——能选、能划重点、能被搜索命中。
+    左图右文改由 CSS 让 `.lb-media` 浮到左边实现，视觉上和原来一样。
+    """
+    text = TOPIC_TOKEN_RE.sub("", text or "")
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    if not text:
+        return "（无正文）"
+    out = []
+    for para in re.split(r"\n\s*\n", text):
+        lines = [LEADING_MD_RE.sub(r"\1\\\2", ln) for ln in para.split("\n") if ln.strip()]
+        if lines:
+            out.append("\n".join(lines))  # 段内换行原样留着，Obsidian 会当软换行
+    return "\n\n".join(out)
+
+
+HIGHLIGHT_RE = re.compile(r"==([^=\n]{1,300})==")
+
+
+def existing_content_layer(text: str | None) -> str | None:
+    """旧可见 md 里 content 层那一段（重渲染时只有它会被重写）。"""
+    if not text:
+        return None
+    start = text.find(CONTENT_START)
+    end = text.find(CONTENT_END)
+    if start == -1 or end == -1 or end < start:
+        return None
+    return text[start:end + len(CONTENT_END)]
+
+
+def collect_highlights(text: str | None) -> list[str]:
+    """把 Owner 在正文里划的 `==重点==` 收集出来（长的排前面，避免短的先吃掉长的）。"""
+    if not text:
+        return []
+    seen: list[str] = []
+    for phrase in HIGHLIGHT_RE.findall(text):
+        cleaned = phrase.strip()
+        if cleaned and cleaned not in seen:
+            seen.append(cleaned)
+    return sorted(seen, key=len, reverse=True)
+
+
+def reapply_highlights(content: str, highlights: list[str]) -> str:
+    """重渲染之后把她划过的重点贴回去。
+
+    只做**原样匹配**：原文没变就贴得回去；原文变了（作者编辑过）就悄悄丢掉那一条，
+    不去猜。已经带 `==` 的不重复包。
+    """
+    for phrase in highlights:
+        if not phrase or f"=={phrase}==" in content:
+            continue
+        index = content.find(phrase)
+        if index == -1:
+            continue
+        content = content[:index] + f"=={phrase}==" + content[index + len(phrase):]
+    return content
+
+
+def _author_html(note: dict[str, Any]) -> str:
+    """作者那一行（圆点 + 昵称 + 日期/地点）。这块没人要编辑，留在 HTML 里。"""
     author = (note.get("author") or {}).get("nickname") or "匿名"
     meta = " · ".join(x for x in (_date(note.get("published_at")), note.get("ip_location")) if x)
-
-    parts = [
-        '<section class="lb-detail">',
+    return "".join([
         '<div class="lb-author-row"><div class="lb-author-dot" aria-hidden="true"></div><div class="lb-author-copy">',
         f'<div class="lb-author-name">{_safe(author)}</div>',
         f'<div class="lb-post-meta">{_safe(meta)}</div>' if meta else "",
         "</div></div>",
-        f'<div class="lb-post-body">{_body_html(note.get("body") or "")}</div>',
+    ])
+
+
+def _comments_html(
+    note: dict[str, Any], comments: list[dict[str, Any]], manifest: dict[str, Any], object_rel: str
+) -> str:
+    """标签 + 互动 + 原站评论树。结构复杂又不用编辑，继续走 HTML。"""
+    parts = [
+        '<section class="lb-detail">',
         _tag_html(note.get("hashtags") or []),
         _engagement_html(note),
         '<div class="lb-comments">',
@@ -411,14 +484,20 @@ def render_content_block(
     note = source["note"]
     comments = source.get("comments") or []
     media, has_media = _media_html(note, manifest, object_rel)
-    detail = _detail_html(note, comments, manifest, object_rel)
-    cls = "lb-cols" if has_media else "lb-cols lb-no-media"
-    # 这一条灰色小字必须落在 HTML 块**外面**，Obsidian 才认得那是本仓库里的文件/笔记
-    # （见 _attachments_md）；放在正文两栏之前——原文链接、机读版、附件都是她要点的东西。
+    cls = "lb-note" if has_media else "lb-note lb-no-media"
+
+    # 顺序：灰字（原文/机读版/附件）→ 图片（CSS 让它浮到左边）→ 作者行 → **正文纯 Markdown** → 评论。
+    # 正文不再包在 <div> 里：包着的话 Obsidian 不给划重点、一点还掉进源码模式（Owner 2026-09-05）。
     parts = [CONTENT_START]
     parts.extend(_meta_md(note, meta, object_rel))
     parts.append("")
-    parts += [f'<div class="{cls}">', media, detail, "</div>", CONTENT_END]
+    parts.append(f'<div class="{cls}">')
+    if media:
+        parts += [media, ""]
+    parts += [_author_html(note), ""]
+    parts += [_body_markdown(note.get("body") or ""), ""]
+    parts.append(_comments_html(note, comments, manifest, object_rel))
+    parts += ["</div>", CONTENT_END]
     return "\n".join(parts)
 
 
@@ -539,6 +618,8 @@ def render_visible_md(
         comments_block = _upgrade_comments_block(comments_block)
 
     content = render_content_block(source=source, manifest=manifest, meta=meta, object_rel=object_rel)
+    # Owner 在正文里划的 ==重点== 要跨重渲染活下来（2026-09-05 定的）
+    content = reapply_highlights(content, collect_highlights(existing_content_layer(existing_text)))
     return "\n".join(fm) + "\n\n" + comments_block + "\n\n" + content + "\n"
 
 
@@ -720,13 +801,17 @@ def render_object(
     old_visible = meta.get("visible_note")
     if old_visible:
         old_path = storage.vault_root() / old_visible
-        if old_path.exists():
+        if old_path.exists() and old_path != visible_path:
+            # 改名的情况：两份文件都在，手写内容取并集再删旧的
             old_text = old_path.read_text(encoding="utf-8")
             existing_text = (
                 merge_existing(target_text, old_text) if target_text is not None else old_text
             )
-            if old_path != visible_path:
-                old_path.unlink()
+            old_path.unlink()
+        elif old_path.exists():
+            # 同一个文件：**原文照用**。merge_existing 只留 frontmatter + 留言层，
+            # 拿它当 existing_text 会把 content 层（连带 Owner 划的 ==重点==）洗掉。
+            existing_text = old_path.read_text(encoding="utf-8")
 
     visible_path.write_text(
         render_visible_md(
