@@ -1,0 +1,83 @@
+/* Experimental native-media layer.
+   Applied after tools/try_native_media.py converts HTML <img> blocks to normal Obsidian ![[image]] embeds.
+   Keep this separate from link-brain.css until real Obsidian validation passes. */
+
+.xhs-note .callout[data-callout="link-brain-media"] {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.xhs-note .callout[data-callout="link-brain-media"] .callout-title {
+  display: none;
+}
+
+.xhs-note .callout[data-callout="link-brain-media"] .callout-content {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 28%, transparent) transparent;
+  border-radius: var(--lb-radius);
+  background: var(--background-secondary);
+}
+
+.xhs-note .callout[data-callout="link-brain-media"] .callout-content > p {
+  flex: 0 0 100%;
+  min-width: 100%;
+  display: grid;
+  place-items: center;
+  margin: 0 !important;
+  padding: 0 !important;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+
+.xhs-note .callout[data-callout="link-brain-media"] .internal-embed.image-embed,
+.xhs-note .callout[data-callout="link-brain-media"] .media-embed.image-embed {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+}
+
+.xhs-note .callout[data-callout="link-brain-media"] img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: min(78vh, 860px);
+  object-fit: contain;
+  object-position: center;
+  border-radius: var(--lb-radius);
+  margin: 0;
+}
+
+/* Reading View: native media replaces .lb-note as the left sticky grid item. */
+.markdown-preview-view.xhs-note .markdown-preview-sizer > .callout[data-callout="link-brain-media"] {
+  grid-column: 1;
+  grid-row: span 500;
+  align-self: start;
+  position: sticky;
+  top: 16px;
+}
+
+@container link-brain-note (max-width: 795px) {
+  .markdown-preview-view.xhs-note .markdown-preview-sizer > .callout[data-callout="link-brain-media"] {
+    position: static;
+    margin-bottom: 14px;
+  }
+
+  .xhs-note .callout[data-callout="link-brain-media"] img {
+    max-height: 70vh;
+  }
+}
