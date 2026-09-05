@@ -1,13 +1,11 @@
 """One-shot experiment: turn rendered XHS note images into native Obsidian embeds.
 
-Why this exists:
-- raw HTML <img> widgets fall back to source when clicked in Live Preview;
-- native ![[image]] embeds behave like ordinary Obsidian images and are visible to image plugins;
-- archived RAW must stay immutable, so editable copies live under Web/Xiaohongshu/_media/.
+Native embeds keep image clicks/plugin handling inside normal Obsidian behavior. Editable
+copies live under Web/Xiaohongshu/_media/ so RAW archive assets stay immutable.
 
-This is deliberately a post-render experiment, not a core renderer migration yet.
-Run `python -m link_brain render --all` to restore the current renderer output/style.
-Editable copies under `_media/` are intentionally kept because they may contain user/plugin edits.
+This experiment also adds Xiaohongshu-style per-slide counters and real previous/next
+fragment links. A normal `python -m link_brain render --all` restores the renderer output;
+user/plugin edits under `_media/` are intentionally never overwritten.
 """
 from __future__ import annotations
 
@@ -42,11 +40,7 @@ def _safe_dir_name(value: str) -> str:
 
 
 def _install_css(vault: Path) -> None:
-    """Append the experiment to the already-enabled managed link-brain snippet.
-
-    No second Obsidian toggle is needed. A normal `render --all` calls ensure_css_snippet()
-    again and restores the managed base CSS, so rollback stays one command.
-    """
+    """Append experiment CSS to the already-enabled managed link-brain snippet."""
     ensure_css_snippet()
     source = Path(__file__).resolve().parents[1] / 'link_brain' / 'assets' / 'link-brain-native-media.css'
     target = vault / '.obsidian' / 'snippets' / 'link-brain.css'
@@ -72,10 +66,47 @@ def _editable_copy(note_path: Path, src: str, item_id: str, index: int, vault: P
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f'{index:02d}-{source.name}'
 
-    # Critical: never overwrite this copy. Once a plugin/user draws on it, it is user-owned.
+    # Once a plugin/user edits the copy it becomes user-owned; never overwrite it.
     if not dest.exists():
         shutil.copy2(source, dest)
     return dest.relative_to(vault).as_posix()
+
+
+def _native_media_md(rels: list[str], item_id: str) -> str:
+    """Build one horizontal native-image carousel with per-slide nav and `n / total`."""
+    slug = _safe_dir_name(item_id)
+    total = len(rels)
+    rows = ['> [!link-brain-media]']
+
+    for index, rel in enumerate(rels, 1):
+        if index > 1:
+            rows.append('>')
+
+        anchor = f'lb-media-{slug}-{index}'
+        bits = [f'<span id="{anchor}" class="lb-native-anchor"></span>']
+
+        if index > 1:
+            prev_anchor = f'lb-media-{slug}-{index - 1}'
+            bits.append(
+                f'<a class="lb-native-arrow lb-native-arrow-left" href="#{prev_anchor}" '
+                f'aria-label="上一张" title="上一张">‹</a>'
+            )
+
+        bits.append(f'<span class="lb-native-counter">{index} / {total}</span>')
+        bits.append(f'![[{rel}]]')
+
+        if index < total:
+            next_anchor = f'lb-media-{slug}-{index + 1}'
+            bits.append(
+                f'<a class="lb-native-arrow lb-native-arrow-right" href="#{next_anchor}" '
+                f'aria-label="下一张" title="下一张">›</a>'
+            )
+
+        # Keep inline HTML and ![[embed]] in the same Markdown paragraph: the image remains
+        # a native Obsidian embed while arrows/counter are only lightweight overlays.
+        rows.append('> ' + ' '.join(bits))
+
+    return '\n'.join(rows)
 
 
 def convert_note(path: Path, vault: Path) -> bool:
@@ -95,25 +126,17 @@ def convert_note(path: Path, vault: Path) -> bool:
     item_id = str((link_brain or {}).get('item_id') or path.stem)
 
     rels: list[str] = []
-    for i, match in enumerate(IMG_RE.finditer(media.group('body')), 1):
-        rel = _editable_copy(path, match.group('src'), item_id, i, vault)
+    for index, match in enumerate(IMG_RE.finditer(media.group('body')), 1):
+        rel = _editable_copy(path, match.group('src'), item_id, index, vault)
         if rel:
             rels.append(rel)
     if not rels:
         return False
 
-    rows = ['> [!link-brain-media]']
-    for i, rel in enumerate(rels):
-        if i:
-            rows.append('>')
-        rows.append(f'> ![[{rel}]]')
-    native = '\n'.join(rows)
+    native = _native_media_md(rels, item_id)
 
-    # Replace media first while match offsets are still valid.
+    # Replace media while match offsets are valid, then remove the old outer HTML wrapper.
     layer = layer[:media.start()] + '\n\n' + native + '\n\n' + layer[media.end():]
-
-    # Then remove the renderer's outer lb-note wrapper. The native media callout,
-    # author row, Markdown body and comment section become normal sizer children.
     layer = NOTE_OPEN_RE.sub('', layer, count=1)
     layer = NOTE_CLOSE_RE.sub('\n', layer)
 
@@ -137,14 +160,15 @@ def main() -> int:
             candidate = visible / candidate
         paths = [candidate]
     else:
-        paths = sorted(p for p in visible.glob('*.md') if p.is_file())
+        paths = sorted(path for path in visible.glob('*.md') if path.is_file())
 
     changed = 0
     for path in paths:
         if path.is_file() and convert_note(path, vault):
             changed += 1
             print(f'[native-media] {path.name}')
-    print(f'[native-media] converted={changed}; uses existing link-brain CSS snippet')
+
+    print(f'[native-media] converted={changed}; native carousel has arrows + page counter')
     print('[native-media] rollback layout/source: python -m link_brain render --all')
     print('[native-media] _media copies are never overwritten; plugin drawings/edits stay there')
     return 0
