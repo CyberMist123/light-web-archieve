@@ -1,6 +1,6 @@
-"""附件 PDF → Markdown（`derived/attachments/<doc_id>.md`）。
+"""附件 PDF / .docx → Markdown（`derived/attachments/<doc_id>.md`）。
 
-两条路，先便宜后贵，全都在本机：
+PDF 两条路，先便宜后贵，全都在本机：
 
 1. **文字层直抽**：`media.py pdf <文件> --out`（本地 pymupdf，免费、秒级）。
 2. **渲成图再 OCR**：文字层是坏的就退回这条——pymupdf 把每页渲成 PNG，
@@ -176,6 +176,43 @@ def pdf_to_markdown(
     return {"status": "ok", "method": "ocr", "markdown": text, "note": f"{fallback_reason} → {note}"}
 
 
+def docx_to_markdown(docx_path: Path, *, verbose: bool = False) -> dict[str, Any]:
+    """.docx → Markdown，走 `media.py docx --out`（本地 python-docx 读文字层）。
+
+    docx 不像 PDF 那样有子集化字体坏文字层的问题——python-docx 读的是 `word/document.xml`
+    里的 Unicode 文本，不经排版引擎，所以没有 PDF 那条 OCR 退回路。返回和 `pdf_to_markdown`
+    同构的 `{status, method, markdown, note}`。
+    """
+    docx_path = Path(docx_path)
+    if not docx_path.exists():
+        return {"status": "failed", "method": "docx", "markdown": None, "note": f"文件不在: {docx_path}"}
+    ok, out = _run_media(["docx", str(docx_path), "--out"], timeout=180)
+    if not ok:
+        return {"status": "failed", "method": "docx", "markdown": None, "note": out}
+    match = re.search(r"\[已落文件\]\s*(.+?\.md)", out)
+    if not match:
+        return {"status": "failed", "method": "docx", "markdown": None,
+                "note": f"media.py docx 没给出落地文件：{out[:200]}"}
+    produced = Path(match.group(1).strip())
+    if not produced.exists():
+        return {"status": "failed", "method": "docx", "markdown": None,
+                "note": f"media.py docx 说落在 {produced}，但文件不在"}
+    return {"status": "ok", "method": "docx", "markdown": produced.read_text(encoding="utf-8"),
+            "note": f"docx 文字层来自 {produced.name}"}
+
+
+CONVERTIBLE_SUFFIXES = (".pdf", ".docx")
+
+
+def attachment_to_markdown(
+    path: Path, *, force_ocr: bool = False, verbose: bool = False
+) -> dict[str, Any]:
+    """按后缀分流：.pdf 走 pdf_to_markdown（坏文字层退回 OCR）、.docx 走 docx_to_markdown。"""
+    if Path(path).suffix.lower() == ".docx":
+        return docx_to_markdown(path, verbose=verbose)
+    return pdf_to_markdown(path, force_ocr=force_ocr, verbose=verbose)
+
+
 def attachment_md_path(source_key: str, source_id: str, doc_id: str) -> Path:
     return storage.derived_dir(source_key, source_id) / "attachments" / f"{doc_id}.md"
 
@@ -191,13 +228,13 @@ def convert_object_attachments(
     results = []
     for doc_id, record in attachments_mod.load_downloaded(source_key, source_id).items():
         path = object_dir / "attachments" / (record.get("file") or "")
-        if not path.exists() or path.suffix.lower() != ".pdf":
+        if not path.exists() or path.suffix.lower() not in CONVERTIBLE_SUFFIXES:
             continue
         out = attachment_md_path(source_key, source_id, doc_id)
         if out.exists() and not force:
             results.append({"doc_id": doc_id, "status": "already", "path": str(out)})
             continue
-        outcome = pdf_to_markdown(path, force_ocr=force_ocr, verbose=verbose)
+        outcome = attachment_to_markdown(path, force_ocr=force_ocr, verbose=verbose)
         if outcome["status"] != "ok":
             results.append({"doc_id": doc_id, "status": "failed", "note": outcome["note"]})
             continue
