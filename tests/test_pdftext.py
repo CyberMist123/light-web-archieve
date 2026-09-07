@@ -81,3 +81,53 @@ def test_convert_object_writes_derived_attachment_md(monkeypatch, tmp_path):
 
     # 再来一次是 already，不重复烧 OCR
     assert pdftext.convert_object_attachments(source, source_id)[0]["status"] == "already"
+
+
+def test_docx_to_markdown_reads_media_output(monkeypatch, tmp_path):
+    docx = tmp_path / "说明.docx"
+    docx.write_bytes(b"PK\x03\x04")  # 真解析在 media.py，这里只要文件存在
+    produced = tmp_path / "out.md"
+    produced.write_text("# 说明.docx\n\n正文", encoding="utf-8")
+    monkeypatch.setattr(
+        pdftext, "_run_media", lambda args, **kw: (True, f"[已落文件] {produced}  (5 字)")
+    )
+    out = pdftext.docx_to_markdown(docx)
+    assert out["status"] == "ok" and out["method"] == "docx"
+    assert out["markdown"].startswith("# 说明") and "docx" in out["note"]
+
+
+def test_docx_to_markdown_reports_media_failure(monkeypatch, tmp_path):
+    docx = tmp_path / "说明.docx"
+    docx.write_bytes(b"PK\x03\x04")
+    monkeypatch.setattr(pdftext, "_run_media", lambda args, **kw: (False, "没装 python-docx"))
+    out = pdftext.docx_to_markdown(docx)
+    assert out["status"] == "failed" and "python-docx" in out["note"]
+
+
+def test_attachment_to_markdown_routes_by_suffix(monkeypatch, tmp_path):
+    calls: list[str] = []
+    monkeypatch.setattr(pdftext, "docx_to_markdown", lambda p, **kw: calls.append("docx"))
+    monkeypatch.setattr(pdftext, "pdf_to_markdown", lambda p, **kw: calls.append("pdf"))
+    pdftext.attachment_to_markdown(tmp_path / "a.docx")
+    pdftext.attachment_to_markdown(tmp_path / "a.PDF")  # 大小写不敏感
+    assert calls == ["docx", "pdf"]
+
+
+def test_convert_object_handles_docx_attachment(monkeypatch, tmp_path):
+    monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
+    source, source_id, doc_id = "xiaohongshu", "0000000000000000cafef00d", "7674670185753611914"
+    object_dir = storage.object_dir(source, source_id)
+    (object_dir / "attachments").mkdir(parents=True)
+    (object_dir / "attachments" / "说明.docx").write_bytes(b"PK\x03\x04")
+    storage.write_json(
+        object_dir / "attachments.json",
+        {"schema_version": 1, "files": [{"doc_id": doc_id, "file": "说明.docx", "name": "说明.docx"}]},
+    )
+    monkeypatch.setattr(pdftext, "docx_to_markdown", lambda p, **kw: {
+        "status": "ok", "method": "docx", "markdown": "# 说明\n\n正文", "note": "docx 文字层来自 x.md",
+    })
+    results = pdftext.convert_object_attachments(source, source_id)
+    assert results and results[0]["status"] == "ok" and results[0]["method"] == "docx"
+    out = Path(results[0]["path"])
+    assert out == pdftext.attachment_md_path(source, source_id, doc_id)
+    assert out.read_text(encoding="utf-8").startswith("# 说明")
