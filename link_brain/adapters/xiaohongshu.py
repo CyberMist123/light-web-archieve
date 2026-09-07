@@ -190,7 +190,11 @@ async def _call_mcp(tool: str, arguments: dict[str, Any], *, endpoint: str, time
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
 
-    async with streamablehttp_client(endpoint, timeout=timeout) as (reader, writer, _):
+    # sse_read_timeout 才是绑响应读取的那个（默认 300s）：get_feed_detail 的结果走 SSE 流回来，
+    # 只设 timeout 不设它，热门笔记滚评论超 300s 仍会 httpx.ReadTimeout。两个都给到 timeout。
+    async with streamablehttp_client(
+        endpoint, timeout=timeout, sse_read_timeout=timeout
+    ) as (reader, writer, _):
         async with ClientSession(reader, writer) as session:
             await session.initialize()
             result = await session.call_tool(tool, arguments)
@@ -260,9 +264,13 @@ def fetch_detail(
     endpoint: str = MCP_ENDPOINT,
     comment_limit: int = 200,
     reply_limit: int = 100,
-    timeout: float = 300,
+    timeout: float = 600,
 ) -> dict[str, Any]:
-    """调 `get_feed_detail`，返回**原始**响应（原样落 `mcp_raw.json`）。"""
+    """调 `get_feed_detail`，返回**原始**响应（原样落 `mcp_raw.json`）。
+
+    timeout=600：热门笔记评论多，`load_all_comments` 要滚完整评论区 + 展开楼中楼，
+    机器负载重时 300s 会 httpx.ReadTimeout（是慢不是死，评论仍在滚）。给到 10 分钟兜住。
+    """
     if not xsec_token:
         raise AdapterError("缺 xsec_token，MCP 无法抓取（短链没带 token？）")
     arguments = {
