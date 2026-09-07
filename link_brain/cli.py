@@ -93,8 +93,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force-ocr", dest="force_ocr", action="store_true",
                    help="跳过文字层，直接逐页 OCR")
 
-    p = sub.add_parser("sync-favorites", help="同步小红书收藏（Lot 6，可选）")
-    p.add_argument("--limit", type=int, default=50)
+    p = sub.add_parser("sync-favorites", help="同步小红书收藏（Lot 6）")
+    p.add_argument("--limit", type=int, default=50, help="最多同步多少条收藏（favdump 顺序，通常第一页够增量）")
+    p.add_argument("--origin", choices=ORIGINS, default="cli", help="从哪个端触发的")
+    p.add_argument("--actor", default="human", help="human 或 ai:<name>")
+    p.add_argument("--extract", action="store_true", help="顺带跑小模型派生（花钱，默认不跑）")
 
     p = sub.add_parser("inbox", help="列出被戳到某角色且未处理的对象")
     p.add_argument("--for", dest="for_actor", required=True, help="角色名，如 fable")
@@ -175,6 +178,11 @@ def main(argv: list[str] | None = None) -> int:
         from . import render as render_mod
 
         return render_mod.run(args)
+
+    if args.command == "sync-favorites":
+        from . import favorites as favorites_mod
+
+        return favorites_mod.run(args)
 
     print(
         f"`{args.command}` 尚未实现（Lot 0 占位）。当前进度见 docs/STATE.md。",
