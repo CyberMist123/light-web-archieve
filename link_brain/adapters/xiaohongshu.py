@@ -264,24 +264,35 @@ def fetch_detail(
     endpoint: str = MCP_ENDPOINT,
     comment_limit: int = 200,
     reply_limit: int = 100,
+    full_comments: bool = False,
     timeout: float = 600,
 ) -> dict[str, Any]:
     """调 `get_feed_detail`，返回**原始**响应（原样落 `mcp_raw.json`）。
 
-    timeout=600：热门笔记评论多，`load_all_comments` 要滚完整评论区 + 展开楼中楼，
-    机器负载重时 300s 会 httpx.ReadTimeout（是慢不是死，评论仍在滚）。给到 10 分钟兜住。
+    默认 `full_comments=False`（Owner 2026-09-07 拍板）：只取**前 10 楼一级评论 + 它们的楼中楼**
+    （`load_all_comments=false` 的默认返回，秒回）。热门笔记（评论几十上百、要滚完整评论区 +
+    逐条展开楼中楼）在本机高负载下滚不完、常 httpx.ReadTimeout——评论主体够了就不为深层回复卡死。
+    需要全量评论时显式 `full_comments=True`（会滚完整评论区，慢，只适合机器空闲时）。
     """
     if not xsec_token:
         raise AdapterError("缺 xsec_token，MCP 无法抓取（短链没带 token？）")
-    arguments = {
-        "feed_id": note_id,
-        "xsec_token": xsec_token,
-        "load_all_comments": True,
-        "limit": comment_limit,
-        "click_more_replies": True,
-        "reply_limit": reply_limit,
-        "scroll_speed": "normal",
-    }
+    if full_comments:
+        arguments = {
+            "feed_id": note_id,
+            "xsec_token": xsec_token,
+            "load_all_comments": True,
+            "limit": comment_limit,
+            "click_more_replies": True,
+            "reply_limit": reply_limit,
+            "scroll_speed": "normal",
+        }
+    else:
+        # 默认：前 10 楼 + 楼中楼，不滚全评论区。
+        arguments = {
+            "feed_id": note_id,
+            "xsec_token": xsec_token,
+            "load_all_comments": False,
+        }
     return call_tool(MCP_TOOL, arguments, endpoint=endpoint, timeout=timeout)
 
 
