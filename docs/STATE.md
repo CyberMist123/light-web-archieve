@@ -161,6 +161,29 @@ repo_path: D:\LIGHT WEB ARCHIEVE
   过程中量到两条硬知识：**元素响应不了自己的容器查询**（sizer 自己当容器时 display 改不动、
   子节点规则却生效）；老 `auto-fit(minmax(390px,1fr))` 在 795px 仍是两栏，断点别定在 700/800。
 
+### Lot 6：收藏同步（2026-09-07，代码+读取已通，整批实机待 RAM 空间）
+- **卡了很久的真卡点已解**：`user_profile(tab="fav")` 对私密收藏只回游客视图（`feeds:null`），
+  MCP 无法读私密收藏。解法不是 MCP：外部读取器 `favdump.exe`（在 `C:\Users\18717\.xiaohongshu-mcp`，
+  Codex 的 persistent-profile 方案 + 客户端路由点侧边栏「我」→ 收藏 tab）**已实测读到 momo 10 条
+  私密收藏**（`guest:false / privacyWall:false`），并且**扫一次后跨无扫码重启持久**
+  （headless 连开两次都读到，exit 0）。**关键：读收藏必须 `XHS_HOST=https://www.xiaohongshu.com`**——
+  rednote.com 的 web_session 在登录浏览器关掉后被服务端作废，只有 xiaohongshu.com 的会话持久。
+- `link_brain/favorites.py`：`fetch_favorites()` subprocess 调 favdump（可用 `LINK_BRAIN_FAVDUMP` /
+  `XHS_FAV_HOST` / `XHS_FAV_PROFILE` 覆盖）→ 逐条走**和 `catch` 一样的** `ingest_url(ingest_kind="favorite")`：
+  命中索引就是 HIT（不联网、不下载，硬约束 7 去重只认 `xiaohongshu:<note_id>`），未命中才连 18060。
+  ServiceDown / 未登录（favdump 退出码 3）→ 停车 + 报警（复用 `alert.py`，公开仓不含推送地址）。
+  stdout 只一个 JSON `{"favorites":N,"synced":M,"items":[...]}`，退出码 0/1/5 同 `catch`。
+- `sync-favorites --limit N [--extract] [--actor]` 已接进 CLI；`tests/test_favorites.py` 5 个网络无关
+  用例（全量遍历、note_id 去重、ServiceDown 停车+报警、未登录整批 blocked、CLI 派发）全绿；
+  `python -m pytest -q` 全套 83 个绿。
+- **已实测**：favdump 读到 10 条收藏 JSON；直连 `get_feed_detail` 能回完整笔记；`sync-favorites --limit 1`
+  跑到 favdump→note_id→调 18060 这一步都对。
+- **尚未真实通过（所以不写「已通过」）**：**整批 `sync-favorites` 端到端还没落一篇 md**。卡点是**本机内存**——
+  favdump（momo-profile 浏览器）+ 18060 每请求另开浏览器，可用内存紧张时 `get_feed_detail` 反复
+  `[launcher] Failed to get the debug url` 并堆僵尸 chrome（STATE 早就记过这个真因）。要在机器有 RAM
+  余量时（少开点 Chrome 标签页 / 让 MemoryTidy 清一轮）跑一次 `python -m link_brain sync-favorites`
+  验收：至少 1 篇新收藏落 `vault/Web/Xiaohongshu/` + 已归档的报 HIT 不重抓。调度（每晚一次）在仓库外，没做。
+
 ## 已知缺口
 
 - 图片左右箭头暂不作为稳定功能；当前主要用横向滚动 / 触控滑动切图。
@@ -169,7 +192,7 @@ repo_path: D:\LIGHT WEB ARCHIEVE
 - 附件下载依赖 agent-browser profile 里的**小号登录态**；那个登录掉了就要重扫
   （主号绝不能扫这个 profile——会顶掉 18060 MCP / TG 端，2026-09-04 实际发生过一次）。
 - 附件下载要开 headed 浏览器，会在屏幕上弹窗口，跑批量时会打扰 Owner。
-- `inbox / resolve / comment / sync-favorites` 尚未完成。
+- `inbox / resolve / comment` 尚未完成。
 - `catch` 只在**第一次**归档时把消息写成留言 cmt1；已经归档过的（HIT）那条消息只进 relations 表，
   不会追加到可见 md 的留言层——那是 Lot 5 `comment` 的活，等 Lot 5 一起接。
 - 评论区图片全库为 0，MCP 不返回该字段（见上）。
@@ -200,8 +223,10 @@ repo_path: D:\LIGHT WEB ARCHIEVE
    （标题链接 + 一行概要 + tags + 日期），`render --all` 时顺手重写，纯程序拼、不过模型。
 4. **docx → 文本**：4 个附件是 .docx，`pdf2md` 只吃 PDF。通路加进
    `Fluffy-SelfHood/tools/scripts/media.py`（硬约束 3：不自研，和 pdf 一条路），再让 `pdf2md` 认 .docx。
-5. **Lot 6 收藏同步**（Owner 已批：两个号都能给 AI 用）：先花十分钟试
-   `get_my_profile(tab="fav")`，能走通就不用她扫码；走不通再谈第二个 MCP 实例。
+5. ~~**Lot 6 收藏同步**~~ **代码+读取已通，只差整批实机验收**（见上「Lot 6」节）：
+   `get_my_profile(tab="fav")` 走不通（私密收藏回游客视图），已改用外部 `favdump.exe`
+   （persistent profile + 客户端路由）。差的一步：机器有 RAM 余量时跑一次
+   `python -m link_brain sync-favorites` 落至少 1 篇 md，然后把它挂进每晚调度（仓库外）。
 6. **附件自动接线**：ingest 发现 `metadata_only` 就自动下一次字节；批量用 `--no-browser` 跳过 +
    结尾汇总缺哪几篇。
 7. **高亮**（等 Owner 说做才做）：唯一可行的是 `<mark>` 这条**不碰布局**的路——给一条命令把她选中的
