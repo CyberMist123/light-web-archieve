@@ -161,7 +161,10 @@ repo_path: D:\LIGHT WEB ARCHIEVE
   过程中量到两条硬知识：**元素响应不了自己的容器查询**（sizer 自己当容器时 display 改不动、
   子节点规则却生效）；老 `auto-fit(minmax(390px,1fr))` 在 795px 仍是两栏，断点别定在 700/800。
 
-### Lot 6：收藏同步（2026-09-07，代码+读取已通，整批实机待 RAM 空间）
+### Lot 6：收藏同步（2026-09-07，✅ 实机验收通过 —— momo 10 条私密收藏全部归档）
+- **实机结果**：`python -m link_brain sync-favorites` → `synced=10`（new 9 + hit 1），`vault/Web/Xiaohongshu/` 落 9 篇新收藏 md（各带图片 + 前10楼评论 + 楼中楼 + OCR）。
+- **两个关键修**才跑通：① `fetch_detail` 默认改 `full_comments=False`（只前 10 楼+楼中楼；热门笔记滚全评论区在本机负载下超时，Owner 拍板评论主体够）；② streamablehttp 要同时设 `sse_read_timeout`（原来只设 timeout，SSE 响应仍卡 300s）。
+- **僵尸浏览器**：18060 每请求开浏览器，残留 chrome 堆积会 `Failed to get the debug url`——干净 slate 就好；nightly 任务开头结尾各清一次。
 - **卡了很久的真卡点已解**：`user_profile(tab="fav")` 对私密收藏只回游客视图（`feeds:null`），
   MCP 无法读私密收藏。解法不是 MCP：外部读取器 `favdump.exe`（在 `C:\Users\18717\.xiaohongshu-mcp`，
   Codex 的 persistent-profile 方案 + 客户端路由点侧边栏「我」→ 收藏 tab）**已实测读到 momo 10 条
@@ -176,13 +179,8 @@ repo_path: D:\LIGHT WEB ARCHIEVE
 - `sync-favorites --limit N [--extract] [--actor]` 已接进 CLI；`tests/test_favorites.py` 5 个网络无关
   用例（全量遍历、note_id 去重、ServiceDown 停车+报警、未登录整批 blocked、CLI 派发）全绿；
   `python -m pytest -q` 全套 83 个绿。
-- **已实测**：favdump 读到 10 条收藏 JSON；直连 `get_feed_detail` 能回完整笔记；`sync-favorites --limit 1`
-  跑到 favdump→note_id→调 18060 这一步都对。
-- **尚未真实通过（所以不写「已通过」）**：**整批 `sync-favorites` 端到端还没落一篇 md**。卡点是**本机内存**——
-  favdump（momo-profile 浏览器）+ 18060 每请求另开浏览器，可用内存紧张时 `get_feed_detail` 反复
-  `[launcher] Failed to get the debug url` 并堆僵尸 chrome（STATE 早就记过这个真因）。要在机器有 RAM
-  余量时（少开点 Chrome 标签页 / 让 MemoryTidy 清一轮）跑一次 `python -m link_brain sync-favorites`
-  验收：至少 1 篇新收藏落 `vault/Web/Xiaohongshu/` + 已归档的报 HIT 不重抓。调度（每晚一次）在仓库外，没做。
+- **✅ 整批实机通过（2026-09-07 17:xx）**：`sync-favorites` `synced=10`（new 9 + hit 1），9 篇新收藏 md 落 `vault/Web/Xiaohongshu/`，已归档的报 HIT 不重抓。见上「Lot 6」节的两个关键修。
+- **每晚调度已挂**（仓库外）：Windows 计划任务 `XhsFavSync` 每天 04:00 跑 `xhs-fav-sync.ps1`（清 slate → sync-favorites → 掉登录才 Bark/TG 报警），脚本在 `C:\Users\18717\.xiaohongshu-mcp\xhs-fav-sync.ps1`，日志 `~\.xiaohongshu-mcp\fav-sync.log`。
 
 ## 已知缺口
 
