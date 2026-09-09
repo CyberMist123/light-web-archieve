@@ -6,7 +6,7 @@ import pytest
 
 from link_brain.cli import build_parser, main
 
-EXPECTED = {"ingest", "read", "search", "sync-favorites", "inbox", "resolve", "comment"}
+EXPECTED = {"ingest", "read", "search", "sync-favorites", "inbox", "resolve", "comment", "catalog"}
 
 
 def _subcommands():
@@ -27,5 +27,6 @@ def test_help_exits_zero():
     assert exc.value.code == 0
 
 
-def test_unimplemented_subcommand_returns_3():
-    assert main(["inbox", "--for", "fable"]) == 3
+def test_inbox_runs():
+    # 2026-09-09 Lot 5 落地后，inbox 不再是「未实现返回 3」的占位；空收件箱正常返回 0。
+    assert main(["inbox", "--for", "nobody-such-actor"]) == 0
