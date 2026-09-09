@@ -49,12 +49,7 @@ CATEGORY_ICON = {name: icon for name, icon, _ in CATEGORIES} | {FALLBACK[0]: FAL
 
 SUMMARY_CHARS = 62
 
-# 可见笔记里的留言层（Lot 5 做完就会有内容；现在多半是空占位，此处先把读法接好）。
-COMMENT_BLOCK = re.compile(
-    r"<!-- link-brain:comments:start -->(.*?)<!-- link-brain:comments:end -->",
-    re.S,
-)
-COMMENT_LINE = re.compile(r"^>\s*\*\*(?P<who>[^*]+)\*\*[：:]\s*(?P<text>.+)$", re.M)
+# 留言层的解析统一走 comments.py（Lot 5），这里只管展示。
 
 
 def _load_json(path: Path) -> Any:
@@ -131,20 +126,22 @@ def save_overrides(vault: Path, overrides: dict[str, str]) -> None:
 
 
 def read_comments(vault: Path, visible_note: str | None) -> list[tuple[str, str]]:
-    """读可见笔记的留言层。Lot 5 未落地前基本返回空，接好省得将来再改一遍目录。"""
+    """读可见笔记的留言层（含 Owner 在 ob 里手写的行），解析走 comments.py。"""
     if not visible_note:
         return []
     path = vault / visible_note
     if not path.is_file():
         return []
+    from . import comments as comments_mod
+
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
+        return [
+            (comments_mod.display_name(c.actor), c.text)
+            for c in comments_mod.read_comments(path)
+            if c.text
+        ]
+    except (OSError, ValueError):
         return []
-    block = COMMENT_BLOCK.search(text)
-    if not block:
-        return []
-    return [(m.group("who").strip(), m.group("text").strip()) for m in COMMENT_LINE.finditer(block.group(1))]
 
 
 def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:

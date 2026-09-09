@@ -191,6 +191,15 @@ def main(argv: list[str] | None = None) -> int:
 
         return catalog_mod.run(args)
 
+    if args.command in ("comment", "inbox", "resolve"):
+        from . import comments as comments_mod
+
+        return {
+            "comment": comments_mod.run_comment,
+            "inbox": comments_mod.run_inbox,
+            "resolve": comments_mod.run_resolve,
+        }[args.command](args)
+
     print(
         f"`{args.command}` 尚未实现（Lot 0 占位）。当前进度见 docs/STATE.md。",
         file=sys.stderr,
