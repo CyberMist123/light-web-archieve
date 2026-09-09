@@ -99,6 +99,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--actor", default="human", help="human 或 ai:<name>")
     p.add_argument("--extract", action="store_true", help="顺带跑小模型派生（花钱，默认不跑）")
 
+    p = sub.add_parser("catalog", help="重写 vault 里的收藏目录页（纯程序拼，不联网）")
+
     p = sub.add_parser("inbox", help="列出被戳到某角色且未处理的对象")
     p.add_argument("--for", dest="for_actor", required=True, help="角色名，如 fable")
 
@@ -183,6 +185,11 @@ def main(argv: list[str] | None = None) -> int:
         from . import favorites as favorites_mod
 
         return favorites_mod.run(args)
+
+    if args.command == "catalog":
+        from . import catalog as catalog_mod
+
+        return catalog_mod.run(args)
 
     print(
         f"`{args.command}` 尚未实现（Lot 0 占位）。当前进度见 docs/STATE.md。",
