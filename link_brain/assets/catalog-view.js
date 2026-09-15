@@ -25,7 +25,12 @@ style.textContent = `
 .lbc-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 30px;}
 .lbc-toolbar button{border:0;box-shadow:none;border-radius:20px;padding:8px 16px;background:var(--background-secondary);}
 .lbc-toolbar button.is-active{color:var(--interactive-accent);background:var(--background-modifier-hover);}
-.lbc-ai{padding:22px;border:1px solid var(--background-modifier-border);border-radius:16px;margin-bottom:24px;white-space:pre-wrap;}
+.lbc-ai{padding:22px;border:1px solid var(--background-modifier-border);border-radius:16px;margin-bottom:24px;}
+.lbc-ai-q{color:var(--text-muted);font-size:13px;margin:6px 0 12px;}
+.lbc-ai-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px;}
+.lbc-ai-answer{line-height:1.7;}
+.lbc-ai-answer p:first-child{margin-top:0;}
+.lbc-ai-meta{color:var(--text-faint);font-size:11px;margin-top:14px;}
 .lbc-import{margin-left:auto;}
 .lbc-status{font-size:12px;color:var(--text-muted);}
 @media(max-width:650px){.lbc-grid{columns:180px;column-gap:18px;}.lbc-sub{width:100%;margin:0;}.lbc-wrap{padding:12px 4px;}}
@@ -80,12 +85,38 @@ function render(){
   sub.setText((q||todayOnly?`${shown.length} / ${items.length} 篇`:`${items.length} 篇`)+` · 更新 ${new Date(data.built_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}`);
   ai.hidden=!asking;ai.empty();
   if(asking){
-    ai.createEl('strong',{text:'问 AI'});ai.createEl('p',{text:q||'在 / 后输入你的问题'});
-    const answer=ai.createEl('div',{text:'AI 回答尚未接入。下方显示本地检索结果；接入后回答会显示在这里。'});
+    ai.createEl('strong',{text:'问知识库'});
+    ai.createEl('p',{cls:'lbc-ai-q',text:q||'在 / 后输入你的问题（例：所有 AI 做梦相关，链接给我 / 提取 github 地址）'});
     const provider=app.plugins.plugins['link-brain-actions'];
-    if(typeof provider?.answerArchive==='function'){
-      answer.setText('点击提问，结合当前检索到的收藏回答。');const ask=ai.createEl('button',{text:'提问'});
-      ask.onclick=async()=>{ask.disabled=true;answer.setText('正在回答…');try{answer.setText(await provider.answerArchive({question:q,items:shown.slice(0,12).map(x=>x.it)}));}catch(e){answer.setText('回答失败：'+e.message);}finally{ask.disabled=false;}};
+    const answer=ai.createEl('div',{cls:'lbc-ai-answer'});
+    if(typeof provider?.answerArchive!=='function'){
+      answer.setText('AI 未接入：请在「第三方插件」里启用 Link Brain Actions，并在其设置里配置「文本 AI」。下方仍显示本地检索结果。');
+    } else if(!q){
+      answer.setText('在 / 后面输入问题，然后点「提问」。打字不发请求、不花 token。');
+    } else {
+      const bar=ai.createEl('div',{cls:'lbc-ai-bar'});
+      const ask=bar.createEl('button',{text:'提问',cls:'mod-cta'});
+      const copyBtn=bar.createEl('button',{text:'复制回答'});copyBtn.disabled=true;
+      const meta=ai.createEl('div',{cls:'lbc-ai-meta'});
+      answer.setText('点「提问」，AI 会自己重新检索整库、只把少量片段送模型来回答。');
+      let lastMd='';
+      copyBtn.onclick=async()=>{if(!lastMd)return;try{await navigator.clipboard.writeText(lastMd);copyBtn.setText('已复制');setTimeout(()=>copyBtn.setText('复制回答'),1500);}catch{copyBtn.setText('复制失败');setTimeout(()=>copyBtn.setText('复制回答'),1500);}};
+      ask.onclick=async()=>{
+        ask.disabled=true;copyBtn.disabled=true;answer.empty();answer.setText('正在检索并回答…');meta.setText('');
+        try{
+          const r=await provider.answerArchive({question:q});
+          answer.empty();lastMd=r.markdown||'';
+          await provider.renderMarkdownInto(lastMd||'（无内容）',answer,'小红书收藏目录.md');
+          copyBtn.disabled=!lastMd;
+          const u=r.usage?` · tokens ${r.usage.total_tokens||((r.usage.prompt_tokens||0)+(r.usage.completion_tokens||0))||'?'}`:'';
+          meta.setText(`意图 ${r.intent} · 全库命中 ${r.matches} 篇 · 送模型 ${r.materials} 篇${u}`);
+          if((provider.settings?.tts?.endpoint||'').trim() && r.model_called && !bar.querySelector('.lbc-ai-speak')){
+            const speak=bar.createEl('button',{text:'🔊 朗读',cls:'lbc-ai-speak'});
+            speak.onclick=async()=>{speak.disabled=true;const old=speak.textContent;speak.setText('合成中…');try{await provider.speak(lastMd);}catch(e){meta.setText('朗读失败：'+e.message);}finally{speak.setText(old);speak.disabled=false;}};
+          }
+        }catch(e){answer.empty();answer.setText('回答失败：'+e.message);}
+        finally{ask.disabled=false;}
+      };
     }
   }
   if(!shown.length){grid.createEl('div',{cls:'lbc-empty',text:'没找到，试试更短的关键词。'});return;}

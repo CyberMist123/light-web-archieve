@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -16,7 +17,11 @@ from typing import Any
 
 from . import storage
 
-MEDIA_PY = r"C:\Users\18717\Documents\cyberlink\Fluffy-SelfHood\tools\scripts\media.py"
+# 作者本机的便宜识图脚本；开源后可用环境变量 LINK_BRAIN_MEDIA_PY 覆盖（与 llm.py 同）。
+MEDIA_PY = os.environ.get(
+    "LINK_BRAIN_MEDIA_PY",
+    r"C:\Users\18717\Documents\cyberlink\Fluffy-SelfHood\tools\scripts\media.py",
+)
 
 IMAGE_SUFFIXES = {".webp", ".jpg", ".jpeg", ".png", ".gif", ".avif", ".heic", ".bmp"}
 
@@ -27,11 +32,26 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _ocr_via() -> str | None:
+    """Owner 在插件设置里选的识图通路：cmx（默认，本地+她的 key）或 qwen（云端长描述）。"""
+    try:
+        from . import ai_config
+
+        via = ((ai_config.load().get("ocr") or {}).get("via") or "").strip().lower()
+        return via if via in {"cmx", "qwen"} else None
+    except Exception:  # noqa: BLE001 - 配置读不动就用 media.py 默认通路
+        return None
+
+
 def run_ocr(image_path: Path, *, timeout: int = 120) -> dict[str, Any]:
     """subprocess 调 media.py image <path> --ocr，返回 {status, ocr|error}。"""
+    cmd = ["python", MEDIA_PY, "image", str(image_path), "--ocr"]
+    via = _ocr_via()
+    if via == "qwen":  # cmx 是 media.py 默认，不必显式传
+        cmd += ["--via", "qwen"]
     try:
         proc = subprocess.run(
-            ["python", MEDIA_PY, "image", str(image_path), "--ocr"],
+            cmd,
             capture_output=True,
             text=True,
             encoding="utf-8",

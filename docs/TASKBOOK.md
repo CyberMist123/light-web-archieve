@@ -12,7 +12,13 @@ Owner 因当前模型五小时额度约剩 30%，明确让未完成工作交给�
 - catalog-data.json 新增 url、github_urls（实际 source.json 中出现的 GitHub 地址）、suggested_links（模型线索，不能当作已观察到的 URL）。保留全文 search_text、本地 pinyin、后台 tags。
 - 已通过 tests/test_catalog.py 4 项，以及 node tests/test_catalog_interactions.cjs（含旧插件恢复并打开弹窗 mock）。真实弹窗打开、真实网络批量导入、布局仍待实机验证。之前 computer-use 截图两次失败：SetIsBorderRequired 不支持此接口；不得说已实机验收。
 
-### 还没做：知识库 AI 回答和插件设置
+### ✅ 已做完（2026-09-16）：知识库 AI 回答和插件设置 —— 详见 docs/STATE.md 顶部
+
+后端 `link_brain/ask.py`（CLI `ask`）+ 插件 `answerArchive` 薄壳 + `LinkBrainSettingTab` 设置页
++ 摘要提示词接 `llm.py` + 识图通路接 `vision.py` + 一键复制 + 可选 TTS 朗读。全套 121 passed + node PASS，
+真数据 156 篇实跑通（github 意图零 token、qa 命中 20 送 8）。**开源移植**：本机路径全 env 可覆盖、git 无密钥，
+README 补「本机依赖与环境变量」。**待 Owner 实机**：设置里配好接口（或用默认 media），开目录页搜 `/问题` 验证。
+下面是原始需求，留作背景与验收对照——
 
 用户要的 /问AI 是基于库总结/列举/给链接/简单分析。例如“所有 AI 做梦相关，链接给我”“提取 GitHub 地址并简单分析”。不是通用聊天，不把整库送模型，必须控制 token。
 

@@ -5,7 +5,8 @@ const score = new Function(fs.readFileSync('link_brain/assets/catalog-search.js'
 const item = {title:'记忆管理框架',tags:['AI'],pinyin:'jiyiguanlikuangjia',summary:''};
 for(const q of ['jiyi','jiy','jiyu','记忆框架','#ai','jiyi guanli']) assert.ok(score(item,q)>0,q);
 for(const q of ['香蕉','#食谱','不存在的关键词']) assert.equal(score(item,q),0,q);
-const context={module:{exports:{}},URL,require:name=>name==='obsidian'?{Plugin:class{},Modal:class{},Notice:class{},TFile:class{}}:require(name)};
+const obsidianMock={Plugin:class{},Modal:class{},Notice:class{},TFile:class{},PluginSettingTab:class{constructor(app,plugin){this.app=app;this.plugin=plugin;}},Setting:class{},requestUrl:async()=>({}),MarkdownRenderer:{render:async()=>{}}};
+const context={module:{exports:{}},URL,require:name=>name==='obsidian'?obsidianMock:require(name)};
 vm.createContext(context);
 vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js','utf8')+';module.exports.cleanLinks=cleanLinks;',context);
 const Plugin=context.module.exports;
@@ -26,5 +27,20 @@ assert.equal(links[1],'https://xhslink.com/a/test');
   const click=new Function('app','importButton','importStatus','return '+handler)(app,button,{setText:s=>status=s});
   await click({preventDefault(){},stopPropagation(){}});
   assert.equal(reloaded,1);assert.equal(opened,1);assert.equal(status,'');assert.equal(button.disabled,false);
-  console.log('PASS: fuzzy/pinyin/tag search, URL cleaning, deduplication, import results and rebuild');
+  // answerArchive 薄壳：解析后端 `ask` 的 JSON、非 ok 抛错
+  const p2=new Plugin();
+  p2.spawnCapture=async args=>{assert.equal(args[2],'ask');assert.equal(args[3],'AI 做梦');
+    return {code:0,out:'log line\n'+JSON.stringify({status:'ok',markdown:'答案',matches:3,materials:2,intent:'qa',model_called:true})+'\n',err:''};};
+  const ans=await p2.answerArchive({question:'  AI 做梦  '});
+  assert.equal(ans.markdown,'答案');assert.equal(ans.matches,3);assert.equal(ans.intent,'qa');
+  p2.spawnCapture=async()=>({code:1,out:JSON.stringify({status:'error',markdown:'没内容'}),err:''});
+  await assert.rejects(p2.answerArchive({question:'x'}),/没内容/);
+  await assert.rejects(p2.answerArchive({question:'  '}),/问题是空的/);
+  // 设置默认值合到位（未存过 data 时用内置默认）
+  const p3=new Plugin();p3.app={vault:{adapter:{getBasePath:()=>'/repo/vault'}}};p3.loadData=async()=>null;
+  p3.addSettingTab=()=>{};p3.addCommand=()=>{};p3.addRibbonIcon=()=>{};
+  await p3.onload();
+  assert.equal(p3.settings.textAI.mode,'media');assert.equal(p3.settings.retrieval.topK,8);
+  assert.ok(p3.settings.prompts.answer.length>10);
+  console.log('PASS: fuzzy/pinyin/tag search, URL cleaning, deduplication, import results and rebuild, answerArchive, settings defaults');
 })().catch(e=>{console.error(e);process.exitCode=1;});

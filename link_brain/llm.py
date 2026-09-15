@@ -27,7 +27,13 @@ import yaml
 
 from . import storage
 
-MEDIA_PY = r"C:\Users\18717\Documents\cyberlink\Fluffy-SelfHood\tools\scripts\media.py"
+# 作者本机的便宜通路脚本。开源后别人 clone 下来没有这条路径 —— 可用环境变量
+# LINK_BRAIN_MEDIA_PY 指到自己的 media.py；不设就是作者本机路径（她这台照旧）。
+# 完全不接本机 media.py 的用户走插件设置里的「自定义 HTTP」模式（不碰这里）。
+MEDIA_PY = os.environ.get(
+    "LINK_BRAIN_MEDIA_PY",
+    r"C:\Users\18717\Documents\cyberlink\Fluffy-SelfHood\tools\scripts\media.py",
+)
 
 CONFIG_PATH = Path(__file__).resolve().parent / "assets" / "llm-config.yaml"
 TAG_VOCAB_PATH = Path(__file__).resolve().parents[1] / "docs" / "tag-vocab.yaml"
@@ -346,8 +352,17 @@ def extract(source_key: str, source_id: str, *, force: bool = False, verbose: bo
     vocab = load_tag_vocab()
     known_labels = {label for label, _ in comment_labels(source_doc.get("comments") or [])}
 
+    # 摘要提示词：Owner 在插件设置里填了就用她的，留空用内置 INSTRUCTION（fail-open）。
+    # 自定义提示词必须仍要求返回本文件顶部那套 JSON schema，否则 validate 会失败重试后落 failed。
+    try:
+        from . import ai_config
+
+        instruction = (ai_config.load().get("prompts") or {}).get("summary", "").strip() or INSTRUCTION
+    except Exception:  # noqa: BLE001 - 配置读不动绝不挡住抽取
+        instruction = INSTRUCTION
+
     input_text = build_input_text(source_doc, vision_doc, limits)
-    input_tokens = estimate_tokens(INSTRUCTION + input_text)
+    input_tokens = estimate_tokens(instruction + input_text)
 
     attempts = 0
     output_tokens = 0
@@ -358,7 +373,7 @@ def extract(source_key: str, source_id: str, *, force: bool = False, verbose: bo
         if verbose:
             print(f"[llm] {meta['item_id']} 第 {attempts} 次调用", file=sys.stderr)
         result = call_media_text(
-            INSTRUCTION, input_text, model=cfg.get("model"), timeout=int(cfg["timeout_sec"])
+            instruction, input_text, model=cfg.get("model"), timeout=int(cfg["timeout_sec"])
         )
         if result["status"] != "ok":
             error = result["error"]
