@@ -9,8 +9,10 @@ style.textContent = `
 .lbc-wrap{width:100%;padding:24px clamp(8px,2vw,36px) 40px;box-sizing:border-box;}
 .lbc-head{display:flex;align-items:center;gap:22px;margin:0 0 22px;flex-wrap:wrap;}
 .lbc-title{font-size:22px;font-weight:650;letter-spacing:.02em;}
-.lbc-search{flex:1;min-width:180px;max-width:660px!important;height:44px!important;border:0!important;box-shadow:none!important;border-radius:24px!important;background:var(--background-secondary)!important;padding:0 20px!important;}
+.lbc-search{flex:1;min-width:180px;max-width:none!important;height:42px!important;border:0!important;box-shadow:none!important;border-radius:21px!important;background:var(--background-secondary)!important;padding:0 20px!important;}
 .lbc-sub{font-size:11px;color:var(--text-faint);margin-left:auto;white-space:nowrap;}
+.lbc-sync{font-size:11px;color:var(--interactive-accent);cursor:pointer;white-space:nowrap;}
+.lbc-sync[hidden]{display:none;}
 .lbc-grid{columns:250px;column-gap:32px;}
 .lbc-card{display:inline-block;vertical-align:top;width:100%;margin:0 0 36px;break-inside:avoid;cursor:pointer;position:relative;}
 .lbc-attach{position:absolute;top:8px;right:8px;font-size:11px;line-height:1;padding:4px 8px;border-radius:9px;background:rgba(0,0,0,.55);color:#fff;pointer-events:none;backdrop-filter:blur(2px);}
@@ -39,7 +41,6 @@ style.textContent = `
 .lbc-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 30px;}
 .lbc-toolbar button{border:0;box-shadow:none;border-radius:20px;padding:8px 16px;background:var(--background-secondary);}
 .lbc-toolbar button.is-active{color:var(--interactive-accent);background:var(--background-modifier-hover);}
-.lbc-import{margin-left:auto;}
 .lbc-status{font-size:12px;color:var(--text-muted);}
 .lbc-cats{display:flex;flex-wrap:wrap;align-items:center;margin:0 0 22px;font-size:13px;}
 .lbc-cat{padding:4px 12px;cursor:pointer;color:var(--text-muted);border-radius:8px;transition:color .12s;}
@@ -81,13 +82,16 @@ const head=wrap.createEl('div',{cls:'lbc-head'});
 head.createEl('span',{cls:'lbc-title',text:'我的收藏'});
 const search=head.createEl('input',{cls:'lbc-search'});
 search.type='search';search.placeholder='搜索收藏…';search.title='普通搜索 · #标签 · /问知识库';search.setAttribute('aria-label','搜索收藏');
+// 左：筛选（全部/今日）；右：计数·更新 + 未同步 + 导入。对称。
 const toolbar=wrap.createEl('div',{cls:'lbc-toolbar'});
-const sub=toolbar.createEl('span',{cls:'lbc-sub'});
 let todayOnly=false;
 const allButton=toolbar.createEl('button',{text:'全部',cls:'is-active'});
 const todayButton=toolbar.createEl('button',{text:'今日新增'});
 allButton.onclick=()=>{todayOnly=false;allButton.addClass('is-active');todayButton.removeClass('is-active');render();};
 todayButton.onclick=()=>{todayOnly=true;todayButton.addClass('is-active');allButton.removeClass('is-active');render();};
+const sub=toolbar.createEl('span',{cls:'lbc-sub'});
+const syncSpan=toolbar.createEl('span',{cls:'lbc-sync'});syncSpan.hidden=true;
+syncSpan.onclick=()=>{const p=app.plugins.plugins['link-brain-actions'];if(p?.run){p.run(['-m','link_brain','attachments','--all'],'补下附件',true);syncSpan.setText('正在补跑…（会开浏览器）');}};
 const importButton=toolbar.createEl('button',{text:'+ 导入',cls:'lbc-import'});
 const importStatus=wrap.createEl('div',{cls:'lbc-status'});
 importButton.type='button';
@@ -180,6 +184,8 @@ function render(){
   const now=new Date();const today=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
   const shown=items.filter(it=>(!todayOnly||it.date===today)&&(!activeCat||(it.cats||[]).includes(activeCat))).map(it=>({it,score:score(it,q,data.pinyin_chars)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score);
   sub.setText((q||todayOnly?`${shown.length} / ${items.length} 篇`:`${items.length} 篇`)+` · 更新 ${new Date(data.built_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}`);
+  const todoCount=items.filter(x=>x.attachment==='待补').length;
+  if(todoCount){syncSpan.setText(`${todoCount} 篇未同步 · 补跑`);syncSpan.hidden=false;}else syncSpan.hidden=true;
   ai.hidden=!asking;ai.empty();
   if(asking){
     ai.createEl('strong',{text:'问知识库'});
