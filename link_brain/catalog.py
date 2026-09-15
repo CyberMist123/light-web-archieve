@@ -296,6 +296,12 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
     catalog_path = vault / CATALOG_NAME
     catalog_path.write_text(_PAGE_HEADER + _DATAVIEWJS + "\n", encoding="utf-8")
 
+    # 部署笔记底部批注块用的共享脚本（每篇笔记的 bootstrap 会 adapter.read 它）
+    (vault / "_archive" / "annotate-view.js").write_text(
+        (Path(__file__).parent / "assets" / "annotate-view.js").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
     (vault / "_archive" / STATE_NAME).write_text(
         json.dumps({"last_built": now.isoformat()}, ensure_ascii=False, indent=1),
         encoding="utf-8",

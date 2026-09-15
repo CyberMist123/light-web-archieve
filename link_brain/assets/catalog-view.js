@@ -111,13 +111,15 @@ importButton.onclick=async e=>{
   finally{importButton.disabled=false;}
 };
 // 大类筛选条（小红书式 tab，灰竖线分隔）：单选，一次一个；「全部」或再点当前项清空。
-let activeCat='';
+let activeCat='';let todoOnly=false;
 const catBar=wrap.createEl('div',{cls:'lbc-cats'});
 function renderCatBar(){
   catBar.empty();
   const mk=(label,active,on)=>{const s=catBar.createEl('span',{cls:'lbc-cat'+(active?' is-active':''),text:label});s.onclick=on;return s;};
-  mk('全部',!activeCat&&!todayOnly,()=>{if(activeCat||todayOnly){activeCat='';todayOnly=false;renderCatBar();render();}});
-  mk('今日新增',todayOnly,()=>{todayOnly=!todayOnly;renderCatBar();render();});
+  mk('全部',!activeCat&&!todayOnly&&!todoOnly,()=>{if(activeCat||todayOnly||todoOnly){activeCat='';todayOnly=false;todoOnly=false;renderCatBar();render();}});
+  mk('今日新增',todayOnly,()=>{todayOnly=!todayOnly;if(todayOnly)todoOnly=false;renderCatBar();render();});
+  const todo=items.filter(x=>x.attachment==='待补').length;
+  if(todo)mk(`📎未下载 ${todo}`,todoOnly,()=>{todoOnly=!todoOnly;if(todoOnly)todayOnly=false;renderCatBar();render();});
   for(const cat of (data.cats_order||[])){
     catBar.createEl('span',{cls:'lbc-cat-sep',text:'│'});
     mk(cat,activeCat===cat,()=>{activeCat=(activeCat===cat?'':cat);renderCatBar();render();});
@@ -167,7 +169,17 @@ function openCardMenu(e,body,it){
   menu.style.cssText=`position:fixed;left:${e.clientX}px;top:${e.clientY}px;z-index:9999;`;
   const add=(label,fn,danger)=>{const b=menu.createEl('div',{cls:'lbc-menu-item'+(danger?' is-danger':'')});b.setText(label);b.onclick=ev=>{ev.stopPropagation();menu.remove();fn();};};
   add('编辑标签',()=>openTagEditor(body,it));
-  if(it.attachment==='待补')add('下载附件（要开浏览器）',()=>{const p=app.plugins.plugins['link-brain-actions'];if(p?.run)p.run(['-m','link_brain','attachments',it.id],'下载附件',true);});
+  if(it.attachment==='待补'){
+    add('下载附件（要开浏览器）',()=>{const p=app.plugins.plugins['link-brain-actions'];if(p?.run)p.run(['-m','link_brain','attachments',it.id],'下载附件',true);});
+    add('挂本地文件（我自己下好的）',async()=>{
+      const p=app.plugins.plugins['link-brain-actions'];
+      const fp=window.prompt('把你已经下好的文件路径贴进来（PDF/docx 等）：');
+      if(!fp)return;
+      if(typeof p?.attachFile!=='function'){window.alert('需要启用 Link Brain Actions 插件');return;}
+      try{const line=await p.attachFile(it.id,fp.trim().replace(/^"|"$/g,''));try{new Notice('已挂上：'+line);}catch{}it.attachment='downloaded';render();}
+      catch(e){window.alert('挂文件失败：'+(e.message||e));}
+    });
+  }
   add('删除收藏',()=>confirmDelete([it]),true);
   add('多选删除',()=>{selectMode=true;selected.add(it.id);render();});
   const close=()=>{menu.remove();document.removeEventListener('click',close);document.removeEventListener('contextmenu',close);};
@@ -183,8 +195,8 @@ function localLink(note,fmt){
 function render(){
   grid.empty();const raw=search.value.trim();const asking=raw.startsWith('/');const q=normalize(asking?raw.slice(1):raw);
   const now=new Date();const today=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
-  const shown=items.filter(it=>(!todayOnly||it.date===today)&&(!activeCat||(it.cats||[]).includes(activeCat))).map(it=>({it,score:score(it,q,data.pinyin_chars)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score);
-  sub.setText((q||todayOnly?`${shown.length} / ${items.length} 篇`:`${items.length} 篇`)+` · 更新 ${new Date(data.built_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}`);
+  const shown=items.filter(it=>(!todayOnly||it.date===today)&&(!todoOnly||it.attachment==='待补')&&(!activeCat||(it.cats||[]).includes(activeCat))).map(it=>({it,score:score(it,q,data.pinyin_chars)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score);
+  sub.setText((q||todayOnly||todoOnly?`${shown.length} / ${items.length} 篇`:`${items.length} 篇`)+` · 更新 ${new Date(data.built_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}`);
   const todoCount=items.filter(x=>x.attachment==='待补').length;
   if(todoCount){syncSpan.title=`${todoCount} 篇未同步 · 点此补跑`;syncSpan.hidden=false;}else syncSpan.hidden=true;
   ai.hidden=!asking;ai.empty();

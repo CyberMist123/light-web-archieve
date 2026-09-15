@@ -760,7 +760,24 @@ def render_visible_md(
     content = render_content_block(source=source, manifest=manifest, meta=meta, object_rel=object_rel)
     # Owner 在正文里划的 ==重点== 要跨重渲染活下来（2026-09-05 定的）
     content = reapply_highlights(content, collect_highlights(existing_content_layer(existing_text)))
-    return "\n".join(fm) + "\n\n" + comments_block + "\n\n" + content + "\n"
+    return "\n".join(fm) + "\n\n" + comments_block + "\n\n" + content + "\n\n" + _annotate_block(meta) + "\n"
+
+
+def _annotate_block(meta: dict[str, Any]) -> str:
+    """正文底部的批注块：一小段 bootstrap，载入共享 annotate-view.js（读写 notes.json）。
+    批注/⭐ 全存 sidecar，不进正文；每次重渲染这段模板照样贴回来，数据在 sidecar 不丢。"""
+    item_id = json.dumps(meta["item_id"])
+    note_path = json.dumps(f"_archive/{meta['source']}/{meta['source_id']}/notes.json")
+    return (
+        "```dataviewjs\n"
+        f"const itemId = {item_id};\n"
+        f"const notePath = {note_path};\n"
+        "try {\n"
+        '  const code = await app.vault.adapter.read("_archive/annotate-view.js");\n'
+        '  await new Function("dv", "app", "itemId", "notePath", code)(dv, app, itemId, notePath);\n'
+        "} catch (e) { dv.paragraph(\"批注块暂不可用：\" + (e.message || e)); }\n"
+        "```"
+    )
 
 
 def render_agent_md(
