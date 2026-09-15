@@ -270,6 +270,22 @@ class LinkBrainActions extends Plugin {
     return payload;
   }
 
+  // ⭐ 收藏开关：spawn `link_brain note star <id> [--off]`（点亮复制正文到 vault 根，熄灭删副本）。
+  // 给笔记底部批注块（annotate-view.js）调。返回 {starred, copy_path}。
+  async starNote(itemId, on) {
+    const args = ["-m", "link_brain", "note", "star", itemId];
+    if (!on) args.push("--off");
+    const { out } = await this.spawnCapture(args);
+    try { return JSON.parse(out.trim().split("\n").filter(Boolean).pop() || "{}"); }
+    catch { throw new Error("收藏后端没返回可解析结果"); }
+  }
+
+  // 手动挂本地文件：spawn `link_brain attachments <id> --attach <path>`（复制进 attachments、标已下、重建目录）。
+  async attachFile(itemId, filePath) {
+    const { out } = await this.spawnCapture(["-m", "link_brain", "attachments", itemId, "--attach", filePath]);
+    return out.trim().split("\n").filter(Boolean).pop() || "";
+  }
+
   async importText(text, report = () => {}, progress = () => {}) {
     if(this.importing || this.running){new Notice('已有归档任务在运行');return [];}
     const urls=cleanLinks(text);

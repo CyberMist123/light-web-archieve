@@ -283,8 +283,81 @@ def download_for_object(
     return {"item_id": meta["item_id"], "results": results}
 
 
+def manual_attach(source_key: str, source_id: str, file_path: str) -> dict[str, Any]:
+    """把 Owner 自己下好的文件手动挂到这篇（系统 headed 下不了时用）。
+
+    复制进对象级 `attachments/`，尽量按文件名认领一个 doc_id（认不出就存 manual 记录），
+    标 meta 为 downloaded。不联网。
+    """
+    src = Path(file_path).expanduser()
+    if not src.is_file():
+        raise FileNotFoundError(f"文件不存在: {src}")
+    object_dir = storage.object_dir(source_key, source_id)
+    meta_path = object_dir / "meta.json"
+    if not meta_path.exists():
+        raise FileNotFoundError(f"没有归档过: {source_key}/{source_id}")
+    meta = storage.read_json(meta_path)
+    version = meta["current_version"]
+    source_doc = storage.read_json(storage.raw_dir(source_key, source_id, version) / "source.json")
+    declared = (source_doc.get("note") or {}).get("attachments") or []
+
+    dest_dir = object_dir / "attachments"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / src.name
+    shutil.copyfile(src, dest)
+
+    # 按文件名认领元数据里声明过的 doc_id（认不出就当 manual）
+    matched = next((a for a in declared if (a.get("name") or "") == src.name), None)
+    record = {
+        "doc_id": (matched or {}).get("doc_id"),
+        "name": (matched or {}).get("name") or src.name,
+        "file": dest.name,
+        "bytes": dest.stat().st_size,
+        "sha256": _sha256(dest),
+        "downloaded_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+        "source": "manual",
+    }
+    known = load_downloaded(source_key, source_id)
+    files = [v for k, v in known.items() if v.get("file") != dest.name]
+    files.append(record)
+    storage.write_json(attachments_path(source_key, source_id), {"schema_version": 1, "files": files})
+    meta["attachments_status"] = "downloaded"
+    storage.write_json(meta_path, meta)
+    return {"item_id": meta["item_id"], "file": dest.name, "bytes": record["bytes"]}
+
+
 def run(args) -> int:
     from . import index as index_mod
+
+    # 手动挂本地文件：认领一篇 → 复制进 attachments → 标已下 → 渲染 + 重建目录
+    if getattr(args, "attach", None):
+        if not args.target:
+            print("挂本地文件要指定是哪篇（item_id）", file=sys.stderr)
+            return 1
+        conn = index_mod.connect()
+        try:
+            row = index_mod.get_object(conn, args.target)
+        finally:
+            conn.close()
+        if not row:
+            print(f"没有归档过: {args.target}", file=sys.stderr)
+            return 1
+        try:
+            out = manual_attach(row["source"], row["source_id"], args.attach)
+        except (OSError, KeyError, ValueError) as exc:
+            print(f"挂文件失败: {exc}", file=sys.stderr)
+            return 1
+        from . import render as render_mod
+
+        render_mod.render_object(row["source"], row["source_id"])
+        conn2 = index_mod.connect()
+        try:
+            index_mod.set_attachments_status(conn2, out["item_id"], "downloaded")
+        finally:
+            conn2.close()
+        print(f"{out['item_id']}  ↓(手动) {out['file']}  {out['bytes']} 字节")
+        _rebuild_catalog(True)
+        return 0
 
     conn = index_mod.connect()
     try:
