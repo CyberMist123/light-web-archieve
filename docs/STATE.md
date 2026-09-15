@@ -1,5 +1,14 @@
 # Current State
 
+## 2026-09-16 开源上传 + 大类单选 + 图片放大 bug
+
+- **大类筛选改单选**（Owner：标签别同时点，一次一个）：`activeCat` 单值，「全部」或再点当前项清空。
+- **修卡片点击被图片放大截走**（Owner 报）：点卡片本应开笔记，却被 Obsidian 阅读视图的**图片放大**抢了——
+  封面图 / 小图 `pointer-events:none`，点击穿透到卡片/缩略图容器的 onclick。
+- **开源上传**：加 **MIT LICENSE**（© CyberMist）+ README 许可说明；`git push origin main` 推到
+  github.com/CyberMist123/light-web-archieve（PUBLIC），一次推 20 个提交，pre-push 密钥闸放行、无泄漏。
+  上传前审计确认 git 不跟踪任何 data.json/key/cookie/vault。
+
 ## 2026-09-16 反馈批 4（多选退不出 / 旧链接留言 / 删TTS / 大类恢复 / 巡检周期）
 
 - **多选退不出（真因）**：`.lbc-selbar{display:flex}` 盖过 `[hidden]`，`selectMode=false` 后条也不消失。
