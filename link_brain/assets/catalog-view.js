@@ -8,11 +8,13 @@ style.textContent = `
 .lb-catalog .inline-title,.lb-catalog .metadata-container{display:none!important;}
 .lbc-wrap{width:100%;padding:24px clamp(8px,2vw,36px) 40px;box-sizing:border-box;}
 .lbc-head{display:flex;align-items:center;gap:22px;margin:0 0 22px;flex-wrap:wrap;}
-.lbc-title{font-size:22px;font-weight:650;letter-spacing:.02em;}
-.lbc-search{flex:1;min-width:180px;max-width:none!important;height:42px!important;border:0!important;box-shadow:none!important;border-radius:21px!important;background:var(--background-secondary)!important;padding:0 20px!important;}
-.lbc-sub{font-size:11px;color:var(--text-faint);margin-left:auto;white-space:nowrap;}
-.lbc-sync{font-size:11px;color:var(--interactive-accent);cursor:pointer;white-space:nowrap;}
+.lbc-title{font-family:Georgia,'Playfair Display','Times New Roman',serif;font-style:italic;font-size:28px;font-weight:600;letter-spacing:.01em;}
+.lbc-search{flex:1;min-width:180px;max-width:none!important;height:42px!important;box-shadow:none!important;border-radius:21px!important;background:transparent!important;border:1px solid var(--background-modifier-border)!important;padding:0 20px!important;}
+.lbc-toolbar{font-size:13px;}
+.lbc-sub{font-size:13px;color:var(--text-faint);white-space:nowrap;}
+.lbc-sync{font-size:13px;color:var(--interactive-accent);cursor:pointer;white-space:nowrap;}
 .lbc-sync[hidden]{display:none;}
+.lbc-right{margin-left:auto;}
 .lbc-grid{columns:250px;column-gap:32px;}
 .lbc-card{display:inline-block;vertical-align:top;width:100%;margin:0 0 36px;break-inside:avoid;cursor:pointer;position:relative;}
 .lbc-attach{position:absolute;top:8px;right:8px;font-size:11px;line-height:1;padding:4px 8px;border-radius:9px;background:rgba(0,0,0,.55);color:#fff;pointer-events:none;backdrop-filter:blur(2px);}
@@ -39,7 +41,7 @@ style.textContent = `
 .lbc-cmeta span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .lbc-empty{padding:40px;color:var(--text-muted);}
 .lbc-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 30px;}
-.lbc-toolbar button{border:0;box-shadow:none;border-radius:20px;padding:8px 16px;background:var(--background-secondary);}
+.lbc-toolbar button{border:0;box-shadow:none;border-radius:20px;padding:7px 16px;background:var(--background-secondary);font-size:13px;}
 .lbc-toolbar button.is-active{color:var(--interactive-accent);background:var(--background-modifier-hover);}
 .lbc-status{font-size:12px;color:var(--text-muted);}
 .lbc-cats{display:flex;flex-wrap:wrap;align-items:center;margin:0 0 22px;font-size:13px;}
@@ -79,19 +81,17 @@ for (const it of items) {
 }
 const wrap=root.createEl('div',{cls:'lbc-wrap'});
 const head=wrap.createEl('div',{cls:'lbc-head'});
-head.createEl('span',{cls:'lbc-title',text:'我的收藏'});
+head.createEl('span',{cls:'lbc-title',text:'Collections'});
 const search=head.createEl('input',{cls:'lbc-search'});
 search.type='search';search.placeholder='搜索收藏…';search.title='普通搜索 · #标签 · /问知识库';search.setAttribute('aria-label','搜索收藏');
-// 左：筛选（全部/今日）；右：计数·更新 + 未同步 + 导入。对称。
+// 第二行：左=计数·更新+未同步·补跑；右=今日新增(切换) + 导入。
 const toolbar=wrap.createEl('div',{cls:'lbc-toolbar'});
 let todayOnly=false;
-const allButton=toolbar.createEl('button',{text:'全部',cls:'is-active'});
-const todayButton=toolbar.createEl('button',{text:'今日新增'});
-allButton.onclick=()=>{todayOnly=false;allButton.addClass('is-active');todayButton.removeClass('is-active');render();};
-todayButton.onclick=()=>{todayOnly=true;todayButton.addClass('is-active');allButton.removeClass('is-active');render();};
 const sub=toolbar.createEl('span',{cls:'lbc-sub'});
 const syncSpan=toolbar.createEl('span',{cls:'lbc-sync'});syncSpan.hidden=true;
 syncSpan.onclick=()=>{const p=app.plugins.plugins['link-brain-actions'];if(p?.run){p.run(['-m','link_brain','attachments','--all'],'补下附件',true);syncSpan.setText('正在补跑…（会开浏览器）');}};
+const todayButton=toolbar.createEl('button',{text:'今日新增',cls:'lbc-right'});
+todayButton.onclick=()=>{todayOnly=!todayOnly;todayButton.toggleClass('is-active',todayOnly);render();};
 const importButton=toolbar.createEl('button',{text:'+ 导入',cls:'lbc-import'});
 const importStatus=wrap.createEl('div',{cls:'lbc-status'});
 importButton.type='button';
