@@ -123,7 +123,7 @@ const selbar=wrap.createEl('div',{cls:'lbc-selbar'});selbar.hidden=true;
 const selCount=selbar.createEl('span',{cls:'lbc-selcount'});
 const delBtn=selbar.createEl('button',{text:'删除选中',cls:'mod-warning'});
 delBtn.onclick=()=>confirmDelete(items.filter(x=>selected.has(x.id)));
-const clrBtn=selbar.createEl('button',{text:'清空选择'});clrBtn.onclick=()=>{selected.clear();render();};
+const clrBtn=selbar.createEl('button',{text:'退出多选'});clrBtn.onclick=()=>{selectMode=false;selected.clear();selectButton.removeClass('is-active');render();};
 const ai=wrap.createEl('section',{cls:'lbc-ai'});ai.hidden=true;
 const grid=wrap.createEl('div',{cls:'lbc-grid'});
 
