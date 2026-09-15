@@ -1,9 +1,11 @@
 const root = dv.container;
+const pane = root.closest('.markdown-preview-view, .markdown-source-view');
+if (pane) pane.classList.add('lb-catalog');
 const style = root.createEl('style');
 style.textContent = `
 .markdown-preview-view.lb-catalog,.markdown-source-view.lb-catalog{--file-line-width:100%;}
 .lb-catalog .markdown-preview-sizer,.lb-catalog .markdown-preview-section,.lb-catalog .cm-sizer,.lb-catalog .cm-contentContainer,.lb-catalog .cm-content,.lb-catalog .block-language-dataviewjs{width:100%!important;max-width:none!important;}
-.lb-catalog .inline-title{display:none;}
+.lb-catalog .inline-title,.lb-catalog .metadata-container{display:none!important;}
 .lbc-wrap{width:100%;padding:12px 4px;box-sizing:border-box;}
 .lbc-head{display:flex;align-items:center;gap:24px;margin:0 0 28px;flex-wrap:wrap;}
 .lbc-title{font-size:22px;font-weight:650;letter-spacing:.02em;}
@@ -20,6 +22,10 @@ style.textContent = `
 .lbc-cmeta{display:flex;justify-content:space-between;gap:10px;color:var(--text-muted);font-size:12px;margin-top:8px;}
 .lbc-cmeta span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .lbc-empty{padding:40px;color:var(--text-muted);}
+.lbc-toolbar{display:flex;gap:10px;align-items:center;margin:0 0 22px;}
+.lbc-toolbar button{border:0;box-shadow:none;border-radius:20px;padding:8px 16px;background:var(--background-secondary);}
+.lbc-toolbar button.is-active{color:var(--interactive-accent);background:var(--background-modifier-hover);}
+.lbc-ai{padding:22px;border:1px solid var(--background-modifier-border);border-radius:16px;margin-bottom:24px;white-space:pre-wrap;}
 `;
 let data;
 try { data = JSON.parse(await app.vault.adapter.read('_archive/catalog-data.json')); }
@@ -36,33 +42,33 @@ const wrap=root.createEl('div',{cls:'lbc-wrap'});
 const head=wrap.createEl('div',{cls:'lbc-head'});
 head.createEl('span',{cls:'lbc-title',text:'我的收藏'});
 const search=head.createEl('input',{cls:'lbc-search'});
-search.type='search';search.placeholder='搜索收藏，几个关键词也可以…';search.setAttribute('aria-label','搜索收藏');
+search.type='search';search.placeholder='搜索收藏 /问AI的问题 #标签';search.setAttribute('aria-label','搜索收藏');
 const sub=head.createEl('span',{cls:'lbc-sub'});
+const toolbar=wrap.createEl('div',{cls:'lbc-toolbar'});
+let todayOnly=false;
+const allButton=toolbar.createEl('button',{text:'全部',cls:'is-active'});
+const todayButton=toolbar.createEl('button',{text:'今日新增'});
+allButton.onclick=()=>{todayOnly=false;allButton.addClass('is-active');todayButton.removeClass('is-active');render();};
+todayButton.onclick=()=>{todayOnly=true;todayButton.addClass('is-active');allButton.removeClass('is-active');render();};
+const importButton=toolbar.createEl('button',{text:'+ 导入链接'});
+importButton.onclick=()=>app.commands.executeCommandById('link-brain-actions:import-links');
+const ai=wrap.createEl('section',{cls:'lbc-ai'});ai.hidden=true;
 const grid=wrap.createEl('div',{cls:'lbc-grid'});
-const normalize=s=>String(s||'').normalize('NFKC').toLowerCase().replace(/[#，。！？、]/g,' ');
-function score(it,q){
-  if(!q)return 1;
-  const title=normalize(it.title),hay=normalize([it.title,it.summary,it.search_text,it.author,...(it.tags||[])].join(' '));
-  const terms=q.split(/\s+/).filter(Boolean);let total=0;
-  for(const term of terms){
-    if(title.includes(term)){total+=8;continue;}
-    if(hay.includes(term)){total+=4;continue;}
-    // 非连续字串匹配：例如「记忆框架」可命中「记忆管理框架」。
-    let pos=0;for(const c of term){pos=hay.indexOf(c,pos);if(pos<0)break;pos++;}
-    if(pos>=0 && term.length>=2){total+=1;continue;}
-    // 英文近似拼写：允许一个插入、删除或替换。
-    const near=term.length>=4 && /^[a-z]+$/.test(term) && hay.split(/[^a-z]+/).some(word=>{
-      if(Math.abs(word.length-term.length)>1)return false;
-      let i=0,j=0,errors=0;while(i<term.length&&j<word.length){if(term[i]===word[j]){i++;j++;}else{if(++errors>1)return false;if(term.length>=word.length)i++;if(word.length>=term.length)j++;}}
-      return errors+(term.length-i)+(word.length-j)<=1;
-    });
-    if(near){total+=1;continue;}return 0;
-  }return total;
-}
 function render(){
-  grid.empty();const q=normalize(search.value).trim();
-  const shown=items.map(it=>({it,score:score(it,q)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score);
-  sub.setText(q?`${shown.length} / ${items.length} 篇`:`${items.length} 篇`);
+  grid.empty();const raw=search.value.trim();const asking=raw.startsWith('/');const q=normalize(asking?raw.slice(1):raw);
+  const now=new Date();const today=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
+  const shown=items.filter(it=>!todayOnly||it.date===today).map(it=>({it,score:score(it,q,data.pinyin_chars)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score);
+  sub.setText((q||todayOnly?`${shown.length} / ${items.length} 篇`:`${items.length} 篇`)+` · 更新 ${new Date(data.built_at).toLocaleString('zh-CN',{hour12:false})}`);
+  ai.hidden=!asking;ai.empty();
+  if(asking){
+    ai.createEl('strong',{text:'问 AI'});ai.createEl('p',{text:q||'在 / 后输入你的问题'});
+    const answer=ai.createEl('div',{text:'AI 回答尚未接入。下方显示本地检索结果；接入后回答会显示在这里。'});
+    const provider=app.plugins.plugins['link-brain-actions'];
+    if(typeof provider?.answerArchive==='function'){
+      answer.setText('点击提问，结合当前检索到的收藏回答。');const ask=ai.createEl('button',{text:'提问'});
+      ask.onclick=async()=>{ask.disabled=true;answer.setText('正在回答…');try{answer.setText(await provider.answerArchive({question:q,items:shown.slice(0,12).map(x=>x.it)}));}catch(e){answer.setText('回答失败：'+e.message);}finally{ask.disabled=false;}};
+    }
+  }
   if(!shown.length){grid.createEl('div',{cls:'lbc-empty',text:'没找到，试试更短的关键词。'});return;}
   for(const {it} of shown){
     const card=grid.createEl('article',{cls:'lbc-card'});card.tabIndex=0;card.setAttribute('role','link');card.setAttribute('aria-label',it.title||'打开收藏');
@@ -70,7 +76,7 @@ function render(){
     if(it.cover){const img=card.createEl('img',{cls:'lbc-cover'});img.loading='lazy';img.alt='';img.src=app.vault.adapter.getResourcePath(it.cover);}
     else card.createEl('div',{cls:'lbc-nocover',text:it.kind==='video'?'▷':'▤'});
     const body=card.createEl('div',{cls:'lbc-body'});body.createEl('div',{cls:'lbc-ctitle',text:it.title||'未命名'});
-    const meta=body.createEl('div',{cls:'lbc-cmeta'});meta.createEl('span',{text:it.author||it.source||'收藏'});meta.createEl('span',{text:it.date||''});
+    const meta=body.createEl('div',{cls:'lbc-cmeta'});meta.createEl('span',{text:it.author||it.source||'收藏'});meta.createEl('span',{text:it.likes==null?'':'♡ '+(Number(it.likes)>=10000?(Number(it.likes)/10000).toFixed(1)+'万':it.likes)});
     const open=()=>{if(it.note)app.workspace.openLinkText(it.note,'',false);};card.onclick=open;card.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();open();}};
     card.oncontextmenu=e=>{
       e.preventDefault();if(card.querySelector('form'))return;

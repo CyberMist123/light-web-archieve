@@ -12,6 +12,8 @@
 
 ## 0. 先读这些硬约束（所有车都读）
 
+2026-09-16 Owner 本轮补充：恢复目录铺满并隐藏属性/重复标题；复用已安装的 Link Brain Actions 增加弹窗批量导入与链接清洗；今日新增、点赞数、更新时间；普通模糊检索、#标签、/问AI（只留接口，未接模型）。正文按参考图右栏作者固定、下方正文评论滚动，单图无箭头。以上允许修改现有 Obsidian 插件，不另起服务。
+
 1. **仓库是公开的**：cookie / token / 千问 key / 任何 `*.local.json`、`.env`、`vault/` 数据目录一律 `.gitignore`。样本数据只提交脱敏后的 1 条 fixture。
 2. **不自研爬虫**。小红书读取直接用本机已跑着的 xiaohongshu-mcp：
    - 端点 `http://127.0.0.1:18060/mcp`（MCP streamable-HTTP，用 Python `mcp` 包的 `streamablehttp_client` 连；别再起浏览器）

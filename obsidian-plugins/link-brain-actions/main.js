@@ -1,4 +1,4 @@
-const { Plugin, Notice, TFile } = require("obsidian");
+const { Plugin, Notice, TFile, Modal } = require("obsidian");
 const { spawn } = require("child_process");
 const path = require("path");
 
@@ -6,6 +6,36 @@ const path = require("path");
 // 所有动作都在仓根下跑 `python -m link_brain ...`，输出滚进 vault\_archive\ob-actions.log。
 const PY = "python";
 const INBOX_FILE = "📥 投喂.md";
+
+function cleanLinks(text) {
+  const links=[];
+  for(const raw of text.match(/https?:\/\/[^\s<>"'，。；！？）】]+/gi)||[]){
+    try{const u=new URL(raw.replace(/[)\],.;]+$/, ''));
+      if(!/(^|\.)(xiaohongshu\.com|xhslink\.com|xhslink\.cn)$/.test(u.hostname))continue;
+      // 保留小红书读取所需 token，其余分享追踪参数清掉。
+      for(const key of [...u.searchParams.keys()])if(!['xsec_token','xsec_source'].includes(key))u.searchParams.delete(key);
+      u.hash='';if(!links.includes(u.href))links.push(u.href);
+    }catch{}
+  }return links;
+}
+
+class ImportModal extends Modal {
+  constructor(plugin){super(plugin.app);this.plugin=plugin;}
+  onOpen(){
+    const el=this.contentEl;el.createEl('h2',{text:'导入收藏'});
+    el.createEl('p',{text:'粘贴链接或整段分享文案，支持多条。自动清洗、去重；目前支持小红书。'});
+    const input=el.createEl('textarea');input.style.cssText='width:100%;min-height:180px';input.placeholder='粘贴一个或多个链接…';
+    const preview=el.createEl('p',{text:'等待粘贴链接'});
+    const clean=el.createEl('button',{text:'清洗链接'});clean.onclick=()=>{input.value=cleanLinks(input.value).join('\n');input.oninput();};
+    const start=el.createEl('button',{text:'开始导入',cls:'mod-cta'});
+    const output=el.createEl('div');
+    input.oninput=()=>preview.setText(`识别到 ${cleanLinks(input.value).length} 条不同链接`);
+    start.onclick=async()=>{start.disabled=true;output.empty();try{
+      await this.plugin.importText(input.value,(line)=>output.createEl('p',{text:line}));
+    }finally{start.disabled=false;}};
+    input.focus();
+  }
+}
 
 // sync-favorites 读收藏必须走 xiaohongshu.com 域（rednote.com 的会话一关浏览器就失效）。
 const ENV_EXTRA = {
@@ -18,6 +48,8 @@ class LinkBrainActions extends Plugin {
   async onload() {
     this.repoRoot = path.resolve(this.app.vault.adapter.getBasePath(), "..");
     this.running = null;
+    this.importing = false;
+    this.addCommand({id:'import-links',name:'导入链接 / 批量导入',callback:()=>new ImportModal(this).open()});
 
     this.addCommand({
       id: "rebuild-catalog",
@@ -70,15 +102,15 @@ class LinkBrainActions extends Plugin {
         env: { ...process.env, ...ENV_EXTRA },
         windowsHide: true,
       });
-      let out = "";
-      child.stdout.on("data", (d) => (out += d.toString()));
+      let out = "", stdout = "";
+      child.stdout.on("data", (d) => {out += d.toString();stdout += d.toString();});
       child.stderr.on("data", (d) => (out += d.toString()));
       child.on("close", async (code) => {
         this.running = null;
         await this.log(`[${label}] exit=${code}\n${out.trim()}`);
         const tail = out.trim().split("\n").filter(Boolean).pop() || "(无输出)";
         new Notice(code === 0 ? `${label} 完成：${tail}` : `${label} 失败 (exit=${code})：${tail}`, 8000);
-        resolve({ code, out });
+        resolve({ code, out, stdout });
       });
       child.on("error", (err) => {
         this.running = null;
@@ -96,66 +128,53 @@ class LinkBrainActions extends Plugin {
     await adapter.write(rel, `${prev}${stamp}  ${text}\n`);
   }
 
-  // 投喂页：一行一条链接，抓完那行原地变成 [[笔记]] 打勾，失败的留在原地并标原因。
+  async importText(text, report = () => {}) {
+    if(this.importing || this.running){new Notice('已有归档任务在运行');return [];}
+    const urls=cleanLinks(text);
+    if(!urls.length){report('没有识别到支持的小红书链接');return [];}
+    this.importing=true;const results=[];
+    try {
+      for(const [i,url] of urls.entries()){
+        report(`正在导入 ${i+1}/${urls.length}`);
+        const res=await this.run(['-m','link_brain','catch',url,'--origin','cli','--actor','human'],'导入收藏');
+        let item;
+        try{item=JSON.parse(res.stdout || '{}').items?.[0];}catch{}
+        const ok=item && ['new','hit'].includes(item.status) && item.visible_note && !item.error;
+        const result={url,ok,note:ok?path.basename(item.visible_note,'.md'):null};
+        results.push(result);
+        report(ok ? `✓ ${result.note}` : `未完成：${item?.error || url}`);
+        if(item?.status==='blocked') {report('服务或登录需要处理，已暂停余下链接。');break;}
+      }
+      await this.run(['-m','link_brain','catalog'],'重建目录');
+      report(`完成 ${results.filter(r=>r.ok).length}/${urls.length} 条`);
+    } finally { this.importing=false; }
+    return results;
+  }
+
   async ingestInbox() {
-    const file = this.app.vault.getAbstractFileByPath(INBOX_FILE);
-    if (!(file instanceof TFile)) {
-      await this.app.vault.create(
-        INBOX_FILE,
-        "# 📥 投喂\n\n把链接一行一条贴在下面，然后点左边栏的下载图标（或命令面板搜「投喂」）。\n抓完这行会变成库里的笔记链接。\n\n",
-      );
-      new Notice(`建好了「${INBOX_FILE}」，把链接贴进去再点一次`);
+    let file=this.app.vault.getAbstractFileByPath(INBOX_FILE);
+    if(!(file instanceof TFile)){
+      file=await this.app.vault.create(INBOX_FILE,'---\ncssclasses: [lb-inbox]\n---\n\n粘贴链接或分享文案，然后运行「投喂」命令。\n');
+      await this.app.workspace.getLeaf().openFile(file);
       return;
     }
-    const text = await this.app.vault.read(file);
-    const lines = text.split("\n");
-    const targets = [];
-    lines.forEach((line, i) => {
-      if (/^\s*[-*]?\s*(?:https?:\/\/|.*xhslink)/i.test(line) && /https?:\/\//i.test(line)) {
-        targets.push({ i, line: line.trim().replace(/^[-*]\s*/, "") });
-      }
-    });
-    if (!targets.length) {
-      new Notice("投喂页里没找到链接");
-      return;
-    }
-    new Notice(`投喂 ${targets.length} 条，开跑…`);
-    for (const t of targets) {
-      const res = await this.run(
-        ["-m", "link_brain", "catch", t.line, "--origin", "cli", "--actor", "human"],
-        `投喂 ${t.line.slice(0, 28)}…`,
-      );
-      // catch 打的是 JSON（read.dump_json），里面每条带 visible_note
-      let stem = null;
-      try {
-        const start = res.out.indexOf("{");
-        const parsed = start >= 0 ? JSON.parse(res.out.slice(start)) : null;
-        const hit = parsed && parsed.items && parsed.items.find((it) => it.visible_note);
-        if (hit) stem = path.basename(hit.visible_note, ".md");
-      } catch (_) {
-        const note = /Web[\\/][^\s]+\.md/.exec(res.out);
-        if (note) stem = path.basename(note[0], ".md");
-      }
-      lines[t.i] = stem
-        ? `- [x] [[${stem}]] ✅ ${new Date().toLocaleString("zh-CN", { hour12: false }).slice(5, 16)}`
-        : `${lines[t.i]}  <!-- ❌ 没抓下来，看 _archive/ob-actions.log -->`;
-    }
-    await this.app.vault.modify(file, lines.join("\n"));
-    await this.run(["-m", "link_brain", "catalog"], "重建目录");
+    const original=await this.app.vault.read(file);
+    const results=await this.importText(original);
+    if(!results.length)return;
+    const byUrl=new Map(results.map(r=>[r.url,r]));
+    // 处理当前文件而非最初快照，保留导入期间新写的内容。
+    await this.app.vault.process(file,current=>current.split('\n').flatMap(line=>{
+      const urls=cleanLinks(line);
+      if(!urls.length)return [line];
+      return urls.map(url=>{
+        const r=byUrl.get(url);
+        return r?.ok ? `- [x] [[${r.note}]]` : url;
+      });
+    }).join('\n'));
   }
 
   async ingestClipboard() {
-    const text = (await navigator.clipboard.readText()) || "";
-    if (!/https?:\/\//i.test(text)) {
-      new Notice("剪贴板里没有链接");
-      return;
-    }
-    await this.run(
-      ["-m", "link_brain", "catch", text.trim(), "--origin", "cli", "--actor", "human"],
-      "投喂剪贴板",
-      true,
-    );
-    await this.run(["-m", "link_brain", "catalog"], "重建目录");
+    await this.importText(await navigator.clipboard.readText(),text=>new Notice(text));
   }
 }
 
