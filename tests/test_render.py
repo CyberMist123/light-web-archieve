@@ -206,7 +206,7 @@ def test_search_output_has_five_pipe_fields(tmp_path, monkeypatch, capsys):
 
 
 def test_rerender_keeps_owner_highlights_in_body(tmp_path, monkeypatch):
-    """Owner 2026-09-05：正文改成纯 Markdown 就是为了能划重点，重渲染不许把重点洗掉。"""
+    """Owner 2026-09-15：正文转 HTML 后高亮走 <mark>；`highlight` 加的重点重渲染不许洗掉。"""
     setup_env(tmp_path, monkeypatch)
     cli.main(["ingest", "https://example.invalid/share"])
     item_id, source, source_id = _get_item_id(tmp_path)
@@ -222,18 +222,20 @@ def test_rerender_keeps_owner_highlights_in_body(tmp_path, monkeypatch):
     phrase = next(line.strip() for line in body.splitlines() if len(line.strip()) >= 6)[:12]
     assert phrase in text, "挑的这段应该在渲染结果里"
 
-    md_path.write_text(text.replace(phrase, f"=={phrase}==", 1), encoding="utf-8")
+    _, changed = render_mod.set_highlight(item_id, phrase)
+    assert changed, "该能在正文里找到并高亮"
     render_mod.render_item(source, source_id)
 
     after = md_path.read_text(encoding="utf-8")
-    assert f"=={phrase}==" in after, "重渲染之后她划的重点应该还在"
-    assert after.count(f"=={phrase}==") == 1, "不该重复包"
+    marked = f"<mark>{render_mod._safe(phrase)}</mark>"
+    assert marked in after, "重渲染之后她划的重点应该还在"
+    assert after.count(marked) == 1, "不该重复包"
 
 
 def test_highlights_that_no_longer_match_are_dropped_quietly():
-    """原文被作者改过、对不上了就悄悄丢掉，不去猜、更不能把 == 乱贴。"""
+    """原文被作者改过、对不上了就悄悄丢掉，不去猜、更不能把 <mark> 乱贴。"""
     content = "第一段正文。\n\n第二段正文。"
     assert render_mod.reapply_highlights(content, ["不存在的句子"]) == content
     once = render_mod.reapply_highlights(content, ["第二段"])
-    assert "==第二段==" in once
+    assert "<mark>第二段</mark>" in once
     assert render_mod.reapply_highlights(once, ["第二段"]) == once  # 已经有了不重复包

@@ -1,8 +1,9 @@
 """Obsidian 人类版 UI 契约：响应式小红书详情页，不碰 RAW/agent。"""
 
+import json
 from pathlib import Path
 
-from link_brain import render
+from link_brain import render, storage
 
 
 def _source():
@@ -134,6 +135,42 @@ def test_video_human_view_marks_not_downloaded_without_original_link():
     )
     assert "视频 · 未下载" in text
     assert "原链接" not in text
+
+
+def test_highlight_mark_add_persist_remove(tmp_path, monkeypatch):
+    """Owner 2026-09-15：正文转 HTML 后高亮走 <mark>，能加、能被 collect/reapply 持久、能去。"""
+    monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
+    obj = tmp_path / "_archive" / "xiaohongshu" / "deadbeef01"
+    obj.mkdir(parents=True)
+    (obj / "meta.json").write_text(
+        json.dumps({"visible_note": "Web/Xiaohongshu/n.md"}), encoding="utf-8")
+    note = tmp_path / "Web" / "Xiaohongshu" / "n.md"
+    note.parent.mkdir(parents=True)
+    note.write_text(
+        render.CONTENT_START
+        + '\n<div class="lb-body"><p>这是一段重点内容。</p></div>\n'
+        + render.CONTENT_END + "\n",
+        encoding="utf-8",
+    )
+
+    _, changed = render.set_highlight("xhs-deadbeef01", "重点")
+    assert changed
+    assert "<mark>重点</mark>" in note.read_text(encoding="utf-8")
+
+    # 从渲染结果里能收集回原文片段，reapply 幂等（已在 mark 里不重复包）
+    hs = render.collect_highlights(note.read_text(encoding="utf-8"))
+    assert "重点" in hs
+    once = note.read_text(encoding="utf-8")
+    assert render.reapply_highlights(once, hs) == once
+
+    # 去掉
+    _, changed2 = render.set_highlight("xhs-deadbeef01", "重点", remove=True)
+    assert changed2
+    assert "<mark>" not in note.read_text(encoding="utf-8")
+
+    # 找不到的片段：无变化
+    _, changed3 = render.set_highlight("xhs-deadbeef01", "根本不存在的句子")
+    assert not changed3
 
 
 def test_css_supports_reading_and_live_preview_with_pane_responsiveness():

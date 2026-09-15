@@ -6,6 +6,7 @@ Rerender replaces only the managed content layer and preserves the comments laye
 from __future__ import annotations
 
 import html
+import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -375,6 +376,7 @@ def _body_html(text: str) -> str:
 
 
 HIGHLIGHT_RE = re.compile(r"==([^=\n]{1,300})==")
+MARK_RE = re.compile(r"<mark>(.*?)</mark>", re.S)
 
 
 def existing_content_layer(text: str | None) -> str | None:
@@ -389,10 +391,18 @@ def existing_content_layer(text: str | None) -> str | None:
 
 
 def collect_highlights(text: str | None) -> list[str]:
-    """把 Owner 在正文里划的 `==重点==` 收集出来（长的排前面，避免短的先吃掉长的）。"""
+    """把已划的重点收集成**原文片段**（长的排前，避免短的先吃掉长的）。
+
+    Owner 2026-09-15：正文改成 HTML 后，高亮走 `<mark>`（她命令加的、或在源码模式手写的都认）；
+    仍兼容旧的 `==重点==`。marks 存在 md 里，每次 render 从上一版收集、贴回去——自持久，不另建存储。
+    """
     if not text:
         return []
     seen: list[str] = []
+    for esc in MARK_RE.findall(text):
+        raw = html.unescape(esc).strip()
+        if raw and raw not in seen:
+            seen.append(raw)
     for phrase in HIGHLIGHT_RE.findall(text):
         cleaned = phrase.strip()
         if cleaned and cleaned not in seen:
@@ -401,19 +411,56 @@ def collect_highlights(text: str | None) -> list[str]:
 
 
 def reapply_highlights(content: str, highlights: list[str]) -> str:
-    """重渲染之后把她划过的重点贴回去。
+    """重渲染后把重点贴回去，包成 `<mark>`。
 
-    只做**原样匹配**：原文没变就贴得回去；原文变了（作者编辑过）就悄悄丢掉那一条，
-    不去猜。已经带 `==` 的不重复包。
+    正文是转义过的 HTML，所以按**转义后**的片段匹配。只做原样匹配：原文变了（作者编辑过）
+    就悄悄丢掉那条，不猜。已经在 `<mark>` 里的不重复包。
     """
     for phrase in highlights:
-        if not phrase or f"=={phrase}==" in content:
+        if not phrase:
             continue
-        index = content.find(phrase)
+        esc = _safe(phrase)
+        if f"<mark>{esc}</mark>" in content:
+            continue
+        index = content.find(esc)
         if index == -1:
             continue
-        content = content[:index] + f"=={phrase}==" + content[index + len(phrase):]
+        content = content[:index] + f"<mark>{esc}</mark>" + content[index + len(esc):]
     return content
+
+
+def set_highlight(item_id: str, phrase: str, *, remove: bool = False) -> tuple[Path, bool]:
+    """给一篇笔记的正文加/去一处高亮（Owner 2026-09-15）。
+
+    直接改可见 md 的 content 层里那段**转义后**的片段：加 = 包上 `<mark>`，去 = 拆掉。
+    下次 render 会从 `<mark>` 收集、原样贴回，所以这次改动能持久。返回 (可见 md 路径, 是否改动)。
+    """
+    from . import storage
+
+    src_id = item_id[4:] if item_id.startswith("xhs-") else item_id
+    meta_path = storage.object_dir("xiaohongshu", src_id) / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    visible = storage.vault_root() / meta["visible_note"]
+    text = visible.read_text(encoding="utf-8")
+    esc = _safe(phrase.strip())
+    marked = f"<mark>{esc}</mark>"
+    if remove:
+        if marked not in text:
+            return visible, False
+        new = text.replace(marked, esc)
+    else:
+        if marked in text:
+            return visible, False
+        # 只在 content 层里找，别误伤别处
+        start, end = text.find(CONTENT_START), text.find(CONTENT_END)
+        if start == -1 or end == -1:
+            return visible, False
+        idx = text.find(esc, start, end)
+        if idx == -1:
+            return visible, False
+        new = text[:idx] + marked + text[idx + len(esc):]
+    visible.write_text(new, encoding="utf-8")
+    return visible, True
 
 
 def _author_html(note: dict[str, Any]) -> str:
@@ -510,11 +557,13 @@ def render_content_block(
     author = _author_html(note)
     body = _body_html(note.get("body") or "")
     detail = _comments_html(note, comments, manifest, object_rel)
+    # Owner 2026-09-15：头像/作者在**正文上方**（右栏顶部），不跟图片在左栏。
+    # 左栏只有图片、sticky 固定；右栏 = 作者 → 正文 → 评论，随页滚动。
     if has_media:
         note_html = (
             f'<div class="{cls}">'
-            f'<div class="lb-side">{media}{author}</div>'
-            f'<div class="lb-main">{body}{detail}</div>'
+            f'<div class="lb-side">{media}</div>'
+            f'<div class="lb-main">{author}{body}{detail}</div>'
             f"</div>"
         )
     else:
