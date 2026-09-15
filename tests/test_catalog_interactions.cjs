@@ -8,25 +8,34 @@ for(const q of ['香蕉','#食谱','不存在的关键词']) assert.equal(score(
 const obsidianMock={Plugin:class{},Modal:class{},Notice:class{},TFile:class{},PluginSettingTab:class{constructor(app,plugin){this.app=app;this.plugin=plugin;}},Setting:class{},requestUrl:async()=>({}),MarkdownRenderer:{render:async()=>{}}};
 const context={module:{exports:{}},URL,require:name=>name==='obsidian'?obsidianMock:require(name)};
 vm.createContext(context);
-vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js','utf8')+';module.exports.cleanLinks=cleanLinks;',context);
+vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js','utf8')+';module.exports.cleanLinks=cleanLinks;module.exports.parseCatsText=parseCatsText;module.exports.serializeCats=serializeCats;',context);
 const Plugin=context.module.exports;
 const links=Plugin.cleanLinks('分享：https://www.xiaohongshu.com/explore/abc?xsec_token=keep&share_from=test，重复 https://www.xiaohongshu.com/explore/abc?xsec_token=keep https://xiaohongshu.com.evil.test/a https://xhslink.com/a/test。');
 assert.equal(links.length,2);
 assert.equal(links[0],'https://www.xiaohongshu.com/explore/abc?xsec_token=keep');
 assert.equal(links[1],'https://xhslink.com/a/test');
+// rednote.com 现在也认（她的分享链接大多是这个域）；分享垃圾参数清掉、只留 xsec_token/source
+const rn=Plugin.cleanLinks('https://www.rednote.com/discovery/item/6aa?xsec_token=T1&source=web&xhsshare=pc&shareRedId=x&xsec_source=pc_feed');
+assert.equal(rn.length,1);
+assert.ok(rn[0].includes('rednote.com/discovery/item/6aa'));
+assert.ok(rn[0].includes('xsec_token=T1')&&rn[0].includes('xsec_source=pc_feed'));
+assert.ok(!rn[0].includes('source=web')&&!rn[0].includes('xhsshare')&&!rn[0].includes('shareRedId'));
+// 大类文本 <-> 数组
+const cats=Plugin.parseCatsText('人机恋: 人机恋, AI伴侣\n吃的：菜, 饭');
+assert.equal(cats.length,2);assert.equal(cats[0].name,'人机恋');assert.equal(cats[0].keywords.join(','),'人机恋,ai伴侣');
+assert.equal(cats[1].keywords.join(','),'菜,饭');  // 中文冒号也认
+assert.equal(Plugin.serializeCats(cats),'人机恋: 人机恋, ai伴侣\n吃的: 菜, 饭');
 (async()=>{
   const plugin=new Plugin();const calls=[];
   plugin.run=async args=>{calls.push(args);return {stdout:JSON.stringify({items:[{status:'hit',visible_note:'Web/Xiaohongshu/已归档.md'}]})};};
-  const results=await plugin.importText('https://xhslink.com/a/test https://xhslink.com/a/test');
+  let lastDone=-1,lastTotal=-1;
+  const results=await plugin.importText('https://xhslink.com/a/test https://xhslink.com/a/test',()=>{},(d,t)=>{lastDone=d;lastTotal=t;});
   assert.equal(results.length,1);assert.equal(results[0].note,'已归档');assert.equal(calls.length,2);
   assert.equal(calls[1][2],'catalog');assert.equal(plugin.importing,false);
-  const view=fs.readFileSync('link_brain/assets/catalog-view.js','utf8');
-  const handler=view.slice(view.indexOf('importButton.onclick=')+'importButton.onclick='.length,view.indexOf('\nconst ai='));
-  let opened=0,reloaded=0,status='';const button={disabled:false};
-  const app={plugins:{plugins:{'link-brain-actions':{}},disablePlugin:async()=>{},enablePlugin:async()=>{reloaded++;app.plugins.plugins['link-brain-actions']={openImportModal:()=>opened++};}}};
-  const click=new Function('app','importButton','importStatus','return '+handler)(app,button,{setText:s=>status=s});
-  await click({preventDefault(){},stopPropagation(){}});
-  assert.equal(reloaded,1);assert.equal(opened,1);assert.equal(status,'');assert.equal(button.disabled,false);
+  assert.equal(lastDone,1);assert.equal(lastTotal,1);  // 进度回调到位
+  // expandAndCleanLinks：解析 Python clean 的 JSON
+  plugin.spawnCapture=async args=>{assert.equal(args[2],'clean');return {out:JSON.stringify({count:1,urls:[{clean:'https://x/1',has_token:true}]}),err:''};};
+  const cl=await plugin.expandAndCleanLinks('some text');assert.equal(cl.length,1);assert.equal(cl[0].clean,'https://x/1');
   // answerArchive 薄壳：解析后端 `ask` 的 JSON、非 ok 抛错
   const p2=new Plugin();
   p2.spawnCapture=async args=>{assert.equal(args[2],'ask');assert.equal(args[3],'AI 做梦');

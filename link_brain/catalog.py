@@ -58,9 +58,32 @@ OTHER_CAT = "其他"
 _FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.S)
 
 
-def _cats(tags: list[str]) -> list[str]:
+def effective_big_cats() -> list[tuple[str, tuple[str, ...]]]:
+    """大类清单：Owner 在插件设置里编辑过就用她的（data.json 的 `catalogCats`），否则用内置 BIG_CATS。
+
+    她的格式是 `[{"name": "人机恋", "keywords": ["人机恋","ai伴侣"]}, ...]`（设置页那个可编辑文本框解析出来的）。
+    改完要重跑 `catalog` 才生效（这个函数只在重建目录时读一次）。fail-open：读不动就用内置。
+    """
+    try:
+        from . import ai_config
+
+        raw = ai_config.load().get("catalogCats")
+    except Exception:  # noqa: BLE001 - 配置读不动绝不挡住目录重建
+        raw = None
+    if isinstance(raw, list) and raw:
+        out: list[tuple[str, tuple[str, ...]]] = []
+        for entry in raw:
+            if isinstance(entry, dict) and str(entry.get("name") or "").strip():
+                kws = tuple(str(k).strip().lower() for k in (entry.get("keywords") or []) if str(k).strip())
+                out.append((str(entry["name"]).strip(), kws))
+        if out:
+            return out
+    return BIG_CATS
+
+
+def _cats(tags: list[str], big_cats: list[tuple[str, tuple[str, ...]]]) -> list[str]:
     hay = " ".join(tags).lower()
-    hits = [name for name, kws in BIG_CATS if any(k in hay for k in kws)]
+    hits = [name for name, kws in big_cats if any(k in hay for k in kws)]
     return hits or [OTHER_CAT]
 
 
@@ -177,6 +200,7 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
     from .render import parse_frontmatter, source_open_url
 
     items: list[dict[str, Any]] = []
+    big_cats = effective_big_cats()
     base = vault / "_archive" / source
     if not base.is_dir():
         return items
@@ -224,7 +248,7 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                 "likes": (note.get('engagement') or {}).get('liked'),
                 "pinyin": ''.join(lazy_pinyin(' '.join([str(meta.get('title') or ''), summary, *tags]))).lower(),
                 "tags": tags,
-                "cats": _cats(tags),
+                "cats": _cats(tags, big_cats),
                 "kind": meta.get("kind", "image"),
                 "date": archived.strftime("%Y-%m-%d") if archived else "",
                 "ts": archived.isoformat() if archived else "",
@@ -251,7 +275,7 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
 
     data_path = vault / "_archive" / DATA_NAME
     data_path.parent.mkdir(parents=True, exist_ok=True)
-    cats_order = [name for name, _ in BIG_CATS] + [OTHER_CAT]
+    cats_order = [name for name, _ in effective_big_cats()] + [OTHER_CAT]
     present = {c for it in items for c in it["cats"]}
     cats_order = [c for c in cats_order if c in present]
     data_path.write_text(
@@ -279,7 +303,18 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
     return catalog_path, len(items), data_path
 
 
+def dump_cats_text() -> str:
+    """把当前生效的大类导成「名称: 关键词1, 关键词2」逐行文本，给设置页那个可编辑文本框预填。"""
+    return "\n".join(f"{name}: {', '.join(kws)}" for name, kws in effective_big_cats())
+
+
 def run(args) -> int:
+    if getattr(args, "print_cats", False):
+        # 机器可读：设置页「载入当前大类」按钮读这份
+        from .read import dump_json
+
+        dump_json({"text": dump_cats_text()})
+        return 0
     path, total, data_path = build()
     print(f"目录已重写：{path}（{total} 篇）")
     print(f"数据：{data_path}")
