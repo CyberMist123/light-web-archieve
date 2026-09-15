@@ -1,9 +1,9 @@
 {
   "id": "link-brain-actions",
   "name": "Link Brain Actions",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "minAppVersion": "1.5.0",
-  "description": "在 Obsidian 里直接跑归档动作：重建目录 / 补附件 / 补跑收藏同步 / 投喂新链接。",
+  "description": "小红书收藏归档的 Obsidian 端：封面瀑布流目录（大类筛选 + 模糊检索）、投喂导入（清洗/去重/进度）、右键编辑标签 / 删除 / 多选删除、/问AI 本地检索问答、可配 AI 接口与巡检周期。",
   "author": "cybermist",
   "isDesktopOnly": true
 }

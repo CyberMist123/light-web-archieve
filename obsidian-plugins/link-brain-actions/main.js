@@ -22,7 +22,6 @@ const DEFAULT_ANSWER_PROMPT =
 const DEFAULT_SETTINGS = {
   textAI: { mode: "media", model: "", endpoint: "", apiKey: "", maxTokens: 800 },
   ocr: { mode: "media", via: "cmx", model: "", endpoint: "", apiKey: "" },
-  tts: { endpoint: "", apiKey: "", model: "", voice: "" },
   prompts: { summary: "", answer: DEFAULT_ANSWER_PROMPT },
   retrieval: { totalCharLimit: 8000, fragChars: 800, topK: 8, expandTerms: false },
   answerFormat: { useModel: false, includeXhsLink: true, includeLocalLink: true, localLinkFormat: "obsidian", excerptChars: 200 },
@@ -208,26 +207,6 @@ class LinkBrainActions extends Plugin {
     el.setText(markdown); // 兜底：至少把文本显示出来
   }
 
-  // TTS：OpenAI 兼容 /audio/speech；key 读自 data.json，绝不打印。返回 Audio 对象（已 play）。
-  async speak(text) {
-    const t = this.settings.tts || {};
-    if (!(t.endpoint || "").trim()) throw new Error("未配置 TTS endpoint");
-    const resp = await requestUrl({
-      url: t.endpoint.trim(),
-      method: "POST",
-      contentType: "application/json",
-      headers: (t.apiKey || "").trim() ? { Authorization: "Bearer " + t.apiKey.trim() } : {},
-      body: JSON.stringify({ model: (t.model || "tts-1").trim(), input: String(text).slice(0, 4000), voice: (t.voice || "alloy").trim(), response_format: "mp3" }),
-      throw: true,
-    });
-    const blob = new Blob([resp.arrayBuffer], { type: "audio/mpeg" });
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audio.onended = () => URL.revokeObjectURL(url);
-    await audio.play();
-    return audio;
-  }
-
   // 一次只准跑一个动作：这些命令会开浏览器、吃内存，叠着跑必炸（18060 负载重就 Failed to get the debug url）。
   run(args, label, slow = false) {
     if (this.running) {
@@ -388,23 +367,6 @@ class LinkBrainSettingTab extends PluginSettingTab {
     this.addTestButton(c, "测试识图（对库里第一张图跑一次 OCR）", ["-m", "link_brain", "selftest", "ocr"]);
 
     // —— TTS ——
-    c.createEl("h3", { text: "语音合成 TTS" });
-    c.createEl("p", { cls: "setting-item-description", text: "OpenAI 兼容 /audio/speech：POST {model,input,voice}。留空则不启用；配好后 AI 回答区会出现「朗读」。" });
-    new Setting(c).setName("Endpoint").addText(t => t.setPlaceholder("https://api.example.com/v1/audio/speech").setValue(s.tts.endpoint)
-      .onChange(async v => { s.tts.endpoint = v.trim(); await save(); }));
-    new Setting(c).setName("API Key").addText(t => { t.inputEl.type = "password";
-      t.setPlaceholder("sk-…").setValue(s.tts.apiKey).onChange(async v => { s.tts.apiKey = v.trim(); await save(); }); });
-    new Setting(c).setName("模型").addText(t => t.setPlaceholder("tts-1").setValue(s.tts.model)
-      .onChange(async v => { s.tts.model = v.trim(); await save(); }));
-    new Setting(c).setName("音色 voice").addText(t => t.setPlaceholder("alloy").setValue(s.tts.voice)
-      .onChange(async v => { s.tts.voice = v.trim(); await save(); }));
-    new Setting(c).setName("测试 TTS").addButton(b => b.setButtonText("朗读“测试”").onClick(async () => {
-      b.setButtonText("合成中…"); b.setDisabled(true);
-      try { await this.plugin.speak("测试，一二三。"); new Notice("TTS 正常"); }
-      catch (e) { new Notice("TTS 失败：" + e.message, 8000); }
-      finally { b.setButtonText("朗读“测试”"); b.setDisabled(false); }
-    }));
-
     // —— 提示词 ——
     c.createEl("h3", { text: "提示词" });
     new Setting(c).setName("摘要提示词（归档时抽取）")
@@ -465,6 +427,29 @@ class LinkBrainSettingTab extends PluginSettingTab {
         const r = await this.plugin.run(["-m", "link_brain", "catalog"], "重建目录");
         if (r.code === 0) new Notice("目录已重建，打开「小红书收藏目录」看新大类");
       }));
+
+    // —— 每晚收藏巡检 ——
+    c.createEl("h3", { text: "每晚收藏巡检" });
+    const schedSetting = new Setting(c).setName("巡检频率")
+      .setDesc("小红书收藏自动同步进库（Windows 计划任务 XhsFavSync，凌晨 4 点）。改频率或关闭。");
+    let schedDrop;
+    schedSetting.addDropdown(d => { schedDrop = d;
+      d.addOption("daily", "每天").addOption("weekly", "每周（周一）").addOption("off", "关闭").setValue("daily")
+        .onChange(async v => {
+          schedSetting.setDesc("正在设置…");
+          const { out } = await this.plugin.spawnCapture(["-m", "link_brain", "sync-schedule", "--set", v]);
+          let r; try { r = JSON.parse(out.trim().split("\n").filter(Boolean).pop() || "{}"); } catch { r = {}; }
+          schedSetting.setDesc(r.ok ? `已设为「${v === "off" ? "关闭" : v === "weekly" ? "每周" : "每天"}」`
+            : ("设置失败：" + (r.detail || r.error || "未知错误")));
+        });
+    });
+    // 载入当前频率
+    this.plugin.spawnCapture(["-m", "link_brain", "sync-schedule"]).then(({ out }) => {
+      try { const r = JSON.parse(out.trim().split("\n").filter(Boolean).pop() || "{}");
+        if (r.freq === "none") schedSetting.setDesc("本机没有 XhsFavSync 计划任务（可能没配巡检）。");
+        else if (r.freq && r.freq !== "unknown") schedDrop.setValue(r.enabled ? r.freq : "off");
+      } catch {}
+    });
   }
 
   addTestButton(container, label, args) {

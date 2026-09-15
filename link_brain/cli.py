@@ -114,6 +114,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("delete", help="删除收藏（可见笔记 + 对象目录 + 索引行，不可逆）")
     p.add_argument("item_ids", nargs="+", help="一个或多个 item_id")
 
+    p = sub.add_parser("tidy-comments", help="去掉旧笔记里纯链接的自动 cmt1 留言")
+
+    p = sub.add_parser("sync-schedule", help="看/改每晚收藏巡检的周期（Windows 计划任务 XhsFavSync）")
+    p.add_argument("--set", choices=["daily", "weekly", "off"], help="改成每天/每周/关闭；不给就只报当前")
+
     p = sub.add_parser("inbox", help="列出被戳到某角色且未处理的对象")
     p.add_argument("--for", dest="for_actor", required=True, help="角色名，如 fable")
 
@@ -239,6 +244,18 @@ def main(argv: list[str] | None = None) -> int:
         from . import remove as remove_mod
 
         return remove_mod.run(args)
+
+    if args.command == "tidy-comments":
+        from . import render as render_mod
+        from .read import dump_json
+
+        dump_json(render_mod.tidy_link_comments())
+        return EXIT_OK
+
+    if args.command == "sync-schedule":
+        from . import sync_schedule as sync_schedule_mod
+
+        return sync_schedule_mod.run(args)
 
     if args.command in ("comment", "inbox", "resolve"):
         from . import comments as comments_mod
