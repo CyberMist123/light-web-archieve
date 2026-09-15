@@ -12,7 +12,9 @@ style.textContent = `
 .lbc-search{flex:1;min-width:180px;max-width:660px!important;height:44px!important;border:0!important;box-shadow:none!important;border-radius:24px!important;background:var(--background-secondary)!important;padding:0 20px!important;}
 .lbc-sub{font-size:11px;color:var(--text-faint);margin-left:auto;white-space:nowrap;}
 .lbc-grid{columns:250px;column-gap:32px;}
-.lbc-card{display:inline-block;vertical-align:top;width:100%;margin:0 0 36px;break-inside:avoid;cursor:pointer;}
+.lbc-card{display:inline-block;vertical-align:top;width:100%;margin:0 0 36px;break-inside:avoid;cursor:pointer;position:relative;}
+.lbc-attach{position:absolute;top:8px;right:8px;font-size:11px;line-height:1;padding:4px 8px;border-radius:9px;background:rgba(0,0,0,.55);color:#fff;pointer-events:none;backdrop-filter:blur(2px);}
+.lbc-attach-todo{background:#e08a1e;}
 .lbc-cover{display:block;width:100%;height:auto;max-height:360px;object-fit:cover;object-position:top;border-radius:16px;border:1px solid var(--background-modifier-border);transition:filter .15s;pointer-events:none;}
 .lbc-card:hover .lbc-cover{filter:brightness(.95);}
 .lbc-card:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:5px;border-radius:16px;}
@@ -160,6 +162,7 @@ function openCardMenu(e,body,it){
   menu.style.cssText=`position:fixed;left:${e.clientX}px;top:${e.clientY}px;z-index:9999;`;
   const add=(label,fn,danger)=>{const b=menu.createEl('div',{cls:'lbc-menu-item'+(danger?' is-danger':'')});b.setText(label);b.onclick=ev=>{ev.stopPropagation();menu.remove();fn();};};
   add('编辑标签',()=>openTagEditor(body,it));
+  if(it.attachment==='待补')add('下载附件（要开浏览器）',()=>{const p=app.plugins.plugins['link-brain-actions'];if(p?.run)p.run(['-m','link_brain','attachments',it.id],'下载附件',true);});
   add('删除收藏',()=>confirmDelete([it]),true);
   add('多选删除',()=>{selectMode=true;selected.add(it.id);render();});
   const close=()=>{menu.remove();document.removeEventListener('click',close);document.removeEventListener('contextmenu',close);};
@@ -247,6 +250,9 @@ function render(){
     const card=grid.createEl('article',{cls:'lbc-card'+(selectMode&&selected.has(it.id)?' is-selected':'')});card.tabIndex=0;card.setAttribute('role','link');
     if(it.cover){const img=card.createEl('img',{cls:'lbc-cover'});img.loading='lazy';img.alt='';img.src=app.vault.adapter.getResourcePath(it.cover);}
     else card.createEl('div',{cls:'lbc-nocover',text:it.kind==='video'?'▷':'▤'});
+    // 附件角标：待补=有文件未下载（橙），downloaded=有文件已下（灰）
+    if(it.attachment==='待补')card.createEl('div',{cls:'lbc-attach lbc-attach-todo',text:'📎 未下载'});
+    else if(it.attachment==='downloaded')card.createEl('div',{cls:'lbc-attach',text:'📎 文件'});
     const body=card.createEl('div',{cls:'lbc-body'});body.createEl('div',{cls:'lbc-ctitle',text:it.title||'未命名'});
     const meta=body.createEl('div',{cls:'lbc-cmeta'});meta.createEl('span',{text:it.author||it.source||'收藏'});meta.createEl('span',{text:it.likes==null?'':'♡ '+(Number(it.likes)>=10000?(Number(it.likes)/10000).toFixed(1)+'万':it.likes)});
     // 多选模式：点击=勾选/取消；平时=打开笔记
