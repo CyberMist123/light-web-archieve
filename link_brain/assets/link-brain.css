@@ -109,7 +109,19 @@
 
 .xhs-note .lb-main {
   min-width: 0;
+  height: min(78vh, 860px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
+
+.xhs-note .inline-title { display: none; }
+.xhs-note .lb-scroll { overflow-y: auto; min-height: 0; padding-right: 12px; scrollbar-width: thin; }
+.xhs-note .lb-no-media .lb-main { height: auto; }
+.xhs-note .lb-author-row { flex-shrink: 0; }
+.xhs-note .lb-note-title { font-size: 1.2em; line-height: 1.5; margin: 0 0 14px; }
+.lb-inbox .metadata-container,.lb-catalog .metadata-container { display: none!important; }
+.lb-catalog .inline-title { display: none!important; }
 
 .xhs-note .lb-media {
   width: 100%;               /* 图片占满左栏（Owner 2026-09-07：图左评论右） */
@@ -126,6 +138,8 @@
     position: static;
     margin-bottom: 14px;
   }
+  .xhs-note .lb-main { height: auto; overflow: visible; }
+  .xhs-note .lb-scroll { overflow: visible; }
   .xhs-note .lb-media {
     width: 100%;
     margin: 0 0 14px;
@@ -222,8 +236,10 @@
     cursor: pointer;
   }
 
-  .xhs-note .lb-carousel::scroll-button(left) { content: "‹"; }
-  .xhs-note .lb-carousel::scroll-button(right) { content: "›"; }
+  .xhs-note .lb-carousel:has(.lb-slide:nth-child(2))::scroll-button(left) { content: "‹"; }
+  .xhs-note .lb-carousel:has(.lb-slide:nth-child(2))::scroll-button(right) { content: "›"; }
+  .xhs-note .lb-carousel:not(:has(.lb-slide:nth-child(2)))::scroll-button(left),
+  .xhs-note .lb-carousel:not(:has(.lb-slide:nth-child(2)))::scroll-button(right) { content: none; display: none; }
 
   .xhs-note .lb-carousel:hover::scroll-button(left),
   .xhs-note .lb-carousel:hover::scroll-button(right),

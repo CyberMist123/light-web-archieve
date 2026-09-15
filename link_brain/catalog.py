@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pypinyin import lazy_pinyin
 
 from . import storage
 
@@ -212,6 +213,8 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                 "search_text": summary + ' ' + str(note.get('body') or ''),
                 "author": (note.get('author') or {}).get('nickname', ''),
                 "source": source,
+                "likes": (note.get('engagement') or {}).get('liked'),
+                "pinyin": ''.join(lazy_pinyin(' '.join([str(meta.get('title') or ''), summary, *tags]))).lower(),
                 "tags": tags,
                 "cats": _cats(tags),
                 "kind": meta.get("kind", "image"),
@@ -229,7 +232,7 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
 
 # ── dataviewjs 页面（样式自注入，不依赖 CSS snippet；读 catalog-data.json 渲染） ──
 # 页面脚本独立保存，生成时嵌入笔记，Dataview 无需另读脚本。
-_DATAVIEWJS = "```dataviewjs\n" + (Path(__file__).parent / "assets" / "catalog-view.js").read_text(encoding="utf-8") + "\n```"
+_DATAVIEWJS = "```dataviewjs\n" + (Path(__file__).parent / "assets" / "catalog-search.js").read_text(encoding="utf-8") + '\n' + (Path(__file__).parent / "assets" / "catalog-view.js").read_text(encoding="utf-8") + "\n```"
 _PAGE_HEADER = "---\ncssclasses: [lb-catalog]\n---\n\n"
 
 
@@ -250,6 +253,7 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
                 "count": len(items),
                 "cats_order": cats_order,
                 "items": items,
+                "pinyin_chars": {c: lazy_pinyin(c)[0] for c in set(''.join(str(it['title']) + ' '.join(it['tags']) + it['summary'] for it in items)) if '\u4e00' <= c <= '\u9fff'},
             },
             ensure_ascii=False,
             indent=1,

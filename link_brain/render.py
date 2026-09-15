@@ -555,6 +555,7 @@ def render_content_block(
     # 左右容器就散了（这正是 09-05 float 版的根因）。所以正文改成 `_body_html`。
     # 顶上灰字（原文/机读版/附件）仍是 Markdown、放在 HTML 块**外面**（内部链接要 Obsidian 解析）。
     author = _author_html(note)
+    title = f'<h2 class="lb-note-title">{_safe(note.get("title") or meta.get("title") or "")}</h2>'
     body = _body_html(note.get("body") or "")
     detail = _comments_html(note, comments, manifest, object_rel)
     # Owner 2026-09-15：头像/作者在**正文上方**（右栏顶部），不跟图片在左栏。
@@ -563,11 +564,11 @@ def render_content_block(
         note_html = (
             f'<div class="{cls}">'
             f'<div class="lb-side">{media}</div>'
-            f'<div class="lb-main">{author}{body}{detail}</div>'
+            f'<div class="lb-main">{author}<div class="lb-scroll">{title}{body}{detail}</div></div>'
             f"</div>"
         )
     else:
-        note_html = f'<div class="{cls}"><div class="lb-main">{author}{body}{detail}</div></div>'
+        note_html = f'<div class="{cls}"><div class="lb-main">{author}<div class="lb-scroll">{title}{body}{detail}</div></div></div>'
 
     parts = [CONTENT_START]
     parts.extend(_meta_md(note, meta, object_rel))

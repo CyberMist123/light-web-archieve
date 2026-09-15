@@ -1,0 +1,23 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const score = new Function(fs.readFileSync('link_brain/assets/catalog-search.js','utf8')+';return score')();
+const item = {title:'记忆管理框架',tags:['AI'],pinyin:'jiyiguanlikuangjia',summary:''};
+for(const q of ['jiyi','jiy','jiyu','记忆框架','#ai','jiyi guanli']) assert.ok(score(item,q)>0,q);
+for(const q of ['香蕉','#食谱','不存在的关键词']) assert.equal(score(item,q),0,q);
+const context={module:{exports:{}},URL,require:name=>name==='obsidian'?{Plugin:class{},Modal:class{},Notice:class{},TFile:class{}}:require(name)};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js','utf8')+';module.exports.cleanLinks=cleanLinks;',context);
+const Plugin=context.module.exports;
+const links=Plugin.cleanLinks('分享：https://www.xiaohongshu.com/explore/abc?xsec_token=keep&share_from=test，重复 https://www.xiaohongshu.com/explore/abc?xsec_token=keep https://xiaohongshu.com.evil.test/a https://xhslink.com/a/test。');
+assert.equal(links.length,2);
+assert.equal(links[0],'https://www.xiaohongshu.com/explore/abc?xsec_token=keep');
+assert.equal(links[1],'https://xhslink.com/a/test');
+(async()=>{
+  const plugin=new Plugin();const calls=[];
+  plugin.run=async args=>{calls.push(args);return {stdout:JSON.stringify({items:[{status:'hit',visible_note:'Web/Xiaohongshu/已归档.md'}]})};};
+  const results=await plugin.importText('https://xhslink.com/a/test https://xhslink.com/a/test');
+  assert.equal(results.length,1);assert.equal(results[0].note,'已归档');assert.equal(calls.length,2);
+  assert.equal(calls[1][2],'catalog');assert.equal(plugin.importing,false);
+  console.log('PASS: fuzzy/pinyin/tag search, URL cleaning, deduplication, import results and rebuild');
+})().catch(e=>{console.error(e);process.exitCode=1;});
