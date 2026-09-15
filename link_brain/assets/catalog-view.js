@@ -6,13 +6,15 @@ style.textContent = `
 .markdown-preview-view.lb-catalog,.markdown-source-view.lb-catalog{--file-line-width:100%;}
 .lb-catalog .markdown-preview-sizer,.lb-catalog .markdown-preview-section,.lb-catalog .cm-sizer,.lb-catalog .cm-contentContainer,.lb-catalog .cm-content,.lb-catalog .block-language-dataviewjs{width:100%!important;max-width:none!important;}
 .lb-catalog .inline-title,.lb-catalog .metadata-container{display:none!important;}
-.lbc-wrap{width:100%;padding:24px clamp(8px,2vw,36px) 40px;box-sizing:border-box;}
-.lbc-head{display:flex;align-items:center;gap:22px;margin:0 0 22px;flex-wrap:wrap;}
-.lbc-title{font-family:Georgia,'Playfair Display','Times New Roman',serif;font-style:italic;font-size:28px;font-weight:600;letter-spacing:.01em;}
+.lbc-wrap{width:100%;padding:24px clamp(8px,2vw,36px) 40px;box-sizing:border-box;font-family:Georgia,'Noto Serif SC','Source Han Serif SC','Songti SC',STSong,'STZhongsong',serif;}
+.lbc-head{display:flex;align-items:center;gap:20px;margin:0 0 20px;flex-wrap:wrap;}
+.lbc-titleblock{display:flex;flex-direction:column;gap:4px;}
+.lbc-title{font-family:Georgia,'Playfair Display','Times New Roman',serif;font-style:italic;font-size:30px;font-weight:600;letter-spacing:.01em;line-height:1;}
+.lbc-subline{display:flex;gap:8px;align-items:center;font-size:12px;}
 .lbc-search{flex:1;min-width:180px;max-width:none!important;height:42px!important;box-shadow:none!important;border-radius:21px!important;background:transparent!important;border:1px solid var(--background-modifier-border)!important;padding:0 20px!important;}
-.lbc-toolbar{font-size:13px;}
-.lbc-sub{font-size:13px;color:var(--text-faint);white-space:nowrap;}
-.lbc-sync{font-size:13px;color:var(--interactive-accent);cursor:pointer;white-space:nowrap;}
+.lbc-import{border:0;box-shadow:none;border-radius:20px;padding:8px 16px;background:var(--background-secondary);font-size:13px;cursor:pointer;white-space:nowrap;}
+.lbc-sub{font-size:12px;color:var(--text-faint);white-space:nowrap;}
+.lbc-sync{font-size:12px;color:var(--interactive-accent);cursor:pointer;white-space:nowrap;}
 .lbc-sync[hidden]{display:none;}
 .lbc-right{margin-left:auto;}
 .lbc-grid{columns:250px;column-gap:32px;}
@@ -40,9 +42,6 @@ style.textContent = `
 .lbc-cmeta{display:flex;justify-content:space-between;gap:10px;color:var(--text-muted);font-size:12px;margin-top:8px;}
 .lbc-cmeta span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .lbc-empty{padding:40px;color:var(--text-muted);}
-.lbc-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 30px;}
-.lbc-toolbar button{border:0;box-shadow:none;border-radius:20px;padding:7px 16px;background:var(--background-secondary);font-size:13px;}
-.lbc-toolbar button.is-active{color:var(--interactive-accent);background:var(--background-modifier-hover);}
 .lbc-status{font-size:12px;color:var(--text-muted);}
 .lbc-cats{display:flex;flex-wrap:wrap;align-items:center;margin:0 0 22px;font-size:13px;}
 .lbc-cat{padding:4px 12px;cursor:pointer;color:var(--text-muted);border-radius:8px;transition:color .12s;}
@@ -80,19 +79,18 @@ for (const it of items) {
   }
 }
 const wrap=root.createEl('div',{cls:'lbc-wrap'});
+// 第一行：左=标题「Collections」+ 其下计数·更新·未同步；右=搜索框 + 导入。
 const head=wrap.createEl('div',{cls:'lbc-head'});
-head.createEl('span',{cls:'lbc-title',text:'Collections'});
+const titleBlock=head.createEl('div',{cls:'lbc-titleblock'});
+titleBlock.createEl('div',{cls:'lbc-title',text:'Collections'});
+const subLine=titleBlock.createEl('div',{cls:'lbc-subline'});
+let todayOnly=false;
+const sub=subLine.createEl('span',{cls:'lbc-sub'});
+const syncSpan=subLine.createEl('span',{cls:'lbc-sync'});syncSpan.hidden=true;
+syncSpan.onclick=()=>{const p=app.plugins.plugins['link-brain-actions'];if(p?.run){p.run(['-m','link_brain','attachments','--all'],'补下附件',true);syncSpan.setText('正在补跑…（会开浏览器）');}};
 const search=head.createEl('input',{cls:'lbc-search'});
 search.type='search';search.placeholder='搜索收藏…';search.title='普通搜索 · #标签 · /问知识库';search.setAttribute('aria-label','搜索收藏');
-// 第二行：左=计数·更新+未同步·补跑；右=今日新增(切换) + 导入。
-const toolbar=wrap.createEl('div',{cls:'lbc-toolbar'});
-let todayOnly=false;
-const sub=toolbar.createEl('span',{cls:'lbc-sub'});
-const syncSpan=toolbar.createEl('span',{cls:'lbc-sync'});syncSpan.hidden=true;
-syncSpan.onclick=()=>{const p=app.plugins.plugins['link-brain-actions'];if(p?.run){p.run(['-m','link_brain','attachments','--all'],'补下附件',true);syncSpan.setText('正在补跑…（会开浏览器）');}};
-const todayButton=toolbar.createEl('button',{text:'今日新增',cls:'lbc-right'});
-todayButton.onclick=()=>{todayOnly=!todayOnly;todayButton.toggleClass('is-active',todayOnly);render();};
-const importButton=toolbar.createEl('button',{text:'+ 导入',cls:'lbc-import'});
+const importButton=head.createEl('button',{text:'+ 导入',cls:'lbc-import'});
 const importStatus=wrap.createEl('div',{cls:'lbc-status'});
 importButton.type='button';
 importButton.onclick=async e=>{
@@ -116,7 +114,8 @@ const catBar=wrap.createEl('div',{cls:'lbc-cats'});
 function renderCatBar(){
   catBar.empty();
   const mk=(label,active,on)=>{const s=catBar.createEl('span',{cls:'lbc-cat'+(active?' is-active':''),text:label});s.onclick=on;return s;};
-  mk('全部',!activeCat,()=>{if(activeCat){activeCat='';renderCatBar();render();}});
+  mk('全部',!activeCat&&!todayOnly,()=>{if(activeCat||todayOnly){activeCat='';todayOnly=false;renderCatBar();render();}});
+  mk('今日新增',todayOnly,()=>{todayOnly=!todayOnly;renderCatBar();render();});
   for(const cat of (data.cats_order||[])){
     catBar.createEl('span',{cls:'lbc-cat-sep',text:'│'});
     mk(cat,activeCat===cat,()=>{activeCat=(activeCat===cat?'':cat);renderCatBar();render();});
