@@ -159,12 +159,15 @@ repo_path: D:\LIGHT WEB ARCHIEVE
   （Obsidian 遇空行闭合 HTML 块），两栏只能靠 sizer 级 grid / float 兜，视觉细节对不齐；
   真要划重点得走 `<mark>` 这条不碰布局的路。
   - **2026-09-15 更新（Owner 拍板，别当回归改回去）**：上面这套 float + 正文 Markdown 已被**刻意换掉**。
-    她的新需求：图片+作者左栏 sticky 固定，正文+评论右栏随页滚动。做法：整块 `.lb-note` 改成一个
-    **连续 HTML 块（内部无空行）**——`.lb-side`(图+作者) + `.lb-main`(正文+评论)，CSS 用 grid（48.5% 1fr）
-    + `.lb-side{position:sticky}`；**正文从 Markdown 改成 HTML `<p>`**（`render._body_html`），因为 Markdown
-    一遇空行就把容器闭合、两栏立不住（这正是当年 float 的根因）。代价：正文原生 `==高亮==` 失效
-    （以后用 `<mark>` 兜；高亮功能本来没开），**全文搜索不受影响**（搜的是文件文本）。手机宽(600px)收单栏。
-    `tests/test_ui_render.py` 已同步断言（body 带 `<p>`、CSS 有 grid/sticky）。已 `render --all` 全量重渲染。
+    需求：图片左栏 sticky 固定；**作者在正文上方**（右栏顶部，随页滚动）；正文+评论右栏可滑。做法：整块
+    `.lb-note` 改成一个**连续 HTML 块（内部无空行）**——`.lb-side`(只有图片) + `.lb-main`(作者→正文→评论)，
+    CSS 用 grid（48.5% 1fr）+ `.lb-side{position:sticky}`；**正文从 Markdown 改成 HTML `<p>`**
+    （`render._body_html`），因为 Markdown 一遇空行就把容器闭合、两栏立不住（这正是当年 float 的根因）。
+    手机宽(600px)收单栏。**全文搜索不受影响**（搜的是文件文本）。
+  - **高亮已实现（`<mark>`）**：正文转 HTML 后原生 `==` 不生效，改走 `<mark>`。`highlight <item_id> "原文片段"
+    [--remove]` 加/去一处高亮（`render.set_highlight`）；marks 存在 md 里，每次 render 由 `collect_highlights`
+    /`reapply_highlights` 从上一版收集、原样贴回，自持久（她在源码模式手写的 `<mark>` 也认，兼容旧 `==`）。
+  - `tests/test_ui_render.py`/`test_render.py`/`test_cli.py` 已同步断言。已 `render --all` 全量重渲染。
   过程中量到两条硬知识：**元素响应不了自己的容器查询**（sizer 自己当容器时 display 改不动、
   子节点规则却生效）；老 `auto-fit(minmax(390px,1fr))` 在 795px 仍是两栏，断点别定在 700/800。
 

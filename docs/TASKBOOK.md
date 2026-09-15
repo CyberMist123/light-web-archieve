@@ -269,8 +269,8 @@ tag 不动文件、能加减组合、贴合 Owner 习惯、给以后模糊搜索
 
 **09-15 迭代（Owner 追加）**：
 - 筛选改**「或」**（选多类 = 命中任一）。顶部是**小红书式大类 tab**（不堆几百 tag）：数据每篇仍带全 tag（卡片照显），大类由 `catalog.BIG_CATS` 关键词命中 tag 得来（一篇可多类），`cats_order` 写进 JSON。12 类：人机恋/AI·模型/记忆/提示词/开源·编程/AI工具/AI游戏/吃的/留学·澳洲/追文·同人/笑话/其他。
-- 卡片**放大铺满**：`column-width` 自适应；dataviewjs 注入样式解除 `.lb-catalog` 页的可读行宽限制（`max-width:none`）。
-- 单篇笔记排版一起改了（见 STATE「2026-09-15 更新」）：float→grid+左栏 sticky、正文转 HTML。
+- 卡片**改小、随页宽自适应铺满**：`column-width: clamp(150px,13vw,190px)`；dataviewjs 用 JS 直接把承载 sizer 撑满（`maxWidth=none`，比猜 CSS 选择器稳）+ CSS 兜底。
+- 单篇笔记排版（见 STATE「2026-09-15 更新」）：float→grid+左栏(只图片) sticky、**作者移到右栏正文上方**、正文转 HTML；**高亮改走 `<mark>`**，新增 `highlight <item_id> "片段" [--remove]` 命令（自持久）。
 
 **以后可选加**（她提了才做）：AI 模糊搜索（现在搜索框是标题/概要/tag substring）；B 站接入时复用同一套目录渲染（B 站主要为打通视频下载）。
 

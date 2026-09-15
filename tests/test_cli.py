@@ -6,7 +6,7 @@ import pytest
 
 from link_brain.cli import build_parser, main
 
-EXPECTED = {"ingest", "read", "search", "sync-favorites", "inbox", "resolve", "comment", "catalog"}
+EXPECTED = {"ingest", "read", "search", "sync-favorites", "inbox", "resolve", "comment", "catalog", "highlight"}
 
 
 def _subcommands():

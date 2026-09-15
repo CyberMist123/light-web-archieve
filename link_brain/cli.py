@@ -115,6 +115,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--as", dest="as_actor", required=True, help="human / gpt / fable / ...")
     p.add_argument("--target", dest="target_actor", default=None, help="戳给谁（不填就是自言自语）")
 
+    p = sub.add_parser("highlight", help="给一篇笔记正文加/去一处高亮（<mark>，持久到重渲染）")
+    p.add_argument("target", help="item_id")
+    p.add_argument("phrase", help="要高亮的原文片段（原样、含标点，需在正文里出现过）")
+    p.add_argument("--remove", action="store_true", help="去掉这处高亮")
+
     return parser
 
 
@@ -180,6 +185,14 @@ def main(argv: list[str] | None = None) -> int:
         from . import render as render_mod
 
         return render_mod.run(args)
+
+    if args.command == "highlight":
+        from . import render as render_mod
+
+        path, changed = render_mod.set_highlight(args.target, args.phrase, remove=args.remove)
+        verb = "去掉高亮" if args.remove else "加高亮"
+        print(f"{verb}：{'已改' if changed else '未找到该片段 / 无变化'} · {path}")
+        return EXIT_OK if changed else 1
 
     if args.command == "sync-favorites":
         from . import favorites as favorites_mod
