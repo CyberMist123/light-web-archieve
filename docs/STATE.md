@@ -1,5 +1,21 @@
 # Current State
 
+## 2026-09-16 反馈批 3（Owner：红按钮 bug / AI 慢 / 回答改小图+原文）
+
+- **多选删除的红按钮文字看不见**（我引入的 bug）：`.lbc-selbar button.mod-warning` 设成了红字红底
+  → 改成白字实心红 + 计数「删除选中 (N)」+ 无选中时禁用。
+- **AI 检索慢（真因找到）**：不是模型本身——是她 data.json 里存着旧的 `expandTerms:true`（上一版默认），
+  每次问答都多跑一次 ~15s 的「扩检索词」模型调用。改法：`expandTerms` 默认改 False（ai_config + main.js），
+  并把她 data.json 的这个值改掉。实测 `ask "吃鸡的菜谱"` 从 **15.3s → 0.01s**。
+- **/问AI 回答改形态**（她要的）：不再要「我的推断/补充说明」那套分析。qa 默认**纯本地检索**出
+  **小图（封面，点击跳笔记/xhs）+ 选取的原文摘录**（`_local_excerpt` 截命中处原文，不改写不概括）；
+  **链接不进正文**，只在**复制结果**时按设置附上「正文 + 本地路径 + xhs链接」。
+  设置新增「回答形态」：用模型挑摘录(默认关)、摘录字数、复制附 xhs / 本地链接开关、本地链接形式
+  （obsidian:// 深链 / [[wikilink]] / vault 路径）。ask.answer 返回 `kind:"cards"` + results[{id,title,cover,note,url,excerpt}]；
+  github/links 意图仍走 markdown。DEFAULT_ANSWER_PROMPT 改成「只挑原文摘录、输出 JSON、不分析」（仅 useModel 时用）。
+
+测试：test_ask 的 qa 用例改成卡片（默认无模型 / 开模型挑摘录 / 模型失败退本地）；全套 **133 passed + node PASS**。
+
 ## 2026-09-16 反馈批 2（Owner 5 条）
 
 1. **URL 尾巴粘中文识别不出**（真 bug）：分享文案常把「…&xsec_source=pc_share增加的内容」中文直接粘在链接后，

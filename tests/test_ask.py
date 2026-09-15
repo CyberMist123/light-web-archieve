@@ -83,36 +83,40 @@ def test_links_intent_lists_all_matches(monkeypatch):
     assert "[原文](https://www.xiaohongshu.com/explore/a)" in r["markdown"]
 
 
-def test_qa_sends_limited_fragments(monkeypatch):
-    captured = {}
-
-    def fake_call(instruction, input_text, settings):
-        captured["input"] = input_text
-        captured["instruction"] = instruction
-        return {"status": "ok", "text": "这是回答。", "usage": {"total_tokens": 42}, "error": None}
-
-    monkeypatch.setattr(ask, "call_text", fake_call)
-    # 关掉扩词，避免额外一次调用干扰断言
-    monkeypatch.setattr(ask.ai_config, "load", lambda: ask.ai_config._deep_merge(
-        ask.ai_config.DEFAULTS, {"retrieval": {"expandTerms": False, "totalCharLimit": 8000, "fragChars": 800, "topK": 8}}))
+def test_qa_local_cards_no_model_by_default(monkeypatch):
+    # 默认 useModel=False：纯本地检索出小图 + 原文摘录，绝不调模型（她嫌慢）
+    monkeypatch.setattr(ask, "call_text", lambda *a, **k: pytest.fail("默认不该调模型"))
     r = ask.answer("AI 做梦是怎么回事")
     assert r["intent"] == "qa"
-    assert r["model_called"] is True
-    assert r["matches"] >= 2
-    assert r["materials"] >= 1
-    assert "这是回答。" in r["markdown"]
-    # 送模型的输入受总字符上限约束
-    assert len(captured["input"]) <= 8000 + 500  # 片段拼装 + 问题包头的余量
+    assert r["kind"] == "cards"
+    assert r["model_called"] is False
+    assert r["matches"] >= 2 and r["materials"] >= 1
+    card = r["results"][0]
+    assert set(card) >= {"id", "title", "cover", "note", "url", "excerpt"}
+    assert card["excerpt"]  # 有原文摘录
+    assert "markdown" not in card  # 卡片不含分析正文
 
 
-def test_qa_model_failure_still_lists_notes(monkeypatch):
+def test_qa_model_picks_excerpts_when_enabled(monkeypatch):
     monkeypatch.setattr(ask.ai_config, "load", lambda: ask.ai_config._deep_merge(
-        ask.ai_config.DEFAULTS, {"retrieval": {"expandTerms": False}}))
+        ask.ai_config.DEFAULTS, {"answerFormat": {"useModel": True}}))
+    monkeypatch.setattr(ask, "call_text", lambda *a, **k: {
+        "status": "ok",
+        "text": '{"results":[{"id":"片段1","excerpt":"做梦是把记忆重放"}]}',
+        "usage": None, "error": None})
+    r = ask.answer("AI 做梦")
+    assert r["model_called"] is True
+    assert r["results"][0]["excerpt"] == "做梦是把记忆重放"
+
+
+def test_qa_model_failure_falls_back_to_local(monkeypatch):
+    monkeypatch.setattr(ask.ai_config, "load", lambda: ask.ai_config._deep_merge(
+        ask.ai_config.DEFAULTS, {"answerFormat": {"useModel": True}}))
     monkeypatch.setattr(ask, "call_text", lambda *a, **k: {"status": "failed", "text": None, "error": "boom"})
     r = ask.answer("AI 做梦")
     assert r["status"] == "ok"  # 不阻断
-    assert "boom" in r["markdown"]
-    assert "[[Web/Xiaohongshu/" in r["markdown"]  # 至少把命中的笔记列出来
+    assert r["kind"] == "cards"
+    assert r["results"] and r["results"][0]["excerpt"]  # 退回本地摘录，仍有卡片
 
 
 def test_empty_question():

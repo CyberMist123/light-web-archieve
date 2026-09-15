@@ -20,7 +20,9 @@ style.textContent = `
 .lbc-selbar{display:flex;gap:12px;align-items:center;margin:0 0 18px;padding:10px 14px;border-radius:12px;background:var(--background-secondary);}
 .lbc-selcount{font-size:13px;color:var(--text-muted);margin-right:auto;}
 .lbc-selbar button{border:0;border-radius:8px;padding:6px 14px;}
-.lbc-selbar button.mod-warning{background:var(--background-modifier-error,rgba(220,80,80,.15));color:var(--text-error,#c0392b);}
+.lbc-selbar button.mod-warning{background:#e5484d;color:#fff;font-weight:600;}
+.lbc-selbar button.mod-warning:hover{background:#d13c41;}
+.lbc-selbar button.mod-warning:disabled{opacity:.5;}
 .lbc-menu{background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.18);padding:5px;min-width:120px;}
 .lbc-menu-item{padding:7px 14px;border-radius:7px;cursor:pointer;font-size:13px;}
 .lbc-menu-item:hover{background:var(--background-modifier-hover);}
@@ -47,6 +49,15 @@ style.textContent = `
 .lbc-ai-answer{line-height:1.7;}
 .lbc-ai-answer p:first-child{margin-top:0;}
 .lbc-ai-meta{color:var(--text-faint);font-size:11px;margin-top:14px;}
+.lbc-ans-card{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--background-modifier-border);}
+.lbc-ans-card:last-child{border-bottom:0;}
+.lbc-ans-thumb{flex:0 0 68px;width:68px;height:68px;border-radius:10px;overflow:hidden;cursor:pointer;background:var(--background-secondary);}
+.lbc-ans-thumb img{width:100%;height:100%;object-fit:cover;object-position:top;}
+.lbc-ans-thumb:hover{filter:brightness(.93);}
+.lbc-ans-nocover{width:100%;height:100%;display:grid;place-items:center;color:var(--text-muted);}
+.lbc-ans-body{flex:1;min-width:0;}
+.lbc-ans-title{font-size:13px;font-weight:600;margin-bottom:3px;}
+.lbc-ans-excerpt{font-size:12.5px;line-height:1.6;color:var(--text-muted);}
 .lbc-ai-error{padding:12px 14px;border-radius:10px;background:var(--background-modifier-error,rgba(220,80,80,.12));color:var(--text-error,#c0392b);}
 .lbc-ai-error strong{display:block;margin-bottom:4px;}
 @media(max-width:650px){.lbc-grid{columns:180px;column-gap:18px;}.lbc-sub{width:100%;margin:0;}.lbc-wrap{padding:12px 4px;}}
@@ -154,6 +165,13 @@ function openCardMenu(e,body,it){
   const close=()=>{menu.remove();document.removeEventListener('click',close);document.removeEventListener('contextmenu',close);};
   setTimeout(()=>{document.addEventListener('click',close);document.addEventListener('contextmenu',close);},0);
 }
+// 本地链接三种形式（复制结果里用；设置里可调）
+function localLink(note,fmt){
+  const stem=String(note||'').replace(/\.md$/,'');
+  if(fmt==='wikilink')return `[[${stem}]]`;
+  if(fmt==='path')return note;
+  return `obsidian://open?vault=${encodeURIComponent(app.vault.getName())}&file=${encodeURIComponent(stem)}`;
+}
 function render(){
   grid.empty();const raw=search.value.trim();const asking=raw.startsWith('/');const q=normalize(asking?raw.slice(1):raw);
   const now=new Date();const today=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
@@ -172,37 +190,57 @@ function render(){
     } else {
       const bar=ai.createEl('div',{cls:'lbc-ai-bar'});
       const ask=bar.createEl('button',{text:'提问',cls:'mod-cta'});
-      const copyBtn=bar.createEl('button',{text:'复制回答'});copyBtn.disabled=true;
+      const copyBtn=bar.createEl('button',{text:'复制结果'});copyBtn.disabled=true;
       const meta=ai.createEl('div',{cls:'lbc-ai-meta'});
-      answer.setText('点「提问」，AI 会自己重新检索整库、只把少量片段送模型来回答。');
-      let lastMd='';
-      copyBtn.onclick=async()=>{if(!lastMd)return;try{await navigator.clipboard.writeText(lastMd);copyBtn.setText('已复制');setTimeout(()=>copyBtn.setText('复制回答'),1500);}catch{copyBtn.setText('复制失败');setTimeout(()=>copyBtn.setText('复制回答'),1500);}};
+      answer.setText('点「提问」：默认纯本地检索，给你小图 + 原文摘录（快，不花 token）。');
+      let lastCopy='';
+      copyBtn.onclick=async()=>{if(!lastCopy)return;try{await navigator.clipboard.writeText(lastCopy);copyBtn.setText('已复制');setTimeout(()=>copyBtn.setText('复制结果'),1500);}catch{copyBtn.setText('复制失败');setTimeout(()=>copyBtn.setText('复制结果'),1500);}};
       ask.onclick=async()=>{
-        ask.disabled=true;copyBtn.disabled=true;answer.empty();answer.setText('正在检索并回答…');meta.setText('');
+        ask.disabled=true;copyBtn.disabled=true;answer.empty();answer.setText('正在检索…');meta.setText('');
         try{
           const r=await provider.answerArchive({question:q});
-          answer.empty();lastMd=r.markdown||'';
-          await provider.renderMarkdownInto(lastMd||'（无内容）',answer,'小红书收藏目录.md');
-          copyBtn.disabled=!lastMd;
-          const u=r.usage?` · tokens ${r.usage.total_tokens||((r.usage.prompt_tokens||0)+(r.usage.completion_tokens||0))||'?'}`:'';
-          meta.setText(`意图 ${r.intent} · 全库命中 ${r.matches} 篇 · 送模型 ${r.materials} 篇${u}`);
-          if((provider.settings?.tts?.endpoint||'').trim() && r.model_called && !bar.querySelector('.lbc-ai-speak')){
-            const speak=bar.createEl('button',{text:'🔊 朗读',cls:'lbc-ai-speak'});
-            speak.onclick=async()=>{speak.disabled=true;const old=speak.textContent;speak.setText('合成中…');try{await provider.speak(lastMd);}catch(e){meta.setText('朗读失败：'+e.message);}finally{speak.setText(old);speak.disabled=false;}};
+          answer.empty();lastCopy='';
+          const fmt=provider.settings?.answerFormat||{};
+          if(r.kind==='cards'){
+            if(!r.results||!r.results.length){answer.setText('库里没检索到相关归档，换个关键词试试。');}
+            else{
+              const copyParts=[];
+              for(const c of r.results){
+                const row=answer.createEl('div',{cls:'lbc-ans-card'});
+                const thumb=row.createEl('div',{cls:'lbc-ans-thumb'});
+                if(c.cover){const img=thumb.createEl('img');img.loading='lazy';img.alt='';img.src=app.vault.adapter.getResourcePath(c.cover);}
+                else thumb.createEl('div',{cls:'lbc-ans-nocover',text:'▤'});
+                thumb.title='点击打开';thumb.onclick=()=>{if(c.note)app.workspace.openLinkText(c.note,'',false);else if(c.url)window.open(c.url);};
+                const bd=row.createEl('div',{cls:'lbc-ans-body'});
+                bd.createEl('div',{cls:'lbc-ans-title',text:c.title});
+                bd.createEl('div',{cls:'lbc-ans-excerpt',text:c.excerpt||'（无正文）'});
+                // 复制文本：正文 + 本地路径 + xhs链接（链接不进正文显示，只进复制，且按设置取舍）
+                const parts=[c.excerpt||''];
+                if(fmt.includeLocalLink!==false && c.note)parts.push(localLink(c.note,fmt.localLinkFormat));
+                if(fmt.includeXhsLink!==false && c.url)parts.push(c.url);
+                copyParts.push(parts.filter(Boolean).join('\n'));
+              }
+              lastCopy=copyParts.join('\n\n');copyBtn.disabled=false;
+            }
+          } else {
+            lastCopy=r.markdown||'';
+            await provider.renderMarkdownInto(lastCopy||'（无内容）',answer,'小红书收藏目录.md');
+            copyBtn.disabled=!lastCopy;
           }
+          meta.setText(`意图 ${r.intent} · 命中 ${r.matches} 篇 · 展示 ${r.materials||0} 篇`+(r.model_called?' · 用了模型':' · 本地检索'));
         }catch(e){
           answer.empty();
           const box=answer.createEl('div',{cls:'lbc-ai-error'});
           box.createEl('strong',{text:'⚠ 检索失败'});
           box.createEl('div',{text:String(e.message||e)});
-          box.createEl('div',{cls:'lbc-ai-meta',text:'常见原因：文本 AI 未配置或不通（设置里点「测试文本 AI」）、后端未启动。问题还在，改完可再点「提问」。'});
+          box.createEl('div',{cls:'lbc-ai-meta',text:'常见原因：后端未启动，或（开了模型时）文本 AI 未配置/不通。问题还在，可再点「提问」。'});
         }
         finally{ask.disabled=false;}
       };
     }
   }
   selbar.hidden=!selectMode;
-  if(selectMode)selCount.setText(`已选 ${selected.size} 篇`);
+  if(selectMode){selCount.setText(`已选 ${selected.size} 篇`);delBtn.setText(`删除选中${selected.size?' ('+selected.size+')':''}`);delBtn.disabled=!selected.size;}
   if(!shown.length){grid.createEl('div',{cls:'lbc-empty',text:'没找到，试试更短的关键词。'});return;}
   for(const {it} of shown){
     // 不设 aria-label：Obsidian 会把 aria-label 渲染成 hover 浮框（她不要那个「悬浮的点的字」）。
