@@ -59,6 +59,12 @@ python -m link_brain search "关键词" --json               # 查本地索引�
 
 `render` 会把仓库内 `link_brain/assets/link-brain.css` **同步**到 `vault/.obsidian/snippets/link-brain.css`，因此 UI 更新会跟随 rerender 生效。第一次使用时，Owner 仍需在 Obsidian 设置 → 外观 → CSS 片段里打开一次 `link-brain` 开关。
 
+### 收藏目录（封面瀑布流）
+
+`python -m link_brain catalog` 重写两样：`vault/_archive/catalog-data.json`（纯程序拼的数据）和 `vault/小红书收藏目录.md`（一段 dataviewjs 页面，读那份数据渲染封面瀑布流、点标签加/减筛选、搜索）。每晚同步后自动跑。
+
+**首次一次性设置**：Obsidian 装社区插件 **Dataview**，并在它的设置里打开 **Enable JavaScript Queries**。没装 / 没开时，目录页显示的是 dataviewjs 源码而不是卡片墙。页面样式由 dataviewjs 自注入，不需要额外开 CSS 片段。
+
 ### 笔记附件
 
 小红书的「笔记文件」MCP 完全不返回。`ingest` 会顺手 GET 一次笔记网页版，从

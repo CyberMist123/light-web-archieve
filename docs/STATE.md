@@ -217,14 +217,20 @@ repo_path: D:\LIGHT WEB ARCHIEVE
 2. **Lot 7 评论图补抓**（Owner 已批，规格见 `docs/TASKBOOK.md` Lot 7）：MCP 没有那个字段，
    走 agent-browser 小号登录态读页面 DOM 拿 URL、httpx 下字节，落**对象级** `comment-media/`，
    不碰已封存的 `raw/`。
-3. **目录页 / OB 首页瀑布流**（Owner 2026-09-07 追加，不急）：vault 里一篇自动维护的首页 md——
-   **瀑布流式**列全部笔记（封面缩略图 + 标题 + 一行概要 + tags + 日期）、**按分类分组**，方便她找文件。
-   一行一条的简版是底；瀑布流靠封面图排版。`render --all` 时顺手重写，纯程序拼。
-   - **分类由小模型出**（Owner 拍板）：在 `llm.py` 的固定 JSON 里加 `category` 字段，让 qwen 从固定清单里选，
-     和 tags 一样按 `tag-vocab.yaml` 归一。**固定分类清单（Owner 2026-09-07 定）**：
-     `记忆系统 / 开源项目 / 其他AI分享 / AI游戏 / 笑话 / 冲浪(人+AI) / 其他`（可再加/可加次类）。
-     存进 `extracted.json`，目录页按它分组。新收藏 `--extract` 时自动归类。
-   - 现在 vault 根有一份**关键词初分的草稿** `小红书收藏目录.md`（一次性生成，非自动维护），先顶着。
+3. ~~**目录页 / OB 首页瀑布流**~~ **✅ 代码已做（2026-09-15），改法推翻了 09-07 的方案，等 Owner 装 Dataview 实机验**：
+   - **09-15 Owner 拍板：组织轴改成 tag，不是 category 文件夹分组**。理由：文件夹一条笔记只能进一个夹子、
+     丢多维信息，移文件还是破坏性的（E2N 就得靠「只在子目录移、不删正文」自保）；tag 不动文件、能加减组合、
+     贴合她习惯、给以后 AI 模糊搜索留轴。**tag 本来就在每篇 frontmatter 里**（Lot 4），直接拿来当筛选轴，
+     不再动 `llm.py` 加 category。**上面那套固定分类清单作废，别再照它做。**
+   - `catalog.py` 重写成：Python 出 `_archive/catalog-data.json`（封面取 manifest 第一张成功图、
+     tag 读可见笔记 frontmatter、概要读 extracted.json、💬/📎/日期/kind 全带），md 页面 `小红书收藏目录.md`
+     是一段 **dataviewjs**（读那个 JSON 渲染封面瀑布流 + 点标签**加/减**筛选 + 搜索框；样式 JS 自注入、
+     卡片点击用 `openLinkText` 开笔记——绕开「裸 HTML a href 打不开本地笔记」和「md 不跑 script」两个坑）。
+   - 硬约束 #8「不做 Obsidian 插件」不违反：用的是**用户装的** Dataview 社区插件，不是自研插件。
+   - 实跑 156 篇：全有封面 + tag（1097 个唯一 tag，chip 条按热度显示 top 28、其余折「更多」）；
+     `tests/test_catalog.py` 3 个网络无关用例绿，全套仍全绿。
+   - **差 Owner 一步（待她验）**：OB 里装 **Dataview** 插件 + 其设置里打开 **Enable JavaScript Queries**，
+     打开 `小红书收藏目录.md` 看封面墙、点标签实时筛。没装/没开 JS 时页面显示的是 dataviewjs 源码。
 4. **docx → 文本**：4 个附件是 .docx，`pdf2md` 只吃 PDF。通路加进
    `Fluffy-SelfHood/tools/scripts/media.py`（硬约束 3：不自研，和 pdf 一条路），再让 `pdf2md` 认 .docx。
 5. ~~**Lot 6 收藏同步**~~ **代码+读取已通，只差整批实机验收**（见上「Lot 6」节）：
