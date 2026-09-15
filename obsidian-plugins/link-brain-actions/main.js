@@ -63,7 +63,8 @@ function serializeCats(arr) {
 
 function cleanLinks(text) {
   const links=[];
-  for(const raw of text.match(/https?:\/\/[^\s<>"'，。；！？）】]+/gi)||[]){
+  // 到空白/中文标点/中文字为止：分享文案常把中文直接粘在链接尾巴上（…pc_share增加的内容），不截断会识别不出。
+  for(const raw of text.match(/https?:\/\/[^\s<>"'，。、；：！？（）()\[\]【】《》　-〿一-鿿＀-￯]+/gi)||[]){
     try{const u=new URL(raw.replace(/[)\],.;]+$/, ''));
       if(!XHS_HOSTS.test(u.hostname))continue;
       // 只保留小红书读取所需的 xsec_token/xsec_source，其余分享追踪参数
@@ -275,6 +276,17 @@ class LinkBrainActions extends Plugin {
     try { payload = JSON.parse(out.trim().split("\n").filter(Boolean).pop() || "{}"); }
     catch { throw new Error("清洗后端没返回可解析结果"); }
     return payload.urls || [];
+  }
+
+  // 删除收藏：spawn `link_brain delete <id...>`（删可见笔记+对象目录+索引行，后端顺手重建目录）。
+  async deleteItems(ids) {
+    const list = (ids || []).filter(Boolean);
+    if (!list.length) return { deleted: 0, results: [] };
+    const { out } = await this.spawnCapture(["-m", "link_brain", "delete", ...list]);
+    let payload;
+    try { payload = JSON.parse(out.trim().split("\n").filter(Boolean).pop() || "{}"); }
+    catch { throw new Error("删除后端没返回可解析结果"); }
+    return payload;
   }
 
   async importText(text, report = () => {}, progress = () => {}) {

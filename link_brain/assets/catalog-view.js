@@ -16,6 +16,15 @@ style.textContent = `
 .lbc-cover{display:block;width:100%;height:auto;max-height:360px;object-fit:cover;object-position:top;border-radius:16px;border:1px solid var(--background-modifier-border);transition:filter .15s;}
 .lbc-card:hover .lbc-cover{filter:brightness(.95);}
 .lbc-card:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:5px;border-radius:16px;}
+.lbc-card.is-selected .lbc-cover,.lbc-card.is-selected .lbc-nocover{outline:3px solid var(--interactive-accent);outline-offset:2px;filter:brightness(.92);}
+.lbc-selbar{display:flex;gap:12px;align-items:center;margin:0 0 18px;padding:10px 14px;border-radius:12px;background:var(--background-secondary);}
+.lbc-selcount{font-size:13px;color:var(--text-muted);margin-right:auto;}
+.lbc-selbar button{border:0;border-radius:8px;padding:6px 14px;}
+.lbc-selbar button.mod-warning{background:var(--background-modifier-error,rgba(220,80,80,.15));color:var(--text-error,#c0392b);}
+.lbc-menu{background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.18);padding:5px;min-width:120px;}
+.lbc-menu-item{padding:7px 14px;border-radius:7px;cursor:pointer;font-size:13px;}
+.lbc-menu-item:hover{background:var(--background-modifier-hover);}
+.lbc-menu-item.is-danger{color:var(--text-error,#c0392b);}
 .lbc-nocover{aspect-ratio:4/3;border-radius:16px;background:var(--background-secondary);display:grid;place-items:center;color:var(--text-muted);font-size:30px;}
 .lbc-body{padding:11px 8px 0;}
 .lbc-ctitle{font-size:14px;line-height:1.7;font-weight:500;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
@@ -38,6 +47,8 @@ style.textContent = `
 .lbc-ai-answer{line-height:1.7;}
 .lbc-ai-answer p:first-child{margin-top:0;}
 .lbc-ai-meta{color:var(--text-faint);font-size:11px;margin-top:14px;}
+.lbc-ai-error{padding:12px 14px;border-radius:10px;background:var(--background-modifier-error,rgba(220,80,80,.12));color:var(--text-error,#c0392b);}
+.lbc-ai-error strong{display:block;margin-bottom:4px;}
 @media(max-width:650px){.lbc-grid{columns:180px;column-gap:18px;}.lbc-sub{width:100%;margin:0;}.lbc-wrap{padding:12px 4px;}}
 `;
 let data;
@@ -63,6 +74,8 @@ const allButton=toolbar.createEl('button',{text:'全部',cls:'is-active'});
 const todayButton=toolbar.createEl('button',{text:'今日新增'});
 allButton.onclick=()=>{todayOnly=false;allButton.addClass('is-active');todayButton.removeClass('is-active');render();};
 todayButton.onclick=()=>{todayOnly=true;todayButton.addClass('is-active');allButton.removeClass('is-active');render();};
+const selectButton=toolbar.createEl('button',{text:'多选'});
+selectButton.onclick=()=>{selectMode=!selectMode;selected.clear();selectButton.toggleClass('is-active',selectMode);render();};
 const importButton=toolbar.createEl('button',{text:'+ 导入',cls:'lbc-import'});
 const importStatus=wrap.createEl('div',{cls:'lbc-status'});
 importButton.type='button';
@@ -93,8 +106,54 @@ function renderCatBar(){
     mk(cat,activeCats.has(cat),()=>{activeCats.has(cat)?activeCats.delete(cat):activeCats.add(cat);renderCatBar();render();});
   }
 }
+// 多选删除状态
+let selectMode=false;const selected=new Set();
+const selbar=wrap.createEl('div',{cls:'lbc-selbar'});selbar.hidden=true;
+const selCount=selbar.createEl('span',{cls:'lbc-selcount'});
+const delBtn=selbar.createEl('button',{text:'删除选中',cls:'mod-warning'});
+delBtn.onclick=()=>confirmDelete(items.filter(x=>selected.has(x.id)));
+const clrBtn=selbar.createEl('button',{text:'清空选择'});clrBtn.onclick=()=>{selected.clear();render();};
 const ai=wrap.createEl('section',{cls:'lbc-ai'});ai.hidden=true;
 const grid=wrap.createEl('div',{cls:'lbc-grid'});
+
+// 删除收藏（不可逆）：确认 → 后端删文件+索引 → 本地从 items 摘掉 → 重渲染
+async function confirmDelete(list){
+  if(!list.length)return;
+  const names=list.slice(0,4).map(x=>x.title||x.id).join('、')+(list.length>4?` 等 ${list.length} 篇`:'');
+  if(!window.confirm(`删除收藏：${names}\n\n会删掉笔记和归档文件，不可恢复。确定吗？`))return;
+  const provider=app.plugins.plugins['link-brain-actions'];
+  if(typeof provider?.deleteItems!=='function'){window.alert('删除功能需要启用 Link Brain Actions 插件');return;}
+  try{
+    const r=await provider.deleteItems(list.map(x=>x.id));
+    const gone=new Set((r.results||[]).filter(x=>x.status==='deleted').map(x=>x.item_id));
+    for(let i=items.length-1;i>=0;i--)if(gone.has(items[i].id))items.splice(i,1);
+    selected.clear();render();
+  }catch(e){window.alert('删除失败：'+e.message);}
+}
+// 右键编辑标签
+function openTagEditor(body,it){
+  if(body.querySelector('form'))return;
+  const form=body.createEl('form');form.onclick=e=>e.stopPropagation();form.onkeydown=e=>e.stopPropagation();
+  const field=form.createEl('input');field.type='text';field.value=(it.tags||[]).join(', ');field.placeholder='标签，用逗号分隔';field.style.width='100%';
+  const save=form.createEl('button',{text:'保存标签'});save.type='submit';
+  const cancel=form.createEl('button',{text:'取消'});cancel.type='button';cancel.onclick=()=>form.remove();
+  form.onsubmit=async e=>{e.preventDefault();save.disabled=true;
+    try{const file=app.vault.getAbstractFileByPath(it.note);const tags=[...new Set(field.value.split(/[,，\n]/).map(t=>t.trim().replace(/^#/, '')).filter(Boolean))];
+      await app.fileManager.processFrontMatter(file,fm=>{fm.tags=tags;});it.tags=tags;render();
+    }catch{save.disabled=false;save.setText('保存失败，重试');}
+  };field.focus();
+}
+// 右键小菜单：编辑标签 / 删除收藏
+function openCardMenu(e,body,it){
+  document.querySelectorAll('.lbc-menu').forEach(m=>m.remove());
+  const menu=document.body.createEl('div',{cls:'lbc-menu'});
+  menu.style.cssText=`position:fixed;left:${e.clientX}px;top:${e.clientY}px;z-index:9999;`;
+  const add=(label,fn,danger)=>{const b=menu.createEl('div',{cls:'lbc-menu-item'+(danger?' is-danger':'')});b.setText(label);b.onclick=ev=>{ev.stopPropagation();menu.remove();fn();};};
+  add('编辑标签',()=>openTagEditor(body,it));
+  add('删除收藏',()=>confirmDelete([it]),true);
+  const close=()=>{menu.remove();document.removeEventListener('click',close);document.removeEventListener('contextmenu',close);};
+  setTimeout(()=>{document.addEventListener('click',close);document.addEventListener('contextmenu',close);},0);
+}
 function render(){
   grid.empty();const raw=search.value.trim();const asking=raw.startsWith('/');const q=normalize(asking?raw.slice(1):raw);
   const now=new Date();const today=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
@@ -131,31 +190,32 @@ function render(){
             const speak=bar.createEl('button',{text:'🔊 朗读',cls:'lbc-ai-speak'});
             speak.onclick=async()=>{speak.disabled=true;const old=speak.textContent;speak.setText('合成中…');try{await provider.speak(lastMd);}catch(e){meta.setText('朗读失败：'+e.message);}finally{speak.setText(old);speak.disabled=false;}};
           }
-        }catch(e){answer.empty();answer.setText('回答失败：'+e.message);}
+        }catch(e){
+          answer.empty();
+          const box=answer.createEl('div',{cls:'lbc-ai-error'});
+          box.createEl('strong',{text:'⚠ 检索失败'});
+          box.createEl('div',{text:String(e.message||e)});
+          box.createEl('div',{cls:'lbc-ai-meta',text:'常见原因：文本 AI 未配置或不通（设置里点「测试文本 AI」）、后端未启动。问题还在，改完可再点「提问」。'});
+        }
         finally{ask.disabled=false;}
       };
     }
   }
+  selbar.hidden=!selectMode;
+  if(selectMode)selCount.setText(`已选 ${selected.size} 篇`);
   if(!shown.length){grid.createEl('div',{cls:'lbc-empty',text:'没找到，试试更短的关键词。'});return;}
   for(const {it} of shown){
-    const card=grid.createEl('article',{cls:'lbc-card'});card.tabIndex=0;card.setAttribute('role','link');card.setAttribute('aria-label',it.title||'打开收藏');
+    // 不设 aria-label：Obsidian 会把 aria-label 渲染成 hover 浮框（她不要那个「悬浮的点的字」）。
+    const card=grid.createEl('article',{cls:'lbc-card'+(selectMode&&selected.has(it.id)?' is-selected':'')});card.tabIndex=0;card.setAttribute('role','link');
     if(it.cover){const img=card.createEl('img',{cls:'lbc-cover'});img.loading='lazy';img.alt='';img.src=app.vault.adapter.getResourcePath(it.cover);}
     else card.createEl('div',{cls:'lbc-nocover',text:it.kind==='video'?'▷':'▤'});
     const body=card.createEl('div',{cls:'lbc-body'});body.createEl('div',{cls:'lbc-ctitle',text:it.title||'未命名'});
     const meta=body.createEl('div',{cls:'lbc-cmeta'});meta.createEl('span',{text:it.author||it.source||'收藏'});meta.createEl('span',{text:it.likes==null?'':'♡ '+(Number(it.likes)>=10000?(Number(it.likes)/10000).toFixed(1)+'万':it.likes)});
-    const open=()=>{if(it.note)app.workspace.openLinkText(it.note,'',false);};card.onclick=open;card.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();open();}};
-    card.oncontextmenu=e=>{
-      e.preventDefault();if(card.querySelector('form'))return;
-      const form=body.createEl('form');form.onclick=e=>e.stopPropagation();form.onkeydown=e=>e.stopPropagation();
-      const field=form.createEl('input');field.type='text';field.value=(it.tags||[]).join(', ');field.placeholder='标签，用逗号分隔';field.setAttribute('aria-label','编辑收藏标签');field.style.width='100%';
-      const save=form.createEl('button',{text:'保存标签'});save.type='submit';
-      const cancel=form.createEl('button',{text:'取消'});cancel.type='button';cancel.onclick=()=>form.remove();
-      form.onsubmit=async e=>{e.preventDefault();save.disabled=true;
-        try{const file=app.vault.getAbstractFileByPath(it.note);const tags=[...new Set(field.value.split(/[,，\n]/).map(t=>t.trim().replace(/^#/, '')).filter(Boolean))];
-          await app.fileManager.processFrontMatter(file,fm=>{fm.tags=tags;});it.tags=tags;render();
-        }catch{save.disabled=false;save.setText('保存失败，重试');}
-      };field.focus();
-    };
+    // 多选模式：点击=勾选/取消；平时=打开笔记
+    const toggle=()=>{selected.has(it.id)?selected.delete(it.id):selected.add(it.id);render();};
+    const open=()=>{if(selectMode){toggle();return;}if(it.note)app.workspace.openLinkText(it.note,'',false);};
+    card.onclick=open;card.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();open();}};
+    card.oncontextmenu=e=>{e.preventDefault();openCardMenu(e,body,it);};
   }
 }
 let timer;search.oninput=()=>{clearTimeout(timer);timer=setTimeout(render,120);};renderCatBar();render();

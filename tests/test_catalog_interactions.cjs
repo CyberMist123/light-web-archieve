@@ -36,6 +36,10 @@ assert.equal(Plugin.serializeCats(cats),'人机恋: 人机恋, ai伴侣\n吃的:
   // expandAndCleanLinks：解析 Python clean 的 JSON
   plugin.spawnCapture=async args=>{assert.equal(args[2],'clean');return {out:JSON.stringify({count:1,urls:[{clean:'https://x/1',has_token:true}]}),err:''};};
   const cl=await plugin.expandAndCleanLinks('some text');assert.equal(cl.length,1);assert.equal(cl[0].clean,'https://x/1');
+  // deleteItems：spawn delete <id...>、解析结果
+  plugin.spawnCapture=async args=>{assert.equal(args[2],'delete');assert.equal(args.slice(3).join(','),'id1,id2');return {out:JSON.stringify({deleted:2,results:[{item_id:'id1',status:'deleted'},{item_id:'id2',status:'deleted'}]}),err:''};};
+  const del=await plugin.deleteItems(['id1','id2','']);assert.equal(del.deleted,2);
+  const empty=await plugin.deleteItems([]);assert.equal(empty.deleted,0);assert.equal(empty.results.length,0);  // 空不 spawn
   // 目录页「+ 导入」按钮：旧插件实例缺 openImportModal 时 disable/enable 恢复后再打开
   const view=fs.readFileSync('link_brain/assets/catalog-view.js','utf8');
   const handler=view.slice(view.indexOf('importButton.onclick=')+'importButton.onclick='.length,view.indexOf('\n// 大类筛选条'));

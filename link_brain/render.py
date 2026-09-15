@@ -290,9 +290,25 @@ def merge_existing(primary: str | None, secondary: str | None) -> str | None:
     return "\n".join(fm + lines)
 
 
+def _is_link_only(note_text: str | None) -> bool:
+    """附言是不是「只有一条分享链接、没别的话」——是的话就不该在留言层留一条噪音 cmt1。
+
+    去掉所有 URL 后，只剩空白 / 标点 / 小红书那句「先复制这段文字…」类模板 = 视为纯链接。
+    """
+    if not note_text:
+        return True
+    from .adapters.xiaohongshu import URL_RE
+
+    residual = URL_RE.sub("", note_text)
+    residual = re.sub(r"(先复制这段文字|再进【?小红书】?查看完整笔记|打开【?小红书】?浏览笔记|这段文字复制好)", "", residual)
+    residual = re.sub(r"[\s，。、；：！？…·\-—|｜/\\【】\[\]（）()<>「」]+", "", residual)
+    return not residual
+
+
 def render_comments_block(note_text: str | None, note_links: list[dict[str, Any]]) -> str:
     lines = [COMMENTS_START]
-    if note_text:
+    # 附言只是分享链接（投喂时粘的那条）就不留 cmt1——留言层留给真正的话（Owner 2026-09-16）。
+    if note_text and not _is_link_only(note_text):
         cleaned = _clean_links_in_text(note_text, note_links)
         lines += [
             "> [!link-brain-comment]",
