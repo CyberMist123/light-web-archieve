@@ -8,15 +8,16 @@ style.textContent = `
 .lb-catalog .inline-title,.lb-catalog .metadata-container{display:none!important;}
 .lbc-wrap{width:100%;padding:24px clamp(8px,2vw,36px) 40px;box-sizing:border-box;font-family:Georgia,'Noto Serif SC','Source Han Serif SC','Songti SC',STSong,'STZhongsong',serif;}
 .lbc-head{display:flex;align-items:center;gap:20px;margin:0 0 20px;flex-wrap:wrap;}
-.lbc-titleblock{display:flex;flex-direction:column;gap:4px;}
+.lbc-titleblock{display:flex;flex-direction:column;gap:3px;}
+.lbc-titlerow{display:flex;align-items:center;gap:4px;}
 .lbc-title{font-family:Georgia,'Playfair Display','Times New Roman',serif;font-style:italic;font-size:30px;font-weight:600;letter-spacing:.01em;line-height:1;}
-.lbc-subline{display:flex;gap:8px;align-items:center;font-size:12px;}
-.lbc-search{flex:1;min-width:180px;max-width:none!important;height:42px!important;box-shadow:none!important;border-radius:21px!important;background:transparent!important;border:1px solid var(--background-modifier-border)!important;padding:0 20px!important;}
-.lbc-import{border:0;box-shadow:none;border-radius:20px;padding:8px 16px;background:var(--background-secondary);font-size:13px;cursor:pointer;white-space:nowrap;}
-.lbc-sub{font-size:12px;color:var(--text-faint);white-space:nowrap;}
-.lbc-sync{font-size:12px;color:var(--interactive-accent);cursor:pointer;white-space:nowrap;}
+.lbc-import{border:0;background:transparent;box-shadow:none;font-family:Georgia,serif;font-size:26px;line-height:1;color:var(--text-muted);cursor:pointer;padding:0 4px;}
+.lbc-import:hover{color:var(--interactive-accent);}
+.lbc-subline{display:flex;gap:7px;align-items:center;}
+.lbc-search{flex:1;min-width:180px;max-width:none!important;height:36px!important;box-shadow:none!important;border-radius:0!important;background:transparent!important;border:0!important;border-bottom:1px solid var(--text-normal)!important;padding:0 2px!important;}
+.lbc-sub{font-size:12px;color:var(--text-normal);white-space:nowrap;}
+.lbc-sync{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e08a1e;color:#fff;font-size:11px;font-weight:700;font-family:sans-serif;cursor:pointer;flex:0 0 auto;}
 .lbc-sync[hidden]{display:none;}
-.lbc-right{margin-left:auto;}
 .lbc-grid{columns:250px;column-gap:32px;}
 .lbc-card{display:inline-block;vertical-align:top;width:100%;margin:0 0 36px;break-inside:avoid;cursor:pointer;position:relative;}
 .lbc-attach{position:absolute;top:8px;right:8px;font-size:11px;line-height:1;padding:4px 8px;border-radius:9px;background:rgba(0,0,0,.55);color:#fff;pointer-events:none;backdrop-filter:blur(2px);}
@@ -43,7 +44,7 @@ style.textContent = `
 .lbc-cmeta span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .lbc-empty{padding:40px;color:var(--text-muted);}
 .lbc-status{font-size:12px;color:var(--text-muted);}
-.lbc-cats{display:flex;flex-wrap:wrap;align-items:center;margin:0 0 22px;font-size:13px;}
+.lbc-cats{display:flex;flex-wrap:wrap;align-items:center;margin:0 0 22px;font-size:13px;font-family:var(--font-interface),sans-serif;}
 .lbc-cat{padding:4px 12px;cursor:pointer;color:var(--text-muted);border-radius:8px;transition:color .12s;}
 .lbc-cat:hover{color:var(--text-normal);}
 .lbc-cat.is-active{color:var(--interactive-accent);font-weight:600;}
@@ -79,18 +80,19 @@ for (const it of items) {
   }
 }
 const wrap=root.createEl('div',{cls:'lbc-wrap'});
-// 第一行：左=标题「Collections」+ 其下计数·更新·未同步；右=搜索框 + 导入。
+// 第一行：左=标题「Collections +」+ 其下计数·更新·未同步(!)；右=搜索横线。
 const head=wrap.createEl('div',{cls:'lbc-head'});
 const titleBlock=head.createEl('div',{cls:'lbc-titleblock'});
-titleBlock.createEl('div',{cls:'lbc-title',text:'Collections'});
+const titleRow=titleBlock.createEl('div',{cls:'lbc-titlerow'});
+titleRow.createEl('span',{cls:'lbc-title',text:'Collections'});
+const importButton=titleRow.createEl('button',{cls:'lbc-import',text:'+'});importButton.setAttribute('aria-label','导入收藏');importButton.title='导入收藏';
 const subLine=titleBlock.createEl('div',{cls:'lbc-subline'});
 let todayOnly=false;
 const sub=subLine.createEl('span',{cls:'lbc-sub'});
-const syncSpan=subLine.createEl('span',{cls:'lbc-sync'});syncSpan.hidden=true;
-syncSpan.onclick=()=>{const p=app.plugins.plugins['link-brain-actions'];if(p?.run){p.run(['-m','link_brain','attachments','--all'],'补下附件',true);syncSpan.setText('正在补跑…（会开浏览器）');}};
+const syncSpan=subLine.createEl('span',{cls:'lbc-sync'});syncSpan.hidden=true;syncSpan.setText('!');
+syncSpan.onclick=()=>{const p=app.plugins.plugins['link-brain-actions'];if(p?.run){p.run(['-m','link_brain','attachments','--all'],'补下附件',true);syncSpan.title='正在补跑…（会开浏览器）';}};
 const search=head.createEl('input',{cls:'lbc-search'});
 search.type='search';search.placeholder='搜索收藏…';search.title='普通搜索 · #标签 · /问知识库';search.setAttribute('aria-label','搜索收藏');
-const importButton=head.createEl('button',{text:'+ 导入',cls:'lbc-import'});
 const importStatus=wrap.createEl('div',{cls:'lbc-status'});
 importButton.type='button';
 importButton.onclick=async e=>{
@@ -184,7 +186,7 @@ function render(){
   const shown=items.filter(it=>(!todayOnly||it.date===today)&&(!activeCat||(it.cats||[]).includes(activeCat))).map(it=>({it,score:score(it,q,data.pinyin_chars)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score);
   sub.setText((q||todayOnly?`${shown.length} / ${items.length} 篇`:`${items.length} 篇`)+` · 更新 ${new Date(data.built_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}`);
   const todoCount=items.filter(x=>x.attachment==='待补').length;
-  if(todoCount){syncSpan.setText(`${todoCount} 篇未同步 · 补跑`);syncSpan.hidden=false;}else syncSpan.hidden=true;
+  if(todoCount){syncSpan.title=`${todoCount} 篇未同步 · 点此补跑`;syncSpan.hidden=false;}else syncSpan.hidden=true;
   ai.hidden=!asking;ai.empty();
   if(asking){
     ai.createEl('strong',{text:'问知识库'});
