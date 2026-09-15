@@ -1,5 +1,20 @@
 # Current State
 
+## 2026-09-16 附件：夜跑自动下 + 卡片角标 + 头部未同步 + 头部对称
+
+- **附件角标**（Owner：有文件标有文件、未下载标 logo）：目录卡片右上角 `待补→「📎 未下载」(橙)`、
+  `downloaded→「📎 文件」(灰)`；数据来自 catalog-data 的 `attachment` 字段。待补卡右键加「下载附件（要开浏览器）」。
+- **头部「X 篇未同步 · 补跑」**：toolbar 显示待补篇数，点击跑 `attachments --all`（headed，会弹浏览器）。
+- **夜跑自动下附件**（Owner：登录态脚本能跑，加到夜跑）：`xhs-fav-sync.ps1`（仓外）在 catalog 后加
+  `attachments --all` 自动补下（headed agent-browser 小号；任务 LogonType=Interactive，凌晨她登录会话里能弹窗下）。
+  失败不致命；补完仍扫残留记日志。
+- **头部对称重排**（Owner：排版丑/不对称）：真因是 `.lbc-sub` 和 `.lbc-import` 各有 margin-left:auto、
+  把「更新/全部/今日」挤到中间、左边空一块。改成**左=全部/今日，右=计数·更新+未同步+导入**；
+  搜索框去掉 660px 上限填满。
+- **大类改单选**（一次一个）、**图片放大 bug**（封面 pointer-events:none 点击穿透开笔记）见上批已修。
+
+catalog-view.js 本地提交（未推 github）；node PASS。
+
 ## 2026-09-16 开源上传 + 大类单选 + 图片放大 bug
 
 - **大类筛选改单选**（Owner：标签别同时点，一次一个）：`activeCat` 单值，「全部」或再点当前项清空。
