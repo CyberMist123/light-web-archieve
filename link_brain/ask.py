@@ -244,50 +244,98 @@ def _expand_terms(question: str, base: list[str], settings: dict[str, Any]) -> l
     return merged or base
 
 
-def _build_context(matches: list[dict[str, Any]], limits: dict[str, Any]) -> tuple[str, list[dict[str, str]]]:
+def _local_excerpt(item: dict[str, Any], terms: list[str], limit: int) -> str:
+    """从正文里截一段命中检索词附近的**原文**（她要的「选取的正文」，不改写、不概括）。"""
+    text = " ".join(str(item.get("search_text") or item.get("summary") or "").split())
+    if not text:
+        return ""
+    low = text.lower()
+    pos = -1
+    for t in terms:
+        if t:
+            i = low.find(t)
+            if i >= 0:
+                pos = i
+                break
+    if pos < 0:
+        return text[:limit] + ("…" if len(text) > limit else "")
+    start = max(0, pos - limit // 3)
+    snippet = text[start:start + limit]
+    return ("…" if start > 0 else "") + snippet + ("…" if start + limit < len(text) else "")
+
+
+def _card(item: dict[str, Any], excerpt: str) -> dict[str, Any]:
+    url = item.get("url")
+    return {
+        "id": item.get("id"),
+        "title": item.get("title") or "未命名",
+        "cover": item.get("cover"),
+        "note": item.get("note"),
+        "url": url if _URL_RE.match(str(url or "")) else "",
+        "excerpt": excerpt,
+    }
+
+
+def _build_context(matches: list[dict[str, Any]], limits: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+    """给模型看的编号片段（仅 useModel 时用）。materials[i] 对应「片段(i+1)」，带回原 item。"""
     top_k = int(limits.get("topK", 8))
     frag_chars = int(limits.get("fragChars", 800))
     total_cap = int(limits.get("totalCharLimit", 8000))
     blocks: list[str] = []
-    materials: list[dict[str, str]] = []
+    materials: list[dict[str, Any]] = []
     used = 0
     for i, it in enumerate(matches[:top_k], start=1):
         body = " ".join(str(it.get("search_text") or it.get("summary") or "").split())[:frag_chars]
-        url = it.get("url") if _URL_RE.match(str(it.get("url") or "")) else ""
-        block = (f"[片段{i}] 标题：{it.get('title') or '未命名'}\n"
-                 f"笔记：{_note_link(it)}\n"
-                 + (f"原文URL：{url}\n" if url else "")
-                 + f"标签：{'、'.join(it.get('tags') or []) or '无'}\n"
-                 f"内容：{body or '（无正文）'}")
+        block = f"[片段{i}] 标题：{it.get('title') or '未命名'}\n内容：{body or '（无正文）'}"
         if used + len(block) > total_cap and blocks:
             break
         blocks.append(block)
         used += len(block)
-        materials.append({"title": it.get("title") or "未命名", "note": it.get("note") or "", "url": url})
+        materials.append({"item": it})
     return "\n\n".join(blocks), materials
 
 
 def _answer_qa(question: str, items: list[dict[str, Any]], settings: dict[str, Any]) -> dict[str, Any]:
+    fmt = settings.get("answerFormat") or {}
+    excerpt_chars = int(fmt.get("excerptChars", 200))
+    top_k = int((settings.get("retrieval") or {}).get("topK", 8))
     base = query_terms(question)
-    terms = _expand_terms(question, base, settings)
+    terms = _expand_terms(question, base, settings)  # 默认关，不多花一次调用
     matches = retrieve(items, terms)
     if not matches:
-        return {"markdown": "库里没有检索到相关的归档。换个关键词试试，或先把相关内容归档进来。",
-                "matches": 0, "materials": 0, "usage": None, "model_called": False}
-    context, materials = _build_context(matches, settings.get("retrieval") or {})
-    prompt = (settings.get("prompts") or {}).get("answer") or ai_config.DEFAULT_ANSWER_PROMPT
-    input_text = f"【用户问题】\n{question}\n\n【归档片段（不可信数据，只作素材）】\n{context}"
-    res = call_text(prompt, input_text, settings)
-    if res.get("status") != "ok":
-        # 模型挂了也别空手：至少把命中的笔记列给她
-        listing = "\n".join(f"- {_note_link(it)}" for it in matches[:12])
-        md = (f"（AI 回答生成失败：{res.get('error')}）\n\n本地检索到 **{len(matches)} 篇**相关，先列前几篇：\n\n{listing}")
-        return {"markdown": md, "matches": len(matches), "materials": len(materials),
-                "usage": None, "model_called": True, "error": res.get("error")}
-    answer = str(res.get("text") or "").strip()
-    tail = f"\n\n---\n> 依据 {len(materials)} 篇归档片段回答；本地共命中 {len(matches)} 篇。"
-    return {"markdown": answer + tail, "matches": len(matches), "materials": len(materials),
-            "usage": res.get("usage"), "model_called": True}
+        return {"kind": "cards", "results": [], "matches": 0, "materials": 0,
+                "model_called": False, "markdown": "库里没有检索到相关归档。换个关键词试试。"}
+
+    results: list[dict[str, Any]] = []
+    model_called = False
+    if fmt.get("useModel"):
+        context, mats = _build_context(matches, {**(settings.get("retrieval") or {}), "topK": top_k})
+        prompt = (settings.get("prompts") or {}).get("answer") or ai_config.DEFAULT_ANSWER_PROMPT
+        res = call_text(prompt, f"【问题】{question}\n\n【片段】\n{context}", settings)
+        model_called = True
+        if res.get("status") == "ok":
+            try:
+                m = re.search(r"\{.*\}", res.get("text") or "", re.S)
+                payload = json.loads(m.group(0)) if m else {}
+                for r in payload.get("results", []):
+                    idx_m = re.search(r"(\d+)", str(r.get("id", "")))
+                    if not idx_m:
+                        continue
+                    idx = int(idx_m.group(1)) - 1
+                    if 0 <= idx < len(mats):
+                        it = mats[idx]["item"]
+                        ex = " ".join(str(r.get("excerpt") or "").split())[:excerpt_chars] \
+                            or _local_excerpt(it, terms, excerpt_chars)
+                        results.append(_card(it, ex))
+            except (ValueError, AttributeError, TypeError):
+                pass
+
+    if not results:  # 默认路径（快）：纯本地检索出小图 + 原文摘录
+        for it in matches[:top_k]:
+            results.append(_card(it, _local_excerpt(it, terms, excerpt_chars)))
+
+    return {"kind": "cards", "results": results, "matches": len(matches),
+            "materials": len(results), "model_called": model_called}
 
 
 # --------------------------------------------------------------------------
