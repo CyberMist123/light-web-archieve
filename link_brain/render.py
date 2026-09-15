@@ -774,7 +774,9 @@ def _annotate_block(meta: dict[str, Any]) -> str:
         f"const notePath = {note_path};\n"
         "try {\n"
         '  const code = await app.vault.adapter.read("_archive/annotate-view.js");\n'
-        '  await new Function("dv", "app", "itemId", "notePath", code)(dv, app, itemId, notePath);\n'
+        "  // 脚本里有顶层 await，必须用 AsyncFunction 构造（普通 Function 会当语法错误抛）\n"
+        "  const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;\n"
+        '  await new AsyncFunction("dv", "app", "itemId", "notePath", code)(dv, app, itemId, notePath);\n'
         "} catch (e) { dv.paragraph(\"批注块暂不可用：\" + (e.message || e)); }\n"
         "```"
     )
