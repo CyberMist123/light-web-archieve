@@ -82,3 +82,25 @@ def test_link_only_note_makes_no_comment():
     assert "cmt1" not in block
     block2 = render.render_comments_block("真有意思 https://xhslink.cn/o/abc", [])
     assert "cmt1" in block2
+
+
+def test_strip_auto_link_comment():
+    from link_brain import render
+    note = (
+        "---\ncssclasses: [xhs-note]\n---\n\n"
+        "<!-- link-brain:comments:start -->\n"
+        "> [!link-brain-comment]\n"
+        "> 「20260916 人」[明日方舟×P3](https://www.xiaohongshu.com/explore/abc?xsec_token=t)\n"
+        "<!-- link-brain: id=cmt1 actor=human target=none status=open -->\n"
+        "<!-- link-brain:comments:end -->\n\n正文……\n"
+    )
+    out, changed = render.strip_auto_link_comment(note)
+    assert changed is True
+    assert "id=cmt1" not in out
+    assert "link-brain:comments:start" in out and "正文" in out  # 层标记和正文都在
+
+    # 有真话的 cmt1 不动
+    note2 = note.replace("[明日方舟×P3](https://www.xiaohongshu.com/explore/abc?xsec_token=t)",
+                         "这篇讲记忆分层，很有用 [链接](https://x/y)")
+    out2, changed2 = render.strip_auto_link_comment(note2)
+    assert changed2 is False and out2 == note2

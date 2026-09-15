@@ -38,7 +38,6 @@ DEFAULT_ANSWER_PROMPT = (
 DEFAULTS: dict[str, Any] = {
     "textAI": {"mode": "media", "model": "", "endpoint": "", "apiKey": "", "maxTokens": 800},
     "ocr": {"mode": "media", "via": "cmx", "model": "", "endpoint": "", "apiKey": ""},
-    "tts": {"endpoint": "", "apiKey": "", "model": "", "voice": ""},
     "prompts": {"summary": "", "answer": DEFAULT_ANSWER_PROMPT},
     # expandTerms 默认关：开了每次问答要多一次小模型调用扩检索词，慢一倍（Owner 2026-09-16 嫌慢）。
     "retrieval": {"totalCharLimit": 8000, "fragChars": 800, "topK": 8, "expandTerms": False},

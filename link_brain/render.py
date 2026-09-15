@@ -305,6 +305,50 @@ def _is_link_only(note_text: str | None) -> bool:
     return not residual
 
 
+_AUTO_LINK_CMT_RE = re.compile(
+    r"> \[!link-brain-comment\]\n> 「\d+ [^」]+」(?P<text>.*)\n"
+    r"<!-- link-brain: id=cmt1 actor=human target=none status=open -->\n?"
+)
+
+
+def tidy_link_comments() -> dict[str, Any]:
+    """扫全库可见笔记，去掉纯链接的自动 cmt1。返回 {scanned, cleaned, notes}。"""
+    vis = storage.visible_dir()
+    cleaned: list[str] = []
+    scanned = 0
+    if vis.is_dir():
+        for path in sorted(vis.glob("*.md")):
+            scanned += 1
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            new_text, changed = strip_auto_link_comment(text)
+            if changed:
+                path.write_text(new_text, encoding="utf-8")
+                cleaned.append(path.name)
+    return {"scanned": scanned, "cleaned": len(cleaned), "notes": cleaned}
+
+
+def strip_auto_link_comment(note_text: str) -> tuple[str, bool]:
+    """去掉自动生成的、纯链接的 cmt1 留言（Owner 2026-09-16：旧笔记顶上那条短链留言噪音）。
+
+    只动**自动生成**的 cmt1（`actor=human target=none`）且它去掉链接后没剩真话的；
+    她手写的留言、或带真话的 cmt1 一律不碰。
+    """
+    block, _ = split_layers(note_text)
+    if not block:
+        return note_text, False
+    m = _AUTO_LINK_CMT_RE.search(block)
+    if not m:
+        return note_text, False
+    without_links = re.sub(r"\[[^\]]*\]\([^)]*\)", "", m.group("text"))
+    if not _is_link_only(without_links):  # 去掉 md 链接后还剩真话 → 不是纯链接，不删
+        return note_text, False
+    new_block = block[: m.start()] + block[m.end():]
+    return note_text.replace(block, new_block, 1), True
+
+
 def render_comments_block(note_text: str | None, note_links: list[dict[str, Any]]) -> str:
     lines = [COMMENTS_START]
     # 附言只是分享链接（投喂时粘的那条）就不留 cmt1——留言层留给真正的话（Owner 2026-09-16）。

@@ -1,5 +1,24 @@
 # Current State
 
+## 2026-09-16 反馈批 4（多选退不出 / 旧链接留言 / 删TTS / 大类恢复 / 巡检周期）
+
+- **多选退不出（真因）**：`.lbc-selbar{display:flex}` 盖过 `[hidden]`，`selectMode=false` 后条也不消失。
+  修：`.lbc-selbar[hidden]{display:none!important}`。并按 Owner 要求**去掉顶部「多选」按钮**，
+  改成**右键菜单「多选删除」**（预选当前卡）；退出靠「退出多选」按钮或 **ESC**（ESC 监听器跨重渲染去重）。
+- **旧链接留言清理**：`render.strip_auto_link_comment` + CLI `tidy-comments` 扫全库，去掉纯链接的自动 cmt1。
+  实跑清了 4 篇（含「明日方舟×P3」）。只动自动生成、去链接后没剩真话的 cmt1，手写留言不碰。
+- **删 TTS**：卡片朗读去掉后 TTS 无消费者 → 删设置页 TTS 段 + `speak()` + tts 配置（不留空壳）。
+- **大类误删恢复**：她在设置里把大类编成一行「生活，娱乐」盖掉了内置 → 把 data.json 的 catalogCats 清空回内置 12 类。
+- **巡检周期可设**：`sync_schedule.py` + CLI `sync-schedule [--set daily|weekly|off]`（改 Windows 计划任务
+  XhsFavSync 的触发器/启停，PowerShell ScheduledTasks，只换触发器不重建；无需管理员实测通过）。
+  设置页加「每晚收藏巡检 · 频率」下拉（每天/每周/关闭，载入当前值）。**巡检本体确认健康**：XhsFavSync daily 04:00。
+- 插件 manifest 描述更新到 0.2.0（提瀑布流/大类/模糊检索/问AI/删除/巡检）。
+
+测试：test_remove 加 strip 留言用例；全套 **134 passed + node PASS**。
+
+**Owner 给的后续路线图（还没做，记着）**：① 其他网页导入（B站等，非小红书 adapter）② 视频识别 + 存储
+③ 笔记 tag 管理功能（更顺手的批量/全局标签管理）。开源必备的 **LICENSE 还没加**（问过她用不用 MIT，待她定）。
+
 ## 2026-09-16 反馈批 3（Owner：红按钮 bug / AI 慢 / 回答改小图+原文）
 
 - **多选删除的红按钮文字看不见**（我引入的 bug）：`.lbc-selbar button.mod-warning` 设成了红字红底
