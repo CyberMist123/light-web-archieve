@@ -49,7 +49,7 @@ class LinkBrainActions extends Plugin {
     this.repoRoot = path.resolve(this.app.vault.adapter.getBasePath(), "..");
     this.running = null;
     this.importing = false;
-    this.addCommand({id:'import-links',name:'导入链接 / 批量导入',callback:()=>new ImportModal(this).open()});
+    this.addCommand({id:'import-links',name:'导入链接 / 批量导入',callback:()=>this.openImportModal()});
 
     this.addCommand({
       id: "rebuild-catalog",
@@ -87,6 +87,8 @@ class LinkBrainActions extends Plugin {
     );
     this.addRibbonIcon("download", "Link Brain：投喂新链接", () => this.ingestInbox());
   }
+
+  openImportModal() { new ImportModal(this).open(); }
 
   // 一次只准跑一个动作：这些命令会开浏览器、吃内存，叠着跑必炸（18060 负载重就 Failed to get the debug url）。
   run(args, label, slow = false) {
