@@ -253,6 +253,22 @@ AI 独立账号：需要第二个 xiaohongshu-mcp 实例（另一端口 + 另一
 
 **注意**：这一步会开 headed 浏览器弹窗，批量跑会打扰 Owner——做成可 `--all` 但默认单篇。
 
+## Lot 8 · 封面瀑布流目录（Owner 2026-09-15 拍板，✅ 代码已做，待她装 Dataview 实机验）
+
+**关键决定：组织轴是 tag，不是 category 文件夹。** 推翻 STATE 里 09-07 的「小模型出 category、
+目录按分类分组」——那套固定清单（记忆系统/开源项目/…）**作废，别再照它做，别去给 `llm.py` 加 category**。
+理由：文件夹一条笔记只能进一个、丢多维；移文件是破坏性的（E2N 就得靠「只在子目录移、不删正文」自保）。
+tag 不动文件、能加减组合、贴合 Owner 习惯、给以后模糊搜索留轴；tag 本来就在每篇 frontmatter 里（Lot 4）。
+
+**已落地**（`link_brain/catalog.py` + `tests/test_catalog.py`）：
+- Python 纯程序拼数据 → `vault/_archive/catalog-data.json`：每条 `{id,title,note,cover,summary,tags,kind,date,ts,comments,last_comment,attachment}`。封面 = manifest 第一张 `download_status=ok` 的图；tag 读**可见笔记 frontmatter**（退回 source.json / extracted）；概要读 extracted.json。新→旧排序。
+- 页面 `vault/小红书收藏目录.md` = 一段 **dataviewjs**（社区插件，非自研，不违反硬约束 #8）：读 JSON 渲染封面瀑布流（CSS column masonry）+ 顶部 tag chip **加/减**筛（绿=inc、红划掉=exc、✕清空、top 28+更多）+ 搜索框。样式 `dv.container` 内 `<style>` 自注入（不依赖 CSS snippet）；卡片点击走 `app.workspace.openLinkText`（绕开「裸 HTML a href 打不开本地笔记」；md 不执行 `<script>` 所以交互只能靠 dataviewjs）；封面 `app.vault.adapter.getResourcePath`。
+- `python -m link_brain catalog` 重写这两个文件（每晚同步后自动跑）。156 篇实跑全有封面+tag；测试全绿。
+
+**待 Owner（唯一非她不可的一步）**：OB 装 **Dataview** + 打开 **Enable JavaScript Queries**，开 `小红书收藏目录.md` 验。
+
+**以后可选加**（她提了才做）：AI 模糊搜索（现在搜索框是标题/概要 substring）；B 站接入时复用同一套目录渲染（B 站主要为打通视频下载）。
+
 ## 派车建议
 
 | Lot | 车 | 理由 |

@@ -1,11 +1,17 @@
-"""收藏目录页（简版）：把库里所有对象重写成一篇可读的分类索引。
+"""收藏目录页（封面瀑布流版）。
 
-设计要点（Owner 2026-09-09 定）：
-- **她的手挪永远赢**。每次生成前先读现有目录 md，把「标题 → 分组」吸进 overrides.json；
-  重写时优先用 overrides，关键词规则只管新来的。这样自动重写不会冲掉她随手挪的位置。
-- 分组清单是 Owner 2026-09-07 拍板的固定清单（可再加）；瀑布流大版（封面图 + 小模型 category）
-  另排一档做，见 docs/STATE.md 第 3 条。这里是「找文件」用的简版。
-- 纯程序拼，不联网、不花钱：概要读 derived/extracted.json，其余读 meta.json。
+Owner 2026-09-15 拍板改法（推翻 09-07 的「小模型 category 分文件夹」）：
+- **组织轴是 tag，不是文件夹**。文件夹分类一条笔记只能进一个夹子、丢多维信息，且
+  移文件是破坏性的（E2N 就得靠「只在子目录移、不删正文」自保）。tag 不动文件、随便加减，
+  天生贴合她「加减 tag」的习惯，也给以后的模糊搜索留好轴。tag 数据本来就在每篇 frontmatter 里
+  （Lot 4 归一 + 合并 + 她手写），这里直接拿来当筛选轴。
+- 页面 = 封面卡片墙（抄小红书发现页那种瀑布流），点标签**加/减**筛选（绿=要、红划掉=排除）+ 搜索框。
+- 硬约束 #8「不做 Obsidian 插件」：页面靠 **Dataview 的 dataviewjs**（用户装的社区插件，不是我们自研）
+  渲染——它能渲染真·Obsidian 链接（绕开「裸 HTML 的 a href 打不开本地笔记」那个坑）、能跑 JS、
+  样式由 JS 自注入（不依赖她手动开 CSS snippet）。
+- Python 这侧只做**数据管线**：纯程序拼，不联网、不花钱——概要读 derived/extracted.json，
+  封面取 manifest 第一张成功图，tag 读可见笔记 frontmatter，其余读 meta.json，
+  全部落 `_archive/catalog-data.json`；md 页面里那段 dataviewjs 读它来渲染。
 """
 
 from __future__ import annotations
@@ -16,40 +22,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from . import storage
 
 CATALOG_NAME = "小红书收藏目录.md"
-OVERRIDES_NAME = "catalog-overrides.json"
+DATA_NAME = "catalog-data.json"
 STATE_NAME = "catalog-state.json"
 
-# Owner 2026-09-07 拍板的固定分类清单（+ 09-09 加「吃的」：她收藏里食谱已成一大类）。
-# 判定按本列表顺序，先命中先归；「其他」兜底。
-CATEGORIES: list[tuple[str, str, tuple[str, ...]]] = [
-    ("记忆系统", "🧠", (
-        "记忆", "memory", "上下文", "context", "rag", "遗忘", "memgpt", "mem0", "zep",
-        "长期记忆", "向量", "知识库",
-    )),
-    ("开源项目", "📦", ("开源", "github", "自取", "repo", "仓库")),
-    ("AI游戏", "🎮", ("游戏", "玩法", "副本", "剧本杀", "养成")),
-    ("笑话", "😂", ("笑话", "沙雕", "搞笑", "离谱", "抽象")),
-    ("吃的", "🍚", (
-        "美食", "食谱", "菜谱", "做饭", "焖饭", "烘焙", "减脂餐", "下饭", "厨", "外卖",
-        "探店", "甜点", "面包", "料理", "空气炸锅", "电饭煲", "早餐", "午餐", "晚餐",
-        "食材", "超市", "好吃",
-    )),
-    ("冲浪(人+AI)", "🏄", ("冲浪", "刷推", "刷x", "reddit", "吃瓜")),
-    ("其他AI分享", "🤖", (
-        "ai", "claude", "gpt", "人机", "mcp", "prompt", "提示词", "agent", "模型",
-        "token", "api", "sdk", "cursor", "codex", "llm", "机", "赛博",
-    )),
-]
-FALLBACK = ("其他", "🗂")
-CATEGORY_ORDER = [name for name, _, _ in CATEGORIES] + [FALLBACK[0]]
-CATEGORY_ICON = {name: icon for name, icon, _ in CATEGORIES} | {FALLBACK[0]: FALLBACK[1]}
+SUMMARY_CHARS = 90
 
-SUMMARY_CHARS = 62
-
-# 留言层的解析统一走 comments.py（Lot 5），这里只管展示。
+_FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.S)
 
 
 def _load_json(path: Path) -> Any:
@@ -68,80 +51,97 @@ def _parse_dt(raw: str | None) -> datetime | None:
         return None
 
 
-def classify(title: str, tags: list[str], body: str) -> str:
-    """关键词初分：标题 + tags 权重最高，正文只看开头（避免长文里一个 AI 就被吞走）。"""
-    haystack = " ".join([title, " ".join(tags), body[:200]]).lower()
-    for name, _icon, keywords in CATEGORIES:
-        if any(k in haystack for k in keywords):
-            return name
-    return FALLBACK[0]
+def _note_tags(vault: Path, visible: str | None) -> list[str]:
+    """从可见笔记 frontmatter 读 tags——那是归一 + 小模型 + Owner 手写合并后最全的一份。"""
+    if not visible:
+        return []
+    path = vault / visible
+    if not path.is_file():
+        return []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    m = _FRONTMATTER_RE.match(text)
+    if not m:
+        return []
+    try:
+        fm = yaml.safe_load(m.group(1)) or {}
+    except yaml.YAMLError:
+        return []
+    raw = fm.get("tags") if isinstance(fm, dict) else None
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for t in raw:
+        t = str(t).strip().lstrip("#").strip()
+        if t and t not in out:
+            out.append(t)
+    return out
 
 
-def read_existing_groups(catalog_path: Path) -> dict[str, str]:
-    """从现有目录 md 里把「标题 → 分组」读回来——这是 Owner 手挪过的位置，必须保住。"""
-    if not catalog_path.is_file():
-        return {}
-    groups: dict[str, str] = {}
-    current: str | None = None
-    for line in catalog_path.read_text(encoding="utf-8").splitlines():
-        heading = re.match(r"^##+\s+(?:[^\w\s]+\s*)?(.+?)(?:（\d+）)?\s*$", line)
-        if heading:
-            name = heading.group(1).strip()
-            current = name if name in CATEGORY_ORDER else None
-            continue
-        if not current:
-            continue
-        link = re.search(r"\[\[([^\]|]+)", line)
-        if link:
-            groups[link.group(1).strip()] = current
-    return groups
-
-
-def load_overrides(vault: Path) -> dict[str, str]:
-    data = _load_json(vault / "_archive" / OVERRIDES_NAME)
-    return data if isinstance(data, dict) else {}
-
-
-def load_last_built(vault: Path) -> datetime | None:
-    """上次重建目录的时间——🆕 以它为界，而不是硬编码的「最近 N 天」。"""
-    data = _load_json(vault / "_archive" / STATE_NAME)
-    if isinstance(data, dict):
-        return _parse_dt(data.get("last_built"))
+def _cover(obj_dir: Path, source: str, source_id: str, version: int) -> str | None:
+    """封面 = manifest 里第一张下成功的图片，返回 vault 相对路径（供 getResourcePath）。"""
+    raw_dir = obj_dir / "raw" / f"v{version:04d}"
+    manifest = _load_json(raw_dir / "manifest.json")
+    if isinstance(manifest, dict):
+        for media in manifest.get("media", []):
+            if not isinstance(media, dict):
+                continue
+            if media.get("download_status") != "ok":
+                continue
+            if not str(media.get("mime", "")).startswith("image"):
+                continue
+            file = media.get("file")
+            if file:
+                return f"_archive/{source}/{source_id}/{file}"
+    # 兜底：直接扫 assets 第一张
+    assets = raw_dir / "assets"
+    if assets.is_dir():
+        for p in sorted(assets.iterdir()):
+            if p.suffix.lower() in {".webp", ".jpg", ".jpeg", ".png", ".gif"}:
+                return f"_archive/{source}/{source_id}/raw/v{version:04d}/assets/{p.name}"
     return None
 
 
-def save_last_built(vault: Path, when: datetime) -> None:
-    (vault / "_archive" / STATE_NAME).write_text(
-        json.dumps({"last_built": when.isoformat()}, ensure_ascii=False, indent=1),
-        encoding="utf-8",
-    )
+def _clip(text: str, limit: int = SUMMARY_CHARS) -> str:
+    text = " ".join((text or "").split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def save_overrides(vault: Path, overrides: dict[str, str]) -> None:
-    path = vault / "_archive" / OVERRIDES_NAME
-    path.write_text(
-        json.dumps(overrides, ensure_ascii=False, indent=1, sort_keys=True),
-        encoding="utf-8",
-    )
-
-
-def read_comments(vault: Path, visible_note: str | None) -> list[tuple[str, str]]:
-    """读可见笔记的留言层（含 Owner 在 ob 里手写的行），解析走 comments.py。"""
-    if not visible_note:
-        return []
-    path = vault / visible_note
+def _last_comment(vault: Path, visible: str | None) -> tuple[int, dict[str, str] | None]:
+    if not visible:
+        return 0, None
+    path = vault / visible
     if not path.is_file():
-        return []
-    from . import comments as comments_mod
-
+        return 0, None
     try:
-        return [
-            (comments_mod.display_name(c.actor), c.text)
-            for c in comments_mod.read_comments(path)
-            if c.text
-        ]
-    except (OSError, ValueError):
-        return []
+        from . import comments as comments_mod
+
+        rows = [c for c in comments_mod.read_comments(path) if c.text]
+    except (OSError, ValueError, ImportError):
+        return 0, None
+    if not rows:
+        return 0, None
+    try:
+        who = comments_mod.display_name(rows[-1].actor)
+    except Exception:
+        who = "留言"
+    return len(rows), {"who": who, "text": _clip(rows[-1].text, 40)}
+
+
+def _attachment_badge(obj_dir: Path, meta: dict[str, Any]) -> str:
+    status = meta.get("attachments_status", "none")
+    has_bytes = (obj_dir / "attachments").is_dir() and any(
+        (obj_dir / "attachments").glob("*")
+    )
+    if has_bytes:
+        return "downloaded"
+    if status == "metadata_only":
+        return "待补"
+    return "none"
 
 
 def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
@@ -153,119 +153,220 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
         meta = _load_json(obj_dir / "meta.json")
         if not isinstance(meta, dict):
             continue
+        source_id = obj_dir.name
+        version = int(meta.get("current_version", 1) or 1)
         extracted = _load_json(obj_dir / "derived" / "extracted.json") or {}
         data = extracted.get("data") if isinstance(extracted, dict) else None
         summary = (data or {}).get("summary") or ""
-        raw_dir = obj_dir / "raw" / f"v{meta.get('current_version', 1):04d}"
-        source_doc = _load_json(raw_dir / "source.json") or {}
-        note = source_doc.get("note") if isinstance(source_doc, dict) else {}
-        tags = [str(t) for t in (note or {}).get("tags", [])] or [
-            str(t) for t in (data or {}).get("tags", [])
-        ]
         visible = meta.get("visible_note")
+        tags = _note_tags(vault, visible)
+        if not tags:
+            # 没渲染出可见笔记时退回 source.json / extracted 的 tag
+            source_doc = _load_json(obj_dir / "raw" / f"v{version:04d}" / "source.json") or {}
+            note = source_doc.get("note") if isinstance(source_doc, dict) else {}
+            tags = [str(t).strip() for t in (note or {}).get("tags", []) if str(t).strip()]
+            if not tags and isinstance(data, dict):
+                tags = [str(t).strip() for t in data.get("tags", []) if str(t).strip()]
+        comment_count, last_comment = _last_comment(vault, visible)
+        archived = _parse_dt(meta.get("first_archived_at"))
         items.append(
             {
-                "item_id": meta.get("item_id", obj_dir.name),
-                "title": meta.get("title") or obj_dir.name,
-                "summary": summary,
+                "id": meta.get("item_id", source_id),
+                "title": meta.get("title") or source_id,
+                "note": visible,
+                "cover": _cover(obj_dir, source, source_id, version),
+                "summary": _clip(summary),
                 "tags": tags,
-                "visible": visible,
-                "archived": _parse_dt(meta.get("first_archived_at")),
-                "attachments": meta.get("attachments_status", "none"),
-                "has_attachment_bytes": any((obj_dir / "attachments").glob("*"))
-                if (obj_dir / "attachments").is_dir()
-                else False,
-                "comments": read_comments(vault, visible),
-                "body": (note or {}).get("desc", "") or "",
+                "kind": meta.get("kind", "image"),
+                "date": archived.strftime("%Y-%m-%d") if archived else "",
+                "ts": archived.isoformat() if archived else "",
+                "comments": comment_count,
+                "last_comment": last_comment,
+                "attachment": _attachment_badge(obj_dir, meta),
             }
         )
+    # 新→旧
+    items.sort(key=lambda it: it.get("ts") or "", reverse=True)
     return items
 
 
-def _clip(text: str, limit: int = SUMMARY_CHARS) -> str:
-    text = " ".join(text.split())
-    return text if len(text) <= limit else text[: limit - 1] + "…"
+# ── dataviewjs 页面（样式自注入，不依赖 CSS snippet；读 catalog-data.json 渲染） ──
+_DATAVIEWJS = r"""```dataviewjs
+const DATA_PATH = "_archive/catalog-data.json";
+const root = dv.container;
+
+const style = document.createElement("style");
+style.textContent = `
+.lbc-wrap{--lbc-gap:12px;}
+.lbc-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:.1em 0 .6em;}
+.lbc-title{font-size:1.25em;font-weight:700;}
+.lbc-sub{color:var(--text-muted);font-size:.82em;}
+.lbc-search{width:100%;box-sizing:border-box;padding:7px 12px;border-radius:10px;border:1px solid var(--background-modifier-border);background:var(--background-primary);color:var(--text-normal);margin-bottom:.55em;font-size:.95em;}
+.lbc-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:.7em;align-items:center;}
+.lbc-chip{cursor:pointer;user-select:none;font-size:.8em;line-height:1;padding:6px 10px;border-radius:999px;border:1px solid var(--background-modifier-border);background:var(--background-secondary);color:var(--text-muted);transition:all .12s;}
+.lbc-chip:hover{border-color:var(--interactive-accent);}
+.lbc-chip.inc{background:var(--interactive-accent);color:var(--text-on-accent);border-color:var(--interactive-accent);}
+.lbc-chip.exc{background:transparent;color:var(--text-error);border-color:var(--text-error);text-decoration:line-through;}
+.lbc-chip .n{opacity:.55;margin-left:5px;}
+.lbc-more,.lbc-clear{cursor:pointer;color:var(--text-accent);font-size:.8em;padding:6px 6px;}
+.lbc-grid{column-gap:var(--lbc-gap);column-count:2;}
+@media(min-width:680px){.lbc-grid{column-count:3;}}
+@media(min-width:1080px){.lbc-grid{column-count:4;}}
+.lbc-card{break-inside:avoid;margin:0 0 var(--lbc-gap);border-radius:12px;overflow:hidden;background:var(--background-secondary);border:1px solid var(--background-modifier-border);cursor:pointer;transition:transform .12s,box-shadow .12s;}
+.lbc-card:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,.18);}
+.lbc-cover{display:block;width:100%;height:auto;background:var(--background-modifier-hover);}
+.lbc-nocover{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:2em;background:var(--background-modifier-hover);}
+.lbc-body{padding:8px 10px 10px;}
+.lbc-ctitle{font-weight:600;font-size:.92em;line-height:1.3;margin-bottom:3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.lbc-csum{color:var(--text-muted);font-size:.78em;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:5px;}
+.lbc-ctags{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:4px;}
+.lbc-ctag{font-size:.68em;color:var(--text-accent);background:var(--background-modifier-hover);padding:1px 6px;border-radius:6px;}
+.lbc-cmeta{font-size:.7em;color:var(--text-faint);display:flex;flex-wrap:wrap;gap:6px;}
+.lbc-empty{color:var(--text-muted);padding:2em 0;text-align:center;}
+`;
+root.appendChild(style);
+
+let data;
+try {
+  data = JSON.parse(await app.vault.adapter.read(DATA_PATH));
+} catch (e) {
+  root.createEl("div", {text: "读不到目录数据（" + DATA_PATH + "）——先跑一次 `python -m link_brain catalog`。"});
+  return;
+}
+const items = data.items || [];
+const wrap = root.createEl("div", {cls: "lbc-wrap"});
+const head = wrap.createEl("div", {cls: "lbc-head"});
+head.createEl("span", {cls: "lbc-title", text: "📌 小红书收藏"});
+head.createEl("span", {cls: "lbc-sub", text: `共 ${items.length} 篇 · 更新 ${(data.built_at || "").slice(0, 16).replace("T", " ")}`});
+
+const search = wrap.createEl("input", {cls: "lbc-search"});
+search.type = "text";
+search.placeholder = "搜标题 / 概要…";
+
+const counts = new Map();
+for (const it of items) for (const t of (it.tags || [])) counts.set(t, (counts.get(t) || 0) + 1);
+const allTags = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+
+const inc = new Set(), exc = new Set();
+const chipBar = wrap.createEl("div", {cls: "lbc-chips"});
+const grid = wrap.createEl("div", {cls: "lbc-grid"});
+let showAll = false;
+const TOP = 28;
+
+function renderChips() {
+  chipBar.empty();
+  const list = showAll ? allTags : allTags.slice(0, TOP);
+  for (const [t, n] of list) {
+    const c = chipBar.createEl("span", {cls: "lbc-chip"});
+    c.createEl("span", {text: t});
+    c.createEl("span", {cls: "n", text: n});
+    if (inc.has(t)) c.addClass("inc");
+    else if (exc.has(t)) c.addClass("exc");
+    c.onclick = () => {
+      if (inc.has(t)) {inc.delete(t); exc.add(t);}
+      else if (exc.has(t)) {exc.delete(t);}
+      else {inc.add(t);}
+      renderChips(); renderCards();
+    };
+  }
+  if (allTags.length > TOP) {
+    const m = chipBar.createEl("span", {cls: "lbc-more", text: showAll ? "收起" : `更多 (${allTags.length - TOP})`});
+    m.onclick = () => {showAll = !showAll; renderChips();};
+  }
+  if (inc.size || exc.size) {
+    const clr = chipBar.createEl("span", {cls: "lbc-clear", text: "✕ 清空"});
+    clr.onclick = () => {inc.clear(); exc.clear(); renderChips(); renderCards();};
+  }
+}
+
+function match(it) {
+  const tags = it.tags || [];
+  for (const t of inc) if (!tags.includes(t)) return false;
+  for (const t of exc) if (tags.includes(t)) return false;
+  const q = search.value.trim().toLowerCase();
+  if (q) {
+    const hay = ((it.title || "") + " " + (it.summary || "")).toLowerCase();
+    if (!hay.includes(q)) return false;
+  }
+  return true;
+}
+
+function renderCards() {
+  grid.empty();
+  const shown = items.filter(match);
+  if (!shown.length) {
+    grid.createEl("div", {cls: "lbc-empty", text: "没有符合的收藏"});
+    return;
+  }
+  for (const it of shown) {
+    const card = grid.createEl("div", {cls: "lbc-card"});
+    if (it.cover) {
+      const img = card.createEl("img", {cls: "lbc-cover"});
+      img.loading = "lazy";
+      try {img.src = app.vault.adapter.getResourcePath(it.cover);} catch (e) {}
+    } else {
+      card.createEl("div", {cls: "lbc-nocover", text: it.kind === "video" ? "🎬" : "📄"});
+    }
+    const body = card.createEl("div", {cls: "lbc-body"});
+    body.createEl("div", {cls: "lbc-ctitle", text: it.title || "（无题）"});
+    if (it.summary) body.createEl("div", {cls: "lbc-csum", text: it.summary});
+    if ((it.tags || []).length) {
+      const tb = body.createEl("div", {cls: "lbc-ctags"});
+      for (const t of it.tags.slice(0, 4)) tb.createEl("span", {cls: "lbc-ctag", text: "#" + t});
+    }
+    const meta = body.createEl("div", {cls: "lbc-cmeta"});
+    if (it.date) meta.createEl("span", {text: it.date});
+    if (it.kind === "video") meta.createEl("span", {text: "🎬"});
+    if (it.attachment && it.attachment !== "none") meta.createEl("span", {text: it.attachment === "downloaded" ? "📎" : "📎待补"});
+    if (it.comments) meta.createEl("span", {text: "💬" + it.comments});
+    card.onclick = () => {if (it.note) app.workspace.openLinkText(it.note, "", false);};
+  }
+}
+
+search.oninput = () => renderCards();
+renderChips();
+renderCards();
+```"""
+
+_PAGE_HEADER = (
+    "---\n"
+    "cssclasses: [lb-catalog]\n"
+    "---\n"
+    "> [!tip] 封面瀑布流目录：点标签**加/减**筛（绿=要、红划掉=排除），支持搜索、点卡片开笔记。\n"
+    "> 需 **Dataview** 插件并在其设置里打开 **Enable JavaScript Queries**。每晚同步后自动重写。\n"
+    "\n"
+)
 
 
-def _line(item: dict[str, Any], since: datetime | None) -> str:
-    stem = Path(item["visible"]).stem if item["visible"] else item["title"]
-    bits = [f"- [[{stem}]]"]
-    if item["summary"]:
-        bits.append(f"— {_clip(item['summary'])}")
-    meta_bits: list[str] = []
-    archived = item["archived"]
-    if archived:
-        meta_bits.append(archived.strftime("%m-%d"))
-        if since and archived > since:
-            meta_bits.append("🆕")
-    if item["attachments"] == "metadata_only" and not item["has_attachment_bytes"]:
-        meta_bits.append("📎待补")
-    elif item["has_attachment_bytes"]:
-        meta_bits.append("📎")
-    if item["comments"]:
-        who, text = item["comments"][-1]
-        meta_bits.append(f"💬{len(item['comments'])} {who}：{_clip(text, 24)}")
-    if item["tags"]:
-        meta_bits.append(" ".join(f"#{t.replace(' ', '')}" for t in item["tags"][:3]))
-    if meta_bits:
-        bits.append("· " + " · ".join(meta_bits))
-    return " ".join(bits)
-
-
-def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Path, int, int]:
+def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Path, int, Path]:
     vault = vault or storage.vault_root()
-    catalog_path = vault / CATALOG_NAME
     now = datetime.now().astimezone()
-    since = load_last_built(vault)
-
-    # 1) 先把现有目录里的分组吸进 overrides——她手挪的永远优先于关键词规则
-    overrides = load_overrides(vault)
-    overrides.update(read_existing_groups(catalog_path))
-
     items = collect(vault, source)
-    grouped: dict[str, list[dict[str, Any]]] = {name: [] for name in CATEGORY_ORDER}
-    fresh = 0
-    for item in items:
-        stem = Path(item["visible"]).stem if item["visible"] else item["title"]
-        group = overrides.get(stem) or classify(item["title"], item["tags"], item["body"])
-        if group not in grouped:
-            group = FALLBACK[0]
-        grouped[group].append(item)
-        overrides.setdefault(stem, group)
-        if since and item["archived"] and item["archived"] > since:
-            fresh += 1
 
-    since_text = (
-        f"上次重建（{since.strftime('%m-%d %H:%M')}）以来新增 **{fresh}** 篇"
-        if since
-        else "首次自动重建"
+    data_path = vault / "_archive" / DATA_NAME
+    data_path.parent.mkdir(parents=True, exist_ok=True)
+    data_path.write_text(
+        json.dumps(
+            {"built_at": now.isoformat(), "count": len(items), "items": items},
+            ensure_ascii=False,
+            indent=1,
+        ),
+        encoding="utf-8",
     )
-    lines: list[str] = [
-        "# 📌 小红书收藏 · 分类目录",
-        "",
-        f"共 **{len(items)}** 篇 · {since_text} · 本页最后更新 **{now.strftime('%Y-%m-%d %H:%M')}**",
-        "",
-        "> 每晚 04:00 同步完自动重写；也可以在左边栏点「重建目录」手动跑一次。"
-        "**分组随手挪，下次重写会保住你挪过的位置**（记在 `_archive/catalog-overrides.json`）。",
-        "",
-    ]
-    for name in CATEGORY_ORDER:
-        bucket = grouped[name]
-        if not bucket:
-            continue
-        bucket.sort(key=lambda it: it["archived"] or datetime.min.replace(tzinfo=now.tzinfo), reverse=True)
-        lines.append(f"## {CATEGORY_ICON[name]} {name}（{len(bucket)}）")
-        lines.append("")
-        lines.extend(_line(item, since) for item in bucket)
-        lines.append("")
 
-    catalog_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
-    save_overrides(vault, overrides)
-    save_last_built(vault, now)
-    return catalog_path, len(items), fresh
+    catalog_path = vault / CATALOG_NAME
+    catalog_path.write_text(_PAGE_HEADER + _DATAVIEWJS + "\n", encoding="utf-8")
+
+    (vault / "_archive" / STATE_NAME).write_text(
+        json.dumps({"last_built": now.isoformat()}, ensure_ascii=False, indent=1),
+        encoding="utf-8",
+    )
+    return catalog_path, len(items), data_path
 
 
 def run(args) -> int:
-    path, total, fresh = build()
-    print(f"目录已重写：{path}（{total} 篇，新增 {fresh} 篇）")
+    path, total, data_path = build()
+    print(f"目录已重写：{path}（{total} 篇）")
+    print(f"数据：{data_path}")
+    print("提示：OB 需装 Dataview 插件并打开「Enable JavaScript Queries」，页面才会渲染。")
     return 0
