@@ -25,14 +25,17 @@ style.textContent = `
 .lbc-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 30px;}
 .lbc-toolbar button{border:0;box-shadow:none;border-radius:20px;padding:8px 16px;background:var(--background-secondary);}
 .lbc-toolbar button.is-active{color:var(--interactive-accent);background:var(--background-modifier-hover);}
+.lbc-cats{display:flex;flex-wrap:wrap;align-items:center;margin:0 0 22px;font-size:13px;}
+.lbc-cat{padding:4px 12px;cursor:pointer;color:var(--text-muted);border-radius:8px;transition:color .12s;}
+.lbc-cat:hover{color:var(--text-normal);}
+.lbc-cat.is-active{color:var(--interactive-accent);font-weight:600;}
+.lbc-cat-sep{color:var(--background-modifier-border);user-select:none;pointer-events:none;}
 .lbc-ai{padding:22px;border:1px solid var(--background-modifier-border);border-radius:16px;margin-bottom:24px;}
 .lbc-ai-q{color:var(--text-muted);font-size:13px;margin:6px 0 12px;}
 .lbc-ai-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px;}
 .lbc-ai-answer{line-height:1.7;}
 .lbc-ai-answer p:first-child{margin-top:0;}
 .lbc-ai-meta{color:var(--text-faint);font-size:11px;margin-top:14px;}
-.lbc-import{margin-left:auto;}
-.lbc-status{font-size:12px;color:var(--text-muted);}
 @media(max-width:650px){.lbc-grid{columns:180px;column-gap:18px;}.lbc-sub{width:100%;margin:0;}.lbc-wrap{padding:12px 4px;}}
 `;
 let data;
@@ -58,30 +61,24 @@ const allButton=toolbar.createEl('button',{text:'全部',cls:'is-active'});
 const todayButton=toolbar.createEl('button',{text:'今日新增'});
 allButton.onclick=()=>{todayOnly=false;allButton.addClass('is-active');todayButton.removeClass('is-active');render();};
 todayButton.onclick=()=>{todayOnly=true;todayButton.addClass('is-active');allButton.removeClass('is-active');render();};
-const importButton=toolbar.createEl('button',{text:'+ 导入',cls:'lbc-import'});
-const importStatus=wrap.createEl('div',{cls:'lbc-status'});
-importButton.type='button';
-importButton.onclick=async e=>{
-  e.preventDefault();e.stopPropagation();importButton.disabled=true;importStatus.setText('');
-  try{
-    const id='link-brain-actions';let plugin=app.plugins.plugins[id];
-    if(plugin?.running||plugin?.importing)throw new Error('已有归档任务运行中，请稍后再导入');
-    if(typeof plugin?.openImportModal!=='function'){
-      importStatus.setText('正在载入导入工具…');
-      if(plugin)await app.plugins.disablePlugin(id);
-      await app.plugins.enablePlugin(id);plugin=app.plugins.plugins[id];
-    }
-    if(typeof plugin?.openImportModal!=='function')throw new Error('导入插件未加载，请在第三方插件中启用 Link Brain Actions');
-    plugin.openImportModal();importStatus.setText('');
-  }catch(error){importStatus.setText('导入未打开：'+error.message);}
-  finally{importButton.disabled=false;}
-};
+// 大类筛选条（小红书式 tab，灰竖线分隔）：多选=「或」（命中任一大类即显示）；「全部」清空。
+const activeCats=new Set();
+const catBar=wrap.createEl('div',{cls:'lbc-cats'});
+function renderCatBar(){
+  catBar.empty();
+  const mk=(label,active,on)=>{const s=catBar.createEl('span',{cls:'lbc-cat'+(active?' is-active':''),text:label});s.onclick=on;return s;};
+  mk('全部',activeCats.size===0,()=>{if(activeCats.size){activeCats.clear();renderCatBar();render();}});
+  for(const cat of (data.cats_order||[])){
+    catBar.createEl('span',{cls:'lbc-cat-sep',text:'│'});
+    mk(cat,activeCats.has(cat),()=>{activeCats.has(cat)?activeCats.delete(cat):activeCats.add(cat);renderCatBar();render();});
+  }
+}
 const ai=wrap.createEl('section',{cls:'lbc-ai'});ai.hidden=true;
 const grid=wrap.createEl('div',{cls:'lbc-grid'});
 function render(){
   grid.empty();const raw=search.value.trim();const asking=raw.startsWith('/');const q=normalize(asking?raw.slice(1):raw);
   const now=new Date();const today=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
-  const shown=items.filter(it=>!todayOnly||it.date===today).map(it=>({it,score:score(it,q,data.pinyin_chars)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score);
+  const shown=items.filter(it=>(!todayOnly||it.date===today)&&(activeCats.size===0||(it.cats||[]).some(cc=>activeCats.has(cc)))).map(it=>({it,score:score(it,q,data.pinyin_chars)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score);
   sub.setText((q||todayOnly?`${shown.length} / ${items.length} 篇`:`${items.length} 篇`)+` · 更新 ${new Date(data.built_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}`);
   ai.hidden=!asking;ai.empty();
   if(asking){
@@ -142,4 +139,4 @@ function render(){
     };
   }
 }
-let timer;search.oninput=()=>{clearTimeout(timer);timer=setTimeout(render,120);};render();
+let timer;search.oninput=()=>{clearTimeout(timer);timer=setTimeout(render,120);};renderCatBar();render();

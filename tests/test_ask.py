@@ -118,3 +118,55 @@ def test_qa_model_failure_still_lists_notes(monkeypatch):
 def test_empty_question():
     r = ask.answer("   ")
     assert r["status"] == "error"
+
+
+# ── URL 清洗（xhs.clean_url / clean_share_text）──────────────────────────────
+
+def test_clean_url_keeps_only_token_and_source():
+    from link_brain.adapters import xiaohongshu as xhs
+    r = xhs.clean_url(
+        "https://www.rednote.com/discovery/item/6aa?xsec_token=TK&source=web&xhsshare=pc&shareRedId=z&xsec_source=pc_feed"
+    )
+    assert r["clean"] == "https://www.rednote.com/discovery/item/6aa?xsec_token=TK&xsec_source=pc_feed"
+    assert r["has_token"] is True
+    assert "source=web" not in r["clean"] and "xhsshare" not in r["clean"]
+
+
+def test_clean_url_no_token_not_fabricated():
+    from link_brain.adapters import xiaohongshu as xhs
+    r = xhs.clean_url("https://www.xiaohongshu.com/explore/6bb?source=web")
+    assert r["has_token"] is False
+    assert r["clean"] == "https://www.xiaohongshu.com/explore/6bb"  # 保留 path，不拼 token
+
+
+def test_clean_url_follows_shortlink(monkeypatch):
+    from link_brain.adapters import xiaohongshu as xhs
+    monkeypatch.setattr(
+        xhs, "resolve_shortlink",
+        lambda url, **kw: "https://www.xiaohongshu.com/explore/6cc?xsec_token=TK&xsec_source=pc_feed&app=1",
+    )
+    r = xhs.clean_url("https://xhslink.cn/o/abc")
+    assert r["resolved_from_shortlink"] is True
+    assert r["clean"] == "https://www.xiaohongshu.com/explore/6cc?xsec_token=TK&xsec_source=pc_feed"
+
+
+def test_clean_share_text_extracts_dedups_and_filters(monkeypatch):
+    from link_brain.adapters import xiaohongshu as xhs
+    monkeypatch.setattr(xhs, "resolve_shortlink", lambda url, **kw: "https://www.xiaohongshu.com/explore/6dd?xsec_token=TK")
+    text = ("看这个 https://www.rednote.com/discovery/item/6aa?xsec_token=T1&source=web 还有短链 "
+            "https://xhslink.cn/o/abc 以及非小红书 https://example.com/x 重复 "
+            "https://www.rednote.com/discovery/item/6aa?xsec_token=T1&source=web")
+    out = xhs.clean_share_text(text)
+    cleans = [u["clean"] for u in out]
+    assert "https://example.com/x" not in " ".join(cleans)  # 非白名单不收
+    assert any("6aa" in c for c in cleans) and any("6dd" in c for c in cleans)
+    assert len(cleans) == len(set(cleans)) == 2  # 去重后两条
+
+
+def test_catalog_cats_override(monkeypatch):
+    from link_brain import ai_config, catalog
+    monkeypatch.setattr(ai_config, "load", lambda: {"catalogCats": [{"name": "自定义", "keywords": ["喵", "汪"]}]})
+    cats = catalog.effective_big_cats()
+    assert cats == [("自定义", ("喵", "汪"))]
+    assert catalog._cats(["今天很喵"], cats) == ["自定义"]
+    assert catalog._cats(["无关标签"], cats) == [catalog.OTHER_CAT]

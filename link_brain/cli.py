@@ -100,12 +100,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--extract", action="store_true", help="顺带跑小模型派生（花钱，默认不跑）")
 
     p = sub.add_parser("catalog", help="重写 vault 里的收藏目录页（纯程序拼，不联网）")
+    p.add_argument("--print-cats", action="store_true", help="只打印当前生效的大类（设置页载入用），不重建")
 
     p = sub.add_parser("ask", help="基于本地归档库问答（/问AI 的后端；只把少量片段送模型）")
     p.add_argument("question", help="自然语言问题")
 
     p = sub.add_parser("selftest", help="设置页「测试」按钮的后端：发一次最小调用验证接口")
     p.add_argument("kind", choices=["text", "ocr"], help="测哪条接口")
+
+    p = sub.add_parser("clean", help="清洗分享文案里的小红书链接（跟随短链、只留 xsec_token/source），输出 JSON")
+    p.add_argument("text", help="一整段分享文案或链接")
 
     p = sub.add_parser("inbox", help="列出被戳到某角色且未处理的对象")
     p.add_argument("--for", dest="for_actor", required=True, help="角色名，如 fable")
@@ -219,6 +223,14 @@ def main(argv: list[str] | None = None) -> int:
         from . import ask as ask_mod
 
         return ask_mod.run_selftest(args)
+
+    if args.command == "clean":
+        from .adapters import xiaohongshu as xhs
+        from .read import dump_json
+
+        urls = xhs.clean_share_text(args.text)
+        dump_json({"count": len(urls), "urls": urls})
+        return EXIT_OK
 
     if args.command in ("comment", "inbox", "resolve"):
         from . import comments as comments_mod

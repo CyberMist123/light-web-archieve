@@ -39,6 +39,9 @@ DEFAULTS: dict[str, Any] = {
     "tts": {"endpoint": "", "apiKey": "", "model": "", "voice": ""},
     "prompts": {"summary": "", "answer": DEFAULT_ANSWER_PROMPT},
     "retrieval": {"totalCharLimit": 8000, "fragChars": 800, "topK": 8, "expandTerms": True},
+    # 目录页顶部的大类筛选（catalog.py 读；空=用内置 BIG_CATS）。
+    # 形如 [{"name": "人机恋", "keywords": ["人机恋","ai伴侣"]}, ...]
+    "catalogCats": [],
 }
 
 

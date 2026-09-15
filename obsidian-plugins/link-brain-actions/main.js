@@ -24,22 +24,50 @@ const DEFAULT_SETTINGS = {
   tts: { endpoint: "", apiKey: "", model: "", voice: "" },
   prompts: { summary: "", answer: DEFAULT_ANSWER_PROMPT },
   retrieval: { totalCharLimit: 8000, fragChars: 800, topK: 8, expandTerms: true },
+  // 目录页顶部大类筛选（空=用内置 BIG_CATS）；形如 [{name, keywords:[...]}]。
+  catalogCats: [],
 };
 
 function mergeSettings(saved) {
   const out = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
   for (const key of Object.keys(out)) {
-    if (saved && typeof saved[key] === "object" && saved[key]) Object.assign(out[key], saved[key]);
+    if (!saved || saved[key] == null) continue;
+    if (Array.isArray(out[key])) out[key] = saved[key];              // 数组整体替换
+    else if (typeof saved[key] === "object") Object.assign(out[key], saved[key]);
+    else out[key] = saved[key];
   }
   return out;
+}
+
+// 小红书 URL 清洗（本地部分）：白名单主机 + 只留 xsec_token/xsec_source、丢分享垃圾参数、
+// 保留 host+path 原样（不改 /explore/、/discovery/item/）、去重。短链的「跟随 redirect 换成长链」
+// 需要联网，走 Python（expandAndCleanLinks / clean 命令）；这里同步版只做能本地做的清洗。
+const XHS_HOSTS = /(^|\.)(xiaohongshu\.com|rednote\.com|xhslink\.com|xhslink\.cn)$/;
+// 大类可编辑文本 ↔ 数组。文本格式（好编辑）：每行「名称: 关键词1, 关键词2」。
+function parseCatsText(text) {
+  const cats = [];
+  for (const line of (text || "").split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    const m = t.match(/^(.*?)\s*[:：]\s*(.*)$/);
+    if (!m) { cats.push({ name: t, keywords: [] }); continue; }
+    const name = m[1].trim();
+    const kws = m[2].split(/[,，、]/).map(s => s.trim().toLowerCase()).filter(Boolean);
+    if (name) cats.push({ name, keywords: kws });
+  }
+  return cats;
+}
+function serializeCats(arr) {
+  return (arr || []).map(c => `${c.name}: ${(c.keywords || []).join(", ")}`).join("\n");
 }
 
 function cleanLinks(text) {
   const links=[];
   for(const raw of text.match(/https?:\/\/[^\s<>"'，。；！？）】]+/gi)||[]){
     try{const u=new URL(raw.replace(/[)\],.;]+$/, ''));
-      if(!/(^|\.)(xiaohongshu\.com|xhslink\.com|xhslink\.cn)$/.test(u.hostname))continue;
-      // 保留小红书读取所需 token，其余分享追踪参数清掉。
+      if(!XHS_HOSTS.test(u.hostname))continue;
+      // 只保留小红书读取所需的 xsec_token/xsec_source，其余分享追踪参数
+      //（source / xhsshare / app_platform / share_id / track_code / apptime / author_share / shareRedId …）一律清掉。
       for(const key of [...u.searchParams.keys()])if(!['xsec_token','xsec_source'].includes(key))u.searchParams.delete(key);
       u.hash='';if(!links.includes(u.href))links.push(u.href);
     }catch{}
@@ -50,16 +78,38 @@ class ImportModal extends Modal {
   constructor(plugin){super(plugin.app);this.plugin=plugin;}
   onOpen(){
     const el=this.contentEl;el.createEl('h2',{text:'导入收藏'});
-    el.createEl('p',{text:'粘贴链接或整段分享文案，支持多条。自动清洗、去重；目前支持小红书。'});
+    el.createEl('p',{text:'粘贴链接或整段分享文案，支持多条。自动清洗、去重、短链展开；目前支持小红书。'});
     const input=el.createEl('textarea');input.style.cssText='width:100%;min-height:180px';input.placeholder='粘贴一个或多个链接…';
     const preview=el.createEl('p',{text:'等待粘贴链接'});
-    const clean=el.createEl('button',{text:'清洗链接'});clean.onclick=()=>{input.value=cleanLinks(input.value).join('\n');input.oninput();};
-    const start=el.createEl('button',{text:'开始导入',cls:'mod-cta'});
+    const row=el.createEl('div');row.style.cssText='display:flex;gap:10px;align-items:center;margin:6px 0;';
+    const clean=row.createEl('button',{text:'清洗链接（展开短链）'});
+    const start=row.createEl('button',{text:'开始导入',cls:'mod-cta'});
+    // 进度条：默认藏着，导入时显示
+    const progWrap=el.createEl('div');progWrap.style.cssText='margin:12px 0;';progWrap.hidden=true;
+    const bar=progWrap.createEl('div');bar.style.cssText='height:8px;border-radius:6px;background:var(--background-modifier-border);overflow:hidden;';
+    const fill=bar.createEl('div');fill.style.cssText='height:100%;width:0%;background:var(--interactive-accent);transition:width .25s;';
+    const progText=progWrap.createEl('div');progText.style.cssText='font-size:12px;color:var(--text-muted);margin-top:6px;';
     const output=el.createEl('div');
     input.oninput=()=>preview.setText(`识别到 ${cleanLinks(input.value).length} 条不同链接`);
-    start.onclick=async()=>{start.disabled=true;output.empty();try{
-      await this.plugin.importText(input.value,(line)=>output.createEl('p',{text:line}));
-    }finally{start.disabled=false;}};
+    clean.onclick=async()=>{
+      clean.disabled=true;const old=clean.textContent;clean.setText('清洗中…');
+      try{
+        const cleaned=await this.plugin.expandAndCleanLinks(input.value);
+        if(cleaned.length){input.value=cleaned.map(c=>c.clean).join('\n');input.oninput();
+          const noTok=cleaned.filter(c=>!c.has_token).length;
+          preview.setText(`清洗出 ${cleaned.length} 条${noTok?`（${noTok} 条缺 xsec_token，可能打不开）`:''}`);
+        }else preview.setText('没识别到有效的小红书链接');
+      }catch(e){preview.setText('清洗失败：'+e.message);}
+      finally{clean.setText(old);clean.disabled=false;}
+    };
+    start.onclick=async()=>{
+      start.disabled=true;clean.disabled=true;output.empty();progWrap.hidden=false;fill.style.width='0%';progText.setText('准备中…');
+      try{
+        await this.plugin.importText(input.value,
+          (line)=>output.createEl('p',{text:line}),
+          (done,total)=>{const pct=total?Math.round(done/total*100):0;fill.style.width=pct+'%';progText.setText(`${done} / ${total}（${pct}%）`);});
+      }finally{start.disabled=false;clean.disabled=false;}
+    };
     input.focus();
   }
 }
@@ -215,12 +265,25 @@ class LinkBrainActions extends Plugin {
     await adapter.write(rel, `${prev}${stamp}  ${text}\n`);
   }
 
-  async importText(text, report = () => {}) {
+  // 用 Python `clean` 跟随短链、按规范清洗（保留 host/path、只留 xsec_token/source、不伪造）。
+  // 返回 [{clean, has_token, resolved_from_shortlink, original}]。
+  async expandAndCleanLinks(text) {
+    const t = (text || "").trim();
+    if (!t) return [];
+    const { out } = await this.spawnCapture(["-m", "link_brain", "clean", t]);
+    let payload;
+    try { payload = JSON.parse(out.trim().split("\n").filter(Boolean).pop() || "{}"); }
+    catch { throw new Error("清洗后端没返回可解析结果"); }
+    return payload.urls || [];
+  }
+
+  async importText(text, report = () => {}, progress = () => {}) {
     if(this.importing || this.running){new Notice('已有归档任务在运行');return [];}
     const urls=cleanLinks(text);
     if(!urls.length){report('没有识别到支持的小红书链接');return [];}
     this.importing=true;const results=[];
     try {
+      progress(0,urls.length);
       for(const [i,url] of urls.entries()){
         report(`正在导入 ${i+1}/${urls.length}`);
         const res=await this.run(['-m','link_brain','catch',url,'--origin','cli','--actor','human'],'导入收藏');
@@ -230,6 +293,7 @@ class LinkBrainActions extends Plugin {
         const result={url,ok,note:ok?path.basename(item.visible_note,'.md'):null};
         results.push(result);
         report(ok ? `✓ ${result.note}` : `未完成：${item?.error || url}`);
+        progress(i+1,urls.length);
         if(item?.status==='blocked') {report('服务或登录需要处理，已暂停余下链接。');break;}
       }
       await this.run(['-m','link_brain','catalog'],'重建目录');
@@ -351,6 +415,27 @@ class LinkBrainSettingTab extends PluginSettingTab {
       .onChange(async v => { s.retrieval.topK = parseInt(v) || 8; await save(); }));
     new Setting(c).setName("普通问题先用小模型扩检索词").setDesc("开：多花一次很小的调用换更全的召回。关：只用问句里的词。")
       .addToggle(t => t.setValue(s.retrieval.expandTerms).onChange(async v => { s.retrieval.expandTerms = v; await save(); }));
+
+    // —— 目录大类（顶部筛选）——
+    c.createEl("h3", { text: "目录大类（顶部筛选条）" });
+    c.createEl("p", { cls: "setting-item-description", text: "每行一个大类，格式「名称: 关键词1, 关键词2」。一篇笔记的标签命中任一关键词就归到该大类（可属多类）。留空 = 用内置大类。改完点「重建收藏目录」命令才生效。" });
+    let catsArea;
+    new Setting(c).setName("大类列表").addTextArea(t => { catsArea = t; t.inputEl.rows = 10; t.inputEl.style.width = "100%"; t.inputEl.style.fontFamily = "var(--font-monospace)";
+      t.setPlaceholder("人机恋: 人机恋, ai伴侣, 陪伴\nAI·模型: claude, gpt, 大模型").setValue(serializeCats(s.catalogCats))
+      .onChange(async v => { s.catalogCats = parseCatsText(v); await save(); }); });
+    new Setting(c)
+      .addButton(b => b.setButtonText("载入当前大类").setTooltip("把现在生效的大类填进上面，好在其基础上改").onClick(async () => {
+        try { const { out } = await this.plugin.spawnCapture(["-m", "link_brain", "catalog", "--print-cats"]);
+          const r = JSON.parse(out.trim().split("\n").filter(Boolean).pop() || "{}");
+          if (r.text != null) { catsArea.setValue(r.text); s.catalogCats = parseCatsText(r.text); await save(); new Notice("已载入当前大类"); }
+        } catch (e) { new Notice("载入失败：" + e.message, 8000); }
+      }))
+      .addButton(b => b.setButtonText("清空（用内置）").onClick(async () => { s.catalogCats = []; await save(); this.display(); }))
+      .addButton(b => b.setButtonText("重建目录使其生效").setCta().onClick(async () => {
+        new Notice("正在重建目录…");
+        const r = await this.plugin.run(["-m", "link_brain", "catalog"], "重建目录");
+        if (r.code === 0) new Notice("目录已重建，打开「小红书收藏目录」看新大类");
+      }));
   }
 
   addTestButton(container, label, args) {

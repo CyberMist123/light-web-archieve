@@ -1,5 +1,26 @@
 # Current State
 
+## 2026-09-16 目录大类筛选 + URL 清洗规范 + 导入进度条（本轮追加）
+
+Owner 追加的一批 UI/清洗需求，都做完：
+- **URL 清洗按规范**（她写的 spec）：`xhs.clean_url` / `clean_share_text`（新）+ CLI `python -m link_brain clean`——
+  短链 `xhslink.cn/.com` **跟随 redirect 换最终长链**、保留 host+path 原样（不改 /explore、/discovery/item）、
+  query 只留 `xsec_token`/`xsec_source`（source/xhsshare/app_platform/share_id/track_code/apptime/author_share/shareRedId 全删）、
+  `xsec_token` 完整不截断、**没 token 就如实标 has_token=False 绝不拼裸 note_id**。插件 `cleanLinks` 白名单**补上 rednote.com**
+  （她的分享链接大多是这个域，之前被丢）；「清洗链接」按钮改走 Python（真展开短链）。
+- **目录页大类筛选条回来了**（09-16「收藏墙调整」把它藏了）：`catalog-view.js` 顶部小红书式 tab，
+  **灰竖线 `│` 分隔**（`.lbc-cat-sep` 用 border 色），多选=**「或」**（命中任一大类即显示），「全部」清空。
+  数据用 catalog-data.json 已有的 `cats_order` + 每篇 `cats`。
+- **隐藏「+ 导入」按钮**（她要的）：目录页不再放导入入口（导入仍在命令面板/ribbon/设置里）。
+- **导入进度条**：ImportModal 加动态进度条（`importText` 多一个 progress 回调，逐条 done/total 填充）。
+- **设置页可编辑大类**：文本框「名称: 关键词1, 关键词2」逐行（好编辑），「载入当前大类」按钮读
+  `catalog --print-cats`、「清空用内置」、「重建目录使其生效」三个按钮 + 提示（改完要重建才生效）。
+  存 data.json 的 `catalogCats`；`catalog.effective_big_cats()` 读它、空则用内置 `BIG_CATS`（fail-open）。
+
+测试：`test_ask.py` 追加 5 例（clean_url 只留 token+source / 无 token 不伪造 / 跟随短链 / clean_share_text 去重+白名单 /
+大类覆盖）；`test_catalog_interactions.cjs` 补 rednote 清洗、parseCatsText/serializeCats、进度回调、expandAndCleanLinks，
+删掉已移除的导入按钮那段。全套 **126 passed + node PASS**。main.js 同步 vault、目录已重建（cats_order 12 类）。
+
 ## 2026-09-16 知识库 /问AI + 插件设置 + 开源移植（本轮做完）
 
 **/问AI 真接模型了**（不再是「未接入」占位）：

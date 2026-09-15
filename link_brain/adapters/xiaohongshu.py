@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import urllib.parse
 from datetime import datetime, timezone
 from typing import Any
 
@@ -163,6 +164,69 @@ def resolve_shortlink(url: str, *, client: httpx.Client | None = None) -> str:
     finally:
         if owned:
             client.close()
+
+
+# 清洗白名单（注册域）：只认这四个主机及其子域，别的一律不当小红书链接
+WHITELIST_RE = re.compile(r"(^|\.)(xiaohongshu\.com|rednote\.com|xhslink\.com|xhslink\.cn)$", re.I)
+# 分享垃圾参数只保留这两个（读笔记要 token；xsec_source 影响可达性）
+KEEP_PARAMS = ("xsec_token", "xsec_source")
+
+
+def clean_url(url: str, *, client: httpx.Client | None = None) -> dict[str, Any]:
+    """按 Owner 的清洗规范把一个链接洗干净。
+
+    - `xhslink.cn/.com` 短链**跟随 redirect** 换成最终长链（不把短链写进 Obsidian）；
+    - 保留最终 host + path 原样（不改 /explore/、/discovery/item/）；
+    - query 只留 `xsec_token` / `xsec_source`，其余（source/xhsshare/app_platform/share_id/
+      track_code/apptime/author_share/shareRedId …）全删；`xsec_token` 完整保留不截断；
+    - **没有 xsec_token 就如实标 `has_token=False`，绝不擅自拼裸 note_id 声称有效。**
+    返回 `{clean, has_token, resolved_from_shortlink, error?}`。
+    """
+    resolved_short = False
+    final = url
+    error = None
+    if any(host in url.lower() for host in SHORTLINK_HOSTS):
+        try:
+            final = resolve_shortlink(url, client=client)
+            resolved_short = True
+        except AdapterError as exc:
+            return {"clean": url, "has_token": False, "resolved_from_shortlink": False, "error": str(exc)}
+    parts = urllib.parse.urlsplit(final)
+    kept = [(k, v) for k, v in urllib.parse.parse_qsl(parts.query, keep_blank_values=False) if k in KEEP_PARAMS]
+    # xsec_token 在前，稳定顺序
+    kept.sort(key=lambda kv: KEEP_PARAMS.index(kv[0]))
+    query = urllib.parse.urlencode(kept, safe="=")
+    clean = urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, query, ""))
+    return {
+        "clean": clean,
+        "has_token": any(k == "xsec_token" for k, _ in kept),
+        "resolved_from_shortlink": resolved_short,
+        "error": error,
+    }
+
+
+def clean_share_text(text: str, *, client: httpx.Client | None = None) -> list[dict[str, Any]]:
+    """从一整段分享文案里抠出所有小红书链接、逐条清洗、去重（保序）。"""
+    owned = client is None
+    client = client or httpx.Client(timeout=30, follow_redirects=False)
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    try:
+        for match in URL_RE.finditer(text or ""):
+            raw = match.group(0).rstrip("，。、)）]")
+            host = urllib.parse.urlsplit(raw).netloc.lower()
+            if not WHITELIST_RE.search(host):
+                continue
+            result = clean_url(raw, client=client)
+            key = result["clean"]
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({**result, "original": raw})
+    finally:
+        if owned:
+            client.close()
+    return out
 
 
 def parse_input(text: str, *, client: httpx.Client | None = None) -> dict[str, Any]:
