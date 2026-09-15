@@ -663,10 +663,13 @@ def render_visible_md(
         existing_tags(existing_text),
         suggested_tags(extracted),
     )
+    # 已有 tags 是用户可编辑属性；包括主动清空，重渲染不得复活删除的标签。
+    if 'tags' in parse_frontmatter(existing_text):
+        tags = existing_tags(existing_text)
     fm = [
         "---",
         "cssclasses: [link-brain, xhs-note]",
-        "tags: [" + ", ".join(tags) + "]",
+        "tags: " + json.dumps(tags, ensure_ascii=False),
         "link_brain:",
         f"  item_id: {meta['item_id']}",
         f"  source: {meta['source']}",

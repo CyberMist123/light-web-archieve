@@ -5,7 +5,7 @@ Owner 2026-09-15 拍板改法（推翻 09-07 的「小模型 category 分文件�
   移文件是破坏性的（E2N 就得靠「只在子目录移、不删正文」自保）。tag 不动文件、随便加减，
   天生贴合她「加减 tag」的习惯，也给以后的模糊搜索留好轴。tag 数据本来就在每篇 frontmatter 里
   （Lot 4 归一 + 合并 + 她手写），这里直接拿来当筛选轴。
-- 页面 = 封面卡片墙（抄小红书发现页那种瀑布流），点标签**加/减**筛选（绿=要、红划掉=排除）+ 搜索框。
+- 页面 = 无标签封面墙 + 本地模糊检索；右键卡片编辑后台标签。
 - 硬约束 #8「不做 Obsidian 插件」：页面靠 **Dataview 的 dataviewjs**（用户装的社区插件，不是我们自研）
   渲染——它能渲染真·Obsidian 链接（绕开「裸 HTML 的 a href 打不开本地笔记」那个坑）、能跑 JS、
   样式由 JS 自注入（不依赖她手动开 CSS snippet）。
@@ -173,6 +173,8 @@ def _attachment_badge(obj_dir: Path, meta: dict[str, Any]) -> str:
 
 
 def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
+    from .render import parse_frontmatter
+
     items: list[dict[str, Any]] = []
     base = vault / "_archive" / source
     if not base.is_dir():
@@ -188,7 +190,8 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
         summary = (data or {}).get("summary") or ""
         visible = meta.get("visible_note")
         tags = _note_tags(vault, visible)
-        if not tags:
+        visible_text = (vault / visible).read_text(encoding='utf-8') if visible and (vault / visible).is_file() else None
+        if not tags and 'tags' not in parse_frontmatter(visible_text):
             # 没渲染出可见笔记时退回 source.json / extracted 的 tag
             source_doc = _load_json(obj_dir / "raw" / f"v{version:04d}" / "source.json") or {}
             note = source_doc.get("note") if isinstance(source_doc, dict) else {}
@@ -196,6 +199,8 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
             if not tags and isinstance(data, dict):
                 tags = [str(t).strip() for t in data.get("tags", []) if str(t).strip()]
         comment_count, last_comment = _last_comment(vault, visible)
+        source_doc = _load_json(obj_dir / 'raw' / f'v{version:04d}' / 'source.json') or {}
+        note = source_doc.get('note') or {}
         archived = _parse_dt(meta.get("first_archived_at"))
         items.append(
             {
@@ -204,6 +209,9 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                 "note": visible,
                 "cover": _cover(obj_dir, source, source_id, version),
                 "summary": _clip(summary),
+                "search_text": summary + ' ' + str(note.get('body') or ''),
+                "author": (note.get('author') or {}).get('nickname', ''),
+                "source": source,
                 "tags": tags,
                 "cats": _cats(tags),
                 "kind": meta.get("kind", "image"),
@@ -220,141 +228,9 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
 
 
 # ── dataviewjs 页面（样式自注入，不依赖 CSS snippet；读 catalog-data.json 渲染） ──
-# 顶部大类 tab（小红书发现页那种）+「或」筛选（选多类 = 命中任一）+ 搜索；卡片墙铺满、放大。
-_DATAVIEWJS = r"""```dataviewjs
-const DATA_PATH = "_archive/catalog-data.json";
-const root = dv.container;
-
-// 铺满整页：直接把承载的 sizer 撑满，别只靠 CSS 选择器（比猜类名稳）。
-try {
-  const sizer = root.closest(".markdown-preview-sizer, .cm-sizer, .markdown-preview-section, .cm-contentContainer");
-  if (sizer) { sizer.style.maxWidth = "none"; sizer.style.width = "100%"; }
-} catch (e) {}
-
-const style = document.createElement("style");
-style.textContent = `
-/* 目录页铺满：解除 Obsidian 可读行宽的限制（只作用于挂了 lb-catalog 的页） */
-.markdown-preview-view.lb-catalog .markdown-preview-sizer,
-.markdown-source-view.lb-catalog .cm-sizer,
-.markdown-source-view.lb-catalog .cm-contentContainer{max-width:none!important;width:100%!important;}
-.lbc-wrap{--lbc-gap:14px;}
-.lbc-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:.1em 0 .55em;}
-.lbc-title{font-size:1.35em;font-weight:700;}
-.lbc-sub{color:var(--text-muted);font-size:.82em;}
-.lbc-search{width:100%;box-sizing:border-box;padding:8px 13px;border-radius:10px;border:1px solid var(--background-modifier-border);background:var(--background-primary);color:var(--text-normal);margin-bottom:.6em;font-size:.95em;}
-.lbc-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:.9em;align-items:center;}
-.lbc-tab{cursor:pointer;user-select:none;font-size:.9em;line-height:1;padding:8px 15px;border-radius:999px;background:var(--background-secondary);color:var(--text-muted);transition:all .12s;white-space:nowrap;}
-.lbc-tab:hover{color:var(--text-normal);}
-.lbc-tab.on{background:var(--interactive-accent);color:var(--text-on-accent);font-weight:600;}
-/* 卡片小一点、随页宽自适应铺满：column-width 让列数跟着容器宽自动加减 */
-.lbc-grid{column-gap:var(--lbc-gap);column-width:clamp(150px,13vw,190px);}
-.lbc-card{break-inside:avoid;margin:0 0 var(--lbc-gap);border-radius:12px;overflow:hidden;background:var(--background-secondary);border:1px solid var(--background-modifier-border);cursor:pointer;transition:transform .12s,box-shadow .12s;}
-.lbc-card:hover{transform:translateY(-3px);box-shadow:0 6px 18px rgba(0,0,0,.2);}
-.lbc-cover{display:block;width:100%;height:auto;background:var(--background-modifier-hover);}
-.lbc-nocover{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:2em;background:var(--background-modifier-hover);}
-.lbc-body{padding:8px 10px 10px;}
-.lbc-ctitle{font-weight:600;font-size:.9em;line-height:1.3;margin-bottom:3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
-.lbc-csum{color:var(--text-muted);font-size:.78em;line-height:1.38;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:5px;}
-.lbc-ctags{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:4px;}
-.lbc-ctag{font-size:.68em;color:var(--text-accent);background:var(--background-modifier-hover);padding:1px 6px;border-radius:6px;}
-.lbc-cmeta{font-size:.7em;color:var(--text-faint);display:flex;flex-wrap:wrap;gap:7px;}
-.lbc-empty{color:var(--text-muted);padding:2em 0;text-align:center;}
-`;
-root.appendChild(style);
-
-let data;
-try {
-  data = JSON.parse(await app.vault.adapter.read(DATA_PATH));
-} catch (e) {
-  root.createEl("div", {text: "读不到目录数据（" + DATA_PATH + "）——先跑一次 `python -m link_brain catalog`。"});
-  return;
-}
-const items = data.items || [];
-const catsOrder = data.cats_order || [];
-const wrap = root.createEl("div", {cls: "lbc-wrap"});
-const head = wrap.createEl("div", {cls: "lbc-head"});
-head.createEl("span", {cls: "lbc-title", text: "📌 小红书收藏"});
-const sub = head.createEl("span", {cls: "lbc-sub"});
-
-const search = wrap.createEl("input", {cls: "lbc-search"});
-search.type = "text";
-search.placeholder = "搜标题 / 概要…";
-
-const sel = new Set();  // 选中的大类；空 = 全部。多选 = 或（命中任一即显示）
-const tabBar = wrap.createEl("div", {cls: "lbc-tabs"});
-const grid = wrap.createEl("div", {cls: "lbc-grid"});
-
-function renderTabs() {
-  tabBar.empty();
-  const all = tabBar.createEl("span", {cls: "lbc-tab", text: "全部"});
-  if (!sel.size) all.addClass("on");
-  all.onclick = () => {sel.clear(); renderTabs(); renderCards();};
-  for (const c of catsOrder) {
-    const t = tabBar.createEl("span", {cls: "lbc-tab", text: c});
-    if (sel.has(c)) t.addClass("on");
-    t.onclick = () => {sel.has(c) ? sel.delete(c) : sel.add(c); renderTabs(); renderCards();};
-  }
-}
-
-function match(it) {
-  if (sel.size) {
-    const cats = it.cats || [];
-    if (!cats.some((c) => sel.has(c))) return false;  // 或：命中任一大类
-  }
-  const q = search.value.trim().toLowerCase();
-  if (q) {
-    const hay = ((it.title || "") + " " + (it.summary || "") + " " + (it.tags || []).join(" ")).toLowerCase();
-    if (!hay.includes(q)) return false;
-  }
-  return true;
-}
-
-function renderCards() {
-  grid.empty();
-  const shown = items.filter(match);
-  sub.setText(`共 ${items.length} 篇` + (shown.length !== items.length ? ` · 筛出 ${shown.length}` : "") + ` · 更新 ${(data.built_at || "").slice(0, 16).replace("T", " ")}`);
-  if (!shown.length) {
-    grid.createEl("div", {cls: "lbc-empty", text: "没有符合的收藏"});
-    return;
-  }
-  for (const it of shown) {
-    const card = grid.createEl("div", {cls: "lbc-card"});
-    if (it.cover) {
-      const img = card.createEl("img", {cls: "lbc-cover"});
-      img.loading = "lazy";
-      try {img.src = app.vault.adapter.getResourcePath(it.cover);} catch (e) {}
-    } else {
-      card.createEl("div", {cls: "lbc-nocover", text: it.kind === "video" ? "🎬" : "📄"});
-    }
-    const body = card.createEl("div", {cls: "lbc-body"});
-    body.createEl("div", {cls: "lbc-ctitle", text: it.title || "（无题）"});
-    if (it.summary) body.createEl("div", {cls: "lbc-csum", text: it.summary});
-    if ((it.tags || []).length) {
-      const tb = body.createEl("div", {cls: "lbc-ctags"});
-      for (const t of it.tags.slice(0, 4)) tb.createEl("span", {cls: "lbc-ctag", text: "#" + t});
-    }
-    const meta = body.createEl("div", {cls: "lbc-cmeta"});
-    if (it.date) meta.createEl("span", {text: it.date});
-    if (it.kind === "video") meta.createEl("span", {text: "🎬"});
-    if (it.attachment && it.attachment !== "none") meta.createEl("span", {text: it.attachment === "downloaded" ? "📎" : "📎待补"});
-    if (it.comments) meta.createEl("span", {text: "💬" + it.comments});
-    card.onclick = () => {if (it.note) app.workspace.openLinkText(it.note, "", false);};
-  }
-}
-
-search.oninput = () => renderCards();
-renderTabs();
-renderCards();
-```"""
-
-_PAGE_HEADER = (
-    "---\n"
-    "cssclasses: [lb-catalog]\n"
-    "---\n"
-    "> [!tip] 封面瀑布流目录：点标签**加/减**筛（绿=要、红划掉=排除），支持搜索、点卡片开笔记。\n"
-    "> 需 **Dataview** 插件并在其设置里打开 **Enable JavaScript Queries**。每晚同步后自动重写。\n"
-    "\n"
-)
+# 页面脚本独立保存，生成时嵌入笔记，Dataview 无需另读脚本。
+_DATAVIEWJS = "```dataviewjs\n" + (Path(__file__).parent / "assets" / "catalog-view.js").read_text(encoding="utf-8") + "\n```"
+_PAGE_HEADER = "---\ncssclasses: [lb-catalog]\n---\n\n"
 
 
 def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Path, int, Path]:
