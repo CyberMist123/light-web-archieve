@@ -25,6 +25,8 @@ style.textContent = `
 .lbc-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 30px;}
 .lbc-toolbar button{border:0;box-shadow:none;border-radius:20px;padding:8px 16px;background:var(--background-secondary);}
 .lbc-toolbar button.is-active{color:var(--interactive-accent);background:var(--background-modifier-hover);}
+.lbc-import{margin-left:auto;}
+.lbc-status{font-size:12px;color:var(--text-muted);}
 .lbc-cats{display:flex;flex-wrap:wrap;align-items:center;margin:0 0 22px;font-size:13px;}
 .lbc-cat{padding:4px 12px;cursor:pointer;color:var(--text-muted);border-radius:8px;transition:color .12s;}
 .lbc-cat:hover{color:var(--text-normal);}
@@ -61,6 +63,24 @@ const allButton=toolbar.createEl('button',{text:'全部',cls:'is-active'});
 const todayButton=toolbar.createEl('button',{text:'今日新增'});
 allButton.onclick=()=>{todayOnly=false;allButton.addClass('is-active');todayButton.removeClass('is-active');render();};
 todayButton.onclick=()=>{todayOnly=true;todayButton.addClass('is-active');allButton.removeClass('is-active');render();};
+const importButton=toolbar.createEl('button',{text:'+ 导入',cls:'lbc-import'});
+const importStatus=wrap.createEl('div',{cls:'lbc-status'});
+importButton.type='button';
+importButton.onclick=async e=>{
+  e.preventDefault();e.stopPropagation();importButton.disabled=true;importStatus.setText('');
+  try{
+    const id='link-brain-actions';let plugin=app.plugins.plugins[id];
+    if(plugin?.running||plugin?.importing)throw new Error('已有归档任务运行中，请稍后再导入');
+    if(typeof plugin?.openImportModal!=='function'){
+      importStatus.setText('正在载入导入工具…');
+      if(plugin)await app.plugins.disablePlugin(id);
+      await app.plugins.enablePlugin(id);plugin=app.plugins.plugins[id];
+    }
+    if(typeof plugin?.openImportModal!=='function')throw new Error('导入插件未加载，请在第三方插件中启用 Link Brain Actions');
+    plugin.openImportModal();importStatus.setText('');
+  }catch(error){importStatus.setText('导入未打开：'+error.message);}
+  finally{importButton.disabled=false;}
+};
 // 大类筛选条（小红书式 tab，灰竖线分隔）：多选=「或」（命中任一大类即显示）；「全部」清空。
 const activeCats=new Set();
 const catBar=wrap.createEl('div',{cls:'lbc-cats'});
@@ -119,7 +139,6 @@ function render(){
   if(!shown.length){grid.createEl('div',{cls:'lbc-empty',text:'没找到，试试更短的关键词。'});return;}
   for(const {it} of shown){
     const card=grid.createEl('article',{cls:'lbc-card'});card.tabIndex=0;card.setAttribute('role','link');card.setAttribute('aria-label',it.title||'打开收藏');
-    card.title=it.summary||it.title||'';
     if(it.cover){const img=card.createEl('img',{cls:'lbc-cover'});img.loading='lazy';img.alt='';img.src=app.vault.adapter.getResourcePath(it.cover);}
     else card.createEl('div',{cls:'lbc-nocover',text:it.kind==='video'?'▷':'▤'});
     const body=card.createEl('div',{cls:'lbc-body'});body.createEl('div',{cls:'lbc-ctitle',text:it.title||'未命名'});

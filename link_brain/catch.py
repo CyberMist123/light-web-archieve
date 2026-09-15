@@ -25,8 +25,9 @@ EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_NEEDS_HUMAN = 5
 
-# 只认小红书；消息里的其它链接一律不碰（V1 没有别的 adapter）
-XHS_HOSTS = ("xiaohongshu.com", "xhslink.cn", "xhslink.com")
+# 只认小红书；消息里的其它链接一律不碰（V1 没有别的 adapter）。
+# rednote.com 是小红书海外域，分享链接大多是它（/discovery/item/<id>），必须认。
+XHS_HOSTS = ("xiaohongshu.com", "rednote.com", "xhslink.cn", "xhslink.com")
 # URL_RE 已经排掉了大部分中文标点，这里再收一遍粘在链接尾巴上的收尾符号
 TRAILING = "，。、；：！？）)]】》>\"'“”‘’"
 

@@ -73,6 +73,12 @@ def test_find_xhs_urls_rejects_lookalike_host():
     assert catch_mod.find_xhs_urls("https://notxhslink.cn/o/x") == []
 
 
+def test_find_xhs_urls_accepts_rednote():
+    # rednote.com 是小红书海外域，分享链接大多是它——必须收（2026-09-16 Owner 投喂全是这个域）
+    url = "https://www.rednote.com/discovery/item/6aa92edb00000000110352a9?xsec_token=T&xsec_source=pc_feed"
+    assert catch_mod.find_xhs_urls(f"分享 {url} 看看") == [url]
+
+
 # --------------------------------------------------------------------------
 # 没有链接：零成本
 # --------------------------------------------------------------------------
