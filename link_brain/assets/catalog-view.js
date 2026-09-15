@@ -6,26 +6,29 @@ style.textContent = `
 .markdown-preview-view.lb-catalog,.markdown-source-view.lb-catalog{--file-line-width:100%;}
 .lb-catalog .markdown-preview-sizer,.lb-catalog .markdown-preview-section,.lb-catalog .cm-sizer,.lb-catalog .cm-contentContainer,.lb-catalog .cm-content,.lb-catalog .block-language-dataviewjs{width:100%!important;max-width:none!important;}
 .lb-catalog .inline-title,.lb-catalog .metadata-container{display:none!important;}
-.lbc-wrap{width:100%;padding:12px 4px;box-sizing:border-box;}
-.lbc-head{display:flex;align-items:center;gap:24px;margin:0 0 28px;flex-wrap:wrap;}
+.lbc-wrap{width:100%;padding:24px clamp(8px,2vw,36px) 40px;box-sizing:border-box;}
+.lbc-head{display:flex;align-items:center;gap:22px;margin:0 0 22px;flex-wrap:wrap;}
 .lbc-title{font-size:22px;font-weight:650;letter-spacing:.02em;}
 .lbc-search{flex:1;min-width:180px;max-width:660px!important;height:44px!important;border:0!important;box-shadow:none!important;border-radius:24px!important;background:var(--background-secondary)!important;padding:0 20px!important;}
-.lbc-sub{font-size:12px;color:var(--text-muted);margin-left:auto;}
-.lbc-grid{columns:210px;column-gap:24px;}
-.lbc-card{display:inline-block;vertical-align:top;width:100%;margin:0 0 26px;break-inside:avoid;cursor:pointer;}
+.lbc-sub{font-size:11px;color:var(--text-faint);margin-left:auto;white-space:nowrap;}
+.lbc-grid{columns:250px;column-gap:32px;}
+.lbc-card{display:inline-block;vertical-align:top;width:100%;margin:0 0 36px;break-inside:avoid;cursor:pointer;}
 .lbc-cover{display:block;width:100%;height:auto;max-height:360px;object-fit:cover;object-position:top;border-radius:16px;border:1px solid var(--background-modifier-border);transition:filter .15s;}
 .lbc-card:hover .lbc-cover{filter:brightness(.95);}
 .lbc-card:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:5px;border-radius:16px;}
 .lbc-nocover{aspect-ratio:4/3;border-radius:16px;background:var(--background-secondary);display:grid;place-items:center;color:var(--text-muted);font-size:30px;}
 .lbc-body{padding:11px 8px 0;}
-.lbc-ctitle{font-size:14px;line-height:1.55;font-weight:550;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.lbc-ctitle{font-size:14px;line-height:1.7;font-weight:500;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
 .lbc-cmeta{display:flex;justify-content:space-between;gap:10px;color:var(--text-muted);font-size:12px;margin-top:8px;}
 .lbc-cmeta span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .lbc-empty{padding:40px;color:var(--text-muted);}
-.lbc-toolbar{display:flex;gap:10px;align-items:center;margin:0 0 22px;}
+.lbc-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 30px;}
 .lbc-toolbar button{border:0;box-shadow:none;border-radius:20px;padding:8px 16px;background:var(--background-secondary);}
 .lbc-toolbar button.is-active{color:var(--interactive-accent);background:var(--background-modifier-hover);}
 .lbc-ai{padding:22px;border:1px solid var(--background-modifier-border);border-radius:16px;margin-bottom:24px;white-space:pre-wrap;}
+.lbc-import{margin-left:auto;}
+.lbc-status{font-size:12px;color:var(--text-muted);}
+@media(max-width:650px){.lbc-grid{columns:180px;column-gap:18px;}.lbc-sub{width:100%;margin:0;}.lbc-wrap{padding:12px 4px;}}
 `;
 let data;
 try { data = JSON.parse(await app.vault.adapter.read('_archive/catalog-data.json')); }
@@ -42,23 +45,39 @@ const wrap=root.createEl('div',{cls:'lbc-wrap'});
 const head=wrap.createEl('div',{cls:'lbc-head'});
 head.createEl('span',{cls:'lbc-title',text:'我的收藏'});
 const search=head.createEl('input',{cls:'lbc-search'});
-search.type='search';search.placeholder='搜索收藏 /问AI的问题 #标签';search.setAttribute('aria-label','搜索收藏');
-const sub=head.createEl('span',{cls:'lbc-sub'});
+search.type='search';search.placeholder='搜索收藏…';search.title='普通搜索 · #标签 · /问知识库';search.setAttribute('aria-label','搜索收藏');
 const toolbar=wrap.createEl('div',{cls:'lbc-toolbar'});
+const sub=toolbar.createEl('span',{cls:'lbc-sub'});
 let todayOnly=false;
 const allButton=toolbar.createEl('button',{text:'全部',cls:'is-active'});
 const todayButton=toolbar.createEl('button',{text:'今日新增'});
 allButton.onclick=()=>{todayOnly=false;allButton.addClass('is-active');todayButton.removeClass('is-active');render();};
 todayButton.onclick=()=>{todayOnly=true;todayButton.addClass('is-active');allButton.removeClass('is-active');render();};
-const importButton=toolbar.createEl('button',{text:'+ 导入链接'});
-importButton.onclick=()=>app.commands.executeCommandById('link-brain-actions:import-links');
+const importButton=toolbar.createEl('button',{text:'+ 导入',cls:'lbc-import'});
+const importStatus=wrap.createEl('div',{cls:'lbc-status'});
+importButton.type='button';
+importButton.onclick=async e=>{
+  e.preventDefault();e.stopPropagation();importButton.disabled=true;importStatus.setText('');
+  try{
+    const id='link-brain-actions';let plugin=app.plugins.plugins[id];
+    if(plugin?.running||plugin?.importing)throw new Error('已有归档任务运行中，请稍后再导入');
+    if(typeof plugin?.openImportModal!=='function'){
+      importStatus.setText('正在载入导入工具…');
+      if(plugin)await app.plugins.disablePlugin(id);
+      await app.plugins.enablePlugin(id);plugin=app.plugins.plugins[id];
+    }
+    if(typeof plugin?.openImportModal!=='function')throw new Error('导入插件未加载，请在第三方插件中启用 Link Brain Actions');
+    plugin.openImportModal();importStatus.setText('');
+  }catch(error){importStatus.setText('导入未打开：'+error.message);}
+  finally{importButton.disabled=false;}
+};
 const ai=wrap.createEl('section',{cls:'lbc-ai'});ai.hidden=true;
 const grid=wrap.createEl('div',{cls:'lbc-grid'});
 function render(){
   grid.empty();const raw=search.value.trim();const asking=raw.startsWith('/');const q=normalize(asking?raw.slice(1):raw);
   const now=new Date();const today=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
   const shown=items.filter(it=>!todayOnly||it.date===today).map(it=>({it,score:score(it,q,data.pinyin_chars)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score);
-  sub.setText((q||todayOnly?`${shown.length} / ${items.length} 篇`:`${items.length} 篇`)+` · 更新 ${new Date(data.built_at).toLocaleString('zh-CN',{hour12:false})}`);
+  sub.setText((q||todayOnly?`${shown.length} / ${items.length} 篇`:`${items.length} 篇`)+` · 更新 ${new Date(data.built_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}`);
   ai.hidden=!asking;ai.empty();
   if(asking){
     ai.createEl('strong',{text:'问 AI'});ai.createEl('p',{text:q||'在 / 后输入你的问题'});

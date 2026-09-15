@@ -174,7 +174,7 @@ def _attachment_badge(obj_dir: Path, meta: dict[str, Any]) -> str:
 
 
 def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
-    from .render import parse_frontmatter
+    from .render import parse_frontmatter, source_open_url
 
     items: list[dict[str, Any]] = []
     base = vault / "_archive" / source
@@ -202,6 +202,11 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
         comment_count, last_comment = _last_comment(vault, visible)
         source_doc = _load_json(obj_dir / 'raw' / f'v{version:04d}' / 'source.json') or {}
         note = source_doc.get('note') or {}
+        observed_links = list(dict.fromkeys(
+            url.rstrip('。，、；：！？）)]}') for url in re.findall(
+                r'https?://[^\s<>"\\]+', json.dumps(source_doc, ensure_ascii=False)
+            )
+        ))
         archived = _parse_dt(meta.get("first_archived_at"))
         items.append(
             {
@@ -213,6 +218,9 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                 "search_text": summary + ' ' + str(note.get('body') or ''),
                 "author": (note.get('author') or {}).get('nickname', ''),
                 "source": source,
+                "url": source_open_url(note, meta),
+                "github_urls": [url for url in observed_links if re.match(r'https?://github\.com/', url, re.I)],
+                "suggested_links": (data or {}).get('links_worth_opening', []),
                 "likes": (note.get('engagement') or {}).get('liked'),
                 "pinyin": ''.join(lazy_pinyin(' '.join([str(meta.get('title') or ''), summary, *tags]))).lower(),
                 "tags": tags,
