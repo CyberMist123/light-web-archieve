@@ -256,4 +256,8 @@ function render(){
     card.oncontextmenu=e=>{e.preventDefault();openCardMenu(e,body,it);};
   }
 }
+// ESC 退出多选（去重：重开页面时先摘掉上一份监听器，别叠加）
+if(window.__lbcEsc)document.removeEventListener('keydown',window.__lbcEsc);
+window.__lbcEsc=e=>{if(e.key==='Escape'&&selectMode){selectMode=false;selected.clear();selectButton.removeClass('is-active');render();}};
+document.addEventListener('keydown',window.__lbcEsc);
 let timer;search.oninput=()=>{clearTimeout(timer);timer=setTimeout(render,120);};renderCatBar();render();
