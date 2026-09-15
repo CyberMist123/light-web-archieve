@@ -87,3 +87,8 @@ def test_empty_vault_is_ok(tmp_path, monkeypatch):
     _, total, data_path = catalog.build()
     assert total == 0
     assert json.loads(data_path.read_text(encoding="utf-8"))["items"] == []
+
+
+def test_explicitly_empty_tags_stay_empty(tmp_path):
+    _make_object(tmp_path, 'empty', title='清空标签', tags=[], summary='摘要', stem='清空标签')
+    assert catalog.collect(tmp_path)[0]['tags'] == []

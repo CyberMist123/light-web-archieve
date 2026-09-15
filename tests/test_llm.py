@@ -256,7 +256,7 @@ def test_agent_md_says_not_generated_when_extraction_failed(tmp_path, monkeypatc
     assert "## 概要\n\n（未生成）" in agent_md
 
 
-def test_visible_tags_are_union_and_never_drop_hand_written(tmp_path, monkeypatch):
+def test_visible_tags_preserve_user_additions_and_deletions(tmp_path, monkeypatch):
     setup_env(tmp_path, monkeypatch)
     cli.main(["ingest", "https://example.invalid/share"])
     _, source, source_id = _ids(tmp_path)
@@ -264,14 +264,13 @@ def test_visible_tags_are_union_and_never_drop_hand_written(tmp_path, monkeypatc
 
     md_path = list(storage.visible_dir().glob("*.md"))[0]
     text = md_path.read_text(encoding="utf-8")
-    md_path.write_text(text.replace("tags: [测试, 样例]", "tags: [测试, 样例, 我手写的]"), encoding="utf-8")
+    md_path.write_text(text.replace('tags: ["测试", "样例"]', 'tags: ["我手写的"]'), encoding="utf-8")
 
     monkeypatch.setattr(llm_mod, "call_media_text", fake_model(GOOD_PAYLOAD))
     render_mod.render_item(source, source_id, llm=True)
     tags = render_mod.existing_tags(md_path.read_text(encoding="utf-8"))
     assert "我手写的" in tags, "手写 tag 永不被覆盖"
-    assert "测试" in tags and "样例" in tags  # 原帖 hashtag 还在
-    assert "AI" in tags  # 小模型建议的（经词表归一）
+    assert tags == ['我手写的']  # 删除的原帖和模型标签不复活
 
 
 def test_hand_written_frontmatter_keys_survive_rerender(tmp_path, monkeypatch):
