@@ -314,12 +314,14 @@ def run(args) -> int:
 
     failed = False
     account_blocked = False
+    any_downloaded = False
     for source_key, source_id in targets:
         outcome = download_for_object(
             source_key, source_id, force=getattr(args, "force", False), verbose=getattr(args, "verbose", False)
         )
         for r in outcome["results"]:
             if r["status"] == "downloaded":
+                any_downloaded = True
                 print(f"{outcome['item_id']}  ↓ {r['file']}  {r['bytes']} 字节  {r['sha256'][:12]}…")
             elif r["status"] == "already":
                 print(f"{outcome['item_id']}  = {r['file']}（已有，--force 可重下）")
@@ -348,7 +350,22 @@ def run(args) -> int:
             finally:
                 conn2.close()
         if account_blocked:
+            _rebuild_catalog(any_downloaded)
             print("停车：小号登录态/风控，剩下的不再试", file=sys.stderr)
             return EXIT_NEEDS_HUMAN
 
+    # 下到了新字节就重建目录，否则 UI 角标还停在「待补」（补跑却没同步就是这坑）
+    _rebuild_catalog(any_downloaded)
     return 1 if failed else 0
+
+
+def _rebuild_catalog(any_downloaded: bool) -> None:
+    if not any_downloaded:
+        return
+    try:
+        from . import catalog as catalog_mod
+
+        _, count, _ = catalog_mod.build()
+        print(f"目录已重建（{count} 篇）")
+    except Exception as exc:  # 重建失败不该拖累已下好的字节
+        print(f"目录重建失败（附件已下好，手动跑 `link_brain catalog`）：{exc}", file=sys.stderr)
