@@ -32,7 +32,35 @@ STATE_NAME = "catalog-state.json"
 
 SUMMARY_CHARS = 90
 
+# 顶部筛选条的「大类」（小红书发现页那种 tab；Owner 2026-09-15：别堆几百个 tag，大类即可）。
+# 只用于**筛选展示**——底层数据仍是每篇的全 tag（卡片照显），大类靠关键词命中 tag 得来，一篇可属多类。
+# 顺序即 tab 顺序；关键词大小写不敏感、子串匹配 tag。
+BIG_CATS: list[tuple[str, tuple[str, ...]]] = [
+    ("人机恋", ("人机恋", "ai伴侣", "ai陪伴", "情感计算", "陪伴", "人机交互")),
+    ("AI·模型", ("claude", "gpt", "chatgpt", "deepseek", "gemini", "大模型", "人工智能",
+                 "llm", "codex", "模型", "ai", "赛博")),
+    ("记忆", ("记忆", "memory", "知识库", "rag", "上下文")),
+    ("提示词", ("提示词", "prompt", "咒语")),
+    ("开源·编程", ("开源", "github", "编程", "代码", "coding", "vibecoding", "前端",
+                   "独立开发", "部署", "sdk", "开发")),
+    ("AI工具", ("mcp", "语音", "通话", "小手机", "聊天", "airp", "agent", "唤醒", "工具")),
+    ("AI游戏", ("游戏", "game", "迪斯科", "roguelike", "副本", "养成")),
+    ("吃的", ("食", "菜", "饭", "餐", "辅食", "料理", "美食", "烘焙", "减脂", "懒人",
+              "超市", "厨", "吃", "家常", "烹", "coles", "wws")),
+    ("留学·澳洲", ("澳洲", "悉尼", "留学", "留子", "unsw", "usyd", "sydney", "法学",
+                   "法律", "llb", "墨尔本", "澳大利亚")),
+    ("追文·同人", ("瓶邪", "盗墓", "铁三角", "张起灵", "吴邪", "同人", "雨村", "捡手机文学")),
+    ("笑话", ("笑话", "沙雕", "黑色幽默", "抽象", "搞笑", "离谱")),
+]
+OTHER_CAT = "其他"
+
 _FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.S)
+
+
+def _cats(tags: list[str]) -> list[str]:
+    hay = " ".join(tags).lower()
+    hits = [name for name, kws in BIG_CATS if any(k in hay for k in kws)]
+    return hits or [OTHER_CAT]
 
 
 def _load_json(path: Path) -> Any:
@@ -177,6 +205,7 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                 "cover": _cover(obj_dir, source, source_id, version),
                 "summary": _clip(summary),
                 "tags": tags,
+                "cats": _cats(tags),
                 "kind": meta.get("kind", "image"),
                 "date": archived.strftime("%Y-%m-%d") if archived else "",
                 "ts": archived.isoformat() if archived else "",
@@ -191,37 +220,37 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
 
 
 # ── dataviewjs 页面（样式自注入，不依赖 CSS snippet；读 catalog-data.json 渲染） ──
+# 顶部大类 tab（小红书发现页那种）+「或」筛选（选多类 = 命中任一）+ 搜索；卡片墙铺满、放大。
 _DATAVIEWJS = r"""```dataviewjs
 const DATA_PATH = "_archive/catalog-data.json";
 const root = dv.container;
 
 const style = document.createElement("style");
 style.textContent = `
-.lbc-wrap{--lbc-gap:12px;}
-.lbc-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:.1em 0 .6em;}
-.lbc-title{font-size:1.25em;font-weight:700;}
+/* 目录页铺满：解除 Obsidian 可读行宽的限制（只作用于挂了 lb-catalog 的页） */
+.markdown-preview-view.lb-catalog .markdown-preview-sizer,
+.markdown-source-view.lb-catalog .cm-sizer,
+.markdown-source-view.lb-catalog .cm-contentContainer{max-width:none!important;width:100%!important;}
+.lbc-wrap{--lbc-gap:14px;}
+.lbc-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:.1em 0 .55em;}
+.lbc-title{font-size:1.35em;font-weight:700;}
 .lbc-sub{color:var(--text-muted);font-size:.82em;}
-.lbc-search{width:100%;box-sizing:border-box;padding:7px 12px;border-radius:10px;border:1px solid var(--background-modifier-border);background:var(--background-primary);color:var(--text-normal);margin-bottom:.55em;font-size:.95em;}
-.lbc-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:.7em;align-items:center;}
-.lbc-chip{cursor:pointer;user-select:none;font-size:.8em;line-height:1;padding:6px 10px;border-radius:999px;border:1px solid var(--background-modifier-border);background:var(--background-secondary);color:var(--text-muted);transition:all .12s;}
-.lbc-chip:hover{border-color:var(--interactive-accent);}
-.lbc-chip.inc{background:var(--interactive-accent);color:var(--text-on-accent);border-color:var(--interactive-accent);}
-.lbc-chip.exc{background:transparent;color:var(--text-error);border-color:var(--text-error);text-decoration:line-through;}
-.lbc-chip .n{opacity:.55;margin-left:5px;}
-.lbc-more,.lbc-clear{cursor:pointer;color:var(--text-accent);font-size:.8em;padding:6px 6px;}
-.lbc-grid{column-gap:var(--lbc-gap);column-count:2;}
-@media(min-width:680px){.lbc-grid{column-count:3;}}
-@media(min-width:1080px){.lbc-grid{column-count:4;}}
-.lbc-card{break-inside:avoid;margin:0 0 var(--lbc-gap);border-radius:12px;overflow:hidden;background:var(--background-secondary);border:1px solid var(--background-modifier-border);cursor:pointer;transition:transform .12s,box-shadow .12s;}
-.lbc-card:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,.18);}
+.lbc-search{width:100%;box-sizing:border-box;padding:8px 13px;border-radius:10px;border:1px solid var(--background-modifier-border);background:var(--background-primary);color:var(--text-normal);margin-bottom:.6em;font-size:.95em;}
+.lbc-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:.9em;align-items:center;}
+.lbc-tab{cursor:pointer;user-select:none;font-size:.9em;line-height:1;padding:8px 15px;border-radius:999px;background:var(--background-secondary);color:var(--text-muted);transition:all .12s;white-space:nowrap;}
+.lbc-tab:hover{color:var(--text-normal);}
+.lbc-tab.on{background:var(--interactive-accent);color:var(--text-on-accent);font-weight:600;}
+.lbc-grid{column-gap:var(--lbc-gap);column-width:clamp(220px,19vw,300px);}
+.lbc-card{break-inside:avoid;margin:0 0 var(--lbc-gap);border-radius:14px;overflow:hidden;background:var(--background-secondary);border:1px solid var(--background-modifier-border);cursor:pointer;transition:transform .12s,box-shadow .12s;}
+.lbc-card:hover{transform:translateY(-3px);box-shadow:0 6px 18px rgba(0,0,0,.2);}
 .lbc-cover{display:block;width:100%;height:auto;background:var(--background-modifier-hover);}
-.lbc-nocover{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:2em;background:var(--background-modifier-hover);}
-.lbc-body{padding:8px 10px 10px;}
-.lbc-ctitle{font-weight:600;font-size:.92em;line-height:1.3;margin-bottom:3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
-.lbc-csum{color:var(--text-muted);font-size:.78em;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:5px;}
-.lbc-ctags{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:4px;}
-.lbc-ctag{font-size:.68em;color:var(--text-accent);background:var(--background-modifier-hover);padding:1px 6px;border-radius:6px;}
-.lbc-cmeta{font-size:.7em;color:var(--text-faint);display:flex;flex-wrap:wrap;gap:6px;}
+.lbc-nocover{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:2.4em;background:var(--background-modifier-hover);}
+.lbc-body{padding:10px 12px 12px;}
+.lbc-ctitle{font-weight:600;font-size:1em;line-height:1.32;margin-bottom:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.lbc-csum{color:var(--text-muted);font-size:.83em;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:6px;}
+.lbc-ctags{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:5px;}
+.lbc-ctag{font-size:.72em;color:var(--text-accent);background:var(--background-modifier-hover);padding:2px 7px;border-radius:6px;}
+.lbc-cmeta{font-size:.74em;color:var(--text-faint);display:flex;flex-wrap:wrap;gap:8px;}
 .lbc-empty{color:var(--text-muted);padding:2em 0;text-align:center;}
 `;
 root.appendChild(style);
@@ -234,58 +263,40 @@ try {
   return;
 }
 const items = data.items || [];
+const catsOrder = data.cats_order || [];
 const wrap = root.createEl("div", {cls: "lbc-wrap"});
 const head = wrap.createEl("div", {cls: "lbc-head"});
 head.createEl("span", {cls: "lbc-title", text: "📌 小红书收藏"});
-head.createEl("span", {cls: "lbc-sub", text: `共 ${items.length} 篇 · 更新 ${(data.built_at || "").slice(0, 16).replace("T", " ")}`});
+const sub = head.createEl("span", {cls: "lbc-sub"});
 
 const search = wrap.createEl("input", {cls: "lbc-search"});
 search.type = "text";
 search.placeholder = "搜标题 / 概要…";
 
-const counts = new Map();
-for (const it of items) for (const t of (it.tags || [])) counts.set(t, (counts.get(t) || 0) + 1);
-const allTags = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-
-const inc = new Set(), exc = new Set();
-const chipBar = wrap.createEl("div", {cls: "lbc-chips"});
+const sel = new Set();  // 选中的大类；空 = 全部。多选 = 或（命中任一即显示）
+const tabBar = wrap.createEl("div", {cls: "lbc-tabs"});
 const grid = wrap.createEl("div", {cls: "lbc-grid"});
-let showAll = false;
-const TOP = 28;
 
-function renderChips() {
-  chipBar.empty();
-  const list = showAll ? allTags : allTags.slice(0, TOP);
-  for (const [t, n] of list) {
-    const c = chipBar.createEl("span", {cls: "lbc-chip"});
-    c.createEl("span", {text: t});
-    c.createEl("span", {cls: "n", text: n});
-    if (inc.has(t)) c.addClass("inc");
-    else if (exc.has(t)) c.addClass("exc");
-    c.onclick = () => {
-      if (inc.has(t)) {inc.delete(t); exc.add(t);}
-      else if (exc.has(t)) {exc.delete(t);}
-      else {inc.add(t);}
-      renderChips(); renderCards();
-    };
-  }
-  if (allTags.length > TOP) {
-    const m = chipBar.createEl("span", {cls: "lbc-more", text: showAll ? "收起" : `更多 (${allTags.length - TOP})`});
-    m.onclick = () => {showAll = !showAll; renderChips();};
-  }
-  if (inc.size || exc.size) {
-    const clr = chipBar.createEl("span", {cls: "lbc-clear", text: "✕ 清空"});
-    clr.onclick = () => {inc.clear(); exc.clear(); renderChips(); renderCards();};
+function renderTabs() {
+  tabBar.empty();
+  const all = tabBar.createEl("span", {cls: "lbc-tab", text: "全部"});
+  if (!sel.size) all.addClass("on");
+  all.onclick = () => {sel.clear(); renderTabs(); renderCards();};
+  for (const c of catsOrder) {
+    const t = tabBar.createEl("span", {cls: "lbc-tab", text: c});
+    if (sel.has(c)) t.addClass("on");
+    t.onclick = () => {sel.has(c) ? sel.delete(c) : sel.add(c); renderTabs(); renderCards();};
   }
 }
 
 function match(it) {
-  const tags = it.tags || [];
-  for (const t of inc) if (!tags.includes(t)) return false;
-  for (const t of exc) if (tags.includes(t)) return false;
+  if (sel.size) {
+    const cats = it.cats || [];
+    if (!cats.some((c) => sel.has(c))) return false;  // 或：命中任一大类
+  }
   const q = search.value.trim().toLowerCase();
   if (q) {
-    const hay = ((it.title || "") + " " + (it.summary || "")).toLowerCase();
+    const hay = ((it.title || "") + " " + (it.summary || "") + " " + (it.tags || []).join(" ")).toLowerCase();
     if (!hay.includes(q)) return false;
   }
   return true;
@@ -294,6 +305,7 @@ function match(it) {
 function renderCards() {
   grid.empty();
   const shown = items.filter(match);
+  sub.setText(`共 ${items.length} 篇` + (shown.length !== items.length ? ` · 筛出 ${shown.length}` : "") + ` · 更新 ${(data.built_at || "").slice(0, 16).replace("T", " ")}`);
   if (!shown.length) {
     grid.createEl("div", {cls: "lbc-empty", text: "没有符合的收藏"});
     return;
@@ -324,7 +336,7 @@ function renderCards() {
 }
 
 search.oninput = () => renderCards();
-renderChips();
+renderTabs();
 renderCards();
 ```"""
 
@@ -345,9 +357,17 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
 
     data_path = vault / "_archive" / DATA_NAME
     data_path.parent.mkdir(parents=True, exist_ok=True)
+    cats_order = [name for name, _ in BIG_CATS] + [OTHER_CAT]
+    present = {c for it in items for c in it["cats"]}
+    cats_order = [c for c in cats_order if c in present]
     data_path.write_text(
         json.dumps(
-            {"built_at": now.isoformat(), "count": len(items), "items": items},
+            {
+                "built_at": now.isoformat(),
+                "count": len(items),
+                "cats_order": cats_order,
+                "items": items,
+            },
             ensure_ascii=False,
             indent=1,
         ),

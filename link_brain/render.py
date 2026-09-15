@@ -357,6 +357,23 @@ def _body_markdown(text: str) -> str:
     return "\n\n".join(out)
 
 
+def _body_html(text: str) -> str:
+    """正文渲染成 HTML 段落（Owner 2026-09-15：要真·左右两栏、图片作者固定、正文评论右栏可滑，
+    就必须把这几块关进真容器；正文一旦是 Markdown，Obsidian 遇空行闭合 HTML 块，容器就散了。
+    所以正文改回 HTML `<p>`。代价：原生 `==高亮==` 失效（改走 `<mark>`）；全文搜索不受影响。"""
+    text = TOPIC_TOKEN_RE.sub("", text or "")
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    if not text:
+        return '<div class="lb-body"><p>（无正文）</p></div>'
+    paras = []
+    for para in re.split(r"\n\s*\n", text):
+        lines = [_safe(ln) for ln in para.split("\n") if ln.strip()]
+        if lines:
+            paras.append("<p>" + "<br>".join(lines) + "</p>")
+    return '<div class="lb-body">' + "".join(paras) + "</div>"
+
+
 HIGHLIGHT_RE = re.compile(r"==([^=\n]{1,300})==")
 
 
@@ -486,18 +503,28 @@ def render_content_block(
     media, has_media = _media_html(note, manifest, object_rel)
     cls = "lb-note" if has_media else "lb-note lb-no-media"
 
-    # 顺序：灰字（原文/机读版/附件）→ 图片（CSS 让它浮到左边）→ 作者行 → **正文纯 Markdown** → 评论。
-    # 正文不再包在 <div> 里：包着的话 Obsidian 不给划重点、一点还掉进源码模式（Owner 2026-09-05）。
+    # Owner 2026-09-15：真·左右两栏——左栏（图片+作者）sticky 固定，右栏（正文+评论）随页滚动。
+    # 关键：整块 `.lb-note` 必须是**一个连续 HTML 块、内部没有空行**，否则 Obsidian 遇空行闭合它，
+    # 左右容器就散了（这正是 09-05 float 版的根因）。所以正文改成 `_body_html`。
+    # 顶上灰字（原文/机读版/附件）仍是 Markdown、放在 HTML 块**外面**（内部链接要 Obsidian 解析）。
+    author = _author_html(note)
+    body = _body_html(note.get("body") or "")
+    detail = _comments_html(note, comments, manifest, object_rel)
+    if has_media:
+        note_html = (
+            f'<div class="{cls}">'
+            f'<div class="lb-side">{media}{author}</div>'
+            f'<div class="lb-main">{body}{detail}</div>'
+            f"</div>"
+        )
+    else:
+        note_html = f'<div class="{cls}"><div class="lb-main">{author}{body}{detail}</div></div>'
+
     parts = [CONTENT_START]
     parts.extend(_meta_md(note, meta, object_rel))
     parts.append("")
-    parts.append(f'<div class="{cls}">')
-    if media:
-        parts += [media, ""]
-    parts += [_author_html(note), ""]
-    parts += [_body_markdown(note.get("body") or ""), ""]
-    parts.append(_comments_html(note, comments, manifest, object_rel))
-    parts += ["</div>", CONTENT_END]
+    parts.append(note_html)
+    parts.append(CONTENT_END)
     return "\n".join(parts)
 
 

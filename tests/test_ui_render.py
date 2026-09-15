@@ -87,9 +87,14 @@ def test_human_view_is_xhs_layout_without_debug_sections():
     assert "#AI" in text
     assert "#AI[话题]#" not in text
 
-    # 正文是**纯 Markdown**：不再包在 lb-post-body 里，也不是 <p> 标签（Owner 要能划重点）
+    # 正文现在是 HTML <p>（在 .lb-body 里）——Owner 2026-09-15 改：要真·左右两栏、图片作者固定、
+    # 正文评论右栏可滑，正文必须进真容器，Markdown 会被空行闭合。
     assert "lb-post-body" not in text
-    assert "第一段正文。" in text and "<p>第一段正文。</p>" not in text
+    assert "第一段正文。" in text and "<p>第一段正文。</p>" in text
+    # 左右两栏容器：左 .lb-side（图+作者）、右 .lb-main（正文+评论），一个连续 HTML 块
+    assert 'class="lb-side"' in text and 'class="lb-main"' in text and 'class="lb-body"' in text
+    # 图片和作者都在左栏、正文在右栏（顺序上 lb-side 在 lb-body 之前）
+    assert text.index('class="lb-side"') < text.index('class="lb-body"')
 
     assert "## 评论" not in text
     assert "## 归档信息" not in text
@@ -138,15 +143,16 @@ def test_css_supports_reading_and_live_preview_with_pane_responsiveness():
     assert ".markdown-source-view.xhs-note .cm-contentContainer" in css
     assert "container-name: link-brain-note" in css
 
-    # 两栏回到 float：不依赖 Reading View 的 el-* 包裹，也同样覆盖 Live Preview。
-    # 只有手机宽（600px）才取消 float；图片本身的尺寸规则保持不动。
+    # 两栏改成 grid + 左栏 sticky（Owner 2026-09-15：图片作者固定、正文评论右栏可滑）。
+    # 只有手机宽（600px）才收成单栏、左栏不再 sticky。
     assert ".xhs-note .lb-note" in css
     assert ".xhs-note .lb-media" in css
-    assert "float: left" in css
-    assert "width: 48.5%" in css
-    assert "margin: 2px 2% 14px 0" in css
+    assert ".xhs-note .lb-side" in css
+    assert ".xhs-note .lb-main" in css
+    assert "display: grid" in css
+    assert "grid-template-columns: 48.5% 1fr" in css
+    assert "position: sticky" in css
     assert "max-width: 600px" in css
-    assert "float: none" in css
     assert "grid-row: span 500" not in css
     assert ".xhs-note mark" in css  # 划重点要有底色
 

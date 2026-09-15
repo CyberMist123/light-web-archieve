@@ -80,34 +80,53 @@
 }
 
 /*
-  两栏恢复为 float：它只依赖 `.lb-note` 内部的 `.lb-media`，不依赖 Obsidian
-  Reading View 是否给顶层块额外包 div.el-*，因此 Reading / Live Preview 共用同一条规则。
-  正文继续保持真 Markdown；不要给 .lb-note 加 overflow / contain / flow-root / container-type，
-  否则会建立新的 BFC，把 float 关在里面，正文又会掉回图片下面。
-
-  48.5% + 2% 间距是此前等宽两栏的等效比例；图片本身的 width/max-height/object-fit 不动。
+  真·左右两栏（Owner 2026-09-15）：grid 两列——左栏 `.lb-side`（图片+作者）sticky 固定，
+  右栏 `.lb-main`（正文+评论）随页滚动。正文改成 HTML（`_body_html`），整块 `.lb-note`
+  是一个连续 HTML 块、内部无空行，Obsidian 不会把它闭合，两个容器才立得住。
+  48.5% 是此前等宽两栏的比例；图片 width/max-height/object-fit 不动、头像不动（Owner：其他比例不变）。
 */
 .xhs-note .lb-note {
+  display: grid;
+  grid-template-columns: 48.5% 1fr;
+  column-gap: var(--lb-gap);
+  align-items: start;
   width: 100%;
   min-width: 0;
 }
 
 .xhs-note .lb-note.lb-no-media {
+  display: block;
   max-width: 780px;
   margin-inline: auto;
 }
 
-.xhs-note .lb-media {
-  float: left;               /* 图片放左边（Owner 2026-09-07：图左评论右） */
-  width: 48.5%;
-  margin: 2px 2% 14px 0;
+.xhs-note .lb-side {
+  position: sticky;
+  top: 8px;
+  align-self: start;
   min-width: 0;
 }
 
-/* 只有手机大小才收成单栏。桌面 / 普通窄 pane 继续左图右文。 */
+.xhs-note .lb-main {
+  min-width: 0;
+}
+
+.xhs-note .lb-media {
+  width: 100%;               /* 图片占满左栏（Owner 2026-09-07：图左评论右） */
+  margin: 2px 0 12px;
+  min-width: 0;
+}
+
+/* 只有手机大小才收成单栏；此时左栏不再 sticky。桌面 / 普通窄 pane 继续左固定右滚动。 */
 @container link-brain-note (max-width: 600px) {
+  .xhs-note .lb-note {
+    display: block;
+  }
+  .xhs-note .lb-side {
+    position: static;
+    margin-bottom: 14px;
+  }
   .xhs-note .lb-media {
-    float: none;
     width: 100%;
     margin: 0 0 14px;
   }
@@ -252,14 +271,17 @@
   color: var(--lb-muted);
 }
 
-/* 正文现在是纯 Markdown；样式保持原来的字号/行高。 */
-.markdown-preview-view.xhs-note .markdown-preview-sizer > p,
-.xhs-note .lb-note > p {
+/* 正文现在是 HTML `<p>`（在 .lb-body 里）；字号/行高保持原样。 */
+.xhs-note .lb-body p {
   font-size: var(--lb-body-size);
   line-height: 1.72;
   color: var(--text-normal);
   margin: 0 0 0.82em;
   overflow-wrap: anywhere;
+}
+
+.xhs-note .lb-body p:last-child {
+  margin-bottom: 0;
 }
 
 .xhs-note mark {
