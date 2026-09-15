@@ -111,6 +111,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("clean", help="清洗分享文案里的小红书链接（跟随短链、只留 xsec_token/source），输出 JSON")
     p.add_argument("text", help="一整段分享文案或链接")
 
+    p = sub.add_parser("delete", help="删除收藏（可见笔记 + 对象目录 + 索引行，不可逆）")
+    p.add_argument("item_ids", nargs="+", help="一个或多个 item_id")
+
     p = sub.add_parser("inbox", help="列出被戳到某角色且未处理的对象")
     p.add_argument("--for", dest="for_actor", required=True, help="角色名，如 fable")
 
@@ -231,6 +234,11 @@ def main(argv: list[str] | None = None) -> int:
         urls = xhs.clean_share_text(args.text)
         dump_json({"count": len(urls), "urls": urls})
         return EXIT_OK
+
+    if args.command == "delete":
+        from . import remove as remove_mod
+
+        return remove_mod.run(args)
 
     if args.command in ("comment", "inbox", "resolve"):
         from . import comments as comments_mod

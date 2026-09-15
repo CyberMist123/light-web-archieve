@@ -1,5 +1,24 @@
 # Current State
 
+## 2026-09-16 反馈批 2（Owner 5 条）
+
+1. **URL 尾巴粘中文识别不出**（真 bug）：分享文案常把「…&xsec_source=pc_share增加的内容」中文直接粘在链接后，
+   `URL_RE`（xhs.py）+ 插件 cleanLinks 正则原来不在 CJK 处截断 → 把中文吞进 URL、整条废掉。已给两处正则
+   加 CJK / 中文标点 / 全角区排除。实测她那条 rednote 粘尾链接现在正确截断 + 清参数 + token 完整。
+2. **附件短链留言很烦**（图1）：投喂时附言只是分享链接 → 之前在留言层留一条 `「日期 人」<短链>` 的 cmt1 噪音。
+   `render._is_link_only` 判定「去掉 URL 和小红书模板句后没剩真话」就不生成 cmt1（留言层留给真正的话）。
+3. **卡片 hover 浮框**（图2 那个带尖角的「悬浮的点的字」）：真来源是 **Obsidian 把 `aria-label` 渲染成 tooltip**，
+   上轮删 `card.title` 不够——已把卡片 aria-label 也去掉。
+4. **右键删除 + 多选删除收藏**（她要的）：新 `python -m link_brain delete <id...>`（remove.py：删可见笔记 +
+   对象目录 + 索引行，外键 cascade，删完顺手重建目录）+ 插件 `deleteItems`。目录页：右键出小菜单
+   （编辑标签 / 删除收藏）、toolbar「多选」进多选模式（点卡=勾选、选中描边、「删除选中」批量），
+   删除走 window.confirm 二次确认、删完本地从 items 摘掉即时重渲染。**导入按钮保留**（她上轮说原本挺好）。
+5. **检索失败要有 error**：`/问AI` 失败从一行小字改成醒目 error 框（`.lbc-ai-error`，标题「⚠ 检索失败」+
+   原因提示「文本 AI 未配置/不通、后端未起」+ 问题保留可重试）。
+
+测试：新 `test_remove.py`（delete 删文件+索引 / 删不存在 / URL 粘中文截断 / catch 认粘尾链接 / 链接-only 附言不留 cmt1）；
+`test_catch.py` 已有 rednote 断言；cjs 补 deleteItems 解析。全套 **132 passed + node PASS**。main.js 同步 vault、目录重建。
+
 ## 2026-09-16 修正批（Owner 反馈）
 
 - **「+ 导入」按钮恢复**：上一轮误把它从目录页拿掉了，Owner 说原本挺好——已还回 toolbar（连旧插件实例

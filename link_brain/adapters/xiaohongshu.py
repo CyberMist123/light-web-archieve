@@ -41,7 +41,9 @@ DESKTOP_UA = (
 INITIAL_STATE_RE = re.compile(r"window\.__INITIAL_STATE__\s*=\s*(.+?)</script>", re.S)
 FILE_PREVIEW_FMT = "https://www.xiaohongshu.com/file/{doc_id}"
 
-URL_RE = re.compile(r"https?://[^\s<>\"'，。、）)\]]+")
+# URL 到**空白 / 中文标点 / 中文字**为止：分享文案常把「…&xsec_source=pc_share增加的内容」
+# 这样把中文直接粘在链接尾巴上，不在 CJK 处截断就会把中文吞进 URL、整条识别不出（2026-09-16 Owner 报的）。
+URL_RE = re.compile(r"https?://[^\s<>\"'，。、；：！？（）()\[\]【】《》　-〿一-鿿＀-￯]+")
 NOTE_ID_RE = re.compile(
     # 从作者主页 / 收藏列表里复制出来的是这种：/user/profile/<user_id>/<note_id>?xsec_token=…
     # 前面那截是**作者 id**，别当成 note_id（2026-09-04 Owner 那批收藏全是这个形状）
