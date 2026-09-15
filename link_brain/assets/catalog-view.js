@@ -18,6 +18,7 @@ style.textContent = `
 .lbc-card:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:5px;border-radius:16px;}
 .lbc-card.is-selected .lbc-cover,.lbc-card.is-selected .lbc-nocover{outline:3px solid var(--interactive-accent);outline-offset:2px;filter:brightness(.92);}
 .lbc-selbar{display:flex;gap:12px;align-items:center;margin:0 0 18px;padding:10px 14px;border-radius:12px;background:var(--background-secondary);}
+.lbc-selbar[hidden]{display:none!important;}
 .lbc-selcount{font-size:13px;color:var(--text-muted);margin-right:auto;}
 .lbc-selbar button{border:0;border-radius:8px;padding:6px 14px;}
 .lbc-selbar button.mod-warning{background:#e5484d;color:#fff;font-weight:600;}
@@ -85,8 +86,6 @@ const allButton=toolbar.createEl('button',{text:'全部',cls:'is-active'});
 const todayButton=toolbar.createEl('button',{text:'今日新增'});
 allButton.onclick=()=>{todayOnly=false;allButton.addClass('is-active');todayButton.removeClass('is-active');render();};
 todayButton.onclick=()=>{todayOnly=true;todayButton.addClass('is-active');allButton.removeClass('is-active');render();};
-const selectButton=toolbar.createEl('button',{text:'多选'});
-selectButton.onclick=()=>{selectMode=!selectMode;selected.clear();selectButton.toggleClass('is-active',selectMode);render();};
 const importButton=toolbar.createEl('button',{text:'+ 导入',cls:'lbc-import'});
 const importStatus=wrap.createEl('div',{cls:'lbc-status'});
 importButton.type='button';
@@ -123,7 +122,7 @@ const selbar=wrap.createEl('div',{cls:'lbc-selbar'});selbar.hidden=true;
 const selCount=selbar.createEl('span',{cls:'lbc-selcount'});
 const delBtn=selbar.createEl('button',{text:'删除选中',cls:'mod-warning'});
 delBtn.onclick=()=>confirmDelete(items.filter(x=>selected.has(x.id)));
-const clrBtn=selbar.createEl('button',{text:'退出多选'});clrBtn.onclick=()=>{selectMode=false;selected.clear();selectButton.removeClass('is-active');render();};
+const clrBtn=selbar.createEl('button',{text:'退出多选'});clrBtn.onclick=()=>{selectMode=false;selected.clear();render();};
 const ai=wrap.createEl('section',{cls:'lbc-ai'});ai.hidden=true;
 const grid=wrap.createEl('div',{cls:'lbc-grid'});
 
@@ -162,6 +161,7 @@ function openCardMenu(e,body,it){
   const add=(label,fn,danger)=>{const b=menu.createEl('div',{cls:'lbc-menu-item'+(danger?' is-danger':'')});b.setText(label);b.onclick=ev=>{ev.stopPropagation();menu.remove();fn();};};
   add('编辑标签',()=>openTagEditor(body,it));
   add('删除收藏',()=>confirmDelete([it]),true);
+  add('多选删除',()=>{selectMode=true;selected.add(it.id);render();});
   const close=()=>{menu.remove();document.removeEventListener('click',close);document.removeEventListener('contextmenu',close);};
   setTimeout(()=>{document.addEventListener('click',close);document.addEventListener('contextmenu',close);},0);
 }
@@ -240,7 +240,7 @@ function render(){
     }
   }
   selbar.hidden=!selectMode;
-  if(selectMode){selCount.setText(`已选 ${selected.size} 篇`);delBtn.setText(`删除选中${selected.size?' ('+selected.size+')':''}`);delBtn.disabled=!selected.size;}
+  if(selectMode){selCount.setText(`已选 ${selected.size} 篇 · 点封面继续勾选 · ESC 退出`);delBtn.setText(`删除选中${selected.size?' ('+selected.size+')':''}`);delBtn.disabled=!selected.size;}
   if(!shown.length){grid.createEl('div',{cls:'lbc-empty',text:'没找到，试试更短的关键词。'});return;}
   for(const {it} of shown){
     // 不设 aria-label：Obsidian 会把 aria-label 渲染成 hover 浮框（她不要那个「悬浮的点的字」）。
@@ -258,6 +258,6 @@ function render(){
 }
 // ESC 退出多选（去重：重开页面时先摘掉上一份监听器，别叠加）
 if(window.__lbcEsc)document.removeEventListener('keydown',window.__lbcEsc);
-window.__lbcEsc=e=>{if(e.key==='Escape'&&selectMode){selectMode=false;selected.clear();selectButton.removeClass('is-active');render();}};
+window.__lbcEsc=e=>{if(e.key==='Escape'&&selectMode){selectMode=false;selected.clear();render();}};
 document.addEventListener('keydown',window.__lbcEsc);
 let timer;search.oninput=()=>{clearTimeout(timer);timer=setTimeout(render,120);};renderCatBar();render();
