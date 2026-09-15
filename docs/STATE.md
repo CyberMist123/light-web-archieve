@@ -1,5 +1,17 @@
 # Current State
 
+## 2026-09-16 修正批（Owner 反馈）
+
+- **「+ 导入」按钮恢复**：上一轮误把它从目录页拿掉了，Owner 说原本挺好——已还回 toolbar（连旧插件实例
+  缺 openImportModal 时 disable/enable 恢复的逻辑一起）。
+- **去掉卡片悬浮 tooltip**：删了 `card.title`（那个 hover 时冒出来带尖角的浮框，她不要）。
+- **补掉真正的漏：catch.py 的 `XHS_HOSTS` 缺 rednote.com**——她的分享链接大多是 rednote 域，之前
+  JS 放行了但 catch 检测不到、投喂得 0 条。已加 `rednote.com`（`test_catch.py` 加断言锁住）。
+  （SHORTLINK_HOSTS 只管 xhslink 短链、不用动；xhs.py 的 NOTE_ID_RE 本就认 /discovery/item/。）
+- **每晚自动收藏核对无碍**：`XhsFavSync` 计划任务 Ready、昨晚 04:00 跑成功(result=0)、今晚 04:00 再跑；
+  夜跑脚本 `清 slate → sync-favorites --extract → catalog 重建 → 附件缺字节质量闸`。我这几轮没碰 favorites.py，
+  catalog/llm 改动全 fail-open 兼容，这条链没被连累。
+
 ## 2026-09-16 目录大类筛选 + URL 清洗规范 + 导入进度条（本轮追加）
 
 Owner 追加的一批 UI/清洗需求，都做完：

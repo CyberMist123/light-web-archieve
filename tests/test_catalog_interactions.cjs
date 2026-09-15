@@ -36,6 +36,14 @@ assert.equal(Plugin.serializeCats(cats),'人机恋: 人机恋, ai伴侣\n吃的:
   // expandAndCleanLinks：解析 Python clean 的 JSON
   plugin.spawnCapture=async args=>{assert.equal(args[2],'clean');return {out:JSON.stringify({count:1,urls:[{clean:'https://x/1',has_token:true}]}),err:''};};
   const cl=await plugin.expandAndCleanLinks('some text');assert.equal(cl.length,1);assert.equal(cl[0].clean,'https://x/1');
+  // 目录页「+ 导入」按钮：旧插件实例缺 openImportModal 时 disable/enable 恢复后再打开
+  const view=fs.readFileSync('link_brain/assets/catalog-view.js','utf8');
+  const handler=view.slice(view.indexOf('importButton.onclick=')+'importButton.onclick='.length,view.indexOf('\n// 大类筛选条'));
+  let opened=0,reloaded=0,status='';const button={disabled:false};
+  const app={plugins:{plugins:{'link-brain-actions':{}},disablePlugin:async()=>{},enablePlugin:async()=>{reloaded++;app.plugins.plugins['link-brain-actions']={openImportModal:()=>opened++};}}};
+  const click=new Function('app','importButton','importStatus','return '+handler)(app,button,{setText:s=>status=s});
+  await click({preventDefault(){},stopPropagation(){}});
+  assert.equal(reloaded,1);assert.equal(opened,1);assert.equal(button.disabled,false);
   // answerArchive 薄壳：解析后端 `ask` 的 JSON、非 ok 抛错
   const p2=new Plugin();
   p2.spawnCapture=async args=>{assert.equal(args[2],'ask');assert.equal(args[3],'AI 做梦');
