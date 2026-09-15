@@ -147,6 +147,34 @@ python -m link_brain catch "<她发来的整条消息>" --origin tg --actor huma
 - 小红书 MCP 守护：`Start-ScheduledTask XiaohongshuMCP`，在线自查 `check_login_status`
 - vault 位置默认是仓库下的 `vault/`，可用环境变量 `LINK_BRAIN_VAULT` 覆盖
 
+### 本机依赖与环境变量（开源移植看这里）
+
+代码里凡是指向作者本机的绝对路径，都是「环境变量覆盖 + 作者本机兜底」——别人 clone 下来，
+把下面这些指到自己的东西即可，不改代码：
+
+| 环境变量 | 覆盖什么 | 不设时的默认 |
+|---|---|---|
+| `LINK_BRAIN_VAULT` | vault 根目录 | 仓库下 `vault/` |
+| `LINK_BRAIN_MEDIA_PY` | 便宜的文本/识图脚本 `media.py`（`llm.py` / `vision.py`） | 作者本机路径 |
+| `DASHSCOPE_API_KEY` | media.py 用的千问 key | media.py 读仓库外 CSV |
+| `LINK_BRAIN_FAVDUMP` / `XHS_FAV_HOST` / `XHS_FAV_PROFILE` | 私密收藏读取器 favdump.exe 及其 profile（`favorites.py`） | 作者本机 `.xiaohongshu-mcp` |
+| `LINK_BRAIN_AB_PROFILE_PREFS` | 附件下载用的 **agent-browser 小号登录 profile** 的 Preferences（`attachments.py`） | 作者本机 agent-browser profile |
+
+**浏览器登录**（附件字节、私密收藏）本就依赖本机 agent-browser / favdump 的登录态，
+是可选的重活；不配这两条也不影响归档主体、目录、检索、问答。
+
+### AI 接口（问答 / 摘要 / 识图 / TTS）
+
+配置在 Obsidian 插件 **Link Brain Actions 的设置页**，只落 `vault/.obsidian/plugins/link-brain-actions/data.json`
+（`vault/` 已 gitignore，**key 绝不进仓、绝不打印**）。两种通路：
+
+- **本机 media.py（默认）**：复用作者本机已配置的便宜通路，无需在插件里填 key。
+- **自定义 HTTP**：没有 media.py 的用户填自己的 OpenAI 兼容 endpoint/model/key 即可（文本走 `/chat/completions`、TTS 走 `/audio/speech`）。
+
+摘要提示词接 `llm.py` 抽取流程、识图通路接 `vision.py`、`/问AI` 走 `python -m link_brain ask`
+（读整个本地 `catalog-data.json` 重新检索，只把挑出的少量片段送模型，token 控制全在这一步）。
+每条接口在设置页都有「测试」按钮，发一次最小真实调用验证是否接通。
+
 ## 仓库是公开的
 
 `vault/`、`.env`、`*.local.*` 全在 `.gitignore`。**任何 cookie / token / key / 抓下来的样本数据都不许进版本控制。**

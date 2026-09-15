@@ -35,7 +35,12 @@ from .adapters import xiaohongshu as xhs
 
 EXIT_NEEDS_HUMAN = 5  # 小号登录态失效 / 风控，要人处理（和 ingest 同一套码）
 
-PROFILE_PREFS = Path(r"C:\Users\18717\Tools\agent-browser\profile\Default\Preferences")
+# agent-browser 小号 profile 的 Preferences。开源后可用 LINK_BRAIN_AB_PROFILE_PREFS 覆盖；
+# 不设就是作者本机路径（她这台照旧）。附件下载本就是要本机 agent-browser 登录态的重活。
+PROFILE_PREFS = Path(os.environ.get(
+    "LINK_BRAIN_AB_PROFILE_PREFS",
+    r"C:\Users\18717\Tools\agent-browser\profile\Default\Preferences",
+))
 FILE_PAGE_FMT = (
     "https://www.rednote.com/file/{doc_id}"
     "?noteId={note_id}&fileName={file_name}&xsec_token={xsec_token}&xsec_source=note_detail_file"

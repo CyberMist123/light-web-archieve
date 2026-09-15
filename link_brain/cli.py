@@ -101,6 +101,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("catalog", help="重写 vault 里的收藏目录页（纯程序拼，不联网）")
 
+    p = sub.add_parser("ask", help="基于本地归档库问答（/问AI 的后端；只把少量片段送模型）")
+    p.add_argument("question", help="自然语言问题")
+
+    p = sub.add_parser("selftest", help="设置页「测试」按钮的后端：发一次最小调用验证接口")
+    p.add_argument("kind", choices=["text", "ocr"], help="测哪条接口")
+
     p = sub.add_parser("inbox", help="列出被戳到某角色且未处理的对象")
     p.add_argument("--for", dest="for_actor", required=True, help="角色名，如 fable")
 
@@ -203,6 +209,16 @@ def main(argv: list[str] | None = None) -> int:
         from . import catalog as catalog_mod
 
         return catalog_mod.run(args)
+
+    if args.command == "ask":
+        from . import ask as ask_mod
+
+        return ask_mod.run(args)
+
+    if args.command == "selftest":
+        from . import ask as ask_mod
+
+        return ask_mod.run_selftest(args)
 
     if args.command in ("comment", "inbox", "resolve"):
         from . import comments as comments_mod

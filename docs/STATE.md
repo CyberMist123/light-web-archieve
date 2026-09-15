@@ -1,5 +1,34 @@
 # Current State
 
+## 2026-09-16 知识库 /问AI + 插件设置 + 开源移植（本轮做完）
+
+**/问AI 真接模型了**（不再是「未接入」占位）：
+- 后端 `link_brain/ask.py`（新，CLI `python -m link_brain ask "<问题>"`，输出一行 JSON）：
+  读整个本地 `catalog-data.json` **自己重新检索**（不依赖页面传来的 shown），只把挑出的少量片段送模型。
+  **先规则后模型**：`提取github地址` / `所有…链接` 纯本地出（0 token，给真实计数 + 完整可点链接列表）；
+  普通问题可选一次小模型扩检索词 → OR 召回排序 → 取 topK(8) 篇、每篇 ≤fragChars(800) 字、
+  总输入 ≤totalCharLimit(8000) 字 → 一次回答。模型调用复用 `llm.call_media_text`（media 模式）
+  或自定义 HTTP（httpx，OpenAI 兼容）。实跑 156 篇：`提取github地址` 出 5 个真实地址；
+  `AI记忆系统相关…` 命中 20 篇、送 8 篇、返回结构化 markdown（笔记出处 + URL + 分析）。
+- 插件 `answerArchive({question})` 改成薄壳：spawn `ask` → 解析 JSON → 用 Obsidian `MarkdownRenderer`
+  渲染（`[[笔记]]` / `[原文](url)` 可点）+ **一键复制完整 markdown**（复制不重调模型）+ 材料/命中计数 + usage；
+  配了 TTS 才出现「🔊 朗读」。只点「提问」才发请求，打字不花 token。
+- **插件设置页**（`LinkBrainSettingTab`）：文本AI（media / 自定义HTTP：endpoint/model/key/maxTokens）、
+  识图OCR（cmx/qwen 通路，接 `vision.py`）、TTS（endpoint/model/key/voice）、两类提示词（摘要 / 搜索回答，
+  各带默认与恢复）、检索/token 上限。每条接口有「测试」按钮走真实最小调用（`selftest text|ocr` + TTS 朗读），
+  **不做空壳**。数据只落 `vault/.obsidian/plugins/link-brain-actions/data.json`（gitignore，key 不进仓/不打印）。
+- **摘要提示词真接 `llm.py`**：`extract` 读 data.json 的 `prompts.summary`，留空用内置 INSTRUCTION（fail-open）。
+
+**开源移植（Owner：本来接本机，现在准备开源）**：4 处硬编码本机路径全改成「env 覆盖 + 作者本机兜底」——
+`LINK_BRAIN_MEDIA_PY`（llm/vision）、`LINK_BRAIN_AB_PROFILE_PREFS`（attachments 的 agent-browser 小号登录 profile）；
+`favorites.py` 的 favdump/profile 本就 env 可覆盖。审计确认 git **没跟踪任何 data.json/key/cookie/vault**。
+清单写进 README「本机依赖与环境变量」。没有 media.py 的用户走插件「自定义 HTTP」，浏览器登录/收藏是可选重活。
+
+测试：`tests/test_ask.py`（8 个网络无关：切词/召回/意图/github&links 本地 only/qa 片段限量/模型失败仍列笔记）；
+`test_catalog_interactions.cjs` 补 answerArchive 解析 + 设置默认；全套 **121 passed** + node PASS。
+main.js 已同步 vault，目录已 `catalog` 重建。**待 Owner 实机**：在插件设置里配好接口（或用默认 media），
+开「小红书收藏目录.md」→ 搜索框输 `/问题` 点「提问」验证回答 + 复制。
+
 ## 最新交接 2026-09-16
 
 - Owner 追加：AI 回答区支持一键复制完整 Markdown 回答及链接，成功/失败反馈；待随 AI 回答功能实现，详见 TASKBOOK 顶部第7项。
