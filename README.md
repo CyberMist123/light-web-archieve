@@ -194,3 +194,7 @@ commit 前跑一次 `git status` 核对。
 ```bash
 python -m pytest -q
 ```
+
+## 许可
+
+[MIT](LICENSE) © CyberMist
