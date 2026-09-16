@@ -287,7 +287,7 @@ def test_meta_line_has_source_url_and_agent_md():
     agent_link = "[[_archive/xiaohongshu/0000000000000000deadbeef/derived/agent.md|机读版]]"
     assert agent_link in text
     # 必须在 HTML 容器之前，不然 Obsidian 点不开
-    assert text.index(agent_link) < text.index('<div class="lb-note')
+    assert text.index(agent_link) > text.index('<div class="lb-note')
 
 
 def test_no_attachments_renders_nothing():

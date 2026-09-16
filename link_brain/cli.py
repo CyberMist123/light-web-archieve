@@ -85,6 +85,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("target", nargs="?", default=None, help="item_id；配合 --all 时可省略")
     p.add_argument("--all", action="store_true", help="对所有带附件元数据的对象都下一遍")
     p.add_argument("--force", action="store_true", help="已经下过也重下")
+    p.add_argument("--doc-id", default=None, help="手动挂载到指定附件")
+    p.add_argument("--audit", action="store_true", help="输出附件完整性 JSON，不联网")
     p.add_argument("--attach", default=None,
                    help="把本地已下好的文件手动挂到这篇（系统下不了时用）：给文件路径")
 
@@ -116,7 +118,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--print-cats", action="store_true", help="只打印当前生效的大类（设置页载入用），不重建")
 
     p = sub.add_parser("ask", help="基于本地归档库问答（/问AI 的后端；只把少量片段送模型）")
-    p.add_argument("question", help="自然语言问题")
+    p.add_argument("question", nargs="?", default="", help="自然语言问题")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--history-stdin", action="store_true", help="从 stdin 读取 [{role,content}] 追问历史")
+    g.add_argument("--request-stdin", action="store_true", help="从 stdin 读取完整 JSON 请求：question/history/include")
+    p.add_argument("--include", action="append", choices=["body", "links", "files"], help="可重复：正文之外返回链接或文件；默认只有正文")
 
     p = sub.add_parser("selftest", help="设置页「测试」按钮的后端：发一次最小调用验证接口")
     p.add_argument("kind", choices=["text", "ocr"], help="测哪条接口")

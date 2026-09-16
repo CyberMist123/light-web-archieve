@@ -1,26 +1,18 @@
-"""知识库问答（Owner 2026-09-16 的 /问AI）。
+"""Grounded archive answers for the Obsidian UI, Claude Code and Codex.
 
-不是通用聊天：基于本地归档库做**总结 / 列举 / 给链接 / 简单分析**。
-入口是插件的 `answerArchive`，它 spawn `python -m link_brain ask`，拿回一段 JSON。
-
-设计要点（TASKBOOK 顶部「还没做」1-8）：
-- **本地索引免费**：读整个 `catalog-data.json`（正文在 `search_text` 里），自己重新检索，
-  不依赖页面传来的 shown。只有**发给模型**的内容才限量。
-- **先规则、后模型**：提取 GitHub / 链接这类意图纯本地出，不花 token；
-  普通问题必要时最多一次小模型把问题扩成 3-6 个检索词。
-- **token 控制**：本地 OR 召回 → 排序 → 取 topK 条、每条 ≤fragChars 字、总输入 ≤totalCharLimit 字。
-  一次回答，不自动循环 agent。
-- **「所有」给真实计数 + 完整链接列表**，不能默默 top8 就说全库只有 8 条。
-- 模型调用复用 `llm.call_media_text`（media.py 通路，key 在仓外）；Owner 配了自定义
-  HTTP endpoint 就走 httpx（key 读自 data.json，绝不打印）。
-- 输出走 `read.dump_json`（UTF-8 字节，绕开 Windows GBK 控制台）。
+Local retrieval uses field weights and bilingual aliases. Questions call the configured
+text model once by default; optional query expansion is off. Source windows remain
+verbatim and citations carry paths to the complete machine-readable Markdown.
+Conversation history resolves follow-ups but is not treated as source evidence.
 """
 
 from __future__ import annotations
 
 import json
+import mimetypes
 import re
 import sys
+from pathlib import Path
 from typing import Any
 
 from . import ai_config, llm, storage
@@ -32,7 +24,7 @@ _TERM_SPLIT = re.compile(r"[\s,，、;；/|]+")
 # 中文按 2-gram 也切一份，好让「做梦」命中「做梦/梦境」这类
 _STOP = {"的", "了", "我", "有", "和", "与", "给", "所有", "全部", "关于", "一下",
          "请", "帮", "找", "查", "列", "列出", "提取", "地址", "链接", "分析", "简单",
-         "相关", "这些", "那些", "哪些", "是", "在", "吗", "呢", "把", "对", "里"}
+         "从收藏", "收藏里", "从收藏里", "给我", "一份", "重点", "重点是", "材料", "步骤", "怎么", "如何", "什么", "有没有", "这些", "相关", "这些", "那些", "哪些", "是", "在", "吗", "呢", "把", "对", "里"}
 
 
 # --------------------------------------------------------------------------
@@ -45,57 +37,27 @@ def load_items() -> list[dict[str, Any]]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return []
+        from .catalog import collect
+        return collect(storage.vault_root())
     items = data.get("items") if isinstance(data, dict) else None
     return items if isinstance(items, list) else []
 
 
-def _norm(text: Any) -> str:
-    return str(text or "").casefold()
-
-
-def _hay(it: dict[str, Any]) -> str:
-    parts = [it.get("title"), it.get("summary"), it.get("search_text"),
-             it.get("author"), " ".join(it.get("tags") or [])]
-    return _norm(" ".join(str(p or "") for p in parts))
-
-
 def query_terms(question: str) -> list[str]:
-    """从问句里抠检索词：切词 + 去停用词 + 中文 2-gram 兜底。"""
-    terms: list[str] = []
-    for raw in _TERM_SPLIT.split(question or ""):
-        raw = raw.strip().strip("#＃?？!！。.,，、").casefold()
-        if raw and raw not in _STOP and len(raw) >= 1:
-            terms.append(raw)
-    # 中文连写的问句切不出词时，退回 2-gram
-    cjk = "".join(re.findall(r"[一-鿿]", question or ""))
-    if len(terms) <= 1 and len(cjk) >= 2:
-        terms += [cjk[i:i + 2].casefold() for i in range(len(cjk) - 1)]
-    seen: list[str] = []
-    for t in terms:
-        if t not in seen:
-            seen.append(t)
-    return seen
+    """Tokenize natural-language requests without matching instruction fragments."""
+    import jieba
+    import logging
+    from .retrieval import norm
+    jieba.setLogLevel(logging.ERROR)
+    ignored = _STOP | {"收藏", "归档", "库里", "原文", "相关", "一份", "怎么回事", "重点", "需要", "想要", "内容", "告诉", "里面"}
+    words = [norm(w) for w in jieba.lcut(question or "")]
+    terms = [w for w in words if w not in ignored and re.search(r"[a-z0-9一-鿿]", w) and len(w) >= 2]
+    return list(dict.fromkeys(terms))
 
 
 def score(it: dict[str, Any], terms: list[str]) -> int:
-    """OR 召回：命中任一词就算数，标题命中权重高。"""
-    if not terms:
-        return 0
-    title = _norm(it.get("title"))
-    tags = _norm(" ".join(it.get("tags") or []))
-    hay = _hay(it)
-    total = 0
-    for term in terms:
-        if not term:
-            continue
-        if term in title:
-            total += 10
-        elif term in tags:
-            total += 6
-        elif term in hay:
-            total += 4
-    return total
+    from .retrieval import score as weighted_score
+    return weighted_score(it, terms)
 
 
 def retrieve(items: list[dict[str, Any]], terms: list[str]) -> list[dict[str, Any]]:
@@ -116,10 +78,6 @@ def detect_intent(question: str) -> str:
     if re.search(r"链接|url|网址|原文", q, re.I) and re.search(r"提取|给我|列|所有|哪些", q, re.I):
         return "links"
     return "qa"
-
-
-def wants_all(question: str) -> bool:
-    return bool(re.search(r"所有|全部|都有哪些|列出", question or ""))
 
 
 # --------------------------------------------------------------------------
@@ -183,8 +141,8 @@ def _note_link(it: dict[str, Any]) -> str:
 
 
 def _answer_github(question: str, items: list[dict[str, Any]], settings: dict[str, Any]) -> dict[str, Any]:
-    terms = query_terms(question)
-    pool = retrieve(items, terms) if terms and not wants_all(question) else items
+    terms = [t for t in query_terms(question) if t not in {"github", "repo", "仓库"}]
+    pool = retrieve(items, terms) if terms else items
     rows: list[str] = []
     seen: set[str] = set()
     for it in pool:
@@ -195,24 +153,15 @@ def _answer_github(question: str, items: list[dict[str, Any]], settings: dict[st
                 rows.append(f"- {url} — {_note_link(it)}")
     lines = [f"**在库里找到 {len(seen)} 个 GitHub 地址**（来自 {len(items)} 篇归档，均为原文/评论中实际出现的链接）：", ""]
     lines += rows or ["（本次检索范围内没有出现 github.com 地址。）"]
-    # 模型给的仓库名线索（未证实），单列，明确标注
-    hints: list[str] = []
-    for it in pool[:40]:
-        for link in it.get("suggested_links") or []:
-            hint = (link.get("hint") if isinstance(link, dict) else "") or ""
-            url = (link.get("url") if isinstance(link, dict) else "") or ""
-            if hint and not url and not GITHUB_RE.search(hint):
-                hints.append(f"- {hint} — {_note_link(it)}")
-    if hints:
-        lines += ["", "**模型提到但未证实的仓库/项目名（不是确认地址，需自行搜索核对）：**", ""]
-        lines += list(dict.fromkeys(hints))[:15]
+    sources = [{**_card(it, ""), "citation": i+1} for i, it in enumerate(pool) if it.get("github_urls")]
     return {"markdown": "\n".join(lines), "matches": len(seen), "materials": len(rows),
-            "usage": None, "model_called": False}
+            "sources": sources, "usage": None, "model_called": False}
 
 
 def _answer_links(question: str, items: list[dict[str, Any]], settings: dict[str, Any]) -> dict[str, Any]:
     terms = query_terms(question)
-    matches = retrieve(items, terms) if terms and not wants_all(question) else items
+    from .retrieval import score as weighted_score
+    matches = [it for it in retrieve(items, terms) if weighted_score(it, terms, require_all=True)] if terms else items
     lines = [f"**匹配到 {len(matches)} 篇**（下面给完整链接列表，可继续查看）：", ""]
     for it in matches:
         url = it.get("url")
@@ -221,12 +170,13 @@ def _answer_links(question: str, items: list[dict[str, Any]], settings: dict[str
     if not matches:
         lines.append("（没有命中的笔记。）")
     return {"markdown": "\n".join(lines), "matches": len(matches), "materials": len(matches),
+            "sources": [{**_card(it, ""), "citation": i+1} for i, it in enumerate(matches)],
             "usage": None, "model_called": False}
 
 
 def _expand_terms(question: str, base: list[str], settings: dict[str, Any]) -> list[str]:
     """普通问题：可选一次小模型把问句扩成 3-6 个检索词/同义词。失败就用 base。"""
-    if not (settings.get("retrieval") or {}).get("expandTerms", True):
+    if not (settings.get("retrieval") or {}).get("expandTerms", False):
         return base
     instr = ("把下面这个中文检索需求扩写成 3 到 6 个用于本地全文检索的关键词或同义词，"
              "只输出一个 JSON 数组（如 [\"做梦\",\"梦境\",\"dream\"]），不要解释。")
@@ -244,26 +194,6 @@ def _expand_terms(question: str, base: list[str], settings: dict[str, Any]) -> l
     return merged or base
 
 
-def _local_excerpt(item: dict[str, Any], terms: list[str], limit: int) -> str:
-    """从正文里截一段命中检索词附近的**原文**（她要的「选取的正文」，不改写、不概括）。"""
-    text = " ".join(str(item.get("search_text") or item.get("summary") or "").split())
-    if not text:
-        return ""
-    low = text.lower()
-    pos = -1
-    for t in terms:
-        if t:
-            i = low.find(t)
-            if i >= 0:
-                pos = i
-                break
-    if pos < 0:
-        return text[:limit] + ("…" if len(text) > limit else "")
-    start = max(0, pos - limit // 3)
-    snippet = text[start:start + limit]
-    return ("…" if start > 0 else "") + snippet + ("…" if start + limit < len(text) else "")
-
-
 def _card(item: dict[str, Any], excerpt: str) -> dict[str, Any]:
     url = item.get("url")
     return {
@@ -273,93 +203,125 @@ def _card(item: dict[str, Any], excerpt: str) -> dict[str, Any]:
         "note": item.get("note"),
         "url": url if _URL_RE.match(str(url or "")) else "",
         "excerpt": excerpt,
+        "agent_md": str(storage.vault_root() / item["agent_md"]) if item.get("agent_md") else None,
+        "attachments": item.get("attachment_files", []),
     }
 
 
-def _build_context(matches: list[dict[str, Any]], limits: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
-    """给模型看的编号片段（仅 useModel 时用）。materials[i] 对应「片段(i+1)」，带回原 item。"""
-    top_k = int(limits.get("topK", 8))
-    frag_chars = int(limits.get("fragChars", 800))
-    total_cap = int(limits.get("totalCharLimit", 8000))
-    blocks: list[str] = []
-    materials: list[dict[str, Any]] = []
-    used = 0
-    for i, it in enumerate(matches[:top_k], start=1):
-        body = " ".join(str(it.get("search_text") or it.get("summary") or "").split())[:frag_chars]
-        block = f"[片段{i}] 标题：{it.get('title') or '未命名'}\n内容：{body or '（无正文）'}"
-        if used + len(block) > total_cap and blocks:
-            break
-        blocks.append(block)
-        used += len(block)
-        materials.append({"item": it})
-    return "\n\n".join(blocks), materials
-
-
-def _answer_qa(question: str, items: list[dict[str, Any]], settings: dict[str, Any]) -> dict[str, Any]:
-    fmt = settings.get("answerFormat") or {}
-    excerpt_chars = int(fmt.get("excerptChars", 200))
-    top_k = int((settings.get("retrieval") or {}).get("topK", 8))
-    base = query_terms(question)
-    terms = _expand_terms(question, base, settings)  # 默认关，不多花一次调用
+def _answer_qa(question, items, settings, history=None):
+    from .retrieval import excerpts
+    history = [m for m in (history or [])[-8:] if m.get("role") in {"user", "assistant"}]
+    # Prior user requests resolve follow-ups; previous model text is never retrieval evidence.
+    prior = " ".join(str(m.get("content", ""))[:1000] for m in history if m["role"] == "user")
+    terms = _expand_terms(question, query_terms(question), settings)
     matches = retrieve(items, terms)
+    if prior:
+        previous = retrieve(items, query_terms(prior))
+        seen = {it["id"] for it in matches}
+        matches += [it for it in previous if it["id"] not in seen]
+        # Continuation with little standalone information uses preceding subject first.
+        if len(question) < 18:
+            order = {it["id"]: i for i, it in enumerate(previous)}
+            matches.sort(key=lambda it: order.get(it["id"], len(previous)))
     if not matches:
-        return {"kind": "cards", "results": [], "matches": 0, "materials": 0,
-                "model_called": False, "markdown": "库里没有检索到相关归档。换个关键词试试。"}
-
-    results: list[dict[str, Any]] = []
-    model_called = False
-    if fmt.get("useModel"):
-        context, mats = _build_context(matches, {**(settings.get("retrieval") or {}), "topK": top_k})
-        prompt = (settings.get("prompts") or {}).get("answer") or ai_config.DEFAULT_ANSWER_PROMPT
-        res = call_text(prompt, f"【问题】{question}\n\n【片段】\n{context}", settings)
-        model_called = True
-        if res.get("status") == "ok":
-            try:
-                m = re.search(r"\{.*\}", res.get("text") or "", re.S)
-                payload = json.loads(m.group(0)) if m else {}
-                for r in payload.get("results", []):
-                    idx_m = re.search(r"(\d+)", str(r.get("id", "")))
-                    if not idx_m:
-                        continue
-                    idx = int(idx_m.group(1)) - 1
-                    if 0 <= idx < len(mats):
-                        it = mats[idx]["item"]
-                        ex = " ".join(str(r.get("excerpt") or "").split())[:excerpt_chars] \
-                            or _local_excerpt(it, terms, excerpt_chars)
-                        results.append(_card(it, ex))
-            except (ValueError, AttributeError, TypeError):
-                pass
-
-    if not results:  # 默认路径（快）：纯本地检索出小图 + 原文摘录
-        for it in matches[:top_k]:
-            results.append(_card(it, _local_excerpt(it, terms, excerpt_chars)))
-
-    return {"kind": "cards", "results": results, "matches": len(matches),
-            "materials": len(results), "model_called": model_called}
+        return {"kind": "answer", "markdown": "收藏里没有找到足够相关的材料。可以换个关键词，或先导入相关内容。",
+                "sources": [], "matches": 0, "materials": 0, "model_called": False}
+    limits = settings.get("retrieval") or {}
+    cap = max(500, int(limits.get("totalCharLimit", 8000)))
+    frag = max(200, int(limits.get("fragChars", 800)))
+    blocks, sources = [], []
+    for it in matches[:max(1, int(limits.get("topK", 8)))]:
+        snippets = excerpts(it, terms + query_terms(prior), frag)
+        block = f"[来源{len(sources)+1}] {it['title']}\n" + "\n".join(f"[{x['field']}] {x['text']}" for x in snippets)
+        remaining = cap - sum(len(x) for x in blocks)
+        if remaining < 100:
+            break
+        blocks.append(block[:remaining])
+        sources.append({**_card(it, snippets[0]["text"]), "citation": len(sources)+1,
+                        "agent_md": str(storage.vault_root() / it["agent_md"]) if it.get("agent_md") else None, "attachments": it.get("attachment_files", [])})
+    prompt = ai_config.DEFAULT_ANSWER_PROMPT
+    custom = (settings.get("prompts") or {}).get("answer", "")
+    if custom and '"results"' not in custom and custom != prompt:
+        prompt += "\n用户的回答风格偏好：" + custom
+    dialog = "\n".join(f"{m['role']}: {str(m.get('content', ''))[:1500]}" for m in history)
+    res = call_text(prompt, f"【先前对话，仅供理解追问，不是事实来源】\n{dialog}\n【问题】{question}\n【原始材料】\n" + "\n\n".join(blocks), settings)
+    if res.get("status") != "ok" or not (res.get("text") or "").strip():
+        return {"status": "error", "kind": "answer", "markdown": "AI 回答失败：" + str(res.get("error") or "空响应"),
+                "sources": sources, "matches": len(matches), "materials": len(sources), "model_called": True}
+    return {"kind": "answer", "markdown": res["text"], "sources": sources, "matches": len(matches),
+            "materials": len(sources), "model_called": True, "usage": res.get("usage")}
 
 
 # --------------------------------------------------------------------------
 # 对外入口
 # --------------------------------------------------------------------------
 
-def answer(question: str) -> dict[str, Any]:
+def delivery_payload(result: dict[str, Any], include=None) -> dict[str, Any]:
+    """Channel-neutral message parts. Paths are for the sending adapter, not the user."""
+    include = set(include or [])
+    body = re.sub(r"\[来源\d+\]", "", result.get("markdown") or "").strip()
+    payload: dict[str, Any] = {"body": body}
+    sources = result.get("sources") or []
+    used = {int(n) for n in re.findall(r"\[来源(\d+)\]", result.get("markdown") or "")}
+    selected = [s for s in sources if s.get("citation") in used] if used else sources
+    if "links" in include:
+        payload["links"] = [{"title": s["title"], "url": s["url"], "source_id": s["id"],
+                             "markdown_path": s.get("agent_md")}
+                            for s in selected if re.match(r"https?://", s.get("url") or "")]
+    if "files" in include:
+        files, seen = [], set()
+        for source in selected:
+            for att in source.get("attachments") or []:
+                local = Path(att["file"]) if att.get("file") else None
+                if not local or not local.is_file() or str(local) in seen:
+                    continue
+                seen.add(str(local))
+                files.append({"name": local.name, "path": str(local.resolve()),
+                              "mime_type": mimetypes.guess_type(local.name)[0] or "application/octet-stream",
+                              "bytes": local.stat().st_size, "source_id": source["id"],
+                              "markdown_path": att.get("markdown")})
+        payload["files"] = files
+    return payload
+
+
+def answer(question: str, history=None, include=None) -> dict[str, Any]:
     question = (question or "").strip()
     settings = ai_config.load()
     items = load_items()
+    if not isinstance(include, (list, tuple, set, type(None))) or set(include or []) - {"body", "links", "files"}:
+        return {"status": "error", "markdown": "include 仅支持 body、links、files。"}
     if not question:
         return {"status": "error", "markdown": "没有问题内容。", "matches": 0,
                 "materials": 0, "intent": "qa", "model_called": False}
     intent = detect_intent(question)
     handler = {"github": _answer_github, "links": _answer_links}.get(intent, _answer_qa)
-    result = handler(question, items, settings)
-    result["status"] = "ok"
+    result = handler(question, items, settings, history) if intent == "qa" else handler(question, items, settings)
+    result.setdefault("status", "ok")
     result["intent"] = intent
     result["index_size"] = len(items)
+    result["delivery"] = delivery_payload(result, include)
+    result["history"] = ([{"role": m["role"], "content": str(m.get("content", ""))}
+                          for m in (history or [])[-6:] if m.get("role") in {"user", "assistant"}]
+                         + [{"role": "user", "content": question},
+                            {"role": "assistant", "content": result.get("markdown", "")}]) if result["status"] == "ok" else (history or [])
     return result
 
 
 def run(args) -> int:
-    result = answer(getattr(args, "question", "") or "")
+    try:
+        if getattr(args, "request_stdin", False):
+            request = json.load(sys.stdin)
+            if not isinstance(request, dict) or not isinstance(request.get("question"), str):
+                raise ValueError("请求需要 question 字符串")
+            history = request.get("history") or []
+            if not isinstance(history, list) or any(not isinstance(m, dict) for m in history):
+                raise ValueError("history 必须是对话消息数组")
+            result = answer(request["question"], history, request.get("include"))
+        else:
+            history = json.load(sys.stdin) if getattr(args, "history_stdin", False) else []
+            result = answer(getattr(args, "question", "") or "", history, getattr(args, "include", None))
+    except (ValueError, TypeError) as exc:
+        result = {"status": "error", "markdown": f"问答请求无效：{exc}"}
     dump_json(result)
     return EXIT_OK if result.get("status") == "ok" else EXIT_ERROR
 

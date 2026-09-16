@@ -35,7 +35,6 @@ DAMAGED_RATIO = 0.002  # 千分之二就够判：正常文本是 0
 MIN_CHARS_PER_PAGE = 40  # 每页平均还不到这些字 = 基本是扫描件，文字层没内容
 DEFAULT_DPI = 170
 OCR_TIMEOUT = 180
-MAX_PAGES = 50  # 再多就不值当了，说明这不是"笔记附件"而是本书
 
 
 def damage_ratio(text: str) -> float:
@@ -84,7 +83,7 @@ def text_layer_markdown(pdf_path: Path, *, timeout: int = 300) -> tuple[str | No
 
     `--out` 只回一行「[已落文件] <路径> (N 字)」，所以要把那个路径读回来。
     """
-    ok, out = _run_media(["pdf", str(pdf_path), "--out"], timeout=timeout)
+    ok, out = _run_media(["pdf", str(pdf_path), "--no-ocr", "--out"], timeout=timeout)
     if not ok:
         return None, out
     match = re.search(r"\[已落文件\]\s*(.+?\.md)", out)
@@ -97,7 +96,7 @@ def text_layer_markdown(pdf_path: Path, *, timeout: int = 300) -> tuple[str | No
 
 
 def ocr_markdown(
-    pdf_path: Path, *, dpi: int = DEFAULT_DPI, max_pages: int = MAX_PAGES, verbose: bool = False
+    pdf_path: Path, *, dpi: int = DEFAULT_DPI, verbose: bool = False
 ) -> tuple[str | None, str]:
     """每页渲成 PNG 再 `media.py image --ocr`，拼成一份 Markdown。"""
     try:
@@ -111,10 +110,8 @@ def ocr_markdown(
 
     doc = pymupdf.open(str(pdf_path))
     total = doc.page_count
-    pages = min(total, max_pages)
+    pages = total
     lines = [f"# {pdf_path.name}", "", f"（{total} 页，OCR 逐页识别）", ""]
-    if total > max_pages:
-        lines += [f"> 只识别了前 {max_pages} 页（上限 {MAX_PAGES}）。", ""]
 
     failed = 0
     tmp_dir = Path(tempfile.mkdtemp(prefix="link-brain-pdf-"))
@@ -136,7 +133,7 @@ def ocr_markdown(
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
     note = f"逐页 OCR {pages}/{total} 页" + (f"，{failed} 页失败" if failed else "")
-    return "\n".join(lines), note
+    return (None if failed else "\n".join(lines)), note
 
 
 def pdf_to_markdown(
@@ -231,7 +228,7 @@ def convert_object_attachments(
         if not path.exists() or path.suffix.lower() not in CONVERTIBLE_SUFFIXES:
             continue
         out = attachment_md_path(source_key, source_id, doc_id)
-        if out.exists() and not force:
+        if out.exists() and out.stat().st_mtime >= path.stat().st_mtime and not force:
             results.append({"doc_id": doc_id, "status": "already", "path": str(out)})
             continue
         outcome = attachment_to_markdown(path, force_ocr=force_ocr, verbose=verbose)
@@ -296,4 +293,6 @@ def run(args) -> int:
                 print(f"{source_id}  ✗ {r.get('note')}", file=sys.stderr)
         if results:
             render_mod.render_object(source_key, source_id)
+    from .catalog import build
+    build()
     return 1 if failed else 0

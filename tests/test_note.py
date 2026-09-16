@@ -100,6 +100,12 @@ def test_manual_attach_flips_badge(tmp_path, monkeypatch):
     assert (obj_dir / "attachments" / "我自己下的.pdf").is_file()
     meta = json.loads((obj_dir / "meta.json").read_text(encoding="utf-8"))
     assert meta["attachments_status"] == "downloaded"
+    from link_brain import render
+    rendered = render.render_object(source, source_id)
+    visible = (tmp_path / rendered["visible_note"]).read_text(encoding="utf-8")
+    assert "我自己下的.pdf" in visible
+    assert "已存本地" in visible
+
 
 
 def test_note_missing_target(tmp_path, monkeypatch):

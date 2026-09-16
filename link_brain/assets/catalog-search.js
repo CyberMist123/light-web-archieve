@@ -12,19 +12,28 @@ function fuzzyContains(text, term) {
   }
   return false;
 }
-function score(it, query, chars = {}) {
+const searchCache = new WeakMap();
+function score(it, query, chars = {}, aliases = []) {
   const q = normalize(query);
   if (!q) return 1;
   if (q.startsWith('#')) {
     const wanted = q.split(/[\s#]+/).filter(Boolean);
     return wanted.some(t => (it.tags || []).some(tag => normalize(tag).replace(/^#/, '') === t)) ? 10 : 0;
   }
-  const title = normalize(it.title);
-  const hay = normalize([it.title, it.summary, it.search_text, it.author, ...(it.tags||[])].join(' '));
+  let fs = searchCache.get(it);
+  if (!fs) {
+    fs = Object.fromEntries(Object.entries({title:it.title,tags:(it.tags||[]).join(' '),summary:it.summary,author:it.author,...(it.search_fields||{body:it.search_text})}).map(([k,v])=>[k,normalize(v)]));
+    searchCache.set(it,fs);
+  }
+  const title = fs.title;
+  const hay = Object.values(fs).join(' ');
+  const weights={title:12,tags:10,body:7,attachments:6,ocr:5,comments:3,summary:2,author:1};
   let total = 0;
   for (const term of q.split(/\s+/).filter(Boolean)) {
-    if (title.includes(term)) { total += 10; continue; }
-    if (hay.includes(term)) { total += 5; continue; }
+    const variants=[term,...aliases.filter(g=>g.includes(term)||(term==='音'&&g.includes('音乐'))).flat()];
+    let best=0;
+    for(const v of new Set(variants))for(const [key,text] of Object.entries(fs))if(text.includes(v))best=Math.max(best,(weights[key]||1)*(v===term?1:.75));
+    if(best){total+=best;continue;}
     if (fuzzyContains(title, term)) { total += 3; continue; }
     const phonetic = Array.from(term, c => chars[c] || c).join('');
     if (phonetic.length >= 3 && fuzzyContains(normalize(it.pinyin), phonetic)) { total += 2; continue; }

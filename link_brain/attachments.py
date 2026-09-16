@@ -159,34 +159,36 @@ def fetch_bytes(
 
     before = {p for p in staging_dir.iterdir() if p.is_file()}
 
-    log("启动 headed 浏览器（headless 下那个下载 POST 会挂住）")
-    code, out = _ab(["open", "--headed"], timeout=90)
-    if code not in (0, None):
-        raise AttachmentError(f"agent-browser open 失败: {out[:200]}")
+    try:
+        log("启动 headed 浏览器（headless 下那个下载 POST 会挂住）")
+        code, out = _ab(["open", "--headed"], timeout=90)
+        if code not in (0, None):
+            raise AttachmentError(f"agent-browser open 失败: {out[:200]}")
 
-    url = FILE_PAGE_FMT.format(
-        doc_id=doc_id, note_id=note_id, file_name=file_name, xsec_token=xsec_token
-    )
-    log(f"导航 {url[:90]}…")
-    # 不用 open <url>：登录态的小红书页面不进 idle，open 会一直不返回
-    _ab(["eval", f'location.href={json.dumps(url)};"go"'], timeout=60)
-    _ab(["wait", str(NAV_SETTLE_MS)], timeout=NAV_SETTLE_MS // 1000 + 30)
-
-    _, snapshot = _ab(["snapshot", "-i", "-c"], timeout=SNAPSHOT_TIMEOUT)
-    match = DOWNLOAD_BUTTON_RE.search(snapshot)
-    if not match:
-        raise AttachmentError(
-            "页面上找不到「下载」按钮——多半是这个 profile 没登录（或小号没权限）；"
-            "先跑 `agent-browser open --headed <笔记URL>` 人工看一眼"
+        url = FILE_PAGE_FMT.format(
+            doc_id=doc_id, note_id=note_id, file_name=file_name, xsec_token=xsec_token
         )
-    ref = match.group(1)
-    log(f"点下载按钮 @{ref}")
-    _ab(["click", f"@{ref}"], timeout=90)
+        log(f"导航 {url[:90]}…")
+        # 不用 open <url>：登录态的小红书页面不进 idle，open 会一直不返回
+        _ab(["eval", f'location.href={json.dumps(url)};"go"'], timeout=60)
+        _ab(["wait", str(NAV_SETTLE_MS)], timeout=NAV_SETTLE_MS // 1000 + 30)
 
-    path = _wait_for_download(staging_dir, before, timeout=DOWNLOAD_WAIT_SEC)
-    log(f"下到 {path.name}（{path.stat().st_size} 字节）")
-    _ab(["close", "--all"], timeout=60)
-    return path
+        _, snapshot = _ab(["snapshot", "-i", "-c"], timeout=SNAPSHOT_TIMEOUT)
+        match = DOWNLOAD_BUTTON_RE.search(snapshot)
+        if not match:
+            raise AttachmentError(
+                "页面上找不到「下载」按钮——多半是这个 profile 没登录（或小号没权限）；"
+                "先跑 `agent-browser open --headed <笔记URL>` 人工看一眼"
+            )
+        ref = match.group(1)
+        log(f"点下载按钮 @{ref}")
+        _ab(["click", f"@{ref}"], timeout=90)
+
+        path = _wait_for_download(staging_dir, before, timeout=DOWNLOAD_WAIT_SEC)
+        log(f"下到 {path.name}（{path.stat().st_size} 字节）")
+        return path
+    finally:
+        _ab(["close", "--all"], timeout=60)
 
 
 def _sha256(path: Path) -> str:
@@ -209,6 +211,79 @@ def load_downloaded(source_key: str, source_id: str) -> dict[str, dict[str, Any]
     except (ValueError, OSError):
         return {}
     return {x["doc_id"]: x for x in doc.get("files", []) if x.get("doc_id")}
+
+
+def inventory(object_dir: Path, meta=None) -> dict[str, Any]:
+    """Count every declared file; a lone file cannot mark the whole note complete."""
+    meta = meta or storage.read_json(object_dir / "meta.json")
+    source_path = object_dir / "raw" / f"v{meta['current_version']:04d}" / "source.json"
+    source = storage.read_json(source_path) if source_path.exists() else {}
+    declared = (source.get("note") or {}).get("attachments") or []
+    record_path = object_dir / "attachments.json"
+    records = storage.read_json(record_path).get("files", []) if record_path.exists() else []
+    files = []
+    represented = set()
+    for att in declared:
+        got = next((r for r in records if (att.get("doc_id") and r.get("doc_id") == att["doc_id"])
+                    or ((att.get("name") or att.get("hint")) and r.get("name") == (att.get("name") or att.get("hint")))), {})
+        local = object_dir / "attachments" / got.get("file", "")
+        exists = local.is_file() and local.stat().st_size > 0
+        doc_id = att.get("doc_id") or got.get("doc_id")
+        md = object_dir / "derived" / "attachments" / f"{doc_id}.md"
+        files.append({"doc_id": doc_id, "name": att.get("name") or att.get("hint") or "附件",
+                      "downloaded": exists, "status": "downloaded" if exists else att.get("status", "metadata_only"), "pages": att.get("page_num"), "file": str(local) if exists else None,
+                      "markdown": str(md) if md.is_file() else None, "url": att.get("url")})
+        if got:
+            represented.add(got.get("doc_id"))
+    for got in records:
+        if got.get("doc_id") in represented:
+            continue
+        local = object_dir / "attachments" / got.get("file", "")
+        md = object_dir / "derived" / "attachments" / f"{got.get('doc_id')}.md"
+        files.append({"doc_id": got.get("doc_id"), "name": got.get("name") or local.name,
+                      "downloaded": local.is_file() and local.stat().st_size > 0,
+                      "file": str(local) if local.is_file() else None,
+                      "status": "downloaded" if local.is_file() else "metadata_only",
+                      "markdown": str(md) if md.is_file() else None})
+    missing = sum(not f["downloaded"] for f in files)
+    state_path = object_dir / "attachment-state.json"
+    state = storage.read_json(state_path) if state_path.exists() else {}
+    return {"item_id": meta["item_id"], "title": meta.get("title"), "files": files,
+            "missing": missing, "total": len(files),
+            "errors": state.get("errors", []),
+            "unconfirmed": sum(not f["downloaded"] and not f.get("doc_id") for f in files),
+            "status": ("unavailable" if all(not f.get("doc_id") for f in files) else "metadata_only") if missing else "downloaded" if files else "none"}
+
+
+def update_status(source_key, source_id):
+    obj = storage.object_dir(source_key, source_id)
+    meta = storage.read_json(obj / "meta.json")
+    report = inventory(obj, meta)
+    meta["attachments_status"] = report["status"]
+    storage.write_json(obj / "meta.json", meta)
+    return report
+
+
+def convert_downloads(source_key, source_id):
+    from .pdftext import convert_object_attachments
+    rows = convert_object_attachments(source_key, source_id)
+    errors = [r.get("note", "转换失败") for r in rows if r["status"] == "failed"]
+    if errors:
+        print("附件已保存，但正文转换失败：" + "; ".join(errors), file=sys.stderr)
+    return errors
+
+
+def local_download(name: str) -> Path | None:
+    """Reuse an exact filename from the configured download folder before browsing."""
+    from .ai_config import load
+    folder = Path(load().get("downloads", {}).get("folder") or Path.home() / "Downloads")
+    if not folder.is_dir() or not name:
+        return None
+    def normalized(value):
+        return re.sub(r"\s*\(\d+\)(?=\.[^.]+$)", "", value).casefold().strip()
+    candidates = [p for p in folder.iterdir() if p.is_file() and normalized(p.name) == normalized(name)
+                  and p.stat().st_size > 0 and time.time() - p.stat().st_mtime > 3]
+    return max(candidates, key=lambda p: p.stat().st_mtime) if candidates else None
 
 
 def download_for_object(
@@ -238,10 +313,17 @@ def download_for_object(
         if not doc_id:
             results.append({"doc_id": None, "status": "skipped", "error": "没有 doc_id（只有正文线索）"})
             continue
-        if not force and doc_id in known and (dest_dir / known[doc_id]["file"]).exists():
+        if not force and doc_id in known and (dest_dir / known[doc_id]["file"]).is_file() and (dest_dir / known[doc_id]["file"]).stat().st_size > 0:
             results.append({**known[doc_id], "status": "already"})
             continue
         try:
+            local = local_download(att.get("name") or "")
+            if local:
+                manual_attach(source_key, source_id, str(local), doc_id)
+                record = load_downloaded(source_key, source_id)[doc_id]
+                known[doc_id] = record
+                results.append({**record, "status": "downloaded"})
+                continue
             got = fetch_bytes(
                 doc_id=doc_id,
                 note_id=source_id,
@@ -270,20 +352,26 @@ def download_for_object(
     if staging.exists() and not any(staging.iterdir()):
         staging.rmdir()
 
-    files = [dict(known.get(r["doc_id"], {}), **r) for r in results if r.get("status") in ("downloaded", "already")]
+    merged = dict(known)
+    merged.update({r["doc_id"]: dict(known.get(r["doc_id"], {}), **r) for r in results if r.get("status") in ("downloaded", "already")})
+    files = list(merged.values())
     for f in files:
         f.pop("status", None)
     if files:
         storage.write_json(
             attachments_path(source_key, source_id), {"schema_version": 1, "files": files}
         )
-        meta["attachments_status"] = "downloaded"
-        storage.write_json(meta_path, meta)
+    update_status(source_key, source_id)
+
+    storage.write_json(object_dir / "attachment-state.json", {
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "errors": [{"doc_id": r.get("doc_id"), "error": r.get("error")} for r in results if r["status"] in {"failed", "skipped"}],
+    })
 
     return {"item_id": meta["item_id"], "results": results}
 
 
-def manual_attach(source_key: str, source_id: str, file_path: str) -> dict[str, Any]:
+def manual_attach(source_key: str, source_id: str, file_path: str, doc_id: str | None = None) -> dict[str, Any]:
     """把 Owner 自己下好的文件手动挂到这篇（系统 headed 下不了时用）。
 
     复制进对象级 `attachments/`，尽量按文件名认领一个 doc_id（认不出就存 manual 记录），
@@ -304,13 +392,16 @@ def manual_attach(source_key: str, source_id: str, file_path: str) -> dict[str, 
     dest_dir = object_dir / "attachments"
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / src.name
-    shutil.copyfile(src, dest)
+    if src.resolve() != dest.resolve():
+        shutil.copyfile(src, dest)
 
     # 按文件名认领元数据里声明过的 doc_id（认不出就当 manual）
-    matched = next((a for a in declared if (a.get("name") or "") == src.name), None)
+    matched = next((a for a in declared if (doc_id and a.get("doc_id") == doc_id) or (a.get("name") or "") == src.name), None)
+    if not matched and len(declared) == 1:
+        matched = declared[0]
     record = {
-        "doc_id": (matched or {}).get("doc_id"),
-        "name": (matched or {}).get("name") or src.name,
+        "doc_id": (matched or {}).get("doc_id") or "manual-" + re.sub(r"[^\w.-]", "_", src.stem),
+        "name": (matched or {}).get("name") or (matched or {}).get("hint") or src.name,
         "file": dest.name,
         "bytes": dest.stat().st_size,
         "sha256": _sha256(dest),
@@ -318,17 +409,27 @@ def manual_attach(source_key: str, source_id: str, file_path: str) -> dict[str, 
         "source": "manual",
     }
     known = load_downloaded(source_key, source_id)
-    files = [v for k, v in known.items() if v.get("file") != dest.name]
+    files = [v for k, v in known.items() if v.get("file") != dest.name and k != record["doc_id"]]
     files.append(record)
     storage.write_json(attachments_path(source_key, source_id), {"schema_version": 1, "files": files})
-    meta["attachments_status"] = "downloaded"
-    storage.write_json(meta_path, meta)
-    return {"item_id": meta["item_id"], "file": dest.name, "bytes": record["bytes"]}
+    report = update_status(source_key, source_id)
+    state_path = object_dir / "attachment-state.json"
+    if state_path.exists():
+        state = storage.read_json(state_path)
+        state["errors"] = [r for r in state.get("errors", []) if r.get("doc_id") != record["doc_id"]]
+        storage.write_json(state_path, state)
+    return {"item_id": meta["item_id"], "file": dest.name, "bytes": record["bytes"], "status": report["status"]}
 
 
 def run(args) -> int:
     from . import index as index_mod
 
+    if getattr(args, "audit", False):
+        from .read import dump_json
+        rows = [inventory(p.parent) for p in (storage.vault_root() / "_archive" / "xiaohongshu").glob("*/meta.json")]
+        dump_json({"items": [r for r in rows if r["total"]], "missing": sum(r["missing"] for r in rows),
+                   "total": sum(r["total"] for r in rows), "unconfirmed": sum(r["unconfirmed"] for r in rows)})
+        return 0
     # 手动挂本地文件：认领一篇 → 复制进 attachments → 标已下 → 渲染 + 重建目录
     if getattr(args, "attach", None):
         if not args.target:
@@ -343,28 +444,29 @@ def run(args) -> int:
             print(f"没有归档过: {args.target}", file=sys.stderr)
             return 1
         try:
-            out = manual_attach(row["source"], row["source_id"], args.attach)
+            out = manual_attach(row["source"], row["source_id"], args.attach, getattr(args, "doc_id", None))
         except (OSError, KeyError, ValueError) as exc:
             print(f"挂文件失败: {exc}", file=sys.stderr)
             return 1
         from . import render as render_mod
 
+        conversion_errors = convert_downloads(row["source"], row["source_id"])
         render_mod.render_object(row["source"], row["source_id"])
         conn2 = index_mod.connect()
         try:
-            index_mod.set_attachments_status(conn2, out["item_id"], "downloaded")
+            index_mod.set_attachments_status(conn2, out["item_id"], out["status"])
         finally:
             conn2.close()
         print(f"{out['item_id']}  ↓(手动) {out['file']}  {out['bytes']} 字节")
-        _rebuild_catalog(True)
-        return 0
+        rebuilt = _rebuild_catalog(True)
+        return 2 if conversion_errors or not rebuilt else 0
 
     conn = index_mod.connect()
     try:
         if getattr(args, "all", False):
             rows = conn.execute(
                 "SELECT source, source_id FROM objects WHERE attachments_status IN "
-                "('metadata_only', 'downloaded') ORDER BY item_id"
+                "('metadata_only', 'downloaded', 'unavailable') ORDER BY item_id"
             ).fetchall()
             targets = [(r["source"], r["source_id"]) for r in rows]
         elif args.target:
@@ -414,31 +516,38 @@ def run(args) -> int:
                 )
                 if blocked:
                     account_blocked = True
+        if convert_downloads(source_key, source_id):
+            failed = True
         render_mod.render_object(source_key, source_id)
         meta_now = storage.read_json(storage.object_dir(source_key, source_id) / "meta.json")
-        if meta_now.get("attachments_status") == "downloaded":
+        if meta_now.get("attachments_status"):
             conn2 = index_mod.connect()
             try:
-                index_mod.set_attachments_status(conn2, meta_now["item_id"], "downloaded")
+                index_mod.set_attachments_status(conn2, meta_now["item_id"], meta_now["attachments_status"])
             finally:
                 conn2.close()
         if account_blocked:
-            _rebuild_catalog(any_downloaded)
+            _rebuild_catalog(True)
             print("停车：小号登录态/风控，剩下的不再试", file=sys.stderr)
             return EXIT_NEEDS_HUMAN
 
     # 下到了新字节就重建目录，否则 UI 角标还停在「待补」（补跑却没同步就是这坑）
-    _rebuild_catalog(any_downloaded)
-    return 1 if failed else 0
+    rebuilt = _rebuild_catalog(True)
+    pending = sum(inventory(storage.object_dir(source_key, source_id))["missing"] for source_key, source_id in targets)
+    if pending:
+        print(f"仍有 {pending} 个附件或附件线索待处理，请在目录打开待补面板。", file=sys.stderr)
+    return 1 if failed or not rebuilt else 2 if pending else 0
 
 
-def _rebuild_catalog(any_downloaded: bool) -> None:
+def _rebuild_catalog(any_downloaded: bool) -> bool:
     if not any_downloaded:
-        return
+        return True
     try:
         from . import catalog as catalog_mod
 
         _, count, _ = catalog_mod.build()
         print(f"目录已重建（{count} 篇）")
+        return True
     except Exception as exc:  # 重建失败不该拖累已下好的字节
         print(f"目录重建失败（附件已下好，手动跑 `link_brain catalog`）：{exc}", file=sys.stderr)
+        return False

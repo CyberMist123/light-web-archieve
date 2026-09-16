@@ -13,6 +13,7 @@ dependencies = [
     "pyyaml>=6.0",
     "pillow>=10.0",
     "pypinyin>=0.55",
+    "jieba>=0.42.1",
 ]
 
 [project.optional-dependencies]

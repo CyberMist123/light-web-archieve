@@ -38,15 +38,17 @@ def get_schedule() -> dict[str, Any]:
         "$tr=$t.Triggers[0];$state=$t.State;"
         "if($tr.CimClass.CimClassName -like '*Weekly*'){$f='weekly'}"
         "elseif($tr.CimClass.CimClassName -like '*Daily*'){$f='daily'}else{$f='unknown'};"
-        "\"$f|$state\"}"
+        f"$info=Get-ScheduledTaskInfo -TaskName '{TASK}';"
+        "\"$f|$state|$($info.LastRunTime.ToString('s'))|$($info.LastTaskResult)|$($info.NextRunTime.ToString('s'))\"}"
     )
     if not ok:
         return {"task": TASK, "freq": "none", "enabled": False, "error": out}
     val = out.strip()
     if val == "none":
         return {"task": TASK, "freq": "none", "enabled": False}
-    freq, _, state = val.partition("|")
-    return {"task": TASK, "freq": freq, "enabled": state.strip() != "Disabled"}
+    parts = val.split("|")
+    return {"task": TASK, "freq": parts[0], "enabled": parts[1].strip() != "Disabled",
+            "last_run": parts[2], "last_result": int(parts[3]), "next_run": parts[4]}
 
 
 def set_schedule(freq: str) -> dict[str, Any]:

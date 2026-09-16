@@ -10,6 +10,22 @@ from pathlib import Path
 
 from link_brain import pdftext, storage
 
+
+def test_partial_ocr_is_failure_not_complete_markdown(monkeypatch, tmp_path):
+    import pymupdf
+    pdf = tmp_path / "partial.pdf"
+    with pymupdf.open() as doc:
+        doc.new_page()
+        doc.new_page()
+        doc.save(pdf)
+    results = iter([{"status": "ok", "ocr": "first page"},
+                    {"status": "failed", "error": "service unavailable"}])
+    monkeypatch.setattr(pdftext.vision_mod, "run_ocr", lambda *a, **k: next(results))
+    outcome = pdftext.pdf_to_markdown(pdf, force_ocr=True)
+    assert outcome["status"] == "failed"
+    assert outcome["markdown"] is None
+    assert "1 页失败" in outcome["note"]
+
 REAL_DAMAGED = "⼈机恋⾃建前端陪伴场景的完整技术参考9 flags､事件 schema､可抄的服务器⻣架"
 REAL_CLEAN = "人机恋自建前端陪伴场景的完整技术参考：flags、事件 schema、可抄的服务器骨架"
 

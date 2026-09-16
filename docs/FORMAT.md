@@ -695,3 +695,28 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
   ]
 }
 ```
+
+
+## 2026-09-16 搜索和附件补充契约
+
+- `catalog-data.json.items[].search_fields` 分为 `body/comments/ocr/attachments`，均保留原文；
+  `summary` 为模型摘要，检索权重低，不伪装成原文。`agent_md` 是 vault 相对路径。
+- `attachment_files` 逐条提供 `doc_id/name/downloaded/status/file/markdown/url`，文件和 Markdown
+  路径为本机绝对路径（该索引仅用于本机 UI/CLI）；`attachment_missing` 是未落字节数。
+  `attachment_errors` 来自对象级 `attachment-state.json`，包含上次自动下载的错误。
+- `attachments --audit` 返回 `items/missing/total/unconfirmed`，`unconfirmed` 是只有正文线索、
+  没有确认 doc_id 的待处理项，不能声称这些都是已确认存在的文件。
+- `search --json` 返回 `query/total/results`，保留旧 `found/items` 字段；每项的 `excerpts`
+  是 `{field,text}` 原文窗口，含 `score/agent_md/visible_note/attachments`。
+- `ask` 返回 `{status,kind:"answer",markdown,sources,matches,materials,model_called}`；
+  sources 提供编号、标题和正文路径。失败使用 `status:"error"`，不会把摘录伪装成模型回答。
+- `ask --history-stdin` 接收 `[{role:"user"|"assistant",content:"..."}]`，最多使用最近 8 条；
+  用户问题可辅助召回，旧模型答案不能作为证据。引用正文与附件 MD 可继续由 CC/Codex 读取。
+
+- 跨渠道统一请求：`ask --request-stdin` 接收 `{question,history?,include?}`，include 仅支持
+  `body/links/files`。`body` 总会提供，默认只返回 `delivery.body`，不自动附来源编号或文件。
+- `delivery.links[]` 为 `{title,url,source_id,markdown_path}`；`delivery.files[]` 为
+  `{name,path,mime_type,bytes,source_id,markdown_path}`。仅使用实际存在的本地文件，
+  来源编号存在时只选择被引用材料。链接地址来自归档索引，不从模型文字里提取或虚构。
+- `history` 是可供下次请求传回的最近对话；失败请求不追加一条假答案。
+  发送器应消费 `delivery`，不要把内部 `sources` 或本机路径直接展示为公共下载地址。

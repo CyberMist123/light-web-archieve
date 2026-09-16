@@ -70,28 +70,8 @@ def _attachments_payload(
     """附件：一个总状态 + 每个附件一条（下过字节的给绝对路径）。"""
     from . import attachments as attachments_mod
 
-    object_dir = storage.object_dir(source_key, source_id)
-    downloaded = attachments_mod.load_downloaded(source_key, source_id)
-    items = []
-    for att in note.get("attachments") or []:
-        got = downloaded.get(att.get("doc_id"))
-        local = object_dir / "attachments" / got["file"] if got and got.get("file") else None
-        if local is not None and not local.exists():
-            local = None
-        items.append(
-            {
-                "name": att.get("name") or att.get("hint"),
-                "doc_id": att.get("doc_id"),
-                "status": "downloaded" if local else att.get("status"),
-                "pages": att.get("page_num"),
-                "url": att.get("url"),
-                "file": str(local) if local else None,
-            }
-        )
-    status = meta.get("attachments_status")
-    if items and any(x["status"] == "downloaded" for x in items):
-        status = "downloaded"
-    return {"status": status, "items": items}
+    report = attachments_mod.inventory(storage.object_dir(source_key, source_id), meta)
+    return {"status": report["status"], "items": report["files"], "missing": report["missing"]}
 
 
 def item_payload(source_key: str, source_id: str, *, status: str | None = None) -> dict[str, Any]:
@@ -209,31 +189,11 @@ def run(args) -> int:
 
 
 def run_search(args) -> int:
-    as_json = getattr(args, "json", False)
-    conn = index_mod.connect()
-    try:
-        rows = index_mod.search(conn, args.query, limit=args.limit)
-        if as_json:
-            items = [
-                {
-                    "item_id": row["item_id"],
-                    "title": row["title"],
-                    "summary": _one_line(row["body"], 120),
-                    "tags": json.loads(row["tags"] or "[]"),
-                    "kind": row["kind"],
-                    "url": row["canonical_url"],
-                    "first_archived": (row["first_archived_at"] or "")[:10],
-                }
-                for row in rows
-            ]
-            dump_json({"found": len(items), "items": items})
-            return EXIT_OK
-        for row in rows:
-            tags = json.loads(row["tags"] or "[]")
-            tags_str = ",".join(tags) if tags else "(无)"
-            summary = _one_line(row["body"], 60)
-            date = (row["first_archived_at"] or "")[:10]
-            print(f"{row['item_id']} | {row['title'] or '(无标题)'} | {summary or '(无概要)'} | {tags_str} | {date}")
-        return EXIT_OK
-    finally:
-        conn.close()
+    from .retrieval import search
+    result = search(args.query, args.limit)
+    if getattr(args, "json", False):
+        dump_json(result)
+    else:
+        for row in result["results"]:
+            print(f"{row['item_id']} | {row['title']} | {_one_line(row.get('summary'), 60)} | {','.join(row['tags']) or '(无)'} | {row['first_archived']}")
+    return EXIT_OK

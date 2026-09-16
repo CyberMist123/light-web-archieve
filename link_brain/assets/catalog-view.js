@@ -1,3 +1,4 @@
+const simplePage = false;
 const root = dv.container;
 const pane = root.closest('.markdown-preview-view, .markdown-source-view');
 if (pane) pane.classList.add('lb-catalog');
@@ -6,12 +7,12 @@ style.textContent = `
 .markdown-preview-view.lb-catalog,.markdown-source-view.lb-catalog{--file-line-width:100%;}
 .lb-catalog .markdown-preview-sizer,.lb-catalog .markdown-preview-section,.lb-catalog .cm-sizer,.lb-catalog .cm-contentContainer,.lb-catalog .cm-content,.lb-catalog .block-language-dataviewjs{width:100%!important;max-width:none!important;}
 .lb-catalog .inline-title,.lb-catalog .metadata-container{display:none!important;}
-.lbc-wrap{width:100%;padding:24px clamp(8px,2vw,36px) 40px;box-sizing:border-box;font-family:Georgia,'Noto Serif SC','Source Han Serif SC','Songti SC',STSong,'STZhongsong',serif;}
+.lbc-wrap{width:100%;padding:24px clamp(8px,2vw,36px) 40px;box-sizing:border-box;font-family:var(--font-interface),"Segoe UI","Microsoft YaHei",sans-serif;}
 .lbc-head{display:flex;align-items:center;gap:20px;margin:0 0 20px;flex-wrap:wrap;}
 .lbc-titleblock{display:flex;flex-direction:column;gap:3px;}
 .lbc-titlerow{display:flex;align-items:center;gap:4px;}
 .lbc-title{font-family:Georgia,'Playfair Display','Times New Roman',serif;font-style:italic;font-size:30px;font-weight:600;letter-spacing:.01em;line-height:1;}
-.lbc-import{border:0;background:transparent;box-shadow:none;font-family:Georgia,serif;font-size:26px;line-height:1;color:var(--text-muted);cursor:pointer;padding:0 4px;}
+.lbc-wrap button.lbc-import{border:0!important;background:transparent!important;box-shadow:none!important;outline:0;border-radius:0!important;height:auto!important;font-family:Georgia,serif;font-size:26px;line-height:1;color:var(--text-muted);cursor:pointer;padding:0 4px;}
 .lbc-import:hover{color:var(--interactive-accent);}
 .lbc-subline{display:flex;gap:7px;align-items:center;}
 .lbc-search{flex:1;min-width:180px;max-width:none!important;height:36px!important;box-shadow:none!important;border-radius:0!important;background:transparent!important;border:0!important;border-bottom:1px solid var(--text-normal)!important;padding:0 2px!important;}
@@ -49,7 +50,7 @@ style.textContent = `
 .lbc-cat:hover{color:var(--text-normal);}
 .lbc-cat.is-active{color:var(--interactive-accent);font-weight:600;}
 .lbc-cat-sep{color:var(--background-modifier-border);user-select:none;pointer-events:none;}
-.lbc-ai{padding:22px;border:1px solid var(--background-modifier-border);border-radius:16px;margin-bottom:24px;}
+.lbc-ai{max-width:820px;margin:30px auto;padding:0 12px;}.lbc-ai[hidden],.lbc-grid[hidden]{display:none!important;}
 .lbc-ai-q{color:var(--text-muted);font-size:13px;margin:6px 0 12px;}
 .lbc-ai-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px;}
 .lbc-ai-answer{line-height:1.7;}
@@ -66,12 +67,37 @@ style.textContent = `
 .lbc-ans-excerpt{font-size:12.5px;line-height:1.6;color:var(--text-muted);}
 .lbc-ai-error{padding:12px 14px;border-radius:10px;background:var(--background-modifier-error,rgba(220,80,80,.12));color:var(--text-error,#c0392b);}
 .lbc-ai-error strong{display:block;margin-bottom:4px;}
+.lbc-wrap button{font-family:inherit;}
+.lbc-attach{display:flex;align-items:center;gap:4px;background:var(--background-primary);color:var(--text-muted);border:1px solid var(--background-modifier-border);border-radius:6px;padding:4px 6px;backdrop-filter:none;}
+.lbc-attach-todo{color:#a86513;background:#fff8eb;border-color:#e8d8bc;}
+.lbc-attach svg{width:12px;height:12px;}
+.lbc-view-switch{font-size:12px!important;color:var(--text-muted);background:transparent!important;border:0!important;box-shadow:none!important;}
+.lbc-simple .lbc-grid{columns:auto;max-width:820px;margin:0 auto;}
+.lbc-simple .lbc-card{display:block;margin:0;padding:18px 0;border-bottom:1px solid var(--background-modifier-border);}
+.lbc-simple .lbc-cover,.lbc-simple .lbc-nocover{display:none;}
+.lbc-simple .lbc-attach{top:20px;}
+.lbc-simple .lbc-body{padding:0 80px 0 0;}
+.lbc-simple .lbc-cmeta{justify-content:flex-start;}
+.lbc-simple .lbc-head{max-width:820px;margin:25px auto 35px;}
+.lbc-simple .lbc-cats{max-width:820px;margin:0 auto 25px;}
+.lbc-result-excerpt{font-size:13px;color:var(--text-muted);line-height:1.7;margin-top:6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.lbc-turn{margin:0 0 30px;line-height:1.8;font-size:15px;overflow-wrap:anywhere;}
+.lbc-user{margin-left:auto;padding:10px 16px;border-radius:15px;background:var(--background-secondary);max-width:85%;width:fit-content;white-space:pre-wrap;}
+.lbc-sources{font-size:12px;color:var(--text-muted);margin:14px 0;}
+.lbc-sources a{display:block;margin:6px 0;cursor:pointer;}
+.lbc-follow{display:flex;gap:8px;align-items:flex-end;margin-top:24px;}
+.lbc-follow textarea{flex:1;min-height:70px;resize:vertical;border-radius:14px;padding:12px;font-family:inherit;}
 @media(max-width:650px){.lbc-grid{columns:180px;column-gap:18px;}.lbc-sub{width:100%;margin:0;}.lbc-wrap{padding:12px 4px;}}
 `;
+const pluginId='link-brain-actions';
+let loadedPlugin=app.plugins.plugins[pluginId];
+if(loadedPlugin && typeof loadedPlugin.openAttachments!=='function' && !loadedPlugin.running && !loadedPlugin.importing){
+  await app.plugins.disablePlugin(pluginId);await app.plugins.enablePlugin(pluginId);
+}
 let data;
 try { data = JSON.parse(await app.vault.adapter.read('_archive/catalog-data.json')); }
 catch { root.createEl('p',{text:'目录尚未生成，请在归档操作中重建目录。'}); return; }
-const items = data.items || [];
+let items = data.items || [];
 // 每次打开读笔记当前属性，后台插件增删标签无需重建目录。
 for (const it of items) {
   const page = it.note ? dv.page(it.note) : null;
@@ -79,7 +105,12 @@ for (const it of items) {
     it.tags = typeof page.tags === 'string' ? [page.tags] : Array.from(page.tags || []);
   }
 }
-const wrap=root.createEl('div',{cls:'lbc-wrap'});
+const wrap=root.createEl('div',{cls:'lbc-wrap'+(simplePage?' lbc-simple':'')});
+const provider=()=>app.plugins.plugins['link-brain-actions'];
+let committed='',chatMode=false,messages=[],busy=false;
+async function refresh(next){data=next;items=next.items||[];renderCatBar();render();}
+function attachmentPanel(list){if(typeof provider()?.openAttachments!=='function'){importStatus.setText('附件工具未载入，请重新启用 Link Brain Actions 插件。');return;}provider().openAttachments(list,refresh);}
+function editCategories(selected=''){provider()?.openCategories(data.cats||[],selected,refresh);}
 // 第一行：左=标题「Collections +」+ 其下计数·更新·未同步(!)；右=搜索横线。
 const head=wrap.createEl('div',{cls:'lbc-head'});
 const titleBlock=head.createEl('div',{cls:'lbc-titleblock'});
@@ -90,9 +121,10 @@ const subLine=titleBlock.createEl('div',{cls:'lbc-subline'});
 let todayOnly=false;
 const sub=subLine.createEl('span',{cls:'lbc-sub'});
 const syncSpan=subLine.createEl('span',{cls:'lbc-sync'});syncSpan.hidden=true;syncSpan.setText('!');
-syncSpan.onclick=()=>{const p=app.plugins.plugins['link-brain-actions'];if(p?.run){p.run(['-m','link_brain','attachments','--all'],'补下附件',true);syncSpan.title='正在补跑…（会开浏览器）';}};
+syncSpan.onclick=()=>attachmentPanel(items.filter(it=>it.attachment==='待补'));
 const search=head.createEl('input',{cls:'lbc-search'});
-search.type='search';search.placeholder='搜索收藏…';search.title='普通搜索 · #标签 · /问知识库';search.setAttribute('aria-label','搜索收藏');
+search.type='search';search.placeholder='搜索收藏…';search.title='Enter 搜索 · #标签 · /问题 问 AI';search.setAttribute('aria-label','搜索收藏');
+const switchView=head.createEl('button',{cls:'lbc-view-switch',text:simplePage?'浏览收藏':'简洁搜索'});switchView.onclick=()=>app.workspace.openLinkText(simplePage?'小红书收藏目录.md':'收藏搜索.md','',false);
 const importStatus=wrap.createEl('div',{cls:'lbc-status'});
 importButton.type='button';
 importButton.onclick=async e=>{
@@ -115,15 +147,17 @@ let activeCat='';let todoOnly=false;
 const catBar=wrap.createEl('div',{cls:'lbc-cats'});
 function renderCatBar(){
   catBar.empty();
-  const mk=(label,active,on)=>{const s=catBar.createEl('span',{cls:'lbc-cat'+(active?' is-active':''),text:label});s.onclick=on;return s;};
+  const mk=(label,active,on)=>{const s=catBar.createEl('span',{cls:'lbc-cat'+(active?' is-active':''),text:label});s.onclick=()=>{if(label!=='…')chatMode=false;on();};return s;};
   mk('全部',!activeCat&&!todayOnly&&!todoOnly,()=>{if(activeCat||todayOnly||todoOnly){activeCat='';todayOnly=false;todoOnly=false;renderCatBar();render();}});
   mk('今日新增',todayOnly,()=>{todayOnly=!todayOnly;if(todayOnly)todoOnly=false;renderCatBar();render();});
   const todo=items.filter(x=>x.attachment==='待补').length;
-  if(todo)mk(`📎未下载 ${todo}`,todoOnly,()=>{todoOnly=!todoOnly;if(todoOnly)todayOnly=false;renderCatBar();render();});
-  for(const cat of (data.cats_order||[])){
+  if(todo)mk(`待补附件 ${todo}`,todoOnly,()=>{todoOnly=!todoOnly;if(todoOnly)todayOnly=false;renderCatBar();render();});
+  for(const cat of (data.cats_order||[]).filter(c=>!(provider()?.settings.hiddenCats||[]).includes(c))){
     catBar.createEl('span',{cls:'lbc-cat-sep',text:'│'});
-    mk(cat,activeCat===cat,()=>{activeCat=(activeCat===cat?'':cat);renderCatBar();render();});
+    const tab=mk(cat,activeCat===cat,()=>{activeCat=(activeCat===cat?'':cat);renderCatBar();render();});
+    tab.oncontextmenu=e=>{e.preventDefault();editCategories(cat);};
   }
+  mk('…',false,()=>editCategories());
 }
 // 多选删除状态
 let selectMode=false;const selected=new Set();
@@ -158,7 +192,7 @@ function openTagEditor(body,it){
   const cancel=form.createEl('button',{text:'取消'});cancel.type='button';cancel.onclick=()=>form.remove();
   form.onsubmit=async e=>{e.preventDefault();save.disabled=true;
     try{const file=app.vault.getAbstractFileByPath(it.note);const tags=[...new Set(field.value.split(/[,，\n]/).map(t=>t.trim().replace(/^#/, '')).filter(Boolean))];
-      await app.fileManager.processFrontMatter(file,fm=>{fm.tags=tags;});it.tags=tags;render();
+      await app.fileManager.processFrontMatter(file,fm=>{fm.tags=tags;});it.tags=tags;searchCache.delete(it);render();
     }catch{save.disabled=false;save.setText('保存失败，重试');}
   };field.focus();
 }
@@ -169,98 +203,22 @@ function openCardMenu(e,body,it){
   menu.style.cssText=`position:fixed;left:${e.clientX}px;top:${e.clientY}px;z-index:9999;`;
   const add=(label,fn,danger)=>{const b=menu.createEl('div',{cls:'lbc-menu-item'+(danger?' is-danger':'')});b.setText(label);b.onclick=ev=>{ev.stopPropagation();menu.remove();fn();};};
   add('编辑标签',()=>openTagEditor(body,it));
-  if(it.attachment==='待补'){
-    add('下载附件（要开浏览器）',()=>{const p=app.plugins.plugins['link-brain-actions'];if(p?.run)p.run(['-m','link_brain','attachments',it.id],'下载附件',true);});
-    add('挂本地文件（我自己下好的）',async()=>{
-      const p=app.plugins.plugins['link-brain-actions'];
-      const fp=window.prompt('把你已经下好的文件路径贴进来（PDF/docx 等）：');
-      if(!fp)return;
-      if(typeof p?.attachFile!=='function'){window.alert('需要启用 Link Brain Actions 插件');return;}
-      try{const line=await p.attachFile(it.id,fp.trim().replace(/^"|"$/g,''));try{new Notice('已挂上：'+line);}catch{}it.attachment='downloaded';render();}
-      catch(e){window.alert('挂文件失败：'+(e.message||e));}
-    });
-  }
+  if(it.attachment!=='none'){add('下载 / 挂本地文件',()=>attachmentPanel([it]));}
   add('删除收藏',()=>confirmDelete([it]),true);
   add('多选删除',()=>{selectMode=true;selected.add(it.id);render();});
   const close=()=>{menu.remove();document.removeEventListener('click',close);document.removeEventListener('contextmenu',close);};
   setTimeout(()=>{document.addEventListener('click',close);document.addEventListener('contextmenu',close);},0);
 }
-// 本地链接三种形式（复制结果里用；设置里可调）
-function localLink(note,fmt){
-  const stem=String(note||'').replace(/\.md$/,'');
-  if(fmt==='wikilink')return `[[${stem}]]`;
-  if(fmt==='path')return note;
-  return `obsidian://open?vault=${encodeURIComponent(app.vault.getName())}&file=${encodeURIComponent(stem)}`;
-}
 function render(){
-  grid.empty();const raw=search.value.trim();const asking=raw.startsWith('/');const q=normalize(asking?raw.slice(1):raw);
+  grid.empty();const q=normalize(committed);const asking=chatMode;
   const now=new Date();const today=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
-  const shown=items.filter(it=>(!todayOnly||it.date===today)&&(!todoOnly||it.attachment==='待补')&&(!activeCat||(it.cats||[]).includes(activeCat))).map(it=>({it,score:score(it,q,data.pinyin_chars)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score);
+  const shown=items.filter(it=>(!todayOnly||it.date===today)&&(!todoOnly||it.attachment==='待补')&&(!activeCat||(it.cats||[]).includes(activeCat))).map(it=>({it,score:score(it,q,data.pinyin_chars,data.aliases||[])})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score);
   sub.setText((q||todayOnly||todoOnly?`${shown.length} / ${items.length} 篇`:`${items.length} 篇`)+` · 更新 ${new Date(data.built_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}`);
   const todoCount=items.filter(x=>x.attachment==='待补').length;
-  if(todoCount){syncSpan.title=`${todoCount} 篇未同步 · 点此补跑`;syncSpan.hidden=false;}else syncSpan.hidden=true;
-  ai.hidden=!asking;ai.empty();
-  if(asking){
-    ai.createEl('strong',{text:'问知识库'});
-    ai.createEl('p',{cls:'lbc-ai-q',text:q||'在 / 后输入你的问题（例：所有 AI 做梦相关，链接给我 / 提取 github 地址）'});
-    const provider=app.plugins.plugins['link-brain-actions'];
-    const answer=ai.createEl('div',{cls:'lbc-ai-answer'});
-    if(typeof provider?.answerArchive!=='function'){
-      answer.setText('AI 未接入：请在「第三方插件」里启用 Link Brain Actions，并在其设置里配置「文本 AI」。下方仍显示本地检索结果。');
-    } else if(!q){
-      answer.setText('在 / 后面输入问题，然后点「提问」。打字不发请求、不花 token。');
-    } else {
-      const bar=ai.createEl('div',{cls:'lbc-ai-bar'});
-      const ask=bar.createEl('button',{text:'提问',cls:'mod-cta'});
-      const copyBtn=bar.createEl('button',{text:'复制结果'});copyBtn.disabled=true;
-      const meta=ai.createEl('div',{cls:'lbc-ai-meta'});
-      answer.setText('点「提问」：默认纯本地检索，给你小图 + 原文摘录（快，不花 token）。');
-      let lastCopy='';
-      copyBtn.onclick=async()=>{if(!lastCopy)return;try{await navigator.clipboard.writeText(lastCopy);copyBtn.setText('已复制');setTimeout(()=>copyBtn.setText('复制结果'),1500);}catch{copyBtn.setText('复制失败');setTimeout(()=>copyBtn.setText('复制结果'),1500);}};
-      ask.onclick=async()=>{
-        ask.disabled=true;copyBtn.disabled=true;answer.empty();answer.setText('正在检索…');meta.setText('');
-        try{
-          const r=await provider.answerArchive({question:q});
-          answer.empty();lastCopy='';
-          const fmt=provider.settings?.answerFormat||{};
-          if(r.kind==='cards'){
-            if(!r.results||!r.results.length){answer.setText('库里没检索到相关归档，换个关键词试试。');}
-            else{
-              const copyParts=[];
-              for(const c of r.results){
-                const row=answer.createEl('div',{cls:'lbc-ans-card'});
-                const thumb=row.createEl('div',{cls:'lbc-ans-thumb'});
-                if(c.cover){const img=thumb.createEl('img');img.loading='lazy';img.alt='';img.src=app.vault.adapter.getResourcePath(c.cover);}
-                else thumb.createEl('div',{cls:'lbc-ans-nocover',text:'▤'});
-                thumb.title='点击打开';thumb.onclick=()=>{if(c.note)app.workspace.openLinkText(c.note,'',false);else if(c.url)window.open(c.url);};
-                const bd=row.createEl('div',{cls:'lbc-ans-body'});
-                bd.createEl('div',{cls:'lbc-ans-title',text:c.title});
-                bd.createEl('div',{cls:'lbc-ans-excerpt',text:c.excerpt||'（无正文）'});
-                // 复制文本：正文 + 本地路径 + xhs链接（链接不进正文显示，只进复制，且按设置取舍）
-                const parts=[c.excerpt||''];
-                if(fmt.includeLocalLink!==false && c.note)parts.push(localLink(c.note,fmt.localLinkFormat));
-                if(fmt.includeXhsLink!==false && c.url)parts.push(c.url);
-                copyParts.push(parts.filter(Boolean).join('\n'));
-              }
-              lastCopy=copyParts.join('\n\n');copyBtn.disabled=false;
-            }
-          } else {
-            lastCopy=r.markdown||'';
-            await provider.renderMarkdownInto(lastCopy||'（无内容）',answer,'小红书收藏目录.md');
-            copyBtn.disabled=!lastCopy;
-          }
-          meta.setText(`意图 ${r.intent} · 命中 ${r.matches} 篇 · 展示 ${r.materials||0} 篇`+(r.model_called?' · 用了模型':' · 本地检索'));
-        }catch(e){
-          answer.empty();
-          const box=answer.createEl('div',{cls:'lbc-ai-error'});
-          box.createEl('strong',{text:'⚠ 检索失败'});
-          box.createEl('div',{text:String(e.message||e)});
-          box.createEl('div',{cls:'lbc-ai-meta',text:'常见原因：后端未启动，或（开了模型时）文本 AI 未配置/不通。问题还在，可再点「提问」。'});
-        }
-        finally{ask.disabled=false;}
-      };
-    }
-  }
+  if(todoCount){syncSpan.title=`${todoCount} 篇附件待处理 · 点此补跑`;syncSpan.hidden=false;}else syncSpan.hidden=true;
+  ai.hidden=!asking;grid.hidden=asking;
+  if(asking){selbar.hidden=true;return;}
+  if(simplePage&&!q&&!activeCat&&!todayOnly&&!todoOnly){grid.createEl('div',{cls:'lbc-empty',text:'搜收藏，或输入 /问题 让 AI 整理答案。'});selbar.hidden=true;return;}
   selbar.hidden=!selectMode;
   if(selectMode){selCount.setText(`已选 ${selected.size} 篇 · 点封面继续勾选 · ESC 退出`);delBtn.setText(`删除选中${selected.size?' ('+selected.size+')':''}`);delBtn.disabled=!selected.size;}
   if(!shown.length){grid.createEl('div',{cls:'lbc-empty',text:'没找到，试试更短的关键词。'});return;}
@@ -270,10 +228,13 @@ function render(){
     if(it.cover){const img=card.createEl('img',{cls:'lbc-cover'});img.loading='lazy';img.alt='';img.src=app.vault.adapter.getResourcePath(it.cover);}
     else card.createEl('div',{cls:'lbc-nocover',text:it.kind==='video'?'▷':'▤'});
     // 附件角标：待补=有文件未下载（橙），downloaded=有文件已下（灰）
-    if(it.attachment==='待补')card.createEl('div',{cls:'lbc-attach lbc-attach-todo',text:'📎 未下载'});
-    else if(it.attachment==='downloaded')card.createEl('div',{cls:'lbc-attach',text:'📎 文件'});
+    if(it.attachment==='待补')card.createEl('div',{cls:'lbc-attach lbc-attach-todo',text:'待补'});
+    else if(it.attachment==='downloaded')card.createEl('div',{cls:'lbc-attach',text:'文件'});
+    const badge=card.querySelector('.lbc-attach');if(badge){const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');icon.setAttribute('viewBox','0 0 24 24');icon.innerHTML='<path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>';badge.prepend(icon);}
     const body=card.createEl('div',{cls:'lbc-body'});body.createEl('div',{cls:'lbc-ctitle',text:it.title||'未命名'});
     const meta=body.createEl('div',{cls:'lbc-cmeta'});meta.createEl('span',{text:it.author||it.source||'收藏'});meta.createEl('span',{text:it.likes==null?'':'♡ '+(Number(it.likes)>=10000?(Number(it.likes)/10000).toFixed(1)+'万':it.likes)});
+    if(simplePage){const text=it.search_text||it.summary||'';const pos=q?text.toLowerCase().indexOf(q):-1;body.createEl('div',{cls:'lbc-result-excerpt',text:text.slice(Math.max(0,pos-40),Math.max(0,pos-40)+220)});}
+    card.ondragover=e=>{e.preventDefault();};card.ondrop=async e=>{e.preventDefault();e.stopPropagation();const f=e.dataTransfer.files[0];if(!f)return;const fp=f.path||require('electron').webUtils?.getPathForFile(f);if(!fp){attachmentPanel([it]);return;}try{const result=await provider().attachFile(it.id,fp);await refresh(JSON.parse(await app.vault.adapter.read('_archive/catalog-data.json')));importStatus.setText(result.warning||'附件已保存并加入搜索');}catch(err){importStatus.setText('挂载失败：'+err.message);}};
     // 多选模式：点击=勾选/取消；平时=打开笔记
     const toggle=()=>{selected.has(it.id)?selected.delete(it.id):selected.add(it.id);render();};
     const open=()=>{if(selectMode){toggle();return;}if(it.note)app.workspace.openLinkText(it.note,'',false);};
@@ -285,4 +246,39 @@ function render(){
 if(window.__lbcEsc)document.removeEventListener('keydown',window.__lbcEsc);
 window.__lbcEsc=e=>{if(e.key==='Escape'&&selectMode){selectMode=false;selected.clear();render();}};
 document.addEventListener('keydown',window.__lbcEsc);
-let timer;search.oninput=()=>{clearTimeout(timer);timer=setTimeout(render,120);};renderCatBar();render();
+async function drawChat(){
+  ai.empty();
+  for(const msg of messages){
+    const row=ai.createEl('div',{cls:'lbc-turn'+(msg.role==='user'?' lbc-user':'')});
+    if(msg.role==='user')row.setText(msg.content);
+    else {
+      await provider().renderMarkdownInto(msg.content,row);
+      if(msg.sources?.length){
+        const refs=row.createEl('details',{cls:'lbc-sources'});refs.createEl('summary',{text:`参考材料 · ${msg.sources.length}`});
+        for(const src of msg.sources){const a=refs.createEl('a',{text:`[来源${src.citation}] ${src.title}`});a.onclick=()=>app.workspace.openLinkText(src.note||src.agent_md,'',true);}
+      }
+    }
+  }
+  if(busy)ai.createEl('p',{cls:'lbc-status',text:'正在阅读收藏并整理回答…'});
+  const form=ai.createEl('form',{cls:'lbc-follow'});
+  const input=form.createEl('textarea');input.placeholder=messages.length?'继续追问…':'输入问题…';input.disabled=busy;
+  const send=form.createEl('button',{text:'发送'});send.disabled=busy;send.type='submit';
+  form.onsubmit=e=>{e.preventDefault();const q=input.value.trim();if(q&&!busy)sendQuestion(q);};
+  input.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();form.requestSubmit();}};
+}
+async function sendQuestion(q){
+  if(busy)return;
+  const history=messages.filter(m=>!m.failed).map(({role,content})=>({role,content}));
+  messages.push({role:'user',content:q});busy=true;chatMode=true;render();await drawChat();
+  try {const result=await provider().answerArchive({question:q,history});messages.push({role:'assistant',content:result.markdown||'没有可用的回答。',sources:result.sources||[]});}
+  catch(e){messages.push({role:'assistant',failed:true,content:'回答失败：'+e.message+'\n\n请重试。'});}
+  finally{busy=false;await drawChat();}
+}
+search.onkeydown=e=>{
+  if(e.key!=='Enter'||e.isComposing)return;
+  e.preventDefault();const raw=search.value.trim();
+  if(raw.startsWith('/')){if(!raw.slice(1).trim()||busy)return;messages=[];committed='';sendQuestion(raw.slice(1).trim());}
+  else {if(busy)return;chatMode=false;committed=raw;render();}
+};
+search.oninput=()=>{if(!search.value&&!busy){committed='';chatMode=false;render();}};
+renderCatBar();render();
