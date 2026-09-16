@@ -580,22 +580,8 @@ def _meta_md(note: dict[str, Any], meta: dict[str, Any], object_rel: str) -> lis
     全是 Obsidian 自己的链接（`[…](http)` / `[[vault 路径]]`），所以必须在 HTML 块外面。
     机读版就是 `derived/agent.md`——Owner 说她在 Obsidian 里看不到机读视角，这条就是入口。
     """
-    first = []
-    url = source_open_url(note, meta)
-    if url:
-        first.append(f"[原文]({url})")
-    agent_rel = f"{object_rel}/derived/agent.md"
-    if not any(ch in agent_rel for ch in "[]|#^"):
-        first.append(f"[[{agent_rel}|机读版]]")
-    rows = ["> [!link-brain-file]"]
-    if first:
-        rows.append("> " + " · ".join(first))
     files = _attachments_md(note.get("attachments") or [], object_rel)
-    if files:
-        if first:
-            rows.append(">")  # 空行才会被拆成两段，不然会黏成一行
-        rows.extend(files)
-    return rows if len(rows) > 1 else []
+    return ["> [!link-brain-file]", *files] if files else []
 
 
 def render_content_block(
@@ -760,7 +746,8 @@ def render_visible_md(
     content = render_content_block(source=source, manifest=manifest, meta=meta, object_rel=object_rel)
     # Owner 在正文里划的 ==重点== 要跨重渲染活下来（2026-09-05 定的）
     content = reapply_highlights(content, collect_highlights(existing_content_layer(existing_text)))
-    return "\n".join(fm) + "\n\n" + comments_block + "\n\n" + content + "\n\n" + _annotate_block(meta) + "\n"
+    footer = " · ".join(x for x in [f"[原文]({source_open_url(note, meta)})" if source_open_url(note, meta) else "", f"[[{object_rel}/derived/agent.md|机读版]]"] if x)
+    return "\n".join(fm) + "\n\n" + content + "\n\n" + footer + "\n\n" + comments_block + "\n\n" + _annotate_block(meta) + "\n"
 
 
 def _annotate_block(meta: dict[str, Any]) -> str:
@@ -817,7 +804,13 @@ def render_agent_md(
     ]
     for att in note.get("attachments") or []:
         target = att.get("file") or att.get("url") or ""
-        link_lines.append(f"- 📎 附件：{attachment_label(att)}{(' ' + target) if target else ''}")
+        doc_id = att.get("doc_id")
+        md_path = storage.derived_dir("xiaohongshu", meta["source_id"]) / "attachments" / f"{doc_id}.md" if meta.get("source_id") else None
+        from urllib.parse import quote
+        links_text = f"[下载文件](../{quote(target, safe='/')})" if att.get("file") else (f"[来源]({target})" if target else "")
+        if md_path and md_path.is_file():
+            links_text += f" · [附件正文 Markdown](attachments/{doc_id}.md)"
+        link_lines.append(f"- 附件：{attachment_label(att)} {links_text}")
     for x in ex.get("links_worth_opening") or []:
         why = x.get("why") or ""
         if x.get("url"):
@@ -921,17 +914,19 @@ def render_object(
     # 附件字节是事后补下来的（对象级 attachments/），这里回填到 source 的附件条目上
     downloaded = attachments_mod.load_downloaded(source_key, source_id)
     for att in source_doc["note"].get("attachments") or []:
-        got = downloaded.get(att.get("doc_id"))
+        got = downloaded.get(att.get("doc_id")) or next((r for r in downloaded.values() if r.get("name") == (att.get("name") or att.get("hint"))), None)
         if got and (object_dir / "attachments" / got["file"]).exists():
+            att["doc_id"] = got["doc_id"]
             att["file"] = f"attachments/{got['file']}"
             att["status"] = "downloaded"
             att["bytes"] = got.get("bytes")
             att["sha256"] = got.get("sha256")
-            # meta 里那个总状态也要跟上：ingest 写完 v0002 之后它会退回 metadata_only，
-            # 而字节其实早就在盘上了（catch / search 的 JSON 都读这个字段）
-            if meta.get("attachments_status") != "downloaded":
-                meta["attachments_status"] = "downloaded"
-                storage.write_json(meta_path, meta)
+    represented = {att.get("doc_id") for att in source_doc["note"].get("attachments") or []}
+    for doc_id, got in downloaded.items():
+        if doc_id not in represented and (object_dir / "attachments" / got["file"]).is_file():
+            source_doc["note"].setdefault("attachments", []).append({"doc_id": doc_id, "name": got.get("name") or got["file"], "file": f"attachments/{got['file']}", "status": "downloaded"})
+    report = attachments_mod.update_status(source_key, source_id)
+    meta["attachments_status"] = report["status"]
 
     extracted_doc = llm_mod.load_extracted(source_key, source_id)
     if llm or re_extract:

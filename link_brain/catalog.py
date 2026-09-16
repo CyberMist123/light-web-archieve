@@ -185,15 +185,11 @@ def _last_comment(vault: Path, visible: str | None) -> tuple[int, dict[str, str]
 
 
 def _attachment_badge(obj_dir: Path, meta: dict[str, Any]) -> str:
-    status = meta.get("attachments_status", "none")
-    has_bytes = (obj_dir / "attachments").is_dir() and any(
-        (obj_dir / "attachments").glob("*")
-    )
-    if has_bytes:
-        return "downloaded"
-    if status == "metadata_only":
+    from .attachments import inventory
+    report = inventory(obj_dir, meta)
+    if report["missing"]:
         return "待补"
-    return "none"
+    return "downloaded" if report["files"] else "none"
 
 
 def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
@@ -231,6 +227,16 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                 r'https?://[^\s<>"\\]+', json.dumps(source_doc, ensure_ascii=False)
             )
         ))
+        from .attachments import inventory
+        from .llm import comment_labels
+        report = inventory(obj_dir, meta)
+        vision = _load_json(obj_dir / "derived" / "vision.json") or {}
+        search_fields = {
+            "body": str(note.get("body") or ""),
+            "comments": "\n".join(str(c.get("text") or "") for _, c in comment_labels(source_doc.get("comments") or [])),
+            "ocr": "\n".join(str(im.get("ocr") or "") for im in vision.get("images", []) if im.get("status") == "ok"),
+            "attachments": "\n\n".join(p.read_text(encoding="utf-8") for p in sorted((obj_dir / "derived" / "attachments").glob("*.md"))),
+        }
         archived = _parse_dt(meta.get("first_archived_at"))
         items.append(
             {
@@ -239,7 +245,12 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                 "note": visible,
                 "cover": _cover(obj_dir, source, source_id, version),
                 "summary": _clip(summary),
-                "search_text": summary + ' ' + str(note.get('body') or ''),
+                "search_text": "\n".join(search_fields.values()),
+                "search_fields": search_fields,
+                "agent_md": f"_archive/{source}/{source_id}/derived/agent.md",
+                "attachment_files": report["files"],
+                "attachment_missing": report["missing"],
+                "attachment_errors": report["errors"],
                 "author": (note.get('author') or {}).get('nickname', ''),
                 "source": source,
                 "url": source_open_url(note, meta),
@@ -275,6 +286,7 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
 
     data_path = vault / "_archive" / DATA_NAME
     data_path.parent.mkdir(parents=True, exist_ok=True)
+    from .retrieval import ALIASES
     cats_order = [name for name, _ in effective_big_cats()] + [OTHER_CAT]
     present = {c for it in items for c in it["cats"]}
     cats_order = [c for c in cats_order if c in present]
@@ -284,6 +296,8 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
                 "built_at": now.isoformat(),
                 "count": len(items),
                 "cats_order": cats_order,
+                "cats": [{"name": name, "keywords": list(kws)} for name, kws in effective_big_cats()],
+                "aliases": ALIASES,
                 "items": items,
                 "pinyin_chars": {c: lazy_pinyin(c)[0] for c in set(''.join(str(it['title']) + ' '.join(it['tags']) + it['summary'] for it in items)) if '\u4e00' <= c <= '\u9fff'},
             },
@@ -295,6 +309,8 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
 
     catalog_path = vault / CATALOG_NAME
     catalog_path.write_text(_PAGE_HEADER + _DATAVIEWJS + "\n", encoding="utf-8")
+
+    (vault / "收藏搜索.md").write_text(_PAGE_HEADER + _DATAVIEWJS.replace("const simplePage = false;", "const simplePage = true;") + "\n", encoding="utf-8")
 
     # 部署笔记底部批注块用的共享脚本（每篇笔记的 bootstrap 会 adapter.read 它）
     (vault / "_archive" / "annotate-view.js").write_text(

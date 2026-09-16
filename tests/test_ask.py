@@ -83,40 +83,33 @@ def test_links_intent_lists_all_matches(monkeypatch):
     assert "[原文](https://www.xiaohongshu.com/explore/a)" in r["markdown"]
 
 
-def test_qa_local_cards_no_model_by_default(monkeypatch):
-    # 默认 useModel=False：纯本地检索出小图 + 原文摘录，绝不调模型（她嫌慢）
-    monkeypatch.setattr(ask, "call_text", lambda *a, **k: pytest.fail("默认不该调模型"))
-    r = ask.answer("AI 做梦是怎么回事")
-    assert r["intent"] == "qa"
-    assert r["kind"] == "cards"
-    assert r["model_called"] is False
-    assert r["matches"] >= 2 and r["materials"] >= 1
-    card = r["results"][0]
-    assert set(card) >= {"id", "title", "cover", "note", "url", "excerpt"}
-    assert card["excerpt"]  # 有原文摘录
-    assert "markdown" not in card  # 卡片不含分析正文
-
-
-def test_qa_model_picks_excerpts_when_enabled(monkeypatch):
-    monkeypatch.setattr(ask.ai_config, "load", lambda: ask.ai_config._deep_merge(
-        ask.ai_config.DEFAULTS, {"answerFormat": {"useModel": True}}))
-    monkeypatch.setattr(ask, "call_text", lambda *a, **k: {
-        "status": "ok",
-        "text": '{"results":[{"id":"片段1","excerpt":"做梦是把记忆重放"}]}',
-        "usage": None, "error": None})
+def test_qa_answers_with_model_and_sources(monkeypatch):
+    seen = []
+    def model(prompt, text, settings):
+        seen.append((prompt, text))
+        return {"status": "ok", "text": "原文描述了 dream 相关实验。[来源1]"}
+    monkeypatch.setattr(ask, "call_text", model)
     r = ask.answer("AI 做梦")
-    assert r["model_called"] is True
-    assert r["results"][0]["excerpt"] == "做梦是把记忆重放"
+    assert r["status"] == "ok" and r["kind"] == "answer"
+    assert r["model_called"] and r["sources"]
+    assert "dream" in seen[0][1]
+    assert "不虚构" in seen[0][0]
+    assert r["sources"][0]["note"]
 
 
-def test_qa_model_failure_falls_back_to_local(monkeypatch):
-    monkeypatch.setattr(ask.ai_config, "load", lambda: ask.ai_config._deep_merge(
-        ask.ai_config.DEFAULTS, {"answerFormat": {"useModel": True}}))
-    monkeypatch.setattr(ask, "call_text", lambda *a, **k: {"status": "failed", "text": None, "error": "boom"})
-    r = ask.answer("AI 做梦")
-    assert r["status"] == "ok"  # 不阻断
-    assert r["kind"] == "cards"
-    assert r["results"] and r["results"][0]["excerpt"]  # 退回本地摘录，仍有卡片
+def test_followup_keeps_subject_without_using_answer_as_evidence(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ask, "call_text", lambda prompt, text, settings: (seen.append(text) or {"status": "ok", "text": "材料没有写明。"}))
+    r = ask.answer("怎么操作？", [{"role": "user", "content": "菜谱"}, {"role": "assistant", "content": "虚构柠檬"}])
+    assert r["sources"][0]["id"] == "b"
+    assert "虚构柠檬" not in seen[0].split("【原始材料】")[1]
+
+
+def test_model_failure_is_not_presented_as_success(monkeypatch):
+    monkeypatch.setattr(ask, "call_text", lambda *a: {"status": "failed", "error": "boom"})
+    r = ask.answer("做梦")
+    assert r["status"] == "error" and "boom" in r["markdown"]
+    assert r["sources"]
 
 
 def test_empty_question():

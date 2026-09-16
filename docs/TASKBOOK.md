@@ -1,5 +1,47 @@
 # light-web-archieve V1 任务书（小红书归档基座）
 
+## 2026-09-16 本轮收尾与交接（优先于下方旧记录）
+
+Owner 要求：完成难点后交接余项，额度有限；不做 SHA 匹配，不推远端。以下基于当前代码和实测，不沿用旧版“问 AI 仅摘录”的描述。
+
+### 已实现
+
+- 普通文字 Enter 搜收藏，`/问题` Enter 调真实文本模型回答；支持继续追问、折叠来源、正文复制。普通搜索不调用模型。
+- 中英文别名（音乐/music/音、菜谱/recipe 等）+ 模糊/拼音搜索；自然语言分词。权重：标题 12、标签 10、正文 7、附件 Markdown 6、OCR 5、评论 3、摘要 2、作者 1。别名为显式词表，并非任意中英文语义翻译。
+- 统一界面字体；保留加号，只去其外框；文件图标改 SVG；标签末尾 …、分类右键编辑/隐藏/调整顺序；另有 `vault/收藏搜索.md` 简洁页。
+- 正文顶部长链接移至内容下方；机读 Markdown 包含实际附件文件与附件 Markdown 链接。
+- 附件面板支持拖入、选择文件、配置下载目录、推荐匹配。打开原网页后监看新下载的同名稳定文件，挂载→转换→重建目录；停止/关闭/超时终止监看。提示用户关闭浏览器标签，不自动关闭用户浏览器。
+- `ask --request-stdin` JSON：question/history/include。默认 `delivery.body`；include 可选 links/files；调用方继续传返回 history。文件含真实本地路径和 Markdown 路径，链接取自归档记录，不让模型编造。README、FORMAT 有接口说明。未接入微信账号或新增 HTTP 服务。
+- 附件状态逐文件核对，部分下载不再显示全部完成；自动补跑失败保留原因，浏览器自动流程 finally 关闭它自己的会话。
+- 仓外 `C:\Users\18717\.xiaohongshu-mcp\xhs-fav-sync.ps1` 已改 UTF-8、审计附件、传递未完成退出码。此文件不随本仓提交。
+
+### 转 Markdown 的实际链路
+
+`pdftext.py` → `media.py pdf --no-ocr --out` 先抽文字层；乱码/扫描件才逐页 `vision.run_ocr` → `media.py image --ocr` → CMX。当前 OCR 配置 cmx；运行服务源码 `D:\AI\PI-Personal-Instance-OS\mcp\src\cmx_mcp\ocr.py` 默认使用 `D:\AI\models\rapidocr` 的 PP-OCRv6 ONNX。docx 走 media.py 的本地文字提取。没有用本次 Codex 对话逐页转录。
+
+注意：CMX 既有 `/files/recognize` 还可能调用其配置的云端描述服务；`--ocr` 选取 local.text 输出，不等于该服务完全不调用云端。没有改外部 CMX 服务或新增 SHA 逻辑。
+
+PDF 不再静默截断至 50 页；任一页 OCR 失败即报告转换失败，不把部分文字当完整成功。附件文件更新时间晚于 Markdown 会重转，无需 SHA 比较。
+
+### 本机证据与边界
+
+- 160 篇目录；21 个已确认附件均有文件与 Markdown，3 条只有正文线索（无 doc_id）未解决。`python -m link_brain attachments --audit` 可重查。
+- 已补转此前缺失的 5 份 Markdown；已从 Downloads 挂载 `扒 system prompt.docx` 并转换、重建目录。
+- 真实 PDF 一页 OCR 成功（845 字）；真实模型菜谱问答、追问成功；真实 stdin API 请求返回 WrenWen 的 1 个来源链接和 PDF 文件。
+- 实际 Obsidian 曾通过弹窗打开、998 个本地候选扫描、加号边框 0px、无横溢出验证，证据 `vault/_archive/ui-verify.json`。最终代码又已复制到 vault；关闭重开目录可刷新视图，插件最新模块需在 Obsidian 禁用/启用 Link Brain Actions 后加载。
+- 新浏览器 DOM 测试覆盖 Enter/AI追问/390px布局、下载监看不误收旧文件、稳定文件挂载与失败反馈。实际浏览器从打开网页到人工下载完成的全流程尚未人工验收。
+
+最终验证：Python 全套 **147 passed**；两组 Node/浏览器测试均 PASS；夜跑 PowerShell 语法解析通过。
+
+### 接手只需做这些（不扩架构）
+
+1. Obsidian 禁用再启用 Link Brain Actions，打开收藏搜索/原目录，按真实使用检查视觉、标签编辑、拖入文件和多轮问答。
+2. 对 3 条无 doc_id 的线索人工查看原文；找到附件后拖入对应条目。不要假定有文字提及就一定有可下载附件。
+3. 下一次 XhsFavSync 计划执行后核对日志和退出码；新脚本未经历下一次真实夜跑。确认失败/未完成能在设置中看见。
+4. 微信等渠道后续调用现有 stdin JSON 接口，只展示 delivery，发送文件时使用 files.path。外网设备不能直接读取本机绝对路径，需要渠道发送器实际上传；这部分本轮未实现。
+5. 转换失败已有即时告警/退出码；若需要在关闭弹窗后继续展示转换错误，尚可补附件持久状态。目前持久状态主要记录自动下载错误。
+
+
 ## 接手入口：2026-09-16 Owner 最新需求（本段优先于旧规划）
 
 Owner 因当前模型五小时额度约剩 30%，明确让未完成工作交给其他模型。直接继续实现，不需要重新问方向。工作目录 D:\LIGHT WEB ARCHIEVE；真实 vault 在其下 vault。不要改 Telegram/Cyberboss，不推远端。

@@ -25,6 +25,83 @@
 
 当前真实进度与 UI 取舍以 `docs/STATE.md` 为准。
 
+## 收藏搜索与 AI 对话
+
+部署插件时将 `obsidian-plugins/link-brain-actions/` 中的 `manifest.json`、`main.js`、`library-ui.js` 一起复制到 vault 的同名插件目录。
+
+目录页输入普通文字，按 Enter 搜索；输入 `/问题`，按 Enter 获取 AI 回答，下方可继续追问。
+「简洁搜索」打开 `收藏搜索.md`，无瀑布流；原收藏目录保留浏览视图。
+标签行末尾 `…` 管理大类，右键大类编辑关联标签、排序和隐藏。
+
+搜索覆盖标题、标签、原文正文、已转换附件、图片/评论图片 OCR、评论以及摘要。
+权重依次为 12 / 10 / 7 / 6 / 5 / 3 / 2（作者 1），同义词匹配乘 0.75。
+常用中英文词组来自 `link_brain/assets/search-aliases.json`，如音乐/music、菜谱/recipe；
+单字“音”也能检索，结果会比“音乐”宽。普通搜索不调用模型，AI 回答使用已有文本 AI 配置。
+不存在于本地的评论、图片 OCR 或尚未转换的文件内容无法被检索。
+
+Claude Code / Codex 可直接在仓根调用，JSON 保留原文片段、命中字段、权重、完整 MD 路径：
+
+```powershell
+python -m link_brain search "music" --json
+python -m link_brain ask "从收藏里整理咖喱鱼蛋的材料和步骤"
+python -m link_brain read xhs-<note_id> --full --json
+# 追问历史从 stdin 传入，避免写入命令行：
+'[{"role":"user","content":"咖喱鱼蛋怎么做"}]' | python -m link_brain ask "需要烤箱吗" --history-stdin
+```
+
+Python 接口为 `link_brain.retrieval.search(query, limit=20)` 和
+`link_brain.ask.answer(question, history=None)`。返回的 `agent_md` 可继续读取完整正文，
+机读版的「附件正文 Markdown」链接指向 `derived/attachments/<doc_id>.md`。
+AI 可以组合材料；来源不足时说明缺口。引用只表示检索材料，仍可点击正文核对模型表述。
+
+### 微信或其他渠道的调用封装
+
+统一请求支持 `question`、`history`、`include`。默认 `include` 为空，只发送正文；
+需要时指定 `links`、`files`。优先让渠道程序通过子进程 stdin 传 JSON，无需启动额外服务：
+
+```json
+{"question":"概括这份教程","history":[],"include":["links","files"]}
+```
+
+```powershell
+python -m link_brain ask --request-stdin
+# 或现成命令行形式：
+python -m link_brain ask "概括这份教程" --include links --include files
+```
+
+响应中 `delivery` 是渠道应发送的内容：
+
+```json
+{
+  "status":"ok",
+  "delivery":{
+    "body":"回答正文，已去掉供本地 UI 使用的来源编号",
+    "links":[{"title":"原文标题","url":"https://…","source_id":"xhs-…","markdown_path":"本机完整MD路径"}],
+    "files":[{"name":"教程.pdf","path":"本机文件绝对路径","mime_type":"application/pdf","bytes":1234,"source_id":"xhs-…","markdown_path":"转换后的MD路径"}]
+  },
+  "history":[{"role":"user","content":"问题"},{"role":"assistant","content":"回答"}]
+}
+```
+
+未请求 `links/files` 时不会出现对应字段。链接和文件从实际归档材料生成，优先使用回答引用的材料；
+不存在的文件不会作为附件返回，`files: []` 表示没有可发送文件。渠道可把 `history` 原样用于下一次请求。
+渠道发送器只发送 `delivery.body`，按需逐项发链接、读取 `files[].path` 上传；不要把本机路径当网页地址发给用户。
+`status:error` 需要显示失败而不是当成回答。`sources`、`matches` 等是内部检索信息。
+Python 调用同样支持 `answer(question, history=..., include=["links", "files"])`。
+这次提供调用与返回契约，不包含微信登录或消息发送器。
+
+## 附件下载与挂载
+
+点目录的待补标识，或右键收藏 →「下载 / 挂本地文件」。支持拖入、文件选择器、
+默认 Downloads 目录中的推荐文件；文件夹和等待时长可在插件设置修改。
+「打开原网页，等待下载」使用本地浏览器，监听新下载且同名的完整文件，稳定后自动挂载；
+不同名文件需点选推荐或拖入。结束/超时会提示关闭网页，不关闭用户的其他浏览器标签。
+
+挂载后自动转换 PDF/DOCX、重渲染并更新搜索。转换失败与字节缺失分别报告。
+`attachments --all` 优先查配置目录中的同名文件，再走现有浏览器自动下载；
+下载失败也清理自动浏览器。`attachments --audit` 输出逐文件完整性，含待确认附件线索。
+多附件必须全部存在才显示已下载。夜间脚本保留附件失败退出码，设置可查看上次运行和下次时间。
+
 ## 用法
 
 ```bash
@@ -33,7 +110,7 @@ python -m link_brain ingest "https://xhslink.cn/o/xxxxxxxx" --origin cli --note 
 python -m link_brain ingest "<同一条链接>"               # 第二次命中索引，打印 HIT，不联网不重抓
 python -m link_brain ingest "<同一条链接>" --refresh     # 重抓，内容无变化不产生新 RAW 版本
 python -m link_brain read xhs-<note_id>                   # 打印 meta.json
-python -m link_brain search "关键词"                     # 按标题/正文 LIKE 查询
+python -m link_brain search "关键词"                     # 按字段权重检索
 python -m link_brain reindex                              # 从已有 raw/ 回填 index.db，不重抓
 python -m link_brain render xhs-<note_id>                 # 拼可见笔记 + derived/agent.md（先跑图片 OCR）
 python -m link_brain render --all                         # 对索引里所有对象重渲染一遍（幂等）
