@@ -40,11 +40,11 @@ assert.equal(Plugin.serializeCats(cats),'人机恋: 人机恋, ai伴侣\n吃的:
   plugin.spawnCapture=async args=>{assert.equal(args[2],'delete');assert.equal(args.slice(3).join(','),'id1,id2');return {out:JSON.stringify({deleted:2,results:[{item_id:'id1',status:'deleted'},{item_id:'id2',status:'deleted'}]}),err:''};};
   const del=await plugin.deleteItems(['id1','id2','']);assert.equal(del.deleted,2);
   const empty=await plugin.deleteItems([]);assert.equal(empty.deleted,0);assert.equal(empty.results.length,0);  // 空不 spawn
-  // 目录页「+ 导入」按钮：旧插件实例缺 openImportModal 时 disable/enable 恢复后再打开
+  // 目录页「+」菜单按钮：旧插件实例缺 openPlusMenu 时 disable/enable 恢复后再打开
   const view=fs.readFileSync('link_brain/assets/catalog-view.js','utf8');
   const handler=view.slice(view.indexOf('importButton.onclick=')+'importButton.onclick='.length,view.indexOf('\n// 大类筛选条'));
   let opened=0,reloaded=0,status='';const button={disabled:false};
-  const app={plugins:{plugins:{'link-brain-actions':{}},disablePlugin:async()=>{},enablePlugin:async()=>{reloaded++;app.plugins.plugins['link-brain-actions']={openImportModal:()=>opened++};}}};
+  const app={plugins:{plugins:{'link-brain-actions':{}},disablePlugin:async()=>{},enablePlugin:async()=>{reloaded++;app.plugins.plugins['link-brain-actions']={openPlusMenu:()=>opened++};}}};
   const click=new Function('app','importButton','importStatus','return '+handler)(app,button,{setText:s=>status=s});
   await click({preventDefault(){},stopPropagation(){}});
   assert.equal(reloaded,1);assert.equal(opened,1);assert.equal(button.disabled,false);

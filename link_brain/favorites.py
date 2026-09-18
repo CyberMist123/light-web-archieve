@@ -65,8 +65,9 @@ def fetch_favorites(*, limit: int = 50, verbose: bool = False) -> list[dict[str,
 
     if proc.returncode == FAVDUMP_LOGIN_REQUIRED:
         raise xhs.AccountBlockedError(
-            "小红书收藏读取掉登录了：跑一次 `sessioncheck.exe -login`（XHS_HOST=rednote.com）扫码，"
-            "扫完收藏同步就能继续无扫码跑"
+            "momo(主号)收藏读取掉登录了：跑 "
+            "`pwsh -File C:\\Users\\18717\\.xiaohongshu-mcp\\xhs-momo-relogin.ps1`，"
+            "把打印的 QR_PNG 发到 Owner 手机用 momo App 扫；扫完自动验号+落盘，收藏同步即恢复"
         )
     if proc.returncode != 0:
         detail = proc.stderr.decode("utf-8", "replace").strip()[-400:]

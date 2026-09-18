@@ -12,7 +12,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import urllib.parse
 from datetime import datetime, timezone
 from typing import Any
@@ -484,23 +488,81 @@ def fetch_related_file(note_id: str, xsec_token: str | None, *, timeout: int = 3
         match = INITIAL_STATE_RE.search(resp.text)
         if not match:
             result["error"] = "笔记页里没有 __INITIAL_STATE__"
-            return result
-        # SSR 状态里会出现裸 undefined，不是合法 JSON
-        state = json.loads(match.group(1).strip().rstrip(";").replace("undefined", "null"))
-        detail = ((state.get("note") or {}).get("noteDetailMap") or {}).get(note_id) or {}
-        note = detail.get("note") or {}
-        if not note:
-            # 页面回了 200 但没有这条笔记（登录墙 / 已删 / 反爬占位页）——
-            # 这种情况**不能**当作"这篇没有附件"，否则会把正文线索一起吞掉
-            result["error"] = "笔记页里没有这条笔记（登录墙 / 已删 / 反爬占位页？）"
-            # 页面上直接写着"验证码/请登录"这类词 = 被拦了，调用方要报警，不是"这篇没附件"
-            result["blocked"] = looks_blocked(resp.text[:8000])
-            return result
-        result["ok"] = True
-        result["related_file"] = note.get("relatedFile") or None
+        else:
+            # SSR 状态里会出现裸 undefined，不是合法 JSON
+            state = json.loads(match.group(1).strip().rstrip(";").replace("undefined", "null"))
+            detail = ((state.get("note") or {}).get("noteDetailMap") or {}).get(note_id) or {}
+            note = detail.get("note") or {}
+            if not note:
+                # 页面回了 200 但没有这条笔记（登录墙 / 已删 / 反爬占位页）——
+                # 这种情况**不能**当作"这篇没有附件"，否则会把正文线索一起吞掉
+                result["error"] = "笔记页里没有这条笔记（登录墙 / 已删 / 反爬占位页？）"
+                # 页面上直接写着"验证码/请登录"这类词 = 被拦了，调用方要报警，不是"这篇没附件"
+                result["blocked"] = looks_blocked(resp.text[:8000])
+            else:
+                result["ok"] = True
+                result["related_file"] = note.get("relatedFile") or None
     except Exception as exc:  # noqa: BLE001 - 探测失败退回正文启发式，不阻断
         result["error"] = f"{type(exc).__name__}: {exc}"
+
+    # 裸 httpx 被反爬喂占位页（拿不到笔记）时，回落到干净游客浏览器读 relatedFile。
+    # doc_id 只对游客可见（登录态会藏掉），所以兜底一律用一次性空 profile。
+    if not result["ok"]:
+        fb = _probe_related_file_via_browser(note_id, xsec_token, timeout=100)
+        if fb.get("ok"):
+            result["ok"] = True
+            result["related_file"] = fb["related_file"]
+            result["error"] = None
+            result["via"] = "guest-browser"
+            result["blocked"] = False
+        else:
+            result["error"] = (result.get("error") or "") + f"；游客浏览器兜底：{fb.get('error')}"
     return result
+
+
+# 游客浏览器兜底：doc_id 只对游客可见，用一次性空 profile 保证不带登录态。
+RELATEDFILE_EXE = os.environ.get(
+    "LINK_BRAIN_RELATEDFILE_EXE",
+    r"C:\Users\18717\.xiaohongshu-mcp\relatedfile.exe",
+)
+
+
+def _probe_related_file_via_browser(
+    note_id: str, xsec_token: str | None, *, timeout: int = 100
+) -> dict[str, Any]:
+    """开一个干净游客浏览器读 `relatedFile`（裸 httpx 被反爬挡住时的兜底）。
+
+    XHS_PROFILE_DIR 指向一次性空目录 = 游客（绝不复用 momo/6A 登录 profile，
+    登录态会把 relatedFile 藏掉）。返回 `{"ok", "related_file", "error"}`。
+    """
+    if not os.path.exists(RELATEDFILE_EXE):
+        return {"ok": False, "related_file": None,
+                "error": f"缺 relatedfile.exe（{RELATEDFILE_EXE}）：先在 .xiaohongshu-mcp\\src 下 go build ./cmd/relatedfile"}
+    tmp = tempfile.mkdtemp(prefix="xhs-guest-")
+    # 关键：预置 "Local State" 让浏览器把这个 profile 当"非首次"，从而走 headless——
+    # 否则 browser.go 对全新 profile 强制 headed，会在 Owner 屏幕上弹窗（每晚同步都弹）。
+    try:
+        (__import__("pathlib").Path(tmp) / "Local State").write_text("{}", encoding="utf-8")
+    except OSError:
+        pass
+    env = dict(os.environ)
+    env["XHS_PROFILE_DIR"] = tmp
+    args = [RELATEDFILE_EXE, "-note", note_id]
+    if xsec_token:
+        args += ["-token", xsec_token]
+    try:
+        proc = subprocess.run(args, capture_output=True, env=env, timeout=timeout)
+        out = (proc.stdout or b"").decode("utf-8", "replace").strip()
+        line = next((l for l in reversed(out.splitlines()) if l.startswith("{")), "")
+        data = json.loads(line) if line else {}
+        rf = data.get("relatedFile")
+        return {"ok": bool(rf), "related_file": rf,
+                "error": None if rf else "游客浏览器也没读到 relatedFile（真没附件 / 已删）"}
+    except (subprocess.SubprocessError, ValueError, OSError) as exc:
+        return {"ok": False, "related_file": None,
+                "error": f"游客浏览器探测失败: {type(exc).__name__}: {exc}"}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def _attachments(body: str, probe: dict[str, Any] | None) -> list[dict[str, Any]]:

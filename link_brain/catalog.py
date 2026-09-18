@@ -276,7 +276,10 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
 # ── dataviewjs 页面（样式自注入，不依赖 CSS snippet；读 catalog-data.json 渲染） ──
 # 页面脚本独立保存，生成时嵌入笔记，Dataview 无需另读脚本。
 _DATAVIEWJS = "```dataviewjs\n" + (Path(__file__).parent / "assets" / "catalog-search.js").read_text(encoding="utf-8") + '\n' + (Path(__file__).parent / "assets" / "catalog-view.js").read_text(encoding="utf-8") + "\n```"
+# 收藏搜索页 = 极简对话版（chat-view.js），跟浏览目录页分开（Owner 2026-09-17）。
+_CHATJS = "```dataviewjs\n" + (Path(__file__).parent / "assets" / "catalog-search.js").read_text(encoding="utf-8") + '\n' + (Path(__file__).parent / "assets" / "chat-view.js").read_text(encoding="utf-8") + "\n```"
 _PAGE_HEADER = "---\ncssclasses: [lb-catalog]\n---\n\n"
+_CHAT_HEADER = "---\ncssclasses: [lb-chatpage]\n---\n\n"
 
 
 def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Path, int, Path]:
@@ -310,7 +313,7 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
     catalog_path = vault / CATALOG_NAME
     catalog_path.write_text(_PAGE_HEADER + _DATAVIEWJS + "\n", encoding="utf-8")
 
-    (vault / "收藏搜索.md").write_text(_PAGE_HEADER + _DATAVIEWJS.replace("const simplePage = false;", "const simplePage = true;") + "\n", encoding="utf-8")
+    (vault / "收藏搜索.md").write_text(_CHAT_HEADER + _CHATJS + "\n", encoding="utf-8")
 
     # 部署笔记底部批注块用的共享脚本（每篇笔记的 bootstrap 会 adapter.read 它）
     (vault / "_archive" / "annotate-view.js").write_text(

@@ -616,6 +616,11 @@ def render_content_block(
     else:
         note_html = f'<div class="{cls}"><div class="lb-main">{author}<div class="lb-scroll">{title}{body}{detail}</div></div></div>'
 
+    # `.lb-note` 必须是**一整块、内部零换行**的 HTML——任何文本字段（评论/正文/标题）里
+    # 带的换行都会被 Obsidian 当成空行、把 <div> 提前闭合，左右两栏就散了（2026-09-17 Owner 报的）。
+    # 正文已在 _body_html 里把换行转 <br>，评论等没转——这里统一兜底，保证整块单行。
+    note_html = note_html.replace("\r", "").replace("\n", "<br>")
+
     parts = [CONTENT_START]
     parts.extend(_meta_md(note, meta, object_rel))
     parts.append("")
@@ -746,8 +751,15 @@ def render_visible_md(
     content = render_content_block(source=source, manifest=manifest, meta=meta, object_rel=object_rel)
     # Owner 在正文里划的 ==重点== 要跨重渲染活下来（2026-09-05 定的）
     content = reapply_highlights(content, collect_highlights(existing_content_layer(existing_text)))
-    footer = " · ".join(x for x in [f"[原文]({source_open_url(note, meta)})" if source_open_url(note, meta) else "", f"[[{object_rel}/derived/agent.md|机读版]]"] if x)
-    return "\n".join(fm) + "\n\n" + content + "\n\n" + footer + "\n\n" + comments_block + "\n\n" + _annotate_block(meta) + "\n"
+    # 原文 · 机读版 放**正文之上**（Owner 2026-09-17：这条入口该在顶上，不该沉到底）。
+    # 包一层无框 callout [!lb-topbar] 只为能上样式（内部链接在 callout 里照样解析）——
+    # 否则纯 markdown 链接吃主题默认色，Owner 反馈"发灰"。
+    topbar = " · ".join(x for x in [f"[原文]({source_open_url(note, meta)})" if source_open_url(note, meta) else "", f"[[{object_rel}/derived/agent.md|机读版]]"] if x)
+    parts = ["\n".join(fm)]
+    if topbar:
+        parts.append("> [!lb-topbar]\n> " + topbar)
+    parts += [content, comments_block, _annotate_block(meta)]
+    return "\n\n".join(parts) + "\n"
 
 
 def _annotate_block(meta: dict[str, Any]) -> str:
@@ -758,9 +770,13 @@ def _annotate_block(meta: dict[str, Any]) -> str:
     return (
         "```dataviewjs\n"
         f"const itemId = {item_id};\n"
-        f"const notePath = {note_path};\n"
+        # 仓可能挂在别的库的子目录里（LER Vault/知识库【小红书】/）：往上找第一个带 _archive 的目录当仓根
+        "let lbRoot = dv.current()?.file?.folder || \"\";\n"
+        "while (lbRoot && !app.vault.getAbstractFileByPath(lbRoot + \"/_archive\")) lbRoot = lbRoot.includes(\"/\") ? lbRoot.slice(0, lbRoot.lastIndexOf(\"/\")) : \"\";\n"
+        "const lbPath = p => lbRoot ? lbRoot + \"/\" + p : p;\n"
+        f"const notePath = lbPath({note_path});\n"
         "try {\n"
-        '  const code = await app.vault.adapter.read("_archive/annotate-view.js");\n'
+        '  const code = await app.vault.adapter.read(lbPath("_archive/annotate-view.js"));\n'
         "  // 脚本里有顶层 await，必须用 AsyncFunction 构造（普通 Function 会当语法错误抛）\n"
         "  const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;\n"
         '  await new AsyncFunction("dv", "app", "itemId", "notePath", code)(dv, app, itemId, notePath);\n'
