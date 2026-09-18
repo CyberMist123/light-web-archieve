@@ -2,7 +2,9 @@
 
 ## 2026-09-18 六项优化：①回收站
 
-已接通 delete → _trash + tombstones、恢复/彻底删除/清空、手动导入提示和夜跑屏蔽。路径使用 lbPath，插件已复制、目录已重建。真实 vault 删除恢复日志：`vault/_archive/qa-20260918/trash-roundtrip.json`；批注未变，孤儿已移走。新增三条 pytest + 原全套 147 项、两套 Node 通过。外部完整夜跑与 Obsidian 实机尚未验收，因此①暂标部分。仅本地提交；无 SHA 匹配、无密钥变更。
+已接通 delete → _trash + tombstones、恢复/彻底删除/清空、手动导入提示和夜跑屏蔽。路径使用 lbPath，插件已复制、目录已重建。真实 vault 删除恢复日志：`vault/_archive/qa-20260918/trash-roundtrip.json`；批注未变，孤儿已移走。新增三条 pytest + 原全套 147 项、两套 Node 通过。外部完整夜跑与 Obsidian 实机尚未验收，因此①暂标部分。仅本地提交；无 SHA 匹配、无密钥变更。①提交 `7d72200`。Obsidian 截图/输入工具分别报 `0x80004002` / `0x80070057`，未完成实机验收。②批量下载前按「问她」暂停，待确认手机是否排除 MP4。
+
+Owner 设置：Obsidian 重载 Link Brain Actions；排除文件加入 `_trash`（LER 库用 `知识库【小红书】/_trash`）。给 CC 更新卡片的要点：回收站入口；CLI `delete <id>`、`trash restore <id>`、`trash purge <id>`、`trash empty`；彻底删除仍屏蔽同步，恢复解除屏蔽。
 
 ## 2026-09-16 本轮收尾与交接（优先于下方旧记录）
 
