@@ -8,7 +8,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 ALIASES = json.loads((Path(__file__).parent / "assets/search-aliases.json").read_text(encoding="utf-8"))
-WEIGHTS = {"title": 12, "tags": 10, "body": 7, "attachments": 6, "ocr": 5, "comments": 3, "summary": 2, "author": 1}
+WEIGHTS = {"title": 12, "tags": 10, "body": 7, "attachments": 6, "transcript": 6, "ocr": 5, "comments": 3, "summary": 2, "author": 1}
 
 
 def norm(text):

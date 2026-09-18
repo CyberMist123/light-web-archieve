@@ -114,6 +114,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--actor", default="human", help="human 或 ai:<name>")
     p.add_argument("--extract", action="store_true", help="顺带跑小模型派生（花钱，默认不跑）")
 
+    p = sub.add_parser('videos', help='补下载已有视频，或独立运行本机转写')
+    p.add_argument('target', nargs='?')
+    p.add_argument('--all', action='store_true')
+    p.add_argument('--transcribe', action='store_true')
+
     p = sub.add_parser("catalog", help="重写 vault 里的收藏目录页（纯程序拼，不联网）")
     p.add_argument("--print-cats", action="store_true", help="只打印当前生效的大类（设置页载入用），不重建")
 
@@ -183,6 +188,9 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return EXIT_OK
 
+    if args.command == 'videos':
+        from . import videos
+        return videos.run(args)
     if args.command == "ingest":
         from . import ingest as ingest_mod
 

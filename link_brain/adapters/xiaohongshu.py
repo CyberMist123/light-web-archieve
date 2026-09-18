@@ -427,14 +427,16 @@ def _video(note: dict[str, Any]) -> dict[str, Any] | None:
     if not video:
         return None
     streams = ((video.get("media") or {}).get("stream") or {})
-    best = None
-    for codec in ("h265", "h264", "av1"):
-        items = streams.get(codec) or []
-        if items:
-            best = items[0]
-            break
+    candidates = [entry for group in streams.values() for entry in (group or [])
+                  if isinstance(entry, dict) and entry.get('masterUrl')]
+    def codec_rank(entry):
+        codec = str(entry.get('codec') or entry.get('videoCodec') or '').lower()
+        return {'h264': 0, 'avc': 0, 'avc1': 0, 'av1': 1, 'h265': 2, 'hevc': 2}.get(codec, 3)
+    best = min(candidates, key=codec_rank) if candidates else {}
     return {
         "video_url": (best or {}).get("masterUrl"),
+        "backup_urls": best.get('backupUrls') or [],
+        "codec": best.get('codec') or best.get('videoCodec'),
         # 封面就是 imageList[0]（落盘时 role=video_cover）
         "cover_url": ((note.get("imageList") or [{}])[0].get("urlDefault")),
         "duration_sec": _int_or_none((video.get("capa") or {}).get("duration")),

@@ -231,7 +231,9 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
         from .llm import comment_labels
         report = inventory(obj_dir, meta)
         vision = _load_json(obj_dir / "derived" / "vision.json") or {}
+        transcript = _load_json(obj_dir / "derived/transcript.json") or {}
         search_fields = {
+            "transcript": str(transcript.get("text") or ""),
             "body": str(note.get("body") or ""),
             "comments": "\n".join(str(c.get("text") or "") for _, c in comment_labels(source_doc.get("comments") or [])),
             "ocr": "\n".join(str(im.get("ocr") or "") for im in vision.get("images", []) if im.get("status") == "ok"),

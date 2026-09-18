@@ -374,11 +374,17 @@ def _media_html(note: dict[str, Any], manifest: dict[str, Any], object_rel: str)
         and m.get("file")
         and m.get("download_status", "ok") == "ok"
     ]
-    if not entries:
+    video = next((m for m in manifest.get('media', []) if m.get('role') == 'video' and m.get('file') and m.get('download_status') == 'ok'), None)
+    remote = (note.get('video') or {}).get('video_url')
+    if not entries and not video and not remote:
         return "", False
 
     total = len(entries)
     parts = ['<section class="lb-media"><div class="lb-carousel">']
+    if video or remote:
+        src = '../../' + _img_srcs(object_rel, video['file'])[0] if video else remote
+        poster = '../../' + _img_srcs(object_rel, entries[0]['file'])[0] if entries else ''
+        parts.append(f'<figure class="lb-slide"><video controls preload="metadata" playsinline poster="{_safe(poster)}" src="{_safe(src)}" style="width:100%;max-height:75vh">视频无法播放，请打开原文</video></figure>')
     for i, entry in enumerate(entries, 1):
         src, _ = _img_srcs(object_rel, entry["file"])
         parts += [
@@ -388,8 +394,8 @@ def _media_html(note: dict[str, Any], manifest: dict[str, Any], object_rel: str)
             "</figure>",
         ]
     parts.append("</div>")
-    if note.get("kind") == "video":
-        parts.append('<div class="lb-video-badge">视频 · 未下载</div>')
+    if note.get("kind") == "video" and not video:
+        parts.append('<div class="lb-video-badge">视频 · 在线播放</div>')
     parts.append("</section>")
     return "".join(parts), True
 
@@ -603,6 +609,8 @@ def render_content_block(
     author = _author_html(note)
     title = f'<h2 class="lb-note-title">{_safe(note.get("title") or meta.get("title") or "")}</h2>'
     body = _body_html(note.get("body") or "")
+    if note.get('transcript'):
+        body += '<details class="lb-transcript"><summary>视频文字稿</summary>' + _body_html(note['transcript']) + '</details>' 
     detail = _comments_html(note, comments, manifest, object_rel)
     # Owner 2026-09-15：头像/作者在**正文上方**（右栏顶部），不跟图片在左栏。
     # 左栏只有图片、sticky 固定；右栏 = 作者 → 正文 → 评论，随页滚动。
@@ -849,6 +857,8 @@ def render_agent_md(
     else:
         lines.append("（未生成）")
 
+    if note.get('transcript'):
+        lines += ['', '## 视频文字稿', '', note['transcript']]
     lines += ["", "## 评论", ""]
     comments = source.get("comments") or []
     if comments:
@@ -952,6 +962,19 @@ def render_object(
                 source_key, source_id, force=re_extract, verbose=verbose
             )
     extracted = llm_mod.extracted_data(extracted_doc)
+
+    transcript_path = derived_dir / 'transcript.json'
+    transcript = storage.read_json(transcript_path).get('text', '') if transcript_path.exists() else ''
+    source_doc['note']['transcript'] = transcript
+    if not (source_doc['note'].get('title') or meta.get('title')):
+        fallback = (extracted or {}).get('title') or transcript.split('。')[0] or source_doc['note'].get('body') or next((x.get('ocr') for x in vision_doc.get('images', []) if x.get('ocr')), '')
+        title = re.sub(r'\s+', ' ', str(fallback)).strip()[:30] or '视频收藏'
+        meta['title'] = title
+        source_doc['note']['title'] = title
+        storage.write_json(meta_path, meta)
+        conn = index_mod.connect()
+        conn.execute('UPDATE objects SET title=? WHERE item_id=?', (title, meta['item_id']))
+        conn.commit(); conn.close()
 
     visible_dir = storage.visible_dir()
     visible_dir.mkdir(parents=True, exist_ok=True)

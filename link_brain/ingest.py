@@ -139,23 +139,9 @@ def download_media(source: dict[str, Any], raw_version_dir: Path, rel_prefix: st
                         entry["file"] = f"{rel_prefix}/assets/{entry['file']}"
                     media.append(entry)
 
-    if is_video and note.get("video", {}).get("video_url"):
-        media.append(
-            {
-                "role": "video",
-                "index": 1,
-                "file": None,
-                "original_url": note["video"]["video_url"],
-                "requested_url": None,
-                "mime": None,
-                "width": note["video"].get("width"),
-                "height": note["video"].get("height"),
-                "bytes": None,
-                "sha256": None,
-                "download_status": "skipped",
-                "error": "视频本体按设计不下载（只留 URL + 封面）",
-            }
-        )
+    if is_video and (note.get("video") or {}).get("video_url"):
+        from .videos import download
+        media.append(download(note['video'], raw_version_dir, rel_prefix))
 
     declared = sum(1 for m in media if m["role"] in ("note_image", "comment_image", "video_cover"))
     ok = sum(
