@@ -115,6 +115,9 @@ def _sync_one(
             "error": f"{type(exc).__name__}: {exc}",
         }
 
+    if summary.get('status') == 'trashed':
+        print(f"[sync-favorites] {summary['item_id']} 已删除，跳过", file=sys.stderr)
+        return {**summary, 'url': url}
     status = "hit" if summary.get("hit") else "new"
     source_key, source_id = xhs.SOURCE, summary["note_id"]
 

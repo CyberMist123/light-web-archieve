@@ -22,7 +22,7 @@ const assert=require('assert/strict');
       Element.prototype.empty=function(){this.replaceChildren();};Element.prototype.setText=function(t){this.textContent=t;};
       window.asks=[];window.opened=[];window.panels=[];
       window.app={vault:{adapter:{read:async()=>JSON.stringify(data),getResourcePath:x=>x},getName:()=> 'vault'},plugins:{plugins:{'link-brain-actions':{
-        settings:{hiddenCats:[]},openAttachments:(list)=>window.panels.push(list),openCategories:(cats,selected)=>window.panels.push(selected||'all'),openImportModal:()=>window.panels.push('import'),
+        settings:{hiddenCats:[]},openAttachments:(list)=>window.panels.push(list),openCategories:(cats,selected)=>window.panels.push(selected||'all'),openImportModal:()=>window.panels.push('import'),openPlusMenu:()=>window.panels.push('import'),
         answerArchive:async request=>{window.asks.push(request);return {markdown:'材料：鸡肉 200 克。\n步骤：蒸 20 分钟。[来源1]',sources:[{citation:1,title:'十分钟快手菜谱',note:'b.md'}]};},
         renderMarkdownInto:async(text,el)=>{el.setText(text);el.style.whiteSpace='pre-wrap';}
       }}},workspace:{openLinkText:(...args)=>window.opened.push(args)}};
@@ -66,7 +66,7 @@ const assert=require('assert/strict');
     };
     const module={exports:{}};new Function('require','module',code)(name=>mocks[name],module);
     window.attached=[];
-    const plugin={app:{vault:{adapter:{read:async()=>JSON.stringify({items:[{...item,attachment:'downloaded',attachment_missing:0,attachment_files:[{name:'教程.pdf',doc_id:'doc1',downloaded:true}]}]})}}},settings:{downloads:{folder:'C:/Downloads',waitMinutes:1}},attachFile:async(...args)=>{attached.push(args);return {};}};
+    const plugin={lbPath:p=>p,app:{vault:{adapter:{read:async()=>JSON.stringify({items:[{...item,attachment:'downloaded',attachment_missing:0,attachment_files:[{name:'教程.pdf',doc_id:'doc1',downloaded:true}]}]})}}},settings:{downloads:{folder:'C:/Downloads',waitMinutes:1}},attachFile:async(...args)=>{attached.push(args);return {};}};
     window.attachmentModal=new (module.exports(mocks.obsidian).AttachmentModal)(plugin,[item],()=>{});attachmentModal.open();
   },fs.readFileSync('obsidian-plugins/link-brain-actions/library-ui.js','utf8'));
   await page.waitForTimeout(50);

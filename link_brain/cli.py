@@ -130,8 +130,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("clean", help="清洗分享文案里的小红书链接（跟随短链、只留 xsec_token/source），输出 JSON")
     p.add_argument("text", help="一整段分享文案或链接")
 
-    p = sub.add_parser("delete", help="删除收藏（可见笔记 + 对象目录 + 索引行，不可逆）")
+    p = sub.add_parser("delete", help="移动收藏到回收站，并屏蔽后续同步")
     p.add_argument("item_ids", nargs="+", help="一个或多个 item_id")
+
+    p = sub.add_parser('trash', help='恢复、彻底删除或清空回收站')
+    p.add_argument('action', choices=['restore', 'purge', 'empty'])
+    p.add_argument('item_ids', nargs='*')
 
     p = sub.add_parser("tidy-comments", help="去掉旧笔记里纯链接的自动 cmt1 留言")
 
@@ -266,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
         dump_json({"count": len(urls), "urls": urls})
         return EXIT_OK
 
-    if args.command == "delete":
+    if args.command in ("delete", "trash"):
         from . import remove as remove_mod
 
         return remove_mod.run(args)

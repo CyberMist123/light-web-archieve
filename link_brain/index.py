@@ -14,6 +14,11 @@ from typing import Any
 from . import storage
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS tombstones (
+    source TEXT NOT NULL, source_id TEXT NOT NULL, item_id TEXT PRIMARY KEY,
+    title TEXT, url TEXT, cover TEXT, deleted_at TEXT NOT NULL, trash_dir TEXT NOT NULL,
+    UNIQUE(source, source_id)
+);
 CREATE TABLE IF NOT EXISTS objects (
     item_id            TEXT PRIMARY KEY,
     source             TEXT NOT NULL,
