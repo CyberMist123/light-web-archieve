@@ -384,6 +384,13 @@ class LinkBrainActions extends Plugin {
     return {text:out.trim(),warning:code===2?(err.trim()||'文件已保存，但正文转换失败'):null};
   }
 
+  async trashAction(action, ids = []) {
+    const {code,out,err}=await this.spawnCapture(['-m','link_brain','trash',action,...ids]);
+    const result=JSON.parse(out.trim().split('\n').pop());
+    if(code!==0)throw new Error(result.results?.find(x=>x.error)?.error||err||'回收站操作失败');
+    return result;
+  }
+
   async importText(text, report = () => {}, progress = () => {}) {
     if(this.importing || this.running){new Notice('已有归档任务在运行');return [];}
     const urls=cleanLinks(text);
@@ -396,6 +403,12 @@ class LinkBrainActions extends Plugin {
         const res=await this.run(['-m','link_brain','catch',url,'--origin','cli','--actor','human'],'导入收藏');
         let item;
         try{item=JSON.parse(res.stdout || '{}').items?.[0];}catch{}
+        if(item?.status==='trashed'){
+          if(window.confirm('这条在回收站，要恢复吗？')){
+            const restored=await this.trashAction('restore',[item.item_id]);
+            item={...restored.results[0],status:'hit'};
+          }else{results.push({url,ok:false,trashed:true});report('已保留在回收站');progress(i+1,urls.length);continue;}
+        }
         const ok=item && ['new','hit'].includes(item.status) && item.visible_note && !item.error;
         const result={url,ok,note:ok?path.basename(item.visible_note,'.md'):null};
         results.push(result);

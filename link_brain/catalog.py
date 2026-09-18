@@ -325,6 +325,8 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
         json.dumps({"last_built": now.isoformat()}, ensure_ascii=False, indent=1),
         encoding="utf-8",
     )
+    from .remove import publish_trash
+    publish_trash(vault)
     return catalog_path, len(items), data_path
 
 

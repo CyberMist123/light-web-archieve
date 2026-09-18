@@ -131,6 +131,8 @@ const search=head.createEl('input',{cls:'lbc-search'});
 search.type='search';search.placeholder='搜索收藏…';search.title='Enter 搜索 · #标签 · /问题 问 AI';search.setAttribute('aria-label','搜索收藏');
 const switchView=head.createEl('button',{cls:'lbc-view-switch',text:simplePage?'浏览收藏':'简洁搜索'});switchView.onclick=()=>app.workspace.openLinkText(lbPath(simplePage?'小红书收藏目录.md':'收藏搜索.md'),'',false);
 const importStatus=wrap.createEl('div',{cls:'lbc-status'});
+const trashButton=head.createEl('button',{cls:'lbc-view-switch',text:'回收站'});
+trashButton.onclick=()=>app.workspace.openLinkText(lbPath('回收站.md'),'',false);
 importButton.type='button';
 importButton.setAttribute('aria-label','导入收藏 / 同步收藏夹');importButton.title='导入收藏 / 同步收藏夹';
 importButton.onclick=async e=>{
@@ -173,11 +175,11 @@ const clrBtn=selbar.createEl('button',{text:'退出多选'});clrBtn.onclick=()=>
 const ai=wrap.createEl('section',{cls:'lbc-ai'});ai.hidden=true;
 const grid=wrap.createEl('div',{cls:'lbc-grid'});
 
-// 删除收藏（不可逆）：确认 → 后端删文件+索引 → 本地从 items 摘掉 → 重渲染
+// 删除收藏：确认 → 移到回收站 → 本地从 items 摘掉 → 重渲染
 async function confirmDelete(list){
   if(!list.length)return;
   const names=list.slice(0,4).map(x=>x.title||x.id).join('、')+(list.length>4?` 等 ${list.length} 篇`:'');
-  if(!window.confirm(`删除收藏：${names}\n\n会删掉笔记和归档文件，不可恢复。确定吗？`))return;
+  if(!window.confirm(`删除收藏：${names}\n\n将移入回收站，不再同步；可以在回收站恢复。确定吗？`))return;
   const provider=app.plugins.plugins['link-brain-actions'];
   if(typeof provider?.deleteItems!=='function'){window.alert('删除功能需要启用 Link Brain Actions 插件');return;}
   try{

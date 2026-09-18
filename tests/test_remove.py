@@ -104,3 +104,64 @@ def test_strip_auto_link_comment():
                          "这篇讲记忆分层，很有用 [链接](https://x/y)")
     out2, changed2 = render.strip_auto_link_comment(note2)
     assert changed2 is False and out2 == note2
+
+def _trash_fixture(tmp_path, monkeypatch):
+    monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
+    conn = index_mod.connect()
+    item_id = 'xhs-' + NOTE_ID
+    visible = 'Web/Xiaohongshu/test.md'
+    conn.execute('INSERT INTO objects(item_id,source,source_id,canonical_url,kind,title,first_archived_at,last_checked_at,current_version,object_dir,visible_note) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                 (item_id,'xiaohongshu',NOTE_ID,'https://example.invalid','normal','测试','now','now',1,'_archive/xiaohongshu/'+NOTE_ID,visible))
+    conn.commit()
+    obj = storage.object_dir('xiaohongshu', NOTE_ID)
+    storage.write_json(obj / 'meta.json', {'title':'测试', 'visible_note':visible})
+    storage.write_json(obj / 'notes.json', {'starred':True,'annotations':[{'text':'保留我的批注'}]})
+    note = tmp_path / visible
+    note.parent.mkdir(parents=True)
+    note.write_text(item_id + '\n正文', encoding='utf-8')
+    (tmp_path / '测试.md').write_text(item_id + '\n星标副本', encoding='utf-8')
+    monkeypatch.setattr(xhs, 'parse_input', lambda *a, **k: _fake_parsed())
+    monkeypatch.setattr(xhs, 'fetch_detail', lambda *a, **k: pytest.fail('墓碑不应联网'))
+    return conn, item_id, obj, note
+
+
+def test_trash_sync_and_manual_import_skip(tmp_path, monkeypatch):
+    from link_brain import favorites, ingest, catch, catalog
+    conn, item_id, obj, note = _trash_fixture(tmp_path, monkeypatch)
+    remove.delete_item(conn, item_id)
+    assert not note.exists() and not obj.exists()
+    assert not (tmp_path / '测试.md').exists()
+    trash = tmp_path / '_trash/xiaohongshu' / NOTE_ID
+    assert (trash / 'object/notes.json').exists()
+    assert conn.execute('SELECT item_id FROM tombstones').fetchone()[0] == item_id
+    assert catalog.collect(tmp_path) == []
+    monkeypatch.setattr(favorites, 'fetch_favorites', lambda **k: [{'url':'https://example.invalid'}])
+    assert favorites.sync_favorites()['items'][0]['status'] == 'trashed'
+    assert ingest.ingest_url('https://example.invalid', refresh=True)['status'] == 'trashed'
+    assert catch._catch_one('https://example.invalid', message='', origin='cli', actor='human', verbose=False, extract=False)['status'] == 'trashed'
+    assert index_mod.get_object(conn, item_id) is None
+    conn.close()
+
+
+def test_restore_keeps_annotations_and_star(tmp_path, monkeypatch):
+    conn, item_id, obj, note = _trash_fixture(tmp_path, monkeypatch)
+    before = (obj / 'notes.json').read_bytes()
+    remove.delete_item(conn, item_id)
+    assert remove.restore_item(conn, item_id)['status'] == 'restored'
+    assert (obj / 'notes.json').read_bytes() == before
+    assert note.exists() and (tmp_path / '测试.md').exists()
+    assert index_mod.get_object(conn, item_id)
+    assert conn.execute('SELECT * FROM tombstones').fetchone() is None
+    conn.close()
+
+
+def test_purge_keeps_tombstone(tmp_path, monkeypatch):
+    from link_brain import ingest
+    conn, item_id, obj, note = _trash_fixture(tmp_path, monkeypatch)
+    remove.delete_item(conn, item_id)
+    remove.purge_item(conn, item_id)
+    assert not (tmp_path / '_trash/xiaohongshu' / NOTE_ID).exists()
+    assert conn.execute('SELECT * FROM tombstones').fetchone()
+    assert ingest.ingest_url('https://example.invalid')['status'] == 'trashed'
+    assert remove.restore_item(conn, item_id)['status'] == 'purged'
+    conn.close()

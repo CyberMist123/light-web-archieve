@@ -283,6 +283,12 @@ def ingest_url(
     conn = index_mod.connect()
     created_at = now_iso()
     try:
+        tombstone = conn.execute('SELECT * FROM tombstones WHERE source = ? AND source_id = ?',
+                                 (xhs.SOURCE, parsed['note_id'])).fetchone()
+        if tombstone:
+            log('已删除，跳过')
+            return {'status': 'trashed', 'item_id': tombstone['item_id'],
+                    'note_id': parsed['note_id'], 'title': tombstone['title'], 'exit_code': EXIT_OK}
         existing = index_mod.find_object(conn, xhs.SOURCE, parsed["note_id"])
 
         if existing is not None and not refresh:
@@ -476,6 +482,11 @@ def run(args) -> int:
     except FileExistsError as exc:
         print(f"归档失败: {exc}", file=sys.stderr)
         return EXIT_ERROR
+
+    if summary.get('status') == 'trashed':
+        from .read import dump_json
+        dump_json(summary)
+        return EXIT_OK
 
     if summary.get("hit"):
         print(f"HIT  {summary['item_id']}  kind={summary['kind']}  {summary['raw_dir']}")

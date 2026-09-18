@@ -26,6 +26,8 @@
 
 ### ① 删除收藏：进回收站，并且以后不再同步
 
+**状态：部分（2026-09-18）**。回收站后端/页面、导入恢复提示、同步屏蔽、星标副本已实现并部署；真实 vault 删除—恢复与批注原字节对照通过，指定孤儿已移动。证据：`vault/_archive/qa-20260918/trash-roundtrip.json`；测试 `tests/test_remove.py` 新增三条通过，原 147 项全套通过，Node 两套通过（浏览器旧测试桩补齐现有菜单和 lbPath 接口）。同步证据为真实对象的单条收藏列表重放，尚未完整跑外部 favdump 夜跑；Obsidian 页面实机待验。恢复是解除墓碑的唯一例外；彻底删除/清空均保留墓碑。孤儿缺 RAW，仅保留笔记文件，不伪装可恢复归档。
+
 **现状**
 - `remove.py:17-38` 是硬删：unlink 可见笔记、`rmtree` 对象目录（含批注 `notes.json`）、`DELETE FROM objects`（级联 sources/relations）。
 - 没有任何删除记录。`favorites.py` 夜跑只按 `ingest.py:286` 的 index HIT 去重，所以**删掉但仍在小红书收藏夹前 50 条里的笔记，下一次同步会原样回来**。
@@ -54,6 +56,8 @@
 - 彻底删除后墓碑还在。
 
 ### ② 视频：笔记里能直接播、能拖进度条，并且为后续（转写）打底
+
+**状态：未做（等待前序完成）。**
 
 **现状**
 - **抓取有 bug**：`adapters/xiaohongshu.py:425-444 _video()` 只认 `h265/h264/av1` 这几个 key。真实数据 27 条视频里 26 条的 stream key 是 `EF4..EF7`，所以 `video_url` 基本全是 null。其实 `mcp_raw.json` 里 `data.note.video.media.stream.EF4[0].masterUrl` 和 `backupUrls` 都有。
@@ -88,6 +92,8 @@
 
 ### ③ 目录页「+」：跟 Collections 一样，斜体、黑色、加粗
 
+**状态：未做（等待前序完成）。**
+
 **现状**
 - 标题 `.lbc-title`（`catalog-view.js:18`）：Georgia 斜体 42px，weight 600，颜色是继承的。
 - `+`（`.lbc-import`，`:19-20`）：Georgia 斜体 38px，**没设粗细**，颜色是 `--text-faint`，所以发灰发细。
@@ -98,6 +104,8 @@
 **验收**：两页截图并排，「+」和 Collections 看起来是同一套字。
 
 ### ④ AI 搜索（/问题）：又快又准
+
+**状态：未做（等待前序完成）。**
 
 **现状：慢在哪**（`main.js:286-295` → `ask.py` → `llm.py:163-189` → `media.py`）
 - 每问一次冷启动 `python -m link_brain`：jieba 加载约 0.9s，重新解析 3.9MB 的 `catalog-data.json` 约 0.4s。
@@ -137,6 +145,8 @@
 
 ### ⑤ 给 TG（Fable）的查询接口
 
+**状态：未做（等待前序完成）。**
+
 Owner 想让 TG 上的 Fable 能直接查这个库。Fable 本身就是大模型，**不需要本库再调一次模型帮她回答**。给她检索结果（摘录 + 链接），她自己组织语言，这样更快、不花额外 token、也不会二次失真。
 
 **现状**
@@ -152,6 +162,8 @@ Owner 想让 TG 上的 Fable 能直接查这个库。Fable 本身就是大模型
 **验收**：命令行跑 3 个问题，输出里有能用的摘录和链接，耗时写进交付说明。
 
 ### ⑥ 页面美化：简洁大气
+
+**状态：未做（等待前序完成）。**
 
 现状字体：界面走 `var(--font-interface), "Segoe UI", "Microsoft YaHei"`，标题和「+」用 Georgia 斜体（Playfair 本机没装，实际显示的是 Georgia）。本机装了 **Noto Sans SC**（含 Light/Medium/Black 各字重），没装任何中文衬线体。
 
