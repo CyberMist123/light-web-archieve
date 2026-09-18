@@ -137,6 +137,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("sync-schedule", help="看/改每晚收藏巡检的周期（Windows 计划任务 XhsFavSync）")
     p.add_argument("--set", choices=["daily", "weekly", "off"], help="改成每天/每周/关闭；不给就只报当前")
+    p.add_argument("--at", help="时间 HH:mm（如 04:00 / 22:30）；配合 --set daily/weekly")
+    p.add_argument("--day", help="周几（Monday…Sunday）；配合 --set weekly")
 
     p = sub.add_parser("inbox", help="列出被戳到某角色且未处理的对象")
     p.add_argument("--for", dest="for_actor", required=True, help="角色名，如 fable")

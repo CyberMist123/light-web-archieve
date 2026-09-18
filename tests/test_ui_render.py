@@ -286,8 +286,8 @@ def test_meta_line_has_source_url_and_agent_md():
     assert "[原文](" in text and _meta()["canonical_url"] in text
     agent_link = "[[_archive/xiaohongshu/0000000000000000deadbeef/derived/agent.md|机读版]]"
     assert agent_link in text
-    # 必须在 HTML 容器之前，不然 Obsidian 点不开
-    assert text.index(agent_link) > text.index('<div class="lb-note')
+    # Owner 2026-09-17：原文·机读版放在正文 HTML 容器**之前**（顶上入口），不再沉到底
+    assert text.index(agent_link) < text.index('<div class="lb-note')
 
 
 def test_no_attachments_renders_nothing():

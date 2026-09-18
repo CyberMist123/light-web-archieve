@@ -75,7 +75,7 @@ class AttachmentModal extends Modal {
     this.status.setText('正在挂载并提取正文…');
     try {
       const result=await this.plugin.attachFile(item.id,full,doc.doc_id);
-      const current=JSON.parse(await this.app.vault.adapter.read('_archive/catalog-data.json'));
+      const current=JSON.parse(await this.app.vault.adapter.read(this.plugin.lbPath('_archive/catalog-data.json')));
       const fresh=current.items.find(x=>x.id===item.id);if(fresh)Object.assign(item,fresh);
       this.fillDocs();if(this.refresh)await this.refresh(current);
       this.status.setText(result.warning||((item.attachment_missing||0)>0?'文件已保存，这篇还有附件待补。':'附件已保存，正文已加入搜索。可以关闭下载网页。'));
@@ -140,7 +140,7 @@ class CategoriesModal extends Modal {
         this.plugin.settings.hiddenCats=[...this.hidden];await this.plugin.saveSettings();
         const r=await this.plugin.spawnCapture(['-m','link_brain','catalog']);
         if(r.code!==0)throw Error(r.err||r.out);
-        if(this.refresh)await this.refresh(JSON.parse(await this.app.vault.adapter.read('_archive/catalog-data.json')));
+        if(this.refresh)await this.refresh(JSON.parse(await this.app.vault.adapter.read(this.plugin.lbPath('_archive/catalog-data.json'))));
         this.close();
       }catch(e){new Notice('保存失败：'+e.message);save.disabled=false;}
     };

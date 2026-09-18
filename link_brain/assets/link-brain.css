@@ -349,6 +349,36 @@
   text-decoration: underline;
 }
 
+/* 顶部 原文·机读版 入口：无框，链接用主题的链接色（不再发灰）。Owner 2026-09-17。 */
+.xhs-note .callout[data-callout="lb-topbar"] {
+  margin: 2px 0 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  mix-blend-mode: normal;
+  font-size: 0.86em;
+}
+.xhs-note .callout[data-callout="lb-topbar"] .callout-title { display: none; }
+.xhs-note .callout[data-callout="lb-topbar"] .callout-content { padding: 0; }
+.xhs-note .callout[data-callout="lb-topbar"] p {
+  margin: 0;
+  word-spacing: 0.28em;
+  line-height: 1.7;
+}
+/* Owner 要发灰，跟下面的附件文件链接一样。 */
+.xhs-note .callout[data-callout="lb-topbar"] a,
+.xhs-note .callout[data-callout="lb-topbar"] a.internal-link {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.xhs-note .callout[data-callout="lb-topbar"] a:hover,
+.xhs-note .callout[data-callout="lb-topbar"] a.internal-link:hover {
+  color: var(--interactive-accent);
+  text-decoration: underline;
+}
+
 .xhs-note .lb-tags {
   display: flex;
   flex-wrap: wrap;

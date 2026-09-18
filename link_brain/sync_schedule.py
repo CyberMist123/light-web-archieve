@@ -14,7 +14,14 @@ import subprocess
 from typing import Any
 
 TASK = os.environ.get("LINK_BRAIN_SYNC_TASK", "XhsFavSync")
-AT = "4:00AM"  # 凌晨 4 点，和现有任务一致
+AT = "4:00AM"  # 默认凌晨 4 点
+DAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+
+def _norm_time(at: str | None) -> str:
+    """接受 '4:00AM' / '04:00' / '16:30' 这类，交给 PowerShell 解析，非法就回默认。"""
+    at = (at or "").strip()
+    return at or AT
 
 
 def _ps(cmd: str) -> tuple[bool, str]:
@@ -38,26 +45,40 @@ def get_schedule() -> dict[str, Any]:
         "$tr=$t.Triggers[0];$state=$t.State;"
         "if($tr.CimClass.CimClassName -like '*Weekly*'){$f='weekly'}"
         "elseif($tr.CimClass.CimClassName -like '*Daily*'){$f='daily'}else{$f='unknown'};"
+        "$hm='';try{$hm=([datetime]$tr.StartBoundary).ToString('HH:mm')}catch{};"
+        "$day='';try{if($tr.DaysOfWeek){$day=[string]$tr.DaysOfWeek}}catch{};"
         f"$info=Get-ScheduledTaskInfo -TaskName '{TASK}';"
-        "\"$f|$state|$($info.LastRunTime.ToString('s'))|$($info.LastTaskResult)|$($info.NextRunTime.ToString('s'))\"}"
+        "\"$f|$state|$($info.LastRunTime.ToString('s'))|$($info.LastTaskResult)|$($info.NextRunTime.ToString('s'))|$hm|$day\"}"
     )
     if not ok:
         return {"task": TASK, "freq": "none", "enabled": False, "error": out}
     val = out.strip()
     if val == "none":
         return {"task": TASK, "freq": "none", "enabled": False}
-    parts = val.split("|")
+    parts = (val.split("|") + [""] * 7)[:7]
     return {"task": TASK, "freq": parts[0], "enabled": parts[1].strip() != "Disabled",
-            "last_run": parts[2], "last_result": int(parts[3]), "next_run": parts[4]}
+            "last_run": parts[2], "last_result": _int(parts[3]), "next_run": parts[4],
+            "time": parts[5] or "04:00", "day": parts[6]}
 
 
-def set_schedule(freq: str) -> dict[str, Any]:
-    """freq: daily / weekly / off。改触发器或启停，不动任务的动作。"""
+def _int(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def set_schedule(freq: str, at: str | None = None, day: str | None = None) -> dict[str, Any]:
+    """freq: daily / weekly / off；at: 'HH:mm' 或 '4:00AM'（可选）；day: 周几（weekly，可选）。"""
+    at = _norm_time(at)
     if freq == "off":
         ok, out = _ps(f"Disable-ScheduledTask -TaskName '{TASK}' -ErrorAction Stop")
     elif freq in ("daily", "weekly"):
-        trig = (f"New-ScheduledTaskTrigger -Daily -At {AT}" if freq == "daily"
-                else f"New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At {AT}")
+        if freq == "daily":
+            trig = f"New-ScheduledTaskTrigger -Daily -At '{at}'"
+        else:
+            wd = day if day in DAYS else "Monday"
+            trig = f"New-ScheduledTaskTrigger -Weekly -DaysOfWeek {wd} -At '{at}'"
         ok, out = _ps(
             f"Enable-ScheduledTask -TaskName '{TASK}' -ErrorAction Stop | Out-Null;"
             f"Set-ScheduledTask -TaskName '{TASK}' -Trigger ({trig}) -ErrorAction Stop | Out-Null;'ok'"
@@ -73,7 +94,7 @@ def run(args) -> int:
     from .read import EXIT_ERROR, EXIT_OK, dump_json
 
     if getattr(args, "set", None):
-        result = set_schedule(args.set)
+        result = set_schedule(args.set, getattr(args, "at", None), getattr(args, "day", None))
         dump_json(result)
         return EXIT_OK if result.get("ok") else EXIT_ERROR
     dump_json(get_schedule())
