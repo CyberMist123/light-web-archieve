@@ -1,5 +1,184 @@
 # light-web-archieve V1 任务书（小红书归档基座）
 
+## 2026-09-18 交接给 GPT：六项优化（本段优先于下方全部旧记录）
+
+写于 2026-09-18，由 Claude（CC 窗口）根据 Owner 当天口述和代码摸底整理。基线是本地提交 `f253c20`（未推远端）。下面每项都给了现状（带代码位置）、推荐做法和验收标准。方向已经定了，**直接做，不用再问 Owner**；只有标「问她」的地方要带着推荐去问。
+
+### 先读（背景，按顺序）
+
+- 卡（在 `C:\Users\18717\Documents\cyberlink\Fluffy-SelfHood\10-work\cards\`）：`light-web-archive.md`（本项目全貌，status 最上面是最新进度）、`obsidian.md`（Owner 的 Obsidian 库怎么挂）、`xiaohongshu.md`（账号分工，别扫码顶掉 MCP）、`asr.md` / `media-eyes.md`（本机转写、看图的现成工具）、`machine-quirks.md`（本机环境坑）。
+- 本仓：`README.md`、`docs/STATE.md` 顶部、本文件下方「0. 先读这些硬约束」（1 公开仓不进密钥、2 不自研爬虫、4 RAW 不可变、5 vault 目录结构，照旧有效）。
+- 测试：`python -m pytest -q`（现 147 passed）；`node tests/test_catalog_interactions.cjs`；`tests/catalog_ui_smoke.cjs` 要先设 `NODE_PATH=C:\Users\18717\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\node_modules`（playwright 只在这有）。
+
+### 新增硬约束（0918）
+
+1. **vault 可能挂在别的库的子目录里。** Owner 的主库 `D:\LER Vault` 用 junction 把本 vault 挂成 `知识库【小红书】/`。所以 Obsidian 里一切 vault 相对路径都要过前缀：页面里用 `lbPath()`（`catalog-view.js` / `chat-view.js` 顶部），插件里用 `this.lbPath()` / `this.plugin.lbPath()`，批注块见 `render.py _annotate_block`。**新写的任何 `adapter.read/write`、`getResourcePath`、`openLinkText`、`getAbstractFileByPath` 都不许写死 `_archive/...`**。独立打开 lwa vault 时前缀为空，照样能用。两种打开方式都要能用。
+2. 部署：插件源在 `obsidian-plugins/`，改完复制到 `vault/.obsidian/plugins/<同名>/`。LER Vault 那边是 junction 指过来的，不用再拷。页面改完跑 `python -m link_brain catalog`；笔记模板（render.py）改完跑 `python -m link_brain render --all`。插件改完 Owner 要在 Obsidian 里 Ctrl+P「重新加载」。
+3. 本地 commit，**不推远端**。仓是 PUBLIC，密钥（DashScope key、插件 `data.json`）永不进仓、不进日志。
+4. 问 AI 提速允许**覆盖旧硬约束 3**：可以在进程内直接调 OpenAI 兼容接口（`ask.py` 已有 `_call_http`），不必每次再起 `media.py` 子进程。key 的取法照 `media.py`（env `DASHSCOPE_API_KEY` 或 `D:\AI\models\千问*apiKey*.csv`），不落盘、不打印。
+5. 仍然不起 HTTP 服务（`favorites.py:11` 的设计规矩）。常驻进程用 stdio 管道可以。
+
+### 优先级
+
+依次是 ① 删除进回收站 + 不再同步 → ② 视频能播 → ③ 「+」样式 → ④ AI 搜索又快又准 → ⑤ 给 TG 的查询接口 → ⑥ 页面美化。①②③ 是明确的缺陷或需求，先做；④⑤ 共用同一套检索，一起做；⑥ 最后。
+
+---
+
+### ① 删除收藏：进回收站，并且以后不再同步
+
+**现状**
+- `remove.py:17-38` 是硬删：unlink 可见笔记、`rmtree` 对象目录（含批注 `notes.json`）、`DELETE FROM objects`（级联 sources/relations）。
+- 没有任何删除记录。`favorites.py` 夜跑只按 `ingest.py:286` 的 index HIT 去重，所以**删掉但仍在小红书收藏夹前 50 条里的笔记，下一次同步会原样回来**。
+- ⭐ 收藏副本（`note.py:84,93-109`，复制到 vault 根）删的时候没带走，会变孤儿。
+- 已有一个孤儿：`vault/Web/Xiaohongshu/ai真拿数学猜想当benchmark刷了.md`，`_archive` 对象已经没了，也不在目录里。
+
+**Owner 的意思**：删了就是干净删掉，以后同步不再拉回来；但要有一个专门的地方放删掉的收藏（回收站）。
+
+**做法**
+- index.db 加 `tombstones` 表：source、source_id、item_id、title、url、cover、deleted_at、trash_dir。**这张表只增不删**，它就是「以后别再同步」的依据。
+- `delete` 改成移动：可见笔记 + 整个对象目录 + ⭐ 副本 → `vault/_trash/<source>/<source_id>/`（保留 notes.json，恢复时批注还在）。`objects` 行照旧删掉，再写一条墓碑。
+- 同步与导入：
+  - `ingest_url` 查到墓碑时，`favorites` 夜跑直接跳过，日志记「已删除，跳过」，不报警。
+  - Owner 手动贴链接导入一条已删除的，返回 `status: "trashed"`。插件弹窗提示「这条在回收站，要恢复吗」，不要静默重抓。
+- 回收站页面：`vault/回收站.md`，dataviewjs 列出墓碑（封面、标题、删除日期），支持两个操作：
+  - 「恢复」：移回原处，重建 index 行，删掉墓碑。
+  - 「彻底删除」：删掉 `_trash` 里的文件，**墓碑保留**，所以仍然永不同步。
+  - 页顶再加一个「清空回收站」。
+  - 目录页右上加个小入口可以进来。
+- `_trash` 用下划线开头（Obsidian 不索引点号开头的目录）。然后在 Obsidian 的「设置 → 文件与链接 → 排除的文件」里加上它，别让它进全局搜索。这一步是 Owner 的设置，写在交付说明里请她点，或者在插件 onload 时提示。
+- 顺手清掉上面那个孤儿笔记：移进 `_trash`，写墓碑。
+
+**验收**：pytest 覆盖以下三条，并在真实 vault 里删一条、恢复一条走一遍，截图或日志留证。
+- 删了之后不在目录里、`_trash` 里有、墓碑有，`sync-favorites` 跑一次不会回来。
+- 恢复后批注还在。
+- 彻底删除后墓碑还在。
+
+### ② 视频：笔记里能直接播、能拖进度条，并且为后续（转写）打底
+
+**现状**
+- **抓取有 bug**：`adapters/xiaohongshu.py:425-444 _video()` 只认 `h265/h264/av1` 这几个 key。真实数据 27 条视频里 26 条的 stream key 是 `EF4..EF7`，所以 `video_url` 基本全是 null。其实 `mcp_raw.json` 里 `data.note.video.media.stream.EF4[0].masterUrl` 和 `backupUrls` 都有。
+- `ingest.py:142-157` 按设计不下载视频本体；`render.py:370-394` 只放封面，外加一个「视频 · 未下载」角标，没有 `<video>`。
+- 没有转写。视频笔记能搜的只有文案、封面 OCR 和评论。
+- 部分视频笔记的 title 是 null，导致文件名是 `untitled__…`、页面上 h2 是空的。
+
+**做法**
+- 修 `_video()`：遍历 stream 下所有 key，按「h264 > av1 > h265」挑，编码看条目里的 codec 字段，不看 key 名。Obsidian 是 Electron/Chromium，h264 最稳，HEVC 未必能解。保留 backupUrls。
+- **下载本体到本地**，这是 Owner 说的「内置版」：
+  - 存到 `_archive/xiaohongshu/<id>/raw/vNNNN/assets/video.mp4`。按硬约束 4，旧对象写新版本 v0002，不改 v0001。
+  - manifest 里 role=video 标 downloaded。
+  - 远程 URL 带签名、会过期，外链不可靠，只作为下载失败时的兜底。
+- 渲染：在轮播最前面放 `<video controls preload="metadata" poster="封面" src="相对路径">`，去掉「未下载」角标。
+  - 必须在真实 Obsidian 里验证**能播、能拖进度条**（本地文件 range 请求），LER Vault 子目录挂载下也要验证。
+  - 如果 HTML 块里的相对 src 在 Obsidian 里拖不动，就改用 Obsidian 原生嵌入 `![[...mp4]]`。注意 issue 0905 那条布局教训：原生嵌入必须放在 HTML 块外面，布局别动 `.lb-cols`。
+- 回填：写一个一次性命令，给现有 27 条补 URL 并下载，然后 `render --all`。
+- **后续：转写**。
+  - 下载后用本机 ASR 转写：`media.py audio`，走 CMX 8766 的本地 qwen3-asr，免费，见 `asr.md` 卡。
+  - 结果落 `derived/transcript.json`，给目录的 `search_fields` 加 `transcript` 字段（权重建议 6）。
+  - 笔记里在正文下面加一个可折叠的「视频文字稿」。
+  - title 为 null 的笔记，用 extracted 标题、转写首句或 OCR 兜底命名。
+  - 转写可以挂到夜跑里，别阻塞导入。
+- 体积：
+  - 统计 27 条的总大小写进交付说明。
+  - 手机端 Remotely Save 会把视频也同步过去。**问她**：要不要在手机同步里排除 `*.mp4`？推荐排除，手机上点原链看就行。
+
+**验收**
+- 27 条里能拿到 URL 的都下载了。
+- 真实 Obsidian 里任选 3 条能播、能拖、LER 里也行（截图）。
+- 至少 1 条有转写，并且能用转写里的词搜到。
+
+### ③ 目录页「+」：跟 Collections 一样，斜体、黑色、加粗
+
+**现状**
+- 标题 `.lbc-title`（`catalog-view.js:18`）：Georgia 斜体 42px，weight 600，颜色是继承的。
+- `+`（`.lbc-import`，`:19-20`）：Georgia 斜体 38px，**没设粗细**，颜色是 `--text-faint`，所以发灰发细。
+- 搜索页的 `.lbchat-plus`（`chat-view.js:44`）也一样。
+
+**做法**：两页的「+」都改成 `color: var(--text-normal); font-weight: <与标题一致>`，字号与标题一致或只小 2px，基线对齐。hover 仍然用 accent 色。标题和「+」统一用同一个 weight，建议 700。
+
+**验收**：两页截图并排，「+」和 Collections 看起来是同一套字。
+
+### ④ AI 搜索（/问题）：又快又准
+
+**现状：慢在哪**（`main.js:286-295` → `ask.py` → `llm.py:163-189` → `media.py`）
+- 每问一次冷启动 `python -m link_brain`：jieba 加载约 0.9s，重新解析 3.9MB 的 `catalog-data.json` 约 0.4s。
+- 然后**再冷启动第二个 python** 跑 `media.py text`，写临时文件。
+- 模型调用不流式、`max_tokens` 4000，UI 要等全部生成完才出字。
+- spawn 没设超时。
+
+**现状：不准在哪**（`ask.py:46-67`、`retrieval.py`）
+- 分词会**丢掉单字词**，并把复合词切碎。实测「从收藏里整理蒜香鱼片的做法」得到 `[整理, 鱼片, 做法]`，「蒜香」丢了。
+- 「整理」「做法」这类泛词不是停用词，而且各词得分是 OR 相加，噪音会盖过真正的主题词。
+- `ask` 里只有精确子串匹配：中文没有模糊或拼音匹配（目录 JS 里有），别名表只有 14 组，没有语义检索。
+- 摘录窗口从**第一个**命中处起、截 800 字，长菜谱或长附件里后面的关键步骤会被截掉。
+- 同分时按日期排，新的优先。
+- intent 正则会误判：含「原文」「链接」再加「给我」「所有」就直接出链接列表，不调模型。
+- 回答指令塞在 user 消息里，system 消息是 media.py 的通用提示。
+
+**做法**
+- **先建评测集**：
+  - 请 Owner 给 15–20 个她真实会问的问题，或从 `_archive/chat-session.json` / `chat-archive.json` 的历史里挑，每题标出应该命中的笔记。
+  - 写进 `docs/BENCH.md` 和一个 `tests/` 评测脚本，指标用 recall@8，外加首字延迟和总耗时。
+  - **改动前先测一次基线**，没有数字不算完成。
+- 快：
+  - 插件里起一个**常驻 stdio worker**（`python -m link_brain serve --stdio`，JSON-lines，懒启动、崩了自动重启、空闲 10 分钟自动退），catalog 和 jieba 只加载一次，文件 mtime 变了再重读。
+  - 模型改为进程内 HTTP 调用，`stream=true`，逐块回传给 UI 边收边渲染。
+  - `max_tokens` 取设置里的值（默认约 1200）。
+  - 模型 id 以 `link_brain/assets/llm-config.yaml` 为准（现在是 qwen3.7-flash）。
+  - 目标：首字 ≤2s，常见问题总耗时比基线减半。
+- 准：
+  - 分词：jieba 用 `cut_for_search`；保留查询里的单字与原词；加中文字 bigram 兜底；建一张问句泛词停用表（整理/做法/怎么/有哪些/推荐/收藏里…）。
+  - 排序：改成 BM25（手写即可，185 条规模不需要库），保留字段权重，并奖励覆盖更多不同查询词的条目；同分不再按日期排。
+  - 摘录：在正文、附件、转写里取**得分最高的若干窗口**，不只取第一处命中。
+  - 可选：用快模型把问题改写成关键词（`expandTerms`）。常驻 worker 之后成本就小了，用评测集决定开不开。
+  - 可选：语义检索。先查 CMX（`D:\AI\PI-Personal-Instance-OS`）有没有现成的本地 embedding；有就做混合检索，没有就不引入新依赖。同样用评测集决定。
+  - 指令放进 system 消息。intent 正则收紧，只在明确要链接清单时才短路。
+
+**验收**：`BENCH.md` 里有改动前后的对比表（recall@8、首字延迟、总耗时）；真实 Obsidian 里问 3 个问题，截图显示流式出字。
+
+### ⑤ 给 TG（Fable）的查询接口
+
+Owner 想让 TG 上的 Fable 能直接查这个库。Fable 本身就是大模型，**不需要本库再调一次模型帮她回答**。给她检索结果（摘录 + 链接），她自己组织语言，这样更快、不花额外 token、也不会二次失真。
+
+**现状**
+- `lwa.py --find` 只返回 5 行「标题｜id｜摘要 40 字」（`Fluffy-SelfHood\tools\scripts\lwa.py:105-121`）。
+- 本仓已有 `search --json`、`read --brief/--full --json`、`ask --request-stdin`（README 28-92 行有契约说明）。
+
+**做法**
+- `lwa.py` 加 `--ask "问题"`：调用与 ④ **同一套**检索（不许分叉出第二套逻辑），返回 top-k。每条包含标题、2–3 段命中摘录（总长有上限，建议 ≤2500 字）、`obsidian://` 深链、手机可开的 `https://lwa.ler428.xyz/...` 链接、附件和转写是否存在。给 `--json` 和人读两种格式。
+- `--full <item_id>` 取整篇 agent.md，给 Fable 深读用。
+- `lwa.py` 在 Fluffy 仓（本地 git，永不推），改完要在 `light-web-archive` 卡的 run 节写清用法，让 Fable 知道有这个。
+- **不改 cyberboss / Telegram 代码**。要做成 MCP 工具是另一条工程流，先不做。
+
+**验收**：命令行跑 3 个问题，输出里有能用的摘录和链接，耗时写进交付说明。
+
+### ⑥ 页面美化：简洁大气
+
+现状字体：界面走 `var(--font-interface), "Segoe UI", "Microsoft YaHei"`，标题和「+」用 Georgia 斜体（Playfair 本机没装，实际显示的是 Georgia）。本机装了 **Noto Sans SC**（含 Light/Medium/Black 各字重），没装任何中文衬线体。
+
+**建议**（保持现有结构，只收细节。先出一版截图给 Owner 看，她说不好再改；不要大改布局，布局栽过两次，见卡 issue 0905）
+- 字体：中文统一 `"Noto Sans SC", "Segoe UI", "Microsoft YaHei UI", sans-serif`。卡片标题用 Noto Sans SC 500、15px、行高 1.6；元信息 12px Light、`--text-muted`。标题 Georgia 斜体保留，那是点睛。不新装字体。
+- 标题区：「Collections +」同一字重（见 ③）。下面的计数和更新时间改成 11–12px、字距 .06em、`--text-faint`，跟标题拉开层级。
+- 分类条：去掉 `│` 分隔，改成 20–24px 间距；选中项用 `--text-normal` 加 2px 下划线，不用 accent 色块。整体更安静。
+- 卡片：
+  - 封面去掉 1px 边框（瀑布流里边框很碎）。
+  - 圆角 16→12。
+  - hover 只做轻微上浮（`translateY(-2px)`）和轻阴影，不做变暗。
+  - 卡片纵向间距统一到 8 的倍数（32/40）。
+- 颜色：全页只留一种强调色。附件「待补」的橙色保留（它是警示），其余角标降为灰。
+- 空标题卡（`untitled__…`）：在 ② 修好命名前，先用摘要前 20 字顶上，别出现空白或 id。
+- 笔记页（`link-brain.css`）字体同样统一到 Noto Sans SC；正文宋体或楷体那一处（`link-brain.css:432`）保持现状，别动。
+
+**验收**：目录页和搜索页各截一张图（亮色、暗色），交给 Owner。
+
+---
+
+### 交付时回写
+
+- 本文件顶部这一节每项标「已做 / 部分 / 未做」和证据位置。
+- `docs/STATE.md` 顶部加一段，写本轮改了什么。
+- 本地 commit，不推。
+- Fluffy 的 `light-web-archive` 卡由 CC 窗口回写，你在交付说明里列出要更新的要点即可。
+
 ## 2026-09-16 本轮收尾与交接（优先于下方旧记录）
 
 Owner 要求：完成难点后交接余项，额度有限；不做 SHA 匹配，不推远端。以下基于当前代码和实测，不沿用旧版“问 AI 仅摘录”的描述。
