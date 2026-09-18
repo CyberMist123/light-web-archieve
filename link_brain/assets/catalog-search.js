@@ -27,7 +27,7 @@ function score(it, query, chars = {}, aliases = []) {
   }
   const title = fs.title;
   const hay = Object.values(fs).join(' ');
-  const weights={title:12,tags:10,body:7,attachments:6,ocr:5,comments:3,summary:2,author:1};
+  const weights={title:12,tags:10,body:7,attachments:6,transcript:6,ocr:5,comments:3,summary:2,author:1};
   let total = 0;
   for (const term of q.split(/\s+/).filter(Boolean)) {
     const variants=[term,...aliases.filter(g=>g.includes(term)||(term==='音'&&g.includes('音乐'))).flat()];

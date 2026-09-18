@@ -57,7 +57,7 @@
 
 ### ② 视频：笔记里能直接播、能拖进度条，并且为后续（转写）打底
 
-**状态：未做（2026-09-18，停在「问她」）。** 已读现有取流/下载/渲染代码，尚未修改或批量下载视频。下载进 vault 后可能立即被手机同步，因此先确认：是否在手机 Remotely Save 排除 `*.mp4`（推荐排除）。得到答复后继续②→⑥；①保留实机/完整夜跑验收缺口。
+**状态：部分（2026-09-18）**。27/27 视频已下载，全部 ffprobe 确认 h264，总计 667,953,203 字节（637.01 MiB）；旧 RAW 未修改，新建版本并引用旧图片。视频 controls/进度条、文字稿折叠、搜索 transcript 权重6、空标题回填已接通。蒜香鱼片已本机转写并重建目录；`render --all` 已跑。证据：`vault/_archive/qa-20260918/video-download.json`、`video-codecs.json`、`video-transcript.json`、`render-all.log`；`tests/test_videos.py` 三条通过，adapter/render 定向25条通过。Owner 已确认手机排除 MP4；当前电脑未装 Remotely Save，手机设置尚需 Owner 操作，不能声称已设置。实机截图工具故障、Obsidian CLI 未启用，3条播放/拖动与 LER 实机仍未验收。
 
 **现状**
 - **抓取有 bug**：`adapters/xiaohongshu.py:425-444 _video()` 只认 `h265/h264/av1` 这几个 key。真实数据 27 条视频里 26 条的 stream key 是 `EF4..EF7`，所以 `video_url` 基本全是 null。其实 `mcp_raw.json` 里 `data.note.video.media.stream.EF4[0].masterUrl` 和 `backupUrls` 都有。
@@ -92,7 +92,7 @@
 
 ### ③ 目录页「+」：跟 Collections 一样，斜体、黑色、加粗
 
-**状态：未做（等待前序完成）。**
+**状态：部分（2026-09-18）**。两页标题与加号已统一700字重、text-normal、Georgia斜体，42/40px；最终截图与⑥一起验。Owner 新确认保留纯＋，两页统一顶栏、浏览收藏/问收藏分区，管理项收至…，菜单明确导入网址/同步收藏夹。
 
 **现状**
 - 标题 `.lbc-title`（`catalog-view.js:18`）：Georgia 斜体 42px，weight 600，颜色是继承的。
@@ -163,7 +163,7 @@ Owner 想让 TG 上的 Fable 能直接查这个库。Fable 本身就是大模型
 
 ### ⑥ 页面美化：简洁大气
 
-**状态：未做（等待前序完成）。**
+**状态：未做（方案已由 Owner 确认）。** 保留纯＋，其余采用共用顶栏、明确浏览收藏/问收藏、灰阶留白、单一强调色、来源折叠与管理菜单。参照 Apple HIG 工具栏，不照搬复杂玻璃效果。
 
 现状字体：界面走 `var(--font-interface), "Segoe UI", "Microsoft YaHei"`，标题和「+」用 Georgia 斜体（Playfair 本机没装，实际显示的是 Georgia）。本机装了 **Noto Sans SC**（含 Light/Medium/Black 各字重），没装任何中文衬线体。
 

@@ -2,7 +2,7 @@
 
 规则（docs/FORMAT.md、docs/TASKBOOK.md Lot 3）：
 - 每张图一条记录，`asset` 回指相对对象目录的 RAW 路径（`raw/v0001/assets/xxx.webp`）。
-- 按 sha256 跳过已经识别过的图，避免重复调用 media.py。
+- 按不可变 RAW 资产路径跳过已经识别过的图，避免重复调用 media.py。
 - 单张图调用失败记 `status:"failed"`，不阻断整体流程。
 """
 
@@ -74,7 +74,7 @@ def run_ocr(image_path: Path, *, timeout: int = 120) -> dict[str, Any]:
 def build_vision(source_key: str, source_id: str, *, verbose: bool = False) -> dict[str, Any]:
     """对当前版本 `raw/vNNNN/assets/` 下每张图跑 OCR，落 `derived/vision.json`。
 
-    按 sha256 跳过已识别的图（已有 vision.json 里同 sha256 且 status=ok 的条目原样保留）。
+    按不可变 RAW 资产路径复用 OCR；manifest 引用旧版本图片时同样保留。
     返回写盘的 vision.json 内容。
     """
     object_dir = storage.object_dir(source_key, source_id)
@@ -89,30 +89,22 @@ def build_vision(source_key: str, source_id: str, *, verbose: bool = False) -> d
 
     derived_dir = storage.derived_dir(source_key, source_id)
     vision_path = derived_dir / "vision.json"
-    existing: dict[str, Any] = {}
+    existing = {}
     if vision_path.exists():
-        prior = storage.read_json(vision_path)
-        for item in prior.get("images", []):
-            if item.get("sha256"):
-                existing[item["sha256"]] = item
-
-    images: list[dict[str, Any]] = []
-    if assets_dir.is_dir():
-        for path in sorted(assets_dir.iterdir()):
-            if not path.is_file() or path.suffix.lower() not in IMAGE_SUFFIXES:
-                continue
-            sha = _sha256_file(path)
-            asset_rel = f"{rel_prefix}/{path.name}"
-            cached = existing.get(sha)
-            if cached and cached.get("status") == "ok":
-                images.append({**cached, "asset": asset_rel, "sha256": sha})
-                if verbose:
-                    print(f"[vision] 跳过（已识别）{asset_rel}", file=sys.stderr)
-                continue
-            if verbose:
-                print(f"[vision] OCR {asset_rel}", file=sys.stderr)
-            result = run_ocr(path)
-            images.append({"asset": asset_rel, "sha256": sha, **result})
+        existing = {item['asset']: item for item in storage.read_json(vision_path).get('images', []) if item.get('asset')}
+    manifest = storage.read_json(raw_dir / 'manifest.json')
+    assets = [m['file'] for m in manifest.get('media', []) if m.get('file') and Path(m['file']).suffix.lower() in IMAGE_SUFFIXES]
+    images = []
+    for asset_rel in dict.fromkeys(assets):
+        path = object_dir / asset_rel
+        if not path.is_file():
+            continue
+        cached = existing.get(asset_rel)
+        if cached and cached.get('status') == 'ok':
+            images.append(cached)
+            continue
+        result = run_ocr(path)
+        images.append({'asset': asset_rel, **result})
 
     doc = {
         "schema_version": 1,

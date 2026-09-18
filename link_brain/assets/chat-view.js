@@ -40,8 +40,8 @@ style.textContent = `
 .lbchat-head{display:flex;flex-direction:column;align-items:center;text-align:center;gap:12px;margin:8px 0 22px;}
 .lbchat-titleblock{display:flex;flex-direction:column;align-items:center;gap:6px;}
 .lbchat-titlerow{display:flex;align-items:baseline;justify-content:center;gap:9px;}
-.lbchat-title{font-family:Georgia,'Playfair Display','Times New Roman',serif;font-style:italic;font-size:42px;font-weight:600;letter-spacing:.01em;line-height:1.05;color:var(--text-normal);}
-.lbchat-plus{font-family:Georgia,'Playfair Display','Times New Roman',serif;font-style:italic;font-size:38px;line-height:1;color:var(--text-faint);cursor:pointer;transition:color .12s;}
+.lbchat-title{font-family:Georgia,'Playfair Display','Times New Roman',serif;font-style:italic;font-size:42px;font-weight:700;letter-spacing:.01em;line-height:1.05;color:var(--text-normal);}
+.lbchat-plus{font-family:Georgia,'Playfair Display','Times New Roman',serif;font-style:italic;font-size:40px;font-weight:700;line-height:1;color:var(--text-normal);cursor:pointer;transition:color .12s;}
 .lbchat-plus:hover{color:var(--interactive-accent);}
 .lbchat-sub{font-size:12px;color:var(--text-faint);letter-spacing:.02em;}
 .lbchat-search{width:100%;max-width:440px;height:38px;text-align:center;border:none!important;border-bottom:1px solid var(--background-modifier-border)!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;padding:0 2px!important;font-size:15px!important;color:var(--text-normal);margin-top:2px;transition:border-color .15s;}
