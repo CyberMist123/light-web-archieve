@@ -26,7 +26,7 @@
 
 ### ① 删除收藏：进回收站，并且以后不再同步
 
-**状态：部分（2026-09-18）**。回收站后端/页面、导入恢复提示、同步屏蔽、星标副本已实现并部署；真实 vault 删除—恢复与批注原字节对照通过，指定孤儿已移动。证据：`vault/_archive/qa-20260918/trash-roundtrip.json`；测试 `tests/test_remove.py` 新增三条通过，原 147 项全套通过，Node 两套通过（浏览器旧测试桩补齐现有菜单和 lbPath 接口）。同步证据为真实对象的单条收藏列表重放，尚未完整跑外部 favdump 夜跑；Obsidian 页面实机待验。恢复是解除墓碑的唯一例外；彻底删除/清空均保留墓碑。孤儿缺 RAW，仅保留笔记文件，不伪装可恢复归档。
+**状态：部分（2026-09-18）**。回收站后端/页面、导入恢复提示、同步屏蔽、星标副本已实现并部署；真实 vault 删除—恢复与批注原字节对照通过，指定孤儿已移动。证据：`vault/_archive/qa-20260918/trash-roundtrip.json`；测试 `tests/test_remove.py` 新增三条通过，原 147 项全套通过，Node 两套通过（浏览器旧测试桩补齐现有菜单和 lbPath 接口）。同步证据为真实对象的单条收藏列表重放，尚未完整跑外部 favdump 夜跑；Obsidian 页面实机待验：computer-use 截图 `SetIsBorderRequired 0x80004002`，UIA 输入控件 `0x80070057`，未宣称 UI 验收。恢复是解除墓碑的唯一例外；彻底删除/清空均保留墓碑。孤儿缺 RAW，仅保留笔记文件，不伪装可恢复归档。
 
 **现状**
 - `remove.py:17-38` 是硬删：unlink 可见笔记、`rmtree` 对象目录（含批注 `notes.json`）、`DELETE FROM objects`（级联 sources/relations）。
@@ -57,7 +57,7 @@
 
 ### ② 视频：笔记里能直接播、能拖进度条，并且为后续（转写）打底
 
-**状态：未做（等待前序完成）。**
+**状态：未做（2026-09-18，停在「问她」）。** 已读现有取流/下载/渲染代码，尚未修改或批量下载视频。下载进 vault 后可能立即被手机同步，因此先确认：是否在手机 Remotely Save 排除 `*.mp4`（推荐排除）。得到答复后继续②→⑥；①保留实机/完整夜跑验收缺口。
 
 **现状**
 - **抓取有 bug**：`adapters/xiaohongshu.py:425-444 _video()` 只认 `h265/h264/av1` 这几个 key。真实数据 27 条视频里 26 条的 stream key 是 `EF4..EF7`，所以 `video_url` 基本全是 null。其实 `mcp_raw.json` 里 `data.note.video.media.stream.EF4[0].masterUrl` 和 `backupUrls` 都有。
