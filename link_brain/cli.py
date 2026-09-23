@@ -124,7 +124,21 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("catalog", help="重写 vault 里的收藏目录页（纯程序拼，不联网）")
     p.add_argument("--print-cats", action="store_true", help="只打印当前生效的大类（设置页载入用），不重建")
 
-    p = sub.add_parser("embed", help="chunk 索引 + embedding 旁挂（增量写 semantic.db；没 key 时失败但不影响其它命令）")
+    p = sub.add_parser("topic", help="星标主题：口头建、AI 配关键词，目录页 cats 栏下出一排 chip（输出 JSON）")
+    tsub = p.add_subparsers(dest="topic_command")
+    pt = tsub.add_parser("add", help="建主题：用问答模型扩 5-10 个关键词（模型不可用就用主题名本身）")
+    pt.add_argument("name", help="主题名，如「AI 记忆层」")
+    pt.add_argument("--no-catalog", dest="no_catalog", action="store_true", help="不顺手重建目录")
+    tsub.add_parser("list", help="列出主题（含命中篇数，按上次重建的目录算）")
+    pt = tsub.add_parser("remove", help="删主题")
+    pt.add_argument("ref", help="主题 id 或名字")
+    pt.add_argument("--no-catalog", dest="no_catalog", action="store_true", help="不顺手重建目录")
+    pt = tsub.add_parser("rename", help="改主题名（关键词不变）")
+    pt.add_argument("ref", help="主题 id 或旧名字")
+    pt.add_argument("new_name", help="新名字")
+    pt.add_argument("--no-catalog", dest="no_catalog", action="store_true", help="不顺手重建目录")
+
+    p = sub.add_parser("embed",help="chunk 索引 + embedding 旁挂（增量写 semantic.db；没 key 时失败但不影响其它命令）")
     p.add_argument("--all", action="store_true", help="忽略已有向量，全部重算")
 
     p = sub.add_parser('retrieve', help='给 AI 返回命中摘录和链接，不调用模型')
@@ -203,6 +217,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == 'videos':
         from . import videos
         return videos.run(args)
+    if args.command == 'topic':
+        from . import topics
+        return topics.run(args)
     if args.command == 'embed':
         from . import semantic
         return semantic.run(args)

@@ -65,3 +65,96 @@ assert.equal(Plugin.serializeCats(cats),'人机恋: 人机恋, ai伴侣\n吃的:
   assert.ok(p3.settings.prompts.answer.length>10);
   console.log('PASS: fuzzy/pinyin/tag search, URL cleaning, deduplication, import results and rebuild, answerArchive, settings defaults');
 })().catch(e=>{console.error(e);process.exitCode=1;});
+
+// ── Lot E 星标主题 chip：用极简假 DOM 真跑整段目录页脚本（search + view） ──
+// 断言：无主题时不建 .lbc-topics（DOM 与没有这功能时一致）；有主题时 chip 出现、点击过滤、再点取消、
+// 与「全部」/大类联动；全页不设 aria-label（Obsidian 会渲染成悬浮框，Owner 不要）。
+function fakeDom(){
+  class El{
+    constructor(tag){this.tagName=String(tag).toUpperCase();this.children=[];this.parent=null;this.attrs={};this.classList=new Set();this.style={};this.hidden=false;this._text='';}
+    get className(){return [...this.classList].join(' ');}
+    set className(v){this.classList=new Set(String(v||'').split(/\s+/).filter(Boolean));}
+    get textContent(){return this._text+this.children.map(c=>typeof c==='string'?c:c.textContent).join('');}
+    set textContent(v){this.children=[];this._text=String(v);}
+    createEl(tag,opts={}){const el=new El(tag);if(opts.cls)el.className=opts.cls;if(opts.text!=null)el._text=String(opts.text);for(const [k,v] of Object.entries(opts))if(!['cls','text'].includes(k))el.setAttribute(k,v);this.append(el);return el;}
+    append(...nodes){for(const n of nodes){if(n instanceof El){n.parent=this;}this.children.push(n);}}
+    prepend(n){if(n instanceof El)n.parent=this;this.children.unshift(n);}
+    appendText(t){this.children.push(String(t));}
+    empty(){this.children=[];this._text='';}
+    setText(t){this.textContent=t;}
+    remove(){if(this.parent){this.parent.children=this.parent.children.filter(c=>c!==this);this.parent=null;}}
+    setAttribute(k,v){this.attrs[k]=String(v);}
+    getAttribute(k){return this.attrs[k]??null;}
+    hasClass(c){return this.classList.has(c);}
+    closest(){return null;}
+    matches(sel){const m=sel.match(/^([a-z]*)((?:\.[\w-]+)*)(?::not\(\.([\w-]+)\))?$/i);if(!m)return false;
+      if(m[1]&&this.tagName!==m[1].toUpperCase())return false;
+      for(const c of (m[2]||'').split('.').filter(Boolean))if(!this.classList.has(c))return false;
+      return !(m[3]&&this.classList.has(m[3]));}
+    all(){const out=[];for(const c of this.children)if(c instanceof El){out.push(c,...c.all());}return out;}
+    querySelector(sel){return this.all().find(e=>e.matches(sel))||null;}
+    querySelectorAll(sel){return this.all().filter(e=>e.matches(sel));}
+    getBoundingClientRect(){return {width:0,height:0};}
+  }
+  const body=new El('body');
+  const document={body,addEventListener(){},removeEventListener(){},querySelectorAll:s=>body.querySelectorAll(s),createElementNS:(ns,t)=>new El(t)};
+  return {El,document};
+}
+async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/catalog-view.js','utf8')}={}){
+  const {El,document}=fakeDom();
+  const root=new El('div');const window={alert(){},confirm:()=>false};
+  const app={vault:{adapter:{read:async()=>JSON.stringify(data),getResourcePath:x=>x},getAbstractFileByPath:()=>null},
+    plugins:{plugins:{'link-brain-actions':{settings:{hiddenCats:[]},openAttachments(){},openCategories(){},openLibraryPage(){}}}},
+    workspace:{openLinkText(){}}};
+  const dv={container:root,current:()=>({file:{folder:''}}),page:()=>null};
+  const search=fs.readFileSync('link_brain/assets/catalog-search.js','utf8');
+  await new Function('app','dv','document','window','return (async()=>{'+search+'\n'+view+'\n})()')(app,dv,document,window);
+  const cards=()=>root.querySelectorAll('.lbc-card').map(c=>c.querySelector('.lbc-ctitle').textContent);
+  const chips=()=>root.querySelectorAll('.lbc-topic');
+  const cat=label=>root.querySelectorAll('.lbc-cat').find(b=>b.textContent===label);
+  return {root,cards,chips,cat};
+}
+(async()=>{
+  const base={built_at:new Date().toISOString(),pinyin_chars:{},aliases:[],cats_order:['记忆','吃的'],cats:[],items:[
+    {id:'a',title:'长期记忆方案',tags:['记忆'],cats:['记忆'],topics:['AI 记忆层'],summary:'',search_text:'',attachment:'none'},
+    {id:'b',title:'快手菜',tags:['菜谱'],cats:['吃的'],topics:[],summary:'',search_text:'',attachment:'none'},
+    {id:'c',title:'睡前记忆整理',tags:['睡眠'],cats:['记忆'],topics:['AI 记忆层','睡眠'],summary:'',search_text:'',attachment:'none'},
+  ]};
+  // 无主题（旧数据没有 topics 键 / 新数据 topics:[]）：整行不建，卡片照旧
+  for(const data of [{...base,items:base.items.map(({topics,...it})=>it)},{...base,topics:[]}]){
+    const page=await runCatalogPage(data);
+    assert.equal(page.root.querySelectorAll('.lbc-topics').length,0);
+    assert.deepEqual(page.root.querySelector('.lbc-top').children.map(c=>c.className),['lbc-head','lbc-cats']);
+    assert.equal(page.cards().length,3);
+  }
+  // 有主题：chip 出现、★ 前缀、点击过滤、再点取消
+  const page=await runCatalogPage({...base,topics:['AI 记忆层','睡眠']});
+  assert.deepEqual(page.root.querySelector('.lbc-top').children.map(c=>c.className),['lbc-head','lbc-cats','lbc-topics']);
+  assert.deepEqual(page.chips().map(c=>c.textContent),['★AI 记忆层','★睡眠']);
+  assert.equal(page.chips()[0].querySelector('.lbc-topic-star').textContent,'★');
+  page.chips()[0].onclick();
+  assert.deepEqual(page.cards(),['长期记忆方案','睡前记忆整理']);
+  assert.ok(page.chips()[0].classList.has('is-active'));assert.equal(page.chips()[0].getAttribute('aria-pressed'),'true');
+  assert.ok(!page.cat('全部').classList.has('is-active'));
+  assert.ok(page.root.querySelector('.lbc-sub').textContent.startsWith('2 / 3 篇'));
+  page.chips()[0].onclick();
+  assert.equal(page.cards().length,3);assert.ok(page.cat('全部').classList.has('is-active'));
+  // 单选：切到「睡眠」只剩 c
+  page.chips()[0].onclick();page.chips()[1].onclick();
+  assert.deepEqual(page.cards(),['睡前记忆整理']);
+  assert.ok(!page.chips()[0].classList.has('is-active')&&page.chips()[1].classList.has('is-active'));
+  // 「全部」清掉主题
+  page.cat('全部').onclick();
+  assert.equal(page.cards().length,3);assert.ok(page.chips().every(c=>!c.classList.has('is-active')));
+  // 与大类叠加：吃的 ∩ AI 记忆层 = 空；记忆 ∩ AI 记忆层 = a,c
+  page.cat('吃的').onclick();page.chips()[0].onclick();
+  assert.equal(page.cards().length,0);
+  page.cat('记忆').onclick();
+  assert.deepEqual(page.cards(),['长期记忆方案','睡前记忆整理']);
+  // 全页不设 aria-label
+  assert.equal(page.root.all().filter(e=>'aria-label' in e.attrs||'title' in e.attrs).length,0);
+  // 主题名不认识的旧 activeTopic / 坏数据不炸
+  const bad=await runCatalogPage({...base,topics:[null,'',42]});
+  assert.equal(bad.root.querySelectorAll('.lbc-topics').length,0);
+  console.log('PASS: topic chips (absent when no topics, filter/toggle/single-select, 全部 reset, AND with cats, no aria-label)');
+})().catch(e=>{console.error(e);process.exitCode=1;});

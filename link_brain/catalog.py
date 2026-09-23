@@ -315,6 +315,17 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
     cats_order = [name for name, _ in effective_big_cats()] + [OTHER_CAT]
     present = {c for it in items for c in it["cats"]}
     cats_order = [c for c in cats_order if c in present]
+    # 星标主题（Lot E）：只是展示分组，写进 catalog-data 给目录页 chip 用，不进检索字段。
+    # fail-open：topics.json 缺/坏或算隶属出错 = 没有主题，页面与没这功能时一致。
+    try:
+        from . import topics as topics_mod
+
+        topic_list = topics_mod.load(vault)
+        member = topics_mod.memberships(items, topic_list) if topic_list else {}
+    except Exception:  # noqa: BLE001
+        topic_list, member = [], {}
+    for it in items:
+        it["topics"] = member.get(str(it.get("id")), [])
     data_path.write_text(
         json.dumps(
             {
@@ -323,6 +334,7 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
                 "count": len(items),
                 "cats_order": cats_order,
                 "cats": [{"name": name, "keywords": list(kws)} for name, kws in effective_big_cats()],
+                "topics": [t["name"] for t in topic_list],
                 "aliases": ALIASES,
                 "items": items,
                 "pinyin_chars": {c: lazy_pinyin(c)[0] for c in set(''.join(str(it['title']) + ' '.join(it['tags']) + it['summary'] for it in items)) if '\u4e00' <= c <= '\u9fff'},

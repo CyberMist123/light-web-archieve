@@ -156,6 +156,12 @@ style.textContent = `
 .lbc-titlerow{align-items:center;gap:10px;}
 .lbc-titlerow button{font-family:Arial,sans-serif!important;font-style:normal!important;font-size:28px!important;font-weight:300!important;width:30px!important;height:32px!important;line-height:1!important;display:grid;place-items:center;}
 .lb-manage{font-family:Arial,sans-serif!important;line-height:1!important;display:grid;place-items:center;}
+/* 星标主题 chip（Lot E）：cats 栏下一排，只在有主题时出现；与 cats 同字族，胶囊外框 + ★ 区分。 */
+.lbc-topics{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;margin:0;padding:0 0 12px;font-family:inherit;}
+.lbc-topics button.lbc-topic{flex:none;height:auto;padding:3px 11px;border:1px solid var(--background-modifier-border)!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--text-muted);font-size:12px;font-weight:400;line-height:1.6;cursor:pointer;transition:color .12s,border-color .12s;}
+.lbc-topics button.lbc-topic:hover{color:var(--text-normal);}
+.lbc-topics button.lbc-topic.is-active{color:var(--text-normal);border-color:var(--text-normal)!important;font-weight:500;}
+.lbc-topic-star{color:#d9a21b;margin-right:4px;}
 
 `;
 const pluginId='link-brain-actions';
@@ -218,11 +224,13 @@ importButton.onclick=async e=>{
 };
 // 大类筛选条（小红书式 tab，灰竖线分隔）：单选，一次一个；「全部」或再点当前项清空。
 let activeCat='';let todoOnly=false,mediaFilter='',starOnly=starredPage;
+// 星标主题（Lot E）：单选，再点取消；可与大类叠加过滤。没有主题时 activeTopic 恒为空、整行不建。
+let activeTopic='',topicBar=null;
 const catBar=top.createEl('div',{cls:'lbc-cats'});
 function renderCatBar(){
   catBar.empty();
   const mk=(label,active,on)=>{const s=catBar.createEl('button',{cls:'lbc-cat'+(active?' is-active':''),text:label});s.setAttribute('aria-pressed',String(active));s.onclick=()=>{if(label!=='…')chatMode=false;on();};return s;};
-  mk('全部',!activeCat&&!todayOnly&&!todoOnly&&!mediaFilter&&!starOnly,()=>{if(starredPage){provider().openLibraryPage('catalog');return;}if(activeCat||todayOnly||todoOnly||mediaFilter||starOnly){activeCat='';todayOnly=false;todoOnly=false;mediaFilter='';starOnly=false;renderCatBar();render();}});
+  mk('全部',!activeCat&&!todayOnly&&!todoOnly&&!mediaFilter&&!starOnly&&!activeTopic,()=>{if(starredPage){provider().openLibraryPage('catalog');return;}if(activeCat||todayOnly||todoOnly||mediaFilter||starOnly||activeTopic){activeCat='';todayOnly=false;todoOnly=false;mediaFilter='';starOnly=false;activeTopic='';renderCatBar();render();}});
   mk('今日新增',todayOnly,()=>{todayOnly=!todayOnly;if(todayOnly)todoOnly=false;renderCatBar();render();});
   mk('已收藏',starredPage,()=>provider().openLibraryPage(starredPage?'catalog':'starred'));
   mk('视频',mediaFilter==='video',()=>{mediaFilter=mediaFilter==='video'?'':'video';renderCatBar();render();});
@@ -232,6 +240,21 @@ function renderCatBar(){
   for(const cat of (data.cats_order||[]).filter(c=>!(provider()?.settings.hiddenCats||[]).includes(c))){
     const tab=mk(cat,activeCat===cat,()=>{activeCat=(activeCat===cat?'':cat);renderCatBar();render();});
     tab.oncontextmenu=e=>{e.preventDefault();editCategories(cat);};
+  }
+  renderTopicBar();
+}
+function renderTopicBar(){
+  const names=Array.isArray(data.topics)?data.topics.filter(n=>typeof n==='string'&&n):[];
+  if(!names.includes(activeTopic))activeTopic='';
+  if(!names.length){if(topicBar){topicBar.remove();topicBar=null;}return;}
+  if(!topicBar)topicBar=top.createEl('div',{cls:'lbc-topics'});
+  topicBar.empty();
+  for(const name of names){
+    // 不设 aria-label / title：Obsidian 会渲染成悬浮框（她不要）。
+    const chip=topicBar.createEl('button',{cls:'lbc-topic'+(activeTopic===name?' is-active':'')});
+    chip.createEl('span',{cls:'lbc-topic-star',text:'★'});chip.append(name);
+    chip.setAttribute('aria-pressed',String(activeTopic===name));
+    chip.onclick=()=>{chatMode=false;activeTopic=(activeTopic===name?'':name);renderCatBar();render();};
   }
 }
 // 多选删除状态
@@ -293,13 +316,13 @@ function openCardMenu(e,body,it){
 function render(){
   grid.empty();const cards=grid.createEl('div',{cls:'lbc-grid-inner'});const q=normalize(committed);const asking=chatMode;
   const now=new Date();const today=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
-  const shown=items.filter(it=>(!(starredPage||starOnly)||it.starred)&&(!mediaFilter||(mediaFilter==='video'?it.kind==='video':it.attachment&&it.attachment!=='none'))&&(!todayOnly||it.date===today)&&(!todoOnly||it.attachment==='待补')&&(!activeCat||(it.cats||[]).includes(activeCat))).map(it=>({it,score:score(it,q,data.pinyin_chars,data.aliases||[])})).filter(x=>x.score>0).sort((a,b)=>Number(!!b.it.starred)-Number(!!a.it.starred)||b.score-a.score);
-  sub.setText((q||todayOnly||todoOnly||starredPage||mediaFilter?`${shown.length} / ${items.length} 篇`:`${items.length} 篇`)+` · 更新 ${new Date(data.built_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}`);
+  const shown=items.filter(it=>(!(starredPage||starOnly)||it.starred)&&(!mediaFilter||(mediaFilter==='video'?it.kind==='video':it.attachment&&it.attachment!=='none'))&&(!todayOnly||it.date===today)&&(!todoOnly||it.attachment==='待补')&&(!activeCat||(it.cats||[]).includes(activeCat))&&(!activeTopic||(it.topics||[]).includes(activeTopic))).map(it=>({it,score:score(it,q,data.pinyin_chars,data.aliases||[])})).filter(x=>x.score>0).sort((a,b)=>Number(!!b.it.starred)-Number(!!a.it.starred)||b.score-a.score);
+  sub.setText((q||todayOnly||todoOnly||starredPage||mediaFilter||activeTopic?`${shown.length} / ${items.length} 篇`:`${items.length} 篇`)+` · 更新 ${new Date(data.built_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}`);
   const todoCount=items.filter(x=>x.attachment==='待补').length;
   if(todoCount){syncSpan.hidden=false;}else syncSpan.hidden=true;
   ai.hidden=!asking;grid.hidden=asking;
   if(asking){selbar.hidden=true;return;}
-  if(simplePage&&!starredPage&&!q&&!activeCat&&!todayOnly&&!todoOnly){grid.createEl('div',{cls:'lbc-empty',text:'搜收藏，或输入 /问题 让 AI 整理答案。'});selbar.hidden=true;return;}
+  if(simplePage&&!starredPage&&!q&&!activeCat&&!activeTopic&&!todayOnly&&!todoOnly){grid.createEl('div',{cls:'lbc-empty',text:'搜收藏，或输入 /问题 让 AI 整理答案。'});selbar.hidden=true;return;}
   selbar.hidden=!selectMode;
   if(selectMode){selCount.setText(`已选 ${selected.size} 篇 · 点封面继续勾选 · ESC 退出`);delBtn.setText(`删除选中${selected.size?' ('+selected.size+')':''}`);delBtn.disabled=!selected.size;}
   if(!shown.length){grid.createEl('div',{cls:'lbc-empty',text:'没找到，试试更短的关键词。'});return;}
