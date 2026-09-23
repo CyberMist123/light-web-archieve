@@ -30,4 +30,5 @@ testpaths = ["tests"]
 addopts = "-q"
 markers = [
     "real_web_probe: 跳过 conftest 的联网拦截（用例自己 monkeypatch httpx）",
+    "real_embeddings: 跳过 conftest 的 embedding HTTP 拦截（用例保证不带 key、不出网）",
 ]

@@ -124,6 +124,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("catalog", help="重写 vault 里的收藏目录页（纯程序拼，不联网）")
     p.add_argument("--print-cats", action="store_true", help="只打印当前生效的大类（设置页载入用），不重建")
 
+    p = sub.add_parser("embed", help="chunk 索引 + embedding 旁挂（增量写 semantic.db；没 key 时失败但不影响其它命令）")
+    p.add_argument("--all", action="store_true", help="忽略已有向量，全部重算")
+
     p = sub.add_parser('retrieve', help='给 AI 返回命中摘录和链接，不调用模型')
     p.add_argument('question')
     p.add_argument('--top-k', type=int, default=8)
@@ -200,6 +203,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == 'videos':
         from . import videos
         return videos.run(args)
+    if args.command == 'embed':
+        from . import semantic
+        return semantic.run(args)
     if args.command == 'retrieve':
         from .retrieval import retrieve_payload
         from .read import dump_json

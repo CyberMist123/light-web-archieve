@@ -9,7 +9,22 @@ from __future__ import annotations
 
 import pytest
 
+from link_brain import semantic
 from link_brain.adapters import xiaohongshu as xhs
+
+
+@pytest.fixture(autouse=True)
+def no_embedding_http(request, monkeypatch):
+    """本机 vault 可能已有 semantic.db + 真 key：测试一律掐断 embedding HTTP。
+
+    掐断后语义层按设计 fail-open 退纯词法，正好等于「没配 embedding」的行为；
+    要测语义命中的用例（tests/test_semantic.py）自己 monkeypatch mock provider 覆盖。
+    """
+    if "real_embeddings" in request.keywords:
+        return
+    def refuse(*args, **kwargs):
+        raise RuntimeError("测试环境不联网")
+    monkeypatch.setattr(semantic, "_post_embeddings", refuse)
 
 
 @pytest.fixture(autouse=True)

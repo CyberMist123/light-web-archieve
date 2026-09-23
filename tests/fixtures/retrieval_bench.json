@@ -106,5 +106,61 @@
     "expected": [
       "xhs-6aa3e13d0000000011032107"
     ]
+  },
+  {
+    "set": "paraphrase",
+    "question": "有没有那道用大蒜做鱼肉的家常菜谱",
+    "expected": [
+      "xhs-6a81877f000000003301adc6"
+    ]
+  },
+  {
+    "set": "paraphrase",
+    "question": "不用油锅怎么把蘑菇烤得像肉一样好吃",
+    "expected": [
+      "xhs-6a8965bc000000002800aed1"
+    ]
+  },
+  {
+    "set": "paraphrase",
+    "question": "让AI自己醒过来而不是被轮询唤起的思路",
+    "expected": [
+      "xhs-6a7e87e7000000003300d7c2"
+    ]
+  },
+  {
+    "set": "paraphrase",
+    "question": "AI睡觉时离线整理记忆的那套方案",
+    "expected": [
+      "xhs-6a4b49d0000000001700a2ef"
+    ]
+  },
+  {
+    "set": "paraphrase",
+    "question": "切换对话窗口上下文不丢的省心办法",
+    "expected": [
+      "xhs-6a7bf94f00000000050324b8"
+    ]
+  },
+  {
+    "set": "paraphrase",
+    "question": "苹果手机不交年费也能收到电话式通知",
+    "expected": [
+      "xhs-6a92832e000000002a03a4cf"
+    ]
+  },
+  {
+    "set": "paraphrase",
+    "question": "想跟claude打电话一样即时对话",
+    "expected": [
+      "xhs-6a3bcab8000000002200b640"
+    ]
+  },
+  {
+    "set": "paraphrase",
+    "question": "法律案例分析写作的思考框架",
+    "expected": [
+      "xhs-6aa3e13d0000000011032107"
+    ]
   }
 ]

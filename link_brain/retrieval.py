@@ -112,11 +112,41 @@ def query_facets(items, question):
     return clauses
 
 
+def semantic_hits(question):
+    """语义层 chunk 命中；任何失败返回 None，检索退纯词法（Lot B 硬约束）。"""
+    try:
+        from . import semantic
+        return semantic.query_hits(question)
+    except Exception:  # noqa: BLE001 - fail-open：语义层缺失/损坏不许影响词法路径
+        return None
+
+
+def _rrf(lexical_hits, sem, items, k=60):
+    """词法 BM25 排名 × 语义 chunk 排名的 RRF 混排；语义可引入词法零分的 item。"""
+    lex_rank = {it['id']: r for r, (_, it) in enumerate(lexical_hits, 1)}
+    sem_order = sorted(sem.items(), key=lambda kv: -kv[1]['score'])
+    sem_rank = {item_id: r for r, (item_id, _) in enumerate(sem_order, 1)}
+    by_id = {it.get('id'): it for it in items}
+    fused = []
+    for item_id in dict.fromkeys(list(lex_rank) + list(sem_rank)):
+        it = by_id.get(item_id)
+        if it is None:
+            continue
+        value = (1 / (k + lex_rank[item_id]) if item_id in lex_rank else 0) \
+              + (1 / (k + sem_rank[item_id]) if item_id in sem_rank else 0)
+        fused.append((value, it))
+    fused.sort(key=lambda x: (-x[0], str(x[1].get('id', ''))))
+    return fused
+
+
 def rank_query(items, question, terms=None):
     """Keep distinct clauses represented when a request contains several topics."""
     from .ask import query_terms
     terms=terms if terms is not None else query_terms(question)
     hits=rank(items,terms)
+    sem=semantic_hits(question)
+    if sem:
+        hits=_rrf(hits,sem,items)
     clauses=query_facets(items,question)
     if len(clauses)<2:return hits
     chosen=[];seen=set()
@@ -213,13 +243,26 @@ def retrieve_payload(question, top_k=8):
     from .ask import load_items, query_terms
     terms=query_terms(question)
     hits=rank_query(load_items(),question,terms)
+    sem=semantic_hits(question) or {}
     count=max(1,min(20,top_k))
     budget=max(100,2500//min(count,len(hits) or 1))
     results=[]
     for value,it in hits[:count]:
         note=it.get('note') or ''
+        parts=excerpts(it,terms,budget)
+        chunks=[c for c in (sem.get(it['id']) or {}).get('chunks') or [] if c.get('field')!='meta']
+        if chunks:
+            # 命中 chunk 的原文优先充当证据，词法窗口补足预算
+            evidence=[];used=0
+            for part in chunks+parts:
+                if used>=budget or len(evidence)==3:break
+                text=str(part['text'])[:budget-used]
+                if not text or any(text[:60] in e['text'] or e['text'][:60] in text for e in evidence):
+                    continue
+                evidence.append({'field':part['field'],'text':text});used+=len(text)
+            parts=evidence or parts
         results.append({'item_id':it['id'],'title':it['title'],'score':round(value,3),
-            'excerpts':excerpts(it,terms,budget),'note':note,
+            'excerpts':parts,'note':note,
             'obsidian_url':'obsidian://open?vault='+quote(os.environ.get('LINK_BRAIN_OBSIDIAN_VAULT','vault'))+'&file='+quote(note),
             'web_url':os.environ.get('LINK_BRAIN_WEB_URL','https://lwa.ler428.xyz').rstrip('/')+'/'+quote(note),
             'source_url':it.get('url'),'has_attachments':bool(it.get('attachment_files')),
