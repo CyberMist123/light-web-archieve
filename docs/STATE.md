@@ -1,5 +1,15 @@
 # Current State
 
+## 2026-09-24 Lot B：chunk 索引 + embedding 旁挂 + hybrid 检索
+
+新增 `link_brain/semantic.py`：catalog-data.json 的 items 切 chunk（body/ocr/attachments/transcript/comments 按自然段合并到 200-500 字，另加 title+tags+summary 的 meta 块），存独立 `vault/_archive/semantic.db`（chunks + embeddings 两表，content-hash 增量；不动 index.db / catalog-data.json / ingest 链路）。CLI 新增 `python -m link_brain embed`（增量，`--all` 重算）。Provider 是 OpenAI 兼容 /embeddings；模型/endpoint/dimensions/查询超时在 `assets/llm-config.yaml` 的 `embedding` 节。key 取法与问答一致（env DASHSCOPE_API_KEY 或仓外 CSV），不落盘不打印。实测本机 key 的 MaaS 网关没有 text-embedding-v4（403 Unpurchased）、公网 DashScope 欠费，配置改用网关有的 `qwen3.7-text-embedding-flash`（dimensions=1024 实测可用）。
+
+查询侧：`retrieval.rank_query` 升级 hybrid——semantic.db 存在且 query 向量拿得到（一次 HTTP，超时 5s，LRU 缓存 64 条）时，numpy 暴力余弦扫 chunk、chunk→item 取 max，与 BM25 做 RRF（k=60）混排，语义可召回词法零分的 item；`retrieve_payload` 里命中 chunk 的原文优先充当 excerpts 证据（meta 块不当证据）。fail-open 是硬约束：没 key / 没 semantic.db / numpy 缺失 / HTTP 失败/超时，全部退纯词法，行为与今天一致（有专门测试钉住）。
+
+验证：改动前基线 18 题 recall@8 = 1.0（`vault/_archive/qa-20260924/retrieval-baseline.json`）；改动后词法与 hybrid 双跑数字见同目录 `retrieval-lotb-*.json`。fixtures 新增 8 题 paraphrase 集（`"set":"paraphrase"`，换说法探针，不冒充金标），bench 分开统计并同时输出词法/hybrid 两列。新增 `tests/test_semantic.py` 9 项（全 mock provider，不打真网）；全套 pytest 通过。未碰 assets js / serve.py / mcp。
+
+遗留：夜跑挂载（在仓外 `xhs-fav-sync.ps1` 的 catalog 之后加一行 `python -m link_brain embed`，失败只告警不挡同步）尚未加；cats 检索权重清零等 bench 证明语义接住「搜大类名」再动（押后项照旧）。
+
 ## 2026-09-24 Lot C：MCP stdio server
 
 新增 `link_brain/mcp_server.py`（`python -m link_brain.mcp_server` 启动），手写 MCP stdio

@@ -1,5 +1,24 @@
 # BENCH — 检索与模型验证
 
+## 2026-09-24 Lot B：hybrid（BM25 × embedding RRF）
+
+基线（改动前）与改动后双跑，18 题金标 + 8 题 paraphrase 集（`"set":"paraphrase"`，换说法探针，不冒充金标）。embedding：`qwen3.7-text-embedding-flash`（本机 key 的 MaaS 网关没有 text-embedding-v4，403 Unpurchased；公网 DashScope 该账号欠费），dimensions=1024，全库 236 篇切 3917 chunk / 3912 唯一 hash。
+
+| 指标 | 词法-only | hybrid |
+|---|---|---|
+| 金标 18 题 recall@8 | 18/18（基线同） | 18/18（不退化 ✓） |
+| paraphrase 8 题 recall@8 | 6/8（75%） | 7/8（87.5%） |
+| 单题检索耗时 | 13–33 ms | 1.7–2.7 s（查询向量 HTTP 一次；LRU 缓存后重复问题回到本地扫描） |
+
+hybrid 补上的是「AI睡觉时离线整理记忆的那套方案」；两路都漏的是「让AI自己醒过来而不是被轮询唤起的思路」（AttentionField，正文偏实现细节）。fail-open 实测：无 db / 无 key / numpy 缺 / HTTP 超时全部退纯词法（tests/test_semantic.py 钉住）。证据：`vault/_archive/qa-20260924/retrieval-{baseline,lotb-lexical,lotb-hybrid}.json`。复跑：
+
+```powershell
+python -m link_brain embed          # 增量；--all 全部重算
+python tests/bench_retrieval.py --out vault/_archive/qa-20260924/retrieval-lotb-hybrid.json
+```
+
+嵌入全库一次约 15 分钟（392 个批次，中途超时可直接重跑续传）；查询侧每个新问题一次 embeddings 调用，费用可忽略。
+
 ## 2026-09-18 收藏问答与检索
 
 18题位于 `tests/fixtures/retrieval_bench.json`，题目和目标来自真实收藏，尚非 Owner 标注集。会话与存档历史为空，因此这是暂定工程评测，已向 Owner 征集常用原句。一次修正了“记忆做梦”目标ID的抄写错误，改前/改后一起重算；原始 top8 未改。不能用这18题推断任意问题准确率。

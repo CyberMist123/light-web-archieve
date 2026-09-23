@@ -22,3 +22,15 @@ limits:
   max_tags: 8
 
 timeout_sec: 180
+
+# Lot B：embedding 旁挂（可选层）。没 key / 没跑过 `python -m link_brain embed` /
+# numpy 缺失时，检索退纯词法，行为与没有这一层完全一致（fail-open 硬约束）。
+# key 取法与问答一致：env DASHSCOPE_API_KEY 或仓外 CSV，绝不写进本仓。
+embedding:
+  # 本机 key 走的 MaaS 网关没有 text-embedding-v4，用它有的 qwen3.7 embedding flash
+  model: qwen3.7-text-embedding-flash
+  # 留空 = DashScope OpenAI 兼容 /embeddings；自定义时写完整 URL
+  endpoint: ""
+  dimensions: 1024
+  # 查询向量单次 HTTP 超时（秒）；超时/失败即退纯词法
+  query_timeout_sec: 5
