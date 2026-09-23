@@ -22,7 +22,7 @@ def delete_item(conn, item_id: str) -> dict[str, Any]:
     row = index_mod.get_object(conn, item_id)
     if row is None:
         return {'item_id': item_id, 'status': 'missing'}
-    from .note import _copy_target
+    from .render import sanitize_title
     vault = storage.vault_root()
     obj = storage.object_dir(row['source'], row['source_id'])
     meta = storage.read_json(obj / 'meta.json') if (obj / 'meta.json').exists() else {}
@@ -36,7 +36,8 @@ def delete_item(conn, item_id: str) -> dict[str, Any]:
     snapshot['objects'][0]['visible_note'] = visible
     files = []
     candidates = [vault / visible] if visible else []
-    star = _copy_target(meta.get('title') or row['title'])
+    # 旧版 ⭐ 会把可见笔记复制到 vault 根；副本机制已删，这里仍要清扫历史遗留副本
+    star = vault / f"{sanitize_title(meta.get('title') or row['title'] or '未命名收藏')}.md"
     if star.exists():
         text = star.read_text(encoding='utf-8')
         if item_id in text or row['source_id'] in text:
