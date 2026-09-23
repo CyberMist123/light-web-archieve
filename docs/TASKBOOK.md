@@ -1,6 +1,51 @@
 # light-web-archieve V1 任务书（小红书归档基座）
 
-## 2026-09-18 交接给 GPT：六项优化（本段优先于下方全部旧记录）
+## 2026-09-24 批次：检索语义层（本段优先于下方全部旧记录）
+
+写于 2026-09-24，由 Claude（CC 窗口）主审，Owner 已拍板：embedding 进开源 V1（可选层，没 key 纯 BM25 照跑）；主题按「口头建、AI 配关键词」做。基线 `2052afb`。产品边界（Owner 原话大意）：**这是随意的个人库不是学术系统，一切为了以后省力，不做要用户维护的结构**。设计讨论的完整来回在卡 `light-web-archive`；GPT 的审查意见已吸收（cats 解耦、tag 留 frontmatter、FTS5 缓议、catalog-data.json 不动、embedding 旁挂）。
+
+已完成（`5d40d75`、`2052afb`）：目录页孤儿 catch 白屏修复 + 资产语法门测试；cats 检索权重 10→3（留兜底，embedding 接住后清零）；★ 记 starred_at、进 catalog-data/检索信号（rank ×1.15）与 retrieve_payload/search 出参；remove.py 的 `_copy_target` ImportError 修复。
+
+硬约束照旧全部有效（0 密钥进公开仓、RAW 不可变、vault 结构、不起 HTTP、不另开 handoff 文档）。新增一条：**所有新能力 fail-open**——没配 key / 没建索引 / 依赖缺失时，行为必须与今天完全一致。
+
+### Lot B：chunk 索引 + embedding 旁挂 + hybrid 检索（大件）
+
+**现状**：检索纯词法（`retrieval.py` BM25 字段加权，整篇 item 为单位），`excerpts()` 事后开窗找证据；换个说法搜不到（别名表只有 14 组）。18 题 recall@8=18/18（`tests/bench_retrieval.py`，fixtures 在 `tests/fixtures/retrieval_bench.json`）。
+
+**做法**
+- 新模块（建议 `link_brain/semantic.py`）：从 catalog-data.json 的 items/search_fields 切 chunk（body 按段落/标题 ~200-500 字、ocr 按图、attachments 按标题/段、transcript 按自然段、comments 按一级评论组），存独立 SQLite `vault/_archive/semantic.db`（chunks + embeddings 两表，content hash 增量，**不动 index.db、不动 catalog-data.json**）。
+- Provider：OpenAI 兼容 /embeddings（DashScope text-embedding-v4 起步），模型/endpoint 配置进 `assets/llm-config.yaml`（照 answer_model 的既有模式），key 取法照 `docs/BENCH.md` 记的现行做法（env 或仓外 CSV / 插件 data.json 的 keyFile），**不落盘不打印**。
+- CLI：`python -m link_brain embed`（增量；`--all` 重算）。挂到夜跑 catalog 之后，失败只告警不挡同步。
+- 查询路径：`rank_query` 升级 hybrid——有 semantic.db 且能拿到 query 向量（一次 HTTP，超时 ~5s，失败退纯词法）时，暴力余弦扫 chunk（numpy，import 失败也退词法），chunk→item 取 max，与 BM25 **RRF 混排**；命中 chunk 的文本优先充当 excerpts 证据。查询向量做 LRU 缓存。
+- **验收**：18 题 recall@8 词法-only 与 hybrid 双跑都不许退化；新增一组「换说法」问题（如 睡不好↔睡眠质量）进 fixtures 标注为 paraphrase 集（不冒充金标）；无 key 环境全套 pytest 过、行为与今天一致；测试不打真网（mock provider）。
+
+### Lot C：MCP stdio server（独立，可并行）
+
+**现状**：`serve --stdio` 已是常驻 JSON-lines worker，但协议不是标准 MCP；`search()` / `retrieve_payload()` / `ask.answer()` 业务面已齐。
+
+**做法**：新文件 `link_brain/mcp_server.py`（`python -m link_brain.mcp_server` 起，**不改 cli.py**，避免与 Lot B 冲突），手写 MCP stdio JSON-RPC（initialize / tools/list / tools/call，协议版本对齐当前规范），**不加新依赖、不起 HTTP**。三个 tool：`lb_search`（关键词，轻）、`lb_retrieve`（问题→材料+出处，不调模型）、`lb_ask`（完整问答，说明会产生模型用量）。README 加「接入 Claude Code / Claude Desktop / Cursor」配置段。
+**验收**：子进程级测试——真起 server、走 initialize 握手、tools/list、对临时 vault fixture 调 lb_search/lb_retrieve 校验返回；异常输入不崩、错误按 JSON-RPC error 返回。
+
+### Lot D：答案缓存（依赖 Lot B，B 合入后再动）
+
+**现状**：0921 已有「导出」把回答+参考材料落 `vault/收藏导出/答-<ts>.md`；提问历史 UI 已有。缺的是回路：同类问题再来时不知道以前答过。
+
+**做法**：`vault/_archive/answers.json` 追加式索引（ts、问题、terms、用到的 item_ids、导出路径）；ask 成功后自动记一条（不管有没有导出）。新问题进来先撞索引（有 embedding 用向量相似，没有用词重叠），命中阈值则在模型上下文里注入：上次问题+时间+当时用的收藏+**此后新增的相关收藏**（入库日期 > 缓存 ts 的检索结果），并在回答前置一行「以前问过类似问题（日期），本次结合 N 条新材料」。UI 只加这一行提示，不做按钮流程。fail-open：索引缺/坏=全新回答。
+**验收**：单测覆盖 命中/未命中/索引损坏 三态；真实问两次相近问题，第二次回答带出提示行。
+
+### Lot E：星标主题（Lot B/C 合入后做，改 cli.py 和 catalog）
+
+**现状**：Owner 想要「几个关注的主题」常驻目录页；建法必须懒——口头说「我关注 AI 记忆层」就建好，AI 配关键词，顶多改个名，**不做表单**。
+
+**做法**：`vault/_archive/topics.json`（id、name、keywords、created）；CLI `python -m link_brain topic add "<名>"`（answer_model 扩 5-10 个关键词，没模型就 keywords=[名]）/ list / remove / rename。catalog 重建时按 retrieval.score(topic.keywords)>0 算每篇的 topics 进 catalog-data；目录页 cats 栏下加一排主题 chip（点击=过滤视图），**瀑布流与 .lb-cols 布局一律不碰**（0905 教训仍有效），路径全走 lbPath。
+**验收**：加一个主题后重建目录，chip 出现、点击过滤正确、无主题时目录页与今天像素级一致；`tests/test_assets_syntax.cjs` 与交互测试过。
+
+### 押后（本批不做）
+- 顶部分类默认哪档（专辑继承）：等 favdump 专辑 POC（要空载时段+momo 登录态），POC 项见卡。
+- 目录页排版重构：等主题+磁贴墙跑起来 Owner 有手感再拍。
+- cats 检索权重清零：等 Lot B bench 证明语义召回接住「搜大类名」用例。
+
+## 2026-09-18 交接给 GPT：六项优化（已被上方 0924 批次接管，历史记录）
 
 写于 2026-09-18，由 Claude（CC 窗口）根据 Owner 当天口述和代码摸底整理。基线是本地提交 `f253c20`（未推远端）。下面每项都给了现状（带代码位置）、推荐做法和验收标准。方向已经定了，**直接做，不用再问 Owner**；只有标「问她」的地方要带着推荐去问。
 
