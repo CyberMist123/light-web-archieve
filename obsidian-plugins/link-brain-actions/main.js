@@ -382,6 +382,23 @@ class LinkBrainActions extends Plugin {
     }
     new Notice('未找到该收藏页面，请重建目录');
   }
+  async openArchiveMedia(item, kind, evt) {
+    if(kind==='file'){
+      const files=(item.attachment_files||[]).filter(f=>f.file&&f.downloaded);
+      if(!files.length){this.openAttachments([item]);return;}
+      const open=f=>require('electron').shell.openPath(f.file);
+      if(files.length===1){await open(files[0]);return;}
+      const menu=new obsidian.Menu();for(const f of files)menu.addItem(i=>i.setTitle(f.name||path.basename(f.file)).setIcon('file').onClick(()=>open(f)));menu.showAtMouseEvent(evt);return;
+    }
+    const obj=path.dirname(path.dirname(path.join(this.app.vault.adapter.getBasePath(),this.lbPath(item.agent_md))));
+    const fs=require('fs');const meta=JSON.parse(fs.readFileSync(path.join(obj,'meta.json'),'utf8'));
+    const raw=path.join(obj,'raw','v'+String(meta.current_version).padStart(4,'0'));
+    const manifest=JSON.parse(fs.readFileSync(path.join(raw,'manifest.json'),'utf8'));
+    const media=manifest.media.find(m=>m.role==='video'&&m.file&&m.download_status==='ok');
+    if(!media)throw new Error('视频尚未下载，请先补全视频');
+    const videoPath=media.file.startsWith('raw/')?path.join(obj,media.file):path.join(raw,media.file);
+    const error=await require('electron').shell.openPath(videoPath);if(error)throw new Error(error);
+  }
 
   async openArchiveSource(note, host, compare=false, evidence=[]) {
     const ws=this.app.workspace;
@@ -407,7 +424,14 @@ class LinkBrainActions extends Plugin {
 
   evidenceTargets(container, part) {
     const compact=s=>String(s||'').normalize('NFKC').replace(/\s+/g,'').toLowerCase();
-    const selectors={body:'.lb-body p',comments:'.lb-comment-text'};
+    if(part.field==='ocr') {
+      const assets=(part.assets||[]).map(x=>String(x).replace(/\\/g,'/'));
+      return [...container.querySelectorAll('.lb-slide img')].filter(img=>{
+        const src=decodeURIComponent(img.getAttribute('src')||'').replace(/\\/g,'/').split('?')[0];
+        return assets.some(asset=>src.endsWith('/'+asset)||src===asset);
+      });
+    }
+    const selectors={body:'.lb-body p',comments:'.lb-comment-text',transcript:'.lb-transcript .lb-body p'};
     if(!selectors[part.field])return [];
     const quote=compact(part.text);
     return [...container.querySelectorAll(selectors[part.field])].filter(el=>{
@@ -436,6 +460,9 @@ class LinkBrainActions extends Plugin {
     for(const part of parts)for(const el of this.evidenceTargets(container,part))if(!matches.some(x=>x.el===el))matches.push({el,part});
     const preview=container.querySelector('.markdown-preview-view');
     if(!preview||!matches.length)return;
+    const bar=document.createElement('div');bar.className='lb-evidence-bar';
+    const status=document.createElement('span');bar.append(status);
+    preview.prepend(bar);
     let index=0;
     const show=()=>{
       if(leaf.lbEvidenceRequest!==request)return;
@@ -447,8 +474,14 @@ class LinkBrainActions extends Plugin {
       else if(scroller)scroller.scrollTo({top:scroller.scrollTop+el.getBoundingClientRect().top-scroller.getBoundingClientRect().top-scroller.clientHeight/3,behavior:'smooth'});
       else el.scrollIntoView({behavior:'smooth',block:'center'});
       el.classList.add('lb-evidence-hit');setTimeout(()=>el.classList.remove('lb-evidence-hit'),4500);
+      status.textContent=part.field==='ocr'?`第 ${[...el.closest('.lb-carousel').querySelectorAll('.lb-slide img')].indexOf(el)+1} 张图`:`原文 ${index+1} / ${matches.length}`;
     };
-    show();
+    if(matches.length){
+      if(matches.length>1)for(const [label,step] of [['上一处',-1],['下一处',1]]){
+        const button=document.createElement('button');button.textContent=label;button.onclick=()=>{index=(index+step+matches.length)%matches.length;show();};bar.append(button);
+      }
+      show();
+    }
   }
 
   // 把一段 Markdown 渲染进 el（保留列表 / [[笔记链接]] / [原文](url) 可点开）。

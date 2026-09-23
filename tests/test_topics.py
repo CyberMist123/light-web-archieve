@@ -187,3 +187,34 @@ def test_memberships_uses_retrieval_score():
     got = topics.memberships(items, [{"id": "t1", "name": "记忆", "keywords": ["长期记忆", "memory"]},
                                      {"id": "t2", "name": "吃", "keywords": ["菜谱"]}])
     assert got == {"a": ["记忆"], "b": ["吃"]}
+
+
+# ── 0924 隶属收紧：主要在讲它，而不是哪里提到过它 ──
+
+def test_english_keyword_is_whole_word_only():
+    from link_brain import topics
+    t = [{"id": "t1", "name": "AI 记忆层", "keywords": ["AI 记忆层", "RAG"]}]
+    beef = {"id": "beef", "title": "Coles 牛肉", "search_fields": {"body": "storage tips, average price"}}
+    rag = {"id": "rag", "title": "我的 RAG 管线", "search_fields": {"body": ""}}
+    out = topics.memberships([beef, rag], t, semantic_scores=None)
+    assert out["beef"] == [] and out["rag"] == ["AI 记忆层"]
+
+
+def test_comment_or_ocr_mention_alone_does_not_count():
+    from link_brain import topics
+    t = [{"id": "t1", "name": "AI 记忆层", "keywords": ["AI 记忆层", "长期记忆"]}]
+    it = {"id": "x", "title": "iMessage 接入教程",
+          "search_fields": {"body": "教程正文", "comments": "有没有长期记忆", "ocr": "长期记忆"}}
+    assert topics.memberships([it], t, semantic_scores=None)["x"] == []
+
+
+def test_semantic_relative_cut_and_title_rescue():
+    from link_brain import topics
+    t = [{"id": "t1", "name": "AI 记忆层", "keywords": ["AI 记忆层", "长期记忆"]}]
+    items = [{"id": i, "title": title, "search_fields": {}} for i, title in
+             [("top", "记忆综述"), ("near", "做梦系统"), ("far", "牛肉"), ("titled", "长期记忆随笔")]]
+    sem = {"t1": {"top": 0.62, "near": 0.42, "far": 0.30, "titled": 0.36}}
+    out = topics.memberships(items, t, semantic_scores=sem)
+    # cut = max(0.40, 0.65*0.62=0.403)
+    assert out["top"] and out["near"] and not out["far"]
+    assert out["titled"] == ["AI 记忆层"]  # 标题整词命中，语义过 RESCUE 即可
