@@ -3,7 +3,7 @@
 - 存 `vault/_archive/topics.json`：`[{id, name, keywords, created}]`。读写 fail-open：缺/坏 = 没有主题。
 - `topic add "<名>"`：用问答同一条模型通路（插件设置 textAI / answer_model）扩 5-10 个关键词；
   模型不可用 → keywords=[名]。**模型输出当不可信数据**：只收合法的短关键词字符串、去重、上限 10。
-- 隶属在 catalog 重建时算：`retrieval.score(item, keywords) > 0`，名字写进 catalog-data 的
+- 隶属在 catalog 重建时算（见 memberships：语义为主、标题标签整词兜底），名字写进 catalog-data 的
   `items[].topics`，顶层 `topics` 是顺序表。主题只是展示分组，**不进检索权重**（不进 retrieval.fields）。
 - 不做表单：没有编辑关键词的 UI；增删改名都走 CLI（给 Fable / CC 代她跑）。
 """
@@ -180,20 +180,98 @@ def expand_keywords(name: str) -> list[str] | None:
 
 # ── 隶属（catalog 重建时调） ──
 
-def memberships(items: list[dict[str, Any]], topics: list[dict[str, Any]]) -> dict[str, list[str]]:
-    """item_id → 命中的主题名（按主题顺序）。纯函数，不改 items。"""
-    from .retrieval import score
+# 隶属要回答「这篇主要在讲它吗」，不是「哪里提到过它」：评论区一句、截图价签里的 storage
+# 都不算（0924 实测旧规则把 Coles 牛肉、扇贝菜谱归进「AI 记忆层」）。
+# 语义层在：主题向量 vs 每篇非评论 chunk 的最高余弦，过相对阈值（本主题最高分 × RATIO，
+# 且不低于 FLOOR；相对阈值让不同主题不用各自调参）；标题/标签整词命中的放宽到 RESCUE。
+# 语义层不在：只认标题/标签/概要/正文里的整词命中。
+SEM_FLOOR = 0.40
+SEM_RATIO = 0.65
+SEM_RESCUE = 0.35
+_STRONG_FIELDS = ("title", "tags", "summary")
+_LEXICAL_FIELDS = _STRONG_FIELDS + ("body",)
 
+
+def _kw_hit(keyword: str, text: str) -> bool:
+    from .retrieval import norm
+
+    kw = norm(keyword)
+    if not kw:
+        return False
+    if re.fullmatch(r"[a-z0-9 .+&/'-]+", kw):
+        return re.search(r"(?<![a-z0-9])" + re.escape(kw) + r"(?![a-z0-9])", text) is not None
+    return kw in text
+
+
+def _lexical_fields(it: dict[str, Any]) -> dict[str, str]:
+    from .retrieval import fields, norm
+
+    fs = fields(it)
+    return {k: norm(fs.get(k, "")) for k in _LEXICAL_FIELDS}
+
+
+def _topic_text(t: dict[str, Any]) -> str:
+    return t["name"] + "：" + "、".join(t["keywords"])
+
+
+def _semantic_scores(topics: list[dict[str, Any]]) -> dict[str, dict[str, float]] | None:
+    """topic id → {item_id: 非评论 chunk 最高余弦}；语义层任何问题 → None（退词法）。"""
+    try:
+        from . import semantic
+
+        if not semantic.db_path().is_file():
+            return None
+        cfg = semantic.load_config()
+        data = semantic._load_matrix(cfg["model"])
+        if not data:
+            return None
+        matrix, rows = data
+        out: dict[str, dict[str, float]] = {}
+        for t in topics:
+            qvec = semantic.query_vector(_topic_text(t))
+            if qvec is None or matrix.shape[1] != qvec.shape[0]:
+                return None
+            sims = matrix @ qvec
+            best: dict[str, float] = {}
+            for (item_id, field, _), value in zip(rows, sims):
+                if field == "comments":
+                    continue
+                if float(value) > best.get(item_id, -1.0):
+                    best[item_id] = float(value)
+            out[t["id"]] = best
+        return out
+    except Exception:  # noqa: BLE001 - fail-open
+        return None
+
+
+def memberships(items: list[dict[str, Any]], topics: list[dict[str, Any]],
+                semantic_scores: Any = "auto") -> dict[str, list[str]]:
+    """item_id → 命中的主题名（按主题顺序）。不改 items。semantic_scores 给测试注入。"""
+    sem = _semantic_scores(topics) if semantic_scores == "auto" else semantic_scores
+    cuts = {}
+    for t in topics:
+        scores = (sem or {}).get(t["id"])
+        if scores:
+            cuts[t["id"]] = max(SEM_FLOOR, SEM_RATIO * max(scores.values()))
     out: dict[str, list[str]] = {}
     for it in items:
+        item_id = str(it.get("id"))
         hits = []
+        try:
+            fs = _lexical_fields(it)
+        except Exception:  # noqa: BLE001 - 单篇算坏不许挡目录重建
+            out[item_id] = hits
+            continue
         for t in topics:
-            try:
-                if score(it, t["keywords"]) > 0:
-                    hits.append(t["name"])
-            except Exception:  # noqa: BLE001 - 单篇算坏不许挡目录重建
-                continue
-        out[str(it.get("id"))] = hits
+            strong = any(_kw_hit(k, fs[f]) for k in t["keywords"] for f in _STRONG_FIELDS)
+            if t["id"] in cuts:
+                sim = sem[t["id"]].get(item_id, -1.0)
+                ok = sim >= cuts[t["id"]] or (strong and sim >= SEM_RESCUE)
+            else:
+                ok = strong or any(_kw_hit(k, fs["body"]) for k in t["keywords"])
+            if ok:
+                hits.append(t["name"])
+        out[item_id] = hits
     return out
 
 
