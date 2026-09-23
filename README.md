@@ -115,6 +115,58 @@ python -m link_brain ask "概括这份教程" --include links --include files
 Python 调用同样支持 `answer(question, history=..., include=["links", "files"])`。
 这次提供调用与返回契约，不包含微信登录或消息发送器。
 
+## 把归档接给你的 AI（MCP）
+
+`link_brain/mcp_server.py` 是一个手写的 MCP stdio server（不依赖 `mcp` 包、不起 HTTP、无新依赖），
+协议对齐 MCP 规范 2024-11-05：`initialize` / `tools/list` / `tools/call`，一行一条 JSON-RPC 消息。
+启动命令：
+
+```powershell
+python -m link_brain.mcp_server
+```
+
+暴露三个 tool：
+
+- `lb_search(query, limit=20)` —— 关键词检索，纯词法，不调用模型。
+- `lb_retrieve(question, top_k=8)` —— 问题→材料+出处（BM25/混排 + 原文摘录），**不调用模型**。
+- `lb_ask(question)` —— 完整问答，**会调用已配置的文本模型（产生一次模型用量）**。
+
+vault 路径的定位方式和 CLI 一致：默认是仓根下的 `vault/`，可用环境变量 `LINK_BRAIN_VAULT` 覆盖
+（`link_brain/storage.py` 的 `vault_root()`），不需要额外配置。fail-open：vault 为空或
+`catalog-data.json` 缺失时三个 tool 都返回空结果而不是报错。
+
+Claude Code（`.mcp.json` 或 `claude mcp add`）：
+
+```json
+{
+  "mcpServers": {
+    "light-web-archieve": {
+      "command": "python",
+      "args": ["-m", "link_brain.mcp_server"],
+      "cwd": "D:\\LIGHT WEB ARCHIEVE"
+    }
+  }
+}
+```
+
+Claude Desktop（`claude_desktop_config.json`）与 Cursor（`.cursor/mcp.json`）用同样的字段：
+
+```json
+{
+  "mcpServers": {
+    "light-web-archieve": {
+      "command": "python",
+      "args": ["-m", "link_brain.mcp_server"],
+      "cwd": "D:\\LIGHT WEB ARCHIEVE",
+      "env": {"LINK_BRAIN_VAULT": "D:\\LIGHT WEB ARCHIEVE\\vault"}
+    }
+  }
+}
+```
+
+`env.LINK_BRAIN_VAULT` 可省略（默认就指向仓内 `vault/`）；vault 挂在别处（如按 junction
+挂进 Obsidian 主库）时用它覆盖，不用改代码。
+
 ## 附件下载与挂载
 
 点目录的待补标识，或右键收藏 →「下载 / 挂本地文件」。支持拖入、文件选择器、

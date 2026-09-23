@@ -1,5 +1,28 @@
 # Current State
 
+## 2026-09-24 Lot C：MCP stdio server
+
+新增 `link_brain/mcp_server.py`（`python -m link_brain.mcp_server` 启动），手写 MCP stdio
+JSON-RPC（协议 2024-11-05：initialize / tools/list / tools/call），不加新依赖、不起 HTTP，
+不改 `cli.py`（避让并行的 Lot B）。三个 tool：`lb_search`（转发 `retrieval.search`）、
+`lb_retrieve`（转发 `retrieval.retrieve_payload`，不调模型）、`lb_ask`（转发 `ask.answer`，
+description 里写明会产生模型用量）。stdout 只发协议 JSON（UTF-8 字节直写，绕开 Windows
+控制台 GBK，做法照 `read.dump_json`），日志/异常走 stderr；工具异常包成
+`isError:true` 的 tool result 或 JSON-RPC error，进程不崩、坏 JSON 输入也不崩。
+vault 定位复用 `storage.vault_root()` / `LINK_BRAIN_VAULT`，未加新配置项。
+
+已真实通过：`tests/test_mcp_server.py`（子进程真起 server，握手+tools/list+
+lb_search/lb_retrieve 结构校验+空 vault fail-open+坏参数/坏 JSON/未知方法不崩），
+`python -m pytest -q` 全套（本机 152 passed）。README 加了「把归档接给你的 AI（MCP）」
+一节，含 Claude Code / Claude Desktop / Cursor 配置片段。
+
+已知缺口：lb_ask 只做了「tools/list 里存在、description 标注会调模型」的验收，未跑真实
+模型问答（按任务要求不打真网）；未接 Lot B 的 hybrid 检索（Lot B 落地后 lb_search/lb_retrieve
+自动受益，因为都是转发现有函数）。
+
+下一步：等 Lot B/D 合入后视情况要不要给 lb_ask 加流式（当前 MCP tools/call 走一次性返回，
+`ask.answer` 的 `on_delta` 未接，够用先不加）。
+
 ## 2026-09-23 第二轮：钉选与导出规则修正
 
 优先修复钉选：锁住外层阅读视口，图片/视频上的滚轮路由到正文；正文内部滚动隔离。证据跳转改为只滚动轮播或正文容器，避免 scrollIntoView 连带移动整个阅读页。高度在证据条插入后重新测量。无命中时不再显示提示/摘录框；图片证据仅显示第 N 张图。
