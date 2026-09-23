@@ -82,11 +82,17 @@ def set_star(target: str, on: bool) -> dict[str, Any]:
         return {"target": target, "status": "missing"}
     data = load_notes(obj["source"], obj["source_id"])
     data["starred"] = bool(on)
+    # ★ 是「某天引起过注意」的痕迹，不是结论：只记时刻，取消就抹掉
+    if on:
+        data["starred_at"] = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    else:
+        data.pop("starred_at", None)
     save_notes(obj["source"], obj["source_id"], data)
     return {
         "item_id": obj["item_id"],
         "status": "ok",
         "starred": data["starred"],
+        "starred_at": data.get("starred_at"),
         "copy_path": None,
         "copied": False,
         "removed": False,

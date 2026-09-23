@@ -8,7 +8,9 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 ALIASES = json.loads((Path(__file__).parent / "assets/search-aliases.json").read_text(encoding="utf-8"))
-WEIGHTS = {"title": 12, "tags": 10, "cats": 10, "body": 7, "attachments": 6, "transcript": 6, "ocr": 5, "comments": 3, "summary": 2, "author": 1}
+# cats 是展示分组（大类），不是内容语义：只留低权兜底，让「搜大类名」能召回
+# 无词帖（如搜"笑话"命中只分了类的帖子）。语义召回由 embedding 接住后应降到 0。
+WEIGHTS = {"title": 12, "tags": 10, "cats": 3, "body": 7, "attachments": 6, "transcript": 6, "ocr": 5, "comments": 3, "summary": 2, "author": 1}
 
 
 def norm(text):
@@ -89,7 +91,9 @@ def rank(items, terms):
             if tf:
                 covered[i] += 1
                 totals[i] += idf * tf
-    hits = [(value * (1 + .15 * covered[i]), it) for i,(value,it) in enumerate(zip(totals,items)) if value>0]
+    # ★（磁吸）是显式信号：轻微上浮，别盖过内容相关性
+    hits = [(value * (1 + .15 * covered[i]) * (1.15 if it.get('starred') else 1), it)
+            for i,(value,it) in enumerate(zip(totals,items)) if value>0]
     hits.sort(key=lambda x:(-x[0],str(x[1].get('id',''))))
     return hits
 
@@ -193,7 +197,7 @@ def search(query, limit=20):
     hits.sort(key=lambda x: (x[0], x[1].get("ts", "")), reverse=True)
     results = []
     for s, it in hits[:limit]:
-        results.append({"item_id": it["id"], "title": it["title"], "score": s,
+        results.append({"item_id": it["id"], "title": it["title"], "score": s, "starred": bool(it.get("starred")),
                         "excerpts": excerpts(it, terms, 700), "url": it.get("url"),
                         "visible_note": str(storage.vault_root() / it["note"]) if it.get("note") else None,
                         "agent_md": str(storage.vault_root() / it["agent_md"]) if it.get("agent_md") else None,
@@ -219,5 +223,6 @@ def retrieve_payload(question, top_k=8):
             'obsidian_url':'obsidian://open?vault='+quote(os.environ.get('LINK_BRAIN_OBSIDIAN_VAULT','vault'))+'&file='+quote(note),
             'web_url':os.environ.get('LINK_BRAIN_WEB_URL','https://lwa.ler428.xyz').rstrip('/')+'/'+quote(note),
             'source_url':it.get('url'),'has_attachments':bool(it.get('attachment_files')),
-            'has_transcript':bool((it.get('search_fields') or {}).get('transcript'))})
+            'has_transcript':bool((it.get('search_fields') or {}).get('transcript')),
+            'starred':bool(it.get('starred')),'starred_at':it.get('starred_at')})
     return {'status':'ok','query':question,'total':len(hits),'results':results,'model_called':False}
