@@ -395,7 +395,7 @@ def _media_html(note: dict[str, Any], manifest: dict[str, Any], object_rel: str)
         ]
     parts.append("</div>")
     if note.get("kind") == "video" and not video:
-        parts.append('<div class="lb-video-badge">视频 · 在线播放</div>')
+        parts.append('<div class="lb-video-badge">视频 · '+('在线播放' if remote else '未下载')+'</div>')
     parts.append("</section>")
     return "".join(parts), True
 

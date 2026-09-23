@@ -245,6 +245,8 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                 "id": meta.get("item_id", source_id),
                 "title": meta.get("title") or source_id,
                 "note": visible,
+                "notes_path": f"_archive/{source}/{source_id}/notes.json",
+                "starred": bool((_load_json(obj_dir / "notes.json") or {}).get("starred")),
                 "cover": _cover(obj_dir, source, source_id, version),
                 "summary": _clip(summary),
                 "search_text": "\n".join(search_fields.values()),
@@ -284,10 +286,27 @@ _PAGE_HEADER = "---\ncssclasses: [lb-catalog]\n---\n\n"
 _CHAT_HEADER = "---\ncssclasses: [lb-chatpage]\n---\n\n"
 
 
+def library_pages(vault):
+    defaults = {"catalog": CATALOG_NAME, "chat": "收藏搜索.md", "starred": "星标收藏.md"}
+    pages = dict(defaults)
+    for file in vault.glob("*.md"):
+        text = file.read_text(encoding="utf-8")
+        role = next((key for key in defaults if f"lb-page: {key}\n" in text[:300]), None)
+        if not role and "```dataviewjs" in text:
+            if "cssclasses: [lb-chatpage]" in text[:150]:
+                role = "chat"
+            elif "cssclasses: [lb-catalog]" in text[:150]:
+                role = "starred" if "const starredPage = true;" in text else "catalog"
+        if role:
+            pages[role] = file.name
+    return pages
+
+
 def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Path, int, Path]:
     vault = vault or storage.vault_root()
     now = datetime.now().astimezone()
     items = collect(vault, source)
+    pages = library_pages(vault)
 
     data_path = vault / "_archive" / DATA_NAME
     data_path.parent.mkdir(parents=True, exist_ok=True)
@@ -299,6 +318,7 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
         json.dumps(
             {
                 "built_at": now.isoformat(),
+                "pages": pages,
                 "count": len(items),
                 "cats_order": cats_order,
                 "cats": [{"name": name, "keywords": list(kws)} for name, kws in effective_big_cats()],
@@ -312,10 +332,13 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
         encoding="utf-8",
     )
 
-    catalog_path = vault / CATALOG_NAME
-    catalog_path.write_text(_PAGE_HEADER + _DATAVIEWJS + "\n", encoding="utf-8")
+    catalog_path = vault / pages["catalog"]
+    catalog_path.write_text(_PAGE_HEADER.replace("---\n", "---\nlb-page: catalog\n", 1) + _DATAVIEWJS + "\n", encoding="utf-8")
 
-    (vault / "收藏搜索.md").write_text(_CHAT_HEADER + _CHATJS + "\n", encoding="utf-8")
+    (vault / pages["chat"]).write_text(_CHAT_HEADER.replace("---\n", "---\nlb-page: chat\n", 1) + _CHATJS + "\n", encoding="utf-8")
+
+    starred_js = _DATAVIEWJS.replace("const simplePage = false;", "const simplePage = true;").replace("const starredPage = false;", "const starredPage = true;")
+    (vault / pages["starred"]).write_text(_PAGE_HEADER.replace("---\n", "---\nlb-page: starred\n", 1) + starred_js + "\n", encoding="utf-8")
 
     # 部署笔记底部批注块用的共享脚本（每篇笔记的 bootstrap 会 adapter.read 它）
     (vault / "_archive" / "annotate-view.js").write_text(

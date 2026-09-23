@@ -109,7 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="跳过文字层，直接逐页 OCR")
 
     p = sub.add_parser("sync-favorites", help="同步小红书收藏（Lot 6）")
-    p.add_argument("--limit", type=int, default=50, help="最多同步多少条收藏（favdump 顺序，通常第一页够增量）")
+    p.add_argument("--limit", type=int, default=0, help="最多同步多少条收藏（0=全量，favdump 顺序）；默认全量，靠 ingest 去重做增量，别再截成第一页")
     p.add_argument("--origin", choices=ORIGINS, default="cli", help="从哪个端触发的")
     p.add_argument("--actor", default="human", help="human 或 ai:<name>")
     p.add_argument("--extract", action="store_true", help="顺带跑小模型派生（花钱，默认不跑）")
@@ -119,8 +119,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument('--all', action='store_true')
     p.add_argument('--transcribe', action='store_true')
 
+    sub.add_parser("export-bundle", help="从 stdin 接收选帖，导出 Markdown 与可选原图 ZIP")
+
     p = sub.add_parser("catalog", help="重写 vault 里的收藏目录页（纯程序拼，不联网）")
     p.add_argument("--print-cats", action="store_true", help="只打印当前生效的大类（设置页载入用），不重建")
+
+    p = sub.add_parser('retrieve', help='给 AI 返回命中摘录和链接，不调用模型')
+    p.add_argument('question')
+    p.add_argument('--top-k', type=int, default=8)
+
+    p = sub.add_parser('serve', help='常驻 stdio 问答 worker')
+    p.add_argument('--stdio', action='store_true', required=True)
 
     p = sub.add_parser("ask", help="基于本地归档库问答（/问AI 的后端；只把少量片段送模型）")
     p.add_argument("question", nargs="?", default="", help="自然语言问题")
@@ -191,6 +200,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == 'videos':
         from . import videos
         return videos.run(args)
+    if args.command == 'retrieve':
+        from .retrieval import retrieve_payload
+        from .read import dump_json
+        dump_json(retrieve_payload(args.question,args.top_k))
+        return 0
+    if args.command == 'serve':
+        from . import serve
+        return serve.run(args)
     if args.command == "ingest":
         from . import ingest as ingest_mod
 
@@ -254,6 +271,10 @@ def main(argv: list[str] | None = None) -> int:
         from . import favorites as favorites_mod
 
         return favorites_mod.run(args)
+
+    if args.command == "export-bundle":
+        from . import export_bundle
+        return export_bundle.run(args)
 
     if args.command == "catalog":
         from . import catalog as catalog_mod

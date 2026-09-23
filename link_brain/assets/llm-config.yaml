@@ -4,6 +4,8 @@
 
 # media.py text 的 --model 传什么；留空则用 media.py 自己的默认（qwen3.7-flash）
 model: qwen3.7-flash
+# Owner 0918 指定收藏问答走 DS Flash；旧名称由服务端映射到当前 Flash。
+answer_model: deepseek-v4-flash
 
 # 价格快照（USD / 1M token），2026-09-04 取自 Qwen 官方 model-pricing 页；
 # 换模型时连价格一起改，BENCH.md 的成本列直接按这里算。

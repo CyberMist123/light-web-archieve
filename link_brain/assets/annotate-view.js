@@ -39,7 +39,7 @@ const box = root.createEl('div', { cls: 'lba-annot' });
 const head = box.createEl('div', { cls: 'lba-annot-head' });
 head.createEl('span', { cls: 'lba-annot-title', text: '批注' });
 const star = head.createEl('span', { cls: 'lba-star', text: '★' });
-star.title = '点亮 = 收藏（复制到 vault 根，可随手删）';
+
 const starHint = head.createEl('span', { cls: 'lba-star-hint' });
 const saveHint = head.createEl('span', { cls: 'lba-save-hint' });
 
@@ -57,6 +57,7 @@ async function load() {
   data.draft = typeof data.draft === 'string' ? data.draft : '';
 }
 async function persist() {
+  try{data.starred=!!JSON.parse(await app.vault.adapter.read(notePath)).starred;}catch{}
   await app.vault.adapter.write(notePath, JSON.stringify(data, null, 2) + '\n');
 }
 function flash(msg) { saveHint.setText(msg); saveHint.style.opacity = '1'; clearTimeout(flash._t); flash._t = setTimeout(() => { saveHint.style.opacity = '0'; }, 1400); }
@@ -115,10 +116,10 @@ function renderList() {
     textSpan.setText(a.text || '');
     const ctl = el.createEl('span', { cls: 'lba-ctl' });
     const edit = ctl.createEl('span', { cls: 'lba-edit', text: '✎' });
-    edit.title = '编辑这条批注';
+
     edit.onclick = (ev) => { ev.stopPropagation(); startEdit(el, textSpan, data.annotations.indexOf(a)); };
     const del = ctl.createEl('span', { cls: 'lba-del', text: '✕' });
-    del.title = '删这条批注';
+
     // 按对象身份删（不认渲染时的下标，避免编辑/重渲后下标错位导致"删不掉"）
     del.onclick = async (ev) => {
       ev.stopPropagation();
@@ -163,7 +164,7 @@ star.onclick = async () => {
     const r = await provider.starNote(itemId, next);
     data.starred = (r && typeof r.starred === 'boolean') ? r.starred : next;
     renderStar();
-    notify(data.starred ? `已收藏 → ${r?.copy_path || 'vault 根'}` : '已取消收藏（删掉副本）');
+    notify(data.starred ? '已加入星标收藏' : '已取消收藏');
   } catch (e) { notify('收藏失败：' + (e.message || e)); }
   finally { star.style.pointerEvents = ''; }
 };
@@ -172,3 +173,5 @@ await load();
 renderStar();
 renderList();
 ta.value = data.draft || '';
+
+if(app.workspace.on){const ref=app.workspace.on('link-brain:star',(id,on)=>{if(id===itemId){data.starred=on;renderStar();}});dv.component.registerEvent(ref);}
