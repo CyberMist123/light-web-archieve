@@ -37,14 +37,9 @@ const assert=require('assert/strict');
   await input.press('Enter');assert.equal(await page.locator('.lbc-card').count(),1);
   for(const term of ['音','music']){await input.fill(term);await input.press('Enter');assert.equal(await page.locator('.lbc-card').count(),1);}
   await page.locator('.lbc-import').click();assert.equal(await page.evaluate(()=>panels.at(-1)),'import');
-  await input.fill('/菜谱');await input.press('Enter');await page.locator('.lbc-follow textarea:enabled').waitFor();
-  assert.equal(await page.locator('.lbc-grid').isVisible(),false);
-  assert.equal(await page.locator('.lbc-turn').count(),2);
-  await page.locator('.lbc-follow textarea').fill('没有烤箱呢');await page.locator('.lbc-follow textarea').press('Enter');
-  await page.locator('.lbc-follow textarea:enabled').waitFor();
-  assert.equal(await page.evaluate(()=>asks[1].history.length),2);
-  await page.locator('.lbc-sources summary').first().click();await page.locator('.lbc-sources a').first().click();
-  assert.equal(await page.evaluate(()=>opened.at(-1)[0]),'b.md');
+  await input.fill('/菜谱');await input.press('Enter');
+  assert.equal(await page.evaluate(()=>opened.at(-1)[0]),'收藏搜索.md');
+  assert.equal(await page.evaluate(()=>app.plugins.plugins['link-brain-actions'].pendingArchiveQuestion),'菜谱');
   const out=process.env.LWA_QA_DIR||path.join(require('os').tmpdir(),'lwa-ui-qa');fs.mkdirSync(out,{recursive:true});
   await page.screenshot({path:path.join(out,'chat.png'),fullPage:true});
   await setup(true);assert.equal(await page.locator('.lbc-card').count(),0);

@@ -1,4 +1,34 @@
-# BENCH — 小模型派生跑分（Lot 4）
+# BENCH — 检索与模型验证
+
+## 2026-09-18 收藏问答与检索
+
+18题位于 `tests/fixtures/retrieval_bench.json`，题目和目标来自真实收藏，尚非 Owner 标注集。会话与存档历史为空，因此这是暂定工程评测，已向 Owner 征集常用原句。一次修正了“记忆做梦”目标ID的抄写错误，改前/改后一起重算；原始 top8 未改。不能用这18题推断任意问题准确率。
+
+| 指标 | 改前 | 改后 |
+|---|---|---|
+| recall@8，18题各1目标 | 17/18（94.44%） | 18/18（100%） |
+| 真实回答成功 | 千问403，0/3 | DS Flash，3/3 |
+| 冷启动首字 | 无成功基线 | 2.882秒 |
+| 热启动首字 | 无成功基线 | 1.015 / 0.930秒 |
+| 总耗时（冷/热/热） | 无成功基线 | 3.930 / 1.947 / 1.855秒 |
+| 流块数 | 无成功基线 | 201 / 173 / 177 |
+
+改前的3.292/1.851/2.190秒是失败返回时间，不是首字/回答耗时。没有把它们拿来计算提速比例；总耗时减半尚无法验收，冷首字≤2秒仍未达到。三题依次是蒜香鱼片、空气炸锅杏鲍菇、麻酱虾滑宽粉。鱼片视频转写是背景歌，缺完整菜谱，模型明确说明缺材料，没有把歌声当步骤。
+
+真实配置：Owner 指定 `deepseek-v4-flash`，模型ID放在 `assets/llm-config.yaml` 的 `answer_model`；endpoint 与 keyFile/keyField 只在已忽略的插件 data.json。凭据每次从仓外CSV读取，不复制密钥。默认千问通路依旧使用 `model` 字段。system 指令独立；默认max_tokens=1200；进程内HTTP流式调用，不再起 media.py 子进程。
+
+缓存随catalog文件mtime失效；stdio worker空闲600秒退出，请求150秒超时，异常退出拒绝当前请求并重启，下一次可重试。不新建HTTP服务。没有发现现成可直接用的本地embedding服务，未增加依赖。
+
+证据均在 gitignored 的 `vault/_archive/qa-20260918/`：`retrieval-before.json`、`retrieval-after.json`、`stream-after.json`、`fable-query.json`。公开仓不保存回答原文、签名URL或凭据。复跑检索：
+
+```powershell
+python tests/bench_retrieval.py --out vault/_archive/qa-20260918/retrieval-after.json
+python tests/bench_worker.py --out vault/_archive/qa-20260918/stream-after.json
+```
+
+后一个命令会调用真实模型并产生用量。浏览器测试中的回答为演示数据，仅证明流式交互，不计入模型性能；原生Obsidian三问截图尚未完成。
+
+---
 
 **JSON 一次成功率：5 / 5 = 100%**（qwen3.7-flash，2026-09-04 首轮 5 条样本）
 **单条平均估算成本：$0.000125**（阈值 < $0.001，够用）

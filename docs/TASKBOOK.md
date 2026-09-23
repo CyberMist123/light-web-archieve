@@ -92,7 +92,7 @@
 
 ### ③ 目录页「+」：跟 Collections 一样，斜体、黑色、加粗
 
-**状态：部分（2026-09-18）**。两页标题与加号已统一700字重、text-normal、Georgia斜体，42/40px；最终截图与⑥一起验。Owner 新确认保留纯＋，两页统一顶栏、浏览收藏/问收藏分区，管理项收至…，菜单明确导入网址/同步收藏夹。
+**状态：已做（2026-09-18）**。两页保留纯＋，与 Collections 同为 Georgia 斜体700、text-normal；桌面42/40px，手机34/32px。亮暗色与手机截图见本任务 outputs 的 catalog/chat PNG；`tests/ui_pages_qa.cjs` 通过。截图来自实际页面脚本的浏览器测试环境，不冒充原生 Obsidian 截图。
 
 **现状**
 - 标题 `.lbc-title`（`catalog-view.js:18`）：Georgia 斜体 42px，weight 600，颜色是继承的。
@@ -105,7 +105,7 @@
 
 ### ④ AI 搜索（/问题）：又快又准
 
-**状态：未做（等待前序完成）。**
+**状态：部分（2026-09-18）**。BM25/复合词和单字/密集原文窗口/intent 收紧、mtime 缓存、stdio 常驻进程、流式 HTTP 与页面出字已实现。Owner 指定 DS V4 Flash，密钥只读仓外 CSV；真实三问成功。暂定18题 recall@8 从17/18到18/18；冷首字2.882s、热1.015/0.930s，详见 `docs/BENCH.md`。旧千问403，没有可比成功耗时，不能声称总耗时减半；冷首字仍未达2s。历史会话为空，已向 Owner 征集真实问题；现有题不是用户金标。证据 `vault/_archive/qa-20260918/retrieval-{before,after}.json`、`stream-after.json`。原生 Obsidian 三问截图待验；浏览器流式和挂载路径验证通过。
 
 **现状：慢在哪**（`main.js:286-295` → `ask.py` → `llm.py:163-189` → `media.py`）
 - 每问一次冷启动 `python -m link_brain`：jieba 加载约 0.9s，重新解析 3.9MB 的 `catalog-data.json` 约 0.4s。
@@ -145,9 +145,7 @@
 
 ### ⑤ 给 TG（Fable）的查询接口
 
-**状态：未做（等待前序完成）。**
-
-Owner 想让 TG 上的 Fable 能直接查这个库。Fable 本身就是大模型，**不需要本库再调一次模型帮她回答**。给她检索结果（摘录 + 链接），她自己组织语言，这样更快、不花额外 token、也不会二次失真。
+**状态：已做（2026-09-18，CLI 范围）**。`link_brain retrieve` 与④共用排序和摘录，最多2500字；Fluffy `tools/scripts/lwa.py --ask "问题" --json` / `--full <id> --json` 已实现。三题本机CLI耗时1.742/1.653/1.676s，摘录和链接/本地目标核对通过，model_called=false；证据 `vault/_archive/qa-20260918/fable-query.json`。Web链接沿用现有需登录的WebDAV地址；未修改TG代码。卡片按本节末尾规则交CC回写，用法见本轮交付说明。
 
 **现状**
 - `lwa.py --find` 只返回 5 行「标题｜id｜摘要 40 字」（`Fluffy-SelfHood\tools\scripts\lwa.py:105-121`）。
@@ -163,7 +161,7 @@ Owner 想让 TG 上的 Fable 能直接查这个库。Fable 本身就是大模型
 
 ### ⑥ 页面美化：简洁大气
 
-**状态：未做（方案已由 Owner 确认）。** 保留纯＋，其余采用共用顶栏、明确浏览收藏/问收藏、灰阶留白、单一强调色、来源折叠与管理菜单。参照 Apple HIG 工具栏，不照搬复杂玻璃效果。
+**状态：已做（2026-09-18，页面实现与浏览器视觉验收）**。按 Owner 确认方案统一顶栏、浏览收藏/问收藏、纯＋、管理…、灰阶留白；分类下划线、Noto Sans SC、卡片12px圆角、可见管理按钮；问答直接输入、流式、复制/保存、来源折叠。正文楷体保留。`tests/ui_pages_qa.cjs` 对两页亮暗色/390px、两种库路径均通过，八张截图在本任务 outputs。原生Obsidian尚需重新加载；未把截图测试环境说成实机。
 
 现状字体：界面走 `var(--font-interface), "Segoe UI", "Microsoft YaHei"`，标题和「+」用 Georgia 斜体（Playfair 本机没装，实际显示的是 Georgia）。本机装了 **Noto Sans SC**（含 Light/Medium/Black 各字重），没装任何中文衬线体。
 

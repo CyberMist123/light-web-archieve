@@ -2,11 +2,10 @@ r"""笔记批注 + ⭐ 收藏（Owner 2026-09-16）。
 
 - 批注/收藏状态存在对象目录的 `notes.json`（sidecar），**绝不写进可见正文 md**，
   所以重渲染不丢、也不改原文渲染。前端 annotate-view.js 直接读写这个 sidecar。
-- ⭐ 点亮 = 收藏：把整篇可见笔记复制一份到 `vault\<标题>.md`（根下单个 md，
-  Owner 看完可随手删、删了不碰源件）；熄灭 = 删掉那份副本。
+- ⭐ 只更新收藏状态，由星标收藏目录聚合，不再复制或删除正文。
 - `@fable` 开头的批注只打标存着（to_fable=true），先不真发给 Fable。
 
-前端只在「点⭐」时喊后端（要拷文件）；纯批注前端自己写 sidecar，不劳 Python。
+前端只在「点⭐」时喊后端（同步收藏状态）；纯批注前端自己写 sidecar，不劳 Python。
 CLI 保留 add/list 主要给测试和手动用。
 """
 
@@ -77,47 +76,20 @@ def _resolve(target: str):
         conn.close()
 
 
-def _copy_target(title: str) -> Path:
-    from . import render as render_mod
-
-    stem = render_mod.sanitize_title(title or "未命名收藏")
-    return storage.vault_root() / f"{stem}.md"
-
-
 def set_star(target: str, on: bool) -> dict[str, Any]:
     obj = _resolve(target)
     if obj is None:
         return {"target": target, "status": "missing"}
     data = load_notes(obj["source"], obj["source_id"])
     data["starred"] = bool(on)
-    copy_path = _copy_target(obj["title"])
-    copied = False
-    removed = False
-    if on:
-        # 收藏：复制整篇可见笔记到 vault 根。已存在就别覆盖 Owner 可能改过的副本。
-        visible = obj.get("visible_note")
-        src = storage.vault_root() / visible if visible else None
-        if src and src.is_file() and not copy_path.exists():
-            copy_path.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
-            copied = True
-        elif copy_path.exists():
-            copied = True  # 已经有副本，算收藏态
-    else:
-        # 取消收藏：删掉副本（Owner 若手动挪走就删不到，忽略）
-        if copy_path.exists():
-            try:
-                copy_path.unlink()
-                removed = True
-            except OSError:
-                pass
     save_notes(obj["source"], obj["source_id"], data)
     return {
         "item_id": obj["item_id"],
         "status": "ok",
         "starred": data["starred"],
-        "copy_path": str(copy_path),
-        "copied": copied,
-        "removed": removed,
+        "copy_path": None,
+        "copied": False,
+        "removed": False,
     }
 
 

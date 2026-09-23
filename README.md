@@ -1,5 +1,7 @@
 # light-web-archieve
 
+> 2026-09-23：来源支持原文证据定位与短暂高亮；问答/选帖可导出 Markdown＋可选原图 ZIP。星标统一在「星标收藏」查看，不再往根目录复制笔记。图片使用原有翻页，不额外加缩略图工具条；目录保持整页瀑布流。最新验收边界见 `docs/STATE.md`。
+
 把小红书链接归档成**不可变的原始快照** + **一篇给人看的 Obsidian 笔记**。
 
 不是爬虫项目：小红书读取全部走本机已经跑着的 [xiaohongshu-mcp](http://127.0.0.1:18060/mcp)，
@@ -27,13 +29,21 @@
 
 ## 收藏搜索与 AI 对话
 
+最新交互：卡片星标悬停显示，已收藏打开独立纯文本目录；卡片管理用右键。AI回答双击编辑，书签图标切换收藏；右上「已保存」查看。媒体右上图钉切换图片位置锁定；点击页码展开缩略图直跳，前后翻页支持循环。视频下方倍速按钮点击切换，左右拖动微调。更新后需重载 Link Brain Actions 与 Link Brain Native Media Nav。
+
+2026-09-20：目录右上角 ☆ 与正文底部收藏共用状态，收藏自动排前；支持已收藏、视频、附件筛选，顶栏和搜索分类固定，只有卡片区滚动。
+目录 `/问题` 进入统一问答页。输入和追问留在底部；点击回答中的 `[来源N]` 或含引用的段落，在右侧原生阅读栏打开整篇；参考材料的「上下对照」在右侧下方打开第二篇。右栏图片、作者正文、评论上下排列，可独立滚动，分隔线可拖宽。
+「已保存」位于右上角，支持个人笔记和编辑已保存内容；回答支持编辑、保存、带来源与本地绝对路径复制。来源里可展开命中原文，区分作者正文、评论、OCR、附件和转写。
+快捷键：Obsidian 设置 → 快捷键 → 搜索「跳转目录并搜索收藏」，自行绑定喜欢的组合键。
+部署后重新加载 Link Brain Actions，再重开目录／收藏搜索页。浏览器验证不等于原生 Obsidian 分栏和视频验收。
+
 部署插件时将 `obsidian-plugins/link-brain-actions/` 中的 `manifest.json`、`main.js`、`library-ui.js` 一起复制到 vault 的同名插件目录。
 
 目录页输入普通文字，按 Enter 搜索；输入 `/问题`，按 Enter 获取 AI 回答，下方可继续追问。
-「简洁搜索」打开 `收藏搜索.md`，无瀑布流；原收藏目录保留浏览视图。
-标签行末尾 `…` 管理大类，右键大类编辑关联标签、排序和隐藏。
+顶栏「浏览收藏 / 问收藏」切换两页；问收藏页直接输入问题即可，支持流式回答、复制/保存和展开来源。
+纯「＋」打开导入网址/同步收藏夹；顶栏 `…` 管理分类、回收站、刷新目录。卡片右下 `…` 管理该条收藏。
 
-搜索覆盖标题、标签、原文正文、已转换附件、图片/评论图片 OCR、评论以及摘要。
+搜索覆盖标题、标签、原文正文、已转换附件、视频转写、图片/评论图片 OCR、评论以及摘要。转写权重6；问答/Fable共用BM25排序和密集原文窗口。
 权重依次为 12 / 10 / 7 / 6 / 5 / 3 / 2（作者 1），同义词匹配乘 0.75。
 常用中英文词组来自 `link_brain/assets/search-aliases.json`，如音乐/music、菜谱/recipe；
 单字“音”也能检索，结果会比“音乐”宽。普通搜索不调用模型，AI 回答使用已有文本 AI 配置。
@@ -53,6 +63,21 @@ Python 接口为 `link_brain.retrieval.search(query, limit=20)` 和
 `link_brain.ask.answer(question, history=None)`。返回的 `agent_md` 可继续读取完整正文，
 机读版的「附件正文 Markdown」链接指向 `derived/attachments/<doc_id>.md`。
 AI 可以组合材料；来源不足时说明缺口。引用只表示检索材料，仍可点击正文核对模型表述。
+
+### Fable 只取材料（不调用模型）
+
+```powershell
+python -m link_brain retrieve "蒜香鱼片怎么做" --top-k 8
+# Fluffy 的 tools/scripts/lwa.py：
+python lwa.py --ask "蒜香鱼片怎么做" --json
+python lwa.py --full xhs-<note_id> --json
+```
+
+返回标题、命中原文片段（全体≤2500字）、Obsidian/Web链接、附件/转写标志。Web链接沿用已有需要登录的WebDAV服务。Obsidian库名可用 `LINK_BRAIN_OBSIDIAN_VAULT` 覆盖。
+
+问答常驻进程：`python -m link_brain serve --stdio`。stdin每行 `{"id":"1","question":"问题","history":[]}`，stdout回同id的start/delta/result，delta的text为增量；空闲10分钟退出。插件负责150秒超时与重启，不起HTTP服务。模型/实测边界见 `docs/BENCH.md`。
+
+视频下载：`python -m link_brain videos --all`；本机转写：`python -m link_brain videos --transcribe <item_id>`，转写独立执行，不阻塞导入。
 
 ### 微信或其他渠道的调用封装
 

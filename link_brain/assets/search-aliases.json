@@ -12,5 +12,8 @@
   ["鸡肉", "chicken"],
   ["留学", "study abroad"],
   ["澳洲", "澳大利亚", "australia"],
-  ["教程", "tutorial", "guide"]
+  ["教程", "tutorial", "guide"],
+  ["悉尼", "sydney"],
+  ["超市", "coles", "woolworths", "wws", "aldi"],
+  ["文字游戏", "视觉小说", "visual novel"]
 ]

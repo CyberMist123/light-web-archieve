@@ -59,18 +59,18 @@ def test_empty_annotation_ignored(tmp_path, monkeypatch):
     assert note.list_notes(item_id)["annotations"] == []
 
 
-def test_star_copies_then_removes(tmp_path, monkeypatch):
+def test_star_tracks_state_without_root_copies(tmp_path, monkeypatch):
     item_id = _ingest(tmp_path, monkeypatch)
     meta = json.loads((tmp_path / "_archive" / "xiaohongshu" / NOTE_ID / "meta.json").read_text(encoding="utf-8"))
     copy_path = tmp_path / f"{render.sanitize_title(meta['title'])}.md"
 
     on = note.set_star(item_id, True)
-    assert on["starred"] is True and on["copied"] is True
-    assert copy_path.is_file()
+    assert on["starred"] is True and on["copied"] is False
+    assert not copy_path.exists()
     assert note.list_notes(item_id)["starred"] is True
 
     off = note.set_star(item_id, False)
-    assert off["starred"] is False and off["removed"] is True
+    assert off["starred"] is False and off["removed"] is False
     assert not copy_path.exists()
 
 
@@ -80,7 +80,8 @@ def test_star_does_not_clobber_edited_copy(tmp_path, monkeypatch):
     copy_path = tmp_path / f"{render.sanitize_title(meta['title'])}.md"
     copy_path.write_text("我自己改过的副本", encoding="utf-8")
     note.set_star(item_id, True)
-    # 已存在的副本不被覆盖
+    note.set_star(item_id, False)
+    # 取消收藏也不删除用户编辑过的历史副本
     assert copy_path.read_text(encoding="utf-8") == "我自己改过的副本"
 
 

@@ -29,6 +29,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from . import alert as alert_mod, storage
 from .adapters import xiaohongshu as xhs
@@ -165,8 +166,10 @@ def fetch_bytes(
         if code not in (0, None):
             raise AttachmentError(f"agent-browser open 失败: {out[:200]}")
 
+        # fileName 必须 URL 编码：真实文件名常带 & 空格 ！· () 等，裸拼进 query 会把
+        # rednote.com/file 页顶回首页（表现成"找不到下载按钮"，被误判成没登录）。见 issue 0921。
         url = FILE_PAGE_FMT.format(
-            doc_id=doc_id, note_id=note_id, file_name=file_name, xsec_token=xsec_token
+            doc_id=doc_id, note_id=note_id, file_name=quote(file_name, safe=""), xsec_token=xsec_token
         )
         log(f"导航 {url[:90]}…")
         # 不用 open <url>：登录态的小红书页面不进 idle，open 会一直不返回

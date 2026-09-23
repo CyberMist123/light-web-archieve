@@ -1,0 +1,110 @@
+[
+  {
+    "question": "从收藏里整理蒜香鱼片的做法",
+    "expected": [
+      "xhs-6a81877f000000003301adc6"
+    ]
+  },
+  {
+    "question": "空气炸锅杏鲍菇怎么做",
+    "expected": [
+      "xhs-6a8965bc000000002800aed1"
+    ]
+  },
+  {
+    "question": "给我整理麻酱虾滑宽粉的材料和步骤",
+    "expected": [
+      "xhs-6a90471a000000000b026501"
+    ]
+  },
+  {
+    "question": "菌菇鸡肉焖饭怎么做",
+    "expected": [
+      "xhs-6a9008800000000028005dc0"
+    ]
+  },
+  {
+    "question": "健康春卷午餐盒怎么准备",
+    "expected": [
+      "xhs-699be31e000000002800a336"
+    ]
+  },
+  {
+    "question": "想做咖喱碎牛肉，收藏里的配方是什么",
+    "expected": [
+      "xhs-6a953e99000000002800670b"
+    ]
+  },
+  {
+    "question": "整理红烧牛肉的做法",
+    "expected": [
+      "xhs-6aa44c850000000025034517"
+    ]
+  },
+  {
+    "question": "培根奶酱蘑菇三明治需要什么",
+    "expected": [
+      "xhs-6a92678f000000001f004c07"
+    ]
+  },
+  {
+    "question": "AttentionField 是怎么实现自然唤醒的",
+    "expected": [
+      "xhs-6a7e87e7000000003300d7c2"
+    ]
+  },
+  {
+    "question": "整理让AI记忆分层检索和做梦的方法",
+    "expected": [
+      "xhs-6a4b49d0000000001700a2ef"
+    ]
+  },
+  {
+    "question": "MemPro怎样让记忆自我进化",
+    "expected": [
+      "xhs-6aaa4e9f000000002a0076a3"
+    ]
+  },
+  {
+    "question": "无缝换窗30k记忆不丢的教程",
+    "expected": [
+      "xhs-6a7bf94f00000000050324b8"
+    ]
+  },
+  {
+    "question": "有没有iOS免99美元的原生来电推送方案",
+    "expected": [
+      "xhs-6a92832e000000002a03a4cf"
+    ]
+  },
+  {
+    "question": "claude实时语音通话怎么搭",
+    "expected": [
+      "xhs-6a3bcab8000000002200b640"
+    ]
+  },
+  {
+    "question": "让AI自主玩极乐迪斯科的方案",
+    "expected": [
+      "xhs-6a380dbc0000000016024d06"
+    ]
+  },
+  {
+    "question": "如何把家机接到QQ上 operit",
+    "expected": [
+      "xhs-6a87fb7d000000002203e160"
+    ]
+  },
+  {
+    "question": "Canvas整理学习有什么工具",
+    "expected": [
+      "xhs-6aaaa06b000000001001f4a3"
+    ]
+  },
+  {
+    "question": "IRAC答题公式有哪些步骤",
+    "expected": [
+      "xhs-6aa3e13d0000000011032107"
+    ]
+  }
+]

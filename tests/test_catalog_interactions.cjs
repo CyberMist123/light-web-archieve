@@ -50,11 +50,11 @@ assert.equal(Plugin.serializeCats(cats),'人机恋: 人机恋, ai伴侣\n吃的:
   assert.equal(reloaded,1);assert.equal(opened,1);assert.equal(button.disabled,false);
   // answerArchive 薄壳：解析后端 `ask` 的 JSON、非 ok 抛错
   const p2=new Plugin();
-  p2.spawnCapture=async args=>{assert.equal(args[2],'ask');assert.equal(args[3],'AI 做梦');
-    return {code:0,out:'log line\n'+JSON.stringify({status:'ok',markdown:'答案',matches:3,materials:2,intent:'qa',model_called:true})+'\n',err:''};};
+  p2.requestAnswer=async request=>{assert.equal(request.question,'AI 做梦');
+    return {status:'ok',markdown:'答案',matches:3,materials:2,intent:'qa',model_called:true};};
   const ans=await p2.answerArchive({question:'  AI 做梦  '});
   assert.equal(ans.markdown,'答案');assert.equal(ans.matches,3);assert.equal(ans.intent,'qa');
-  p2.spawnCapture=async()=>({code:1,out:JSON.stringify({status:'error',markdown:'没内容'}),err:''});
+  p2.requestAnswer=async()=>({status:'error',markdown:'没内容'});
   await assert.rejects(p2.answerArchive({question:'x'}),/没内容/);
   await assert.rejects(p2.answerArchive({question:'  '}),/问题是空的/);
   // 设置默认值合到位（未存过 data 时用内置默认）
