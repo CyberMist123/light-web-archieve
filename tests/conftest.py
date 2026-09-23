@@ -28,6 +28,15 @@ def no_embedding_http(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolated_answer_cache(monkeypatch, tmp_path):
+    """ask 成功就会往 answers.json 记一条：测试一律写进 tmp，绝不碰本机真实 vault。"""
+    from link_brain import answer_cache
+    path = tmp_path / "answer-cache" / "answers.json"
+    monkeypatch.setattr(answer_cache, "index_path", lambda: path)
+    return path
+
+
+@pytest.fixture(autouse=True)
 def no_web_probe(request, monkeypatch):
     if "real_web_probe" in request.keywords:
         return  # 这些用例自己 monkeypatch httpx，测的就是探测函数本身

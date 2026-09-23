@@ -64,6 +64,9 @@ def export_bundle(ids, include_images=True, answer="", question="选中收藏", 
         if missing:
             index.extend(["", "## 未能打包的图片", *[f"- {x}" for x in missing]])
         archive.writestr("索引.md", "\n".join(index))
+    if answer:
+        from . import answer_cache  # Lot D：回填答案索引的 export_path；失败不挡导出
+        answer_cache.attach_export(question, asked_at, destination)
     return {"path": str(destination), "notes": len(selected), "images": count, "missing": missing}
 
 

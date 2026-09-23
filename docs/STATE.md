@@ -1,5 +1,27 @@
 # Current State
 
+## 2026-09-24 Lot D：答案缓存
+
+新增 `link_brain/answer_cache.py`：`vault/_archive/answers.json` 追加式索引（`{version:1, entries:[{id, ts, question, terms, item_ids, item_titles, export_path, first_line, vec?}]}`；vault 整体 gitignored，仓里没有任何回答样例）。`ask` 的 qa 路径模型成功出答后自动记一条（links/github 纯本地清单不记，模型失败不记）；`export_bundle` 带回答导出时按「同一问题 + ts 离 asked_at 最近（24h 内）」回填 `export_path`（vault 相对路径），回填失败不挡导出。写入走同目录临时文件 + `os.replace`；读到坏文件 = 空，写之前把坏文件挪成 `answers.json.corrupt` 留证再重新开始。
+
+撞索引：只对无对话历史的独立提问做（追问依赖本轮上下文）。有语义层（semantic.db 在、查询向量拿得到，与 hybrid 检索共用 LRU，不额外发 HTTP）时，历史问题向量以 base64 float32 存在条目的 `vec` 里，同模型同维度才比，余弦 ≥ **0.80** 命中，且有可比向量时以向量为准不再词法兜底；否则 `cache_terms`（query_terms 去单字、去含虚字的二字切片、去可由 ≥2 个其它词拼出的整句块）Jaccard ≥ **0.60** 且共享 ≥2 词命中。命中时模型输入在【原始材料】前注入「上次问题+日期+当时用的收藏（优先当前标题，已删的用存档标题）+上次回答首句+此后新增的相关收藏（本次实际送进上下文的来源里 item.ts 严格晚于缓存 ts 的，带 [来源N]）」；回答开头由代码加一行 `> 以前问过类似问题（YYYY-MM-DD），本次结合 N 条新材料`（N=0 为「此后没有新增相关收藏，结论沿用」），流式时作为第一个 delta 先发。结果另带 `answer_cache` 元信息。UI / chat-view.js 未改。任何环节异常 = 当全新问题。
+
+验证：`tests/test_answer_cache.py` 31 项（阈值正反例钉住、语义/词法两条路、新增材料筛选、命中/未命中/索引损坏三态、坏索引下模型输入与空索引逐字相同、追问不撞缓存、原子写失败保旧文件、导出回填、probe 入口；全 mock，不打真网）；`tests/conftest.py` 加 autouse 把 answers.json 指到 tmp，测试不碰真 vault。全套 pytest 238 passed。
+
+真机探针（不改 cli.py）：`python -m link_brain.answer_cache list` / `python -m link_brain.answer_cache probe "问题"`（打印历史问题余弦/Jaccard 与是否命中，不调问答模型）。
+
+遗留：真实「问两次相近问题」的端到端未跑（待主审）；0.80 余弦阈值按经验定，本机 `qwen3.7-text-embedding-flash` 上需用 probe 校准；词法兜底对只差地名的问法会误命中（上海/成都吃火锅 0.67）；answers.json 读改写无跨进程锁（serve worker 与 MCP 同时成功出答极小概率丢一条）；条目不设上限（每条约 6KB 含向量）。0921 前端 `writeExport`（答-<ts>.md）已无调用方，现行导出是 export-bundle zip。
+
+## 2026-09-24 Lot E：星标主题
+
+新增 `link_brain/topics.py` + CLI `python -m link_brain topic add "<名>" | list | remove <id|名> | rename <id|名> <新名>`（输出一律 `read.dump_json`；增删改名后默认顺手重建目录，`--no-catalog` 可跳过）。存 `vault/_archive/topics.json`（`[{id, name, keywords, created}]`，id 为 t1/t2…），读写 fail-open：缺/坏 JSON/坏条目 = 没有主题。`add` 走问答同一条模型通路（插件 textAI / answer_model，`text_stream.call`）扩关键词，模型输出当不可信数据：只从回复里抠 JSON 数组、只收 ≤24 字且字符白名单内的字符串、丢单字、casefold 去重、主题名打头、上限 10；模型不可用/输出不合规 → `keywords=[名]`。同名 add 幂等（status=exists，不再调模型）；改名不动关键词。
+
+catalog 重建：`retrieval.score(item, keywords) > 0` 算隶属，写 `items[].topics`（名字列表）+ 顶层 `topics` 顺序表；不进 `retrieval.fields`、不参与检索权重。目录页 `catalog-view.js`：cats 栏下（仍在 sticky `.lbc-top` 内）加一排 `★ 名` 胶囊 chip，单选、再点取消、与大类 AND 叠加，「全部」一并清掉；选中时计数显示 `n / 总数`。没有主题时整行不建。瀑布流 / `.lbc-grid` / `.lbc-cols` 未动，不设 aria-label/title，主题数据走已有的 `lbPath('_archive/catalog-data.json')`，没有新增 vault 路径。
+
+验证：`tests/test_topics.py` 21 项（模型全 mock：fail-open、恶意模型输出、CLI 全动作、catalog 集成、不进检索）；`tests/test_catalog_interactions.cjs` 加了假 DOM 真跑整页脚本的 chip 用例；另用临时脚本对比了 dccf662 版 `catalog-view.js`，无主题时两种数据形态下（初始 + 3 次点击）DOM 完全相同，新 CSS 只命中 `.lbc-topic*`。真 vault 实跑 `topic add "AI 记忆层"`：模型 5.2s 返回 10 个关键词，236 篇中命中 30 篇；Playwright 截图 chip 行正常、点击后 30/236。随后已 `topic remove t1` 恢复成无主题状态（`topics.json` 为 `[]`）。Obsidian 实机未验（待 Owner 过目）。
+
+遗留：关键词没有 CLI 编辑入口（按「不做表单」只给了改名）；泛关键词导致命中过宽时，目前只能删了重建。
+
 ## 2026-09-24 Lot B：chunk 索引 + embedding 旁挂 + hybrid 检索
 
 新增 `link_brain/semantic.py`：catalog-data.json 的 items 切 chunk（body/ocr/attachments/transcript/comments 按自然段合并到 200-500 字，另加 title+tags+summary 的 meta 块），存独立 `vault/_archive/semantic.db`（chunks + embeddings 两表，content-hash 增量；不动 index.db / catalog-data.json / ingest 链路）。CLI 新增 `python -m link_brain embed`（增量，`--all` 重算）。Provider 是 OpenAI 兼容 /embeddings；模型/endpoint/dimensions/查询超时在 `assets/llm-config.yaml` 的 `embedding` 节。key 取法与问答一致（env DASHSCOPE_API_KEY 或仓外 CSV），不落盘不打印。实测本机 key 的 MaaS 网关没有 text-embedding-v4（403 Unpurchased）、公网 DashScope 欠费，配置改用网关有的 `qwen3.7-text-embedding-flash`（dimensions=1024 实测可用）。
