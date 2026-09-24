@@ -37,6 +37,12 @@ def isolated_answer_cache(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def isolated_sync_status(monkeypatch, tmp_path):
+    from link_brain import sync_state
+    monkeypatch.setattr(sync_state, 'path', lambda: tmp_path / 'sync-status.json')
+
+
+@pytest.fixture(autouse=True)
 def no_web_probe(request, monkeypatch):
     if "real_web_probe" in request.keywords:
         return  # 这些用例自己 monkeypatch httpx，测的就是探测函数本身

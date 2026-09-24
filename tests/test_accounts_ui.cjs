@@ -7,9 +7,9 @@ vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js','u
   const p = new context.module.exports();
   p.app = {vault:{adapter:{getBasePath:()=> 'D:/host-vault'}, configDir:'.obsidian-test'}};
   let calls = [];
-  p.spawnCapture = async args => { calls.push(args); return {out:'{"checks":[]}',code:0}; };
+  p.spawnCapture = async args => { calls.push(args); const id=args[args.indexOf('--only')+1]; return {out:JSON.stringify({checks:id==='local'?[]:[{id,state:'ready'}]}),code:0}; };
   await Promise.all([p.checkRuntime(), p.checkRuntime()]);
-  assert.equal(calls.length, 1, 'duplicate refresh shares one check');
+  assert.equal(calls.length, 4, 'duplicate refresh shares one sequence of checks');
   assert.ok(calls[0].includes('--json'));
   assert.ok(calls[0].at(-1).endsWith('.obsidian-test'));
   calls = [];

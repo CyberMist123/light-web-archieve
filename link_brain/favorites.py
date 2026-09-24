@@ -63,6 +63,8 @@ def fetch_favorites(*, limit: int = 50, verbose: bool = False) -> list[dict[str,
         raise xhs.ServiceDownError("favdump 读收藏超时（浏览器起不来？）") from exc
 
     if proc.returncode == FAVDUMP_LOGIN_REQUIRED:
+        if 'login check failed' in proc.stderr.decode('utf-8', 'replace').lower():
+            raise xhs.ServiceDownError('收藏登录状态暂时无法验证，请关闭占用的登录窗口后重试。')
         raise xhs.AccountBlockedError(
             "收藏账号登录已失效：请在 Link Brain 设置页点击收藏同步「重新扫码」，或运行 link-brain login favorites。"
         )
@@ -103,7 +105,7 @@ def _sync_one(
             str(exc),
             url=url,
         )
-        return {"item_id": None, "status": "blocked", "url": url, "error": str(exc)}
+        return {"item_id": None, "status": "blocked", "url": url, "error": str(exc), "login_account": None if service else 'xhs'}
     except Exception as exc:  # noqa: BLE001 - 一条收藏挂了不该带走整批
         return {
             "item_id": None,
@@ -162,6 +164,7 @@ def sync_favorites(
         return {
             "favorites": 0,
             "synced": 0,
+            "login_account": None if service else "favorites",
             "items": [{"item_id": None, "status": "blocked", "url": None, "error": str(exc)}],
         }
 
@@ -181,13 +184,20 @@ def sync_favorites(
 
 
 def run(args) -> int:
-    payload = sync_favorites(
-        limit=getattr(args, "limit", 50),
-        origin=getattr(args, "origin", "cli"),
-        actor=getattr(args, "actor", "human"),
-        verbose=getattr(args, "verbose", False),
-        extract=getattr(args, "extract", False),
-    )
+    from . import sync_state
+    sync_state.record('running', message='正在同步收藏')
+    try:
+        payload = sync_favorites(
+            limit=getattr(args, "limit", 50),
+            origin=getattr(args, "origin", "cli"),
+            actor=getattr(args, "actor", "human"),
+            verbose=getattr(args, "verbose", False),
+            extract=getattr(args, "extract", False),
+        )
+    except Exception:
+        sync_state.record('failed', message='同步未完成，请打开账号 / 同步查看详情并重试')
+        raise
+    sync_state.record('finished', payload=payload)
     read_mod.dump_json(payload)
     if any(item.get("status") == "blocked" for item in payload["items"]):
         print("sync-favorites: 要人处理（登录态/风控/服务挂了），已停车并报警", file=sys.stderr)

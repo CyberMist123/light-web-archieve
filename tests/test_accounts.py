@@ -71,7 +71,24 @@ def test_scan_success_then_doctor_ready(clean, monkeypatch):
     assert opened and calls.count('/api/v1/login/qrcode') == 1
     assert accounts.config()['xhs_authenticated']
     assert doctor.diagnose()['xhs_ready']
-    assert not (accounts.home() / 'login.html').exists()
+    page = (accounts.home() / 'login.html').read_text('utf-8')
+    assert '已登录' in page and '<img' not in page
+
+
+def test_scan_keeps_waiting_after_reader_500(clean, monkeypatch):
+    statuses = iter([False, 'error', True])
+    def api(method, route, **kw):
+        if route.endswith('qrcode'):
+            return {'img': 'data:image/png;base64,AA=='}
+        state = next(statuses)
+        if state == 'error':
+            raise httpx.HTTPStatusError('browser busy', request=httpx.Request('GET', 'http://localhost'),
+                                        response=httpx.Response(500))
+        return {'is_logged_in': state}
+    monkeypatch.setattr(accounts, 'api', api)
+    monkeypatch.setattr(accounts.time, 'sleep', lambda _: None)
+    monkeypatch.setattr(accounts.webbrowser, 'open', lambda _: True)
+    assert accounts.login_xhs()['state'] == 'ready'
 
 
 def test_timeout_is_actionable(clean, monkeypatch):
@@ -149,3 +166,12 @@ def test_obsidian_actual_host_config_and_js_flag(clean):
 def test_doctor_json_cli(clean, capsys):
     assert cli.main(['doctor', '--json']) == 0
     assert json.loads(capsys.readouterr().out)['core_ready'] is True
+
+
+def test_local_doctor_does_not_launch_account_checks(clean, monkeypatch):
+    def must_not_run():
+        raise AssertionError('local status must not wait for browsers')
+    for name in ('xhs_status', 'favorite_status', 'attachment_check'):
+        monkeypatch.setattr(accounts, name, must_not_run)
+    data = doctor.diagnose(only='local')
+    assert {r['id'] for r in data['checks']} == {'archive','obsidian','dataview','ai'}

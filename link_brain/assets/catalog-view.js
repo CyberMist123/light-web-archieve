@@ -25,6 +25,7 @@ style.textContent = `
 .lbc-sub{font-size:12px;color:var(--text-normal);white-space:nowrap;}
 .lbc-sync{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e08a1e;color:#fff;font-size:11px;font-weight:700;font-family:sans-serif;cursor:pointer;flex:0 0 auto;}
 .lbc-sync[hidden]{display:none;}
+.lbc-account-status{font-size:12px;padding:2px 7px;height:auto;box-shadow:none;color:var(--text-muted);}
 .lbc-grid{columns:250px;column-gap:32px;}
 .lbc-card{display:inline-block;vertical-align:top;width:100%;margin:0 0 36px;break-inside:avoid;cursor:pointer;position:relative;}
 .lbc-attach{position:absolute;top:8px;right:8px;font-size:11px;line-height:1;padding:4px 8px;border-radius:9px;background:rgba(0,0,0,.55);color:#fff;pointer-events:none;backdrop-filter:blur(2px);}
@@ -199,6 +200,30 @@ let todayOnly=false;
 const sub=subLine.createEl('span',{cls:'lbc-sub'});
 const syncSpan=subLine.createEl('span',{cls:'lbc-sync'});syncSpan.hidden=true;syncSpan.setText('!');
 syncSpan.onclick=()=>attachmentPanel(items.filter(it=>it.attachment==='待补'));
+const accountStatus=subLine.createEl('button',{cls:'lbc-account-status',text:'账号 / 同步'});
+async function refreshSyncStatus(){
+  try {
+    const state=JSON.parse(await app.vault.adapter.read(lbPath('_archive/sync-status.json')));
+    accountStatus.setText(state.state==='blocked'?(state.account?'⚠ 同步暂停 · 登录':'⚠ 同步暂停 · 检查'):state.state==='failed'?'⚠ 同步失败':state.state==='running'?'同步中…':state.state==='ready'?'同步完成 · 账号':'账号 / 同步');
+  } catch { accountStatus.setText('账号 / 同步'); }
+}
+accountStatus.onclick=async()=>{
+  try {
+    let plugin=provider();
+    if(typeof plugin?.openAccountStatus!=='function'){
+      if(plugin)await app.plugins.disablePlugin('link-brain-actions');
+      await app.plugins.enablePlugin('link-brain-actions');plugin=provider();
+    }
+    if(typeof plugin?.openAccountStatus!=='function')throw new Error('请启用 Link Brain Actions 插件');
+    plugin.openAccountStatus();
+  } catch(error){accountStatus.setText(error.message);}
+};
+await refreshSyncStatus();
+if(app.vault.on && dv.component?.registerEvent){
+  const update=file=>{if(file.path===lbPath('_archive/sync-status.json'))refreshSyncStatus();};
+  dv.component.registerEvent(app.vault.on('modify',update));
+  dv.component.registerEvent(app.vault.on('create',update));
+}
 const search=head.createEl('input',{cls:'lbc-search'});
 search.type='search';search.placeholder='搜索收藏…';
 const pageNav=head.createEl('nav',{cls:'lb-page-nav'});

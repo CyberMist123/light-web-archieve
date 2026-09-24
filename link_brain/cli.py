@@ -34,6 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser('doctor', help='检查运行状态与首次设置（不修改配置）')
     p.add_argument('--json', action='store_true')
     p.add_argument('--obsidian-dir', help='实际 Obsidian 配置目录（插件自动传入）')
+    p.add_argument('--only', choices=['local', 'xhs', 'favorites', 'attachments'], help='只检查一组能力，供界面逐项更新')
     p = sub.add_parser('login', help='打开扫码页面，自动验证并保存登录态')
     p.add_argument('account', nargs='?', choices=['xhs', 'favorites', 'attachments'], default='xhs')
     p.add_argument('--force', action='store_true', help='重新登录 / 附件换号')
