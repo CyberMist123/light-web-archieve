@@ -1,0 +1,32 @@
+const fs = require('fs'), vm = require('vm'), assert = require('assert/strict');
+const context = {module:{exports:{}}, process, setTimeout, clearTimeout,
+  require:n => n === 'obsidian' ? {Plugin:class{}, PluginSettingTab:class{}, Modal:class{}} : require(n)};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js','utf8'), context);
+(async () => {
+  const p = new context.module.exports();
+  p.app = {vault:{adapter:{getBasePath:()=> 'D:/host-vault'}, configDir:'.obsidian-test'}};
+  let calls = [];
+  p.spawnCapture = async args => { calls.push(args); return {out:'{"checks":[]}',code:0}; };
+  await Promise.all([p.checkRuntime(), p.checkRuntime()]);
+  assert.equal(calls.length, 1, 'duplicate refresh shares one check');
+  assert.ok(calls[0].includes('--json'));
+  assert.ok(calls[0].at(-1).endsWith('.obsidian-test'));
+  calls = [];
+  p.spawnCapture = async args => {calls.push(args);return {out:'{"state":"ready","message":"已登录"}',code:0};};
+  assert.equal((await p.loginAccount('xhs')).state, 'ready');
+  assert.ok(calls[0].includes('--install'));
+  assert.ok(!calls[0].includes('--force'));
+  await p.loginAccount('attachments', true);
+  assert.ok(calls[1].includes('--force'));
+  assert.ok(!calls[1].includes('--install'));
+  assert.equal(p.running, null);
+  p.running = 'import';
+  await assert.rejects(p.loginAccount('xhs'), /等待/);
+  p.running = null;
+  p.spawnCapture = async () => ({out:'',err:'python not found',code:-1});
+  await assert.rejects(p.checkRuntime(), /README/);
+  await assert.rejects(p.loginAccount('xhs'), /python not found/);
+  assert.equal(p.running, null);
+  console.log('PASS account UI: doctor JSON, host config, refresh coalescing, login/install/force, errors, operation guard');
+})().catch(e => {console.error(e);process.exitCode=1;});

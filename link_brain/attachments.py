@@ -36,12 +36,9 @@ from .adapters import xiaohongshu as xhs
 
 EXIT_NEEDS_HUMAN = 5  # 小号登录态失效 / 风控，要人处理（和 ingest 同一套码）
 
-# agent-browser 小号 profile 的 Preferences。开源后可用 LINK_BRAIN_AB_PROFILE_PREFS 覆盖；
-# 不设就是作者本机路径（她这台照旧）。附件下载本就是要本机 agent-browser 登录态的重活。
-PROFILE_PREFS = Path(os.environ.get(
-    "LINK_BRAIN_AB_PROFILE_PREFS",
-    r"C:\Users\18717\Tools\agent-browser\profile\Default\Preferences",
-))
+# Login and download resolve the same persistent profile; explicit overrides win.
+from .accounts import attachment_profile
+PROFILE_PREFS = attachment_profile() / 'Default' / 'Preferences'
 FILE_PAGE_FMT = (
     "https://www.rednote.com/file/{doc_id}"
     "?noteId={note_id}&fileName={file_name}&xsec_token={xsec_token}&xsec_source=note_detail_file"
@@ -82,7 +79,9 @@ def _ab(args: list[str], *, timeout: int) -> tuple[int | None, str]:
     handle = out_file.open("w", encoding="utf-8", errors="replace")
     try:
         proc = subprocess.Popen(
-            [_agent_browser_exe(), *args], stdout=handle, stderr=subprocess.STDOUT
+            [_agent_browser_exe(), '--session', 'link-brain-attachments',
+             '--profile', str(attachment_profile()), *args], stdout=handle, stderr=subprocess.STDOUT,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
         )
         try:
             code = proc.wait(timeout=timeout)
@@ -107,16 +106,17 @@ def _ab(args: list[str], *, timeout: int) -> tuple[int | None, str]:
 def ensure_download_prefs(dest_dir: Path) -> None:
     """关掉"每次都问保存位置"并把默认下载目录指到 dest_dir。
 
-    Chrome 开着时 Preferences 会被回写覆盖，所以调用前要先 `close --all`。
+    Chrome 开着时 Preferences 会被回写覆盖，所以调用前先关闭附件专属 session。
     """
-    if not PROFILE_PREFS.exists():
-        raise AttachmentError(f"找不到 agent-browser profile 的 Preferences: {PROFILE_PREFS}")
-    prefs = json.loads(PROFILE_PREFS.read_text(encoding="utf-8"))
+    prefs_path = attachment_profile() / 'Default' / 'Preferences'
+    if not prefs_path.exists():
+        raise AttachmentError('附件账号未配置：请在 Link Brain 设置页点击附件下载「扫码登录」，或运行 link-brain login attachments。')
+    prefs = json.loads(prefs_path.read_text(encoding="utf-8"))
     download = prefs.setdefault("download", {})
     download["prompt_for_download"] = False
     download["default_directory"] = str(dest_dir)
     prefs.setdefault("savefile", {})["default_directory"] = str(dest_dir)
-    PROFILE_PREFS.write_text(json.dumps(prefs, ensure_ascii=False), encoding="utf-8")
+    prefs_path.write_text(json.dumps(prefs, ensure_ascii=False), encoding="utf-8")
 
 
 def _wait_for_download(dest_dir: Path, before: set[Path], *, timeout: int) -> Path:
@@ -155,14 +155,14 @@ def fetch_bytes(
         if verbose:
             print(f"[attachment] {msg}", file=sys.stderr)
 
-    _ab(["close", "--all"], timeout=60)
+    _ab(["close"], timeout=60)
     ensure_download_prefs(staging_dir)
 
     before = {p for p in staging_dir.iterdir() if p.is_file()}
 
     try:
         log("启动 headed 浏览器（headless 下那个下载 POST 会挂住）")
-        code, out = _ab(["open", "--headed"], timeout=90)
+        code, out = _ab(["open", "about:blank", "--headed"], timeout=90)
         if code not in (0, None):
             raise AttachmentError(f"agent-browser open 失败: {out[:200]}")
 
@@ -180,8 +180,7 @@ def fetch_bytes(
         match = DOWNLOAD_BUTTON_RE.search(snapshot)
         if not match:
             raise AttachmentError(
-                "页面上找不到「下载」按钮——多半是这个 profile 没登录（或小号没权限）；"
-                "先跑 `agent-browser open --headed <笔记URL>` 人工看一眼"
+                "附件下载不可用：请在设置页检查附件账号并重新扫码；已登录仍失败时，请确认该文件有下载权限。"
             )
         ref = match.group(1)
         log(f"点下载按钮 @{ref}")
@@ -191,7 +190,7 @@ def fetch_bytes(
         log(f"下到 {path.name}（{path.stat().st_size} 字节）")
         return path
     finally:
-        _ab(["close", "--all"], timeout=60)
+        _ab(["close"], timeout=60)
 
 
 def _sha256(path: Path) -> str:

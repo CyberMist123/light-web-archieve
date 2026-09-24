@@ -45,6 +45,8 @@ def _ocr_via() -> str | None:
 
 def run_ocr(image_path: Path, *, timeout: int = 120) -> dict[str, Any]:
     """subprocess 调 media.py image <path> --ocr，返回 {status, ocr|error}。"""
+    if not Path(MEDIA_PY).is_file():
+        return {'status': 'skipped', 'ocr': None, 'error': '未配置图片识别；正文和原图仍正常归档。'}
     cmd = ["python", MEDIA_PY, "image", str(image_path), "--ocr"]
     via = _ocr_via()
     if via == "qwen":  # cmx 是 media.py 默认，不必显式传
