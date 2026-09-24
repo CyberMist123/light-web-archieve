@@ -1,5 +1,13 @@
 # Current State
 
+## 2026-09-24 P0：首次使用与登录入口
+
+新增 `doctor [--json]` 和 `login [xhs|favorites|attachments]`，Obsidian Actions 设置页顶部直接显示能力状态。doctor 区分基础存储、在线读取和可选能力，连接错误不会被判成账号过期；login 复用已有组件、打开扫码、验证结果。读取组件未启动可启动，`--install` 下载官方 Windows x64 程序；不改系统启动项、不替换已有生产服务。附件登录与下载共用目录并只关闭自己的 session；移除收藏/附件的作者绝对路径兜底。README 顶部改为 clone→安装→插件→状态→扫码→首篇归档的 Quick Start。
+
+审计、游客真实 probe、干净环境 smoke 和验收边界见 [CAPABILITIES.md](CAPABILITIES.md)。读取/收藏/附件当前仍是三套能力状态，未宣称共用 session；单账号同会话附件下载尚未实现。私密收藏依赖的修改版组件尚未公开分发，陌生用户没有一键安装途径，界面如实显示可选未配置。实际手机扫码与 Obsidian 原生界面验收未完成。
+
+验证：全套 Python 255 项通过，后续账号用例 15 项与相关回归通过；Node 账号按钮契约、worker、目录交互、静态资源语法通过。真实隔离环境验证官方读取程序下载、启动和二维码返回；真实附件登录态关闭重开保持有效。插件 main.js 已同步到 vault，需重载 Link Brain Actions 才运行新代码。没有改写插件 data.json，没有替换/重启原读取服务，没有提交实际登录态。
+
 ## 2026-09-24 Lot D：答案缓存
 
 新增 `link_brain/answer_cache.py`：`vault/_archive/answers.json` 追加式索引（`{version:1, entries:[{id, ts, question, terms, item_ids, item_titles, export_path, first_line, vec?}]}`；vault 整体 gitignored，仓里没有任何回答样例）。`ask` 的 qa 路径模型成功出答后自动记一条（links/github 纯本地清单不记，模型失败不记）；`export_bundle` 带回答导出时按「同一问题 + ts 离 asked_at 最近（24h 内）」回填 `export_path`（vault 相对路径），回填失败不挡导出。写入走同目录临时文件 + `os.replace`；读到坏文件 = 空，写之前把坏文件挪成 `answers.json.corrupt` 留证再重新开始。

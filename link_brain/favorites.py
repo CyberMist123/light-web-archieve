@@ -26,15 +26,16 @@ from typing import Any
 
 from . import alert as alert_mod, catch as catch_mod, ingest as ingest_mod, read as read_mod
 from .adapters import xiaohongshu as xhs
+from . import accounts
 
 EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_NEEDS_HUMAN = 5
 
 # 外部读取器：默认本机路径，可用环境变量覆盖（和 media.py / alert.py 一样走可配外部命令）。
-DEFAULT_FAVDUMP = r"C:\Users\18717\.xiaohongshu-mcp\favdump.exe"
+DEFAULT_FAVDUMP = str(accounts.fav_exe() or 'favdump')
 DEFAULT_FAV_HOST = "https://www.xiaohongshu.com"
-DEFAULT_FAV_PROFILE = r"C:\Users\18717\.xiaohongshu-mcp\data\xhs\momo-profile"
+DEFAULT_FAV_PROFILE = str(accounts.fav_profile())
 # favdump 退出码约定（见 cmd/favdump/main.go）：0 成功、3 未登录/掉线、其它=错误。
 FAVDUMP_LOGIN_REQUIRED = 3
 
@@ -44,10 +45,8 @@ def fetch_favorites(*, limit: int = 50, verbose: bool = False) -> list[dict[str,
 
     未登录（退出码 3）→ `AccountBlockedError`（要 Owner 重扫）；其它非零 → `ServiceDownError`。
     """
-    favdump = os.environ.get("LINK_BRAIN_FAVDUMP", DEFAULT_FAVDUMP)
-    env = dict(os.environ)
-    env.setdefault("XHS_HOST", os.environ.get("XHS_FAV_HOST", DEFAULT_FAV_HOST))
-    env.setdefault("XHS_PROFILE_DIR", os.environ.get("XHS_FAV_PROFILE", DEFAULT_FAV_PROFILE))
+    favdump = accounts.fav_exe() or DEFAULT_FAVDUMP
+    env = accounts.fav_env()
 
     if verbose:
         print(f"[sync-favorites] favdump={favdump} host={env['XHS_HOST']}", file=sys.stderr)
@@ -58,16 +57,14 @@ def fetch_favorites(*, limit: int = 50, verbose: bool = False) -> list[dict[str,
         )
     except FileNotFoundError as exc:
         raise xhs.ServiceDownError(
-            f"找不到收藏读取器 favdump（{favdump}）：先在 .xiaohongshu-mcp 编译 `go build ./cmd/favdump`"
+            "收藏同步尚未配置：请打开 Link Brain 设置页查看收藏同步状态；普通链接归档不受影响。"
         ) from exc
     except subprocess.TimeoutExpired as exc:
         raise xhs.ServiceDownError("favdump 读收藏超时（浏览器起不来？）") from exc
 
     if proc.returncode == FAVDUMP_LOGIN_REQUIRED:
         raise xhs.AccountBlockedError(
-            "momo(主号)收藏读取掉登录了：跑 "
-            "`pwsh -File C:\\Users\\18717\\.xiaohongshu-mcp\\xhs-momo-relogin.ps1`，"
-            "把打印的 QR_PNG 发到 Owner 手机用 momo App 扫；扫完自动验号+落盘，收藏同步即恢复"
+            "收藏账号登录已失效：请在 Link Brain 设置页点击收藏同步「重新扫码」，或运行 link-brain login favorites。"
         )
     if proc.returncode != 0:
         detail = proc.stderr.decode("utf-8", "replace").strip()[-400:]

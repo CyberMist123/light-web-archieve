@@ -1,11 +1,110 @@
 # light-web-archieve
 
-> 2026-09-23：来源支持原文证据定位与短暂高亮；问答/选帖可导出 Markdown＋可选原图 ZIP。星标统一在「星标收藏」查看，不再往根目录复制笔记。图片使用原有翻页，不额外加缩略图工具条；目录保持整页瀑布流。最新验收边界见 `docs/STATE.md`。
-
 把小红书链接归档成**不可变的原始快照** + **一篇给人看的 Obsidian 笔记**。
 
-不是爬虫项目：小红书读取全部走本机已经跑着的 [xiaohongshu-mcp](http://127.0.0.1:18060/mcp)，
-图片理解走本机 `media.py`（RapidOCR + qwen flash）。本仓库只负责“接住、归一化、落盘、渲染、索引”。
+## 第一次使用（Windows 桌面）
+
+准备 **Python 3.11+、Git、Obsidian**。安装 Python 时勾选添加到 PATH。
+
+在 PowerShell 中执行：
+
+```powershell
+git clone https://github.com/CyberMist123/light-web-archieve.git
+cd light-web-archieve
+python -m pip install -e .
+python -m link_brain catalog
+New-Item -ItemType Directory -Force vault/.obsidian/plugins
+Copy-Item -Recurse -Force obsidian-plugins/link-brain-actions vault/.obsidian/plugins/
+Copy-Item -Recurse -Force obsidian-plugins/link-brain-native-media-nav vault/.obsidian/plugins/
+```
+
+1. 在 Obsidian 中「打开文件夹作为仓库」，选择刚 clone 的 **`vault` 文件夹**。
+2. 设置 → 社区插件，启用 **Link Brain Actions** 和 **Link Brain Native Media Nav**。
+3. 安装并启用 **Dataview**，在它的设置中打开 **Enable JavaScript Queries**。
+4. 打开 **Link Brain Actions 设置 → 运行状态 / 首次设置**。在「小红书读取」点击 **登录**：首次会下载官方读取组件并启动；随后弹出二维码，用手机小红书扫码。完成后自动验证并显示已登录。
+5. 打开「小红书收藏目录」，点击 **＋**，粘贴从小红书 App 复制的完整分享链接。导入完成后点击卡片，即可看到第一篇归档；Markdown 位于 `vault/Web/Xiaohongshu/`。
+
+首次下载组件/浏览器需要联网，可能较慢。Python 安装后若 Obsidian 仍找不到它，请重启 Obsidian。
+可在终端做同样的检查和登录：
+
+```powershell
+link-brain doctor
+link-brain login --install
+link-brain ingest "粘贴完整分享链接"
+link-brain catalog
+```
+
+若终端找不到 `link-brain`，把命令前缀换成 `python -m link_brain`。安装采用 editable 模式，保留 clone 的文件夹；插件默认使用该目录中的 `vault`。本轮未验证 macOS / Linux 首次使用。
+
+**普通链接归档需要读取账号登录。** 不要把 HTTP 200 或游客可见的附件名称当成完整内容已经可读。
+收藏同步、自动附件下载和 AI 都是可选项；不配置仍可读取链接、保存原文/原图、检索本地归档。
+AI/OCR 未配置时，不会阻塞原文归档。手机扫码及必要的官方验证由本人完成。
+
+### 登录过期、组件未启动时
+
+回到同一个设置页，点击「刷新状态」查看结果；登录失效后点击「重新扫码」。
+`link-brain login` 会复用已有登录态，读取组件未启动时会尝试启动，不要求每次重新扫码。
+`link-brain doctor --json` 是设置页使用的相同状态接口，只检测，不安装、不改系统。
+`core_ready` 表示本地存储可用，`xhs_ready` 才表示本次检测读取已登录。
+「暂时无法验证」可能是网络或浏览器占用，不等于账号失效。
+
+### Optional features / 可选能力
+
+- **Favorites sync / 收藏同步**：现有私密收藏组件与读取服务不是同一套登录态；目前还需要单独配置，见下方「收藏组件」。不能把两个状态合并成一次登录成功。
+- **Attachments / 附件下载**：需要时在设置页登录；可从同一入口重新扫码或换号。当前独立浏览器建议使用第二账号，同主号在两套浏览器重复登录可能互相顶掉。**同会话单账号下载尚未实现**。
+- **AI**：在设置页配置自己的接口并点击测试。状态「已配置」不代表已完成真实调用验证。
+
+English quick start: install Python 3.11+, Git and Obsidian, run the commands above, open `vault` in Obsidian, enable both bundled plugins and Dataview JavaScript queries, then use **Link Brain Actions → 运行状态 / 首次设置 → 登录**. Scan with the Xiaohongshu mobile app and paste a full share link through the catalog's **＋** button. Favorites, attachment downloads and AI are optional. Existing login sessions are reused; real expiry still requires a scan.
+
+详细能力与验证边界见 [首次使用能力审计](docs/CAPABILITIES.md)。以下为高级配置和已有功能参考。
+
+## 高级账号配置
+
+### 读取组件
+
+读取与扫码复用 [xiaohongshu-mcp 官方项目](https://github.com/xpzouying/xiaohongshu-mcp)。
+`login --install` 只下载官方 Windows x64 发布程序到当前用户的 `.link-brain/bin`，不安装系统服务、不替换已有运行服务。
+首次启动后程序自己的浏览器组件仍可能需要下载。会话由原组件保存；新安装的数据和日志在当前用户 `.link-brain` 下。
+已有服务会直接复用，不自动更换它的 cookie/profile。
+
+手工准备或其他系统：从[官方 Releases](https://github.com/xpzouying/xiaohongshu-mcp/releases)获取适用程序，使用 `LINK_BRAIN_XHS_EXE` 指定程序；已有远程服务可用 `LINK_BRAIN_XHS_ENDPOINT` 指定完整 `/mcp` 地址。
+`login --force` 对官方 cookie 型组件请求重置登录；某些修改过的持久 profile 组件不能通过该接口退出，命令会明确报出未完成换号，不会假报成功。
+
+### 收藏组件
+
+当前私密收藏能力来自本机修改过的 `favdump`，**并非官方发布程序内置能力，也未随本仓库分发**。
+因此陌生用户 clone 后默认显示「可选，未配置」；目前不能承诺点击一次即可安装这一高级能力。
+普通用户先使用分享链接归档，无需准备此组件。
+
+已有该组件的用户可将 `favdump.exe` 和通用持久登录程序 `xiaohongshu-login-persistent.exe` 放在用户 `.link-brain/bin` 下；或分别设置 `LINK_BRAIN_FAVDUMP`、`LINK_BRAIN_FAV_LOGIN`。
+保留现有用户 `.xiaohongshu-mcp` 的自动发现。不要拿带作者账号校验的 `sessioncheck` / `momologin` 当通用登录程序。
+`XHS_FAV_PROFILE` 可覆盖收藏目录，`XHS_FAV_HOST` 默认 `https://www.xiaohongshu.com`。
+
+```powershell
+link-brain login favorites
+link-brain sync-favorites
+```
+
+收藏登录成功后通过实际收藏列表验证，空收藏列表也算成功。检测失败不会假装成账号失效。
+当前读取与收藏会话分离；同一主号分别扫码仍可能产生冲突，这一限制尚未消除。
+
+### 附件账号
+
+仅自动下载附件时需要 Node.js 与浏览器组件：
+
+```powershell
+npm install -g agent-browser
+agent-browser install
+link-brain login attachments
+# 需要换号时：
+link-brain login attachments --force
+```
+
+设置页按钮会打开浏览器，直接扫码，自动检测并正常关闭浏览器保存会话。
+新用户使用独立持久目录；已配置 agent-browser 的用户继续识别其现有 profile。
+附件命令和登录使用相同目录、专属浏览器 session，不再关闭所有 agent-browser 会话。
+换号创建新目录并保留旧目录；外部固定的 `LINK_BRAIN_AB_PROFILE_PREFS` 优先于自动目录。
+附件登录不影响已有归档的搜索和查看，也不是收藏同步的前提。
 
 ## 现在能做什么
 
@@ -298,21 +397,22 @@ python -m link_brain catch "<她发来的整条消息>" --origin tg --actor huma
 
 - Windows + Python 3.14，PowerShell 7
 - 依赖：`mcp` `httpx` `pyyaml` `pillow`；开发额外 `pytest`
-- 小红书 MCP 守护：`Start-ScheduledTask XiaohongshuMCP`，在线自查 `check_login_status`
+- 小红书读取状态：`link-brain doctor`；启动及扫码：`link-brain login`
 - vault 位置默认是仓库下的 `vault/`，可用环境变量 `LINK_BRAIN_VAULT` 覆盖
 
 ### 本机依赖与环境变量（开源移植看这里）
 
-代码里凡是指向作者本机的绝对路径，都是「环境变量覆盖 + 作者本机兜底」——别人 clone 下来，
-把下面这些指到自己的东西即可，不改代码：
+以下供已有组件的高级用户覆盖。普通用户按顶部 Quick Start 操作即可；AI/OCR 的历史本机路径仍保留兼容，但不作为首次归档前提。
 
 | 环境变量 | 覆盖什么 | 不设时的默认 |
 |---|---|---|
 | `LINK_BRAIN_VAULT` | vault 根目录 | 仓库下 `vault/` |
 | `LINK_BRAIN_MEDIA_PY` | 便宜的文本/识图脚本 `media.py`（`llm.py` / `vision.py`） | 作者本机路径 |
 | `DASHSCOPE_API_KEY` | media.py 用的千问 key | media.py 读仓库外 CSV |
-| `LINK_BRAIN_FAVDUMP` / `XHS_FAV_HOST` / `XHS_FAV_PROFILE` | 私密收藏读取器 favdump.exe 及其 profile（`favorites.py`） | 作者本机 `.xiaohongshu-mcp` |
-| `LINK_BRAIN_AB_PROFILE_PREFS` | 附件下载用的 **agent-browser 小号登录 profile** 的 Preferences（`attachments.py`） | 作者本机 agent-browser profile |
+| `LINK_BRAIN_FAVDUMP` / `LINK_BRAIN_FAV_LOGIN` / `XHS_FAV_HOST` / `XHS_FAV_PROFILE` | 私密收藏组件与持久登录 | 当前用户已安装组件；未发现则未配置 |
+| `LINK_BRAIN_AB_PROFILE_PREFS` | 附件账号目录的 Preferences | 现有明确配置的 agent-browser profile，否则自动管理 |
+| `LINK_BRAIN_XHS_EXE` / `LINK_BRAIN_XHS_ENDPOINT` | 读取组件程序 / 服务地址 | 当前用户组件 / 本地服务 |
+| `LINK_BRAIN_HOME` | 登录入口的配置、下载程序、日志目录 | 当前用户 `.link-brain` |
 
 **浏览器登录**（附件字节、私密收藏）本就依赖本机 agent-browser / favdump 的登录态，
 是可选的重活；不配这两条也不影响归档主体、目录、检索、问答。

@@ -25,7 +25,7 @@ import httpx
 
 SOURCE = "xiaohongshu"
 ADAPTER_VERSION = "xiaohongshu/1"
-MCP_ENDPOINT = "http://127.0.0.1:18060/mcp"
+MCP_ENDPOINT = os.environ.get('LINK_BRAIN_XHS_ENDPOINT', "http://127.0.0.1:18060/mcp")
 MCP_TOOL = "get_feed_detail"
 
 SHORTLINK_HOSTS = ("xhslink.cn", "xhslink.com")
@@ -273,11 +273,11 @@ async def _call_mcp(tool: str, arguments: dict[str, Any], *, endpoint: str, time
                 joined = " ".join(texts)[:400]
                 if looks_blocked(joined):
                     raise AccountBlockedError(
-                        f"小红书那侧要人处理（登录态失效 / 风控验证码）：MCP {tool} 说「{joined}」"
+                        f"读取账号需要处理：请在 Link Brain 设置页检查并重新扫码。详情：{joined}"
                     )
                 if looks_service_down(joined):
                     raise ServiceDownError(
-                        f"18060 那个服务出事了（先 Start-ScheduledTask XiaohongshuMCP 再重试）："
+                        f"读取服务暂不可用：请在 Link Brain 设置页检查状态，或运行 link-brain login。"
                         f"MCP {tool} 说「{joined}」"
                     )
                 raise AdapterError(f"MCP {tool} 报错: {joined}")
@@ -317,7 +317,7 @@ def call_tool(tool: str, arguments: dict[str, Any], *, endpoint: str = MCP_ENDPO
         text = flatten_exc(exc)
         if looks_service_down(text) or isinstance(exc, (OSError, ConnectionError)):
             raise ServiceDownError(
-                f"连不上 18060 的 MCP（先 Start-ScheduledTask XiaohongshuMCP 再重试）：{text[:300]}"
+                f"读取服务未连接：请在 Link Brain 设置页点击登录，或运行 link-brain login。详情：{text[:300]}"
             ) from exc
         raise
 

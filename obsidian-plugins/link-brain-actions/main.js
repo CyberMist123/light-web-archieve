@@ -305,6 +305,31 @@ class LinkBrainActions extends Plugin {
     });
   }
 
+  async checkRuntime() {
+    if (this.runtimeCheck) return this.runtimeCheck;
+    this.runtimeCheck = (async () => {
+      const obsidianDir = path.join(this.app.vault.adapter.getBasePath(), this.app.vault.configDir || '.obsidian');
+      const {out, err} = await this.spawnCapture(['-m', 'link_brain', 'doctor', '--json', '--obsidian-dir', obsidianDir]);
+      try { return JSON.parse(out); }
+      catch { throw new Error('无法运行 Python 归档程序。请按 README 安装 Python package，再重启 Obsidian。\n' + (err || out)); }
+    })();
+    try { return await this.runtimeCheck; } finally { this.runtimeCheck = null; }
+  }
+
+  async loginAccount(account, force = false) {
+    if (this.running) throw new Error('请等待当前操作完成后再登录。');
+    this.running = '账号登录';
+    try {
+      if (this.runtimeCheck) await this.runtimeCheck;
+      const args = ['-m', 'link_brain', 'login', account, '--json'];
+      if (account === 'xhs') args.push('--install');
+      if (force) args.push('--force');
+      const {out, err} = await this.spawnCapture(args);
+      try { return JSON.parse(out); }
+      catch { throw new Error(err || '登录未完成，请刷新状态后重试。'); }
+    } finally { this.running = null; }
+  }
+
   // catalog-view.js 的 /问AI 入口。后端 `link_brain ask` 自己读整个本地索引重新检索、
   // 只把挑出的少量片段送模型（token 控制全在 Python），这里只做薄壳 + 解析。
   ensureAnswerWorker() {
@@ -653,7 +678,50 @@ class LinkBrainSettingTab extends PluginSettingTab {
     const s = this.plugin.settings;
     const save = () => this.plugin.saveSettings();
 
-    c.createEl("h2", { text: "Link Brain · AI 接口" });
+    c.createEl('h2', {text: '运行状态 / 首次设置'});
+    c.createEl('p', {text: '附件账号为可选。不配置也可以正常读取和同步收藏。各能力使用已保存的登录态，失效时再扫码。', cls: 'setting-item-description'});
+    const statusBox = c.createDiv();
+    const refresh = async () => {
+      if (this.plugin.running) { new Notice('请等待当前操作完成后刷新状态。'); return; }
+      statusBox.empty();
+      statusBox.createEl('p', {text: '正在检查运行状态…'});
+      try {
+        const data = await this.plugin.checkRuntime();
+        statusBox.empty();
+        for (const item of data.checks) {
+          const setting = new Setting(statusBox).setName(item.label)
+            .setDesc(`${item.state === 'ready' ? '✅ ' : ''}${item.message}`);
+          if (['xhs', 'favorites', 'attachments'].includes(item.id)) {
+            setting.addButton(b => b.setButtonText(item.state === 'ready' ? '重新登录' : (item.state === 'expired' ? '重新扫码' : '登录'))
+              .onClick(async () => {
+                b.setDisabled(true);
+                b.setButtonText('准备登录…');
+                new Notice('正在准备登录页面；首次可能需要下载组件。页面打开后请扫码，完成后自动验证。', 10000);
+                try {
+                  const result = await this.plugin.loginAccount(item.id, item.state === 'ready');
+                  new Notice([result.message, result.next_step].filter(Boolean).join('\n'), 12000);
+                  await refresh();
+                  if (result.detail) {
+                    const detail = statusBox.createEl('details');
+                    detail.createEl('summary', {text: '查看详情'});
+                    detail.createEl('pre', {text: result.detail});
+                  }
+                } catch (e) { new Notice(e.message, 12000); b.setDisabled(false); b.setButtonText('重试'); }
+              }));
+          }
+          if (item.id === 'ai') setting.addButton(b => b.setButtonText('配置').onClick(() => aiHeading.scrollIntoView({block:'start'})));
+          if (item.detail || item.next_step) {
+            const detail = statusBox.createEl('details');
+            detail.createEl('summary', {text:'查看详情'});
+            detail.createEl('pre', {text:[item.next_step, item.detail].filter(Boolean).join('\n')});
+          }
+        }
+      } catch (e) { statusBox.empty(); statusBox.createEl('p', {text:e.message}); }
+    };
+    new Setting(c).setName('状态检查').addButton(b => b.setButtonText('刷新状态').onClick(refresh));
+    refresh();
+
+    const aiHeading = c.createEl("h2", { text: "Link Brain · AI 接口" });
     const intro = c.createEl("p", { cls: "setting-item-description" });
     intro.setText(
       "凭据只保存在本插件的 data.json（vault 已 gitignore，不进公开仓、不打印）。" +

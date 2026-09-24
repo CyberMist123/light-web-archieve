@@ -31,6 +31,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--verbose", "-v", action="store_true", help="打印网络/MCP 调用等细节")
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
+    p = sub.add_parser('doctor', help='检查运行状态与首次设置（不修改配置）')
+    p.add_argument('--json', action='store_true')
+    p.add_argument('--obsidian-dir', help='实际 Obsidian 配置目录（插件自动传入）')
+    p = sub.add_parser('login', help='打开扫码页面，自动验证并保存登录态')
+    p.add_argument('account', nargs='?', choices=['xhs', 'favorites', 'attachments'], default='xhs')
+    p.add_argument('--force', action='store_true', help='重新登录 / 附件换号')
+    p.add_argument('--install', action='store_true', help='缺少读取组件时下载官方 Windows x64 组件')
+    p.add_argument('--timeout', type=int, default=300, help='扫码等待秒数')
+    p.add_argument('--json', action='store_true')
+
     p = sub.add_parser("ingest", help="归档一个链接（URL / xhslink 短链 / 分享文本）")
     p.add_argument("target", help="链接或包含链接的分享文本")
     p.add_argument("--origin", choices=ORIGINS, default="cli", help="从哪个端进来的")
@@ -214,6 +224,12 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return EXIT_OK
 
+    if args.command == 'doctor':
+        from . import doctor
+        return doctor.run(args)
+    if args.command == 'login':
+        from . import accounts
+        return accounts.run_login(args)
     if args.command == 'videos':
         from . import videos
         return videos.run(args)
