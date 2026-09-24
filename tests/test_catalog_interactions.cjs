@@ -100,11 +100,11 @@ function fakeDom(){
   const document={body,addEventListener(){},removeEventListener(){},querySelectorAll:s=>body.querySelectorAll(s),createElementNS:(ns,t)=>new El(t)};
   return {El,document};
 }
-async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/catalog-view.js','utf8')}={}){
+async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/catalog-view.js','utf8'),syncState={},onAccountOpen=()=>{}}={}){
   const {El,document}=fakeDom();
   const root=new El('div');const window={alert(){},confirm:()=>false};
-  const app={vault:{adapter:{read:async()=>JSON.stringify(data),getResourcePath:x=>x},getAbstractFileByPath:()=>null},
-    plugins:{plugins:{'link-brain-actions':{settings:{hiddenCats:[]},openAttachments(){},openCategories(){},openLibraryPage(){}}}},
+  const app={vault:{adapter:{read:async p=>JSON.stringify(p.endsWith('sync-status.json')?syncState:data),getResourcePath:x=>x},getAbstractFileByPath:()=>null},
+    plugins:{plugins:{'link-brain-actions':{settings:{hiddenCats:[]},openAccountStatus:onAccountOpen,openAttachments(){},openCategories(){},openLibraryPage(){}}}},
     workspace:{openLinkText(){}}};
   const dv={container:root,current:()=>({file:{folder:''}}),page:()=>null};
   const search=fs.readFileSync('link_brain/assets/catalog-search.js','utf8');
@@ -156,5 +156,13 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
   // 主题名不认识的旧 activeTopic / 坏数据不炸
   const bad=await runCatalogPage({...base,topics:[null,'',42]});
   assert.equal(bad.root.querySelectorAll('.lbc-topics').length,0);
+  let opened=0;
+  const failed=await runCatalogPage(base,{syncState:{state:'blocked',account:'favorites'},onAccountOpen:()=>opened++});
+  const account=failed.root.querySelector('.lbc-account-status');
+  assert.equal(account.textContent,'⚠ 同步暂停 · 登录');
+  await account.onclick();assert.equal(opened,1);
+  const service=await runCatalogPage(base,{syncState:{state:'blocked',account:null}});
+  assert.equal(service.root.querySelector('.lbc-account-status').textContent,'⚠ 同步暂停 · 检查');
+  console.log('PASS: directory shows sync failure next to count and opens account login');
   console.log('PASS: topic chips (absent when no topics, filter/toggle/single-select, 全部 reset, AND with cats, no aria-label)');
 })().catch(e=>{console.error(e);process.exitCode=1;});

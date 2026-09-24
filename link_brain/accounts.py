@@ -293,12 +293,18 @@ def login_xhs(*, force=False, timeout=300, install=False) -> dict:
         raise RuntimeError('读取组件未返回扫码图片，请重试。')
     home().mkdir(parents=True, exist_ok=True)
     page = home() / 'login.html'
-    page.write_text('<meta charset="utf-8"><title>小红书登录</title><body style="text-align:center;font:20px sans-serif">'
-                    '<h2>用小红书 App 扫码登录</h2><p>扫码后自动验证，请回到设置页查看结果。</p>'
-                    f'<img width="280" src="{html.escape(image, quote=True)}">', 'utf-8')
+    def show(message, *, waiting=False):
+        page.write_text('<meta charset="utf-8"><title>小红书登录</title>'
+                        + ('<meta http-equiv="refresh" content="3">' if waiting else '')
+                        + '<body style="text-align:center;font:20px sans-serif">'
+                        + '<h2>小红书登录</h2><p>' + html.escape(message) + '</p>'
+                        + (f'<img width="280" src="{html.escape(image, quote=True)}">' if waiting else ''), 'utf-8')
+    show('请用小红书 App 扫码并确认。正在等待验证，请保持此页面打开。', waiting=True)
     if not webbrowser.open(page.as_uri()):
         raise RuntimeError('无法打开扫码页面，请打开 ' + str(page))
     deadline = time.monotonic() + timeout
+    result = None
+    last_error = ''
     try:
         while time.monotonic() < deadline:
             time.sleep(3)
@@ -307,12 +313,21 @@ def login_xhs(*, force=False, timeout=300, install=False) -> dict:
                 data = api('GET', '/api/v1/login/status', timeout=max(1, deadline-time.monotonic()))
                 if data.get('is_logged_in') is True:
                     save({'xhs_authenticated': True})
-                    return row('xhs', '小红书读取', 'ready', '已登录，登录态已由读取组件保存')
-            except httpx.TimeoutException:
-                break
-        return row('xhs', '小红书读取', 'not_logged_in', '扫码超时', '再次点击「登录」获取新二维码。')
+                    result = row('xhs', '小红书读取', 'ready', '已登录，登录态已由读取组件保存')
+                    return result
+                last_error = ''
+            except (httpx.HTTPError, RuntimeError) as exc:
+                # Older readers cannot launch a second browser while the QR browser is open.
+                # Keep waiting for that browser to save and close instead of abandoning the scan.
+                last_error = str(exc)
+                show('已打开扫码流程，正在等待读取组件完成验证。请勿重复扫码。', waiting=True)
+        result = row('xhs', '小红书读取', 'unknown' if last_error else 'not_logged_in',
+                     '登录验证未完成' if last_error else '扫码超时',
+                     '回到账号设置刷新状态；仍未登录时点击「登录」获取新二维码。', last_error)
+        return result
     finally:
-        page.unlink(missing_ok=True)
+        show((result['message'] + '。' + result['next_step']) if result else
+             '登录验证中断。请回到账号设置刷新状态后重试。')
 
 
 def login_favorites(*, timeout=300, force=False) -> dict:

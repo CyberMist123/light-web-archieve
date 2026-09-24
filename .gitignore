@@ -2,6 +2,7 @@
 vault-dev/
 *.local.*
 .env
+cookies.json
 see-tmp/
 __pycache__/
 *.pyc

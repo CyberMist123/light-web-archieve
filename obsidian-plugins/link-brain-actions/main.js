@@ -305,13 +305,101 @@ class LinkBrainActions extends Plugin {
     });
   }
 
-  async checkRuntime() {
+  openAccountStatus() {
+    const modal = new Modal(this.app);
+    modal.onOpen = async () => {
+      const summary = modal.contentEl.createEl('p', {text:'读取同步状态…'});
+      try {
+        const status = JSON.parse(await this.app.vault.adapter.read(this.lbPath('_archive/sync-status.json')));
+        summary.setText([status.message, status.updated_at ? new Date(status.updated_at).toLocaleString() : ''].filter(Boolean).join(' · '));
+      } catch { summary.setText('尚无同步记录；可以先配置读取账号，粘贴链接归档。'); }
+      this.renderRuntimeStatus(modal.contentEl);
+      new Setting(modal.contentEl).setName('收藏同步').setDesc('恢复登录不会自动清除上次同步错误；补跑成功后更新。')
+        .addButton(b => b.setButtonText('立即同步').onClick(async () => {
+          if (this.running) { summary.setText(`正在${this.running}，请完成后再同步。`); return; }
+          b.setDisabled(true); summary.setText('正在同步收藏…');
+          try { if (this.runtimeCheck) await this.runtimeCheck; const result = await this.syncNow(); summary.setText(result?.code === 0 ? '同步完成' : '同步未完成，请查看账号状态'); }
+          catch (e) { summary.setText(e.message); }
+          finally { b.setDisabled(false); }
+        }));
+    };
+    modal.open();
+  }
+
+  renderRuntimeStatus(c, configureAI = () => { this.app.setting.open(); this.app.setting.openTabById('link-brain-actions'); }) {
+    c.createEl('h2', {text: '账号 / 同步'});
+    c.createEl('p', {text: '附件账号为可选。不配置也可以正常读取和同步收藏。各能力使用已保存的登录态，失效时再扫码。', cls: 'setting-item-description'});
+    const statusBox = c.createDiv();
+    const loginResult = c.createEl('p', {cls: 'setting-item-description'});
+    const refresh = async () => {
+      if (this.running) { statusBox.empty(); statusBox.createEl('p', {text: `正在${this.running}，完成后点击「刷新状态」。`}); return; }
+      statusBox.empty();
+      statusBox.createEl('p', {text: '正在检查运行状态…'});
+      try {
+        const draw = data => {
+        statusBox.empty();
+        for (const item of data.checks) {
+          const setting = new Setting(statusBox).setName(item.label)
+            .setDesc(`${item.state === 'ready' ? '✅ ' : ''}${item.message}`);
+          if (['xhs', 'favorites', 'attachments'].includes(item.id)) {
+            setting.addButton(b => b.setDisabled(item.state === 'checking' || item.state === 'queued').setButtonText(item.state === 'ready' ? '重新登录' : (item.state === 'expired' ? '重新扫码' : '登录'))
+              .onClick(async () => {
+                b.setDisabled(true);
+                b.setButtonText('准备登录…');
+                loginResult.setText('正在准备扫码页面；扫码后会自动验证，请等待结果。');
+                new Notice('正在准备登录页面；首次可能需要下载组件。页面打开后请扫码，完成后自动验证。', 10000);
+                try {
+                  const result = await this.loginAccount(item.id, item.state === 'ready');
+                  loginResult.setText([result.message, result.next_step].filter(Boolean).join('。'));
+                  new Notice([result.message, result.next_step].filter(Boolean).join('\n'), 12000);
+                  await refresh();
+                  if (result.detail) {
+                    const detail = statusBox.createEl('details');
+                    detail.createEl('summary', {text: '查看详情'});
+                    detail.createEl('pre', {text: result.detail});
+                  }
+                } catch (e) { loginResult.setText(e.message); new Notice(e.message, 12000); b.setDisabled(false); b.setButtonText('重试'); }
+              }));
+          }
+          if (item.id === 'ai') setting.addButton(b => b.setButtonText('配置').onClick(configureAI));
+          if (item.detail || item.next_step) {
+            const detail = statusBox.createEl('details');
+            detail.createEl('summary', {text:'查看详情'});
+            detail.createEl('pre', {text:[item.next_step, item.detail].filter(Boolean).join('\n')});
+          }
+        }
+        };
+        draw(await this.checkRuntime(draw));
+      } catch (e) { statusBox.empty(); statusBox.createEl('p', {text:e.message}); }
+    };
+    new Setting(c).setName('状态检查').addButton(b => b.setButtonText('刷新状态').onClick(refresh));
+    refresh();
+    return refresh;
+
+  }
+
+  async checkRuntime(onProgress = () => {}) {
     if (this.runtimeCheck) return this.runtimeCheck;
     this.runtimeCheck = (async () => {
       const obsidianDir = path.join(this.app.vault.adapter.getBasePath(), this.app.vault.configDir || '.obsidian');
-      const {out, err} = await this.spawnCapture(['-m', 'link_brain', 'doctor', '--json', '--obsidian-dir', obsidianDir]);
-      try { return JSON.parse(out); }
-      catch { throw new Error('无法运行 Python 归档程序。请按 README 安装 Python package，再重启 Obsidian。\n' + (err || out)); }
+      const probe = async group => {
+        const {out, err} = await this.spawnCapture(['-m', 'link_brain', 'doctor', '--json', '--only', group, '--obsidian-dir', obsidianDir]);
+        try { return JSON.parse(out); }
+        catch { throw new Error('无法运行 Python 归档程序。请按 README 安装 Python package，再重启 Obsidian。\n' + (err || out)); }
+      };
+      const data = await probe('local');
+      const labels = {xhs:'小红书读取', favorites:'收藏同步', attachments:'附件下载'};
+      data.checks.push(...Object.entries(labels).map(([id,label]) => ({id,label,state:'queued',message:'等待检查'})));
+      onProgress(data);
+      for (const id of Object.keys(labels)) {
+        let row = data.checks.find(r=>r.id === id);
+        row.state = 'checking'; row.message = '正在验证登录状态…'; onProgress(data);
+        const result = await probe(id);
+        data.checks = data.checks.map(r => r.id === id ? result.checks.find(x=>x.id===id) : r).filter(Boolean);
+        onProgress(data);
+      }
+      this.runtimeStatusData = data;
+      return data;
     })();
     try { return await this.runtimeCheck; } finally { this.runtimeCheck = null; }
   }
@@ -678,48 +766,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
     const s = this.plugin.settings;
     const save = () => this.plugin.saveSettings();
 
-    c.createEl('h2', {text: '运行状态 / 首次设置'});
-    c.createEl('p', {text: '附件账号为可选。不配置也可以正常读取和同步收藏。各能力使用已保存的登录态，失效时再扫码。', cls: 'setting-item-description'});
-    const statusBox = c.createDiv();
-    const refresh = async () => {
-      if (this.plugin.running) { new Notice('请等待当前操作完成后刷新状态。'); return; }
-      statusBox.empty();
-      statusBox.createEl('p', {text: '正在检查运行状态…'});
-      try {
-        const data = await this.plugin.checkRuntime();
-        statusBox.empty();
-        for (const item of data.checks) {
-          const setting = new Setting(statusBox).setName(item.label)
-            .setDesc(`${item.state === 'ready' ? '✅ ' : ''}${item.message}`);
-          if (['xhs', 'favorites', 'attachments'].includes(item.id)) {
-            setting.addButton(b => b.setButtonText(item.state === 'ready' ? '重新登录' : (item.state === 'expired' ? '重新扫码' : '登录'))
-              .onClick(async () => {
-                b.setDisabled(true);
-                b.setButtonText('准备登录…');
-                new Notice('正在准备登录页面；首次可能需要下载组件。页面打开后请扫码，完成后自动验证。', 10000);
-                try {
-                  const result = await this.plugin.loginAccount(item.id, item.state === 'ready');
-                  new Notice([result.message, result.next_step].filter(Boolean).join('\n'), 12000);
-                  await refresh();
-                  if (result.detail) {
-                    const detail = statusBox.createEl('details');
-                    detail.createEl('summary', {text: '查看详情'});
-                    detail.createEl('pre', {text: result.detail});
-                  }
-                } catch (e) { new Notice(e.message, 12000); b.setDisabled(false); b.setButtonText('重试'); }
-              }));
-          }
-          if (item.id === 'ai') setting.addButton(b => b.setButtonText('配置').onClick(() => aiHeading.scrollIntoView({block:'start'})));
-          if (item.detail || item.next_step) {
-            const detail = statusBox.createEl('details');
-            detail.createEl('summary', {text:'查看详情'});
-            detail.createEl('pre', {text:[item.next_step, item.detail].filter(Boolean).join('\n')});
-          }
-        }
-      } catch (e) { statusBox.empty(); statusBox.createEl('p', {text:e.message}); }
-    };
-    new Setting(c).setName('状态检查').addButton(b => b.setButtonText('刷新状态').onClick(refresh));
-    refresh();
+    this.plugin.renderRuntimeStatus(c, () => aiHeading.scrollIntoView({block:'start'}));
 
     const aiHeading = c.createEl("h2", { text: "Link Brain · AI 接口" });
     const intro = c.createEl("p", { cls: "setting-item-description" });

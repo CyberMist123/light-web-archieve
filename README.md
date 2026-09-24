@@ -21,7 +21,7 @@ Copy-Item -Recurse -Force obsidian-plugins/link-brain-native-media-nav vault/.ob
 1. 在 Obsidian 中「打开文件夹作为仓库」，选择刚 clone 的 **`vault` 文件夹**。
 2. 设置 → 社区插件，启用 **Link Brain Actions** 和 **Link Brain Native Media Nav**。
 3. 安装并启用 **Dataview**，在它的设置中打开 **Enable JavaScript Queries**。
-4. 打开 **Link Brain Actions 设置 → 运行状态 / 首次设置**。在「小红书读取」点击 **登录**：首次会下载官方读取组件并启动；随后弹出二维码，用手机小红书扫码。完成后自动验证并显示已登录。
+4. 打开 **Link Brain Actions 设置 → 账号 / 同步**（也可点目录篇数旁的 **账号 / 同步**）。在「小红书读取」点击 **登录**：首次会下载官方读取组件并启动；随后弹出二维码，用手机小红书扫码并确认。完成后自动验证，扫码页与设置页显示结果。
 5. 打开「小红书收藏目录」，点击 **＋**，粘贴从小红书 App 复制的完整分享链接。导入完成后点击卡片，即可看到第一篇归档；Markdown 位于 `vault/Web/Xiaohongshu/`。
 
 首次下载组件/浏览器需要联网，可能较慢。Python 安装后若 Obsidian 仍找不到它，请重启 Obsidian。
@@ -43,6 +43,7 @@ AI/OCR 未配置时，不会阻塞原文归档。手机扫码及必要的官方�
 ### 登录过期、组件未启动时
 
 回到同一个设置页，点击「刷新状态」查看结果；登录失效后点击「重新扫码」。
+收藏同步失败也会显示在目录篇数旁；点击「同步暂停 · 登录」进入账号窗口，恢复对应能力后点击「立即同步」。只有实际同步成功才清除失败状态，不依赖 Telegram 通知。
 `link-brain login` 会复用已有登录态，读取组件未启动时会尝试启动，不要求每次重新扫码。
 `link-brain doctor --json` 是设置页使用的相同状态接口，只检测，不安装、不改系统。
 `core_ready` 表示本地存储可用，`xhs_ready` 才表示本次检测读取已登录。

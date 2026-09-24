@@ -16,7 +16,7 @@ def read_json(path: Path, default):
         return default
 
 
-def diagnose(*, obsidian_dir: str | None = None) -> dict:
+def diagnose(*, obsidian_dir: str | None = None, only=None) -> dict:
     rows = []
     vault = storage.vault_root()
     parent = vault
@@ -43,6 +43,8 @@ def diagnose(*, obsidian_dir: str | None = None) -> dict:
     for key, label, check in [('xhs', '小红书读取', accounts.xhs_status),
                               ('favorites', '收藏同步', accounts.favorite_status),
                               ('attachments', '附件下载', accounts.attachment_check)]:
+        if only and only != key:
+            continue
         try:
             rows.append(check())
         except Exception as exc:
@@ -58,13 +60,15 @@ def diagnose(*, obsidian_dir: str | None = None) -> dict:
     rows.append(accounts.row('ai', 'AI', 'configured' if configured else 'unconfigured',
                              '已配置（未调用验证）' if configured else '可选，未配置',
                              '在下方 AI 设置中配置并点击「测试」。', optional=True))
-    return {'core_ready': ready, 'xhs_ready': rows[3]['state'] == 'ready',
+    if only:
+        rows = [r for r in rows if r['id'] == only or (only == 'local' and r['id'] in ('archive', 'obsidian', 'dataview', 'ai'))]
+    return {'core_ready': ready, 'xhs_ready': any(r['id'] == 'xhs' and r['state'] == 'ready' for r in rows),
             'vault': str(vault), 'checks': rows}
 
 
 def run(args) -> int:
     from .read import dump_json
-    result = diagnose(obsidian_dir=args.obsidian_dir)
+    result = diagnose(obsidian_dir=args.obsidian_dir, only=getattr(args, 'only', None))
     if args.json:
         dump_json(result)
     else:
