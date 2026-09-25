@@ -359,7 +359,7 @@ class LinkBrainActions extends Plugin {
     paint();
   }
 
-  // ── 账号（0926 Owner：一行一个平台「小红书 · momo · ✓ 已登录」，无框、无说明小字；每种状态配一个操作；
+  // ── 账号（0926 Owner：一行一个平台「小红书 · 用户名 · ✓ 已登录」，无框、无说明小字；每种状态配一个操作；
   //    结构按平台列表写，以后加 B 站 / 知乎 / Reddit 只要往 PLATFORMS 里加一项）。
   renderAccounts(c) {
     const box = c.createDiv({cls: 'lb-accounts'});

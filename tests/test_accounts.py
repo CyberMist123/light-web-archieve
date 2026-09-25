@@ -63,14 +63,14 @@ def test_api_maps_error_payload_to_code(clean, monkeypatch):
 
 def test_ready_saves_nickname(clean, monkeypatch):
     FakeReader(monkeypatch, {'/api/v1/login/session': {'state': 'idle'},
-                             '/api/v1/login/status': {'is_logged_in': True, 'username': 'momo', 'user_id': 'u1'}})
+                             '/api/v1/login/status': {'is_logged_in': True, 'username': 'alice', 'user_id': 'u1'}})
     r = accounts.xhs_status()
-    assert r['state'] == 'ready' and r['account'] == 'momo'
+    assert r['state'] == 'ready' and r['account'] == 'alice'
     assert accounts.config()['user_id'] == 'u1'
 
 
 def test_logged_out_after_success_is_expired_with_login_action(clean, monkeypatch):
-    accounts.save({'nickname': 'momo'})
+    accounts.save({'nickname': 'alice'})
     FakeReader(monkeypatch, {'/api/v1/login/session': {'state': 'idle'},
                              '/api/v1/login/status': {'is_logged_in': False}})
     r = accounts.xhs_status()
@@ -102,9 +102,9 @@ def _window_reader(monkeypatch, *sessions):
 
 
 def test_login_opens_official_window_and_polls_memory_only(clean, monkeypatch):
-    fake = _window_reader(monkeypatch, {'state': 'waiting'}, {'state': 'success', 'nickname': 'momo', 'user_id': 'u1'})
+    fake = _window_reader(monkeypatch, {'state': 'waiting'}, {'state': 'success', 'nickname': 'alice', 'user_id': 'u1'})
     r = accounts.login()
-    assert r['state'] == 'ready' and r['message'] == '已登录：momo'
+    assert r['state'] == 'ready' and r['message'] == '已登录：alice'
     assert '/api/v1/login/window' in fake.calls and '/api/v1/login/status' not in fake.calls
 
 
@@ -122,14 +122,14 @@ def test_login_reports_account_switch(clean, monkeypatch):
 
 
 def test_logout_forgets_account(clean, monkeypatch):
-    accounts.save({'nickname': 'momo', 'user_id': 'u1', 'endpoint': 'x'})
+    accounts.save({'nickname': 'alice', 'user_id': 'u1', 'endpoint': 'x'})
     FakeReader(monkeypatch, {'/api/v1/login/session': {'state': 'idle'}, '/api/v1/login/logout': {'logged_out': True}})
     r = accounts.logout()
     assert r['message'] == '已退出登录' and accounts.config() == {'endpoint': 'x'}
 
 
 def test_remote_qr_page_still_polls_memory_only(clean, monkeypatch):
-    it = iter([{'state': 'idle'}, {'state': 'waiting'}, {'state': 'success', 'nickname': 'momo', 'user_id': 'u1'}])
+    it = iter([{'state': 'idle'}, {'state': 'waiting'}, {'state': 'success', 'nickname': 'alice', 'user_id': 'u1'}])
     fake = FakeReader(monkeypatch, {'/api/v1/login/session': lambda: next(it),
                                     '/api/v1/login/qrcode': {'img': 'data:image/png;base64,AAAA'}})
     monkeypatch.setattr(accounts.webbrowser, 'open', lambda uri: True)
@@ -157,7 +157,7 @@ def test_favorites_rate_limited_is_quiet(clean, monkeypatch):
 
 def test_favorites_success_returns_items(clean, monkeypatch):
     FakeReader(monkeypatch, {'/api/v1/login/session': {'state': 'idle'},
-                             '/api/v1/favorites': {'nickname': 'momo', 'items': [{'note_id': 'a'}, {'note_id': 'b'}]}})
+                             '/api/v1/favorites': {'nickname': 'alice', 'items': [{'note_id': 'a'}, {'note_id': 'b'}]}})
     assert [x['note_id'] for x in favorites.fetch_favorites(limit=1)] == ['a']
 
 

@@ -20,7 +20,7 @@ vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js','u
 
   // 登录：一个号，不再区分 favorites / attachments；--force 透传
   calls = [];
-  p.spawnCapture = async args => { calls.push(args); return {out:'{"state":"ready","message":"已登录：momo"}',code:0}; };
+  p.spawnCapture = async args => { calls.push(args); return {out:'{"state":"ready","message":"已登录：alice"}',code:0}; };
   assert.equal((await p.loginAccount()).state, 'ready');
   assert.equal(JSON.stringify(calls[0]), JSON.stringify(['-m','link_brain','login','--json']));
   await p.loginAccount(true);
@@ -41,7 +41,7 @@ vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js','u
 
   // 目录页「!」：按失败原因直达修复
   const routes = [];
-  p.loginAccount = async () => { routes.push('login'); return {state:'ready', message:'已登录：momo'}; };
+  p.loginAccount = async () => { routes.push('login'); return {state:'ready', message:'已登录：alice'}; };
   p.openVerify = async () => { routes.push('verify'); return {}; };
   p.openAccountStatus = () => routes.push('panel');
   p.syncNow = () => routes.push('sync');
