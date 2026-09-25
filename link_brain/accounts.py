@@ -111,10 +111,9 @@ def profile_dir() -> Path:
 
 
 def reader_env() -> dict:
-    return {**os.environ, 'XHS_PROFILE_DIR': str(profile_dir()),
-            'XHS_HOST': os.environ.get('XHS_HOST', 'https://www.xiaohongshu.com'),
-            # 扫码落在 rednote.com 时两个域名都会拿到会话，之后统一用 xiaohongshu.com 读。
-            'XHS_LOGIN_HOST': os.environ.get('XHS_LOGIN_HOST', 'https://www.rednote.com')}
+    # 不钉域名：登录落在 xiaohongshu.com 还是 rednote.com 因号而异（0926 实测），
+    # 读取服务在登录成功时探明并记在 profile 的 site-host 里。要强制时才设 XHS_HOST。
+    return {**os.environ, 'XHS_PROFILE_DIR': str(profile_dir())}
 
 
 def api(method: str, route: str, *, timeout: float = 45, body: dict | None = None) -> dict:
@@ -330,4 +329,4 @@ def run_login(args) -> int:
         dump_json(result)
     else:
         print(result['message'] + ('\n下一步：' + result['next_step'] if result['next_step'] else ''))
-    return 0 if result['state'] in ('ready', 'busy') else 1
+    return 0 if result['state'] in ('ready', 'busy') or result['message'] == '已退出登录' else 1
