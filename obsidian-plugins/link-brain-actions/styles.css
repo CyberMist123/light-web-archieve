@@ -1,7 +1,7 @@
 /* Link Brain Actions — 账号与设置页。苹果式：无框、留白、灰字状态，需要处理时才用淡橙。
    颜色尽量走 Obsidian 主题变量，深浅色通用。 */
 
-/* 账号行（0926）：一行「小红书 · momo · ✓ 已登录」，每种状态右侧一个操作 */
+/* 账号行（0926）：一行「小红书 · 用户名 · ✓ 已登录」，每种状态右侧一个操作 */
 .lb-accounts .lb-acct-row { border-top: none; padding: 8px 0; }
 .lb-acct-platform { font-weight: 600; color: var(--text-normal); }
 .lb-acct-who { color: var(--text-normal); }
