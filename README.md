@@ -21,7 +21,7 @@ Copy-Item -Recurse -Force obsidian-plugins/link-brain-native-media-nav vault/.ob
 1. 在 Obsidian 中「打开文件夹作为仓库」，选择刚 clone 的 **`vault` 文件夹**。
 2. 设置 → 社区插件，启用 **Link Brain Actions** 和 **Link Brain Native Media Nav**。
 3. 安装并启用 **Dataview**，在它的设置中打开 **Enable JavaScript Queries**。
-4. 把读取组件 `link-brain-reader.exe` 放进 `%USERPROFILE%\.link-brain\bin\`（见下方「读取组件」）。打开 **Link Brain Actions 设置**，顶部是 **小红书账号** 卡片，点 **扫码登录**：浏览器弹出二维码，用手机小红书「扫一扫」并确认，卡片自动变成「已登录」。**一个号覆盖读取、评论、私密收藏、附件下载**，登录自动保存，失效时才需要重新扫码。
+4. 按 [`reader/README.md`](reader/README.md) 编译读取组件（放进 `%USERPROFILE%\.link-brain\bin\`）。打开 **Link Brain Actions 设置**，顶部是 **小红书账号** 卡片，点 **扫码登录**：浏览器弹出二维码，用手机小红书「扫一扫」并确认，卡片自动变成「已登录」。**一个号覆盖读取、评论、私密收藏、附件下载**，登录自动保存，失效时才需要重新扫码。
 5. 打开「小红书收藏目录」，点击 **＋**，粘贴从小红书 App 复制的完整分享链接。导入完成后点击卡片，即可看到第一篇归档；Markdown 位于 `vault/Web/Xiaohongshu/`。
 
 首次下载组件/浏览器需要联网，可能较慢。Python 安装后若 Obsidian 仍找不到它，请重启 Obsidian。
@@ -73,7 +73,7 @@ English quick start: install Python 3.11+, Git and Obsidian, run the commands ab
 - `GET /api/v1/login/session`：扫码进度（纯内存，不开浏览器）；`GET /api/v1/favorites`：收藏列表（10 分钟限频）；`POST /api/v1/attachments/download`：点附件页「下载」；`POST /api/v1/verify/window`：打开有界面的窗口供人工完成安全验证。
 - 识别到安全验证（拼图滑块）立即返回 `CAPTCHA_REQUIRED` 停车，不重试、不尝试自动通过。
 
-**获取**：扩展版目前尚未发布二进制。把 `link-brain-reader.exe` 放进 `%USERPROFILE%\.link-brain\bin\`，或用 `LINK_BRAIN_XHS_EXE` 指定路径；插件和命令行在需要时会自动在后台启动它。官方原版 xiaohongshu-mcp 没有上述收藏 / 附件 / 登录会话接口，只能用于普通链接读取。
+**获取**：以补丁形式放在本仓库 [`reader/`](reader/README.md)：按那里的步骤检出原项目指定版本、打补丁、编译，把 `link-brain-reader.exe` 放进 `%USERPROFILE%\.link-brain\bin\`（或用 `LINK_BRAIN_XHS_EXE` 指定路径）；插件和命令行在需要时会自动在后台启动它。全部改动清单也在那里。官方原版 xiaohongshu-mcp 没有上述收藏 / 附件 / 登录会话接口，只能用于普通链接读取。
 
 浏览器目录默认 `%USERPROFILE%\.link-brain\xhs-profile`（`XHS_PROFILE_DIR` 可覆盖）。换号：先结束 `link-brain-reader` 进程，把该目录改名备份（删掉 cookie 文件没用，登录态在目录里），再点「扫码登录」用新号扫。
 
