@@ -35,11 +35,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument('--json', action='store_true')
     p.add_argument('--obsidian-dir', help='实际 Obsidian 配置目录（插件自动传入）')
     p.add_argument('--only', choices=['local', 'xhs', 'favorites', 'attachments'], help='只检查一组能力，供界面逐项更新')
-    p = sub.add_parser('login', help='打开扫码页面，自动验证并保存登录态')
-    p.add_argument('account', nargs='?', choices=['xhs', 'favorites', 'attachments'], default='xhs')
-    p.add_argument('--force', action='store_true', help='重新登录 / 附件换号')
-    p.add_argument('--install', action='store_true', help='缺少读取组件时下载官方 Windows x64 组件')
-    p.add_argument('--timeout', type=int, default=300, help='扫码等待秒数')
+    p = sub.add_parser('login', help='打开扫码页面，自动验证并保存登录态（一个号覆盖读取/收藏/附件）')
+    p.add_argument('account', nargs='?', choices=['xhs', 'favorites', 'attachments'], default='xhs',
+                   help='兼容旧用法；三项现在是同一个账号')
+    p.add_argument('--force', action='store_true', help='已登录也重新出码')
+    p.add_argument('--verify', action='store_true', help='打开验证窗口，手动完成小红书安全验证')
+    p.add_argument('--status', action='store_true', help='只检查登录状态')
+    p.add_argument('--timeout', type=int, default=270, help='扫码等待秒数')
     p.add_argument('--json', action='store_true')
 
     p = sub.add_parser("ingest", help="归档一个链接（URL / xhslink 短链 / 分享文本）")

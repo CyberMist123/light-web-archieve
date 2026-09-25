@@ -25,7 +25,12 @@ import httpx
 
 SOURCE = "xiaohongshu"
 ADAPTER_VERSION = "xiaohongshu/1"
-MCP_ENDPOINT = os.environ.get('LINK_BRAIN_XHS_ENDPOINT', "http://127.0.0.1:18060/mcp")
+def _default_endpoint() -> str:
+    from .. import accounts  # 读取服务地址统一由 accounts 决定（env > accounts.json > 默认 18061）
+    return accounts.endpoint()
+
+
+MCP_ENDPOINT = _default_endpoint()  # 仅作展示/记录；调用时每次重新解析
 MCP_TOOL = "get_feed_detail"
 
 SHORTLINK_HOSTS = ("xhslink.cn", "xhslink.com")
@@ -306,9 +311,22 @@ def flatten_exc(exc: BaseException) -> str:
     return " | ".join(parts)
 
 
-def call_tool(tool: str, arguments: dict[str, Any], *, endpoint: str = MCP_ENDPOINT,
+def call_tool(tool: str, arguments: dict[str, Any], *, endpoint: str | None = None,
               timeout: float = 300) -> Any:
-    """同步调一个 MCP 工具；连不上/服务内部错一律升级成 `ServiceDownError`。"""
+    """同步调一个 MCP 工具；连不上/服务内部错一律升级成 `ServiceDownError`。
+
+    默认地址的服务没起时先在本机拉起再调（只拉一次，不循环重试）。
+    """
+    if endpoint is None:
+        from .. import accounts
+        endpoint = accounts.endpoint()
+        try:
+            accounts.ensure_reader()
+        except accounts.ReaderError as exc:
+            err = (AccountBlockedError if exc.needs_human else ServiceDownError)(
+                f"{exc}：{accounts.SOLUTIONS.get(exc.code, ('', '', '请打开 Link Brain 设置页查看', ''))[2]}")
+            err.code = exc.code
+            raise err from exc
     try:
         return asyncio.run(_call_mcp(tool, arguments, endpoint=endpoint, timeout=timeout))
     except NeedsHumanError:
@@ -322,7 +340,7 @@ def call_tool(tool: str, arguments: dict[str, Any], *, endpoint: str = MCP_ENDPO
         raise
 
 
-def check_login_status(*, endpoint: str = MCP_ENDPOINT, timeout: float = 60) -> Any:
+def check_login_status(*, endpoint: str | None = None, timeout: float = 60) -> Any:
     """确认 MCP 登录态还在（浏览器补抓之后必须跑一次）。"""
     return call_tool("check_login_status", {}, endpoint=endpoint, timeout=timeout)
 
@@ -331,7 +349,7 @@ def fetch_detail(
     note_id: str,
     xsec_token: str,
     *,
-    endpoint: str = MCP_ENDPOINT,
+    endpoint: str | None = None,
     comment_limit: int = 200,
     reply_limit: int = 100,
     full_comments: bool = False,

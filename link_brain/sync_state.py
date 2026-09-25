@@ -15,7 +15,7 @@ def load():
         return {}
 
 
-def record(state, *, payload=None, message='', account=None):
+def record(state, *, payload=None, message='', account=None, code=''):
     previous = load()
     now = datetime.now().astimezone().isoformat()
     payload = payload or {}
@@ -25,9 +25,14 @@ def record(state, *, payload=None, message='', account=None):
         message = ('同步已暂停，需要恢复登录或连接' if state == 'blocked' else
                    '部分收藏未同步成功' if errors else '收藏同步完成')
         account = payload.get('login_account', errors[0].get('login_account') if errors else None)
+        code = payload.get('code') or (errors[0].get('code') if errors else '') or ''
+        if code == 'RATE_LIMITED':
+            state, message = 'ready', '刚刚同步过，本次跳过'
+            if previous.get('state') not in (None, 'ready', 'running'):
+                state, message = previous['state'], previous.get('message', '')
     status = {'state': state, 'message': message, 'account': account, 'updated_at': now,
               'last_success': now if state == 'ready' else previous.get('last_success'),
               'favorites': payload.get('favorites'), 'synced': payload.get('synced'),
-              'detail': errors[0].get('error', '') if errors else ''}
+              'code': code, 'detail': errors[0].get('error', '') if errors else ''}
     storage.write_json(path(), status)
     return status

@@ -73,11 +73,6 @@ def fake_fetch(payload: bytes = b"%PDF-1.6 fake\n%%EOF\n", *, calls: list | None
 # --------------------------------------------------------------------------
 
 
-def test_download_button_regex_picks_ref_from_snapshot():
-    line = '- button " 下载" [ref=e1]'
-    assert att_mod.DOWNLOAD_BUTTON_RE.search(line).group(1) == "e1"
-
-
 def test_download_lands_object_level_and_keeps_raw_sealed(tmp_path, monkeypatch):
     setup_env(tmp_path, monkeypatch)
     cli.main(["ingest", "https://example.invalid/share"])

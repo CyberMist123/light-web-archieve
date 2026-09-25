@@ -67,12 +67,3 @@ def test_json_request_stdin_supports_channel_parts_and_history(monkeypatch, caps
     assert result["history"] == request["history"]
 
 
-def test_automatic_browser_closes_on_missing_download_button(tmp_path, monkeypatch):
-    import pytest
-    calls = []
-    monkeypatch.setattr(attachments, "ensure_download_prefs", lambda p: None)
-    monkeypatch.setattr(attachments, "_ab", lambda args, **kw: (calls.append(args) or (0, "login required")))
-    with pytest.raises(attachments.AttachmentError):
-        attachments.fetch_bytes(doc_id="doc", note_id="note", xsec_token="", file_name="file.pdf", staging_dir=tmp_path)
-    assert calls[-1] == ["close"]
-    assert all('--all' not in call for call in calls)

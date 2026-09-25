@@ -40,16 +40,8 @@ def diagnose(*, obsidian_dir: str | None = None, only=None) -> dict:
     rows.append(accounts.row('dataview', 'Dataview', 'ready' if dv_ready else 'missing',
                              '已启用 JS 查询' if dv_ready else '未检测到 / 未开启 JS',
                              '' if dv_ready else '安装并启用 Dataview，打开 Enable JavaScript Queries。', optional=True))
-    for key, label, check in [('xhs', '小红书读取', accounts.xhs_status),
-                              ('favorites', '收藏同步', accounts.favorite_status),
-                              ('attachments', '附件下载', accounts.attachment_check)]:
-        if only and only != key:
-            continue
-        try:
-            rows.append(check())
-        except Exception as exc:
-            rows.append(accounts.row(key, label, 'unknown', '暂时无法验证',
-                                     '展开详情，修正配置后刷新状态。', str(exc), key != 'xhs'))
+    if not only or only in ('xhs', 'favorites', 'attachments'):
+        rows.append(accounts.xhs_status(deep=only is not None))
     ai = ai_config.load().get('textAI') or {}
     from .text_stream import default_http_config
     try:
@@ -61,7 +53,7 @@ def diagnose(*, obsidian_dir: str | None = None, only=None) -> dict:
                              '已配置（未调用验证）' if configured else '可选，未配置',
                              '在下方 AI 设置中配置并点击「测试」。', optional=True))
     if only:
-        rows = [r for r in rows if r['id'] == only or (only == 'local' and r['id'] in ('archive', 'obsidian', 'dataview', 'ai'))]
+        rows = [r for r in rows if r['id'] == only or (r['id'] == 'xhs' and only in ('favorites', 'attachments')) or (only == 'local' and r['id'] in ('archive', 'obsidian', 'dataview', 'ai'))]
     return {'core_ready': ready, 'xhs_ready': any(r['id'] == 'xhs' and r['state'] == 'ready' for r in rows),
             'vault': str(vault), 'checks': rows}
 
