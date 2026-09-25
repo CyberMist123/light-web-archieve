@@ -120,3 +120,15 @@ def test_cli_dispatches_sync_favorites(monkeypatch, capsys):
     assert code == 0
     payload = only_json(capsys)
     assert payload == {"favorites": 0, "synced": 0, "items": []}
+
+
+def test_favorite_account_tag_is_deduplicated_and_survives_meta_rebuild(tmp_path, monkeypatch):
+    from link_brain import favorites, storage
+    monkeypatch.setattr(storage, "object_dir", lambda src, nid: tmp_path / nid)
+    (tmp_path / "n1").mkdir()
+    storage.write_json(tmp_path / "n1" / "meta.json", {"item_id": "xhs-n1"})
+    assert favorites.tag_account("n1", {"nickname": "a", "user_id": "u1"}) is True
+    assert favorites.tag_account("n1", {"nickname": "a", "user_id": "u1"}) is False
+    assert favorites.tag_account("n1", {"nickname": "b", "user_id": "u2"}) is True
+    tags = storage.read_json(tmp_path / "n1" / "meta.json")["favorited_by"]
+    assert [t["nickname"] for t in tags] == ["a", "b"]

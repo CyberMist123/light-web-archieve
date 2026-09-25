@@ -271,6 +271,9 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                 "comments": comment_count,
                 "last_comment": last_comment,
                 "attachment": _attachment_badge(obj_dir, meta),
+                # 收藏来自哪个号（0926）：同步时写进 meta.favorited_by，供按账号筛选
+                "accounts": [a.get("nickname") or a.get("user_id") for a in (meta.get("favorited_by") or [])
+                             if isinstance(a, dict)],
             }
         )
     # 新→旧

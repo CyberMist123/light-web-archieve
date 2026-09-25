@@ -47,3 +47,15 @@
 .lb-advanced h4 { margin: 18px 0 4px; font-size: var(--font-ui-small); color: var(--text-muted); }
 
 .lb-account-modal .modal-content h2 { margin-top: 0; }
+
+/* 加载中：文字后面三个点依次跳动 */
+.lb-loading::after {
+  content: "";
+  display: inline-block;
+  width: 1.2em;
+  text-align: left;
+  animation: lb-dots 1.2s steps(4, end) infinite;
+}
+@keyframes lb-dots {
+  0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; }
+}

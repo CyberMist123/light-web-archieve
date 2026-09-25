@@ -218,7 +218,7 @@ class LinkBrainActions extends Plugin {
     });
 
     this.addCommand({ id: 'fetch-all-comments', name: '抓这篇的全部评论（手动拉取，较慢）', callback: () => this.fetchAllComments() });
-    this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => {
+    if (this.app.workspace?.on) this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => {
       if (!(file instanceof TFile) || !this.app.metadataCache.getFileCache(file)?.frontmatter?.link_brain?.item_id) return;
       menu.addItem(i => i.setTitle('抓全部评论').setIcon('messages-square').onClick(() => this.fetchAllComments(file)));
     }));
@@ -310,13 +310,18 @@ class LinkBrainActions extends Plugin {
 
 
   // 轻量捕获：只抓 stdout/stderr，不占 this.running 锁（答题/自测是便宜的文本调用，不开浏览器）。
-  spawnCapture(args, { input = null } = {}) {
+  spawnCapture(args, { input = null, timeoutMs = 0 } = {}) {
     return new Promise((resolve) => {
       const child = spawn(PY, args, { cwd: this.repoRoot, env: { ...process.env, ...ENV_EXTRA }, windowsHide: true });
-      let out = "", err = "";
+      let out = "", err = "", timedOut = false;
+      // 超时：结束整棵进程树（Windows 上 kill 只杀外层），返回 code=-2
+      const timer = timeoutMs ? setTimeout(() => {
+        timedOut = true;
+        try { spawn('taskkill', ['/T', '/F', '/PID', String(child.pid)], { windowsHide: true }); } catch { child.kill(); }
+      }, timeoutMs) : null;
       child.stdout.on("data", (d) => (out += d.toString()));
       child.stderr.on("data", (d) => (err += d.toString()));
-      child.on("close", (code) => resolve({ code, out, err }));
+      child.on("close", (code) => { if (timer) clearTimeout(timer); resolve({ code: timedOut ? -2 : code, out, err, timedOut }); });
       child.on("error", (e) => resolve({ code: -1, out: "", err: e.message }));
       if (input != null) { child.stdin.write(input); child.stdin.end(); }
     });
@@ -390,7 +395,7 @@ class LinkBrainActions extends Plugin {
       unconfigured: ['未安装', '需要先安装读取组件，见 README「读取组件」。', ''],
       error: ['没有完成', '', '重试'],
       unknown: ['无法确认', '暂时无法确认登录状态，稍后重试。', '重试'],
-      checking: ['检查中', '约 15 秒', ''],
+      checking: ['检查中', '加载中，请稍候', ''],
     };
     const paint = (r, running = false) => {
       current = r;
@@ -399,6 +404,7 @@ class LinkBrainActions extends Plugin {
       state.setText(` · ${label}`);
       state.className = 'lb-acct-state is-' + r.state;
       guide.setText(r.state === 'ready' ? '' : (r.state === 'error' || r.state === 'busy' ? (r.next_step || r.message || '') : tip));
+      guide.toggleClass('lb-loading', r.state === 'checking' || r.state === 'busy');
       if (running) bar.addClass('is-running'); else bar.removeClass('is-running');
       const btnText = r.state === 'error' && r.action === 'login' ? '登录' : button;
       if (btnText) { primary.setButtonText(btnText); primary.buttonEl.show(); primary.setDisabled(false); } else primary.buttonEl.hide();
@@ -430,11 +436,11 @@ class LinkBrainActions extends Plugin {
       menu.addItem(i => i.setTitle('重新检查').setIcon('rotate-cw').onClick(refresh));
       if (current?.state === 'ready') {
         menu.addItem(i => i.setTitle('更换账号').setIcon('user-cog').onClick(async () => {
-          paint({state: 'busy', next_step: '正在退出当前账号 · 约 10 秒'}, true);
+          paint({state: 'busy', next_step: '正在退出当前账号'}, true);
           try { await platform.logout(this); await login(true); } catch (e) { paint({state: 'error', next_step: e.message, action: 'login'}); }
         }));
         menu.addItem(i => i.setTitle('退出登录').setIcon('log-out').onClick(async () => {
-          paint({state: 'busy', next_step: '正在退出 · 约 10 秒'}, true);
+          paint({state: 'busy', next_step: '正在退出'}, true);
           try { paint(await platform.logout(this)); } catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); }
         }));
       }
@@ -468,8 +474,9 @@ class LinkBrainActions extends Plugin {
     return this.runJSON(['-m', 'link_brain', 'login', '--logout', '--json'], '退出登录失败');
   }
 
-  async runJSON(args, fallback) {
-    const {out, err, code} = await this.spawnCapture(args);
+  async runJSON(args, fallback, timeoutMs = 0) {
+    const {out, err, code, timedOut} = await this.spawnCapture(args, {timeoutMs});
+    if (timedOut) throw new Error(`超过 ${Math.round(timeoutMs / 60000)} 分钟没有结果：读取服务可能卡住了，点「重试」；仍不行请查看 ~/.link-brain/reader.log。`);
     const line = (out || '').trim().split('\n').filter(Boolean).pop();
     try { return JSON.parse(line); }
     catch {
@@ -493,7 +500,7 @@ class LinkBrainActions extends Plugin {
 
   async accountStatus() {
     if (this.running === '账号登录') return {state: 'busy', next_step: '正在等待扫码…', action: 'none'};
-    return this.runJSON(['-m', 'link_brain', 'login', '--status', '--json'], '检查登录状态失败');
+    return this.runJSON(['-m', 'link_brain', 'login', '--status', '--json'], '检查登录状态失败', 60000);
   }
 
   async loginAccount(force = false) {

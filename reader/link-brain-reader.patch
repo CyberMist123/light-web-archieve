@@ -858,7 +858,7 @@ index 0000000..540d4ea
 +	respondSuccess(c, map[string]any{"logged_out": true}, "已退出登录")
 +}
 diff --git a/main.go b/main.go
-index c100268..6b3574f 100644
+index c100268..91a304b 100644
 --- a/main.go
 +++ b/main.go
 @@ -6,7 +6,6 @@ import (
@@ -869,6 +869,15 @@ index c100268..6b3574f 100644
  )
  
  // version 构建版本号，发布时通过 -ldflags "-X main.version=vX.Y.Z" 注入。
+@@ -18,7 +17,7 @@ func main() {
+ 		port     string
+ 	)
+ 	flag.BoolVar(&headless, "headless", true, "是否无头模式")
+-	flag.StringVar(&port, "port", ":18060", "端口")
++	flag.StringVar(&port, "port", "127.0.0.1:18061", "监听地址（只听本机；登录态不对局域网开放）")
+ 	flag.Parse()
+ 
+ 	logrus.Infof("xiaohongshu-mcp version: %s", version)
 @@ -32,9 +31,7 @@ func main() {
  
  	configs.InitHeadless(headless)
@@ -880,6 +889,32 @@ index c100268..6b3574f 100644
  	configs.SetProxy(configs.ProxyFromEnv())
  
  	// 初始化服务
+diff --git a/middleware.go b/middleware.go
+index b38164a..a769bd5 100644
+--- a/middleware.go
++++ b/middleware.go
+@@ -9,16 +9,14 @@ import (
+ 
+ // corsMiddleware CORS 中间件
+ func corsMiddleware() gin.HandlerFunc {
++	// Link Brain：本服务握着小红书登录态，只给本机程序调用。
++	// 原先 Access-Control-Allow-Origin: * 等于允许任何网页在后台读收藏、帮你退出登录。
++	// 浏览器发起的请求一定带 Origin 头，本机的 Python / CLI 不带：带了就拒绝，也不再发跨域许可。
+ 	return func(c *gin.Context) {
+-		c.Header("Access-Control-Allow-Origin", "*")
+-		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+-		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+-
+-		if c.Request.Method == "OPTIONS" {
+-			c.AbortWithStatus(http.StatusNoContent)
++		if c.GetHeader("Origin") != "" {
++			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "拒绝来自网页的请求", "code": "FORBIDDEN_ORIGIN"})
+ 			return
+ 		}
+-
+ 		c.Next()
+ 	}
+ }
 diff --git a/routes.go b/routes.go
 index 26b7bf4..1ab2280 100644
 --- a/routes.go
@@ -1081,10 +1116,20 @@ index f40bb5d..d58fb03 100644
  	if err != nil {
  		return nil, err
 diff --git a/xiaohongshu/feed_detail.go b/xiaohongshu/feed_detail.go
-index 2cfde9f..06999fc 100644
+index 2cfde9f..1b25bef 100644
 --- a/xiaohongshu/feed_detail.go
 +++ b/xiaohongshu/feed_detail.go
-@@ -129,6 +129,9 @@ func (f *FeedDetailAction) GetFeedDetailWithConfig(ctx context.Context, feedID,
+@@ -109,7 +109,8 @@ func (f *FeedDetailAction) GetFeedDetailWithConfig(ctx context.Context, feedID,
+ 	err := retry.Do(
+ 		func() error {
+ 			page.MustNavigate(url)
+-			page.MustWaitDOMStable()
++			// 学原项目 ae5d1a2：等详情页关键容器，不再等整页 DOM 静止（动态内容会让后者白等很久）
++			waitFeedPageReady(page)
+ 			return nil
+ 		},
+ 		retry.Attempts(3),
+@@ -129,6 +130,9 @@ func (f *FeedDetailAction) GetFeedDetailWithConfig(ctx context.Context, feedID,
  		return nil, err
  	}
  
@@ -1094,7 +1139,7 @@ index 2cfde9f..06999fc 100644
  	if loadAllComments {
  		if err := f.loadAllCommentsWithConfig(ctx, page, config); err != nil {
  			logrus.Warnf("加载全部评论失败: %v", err)
-@@ -1001,5 +1004,29 @@ func (f *FeedDetailAction) extractFeedDetail(page *rod.Page, feedID string) (*Fe
+@@ -1001,5 +1005,29 @@ func (f *FeedDetailAction) extractFeedDetail(page *rod.Page, feedID string) (*Fe
  }
  
  func makeFeedDetailURL(feedID, xsecToken string) string {
@@ -1725,6 +1770,37 @@ index a5df183..10d127f 100644
  	humanize.Delay(ctx, humanize.AfterNavigate)
  
  	target, index, err := n.locate(ctx, page, commentID)
+diff --git a/xiaohongshu/page_ready.go b/xiaohongshu/page_ready.go
+new file mode 100644
+index 0000000..01490b9
+--- /dev/null
++++ b/xiaohongshu/page_ready.go
+@@ -0,0 +1,25 @@
++package xiaohongshu
++
++import (
++	"time"
++
++	"github.com/go-rod/rod"
++	"github.com/sirupsen/logrus"
++)
++
++// feedReadyTimeout 等待详情页关键容器的上限，超时不算失败。
++const feedReadyTimeout = 8 * time.Second
++
++// feedReadySelectors 详情页已出结果的判据：正常笔记容器，或 checkPageAccessible 认的错误容器。
++const feedReadySelectors = ".interact-container, .note-scroller, " +
++	".access-wrapper, .error-wrapper, .not-found-wrapper, .blocked-wrapper"
++
++// waitFeedPageReady 等待 feed 详情页可用：load 事件 + 关键容器出现，不要求整页 DOM 静止。
++func waitFeedPageReady(page *rod.Page) {
++	page.MustWaitLoad()
++
++	if _, err := page.Timeout(feedReadyTimeout).Element(feedReadySelectors); err != nil {
++		// 没等到也继续，后续 Element 各自带轮询
++		logrus.Warnf("详情页关键容器未在 %s 内出现，继续尝试: %v", feedReadyTimeout, err)
++	}
++}
 diff --git a/xiaohongshu/search.go b/xiaohongshu/search.go
 index 7c22952..1fe60ee 100644
 --- a/xiaohongshu/search.go
