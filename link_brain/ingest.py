@@ -106,15 +106,37 @@ def download_image(url: str, dest_dir: Path, stem: str, *, client: httpx.Client)
     return result
 
 
+def _download_comment_audio(audio: dict[str, Any], comment_id: str, assets: Path, rel_prefix: str,
+                            client: httpx.Client) -> dict[str, Any]:
+    """语音评论：CDN 直链（带签名，公开可取），存成 .m4a；失败只记状态，不影响归档。"""
+    entry = {"role": "comment_audio", "comment_id": comment_id, "original_url": audio["url"],
+             "file": None, "download_status": "failed"}
+    try:
+        response = client.get(audio["url"], timeout=60, follow_redirects=True)
+        response.raise_for_status()
+        if not response.content:
+            raise ValueError("空文件")
+        assets.mkdir(parents=True, exist_ok=True)
+        name = f"comment-{comment_id}-audio.m4a"
+        (assets / name).write_bytes(response.content)
+        entry.update(file=f"{rel_prefix}/assets/{name}", bytes=len(response.content),
+                     sha256=hashlib.sha256(response.content).hexdigest(), download_status="ok")
+    except (httpx.HTTPError, OSError, ValueError) as exc:
+        entry["error"] = f"{type(exc).__name__}: {exc}"[:200]
+    return entry
+
+
 def download_media(source: dict[str, Any], raw_version_dir: Path, rel_prefix: str) -> dict[str, Any]:
     """按 source.json 下载全部图片，返回 manifest.json 的内容（docs/FORMAT.md §4）。"""
     note = source["note"]
     assets = raw_version_dir / "assets"
     media: list[dict[str, Any]] = []
     is_video = note["kind"] == "video"
+    from .ai_config import sync_options
+    opts = sync_options()
 
     with httpx.Client() as client:
-        for image in note["images"]:
+        for image in (note["images"] if opts["downloadImages"] else []):
             # 视频型笔记的 imageList 就是封面，role 记 video_cover
             role = "video_cover" if is_video else "note_image"
             stem = f"cover-{image['index']:03d}" if is_video else f"image-{image['index']:03d}"
@@ -138,8 +160,11 @@ def download_media(source: dict[str, Any], raw_version_dir: Path, rel_prefix: st
                     if entry["file"]:
                         entry["file"] = f"{rel_prefix}/assets/{entry['file']}"
                     media.append(entry)
+                audio = group.get("audio")
+                if audio and audio.get("url"):
+                    media.append(_download_comment_audio(audio, group["comment_id"], assets, rel_prefix, client))
 
-    if is_video and (note.get("video") or {}).get("video_url"):
+    if opts["downloadVideo"] and is_video and (note.get("video") or {}).get("video_url"):
         from .videos import download
         media.append(download(note['video'], raw_version_dir, rel_prefix))
 
@@ -229,10 +254,24 @@ SERVICE_RETRIES = 3
 SERVICE_BACKOFF = (20, 60)
 
 
-def _fetch_with_retry(parsed: dict[str, Any], *, log) -> Any:
+def _detail_kwargs(comment_floors: int | str | None) -> dict[str, Any]:
+    """评论楼层：10（默认，秒回）/ 20 / 50（滚评论区并展开楼中楼，限楼数）/ "all"（手动全量）。"""
+    if comment_floors is None:
+        from .ai_config import sync_options
+        comment_floors = sync_options()["commentFloors"]
+    if comment_floors == "all":
+        return {"full_comments": True, "comment_limit": 2000, "timeout": 1500}
+    floors = int(comment_floors)
+    if floors <= 10:
+        return {}
+    return {"full_comments": True, "comment_limit": floors, "timeout": 600}
+
+
+def _fetch_with_retry(parsed: dict[str, Any], *, log, comment_floors=None) -> Any:
+    kwargs = _detail_kwargs(comment_floors)
     for attempt in range(1, SERVICE_RETRIES + 1):
         try:
-            return xhs.fetch_detail(parsed["note_id"], parsed["xsec_token"])
+            return xhs.fetch_detail(parsed["note_id"], parsed["xsec_token"], **kwargs)
         except xhs.ServiceDownError as exc:
             if attempt == SERVICE_RETRIES:
                 raise
@@ -251,6 +290,7 @@ def ingest_url(
     note: str | None = None,
     verbose: bool = False,
     refresh: bool = False,
+    comment_floors: int | str | None = None,
 ) -> dict[str, Any]:
     """抓一条链接并落一份不可变 RAW。返回摘要 dict（含 exit_code）。
 
@@ -308,7 +348,7 @@ def ingest_url(
             }
 
         log(f"MCP {xhs.MCP_TOOL} @ {xhs.MCP_ENDPOINT}")
-        raw = _fetch_with_retry(parsed, log=log)
+        raw = _fetch_with_retry(parsed, log=log, comment_floors=comment_floors)
 
         # 附件元数据只有笔记网页版有（MCP 不返回），游客可见；失败不阻断
         log(f"网页探测附件 {xhs.CANONICAL_FMT.format(note_id=parsed['note_id'])}")
@@ -456,7 +496,7 @@ def run(args) -> int:
         service = isinstance(exc, xhs.ServiceDownError)
         alert_mod.alert(
             alert_mod.KIND_SERVICE if service else alert_mod.KIND_ACCOUNT,
-            "小红书归档停了：" + ("18060 的服务要人管" if service else "号要人处理"),
+            "小红书归档停了：" + ("读取服务要处理" if service else "账号要处理"),
             str(exc),
             url=args.target,
         )
@@ -506,3 +546,42 @@ def run(args) -> int:
             print(f"    [{item['role']}#{item['index']}] {item['original_url']} : {item['error']}",
                   file=sys.stderr)
     return summary["exit_code"]
+
+
+def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = False) -> dict[str, Any]:
+    """手动抓一篇的评论区（Owner 0926：超过 50 楼 / 全量只在指定笔记上手动抓，不进每晚同步）。
+
+    target 可以是 item_id（xhs-<note_id>）或链接；用归档里最新的 xsec_token 重抓（--refresh 语义，
+    RAW 只在内容有变化时出新版本），含楼中楼、评论图片、语音评论，完了重新渲染可见页。
+    """
+    from . import catch as catch_mod
+    url = target
+    if not target.startswith("http"):
+        conn = index_mod.connect()
+        try:
+            row = index_mod.get_object(conn, target)
+        finally:
+            conn.close()
+        if not row:
+            raise FileNotFoundError(f"没有归档过: {target}")
+        meta = storage.read_json(storage.object_dir(row["source"], row["source_id"]) / "meta.json")
+        note = storage.read_json(storage.raw_dir(row["source"], row["source_id"], meta["current_version"]) / "source.json")["note"]
+        url = f"https://www.xiaohongshu.com/explore/{row['source_id']}?xsec_token={note.get('xsec_token') or ''}"
+    summary = ingest_url(url, refresh=True, comment_floors=floors, verbose=verbose)
+    catch_mod._ensure_rendered(xhs.SOURCE, summary["note_id"], force=True, extract=False)
+    return summary
+
+
+def run_comments(args) -> int:
+    from .read import dump_json
+    try:
+        summary = fetch_comments(args.target, floors=args.floors if args.floors == "all" else int(args.floors),
+                                 verbose=getattr(args, "verbose", False))
+    except xhs.NeedsHumanError as exc:
+        print(f"评论抓取中止（账号或服务要处理）: {exc}", file=sys.stderr)
+        return EXIT_NEEDS_HUMAN
+    except (xhs.AdapterError, FileNotFoundError) as exc:
+        print(f"评论抓取失败: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    dump_json({k: summary.get(k) for k in ("item_id", "note_id", "comments", "sub_comments", "comments_complete", "version", "refreshed_unchanged")})
+    return 0

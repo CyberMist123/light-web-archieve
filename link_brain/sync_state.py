@@ -24,6 +24,8 @@ def record(state, *, payload=None, message='', account=None, code=''):
         state = 'blocked' if any(x.get('status') == 'blocked' for x in errors) else ('failed' if errors else 'ready')
         message = ('同步已暂停，需要恢复登录或连接' if state == 'blocked' else
                    '部分收藏未同步成功' if errors else '收藏同步完成')
+        if state == 'ready' and payload.get('deferred'):
+            message = f"今天已新抓 {payload.get('daily_limit')} 篇，还有 {payload['deferred']} 篇明天继续"
         account = payload.get('login_account', errors[0].get('login_account') if errors else None)
         code = payload.get('code') or (errors[0].get('code') if errors else '') or ''
         if code == 'RATE_LIMITED':

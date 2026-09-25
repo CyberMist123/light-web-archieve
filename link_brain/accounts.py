@@ -227,8 +227,48 @@ img{{width:240px;height:240px;margin:22px 0 8px;image-rendering:pixelated}}
 <div class="tip">{'打开小红书 App → 左上角 ≡ → 扫一扫。扫码后在手机上确认登录。' if not done else '可以关闭此页面。'}</div></div>'''
 
 
-def login(*, timeout=270, open_browser=True) -> dict:
-    """出码 → 只轮询内存状态 → 成功时服务已把登录态落盘。"""
+def _finish_login(s: dict) -> dict:
+    name = s.get('nickname') or ''
+    previous = config().get('user_id')
+    save({'nickname': name, 'user_id': s.get('user_id', '')})
+    switched = previous and s.get('user_id') and previous != s.get('user_id')
+    return row('xhs', '小红书账号', 'ready', '已登录' + (f'：{name}' if name else ''),
+               '已切换账号：收藏同步将读取这个号的收藏。' if switched else '', account=name)
+
+
+def login(*, timeout=330) -> dict:
+    """打开小红书官方登录窗口，人在官方页面扫码；这里只轮询服务内存态，窗口由服务关闭并落盘。"""
+    ensure_reader()
+    api('POST', '/api/v1/login/window', timeout=20)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        time.sleep(1.5)
+        s = api('GET', '/api/v1/login/session', timeout=10)
+        state = s.get('state')
+        if state == 'success':
+            return _finish_login(s)
+        if state == 'cancelled':
+            return row('xhs', '小红书账号', 'not_logged_in', '已取消登录', '需要时再点「扫码登录」。', action='login')
+        if state == 'failed':
+            return row('xhs', '小红书账号', 'error', '登录没有完成', '点「扫码登录」再试一次。', action='login')
+        if state == 'timeout':
+            break
+    return row('xhs', '小红书账号', 'not_logged_in', '登录窗口已超时', '点「扫码登录」重新打开。', action='login')
+
+
+def logout() -> dict:
+    ensure_reader()
+    api('POST', '/api/v1/login/logout', timeout=90)
+    data = config()
+    for key in ('nickname', 'user_id'):
+        data.pop(key, None)
+    home().mkdir(parents=True, exist_ok=True)
+    (home() / 'accounts.json').write_text(json.dumps(data, ensure_ascii=False, indent=2), 'utf-8')
+    return row('xhs', '小红书账号', 'not_logged_in', '已退出登录', '点「扫码登录」登录新的账号。', action='login')
+
+
+def login_qr(*, timeout=270, open_browser=True) -> dict:
+    """远程扫码用（如把二维码发到手机）：出码成网页 → 只轮询内存状态 → 成功时服务已把登录态落盘。"""
     ensure_reader()
     qr = api('GET', '/api/v1/login/qrcode', timeout=90)
     if qr.get('is_logged_in'):
@@ -248,12 +288,7 @@ def login(*, timeout=270, open_browser=True) -> dict:
             time.sleep(2)
             s = api('GET', '/api/v1/login/session', timeout=10)
             if s.get('state') == 'success':
-                name = s.get('nickname') or ''
-                previous = config().get('user_id')
-                save({'nickname': name, 'user_id': s.get('user_id', '')})
-                switched = previous and s.get('user_id') and previous != s.get('user_id')
-                result = row('xhs', '小红书账号', 'ready', '已登录' + (f'：{name}' if name else ''),
-                             '已切换账号：收藏同步将读取这个号的收藏。' if switched else '', account=name)
+                result = _finish_login(s)
                 page.write_text(_login_page(result['message'], done=True, ok=True), 'utf-8')
                 return result
             if s.get('state') == 'timeout':
@@ -279,12 +314,16 @@ def run_login(args) -> int:
     try:
         if getattr(args, 'verify', False):
             result = open_verify()
+        elif getattr(args, 'logout', False):
+            result = logout()
+        elif getattr(args, 'qr', False):
+            result = login_qr(timeout=args.timeout)
         elif getattr(args, 'status', False):
             result = xhs_status()
         else:
             result = xhs_status(deep=False) if not args.force else None
             if result is None or result['state'] != 'ready':
-                result = login(timeout=args.timeout)
+                result = login()
     except Exception as exc:  # noqa: BLE001
         result = error_row(exc)
     if args.json:

@@ -167,7 +167,7 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
   const service=await runCatalogPage(base,{syncState:{state:'blocked',account:null}});
   assert.equal(service.root.querySelector('.lbc-account-status').textContent,'!同步暂停');
   const ok=await runCatalogPage(base,{syncState:{state:'ready',updated_at:'2026-09-25T04:10:00+10:00'}});
-  assert.match(ok.root.querySelector('.lbc-account-status').textContent,/^✓ 已同步 · 9\/2[45] /);
+  assert.equal(ok.root.querySelector('.lbc-account-status').hidden,true,'同步正常时不显示');
   console.log('PASS: directory shows sync failure next to count and opens account login');
   console.log('PASS: topic chips (absent when no topics, filter/toggle/single-select, 全部 reset, AND with cats, no aria-label)');
 })().catch(e=>{console.error(e);process.exitCode=1;});

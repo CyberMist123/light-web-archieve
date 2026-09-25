@@ -24,6 +24,8 @@ const DEFAULT_SETTINGS = {
   hiddenCats: [],
   downloads: {folder: path.join(require("os").homedir(), "Downloads"), waitMinutes: 5},
   nickname: "ler",   // 批注署名（Owner 2026-09-17）
+  // 收藏同步（0926）：自动拉取评论楼层 10/20/50；全部楼层只在单篇上手动拉取。和 link_brain/ai_config.py 对齐。
+  sync: { autoAfterLogin: true, downloadImages: true, downloadVideo: true, commentFloors: 10, dailyNewLimit: 200 },
 };
 
 function mergeSettings(saved) {
@@ -112,6 +114,14 @@ class ImportModal extends Modal {
     input.focus();
   }
 }
+
+// 可登录的平台。以后加 B 站 / 知乎 / Reddit：往这里加一项（status / login / logout / verify 四个动作）。
+const PLATFORMS = [{
+  id: 'xhs', name: '小红书',
+  afterLoginNotice: '登录完成。电脑网页版同一个号只能登录一处：如果其他浏览器里登录这个号，这里会被顶掉，回到这里重新登录即可。手机 App 不受影响。',
+  status: p => p.accountStatus(), login: (p, force) => p.loginAccount(force),
+  logout: p => p.logoutAccount(), verify: p => p.openVerify(),
+}];
 
 // 小红书读取服务的域名等由 link_brain/accounts.py 统一决定，这里只管编码。
 const ENV_EXTRA = {
@@ -207,6 +217,12 @@ class LinkBrainActions extends Plugin {
         this.run(["-m", "link_brain", "sync-favorites", "--extract"], "同步收藏", true),
     });
 
+    this.addCommand({ id: 'fetch-all-comments', name: '抓这篇的全部评论（手动拉取，较慢）', callback: () => this.fetchAllComments() });
+    this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => {
+      if (!(file instanceof TFile) || !this.app.metadataCache.getFileCache(file)?.frontmatter?.link_brain?.item_id) return;
+      menu.addItem(i => i.setTitle('抓全部评论').setIcon('messages-square').onClick(() => this.fetchAllComments(file)));
+    }));
+
     this.addCommand({
       id: "ingest-inbox",
       name: "投喂：把「📥 投喂」里的链接抓进来",
@@ -234,6 +250,8 @@ class LinkBrainActions extends Plugin {
     const menu = new obsidian.Menu();
     menu.addItem(i => i.setTitle('导入网址').setIcon('link').onClick(() => this.openImportModal()));
     menu.addItem(i => i.setTitle('同步收藏夹…').setIcon('refresh-cw').onClick(() => this.openSyncSettings()));
+    menu.addSeparator();
+    menu.addItem(i => i.setTitle('账号登录…').setIcon('user').onClick(() => this.openAccountStatus()));
     if (evt && typeof evt.pageX === 'number') menu.showAtMouseEvent(evt);
     else if (evt?.currentTarget) menu.showAtPosition({ x: evt.currentTarget.getBoundingClientRect().left, y: evt.currentTarget.getBoundingClientRect().bottom });
     else menu.showAtPosition({ x: 100, y: 100 });
@@ -259,7 +277,8 @@ class LinkBrainActions extends Plugin {
   }
   syncNow() {
     if (this.running) { new Notice('已有归档任务在跑'); return; }
-    return this.run(['-m', 'link_brain', 'sync-favorites', '--extract'], '同步收藏', true);
+    // --limit 0 = 全部收藏；新抓数量由设置里的「每天最多新抓」控制（Python 侧 _Quota）
+    return this.run(['-m', 'link_brain', 'sync-favorites', '--limit', '0', '--extract'], '同步收藏', true);
   }
   async getSyncSchedule() {
     const { out } = await this.spawnCapture(['-m', 'link_brain', 'sync-schedule']);
@@ -310,8 +329,8 @@ class LinkBrainActions extends Plugin {
     modal.modalEl.addClass('lb-account-modal');
     modal.onOpen = () => {
       const c = modal.contentEl;
-      c.createEl('h2', {text: '小红书账号与同步'});
-      this.renderAccountCard(c);
+      c.createEl('h2', {text: '账号与同步'});
+      this.renderAccounts(c);
       this.renderSyncRow(c);
     };
     modal.open();
@@ -340,63 +359,113 @@ class LinkBrainActions extends Plugin {
     paint();
   }
 
-  // 账号卡片：logo · 账号名 + 状态胶囊 · 主按钮；下一行只写「下一步」，技术细节折叠。
-  renderAccountCard(c) {
-    const card = c.createDiv({cls: 'lb-acct'});
-    const logo = card.createDiv({cls: 'lb-acct-logo', text: '小红书'});
-    logo.setAttr('aria-hidden', 'true');
-    const body = card.createDiv({cls: 'lb-acct-body'});
-    const top = body.createDiv({cls: 'lb-acct-top'});
-    const name = top.createSpan({cls: 'lb-acct-name', text: '小红书账号'});
-    const pill = top.createSpan({cls: 'lb-pill is-checking', text: '检查中'});
-    const hint = body.createDiv({cls: 'lb-acct-hint', text: '正在确认登录状态…'});
-    const detail = body.createEl('details', {cls: 'lb-acct-detail'});
-    detail.createEl('summary', {text: '技术详情'});
-    const pre = detail.createEl('pre');
-    detail.hide();
-    const actions = card.createDiv({cls: 'lb-acct-actions'});
-    const primary = actions.createEl('button', {cls: 'mod-cta', text: '扫码登录'});
-    const again = actions.createEl('button', {cls: 'lb-acct-refresh clickable-icon', attr: {'aria-label': '重新检查'}});
-    if (obsidian.setIcon) obsidian.setIcon(again, 'rotate-cw'); else again.setText('↻');
-    const PILL = {ready: ['已登录', 'is-ok'], expired: ['登录失效', 'is-bad'], not_logged_in: ['未登录', 'is-off'],
-      captcha: ['需要验证', 'is-warn'], busy: ['进行中', 'is-info'], disconnected: ['服务未运行', 'is-bad'],
-      unconfigured: ['未安装', 'is-off'], error: ['出错', 'is-bad'], unknown: ['无法确认', 'is-warn'], checking: ['检查中', 'is-checking']};
-    const BUTTON = {login: '扫码登录', verify: '打开验证', retry: '重试', wait: '刷新'};
-    let current = null;
-    const paint = r => {
+  // ── 账号（0926 Owner：一行一个平台「小红书 · momo · ✓ 已登录」，无框、无说明小字；每种状态配一个操作；
+  //    结构按平台列表写，以后加 B 站 / 知乎 / Reddit 只要往 PLATFORMS 里加一项）。
+  renderAccounts(c) {
+    const box = c.createDiv({cls: 'lb-accounts'});
+    const refreshers = PLATFORMS.map(p => this.renderAccountRow(box, p));
+    return () => Promise.all(refreshers.map(r => r()));
+  }
+
+  renderAccountRow(box, platform) {
+    const row = new Setting(box).setClass('lb-acct-row');
+    row.nameEl.empty();
+    row.nameEl.createSpan({cls: 'lb-acct-platform', text: platform.name});
+    const who = row.nameEl.createSpan({cls: 'lb-acct-who'});
+    const state = row.nameEl.createSpan({cls: 'lb-acct-state'});
+    const bar = row.descEl.createDiv({cls: 'lb-progress'});
+    bar.createDiv({cls: 'lb-progress-fill'});
+    const guide = row.descEl.createDiv({cls: 'lb-acct-guide'});
+    let primary, more, current = null;
+    row.addButton(b => { primary = b; b.buttonEl.hide(); });
+    row.addExtraButton(b => { more = b; b.setIcon('more-horizontal').setTooltip('更多'); });
+    // 每种状态：状态字 · 下一步一句话 · 主按钮
+    const VIEW = {
+      ready: ['✓ 已登录', '', ''],
+      expired: ['已过期', '登录已失效，重新扫码即可。', '重新登录'],
+      not_logged_in: ['未登录', '登录后自动同步收藏。', '登录'],
+      captcha: ['需要验证', '小红书要求安全验证：打开窗口手动拖一下滑块，完成后关掉窗口。', '去验证'],
+      busy: ['进行中', '', ''],
+      disconnected: ['服务未运行', '点「重试」会自动启动读取组件。', '重试'],
+      unconfigured: ['未安装', '需要先安装读取组件，见 README「读取组件」。', ''],
+      error: ['没有完成', '', '重试'],
+      unknown: ['无法确认', '暂时无法确认登录状态，稍后重试。', '重试'],
+      checking: ['检查中', '约 15 秒', ''],
+    };
+    const paint = (r, running = false) => {
       current = r;
-      const [label, cls] = PILL[r.state] || PILL.unknown;
-      pill.className = 'lb-pill ' + cls; pill.setText(label);
-      name.setText(r.account || (r.state === 'ready' ? '已登录' : '小红书账号'));
-      hint.setText(r.state === 'ready' ? '评论、私密收藏、附件都用这个号。登录会自动保存，失效时才需要重新扫码。' : (r.next_step || r.message || ''));
-      pre.setText(r.detail || ''); if (r.detail) detail.show(); else detail.hide();
-      const act = r.state === 'ready' || r.state === 'checking' ? '' : (r.action || 'retry');
-      if (act && act !== 'none') primary.show(); else primary.hide();
-      primary.setText(BUTTON[act] || '重试');
-      primary.disabled = false;
+      const [label, tip, button] = VIEW[r.state] || VIEW.unknown;
+      who.setText(r.account ? ` · ${r.account}` : '');
+      state.setText(` · ${label}`);
+      state.className = 'lb-acct-state is-' + r.state;
+      guide.setText(r.state === 'ready' ? '' : (r.state === 'error' || r.state === 'busy' ? (r.next_step || r.message || '') : tip));
+      if (running) bar.addClass('is-running'); else bar.removeClass('is-running');
+      const btnText = r.state === 'error' && r.action === 'login' ? '登录' : button;
+      if (btnText) { primary.setButtonText(btnText); primary.buttonEl.show(); primary.setDisabled(false); } else primary.buttonEl.hide();
     };
     const refresh = async () => {
-      paint({state: 'checking', next_step: '正在确认登录状态…'});
-      try { paint(await this.accountStatus()); }
+      paint({state: 'checking'}, true);
+      try { paint(await platform.status(this)); }
       catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); }
     };
-    primary.onclick = async () => {
-      const act = current?.action || 'retry';
-      primary.disabled = true;
+    const login = async (force = false) => {
+      new Notice('将自动弹出浏览器，扫码后会自动关闭窗口。', 8000);
+      paint({state: 'busy', next_step: '已打开登录窗口，用手机 App 扫码并确认。'}, true);
       try {
-        if (act === 'login') {
-          paint({state: 'busy', next_step: '二维码已在浏览器打开：用小红书 App 扫一扫，并在手机上确认。这里会自动更新。', action: 'none'});
-          const r = await this.loginAccount();
-          paint(r);
-          new Notice(r.state === 'ready' ? `✓ ${r.message}` : [r.message, r.next_step].filter(Boolean).join('\n'), 10000);
-        } else if (act === 'verify') {
-          paint(await this.openVerify());
-        } else await refresh();
-      } catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); }
+        const r = await platform.login(this, force);
+        paint(r);
+        if (r.state === 'ready') await this.afterLogin(platform);
+      } catch (e) { paint({state: 'error', next_step: e.message, action: 'login'}); }
     };
-    again.onclick = refresh;
+    primary.onClick(async () => {
+      primary.setDisabled(true);
+      const act = current?.action;
+      if (current?.state === 'captcha' || act === 'verify') {
+        try { paint(await platform.verify(this)); } catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); }
+      } else if (['expired', 'not_logged_in'].includes(current?.state) || act === 'login') await login();
+      else await refresh();
+    });
+    more.onClick(() => {
+      const menu = new obsidian.Menu();
+      menu.addItem(i => i.setTitle('重新检查').setIcon('rotate-cw').onClick(refresh));
+      if (current?.state === 'ready') {
+        menu.addItem(i => i.setTitle('更换账号').setIcon('user-cog').onClick(async () => {
+          paint({state: 'busy', next_step: '正在退出当前账号 · 约 10 秒'}, true);
+          try { await platform.logout(this); await login(true); } catch (e) { paint({state: 'error', next_step: e.message, action: 'login'}); }
+        }));
+        menu.addItem(i => i.setTitle('退出登录').setIcon('log-out').onClick(async () => {
+          paint({state: 'busy', next_step: '正在退出 · 约 10 秒'}, true);
+          try { paint(await platform.logout(this)); } catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); }
+        }));
+      }
+      const rect = more.extraSettingsEl.getBoundingClientRect();
+      menu.showAtPosition({x: rect.left, y: rect.bottom});
+    });
     refresh();
     return refresh;
+  }
+
+  // 登录成功后：提示一次网页版限制；第一次登录且从没同步过 → 按设置自动开始同步收藏。
+  async afterLogin(platform) {
+    new Notice(platform.afterLoginNotice, 12000);
+    if (platform.id !== 'xhs' || !this.settings.sync?.autoAfterLogin) return;
+    const st = await this.readSyncStatus();
+    if (st?.last_success) return;
+    new Notice('开始同步收藏：已在库里的会跳过，第一次每天最多新抓 ' + (this.settings.sync.dailyNewLimit || 200) + ' 篇。', 10000);
+    this.syncNow();
+  }
+
+  // 手动拉取全部评论（Owner 0926：超过 50 楼 / 全量只在指定笔记上手动抓，慢，热门笔记可能十几分钟）。
+  async fetchAllComments(file = this.app.workspace.getActiveFile()) {
+    const itemId = file && this.app.metadataCache.getFileCache(file)?.frontmatter?.link_brain?.item_id;
+    if (!itemId) { new Notice('先打开一篇归档的笔记，再运行这个命令。'); return; }
+    if (this.running) { new Notice(`正在${this.running}，完成后再试。`); return; }
+    new Notice('开始抓全部评论（含楼中楼、评论图片和语音）。热门笔记可能要十几分钟，完成后页面自动更新。', 10000);
+    await this.run(['-m', 'link_brain', 'comments', itemId], '抓全部评论', true);
+  }
+
+  async logoutAccount() {
+    return this.runJSON(['-m', 'link_brain', 'login', '--logout', '--json'], '退出登录失败');
   }
 
   async runJSON(args, fallback) {
@@ -448,10 +517,11 @@ class LinkBrainActions extends Plugin {
     const st = await this.readSyncStatus();
     const code = (st && st.code) || '';
     if (st && st.state === 'blocked' && (code === 'NOT_LOGGED_IN' || (!code && st.account))) {
-      new Notice('正在打开扫码页面：用小红书 App 扫一扫。', 8000);
+      new Notice('将自动弹出浏览器，扫码后会自动关闭窗口。', 8000);
       try {
         const r = await this.loginAccount();
-        new Notice(r.state === 'ready' ? `✓ ${r.message}。点「立即同步」补上这次同步。` : [r.message, r.next_step].filter(Boolean).join('\n'), 12000);
+        if (r.state === 'ready') { new Notice(PLATFORMS[0].afterLoginNotice, 12000); this.syncNow(); return; }
+        new Notice([r.message, r.next_step].filter(Boolean).join(' '), 12000);
       } catch (e) { new Notice(e.message, 10000); }
       this.openAccountStatus();
       return;
@@ -810,11 +880,26 @@ class LinkBrainSettingTab extends PluginSettingTab {
     const s = this.plugin.settings;
     const save = () => this.plugin.saveSettings();
 
-    c.createEl('h2', { text: '小红书账号' });
-    this.plugin.renderAccountCard(c);
+    c.createEl('h2', { text: '账号' });
+    this.plugin.renderAccounts(c);
 
     c.createEl('h3', { text: '收藏同步' });
     this.plugin.renderSyncRow(c);
+    const so = s.sync;
+    new Setting(c).setName('登录后自动同步').setDesc('第一次登录成功后自动开始同步收藏。')
+      .addToggle(t => t.setValue(so.autoAfterLogin).onChange(async v => { so.autoAfterLogin = v; await save(); }));
+    new Setting(c).setName('下载图片')
+      .addToggle(t => t.setValue(so.downloadImages).onChange(async v => { so.downloadImages = v; await save(); }));
+    new Setting(c).setName('下载视频')
+      .addToggle(t => t.setValue(so.downloadVideo).onChange(async v => { so.downloadVideo = v; await save(); }));
+    new Setting(c).setName('评论 · 自动拉取').setDesc('每篇同步时抓前几楼（含楼中楼、评论图片和语音）。楼层越多越慢。')
+      .addDropdown(d => d.addOption('10', '前 10 楼').addOption('20', '前 20 楼').addOption('50', '前 50 楼')
+        .setValue(String(so.commentFloors)).onChange(async v => { so.commentFloors = parseInt(v); await save(); }));
+    new Setting(c).setName('评论 · 手动拉取').setDesc('超过 50 楼或需要全部评论时：打开那篇笔记，命令面板运行「抓这篇的全部评论」。')
+      .addButton(b => b.setButtonText('抓当前笔记').onClick(() => this.plugin.fetchAllComments()));
+    new Setting(c).setName('每天最多新抓').setDesc('防风控。已在库里的不计数；第一次补历史收藏会分几天完成。')
+      .addText(t => t.setValue(String(so.dailyNewLimit)).onChange(async v => { so.dailyNewLimit = Math.max(10, parseInt(v) || 200); await save(); }))
+      .then(st => st.controlEl.createSpan({ cls: 'setting-item-description', text: ' 篇' }));
 
     // —— AI ——
     c.createEl('h3', { text: 'AI' });

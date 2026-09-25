@@ -218,6 +218,15 @@ def _comment_html(
         for f in _comment_image_files(comment.get("comment_id"), manifest)
     )
     media = f'<div class="lb-comment-media">{media}</div>' if media else ""
+    audio = comment.get("audio") or {}
+    if audio:
+        file = next((m["file"] for m in manifest.get("media", []) if m.get("role") == "comment_audio"
+                     and m.get("comment_id") == comment.get("comment_id") and m.get("file")), None)
+        secs = round((audio.get("duration_ms") or 0) / 1000)
+        label = "🎤 语音" + (f" {secs} 秒" if secs else "") + (f" · {_safe(audio['tag'])}" if audio.get("tag") else "")
+        player = f'<audio controls preload="none" src="../../{_safe(object_rel)}/{_safe(file)}"></audio>' if file else ""
+        asr = f'<div class="lb-comment-asr">{_safe(audio.get("asr_text") or "")}</div>' if audio.get("asr_text") else ""
+        media += f'<div class="lb-comment-audio"><span class="lb-comment-audio-label">{label}</span>{asr}{player}</div>'
 
     likes = comment.get("like_count")
     actions = ""
