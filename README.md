@@ -104,6 +104,17 @@ English quick start: install Python 3.11+, Git and Obsidian, run the commands ab
 （读整个本地 `catalog-data.json` 重新检索，只把挑出的少量片段送模型，token 控制全在这一步）。
 每条接口在设置页都有「测试」按钮，发一次最小真实调用验证是否接通。
 
+### 图片、视频与语音提问
+
+| 能力 | 默认做法 | 需要什么 |
+|---|---|---|
+| 图片文字（OCR） | 本机 rapidocr，CPU，免费；显示时把被图片折断的句子接回，搜索与原文定位保留按行版本 | 随 `pip install -e .` 安装 |
+| 表格 / 几乎没字的图 | 先按 OCR 位置判断版面，只有这两类才调用「识图接口」：表格转 Markdown，图片生成一句描述，结果可检索 | 设置 → AI → 识图接口（任意支持图片的 OpenAI 兼容模型；可关闭） |
+| 视频 | 语音转写 + 每 2 秒抽帧 OCR 拿画面上的字幕和文字卡（相邻重复只留一次）；背景音乐转成歌词时以画面文字为准 | `ffmpeg` 在 PATH 中；`python -m link_brain videos --all --transcribe` |
+| 语音提问 | 问 AI 输入框旁的麦克风，或快捷键（默认 Ctrl+Shift+M，Obsidian 设置 → 快捷键 可改） | 设置 → AI → 语音识别接口（OpenAI 兼容 `/audio/transcriptions`，如 Whisper；可关闭） |
+
+已归档的旧图可以补跑：`python -m link_brain vision --upgrade --limit 30`（每次 30 篇，适合放进每晚任务）。
+
 ## 仓库是公开的
 
 `vault/`、`.env`、`*.local.*` 全在 `.gitignore`。**任何 cookie / token / key / 抓下来的样本数据都不许进版本控制。**

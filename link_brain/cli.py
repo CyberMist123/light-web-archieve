@@ -46,6 +46,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument('--timeout', type=int, default=270, help='扫码等待秒数')
     p.add_argument('--json', action='store_true')
 
+    p = sub.add_parser("transcribe", help="把一段录音转成文字（问 AI 的语音输入用）")
+    p.add_argument("file")
+    p.add_argument("--json", action="store_true")
+
+    p = sub.add_parser("vision", help="给已归档的图片补本地 OCR 位置、表格/图片识别（每晚分批）")
+    p.add_argument("--upgrade", action="store_true", required=True)
+    p.add_argument("--limit", type=int, default=30, help="本次最多处理几篇，0 = 全部")
+
     p = sub.add_parser("comments", help="手动抓一篇的评论区（楼中楼 / 评论图片 / 语音评论）")
     p.add_argument("target", help="item_id（xhs-<note_id>）或链接")
     p.add_argument("--floors", default="all", choices=["all", "20", "50"], help="默认全量；慢，热门笔记可能要十几分钟")
@@ -236,6 +244,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == 'doctor':
         from . import doctor
         return doctor.run(args)
+    if args.command == 'transcribe':
+        from . import voice
+        return voice.run(args)
+    if args.command == 'vision':
+        from . import vision
+        return vision.run_upgrade(args)
     if args.command == 'comments':
         from . import ingest
         return ingest.run_comments(args)

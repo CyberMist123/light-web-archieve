@@ -18,6 +18,7 @@ from . import index as index_mod, storage
 from . import attachments as attachments_mod
 from . import llm as llm_mod
 from . import vision as vision_mod
+from .ocrtext import reflow_ocr
 
 COMMENTS_START = "<!-- link-brain:comments:start -->"
 COMMENTS_END = "<!-- link-brain:comments:end -->"
@@ -619,7 +620,9 @@ def render_content_block(
     title = f'<h2 class="lb-note-title">{_safe(note.get("title") or meta.get("title") or "")}</h2>'
     body = _body_html(note.get("body") or "")
     if note.get('transcript'):
-        body += '<details class="lb-transcript"><summary>视频文字稿</summary>' + _body_html(note['transcript']) + '</details>' 
+        body += '<details class="lb-transcript"><summary>视频文字稿</summary>' + _body_html(note['transcript']) + '</details>'
+    if note.get('screen_text'):
+        body += '<details class="lb-transcript"><summary>视频画面文字</summary>' + _body_html(note['screen_text']) + '</details>'
     detail = _comments_html(note, comments, manifest, object_rel)
     # Owner 2026-09-15：头像/作者在**正文上方**（右栏顶部），不跟图片在左栏。
     # 左栏只有图片、sticky 固定；右栏 = 作者 → 正文 → 评论，随页滚动。
@@ -860,7 +863,12 @@ def render_agent_md(
     if images:
         for image in images:
             if image.get("status") == "ok":
-                lines.append(f"- {image['asset']}：{(image.get('ocr') or '').strip() or '（无文字）'}")
+                lines.append(f"- {image['asset']}：{reflow_ocr(image.get('ocr')) or '（无文字）'}")
+                visual = image.get("visual") or {}
+                if visual.get("status") == "ok":
+                    label = "表格" if visual.get("kind") == "table" else "图片描述"
+                    lines.append(f"  - （{label}）")
+                    lines.extend("    " + row for row in visual["text"].splitlines())
             else:
                 lines.append(f"- {image['asset']}：（识别失败：{image.get('error')}）")
     else:
@@ -868,6 +876,8 @@ def render_agent_md(
 
     if note.get('transcript'):
         lines += ['', '## 视频文字稿', '', note['transcript']]
+    if note.get('screen_text'):
+        lines += ['', '## 视频画面文字', '', note['screen_text']]
     lines += ["", "## 评论", ""]
     comments = source.get("comments") or []
     if comments:
@@ -973,8 +983,10 @@ def render_object(
     extracted = llm_mod.extracted_data(extracted_doc)
 
     transcript_path = derived_dir / 'transcript.json'
-    transcript = storage.read_json(transcript_path).get('text', '') if transcript_path.exists() else ''
+    transcript_doc = storage.read_json(transcript_path) if transcript_path.exists() else {}
+    transcript = transcript_doc.get('text', '')
     source_doc['note']['transcript'] = transcript
+    source_doc['note']['screen_text'] = (transcript_doc.get('screen') or {}).get('text', '')
     if not (source_doc['note'].get('title') or meta.get('title')):
         fallback = (extracted or {}).get('title') or transcript.split('。')[0] or source_doc['note'].get('body') or next((x.get('ocr') for x in vision_doc.get('images', []) if x.get('ocr')), '')
         title = re.sub(r'\s+', ' ', str(fallback)).strip()[:30] or '视频收藏'

@@ -26,6 +26,7 @@ import yaml
 from pypinyin import lazy_pinyin
 
 from . import storage
+from .ocrtext import clean_ocr
 
 CATALOG_NAME = "小红书收藏目录.md"
 DATA_NAME = "catalog-data.json"
@@ -233,10 +234,15 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
         vision = _load_json(obj_dir / "derived" / "vision.json") or {}
         transcript = _load_json(obj_dir / "derived/transcript.json") or {}
         search_fields = {
-            "transcript": str(transcript.get("text") or ""),
+            "transcript": "\n".join(filter(None, [str(transcript.get("text") or ""),
+                                                  str((transcript.get("screen") or {}).get("text") or "")])),
             "body": str(note.get("body") or ""),
             "comments": "\n".join(str(c.get("text") or "") for _, c in comment_labels(source_doc.get("comments") or [])),
-            "ocr": "\n".join(str(im.get("ocr") or "") for im in vision.get("images", []) if im.get("status") == "ok"),
+            # 图片文字 + 识图结果（表格 Markdown / 图片描述）一起进检索
+            "ocr": "\n".join(filter(None, (
+                "\n".join(filter(None, [clean_ocr(im.get("ocr")),
+                                        (im.get("visual") or {}).get("text") if (im.get("visual") or {}).get("status") == "ok" else ""]))
+                for im in vision.get("images", []) if im.get("status") == "ok"))),
             "attachments": "\n\n".join(p.read_text(encoding="utf-8") for p in sorted((obj_dir / "derived" / "attachments").glob("*.md"))),
         }
         archived = _parse_dt(meta.get("first_archived_at"))

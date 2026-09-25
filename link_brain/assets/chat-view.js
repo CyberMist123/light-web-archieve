@@ -116,6 +116,10 @@ style.textContent = `
 .lbchat-composer[hidden]{display:none;}
 .lbchat-search{flex:1;min-width:0;max-width:none;box-sizing:border-box;resize:vertical;min-height:64px;height:64px;text-align:left;border:0!important;padding:4px!important;font:inherit!important;font-size:15px!important;line-height:1.6;}
 .lbchat-send{background:var(--text-normal)!important;color:var(--background-primary)!important;box-shadow:none!important;border:0!important;border-radius:10px;height:36px;padding:0 16px;flex:none;cursor:pointer;}
+.lbchat-mic{background:transparent!important;box-shadow:none!important;border:0!important;height:36px;width:36px;padding:0;flex:none;display:grid;place-items:center;color:var(--text-muted);cursor:pointer;border-radius:10px;}
+.lbchat-mic:hover{color:var(--text-normal);background:var(--background-modifier-hover)!important;}
+.lbchat-mic.is-recording{color:var(--color-red);animation:lbchat-rec 1.1s ease-in-out infinite;}
+@keyframes lbchat-rec{50%{opacity:.35;}}
 .lbchat-send:disabled{opacity:.4;cursor:wait;}
 .lbchat-nav{max-width:700px;justify-content:flex-start;margin:0 auto 32px;gap:24px;}
 .lbchat button.lbchat-tab{border:0!important;background:transparent!important;box-shadow:none!important;border-radius:0;padding:8px 0;font-family:inherit;font-size:13px;height:auto;}
@@ -212,6 +216,10 @@ histBtn.onclick=e=>{e.stopPropagation();toggleHistory(histBtn);};
 const composer=wrap.createEl('form',{cls:'lbchat-composer'});
 const search = composer.createEl('textarea', { cls: 'lbchat-search' });
 search.rows=2;search.placeholder = '问问你的收藏…'; search.value = session.draft || '';
+// 语音提问（0926）：点一下开始录，再点一下结束；识别结果以「/」开头填进输入框。快捷键默认 Ctrl+Shift+M。
+const mic=composer.createEl('button',{cls:'lbchat-mic',attr:{title:'语音提问（再点一次结束）'}});mic.type='button';
+mic.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>';
+mic.onclick=()=>provider()?.toggleVoice?.({target:search,button:mic});
 const send=composer.createEl('button',{cls:'lbchat-send',text:'发送'});send.type='submit';
 composer.onsubmit=e=>{e.preventDefault();if(busy||!search.value.trim())return;const v=search.value;search.value='';session.draft='';submit(v);};
 
