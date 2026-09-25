@@ -16,7 +16,10 @@ const DEFAULT_ANSWER_PROMPT = "你根据用户的本地收藏回答问题。先�
 
 const DEFAULT_SETTINGS = {
   textAI: { mode: "media", model: "", endpoint: "", apiKey: "", maxTokens: 1200 },
-  ocr: { mode: "media", via: "cmx", model: "", endpoint: "", apiKey: "" },
+  ocr: { mode: "media", via: "local", model: "", endpoint: "", apiKey: "" },
+  // 识图 / 语音识别接口（0926）：media=本机；http=自定义 OpenAI 兼容接口；off=关闭。和 link_brain/ai_config.py 对齐。
+  visionAI: { mode: "media", model: "qwen3-vl-flash", endpoint: "", apiKey: "" },
+  asrAI: { mode: "media", model: "whisper-1", endpoint: "", apiKey: "" },
   prompts: { summary: "", answer: DEFAULT_ANSWER_PROMPT },
   retrieval: { totalCharLimit: 8000, fragChars: 800, topK: 8, expandTerms: false },
   // 目录页顶部大类筛选（空=用内置 BIG_CATS）；形如 [{name, keywords:[...]}]。
@@ -217,6 +220,8 @@ class LinkBrainActions extends Plugin {
         this.run(["-m", "link_brain", "sync-favorites", "--extract"], "同步收藏", true),
     });
 
+    this.addCommand({ id: 'voice-ask', name: '语音提问（问 AI）：开始 / 结束录音',
+      hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'M' }], callback: () => this.toggleVoice() });
     this.addCommand({ id: 'fetch-all-comments', name: '抓这篇的全部评论（手动拉取，较慢）', callback: () => this.fetchAllComments() });
     if (this.app.workspace?.on) this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => {
       if (!(file instanceof TFile) || !this.app.metadataCache.getFileCache(file)?.frontmatter?.link_brain?.item_id) return;
@@ -468,6 +473,47 @@ class LinkBrainActions extends Plugin {
     if (this.running) { new Notice(`正在${this.running}，完成后再试。`); return; }
     new Notice('开始抓全部评论（含楼中楼、评论图片和语音）。热门笔记可能要十几分钟，完成后页面自动更新。', 10000);
     await this.run(['-m', 'link_brain', 'comments', itemId], '抓全部评论', true);
+  }
+
+  // ── 语音提问（0926）：麦克风按钮 / 快捷键（默认 Ctrl+Shift+M，Obsidian「设置 → 快捷键」可改）。
+  //    点一下开始录，再点一下结束；转成文字后以「/」开头填进问 AI 输入框，由人确认后回车发送。
+  async toggleVoice({ target = null, button = null } = {}) {
+    if (this.voice) { this.voice.recorder.stop(); return; }
+    if (!target) {
+      await this.openLibraryPage('chat');
+      await new Promise(r => setTimeout(r, 400));
+      target = this.app.workspace.getMostRecentLeaf()?.view.containerEl.querySelector('.lbchat-search');
+      button = target?.closest('form')?.querySelector('.lbchat-mic') || null;
+      if (!target) { new Notice('没找到问 AI 输入框，请先打开「收藏搜索」页。'); return; }
+    }
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch (e) { new Notice('无法使用麦克风：' + e.message + '。请在系统设置里允许 Obsidian 使用麦克风。', 10000); return; }
+    const recorder = new MediaRecorder(stream);
+    const chunks = [];
+    this.voice = { recorder };
+    button?.addClass('is-recording');
+    const notice = new Notice('正在听…再按一次麦克风或快捷键结束', 0);
+    recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+    recorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      this.voice = null;
+      button?.removeClass('is-recording');
+      notice.setMessage('正在识别…');
+      try {
+        const file = path.join(require('os').tmpdir(), `lb-voice-${Date.now()}.webm`);
+        fs.writeFileSync(file, Buffer.from(await new Blob(chunks).arrayBuffer()));
+        const r = await this.runJSON(['-m', 'link_brain', 'transcribe', file, '--json'], '语音识别失败', 60000);
+        fs.unlink(file, () => {});
+        notice.hide();
+        if (r.status !== 'ok') { new Notice(r.error || '语音识别失败', 8000); return; }
+        const current = target.value.trim();
+        target.value = current ? `${current} ${r.text}` : `/${r.text}`;
+        target.dispatchEvent(new Event('input'));
+        target.focus();
+      } catch (e) { notice.hide(); new Notice(e.message, 8000); }
+    };
+    recorder.start();
   }
 
   async logoutAccount() {
@@ -926,6 +972,35 @@ class LinkBrainSettingTab extends PluginSettingTab {
         .onChange(async v => { s.textAI.model = v.trim(); await save(); }));
     this.addTestButton(c, '测试文本 AI', ['-m', 'link_brain', 'selftest', 'text']);
 
+    // 识图 / 语音识别：同一套「本机 / 自定义接口 / 关闭」，自定义接口给没有本机服务的人（开源）用
+    const endpointBlock = (key, { name, desc, localLabel, pathHint, modelHint }) => {
+      const cfg = s[key];
+      new Setting(c).setName(name).setDesc(desc)
+        .addDropdown(d => d.addOption('media', localLabel).addOption('http', '自定义接口').addOption('off', '关闭')
+          .setValue(cfg.mode).onChange(async v => { cfg.mode = v; await save(); this.display(); }));
+      if (cfg.mode === 'http') {
+        new Setting(c).setName('　接口地址').setDesc(pathHint)
+          .addText(t => t.setPlaceholder('https://api.example.com/v1/…').setValue(cfg.endpoint)
+            .onChange(async v => { cfg.endpoint = v.trim(); await save(); }));
+        new Setting(c).setName('　API Key').setDesc('只保存在本插件 data.json，不进仓库。').addText(t => { t.inputEl.type = 'password';
+          t.setPlaceholder('sk-…').setValue(cfg.apiKey).onChange(async v => { cfg.apiKey = v.trim(); await save(); }); });
+      }
+      if (cfg.mode !== 'off') new Setting(c).setName('　模型').addText(t => t.setPlaceholder(modelHint).setValue(cfg.model)
+        .onChange(async v => { cfg.model = v.trim(); await save(); }));
+    };
+    endpointBlock('visionAI', { name: '识图接口',
+      desc: '用途：图片里是表格时转成 Markdown 表格，几乎没字的图（示意图、照片）生成一句描述，结果也能搜到。普通文字截图只用本地 OCR，不调用它。',
+      localLabel: '本机千问配置', pathHint: 'OpenAI 兼容 /chat/completions 地址，模型需支持图片输入。', modelHint: 'qwen3-vl-flash / gpt-4o-mini' });
+    endpointBlock('asrAI', { name: '语音识别接口',
+      desc: '用途：「问 AI」时按麦克风或快捷键说话，把你的话转成文字填进输入框。本机方式声音不出电脑。',
+      localLabel: '本机语音识别', pathHint: 'OpenAI 兼容 /audio/transcriptions 地址（如 Whisper 服务）。', modelHint: 'whisper-1' });
+    new Setting(c).setName('语音提问快捷键').setDesc('默认 Ctrl+Shift+M：按一下开始说话，再按一下结束。在任何页面按都会跳到问 AI。')
+      .addButton(b => b.setButtonText('修改快捷键').onClick(() => {
+        this.app.setting.openTabById('hotkeys');
+        const tab = this.app.setting.activeTab;
+        if (tab?.searchComponent) { tab.searchComponent.setValue('语音提问'); tab.updateHotkeyVisibility?.(); }
+      }));
+
     // —— 常用 ——
     c.createEl('h3', { text: '常用' });
     new Setting(c).setName('搜索收藏').setDesc('普通文字按 Enter 搜索；/问题 按 Enter 问 AI。')
@@ -958,8 +1033,8 @@ class LinkBrainSettingTab extends PluginSettingTab {
       .addButton(b => b.setButtonText('检查').onClick(drawEnv));
 
     a.createEl('h4', { text: '识图 / OCR' });
-    new Setting(a).setName('识图通路').setDesc('cmx：本机 RapidOCR（默认，便宜）。qwen：云端长描述。')
-      .addDropdown(d => d.addOption('cmx', 'cmx（本机）').addOption('qwen', 'qwen（云端）')
+    new Setting(a).setName('文字识别（OCR）').setDesc('本机：rapidocr，免费，能判断表格（默认，需 pip install rapidocr_onnxruntime）。cmx / qwen：经 media.py。')
+      .addDropdown(d => d.addOption('local', '本机 rapidocr').addOption('cmx', 'cmx').addOption('qwen', 'qwen（云端）')
         .setValue(s.ocr.via).onChange(async v => { s.ocr.via = v; await save(); }));
     this.addTestButton(a, '测试识图', ['-m', 'link_brain', 'selftest', 'ocr']);
 

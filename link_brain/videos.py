@@ -84,11 +84,19 @@ def transcribe(row):
     from .vision import MEDIA_PY
     obj=storage.object_dir(row['source'],row['source_id'])
     output=obj/'derived/transcript.json'
-    if output.exists() and storage.read_json(output).get('status')=='ok':
-        return {'item_id':row['item_id'],'status':'hit'}
     meta=storage.read_json(obj/'meta.json')
     manifest=storage.read_json(storage.raw_dir(row['source'],row['source_id'],meta['current_version'])/'manifest.json')
     entry=next((m for m in manifest['media'] if m['role']=='video' and m.get('file')),None)
+    if output.exists() and storage.read_json(output).get('status')=='ok':
+        # 0926：语音转写过的视频补「画面文字」（烧录字幕 / 文字卡），不重转语音
+        done=storage.read_json(output)
+        if entry and 'screen' not in done:
+            from .screentext import extract
+            done['screen']=extract(obj/entry['file'])
+            storage.write_json(output,done)
+            render.render_object(row['source'],row['source_id'])
+            return {'item_id':row['item_id'],'status':'ok','screen_chars':len(done['screen'].get('text',''))}
+        return {'item_id':row['item_id'],'status':'hit'}
     if not entry:return {'item_id':row['item_id'],'status':'no_video'}
     audio=obj/'derived/transcript-audio.wav';audio.parent.mkdir(exist_ok=True)
     try:
@@ -101,6 +109,8 @@ def transcribe(row):
     except (subprocess.SubprocessError,OSError) as exc:
         result={'status':'failed','text':'','error':type(exc).__name__}
     finally:audio.unlink(missing_ok=True)
+    from .screentext import extract
+    result['screen']=extract(obj/entry['file'])  # 画面文字与语音并存：背景乐转写成歌词时以它为准
     storage.write_json(output,result)
     render.render_object(row['source'],row['source_id'])
     return {'item_id':row['item_id'],'status':result['status'],'chars':len(result['text'])}

@@ -51,7 +51,12 @@ DEFAULT_ANSWER_PROMPT = (
 # textAI.model 留空 = 用 media.py / llm-config.yaml 的默认（qwen3.7-flash），不写死在这。
 DEFAULTS: dict[str, Any] = {
     "textAI": {"mode": "media", "model": "", "endpoint": "", "apiKey": "", "maxTokens": 1200},
-    "ocr": {"mode": "media", "via": "cmx", "model": "", "endpoint": "", "apiKey": ""},
+    # via: local（rapidocr 进程内，带位置框，开源默认）/ cmx / qwen（media.py）
+    "ocr": {"mode": "media", "via": "local", "model": "", "endpoint": "", "apiKey": ""},
+    # 识图（只给表格和几乎没字的图用）：media=本机千问配置；http=自定义 OpenAI 兼容接口；off=只保留 OCR
+    "visionAI": {"mode": "media", "model": "qwen3-vl-flash", "endpoint": "", "apiKey": ""},
+    # 语音识别（问 AI 的麦克风）：media=本机 media.py audio；http=OpenAI 兼容 /audio/transcriptions；off=关闭
+    "asrAI": {"mode": "media", "model": "whisper-1", "endpoint": "", "apiKey": ""},
     "prompts": {"summary": "", "answer": DEFAULT_ANSWER_PROMPT},
     # expandTerms 默认关：开了每次问答要多一次小模型调用扩检索词，慢一倍（Owner 2026-09-16 嫌慢）。
     "retrieval": {"totalCharLimit": 8000, "fragChars": 800, "topK": 8, "expandTerms": False},
