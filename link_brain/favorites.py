@@ -13,7 +13,9 @@
 
 from __future__ import annotations
 
+import random
 import sys
+import time
 from typing import Any
 
 from . import alert as alert_mod, catch as catch_mod, ingest as ingest_mod, read as read_mod
@@ -137,8 +139,19 @@ def sync_favorites(
 
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for fav in favs:
+    quota = _Quota()
+    deferred = 0
+    for i, fav in enumerate(favs):
+        if quota.exhausted():
+            # 已在库里的照样秒过（不联网）；只有需要新抓的才受每日上限约束
+            if not _already_archived(fav):
+                deferred += 1
+                continue
         entry = _sync_one(fav, origin=origin, actor=actor, verbose=verbose, extract=extract)
+        if entry.get("status") == "new":
+            quota.add()
+            if i + 1 < len(favs):
+                time.sleep(random.uniform(*PACE_SECONDS))  # 像人一样隔几秒再看下一篇，防风控
         item_id = entry.get("item_id")
         if item_id:
             if item_id in seen:
@@ -147,7 +160,51 @@ def sync_favorites(
         items.append(entry)
         if entry.get("status") == "blocked":
             break  # 号/服务出事，后面照抓也只是接着失败
-    return {"favorites": len(favs), "synced": len(items), "items": items}
+    out = {"favorites": len(favs), "synced": len(items), "items": items}
+    if deferred:
+        out["deferred"] = deferred
+        out["daily_limit"] = quota.limit
+    return out
+
+
+PACE_SECONDS = (6.0, 15.0)
+
+
+class _Quota:
+    """每天最多新抓几篇（ai_config sync.dailyNewLimit，默认 200）。计数存 _archive/sync-quota.json。"""
+
+    def __init__(self):
+        from datetime import date
+        from .ai_config import sync_options
+        from . import storage
+        self.limit = int(sync_options().get("dailyNewLimit") or 0)
+        self.path = storage.archive_root() / "sync-quota.json"
+        self.today = date.today().isoformat()
+        try:
+            data = storage.read_json(self.path)
+        except (OSError, ValueError):
+            data = {}
+        self.count = int(data.get("new", 0)) if data.get("date") == self.today else 0
+
+    def exhausted(self) -> bool:
+        return self.limit > 0 and self.count >= self.limit
+
+    def add(self) -> None:
+        from . import storage
+        self.count += 1
+        try:
+            storage.write_json(self.path, {"date": self.today, "new": self.count})
+        except OSError:
+            pass
+
+
+def _already_archived(fav: dict[str, Any]) -> bool:
+    from . import index as index_mod
+    conn = index_mod.connect()
+    try:
+        return index_mod.get_object(conn, f"xhs-{fav.get('note_id')}") is not None
+    finally:
+        conn.close()
 
 
 def run(args) -> int:

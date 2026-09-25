@@ -237,3 +237,22 @@ def test_attachments_status_reflects_metadata_only(tmp_path, monkeypatch):
     assert meta["attachments_status"] == "metadata_only"
     raw = tmp_path / "_archive" / "xiaohongshu" / NOTE_ID / "raw" / "v0001"
     assert json.loads((raw / "web_raw.json").read_text(encoding="utf-8"))["ok"] is True
+
+
+def test_comment_pictures_and_voice_are_kept():
+    """0926 真机探测到的评论结构：pictures 列表 + audioInfo（站点自带转写 asrText）。"""
+    from link_brain.adapters.xiaohongshu import _comment
+    raw = {
+        "id": "c1", "content": "", "createTime": 1752000000000, "likeCount": "3",
+        "userInfo": {"nickname": "a", "userId": "u"},
+        "pictures": [{"urlDefault": "https://sns-img/1.jpg", "width": 100, "height": 80}],
+        "audioInfo": {"audioId": 137495992860745489, "duration": 4352, "asrText": "依家广东有台风，请注意安全",
+                      "tagText": "·在讲广东话", "playInfo": {"url": "http://sns-video-qc.xhscdn.com/a.mp4"}},
+        "subComments": [{"id": "c2", "content": "好", "pictures": [], "userInfo": {}}],
+        "subCommentCount": "1",
+    }
+    entry = _comment(raw, 1)
+    assert entry["images"][0]["url"] == "https://sns-img/1.jpg"
+    assert entry["audio"] == {"audio_id": "137495992860745489", "url": "http://sns-video-qc.xhscdn.com/a.mp4",
+                              "duration_ms": 4352, "asr_text": "依家广东有台风，请注意安全", "tag": "在讲广东话"}
+    assert entry["sub_comments"][0]["images"] == [] and "audio" not in entry["sub_comments"][0]

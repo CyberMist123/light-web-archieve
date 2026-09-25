@@ -164,7 +164,7 @@ style.textContent = `
 
 .lbchat-titleblock{align-items:center;width:max-content;max-width:100%;}
 .lbchat-titlerow{align-items:center;gap:10px;}
-.lbchat-titlerow button{font-family:Arial,sans-serif!important;font-style:normal!important;font-size:28px!important;font-weight:300!important;width:30px!important;height:32px!important;line-height:1!important;display:grid;place-items:center;}
+/* 0925：「+」放进标题里继承同一套字，与目录页一致 */.lbchat-title button.lbchat-plus{font:inherit!important;color:var(--text-normal)!important;transition:color .12s;width:auto!important;height:auto!important;padding:0 0 0 .12em!important;margin:0!important;border:0!important;background:transparent!important;box-shadow:none!important;border-radius:0!important;display:inline!important;vertical-align:baseline;line-height:inherit!important;cursor:pointer;}.lbchat-title button.lbchat-plus:hover{color:var(--interactive-accent)!important;}
 .lb-manage{font-family:Arial,sans-serif!important;line-height:1!important;display:grid;place-items:center;}
 .lbchat-export summary{cursor:pointer;color:var(--text-muted);}.lbchat-export[open]{padding:6px;border-radius:8px;background:var(--background-secondary);}.lbchat-export label{font-size:12px;margin-right:8px;}
 `;
@@ -180,14 +180,14 @@ requestAnimationFrame(fitPane);
 const head = wrap.createEl('div', { cls: 'lbchat-head' });
 const titleBlock = head.createEl('div', { cls: 'lbchat-titleblock' });
 const titleRow = titleBlock.createEl('div', { cls: 'lbchat-titlerow' });
-titleRow.createEl('span', { cls: 'lbchat-title', text: 'Collections' });
+const titleText = titleRow.createEl('span', { cls: 'lbchat-title', text: 'Collections' });
 const tools=head.createEl('div',{cls:'lbchat-tools'});
 const readerLayout=head.createEl('select',{cls:'lbchat-reader-layout'});
 readerLayout.style.cssText='grid-column:1/-1;grid-row:3;justify-self:end;max-width:100%;font:inherit;font-size:12px;';
 readerLayout.createEl('option',{text:'原文 · 单篇'}).value='single';
 readerLayout.createEl('option',{text:'原文 · 上下对照'}).value='compare';
 readerLayout.onchange=()=>{compareSources=readerLayout.value==='compare';};
-const plus = titleRow.createEl('button', { cls: 'lbchat-plus', text: '+' });
+const plus = titleText.createEl('button', { cls: 'lbchat-plus', text: '+' });
 
 
 plus.onclick = (evt) => {

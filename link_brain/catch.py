@@ -83,7 +83,7 @@ def _catch_one(
         service = isinstance(exc, xhs.ServiceDownError)
         alert_mod.alert(
             alert_mod.KIND_SERVICE if service else alert_mod.KIND_ACCOUNT,
-            "小红书归档停了：" + ("18060 的服务要人管" if service else "号要人处理"),
+            "小红书归档停了：" + ("读取服务要处理" if service else "账号要处理"),
             str(exc),
             url=url,
         )

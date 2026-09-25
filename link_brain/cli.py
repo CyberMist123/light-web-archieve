@@ -41,8 +41,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument('--force', action='store_true', help='已登录也重新出码')
     p.add_argument('--verify', action='store_true', help='打开验证窗口，手动完成小红书安全验证')
     p.add_argument('--status', action='store_true', help='只检查登录状态')
+    p.add_argument('--logout', action='store_true', help='退出登录（只清本地读取组件的登录）')
+    p.add_argument('--qr', action='store_true', help='出二维码网页（远程扫码用），默认打开小红书官方登录窗口')
     p.add_argument('--timeout', type=int, default=270, help='扫码等待秒数')
     p.add_argument('--json', action='store_true')
+
+    p = sub.add_parser("comments", help="手动抓一篇的评论区（楼中楼 / 评论图片 / 语音评论）")
+    p.add_argument("target", help="item_id（xhs-<note_id>）或链接")
+    p.add_argument("--floors", default="all", choices=["all", "20", "50"], help="默认全量；慢，热门笔记可能要十几分钟")
 
     p = sub.add_parser("ingest", help="归档一个链接（URL / xhslink 短链 / 分享文本）")
     p.add_argument("target", help="链接或包含链接的分享文本")
@@ -230,6 +236,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == 'doctor':
         from . import doctor
         return doctor.run(args)
+    if args.command == 'comments':
+        from . import ingest
+        return ingest.run_comments(args)
     if args.command == 'login':
         from . import accounts
         return accounts.run_login(args)

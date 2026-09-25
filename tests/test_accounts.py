@@ -95,35 +95,46 @@ def test_status_never_touches_browser_while_qr_pending(clean, monkeypatch):
     assert fake.calls == ['/api/v1/login/session']
 
 
-def test_login_polls_only_memory_state_until_success(clean, monkeypatch):
-    sessions = iter([{'state': 'idle'}, {'state': 'waiting'}, {'state': 'waiting'},
-                     {'state': 'success', 'nickname': 'momo', 'user_id': 'u1'}])
-    fake = FakeReader(monkeypatch, {'/api/v1/login/session': lambda: next(sessions),
-                                    '/api/v1/login/qrcode': {'img': 'data:image/png;base64,AAAA'}})
-    opened = []
-    monkeypatch.setattr(accounts.webbrowser, 'open', lambda uri: opened.append(uri) or True)
-    r = accounts.login(timeout=60)
+def _window_reader(monkeypatch, *sessions):
+    it = iter([{'state': 'idle'}, *sessions])
+    return FakeReader(monkeypatch, {'/api/v1/login/session': lambda: next(it),
+                                    '/api/v1/login/window': {'opened': True}})
+
+
+def test_login_opens_official_window_and_polls_memory_only(clean, monkeypatch):
+    fake = _window_reader(monkeypatch, {'state': 'waiting'}, {'state': 'success', 'nickname': 'momo', 'user_id': 'u1'})
+    r = accounts.login()
     assert r['state'] == 'ready' and r['message'] == '已登录：momo'
-    assert '/api/v1/login/status' not in fake.calls  # 出码后绝不碰会导航的接口
-    assert opened and '已登录' in (clean / 'runtime' / 'login.html').read_text('utf-8')
+    assert '/api/v1/login/window' in fake.calls and '/api/v1/login/status' not in fake.calls
 
 
-def test_login_timeout_says_qr_expired(clean, monkeypatch):
-    sessions = iter([{'state': 'idle'}, {'state': 'timeout'}])
-    FakeReader(monkeypatch, {'/api/v1/login/session': lambda: next(sessions),
-                             '/api/v1/login/qrcode': {'img': 'data:image/png;base64,AAAA'}})
-    monkeypatch.setattr(accounts.webbrowser, 'open', lambda uri: True)
-    r = accounts.login(timeout=60)
-    assert r['message'] == '二维码已过期' and r['action'] == 'login'
+@pytest.mark.parametrize('state,message', [('cancelled', '已取消登录'), ('timeout', '登录窗口已超时'), ('failed', '登录没有完成')])
+def test_login_window_outcomes_say_what_happened(clean, monkeypatch, state, message):
+    _window_reader(monkeypatch, {'state': state})
+    r = accounts.login()
+    assert r['message'] == message and r['action'] == 'login'
 
 
 def test_login_reports_account_switch(clean, monkeypatch):
     accounts.save({'user_id': 'old'})
-    sessions = iter([{'state': 'idle'}, {'state': 'success', 'nickname': 'b', 'user_id': 'new'}])
-    FakeReader(monkeypatch, {'/api/v1/login/session': lambda: next(sessions),
-                             '/api/v1/login/qrcode': {'img': 'data:image/png;base64,AAAA'}})
+    _window_reader(monkeypatch, {'state': 'success', 'nickname': 'b', 'user_id': 'new'})
+    assert '已切换账号' in accounts.login()['next_step']
+
+
+def test_logout_forgets_account(clean, monkeypatch):
+    accounts.save({'nickname': 'momo', 'user_id': 'u1', 'endpoint': 'x'})
+    FakeReader(monkeypatch, {'/api/v1/login/session': {'state': 'idle'}, '/api/v1/login/logout': {'logged_out': True}})
+    r = accounts.logout()
+    assert r['message'] == '已退出登录' and accounts.config() == {'endpoint': 'x'}
+
+
+def test_remote_qr_page_still_polls_memory_only(clean, monkeypatch):
+    it = iter([{'state': 'idle'}, {'state': 'waiting'}, {'state': 'success', 'nickname': 'momo', 'user_id': 'u1'}])
+    fake = FakeReader(monkeypatch, {'/api/v1/login/session': lambda: next(it),
+                                    '/api/v1/login/qrcode': {'img': 'data:image/png;base64,AAAA'}})
     monkeypatch.setattr(accounts.webbrowser, 'open', lambda uri: True)
-    assert '已切换账号' in accounts.login(timeout=60)['next_step']
+    assert accounts.login_qr(timeout=60)['state'] == 'ready'
+    assert '/api/v1/login/status' not in fake.calls
 
 
 def test_favorites_captcha_stops_without_retry(clean, monkeypatch):

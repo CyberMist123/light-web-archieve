@@ -60,7 +60,21 @@ DEFAULTS: dict[str, Any] = {
     "catalogCats": [],
     "hiddenCats": [],
     "downloads": {"folder": str(Path.home() / "Downloads"), "waitMinutes": 5},
+    # 收藏同步选项（0926 Owner）：评论楼层 10/20/50（更多在单篇上手动抓全量）；
+    # dailyNewLimit = 每天最多新抓几篇（防风控，第一次补历史收藏分几天完成）。
+    "sync": {"autoAfterLogin": True, "downloadImages": True, "downloadVideo": True,
+             "commentFloors": 10, "dailyNewLimit": 200},
 }
+
+
+def sync_options() -> dict[str, Any]:
+    opts = load().get("sync") or {}
+    floors = opts.get("commentFloors", 10)
+    try:
+        floors = int(floors)
+    except (TypeError, ValueError):
+        floors = 10
+    return {**DEFAULTS["sync"], **opts, "commentFloors": max(10, min(floors, 50))}
 
 
 def data_json_path() -> Path:

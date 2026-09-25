@@ -651,9 +651,19 @@ def _comment(raw: dict[str, Any], floor: int) -> dict[str, Any]:
         "like_count": _int_or_none(raw.get("likeCount")),
         "ip_location": raw.get("ipLocation") or None,
         "tags": raw.get("showTags") or [],
-        # MCP 的评论对象里根本没有图片字段（见 POC 第 3 条），恒为空
-        "images": [],
+        # 0926 起读取组件透传 pictures / audioInfo（之前组件把这两个字段丢了，才一直是空）。
+        "images": _images(raw.get("pictures") if isinstance(raw.get("pictures"), list) else None),
     }
+    audio = raw.get("audioInfo") if isinstance(raw.get("audioInfo"), dict) else None
+    if audio and (audio.get("playInfo") or {}).get("url"):
+        # 站点自带转写 asrText；tagText 形如「·在讲广东话」「·识别到在唱歌」
+        entry["audio"] = {
+            "audio_id": str(audio.get("audioId") or ""),
+            "url": audio["playInfo"]["url"],
+            "duration_ms": _int_or_none(audio.get("duration")),
+            "asr_text": audio.get("asrText") or "",
+            "tag": (audio.get("tagText") or "").lstrip("·").strip(),
+        }
     if floor == 1:
         entry["sub_comment_count"] = declared
         entry["sub_comments"] = [_comment(s, 2) for s in subs_raw]

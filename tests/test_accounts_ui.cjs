@@ -8,6 +8,7 @@ vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js','u
   const p = new context.module.exports();
   p.app = {vault:{adapter:{getBasePath:()=> 'D:/host-vault', read:async()=>JSON.stringify(p._sync)}, configDir:'.obsidian-test'}};
   p.lbPath = x => x;
+  p.settings = {loginNoticeSeen: true};
   let calls = [];
 
   // 环境检查：一次 doctor --only local，并发刷新合并成一次
@@ -43,9 +44,10 @@ vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js','u
   p.loginAccount = async () => { routes.push('login'); return {state:'ready', message:'已登录：momo'}; };
   p.openVerify = async () => { routes.push('verify'); return {}; };
   p.openAccountStatus = () => routes.push('panel');
+  p.syncNow = () => routes.push('sync');
   p._sync = {state:'blocked', account:'xhs', code:'NOT_LOGGED_IN'}; await p.fixFromCatalog();
   p._sync = {state:'blocked', account:'xhs', code:'CAPTCHA_REQUIRED'}; await p.fixFromCatalog();
   p._sync = {state:'blocked', account:null, code:'DISCONNECTED'}; await p.fixFromCatalog();
-  assert.deepEqual(routes, ['login', 'panel', 'verify', 'panel']);
+  assert.equal(JSON.stringify(routes), JSON.stringify(['login', 'sync', 'verify', 'panel']), '登录成功直接开始同步');
   console.log('PASS account UI: single env check, one-account login/force, busy guard, python missing, catalog ! routes to login/verify/panel');
 })().catch(e => {console.error(e);process.exitCode=1;});

@@ -155,7 +155,7 @@ style.textContent = `
 
 .lbc-titleblock{align-items:center;width:max-content;max-width:100%;}
 .lbc-titlerow{align-items:center;gap:10px;}
-.lbc-titlerow button{font-family:Arial,sans-serif!important;font-style:normal!important;font-size:28px!important;font-weight:300!important;width:30px!important;height:32px!important;line-height:1!important;display:grid;place-items:center;}
+/* 0925：「+」放进标题里继承同一套字（斜体衬线、同字号），与 09-18 版一致（粗斜衬线、正文色、悬停主题色） */.lbc-wrap .lbc-title button.lbc-import{font:inherit!important;color:var(--text-normal)!important;transition:color .12s;width:auto!important;height:auto!important;padding:0 0 0 .12em!important;margin:0!important;border:0!important;background:transparent!important;box-shadow:none!important;border-radius:0!important;display:inline!important;vertical-align:baseline;line-height:inherit!important;cursor:pointer;}.lbc-wrap .lbc-title button.lbc-import:hover{color:var(--interactive-accent)!important;}
 .lb-manage{font-family:Arial,sans-serif!important;line-height:1!important;display:grid;place-items:center;}
 /* 星标主题 chip（Lot E）：cats 栏下一排，只在有主题时出现；与 cats 同字族，胶囊外框 + ★ 区分。 */
 .lbc-topics{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;margin:0;padding:0 0 12px;font-family:inherit;}
@@ -192,9 +192,9 @@ const top=wrap.createEl('div',{cls:'lbc-top'});
 const head=top.createEl('div',{cls:'lbc-head'});
 const titleBlock=head.createEl('div',{cls:'lbc-titleblock'});
 const titleRow=titleBlock.createEl('div',{cls:'lbc-titlerow'});
-titleRow.createEl('span',{cls:'lbc-title',text:'Collections'});
+const titleText=titleRow.createEl('span',{cls:'lbc-title',text:'Collections'});
 const tools=head.createEl('div',{cls:'lbc-tools'});
-const importButton=titleRow.createEl('button',{cls:'lbc-import',text:'+'});
+const importButton=titleText.createEl('button',{cls:'lbc-import',text:'+'});
 const subLine=titleBlock.createEl('div',{cls:'lbc-subline'});
 let todayOnly=false;
 const sub=subLine.createEl('span',{cls:'lbc-sub'});
@@ -208,15 +208,14 @@ async function refreshSyncStatus(){
   const st=syncState||{};
   const label={NOT_LOGGED_IN:'需要登录',CAPTCHA_REQUIRED:'需要验证',DISCONNECTED:'服务未运行',NOT_INSTALLED:'未安装读取组件'}[st.code]
     ||(st.state==='blocked'?(st.account?'需要登录':'同步暂停'):st.state==='failed'?'同步失败':'');
-  accountStatus.empty();accountStatus.className='lbc-account-status';
+  accountStatus.empty();accountStatus.className='lbc-account-status';accountStatus.hidden=false;
   if(label){
     accountStatus.className='lbc-account-status '+(st.code==='CAPTCHA_REQUIRED'?'is-warn':'is-alert');
     accountStatus.createEl('span',{cls:'lbc-bang',text:'!'});accountStatus.createEl('span',{text:label});
     accountStatus.title=(st.detail||st.message||'')+' · 点击处理';
   } else if(st.state==='running'){accountStatus.setText('同步中…');accountStatus.title='';}
-  else if(st.state==='ready'){const t=st.updated_at?new Date(st.updated_at):null;
-    accountStatus.setText('✓ 已同步'+(t?' · '+(t.getMonth()+1)+'/'+t.getDate()+' '+String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0'):''));accountStatus.title='账号与同步';}
-  else {accountStatus.setText('账号 / 同步');accountStatus.title='';}
+  // 0926 Owner：已同步就不显示，只有报错才出现
+  accountStatus.hidden=!label&&st.state!=='running';
 }
 accountStatus.onclick=async()=>{
   try {
