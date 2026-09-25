@@ -39,6 +39,12 @@ vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js','u
   await assert.rejects(p.loginAccount(), /Python/);
   assert.equal(p.running, null);
 
+  // 状态检查超过 1 分钟：报错并给出下一步，不无限转圈
+  let seenTimeout = 0;
+  p.spawnCapture = async (args, opts) => { seenTimeout = opts?.timeoutMs; return {out:'', err:'', code:-2, timedOut:true}; };
+  await assert.rejects(p.accountStatus(), /超过 1 分钟/);
+  assert.equal(seenTimeout, 60000);
+
   // 目录页「!」：按失败原因直达修复
   const routes = [];
   p.loginAccount = async () => { routes.push('login'); return {state:'ready', message:'已登录：alice'}; };

@@ -154,7 +154,8 @@ def ensure_reader(*, wait: float = 40):
     if os.name == 'nt':
         flags = subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     with log.open('ab') as out:
-        subprocess.Popen([exe, '-port', f':{target.port or 18061}'], cwd=home(), env=reader_env(),
+        # 只监听本机：这个服务握着小红书登录，不能对局域网开放
+        subprocess.Popen([exe, '-port', f'127.0.0.1:{target.port or 18061}'], cwd=home(), env=reader_env(),
                          stdout=out, stderr=out, stdin=subprocess.DEVNULL, creationflags=flags,
                          close_fds=True)
     deadline = time.monotonic() + wait  # 首次启动可能要下载内置浏览器

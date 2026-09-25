@@ -435,6 +435,12 @@ def ingest_url(
             note=note,
             first_archived=first_archived,
         )
+        if meta_path.exists():
+            # 不由抓取产生、只能后加的字段：重建 meta 时原样带上（如收藏来自哪个号）
+            previous = storage.read_json(meta_path)
+            for key in ("favorited_by",):
+                if key in previous and key not in meta:
+                    meta[key] = previous[key]
         storage.write_json(meta_path, meta)
 
         index_mod.upsert_object(conn, meta, source)

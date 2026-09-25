@@ -43,6 +43,10 @@ def fetch_favorites(*, limit: int = 50, verbose: bool = False) -> list[dict[str,
         err.code = exc.code
         raise err from exc
     items = data.get("items") or []
+    global _CURRENT_ACCOUNT
+    cfg = accounts.config()
+    _CURRENT_ACCOUNT = {"nickname": data.get("nickname") or cfg.get("nickname") or "",
+                        "user_id": cfg.get("user_id") or ""}
     if verbose:
         print(f"[sync-favorites] {data.get('nickname')} 收藏 {len(items)} 条", file=sys.stderr)
     if limit and limit > 0:
@@ -81,6 +85,8 @@ def _sync_one(
             "error": f"{type(exc).__name__}: {exc}",
         }
 
+    if summary.get("note_id") and _CURRENT_ACCOUNT.get("nickname"):
+        tag_account(summary["note_id"], _CURRENT_ACCOUNT)
     if summary.get('status') == 'trashed':
         print(f"[sync-favorites] {summary['item_id']} 已删除，跳过", file=sys.stderr)
         return {**summary, 'url': url}
@@ -168,6 +174,29 @@ def sync_favorites(
 
 
 PACE_SECONDS = (6.0, 15.0)
+_CURRENT_ACCOUNT: dict[str, str] = {}
+
+
+def tag_account(note_id: str, account: dict[str, str], *, seen_at: str | None = None) -> bool:
+    """在对象 meta.json 的 favorited_by 里记下「这篇被哪个号收藏」（去重；失败不影响同步）。"""
+    from datetime import datetime
+    from . import storage
+    key = account.get("user_id") or account.get("nickname")
+    if not key:
+        return False
+    path = storage.object_dir(xhs.SOURCE, note_id) / "meta.json"
+    try:
+        meta = storage.read_json(path)
+        tags = [a for a in (meta.get("favorited_by") or []) if isinstance(a, dict)]
+        if any((a.get("user_id") or a.get("nickname")) == key for a in tags):
+            return False
+        tags.append({"nickname": account.get("nickname", ""), "user_id": account.get("user_id", ""),
+                     "first_seen": seen_at or datetime.now().astimezone().isoformat(timespec="seconds")})
+        meta["favorited_by"] = tags
+        storage.write_json(path, meta)
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 class _Quota:
