@@ -1,0 +1,119 @@
+/* Link Brain Actions — 账号卡片与设置页（2026-09-25）。颜色一律走 Obsidian 主题变量，深浅色通用。 */
+
+.lb-acct {
+  --lb-xhs: #ff2442;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  margin: 6px 0 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-secondary);
+}
+
+.lb-acct-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  background: var(--lb-xhs);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .5px;
+  box-shadow: 0 2px 8px rgba(255, 36, 66, .28);
+  user-select: none;
+}
+
+.lb-acct-body { min-width: 0; }
+
+.lb-acct-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lb-acct-name {
+  font-weight: 600;
+  font-size: var(--font-ui-medium);
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lb-acct-hint {
+  margin-top: 3px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.lb-acct-detail { margin-top: 6px; font-size: var(--font-ui-smaller); color: var(--text-faint); }
+.lb-acct-detail summary { cursor: pointer; }
+.lb-acct-detail pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 160px;
+  overflow: auto;
+  margin: 4px 0 0;
+  font-size: 11px;
+}
+
+.lb-acct-actions { display: flex; align-items: center; gap: 6px; }
+.lb-acct-refresh { color: var(--text-muted); }
+
+/* 状态胶囊：点 + 文字 */
+.lb-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 9px 1px 7px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.lb-pill::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.lb-pill.is-ok   { color: var(--color-green);  background: rgba(var(--color-green-rgb), .12); }
+.lb-pill.is-warn { color: var(--color-orange); background: rgba(var(--color-orange-rgb), .12); }
+.lb-pill.is-bad  { color: var(--color-red);    background: rgba(var(--color-red-rgb), .12); }
+.lb-pill.is-info { color: var(--color-blue);   background: rgba(var(--color-blue-rgb), .12); }
+.lb-pill.is-off  { color: var(--text-muted);   background: var(--background-modifier-hover); }
+.lb-pill.is-checking { color: var(--text-muted); background: var(--background-modifier-hover); }
+.lb-pill.is-checking::before,
+.lb-pill.is-info::before { animation: lb-pulse 1.1s ease-in-out infinite; }
+@keyframes lb-pulse { 50% { opacity: .25; } }
+
+/* 高级设置折叠 */
+.lb-advanced {
+  margin-top: 22px;
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 10px;
+}
+.lb-advanced > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 6px 0;
+}
+.lb-advanced h4 { margin: 18px 0 4px; font-size: var(--font-ui-small); color: var(--text-muted); text-transform: none; }
+
+.lb-account-modal .modal-content h2 { margin-top: 0; }
+
+@media (max-width: 520px) {
+  .lb-acct { grid-template-columns: auto 1fr; }
+  .lb-acct-actions { grid-column: 1 / -1; justify-content: flex-end; }
+}

@@ -1,5 +1,7 @@
 # 首次使用能力审计（2026-09-24）
 
+> **2026-09-25 更正**：读取 / 收藏 / 附件已合并为一个号、一个读取服务（link-brain-reader），实测三项全通；下文「尚未合并」「agent-browser 附件账号」「favdump 收藏组件」为 09-24 当时状态，现以 README「读取组件」与 STATE.md 0925 条为准。
+
 审计依据：README、STATE、POC-xiaohongshu、当前 Python/Obsidian 源码、现有组件源码及运行日志；游客 HTTP probe 与本机 doctor 实测。下表区分本地存储可用和在线读取可用。
 
 | 能力 | 登录要求与现有组件 | 缺失时行为 | 登录/可用性判断 | 本机路径与统一入口 |

@@ -25,7 +25,7 @@ style.textContent = `
 .lbc-sub{font-size:12px;color:var(--text-normal);white-space:nowrap;}
 .lbc-sync{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e08a1e;color:#fff;font-size:11px;font-weight:700;font-family:sans-serif;cursor:pointer;flex:0 0 auto;}
 .lbc-sync[hidden]{display:none;}
-.lbc-account-status{font-size:12px;padding:2px 7px;height:auto;box-shadow:none;color:var(--text-muted);}
+.lbc-account-status{font-size:12px;padding:2px 8px;height:auto;box-shadow:none;color:var(--text-muted);display:inline-flex;align-items:center;gap:5px;border-radius:999px;}.lbc-account-status .lbc-bang{display:inline-grid;place-items:center;width:15px;height:15px;border-radius:50%;background:var(--color-red);color:#fff;font-size:10px;font-weight:800;line-height:1;}.lbc-account-status.is-alert{color:var(--color-red);background:rgba(var(--color-red-rgb),.10);}.lbc-account-status.is-warn .lbc-bang{background:var(--color-orange);}.lbc-account-status.is-warn{color:var(--color-orange);background:rgba(var(--color-orange-rgb),.10);}
 .lbc-grid{columns:250px;column-gap:32px;}
 .lbc-card{display:inline-block;vertical-align:top;width:100%;margin:0 0 36px;break-inside:avoid;cursor:pointer;position:relative;}
 .lbc-attach{position:absolute;top:8px;right:8px;font-size:11px;line-height:1;padding:4px 8px;border-radius:9px;background:rgba(0,0,0,.55);color:#fff;pointer-events:none;backdrop-filter:blur(2px);}
@@ -201,22 +201,33 @@ const sub=subLine.createEl('span',{cls:'lbc-sub'});
 const syncSpan=subLine.createEl('span',{cls:'lbc-sync'});syncSpan.hidden=true;syncSpan.setText('!');
 syncSpan.onclick=()=>attachmentPanel(items.filter(it=>it.attachment==='待补'));
 const accountStatus=subLine.createEl('button',{cls:'lbc-account-status',text:'账号 / 同步'});
+// 同步状态：出问题时是「! 需要登录 / 需要验证 / 同步失败」，点一下直接进入修复（扫码 / 验证窗口）。
+let syncState=null;
 async function refreshSyncStatus(){
-  try {
-    const state=JSON.parse(await app.vault.adapter.read(lbPath('_archive/sync-status.json')));
-    accountStatus.setText(state.state==='blocked'?(state.account?'⚠ 同步暂停 · 登录':'⚠ 同步暂停 · 检查'):state.state==='failed'?'⚠ 同步失败':state.state==='running'?'同步中…':state.state==='ready'?'同步完成 · 账号':'账号 / 同步');
-  } catch { accountStatus.setText('账号 / 同步'); }
+  try { syncState=JSON.parse(await app.vault.adapter.read(lbPath('_archive/sync-status.json'))); } catch { syncState=null; }
+  const st=syncState||{};
+  const label={NOT_LOGGED_IN:'需要登录',CAPTCHA_REQUIRED:'需要验证',DISCONNECTED:'服务未运行',NOT_INSTALLED:'未安装读取组件'}[st.code]
+    ||(st.state==='blocked'?(st.account?'需要登录':'同步暂停'):st.state==='failed'?'同步失败':'');
+  accountStatus.empty();accountStatus.className='lbc-account-status';
+  if(label){
+    accountStatus.className='lbc-account-status '+(st.code==='CAPTCHA_REQUIRED'?'is-warn':'is-alert');
+    accountStatus.createEl('span',{cls:'lbc-bang',text:'!'});accountStatus.createEl('span',{text:label});
+    accountStatus.title=(st.detail||st.message||'')+' · 点击处理';
+  } else if(st.state==='running'){accountStatus.setText('同步中…');accountStatus.title='';}
+  else if(st.state==='ready'){const t=st.updated_at?new Date(st.updated_at):null;
+    accountStatus.setText('✓ 已同步'+(t?' · '+(t.getMonth()+1)+'/'+t.getDate()+' '+String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0'):''));accountStatus.title='账号与同步';}
+  else {accountStatus.setText('账号 / 同步');accountStatus.title='';}
 }
 accountStatus.onclick=async()=>{
   try {
     let plugin=provider();
-    if(typeof plugin?.openAccountStatus!=='function'){
+    if(typeof plugin?.fixFromCatalog!=='function'){
       if(plugin)await app.plugins.disablePlugin('link-brain-actions');
       await app.plugins.enablePlugin('link-brain-actions');plugin=provider();
     }
-    if(typeof plugin?.openAccountStatus!=='function')throw new Error('请启用 Link Brain Actions 插件');
-    plugin.openAccountStatus();
-  } catch(error){accountStatus.setText(error.message);}
+    if(typeof plugin?.fixFromCatalog!=='function')throw new Error('请启用 Link Brain Actions 插件');
+    await plugin.fixFromCatalog();
+  } catch(error){try{new Notice(error.message,10000);}catch{window.alert(error.message);}}
 };
 await refreshSyncStatus();
 if(app.vault.on && dv.component?.registerEvent){

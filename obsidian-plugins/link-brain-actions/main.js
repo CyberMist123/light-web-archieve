@@ -113,11 +113,9 @@ class ImportModal extends Modal {
   }
 }
 
-// sync-favorites 读收藏必须走 xiaohongshu.com 域（rednote.com 的会话一关浏览器就失效）。
+// 小红书读取服务的域名等由 link_brain/accounts.py 统一决定，这里只管编码。
 const ENV_EXTRA = {
   PYTHONIOENCODING: "utf-8",
-  XHS_HOST: "https://www.xiaohongshu.com",
-  XHS_FAV_HOST: "https://www.xiaohongshu.com",
 };
 
 // 同步收藏夹设置：立即同步 + 定时（每天/每周几点，自定义）。Owner 2026-09-17。
@@ -305,117 +303,161 @@ class LinkBrainActions extends Plugin {
     });
   }
 
+  // ── 小红书账号：一个号一个读取服务（2026-09-25）。状态行来自 `link_brain login --status --json`，
+  //    每行带 action（login / verify / retry / wait），按钮直接执行对应修复，不让人自己猜。
   openAccountStatus() {
     const modal = new Modal(this.app);
-    modal.onOpen = async () => {
-      const summary = modal.contentEl.createEl('p', {text:'读取同步状态…'});
-      try {
-        const status = JSON.parse(await this.app.vault.adapter.read(this.lbPath('_archive/sync-status.json')));
-        summary.setText([status.message, status.updated_at ? new Date(status.updated_at).toLocaleString() : ''].filter(Boolean).join(' · '));
-      } catch { summary.setText('尚无同步记录；可以先配置读取账号，粘贴链接归档。'); }
-      this.renderRuntimeStatus(modal.contentEl);
-      new Setting(modal.contentEl).setName('收藏同步').setDesc('恢复登录不会自动清除上次同步错误；补跑成功后更新。')
-        .addButton(b => b.setButtonText('立即同步').onClick(async () => {
-          if (this.running) { summary.setText(`正在${this.running}，请完成后再同步。`); return; }
-          b.setDisabled(true); summary.setText('正在同步收藏…');
-          try { if (this.runtimeCheck) await this.runtimeCheck; const result = await this.syncNow(); summary.setText(result?.code === 0 ? '同步完成' : '同步未完成，请查看账号状态'); }
-          catch (e) { summary.setText(e.message); }
-          finally { b.setDisabled(false); }
-        }));
+    modal.modalEl.addClass('lb-account-modal');
+    modal.onOpen = () => {
+      const c = modal.contentEl;
+      c.createEl('h2', {text: '小红书账号与同步'});
+      this.renderAccountCard(c);
+      this.renderSyncRow(c);
     };
     modal.open();
   }
 
-  renderRuntimeStatus(c, configureAI = () => { this.app.setting.open(); this.app.setting.openTabById('link-brain-actions'); }) {
-    c.createEl('h2', {text: '账号 / 同步'});
-    c.createEl('p', {text: '附件账号为可选。不配置也可以正常读取和同步收藏。各能力使用已保存的登录态，失效时再扫码。', cls: 'setting-item-description'});
-    const statusBox = c.createDiv();
-    const loginResult = c.createEl('p', {cls: 'setting-item-description'});
-    const refresh = async () => {
-      if (this.running) { statusBox.empty(); statusBox.createEl('p', {text: `正在${this.running}，完成后点击「刷新状态」。`}); return; }
-      statusBox.empty();
-      statusBox.createEl('p', {text: '正在检查运行状态…'});
-      try {
-        const draw = data => {
-        statusBox.empty();
-        for (const item of data.checks) {
-          const setting = new Setting(statusBox).setName(item.label)
-            .setDesc(`${item.state === 'ready' ? '✅ ' : ''}${item.message}`);
-          if (['xhs', 'favorites', 'attachments'].includes(item.id)) {
-            setting.addButton(b => b.setDisabled(item.state === 'checking' || item.state === 'queued').setButtonText(item.state === 'ready' ? '重新登录' : (item.state === 'expired' ? '重新扫码' : '登录'))
-              .onClick(async () => {
-                b.setDisabled(true);
-                b.setButtonText('准备登录…');
-                loginResult.setText('正在准备扫码页面；扫码后会自动验证，请等待结果。');
-                new Notice('正在准备登录页面；首次可能需要下载组件。页面打开后请扫码，完成后自动验证。', 10000);
-                try {
-                  const result = await this.loginAccount(item.id, item.state === 'ready');
-                  loginResult.setText([result.message, result.next_step].filter(Boolean).join('。'));
-                  new Notice([result.message, result.next_step].filter(Boolean).join('\n'), 12000);
-                  await refresh();
-                  if (result.detail) {
-                    const detail = statusBox.createEl('details');
-                    detail.createEl('summary', {text: '查看详情'});
-                    detail.createEl('pre', {text: result.detail});
-                  }
-                } catch (e) { loginResult.setText(e.message); new Notice(e.message, 12000); b.setDisabled(false); b.setButtonText('重试'); }
-              }));
-          }
-          if (item.id === 'ai') setting.addButton(b => b.setButtonText('配置').onClick(configureAI));
-          if (item.detail || item.next_step) {
-            const detail = statusBox.createEl('details');
-            detail.createEl('summary', {text:'查看详情'});
-            detail.createEl('pre', {text:[item.next_step, item.detail].filter(Boolean).join('\n')});
-          }
-        }
-        };
-        draw(await this.checkRuntime(draw));
-      } catch (e) { statusBox.empty(); statusBox.createEl('p', {text:e.message}); }
-    };
-    new Setting(c).setName('状态检查').addButton(b => b.setButtonText('刷新状态').onClick(refresh));
-    refresh();
-    return refresh;
-
+  async readSyncStatus() {
+    try { return JSON.parse(await this.app.vault.adapter.read(this.lbPath('_archive/sync-status.json'))); }
+    catch { return null; }
   }
 
-  async checkRuntime(onProgress = () => {}) {
+  renderSyncRow(c) {
+    const row = new Setting(c).setName('收藏同步').setDesc('读取上次同步结果…');
+    const paint = async () => {
+      const st = await this.readSyncStatus();
+      if (!st) { row.setDesc('还没有同步过。登录后点「立即同步」，或点「定时…」开启自动同步。'); return; }
+      const when = st.updated_at ? new Date(st.updated_at).toLocaleString() : '';
+      row.setDesc([st.message, when, st.state === 'ready' && st.synced != null ? `本次 ${st.synced} 条` : ''].filter(Boolean).join(' · '));
+    };
+    row.addButton(b => b.setButtonText('定时…').onClick(() => this.openSyncSettings()));
+    row.addButton(b => b.setButtonText('立即同步').setCta().onClick(async () => {
+      if (this.running) { new Notice(`正在${this.running}，完成后再同步。`); return; }
+      b.setDisabled(true); row.setDesc('正在同步收藏…（可以关掉这个窗口，完成后目录页会更新）');
+      try { await this.syncNow(); } catch (e) { new Notice(e.message, 10000); }
+      finally { b.setDisabled(false); await paint(); }
+    }));
+    paint();
+  }
+
+  // 账号卡片：logo · 账号名 + 状态胶囊 · 主按钮；下一行只写「下一步」，技术细节折叠。
+  renderAccountCard(c) {
+    const card = c.createDiv({cls: 'lb-acct'});
+    const logo = card.createDiv({cls: 'lb-acct-logo', text: '小红书'});
+    logo.setAttr('aria-hidden', 'true');
+    const body = card.createDiv({cls: 'lb-acct-body'});
+    const top = body.createDiv({cls: 'lb-acct-top'});
+    const name = top.createSpan({cls: 'lb-acct-name', text: '小红书账号'});
+    const pill = top.createSpan({cls: 'lb-pill is-checking', text: '检查中'});
+    const hint = body.createDiv({cls: 'lb-acct-hint', text: '正在确认登录状态…'});
+    const detail = body.createEl('details', {cls: 'lb-acct-detail'});
+    detail.createEl('summary', {text: '技术详情'});
+    const pre = detail.createEl('pre');
+    detail.hide();
+    const actions = card.createDiv({cls: 'lb-acct-actions'});
+    const primary = actions.createEl('button', {cls: 'mod-cta', text: '扫码登录'});
+    const again = actions.createEl('button', {cls: 'lb-acct-refresh clickable-icon', attr: {'aria-label': '重新检查'}});
+    if (obsidian.setIcon) obsidian.setIcon(again, 'rotate-cw'); else again.setText('↻');
+    const PILL = {ready: ['已登录', 'is-ok'], expired: ['登录失效', 'is-bad'], not_logged_in: ['未登录', 'is-off'],
+      captcha: ['需要验证', 'is-warn'], busy: ['进行中', 'is-info'], disconnected: ['服务未运行', 'is-bad'],
+      unconfigured: ['未安装', 'is-off'], error: ['出错', 'is-bad'], unknown: ['无法确认', 'is-warn'], checking: ['检查中', 'is-checking']};
+    const BUTTON = {login: '扫码登录', verify: '打开验证', retry: '重试', wait: '刷新'};
+    let current = null;
+    const paint = r => {
+      current = r;
+      const [label, cls] = PILL[r.state] || PILL.unknown;
+      pill.className = 'lb-pill ' + cls; pill.setText(label);
+      name.setText(r.account || (r.state === 'ready' ? '已登录' : '小红书账号'));
+      hint.setText(r.state === 'ready' ? '评论、私密收藏、附件都用这个号。登录会自动保存，失效时才需要重新扫码。' : (r.next_step || r.message || ''));
+      pre.setText(r.detail || ''); if (r.detail) detail.show(); else detail.hide();
+      const act = r.state === 'ready' || r.state === 'checking' ? '' : (r.action || 'retry');
+      if (act && act !== 'none') primary.show(); else primary.hide();
+      primary.setText(BUTTON[act] || '重试');
+      primary.disabled = false;
+    };
+    const refresh = async () => {
+      paint({state: 'checking', next_step: '正在确认登录状态…'});
+      try { paint(await this.accountStatus()); }
+      catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); }
+    };
+    primary.onclick = async () => {
+      const act = current?.action || 'retry';
+      primary.disabled = true;
+      try {
+        if (act === 'login') {
+          paint({state: 'busy', next_step: '二维码已在浏览器打开：用小红书 App 扫一扫，并在手机上确认。这里会自动更新。', action: 'none'});
+          const r = await this.loginAccount();
+          paint(r);
+          new Notice(r.state === 'ready' ? `✓ ${r.message}` : [r.message, r.next_step].filter(Boolean).join('\n'), 10000);
+        } else if (act === 'verify') {
+          paint(await this.openVerify());
+        } else await refresh();
+      } catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); }
+    };
+    again.onclick = refresh;
+    refresh();
+    return refresh;
+  }
+
+  async runJSON(args, fallback) {
+    const {out, err, code} = await this.spawnCapture(args);
+    const line = (out || '').trim().split('\n').filter(Boolean).pop();
+    try { return JSON.parse(line); }
+    catch {
+      if (code === -1) throw new Error('找不到 Python。请按 README 安装 Python 3.11+ 与 link_brain，再重启 Obsidian。\n' + err);
+      throw new Error((err || '').trim().split('\n').slice(-3).join('\n') || fallback);
+    }
+  }
+
+  // 本机环境（Python 包 / 插件 / Dataview / AI），只在设置页「运行环境」里展示。
+  async checkRuntime() {
     if (this.runtimeCheck) return this.runtimeCheck;
     this.runtimeCheck = (async () => {
       const obsidianDir = path.join(this.app.vault.adapter.getBasePath(), this.app.vault.configDir || '.obsidian');
-      const probe = async group => {
-        const {out, err} = await this.spawnCapture(['-m', 'link_brain', 'doctor', '--json', '--only', group, '--obsidian-dir', obsidianDir]);
-        try { return JSON.parse(out); }
-        catch { throw new Error('无法运行 Python 归档程序。请按 README 安装 Python package，再重启 Obsidian。\n' + (err || out)); }
-      };
-      const data = await probe('local');
-      const labels = {xhs:'小红书读取', favorites:'收藏同步', attachments:'附件下载'};
-      data.checks.push(...Object.entries(labels).map(([id,label]) => ({id,label,state:'queued',message:'等待检查'})));
-      onProgress(data);
-      for (const id of Object.keys(labels)) {
-        let row = data.checks.find(r=>r.id === id);
-        row.state = 'checking'; row.message = '正在验证登录状态…'; onProgress(data);
-        const result = await probe(id);
-        data.checks = data.checks.map(r => r.id === id ? result.checks.find(x=>x.id===id) : r).filter(Boolean);
-        onProgress(data);
-      }
+      const data = await this.runJSON(['-m', 'link_brain', 'doctor', '--json', '--only', 'local', '--obsidian-dir', obsidianDir],
+        '无法运行 Python 归档程序。请按 README 安装 Python package，再重启 Obsidian。');
       this.runtimeStatusData = data;
       return data;
     })();
     try { return await this.runtimeCheck; } finally { this.runtimeCheck = null; }
   }
 
-  async loginAccount(account, force = false) {
-    if (this.running) throw new Error('请等待当前操作完成后再登录。');
+  async accountStatus() {
+    if (this.running === '账号登录') return {state: 'busy', next_step: '正在等待扫码…', action: 'none'};
+    return this.runJSON(['-m', 'link_brain', 'login', '--status', '--json'], '检查登录状态失败');
+  }
+
+  async loginAccount(force = false) {
+    if (this.running) throw new Error(`请等待「${this.running}」完成后再登录。`);
     this.running = '账号登录';
     try {
-      if (this.runtimeCheck) await this.runtimeCheck;
-      const args = ['-m', 'link_brain', 'login', account, '--json'];
-      if (account === 'xhs') args.push('--install');
+      const args = ['-m', 'link_brain', 'login', '--json'];
       if (force) args.push('--force');
-      const {out, err} = await this.spawnCapture(args);
-      try { return JSON.parse(out); }
-      catch { throw new Error(err || '登录未完成，请刷新状态后重试。'); }
+      return await this.runJSON(args, '登录未完成，请重试。');
     } finally { this.running = null; }
+  }
+
+  async openVerify() {
+    const r = await this.runJSON(['-m', 'link_brain', 'login', '--verify', '--json'], '打开验证窗口失败');
+    new Notice(r.next_step || r.message, 12000);
+    return r;
+  }
+
+  // 目录页「!」直达：按上次同步失败的原因直接进入修复（扫码 / 验证），其余打开账号面板。
+  async fixFromCatalog() {
+    const st = await this.readSyncStatus();
+    const code = (st && st.code) || '';
+    if (st && st.state === 'blocked' && (code === 'NOT_LOGGED_IN' || (!code && st.account))) {
+      new Notice('正在打开扫码页面：用小红书 App 扫一扫。', 8000);
+      try {
+        const r = await this.loginAccount();
+        new Notice(r.state === 'ready' ? `✓ ${r.message}。点「立即同步」补上这次同步。` : [r.message, r.next_step].filter(Boolean).join('\n'), 12000);
+      } catch (e) { new Notice(e.message, 10000); }
+      this.openAccountStatus();
+      return;
+    }
+    if (code === 'CAPTCHA_REQUIRED') { try { await this.openVerify(); } catch (e) { new Notice(e.message, 10000); } return; }
+    this.openAccountStatus();
   }
 
   // catalog-view.js 的 /问AI 入口。后端 `link_brain ask` 自己读整个本地索引重新检索、
@@ -760,132 +802,126 @@ class LinkBrainActions extends Plugin {
 class LinkBrainSettingTab extends PluginSettingTab {
   constructor(app, plugin) { super(app, plugin); this.plugin = plugin; }
 
+  // 设置页（2026-09-25 精简）：账号 → 收藏同步 → AI → 常用；其余全部收进「高级设置」折叠。
   display() {
     const { containerEl: c } = this;
     c.empty();
+    c.addClass('lb-settings');
     const s = this.plugin.settings;
     const save = () => this.plugin.saveSettings();
 
-    this.plugin.renderRuntimeStatus(c, () => aiHeading.scrollIntoView({block:'start'}));
+    c.createEl('h2', { text: '小红书账号' });
+    this.plugin.renderAccountCard(c);
 
-    const aiHeading = c.createEl("h2", { text: "Link Brain · AI 接口" });
-    const intro = c.createEl("p", { cls: "setting-item-description" });
-    intro.setText(
-      "凭据只保存在本插件的 data.json（vault 已 gitignore，不进公开仓、不打印）。" +
-      "文本 / 识图默认走本机 media.py（复用已配置的 key，无需在此填 key）；" +
-      "要用别的服务就切「自定义 HTTP」，按 OpenAI 兼容协议填 endpoint/model/key。",
-    );
+    c.createEl('h3', { text: '收藏同步' });
+    this.plugin.renderSyncRow(c);
 
-    // —— 文本 AI ——
-    c.createEl("h3", { text: "文本 AI（收藏问答）" });
-    new Setting(c).setName("通路").setDesc("默认：读取本机千问凭据，进程内调用。自定义 HTTP：OpenAI 兼容 /chat/completions。")
-      .addDropdown(d => d.addOption("media", "本机千问配置").addOption("http", "自定义 HTTP")
+    // —— AI ——
+    c.createEl('h3', { text: 'AI' });
+    new Setting(c).setName('文本 AI').setDesc('收藏问答与归档摘要。默认读取本机千问凭据；也可以填任意 OpenAI 兼容接口。')
+      .addDropdown(d => d.addOption('media', '本机千问配置').addOption('http', '自定义接口')
         .setValue(s.textAI.mode).onChange(async v => { s.textAI.mode = v; await save(); this.display(); }));
-    if(s.textAI.keyFile)c.createEl('p',{cls:'setting-item-description',text:'当前密钥从仓外文件读取，界面不显示密钥。'});
-    if (s.textAI.mode === "http") {
-      new Setting(c).setName("Endpoint").setDesc("完整的 /chat/completions 地址")
-        .addText(t => t.setPlaceholder("https://api.example.com/v1/chat/completions").setValue(s.textAI.endpoint)
+    if (s.textAI.keyFile) c.createEl('p', { cls: 'setting-item-description', text: '当前密钥从仓外文件读取，界面不显示密钥。' });
+    if (s.textAI.mode === 'http') {
+      new Setting(c).setName('接口地址').setDesc('完整的 /chat/completions 地址')
+        .addText(t => t.setPlaceholder('https://api.example.com/v1/chat/completions').setValue(s.textAI.endpoint)
           .onChange(async v => { s.textAI.endpoint = v.trim(); await save(); }));
-      new Setting(c).setName("API Key").addText(t => { t.inputEl.type = "password";
-        t.setPlaceholder("sk-…").setValue(s.textAI.apiKey).onChange(async v => { s.textAI.apiKey = v.trim(); await save(); }); });
+      new Setting(c).setName('API Key').setDesc('只保存在本插件 data.json，不进仓库。').addText(t => { t.inputEl.type = 'password';
+        t.setPlaceholder('sk-…').setValue(s.textAI.apiKey).onChange(async v => { s.textAI.apiKey = v.trim(); await save(); }); });
     }
-    new Setting(c).setName("模型 ID").setDesc("留空 = 用 llm-config.yaml 的问答模型。")
-      .addText(t => t.setPlaceholder("qwen3.7-flash / gpt-4o-mini").setValue(s.textAI.model)
+    new Setting(c).setName('模型').setDesc('留空使用默认问答模型。')
+      .addText(t => t.setPlaceholder('qwen3.7-flash / gpt-4o-mini').setValue(s.textAI.model)
         .onChange(async v => { s.textAI.model = v.trim(); await save(); }));
-    new Setting(c).setName("回答输出上限 (max_tokens)").setDesc("流式回答输出上限，默认 1200。")
-      .addText(t => t.setValue(String(s.textAI.maxTokens)).onChange(async v => { s.textAI.maxTokens = parseInt(v) || 1200; await save(); }));
-    this.addTestButton(c, "测试文本 AI（发一次 “回复 ok”）", ["-m", "link_brain", "selftest", "text"]);
+    this.addTestButton(c, '测试文本 AI', ['-m', 'link_brain', 'selftest', 'text']);
 
-    // —— 识图 / OCR ——
-    c.createEl("h3", { text: "识图 / OCR" });
-    new Setting(c).setName("识图通路").setDesc("cmx：本机 RapidOCR + 她的 key（默认，便宜）。qwen：云端长描述。归档时 vision.py 用它。")
-      .addDropdown(d => d.addOption("cmx", "cmx（本机，默认）").addOption("qwen", "qwen（云端长描述）")
+    // —— 常用 ——
+    c.createEl('h3', { text: '常用' });
+    new Setting(c).setName('搜索收藏').setDesc('普通文字按 Enter 搜索；/问题 按 Enter 问 AI。')
+      .addButton(b => b.setButtonText('打开搜索').onClick(() => this.plugin.openLibraryPage('chat')));
+    new Setting(c).setName('批注昵称').setDesc('笔记底部批注的署名，形如「ler · 09/17 14:30」。')
+      .addText(t => t.setPlaceholder('ler').setValue(s.nickname || '').onChange(async v => { s.nickname = v.trim(); await save(); }));
+    new Setting(c).setName('下载文件夹').setDesc('手动下载的附件会从这里自动认领。')
+      .addText(t => t.setValue(s.downloads.folder).onChange(async v => { s.downloads.folder = v.trim(); await save(); }));
+
+    // —— 高级（折叠）——
+    const adv = c.createEl('details', { cls: 'lb-advanced' });
+    adv.createEl('summary', { text: '高级设置' });
+    const a = adv.createDiv();
+
+    a.createEl('h4', { text: '运行环境' });
+    const envBox = a.createDiv();
+    const drawEnv = async () => {
+      envBox.empty();
+      const wait = envBox.createEl('p', { cls: 'setting-item-description', text: '检查中…' });
+      try {
+        const data = await this.plugin.checkRuntime();
+        wait.remove();
+        for (const r of data.checks) {
+          const ok = ['ready', 'configured'].includes(r.state);
+          new Setting(envBox).setName(r.label).setDesc((ok ? '✓ ' : '⚠ ') + r.message + (r.next_step && !ok ? ' — ' + r.next_step : ''));
+        }
+      } catch (e) { wait.setText(e.message); }
+    };
+    new Setting(a).setName('检查本机环境').setDesc('Python 程序、插件、Dataview、AI 配置。')
+      .addButton(b => b.setButtonText('检查').onClick(drawEnv));
+
+    a.createEl('h4', { text: '识图 / OCR' });
+    new Setting(a).setName('识图通路').setDesc('cmx：本机 RapidOCR（默认，便宜）。qwen：云端长描述。')
+      .addDropdown(d => d.addOption('cmx', 'cmx（本机）').addOption('qwen', 'qwen（云端）')
         .setValue(s.ocr.via).onChange(async v => { s.ocr.via = v; await save(); }));
-    this.addTestButton(c, "测试识图（对库里第一张图跑一次 OCR）", ["-m", "link_brain", "selftest", "ocr"]);
+    this.addTestButton(a, '测试识图', ['-m', 'link_brain', 'selftest', 'ocr']);
 
-    // —— TTS ——
-    // —— 提示词 ——
-    c.createEl("h3", { text: "提示词" });
-    new Setting(c).setName("摘要提示词（归档时抽取）")
-      .setDesc("留空 = 用内置抽取提示词（含 JSON schema 契约）。自定义时必须仍要求返回那套 JSON，否则抽取会失败。")
-      .addTextArea(t => { t.inputEl.rows = 4; t.inputEl.style.width = "100%";
-        t.setPlaceholder("（留空用内置）").setValue(s.prompts.summary).onChange(async v => { s.prompts.summary = v; await save(); }); });
-    new Setting(c).setName("搜索回答提示词（/问AI）")
-      .addTextArea(t => { t.inputEl.rows = 5; t.inputEl.style.width = "100%";
-        t.setValue(s.prompts.answer).onChange(async v => { s.prompts.answer = v; await save(); }); });
-    new Setting(c).addButton(b => b.setButtonText("回答提示词恢复默认").onClick(async () => {
-      s.prompts.answer = DEFAULT_ANSWER_PROMPT; await save(); this.display();
-    }));
-
-    c.createEl('h3',{text:'搜索收藏…'});
-    c.createEl('p',{text:'普通文字按 Enter 搜索；/问题 按 Enter 问 AI。回答下方可继续追问，并查看原文来源。'});
-    new Setting(c).setName('简洁搜索页').addButton(b=>b.setButtonText('打开搜索').onClick(()=>this.plugin.openLibraryPage('chat')));
-    new Setting(c).setName('批注昵称').setDesc('笔记底部批注的署名，形如「ler · 09/17 14:30」。').addText(t=>t.setPlaceholder('ler').setValue(s.nickname||'').onChange(async v=>{s.nickname=v.trim();await save();}));
-    new Setting(c).setName('下载文件夹').setDesc('推荐文件与等待下载都会读取此目录。')
-      .addText(t=>t.setValue(s.downloads.folder).onChange(async v=>{s.downloads.folder=v.trim();await save();}));
-    new Setting(c).setName('等待手动下载（分钟）').addText(t=>t.setValue(String(s.downloads.waitMinutes)).onChange(async v=>{s.downloads.waitMinutes=Math.max(1,parseInt(v)||5);await save();}));
-    new Setting(c).setName('检查附件与补跑').addButton(b=>b.setButtonText('查看待补附件').onClick(async()=>{
-      const {code,err}=await this.plugin.spawnCapture(['-m','link_brain','catalog']);
-      if(code!==0){new Notice('检查失败：'+err);return;}
-      const data=JSON.parse(await this.app.vault.adapter.read(this.plugin.lbPath('_archive/catalog-data.json')));
-      this.plugin.openAttachments(data.items.filter(it=>it.attachment==='待补'));
-    }));
-
-    // —— 检索/token 控制 ——
-    c.createEl("h3", { text: "检索与 token 控制（/问AI）" });
-    c.createEl("p", { cls: "setting-item-description", text: "只有发给模型的内容才限量；读整个本地索引是免费的。字符不等于 token，仅供横向比较。" });
-    new Setting(c).setName("发给模型的总字符上限").addText(t => t.setValue(String(s.retrieval.totalCharLimit))
-      .onChange(async v => { s.retrieval.totalCharLimit = parseInt(v) || 12000; await save(); }));
-    new Setting(c).setName("每篇片段字符上限").addText(t => t.setValue(String(s.retrieval.fragChars))
-      .onChange(async v => { s.retrieval.fragChars = parseInt(v) || 1200; await save(); }));
-    new Setting(c).setName("送模型的片段篇数 (topK)").addText(t => t.setValue(String(s.retrieval.topK))
-      .onChange(async v => { s.retrieval.topK = parseInt(v) || 8; await save(); }));
-    new Setting(c).setName("普通问题先用小模型扩检索词").setDesc("开：多花一次很小的调用换更全的召回。关：只用问句里的词。")
-      .addToggle(t => t.setValue(s.retrieval.expandTerms).onChange(async v => { s.retrieval.expandTerms = v; await save(); }));
-
-    // —— 目录大类（顶部筛选）——
-    c.createEl("h3", { text: "目录大类（顶部筛选条）" });
-    c.createEl("p", { cls: "setting-item-description", text: "每行一个大类，格式「名称: 关键词1, 关键词2」。一篇笔记的标签命中任一关键词就归到该大类（可属多类）。留空 = 用内置大类。改完点「重建收藏目录」命令才生效。" });
-    let catsArea;
-    new Setting(c).setName("大类列表").addTextArea(t => { catsArea = t; t.inputEl.rows = 10; t.inputEl.style.width = "100%"; t.inputEl.style.fontFamily = "var(--font-monospace)";
-      t.setPlaceholder("人机恋: 人机恋, ai伴侣, 陪伴\nAI·模型: claude, gpt, 大模型").setValue(serializeCats(s.catalogCats))
-      .onChange(async v => { s.catalogCats = parseCatsText(v); await save(); }); });
-    new Setting(c)
-      .addButton(b => b.setButtonText("载入当前大类").setTooltip("把现在生效的大类填进上面，好在其基础上改").onClick(async () => {
-        try { const { out } = await this.plugin.spawnCapture(["-m", "link_brain", "catalog", "--print-cats"]);
-          const r = JSON.parse(out.trim().split("\n").filter(Boolean).pop() || "{}");
-          if (r.text != null) { catsArea.setValue(r.text); s.catalogCats = parseCatsText(r.text); await save(); new Notice("已载入当前大类"); }
-        } catch (e) { new Notice("载入失败：" + e.message, 8000); }
-      }))
-      .addButton(b => b.setButtonText("清空（用内置）").onClick(async () => { s.catalogCats = []; await save(); this.display(); }))
-      .addButton(b => b.setButtonText("重建目录使其生效").setCta().onClick(async () => {
-        new Notice("正在重建目录…");
-        const r = await this.plugin.run(["-m", "link_brain", "catalog"], "重建目录");
-        if (r.code === 0) new Notice("目录已重建，打开「小红书收藏目录」看新大类");
+    a.createEl('h4', { text: '提示词' });
+    new Setting(a).setName('摘要提示词（归档时抽取）')
+      .setDesc('留空用内置提示词。自定义时必须仍要求返回那套 JSON，否则抽取会失败。')
+      .addTextArea(t => { t.inputEl.rows = 4; t.inputEl.style.width = '100%';
+        t.setPlaceholder('（留空用内置）').setValue(s.prompts.summary).onChange(async v => { s.prompts.summary = v; await save(); }); });
+    new Setting(a).setName('问答提示词（/问AI）')
+      .addTextArea(t => { t.inputEl.rows = 5; t.inputEl.style.width = '100%';
+        t.setValue(s.prompts.answer).onChange(async v => { s.prompts.answer = v; await save(); }); })
+      .addExtraButton(b => b.setIcon('reset').setTooltip('恢复默认').onClick(async () => {
+        s.prompts.answer = DEFAULT_ANSWER_PROMPT; await save(); this.display();
       }));
 
-    // —— 每晚收藏巡检 ——
-    c.createEl("h3", { text: "每晚收藏巡检" });
-    const schedSetting = new Setting(c).setName("巡检频率")
-      .setDesc("小红书收藏自动同步进库（Windows 计划任务 XhsFavSync，凌晨 4 点）。改频率或关闭。");
-    let schedDrop;
-    schedSetting.addDropdown(d => { schedDrop = d;
-      d.addOption("daily", "每天").addOption("weekly", "每周（周一）").addOption("off", "关闭").setValue("daily")
-        .onChange(async v => {
-          schedSetting.setDesc("正在设置…");
-          const { out } = await this.plugin.spawnCapture(["-m", "link_brain", "sync-schedule", "--set", v]);
-          let r; try { r = JSON.parse(out.trim().split("\n").filter(Boolean).pop() || "{}"); } catch { r = {}; }
-          schedSetting.setDesc(r.ok ? `已设为「${v === "off" ? "关闭" : v === "weekly" ? "每周" : "每天"}」`
-            : ("设置失败：" + (r.detail || r.error || "未知错误")));
-        });
-    });
-    // 载入当前频率
-    this.plugin.spawnCapture(["-m", "link_brain", "sync-schedule"]).then(({ out }) => {
-      try { const r = JSON.parse(out.trim().split("\n").filter(Boolean).pop() || "{}");
-        if (r.freq === "none") schedSetting.setDesc("本机没有 XhsFavSync 计划任务（可能没配巡检）。");
-        else if (r.freq && r.freq !== "unknown") { schedDrop.setValue(r.enabled ? r.freq : "off"); schedSetting.setDesc(`上次运行 ${r.last_run || "未知"} · 退出码 ${r.last_result ?? "未知"} · 下次 ${r.next_run || "未知"}（附件完整性见上方检查）`); }
-      } catch {}
-    });
+    a.createEl('h4', { text: '问答用量' });
+    a.createEl('p', { cls: 'setting-item-description', text: '只有发给模型的内容才限量；读本地索引不花钱。' });
+    const num = (name, get, set, fallback) => new Setting(a).setName(name)
+      .addText(t => t.setValue(String(get())).onChange(async v => { set(parseInt(v) || fallback); await save(); }));
+    num('回答输出上限（max_tokens）', () => s.textAI.maxTokens, v => s.textAI.maxTokens = v, 1200);
+    num('发给模型的总字符上限', () => s.retrieval.totalCharLimit, v => s.retrieval.totalCharLimit = v, 12000);
+    num('每篇片段字符上限', () => s.retrieval.fragChars, v => s.retrieval.fragChars = v, 1200);
+    num('送模型的片段篇数（topK）', () => s.retrieval.topK, v => s.retrieval.topK = v, 8);
+    new Setting(a).setName('先用小模型扩检索词').setDesc('多花一次很小的调用，换更全的召回。')
+      .addToggle(t => t.setValue(s.retrieval.expandTerms).onChange(async v => { s.retrieval.expandTerms = v; await save(); }));
+
+    a.createEl('h4', { text: '目录大类' });
+    a.createEl('p', { cls: 'setting-item-description', text: '每行一个：「名称: 关键词1, 关键词2」。标签命中任一关键词就归到该类。留空用内置。' });
+    let catsArea;
+    new Setting(a).addTextArea(t => { catsArea = t; t.inputEl.rows = 8; t.inputEl.style.width = '100%'; t.inputEl.style.fontFamily = 'var(--font-monospace)';
+      t.setPlaceholder('人机恋: 人机恋, ai伴侣, 陪伴\nAI·模型: claude, gpt, 大模型').setValue(serializeCats(s.catalogCats))
+        .onChange(async v => { s.catalogCats = parseCatsText(v); await save(); }); });
+    new Setting(a)
+      .addButton(b => b.setButtonText('载入当前大类').onClick(async () => {
+        try {
+          const r = await this.plugin.runJSON(['-m', 'link_brain', 'catalog', '--print-cats'], '载入失败');
+          if (r.text != null) { catsArea.setValue(r.text); s.catalogCats = parseCatsText(r.text); await save(); new Notice('已载入当前大类'); }
+        } catch (e) { new Notice('载入失败：' + e.message, 8000); }
+      }))
+      .addButton(b => b.setButtonText('清空（用内置）').onClick(async () => { s.catalogCats = []; await save(); this.display(); }))
+      .addButton(b => b.setButtonText('重建目录').setCta().onClick(async () => {
+        const r = await this.plugin.run(['-m', 'link_brain', 'catalog'], '重建目录');
+        if (r.code === 0) new Notice('目录已重建');
+      }));
+
+    a.createEl('h4', { text: '附件' });
+    new Setting(a).setName('等待手动下载（分钟）').setDesc('手动下载附件时，在下载文件夹里等待文件出现的时长。')
+      .addText(t => t.setValue(String(s.downloads.waitMinutes)).onChange(async v => { s.downloads.waitMinutes = Math.max(1, parseInt(v) || 5); await save(); }));
+    new Setting(a).setName('待补附件').addButton(b => b.setButtonText('查看').onClick(async () => {
+      const { code, err } = await this.plugin.spawnCapture(['-m', 'link_brain', 'catalog']);
+      if (code !== 0) { new Notice('检查失败：' + err); return; }
+      const data = JSON.parse(await this.app.vault.adapter.read(this.plugin.lbPath('_archive/catalog-data.json')));
+      this.plugin.openAttachments(data.items.filter(it => it.attachment === '待补'));
+    }));
   }
 
   addTestButton(container, label, args) {

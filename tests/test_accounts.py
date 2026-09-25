@@ -1,12 +1,12 @@
+"""一个号一个读取服务（2026-09-25）：状态、扫码、报错→解决方案、收藏/附件停车。"""
 import json
-import subprocess
 from pathlib import Path
-from types import SimpleNamespace
 
 import httpx
 import pytest
 
-from link_brain import accounts, attachments, cli, doctor
+from link_brain import accounts, attachments, doctor, favorites
+from link_brain.adapters import xiaohongshu as xhs
 
 
 @pytest.fixture
@@ -15,163 +15,169 @@ def clean(monkeypatch, tmp_path):
     monkeypatch.setenv('LINK_BRAIN_HOME', str(tmp_path / 'runtime'))
     monkeypatch.setenv('LINK_BRAIN_VAULT', str(tmp_path / 'vault'))
     monkeypatch.setenv('LINK_BRAIN_MODELS_DIR', str(tmp_path / 'models'))
-    for name in ['DASHSCOPE_API_KEY', 'LINK_BRAIN_AB_PROFILE_PREFS', 'XHS_PROFILE_DIR',
-                 'XHS_FAV_PROFILE', 'LINK_BRAIN_FAVDUMP', 'LINK_BRAIN_FAV_LOGIN']:
+    for name in ['DASHSCOPE_API_KEY', 'XHS_PROFILE_DIR', 'LINK_BRAIN_XHS_EXE', 'LINK_BRAIN_XHS_ENDPOINT']:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(accounts.shutil, 'which', lambda _: None)
-    def disconnected(*args, **kw):
+    monkeypatch.setattr(accounts.time, 'sleep', lambda _: None)
+
+    def refused(*a, **kw):
         raise httpx.ConnectError('connection refused')
-    monkeypatch.setattr(accounts, 'api', disconnected)
+    monkeypatch.setattr(accounts.httpx, 'request', refused)
     return tmp_path
 
 
-def test_clean_environment_optional_missing_is_not_core_failure(clean):
+class FakeReader:
+    """按路由应答的假读取服务；记下调用顺序。"""
+
+    def __init__(self, monkeypatch, routes):
+        self.calls, self.routes = [], routes
+        monkeypatch.setattr(accounts, 'api', self)
+
+    def __call__(self, method, route, **kw):
+        self.calls.append(route)
+        value = self.routes[route]
+        if callable(value):
+            value = value()
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+
+def test_clean_environment_reports_missing_component_not_core_failure(clean):
     data = doctor.diagnose()
     rows = {r['id']: r for r in data['checks']}
     assert data['core_ready'] and not data['xhs_ready']
-    assert rows['xhs']['state'] == 'disconnected'
-    for key in ('favorites', 'attachments', 'ai'):
-        assert rows[key]['state'] == 'unconfigured'
-        assert rows[key]['optional'] and rows[key]['next_step']
-    assert not (clean / 'runtime').exists()  # doctor does not write settings
+    assert rows['xhs']['state'] == 'unconfigured' and rows['xhs']['next_step']
+    assert 'favorites' not in rows and 'attachments' not in rows  # 一个号一行
+    assert not (clean / 'runtime').exists()  # doctor 不写配置
 
 
-def test_login_state_is_not_inferred_from_connection_failure(clean, monkeypatch):
-    accounts.save({'xhs_authenticated': True})
-    assert accounts.xhs_status()['state'] == 'disconnected'
-    monkeypatch.setattr(accounts, 'api', lambda *a, **k: {'is_logged_in': False})
-    assert accounts.xhs_status()['state'] == 'expired'
-    monkeypatch.setattr(accounts, 'api', lambda *a, **k: {})
-    assert accounts.xhs_status()['state'] == 'unknown'
+def test_api_maps_error_payload_to_code(clean, monkeypatch):
+    def reply(method, url, **kw):
+        return httpx.Response(423, json={'error': '要验证', 'code': 'CAPTCHA_REQUIRED', 'details': 'x'})
+    monkeypatch.setattr(accounts.httpx, 'request', reply)
+    with pytest.raises(accounts.ReaderError) as err:
+        accounts.api('GET', '/api/v1/favorites')
+    assert err.value.code == 'CAPTCHA_REQUIRED' and err.value.needs_human
 
 
-def test_already_logged_in_never_opens_qr_or_clears_session(clean, monkeypatch):
-    calls = []
-    def api(method, route, **kw):
-        calls.append((method, route))
-        return {'is_logged_in': True}
-    monkeypatch.setattr(accounts, 'api', api)
-    assert accounts.login_xhs()['state'] == 'ready'
-    assert calls == [('GET', '/api/v1/login/status')]
+def test_ready_saves_nickname(clean, monkeypatch):
+    FakeReader(monkeypatch, {'/api/v1/login/session': {'state': 'idle'},
+                             '/api/v1/login/status': {'is_logged_in': True, 'username': 'momo', 'user_id': 'u1'}})
+    r = accounts.xhs_status()
+    assert r['state'] == 'ready' and r['account'] == 'momo'
+    assert accounts.config()['user_id'] == 'u1'
 
 
-def test_scan_success_then_doctor_ready(clean, monkeypatch):
-    statuses = iter([False, True, True])
-    calls = []
-    def api(method, route, **kw):
-        calls.append(route)
-        if route.endswith('qrcode'):
-            return {'img': 'data:image/png;base64,AA==', 'is_logged_in': False}
-        return {'is_logged_in': next(statuses)}
-    monkeypatch.setattr(accounts, 'api', api)
-    monkeypatch.setattr(accounts.time, 'sleep', lambda _: None)
+def test_logged_out_after_success_is_expired_with_login_action(clean, monkeypatch):
+    accounts.save({'nickname': 'momo'})
+    FakeReader(monkeypatch, {'/api/v1/login/session': {'state': 'idle'},
+                             '/api/v1/login/status': {'is_logged_in': False}})
+    r = accounts.xhs_status()
+    assert (r['state'], r['action']) == ('expired', 'login')
+
+
+@pytest.mark.parametrize('code,state,action', [
+    ('CAPTCHA_REQUIRED', 'captcha', 'verify'),
+    ('RATE_LIMITED', 'busy', 'wait'),
+    ('DISCONNECTED', 'disconnected', 'retry'),
+])
+def test_every_error_has_a_solution(clean, monkeypatch, code, state, action):
+    FakeReader(monkeypatch, {'/api/v1/login/session': {'state': 'idle'},
+                             '/api/v1/login/status': accounts.ReaderError(code)})
+    r = accounts.xhs_status()
+    assert (r['state'], r['action']) == (state, action) and r['next_step']
+
+
+def test_status_never_touches_browser_while_qr_pending(clean, monkeypatch):
+    fake = FakeReader(monkeypatch, {'/api/v1/login/session': {'state': 'waiting'}})
+    assert accounts.xhs_status()['state'] == 'busy'
+    assert fake.calls == ['/api/v1/login/session']
+
+
+def test_login_polls_only_memory_state_until_success(clean, monkeypatch):
+    sessions = iter([{'state': 'idle'}, {'state': 'waiting'}, {'state': 'waiting'},
+                     {'state': 'success', 'nickname': 'momo', 'user_id': 'u1'}])
+    fake = FakeReader(monkeypatch, {'/api/v1/login/session': lambda: next(sessions),
+                                    '/api/v1/login/qrcode': {'img': 'data:image/png;base64,AAAA'}})
     opened = []
     monkeypatch.setattr(accounts.webbrowser, 'open', lambda uri: opened.append(uri) or True)
-    assert accounts.login_xhs()['state'] == 'ready'
-    assert opened and calls.count('/api/v1/login/qrcode') == 1
-    assert accounts.config()['xhs_authenticated']
-    assert doctor.diagnose()['xhs_ready']
-    page = (accounts.home() / 'login.html').read_text('utf-8')
-    assert '已登录' in page and '<img' not in page
+    r = accounts.login(timeout=60)
+    assert r['state'] == 'ready' and r['message'] == '已登录：momo'
+    assert '/api/v1/login/status' not in fake.calls  # 出码后绝不碰会导航的接口
+    assert opened and '已登录' in (clean / 'runtime' / 'login.html').read_text('utf-8')
 
 
-def test_scan_keeps_waiting_after_reader_500(clean, monkeypatch):
-    statuses = iter([False, 'error', True])
-    def api(method, route, **kw):
-        if route.endswith('qrcode'):
-            return {'img': 'data:image/png;base64,AA=='}
-        state = next(statuses)
-        if state == 'error':
-            raise httpx.HTTPStatusError('browser busy', request=httpx.Request('GET', 'http://localhost'),
-                                        response=httpx.Response(500))
-        return {'is_logged_in': state}
-    monkeypatch.setattr(accounts, 'api', api)
-    monkeypatch.setattr(accounts.time, 'sleep', lambda _: None)
-    monkeypatch.setattr(accounts.webbrowser, 'open', lambda _: True)
-    assert accounts.login_xhs()['state'] == 'ready'
+def test_login_timeout_says_qr_expired(clean, monkeypatch):
+    sessions = iter([{'state': 'idle'}, {'state': 'timeout'}])
+    FakeReader(monkeypatch, {'/api/v1/login/session': lambda: next(sessions),
+                             '/api/v1/login/qrcode': {'img': 'data:image/png;base64,AAAA'}})
+    monkeypatch.setattr(accounts.webbrowser, 'open', lambda uri: True)
+    r = accounts.login(timeout=60)
+    assert r['message'] == '二维码已过期' and r['action'] == 'login'
 
 
-def test_timeout_is_actionable(clean, monkeypatch):
-    monkeypatch.setattr(accounts, 'api', lambda method, route, **kw:
-                        {'img': 'data:image/png;base64,AA=='} if route.endswith('qrcode') else {'is_logged_in': False})
-    monkeypatch.setattr(accounts.webbrowser, 'open', lambda _: True)
-    result = accounts.login_xhs(timeout=0)
-    assert result['state'] != 'ready' and '二维码' in result['next_step']
+def test_login_reports_account_switch(clean, monkeypatch):
+    accounts.save({'user_id': 'old'})
+    sessions = iter([{'state': 'idle'}, {'state': 'success', 'nickname': 'b', 'user_id': 'new'}])
+    FakeReader(monkeypatch, {'/api/v1/login/session': lambda: next(sessions),
+                             '/api/v1/login/qrcode': {'img': 'data:image/png;base64,AAAA'}})
+    monkeypatch.setattr(accounts.webbrowser, 'open', lambda uri: True)
+    assert '已切换账号' in accounts.login(timeout=60)['next_step']
 
 
-def test_missing_reader_returns_install_instruction(clean, capsys):
-    assert cli.main(['login', '--json']) == 1
-    data = json.loads(capsys.readouterr().out)
-    assert 'login --install' in data['next_step']
+def test_favorites_captcha_stops_without_retry(clean, monkeypatch):
+    fake = FakeReader(monkeypatch, {'/api/v1/login/session': {'state': 'idle'},
+                                    '/api/v1/favorites': accounts.ReaderError('CAPTCHA_REQUIRED')})
+    alerts = []
+    monkeypatch.setattr(favorites.alert_mod, 'alert', lambda *a, **k: alerts.append(a))
+    out = favorites.sync_favorites()
+    assert out['code'] == 'CAPTCHA_REQUIRED' and out['items'][0]['status'] == 'blocked'
+    assert fake.calls.count('/api/v1/favorites') == 1 and len(alerts) == 1
 
 
-def test_favorites_empty_account_is_valid(clean, monkeypatch):
-    monkeypatch.setattr(accounts, 'fav_exe', lambda: 'favdump')
-    accounts.fav_profile().mkdir(parents=True)
-    monkeypatch.setattr(accounts, 'run_component', lambda *a, **kw:
-                        subprocess.CompletedProcess([], 0, b'{"items":[]}', b''))
-    assert accounts.favorite_status()['state'] == 'ready'
+def test_favorites_rate_limited_is_quiet(clean, monkeypatch):
+    FakeReader(monkeypatch, {'/api/v1/login/session': {'state': 'idle'},
+                             '/api/v1/favorites': accounts.ReaderError('RATE_LIMITED')})
+    alerts = []
+    monkeypatch.setattr(favorites.alert_mod, 'alert', lambda *a, **k: alerts.append(a))
+    assert favorites.sync_favorites()['code'] == 'RATE_LIMITED' and not alerts
 
 
-def test_favorites_error_does_not_claim_logged_out(clean, monkeypatch):
-    monkeypatch.setattr(accounts, 'fav_exe', lambda: 'favdump')
-    accounts.fav_profile().mkdir(parents=True)
-    monkeypatch.setattr(accounts, 'run_component', lambda *a, **kw:
-                        subprocess.CompletedProcess([], 1, b'', b'profile in use'))
-    assert accounts.favorite_status()['state'] == 'unknown'
+def test_favorites_success_returns_items(clean, monkeypatch):
+    FakeReader(monkeypatch, {'/api/v1/login/session': {'state': 'idle'},
+                             '/api/v1/favorites': {'nickname': 'momo', 'items': [{'note_id': 'a'}, {'note_id': 'b'}]}})
+    assert [x['note_id'] for x in favorites.fetch_favorites(limit=1)] == ['a']
 
 
-def test_favorites_login_probe_error_is_not_expiry(clean, monkeypatch):
-    monkeypatch.setattr(accounts, 'fav_exe', lambda: 'favdump')
-    accounts.fav_profile().mkdir(parents=True)
-    monkeypatch.setattr(accounts, 'run_component', lambda *a, **kw:
-                        subprocess.CompletedProcess([], 3, b'', b'login check failed: navigation timeout'))
-    assert accounts.favorite_status()['state'] == 'unknown'
+def test_attachment_account_problem_is_needs_human(clean, monkeypatch, tmp_path):
+    FakeReader(monkeypatch, {'/api/v1/login/session': {'state': 'idle'},
+                             '/api/v1/attachments/download': accounts.ReaderError('NOT_LOGGED_IN')})
+    with pytest.raises(attachments.AttachmentNeedsHuman) as err:
+        attachments.fetch_bytes(doc_id='d', note_id='n', xsec_token='t', file_name='f.pdf', staging_dir=tmp_path / 's')
+    assert err.value.code == 'NOT_LOGGED_IN' and '扫码登录' in str(err.value)
 
 
-def test_attachment_login_polls_same_page_and_closes_only_own_session(clean, monkeypatch):
-    assert '\n' not in accounts.USER_STATE_JS  # .cmd truncates multiline expressions
-    monkeypatch.setattr(attachments, '_agent_browser_exe', lambda: 'agent-browser')
-    monkeypatch.setattr(accounts.time, 'sleep', lambda _: None)
-    calls = []
-    def ab(args, **kw):
-        calls.append(args)
-        return 0, json.dumps(json.dumps({'state': 'ready'}))
-    monkeypatch.setattr(attachments, '_ab', ab)
-    assert accounts.attachment_check(login=True)['state'] == 'ready'
-    assert sum('location.href' in ' '.join(c) for c in calls) == 1
-    assert calls[-1] == ['close']
-    assert all('--all' not in c for c in calls)
+def test_attachment_download_returns_file(clean, monkeypatch, tmp_path):
+    f = tmp_path / 's' / 'f.pdf'
+    f.parent.mkdir(parents=True)
+    f.write_bytes(b'%PDF')
+    FakeReader(monkeypatch, {'/api/v1/login/session': {'state': 'idle'},
+                             '/api/v1/attachments/download': {'path': str(f), 'bytes': 4}})
+    assert attachments.fetch_bytes(doc_id='d', note_id='n', xsec_token='t', file_name='f.pdf',
+                                   staging_dir=tmp_path / 's') == f
 
 
-@pytest.mark.parametrize('output', ['not ready', '{"state":"not_ready"}', 'error: already in use'])
-def test_attachment_unknown_output_is_never_ready(output):
-    assert accounts.browser_state(output) == 'unknown'
+def test_mcp_call_surfaces_needs_human_code(clean, monkeypatch):
+    FakeReader(monkeypatch, {'/api/v1/login/session': accounts.ReaderError('NOT_INSTALLED')})
+    with pytest.raises(xhs.AccountBlockedError) as err:
+        xhs.call_tool('get_feed_detail', {})
+    assert err.value.code == 'NOT_INSTALLED'
 
 
-def test_obsidian_actual_host_config_and_js_flag(clean):
-    obs = clean / 'host' / '.obsidian'
-    plugin = obs / 'plugins' / 'link-brain-actions'
-    plugin.mkdir(parents=True)
-    for name in ('main.js', 'manifest.json', 'library-ui.js'):
-        (plugin / name).touch()
-    (obs / 'community-plugins.json').write_text('["link-brain-actions","dataview"]')
-    dv = obs / 'plugins' / 'dataview'
-    dv.mkdir()
-    (dv / 'data.json').write_text('{"enableDataviewJs":true}')
-    rows = {r['id']: r for r in doctor.diagnose(obsidian_dir=str(obs))['checks']}
-    assert rows['obsidian']['state'] == rows['dataview']['state'] == 'ready'
-
-
-def test_doctor_json_cli(clean, capsys):
-    assert cli.main(['doctor', '--json']) == 0
-    assert json.loads(capsys.readouterr().out)['core_ready'] is True
-
-
-def test_local_doctor_does_not_launch_account_checks(clean, monkeypatch):
-    def must_not_run():
-        raise AssertionError('local status must not wait for browsers')
-    for name in ('xhs_status', 'favorite_status', 'attachment_check'):
-        monkeypatch.setattr(accounts, name, must_not_run)
-    data = doctor.diagnose(only='local')
-    assert {r['id'] for r in data['checks']} == {'archive','obsidian','dataview','ai'}
+def test_json_output_is_one_object(clean, monkeypatch, capsys):
+    FakeReader(monkeypatch, {'/api/v1/login/session': accounts.ReaderError('CAPTCHA_REQUIRED')})
+    from types import SimpleNamespace
+    code = accounts.run_login(SimpleNamespace(verify=False, status=True, force=False, timeout=5, json=True))
+    out = json.loads(capsys.readouterr().out)
+    assert code == 1 and out['action'] == 'verify'

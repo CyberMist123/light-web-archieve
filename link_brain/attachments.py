@@ -7,9 +7,9 @@
 实测约束（2026-09-04）：
 - **必须 headed**。headless 下那个 POST 会一直挂着不返回，页面也不报错。
 - 必须先在 profile 的 `Preferences` 里关掉"每次都问保存位置"，否则自动点击会被当成取消。
-- 用的是 agent-browser 的**小号** profile；主号在 18060 MCP 那侧，两边不能同时在线。
-- `agent-browser open <url>` 在登录态的小红书页面上会卡住不返回（页面不进 idle），
-  所以一律 `open` 空白页再用 `eval` 改 `location.href` 导航。
+- 2026-09-25 起改由读取服务下载：与收藏、评论同一个号、同一个浏览器目录，不再需要
+  agent-browser 第二套登录（那套会和主会话互相顶号）。只认 xiaohongshu.com 的 /file 页，
+  按钮刚出现就点无效，要等预览挂好。
 
 字节落**对象级**目录 `_archive/<source>/<id>/attachments/`，不进 `raw/vNNNN/`——
 RAW 版本写完就封存（TASKBOOK 硬约束 4），附件是事后补下来的，不能回头改已封存的版本。
@@ -18,125 +18,30 @@ RAW 版本写完就封存（TASKBOOK 硬约束 4），附件是事后补下来�
 from __future__ import annotations
 
 import hashlib
-import json
-import os
 import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 
 from . import alert as alert_mod, storage
 from .adapters import xiaohongshu as xhs
 
-EXIT_NEEDS_HUMAN = 5  # 小号登录态失效 / 风控，要人处理（和 ingest 同一套码）
-
-# Login and download resolve the same persistent profile; explicit overrides win.
-from .accounts import attachment_profile
-PROFILE_PREFS = attachment_profile() / 'Default' / 'Preferences'
-FILE_PAGE_FMT = (
-    "https://www.rednote.com/file/{doc_id}"
-    "?noteId={note_id}&fileName={file_name}&xsec_token={xsec_token}&xsec_source=note_detail_file"
-)
-DOWNLOAD_BUTTON_RE = re.compile(r"下载.*?\[ref=(e\d+)\]")
-SNAPSHOT_TIMEOUT = 90
-NAV_SETTLE_MS = 9000
-DOWNLOAD_WAIT_SEC = 90
-
+EXIT_NEEDS_HUMAN = 5  # 登录态失效 / 安全验证，要人处理（和 ingest 同一套码）
 
 class AttachmentError(RuntimeError):
     """下载附件失败（调用方负责不让它阻断主体归档）。"""
 
 
-def _agent_browser_exe() -> str:
-    """Windows 上 npm 装的是 `agent-browser.cmd`，subprocess 不认那个无扩展名的 shim。"""
-    for name in ("agent-browser.cmd", "agent-browser.exe", "agent-browser"):
-        found = shutil.which(name)
-        if found:
-            return found
-    fallback = Path.home() / "AppData" / "Roaming" / "npm" / "agent-browser.cmd"
-    if fallback.exists():
-        return str(fallback)
-    raise AttachmentError("PATH 里找不到 agent-browser（附件下载要靠它带登录态）")
+class AttachmentNeedsHuman(AttachmentError):
+    """账号要人处理（未登录 / 安全验证）：同一批后面的附件别再试，试了只会再撞一次。"""
 
-
-def _ab(args: list[str], *, timeout: int) -> tuple[int | None, str]:
-    """跑一条 agent-browser 命令，返回 `(returncode, stdout)`；超时就杀掉整棵进程树。
-
-    **不要换回 `subprocess.run(capture_output=True, timeout=...)`**：Windows 上入口是
-    `agent-browser.cmd`，超时只杀得掉外层 `cmd.exe`，底下的 node 还攥着管道，
-    `run()` 会一直等管道关闭——超时形同虚设，整个命令永远挂住（2026-09-04 踩过）。
-    所以这里把输出重定向到临时文件，超时后 `taskkill /T /F` 连子孙进程一起杀。
-    """
-    fd, name = tempfile.mkstemp(prefix="link-brain-ab-", suffix=".txt")
-    os.close(fd)  # 不关掉这个句柄，后面 unlink 会 WinError 32
-    out_file = Path(name)
-    handle = out_file.open("w", encoding="utf-8", errors="replace")
-    try:
-        proc = subprocess.Popen(
-            [_agent_browser_exe(), '--session', 'link-brain-attachments',
-             '--profile', str(attachment_profile()), *args], stdout=handle, stderr=subprocess.STDOUT,
-            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-        )
-        try:
-            code = proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            subprocess.run(
-                ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
-                capture_output=True,
-                timeout=30,
-            )
-            proc.wait(timeout=15)
-            code = None
-    finally:
-        handle.close()
-    text = out_file.read_text(encoding="utf-8", errors="replace")
-    try:
-        out_file.unlink(missing_ok=True)
-    except OSError:  # 临时文件删不掉不该影响结果
-        pass
-    return code, text
-
-
-def ensure_download_prefs(dest_dir: Path) -> None:
-    """关掉"每次都问保存位置"并把默认下载目录指到 dest_dir。
-
-    Chrome 开着时 Preferences 会被回写覆盖，所以调用前先关闭附件专属 session。
-    """
-    prefs_path = attachment_profile() / 'Default' / 'Preferences'
-    if not prefs_path.exists():
-        raise AttachmentError('附件账号未配置：请在 Link Brain 设置页点击附件下载「扫码登录」，或运行 link-brain login attachments。')
-    prefs = json.loads(prefs_path.read_text(encoding="utf-8"))
-    download = prefs.setdefault("download", {})
-    download["prompt_for_download"] = False
-    download["default_directory"] = str(dest_dir)
-    prefs.setdefault("savefile", {})["default_directory"] = str(dest_dir)
-    prefs_path.write_text(json.dumps(prefs, ensure_ascii=False), encoding="utf-8")
-
-
-def _wait_for_download(dest_dir: Path, before: set[Path], *, timeout: int) -> Path:
-    """等下载目录里冒出一个新文件（跳过 Chrome 的 .crdownload 临时文件）。"""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        current = {p for p in dest_dir.iterdir() if p.is_file()}
-        fresh = [p for p in current - before if p.suffix != ".crdownload"]
-        if fresh:
-            newest = max(fresh, key=lambda p: p.stat().st_mtime)
-            size = -1
-            # 等文件大小稳定，避免读到写了一半的
-            while time.time() < deadline:
-                now = newest.stat().st_size
-                if now == size and now > 0:
-                    return newest
-                size = now
-                time.sleep(1)
-        time.sleep(1)
-    raise AttachmentError(f"等了 {timeout}s 下载目录里没有出现新文件")
+    def __init__(self, message: str, code: str):
+        super().__init__(message)
+        self.code = code
 
 
 def fetch_bytes(
@@ -148,49 +53,31 @@ def fetch_bytes(
     staging_dir: Path,
     verbose: bool = False,
 ) -> Path:
-    """用 agent-browser（headed，小号登录态）把附件下到 staging_dir，返回文件路径。"""
+    """经读取服务 `/api/v1/attachments/download` 下附件（与收藏/评论同一个号、同一个会话）。
+
+    服务端开有界面的浏览器点附件页的「下载」（headless 下那个下载请求会挂住），
+    文件落进 staging_dir。实测细节见 link-brain-reader 的 linkbrain_api.go。
+    """
+    from . import accounts
+
     staging_dir.mkdir(parents=True, exist_ok=True)
-
-    def log(msg: str) -> None:
-        if verbose:
-            print(f"[attachment] {msg}", file=sys.stderr)
-
-    _ab(["close"], timeout=60)
-    ensure_download_prefs(staging_dir)
-
-    before = {p for p in staging_dir.iterdir() if p.is_file()}
-
+    if verbose:
+        print(f"[attachment] 下载 {file_name} ({doc_id})", file=sys.stderr)
     try:
-        log("启动 headed 浏览器（headless 下那个下载 POST 会挂住）")
-        code, out = _ab(["open", "about:blank", "--headed"], timeout=90)
-        if code not in (0, None):
-            raise AttachmentError(f"agent-browser open 失败: {out[:200]}")
-
-        # fileName 必须 URL 编码：真实文件名常带 & 空格 ！· () 等，裸拼进 query 会把
-        # rednote.com/file 页顶回首页（表现成"找不到下载按钮"，被误判成没登录）。见 issue 0921。
-        url = FILE_PAGE_FMT.format(
-            doc_id=doc_id, note_id=note_id, file_name=quote(file_name, safe=""), xsec_token=xsec_token
-        )
-        log(f"导航 {url[:90]}…")
-        # 不用 open <url>：登录态的小红书页面不进 idle，open 会一直不返回
-        _ab(["eval", f'location.href={json.dumps(url)};"go"'], timeout=60)
-        _ab(["wait", str(NAV_SETTLE_MS)], timeout=NAV_SETTLE_MS // 1000 + 30)
-
-        _, snapshot = _ab(["snapshot", "-i", "-c"], timeout=SNAPSHOT_TIMEOUT)
-        match = DOWNLOAD_BUTTON_RE.search(snapshot)
-        if not match:
-            raise AttachmentError(
-                "附件下载不可用：请在设置页检查附件账号并重新扫码；已登录仍失败时，请确认该文件有下载权限。"
-            )
-        ref = match.group(1)
-        log(f"点下载按钮 @{ref}")
-        _ab(["click", f"@{ref}"], timeout=90)
-
-        path = _wait_for_download(staging_dir, before, timeout=DOWNLOAD_WAIT_SEC)
-        log(f"下到 {path.name}（{path.stat().st_size} 字节）")
-        return path
-    finally:
-        _ab(["close"], timeout=60)
+        accounts.ensure_reader()
+        data = accounts.api("POST", "/api/v1/attachments/download", timeout=240, body={
+            "doc_id": doc_id, "note_id": note_id, "xsec_token": xsec_token,
+            "file_name": file_name, "dest_dir": str(staging_dir.resolve())})
+    except accounts.ReaderError as exc:
+        _, reason, step, _ = accounts.SOLUTIONS.get(exc.code, ("", str(exc), "", ""))
+        text = f"{reason}：{step}" if step else f"{exc} {exc.detail}".strip()
+        if exc.needs_human:
+            raise AttachmentNeedsHuman(text, exc.code) from exc
+        raise AttachmentError(text) from exc
+    path = Path(data["path"])
+    if not path.is_file() or path.stat().st_size == 0:
+        raise AttachmentError(f"读取服务报告已下载，但文件不存在：{path}")
+    return path
 
 
 def _sha256(path: Path) -> str:
@@ -348,6 +235,9 @@ def download_for_object(
                     "status": "downloaded",
                 }
             )
+        except AttachmentNeedsHuman as exc:
+            results.append({"doc_id": doc_id, "status": "failed", "error": str(exc), "code": exc.code})
+            break  # 账号要人处理：余下附件等处理完再补
         except (AttachmentError, subprocess.SubprocessError, OSError) as exc:
             results.append({"doc_id": doc_id, "status": "failed", "error": f"{type(exc).__name__}: {exc}"})
 
@@ -508,11 +398,11 @@ def run(args) -> int:
                 failed = True
                 message = str(r.get("error") or "")
                 print(f"{outcome['item_id']}  ✗ {message}", file=sys.stderr)
-                # 附件要登录态，挂了很可能是小号掉线/撞风控 —— 这种不能默默地就过去了
-                blocked = xhs.looks_blocked(message)
+                # 附件要登录态，挂了很可能是掉线/撞风控 —— 这种不能默默地就过去了
+                blocked = bool(r.get("code")) or xhs.looks_blocked(message)
                 alert_mod.alert(
                     alert_mod.KIND_ACCOUNT if blocked else alert_mod.KIND_ATTACHMENT,
-                    "附件没拿到" + ("（小号登录态/风控）" if blocked else ""),
+                    "附件没拿到" + ("（账号要处理：登录/安全验证）" if blocked else ""),
                     f"{outcome['item_id']}: {message[:300]}",
                     item_id=outcome["item_id"],
                 )
@@ -530,7 +420,7 @@ def run(args) -> int:
                 conn2.close()
         if account_blocked:
             _rebuild_catalog(True)
-            print("停车：小号登录态/风控，剩下的不再试", file=sys.stderr)
+            print("停车：小红书账号要处理（扫码登录或安全验证），剩下的附件处理完再补", file=sys.stderr)
             return EXIT_NEEDS_HUMAN
 
     # 下到了新字节就重建目录，否则 UI 角标还停在「待补」（补跑却没同步就是这坑）

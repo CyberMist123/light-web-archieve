@@ -1,26 +1,18 @@
 """`sync-favorites` 子命令（Lot 6）：把 Owner 主号（momo）的**私密收藏**同步进归档。
 
-小红书没有"列出我的收藏"的公开接口，`user_profile(tab="fav")` 对私密收藏只回游客视图
-（`feeds:null`）。真正能读到私密收藏的是**登录态自己看自己**：由外部读取器 `favdump.exe`
-（`C:\\Users\\18717\\.xiaohongshu-mcp`，Codex 的 persistent-profile 方案 + 客户端路由进「我」→
-收藏 tab）吐出 `{items:[{note_id, xsec_token, url, ...}]}`。
+小红书没有"列出我的收藏"的公开接口；私密收藏只有**登录态自己看自己**才读得到。
+读取服务（`accounts.py`，一个号一个持久浏览器目录）的 `/api/v1/favorites` 负责这一步，
+吐出 `{items:[{note_id, xsec_token, url, ...}]}`。
 
 拿到 note_id 列表之后，逐条走**和 `catch` 一样**的 `ingest_url`：命中索引就是 HIT（不联网、
-不下载），未命中才连 18060 抓正文 / 图 / 评论。去重只认 `xiaohongshu:<note_id>`（硬约束 7）。
+不下载），未命中才经同一个读取服务抓正文 / 图 / 评论。去重只认 `xiaohongshu:<note_id>`（硬约束 7）。
 
-硬约束 8：这里不起 HTTP / MCP 服务；调度（每晚一次）在仓库外。stdout 只许有一个 JSON，
-日志一律走 stderr。收藏读取要登录态 —— favdump 报未登录（退出码 3）时**停车 + 报警**，
-让 Owner 重扫一次（`sessioncheck.exe -login`），不是每晚都要她扫。
-
-读收藏**必须** `XHS_HOST=https://www.xiaohongshu.com`：rednote.com 的 web_session 在登录浏览器
-关掉后会被服务端作废，只有 xiaohongshu.com 的会话能跨无扫码重启存活（2026-09-07 实测）。
+硬约束 8：stdout 只许有一个 JSON，日志一律走 stderr。未登录 / 安全验证时**停车 + 报警**，
+由界面给出「扫码登录」或「打开验证」按钮；绝不自动重试。
 """
 
 from __future__ import annotations
 
-import json
-import os
-import subprocess
 import sys
 from typing import Any
 
@@ -32,52 +24,25 @@ EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_NEEDS_HUMAN = 5
 
-# 外部读取器：默认本机路径，可用环境变量覆盖（和 media.py / alert.py 一样走可配外部命令）。
-DEFAULT_FAVDUMP = str(accounts.fav_exe() or 'favdump')
-DEFAULT_FAV_HOST = "https://www.xiaohongshu.com"
-DEFAULT_FAV_PROFILE = str(accounts.fav_profile())
-# favdump 退出码约定（见 cmd/favdump/main.go）：0 成功、3 未登录/掉线、其它=错误。
-FAVDUMP_LOGIN_REQUIRED = 3
-
-
 def fetch_favorites(*, limit: int = 50, verbose: bool = False) -> list[dict[str, Any]]:
-    """跑 favdump.exe 读当前登录用户的私密收藏，返回 `[{note_id, xsec_token, url, title, ...}]`。
+    """经读取服务 `/api/v1/favorites` 读当前登录账号的收藏（与评论/附件同一个号、同一个会话）。
 
-    未登录（退出码 3）→ `AccountBlockedError`（要 Owner 重扫）；其它非零 → `ServiceDownError`。
+    要人处理的（未登录 / 安全验证 / 组件未装）→ `AccountBlockedError`，带 `.code`；
+    其余（服务不在 / 超时 / 限频）→ `ServiceDownError`。一律停车，不在这里重试——
+    重试会撞风控验证码（2026-09-25 实测）。
     """
-    favdump = accounts.fav_exe() or DEFAULT_FAVDUMP
-    env = accounts.fav_env()
-
-    if verbose:
-        print(f"[sync-favorites] favdump={favdump} host={env['XHS_HOST']}", file=sys.stderr)
-
     try:
-        proc = subprocess.run(
-            [favdump], capture_output=True, env=env, timeout=360
-        )
-    except FileNotFoundError as exc:
-        raise xhs.ServiceDownError(
-            "收藏同步尚未配置：请打开 Link Brain 设置页查看收藏同步状态；普通链接归档不受影响。"
-        ) from exc
-    except subprocess.TimeoutExpired as exc:
-        raise xhs.ServiceDownError("favdump 读收藏超时（浏览器起不来？）") from exc
-
-    if proc.returncode == FAVDUMP_LOGIN_REQUIRED:
-        if 'login check failed' in proc.stderr.decode('utf-8', 'replace').lower():
-            raise xhs.ServiceDownError('收藏登录状态暂时无法验证，请关闭占用的登录窗口后重试。')
-        raise xhs.AccountBlockedError(
-            "收藏账号登录已失效：请在 Link Brain 设置页点击收藏同步「重新扫码」，或运行 link-brain login favorites。"
-        )
-    if proc.returncode != 0:
-        detail = proc.stderr.decode("utf-8", "replace").strip()[-400:]
-        raise xhs.ServiceDownError(f"favdump 失败（exit={proc.returncode}）：{detail}")
-
-    try:
-        data = json.loads(proc.stdout.decode("utf-8", "replace") or "{}")
-    except json.JSONDecodeError as exc:
-        raise xhs.ServiceDownError(f"favdump 输出不是合法 JSON：{exc}") from exc
-
+        accounts.ensure_reader()
+        data = accounts.api("GET", "/api/v1/favorites", timeout=420)
+    except accounts.ReaderError as exc:
+        msg = accounts.SOLUTIONS.get(exc.code, ("", str(exc), "", ""))
+        text = f"{msg[1]}：{msg[2]}" if msg[2] else str(exc)
+        err = (xhs.AccountBlockedError if exc.needs_human else xhs.ServiceDownError)(text)
+        err.code = exc.code
+        raise err from exc
     items = data.get("items") or []
+    if verbose:
+        print(f"[sync-favorites] {data.get('nickname')} 收藏 {len(items)} 条", file=sys.stderr)
     if limit and limit > 0:
         items = items[:limit]
     return items
@@ -105,7 +70,7 @@ def _sync_one(
             str(exc),
             url=url,
         )
-        return {"item_id": None, "status": "blocked", "url": url, "error": str(exc), "login_account": None if service else 'xhs'}
+        return {"item_id": None, "status": "blocked", "url": url, "error": str(exc), "login_account": None if service else 'xhs', "code": getattr(exc, "code", "")}
     except Exception as exc:  # noqa: BLE001 - 一条收藏挂了不该带走整批
         return {
             "item_id": None,
@@ -155,17 +120,19 @@ def sync_favorites(
         favs = fetch_favorites(limit=limit, verbose=verbose)
     except xhs.NeedsHumanError as exc:
         service = isinstance(exc, xhs.ServiceDownError)
-        alert_mod.alert(
-            alert_mod.KIND_SERVICE if service else alert_mod.KIND_ACCOUNT,
-            "小红书收藏同步停了："
-            + ("收藏读取服务出错" if service else "收藏登录态要 Owner 重扫一次"),
-            str(exc),
-        )
+        code = getattr(exc, "code", "")
+        if code != "RATE_LIMITED":  # 限频只是「刚同步过」，不打扰人
+            alert_mod.alert(
+                alert_mod.KIND_SERVICE if service else alert_mod.KIND_ACCOUNT,
+                "小红书收藏同步停了：" + ("读取服务要处理" if service else "账号要处理"),
+                str(exc),
+            )
         return {
             "favorites": 0,
             "synced": 0,
-            "login_account": None if service else "favorites",
-            "items": [{"item_id": None, "status": "blocked", "url": None, "error": str(exc)}],
+            "login_account": None if service else "xhs",
+            "code": code,
+            "items": [{"item_id": None, "status": "blocked", "url": None, "error": str(exc), "code": code}],
         }
 
     items: list[dict[str, Any]] = []

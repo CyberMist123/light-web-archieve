@@ -1,18 +1,57 @@
-"""Small wrappers around existing login components; no cookie translation."""
+"""小红书账号：一个号、一个读取服务、一个持久浏览器目录。
+
+读取服务（link-brain-reader，xiaohongshu-mcp 的扩展版）独占一个 Chromium profile，
+评论 / 私密收藏 / 附件都经它的 HTTP 接口、在同一进程里串行跑——同一个号不会再有
+第二个网页会话去顶掉它（2026-09-25 实测：一个号三项全通）。
+
+扫码的铁律：出码之后只轮询 `/login/session`（纯内存状态，不开浏览器）。
+旧流程轮询 `/login/status`，而它每查一次都会把正在扫的二维码页导航走。
+
+所有失败都落成 `ReaderError(code)`，`SOLUTIONS` 给出人话原因 + 下一步 + 界面按钮，
+调用方据此停车，而不是反复重试（重试会撞风控验证码，0925 真撞过）。
+"""
 from __future__ import annotations
 
+import html
 import json
 import os
 import shutil
 import subprocess
 import time
-import tempfile
 import webbrowser
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 
 from . import storage
+
+DEFAULT_ENDPOINT = 'http://127.0.0.1:18061/mcp'
+READER_NAMES = ('link-brain-reader.exe', 'link-brain-reader')
+
+# code -> (状态, 一句话原因, 下一步, 界面按钮 action)
+SOLUTIONS = {
+    'NOT_LOGGED_IN': ('expired', '登录已失效', '点击「扫码登录」，用收藏所在的小红书账号扫码。', 'login'),
+    'CAPTCHA_REQUIRED': ('captcha', '小红书要求安全验证', '点击「打开验证」，在弹出的窗口里手动拖动滑块，完成后关掉窗口；也可以过几小时再试。不要反复重试。', 'verify'),
+    'RATE_LIMITED': ('busy', '刚刚同步过', '为避免触发风控，收藏每 10 分钟最多读一次，请稍后再试。', 'wait'),
+    'LOGIN_IN_PROGRESS': ('busy', '正在等待扫码', '先完成或关闭正在进行的扫码，再重试。', 'wait'),
+    'VERIFY_WINDOW_OPEN': ('busy', '验证窗口还开着', '完成验证后关掉那个小红书窗口，再重试。', 'wait'),
+    'DISCONNECTED': ('disconnected', '读取服务没有运行', '点击「重试」会自动启动；仍失败请查看详情里的日志路径。', 'retry'),
+    'NOT_INSTALLED': ('unconfigured', '未安装读取组件', '按 README「小红书读取组件」放置 link-brain-reader，然后刷新状态。', 'none'),
+    'NO_DOWNLOAD_BUTTON': ('error', '附件页没有下载按钮', '文件可能已被作者删除或关闭下载，可在网页手动下载后用「挂载本地文件」。', 'none'),
+    'DOWNLOAD_TIMEOUT': ('error', '附件下载超时', '稍后重试；多次失败请在网页手动下载后挂载。', 'retry'),
+    'TIMEOUT': ('unknown', '读取服务响应超时', '机器负载高时会发生：稍后点击「重试」。', 'retry'),
+}
+
+
+class ReaderError(RuntimeError):
+    def __init__(self, code: str, message: str = '', detail: str = ''):
+        self.code, self.detail = code, detail
+        super().__init__(message or SOLUTIONS.get(code, ('', code))[1])
+
+    @property
+    def needs_human(self) -> bool:
+        return self.code in ('NOT_LOGGED_IN', 'CAPTCHA_REQUIRED', 'NOT_INSTALLED')
 
 
 def home() -> Path:
@@ -36,6 +75,14 @@ def save(values: dict) -> None:
     (home() / 'accounts.json').write_text(json.dumps(data, ensure_ascii=False, indent=2), 'utf-8')
 
 
+def endpoint() -> str:
+    return os.environ.get('LINK_BRAIN_XHS_ENDPOINT') or config().get('endpoint') or DEFAULT_ENDPOINT
+
+
+def base_url() -> str:
+    return endpoint().removesuffix('/mcp')
+
+
 def executable(env: str, names: tuple[str, ...]) -> str | None:
     explicit = os.environ.get(env)
     if explicit:
@@ -50,322 +97,198 @@ def executable(env: str, names: tuple[str, ...]) -> str | None:
     return None
 
 
-def endpoint() -> str:
-    return os.environ.get('LINK_BRAIN_XHS_ENDPOINT', 'http://127.0.0.1:18060/mcp')
+def reader_exe() -> str | None:
+    return executable('LINK_BRAIN_XHS_EXE', READER_NAMES)
 
 
-def api(method: str, route: str, *, timeout: float = 45) -> dict:
-    response = httpx.request(method, endpoint().removesuffix('/mcp') + route, timeout=timeout)
-    response.raise_for_status()
-    payload = response.json()
-    if payload.get('success') is False:
-        raise RuntimeError(payload.get('message') or '读取服务未完成请求')
+def profile_dir() -> Path:
+    """读取服务独占的浏览器目录；登录态住在这里（不导出 cookie）。"""
+    explicit = os.environ.get('XHS_PROFILE_DIR') or config().get('profile')
+    if explicit:
+        return Path(explicit)
+    legacy = Path.home() / '.xiaohongshu-mcp' / 'data' / 'xhs' / 'momo-profile'
+    return legacy if legacy.is_dir() else home() / 'xhs-profile'
+
+
+def reader_env() -> dict:
+    return {**os.environ, 'XHS_PROFILE_DIR': str(profile_dir()),
+            'XHS_HOST': os.environ.get('XHS_HOST', 'https://www.xiaohongshu.com'),
+            # 扫码落在 rednote.com 时两个域名都会拿到会话，之后统一用 xiaohongshu.com 读。
+            'XHS_LOGIN_HOST': os.environ.get('XHS_LOGIN_HOST', 'https://www.rednote.com')}
+
+
+def api(method: str, route: str, *, timeout: float = 45, body: dict | None = None) -> dict:
+    try:
+        response = httpx.request(method, base_url() + route, json=body, timeout=timeout)
+    except httpx.ConnectError as exc:
+        raise ReaderError('DISCONNECTED', detail=str(exc)) from exc
+    except httpx.TimeoutException as exc:
+        raise ReaderError('TIMEOUT', detail=str(exc)) from exc
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+    if response.status_code >= 400 or payload.get('success') is False:
+        code = payload.get('code') or f'HTTP_{response.status_code}'
+        detail = payload.get('details')
+        raise ReaderError(code, payload.get('error') or payload.get('message') or '',
+                          json.dumps(detail, ensure_ascii=False) if isinstance(detail, (dict, list)) else str(detail or ''))
     return payload.get('data', payload)
 
 
-def row(key: str, label: str, state: str, message: str, next_step: str = '', detail: str = '', optional=False) -> dict:
-    return dict(id=key, label=label, state=state, message=message, next_step=next_step, detail=detail, optional=optional)
-
-
-def xhs_status(*, timeout=45) -> dict:
+def ensure_reader(*, wait: float = 40):
+    """服务没起就在本机拉起（脱离父进程，插件/同步退出后仍在）；远程地址不代管。"""
     try:
-        data = api('GET', '/api/v1/login/status', timeout=timeout)
-        if data.get('is_logged_in') is True:
-            return row('xhs', '小红书读取', 'ready', '已登录')
-        if data.get('is_logged_in') is not False:
-            raise ValueError('状态响应缺少 is_logged_in')
-        cookie_paths = (home() / 'cookies.json', Path.home() / '.xiaohongshu-mcp' / 'cookies.json')
-        expired = bool(config().get('xhs_authenticated')) or any(p.is_file() and p.stat().st_size > 4 for p in cookie_paths)
-        return row('xhs', '小红书读取', 'expired' if expired else 'not_logged_in',
-                   '登录已失效' if expired else '未登录', '运行 link-brain login，或点击「登录」。')
-    except httpx.ConnectError as exc:
-        return row('xhs', '小红书读取', 'disconnected', '未连接', '运行 link-brain login，自动启动读取组件。', str(exc))
-    except Exception as exc:
-        return row('xhs', '小红书读取', 'unknown', '暂时无法验证', '稍后点击「刷新状态」；不要重复扫码。', str(exc))
-
-
-def fav_exe() -> str | None:
-    return executable('LINK_BRAIN_FAVDUMP', ('favdump.exe', 'favdump'))
-
-
-def fav_profile() -> Path:
-    legacy = Path.home() / '.xiaohongshu-mcp' / 'data' / 'xhs' / 'momo-profile'
-    return Path(os.environ.get('XHS_FAV_PROFILE') or os.environ.get('XHS_PROFILE_DIR') or
-                config().get('favorite_profile') or
-                str(legacy if legacy.is_dir() else home() / 'favorite-profile'))
-
-
-def fav_env() -> dict:
-    return {**os.environ, 'XHS_HOST': os.environ.get('XHS_FAV_HOST', 'https://www.xiaohongshu.com'),
-            'XHS_PROFILE_DIR': str(fav_profile())}
-
-
-def run_component(command: list[str], *, env: dict, timeout: int):
-    # File-backed output avoids Windows child-browser pipe hangs on timeout.
-    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
-        proc = subprocess.Popen(command, env=env, stdout=out, stderr=err,
-                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-        try:
-            code = proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            if os.name == 'nt':
-                subprocess.run(['taskkill', '/T', '/F', '/PID', str(proc.pid)], capture_output=True, timeout=15)
-            else:
-                proc.kill()
-            proc.wait(timeout=15)
-            raise RuntimeError('等待组件超时；请关闭该登录窗口，再从设置页重试。')
-        out.seek(0)
-        err.seek(0)
-        return subprocess.CompletedProcess(command, code, out.read(), err.read())
-
-
-def favorite_status() -> dict:
-    if not fav_exe():
-        return row('favorites', '收藏同步', 'unconfigured', '可选，未配置',
-                   '可先粘贴链接归档；需要私密收藏同步时查看 README「收藏组件」。', optional=True)
-    if not fav_profile().exists():
-        return row('favorites', '收藏同步', 'not_logged_in', '未登录', '运行 link-brain login favorites。', optional=True)
-    try:
-        result = run_component([fav_exe()], env=fav_env(), timeout=60)
-        if result.returncode == 3:
-            detail = result.stderr.decode('utf-8', 'replace')
-            if 'login check failed' in detail.lower():
-                raise RuntimeError(detail[-500:])
-            return row('favorites', '收藏同步', 'expired', '登录已失效', '运行 link-brain login favorites。', optional=True)
-        if result.returncode != 0:
-            raise RuntimeError(result.stderr.decode('utf-8', 'replace')[-500:])
-        data = json.loads(result.stdout)
-        if not isinstance(data.get('items'), list):
-            raise ValueError('收藏组件没有返回 items 列表')
-        return row('favorites', '收藏同步', 'ready', '已登录', optional=True)
-    except Exception as exc:
-        return row('favorites', '收藏同步', 'unknown', '暂时无法验证',
-                   '关闭收藏登录窗口后刷新状态；读取链接仍可单独使用。', str(exc), True)
-
-
-def attachment_profile() -> Path:
-    explicit = os.environ.get('LINK_BRAIN_AB_PROFILE_PREFS')
-    if explicit:
-        return Path(explicit).parent.parent
-    saved = config().get('attachment_profile')
-    if saved:
-        return Path(saved)
-    # Preserve an explicitly configured existing browser, without an author path fallback.
-    p = Path.home() / '.agent-browser' / 'config.json'
-    if p.exists():
-        existing = json.loads(p.read_text('utf-8')).get('profile')
-        if existing and Path(existing).is_dir():
-            return Path(existing)
-    return home() / 'attachment-profile'
-
-
-USER_STATE_JS = '''JSON.stringify((() => {
- const x=window.__INITIAL_STATE__?.user?.userInfo;
- const u=x?.value??x?._value??x?._rawValue??x;
- if(u?.guest===false && (u.userId||u.user_id)) return {state:'ready'};
- if(document.querySelector('.login-container,.login-modal,.side-bar-component.login-btn')) return {state:'not_logged_in'};
- return {state:'unknown'};
-})())'''
-USER_STATE_JS = ' '.join(USER_STATE_JS.splitlines())  # Windows .cmd does not preserve multiline argv.
-
-
-def browser_state(output: str) -> str:
-    try:
-        value = json.loads(output.strip())
-        if isinstance(value, str):
-            value = json.loads(value)
-        return value['state'] if value.get('state') in ('ready', 'not_logged_in') else 'unknown'
-    except (ValueError, TypeError, AttributeError, KeyError):
-        return 'unknown'
-
-
-def attachment_check(*, login=False, timeout=240, force=False) -> dict:
-    from .attachments import _ab, _agent_browser_exe
-    try:
-        _agent_browser_exe()
-    except RuntimeError as exc:
-        return row('attachments', '附件下载', 'unconfigured', '可选，未配置',
-                   '需要自动下载时运行 npm install -g agent-browser，然后 agent-browser install。', str(exc), True)
-    if not login and not attachment_profile().exists():
-        return row('attachments', '附件下载', 'unconfigured', '可选，未配置', '需要下载附件时点击「扫码登录」。', optional=True)
-    try:
-        if force:
-            if os.environ.get('LINK_BRAIN_AB_PROFILE_PREFS'):
-                raise RuntimeError('附件登录目录由外部配置固定；请先取消该覆盖，再从设置页换号。')
-            # A new profile allows changing account without deleting a saved session.
-            save({'attachment_profile': str(home() / f'attachment-profile-{int(time.time())}')})
-        code, out = _ab(['open', 'about:blank', *(['--headed'] if login else [])], timeout=45)
-        if code != 0:
-            raise RuntimeError(out[-400:])
-        _ab(['eval', 'location.href="https://www.rednote.com/explore";"go"'], timeout=20)
-        deadline = time.monotonic() + (timeout if login else 18)
-        stable = 0
-        state = 'unknown'
-        while time.monotonic() < deadline:
-            code, out = _ab(['eval', USER_STATE_JS], timeout=15)
-            if code == 0:
-                state = browser_state(out)
-                stable = stable + 1 if state == 'ready' else 0
-                if stable >= 2:
-                    if login:
-                        save({'attachments_authenticated': True})
-                    return row('attachments', '附件下载', 'ready', '已登录', optional=True)
-            time.sleep(2)
-        if state == 'not_logged_in':
-            expired = config().get('attachments_authenticated')
-            return row('attachments', '附件下载', 'expired' if expired else 'not_logged_in',
-                       '登录已失效' if expired else '未登录', '点击「重新扫码」，在打开的窗口完成登录。', optional=True)
-        raise RuntimeError('页面没有给出可判断的登录状态')
-    except Exception as exc:
-        return row('attachments', '附件下载', 'unknown', '暂时无法验证', '关闭附件登录窗口后重试。', str(exc), True)
-    finally:
-        _ab(['close'], timeout=20)
-
-
-def reader_exe() -> str | None:
-    return executable('LINK_BRAIN_XHS_EXE', ('xiaohongshu-mcp-windows-amd64.exe', 'xiaohongshu-mcp.exe', 'xiaohongshu-mcp'))
-
-
-def start_reader():
-    exe = reader_exe()
-    if not exe:
-        raise RuntimeError('尚未安装读取组件。运行 link-brain login --install 下载官方 Windows 组件并登录。')
-    from urllib.parse import urlsplit
+        return api('GET', '/api/v1/login/session', timeout=5)
+    except ReaderError as exc:
+        if exc.code != 'DISCONNECTED':
+            raise
     target = urlsplit(endpoint())
     if target.hostname not in ('localhost', '127.0.0.1'):
-        raise RuntimeError('远程读取服务未连接，请由服务管理员启动后重试。')
+        raise ReaderError('DISCONNECTED', '远程读取服务未连接，请由服务管理员启动。')
+    exe = reader_exe()
+    if not exe:
+        raise ReaderError('NOT_INSTALLED')
     home().mkdir(parents=True, exist_ok=True)
-    log = (home() / 'reader.log').open('ab')
-    try:
-        process = subprocess.Popen([exe, '-port', f':{target.port or 18060}'], cwd=home(),
-                         env={**os.environ, 'COOKIES_PATH': str(home() / 'cookies.json')},
-                         stdout=log, stderr=log,
-                         creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-    finally:
-        log.close()
-    for _ in range(30):
+    log = home() / 'reader.log'
+    flags = 0
+    if os.name == 'nt':
+        flags = subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    with log.open('ab') as out:
+        subprocess.Popen([exe, '-port', f':{target.port or 18061}'], cwd=home(), env=reader_env(),
+                         stdout=out, stderr=out, stdin=subprocess.DEVNULL, creationflags=flags,
+                         close_fds=True)
+    deadline = time.monotonic() + wait  # 首次启动可能要下载内置浏览器
+    while time.monotonic() < deadline:
+        time.sleep(1)
         try:
-            api('GET', '/health', timeout=2)
-            return process
-        except httpx.HTTPError:
-            time.sleep(1)
-    raise RuntimeError('读取组件启动未完成。稍后重试；详情见 ' + str(home() / 'reader.log'))
+            return api('GET', '/api/v1/login/session', timeout=3)
+        except ReaderError as exc:
+            if exc.code != 'DISCONNECTED':
+                raise
+    raise ReaderError('DISCONNECTED', '读取服务启动未完成', '日志：' + str(log))
 
 
-def install_reader() -> None:
-    import platform
-    if os.name != 'nt' or platform.machine().lower() not in ('amd64', 'x86_64'):
-        raise RuntimeError('自动下载目前仅支持 Windows x64；其他系统见 README 高级配置。')
-    release = httpx.get('https://api.github.com/repos/xpzouying/xiaohongshu-mcp/releases/latest', timeout=30)
-    release.raise_for_status()
-    asset = next((a for a in release.json()['assets'] if a['name'] == 'xiaohongshu-mcp-windows-amd64.exe'), None)
-    if not asset:
-        raise RuntimeError('官方发布中未找到 Windows x64 包，请查看 README 的组件下载链接。')
-    response = httpx.get(asset['browser_download_url'], follow_redirects=True, timeout=180)
-    response.raise_for_status()
-    dest = home() / 'bin'
-    dest.mkdir(parents=True, exist_ok=True)
-    (dest / asset['name']).write_bytes(response.content)
+def row(key: str, label: str, state: str, message: str, next_step: str = '', detail: str = '',
+        optional=False, action: str = '', account: str = '') -> dict:
+    return dict(id=key, label=label, state=state, message=message, next_step=next_step, detail=detail,
+                optional=optional, action=action, account=account)
 
 
-def login_xhs(*, force=False, timeout=300, install=False) -> dict:
-    status = xhs_status()
-    if status['state'] == 'disconnected':
-        if install and not reader_exe():
-            install_reader()
-        start_reader()
-        status = xhs_status(timeout=120)  # First launch may download the component's browser.
-    if status['state'] == 'ready' and not force:
-        save({'xhs_authenticated': True})
-        return status
-    if status['state'] == 'unknown':
-        return status
-    if force:
-        api('DELETE', '/api/v1/login/cookies')
-    qr = api('GET', '/api/v1/login/qrcode', timeout=60)
+def error_row(exc: Exception, key='xhs', label='小红书账号') -> dict:
+    if isinstance(exc, ReaderError) and exc.code in SOLUTIONS:
+        state, message, step, action = SOLUTIONS[exc.code]
+        return row(key, label, state, message, step, exc.detail or '', action=action)
+    return row(key, label, 'unknown', '暂时无法验证', '稍后点击「重试」；持续出现请展开详情。',
+               str(exc), action='retry')
+
+
+def xhs_status(*, deep=True) -> dict:
+    """一个账号一行。deep=False 只看服务内存状态（不开浏览器，毫秒级）。"""
+    try:
+        session = ensure_reader()
+        if session.get('state') == 'waiting':
+            return error_row(ReaderError('LOGIN_IN_PROGRESS'))
+        if session.get('verifying'):
+            return error_row(ReaderError('VERIFY_WINDOW_OPEN'))
+        name = config().get('nickname', '')
+        if not deep and session.get('logged_in') is not None:
+            ok = session['logged_in']
+        else:
+            data = api('GET', '/api/v1/login/status', timeout=90)
+            if data.get('login_pending'):
+                return error_row(ReaderError('LOGIN_IN_PROGRESS'))
+            ok = data.get('is_logged_in') is True
+            if ok and data.get('username'):
+                name = data['username']
+                save({'nickname': name, 'user_id': data.get('user_id', '')})
+        if ok:
+            return row('xhs', '小红书账号', 'ready', '已登录' + (f'：{name}' if name else ''), account=name)
+        if config().get('nickname'):
+            return error_row(ReaderError('NOT_LOGGED_IN'))
+        return row('xhs', '小红书账号', 'not_logged_in', '未登录', '点击「扫码登录」，用收藏所在的账号扫码。',
+                   action='login')
+    except Exception as exc:  # noqa: BLE001 - 状态检查永不抛给界面
+        return error_row(exc)
+
+
+def _login_page(message: str, image: str = '', *, done=False, ok=False) -> str:
+    color = '#1f9d55' if ok else ('#c0392b' if done else '#ff2442')
+    img = f'<img src="{html.escape(image, quote=True)}" alt="二维码">' if image and not done else ''
+    refresh = '' if done else '<meta http-equiv="refresh" content="2">'
+    return f'''<!doctype html><meta charset="utf-8">{refresh}<title>小红书登录</title>
+<style>body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#f6f6f7;
+font:15px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:#222}}
+.card{{background:#fff;border-radius:18px;padding:36px 40px;box-shadow:0 8px 30px rgba(0,0,0,.08);text-align:center;width:340px}}
+.logo{{display:inline-block;background:#ff2442;color:#fff;font-weight:700;border-radius:10px;padding:4px 12px;letter-spacing:1px}}
+img{{width:240px;height:240px;margin:22px 0 8px;image-rendering:pixelated}}
+.msg{{color:{color};font-weight:600;margin-top:14px}} .tip{{color:#888;font-size:13px}}</style>
+<div class="card"><span class="logo">小红书</span>{img}<div class="msg">{html.escape(message)}</div>
+<div class="tip">{'打开小红书 App → 左上角 ≡ → 扫一扫。扫码后在手机上确认登录。' if not done else '可以关闭此页面。'}</div></div>'''
+
+
+def login(*, timeout=270, open_browser=True) -> dict:
+    """出码 → 只轮询内存状态 → 成功时服务已把登录态落盘。"""
+    ensure_reader()
+    qr = api('GET', '/api/v1/login/qrcode', timeout=90)
     if qr.get('is_logged_in'):
-        if force:
-            raise RuntimeError('当前读取组件仍保留已登录的持久会话，未切换账号；请先在该组件登录窗口退出账号。')
         return xhs_status()
-    import html
     image = qr.get('img', '')
     if not image.startswith('data:image/'):
-        raise RuntimeError('读取组件未返回扫码图片，请重试。')
+        raise ReaderError('QR_FAILED', '读取服务没有返回二维码，请重试。')
     home().mkdir(parents=True, exist_ok=True)
     page = home() / 'login.html'
-    def show(message, *, waiting=False):
-        page.write_text('<meta charset="utf-8"><title>小红书登录</title>'
-                        + ('<meta http-equiv="refresh" content="3">' if waiting else '')
-                        + '<body style="text-align:center;font:20px sans-serif">'
-                        + '<h2>小红书登录</h2><p>' + html.escape(message) + '</p>'
-                        + (f'<img width="280" src="{html.escape(image, quote=True)}">' if waiting else ''), 'utf-8')
-    show('请用小红书 App 扫码并确认。正在等待验证，请保持此页面打开。', waiting=True)
-    if not webbrowser.open(page.as_uri()):
-        raise RuntimeError('无法打开扫码页面，请打开 ' + str(page))
+    page.write_text(_login_page('等待扫码…', image), 'utf-8')
+    if open_browser and not webbrowser.open(page.as_uri()):
+        raise ReaderError('QR_FAILED', '无法打开扫码页面，请手动打开 ' + str(page))
     deadline = time.monotonic() + timeout
     result = None
-    last_error = ''
     try:
         while time.monotonic() < deadline:
-            time.sleep(3)
-            # Separate service browser; persistent-profile builds serialize this behind QR wait.
-            try:
-                data = api('GET', '/api/v1/login/status', timeout=max(1, deadline-time.monotonic()))
-                if data.get('is_logged_in') is True:
-                    save({'xhs_authenticated': True})
-                    result = row('xhs', '小红书读取', 'ready', '已登录，登录态已由读取组件保存')
-                    return result
-                last_error = ''
-            except (httpx.HTTPError, RuntimeError) as exc:
-                # Older readers cannot launch a second browser while the QR browser is open.
-                # Keep waiting for that browser to save and close instead of abandoning the scan.
-                last_error = str(exc)
-                show('已打开扫码流程，正在等待读取组件完成验证。请勿重复扫码。', waiting=True)
-        result = row('xhs', '小红书读取', 'unknown' if last_error else 'not_logged_in',
-                     '登录验证未完成' if last_error else '扫码超时',
-                     '回到账号设置刷新状态；仍未登录时点击「登录」获取新二维码。', last_error)
+            time.sleep(2)
+            s = api('GET', '/api/v1/login/session', timeout=10)
+            if s.get('state') == 'success':
+                name = s.get('nickname') or ''
+                previous = config().get('user_id')
+                save({'nickname': name, 'user_id': s.get('user_id', '')})
+                switched = previous and s.get('user_id') and previous != s.get('user_id')
+                result = row('xhs', '小红书账号', 'ready', '已登录' + (f'：{name}' if name else ''),
+                             '已切换账号：收藏同步将读取这个号的收藏。' if switched else '', account=name)
+                page.write_text(_login_page(result['message'], done=True, ok=True), 'utf-8')
+                return result
+            if s.get('state') == 'timeout':
+                break
+        result = row('xhs', '小红书账号', 'not_logged_in', '二维码已过期',
+                     '点击「扫码登录」获取新的二维码。', action='login')
+        page.write_text(_login_page('二维码已过期，请回到 Obsidian 重新点「扫码登录」', done=True), 'utf-8')
         return result
-    finally:
-        show((result['message'] + '。' + result['next_step']) if result else
-             '登录验证中断。请回到账号设置刷新状态后重试。')
+    except Exception:
+        page.write_text(_login_page('登录中断，请回到 Obsidian 查看提示', done=True), 'utf-8')
+        raise
 
 
-def login_favorites(*, timeout=300, force=False) -> dict:
-    status = favorite_status()
-    if status['state'] == 'ready' and not force:
-        return status
-    exe = executable('LINK_BRAIN_FAV_LOGIN', ('xiaohongshu-login-persistent.exe',))
-    if not fav_exe() or not exe:
-        return row('favorites', '收藏同步', 'unconfigured', '收藏组件未配置',
-                   '先使用链接归档；收藏组件准备步骤见 README「收藏组件」。', optional=True)
-    if force and status['state'] == 'ready':
-        if os.environ.get('XHS_FAV_PROFILE') or os.environ.get('XHS_PROFILE_DIR'):
-            raise RuntimeError('收藏登录目录由外部配置固定；请先取消该覆盖，再从设置页换号。')
-        save({'favorite_profile': str(home() / f'favorite-profile-{int(time.time())}')})
-    result = run_component([exe], env=fav_env(), timeout=timeout)
-    if result.returncode:
-        raise RuntimeError('收藏登录未完成，请重新扫码。')
-    return favorite_status()
+def open_verify() -> dict:
+    ensure_reader()
+    api('POST', '/api/v1/verify/window', timeout=20)
+    return row('xhs', '小红书账号', 'busy', '验证窗口已打开',
+               '在弹出的小红书窗口里手动完成拼图验证，然后关掉窗口，再点「刷新」。', action='wait')
 
 
 def run_login(args) -> int:
     from .read import dump_json
     try:
-        if args.account == 'attachments':
-            result = attachment_check() if not args.force else None
-            if result is None or result['state'] != 'ready':
-                result = attachment_check(login=True, timeout=args.timeout, force=args.force)
-            if result['state'] == 'ready':
-                save({'attachments_authenticated': True})
-        elif args.account == 'favorites':
-            result = login_favorites(timeout=args.timeout, force=args.force)
+        if getattr(args, 'verify', False):
+            result = open_verify()
+        elif getattr(args, 'status', False):
+            result = xhs_status()
         else:
-            result = login_xhs(force=args.force, timeout=args.timeout, install=args.install)
-    except Exception as exc:
-        result = row(args.account, '登录', 'error', '登录未完成',
-                     str(exc) if isinstance(exc, RuntimeError) else '请重试；仍失败时展开「查看详情」。', str(exc))
+            result = xhs_status(deep=False) if not args.force else None
+            if result is None or result['state'] != 'ready':
+                result = login(timeout=args.timeout)
+    except Exception as exc:  # noqa: BLE001
+        result = error_row(exc)
     if args.json:
         dump_json(result)
     else:
         print(result['message'] + ('\n下一步：' + result['next_step'] if result['next_step'] else ''))
-    return 0 if result['state'] == 'ready' else 1
+    return 0 if result['state'] in ('ready', 'busy') else 1
