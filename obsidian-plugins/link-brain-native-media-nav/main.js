@@ -117,7 +117,17 @@ module.exports = class LinkBrainNativeMediaNavPlugin extends Plugin {
       preview?.classList.toggle('lb-pane-locked',locked);fit();
     };
     setLocked(true);
-    const wheel=e=>{if(!note.classList.contains('lb-media-locked')||e.ctrlKey||Math.abs(e.deltaX)>Math.abs(e.deltaY))return;
+    // 0926 Owner：滚轮停在图片上 = 翻页（一格一张，节流防连跳）；刚打开的笔记直接认它，←/→ 不用先点图。
+    this.activeCarousel=carousel;
+    let flipAt=0;
+    const flip=e=>{
+      if(e.ctrlKey||Math.abs(e.deltaY)<Math.abs(e.deltaX)||!e.target.closest('.lb-carousel'))return false;
+      const list=getSlides(carousel);if(list.length<2)return false;
+      e.preventDefault();const now=Date.now();if(now-flipAt<350)return true;flipAt=now;
+      const i=Math.max(0,Math.min(list.length-1,getNearestIndex(carousel,list)+(e.deltaY>0?1:-1)));
+      carousel.scrollTo({left:list[i].offsetLeft-list[0].offsetLeft,behavior:'smooth'});this.activeCarousel=carousel;return true;
+    };
+    const wheel=e=>{if(flip(e))return;if(!note.classList.contains('lb-media-locked')||e.ctrlKey||Math.abs(e.deltaX)>Math.abs(e.deltaY))return;
       const scroller=note.querySelector('.lb-scroll');if(scroller&&!e.target.closest('.lb-scroll')){scroller.scrollTop+=e.deltaY*(e.deltaMode===1?16:1);e.preventDefault();}
     };
     preview?.addEventListener('wheel',wheel,{passive:false});

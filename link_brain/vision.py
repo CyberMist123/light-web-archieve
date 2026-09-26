@@ -80,12 +80,22 @@ def run_ocr(image_path: Path, *, timeout: int = 120) -> dict[str, Any]:
     return {"status": "ok", "ocr": text, "error": None}
 
 
-def _understand(entry: dict[str, Any], path: Path, cfg: dict[str, Any] | None) -> dict[str, Any]:
-    """有位置框的 OCR 结果 → 判版面；表格 / 几乎没字的图且配了识图接口 → 云端识图。"""
+def _understand(entry: dict[str, Any], path: Path, cfg: dict[str, Any] | None, source_key: str = "") -> dict[str, Any]:
+    """有位置框的 OCR 结果 → 判版面；表格 / 几乎没字的图且配了识图接口 → 云端识图。
+
+    0926 Owner：小红书「几乎没字但有字」的图基本是标题图（大字一句话 + 纯色底），
+    直接转写成「标题：…」，不调模型、不描述底色——只有小红书这么设计，别的站照旧描述。
+    """
     from . import visual
     if entry.get("status") != "ok" or "lines" not in entry:
         return entry
     entry["layout"] = visual.classify(entry["lines"])
+    title = (visual.title_text(entry["lines"]) if source_key == "xiaohongshu" and entry["layout"] == "picture"
+             and visual.flat_background(path) else "")
+    if title:
+        entry["layout"] = "title"
+        entry["visual"] = {"kind": "title", "status": "ok", "text": "标题：" + title}
+        return entry
     if entry["layout"] in ("table", "picture") and cfg and (entry.get("visual") or {}).get("status") != "ok":
         entry["visual"] = visual.describe(path, entry["layout"], cfg)
     return entry
@@ -126,10 +136,10 @@ def build_vision(source_key: str, source_id: str, *, verbose: bool = False, upgr
             # upgrade：旧结果没有位置框（CMX 时代）就用本地 OCR 重跑一次，补上表格/图片识别
             if upgrade and "lines" not in cached and visual.available():
                 cached = {'asset': asset_rel, **visual.local_ocr(path)}
-            images.append(_understand(cached, path, cfg) if upgrade or "lines" in cached else cached)
+            images.append(_understand(cached, path, cfg, source_key) if upgrade or "lines" in cached else cached)
             continue
         result = run_ocr(path)
-        images.append(_understand({'asset': asset_rel, **result}, path, cfg))
+        images.append(_understand({'asset': asset_rel, **result}, path, cfg, source_key))
 
     doc = {
         "schema_version": 1,

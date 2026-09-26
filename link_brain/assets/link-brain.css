@@ -567,3 +567,7 @@
 .xhs-note .lb-comment-audio-label { font-size: 12px; color: var(--text-muted); }
 .xhs-note .lb-comment-asr { font-size: 13px; color: var(--text-normal); line-height: 1.55; }
 .xhs-note .lb-comment-audio audio { height: 32px; max-width: 280px; }
+
+/* 0926 Owner：固定按钮平时隐藏，鼠标移到图片/视频上才出现 */
+.xhs-note .lb-media-pin{opacity:0;transition:opacity .15s;}
+.xhs-note .lb-media:hover .lb-media-pin,.xhs-note .lb-media-pin:focus-visible{opacity:1;}

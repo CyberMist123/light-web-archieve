@@ -92,6 +92,29 @@ def classify(lines: list[dict[str, Any]] | None) -> str:
     return "table" if aligned >= 2 else "text"
 
 
+def title_text(lines: list[dict[str, Any]] | None) -> str:
+    """标题图的字：按从上到下、从左到右拼起来；只有零星一两个字（水印、页码）不算标题。"""
+    lines = [line for line in (lines or []) if (line.get("text") or "").strip() and line.get("score", 1) >= 0.6]
+    lines.sort(key=lambda line: (line["box"][1], line["box"][0]))
+    text = "".join("".join(line["text"].split()) for line in lines)
+    return text if len(text) >= 4 else ""
+
+
+def flat_background(path: Path) -> bool:
+    """标题图是纯色/渐变底：缩小后最常见的颜色（粗量化）占到三成以上。照片、图标达不到。"""
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            small = im.convert("RGB").resize((48, 48))
+        counts: dict[tuple[int, int, int], int] = {}
+        for r, g, b in small.getdata():
+            key = (r // 24, g // 24, b // 24)
+            counts[key] = counts.get(key, 0) + 1
+        return max(counts.values()) / (48 * 48) >= 0.3
+    except Exception:  # noqa: BLE001 - 读不了图就不按标题图处理
+        return False
+
+
 def vision_config() -> dict[str, Any] | None:
     """设置里的识图接口；mode=off 或没有可用 key 时返回 None（只保留 OCR）。"""
     from . import ai_config

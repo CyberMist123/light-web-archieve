@@ -165,6 +165,9 @@ def _endpoint_and_key(cfg: dict) -> tuple[str, str]:
     return endpoint, key
 
 
+_HTTP = None
+
+
 def _post_embeddings(texts: list[str], cfg: dict, timeout: float) -> list[list[float]]:
     """一次 HTTP 批量取向量；失败抛异常，由调用方决定告警或退词法。"""
     import httpx
@@ -175,7 +178,10 @@ def _post_embeddings(texts: list[str], cfg: dict, timeout: float) -> list[list[f
     if cfg.get("dimensions"):
         body["dimensions"] = int(cfg["dimensions"])
     headers = {"Content-Type": "application/json", "Authorization": "Bearer " + key.strip()}
-    resp = httpx.post(endpoint, headers=headers, json=body, timeout=timeout)
+    global _HTTP
+    if _HTTP is None:  # 常驻问答进程里复用连接：省掉每问一次 TLS 握手（实测 ~2s → ~0.5s）
+        _HTTP = httpx.Client()
+    resp = _HTTP.post(endpoint, headers=headers, json=body, timeout=timeout)
     if resp.status_code >= 400:
         raise RuntimeError(f"embeddings HTTP {resp.status_code}")
     data = resp.json().get("data") or []

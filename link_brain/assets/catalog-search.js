@@ -49,3 +49,11 @@ function score(it, query, chars = {}, aliases = []) {
   }
   return total;
 }
+
+// 语音/整句 → 关键词（0926）：去掉口头的「帮我找一下、那个、有没有…的」，剩下的词用空格分开，照常关键词+模糊匹配，不调用 AI。
+const SPOKEN_FILLER = /帮我|给我|请你|请|我想要|我想|想要|想看|找一下|找找|搜一下|搜搜|查一下|查查|看一下|看看|一下|那个|这个|那篇|一篇|之前|以前|收藏里的?|收藏的|我收藏|收藏过?|笔记|关于|有关|有没有|有什么|有哪些|是什么|怎么做|怎么样|怎么|如何|什么|哪些|一些|的内容|的帖子|的吗|吗|呢|吧|啊|呀|嘛|了|找|搜/g;
+function spokenKeywords(text) {
+  const parts = String(text || '').replace(/[，。！？、,.!?；;：:“”"'（）()\s]+/g, ' ').replace(SPOKEN_FILLER, ' ')
+    .split(/[\s的]+/).filter(t => t.length >= 2 || /[a-z0-9]/i.test(t));
+  return [...new Set(parts)].join(' ');
+}

@@ -1,5 +1,5 @@
 diff --git a/browser/browser.go b/browser/browser.go
-index 59bbe39..fcccef1 100644
+index 59bbe39..0972273 100644
 --- a/browser/browser.go
 +++ b/browser/browser.go
 @@ -2,12 +2,19 @@ package browser
@@ -23,7 +23,7 @@ index 59bbe39..fcccef1 100644
  )
  
  type browserConfig struct {
-@@ -19,6 +26,110 @@ type browserConfig struct {
+@@ -19,6 +26,113 @@ type browserConfig struct {
  
  type Option func(*browserConfig)
  
@@ -44,6 +44,9 @@ index 59bbe39..fcccef1 100644
 +}
 +
 +var profileMu sync.Mutex
++
++// 正常冷启动 2–10s；高负载下给足余量，超过就判卡死。
++const launchTimeout = 90 * time.Second
 +
 +type Browser struct {
 +	*headless_browser.Browser
@@ -134,7 +137,7 @@ index 59bbe39..fcccef1 100644
  // WithProxy 设置代理（http/https/socks5）。空字符串视为不启用。
  func WithProxy(proxy string) Option {
  	return func(c *browserConfig) {
-@@ -47,7 +158,15 @@ func maskProxyCredentials(proxyURL string) string {
+@@ -47,7 +161,15 @@ func maskProxyCredentials(proxyURL string) string {
  	return strings.Replace(proxyURL, u.User.String()+"@", cred+"@", 1)
  }
  
@@ -151,7 +154,7 @@ index 59bbe39..fcccef1 100644
  	cfg := &browserConfig{}
  	for _, opt := range options {
  		opt(cfg)
-@@ -62,6 +181,22 @@ func NewBrowser(headless bool, options ...Option) *headless_browser.Browser {
+@@ -62,6 +184,22 @@ func NewBrowser(headless bool, options ...Option) *headless_browser.Browser {
  		panic(fmt.Sprintf("内置浏览器不可用，拒绝启动: %v", err))
  	}
  
@@ -174,7 +177,7 @@ index 59bbe39..fcccef1 100644
  	opts := []headless_browser.Option{
  		headless_browser.WithHeadless(headless),
  		// 用内置浏览器的默认配置，不强制 UA。
-@@ -73,6 +208,7 @@ func NewBrowser(headless bool, options ...Option) *headless_browser.Browser {
+@@ -73,6 +211,7 @@ func NewBrowser(headless bool, options ...Option) *headless_browser.Browser {
  		headless_browser.WithExtraFlags(map[string]string{"fingerprint-brand": "Chrome"}),
  	}
  	opts = append(opts, headless_browser.WithChromeBinPath(binPath))
@@ -182,7 +185,7 @@ index 59bbe39..fcccef1 100644
  
  	// 代理（由调用方经 Option 传入，env 读取放在入口层）。
  	if cfg.proxy != "" {
-@@ -86,16 +222,7 @@ func NewBrowser(headless bool, options ...Option) *headless_browser.Browser {
+@@ -86,16 +225,20 @@ func NewBrowser(headless bool, options ...Option) *headless_browser.Browser {
  		logrus.Infof("fingerprint seed pinned: %d", cfg.fingerprintSeed)
  	}
  
@@ -198,43 +201,23 @@ index 59bbe39..fcccef1 100644
 -	}
 -
 -	return headless_browser.New(opts...)
++	// 0926：04:00 夜跑时启动卡死在这里（Chromium 没吐出调试地址），profileMu 永不释放，
++	// 之后所有状态/登录/问答请求排队到超时。启动超过 launchTimeout 就整个进程退出，
++	// 下一次调用由 Python ensure_reader 重新拉起一个干净的服务。
++	done := make(chan struct{})
++	go func() {
++		select {
++		case <-done:
++		case <-time.After(launchTimeout):
++			logrus.Errorf("XHS browser launch hung >%s profile=%s; exiting so the caller restarts a clean reader", launchTimeout, profileDir)
++			os.Exit(75)
++		}
++	}()
 +	raw := headless_browser.New(opts...)
++	close(done)
 +	started = true
 +	return &Browser{Browser: raw, Headless: headless, profile: profileDir}
  }
-diff --git a/browser/profile_test.go b/browser/profile_test.go
-new file mode 100644
-index 0000000..c124c09
---- /dev/null
-+++ b/browser/profile_test.go
-@@ -0,0 +1,27 @@
-+package browser
-+
-+import (
-+	"os"
-+	"path/filepath"
-+	"testing"
-+)
-+
-+func TestProfileSeedSurvivesReopen(t *testing.T) {
-+	dir := t.TempDir()
-+	first := profileSeed(dir, 12345)
-+	if reopened := profileSeed(dir, 99999); reopened != first {
-+		t.Fatalf("profile identity changed on reopen: %d -> %d", first, reopened)
-+	}
-+	if _, err := os.Stat(filepath.Join(dir, "cookies.json")); !os.IsNotExist(err) {
-+		t.Fatal("profile seed must not use cookies.json")
-+	}
-+}
-+
-+func TestDefaultProfileIndependentOfWorkingDirectory(t *testing.T) {
-+	t.Setenv("XHS_PROFILE_DIR", "")
-+	before := ProfileDir()
-+	t.Chdir(t.TempDir())
-+	if ProfileDir() != before || !filepath.IsAbs(before) {
-+		t.Fatal("CLI and MCP must resolve the same absolute profile")
-+	}
-+}
 diff --git a/cmd/login/main.go b/cmd/login/main.go
 index 05163e8..bc9f4af 100644
 --- a/cmd/login/main.go
@@ -331,532 +314,16 @@ index 05163e8..bc9f4af 100644
 -	return cookieLoader.SaveCookies(data)
 +	logrus.Info("XHS authenticated; Chromium owns session persistence")
  }
-diff --git a/linkbrain_api.go b/linkbrain_api.go
-new file mode 100644
-index 0000000..540d4ea
---- /dev/null
-+++ b/linkbrain_api.go
-@@ -0,0 +1,520 @@
-+package main
+diff --git a/go.mod b/go.mod
+index 74c4654..0195322 100644
+--- a/go.mod
++++ b/go.mod
+@@ -56,3 +56,5 @@ require (
+ 	google.golang.org/protobuf v1.34.1 // indirect
+ 	gopkg.in/yaml.v3 v3.0.1 // indirect
+ )
 +
-+// Link Brain 单账号接口（0925）：一个号、一个持久 profile，评论 / 私密收藏 / 附件
-+// 都在这个进程里跑，由 browser.profileMu 串行——不再有第二套浏览器去顶号。
-+//
-+//   GET  /api/v1/login/session         扫码进度与最近一次已知登录态（不开浏览器，随便轮询）
-+//   GET  /api/v1/favorites             当前账号的收藏列表
-+//   POST /api/v1/attachments/download  点笔记附件页的「下载」按钮，把文件存到 dest_dir
-+//
-+// 扫码进行中，其它会开浏览器的接口一律立刻回 409 LOGIN_IN_PROGRESS：
-+// 它们本来会排在 profile 锁后面干等最多 4 分钟，调用方超时后还会误判成服务坏了。
-+
-+import (
-+	"context"
-+	"fmt"
-+	"net/http"
-+	"net/url"
-+	"os"
-+	"path/filepath"
-+	"strings"
-+	"sync"
-+	"time"
-+
-+	"github.com/gin-gonic/gin"
-+	"github.com/go-rod/rod"
-+	"github.com/go-rod/rod/lib/proto"
-+	"github.com/sirupsen/logrus"
-+	"github.com/xpzouying/xiaohongshu-mcp/browser"
-+	"github.com/xpzouying/xiaohongshu-mcp/configs"
-+	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
-+)
-+
-+type loginState struct {
-+	mu        sync.Mutex
-+	seq       uint64
-+	state     string // idle | waiting | success | timeout
-+	user      *xiaohongshu.CurrentUser
-+	started   time.Time
-+	finished  time.Time
-+	expires   time.Time
-+	loggedIn  *bool // 最近一次浏览器实测结果
-+	checkedAt time.Time
-+	verifying bool      // 人工验证窗口开着
-+	lastFav   time.Time // 上次读收藏（限频，防风控）
-+	captcha   time.Time // 最近一次撞见验证码
-+}
-+
-+func (l *loginState) begin(seq uint64, timeout time.Duration) {
-+	l.mu.Lock()
-+	defer l.mu.Unlock()
-+	l.seq, l.state, l.user = seq, "waiting", nil
-+	l.started, l.expires, l.finished = time.Now(), time.Now().Add(timeout), time.Time{}
-+}
-+
-+func (l *loginState) finish(seq uint64, state string, user *xiaohongshu.CurrentUser, _ string) {
-+	l.mu.Lock()
-+	defer l.mu.Unlock()
-+	if l.seq != seq { // 已被新的二维码取代
-+		return
-+	}
-+	l.state, l.user, l.finished = state, user, time.Now()
-+	if state == "success" {
-+		t := true
-+		l.loggedIn, l.checkedAt = &t, time.Now()
-+		l.lastFav, l.captcha = time.Time{}, time.Time{} // 刚扫完码允许马上同步
-+	}
-+}
-+
-+func (l *loginState) observe(loggedIn bool) {
-+	l.mu.Lock()
-+	defer l.mu.Unlock()
-+	l.loggedIn, l.checkedAt = &loggedIn, time.Now()
-+}
-+
-+func (l *loginState) waiting() bool {
-+	l.mu.Lock()
-+	defer l.mu.Unlock()
-+	return l.state == "waiting"
-+}
-+
-+func (l *loginState) busy() string {
-+	l.mu.Lock()
-+	defer l.mu.Unlock()
-+	if l.state == "waiting" {
-+		return "LOGIN_IN_PROGRESS"
-+	}
-+	if l.verifying {
-+		return "VERIFY_WINDOW_OPEN"
-+	}
-+	return ""
-+}
-+
-+func (l *loginState) set(f func(l *loginState)) {
-+	l.mu.Lock()
-+	defer l.mu.Unlock()
-+	f(l)
-+}
-+
-+func (l *loginState) snapshot() map[string]any {
-+	l.mu.Lock()
-+	defer l.mu.Unlock()
-+	out := map[string]any{"state": l.state, "seq": l.seq}
-+	if out["state"] == "" {
-+		out["state"] = "idle"
-+	}
-+	if !l.started.IsZero() {
-+		out["started_at"] = l.started.Format(time.RFC3339)
-+		out["expires_at"] = l.expires.Format(time.RFC3339)
-+	}
-+	if !l.finished.IsZero() {
-+		out["finished_at"] = l.finished.Format(time.RFC3339)
-+	}
-+	if l.user != nil {
-+		out["nickname"], out["user_id"] = l.user.Nickname, l.user.UserID
-+	}
-+	if l.loggedIn != nil {
-+		out["logged_in"], out["checked_at"] = *l.loggedIn, l.checkedAt.Format(time.RFC3339)
-+	}
-+	out["verifying"] = l.verifying
-+	if !l.captcha.IsZero() {
-+		out["captcha_at"] = l.captcha.Format(time.RFC3339)
-+	}
-+	return out
-+}
-+
-+// busyGuard：扫码进行中，会开浏览器的接口立刻 409，别在 profile 锁后面干等。
-+func (s *AppServer) busyGuard() gin.HandlerFunc {
-+	return func(c *gin.Context) {
-+		p := c.Request.URL.Path
-+		if strings.HasSuffix(p, "/login/session") || strings.HasSuffix(p, "/login/qrcode") || strings.HasSuffix(p, "/login/window") {
-+			c.Next()
-+			return
-+		}
-+		if code := s.xiaohongshuService.state.busy(); code != "" {
-+			if strings.HasSuffix(p, "/login/status") {
-+				respondSuccess(c, map[string]any{"is_logged_in": nil, "login_pending": true}, "正在等待扫码或人工验证")
-+				c.Abort()
-+				return
-+			}
-+			respondError(c, http.StatusConflict, code, "正在等待扫码登录或人工验证，完成后再试", nil)
-+			c.Abort()
-+			return
-+		}
-+		c.Next()
-+	}
-+}
-+
-+func (s *AppServer) loginSessionHandler(c *gin.Context) {
-+	respondSuccess(c, s.xiaohongshuService.state.snapshot(), "ok")
-+}
-+
-+// captchaJS：小红书的「安全验证」拼图/滑块浮层。组件只识别、停车，绝不尝试去解。
-+const captchaJS = `() => { const t = document.body ? document.body.innerText : "";
-+ return /安全验证/.test(t) && /拖动|拼图|滑块|验证/.test(t.replace(/安全验证/g, "")) }`
-+
-+func captchaPresent(page *rod.Page) bool {
-+	hit := false
-+	_ = rod.Try(func() { hit = page.Timeout(5 * time.Second).MustEval(captchaJS).Bool() })
-+	return hit
-+}
-+
-+var errCaptcha = fmt.Errorf("CAPTCHA_REQUIRED")
-+
-+func (s *AppServer) respondCaptcha(c *gin.Context) {
-+	s.xiaohongshuService.state.set(func(l *loginState) { l.captcha = time.Now() })
-+	respondError(c, http.StatusLocked, "CAPTCHA_REQUIRED",
-+		"小红书要求安全验证（拼图滑块），已停止操作", "打开验证窗口手动完成，或等几小时后再试；期间不要反复重试")
-+}
-+
-+// verifyWindowHandler 打开有界面的浏览器停在自己的主页，由人手动过验证；关窗即结束。
-+func (s *AppServer) verifyWindowHandler(c *gin.Context) {
-+	st := &s.xiaohongshuService.state
-+	started := false
-+	st.set(func(l *loginState) {
-+		if !l.verifying && l.state != "waiting" {
-+			l.verifying, started = true, true
-+		}
-+	})
-+	if !started {
-+		respondError(c, http.StatusConflict, "BUSY", "已有登录或验证窗口在进行", nil)
-+		return
-+	}
-+	go func() {
-+		defer st.set(func(l *loginState) { l.verifying = false })
-+		b := browser.NewBrowser(false, browser.WithFingerprintSeed(configs.FingerprintSeed()), browser.WithProxy(configs.Proxy()))
-+		defer b.Close()
-+		page := b.NewPage()
-+		_ = rod.Try(func() {
-+			page.Timeout(30 * time.Second).MustNavigate(xiaohongshu.SiteHost() + "/explore")
-+			time.Sleep(4 * time.Second)
-+			_ = page.Timeout(15*time.Second).MustElement(`.user.side-bar-component a[href*="/user/profile/"]`).Click(proto.InputMouseButtonLeft, 1)
-+		})
-+		deadline := time.Now().Add(15 * time.Minute)
-+		for time.Now().Before(deadline) {
-+			time.Sleep(2 * time.Second)
-+			if _, err := page.Timeout(3 * time.Second).Eval(`() => 1`); err != nil {
-+				break // 用户关了窗口
-+			}
-+		}
-+		if !captchaPresent(page) {
-+			st.set(func(l *loginState) { l.captcha = time.Time{} })
-+		}
-+	}()
-+	respondSuccess(c, map[string]any{"opened": true, "timeout": "15m"}, "验证窗口已打开，完成后关闭窗口即可")
-+}
-+
-+type favItem struct {
-+	NoteID    string `json:"note_id"`
-+	XsecToken string `json:"xsec_token"`
-+	Title     string `json:"title"`
-+	Type      string `json:"type"`
-+	Author    string `json:"author"`
-+	AuthorID  string `json:"author_id"`
-+	URL       string `json:"url"`
-+}
-+
-+var errNotLoggedIn = fmt.Errorf("NOT_LOGGED_IN")
-+
-+const favMinInterval = 10 * time.Minute
-+
-+func (s *AppServer) favoritesHandler(c *gin.Context) {
-+	var wait time.Duration
-+	s.xiaohongshuService.state.set(func(l *loginState) {
-+		if since := time.Since(l.lastFav); since < favMinInterval {
-+			wait = favMinInterval - since
-+		} else {
-+			l.lastFav = time.Now()
-+		}
-+	})
-+	if wait > 0 {
-+		respondError(c, http.StatusTooManyRequests, "RATE_LIMITED", "收藏刚读过，为免触发风控请稍后再试",
-+			map[string]any{"retry_after_s": int(wait.Seconds())})
-+		return
-+	}
-+	// 与 favdump 一致用独立 context：挂在 HTTP 请求 context 上实测进主页必超时（0925）
-+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
-+	defer cancel()
-+	b := newBrowser()
-+	defer b.Close()
-+	page := b.NewPage()
-+	var out map[string]any
-+	var fail error
-+	err := rod.Try(func() {
-+		login := xiaohongshu.NewLogin(page)
-+		ok, err := login.CheckLoginStatus(ctx)
-+		if err != nil {
-+			fail = err
-+			return
-+		}
-+		s.xiaohongshuService.state.observe(ok)
-+		if !ok {
-+			fail = errNotLoggedIn
-+			return
-+		}
-+		var profile *xiaohongshu.UserProfileResponse
-+		for attempt := 1; attempt <= 4; attempt++ {
-+			// 收藏 tab 的客户端点击偶发不生效，每次从首页重新路由，重试几次基本能命中。
-+			if attempt > 1 {
-+				// 上一次失败的页面常处于点击挂住的坏状态，在它上面重试必然再超时（0925 实测）：换干净标签页。
-+				_ = page.Close()
-+				page = b.NewPage()
-+			}
-+			profile, err = xiaohongshu.NewUserProfileAction(page).GetMyProfileViaSidebar(ctx, xiaohongshu.TabFavorites)
-+			if err == nil || ctx.Err() != nil {
-+				break
-+			}
-+			logrus.Warnf("read favorites %d/4: %v", attempt, err)
-+			if captchaPresent(page) {
-+				fail = errCaptcha
-+				return
-+			}
-+			time.Sleep(2 * time.Second)
-+		}
-+		if err != nil {
-+			fail = err
-+			return
-+		}
-+		if len(profile.Feeds) == 0 && captchaPresent(page) {
-+			fail = errCaptcha
-+			return
-+		}
-+		if len(profile.Feeds) == 0 {
-+			if d := os.Getenv("LB_DEBUG_DIR"); d != "" {
-+				if shot, err := page.Screenshot(true, nil); err == nil {
-+					_ = os.WriteFile(filepath.Join(d, "fav-empty.png"), shot, 0o644)
-+				}
-+			}
-+		}
-+		host := xiaohongshu.SiteHost()
-+		items := make([]favItem, 0, len(profile.Feeds))
-+		for _, f := range profile.Feeds {
-+			items = append(items, favItem{NoteID: f.ID, XsecToken: f.XsecToken, Title: f.NoteCard.DisplayTitle,
-+				Type: f.NoteCard.Type, Author: f.NoteCard.User.Nickname, AuthorID: f.NoteCard.User.UserID,
-+				URL: fmt.Sprintf("%s/explore/%s?xsec_token=%s&xsec_source=pc_feed", host, f.ID, f.XsecToken)})
-+		}
-+		out = map[string]any{"nickname": profile.UserBasicInfo.Nickname, "count": len(items), "items": items}
-+	})
-+	if err != nil && fail == nil {
-+		fail = err
-+	}
-+	switch {
-+	case fail == errCaptcha:
-+		s.respondCaptcha(c)
-+	case fail == errNotLoggedIn:
-+		respondError(c, http.StatusUnauthorized, "NOT_LOGGED_IN", "小红书未登录或登录已失效", nil)
-+	case fail != nil:
-+		respondError(c, http.StatusInternalServerError, "FAVORITES_FAILED", "读取收藏失败", fail.Error())
-+	default:
-+		respondSuccess(c, out, "ok")
-+	}
-+}
-+
-+type attachmentRequest struct {
-+	DocID     string `json:"doc_id" binding:"required"`
-+	NoteID    string `json:"note_id" binding:"required"`
-+	XsecToken string `json:"xsec_token"`
-+	FileName  string `json:"file_name"`
-+	DestDir   string `json:"dest_dir" binding:"required"`
-+}
-+
-+func (s *AppServer) attachmentDownloadHandler(c *gin.Context) {
-+	var req attachmentRequest
-+	if err := c.ShouldBindJSON(&req); err != nil {
-+		respondError(c, http.StatusBadRequest, "INVALID_REQUEST", "请求参数错误", err.Error())
-+		return
-+	}
-+	dest, err := filepath.Abs(req.DestDir)
-+	if err == nil {
-+		err = os.MkdirAll(dest, 0o755)
-+	}
-+	if err != nil {
-+		respondError(c, http.StatusBadRequest, "BAD_DEST", "下载目录不可用", err.Error())
-+		return
-+	}
-+	path, code, err := downloadAttachment(context.Background(), req, dest)
-+	if code == "CAPTCHA_REQUIRED" {
-+		s.respondCaptcha(c)
-+		return
-+	}
-+	if err != nil {
-+		status := map[string]int{"NOT_LOGGED_IN": http.StatusUnauthorized, "NO_DOWNLOAD_BUTTON": http.StatusBadGateway,
-+			"DOWNLOAD_TIMEOUT": http.StatusGatewayTimeout}[code]
-+		if status == 0 {
-+			status, code = http.StatusInternalServerError, "DOWNLOAD_FAILED"
-+		}
-+		respondError(c, status, code, "附件下载失败", err.Error())
-+		return
-+	}
-+	st, _ := os.Stat(path)
-+	respondSuccess(c, map[string]any{"path": path, "bytes": st.Size()}, "ok")
-+}
-+
-+// downloadAttachment 必须 headed：headless 下站点那个下载 POST 会挂住。
-+// 实测要点（0925）：只认 xiaohongshu.com 的 /file 页；按钮刚渲染出来就点没反应，要等预览挂好。
-+func downloadAttachment(parent context.Context, req attachmentRequest, dest string) (string, string, error) {
-+	ctx, cancel := context.WithTimeout(parent, 3*time.Minute)
-+	defer cancel()
-+	before := map[string]bool{}
-+	if es, err := os.ReadDir(dest); err == nil {
-+		for _, e := range es {
-+			before[e.Name()] = true
-+		}
-+	}
-+	b := browser.NewBrowser(false, browser.WithFingerprintSeed(configs.FingerprintSeed()), browser.WithProxy(configs.Proxy()))
-+	defer b.Close()
-+	page := b.NewPage()
-+	var path, code string
-+	var fail error
-+	err := rod.Try(func() {
-+		_ = proto.BrowserSetDownloadBehavior{Behavior: proto.BrowserSetDownloadBehaviorBehaviorAllow,
-+			DownloadPath: dest, EventsEnabled: true}.Call(page.Browser())
-+		u := fmt.Sprintf("%s/file/%s?noteId=%s&fileName=%s&xsec_token=%s&xsec_source=note_detail_file",
-+			xiaohongshu.SiteHost(), url.PathEscape(req.DocID), url.QueryEscape(req.NoteID),
-+			url.QueryEscape(req.FileName), url.QueryEscape(req.XsecToken))
-+		_ = page.Context(ctx).Timeout(30 * time.Second).Navigate(u)
-+		btn, err := page.Context(ctx).Timeout(45*time.Second).ElementR("button", `下载`)
-+		if err != nil && captchaPresent(page) {
-+			code, fail = "CAPTCHA_REQUIRED", errCaptcha
-+			return
-+		}
-+		if err != nil {
-+			st, _ := page.Eval(`() => { const u=window.__INITIAL_STATE__?.user?.userInfo; const x=u?.value??u?._value??u?._rawValue??u; return x?.guest===true ? "guest" : "" }`)
-+			if st != nil && st.Value.String() == "guest" {
-+				code, fail = "NOT_LOGGED_IN", errNotLoggedIn
-+				return
-+			}
-+			code, fail = "NO_DOWNLOAD_BUTTON", fmt.Errorf("附件页没有出现下载按钮（文件可能已删除或无下载权限）")
-+			return
-+		}
-+		time.Sleep(8 * time.Second)
-+		for i := 0; i < 90 && ctx.Err() == nil; i++ {
-+			if i == 0 || i == 20 || i == 45 {
-+				if b2, err := page.Timeout(10*time.Second).ElementR("button", `下载`); err == nil {
-+					btn = b2
-+				}
-+				_ = btn.Timeout(10*time.Second).Click(proto.InputMouseButtonLeft, 1)
-+			}
-+			time.Sleep(time.Second)
-+			es, _ := os.ReadDir(dest)
-+			for _, e := range es {
-+				n := e.Name()
-+				if !before[n] && !e.IsDir() && !strings.HasSuffix(n, ".crdownload") && !strings.HasSuffix(n, ".tmp") {
-+					if info, err := e.Info(); err == nil && info.Size() > 0 {
-+						path = filepath.Join(dest, n)
-+						return
-+					}
-+				}
-+			}
-+		}
-+		if captchaPresent(page) {
-+			code, fail = "CAPTCHA_REQUIRED", errCaptcha
-+			return
-+		}
-+		code, fail = "DOWNLOAD_TIMEOUT", fmt.Errorf("点了下载但 90 秒内没有文件落地")
-+	})
-+	if err != nil && fail == nil {
-+		fail = err
-+	}
-+	return path, code, fail
-+}
-+
-+// loginWindowHandler 打开小红书官方登录窗口（有界面），由人在官方页面扫码——二维码、「扫码成功，
-+// 请在手机上确认」等进度都是官方自己的。程序只在同一页面上等登录态出现（不导航），成功后
-+// 在读取用的域名上复核一次，然后关窗落盘。用户手动关窗 = 取消。
-+func (s *AppServer) loginWindowHandler(c *gin.Context) {
-+	st := &s.xiaohongshuService.state
-+	if code := st.busy(); code != "" {
-+		respondError(c, http.StatusConflict, code, "已有登录或验证窗口在进行", nil)
-+		return
-+	}
-+	timeout := 5 * time.Minute
-+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-+	seq := s.xiaohongshuService.logins.start(cancel)
-+	st.begin(seq, timeout)
-+	go func() {
-+		defer cancel()
-+		defer s.xiaohongshuService.logins.finish(seq)
-+		b := browser.NewBrowser(false, browser.WithFingerprintSeed(configs.FingerprintSeed()), browser.WithProxy(configs.Proxy()))
-+		defer b.Close()
-+		page := b.NewPage()
-+		host := xiaohongshu.LoginHost()
-+		result, errText := "timeout", ""
-+		var user *xiaohongshu.CurrentUser
-+		err := rod.Try(func() {
-+			_ = page.Timeout(30 * time.Second).Navigate(host + "/explore")
-+			login := xiaohongshu.NewLogin(page)
-+			// 已经登录：直接成功
-+			if _, e := page.Timeout(8*time.Second).Element(".login-container"); e != nil {
-+				if ok, _ := login.CheckLoginStatus(ctx); ok {
-+					result = "success"
-+					user, _ = login.CurrentUser(ctx)
-+					return
-+				}
-+				_ = rod.Try(func() {
-+					page.Timeout(10*time.Second).MustElementR("button, div, span", `^\s*登录\s*$`).MustClick()
-+				})
-+			}
-+			done := make(chan bool, 1)
-+			go func() { done <- login.WaitForLogin(ctx) }()
-+			for {
-+				select {
-+				case ok := <-done:
-+					if !ok {
-+						return
-+					}
-+					user, _ = login.CurrentUser(ctx)
-+					// 会话落在哪个域名因号而异：逐个复核并记住（之后读取都用它）
-+					if login.RememberSiteHost(ctx) == "" {
-+						result, errText = "failed", "扫码成功但两个域名都没有确认到登录，请重试一次"
-+						return
-+					}
-+					result = "success"
-+					return
-+				case <-time.After(2 * time.Second):
-+					if _, e := page.Timeout(3 * time.Second).Eval(`() => 1`); e != nil {
-+						result = "cancelled"
-+						cancel()
-+						return
-+					}
-+				}
-+			}
-+		})
-+		if err != nil && result == "timeout" && ctx.Err() == nil {
-+			result, errText = "failed", err.Error()
-+		}
-+		b.Close() // 先落盘再报成功
-+		if errText != "" {
-+			logrus.Warnf("登录窗口 #%d: %s", seq, errText)
-+		}
-+		st.finish(seq, result, user, errText)
-+		logrus.Infof("登录窗口 #%d 结束：%s", seq, result)
-+	}()
-+	respondSuccess(c, map[string]any{"opened": true, "timeout": timeout.String()}, "登录窗口已打开")
-+}
-+
-+// logoutHandler 清掉本地浏览器目录里的小红书登录（只动这个 profile，不影响手机 App 和别的浏览器）。
-+func (s *AppServer) logoutHandler(c *gin.Context) {
-+	b := newBrowser()
-+	defer b.Close()
-+	page := b.NewPage()
-+	err := rod.Try(func() {
-+		res, err := proto.StorageGetCookies{}.Call(page.Browser())
-+		if err != nil {
-+			panic(err)
-+		}
-+		for _, ck := range res.Cookies {
-+			d := strings.ToLower(ck.Domain)
-+			if strings.Contains(d, "xiaohongshu.com") || strings.Contains(d, "rednote.com") {
-+				_ = proto.NetworkDeleteCookies{Name: ck.Name, Domain: ck.Domain, Path: ck.Path}.Call(page)
-+			}
-+		}
-+	})
-+	if err != nil {
-+		respondError(c, http.StatusInternalServerError, "LOGOUT_FAILED", "退出登录失败", err.Error())
-+		return
-+	}
-+	s.xiaohongshuService.state.observe(false)
-+	s.xiaohongshuService.state.set(func(l *loginState) { l.user = nil; l.state = "idle" })
-+	respondSuccess(c, map[string]any{"logged_out": true}, "已退出登录")
-+}
++replace github.com/xpzouying/headless_browser => ./third_party/headless_browser
 diff --git a/main.go b/main.go
 index c100268..91a304b 100644
 --- a/main.go
@@ -1115,6 +582,415 @@ index f40bb5d..d58fb03 100644
  
  	if err != nil {
  		return nil, err
+diff --git a/third_party/headless_browser/LICENSE b/third_party/headless_browser/LICENSE
+new file mode 100644
+index 0000000..a8ab902
+--- /dev/null
++++ b/third_party/headless_browser/LICENSE
+@@ -0,0 +1,21 @@
++MIT License
++
++Copyright (c) 2025 zy
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.
+diff --git a/third_party/headless_browser/go.mod b/third_party/headless_browser/go.mod
+new file mode 100644
+index 0000000..0cad6c2
+--- /dev/null
++++ b/third_party/headless_browser/go.mod
+@@ -0,0 +1,18 @@
++module github.com/xpzouying/headless_browser
++
++go 1.23.1
++
++require (
++	github.com/go-rod/rod v0.116.2
++	github.com/go-rod/stealth v0.4.9
++	github.com/sirupsen/logrus v1.9.3
++)
++
++require (
++	github.com/ysmood/fetchup v0.2.3 // indirect
++	github.com/ysmood/goob v0.4.0 // indirect
++	github.com/ysmood/got v0.40.0 // indirect
++	github.com/ysmood/gson v0.7.3 // indirect
++	github.com/ysmood/leakless v0.9.0 // indirect
++	golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8 // indirect
++)
+diff --git a/third_party/headless_browser/headless_browser.go b/third_party/headless_browser/headless_browser.go
+new file mode 100644
+index 0000000..acb9d19
+--- /dev/null
++++ b/third_party/headless_browser/headless_browser.go
+@@ -0,0 +1,352 @@
++// Package headless_browser provides a simple headless browser library powered by go-rod with built-in stealth mode support.
++package headless_browser
++
++import (
++	"encoding/json"
++	"math/rand"
++	"runtime"
++	"strconv"
++	"strings"
++
++	"github.com/go-rod/rod"
++	"github.com/go-rod/rod/lib/launcher"
++	"github.com/go-rod/rod/lib/launcher/flags"
++	"github.com/go-rod/rod/lib/proto"
++	"github.com/go-rod/stealth"
++	"github.com/sirupsen/logrus"
++)
++
++// Browser represents a headless browser instance with an underlying rod.Browser and launcher.
++type Browser struct {
++	browser           *rod.Browser
++	launcher          *launcher.Launcher
++	persistentProfile bool
++	stealthJS         bool // NewPage 是否注入 go-rod/stealth 的 JS 补丁
++
++	// uaOverride：每个新页面套用的一致 UA/Client-Hints 覆盖。
++	// go-rod 建页面时 CloakBrowser 的 UA 版本补丁不激活（页面退回旧版 UA、uaFullVersion 空），
++	// 这里用浏览器实读的真实版本 + 平台补丁实读的 platform 三项拼出自洽元数据补回。nil = 不覆盖。
++	uaOverride *proto.NetworkSetUserAgentOverride
++}
++
++// Config holds the configuration options for the browser.
++type Config struct {
++	Headless      bool   // Whether to run browser in headless mode
++	UserAgent     string // 自定义 UA。空 = 不覆盖，交给浏览器/指纹补丁自报（推荐，避免与 Client Hints 矛盾）
++	Cookies       string // JSON string of cookies to set
++	ChromeBinPath string // Custom Chrome/Chromium executable path
++	UserDataDir   string // Persistent Chrome profile directory
++	Proxy         string // Proxy server URL (e.g. "http://host:port", "socks5://host:port")
++
++	// Fingerprint 为 true 时，传入 CloakBrowser 的源码级指纹参数
++	// （--fingerprint={seed} 与 --fingerprint-platform={platform}），激活其一致指纹引擎。
++	// 仅对 CloakBrowser Chromium 有效；普通 Chrome 会忽略这些未知参数。
++	Fingerprint         bool
++	FingerprintPlatform string // 空 = 按运行 OS 自动：linux/windows→windows，darwin→macos
++	FingerprintSeed     int    // 0 = 每次启动随机 seed
++
++	// StealthJS 是否用 go-rod/stealth 注入 JS 指纹补丁。
++	// 用 CloakBrowser 时应设为 false：源码级补丁已处理，再注入 JS 反而制造矛盾且本身可被检测。
++	StealthJS bool
++
++	// Language 覆盖 Accept-Language 与 navigator.languages（如 "zh-CN"）。空 = 不覆盖。
++	// 仅在启用 Fingerprint 的一致 UA 覆盖时生效。
++	Language string
++
++	// ExtraFlags 透传任意浏览器启动 flag（如 fingerprint-chromium 的
++	// "fingerprint-brand":"Chrome"、"fingerprint-hardware-concurrency":"8"）。
++	// 键不带前导 "--"。
++	ExtraFlags map[string]string
++
++	Trace bool // Whether to enable tracing (not implemented yet)
++}
++
++// Option is a functional option for configuring the browser.
++type Option func(*Config)
++
++// newDefaultConfig returns a new Config with default values.
++func newDefaultConfig() *Config {
++	return &Config{
++		Headless:      true,
++		UserAgent:     "", // 默认不覆盖 UA
++		Cookies:       "",
++		ChromeBinPath: "", // Empty means auto-detect
++		StealthJS:     true,
++		Trace:         false,
++	}
++}
++
++// WithHeadless sets whether the browser should run in headless mode.
++func WithHeadless(headless bool) Option {
++	return func(c *Config) {
++		c.Headless = headless
++	}
++}
++
++// WithUserAgent sets a custom user agent string for the browser.
++// 注意：配合 CloakBrowser 使用时不建议设置，强制 UA 会与 Client Hints 产生矛盾。
++func WithUserAgent(userAgent string) Option {
++	return func(c *Config) {
++		c.UserAgent = userAgent
++	}
++}
++
++// WithCookies sets cookies for the browser from a JSON string.
++// The cookies should be in the format expected by proto.NetworkCookie.
++func WithCookies(cookies string) Option {
++	return func(c *Config) {
++		c.Cookies = cookies
++	}
++}
++
++// WithChromeBinPath sets a custom Chrome/Chromium executable path.
++// If not set or empty, launcher will auto-detect or download a browser.
++// Common paths:
++//   - macOS: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
++//   - Linux: "/usr/bin/google-chrome" or "/usr/bin/chromium"
++//   - Windows: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
++func WithChromeBinPath(path string) Option {
++	return func(c *Config) {
++		c.ChromeBinPath = path
++	}
++}
++
++func WithUserDataDir(path string) Option {
++	return func(c *Config) {
++		c.UserDataDir = path
++	}
++}
++
++// WithProxy sets a proxy server for all browser requests.
++// Supports HTTP, HTTPS, and SOCKS5 proxies.
++// Example: "http://proxy.example.com:8080", "socks5://127.0.0.1:1080"
++//
++// Note: Chrome's --proxy-server flag does not support embedded credentials
++// (e.g. "http://user:pass@host:port"). For authenticated proxies, handle
++// authentication separately at the page level.
++func WithProxy(proxy string) Option {
++	return func(c *Config) {
++		c.Proxy = proxy
++	}
++}
++
++// WithFingerprint 启用 CloakBrowser 源码级指纹引擎。
++// platform 传空则按运行 OS 自动选择（Linux 服务器呈现 Windows 画像，mac 呈现 macOS）。
++func WithFingerprint(platform string) Option {
++	return func(c *Config) {
++		c.Fingerprint = true
++		c.FingerprintPlatform = platform
++	}
++}
++
++// WithFingerprintSeed 固定指纹 seed（0 表示每次随机）。同一 seed 产出同一套一致指纹。
++func WithFingerprintSeed(seed int) Option {
++	return func(c *Config) {
++		c.FingerprintSeed = seed
++	}
++}
++
++// WithStealthJS 控制是否注入 go-rod/stealth 的 JS 补丁。用 CloakBrowser 时应传 false。
++func WithStealthJS(enabled bool) Option {
++	return func(c *Config) {
++		c.StealthJS = enabled
++	}
++}
++
++// WithLanguage 覆盖 Accept-Language 与 navigator.languages（如 "zh-CN"）。仅在启用 Fingerprint 时生效。
++func WithLanguage(lang string) Option {
++	return func(c *Config) {
++		c.Language = lang
++	}
++}
++
++// WithExtraFlags 透传任意浏览器启动 flag（键不带前导 "--"）。
++func WithExtraFlags(flags map[string]string) Option {
++	return func(c *Config) {
++		c.ExtraFlags = flags
++	}
++}
++
++func WithTrace() Option {
++	return func(c *Config) {
++		c.Trace = true
++	}
++}
++
++// autoFingerprintPlatform 按运行 OS 返回 CloakBrowser 的指纹平台。
++// Linux 服务器上呈现 Windows 画像（最常见的真实用户画像，且避免 Linux 桌面的稀有特征）。
++func autoFingerprintPlatform() string {
++	if runtime.GOOS == "darwin" {
++		return "macos"
++	}
++	return "windows"
++}
++
++// New creates a new Browser instance with the provided options.
++// It initializes a Chrome browser with stealth mode enabled.
++func New(options ...Option) *Browser {
++	cfg := newDefaultConfig()
++	for _, option := range options {
++		option(cfg)
++	}
++
++	l := launcher.New().
++		Headless(cfg.Headless).
++		Set("--no-sandbox").
++		// link-brain: leakless 用 127.0.0.1:2978 当跨进程锁、绑不上就无限重试；Windows 把动态端口段保留给 Hyper-V/WinNAT 时
++		// 2978 常落在保留段里，启动会无声卡死。关掉它，残留浏览器由调用方按 profile 回收。
++		Leakless(false)
++
++	// 仅在显式指定 UA 时才覆盖，避免与 Client Hints 矛盾
++	if cfg.UserAgent != "" {
++		l = l.Set("user-agent", cfg.UserAgent)
++	}
++
++	// 传入 CloakBrowser 指纹参数以激活其源码级一致指纹引擎
++	if cfg.Fingerprint {
++		platform := cfg.FingerprintPlatform
++		if platform == "" {
++			platform = autoFingerprintPlatform()
++		}
++		seed := cfg.FingerprintSeed
++		if seed == 0 {
++			seed = rand.Intn(89999) + 10000 // 10000-99999
++		}
++		l = l.Set("fingerprint", strconv.Itoa(seed)).
++			Set("fingerprint-platform", platform)
++		logrus.Infof("fingerprint enabled: platform=%s seed=%d", platform, seed)
++	}
++
++	// 透传额外 flag（如 fingerprint-chromium 的 fingerprint-brand / hardware-concurrency）
++	for k, v := range cfg.ExtraFlags {
++		l = l.Set(flags.Flag(k), v)
++	}
++
++	// Set custom Chrome binary path if provided
++	if cfg.ChromeBinPath != "" {
++		l = l.Bin(cfg.ChromeBinPath)
++	}
++	if cfg.UserDataDir != "" {
++		l = l.UserDataDir(cfg.UserDataDir)
++	}
++
++	// Set proxy server if provided
++	if cfg.Proxy != "" {
++		l = l.Proxy(cfg.Proxy)
++	}
++
++	url := l.MustLaunch()
++
++	browser := rod.New().
++		ControlURL(url).
++		Trace(cfg.Trace).
++		MustConnect()
++
++	// 加载 cookies
++	if cfg.Cookies != "" {
++		var cookies []*proto.NetworkCookie
++		if err := json.Unmarshal([]byte(cfg.Cookies), &cookies); err != nil {
++			logrus.Warnf("failed to unmarshal cookies: %v", err)
++		} else {
++			browser.MustSetCookies(cookies...)
++		}
++	}
++
++	b := &Browser{
++		browser:           browser,
++		launcher:          l,
++		stealthJS:         cfg.StealthJS,
++		persistentProfile: cfg.UserDataDir != "",
++	}
++
++	// 启用指纹时，构建一致 UA 覆盖，补回 go-rod 建页面丢失的 UA 版本保真度
++	if cfg.Fingerprint {
++		if ov, err := buildUAOverride(browser, cfg.Language); err != nil {
++			logrus.Warnf("build UA override failed, skip: %v", err)
++		} else {
++			b.uaOverride = ov
++		}
++	}
++
++	return b
++}
++
++// buildUAOverride 用浏览器实读的真实版本补回 go-rod 建页面丢失的 UA 版本保真度。
++//
++// 分工：版本相关字段（UA 串、brands、fullVersionList、uaFullVersion）由本覆盖负责，
++// 版本随 Browser.getVersion 实读、零硬编码（本机 145，Docker 146）；
++// platform/platformVersion/architecture 等平台字段留空，交给 CloakBrowser「始终生效」的
++// 源码级补丁在真实页面上填充（已验证：留空不会被覆盖，补丁按 --fingerprint-platform 给出
++// 自洽的平台值，mac→macOS/arm，Docker→Windows）。这样本覆盖绝不与补丁的平台一致性冲突。
++func buildUAOverride(browser *rod.Browser, language string) (*proto.NetworkSetUserAgentOverride, error) {
++	ver, err := proto.BrowserGetVersion{}.Call(browser)
++	if err != nil {
++		return nil, err
++	}
++	fullVersion := strings.TrimPrefix(ver.Product, "Chrome/") // 如 145.0.7632.109
++	major := fullVersion
++	if i := strings.IndexByte(fullVersion, '.'); i > 0 {
++		major = fullVersion[:i]
++	}
++
++	ov := &proto.NetworkSetUserAgentOverride{
++		UserAgent: ver.UserAgent, // 浏览器真实 UA（正确平台+版本）
++		UserAgentMetadata: &proto.EmulationUserAgentMetadata{
++			Brands: []*proto.EmulationUserAgentBrandVersion{
++				{Brand: "Not:A-Brand", Version: "99"},
++				{Brand: "Google Chrome", Version: major},
++				{Brand: "Chromium", Version: major},
++			},
++			FullVersionList: []*proto.EmulationUserAgentBrandVersion{
++				{Brand: "Not:A-Brand", Version: "99.0.0.0"},
++				{Brand: "Google Chrome", Version: fullVersion},
++				{Brand: "Chromium", Version: fullVersion},
++			},
++			FullVersion: fullVersion,
++			// 平台字段留空：交给 CloakBrowser 始终生效的补丁填充
++		},
++	}
++	// Accept-Language 传不带 q 值的形式，否则 navigator.languages 会混入 "zh;q=0.9"
++	if language != "" {
++		ov.AcceptLanguage = language + "," + primaryLang(language)
++	}
++
++	logrus.Infof("UA coherence: version=%s", ver.Product)
++	return ov, nil
++}
++
++// primaryLang 取语言主标签，如 "zh-CN" → "zh"。
++func primaryLang(lang string) string {
++	if i := strings.IndexByte(lang, '-'); i > 0 {
++		return lang[:i]
++	}
++	return lang
++}
++
++// Close closes the browser and cleans up resources.
++func (b *Browser) Close() {
++	b.browser.MustClose()
++	if b.persistentProfile {
++		b.launcher.UserDataDir("")
++	}
++	b.launcher.Cleanup()
++}
++
++// NewPage creates a new page.
++// 若启用 StealthJS 则注入 go-rod/stealth 补丁；否则返回普通页面（交给源码级指纹补丁）。
++// 若配置了一致 UA 覆盖，则在返回前套用，补回 UA 版本保真度。
++func (b *Browser) NewPage() *rod.Page {
++	var page *rod.Page
++	if b.stealthJS {
++		page = stealth.MustPage(b.browser)
++	} else {
++		page = b.browser.MustPage()
++	}
++
++	if b.uaOverride != nil {
++		if err := b.uaOverride.Call(page); err != nil {
++			logrus.Warnf("apply UA override failed: %v", err)
++		}
++	}
++	return page
++}
 diff --git a/xiaohongshu/feed_detail.go b/xiaohongshu/feed_detail.go
 index 2cfde9f..1b25bef 100644
 --- a/xiaohongshu/feed_detail.go
@@ -1770,37 +1646,6 @@ index a5df183..10d127f 100644
  	humanize.Delay(ctx, humanize.AfterNavigate)
  
  	target, index, err := n.locate(ctx, page, commentID)
-diff --git a/xiaohongshu/page_ready.go b/xiaohongshu/page_ready.go
-new file mode 100644
-index 0000000..01490b9
---- /dev/null
-+++ b/xiaohongshu/page_ready.go
-@@ -0,0 +1,25 @@
-+package xiaohongshu
-+
-+import (
-+	"time"
-+
-+	"github.com/go-rod/rod"
-+	"github.com/sirupsen/logrus"
-+)
-+
-+// feedReadyTimeout 等待详情页关键容器的上限，超时不算失败。
-+const feedReadyTimeout = 8 * time.Second
-+
-+// feedReadySelectors 详情页已出结果的判据：正常笔记容器，或 checkPageAccessible 认的错误容器。
-+const feedReadySelectors = ".interact-container, .note-scroller, " +
-+	".access-wrapper, .error-wrapper, .not-found-wrapper, .blocked-wrapper"
-+
-+// waitFeedPageReady 等待 feed 详情页可用：load 事件 + 关键容器出现，不要求整页 DOM 静止。
-+func waitFeedPageReady(page *rod.Page) {
-+	page.MustWaitLoad()
-+
-+	if _, err := page.Timeout(feedReadyTimeout).Element(feedReadySelectors); err != nil {
-+		// 没等到也继续，后续 Element 各自带轮询
-+		logrus.Warnf("详情页关键容器未在 %s 内出现，继续尝试: %v", feedReadyTimeout, err)
-+	}
-+}
 diff --git a/xiaohongshu/search.go b/xiaohongshu/search.go
 index 7c22952..1fe60ee 100644
 --- a/xiaohongshu/search.go

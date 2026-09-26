@@ -114,6 +114,12 @@ style.textContent = `
 .lbc-sub{color:var(--text-faint);font-size:11px;letter-spacing:.06em;}
 .lbc-search{grid-column:1/-1;grid-row:2;justify-self:start;max-width:520px!important;text-align:left;height:44px!important;padding:0 15px!important;border:1px solid var(--background-modifier-border)!important;border-radius:12px!important;background:var(--background-secondary)!important;font:inherit;font-size:14px;}
 .lbc-search:focus{border-color:var(--interactive-accent)!important;outline:none;}
+.lbc-searchwrap{grid-column:1/-1;grid-row:2;justify-self:start;position:relative;width:100%;max-width:520px;}
+.lbc-searchwrap .lbc-search{width:100%!important;max-width:none!important;padding-right:44px!important;}
+.lbc-mic{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:36px;height:36px;padding:0;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-muted);cursor:pointer;display:grid;place-items:center;border-radius:10px;}
+.lbc-mic:hover{color:var(--text-normal);background:var(--background-modifier-hover)!important;}
+.lbc-mic svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;}
+.lbc-mic.is-recording{color:var(--color-red);}
 .lbc-cats{gap:24px;flex-wrap:nowrap;overflow-x:auto;padding-bottom:5px;margin-bottom:28px;font-family:inherit;}
 .lbc-cats button.lbc-cat{flex:none;border:0!important;border-bottom:2px solid transparent!important;background:transparent!important;box-shadow:none!important;padding:8px 0;border-radius:0;height:auto;font-size:13px;font-weight:400;}
 .lbc-cats button.is-active{color:var(--text-normal);border-bottom-color:var(--text-normal)!important;font-weight:500;}
@@ -234,8 +240,13 @@ if(app.vault.on && dv.component?.registerEvent){
   dv.component.registerEvent(app.vault.on('modify',update));
   dv.component.registerEvent(app.vault.on('create',update));
 }
-const search=head.createEl('input',{cls:'lbc-search'});
-search.type='search';search.placeholder='搜索收藏…';
+const searchWrap=head.createEl('div',{cls:'lbc-searchwrap'});
+const search=searchWrap.createEl('input',{cls:'lbc-search'});
+search.type='search';search.placeholder='搜索收藏…（按住 CapsLock 或点麦克风说）';
+// 语音搜索：只做关键词/模糊匹配，不问 AI（要 AI 分析去「问收藏」）
+const mic=searchWrap.createEl('button',{cls:'lbc-mic',attr:{title:'语音搜索（再点一次结束）'}});mic.type='button';
+mic.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
+mic.onclick=()=>provider()?.toggleVoice?.({target:search,button:mic,onText:text=>{search.value=spokenKeywords(text)||text;commitSearch();}});
 const pageNav=head.createEl('nav',{cls:'lb-page-nav'});
 const browse=pageNav.createEl('button',{text:'浏览收藏',cls:'is-current'});browse.setAttribute('aria-current','page');browse.onclick=()=>provider().openLibraryPage('catalog');
 const ask=pageNav.createEl('button',{text:'问收藏'});ask.onclick=()=>provider().openLibraryPage('chat');
@@ -357,7 +368,7 @@ function render(){
   if(todoCount){syncSpan.hidden=false;}else syncSpan.hidden=true;
   ai.hidden=!asking;grid.hidden=asking;
   if(asking){selbar.hidden=true;return;}
-  if(simplePage&&!starredPage&&!q&&!activeCat&&!activeTopic&&!todayOnly&&!todoOnly){grid.createEl('div',{cls:'lbc-empty',text:'搜收藏，或输入 /问题 让 AI 整理答案。'});selbar.hidden=true;return;}
+  if(simplePage&&!starredPage&&!q&&!activeCat&&!activeTopic&&!todayOnly&&!todoOnly){grid.createEl('div',{cls:'lbc-empty',text:'输入关键词搜索收藏；想让 AI 分析，点上面的「问收藏」。'});selbar.hidden=true;return;}
   selbar.hidden=!selectMode;
   if(selectMode){selCount.setText(`已选 ${selected.size} 篇 · 点封面继续勾选 · ESC 退出`);delBtn.setText(`删除选中${selected.size?' ('+selected.size+')':''}`);delBtn.disabled=!selected.size;}
   if(!shown.length){grid.createEl('div',{cls:'lbc-empty',text:'没找到，试试更短的关键词。'});return;}
@@ -421,10 +432,14 @@ async function sendQuestion(q){
 }
 search.onkeydown=e=>{
   if(e.key!=='Enter'||e.isComposing)return;
-  e.preventDefault();const raw=search.value.trim();
-  if(raw.startsWith('/')){if(!raw.slice(1).trim())return;provider().pendingArchiveQuestion=raw.slice(1).trim();provider().openLibraryPage('chat');}
-  else {if(busy)return;chatMode=false;committed=raw;render();}
+  e.preventDefault();commitSearch();
 };
+// 目录只做搜索（0926 Owner）：AI 深度回答在「问收藏」页。整句（语音打进来的）搜不到时退成关键词再搜。
+function commitSearch(){
+  if(busy)return;const raw=search.value.trim().replace(/^\//,'');chatMode=false;committed=raw;
+  if(raw&&!items.some(it=>score(it,normalize(raw),data.pinyin_chars,data.aliases||[])>0)){const kw=spokenKeywords(raw);if(kw&&kw!==raw)committed=kw;}
+  render();
+}
 search.oninput=()=>{if(!search.value&&!busy){committed='';chatMode=false;render();}};
 renderCatBar();render();
 

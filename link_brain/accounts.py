@@ -169,6 +169,21 @@ def ensure_reader(*, wait: float = 40):
     raise ReaderError('DISCONNECTED', '读取服务启动未完成', '日志：' + str(log))
 
 
+def restart_reader() -> None:
+    """服务卡死（常见于高负载下浏览器启动没回来、一直占着账号目录）时：结束服务和占着该目录的浏览器，再拉起。"""
+    if os.name != 'nt' or urlsplit(endpoint()).hostname not in ('localhost', '127.0.0.1'):
+        return
+    profile =str(profile_dir()).replace("'", "''")
+    names = ','.join(f"'{n}'" for n in READER_NAMES)
+    script = (f"Get-CimInstance Win32_Process | Where-Object {{ @({names}) -contains $_.Name -or "
+              f"($_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*{profile}*') }} | "
+              "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }")
+    subprocess.run(['powershell.exe', '-NoProfile', '-Command', script], capture_output=True, timeout=30,
+                   creationflags=subprocess.CREATE_NO_WINDOW)
+    time.sleep(1)
+    ensure_reader()
+
+
 def row(key: str, label: str, state: str, message: str, next_step: str = '', detail: str = '',
         optional=False, action: str = '', account: str = '') -> dict:
     return dict(id=key, label=label, state=state, message=message, next_step=next_step, detail=detail,
@@ -195,7 +210,13 @@ def xhs_status(*, deep=True) -> dict:
         if not deep and session.get('logged_in') is not None:
             ok = session['logged_in']
         else:
-            data = api('GET', '/api/v1/login/status', timeout=90)
+            try:
+                data = api('GET', '/api/v1/login/status', timeout=45)
+            except ReaderError as exc:
+                if exc.code != 'TIMEOUT':
+                    raise
+                restart_reader()  # 卡死的服务不会自己好，重启一次再问；再超时才报给人
+                data = api('GET', '/api/v1/login/status', timeout=60)
             if data.get('login_pending'):
                 return error_row(ReaderError('LOGIN_IN_PROGRESS'))
             ok = data.get('is_logged_in') is True
@@ -239,7 +260,13 @@ def _finish_login(s: dict) -> dict:
 def login(*, timeout=330) -> dict:
     """打开小红书官方登录窗口，人在官方页面扫码；这里只轮询服务内存态，窗口由服务关闭并落盘。"""
     ensure_reader()
-    api('POST', '/api/v1/login/window', timeout=20)
+    try:
+        api('POST', '/api/v1/login/window', timeout=20)
+    except ReaderError as exc:
+        if exc.code != 'TIMEOUT':
+            raise
+        restart_reader()
+        api('POST', '/api/v1/login/window', timeout=20)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         time.sleep(1.5)

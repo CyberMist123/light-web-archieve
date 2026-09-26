@@ -18,8 +18,11 @@ const DEFAULT_SETTINGS = {
   textAI: { mode: "media", model: "", endpoint: "", apiKey: "", maxTokens: 1200 },
   ocr: { mode: "media", via: "local", model: "", endpoint: "", apiKey: "" },
   // 识图 / 语音识别接口（0926）：media=本机；http=自定义 OpenAI 兼容接口；off=关闭。和 link_brain/ai_config.py 对齐。
-  visionAI: { mode: "media", model: "qwen3-vl-flash", endpoint: "", apiKey: "" },
+  // videoScreenText：视频每 2 秒抽一帧本地 OCR 出「视频画面文字」（0926），不花钱但吃 CPU。
+  visionAI: { mode: "media", model: "qwen3-vl-flash", endpoint: "", apiKey: "", videoScreenText: true },
   asrAI: { mode: "media", model: "whisper-1", endpoint: "", apiKey: "" },
+  // 语音输入（0926）：capsLock=用 CapsWriter 客户端，任何程序里按住 CapsLock 说话；capsWriterDir 空=自动找。
+  voice: { capsLock: true, capsWriterDir: "" },
   prompts: { summary: "", answer: DEFAULT_ANSWER_PROMPT },
   retrieval: { totalCharLimit: 8000, fragChars: 800, topK: 8, expandTerms: false },
   // 目录页顶部大类筛选（空=用内置 BIG_CATS）；形如 [{name, keywords:[...]}]。
@@ -220,8 +223,9 @@ class LinkBrainActions extends Plugin {
         this.run(["-m", "link_brain", "sync-favorites", "--extract"], "同步收藏", true),
     });
 
-    this.addCommand({ id: 'voice-ask', name: '语音提问（问 AI）：开始 / 结束录音',
-      hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'M' }], callback: () => this.toggleVoice() });
+    // 默认不占快捷键：语音输入走全局 CapsLock（CapsWriter），要在 Obsidian 里另绑可去「设置 → 快捷键」。
+    this.addCommand({ id: 'voice-ask', name: '语音提问（问 AI）：开始 / 结束录音', callback: () => this.toggleVoice() });
+    if (this.settings.voice?.capsLock) this.app.workspace.onLayoutReady(() => this.setCapsVoice(true, { quiet: true }).catch(() => {}));
     this.addCommand({ id: 'fetch-all-comments', name: '抓这篇的全部评论（手动拉取，较慢）', callback: () => this.fetchAllComments() });
     if (this.app.workspace?.on) this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => {
       if (!(file instanceof TFile) || !this.app.metadataCache.getFileCache(file)?.frontmatter?.link_brain?.item_id) return;
@@ -475,9 +479,9 @@ class LinkBrainActions extends Plugin {
     await this.run(['-m', 'link_brain', 'comments', itemId], '抓全部评论', true);
   }
 
-  // ── 语音提问（0926）：麦克风按钮 / 快捷键（默认 Ctrl+Shift+M，Obsidian「设置 → 快捷键」可改）。
-  //    点一下开始录，再点一下结束；转成文字后以「/」开头填进问 AI 输入框，由人确认后回车发送。
-  async toggleVoice({ target = null, button = null } = {}) {
+  // ── 语音提问（0926）：麦克风按钮 / 命令（默认无快捷键，全局语音走 CapsLock）。
+  //    点一下开始录，再点一下结束；转成文字填进输入框，由人确认后回车发送。onText 给了就交给调用方（目录页用来直接搜）。
+  async toggleVoice({ target = null, button = null, onText = null } = {}) {
     if (this.voice) { this.voice.recorder.stop(); return; }
     if (!target) {
       await this.openLibraryPage('chat');
@@ -507,13 +511,45 @@ class LinkBrainActions extends Plugin {
         fs.unlink(file, () => {});
         notice.hide();
         if (r.status !== 'ok') { new Notice(r.error || '语音识别失败', 8000); return; }
+        if (onText) { onText(r.text); return; }
         const current = target.value.trim();
-        target.value = current ? `${current} ${r.text}` : `/${r.text}`;
+        target.value = current ? `${current} ${r.text}` : r.text;
         target.dispatchEvent(new Event('input'));
         target.focus();
       } catch (e) { notice.hide(); new Notice(e.message, 8000); }
     };
     recorder.start();
+  }
+
+  // ── CapsLock 语音（0926）：开关本机 CapsWriter 客户端。它全局监听 CapsLock（按住说话、松开出字），
+  //    所以任何程序都能用，包括这里的搜索框和问 AI 输入框。只动客户端；识别服务端别的功能也在用，不关。
+  capsWriterDir() {
+    const guesses = [this.settings.voice?.capsWriterDir, process.env.CAPSWRITER_DIR, 'D:\\AI\\tools\\CapsWriter-Offline',
+      path.join(require('os').homedir(), 'CapsWriter-Offline')].filter(Boolean);
+    return guesses.find(d => fs.existsSync(path.join(d, 'start_client.exe'))) || null;
+  }
+  psRun(script) {
+    return new Promise(resolve => {
+      const child = spawn('powershell.exe', ['-NoProfile', '-Command', script], { windowsHide: true });
+      let out = ''; child.stdout.on('data', d => out += d); child.on('close', () => resolve(out.trim())); child.on('error', () => resolve(''));
+    });
+  }
+  async setCapsVoice(on, { quiet = false } = {}) {
+    if (process.platform !== 'win32') { if (!quiet) new Notice('CapsLock 语音目前只支持 Windows（CapsWriter）。'); return false; }
+    const running = async name => (await this.psRun(`@(Get-Process -Name '${name}' -ErrorAction SilentlyContinue).Count`)) !== '0';
+    if (!on) {
+      await this.psRun("Get-Process -Name start_client -ErrorAction SilentlyContinue | Stop-Process -Force");
+      if (!quiet) new Notice('已关闭 CapsLock 语音输入。');
+      return true;
+    }
+    if (await running('start_client')) return true;
+    const dir = this.capsWriterDir();
+    if (!dir) { if (!quiet) new Notice('没找到 CapsWriter（需要 start_client.exe）。请在设置里填它的目录，或先安装 CapsWriter-Offline。', 10000); return false; }
+    const start = (exe, task) => this.psRun(`if (Get-ScheduledTask -TaskName '${task}' -ErrorAction SilentlyContinue) { Start-ScheduledTask -TaskName '${task}' } else { Start-Process -FilePath '${path.join(dir, exe).replace(/'/g, "''")}' -WorkingDirectory '${dir.replace(/'/g, "''")}' -WindowStyle Hidden }`);
+    if (!(await running('start_server'))) await start('start_server.exe', 'CapsWriter Server');
+    await start('start_client.exe', 'CapsWriter Client');
+    if (!quiet) new Notice('CapsLock 语音已开启：在任何程序里按住 CapsLock 说话，松开后文字打进光标处。', 8000);
+    return true;
   }
 
   async logoutAccount() {
@@ -546,7 +582,7 @@ class LinkBrainActions extends Plugin {
 
   async accountStatus() {
     if (this.running === '账号登录') return {state: 'busy', next_step: '正在等待扫码…', action: 'none'};
-    return this.runJSON(['-m', 'link_brain', 'login', '--status', '--json'], '检查登录状态失败', 60000);
+    return this.runJSON(['-m', 'link_brain', 'login', '--status', '--json'], '检查登录状态失败', 180000);
   }
 
   async loginAccount(force = false) {
@@ -991,20 +1027,29 @@ class LinkBrainSettingTab extends PluginSettingTab {
     endpointBlock('visionAI', { name: '识图接口',
       desc: '用途：图片里是表格时转成 Markdown 表格，几乎没字的图（示意图、照片）生成一句描述，结果也能搜到。普通文字截图只用本地 OCR，不调用它。',
       localLabel: '本机千问配置', pathHint: 'OpenAI 兼容 /chat/completions 地址，模型需支持图片输入。', modelHint: 'qwen3-vl-flash / gpt-4o-mini' });
+    new Setting(c).setName('　视频画面文字')
+      .setDesc('视频每 2 秒抽一帧做本地 OCR，把烧在画面上的字幕、文字卡收进笔记和搜索（背景音乐的视频尤其有用）。'
+        + '成本：不调用任何付费接口，只占本机 CPU——30 秒视频约 7 秒，最长只看前 3 分钟（约 35 秒）；在夜间同步里跑，不挡导入。'
+        + '电脑配置低、或不需要这些文字时可以关掉：关闭后新视频只做语音转写，已有的画面文字保留。')
+      .addToggle(t => t.setValue(s.visionAI.videoScreenText !== false).onChange(async v => { s.visionAI.videoScreenText = v; await save(); }));
     endpointBlock('asrAI', { name: '语音识别接口',
-      desc: '用途：「问 AI」时按麦克风或快捷键说话，把你的话转成文字填进输入框。本机方式声音不出电脑。',
+      desc: '用途：点搜索框或问 AI 输入框旁的麦克风说话，转成文字。本机方式声音不出电脑。',
       localLabel: '本机语音识别', pathHint: 'OpenAI 兼容 /audio/transcriptions 地址（如 Whisper 服务）。', modelHint: 'whisper-1' });
-    new Setting(c).setName('语音提问快捷键').setDesc('默认 Ctrl+Shift+M：按一下开始说话，再按一下结束。在任何页面按都会跳到问 AI。')
-      .addButton(b => b.setButtonText('修改快捷键').onClick(() => {
-        this.app.setting.openTabById('hotkeys');
-        const tab = this.app.setting.activeTab;
-        if (tab?.searchComponent) { tab.searchComponent.setValue('语音提问'); tab.updateHotkeyVisibility?.(); }
+    new Setting(c).setName('CapsLock 语音输入')
+      .setDesc('开启后，电脑上所有程序都可以用：按住 CapsLock 说话，松开后文字直接打进光标所在的输入框（包括这里的搜索框和问 AI）。'
+        + '短按 CapsLock 仍是切换大小写。由本机 CapsWriter 提供，关闭即停止它的客户端。')
+      .addToggle(t => t.setValue(!!s.voice.capsLock).onChange(async v => {
+        const ok = await this.plugin.setCapsVoice(v);
+        s.voice.capsLock = v && ok; await save(); if (v && !ok) this.display();
       }));
+    if (s.voice.capsLock || !this.plugin.capsWriterDir()) new Setting(c).setName('　CapsWriter 目录').setDesc('留空自动查找（含 start_client.exe 的文件夹）。')
+      .addText(t => t.setPlaceholder('D:\\AI\\tools\\CapsWriter-Offline').setValue(s.voice.capsWriterDir || '')
+        .onChange(async v => { s.voice.capsWriterDir = v.trim(); await save(); }));
 
     // —— 常用 ——
     c.createEl('h3', { text: '常用' });
-    new Setting(c).setName('搜索收藏').setDesc('普通文字按 Enter 搜索；/问题 按 Enter 问 AI。')
-      .addButton(b => b.setButtonText('打开搜索').onClick(() => this.plugin.openLibraryPage('chat')));
+    new Setting(c).setName('搜索收藏').setDesc('目录页只做搜索（关键词 / 模糊匹配，不调用 AI）；「问收藏」页直接提问，由 AI 读收藏后深度回答。')
+      .addButton(b => b.setButtonText('打开目录').onClick(() => this.plugin.openLibraryPage('catalog')));
     new Setting(c).setName('批注昵称').setDesc('笔记底部批注的署名，形如「ler · 09/17 14:30」。')
       .addText(t => t.setPlaceholder('ler').setValue(s.nickname || '').onChange(async v => { s.nickname = v.trim(); await save(); }));
     new Setting(c).setName('下载文件夹').setDesc('手动下载的附件会从这里自动认领。')

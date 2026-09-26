@@ -80,6 +80,12 @@ def backfill(row):
     return {'item_id':row['item_id'],'status':entry['download_status'],'bytes':entry['bytes'] or 0,'error':entry['error']}
 
 
+def screen_text_enabled():
+    """设置「识图接口 → 视频画面文字」；关了就只做语音转写。"""
+    from . import ai_config
+    return (ai_config.load().get('visionAI') or {}).get('videoScreenText', True) is not False
+
+
 def transcribe(row):
     from .vision import MEDIA_PY
     obj=storage.object_dir(row['source'],row['source_id'])
@@ -90,7 +96,7 @@ def transcribe(row):
     if output.exists() and storage.read_json(output).get('status')=='ok':
         # 0926：语音转写过的视频补「画面文字」（烧录字幕 / 文字卡），不重转语音
         done=storage.read_json(output)
-        if entry and 'screen' not in done:
+        if entry and 'screen' not in done and screen_text_enabled():
             from .screentext import extract
             done['screen']=extract(obj/entry['file'])
             storage.write_json(output,done)
@@ -109,8 +115,9 @@ def transcribe(row):
     except (subprocess.SubprocessError,OSError) as exc:
         result={'status':'failed','text':'','error':type(exc).__name__}
     finally:audio.unlink(missing_ok=True)
-    from .screentext import extract
-    result['screen']=extract(obj/entry['file'])  # 画面文字与语音并存：背景乐转写成歌词时以它为准
+    if screen_text_enabled():
+        from .screentext import extract
+        result['screen']=extract(obj/entry['file'])  # 画面文字与语音并存：背景乐转写成歌词时以它为准
     storage.write_json(output,result)
     render.render_object(row['source'],row['source_id'])
     return {'item_id':row['item_id'],'status':result['status'],'chars':len(result['text'])}

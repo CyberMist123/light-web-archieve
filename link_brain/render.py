@@ -866,7 +866,7 @@ def render_agent_md(
                 lines.append(f"- {image['asset']}：{reflow_ocr(image.get('ocr')) or '（无文字）'}")
                 visual = image.get("visual") or {}
                 if visual.get("status") == "ok":
-                    label = "表格" if visual.get("kind") == "table" else "图片描述"
+                    label = {"table": "表格", "title": "标题图"}.get(visual.get("kind"), "图片描述")
                     lines.append(f"  - （{label}）")
                     lines.extend("    " + row for row in visual["text"].splitlines())
             else:

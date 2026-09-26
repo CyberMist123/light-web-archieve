@@ -6,12 +6,23 @@ import threading
 from . import ask
 
 
+def _warm():
+    """进程一起来就载好向量矩阵、打通 embedding 连接，第一问不再付冷启动。失败无所谓。"""
+    try:
+        from . import semantic
+        semantic._load_matrix(semantic.load_config()['model'])
+        semantic.query_vector('收藏')
+    except Exception:  # noqa: BLE001 - 预热失败不影响问答
+        pass
+
+
 def run(args):
     incoming=queue.Queue()
     def read():
         for line in sys.stdin:incoming.put(line)
         incoming.put(None)
     threading.Thread(target=read,daemon=True).start()
+    threading.Thread(target=_warm,daemon=True).start()
     def emit(value):
         print(json.dumps(value,ensure_ascii=False),flush=True)
     while True:
