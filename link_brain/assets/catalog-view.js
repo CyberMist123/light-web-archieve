@@ -25,7 +25,9 @@ style.textContent = `
 .lbc-sub{font-size:12px;color:var(--text-normal);white-space:nowrap;}
 .lbc-sync{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e08a1e;color:#fff;font-size:11px;font-weight:700;font-family:sans-serif;cursor:pointer;flex:0 0 auto;}
 .lbc-sync[hidden]{display:none;}
-.lbc-account-status{font-size:12px;padding:2px 8px;height:auto;box-shadow:none;color:var(--text-muted);display:inline-flex;align-items:center;gap:5px;border-radius:999px;}.lbc-account-status .lbc-bang{display:inline-grid;place-items:center;width:15px;height:15px;border-radius:50%;background:var(--color-red);color:#fff;font-size:10px;font-weight:800;line-height:1;}.lbc-account-status.is-alert{color:var(--color-red);background:rgba(var(--color-red-rgb),.10);}.lbc-account-status.is-warn .lbc-bang{background:var(--color-orange);}.lbc-account-status.is-warn{color:var(--color-orange);background:rgba(var(--color-orange-rgb),.10);}
+.lbc-wrap button.lbc-sync.lbc-account-status{width:16px;height:16px!important;min-height:0;padding:0!important;border:0!important;box-shadow:none!important;background:#e08a1e!important;color:#fff;font-size:11px;font-weight:700;border-radius:50%!important;}
+.lbc-wrap button.lbc-sub.lbc-account-status{background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important;height:auto!important;cursor:default;}
+.lbc-account-status[hidden]{display:none!important;}
 .lbc-grid{columns:250px;column-gap:32px;}
 .lbc-card{display:inline-block;vertical-align:top;width:100%;margin:0 0 36px;break-inside:avoid;cursor:pointer;position:relative;}
 .lbc-attach{position:absolute;top:8px;right:8px;font-size:11px;line-height:1;padding:4px 8px;border-radius:9px;background:rgba(0,0,0,.55);color:#fff;pointer-events:none;backdrop-filter:blur(2px);}
@@ -114,12 +116,6 @@ style.textContent = `
 .lbc-sub{color:var(--text-faint);font-size:11px;letter-spacing:.06em;}
 .lbc-search{grid-column:1/-1;grid-row:2;justify-self:start;max-width:520px!important;text-align:left;height:44px!important;padding:0 15px!important;border:1px solid var(--background-modifier-border)!important;border-radius:12px!important;background:var(--background-secondary)!important;font:inherit;font-size:14px;}
 .lbc-search:focus{border-color:var(--interactive-accent)!important;outline:none;}
-.lbc-searchwrap{grid-column:1/-1;grid-row:2;justify-self:start;position:relative;width:100%;max-width:520px;}
-.lbc-searchwrap .lbc-search{width:100%!important;max-width:none!important;padding-right:44px!important;}
-.lbc-mic{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:36px;height:36px;padding:0;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-muted);cursor:pointer;display:grid;place-items:center;border-radius:10px;}
-.lbc-mic:hover{color:var(--text-normal);background:var(--background-modifier-hover)!important;}
-.lbc-mic svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;}
-.lbc-mic.is-recording{color:var(--color-red);}
 .lbc-cats{gap:24px;flex-wrap:nowrap;overflow-x:auto;padding-bottom:5px;margin-bottom:28px;font-family:inherit;}
 .lbc-cats button.lbc-cat{flex:none;border:0!important;border-bottom:2px solid transparent!important;background:transparent!important;box-shadow:none!important;padding:8px 0;border-radius:0;height:auto;font-size:13px;font-weight:400;}
 .lbc-cats button.is-active{color:var(--text-normal);border-bottom-color:var(--text-normal)!important;font-weight:500;}
@@ -206,7 +202,8 @@ let todayOnly=false;
 const sub=subLine.createEl('span',{cls:'lbc-sub'});
 const syncSpan=subLine.createEl('span',{cls:'lbc-sync'});syncSpan.hidden=true;syncSpan.setText('!');
 syncSpan.onclick=()=>attachmentPanel(items.filter(it=>it.attachment==='待补'));
-const accountStatus=subLine.createEl('button',{cls:'lbc-account-status',text:'账号 / 同步'});
+// 0926 Owner：按老样子——只有出问题时才在计数后面出一个橙色圆「!」，悬停看原因，点一下直接修。
+const accountStatus=subLine.createEl('button',{cls:'lbc-sync lbc-account-status'});accountStatus.hidden=true;
 // 同步状态：出问题时是「! 需要登录 / 需要验证 / 同步失败」，点一下直接进入修复（扫码 / 验证窗口）。
 let syncState=null;
 async function refreshSyncStatus(){
@@ -214,12 +211,9 @@ async function refreshSyncStatus(){
   const st=syncState||{};
   const label={NOT_LOGGED_IN:'需要登录',CAPTCHA_REQUIRED:'需要验证',DISCONNECTED:'服务未运行',NOT_INSTALLED:'未安装读取组件'}[st.code]
     ||(st.state==='blocked'?(st.account?'需要登录':'同步暂停'):st.state==='failed'?'同步失败':'');
-  accountStatus.empty();accountStatus.className='lbc-account-status';accountStatus.hidden=false;
-  if(label){
-    accountStatus.className='lbc-account-status '+(st.code==='CAPTCHA_REQUIRED'?'is-warn':'is-alert');
-    accountStatus.createEl('span',{cls:'lbc-bang',text:'!'});accountStatus.createEl('span',{text:label});
-    accountStatus.title=(st.detail||st.message||'')+' · 点击处理';
-  } else if(st.state==='running'){accountStatus.setText('同步中…');accountStatus.title='';}
+  accountStatus.empty();accountStatus.className='lbc-sync lbc-account-status';
+  if(label){accountStatus.setText('!');accountStatus.title=label+(st.detail||st.message?'：'+(st.detail||st.message):'')+' · 点击处理';}
+  else if(st.state==='running'){accountStatus.className='lbc-sub lbc-account-status';accountStatus.setText('· 同步中…');accountStatus.title='';}
   // 0926 Owner：已同步就不显示，只有报错才出现
   accountStatus.hidden=!label&&st.state!=='running';
 }
@@ -240,13 +234,8 @@ if(app.vault.on && dv.component?.registerEvent){
   dv.component.registerEvent(app.vault.on('modify',update));
   dv.component.registerEvent(app.vault.on('create',update));
 }
-const searchWrap=head.createEl('div',{cls:'lbc-searchwrap'});
-const search=searchWrap.createEl('input',{cls:'lbc-search'});
-search.type='search';search.placeholder='搜索收藏…（按住 CapsLock 或点麦克风说）';
-// 语音搜索：只做关键词/模糊匹配，不问 AI（要 AI 分析去「问收藏」）
-const mic=searchWrap.createEl('button',{cls:'lbc-mic',attr:{title:'语音搜索（再点一次结束）'}});mic.type='button';
-mic.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
-mic.onclick=()=>provider()?.toggleVoice?.({target:search,button:mic,onText:text=>{search.value=spokenKeywords(text)||text;commitSearch();}});
+const search=head.createEl('input',{cls:'lbc-search'});
+search.type='search';search.placeholder='搜索收藏…';
 const pageNav=head.createEl('nav',{cls:'lb-page-nav'});
 const browse=pageNav.createEl('button',{text:'浏览收藏',cls:'is-current'});browse.setAttribute('aria-current','page');browse.onclick=()=>provider().openLibraryPage('catalog');
 const ask=pageNav.createEl('button',{text:'问收藏'});ask.onclick=()=>provider().openLibraryPage('chat');

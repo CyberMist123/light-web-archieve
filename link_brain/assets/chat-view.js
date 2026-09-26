@@ -146,6 +146,23 @@ style.textContent = `
 .lbchat-editbar{display:flex;gap:12px;margin:8px 0;}.lbchat-source-block{cursor:pointer;}.lbchat-source-block:hover{background:var(--background-secondary);border-radius:4px;}
 @media(max-width:700px){.lbchat{padding:12px 6px 0;}.lbchat-title{font-size:28px;}.lbchat-tools{gap:8px;}.lbchat-head{gap:10px;margin-bottom:18px;}.lbchat-composer{padding:8px;}.lbchat-body{padding:0 4px 20px;}}
 
+.lbchat .lbchat-composer{align-items:center;gap:6px;padding:8px 10px 8px 14px;border-radius:28px;border:1px solid var(--background-modifier-border);background:var(--background-primary);box-shadow:0 2px 12px #0000000f;}
+.lbchat .lbchat-composer:focus-within{border-color:var(--background-modifier-border-hover);}
+.lbchat .lbchat-search{height:40px;min-height:40px;resize:none;padding:9px 4px!important;background:transparent!important;box-shadow:none!important;}
+.lbchat .lbchat-search::placeholder{color:var(--text-faint);}
+.lbchat button.lbchat-cplus{flex:none;width:34px;height:34px;padding:0;border:0!important;box-shadow:none!important;background:transparent!important;font-size:24px;font-weight:300;line-height:1;color:var(--text-normal);border-radius:50%;cursor:pointer;}
+.lbchat button.lbchat-cplus:hover{background:var(--background-modifier-hover)!important;}
+.lbchat .lbchat-model{flex:none;max-width:130px;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-muted);font:inherit;font-size:13px;cursor:pointer;padding:0 4px;}
+.lbchat .lbchat-model[hidden]{display:none;}
+.lbchat .lbchat-mic{border-radius:50%;}
+.lbchat button.lbchat-send{width:36px;height:36px;padding:0;border-radius:50%!important;display:grid;place-items:center;}
+.lbchat-queue{flex:none;width:100%;max-width:850px;margin:12px auto -14px;box-sizing:border-box;display:flex;flex-direction:column;gap:6px;}
+.lbchat-queue[hidden]{display:none;}
+.lbchat-queued{display:flex;align-items:center;gap:8px;padding:6px 10px 6px 14px;border-radius:14px;background:var(--background-secondary);font-size:13px;color:var(--text-muted);}
+.lbchat-queued-tag{font-size:11px;color:var(--text-faint);flex:none;}
+.lbchat-queued-text{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lbchat button.lbchat-queued-x{flex:none;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-faint);font-size:16px;padding:0 4px;height:auto;cursor:pointer;}
+.lbchat button.lbchat-queued-x:hover{color:var(--text-normal);}
 .lb-visually-hidden{position:absolute!important;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;}
 .lbc-star{opacity:0;pointer-events:none;transition:opacity .15s;}.lbc-card:hover .lbc-star,.lbc-card:focus-within .lbc-star{opacity:1;pointer-events:auto;}
 @media(hover:none){.lbc-star{opacity:1;pointer-events:auto;}}
@@ -214,14 +231,34 @@ const histBtn=tools.createEl('button',{cls:'lbchat-hist',attr:{'aria-label':'提
 histBtn.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l3.5 2"/></svg>';
 histBtn.onclick=e=>{e.stopPropagation();toggleHistory(histBtn);};
 const composer=wrap.createEl('form',{cls:'lbchat-composer'});
+// 0926 Owner：输入框照 Codex 的样子——左「+」、灰字提示（设置里可改）、右边模型下拉 + 麦克风 + 圆形发送。
+const cfg=()=>provider()?.settings||{};
+const queueEl=wrap.createEl('div',{cls:'lbchat-queue'});
+const composerPlus=composer.createEl('button',{cls:'lbchat-cplus',text:'+',attr:{title:'收一条链接 / 导入'}});composerPlus.type='button';
+composerPlus.onclick=e=>provider()?.openPlusMenu?.(e);
 const search = composer.createEl('textarea', { cls: 'lbchat-search' });
-search.rows=2;search.placeholder = '问问你的收藏…'; search.value = session.draft || '';
-// 语音提问（0926）：点一下开始录，再点一下结束；识别结果以「/」开头填进输入框。快捷键默认 Ctrl+Shift+M。
+search.rows=1;search.placeholder = cfg().chatPlaceholder || '问点什么呢？'; search.value = session.draft || '';
+const modelPick=composer.createEl('select',{cls:'lbchat-model',attr:{title:'回答用的模型（设置 → AI → 问答模型里增删）'}});
+const fillModels=()=>{modelPick.empty();const list=(cfg().models||[]).filter(m=>m&&m.name);
+  if(!list.length){modelPick.hidden=true;return;}modelPick.hidden=false;
+  for(const m of list)modelPick.createEl('option',{text:m.name}).value=m.name;
+  modelPick.value=list.some(m=>m.name===cfg().activeModel)?cfg().activeModel:list[0].name;};
+fillModels();
+modelPick.onchange=async()=>{const p=provider();if(!p)return;p.settings.activeModel=modelPick.value;await p.saveSettings?.();};
+// 语音：点一下开始录，再点一下结束；识别结果直接填进输入框（不加 /）。全局按住 CapsLock 也行。
 const mic=composer.createEl('button',{cls:'lbchat-mic',attr:{title:'语音提问（再点一次结束）'}});mic.type='button';
 mic.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>';
 mic.onclick=()=>provider()?.toggleVoice?.({target:search,button:mic});
-const send=composer.createEl('button',{cls:'lbchat-send',text:'发送'});send.type='submit';
-composer.onsubmit=e=>{e.preventDefault();if(busy||!search.value.trim())return;const v=search.value;search.value='';session.draft='';submit(v);};
+const send=composer.createEl('button',{cls:'lbchat-send',attr:{title:'发送（回答中会排队）'}});send.type='submit';
+send.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+// 回答进行中照常能打字：再发就进队列（像 Codex 追加提问），可点 × 取消，上一条答完自动接着问。
+const queued=[];
+const drawQueue=()=>{queueEl.empty();queueEl.hidden=!queued.length;queued.forEach((q,i)=>{const row=queueEl.createEl('div',{cls:'lbchat-queued'});
+  row.createEl('span',{cls:'lbchat-queued-tag',text:'排队'});row.createEl('span',{cls:'lbchat-queued-text',text:q});
+  const x=row.createEl('button',{cls:'lbchat-queued-x',text:'×',attr:{title:'取消这条'}});x.type='button';x.onclick=()=>{queued.splice(i,1);drawQueue();};});};
+drawQueue();
+composer.onsubmit=e=>{e.preventDefault();const v=search.value.trim();if(!v)return;search.value='';session.draft='';saveSession();
+  if(busy){queued.push(v);drawQueue();return;}submit(v);};
 
 // 第二行：对话/存档 切换 + 同步/浏览/清空
 const nav = wrap.createEl('div', { cls: 'lbchat-nav' });
@@ -230,7 +267,7 @@ const tabArch = tools.createEl('button', { cls: 'lbchat-tab', text: '已保存' 
 
 
 const bodyEl = wrap.createEl('div', { cls: 'lbchat-body' });
-wrap.append(composer);
+wrap.append(queueEl);wrap.append(composer);
 
 // 顶部搜索框 = 唯一输入：回车触发（/ 开头问 AI，否则搜），草稿持久化
 search.oninput = () => { session.draft = search.value; saveSession(); };
@@ -365,16 +402,16 @@ async function submit(raw) {
     const q = text.replace(/^\//,'').trim(); if (!q) return;
     const askedAt=new Date().toISOString();
     session.turns.push({ role: 'user', content: q, mode: 'ask', askedAt });
-    await saveSession(); busy = true;send.disabled=true;search.disabled=true; await drawChat();bodyEl.scrollTop=bodyEl.scrollHeight;
+    await saveSession(); busy = true; await drawChat();bodyEl.scrollTop=bodyEl.scrollHeight;
     try {
       const history = session.turns.filter(t => t.role === 'user' || t.role === 'assistant').filter(t => !t.failed)
         .map(t => ({ role: t.role === 'assistant' ? 'assistant' : 'user', content: t.content }));
       const live=bodyEl.createEl('div',{cls:'lbchat-turn lbchat-answer lbchat-live'});
-      const r = await provider().answerArchive({ question: q, history:history.slice(0,-1),onDelta:delta=>{clearInterval(thinkTimer);bodyEl.querySelector('.lbchat-think')?.remove();live.appendText(delta);} });
+      const r = await provider().answerArchive({ question: q, model: modelPick.hidden?'':modelPick.value, history:history.slice(0,-1),onDelta:delta=>{clearInterval(thinkTimer);bodyEl.querySelector('.lbchat-think')?.remove();live.appendText(delta);} });
       session.turns.push({ role: 'assistant', content: r.markdown || '没有可用的回答。', sources: r.sources || [], q, askedAt });
     } catch (e) {
       session.turns.push({ role: 'assistant', failed: true, content: '回答失败：' + (e.message || e) + '\n\n请重试。' });
-    } finally { busy = false;send.disabled=false;search.disabled=false; await saveSession(); await drawChat(); }
+    } finally { busy = false; await saveSession(); await drawChat(); if(queued.length){const next=queued.shift();drawQueue();submit(next);} }
   }
 }
 

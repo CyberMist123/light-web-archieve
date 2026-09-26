@@ -20,6 +20,24 @@ from . import llm as llm_mod
 from . import vision as vision_mod
 from .ocrtext import reflow_ocr
 
+
+def dedupe_lines(text: str, seen: str = '') -> str:
+    """按句去重：和已出现的内容（正文 + 前面留下的句子）几乎一样的句子丢掉。短句（<6 字）只去完全重复。"""
+    from rapidfuzz import fuzz
+    norm = lambda x: re.sub(r'[\s，。！？、,.!?；;：:“”"\'（）()]+', '', x)
+    pool = norm(seen)
+    out = []
+    for raw in re.split(r'(?<=[。！？!?])|\n', text or ''):
+        line = raw.strip()
+        n = norm(line)
+        if not n:
+            continue
+        if n in pool or (len(n) >= 6 and fuzz.partial_ratio(n, pool) >= 92):
+            continue
+        out.append(line)
+        pool += n
+    return '\n'.join(out)
+
 COMMENTS_START = "<!-- link-brain:comments:start -->"
 COMMENTS_END = "<!-- link-brain:comments:end -->"
 CONTENT_START = "<!-- link-brain:content:start -->"
@@ -874,10 +892,13 @@ def render_agent_md(
     else:
         lines.append("（未生成）")
 
-    if note.get('transcript'):
-        lines += ['', '## 视频文字稿', '', note['transcript']]
-    if note.get('screen_text'):
-        lines += ['', '## 视频画面文字', '', note['screen_text']]
+    # 0926 Owner：机读版查重——文字稿/画面文字里跟正文或前面重复的句子只留一次（歌词副歌、字幕逐帧重复常见）
+    seen_text = note.get('body') or ''
+    for key, heading in (('transcript', '## 视频文字稿'), ('screen_text', '## 视频画面文字')):
+        kept = dedupe_lines(note.get(key) or '', seen_text)
+        if kept:
+            lines += ['', heading, '', kept]
+            seen_text += '\n' + kept
     lines += ["", "## 评论", ""]
     comments = source.get("comments") or []
     if comments:

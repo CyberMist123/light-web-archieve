@@ -60,6 +60,13 @@ DEFAULTS: dict[str, Any] = {
     "asrAI": {"mode": "media", "model": "whisper-1", "endpoint": "", "apiKey": ""},
     # 语音输入：capsLock=CapsWriter 客户端全局监听 CapsLock（插件侧开关，Python 不用）
     "voice": {"capsLock": True, "capsWriterDir": ""},
+    # 问答页的模型下拉（0926）：mode=http 走接口；mode=cli 走本机命令行（codex / claude 用自己的登录）。
+    "models": [
+        {"name": "DeepSeek", "mode": "http", "endpoint": "https://api.deepseek.com/chat/completions", "model": "", "apiKey": ""},
+        {"name": "Codex", "mode": "cli", "command": "codex exec --skip-git-repo-check -s read-only -c model_reasoning_effort=low -"},
+        {"name": "Sonnet", "mode": "cli", "command": "claude -p --model sonnet"},
+    ],
+    "activeModel": "DeepSeek", "chatPlaceholder": "问点什么呢？",
     "prompts": {"summary": "", "answer": DEFAULT_ANSWER_PROMPT},
     # expandTerms 默认关：开了每次问答要多一次小模型调用扩检索词，慢一倍（Owner 2026-09-16 嫌慢）。
     "retrieval": {"totalCharLimit": 8000, "fragChars": 800, "topK": 8, "expandTerms": False},
@@ -73,6 +80,16 @@ DEFAULTS: dict[str, Any] = {
     "sync": {"autoAfterLogin": True, "downloadImages": True, "downloadVideo": True,
              "commentFloors": 10, "dailyNewLimit": 200},
 }
+
+
+def with_model(settings: dict[str, Any], name: str = '') -> dict[str, Any]:
+    """问答页下拉选的模型（models 里按 name 找）盖到 textAI 上；没选/找不到就用 activeModel，再不行原样。"""
+    name = name or settings.get('activeModel') or ''
+    entry = next((m for m in settings.get('models') or [] if isinstance(m, dict) and m.get('name') == name), None)
+    if not entry:
+        return settings
+    keep = {k: v for k, v in entry.items() if k != 'name' and v not in (None, '')}
+    return {**settings, 'textAI': {**settings.get('textAI', {}), **keep}}
 
 
 def sync_options() -> dict[str, Any]:

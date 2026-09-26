@@ -46,7 +46,7 @@ def test_sse_delivers_chunks_and_system_prompt(monkeypatch):
 
 def test_stdio_worker_correlates_multiple_requests(monkeypatch,capsys):
     monkeypatch.setattr('sys.stdin',io.StringIO('{"id":"a","question":"a"}\n{"id":"b","question":"b"}\n'))
-    def answer(q,h,i,on_delta):
+    def answer(q,h,i,on_delta,model=""):
         on_delta(q);return {'status':'ok','markdown':q}
     monkeypatch.setattr(ask,'answer',answer)
     assert serve.run(None)==0

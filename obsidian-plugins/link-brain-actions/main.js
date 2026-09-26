@@ -23,6 +23,14 @@ const DEFAULT_SETTINGS = {
   asrAI: { mode: "media", model: "whisper-1", endpoint: "", apiKey: "" },
   // 语音输入（0926）：capsLock=用 CapsWriter 客户端，任何程序里按住 CapsLock 说话；capsWriterDir 空=自动找。
   voice: { capsLock: true, capsWriterDir: "" },
+  // 问答页模型下拉（0926）：http=接口；cli=本机命令行（codex / claude 用自己的登录，不需要 key）。和 ai_config.py 对齐。
+  models: [
+    { name: "DeepSeek", mode: "http", endpoint: "https://api.deepseek.com/chat/completions", model: "", apiKey: "" },
+    { name: "Codex", mode: "cli", command: "codex exec --skip-git-repo-check -s read-only -c model_reasoning_effort=low -" },
+    { name: "Sonnet", mode: "cli", command: "claude -p --model sonnet" },
+  ],
+  activeModel: "DeepSeek",
+  chatPlaceholder: "问点什么呢？",
   prompts: { summary: "", answer: DEFAULT_ANSWER_PROMPT },
   retrieval: { totalCharLimit: 8000, fragChars: 800, topK: 8, expandTerms: false },
   // 目录页顶部大类筛选（空=用内置 BIG_CATS）；形如 [{name, keywords:[...]}]。
@@ -659,9 +667,9 @@ class LinkBrainActions extends Plugin {
     });
   }
   onunload(){this.unloading=true;this.answerWorker?.kill();}
-  async answerArchive({ question, history = [], onDelta } = {}) {
+  async answerArchive({ question, history = [], onDelta, model = '' } = {}) {
     const q=(question||'').trim();if(!q)throw new Error('问题是空的');
-    const payload=await this.requestAnswer({question:q,history},onDelta);
+    const payload=await this.requestAnswer({question:q,history,model},onDelta);
     if(payload.status!=='ok')throw new Error(payload.markdown||payload.error||'回答失败');
     return payload;
   }
@@ -732,8 +740,8 @@ class LinkBrainActions extends Plugin {
     if(target.lbEvidenceRequest!==request)return;
     target.view.containerEl.classList.add('lb-source-reader');
     ws.setActiveLeaf(owner,{focus:false});
-    if(evidence.length)await this.locateArchiveEvidence(target,evidence,request);
-    else target.view.containerEl.querySelector?.('.lb-evidence-bar')?.remove();
+    // 0926 Owner：原文就正常打开，不再做「原文 1/3 上一处/下一处」匹配跳转。
+    target.view.containerEl.querySelector?.('.lb-evidence-bar')?.remove();
   }
 
   evidenceTargets(container, part) {
@@ -962,6 +970,33 @@ class LinkBrainSettingTab extends PluginSettingTab {
   constructor(app, plugin) { super(app, plugin); this.plugin = plugin; }
 
   // 设置页（2026-09-25 精简）：账号 → 收藏同步 → AI → 常用；其余全部收进「高级设置」折叠。
+  editModel(index) {
+    const s = this.plugin.settings; s.models = s.models || [];
+    const m = index >= 0 ? { ...s.models[index] } : { name: '', mode: 'http', endpoint: '', model: '', apiKey: '' };
+    const modal = new Modal(this.app); modal.titleEl.setText(index >= 0 ? '编辑模型' : '添加模型');
+    const draw = () => {
+      const c = modal.contentEl; c.empty();
+      new Setting(c).setName('名称').setDesc('显示在问答页下拉里').addText(t => t.setValue(m.name || '').onChange(v => m.name = v.trim()));
+      new Setting(c).setName('方式').addDropdown(d => d.addOption('http', '接口（OpenAI 兼容）').addOption('cli', '本机命令行').setValue(m.mode || 'http').onChange(v => { m.mode = v; draw(); }));
+      if (m.mode === 'cli') {
+        new Setting(c).setName('命令').setDesc('提问从标准输入传入，回答读标准输出。例：codex exec --skip-git-repo-check -s read-only -  /  claude -p --model sonnet')
+          .addText(t => { t.inputEl.style.width = '100%'; t.setValue(m.command || '').onChange(v => m.command = v.trim()); });
+      } else {
+        new Setting(c).setName('接口地址').addText(t => t.setPlaceholder('https://api.example.com/v1/chat/completions').setValue(m.endpoint || '').onChange(v => m.endpoint = v.trim()));
+        new Setting(c).setName('模型名').addText(t => t.setPlaceholder('deepseek-chat').setValue(m.model || '').onChange(v => m.model = v.trim()));
+        new Setting(c).setName('API Key').setDesc(m.keyFile ? '当前从仓外文件读取；填了这里就用这里的。' : '只保存在本插件 data.json。')
+          .addText(t => { t.inputEl.type = 'password'; t.setValue(m.apiKey || '').onChange(v => m.apiKey = v.trim()); });
+      }
+      new Setting(c).addButton(b => b.setCta().setButtonText('保存').onClick(async () => {
+        if (!m.name) { new Notice('先填名称'); return; }
+        if (index >= 0) s.models[index] = m; else s.models.push(m);
+        if (!s.activeModel) s.activeModel = m.name;
+        await this.plugin.saveSettings(); modal.close(); this.display();
+      }));
+    };
+    draw(); modal.open();
+  }
+
   display() {
     const { containerEl: c } = this;
     c.empty();
@@ -1045,6 +1080,45 @@ class LinkBrainSettingTab extends PluginSettingTab {
     if (s.voice.capsLock || !this.plugin.capsWriterDir()) new Setting(c).setName('　CapsWriter 目录').setDesc('留空自动查找（含 start_client.exe 的文件夹）。')
       .addText(t => t.setPlaceholder('D:\\AI\\tools\\CapsWriter-Offline').setValue(s.voice.capsWriterDir || '')
         .onChange(async v => { s.voice.capsWriterDir = v.trim(); await save(); }));
+
+    // —— 问答模型（0926）：问答页输入框右边的下拉就是这张表 ——
+    c.createEl('h3', { text: '问答模型' });
+    new Setting(c).setName('输入框提示文字').setDesc('问收藏页输入框里的灰字。')
+      .addText(t => t.setPlaceholder('问点什么呢？').setValue(s.chatPlaceholder || '').onChange(async v => { s.chatPlaceholder = v; await save(); }));
+    c.createEl('p', { cls: 'setting-item-description', text: '接口方式：填 OpenAI 兼容 /chat/completions 地址、模型名和 Key（DeepSeek、通义、OpenAI 等）。'
+      + '命令行方式：用本机已登录的 Codex / Claude Code，不需要 Key，但每问约 20 秒（DeepSeek 接口约 5–10 秒）。' });
+    (s.models || []).forEach((m, i) => {
+      const row = new Setting(c).setName(m.name || '未命名').setDesc(m.mode === 'cli' ? '命令行：' + (m.command || '') : '接口：' + (m.model || '') + (m.apiKey || m.keyFile ? ' · 已填 Key' : ''));
+      row.addButton(b => b.setButtonText('编辑').onClick(() => this.editModel(i)));
+      row.addExtraButton(b => b.setIcon('trash').setTooltip('删除').onClick(async () => { s.models.splice(i, 1); await save(); this.display(); }));
+    });
+    new Setting(c).addButton(b => b.setButtonText('添加模型').onClick(() => this.editModel(-1)));
+
+    // —— 电脑需求（0926）：让使用者一眼看清要装什么、各功能用哪个模型 ——
+    c.createEl('h3', { text: '电脑需求' });
+    const req = c.createEl('div', { cls: 'setting-item-description' });
+    req.style.cssText = 'line-height:1.8;margin-bottom:12px;';
+    for (const line of [
+      '必需：Windows 10/11（macOS 可用但 CapsLock 语音不支持）· Python 3.11+ · Obsidian + Dataview 插件 · ffmpeg（视频）。',
+      '内存：建议 8 GB 以上；同步收藏时会开一个后台浏览器（约 300–500 MB）。不装本地大模型，不需要独立显卡。',
+      '收藏问答：文本模型（当前 ' + (s.activeModel || '默认') + '）+ 向量模型（' + 'text-embedding，建索引一次、之后每问一次很便宜' + '）。',
+      '图片文字：本地 OCR（rapidocr，CPU，免费）；表格和几乎没字的图用识图模型（' + (s.visionAI.model || 'qwen3-vl-flash') + '，按张计费，很便宜）。',
+      '视频：语音转写走本机语音识别；画面文字是本地 OCR（只占 CPU，可在上面关）。',
+      '语音输入：CapsWriter-Offline（本地，按住 CapsLock 说话）。',
+    ]) req.createEl('div', { text: '· ' + line });
+
+    // —— 外接 MCP（0926）：让 Claude Code / Codex / 别的 AI 直接查这个收藏库 ——
+    c.createEl('h3', { text: '外接 MCP' });
+    c.createEl('p', { cls: 'setting-item-description', text: '把收藏库接给其他 AI 用。提供三个工具：lb_search（关键词找）、lb_retrieve（按问题取原文，不花模型钱）、lb_ask（完整问答，会用上面选的模型）。本机运行，不开网络端口。' });
+    const mcpCmd = { claude: `claude mcp add light-web-archieve -- ${PY} -m link_brain.mcp_server`,
+      codex: `codex mcp add light-web-archieve -- ${PY} -m link_brain.mcp_server`,
+      json: JSON.stringify({ mcpServers: { 'light-web-archieve': { command: PY, args: ['-m', 'link_brain.mcp_server'] } } }, null, 2) };
+    const copyRow = (name, desc, text) => new Setting(c).setName(name).setDesc(desc)
+      .addButton(b => b.setButtonText('复制').onClick(async () => { await navigator.clipboard.writeText(text); new Notice('已复制'); }));
+    copyRow('Claude Code', mcpCmd.claude, mcpCmd.claude);
+    copyRow('Codex', mcpCmd.codex, mcpCmd.codex);
+    copyRow('其他客户端（JSON 配置）', 'Claude Desktop / Cursor 等：粘到它们的 MCP 配置里。', mcpCmd.json);
+    this.addTestButton(c, '测试 MCP', ['-m', 'link_brain', 'selftest', 'mcp']);
 
     // —— 常用 ——
     c.createEl('h3', { text: '常用' });

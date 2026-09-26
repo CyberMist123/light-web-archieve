@@ -571,3 +571,6 @@
 /* 0926 Owner：固定按钮平时隐藏，鼠标移到图片/视频上才出现 */
 .xhs-note .lb-media-pin{opacity:0;transition:opacity .15s;}
 .xhs-note .lb-media:hover .lb-media-pin,.xhs-note .lb-media-pin:focus-visible{opacity:1;}
+/* 0926 Owner：图片滑动条不显示横向滚动条（用左右箭头/滚轮/←→翻页） */
+.xhs-note .lb-carousel{scrollbar-width:none;}
+.xhs-note .lb-carousel::-webkit-scrollbar{display:none;}

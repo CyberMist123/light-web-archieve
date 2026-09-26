@@ -23,7 +23,47 @@ def default_http_config(cfg):
             'model':cfg.get('model') or llm.load_config()['model']}
 
 
+def cli_call(instruction, text, cfg, on_delta=None):
+    """本机命令行模型（0926）：如 `codex exec -` / `claude -p`，用它们自己的登录，不需要 API key。
+    提示词走 stdin，stdout 边读边吐。"""
+    import subprocess
+    cmd = cfg.get('command') or []
+    if isinstance(cmd, str):
+        import shlex
+        cmd = shlex.split(cmd, posix=False)
+    if not cmd:
+        return {'status': 'failed', 'error': '命令行模型没有填命令'}
+    import tempfile
+    # 空目录里跑：别让 codex/claude 去翻仓库文件；stderr 进临时文件——它进度日志很多，管道读不及会把进程堵死
+    err_file = tempfile.TemporaryFile(mode='w+', encoding='utf-8', errors='replace')
+    try:
+        proc = subprocess.Popen(cmd, cwd=tempfile.gettempdir(), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err_file,
+                                text=True, encoding='utf-8', errors='replace',
+                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except OSError as exc:
+        err_file.close()
+        return {'status': 'failed', 'error': f'找不到命令 {cmd[0]}：{exc.strerror or exc}'}
+    proc.stdin.write(instruction + '\n\n' + text)
+    proc.stdin.close()
+    chunks = []
+    for line in proc.stdout:
+        chunks.append(line)
+        if on_delta:
+            on_delta(line)
+    code = proc.wait()
+    err_file.seek(0)
+    err = err_file.read()
+    err_file.close()
+    out = ''.join(chunks).strip()
+    if code != 0 or not out:
+        tail = (err or out).strip().splitlines()[-1:] or ['无输出']
+        return {'status': 'failed', 'error': f'{cmd[0]} 失败：{tail[0][:200]}'}
+    return {'status': 'ok', 'text': out, 'usage': None, 'truncated': False}
+
+
 def call(instruction, text, cfg, on_delta=None):
+    if cfg.get('mode') == 'cli':
+        return cli_call(instruction, text, cfg, on_delta)
     if cfg.get('mode') != 'http' or not cfg.get('endpoint'):
         cfg=default_http_config(cfg)
     return http_call(instruction,text,cfg,on_delta)

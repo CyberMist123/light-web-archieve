@@ -34,7 +34,7 @@ def run(args):
             request=json.loads(line)
             request_id=request['id']
             emit({'id':request_id,'type':'start'})
-            result=ask.answer(request['question'],request.get('history'),request.get('include'),
+            result=ask.answer(request['question'],request.get('history'),request.get('include'),model=request.get('model') or '',
                 on_delta=lambda text:emit({'id':request_id,'type':'delta','text':text}))
             emit({'id':request_id,'type':'result','result':result})
         except Exception as exc:

@@ -366,17 +366,17 @@ def delivery_payload(result: dict[str, Any], include=None) -> dict[str, Any]:
     return payload
 
 
-def answer(question: str, history=None, include=None, on_delta=None) -> dict[str, Any]:
+def answer(question: str, history=None, include=None, on_delta=None, model: str = '') -> dict[str, Any]:
     token = _ON_DELTA.set(on_delta)
     try:
-        return _answer(question, history, include)
+        return _answer(question, history, include, model)
     finally:
         _ON_DELTA.reset(token)
 
 
-def _answer(question: str, history=None, include=None) -> dict[str, Any]:
+def _answer(question: str, history=None, include=None, model: str = '') -> dict[str, Any]:
     question = (question or "").strip()
-    settings = ai_config.load()
+    settings = ai_config.with_model(ai_config.load(), model)
     items = load_items()
     if not isinstance(include, (list, tuple, set, type(None))) or set(include or []) - {"body", "links", "files"}:
         return {"status": "error", "markdown": "include 仅支持 body、links、files。"}
@@ -419,6 +419,16 @@ def run(args) -> int:
 def selftest(kind: str) -> dict[str, Any]:
     """设置页「测试」按钮的后端：真发一次最小调用，证明这条接口是活的（不做空壳）。"""
     settings = ai_config.load()
+    if kind == "mcp":
+        import subprocess
+        msg = '{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n'
+        try:
+            proc = subprocess.run([sys.executable, "-m", "link_brain.mcp_server"], input=msg, capture_output=True,
+                                  text=True, encoding="utf-8", timeout=60)
+            tools = [t["name"] for t in json.loads(proc.stdout.splitlines()[0])["result"]["tools"]]
+            return {"kind": "mcp", "ok": True, "detail": "可用工具：" + "、".join(tools)}
+        except Exception as exc:  # noqa: BLE001 - 测试按钮只报结果
+            return {"kind": "mcp", "ok": False, "detail": f"MCP 没起来：{type(exc).__name__}"}
     if kind == "text":
         res = call_text("只回复两个字：ok", "连通测试", settings)
         detail = (res.get("text") or res.get("error") or "")

@@ -116,7 +116,7 @@ module.exports = class LinkBrainNativeMediaNavPlugin extends Plugin {
       note.classList.toggle('lb-media-locked',locked);note.classList.toggle('lb-media-free',!locked);
       preview?.classList.toggle('lb-pane-locked',locked);fit();
     };
-    setLocked(true);
+    setLocked(false); // 0926 Owner：默认不钉，图/视频按原尺寸跟正文一起滚；要钉住再点右上角的钉
     // 0926 Owner：滚轮停在图片上 = 翻页（一格一张，节流防连跳）；刚打开的笔记直接认它，←/→ 不用先点图。
     this.activeCarousel=carousel;
     let flipAt=0;
@@ -134,7 +134,7 @@ module.exports = class LinkBrainNativeMediaNavPlugin extends Plugin {
     this.register(()=>{preview?.removeEventListener('wheel',wheel);preview?.classList.remove('lb-pane-locked');});
     const pin=media.createEl('button',{cls:'lb-media-pin'});
     pin.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l-1 6 4 4v2H5v-2l4-4zM12 15v7"/></svg><span class="lb-visually-hidden">取消固定媒体</span>';
-    pin.setAttribute('aria-pressed','true');
+    pin.setAttribute('aria-pressed','false');pin.querySelector('span').textContent='固定媒体';
     pin.onclick=()=>{const locked=!note.classList.contains('lb-media-locked');setLocked(locked);pin.setAttribute('aria-pressed',String(locked));pin.querySelector('span').textContent=locked?'取消固定媒体':'固定媒体';};
     const slides=getSlides(carousel);
     const bar=media.createEl('div',{cls:'lb-media-tools'});
