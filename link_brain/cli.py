@@ -114,6 +114,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true", help="已经下过也重下")
     p.add_argument("--doc-id", default=None, help="手动挂载到指定附件")
     p.add_argument("--audit", action="store_true", help="输出附件完整性 JSON，不联网")
+    p.add_argument("--recheck", action="store_true", help="补查当时网页探测失败的笔记（游客浏览器），探到附件就下载；查不清的报警")
+    p.add_argument("--limit", type=int, default=0, help="--recheck 每次最多查几篇（0=不限）")
     p.add_argument("--attach", default=None,
                    help="把本地已下好的文件手动挂到这篇（系统下不了时用）：给文件路径")
 

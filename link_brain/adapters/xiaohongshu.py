@@ -576,8 +576,10 @@ def _probe_related_file_via_browser(
         line = next((l for l in reversed(out.splitlines()) if l.startswith("{")), "")
         data = json.loads(line) if line else {}
         rf = data.get("relatedFile")
-        return {"ok": bool(rf), "related_file": rf,
-                "error": None if rf else "游客浏览器也没读到 relatedFile（真没附件 / 已删）"}
+        # 0926：页面读到了这条笔记（hasNote）但没有 relatedFile = 确实没附件，算查清；读不到笔记才算失败
+        seen = bool(rf) or bool(data.get("hasNote"))
+        return {"ok": seen, "related_file": rf,
+                "error": None if seen else "游客浏览器也没读到这条笔记（已删 / 被拦）"}
     except (subprocess.SubprocessError, ValueError, OSError) as exc:
         return {"ok": False, "related_file": None,
                 "error": f"游客浏览器探测失败: {type(exc).__name__}: {exc}"}

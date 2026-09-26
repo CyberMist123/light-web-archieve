@@ -316,6 +316,10 @@ def manual_attach(source_key: str, source_id: str, file_path: str, doc_id: str |
 def run(args) -> int:
     from . import index as index_mod
 
+    if getattr(args, "recheck", False):
+        from .read import dump_json
+        dump_json(recheck(limit=getattr(args, "limit", 0) or 0, verbose=True))
+        return 0
     if getattr(args, "audit", False):
         from .read import dump_json
         rows = [inventory(p.parent) for p in (storage.vault_root() / "_archive" / "xiaohongshu").glob("*/meta.json")]
@@ -443,3 +447,64 @@ def _rebuild_catalog(any_downloaded: bool) -> bool:
     except Exception as exc:  # 重建失败不该拖累已下好的字节
         print(f"目录重建失败（附件已下好，手动跑 `link_brain catalog`）：{exc}", file=sys.stderr)
         return False
+
+
+def recheck(*, limit: int = 0, verbose: bool = False) -> dict[str, Any]:
+    """补查「当时没探到附件」的笔记（0926）。
+
+    入库时网页探测拿到反爬占位页 → web_raw.json ok=false，被当成「没附件」静默跳过，不报警、audit 也看不见
+    （9-18 才加的游客浏览器兜底对之前入库的不生效）。这里对这些笔记重新探测（httpx → 游客浏览器），
+    探到就下字节并挂上；结果记 derived/web_recheck.json，探明的不再重复查。仍探不到的汇总报警。
+    """
+    from .adapters import xiaohongshu as xhs
+    from . import alert as alert_mod, render as render_mod
+    base = storage.vault_root() / "_archive" / "xiaohongshu"
+    found, failed, checked = [], [], 0
+    for meta_path in sorted(base.glob("*/meta.json")):
+        obj = meta_path.parent
+        source_id = obj.name
+        mark = obj / "derived" / "web_recheck.json"
+        if mark.exists() and storage.read_json(mark).get("ok"):
+            continue
+        meta = storage.read_json(meta_path)
+        raw = storage.raw_dir("xiaohongshu", source_id, meta["current_version"])
+        web = raw / "web_raw.json"
+        if not web.exists() or storage.read_json(web).get("ok"):
+            continue
+        if limit and checked >= limit:
+            break
+        checked += 1
+        url = storage.read_json(web).get("url") or ""
+        token = (re.search(r"xsec_token=([^&]+)", url) or [None, None])[1]
+        if token:
+            from urllib.parse import unquote
+            token = unquote(token)
+        probe = xhs.fetch_related_file(source_id, token)
+        rf = probe.get("related_file") or {}
+        storage.write_json(mark, {"checked_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "ok": bool(probe.get("ok")),
+                                  "related_file": rf or None, "error": probe.get("error")})
+        if not probe.get("ok"):
+            failed.append({"id": source_id, "error": (probe.get("error") or "")[:120]})
+            continue
+        doc_id = rf.get("docId")
+        if not doc_id or doc_id in load_downloaded("xiaohongshu", source_id):
+            continue
+        name = rf.get("name") or f"{doc_id}.bin"
+        staging = obj / ".attachment-staging"
+        try:
+            path = fetch_bytes(doc_id=doc_id, note_id=source_id, xsec_token=token or "", file_name=name,
+                               staging_dir=staging, verbose=verbose)
+            manual_attach("xiaohongshu", source_id, str(path), doc_id)
+            convert_downloads("xiaohongshu", source_id)
+            render_mod.render_object("xiaohongshu", source_id)
+            found.append({"id": source_id, "file": name})
+        except (AttachmentError, OSError, KeyError, ValueError) as exc:
+            failed.append({"id": source_id, "error": f"{name} 下载失败：{exc}"[:160]})
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+    if failed:
+        alert_mod.alert("normal", f"附件补查：{len(failed)} 篇没查清",
+                        "；".join(f"{f['id']} {f['error']}" for f in failed[:5]) + ("…" if len(failed) > 5 else ""))
+    if found:
+        _rebuild_catalog(True)
+    return {"checked": checked, "found": found, "failed": failed}
