@@ -332,8 +332,12 @@ def _chat(path: Path, prompt: str, cfg: dict[str, Any], *, max_tokens: int, time
     data = base64.b64encode(path.read_bytes()).decode()
     body = {"model": cfg["model"], "messages": [{"role": "user", "content": [
         {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}},
-        {"type": "text", "text": prompt}]}], "max_tokens": max_tokens, "temperature": 0.1,
-        "enable_thinking": False}  # 转录不需要思考；新一代混合模型默认会想，白烧 token
+        {"type": "text", "text": prompt}]}], "max_tokens": max_tokens, "temperature": 0.1}
+    # 转录不需要思考；新一代混合模型默认会想，白烧 token。关法各家不同：千问 enable_thinking，Gemini reasoning_effort
+    if "generativelanguage.googleapis.com" in cfg["endpoint"]:
+        body["reasoning_effort"] = "low" if "pro" in cfg["model"] else "none"
+    else:
+        body["enable_thinking"] = False
     headers = {"Content-Type": "application/json"}
     if cfg.get("apiKey"):
         headers["Authorization"] = "Bearer " + cfg["apiKey"].strip()
