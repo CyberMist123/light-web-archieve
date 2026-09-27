@@ -74,3 +74,27 @@ def test_refine_object_gives_up_after_three_tries(tmp_path, monkeypatch):
     monkeypatch.setattr(visual, "refine", lambda *a, **k: calls.append(1) or {"status": "ok"})
     vision.refine_object("xiaohongshu", "abc", {"model": "m"})
     assert not calls
+
+
+def test_router_rotates_keys_then_falls_back(monkeypatch):
+    """429 换下一个 key；全不行退回千问兜底；内容不合格不换 key（算一次尝试）。"""
+    monkeypatch.setenv("LWA_GEMINI_KEYS", "k1,k2")
+    calls = []
+
+    def fake(path, lines, kind, cfg):
+        calls.append(cfg.get("apiKey") or cfg["model"])
+        if cfg.get("apiKey"):
+            return {"status": "failed", "error": "HTTPStatusError: 429 Too Many Requests"}
+        return {"status": "ok", "kind": "diagram", "text": "图", "model": cfg["model"]}
+
+    monkeypatch.setattr(visual, "refine", fake)
+    r = vision.RefineRouter({"model": "qwen3.8-max", "endpoint": "x"})
+    assert r.refine(None, [], "diagram")["status"] == "ok"
+    assert calls == ["k1", "k2", "qwen3.8-max"]
+    calls.clear()
+    r.refine(None, [], "diagram")  # 今晚已用完的 key 不再试
+    assert calls == ["qwen3.8-max"]
+
+    monkeypatch.setattr(visual, "refine", lambda *a, **k: {"status": "failed", "error": "Mermaid 引号不成对"})
+    r2 = vision.RefineRouter(None)
+    assert "引号" in r2.refine(None, [], "diagram")["error"] and not r2.dead

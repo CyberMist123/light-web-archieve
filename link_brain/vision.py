@@ -246,6 +246,44 @@ def strong_config() -> dict[str, Any] | None:
 
 DEFAULT_REFINE_MODEL = "qwen3.8-max"  # 0928 实测：17/17 关键字全对、Mermaid 可画、打码不猜
 
+# 0928 Owner：第二层优先用 Google AI Studio 的免费 key（gemini flash 实测架构图 17/17，和 qwen3.8-max 一样准）。
+# 免费档常 429（限额）/ 503（过载）：429 换下一个 key，503 歇一会儿同 key 再试一次；key 全用不了就退回千问强模型。
+# key 只从环境变量 LWA_GEMINI_KEYS（逗号分隔）来，由调用方（每晚脚本）从密码库临时取出，不落盘、不进仓库。
+GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+GEMINI_MODEL = os.environ.get("LWA_GEMINI_MODEL", "gemini-3.5-flash")
+
+
+class RefineRouter:
+    """第二层走哪个模型：Gemini 免费 key 轮换 → 千问强模型兜底。一晚上共用一个实例，记住哪些 key 今天用完了。"""
+
+    def __init__(self, fallback: dict[str, Any] | None):
+        self.keys = [k.strip() for k in os.environ.get("LWA_GEMINI_KEYS", "").split(",") if k.strip()]
+        self.dead: set[int] = set()
+        self.fallback = fallback
+        self.used: dict[str, int] = {}
+
+    def refine(self, path: Path, lines, kind: str) -> dict[str, Any]:
+        import time
+        from . import visual
+        for i, key in enumerate(self.keys):
+            if i in self.dead:
+                continue
+            cfg = {"endpoint": GEMINI_ENDPOINT, "apiKey": key, "model": GEMINI_MODEL}
+            got = visual.refine(path, lines, kind, cfg)
+            if "503" in str(got.get("error")):  # 过载：歇一会儿再试一次
+                time.sleep(30)
+                got = visual.refine(path, lines, kind, cfg)
+            err = str(got.get("error") or "")
+            if got.get("status") == "ok" or not any(c in err for c in ("429", "503", "401", "403")):
+                self.used[GEMINI_MODEL] = self.used.get(GEMINI_MODEL, 0) + 1
+                return {**got, "model": f"{GEMINI_MODEL}（免费 key {i + 1}）"}  # 成功，或内容本身不合格（算一次尝试）
+            self.dead.add(i)  # 这个 key 今晚限额满了 / 不可用
+        if not self.fallback:
+            return {"status": "failed", "error": "免费 key 都用不了，也没配千问识图"}
+        got = visual.refine(path, lines, kind, self.fallback)
+        self.used[self.fallback["model"]] = self.used.get(self.fallback["model"], 0) + 1
+        return got
+
 
 def refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budget: int = 0,
                   verbose: bool = True, tally: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -270,7 +308,8 @@ def refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budge
             time.sleep(random.uniform(*REFINE_GAP_SECONDS))
         tally["runs"] += 1
         kind = (entry.get("visual") or {}).get("kind") or entry.get("layout") or "text"
-        got = visual.refine(storage.object_dir(source_key, source_id) / entry["asset"], entry.get("lines"), kind, cfg)
+        img = storage.object_dir(source_key, source_id) / entry["asset"]
+        got = cfg.refine(img, entry.get("lines"), kind) if isinstance(cfg, RefineRouter) else visual.refine(img, entry.get("lines"), kind, cfg)
         tally["cost_yuan"] += got.get("cost_yuan") or 0.0
         ref["tries"] = ref.get("tries", 0) + 1
         ref["at"] = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -314,8 +353,9 @@ def pending_refines() -> list[tuple[str, str, int]]:
 def run_refine(args) -> int:
     """`vision --refine`：每晚 4 点那一轮调；只跑打了标的图，日志记本晚补了几张、还剩几张、花了多少钱。"""
     from .read import dump_json
-    cfg = strong_config()
-    if not cfg:
+    fallback = strong_config()
+    cfg = RefineRouter(fallback)
+    if not cfg.keys and not fallback:
         print("没配识图接口，跳过补跑", file=sys.stderr)
         return 0
     tally = {"done": 0, "failed": 0, "retry": 0, "cost_yuan": 0.0, "runs": 0}
@@ -324,7 +364,7 @@ def run_refine(args) -> int:
             break
         refine_object(source_key, source_id, cfg, budget=args.limit, tally=tally)
     left = sum(n for _, _, n in pending_refines())
-    dump_json({"model": cfg["model"], "refined": tally["done"], "failed": tally["failed"], "will_retry": tally["retry"],
+    dump_json({"models": cfg.used, "refined": tally["done"], "failed": tally["failed"], "will_retry": tally["retry"],
                "pending_left": left, "cost_yuan": round(tally["cost_yuan"], 4)})
     return 0
 
@@ -356,8 +396,8 @@ def run_refine_mark(args) -> int:
     storage.write_json(vpath, doc)
     out: dict[str, Any] = {"item_id": args.refine_mark, "marked": marked}
     if args.now and marked:
-        cfg = strong_config()
-        if cfg:
+        cfg = RefineRouter(strong_config())
+        if cfg.keys or cfg.fallback:
             tally = refine_object(row["source"], row["source_id"], cfg)
             out.update(refined=tally["done"], failed=tally["failed"], cost_yuan=round(tally["cost_yuan"], 4))
     dump_json(out)
