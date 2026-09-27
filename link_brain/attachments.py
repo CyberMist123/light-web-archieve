@@ -559,6 +559,7 @@ def _probe_logged_in(note_id: str, token: str | None) -> dict[str, Any]:
     except accounts.ReaderError as exc:
         return {"ok": False, "needs_human": exc.needs_human, "error": f"{exc.code} {exc}".strip()}
     if d.get("guest") or d.get("loginBtn"):
+        accounts._note_account("NOT_LOGGED_IN", "附件补查：登录号打开笔记是游客")
         return {"ok": False, "needs_human": True, "error": "读取服务的号没登录：先在目录里点「扫码登录」"}
     if d.get("wall") or not d.get("hasNote"):
         return {"ok": False, "error": f"登录也打不开这篇（{d.get('path')}：多半已删或仅作者可见）"}

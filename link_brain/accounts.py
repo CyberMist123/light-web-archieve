@@ -130,9 +130,23 @@ def api(method: str, route: str, *, timeout: float = 45, body: dict | None = Non
     if response.status_code >= 400 or payload.get('success') is False:
         code = payload.get('code') or f'HTTP_{response.status_code}'
         detail = payload.get('details')
-        raise ReaderError(code, payload.get('error') or payload.get('message') or '',
+        exc = ReaderError(code, payload.get('error') or payload.get('message') or '',
                           json.dumps(detail, ensure_ascii=False) if isinstance(detail, (dict, list)) else str(detail or ''))
+        _note_account(exc.code, f'{route}: {exc}')
+        raise exc
     return payload.get('data', payload)
+
+
+def _note_account(code: str, detail: str = '') -> None:
+    """掉登录 / 要验证：不管哪个环节撞见，都点亮目录页的「!」（0927）。写不进去不影响主流程。"""
+    try:
+        from . import sync_state
+        if code in sync_state.ACCOUNT_CODES:
+            sync_state.account_problem(code, detail)
+        elif code == 'OK':
+            sync_state.account_ok()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def ensure_reader(*, wait: float = 40):
@@ -223,6 +237,7 @@ def xhs_status(*, deep=True) -> dict:
             if ok and data.get('username'):
                 name = data['username']
                 save({'nickname': name, 'user_id': data.get('user_id', '')})
+        _note_account('OK' if ok else 'NOT_LOGGED_IN', '登录检查：未登录')
         if ok:
             return row('xhs', '小红书账号', 'ready', '已登录' + (f'：{name}' if name else ''), account=name)
         if config().get('nickname'):

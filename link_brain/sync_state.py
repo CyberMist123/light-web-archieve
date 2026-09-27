@@ -38,3 +38,32 @@ def record(state, *, payload=None, message='', account=None, code=''):
               'code': code, 'detail': errors[0].get('error', '') if errors else ''}
     storage.write_json(path(), status)
     return status
+
+
+ACCOUNT_CODES = ('NOT_LOGGED_IN', 'CAPTCHA_REQUIRED')
+
+
+def account_problem(code, detail=''):
+    """任何环节（同步 / 附件下载 / 附件补查 / 登录检查）撞见掉登录或安全验证，都记到目录页那个「!」上。
+
+    0927：以前只有同步收藏会写这里，下载附件时掉登录只发手机提醒、目录页照样显示正常。
+    """
+    previous = load()
+    if previous.get('state') == 'blocked' and previous.get('code') == code:
+        return previous
+    message = '小红书账号掉登录了：点「!」扫码登录' if code == 'NOT_LOGGED_IN' else '小红书要安全验证：点「!」打开验证窗口'
+    status = {**previous, 'state': 'blocked', 'message': message, 'account': 'xhs', 'code': code,
+              'detail': str(detail)[:300], 'updated_at': datetime.now().astimezone().isoformat()}
+    storage.write_json(path(), status)
+    return status
+
+
+def account_ok():
+    """登录恢复了：只清掉『账号类』的「!」，别的失败原样留着。"""
+    previous = load()
+    if previous.get('state') == 'blocked' and previous.get('code') in ACCOUNT_CODES:
+        status = {**previous, 'state': 'ready', 'message': '已重新登录，下次同步照常进行', 'code': '', 'detail': '',
+                  'updated_at': datetime.now().astimezone().isoformat()}
+        storage.write_json(path(), status)
+        return status
+    return previous
