@@ -543,6 +543,33 @@ def _rebuild_catalog(any_downloaded: bool) -> bool:
         return False
 
 
+PROBE_GAP_SECONDS = tuple(float(x) for x in os.environ.get("LWA_PROBE_GAP", "30,90").split(","))
+
+
+def _probe_logged_in(note_id: str, token: str | None) -> dict[str, Any]:
+    """用读取服务的登录号打开笔记页读 relatedFile（游客被登录墙挡的笔记用）。
+
+    页面上看得到附件卡片但 state 里没 docId 时，报成『要人看』而不是『没附件』。
+    """
+    from . import accounts
+    try:
+        accounts.ensure_reader()
+        d = accounts.api("POST", "/api/v1/notes/related-file", timeout=150,
+                         body={"note_id": note_id, "xsec_token": token or ""})
+    except accounts.ReaderError as exc:
+        return {"ok": False, "needs_human": exc.needs_human, "error": f"{exc.code} {exc}".strip()}
+    if d.get("guest") or d.get("loginBtn"):
+        return {"ok": False, "needs_human": True, "error": "读取服务的号没登录：先在目录里点「扫码登录」"}
+    if d.get("wall") or not d.get("hasNote"):
+        return {"ok": False, "error": f"登录也打不开这篇（{d.get('path')}：多半已删或仅作者可见）"}
+    rf = d.get("relatedFile")
+    if rf and rf.get("docId"):
+        return {"ok": True, "related_file": rf, "error": None}
+    if d.get("cardText"):
+        return {"ok": False, "error": f"页面上有附件卡片（{d['cardText'][:60]}）但读不到编号，要人打开下一次"}
+    return {"ok": True, "related_file": None, "error": None}
+
+
 def probe_state(obj: Path) -> str:
     """这篇原网页有没有附件，查清了没有（0927 闭环）。
 
@@ -594,7 +621,24 @@ def recheck(*, limit: int = 0, verbose: bool = False) -> dict[str, Any]:
         else:  # 0927：早期入库没留 web_raw 的，从 source.json 拿 token
             src = raw / "source.json"
             token = (storage.read_json(src).get("note") or {}).get("xsec_token") if src.exists() else None
+        if checked > 1:  # 0927 防风控：探测之间也像人一样隔一会儿
+            gap = random.uniform(*PROBE_GAP_SECONDS)
+            if verbose:
+                print(f"[recheck] 歇 {gap:.0f} 秒再看下一篇", file=sys.stderr)
+            time.sleep(gap)
         probe = xhs.fetch_related_file(source_id, token)
+        if not probe.get("ok"):
+            # 游客被登录墙挡住（有些笔记游客看不了）→ 用登录的号看一眼笔记页
+            logged = _probe_logged_in(source_id, token)
+            if logged.get("needs_human"):
+                storage.write_json(mark, {"checked_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "ok": False,
+                                          "related_file": None, "error": logged["error"]})
+                alert_mod.alert(alert_mod.KIND_ACCOUNT, "附件补查停了（账号要处理：登录/安全验证）", logged["error"][:300])
+                break
+            if logged.get("ok"):
+                probe = logged
+            else:
+                probe["error"] = f"{probe.get('error')}；登录看：{logged.get('error')}"
         rf = probe.get("related_file") or {}
         storage.write_json(mark, {"checked_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "ok": bool(probe.get("ok")),
                                   "related_file": rf or None, "error": probe.get("error")})
