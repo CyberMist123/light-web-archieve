@@ -50,9 +50,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("file")
     p.add_argument("--json", action="store_true")
 
-    p = sub.add_parser("vision", help="给已归档的图片补本地 OCR 位置、表格/图片识别（每晚分批）")
-    p.add_argument("--upgrade", action="store_true", required=True)
-    p.add_argument("--limit", type=int, default=30, help="本次最多处理几篇，0 = 全部")
+    p = sub.add_parser("vision", help="识图：--upgrade 第一层（全库分批）/ --refine 第二层补跑打了标的图 / --refine-mark 手动点名")
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--upgrade", action="store_true", help="第一层：本地 OCR + 便宜模型，按识图版本全库分批重跑")
+    g.add_argument("--refine", action="store_true", help="第二层：强模型补跑 refine: pending 的图，一次一张")
+    g.add_argument("--refine-mark", metavar="ITEM_ID", help="手动点名：把这篇（或 --asset 那一张）标成待精细识别")
+    p.add_argument("--asset", help="配合 --refine-mark：只点名这一张（vision.json 里的 asset 路径或文件名）")
+    p.add_argument("--now", action="store_true", help="配合 --refine-mark：点名后马上补跑这篇，不等夜里")
+    p.add_argument("--limit", type=int, default=30, help="--upgrade 最多几篇 / --refine 最多几张，0 = 全部")
 
     p = sub.add_parser("comments", help="手动抓一篇的评论区（楼中楼 / 评论图片 / 语音评论）")
     p.add_argument("target", help="item_id（xhs-<note_id>）或链接")
@@ -251,6 +256,10 @@ def main(argv: list[str] | None = None) -> int:
         return voice.run(args)
     if args.command == 'vision':
         from . import vision
+        if getattr(args, "refine", False):
+            return vision.run_refine(args)
+        if getattr(args, "refine_mark", None):
+            return vision.run_refine_mark(args)
         return vision.run_upgrade(args)
     if args.command == 'comments':
         from . import ingest

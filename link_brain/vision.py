@@ -96,18 +96,51 @@ def _understand(entry: dict[str, Any], path: Path, cfg: dict[str, Any] | None, s
         entry["layout"] = "title"
         entry["visual"] = {"kind": "title", "status": "ok", "text": "标题：" + title}
         return entry
-    # 0927：不再只挑表格/没字的图——每张图都带着 OCR 问一次识图模型（判流程图、按图纠错、标打码）
+    # 第一层（0927 起每张图都走；0928 分两层）：便宜模型带着 OCR 判类型、按图纠错、标打码
     old = entry.get("visual") or {}
     if cfg and (old.get("status") != "ok" or old.get("v") != visual.VISUAL_VERSION):
-        use = {**cfg, "model": cfg["strongModel"]} if cfg.get("strongModel") and entry["layout"] != "picture" else cfg
-        got = visual.understand(path, entry["lines"], use)
+        got = visual.understand(path, entry["lines"], cfg)
         if got.get("status") == "ok" or old.get("status") != "ok":
             entry["visual"] = got
         if got.get("status") == "ok":
             entry["layout"] = got["kind"]
+            mark_refine(entry, refine_reason(entry))
     elif old.get("status") == "ok" and old.get("v") == visual.VISUAL_VERSION:
         entry["layout"] = old["kind"]  # 已是新版结果：类型以模型判的为准，别被本地版面判断盖掉
     return entry
+
+
+REFINE_MIN_CHARS = int(os.environ.get("LWA_REFINE_MIN_CHARS", "300"))
+REFINE_TRIES = 3  # 第一次 + 重试 2 次
+
+
+def refine_reason(entry: dict[str, Any]) -> str:
+    """第一层跑完后，这张图值不值得交给强模型补跑（0928 Owner 定的三条里的前两条；第三条是手动点名）。"""
+    from . import visual
+    v = entry.get("visual") or {}
+    lines = entry.get("lines") or []
+    chars = sum(len(l.get("text") or "") for l in lines)
+    if v.get("kind") in ("diagram", "table") and chars > REFINE_MIN_CHARS:
+        return f"{'流程图' if v['kind'] == 'diagram' else '表格'}且字多（OCR {chars} 字）"
+    if v.get("shaky"):
+        return "第一层" + v["shaky"]
+    if v.get("kind") == "table" and visual.table_problem(v.get("text") or ""):
+        return "第一层表格格式坏了"
+    mean = sum(l.get("score", 0) for l in lines) / len(lines) if lines else 1.0
+    if chars >= 30 and mean < 0.7:
+        return f"OCR 平均信心偏低（{mean:.2f}）"
+    return ""
+
+
+def mark_refine(entry: dict[str, Any], reason: str, *, manual: bool = False) -> bool:
+    """打 refine: pending 标。已补跑成功/已放弃的不重打（手动点名除外）。"""
+    if not reason:
+        return False
+    cur = entry.get("refine") or {}
+    if cur.get("status") in ("done", "failed") and not manual:
+        return False
+    entry["refine"] = {"status": "pending", "reason": reason, "tries": 0 if manual else cur.get("tries", 0)}
+    return True
 
 
 def build_vision(source_key: str, source_id: str, *, verbose: bool = False, upgrade: bool = False) -> dict[str, Any]:
@@ -176,8 +209,8 @@ def run_upgrade(args) -> int:
     done = tables = pictures = 0
     for row in rows:
         vpath = storage.derived_dir(row["source"], row["source_id"]) / "vision.json"
-        if vpath.exists() and storage.read_json(vpath).get("upgraded"):
-            continue
+        if vpath.exists() and storage.read_json(vpath).get("upgraded_v") == visual.VISUAL_VERSION:
+            continue  # 0928：按识图版本记，版本一升全库夜里慢慢重跑第一层
         if args.limit and done >= args.limit:
             break
         try:
@@ -186,10 +219,146 @@ def run_upgrade(args) -> int:
             print(f"{row['source_id']}: 跳过（{exc}）", file=sys.stderr)
             continue
         doc["upgraded"] = True
+        doc["upgraded_v"] = visual.VISUAL_VERSION
         storage.write_json(vpath, doc)
         tables += sum(1 for im in doc["images"] if im.get("layout") == "table")
         pictures += sum(1 for im in doc["images"] if im.get("layout") == "picture")
         render_mod.render_object(row["source"], row["source_id"])
         done += 1
     read_mod.dump_json({"objects": done, "tables": tables, "pictures": pictures})
+    return 0
+
+
+# ---------------------------------------------------------------- 第二层：补跑（0928）
+
+REFINE_GAP_SECONDS = tuple(float(x) for x in os.environ.get("LWA_REFINE_GAP", "5,15").split(","))
+
+
+def strong_config() -> dict[str, Any] | None:
+    """第二层用的强模型：设置 visionAI.refineModel，没设就用 DEFAULT_REFINE_MODEL。"""
+    from . import ai_config, visual
+    cfg = visual.vision_config()
+    if not cfg:
+        return None
+    model = (ai_config.load().get("visionAI") or {}).get("refineModel") or DEFAULT_REFINE_MODEL
+    return {**cfg, "model": model}
+
+
+DEFAULT_REFINE_MODEL = "qwen3.8-max"  # 0928 实测：17/17 关键字全对、Mermaid 可画、打码不猜
+
+
+def refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budget: int = 0,
+                  verbose: bool = True, tally: dict[str, Any] | None = None) -> dict[str, Any]:
+    """补跑这篇里 refine: pending 的图（一次一张、跑完歇一会）。成功写 refined 并重生成机读版。"""
+    import random
+    import time
+    from datetime import datetime
+    from . import render as render_mod, visual
+    tally = tally if tally is not None else {"done": 0, "failed": 0, "retry": 0, "cost_yuan": 0.0, "runs": 0}
+    vpath = storage.derived_dir(source_key, source_id) / "vision.json"
+    if not vpath.exists():
+        return tally
+    doc = storage.read_json(vpath)
+    changed = False
+    for entry in doc.get("images", []):
+        ref = entry.get("refine") or {}
+        if ref.get("status") != "pending":
+            continue
+        if budget and tally["runs"] >= budget:
+            break
+        if tally["runs"]:
+            time.sleep(random.uniform(*REFINE_GAP_SECONDS))
+        tally["runs"] += 1
+        kind = (entry.get("visual") or {}).get("kind") or entry.get("layout") or "text"
+        got = visual.refine(storage.object_dir(source_key, source_id) / entry["asset"], entry.get("lines"), kind, cfg)
+        tally["cost_yuan"] += got.get("cost_yuan") or 0.0
+        ref["tries"] = ref.get("tries", 0) + 1
+        ref["at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+        if got.get("status") == "ok":
+            entry["refined"] = got
+            ref["status"] = "done"
+            ref.pop("error", None)
+            tally["done"] += 1
+        else:
+            ref["error"] = got.get("error")
+            if ref["tries"] >= REFINE_TRIES:
+                ref["status"] = "failed"  # 不再每晚重跑；手动点名可以再来
+                tally["failed"] += 1
+            else:
+                tally["retry"] += 1
+        entry["refine"] = ref
+        changed = True
+        if verbose:
+            print(f"[refine] {source_id} {entry['asset'].split('/')[-1]}：{ref['status']}"
+                  f"（{ref.get('reason')}；{got.get('model')} ¥{got.get('cost_yuan') or 0:.4f}"
+                  + (f"；{ref.get('error')}" if ref.get("error") else "") + "）", file=sys.stderr)
+        storage.write_json(vpath, doc)  # 每张写一次：中途被打断也不丢已补好的
+    if changed:
+        render_mod.render_object(source_key, source_id)
+    return tally
+
+
+def pending_refines() -> list[tuple[str, str, int]]:
+    rows = []
+    for vpath in sorted((storage.vault_root() / "_archive").glob("*/*/derived/vision.json")):
+        try:
+            doc = storage.read_json(vpath)
+        except (OSError, ValueError):
+            continue
+        n = sum(1 for e in doc.get("images", []) if (e.get("refine") or {}).get("status") == "pending")
+        if n:
+            rows.append((vpath.parents[2].name, vpath.parents[1].name, n))
+    return rows
+
+
+def run_refine(args) -> int:
+    """`vision --refine`：每晚 4 点那一轮调；只跑打了标的图，日志记本晚补了几张、还剩几张、花了多少钱。"""
+    from .read import dump_json
+    cfg = strong_config()
+    if not cfg:
+        print("没配识图接口，跳过补跑", file=sys.stderr)
+        return 0
+    tally = {"done": 0, "failed": 0, "retry": 0, "cost_yuan": 0.0, "runs": 0}
+    for source_key, source_id, _ in pending_refines():
+        if args.limit and tally["runs"] >= args.limit:
+            break
+        refine_object(source_key, source_id, cfg, budget=args.limit, tally=tally)
+    left = sum(n for _, _, n in pending_refines())
+    dump_json({"model": cfg["model"], "refined": tally["done"], "failed": tally["failed"], "will_retry": tally["retry"],
+               "pending_left": left, "cost_yuan": round(tally["cost_yuan"], 4)})
+    return 0
+
+
+def run_refine_mark(args) -> int:
+    """手动点名（插件「精细识别」/ 问答时 AI 要求）：标 pending；--now 马上补跑这篇。"""
+    from . import index as index_mod
+    from .read import dump_json
+    conn = index_mod.connect()
+    try:
+        row = index_mod.get_object(conn, args.refine_mark)
+    finally:
+        conn.close()
+    if not row:
+        print(f"没有归档过: {args.refine_mark}", file=sys.stderr)
+        return 1
+    vpath = storage.derived_dir(row["source"], row["source_id"]) / "vision.json"
+    if not vpath.exists():
+        print("这篇还没有识图结果", file=sys.stderr)
+        return 1
+    doc = storage.read_json(vpath)
+    marked = 0
+    for entry in doc.get("images", []):
+        if args.asset and not entry["asset"].endswith(args.asset):
+            continue
+        if (entry.get("visual") or {}).get("kind") == "title":
+            continue
+        marked += mark_refine(entry, "手动点名", manual=True)
+    storage.write_json(vpath, doc)
+    out: dict[str, Any] = {"item_id": args.refine_mark, "marked": marked}
+    if args.now and marked:
+        cfg = strong_config()
+        if cfg:
+            tally = refine_object(row["source"], row["source_id"], cfg)
+            out.update(refined=tally["done"], failed=tally["failed"], cost_yuan=round(tally["cost_yuan"], 4))
+    dump_json(out)
     return 0

@@ -19,7 +19,7 @@ const DEFAULT_SETTINGS = {
   ocr: { mode: "media", via: "local", model: "", endpoint: "", apiKey: "" },
   // 识图 / 语音识别接口（0926）：media=本机；http=自定义 OpenAI 兼容接口；off=关闭。和 link_brain/ai_config.py 对齐。
   // videoScreenText：视频每 2 秒抽一帧本地 OCR 出「视频画面文字」（0926），不花钱但吃 CPU。
-  visionAI: { mode: "media", model: "qwen3-vl-flash", endpoint: "", apiKey: "", videoScreenText: true },
+  visionAI: { mode: "media", model: "qwen3.8-flash", refineModel: "qwen3.8-max", endpoint: "", apiKey: "", videoScreenText: true },
   asrAI: { mode: "media", model: "whisper-1", endpoint: "", apiKey: "" },
   // 语音输入（0926）：capsLock=用 CapsWriter 客户端，任何程序里按住 CapsLock 说话；capsWriterDir 空=自动找。
   voice: { capsLock: true, capsWriterDir: "" },
@@ -238,7 +238,9 @@ class LinkBrainActions extends Plugin {
     if (this.app.workspace?.on) this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => {
       if (!(file instanceof TFile) || !this.app.metadataCache.getFileCache(file)?.frontmatter?.link_brain?.item_id) return;
       menu.addItem(i => i.setTitle('抓全部评论').setIcon('messages-square').onClick(() => this.fetchAllComments(file)));
+      menu.addItem(i => i.setTitle('精细识别这篇的图').setIcon('scan-eye').onClick(() => this.refineImages(file)));
     }));
+    this.addCommand({ id: 'refine-images', name: '精细识别这篇的图（强模型补跑流程图/表格）', callback: () => this.refineImages() });
 
     this.addCommand({
       id: "ingest-inbox",
@@ -485,6 +487,16 @@ class LinkBrainActions extends Plugin {
     if (this.running) { new Notice(`正在${this.running}，完成后再试。`); return; }
     new Notice('开始抓全部评论（含楼中楼、评论图片和语音）。热门笔记可能要十几分钟，完成后页面自动更新。', 10000);
     await this.run(['-m', 'link_brain', 'comments', itemId], '抓全部评论', true);
+  }
+
+  // 0928 精细识别（第二层手动点名）：这篇的图交给强模型重认一遍，流程图出 Mermaid、表格出完整表。
+  // file 可以是笔记文件，也可以直接传 item_id（目录卡片右键用）。
+  async refineImages(file = this.app.workspace.getActiveFile()) {
+    const itemId = typeof file === 'string' ? file : file && this.app.metadataCache.getFileCache(file)?.frontmatter?.link_brain?.item_id;
+    if (!itemId) { new Notice('先打开一篇归档的笔记，再运行这个命令。'); return; }
+    if (this.running) { new Notice(`正在${this.running}，完成后再试。`); return; }
+    new Notice('开始精细识别这篇的图（一张一张来，每张十几秒到一分钟），完成后页面自动更新。', 10000);
+    await this.run(['-m', 'link_brain', 'vision', '--refine-mark', itemId, '--now'], '精细识别', true);
   }
 
   // ── 语音提问（0926）：麦克风按钮 / 命令（默认无快捷键，全局语音走 CapsLock）。
@@ -1076,8 +1088,11 @@ class LinkBrainSettingTab extends PluginSettingTab {
         .onChange(async v => { cfg.model = v.trim(); await save(); }));
     };
     endpointBlock('visionAI', { name: '识图接口',
-      desc: '用途：图片里是表格时转成 Markdown 表格，几乎没字的图（示意图、照片）生成一句描述，结果也能搜到。普通文字截图只用本地 OCR，不调用它。',
-      localLabel: '本机千问配置', pathHint: 'OpenAI 兼容 /chat/completions 地址，模型需支持图片输入。', modelHint: 'qwen3-vl-flash / gpt-4o-mini' });
+      desc: '用途：每张图带着本地 OCR 问一次，判断是表格 / 流程图 / 截图 / 图片，按图纠错别字、标出打码，结果也能搜到。流程图和字多的表格会再交给下面的「精细识别模型」补跑。',
+      localLabel: '本机千问配置', pathHint: 'OpenAI 兼容 /chat/completions 地址，模型需支持图片输入。', modelHint: 'qwen3.8-flash / gpt-4o-mini' });
+    if (s.visionAI.mode !== 'off') new Setting(c).setName('　精细识别模型')
+      .setDesc('只补跑挑出来的图：流程图/表格且字多、第一层结果靠不住、或你手动点「精细识别」。流程图出完整 Mermaid 加图例。每晚 4 点那轮跑，一次一张。')
+      .addText(t => t.setPlaceholder('qwen3.8-max').setValue(s.visionAI.refineModel || '').onChange(async v => { s.visionAI.refineModel = v.trim(); await save(); }));
     new Setting(c).setName('　视频画面文字')
       .setDesc('视频每 2 秒抽一帧做本地 OCR，把烧在画面上的字幕、文字卡收进笔记和搜索（背景音乐的视频尤其有用）。'
         + '成本：不调用任何付费接口，只占本机 CPU——30 秒视频约 7 秒，最长只看前 3 分钟（约 35 秒）；在夜间同步里跑，不挡导入。'
@@ -1118,7 +1133,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
       '必需：Windows 10/11（macOS 可用但 CapsLock 语音不支持）· Python 3.11+ · Obsidian + Dataview 插件 · ffmpeg（视频）。',
       '内存：建议 8 GB 以上；同步收藏时会开一个后台浏览器（约 300–500 MB）。不装本地大模型，不需要独立显卡。',
       '收藏问答：文本模型（当前 ' + (s.activeModel || '默认') + '）+ 向量模型（' + 'text-embedding，建索引一次、之后每问一次很便宜' + '）。',
-      '图片文字：本地 OCR（rapidocr，CPU，免费）；表格和几乎没字的图用识图模型（' + (s.visionAI.model || 'qwen3-vl-flash') + '，按张计费，很便宜）。',
+      '图片文字：本地 OCR（rapidocr，CPU，免费）+ 识图模型（' + (s.visionAI.model || 'qwen3.8-flash') + '，约 ¥0.003/张）；流程图/大表格再用 ' + (s.visionAI.refineModel || 'qwen3.8-max') + ' 精细识别（约 ¥0.05–0.08/张，只跑挑出来的少数）。',
       '视频：语音转写走本机语音识别；画面文字是本地 OCR（只占 CPU，可在上面关）。',
       '语音输入：CapsWriter-Offline（本地，按住 CapsLock 说话）。',
     ]) req.createEl('div', { text: '· ' + line });

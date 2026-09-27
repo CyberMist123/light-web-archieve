@@ -347,6 +347,7 @@ function openCardMenu(e,body,it){
   const add=(label,fn,danger)=>{const b=menu.createEl('button',{cls:'lbc-menu-item'+(danger?' is-danger':'')});b.setText(label);b.onclick=ev=>{ev.stopPropagation();menu.remove();fn();};};
   add('编辑标签',()=>openTagEditor(body,it));
   if(it.attachment!=='none'){add('下载 / 挂本地文件',()=>attachmentPanel([it]));}
+  if(typeof provider()?.refineImages==='function')add('精细识别图片',()=>provider().refineImages(it.item_id||it.id));
   add('删除收藏',()=>confirmDelete([it]),true);
   add('多选删除',()=>{selectMode=true;selected.add(it.id);render();});
   add('多选导出机读版',()=>{selectMode=true;selected.add(it.id);render();});

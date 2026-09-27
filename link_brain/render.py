@@ -892,10 +892,21 @@ def render_agent_md(
         if image.get("status") != "ok":
             return [f"{indent}- {image['asset']}：（识别失败：{image.get('error')}）"]
         visual = image.get("visual") or {}
+        refined = image.get("refined") or {}
+        # 0928：原图路径写在每张图末尾——机读版看不懂时 AI 直接去看原图，或点名精细识别
+        origin = f"{indent}  - 细节以原图为准：{storage.object_dir('xiaohongshu', meta['source_id']) / image['asset']}" \
+            if meta.get("source_id") else ""
+        pending = (image.get("refine") or {}).get("status") == "pending"
+        if refined.get("status") == "ok":
+            label = {"table": "表格·精细识别", "diagram": "流程图·精细识别", "text": "文字·精细识别"}[refined["kind"]]
+            out = [f"{indent}- {image['asset']}（{label}）："] + [f"{indent}  " + row for row in refined["text"].splitlines()]
+            return out + ([origin] if origin else [])
         if visual.get("status") == "ok" and visual.get("v") and visual.get("kind") in ("table", "diagram", "text"):
             # 0927：新版识图已按图纠过错，直接用它；原始 OCR 留在 vision.json
-            label = {"table": "表格", "diagram": "流程图", "text": "文字（按图校对）"}[visual["kind"]]
-            return [f"{indent}- {image['asset']}（{label}）："] + [f"{indent}  " + row for row in visual["text"].splitlines()]
+            label = {"table": "表格", "diagram": "流程图要点", "text": "文字（按图校对）"}[visual["kind"]]
+            label += "，待精细识别" if pending else ""
+            out = [f"{indent}- {image['asset']}（{label}）："] + [f"{indent}  " + row for row in visual["text"].splitlines()]
+            return out + ([origin] if origin else [])
         text =(reflow_ocr(image.get('ocr')) or '（无文字）').replace("\n", "\n" + indent + "  ") if indent else (reflow_ocr(image.get('ocr')) or '（无文字）')
         out = [f"{indent}- {image['asset']}：{text}"]
         visual = image.get("visual") or {}
@@ -903,6 +914,8 @@ def render_agent_md(
             label = {"table": "表格", "title": "标题图"}.get(visual.get("kind"), "图片描述")
             out.append(f"{indent}  - （{label}）")
             out.extend(f"{indent}    " + row for row in visual["text"].splitlines())
+        if origin and visual.get("kind") != "title":
+            out.append(origin)
         return out
 
     if images:

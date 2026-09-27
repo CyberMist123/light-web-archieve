@@ -55,7 +55,7 @@ DEFAULTS: dict[str, Any] = {
     "ocr": {"mode": "media", "via": "local", "model": "", "endpoint": "", "apiKey": ""},
     # 识图（只给表格和几乎没字的图用）：media=本机千问配置；http=自定义 OpenAI 兼容接口；off=只保留 OCR
     # videoScreenText：视频抽帧本地 OCR 出「视频画面文字」；不花钱，吃 CPU（30s 视频约 7s）。
-    "visionAI": {"mode": "media", "model": "qwen3-vl-flash", "endpoint": "", "apiKey": "", "videoScreenText": True},
+    "visionAI": {"mode": "media", "model": "qwen3.8-flash", "refineModel": "qwen3.8-max", "endpoint": "", "apiKey": "", "videoScreenText": True},
     # 语音识别（问 AI 的麦克风）：media=本机 media.py audio；http=OpenAI 兼容 /audio/transcriptions；off=关闭
     "asrAI": {"mode": "media", "model": "whisper-1", "endpoint": "", "apiKey": ""},
     # 语音输入：capsLock=CapsWriter 客户端全局监听 CapsLock（插件侧开关，Python 不用）
