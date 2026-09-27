@@ -446,6 +446,21 @@
   object-fit: contain;
   margin: 0;
 }
+/* 0928 Owner：表情包小一点，截图/表格/流程图大一点，多张并排 */
+.xhs-note .lb-comment-image.lb-ci-sticker { max-width: 96px; max-height: 96px; }
+.xhs-note .lb-comment-image.lb-ci-photo { max-width: min(260px, 70%); max-height: 260px; }
+.xhs-note .lb-comment-image.lb-ci-doc { max-width: 100%; max-height: 520px; }
+.xhs-note .lb-comment-media.lb-ci-n2,
+.xhs-note .lb-comment-media.lb-ci-n3 { display: grid; gap: 6px; align-items: start; }
+.xhs-note .lb-comment-media.lb-ci-n2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.xhs-note .lb-comment-media.lb-ci-n3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.xhs-note .lb-ci-n2 .lb-comment-image.lb-ci-doc,
+.xhs-note .lb-ci-n3 .lb-comment-image.lb-ci-doc,
+.xhs-note .lb-ci-n2 .lb-comment-image.lb-ci-photo,
+.xhs-note .lb-ci-n3 .lb-comment-image.lb-ci-photo { width: 100%; max-width: 100%; max-height: 360px; object-fit: cover; object-position: top; }
+/* 机读版里的 Mermaid 流程图：缩放到一屏宽，不横向拖（0928 Owner：别像清明上河图） */
+.markdown-rendered .mermaid svg { max-width: 100% !important; height: auto; }
+.markdown-rendered .mermaid { overflow: visible; text-align: center; }
 
 .xhs-note .lb-empty {
   color: var(--lb-muted);

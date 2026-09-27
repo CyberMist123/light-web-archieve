@@ -5,6 +5,7 @@ Rerender replaces only the managed content layer and preserves the comments laye
 """
 from __future__ import annotations
 
+from functools import lru_cache
 import html
 import json
 import re
@@ -217,6 +218,42 @@ def _comment_image_files(comment_id: str | None, manifest: dict[str, Any]) -> li
     ]
 
 
+@lru_cache(maxsize=64)
+def _vision_kinds(vision_path: str, mtime: float) -> dict[str, dict[str, Any]]:
+    try:
+        doc = json.loads(Path(vision_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for im in doc.get("images", []):
+        v = im.get("refined") if (im.get("refined") or {}).get("status") == "ok" else im.get("visual") or {}
+        chars = sum(len(l.get("text") or "") for l in im.get("lines") or [])
+        out[im.get("asset", "")] = {"kind": v.get("kind") or im.get("layout"), "chars": chars}
+    return out
+
+
+def _comment_image_size(object_rel: str, file: str) -> str:
+    """评论图片显示尺寸：sticker（表情包/小图，缩小）/ doc（截图、表格、流程图，放大）/ photo（照片，中等）。
+
+    类型取识图结果；没有识图结果就看像素：边长都不超过 400 当表情包。
+    """
+    obj = storage.vault_root() / object_rel
+    vpath = obj / "derived" / "vision.json"
+    info = _vision_kinds(str(vpath), vpath.stat().st_mtime if vpath.exists() else 0.0).get(file) or {}
+    kind, chars = info.get("kind"), info.get("chars", 0)
+    if kind in ("text", "table", "diagram") and chars >= 40:
+        return "doc"
+    try:
+        from PIL import Image
+        with Image.open(obj / file) as im:
+            w, h = im.size
+    except Exception:  # noqa: BLE001 - 读不了就按普通图
+        return "photo"
+    if max(w, h) <= 400 or (kind in ("picture", "title") and chars < 40 and max(w, h) <= 600):
+        return "sticker"
+    return "photo"
+
+
 def _comment_html(
     comment: dict[str, Any],
     object_rel: str,
@@ -231,12 +268,14 @@ def _comment_html(
     if target:
         text = f'<span class="lb-reply-target">回复 {_safe(target)}：</span>{text}'
 
+    files = _comment_image_files(comment.get("comment_id"), manifest)
     media = "".join(
-        f'<img class="lb-comment-image" src="../../{_safe(_img_srcs(object_rel, f)[0])}" '
-        'loading="lazy" alt="评论图片">'
-        for f in _comment_image_files(comment.get("comment_id"), manifest)
+        f'<img class="lb-comment-image lb-ci-{_comment_image_size(object_rel, f)}" '
+        f'src="../../{_safe(_img_srcs(object_rel, f)[0])}" loading="lazy" alt="评论图片">'
+        for f in files
     )
-    media = f'<div class="lb-comment-media">{media}</div>' if media else ""
+    # 0928 Owner：表情包小一点、截图/表格/流程图大一点、多张并排
+    media = f'<div class="lb-comment-media lb-ci-n{min(len(files), 3)}">{media}</div>' if media else ""
     audio = comment.get("audio") or {}
     if audio:
         file = next((m["file"] for m in manifest.get("media", []) if m.get("role") == "comment_audio"

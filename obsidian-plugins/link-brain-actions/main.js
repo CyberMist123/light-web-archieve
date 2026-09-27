@@ -241,6 +241,14 @@ class LinkBrainActions extends Plugin {
       menu.addItem(i => i.setTitle('精细识别这篇的图').setIcon('scan-eye').onClick(() => this.refineImages(file)));
     }));
     this.addCommand({ id: 'refine-images', name: '精细识别这篇的图（强模型补跑流程图/表格）', callback: () => this.refineImages() });
+    // 0928 Owner：归档笔记默认用阅读视图打开——编辑视图里点一下 HTML 块会变回源码，批注也挪不到图片下面。
+    // 只在打开的那一下切一次；之后自己切到编辑视图不会被切回来。
+    if (this.app.workspace?.on) this.registerEvent(this.app.workspace.on('file-open', (file) => {
+      if (!(file instanceof TFile) || !this.app.metadataCache.getFileCache(file)?.frontmatter?.link_brain?.item_id) return;
+      const leaf = this.app.workspace.getActiveViewOfType(obsidian.MarkdownView)?.leaf;
+      const vs = leaf?.getViewState();
+      if (vs?.state?.mode === 'source') leaf.setViewState({ ...vs, state: { ...vs.state, mode: 'preview' } });
+    }));
 
     this.addCommand({
       id: "ingest-inbox",

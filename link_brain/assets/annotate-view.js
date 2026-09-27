@@ -11,6 +11,7 @@ const style = root.createEl('style');
 style.textContent = `
 /* 批注区去框线、留白（Owner 2026-09-17）：不要盒子/分隔线，配色随 Obsidian 主题变量。 */
 .lba-annot{margin-top:30px;font-family:var(--font-interface),sans-serif;}
+.lba-annot.lba-in-side{margin-top:14px;}
 .lba-annot-head{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
 .lba-annot-title{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint);}
 .lba-star{cursor:pointer;font-size:18px;line-height:1;user-select:none;filter:grayscale(1);opacity:.45;transition:.12s;}
@@ -46,6 +47,17 @@ const saveHint = head.createEl('span', { cls: 'lba-save-hint' });
 const list = box.createEl('div', { cls: 'lba-annot-list' });
 const ta = box.createEl('textarea', { cls: 'lba-annot-input' });
 ta.placeholder = '写批注…';  // 真正的提示由 setPlaceholder() 按有没有内容决定
+
+// 0928 Owner：批注挪到左栏图片下面，和图在一屏。只在阅读视图挪（编辑视图里挪 DOM 会和编辑器打架），
+// 事件都绑在 box 上，挪了照样能用；重渲染时先清掉左栏里的旧副本，不会叠出两个。
+(function moveUnderImages(tries = 0) {
+  const view = root.closest('.markdown-reading-view, .markdown-preview-view');
+  const side = view && view.querySelector('.xhs-note .lb-side');
+  if (!side) { if (view && tries < 20) setTimeout(() => moveUnderImages(tries + 1), 150); return; }
+  side.querySelectorAll(':scope > .lba-annot').forEach(el => { if (el !== box) el.remove(); });
+  box.classList.add('lba-in-side');
+  side.appendChild(box);
+})();
 
 let data = { starred: false, annotations: [], draft: '' };
 
