@@ -96,8 +96,17 @@ def _understand(entry: dict[str, Any], path: Path, cfg: dict[str, Any] | None, s
         entry["layout"] = "title"
         entry["visual"] = {"kind": "title", "status": "ok", "text": "标题：" + title}
         return entry
-    if entry["layout"] in ("table", "picture") and cfg and (entry.get("visual") or {}).get("status") != "ok":
-        entry["visual"] = visual.describe(path, entry["layout"], cfg)
+    # 0927：不再只挑表格/没字的图——每张图都带着 OCR 问一次识图模型（判流程图、按图纠错、标打码）
+    old = entry.get("visual") or {}
+    if cfg and (old.get("status") != "ok" or old.get("v") != visual.VISUAL_VERSION):
+        use = {**cfg, "model": cfg["strongModel"]} if cfg.get("strongModel") and entry["layout"] != "picture" else cfg
+        got = visual.understand(path, entry["lines"], use)
+        if got.get("status") == "ok" or old.get("status") != "ok":
+            entry["visual"] = got
+        if got.get("status") == "ok":
+            entry["layout"] = got["kind"]
+    elif old.get("status") == "ok" and old.get("v") == visual.VISUAL_VERSION:
+        entry["layout"] = old["kind"]  # 已是新版结果：类型以模型判的为准，别被本地版面判断盖掉
     return entry
 
 
@@ -134,7 +143,7 @@ def build_vision(source_key: str, source_id: str, *, verbose: bool = False, upgr
         cached = existing.get(asset_rel)
         if cached and cached.get('status') == 'ok':
             # upgrade：旧结果没有位置框（CMX 时代）就用本地 OCR 重跑一次，补上表格/图片识别
-            if upgrade and "lines" not in cached and visual.available():
+            if upgrade and cached.get("ocr_v") != 2 and visual.available():  # 0927：旧 OCR 没切块，重认一遍
                 cached = {'asset': asset_rel, **visual.local_ocr(path)}
             images.append(_understand(cached, path, cfg, source_key) if upgrade or "lines" in cached else cached)
             continue

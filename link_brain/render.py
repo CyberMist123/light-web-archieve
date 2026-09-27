@@ -891,7 +891,12 @@ def render_agent_md(
     def image_lines(image: dict[str, Any], indent: str) -> list[str]:
         if image.get("status") != "ok":
             return [f"{indent}- {image['asset']}：（识别失败：{image.get('error')}）"]
-        text = (reflow_ocr(image.get('ocr')) or '（无文字）').replace("\n", "\n" + indent + "  ") if indent else (reflow_ocr(image.get('ocr')) or '（无文字）')
+        visual = image.get("visual") or {}
+        if visual.get("status") == "ok" and visual.get("v") and visual.get("kind") in ("table", "diagram", "text"):
+            # 0927：新版识图已按图纠过错，直接用它；原始 OCR 留在 vision.json
+            label = {"table": "表格", "diagram": "流程图", "text": "文字（按图校对）"}[visual["kind"]]
+            return [f"{indent}- {image['asset']}（{label}）："] + [f"{indent}  " + row for row in visual["text"].splitlines()]
+        text =(reflow_ocr(image.get('ocr')) or '（无文字）').replace("\n", "\n" + indent + "  ") if indent else (reflow_ocr(image.get('ocr')) or '（无文字）')
         out = [f"{indent}- {image['asset']}：{text}"]
         visual = image.get("visual") or {}
         if visual.get("status") == "ok":
