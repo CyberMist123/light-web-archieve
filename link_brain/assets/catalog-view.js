@@ -200,8 +200,8 @@ const importButton=titleText.createEl('button',{cls:'lbc-import',text:'+'});
 const subLine=titleBlock.createEl('div',{cls:'lbc-subline'});
 let todayOnly=false;
 const sub=subLine.createEl('span',{cls:'lbc-sub'});
-const syncSpan=subLine.createEl('span',{cls:'lbc-sync'});syncSpan.hidden=true;syncSpan.setText('!');
-syncSpan.onclick=()=>attachmentPanel(items.filter(it=>it.attachment==='待补'));
+// 0927 Owner：两个「!」合成一个——同步/账号问题和附件待补都挂这一个，点了按轻重内部分流。
+let todoCount=0;
 // 0926 Owner：按老样子——只有出问题时才在计数后面出一个橙色圆「!」，悬停看原因，点一下直接修。
 const accountStatus=subLine.createEl('button',{cls:'lbc-sync lbc-account-status'});accountStatus.hidden=true;
 // 同步状态：出问题时是「! 需要登录 / 需要验证 / 同步失败」，点一下直接进入修复（扫码 / 验证窗口）。
@@ -211,13 +211,20 @@ async function refreshSyncStatus(){
   const st=syncState||{};
   const label={NOT_LOGGED_IN:'需要登录',CAPTCHA_REQUIRED:'需要验证',WRONG_ACCOUNT:'登错号',DISCONNECTED:'服务未运行',NOT_INSTALLED:'未安装读取组件'}[st.code]
     ||(st.state==='blocked'?(st.account?'需要登录':'同步暂停'):st.state==='failed'?'同步失败':'');
+  syncLabel=label;paintBadge();
+}
+let syncLabel='';
+function paintBadge(){
+  const st=syncState||{};const label=syncLabel;
+  const why=[label&&label+(st.detail||st.message?'：'+(st.detail||st.message):''),todoCount&&('附件待补 '+todoCount+' 篇')].filter(Boolean);
   accountStatus.empty();accountStatus.className='lbc-sync lbc-account-status';
-  if(label){accountStatus.setText('!');accountStatus.title=label+(st.detail||st.message?'：'+(st.detail||st.message):'')+' · 点击处理';}
+  if(why.length){accountStatus.setText('!');accountStatus.title=why.join('\n')+'\n点击处理';}
   else if(st.state==='running'){accountStatus.className='lbc-sub lbc-account-status';accountStatus.setText('· 同步中…');accountStatus.title='';}
   // 0926 Owner：已同步就不显示，只有报错才出现
-  accountStatus.hidden=!label&&st.state!=='running';
+  accountStatus.hidden=!why.length&&st.state!=='running';
 }
 accountStatus.onclick=async()=>{
+  if(!syncLabel&&todoCount){attachmentPanel(items.filter(it=>it.attachment==='待补'));return;}
   try {
     let plugin=provider();
     if(typeof plugin?.fixFromCatalog!=='function'){
@@ -353,8 +360,7 @@ function render(){
   const now=new Date();const today=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
   const shown=items.filter(it=>(!(starredPage||starOnly)||it.starred)&&(!mediaFilter||(mediaFilter==='video'?it.kind==='video':it.attachment&&it.attachment!=='none'))&&(!todayOnly||it.date===today)&&(!todoOnly||it.attachment==='待补')&&(!activeCat||(it.cats||[]).includes(activeCat))&&(!activeTopic||(it.topics||[]).includes(activeTopic))).map(it=>({it,score:score(it,q,data.pinyin_chars,data.aliases||[])})).filter(x=>x.score>0).sort((a,b)=>Number(!!b.it.starred)-Number(!!a.it.starred)||b.score-a.score);
   sub.setText((q||todayOnly||todoOnly||starredPage||mediaFilter||activeTopic?`${shown.length} / ${items.length} 篇`:`${items.length} 篇`)+` · 更新 ${new Date(data.built_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}`);
-  const todoCount=items.filter(x=>x.attachment==='待补').length;
-  if(todoCount){syncSpan.hidden=false;}else syncSpan.hidden=true;
+  todoCount=items.filter(x=>x.attachment==='待补').length;paintBadge();
   ai.hidden=!asking;grid.hidden=asking;
   if(asking){selbar.hidden=true;return;}
   if(simplePage&&!starredPage&&!q&&!activeCat&&!activeTopic&&!todayOnly&&!todoOnly){grid.createEl('div',{cls:'lbc-empty',text:'输入关键词搜索收藏；想让 AI 分析，点上面的「问收藏」。'});selbar.hidden=true;return;}
