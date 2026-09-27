@@ -75,10 +75,10 @@ DEFAULTS: dict[str, Any] = {
     "catalogCats": [],
     "hiddenCats": [],
     "downloads": {"folder": str(Path.home() / "Downloads"), "waitMinutes": 5},
-    # 收藏同步选项（0926 Owner）：评论楼层 10/20/50（更多在单篇上手动抓全量）；
+    # 收藏同步选项（0926 Owner）：评论楼层 all/10/20/50（0927 Owner：默认 all，含楼中楼和评论图，不用再手动抓）；
     # dailyNewLimit = 每天最多新抓几篇（防风控，第一次补历史收藏分几天完成）。
     "sync": {"autoAfterLogin": True, "downloadImages": True, "downloadVideo": True,
-             "commentFloors": 10, "dailyNewLimit": 200},
+             "commentFloors": "all", "dailyNewLimit": 200},
 }
 
 
@@ -94,7 +94,9 @@ def with_model(settings: dict[str, Any], name: str = '') -> dict[str, Any]:
 
 def sync_options() -> dict[str, Any]:
     opts = load().get("sync") or {}
-    floors = opts.get("commentFloors", 10)
+    floors = opts.get("commentFloors", "all")
+    if floors == "all":
+        return {**DEFAULTS["sync"], **opts, "commentFloors": "all"}
     try:
         floors = int(floors)
     except (TypeError, ValueError):
