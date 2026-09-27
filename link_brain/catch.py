@@ -107,6 +107,9 @@ def _catch_one(
     except Exception as exc:  # noqa: BLE001 - 渲染失败不该吞掉已经落盘的归档
         render_error = f"渲染失败: {type(exc).__name__}: {exc}"
 
+    from . import attachments as attachments_mod
+    attachments_mod.grab_after_ingest(source_key, source_id)  # 0927：导入时就下附件，不等半夜
+
     try:
         payload = read_mod.item_payload(source_key, source_id, status=status)
     except Exception as exc:  # noqa: BLE001

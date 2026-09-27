@@ -26,6 +26,7 @@ RELATED_FILE = {
 
 def setup_env(tmp_path, monkeypatch):
     monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
+    monkeypatch.setattr(att_mod, "_pace", lambda attempt=1: None)  # 测试不歇
     monkeypatch.setattr(
         xhs, "parse_input",
         lambda text, client=None: {
@@ -58,7 +59,15 @@ def _ids():
         conn.close()
 
 
-def fake_fetch(payload: bytes = b"%PDF-1.6 fake\n%%EOF\n", *, calls: list | None = None):
+def real_pdf() -> bytes:
+    import pymupdf
+    doc = pymupdf.open()
+    doc.new_page().insert_text((72, 72), "tutorial page one: enough text for the text layer check")
+    return doc.tobytes()
+
+
+def fake_fetch(payload: bytes | None = None, *, calls: list | None = None):
+    payload = real_pdf() if payload is None else payload
     def _fetch(*, doc_id, note_id, xsec_token, file_name, staging_dir, verbose=False):
         if calls is not None:
             calls.append(doc_id)
@@ -147,3 +156,40 @@ def test_visible_note_links_local_file_after_download(tmp_path, monkeypatch):
     text = list(storage.visible_dir().glob("*.md"))[0].read_text(encoding="utf-8")
     assert "已存本地" in text
     assert f"_archive/xiaohongshu/{NOTE_ID}/attachments/教程.pdf" in text
+
+
+def test_bad_download_is_deleted_and_retried(tmp_path, monkeypatch):
+    """0927：下到半截 / 占位页 → 删掉、再下，直到能转 md。"""
+    setup_env(tmp_path, monkeypatch)
+    cli.main(["ingest", "https://example.invalid/share"])
+    _, source, source_id = _ids()
+    good, calls = real_pdf(), []
+
+    def _fetch(*, doc_id, note_id, xsec_token, file_name, staging_dir, verbose=False):
+        calls.append(doc_id)
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        path = staging_dir / "教程.pdf"
+        path.write_bytes(b"<html>busy</html>" if len(calls) == 1 else good)
+        return path
+
+    monkeypatch.setattr(att_mod, "fetch_bytes", _fetch)
+    out = att_mod.download_for_object(source, source_id)
+    assert [r["status"] for r in out["results"]] == ["downloaded"] and len(calls) == 2
+    assert (storage.derived_dir(source, source_id) / "attachments" / f"{DOC_ID}.md").exists()
+
+
+def test_same_name_file_already_in_library_is_not_downloaded(tmp_path, monkeypatch):
+    """0927：以前手动挂过（doc_id 记成 manual-…）的同名文件，认回真 doc_id，不再上网。"""
+    setup_env(tmp_path, monkeypatch)
+    cli.main(["ingest", "https://example.invalid/share"])
+    _, source, source_id = _ids()
+    local = tmp_path / "教程.pdf"
+    local.write_bytes(real_pdf())
+    att_mod.manual_attach(source, source_id, str(local), "manual-教程")
+
+    def _boom(**kw):
+        raise AssertionError("库里已有同名文件，不该开浏览器")
+
+    monkeypatch.setattr(att_mod, "fetch_bytes", _boom)
+    att_mod.download_for_object(source, source_id)
+    assert DOC_ID in att_mod.load_downloaded(source, source_id)

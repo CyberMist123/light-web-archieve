@@ -18,6 +18,8 @@ RAW 版本写完就封存（TASKBOOK 硬约束 4），附件是事后补下来�
 from __future__ import annotations
 
 import hashlib
+import os
+import random
 import re
 import shutil
 import subprocess
@@ -78,6 +80,111 @@ def fetch_bytes(
     if not path.is_file() or path.stat().st_size == 0:
         raise AttachmentError(f"读取服务报告已下载，但文件不存在：{path}")
     return path
+
+
+# 0927 防风控：一次只开一个附件页，两次之间像人一样随机隔 1.5–4 分钟（重试时再翻倍拉长）。
+# 上次开页时刻落盘，跨进程也算（每晚 attachments 与 --recheck 背靠背跑，别在交界处连开）。
+PACE_SECONDS = tuple(float(x) for x in os.environ.get("LWA_ATTACH_PACE", "90,240").split(","))
+TRIES = max(1, int(os.environ.get("LWA_ATTACH_TRIES", "3")))
+_MAGIC = {".pdf": b"%PDF", ".docx": b"PK", ".xlsx": b"PK", ".pptx": b"PK", ".zip": b"PK"}
+
+
+def _pace(attempt: int = 1) -> None:
+    from . import accounts
+    stamp = accounts.home() / "attach-last-fetch.txt"
+    try:
+        last = float(stamp.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        last = 0.0
+    wait = random.uniform(*PACE_SECONDS) * attempt - (time.time() - last)
+    if wait > 0:
+        print(f"[attachment] 像人一样歇 {wait:.0f} 秒再开下一个附件页", file=sys.stderr)
+        time.sleep(wait)
+    try:
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        stamp.write_text(str(time.time()), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _check_file(path: Path) -> None:
+    """下下来的字节像不像这个类型（半截文件 / 网页占位页会在这里露馅）。"""
+    magic = _MAGIC.get(path.suffix.lower())
+    with path.open("rb") as fh:
+        head = fh.read(8)
+    if not head:
+        raise AttachmentError(f"下到的是空文件：{path.name}")
+    if magic and not head.startswith(magic):
+        raise AttachmentError(f"下到的不是 {path.suffix} 文件（可能是网页或半截）：{path.name}")
+
+
+def _have_by_name(object_dir: Path, name: str) -> Path | None:
+    """库里已经有同名文件（以前手动挂过、doc_id 记成 manual-…）就别再去网上下一遍。"""
+    local = object_dir / "attachments" / name
+    return local if name and local.is_file() and local.stat().st_size > 0 else None
+
+
+def acquire(source_key: str, source_id: str, *, doc_id: str, name: str, xsec_token: str,
+            verbose: bool = False) -> dict[str, Any]:
+    """下一份附件，并验到『文件完整 + 能转成 md』为止；不行就删掉、歇更久、重下，最多 TRIES 次。
+
+    账号要人处理（未登录 / 安全验证）直接抛 AttachmentNeedsHuman，绝不重试。
+    """
+    from .pdftext import convert_object_attachments
+
+    object_dir = storage.object_dir(source_key, source_id)
+    staging = object_dir / ".attachment-staging"
+    last_error = ""
+    for attempt in range(1, TRIES + 1):
+        _pace(attempt)
+        try:
+            got = fetch_bytes(doc_id=doc_id, note_id=source_id, xsec_token=xsec_token,
+                              file_name=name or "file", staging_dir=staging, verbose=verbose)
+            _check_file(got)
+            out = manual_attach(source_key, source_id, str(got), doc_id, origin="auto")
+            record = next(r for r in load_downloaded(source_key, source_id).values() if r.get("file") == out["file"])
+            try:
+                bad = [r for r in convert_object_attachments(source_key, source_id)
+                       if r["doc_id"] == record["doc_id"] and r["status"] == "failed"]
+            except Exception as exc:  # noqa: BLE001 - 打不开的文件 pymupdf 直接抛
+                bad = [{"note": f"{type(exc).__name__}: {exc}"}]
+            if not bad:
+                return record
+            last_error = f"转 md 失败：{bad[0].get('note') or ''}"
+            (object_dir / "attachments" / record["file"]).unlink(missing_ok=True)
+        except AttachmentNeedsHuman:
+            raise
+        except (AttachmentError, OSError, StopIteration, KeyError, ValueError) as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+        print(f"[attachment] 第 {attempt}/{TRIES} 次没成：{last_error}", file=sys.stderr)
+    raise AttachmentError(f"试了 {TRIES} 次仍不行：{last_error}")
+
+
+def grab_after_ingest(source_key: str, source_id: str) -> None:
+    """入库（ob 导入 / 同步收藏）后顺手把这篇的附件下好，不等半夜。出错只记，不影响入库。"""
+    try:
+        object_dir = storage.object_dir(source_key, source_id)
+        if not inventory(object_dir)["missing"]:
+            return
+        outcome = download_for_object(source_key, source_id, verbose=True)
+        from . import index as index_mod, render as render_mod
+        render_mod.render_object(source_key, source_id)
+        meta = storage.read_json(object_dir / "meta.json")
+        conn = index_mod.connect()
+        try:
+            index_mod.set_attachments_status(conn, meta["item_id"], meta.get("attachments_status"))
+        finally:
+            conn.close()
+        for r in outcome["results"]:
+            if r["status"] == "failed":
+                blocked = bool(r.get("code"))
+                alert_mod.alert(alert_mod.KIND_ACCOUNT if blocked else alert_mod.KIND_ATTACHMENT,
+                                "附件没拿到" + ("（账号要处理：登录/安全验证）" if blocked else "（今晚 4 点会再补）"),
+                                f"{outcome['item_id']}: {str(r.get('error'))[:300]}", item_id=outcome["item_id"])
+    except Exception as exc:  # noqa: BLE001 - 附件是锦上添花，别拖垮已落盘的归档
+        print(f"[attachment] 入库后顺手下附件出错（今晚 4 点会再补）：{exc}", file=sys.stderr)
 
 
 def _sha256(path: Path) -> str:
@@ -206,35 +313,17 @@ def download_for_object(
             results.append({**known[doc_id], "status": "already"})
             continue
         try:
-            local = local_download(att.get("name") or "")
+            local = (None if force else _have_by_name(object_dir, att.get("name") or "")) or local_download(att.get("name") or "")
             if local:
                 manual_attach(source_key, source_id, str(local), doc_id)
                 record = load_downloaded(source_key, source_id)[doc_id]
                 known[doc_id] = record
                 results.append({**record, "status": "downloaded"})
                 continue
-            got = fetch_bytes(
-                doc_id=doc_id,
-                note_id=source_id,
-                xsec_token=note.get("xsec_token") or "",
-                file_name=att.get("name") or "file",
-                staging_dir=staging,
-                verbose=verbose,
-            )
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            dest = dest_dir / got.name
-            shutil.move(str(got), dest)
-            results.append(
-                {
-                    "doc_id": doc_id,
-                    "name": att.get("name") or dest.name,
-                    "file": dest.name,
-                    "bytes": dest.stat().st_size,
-                    "sha256": _sha256(dest),
-                    "downloaded_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
-                    "status": "downloaded",
-                }
-            )
+            record = acquire(source_key, source_id, doc_id=doc_id, name=att.get("name") or "file",
+                             xsec_token=note.get("xsec_token") or "", verbose=verbose)
+            known = load_downloaded(source_key, source_id)
+            results.append({**record, "status": "downloaded"})
         except AttachmentNeedsHuman as exc:
             results.append({"doc_id": doc_id, "status": "failed", "error": str(exc), "code": exc.code})
             break  # 账号要人处理：余下附件等处理完再补
@@ -263,7 +352,8 @@ def download_for_object(
     return {"item_id": meta["item_id"], "results": results}
 
 
-def manual_attach(source_key: str, source_id: str, file_path: str, doc_id: str | None = None) -> dict[str, Any]:
+def manual_attach(source_key: str, source_id: str, file_path: str, doc_id: str | None = None,
+                  origin: str = "manual") -> dict[str, Any]:
     """把 Owner 自己下好的文件手动挂到这篇（系统 headed 下不了时用）。
 
     复制进对象级 `attachments/`，尽量按文件名认领一个 doc_id（认不出就存 manual 记录），
@@ -292,13 +382,14 @@ def manual_attach(source_key: str, source_id: str, file_path: str, doc_id: str |
     if not matched and len(declared) == 1:
         matched = declared[0]
     record = {
-        "doc_id": (matched or {}).get("doc_id") or "manual-" + re.sub(r"[^\w.-]", "_", src.stem),
+        # 调用方给了真 doc_id 就用它（0927：recheck 下的附件元数据里没声明过，旧逻辑记成 manual-… 对不上号，每晚重下）
+        "doc_id": (matched or {}).get("doc_id") or doc_id or "manual-" + re.sub(r"[^\w.-]", "_", src.stem),
         "name": (matched or {}).get("name") or (matched or {}).get("hint") or src.name,
         "file": dest.name,
         "bytes": dest.stat().st_size,
         "sha256": _sha256(dest),
         "downloaded_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
-        "source": "manual",
+        "source": origin,
     }
     known = load_downloaded(source_key, source_id)
     files = [v for k, v in known.items() if v.get("file") != dest.name and k != record["doc_id"]]
@@ -464,7 +555,7 @@ def recheck(*, limit: int = 0, verbose: bool = False) -> dict[str, Any]:
         obj = meta_path.parent
         source_id = obj.name
         mark = obj / "derived" / "web_recheck.json"
-        if mark.exists() and storage.read_json(mark).get("ok"):
+        if mark.exists() and storage.read_json(mark).get("ok") and not storage.read_json(mark).get("download_error"):
             continue
         meta = storage.read_json(meta_path)
         raw = storage.raw_dir("xiaohongshu", source_id, meta["current_version"])
@@ -486,22 +577,27 @@ def recheck(*, limit: int = 0, verbose: bool = False) -> dict[str, Any]:
         if not probe.get("ok"):
             failed.append({"id": source_id, "error": (probe.get("error") or "")[:120]})
             continue
-        doc_id = rf.get("docId")
+        doc_id = str(rf.get("docId") or "")
         if not doc_id or doc_id in load_downloaded("xiaohongshu", source_id):
             continue
         name = rf.get("name") or f"{doc_id}.bin"
-        staging = obj / ".attachment-staging"
-        try:
-            path = fetch_bytes(doc_id=doc_id, note_id=source_id, xsec_token=token or "", file_name=name,
-                               staging_dir=staging, verbose=verbose)
-            manual_attach("xiaohongshu", source_id, str(path), doc_id)
+        have = _have_by_name(obj, name)
+        if have:  # 以前手动挂过（记成 manual-…）：认回真 doc_id，不上网
+            manual_attach("xiaohongshu", source_id, str(have), doc_id)
             convert_downloads("xiaohongshu", source_id)
             render_mod.render_object("xiaohongshu", source_id)
+            continue
+        try:
+            acquire("xiaohongshu", source_id, doc_id=doc_id, name=name, xsec_token=token or "", verbose=verbose)
+            render_mod.render_object("xiaohongshu", source_id)
             found.append({"id": source_id, "file": name})
+        except AttachmentNeedsHuman as exc:
+            storage.write_json(mark, {**storage.read_json(mark), "download_error": str(exc)[:200]})
+            alert_mod.alert(alert_mod.KIND_ACCOUNT, "附件没拿到（账号要处理：登录/安全验证）", f"{source_id}: {exc}"[:300])
+            break  # 撞验证就停，绝不接着开页
         except (AttachmentError, OSError, KeyError, ValueError) as exc:
+            storage.write_json(mark, {**storage.read_json(mark), "download_error": str(exc)[:200]})
             failed.append({"id": source_id, "error": f"{name} 下载失败：{exc}"[:160]})
-        finally:
-            shutil.rmtree(staging, ignore_errors=True)
     if failed:
         alert_mod.alert("normal", f"附件补查：{len(failed)} 篇没查清",
                         "；".join(f"{f['id']} {f['error']}" for f in failed[:5]) + ("…" if len(failed) > 5 else ""))
