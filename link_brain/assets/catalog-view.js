@@ -200,7 +200,7 @@ const importButton=titleText.createEl('button',{cls:'lbc-import',text:'+'});
 const subLine=titleBlock.createEl('div',{cls:'lbc-subline'});
 let todayOnly=false;
 const sub=subLine.createEl('span',{cls:'lbc-sub'});
-// 0927 Owner：两个「!」合成一个——同步/账号问题和附件待补都挂这一个，点了按轻重内部分流。
+// 0927 Owner：只留一个「!」，只报要人处理的错（同步/账号）；附件待补会自动重跑，补齐入口只在底栏。
 let todoCount=0;
 // 0926 Owner：按老样子——只有出问题时才在计数后面出一个橙色圆「!」，悬停看原因，点一下直接修。
 const accountStatus=subLine.createEl('button',{cls:'lbc-sync lbc-account-status'});accountStatus.hidden=true;
@@ -216,7 +216,7 @@ async function refreshSyncStatus(){
 let syncLabel='';
 function paintBadge(){
   const st=syncState||{};const label=syncLabel;
-  const why=[label&&label+(st.detail||st.message?'：'+(st.detail||st.message):''),todoCount&&('附件待补 '+todoCount+' 篇')].filter(Boolean);
+  const why=[label&&label+(st.detail||st.message?'：'+(st.detail||st.message):'')].filter(Boolean);
   accountStatus.empty();accountStatus.className='lbc-sync lbc-account-status';
   if(why.length){accountStatus.setText('!');accountStatus.title=why.join('\n')+'\n点击处理';}
   else if(st.state==='running'){accountStatus.className='lbc-sub lbc-account-status';accountStatus.setText('· 同步中…');accountStatus.title='';}
@@ -224,7 +224,6 @@ function paintBadge(){
   accountStatus.hidden=!why.length&&st.state!=='running';
 }
 accountStatus.onclick=async()=>{
-  if(!syncLabel&&todoCount){attachmentPanel(items.filter(it=>it.attachment==='待补'));return;}
   try {
     let plugin=provider();
     if(typeof plugin?.fixFromCatalog!=='function'){

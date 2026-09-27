@@ -877,18 +877,32 @@ def render_agent_md(
         lines.append("（未生成）")
 
     lines += ["", "## 原文", "", note.get("body") or "（未生成）", "", "## 图片 OCR", ""]
-    images = (vision or {}).get("images") or []
+    all_images = (vision or {}).get("images") or []
+    # 0927 Owner：评论区图片的识别结果挂到它所在的那条评论下面，不混在正文图片里
+    comment_images: dict[str, list[dict[str, Any]]] = {}
+    images = []
+    for image in all_images:
+        m = re.search(r"comment-([0-9a-f]+)-\d+\.", image.get("asset") or "")
+        if m:
+            comment_images.setdefault(m.group(1), []).append(image)
+        else:
+            images.append(image)
+
+    def image_lines(image: dict[str, Any], indent: str) -> list[str]:
+        if image.get("status") != "ok":
+            return [f"{indent}- {image['asset']}：（识别失败：{image.get('error')}）"]
+        text = (reflow_ocr(image.get('ocr')) or '（无文字）').replace("\n", "\n" + indent + "  ") if indent else (reflow_ocr(image.get('ocr')) or '（无文字）')
+        out = [f"{indent}- {image['asset']}：{text}"]
+        visual = image.get("visual") or {}
+        if visual.get("status") == "ok":
+            label = {"table": "表格", "title": "标题图"}.get(visual.get("kind"), "图片描述")
+            out.append(f"{indent}  - （{label}）")
+            out.extend(f"{indent}    " + row for row in visual["text"].splitlines())
+        return out
+
     if images:
         for image in images:
-            if image.get("status") == "ok":
-                lines.append(f"- {image['asset']}：{reflow_ocr(image.get('ocr')) or '（无文字）'}")
-                visual = image.get("visual") or {}
-                if visual.get("status") == "ok":
-                    label = {"table": "表格", "title": "标题图"}.get(visual.get("kind"), "图片描述")
-                    lines.append(f"  - （{label}）")
-                    lines.extend("    " + row for row in visual["text"].splitlines())
-            else:
-                lines.append(f"- {image['asset']}：（识别失败：{image.get('error')}）")
+            lines.extend(image_lines(image, ""))
     else:
         lines.append("（未生成）")
 
@@ -913,6 +927,9 @@ def render_agent_md(
                 mark = "（广告/噪音）"
             nickname = (c.get("author") or {}).get("nickname") or "匿名"
             lines.append(f"{indent}- [{label}] {nickname}：{c.get('text')}{mark}")
+            for image in comment_images.get(str(c.get("comment_id") or ""), []):
+                lines.append(f"{indent}  - 评论图片：")
+                lines.extend(image_lines(image, indent + "    "))
     else:
         lines.append("（未生成）")
 
