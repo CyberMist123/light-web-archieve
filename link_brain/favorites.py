@@ -147,6 +147,18 @@ def sync_favorites(
             "items": [{"item_id": None, "status": "blocked", "url": None, "error": str(exc), "code": code}],
         }
 
+    # 0927 认号：收藏同步钉在一个号上。登错号（如测试号）时整批不入库、目录页亮「!」，
+    # 免得把别的号的收藏悄悄灌进库（0926–0927 测试号登着，夜跑收了它 33 篇）。换号走「更换账号」。
+    current = _CURRENT_ACCOUNT.get("nickname") or ""
+    pinned = accounts.config().get("sync_account") or ""
+    if current and not pinned:
+        accounts.save({"sync_account": current})
+    elif current and pinned and current != pinned:
+        msg = f"现在登录的是「{current}」，不是平时同步的「{pinned}」：没有同步。要换成这个号，请在账号面板点「更换账号」"
+        alert_mod.alert(alert_mod.KIND_ACCOUNT, "小红书收藏同步停了：登错号", msg)
+        return {"favorites": len(favs), "synced": 0, "login_account": "xhs", "code": "WRONG_ACCOUNT",
+                "items": [{"item_id": None, "status": "blocked", "url": None, "error": msg, "code": "WRONG_ACCOUNT"}]}
+
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
     quota = _Quota()

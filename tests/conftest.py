@@ -56,3 +56,9 @@ def no_web_probe(request, monkeypatch):
             "error": "测试环境不联网",
         },
     )
+
+
+@pytest.fixture(autouse=True)
+def isolated_link_brain_home(tmp_path_factory, monkeypatch):
+    """0927：测试不许读写真机 ~/.link-brain（accounts.json 里钉的同步账号、附件节奏时刻戳等）。"""
+    monkeypatch.setenv("LINK_BRAIN_HOME", str(tmp_path_factory.mktemp("lbhome")))

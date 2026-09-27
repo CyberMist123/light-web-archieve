@@ -132,3 +132,21 @@ def test_favorite_account_tag_is_deduplicated_and_survives_meta_rebuild(tmp_path
     assert favorites.tag_account("n1", {"nickname": "b", "user_id": "u2"}) is True
     tags = storage.read_json(tmp_path / "n1" / "meta.json")["favorited_by"]
     assert [t["nickname"] for t in tags] == ["a", "b"]
+
+
+def test_wrong_account_stops_before_ingest(monkeypatch):
+    """0927：登错号（测试号）时整批不入库，报 WRONG_ACCOUNT；第一次同步的号被钉住。"""
+    from link_brain import accounts, favorites as fav
+    monkeypatch.setattr(fav.alert_mod, "alert", lambda *a, **k: None)
+    def fake_fetch(nick):
+        def _f(**kw):
+            fav._CURRENT_ACCOUNT = {"nickname": nick, "user_id": ""}
+            return [{"url": "https://example.invalid/x"}]
+        return _f
+    monkeypatch.setattr(fav, "_sync_one", lambda *a, **k: {"item_id": "xhs-1", "status": "hit"})
+    monkeypatch.setattr(fav, "fetch_favorites", fake_fetch("momo"))
+    assert fav.sync_favorites()["synced"] == 1
+    assert accounts.config()["sync_account"] == "momo"
+    monkeypatch.setattr(fav, "fetch_favorites", fake_fetch("Mac！"))
+    out = fav.sync_favorites()
+    assert out["synced"] == 0 and out["code"] == "WRONG_ACCOUNT"

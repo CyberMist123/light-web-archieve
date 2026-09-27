@@ -209,7 +209,7 @@ let syncState=null;
 async function refreshSyncStatus(){
   try { syncState=JSON.parse(await app.vault.adapter.read(lbPath('_archive/sync-status.json'))); } catch { syncState=null; }
   const st=syncState||{};
-  const label={NOT_LOGGED_IN:'需要登录',CAPTCHA_REQUIRED:'需要验证',DISCONNECTED:'服务未运行',NOT_INSTALLED:'未安装读取组件'}[st.code]
+  const label={NOT_LOGGED_IN:'需要登录',CAPTCHA_REQUIRED:'需要验证',WRONG_ACCOUNT:'登错号',DISCONNECTED:'服务未运行',NOT_INSTALLED:'未安装读取组件'}[st.code]
     ||(st.state==='blocked'?(st.account?'需要登录':'同步暂停'):st.state==='failed'?'同步失败':'');
   accountStatus.empty();accountStatus.className='lbc-sync lbc-account-status';
   if(label){accountStatus.setText('!');accountStatus.title=label+(st.detail||st.message?'：'+(st.detail||st.message):'')+' · 点击处理';}

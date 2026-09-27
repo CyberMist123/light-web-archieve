@@ -302,7 +302,7 @@ def logout() -> dict:
     ensure_reader()
     api('POST', '/api/v1/login/logout', timeout=90)
     data = config()
-    for key in ('nickname', 'user_id'):
+    for key in ('nickname', 'user_id', 'sync_account'):  # 主动换号/退出 = 下次同步认新号
         data.pop(key, None)
     home().mkdir(parents=True, exist_ok=True)
     (home() / 'accounts.json').write_text(json.dumps(data, ensure_ascii=False, indent=2), 'utf-8')

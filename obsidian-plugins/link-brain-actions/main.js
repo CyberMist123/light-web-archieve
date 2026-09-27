@@ -593,8 +593,23 @@ class LinkBrainActions extends Plugin {
     return this.runJSON(['-m', 'link_brain', 'login', '--status', '--json'], '检查登录状态失败', 180000);
   }
 
+  // 0927 换号可打断：有任务在跑（多半是登错号后自动开始的同步）时，问一句再停掉它，而不是让人干等。
+  async interruptRunning(purpose) {
+    if (!this.running) return true;
+    if (!window.confirm(`正在「${this.running}」。停止它并${purpose}？\n（已入库的不受影响，没做完的下次接着做）`)) return false;
+    const child = this.runningChild;
+    if (child) {
+      const done = new Promise(r => child.once('close', r));
+      try { spawn('taskkill', ['/T', '/F', '/PID', String(child.pid)], { windowsHide: true }); } catch { child.kill(); }
+      await Promise.race([done, new Promise(r => setTimeout(r, 8000))]);
+    }
+    this.running = null;
+    this.runningChild = null;
+    return true;
+  }
+
   async loginAccount(force = false) {
-    if (this.running) throw new Error(`请等待「${this.running}」完成后再登录。`);
+    if (this.running && !(await this.interruptRunning('换号登录'))) throw new Error(`「${this.running}」还在跑，等它完成后再登录。`);
     this.running = '账号登录';
     try {
       const args = ['-m', 'link_brain', 'login', '--json'];
@@ -828,6 +843,7 @@ class LinkBrainActions extends Plugin {
         env: { ...process.env, ...ENV_EXTRA },
         windowsHide: true,
       });
+      this.runningChild = child;
       let out = "", stdout = "";
       child.stdout.on("data", (d) => {out += d.toString();stdout += d.toString();});
       child.stderr.on("data", (d) => (out += d.toString()));
