@@ -413,8 +413,11 @@ def run(args) -> int:
         return 0
     if getattr(args, "audit", False):
         from .read import dump_json
-        rows = [inventory(p.parent) for p in (storage.vault_root() / "_archive" / "xiaohongshu").glob("*/meta.json")]
+        metas = list((storage.vault_root() / "_archive" / "xiaohongshu").glob("*/meta.json"))
+        rows = [inventory(p.parent) for p in metas]
+        unprobed = [p.parent.name for p in metas if probe_state(p.parent) == "unprobed"]
         dump_json({"items": [r for r in rows if r["total"]], "missing": sum(r["missing"] for r in rows),
+                   "unprobed": len(unprobed), "unprobed_ids": unprobed,
                    "total": sum(r["total"] for r in rows), "unconfirmed": sum(r["unconfirmed"] for r in rows)})
         return 0
     # 手动挂本地文件：认领一篇 → 复制进 attachments → 标已下 → 渲染 + 重建目录
@@ -540,6 +543,24 @@ def _rebuild_catalog(any_downloaded: bool) -> bool:
         return False
 
 
+def probe_state(obj: Path) -> str:
+    """这篇原网页有没有附件，查清了没有（0927 闭环）。
+
+    checked = 入库时网页探测成功，或补查成功且没有未完成的下载；
+    unprobed = 入库时被挡 / 早期入库根本没探过 / 补查下到一半失败——都要（再）查；
+    补查过但游客也读不到的仍算 unprobed，每晚重试，直到读到或她删掉这篇。
+    """
+    mark = obj / "derived" / "web_recheck.json"
+    if mark.exists():
+        m = storage.read_json(mark)
+        if m.get("ok") and not m.get("download_error"):
+            return "checked"
+        return "unprobed"
+    meta = storage.read_json(obj / "meta.json")
+    web = storage.raw_dir("xiaohongshu", obj.name, meta["current_version"]) / "web_raw.json"
+    return "checked" if web.exists() and storage.read_json(web).get("ok") else "unprobed"
+
+
 def recheck(*, limit: int = 0, verbose: bool = False) -> dict[str, Any]:
     """补查「当时没探到附件」的笔记（0926）。
 
@@ -551,25 +572,28 @@ def recheck(*, limit: int = 0, verbose: bool = False) -> dict[str, Any]:
     from . import alert as alert_mod, render as render_mod
     base = storage.vault_root() / "_archive" / "xiaohongshu"
     found, failed, checked = [], [], 0
-    for meta_path in sorted(base.glob("*/meta.json")):
+    # 从没补查过的排前面，游客也读不到的排后面，免得它们每晚占满名额
+    for meta_path in sorted(base.glob("*/meta.json"),
+                            key=lambda p: ((p.parent / "derived" / "web_recheck.json").exists(), p.parent.name)):
         obj = meta_path.parent
         source_id = obj.name
         mark = obj / "derived" / "web_recheck.json"
-        if mark.exists() and storage.read_json(mark).get("ok") and not storage.read_json(mark).get("download_error"):
+        if probe_state(obj) != "unprobed":
             continue
         meta = storage.read_json(meta_path)
         raw = storage.raw_dir("xiaohongshu", source_id, meta["current_version"])
         web = raw / "web_raw.json"
-        if not web.exists() or storage.read_json(web).get("ok"):
-            continue
         if limit and checked >= limit:
             break
         checked += 1
-        url = storage.read_json(web).get("url") or ""
+        url = storage.read_json(web).get("url") or "" if web.exists() else ""
         token = (re.search(r"xsec_token=([^&]+)", url) or [None, None])[1]
         if token:
             from urllib.parse import unquote
             token = unquote(token)
+        else:  # 0927：早期入库没留 web_raw 的，从 source.json 拿 token
+            src = raw / "source.json"
+            token = (storage.read_json(src).get("note") or {}).get("xsec_token") if src.exists() else None
         probe = xhs.fetch_related_file(source_id, token)
         rf = probe.get("related_file") or {}
         storage.write_json(mark, {"checked_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "ok": bool(probe.get("ok")),
