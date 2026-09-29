@@ -576,6 +576,8 @@
 .xhs-note .lb-media-locked .lb-main{height:100%!important;min-height:0!important;overflow:hidden!important;}
 .xhs-note .lb-media-locked .lb-scroll{flex:1;min-height:0;overflow:auto!important;overscroll-behavior:contain;}
 .xhs-note .lb-media-locked .lb-slide img,.xhs-note .lb-media-locked .lb-slide video{max-height:calc(var(--lb-reader-height,78vh) - 50px);}
+/* 0929 Owner：钉住时左栏图片下的批注输入框也要够得着——左栏自己能滚 */
+.xhs-note .lb-media-locked .lb-side{max-height:var(--lb-reader-height,78vh);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;}
 
 /* 语音评论（0926）：标签 + 站点自带转写 + 播放器，素净 */
 .xhs-note .lb-comment-audio { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }

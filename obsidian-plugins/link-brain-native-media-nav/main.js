@@ -109,7 +109,8 @@ module.exports = class LinkBrainNativeMediaNavPlugin extends Plugin {
     const media=carousel.closest('.lb-media'),note=carousel.closest('.lb-note');
     if(!media||!note)return;
     const leaf=note.closest('.workspace-leaf-content');
-    const fit=()=>{const bottom=Math.min(window.innerHeight,leaf?.getBoundingClientRect().bottom||window.innerHeight);note.style.setProperty('--lb-reader-height',Math.max(200,bottom-note.getBoundingClientRect().top-20)+'px');};
+    // 0929 Owner：钉住时评论拉不到底——右下角状态栏浮在页面上盖住底部，要让开它
+    const fit=()=>{let bottom=Math.min(window.innerHeight,leaf?.getBoundingClientRect().bottom||window.innerHeight);const sb=document.querySelector('.status-bar')?.getBoundingClientRect(),nr=note.getBoundingClientRect();if(sb&&sb.height&&sb.top<bottom&&sb.left<nr.right&&sb.right>nr.left)bottom=sb.top;note.style.setProperty('--lb-reader-height',Math.max(200,bottom-note.getBoundingClientRect().top-20)+'px');};
     const resize=new ResizeObserver(fit);carousel.lbFit=fit;resize.observe(leaf||document.documentElement);this.register(()=>resize.disconnect());fit();
     const preview=note.closest('.markdown-preview-view, .markdown-reading-view');
     const setLocked=locked=>{
