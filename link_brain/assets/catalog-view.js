@@ -207,9 +207,9 @@ const accountStatus=subLine.createEl('button',{cls:'lbc-sync lbc-account-status'
 // 同步状态：出问题时是「! 需要登录 / 需要验证 / 同步失败」，点一下直接进入修复（扫码 / 验证窗口）。
 let syncState=null;
 async function refreshSyncStatus(){
-  try { syncState=JSON.parse(await app.vault.adapter.read(lbPath('_archive/sync-status.json'))); } catch { syncState=null; }
+  try { let s=JSON.parse(await app.vault.adapter.read(lbPath('_archive/sync-status.json'))); if(s&&s.state==='running'&&s.pid){let alive=true;try{process.kill(s.pid,0);}catch(e){alive=e.code==='EPERM';}if(!alive)s={...s,state:'failed',code:'INTERRUPTED',message:'上次同步中途被打断（Obsidian 关闭或进程被结束），已抓的都在；再点一次同步会接着来',detail:s.progress||''};} syncState=s; } catch { syncState=null; }
   const st=syncState||{};
-  const label={NOT_LOGGED_IN:'需要登录',CAPTCHA_REQUIRED:'需要验证',WRONG_ACCOUNT:'登错号',DISCONNECTED:'服务未运行',NOT_INSTALLED:'未安装读取组件'}[st.code]
+  const label={NOT_LOGGED_IN:'需要登录',CAPTCHA_REQUIRED:'需要验证',WRONG_ACCOUNT:'登错号',INTERRUPTED:'同步被打断',DISCONNECTED:'服务未运行',NOT_INSTALLED:'未安装读取组件'}[st.code]
     ||(st.state==='blocked'?(st.account?'需要登录':'同步暂停'):st.state==='failed'?'同步失败':'');
   syncLabel=label;paintBadge();
 }

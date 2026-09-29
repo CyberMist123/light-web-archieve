@@ -369,7 +369,8 @@ class LinkBrainActions extends Plugin {
   }
 
   async readSyncStatus() {
-    try { return JSON.parse(await this.app.vault.adapter.read(this.lbPath('_archive/sync-status.json'))); }
+    // 0929：同步进程被打断时状态会停在 running；核一下进程还在不在（signal 0 只查不杀）
+    try { let s = JSON.parse(await this.app.vault.adapter.read(this.lbPath('_archive/sync-status.json'))); if(s&&s.state==='running'&&s.pid){let alive=true;try{process.kill(s.pid,0);}catch(e){alive=e.code==='EPERM';}if(!alive)s={...s,state:'failed',code:'INTERRUPTED',message:'上次同步中途被打断（Obsidian 关闭或进程被结束），已抓的都在；再点一次同步会接着来',detail:s.progress||''};} return s; }
     catch { return null; }
   }
 

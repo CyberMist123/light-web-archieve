@@ -13,11 +13,15 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 import random
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
+from . import sync_state
 from . import alert as alert_mod, catch as catch_mod, ingest as ingest_mod, read as read_mod
 from .adapters import xiaohongshu as xhs
 from . import accounts
@@ -94,15 +98,40 @@ def _sync_one(
     source_key, source_id = xhs.SOURCE, summary["note_id"]
 
     render_error = None
-    try:
-        catch_mod._ensure_rendered(
-            source_key, source_id, force=(status == "new"), extract=extract
-        )
-    except Exception as exc:  # noqa: BLE001 - 渲染失败不该吞掉已经落盘的归档
-        render_error = f"渲染失败: {type(exc).__name__}: {exc}"
+    if status == "new":
+        sync_state.progress(f"《{summary.get('title') or source_id}》已存好，识图和概要中")
+        # 0929：识图/概要单独开进程、限时——那晚一篇 14 张图的卡了 70 分钟，整批同步跟着停住。
+        # 超时只跳过这一篇的识图，归档本身已落盘，下次渲染 / 夜里补跑会补上。
+        try:
+            if os.environ.get("LINK_BRAIN_RENDER_INPROC"):  # 测试里要吃 monkeypatch，就地跑
+                catch_mod._ensure_rendered(source_key, source_id, force=True, extract=extract)
+                raise _RenderedInline
+            proc = subprocess.run(
+                [sys.executable, "-c",
+                 "import sys; from link_brain import catch; "
+                 "catch._ensure_rendered(sys.argv[1], sys.argv[2], force=True, extract=sys.argv[3] == '1')",
+                 source_key, source_id, "1" if extract else "0"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=RENDER_TIMEOUT_SECONDS, cwd=str(Path(__file__).resolve().parents[1]),
+            )
+            if proc.returncode:
+                render_error = f"渲染失败: {(proc.stderr or '').strip().splitlines()[-1:] or proc.returncode}"
+        except _RenderedInline:
+            pass
+        except subprocess.TimeoutExpired:
+            render_error = f"识图/概要超过 {RENDER_TIMEOUT_SECONDS // 60} 分钟，先跳过（归档已存好，之后补）"
+            print(f"[sync-favorites] {summary.get('item_id')} {render_error}", file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001 - 渲染失败不该吞掉已经落盘的归档
+            render_error = f"渲染失败: {type(exc).__name__}: {exc}"
+    else:
+        try:
+            catch_mod._ensure_rendered(source_key, source_id, force=False, extract=extract)
+        except Exception as exc:  # noqa: BLE001 - 渲染失败不该吞掉已经落盘的归档
+            render_error = f"渲染失败: {type(exc).__name__}: {exc}"
 
     if status == "new":  # 0927：新收藏入库就下附件（一个一个、隔几分钟）；老的缺附件交给每晚 4 点
         from . import attachments as attachments_mod
+        sync_state.progress(f"《{summary.get('title') or source_id}》查附件 / 下附件中")
         attachments_mod.grab_after_ingest(source_key, source_id)
 
     try:
@@ -169,6 +198,8 @@ def sync_favorites(
             if not _already_archived(fav):
                 deferred += 1
                 continue
+        if not _already_archived(fav):
+            sync_state.progress(f"第 {i + 1}/{len(favs)} 条收藏是新的（{fav.get('note_id')}），抓取中")
         entry = _sync_one(fav, origin=origin, actor=actor, verbose=verbose, extract=extract)
         if entry.get("status") == "new":
             quota.add()
@@ -190,6 +221,11 @@ def sync_favorites(
 
 
 PACE_SECONDS = (6.0, 15.0)
+RENDER_TIMEOUT_SECONDS = 20 * 60
+
+
+class _RenderedInline(Exception):
+    pass
 _CURRENT_ACCOUNT: dict[str, str] = {}
 
 

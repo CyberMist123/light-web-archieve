@@ -66,3 +66,5 @@ def no_web_probe(request, monkeypatch):
 def isolated_link_brain_home(tmp_path_factory, monkeypatch):
     """0927：测试不许读写真机 ~/.link-brain（accounts.json 里钉的同步账号、附件节奏时刻戳等）。"""
     monkeypatch.setenv("LINK_BRAIN_HOME", str(tmp_path_factory.mktemp("lbhome")))
+    # 0929：同步里的识图/概要平时开子进程限时；测试里就地跑，好让 monkeypatch 生效
+    monkeypatch.setenv("LINK_BRAIN_RENDER_INPROC", "1")

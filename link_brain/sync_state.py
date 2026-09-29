@@ -1,4 +1,5 @@
 """Last sync outcome for the local UI, independent of notification integrations."""
+import os
 from datetime import datetime
 
 from . import storage
@@ -8,11 +9,57 @@ def path():
     return storage.archive_root() / 'sync-status.json'
 
 
+def _alive(pid) -> bool:
+    """只查不杀。Windows 上 os.kill(pid, 0) 会真的结束进程，不能用。"""
+    if not pid:
+        return False
+    if os.name == 'nt':
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        code = ctypes.c_ulong()
+        ok = k32.GetExitCodeProcess(h, ctypes.byref(code))
+        k32.CloseHandle(h)
+        return bool(ok) and code.value == 259  # STILL_ACTIVE
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except OSError:
+        return False
+
+
 def load():
     try:
-        return storage.read_json(path())
+        status = storage.read_json(path())
     except (OSError, ValueError):
         return {}
+    # 0929：同步进程被打断（关 Obsidian / 结束进程）时来不及写结果，状态会永远停在「正在同步」。
+    # 读的时候核一下进程还在不在，不在就如实说中断了。
+    if status.get('state') == 'running' and status.get('pid') and not _alive(status['pid']):
+        status = {**status, 'state': 'failed', 'code': 'INTERRUPTED',
+                  'message': '上次同步中途被打断（Obsidian 关闭或进程被结束），已抓的都在；再点一次同步会接着来',
+                  'detail': status.get('progress', '')}
+    return status
+
+
+def progress_log():
+    return storage.archive_root() / 'sync-progress.log'
+
+
+def progress(text):
+    """同步走到哪一步：写进状态（设置页显示）并追加到 _archive/sync-progress.log（事后查卡在哪）。"""
+    now = datetime.now().astimezone()
+    try:
+        with progress_log().open('a', encoding='utf-8') as f:
+            f.write(f"{now:%Y-%m-%d %H:%M:%S}  {text}\n")
+        status = storage.read_json(path())
+        if status.get('state') == 'running':
+            storage.write_json(path(), {**status, 'message': f'正在同步收藏：{text}', 'progress': text,
+                                        'updated_at': now.isoformat()})
+    except (OSError, ValueError):
+        pass
 
 
 def record(state, *, payload=None, message='', account=None, code=''):
@@ -36,6 +83,8 @@ def record(state, *, payload=None, message='', account=None, code=''):
               'last_success': now if state == 'ready' else previous.get('last_success'),
               'favorites': payload.get('favorites'), 'synced': payload.get('synced'),
               'code': code, 'detail': errors[0].get('error', '') if errors else ''}
+    if state == 'running':
+        status['pid'] = os.getpid()
     storage.write_json(path(), status)
     return status
 
