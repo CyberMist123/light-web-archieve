@@ -383,10 +383,10 @@ index b38164a..a769bd5 100644
  	}
  }
 diff --git a/routes.go b/routes.go
-index 26b7bf4..1ab2280 100644
+index 26b7bf4..604e2f1 100644
 --- a/routes.go
 +++ b/routes.go
-@@ -41,7 +41,14 @@ func setupRoutes(appServer *AppServer) *gin.Engine {
+@@ -41,7 +41,15 @@ func setupRoutes(appServer *AppServer) *gin.Engine {
  
  	// API 路由组
  	api := router.Group("/api/v1")
@@ -398,6 +398,7 @@ index 26b7bf4..1ab2280 100644
 +		api.POST("/login/window", appServer.loginWindowHandler)
 +		api.POST("/login/logout", appServer.logoutHandler)
 +		api.POST("/attachments/download", appServer.attachmentDownloadHandler)
++		api.POST("/notes/related-file", appServer.noteRelatedFileHandler)
  		api.GET("/login/status", appServer.checkLoginStatusHandler)
  		api.GET("/login/qrcode", appServer.getLoginQrcodeHandler)
  		api.DELETE("/login/cookies", appServer.deleteCookiesHandler)
@@ -992,7 +993,7 @@ index 0000000..acb9d19
 +	return page
 +}
 diff --git a/xiaohongshu/feed_detail.go b/xiaohongshu/feed_detail.go
-index 2cfde9f..1b25bef 100644
+index 2cfde9f..5279fad 100644
 --- a/xiaohongshu/feed_detail.go
 +++ b/xiaohongshu/feed_detail.go
 @@ -109,7 +109,8 @@ func (f *FeedDetailAction) GetFeedDetailWithConfig(ctx context.Context, feedID,
@@ -1005,7 +1006,7 @@ index 2cfde9f..1b25bef 100644
  			return nil
  		},
  		retry.Attempts(3),
-@@ -129,6 +130,9 @@ func (f *FeedDetailAction) GetFeedDetailWithConfig(ctx context.Context, feedID,
+@@ -129,10 +130,17 @@ func (f *FeedDetailAction) GetFeedDetailWithConfig(ctx context.Context, feedID,
  		return nil, err
  	}
  
@@ -1013,9 +1014,34 @@ index 2cfde9f..1b25bef 100644
 +	// 「换来源重开」，后查明是同一篇短时间多开触发的软限流，已撤掉（重开只会加重限流）。
 +	waitFirstComments(page)
  	if loadAllComments {
- 		if err := f.loadAllCommentsWithConfig(ctx, page, config); err != nil {
- 			logrus.Warnf("加载全部评论失败: %v", err)
-@@ -1001,5 +1005,29 @@ func (f *FeedDetailAction) extractFeedDetail(page *rod.Page, feedID string) (*Fe
+-		if err := f.loadAllCommentsWithConfig(ctx, page, config); err != nil {
+-			logrus.Warnf("加载全部评论失败: %v", err)
++		// 0929：滚评论只给 8 分钟，到点停下、把已经滚出来的交回去。以前滚满整页 10 分钟上限，
++		// 连抽取都一起超时，一条评论都拿不回来（评论上千的笔记必撞）。
++		loadCtx, loadCancel := context.WithTimeout(ctx, commentLoadBudget)
++		if err := f.loadAllCommentsWithConfig(loadCtx, page.Context(loadCtx), config); err != nil {
++			logrus.Warnf("加载全部评论未完成，交回已加载部分: %v", err)
+ 		}
++		loadCancel()
+ 	}
+ 
+ 	// ctx 已取消时直接返回，避免在已取消的 page 上执行 MustEval 触发 panic
+@@ -140,9 +148,13 @@ func (f *FeedDetailAction) GetFeedDetailWithConfig(ctx context.Context, feedID,
+ 		return nil, err
+ 	}
+ 
+-	return f.extractFeedDetail(page, feedID)
++	// 抽取用新计时，不吃滚评论剩下的时间
++	return f.extractFeedDetail(f.page.Context(ctx).Timeout(2*time.Minute), feedID)
+ }
+ 
++// commentLoadBudget 滚评论区的时间上限（整页另有 10 分钟总上限）。
++const commentLoadBudget = 8 * time.Minute
++
+ // ========== 评论加载器 ==========
+ 
+ type commentLoader struct {
+@@ -1001,5 +1013,29 @@ func (f *FeedDetailAction) extractFeedDetail(page *rod.Page, feedID string) (*Fe
  }
  
  func makeFeedDetailURL(feedID, xsecToken string) string {
