@@ -31,7 +31,7 @@ style.textContent = `
 .lbc-grid{columns:250px;column-gap:32px;}
 .lbc-card{display:inline-block;vertical-align:top;width:100%;margin:0 0 36px;break-inside:avoid;cursor:pointer;position:relative;}
 .lbc-attach{position:absolute;top:8px;right:8px;font-size:11px;line-height:1;padding:4px 8px;border-radius:9px;background:rgba(0,0,0,.55);color:#fff;pointer-events:none;backdrop-filter:blur(2px);}
-.lbc-attach-todo{background:#e08a1e;}
+.lbc-attach-todo{background:#e08a1e;}.lbc-attach-hint{background:#9a9a9a;}
 .lbc-cover{display:block;width:100%;height:auto;max-height:360px;object-fit:cover;object-position:top;border-radius:16px;border:1px solid var(--background-modifier-border);transition:filter .15s;pointer-events:none;}
 .lbc-card:hover .lbc-cover{filter:brightness(.95);}
 .lbc-card:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:5px;border-radius:16px;}
@@ -78,7 +78,7 @@ style.textContent = `
 .lbc-ai-error strong{display:block;margin-bottom:4px;}
 .lbc-wrap button{font-family:inherit;}
 .lbc-attach{display:flex;align-items:center;gap:4px;background:var(--background-primary);color:var(--text-muted);border:1px solid var(--background-modifier-border);border-radius:6px;padding:4px 6px;backdrop-filter:none;}
-.lbc-attach-todo{color:#a86513;background:#fff8eb;border-color:#e8d8bc;}
+.lbc-attach-todo{color:#a86513;background:#fff8eb;border-color:#e8d8bc;}.lbc-attach-hint{color:var(--text-muted);background:var(--background-secondary);border-color:var(--background-modifier-border);}
 .lbc-attach svg{width:12px;height:12px;}
 .lbc-view-switch{font-size:12px!important;color:var(--text-muted);background:transparent!important;border:0!important;box-shadow:none!important;}
 .lbc-simple .lbc-grid{columns:auto;max-width:820px;margin:0 auto;}
@@ -376,6 +376,7 @@ function render(){
     const badges=card.createEl('div',{cls:'lbc-badges'});
     if(it.kind==='video'){const videoBadge=badges.createEl('span',{cls:'lbc-attach lbc-video'});videoBadge.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="m16 10 5-3v10l-5-3z"/></svg>';}
     if(it.attachment==='待补')badges.createEl('div',{cls:'lbc-attach lbc-attach-todo',text:'待补'});
+ else if(it.attachment==='线索')badges.createEl('div',{cls:'lbc-attach lbc-attach-hint',text:'疑似附件',attr:{title:it.attachment_reason||'正文提到附件，但没找到文件'}});
     else if(it.attachment==='downloaded')badges.createEl('div',{cls:'lbc-attach',text:'文件'});
     const badge=badges.querySelector('.lbc-attach:not(.lbc-video)');if(badge){try{const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');icon.setAttribute('viewBox','0 0 24 24');icon.innerHTML='<path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>';badge.prepend(icon);}catch(err){window.alert(err.message);}}
     const star=card.createEl('button',{cls:'lbc-star'+(it.starred?' is-on':''),text:it.starred?'★':'☆'});

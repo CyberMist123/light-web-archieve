@@ -185,12 +185,23 @@ def _last_comment(vault: Path, visible: str | None) -> tuple[int, dict[str, str]
     return len(rows), {"who": who, "text": _clip(rows[-1].text, 40)}
 
 
-def _attachment_badge(obj_dir: Path, meta: dict[str, Any]) -> str:
+def _attachment_badge(obj_dir: Path, meta: dict[str, Any], report: dict[str, Any] | None = None) -> str:
+    """待补 = 有文件编号、字节还没下；线索 = 只是正文提到「附件」、找不到文件（0929 Owner：不算待补，灰显写原因）。"""
     from .attachments import inventory
-    report = inventory(obj_dir, meta)
-    if report["missing"]:
-        return "待补"
+    report = report or inventory(obj_dir, meta)
+    lost = [f for f in report["files"] if not f["downloaded"]]
+    if lost:
+        return "线索" if all(not f.get("doc_id") for f in lost) else "待补"
     return "downloaded" if report["files"] else "none"
+
+
+def _attachment_reason(obj_dir: Path, meta: dict[str, Any], badge: str) -> str:
+    if badge != "线索":
+        return ""
+    web = _load_json(obj_dir / "raw" / f"v{int(meta.get('current_version', 1) or 1):04d}" / "web_raw.json") or {}
+    recheck = _load_json(obj_dir / "web_recheck.json") or {}
+    why = (recheck.get("error") if isinstance(recheck, dict) else None) or (web.get("error") if isinstance(web, dict) else None)
+    return "正文提到附件，但笔记页里没找到文件" + (f"（{_clip(str(why), 60)}）" if why else "（页面上确实没挂文件）")
 
 
 def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
@@ -276,7 +287,8 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                 "ts": archived.isoformat() if archived else "",
                 "comments": comment_count,
                 "last_comment": last_comment,
-                "attachment": _attachment_badge(obj_dir, meta),
+                "attachment": (badge := _attachment_badge(obj_dir, meta, report)),
+                "attachment_reason": _attachment_reason(obj_dir, meta, badge),
                 # 收藏来自哪个号（0926）：同步时写进 meta.favorited_by，供按账号筛选
                 "accounts": [a.get("nickname") or a.get("user_id") for a in (meta.get("favorited_by") or [])
                              if isinstance(a, dict)],

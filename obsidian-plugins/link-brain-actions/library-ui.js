@@ -38,6 +38,7 @@ class AttachmentModal extends Modal {
   fillDocs() {
     this.docs.empty();
     (this.item.attachment_files||[]).forEach((f,i)=>this.docs.createEl('option',{value:String(i),text:(f.downloaded?'已存 · ':f.doc_id?'待补 · ':'线索待确认 · ')+f.name}));
+    if(this.status)this.status.setText(this.item.attachment_reason||'');
     const idx=(this.item.attachment_files||[]).findIndex(f=>!f.downloaded);
     if(idx>=0)this.docs.value=String(idx);
     if(this.status)this.status.setText((this.item.attachment_errors||[]).map(r=>r.error).join("\n"));
