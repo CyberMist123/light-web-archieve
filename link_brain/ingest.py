@@ -262,8 +262,8 @@ def _detail_kwargs(comment_floors: int | str | None) -> dict[str, Any]:
     if comment_floors == "all":
         return {"full_comments": True, "comment_limit": 2000, "timeout": 1500}
     floors = int(comment_floors)
-    if floors <= 10:
-        return {}
+    # 0929 Owner：10 楼也要展开楼中楼（load_all_comments=false 只给首屏，不点「展开回复」）
+    floors = max(floors, 10)
     return {"full_comments": True, "comment_limit": floors, "timeout": 600}
 
 

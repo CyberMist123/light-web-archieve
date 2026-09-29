@@ -39,7 +39,7 @@ const DEFAULT_SETTINGS = {
   downloads: {folder: path.join(require("os").homedir(), "Downloads"), waitMinutes: 5},
   nickname: "ler",   // 批注署名（Owner 2026-09-17）
   // 收藏同步（0926）：自动拉取评论楼层 10/20/50；全部楼层只在单篇上手动拉取。和 link_brain/ai_config.py 对齐。
-  sync: { autoAfterLogin: true, downloadImages: true, downloadVideo: true, commentFloors: 'all', dailyNewLimit: 200 },
+  sync: { autoAfterLogin: true, downloadImages: true, downloadVideo: true, commentFloors: 10, dailyNewLimit: 200 },
 };
 
 function mergeSettings(saved) {
@@ -1053,7 +1053,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
     new Setting(c).setName('下载视频')
       .addToggle(t => t.setValue(so.downloadVideo).onChange(async v => { so.downloadVideo = v; await save(); }));
     new Setting(c).setName('评论 · 自动拉取').setDesc('导入 / 同步新收藏时抓的评论（含楼中楼、评论图片和语音）。默认全部；热门笔记会慢几分钟。')
-      .addDropdown(d => d.addOption('all', '全部（默认）').addOption('10', '前 10 楼').addOption('20', '前 20 楼').addOption('50', '前 50 楼')
+      .addDropdown(d => d.addOption('10', '前 10 楼（默认）').addOption('all', '全部').addOption('20', '前 20 楼').addOption('50', '前 50 楼')
         .setValue(String(so.commentFloors)).onChange(async v => { so.commentFloors = v === 'all' ? 'all' : parseInt(v); await save(); }));
     new Setting(c).setName('评论 · 手动拉取').setDesc('超过 50 楼或需要全部评论时：打开那篇笔记，命令面板运行「抓这篇的全部评论」。')
       .addButton(b => b.setButtonText('抓当前笔记').onClick(() => this.plugin.fetchAllComments()));
