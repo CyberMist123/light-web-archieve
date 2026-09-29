@@ -41,6 +41,7 @@ SOLUTIONS = {
     'NO_DOWNLOAD_BUTTON': ('error', '附件页没有下载按钮', '文件可能已被作者删除或关闭下载，可在网页手动下载后用「挂载本地文件」。', 'none'),
     'DOWNLOAD_TIMEOUT': ('error', '附件下载超时', '稍后重试；多次失败请在网页手动下载后挂载。', 'retry'),
     'TIMEOUT': ('unknown', '读取服务响应超时', '机器负载高时会发生：稍后点击「重试」。', 'retry'),
+    'BUSY': ('unknown', '读取服务正忙', '正在抓别的笔记，做完自然恢复；不是掉登录，不用扫码。', 'retry'),
 }
 
 
@@ -184,9 +185,20 @@ def ensure_reader(*, wait: float = 40):
 
 
 def restart_reader() -> None:
-    """服务卡死（常见于高负载下浏览器启动没回来、一直占着账号目录）时：结束服务和占着该目录的浏览器，再拉起。"""
+    """服务卡死（常见于高负载下浏览器启动没回来、一直占着账号目录）时：结束服务和占着该目录的浏览器，再拉起。
+
+    0929：只杀真卡死的。服务只是正忙（正在抓一篇长评论）时，登录检查会排队超时；以前据此把服务连同
+    正在用账号目录的浏览器一起杀掉 → 正在跑的同步/补查全断（10054），新浏览器读到的是没落好盘的账号目录，
+    误判「游客」弹登录窗。现在先问一下服务本身还应不应答（毫秒级接口），应答就说明是忙不是死，不杀。
+    """
     if os.name != 'nt' or urlsplit(endpoint()).hostname not in ('localhost', '127.0.0.1'):
         return
+    try:
+        api('GET', '/api/v1/login/session', timeout=5)
+        raise ReaderError('BUSY', '读取服务正在处理别的任务（没有卡死），等它做完再试')
+    except ReaderError as exc:
+        if exc.code == 'BUSY':
+            raise
     profile =str(profile_dir()).replace("'", "''")
     names = ','.join(f"'{n}'" for n in READER_NAMES)
     script = (f"Get-CimInstance Win32_Process | Where-Object {{ @({names}) -contains $_.Name -or "
