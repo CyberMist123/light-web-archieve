@@ -354,6 +354,15 @@ def ingest_url(
         log(f"网页探测附件 {xhs.CANONICAL_FMT.format(note_id=parsed['note_id'])}")
         web_probe = xhs.fetch_related_file(parsed["note_id"], parsed.get("xsec_token"))
         if not web_probe["ok"]:
+            # 0929：游客被登录墙挡住的笔记（附件照样有）当场用登录号再看一次，别等夜里补查
+            from .attachments import _probe_logged_in
+            logged = _probe_logged_in(parsed["note_id"], parsed.get("xsec_token"))
+            if logged.get("ok"):
+                log("游客看不到，登录号看到了笔记页（附件元数据取自登录号）")
+                web_probe = {**web_probe, **logged}
+            else:
+                web_probe["error"] = f"{web_probe.get('error')}；登录号：{logged.get('error')}"
+        if not web_probe["ok"]:
             log(f"网页探测失败（退回正文线索）: {web_probe['error']}")
             if web_probe.get("blocked"):
                 # 网页那侧被拦了（验证码/登录墙）。MCP 还能抓就不中止，但必须让人知道

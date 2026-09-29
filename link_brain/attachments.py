@@ -17,6 +17,8 @@ RAW 版本写完就封存（TASKBOOK 硬约束 4），附件是事后补下来�
 
 from __future__ import annotations
 
+import httpx
+import json
 import hashlib
 import os
 import random
@@ -226,7 +228,7 @@ def inventory(object_dir: Path, meta=None) -> dict[str, Any]:
         exists = local.is_file() and local.stat().st_size > 0
         doc_id = att.get("doc_id") or got.get("doc_id")
         md = object_dir / "derived" / "attachments" / f"{doc_id}.md"
-        files.append({"doc_id": doc_id, "name": att.get("name") or att.get("hint") or "附件",
+        files.append({"doc_id": doc_id, "name": att.get("name") or got.get("name") or att.get("hint") or "附件",
                       "downloaded": exists, "status": "downloaded" if exists else att.get("status", "metadata_only"), "pages": att.get("page_num"), "file": str(local) if exists else None,
                       "markdown": str(md) if md.is_file() else None, "url": att.get("url")})
         if got:
@@ -307,8 +309,17 @@ def download_for_object(
     for att in attachments:
         doc_id = att.get("doc_id")
         if not doc_id:
-            results.append({"doc_id": None, "status": "skipped", "error": "没有 doc_id（只有正文线索）"})
-            continue
+            # 0929 Owner：附件务必同步。只有正文线索（「prompt在附件」）的，当场去笔记页找文件编号：
+            # 游客读不到（登录墙笔记）就用登录号看，找到就补进 source.json 接着下，别再静默跳过。
+            found = resolve_hint(source_id, note.get("xsec_token"))
+            if found.get("doc_id"):
+                att.update(found)
+                storage.write_json(storage.raw_dir(source_key, source_id, version) / "source.json", source_doc)
+                doc_id = att["doc_id"]
+            else:
+                results.append({"doc_id": None, "name": att.get("hint"), "status": "failed",
+                                "error": f"正文提到附件，笔记页没找到文件编号：{found.get('error')}"})
+                continue
         if not force and doc_id in known and (dest_dir / known[doc_id]["file"]).is_file() and (dest_dir / known[doc_id]["file"]).stat().st_size > 0:
             results.append({**known[doc_id], "status": "already"})
             continue
@@ -404,6 +415,38 @@ def manual_attach(source_key: str, source_id: str, file_path: str, doc_id: str |
     return {"item_id": meta["item_id"], "file": dest.name, "bytes": record["bytes"], "status": report["status"]}
 
 
+def resolve_hint(note_id: str, token: str | None) -> dict[str, Any]:
+    """正文线索 → 真附件：先游客看，游客被挡再用登录号看。返回 {doc_id,name,url,...} 或 {error}。"""
+    from .adapters import xiaohongshu as xhs
+    probe = xhs.fetch_related_file(note_id, token)
+    if not probe.get("ok"):
+        logged = _probe_logged_in(note_id, token)
+        if not logged.get("ok"):
+            return {"error": f"游客：{probe.get('error')}；登录号：{logged.get('error')}"[:300]}
+        probe = logged
+    rf = probe.get("related_file") or {}
+    if not rf.get("docId"):
+        return {"error": "笔记页上确实没挂文件（作者可能放在评论区或别处）"}
+    try:
+        extra = json.loads(rf.get("bizExtra") or "{}")
+    except (TypeError, ValueError):
+        extra = {}
+    doc_id = str(rf["docId"])
+    return {"doc_id": doc_id, "name": rf.get("name") or f"{doc_id}.bin", "status": "metadata_only",
+            "url": xhs.FILE_PREVIEW_FMT.format(doc_id=doc_id), "page_num": extra.get("page_num")}
+
+
+def describe_problem(source_key: str, source_id: str, file_name: str | None, reason: str) -> str:
+    """一条没下好的附件 = 哪篇 + 哪个文件 + 为什么 + 单项重跑命令（0929 Owner：别概括报错）。"""
+    try:
+        meta = storage.read_json(storage.object_dir(source_key, source_id) / "meta.json")
+    except (OSError, ValueError):
+        meta = {}
+    item_id = meta.get("item_id") or f"xhs-{source_id}"
+    return (f"《{meta.get('title') or source_id}》{item_id} · {file_name or '附件'} · {reason.strip()[:160]}"
+            f" → 重跑：python -m link_brain attachments {item_id}")
+
+
 def run(args) -> int:
     from . import index as index_mod
 
@@ -480,6 +523,7 @@ def run(args) -> int:
     failed = False
     account_blocked = False
     any_downloaded = False
+    problems: list[str] = []
     for source_key, source_id in targets:
         outcome = download_for_object(
             source_key, source_id, force=getattr(args, "force", False), verbose=getattr(args, "verbose", False)
@@ -490,22 +534,18 @@ def run(args) -> int:
                 print(f"{outcome['item_id']}  ↓ {r['file']}  {r['bytes']} 字节  {r['sha256'][:12]}…")
             elif r["status"] == "already":
                 print(f"{outcome['item_id']}  = {r['file']}（已有，--force 可重下）")
-            elif r["status"] == "skipped":
-                print(f"{outcome['item_id']}  - {r.get('error')}", file=sys.stderr)
             else:
                 failed = True
                 message = str(r.get("error") or "")
-                print(f"{outcome['item_id']}  ✗ {message}", file=sys.stderr)
+                line = describe_problem(source_key, source_id, r.get("name") or r.get("file") or r.get("doc_id"), message)
+                problems.append(line)
+                print(f"✗ {line}", file=sys.stderr)
                 # 附件要登录态，挂了很可能是掉线/撞风控 —— 这种不能默默地就过去了
                 blocked = bool(r.get("code")) or xhs.looks_blocked(message)
-                alert_mod.alert(
-                    alert_mod.KIND_ACCOUNT if blocked else alert_mod.KIND_ATTACHMENT,
-                    "附件没拿到" + ("（账号要处理：登录/安全验证）" if blocked else ""),
-                    f"{outcome['item_id']}: {message[:300]}",
-                    item_id=outcome["item_id"],
-                )
                 if blocked:
                     account_blocked = True
+                    alert_mod.alert(alert_mod.KIND_ACCOUNT, "附件没拿到（账号要处理：登录/安全验证）", line[:300],
+                                    item_id=outcome["item_id"])
         if convert_downloads(source_key, source_id):
             failed = True
         render_mod.render_object(source_key, source_id)
@@ -524,8 +564,13 @@ def run(args) -> int:
     # 下到了新字节就重建目录，否则 UI 角标还停在「待补」（补跑却没同步就是这坑）
     rebuilt = _rebuild_catalog(True)
     pending = sum(inventory(storage.object_dir(source_key, source_id))["missing"] for source_key, source_id in targets)
-    if pending:
-        print(f"仍有 {pending} 个附件或附件线索待处理，请在目录打开待补面板。", file=sys.stderr)
+    if problems:
+        # 一条一条列清楚是哪篇哪个文件，单项重跑即可（0929 Owner）
+        print(f"\n附件没下好 {len(problems)} 个：", file=sys.stderr)
+        for line in problems:
+            print(f"  - {line}", file=sys.stderr)
+        alert_mod.alert(alert_mod.KIND_ATTACHMENT, f"附件没下好 {len(problems)} 个",
+                        "\n".join(problems[:8]) + (f"\n…另 {len(problems) - 8} 个见日志" if len(problems) > 8 else ""))
     return 1 if failed or not rebuilt else 2 if pending else 0
 
 
@@ -558,6 +603,9 @@ def _probe_logged_in(note_id: str, token: str | None) -> dict[str, Any]:
                          body={"note_id": note_id, "xsec_token": token or ""})
     except accounts.ReaderError as exc:
         return {"ok": False, "needs_human": exc.needs_human, "error": f"{exc.code} {exc}".strip()}
+    except (httpx.HTTPError, OSError, ValueError) as exc:
+        # 0929：读取服务连接被重置（10054）以前直接抛出，整晚补查崩掉、后面的笔记全没查；现在只算这篇没查清，明晚再来
+        return {"ok": False, "error": f"读取服务连接出错：{type(exc).__name__} {exc}"[:200]}
     if d.get("guest") or d.get("loginBtn"):
         accounts._note_account("NOT_LOGGED_IN", "附件补查：登录号打开笔记是游客")
         return {"ok": False, "needs_human": True, "error": "读取服务的号没登录：先在目录里点「扫码登录」"}
@@ -644,7 +692,7 @@ def recheck(*, limit: int = 0, verbose: bool = False) -> dict[str, Any]:
         storage.write_json(mark, {"checked_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "ok": bool(probe.get("ok")),
                                   "related_file": rf or None, "error": probe.get("error")})
         if not probe.get("ok"):
-            failed.append({"id": source_id, "error": (probe.get("error") or "")[:120]})
+            failed.append({"id": source_id, "line": describe_problem("xiaohongshu", source_id, None, probe.get("error") or "")})
             continue
         doc_id = str(rf.get("docId") or "")
         if not doc_id or doc_id in load_downloaded("xiaohongshu", source_id):
@@ -666,10 +714,10 @@ def recheck(*, limit: int = 0, verbose: bool = False) -> dict[str, Any]:
             break  # 撞验证就停，绝不接着开页
         except (AttachmentError, OSError, KeyError, ValueError) as exc:
             storage.write_json(mark, {**storage.read_json(mark), "download_error": str(exc)[:200]})
-            failed.append({"id": source_id, "error": f"{name} 下载失败：{exc}"[:160]})
+            failed.append({"id": source_id, "line": describe_problem("xiaohongshu", source_id, name, f"下载失败：{exc}")})
     if failed:
         alert_mod.alert("normal", f"附件补查：{len(failed)} 篇没查清",
-                        "；".join(f"{f['id']} {f['error']}" for f in failed[:5]) + ("…" if len(failed) > 5 else ""))
+                        "\n".join(f["line"] for f in failed[:8]) + (f"\n…另 {len(failed) - 8} 篇见日志" if len(failed) > 8 else ""))
     if found:
         _rebuild_catalog(True)
     return {"checked": checked, "found": found, "failed": failed}

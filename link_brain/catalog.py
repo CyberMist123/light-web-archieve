@@ -199,7 +199,7 @@ def _attachment_reason(obj_dir: Path, meta: dict[str, Any], badge: str) -> str:
     if badge != "线索":
         return ""
     web = _load_json(obj_dir / "raw" / f"v{int(meta.get('current_version', 1) or 1):04d}" / "web_raw.json") or {}
-    recheck = _load_json(obj_dir / "web_recheck.json") or {}
+    recheck = _load_json(obj_dir / "derived" / "web_recheck.json") or {}
     why = (recheck.get("error") if isinstance(recheck, dict) else None) or (web.get("error") if isinstance(web, dict) else None)
     return "正文提到附件，但笔记页里没找到文件" + (f"（{_clip(str(why), 60)}）" if why else "（页面上确实没挂文件）")
 

@@ -141,8 +141,34 @@ def test_attachment_without_doc_id_is_skipped(tmp_path, monkeypatch):
 
     monkeypatch.setattr(att_mod, "fetch_bytes", _boom)
     out = att_mod.download_for_object(source, source_id)
-    assert [r["status"] for r in out["results"]] == ["skipped"]
+    # 0929：不再静默跳过——游客、登录号都找不到文件编号时，记成失败并写明原因
+    assert [r["status"] for r in out["results"]] == ["failed"]
+    assert "笔记页没找到文件编号" in out["results"][0]["error"]
     assert not att_mod.attachments_path(source, source_id).exists()
+
+
+def test_attachment_hint_resolved_by_logged_in_probe(tmp_path, monkeypatch):
+    """0929：游客被登录墙挡住的笔记，下载时用登录号找到文件编号，接着下。"""
+    setup_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        xhs, "fetch_related_file",
+        lambda note_id, xsec_token, **kw: {"ok": False, "related_file": None, "url": "u", "error": "连不上"},
+    )
+    cli.main(["ingest", "https://example.invalid/share"])
+    _, source, source_id = _ids()
+    monkeypatch.setattr(att_mod, "_probe_logged_in", lambda note_id, token: {
+        "ok": True, "related_file": {"docId": "123", "name": "p.docx", "bizExtra": "{}"}, "error": None})
+    seen = {}
+
+    def _acquire(source_key, source_id, **kw):
+        seen.update(kw)
+        raise att_mod.AttachmentError("测试不真下")
+
+    monkeypatch.setattr(att_mod, "acquire", _acquire)
+    monkeypatch.setattr(att_mod, "local_download", lambda name: None)
+    out = att_mod.download_for_object(source, source_id)
+    assert seen["doc_id"] == "123" and seen["name"] == "p.docx"
+    assert out["results"][0]["status"] == "failed"
 
 
 def test_visible_note_links_local_file_after_download(tmp_path, monkeypatch):

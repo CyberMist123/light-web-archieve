@@ -56,6 +56,10 @@ def no_web_probe(request, monkeypatch):
             "error": "测试环境不联网",
         },
     )
+    # 0929：游客探测失败后会用登录号再看一次——测试里同样不联网
+    from link_brain import attachments as att_mod
+    monkeypatch.setattr(att_mod, "_probe_logged_in",
+                        lambda note_id, token: {"ok": False, "error": "测试环境不联网"})
 
 
 @pytest.fixture(autouse=True)
