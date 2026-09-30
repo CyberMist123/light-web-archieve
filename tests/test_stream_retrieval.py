@@ -59,6 +59,7 @@ def test_fable_retrieves_transcript_without_model(monkeypatch):
     items=[{'id':str(i),'title':'视频 '+str(i),'note':f'Web/{i}.md','search_fields':{'transcript':'蒜香鱼片腌制十分钟。'*200}} for i in range(10)]
     monkeypatch.setattr(ask,'load_items',lambda:items)
     monkeypatch.setattr(ask,'call_text',lambda *args:(_ for _ in ()).throw(AssertionError('must not call model')))
+    monkeypatch.setenv('LINK_BRAIN_WEB_URL','https://webdav.example.com')
     r=retrieval.retrieve_payload('蒜香鱼片')
     assert r['model_called'] is False and len(r['results'])==8
     assert all(x['has_transcript'] and x['web_url'] and x['obsidian_url'] for x in r['results'])

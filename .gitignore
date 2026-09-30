@@ -9,3 +9,12 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 vault/
+# 本机杂物：虚拟环境、录音素材、历史备份、私人文件——一律不进公开仓
+.venv/
+.demucs-env/
+elevenlabs-*/
+demucs-install.log
+nul
+*.bundle
+*.ics
+*.kdbx

@@ -1,0 +1,30 @@
+#!/bin/sh
+# 推送前隐私闸：这是公开仓库，推上去就是公开了，所以 fail-closed——扫不了就不许推。
+# 规则在 scripts/privacy_gate.py；本机私有特征清单在 .githooks/private-patterns.local.txt（不进仓库）。
+# 安装（每个 clone 一次）：git config core.hooksPath .githooks
+# 输出一律 ASCII：终端代码页可能是 GBK。
+remote="$1"
+root=$(git rev-parse --show-toplevel) || exit 1
+cd "$root" || exit 1
+
+if ! command -v python >/dev/null 2>&1; then
+  echo "pre-push: python not found; privacy gate cannot run. Push refused." >&2
+  exit 1
+fi
+
+zero=0000000000000000000000000000000000000000
+tips=""
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -z "$local_sha" ] && continue
+  [ "$local_sha" = "$zero" ] && continue
+  tips="$tips $local_sha"
+done
+
+[ -z "$tips" ] && exit 0
+
+# shellcheck disable=SC2086 -- $tips is a flat list of shas
+if ! PYTHONIOENCODING=utf-8 python scripts/privacy_gate.py --remote "$remote" $tips; then
+  echo "pre-push: privacy gate FAILED. Push blocked." >&2
+  exit 1
+fi
+echo "pre-push: privacy gate passed."

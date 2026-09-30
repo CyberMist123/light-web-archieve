@@ -1,1 +1,2 @@
 *.patch -text
+.githooks/pre-push text eol=lf

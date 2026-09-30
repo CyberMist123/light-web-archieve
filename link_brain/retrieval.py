@@ -236,6 +236,14 @@ def search(query, limit=20):
     return {"status": "ok", "query": query, "total": len(hits), "results": results, "found": len(results), "items": [{k: row[k] for k in ("item_id", "title", "summary", "tags", "url", "first_archived")} for row in results]}
 
 
+def _web_url(note):
+    """手机浏览器能开的地址：LINK_BRAIN_WEB_URL（WebDAV 等）+ 笔记路径；没配就不给，别把私人域名写进公开代码。"""
+    import os
+    from urllib.parse import quote
+    base=os.environ.get('LINK_BRAIN_WEB_URL','').rstrip('/')
+    return base+'/'+quote(note) if base else None
+
+
 def retrieve_payload(question, top_k=8):
     """与问答共享 BM25 和摘录；给 Fable 返回材料，不调用模型。"""
     import os
@@ -264,7 +272,7 @@ def retrieve_payload(question, top_k=8):
         results.append({'item_id':it['id'],'title':it['title'],'score':round(value,3),
             'excerpts':parts,'note':note,
             'obsidian_url':'obsidian://open?vault='+quote(os.environ.get('LINK_BRAIN_OBSIDIAN_VAULT','vault'))+'&file='+quote(note),
-            'web_url':os.environ.get('LINK_BRAIN_WEB_URL','https://lwa.example.com').rstrip('/')+'/'+quote(note),
+            'web_url':_web_url(note),
             'source_url':it.get('url'),'has_attachments':bool(it.get('attachment_files')),
             'has_transcript':bool((it.get('search_fields') or {}).get('transcript')),
             'starred':bool(it.get('starred')),'starred_at':it.get('starred_at')})

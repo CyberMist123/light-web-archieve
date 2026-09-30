@@ -1,4 +1,5 @@
-"""本机真实收藏评测；公开 fixture 只有问题与笔记 ID，不含内容和签名 URL。
+"""本机真实收藏评测。题目和笔记 ID 是私人收藏，不进仓库：放 vault/_archive/qa-bench/retrieval_bench.json
+（或 LINK_BRAIN_BENCH_FILE 指定）。
 
 18 题金标（暂定工程题）+ paraphrase 集（换个说法，不冒充金标）。
 词法 = ask.retrieve（纯 BM25）；hybrid = retrieval.rank_query（有 semantic.db + key 时
@@ -10,7 +11,8 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from link_brain import ask
 from link_brain.retrieval import rank_query,semantic_hits
 p=argparse.ArgumentParser();p.add_argument('--answers',action='store_true');p.add_argument('--out',required=True);a=p.parse_args()
-items=ask.load_items();cases=json.loads((Path(__file__).parent/'fixtures/retrieval_bench.json').read_text(encoding='utf-8'))
+items=ask.load_items();import os;bench_file=Path(os.environ.get('LINK_BRAIN_BENCH_FILE') or Path(__file__).resolve().parents[1]/'vault/_archive/qa-bench/retrieval_bench.json')
+cases=json.loads(bench_file.read_text(encoding='utf-8'))
 gold=[c for c in cases if c.get('set')!='paraphrase'];para=[c for c in cases if c.get('set')=='paraphrase']
 
 def bench(group):
