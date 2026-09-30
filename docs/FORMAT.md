@@ -569,13 +569,35 @@ CREATE INDEX IF NOT EXISTS idx_relations_item ON relations(item_id);
 
 | 码 | 含义 |
 |---|---|
-| 0 | 成功 |
-| 1 | 一般错误（解析不出 note_id、MCP 不在线等） |
+| 0 | 成功 / 部分完成（到 `--budget-min`、到每日上限，剩下的下次接着来；同步撞限频「刚同步过」也是 0） |
+| 1 | 一般错误（解析不出 note_id、MCP 不在线、同步连续 3 篇没抓到、收藏数可疑等） |
 | 2 | 缺内容 gate：明确知道缺东西（图片没下全） |
 | 3 | 子命令尚未实现 |
-| 5 | **要人处理**：登录态失效 / 风控验证码 / 18060 的 MCP 挂了。批量脚本看到这个码就该停车，接着跑只会把剩下的全刷成失败 |
+| 5 | **要人处理**：登录态失效 / 风控验证码 / 被跳到登录异常页 / 读取服务熔断中（`RISK_HOLD`）/ 18060 的 MCP 挂了。批量脚本看到这个码就该停车，**后面所有会用号开页的步骤都跳过**，接着跑只会把剩下的全刷成失败 |
+| 6 | 号正被别的任务占着（`~/.link-brain/account.lock`：同步收藏 / 附件 / catch 同一时刻只有一个在用号），过会儿再试 |
 
-退出码 5 同时会走一次报警（见下）。
+退出码 5 同时会走一次报警（见下）。`login --status` 另有一套：0 已登录 · 3 游客 · 4 查不清（忙 / 超时 / 连不上 / 锁被占）· 5 熔断中；
+`--json` 那一行照旧给插件画按钮（`state`=ready/expired/…），脚本读 `login_state`（logged_in / guest / unknown / risk_hold）。
+
+**`login --status --json` 契约（1001 定稿，偏离跨组件契约 B.5 的地方以这里为准）**：
+
+| 字段 | 取值 | 谁读 |
+|---|---|---|
+| `state` | 插件账号面板的取值：`ready` / `expired` / `not_logged_in` / `captcha` / `busy` / `unknown` / … | Obsidian 插件（按它画状态和按钮）。**脚本不要判它**：它永远不是 `guest` / `risk_hold` |
+| `login_state` | `logged_in` / `guest` / `unknown` / `risk_hold`（契约里叫 `state` 的那个值） | 20:00 登录检查等脚本 |
+| `code` / `detail` | 码和细节；熔断中 `code`=`RISK_HOLD`，另带 `risk_hold` 对象 `{code, since, detail}` | 人和日志 |
+| `hold_cause` | 熔断中时是熔断起因（`NOT_LOGGED_IN` / `ACCOUNT_RISK` / `CAPTCHA_REQUIRED`），否则空串 | 脚本据此说「掉登录了，去扫码」还是「风控暂停中」 |
+
+退出码和 `login_state` 一一对应（0/3/4/5），脚本优先按退出码判，退出码不在这四个里（崩了）再看 `login_state`。
+
+**附件 `--budget-min N`**（`attachments --all` / `--recheck` / 单篇）：从进程开始算（等账号锁的时间也在里面）。
+开下一个附件页 / 下一次登录号补看之前，剩下的时间装不下它的最坏耗时（歇够 + 开页间隔 + 下载 240 秒 / 补看 150 秒）
+就收手，照常转 md、渲染、重建目录、汇总，退出码 0；没轮到的记 `deferred`（不算失败、不报警），下次接着补。
+补查里「探到了附件但没时间下」的那篇保持待查，明晚接着下。
+
+**同步里的已知坏篇**：以前就抓不到的收藏（`_archive/sync-failures.json` 里有记录：已删 / 仅作者可见）排在最后抓；
+它们再失败时条目带 `known_bad: true`，不算这次同步出错（不让退出码变 1、状态变「部分失败」），
+但一晚里连着失败 3 篇就收手，余下的已知坏篇当晚不再开页（`held_known_bad` 计数，也计入 `skipped_failing`）。
 
 ### 报警
 
@@ -594,7 +616,8 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
 
 `kind` 四种：`account_blocked`（登录态/风控）、`service_down`（18060 或它的浏览器挂了）、
 `attachment_failed`（附件字节没拿到）、`batch_aborted`（批量停车）。
-没配这个变量就退化成 stderr 一行；报警命令自己挂了也**不会**影响归档。
+没配这个变量时读 `~/.link-brain/alert-cmd.txt` 的第一行（`#` 开头的是注释）；两处都没有就退化成 stderr 一行；
+报警命令自己挂了也**不会**影响归档。
 
 ---
 
@@ -649,7 +672,7 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
 
 | 字段 | 说明 |
 |---|---|
-| `status` | `new`（这次才归档）/ `hit`（早就有了，没联网）/ `error`（这条链接没抓成） |
+| `status` | `new`（这次才归档）/ `hit`（早就有了，没联网）/ `error`（这条链接没抓成）/ `blocked`（号出事，已停车）/ `busy`（号正被同步收藏占着，`--wait-lock-min` 内没等到，稍后再收） |
 | `summary` | `derived/extracted.json` 的小模型概要；没有就是正文前 120 字 |
 | `tags` | 可见 md frontmatter 里的 `tags`（原帖 hashtag + 小模型建议 + Owner 手写都在里面） |
 | `attachments.status` | `none` / `unavailable` / `metadata_only` / `downloaded`（见 §7a） |
@@ -663,7 +686,8 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
 {"found": 1, "items": [{"item_id": null, "status": "error", "url": "https://xhslink.cn/o/xxxx", "error": "AdapterError: 短链解不出笔记 URL"}]}
 ```
 
-退出码：全部成功 `0`；有任何一条 `status=error` 是 `1`（JSON 照样打全）。
+退出码：全部成功 `0`；有任何一条 `status=error` 是 `1`；`blocked` 是 `5`；`busy` 是 `6`（JSON 照样打全）。
+识图（带 `--extract` 时连概要）在放掉账号锁之后跑，每篇一个子进程、20 分钟上限；没补完的条目带 `error`，夜里 `enrich --pending` 会补。
 
 ### `read <target> --brief --json`
 

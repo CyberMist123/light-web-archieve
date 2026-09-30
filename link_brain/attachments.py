@@ -48,6 +48,48 @@ class AttachmentNeedsHuman(AttachmentError):
         self.code = code
 
 
+class AttachmentDeferred(Exception):
+    """这一批的时间预算不够再开一个附件页了（1001）：不算失败，留给下一次（今晚 4 点 / 明晚）。"""
+
+
+# 1001 时间预算：夜跑每一步外面都有限时（超时整棵杀）。开一个附件页 / 登录号补看之前，先确认剩下的时间
+# 装得下这一步的最坏耗时；装不下就收手、正常收尾（重建目录、汇总），别在读取服务那侧下载到一半被杀。
+DOWNLOAD_TIMEOUT_SECONDS = 240
+LOGGED_PROBE_TIMEOUT_SECONDS = 150
+GUEST_PROBE_SECONDS = 90
+
+
+def _clock() -> float:
+    return time.monotonic()
+
+
+def budget_from_minutes(minutes: float | None):
+    """`--budget-min N` → 返回「还剩几秒」的函数；0 / None = 不限（返回 None）。"""
+    if not minutes or float(minutes) <= 0:
+        return None
+    deadline = _clock() + float(minutes) * 60
+    return lambda: deadline - _clock()
+
+
+def _open_gap_hi() -> float:
+    from . import accounts
+    return accounts._gap_range("LWA_OPEN_GAP", "20,40")[1]
+
+
+def attempt_cost(attempt: int = 1) -> float:
+    """下一个附件（第 attempt 次）最坏要多久：歇够 + 开页间隔 + 下载超时 + 校验转 md 的余量。"""
+    return PACE_SECONDS[1] * attempt + _open_gap_hi() + DOWNLOAD_TIMEOUT_SECONDS + 60
+
+
+def probe_cost() -> float:
+    """补查一篇最坏要多久：探测间隔 + 游客探测 + 开页间隔 + 登录号补看超时。"""
+    return PROBE_GAP_SECONDS[1] + GUEST_PROBE_SECONDS + _open_gap_hi() + LOGGED_PROBE_TIMEOUT_SECONDS
+
+
+def _fits(budget_left, need: float) -> bool:
+    return budget_left is None or budget_left() >= need
+
+
 def fetch_bytes(
     *,
     doc_id: str,
@@ -69,7 +111,7 @@ def fetch_bytes(
         print(f"[attachment] 下载 {file_name} ({doc_id})", file=sys.stderr)
     try:
         accounts.ensure_reader()
-        data = accounts.api("POST", "/api/v1/attachments/download", timeout=240, body={
+        data = accounts.api("POST", "/api/v1/attachments/download", timeout=DOWNLOAD_TIMEOUT_SECONDS, body={
             "doc_id": doc_id, "note_id": note_id, "xsec_token": xsec_token,
             "file_name": file_name, "dest_dir": str(staging_dir.resolve())})
     except accounts.ReaderError as exc:
@@ -102,9 +144,9 @@ def _pace(attempt: int = 1) -> None:
     if wait > 0:
         print(f"[attachment] 像人一样歇 {wait:.0f} 秒再开下一个附件页", file=sys.stderr)
         time.sleep(wait)
+    accounts.pace("开附件页")  # 1001：再和所有碰号的开页（笔记详情、补看、读收藏）共用 20–40 秒间隔
     try:
-        stamp.parent.mkdir(parents=True, exist_ok=True)
-        stamp.write_text(str(time.time()), encoding="utf-8")
+        accounts._atomic_write_text(stamp, str(time.time()))
     except OSError:
         pass
 
@@ -127,10 +169,11 @@ def _have_by_name(object_dir: Path, name: str) -> Path | None:
 
 
 def acquire(source_key: str, source_id: str, *, doc_id: str, name: str, xsec_token: str,
-            verbose: bool = False) -> dict[str, Any]:
+            verbose: bool = False, budget_left=None) -> dict[str, Any]:
     """下一份附件，并验到『文件完整 + 能转成 md』为止；不行就删掉、歇更久、重下，最多 TRIES 次。
 
     账号要人处理（未登录 / 安全验证）直接抛 AttachmentNeedsHuman，绝不重试。
+    budget_left（1001）：剩下的时间装不下下一次尝试的最坏耗时 → 抛 AttachmentDeferred（不算失败）。
     """
     from .pdftext import convert_object_attachments
 
@@ -138,6 +181,9 @@ def acquire(source_key: str, source_id: str, *, doc_id: str, name: str, xsec_tok
     staging = object_dir / ".attachment-staging"
     last_error = ""
     for attempt in range(1, TRIES + 1):
+        if not _fits(budget_left, attempt_cost(attempt)):
+            raise AttachmentDeferred(f"时间预算不够再开附件页了（{name}），下次接着下"
+                                     + (f"；前一次：{last_error}" if last_error else ""))
         _pace(attempt)
         try:
             got = fetch_bytes(doc_id=doc_id, note_id=source_id, xsec_token=xsec_token,
@@ -164,13 +210,18 @@ def acquire(source_key: str, source_id: str, *, doc_id: str, name: str, xsec_tok
     raise AttachmentError(f"试了 {TRIES} 次仍不行：{last_error}")
 
 
-def grab_after_ingest(source_key: str, source_id: str) -> None:
-    """入库（ob 导入 / 同步收藏）后顺手把这篇的附件下好，不等半夜。出错只记，不影响入库。"""
+def grab_after_ingest(source_key: str, source_id: str, *, budget_left=None) -> str:
+    """入库（ob 导入 / 同步收藏）后顺手把这篇的附件下好，不等半夜。出错只记，不影响入库。
+
+    返回值（1001）：下载时撞到要人处理的码（掉登录 / 验证 / 风控 / 熔断）就返回那个码，调用方据此整批停车；
+    否则返回空串。budget_left：同步的剩余时间，装不下下一个附件就留给 4 点的 `attachments --all`。
+    """
+    blocked_code = ""
     try:
         object_dir = storage.object_dir(source_key, source_id)
         if not inventory(object_dir)["missing"]:
-            return
-        outcome = download_for_object(source_key, source_id, verbose=True)
+            return ""
+        outcome = download_for_object(source_key, source_id, verbose=True, budget_left=budget_left)
         from . import index as index_mod, render as render_mod
         render_mod.render_object(source_key, source_id)
         meta = storage.read_json(object_dir / "meta.json")
@@ -182,11 +233,14 @@ def grab_after_ingest(source_key: str, source_id: str) -> None:
         for r in outcome["results"]:
             if r["status"] == "failed":
                 blocked = bool(r.get("code"))
+                if blocked and not blocked_code:
+                    blocked_code = str(r["code"])
                 alert_mod.alert(alert_mod.KIND_ACCOUNT if blocked else alert_mod.KIND_ATTACHMENT,
                                 "附件没拿到" + ("（账号要处理：登录/安全验证）" if blocked else "（今晚 4 点会再补）"),
                                 f"{outcome['item_id']}: {str(r.get('error'))[:300]}", item_id=outcome["item_id"])
     except Exception as exc:  # noqa: BLE001 - 附件是锦上添花，别拖垮已落盘的归档
         print(f"[attachment] 入库后顺手下附件出错（今晚 4 点会再补）：{exc}", file=sys.stderr)
+    return blocked_code
 
 
 def _sha256(path: Path) -> str:
@@ -285,11 +339,12 @@ def local_download(name: str) -> Path | None:
 
 
 def download_for_object(
-    source_key: str, source_id: str, *, force: bool = False, verbose: bool = False
+    source_key: str, source_id: str, *, force: bool = False, verbose: bool = False, budget_left=None
 ) -> dict[str, Any]:
     """把一个对象的附件字节下下来，落对象级 `attachments/` 并写 `attachments.json`。
 
     不动任何 `raw/vNNNN/`（版本一旦写完就封存）。失败只返回 error，不抛给调用方之外。
+    budget_left（1001）：时间不够再开页了 → 余下的记 status=deferred（不算失败），收手。
     """
     object_dir = storage.object_dir(source_key, source_id)
     meta_path = object_dir / "meta.json"
@@ -309,9 +364,26 @@ def download_for_object(
     for att in attachments:
         doc_id = att.get("doc_id")
         if not doc_id:
+            # 1001（审计 health/attach-1）：这条线索以前手动挂过文件（记录的 name 就是线索原文、文件在盘上）
+            # = 已经满足，别每晚再用登录号开一次笔记页、再报一次「附件没下好」。
+            claimed = next((r for r in known.values() if att.get("hint") and r.get("name") == att.get("hint")
+                            and (dest_dir / (r.get("file") or "")).is_file()
+                            and (dest_dir / r["file"]).stat().st_size > 0), None)
+            if claimed and not force:
+                results.append({**claimed, "status": "already"})
+                continue
             # 0929 Owner：附件务必同步。只有正文线索（「prompt在附件」）的，当场去笔记页找文件编号：
             # 游客读不到（登录墙笔记）就用登录号看，找到就补进 source.json 接着下，别再静默跳过。
+            if not _fits(budget_left, probe_cost()):
+                results.append({"doc_id": None, "name": att.get("hint"), "status": "deferred",
+                                "error": "时间预算不够再去笔记页找附件了，下次接着找"})
+                break
             found = resolve_hint(source_id, note.get("xsec_token"))
+            if found.get("needs_human"):
+                # 1001：登录号补看撞到掉登录 / 风控 → 这篇记失败带上码，整批停车
+                results.append({"doc_id": None, "name": att.get("hint"), "status": "failed",
+                                "error": found.get("error"), "code": found.get("code") or "NOT_LOGGED_IN"})
+                break
             if found.get("doc_id"):
                 att.update(found)
                 storage.write_json(storage.raw_dir(source_key, source_id, version) / "source.json", source_doc)
@@ -332,9 +404,12 @@ def download_for_object(
                 results.append({**record, "status": "downloaded"})
                 continue
             record = acquire(source_key, source_id, doc_id=doc_id, name=att.get("name") or "file",
-                             xsec_token=note.get("xsec_token") or "", verbose=verbose)
+                             xsec_token=note.get("xsec_token") or "", verbose=verbose, budget_left=budget_left)
             known = load_downloaded(source_key, source_id)
             results.append({**record, "status": "downloaded"})
+        except AttachmentDeferred as exc:
+            results.append({"doc_id": doc_id, "name": att.get("name"), "status": "deferred", "error": str(exc)})
+            break  # 时间到了：余下的附件下次再下
         except AttachmentNeedsHuman as exc:
             results.append({"doc_id": doc_id, "status": "failed", "error": str(exc), "code": exc.code})
             break  # 账号要人处理：余下附件等处理完再补
@@ -355,9 +430,18 @@ def download_for_object(
         )
     update_status(source_key, source_id)
 
+    errors = [{"doc_id": r.get("doc_id"), "error": r.get("error")} for r in results if r["status"] in {"failed", "skipped"}]
+    deferred_ids = {r.get("doc_id") for r in results if r["status"] == "deferred"}
+    if deferred_ids:  # 没轮到的（时间预算到了）：上次的错误原样留着，别当成「这次没出错」冲掉
+        state_path = object_dir / "attachment-state.json"
+        try:
+            before = storage.read_json(state_path).get("errors", []) if state_path.exists() else []
+        except (OSError, ValueError):
+            before = []
+        errors += [e for e in before if e.get("doc_id") in deferred_ids]
     storage.write_json(object_dir / "attachment-state.json", {
         "checked_at": datetime.now(timezone.utc).isoformat(),
-        "errors": [{"doc_id": r.get("doc_id"), "error": r.get("error")} for r in results if r["status"] in {"failed", "skipped"}],
+        "errors": errors,
     })
 
     return {"item_id": meta["item_id"], "results": results}
@@ -421,6 +505,8 @@ def resolve_hint(note_id: str, token: str | None) -> dict[str, Any]:
     probe = xhs.fetch_related_file(note_id, token)
     if not probe.get("ok"):
         logged = _probe_logged_in(note_id, token)
+        if logged.get("needs_human"):
+            return {"error": str(logged.get("error"))[:300], "needs_human": True, "code": logged.get("code")}
         if not logged.get("ok"):
             return {"error": f"游客：{probe.get('error')}；登录号：{logged.get('error')}"[:300]}
         probe = logged
@@ -447,13 +533,46 @@ def describe_problem(source_key: str, source_id: str, file_name: str | None, rea
             f" → 重跑：python -m link_brain attachments {item_id}")
 
 
+EXIT_ACCOUNT_BUSY = 6
+
+
 def run(args) -> int:
+    """`attachments`。会用号开页的（--recheck / --all / 单篇下载）先查熔断和账号锁：
+    熔断中 → 退出 5 一页不开；号被别的任务占着 → 退出 6。--audit / --attach 不联网，不受影响。"""
+    if getattr(args, "audit", False) or getattr(args, "attach", None):
+        return _run(args)
+    from . import accounts
+    from .read import dump_json
+    try:
+        accounts.check_risk_hold()
+    except accounts.ReaderError as exc:
+        print(f"附件补下没跑：风控暂停中（{exc.detail}）。处理完（扫码登录 / 打开验证）会自动恢复。", file=sys.stderr)
+        if getattr(args, "recheck", False):
+            dump_json({"checked": 0, "found": [], "failed": [], "blocked": exc.code})
+        return EXIT_NEEDS_HUMAN
+    owner = "attachments --recheck" if getattr(args, "recheck", False) else "attachments"
+    budget_left = budget_from_minutes(getattr(args, "budget_min", 0))  # 从进程开头算：等锁的时间也在预算里
+    try:
+        with accounts.account_session(owner, wait_s=float(getattr(args, "wait_lock_min", 10) or 0) * 60):
+            return _run(args, budget_left=budget_left)
+    except accounts.AccountBusyError as exc:
+        print(f"附件补下没跑：{exc}", file=sys.stderr)
+        if getattr(args, "recheck", False):
+            dump_json({"checked": 0, "found": [], "failed": [], "busy": True})
+        return EXIT_ACCOUNT_BUSY
+
+
+def _run(args, budget_left=None) -> int:
     from . import index as index_mod
 
+    # 1001：--budget-min N 到点收手、正常收尾（夜跑外层限时会整棵杀，别在下载到一半时被杀）
+    if budget_left is None:
+        budget_left = budget_from_minutes(getattr(args, "budget_min", 0))
     if getattr(args, "recheck", False):
         from .read import dump_json
-        dump_json(recheck(limit=getattr(args, "limit", 0) or 0, verbose=True))
-        return 0
+        out = recheck(limit=getattr(args, "limit", 0) or 0, verbose=True, budget_left=budget_left)
+        dump_json(out)
+        return EXIT_NEEDS_HUMAN if out.get("blocked") else 0
     if getattr(args, "audit", False):
         from .read import dump_json
         metas = list((storage.vault_root() / "_archive" / "xiaohongshu").glob("*/meta.json"))
@@ -524,9 +643,14 @@ def run(args) -> int:
     account_blocked = False
     any_downloaded = False
     problems: list[str] = []
-    for source_key, source_id in targets:
+    deferred_objects = 0
+    for n, (source_key, source_id) in enumerate(targets):
+        if not _fits(budget_left, attempt_cost(1)):
+            deferred_objects = len(targets) - n  # 时间到了：剩下的篇不再看，留着下次
+            break
         outcome = download_for_object(
-            source_key, source_id, force=getattr(args, "force", False), verbose=getattr(args, "verbose", False)
+            source_key, source_id, force=getattr(args, "force", False), verbose=getattr(args, "verbose", False),
+            budget_left=budget_left,
         )
         for r in outcome["results"]:
             if r["status"] == "downloaded":
@@ -534,6 +658,9 @@ def run(args) -> int:
                 print(f"{outcome['item_id']}  ↓ {r['file']}  {r['bytes']} 字节  {r['sha256'][:12]}…")
             elif r["status"] == "already":
                 print(f"{outcome['item_id']}  = {r['file']}（已有，--force 可重下）")
+            elif r["status"] == "deferred":
+                print(f"{outcome['item_id']}  … {r.get('name') or r.get('doc_id') or '附件'}：{r.get('error')}",
+                      file=sys.stderr)
             else:
                 failed = True
                 message = str(r.get("error") or "")
@@ -561,9 +688,10 @@ def run(args) -> int:
             print("停车：小红书账号要处理（扫码登录或安全验证），剩下的附件处理完再补", file=sys.stderr)
             return EXIT_NEEDS_HUMAN
 
+    if deferred_objects:
+        print(f"时间预算到了：还有 {deferred_objects} 篇没看，下次接着补", file=sys.stderr)
     # 下到了新字节就重建目录，否则 UI 角标还停在「待补」（补跑却没同步就是这坑）
     rebuilt = _rebuild_catalog(True)
-    pending = sum(inventory(storage.object_dir(source_key, source_id))["missing"] for source_key, source_id in targets)
     if problems:
         # 一条一条列清楚是哪篇哪个文件，单项重跑即可（0929 Owner）
         print(f"\n附件没下好 {len(problems)} 个：", file=sys.stderr)
@@ -571,7 +699,8 @@ def run(args) -> int:
             print(f"  - {line}", file=sys.stderr)
         alert_mod.alert(alert_mod.KIND_ATTACHMENT, f"附件没下好 {len(problems)} 个",
                         "\n".join(problems[:8]) + (f"\n…另 {len(problems) - 8} 个见日志" if len(problems) > 8 else ""))
-    return 1 if failed or not rebuilt else 2 if pending else 0
+    # 1001 统一退出码：0 成功 / 部分完成 · 1 出错 · 5 要人处理（上面已返回）· 6 号被占用
+    return 1 if failed or not rebuilt else 0
 
 
 def _rebuild_catalog(any_downloaded: bool) -> bool:
@@ -599,16 +728,18 @@ def _probe_logged_in(note_id: str, token: str | None) -> dict[str, Any]:
     from . import accounts
     try:
         accounts.ensure_reader()
+        accounts.pace("用登录号打开笔记页")
         d = accounts.api("POST", "/api/v1/notes/related-file", timeout=150,
                          body={"note_id": note_id, "xsec_token": token or ""})
     except accounts.ReaderError as exc:
-        return {"ok": False, "needs_human": exc.needs_human, "error": f"{exc.code} {exc}".strip()}
+        return {"ok": False, "needs_human": exc.needs_human, "code": exc.code, "error": f"{exc.code} {exc}".strip()}
     except (httpx.HTTPError, OSError, ValueError) as exc:
         # 0929：读取服务连接被重置（10054）以前直接抛出，整晚补查崩掉、后面的笔记全没查；现在只算这篇没查清，明晚再来
         return {"ok": False, "error": f"读取服务连接出错：{type(exc).__name__} {exc}"[:200]}
     if d.get("guest") or d.get("loginBtn"):
         accounts._note_account("NOT_LOGGED_IN", "附件补查：登录号打开笔记是游客")
-        return {"ok": False, "needs_human": True, "error": "读取服务的号没登录：先在目录里点「扫码登录」"}
+        return {"ok": False, "needs_human": True, "code": "NOT_LOGGED_IN",
+                "error": "读取服务的号没登录：先在目录里点「扫码登录」"}
     if d.get("wall") or not d.get("hasNote"):
         return {"ok": False, "error": f"登录也打不开这篇（{d.get('path')}：多半已删或仅作者可见）"}
     rf = d.get("relatedFile")
@@ -637,7 +768,7 @@ def probe_state(obj: Path) -> str:
     return "checked" if web.exists() and storage.read_json(web).get("ok") else "unprobed"
 
 
-def recheck(*, limit: int = 0, verbose: bool = False) -> dict[str, Any]:
+def recheck(*, limit: int = 0, verbose: bool = False, budget_left=None) -> dict[str, Any]:
     """补查「当时没探到附件」的笔记（0926）。
 
     入库时网页探测拿到反爬占位页 → web_raw.json ok=false，被当成「没附件」静默跳过，不报警、audit 也看不见
@@ -648,6 +779,8 @@ def recheck(*, limit: int = 0, verbose: bool = False) -> dict[str, Any]:
     from . import alert as alert_mod, render as render_mod
     base = storage.vault_root() / "_archive" / "xiaohongshu"
     found, failed, checked = [], [], 0
+    blocked = ""
+    out_of_time = False
     # 从没补查过的排前面，游客也读不到的排后面，免得它们每晚占满名额
     for meta_path in sorted(base.glob("*/meta.json"),
                             key=lambda p: ((p.parent / "derived" / "web_recheck.json").exists(), p.parent.name)):
@@ -660,6 +793,9 @@ def recheck(*, limit: int = 0, verbose: bool = False) -> dict[str, Any]:
         raw = storage.raw_dir("xiaohongshu", source_id, meta["current_version"])
         web = raw / "web_raw.json"
         if limit and checked >= limit:
+            break
+        if not _fits(budget_left, probe_cost()):
+            out_of_time = True  # 1001：时间预算到了，剩下的明晚再查
             break
         checked += 1
         url = storage.read_json(web).get("url") or "" if web.exists() else ""
@@ -683,6 +819,7 @@ def recheck(*, limit: int = 0, verbose: bool = False) -> dict[str, Any]:
                 storage.write_json(mark, {"checked_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "ok": False,
                                           "related_file": None, "error": logged["error"]})
                 alert_mod.alert(alert_mod.KIND_ACCOUNT, "附件补查停了（账号要处理：登录/安全验证）", logged["error"][:300])
+                blocked = logged.get("code") or "NOT_LOGGED_IN"
                 break
             if logged.get("ok"):
                 probe = logged
@@ -705,19 +842,32 @@ def recheck(*, limit: int = 0, verbose: bool = False) -> dict[str, Any]:
             render_mod.render_object("xiaohongshu", source_id)
             continue
         try:
-            acquire("xiaohongshu", source_id, doc_id=doc_id, name=name, xsec_token=token or "", verbose=verbose)
+            acquire("xiaohongshu", source_id, doc_id=doc_id, name=name, xsec_token=token or "", verbose=verbose,
+                    budget_left=budget_left)
             render_mod.render_object("xiaohongshu", source_id)
             found.append({"id": source_id, "file": name})
+        except AttachmentDeferred as exc:
+            # 探到了但没时间下：记成「下载没完成」，这篇保持待查，明晚接着下（不算失败、不报警）
+            storage.write_json(mark, {**storage.read_json(mark), "download_error": str(exc)[:200]})
+            out_of_time = True
+            break
         except AttachmentNeedsHuman as exc:
             storage.write_json(mark, {**storage.read_json(mark), "download_error": str(exc)[:200]})
             alert_mod.alert(alert_mod.KIND_ACCOUNT, "附件没拿到（账号要处理：登录/安全验证）", f"{source_id}: {exc}"[:300])
+            blocked = exc.code or "NOT_LOGGED_IN"
             break  # 撞验证就停，绝不接着开页
         except (AttachmentError, OSError, KeyError, ValueError) as exc:
             storage.write_json(mark, {**storage.read_json(mark), "download_error": str(exc)[:200]})
             failed.append({"id": source_id, "line": describe_problem("xiaohongshu", source_id, name, f"下载失败：{exc}")})
     if failed:
-        alert_mod.alert("normal", f"附件补查：{len(failed)} 篇没查清",
+        alert_mod.alert(alert_mod.KIND_ATTACHMENT, f"附件补查：{len(failed)} 篇没查清",
                         "\n".join(f["line"] for f in failed[:8]) + (f"\n…另 {len(failed) - 8} 篇见日志" if len(failed) > 8 else ""))
     if found:
         _rebuild_catalog(True)
-    return {"checked": checked, "found": found, "failed": failed}
+    out = {"checked": checked, "found": found, "failed": failed}
+    if blocked:
+        out["blocked"] = blocked
+    if out_of_time:
+        out["out_of_time"] = True
+        print("[recheck] 时间预算到了，剩下的明晚接着查", file=sys.stderr)
+    return out

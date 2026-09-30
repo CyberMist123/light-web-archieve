@@ -138,7 +138,7 @@ def test_trash_sync_and_manual_import_skip(tmp_path, monkeypatch):
     monkeypatch.setattr(favorites, 'fetch_favorites', lambda **k: [{'url':'https://example.invalid'}])
     assert favorites.sync_favorites()['items'][0]['status'] == 'trashed'
     assert ingest.ingest_url('https://example.invalid', refresh=True)['status'] == 'trashed'
-    assert catch._catch_one('https://example.invalid', message='', origin='cli', actor='human', verbose=False, extract=False)['status'] == 'trashed'
+    assert catch._catch_one('https://example.invalid', message='', origin='cli', actor='human', verbose=False)['status'] == 'trashed'
     assert index_mod.get_object(conn, item_id) is None
     conn.close()
 

@@ -64,7 +64,11 @@ DEFAULTS: dict[str, Any] = {
     "models": [
         {"name": "DeepSeek", "mode": "http", "endpoint": "https://api.deepseek.com/chat/completions", "model": "", "apiKey": ""},
         {"name": "Codex", "mode": "cli", "command": "codex exec --skip-git-repo-check -s read-only -c model_reasoning_effort=low -"},
-        {"name": "Sonnet", "mode": "cli", "command": "claude -p --model sonnet"},
+        # 1001（审计 C-1）：收权——不继承本机全局的 bypassPermissions，禁掉会动本机的工具，不加载任何 MCP。
+        # text_stream.harden_command 对她 data.json 里存着的旧命令也会补上这些参数。
+        {"name": "Sonnet", "mode": "cli", "command": "claude -p --model sonnet --permission-mode default "
+                                                    "--disallowedTools Bash,PowerShell,Write,Edit,MultiEdit,NotebookEdit,WebFetch,WebSearch "
+                                                    "--strict-mcp-config"},
     ],
     "activeModel": "DeepSeek", "chatPlaceholder": "问点什么呢？",
     "prompts": {"summary": "", "answer": DEFAULT_ANSWER_PROMPT},
@@ -76,9 +80,9 @@ DEFAULTS: dict[str, Any] = {
     "hiddenCats": [],
     "downloads": {"folder": str(Path.home() / "Downloads"), "waitMinutes": 5},
     # 收藏同步选项（0926 Owner）：评论楼层 all/10/20/50（0929 Owner：默认 10 楼，楼中楼照展开、评论图/语音照存；all 要滚全评论区，评论多的会超读取服务 10 分钟上限）；
-    # dailyNewLimit = 每天最多新抓几篇（防风控，第一次补历史收藏分几天完成）。
+    # dailyNewLimit = 每天最多新抓几篇（防风控，第一次补历史收藏分几天完成；1001 Owner：一天 50 篇）。
     "sync": {"autoAfterLogin": True, "downloadImages": True, "downloadVideo": True,
-             "commentFloors": 10, "dailyNewLimit": 200},
+             "commentFloors": 10, "dailyNewLimit": 50},
 }
 
 
@@ -89,7 +93,18 @@ def with_model(settings: dict[str, Any], name: str = '') -> dict[str, Any]:
     if not entry:
         return settings
     keep = {k: v for k, v in entry.items() if k != 'name' and v not in (None, '')}
-    return {**settings, 'textAI': {**settings.get('textAI', {}), **keep}}
+    base = dict(settings.get('textAI', {}))
+    # 1001（审计 C-3）：继承来的仓外密钥文件（keyFile/keyField）只属于 textAI 自己那个接口。
+    # 条目自带 apiKey、或指向别的接口地址时，一律不带过去——否则 DeepSeek 的 key 会被当 Bearer 发给别家。
+    # （条目地址和 textAI 一样、自己又没填 key 的，照旧用那份密钥文件：她的 DeepSeek 条目就是这样。）
+    own_key = bool(str(keep.get('apiKey') or '').strip())
+    other_endpoint = bool(keep.get('endpoint')) and keep.get('endpoint') != base.get('endpoint')
+    if (own_key or other_endpoint) and 'keyFile' not in keep:
+        base.pop('keyFile', None)
+        base.pop('keyField', None)
+    if other_endpoint and not own_key:
+        base.pop('apiKey', None)  # textAI 自己填的 key 同理，不发给别的接口
+    return {**settings, 'textAI': {**base, **keep}}
 
 
 def sync_options() -> dict[str, Any]:

@@ -25,7 +25,7 @@ def _fav(note_id: str) -> dict:
 
 def _wire(monkeypatch, favs, *, ingest=None, alerts=None):
     monkeypatch.setattr(fav_mod, "fetch_favorites", lambda *, limit=50, verbose=False: favs[:limit])
-    monkeypatch.setattr(fav_mod.catch_mod, "_ensure_rendered", lambda *a, **k: None)
+    monkeypatch.setattr(fav_mod, "_render_local", lambda *a, **k: None)
     monkeypatch.setattr(
         fav_mod.read_mod,
         "item_payload",
@@ -115,11 +115,14 @@ def test_login_required_blocks_whole_batch(monkeypatch, capsys):
 
 
 def test_cli_dispatches_sync_favorites(monkeypatch, capsys):
-    monkeypatch.setattr(fav_mod, "fetch_favorites", lambda *, limit=50, verbose=False: [])
+    favs = [_fav("aaa"), _fav("bbb")]
+    _wire(monkeypatch, favs, ingest=lambda url, **k: {
+        "hit": True, "note_id": url.split("/explore/")[1].split("?")[0],
+        "item_id": "xiaohongshu:" + url.split("/explore/")[1].split("?")[0]})
     code = cli.main(["sync-favorites", "--limit", "5"])
     assert code == 0
     payload = only_json(capsys)
-    assert payload == {"favorites": 0, "synced": 0, "items": []}
+    assert payload["favorites"] == 2 and payload["synced"] == 2 and payload["favorites_total"] == 2
 
 
 def test_favorite_account_tag_is_deduplicated_and_survives_meta_rebuild(tmp_path, monkeypatch):

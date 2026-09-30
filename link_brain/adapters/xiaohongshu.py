@@ -106,10 +106,42 @@ SERVICE_DOWN_HINTS = (
 )
 
 
+# 1001：读取服务的风险码（MCP 报错文本里带方括号标记）+ 被跳到 /website-login/ 的页面
+RISK_MARKERS = ("CAPTCHA_REQUIRED", "ACCOUNT_RISK", "NOT_LOGGED_IN", "RISK_HOLD")
+
+
+def risk_code(text: str | None) -> str:
+    """文本里的风险码：`[ACCOUNT_RISK]` 这类标记优先；只看到 website-login 字样算 ACCOUNT_RISK。"""
+    raw = text or ""
+    for code in RISK_MARKERS:
+        if f"[{code}]" in raw:
+            return code
+    return "ACCOUNT_RISK" if "website-login" in raw.lower() else ""
+
+
 def looks_blocked(text: str | None) -> bool:
     """一段错误文本/页面内容看起来像不像"号出事了"。"""
+    if risk_code(text):
+        return True
     low = (text or "").lower()
     return any(hint.lower() in low for hint in BLOCKED_HINTS)
+
+
+def _blocked_error(message: str, text: str) -> "AccountBlockedError":
+    err = AccountBlockedError(message)
+    err.code = risk_code(text)
+    return err
+
+
+def _find_in_group(exc: BaseException, kind: type) -> BaseException | None:
+    """在（嵌套的）ExceptionGroup 里深度优先找第一个 `kind` 的子异常。"""
+    if isinstance(exc, kind) and not getattr(exc, "exceptions", None):
+        return exc
+    for sub in getattr(exc, "exceptions", ()) or ():
+        found = _find_in_group(sub, kind)
+        if found is not None:
+            return found
+    return None
 
 
 def looks_service_down(text: str | None) -> bool:
@@ -277,8 +309,8 @@ async def _call_mcp(tool: str, arguments: dict[str, Any], *, endpoint: str, time
                 texts = [getattr(c, "text", "") for c in result.content]
                 joined = " ".join(texts)[:400]
                 if looks_blocked(joined):
-                    raise AccountBlockedError(
-                        f"读取账号需要处理：请在 Link Brain 设置页检查并重新扫码。详情：{joined}"
+                    raise _blocked_error(
+                        f"读取账号需要处理：请在 Link Brain 设置页检查并重新扫码。详情：{joined}", joined
                     )
                 if looks_service_down(joined):
                     raise ServiceDownError(
@@ -332,7 +364,19 @@ def call_tool(tool: str, arguments: dict[str, Any], *, endpoint: str | None = No
     except NeedsHumanError:
         raise
     except Exception as exc:  # noqa: BLE001 - 连不上 18060 是"服务出事了"，不是这条链接的问题
+        # 1001（B-1）：_call_mcp 在 streamablehttp_client 里面抛的异常会被 anyio 包进 ExceptionGroup，
+        # `except NeedsHumanError` 接不住 → 撞了验证码还被当普通错误、整批接着抓。先拆开，原样抛出里面那个。
+        for kind in (NeedsHumanError, AdapterError):
+            inner = _find_in_group(exc, kind)
+            if inner is not None and inner is not exc:
+                raise inner from None
         text = flatten_exc(exc)
+        # 这里是任意异常（连接断了、超时、解析错……）的展开文本：只认读取服务明确给的风险码（方括号标记 /
+        # website-login），不套 BLOCKED_HINTS 那种宽泛词——「429」「登录后」撞上笔记 id 或 URL 就会误停整晚、
+        # 还会让插件把空码当掉登录去弹扫码。宽泛词只用在 _call_mcp 里 MCP 工具自己报的 isError 文本上。
+        if risk_code(text):
+            raise _blocked_error(f"读取账号需要处理：请在 Link Brain 设置页检查并重新扫码。详情：{text[:300]}",
+                                 text) from exc
         if looks_service_down(text) or isinstance(exc, (OSError, ConnectionError)):
             raise ServiceDownError(
                 f"读取服务未连接：请在 Link Brain 设置页点击登录，或运行 link-brain login。详情：{text[:300]}"
@@ -543,7 +587,7 @@ def fetch_related_file(note_id: str, xsec_token: str | None, *, timeout: int = 3
 # 游客浏览器兜底：doc_id 只对游客可见，用一次性空 profile 保证不带登录态。
 RELATEDFILE_EXE = os.environ.get(
     "LINK_BRAIN_RELATEDFILE_EXE",
-    r"C:\Users\18717\.xiaohongshu-mcp\relatedfile.exe",
+    os.path.join(os.path.expanduser("~"), ".xiaohongshu-mcp", "relatedfile.exe"),
 )
 
 

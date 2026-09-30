@@ -23,6 +23,64 @@ def default_http_config(cfg):
             'model':cfg.get('model') or llm.load_config()['model']}
 
 
+# 1001（审计 C-1）：命令行模型吃的是陌生人写的收藏原文和评论，本机 claude / codex 的全局设置又是全权限
+# （bypassPermissions / danger-full-access）。这里强制收权，data.json 里存着的旧命令也一并兜住。
+CLAUDE_DENIED_TOOLS = ('Bash', 'PowerShell', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'WebFetch', 'WebSearch')
+_UNSAFE_FLAGS = ('--dangerously-skip-permissions', '--dangerously-bypass-approvals-and-sandbox', '--full-auto', '--yolo')
+
+
+def _prog(token: str) -> str:
+    name = token.strip('"\'').replace('\\', '/').rsplit('/', 1)[-1].lower()
+    for ext in ('.exe', '.cmd', '.bat', '.ps1'):
+        if name.endswith(ext):
+            return name[:-len(ext)]
+    return name
+
+
+def _set_flag(cmd, names, value, insert_at):
+    """把 names 里任一写法的参数值改成 value（`--x v` 或 `--x=v`）；没有就在 insert_at 插进去。"""
+    for i, tok in enumerate(cmd):
+        bare = tok.strip('"\'')
+        for name in names:
+            if bare == name:
+                if i + 1 < len(cmd):
+                    cmd[i + 1] = value
+                else:
+                    cmd.append(value)
+                return cmd
+            if bare.startswith(name + '='):
+                cmd[i] = f'{name}={value}'
+                return cmd
+    cmd[insert_at:insert_at] = [names[0], value]
+    return cmd
+
+
+def harden_command(cmd):
+    """claude：--permission-mode default + 禁用会动本机的工具 + 不加载任何 MCP；codex：-s read-only。已有同类参数不重复加。"""
+    cmd = [t for t in cmd if t.strip('"\'') not in _UNSAFE_FLAGS]
+    if not cmd:
+        return cmd
+    prog = _prog(cmd[0])
+    if prog == 'claude':
+        cmd = _set_flag(cmd, ('--permission-mode',), 'default', len(cmd))
+        for i, tok in enumerate(cmd):
+            bare = tok.strip('"\'')
+            if bare in ('--disallowedTools', '--disallowed-tools') and i + 1 < len(cmd):
+                have = {t for t in cmd[i + 1].strip('"\'').replace(',', ' ').split() if t}
+                missing = [t for t in CLAUDE_DENIED_TOOLS if t not in have]
+                if missing:
+                    cmd[i + 1] = ','.join([*sorted(have), *missing])
+                break
+        else:
+            cmd += ['--disallowedTools', ','.join(CLAUDE_DENIED_TOOLS)]
+        if not any(t.strip('"\'') == '--strict-mcp-config' for t in cmd):
+            cmd.append('--strict-mcp-config')
+    elif prog == 'codex':
+        at = next((i + 1 for i, t in enumerate(cmd) if t.strip('"\'') == 'exec'), 1)
+        cmd = _set_flag(cmd, ('-s', '--sandbox'), 'read-only', at)
+    return cmd
+
+
 def cli_call(instruction, text, cfg, on_delta=None):
     """本机命令行模型（0926）：如 `codex exec -` / `claude -p`，用它们自己的登录，不需要 API key。
     提示词走 stdin，stdout 边读边吐。"""
@@ -33,6 +91,7 @@ def cli_call(instruction, text, cfg, on_delta=None):
         cmd = shlex.split(cmd, posix=False)
     if not cmd:
         return {'status': 'failed', 'error': '命令行模型没有填命令'}
+    cmd = harden_command(list(cmd))
     import tempfile
     # 空目录里跑：别让 codex/claude 去翻仓库文件；stderr 进临时文件——它进度日志很多，管道读不及会把进程堵死
     err_file = tempfile.TemporaryFile(mode='w+', encoding='utf-8', errors='replace')
@@ -71,7 +130,8 @@ def call(instruction, text, cfg, on_delta=None):
 
 def http_call(instruction,text,cfg,on_delta=None):
     cfg = dict(cfg)
-    if cfg.get('keyFile'):
+    # 1001（审计 C-3）：条目自己填的 apiKey 优先；仓外密钥文件只在没填 key 时兜底
+    if cfg.get('keyFile') and not str(cfg.get('apiKey') or '').strip():
         try:
             raw = Path(cfg['keyFile']).read_bytes()
             text_csv = raw.decode('utf-8-sig') if raw.startswith(b'\xef\xbb\xbf') else raw.decode('gbk')

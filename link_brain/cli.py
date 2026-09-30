@@ -1,10 +1,12 @@
 """`python -m link_brain` 命令行入口。
 
 退出码约定（docs/FORMAT.md 也记了一份）：
-  0  成功
+  0  成功 / 部分完成（到预算、到每日上限，剩下的明天接着来）
   1  一般错误
   2  缺内容 gate 触发（明确知道缺东西，例如图片没下全）
-  3  尚未实现的子命令
+  3  尚未实现的子命令（`login --status` 另有约定：3 = 游客）
+  5  要人处理：掉登录 / 安全验证 / 风控熔断中（已停车，没接着开页）
+  6  号正被别的任务占用（同步收藏 / 附件 / 导入在跑），稍后再试
 """
 
 from __future__ import annotations
@@ -21,6 +23,8 @@ EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_MISSING_CONTENT = 2
 EXIT_NOT_IMPLEMENTED = 3
+EXIT_NEEDS_HUMAN = 5
+EXIT_ACCOUNT_BUSY = 6
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -62,6 +66,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("comments", help="手动抓一篇的评论区（楼中楼 / 评论图片 / 语音评论）")
     p.add_argument("target", help="item_id（xhs-<note_id>）或链接")
     p.add_argument("--floors", default="all", choices=["all", "20", "50"], help="默认全量；慢，热门笔记可能要十几分钟")
+    p.add_argument("--wait-lock-min", dest="wait_lock_min", type=float, default=2,
+                   help="号被别的任务占着时最多等几分钟（默认 2），等不到退出码 6")
 
     p = sub.add_parser("ingest", help="归档一个链接（URL / xhslink 短链 / 分享文本）")
     p.add_argument("target", help="链接或包含链接的分享文本")
@@ -70,6 +76,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--ingest-kind", choices=INGEST_KINDS, default="shared")
     p.add_argument("--note", default=None, help="原始附言，渲染成留言层 cmt1")
     p.add_argument("--refresh", action="store_true", help="重新抓取；有变化才写新 RAW 版本（Lot 2）")
+    p.add_argument("--wait-lock-min", dest="wait_lock_min", type=float, default=2,
+                   help="号被别的任务占着时最多等几分钟（默认 2），等不到退出码 6")
 
     p = sub.add_parser(
         "catch",
@@ -83,6 +91,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="顺手调小模型补 extracted.json（默认不调，概要退回正文前 120 字）",
     )
+    p.add_argument("--refresh", action="store_true", help="已在库也重新抓一次（有变化才写新 RAW 版本）")
+    p.add_argument("--wait-lock-min", dest="wait_lock_min", type=float, default=2,
+                   help="号正被同步收藏 / 附件占着时最多等几分钟（默认 2）；等不到退出码 6「正在同步收藏，稍后再收」")
 
     p = sub.add_parser("read", help="打印一个已归档对象")
     p.add_argument("target", help="item_id 或 URL")
@@ -123,6 +134,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=0, help="--recheck 每次最多查几篇（0=不限）")
     p.add_argument("--attach", default=None,
                    help="把本地已下好的文件手动挂到这篇（系统下不了时用）：给文件路径")
+    p.add_argument("--wait-lock-min", dest="wait_lock_min", type=float, default=10,
+                   help="号被别的任务占着时最多等几分钟（默认 10），等不到退出码 6")
+    p.add_argument("--budget-min", dest="budget_min", type=float, default=0,
+                   help="最多跑几分钟（0=不限）：剩下的时间装不下下一个附件页就收手、正常收尾，剩下的下次补（退出码 0）")
 
     p = sub.add_parser("note", help="笔记批注 / ⭐ 收藏（sidecar，不改正文）")
     nsub = p.add_subparsers(dest="note_command")
@@ -146,7 +161,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=0, help="最多同步多少条收藏（0=全量，favdump 顺序）；默认全量，靠 ingest 去重做增量，别再截成第一页")
     p.add_argument("--origin", choices=ORIGINS, default="cli", help="从哪个端触发的")
     p.add_argument("--actor", default="human", help="human 或 ai:<name>")
-    p.add_argument("--extract", action="store_true", help="顺带跑小模型派生（花钱，默认不跑）")
+    p.add_argument("--extract", action="store_true",
+                   help="抓取阶段结束后，对本次新收的笔记补识图 + 概要（不碰号，受剩余预算约束）")
+    p.add_argument("--budget-min", dest="budget_min", type=float, default=0,
+                   help="最多跑几分钟（0=不限）：到点不再开新的抓取，剩下的明天继续（退出码 0）")
+    p.add_argument("--wait-lock-min", dest="wait_lock_min", type=float, default=10,
+                   help="号被别的任务占着时最多等几分钟（默认 10），等不到退出码 6")
+
+    p = sub.add_parser("enrich", help="给已归档的笔记补识图 + 概要（不碰号；每篇子进程、20 分钟上限）")
+    p.add_argument("--pending", action="store_true",
+                   help="处理全部候选：待 enrich 的（新收的）/ 概要失败或缺失的 / 有图没识的")
+    p.add_argument("--item", default=None, help="只补这一篇（item_id）；失败满 3 次的也照跑")
+    p.add_argument("--budget-min", dest="budget_min", type=float, default=0, help="最多跑几分钟（0=不限）")
+    p.add_argument("--limit", type=int, default=0, help="最多补几篇（0=不限）")
 
     p = sub.add_parser('videos', help='补下载已有视频，或独立运行本机转写')
     p.add_argument('target', nargs='?')
@@ -248,6 +275,21 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return EXIT_OK
 
+    from . import accounts
+    try:
+        return _dispatch(args)
+    except accounts.AccountBusyError as exc:
+        print(f"没跑：{exc}", file=sys.stderr)
+        return EXIT_ACCOUNT_BUSY
+
+
+def _account_lock(args, owner: str):
+    from . import accounts
+    return accounts.account_session(owner, wait_s=float(getattr(args, "wait_lock_min", 2) or 0) * 60)
+
+
+def _dispatch(args) -> int:
+
     if args.command == 'doctor':
         from . import doctor
         return doctor.run(args)
@@ -263,7 +305,8 @@ def main(argv: list[str] | None = None) -> int:
         return vision.run_upgrade(args)
     if args.command == 'comments':
         from . import ingest
-        return ingest.run_comments(args)
+        with _account_lock(args, "comments"):
+            return ingest.run_comments(args)
     if args.command == 'login':
         from . import accounts
         return accounts.run_login(args)
@@ -287,7 +330,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "ingest":
         from . import ingest as ingest_mod
 
-        return ingest_mod.run(args)
+        with _account_lock(args, "ingest"):
+            return ingest_mod.run(args)
+
+    if args.command == "enrich":
+        from . import enrich as enrich_mod
+
+        return enrich_mod.run(args)
 
     if args.command == "catch":
         from . import catch as catch_mod

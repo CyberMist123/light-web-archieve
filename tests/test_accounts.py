@@ -191,4 +191,5 @@ def test_json_output_is_one_object(clean, monkeypatch, capsys):
     from types import SimpleNamespace
     code = accounts.run_login(SimpleNamespace(verify=False, status=True, force=False, timeout=5, json=True))
     out = json.loads(capsys.readouterr().out)
-    assert code == 1 and out['action'] == 'verify'
+    # 1001：--status 的退出码 5 = 风控 / 熔断（要人处理）；插件要的那一行（action）照旧在
+    assert code == 5 and out['action'] == 'verify' and out['login_state'] == 'risk_hold'

@@ -267,17 +267,29 @@ def _detail_kwargs(comment_floors: int | str | None) -> dict[str, Any]:
     return {"full_comments": True, "comment_limit": floors, "timeout": 600}
 
 
-def _fetch_with_retry(parsed: dict[str, Any], *, log, comment_floors=None) -> Any:
+def _fetch_with_retry(parsed: dict[str, Any], *, log, comment_floors=None, budget_left=None) -> Any:
+    """抓详情；服务没起来时隔一会儿重试（最多 SERVICE_RETRIES 次）。
+
+    budget_left（1001）：返回「这一批还剩几秒」的函数。剩下的不够再等一轮 + 再抓一次的最坏耗时，就不重试了，
+    直接把 ServiceDownError 抛给调用方——夜跑的同步步骤有外层限时，别在预算尽头又挂一个 10 分钟的请求被整棵杀。
+    """
     kwargs = _detail_kwargs(comment_floors)
+    from . import accounts
     for attempt in range(1, SERVICE_RETRIES + 1):
+        accounts.pace("打开笔记")  # 1001：跨进程开页间隔（与附件、补看、读收藏共用一个时刻戳）
         try:
             return xhs.fetch_detail(parsed["note_id"], parsed["xsec_token"], **kwargs)
         except xhs.ServiceDownError as exc:
             if attempt == SERVICE_RETRIES:
                 raise
             wait = SERVICE_BACKOFF[min(attempt - 1, len(SERVICE_BACKOFF) - 1)]
+            if budget_left is not None and budget_left() < wait + float(kwargs.get("timeout") or 600) + 60:
+                log(f"服务没起来（第 {attempt}/{SERVICE_RETRIES} 次），这一批的时间不够再试了")
+                raise
             log(f"服务没起来（第 {attempt}/{SERVICE_RETRIES} 次）：{str(exc)[:120]}；{wait}s 后重试")
-            time.sleep(wait)
+        finally:
+            accounts.pace_done()  # 开页间隔从这一页看完算起
+        time.sleep(wait)
     raise AssertionError("unreachable")
 
 
@@ -291,6 +303,8 @@ def ingest_url(
     verbose: bool = False,
     refresh: bool = False,
     comment_floors: int | str | None = None,
+    parsed: dict[str, Any] | None = None,
+    budget_left=None,
 ) -> dict[str, Any]:
     """抓一条链接并落一份不可变 RAW。返回摘要 dict（含 exit_code）。
 
@@ -303,7 +317,7 @@ def ingest_url(
         if verbose:
             print(f"[ingest] {message}", file=sys.stderr)
 
-    parsed = xhs.parse_input(target)
+    parsed = parsed or xhs.parse_input(target)  # catch 已经解析过（为了先判要不要拿账号锁）就别再跟一次短链
     log(f"input_kind={parsed['input_kind']} note_id={parsed['note_id']}")
 
     conn = index_mod.connect()
@@ -348,7 +362,7 @@ def ingest_url(
             }
 
         log(f"MCP {xhs.MCP_TOOL} @ {xhs.MCP_ENDPOINT}")
-        raw = _fetch_with_retry(parsed, log=log, comment_floors=comment_floors)
+        raw = _fetch_with_retry(parsed, log=log, comment_floors=comment_floors, budget_left=budget_left)
 
         # 附件元数据只有笔记网页版有（MCP 不返回），游客可见；失败不阻断
         log(f"网页探测附件 {xhs.CANONICAL_FMT.format(note_id=parsed['note_id'])}")
@@ -357,6 +371,11 @@ def ingest_url(
             # 0929：游客被登录墙挡住的笔记（附件照样有）当场用登录号再看一次，别等夜里补查
             from .attachments import _probe_logged_in
             logged = _probe_logged_in(parsed["note_id"], parsed.get("xsec_token"))
+            if logged.get("needs_human"):
+                # 1001：登录号补看撞到掉登录 / 风控 → 整批停车，别拿这篇的半截结果入库，也别接着开下一篇
+                err = xhs.AccountBlockedError(f"读取账号需要处理：{logged.get('error')}")
+                err.code = logged.get("code") or ""
+                raise err
             if logged.get("ok"):
                 log("游客看不到，登录号看到了笔记页（附件元数据取自登录号）")
                 web_probe = {**web_probe, **logged}

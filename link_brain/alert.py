@@ -8,6 +8,10 @@
 自己决定怎么送（Bark、TG、邮件都行）。没配这个变量就退化成 stderr 一行，
 **永远不抛异常、不阻断归档**——报警失败不该把归档也带走。
 
+1001（审计 E-3）：环境变量没设时（Obsidian 插件、lwa 起的进程常常没有），再读
+`~/.link-brain/alert-cmd.txt`（`LINK_BRAIN_HOME` 可改位置）：第一行非空、非 `#` 开头的就是命令。
+文件不存在就只打 stderr。本仓公开，这里不写任何默认路径。
+
 写这个命令的人注意：JSON 是 **UTF-8 字节**，Windows 上 Python 默认按 GBK 读 stdin，
 要 `sys.stdin.buffer.read().decode("utf-8")`，不然中文全是乱码。
 """
@@ -19,6 +23,7 @@ import os
 
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 ENV_ALERT_CMD = "LINK_BRAIN_ALERT_CMD"
@@ -42,7 +47,8 @@ def _run(command: str, payload: dict[str, Any]) -> bool:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=60,
+            # 外部命令可能串行试两条通道（Bark 最长 45 秒 + TG 最长 60 秒），给够时间别在半路判失败
+            timeout=150,
         )
     except Exception as exc:  # noqa: BLE001 - 报警自己挂了也只能记一句
         print(f"[alert] 报警命令跑不起来（{type(exc).__name__}: {exc}）", file=sys.stderr)
@@ -54,11 +60,32 @@ def _run(command: str, payload: dict[str, Any]) -> bool:
     return True
 
 
+def command_file() -> Path:
+    home = os.environ.get("LINK_BRAIN_HOME") or str(Path.home() / ".link-brain")
+    return Path(home) / "alert-cmd.txt"
+
+
+def alert_command() -> str:
+    """报警命令：环境变量优先，其次 ~/.link-brain/alert-cmd.txt 的第一行；都没有就是空。"""
+    command = os.environ.get(ENV_ALERT_CMD, "").strip()
+    if command:
+        return command
+    try:
+        text = command_file().read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError):
+        return ""
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            return line
+    return ""
+
+
 def alert(kind: str, title: str, body: str, **extra: Any) -> bool:
     """报一次警。返回外部命令是否成功；没配命令返回 False（但 stderr 一定有）。"""
     payload = {"kind": kind, "title": title, "body": body, **extra}
     print(f"[alert] {kind}: {title} — {body}", file=sys.stderr)
-    command = os.environ.get(ENV_ALERT_CMD, "").strip()
+    command = alert_command()
     if not command:
         return False
     return _run(command, payload)
