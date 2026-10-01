@@ -139,12 +139,19 @@ def _rrf(lexical_hits, sem, items, k=60):
     return fused
 
 
-def rank_query(items, question, terms=None):
-    """Keep distinct clauses represented when a request contains several topics."""
+_ASK_SEM = object()
+
+
+def rank_query(items, question, terms=None, sem=_ASK_SEM):
+    """Keep distinct clauses represented when a request contains several topics.
+
+    sem：调用方已经拿过的 semantic_hits 结果（问答要接着用它的 chunk 当证据，不重算）。
+    """
     from .ask import query_terms
     terms=terms if terms is not None else query_terms(question)
     hits=rank(items,terms)
-    sem=semantic_hits(question)
+    if sem is _ASK_SEM:
+        sem=semantic_hits(question)
     if sem:
         hits=_rrf(hits,sem,items)
     clauses=query_facets(items,question)
@@ -156,8 +163,11 @@ def rank_query(items, question, terms=None):
     return chosen+[(s,it) for s,it in hits if it['id'] not in seen]
 
 
-def excerpts(item, terms, limit=800, window_chars=450):
-    """取命中密度最高的最多三段原文，跨正文/附件/转写，严格共享字数上限。"""
+def excerpts(item, terms, limit=800, window_chars=450, fallback=True):
+    """取命中密度最高的最多三段原文，跨正文/附件/转写，严格共享字数上限。
+
+    一个词都没命中时：fallback=True 退回某字段的开头+结尾；False 返回 []（交给 evidence 用语义片段）。
+    """
     import math
     candidates = []
     windows = []
@@ -200,6 +210,8 @@ def excerpts(item, terms, limit=800, window_chars=450):
             continue
         selected.append((key,start,text[:budget]));budget-=len(text[:budget])
         if len(selected)==3 or budget<=0:break
+    if not selected and not fallback:
+        return []
     if not selected:
         fs=fields(item)
         key=next((k for k in ['body','ocr','attachments','transcript'] if len(str(fs.get(k,'')))>80),'body')
@@ -208,6 +220,25 @@ def excerpts(item, terms, limit=800, window_chars=450):
             half=limit//2;selected=[(key,0,text[:half]),(key,len(text)-(limit-half),text[-(limit-half):])]
         else:selected=[(key,0,text)]
     return [{'field':key,'text':text} for key,_,text in selected]
+
+
+def evidence(item, terms, limit, sem=None, window_chars=450, max_parts=3):
+    """一篇的证据片段：语义命中的 chunk 原文在前，词法窗口补足预算；两边都没有才退回开头+结尾。
+
+    1001 审计 ask-7：只靠语义召回的长文（换了说法提问），词法一个词都不中，
+    以前问答送给模型的是开头+结尾，真正相关的中间那段不在里面。问答和 lb_retrieve 共用这一份。
+    """
+    chunks=[c for c in ((sem or {}).get(item.get('id')) or {}).get('chunks') or [] if c.get('field')!='meta']
+    if not chunks:
+        return excerpts(item,terms,limit,window_chars)
+    out=[];used=0
+    for part in chunks+excerpts(item,terms,limit,window_chars,fallback=False):
+        if used>=limit or len(out)==max_parts:break
+        text=str(part['text'])[:limit-used]
+        if not text or any(text[:60] in e['text'] or e['text'][:60] in text for e in out):
+            continue
+        out.append({'field':part['field'],'text':text});used+=len(text)
+    return out or excerpts(item,terms,limit,window_chars)
 
 
 def search(query, limit=20):
@@ -250,25 +281,14 @@ def retrieve_payload(question, top_k=8):
     from urllib.parse import quote
     from .ask import load_items, query_terms
     terms=query_terms(question)
-    hits=rank_query(load_items(),question,terms)
-    sem=semantic_hits(question) or {}
+    sem=semantic_hits(question)
+    hits=rank_query(load_items(),question,terms,sem=sem)
     count=max(1,min(20,top_k))
     budget=max(100,2500//min(count,len(hits) or 1))
     results=[]
     for value,it in hits[:count]:
         note=it.get('note') or ''
-        parts=excerpts(it,terms,budget)
-        chunks=[c for c in (sem.get(it['id']) or {}).get('chunks') or [] if c.get('field')!='meta']
-        if chunks:
-            # 命中 chunk 的原文优先充当证据，词法窗口补足预算
-            evidence=[];used=0
-            for part in chunks+parts:
-                if used>=budget or len(evidence)==3:break
-                text=str(part['text'])[:budget-used]
-                if not text or any(text[:60] in e['text'] or e['text'][:60] in text for e in evidence):
-                    continue
-                evidence.append({'field':part['field'],'text':text});used+=len(text)
-            parts=evidence or parts
+        parts=evidence(it,terms,budget,sem)  # 命中 chunk 的原文优先充当证据，词法窗口补足预算
         results.append({'item_id':it['id'],'title':it['title'],'score':round(value,3),
             'excerpts':parts,'note':note,
             'obsidian_url':'obsidian://open?vault='+quote(os.environ.get('LINK_BRAIN_OBSIDIAN_VAULT','vault'))+'&file='+quote(note),
