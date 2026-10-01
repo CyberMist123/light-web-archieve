@@ -13,6 +13,7 @@
 
 字节落**对象级**目录 `_archive/<source>/<id>/attachments/`，不进 `raw/vNNNN/`——
 RAW 版本写完就封存（TASKBOOK 硬约束 4），附件是事后补下来的，不能回头改已封存的版本。
+事后解析出的附件编号同理，记对象级 `attachments-resolved.json`（1001，审计 raw-1）。
 """
 
 from __future__ import annotations
@@ -170,8 +171,10 @@ def _have_by_name(object_dir: Path, name: str) -> Path | None:
 
 def acquire(source_key: str, source_id: str, *, doc_id: str, name: str, xsec_token: str,
             verbose: bool = False, budget_left=None) -> dict[str, Any]:
-    """下一份附件，并验到『文件完整 + 能转成 md』为止；不行就删掉、歇更久、重下，最多 TRIES 次。
+    """下一份附件，验到『文件头对得上类型』为止；半截 / 网页占位页就歇更久、重下，最多 TRIES 次。
 
+    1001（审计 attach-4）：文件头校验通过就算下好了。转 md 失败（加密 / 损坏 / 扫描件空白页）不再删字节重下——
+    那样每晚开 3 次附件页、永远循环；字节留着，记录上标 conversion_failed，报警给人看。
     账号要人处理（未登录 / 安全验证）直接抛 AttachmentNeedsHuman，绝不重试。
     budget_left（1001）：剩下的时间装不下下一次尝试的最坏耗时 → 抛 AttachmentDeferred（不算失败）。
     """
@@ -194,12 +197,16 @@ def acquire(source_key: str, source_id: str, *, doc_id: str, name: str, xsec_tok
             try:
                 bad = [r for r in convert_object_attachments(source_key, source_id)
                        if r["doc_id"] == record["doc_id"] and r["status"] == "failed"]
-            except Exception as exc:  # noqa: BLE001 - 打不开的文件 pymupdf 直接抛
+            except Exception as exc:  # noqa: BLE001 - 转换出意外也不该让已下好的字节作废
                 bad = [{"note": f"{type(exc).__name__}: {exc}"}]
-            if not bad:
-                return record
-            last_error = f"转 md 失败：{bad[0].get('note') or ''}"
-            (object_dir / "attachments" / record["file"]).unlink(missing_ok=True)
+                mark_conversion(source_key, source_id, record["doc_id"], bad[0]["note"])
+            if bad:
+                print(f"[attachment] {record['file']} 已下好，但转 md 失败（字节留着，不再重下）："
+                      f"{bad[0].get('note') or ''}", file=sys.stderr)
+                alert_mod.alert(alert_mod.KIND_ATTACHMENT, "附件已下好，但转不成文字",
+                                describe_problem(source_key, source_id, record.get("file"),
+                                                 str(bad[0].get("note") or "")))
+            return load_downloaded(source_key, source_id).get(record["doc_id"], record)
         except AttachmentNeedsHuman:
             raise
         except (AttachmentError, OSError, StopIteration, KeyError, ValueError) as exc:
@@ -265,12 +272,58 @@ def load_downloaded(source_key: str, source_id: str) -> dict[str, dict[str, Any]
     return {x["doc_id"]: x for x in doc.get("files", []) if x.get("doc_id")}
 
 
+# 1001（审计 raw-1）：正文线索解析出的真编号、补查探到的附件，记在对象级 attachments-resolved.json，
+# 读的时候和 source.json 的声明合并——已封存的 raw/vNNNN/source.json 一个字节都不再动（硬约束 4）。
+RESOLVED_NAME = "attachments-resolved.json"
+_RESOLVED_KEYS = ("doc_id", "name", "url", "page_num")
+
+
+def resolved_path(object_dir: Path) -> Path:
+    return object_dir / RESOLVED_NAME
+
+
+def load_resolved(object_dir: Path) -> list[dict[str, Any]]:
+    path = resolved_path(object_dir)
+    if not path.exists():
+        return []
+    try:
+        doc = storage.read_json(path)
+    except (OSError, ValueError):
+        return []
+    return [x for x in doc.get("resolved", []) if isinstance(x, dict) and x.get("doc_id")]
+
+
+def remember_resolved(object_dir: Path, found: dict[str, Any], *, hint: str | None = None, via: str) -> None:
+    """记一条「事后才知道的附件声明」。同一线索 / 同一 doc_id 只留最新一条。"""
+    entry = {k: found.get(k) for k in _RESOLVED_KEYS if found.get(k) is not None}
+    entry.update({"hint": hint, "via": via,
+                  "resolved_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")})
+    rows = [r for r in load_resolved(object_dir)
+            if r.get("doc_id") != entry["doc_id"] and not (hint and r.get("hint") == hint)]
+    storage.write_json(resolved_path(object_dir), {"schema_version": 1, "resolved": rows + [entry]})
+
+
+def declared_attachments(object_dir: Path, source_doc: dict[str, Any]) -> list[dict[str, Any]]:
+    """source.json 声明的附件 + 对象级补到的（线索解析出的编号 / 补查探到的文件）。返回新列表，不改 source_doc。"""
+    base = [dict(a) for a in ((source_doc.get("note") or {}).get("attachments") or [])]
+    for r in load_resolved(object_dir):
+        if any(a.get("doc_id") == r["doc_id"] for a in base):
+            continue
+        target = next((a for a in base if r.get("hint") and not a.get("doc_id") and a.get("hint") == r["hint"]), None)
+        fields = {k: r[k] for k in _RESOLVED_KEYS if r.get(k) is not None}
+        if target is not None:
+            target.update(fields, status="metadata_only")
+        else:
+            base.append({**fields, "status": "metadata_only"})
+    return base
+
+
 def inventory(object_dir: Path, meta=None) -> dict[str, Any]:
     """Count every declared file; a lone file cannot mark the whole note complete."""
     meta = meta or storage.read_json(object_dir / "meta.json")
     source_path = object_dir / "raw" / f"v{meta['current_version']:04d}" / "source.json"
     source = storage.read_json(source_path) if source_path.exists() else {}
-    declared = (source.get("note") or {}).get("attachments") or []
+    declared = declared_attachments(object_dir, source)
     record_path = object_dir / "attachments.json"
     records = storage.read_json(record_path).get("files", []) if record_path.exists() else []
     files = []
@@ -316,9 +369,41 @@ def update_status(source_key, source_id):
     return report
 
 
+def mark_conversion(source_key: str, source_id: str, doc_id: str, note: str | None, *,
+                    partial_pages: int = 0) -> None:
+    """记下这份附件转 md 的结果：失败就标 conversion_failed（带当时的 sha256，换了文件自动作废），成功就清掉。
+
+    partial_pages：转出来了但有几页没认出来——记 conversion_partial（累计次数），pdftext 据此再试几次。
+    """
+    known = load_downloaded(source_key, source_id)
+    rec = known.get(doc_id)
+    if not rec:
+        return
+    if note is None:
+        before = json.dumps(rec, sort_keys=True, ensure_ascii=False)
+        rec.pop("conversion_failed", None)
+        if partial_pages:
+            prior = rec.get("conversion_partial") or {}
+            tries = int(prior.get("tries") or 0) + 1 if prior.get("sha256") == rec.get("sha256") else 1
+            rec["conversion_partial"] = {"pages_failed": partial_pages, "sha256": rec.get("sha256"), "tries": tries}
+        else:
+            rec.pop("conversion_partial", None)
+        if json.dumps(rec, sort_keys=True, ensure_ascii=False) == before:
+            return
+    else:
+        rec["conversion_failed"] = {"note": str(note)[:300], "sha256": rec.get("sha256"),
+                                    "at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")}
+    storage.write_json(attachments_path(source_key, source_id), {"schema_version": 1, "files": list(known.values())})
+
+
 def convert_downloads(source_key, source_id):
     from .pdftext import convert_object_attachments
-    rows = convert_object_attachments(source_key, source_id)
+    try:
+        rows = convert_object_attachments(source_key, source_id)
+    except Exception as exc:  # noqa: BLE001 - 一篇的坏文件别让整晚的附件补下停在这里（审计 attach-4 ②）
+        msg = f"附件转换出错：{type(exc).__name__}: {exc}"
+        print(msg, file=sys.stderr)
+        return [msg]
     errors = [r.get("note", "转换失败") for r in rows if r["status"] == "failed"]
     if errors:
         print("附件已保存，但正文转换失败：" + "; ".join(errors), file=sys.stderr)
@@ -354,7 +439,7 @@ def download_for_object(
     version = meta["current_version"]
     source_doc = storage.read_json(storage.raw_dir(source_key, source_id, version) / "source.json")
     note = source_doc["note"]
-    attachments = note.get("attachments") or []
+    attachments = declared_attachments(object_dir, source_doc)
 
     known = load_downloaded(source_key, source_id)
     results: list[dict[str, Any]] = []
@@ -385,8 +470,9 @@ def download_for_object(
                                 "error": found.get("error"), "code": found.get("code") or "NOT_LOGGED_IN"})
                 break
             if found.get("doc_id"):
+                # 1001（审计 raw-1）：找到的编号记进对象级 attachments-resolved.json，不再回写已封存的 source.json
+                remember_resolved(object_dir, found, hint=att.get("hint"), via="hint")
                 att.update(found)
-                storage.write_json(storage.raw_dir(source_key, source_id, version) / "source.json", source_doc)
                 doc_id = att["doc_id"]
             else:
                 results.append({"doc_id": None, "name": att.get("hint"), "status": "failed",
@@ -399,9 +485,9 @@ def download_for_object(
             local = (None if force else _have_by_name(object_dir, att.get("name") or "")) or local_download(att.get("name") or "")
             if local:
                 manual_attach(source_key, source_id, str(local), doc_id)
-                record = load_downloaded(source_key, source_id)[doc_id]
-                known[doc_id] = record
-                results.append({**record, "status": "downloaded"})
+                # 1001（审计 attach-3）：整份重读——manual_attach 可能把 manual-… 那条并掉了，旧快照里还留着它
+                known = load_downloaded(source_key, source_id)
+                results.append({**known[doc_id], "status": "downloaded"})
                 continue
             record = acquire(source_key, source_id, doc_id=doc_id, name=att.get("name") or "file",
                              xsec_token=note.get("xsec_token") or "", verbose=verbose, budget_left=budget_left)
@@ -419,15 +505,7 @@ def download_for_object(
     if staging.exists() and not any(staging.iterdir()):
         staging.rmdir()
 
-    merged = dict(known)
-    merged.update({r["doc_id"]: dict(known.get(r["doc_id"], {}), **r) for r in results if r.get("status") in ("downloaded", "already")})
-    files = list(merged.values())
-    for f in files:
-        f.pop("status", None)
-    if files:
-        storage.write_json(
-            attachments_path(source_key, source_id), {"schema_version": 1, "files": files}
-        )
+    # 记录都由 manual_attach 写好了；这里不再拿循环前的快照往回合并（那样会把并掉的 manual-… 又写回去，审计 attach-3）
     update_status(source_key, source_id)
 
     errors = [{"doc_id": r.get("doc_id"), "error": r.get("error")} for r in results if r["status"] in {"failed", "skipped"}]
@@ -447,6 +525,59 @@ def download_for_object(
     return {"item_id": meta["item_id"], "results": results}
 
 
+def _can_claim_lone(att: dict[str, Any], known: dict[str, dict[str, Any]], src: Path) -> bool:
+    """只有一条附件声明、手动挂的文件名又对不上时，能不能把它认成那一条（审计 attach-5）。"""
+    label = att.get("name") or att.get("hint")
+    if (att.get("doc_id") and att["doc_id"] in known) or (label and any(r.get("name") == label for r in known.values())):
+        return False  # 那一条已经有下载记录了：这是另一个文件
+    suffix = Path(att.get("name") or "").suffix.lower()
+    return not suffix or suffix == src.suffix.lower()  # 只有正文线索（没文件名）时不比扩展名
+
+
+def _free_name(dest: Path) -> Path:
+    for n in range(2, 1000):
+        cand = dest.with_name(f"{dest.stem} ({n}){dest.suffix}")
+        if not cand.exists():
+            return cand
+    raise AttachmentError(f"同名文件太多了：{dest.name}")
+
+
+def _is_manual(doc_id: Any) -> bool:
+    return str(doc_id or "").startswith("manual-")
+
+
+def _manual_ids(replaced: list[dict[str, Any]], keep_id: str) -> list[str]:
+    """被取代的记录里的 manual-… 编号（连同它们以前合并过的），新记录是真编号时才记。"""
+    if _is_manual(keep_id):
+        return []
+    out: list[str] = []
+    for r in replaced:
+        for mid in [r.get("doc_id"), *(r.get("manual_ids") or [])]:
+            if _is_manual(mid) and mid not in out:
+                out.append(mid)
+    return out
+
+
+def _retire_manual_md(object_dir: Path, manual_ids: list[str], keep_id: str, *, dry_run: bool = False) -> list[str]:
+    """manual-… 那份转好的 md：真编号还没有 md 就改名沿用（同一份文件，不必再转一遍），有了就删掉重复的。"""
+    md_dir = object_dir / "derived" / "attachments"
+    real = md_dir / f"{keep_id}.md"
+    actions = []
+    for mid in manual_ids:
+        old = md_dir / f"{mid}.md"
+        if not old.is_file():
+            continue
+        if not real.exists():
+            actions.append(f"{old.name} → {real.name}")
+            if not dry_run:
+                os.replace(old, real)
+        else:
+            actions.append(f"删 {old.name}（与 {real.name} 重复）")
+            if not dry_run:
+                old.unlink()
+    return actions
+
+
 def manual_attach(source_key: str, source_id: str, file_path: str, doc_id: str | None = None,
                   origin: str = "manual") -> dict[str, Any]:
     """把 Owner 自己下好的文件手动挂到这篇（系统 headed 下不了时用）。
@@ -464,21 +595,33 @@ def manual_attach(source_key: str, source_id: str, file_path: str, doc_id: str |
     meta = storage.read_json(meta_path)
     version = meta["current_version"]
     source_doc = storage.read_json(storage.raw_dir(source_key, source_id, version) / "source.json")
-    declared = (source_doc.get("note") or {}).get("attachments") or []
+    declared = declared_attachments(object_dir, source_doc)
 
+    known = load_downloaded(source_key, source_id)
     dest_dir = object_dir / "attachments"
     dest_dir.mkdir(parents=True, exist_ok=True)
+
+    # 认领哪一条声明：调用方给了 doc_id 就只认它；否则按文件名认。
+    # 1001（审计 attach-5）：只有一个声明时的兜底认领要三条同时成立——没给 doc_id、那一个还没有下载记录、
+    # 扩展名对得上；否则新增 manual-… 记录，不再把已有附件的记录顶掉。
+    if doc_id:
+        matched = next((a for a in declared if a.get("doc_id") == doc_id), None)
+    else:
+        matched = next((a for a in declared if a.get("name") and a["name"] == src.name), None)
+        if not matched and len(declared) == 1 and _can_claim_lone(declared[0], known, src):
+            matched = declared[0]
+    # 调用方给了真 doc_id 就用它（0927：recheck 下的附件元数据里没声明过，旧逻辑记成 manual-… 对不上号，每晚重下）
+    record_id = doc_id or (matched or {}).get("doc_id") or "manual-" + re.sub(r"[^\w.-]", "_", src.stem)
+
     dest = dest_dir / src.name
     if src.resolve() != dest.resolve():
+        holder = next((r for r in known.values() if r.get("file") == dest.name), None)
+        if dest.is_file() and holder and holder.get("doc_id") != record_id and _sha256(dest) != _sha256(src):
+            dest = _free_name(dest)  # 同名但不是同一份：别覆盖别的附件的字节
         shutil.copyfile(src, dest)
 
-    # 按文件名认领元数据里声明过的 doc_id（认不出就当 manual）
-    matched = next((a for a in declared if (doc_id and a.get("doc_id") == doc_id) or (a.get("name") or "") == src.name), None)
-    if not matched and len(declared) == 1:
-        matched = declared[0]
     record = {
-        # 调用方给了真 doc_id 就用它（0927：recheck 下的附件元数据里没声明过，旧逻辑记成 manual-… 对不上号，每晚重下）
-        "doc_id": (matched or {}).get("doc_id") or doc_id or "manual-" + re.sub(r"[^\w.-]", "_", src.stem),
+        "doc_id": record_id,
         "name": (matched or {}).get("name") or (matched or {}).get("hint") or src.name,
         "file": dest.name,
         "bytes": dest.stat().st_size,
@@ -486,10 +629,16 @@ def manual_attach(source_key: str, source_id: str, file_path: str, doc_id: str |
         "downloaded_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
         "source": origin,
     }
-    known = load_downloaded(source_key, source_id)
-    files = [v for k, v in known.items() if v.get("file") != dest.name and k != record["doc_id"]]
-    files.append(record)
+    # 同一个文件 / 同一个 doc_id 的旧记录被这条取代。1001（审计 attach-3）：手动挂的 manual-… 被认回真编号时
+    # 合并成一条——保留真 doc_id，manual 来源记在 manual_ids 里，它那份 md 也并过来，不再留两份。
+    replaced = [v for k, v in known.items() if v.get("file") == dest.name or k == record_id]
+    manual_ids = _manual_ids(replaced, record_id)
+    if manual_ids:
+        record["manual_ids"] = manual_ids
+        record["source"] = "manual"
+    files = [v for v in known.values() if v not in replaced] + [record]
     storage.write_json(attachments_path(source_key, source_id), {"schema_version": 1, "files": files})
+    _retire_manual_md(object_dir, manual_ids, record_id)
     report = update_status(source_key, source_id)
     state_path = object_dir / "attachment-state.json"
     if state_path.exists():
@@ -497,6 +646,56 @@ def manual_attach(source_key: str, source_id: str, file_path: str, doc_id: str |
         state["errors"] = [r for r in state.get("errors", []) if r.get("doc_id") != record["doc_id"]]
         storage.write_json(state_path, state)
     return {"item_id": meta["item_id"], "file": dest.name, "bytes": record["bytes"], "status": report["status"]}
+
+
+def dedupe(*, dry_run: bool = True) -> dict[str, Any]:
+    """一次性修复（审计 attach-3）：同一个文件被记了两条（manual-… 和真 doc_id）的，并成真 doc_id 一条。
+
+    不联网。dry_run 只读、只报会改哪几篇；不 dry_run 才写 attachments.json、并掉重复的 md、重渲染这一篇。
+    同一文件下有两个以上真编号、或全是 manual 的，判不了谁对，只报不改。
+    """
+    base = storage.vault_root() / "_archive"
+    plans, skipped = [], []
+    for path in sorted(base.glob("*/*/attachments.json")):
+        obj = path.parent
+        source_key, source_id = obj.parent.name, obj.name
+        known = load_downloaded(source_key, source_id)
+        by_file: dict[str, list[dict[str, Any]]] = {}
+        for r in known.values():
+            by_file.setdefault(r.get("file") or "", []).append(r)
+        for file, group in by_file.items():
+            if len(group) < 2:
+                continue
+            real = [r for r in group if not _is_manual(r.get("doc_id"))]
+            manual = [r for r in group if _is_manual(r.get("doc_id"))]
+            if len(real) != 1 or not manual:
+                skipped.append({"source_id": source_id, "file": file, "doc_ids": [r.get("doc_id") for r in group],
+                                "why": "同一文件下真编号不止一个或全是 manual，判不了"})
+                continue
+            keep = real[0]
+            manual_ids = _manual_ids(group, keep["doc_id"])
+            plans.append({"source": source_key, "source_id": source_id, "file": file, "keep": keep["doc_id"],
+                          "drop": [r["doc_id"] for r in manual],
+                          "same_sha256": len({r.get("sha256") for r in group}) == 1,
+                          "md": _retire_manual_md(obj, manual_ids, keep["doc_id"], dry_run=True)})
+            if dry_run:
+                continue
+            merged = {**keep, "manual_ids": manual_ids, "source": "manual"}
+            files = [r for r in known.values() if r not in group] + [merged]
+            storage.write_json(attachments_path(source_key, source_id), {"schema_version": 1, "files": files})
+            _retire_manual_md(obj, manual_ids, keep["doc_id"])
+            known = load_downloaded(source_key, source_id)
+    if not dry_run:
+        from . import render as render_mod
+        for sid in sorted({(p["source"], p["source_id"]) for p in plans}):
+            _sync_index_status(*sid)
+            try:
+                render_mod.render_object(*sid)  # agent.md / 可见笔记里的附件只列一次
+            except (OSError, ValueError, KeyError) as exc:
+                print(f"[dedupe] {sid[1]} 重渲染失败（记录已并好，下次渲染会带上）：{exc}", file=sys.stderr)
+        if plans:
+            _rebuild_catalog(True)
+    return {"dry_run": dry_run, "merge": plans, "skipped": skipped}
 
 
 def resolve_hint(note_id: str, token: str | None) -> dict[str, Any]:
@@ -539,7 +738,7 @@ EXIT_ACCOUNT_BUSY = 6
 def run(args) -> int:
     """`attachments`。会用号开页的（--recheck / --all / 单篇下载）先查熔断和账号锁：
     熔断中 → 退出 5 一页不开；号被别的任务占着 → 退出 6。--audit / --attach 不联网，不受影响。"""
-    if getattr(args, "audit", False) or getattr(args, "attach", None):
+    if getattr(args, "audit", False) or getattr(args, "attach", None) or getattr(args, "dedupe", False):
         return _run(args)
     from . import accounts
     from .read import dump_json
@@ -573,6 +772,10 @@ def _run(args, budget_left=None) -> int:
         out = recheck(limit=getattr(args, "limit", 0) or 0, verbose=True, budget_left=budget_left)
         dump_json(out)
         return EXIT_NEEDS_HUMAN if out.get("blocked") else 0
+    if getattr(args, "dedupe", False):
+        from .read import dump_json
+        dump_json(dedupe(dry_run=getattr(args, "dry_run", False)))
+        return 0
     if getattr(args, "audit", False):
         from .read import dump_json
         metas = list((storage.vault_root() / "_archive" / "xiaohongshu").glob("*/meta.json"))
@@ -768,6 +971,37 @@ def probe_state(obj: Path) -> str:
     return "checked" if web.exists() and storage.read_json(web).get("ok") else "unprobed"
 
 
+def _remember_probed(obj: Path, meta: dict[str, Any], doc_id: str, name: str, rf: dict[str, Any]) -> None:
+    """补查探到的附件 → 对象级声明 + 索引状态，让 `attachments --all` 也遍历得到（以前只在 recheck 这一处记）。"""
+    raw = storage.raw_dir("xiaohongshu", obj.name, meta["current_version"]) / "source.json"
+    source_doc = storage.read_json(raw) if raw.exists() else {}
+    declared = declared_attachments(obj, source_doc)
+    if any(a.get("doc_id") == doc_id for a in declared):
+        return
+    try:
+        extra = json.loads(rf.get("bizExtra") or "{}")
+    except (TypeError, ValueError):
+        extra = {}
+    hints = [a.get("hint") for a in declared if not a.get("doc_id") and a.get("hint")]
+    remember_resolved(obj, {"doc_id": doc_id, "name": name, "url": xhs.FILE_PREVIEW_FMT.format(doc_id=doc_id),
+                            "page_num": extra.get("page_num")},
+                      hint=hints[0] if len(hints) == 1 else None, via="recheck")
+    _sync_index_status("xiaohongshu", obj.name)
+
+
+def _sync_index_status(source_key: str, source_id: str) -> None:
+    from . import index as index_mod
+    try:
+        report = update_status(source_key, source_id)
+        conn = index_mod.connect()
+        try:
+            index_mod.set_attachments_status(conn, report["item_id"], report["status"])
+        finally:
+            conn.close()
+    except (OSError, ValueError, KeyError) as exc:
+        print(f"[attachment] 附件状态没写进索引（不影响下载）：{exc}", file=sys.stderr)
+
+
 def recheck(*, limit: int = 0, verbose: bool = False, budget_left=None) -> dict[str, Any]:
     """补查「当时没探到附件」的笔记（0926）。
 
@@ -832,9 +1066,14 @@ def recheck(*, limit: int = 0, verbose: bool = False, budget_left=None) -> dict[
             failed.append({"id": source_id, "line": describe_problem("xiaohongshu", source_id, None, probe.get("error") or "")})
             continue
         doc_id = str(rf.get("docId") or "")
-        if not doc_id or doc_id in load_downloaded("xiaohongshu", source_id):
+        if not doc_id:
             continue
         name = rf.get("name") or f"{doc_id}.bin"
+        # 1001（审计 attach-4 ③）：探到的附件记进对象级声明，--all 能遍历到；下坏了 / 被删了也有人接着补
+        _remember_probed(obj, meta, doc_id, name, rf)
+        known_now = load_downloaded("xiaohongshu", source_id)
+        if doc_id in known_now and _have_by_name(obj, known_now[doc_id].get("file") or ""):
+            continue
         have = _have_by_name(obj, name)
         if have:  # 以前手动挂过（记成 manual-…）：认回真 doc_id，不上网
             manual_attach("xiaohongshu", source_id, str(have), doc_id)

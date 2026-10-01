@@ -134,6 +134,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=0, help="--recheck 每次最多查几篇（0=不限）")
     p.add_argument("--attach", default=None,
                    help="把本地已下好的文件手动挂到这篇（系统下不了时用）：给文件路径")
+    p.add_argument("--dedupe", action="store_true",
+                   help="一次性修复：同一文件记了两条（manual-… 和真编号）的并成一条，不联网")
+    p.add_argument("--dry-run", dest="dry_run", action="store_true", help="配合 --dedupe：只报会改哪几篇，不写")
     p.add_argument("--wait-lock-min", dest="wait_lock_min", type=float, default=10,
                    help="号被别的任务占着时最多等几分钟（默认 10），等不到退出码 6")
     p.add_argument("--budget-min", dest="budget_min", type=float, default=0,

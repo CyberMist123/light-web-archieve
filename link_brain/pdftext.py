@@ -108,7 +108,14 @@ def ocr_markdown(
         if verbose:
             print(f"[pdf] {msg}", file=sys.stderr)
 
-    doc = pymupdf.open(str(pdf_path))
+    # 1001（审计 attach-4）：打不开 / 有密码 / 某一页渲不出来都接住——以前直接抛，整晚附件补下停在这一篇
+    try:
+        doc = pymupdf.open(str(pdf_path))
+    except Exception as exc:  # noqa: BLE001
+        return None, f"PDF 打不开（可能损坏）：{type(exc).__name__}: {exc}"
+    if _needs_password(doc):
+        doc.close()
+        return None, "PDF 有打开密码，转不了（字节已保存）"
     total = doc.page_count
     pages = total
     lines = [f"# {pdf_path.name}", "", f"（{total} 页，OCR 逐页识别）", ""]
@@ -118,10 +125,13 @@ def ocr_markdown(
     try:
         for index in range(pages):
             png = tmp_dir / f"page-{index + 1:03d}.png"
-            doc[index].get_pixmap(dpi=dpi).save(str(png))
-            log(f"OCR 第 {index + 1}/{pages} 页")
-            result = vision_mod.run_ocr(png, timeout=OCR_TIMEOUT)
             lines += [f"## 第 {index + 1} 页", ""]
+            try:
+                doc[index].get_pixmap(dpi=dpi).save(str(png))
+                log(f"OCR 第 {index + 1}/{pages} 页")
+                result = vision_mod.run_ocr(png, timeout=OCR_TIMEOUT)
+            except Exception as exc:  # noqa: BLE001 - 单页坏了只影响这一页
+                result = {"status": "failed", "error": f"这一页渲不出来：{type(exc).__name__}: {exc}"}
             if result["status"] == "ok" and (result.get("ocr") or "").strip():
                 lines += [result["ocr"].strip(), ""]
             else:
@@ -133,7 +143,15 @@ def ocr_markdown(
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
     note = f"逐页 OCR {pages}/{total} 页" + (f"，{failed} 页失败" if failed else "")
-    return (None if failed else "\n".join(lines)), note
+    # 单页失败只在那一页写占位，整份照出（扫描件里一页空白不该让整份永远转不成）；一页都没认出来才算失败
+    return (None if not pages or failed >= pages else "\n".join(lines)), note
+
+
+def _needs_password(doc) -> bool:
+    try:
+        return bool(getattr(doc, "needs_pass", False) or getattr(doc, "is_encrypted", False))
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def pdf_to_markdown(
@@ -149,6 +167,9 @@ def pdf_to_markdown(
         import pymupdf
 
         with pymupdf.open(str(pdf_path)) as doc:
+            if _needs_password(doc):
+                return {"status": "failed", "method": None, "markdown": None,
+                        "note": "PDF 有打开密码，转不了（字节已保存）"}
             pages = doc.page_count
     except Exception:  # noqa: BLE001 - 数不出页数不影响后面的判断
         pages = 0
@@ -167,10 +188,16 @@ def pdf_to_markdown(
     else:
         fallback_reason = "--force-ocr"
 
-    text, note = ocr_markdown(pdf_path, verbose=verbose)
+    try:
+        text, note = ocr_markdown(pdf_path, verbose=verbose)
+    except Exception as exc:  # noqa: BLE001 - 兜底：转换出任何意外都只算这一份失败
+        text, note = None, f"OCR 出错：{type(exc).__name__}: {exc}"
     if text is None:
         return {"status": "failed", "method": "ocr", "markdown": None, "note": note}
-    return {"status": "ok", "method": "ocr", "markdown": text, "note": f"{fallback_reason} → {note}"}
+    # 有几页没认出来：照出整份，另标 partial（convert_object_attachments 会再试几晚，防的是 OCR 服务一时不通）
+    partial = re.search(r"(\d+) 页失败", note or "")
+    return {"status": "ok", "method": "ocr", "markdown": text, "note": f"{fallback_reason} → {note}",
+            "partial": int(partial.group(1)) if partial else 0}
 
 
 def docx_to_markdown(docx_path: Path, *, verbose: bool = False) -> dict[str, Any]:
@@ -199,6 +226,7 @@ def docx_to_markdown(docx_path: Path, *, verbose: bool = False) -> dict[str, Any
 
 
 CONVERTIBLE_SUFFIXES = (".pdf", ".docx")
+PARTIAL_RETRIES = 3  # 有几页没认出来的，同一份字节最多再转几次（之后就认这份带占位的）
 
 
 def attachment_to_markdown(
@@ -228,15 +256,29 @@ def convert_object_attachments(
         if not path.exists() or path.suffix.lower() not in CONVERTIBLE_SUFFIXES:
             continue
         out = attachment_md_path(source_key, source_id, doc_id)
-        if out.exists() and out.stat().st_mtime >= path.stat().st_mtime and not force:
+        partial = record.get("conversion_partial") or {}
+        retry_partial = bool(partial) and partial.get("sha256") == record.get("sha256") \
+            and int(partial.get("tries") or 0) < PARTIAL_RETRIES
+        if out.exists() and out.stat().st_mtime >= path.stat().st_mtime and not force and not retry_partial:
             results.append({"doc_id": doc_id, "status": "already", "path": str(out)})
             continue
-        outcome = attachment_to_markdown(path, force_ocr=force_ocr, verbose=verbose)
+        # 1001（审计 attach-4）：同一份字节已经转失败过（加密 / 损坏）就别每晚再 OCR 一遍；换了文件或 --force 才重试
+        prior = record.get("conversion_failed") or {}
+        if prior and not force and prior.get("sha256") == record.get("sha256"):
+            results.append({"doc_id": doc_id, "status": "conversion_failed", "note": prior.get("note")})
+            continue
+        try:
+            outcome = attachment_to_markdown(path, force_ocr=force_ocr, verbose=verbose)
+        except Exception as exc:  # noqa: BLE001 - 坏文件让 pymupdf 直接抛，只算这一份失败
+            outcome = {"status": "failed", "note": f"{type(exc).__name__}: {exc}"}
         if outcome["status"] != "ok":
+            attachments_mod.mark_conversion(source_key, source_id, doc_id, outcome["note"])
             results.append({"doc_id": doc_id, "status": "failed", "note": outcome["note"]})
             continue
         out.parent.mkdir(parents=True, exist_ok=True)
         storage.atomic_write_text(out, outcome["markdown"])
+        attachments_mod.mark_conversion(source_key, source_id, doc_id, None,
+                                        partial_pages=int(outcome.get("partial") or 0))
         results.append(
             {"doc_id": doc_id, "status": "ok", "method": outcome["method"],
              "note": outcome["note"], "path": str(out)}

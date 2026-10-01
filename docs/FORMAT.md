@@ -451,6 +451,16 @@ _archive/xiaohongshu/<note_id>/
 `render` 按 `doc_id` 把它回填到 `source.json` 的附件条目上（`file` / `status="downloaded"`），
 可见 md 里那行 📎 就从"未下载"变成指向本地文件的链接。**RAW 目录一个字节都不动。**
 
+1001 起记录上可能多出的键：
+- `manual_ids`：手动挂过（`manual-…`）后又认回真编号，合并成这一条，原 manual 编号记在这里（`attachments --dedupe` 修存量）。
+- `conversion_failed`：`{note, sha256, at}`。字节下好了（文件头对得上）但转不成 md（加密 / 损坏）：字节保留、不重下；
+  同一份 sha256 不再每晚重转，`pdf2md --force` 才重试。
+- `conversion_partial`：`{pages_failed, sha256, tries}`。有几页 OCR 没认出来，那几页写占位、整份照出，最多再试 3 次。
+
+事后才知道的附件声明（正文线索解析出的真编号、`--recheck` 探到的文件）写对象级
+`attachments-resolved.json`（`{"schema_version":1,"resolved":[{doc_id,name,url,page_num,hint,via,resolved_at}]}`），
+读的时候和 `source.json` 的 `note.attachments` 合并（`attachments.declared_attachments`）；**不回写已封存的 source.json**。
+
 ---
 
 ## 7b. `derived/extracted.json`（小模型派生，Lot 4）

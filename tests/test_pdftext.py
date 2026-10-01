@@ -11,7 +11,8 @@ from pathlib import Path
 from link_brain import pdftext, storage
 
 
-def test_partial_ocr_is_failure_not_complete_markdown(monkeypatch, tmp_path):
+def test_partial_ocr_keeps_good_pages_with_placeholder(monkeypatch, tmp_path):
+    """1001（审计 attach-4）：一页没认出来只在那页写占位，整份照出；标 partial 让后面再试几次。"""
     import pymupdf
     pdf = tmp_path / "partial.pdf"
     with pymupdf.open() as doc:
@@ -22,8 +23,8 @@ def test_partial_ocr_is_failure_not_complete_markdown(monkeypatch, tmp_path):
                     {"status": "failed", "error": "service unavailable"}])
     monkeypatch.setattr(pdftext.vision_mod, "run_ocr", lambda *a, **k: next(results))
     outcome = pdftext.pdf_to_markdown(pdf, force_ocr=True)
-    assert outcome["status"] == "failed"
-    assert outcome["markdown"] is None
+    assert outcome["status"] == "ok" and outcome["partial"] == 1
+    assert "first page" in outcome["markdown"] and "这一页没识别出来" in outcome["markdown"]
     assert "1 页失败" in outcome["note"]
 
 REAL_DAMAGED = "⼈机恋⾃建前端陪伴场景的完整技术参考9 flags､事件 schema､可抄的服务器⻣架"

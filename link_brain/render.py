@@ -1053,6 +1053,8 @@ def render_object(
 
     # 附件字节是事后补下来的（对象级 attachments/），这里回填到 source 的附件条目上
     downloaded = attachments_mod.load_downloaded(source_key, source_id)
+    # 1001（审计 raw-1）：事后解析 / 补查到的附件声明住对象级 attachments-resolved.json，这里只在内存里合并
+    source_doc["note"]["attachments"] = attachments_mod.declared_attachments(object_dir, source_doc)
     for att in source_doc["note"].get("attachments") or []:
         got = downloaded.get(att.get("doc_id")) or next((r for r in downloaded.values() if r.get("name") == (att.get("name") or att.get("hint"))), None)
         if got and (object_dir / "attachments" / got["file"]).exists():
