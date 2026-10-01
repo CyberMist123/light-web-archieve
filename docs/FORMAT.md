@@ -96,6 +96,11 @@ D:\LIGHT WEB ARCHIEVE\vault\
 | `origin` | `tg` / `cmx` / `cc` / `cli` | 从哪个端进来的 |
 | `actor` | `human` / `ai:<name>` | 谁把它丢进来的 |
 | `ingest_kind` | `shared` / `favorite` | 主动分享还是收藏同步 |
+| `visible_note_pinned` | `true` / 缺省 | 1001：`visible_note` 指的文件找不到时，按 frontmatter 的 `link_brain.item_id` 在可见目录（含子目录）找回她改过名 / 挪过位置的那份并沿用；此后重渲染不按标题挪回去 |
+
+可见 md 的身份只认 frontmatter 里的 `link_brain.item_id`（YAML 写坏了退回正则找这一行）。
+她手写的属性 YAML 写坏时：单行 `键: 值` 解析不了的值原样当字符串留下；再解析不了就整段 frontmatter 原样保留、
+不改名，只在日志里记警告。
 
 ---
 

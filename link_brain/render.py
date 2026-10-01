@@ -9,6 +9,7 @@ from functools import lru_cache
 import html
 import json
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -76,11 +77,32 @@ def visible_filename(title: str, note_id: str | None = None) -> str:
 def owner_item_id(path: Path) -> str | None:
     """一个已存在的可见 md 属于哪个对象；Owner 手写的老文件没有这个键，返回 None。"""
     try:
-        fm = parse_frontmatter(path.read_text(encoding="utf-8"))
-    except OSError:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
         return None
-    block = fm.get("link_brain")
-    return block.get("item_id") if isinstance(block, dict) else None
+    return frontmatter_item_id(text)
+
+
+def find_visible_by_item_id(item_id: str) -> list[Path]:
+    """可见目录（含子目录）里属于这个对象的所有 md，新的在前（1001，审计 render-8：她改了名 / 挪了位置）。
+
+    `_` / `.` 开头的子目录（_media 之类）不看；每个文件只读开头一段，frontmatter 就在那。
+    """
+    root = storage.visible_dir()
+    if not root.is_dir() or not item_id:
+        return []
+    hits = []
+    for p in root.rglob("*.md"):
+        if any(part.startswith(("_", ".")) for part in p.relative_to(root).parts[:-1]):
+            continue
+        try:
+            with p.open("r", encoding="utf-8", errors="replace") as fh:
+                head = fh.read(16384)
+        except OSError:
+            continue
+        if item_id in head and frontmatter_item_id(head) == item_id:
+            hits.append(p)
+    return sorted(hits, key=lambda p: p.stat().st_mtime, reverse=True)
 
 
 def resolve_visible_path(visible_dir: Path, title: str, source_id: str, item_id: str) -> Path:
@@ -722,11 +744,67 @@ def parse_frontmatter(text: str | None) -> dict[str, Any]:
     m = FRONTMATTER_RE.match(text)
     if not m:
         return {}
-    try:
-        data = yaml.safe_load(m.group(1))
-    except yaml.YAMLError:
-        return {}
+    data = _tolerant_yaml(m.group(1))
     return data if isinstance(data, dict) else {}
+
+
+_TOP_KEY_RE = re.compile(r"([^\s:#-][^:]*?):(?:\s+(.*))?$")
+
+
+def _tolerant_yaml(block: str) -> dict[str, Any] | None:
+    """frontmatter → dict；整段 YAML 解析不了时逐个顶层键再试（1001，审计 ui-5）。
+
+    她在源码模式手写 `comment: 注意: 要回看` 这种（值里带「冒号+空格」）整段 YAML 就失效；
+    以前当成没有 frontmatter，接着被当成「别人的文件」改名、手写键全丢。
+    这里单行的 `键: 值` 解析不了就把值当原样字符串；还有别的解析不了的返回 None（= 写坏了，调用方原样保留）。
+    """
+    try:
+        data = yaml.safe_load(block)
+        return data if isinstance(data, dict) else ({} if data is None else None)
+    except yaml.YAMLError:
+        pass
+    groups: list[list[str]] = []
+    for line in block.splitlines():
+        if line.strip() and not line[0].isspace() and not line.startswith(("-", "#")):
+            groups.append([line])
+        elif groups:
+            groups[-1].append(line)
+        elif line.strip() and not line.lstrip().startswith("#"):
+            return None
+    out: dict[str, Any] = {}
+    for group in groups:
+        try:
+            part = yaml.safe_load("\n".join(group))
+        except yaml.YAMLError:
+            part = None
+        if isinstance(part, dict):
+            out.update(part)
+            continue
+        m = _TOP_KEY_RE.match(group[0])
+        if len([x for x in group if x.strip()]) == 1 and m and m.group(2):
+            out[m.group(1).strip()] = m.group(2).strip()
+            continue
+        return None
+    return out
+
+
+def frontmatter_broken(text: str | None) -> bool:
+    """有 frontmatter 块、但连逐键容错都解析不了。"""
+    m = FRONTMATTER_RE.match(text or "")
+    return bool(m) and _tolerant_yaml(m.group(1)) is None
+
+
+_ITEM_ID_RE = re.compile(r"(?m)^link_brain:[ \t]*\r?\n(?:[ \t]+.*\r?\n)*?[ \t]+item_id:[ \t]*([^\s#]+)")
+
+
+def frontmatter_item_id(text: str | None) -> str | None:
+    """这份 md 属于哪个对象：先按 YAML 读，YAML 写坏了退回正则找 link_brain 下的 item_id 行。"""
+    block = parse_frontmatter(text).get("link_brain")
+    if isinstance(block, dict) and block.get("item_id"):
+        return str(block["item_id"])
+    m = FRONTMATTER_RE.match(text or "")
+    hit = _ITEM_ID_RE.search(m.group(1) + "\n") if m else None
+    return hit.group(1).strip("'\"") if hit else None
 
 
 def existing_tags(text: str | None) -> list[str]:
@@ -818,6 +896,9 @@ def render_visible_md(
     fm += [f"  comments_complete: {cc}"]
     fm += extra_frontmatter_lines(existing_text)
     fm += ["---"]
+    if frontmatter_broken(existing_text):
+        # 1001（审计 ui-5）：她手写的 frontmatter 连逐键容错都解析不了——整段原样保留，别重写成机器版、丢她的键
+        fm = FRONTMATTER_RE.match(existing_text).group(0).rstrip("\r\n").split("\n")
 
     comments_block, _ = split_layers(existing_text)
     if comments_block is None:
@@ -1103,15 +1184,39 @@ def render_object(
         meta["item_id"],
     )
 
+    old_visible = meta.get("visible_note")
+    old_path = storage.vault_root() / old_visible if old_visible else None
+    if old_path is None or not old_path.exists():
+        # 1001（审计 render-8）：meta 记的路径没文件了 = 她在 Obsidian 里改了名或挪了位置。
+        # 先按 frontmatter 的 item_id 在可见目录（含子目录）里找回那份，沿用她的名字和位置，别另写一份干净的
+        found = find_visible_by_item_id(meta["item_id"])
+        if found:
+            old_path = found[0]
+            if old_path != visible_path:
+                meta["visible_note_pinned"] = True  # 她自己定的名字 / 位置：之后标题变了也不挪回去
+            if len(found) > 1:
+                print(f"[render] {meta['item_id']} 可见目录里有 {len(found)} 份同一篇，沿用最新改动的 "
+                      f"{old_path.name}", file=sys.stderr)
+    if old_path is not None and old_path.exists() and old_path != visible_path:
+        old_text = old_path.read_text(encoding="utf-8")
+        if frontmatter_broken(old_text):
+            # 1001（审计 ui-5）：YAML 写坏了不等于「别人的文件」——原地保留、不改名，记一笔让人去修
+            print(f"[render] 警告：{old_path.name} 的属性（frontmatter）写坏了，原样保留、不改名；"
+                  "在 Obsidian 里修好那几行即可", file=sys.stderr)
+            visible_path = old_path
+        elif meta.get("visible_note_pinned") and frontmatter_item_id(old_text) == meta["item_id"]:
+            visible_path = old_path
+    elif old_path is not None and old_path.exists() and frontmatter_broken(old_path.read_text(encoding="utf-8")):
+        print(f"[render] 警告：{old_path.name} 的属性（frontmatter）写坏了，原样保留；"
+              "在 Obsidian 里修好那几行即可", file=sys.stderr)
+
     # 目标文件上可能已经躺着同一个对象的另一份（改名前后各一份）——先并、再删旧的，别盖掉手写内容
     target_text = None
     if visible_path.exists() and owner_item_id(visible_path) == meta["item_id"]:
         target_text = visible_path.read_text(encoding="utf-8")
 
     existing_text = target_text
-    old_visible = meta.get("visible_note")
-    if old_visible:
-        old_path = storage.vault_root() / old_visible
+    if old_path is not None:
         if old_path.exists() and old_path != visible_path:
             # 改名的情况：两份文件都在，手写内容取并集再删旧的
             old_text = old_path.read_text(encoding="utf-8")

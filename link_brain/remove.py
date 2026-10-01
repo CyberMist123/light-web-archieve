@@ -36,6 +36,13 @@ def delete_item(conn, item_id: str) -> dict[str, Any]:
     snapshot['objects'][0]['visible_note'] = visible
     files = []
     candidates = [vault / visible] if visible else []
+    # 1001（审计 render-8）：她改过名 / 挪过位置的、以前同步冒出来的重复份，按 frontmatter 的 item_id 一起收进回收站
+    from .render import find_visible_by_item_id
+    seen = {p.resolve() for p in candidates}
+    for extra in find_visible_by_item_id(item_id):
+        if extra.resolve() not in seen:
+            seen.add(extra.resolve())
+            candidates.append(extra)
     # 旧版 ⭐ 会把可见笔记复制到 vault 根；副本机制已删，这里仍要清扫历史遗留副本
     star = vault / f"{sanitize_title(meta.get('title') or row['title'] or '未命名收藏')}.md"
     if star.exists():
