@@ -439,10 +439,12 @@ function tsSlug(){const d=new Date();const p=n=>String(n).padStart(2,'0');return
 async function writeExport(name,md){
   const dir='收藏导出';try{await app.vault.adapter.mkdir(lbPath(dir));}catch{}
   const path=lbPath(`${dir}/${name}.md`);
-  await app.vault.adapter.write(path,md);
+  await app.vault.adapter.write(path,safeMd(md));
   try{app.workspace.openLinkText(path,'',true);}catch{}
   return path;
 }
+// 1001 审计 C-2：回答和命中原文都是不可信文本，落成 md 前过插件的清洗（规则在 link_brain/mdsafe.py）
+function safeMd(md){const p=provider();return p&&typeof p.neutralizeMarkdown==='function'?p.neutralizeMarkdown(md):md;}
 function answerExportMd(t){
   const L=[`# ${t.q||'AI 整理'}`,'',`> 导出于 ${new Date().toLocaleString('zh-CN')} · 机读版（问收藏）`,'','## 回答','',t.content,''];
   if(t.sources&&t.sources.length){
@@ -457,7 +459,7 @@ function answerExportMd(t){
       L.push('');
     }
   }
-  return L.join('\n');
+  return safeMd(L.join('\n'));
 }
 // ── 提问历史面板 ──（本会话问过的问题；点一条回填输入框，或一键清空整段对话）
 function toggleHistory(anchor){

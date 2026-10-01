@@ -843,7 +843,21 @@ class LinkBrainActions extends Plugin {
   }
 
   // 把一段 Markdown 渲染进 el（保留列表 / [[笔记链接]] / [原文](url) 可点开）。
+  // 1001 审计 C-2：不可信文本（AI 回答、收藏原文、存档）渲染前打断 Dataview 可执行形态。
+  // 与 link_brain/mdsafe.py 同一套规则，共用 tests/fixtures/mdsafe_cases.json；改规则两边一起改。
+  neutralizeMarkdown(text) {
+    if (!text) return text || "";
+    const Z = "​";
+    return String(text)
+      .replace(/(`{3,}|~{3,})([^\n`]*)/g, (all, fence, info) =>
+        info.toLowerCase().includes("dataview") ? fence + info.replace(/dataview(?:js)?/gi, "text") : all)
+      .replace(/(`+)(?=[ \t]*\$?=)/g, (_, ticks) => ticks + Z)
+      .replace(/^([ \t>]*)(?=\$?=)/gm, (_, lead) => lead + Z)
+      .replace(/<(?=code[\s>/])/gi, "<" + Z);
+  }
+
   async renderMarkdownInto(markdown, el, sourcePath = "") {
+    markdown = this.neutralizeMarkdown(markdown);
     const MR = obsidian.MarkdownRenderer;
     if (MR && typeof MR.render === "function") return MR.render(this.app, markdown, el, sourcePath, this);
     if (MR && typeof MR.renderMarkdown === "function") return MR.renderMarkdown(markdown, el, sourcePath, this);

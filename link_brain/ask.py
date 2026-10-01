@@ -324,7 +324,8 @@ def _answer_qa(question, items, settings, history=None):
     if res.get("status") != "ok" or not (res.get("text") or "").strip():
         return {"status": "error", "kind": "answer", "markdown": "AI 回答失败：" + str(res.get("error") or "空响应"),
                 "sources": sources, "matches": len(matches), "materials": len(sources), "model_called": True}
-    markdown=res['text']
+    from .mdsafe import neutralize  # 1001 C-2：回答引用了别人的原文，落盘/渲染前打断 Dataview 可执行形态
+    markdown=neutralize(res['text'])
     if res.get('truncated'):markdown+='\n\n> 回答达到输出上限，尚未完成。可缩小问题范围，或在设置中提高回答输出上限后重试。'
     answer_cache.record(question, base_terms, sources, markdown, qvec)
     if hint:markdown=hint+'\n\n'+markdown
@@ -387,6 +388,9 @@ def _answer(question: str, history=None, include=None, model: str = '') -> dict[
     handler = {"github": _answer_github, "links": _answer_links}.get(intent, _answer_qa)
     result = handler(question, items, settings, history) if intent == "qa" else handler(question, items, settings)
     result.setdefault("status", "ok")
+    if result.get("markdown"):  # 链接/GitHub 清单也拼了别人写的标题
+        from .mdsafe import neutralize
+        result["markdown"] = neutralize(result["markdown"])
     result["intent"] = intent
     result["index_size"] = len(items)
     result["delivery"] = delivery_payload(result, include)

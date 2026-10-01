@@ -229,6 +229,14 @@ def convert_object_attachments(
             continue
         out = attachment_md_path(source_key, source_id, doc_id)
         if out.exists() and out.stat().st_mtime >= path.stat().st_mtime and not force:
+            # 1001 C-2：清洗之前转出来的旧 md 顺手补洗一遍（只在有变化时写盘，不重转）
+            from .mdsafe import neutralize
+            try:
+                old = out.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                old = ""
+            if old and neutralize(old) != old:
+                out.write_text(neutralize(old), encoding="utf-8")
             results.append({"doc_id": doc_id, "status": "already", "path": str(out)})
             continue
         outcome = attachment_to_markdown(path, force_ocr=force_ocr, verbose=verbose)
@@ -236,7 +244,8 @@ def convert_object_attachments(
             results.append({"doc_id": doc_id, "status": "failed", "note": outcome["note"]})
             continue
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(outcome["markdown"], encoding="utf-8")
+        from .mdsafe import neutralize  # 1001 C-2：附件全文是别人写的，落盘前打断 Dataview 可执行形态
+        out.write_text(neutralize(outcome["markdown"]), encoding="utf-8")
         results.append(
             {"doc_id": doc_id, "status": "ok", "method": outcome["method"],
              "note": outcome["note"], "path": str(out)}

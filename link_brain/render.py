@@ -18,6 +18,7 @@ import yaml
 from . import index as index_mod, storage
 from . import attachments as attachments_mod
 from . import llm as llm_mod
+from . import mdsafe
 from . import vision as vision_mod
 from .ocrtext import reflow_ocr
 
@@ -1000,7 +1001,8 @@ def render_agent_md(
         f"- attachments_status: {meta.get('attachments_status')}",
         f"- extracted: {'ok' if extracted else '未生成'}",
     ]
-    return "\n".join(lines) + "\n"
+    # 1001 审计 C-2：正文/评论/识图都是别人写的，机读版整份过清洗，别让 Dataview 当代码执行
+    return mdsafe.neutralize("\n".join(lines)) + "\n"
 
 
 def brief_summary(source: dict[str, Any], extracted: dict[str, Any] | None = None) -> str:
