@@ -347,7 +347,8 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
         topic_list, member = [], {}
     for it in items:
         it["topics"] = member.get(str(it.get("id")), [])
-    data_path.write_text(
+    storage.atomic_write_text(
+        data_path,
         json.dumps(
             {
                 "built_at": now.isoformat(),
@@ -363,26 +364,25 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
             ensure_ascii=False,
             indent=1,
         ),
-        encoding="utf-8",
     )
 
     catalog_path = vault / pages["catalog"]
-    catalog_path.write_text(_PAGE_HEADER.replace("---\n", "---\nlb-page: catalog\n", 1) + _DATAVIEWJS + "\n", encoding="utf-8")
+    storage.atomic_write_text(catalog_path, _PAGE_HEADER.replace("---\n", "---\nlb-page: catalog\n", 1) + _DATAVIEWJS + "\n")
 
-    (vault / pages["chat"]).write_text(_CHAT_HEADER.replace("---\n", "---\nlb-page: chat\n", 1) + _CHATJS + "\n", encoding="utf-8")
+    storage.atomic_write_text(vault / pages["chat"], _CHAT_HEADER.replace("---\n", "---\nlb-page: chat\n", 1) + _CHATJS + "\n")
 
     starred_js = _DATAVIEWJS.replace("const simplePage = false;", "const simplePage = true;").replace("const starredPage = false;", "const starredPage = true;")
-    (vault / pages["starred"]).write_text(_PAGE_HEADER.replace("---\n", "---\nlb-page: starred\n", 1) + starred_js + "\n", encoding="utf-8")
+    storage.atomic_write_text(vault / pages["starred"], _PAGE_HEADER.replace("---\n", "---\nlb-page: starred\n", 1) + starred_js + "\n")
 
     # 部署笔记底部批注块用的共享脚本（每篇笔记的 bootstrap 会 adapter.read 它）
-    (vault / "_archive" / "annotate-view.js").write_text(
+    storage.atomic_write_text(
+        vault / "_archive" / "annotate-view.js",
         (Path(__file__).parent / "assets" / "annotate-view.js").read_text(encoding="utf-8"),
-        encoding="utf-8",
     )
 
-    (vault / "_archive" / STATE_NAME).write_text(
+    storage.atomic_write_text(
+        vault / "_archive" / STATE_NAME,
         json.dumps({"last_built": now.isoformat()}, ensure_ascii=False, indent=1),
-        encoding="utf-8",
     )
     from .remove import publish_trash
     publish_trash(vault)

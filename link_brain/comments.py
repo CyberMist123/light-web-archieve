@@ -128,7 +128,7 @@ def _replace_block(path: Path, new_block: str) -> None:
     if start == -1 or end == -1:
         raise ValueError(f"{path.name} 里没有留言层标记，先跑一次 render")
     end += len(render_mod.COMMENTS_END)
-    path.write_text(text[:start] + new_block + text[end:], encoding="utf-8")
+    storage.atomic_write_text(path, text[:start] + new_block + text[end:])
 
 
 def _jsonl_append(object_dir: Path, payload: dict[str, Any]) -> None:
@@ -222,7 +222,7 @@ def resolve_comment(item_id: str, comment_id: str, *, as_actor: str, vault: Path
     new_text, n = pattern.subn(r"\1status=resolved\2", text)
     if not n:
         raise ValueError(f"{item_id} 里没有 open 状态的 {comment_id}")
-    path.write_text(new_text, encoding="utf-8")
+    storage.atomic_write_text(path, new_text)
     _jsonl_append(
         object_dir,
         {

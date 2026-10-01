@@ -118,7 +118,7 @@ def save(values: dict) -> None:
     data = config()
     data.update(values)
     home().mkdir(parents=True, exist_ok=True)
-    (home() / 'accounts.json').write_text(json.dumps(data, ensure_ascii=False, indent=2), 'utf-8')
+    _atomic_write_text(home() / 'accounts.json', json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def endpoint() -> str:
@@ -771,7 +771,7 @@ def logout() -> dict:
     for key in ('nickname', 'user_id', 'sync_account'):  # 主动换号/退出 = 下次同步认新号
         data.pop(key, None)
     home().mkdir(parents=True, exist_ok=True)
-    (home() / 'accounts.json').write_text(json.dumps(data, ensure_ascii=False, indent=2), 'utf-8')
+    _atomic_write_text(home() / 'accounts.json', json.dumps(data, ensure_ascii=False, indent=2))
     return row('xhs', '小红书账号', 'not_logged_in', '已退出登录', '点「扫码登录」登录新的账号。', action='login')
 
 

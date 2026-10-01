@@ -236,7 +236,7 @@ def convert_object_attachments(
             results.append({"doc_id": doc_id, "status": "failed", "note": outcome["note"]})
             continue
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(outcome["markdown"], encoding="utf-8")
+        storage.atomic_write_text(out, outcome["markdown"])
         results.append(
             {"doc_id": doc_id, "status": "ok", "method": outcome["method"],
              "note": outcome["note"], "path": str(out)}

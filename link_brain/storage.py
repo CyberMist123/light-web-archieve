@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
+import time
 from pathlib import Path
 
 from . import ARCHIVE_DIRNAME, INDEX_DB_NAME, VAULT_DIRNAME, VISIBLE_SUBDIR
@@ -80,13 +82,46 @@ def ensure_raw_dir(source: str, source_id: str, version: int) -> Path:
     return target
 
 
-def write_json(path: Path, payload) -> Path:
+def atomic_write_bytes(path: Path, data: bytes) -> Path:
+    """原子写（审计 io-11 / raw-1）：同目录临时文件 → fsync → os.replace。
+
+    进程写到一半被杀（计划任务上限、lwa 超时、关 Obsidian 带走子进程）时，
+    目标文件要么是旧的完整内容、要么是新的完整内容，不会留半截。
+    Windows 上目标正被别的进程（Obsidian / 同步软件）短暂打开时 os.replace 会 PermissionError，稍等重试几次。
+    """
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=False) + "\n",
-        encoding="utf-8",
-    )
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        for attempt in range(6):
+            try:
+                os.replace(tmp, path)
+                break
+            except PermissionError:
+                if attempt == 5:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
     return path
+
+
+def atomic_write_text(path: Path, text: str) -> Path:
+    return atomic_write_bytes(path, text.encode("utf-8"))
+
+
+def write_json(path: Path, payload) -> Path:
+    return atomic_write_text(
+        path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=False) + "\n"
+    )
 
 
 def read_json(path: Path):

@@ -119,7 +119,7 @@ def publish_trash(vault=None):
         item['has_files'] = (vault / item['trash_dir']).exists()
     storage.write_json(vault / '_archive/trash-data.json', {'items': items})
     script = (Path(__file__).parent / 'assets/trash-view.js').read_text(encoding='utf-8')
-    (vault / '回收站.md').write_text('# 回收站\n\n删除的收藏不会再次同步。请在「设置 → 文件与链接 → 排除的文件」加入 `_trash`。\n\n```dataviewjs\n' + script + '\n```\n', encoding='utf-8')
+    storage.atomic_write_text(vault / '回收站.md', '# 回收站\n\n删除的收藏不会再次同步。请在「设置 → 文件与链接 → 排除的文件」加入 `_trash`。\n\n```dataviewjs\n' + script + '\n```\n')
 
 
 def delete_items(item_ids: list[str]) -> dict[str, Any]:

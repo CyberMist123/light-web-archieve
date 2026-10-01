@@ -392,7 +392,7 @@ def tidy_link_comments() -> dict[str, Any]:
                 continue
             new_text, changed = strip_auto_link_comment(text)
             if changed:
-                path.write_text(new_text, encoding="utf-8")
+                storage.atomic_write_text(path, new_text)
                 cleaned.append(path.name)
     return {"scanned": scanned, "cleaned": len(cleaned), "notes": cleaned}
 
@@ -592,7 +592,7 @@ def set_highlight(item_id: str, phrase: str, *, remove: bool = False) -> tuple[P
         if idx == -1:
             return visible, False
         new = text[:idx] + marked + text[idx + len(esc):]
-    visible.write_text(new, encoding="utf-8")
+    storage.atomic_write_text(visible, new)
     return visible, True
 
 
@@ -1019,7 +1019,7 @@ def ensure_css_snippet() -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists() and target.read_text(encoding="utf-8") == content:
         return
-    target.write_text(content, encoding="utf-8")
+    storage.atomic_write_text(target, content)
 
 
 def render_object(
@@ -1122,7 +1122,8 @@ def render_object(
             # 拿它当 existing_text 会把 content 层（连带 Owner 划的 ==重点==）洗掉。
             existing_text = old_path.read_text(encoding="utf-8")
 
-    visible_path.write_text(
+    storage.atomic_write_text(
+        visible_path,
         render_visible_md(
             source=source_doc,
             manifest=manifest,
@@ -1131,15 +1132,14 @@ def render_object(
             existing_text=existing_text,
             extracted=extracted,
         ),
-        encoding="utf-8",
     )
 
     derived_dir.mkdir(parents=True, exist_ok=True)
-    (derived_dir / "agent.md").write_text(
+    storage.atomic_write_text(
+        derived_dir / "agent.md",
         render_agent_md(
             source=source_doc, vision=vision_doc, meta=meta, extracted=extracted
         ),
-        encoding="utf-8",
     )
 
     rel_visible = str(visible_path.relative_to(storage.vault_root())).replace("\\", "/")
