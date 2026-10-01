@@ -124,7 +124,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="强制重调小模型，覆盖已有的 extracted.json",
     )
 
-    p = sub.add_parser("attachments", help="下载笔记附件字节（要 agent-browser 小号登录态）")
+    p = sub.add_parser("attachments", help="下载笔记附件字节（经读取服务 link-brain-reader，与收藏、评论同一个号；掉登录走 login 扫码）")
     p.add_argument("target", nargs="?", default=None, help="item_id；配合 --all 时可省略")
     p.add_argument("--all", action="store_true", help="对所有带附件元数据的对象都下一遍")
     p.add_argument("--force", action="store_true", help="已经下过也重下")
@@ -161,7 +161,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="跳过文字层，直接逐页 OCR")
 
     p = sub.add_parser("sync-favorites", help="同步小红书收藏（Lot 6）")
-    p.add_argument("--limit", type=int, default=0, help="最多同步多少条收藏（0=全量，favdump 顺序）；默认全量，靠 ingest 去重做增量，别再截成第一页")
+    p.add_argument("--limit", type=int, default=0, help="最多同步多少条收藏（0=全量，按读取服务返回的收藏顺序）；默认全量，靠 ingest 去重做增量，别再截成第一页")
     p.add_argument("--origin", choices=ORIGINS, default="cli", help="从哪个端触发的")
     p.add_argument("--actor", default="human", help="human 或 ai:<name>")
     p.add_argument("--extract", action="store_true",

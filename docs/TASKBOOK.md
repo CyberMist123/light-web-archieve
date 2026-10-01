@@ -41,7 +41,7 @@
 **验收**：加一个主题后重建目录，chip 出现、点击过滤正确、无主题时目录页与今天像素级一致；`tests/test_assets_syntax.cjs` 与交互测试过。
 
 ### 押后（本批不做）
-- 顶部分类默认哪档（专辑继承）：等 favdump 专辑 POC（要空载时段+momo 登录态），POC 项见卡。
+- 顶部分类默认哪档（专辑继承）：等专辑 POC（要空载时段+登录态；1001 起只能经读取服务做，favdump 已退役），POC 项见卡。
 - 目录页排版重构：等主题+磁贴墙跑起来 Owner 有手感再拍。
 - cats 检索权重清零：等 Lot B bench 证明语义召回接住「搜大类名」用例。
 
@@ -333,10 +333,16 @@ README 补「本机依赖与环境变量」。**待 Owner 实机**：设置里�
 
 ## 0. 先读这些硬约束（所有车都读）
 
+> **2026-10-01 更正（审计 health/doc-1、reader-11、ops-13）：本节第 2 条的 18060 / agent-browser、第 10 条、Lot 6 的 favdump、Lot 7 的 agent-browser 小号做法全部作废，照做会伤号。**
+> - 一个号、一个读取服务（0925 起）：读取、私密收藏、评论、附件都经 `link-brain-reader`（默认 `127.0.0.1:18061`；地址按 env `LINK_BRAIN_XHS_ENDPOINT` > `~/.link-brain/accounts.json` > 默认，见 `accounts.endpoint()`）。Python 只经 `accounts.api` 和 `adapters/xiaohongshu.py` 调它，它自带限频、开页间隔和熔断（撞验证 / 被跳登录异常页后所有用号开页的请求一律拒绝）。
+> - 不要连 18060，不要开 agent-browser 扫码小红书，不要跑 favdump / sessioncheck / attachdl / 旧登录程序 / 各种 probe 或旧的重登脚本：它们会和读取服务抢同一个账号浏览器目录，绕过限频和熔断，或把号登进错的目录。
+> - 掉登录 / 撞验证：Obsidian「Link Brain Actions」设置页顶部账号卡片点「扫码登录」或「打开验证」（目录页的「!」直达），或 `python -m link_brain login`（`--verify` 开验证窗口）。收藏同步只走 `python -m link_brain sync-favorites`（插件按钮 / 夜跑）。
+> - 测试、自检一律不碰这些（`tests/conftest.py` 已拦截读取服务端口、小红书域名和 `~/.xiaohongshu-mcp` 下的 exe）。
+
 2026-09-16 Owner 本轮补充：恢复目录铺满并隐藏属性/重复标题；复用已安装的 Link Brain Actions 增加弹窗批量导入与链接清洗；今日新增、点赞数、更新时间；普通模糊检索、#标签、/问AI（只留接口，未接模型）。正文按参考图右栏作者固定、下方正文评论滚动，单图无箭头。以上允许修改现有 Obsidian 插件，不另起服务。
 
 1. **仓库是公开的**：cookie / token / 千问 key / 任何 `*.local.json`、`.env`、`vault/` 数据目录一律 `.gitignore`。样本数据只提交脱敏后的 1 条 fixture。
-2. **不自研爬虫**。小红书读取直接用本机已跑着的 xiaohongshu-mcp：
+2. **不自研爬虫**。（下面这几行是 0904 的旧做法，**已作废**，现行见本节顶部 1001 更正）小红书读取直接用本机已跑着的 xiaohongshu-mcp：
    - 端点 `http://127.0.0.1:18060/mcp`（MCP streamable-HTTP，用 Python `mcp` 包的 `streamablehttp_client` 连；别再起浏览器）
    - 可用工具：`get_feed_detail`（正文+图+评论）、`search_feeds`、`user_profile`、`check_login_status`
    - 已知缺口：**笔记文件附件拿不到**；**没有"列出我的收藏"工具**；短链 `xhslink.cn` 要自己 GET 读 `Location` 解出 `note_id` + `xsec_token`
@@ -367,7 +373,7 @@ README 补「本机依赖与环境变量」。**待 Owner 实机**：设置里�
    ## 已知缺口
    ## 下一步
    ```
-10. **MCP 拿不到的东西，允许退回本地浏览器复用登录态**（Owner 拍板，之前验证可行）：用本机 `agent-browser` CLI（用法 `Skill agent-browser` / `~\.agent-browser\config.json`）。适用：楼中楼要翻页、评论图、附件、以后的收藏列表。规矩：先 MCP，MCP 确实给不了再开浏览器；浏览器抓完跑一次 `check_login_status` 确认没把 MCP 顶下线，顶掉了就 `Start-ScheduledTask XiaohongshuMCP` 拉回并在 POC 文档记一笔。
+10. **（已作废，0925 起附件/收藏/评论都走读取服务，见本节顶部 1001 更正）** ~~MCP 拿不到的东西，允许退回本地浏览器复用登录态~~（Owner 拍板，之前验证可行）：用本机 `agent-browser` CLI（用法 `Skill agent-browser` / `~\.agent-browser\config.json`）。适用：楼中楼要翻页、评论图、附件、以后的收藏列表。规矩：先 MCP，MCP 确实给不了再开浏览器；浏览器抓完跑一次 `check_login_status` 确认没把 MCP 顶下线，顶掉了就 `Start-ScheduledTask XiaohongshuMCP` 拉回并在 POC 文档记一笔。
 
 ---
 
@@ -517,7 +523,7 @@ Owner 在 Obsidian 看过 Lot 3 的 5 篇，图片显示正常。要改的（全
   - `inbox --for <角色>`：扫索引列出 `status=open` 且 `target=<角色>` 的对象，输出 `item_id | 标题 | 留言摘要`
   - `resolve <item_id> --comment-id <n> --as <角色>`：隐藏注释改 `status=resolved`
 - 编辑可见 md 时**只动 comments 层**，content 层字节不变
-- `scripts/smoke.py "<url>"`：串 18060 → note_id → RAW → 图片 → vision → 可见 md → agent.md → SQLite → `read --brief`，成功打 `PASS`，失败指出哪一步
+- `scripts/smoke.py "<url>"`：串读取服务（1001 前写作 18060）→ note_id → RAW → 图片 → vision → 可见 md → agent.md → SQLite → `read --brief`，成功打 `PASS`，失败指出哪一步
 
 **验收**
 - Owner 在 Obsidian 手写一行留言 → `inbox --for fable` 看不到它（target=none）；再用 CLI `--target fable` 戳一条 → `inbox --for fable` 列出 1 条
@@ -529,6 +535,8 @@ Owner 在 Obsidian 看过 Lot 3 的 5 篇，图片显示正常。要改的（全
 ---
 
 ## Lot 6 · 收藏同步（Opus，V1 可选，前 5 个 Lot 验收完再决定）
+
+> 1001：已由读取服务 `/api/v1/favorites` 实现（`favorites.fetch_favorites`），下面的 MCP / favdump / 第二实例方案均为历史记录。
 
 Lot 1 发现 MCP 工具表里有 `get_my_profile(tab="fav")` / `user_profile(tab="fav")`，**先试这个**；不行再二选一：
 - A. xiaohongshu-mcp 上游是否有 `list_favorites` / 用户主页"收藏"tab 的接口可薄补（改 Go 源、重编、重启计划任务）
@@ -543,6 +551,8 @@ AI 独立账号：需要第二个 xiaohongshu-mcp 实例（另一端口 + 另一
 ---
 
 ## Lot 7 · 评论区图片补抓（Owner 2026-09-05 拍板要做）
+
+> 1001：本 Lot 的 agent-browser 小号做法**已作废**（一个号一个读取服务，0925）；评论图现由读取服务的 `get_feed_detail` 一并返回。下文仅作历史。
 
 **为什么要单开一个 Lot**：MCP 的 `get_feed_detail` 返回的评论对象**根本没有图片字段**
 （实测某条 64 个评论，`pictures` / `picture` / `image` 一个键都没有；全库 manifest 的
@@ -610,7 +620,7 @@ tag 不动文件、能加减组合、贴合 Owner 习惯、给以后模糊搜索
 
 ## Owner 要准备的（开 Lot 1 前）
 - 5 条样本见文末；Lot 4 后想要更准的成本数再补到 20 条
-- 确认 18060 在线：`Get-ScheduledTaskInfo XiaohongshuMCP`
+- ~~确认 18060 在线~~（1001：作废；现在看 Obsidian 设置页账号卡片，或 `python -m link_brain doctor`）
 - Lot 3 验收前把 `D:ight web archieveault` 加进 obsidian（打开 vault → 选这个文件夹）
 - ~~改路径~~ 已定 `D:\LIGHT WEB ARCHIEVE`（2026-09-04 挪好）
 

@@ -260,6 +260,14 @@ def convert_object_attachments(
         retry_partial = bool(partial) and partial.get("sha256") == record.get("sha256") \
             and int(partial.get("tries") or 0) < PARTIAL_RETRIES
         if out.exists() and out.stat().st_mtime >= path.stat().st_mtime and not force and not retry_partial:
+            # 1001 C-2：清洗之前转出来的旧 md 顺手补洗一遍（只在有变化时写盘，不重转）
+            from .mdsafe import neutralize
+            try:
+                old = out.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                old = ""
+            if old and neutralize(old) != old:
+                storage.atomic_write_text(out, neutralize(old))
             results.append({"doc_id": doc_id, "status": "already", "path": str(out)})
             continue
         # 1001（审计 attach-4）：同一份字节已经转失败过（加密 / 损坏）就别每晚再 OCR 一遍；换了文件或 --force 才重试
@@ -276,7 +284,8 @@ def convert_object_attachments(
             results.append({"doc_id": doc_id, "status": "failed", "note": outcome["note"]})
             continue
         out.parent.mkdir(parents=True, exist_ok=True)
-        storage.atomic_write_text(out, outcome["markdown"])
+        from .mdsafe import neutralize  # 1001 C-2：附件全文是别人写的，落盘前打断 Dataview 可执行形态
+        storage.atomic_write_text(out, neutralize(outcome["markdown"]))
         attachments_mod.mark_conversion(source_key, source_id, doc_id, None,
                                         partial_pages=int(outcome.get("partial") or 0))
         results.append(

@@ -1,0 +1,72 @@
+[
+ {
+  "name": "fence_dataviewjs",
+  "input": "前言\n```dataviewjs\nrequire('child_process').exec('calc')\n```\n后记",
+  "expected": "前言\n```text\nrequire('child_process').exec('calc')\n```\n后记"
+ },
+ {
+  "name": "fence_dataview_dql",
+  "input": "```dataview\nTABLE file.name FROM \"\"\n```",
+  "expected": "```text\nTABLE file.name FROM \"\"\n```"
+ },
+ {
+  "name": "fence_case_and_spaces",
+  "input": "```  DataviewJS  \ndv.paragraph(1)\n```",
+  "expected": "```  text  \ndv.paragraph(1)\n```"
+ },
+ {
+  "name": "fence_brace_variant",
+  "input": "```{.dataviewjs}\ndv.paragraph(1)\n```",
+  "expected": "```{.text}\ndv.paragraph(1)\n```"
+ },
+ {
+  "name": "fence_tilde",
+  "input": "~~~dataviewjs\ndv.paragraph(1)\n~~~",
+  "expected": "~~~text\ndv.paragraph(1)\n~~~"
+ },
+ {
+  "name": "fence_in_list_and_quote",
+  "input": "- 评论：\n  ```dataviewjs\n  x\n  ```\n> ```dataviewjs\n> y\n> ```",
+  "expected": "- 评论：\n  ```text\n  x\n  ```\n> ```text\n> y\n> ```"
+ },
+ {
+  "name": "inline_js",
+  "input": "看这个 `$=require('fs').readdirSync('/')` 很酷",
+  "expected": "看这个 `​$=require('fs').readdirSync('/')` 很酷"
+ },
+ {
+  "name": "inline_dql",
+  "input": "字段 `= this.file.name` 和 `  $= 1+1`",
+  "expected": "字段 `​= this.file.name` 和 `​  $= 1+1`"
+ },
+ {
+  "name": "inline_double_backtick",
+  "input": "`` $=dv.current() ``",
+  "expected": "``​ $=dv.current() ``"
+ },
+ {
+  "name": "codeblock_content_starts_with_prefix",
+  "input": "```text\n$=require('os').homedir()\n```",
+  "expected": "```text\n​$=require('os').homedir()\n```"
+ },
+ {
+  "name": "codeblock_leading_blank_then_prefix",
+  "input": "```\n\n   = this.file.name\n```",
+  "expected": "```\n\n   ​= this.file.name\n```"
+ },
+ {
+  "name": "html_code",
+  "input": "<code>$=1+1</code> 和 <CODE class=x>=a</CODE>",
+  "expected": "<​code>$=1+1</code> 和 <​CODE class=x>=a</CODE>"
+ },
+ {
+  "name": "plain_text_untouched",
+  "input": "普通文字 a=b，`code`，```python\nprint(1)\n```\n公式 x = 1",
+  "expected": "普通文字 a=b，`code`，```python\nprint(1)\n```\n公式 x = 1"
+ },
+ {
+  "name": "already_safe_is_idempotent",
+  "input": "`​$=x`\n​= y\n```text\nz\n```",
+  "expected": "`​$=x`\n​= y\n```text\nz\n```"
+ }
+]

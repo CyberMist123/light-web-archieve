@@ -6,6 +6,7 @@ from pathlib import Path
 from zipfile import ZipFile, ZIP_DEFLATED
 from urllib.parse import quote
 from . import storage
+from .mdsafe import neutralize  # 1001 C-2：导出包里的回答/机读版解压后常被拖回 vault
 
 
 def export_bundle(ids, include_images=True, answer="", question="选中收藏", asked_at=None):
@@ -30,7 +31,7 @@ def export_bundle(ids, include_images=True, answer="", question="选中收藏", 
     missing, index, count = [], ["# 收藏资料", "", "解压后可将 Markdown 与 images 文件夹一起交给支持图片的 AI 工具。", ""], 0
     with ZipFile(destination, "w", ZIP_DEFLATED) as archive:
         if answer:
-            archive.writestr("回答与摘录.md", answer)
+            archive.writestr("回答与摘录.md", neutralize(answer))
         names = set()
         for n, item in enumerate(selected, 1):
             channel = {"xiaohongshu": "小红书"}.get(item.get("source"), item.get("source") or "小红书")
@@ -60,7 +61,7 @@ def export_bundle(ids, include_images=True, answer="", question="选中收藏", 
                     target = f"images/{n:02d}-{count:04d}{source.suffix}"
                     archive.write(source, target)
                     body += f"\n![原图]({target})\n"
-            archive.writestr(name, body)
+            archive.writestr(name, neutralize(body))
         if missing:
             index.extend(["", "## 未能打包的图片", *[f"- {x}" for x in missing]])
         archive.writestr("索引.md", "\n".join(index))

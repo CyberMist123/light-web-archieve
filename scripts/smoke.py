@@ -1,6 +1,6 @@
-"""端到端自检（TASKBOOK Lot 5）：串一遍 18060 → RAW → 图片 → vision → 可见 md → agent.md → SQLite → read。
+"""端到端自检（TASKBOOK Lot 5）：串一遍读取服务（link-brain-reader，默认 18061）→ RAW → 图片 → vision → 可见 md → agent.md → SQLite → read。
 
-    python scripts/smoke.py "<小红书链接或分享文案>"      # 全链路，要联网 + 18060 活着
+    python scripts/smoke.py "<小红书链接或分享文案>"      # 全链路，会用号开页：要读取服务在跑且已登录；别在夜跑时跑
     python scripts/smoke.py --offline <item_id>          # 只验库里已有对象的下游（不联网）
 
 成功打 PASS；失败明着说卡在哪一步，别让人猜。
@@ -81,9 +81,9 @@ def main() -> int:
         try:
             summary = ingest_mod.ingest_url(args.target, origin="cli", actor="human")
             item_id = summary["item_id"]
-            check("抓取（18060 → RAW）", True, item_id)
+            check("抓取（读取服务 → RAW）", True, item_id)
         except Exception as exc:  # noqa: BLE001 — 自检脚本要把任何炸法都报出来
-            check("抓取（18060 → RAW）", False, f"{type(exc).__name__}: {exc}")
+            check("抓取（读取服务 → RAW）", False, f"{type(exc).__name__}: {exc}")
             _report()
             return 1
 
