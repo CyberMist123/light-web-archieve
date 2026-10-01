@@ -267,7 +267,8 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                 "starred_at": (_load_json(obj_dir / "notes.json") or {}).get("starred_at"),
                 "cover": _cover(obj_dir, source, source_id, version),
                 "summary": _clip(summary),
-                "search_text": "\n".join(search_fields.values()),
+                # 1001 审计 ui-4：不再另存拼好的 search_text（与 search_fields 全文重复，占了一半体积）；
+                # 读方（retrieval.fields / 目录页 itemText / semantic）都以 search_fields 为准
                 "search_fields": search_fields,
                 "agent_md": f"_archive/{source}/{source_id}/derived/agent.md",
                 "attachment_files": report["files"],

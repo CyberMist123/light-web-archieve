@@ -12,6 +12,8 @@ function fuzzyContains(text, term) {
   }
   return false;
 }
+// 1001 审计 ui-4：catalog-data 不再另存一份拼好的 search_text（全文存两遍、10MB）；摘录从 search_fields 现拼，旧数据兜底
+function itemText(it) { const fs = it.search_fields; return (fs ? Object.values(fs).filter(Boolean).join('\n') : '') || it.search_text || it.summary || ''; }
 const searchCache = new WeakMap();
 function score(it, query, chars = {}, aliases = []) {
   const q = normalize(query);
