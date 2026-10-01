@@ -111,7 +111,8 @@ def _understand(entry: dict[str, Any], path: Path, cfg: dict[str, Any] | None, s
 
 
 REFINE_MIN_CHARS = int(os.environ.get("LWA_REFINE_MIN_CHARS", "300"))
-REFINE_TRIES = 3  # 第一次 + 重试 2 次
+REFINE_TRIES = 3  # 第一次 + 重试 2 次（只数「模型给了结果但不合格」，接口故障不算，见 refine_object）
+API_STREAK_STOP = 3  # 连着几张都是接口故障就今晚收手
 
 
 def refine_reason(entry: dict[str, Any]) -> str:
@@ -279,7 +280,7 @@ class RefineRouter:
                 return {**got, "model": f"{GEMINI_MODEL}（免费 key {i + 1}）"}  # 成功，或内容本身不合格（算一次尝试）
             self.dead.add(i)  # 这个 key 今晚限额满了 / 不可用
         if not self.fallback:
-            return {"status": "failed", "error": "免费 key 都用不了，也没配千问识图"}
+            return {"status": "failed", "error": "免费 key 都用不了，也没配千问识图", "api_error": True}
         got = visual.refine(path, lines, kind, self.fallback)
         self.used[self.fallback["model"]] = self.used.get(self.fallback["model"], 0) + 1
         return got
@@ -304,6 +305,8 @@ def refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budge
             continue
         if budget and tally["runs"] >= budget:
             break
+        if tally.get("api_streak", 0) >= API_STREAK_STOP:
+            break  # 接口连着不通：今晚别再一张张白等
         if tally["runs"]:
             time.sleep(random.uniform(*REFINE_GAP_SECONDS))
         tally["runs"] += 1
@@ -311,14 +314,22 @@ def refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budge
         img = storage.object_dir(source_key, source_id) / entry["asset"]
         got = cfg.refine(img, entry.get("lines"), kind) if isinstance(cfg, RefineRouter) else visual.refine(img, entry.get("lines"), kind, cfg)
         tally["cost_yuan"] += got.get("cost_yuan") or 0.0
-        ref["tries"] = ref.get("tries", 0) + 1
         ref["at"] = datetime.now().astimezone().isoformat(timespec="seconds")
-        if got.get("status") == "ok":
+        if got.get("status") != "ok" and got.get("api_error"):
+            # 1001（审计 vision-4）：接口故障不计次数，留在 pending 明晚再来；连着 3 张都这样就今晚收手
+            ref["error"] = got.get("error")
+            tally["api_errors"] = tally.get("api_errors", 0) + 1
+            tally["api_streak"] = tally.get("api_streak", 0) + 1
+        elif got.get("status") == "ok":
+            ref["tries"] = ref.get("tries", 0) + 1
             entry["refined"] = got
             ref["status"] = "done"
             ref.pop("error", None)
             tally["done"] += 1
+            tally["api_streak"] = 0
         else:
+            ref["tries"] = ref.get("tries", 0) + 1
+            tally["api_streak"] = 0
             ref["error"] = got.get("error")
             if ref["tries"] >= REFINE_TRIES:
                 ref["status"] = "failed"  # 不再每晚重跑；手动点名可以再来
@@ -326,7 +337,7 @@ def refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budge
             else:
                 tally["retry"] += 1
         entry["refine"] = ref
-        changed = True
+        changed = changed or not got.get("api_error") or got.get("status") == "ok"
         if verbose:
             print(f"[refine] {source_id} {entry['asset'].split('/')[-1]}：{ref['status']}"
                   f"（{ref.get('reason')}；{got.get('model')} ¥{got.get('cost_yuan') or 0:.4f}"
@@ -362,9 +373,13 @@ def run_refine(args) -> int:
     for source_key, source_id, _ in pending_refines():
         if args.limit and tally["runs"] >= args.limit:
             break
+        if tally.get("api_streak", 0) >= API_STREAK_STOP:
+            print("[refine] 识图接口连着不通，今晚先停（待补的图留着，明晚再来，不算失败次数）", file=sys.stderr)
+            break
         refine_object(source_key, source_id, cfg, budget=args.limit, tally=tally)
     left = sum(n for _, _, n in pending_refines())
     dump_json({"models": cfg.used, "refined": tally["done"], "failed": tally["failed"], "will_retry": tally["retry"],
+               "api_errors": tally.get("api_errors", 0),
                "pending_left": left, "cost_yuan": round(tally["cost_yuan"], 4)})
     return 0
 

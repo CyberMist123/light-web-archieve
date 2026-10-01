@@ -284,18 +284,26 @@ def mermaid_problem(text: str) -> str:
     m = re.search(r"```mermaid\s*\n(.*?)```", text, re.S)
     if not m:
         return "Mermaid 代码块不完整"
-    body = [l.strip() for l in m.group(1).splitlines() if l.strip() and not l.strip().startswith("%%")]
+    lines = [l.strip() for l in m.group(1).splitlines() if l.strip()]
+    # 1001（审计 vision-2）：模型输出来自图片内容，是不可信数据——交互指令（click / href / call）
+    # 和改安全级别的 %%{init}%% 指令一律不收
+    for line in lines:
+        if line.startswith("%%{") or re.match(r"(click|href|call)\b", line):
+            return f"Mermaid 带交互 / 初始化指令：{line[:40]}"
+    body = [l for l in lines if not l.startswith("%%")]
     if not body or not re.match(r"(flowchart|graph)\s+(TD|TB|LR|RL|BT)\b", body[0]):
         return "Mermaid 第一行不是 flowchart"
     depth = 0
     for line in body[1:]:
-        if line.startswith("subgraph"):
+        # 双引号里的是节点文字，括号、方括号都合法（「用户(手机端)」「embedding[打码]」），先剔掉再查结构
+        bare = re.sub(r'"[^"]*"', '""', line)
+        if bare.startswith("subgraph"):
             depth += 1
-        elif line == "end":
+        elif bare == "end":
             depth -= 1
             if depth < 0:
                 return "Mermaid 多了 end"
-        elif re.search(r'\w\[(?!")', line) or re.search(r'\w\((?!")', line):
+        elif re.search(r'\w\[(?!")', bare) or re.search(r'\w\((?!")', bare):
             return f"Mermaid 节点文字没加引号：{line[:40]}"
         elif line.count('"') % 2:
             return f"Mermaid 引号不成对：{line[:40]}"
@@ -355,8 +363,20 @@ def _chat(path: Path, prompt: str, cfg: dict[str, Any], *, max_tokens: int, time
         except httpx.TransportError as exc:
             err = f"{type(exc).__name__}: {str(exc)[:200]}"
         except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
-            return {"status": "failed", "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
-    return {"status": "failed", "error": err}
+            return {"status": "failed", "error": f"{type(exc).__name__}: {str(exc)[:200]}",
+                    "api_error": _is_api_fault(exc)}
+    return {"status": "failed", "error": err, "api_error": True}  # 超时 / 断网
+
+
+# 1001（审计 vision-4）：接口那一侧的故障（限额、鉴权、欠费、服务挂了、回包坏了）不是「模型给了结果但不合格」，
+# 第二层补跑不该为它记一次尝试；只有 400/404/413/422 这类「这张图的请求本身有问题」才算。
+_REQUEST_FAULTS = {400, 404, 413, 422}
+
+
+def _is_api_fault(exc: Exception) -> bool:
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code not in _REQUEST_FAULTS
+    return True
 
 
 def describe(path: Path, kind: str, cfg: dict[str, Any], *, timeout: float = 90) -> dict[str, Any]:
