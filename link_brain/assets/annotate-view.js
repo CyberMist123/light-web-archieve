@@ -60,17 +60,86 @@ ta.placeholder = '写批注…';  // 真正的提示由 setPlaceholder() 按有�
 })();
 
 let data = { starred: false, annotations: [], draft: '' };
+// 1001（审计 note-9 / ui-6）：同一篇在两个窗格开着、或手机经 WebDAV 同步回来一条，以前后保存的一方整份覆盖、
+// 把对方的批注冲掉。现在保存前重读磁盘，按条合并：本端只增 / 改 / 删自己动过的那几条，删除记墓碑（deleted）。
+let base = new Map();   // 上次和磁盘对齐时的批注：key → JSON，用来算「本端动过哪几条」
+let locked = '';        // 非空 = notes.json 读坏了：原文件已另存 .corrupt，这一篇暂停保存，绝不拿空的盖回去
+const akey = (a) => a.id || ('ts:' + (a.ts || '') + '|' + (a.text || ''));  // 老批注没 id：按时间 + 原文认
+const newId = () => 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const snap = (arr) => new Map(arr.map(a => [akey(a), JSON.stringify(a)]));
+const pause = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function readDisk() {
+  // {ok:true, doc} 或 {ok:false, raw}；文件不在 = 还没有批注
+  let raw;
+  try {
+    if (!(await app.vault.adapter.exists(notePath))) return { ok: true, doc: {} };
+    raw = await app.vault.adapter.read(notePath);
+  } catch (e) { return { ok: false, raw: null, err: e }; }
+  try {
+    const doc = JSON.parse(raw);
+    if (!doc || typeof doc !== 'object' || Array.isArray(doc)) throw new Error('不是对象');
+    return { ok: true, doc };
+  } catch (e) { return { ok: false, raw, err: e }; }
+}
+async function readDiskSettled() {
+  const first = await readDisk();
+  if (first.ok) return first;
+  await pause(400);  // 同步软件可能正替换到一半：等一下再读一次
+  return readDisk();
+}
+async function quarantine(raw) {
+  locked = 'notes.json 读不了';
+  if (raw != null) {
+    let bak = notePath + '.corrupt';
+    try {
+      if (await app.vault.adapter.exists(bak) && (await app.vault.adapter.read(bak)) !== raw) {
+        bak = notePath + '.corrupt-' + new Date().toISOString().replace(/[:.]/g, '-');
+      }
+      await app.vault.adapter.write(bak, raw);
+    } catch {}
+  }
+  ta.disabled = true;
+  ta.placeholder = '批注文件读坏了，暂停保存';
+  notify('这篇的批注文件读不了：原文件已另存 notes.json.corrupt，修好或删掉 notes.json 后重开这篇。期间不保存，免得盖掉原来的批注。');
+}
+function adopt(doc) {
+  data = {
+    ...doc,
+    starred: !!doc.starred,
+    annotations: Array.isArray(doc.annotations) ? doc.annotations : [],
+    draft: typeof doc.draft === 'string' ? doc.draft : '',
+  };
+  base = snap(data.annotations);
+}
 
 async function load() {
-  try { data = JSON.parse(await app.vault.adapter.read(notePath)); }
-  catch { data = { starred: false, annotations: [], draft: '' }; }
-  data.starred = !!data.starred;
-  data.annotations = Array.isArray(data.annotations) ? data.annotations : [];
-  data.draft = typeof data.draft === 'string' ? data.draft : '';
+  const disk = await readDiskSettled();
+  if (!disk.ok) { await quarantine(disk.raw); adopt({}); return; }
+  adopt(disk.doc);
 }
 async function persist() {
-  try{data.starred=!!JSON.parse(await app.vault.adapter.read(notePath)).starred;}catch{}
-  await app.vault.adapter.write(notePath, JSON.stringify(data, null, 2) + '\n');
+  if (locked) throw new Error('批注文件读坏了，暂停保存');
+  const disk = await readDiskSettled();
+  if (!disk.ok) { await quarantine(disk.raw); throw new Error('批注文件读坏了，暂停保存'); }
+  const d = disk.doc;
+  const tomb = new Set(Array.isArray(d.deleted) ? d.deleted : []);
+  const mine = new Map(data.annotations.map(a => [akey(a), a]));
+  for (const k of base.keys()) if (!mine.has(k)) tomb.add(k);            // 本端删掉的
+  const out = (Array.isArray(d.annotations) ? d.annotations : []).filter(a => !tomb.has(akey(a)));
+  for (const [k, a] of mine) {
+    if (base.get(k) === JSON.stringify(a) || tomb.has(k)) continue;       // 没动过 / 别处已删（删除优先）
+    const i = out.findIndex(x => akey(x) === k);
+    if (i >= 0) out[i] = a; else out.push(a);                              // 本端改过的 / 新加的
+  }
+  out.sort((x, y) => String(x.ts || '').localeCompare(String(y.ts || '')));
+  // ⭐ 由插件跑 Python 写，以磁盘为准；草稿是这一端正在打的字
+  const doc = { ...d, starred: !!d.starred, annotations: out, deleted: [...tomb].slice(-500), draft: data.draft };
+  if (!doc.deleted.length) delete doc.deleted;
+  await app.vault.adapter.write(notePath, JSON.stringify(doc, null, 2) + '\n');
+  const before = JSON.stringify(data.annotations);
+  adopt(doc);
+  if (JSON.stringify(data.annotations) !== before && !list.querySelector('.lba-edit-input')) renderList();
 }
 function flash(msg) { saveHint.setText(msg); saveHint.style.opacity = '1'; clearTimeout(flash._t); flash._t = setTimeout(() => { saveHint.style.opacity = '0'; }, 1400); }
 function fmtTs(ts) {
@@ -87,9 +156,10 @@ function setPlaceholder() {
     ? '写批注…'
     : '写批注…（@fable 开头 = 留言给 Fable）';
 }
-function startEdit(el, textSpan, i) {
+function startEdit(el, textSpan, key) {
   if (el.querySelector('.lba-edit-input')) return;   // 已在编辑
-  const a = data.annotations[i];
+  const a = data.annotations.find(x => akey(x) === key);
+  if (!a) { renderList(); return; }                   // 别处已经删了这条
   const editor = el.createEl('textarea', { cls: 'lba-annot-input lba-edit-input' });
   editor.value = a.text || '';
   textSpan.style.display = 'none';
@@ -99,12 +169,14 @@ function startEdit(el, textSpan, i) {
   const save = async () => {
     if (done) return; done = true;
     const t = editor.value.trim();
-    if (t && t !== a.text) {
-      a.text = t;
-      a.to_fable = t.toLowerCase().startsWith('@fable');
-      a.edited = true;
-      await persist();
-      flash('已改');
+    // 按 key 取当前那条（中途 persist 过的话内存里已是新对象）；老批注没 id：先给一个，旧 key 自然成墓碑
+    const cur = data.annotations.find(x => akey(x) === key);
+    if (t && cur && t !== cur.text) {
+      if (!cur.id) cur.id = newId();
+      cur.text = t;
+      cur.to_fable = t.toLowerCase().startsWith('@fable');
+      cur.edited = true;
+      try { await persist(); flash('已改'); } catch (err) { flash('没存上：' + (err.message || err)); }
     }
     renderList();
   };
@@ -129,13 +201,14 @@ function renderList() {
     const ctl = el.createEl('span', { cls: 'lba-ctl' });
     const edit = ctl.createEl('span', { cls: 'lba-edit', text: '✎' });
 
-    edit.onclick = (ev) => { ev.stopPropagation(); startEdit(el, textSpan, data.annotations.indexOf(a)); };
+    const key = akey(a);
+    edit.onclick = (ev) => { ev.stopPropagation(); startEdit(el, textSpan, key); };
     const del = ctl.createEl('span', { cls: 'lba-del', text: '✕' });
 
-    // 按对象身份删（不认渲染时的下标，避免编辑/重渲后下标错位导致"删不掉"）
+    // 按批注的 key 删（不认渲染时的下标 / 对象身份：合并保存后内存里换成了新对象）
     del.onclick = async (ev) => {
       ev.stopPropagation();
-      const idx = data.annotations.indexOf(a);
+      const idx = data.annotations.findIndex(x => akey(x) === key);
       if (idx >= 0) data.annotations.splice(idx, 1);
       try { await persist(); } catch (err) { flash('删除没存上：' + (err.message || err)); }
       renderList();
@@ -149,18 +222,22 @@ function renderList() {
 let draftTimer;
 ta.oninput = () => {
   clearTimeout(draftTimer);
-  draftTimer = setTimeout(async () => { data.draft = ta.value; await persist(); flash('草稿已存'); }, 500);
+  draftTimer = setTimeout(async () => {
+    data.draft = ta.value;
+    try { await persist(); flash('草稿已存'); } catch (err) { flash('草稿没存上：' + (err.message || err)); }
+  }, 500);
 };
 // 落成一条批注：失焦或 Ctrl/Cmd+Enter；空白就只清草稿
 async function commit() {
   clearTimeout(draftTimer);
+  if (locked) return;  // 文件读坏了：字留在输入框里，不清、不存
   const text = ta.value.trim();
-  if (!text) { if (data.draft) { data.draft = ''; await persist(); } return; }
+  if (!text) { if (data.draft) { data.draft = ''; try { await persist(); } catch {} } return; }
   const to_fable = text.toLowerCase().startsWith('@fable');
-  data.annotations.push({ ts: new Date().toISOString(), text, to_fable, author: to_fable ? '' : nickname() });
+  data.annotations.push({ id: newId(), ts: new Date().toISOString(), text, to_fable, author: to_fable ? '' : nickname() });
   data.draft = '';
+  try { await persist(); } catch (err) { flash('没存上：' + (err.message || err)); return; }
   ta.value = '';
-  await persist();
   renderList();
   flash('已保存');
 }

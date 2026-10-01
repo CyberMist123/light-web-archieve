@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -26,17 +27,27 @@ def notes_path(source: str, source_id: str) -> Path:
     return storage.object_dir(source, source_id) / "notes.json"
 
 
+class NotesCorrupt(ValueError):
+    """notes.json 在、但读不了（写到一半 / 同步软件正替换 / 手改坏了）。"""
+
+
 def load_notes(source: str, source_id: str) -> dict[str, Any]:
-    """fail-open：文件缺了/坏了都当空批注，不炸。"""
+    """文件不在 = 还没有批注（空）。文件在但读不了就报错——
+
+    1001（审计 note-9）：以前坏了也当空的，set_star / add_annotation 接着把空数据写回去，所有批注就没了。
+    """
     path = notes_path(source, source_id)
     if not path.is_file():
         return {"starred": False, "annotations": []}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {"starred": False, "annotations": []}
+    except (OSError, ValueError) as exc:
+        raise NotesCorrupt(f"批注文件读不了，没动它：{path}（{type(exc).__name__}: {exc}）") from exc
+    if not isinstance(data, dict):
+        raise NotesCorrupt(f"批注文件不是对象，没动它：{path}")
     data.setdefault("starred", False)
-    data.setdefault("annotations", [])
+    if not isinstance(data.get("annotations"), list):
+        data["annotations"] = []
     return data
 
 
@@ -108,6 +119,8 @@ def add_annotation(target: str, text: str) -> dict[str, Any]:
         return {"item_id": obj["item_id"], "status": "empty"}
     to_fable = text.lstrip().lower().startswith("@fable")
     entry = {
+        # 和 annotate-view.js 同一套：每条一个 id，两端合并 / 删除墓碑都按它认
+        "id": "a" + uuid.uuid4().hex[:12],
         "ts": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
         "text": text,
         "to_fable": to_fable,
@@ -128,15 +141,19 @@ def list_notes(target: str) -> dict[str, Any]:
 
 def run(args) -> int:
     sub = getattr(args, "note_command", None)
-    if sub == "star":
-        on = not getattr(args, "off", False)
-        out = set_star(args.target, on)
-    elif sub == "add":
-        out = add_annotation(args.target, args.text)
-    elif sub == "list":
-        out = list_notes(args.target)
-    else:
-        print("需要子命令：star / add / list", file=sys.stderr)
-        return 1
+    try:
+        if sub == "star":
+            on = not getattr(args, "off", False)
+            out = set_star(args.target, on)
+        elif sub == "add":
+            out = add_annotation(args.target, args.text)
+        elif sub == "list":
+            out = list_notes(args.target)
+        else:
+            print("需要子命令：star / add / list", file=sys.stderr)
+            return 1
+    except NotesCorrupt as exc:
+        print(str(exc), file=sys.stderr)
+        out = {"target": args.target, "status": "corrupt", "error": str(exc)}
     print(json.dumps(out, ensure_ascii=False))
     return EXIT_OK if out.get("status") == "ok" else 1
