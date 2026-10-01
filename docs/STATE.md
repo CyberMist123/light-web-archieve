@@ -1,5 +1,12 @@
 # Current State
 
+## 2026-10-01 现状：防伤号 + 审计修复两批
+
+- **现行做法（以本条为准，下文 0925 以前提到的 18060 / favdump / agent-browser 小号 / sessioncheck 均为历史）**：一个号、一个读取服务 `link-brain-reader`（默认 18061），读取、私密收藏、评论、附件都经它；掉登录或撞验证在 Obsidian「Link Brain Actions」设置页账号卡片扫码 / 打开验证，或 `python -m link_brain login`。目录分组按 tag + 设置里的「目录大类」关键词，`_archive/catalog-overrides.json` 从 0915 起不再读取。
+- **批一 `f6adbd6` 防伤号**：读取服务统一识别风控页（登录异常跳转、验证浮层）并持久熔断，之后所有用号开页的请求拒绝，直到人工扫码 / 验证；关浏览器限时、锁看门狗；Python 侧展开 ExceptionGroup、首个风控即停（exit 5），跨进程账号锁（exit 6），任意两次开页间隔 20–40 秒；收藏同步篇间 60–180 秒、连败 3 篇停、默认每天新抓 50 篇、已在库的不重渲，识图 / 概要移到离线 `enrich`；收藏条数骤降报警；命令行模型锁工具、自带 key 不被覆盖；测试不碰真库、不起真浏览器。
+- **批二 审计修复（分支 audit-fix-a / audit-fix-b，合入后以 git log 为准）**，b 分支：不可信文本 Markdown 清洗（`link_brain/mdsafe.py` + 插件 `neutralizeMarkdown`：agent.md、附件全文 md、问答回答、导出包、插件渲染都过，Dataview 代码块 / 行内 `=` `$=` 不再可执行）；问收藏把语义层命中的片段当证据（不再只送开头 + 结尾），资料筛选格式不对时退回普通检索（`selection_failed`）；catalog-data.json 去掉重复的 search_text（约 10MB → 5.5MB）；视频转写失败记原因，「没人声 / 没音轨」算完成，同一原因连败 3 次退避 7 天且不再让这步 exit=2；文档漂移更正（本条、TASKBOOK 第 0 节顶部、README）。
+- 部署要点：插件 main.js 拷进 vault 后 Obsidian 重载；`python -m link_brain catalog` 重建目录页和数据；`render --all` 重写机读版、`pdf2md --all` 补洗旧附件 md。
+
 ## 2026-09-25 一个号、一个读取服务、一键扫码
 
 实测（Owner 主号，同一持久浏览器目录、串行）：私密收藏 1077 条、评论（10 一级 + 7 楼中楼）、附件下载（sha256 与原件一致）全部走 `link-brain-reader`（xiaohongshu-mcp 扩展版，默认 18061）。旧的三套登录（读取 / favdump / agent-browser）合并为一个；agent-browser 附件路径删除。
