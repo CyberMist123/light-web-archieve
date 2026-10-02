@@ -252,6 +252,7 @@ class LinkBrainActions extends Plugin {
     this.running = null;
     this.importing = false;
     this.settings = mergeSettings(await this.loadData());
+    try { this.remoteUI = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'remote-ui.js'))(obsidian, this); await this.remoteUI.attach(); } catch (e) { console.error('[lb] 远程阅读设置没加载上', e); }   // 第 6 批：远程阅读（MCP）
     this.addSettingTab(new LinkBrainSettingTab(this.app, this));
     this.addCommand({id:'search-collections',name:'跳转目录并搜索收藏',callback:async()=>{
       this.focusCatalogSearch=true;
@@ -1413,6 +1414,8 @@ class LinkBrainSettingTab extends PluginSettingTab {
       const data = JSON.parse(await this.app.vault.adapter.read(this.plugin.lbPath('_archive/catalog-data.json')));
       this.plugin.openAttachments(data.items.filter(it => it.attachment === '待补'));
     }));
+
+    this.plugin.remoteUI?.render(a, () => this.display());   // 第 6 批：远程阅读（MCP），整节在 remote-ui.js
   }
 
   addTestButton(container, label, args) {

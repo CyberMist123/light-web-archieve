@@ -765,3 +765,20 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
   来源编号存在时只选择被引用材料。链接地址来自归档索引，不从模型文字里提取或虚构。
 - `history` 是可供下次请求传回的最近对话；失败请求不追加一条假答案。
   发送器应消费 `delivery`，不要把内部 `sources` 或本机路径直接展示为公共下载地址。
+
+## 2026-10-02 远程阅读（MCP）的配置与本机状态（第 6 批）
+
+- 配置唯一来源：插件 `data.json` 的 `remote` 段（插件写、服务只读，按 mtime 热重载）。**口令和令牌不在这里**。
+
+```json
+{"remote": {"enabled": false, "domain": "https://read.example.com", "port": 18071, "folders": ["@xhs", "其他资料"]}}
+```
+
+  `domain` 是完整来源（https + 主机名，不带端口和路径），空 = 只认本机；`folders` 里 `@xhs` = 小红书收藏库
+  （`Web/Xiaohongshu/**` + 每篇 `_archive/xiaohongshu/<id>/derived/agent.md`、`derived/attachments/*.md`、`notes.json`），
+  其余是 vault 内的相对文件夹（`/` 分隔、不以 `.` 开头、不是 `_archive` / `_trash`）。
+- 本机状态在 vault 外：`$LINK_BRAIN_HOME/remote/`（默认 `~/.link-brain/remote/`），不进 vault、不进仓库、不随手机同步。
+  - `auth.json`：`{schema_version, passphrase: {salt, hash, algo:"scrypt", n, r, p, set_at} | null, clients: {<client_id>: {name, redirect_uris, created, token_at, last_used}}, access: {<sha256>: {client_id, expires}}, refresh: {<sha256>: {client_id, expires}}, personal: {<id>: {hash, label, created, last_used}}, revoked_all_at}`——令牌只存 sha256。
+  - `status.json`：服务自报 `{pid, port, version, state: running|stopped|error, code, message, started_at, domain, folders, updated_at}`。
+  - `access.log`：一行一条 `{ts, client, tool, path?, status: ok|denied|error, code?, n?}`，不记查询词和内容；超过 1 MB 轮转一份 `.log.1`。
+  - `server.log`：服务自己的运行日志（1 MB × 3）。

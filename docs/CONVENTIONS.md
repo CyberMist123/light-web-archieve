@@ -74,7 +74,7 @@ def load(limit=500) -> list[dict]                           # 折叠后、未解
 def summary() -> dict                                       # {needs_human: n, auto: n, gave_up: n, skipped: n, last_runs: {step: {ts, ok}}}
 def export_redacted() -> str                                # §3「复制报错」
 ```
-`step` 词表：`sync.favorites / ingest / attachments.download / attachments.convert / attachments.recheck / enrich.summary / vision.layer1 / vision.refine / videos.transcribe / embed / nightly.<stepname> / ask / login`。
+`step` 词表：`sync.favorites / ingest / attachments.download / attachments.convert / attachments.recheck / enrich.summary / vision.layer1 / vision.refine / videos.transcribe / embed / nightly.<stepname> / ask / login / config / remote`（`remote` = 远程阅读服务：端口被占 `NEEDS_HUMAN.PORT_IN_USE`、计划任务没弄好 `PERMANENT.REMOTE_TASK_FAILED`）。
 
 **迁移点**（每条：原状态文件照写 + `report/resolve`）
 - 附件转 md：`attachments.mark_conversion:374-395`（failed → `PERMANENT.PDF_ENCRYPTED|PDF_DAMAGED` 或 `TRANSIENT.*`；`note is None` → resolve）；`pdftext.py:111-118,171-172,193-200` 给出区分码，不再只给一句 note；`pdftext.py:273-277` 的「同 sha 永不重试」只对 PERMANENT 成立，TRANSIENT 按 `next_at` 退避。

@@ -3,6 +3,13 @@
 ## 2026-10-02 第 2 批：减摩擦 + 页面状态恢复 + 来源阅读（分支 batch2-smooth）
 
 - 共享前导 `link_brain/assets/lb-page-lib.js`（CONVENTIONS §5）：catalog.py 内联进目录 / 星标 / 问收藏三张页，并拼在 `_archive/annotate-view.js` 前面。Dataview 重跑时数据版本（catalog-data / 批注是 notes.json 的 mtime:size）没变就把旧 DOM 挂回，变了只换数据、卡片按 id 复用；5 MB 解析结果缓存在插件对象 `catalogCache`；页面状态（搜索词、筛选、多选、滚动、问答草稿）存 `sessionStorage['lb:<role>']`，换页回来恢复；藏着的编辑视图看不见时不渲染；`[lb]` 计时埋点。星标不再每次读几百份 notes.json（`note star` 顺手改 catalog-data）；catalog-data 加封面宽高。问收藏页草稿不再写 vault、去掉假进度轮播（只显示「正在生成…」）；来源只由引用编号 / 标题 / 「查看」打开，复用一个右侧窗格，「加入对照 / 退出对照 / 收起来源」是明确按钮，「单篇 / 对照」下拉删除。CapsLock 语音启动挪到窗口开好 3 秒后。验收和改前改后数字见 `tests/acceptance/20261002-batch2.md`。部署：拷 link-brain-actions 插件 + `python -m link_brain catalog`（页面脚本、annotate-view.js、catalog-data 新字段一起换）+ 重载 Obsidian。
+## 2026-10-02 第 6 批：远程阅读（MCP，高级）（分支 batch6-remote）
+
+- 新包 `link_brain/remote/`：只读 MCP over HTTP（mcp SDK Streamable HTTP，无状态 + JSON 应答），只监听 127.0.0.1；独立后台服务，不挂在 Obsidian 下——Windows 上「启用」注册计划任务 `LinkBrainRemote`（登录时启动 + 每 5 分钟看门狗，IgnoreNew），「停用」停掉并删除；macOS / Linux 手动 `python -m link_brain remote serve`。配置唯一来源 = 插件 data.json 的 `remote` 段（开关 / 域名 / 端口 / 文件夹），按 mtime 热重载；关掉开关或改端口服务自己退出（计划任务按新端口拉起，设置页也会主动重启）。
+- 认证照私人桥的协议做法并收紧：OAuth 动态注册（回调只收 https 或本机 http）+ **强制 PKCE S256** + 口令批准页（scrypt；错 5 次锁 15 分钟）+ 授权码 5 分钟一次性 + 访问令牌 1 小时 / 刷新令牌 90 天轮换；另有「给其他客户端的访问令牌」（不过期、可单个撤销）和「撤销全部访问」。口令 / 令牌在 `~/.link-brain/remote/auth.json`，只存哈希，不进 data.json。Host 只认设置里的域名和本机，Origin 只认这几个来源，不发 CORS 头，每令牌每分钟 120 次。
+- 工具只有 search（复用 `retrieval.rank_query` 词法 + 语义，只回白名单路径；用户加的文件夹逐文件匹配）/ read（分页）/ list；没有写入、执行、问答（lb_ask）。白名单三道：规范形（拒 `..`、绝对路径、反斜杠、`:`、空段、段尾点空格、设备名）→ 规则（`.` 开头、`_trash`、`_archive` 里除机读版 / 附件全文 / notes.json 外一律拒，只读 .md/.markdown/.txt）→ 文件系统（非链接 / 非联接点、单硬链接、realpath 与规范形逐字相等，挡住大小写 / 8.3 / 父目录链接）。
+- 设置页：`obsidian-plugins/link-brain-actions/remote-ui.js`（整节在「高级设置」末尾），main.js 只两行接入。状态 / 出错原因 / 最近访问来自 `remote status`；新故障码 `NEEDS_HUMAN.PORT_IN_USE`、`PERMANENT.REMOTE_TASK_FAILED`（step `remote`）已登记。
+- 部署要点：插件目录多一个 `remote-ui.js`（doctor 已把它列进必需文件）；不开开关什么都不跑。接域名由作者决定（插件不管隧道）。
 
 ## 2026-10-02 第 0 批公共件（分支 batch0-base）
 
