@@ -178,6 +178,7 @@ if (await LB.reuseDom(dv.container)) return;   // 版本同、DOM 在 → 挂回
 - 三份 `LB_ROOT/lbPath`：`catalog-view.js:6-7`、`chat-view.js:8-9`、`render.py:933-937` → `lb-page-lib.js`。
 - 三份「插件方法不在就 disable/enable」：`catalog-view.js:170-174, 228-233, 256-262` → `LB.provider({require:'openPlusMenu'})` 一处。
 - `catalog.py:305-307` 内联拼接处加 `lb-page-lib.js`；`catalog-view.js:361 sort` 等搜索规则留给第 1 批。
+- **第 2 批落地（10-02）与上文的出入**：①版本用 `catalog-data.json` 的 `mtime:size`（先用 Obsidian 文件索引里的同步 stat 挂回旧 DOM，再用 `adapter.stat` 核一次，变了走页面的 `update()`），没用 `built_at`（要先解析才拿得到）；②`render.py` 烤进每篇笔记的批注 bootstrap 不动（改它要重渲全部笔记），前导拼在 `_archive/annotate-view.js` 最前面，批注块的版本是那篇的 `notes.json`；③新增：同一标签页里藏着的编辑视图（实时预览）也会跑一遍 dataviewjs，看不见时先不画（`deferIfHidden`），切到编辑模式再由 Dataview 重画；④星标：`note star` 顺手把 `starred / starred_at` 改进 catalog-data（`catalog.patch_items`，和重建抢同一把锁，拿不到就跳过）；⑤卡片按 id + 内容签名复用（封面图元素不换）；catalog-data 多了 `cover_w / cover_h`，卡片先占位，返回时滚动一次到位；⑥Obsidian 后退时会按行号把滚动容器归零，`restoreScroll` 恢复后再守 1.2 秒（用户动了滚轮 / 键盘就停）。
 
 ---
 

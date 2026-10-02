@@ -742,6 +742,8 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
 
 ## 2026-09-16 搜索和附件补充契约
 
+- 2026-10-02 第 2 批：`items[].cover_w / cover_h` 是封面原图宽高（取 manifest，拿不到为 null，目录页用来先占位）；
+  `items[].starred / starred_at` 在 `note star` 时就地更新（不必等重建），目录页以它为准、不再逐篇读 notes.json。
 - `catalog-data.json.items[].search_fields` 分为 `body/comments/ocr/attachments`，均保留原文；
   `summary` 为模型摘要，检索权重低，不伪装成原文。`agent_md` 是 vault 相对路径。
 - `attachment_files` 逐条提供 `doc_id/name/downloaded/status/file/markdown/url`，文件和 Markdown

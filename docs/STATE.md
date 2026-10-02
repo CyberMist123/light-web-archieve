@@ -1,5 +1,9 @@
 # Current State
 
+## 2026-10-02 第 2 批：减摩擦 + 页面状态恢复 + 来源阅读（分支 batch2-smooth）
+
+- 共享前导 `link_brain/assets/lb-page-lib.js`（CONVENTIONS §5）：catalog.py 内联进目录 / 星标 / 问收藏三张页，并拼在 `_archive/annotate-view.js` 前面。Dataview 重跑时数据版本（catalog-data / 批注是 notes.json 的 mtime:size）没变就把旧 DOM 挂回，变了只换数据、卡片按 id 复用；5 MB 解析结果缓存在插件对象 `catalogCache`；页面状态（搜索词、筛选、多选、滚动、问答草稿）存 `sessionStorage['lb:<role>']`，换页回来恢复；藏着的编辑视图看不见时不渲染；`[lb]` 计时埋点。星标不再每次读几百份 notes.json（`note star` 顺手改 catalog-data）；catalog-data 加封面宽高。问收藏页草稿不再写 vault、去掉假进度轮播（只显示「正在生成…」）；来源只由引用编号 / 标题 / 「查看」打开，复用一个右侧窗格，「加入对照 / 退出对照 / 收起来源」是明确按钮，「单篇 / 对照」下拉删除。CapsLock 语音启动挪到窗口开好 3 秒后。验收和改前改后数字见 `tests/acceptance/20261002-batch2.md`。部署：拷 link-brain-actions 插件 + `python -m link_brain catalog`（页面脚本、annotate-view.js、catalog-data 新字段一起换）+ 重载 Obsidian。
+
 ## 2026-10-02 第 0 批公共件（分支 batch0-base）
 
 - 插件唯一 Python 入口 `spawnPy`/`runPy` + 唯一杀树 `killTree`（跳过 link-brain-reader 及其浏览器，不再 `taskkill /T`）；读取服务经 `cmd /c start` 中转拉起、不再是任何 Python 的子孙（0929 根治）；`storage.file_lock`（账号锁是它的实例，目录重建 / answers.json / sync-quota 加锁）与原子写收口；`cli_call` 默认 180 秒超时杀树；`problems.py` 骨架（问题记录、分类、登记表、推送出口、`problems list|report|export`），未接调用点；`package.json` + `tests/run-node.cjs`。验收见 `tests/acceptance/20261002-batch0.md`。
