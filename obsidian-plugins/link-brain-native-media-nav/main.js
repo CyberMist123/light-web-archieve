@@ -113,7 +113,7 @@ module.exports = class LinkBrainNativeMediaNavPlugin extends Plugin {
     const IMG_SELECTOR = ".xhs-note .lb-carousel .lb-slide img, .xhs-note img.lb-comment-image";
     const style = document.createElement("style");
     style.textContent = [
-      ".lb-lightbox{position:fixed;inset:0;z-index:var(--layer-modal,50);background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;user-select:none;}",
+      ".lb-lightbox{position:fixed;inset:0;z-index:var(--layer-modal,50);background:rgba(0,0,0,.94);display:flex;align-items:center;justify-content:center;user-select:none;}",
       ".lb-lightbox img{max-width:92vw;max-height:88vh;object-fit:contain;transform-origin:center center;cursor:zoom-in;transition:transform .12s ease-out;}",
       ".lb-lightbox.is-zoomed img{cursor:grab;}",
       ".lb-lightbox.is-dragging img{cursor:grabbing;transition:none;}",
@@ -181,7 +181,7 @@ module.exports = class LinkBrainNativeMediaNavPlugin extends Plugin {
 
       const onKey = (e) => {
         const stop = () => { e.preventDefault(); e.stopPropagation(); };
-        if (e.key === "Escape") { stop(); close(); }
+        if (e.key === "Escape" || e.key === "Esc" || e.keyCode === 27) { stop(); close(); }
         else if (e.key === "ArrowLeft" || e.key === "ArrowRight") { stop(); show(index + (e.key === "ArrowRight" ? 1 : -1)); }
         else if (e.key === "+" || e.key === "=") { stop(); zoomAt(1.25, innerWidth / 2, innerHeight / 2); }
         else if (e.key === "-") { stop(); zoomAt(0.8, innerWidth / 2, innerHeight / 2); }
