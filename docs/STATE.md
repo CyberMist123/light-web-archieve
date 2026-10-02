@@ -1,5 +1,13 @@
 # Current State
 
+## 2026-10-02 第 1 批：搜索找回
+
+- 目录页和 `link-brain search` / MCP `lb_search` 同一套规则（`catalog-search.js` ↔ `retrieval.py`）：原词（含 search-aliases 同义词）命中 = 精确；原词不中才认标题错字、拼音整音节（「西尼」→悉尼，「xin」撞不上 xi·ni，至少两个音节）、漏字，这些整篇放「可能相关」区排在后面；多词 AND；排序分数优先，星标 ×1.15，同分星标在前。整串短语库里没有时拆成库里有的词（「悉尼咖啡」「AI做梦」）。问答 BM25 只在某个词原词一篇都不中时退到拼音整音节（低权）。
+- 目录卡片有查询词就显示命中摘录：按第一个有原文命中的词定位，标出来源（正文 / 图片文字 / 附件 / 视频转写 / 评论），关键词高亮；模糊命中写明「拼音相近 / 标题错字 / 漏字」。问收藏页的死代码 runSearch 删除。
+- catalog-data：`pinyin` 改成空格分隔的整音节（标点处 `/` 断开），`pinyin_chars` 补 GB2312 一级常用字；图片检索文字在精细识图（refined）成功时用它替代第一层识图，问答检索和 embed 切块随之读到。只读已有 vision.json，不调模型。
+- 回归：`tests/fixtures/search_queries.json` + `catalog-data.sample.json`（合成），`tests/test_search_regression.py` 与 `tests/test_catalog_search.cjs` 共用；真数据对照 `tests/tools/search_real.cjs`（读 env LB_REAL_CATALOG，只打印）。
+- 部署要点：`python -m link_brain catalog` 重建（页面脚本和新格式数据一起换），再 `python -m link_brain embed` 补精细识图那部分的向量。搜索状态保存 / 恢复不在本批（第 2 批按跨模块约定 §5 统一做）。
+
 ## 2026-10-01 现状：防伤号 + 审计修复两批
 
 - **现行做法（以本条为准，下文 0925 以前提到的 18060 / favdump / agent-browser 小号 / sessioncheck 均为历史）**：一个号、一个读取服务 `link-brain-reader`（默认 18061），读取、私密收藏、评论、附件都经它；掉登录或撞验证在 Obsidian「Link Brain Actions」设置页账号卡片扫码 / 打开验证，或 `python -m link_brain login`。目录分组按 tag + 设置里的「目录大类」关键词，`_archive/catalog-overrides.json` 从 0915 起不再读取。
