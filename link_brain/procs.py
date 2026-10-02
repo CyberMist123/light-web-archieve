@@ -199,6 +199,57 @@ def kill_tree(pid: int, exclude: Iterable[str] = READER_IMAGE_PREFIXES) -> list[
     return killed
 
 
+def created_of(pid: int, table: Sequence[Proc] | None = None) -> float | None:
+    """pid 的创建时间（秒）；找不到 / 拿不到 = None。"""
+    try:
+        table = process_table() if table is None else table
+    except Exception:  # noqa: BLE001
+        return None
+    return next((p.get("created") for p in table if int(p["pid"]) == int(pid)), None)
+
+
+def descendants(pid: int, exclude: Iterable[str] = READER_IMAGE_PREFIXES) -> dict[int, float | None]:
+    """pid 现在的子孙 {pid: 创建时间}（同 kill_tree 的选择规则，不含 pid 本身）。枚举失败 = 空。"""
+    try:
+        table = process_table()
+    except Exception:  # noqa: BLE001
+        return {}
+    by_pid = {int(p["pid"]): p for p in table}
+    return {p: by_pid[p].get("created") for p in select_kill_pids(table, pid, exclude) if p != int(pid) and p in by_pid}
+
+
+def kill_leftovers(pid: int, born: float | None, known: dict[int, float | None],
+                   exclude: Iterable[str] = READER_IMAGE_PREFIXES) -> list[int]:
+    """pid 已经退出后收尾：它起的子进程成了孤儿（父 pid 不在了，kill_tree 沿父链找不到），但还活着、
+    甚至还拿着输出管道（第 3 批验收②④：假模型的子进程把读循环拖到 300 秒）。
+
+    要结束的：known 里记过、pid 和创建时间都对得上的（防 pid 复用）；再加上父 pid 等于 pid、
+    又在 pid 之后创建的孤儿（born 未知时不认这一条）；连同它们各自的子树。读取服务规则同 kill_tree。"""
+    try:
+        table = process_table()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[procs] 枚举进程失败（{type(exc).__name__}: {exc}），遗留子进程没法收", file=sys.stderr)
+        return []
+    by_pid = {int(p["pid"]): p for p in table}
+    roots: list[int] = []
+    for kpid, created in known.items():
+        p = by_pid.get(int(kpid))
+        now = p.get("created") if p else None
+        if p is not None and (created is None or now is None or abs(now - created) < 1):
+            roots.append(int(kpid))
+    if born is not None:
+        for p in table:
+            cpid, created = int(p["pid"]), p.get("created")
+            if int(p.get("ppid") or 0) == int(pid) and cpid != int(pid) and created is not None and created >= born:
+                roots.append(cpid)
+    targets: list[int] = []
+    for root in dict.fromkeys(roots):
+        for t in select_kill_pids(table, root, exclude):
+            if t not in targets:
+                targets.append(t)
+    return [t for t in targets if _terminate(t)]
+
+
 # --------------------------------------------------------------------------
 # 脱离进程树拉起
 # --------------------------------------------------------------------------

@@ -5,6 +5,7 @@ CONVENTIONS §4：`call(instruction, text, cfg, on_delta)` 返回统一形状 R
 没配接口 = skipped（SKIPPED.NOT_CONFIGURED），不算失败。模型名、接口地址只认设置，不再从 llm-config.yaml 回落。
 """
 import json
+import sys
 import threading
 from contextvars import ContextVar
 
@@ -84,23 +85,45 @@ def harden_command(cmd):
 CLI_TIMEOUT_DEFAULT = 180  # 秒；cfg['timeoutSec'] 覆盖（CONVENTIONS §6.6）
 
 
+CLI_EXIT_GRACE = 2.0  # 秒：模型自己退出后，输出管道还没关就当是遗留子进程拿着它
+
+
 def _watch_cli(proc, limit, cancel, finished, timed_out, stopped):
-    """命令行模型的看门狗：到 limit 秒（timed_out）或用户点停止（stopped）就整棵杀，不碰读取服务。"""
+    """命令行模型的看门狗：到 limit 秒（timed_out）或用户点停止（stopped）就整棵杀，不碰读取服务。
+
+    模型进程自己先退出、但它起的子进程还活着时（第 3 批验收②④），父链断了 kill_tree 找不到它们：
+    活着时每秒记一次子孙，退出后按记下的 + 「父 pid 是它的孤儿」收尾（procs.kill_leftovers）。
+    退出后 CLI_EXIT_GRACE 秒读循环还没结束 = 遗留子进程拿着输出管道，同样收尾，不等到超时。"""
     import time
     from . import procs
     deadline = time.monotonic() + limit
+    born = procs.created_of(proc.pid)
+    tree = {}
+    scanned = exited = None
+    swept = False
     while not finished.wait(0.2):
-        hit = timed_out if time.monotonic() >= deadline else stopped if cancel is not None and cancel.is_set() else None
-        if hit is None:
-            continue
-        if proc.poll() is None:
+        now = time.monotonic()
+        alive = proc.poll() is None
+        if alive and (scanned is None or now - scanned >= 1):
+            tree.update(procs.descendants(proc.pid))
+            scanned = now
+        hit = timed_out if now >= deadline else stopped if cancel is not None and cancel.is_set() else None
+        if hit is not None:
             hit.set()
-            procs.kill_tree(proc.pid)
+            if alive:
+                procs.kill_tree(proc.pid)
+            procs.kill_leftovers(proc.pid, born, tree)
             try:
                 proc.kill()
             except OSError:
                 pass
-        return
+            return
+        if not alive and not swept:
+            exited = exited or now
+            if now - exited >= CLI_EXIT_GRACE:
+                swept = True
+                if procs.kill_leftovers(proc.pid, born, tree):
+                    print('[text_stream] 命令行模型已退出，结束了它留下的子进程', file=sys.stderr)
 
 
 def cli_call(instruction, text, cfg, on_delta=None):

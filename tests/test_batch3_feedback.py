@@ -33,7 +33,11 @@ def test_answer_reports_real_phases_in_order(fake_index, monkeypatch):
     phases = []
     r = ask.answer("AI 做梦", on_phase=phases.append)
     assert r["status"] == "ok"
-    assert phases[0] == "检索收藏" and phases[-1] == "生成回答"
+    # 阶段带真实条数（她要的「相关 xx / 共 xx 条」）：总数 = 索引条数，生成回答 = 实际送进模型的材料数
+    n = len(FAKE_ITEMS)
+    assert phases[0] == f"检索收藏：共 {n} 条"
+    assert any(p.startswith("检索收藏：相关 ") and p.endswith(f" / 共 {n} 条") for p in phases)
+    assert phases[-1] == f"生成回答：用 {len(r['sources'])} 条材料"
 
 
 def test_answer_stopped_mid_generation_returns_cancelled_with_partial(fake_index, monkeypatch):

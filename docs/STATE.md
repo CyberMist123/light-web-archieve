@@ -2,10 +2,11 @@
 
 ## 2026-10-02 第 3 批：用户操作的结果如实反馈 + 问答停止（分支 batch3-feedback）
 
-- 问答：后端阶段（检索收藏 / 挑选材料 / 生成回答）经 `serve.py` 发 `{"type":"phase"}`，页面只显示这些；作答中有「停止」，走 `{"id","type":"cancel"}`：worker 用 `text_stream.CANCEL` 叫停——命令行模型整棵杀（`procs.kill_tree`，跳过读取服务）、HTTP 关流，回 `status=cancelled` 带半截，页面标「已停止生成」且不给收藏 / 导出；排队中的被取消就直接跳过；150 秒超时也走这条，worker 8 秒不回才 `killTree` 整个 worker。
+- 问答：后端阶段（检索收藏 / 挑选材料 / 生成回答）经 `serve.py` 发 `{"type":"phase"}`，页面只显示这些；作答中有「停止」，走 `{"id","type":"cancel"}`：worker 用 `text_stream.CANCEL` 叫停——命令行模型整棵杀（`procs.kill_tree`，跳过读取服务）、HTTP 关流，回 `status=cancelled` 带半截，页面标「已停止生成」且不给收藏 / 导出；排队中的被取消就直接跳过；插件兜底超时也走这条，worker 8 秒不回才 `killTree` 整个 worker。
 - 写盘失败如实说：问收藏页收藏回答 / 存判断 / 删 / 编辑 / 清空，批注删除 / 提交 / 编辑都是「写成功才改界面，失败回滚 + 『没保存上，内容还在，可重试：原因』」；批注提交失败撤回那条，重试不重复。
 - 删除收藏：`remove.py` 逐条 try、`finally` 重建目录，JSON 加 `ok/code/message`、和退出码一致；页面只摘确认删掉的，没删掉的保持选中并说原因。回收站页头 `lb-page: trash`（`catalog.library_pages` 认旧版无标记页），菜单走 `openLibraryPage('trash')`。
 - 投喂回写只把成功的那段链接换成 `[[笔记]]`，附言 / 其他链接原样，整行成功才打勾，导入期间新贴的行不动；附件原因与逐个错误拼接显示；挂附件退出码 2 的提示带原因。
+- 人工验收第一轮的返工（她测的②④不过）：④ 的真根因在 worker：Windows 上读请求线程一直挂着同步读标准输入，预热线程此时载 numpy 等 DLL，DLL 初始化探标准输入被堵、攥着加载锁，新线程起不来——`cli_call` 卡在启动看门狗、提示词送不进命令行模型，直到插件再写一行（第一问空等到超时）。`serve._private_stdin` 让读线程读复制的句柄、进程标准输入换成 NUL（`tests/test_serve_stdin.py` 对照：不修就卡到被杀，修后 0.2 秒）。另外：命令行模型自己退出了、但它起的子进程还活着并拿着输出管道时，读循环会等子进程睡完，插件 150 秒先超时；那时模型已退出，看门狗也不收它的子进程。现 `text_stream._watch_cli` 活着时每秒记一次子孙，模型退出 2 秒管道还没关、或停止 / 超时时模型已退出，就按「记下的 + 父 pid 是它的孤儿」收尾（`procs.kill_leftovers`，pid 和创建时间都对上才杀，跳过读取服务）。插件兜底超时改为 `2 × textAI.timeoutSec + 60` 秒（`answerBackstopMs`），不再比后端短。阶段带真实条数：「检索收藏：共 N 条」「检索收藏：相关 M / 共 N 条」「挑选材料：从 K 条候选里挑」「生成回答：用 S 条材料」。排队那条多「↳ 立即发送」（停掉当前回答、马上问它），× 改叫「取消发送」。
 - 验收：`tests/acceptance/20261002-batch3.md`。部署：拷插件 + `python -m link_brain catalog` + 重载 Obsidian（问答 worker 随插件重载重起）。
 
 ## 2026-10-02 第 2 批：减摩擦 + 页面状态恢复 + 来源阅读（分支 batch2-smooth）

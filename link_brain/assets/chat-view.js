@@ -189,6 +189,8 @@ style.textContent = `
 .lbchat-queued-text{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .lbchat button.lbchat-queued-x{flex:none;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-faint);font-size:16px;padding:0 4px;height:auto;cursor:pointer;}
 .lbchat button.lbchat-queued-x:hover{color:var(--text-normal);}
+.lbchat button.lbchat-queued-now{flex:none;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-muted);font-size:12px;padding:0 6px;height:auto;cursor:pointer;white-space:nowrap;}
+.lbchat button.lbchat-queued-now:hover{color:var(--text-normal);}
 .lb-visually-hidden{position:absolute!important;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;}
 .lbc-star{opacity:0;pointer-events:none;transition:opacity .15s;}.lbc-card:hover .lbc-star,.lbc-card:focus-within .lbc-star{opacity:1;pointer-events:auto;}
 @media(hover:none){.lbc-star{opacity:1;pointer-events:auto;}}
@@ -284,7 +286,12 @@ send.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stro
 const queued=[];
 const drawQueue=()=>{queueEl.empty();queueEl.hidden=!queued.length;queued.forEach((q,i)=>{const row=queueEl.createEl('div',{cls:'lbchat-queued'});
   row.createEl('span',{cls:'lbchat-queued-tag',text:'排队'});row.createEl('span',{cls:'lbchat-queued-text',text:q});
-  const x=row.createEl('button',{cls:'lbchat-queued-x',text:'×',attr:{title:'取消这条'}});x.type='button';x.onclick=()=>{queued.splice(i,1);drawQueue();};});};
+  const now=row.createEl('button',{cls:'lbchat-queued-now',text:'↳ 立即发送',attr:{title:'停掉正在生成的回答，马上问这条'}});now.type='button';now.onclick=()=>sendNow(i);
+  const x=row.createEl('button',{cls:'lbchat-queued-x',text:'×',attr:{title:'取消发送'}});x.type='button';x.onclick=()=>{queued.splice(i,1);drawQueue();};});};
+// 排队那条「立即发送」（参照 Codex 的「引导」）：挪到队首，停掉当前回答；停下后 submit 的 finally 会从队首接着问它。
+function sendNow(i){const [q]=queued.splice(i,1);if(q===undefined)return;queued.unshift(q);drawQueue();
+  if(!busy){const next=queued.shift();drawQueue();submit(next);return;}
+  const p=provider();stop.disabled=true;showPhase('正在停止');if(!p?.stopArchiveAnswer?.())stop.disabled=false;}
 drawQueue();
 composer.onsubmit=e=>{e.preventDefault();const v=search.value.trim();if(!v)return;search.value='';saveDraft('');
   if(busy){queued.push(v);drawQueue();return;}submit(v);};

@@ -22,14 +22,36 @@ def _warm():
         pass
 
 
+def _private_stdin():
+    """拿一份只给读请求线程用的标准输入，进程的标准输入换成 NUL。
+
+    Windows 上读线程一直挂着一个同步 ReadFile 等下一行；这时别的线程载 DLL（预热 import numpy 等），
+    DLL 初始化会去探标准输入（GetFileType），被挂着的读堵住，而它手里攥着加载锁 —— 新线程都起不来，
+    cli_call 卡在启动看门狗、提示词送不进命令行模型，直到插件再写一行才松开（第 3 批验收④：
+    第一问空等到超时）。复制一份句柄专门读，原来的 0 号指向 NUL（dup2 会同步 SetStdHandle），
+    DLL 再探就不会被读堵住。别的平台原样用 sys.stdin。"""
+    import os
+    if os.name != 'nt':
+        return sys.stdin
+    try:
+        fd = os.dup(sys.stdin.fileno())
+        nul = os.open(os.devnull, os.O_RDONLY)
+        os.dup2(nul, 0)
+        os.close(nul)
+    except (OSError, ValueError, AttributeError):
+        return sys.stdin
+    return open(fd, 'r', encoding='utf-8', errors='replace')  # 协议是 UTF-8（插件也设了 PYTHONIOENCODING）
+
+
 def run(args):
+    stdin = _private_stdin()
     incoming = queue.Queue()
     lock = threading.Lock()
     state = {'id': None, 'cancel': None}
     cancelled = set()
 
     def read():
-        for line in sys.stdin:
+        for line in stdin:
             try:
                 msg = json.loads(line)
             except ValueError:

@@ -5,7 +5,8 @@
 //   批注：删除失败那条还在、不再报「已删」；提交失败撤回、重试不重复
 //   删除收藏：只摘确认删掉的，没删掉的保持选中并说清原因
 //   投喂回写：只换成功的那段链接，附言和别的链接原样；导入期间新贴的行不动
-//   插件：stopArchiveAnswer 发 {"type":"cancel"}；150 秒超时也走停止协议，不再直接杀 worker
+//   插件：stopArchiveAnswer 发 {"type":"cancel"}；兜底超时（2×textAI.timeoutSec+60 秒）也走停止协议，不再直接杀 worker
+//   排队：「立即发送」停掉当前回答并马上问那条，「×」取消发送
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('fs'), vm = require('vm'), { EventEmitter } = require('events');
@@ -62,6 +63,25 @@ async function chatTests() {
   assert.ok(last.stopped && last.failed && last.content.startsWith('写到一半') && last.content.includes('已停止生成'), JSON.stringify(last));
   assert.ok(stop.hidden, '停下后停止按钮收起');
   assert.equal(q('.lbchat-bookmark'), null, '停下的半截不给收藏');
+
+  // 排队：「立即发送」停掉当前、马上问那条；「×」取消发送
+  q('.lbchat-search').value = '第一问'; await q('.lbchat-composer').onsubmit({ preventDefault() {} }); await tick(5);
+  const first = req;
+  for (const v of ['第二问', '第三问']) { q('.lbchat-search').value = v; await q('.lbchat-composer').onsubmit({ preventDefault() {} }); }
+  let rows = A.container.querySelectorAll('.lbchat-queued');
+  assert.equal(rows.length, 2, '作答中再发进排队');
+  rows[1].querySelector('.lbchat-queued-now').onclick();
+  assert.equal(stops, 2, '立即发送 = 停掉当前回答');
+  assert.deepEqual(A.container.querySelectorAll('.lbchat-queued-text').map(e => e.textContent), ['第三问', '第二问'], '被点的那条挪到队首');
+  first.res({ status: 'cancelled', markdown: '' }); await tick(10);
+  assert.equal(req.question, '第三问', '停下后马上问被点的那条');
+  rows = A.container.querySelectorAll('.lbchat-queued');
+  assert.equal(rows.length, 1);
+  rows[0].querySelector('.lbchat-queued-x').onclick();
+  assert.equal(A.container.querySelectorAll('.lbchat-queued').length, 0, '× 取消发送');
+  req.res({ status: 'ok', markdown: '第三问的答案', sources: [] }); await tick(10);
+  assert.equal(req.question, '第三问', '取消的那条不再发');
+  console.log('PASS chat queue: 立即发送 stops current and asks that one next; × cancels a queued question');
 
   // 正常答完一条，再试「收藏回答」写盘失败
   q('.lbchat-search').value = '再问'; await q('.lbchat-composer').onsubmit({ preventDefault() {} }); await tick(5);
@@ -177,6 +197,13 @@ async function pluginCancelTests() {
   function spawn() { const c = new EventEmitter(); c.stdout = new EventEmitter(); c.stdout.setEncoding = () => {}; c.stderr = new EventEmitter(); c.stdin = new EventEmitter(); c.sent = []; c.stdin.write = s => { c.sent.push(JSON.parse(s)); }; c.kill = () => c.emit('close'); c.pid = 777; children.push(c); return c; }
   const Plugin = loadPlugin(spawn);
   const p = new Plugin(); p.repoRoot = process.cwd(); const killed = []; p.killTree = async pid => { killed.push(pid); return [pid]; };
+  // 兜底超时跟着后端模型超时走（验收④：旧版写死 150 秒，比后端 180 秒还短）
+  p.settings = { textAI: { timeoutSec: 180 } };
+  assert.equal(p.answerBackstopMs(), 420000);
+  p.settings = { textAI: {} };
+  assert.equal(p.answerBackstopMs(), 420000, '没填 timeoutSec 按后端默认 180');
+  p.settings = { textAI: { timeoutSec: 30 } };
+  assert.equal(p.answerBackstopMs(), 120000);
   const phases = [];
   const a = p.answerArchive({ question: '慢', onPhase: t => phases.push(t) });
   const c = children[0]; const id = c.sent[0].id;

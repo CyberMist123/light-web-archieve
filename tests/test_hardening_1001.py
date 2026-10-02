@@ -33,6 +33,12 @@ class _FakeProc:
     def wait(self):
         return 0
 
+    # 看门狗（text_stream._watch_cli）要用：起来就记 pid 的创建时间、轮询 poll
+    pid = 0
+
+    def poll(self):
+        return 0
+
 
 def _run_model(monkeypatch, settings, name):
     seen = []

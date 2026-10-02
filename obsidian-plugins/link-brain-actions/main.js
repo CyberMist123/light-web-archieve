@@ -830,7 +830,7 @@ class LinkBrainActions extends Plugin {
         if(event.type==='delta')pending.onDelta?.(event.text);
         if(event.type==='phase')pending.onPhase?.(event.text);
         if(event.type==='result'){clearTimeout(pending.timer);clearTimeout(pending.cancelTimer);this.answerPending.delete(event.id);
-          if(pending.timedOut)pending.reject(new Error('回答超过 '+Math.round((this.answerTimeoutMs||150000)/1000)+' 秒没有完成，已停止。可以缩小问题范围后重试'));else pending.resolve(event.result);}
+          if(pending.timedOut)pending.reject(new Error('回答超过 '+Math.round(this.answerBackstopMs()/1000)+' 秒没有完成，已停止。可以缩小问题范围后重试'));else pending.resolve(event.result);}
       }
     });
     child.stderr.on('data',()=>{});
@@ -846,13 +846,20 @@ class LinkBrainActions extends Plugin {
     child.stdin.on('error',()=>{});
     return child;
   }
+  // 插件这头的超时只是兜底：模型超时以后端为准（textAI.timeoutSec，默认 180 秒；挑选材料和生成回答各调一次模型），
+  // 兜底 = 2 × timeoutSec + 60 秒。旧版写死 150 秒、比后端还短，会抢在后端前面把正常回答判超时（第 3 批验收④）。
+  answerBackstopMs() {
+    if(this.answerTimeoutMs)return this.answerTimeoutMs;
+    const sec=Number(this.settings?.textAI?.timeoutSec)||180;
+    return (2*sec+60)*1000;
+  }
   // onPhase：后端真实阶段（检索收藏 / 挑选材料 / 生成回答），页面只显示这些，不轮播假文案（§1.6）。
   requestAnswer(request,onDelta,onPhase) {
     const worker=this.ensureAnswerWorker();
     const id=String(this.answerSequence=(this.answerSequence||0)+1);
     return new Promise((resolve,reject)=>{
-      // 150 秒超时也走「停止」协议（§6.7）：worker 杀掉自己起的 claude / codex、回 cancelled；不再整个 worker 一刀切
-      const timer=setTimeout(()=>{const p=this.answerPending.get(id);if(p)p.timedOut=true;this.cancelAnswer(id);},this.answerTimeoutMs||150000);
+      // 兜底超时也走「停止」协议（§6.7）：worker 杀掉自己起的 claude / codex、回 cancelled；不再整个 worker 一刀切
+      const timer=setTimeout(()=>{const p=this.answerPending.get(id);if(p)p.timedOut=true;this.cancelAnswer(id);},this.answerBackstopMs());
       this.answerPending.set(id,{resolve,reject,onDelta,onPhase,timer,worker});
       worker.stdin.write(JSON.stringify({id,...request})+'\n');
     });

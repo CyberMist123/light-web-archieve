@@ -191,7 +191,7 @@ if (await LB.reuseDom(dv.container)) return;   // 版本同、DOM 在 → 挂回
 4. 跨入口文件锁：`storage.file_lock(name, wait_s)`（把 `accounts.py:336-510` 的 O_EXCL + 心跳 + 陈旧判定抽出来，账号锁改成它的一个实例）。必须加锁的临界区：`catalog.build`（remove / pdftext / videos / attachments / 插件都会调）、`problems.jsonl` 压实、`sync-quota.json`、`answers.json`。
 5. 写文件**必须**用 `storage.write_json / atomic_write_text / atomic_write_bytes`；追加日志允许 `open('a')` 但单次写入 ≤ 4 KB。JS 端写 vault 文件走 `LB.writeJson(path, obj)`（写 `.tmp` 再 `adapter.rename`）。
 6. 子进程超时必须成对出现：`Popen` 处就写 timeout，超时走 `killTree`。CLI 模型（`text_stream.cli_call`）超时 = `cfg.timeoutSec`，默认 180。
-7. 后台 worker（`serve.py`）停止 = 插件发 `{"id", "type":"cancel"}` → worker 杀自己起的 claude/codex 子进程并回 `result status=cancelled`；150 秒超时也走这条，不再 `worker.kill()` 留孤儿。
+7. 后台 worker（`serve.py`）停止 = 插件发 `{"id", "type":"cancel"}` → worker 杀自己起的 claude/codex 子进程并回 `result status=cancelled`；插件兜底超时（`2 × textAI.timeoutSec + 60` 秒，必须长于后端模型超时）也走这条，不再 `worker.kill()` 留孤儿。命令行模型自己退出后留下的子进程（父链已断）由 `procs.kill_leftovers` 收：只认看门狗记过的（pid + 创建时间对上）和父 pid 是它、创建晚于它的孤儿。
 
 **形状**
 ```python
