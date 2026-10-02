@@ -7,7 +7,10 @@ root.classList.add('lba-annot-host');
 const notify = (m) => { try { new Notice(m); } catch { console.log('[annot]', m); } };
 const nickname = () => app.plugins.plugins['link-brain-actions']?.settings?.nickname || '';
 
-const style = root.createEl('style');
+// 1002：样式放进 document.head（全页共用一份）。原来放在批注块自己的容器里——批注框挪进左栏后，
+// Obsidian 卸载底部那段时样式跟着没了，左栏里的批注框就变成没样式的样子。
+const hasDoc = typeof document !== 'undefined' && !!document.head;   // 单测的假 DOM 里没有 document
+const style = (hasDoc && document.getElementById('lba-annot-style')) || (hasDoc ? document.head : root).createEl('style', { attr: { id: 'lba-annot-style' } });
 style.textContent = `
 /* 批注区去框线、留白（Owner 2026-09-17）：不要盒子/分隔线，配色随 Obsidian 主题变量。 */
 .lba-annot{margin-top:30px;font-family:var(--font-interface),sans-serif;}
