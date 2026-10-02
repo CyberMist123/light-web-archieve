@@ -60,10 +60,10 @@ def _ids():
 
 
 def real_pdf() -> bytes:
-    import pymupdf
-    doc = pymupdf.open()
-    doc.new_page().insert_text((72, 72), "tutorial page one: enough text for the text layer check")
-    return doc.tobytes()
+    import tempfile
+    from _samples import text_pdf
+    with tempfile.TemporaryDirectory() as tmp:
+        return text_pdf(Path(tmp) / "t.pdf", [["tutorial page one: enough text for the text layer check"]]).read_bytes()
 
 
 def fake_fetch(payload: bytes | None = None, *, calls: list | None = None):

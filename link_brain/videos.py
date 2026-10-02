@@ -1,7 +1,6 @@
 """下载视频、为旧 RAW 新建版本；转写作为独立命令，不阻塞导入。"""
 from __future__ import annotations
 import os
-import re
 import shutil
 import subprocess
 from datetime import datetime, timedelta
@@ -91,7 +90,8 @@ def screen_text_enabled():
 # 1001 审计 A-6 / xc-5：转写失败要留下原因；「没人声 / 没音轨」是结论不是失败；
 # 同一原因连续失败 GIVE_UP_AFTER 次就退避 BACKOFF_DAYS 天，退避中不重试、不算失败（这步不再天天 exit=2）。
 DONE_STATUSES = ('ok', 'no_speech', 'no_audio')
-QUIET_STATUSES = ('ok', 'hit', 'no_speech', 'no_audio', 'backoff')
+# skipped = 语音识别没开 / 没配（CONVENTIONS §4.4）：不算失败，不计次数；开了以后下次自然补上
+QUIET_STATUSES = ('ok', 'hit', 'no_speech', 'no_audio', 'backoff', 'skipped')
 GIVE_UP_AFTER = 3
 BACKOFF_DAYS = 7
 _NO_AUDIO = ('does not contain any stream', 'matches no streams', 'Output file is empty')
@@ -100,18 +100,18 @@ _NO_AUDIO = ('does not contain any stream', 'matches no streams', 'Output file i
 def _last_line(text, limit=300):
     lines = [x.strip() for x in str(text or '').splitlines() if x.strip()]
     line = lines[-1] if lines else ''
-    return re.sub(r'\s*（可加 --via .*$', '', line)[:limit]  # media.py 的换引擎提示不算原因
+    return line[:limit]
 
 
 def _now():
     return datetime.now().astimezone()
 
 
-def _failed(prev, reason, now):
+def _failed(prev, reason, now, code='TRANSIENT.SERVICE_BUSY', engine=''):
     """同一原因连着失败就累计；够次数写 retry_after。"""
     same = prev.get('status') == 'failed' and prev.get('error') == reason
     count = int(prev.get('fail_count') or 1) + 1 if same else 1
-    doc = {'status': 'failed', 'text': '', 'engine': 'media.py audio / CMX', 'error': reason,
+    doc = {'status': 'failed', 'text': '', 'engine': engine, 'error': reason, 'code': code,
            'fail_count': count, 'last_tried': now.isoformat(timespec='seconds')}
     if count >= GIVE_UP_AFTER:
         doc['retry_after'] = (now + timedelta(days=BACKOFF_DAYS)).isoformat(timespec='seconds')
@@ -126,21 +126,43 @@ def _backing_off(prev, now):
         return False
 
 
-def _speech(audio, prev, now):
-    """跑 media.py audio（CMX 本机 ASR），返回要写进 transcript.json 的结论（不含 screen）。"""
-    from .vision import MEDIA_PY
-    proc = subprocess.run(['python', MEDIA_PY, 'audio', str(audio)], capture_output=True, text=True,
-                          encoding='utf-8', errors='replace', timeout=900)
-    lines = (proc.stdout or '').strip().splitlines()
-    text = '\n'.join(lines[:-1] if lines and lines[-1].startswith('(引擎 ') else lines).strip()
-    if proc.returncode == 0 and text:
-        return {'status': 'ok', 'text': text, 'engine': 'media.py audio / CMX', 'error': None}
-    if re.search(r'\bno_speech\b', proc.stdout or '') or proc.returncode == 0:
-        # 纯音乐 / 没人声：CMX 回 no_speech（media.py 退出码 1）或空文本——这是结论，画面文字照抽
-        return {'status': 'no_speech', 'text': '', 'engine': 'media.py audio / CMX', 'error': None,
+def _speech(audio, prev, now, cfg):
+    """语音识别执行器（asr.transcribe，设置里的「语音识别」），返回要写进 transcript.json 的结论（不含 screen）。"""
+    from . import asr
+    got = asr.transcribe(audio, cfg)
+    engine = got.get('engine') or cfg.get('mode') or ''
+    if got.get('status') == 'ok' and (got.get('text') or '').strip():
+        return {'status': 'ok', 'text': got['text'].strip(), 'engine': engine, 'error': None}
+    if got.get('status') == 'ok':
+        # 纯音乐 / 没人声：识别出空文本——这是结论，画面文字照抽
+        return {'status': 'no_speech', 'text': '', 'engine': engine, 'error': None,
                 'last_tried': now.isoformat(timespec='seconds')}
-    reason = _last_line(proc.stdout) or _last_line(proc.stderr) or f'media.py audio 退出码 {proc.returncode}'
-    return _failed(prev, reason, now)
+    if got.get('status') == 'skipped':
+        return {'status': 'skipped', 'text': '', 'engine': engine, 'code': got.get('code'), 'error': got.get('error'),
+                'last_tried': now.isoformat(timespec='seconds')}
+    return _failed(prev, got.get('error') or '语音识别失败', now, got.get('code') or 'TRANSIENT.SERVICE_BUSY', engine)
+
+
+def _report(row, result):
+    """转写结论进问题记录：失败 / 没音轨 / 没人声按码登记，没开记一条步骤级 SKIPPED，转出来了就清掉这篇的记录。"""
+    from . import problems
+    item_id, title = row['item_id'], (row['title'] if 'title' in row.keys() else None)
+    status = result.get('status')
+    if status == 'ok':
+        problems.resolve('videos.transcribe', item_id)
+        problems.resolve('videos.transcribe', None, 'SKIPPED.NOT_CONFIGURED')
+    elif status == 'skipped':
+        problems.report('videos.transcribe', result.get('code') or 'SKIPPED.NOT_CONFIGURED',
+                        result.get('error') or '语音识别没开', action='skipped')
+    elif status == 'no_speech':
+        problems.report('videos.transcribe', 'PERMANENT.NO_SPEECH', '视频里没听出人声（背景音乐 / 环境声）',
+                        item_id=item_id, title=title)
+    elif status == 'no_audio':
+        problems.report('videos.transcribe', 'PERMANENT.NO_AUDIO', '视频没有音轨', item_id=item_id, title=title)
+    elif status == 'failed':
+        problems.report('videos.transcribe', result.get('code') or 'TRANSIENT.SERVICE_BUSY',
+                        result.get('error') or '语音识别失败', item_id=item_id, title=title,
+                        next_at=result.get('retry_after'))
 
 
 def transcribe(row):
@@ -164,6 +186,14 @@ def transcribe(row):
     now=_now()
     if _backing_off(prev, now):
         return {'item_id':row['item_id'],'status':'backoff','error':prev.get('error'),'retry_after':prev['retry_after']}
+    from . import asr, providers
+    cfg=providers.resolve('asrAI')
+    if cfg is None or not asr.available(cfg):
+        # 语音识别没开 / 没配：先不抽音轨（别白跑 ffmpeg），不写 transcript.json（开了以后自然补上）
+        got=asr.not_running(cfg) if cfg else providers.skipped_for('asrAI')
+        result={'status':'skipped','code':got['code'],'error':got['error']}
+        _report(row,result)
+        return {'item_id':row['item_id'],'status':'skipped','error':got['error']}
     audio=obj/'derived/transcript-audio.wav';audio.parent.mkdir(exist_ok=True)
     try:
         try:
@@ -175,9 +205,10 @@ def transcribe(row):
             else:
                 result=_failed(prev,'抽音轨失败：'+(_last_line(err) or f'ffmpeg 退出码 {exc.returncode}'),now)
         else:
-            result=_speech(audio,prev,now)
+            result=_speech(audio,prev,now,cfg)
     except subprocess.TimeoutExpired as exc:
-        result=_failed(prev,f'超时（{int(exc.timeout or 0)} 秒）：{Path(str(exc.cmd[0] if exc.cmd else "")).name}',now)
+        result=_failed(prev,f'超时（{int(exc.timeout or 0)} 秒）：{Path(str(exc.cmd[0] if exc.cmd else "")).name}',now,
+                       'TRANSIENT.STEP_TIMEOUT')
     except (subprocess.SubprocessError,OSError) as exc:
         result=_failed(prev,f'{type(exc).__name__}: {exc}'[:300],now)
     finally:audio.unlink(missing_ok=True)
@@ -186,6 +217,10 @@ def transcribe(row):
         old_screen=prev.get('screen') or {}
         # 画面文字与语音并存：背景乐转写成歌词时以它为准；重试转写时上次抽好的画面文字直接沿用
         result['screen']=old_screen if old_screen.get('status')=='ok' else extract(obj/entry['file'])
+    _report(row,result)
+    if result['status']=='skipped':
+        # 识别服务半路没了（探测时还在）：不写 transcript.json，下次再来
+        return {'item_id':row['item_id'],'status':'skipped','error':result.get('error')}
     storage.write_json(output,result)
     render.render_object(row['source'],row['source_id'])
     out={'item_id':row['item_id'],'status':result['status'],'chars':len(result['text'])}

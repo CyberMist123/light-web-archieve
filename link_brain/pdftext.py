@@ -1,228 +1,36 @@
-"""附件 PDF / .docx → Markdown（`derived/attachments/<doc_id>.md`）。
+"""附件 PDF / .docx → Markdown（`derived/attachments/<doc_id>.md`）：哪几份要转、转完记在哪、失败了下次还试不试。
 
-PDF 两条路，先便宜后贵，全都在本机：
-
-1. **文字层直抽**：`media.py pdf <文件> --out`（本地 pymupdf，免费、秒级）。
-2. **渲成图再 OCR**：文字层是坏的就退回这条——pymupdf 把每页渲成 PNG，
-   再逐页 `media.py image --ocr`（本地 RapidOCR + Owner 自己的 key，也免费）。
-
-为什么需要第 2 条：小红书上传的教程 PDF 常常是设计工具导出的**子集化字体**，
-ToUnicode 表是坏的，文字层抽出来是「⼈机恋」「9 flags」「dPPPf」这种鬼东西
-（2026-09-04 实测 `p模式教程-机教版.pdf`）。渲成图走 OCR 出来的是「人机恋」「：flags」，
-平均置信度 0.95。判据就是**康熙部首 / CJK 兼容区**那几段码位——正常中文永远不用它们。
-
-硬约束 3：不自研图片理解，一律 subprocess 调 `media.py`（和 `vision.py` 同一套）。
+真正的转换在 `docconv.py`（随包自带：pypdfium2 抽文字层 → 坏了 / 扫描件渲成图走本地 OCR；python-docx 读 Word）。
+这里只管编排：
+- 转出来 → 写 md（落盘前 mdsafe.neutralize），清掉失败标记，问题记录里这篇的转换问题标已解决；
+- 失败 → attachments.json 记 conversion_failed（带故障码和当时的 sha256），问题记录登记；
+  **只有 PERMANENT（加密 / 损坏 / 不支持的格式）同一份字节不再重试**，SKIPPED（OCR 没开）和 TRANSIENT 下次照转。
 """
 
 from __future__ import annotations
 
-import re
-import shutil
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
 
-from . import storage, vision as vision_mod
-
-MEDIA_PY = vision_mod.MEDIA_PY
-
-# 正常中文文本永远不会用到这几段：康熙部首、CJK 部首补充、CJK 兼容形式。
-# 出现它们 = PDF 的 ToUnicode 映射坏了（子集化字体），文字层不能要。
-DAMAGED_RANGES = ((0x2E80, 0x2EFF), (0x2F00, 0x2FDF), (0xFE30, 0xFE4F))
-DAMAGED_RATIO = 0.002  # 千分之二就够判：正常文本是 0
-MIN_CHARS_PER_PAGE = 40  # 每页平均还不到这些字 = 基本是扫描件，文字层没内容
-DEFAULT_DPI = 170
-OCR_TIMEOUT = 180
+from . import storage
+from .docconv import DAMAGED_RATIO, damage_ratio, looks_damaged  # noqa: F401 - 兼容旧引用
 
 
-def damage_ratio(text: str) -> float:
-    """坏字形占比。正常文本返回 0。"""
-    if not text:
-        return 0.0
-    bad = sum(
-        1 for ch in text if any(lo <= ord(ch) <= hi for lo, hi in DAMAGED_RANGES)
-    )
-    return bad / len(text)
+def _legacy_shape(r: dict[str, Any]) -> dict[str, Any]:
+    """docconv 的 R → 旧调用方认的 {status, method, markdown, note, partial, code}。"""
+    return {"status": r.get("status"), "method": r.get("method"), "markdown": r.get("markdown"),
+            "note": r.get("note") or r.get("error"), "partial": int(r.get("partial") or 0), "code": r.get("code") or ""}
 
 
-def looks_damaged(text: str, *, pages: int = 1) -> tuple[bool, str]:
-    """文字层能不能要。返回 `(要不要退回 OCR, 原因)`。"""
-    stripped = re.sub(r"\s+", "", text or "")
-    if not stripped:
-        return True, "文字层是空的（扫描件？）"
-    if pages > 0 and len(stripped) / pages < MIN_CHARS_PER_PAGE:
-        return True, f"每页平均只有 {len(stripped) // max(pages, 1)} 个字，像扫描件"
-    ratio = damage_ratio(stripped)
-    if ratio > DAMAGED_RATIO:
-        return True, f"字形映射坏了（康熙部首/兼容区占 {ratio:.1%}，子集化字体）"
-    return False, "文字层可用"
-
-
-def _run_media(args: list[str], *, timeout: int) -> tuple[bool, str]:
-    try:
-        proc = subprocess.run(
-            ["python", MEDIA_PY, *args],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-        )
-    except Exception as exc:  # noqa: BLE001
-        return False, f"subprocess 调用失败: {type(exc).__name__}: {exc}"
-    out = (proc.stdout or "").strip()
-    if proc.returncode != 0:
-        return False, (proc.stderr or "").strip() or out or f"media.py 退出码 {proc.returncode}"
-    return True, out
-
-
-def text_layer_markdown(pdf_path: Path, *, timeout: int = 300) -> tuple[str | None, str]:
-    """`media.py pdf --out` 抽文字层。返回 `(markdown 或 None, 说明)`。
-
-    `--out` 只回一行「[已落文件] <路径> (N 字)」，所以要把那个路径读回来。
-    """
-    ok, out = _run_media(["pdf", str(pdf_path), "--no-ocr", "--out"], timeout=timeout)
-    if not ok:
-        return None, out
-    match = re.search(r"\[已落文件\]\s*(.+?\.md)", out)
-    if not match:
-        return None, f"media.py pdf 没给出落地文件：{out[:200]}"
-    produced = Path(match.group(1).strip())
-    if not produced.exists():
-        return None, f"media.py pdf 说落在 {produced}，但文件不在"
-    return produced.read_text(encoding="utf-8"), f"文字层来自 {produced.name}"
-
-
-def ocr_markdown(
-    pdf_path: Path, *, dpi: int = DEFAULT_DPI, verbose: bool = False
-) -> tuple[str | None, str]:
-    """每页渲成 PNG 再 `media.py image --ocr`，拼成一份 Markdown。"""
-    try:
-        import pymupdf
-    except ImportError as exc:  # pragma: no cover - 环境问题，说清楚就行
-        return None, f"没装 pymupdf，渲不了页：{exc}"
-
-    def log(msg: str) -> None:
-        if verbose:
-            print(f"[pdf] {msg}", file=sys.stderr)
-
-    # 1001（审计 attach-4）：打不开 / 有密码 / 某一页渲不出来都接住——以前直接抛，整晚附件补下停在这一篇
-    try:
-        doc = pymupdf.open(str(pdf_path))
-    except Exception as exc:  # noqa: BLE001
-        return None, f"PDF 打不开（可能损坏）：{type(exc).__name__}: {exc}"
-    if _needs_password(doc):
-        doc.close()
-        return None, "PDF 有打开密码，转不了（字节已保存）"
-    total = doc.page_count
-    pages = total
-    lines = [f"# {pdf_path.name}", "", f"（{total} 页，OCR 逐页识别）", ""]
-
-    failed = 0
-    tmp_dir = Path(tempfile.mkdtemp(prefix="link-brain-pdf-"))
-    try:
-        for index in range(pages):
-            png = tmp_dir / f"page-{index + 1:03d}.png"
-            lines += [f"## 第 {index + 1} 页", ""]
-            try:
-                doc[index].get_pixmap(dpi=dpi).save(str(png))
-                log(f"OCR 第 {index + 1}/{pages} 页")
-                result = vision_mod.run_ocr(png, timeout=OCR_TIMEOUT)
-            except Exception as exc:  # noqa: BLE001 - 单页坏了只影响这一页
-                result = {"status": "failed", "error": f"这一页渲不出来：{type(exc).__name__}: {exc}"}
-            if result["status"] == "ok" and (result.get("ocr") or "").strip():
-                lines += [result["ocr"].strip(), ""]
-            else:
-                failed += 1
-                lines += [f"（这一页没识别出来：{result.get('error') or '空结果'}）", ""]
-            png.unlink(missing_ok=True)
-    finally:
-        doc.close()
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-
-    note = f"逐页 OCR {pages}/{total} 页" + (f"，{failed} 页失败" if failed else "")
-    # 单页失败只在那一页写占位，整份照出（扫描件里一页空白不该让整份永远转不成）；一页都没认出来才算失败
-    return (None if not pages or failed >= pages else "\n".join(lines)), note
-
-
-def _needs_password(doc) -> bool:
-    try:
-        return bool(getattr(doc, "needs_pass", False) or getattr(doc, "is_encrypted", False))
-    except Exception:  # noqa: BLE001
-        return False
-
-
-def pdf_to_markdown(
-    pdf_path: Path, *, force_ocr: bool = False, verbose: bool = False
-) -> dict[str, Any]:
-    """PDF → Markdown 文本。先文字层，坏了才 OCR。返回 `{status, method, markdown, note}`。"""
-    pdf_path = Path(pdf_path)
-    if not pdf_path.exists():
-        return {"status": "failed", "method": None, "markdown": None, "note": f"文件不在: {pdf_path}"}
-
-    pages = 0
-    try:
-        import pymupdf
-
-        with pymupdf.open(str(pdf_path)) as doc:
-            if _needs_password(doc):
-                return {"status": "failed", "method": None, "markdown": None,
-                        "note": "PDF 有打开密码，转不了（字节已保存）"}
-            pages = doc.page_count
-    except Exception:  # noqa: BLE001 - 数不出页数不影响后面的判断
-        pages = 0
-
-    if not force_ocr:
-        text, note = text_layer_markdown(pdf_path)
-        if text is not None:
-            damaged, why = looks_damaged(text, pages=pages or 1)
-            if not damaged:
-                return {"status": "ok", "method": "text_layer", "markdown": text, "note": f"{note}；{why}"}
-            if verbose:
-                print(f"[pdf] 文字层不能要（{why}），退回逐页 OCR", file=sys.stderr)
-            fallback_reason = why
-        else:
-            fallback_reason = note
-    else:
-        fallback_reason = "--force-ocr"
-
-    try:
-        text, note = ocr_markdown(pdf_path, verbose=verbose)
-    except Exception as exc:  # noqa: BLE001 - 兜底：转换出任何意外都只算这一份失败
-        text, note = None, f"OCR 出错：{type(exc).__name__}: {exc}"
-    if text is None:
-        return {"status": "failed", "method": "ocr", "markdown": None, "note": note}
-    # 有几页没认出来：照出整份，另标 partial（convert_object_attachments 会再试几晚，防的是 OCR 服务一时不通）
-    partial = re.search(r"(\d+) 页失败", note or "")
-    return {"status": "ok", "method": "ocr", "markdown": text, "note": f"{fallback_reason} → {note}",
-            "partial": int(partial.group(1)) if partial else 0}
+def pdf_to_markdown(pdf_path: Path, *, force_ocr: bool = False, verbose: bool = False) -> dict[str, Any]:
+    from . import docconv
+    return _legacy_shape(docconv.pdf_to_markdown(pdf_path, force_ocr=force_ocr, verbose=verbose))
 
 
 def docx_to_markdown(docx_path: Path, *, verbose: bool = False) -> dict[str, Any]:
-    """.docx → Markdown，走 `media.py docx --out`（本地 python-docx 读文字层）。
-
-    docx 不像 PDF 那样有子集化字体坏文字层的问题——python-docx 读的是 `word/document.xml`
-    里的 Unicode 文本，不经排版引擎，所以没有 PDF 那条 OCR 退回路。返回和 `pdf_to_markdown`
-    同构的 `{status, method, markdown, note}`。
-    """
-    docx_path = Path(docx_path)
-    if not docx_path.exists():
-        return {"status": "failed", "method": "docx", "markdown": None, "note": f"文件不在: {docx_path}"}
-    ok, out = _run_media(["docx", str(docx_path), "--out"], timeout=180)
-    if not ok:
-        return {"status": "failed", "method": "docx", "markdown": None, "note": out}
-    match = re.search(r"\[已落文件\]\s*(.+?\.md)", out)
-    if not match:
-        return {"status": "failed", "method": "docx", "markdown": None,
-                "note": f"media.py docx 没给出落地文件：{out[:200]}"}
-    produced = Path(match.group(1).strip())
-    if not produced.exists():
-        return {"status": "failed", "method": "docx", "markdown": None,
-                "note": f"media.py docx 说落在 {produced}，但文件不在"}
-    return {"status": "ok", "method": "docx", "markdown": produced.read_text(encoding="utf-8"),
-            "note": f"docx 文字层来自 {produced.name}"}
+    from . import docconv
+    return _legacy_shape(docconv.docx_to_markdown(docx_path, verbose=verbose))
 
 
 CONVERTIBLE_SUFFIXES = (".pdf", ".docx")
@@ -232,10 +40,14 @@ PARTIAL_RETRIES = 3  # 有几页没认出来的，同一份字节最多再转几
 def attachment_to_markdown(
     path: Path, *, force_ocr: bool = False, verbose: bool = False
 ) -> dict[str, Any]:
-    """按后缀分流：.pdf 走 pdf_to_markdown（坏文字层退回 OCR）、.docx 走 docx_to_markdown。"""
-    if Path(path).suffix.lower() == ".docx":
-        return docx_to_markdown(path, verbose=verbose)
-    return pdf_to_markdown(path, force_ocr=force_ocr, verbose=verbose)
+    """按后缀分流（docconv.to_markdown；设置里关了附件转换就是 skipped）。"""
+    from . import docconv
+    return _legacy_shape(docconv.to_markdown(path, force_ocr=force_ocr, verbose=verbose))
+
+
+def _permanent(code: str | None) -> bool:
+    # 旧记录没有码：当时只有加密 / 损坏才会落 conversion_failed，按 PERMANENT 算
+    return not code or str(code).startswith("PERMANENT.")
 
 
 def attachment_md_path(source_key: str, source_id: str, doc_id: str) -> Path:
@@ -249,7 +61,14 @@ def convert_object_attachments(
     """把一个对象已经下下来的 PDF 附件都转成 `derived/attachments/<doc_id>.md`。"""
     from . import attachments as attachments_mod
 
+    from . import problems
+
     object_dir = storage.object_dir(source_key, source_id)
+    try:
+        meta = storage.read_json(object_dir / "meta.json")
+    except (OSError, ValueError):
+        meta = {}
+    item_id = meta.get("item_id") or f"{source_key}-{source_id}"
     results = []
     for doc_id, record in attachments_mod.load_downloaded(source_key, source_id).items():
         path = object_dir / "attachments" / (record.get("file") or "")
@@ -272,22 +91,34 @@ def convert_object_attachments(
             continue
         # 1001（审计 attach-4）：同一份字节已经转失败过（加密 / 损坏）就别每晚再 OCR 一遍；换了文件或 --force 才重试
         prior = record.get("conversion_failed") or {}
-        if prior and not force and prior.get("sha256") == record.get("sha256"):
-            results.append({"doc_id": doc_id, "status": "conversion_failed", "note": prior.get("note")})
+        if prior and not force and prior.get("sha256") == record.get("sha256") and _permanent(prior.get("code")):
+            results.append({"doc_id": doc_id, "status": "conversion_failed", "note": prior.get("note"),
+                            "code": prior.get("code") or ""})
             continue
         try:
             outcome = attachment_to_markdown(path, force_ocr=force_ocr, verbose=verbose)
-        except Exception as exc:  # noqa: BLE001 - 坏文件让 pymupdf 直接抛，只算这一份失败
-            outcome = {"status": "failed", "note": f"{type(exc).__name__}: {exc}"}
+        except Exception as exc:  # noqa: BLE001 - 转换出任何意外都只算这一份失败（下次再试）
+            outcome = {"status": "failed", "note": f"{type(exc).__name__}: {exc}", "code": "TRANSIENT.SERVICE_BUSY"}
+        if outcome["status"] == "skipped":
+            # 没开（附件转换关了 / 扫描件但 OCR 没开）：不算失败、不标 conversion_failed，开了以后下次自然转
+            problems.report("attachments.convert", outcome.get("code") or "SKIPPED.NOT_CONFIGURED",
+                            f"{record.get('name') or path.name}：{outcome['note']}", action="skipped")
+            results.append({"doc_id": doc_id, "status": "skipped", "note": outcome["note"],
+                            "code": outcome.get("code") or "SKIPPED.NOT_CONFIGURED"})
+            continue
         if outcome["status"] != "ok":
-            attachments_mod.mark_conversion(source_key, source_id, doc_id, outcome["note"])
-            results.append({"doc_id": doc_id, "status": "failed", "note": outcome["note"]})
+            code = outcome.get("code") or "TRANSIENT.SERVICE_BUSY"
+            attachments_mod.mark_conversion(source_key, source_id, doc_id, outcome["note"], code=code)
+            problems.report("attachments.convert", code, f"{record.get('name') or path.name}：{outcome['note']}",
+                            item_id=item_id, title=meta.get("title"))
+            results.append({"doc_id": doc_id, "status": "failed", "note": outcome["note"], "code": code})
             continue
         out.parent.mkdir(parents=True, exist_ok=True)
         from .mdsafe import neutralize  # 1001 C-2：附件全文是别人写的，落盘前打断 Dataview 可执行形态
         storage.atomic_write_text(out, neutralize(outcome["markdown"]))
         attachments_mod.mark_conversion(source_key, source_id, doc_id, None,
                                         partial_pages=int(outcome.get("partial") or 0))
+        problems.resolve("attachments.convert", item_id)
         results.append(
             {"doc_id": doc_id, "status": "ok", "method": outcome["method"],
              "note": outcome["note"], "path": str(out)}
@@ -322,7 +153,7 @@ def run(args) -> int:
         conn.close()
 
     if not targets:
-        print("没有下过附件字节的对象（先跑 attachments）")
+        print("没有下过附件字节的对象（先跑 attachments）", file=sys.stderr)
         return 0
 
     failed = False
@@ -336,9 +167,11 @@ def run(args) -> int:
         )
         for r in results:
             if r["status"] == "ok":
-                print(f"{source_id}  ↳ {r['path']}  [{r['method']}] {r['note']}")
+                print(f"{source_id}  ↳ {r['path']}  [{r['method']}] {r['note']}", file=sys.stderr)
             elif r["status"] == "already":
                 print(f"{source_id}  = {r['path']}（已有，--force 可重转）")
+            elif r["status"] == "skipped":
+                print(f"{source_id}  - 跳过：{r.get('note')}", file=sys.stderr)
             else:
                 failed = True
                 print(f"{source_id}  ✗ {r.get('note')}", file=sys.stderr)

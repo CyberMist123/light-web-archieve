@@ -29,10 +29,8 @@ def _probe_fails(monkeypatch):
 
 
 def encrypted_pdf() -> bytes:
-    import pymupdf
-    doc = pymupdf.open()
-    doc.new_page().insert_text((72, 72), "secret tutorial")
-    return doc.tobytes(encryption=pymupdf.PDF_ENCRYPT_AES_256, user_pw="u", owner_pw="o")
+    from _samples import encrypted_pdf_bytes
+    return encrypted_pdf_bytes()  # AES-256，有打开密码（tests/fixtures/encrypted.pdf）
 
 
 # --------------------------------------------------------------------------
@@ -300,27 +298,28 @@ def test_encrypted_pdf_fails_cleanly_with_password_note(tmp_path):
     pdf.write_bytes(encrypted_pdf())
     outcome = pdftext.pdf_to_markdown(pdf, force_ocr=True)
     assert outcome["status"] == "failed" and "密码" in outcome["note"]
-    text, note = pdftext.ocr_markdown(pdf)
-    assert text is None and "密码" in note
+    assert outcome["code"] == "PERMANENT.PDF_ENCRYPTED"
+    outcome = pdftext.pdf_to_markdown(pdf)
+    assert outcome["status"] == "failed" and outcome["code"] == "PERMANENT.PDF_ENCRYPTED"
 
 
 def test_one_page_crash_only_blanks_that_page(tmp_path, monkeypatch):
-    import pymupdf
-    pdf = tmp_path / "scan.pdf"
-    with pymupdf.open() as doc:
-        doc.new_page()
-        doc.new_page()
-        doc.save(pdf)
+    from _samples import blank_pdf
+    from link_brain import vision as vision_mod, visual
+    pdf = blank_pdf(tmp_path / "scan.pdf", pages=2)
     calls = []
 
-    def ocr(path, timeout=0):
+    def ocr(path, cfg=None, timeout=0):
         calls.append(path)
         if len(calls) == 2:
             raise RuntimeError("这一页渲坏了")
         return {"status": "ok", "ocr": "page text"}
 
-    monkeypatch.setattr(pdftext.vision_mod, "run_ocr", ocr)
-    text, note = pdftext.ocr_markdown(pdf)
+    monkeypatch.setattr(vision_mod, "run_ocr", ocr)
+    monkeypatch.setattr(visual, "available", lambda: True)
+    outcome = pdftext.pdf_to_markdown(pdf)
+    text, note = outcome["markdown"], outcome["note"]
+    assert outcome["status"] == "ok" and outcome["partial"] == 1
     assert text and "page text" in text and "第 2 页" in text and "这一页没识别出来" in text
     assert "1 页失败" in note
 

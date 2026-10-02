@@ -4,7 +4,7 @@ from pathlib import Path
 
 import httpx
 
-from link_brain import screentext, visual, voice
+from link_brain import ai_config, asr, screentext, visual, voice
 
 
 def _line(text, x, y, w=80, h=20):
@@ -34,31 +34,48 @@ def test_almost_no_text_is_a_picture():
     assert visual.classify([]) == "picture"
 
 
+def _settings(asr_cfg):
+    return lambda: ai_config._deep_merge(ai_config.DEFAULTS, {"asrAI": asr_cfg})
+
+
 def test_voice_custom_endpoint(monkeypatch, tmp_path):
     audio = tmp_path / "a.webm"
     audio.write_bytes(b"fake")
-    monkeypatch.setattr(voice.ai_config, "load", lambda: {"asrAI": {
-        "mode": "http", "endpoint": "https://asr.example/v1/audio/transcriptions", "apiKey": "k", "model": "whisper-1"}})
-    monkeypatch.setattr(voice, "_to_wav", lambda src, dest: dest.write_bytes(b"RIFF"))
+    monkeypatch.setattr(ai_config, "load", _settings({
+        "mode": "http", "endpoint": "https://asr.example/v1/audio/transcriptions", "apiKey": "k", "model": "whisper-1"}))
+    monkeypatch.setattr(voice, "_to_wav", lambda src, dest: dest.write_bytes(asr._wav_bytes(b"\0\0" * 16000)))
     seen = {}
 
     def post(url, headers, timeout, data, files):
         seen.update(url=url, auth=headers.get("Authorization"), model=data["model"], name=files["file"][0])
         return httpx.Response(200, json={"text": " 最近收藏的菜谱有哪些 "}, request=httpx.Request("POST", url))
-    monkeypatch.setattr(voice.httpx, "post", post)
-    assert voice.transcribe(audio) == {"status": "ok", "text": "最近收藏的菜谱有哪些"}
+    monkeypatch.setattr(httpx, "post", post)
+    out = voice.transcribe(audio)
+    assert out["status"] == "ok" and out["text"] == "最近收藏的菜谱有哪些" and out["code"] == ""
     assert seen == {"url": "https://asr.example/v1/audio/transcriptions", "auth": "Bearer k",
-                    "model": "whisper-1", "name": "voice.wav"}
+                    "model": "whisper-1", "name": "audio.wav"}
+
+
+def test_voice_custom_endpoint_http_errors_become_fault_codes(monkeypatch, tmp_path):
+    audio = tmp_path / "a.wav"
+    audio.write_bytes(asr._wav_bytes(b"\0\0" * 16000))
+    monkeypatch.setattr(ai_config, "load", _settings({
+        "mode": "http", "endpoint": "https://asr.example/v1/audio/transcriptions", "apiKey": "k"}))
+    for status, code in ((401, "NEEDS_HUMAN.AUTH_FAILED"), (429, "TRANSIENT.HTTP_429"), (503, "TRANSIENT.HTTP_5XX")):
+        monkeypatch.setattr(httpx, "post", lambda url, **kw: httpx.Response(status, text="no", request=httpx.Request("POST", url)))
+        out = voice.transcribe(audio)
+        assert out["status"] == "failed" and out["code"] == code
 
 
 def test_voice_off_and_missing_endpoint(monkeypatch, tmp_path):
     audio = tmp_path / "a.webm"
     audio.write_bytes(b"fake")
-    monkeypatch.setattr(voice.ai_config, "load", lambda: {"asrAI": {"mode": "off"}})
-    assert voice.transcribe(audio)["status"] == "off"
-    monkeypatch.setattr(voice.ai_config, "load", lambda: {"asrAI": {"mode": "http", "endpoint": ""}})
-    monkeypatch.setattr(voice, "_to_wav", lambda src, dest: dest.write_bytes(b"RIFF"))
-    assert "接口地址" in voice.transcribe(audio)["error"]
+    monkeypatch.setattr(ai_config, "load", _settings({"mode": "off"}))
+    out = voice.transcribe(audio)
+    assert out["status"] == "skipped" and out["code"] == "SKIPPED.DISABLED"
+    monkeypatch.setattr(ai_config, "load", _settings({"mode": "http", "endpoint": ""}))
+    out = voice.transcribe(audio)
+    assert out["status"] == "skipped" and "接口地址" in out["error"]
 
 
 def test_screen_text_keeps_first_time_and_drops_repeats(monkeypatch, tmp_path):

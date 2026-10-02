@@ -199,7 +199,7 @@ def acquire(source_key: str, source_id: str, *, doc_id: str, name: str, xsec_tok
                        if r["doc_id"] == record["doc_id"] and r["status"] == "failed"]
             except Exception as exc:  # noqa: BLE001 - 转换出意外也不该让已下好的字节作废
                 bad = [{"note": f"{type(exc).__name__}: {exc}"}]
-                mark_conversion(source_key, source_id, record["doc_id"], bad[0]["note"])
+                mark_conversion(source_key, source_id, record["doc_id"], bad[0]["note"], code="TRANSIENT.SERVICE_BUSY")
             if bad:
                 print(f"[attachment] {record['file']} 已下好，但转 md 失败（字节留着，不再重下）："
                       f"{bad[0].get('note') or ''}", file=sys.stderr)
@@ -370,8 +370,9 @@ def update_status(source_key, source_id):
 
 
 def mark_conversion(source_key: str, source_id: str, doc_id: str, note: str | None, *,
-                    partial_pages: int = 0) -> None:
-    """记下这份附件转 md 的结果：失败就标 conversion_failed（带当时的 sha256，换了文件自动作废），成功就清掉。
+                    partial_pages: int = 0, code: str = "") -> None:
+    """记下这份附件转 md 的结果：失败就标 conversion_failed（带故障码和当时的 sha256，换了文件自动作废），成功就清掉。
+    PERMANENT 码的同一份字节 pdftext 不再重试；别的码（TRANSIENT）下次照转。
 
     partial_pages：转出来了但有几页没认出来——记 conversion_partial（累计次数），pdftext 据此再试几次。
     """
@@ -391,7 +392,7 @@ def mark_conversion(source_key: str, source_id: str, doc_id: str, note: str | No
         if json.dumps(rec, sort_keys=True, ensure_ascii=False) == before:
             return
     else:
-        rec["conversion_failed"] = {"note": str(note)[:300], "sha256": rec.get("sha256"),
+        rec["conversion_failed"] = {"note": str(note)[:300], "sha256": rec.get("sha256"), "code": code,
                                     "at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")}
     storage.write_json(attachments_path(source_key, source_id), {"schema_version": 1, "files": list(known.values())})
 
