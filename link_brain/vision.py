@@ -38,7 +38,7 @@ def run_ocr(image_path: Path, cfg: dict[str, Any] | None = None, *, timeout: int
         r = providers.skipped_for("ocr")
         return {**r, "ocr": None, "error": r["error"] + "；正文和原图仍正常归档。"}
     if not visual.available():
-        return {**providers.skipped("ocr", "没装本地 OCR（pip install rapidocr_onnxruntime）"), "ocr": None}
+        return {**providers.skipped("ocr", "没装本地 OCR（pip install rapidocr）"), "ocr": None}
     out = visual.local_ocr(image_path)
     out.setdefault("code", "" if out.get("status") == "ok" else "TRANSIENT.SERVICE_BUSY")
     out["text"] = out.get("ocr")
@@ -180,7 +180,7 @@ def run_upgrade(args) -> int:
     """
     from . import index as index_mod, read as read_mod, render as render_mod, visual
     if not visual.available():
-        print("未安装 rapidocr_onnxruntime：pip install rapidocr_onnxruntime", file=sys.stderr)
+        print("未安装本地 OCR：pip install rapidocr", file=sys.stderr)
         return 1
     conn = index_mod.connect()
     try:

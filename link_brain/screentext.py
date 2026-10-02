@@ -22,7 +22,7 @@ def extract(video: Path) -> dict[str, Any]:
 
     from . import visual
     if not visual.available():
-        return {"status": "skipped", "error": "未安装 rapidocr_onnxruntime"}
+        return {"status": "skipped", "error": "未安装本地 OCR（pip install rapidocr）"}
     with tempfile.TemporaryDirectory(prefix="lb-frames-") as tmp:
         try:
             subprocess.run(["ffmpeg", "-v", "error", "-i", str(video), "-vf", f"fps=1/{FRAME_EVERY_SECONDS},scale=720:-2",

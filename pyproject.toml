@@ -15,7 +15,8 @@ dependencies = [
     "pypinyin>=0.55",
     "jieba>=0.42.1",
     # 本地 OCR（带位置框，判断表格用）与视频画面文字；CPU 即可，首次用到才加载
-    "rapidocr_onnxruntime>=1.3",
+    "rapidocr>=3.9",
+    "onnxruntime>=1.17",
     "rapidfuzz>=3.0",
     # 语义检索（向量索引 semantic.db）；缺了会静默退回纯关键词。也用于语音切段
     "numpy>=1.26",

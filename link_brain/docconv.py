@@ -134,7 +134,7 @@ def pdf_to_markdown(path: Path, *, force_ocr: bool = False, verbose: bool = Fals
         from . import providers as prov, visual
         ocr_ready = bool(ocr_pages) and (ocr_cfg or prov.resolve("ocr")) is not None and visual.available()
         if damaged and not ocr_ready:
-            reason = prov.why_not("ocr") or "没装本地 OCR（pip install rapidocr_onnxruntime）"
+            reason = prov.why_not("ocr") or "没装本地 OCR（pip install rapidocr）"
             return _fail("SKIPPED.NOT_CONFIGURED", f"{why}，要本地 OCR 才转得出来：{reason}", "ocr")
         lines = [f"# {path.name}", "", f"（{total} 页" + ("，OCR 逐页识别）" if damaged else "）"), ""]
         failed = 0

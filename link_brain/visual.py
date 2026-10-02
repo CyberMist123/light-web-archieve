@@ -1,6 +1,9 @@
 """图片理解（2026-09-26）：本地 OCR + 版面判断 + 按需云端识图。
 
-- 本地 OCR：rapidocr（onnxruntime，CPU，自带小模型），进程内调用，首次用到才加载、不常驻。
+- 本地 OCR：RapidOCR 3.x + PP-OCRv6（onnxruntime，CPU），进程内调用，首次用到才加载、不常驻。
+  1002：从老包 rapidocr_onnxruntime 1.2（PP-OCRv3/v4）升到 PP-OCRv6——作者本机实测老包认扫描件明显差
+  （丢英文空格、代码反引号变弯引号、编号错位）。模型档位 ocr.modelTier：small（随 pip 包自带，默认）/
+  medium（更准、约慢一倍，需把 PP-OCRv6_{det,rec}_medium.onnx 放进 ocr.modelDir）。老包只作没装新包时的兜底。
   拿到每行文字和位置框，版面判断要用。没装 rapidocr / OCR 关了时 vision.py 记 skipped。
 - 版面判断（不花钱）：
   table   至少 3 行各有 ≥2 段文字，且各段左边缘能对齐成列；
@@ -77,20 +80,63 @@ def cost_yuan(model: str, tin: int, tout: int) -> float:
     return (tin * pin + tout * pout) / 1_000_000
 
 
+OCR_TIERS = ("tiny", "small", "medium")
+_ENGINE_KEY = None
+
+
 def available() -> bool:
+    for mod in ("rapidocr", "rapidocr_onnxruntime"):
+        try:
+            __import__(mod)
+            return True
+        except ImportError:
+            continue
+    return False
+
+
+def ocr_settings() -> tuple[str, str]:
+    """(模型档位, 模型目录)。目录留空 = 用 pip 包自带的模型（只有 small）。"""
     try:
-        import rapidocr_onnxruntime  # noqa: F401
-        return True
-    except ImportError:
-        return False
+        from . import ai_config
+        cfg = ai_config.load().get("ocr") or {}
+    except Exception:  # noqa: BLE001 - 读不到设置就用默认
+        cfg = {}
+    tier = str(cfg.get("modelTier") or "small").strip().lower()
+    return (tier if tier in OCR_TIERS else "small"), str(cfg.get("modelDir") or "").strip()
 
 
 def _engine():
-    global _ENGINE
-    if _ENGINE is None:
-        from rapidocr_onnxruntime import RapidOCR
-        _ENGINE = RapidOCR()
+    """返回 (版本, 引擎)。版本 'v3' = RapidOCR 3.x + PP-OCRv6；'v1' = 老包兜底。档位 / 目录变了就重建。"""
+    global _ENGINE, _ENGINE_KEY
+    tier, model_dir = ocr_settings()
+    key = (tier, model_dir)
+    if _ENGINE is None or _ENGINE_KEY != key:
+        try:
+            from rapidocr import RapidOCR
+            from rapidocr.utils.typings import ModelType, OCRVersion
+            import logging
+            logging.getLogger("RapidOCR").setLevel(logging.WARNING)   # 每次加载都打 INFO，会刷屏夜跑日志
+        except ImportError:
+            from rapidocr_onnxruntime import RapidOCR as OldRapidOCR
+            _ENGINE, _ENGINE_KEY = ("v1", OldRapidOCR()), key
+            return _ENGINE
+        params = {"Det.ocr_version": OCRVersion.PPOCRV6, "Rec.ocr_version": OCRVersion.PPOCRV6,
+                  "Det.model_type": ModelType(tier), "Rec.model_type": ModelType(tier)}
+        if model_dir:
+            det, rec = Path(model_dir) / f"PP-OCRv6_det_{tier}.onnx", Path(model_dir) / f"PP-OCRv6_rec_{tier}.onnx"
+            if not (det.is_file() and rec.is_file()):
+                raise FileNotFoundError(f"OCR 模型目录里没有 PP-OCRv6 {tier} 档的 det/rec 模型：{model_dir}")
+            params.update({"Det.model_path": str(det), "Rec.model_path": str(rec)})
+        _ENGINE, _ENGINE_KEY = ("v3", RapidOCR(params=params)), key
     return _ENGINE
+
+
+def engine_label() -> str:
+    try:
+        ver, _ = _engine()
+    except Exception:  # noqa: BLE001
+        return "rapidocr"
+    return f"rapidocr-ppocrv6-{ocr_settings()[0]}" if ver == "v3" else "rapidocr-legacy"
 
 
 def local_ocr(path: Path) -> dict[str, Any]:
@@ -105,11 +151,17 @@ def local_ocr(path: Path) -> dict[str, Any]:
     body = "\n".join(line["text"] for line in lines) or "[OCR 没认出文字]"
     mean = sum(line["score"] for line in lines) / len(lines) if lines else 0.0
     return {"status": "ok", "ocr": f"{body}\n(OCR 行数 {len(lines)}，均信心 {mean:.2f})", "lines": lines,
-            "engine": "rapidocr" + ("+tiles" if tiled else ""), "ocr_v": 2, "error": None}
+            "engine": engine_label() + ("+tiles" if tiled else ""), "ocr_v": 2, "error": None}
 
 
 def _ocr_lines(path: Path, scale: float = 1.0, offset: tuple[int, int] = (0, 0)) -> list[dict[str, Any]]:
-    result, _ = _engine()(str(path))
+    ver, engine = _engine()
+    if ver == "v3":
+        res = engine(str(path))
+        boxes, txts, scores = getattr(res, "boxes", None), getattr(res, "txts", None), getattr(res, "scores", None)
+        result = list(zip(boxes, txts, scores)) if boxes is not None and txts else []
+    else:
+        result, _ = engine(str(path))
     out = []
     for box, text, score in result or []:
         xs = [p[0] / scale + offset[0] for p in box]
