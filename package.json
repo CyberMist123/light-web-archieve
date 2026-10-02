@@ -1,0 +1,16 @@
+{
+  "name": "light-web-archieve",
+  "private": true,
+  "description": "node 单测与页面测试入口（Python 测试用 python -m pytest -q）",
+  "scripts": {
+    "test": "node tests/run-node.cjs",
+    "test:unit": "node tests/run-node.cjs --unit",
+    "test:ui": "node tests/run-node.cjs --ui"
+  },
+  "devDependencies": {
+    "playwright": "^1.47.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
