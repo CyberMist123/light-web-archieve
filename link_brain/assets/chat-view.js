@@ -276,20 +276,6 @@ search.onkeydown = e => {
   e.preventDefault();composer.requestSubmit();
 };
 
-// ── 搜索 ──
-function runSearch(q) {
-  const nq = normalize(q);
-  const scored = items
-    .map(it => ({ it, s: score(it, nq, data.pinyin_chars, data.aliases || []) }))
-    .filter(x => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 12);
-  return scored.map(({ it }) => {
-    const text = itemText(it);
-    const pos = nq ? text.toLowerCase().indexOf(nq.split(/\s+/)[0]) : -1;
-    const ex = pos >= 0 ? text.slice(Math.max(0, pos - 40), Math.max(0, pos - 40) + 200) : text.slice(0, 200);
-    return { id: it.id, title: it.title || '未命名', note: it.note, author: it.author || it.source || '收藏', excerpt: ex };
-  });
-}
-
 // ── 会话渲染 ──
 async function drawChat() {
   const scroll=bodyEl.scrollTop;

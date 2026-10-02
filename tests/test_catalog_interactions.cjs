@@ -2,9 +2,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const score = new Function(fs.readFileSync('link_brain/assets/catalog-search.js','utf8')+';return score')();
-const item = {title:'记忆管理框架',tags:['AI'],pinyin:'jiyiguanlikuangjia',summary:''};
-for(const q of ['jiyi','jiy','jiyu','记忆框架','#ai','jiyi guanli']) assert.ok(score(item,q)>0,q);
-for(const q of ['香蕉','#食谱','不存在的关键词']) assert.equal(score(item,q),0,q);
+// 1002 第 1 批：catalog.py 把拼音写成空格分隔的整音节；拼音只认整音节（jiy / jiyu 这种半个音节、差一个字母的不再算）
+const item = {title:'记忆管理框架',tags:['AI'],pinyin:'ji yi guan li kuang jia',summary:''};
+for(const q of ['jiyi','记忆框架','#ai','jiyi guanli','guanlikuang']) assert.ok(score(item,q)>0,q);
+for(const q of ['香蕉','#食谱','不存在的关键词','jiy','jiyu','yig']) assert.equal(score(item,q),0,q);
 const obsidianMock={Plugin:class{},Modal:class{},Notice:class{},TFile:class{},PluginSettingTab:class{constructor(app,plugin){this.app=app;this.plugin=plugin;}},Setting:class{},requestUrl:async()=>({}),MarkdownRenderer:{render:async()=>{}}};
 const context={module:{exports:{}},URL,require:name=>name==='obsidian'?obsidianMock:require(name)};
 vm.createContext(context);

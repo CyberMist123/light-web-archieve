@@ -165,6 +165,15 @@ style.textContent = `
 .lbc-topics button.lbc-topic:hover{color:var(--text-normal);}
 .lbc-topics button.lbc-topic.is-active{color:var(--text-normal);border-color:var(--text-normal)!important;font-weight:500;}
 .lbc-topic-star{color:#d9a21b;margin-right:4px;}
+/* 搜索结果（第 1 批 1002）：命中摘录的来源标签 + 关键词高亮；模糊命中单独一组「可能相关」，卡片上也标出来。 */
+.lbc-hit-src{font-size:11px;color:var(--text-faint);margin-right:6px;}
+.lbc-hit-fuzzy{font-size:11px;color:var(--text-accent,#a86513);margin-right:6px;}
+.lbc-hit-why{font-size:11px;color:var(--text-faint);margin-left:6px;}
+.lbc-result-excerpt mark.lbc-hl{background:var(--text-highlight-bg,rgba(255,208,0,.4));color:inherit;border-radius:2px;padding:0 1px;}
+.lbc-possible-head{display:flex;align-items:baseline;gap:10px;margin:8px 5px 16px;padding-top:14px;border-top:1px solid var(--background-modifier-border);}
+.lbc-possible-title{font-size:13px;font-weight:500;color:var(--text-muted);}
+.lbc-possible-note{font-size:11px;color:var(--text-faint);}
+.lbc-card.is-possible .lbc-cover{opacity:.85;}
 
 `;
 const pluginId='link-brain-actions';
@@ -356,10 +365,13 @@ function openCardMenu(e,body,it){
   setTimeout(()=>{document.addEventListener('click',close);document.addEventListener('contextmenu',close);},0);
 }
 function render(){
-  grid.empty();const cards=grid.createEl('div',{cls:'lbc-grid-inner'});const q=normalize(committed);const asking=chatMode;
+  grid.empty();const exactCards=grid.createEl('div',{cls:'lbc-grid-inner'});const q=normalize(committed);const asking=chatMode;
   const now=new Date();const today=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
-  const shown=items.filter(it=>(!(starredPage||starOnly)||it.starred)&&(!mediaFilter||(mediaFilter==='video'?it.kind==='video':it.attachment&&it.attachment!=='none'))&&(!todayOnly||it.date===today)&&(!todoOnly||it.attachment==='待补')&&(!activeCat||(it.cats||[]).includes(activeCat))&&(!activeTopic||(it.topics||[]).includes(activeTopic))).map(it=>({it,score:score(it,q,data.pinyin_chars,data.aliases||[])})).filter(x=>x.score>0).sort((a,b)=>Number(!!b.it.starred)-Number(!!a.it.starred)||b.score-a.score);
-  sub.setText((q||todayOnly||todoOnly||starredPage||mediaFilter||activeTopic?`${shown.length} / ${items.length} 篇`:`${items.length} 篇`)+` · 更新 ${new Date(data.built_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}`);
+  const filtered=items.filter(it=>(!(starredPage||starOnly)||it.starred)&&(!mediaFilter||(mediaFilter==='video'?it.kind==='video':it.attachment&&it.attachment!=='none'))&&(!todayOnly||it.date===today)&&(!todoOnly||it.attachment==='待补')&&(!activeCat||(it.cats||[]).includes(activeCat))&&(!activeTopic||(it.topics||[]).includes(activeTopic)));
+  // 第 1 批 1002：先看分数、星标只 ×1.15；拼音 / 错字 / 漏字这类模糊命中单独放「可能相关」，规则见 catalog-search.js rankItems
+  const ranked=rankItems(filtered,q,data.pinyin_chars,data.aliases||[]);
+  const shown=[...ranked.exact,...ranked.possible];
+  sub.setText((q||todayOnly||todoOnly||starredPage||mediaFilter||activeTopic?`${ranked.exact.length} / ${items.length} 篇`+(ranked.possible.length?` · 可能相关 ${ranked.possible.length}`:''):`${items.length} 篇`)+` · 更新 ${new Date(data.built_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}`);
   todoCount=items.filter(x=>x.attachment==='待补').length;paintBadge();
   ai.hidden=!asking;grid.hidden=asking;
   if(asking){selbar.hidden=true;return;}
@@ -367,9 +379,17 @@ function render(){
   selbar.hidden=!selectMode;
   if(selectMode){selCount.setText(`已选 ${selected.size} 篇 · 点封面继续勾选 · ESC 退出`);delBtn.setText(`删除选中${selected.size?' ('+selected.size+')':''}`);delBtn.disabled=!selected.size;}
   if(!shown.length){grid.createEl('div',{cls:'lbc-empty',text:'没找到，试试更短的关键词。'});return;}
-  for(const {it} of shown){
+  let possibleCards=null;
+  for(const {it,match} of shown){
+    if(match.fuzzy&&!possibleCards){
+      const headEl=grid.createEl('div',{cls:'lbc-possible-head'});
+      headEl.createEl('span',{cls:'lbc-possible-title',text:`可能相关 · ${ranked.possible.length} 篇`});
+      headEl.createEl('span',{cls:'lbc-possible-note',text:'拼音相近、错一个字或漏字，不是原词命中'});
+      possibleCards=grid.createEl('div',{cls:'lbc-grid-inner lbc-grid-possible'});
+    }
+    const cards=possibleCards||exactCards;
     // 不设 aria-label：Obsidian 会把 aria-label 渲染成 hover 浮框（她不要那个「悬浮的点的字」）。
-    const card=cards.createEl('article',{cls:'lbc-card'+(selectMode&&selected.has(it.id)?' is-selected':'')});card.tabIndex=0;card.setAttribute('role','link');
+    const card=cards.createEl('article',{cls:'lbc-card'+(selectMode&&selected.has(it.id)?' is-selected':'')+(match.fuzzy?' is-possible':'')});card.tabIndex=0;card.setAttribute('role','link');
     if(it.cover){const img=card.createEl('img',{cls:'lbc-cover'});img.loading='lazy';img.alt='';img.src=app.vault.adapter.getResourcePath(lbPath(it.cover));}
     else card.createEl('div',{cls:'lbc-nocover',text:it.kind==='video'?'▷':'▤'});
     // 附件角标：待补=有文件未下载（橙），downloaded=有文件已下（灰）
@@ -384,7 +404,17 @@ function render(){
     star.onclick=async e=>{e.preventDefault();e.stopPropagation();star.disabled=true;try{const result=await provider().starNote(it.id,!it.starred);it.starred=result.starred;render();}catch(err){importStatus.setText(err.message);star.disabled=false;}};
     const body=card.createEl('div',{cls:'lbc-body'});body.createEl('div',{cls:'lbc-ctitle',text:it.title||'未命名'});
     const meta=body.createEl('div',{cls:'lbc-cmeta'});meta.createEl('span',{text:it.author||it.source||'收藏'});meta.createEl('span',{cls:'lbc-likes',text:it.likes==null?'':'♡ '+(Number(it.likes)>=10000?(Number(it.likes)/10000).toFixed(1)+'万':it.likes)});
-    if(simplePage&&!starredPage){const text=itemText(it);const pos=q?text.toLowerCase().indexOf(q):-1;body.createEl('div',{cls:'lbc-result-excerpt',text:text.slice(Math.max(0,pos-40),Math.max(0,pos-40)+220)});}
+    // 有查询词就显示命中摘录（第 1 批 1002）：来源（正文 / 评论 / 图片文字 / 附件…）+ 原文片段，关键词高亮；模糊命中写明是拼音相近还是错字
+    if(q&&!q.startsWith('#')){
+      const why=hitSummary(match),ex=hitExcerpt(it,match);
+      if(why||ex){
+        const line=body.createEl('div',{cls:'lbc-result-excerpt'});
+        if(match.fuzzy)line.createEl('span',{cls:'lbc-hit-fuzzy',text:'可能相关'});
+        line.createEl('span',{cls:'lbc-hit-src',text:ex?ex.label:why});
+        if(ex){let at=0;for(const [a,b] of ex.marks){if(a>at)line.appendText(ex.text.slice(at,a));line.createEl('mark',{cls:'lbc-hl',text:ex.text.slice(a,b)});at=b;}if(at<ex.text.length)line.appendText(ex.text.slice(at));}
+        if(ex&&match.fuzzy)line.createEl('span',{cls:'lbc-hit-why',text:why});
+      }
+    }
     card.ondragover=e=>{e.preventDefault();};card.ondrop=async e=>{e.preventDefault();e.stopPropagation();const f=e.dataTransfer.files[0];if(!f)return;const fp=f.path||require('electron').webUtils?.getPathForFile(f);if(!fp){attachmentPanel([it]);return;}try{const result=await provider().attachFile(it.id,fp);await refresh(JSON.parse(await app.vault.adapter.read(lbPath('_archive/catalog-data.json'))));importStatus.setText(result.warning||'附件已保存并加入搜索');}catch(err){importStatus.setText('挂载失败：'+err.message);}};
     // 多选模式：点击=勾选/取消；平时=打开笔记
     const toggle=()=>{selected.has(it.id)?selected.delete(it.id):selected.add(it.id);render();};
@@ -431,9 +461,9 @@ search.onkeydown=e=>{
   e.preventDefault();commitSearch();
 };
 // 目录只做搜索（0926 Owner）：AI 深度回答在「问收藏」页。整句（语音打进来的）搜不到时退成关键词再搜。
+// 整串短语库里没有就拆词（「悉尼咖啡」→「悉尼 咖啡」），还不中再按口语整句抽关键词；规则在 catalog-search.js resolveQuery。
 function commitSearch(){
-  if(busy)return;const raw=search.value.trim().replace(/^\//,'');chatMode=false;committed=raw;
-  if(raw&&!items.some(it=>score(it,normalize(raw),data.pinyin_chars,data.aliases||[])>0)){const kw=spokenKeywords(raw);if(kw&&kw!==raw)committed=kw;}
+  if(busy)return;chatMode=false;committed=resolveQuery(search.value,items,data.pinyin_chars,data.aliases||[]);
   render();
 }
 search.oninput=()=>{if(!search.value&&!busy){committed='';chatMode=false;render();}};
