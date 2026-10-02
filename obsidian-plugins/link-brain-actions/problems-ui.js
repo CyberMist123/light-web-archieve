@@ -113,7 +113,7 @@ module.exports = function (obsidian, plugin) {
       const row = sec.createDiv({ cls: 'lb-problem' });
       const line = row.createDiv({ cls: 'lb-problem-line' });
       line.createSpan({ cls: 'lb-problem-time', text: shortTime(x.ts) });
-      line.createSpan({ cls: 'lb-problem-title', text: x.title || x.step || '' });
+      line.createSpan({ cls: 'lb-problem-title', text: x.title || x.step_label || x.step || '' });
       line.createSpan({ cls: 'lb-problem-label', text: x.label || x.code || '' });
       const act = actionText(x);
       if (act) line.createSpan({ cls: 'lb-problem-action', text: act });
