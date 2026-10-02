@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -48,16 +49,30 @@ DEFAULT_ANSWER_PROMPT = (
 )
 
 
-# textAI.model 留空 = 用 media.py / llm-config.yaml 的默认（qwen3.7-flash），不写死在这。
+# CONVENTIONS §4：每个能力一个键；mode 词表 http / cli / local / capswriter / off（`media` 已删，旧配置见 _migrate_legacy）。
+# 超时都在这里有默认值（timeoutSec），执行器不写死数字。模型名、接口地址不再从 llm-config.yaml 回落。
 DEFAULTS: dict[str, Any] = {
-    "textAI": {"mode": "media", "model": "", "endpoint": "", "apiKey": "", "maxTokens": 1200},
-    # via: local（rapidocr 进程内，带位置框，开源默认）/ cmx / qwen（media.py）
-    "ocr": {"mode": "media", "via": "local", "model": "", "endpoint": "", "apiKey": ""},
-    # 识图（只给表格和几乎没字的图用）：media=本机千问配置；http=自定义 OpenAI 兼容接口；off=只保留 OCR
+    # 文本 AI（问答、主题扩词）：http=OpenAI 兼容 /chat/completions；cli=本机命令行；off=关。没填接口 = 未配置（跳过）。
+    "textAI": {"mode": "http", "model": "", "endpoint": "", "apiKey": "", "maxTokens": 1200, "timeoutSec": 180},
+    # 归档摘要 / 打标（1002 新）：inherit=和文本 AI 同一个接口（model 可单独填）；http / cli / off 同上。
+    "summaryAI": {"mode": "inherit", "model": "", "endpoint": "", "apiKey": "", "maxTokens": 2000, "timeoutSec": 180},
+    # 本地 OCR：local=rapidocr 进程内（带位置框，免费）；off=关。
+    "ocr": {"mode": "local", "timeoutSec": 120},
+    # 识图（第一层每张图、第二层只补跑挑出来的）：http=OpenAI 兼容带图接口；off=只保留 OCR。
+    # refineModel 留空 = 和第一层同一个模型；refineKeysEnv：第二层优先轮换的免费 key 所在环境变量（逗号分隔，可不设）。
     # videoScreenText：视频抽帧本地 OCR 出「视频画面文字」；不花钱，吃 CPU（30s 视频约 7s）。
-    "visionAI": {"mode": "media", "model": "qwen3.8-flash", "refineModel": "qwen3.8-max", "endpoint": "", "apiKey": "", "videoScreenText": True},
-    # 语音识别（问 AI 的麦克风）：media=本机 media.py audio；http=OpenAI 兼容 /audio/transcriptions；off=关闭
-    "asrAI": {"mode": "media", "model": "whisper-1", "endpoint": "", "apiKey": ""},
+    "visionAI": {"mode": "http", "model": "", "refineModel": "", "endpoint": "", "apiKey": "", "videoScreenText": True,
+                 "timeoutSec": 150, "refineTimeoutSec": 240, "refineKeysEnv": "LWA_GEMINI_KEYS"},
+    # 语音识别（视频转写 + 问 AI 的麦克风）：capswriter=本机 CapsWriter-Offline 服务端（websocket，免费离线）；
+    # http=OpenAI 兼容 /audio/transcriptions；off=关。port 留空 = 读 CapsWriter 的 config_server.py，读不到用 6016。
+    # segmentSec：长音频按静音点切段（每段不超过这么长）再拼。
+    "asrAI": {"mode": "capswriter", "host": "127.0.0.1", "port": "", "model": "whisper-1", "endpoint": "", "apiKey": "",
+              "segmentSec": 50, "timeoutSec": 300},
+    # 附件 PDF / Word → Markdown：本地 pypdfium2 + rapidocr + python-docx，只有开关。
+    "docConvert": {"mode": "local", "timeoutSec": 180},
+    # 向量索引（没有设置页入口）：只有拿得到 key 才开；key 默认从环境变量 DASHSCOPE_API_KEY 取，模型名在 llm-config.yaml。
+    "embedAI": {"mode": "http", "endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings",
+                "apiKey": "", "apiKeyEnv": "DASHSCOPE_API_KEY", "requireKey": True, "timeoutSec": 5},
     # 语音输入：capsLock=CapsWriter 客户端全局监听 CapsLock（插件侧开关，Python 不用）
     "voice": {"capsLock": True, "capsWriterDir": ""},
     # 问答页的模型下拉（0926）：mode=http 走接口；mode=cli 走本机命令行（codex / claude 用自己的登录）。
@@ -133,8 +148,102 @@ def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+# --------------------------------------------------------------------------
+# 旧配置换算（第 1B 批）：mode=media 曾经指「作者本机的转写脚本 / 本机千问配置」，开源版删掉了这条路。
+# 这里**只在内存里**把它换成等价的新配置，不改 data.json；换算了什么记一条 SKIPPED.LEGACY_CONFIG 进问题记录。
+# 等价关系照旧代码的实际行为写（旧 text_stream.default_http_config / 本机脚本的默认）：
+#   文本 AI media      → 千问 OpenAI 兼容接口 + qwen3.7-flash
+#   识图 media         → 千问 OpenAI 兼容接口 + qwen3.8-flash（精细识别 qwen3.8-max）
+#   语音识别 media     → 本机 CapsWriter（旧路是本机脚本 → CMX → 同一个 CapsWriter）
+#   OCR media/cmx/qwen → 本地 rapidocr
+#   归档摘要（以前固定走本机脚本 = 千问 qwen3.7-flash，不读设置）→ 旧配置里没有 summaryAI 时照旧走千问
+#   向量索引（以前固定读同一份千问 key）→ 同一个千问接口的 /embeddings
+#   文本 AI http 且模型留空、地址是 DeepSeek → deepseek-v4-flash（以前从 llm-config.yaml 的 answer_model 回落）
+# 千问的 key：沿用设置里文本 AI 已经指向的密钥文件（keyField=apiKey），再退到环境变量 DASHSCOPE_API_KEY；
+# 接口地址：环境变量 DASHSCOPE_OPENAI_BASE → 密钥文件里的 openAiCompatible 一栏 → 千问公网兼容地址。
+# --------------------------------------------------------------------------
+
+LEGACY_DASHSCOPE_BASE = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+LEGACY_TEXT_MODEL = "qwen3.7-flash"
+LEGACY_VISION_MODEL = "qwen3.8-flash"
+LEGACY_REFINE_MODEL = "qwen3.8-max"
+LEGACY_ANSWER_MODEL = "deepseek-v4-flash"
+_LEGACY_NOTE_DONE = False
+
+
+def _legacy_dashscope(raw: dict[str, Any]) -> dict[str, Any]:
+    from . import providers
+    key_file = next((str((raw.get(k) or {}).get("keyFile") or "") for k in ("textAI", "visionAI", "summaryAI")
+                     if isinstance(raw.get(k), dict) and (raw.get(k) or {}).get("keyFile")), "")
+    base = os.environ.get("DASHSCOPE_OPENAI_BASE", "").strip()
+    if not base and key_file:
+        data, _ = providers.read_key_file(key_file)
+        base = (data or {}).get("openAiCompatible", "")
+    cfg: dict[str, Any] = {"mode": "http", "endpoint": (base or LEGACY_DASHSCOPE_BASE).rstrip("/") + "/chat/completions",
+                           "apiKey": "", "apiKeyEnv": "DASHSCOPE_API_KEY", "requireKey": True, "legacy": "media"}
+    if key_file:
+        cfg.update(keyFile=key_file, keyField="apiKey")
+    return cfg
+
+
+def _migrate_legacy(raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """返回 (换算后的 raw, 换算说明)。raw 不被原地修改。"""
+    raw = copy.deepcopy(raw)
+    notes: list[str] = []
+    media_seen = any(isinstance(raw.get(k), dict) and raw[k].get("mode") == "media"
+                     for k in ("textAI", "ocr", "visionAI", "asrAI"))
+    text = raw.get("textAI") if isinstance(raw.get("textAI"), dict) else None
+    if text is not None and text.get("mode") == "media":
+        raw["textAI"] = {**text, **_legacy_dashscope(raw), "model": text.get("model") or LEGACY_TEXT_MODEL}
+        notes.append("文本 AI：本机千问配置 → 千问兼容接口")
+    elif (text is not None and text.get("mode") == "http" and not text.get("model")
+          and "api.deepseek.com" in str(text.get("endpoint") or "")):
+        raw["textAI"] = {**text, "model": LEGACY_ANSWER_MODEL}
+        notes.append(f"文本 AI：模型留空 → {LEGACY_ANSWER_MODEL}（以前的默认问答模型）")
+    vis = raw.get("visionAI") if isinstance(raw.get("visionAI"), dict) else None
+    if vis is not None and vis.get("mode") == "media":
+        raw["visionAI"] = {**vis, **_legacy_dashscope(raw), "model": vis.get("model") or LEGACY_VISION_MODEL,
+                           "refineModel": vis.get("refineModel") or LEGACY_REFINE_MODEL}
+        notes.append("识图：本机千问配置 → 千问兼容接口")
+    ocr = raw.get("ocr") if isinstance(raw.get("ocr"), dict) else None
+    if ocr is not None and (ocr.get("mode") == "media" or ocr.get("via") in ("cmx", "qwen")):
+        if ocr.get("via") in ("cmx", "qwen"):
+            notes.append(f"OCR：{ocr.get('via')} 通路已停用 → 本地 rapidocr")
+        raw["ocr"] = {k: v for k, v in ocr.items() if k != "via"} | {"mode": "local"}
+    asr = raw.get("asrAI") if isinstance(raw.get("asrAI"), dict) else None
+    if asr is not None and asr.get("mode") == "media":
+        raw["asrAI"] = {**asr, "mode": "capswriter"}
+        notes.append("语音识别：本机脚本 → 本机 CapsWriter")
+    if media_seen and "summaryAI" not in raw:
+        raw["summaryAI"] = {**_legacy_dashscope(raw), "model": LEGACY_TEXT_MODEL}
+        notes.append(f"归档摘要：照旧走千问 {LEGACY_TEXT_MODEL}")
+    if media_seen and "embedAI" not in raw:
+        legacy = _legacy_dashscope(raw)
+        legacy["endpoint"] = legacy["endpoint"].rsplit("/chat/completions", 1)[0] + "/embeddings"
+        legacy.pop("legacy", None)
+        raw["embedAI"] = {**legacy, "timeoutSec": DEFAULTS["embedAI"]["timeoutSec"]}
+    return raw, notes
+
+
+def _note_migration(notes: list[str]) -> None:
+    """换算说明进问题记录（SKIPPED，列表灰色「未开启」组，不算失败）。同一轮只记一次。"""
+    global _LEGACY_NOTE_DONE
+    if not notes or _LEGACY_NOTE_DONE:
+        return
+    _LEGACY_NOTE_DONE = True
+    try:
+        from . import problems
+        if problems.is_open("config", None, "SKIPPED.LEGACY_CONFIG"):
+            return
+        problems.report("config", "SKIPPED.LEGACY_CONFIG",
+                        "旧设置「本机千问配置 / 本机脚本」已停用，按等价的新设置运行（没改设置文件）：" + "；".join(notes)
+                        + "。在设置页改一下对应项就会存成新格式。", action="skipped")
+    except Exception:  # noqa: BLE001 - 记录失败绝不挡住读配置
+        pass
+
+
 def load() -> dict[str, Any]:
-    """读 data.json 并叠到默认上；读不动就返回纯默认（fail-open，绝不因缺配置罢工）。"""
+    """读 data.json 并叠到默认上；读不动就返回纯默认（fail-open，绝不因缺配置罢工）。旧的 media 配置在内存里换算。"""
     path = data_json_path()
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -142,4 +251,6 @@ def load() -> dict[str, Any]:
         return copy.deepcopy(DEFAULTS)
     if not isinstance(raw, dict):
         return copy.deepcopy(DEFAULTS)
+    raw, notes = _migrate_legacy(raw)
+    _note_migration(notes)
     return _deep_merge(DEFAULTS, raw)

@@ -114,7 +114,7 @@ class _Stream:
 def _send(monkeypatch, settings, name):
     sent = []
     monkeypatch.setattr(text_stream._CLIENT, "stream",
-                        lambda method, url, headers=None, json=None: _Stream(sent, url, headers))
+                        lambda method, url, headers=None, json=None, **kw: _Stream(sent, url, headers))
     cfg = ai_config.with_model(settings, name)["textAI"]
     assert text_stream.call("说明", "材料", cfg)["status"] == "ok"
     return sent[0]
@@ -125,6 +125,7 @@ def _settings(tmp_path, *models):
     keyfile.write_text("apiKey,DS-KEY-FROM-FILE\n", encoding="utf-8")
     return {**ai_config.DEFAULTS,
             "textAI": {"mode": "http", "endpoint": "https://api.deepseek.com/chat/completions", "apiKey": "",
+                       "model": "deepseek-v4-flash",
                        "keyFile": str(keyfile), "keyField": "apiKey"},
             "models": list(models)}
 

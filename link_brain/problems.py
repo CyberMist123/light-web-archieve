@@ -41,7 +41,7 @@ ACTIONS = ("gave_up", "retry_later", "retrying", "needs_human", "skipped")
 DEFAULT_ACTION = {"TRANSIENT": "retry_later", "PERMANENT": "gave_up", "NEEDS_HUMAN": "needs_human",
                   "SKIPPED": "skipped"}
 STEPS = ("sync.favorites", "ingest", "attachments.download", "attachments.convert", "attachments.recheck",
-         "enrich.summary", "vision.layer1", "vision.refine", "videos.transcribe", "embed", "ask", "login")
+         "enrich.summary", "vision.layer1", "vision.refine", "videos.transcribe", "embed", "ask", "login", "config")
 STEP_PREFIXES = ("nightly.",)
 
 # 现有裸码 → 类（§2.2：复用现有码、不改拼写）
@@ -98,6 +98,7 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "SKIPPED.DISABLED": dict(where="none", label="已关闭", hover="{reason}", group="off"),
     "SKIPPED.BUDGET": dict(where="none", label="今天的额度到了", hover="{reason}（明天接着来）", group="off"),
     "SKIPPED.FALLBACK": dict(where="none", label="已退回普通方式", hover="{reason}", group="off"),
+    "SKIPPED.LEGACY_CONFIG": dict(where="none", label="旧设置已自动换算", hover="{reason}", group="off"),
     "SKIPPED.*": dict(where="none", label="未开启", hover="{reason}", group="off"),
 }
 
@@ -357,6 +358,15 @@ def report(step: str, code: str, reason: str, *, item_id: str | None = None, tit
     if stuck:
         _push(stuck)
     return row
+
+
+def is_open(step: str, item_id: str | None, code: str) -> bool:
+    """这个 step + item_id + 码现在有没有一条还没解决的记录（只记一次的说明类用它去重）。读不动就当没有。"""
+    try:
+        row = _fold(_read_rows()).get(make_key(step, item_id, normalize(code)))
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(row) and not row.get("resolved_at")
 
 
 def resolve(step: str, item_id: str | None = None, code: str | None = None, *, _now_fn=None) -> int:

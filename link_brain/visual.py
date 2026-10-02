@@ -1,14 +1,13 @@
 """图片理解（2026-09-26）：本地 OCR + 版面判断 + 按需云端识图。
 
 - 本地 OCR：rapidocr（onnxruntime，CPU，自带小模型），进程内调用，首次用到才加载、不常驻。
-  拿到每行文字和位置框，版面判断要用。没装 rapidocr 时由 vision.py 回退到 media.py / 跳过。
+  拿到每行文字和位置框，版面判断要用。没装 rapidocr / OCR 关了时 vision.py 记 skipped。
 - 版面判断（不花钱）：
   table   至少 3 行各有 ≥2 段文字，且各段左边缘能对齐成列；
   picture 全图几乎没字（去空白 < 12 字）；
   text    其余，只走 OCR。
-- 云端识图（只对 table / picture）：OpenAI 兼容 /chat/completions 带图片。
-  设置里「识图接口」：本机千问配置（默认）/ 自定义接口 / 关闭。
-  table → Markdown 表格；picture → 一句中文描述。结果存 vision.json 的 visual，也进检索。
+- 云端识图：OpenAI 兼容 /chat/completions 带图片（设置里「识图接口」= providers.resolve('visionAI')；没配 = 只留 OCR）。
+  返回 CONVENTIONS §4 的 R（另带 kind / tokens / cost_yuan / finish），HTTP 状态翻成故障码。
 """
 from __future__ import annotations
 
@@ -95,7 +94,7 @@ def _engine():
 
 
 def local_ocr(path: Path) -> dict[str, Any]:
-    """返回 {status, ocr, lines}；ocr 末尾保留统计行，与 media.py 的输出格式一致（ocrtext 负责去掉）。"""
+    """返回 {status, ocr, lines}；ocr 末尾保留统计行（ocrtext 负责去掉）。"""
     try:
         lines = _ocr_lines(path)
     except Exception as exc:  # noqa: BLE001 - 单张失败不阻断
@@ -219,24 +218,17 @@ def flat_background(path: Path) -> bool:
 
 
 def vision_config() -> dict[str, Any] | None:
-    """设置里的识图接口；mode=off 或没有可用 key 时返回 None（只保留 OCR）。"""
-    from . import ai_config
-    from .text_stream import default_http_config
-    cfg = dict(ai_config.load().get("visionAI") or {})
-    mode = cfg.get("mode") or "media"
-    if mode == "off":
-        return None
-    if mode == "http":
-        return cfg if cfg.get("endpoint") and cfg.get("model") else None
-    base = default_http_config({"model": cfg.get("model") or "qwen3.8-flash"})
-    return base if base.get("apiKey") else None
+    """设置里的识图接口（第一层）；关了 / 没配好返回 None（只保留 OCR）。"""
+    from . import providers
+    return providers.resolve("visionAI")
 
 
 def understand(path: Path, lines: list[dict[str, Any]] | None, cfg: dict[str, Any], *,
-               timeout: float = 150) -> dict[str, Any]:
+               timeout: float | None = None) -> dict[str, Any]:
     """0927：带着本地 OCR 一起问识图模型——判类型（表格/流程图/截图文字/图片）并按图纠错、标打码。"""
     ocr = "\n".join(l["text"] for l in (lines or []))[:6000] or "（没认出文字）"
-    out = _chat(path, LAYER1_PROMPT.replace("{ocr}", ocr), cfg, max_tokens=3000, timeout=timeout)
+    out = _chat(path, LAYER1_PROMPT.replace("{ocr}", ocr), cfg, max_tokens=3000,
+                timeout=timeout or float(cfg.get("timeoutSec") or 150))
     if out.get("status") != "ok":
         return {"kind": "unknown", **out}
     text = out["text"]
@@ -247,17 +239,17 @@ def understand(path: Path, lines: list[dict[str, Any]] | None, cfg: dict[str, An
         kind, rest = "text", text
     tidy = tidy_output(rest)
     return {"kind": kind, "status": "ok", "text": tidy, "model": cfg["model"], "v": VISUAL_VERSION,
-            "tokens": out.get("tokens"), "cost_yuan": out.get("cost_yuan"),
+            "tokens": out.get("tokens"), "cost_yuan": out.get("cost_yuan"), "code": "", "error": None,
             "shaky": shaky_reason(rest, tidy, out.get("finish"))}
 
 
 def refine(path: Path, lines: list[dict[str, Any]] | None, kind: str, cfg: dict[str, Any], *,
-           timeout: float = 240) -> dict[str, Any]:
+           timeout: float | None = None) -> dict[str, Any]:
     """第二层：强模型精细识别一张图。流程图要能通过 mermaid_problem() 的检查，否则算失败。"""
     ocr = "\n".join(l["text"] for l in (lines or []))[:6000] or "（没认出文字）"
     label = {"diagram": "流程图", "table": "表格"}.get(kind, "截图文字")
     out = _chat(path, REFINE_PROMPT.replace("{kind}", label).replace("{ocr}", ocr), cfg,
-                max_tokens=8000, timeout=timeout)
+                max_tokens=8000, timeout=timeout or float(cfg.get("timeoutSec") or 240))
     if out.get("status") != "ok":
         return out
     tidy = tidy_output(out["text"])
@@ -266,7 +258,9 @@ def refine(path: Path, lines: list[dict[str, Any]] | None, kind: str, cfg: dict[
         or (table_problem(tidy) if got == "table" else "")
     base = {"kind": got, "text": tidy, "model": cfg["model"], "tokens": out.get("tokens"),
             "cost_yuan": out.get("cost_yuan")}
-    return {**base, "status": "failed", "error": problem} if problem else {**base, "status": "ok"}
+    if problem:
+        return {**base, "status": "failed", "error": problem, "code": "PERMANENT.MODEL_OUTPUT_INVALID"}
+    return {**base, "status": "ok", "code": "", "error": None}
 
 
 def shaky_reason(raw: str, tidy: str, finish: str | None) -> str:
@@ -346,54 +340,31 @@ def _chat(path: Path, prompt: str, cfg: dict[str, Any], *, max_tokens: int, time
         body["reasoning_effort"] = "low" if "pro" in cfg["model"] else "none"
     else:
         body["enable_thinking"] = False
+    from . import providers
+    if cfg.get("keyError") and not cfg.get("apiKey"):
+        return providers.result("failed", code="NEEDS_HUMAN.AUTH_FAILED", error=cfg["keyError"], api_error=True)
     headers = {"Content-Type": "application/json"}
     if cfg.get("apiKey"):
         headers["Authorization"] = "Bearer " + cfg["apiKey"].strip()
-    err = ""
+    last: dict[str, Any] = {}
     for attempt in range(2):  # 握手超时这类网络抖动重试一次
         try:
             response = httpx.post(cfg["endpoint"], headers=headers, content=json.dumps(body), timeout=timeout)
-            response.raise_for_status()
+        except httpx.TransportError as exc:
+            last = providers.network_failure(exc)
+            continue
+        except httpx.HTTPError as exc:
+            return providers.network_failure(exc)
+        if response.status_code >= 400:
+            return providers.http_failure(response.status_code, response.text[:2000])
+        try:
             doc = response.json()
             usage = doc.get("usage") or {}
             tin, tout = int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0)
-            return {"status": "ok", "text": doc["choices"][0]["message"]["content"].strip(),
-                    "finish": doc["choices"][0].get("finish_reason"),
-                    "tokens": [tin, tout], "cost_yuan": round(cost_yuan(cfg["model"], tin, tout), 5)}
-        except httpx.TransportError as exc:
-            err = f"{type(exc).__name__}: {str(exc)[:200]}"
-        except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
-            return {"status": "failed", "error": f"{type(exc).__name__}: {str(exc)[:200]}",
-                    "api_error": _is_api_fault(exc)}
-    return {"status": "failed", "error": err, "api_error": True}  # 超时 / 断网
-
-
-# 1001（审计 vision-4）：接口那一侧的故障（限额、鉴权、欠费、服务挂了、回包坏了）不是「模型给了结果但不合格」，
-# 第二层补跑不该为它记一次尝试；只有 400/404/413/422 这类「这张图的请求本身有问题」才算。
-_REQUEST_FAULTS = {400, 404, 413, 422}
-
-
-def _is_api_fault(exc: Exception) -> bool:
-    if isinstance(exc, httpx.HTTPStatusError):
-        return exc.response.status_code not in _REQUEST_FAULTS
-    return True
-
-
-def describe(path: Path, kind: str, cfg: dict[str, Any], *, timeout: float = 90) -> dict[str, Any]:
-    mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
-            ".gif": "image/gif"}.get(path.suffix.lower(), "image/jpeg")
-    data = base64.b64encode(path.read_bytes()).decode()
-    body = {"model": cfg["model"], "messages": [{"role": "user", "content": [
-        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}},
-        {"type": "text", "text": TABLE_PROMPT if kind == "table" else PICTURE_PROMPT}]}],
-        "max_tokens": 1500 if kind == "table" else 200, "temperature": 0.1}
-    headers = {"Content-Type": "application/json"}
-    if cfg.get("apiKey"):
-        headers["Authorization"] = "Bearer " + cfg["apiKey"].strip()
-    try:
-        response = httpx.post(cfg["endpoint"], headers=headers, content=json.dumps(body), timeout=timeout)
-        response.raise_for_status()
-        text = response.json()["choices"][0]["message"]["content"].strip()
-    except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
-        return {"kind": kind, "status": "failed", "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
-    return {"kind": kind, "status": "ok", "text": text, "model": cfg["model"]}
+            return providers.result("ok", doc["choices"][0]["message"]["content"].strip(),
+                                    usage=usage or None, finish=doc["choices"][0].get("finish_reason"),
+                                    tokens=[tin, tout], cost_yuan=round(cost_yuan(cfg["model"], tin, tout), 5))
+        except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
+            return providers.result("failed", code="TRANSIENT.HTTP_5XX", api_error=True,
+                                    error=f"识图接口回包坏了：{type(exc).__name__}")
+    return last or providers.result("failed", code="TRANSIENT.NETWORK", error="识图接口连不上", api_error=True)

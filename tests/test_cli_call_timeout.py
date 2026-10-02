@@ -51,4 +51,4 @@ def test_cli_call_default_timeout_is_180_seconds(monkeypatch):
 
 def test_cli_call_normal_failure_unchanged():
     res = text_stream.cli_call("i", "t", {"command": [sys.executable, "-c", "import sys; sys.stderr.write('坏了\\n'); sys.exit(3)"]})
-    assert res["status"] == "failed" and "坏了" in res["error"] and "code" not in res
+    assert res["status"] == "failed" and "坏了" in res["error"] and res["code"] != "TRANSIENT.STEP_TIMEOUT"

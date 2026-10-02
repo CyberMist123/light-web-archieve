@@ -154,15 +154,15 @@ def sync_chunks(conn: sqlite3.Connection, items: list[dict], model: str) -> dict
 # --------------------------------------------------------------------------
 
 def _endpoint_and_key(cfg: dict) -> tuple[str, str]:
-    """key 取法与问答通路完全一致（env DASHSCOPE_API_KEY 或仓外 CSV）；不落盘不打印。"""
-    from .text_stream import default_http_config
-    base_cfg = default_http_config({})
-    key = base_cfg.get("apiKey") or ""
-    endpoint = cfg.get("endpoint") or ""
-    if not endpoint:
-        chat = base_cfg.get("endpoint") or ""
-        endpoint = chat.rsplit("/chat/completions", 1)[0].rstrip("/") + "/embeddings"
-    return endpoint, key
+    """接口和 key 只认设置的 embedAI（providers.resolve；key 来源顺序同问答）；不落盘不打印。拿不到 key → ("", "")。"""
+    from . import providers
+    try:
+        emb = providers.resolve("embedAI")
+    except Exception:  # noqa: BLE001 - 配置读不动就当没开，检索退纯词法
+        emb = None
+    if not emb:
+        return "", ""
+    return (cfg.get("endpoint") or emb.get("endpoint") or ""), str(emb.get("apiKey") or "")
 
 
 _HTTP = None

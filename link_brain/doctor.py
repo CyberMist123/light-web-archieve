@@ -42,11 +42,9 @@ def diagnose(*, obsidian_dir: str | None = None, only=None) -> dict:
                              '' if dv_ready else '安装并启用 Dataview，打开 Enable JavaScript Queries。', optional=True))
     if not only or only in ('xhs', 'favorites', 'attachments'):
         rows.append(accounts.xhs_status(deep=only is not None))
-    ai = ai_config.load().get('textAI') or {}
-    from .text_stream import default_http_config
+    from . import providers
     try:
-        configured = (bool(ai.get('endpoint')) if ai.get('mode') == 'http'
-                      else bool(default_http_config(ai).get('apiKey')))
+        configured = providers.resolve('textAI', ai_config.with_model(ai_config.load())) is not None
     except (OSError, ValueError, UnicodeError):
         configured = False
     rows.append(accounts.row('ai', 'AI', 'configured' if configured else 'unconfigured',

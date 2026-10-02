@@ -1,17 +1,13 @@
-# 小模型派生（Lot 4）的可配置项。
-# 规矩：provider / model id / 价格都不写死在代码里（issue #41 第 16 节）。
-# 调用一律经 media.py text，本仓不自己包 provider 抽象。
+# 小模型派生（Lot 4）和向量索引的可配置项。
+# CONVENTIONS §4.8：这里只留提示词裁剪上限、价格快照、embedding；模型名和接口地址只认插件设置（data.json），
+# 不再从这里回落。概要用哪个模型 = 设置里的「归档摘要模型」（默认和文本 AI 相同）。
 
-# media.py text 的 --model 传什么；留空则用 media.py 自己的默认（qwen3.7-flash）
-model: qwen3.7-flash
-# Owner 0918 指定收藏问答走 DS Flash；旧名称由服务端映射到当前 Flash。
-answer_model: deepseek-v4-flash
-
-# 价格快照（USD / 1M token），2026-09-04 取自 Qwen 官方 model-pricing 页；
-# 换模型时连价格一起改，BENCH.md 的成本列直接按这里算。
+# 价格快照（USD / 1M token），按模型名查；查不到的模型费用记 0（只影响 extracted.json 里的估算）。
+# qwen3.7-flash：2026-09-04 取自 Qwen 官方 model-pricing 页。换模型时把它的价格也加进来。
 pricing:
-  input_usd_per_1m: 0.028
-  output_usd_per_1m: 0.110
+  qwen3.7-flash:
+    input_usd_per_1m: 0.028
+    output_usd_per_1m: 0.110
 
 # 输入裁剪上限：喂给模型的只有正文 + OCR + 评论，绝不塞 mcp_raw.json
 limits:
@@ -21,15 +17,13 @@ limits:
   max_comments: 40
   max_tags: 8
 
-timeout_sec: 180
-
-# Lot B：embedding 旁挂（可选层）。没 key / 没跑过 `python -m link_brain embed` /
+# Lot B：embedding 旁挂（可选层）。拿不到 key / 没跑过 `python -m link_brain embed` /
 # numpy 缺失时，检索退纯词法，行为与没有这一层完全一致（fail-open 硬约束）。
-# key 取法与问答一致：env DASHSCOPE_API_KEY 或仓外 CSV，绝不写进本仓。
+# 接口和 key 在设置的 embedAI（默认：环境变量 DASHSCOPE_API_KEY + 百炼 OpenAI 兼容 /embeddings），绝不写进本仓。
 embedding:
   # 本机 key 走的 MaaS 网关没有 text-embedding-v4，用它有的 qwen3.7 embedding flash
   model: qwen3.7-text-embedding-flash
-  # 留空 = DashScope OpenAI 兼容 /embeddings；自定义时写完整 URL
+  # 留空 = 用 embedAI 的接口地址；这里写完整 URL 会盖过它
   endpoint: ""
   dimensions: 1024
   # 查询向量单次 HTTP 超时（秒）；超时/失败即退纯词法

@@ -84,7 +84,8 @@ def test_router_rotates_keys_then_falls_back(monkeypatch):
     def fake(path, lines, kind, cfg):
         calls.append(cfg.get("apiKey") or cfg["model"])
         if cfg.get("apiKey"):
-            return {"status": "failed", "error": "HTTPStatusError: 429 Too Many Requests"}
+            return {"status": "failed", "code": "TRANSIENT.HTTP_429", "http_status": 429, "api_error": True,
+                    "error": "接口限流（HTTP 429）"}
         return {"status": "ok", "kind": "diagram", "text": "图", "model": cfg["model"]}
 
     monkeypatch.setattr(visual, "refine", fake)
