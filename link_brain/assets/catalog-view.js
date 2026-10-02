@@ -341,10 +341,18 @@ async function confirmDelete(list){
   if(typeof provider?.deleteItems!=='function'){window.alert('删除功能需要启用 Link Brain Actions 插件');return;}
   try{
     const r=await provider.deleteItems(list.map(x=>x.id));
-    const gone=new Set((r.results||[]).filter(x=>x.status==='deleted').map(x=>x.item_id));
+    // 第 3 批：只摘后端确认删掉的；没删掉的保持选中、说清几篇和原因（CONVENTIONS §1）
+    const results=r.results||[];
+    const gone=new Set(results.filter(x=>x.status==='deleted'||x.status==='ok').map(x=>x.item_id));
     for(let i=items.length-1;i>=0;i--)if(gone.has(items[i].id))items.splice(i,1);
-    selected.clear();render();
-  }catch(e){window.alert('删除失败：'+e.message);}
+    for(const id of gone)selected.delete(id);
+    const left=list.filter(x=>!gone.has(x.id));
+    if(!left.length){if(!selectMode)selected.clear();render();try{new Notice(`已删 ${gone.size} 篇（可在回收站恢复）`);}catch{}return;}
+    if(left.length&&!selectMode){selectMode=true;for(const x of left)selected.add(x.id);}
+    render();
+    const why=[...new Set(left.map(x=>{const row=results.find(y=>y.item_id===x.id);return row?.error||(row?.status==='missing'?'库里没有这一篇（可能已经删过）':row?'没删掉':'后台没回这一篇的结果');}))];
+    window.alert((gone.size?`已删 ${gone.size} 篇；`:'')+`${left.length} 篇没删掉：${why.join('；')}`+(r.catalog_error?`\n目录没重建上：${r.catalog_error}`:'')+(gone.size?'':'\n可以再点一次删除重试'));
+  }catch(e){window.alert('删除没完成：'+e.message+'\n（后台没回逐条结果，点「…→刷新目录」核对哪些已经进了回收站）');}
 }
 // 右键编辑标签
 function openTagEditor(body,it){

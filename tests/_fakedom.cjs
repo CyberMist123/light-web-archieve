@@ -157,13 +157,14 @@ function dataviewBlock({ dom, app, code, params = {}, folder = '' }) {
   const names = ['dv', 'app', 'document', 'window', 'Notice', 'ResizeObserver', 'NodeFilter', 'requestAnimationFrame', 'getComputedStyle', 'innerWidth', 'innerHeight', 'MutationObserver', ...Object.keys(params)];
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
   const fn = new AsyncFunction(...names, code);
-  const window = { alert() {}, confirm: () => false, innerHeight: 800, innerWidth: 1200, getSelection: () => ({ toString: () => '' }) };
+  const alerts = [];
+  const window = { alert(m) { alerts.push(m); }, confirm: () => false, innerHeight: 800, innerWidth: 1200, getSelection: () => ({ toString: () => '' }) };
   const notices = [];
   const env = [dv, app, dom.document, window, class { constructor(m) { notices.push(m); } }, class { observe() {} disconnect() {} }, { SHOW_TEXT: 4 },
     f => setTimeout(f, 0), () => ({ overflowY: 'visible' }), 1200, 800, class { observe() {} disconnect() {} }, ...Object.values(params)];
   const run = () => fn(...env);
   return {
-    dv, container, host, component, notices, run,
+    dv, container, host, component, notices, alerts, window, run,
     async rerun() { container.innerHTML = ''; await run(); },
   };
 }

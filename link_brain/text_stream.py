@@ -5,12 +5,22 @@ CONVENTIONS §4：`call(instruction, text, cfg, on_delta)` 返回统一形状 R
 没配接口 = skipped（SKIPPED.NOT_CONFIGURED），不算失败。模型名、接口地址只认设置，不再从 llm-config.yaml 回落。
 """
 import json
+import threading
+from contextvars import ContextVar
 
 import httpx
 
 from . import providers
 
 _CLIENT = httpx.Client(timeout=httpx.Timeout(120, connect=15))
+
+# 第 3 批「停止」：调用方（serve.py 的问答 worker）把一个 threading.Event 放进这里；用户点停止 = set()。
+# cli_call 到点整棵杀命令行模型（procs.kill_tree，不碰读取服务）；http_call 关掉流。返回 status=cancelled。
+CANCEL: ContextVar = ContextVar('lb_text_cancel', default=None)
+
+
+def cancelled_result(text=None):
+    return providers.result('cancelled', text or None, error='已停止')
 
 
 # 1001（审计 C-1）：命令行模型吃的是陌生人写的收藏原文和评论，本机 claude / codex 的全局设置又是全权限
@@ -74,6 +84,25 @@ def harden_command(cmd):
 CLI_TIMEOUT_DEFAULT = 180  # 秒；cfg['timeoutSec'] 覆盖（CONVENTIONS §6.6）
 
 
+def _watch_cli(proc, limit, cancel, finished, timed_out, stopped):
+    """命令行模型的看门狗：到 limit 秒（timed_out）或用户点停止（stopped）就整棵杀，不碰读取服务。"""
+    import time
+    from . import procs
+    deadline = time.monotonic() + limit
+    while not finished.wait(0.2):
+        hit = timed_out if time.monotonic() >= deadline else stopped if cancel is not None and cancel.is_set() else None
+        if hit is None:
+            continue
+        if proc.poll() is None:
+            hit.set()
+            procs.kill_tree(proc.pid)
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        return
+
+
 def cli_call(instruction, text, cfg, on_delta=None):
     """本机命令行模型（0926）：如 `codex exec -` / `claude -p`，用它们自己的登录，不需要 API key。
     提示词走 stdin，stdout 边读边吐。"""
@@ -95,27 +124,17 @@ def cli_call(instruction, text, cfg, on_delta=None):
     except OSError as exc:
         err_file.close()
         return providers.skipped('textAI', f'找不到命令 {cmd[0]}：{exc.strerror or exc}')
-    # CONVENTIONS §6.6：超时 = cfg.timeoutSec（默认 180 秒）；到点整棵杀（procs.kill_tree，不碰读取服务），
-    # 读 stdout 的循环随管道关闭结束。看门狗是个定时器线程：主线程照常边读边吐。
-    import threading
-    from . import procs
+    # CONVENTIONS §6.6：超时 = cfg.timeoutSec（默认 180 秒）；到点或用户点停止 → 整棵杀（procs.kill_tree，不碰读取服务），
+    # 读 stdout 的循环随管道关闭结束。看门狗是个线程：主线程照常边读边吐。
     try:
         limit = float(cfg.get('timeoutSec') or CLI_TIMEOUT_DEFAULT)
     except (TypeError, ValueError):
         limit = float(CLI_TIMEOUT_DEFAULT)
     timed_out = threading.Event()
-
-    def _expire():
-        if proc.poll() is None:
-            timed_out.set()
-            procs.kill_tree(proc.pid)
-            try:
-                proc.kill()
-            except OSError:
-                pass
-
-    watchdog = threading.Timer(limit, _expire)
-    watchdog.daemon = True
+    stopped = threading.Event()
+    finished = threading.Event()
+    watchdog = threading.Thread(target=_watch_cli, args=(proc, limit, CANCEL.get(), finished, timed_out, stopped),
+                                daemon=True)
     watchdog.start()
     chunks = []
     try:
@@ -130,11 +149,13 @@ def cli_call(instruction, text, cfg, on_delta=None):
                 on_delta(line)
         code = proc.wait()
     finally:
-        watchdog.cancel()
+        finished.set()
     err_file.seek(0)
     err = err_file.read()
     err_file.close()
     out = ''.join(chunks).strip()
+    if stopped.is_set():
+        return cancelled_result(out)
     if timed_out.is_set():
         return providers.result('failed', code='TRANSIENT.STEP_TIMEOUT',
                                 error=f'{cmd[0]} 超过 {limit:.0f} 秒没有答完，已停止', api_error=True)
@@ -151,6 +172,9 @@ def call(instruction, text, cfg, on_delta=None, *, cap='textAI'):
     resolved, why = providers.finalize(cap, cfg)
     if resolved is None:
         return providers.skipped(cap, why or '文本 AI 没配置', disabled=cfg.get('mode') == 'off')
+    cancel = CANCEL.get()
+    if cancel is not None and cancel.is_set():
+        return cancelled_result()
     if resolved.get('mode') == 'cli':
         return cli_call(instruction, text, resolved, on_delta)
     return http_call(instruction, text, resolved, on_delta)
@@ -188,9 +212,22 @@ def http_call(instruction, text, cfg, on_delta=None):
     chunks = []
     usage = None
     finish_reason = None
+    cancel = CANCEL.get()
+    finished = threading.Event()
     try:
         with _CLIENT.stream('POST', cfg['endpoint'], headers=headers, json=body,
                             timeout=httpx.Timeout(limit, connect=15)) as response:
+            if cancel is not None:
+                # 用户点停止：从旁边把流关掉，下面的 iter_lines 立刻抛出 / 结束
+                def _watch():
+                    while not finished.wait(0.2):
+                        if cancel.is_set():
+                            try:
+                                response.close()
+                            except Exception:  # noqa: BLE001
+                                pass
+                            return
+                threading.Thread(target=_watch, daemon=True).start()
             if response.status_code >= 400:
                 try:
                     detail = response.read().decode('utf-8', 'replace')[:2000]
@@ -198,6 +235,8 @@ def http_call(instruction, text, cfg, on_delta=None):
                     detail = ''
                 return providers.http_failure(response.status_code, detail)
             for line in response.iter_lines():
+                if cancel is not None and cancel.is_set():
+                    break
                 if not line.startswith('data:'):
                     continue
                 data = line[5:].strip()
@@ -219,10 +258,18 @@ def http_call(instruction, text, cfg, on_delta=None):
                     chunks.append(delta)
                     if on_delta:
                         on_delta(delta)
+        if cancel is not None and cancel.is_set():
+            return cancelled_result(''.join(chunks))
         return providers.result('ok', ''.join(chunks), usage=usage, truncated=finish_reason == 'length',
                                 model=cfg['model'])
-    except httpx.HTTPError as exc:
-        return providers.network_failure(exc)
+    except (httpx.HTTPError, httpx.StreamError, RuntimeError, OSError) as exc:
+        if cancel is not None and cancel.is_set():
+            return cancelled_result(''.join(chunks))
+        if isinstance(exc, httpx.HTTPError):
+            return providers.network_failure(exc)
+        raise
     except ValueError:
         return providers.result('failed', code='TRANSIENT.HTTP_5XX', error='模型流的数据坏了，回答未完成',
                                 api_error=True)
+    finally:
+        finished.set()

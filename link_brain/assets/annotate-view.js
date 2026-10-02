@@ -179,12 +179,20 @@ function setPlaceholder() {
     ? '写批注…'
     : '写批注…（@fable 开头 = 留言给 Fable）';
 }
-function startEdit(el, textSpan, key) {
+// 第 3 批：失败回滚用的快照（批注列表 + 草稿）；提示固定句式（CONVENTIONS §1.5），比 1.4 秒的小字多留一会儿
+function snapshot() { return { annotations: JSON.parse(JSON.stringify(data.annotations)), draft: data.draft }; }
+function restore(s) { data.annotations = s.annotations; data.draft = s.draft; }
+function failNotice(err) {
+  const msg = '没保存上，内容还在，可重试：' + ((err && err.message) || err || '未知原因');
+  notify(msg);
+  saveHint.setText(msg); saveHint.style.opacity = '1'; clearTimeout(flash._t); flash._t = setTimeout(() => { saveHint.style.opacity = '0'; }, 6000);
+}
+function startEdit(el, textSpan, key, initial) {
   if (el.querySelector('.lba-edit-input')) return;   // 已在编辑
   const a = data.annotations.find(x => akey(x) === key);
   if (!a) { renderList(); return; }                   // 别处已经删了这条
   const editor = el.createEl('textarea', { cls: 'lba-annot-input lba-edit-input' });
-  editor.value = a.text || '';
+  editor.value = typeof initial === 'string' ? initial : (a.text || '');
   textSpan.style.display = 'none';
   editor.focus();
   editor.setSelectionRange(editor.value.length, editor.value.length);
@@ -195,11 +203,21 @@ function startEdit(el, textSpan, key) {
     // 按 key 取当前那条（中途 persist 过的话内存里已是新对象）；老批注没 id：先给一个，旧 key 自然成墓碑
     const cur = data.annotations.find(x => akey(x) === key);
     if (t && cur && t !== cur.text) {
+      // 第 3 批（CONVENTIONS §1.5）：先留快照；写盘失败把这条改回原样、编辑框带着刚打的字重新打开
+      const prev = snapshot();
       if (!cur.id) cur.id = newId();
       cur.text = t;
       cur.to_fable = t.toLowerCase().startsWith('@fable');
       cur.edited = true;
-      try { await persist(); flash('已改'); } catch (err) { flash('没存上：' + (err.message || err)); }
+      try { await persist(); }
+      catch (err) {
+        restore(prev); renderList();
+        failNotice(err);
+        const row = [...list.querySelectorAll('.lba-annot-item')][data.annotations.findIndex(x => akey(x) === key)];
+        if (row) { startEdit(row, row.querySelector('.lba-annot-text'), key, t); }
+        return;
+      }
+      flash('已改');
     }
     renderList();
   };
@@ -231,9 +249,11 @@ function renderList() {
     // 按批注的 key 删（不认渲染时的下标 / 对象身份：合并保存后内存里换成了新对象）
     del.onclick = async (ev) => {
       ev.stopPropagation();
+      const prev = snapshot();
       const idx = data.annotations.findIndex(x => akey(x) === key);
       if (idx >= 0) data.annotations.splice(idx, 1);
-      try { await persist(); } catch (err) { flash('删除没存上：' + (err.message || err)); }
+      // 删成功才说「已删」；失败把这条放回去（以前先报错、紧接着 flash('已删') 把错误盖掉）
+      try { await persist(); } catch (err) { restore(prev); renderList(); failNotice(err); return; }
       renderList();
       flash('已删');
     };
@@ -255,11 +275,13 @@ async function commit() {
   clearTimeout(draftTimer);
   if (locked) return;  // 文件读坏了：字留在输入框里，不清、不存
   const text = ta.value.trim();
-  if (!text) { if (data.draft) { data.draft = ''; try { await persist(); } catch {} } return; }
+  if (!text) { if (data.draft) { data.draft = ''; try { await persist(); } catch (err) { flash('草稿没清掉：' + (err.message || err)); } } return; }
   const to_fable = text.toLowerCase().startsWith('@fable');
+  const prev = snapshot();
   data.annotations.push({ id: newId(), ts: new Date().toISOString(), text, to_fable, author: to_fable ? '' : nickname() });
   data.draft = '';
-  try { await persist(); } catch (err) { flash('没存上：' + (err.message || err)); return; }
+  // 失败把刚 push 的那条撤回（不然再提交一次会多出一条重复批注），字留在输入框里
+  try { await persist(); } catch (err) { restore(prev); failNotice(err); return; }
   ta.value = '';
   renderList();
   flash('已保存');

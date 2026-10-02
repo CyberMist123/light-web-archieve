@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import shutil
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -126,32 +127,78 @@ def publish_trash(vault=None):
         item['has_files'] = (vault / item['trash_dir']).exists()
     storage.write_json(vault / '_archive/trash-data.json', {'items': items})
     script = (Path(__file__).parent / 'assets/trash-view.js').read_text(encoding='utf-8')
-    storage.atomic_write_text(vault / '回收站.md', '# 回收站\n\n删除的收藏不会再次同步。请在「设置 → 文件与链接 → 排除的文件」加入 `_trash`。\n\n```dataviewjs\n' + script + '\n```\n')
+    # 第 3 批：页头带 lb-page: trash，她改了名也按标记找回那一份重写（不再按固定名另冒一份「回收站.md」）
+    from .catalog import library_pages
+    page = library_pages(vault)['trash']
+    storage.atomic_write_text(vault / page, '---\nlb-page: trash\n---\n\n# 回收站\n\n删除的收藏不会再次同步。请在「设置 → 文件与链接 → 排除的文件」加入 `_trash`。\n\n```dataviewjs\n' + script + '\n```\n')
+
+
+def _one(action, conn, item_id: str) -> dict[str, Any]:
+    """CONVENTIONS §1.3：逐条单独 try，一条抛错不吞掉其余结果；失败那条带一句能给用户看的原因。"""
+    try:
+        return action(conn, item_id)
+    except Exception as exc:  # noqa: BLE001 - 逐条兜底，原因交给页面
+        try:
+            conn.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        reason = (str(exc) or type(exc).__name__)[:200]
+        if isinstance(exc, PermissionError):
+            reason = '文件被占用或没有权限：' + reason
+        # 用户自己点的操作：原因当场给她看，不进问题记录，故障码留空
+        return {'item_id': item_id, 'status': 'failed', 'code': '', 'error': reason}
+
+
+def _summary(outcome: dict, verb: str, ok_status: str) -> dict:
+    results = outcome['results']
+    done = sum(r['status'] == ok_status for r in results)
+    bad = [r for r in results if r['status'] != ok_status]
+    outcome['ok'] = not bad
+    outcome['code'] = '' if not bad else (bad[0].get('code') or '')
+    if not bad:
+        outcome['message'] = f'已{verb} {done} 篇'
+    else:
+        why = bad[0].get('error') or ('不在库里' if bad[0]['status'] == 'missing' else bad[0]['status'])
+        outcome['message'] = (f'已{verb} {done} 篇；' if done else '') + f'{len(bad)} 篇没{verb}掉：{why}'
+    for r in bad:
+        if r['status'] == 'missing':
+            r.setdefault('error', '库里没有这一篇（可能已经删过）')
+    return outcome
 
 
 def delete_items(item_ids: list[str]) -> dict[str, Any]:
     conn = index_mod.connect()
     try:
-        results = [delete_item(conn, i) for i in item_ids]
+        results = [_one(delete_item, conn, i) for i in item_ids]
     finally:
         conn.close()
-    return {'deleted': sum(r['status'] == 'deleted' for r in results), 'results': results}
+    return _summary({'deleted': sum(r['status'] == 'deleted' for r in results), 'results': results}, '删', 'deleted')
 
 
 def run(args) -> int:
-    if args.command == 'delete':
-        outcome = delete_items(args.item_ids)
-    else:
-        conn = index_mod.connect()
+    outcome = {'results': []}
+    try:
+        if args.command == 'delete':
+            outcome = delete_items(args.item_ids)
+        else:
+            conn = index_mod.connect()
+            try:
+                ids = args.item_ids
+                if args.action == 'empty':
+                    ids = [r['item_id'] for r in conn.execute('SELECT item_id FROM tombstones')]
+                action = restore_item if args.action == 'restore' else purge_item
+                ok_status = 'restored' if args.action == 'restore' else 'purged'
+                outcome = _summary({'results': [_one(action, conn, i) for i in ids]},
+                                   '恢复' if args.action == 'restore' else '彻底删除', ok_status)
+            finally:
+                conn.close()
+    finally:
+        # 前面几条可能已经进了回收站：不管后面怎样都重建目录，页面才和磁盘一致
         try:
-            ids = args.item_ids
-            if args.action == 'empty':
-                ids = [r['item_id'] for r in conn.execute('SELECT item_id FROM tombstones')]
-            action = restore_item if args.action == 'restore' else purge_item
-            outcome = {'results': [action(conn, i) for i in ids]}
-        finally:
-            conn.close()
-    from . import catalog
-    catalog.build()
+            from . import catalog
+            catalog.build()
+        except Exception as exc:  # noqa: BLE001
+            outcome['catalog_error'] = (str(exc) or type(exc).__name__)[:200]
+            print('目录没重建上：' + outcome['catalog_error'], file=sys.stderr)
     dump_json(outcome)
-    return EXIT_ERROR if any(r['status'] == 'missing' or r.get('error') for r in outcome['results']) else EXIT_OK
+    return EXIT_OK if outcome.get('ok') else EXIT_ERROR

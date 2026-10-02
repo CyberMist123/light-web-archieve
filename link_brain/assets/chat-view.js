@@ -32,8 +32,22 @@ const pageState = LB.state.load();
 const saveDraft = v => LB.state.patch({ draft: v });
 let lane = 'chat', busy = false;
 // 会话文件只在问答轮次变了时写；draft 不再进文件（旧文件里的 draft 只在第一次读时接过来）
-const saveSession = async () => { try { await app.vault.adapter.write(SESSION_PATH, JSON.stringify({ turns: session.turns })); } catch {} };
-const saveArchive = async () => { try { await app.vault.adapter.write(ARCHIVE_PATH, JSON.stringify(archive, null, 2)); } catch {} };
+// 第 3 批（CONVENTIONS §1.5）：写盘失败一律抛给调用方——写成功才改界面，失败把内存改回去并提示，不再 catch {} 空吞。
+const notice = (msg, ms = 8000) => { try { new Notice(msg, ms); } catch { window.alert(msg); } };
+const NOT_SAVED = '没保存上，内容还在，可重试：';
+const errText = e => (e && e.message) || String(e || '未知原因');
+const writeJson = (file, obj, pretty) => app.vault.adapter.write(file, pretty ? JSON.stringify(obj, null, 2) : JSON.stringify(obj));
+const saveSession = () => writeJson(SESSION_PATH, { turns: session.turns });
+const saveArchive = () => writeJson(ARCHIVE_PATH, archive, true);
+// 对话轮次：内存里已经显示了，写不进文件只影响「重开页面还在不在」——如实说一句，不打断作答
+const keepSession = async () => { try { await saveSession(); } catch (e) { notice('对话没写进文件，重开这一页会丢：' + errText(e)); } };
+// 「已保存」栏的改动：快照 → 改 → 写盘；失败回滚快照、重画、提示（§1.5 统一写法）
+async function archiveChange(mutate) {
+  const prev = JSON.stringify(archive.entries);
+  mutate();
+  try { await saveArchive(); return true; }
+  catch (e) { archive.entries = JSON.parse(prev); notice(NOT_SAVED + errText(e)); return false; }
+}
 // 来源阅读（第 2 批，核实版 3.1/3.2）：只有引用编号、来源标题、「查看」按钮会打开来源，一律放进右侧同一个来源窗格（复用）；
 // 「加入对照」把这一篇放到来源窗格下方对照；「退出对照」关掉下方那格；「收起来源」右侧全关。整段文字单击不再打开任何东西。
 const openNote = (source,compare=false,context="") => {
@@ -127,6 +141,9 @@ style.textContent = `
 .lbchat-mic.is-recording{color:var(--color-red);animation:lbchat-rec 1.1s ease-in-out infinite;}
 @keyframes lbchat-rec{50%{opacity:.35;}}
 .lbchat-send:disabled{opacity:.4;cursor:wait;}
+.lbchat button.lbchat-stop{flex:none;width:36px;height:36px;padding:0;border-radius:50%!important;display:grid;place-items:center;border:1px solid var(--background-modifier-border)!important;background:var(--background-secondary)!important;color:var(--text-normal);box-shadow:none!important;cursor:pointer;}
+.lbchat button.lbchat-stop[hidden]{display:none;}
+.lbchat button.lbchat-stop:disabled{opacity:.5;cursor:wait;}
 .lbchat-nav{max-width:700px;justify-content:flex-start;margin:0 auto 32px;gap:24px;}
 .lbchat button.lbchat-tab{border:0!important;background:transparent!important;box-shadow:none!important;border-radius:0;padding:8px 0;font-family:inherit;font-size:13px;height:auto;}
 .lbchat button.lbchat-tab.is-on{border-bottom:2px solid var(--text-normal)!important;}
@@ -256,6 +273,11 @@ modelPick.onchange=async()=>{const p=provider();if(!p)return;p.settings.activeMo
 const mic=composer.createEl('button',{cls:'lbchat-mic',attr:{title:'语音提问（再点一次结束）'}});mic.type='button';
 mic.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>';
 mic.onclick=()=>provider()?.toggleVoice?.({target:search,button:mic});
+// 第 3 批：正在作答时多一个「停止」（■）。停掉的是这一问（连同它起的 claude / codex），排队的照常接着问——不想要就点排队那条的 ×
+const stop=composer.createEl('button',{cls:'lbchat-stop',attr:{title:'停止生成','aria-label':'停止生成'}});stop.type='button';stop.hidden=true;
+stop.innerHTML='<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor"/></svg>';
+stop.onclick=()=>{const p=provider();if(!p?.stopArchiveAnswer)return;stop.disabled=true;showPhase('正在停止');if(!p.stopArchiveAnswer()){stop.disabled=false;}};
+function paintSend(){const on=busy||inFlightElsewhere();stop.hidden=!on;stop.disabled=false;}
 const send=composer.createEl('button',{cls:'lbchat-send',attr:{title:'发送（回答中会排队）'}});send.type='submit';
 send.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
 // 回答进行中照常能打字：再发就进队列（像 Codex 追加提问），可点 × 取消，上一条答完自动接着问。
@@ -354,19 +376,25 @@ async function drawChat() {
         save.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z"/></svg><span class="lb-visually-hidden">收藏回答</span>';
         const paintSave=()=>{save.classList.toggle('is-saved',saved());save.setAttribute('aria-pressed',String(saved()));};paintSave();
         save.onclick=async()=>{
-          if(saved())archive.entries=archive.entries.filter(e=>e.id!==t.savedId);
-          else{t.savedId=uid();archive.entries.unshift({id:t.savedId,ts:new Date().toISOString(),kind:'report',title:t.q||'AI 整理',content:t.content,sources:t.sources||[]});}
-          await saveArchive();await saveSession();paintSave();
+          if(save.disabled)return;save.disabled=true;
+          const wasSaved=saved(),prevId=t.savedId;
+          const ok=await archiveChange(()=>{
+            if(wasSaved)archive.entries=archive.entries.filter(e=>e.id!==t.savedId);
+            else{t.savedId=uid();archive.entries.unshift({id:t.savedId,ts:new Date().toISOString(),kind:'report',title:t.q||'AI 整理',content:t.content,sources:t.sources||[]});}
+          });
+          if(!ok)t.savedId=prevId;
+          else{await keepSession();notice(wasSaved?'已取消收藏':'已收藏到「已保存」',2500);}
+          save.disabled=false;paintSave();
         };
-        el.ondblclick=e=>{if(e.target.closest('button,textarea'))return;editText(el,t,async()=>{const stored=archive.entries.find(x=>x.id===t.savedId);if(stored){stored.content=t.content;await saveArchive();}await saveSession();await drawChat();});};
+        el.ondblclick=e=>{if(e.target.closest('button,textarea'))return;editText(el,t,async()=>{const stored=archive.entries.find(x=>x.id===t.savedId);if(stored){const prev=stored.content;stored.content=t.content;try{await saveArchive();}catch(e){stored.content=prev;throw e;}}await saveSession();await drawChat();});};
       }
     }
   }
-  // 只显示「正在生成…」，不轮播假阶段（CONVENTIONS §1.6；后端真实阶段第 3 批接）
+  // 进度只显示后端真实发来的阶段（检索收藏 / 挑选材料 / 生成回答），没有阶段就「正在生成…」（CONVENTIONS §1.6）
   if (busy || inFlightElsewhere()) {
     const th = bodyEl.createEl('div', { cls: 'lbchat-think' });
     th.createEl('span', { cls: 'lbchat-dot' });
-    th.createEl('span', { text: '正在生成…' });
+    th.createEl('span', { cls: 'lbchat-phase', text: phaseText() });
   }
   bodyEl.scrollTop=scroll;
 }
@@ -380,8 +408,9 @@ async function drawArchive() {
   const saveIt = addRow.createEl('button', { cls: 'lbchat-arc-save', text: '存' });
   saveIt.onclick = async () => {
     const txt = ta.value.trim(); if (!txt) return;
-    archive.entries.unshift({ id: uid(), ts: new Date().toISOString(), kind: 'note', title: '', content: txt });
-    ta.value = ''; await saveArchive(); drawArchive();
+    // 写盘成功才清输入框；失败字留在框里（§1.5）
+    if (!(await archiveChange(() => archive.entries.unshift({ id: uid(), ts: new Date().toISOString(), kind: 'note', title: '', content: txt })))) return;
+    ta.value = ''; await drawArchive(); notice('已保存', 2000);
   };
   if (!archive.entries.length) { bodyEl.createEl('div', { cls: 'lbchat-empty', text: '还没有保存的内容。可以保存回答，或在上面记下自己的判断。' }); return; }
   for (const e of archive.entries) {
@@ -391,7 +420,7 @@ async function drawArchive() {
     meta.createEl('span', { text: fmtTs(e.ts) + (e.title ? ' · ' + e.title : '') });
     const edit=meta.createEl('button',{cls:'lbchat-act',text:'编辑'});edit.onclick=()=>editText(item,e,async()=>{await saveArchive();await drawArchive();});
     const del = meta.createEl('button', { cls: 'lbchat-arc-del', text: '✕' });
-    del.onclick = async () => { archive.entries = archive.entries.filter(x => x.id !== e.id); await saveArchive(); drawArchive(); };
+    del.onclick = async () => { if (await archiveChange(() => { archive.entries = archive.entries.filter(x => x.id !== e.id); })) { await drawArchive(); notice('已删除', 2000); } };
     const b = item.createEl('div', { cls: 'lbchat-arc-body' });
     try { await provider().renderMarkdownInto(e.content, b); } catch { b.setText(e.content); }
     bindSources(b,e.sources||[]);
@@ -401,6 +430,8 @@ function fmtTs(ts) { try { const d = new Date(ts); return `${String(d.getMonth()
 
 // 换页再回来时上一页还在等回答：插件对象上记一笔（§5.3「进行中的事」），新页面显示「正在生成…」，答完收到事件再重读会话
 function inFlightElsewhere(){const f=provider()?.chatInFlight;return !!(f&&f.page!==pageId);}
+function phaseText(){const f=provider()?.chatInFlight;return (f&&f.phase?f.phase+'…':'正在生成…');}
+function showPhase(text){const p=provider();if(p&&p.chatInFlight)p.chatInFlight.phase=text;const el=bodyEl.querySelector('.lbchat-phase');if(el)el.setText(phaseText());}
 const pageId=uid();
 async function submit(raw) {
   const text = (raw || '').trim(); if (!text || busy) return;
@@ -408,18 +439,26 @@ async function submit(raw) {
     const q = text.replace(/^\//,'').trim(); if (!q) return;
     const askedAt=new Date().toISOString();
     session.turns.push({ role: 'user', content: q, mode: 'ask', askedAt });
-    await saveSession(); busy = true; await drawChat();bodyEl.scrollTop=bodyEl.scrollHeight;
+    await keepSession(); busy = true; await drawChat();bodyEl.scrollTop=bodyEl.scrollHeight;
     try {
       const history = session.turns.filter(t => t.role === 'user' || t.role === 'assistant').filter(t => !t.failed)
         .map(t => ({ role: t.role === 'assistant' ? 'assistant' : 'user', content: t.content }));
       const live=bodyEl.createEl('div',{cls:'lbchat-turn lbchat-answer lbchat-live'});
       const p = provider(); if (p) p.chatInFlight = { page: pageId, q };
-      const r = await p.answerArchive({ question: q, model: modelPick.hidden?'':modelPick.value, history:history.slice(0,-1),onDelta:delta=>{bodyEl.querySelector('.lbchat-think')?.remove();live.appendText(delta);} });
-      session.turns.push({ role: 'assistant', content: r.markdown || '没有可用的回答。', sources: r.sources || [], q, askedAt });
+      paintSend();
+      let shown='';
+      const r = await p.answerArchive({ question: q, model: modelPick.hidden?'':modelPick.value, history:history.slice(0,-1),
+        onPhase:showPhase,
+        onDelta:delta=>{bodyEl.querySelector('.lbchat-think')?.remove();shown+=delta;live.appendText(delta);} });
+      if (r.status === 'cancelled') {
+        // 停止：留下已经生成的那半截，明确标「已停止」；算失败轮次（不进追问上下文、不给收藏 / 导出）
+        const part = (r.markdown || shown || '').trim();
+        session.turns.push({ role: 'assistant', failed: true, stopped: true, content: (part ? part + '\n\n' : '') + '> 已停止生成。', sources: r.sources || [], q, askedAt });
+      } else session.turns.push({ role: 'assistant', content: r.markdown || '没有可用的回答。', sources: r.sources || [], q, askedAt });
     } catch (e) {
       session.turns.push({ role: 'assistant', failed: true, content: '回答失败：' + (e.message || e) + '\n\n请重试。' });
     } finally {
-      busy = false; await saveSession();
+      busy = false; paintSend(); await keepSession();
       const p = provider(); if (p && p.chatInFlight?.page === pageId) { delete p.chatInFlight; app.workspace.trigger?.('link-brain:chat-session', pageId); }
       await drawChat(); if(queued.length){const next=queued.shift();drawQueue();submit(next);}
     }
@@ -438,6 +477,7 @@ async function setLane(next) {
 tabChat.onclick = () => setLane('chat');
 tabArch.onclick = () => setLane('archive');
 await setLane('chat');
+paintSend();
 LB.t('render');
 // 对话区滚动位置（§5.3）：记下来，换页回来恢复（没记过保持原样，停在顶上）
 if (Number.isFinite(pageState.scrollTop)) bodyEl.scrollTop = pageState.scrollTop;
@@ -449,6 +489,7 @@ if (app.workspace.on && dv.component?.registerEvent) {
   dv.component.registerEvent(app.workspace.on('layout-change', () => paintSourceBar()));
   // 别的页面（换页前的那一个）答完了：重读会话再画
   dv.component.registerEvent(app.workspace.on('link-brain:chat-session', from => {
+    paintSend();
     if (from === pageId || busy) return;
     app.vault.adapter.read(SESSION_PATH).then(raw => { const next = JSON.parse(raw); if (Array.isArray(next.turns)) { session.turns = next.turns; if (lane === 'chat') drawChat(); } }).catch(() => {});
   }));
@@ -456,7 +497,7 @@ if (app.workspace.on && dv.component?.registerEvent) {
 // 登记这一版 DOM：catalog-data 变了只换数据、改篇数，不重建对话
 LB.keep(wrap, { version: await LB.data.version(), update: async () => {
   try { data = await LB.data.load(); items = data.items || []; paintSub(); } catch {}
-}, onReuse: () => paintSourceBar() });
+}, onReuse: () => { paintSourceBar(); paintSend(); } });
 LB.t('total');
 
 if(provider()?.pendingArchiveQuestion){const q=provider().pendingArchiveQuestion;delete provider().pendingArchiveQuestion;await submit(q);}
@@ -503,7 +544,9 @@ function toggleHistory(anchor){
   headRow.createEl('span',{text:`提问历史 · ${qs.length}`});
   const clr=headRow.createEl('button',{cls:'lbchat-histclear',text:'一键清空'});
   clr.disabled=!session.turns.length;
-  clr.onclick=async()=>{if(!window.confirm('清空本会话所有提问和回答？（已保存的回答不受影响）'))return;session.turns=[];saveDraft('');await saveSession();panel.remove();anchor._open=false;await drawChat();};
+  clr.onclick=async()=>{if(!window.confirm('清空本会话所有提问和回答？（已保存的回答不受影响）'))return;const prev=session.turns;session.turns=[];
+    try{await saveSession();}catch(e){session.turns=prev;notice('没清空：'+errText(e));return;}
+    saveDraft('');panel.remove();anchor._open=false;await drawChat();};
   if(!qs.length){panel.createEl('div',{cls:'lbchat-histempty',text:'还没有提问'});}
   else for(const t of [...qs].reverse()){const row=panel.createEl('button',{cls:'lbchat-histitem'});row.setText((t.mode==='search'?'🔍 ':'')+t.content);row.onclick=()=>{search.value=t.content;saveDraft(t.content);search.focus();panel.remove();anchor._open=false;};}
   const r=anchor.getBoundingClientRect();
@@ -527,5 +570,8 @@ function editText(host,entry,save){
   if(host.querySelector('.lbchat-editor'))return;
   const editor=host.createEl('textarea',{cls:'lbchat-editor'});editor.value=entry.content;
   const bar=host.createEl('div',{cls:'lbchat-editbar'});const ok=bar.createEl('button',{text:'保存修改'});const cancel=bar.createEl('button',{text:'取消'});
-  ok.onclick=async()=>{entry.content=editor.value;await save();};cancel.onclick=()=>{editor.remove();bar.remove();};editor.focus();
+  // 写盘失败：内容改回原样、编辑框留着（字还在），提示可重试
+  ok.onclick=async()=>{const prev=entry.content;entry.content=editor.value;ok.disabled=true;
+    try{await save();}catch(e){entry.content=prev;notice(NOT_SAVED+errText(e));}finally{ok.disabled=false;}};
+  cancel.onclick=()=>{editor.remove();bar.remove();};editor.focus();
 }

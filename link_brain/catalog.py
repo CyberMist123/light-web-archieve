@@ -347,7 +347,7 @@ _CHAT_HEADER = "---\ncssclasses: [lb-chatpage]\n---\n\n"
 
 
 def library_pages(vault):
-    defaults = {"catalog": CATALOG_NAME, "chat": "收藏搜索.md", "starred": "星标收藏.md"}
+    defaults = {"catalog": CATALOG_NAME, "chat": "收藏搜索.md", "starred": "星标收藏.md", "trash": "回收站.md"}
     pages = dict(defaults)
     for file in vault.glob("*.md"):
         text = file.read_text(encoding="utf-8")
@@ -357,6 +357,8 @@ def library_pages(vault):
                 role = "chat"
             elif "cssclasses: [lb-catalog]" in text[:150]:
                 role = "starred" if "const starredPage = true;" in text else "catalog"
+            elif "_archive/trash-data.json" in text:
+                role = "trash"  # 第 3 批以前的回收站页没有页头标记
         if role:
             pages[role] = file.name
     return pages

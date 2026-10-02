@@ -140,7 +140,7 @@ const Plugin = context.module.exports;
   assert.equal((await p.starNote('a', true)).starred, true);
   // 挂附件：退出码 2 仍是「已保存 + 警告」
   answer('已复制', 2, '正文转换失败');
-  assert.equal((await p.attachFile('a', 'C:/f.pdf')).warning, '正文转换失败');
+  assert.equal((await p.attachFile('a', 'C:/f.pdf')).warning, '文件已保存，但全文没转出来：正文转换失败');
   answer('', 1, '文件不存在');
   await assert.rejects(p.attachFile('a', 'C:/f.pdf'), /文件不存在/);
   // 回收站

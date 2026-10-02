@@ -38,10 +38,11 @@ class AttachmentModal extends Modal {
   fillDocs() {
     this.docs.empty();
     (this.item.attachment_files||[]).forEach((f,i)=>this.docs.createEl('option',{value:String(i),text:(f.downloaded?'已存 · ':f.doc_id?'待补 · ':'线索待确认 · ')+f.name}));
-    if(this.status)this.status.setText(this.item.attachment_reason||'');
     const idx=(this.item.attachment_files||[]).findIndex(f=>!f.downloaded);
     if(idx>=0)this.docs.value=String(idx);
-    if(this.status)this.status.setText((this.item.attachment_errors||[]).map(r=>r.error).join("\n"));
+    // 第 3 批：附件原因和逐个错误两段拼起来（以前后一句把前一句覆盖掉，没错误时就成了空串）
+    const why=[this.item.attachment_reason||'',...(this.item.attachment_errors||[]).map(r=>r.error).filter(Boolean)].filter(Boolean);
+    if(this.status)this.status.setText([...new Set(why)].join("\n"));
   }
   selected() { return (this.item.attachment_files||[])[Number(this.docs.value)] || {}; }
   async candidates() {

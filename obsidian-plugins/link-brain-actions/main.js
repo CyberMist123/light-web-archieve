@@ -79,18 +79,48 @@ function serializeCats(arr) {
   return (arr || []).map(c => `${c.name}: ${(c.keywords || []).join(", ")}`).join("\n");
 }
 
-function cleanLinks(text) {
-  const links=[];
+// 文本里每个小红书链接：{start, end, raw, clean}（start/end 是原文里那一段的位置，投喂回写只换这一段）
+function linkSpans(text) {
+  const spans=[];
   // 到空白/中文标点/中文字为止：分享文案常把中文直接粘在链接尾巴上（…pc_share增加的内容），不截断会识别不出。
-  for(const raw of text.match(/https?:\/\/[^\s<>"'，。、；：！？（）()\[\]【】《》　-〿一-鿿＀-￯]+/gi)||[]){
-    try{const u=new URL(raw.replace(/[)\],.;]+$/, ''));
+  for(const m of String(text||'').matchAll(/https?:\/\/[^\s<>"'，。、；：！？（）()\[\]【】《》　-〿一-鿿＀-￯]+/gi)){
+    const raw=m[0].replace(/[)\],.;]+$/, '');
+    try{const u=new URL(raw);
       if(!XHS_HOSTS.test(u.hostname))continue;
       // 只保留小红书读取所需的 xsec_token/xsec_source，其余分享追踪参数
       //（source / xhsshare / app_platform / share_id / track_code / apptime / author_share / shareRedId …）一律清掉。
       for(const key of [...u.searchParams.keys()])if(!['xsec_token','xsec_source'].includes(key))u.searchParams.delete(key);
-      u.hash='';if(!links.includes(u.href))links.push(u.href);
+      u.hash='';spans.push({start:m.index,end:m.index+raw.length,raw,clean:u.href});
     }catch{}
-  }return links;
+  }return spans;
+}
+function cleanLinks(text) {
+  const links=[];
+  for(const s of linkSpans(text))if(!links.includes(s.clean))links.push(s.clean);
+  return links;
+}
+// 第 3 批：投喂回写——只把导入成功的那一段链接换成 [[笔记]]，同一行的附言、别的站的链接原样留着；
+// 整行的小红书链接都成功了才打勾（「- [x] 」）；只改导入开始时就在的行，导入期间新贴进来的行不动。
+function rewriteInbox(current, original, byUrl) {
+  const before=new Set(String(original||'').split('\n'));
+  return String(current||'').split('\n').map(line=>{
+    if(!before.has(line))return line;
+    const spans=linkSpans(line);if(!spans.length)return line;
+    let out='',last=0,allOk=true,any=false;
+    for(const s of spans){
+      const r=byUrl.get(s.clean);
+      out+=line.slice(last,s.start);
+      if(r?.ok){out+=`[[${r.note}]]`;any=true;}else{out+=line.slice(s.start,s.end);allOk=false;}
+      last=s.end;
+    }
+    out+=line.slice(last);
+    if(!any)return line;
+    if(allOk){
+      if(/^\s*- \[ \] /.test(out))out=out.replace('- [ ] ','- [x] ');
+      else if(!/^\s*- \[x\] /i.test(out))out='- [x] '+out.replace(/^\s*- /,'');
+    }
+    return out;
+  }).join('\n');
 }
 
 class ImportModal extends Modal {
@@ -350,7 +380,8 @@ class LinkBrainActions extends Plugin {
     const menu = new obsidian.Menu();
     menu.addItem(i=>i.setTitle('查看导出资料').setIcon('folder-open').onClick(()=>this.openExportFolder()));
     if(actions.categories)menu.addItem(i=>i.setTitle('管理分类').setIcon('tags').onClick(actions.categories));
-    menu.addItem(i=>i.setTitle('回收站').setIcon('trash-2').onClick(()=>this.app.workspace.openLinkText(this.lbPath('回收站.md'),'',false)));
+    // 第 3 批：回收站页按页头 lb-page: trash 找（她改了名也找得到）；旧版没标记的那份由 catalog 重建时补上标记
+    menu.addItem(i=>i.setTitle('回收站').setIcon('trash-2').onClick(()=>this.openLibraryPage('trash')));
     menu.addItem(i=>i.setTitle('刷新目录').setIcon('refresh-cw').onClick(()=>this.run(['-m','link_brain','catalog'],'刷新目录',true)));
 
     const r=evt.currentTarget.getBoundingClientRect();menu.showAtPosition({x:r.left,y:r.bottom});
@@ -797,7 +828,9 @@ class LinkBrainActions extends Plugin {
         try{event=JSON.parse(line);}catch{continue;}
         const pending=this.answerPending.get(event.id);if(!pending)continue;
         if(event.type==='delta')pending.onDelta?.(event.text);
-        if(event.type==='result'){clearTimeout(pending.timer);this.answerPending.delete(event.id);pending.resolve(event.result);}
+        if(event.type==='phase')pending.onPhase?.(event.text);
+        if(event.type==='result'){clearTimeout(pending.timer);clearTimeout(pending.cancelTimer);this.answerPending.delete(event.id);
+          if(pending.timedOut)pending.reject(new Error('回答超过 '+Math.round((this.answerTimeoutMs||150000)/1000)+' 秒没有完成，已停止。可以缩小问题范围后重试'));else pending.resolve(event.result);}
       }
     });
     child.stderr.on('data',()=>{});
@@ -805,7 +838,7 @@ class LinkBrainActions extends Plugin {
       if(this.answerWorker!==child)return;
       this.answerWorker=null;
       const hadPending=this.answerPending.size>0;
-      for(const request of this.answerPending.values()){clearTimeout(request.timer);request.reject(new Error('问答连接已断开，请重试'));}
+      for(const request of this.answerPending.values()){clearTimeout(request.timer);clearTimeout(request.cancelTimer);if(request.cancelTimer&&!request.timedOut)request.resolve({status:'cancelled',markdown:''});else request.reject(new Error(request.timedOut?'回答超时，已停止':'问答连接已断开，请重试'));}
       this.answerPending.clear();
       if(hadPending&&!this.unloading)this.ensureAnswerWorker();
     };
@@ -813,20 +846,34 @@ class LinkBrainActions extends Plugin {
     child.stdin.on('error',()=>{});
     return child;
   }
-  requestAnswer(request,onDelta) {
+  // onPhase：后端真实阶段（检索收藏 / 挑选材料 / 生成回答），页面只显示这些，不轮播假文案（§1.6）。
+  requestAnswer(request,onDelta,onPhase) {
     const worker=this.ensureAnswerWorker();
     const id=String(this.answerSequence=(this.answerSequence||0)+1);
     return new Promise((resolve,reject)=>{
-      // 超时：连同 worker 起的 claude / codex 子进程整棵结束（§6.2 killTree），不留孤儿
-      const timer=setTimeout(()=>{this.answerPending.delete(id);reject(new Error('回答超时，请重试'));this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});},150000);
-      this.answerPending.set(id,{resolve,reject,onDelta,timer});
+      // 150 秒超时也走「停止」协议（§6.7）：worker 杀掉自己起的 claude / codex、回 cancelled；不再整个 worker 一刀切
+      const timer=setTimeout(()=>{const p=this.answerPending.get(id);if(p)p.timedOut=true;this.cancelAnswer(id);},this.answerTimeoutMs||150000);
+      this.answerPending.set(id,{resolve,reject,onDelta,onPhase,timer,worker});
       worker.stdin.write(JSON.stringify({id,...request})+'\n');
     });
   }
+  // 第 3 批「停止」：发 {"id","type":"cancel"}，worker 杀掉这一问起的 claude / codex 子进程（不碰读取服务）并回 cancelled。
+  // worker 卡死 8 秒不回：只好整个 worker 经 killTree 结束（同样跳过读取服务），下一问自动重起。
+  cancelAnswer(id) {
+    const pending=this.answerPending?.get(id);if(!pending)return false;
+    const worker=pending.worker;
+    try{worker.stdin.write(JSON.stringify({id,type:'cancel'})+'\n');}catch{}
+    clearTimeout(pending.cancelTimer);
+    pending.cancelTimer=setTimeout(()=>{if(this.answerPending.get(id)!==pending)return;this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});},this.answerCancelGraceMs||8000);
+    return true;
+  }
+  stopArchiveAnswer() { let n=0; for(const id of [...(this.answerPending?.keys()||[])]) if(this.cancelAnswer(id)) n++; return n; }
   onunload(){this.unloading=true;clearTimeout(this.capsTimer);this.catalogCache=null;const worker=this.answerWorker;if(worker)this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});}
-  async answerArchive({ question, history = [], onDelta, model = '' } = {}) {
+  // 返回 payload；status='cancelled' = 用户点了停止（markdown 是已生成的半截），不当失败抛。
+  async answerArchive({ question, history = [], onDelta, onPhase, model = '' } = {}) {
     const q=(question||'').trim();if(!q)throw new Error('问题是空的');
-    const payload=await this.requestAnswer({question:q,history,model},onDelta);
+    const payload=await this.requestAnswer({question:q,history,model},onDelta,onPhase);
+    if(payload.status==='cancelled')return payload;
     if(payload.status!=='ok')throw new Error(payload.markdown||payload.error||'回答失败');
     return payload;
   }
@@ -1077,10 +1124,10 @@ class LinkBrainActions extends Plugin {
   async attachFile(itemId, filePath, docId) {
     const args=["-m","link_brain","attachments",itemId,"--attach",filePath];
     if(docId)args.push('--doc-id',docId);
-    // 退出码 2 = 文件已保存、正文没转出来（保持原语义：算成功 + 警告；第 3 批再改提示）
+    // 退出码 2 = 文件已保存、正文没转出来：算成功 + 一句原因（stderr 最后一行，CONVENTIONS §1.1）
     const {code,out,err}=await this.runPy(args,{label:'挂附件',fallback:'附件命令失败',okCodes:[0,2]});
-    if(code!==0&&code!==2)throw new Error(err.trim()||out.trim()||'附件命令失败');
-    return {text:out.trim(),warning:code===2?(err.trim()||'文件已保存，但正文转换失败'):null};
+    if(code!==0&&code!==2)throw new Error(stderrTail(err)||out.trim()||'附件命令失败');
+    return {text:out.trim(),warning:code===2?('文件已保存，但全文没转出来：'+(stderrTail(err,1)||'原因没报出来')):null};
   }
 
   async trashAction(action, ids = []) {
@@ -1133,14 +1180,7 @@ class LinkBrainActions extends Plugin {
     if(!results.length)return;
     const byUrl=new Map(results.map(r=>[r.url,r]));
     // 处理当前文件而非最初快照，保留导入期间新写的内容。
-    await this.app.vault.process(file,current=>current.split('\n').flatMap(line=>{
-      const urls=cleanLinks(line);
-      if(!urls.length)return [line];
-      return urls.map(url=>{
-        const r=byUrl.get(url);
-        return r?.ok ? `- [x] [[${r.note}]]` : url;
-      });
-    }).join('\n'));
+    await this.app.vault.process(file,current=>rewriteInbox(current,original,byUrl));
   }
 
   async ingestClipboard() {
@@ -1434,3 +1474,4 @@ class LinkBrainSettingTab extends PluginSettingTab {
 }
 
 module.exports = LinkBrainActions;
+module.exports.rewriteInbox = rewriteInbox;   // 给 node 单测（第 3 批投喂回写）
