@@ -278,12 +278,16 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return EXIT_OK
 
-    from . import accounts
+    from . import accounts, storage
     try:
         return _dispatch(args)
     except accounts.AccountBusyError as exc:
         print(f"没跑：{exc}", file=sys.stderr)
         return EXIT_ACCOUNT_BUSY
+    except storage.LockBusy as exc:
+        # 跨入口文件锁（目录重建等）等满了还拿不到：stderr 最后一行给人看的原因（CONVENTIONS §1.1）
+        print(f"没跑完：{exc}", file=sys.stderr)
+        return EXIT_ERROR
 
 
 def _account_lock(args, owner: str):

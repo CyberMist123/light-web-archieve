@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import unicodedata
 from datetime import datetime
@@ -116,10 +115,7 @@ def load(vault: Path | None = None) -> list[dict[str, Any]]:
 
 def save(topics: list[dict[str, Any]], vault: Path | None = None) -> Path:
     path = topics_path(vault)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(topics, ensure_ascii=False, indent=1), encoding="utf-8")
-    os.replace(tmp, path)
+    storage.atomic_write_text(path, json.dumps(topics, ensure_ascii=False, indent=1))
     return path
 
 

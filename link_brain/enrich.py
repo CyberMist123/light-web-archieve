@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import os
-import signal
 import subprocess
 import sys
 import time
@@ -54,9 +53,7 @@ def _save_state(source_key: str, source_id: str, state: dict[str, Any]) -> None:
     path = state_path(source_key, source_id)
     if not path.parent.exists():
         return
-    tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
-    tmp.write_text(json.dumps({**state, "updated_at": _now()}, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    storage.atomic_write_text(path, json.dumps({**state, "updated_at": _now()}, ensure_ascii=False, indent=2))
 
 
 def mark_pending(source_key: str, source_id: str, reason: str = "新收藏") -> None:
@@ -146,17 +143,12 @@ def _child(source_key: str, source_id: str, llm: bool) -> int:
 
 
 def kill_tree(proc: subprocess.Popen) -> None:
-    """连同它起的子进程一起杀（Windows：taskkill /T /F；其它：整个进程组）。"""
+    """连同它起的子进程一起杀（CONVENTIONS §6.2：procs.kill_tree，跳过读取服务和它的浏览器；不用 taskkill /T）。"""
     if proc.poll() is not None:
         return
-    try:
-        if os.name == "nt":
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, timeout=30,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        else:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-    except (OSError, subprocess.SubprocessError):
-        pass
+    from . import procs
+
+    procs.kill_tree(proc.pid)
     try:
         proc.kill()
     except OSError:

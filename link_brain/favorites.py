@@ -415,8 +415,16 @@ class _Quota:
         from . import storage
         self.count += 1
         try:
-            storage.write_json(self.path, {"date": self.today, "new": self.count})
-        except OSError:
+            # CONVENTIONS §6.4：插件白天的同步和夜跑共用这一个计数，读改写在锁里（以文件里的数为准再 +1）
+            with storage.file_lock("sync-quota", wait_s=10):
+                try:
+                    data = storage.read_json(self.path)
+                except (OSError, ValueError):
+                    data = {}
+                if isinstance(data, dict) and data.get("date") == self.today:
+                    self.count = max(self.count, int(data.get("new", 0)) + 1)
+                storage.write_json(self.path, {"date": self.today, "new": self.count})
+        except (OSError, ValueError, storage.LockBusy):
             pass
 
 

@@ -351,6 +351,7 @@ def library_pages(vault):
     return pages
 
 
+@storage.locked("catalog-build", wait_s=120)  # CONVENTIONS §6.4：remove / attachments / topics / 插件都会调
 def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Path, int, Path]:
     vault = vault or storage.vault_root()
     now = datetime.now().astimezone()

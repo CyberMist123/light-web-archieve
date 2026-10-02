@@ -9,7 +9,7 @@
 - 命中后 ask 往模型上下文注入 `context_block()`，回答开头加 `hint_line()` 一行。
 
 **一切 fail-open**：answers.json 缺 / 坏 / 没向量 / 任何异常 = 当全新问题，ask 行为与没有
-本模块时一致。写入走临时文件 + os.replace；坏文件挪成 answers.json.corrupt 后重新开始。
+本模块时一致。写入走 storage.atomic_write_text（读改写在 answers 锁里）；坏文件挪成 answers.json.corrupt 后重新开始。
 
 真机探针：`python -m link_brain.answer_cache probe "问题"`（看历史问题相似度，不调模型）；
 `python -m link_brain.answer_cache list`（最近几条，不打印回答原文以外的内容）。
@@ -21,7 +21,6 @@ import json
 import math
 import os
 import re
-import tempfile
 import uuid
 from array import array
 from datetime import datetime
@@ -74,19 +73,7 @@ def load() -> list[dict]:
 
 
 def _save(entries: list[dict]) -> None:
-    path = index_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".answers-", suffix=".tmp", dir=str(path.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump({"version": 1, "entries": entries}, fh, ensure_ascii=False, indent=1)
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+    storage.atomic_write_text(index_path(), json.dumps({"version": 1, "entries": entries}, ensure_ascii=False, indent=1))
 
 
 def _load_for_write() -> list[dict]:
@@ -291,9 +278,10 @@ def record(question: str, terms, sources: list[dict], markdown: str, qvec=None, 
                  "export_path": None, "first_line": first_line(markdown)}
         if qvec and qvec.get("v"):
             entry["vec"] = {"model": qvec.get("model"), "b64": _encode_vec(qvec["v"])}
-        entries = _load_for_write()
-        entries.append(entry)
-        _save(entries)
+        with storage.file_lock("answers", wait_s=10):  # CONVENTIONS §6.4：answers.json 读改写在锁里
+            entries = _load_for_write()
+            entries.append(entry)
+            _save(entries)
         return entry
     except Exception:  # noqa: BLE001 - fail-open
         return None
@@ -303,31 +291,36 @@ def attach_export(question: str, asked_at, export_path) -> bool:
     """导出时回填 export_path：同一问题里 ts 离 asked_at 最近（24h 内）的一条；
     asked_at 不详就取最新一条还没回填的。找不到就算了（返回 False）。"""
     try:
-        question = (question or "").strip()
-        entries = _load_for_write()
-        same = [e for e in entries if e.get("question", "").strip() == question]
-        if not same:
-            return False
-        asked = _parse_ts(asked_at) if asked_at and asked_at != "unknown" else None
-        if asked:
-            scored = [(abs((_parse_ts(e["ts"]) - asked).total_seconds()), e) for e in same]
-            scored = [x for x in scored if x[0] <= 86400]
-            if not scored:
-                return False
-            target = min(scored, key=lambda x: x[0])[1]
-        else:
-            pending = [e for e in same if not e.get("export_path")] or same
-            target = max(pending, key=lambda e: _parse_ts(e["ts"]))
-        path = Path(export_path)
-        try:
-            rel = path.resolve().relative_to(storage.vault_root().resolve()).as_posix()
-        except ValueError:
-            rel = str(path)
-        target["export_path"] = rel
-        _save(entries)
-        return True
+        with storage.file_lock("answers", wait_s=10):  # CONVENTIONS §6.4：answers.json 读改写在锁里
+            return _attach_export(question, asked_at, export_path)
     except Exception:  # noqa: BLE001 - fail-open：回填失败不许挡导出
         return False
+
+
+def _attach_export(question: str, asked_at, export_path) -> bool:
+    question = (question or "").strip()
+    entries = _load_for_write()
+    same = [e for e in entries if e.get("question", "").strip() == question]
+    if not same:
+        return False
+    asked = _parse_ts(asked_at) if asked_at and asked_at != "unknown" else None
+    if asked:
+        scored = [(abs((_parse_ts(e["ts"]) - asked).total_seconds()), e) for e in same]
+        scored = [x for x in scored if x[0] <= 86400]
+        if not scored:
+            return False
+        target = min(scored, key=lambda x: x[0])[1]
+    else:
+        pending = [e for e in same if not e.get("export_path")] or same
+        target = max(pending, key=lambda e: _parse_ts(e["ts"]))
+    path = Path(export_path)
+    try:
+        rel = path.resolve().relative_to(storage.vault_root().resolve()).as_posix()
+    except ValueError:
+        rel = str(path)
+    target["export_path"] = rel
+    _save(entries)
+    return True
 
 
 # --------------------------------------------------------------------------

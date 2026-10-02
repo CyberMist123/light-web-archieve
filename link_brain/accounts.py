@@ -26,7 +26,6 @@ import random
 import shutil
 import subprocess
 import sys
-import threading
 import time
 import webbrowser
 from datetime import datetime
@@ -93,15 +92,8 @@ def home() -> Path:
 
 
 def _atomic_write_text(path: Path, text: str) -> None:
-    """先写临时文件再 os.replace：进程半路被杀也不会留下半截文件。"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f'{path.name}.{os.getpid()}.{threading.get_ident()}.tmp')
-    tmp.write_text(text, encoding='utf-8')
-    try:
-        os.replace(tmp, path)
-    except OSError:
-        tmp.unlink(missing_ok=True)
-        raise
+    """先写临时文件再 os.replace：进程半路被杀也不会留下半截文件（CONVENTIONS §6.5：就是 storage.atomic_write_text）。"""
+    storage.atomic_write_text(path, text)
 
 
 def config() -> dict:
@@ -227,14 +219,12 @@ def ensure_reader(*, wait: float = 40):
         raise ReaderError('NOT_INSTALLED')
     home().mkdir(parents=True, exist_ok=True)
     log = home() / 'reader.log'
-    flags = 0
-    if os.name == 'nt':
-        flags = subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-    with log.open('ab') as out:
-        # 只监听本机：这个服务握着小红书登录，不能对局域网开放
-        subprocess.Popen([exe, '-port', f'127.0.0.1:{target.port or 18061}'], cwd=home(), env=reader_env(),
-                         stdout=out, stderr=out, stdin=subprocess.DEVNULL, creationflags=flags,
-                         close_fds=True)
+    # 只监听本机：这个服务握着小红书登录，不能对局域网开放。
+    # CONVENTIONS §6.3（根治 0929）：经短命中转拉起，读取服务不是任何 Python 的子孙——
+    # 插件 / 夜跑超时杀 Python 进程树时够不着它和它的浏览器。参数、环境变量、工作目录与以前完全一样。
+    from . import procs
+    procs.spawn_detached([exe, '-port', f'127.0.0.1:{target.port or 18061}'], cwd=home(), env=reader_env(),
+                         log_path=log)
     deadline = time.monotonic() + wait  # 首次启动可能要下载内置浏览器
     while time.monotonic() < deadline:
         time.sleep(1)
@@ -338,8 +328,6 @@ def check_risk_hold() -> None:
 
 LOCK_STALE_SECONDS = 10 * 60
 LOCK_HEARTBEAT_SECONDS = 60
-_LOCK_STATE: dict = {'count': 0, 'stop': None, 'thread': None, 'owner': ''}
-_LOCK_GUARD = threading.Lock()
 
 
 def lock_path() -> Path:
@@ -351,201 +339,39 @@ def _now_iso() -> str:
 
 
 def _pid_state(pid) -> str:
-    """'alive' / 'dead' / 'unknown'。只有确认进程不在了才是 dead。
-
-    Windows 上 OpenProcess 失败不一定是进程没了：拒绝访问（别的用户 / 会话、提权进程）也会失败。
-    那种情况算 unknown，交给心跳判陈旧，别把别人活着的锁当垃圾接管。"""
-    try:
-        pid = int(pid)
-    except (TypeError, ValueError):
-        return 'dead'
-    if pid <= 0:
-        return 'dead'
-    if os.name == 'nt':
-        import ctypes
-        k32 = ctypes.WinDLL('kernel32', use_last_error=True)
-        h = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
-        if not h:
-            err = ctypes.get_last_error()
-            return 'dead' if err == 87 else 'unknown'  # 87 = ERROR_INVALID_PARAMETER：没有这个进程
-        try:
-            code = ctypes.c_ulong()
-            if not k32.GetExitCodeProcess(h, ctypes.byref(code)):
-                return 'unknown'
-            return 'alive' if code.value == 259 else 'dead'  # 259 = STILL_ACTIVE
-        finally:
-            k32.CloseHandle(h)
-    try:
-        os.kill(pid, 0)
-        return 'alive'
-    except ProcessLookupError:
-        return 'dead'
-    except OSError:
-        return 'unknown'
+    """'alive' / 'dead' / 'unknown'（实现在 storage.pid_state；这里留个钩子，测试按模块属性替换）。"""
+    return storage.pid_state(pid)
 
 
-def _read_lock() -> tuple[str | None, dict | None]:
-    try:
-        raw = lock_path().read_text('utf-8')
-    except FileNotFoundError:
-        return None, None
-    except OSError:
-        return '', None  # 正在被改写（Windows 上 replace 那一瞬）：当它还在
-    try:
-        data = json.loads(raw)
-    except ValueError:
-        return raw, None
-    return raw, data if isinstance(data, dict) else None
-
-
-def _lock_is_stale(info: dict | None) -> bool:
-    if not info:
-        try:
-            return time.time() - lock_path().stat().st_mtime > 60  # 写坏的锁文件：放一分钟再当垃圾
-        except OSError:
-            return False
-    pid = info.get('pid')
-    if pid == os.getpid() and not _LOCK_STATE['count']:
-        return True  # 本进程以前没放掉的
-    if _pid_state(pid) == 'dead':
-        return True
-    beat = info.get('heartbeat_ts')
-    if not isinstance(beat, (int, float)):
-        try:
-            beat = datetime.fromisoformat(str(info.get('heartbeat'))).timestamp()
-        except ValueError:
-            beat = 0
-    return time.time() - beat > LOCK_STALE_SECONDS
+def _account_lock() -> 'storage.FileLock':
+    """账号锁 = storage.FileLock 的一个实例（CONVENTIONS §6.4）。参数每次现取，测试 monkeypatch 得到。"""
+    return storage.FileLock(lock_path(), name='账号', stale_s=LOCK_STALE_SECONDS,
+                            heartbeat_s=LOCK_HEARTBEAT_SECONDS, pid_state_fn=lambda pid: _pid_state(pid), poll_s=5.0)
 
 
 def lock_holder() -> dict | None:
     """别的活进程正占着账号锁 → 锁内容；没人占 / 陈旧锁 → None。"""
-    raw, info = _read_lock()
-    if raw is None:
-        return None
-    if _lock_is_stale(info):
-        return None
-    if info and info.get('pid') == os.getpid():
-        return None
-    return info or {'owner': '另一个任务'}
+    return _account_lock().holder()
 
 
-def _lock_payload(owner: str, started: str) -> str:
-    now = time.time()
-    return json.dumps({'pid': os.getpid(), 'owner': owner, 'started': started,
-                       'heartbeat': _now_iso(), 'heartbeat_ts': now}, ensure_ascii=False)
-
-
-def _try_take(owner: str) -> bool:
-    path = lock_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    started = _now_iso()
-    for _ in range(2):
-        try:
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            raw, info = _read_lock()
-            if raw is None:
-                continue  # 刚被放掉
-            if not _lock_is_stale(info):
-                return False
-            # 陈旧锁：先挪走再抢。os.rename 只有一个进程能成功；挪到手的内容和刚才判陈旧的不一样
-            # （别人抢先换上了新锁）就原样放回去。
-            aside = path.with_name(f'{path.name}.{os.getpid()}.stale')
-            try:
-                os.rename(path, aside)
-            except OSError:
-                return False
-            try:
-                moved = aside.read_text('utf-8')
-            except OSError:
-                moved = raw
-            if moved != raw:
-                try:
-                    os.rename(aside, path)
-                except OSError:
-                    pass
-                return False
-            aside.unlink(missing_ok=True)
-            print(f'[lock] 接管陈旧的账号锁（{(info or {}).get("owner")} pid={(info or {}).get("pid")}）',
-                  file=sys.stderr)
-            continue
-        with os.fdopen(fd, 'w', encoding='utf-8') as fh:
-            fh.write(_lock_payload(owner, started))
-        _LOCK_STATE['started'] = started
-        return True
-    return False
-
-
-def _heartbeat(stop: threading.Event, owner: str) -> None:
-    while not stop.wait(LOCK_HEARTBEAT_SECONDS):
-        raw, info = _read_lock()
-        if raw == '':
-            continue  # 正在被改写的那一瞬，下一拍再看
-        if not info or info.get('pid') != os.getpid():
-            # 锁被当成陈旧的接管了（笔记本睡过 10 分钟等）：不去抢回来，但要让本进程停手——
-            # 下一次 pace() 抛 AccountBusyError，批量入口停批，别在没锁的情况下接着用号。
-            _LOCK_STATE['lost'] = True
-            print('[lock] 账号锁被别的任务接管了：本任务开完手上这一页就停', file=sys.stderr)
-            return
-        try:
-            _atomic_write_text(lock_path(), _lock_payload(owner, _LOCK_STATE.get('started') or _now_iso()))
-        except OSError:
-            pass  # 这一拍没写上，十分钟余量够下一拍补
-
-
-def _release() -> None:
-    stop = _LOCK_STATE.get('stop')
-    if stop:
-        stop.set()
-    _, info = _read_lock()
-    if info and info.get('pid') == os.getpid():
-        try:
-            lock_path().unlink()
-        except OSError:
-            pass
-    _LOCK_STATE.update(stop=None, thread=None, owner='', lost=False)
+def lock_lost() -> bool:
+    """本进程拿着的账号锁被别人当陈旧锁接管了（心跳发现的）。"""
+    return _account_lock().lost
 
 
 @contextlib.contextmanager
 def account_session(owner: str, wait_s: float = 0):
     """拿账号锁（同一进程可重入）。wait_s 内拿不到 → AccountBusyError（CLI 退出码 6）。"""
-    with _LOCK_GUARD:
-        if _LOCK_STATE['count']:
-            _LOCK_STATE['count'] += 1
-            nested = True
-        else:
-            nested = False
-    if nested:
+    def told(holder, left):
+        print(f'[lock] 号正被「{holder.get("owner") or "别的任务"}」使用，最多等 {left / 60:.0f} 分钟',
+              file=sys.stderr)
+
+    with contextlib.ExitStack() as stack:
         try:
-            yield
-        finally:
-            with _LOCK_GUARD:
-                _LOCK_STATE['count'] -= 1
-        return
-    deadline = time.monotonic() + max(0.0, float(wait_s or 0))
-    told = False
-    while not _try_take(owner):
-        left = deadline - time.monotonic()
-        if left <= 0:
-            raise AccountBusyError(lock_holder())
-        if not told:
-            holder = lock_holder() or {}
-            print(f'[lock] 号正被「{holder.get("owner") or "别的任务"}」使用，最多等 {left / 60:.0f} 分钟',
-                  file=sys.stderr)
-            told = True
-        time.sleep(min(5.0, max(0.2, left)))
-    stop = threading.Event()
-    thread = threading.Thread(target=_heartbeat, args=(stop, owner), daemon=True, name='account-lock-heartbeat')
-    with _LOCK_GUARD:
-        _LOCK_STATE.update(count=1, stop=stop, thread=thread, owner=owner, lost=False)
-    thread.start()
-    try:
+            stack.enter_context(_account_lock().hold(owner, wait_s, on_wait=told))
+        except storage.LockBusy as exc:
+            raise AccountBusyError(exc.holder or None) from None
         yield
-    finally:
-        with _LOCK_GUARD:
-            _LOCK_STATE['count'] = 0
-        _release()
 
 
 # ---------------------------------------------------------------------------
@@ -581,7 +407,7 @@ def pace(what: str = '开页') -> float:
 
     本进程拿着的账号锁被别人当陈旧锁接管了（笔记本睡过 10 分钟等）→ 抛 AccountBusyError，调用方停批，
     别在没锁的情况下接着用号。"""
-    if _LOCK_STATE.get('lost'):
+    if lock_lost():
         raise AccountBusyError(lock_holder())
     lo, hi = _gap_range('LWA_OPEN_GAP', '20,40')
     stamp = _pace_stamp()
