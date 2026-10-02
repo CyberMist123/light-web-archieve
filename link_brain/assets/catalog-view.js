@@ -1,13 +1,17 @@
 const simplePage = false;
 const starredPage = false;
+// 第 2 批（CONVENTIONS §5）：共享前导 lb-page-lib.js 由 catalog.py 内联在本文件前面。
+// Dataview 每 2.5 秒重跑本页：数据版本没变 → 上一次的整页 DOM 原样挂回（搜索框、滚动、多选都在）；变了 → 增量更新。
+const LB = lbPageLib(dv, app, starredPage ? 'starred' : 'catalog');
+if (await LB.reuseDom()) return;
 const root = dv.container;
-// 这个仓可能被挂进别的库的子目录（如 LER Vault/知识库【小红书】/）；数据里的路径都相对 lwa 仓根，
-// 统一过 lbPath 补上挂载前缀。仓根 = 从本页往上第一个带 _archive 的目录。
-const LB_ROOT=(()=>{try{let d=dv.current()?.file?.folder||'';while(d&&!app.vault.getAbstractFileByPath(d+'/_archive'))d=d.includes('/')?d.slice(0,d.lastIndexOf('/')):'';return d;}catch{return '';}})();
-const lbPath=p=>p&&LB_ROOT?`${LB_ROOT}/${p}`:p;
+// 这个仓可能被挂进别的库的子目录（如 LER Vault/知识库【小红书】/）；数据里的路径都相对 lwa 仓根，统一过 lbPath 补挂载前缀。
+const lbPath = LB.path;
 const pane = root.closest('.markdown-preview-view, .markdown-source-view');
 if (pane) pane.classList.add('lb-catalog');
-const style = root.createEl('style');
+const wrap=root.createEl('div',{cls:'lbc-wrap'+(simplePage?' lbc-simple':'')});
+// 样式放进 wrap 里：复用时整个 wrap 挂回去，样式跟着走
+const style = wrap.createEl('style');
 style.textContent = `
 .markdown-preview-view.lb-catalog,.markdown-source-view.lb-catalog{--file-line-width:100%;}
 .lb-catalog .markdown-preview-sizer,.lb-catalog .markdown-preview-section,.lb-catalog .cm-sizer,.lb-catalog .cm-contentContainer,.lb-catalog .cm-content,.lb-catalog .block-language-dataviewjs{width:100%!important;max-width:none!important;}
@@ -172,26 +176,30 @@ style.textContent = `
 .lbc-card.is-possible .lbc-cover{opacity:.85;}
 
 `;
-const pluginId='link-brain-actions';
-let loadedPlugin=app.plugins.plugins[pluginId];
-if(loadedPlugin && typeof loadedPlugin.openAttachments!=='function' && !loadedPlugin.running && !loadedPlugin.importing){
-  await app.plugins.disablePlugin(pluginId);await app.plugins.enablePlugin(pluginId);
-}
+// 刚部署了新插件、内存里还是旧实例（缺新方法）：重载一次；正在同步 / 导入时不动它
+if(LB.provider() && typeof LB.provider().openAttachments!=='function') await LB.ensure('openAttachments').catch(()=>{});
 let data;
-try { data = JSON.parse(await app.vault.adapter.read(lbPath('_archive/catalog-data.json'))); }
-catch { root.createEl('p',{text:'目录尚未生成，请在归档操作中重建目录。'}); return; }
+try { data = await LB.data.load(); }
+catch { wrap.createEl('p',{text:'目录尚未生成，请在归档操作中重建目录。'}); return; }
 let items = data.items || [];
-// 每次打开读笔记当前属性，后台插件增删标签无需重建目录。
-for (const it of items) {
-  const page = it.note ? dv.page(lbPath(it.note)) : null;
-  if (page && page.tags !== undefined) {
-    it.tags = typeof page.tags === 'string' ? [page.tags] : Array.from(page.tags || []);
-  }
+// 笔记当前的标签（后台插件增删标签不必重建目录）：读 Obsidian 的元数据缓存，不走 dv.page 逐篇序列化
+function tagsOf(it){
+  if(!it.note)return null;
+  try{const fm=app.metadataCache?.getCache?.(lbPath(it.note))?.frontmatter;if(fm&&fm.tags!==undefined)return typeof fm.tags==='string'?[fm.tags]:Array.from(fm.tags||[]);}catch{}
+  const page=dv.page?.(lbPath(it.note));
+  if(page&&page.tags!==undefined)return typeof page.tags==='string'?[page.tags]:Array.from(page.tags||[]);
+  return null;
 }
-const wrap=root.createEl('div',{cls:'lbc-wrap'+(simplePage?' lbc-simple':'')});
-const provider=()=>app.plugins.plugins['link-brain-actions'];
+function refreshTags(){let changed=0;for(const it of items){const tags=tagsOf(it);if(tags&&JSON.stringify(tags)!==JSON.stringify(it.tags||[])){it.tags=tags;changed++;}}return changed;}
+refreshTags();
+const provider=LB.provider;
 let committed='',chatMode=false,messages=[],busy=false;
-async function refresh(next){data=next;items=next.items||[];renderCatBar();render();}
+// 数据变了（同步进来新的、删了、挂了附件）：不重建整页，只换数据再画卡片（卡片按 id 复用，见 render）
+async function refresh(next){
+  try{data=await LB.data.load();}catch{if(!next)return;data=next;}
+  items=data.items||[];refreshTags();renderCatBar();render();
+  const view=root.__lbView;if(view)view.version=await LB.data.version();   // 已经是新数据了：下一次 Dataview 重跑别再更新一遍
+}
 function attachmentPanel(list){if(typeof provider()?.openAttachments!=='function'){importStatus.setText('附件工具未载入，请重新启用 Link Brain Actions 插件。');return;}provider().openAttachments(list,refresh);}
 function editCategories(selected=''){provider()?.openCategories(data.cats||[],selected,refresh);}
 // 第一行：左=标题「Collections +」+ 其下计数·更新·未同步(!)；右=搜索横线。
@@ -229,15 +237,8 @@ function paintBadge(){
   accountStatus.hidden=!why.length&&st.state!=='running';
 }
 accountStatus.onclick=async()=>{
-  try {
-    let plugin=provider();
-    if(typeof plugin?.fixFromCatalog!=='function'){
-      if(plugin)await app.plugins.disablePlugin('link-brain-actions');
-      await app.plugins.enablePlugin('link-brain-actions');plugin=provider();
-    }
-    if(typeof plugin?.fixFromCatalog!=='function')throw new Error('请启用 Link Brain Actions 插件');
-    await plugin.fixFromCatalog();
-  } catch(error){try{new Notice(error.message,10000);}catch{window.alert(error.message);}}
+  try { await (await LB.ensure('fixFromCatalog')).fixFromCatalog(); }
+  catch(error){try{new Notice(error.message,10000);}catch{window.alert(error.message);}}
 };
 await refreshSyncStatus();
 if(app.vault.on && dv.component?.registerEvent){
@@ -258,14 +259,8 @@ importButton.type='button';
 importButton.onclick=async e=>{
   e.preventDefault();e.stopPropagation();importStatus.setText('');
   try{
-    const id='link-brain-actions';let plugin=app.plugins.plugins[id];
-    if(typeof plugin?.openPlusMenu!=='function'){
-      importStatus.setText('正在载入…');
-      if(plugin)await app.plugins.disablePlugin(id);
-      await app.plugins.enablePlugin(id);plugin=app.plugins.plugins[id];
-    }
-    if(typeof plugin?.openPlusMenu!=='function')throw new Error('插件未加载，请在第三方插件中启用 Link Brain Actions');
-    plugin.openPlusMenu(e);importStatus.setText('');
+    if(typeof LB.provider()?.openPlusMenu!=='function')importStatus.setText('正在载入…');
+    (await LB.ensure('openPlusMenu')).openPlusMenu(e);importStatus.setText('');
   }catch(error){importStatus.setText('菜单未打开：'+error.message);}
 };
 // 大类筛选条（小红书式 tab，灰竖线分隔）：单选，一次一个；「全部」或再点当前项清空。
@@ -305,6 +300,26 @@ function renderTopicBar(){
 }
 // 多选删除状态
 let selectMode=false;const selected=new Set();
+// 页面状态（§5.3）：打开一篇再返回 / 页面被重建后，搜索词、筛选、多选、滚动位置照旧
+const saved=LB.state.load();
+let savedScroll=0;
+if(saved.ts){
+  committed=typeof saved.q==='string'?saved.q:'';
+  if(typeof saved.cat==='string'&&(data.cats_order||[]).includes(saved.cat))activeCat=saved.cat;
+  if(typeof saved.topic==='string')activeTopic=saved.topic;   // renderTopicBar 会把已不存在的主题清掉
+  todayOnly=!!saved.today;todoOnly=!!saved.todo;
+  if(['video','attachment'].includes(saved.media))mediaFilter=saved.media;
+  if(!starredPage)starOnly=!!saved.star;
+  const known=new Set(items.map(x=>x.id));
+  for(const id of Array.isArray(saved.select)?saved.select:[])if(known.has(id))selected.add(id);
+  selectMode=!!saved.selectMode;
+  savedScroll=Number(saved.scrollTop)||0;
+}
+let scrollTop=savedScroll;
+function saveState(){
+  LB.state.save({q:committed,input:search.value,cat:activeCat,topic:activeTopic,today:todayOnly,todo:todoOnly,media:mediaFilter,star:starOnly,
+    selectMode,select:[...selected],scrollTop});
+}
 const selbar=wrap.createEl('div',{cls:'lbc-selbar'});selbar.hidden=true;
 const selCount=selbar.createEl('span',{cls:'lbc-selcount'});
 const imageLabel=selbar.createEl('label',{text:'附带原图 '});const bundleImages=imageLabel.createEl('input');bundleImages.type='checkbox';bundleImages.checked=true;
@@ -360,7 +375,14 @@ function openCardMenu(e,body,it){
   const close=()=>{menu.remove();document.removeEventListener('click',close);document.removeEventListener('contextmenu',close);};
   setTimeout(()=>{document.addEventListener('click',close);document.addEventListener('contextmenu',close);},0);
 }
-function render(){
+// 卡片按 id 复用（§5.5）：内容和选中状态都没变的卡片原样挂回，封面图不重载、不闪；变了的才重建。
+const cardCache=new Map();
+function cardSig(it,fuzzy){
+  return JSON.stringify([it.title,it.cover,it.cover_w,it.cover_h,it.kind,it.attachment,it.attachment_reason,!!it.starred,it.author,it.source,it.likes,it.note,
+    fuzzy,selectMode&&selected.has(it.id)]);
+}
+function render(){renderGrid();saveState();}
+function renderGrid(){
   grid.empty();const exactCards=grid.createEl('div',{cls:'lbc-grid-inner'});const q=normalize(committed);const asking=chatMode;
   const now=new Date();const today=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
   const filtered=items.filter(it=>(!(starredPage||starOnly)||it.starred)&&(!mediaFilter||(mediaFilter==='video'?it.kind==='video':it.attachment&&it.attachment!=='none'))&&(!todayOnly||it.date===today)&&(!todoOnly||it.attachment==='待补')&&(!activeCat||(it.cats||[]).includes(activeCat))&&(!activeTopic||(it.topics||[]).includes(activeTopic)));
@@ -384,9 +406,21 @@ function render(){
       possibleCards=grid.createEl('div',{cls:'lbc-grid-inner lbc-grid-possible'});
     }
     const cards=possibleCards||exactCards;
+    const sig=cardSig(it,!!match.fuzzy);const cached=cardCache.get(it.id);
+    if(cached&&cached.sig===sig){cached.el._lbItem=it;cards.append(cached.el);continue;}
+    const card=buildCard(cards,it,!!match.fuzzy);cardCache.set(it.id,{sig,el:card});
+  }
+}
+function buildCard(cards,it,fuzzy){
     // 不设 aria-label：Obsidian 会把 aria-label 渲染成 hover 浮框（她不要那个「悬浮的点的字」）。
-    const card=cards.createEl('article',{cls:'lbc-card'+(selectMode&&selected.has(it.id)?' is-selected':'')+(match.fuzzy?' is-possible':'')});card.tabIndex=0;card.setAttribute('role','link');
-    if(it.cover){const img=card.createEl('img',{cls:'lbc-cover'});img.loading='lazy';img.alt='';img.src=app.vault.adapter.getResourcePath(lbPath(it.cover));}
+    const card=cards.createEl('article',{cls:'lbc-card'+(selectMode&&selected.has(it.id)?' is-selected':'')+(fuzzy?' is-possible':'')});card.tabIndex=0;card.setAttribute('role','link');
+    // 卡片上的事件一律取 card._lbItem（数据刷新后复用的卡片换成新对象）
+    card._lbItem=it;const cur=()=>card._lbItem;
+    if(it.cover){const img=card.createEl('img',{cls:'lbc-cover'});img.loading='lazy';img.alt='';
+      // 有封面宽高就先占好位置：图片还没加载时版面不跳，返回目录时滚动位置能一次到位
+      if(it.cover_w&&it.cover_h){img.setAttribute('width',String(it.cover_w));img.setAttribute('height',String(it.cover_h));}
+      if(!firstCover){firstCover=img;img.addEventListener?.('load',()=>LB.mark('cover'),{once:true});}
+      img.src=app.vault.adapter.getResourcePath(lbPath(it.cover));}
     else card.createEl('div',{cls:'lbc-nocover',text:it.kind==='video'?'▷':'▤'});
     // 附件角标：待补=有文件未下载（橙），downloaded=有文件已下（灰）
     const badges=card.createEl('div',{cls:'lbc-badges'});
@@ -397,22 +431,20 @@ function render(){
     const badge=badges.querySelector('.lbc-attach:not(.lbc-video)');if(badge){try{const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');icon.setAttribute('viewBox','0 0 24 24');icon.innerHTML='<path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>';badge.prepend(icon);}catch(err){window.alert(err.message);}}
     const star=card.createEl('button',{cls:'lbc-star'+(it.starred?' is-on':''),text:it.starred?'★':'☆'});
     star.setAttribute('aria-pressed',String(!!it.starred));star.createEl('span',{cls:'lb-visually-hidden',text:it.starred?'取消收藏':'收藏'});
-    star.onclick=async e=>{e.preventDefault();e.stopPropagation();star.disabled=true;try{const result=await provider().starNote(it.id,!it.starred);it.starred=result.starred;render();}catch(err){importStatus.setText(err.message);star.disabled=false;}};
+    star.onclick=async e=>{e.preventDefault();e.stopPropagation();star.disabled=true;const x=cur();try{const result=await provider().starNote(x.id,!x.starred);x.starred=result.starred;render();}catch(err){importStatus.setText(err.message);star.disabled=false;}};
     const body=card.createEl('div',{cls:'lbc-body'});body.createEl('div',{cls:'lbc-ctitle',text:it.title||'未命名'});
     const meta=body.createEl('div',{cls:'lbc-cmeta'});meta.createEl('span',{text:it.author||it.source||'收藏'});meta.createEl('span',{cls:'lbc-likes',text:it.likes==null?'':'♡ '+(Number(it.likes)>=10000?(Number(it.likes)/10000).toFixed(1)+'万':it.likes)});
-    card.ondragover=e=>{e.preventDefault();};card.ondrop=async e=>{e.preventDefault();e.stopPropagation();const f=e.dataTransfer.files[0];if(!f)return;const fp=f.path||require('electron').webUtils?.getPathForFile(f);if(!fp){attachmentPanel([it]);return;}try{const result=await provider().attachFile(it.id,fp);await refresh(JSON.parse(await app.vault.adapter.read(lbPath('_archive/catalog-data.json'))));importStatus.setText(result.warning||'附件已保存并加入搜索');}catch(err){importStatus.setText('挂载失败：'+err.message);}};
-    // 多选模式：点击=勾选/取消；平时=打开笔记
-    const toggle=()=>{selected.has(it.id)?selected.delete(it.id):selected.add(it.id);render();};
-    const open=()=>{if(selectMode){toggle();return;}if(it.note)app.workspace.openLinkText(lbPath(it.note),'',false);};
+    card.ondragover=e=>{e.preventDefault();};card.ondrop=async e=>{e.preventDefault();e.stopPropagation();const x=cur();const f=e.dataTransfer.files[0];if(!f)return;const fp=f.path||require('electron').webUtils?.getPathForFile(f);if(!fp){attachmentPanel([x]);return;}try{const result=await provider().attachFile(x.id,fp);await refresh();importStatus.setText(result.warning||'附件已保存并加入搜索');}catch(err){importStatus.setText('挂载失败：'+err.message);}};
+    // 多选模式：点击=勾选/取消；平时=打开笔记（同一窗格，§5.4；按住 Ctrl 照 Obsidian 习惯开新标签）
+    const toggle=()=>{const x=cur();selected.has(x.id)?selected.delete(x.id):selected.add(x.id);render();};
+    const open=e=>{if(selectMode){toggle();return;}const x=cur();if(!x.note)return;const newTab=!!(e&&(e.ctrlKey||e.metaKey));saveState();if(!newTab)leaving=true;app.workspace.openLinkText(lbPath(x.note),'',newTab);};
 
-    card.onclick=open;card.onkeydown=e=>{if(e.target===card&&e.key==='Enter'){e.preventDefault();open();}};
-    card.oncontextmenu=e=>{e.preventDefault();openCardMenu(e,body,it);};
-  }
+    card.onclick=open;card.onkeydown=e=>{if(e.target===card&&e.key==='Enter'){e.preventDefault();open(e);}};
+    card.oncontextmenu=e=>{e.preventDefault();openCardMenu(e,body,cur());};
+    return card;
 }
-// ESC 退出多选（去重：重开页面时先摘掉上一份监听器，别叠加）
-if(window.__lbcEsc)document.removeEventListener('keydown',window.__lbcEsc);
-window.__lbcEsc=e=>{if(e.key==='Escape'&&selectMode){selectMode=false;selected.clear();render();}};
-document.addEventListener('keydown',window.__lbcEsc);
+// ESC 退出多选（LB.listen 去重：重开页面时摘掉上一份监听器，别叠加）
+LB.listen('esc',document,'keydown',e=>{if(e.key==='Escape'&&selectMode){selectMode=false;selected.clear();render();}});
 async function drawChat(){
   ai.empty();
   for(const msg of messages){
@@ -451,11 +483,19 @@ function commitSearch(){
   if(busy)return;chatMode=false;committed=resolveQuery(search.value,items,data.pinyin_chars,data.aliases||[]);
   render();
 }
-search.oninput=()=>{if(!search.value&&!busy){committed='';chatMode=false;render();}};
+search.oninput=()=>{if(!search.value&&!busy){committed='';chatMode=false;render();}else saveState();};
+search.value=typeof saved.input==='string'?saved.input:committed;
+let firstCover=null;
 renderCatBar();render();
-
-// Read current sidecars when opening; both star controls share this state.
-await Promise.all(items.map(async it=>{if(it.notes_path)try{it.starred=!!JSON.parse(await app.vault.adapter.read(lbPath(it.notes_path))).starred;}catch{}}));
-render();
+LB.t('render');
+// 星标以 catalog-data 为准（点星标时后端同步改它）+ link-brain:star 事件，不再每次打开读 350 份 notes.json（§5.6）
+if(app.workspace.on){const ref=app.workspace.on('link-brain:star',(id,on)=>{const it=items.find(x=>x.id===id);if(it&&it.starred!==on){it.starred=on;render();}});dv.component.registerEvent(ref);}
+// 点开一篇（同一窗格）之后这一页就要被换掉了：别再记滚动（Obsidian 换笔记时会把滚动容器归零）
+let leaving=false;
+LB.onScroll(top=>{if(leaving)return;scrollTop=top;saveState();});
+// 登记这一版 DOM：Dataview 下次重跑时版本没变就原样挂回；变了走 refresh（只换数据、卡片复用）
+LB.keep(wrap,{version:await LB.data.version(),update:()=>refresh(),onReuse:()=>{if(refreshTags())render();}});
 if(provider()?.focusCatalogSearch){provider().focusCatalogSearch=false;search.focus();}
-if(app.workspace.on){const ref=app.workspace.on('link-brain:star',(id,on)=>{const it=items.find(x=>x.id===id);if(it){it.starred=on;render();}});dv.component.registerEvent(ref);}
+if(savedScroll>0)LB.restoreScroll(savedScroll);   // 滚到位时记一笔 scroll-restored@
+LB.t('restore');
+LB.t('total');

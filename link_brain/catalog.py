@@ -138,6 +138,12 @@ def _note_tags(vault: Path, visible: str | None) -> list[str]:
 
 def _cover(obj_dir: Path, source: str, source_id: str, version: int) -> str | None:
     """封面 = manifest 里第一张下成功的图片，返回 vault 相对路径（供 getResourcePath）。"""
+    return _cover_info(obj_dir, source, source_id, version)[0]
+
+
+def _cover_info(obj_dir: Path, source: str, source_id: str, version: int) -> tuple[str | None, int | None, int | None]:
+    """(封面路径, 宽, 高)。宽高来自 manifest（下载时 Pillow 读出的），目录页拿它先给卡片占位：
+    图片懒加载时版面不跳、返回目录时滚动位置一次到位（第 2 批，CONVENTIONS §5.3）；拿不到就是 None。"""
     raw_dir = obj_dir / "raw" / f"v{version:04d}"
     manifest = _load_json(raw_dir / "manifest.json")
     if isinstance(manifest, dict):
@@ -150,14 +156,16 @@ def _cover(obj_dir: Path, source: str, source_id: str, version: int) -> str | No
                 continue
             file = media.get("file")
             if file:
-                return f"_archive/{source}/{source_id}/{file}"
+                w, h = media.get("width"), media.get("height")
+                ok = isinstance(w, int) and isinstance(h, int) and w > 0 and h > 0
+                return f"_archive/{source}/{source_id}/{file}", (w if ok else None), (h if ok else None)
     # 兜底：直接扫 assets 第一张
     assets = raw_dir / "assets"
     if assets.is_dir():
         for p in sorted(assets.iterdir()):
             if p.suffix.lower() in {".webp", ".jpg", ".jpeg", ".png", ".gif"}:
-                return f"_archive/{source}/{source_id}/raw/v{version:04d}/assets/{p.name}"
-    return None
+                return f"_archive/{source}/{source_id}/raw/v{version:04d}/assets/{p.name}", None, None
+    return None, None, None
 
 
 def _clip(text: str, limit: int = SUMMARY_CHARS) -> str:
@@ -290,7 +298,7 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                 "notes_path": f"_archive/{source}/{source_id}/notes.json",
                 "starred": bool((_load_json(obj_dir / "notes.json") or {}).get("starred")),
                 "starred_at": (_load_json(obj_dir / "notes.json") or {}).get("starred_at"),
-                "cover": _cover(obj_dir, source, source_id, version),
+                **dict(zip(("cover", "cover_w", "cover_h"), _cover_info(obj_dir, source, source_id, version))),
                 "summary": _clip(summary),
                 # 1001 审计 ui-4：不再另存拼好的 search_text（与 search_fields 全文重复，占了一半体积）；
                 # 读方（retrieval.fields / 目录页 itemText / semantic）都以 search_fields 为准
@@ -328,9 +336,12 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
 
 # ── dataviewjs 页面（样式自注入，不依赖 CSS snippet；读 catalog-data.json 渲染） ──
 # 页面脚本独立保存，生成时嵌入笔记，Dataview 无需另读脚本。
-_DATAVIEWJS = "```dataviewjs\n" + (Path(__file__).parent / "assets" / "catalog-search.js").read_text(encoding="utf-8") + '\n' + (Path(__file__).parent / "assets" / "catalog-view.js").read_text(encoding="utf-8") + "\n```"
+_ASSETS = Path(__file__).parent / "assets"
+# 第 2 批：三张页和批注块共用的前导（CONVENTIONS §5：仓根 / 插件 / 页面状态 / 数据版本与缓存 / 旧 DOM 复用 / 计时），内联在最前面
+_PAGE_LIB = (_ASSETS / "lb-page-lib.js").read_text(encoding="utf-8")
+_DATAVIEWJS = "```dataviewjs\n" + _PAGE_LIB + "\n" + (_ASSETS / "catalog-search.js").read_text(encoding="utf-8") + '\n' + (_ASSETS / "catalog-view.js").read_text(encoding="utf-8") + "\n```"
 # 收藏搜索页 = 极简对话版（chat-view.js），跟浏览目录页分开（Owner 2026-09-17）。
-_CHATJS = "```dataviewjs\n" + (Path(__file__).parent / "assets" / "catalog-search.js").read_text(encoding="utf-8") + '\n' + (Path(__file__).parent / "assets" / "chat-view.js").read_text(encoding="utf-8") + "\n```"
+_CHATJS = "```dataviewjs\n" + _PAGE_LIB + "\n" + (_ASSETS / "catalog-search.js").read_text(encoding="utf-8") + '\n' + (_ASSETS / "chat-view.js").read_text(encoding="utf-8") + "\n```"
 _PAGE_HEADER = "---\ncssclasses: [lb-catalog]\n---\n\n"
 _CHAT_HEADER = "---\ncssclasses: [lb-chatpage]\n---\n\n"
 
@@ -402,10 +413,11 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
     starred_js = _DATAVIEWJS.replace("const simplePage = false;", "const simplePage = true;").replace("const starredPage = false;", "const starredPage = true;")
     storage.atomic_write_text(vault / pages["starred"], _PAGE_HEADER.replace("---\n", "---\nlb-page: starred\n", 1) + starred_js + "\n")
 
-    # 部署笔记底部批注块用的共享脚本（每篇笔记的 bootstrap 会 adapter.read 它）
+    # 部署笔记底部批注块用的共享脚本（每篇笔记的 bootstrap 会 adapter.read 它）；前面拼上共享前导。
+    # 每篇笔记里烤死的 bootstrap（render._annotate_block）不动：改它要重渲全部笔记，它只负责找仓根、载入这份脚本。
     storage.atomic_write_text(
         vault / "_archive" / "annotate-view.js",
-        (Path(__file__).parent / "assets" / "annotate-view.js").read_text(encoding="utf-8"),
+        _PAGE_LIB + "\n" + (_ASSETS / "annotate-view.js").read_text(encoding="utf-8"),
     )
 
     storage.atomic_write_text(
@@ -415,6 +427,38 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
     from .remove import publish_trash
     publish_trash(vault)
     return catalog_path, len(items), data_path
+
+
+PATCHABLE = frozenset({"starred", "starred_at"})
+
+
+def patch_items(updates: dict[str, dict[str, Any]], vault: Path | None = None, *, wait_s: float = 5) -> int:
+    """把几篇的少量字段（星标）就地改进 catalog-data.json，不整份重建（第 2 批，CONVENTIONS §5.6）：
+    目录页以 catalog-data 的 starred 为准，不再每次打开读几百份 notes.json。
+
+    和 build 抢同一把锁；拿不到（正在重建）就跳过——重建本身会从 notes.json 读到最新星标。
+    文件不在 / 读坏了也跳过（fail-open，星标本身已经写进 notes.json）。返回改了几篇。"""
+    vault = vault or storage.vault_root()
+    data_path = vault / "_archive" / DATA_NAME
+    if not updates or not data_path.exists():
+        return 0
+    try:
+        with storage.file_lock("catalog-build", wait_s=wait_s, owner="catalog.patch_items"):
+            data = json.loads(data_path.read_text(encoding="utf-8"))
+            changed = 0
+            for it in data.get("items") or []:
+                fields = updates.get(str(it.get("id")))
+                if not fields:
+                    continue
+                for key, value in fields.items():
+                    if key in PATCHABLE and it.get(key) != value:
+                        it[key] = value
+                        changed += 1
+            if changed:
+                storage.atomic_write_text(data_path, json.dumps(data, ensure_ascii=False, indent=1))
+            return changed
+    except (storage.LockBusy, OSError, ValueError):
+        return 0
 
 
 def dump_cats_text() -> str:

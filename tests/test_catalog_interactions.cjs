@@ -48,7 +48,9 @@ assert.equal(Plugin.serializeCats(cats),'人机恋: 人机恋, ai伴侣\n吃的:
   const handler=view.slice(view.indexOf('importButton.onclick=')+'importButton.onclick='.length,view.indexOf('\n// 大类筛选条'));
   let opened=0,reloaded=0,status='';const button={disabled:false};
   const app={plugins:{plugins:{'link-brain-actions':{}},disablePlugin:async()=>{},enablePlugin:async()=>{reloaded++;app.plugins.plugins['link-brain-actions']={openPlusMenu:()=>opened++};}}};
-  const click=new Function('app','importButton','importStatus','return '+handler)(app,button,{setText:s=>status=s});
+  const lib=fs.readFileSync('link_brain/assets/lb-page-lib.js','utf8');
+  const LB=new Function('dv','app',lib+';return lbPageLib(dv,app,"catalog")')({container:{},current:()=>({file:{folder:''}})},app);
+  const click=new Function('app','importButton','importStatus','LB','return '+handler)(app,button,{setText:s=>status=s},LB);
   await click({preventDefault(){},stopPropagation(){}});
   assert.equal(reloaded,1);assert.equal(opened,1);assert.equal(button.disabled,false);
   // answerArchive 薄壳：解析后端 `ask` 的 JSON、非 ok 抛错
@@ -110,7 +112,7 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
     plugins:{plugins:{'link-brain-actions':{settings:{hiddenCats:[]},openAccountStatus:onAccountOpen,fixFromCatalog:onAccountOpen,openAttachments(){},openCategories(){},openLibraryPage(){}}}},
     workspace:{openLinkText(){}}};
   const dv={container:root,current:()=>({file:{folder:''}}),page:()=>null};
-  const search=fs.readFileSync('link_brain/assets/catalog-search.js','utf8');
+  const search=fs.readFileSync('link_brain/assets/lb-page-lib.js','utf8')+'\n'+fs.readFileSync('link_brain/assets/catalog-search.js','utf8');
   await new Function('app','dv','document','window','return (async()=>{'+search+'\n'+view+'\n})()')(app,dv,document,window);
   const cards=()=>root.querySelectorAll('.lbc-card').map(c=>c.querySelector('.lbc-ctitle').textContent);
   const chips=()=>root.querySelectorAll('.lbc-topic');

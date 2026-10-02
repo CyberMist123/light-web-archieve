@@ -7,6 +7,7 @@ const vm = require('node:vm');
 const assert = require('node:assert/strict');
 
 const SEARCH = fs.readFileSync('link_brain/assets/catalog-search.js', 'utf8');
+const LIB = fs.readFileSync('link_brain/assets/lb-page-lib.js', 'utf8');
 const VIEW = fs.readFileSync('link_brain/assets/catalog-view.js', 'utf8');
 const data = JSON.parse(fs.readFileSync('tests/fixtures/catalog-data.sample.json', 'utf8'));
 const queries = JSON.parse(fs.readFileSync('tests/fixtures/search_queries.json', 'utf8'));
@@ -93,7 +94,7 @@ async function openCatalog() {
     plugins: {plugins: {'link-brain-actions': {settings: {hiddenCats: []}, openAttachments() {}, openCategories() {}, openLibraryPage() {}}}},
     workspace: {openLinkText() {}}};
   const dv = {container: root, current: () => ({file: {folder: ''}}), page: () => null};
-  await new Function('app', 'dv', 'document', 'window', 'return (async()=>{' + SEARCH + '\n' + VIEW + '\n})()')(app, dv, document, {alert() {}, confirm: () => false});
+  await new Function('app', 'dv', 'document', 'window', 'return (async()=>{' + LIB + '\n' + SEARCH + '\n' + VIEW + '\n})()')(app, dv, document, {alert() {}, confirm: () => false});
   const input = root.querySelector('input.lbc-search');
   const grid = root.querySelector('div.lbc-grid');
   return {

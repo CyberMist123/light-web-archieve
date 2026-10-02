@@ -13,7 +13,7 @@ const assert=require('assert/strict');
     {id:'a',title:'Music collection',tags:['music'],cats:['音乐'],summary:'原文中的播放方式与音乐清单。',search_fields:{body:'原文中的播放方式与音乐清单。'},search_text:'原文中的播放方式与音乐清单。',note:'a.md',attachment:'none'},
     {id:'b',title:'十分钟快手菜谱',tags:['菜谱'],cats:['吃的'],search_text:'鸡肉 200 克，蒸 20 分钟。',note:'b.md',attachment:'待补',attachment_missing:1},
   ]};
-  const search=fs.readFileSync('link_brain/assets/catalog-search.js','utf8');
+  const search=fs.readFileSync('link_brain/assets/lb-page-lib.js','utf8')+'\n'+fs.readFileSync('link_brain/assets/catalog-search.js','utf8');
   const view=fs.readFileSync('link_brain/assets/catalog-view.js','utf8');
   const setup=async(simple=false)=>{
     await page.setContent(`<style>:root{--font-interface:'Segoe UI','Microsoft YaHei',sans-serif;--text-normal:#262626;--text-muted:#757575;--text-faint:#999;--background-primary:#fff;--background-secondary:#f5f5f5;--background-modifier-border:#e5e5e5;--interactive-accent:#8869c9;--text-error:#b33}body{margin:20px;background:#fff;color:var(--text-normal)}button{padding:6px 10px;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer}input,textarea{box-sizing:border-box;border:1px solid #ddd;color:#262626}a{color:#8869c9}</style><main class="markdown-preview-view"><div id="root"></div></main>`);

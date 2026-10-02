@@ -23,7 +23,7 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
    }}}};
    window.dv={container:document.querySelector('#root'),current:()=>({file:{folder:prefix}}),page:()=>null};
   },{data,covers,prefix,kind});
-  let code=fs.readFileSync('link_brain/assets/catalog-search.js','utf8')+'\n'+fs.readFileSync('link_brain/assets/'+(kind==='chat'?'chat-view.js':'catalog-view.js'),'utf8');
+  let code=fs.readFileSync('link_brain/assets/lb-page-lib.js','utf8')+'\n'+fs.readFileSync('link_brain/assets/catalog-search.js','utf8')+'\n'+fs.readFileSync('link_brain/assets/'+(kind==='chat'?'chat-view.js':'catalog-view.js'),'utf8');
   if(kind==='starred')code=code.replace('const simplePage = false;','const simplePage = true;').replace('const starredPage = false;','const starredPage = true;');
   await page.evaluate(async code=>{await new Function('return (async()=>{'+code+'})()')();},code);
   await page.evaluate(async()=>{await document.fonts.ready;await Promise.all([...document.images].map(img=>{img.loading='eager';return img.decode().catch(()=>{});}));});

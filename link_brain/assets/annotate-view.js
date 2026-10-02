@@ -2,6 +2,11 @@
 // 正文照常渲染在上面，这块只挂最底下；批注/⭐ 都存 sidecar notes.json，绝不写进正文。
 // 入参：(dv, app, itemId, notePath)  notePath = _archive/<source>/<source_id>/notes.json
 // 自动保存：边打字边存草稿（防丢），失焦 / Ctrl+Enter 落成一条批注。⭐ 收藏走插件跑 Python。
+// 第 2 批：catalog.py 写 _archive/annotate-view.js 时在前面拼了共享前导 lb-page-lib.js（CONVENTIONS §5）。
+// Dataview 每 2.5 秒（库里任何一篇 md 变了）重跑这块：notes.json 没变 → 上一次的批注框原样留着（正在打的字、光标都在）；
+// 变了（另一个窗格 / 手机同步 / ⭐）→ 只重读、重画列表，不重建框。前导不在（单测直接跑本文件）就照旧每次重建。
+const LB = typeof lbPageLib === 'function' ? lbPageLib(dv, app, 'annotate') : null;
+if (LB && await LB.reuseDom()) return;
 const root = dv.container;
 root.classList.add('lba-annot-host');
 const notify = (m) => { try { new Notice(m); } catch { console.log('[annot]', m); } };
@@ -154,6 +159,7 @@ async function persist() {
   const doc = { ...d, starred: !!d.starred, annotations: out, deleted: [...tomb].slice(-500), draft: data.draft };
   if (!doc.deleted.length) delete doc.deleted;
   await app.vault.adapter.write(notePath, JSON.stringify(doc, null, 2) + '\n');
+  if (LB) LB.rekeep().catch(() => {});   // 自己写的不算「别处改了」
   const before = JSON.stringify(data.annotations);
   adopt(doc);
   if (JSON.stringify(data.annotations) !== before && !list.querySelector('.lba-edit-input')) renderList();
@@ -276,8 +282,19 @@ star.onclick = async () => {
 };
 
 await load();
+LB?.t('read');
 renderStar();
 renderList();
 ta.value = data.draft || '';
+LB?.t('render');
+// 登记这一版：notes.json 没变就留着这个框；变了只重读重画（正在编辑某条、正在输入框里打字时不动那部分）
+LB?.keep(box, { versionOf: { abs: notePath }, version: await LB.data.version({ abs: notePath }), update: async () => {
+  await load();
+  renderStar();
+  if (!list.querySelector('.lba-edit-input')) renderList();
+  const typing = typeof document !== 'undefined' && document.activeElement === ta;
+  if (!typing && !ta.disabled) ta.value = data.draft || '';
+} });
+LB?.t('total');
 
 if(app.workspace.on){const ref=app.workspace.on('link-brain:star',(id,on)=>{if(id===itemId){data.starred=on;renderStar();}});dv.component.registerEvent(ref);}

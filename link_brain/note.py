@@ -99,6 +99,13 @@ def set_star(target: str, on: bool) -> dict[str, Any]:
     else:
         data.pop("starred_at", None)
     save_notes(obj["source"], obj["source_id"], data)
+    # 第 2 批：目录页以 catalog-data 的 starred 为准（不再每次读几百份 notes.json），这里顺手把这一篇改进去
+    try:
+        from . import catalog
+
+        catalog.patch_items({obj["item_id"]: {"starred": data["starred"], "starred_at": data.get("starred_at")}})
+    except Exception:  # noqa: BLE001 - fail-open：星标已写进 notes.json，下次重建目录也会读到
+        pass
     return {
         "item_id": obj["item_id"],
         "status": "ok",
