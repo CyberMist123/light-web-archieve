@@ -244,6 +244,7 @@ class SyncSettingsModal extends Modal {
 
 class LinkBrainActions extends Plugin {
   async onload() {
+    const started = Date.now();
     // lwa vault 可能被 junction 挂进别的库的子目录（LER Vault/知识库【小红书】）：先找库里哪层带 _archive，再解 junction 拿真仓根
     this.lbRoot = await this.findArchiveRoot();
     const lwaVault = path.join(this.app.vault.adapter.getBasePath(), this.lbRoot);
@@ -280,7 +281,8 @@ class LinkBrainActions extends Plugin {
 
     // 默认不占快捷键：语音输入走全局 CapsLock（CapsWriter），要在 Obsidian 里另绑可去「设置 → 快捷键」。
     this.addCommand({ id: 'voice-ask', name: '语音提问（问 AI）：开始 / 结束录音', callback: () => this.toggleVoice() });
-    if (this.settings.voice?.capsLock) this.app.workspace.onLayoutReady(() => this.setCapsVoice(true, { quiet: true }).catch(() => {}));
+    // 第 2 批：CapsLock 语音要起 2～3 个 PowerShell 查进程 / 拉客户端，挪到 Obsidian 开完窗口 3 秒后再做，不和启动抢 CPU
+    if (this.settings.voice?.capsLock) this.app.workspace.onLayoutReady(() => { this.capsTimer = setTimeout(() => this.setCapsVoice(true, { quiet: true }).catch(() => {}), 3000); });
     this.addCommand({ id: 'fetch-all-comments', name: '抓这篇的全部评论（手动拉取，较慢）', callback: () => this.fetchAllComments() });
     if (this.app.workspace?.on) this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => {
       if (!(file instanceof TFile) || !this.app.metadataCache.getFileCache(file)?.frontmatter?.link_brain?.item_id) return;
@@ -313,6 +315,9 @@ class LinkBrainActions extends Plugin {
       this.run(["-m", "link_brain", "catalog"], "重建目录"),
     );
     this.addRibbonIcon("download", "Link Brain：投喂新链接", () => this.ingestInbox());
+    // 体验预算「插件对 Obsidian 启动的拖慢 ≤ 0.5 秒」的量法（CONVENTIONS §5.8）
+    this.onloadMs = Date.now() - started;
+    try { console.debug(`[lb] plugin onload ${this.onloadMs}ms`); } catch {}
   }
 
   async saveSettings() { await this.saveData(this.settings); }
@@ -817,7 +822,7 @@ class LinkBrainActions extends Plugin {
       worker.stdin.write(JSON.stringify({id,...request})+'\n');
     });
   }
-  onunload(){this.unloading=true;const worker=this.answerWorker;if(worker)this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});}
+  onunload(){this.unloading=true;clearTimeout(this.capsTimer);this.catalogCache=null;const worker=this.answerWorker;if(worker)this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});}
   async answerArchive({ question, history = [], onDelta, model = '' } = {}) {
     const q=(question||'').trim();if(!q)throw new Error('问题是空的');
     const payload=await this.requestAnswer({question:q,history,model},onDelta);
@@ -873,16 +878,42 @@ class LinkBrainActions extends Plugin {
     const error=await require('electron').shell.openPath(videoPath);if(error)throw new Error(error);
   }
 
+  // 来源阅读（第 2 批）：问收藏页旁边只有一个右侧「来源窗格」，查看来源一律复用它；
+  // compare=true =「加入对照」：右侧已有来源时在它下方开（或复用）对照格；右侧还没有来源时就先放进来源窗格。
+  // 关窗格只走 closeArchiveCompare / closeArchiveSources（页面上的「退出对照」「收起来源」）。
+  archiveOwner(host) {
+    const ws=this.app.workspace;
+    return ws.getLeavesOfType('markdown').find(l=>l.view.containerEl.contains(host)) || ws.getMostRecentLeaf();
+  }
+  archiveLeaves(host) {
+    const ws=this.app.workspace;const alive=l=>!!(l&&ws.getLeafById(l.id));
+    const owner=this.archiveOwner(host);
+    const reader=alive(owner?.lbArchiveReader)?owner.lbArchiveReader:null;
+    const compare=reader&&alive(reader.lbArchiveCompare)?reader.lbArchiveCompare:null;
+    return {owner,reader,compare};
+  }
+  archiveSourceState(host) { const {reader,compare}=this.archiveLeaves(host); return {reader:!!reader,compare:!!compare}; }
+  closeArchiveCompare(host) {
+    const {reader,compare}=this.archiveLeaves(host);
+    if(compare)try{compare.detach();}catch{}
+    if(reader)reader.lbArchiveCompare=null;
+  }
+  closeArchiveSources(host) {
+    const {owner,reader}=this.archiveLeaves(host);
+    this.closeArchiveCompare(host);
+    if(reader)try{reader.detach();}catch{}
+    if(owner)owner.lbArchiveReader=null;
+  }
   async openArchiveSource(note, host, compare=false, evidence=[]) {
     const ws=this.app.workspace;
-    const owner=ws.getLeavesOfType('markdown').find(l=>l.view.containerEl.contains(host)) || ws.getMostRecentLeaf();
-    let reader=owner.lbArchiveReader;
-    const newReader=!reader || !ws.getLeafById(reader.id);
+    const found=this.archiveLeaves(host);const owner=found.owner;
+    let reader=found.reader;
+    const newReader=!reader;
     if(newReader) reader=owner.lbArchiveReader=ws.createLeafBySplit(owner,'vertical');
     let target=reader;
     if(compare&&!newReader){
-      target=reader.lbArchiveCompare;
-      if(!target || !ws.getLeafById(target.id)) target=reader.lbArchiveCompare=ws.createLeafBySplit(reader,'horizontal');
+      target=found.compare;
+      if(!target) target=reader.lbArchiveCompare=ws.createLeafBySplit(reader,'horizontal');
     }
     const file=this.app.vault.getAbstractFileByPath(this.lbPath(note));
     if(!file)throw new Error('找不到本地原文：'+note);

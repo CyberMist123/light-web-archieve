@@ -1,21 +1,22 @@
 // chat-view.js — 收藏搜索页的极简版（Owner 2026-09-17）。
 // 无框线、居中、像聊天：搜收藏 + 问 AI 一体；会话持久化（跳走再回来不丢，直到点「清空」）；
 // 「存档」栏可存可删——既存 AI 报告，也存 Owner 自己写的判断。配色全走 Obsidian 主题变量。
-// 依赖：本文件前面已内联 catalog-search.js（score/normalize）；provider = link-brain-actions 插件。
+// 依赖：本文件前面已内联 lb-page-lib.js（共享前导，CONVENTIONS §5）和 catalog-search.js（score/normalize）；provider = link-brain-actions 插件。
+// 第 2 批：Dataview 每 2.5 秒重跑本页时，版本没变就把上一次的整页 DOM 挂回（正在生成的回答、输入框、滚动都在）。
+const LB = lbPageLib(dv, app, 'chat');
+if (await LB.reuseDom()) return;
 const root = dv.container;
-// 这个仓可能被挂进别的库的子目录（如 LER Vault/知识库【小红书】/）；数据里的路径都相对 lwa 仓根，
-// 统一过 lbPath 补上挂载前缀。仓根 = 从本页往上第一个带 _archive 的目录。
-const LB_ROOT=(()=>{try{let d=dv.current()?.file?.folder||'';while(d&&!app.vault.getAbstractFileByPath(d+'/_archive'))d=d.includes('/')?d.slice(0,d.lastIndexOf('/')):'';return d;}catch{return '';}})();
-const lbPath=p=>p&&LB_ROOT?`${LB_ROOT}/${p}`:p;
+// 这个仓可能被挂进别的库的子目录（如 LER Vault/知识库【小红书】/）；数据里的路径都相对 lwa 仓根，统一过 lbPath 补挂载前缀。
+const lbPath = LB.path;
 const pane = root.closest('.markdown-preview-view, .markdown-source-view');
 if (pane) pane.classList.add('lb-chatpage');
-const provider = () => app.plugins.plugins['link-brain-actions'];
+const provider = LB.provider;
 const SESSION_PATH = lbPath('_archive/chat-session.json');
 const ARCHIVE_PATH = lbPath('_archive/chat-archive.json');
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
 let data = {};
-try { data = JSON.parse(await app.vault.adapter.read(lbPath('_archive/catalog-data.json'))); } catch {}
+try { data = await LB.data.load(); } catch {}
 let items = data.items || [];
 
 let session = { turns: [], draft: '' };
@@ -26,15 +27,20 @@ session.turns = Array.isArray(session.turns) ? session.turns : [];
 session.draft = typeof session.draft === 'string' ? session.draft : '';
 archive.entries = Array.isArray(archive.entries) ? archive.entries : [];
 
-let lane = 'chat', busy = false, thinkTimer = null;
-const saveSession = async () => { try { await app.vault.adapter.write(SESSION_PATH, JSON.stringify(session)); } catch {} };
+// 草稿（正在打的字）只存 sessionStorage（§5.3）：以前每敲一个字都写 vault 里的 chat-session.json，会让别的页跟着刷新
+const pageState = LB.state.load();
+const saveDraft = v => LB.state.patch({ draft: v });
+let lane = 'chat', busy = false;
+// 会话文件只在问答轮次变了时写；draft 不再进文件（旧文件里的 draft 只在第一次读时接过来）
+const saveSession = async () => { try { await app.vault.adapter.write(SESSION_PATH, JSON.stringify({ turns: session.turns })); } catch {} };
 const saveArchive = async () => { try { await app.vault.adapter.write(ARCHIVE_PATH, JSON.stringify(archive, null, 2)); } catch {} };
-let compareSources=false;
-const openNote = (source,compare=compareSources,context="") => {
+// 来源阅读（第 2 批，核实版 3.1/3.2）：只有引用编号、来源标题、「查看」按钮会打开来源，一律放进右侧同一个来源窗格（复用）；
+// 「加入对照」把这一篇放到来源窗格下方对照；「退出对照」关掉下方那格；「收起来源」右侧全关。整段文字单击不再打开任何东西。
+const openNote = (source,compare=false,context="") => {
   const src=typeof source==='string'?{note:source}:source;
   const chunks=(src?.excerpts||[]).filter(p=>p.field==='body'||p.field==='comments');
   if(context){const normalized=context.replace(/\s/g,'').toLowerCase();const score=p=>{const text=String(p.text).replace(/\s/g,'').toLowerCase();let n=0;for(let i=0;i<normalized.length-3;i++)if(text.includes(normalized.slice(i,i+4)))n++;return n;};chunks.sort((a,b)=>score(b)-score(a));}
-  if(src?.note)return Promise.resolve(provider().openArchiveSource(src.note,root,compare,chunks)).catch(e=>window.alert(e.message));
+  if(src?.note)return Promise.resolve(provider().openArchiveSource(src.note,root,compare,chunks)).then(()=>paintSourceBar()).catch(e=>window.alert(e.message));
 };
 
 const style = root.createEl('style');
@@ -143,7 +149,10 @@ style.textContent = `
 .lbchat button.lbchat-tab{font-size:12px;}.lbchat-src button{margin-right:14px;}
 .lbchat-cite{display:inline!important;font:inherit!important;font-size:12px!important;border:0!important;box-shadow:none!important;background:var(--background-secondary)!important;color:var(--link-color);padding:1px 5px!important;height:auto;border-radius:4px;cursor:pointer;}
 .lbchat-editor{width:100%;min-height:230px;font:inherit;line-height:1.7;resize:vertical;box-sizing:border-box;}
-.lbchat-editbar{display:flex;gap:12px;margin:8px 0;}.lbchat-source-block{cursor:pointer;}.lbchat-source-block:hover{background:var(--background-secondary);border-radius:4px;}
+.lbchat-editbar{display:flex;gap:12px;margin:8px 0;}
+.lbchat-srcbar{flex:none;width:100%;max-width:850px;margin:8px auto -12px;box-sizing:border-box;display:flex;align-items:center;gap:14px;padding:0 8px;font-size:12px;color:var(--text-faint);}
+.lbchat-srcbar[hidden]{display:none;}
+.lbchat-body:not(.lbchat-has-reader) .lbchat-addcmp{display:none;}
 @media(max-width:700px){.lbchat{padding:12px 6px 0;}.lbchat-title{font-size:28px;}.lbchat-tools{gap:8px;}.lbchat-head{gap:10px;margin-bottom:18px;}.lbchat-composer{padding:8px;}.lbchat-body{padding:0 4px 20px;}}
 
 .lbchat .lbchat-composer{align-items:center;gap:6px;padding:8px 10px 8px 14px;border-radius:28px;border:1px solid var(--background-modifier-border);background:var(--background-primary);box-shadow:0 2px 12px #0000000f;}
@@ -203,11 +212,6 @@ const titleBlock = head.createEl('div', { cls: 'lbchat-titleblock' });
 const titleRow = titleBlock.createEl('div', { cls: 'lbchat-titlerow' });
 const titleText = titleRow.createEl('span', { cls: 'lbchat-title', text: 'Collections' });
 const tools=head.createEl('div',{cls:'lbchat-tools'});
-const readerLayout=head.createEl('select',{cls:'lbchat-reader-layout'});
-readerLayout.style.cssText='grid-column:1/-1;grid-row:3;justify-self:end;max-width:100%;font:inherit;font-size:12px;';
-readerLayout.createEl('option',{text:'原文 · 单篇'}).value='single';
-readerLayout.createEl('option',{text:'原文 · 上下对照'}).value='compare';
-readerLayout.onchange=()=>{compareSources=readerLayout.value==='compare';};
 const plus = titleText.createEl('button', { cls: 'lbchat-plus', text: '+' });
 
 
@@ -217,10 +221,13 @@ plus.onclick = (evt) => {
   p.openPlusMenu(evt);
 };
 const sub = titleBlock.createEl('div', { cls: 'lbchat-sub' });
-try {
-  const t = new Date(data.built_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
-  sub.setText(`${items.length} 篇 · 更新 ${t}`);
-} catch { sub.setText(`${items.length} 篇`); }
+function paintSub(){
+  try {
+    const t = new Date(data.built_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+    sub.setText(`${items.length} 篇 · 更新 ${t}`);
+  } catch { sub.setText(`${items.length} 篇`); }
+}
+paintSub();
 const pageNav=head.createEl('nav',{cls:'lb-page-nav'});
 const browse=pageNav.createEl('button',{text:'浏览收藏'});browse.onclick=()=>provider().openLibraryPage('catalog');
 const ask=pageNav.createEl('button',{text:'问收藏',cls:'is-current'});ask.setAttribute('aria-current','page');
@@ -237,7 +244,7 @@ const queueEl=wrap.createEl('div',{cls:'lbchat-queue'});
 const composerPlus=composer.createEl('button',{cls:'lbchat-cplus',text:'+',attr:{title:'收一条链接 / 导入'}});composerPlus.type='button';
 composerPlus.onclick=e=>provider()?.openPlusMenu?.(e);
 const search = composer.createEl('textarea', { cls: 'lbchat-search' });
-search.rows=1;search.placeholder = cfg().chatPlaceholder || '问点什么呢？'; search.value = session.draft || '';
+search.rows=1;search.placeholder = cfg().chatPlaceholder || '问点什么呢？'; search.value = typeof pageState.draft === 'string' ? pageState.draft : (session.draft || '');
 const modelPick=composer.createEl('select',{cls:'lbchat-model',attr:{title:'回答用的模型（设置 → AI → 问答模型里增删）'}});
 const fillModels=()=>{modelPick.empty();const list=(cfg().models||[]).filter(m=>m&&m.name);
   if(!list.length){modelPick.hidden=true;return;}modelPick.hidden=false;
@@ -257,7 +264,7 @@ const drawQueue=()=>{queueEl.empty();queueEl.hidden=!queued.length;queued.forEac
   row.createEl('span',{cls:'lbchat-queued-tag',text:'排队'});row.createEl('span',{cls:'lbchat-queued-text',text:q});
   const x=row.createEl('button',{cls:'lbchat-queued-x',text:'×',attr:{title:'取消这条'}});x.type='button';x.onclick=()=>{queued.splice(i,1);drawQueue();};});};
 drawQueue();
-composer.onsubmit=e=>{e.preventDefault();const v=search.value.trim();if(!v)return;search.value='';session.draft='';saveSession();
+composer.onsubmit=e=>{e.preventDefault();const v=search.value.trim();if(!v)return;search.value='';saveDraft('');
   if(busy){queued.push(v);drawQueue();return;}submit(v);};
 
 // 第二行：对话/存档 切换 + 同步/浏览/清空
@@ -267,10 +274,22 @@ const tabArch = tools.createEl('button', { cls: 'lbchat-tab', text: '已保存' 
 
 
 const bodyEl = wrap.createEl('div', { cls: 'lbchat-body' });
-wrap.append(queueEl);wrap.append(composer);
+// 右侧来源窗格开着时才出现的一行：明确的「退出对照」「收起来源」
+const sourceBar = wrap.createEl('div', { cls: 'lbchat-srcbar' });
+sourceBar.hidden = true;
+function paintSourceBar(){
+  const st=provider()?.archiveSourceState?.(root)||{reader:false,compare:false};
+  sourceBar.empty();sourceBar.hidden=!st.reader;
+  bodyEl.classList.toggle('lbchat-has-reader',!!st.reader);
+  if(!st.reader)return;
+  sourceBar.createEl('span',{cls:'lbchat-srcbar-label',text:st.compare?'右侧：来源 + 对照':'右侧：来源'});
+  if(st.compare){const off=sourceBar.createEl('button',{cls:'lbchat-act',text:'退出对照'});off.type='button';off.onclick=()=>{provider().closeArchiveCompare(root);paintSourceBar();};}
+  const close=sourceBar.createEl('button',{cls:'lbchat-act',text:'收起来源'});close.type='button';close.onclick=()=>{provider().closeArchiveSources(root);paintSourceBar();};
+}
+wrap.append(sourceBar);wrap.append(queueEl);wrap.append(composer);
 
 // 顶部搜索框 = 唯一输入：回车触发（/ 开头问 AI，否则搜），草稿持久化
-search.oninput = () => { session.draft = search.value; saveSession(); };
+search.oninput = () => saveDraft(search.value);
 search.onkeydown = e => {
   if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
   e.preventDefault();composer.requestSubmit();
@@ -311,7 +330,9 @@ async function drawChat() {
         for (const src of t.sources) {
           const a = refs.createEl('a', { text: `[来源${src.citation}] ${src.title}` });
           a.onclick = () => openNote(src);
-          const compare=refs.createEl('button',{cls:'lbchat-act',text:'上下对照'});compare.onclick=()=>openNote(src,true);
+          const view=refs.createEl('button',{cls:'lbchat-act',text:'查看'});view.type='button';view.onclick=()=>openNote(src);
+          // 右侧已经开着来源时才有「加入对照」（没有来源可对照时不出现，免得第一次和第二次点行为不同）
+          const compare=refs.createEl('button',{cls:'lbchat-act lbchat-addcmp',text:'加入对照'});compare.type='button';compare.onclick=()=>openNote(src,true);
           const copySource=refs.createEl('button',{cls:'lbchat-act',text:'复制来源'});copySource.onclick=async()=>{await navigator.clipboard.writeText(sourceText(src));copySource.setText('已复制');};
 
         }
@@ -337,19 +358,16 @@ async function drawChat() {
           else{t.savedId=uid();archive.entries.unshift({id:t.savedId,ts:new Date().toISOString(),kind:'report',title:t.q||'AI 整理',content:t.content,sources:t.sources||[]});}
           await saveArchive();await saveSession();paintSave();
         };
-        el.ondblclick=e=>{if(e.target.closest('button,textarea'))return;for(const block of el.querySelectorAll('.lbchat-source-block'))clearTimeout(block._lbClickTimer);editText(el,t,async()=>{const stored=archive.entries.find(x=>x.id===t.savedId);if(stored){stored.content=t.content;await saveArchive();}await saveSession();await drawChat();});};
+        el.ondblclick=e=>{if(e.target.closest('button,textarea'))return;editText(el,t,async()=>{const stored=archive.entries.find(x=>x.id===t.savedId);if(stored){stored.content=t.content;await saveArchive();}await saveSession();await drawChat();});};
       }
     }
   }
-  if (busy) {
+  // 只显示「正在生成…」，不轮播假阶段（CONVENTIONS §1.6；后端真实阶段第 3 批接）
+  if (busy || inFlightElsewhere()) {
     const th = bodyEl.createEl('div', { cls: 'lbchat-think' });
     th.createEl('span', { cls: 'lbchat-dot' });
-    const label = th.createEl('span');
-    const phases = ['正在检索收藏…', '正在读相关笔记…', '正在整理答案…'];
-    let i = 0; label.setText(phases[0]);
-    clearInterval(thinkTimer);
-    thinkTimer = setInterval(() => { i = (i + 1) % phases.length; label.setText(phases[i]); }, 1400);
-  } else { clearInterval(thinkTimer); thinkTimer = null; }
+    th.createEl('span', { text: '正在生成…' });
+  }
   bodyEl.scrollTop=scroll;
 }
 
@@ -381,9 +399,11 @@ async function drawArchive() {
 }
 function fmtTs(ts) { try { const d = new Date(ts); return `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; } catch { return ''; } }
 
+// 换页再回来时上一页还在等回答：插件对象上记一笔（§5.3「进行中的事」），新页面显示「正在生成…」，答完收到事件再重读会话
+function inFlightElsewhere(){const f=provider()?.chatInFlight;return !!(f&&f.page!==pageId);}
+const pageId=uid();
 async function submit(raw) {
   const text = (raw || '').trim(); if (!text || busy) return;
-  session.draft = '';
   {
     const q = text.replace(/^\//,'').trim(); if (!q) return;
     const askedAt=new Date().toISOString();
@@ -393,11 +413,16 @@ async function submit(raw) {
       const history = session.turns.filter(t => t.role === 'user' || t.role === 'assistant').filter(t => !t.failed)
         .map(t => ({ role: t.role === 'assistant' ? 'assistant' : 'user', content: t.content }));
       const live=bodyEl.createEl('div',{cls:'lbchat-turn lbchat-answer lbchat-live'});
-      const r = await provider().answerArchive({ question: q, model: modelPick.hidden?'':modelPick.value, history:history.slice(0,-1),onDelta:delta=>{clearInterval(thinkTimer);bodyEl.querySelector('.lbchat-think')?.remove();live.appendText(delta);} });
+      const p = provider(); if (p) p.chatInFlight = { page: pageId, q };
+      const r = await p.answerArchive({ question: q, model: modelPick.hidden?'':modelPick.value, history:history.slice(0,-1),onDelta:delta=>{bodyEl.querySelector('.lbchat-think')?.remove();live.appendText(delta);} });
       session.turns.push({ role: 'assistant', content: r.markdown || '没有可用的回答。', sources: r.sources || [], q, askedAt });
     } catch (e) {
       session.turns.push({ role: 'assistant', failed: true, content: '回答失败：' + (e.message || e) + '\n\n请重试。' });
-    } finally { busy = false; await saveSession(); await drawChat(); if(queued.length){const next=queued.shift();drawQueue();submit(next);} }
+    } finally {
+      busy = false; await saveSession();
+      const p = provider(); if (p && p.chatInFlight?.page === pageId) { delete p.chatInFlight; app.workspace.trigger?.('link-brain:chat-session', pageId); }
+      await drawChat(); if(queued.length){const next=queued.shift();drawQueue();submit(next);}
+    }
   }
 }
 
@@ -413,6 +438,26 @@ async function setLane(next) {
 tabChat.onclick = () => setLane('chat');
 tabArch.onclick = () => setLane('archive');
 await setLane('chat');
+LB.t('render');
+// 对话区滚动位置（§5.3）：记下来，换页回来恢复（没记过保持原样，停在顶上）
+if (Number.isFinite(pageState.scrollTop)) bodyEl.scrollTop = pageState.scrollTop;
+bodyEl.addEventListener?.('scroll', () => { if (lane === 'chat') LB.state.patch({ scrollTop: bodyEl.scrollTop }); }, { passive: true });
+LB.t('restore');
+paintSourceBar();
+if (app.workspace.on && dv.component?.registerEvent) {
+  // 用户自己关了右侧窗格：那一行跟着收起
+  dv.component.registerEvent(app.workspace.on('layout-change', () => paintSourceBar()));
+  // 别的页面（换页前的那一个）答完了：重读会话再画
+  dv.component.registerEvent(app.workspace.on('link-brain:chat-session', from => {
+    if (from === pageId || busy) return;
+    app.vault.adapter.read(SESSION_PATH).then(raw => { const next = JSON.parse(raw); if (Array.isArray(next.turns)) { session.turns = next.turns; if (lane === 'chat') drawChat(); } }).catch(() => {});
+  }));
+}
+// 登记这一版 DOM：catalog-data 变了只换数据、改篇数，不重建对话
+LB.keep(wrap, { version: await LB.data.version(), update: async () => {
+  try { data = await LB.data.load(); items = data.items || []; paintSub(); } catch {}
+}, onReuse: () => paintSourceBar() });
+LB.t('total');
 
 if(provider()?.pendingArchiveQuestion){const q=provider().pendingArchiveQuestion;delete provider().pendingArchiveQuestion;await submit(q);}
 
@@ -458,9 +503,9 @@ function toggleHistory(anchor){
   headRow.createEl('span',{text:`提问历史 · ${qs.length}`});
   const clr=headRow.createEl('button',{cls:'lbchat-histclear',text:'一键清空'});
   clr.disabled=!session.turns.length;
-  clr.onclick=async()=>{if(!window.confirm('清空本会话所有提问和回答？（已保存的回答不受影响）'))return;session.turns=[];session.draft='';await saveSession();panel.remove();anchor._open=false;await drawChat();};
+  clr.onclick=async()=>{if(!window.confirm('清空本会话所有提问和回答？（已保存的回答不受影响）'))return;session.turns=[];saveDraft('');await saveSession();panel.remove();anchor._open=false;await drawChat();};
   if(!qs.length){panel.createEl('div',{cls:'lbchat-histempty',text:'还没有提问'});}
-  else for(const t of [...qs].reverse()){const row=panel.createEl('button',{cls:'lbchat-histitem'});row.setText((t.mode==='search'?'🔍 ':'')+t.content);row.onclick=()=>{search.value=t.content;session.draft=t.content;saveSession();search.focus();panel.remove();anchor._open=false;};}
+  else for(const t of [...qs].reverse()){const row=panel.createEl('button',{cls:'lbchat-histitem'});row.setText((t.mode==='search'?'🔍 ':'')+t.content);row.onclick=()=>{search.value=t.content;saveDraft(t.content);search.focus();panel.remove();anchor._open=false;};}
   const r=anchor.getBoundingClientRect();
   panel.style.top=(r.bottom+6)+'px';panel.style.left=Math.max(8,Math.min(r.left,window.innerWidth-328))+'px';
   const close=ev=>{if(panel.contains(ev.target)||ev.target===anchor||anchor.contains(ev.target))return;panel.remove();anchor._open=false;document.removeEventListener('click',close);};
@@ -473,10 +518,9 @@ function bindSources(el,sources){
     const matches=[...node.textContent.matchAll(/\[来源(\d+)\]/g)];if(!matches.length)continue;
     const frag=document.createDocumentFragment();let last=0;
     for(const m of matches){frag.append(document.createTextNode(node.textContent.slice(last,m.index)));const src=sources.find(x=>Number(x.citation)===Number(m[1]));
-      if(src){const b=document.createElement('button');b.className='lbchat-cite';b.textContent=m[0];b.onclick=e=>{e.stopPropagation();openNote(src,compareSources,b.closest('p,li')?.textContent||'');};frag.append(b);}else frag.append(document.createTextNode(m[0]));last=m.index+m[0].length;}
+      if(src){const b=document.createElement('button');b.className='lbchat-cite';b.textContent=m[0];b.onclick=e=>{e.stopPropagation();openNote(src,false,b.closest('p,li')?.textContent||'');};frag.append(b);}else frag.append(document.createTextNode(m[0]));last=m.index+m[0].length;}
     frag.append(document.createTextNode(node.textContent.slice(last)));node.replaceWith(frag);
   }
-  for(const block of el.querySelectorAll('p,li,h1,h2,h3')){const cite=block.querySelector('.lbchat-cite');if(!cite)continue;block.classList.add('lbchat-source-block');block.onclick=e=>{if(e.target.closest('a,button')||window.getSelection()?.toString())return;clearTimeout(block._lbClickTimer);if(e.detail<2)block._lbClickTimer=setTimeout(()=>cite.click(),260);};}
   for(const a of el.querySelectorAll('a')){const href=a.getAttribute('data-href')||a.getAttribute('href');const src=sources.find(x=>href===x.url||href===x.note||href===x.note?.replace(/\.md$/,''));if(src)a.onclick=e=>{e.preventDefault();e.stopPropagation();openNote(src);};}
 }
 function editText(host,entry,save){
