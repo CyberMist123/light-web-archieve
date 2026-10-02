@@ -61,7 +61,7 @@ function render(saved) {
   // —— 新装（没有 data.json）——
   let { plugin, calls, text } = render({});
   const byName = n => settings.find(r => r.name === n);
-  for (const [name, modes] of [['文本 AI', ['http', 'cli', 'off']], ['归档摘要模型（默认同问答模型）', ['inherit', 'http', 'off']],
+  for (const [name, modes] of [['文本 AI', ['http', 'cli', 'off']], ['归档摘要模型（默认同文本 AI）', ['inherit', 'http', 'off']],
     ['识图接口', ['http', 'off']], ['语音识别', ['capswriter', 'http', 'off']], ['文字识别（OCR）', ['local', 'off']]]) {
     const rec = byName(name);
     assert.ok(rec && rec.dropdown, `缺「${name}」`);
@@ -69,7 +69,7 @@ function render(saved) {
     assert.ok(!rec.dropdown.options.some(o => o[0] === 'media'), `${name} 不该再有 media`);
   }
   assert.equal(byName('语音识别').dropdown.value, 'capswriter', '语音识别默认本机 CapsWriter');
-  assert.equal(byName('归档摘要模型（默认同问答模型）').dropdown.value, 'inherit');
+  assert.equal(byName('归档摘要模型（默认同文本 AI）').dropdown.value, 'inherit');
   assert.ok(!/收藏问答与归档摘要/.test(settings.map(r => r.desc).join('\n')), '不再写「问答与归档摘要」这种不实说法');
   assert.ok(!/旧版「本机千问配置」/.test(text), '新装不显示旧配置说明');
 
