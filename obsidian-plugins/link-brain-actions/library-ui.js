@@ -139,7 +139,7 @@ class CategoriesModal extends Modal {
       try {
         this.plugin.settings.catalogCats=this.cats.filter(c=>c.name.trim());
         this.plugin.settings.hiddenCats=[...this.hidden];await this.plugin.saveSettings();
-        const r=await this.plugin.spawnCapture(['-m','link_brain','catalog']);
+        const r=await this.plugin.spawnPy(['-m','link_brain','catalog'],{label:'重建目录'});
         if(r.code!==0)throw Error(r.err||r.out);
         if(this.refresh)await this.refresh(JSON.parse(await this.app.vault.adapter.read(this.plugin.lbPath('_archive/catalog-data.json'))));
         this.close();

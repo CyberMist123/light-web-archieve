@@ -142,6 +142,49 @@ const ENV_EXTRA = {
   PYTHONIOENCODING: "utf-8",
 };
 
+// ── 进程（CONVENTIONS §6）：插件起 Python 只有 spawnPy 一个入口（runPy 建在它上面），杀树只有 killTree 一个函数。
+// 杀树的选择规则和 link_brain/procs.py 的 select_kill_pids 是同一套（tests/test_procs.py 拿同一张假表核对），改一处改两处：
+// 沿 ParentProcessId 往下找；映像名 link-brain-reader* 的进程和它下面整棵子树（它的 chrome*/msedge*）一律跳过（0929 事故）；
+// 子进程创建时间早于父进程的不认（pid 被复用）；叶子先杀、根最后。禁止直接 taskkill /T。
+const READER_IMAGE_PREFIXES = ["link-brain-reader"];
+function selectKillPids(table, root, exclude = READER_IMAGE_PREFIXES) {
+  const matches = (name) => { const low = String(name || "").toLowerCase(); return (exclude || []).some(p => low.startsWith(String(p).toLowerCase())); };
+  const byPid = new Map((table || []).map(p => [Number(p.pid), p]));
+  const children = new Map();
+  for (const p of table || []) {
+    const pid = Number(p.pid), ppid = Number(p.ppid || 0);
+    if (pid === ppid || !byPid.has(ppid)) continue;
+    const parent = byPid.get(ppid);
+    if (parent.created != null && p.created != null && p.created < parent.created) continue;
+    if (!children.has(ppid)) children.set(ppid, []);
+    children.get(ppid).push(p);
+  }
+  root = Number(root);
+  const rootProc = byPid.get(root);
+  if (rootProc && matches(rootProc.name)) return [];
+  const order = [root], seen = new Set([root]), queue = [root];
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const child of children.get(cur) || []) {
+      const cpid = Number(child.pid);
+      if (seen.has(cpid)) continue;
+      seen.add(cpid);
+      if (matches(child.name)) continue;
+      order.push(cpid); queue.push(cpid);
+    }
+  }
+  return order.reverse();
+}
+// stdout 只认最后一行 JSON（CONVENTIONS §1.1）；不是对象就当没有。
+function parseLastJson(out) {
+  const line = String(out || "").trim().split("\n").map(s => s.trim()).filter(Boolean).pop();
+  if (!line) return null;
+  try { const v = JSON.parse(line); return v && typeof v === "object" ? v : null; } catch { return null; }
+}
+function stderrTail(err, n = 3) {
+  return String(err || "").trim().split("\n").map(s => s.trimEnd()).filter(Boolean).slice(-n).join("\n");
+}
+
 // 同步收藏夹设置：立即同步 + 定时（每天/每周几点，自定义）。Owner 2026-09-17。
 const WEEKDAYS = [["Monday","周一"],["Tuesday","周二"],["Wednesday","周三"],["Thursday","周四"],["Friday","周五"],["Saturday","周六"],["Sunday","周日"]];
 class SyncSettingsModal extends Modal {
@@ -155,7 +198,7 @@ class SyncSettingsModal extends Modal {
       .addButton(b => b.setButtonText("立即同步").setCta().onClick(() => { this.plugin.syncNow(); this.close(); }));
 
     let cur = {};
-    try { cur = await this.plugin.getSyncSchedule(); } catch {}
+    try { cur = await this.plugin.getSyncSchedule(); } catch (e) { cur = { error: e.message }; }
     this.freq = cur.enabled === false ? "off" : (cur.freq === "weekly" ? "weekly" : (cur.freq === "daily" ? "daily" : "daily"));
     this.time = cur.time || "04:00";
     this.day = (cur.day || "Monday").split(",")[0].trim() || "Monday";
@@ -308,15 +351,16 @@ class LinkBrainActions extends Plugin {
     return this.run(['-m', 'link_brain', 'sync-favorites', '--limit', '0', '--extract'], '同步收藏', true);
   }
   async getSyncSchedule() {
-    const { out } = await this.spawnCapture(['-m', 'link_brain', 'sync-schedule']);
-    try { return JSON.parse((out || '').trim().split('\n').pop()); } catch { return {}; }
+    const { json } = await this.runPy(['-m', 'link_brain', 'sync-schedule'], { label: '读取同步计划', fallback: '读不到同步计划' });
+    if (!json) throw new Error('后台没返回同步计划');
+    return json;
   }
   async setSyncSchedule(freq, at, day) {
     const args = ['-m', 'link_brain', 'sync-schedule', '--set', freq];
     if (at) args.push('--at', at);
     if (day) args.push('--day', day);
-    const { out } = await this.spawnCapture(args);
-    try { return JSON.parse((out || '').trim().split('\n').pop()); } catch { return { ok: false, error: out }; }
+    const { json } = await this.runPy(args, { label: '保存同步计划', fallback: '保存失败' });
+    return json || { ok: false, error: '后台没返回结果' };
   }
   // lwa 仓根在本库里的相对前缀：独立开 lwa vault 时是 ''，挂进 LER Vault 时是 '知识库【小红书】'。
   async findArchiveRoot() {
@@ -336,22 +380,85 @@ class LinkBrainActions extends Plugin {
   openCategories(cats, selected, refresh) { new (this.libraryUI().CategoriesModal)(this,cats,selected,refresh).open(); }
 
 
-  // 轻量捕获：只抓 stdout/stderr，不占 this.running 锁（答题/自测是便宜的文本调用，不开浏览器）。
-  spawnCapture(args, { input = null, timeoutMs = 0 } = {}) {
+  // 所有 Python 子进程都从这里起（统一 cwd / env / windowsHide）；一次性调用走下面的 spawnPy，常驻问答 worker 直接用它。
+  pyChild(args) { return spawn(PY, args, { cwd: this.repoRoot, env: { ...process.env, ...ENV_EXTRA }, windowsHide: true }); }
+
+  // ── 唯一的 Python 入口（CONVENTIONS §6.1）：统一 cwd / env / windowsHide / 超时。
+  //    exclusive=true：互斥长任务（开浏览器、吃内存，叠着跑必炸），占 this.running，写 ob-actions.log；
+  //    exclusive=false：轻量捕获（答题 / 自测 / 清洗链接这类便宜调用），不占锁。
+  //    超时 → killTree（跳过读取服务和它的浏览器），返回 code=-2、timedOut=true。
+  //    返回 {code, json, out, err, all, timedOut}：json = stdout 最后一行 JSON（没有就是 null）；all = stdout+stderr 按到达顺序。
+  spawnPy(args, { input = null, timeoutMs = 0, exclusive = false, label = '' } = {}) {
+    if (exclusive) {
+      if (this.running) return Promise.resolve({ code: 1, json: null, out: '', err: `还在跑「${this.running}」`, all: '', timedOut: false, busy: true });
+      this.running = label || '归档任务';
+    }
     return new Promise((resolve) => {
-      const child = spawn(PY, args, { cwd: this.repoRoot, env: { ...process.env, ...ENV_EXTRA }, windowsHide: true });
-      let out = "", err = "", timedOut = false;
-      // 超时：结束整棵进程树（Windows 上 kill 只杀外层），返回 code=-2
-      const timer = timeoutMs ? setTimeout(() => {
+      let child, done = false, out = '', err = '', all = '', timedOut = false, timer = null;
+      const finish = (code, spawnError) => {
+        if (done) return; done = true;
+        if (timer) clearTimeout(timer);
+        if (exclusive && this.runningChild === child) { this.running = null; this.runningChild = null; }
+        resolve({ code: timedOut ? -2 : code, json: parseLastJson(out), out, err: spawnError != null ? spawnError : err, all, timedOut });
+      };
+      try {
+        child = this.pyChild(args);
+      } catch (e) {
+        if (exclusive) this.running = null;
+        finish(-1, e.message); return;
+      }
+      if (exclusive) this.runningChild = child;
+      if (timeoutMs) timer = setTimeout(async () => {
         timedOut = true;
-        try { spawn('taskkill', ['/T', '/F', '/PID', String(child.pid)], { windowsHide: true }); } catch { child.kill(); }
-      }, timeoutMs) : null;
-      child.stdout.on("data", (d) => (out += d.toString()));
-      child.stderr.on("data", (d) => (err += d.toString()));
-      child.on("close", (code) => { if (timer) clearTimeout(timer); resolve({ code: timedOut ? -2 : code, out, err, timedOut }); });
-      child.on("error", (e) => resolve({ code: -1, out: "", err: e.message }));
-      if (input != null) { child.stdin.write(input); child.stdin.end(); }
+        try { await this.killTree(child.pid); } catch {}
+        if (!done) setTimeout(() => { if (!done) { try { child.kill(); } catch {} } }, 3000);
+      }, timeoutMs);
+      child.stdout.on('data', (d) => { const s = d.toString(); out += s; all += s; });
+      child.stderr.on('data', (d) => { const s = d.toString(); err += s; all += s; });
+      child.on('close', (code) => finish(code));
+      child.on('error', (e) => finish(-1, e.message));
+      if (input != null) { child.stdin.on?.('error', () => {}); child.stdin.write(input); child.stdin.end(); }
     });
+  }
+
+  // CONVENTIONS §1：插件消费 CLI 的唯一包装。解析 stdout 最后一行 JSON；
+  // 退出码不在 okCodes 里且解析不出 → 抛 stderr 尾三行（没有就抛 fallback）；超时 → 已杀树，抛 timeoutMessage；
+  // 找不到 Python → 抛安装指引。其余情况把 {code, json, out, err, timedOut} 交给调用方自己判 json.ok / status。
+  async runPy(args, { input = null, timeoutMs = 0, label = '', fallback = '', okCodes = [0], timeoutMessage = '' } = {}) {
+    const r = await this.spawnPy(args, { input, timeoutMs, label });
+    if (r.timedOut) {
+      const mins = Math.max(1, Math.round(timeoutMs / 60000));
+      throw Object.assign(new Error(timeoutMessage || `${label || '后台命令'}超过 ${mins} 分钟没有结果，已停止。`), { timedOut: true, result: r });
+    }
+    if (r.code === -1 && r.json == null) throw Object.assign(new Error('找不到 Python。请按 README 安装 Python 3.11+ 与 link_brain，再重启 Obsidian。\n' + r.err), { result: r });
+    if (!okCodes.includes(r.code) && r.json == null) throw Object.assign(new Error(stderrTail(r.err) || fallback || `${label || '后台命令'}失败（退出码 ${r.code}）`), { result: r });
+    return r;
+  }
+
+  // CONVENTIONS §6.2：唯一的杀树函数。返回结束掉的 pid（枚举不了进程时只结束 pid 本身，宁可漏杀子进程也不整棵带走读取服务）。
+  async killTree(pid, { exclude = READER_IMAGE_PREFIXES } = {}) {
+    if (!pid) return [];
+    let table = null;
+    try { table = await this.processTable(); } catch { table = null; }
+    const pids = table && table.length ? selectKillPids(table, pid, exclude) : [Number(pid)];
+    if (!pids.length) return [];
+    if (process.platform === 'win32') await this.psRun(`Stop-Process -Id ${pids.map(Number).join(',')} -Force -ErrorAction SilentlyContinue`);
+    else for (const p of pids) { try { process.kill(p, 'SIGKILL'); } catch {} }
+    if (!table) { try { process.kill(Number(pid)); } catch {} }
+    return pids;
+  }
+  async processTable() {
+    if (process.platform === 'win32') {
+      const out = await this.psRun("Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ pid = [int]$_.ProcessId; ppid = [int]$_.ParentProcessId; name = [string]$_.Name; created = $(if ($_.CreationDate) { ([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds() / 1000.0 } else { $null }) } } | ConvertTo-Json -Compress");
+      const data = JSON.parse(out);
+      return Array.isArray(data) ? data : [data];
+    }
+    const out = await new Promise(resolve => {
+      const child = spawn('ps', ['-A', '-o', 'pid=,ppid=,comm='], { windowsHide: true });
+      let text = ''; child.stdout.on('data', d => text += d); child.on('close', () => resolve(text)); child.on('error', () => resolve(''));
+    });
+    return out.split('\n').map(l => l.trim().split(/\s+/)).filter(p => p.length >= 3 && /^\d+$/.test(p[0]))
+      .map(p => ({ pid: Number(p[0]), ppid: Number(p[1]), name: path.basename(p.slice(2).join(' ')), created: null }));
   }
 
   // ── 小红书账号：一个号一个读取服务（2026-09-25）。状态行来自 `link_brain login --status --json`，
@@ -585,15 +692,12 @@ class LinkBrainActions extends Plugin {
     return this.runJSON(['-m', 'link_brain', 'login', '--logout', '--json'], '退出登录失败');
   }
 
+  // 账号 / 环境检查这类「只认 JSON」的调用：runPy + 没 JSON 就抛（stderr 尾三行或 fallback）。
   async runJSON(args, fallback, timeoutMs = 0) {
-    const {out, err, code, timedOut} = await this.spawnCapture(args, {timeoutMs});
-    if (timedOut) throw new Error(`超过 ${Math.round(timeoutMs / 60000)} 分钟没有结果：读取服务可能卡住了，点「重试」；仍不行请查看 ~/.link-brain/reader.log。`);
-    const line = (out || '').trim().split('\n').filter(Boolean).pop();
-    try { return JSON.parse(line); }
-    catch {
-      if (code === -1) throw new Error('找不到 Python。请按 README 安装 Python 3.11+ 与 link_brain，再重启 Obsidian。\n' + err);
-      throw new Error((err || '').trim().split('\n').slice(-3).join('\n') || fallback);
-    }
+    const r = await this.runPy(args, { timeoutMs, fallback,
+      timeoutMessage: `超过 ${Math.round(timeoutMs / 60000)} 分钟没有结果：读取服务可能卡住了，点「重试」；仍不行请查看 ~/.link-brain/reader.log。` });
+    if (r.json == null) throw new Error(stderrTail(r.err) || fallback);
+    return r.json;
   }
 
   // 本机环境（Python 包 / 插件 / Dataview / AI），只在设置页「运行环境」里展示。
@@ -621,7 +725,8 @@ class LinkBrainActions extends Plugin {
     const child = this.runningChild;
     if (child) {
       const done = new Promise(r => child.once('close', r));
-      try { spawn('taskkill', ['/T', '/F', '/PID', String(child.pid)], { windowsHide: true }); } catch { child.kill(); }
+      // §6.2：killTree 跳过读取服务和它的浏览器（0929：taskkill /T 把它们一起杀了，号变游客）
+      try { await this.killTree(child.pid); } catch { try { child.kill(); } catch {} }
       await Promise.race([done, new Promise(r => setTimeout(r, 8000))]);
     }
     this.running = null;
@@ -667,7 +772,7 @@ class LinkBrainActions extends Plugin {
   // 只把挑出的少量片段送模型（token 控制全在 Python），这里只做薄壳 + 解析。
   ensureAnswerWorker() {
     if(this.answerWorker)return this.answerWorker;
-    const child=spawn(PY,['-m','link_brain','serve','--stdio'],{cwd:this.repoRoot,env:{...process.env,...ENV_EXTRA},windowsHide:true});
+    const child=this.pyChild(['-m','link_brain','serve','--stdio']);
     this.answerWorker=child;this.answerPending=this.answerPending||new Map();
     let buffer='';child.stdout.setEncoding('utf8');
     child.stdout.on('data',chunk=>{
@@ -697,12 +802,13 @@ class LinkBrainActions extends Plugin {
     const worker=this.ensureAnswerWorker();
     const id=String(this.answerSequence=(this.answerSequence||0)+1);
     return new Promise((resolve,reject)=>{
-      const timer=setTimeout(()=>{this.answerPending.delete(id);reject(new Error('回答超时，请重试'));worker.kill();},150000);
+      // 超时：连同 worker 起的 claude / codex 子进程整棵结束（§6.2 killTree），不留孤儿
+      const timer=setTimeout(()=>{this.answerPending.delete(id);reject(new Error('回答超时，请重试'));this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});},150000);
       this.answerPending.set(id,{resolve,reject,onDelta,timer});
       worker.stdin.write(JSON.stringify({id,...request})+'\n');
     });
   }
-  onunload(){this.unloading=true;this.answerWorker?.kill();}
+  onunload(){this.unloading=true;const worker=this.answerWorker;if(worker)this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});}
   async answerArchive({ question, history = [], onDelta, model = '' } = {}) {
     const q=(question||'').trim();if(!q)throw new Error('问题是空的');
     const payload=await this.requestAnswer({question:q,history,model},onDelta);
@@ -711,9 +817,9 @@ class LinkBrainActions extends Plugin {
   }
 
   async exportArchiveBundle(ids, images=true, answer='', options={}) {
-    const {code,out,err}=await this.spawnCapture(['-m','link_brain','export-bundle'],{input:JSON.stringify({ids,images,answer,question:options.question,asked_at:options.askedAt})});
-    if(code!==0)throw new Error(err||'导出失败');
-    const result=JSON.parse(out);
+    const r=await this.runPy(['-m','link_brain','export-bundle'],{input:JSON.stringify({ids,images,answer,question:options.question,asked_at:options.askedAt}),label:'导出',fallback:'导出失败'});
+    if(r.code!==0)throw new Error(stderrTail(r.err)||'导出失败');
+    const result=r.json;if(!result)throw new Error('导出后端没返回可解析结果');
     new Notice(`已导出 ${result.notes} 篇、${result.images} 张原图${result.missing.length?'；部分图片缺失，见包内索引':''}`);
     if(options.copy)await this.copyFileBundle(result.path);
     else require('electron').shell.showItemInFolder(result.path);
@@ -865,36 +971,23 @@ class LinkBrainActions extends Plugin {
   }
 
   // 一次只准跑一个动作：这些命令会开浏览器、吃内存，叠着跑必炸（18060 负载重就 Failed to get the debug url）。
-  run(args, label, slow = false) {
+  // 互斥长任务的界面壳：spawnPy({exclusive}) + 开跑 / 完成提示 + 写 ob-actions.log。返回 {code, out(含 stderr), stdout}。
+  async run(args, label, slow = false) {
     if (this.running) {
       new Notice(`还在跑「${this.running}」，等它完事再点`);
-      return Promise.resolve({ code: 1, out: "" });
+      return { code: 1, out: "" };
     }
-    this.running = label;
+    const pending = this.spawnPy(args, { exclusive: true, label });
     new Notice(slow ? `${label}：开跑了，慢活，完事会再弹一次` : `${label}…`);
-    return new Promise((resolve) => {
-      const child = spawn(PY, args, {
-        cwd: this.repoRoot,
-        env: { ...process.env, ...ENV_EXTRA },
-        windowsHide: true,
-      });
-      this.runningChild = child;
-      let out = "", stdout = "";
-      child.stdout.on("data", (d) => {out += d.toString();stdout += d.toString();});
-      child.stderr.on("data", (d) => (out += d.toString()));
-      child.on("close", async (code) => {
-        this.running = null;
-        await this.log(`[${label}] exit=${code}\n${out.trim()}`);
-        const tail = out.trim().split("\n").filter(Boolean).pop() || "(无输出)";
-        new Notice(code === 0 ? `${label} 完成：${tail}` : `${label} 失败 (exit=${code})：${tail}`, 8000);
-        resolve({ code, out, stdout });
-      });
-      child.on("error", (err) => {
-        this.running = null;
-        new Notice(`${label} 起不来：${err.message}`, 8000);
-        resolve({ code: -1, out: err.message });
-      });
-    });
+    const r = await pending;
+    if (r.code === -1 && !r.all) {
+      new Notice(`${label} 起不来：${r.err}`, 8000);
+      return { code: -1, out: r.err };
+    }
+    await this.log(`[${label}] exit=${r.code}\n${r.all.trim()}`);
+    const tail = r.all.trim().split("\n").filter(Boolean).pop() || "(无输出)";
+    new Notice(r.code === 0 ? `${label} 完成：${tail}` : `${label} 失败 (exit=${r.code})：${tail}`, 8000);
+    return { code: r.code, out: r.all, stdout: r.out };
   }
 
   async log(text) {
@@ -910,22 +1003,19 @@ class LinkBrainActions extends Plugin {
   async expandAndCleanLinks(text) {
     const t = (text || "").trim();
     if (!t) return [];
-    const { out } = await this.spawnCapture(["-m", "link_brain", "clean", t]);
-    let payload;
-    try { payload = JSON.parse(out.trim().split("\n").filter(Boolean).pop() || "{}"); }
-    catch { throw new Error("清洗后端没返回可解析结果"); }
-    return payload.urls || [];
+    const { json } = await this.runPy(["-m", "link_brain", "clean", t], { label: "清洗链接", fallback: "清洗失败" });
+    if (!json) throw new Error("清洗后端没返回可解析结果");
+    return json.urls || [];
   }
 
   // 删除收藏：spawn `link_brain delete <id...>`（删可见笔记+对象目录+索引行，后端顺手重建目录）。
   async deleteItems(ids) {
     const list = (ids || []).filter(Boolean);
     if (!list.length) return { deleted: 0, results: [] };
-    const { out } = await this.spawnCapture(["-m", "link_brain", "delete", ...list]);
-    let payload;
-    try { payload = JSON.parse(out.trim().split("\n").filter(Boolean).pop() || "{}"); }
-    catch { throw new Error("删除后端没返回可解析结果"); }
-    return payload;
+    // 退出码 1 + 有 JSON = 部分没删掉：照样把逐条结果交给页面（第 3 批按 results 提示「n 篇没删掉」）
+    const { json } = await this.runPy(["-m", "link_brain", "delete", ...list], { label: "删除", fallback: "删除失败" });
+    if (!json) throw new Error("删除后端没返回可解析结果");
+    return json;
   }
 
   // ⭐ 收藏开关：只更新 sidecar 状态，由星标目录统一展示。
@@ -933,10 +1023,10 @@ class LinkBrainActions extends Plugin {
   async starNote(itemId, on) {
     const args = ["-m", "link_brain", "note", "star", itemId];
     if (!on) args.push("--off");
-    const { out } = await this.spawnCapture(args);
     try {
-      const result=JSON.parse(out.trim().split("\n").filter(Boolean).pop() || "{}");
-      if(result.status!=='ok')throw new Error(result.status||'收藏失败');
+      const { json } = await this.runPy(args, { label: "收藏", fallback: "收藏失败" });
+      const result = json || {};
+      if(result.status!=='ok')throw new Error(result.status||'后台没返回结果');
       this.app.workspace.trigger('link-brain:star',itemId,result.starred);
       return result;
     } catch(e) { throw new Error("收藏失败："+e.message); }
@@ -946,16 +1036,17 @@ class LinkBrainActions extends Plugin {
   async attachFile(itemId, filePath, docId) {
     const args=["-m","link_brain","attachments",itemId,"--attach",filePath];
     if(docId)args.push('--doc-id',docId);
-    const {code,out,err}=await this.spawnCapture(args);
+    // 退出码 2 = 文件已保存、正文没转出来（保持原语义：算成功 + 警告；第 3 批再改提示）
+    const {code,out,err}=await this.runPy(args,{label:'挂附件',fallback:'附件命令失败',okCodes:[0,2]});
     if(code!==0&&code!==2)throw new Error(err.trim()||out.trim()||'附件命令失败');
     return {text:out.trim(),warning:code===2?(err.trim()||'文件已保存，但正文转换失败'):null};
   }
 
   async trashAction(action, ids = []) {
-    const {code,out,err}=await this.spawnCapture(['-m','link_brain','trash',action,...ids]);
-    const result=JSON.parse(out.trim().split('\n').pop());
-    if(code!==0)throw new Error(result.results?.find(x=>x.error)?.error||err||'回收站操作失败');
-    return result;
+    const {code,json,err}=await this.runPy(['-m','link_brain','trash',action,...ids],{label:'回收站',fallback:'回收站操作失败'});
+    if(!json)throw new Error('回收站后端没返回可解析结果');
+    if(code!==0)throw new Error(json.results?.find(x=>x.error)?.error||stderrTail(err)||'回收站操作失败');
+    return json;
   }
 
   async importText(text, report = () => {}, progress = () => {}) {
@@ -1257,7 +1348,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
     new Setting(a).setName('等待手动下载（分钟）').setDesc('手动下载附件时，在下载文件夹里等待文件出现的时长。')
       .addText(t => t.setValue(String(s.downloads.waitMinutes)).onChange(async v => { s.downloads.waitMinutes = Math.max(1, parseInt(v) || 5); await save(); }));
     new Setting(a).setName('待补附件').addButton(b => b.setButtonText('查看').onClick(async () => {
-      const { code, err } = await this.plugin.spawnCapture(['-m', 'link_brain', 'catalog']);
+      const { code, err } = await this.plugin.spawnPy(['-m', 'link_brain', 'catalog'], { label: '检查附件' });
       if (code !== 0) { new Notice('检查失败：' + err); return; }
       const data = JSON.parse(await this.app.vault.adapter.read(this.plugin.lbPath('_archive/catalog-data.json')));
       this.plugin.openAttachments(data.items.filter(it => it.attachment === '待补'));
@@ -1268,11 +1359,11 @@ class LinkBrainSettingTab extends PluginSettingTab {
     new Setting(container).addButton(b => b.setButtonText(label).onClick(async () => {
       b.setButtonText("测试中…"); b.setDisabled(true);
       try {
-        const { out, err } = await this.plugin.spawnCapture(args);
-        let r; try { r = JSON.parse(out.trim().split("\n").filter(Boolean).pop() || "{}"); } catch { r = {}; }
+        const { json, err } = await this.plugin.runPy(args, { label, fallback: "未知错误" });
+        const r = json || {};
         if (r.ok) new Notice("接口正常：" + (r.detail || "").slice(0, 80), 8000);
-        else new Notice("接口失败：" + (r.detail || err.trim().split("\n").pop() || "未知错误"), 10000);
-      } catch (e) { new Notice("测试出错：" + e.message, 8000); }
+        else new Notice("接口失败：" + (r.detail || stderrTail(err, 1) || "未知错误"), 10000);
+      } catch (e) { new Notice((e.result && !e.timedOut ? "接口失败：" : "测试出错：") + e.message, 10000); }
       finally { b.setButtonText(label); b.setDisabled(false); }
     }));
   }

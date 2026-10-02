@@ -7,7 +7,8 @@ const item = {title:'记忆管理框架',tags:['AI'],pinyin:'ji yi guan li kuang
 for(const q of ['jiyi','记忆框架','#ai','jiyi guanli','guanlikuang']) assert.ok(score(item,q)>0,q);
 for(const q of ['香蕉','#食谱','不存在的关键词','jiy','jiyu','yig']) assert.equal(score(item,q),0,q);
 const obsidianMock={Plugin:class{},Modal:class{},Notice:class{},TFile:class{},PluginSettingTab:class{constructor(app,plugin){this.app=app;this.plugin=plugin;}},Setting:class{},requestUrl:async()=>({}),MarkdownRenderer:{render:async()=>{}}};
-const context={module:{exports:{}},URL,require:name=>name==='obsidian'?obsidianMock:require(name)};
+// node 测试不许起真进程（CONVENTIONS §7.5）：child_process 换成一碰就炸的桩
+const context={module:{exports:{}},URL,require:name=>name==='obsidian'?obsidianMock:name==='child_process'?{spawn(){throw new Error('测试里不许 spawn 真进程');}}:require(name)};
 vm.createContext(context);
 vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js','utf8')+';module.exports.cleanLinks=cleanLinks;module.exports.parseCatsText=parseCatsText;module.exports.serializeCats=serializeCats;',context);
 const Plugin=context.module.exports;
@@ -35,10 +36,11 @@ assert.equal(Plugin.serializeCats(cats),'人机恋: 人机恋, ai伴侣\n吃的:
   assert.equal(calls[1][2],'catalog');assert.equal(plugin.importing,false);
   assert.equal(lastDone,1);assert.equal(lastTotal,1);  // 进度回调到位
   // expandAndCleanLinks：解析 Python clean 的 JSON
-  plugin.spawnCapture=async args=>{assert.equal(args[2],'clean');return {out:JSON.stringify({count:1,urls:[{clean:'https://x/1',has_token:true}]}),err:''};};
+  const res=out=>({code:0,json:JSON.parse(out),out,err:'',all:out,timedOut:false});
+  plugin.spawnPy=async args=>{assert.equal(args[2],'clean');return res(JSON.stringify({count:1,urls:[{clean:'https://x/1',has_token:true}]}));};
   const cl=await plugin.expandAndCleanLinks('some text');assert.equal(cl.length,1);assert.equal(cl[0].clean,'https://x/1');
   // deleteItems：spawn delete <id...>、解析结果
-  plugin.spawnCapture=async args=>{assert.equal(args[2],'delete');assert.equal(args.slice(3).join(','),'id1,id2');return {out:JSON.stringify({deleted:2,results:[{item_id:'id1',status:'deleted'},{item_id:'id2',status:'deleted'}]}),err:''};};
+  plugin.spawnPy=async args=>{assert.equal(args[2],'delete');assert.equal(args.slice(3).join(','),'id1,id2');return res(JSON.stringify({deleted:2,results:[{item_id:'id1',status:'deleted'},{item_id:'id2',status:'deleted'}]}));};
   const del=await plugin.deleteItems(['id1','id2','']);assert.equal(del.deleted,2);
   const empty=await plugin.deleteItems([]);assert.equal(empty.deleted,0);assert.equal(empty.results.length,0);  // 空不 spawn
   // 目录页「+」菜单按钮：旧插件实例缺 openPlusMenu 时 disable/enable 恢复后再打开
@@ -59,7 +61,7 @@ assert.equal(Plugin.serializeCats(cats),'人机恋: 人机恋, ai伴侣\n吃的:
   await assert.rejects(p2.answerArchive({question:'x'}),/没内容/);
   await assert.rejects(p2.answerArchive({question:'  '}),/问题是空的/);
   // 设置默认值合到位（未存过 data 时用内置默认）
-  const p3=new Plugin();p3.app={vault:{adapter:{getBasePath:()=>'/repo/vault'}}};p3.loadData=async()=>null;
+  const p3=new Plugin();p3.app={vault:{adapter:{getBasePath:()=>'/repo/vault'}},workspace:{onLayoutReady:()=>{}}};p3.loadData=async()=>null;
   p3.addSettingTab=()=>{};p3.addCommand=()=>{};p3.addRibbonIcon=()=>{};
   await p3.onload();
   assert.equal(p3.settings.textAI.mode,'media');assert.equal(p3.settings.retrieval.topK,8);
@@ -160,13 +162,14 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
   let opened=0;
   const failed=await runCatalogPage(base,{syncState:{state:'blocked',account:'xhs',code:'NOT_LOGGED_IN'},onAccountOpen:()=>opened++});
   const account=failed.root.querySelector('.lbc-account-status');
-  assert.equal(account.textContent,'!需要登录');assert.ok(account.classList.has('is-alert'));
+  // 0926 起：只出一个「!」，原因在悬停里（title），点一下直接修
+  assert.equal(account.textContent,'!');assert.ok(account.title.startsWith('需要登录'));assert.equal(account.hidden,false);
   await account.onclick();assert.equal(opened,1,'「!」直接走插件的修复入口');
   const captcha=await runCatalogPage(base,{syncState:{state:'blocked',account:'xhs',code:'CAPTCHA_REQUIRED'}});
   const cap=captcha.root.querySelector('.lbc-account-status');
-  assert.equal(cap.textContent,'!需要验证');assert.ok(cap.classList.has('is-warn'));
+  assert.equal(cap.textContent,'!');assert.ok(cap.title.startsWith('需要验证'));
   const service=await runCatalogPage(base,{syncState:{state:'blocked',account:null}});
-  assert.equal(service.root.querySelector('.lbc-account-status').textContent,'!同步暂停');
+  assert.equal(service.root.querySelector('.lbc-account-status').textContent,'!');assert.ok(service.root.querySelector('.lbc-account-status').title.startsWith('同步暂停'));
   const ok=await runCatalogPage(base,{syncState:{state:'ready',updated_at:'2026-09-25T04:10:00+10:00'}});
   assert.equal(ok.root.querySelector('.lbc-account-status').hidden,true,'同步正常时不显示');
   console.log('PASS: directory shows sync failure next to count and opens account login');
