@@ -4,6 +4,10 @@
 
 - 插件唯一 Python 入口 `spawnPy`/`runPy` + 唯一杀树 `killTree`（跳过 link-brain-reader 及其浏览器，不再 `taskkill /T`）；读取服务经 `cmd /c start` 中转拉起、不再是任何 Python 的子孙（0929 根治）；`storage.file_lock`（账号锁是它的实例，目录重建 / answers.json / sync-quota 加锁）与原子写收口；`cli_call` 默认 180 秒超时杀树；`problems.py` 骨架（问题记录、分类、登记表、推送出口、`problems list|report|export`），未接调用点；`package.json` + `tests/run-node.cjs`。验收见 `tests/acceptance/20261002-batch0.md`。
 
+## 2026-10-02 第 1B 批：provider 接口 + 收编 media.py（分支 batch1b-media）
+
+- `providers.py`（resolve / key 顺序 apiKey→keyFile→env / HTTP 状态→故障码 / 统一返回形状）；`asr.py`（本机 CapsWriter-Offline websocket、OpenAI 兼容 `/audio/transcriptions`、关；长音频按静音切 ≤50 秒段）；`docconv.py`（PDF：pypdfium2 + 本地 rapidocr，Word：python-docx）。仓库外脚本、`LINK_BRAIN_MEDIA_PY`、本机默认 key 目录全删，PyMuPDF（AGPL）不再用。概要走设置里的「归档摘要模型」（summaryAI，默认同文本 AI），没配 = skipped；识图 / 语音 / OCR / 附件转换的失败和跳过都进 `problems.jsonl`。旧的 `mode=media` 配置在 `ai_config.load` 里内存换算（不改 data.json），记一条 `SKIPPED.LEGACY_CONFIG`。设置页每个能力块一个「测试」按钮，调 `selftest text|summary|vision|ocr|asr`。验收见 `tests/acceptance/20261002-batch1b.md`。
+
 ## 2026-10-02 第 1 批：搜索找回
 
 - 目录页和 `link-brain search` / MCP `lb_search` 同一套规则（`catalog-search.js` ↔ `retrieval.py`）：原词（含 search-aliases 同义词）命中 = 精确；原词不中才认标题错字、拼音整音节（「西尼」→悉尼，「xin」撞不上 xi·ni，至少两个音节）、漏字，这些整篇放「可能相关」区排在后面；多词 AND；排序分数优先，星标 ×1.15，同分星标在前。整串短语库里没有时拆成库里有的词（「悉尼咖啡」「AI做梦」）。问答 BM25 只在某个词原词一篇都不中时退到拼音整音节（低权）。

@@ -458,8 +458,9 @@ _archive/xiaohongshu/<note_id>/
 
 1001 起记录上可能多出的键：
 - `manual_ids`：手动挂过（`manual-…`）后又认回真编号，合并成这一条，原 manual 编号记在这里（`attachments --dedupe` 修存量）。
-- `conversion_failed`：`{note, sha256, at}`。字节下好了（文件头对得上）但转不成 md（加密 / 损坏）：字节保留、不重下；
-  同一份 sha256 不再每晚重转，`pdf2md --force` 才重试。
+- `conversion_failed`：`{note, sha256, code, at}`。字节下好了（文件头对得上）但转不成 md：字节保留、不重下。
+  `code` 是故障码（CONVENTIONS §2）：`PERMANENT.*`（加密 / 损坏 / 不支持的格式）同一份 sha256 不再每晚重转，`pdf2md --force` 才重试；
+  `TRANSIENT.*` 下次照转。1B 之前的旧记录没有 `code`，按 PERMANENT 算。没开 OCR 的扫描件是「跳过」，不写这个键。
 - `conversion_partial`：`{pages_failed, sha256, tries}`。有几页 OCR 没认出来，那几页写占位、整份照出，最多再试 3 次。
 
 事后才知道的附件声明（正文线索解析出的真编号、`--recheck` 探到的文件）写对象级
@@ -471,8 +472,9 @@ _archive/xiaohongshu/<note_id>/
 ## 7b. `derived/extracted.json`（小模型派生，Lot 4）
 
 对象级、可重生成：删掉它重跑 `render --extract` 只会重新调模型，**不会重抓网页**。
-`data` 只有 `status == "ok"` 时才可信；`status == "failed"` 时 `data` 为 `null`，
-渲染层退回"（未生成）"并且**不阻断**。
+用哪个模型 = 设置里的「归档摘要模型」（`summaryAI`，默认和文本 AI 相同；第 1B 批起）。
+`data` 只有 `status == "ok"` 时才可信；`status == "failed"` / `"skipped"` 时 `data` 为 `null`，
+渲染层退回"（未生成）"并且**不阻断**。`skipped` = 没配模型（`code: "SKIPPED.NOT_CONFIGURED"`），配上后 enrich 会补。
 
 ```json
 {
@@ -487,8 +489,9 @@ _archive/xiaohongshu/<note_id>/
     "input_tokens_est": 3979,
     "output_tokens_est": 593,
     "cost_usd_est": 0.00017664,
-    "note": "media.py 不回传 usage，token 数为字符估算"
+    "note": "接口回传的 usage"
   },
+  "code": "",
   "error": null,
   "data": {
     "summary": "不超过 3 行的概要",
@@ -510,7 +513,8 @@ _archive/xiaohongshu/<note_id>/
 |---|---|
 | `version` | 派生自哪个 RAW 版本；`current_version` 变了要重跑 |
 | `attempts` | 1 或 2（schema 校验失败只重试 1 次） |
-| `usage` | media.py 不回传 usage，token 是按字符估的；价格取 `link_brain/assets/llm-config.yaml` |
+| `usage` | 接口回传了 usage 就用它，否则按字符估（`note` 写明是哪种）；价格按模型名查 `link_brain/assets/llm-config.yaml` 的 `pricing`，查不到记 0 |
+| `code` | 失败 / 跳过时的故障码（CONVENTIONS §2），成功为空 |
 | `data.tags` | 先按 `docs/tag-vocab.yaml` 归一，再洗成 Obsidian 合法 tag（只留字母数字 `_ - /`，空格转 `-`） |
 | `data.links_worth_opening[].url` | 只可能是 `http(s)://` 开头；模型给的其他东西（仓库名、`javascript:` 之类）一律降级进 `hint`，永不当链接渲染 |
 | `data.valuable_comments[].id` / `ads_or_noise[]` | 只能是输入里出现过的评论编号，其余丢弃 |
