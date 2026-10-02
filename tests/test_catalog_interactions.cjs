@@ -64,7 +64,7 @@ assert.equal(Plugin.serializeCats(cats),'人机恋: 人机恋, ai伴侣\n吃的:
   const p3=new Plugin();p3.app={vault:{adapter:{getBasePath:()=>'/repo/vault'}},workspace:{onLayoutReady:()=>{}}};p3.loadData=async()=>null;
   p3.addSettingTab=()=>{};p3.addCommand=()=>{};p3.addRibbonIcon=()=>{};
   await p3.onload();
-  assert.equal(p3.settings.textAI.mode,'media');assert.equal(p3.settings.retrieval.topK,8);
+  assert.equal(p3.settings.textAI.mode,'http');assert.equal(p3.settings.asrAI.mode,'capswriter');assert.equal(p3.settings.summaryAI.mode,'inherit');assert.equal(p3.settings.retrieval.topK,8);
   assert.ok(p3.settings.prompts.answer.length>10);
   console.log('PASS: fuzzy/pinyin/tag search, URL cleaning, deduplication, import results and rebuild, answerArchive, settings defaults');
 })().catch(e=>{console.error(e);process.exitCode=1;});

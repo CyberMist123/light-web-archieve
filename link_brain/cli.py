@@ -220,7 +220,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--include", action="append", choices=["body", "links", "files"], help="可重复：正文之外返回链接或文件；默认只有正文")
 
     p = sub.add_parser("selftest", help="设置页「测试」按钮的后端：发一次最小调用验证接口")
-    p.add_argument("kind", choices=["text", "ocr", "mcp"], help="测哪条接口")
+    p.add_argument("kind", choices=["text", "summary", "vision", "ocr", "asr", "mcp"],
+                   help="测哪个能力：text 问答 / summary 归档摘要 / vision 识图 / ocr 本地 OCR / asr 语音识别 / mcp")
 
     p = sub.add_parser("clean", help="清洗分享文案里的小红书链接（跟随短链、只留 xsec_token/source），输出 JSON")
     p.add_argument("text", help="一整段分享文案或链接")
