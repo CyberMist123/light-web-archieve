@@ -85,10 +85,14 @@ def no_real_xhs_processes_or_hosts(monkeypatch, tmp_path):
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", _guarded_handle_async_request)
     # real_web_probe 用例也只许走到「缺 relatedfile.exe」这一步
     monkeypatch.setattr(xhs, "RELATEDFILE_EXE", str(tmp_path / "no-such-relatedfile.exe"))
-    # 小模型（概要）默认不真调：要测的用例自己 monkeypatch llm.call_media_text
+    # 小模型（概要）默认不真调：要测的用例自己 monkeypatch llm.call_model
     from link_brain import llm as llm_mod
-    monkeypatch.setattr(llm_mod, "call_media_text",
-                        lambda *a, **k: {"status": "failed", "text": None, "error": "测试环境不调模型"})
+    monkeypatch.setattr(llm_mod, "call_model",
+                        lambda *a, **k: {"status": "failed", "text": None, "code": "TRANSIENT.NETWORK",
+                                         "error": "测试环境不调模型"})
+    # 旧设置换算的说明每个进程只记一次：每个用例从头算
+    from link_brain import ai_config as ai_config_mod
+    monkeypatch.setattr(ai_config_mod, "_LEGACY_NOTE_DONE", False)
     # 附件 / 补查的「像人一样歇」测试里不等
     from link_brain import attachments as att_mod
     monkeypatch.setattr(att_mod, "PACE_SECONDS", (0.0, 0.0))

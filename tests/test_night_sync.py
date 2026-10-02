@@ -26,6 +26,16 @@ FIXTURE = Path(__file__).parent / "fixtures" / "mcp_raw_sanitized.json"
 SESSION = {"state": "idle", "risk_hold": None, "lock": None}
 
 
+
+@pytest.fixture(autouse=True)
+def summary_model_configured(monkeypatch):
+    """第 1B 批起概要走设置里的模型：这里给一个假的 OpenAI 兼容接口（调用本身被 llm.call_model 的替身接住，不出网）。"""
+    from link_brain import ai_config
+    settings = ai_config._deep_merge(ai_config.DEFAULTS, {"textAI": {
+        "mode": "http", "endpoint": "https://llm.example.invalid/v1/chat/completions", "model": "fake-model"}})
+    monkeypatch.setattr(ai_config, "load", lambda: settings)
+
+
 def _ids(n, prefix="bbbbbbbbbbbbbbbb"):
     return [f"{prefix}{i:04d}" for i in range(n)]
 
@@ -229,7 +239,7 @@ GOOD = {"summary": "一句话概要。", "key_points": ["要点"], "tags": ["测
 
 
 def _model(ok=True, calls=None):
-    def call(instruction, input_text, *, model, timeout):
+    def call(instruction, input_text, cfg):
         if calls is not None:
             calls.append(1)
         if not ok:
@@ -241,7 +251,7 @@ def _model(ok=True, calls=None):
 def test_enrich_pending_fills_summary_and_clears_mark(env, monkeypatch, capsys):
     env.favs = [_fav(i) for i in _ids(2)]
     _run(capsys)
-    monkeypatch.setattr(llm_mod, "call_media_text", _model())
+    monkeypatch.setattr(llm_mod, "call_model", _model())
     assert cli.main(["enrich", "--pending"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert sorted(out["done"]) == sorted(f"xhs-{i}" for i in _ids(2))
@@ -255,7 +265,7 @@ def test_enrich_pending_fills_summary_and_clears_mark(env, monkeypatch, capsys):
 def test_enrich_gives_up_after_three_failures_but_item_still_works(env, monkeypatch, capsys):
     env.favs = [_fav(_ids(1)[0])]
     _run(capsys)
-    monkeypatch.setattr(llm_mod, "call_media_text", _model(ok=False))
+    monkeypatch.setattr(llm_mod, "call_model", _model(ok=False))
     alerts = []
     monkeypatch.setattr(alert_mod, "alert", lambda *a, **k: alerts.append(a))
     for n in range(3):
@@ -265,7 +275,7 @@ def test_enrich_gives_up_after_three_failures_but_item_still_works(env, monkeypa
     assert {a[0] for a in alerts} == {alert_mod.KIND_BATCH}  # lwa-alert 认得的 kind，不是 "normal"
     assert cli.main(["enrich", "--pending"]) == 0
     assert json.loads(capsys.readouterr().out)["candidates"] == 0  # 不再自动重试
-    monkeypatch.setattr(llm_mod, "call_media_text", _model(ok=True))
+    monkeypatch.setattr(llm_mod, "call_model", _model(ok=True))
     assert cli.main(["enrich", "--item", f"xhs-{_ids(1)[0]}"]) == 0  # 点名照跑
     assert enrich.load_state("xiaohongshu", _ids(1)[0])["fails"] == 0
 

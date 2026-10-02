@@ -64,6 +64,14 @@ def mark_pending(source_key: str, source_id: str, reason: str = "新收藏") -> 
         pass
 
 
+def _summary_configured() -> bool:
+    from . import providers
+    try:
+        return providers.resolve("summaryAI") is not None
+    except Exception:  # noqa: BLE001 - 配置读不动就当没配
+        return False
+
+
 def needs(source_key: str, source_id: str, *, llm: bool = True) -> list[str]:
     """这篇还缺什么：`summary`（概要失败 / 缺失，llm=True 才算）、`vision`（有图没识）。不含待 enrich 标记本身。"""
     from . import llm as llm_mod
@@ -76,8 +84,10 @@ def needs(source_key: str, source_id: str, *, llm: bool = True) -> list[str]:
         return out
     if llm:
         doc = llm_mod.load_extracted(source_key, source_id)
-        if not doc or doc.get("status") != "ok":
+        if not doc or doc.get("status") not in ("ok", "skipped"):
             out.append("summary")
+        elif doc.get("status") == "skipped" and _summary_configured():
+            out.append("summary")  # 以前没配模型跳过了，现在配上了：补
     try:
         manifest = storage.read_json(storage.raw_dir(source_key, source_id, meta["current_version"]) / "manifest.json")
     except (OSError, ValueError, KeyError):
