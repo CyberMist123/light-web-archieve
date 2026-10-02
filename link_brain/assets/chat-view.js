@@ -104,8 +104,8 @@ style.textContent = `
 .lbchat-think{display:flex;align-items:center;gap:8px;color:var(--text-muted);font-size:14px;margin:0 0 26px;}
 .lbchat-dot{width:6px;height:6px;border-radius:50%;background:var(--interactive-accent);opacity:.5;animation:lbchatpulse 1s ease-in-out infinite;}
 @keyframes lbchatpulse{0%,100%{opacity:.25;transform:scale(.8);}50%{opacity:1;transform:scale(1);}}
-.lbchat-arc-add{display:flex;gap:10px;align-items:flex-end;margin:0 0 24px;}
-.lbchat-arc-input{flex:1;resize:vertical;min-height:38px;border:none;border-bottom:1px solid var(--background-modifier-border);border-radius:0;background:transparent;color:var(--text-normal);font:inherit;font-size:14px;padding:6px 2px;box-sizing:border-box;}
+.lbchat-arc-add{display:flex;gap:10px;align-items:flex-end;margin:0 0 24px;width:100%;box-sizing:border-box;}
+.lbchat-arc-input{flex:1 1 auto;min-width:16em;width:100%;resize:vertical;min-height:38px;border:none;border-bottom:1px solid var(--background-modifier-border);border-radius:0;background:transparent;color:var(--text-normal);font:inherit;font-size:14px;padding:6px 2px;box-sizing:border-box;}
 .lbchat-arc-input:focus{border-bottom-color:var(--interactive-accent);outline:none;}
 .lbchat-arc-save{cursor:pointer;font-size:13px;color:var(--text-faint);padding-bottom:8px;white-space:nowrap;}
 .lbchat-arc-save:hover{color:var(--interactive-accent);}
@@ -303,6 +303,11 @@ const tabArch = tools.createEl('button', { cls: 'lbchat-tab', text: '已保存' 
 
 
 const bodyEl = wrap.createEl('div', { cls: 'lbchat-body' });
+// 跟到底（验收第 3 批体验观察）：停在底部时新内容（新一问、阶段字、逐行出字）自动带到眼前；
+// 自己往上翻了就不抢，翻回底部又接着跟
+let stick = true, drawing = false;
+const nearBottom = () => bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight < 48;
+const follow = () => { if (stick) bodyEl.scrollTop = bodyEl.scrollHeight; };
 // 右侧来源窗格开着时才出现的一行：明确的「退出对照」「收起来源」
 const sourceBar = wrap.createEl('div', { cls: 'lbchat-srcbar' });
 sourceBar.hidden = true;
@@ -326,7 +331,8 @@ search.onkeydown = e => {
 
 // ── 会话渲染 ──
 async function drawChat() {
-  const scroll=bodyEl.scrollTop;
+  const scroll=bodyEl.scrollTop, wasStick=stick;
+  drawing=true;  // 清空重画时浏览器会把滚动夹回 0 并发 scroll 事件：那不是用户在翻，别据此改跟随
   bodyEl.empty();
   search.placeholder=session.turns.length?'继续追问…':'搜索你的收藏，或直接提问…';
 
@@ -403,7 +409,8 @@ async function drawChat() {
     th.createEl('span', { cls: 'lbchat-dot' });
     th.createEl('span', { cls: 'lbchat-phase', text: phaseText() });
   }
-  bodyEl.scrollTop=scroll;
+  drawing=false; stick=wasStick;
+  if (stick) bodyEl.scrollTop = bodyEl.scrollHeight; else bodyEl.scrollTop = scroll;
 }
 
 async function drawArchive() {
@@ -438,7 +445,7 @@ function fmtTs(ts) { try { const d = new Date(ts); return `${String(d.getMonth()
 // 换页再回来时上一页还在等回答：插件对象上记一笔（§5.3「进行中的事」），新页面显示「正在生成…」，答完收到事件再重读会话
 function inFlightElsewhere(){const f=provider()?.chatInFlight;return !!(f&&f.page!==pageId);}
 function phaseText(){const f=provider()?.chatInFlight;return (f&&f.phase?f.phase+'…':'正在生成…');}
-function showPhase(text){const p=provider();if(p&&p.chatInFlight)p.chatInFlight.phase=text;const el=bodyEl.querySelector('.lbchat-phase');if(el)el.setText(phaseText());}
+function showPhase(text){const p=provider();if(p&&p.chatInFlight)p.chatInFlight.phase=text;const el=bodyEl.querySelector('.lbchat-phase');if(el)el.setText(phaseText());follow();}
 const pageId=uid();
 async function submit(raw) {
   const text = (raw || '').trim(); if (!text || busy) return;
@@ -446,7 +453,7 @@ async function submit(raw) {
     const q = text.replace(/^\//,'').trim(); if (!q) return;
     const askedAt=new Date().toISOString();
     session.turns.push({ role: 'user', content: q, mode: 'ask', askedAt });
-    await keepSession(); busy = true; await drawChat();bodyEl.scrollTop=bodyEl.scrollHeight;
+    await keepSession(); busy = true; stick = true; await drawChat(); follow();
     try {
       const history = session.turns.filter(t => t.role === 'user' || t.role === 'assistant').filter(t => !t.failed)
         .map(t => ({ role: t.role === 'assistant' ? 'assistant' : 'user', content: t.content }));
@@ -456,7 +463,7 @@ async function submit(raw) {
       let shown='';
       const r = await p.answerArchive({ question: q, model: modelPick.hidden?'':modelPick.value, history:history.slice(0,-1),
         onPhase:showPhase,
-        onDelta:delta=>{bodyEl.querySelector('.lbchat-think')?.remove();shown+=delta;live.appendText(delta);} });
+        onDelta:delta=>{bodyEl.querySelector('.lbchat-think')?.remove();shown+=delta;live.appendText(delta);follow();} });
       if (r.status === 'cancelled') {
         // 停止：留下已经生成的那半截，明确标「已停止」；算失败轮次（不进追问上下文、不给收藏 / 导出）
         const part = (r.markdown || shown || '').trim();
@@ -486,9 +493,10 @@ tabArch.onclick = () => setLane('archive');
 await setLane('chat');
 paintSend();
 LB.t('render');
-// 对话区滚动位置（§5.3）：记下来，换页回来恢复（没记过保持原样，停在顶上）
-if (Number.isFinite(pageState.scrollTop)) bodyEl.scrollTop = pageState.scrollTop;
-bodyEl.addEventListener?.('scroll', () => { if (lane === 'chat') LB.state.patch({ scrollTop: bodyEl.scrollTop }); }, { passive: true });
+// 对话区滚动位置（§5.3）：记下来，换页回来恢复；没记过 = 停在最新一轮（底部）
+if (Number.isFinite(pageState.scrollTop)) { bodyEl.scrollTop = pageState.scrollTop; stick = nearBottom(); }
+else { stick = true; follow(); }
+bodyEl.addEventListener?.('scroll', () => { if (lane !== 'chat' || drawing) return; stick = nearBottom(); LB.state.patch({ scrollTop: bodyEl.scrollTop }); }, { passive: true });
 LB.t('restore');
 paintSourceBar();
 if (app.workspace.on && dv.component?.registerEvent) {

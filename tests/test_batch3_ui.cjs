@@ -54,6 +54,16 @@ async function chatTests() {
   assert.ok(q('.lbchat-body').textContent.includes('正在生成…'), '还没阶段时显示「正在生成…」');
   req.onPhase('挑选材料');
   assert.ok(q('.lbchat-body').textContent.includes('挑选材料…'), '后端阶段原样显示');
+  // 跟到底：停在底部时，新一问 / 逐行出字自动带到眼前；自己往上翻了就不抢
+  const body = q('.lbchat-body');
+  body.scrollHeight = 1000; body.clientHeight = 300; req.onDelta('');
+  assert.equal(body.scrollTop, 1000, '新一问提交后停在最新一轮');
+  body.scrollTop = 100; (body.listeners.scroll || []).forEach(fn => fn());
+  body.scrollHeight = 1400; req.onDelta('');
+  assert.equal(body.scrollTop, 100, '用户往上翻了：出字不抢滚动');
+  body.scrollTop = 1100; (body.listeners.scroll || []).forEach(fn => fn());
+  body.scrollHeight = 1600; req.onDelta('');
+  assert.equal(body.scrollTop, 1600, '翻回底部：接着跟');
   req.onDelta('写到一');
   stop.onclick();
   assert.equal(stops, 1, '停止走插件 stopArchiveAnswer');
