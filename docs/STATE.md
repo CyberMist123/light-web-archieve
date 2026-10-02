@@ -1,5 +1,13 @@
 # Current State
 
+## 2026-10-02 第 3 批：用户操作的结果如实反馈 + 问答停止（分支 batch3-feedback）
+
+- 问答：后端阶段（检索收藏 / 挑选材料 / 生成回答）经 `serve.py` 发 `{"type":"phase"}`，页面只显示这些；作答中有「停止」，走 `{"id","type":"cancel"}`：worker 用 `text_stream.CANCEL` 叫停——命令行模型整棵杀（`procs.kill_tree`，跳过读取服务）、HTTP 关流，回 `status=cancelled` 带半截，页面标「已停止生成」且不给收藏 / 导出；排队中的被取消就直接跳过；150 秒超时也走这条，worker 8 秒不回才 `killTree` 整个 worker。
+- 写盘失败如实说：问收藏页收藏回答 / 存判断 / 删 / 编辑 / 清空，批注删除 / 提交 / 编辑都是「写成功才改界面，失败回滚 + 『没保存上，内容还在，可重试：原因』」；批注提交失败撤回那条，重试不重复。
+- 删除收藏：`remove.py` 逐条 try、`finally` 重建目录，JSON 加 `ok/code/message`、和退出码一致；页面只摘确认删掉的，没删掉的保持选中并说原因。回收站页头 `lb-page: trash`（`catalog.library_pages` 认旧版无标记页），菜单走 `openLibraryPage('trash')`。
+- 投喂回写只把成功的那段链接换成 `[[笔记]]`，附言 / 其他链接原样，整行成功才打勾，导入期间新贴的行不动；附件原因与逐个错误拼接显示；挂附件退出码 2 的提示带原因。
+- 验收：`tests/acceptance/20261002-batch3.md`。部署：拷插件 + `python -m link_brain catalog` + 重载 Obsidian（问答 worker 随插件重载重起）。
+
 ## 2026-10-02 第 2 批：减摩擦 + 页面状态恢复 + 来源阅读（分支 batch2-smooth）
 
 - 共享前导 `link_brain/assets/lb-page-lib.js`（CONVENTIONS §5）：catalog.py 内联进目录 / 星标 / 问收藏三张页，并拼在 `_archive/annotate-view.js` 前面。Dataview 重跑时数据版本（catalog-data / 批注是 notes.json 的 mtime:size）没变就把旧 DOM 挂回，变了只换数据、卡片按 id 复用；5 MB 解析结果缓存在插件对象 `catalogCache`；页面状态（搜索词、筛选、多选、滚动、问答草稿）存 `sessionStorage['lb:<role>']`，换页回来恢复；藏着的编辑视图看不见时不渲染；`[lb]` 计时埋点。星标不再每次读几百份 notes.json（`note star` 顺手改 catalog-data）；catalog-data 加封面宽高。问收藏页草稿不再写 vault、去掉假进度轮播（只显示「正在生成…」）；来源只由引用编号 / 标题 / 「查看」打开，复用一个右侧窗格，「加入对照 / 退出对照 / 收起来源」是明确按钮，「单篇 / 对照」下拉删除。CapsLock 语音启动挪到窗口开好 3 秒后。验收和改前改后数字见 `tests/acceptance/20261002-batch2.md`。部署：拷 link-brain-actions 插件 + `python -m link_brain catalog`（页面脚本、annotate-view.js、catalog-data 新字段一起换）+ 重载 Obsidian。
