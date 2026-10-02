@@ -12,6 +12,8 @@ class FakeEl {
   createSpan(opts = {}) { return this.createEl('span', opts); }
   empty() { this.children = []; }
   addClass() {}
+  toggleClass() {}
+  addEventListener() {}
   setText(t) { this.text = t; }
   remove() {}
   allText() { return [this.text, ...this.children.map(c => c.allText())].join('\n'); }

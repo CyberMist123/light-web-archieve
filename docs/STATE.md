@@ -12,6 +12,7 @@
 - 附件转 md：PERMANENT（加密 / 损坏 / 不支持）同一份字节不再转；TRANSIENT（OCR 故障 / 超时）按 `conversion_failed.next_at` 退避 1 / 2 / 4 / 7 个日历日（到那天 0 点起可再转），第二晚的夜跑就会重试。下附件 / 附件补查的失败逐篇 TRANSIENT 登记。
 - enrich：连着 3 次没补成不再报警、不再永久放弃——登记 `TRANSIENT.RETRY_EXHAUSTED`（action=gave_up）并按 2 / 4 / 7 天退避自动捡回来；以前已放弃（fails≥3、没有 retry_after）的下一晚就会再试一次。`--pending` 本来就会捡概要失败 / 从没生成过的。问答资料筛选失败记 `SKIPPED.FALLBACK`。
 - 给页面：`_archive/problems-summary.json`（计数 + sync 段），catalog-data 顶层 `state_registry`、每篇 `problems`；CLI `problems list`（带 label / hover / group）、`problems resolve`、`problems summary`。契约见 CONVENTIONS §3「第 4 批落地」。
+- 设置页收纳（作者拍板的方案）：第一层只留账号卡片 · 收藏同步（说明行 = summary sync 段的「上次 · 新增 N 篇 · 还剩 N 篇」，缺值不显示那段；定时… / 立即同步）· 每天最多新抓 · AI（问收藏用）的文本 AI + 三格 + 测试 · 「其他 AI 能力」一行摘要（点「展开设置」原地展开归档摘要 / 识图 / 视频画面文字 / 语音识别 / CapsLock）· 批注昵称；其余收进可折叠的「更多」（收藏同步细项 → 问答模型 → 外接 MCP → 电脑需求 → 下载文件夹 → 原「高级设置」全部原样）。只挪位置，存储键 / 默认值 / 保存逻辑不变；唯一删掉「搜索收藏 · 打开目录」一行。两处展开状态记在插件对象上（本次 Obsidian 会话内保持，不写 data.json）。`tests/test_settings_layout.cjs` 拿改前的设置项清单逐项对。
 
 ## 2026-10-02 第 3 批：用户操作的结果如实反馈 + 问答停止（分支 batch3-feedback）
 

@@ -46,6 +46,14 @@
 }
 .lb-advanced h4 { margin: 18px 0 4px; font-size: var(--font-ui-small); color: var(--text-muted); }
 
+/* 设置页收纳：「其他 AI 能力」一行摘要，点「展开设置」在原地展开（左边一道细线标出是它的子项），再点收起 */
+.lb-other-ai-body {
+  margin: 0 0 8px 4px;
+  padding-left: 14px;
+  border-left: 2px solid var(--background-modifier-border);
+}
+.lb-other-ai-body.is-collapsed { display: none; }
+
 .lb-account-modal .modal-content h2 { margin-top: 0; }
 
 /* 加载中：文字后面三个点依次跳动 */

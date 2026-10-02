@@ -1,6 +1,6 @@
 // 远程阅读（MCP，高级）——设置页这一节的全部界面（第 6 批）。main.js 只有两行接入：
 //   onload：this.remoteUI = require(<插件目录>/remote-ui.js)(obsidian, this); await this.remoteUI.attach();
-//   设置页「高级设置」末尾：this.plugin.remoteUI?.render(a, () => this.display());
+//   设置页「更多」（原「高级设置」）末尾：this.plugin.remoteUI?.render(a, () => this.display());
 // 服务本体是独立后台进程（python -m link_brain remote serve，Windows 上由计划任务 LinkBrainRemote 常驻），
 // 不挂在 Obsidian 下：关掉 Obsidian 照常可读。这里只做：改 data.json 的 remote 段 + 经 runPy 调 `remote <子命令>`。
 // 口令 / 令牌不经过 data.json：口令走 stdin 交给 Python，令牌只在生成时显示一次。
@@ -239,7 +239,7 @@ module.exports = function remoteUI(obsidian, plugin) {
         recent.style.cssText = 'line-height:1.7;max-height:14em;overflow:auto;';
         recent.setText('读取中…');
 
-        // 状态一次读回（含计划任务、健康检查、令牌列表、最近访问）。「高级设置」折叠着时不读，展开那一下再读（不拖慢设置页）。
+        // 状态一次读回（含计划任务、健康检查、令牌列表、最近访问）。「更多」折叠着时不读，展开那一下再读（不拖慢设置页）。
         const loadStatus = async () => {
           let j = null;
           try { ({ json: j } = await run(['status', ...settingsArgs()], { timeoutMs: 30000, fallback: '读不到状态' })); }
