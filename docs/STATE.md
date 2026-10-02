@@ -126,7 +126,7 @@ lb_search/lb_retrieve 结构校验+空 vault fail-open+坏参数/坏 JSON/未知
 
 用户反馈全屏追问框截断、图片页码/箭头改坏、上下对照入口消失、已收藏不能取消。追问框现按实际pane可见高度计算；媒体按各自pane高度计算，适配右侧上下两篇。问答页增加显式单篇/上下对照入口，首次对照先填右上。图片撤销新增缩略图及下方工具条，恢复居中翻页与单份原计数；视频仍禁翻页覆盖，保留倍速。星标页再次点已收藏或全部返回普通目录。浏览器pane模拟、页面及媒体回归通过，原生实机待用户重载验收。
 
-余项按用户要求交接到 `C:\Users\18717\Documents\cyberlink\workdesk\gpt6交接.md`：＋移标题右侧及图标对齐、AI专属…菜单模型/提示词、语音输入与快捷键、灰色计数在标题内居中、确认多标签筛选意图。不要把这些未做项当完成。
+余项按用户要求交接到 `<作者本机私有工作区>`：＋移标题右侧及图标对齐、AI专属…菜单模型/提示词、语音输入与快捷键、灰色计数在标题内居中、确认多标签筛选意图。不要把这些未做项当完成。
 
 ## 2026-09-20 瀑布流滚动修正
 
@@ -181,7 +181,7 @@ Owner 要求：完成难点后交接余项，额度有限；不做 SHA 匹配，
 - 附件面板支持拖入、选择文件、配置下载目录、推荐匹配。打开原网页后监看新下载的同名稳定文件，挂载→转换→重建目录；停止/关闭/超时终止监看。提示用户关闭浏览器标签，不自动关闭用户浏览器。
 - `ask --request-stdin` JSON：question/history/include。默认 `delivery.body`；include 可选 links/files；调用方继续传返回 history。文件含真实本地路径和 Markdown 路径，链接取自归档记录，不让模型编造。README、FORMAT 有接口说明。未接入微信账号或新增 HTTP 服务。
 - 附件状态逐文件核对，部分下载不再显示全部完成；自动补跑失败保留原因，浏览器自动流程 finally 关闭它自己的会话。
-- 仓外 `C:\Users\18717\.xiaohongshu-mcp\xhs-fav-sync.ps1` 已改 UTF-8、审计附件、传递未完成退出码。此文件不随本仓提交。
+- 仓外 `%USERPROFILE%\.xiaohongshu-mcp\xhs-fav-sync.ps1` 已改 UTF-8、审计附件、传递未完成退出码。此文件不随本仓提交。
 
 ### 转 Markdown 的实际链路
 
@@ -516,7 +516,7 @@ repo_path: D:\LIGHT WEB ARCHIEVE
   批量脚本另加内存闸（<1.4G 就等）。重启服务只是治标。
 
 ### Owner 的 31 条收藏（2026-09-04 夜）
-- 源文件 `C:\Users\18717\Downloads\_.md`，31 条去重后 31 篇。第一轮 17 篇成功落盘，
+- 源文件 `%USERPROFILE%\Downloads\_.md`，31 条去重后 31 篇。第一轮 17 篇成功落盘，
   14 篇卡在上面那个内存问题；补抓脚本带内存闸在等（会自己跑完再统一 `render --all --extract`）。
 - 有附件（`metadata_only`）的 7 篇；只有 P 模式那篇的字节已经在本地。
 - `vault/Web/Xiaohongshu/` 里有一个 `20260904-文档体系整理-裁决.md` 不是归档产物，是别的会话丢进来的
@@ -552,7 +552,7 @@ repo_path: D:\LIGHT WEB ARCHIEVE
 - **两个关键修**才跑通：① `fetch_detail` 默认改 `full_comments=False`（只前 10 楼+楼中楼；热门笔记滚全评论区在本机负载下超时，Owner 拍板评论主体够）；② streamablehttp 要同时设 `sse_read_timeout`（原来只设 timeout，SSE 响应仍卡 300s）。
 - **僵尸浏览器**：18060 每请求开浏览器，残留 chrome 堆积会 `Failed to get the debug url`——干净 slate 就好；nightly 任务开头结尾各清一次。
 - **卡了很久的真卡点已解**：`user_profile(tab="fav")` 对私密收藏只回游客视图（`feeds:null`），
-  MCP 无法读私密收藏。解法不是 MCP：外部读取器 `favdump.exe`（在 `C:\Users\18717\.xiaohongshu-mcp`，
+  MCP 无法读私密收藏。解法不是 MCP：外部读取器 `favdump.exe`（在 `%USERPROFILE%\.xiaohongshu-mcp`，
   Codex 的 persistent-profile 方案 + 客户端路由点侧边栏「我」→ 收藏 tab）**已实测读到 momo 10 条
   私密收藏**（`guest:false / privacyWall:false`），并且**扫一次后跨无扫码重启持久**
   （headless 连开两次都读到，exit 0）。**关键：读收藏必须 `XHS_HOST=https://www.xiaohongshu.com`**——
@@ -566,7 +566,7 @@ repo_path: D:\LIGHT WEB ARCHIEVE
   用例（全量遍历、note_id 去重、ServiceDown 停车+报警、未登录整批 blocked、CLI 派发）全绿；
   `python -m pytest -q` 全套 83 个绿。
 - **✅ 整批实机通过（2026-09-07 17:xx）**：`sync-favorites` `synced=10`（new 9 + hit 1），9 篇新收藏 md 落 `vault/Web/Xiaohongshu/`，已归档的报 HIT 不重抓。见上「Lot 6」节的两个关键修。
-- **每晚调度已挂**（仓库外）：Windows 计划任务 `XhsFavSync` 每天 04:00 跑 `xhs-fav-sync.ps1`（清 slate → sync-favorites → 掉登录才 Bark/TG 报警），脚本在 `C:\Users\18717\.xiaohongshu-mcp\xhs-fav-sync.ps1`，日志 `~\.xiaohongshu-mcp\fav-sync.log`。
+- **每晚调度已挂**（仓库外）：Windows 计划任务 `XhsFavSync` 每天 04:00 跑 `xhs-fav-sync.ps1`（清 slate → sync-favorites → 掉登录才 Bark/TG 报警），脚本在 `%USERPROFILE%\.xiaohongshu-mcp\xhs-fav-sync.ps1`，日志 `~\.xiaohongshu-mcp\fav-sync.log`。
 
 ## 已知缺口
 

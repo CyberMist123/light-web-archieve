@@ -1206,7 +1206,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
       () => s.textAI.command, v => s.textAI.command = v);
     this.addTestButton(c, '测试文本 AI', ['-m', 'link_brain', 'selftest', 'text']);
 
-    modeSetting(c, '归档摘要模型（默认同问答模型）', '归档时给每篇写概要、打标签。默认和上面的「文本 AI」用同一个接口和模型；'
+    modeSetting(c, '归档摘要模型（默认同文本 AI）', '归档时给每篇写概要、打标签。默认和上面的「文本 AI」用同一个接口和模型；'
       + '想省钱可以只换一个便宜的模型名，或单独配一个接口。没配时跳过，归档照常完成，配好后夜里自动补上。', s.summaryAI,
       [['inherit', '和文本 AI 相同'], ['http', '单独的接口'], ['off', '关闭']]);
     if (s.summaryAI.mode === 'inherit') textField(c, '　模型', '留空 = 和文本 AI 用同一个模型；填了就只换模型名，接口和 Key 还用文本 AI 的。',

@@ -51,9 +51,9 @@
 
 ### 先读（背景，按顺序）
 
-- 卡（在 `C:\Users\18717\Documents\cyberlink\Fluffy-SelfHood\10-work\cards\`）：`light-web-archive.md`（本项目全貌，status 最上面是最新进度）、`obsidian.md`（Owner 的 Obsidian 库怎么挂）、`xiaohongshu.md`（账号分工，别扫码顶掉 MCP）、`asr.md` / `media-eyes.md`（本机转写、看图的现成工具）、`machine-quirks.md`（本机环境坑）。
+- 卡（在 `<作者本机私有工作区>`）：`light-web-archive.md`（本项目全貌，status 最上面是最新进度）、`obsidian.md`（Owner 的 Obsidian 库怎么挂）、`xiaohongshu.md`（账号分工，别扫码顶掉 MCP）、`asr.md` / `media-eyes.md`（本机转写、看图的现成工具）、`machine-quirks.md`（本机环境坑）。
 - 本仓：`README.md`、`docs/STATE.md` 顶部、本文件下方「0. 先读这些硬约束」（1 公开仓不进密钥、2 不自研爬虫、4 RAW 不可变、5 vault 目录结构，照旧有效）。
-- 测试：`python -m pytest -q`（现 147 passed）；`node tests/test_catalog_interactions.cjs`；`tests/catalog_ui_smoke.cjs` 要先设 `NODE_PATH=C:\Users\18717\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\node_modules`（playwright 只在这有）。
+- 测试：`python -m pytest -q`（现 147 passed）；`node tests/test_catalog_interactions.cjs`；`tests/catalog_ui_smoke.cjs` 要先设 `NODE_PATH=<装了 playwright 的 node_modules>`（playwright 只在这有）。
 
 ### 新增硬约束（0918）
 
@@ -247,7 +247,7 @@ Owner 要求：完成难点后交接余项，额度有限；不做 SHA 匹配，
 - 附件面板支持拖入、选择文件、配置下载目录、推荐匹配。打开原网页后监看新下载的同名稳定文件，挂载→转换→重建目录；停止/关闭/超时终止监看。提示用户关闭浏览器标签，不自动关闭用户浏览器。
 - `ask --request-stdin` JSON：question/history/include。默认 `delivery.body`；include 可选 links/files；调用方继续传返回 history。文件含真实本地路径和 Markdown 路径，链接取自归档记录，不让模型编造。README、FORMAT 有接口说明。未接入微信账号或新增 HTTP 服务。
 - 附件状态逐文件核对，部分下载不再显示全部完成；自动补跑失败保留原因，浏览器自动流程 finally 关闭它自己的会话。
-- 仓外 `C:\Users\18717\.xiaohongshu-mcp\xhs-fav-sync.ps1` 已改 UTF-8、审计附件、传递未完成退出码。此文件不随本仓提交。
+- 仓外 `%USERPROFILE%\.xiaohongshu-mcp\xhs-fav-sync.ps1` 已改 UTF-8、审计附件、传递未完成退出码。此文件不随本仓提交。
 
 ### 转 Markdown 的实际链路
 
@@ -348,7 +348,7 @@ README 补「本机依赖与环境变量」。**待 Owner 实机**：设置里�
    - 已知缺口：**笔记文件附件拿不到**；**没有"列出我的收藏"工具**；短链 `xhslink.cn` 要自己 GET 读 `Location` 解出 `note_id` + `xsec_token`
    - 同账号两端不能同时在线，**别用 agent-browser 扫码小红书**，会把 MCP 顶掉
    - 守护：`Start-ScheduledTask XiaohongshuMCP`；登录态属于 Owner 账号
-3. **不自研图片理解 / 小模型调用**。复用 `C:\Users\18717\Documents\cyberlink\Fluffy-SelfHood\tools\scripts\media.py`：
+3. **不自研图片理解 / 小模型调用**。（1002 起 media.py 已收编：模型调用一律走 `link_brain/providers.py` + 各执行器，见 docs/CONVENTIONS.md §4；下面这段是历史记录）复用作者本机脚本：
    - `python media.py image <文件> --ocr` → 本地 RapidOCR + 描述
    - `python media.py text --file <文件> -q "<指令>"` → qwen3.7-flash（就是 issue 第 16 节要的默认小模型）
    - 用 subprocess 调它即可，V1 不要自己再包一层 provider 抽象；`llm.py` 只做"拼 prompt → 调 media.py text → 校验 JSON schema → 失败重试 1 次"
