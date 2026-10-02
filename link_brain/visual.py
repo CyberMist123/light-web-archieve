@@ -114,13 +114,12 @@ def _engine():
         try:
             from rapidocr import RapidOCR
             from rapidocr.utils.typings import ModelType, OCRVersion
-            import logging
-            logging.getLogger("RapidOCR").setLevel(logging.WARNING)   # 每次加载都打 INFO，会刷屏夜跑日志
         except ImportError:
             from rapidocr_onnxruntime import RapidOCR as OldRapidOCR
             _ENGINE, _ENGINE_KEY = ("v1", OldRapidOCR()), key
             return _ENGINE
-        params = {"Det.ocr_version": OCRVersion.PPOCRV6, "Rec.ocr_version": OCRVersion.PPOCRV6,
+        params = {"Global.log_level": "warning",   # 默认 info 每次加载都刷几行，会淹没夜跑日志
+                  "Det.ocr_version": OCRVersion.PPOCRV6, "Rec.ocr_version": OCRVersion.PPOCRV6,
                   "Det.model_type": ModelType(tier), "Rec.model_type": ModelType(tier)}
         if model_dir:
             det, rec = Path(model_dir) / f"PP-OCRv6_det_{tier}.onnx", Path(model_dir) / f"PP-OCRv6_rec_{tier}.onnx"

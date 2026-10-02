@@ -49,7 +49,7 @@ def test_v3_engine_uses_ppocrv6_and_configured_tier(monkeypatch, tmp_path):
     lines = visual._ocr_lines(tmp_path / "a.png")
     assert lines and lines[0]["text"] == "你好"
     p = seen[-1]
-    assert p["Det.ocr_version"] == "PP-OCRv6" and p["Rec.model_type"] == "MT:medium"
+    assert p["Det.ocr_version"] == "PP-OCRv6" and p["Rec.model_type"] == "MT:medium" and p["Global.log_level"] == "warning"
     assert p["Det.model_path"].endswith("PP-OCRv6_det_medium.onnx")
     assert visual.engine_label() == "rapidocr-ppocrv6-medium"
 
