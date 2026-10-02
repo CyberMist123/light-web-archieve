@@ -1,5 +1,9 @@
 # Current State
 
+## 2026-10-02 第 0 批公共件（分支 batch0-base）
+
+- 插件唯一 Python 入口 `spawnPy`/`runPy` + 唯一杀树 `killTree`（跳过 link-brain-reader 及其浏览器，不再 `taskkill /T`）；读取服务经 `cmd /c start` 中转拉起、不再是任何 Python 的子孙（0929 根治）；`storage.file_lock`（账号锁是它的实例，目录重建 / answers.json / sync-quota 加锁）与原子写收口；`cli_call` 默认 180 秒超时杀树；`problems.py` 骨架（问题记录、分类、登记表、推送出口、`problems list|report|export`），未接调用点；`package.json` + `tests/run-node.cjs`。验收见 `tests/acceptance/20261002-batch0.md`。
+
 ## 2026-10-02 第 1 批：搜索找回
 
 - 目录页和 `link-brain search` / MCP `lb_search` 同一套规则（`catalog-search.js` ↔ `retrieval.py`）：原词（含 search-aliases 同义词）命中 = 精确；原词不中才认标题错字、拼音整音节（「西尼」→悉尼，「xin」撞不上 xi·ni，至少两个音节）、漏字，这些整篇放「可能相关」区排在后面；多词 AND；排序分数优先，星标 ×1.15，同分星标在前。整串短语库里没有时拆成库里有的词（「悉尼咖啡」「AI做梦」）。问答 BM25 只在某个词原词一篇都不中时退到拼音整音节（低权）。
