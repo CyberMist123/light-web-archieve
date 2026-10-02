@@ -102,6 +102,155 @@ module.exports = class LinkBrainNativeMediaNavPlugin extends Plugin {
       event.preventDefault();
       event.stopPropagation();
     });
+
+    this.setupLightbox();
+  }
+
+  // 1002 Owner：单击图片放大看。左栏图片和评论图都能点；←/→、滚轮切换上一张/下一张，
+  // Ctrl+滚轮或双击放大（+ / - / 0 也行），放大后拖动或滚轮挪画面，Esc / 点空白处关闭。
+  // 关闭时左栏滑动条停在最后看的那张。
+  setupLightbox() {
+    const IMG_SELECTOR = ".xhs-note .lb-carousel .lb-slide img, .xhs-note img.lb-comment-image";
+    const style = document.createElement("style");
+    style.textContent = [
+      ".lb-lightbox{position:fixed;inset:0;z-index:var(--layer-modal,50);background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;user-select:none;}",
+      ".lb-lightbox img{max-width:92vw;max-height:88vh;object-fit:contain;transform-origin:center center;cursor:zoom-in;transition:transform .12s ease-out;}",
+      ".lb-lightbox.is-zoomed img{cursor:grab;}",
+      ".lb-lightbox.is-dragging img{cursor:grabbing;transition:none;}",
+      ".lb-lightbox button{position:absolute;border:0!important;box-shadow:none!important;background:rgba(255,255,255,.12)!important;color:#fff;border-radius:999px!important;width:44px;height:44px;font-size:24px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;}",
+      ".lb-lightbox button:hover{background:rgba(255,255,255,.24)!important;}",
+      ".lb-lightbox .lb-lb-prev{left:18px;top:50%;transform:translateY(-50%);}",
+      ".lb-lightbox .lb-lb-next{right:18px;top:50%;transform:translateY(-50%);}",
+      ".lb-lightbox .lb-lb-close{right:18px;top:18px;width:38px;height:38px;font-size:16px;}",
+      ".lb-lightbox .lb-lb-count{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);color:rgba(255,255,255,.85);font-size:13px;background:rgba(0,0,0,.35);padding:3px 12px;border-radius:999px;}",
+      ".lb-lightbox[data-single] .lb-lb-prev,.lb-lightbox[data-single] .lb-lb-next{display:none;}",
+    ].join("\n");
+    document.head.appendChild(style);
+    this.register(() => style.remove());
+
+    let current = null;
+    const close = () => { if (current) { const c = current; current = null; c(); } };
+    this.register(close);
+
+    const open = (img) => {
+      close();
+      const carousel = img.closest(".lb-carousel");
+      const note = img.closest(".xhs-note") || document;
+      const imgs = carousel
+        ? getSlides(carousel).map((s) => s.querySelector("img")).filter(Boolean)
+        : Array.from(note.querySelectorAll("img.lb-comment-image"));
+      if (!imgs.length) return;
+      let index = Math.max(0, imgs.indexOf(img));
+      let scale = 1, tx = 0, ty = 0, lastWheel = 0, drag = null;
+
+      const el = document.body.createDiv({ cls: "lb-lightbox" });
+      if (imgs.length < 2) el.dataset.single = "1";
+      const view = el.createEl("img");
+      const prev = el.createEl("button", { cls: "lb-lb-prev", text: "‹" });
+      const next = el.createEl("button", { cls: "lb-lb-next", text: "›" });
+      const shut = el.createEl("button", { cls: "lb-lb-close", text: "✕" });
+      const count = el.createDiv({ cls: "lb-lb-count" });
+      prev.setAttribute("aria-label", "上一张");
+      next.setAttribute("aria-label", "下一张");
+      shut.setAttribute("aria-label", "关闭");
+
+      const apply = () => {
+        view.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+        el.classList.toggle("is-zoomed", scale > 1.01);
+      };
+      const resetZoom = () => { scale = 1; tx = 0; ty = 0; apply(); };
+      const show = (i) => {
+        index = (i + imgs.length) % imgs.length;
+        view.src = imgs[index].currentSrc || imgs[index].src;
+        view.alt = imgs[index].alt || "";
+        count.setText(`${index + 1} / ${imgs.length}`);
+        resetZoom();
+      };
+      // 以光标为中心缩放：光标下那一点缩放前后不动
+      const zoomAt = (factor, cx, cy) => {
+        const r = view.getBoundingClientRect();
+        const ox = cx - (r.left + r.width / 2), oy = cy - (r.top + r.height / 2);
+        const ns = Math.min(8, Math.max(1, scale * factor));
+        const k = ns / scale;
+        tx += ox * (1 - k);
+        ty += oy * (1 - k);
+        scale = ns;
+        if (scale <= 1.01) { scale = 1; tx = 0; ty = 0; }
+        apply();
+      };
+
+      const onKey = (e) => {
+        const stop = () => { e.preventDefault(); e.stopPropagation(); };
+        if (e.key === "Escape") { stop(); close(); }
+        else if (e.key === "ArrowLeft" || e.key === "ArrowRight") { stop(); show(index + (e.key === "ArrowRight" ? 1 : -1)); }
+        else if (e.key === "+" || e.key === "=") { stop(); zoomAt(1.25, innerWidth / 2, innerHeight / 2); }
+        else if (e.key === "-") { stop(); zoomAt(0.8, innerWidth / 2, innerHeight / 2); }
+        else if (e.key === "0") { stop(); resetZoom(); }
+      };
+      const onWheel = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.ctrlKey) { zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY); return; }
+        if (scale > 1.01) { tx -= e.deltaX; ty -= e.deltaY; apply(); return; }   // 放大后滚轮挪画面
+        const now = Date.now();
+        if (now - lastWheel < 220 || Math.abs(e.deltaY) + Math.abs(e.deltaX) < 4) return;
+        lastWheel = now;
+        show(index + ((e.deltaY || e.deltaX) > 0 ? 1 : -1));
+      };
+      const onDown = (e) => {
+        if (e.target !== view || scale <= 1.01) return;
+        e.preventDefault();
+        drag = { x: e.clientX, y: e.clientY, tx, ty, moved: false };
+        el.classList.add("is-dragging");
+      };
+      const onMove = (e) => {
+        if (!drag) return;
+        const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+        if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+        tx = drag.tx + dx;
+        ty = drag.ty + dy;
+        apply();
+      };
+      const onUp = () => {
+        if (!drag) return;
+        el.classList.remove("is-dragging");
+        setTimeout(() => { drag = null; }, 0);   // 让紧跟着的 click 知道刚才是在拖
+      };
+
+      view.addEventListener("dblclick", (e) => { e.stopPropagation(); scale > 1.01 ? resetZoom() : zoomAt(2, e.clientX, e.clientY); });
+      view.addEventListener("click", (e) => e.stopPropagation());
+      el.addEventListener("click", (e) => { if (drag && drag.moved) return; if (e.target === el) close(); });
+      prev.addEventListener("click", (e) => { e.stopPropagation(); show(index - 1); });
+      next.addEventListener("click", (e) => { e.stopPropagation(); show(index + 1); });
+      shut.addEventListener("click", (e) => { e.stopPropagation(); close(); });
+      el.addEventListener("wheel", onWheel, { passive: false });
+      el.addEventListener("pointerdown", onDown);
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("keydown", onKey, true);
+      show(index);
+
+      current = () => {
+        window.removeEventListener("keydown", onKey, true);
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        el.remove();
+        if (carousel && carousel.isConnected) {
+          const slides = getSlides(carousel), s = slides[index];
+          if (s) carousel.scrollTo({ left: s.offsetLeft - slides[0].offsetLeft, behavior: "auto" });
+        }
+      };
+    };
+
+    this.registerDomEvent(document, "click", (e) => {
+      if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      const img = e.target instanceof Element ? e.target.closest(IMG_SELECTOR) : null;
+      if (!img || img.closest(".lb-lightbox")) return;
+      if (!img.closest(NOTE_ROOT_SELECTOR)) return;   // 只在小红书归档笔记里接管
+      e.preventDefault();
+      e.stopPropagation();
+      open(img);
+    }, true);
   }
 
   enhance(carousel){

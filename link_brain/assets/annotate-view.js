@@ -50,13 +50,27 @@ ta.placeholder = '写批注…';  // 真正的提示由 setPlaceholder() 按有�
 
 // 0928 Owner：批注挪到左栏图片下面，和图在一屏。只在阅读视图挪（编辑视图里挪 DOM 会和编辑器打架），
 // 事件都绑在 box 上，挪了照样能用；重渲染时先清掉左栏里的旧副本，不会叠出两个。
-(function moveUnderImages(tries = 0) {
+// 1002：Obsidian 阅读视图按滚动位置渲染 / 卸载段落——长笔记里批注块渲染时，左栏那段可能还没渲染或已被卸掉，
+// 旧版只等 3 秒就放弃，批注就留在全文最底下。改成一直盯着这篇的视图：左栏一出现（或被重建）就挪过去。
+// 同一篇重渲染出新的批注块时，旧块让位（lbaGen 只认最新的那个），不会两个块抢一个左栏。
+(function moveUnderImages() {
   const view = root.closest('.markdown-reading-view, .markdown-preview-view');
-  const side = view && view.querySelector('.xhs-note .lb-side');
-  if (!side) { if (view && tries < 20) setTimeout(() => moveUnderImages(tries + 1), 150); return; }
-  side.querySelectorAll(':scope > .lba-annot').forEach(el => { if (el !== box) el.remove(); });
-  box.classList.add('lba-in-side');
-  side.appendChild(box);
+  if (!view) return;
+  const gen = String(Date.now()) + Math.random().toString(36).slice(2, 6);
+  view.dataset.lbaGen = gen;
+  let queued = false, mo = null;
+  const place = () => {
+    queued = false;
+    if (!view.isConnected || view.dataset.lbaGen !== gen) { mo?.disconnect(); return; }
+    const side = view.querySelector('.xhs-note .lb-side');
+    if (!side || box.parentElement === side) return;
+    side.querySelectorAll(':scope > .lba-annot').forEach(el => { if (el !== box) el.remove(); });
+    box.classList.add('lba-in-side');
+    side.appendChild(box);
+  };
+  place();
+  mo = new MutationObserver(() => { if (!queued) { queued = true; requestAnimationFrame(place); } });
+  mo.observe(view, { childList: true, subtree: true });
 })();
 
 let data = { starred: false, annotations: [], draft: '' };

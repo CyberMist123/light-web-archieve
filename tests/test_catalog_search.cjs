@@ -114,23 +114,20 @@ async function openCatalog() {
     const possible = (cut < 0 ? [] : seq.slice(cut + 1)).map(id => ({it: {id}}));
     check(q, exact, possible);
   }
-  // 「悉尼 咖啡」第一张卡：摘录写明来自图片文字，「咖啡」高亮
+  // 「悉尼 咖啡」第一张卡：只有标题，不出命中摘录（1002 她定：有标题就够了）
   page.search('悉尼 咖啡');
   const first = page.root.querySelector('article.lbc-card');
   assert.equal(first.querySelector('.lbc-ctitle').textContent, walk.title);
-  assert.equal(first.querySelector('.lbc-hit-src').textContent, '图片文字');
-  assert.deepEqual(first.querySelectorAll('mark.lbc-hl').map(e => e.textContent), ['咖啡']);
-  // 「西尼」：只有可能相关区，卡片上标「可能相关」和原因
+  assert.equal(first.querySelectorAll('.lbc-result-excerpt').length, 0);
+  // 「西尼」：只有可能相关区
   page.search('西尼');
   assert.ok(page.root.querySelector('.lbc-possible-head').textContent.startsWith('可能相关 · 2 篇'));
   const fuzzyCard = page.root.querySelector('article.lbc-card');
   assert.ok(fuzzyCard.classList.has('is-possible'));
-  assert.equal(fuzzyCard.querySelector('.lbc-hit-fuzzy').textContent, '可能相关');
-  assert.equal(fuzzyCard.querySelector('.lbc-hit-src').textContent, '拼音相近：西尼');
   assert.ok(page.root.querySelector('.lbc-sub').textContent.startsWith(`0 / ${data.items.length} 篇 · 可能相关 2`));
   // 没有查询词时不出摘录、不分区
   page.search('');
   assert.equal(page.root.querySelectorAll('.lbc-result-excerpt').length, 0);
   assert.equal(page.root.querySelectorAll('.lbc-possible-head').length, 0);
-  console.log('PASS catalog page: Enter → exact cards, then 「可能相关」 group; excerpt source label + highlight');
+  console.log('PASS catalog page: Enter → exact cards, then 「可能相关」 group; cards show titles only');
 })().catch(e => { console.error(e); process.exitCode = 1; });

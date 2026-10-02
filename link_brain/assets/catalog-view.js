@@ -165,11 +165,7 @@ style.textContent = `
 .lbc-topics button.lbc-topic:hover{color:var(--text-normal);}
 .lbc-topics button.lbc-topic.is-active{color:var(--text-normal);border-color:var(--text-normal)!important;font-weight:500;}
 .lbc-topic-star{color:#d9a21b;margin-right:4px;}
-/* 搜索结果（第 1 批 1002）：命中摘录的来源标签 + 关键词高亮；模糊命中单独一组「可能相关」，卡片上也标出来。 */
-.lbc-hit-src{font-size:11px;color:var(--text-faint);margin-right:6px;}
-.lbc-hit-fuzzy{font-size:11px;color:var(--text-accent,#a86513);margin-right:6px;}
-.lbc-hit-why{font-size:11px;color:var(--text-faint);margin-left:6px;}
-.lbc-result-excerpt mark.lbc-hl{background:var(--text-highlight-bg,rgba(255,208,0,.4));color:inherit;border-radius:2px;padding:0 1px;}
+/* 搜索结果（1002 她定）：卡片只留标题，不显示命中摘录；模糊命中单独一组「可能相关」。 */
 .lbc-possible-head{display:flex;align-items:baseline;gap:10px;margin:8px 5px 16px;padding-top:14px;border-top:1px solid var(--background-modifier-border);}
 .lbc-possible-title{font-size:13px;font-weight:500;color:var(--text-muted);}
 .lbc-possible-note{font-size:11px;color:var(--text-faint);}
@@ -404,17 +400,6 @@ function render(){
     star.onclick=async e=>{e.preventDefault();e.stopPropagation();star.disabled=true;try{const result=await provider().starNote(it.id,!it.starred);it.starred=result.starred;render();}catch(err){importStatus.setText(err.message);star.disabled=false;}};
     const body=card.createEl('div',{cls:'lbc-body'});body.createEl('div',{cls:'lbc-ctitle',text:it.title||'未命名'});
     const meta=body.createEl('div',{cls:'lbc-cmeta'});meta.createEl('span',{text:it.author||it.source||'收藏'});meta.createEl('span',{cls:'lbc-likes',text:it.likes==null?'':'♡ '+(Number(it.likes)>=10000?(Number(it.likes)/10000).toFixed(1)+'万':it.likes)});
-    // 有查询词就显示命中摘录（第 1 批 1002）：来源（正文 / 评论 / 图片文字 / 附件…）+ 原文片段，关键词高亮；模糊命中写明是拼音相近还是错字
-    if(q&&!q.startsWith('#')){
-      const why=hitSummary(match),ex=hitExcerpt(it,match);
-      if(why||ex){
-        const line=body.createEl('div',{cls:'lbc-result-excerpt'});
-        if(match.fuzzy)line.createEl('span',{cls:'lbc-hit-fuzzy',text:'可能相关'});
-        line.createEl('span',{cls:'lbc-hit-src',text:ex?ex.label:why});
-        if(ex){let at=0;for(const [a,b] of ex.marks){if(a>at)line.appendText(ex.text.slice(at,a));line.createEl('mark',{cls:'lbc-hl',text:ex.text.slice(a,b)});at=b;}if(at<ex.text.length)line.appendText(ex.text.slice(at));}
-        if(ex&&match.fuzzy)line.createEl('span',{cls:'lbc-hit-why',text:why});
-      }
-    }
     card.ondragover=e=>{e.preventDefault();};card.ondrop=async e=>{e.preventDefault();e.stopPropagation();const f=e.dataTransfer.files[0];if(!f)return;const fp=f.path||require('electron').webUtils?.getPathForFile(f);if(!fp){attachmentPanel([it]);return;}try{const result=await provider().attachFile(it.id,fp);await refresh(JSON.parse(await app.vault.adapter.read(lbPath('_archive/catalog-data.json'))));importStatus.setText(result.warning||'附件已保存并加入搜索');}catch(err){importStatus.setText('挂载失败：'+err.message);}};
     // 多选模式：点击=勾选/取消；平时=打开笔记
     const toggle=()=>{selected.has(it.id)?selected.delete(it.id):selected.add(it.id);render();};
