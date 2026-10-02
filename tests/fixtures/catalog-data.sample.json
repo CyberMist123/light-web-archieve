@@ -1,0 +1,709 @@
+{
+ "built_at": "2026-10-02T09:00:00+10:00",
+ "count": 18,
+ "cats_order": [],
+ "cats": [],
+ "topics": [],
+ "aliases": [
+  [
+   "音乐",
+   "music",
+   "音樂"
+  ],
+  [
+   "菜谱",
+   "食谱",
+   "recipe",
+   "recipes",
+   "做饭"
+  ],
+  [
+   "记忆",
+   "memory",
+   "記憶"
+  ],
+  [
+   "做梦",
+   "梦境",
+   "dream",
+   "dreams"
+  ],
+  [
+   "人工智能",
+   "ai",
+   "大模型",
+   "llm"
+  ],
+  [
+   "提示词",
+   "prompt",
+   "prompts"
+  ],
+  [
+   "编程",
+   "coding",
+   "programming"
+  ],
+  [
+   "开源",
+   "open source"
+  ],
+  [
+   "游戏",
+   "game",
+   "games",
+   "gaming"
+  ],
+  [
+   "烤箱",
+   "oven"
+  ],
+  [
+   "鸡肉",
+   "chicken"
+  ],
+  [
+   "电饭煲",
+   "电饭锅",
+   "rice cooker"
+  ],
+  [
+   "留学",
+   "study abroad"
+  ],
+  [
+   "澳洲",
+   "澳大利亚",
+   "australia"
+  ],
+  [
+   "教程",
+   "tutorial",
+   "guide"
+  ],
+  [
+   "悉尼",
+   "sydney"
+  ],
+  [
+   "超市",
+   "coles",
+   "woolworths",
+   "wws",
+   "aldi"
+  ],
+  [
+   "文字游戏",
+   "视觉小说",
+   "visual novel"
+  ]
+ ],
+ "items": [
+  {
+   "id": "syd-walk",
+   "title": "悉尼海岸步道半日路线",
+   "tags": [
+    "旅行",
+    "澳洲"
+   ],
+   "summary": "海边步道一路走到公园",
+   "search_fields": {
+    "transcript": "",
+    "body": "从车站出发沿着海岸线走两个小时，风景很好",
+    "comments": "",
+    "ocr": "终点有一家咖啡店，记得带水",
+    "attachments": ""
+   },
+   "starred": false,
+   "author": "示例作者",
+   "note": "Web/示例/syd-walk.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-28",
+   "ts": "2026-09-28T10:00:00+10:00",
+   "pinyin": "xi ni hai an bu dao ban ri lu xian / hai bian bu dao yi lu zou dao gong yuan / lv xing / ao zhou"
+  },
+  {
+   "id": "syd-food",
+   "title": "第一次去悉尼想吃什么",
+   "tags": [
+    "美食"
+   ],
+   "summary": "求推荐当地好吃的",
+   "search_fields": {
+    "transcript": "",
+    "body": "第一次来，求大家推荐",
+    "comments": "去唐人街吃烧腊",
+    "ocr": "",
+    "attachments": ""
+   },
+   "starred": false,
+   "author": "示例作者",
+   "note": "Web/示例/syd-food.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-27",
+   "ts": "2026-09-27T10:00:00+10:00",
+   "pinyin": "di yi ci qu xi ni xiang chi shen me / qiu tui jian dang di hao chi de / mei shi"
+  },
+  {
+   "id": "dream-a",
+   "title": "AI陪伴里的做梦设定",
+   "tags": [
+    "AI",
+    "记忆"
+   ],
+   "summary": "新年给AI加一个做梦机制",
+   "starred": true,
+   "search_fields": {
+    "transcript": "",
+    "body": "每天夜里整理一遍对话，写成梦境日记",
+    "comments": "",
+    "ocr": "",
+    "attachments": ""
+   },
+   "author": "示例作者",
+   "note": "Web/示例/dream-a.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-26",
+   "ts": "2026-09-26T10:00:00+10:00",
+   "pinyin": "ai pei ban li de zuo meng she ding / xin nian gei ai jia yi ge zuo meng ji zhi / ai / ji yi"
+  },
+  {
+   "id": "syd-market",
+   "title": "周末农夫市集清单",
+   "tags": [
+    "市集"
+   ],
+   "summary": "农夫市集的摊位清单",
+   "search_fields": {
+    "transcript": "",
+    "body": "悉尼每个周末都有农夫市集，这里是我的路线",
+    "comments": "",
+    "ocr": "",
+    "attachments": ""
+   },
+   "starred": false,
+   "author": "示例作者",
+   "note": "Web/示例/syd-market.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-25",
+   "ts": "2026-09-25T10:00:00+10:00",
+   "pinyin": "zhou mo nong fu shi ji qing dan / nong fu shi ji de tan wei qing dan / shi ji"
+  },
+  {
+   "id": "noodle",
+   "title": "红油抄手的调料比例",
+   "tags": [
+    "菜谱"
+   ],
+   "summary": "辛辣过瘾的一碗面",
+   "starred": true,
+   "search_fields": {
+    "transcript": "",
+    "body": "芝麻酱和花椒油是灵魂",
+    "comments": "",
+    "ocr": "",
+    "attachments": ""
+   },
+   "author": "示例作者",
+   "note": "Web/示例/noodle.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-24",
+   "ts": "2026-09-24T10:00:00+10:00",
+   "pinyin": "hong you chao shou de tiao liao bi li / xin la guo yin de yi wan mian / cai pu"
+  },
+  {
+   "id": "syd-alias",
+   "title": "海滩日落拍照点",
+   "tags": [
+    "sydney",
+    "海滩"
+   ],
+   "summary": "傍晚的海滩",
+   "search_fields": {
+    "transcript": "",
+    "body": "日落时分人很多",
+    "comments": "",
+    "ocr": "",
+    "attachments": ""
+   },
+   "starred": false,
+   "author": "示例作者",
+   "note": "Web/示例/syd-alias.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-23",
+   "ts": "2026-09-23T10:00:00+10:00",
+   "pinyin": "hai tan ri luo pai zhao dian / bang wan de hai tan / sydney / hai tan"
+  },
+  {
+   "id": "coffee-xin",
+   "title": "囤咖啡豆",
+   "tags": [
+    "咖啡"
+   ],
+   "summary": "新年年货清单",
+   "search_fields": {
+    "transcript": "",
+    "body": "几款常喝的豆子",
+    "comments": "",
+    "ocr": "",
+    "attachments": ""
+   },
+   "starred": false,
+   "author": "示例作者",
+   "note": "Web/示例/coffee-xin.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-22",
+   "ts": "2026-09-22T10:00:00+10:00",
+   "pinyin": "dun ka fei dou / xin nian nian huo qing dan / ka fei"
+  },
+  {
+   "id": "dream-b",
+   "title": "给AI加一层夜间做梦整理",
+   "tags": [
+    "记忆"
+   ],
+   "summary": "分层整理",
+   "search_fields": {
+    "transcript": "",
+    "body": "会分层找，也会做梦",
+    "comments": "",
+    "ocr": "",
+    "attachments": ""
+   },
+   "starred": false,
+   "author": "示例作者",
+   "note": "Web/示例/dream-b.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-21",
+   "ts": "2026-09-21T10:00:00+10:00",
+   "pinyin": "gei ai jia yi ceng ye jian zuo meng zheng li / fen ceng zheng li / ji yi"
+  },
+  {
+   "id": "dream-c",
+   "title": "Agent的dream模式笔记",
+   "tags": [
+    "AI"
+   ],
+   "summary": "夜间整理",
+   "starred": true,
+   "search_fields": {
+    "transcript": "",
+    "body": "让它在空闲时回顾当天",
+    "comments": "",
+    "ocr": "",
+    "attachments": ""
+   },
+   "author": "示例作者",
+   "note": "Web/示例/dream-c.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-20",
+   "ts": "2026-09-20T10:00:00+10:00",
+   "pinyin": "agent de dream mo shi bi ji / ye jian zheng li / ai"
+  },
+  {
+   "id": "dream-d",
+   "title": "学着做梦的第三周",
+   "tags": [
+    "日记"
+   ],
+   "summary": "二改记录",
+   "search_fields": {
+    "transcript": "",
+    "body": "用AI搭了一个整理系统",
+    "comments": "",
+    "ocr": "",
+    "attachments": ""
+   },
+   "starred": false,
+   "author": "示例作者",
+   "note": "Web/示例/dream-d.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-19",
+   "ts": "2026-09-19T10:00:00+10:00",
+   "pinyin": "xue zhe zuo meng de di san zhou / er gai ji lu / ri ji"
+  },
+  {
+   "id": "mem-open",
+   "title": "AI记忆库模板·已开源",
+   "tags": [
+    "工具"
+   ],
+   "summary": "长期记忆",
+   "search_fields": {
+    "transcript": "",
+    "body": "仓库地址在评论区",
+    "comments": "",
+    "ocr": "",
+    "attachments": ""
+   },
+   "starred": false,
+   "author": "示例作者",
+   "note": "Web/示例/mem-open.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-18",
+   "ts": "2026-09-18T10:00:00+10:00",
+   "pinyin": "ai ji yi ku mu ban / yi kai yuan / chang qi ji yi / gong ju"
+  },
+  {
+   "id": "mem-star",
+   "title": "陪伴型AI的长期设定",
+   "tags": [
+    "记忆"
+   ],
+   "summary": "陪伴",
+   "starred": true,
+   "search_fields": {
+    "transcript": "",
+    "body": "代码已经开源，欢迎试用",
+    "comments": "",
+    "ocr": "",
+    "attachments": ""
+   },
+   "author": "示例作者",
+   "note": "Web/示例/mem-star.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-17",
+   "ts": "2026-09-17T10:00:00+10:00",
+   "pinyin": "pei ban xing ai de chang qi she ding / pei ban / ji yi"
+  },
+  {
+   "id": "chk-rice",
+   "title": "电饭煲鸡肉蘑菇饭",
+   "tags": [
+    "菜谱"
+   ],
+   "summary": "一锅出",
+   "search_fields": {
+    "transcript": "",
+    "body": "米和菌菇一起放进去",
+    "comments": "",
+    "ocr": "",
+    "attachments": ""
+   },
+   "starred": false,
+   "author": "示例作者",
+   "note": "Web/示例/chk-rice.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-16",
+   "ts": "2026-09-16T10:00:00+10:00",
+   "pinyin": "dian fan bao ji rou mo gu fan / yi guo chu / cai pu"
+  },
+  {
+   "id": "chk-chestnut",
+   "title": "栗子鸡焖饭",
+   "tags": [
+    "鸡肉"
+   ],
+   "summary": "秋天限定",
+   "search_fields": {
+    "transcript": "",
+    "body": "板栗提前煮软",
+    "comments": "用电饭煲也可以吗",
+    "ocr": "",
+    "attachments": ""
+   },
+   "starred": false,
+   "author": "示例作者",
+   "note": "Web/示例/chk-chestnut.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-15",
+   "ts": "2026-09-15T10:00:00+10:00",
+   "pinyin": "li zi ji men fan / qiu tian xian ding / ji rou"
+  },
+  {
+   "id": "chk-pot",
+   "title": "蘑菇鸡腿饭",
+   "tags": [
+    "电饭锅",
+    "鸡肉腌料"
+   ],
+   "summary": "零失败",
+   "search_fields": {
+    "transcript": "",
+    "body": "提前腌二十分钟",
+    "comments": "",
+    "ocr": "",
+    "attachments": ""
+   },
+   "starred": false,
+   "author": "示例作者",
+   "note": "Web/示例/chk-pot.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-14",
+   "ts": "2026-09-14T10:00:00+10:00",
+   "pinyin": "mo gu ji tui fan / ling shi bai / dian fan guo / ji rou yan liao"
+  },
+  {
+   "id": "chk-thigh",
+   "title": "鸡腿肉土豆饭",
+   "tags": [
+    "电饭煲",
+    "快手菜"
+   ],
+   "summary": "好吃",
+   "search_fields": {
+    "transcript": "",
+    "body": "腌二十分钟",
+    "comments": "",
+    "ocr": "",
+    "attachments": ""
+   },
+   "starred": false,
+   "author": "示例作者",
+   "note": "Web/示例/chk-thigh.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-13",
+   "ts": "2026-09-13T10:00:00+10:00",
+   "pinyin": "ji tui rou tu dou fan / hao chi / dian fan bao / kuai shou cai"
+  },
+  {
+   "id": "chk-sauna",
+   "title": "无油烤鸡块",
+   "tags": [
+    "鸡肉",
+    "快手菜"
+   ],
+   "summary": "皮脆",
+   "search_fields": {
+    "transcript": "",
+    "body": "热水焖熟",
+    "comments": "",
+    "ocr": "",
+    "attachments": ""
+   },
+   "starred": false,
+   "author": "示例作者",
+   "note": "Web/示例/chk-sauna.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-12",
+   "ts": "2026-09-12T10:00:00+10:00",
+   "pinyin": "wu you kao ji kuai / pi cui / ji rou / kuai shou cai"
+  },
+  {
+   "id": "chk-alias",
+   "title": "蘑菇鸡腿这样炒",
+   "tags": [
+    "快手"
+   ],
+   "summary": "搭配",
+   "search_fields": {
+    "transcript": "this chicken is great",
+    "body": "菌菇切片",
+    "comments": "",
+    "ocr": "",
+    "attachments": ""
+   },
+   "starred": false,
+   "author": "示例作者",
+   "note": "Web/示例/chk-alias.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-11",
+   "ts": "2026-09-11T10:00:00+10:00",
+   "pinyin": "mo gu ji tui zhe yang chao / da pei / kuai shou"
+  }
+ ],
+ "pinyin_chars": {
+  "一": "yi",
+  "三": "san",
+  "个": "ge",
+  "么": "me",
+  "二": "er",
+  "什": "shen",
+  "伴": "ban",
+  "位": "wei",
+  "例": "li",
+  "做": "zuo",
+  "傍": "bang",
+  "公": "gong",
+  "具": "ju",
+  "农": "nong",
+  "出": "chu",
+  "分": "fen",
+  "到": "dao",
+  "制": "zhi",
+  "加": "jia",
+  "半": "ban",
+  "单": "dan",
+  "去": "qu",
+  "吃": "chi",
+  "周": "zhou",
+  "咖": "ka",
+  "啡": "fei",
+  "囤": "dun",
+  "园": "yuan",
+  "土": "tu",
+  "地": "di",
+  "块": "kuai",
+  "型": "xing",
+  "夜": "ye",
+  "天": "tian",
+  "夫": "fu",
+  "失": "shi",
+  "好": "hao",
+  "子": "zi",
+  "学": "xue",
+  "定": "ding",
+  "尼": "ni",
+  "层": "ceng",
+  "岸": "an",
+  "工": "gong",
+  "已": "yi",
+  "市": "shi",
+  "年": "nian",
+  "库": "ku",
+  "开": "kai",
+  "式": "shi",
+  "当": "dang",
+  "录": "lu",
+  "忆": "yi",
+  "快": "kuai",
+  "悉": "xi",
+  "想": "xiang",
+  "手": "shou",
+  "抄": "chao",
+  "拍": "pai",
+  "推": "tui",
+  "搭": "da",
+  "摊": "tan",
+  "改": "gai",
+  "整": "zheng",
+  "料": "liao",
+  "新": "xin",
+  "旅": "lv",
+  "无": "wu",
+  "日": "ri",
+  "晚": "wan",
+  "期": "qi",
+  "末": "mo",
+  "机": "ji",
+  "板": "ban",
+  "栗": "li",
+  "样": "yang",
+  "梦": "meng",
+  "模": "mo",
+  "次": "ci",
+  "步": "bu",
+  "比": "bi",
+  "求": "qiu",
+  "油": "you",
+  "洲": "zhou",
+  "海": "hai",
+  "清": "qing",
+  "源": "yuan",
+  "滩": "tan",
+  "澳": "ao",
+  "炒": "chao",
+  "点": "dian",
+  "烤": "kao",
+  "焖": "men",
+  "照": "zhao",
+  "煲": "bao",
+  "理": "li",
+  "电": "dian",
+  "瘾": "yin",
+  "的": "de",
+  "皮": "pi",
+  "着": "zhe",
+  "碗": "wan",
+  "秋": "qiu",
+  "笔": "bi",
+  "第": "di",
+  "红": "hong",
+  "线": "xian",
+  "给": "gei",
+  "美": "mei",
+  "肉": "rou",
+  "脆": "cui",
+  "腌": "yan",
+  "腿": "tui",
+  "荐": "jian",
+  "菇": "gu",
+  "菜": "cai",
+  "落": "luo",
+  "蘑": "mo",
+  "行": "xing",
+  "西": "xi",
+  "记": "ji",
+  "设": "she",
+  "调": "diao",
+  "谱": "pu",
+  "豆": "dou",
+  "败": "bai",
+  "货": "huo",
+  "走": "zou",
+  "路": "lu",
+  "辛": "xin",
+  "辣": "la",
+  "边": "bian",
+  "过": "guo",
+  "这": "zhe",
+  "道": "dao",
+  "配": "pei",
+  "里": "li",
+  "锅": "guo",
+  "长": "zhang",
+  "间": "jian",
+  "限": "xian",
+  "陪": "pei",
+  "集": "ji",
+  "零": "ling",
+  "面": "mian",
+  "食": "shi",
+  "饭": "fan",
+  "鸡": "ji"
+ }
+}

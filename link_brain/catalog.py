@@ -27,6 +27,7 @@ from pypinyin import lazy_pinyin
 
 from . import storage
 from .ocrtext import clean_ocr
+from .retrieval import pinyin_text
 
 CATALOG_NAME = "小红书收藏目录.md"
 DATA_NAME = "catalog-data.json"
@@ -204,6 +205,33 @@ def _attachment_reason(obj_dir: Path, meta: dict[str, Any], badge: str) -> str:
     return "正文提到附件，但笔记页里没找到文件" + (f"（{_clip(str(why), 60)}）" if why else "（页面上确实没挂文件）")
 
 
+def _image_search_text(image: dict[str, Any]) -> str:
+    """一张图进检索的文字：本地 OCR 原文 + 识图结果。第二层精细识图（refined）成功时替代第一层 visual，
+    与机读版 agent.md 的取法一致（render.py image_lines）；只读已有的 vision.json，不调识图模型。"""
+    refined = image.get("refined") or {}
+    visual = image.get("visual") or {}
+    seen = refined.get("text") if refined.get("status") == "ok" else visual.get("text") if visual.get("status") == "ok" else ""
+    return "\n".join(filter(None, [clean_ocr(image.get("ocr")), str(seen or "")]))
+
+
+# 拼音表：查询词里的汉字靠它转整音节（同音错字找回）。库里出现过的字 + GB2312 一级常用字（3755 个），
+# 这样语音输入打出的「西尼」这类库里没出现过的同音字也查得到读音。
+def _common_hanzi() -> set[str]:
+    out = set()
+    for hi in range(0xB0, 0xD8):
+        for lo in range(0xA1, 0xFF):
+            try:
+                out.add(bytes([hi, lo]).decode("gb2312"))
+            except UnicodeDecodeError:
+                pass
+    return out
+
+
+def pinyin_chars(items: list[dict[str, Any]]) -> dict[str, str]:
+    corpus = set("".join(str(it.get("title") or "") + " ".join(it.get("tags") or []) + str(it.get("summary") or "") for it in items))
+    return {c: lazy_pinyin(c)[0] for c in sorted(corpus | _common_hanzi()) if "\u4e00" <= c <= "\u9fff"}
+
+
 def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
     from .render import parse_frontmatter, source_open_url
 
@@ -249,11 +277,8 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                                                   str((transcript.get("screen") or {}).get("text") or "")])),
             "body": str(note.get("body") or ""),
             "comments": "\n".join(str(c.get("text") or "") for _, c in comment_labels(source_doc.get("comments") or [])),
-            # 图片文字 + 识图结果（表格 Markdown / 图片描述）一起进检索
-            "ocr": "\n".join(filter(None, (
-                "\n".join(filter(None, [clean_ocr(im.get("ocr")),
-                                        (im.get("visual") or {}).get("text") if (im.get("visual") or {}).get("status") == "ok" else ""]))
-                for im in vision.get("images", []) if im.get("status") == "ok"))),
+            # 图片文字 + 识图结果（表格 Markdown / 图片描述）一起进检索；精细识图（第二层 refined）成功就用它替代第一层
+            "ocr": "\n".join(filter(None, (_image_search_text(im) for im in vision.get("images", []) if im.get("status") == "ok"))),
             "attachments": "\n\n".join(p.read_text(encoding="utf-8") for p in sorted((obj_dir / "derived" / "attachments").glob("*.md"))),
         }
         archived = _parse_dt(meta.get("first_archived_at"))
@@ -280,7 +305,8 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                 "github_urls": [url for url in observed_links if re.match(r'https?://github\.com/', url, re.I)],
                 "suggested_links": (data or {}).get('links_worth_opening', []),
                 "likes": (note.get('engagement') or {}).get('liked'),
-                "pinyin": ''.join(lazy_pinyin(' '.join([str(meta.get('title') or ''), summary, *tags]))).lower(),
+                # 整音节、空格分隔（标点处「/」断开）：搜索只认整音节，见 retrieval.pinyin_match / catalog-search.js
+                "pinyin": pinyin_text(str(meta.get('title') or ''), summary, *tags),
                 "tags": tags,
                 "cats": _cats(tags, big_cats),
                 "kind": meta.get("kind", "image"),
@@ -360,7 +386,7 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
                 "topics": [t["name"] for t in topic_list],
                 "aliases": ALIASES,
                 "items": items,
-                "pinyin_chars": {c: lazy_pinyin(c)[0] for c in set(''.join(str(it['title']) + ' '.join(it['tags']) + it['summary'] for it in items)) if '\u4e00' <= c <= '\u9fff'},
+                "pinyin_chars": pinyin_chars(items),
             },
             ensure_ascii=False,
             indent=1,

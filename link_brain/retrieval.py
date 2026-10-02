@@ -26,6 +26,79 @@ def variants(term):
     return list(dict.fromkeys(expanded))
 
 
+# ── 拼音整音节匹配（第 1 批 1002；与目录页 catalog-search.js 同一套规则） ──
+# 条目的 pinyin 字段 = 标题 + 概要 + 标签的整音节，空格分隔，标点/空白处用「/」断开（catalog.py 写入）。
+# 查询词里一个汉字 = 一个整音节，连续字母 = 若干相邻整音节拼起来；至少两个音节才算，
+# 所以「西尼」能找回悉尼（同音错字），「xin」撞不上「xi ni」。拼音命中只算「可能相关」，不压过原词命中。
+_HAN_RUN = re.compile(r"[一-鿿]+|[a-z0-9]+|[^一-鿿a-z0-9]+")
+
+
+def syllables(text):
+    """文本 -> 整音节列表（汉字转拼音、字母数字按词、其余记为断点「/」）。"""
+    from pypinyin import lazy_pinyin
+    out = []
+    for run in _HAN_RUN.findall(norm(text)):
+        if "一" <= run[0] <= "鿿":
+            out.extend(lazy_pinyin(run))
+        elif run[0].isascii() and run[0].isalnum():
+            out.append(run)
+        elif out and out[-1] != "/":
+            out.append("/")
+    return out
+
+
+def pinyin_text(*parts):
+    """写进 catalog-data 的 pinyin 字段：各段之间也断开，避免标题末字和概要首字拼成一个词。"""
+    out = []
+    for part in parts:
+        sy = syllables(part)
+        if sy:
+            out.extend((["/"] if out and out[-1] != "/" else []) + sy)
+    while out and out[-1] == "/":
+        out.pop()
+    return " ".join(out)
+
+
+def pinyin_units(term):
+    from pypinyin import lazy_pinyin
+    units = []
+    for part in re.findall(r"[a-z]+|[一-鿿]|[^\sa-z一-鿿]+", norm(term)):
+        if re.fullmatch(r"[a-z]+", part):
+            units.append(("latin", part))
+        elif re.fullmatch(r"[一-鿿]", part):
+            units.append(("syl", lazy_pinyin(part)[0]))
+        elif re.search(r"[0-9a-z一-鿿]", part):
+            return None  # 带数字等：不按拼音猜
+    return units or None
+
+
+def pinyin_match(item_syllables, units):
+    if not units or not item_syllables:
+        return False
+    sy = item_syllables
+
+    def go(u, s, used):
+        if u == len(units):
+            return used >= 2
+        kind, value = units[u]
+        if kind == "syl":
+            return s < len(sy) and sy[s] == value and go(u + 1, s + 1, used + 1)
+        acc = ""
+        for k in range(s, len(sy)):
+            if len(acc) >= len(value):
+                break
+            acc += sy[k]
+            if acc == value and go(u + 1, k + 1, used + k - s + 1):
+                return True
+        return False
+
+    return any(go(0, i, 0) for i in range(len(sy)))
+
+
+def item_syllables(item):
+    return str(item.get("pinyin") or "").split()
+
+
 def fields(item):
     return {"title": item.get("title", ""), "tags": " ".join(item.get("tags") or []),
             "cats": " ".join(item.get("cats") or []),
@@ -33,23 +106,77 @@ def fields(item):
             **(item.get("search_fields") or {"body": item.get("search_text", "")})}
 
 
-def score(item, terms, *, require_all=False):
+def _typo_in(text, term):
+    """标题里有一段和词只差一个字（9 个字以上差两个）；三个字以下不算，免得到处都中。"""
+    if term in text:
+        return True
+    if len(term) < 3:
+        return False
+    limit = 2 if len(term) >= 9 else 1
+    prev = list(range(len(term) + 1))
+    for ch in text:
+        row = [0]
+        for j in range(1, len(term) + 1):
+            row.append(min(row[j - 1] + 1, prev[j] + 1, prev[j - 1] + (ch != term[j - 1])))
+        if row[-1] <= limit:
+            return True
+        prev = row
+    return False
+
+
+def _gap_match(hay, term):
+    """漏字 / 不连续输入：词里的字按顺序出现、总跨度不超过词长两倍（「鸡肉」找回「鸡腿肉」）。与目录页同一规则。"""
+    if len(term) < 2:
+        return False
+    start = hay.find(term[0])
+    while start >= 0:
+        p = start
+        for c in term:
+            p = hay.find(c, p)
+            if p < 0:
+                break
+            p += 1
+        if p >= 0 and p - start <= len(term) * 2:
+            return True
+        start = hay.find(term[0], start + 1)
+    return False
+
+
+STAR_BOOST = 1.15  # ★ 只做小幅加成：目录页 catalog-search.js 和 rank() 同一个数
+
+
+def match(item, terms, *, require_all=False):
+    """(分数, 是否模糊)。原词（含同义词）命中按字段权重计分；原词不中才认拼写相近 / 拼音整音节，
+    这类命中记 fuzzy=True，调用方把它放进「可能相关」，排在原词命中之后（与目录页同一套规则）。"""
     fs = {key: norm(value) for key, value in fields(item).items()}
     total = 0.0
+    fuzzy = False
     for term in terms:
         term = norm(term)
         if not term:
             continue
         best = max((WEIGHTS.get(key, 1) * (1 if v == term else .75)
                     for v in variants(term) for key, text in fs.items() if v in text), default=0)
+        # 纯字母短词（xin、ai）错一个字母 / 漏字母能撞上一大片英文单词：字母词至少 4 个才认这两种模糊（与目录页同）
+        latin_short = bool(re.fullmatch(r"[a-z0-9]+", term)) and len(term) < 4
+        if not best and not latin_short and _typo_in(fs["title"], term):
+            best, fuzzy = 3, True  # 标题里错一个字（长词两个）：与目录页 fuzzyContains 同一规则
         if not best and re.fullmatch(r"[a-z]{4,}", term):
             if any(SequenceMatcher(None, term, word).ratio() >= .8
                    for word in re.findall(r"[a-z]+", fs["title"] + " " + fs["tags"])):
-                best = 2
+                best, fuzzy = 2, True
+        if not best and pinyin_match(item_syllables(item), pinyin_units(term)):
+            best, fuzzy = 2, True
+        if not best and not latin_short and _gap_match(" ".join(fs.values()), term):
+            best, fuzzy = 1, True
         if not best and require_all:
-            return 0
+            return 0, False
         total += best
-    return total
+    return total, fuzzy
+
+
+def score(item, terms, *, require_all=False):
+    return match(item, terms, require_all=require_all)[0]
 
 
 _RANK_CACHE = (None, None)
@@ -85,6 +212,11 @@ def rank(items, terms):
             counts.append(best)
         df = sum(tf>0 for tf in counts)
         if not df:
+            # 原词哪篇都没有（多半是语音同音错字，如「西尼」）：退到拼音整音节，低权，只给标题/概要/标签读音相同的篇
+            units = pinyin_units(term)
+            counts = [1.0 if units and pinyin_match(item_syllables(it), units) else 0 for it in items]
+            df = sum(tf>0 for tf in counts)
+        if not df:
             continue
         idf = math.log(1 + (len(items)-df+.5)/(df+.5))
         for i, tf in enumerate(counts):
@@ -92,7 +224,7 @@ def rank(items, terms):
                 covered[i] += 1
                 totals[i] += idf * tf
     # ★（磁吸）是显式信号：轻微上浮，别盖过内容相关性
-    hits = [(value * (1 + .15 * covered[i]) * (1.15 if it.get('starred') else 1), it)
+    hits = [(value * (1 + .15 * covered[i]) * (STAR_BOOST if it.get('starred') else 1), it)
             for i,(value,it) in enumerate(zip(totals,items)) if value>0]
     hits.sort(key=lambda x:(-x[0],str(x[1].get('id',''))))
     return hits
@@ -241,24 +373,61 @@ def evidence(item, terms, limit, sem=None, window_chars=450, max_parts=3):
     return out or excerpts(item,terms,limit,window_chars)
 
 
+_CORPUS_CACHE = (None, "")
+
+
+def split_phrase(term, items):
+    """整串中文短语库里一处都没有时，拆成库里出现过的词（每段至少两个字、段数最少）：
+    「悉尼咖啡」→ [悉尼, 咖啡]、「AI做梦」→ [ai, 做梦]，和拆开输入找回同一批。与 catalog-search.js splitPhrase 同一规则。"""
+    global _CORPUS_CACHE
+    scripts = re.findall(r"[a-z0-9]+|[一-鿿]+", term)
+    mixed = len(scripts) > 1 and "".join(scripts) == term and all(len(p) >= 2 for p in scripts)
+    if not mixed and not re.fullmatch(r"[一-鿿]{4,12}", term):
+        return [term]
+    if _CORPUS_CACHE[0] is not items:
+        _CORPUS_CACHE = (items, "\n".join(" ".join(norm(v) for v in fields(it).values()) for it in items))
+    hay = _CORPUS_CACHE[1]
+    if term in hay:
+        return [term]
+    if mixed:  # 中英混写（「AI做梦」）先按字母 / 汉字分开，汉字那段再拆
+        return [q for p in scripts for q in (split_phrase(p, items) if "一" <= p[0] <= "鿿" else [p])]
+    best = [None] * (len(term) + 1)
+    best[0] = []
+    for i in range(len(term)):
+        if best[i] is None:
+            continue
+        for j in range(i + 2, min(len(term), i + 8) + 1):
+            part = term[i:j]
+            if part in hay and (best[j] is None or len(best[i]) + 1 < len(best[j])):
+                best[j] = best[i] + [part]
+    got = best[len(term)]
+    return got if got and len(got) > 1 else [term]
+
+
 def search(query, limit=20):
     from .ask import load_items, query_terms
     from . import storage
     items = load_items()
-    terms = [norm(x) for x in query.split() if x.strip()]
+    terms = [part for x in query.split() if x.strip() for part in split_phrase(norm(x), items)]
     tag_query = query.startswith("#")
     hits = []
     for item in items:
-        s = 1 if not terms else (10 if any(norm(t).lstrip("#") in query.lower().split("#")[1:] for t in item.get("tags", [])) else 0) if tag_query else score(item, terms, require_all=True)
+        if tag_query:
+            s, fuzzy = (10 if any(norm(t).lstrip("#") in query.lower().split("#")[1:] for t in item.get("tags", [])) else 0), False
+        else:
+            s, fuzzy = match(item, terms, require_all=True) if terms else (1, False)
         if s:
-            hits.append((s, item))
+            hits.append((s, fuzzy, item))
     if not hits and not tag_query:
-        hits = [(score(it, query_terms(query)), it) for it in items]
-        hits = [(s, it) for s, it in hits if s > 0]
-    hits.sort(key=lambda x: (x[0], x[1].get("ts", "")), reverse=True)
+        fallback = query_terms(query)
+        hits = [(s, fuzzy, it) for it in items for s, fuzzy in [match(it, fallback)] if s > 0]
+    # 与目录页同口径：原词命中在前、「可能相关」在后；组内 分数 × 星标加成，同分星标在前，再同分新收藏在前
+    hits.sort(key=lambda x: (not x[1], x[0] * (STAR_BOOST if x[2].get("starred") else 1),
+                             bool(x[2].get("starred")), x[2].get("ts", "")), reverse=True)
     results = []
-    for s, it in hits[:limit]:
+    for s, fuzzy, it in hits[:limit]:
         results.append({"item_id": it["id"], "title": it["title"], "score": s, "starred": bool(it.get("starred")),
+                        "match": "possible" if fuzzy else "exact",
                         "excerpts": excerpts(it, terms, 700), "url": it.get("url"),
                         "visible_note": str(storage.vault_root() / it["note"]) if it.get("note") else None,
                         "agent_md": str(storage.vault_root() / it["agent_md"]) if it.get("agent_md") else None,
