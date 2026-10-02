@@ -81,6 +81,9 @@ def harden_command(cmd):
     return cmd
 
 
+CLI_TIMEOUT_DEFAULT = 180  # 秒；cfg['timeoutSec'] 覆盖（CONVENTIONS §6.6）
+
+
 def cli_call(instruction, text, cfg, on_delta=None):
     """本机命令行模型（0926）：如 `codex exec -` / `claude -p`，用它们自己的登录，不需要 API key。
     提示词走 stdin，stdout 边读边吐。"""
@@ -102,18 +105,49 @@ def cli_call(instruction, text, cfg, on_delta=None):
     except OSError as exc:
         err_file.close()
         return {'status': 'failed', 'error': f'找不到命令 {cmd[0]}：{exc.strerror or exc}'}
-    proc.stdin.write(instruction + '\n\n' + text)
-    proc.stdin.close()
+    # CONVENTIONS §6.6：超时 = cfg.timeoutSec（默认 180 秒）；到点整棵杀（procs.kill_tree，不碰读取服务），
+    # 读 stdout 的循环随管道关闭结束。看门狗是个定时器线程：主线程照常边读边吐。
+    import threading
+    from . import procs
+    try:
+        limit = float(cfg.get('timeoutSec') or CLI_TIMEOUT_DEFAULT)
+    except (TypeError, ValueError):
+        limit = float(CLI_TIMEOUT_DEFAULT)
+    timed_out = threading.Event()
+
+    def _expire():
+        if proc.poll() is None:
+            timed_out.set()
+            procs.kill_tree(proc.pid)
+            try:
+                proc.kill()
+            except OSError:
+                pass
+
+    watchdog = threading.Timer(limit, _expire)
+    watchdog.daemon = True
+    watchdog.start()
     chunks = []
-    for line in proc.stdout:
-        chunks.append(line)
-        if on_delta:
-            on_delta(line)
-    code = proc.wait()
+    try:
+        try:
+            proc.stdin.write(instruction + '\n\n' + text)
+            proc.stdin.close()
+        except OSError:
+            pass  # 进程已经退出 / 被看门狗杀了：下面按退出码和输出判
+        for line in proc.stdout:
+            chunks.append(line)
+            if on_delta:
+                on_delta(line)
+        code = proc.wait()
+    finally:
+        watchdog.cancel()
     err_file.seek(0)
     err = err_file.read()
     err_file.close()
     out = ''.join(chunks).strip()
+    if timed_out.is_set():
+        return {'status': 'failed', 'code': 'TRANSIENT.STEP_TIMEOUT',
+                'error': f'{cmd[0]} 超过 {limit:.0f} 秒没有答完，已停止'}
     if code != 0 or not out:
         tail = (err or out).strip().splitlines()[-1:] or ['无输出']
         return {'status': 'failed', 'error': f'{cmd[0]} 失败：{tail[0][:200]}'}
