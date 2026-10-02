@@ -57,7 +57,7 @@ DEFAULTS: dict[str, Any] = {
     # 归档摘要 / 打标（1002 新）：inherit=和文本 AI 同一个接口（model 可单独填）；http / cli / off 同上。
     "summaryAI": {"mode": "inherit", "model": "", "endpoint": "", "apiKey": "", "maxTokens": 2000, "timeoutSec": 180},
     # 本地 OCR：local=rapidocr 进程内（带位置框，免费）；off=关。
-    "ocr": {"mode": "local", "timeoutSec": 120},
+    "ocr": {"mode": "local", "timeoutSec": 120, "modelTier": "medium", "modelDir": ""},
     # 识图（第一层每张图、第二层只补跑挑出来的）：http=OpenAI 兼容带图接口；off=只保留 OCR。
     # refineModel 留空 = 和第一层同一个模型；refineKeysEnv：第二层优先轮换的免费 key 所在环境变量（逗号分隔，可不设）。
     # videoScreenText：视频抽帧本地 OCR 出「视频画面文字」；不花钱，吃 CPU（30s 视频约 7s）。

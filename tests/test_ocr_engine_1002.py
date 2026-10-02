@@ -67,3 +67,31 @@ def test_bundled_small_needs_no_model_dir(monkeypatch, tmp_path):
     monkeypatch.setattr(visual, "ocr_settings", lambda: ("small", ""))
     visual._engine()
     assert "Det.model_path" not in seen[-1]
+
+
+def test_medium_default_falls_back_to_small_when_model_cannot_load(monkeypatch, tmp_path):
+    seen = []
+    _install_fake_rapidocr(monkeypatch, seen)
+    import rapidocr
+
+    real = rapidocr.RapidOCR
+
+    class Flaky(real):
+        def __init__(self, params=None):
+            if params and params.get("Det.model_type") == "MT:medium":
+                raise OSError("download failed")
+            super().__init__(params)
+
+    monkeypatch.setattr(rapidocr, "RapidOCR", Flaky)
+    reported = []
+    monkeypatch.setattr(visual, "_report_fallback", lambda tier, exc: reported.append(tier))
+    monkeypatch.setattr(visual, "ocr_settings", lambda: ("medium", ""))
+    visual._engine()
+    assert reported == ["medium"] and seen[-1]["Det.model_type"] == "MT:small"
+    assert visual.engine_label() == "rapidocr-ppocrv6-small"
+
+
+def test_default_tier_is_medium(monkeypatch):
+    from link_brain import ai_config
+    monkeypatch.setattr(ai_config, "load", lambda: {"ocr": {"mode": "local"}})
+    assert visual.ocr_settings() == ("medium", "")

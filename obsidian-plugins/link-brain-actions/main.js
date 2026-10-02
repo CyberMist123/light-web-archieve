@@ -1320,8 +1320,15 @@ class LinkBrainSettingTab extends PluginSettingTab {
       .addButton(b => b.setButtonText('检查').onClick(drawEnv));
 
     a.createEl('h4', { text: '文字识别（OCR）' });
-    modeSetting(a, '文字识别（OCR）', '本地 rapidocr：免费、不要 Key，只占 CPU，能认出表格的版面。图片文字、扫描版 PDF、视频画面文字都靠它；关掉后只存原图。',
+    modeSetting(a, '文字识别（OCR）', '本地 rapidocr（PP-OCRv6）：免费、不要 Key，只占 CPU，能认出表格的版面。图片文字、扫描版 PDF、视频画面文字都靠它；关掉后只存原图。',
       s.ocr, [['local', '本地 rapidocr'], ['off', '关闭']]);
+    if (s.ocr.mode === 'local') {
+      new Setting(a).setName('　识别精度').setDesc('标准：认得准（默认），比轻量多占约 180MB 内存、慢约 3 倍，8GB 内存的电脑够用，第一次用会自动下载模型。轻量：模型随安装包自带，适合配置很低的电脑。')
+        .addDropdown(d => d.addOption('medium', '标准（medium）').addOption('small', '轻量（small）')
+          .setValue(s.ocr.modelTier || 'medium').onChange(async v => { s.ocr.modelTier = v; await save(); }));
+      textField(a, '　模型目录（可选）', '留空 = 自动下载。已经下好 PP-OCRv6 模型文件的，填所在文件夹。', '留空即可',
+        () => s.ocr.modelDir, v => s.ocr.modelDir = v);
+    }
     this.addTestButton(a, '测试 OCR', ['-m', 'link_brain', 'selftest', 'ocr']);
 
     a.createEl('h4', { text: '提示词' });

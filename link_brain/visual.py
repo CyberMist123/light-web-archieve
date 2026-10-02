@@ -2,8 +2,9 @@
 
 - 本地 OCR：RapidOCR 3.x + PP-OCRv6（onnxruntime，CPU），进程内调用，首次用到才加载、不常驻。
   1002：从老包 rapidocr_onnxruntime 1.2（PP-OCRv3/v4）升到 PP-OCRv6——作者本机实测老包认扫描件明显差
-  （丢英文空格、代码反引号变弯引号、编号错位）。模型档位 ocr.modelTier：small（随 pip 包自带，默认）/
-  medium（更准、约慢一倍，需把 PP-OCRv6_{det,rec}_medium.onnx 放进 ocr.modelDir）。老包只作没装新包时的兜底。
+  （丢英文空格、代码反引号变弯引号、编号错位）。模型档位 ocr.modelTier：medium（默认，认得准；比 small 多占
+  约 180MB 内存、慢约 3 倍，8GB 内存的电脑够用；ocr.modelDir 留空时第一次用会自动下载模型）/ small（随 pip 包自带，
+  轻量）。medium 加载失败（比如没网下不了模型）自动退回 small 并记一条问题。老包只作没装新包时的兜底。
   拿到每行文字和位置框，版面判断要用。没装 rapidocr / OCR 关了时 vision.py 记 skipped。
 - 版面判断（不花钱）：
   table   至少 3 行各有 ≥2 段文字，且各段左边缘能对齐成列；
@@ -101,8 +102,8 @@ def ocr_settings() -> tuple[str, str]:
         cfg = ai_config.load().get("ocr") or {}
     except Exception:  # noqa: BLE001 - 读不到设置就用默认
         cfg = {}
-    tier = str(cfg.get("modelTier") or "small").strip().lower()
-    return (tier if tier in OCR_TIERS else "small"), str(cfg.get("modelDir") or "").strip()
+    tier = str(cfg.get("modelTier") or "medium").strip().lower()
+    return (tier if tier in OCR_TIERS else "medium"), str(cfg.get("modelDir") or "").strip()
 
 
 def _engine():
@@ -126,8 +127,28 @@ def _engine():
             if not (det.is_file() and rec.is_file()):
                 raise FileNotFoundError(f"OCR 模型目录里没有 PP-OCRv6 {tier} 档的 det/rec 模型：{model_dir}")
             params.update({"Det.model_path": str(det), "Rec.model_path": str(rec)})
-        _ENGINE, _ENGINE_KEY = ("v3", RapidOCR(params=params)), key
+        try:
+            engine = RapidOCR(params=params)
+        except Exception as exc:  # noqa: BLE001 - 多半是第一次用 medium、没网下不了模型
+            if tier == "small" or model_dir:
+                raise
+            _report_fallback(tier, exc)
+            params.update({"Det.model_type": ModelType("small"), "Rec.model_type": ModelType("small")})
+            engine = RapidOCR(params=params)
+            key = ("small", "")
+        _ENGINE, _ENGINE_KEY = ("v3", engine), key
     return _ENGINE
+
+
+def _report_fallback(tier: str, exc: Exception) -> None:
+    """medium 加载失败退回 small：照常认字，但在问题记录里留一条（列表灰色组，不推送）。"""
+    print(f"[ocr] PP-OCRv6 {tier} 加载失败，先用 small：{type(exc).__name__}: {exc}", file=__import__('sys').stderr)
+    try:
+        from . import problems
+        problems.report("ocr", "SKIPPED.FALLBACK", f"OCR {tier} 档模型没加载上（{type(exc).__name__}），先用轻量 small 档；"
+                        "联网后重开会自动再试，或在设置里填已下载的模型目录。", action="skipped")
+    except Exception:  # noqa: BLE001 - 记不上不影响认字
+        pass
 
 
 def engine_label() -> str:
@@ -135,7 +156,7 @@ def engine_label() -> str:
         ver, _ = _engine()
     except Exception:  # noqa: BLE001
         return "rapidocr"
-    return f"rapidocr-ppocrv6-{ocr_settings()[0]}" if ver == "v3" else "rapidocr-legacy"
+    return f"rapidocr-ppocrv6-{(_ENGINE_KEY or ocr_settings())[0]}" if ver == "v3" else "rapidocr-legacy"
 
 
 def local_ocr(path: Path) -> dict[str, Any]:
