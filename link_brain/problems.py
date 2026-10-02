@@ -41,7 +41,7 @@ ACTIONS = ("gave_up", "retry_later", "retrying", "needs_human", "skipped")
 DEFAULT_ACTION = {"TRANSIENT": "retry_later", "PERMANENT": "gave_up", "NEEDS_HUMAN": "needs_human",
                   "SKIPPED": "skipped"}
 STEPS = ("sync.favorites", "ingest", "attachments.download", "attachments.convert", "attachments.recheck",
-         "enrich.summary", "vision.layer1", "vision.refine", "videos.transcribe", "embed", "ask", "login", "config")
+         "enrich.summary", "vision.layer1", "vision.refine", "videos.transcribe", "embed", "ask", "login", "config", "remote")
 STEP_PREFIXES = ("nightly.",)
 
 # 现有裸码 → 类（§2.2：复用现有码、不改拼写）
@@ -70,6 +70,7 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "NEEDS_HUMAN.QUOTA_EXCEEDED": dict(where="top+card", label="AI 余额不足", hover="接口提示欠费或额度用完：充值或换 key", group="needs_you"),
     "NEEDS_HUMAN.BACKUP_DISK_MISSING": dict(where="top+card", label="备份盘没挂", hover="{reason}", group="needs_you"),
     "NEEDS_HUMAN.STUCK": dict(where="top+card", label="连续几天没修好", hover="{reason}", group="needs_you"),
+    "NEEDS_HUMAN.PORT_IN_USE": dict(where="top+card", label="远程阅读端口被占用", hover="{reason}", group="needs_you"),
     # —— 自动重试 ——
     "TRANSIENT.HTTP_5XX": dict(where="list", label="接口暂时出错", hover="{reason}（{next_at} 再试）", group="auto"),
     "TRANSIENT.HTTP_429": dict(where="list", label="接口限流", hover="{reason}（{next_at} 再试）", group="auto"),
@@ -92,6 +93,7 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "PERMANENT.NO_SPEECH": dict(where="list", label="视频里没人说话", hover="只有背景音乐或环境声", group="gave_up"),
     "PERMANENT.NOTE_GONE": dict(where="card", label="原帖已删除", hover="原帖已删除或不可见，本地存档还在", group="gave_up"),
     "PERMANENT.MODEL_OUTPUT_INVALID": dict(where="card", label="AI 结果不可用", hover="{reason}", group="gave_up"),
+    "PERMANENT.REMOTE_TASK_FAILED": dict(where="list", label="远程阅读的计划任务没弄好", hover="{reason}", group="gave_up"),
     "PERMANENT.*": dict(where="card", label="已放弃", hover="{reason}", group="gave_up"),
     # —— 未开启（不算失败）——
     "SKIPPED.NOT_CONFIGURED": dict(where="none", label="未配置", hover="{reason}", group="off"),

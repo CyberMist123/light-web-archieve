@@ -257,6 +257,9 @@ def build_parser() -> argparse.ArgumentParser:
     from . import problems as problems_mod
     problems_mod.add_parser(sub)
 
+    from .remote import cli as remote_cli
+    remote_cli.add_parser(sub)
+
     p = sub.add_parser("highlight", help="给一篇笔记正文加/去一处高亮（<mark>，持久到重渲染）")
     p.add_argument("target", help="item_id")
     p.add_argument("phrase", help="要高亮的原文片段（原样、含标点，需在正文里出现过）")
@@ -304,6 +307,9 @@ def _dispatch(args) -> int:
     if args.command == 'problems':
         from . import problems
         return problems.run(args)
+    if args.command == 'remote':
+        from .remote import cli as remote_cli
+        return remote_cli.run(args)
     if args.command == 'doctor':
         from . import doctor
         return doctor.run(args)
