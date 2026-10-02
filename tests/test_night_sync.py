@@ -61,7 +61,7 @@ def env(monkeypatch):
     monkeypatch.setattr(ingest_mod, "download_image", lambda url, dest, stem, client: {
         "file": None, "requested_url": url, "mime": None, "width": None, "height": None, "bytes": None,
         "sha256": None, "download_status": "failed", "error": "测试不联网"})
-    monkeypatch.setattr(favorites.alert_mod, "alert", lambda *a, **k: state.alerts.append(a) or True)
+    monkeypatch.setattr("link_brain.alert._alert", lambda *a, **k: state.alerts.append(a) or True)
     monkeypatch.setenv("LWA_FETCH_REST", "60,180")
     return state
 
@@ -127,7 +127,10 @@ def test_three_consecutive_fetch_failures_stop_the_batch(env, capsys):
     assert code == 1 and out["code"] == "TOO_MANY_FAILURES"
     assert env.fetched == ids[:3]  # 第 3 篇失败就停，没接着开第 4 篇
     assert len([s for s in env.sleeps if s >= 60]) == 2  # 失败之间照样歇
-    assert any("连续" in a[1] for a in env.alerts)
+    # 第 4 批：连着几篇抓不到但没撞风控 = TRANSIENT.TOO_MANY_FAILURES，只记不推
+    assert not env.alerts
+    from link_brain import problems
+    assert [(r["step"], r["code"]) for r in problems.load()] == [("sync.favorites", "TRANSIENT.TOO_MANY_FAILURES")]
     failures = storage.read_json(storage.archive_root() / "sync-failures.json")
     assert set(failures) == set(ids[:3]) and all(v["count"] == 1 for v in failures.values())
     # 下一晚：抓失败过的排到最后，新的先抓；已知坏篇再失败不算「连续失败」
@@ -202,7 +205,8 @@ def test_favorites_count_sanity(env, capsys, last, read, alarm):
     status = sync_state.load()
     if alarm:
         assert code == 1 and status["state"] == "failed" and status["code"] == "FAVORITES_SUSPICIOUS"
-        assert any("可疑" in a[1] and a[0] == alert_mod.KIND_BATCH for a in env.alerts)
+        # 第 4 批：可疑 = 停车待人看 NEEDS_HUMAN.FAVORITES_SUSPICIOUS，经 problems 唯一出口推一次
+        assert [a[1] for a in env.alerts] == ["收藏数异常：收藏同步"] and env.alerts[0][0] == "problem"
         assert status["last_favorites"] == last  # 可疑的那次不顶掉基准
         assert len(env.fetched) == read  # 读到的照常处理
     else:
@@ -213,6 +217,8 @@ def test_rate_limited_keeps_earlier_failure_and_last_success(env, capsys):
     sync_state.record("finished", payload={"favorites": 1, "synced": 1, "items": [{"status": "hit"}]})
     ok_at = sync_state.load()["last_success"]
     sync_state.account_problem("NOT_LOGGED_IN", "登录检查：未登录")
+    assert len(env.alerts) == 1  # 掉登录本身推一次（NEEDS_HUMAN）
+    env.alerts.clear()
     env.reader.routes["/api/v1/favorites"] = httpx.Response(429, json={"code": "RATE_LIMITED", "error": "刚读过"})
     code, out = _run(capsys)
     status = sync_state.load()
@@ -263,18 +269,23 @@ def test_enrich_pending_fills_summary_and_clears_mark(env, monkeypatch, capsys):
 
 
 def test_enrich_gives_up_after_three_failures_but_item_still_works(env, monkeypatch, capsys):
+    from link_brain import problems
     env.favs = [_fav(_ids(1)[0])]
     _run(capsys)
     monkeypatch.setattr(llm_mod, "call_model", _model(ok=False))
     alerts = []
-    monkeypatch.setattr(alert_mod, "alert", lambda *a, **k: alerts.append(a))
+    monkeypatch.setattr(alert_mod, "_alert", lambda *a, **k: alerts.append(a))
     for n in range(3):
         assert cli.main(["enrich", "--pending"]) == 1
         capsys.readouterr()
-    assert enrich.load_state("xiaohongshu", _ids(1)[0])["fails"] == 3 and alerts
-    assert {a[0] for a in alerts} == {alert_mod.KIND_BATCH}  # lwa-alert 认得的 kind，不是 "normal"
+    state = enrich.load_state("xiaohongshu", _ids(1)[0])
+    assert state["fails"] == 3 and state["retry_after"]
+    # 第 4 批：暂时放弃不推送，登记 TRANSIENT.RETRY_EXHAUSTED（action=gave_up，带 next_at）
+    assert alerts == []
+    row = next(r for r in problems.load() if r["code"] == "TRANSIENT.RETRY_EXHAUSTED")
+    assert row["action"] == "gave_up" and row["next_at"] == state["retry_after"] and row["item_id"] == f"xhs-{_ids(1)[0]}"
     assert cli.main(["enrich", "--pending"]) == 0
-    assert json.loads(capsys.readouterr().out)["candidates"] == 0  # 不再自动重试
+    assert json.loads(capsys.readouterr().out)["candidates"] == 0  # 退避中：今晚不自动重试
     monkeypatch.setattr(llm_mod, "call_model", _model(ok=True))
     assert cli.main(["enrich", "--item", f"xhs-{_ids(1)[0]}"]) == 0  # 点名照跑
     assert enrich.load_state("xiaohongshu", _ids(1)[0])["fails"] == 0
@@ -415,7 +426,7 @@ def test_recheck_hitting_logged_out_exits_5(env, monkeypatch, capsys):
     capsys.readouterr()
     monkeypatch.setattr(att_mod, "_probe_logged_in",
                         lambda n, t: {"ok": False, "needs_human": True, "code": "ACCOUNT_RISK", "error": "跳到了登录异常页"})
-    monkeypatch.setattr(att_mod.alert_mod, "alert", lambda *a, **k: None)
+    monkeypatch.setattr("link_brain.alert._alert", lambda *a, **k: None)
     assert cli.main(["attachments", "--recheck", "--limit", "20"]) == 5
     assert json.loads(capsys.readouterr().out)["blocked"] == "ACCOUNT_RISK"
 

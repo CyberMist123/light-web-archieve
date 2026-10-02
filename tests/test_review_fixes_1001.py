@@ -71,7 +71,7 @@ def test_known_bad_that_comes_back_resets_the_streak(env, capsys):
 # --------------------------------------------------------------------------
 
 
-def test_two_truncated_nights_in_a_row_both_alert(env, capsys):
+def test_two_truncated_nights_in_a_row_both_flagged_but_pushed_once(env, capsys):
     storage.archive_root().mkdir(parents=True, exist_ok=True)
     storage.write_json(sync_state.path(), {"state": "ready", "last_favorites": 10})
     env.favs = [_fav(i) for i in _ids(4)]
@@ -80,7 +80,8 @@ def test_two_truncated_nights_in_a_row_both_alert(env, capsys):
         code, _ = _run(capsys)
         status = sync_state.load()
         assert code == 1 and status["code"] == "FAVORITES_SUSPICIOUS", night
-        assert status["last_favorites"] == 10 and any("可疑" in a[1] for a in env.alerts)
+        # 第 4 批：两晚都标可疑（目录页看得到），但同一件事没解决只推一次（problems 唯一出口）
+        assert status["last_favorites"] == 10 and len(env.alerts) == (1 if night == 0 else 0), night
     # 连着第 3 晚还是差不多这个数：多半是她真删了一批 —— 这晚照样报，之后以它为基准
     code, _ = _run(capsys)
     assert code == 1 and sync_state.load()["last_favorites"] == 4
@@ -153,7 +154,7 @@ def test_detail_retry_is_skipped_when_budget_cannot_hold_another_attempt(env, cl
         raise xhs.ServiceDownError("读取服务未连接：timeout")
     monkeypatch.setattr(xhs, "fetch_detail", down)
     monkeypatch.setattr(ingest_mod.time, "sleep", lambda s: None)
-    monkeypatch.setattr(favorites.alert_mod, "alert", lambda *a, **k: None)
+    monkeypatch.setattr("link_brain.alert._alert", lambda *a, **k: None)
     env.favs = [_fav(_ids(1)[0])]
     code, _ = _run(capsys, budget_min=30)
     # 每次重试最坏要「等一轮 + 600 秒超时 + 60 秒」≈ 11–12 分钟。30 分钟预算：第 1 次后剩 22、第 2 次后剩 14，
@@ -215,7 +216,7 @@ def test_attachment_attempt_deferred_is_not_a_failure(env, clock, monkeypatch, c
     downloads = []
     _fake_download(clock, monkeypatch, 2, downloads)
     alerts = []
-    monkeypatch.setattr(att_mod.alert_mod, "alert", lambda *a, **k: alerts.append(a))
+    monkeypatch.setattr("link_brain.alert._alert", lambda *a, **k: alerts.append(a))
     out = att_mod.download_for_object("xiaohongshu", sid, budget_left=lambda: 200.0)
     assert [r["status"] for r in out["results"]] == ["deferred"] and downloads == [] and not alerts
     state = storage.read_json(storage.object_dir("xiaohongshu", sid) / "attachment-state.json")
@@ -289,7 +290,7 @@ def test_generic_error_mentioning_429_is_not_account_blocked(monkeypatch, capsys
     _raising_mcp(monkeypatch, [ValueError("解析 note 6429 的响应失败：登录后可见的字段缺失"),
                                ValueError("解析失败 429"),
                                RuntimeError("页面被跳到 https://www.xiaohongshu.com/website-login/error")], calls)
-    monkeypatch.setattr(favorites.alert_mod, "alert", lambda *a, **k: alerts.append(a))
+    monkeypatch.setattr("link_brain.alert._alert", lambda *a, **k: alerts.append(a))
     code = favorites.run(SimpleNamespace(limit=0, origin="cli", actor="human", verbose=False, extract=False,
                                          budget_min=0, wait_lock_min=0))
     out = json.loads(capsys.readouterr().out)

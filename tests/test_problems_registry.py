@@ -18,6 +18,9 @@ ROOT = Path(__file__).resolve().parents[1] / "link_brain"
 # problems.report("step", "CODE"…) / report(step, 'CODE'…)：取第二个位置参数里的字面码
 REPORT_CALL = re.compile(r"""\breport\(\s*[^,()]+,\s*(['"])([A-Z_]+(?:\.[A-Z0-9_]+)?)\1""")
 CLI_CALL = re.compile(r"""problems\s+report\b[^\n]*?--code\s+([A-Z_]+\.[A-Z0-9_]+)""")
+# 第 4 批：码也会经变量传给 report（`code or 'TRANSIENT.SYNC_FAILED'`、catalog 从对象文件推出的码）：
+# link_brain 里任何带类前缀的完整码字符串字面量都算「代码里有人产生」，也都必须登记（problems.py 自己除外）
+QUOTED_CODE = re.compile(r"""(['"])((?:TRANSIENT|PERMANENT|NEEDS_HUMAN|SKIPPED)\.[A-Z][A-Z0-9_]*)\1""")
 WHERE = {"top+card", "card", "list", "none"}
 GROUPS = {"needs_you", "auto", "gave_up", "off"}
 
@@ -28,6 +31,9 @@ def literal_codes() -> dict[str, list[str]]:
         text = f.read_text("utf-8", errors="replace")
         for m in REPORT_CALL.finditer(text):
             found.setdefault(problems.normalize(m.group(2)), []).append(f.name)
+        if f.name != "problems.py":
+            for m in QUOTED_CODE.finditer(text):
+                found.setdefault(m.group(2), []).append(f.name)
     for f in list(ROOT.rglob("*.js")) + list((ROOT.parent / "obsidian-plugins").rglob("*.js")) + list((ROOT.parent / "scripts").rglob("*")):
         if f.is_file():
             for m in CLI_CALL.finditer(f.read_text("utf-8", errors="replace")):
@@ -47,12 +53,12 @@ def test_every_reported_literal_code_is_registered():
 def test_every_registered_code_is_produced_or_planned():
     produced = set(literal_codes())
     bare = {problems.normalize(c) for c in problems.BARE_CLASS}
-    orphans = exact_entries() - produced - set(problems.PLANNED_CODES) - bare
+    orphans = exact_entries() - produced - set(problems.PLANNED_CODES) - set(problems.EXTERNAL_CODES) - bare
     assert orphans == set(), f"登记表里有没人会产生的码：{sorted(orphans)}"
 
 
 def test_planned_and_bare_codes_are_all_registered():
-    for code in problems.PLANNED_CODES:
+    for code in (*problems.PLANNED_CODES, *problems.EXTERNAL_CODES):
         assert code in exact_entries(), code
     for bare in problems.BARE_CLASS:
         assert problems.normalize(bare) in exact_entries(), bare

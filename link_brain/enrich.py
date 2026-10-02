@@ -5,10 +5,12 @@
 - 抓取阶段又快又短，号用完就放（账号锁、开页节奏都只罩抓取）；
 - 一篇识图卡死（0929 那晚一篇卡了 70 分钟）只卡它自己：每篇一个子进程、20 分钟上限，
   超时连同它起的子进程（OCR / 识图脚本）整棵杀掉；
-- 失败记次数，同一篇累计失败 3 次后不再自动重试（`--item` 点名仍可重跑）。
+- 失败记次数：前 3 次每晚都再试；连着 3 次没补成就「暂时放弃」——不推送，问题记录登记
+  `TRANSIENT.RETRY_EXHAUSTED`（action=gave_up，带 next_at），按退避隔 2 / 4 / 7 天（之后每 7 天）再自动捡回来一次
+  （第 4 批：以前是永久不再试，0921 起失败的几十篇就再也没人管；`--item` 点名随时可重跑）。
 
-候选（`--pending`）：标了待 enrich 的 / 概要失败或缺失的 / 有图没识的。标了的排前面。
-状态记在对象目录 `enrich-state.json`：`{pending, fails, last_error, updated_at}`。
+候选（`--pending`）：标了待 enrich 的 / 概要失败或缺失的（含从没生成过的）/ 有图没识的。标了的排前面。
+状态记在对象目录 `enrich-state.json`：`{pending, fails, last_error, retry_after, updated_at}`。
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +28,7 @@ from . import storage
 
 SOURCE = "xiaohongshu"
 MAX_FAILS = 3
+GIVE_UP_BACKOFF_DAYS = (2, 4, 7)  # 第 3 / 4 / ≥5 次失败后隔几个日历日再自动试（封顶 7 天）
 ITEM_TIMEOUT_SECONDS = int(os.environ.get("LWA_ENRICH_TIMEOUT", str(20 * 60)))
 IMAGE_SUFFIXES = {".webp", ".jpg", ".jpeg", ".png", ".gif", ".avif", ".heic", ".bmp"}
 EXIT_OK = 0
@@ -35,6 +38,25 @@ _CHILD_INCOMPLETE = 3  # 子进程跑完了但还缺东西（概要失败 / 有�
 
 def _now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def retry_after_for(fails: int, now: datetime | None = None) -> str | None:
+    """累计 fails 次失败后下次自动重试的时刻（日历日 0 点起）；还没到 MAX_FAILS = None（每晚照试）。"""
+    if fails < MAX_FAILS:
+        return None
+    now = (now or datetime.now().astimezone()).astimezone()
+    days = GIVE_UP_BACKOFF_DAYS[min(fails - MAX_FAILS, len(GIVE_UP_BACKOFF_DAYS) - 1)]
+    return (now + timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat(timespec="seconds")
+
+
+def backing_off(state: dict[str, Any], now: datetime | None = None) -> bool:
+    """连着失败够 MAX_FAILS 次、还没到 retry_after：这次不自动捡。旧状态没有 retry_after = 到点了（捡回来再试一次）。"""
+    if int(state.get("fails") or 0) < MAX_FAILS:
+        return False
+    try:
+        return datetime.fromisoformat(str(state.get("retry_after"))) > (now or datetime.now().astimezone())
+    except (TypeError, ValueError):
+        return False
 
 
 def state_path(source_key: str, source_id: str) -> Path:
@@ -106,7 +128,7 @@ def needs(source_key: str, source_id: str, *, llm: bool = True) -> list[str]:
 
 
 def candidates(*, pending_only_marked: bool = False) -> list[tuple[str, str, dict[str, Any], list[str]]]:
-    """[(source_key, source_id, state, needs)]：标了待 enrich 的排前面；累计失败 ≥3 次的不再自动重试。"""
+    """[(source_key, source_id, state, needs)]：标了待 enrich 的排前面；连着失败 ≥3 次的按 retry_after 退避，到点再捡。"""
     from . import index as index_mod
 
     conn = index_mod.connect()
@@ -118,7 +140,7 @@ def candidates(*, pending_only_marked: bool = False) -> list[tuple[str, str, dic
     for r in rows:
         key, sid = r["source"], r["source_id"]
         state = load_state(key, sid)
-        if int(state.get("fails") or 0) >= MAX_FAILS:
+        if backing_off(state):
             continue
         missing = needs(key, sid)
         if state.get("pending"):
@@ -215,18 +237,39 @@ def enrich_one(source_key: str, source_id: str, *, llm: bool = True, timeout: fl
         return {"item_id": item_id, "status": "deferred", "error": "时间预算到了，下次接着补"}
     if timed_out:
         error = f"识图/概要超过 {ITEM_TIMEOUT_SECONDS // 60} 分钟，已结束它（归档已存好）"
+    from . import problems
     if code == 0:
         new_state = {**state, "fails": 0, "last_error": ""}
+        new_state.pop("retry_after", None)
         if llm:
             new_state["pending"] = False
         _save_state(source_key, source_id, new_state)
+        problems.resolve("enrich.summary", item_id, "TRANSIENT.RETRY_EXHAUSTED")
         return {"item_id": item_id, "status": "done"}
     fails = int(state.get("fails") or 0) + 1
     if not error and code == _CHILD_INCOMPLETE:
         error = "还缺：" + "、".join(needs(source_key, source_id, llm=llm))
-    _save_state(source_key, source_id, {**state, "fails": fails, "last_error": error or f"退出码 {code}"})
-    return {"item_id": item_id, "status": "failed", "error": error or f"退出码 {code}", "fails": fails,
-            "gave_up": fails >= MAX_FAILS}
+    error = error or f"退出码 {code}"
+    retry_after = retry_after_for(fails)
+    new_state = {**state, "fails": fails, "last_error": error}
+    if retry_after:
+        new_state["retry_after"] = retry_after
+    _save_state(source_key, source_id, new_state)
+    if retry_after:
+        # 第 4 批：不再报警。暂时放弃 = TRANSIENT（到 retry_after 自动捡回来），只记不推；
+        # 底下那次失败的原因（接口故障 / key 失效…）llm.py / vision.py 已按码登记，key 失效那类会推一次
+        problems.report("enrich.summary", "TRANSIENT.RETRY_EXHAUSTED",
+                        f"识图 / 概要连着 {fails} 次没补成：{error}"[:200], item_id=item_id,
+                        title=_title(source_key, source_id), action="gave_up", next_at=retry_after)
+    return {"item_id": item_id, "status": "failed", "error": error, "fails": fails,
+            "gave_up": fails >= MAX_FAILS, "retry_after": retry_after}
+
+
+def _title(source_key: str, source_id: str) -> str | None:
+    try:
+        return storage.read_json(storage.object_dir(source_key, source_id) / "meta.json").get("title")
+    except (OSError, ValueError):
+        return None
 
 
 def enrich_items(targets: list[tuple[str, str]], *, llm: bool = True, deadline: float | None = None,
@@ -260,7 +303,7 @@ def run(args) -> int:
     """`python -m link_brain enrich [--pending] [--item ID] [--budget-min N] [--limit N]`。stdout 只有一个 JSON。"""
     import contextlib
 
-    from . import alert as alert_mod, index as index_mod
+    from . import index as index_mod
     from .read import dump_json
 
     budget = float(getattr(args, "budget_min", 0) or 0)
@@ -284,8 +327,8 @@ def run(args) -> int:
         out = enrich_items(targets, llm=True, deadline=deadline, limit=int(getattr(args, "limit", 0) or 0))
         gave_up = [f for f in out["failed"] if f.get("gave_up")]
         if gave_up:
-            alert_mod.alert(alert_mod.KIND_BATCH, f"识图/概要连续 {MAX_FAILS} 次没补成：{len(gave_up)} 篇，不再自动重试",
-                            "\n".join(f"{f['item_id']}: {f['error']}" for f in gave_up[:8])
-                            + "\n要重跑：python -m link_brain enrich --item <item_id>")
+            # 第 4 批：不推送（enrich_one 已逐篇登记 TRANSIENT.RETRY_EXHAUSTED，目录页问题入口看得到）
+            print(f"[enrich] 连着 {MAX_FAILS} 次没补成、隔几天再自动试：{len(gave_up)} 篇"
+                  "（要马上重跑：python -m link_brain enrich --item <item_id>）", file=sys.stderr)
     dump_json({"candidates": len(targets), **out})
     return EXIT_ERROR if out["failed"] else EXIT_OK

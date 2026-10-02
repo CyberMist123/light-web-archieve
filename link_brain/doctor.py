@@ -30,7 +30,7 @@ def diagnose(*, obsidian_dir: str | None = None, only=None) -> dict:
     enabled = read_json(obs / 'community-plugins.json', [])
     plugins = obs / 'plugins'
     installed = all((plugins / 'link-brain-actions' / name).is_file()
-                    for name in ('main.js', 'manifest.json', 'library-ui.js', 'remote-ui.js'))
+                    for name in ('main.js', 'manifest.json', 'library-ui.js', 'remote-ui.js', 'problems-ui.js'))
     plugin_ready = installed and 'link-brain-actions' in enabled
     rows.append(accounts.row('obsidian', 'Obsidian 插件', 'ready' if plugin_ready else 'missing',
                              '已安装并启用' if plugin_ready else ('尚未启用' if installed else '未安装'),

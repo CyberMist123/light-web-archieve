@@ -105,11 +105,11 @@ function fakeDom(){
   const document={body,addEventListener(){},removeEventListener(){},querySelectorAll:s=>body.querySelectorAll(s),createElementNS:(ns,t)=>new El(t)};
   return {El,document};
 }
-async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/catalog-view.js','utf8'),syncState={},onAccountOpen=()=>{}}={}){
+async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/catalog-view.js','utf8'),syncState={},summary=null,onAccountOpen=()=>{}}={}){
   const {El,document}=fakeDom();
   const root=new El('div');const window={alert(){},confirm:()=>false};
-  const app={vault:{adapter:{read:async p=>JSON.stringify(p.endsWith('sync-status.json')?syncState:data),getResourcePath:x=>x},getAbstractFileByPath:()=>null},
-    plugins:{plugins:{'link-brain-actions':{settings:{hiddenCats:[]},openAccountStatus:onAccountOpen,fixFromCatalog:onAccountOpen,openAttachments(){},openCategories(){},openLibraryPage(){}}}},
+  const app={vault:{adapter:{read:async p=>{if(p.endsWith('problems-summary.json')){if(!summary)throw new Error('ENOENT');return JSON.stringify(summary);}return JSON.stringify(p.endsWith('sync-status.json')?syncState:data);},getResourcePath:x=>x},getAbstractFileByPath:()=>null},
+    plugins:{plugins:{'link-brain-actions':{settings:{hiddenCats:[]},openAccountStatus:onAccountOpen,openProblems:onAccountOpen,openAttachments(){},openCategories(){},openLibraryPage(){}}}},
     workspace:{openLinkText(){}}};
   const dv={container:root,current:()=>({file:{folder:''}}),page:()=>null};
   const search=fs.readFileSync('link_brain/assets/lb-page-lib.js','utf8')+'\n'+fs.readFileSync('link_brain/assets/catalog-search.js','utf8');
@@ -161,19 +161,20 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
   // 主题名不认识的旧 activeTopic / 坏数据不炸
   const bad=await runCatalogPage({...base,topics:[null,'',42]});
   assert.equal(bad.root.querySelectorAll('.lbc-topics').length,0);
+  // 第 4 批：「!」升级成问题入口——要你处理=橙色数字、其余=灰色数字、都为 0 不显示；点开 = 插件 openProblems()（问题列表）
   let opened=0;
-  const failed=await runCatalogPage(base,{syncState:{state:'blocked',account:'xhs',code:'NOT_LOGGED_IN'},onAccountOpen:()=>opened++});
-  const account=failed.root.querySelector('.lbc-account-status');
-  // 0926 起：只出一个「!」，原因在悬停里（title），点一下直接修
-  assert.equal(account.textContent,'!');assert.ok(account.title.startsWith('需要登录'));assert.equal(account.hidden,false);
-  await account.onclick();assert.equal(opened,1,'「!」直接走插件的修复入口');
-  const captcha=await runCatalogPage(base,{syncState:{state:'blocked',account:'xhs',code:'CAPTCHA_REQUIRED'}});
-  const cap=captcha.root.querySelector('.lbc-account-status');
-  assert.equal(cap.textContent,'!');assert.ok(cap.title.startsWith('需要验证'));
-  const service=await runCatalogPage(base,{syncState:{state:'blocked',account:null}});
-  assert.equal(service.root.querySelector('.lbc-account-status').textContent,'!');assert.ok(service.root.querySelector('.lbc-account-status').title.startsWith('同步暂停'));
-  const ok=await runCatalogPage(base,{syncState:{state:'ready',updated_at:'2026-09-25T04:10:00+10:00'}});
-  assert.equal(ok.root.querySelector('.lbc-account-status').hidden,true,'同步正常时不显示');
-  console.log('PASS: directory shows sync failure next to count and opens account login');
+  const reg={'NEEDS_HUMAN.NOT_LOGGED_IN':{label:'需要登录',hover:'',group:'needs_you',where:'top+card'},'NEEDS_HUMAN.CAPTCHA_REQUIRED':{label:'需要验证',hover:'',group:'needs_you',where:'top+card'}};
+  const failed=await runCatalogPage({...base,state_registry:reg},{syncState:{state:'blocked',account:'xhs',code:'NOT_LOGGED_IN',updated_at:'2026-10-02T04:00:00+10:00'},summary:{updated_at:'2026-10-02T04:01:00+10:00',needs_human:1,auto:2,gave_up:1,skipped:5},onAccountOpen:()=>opened++});
+  const entry=failed.root.querySelector('.lbc-problems');
+  assert.equal(entry.hidden,false);
+  assert.equal(entry.querySelector('.lbc-prob-need').textContent,'1');assert.equal(entry.querySelector('.lbc-prob-other').textContent,'3','自动处理中 + 已放弃，未开启不计数');
+  assert.ok(entry.title.startsWith('需要登录'),entry.title);
+  await entry.onclick();assert.equal(opened,1,'问题入口走插件 openProblems');
+  const captcha=await runCatalogPage({...base,state_registry:reg},{syncState:{state:'blocked',account:'xhs',code:'CAPTCHA_REQUIRED'}});
+  const cap=captcha.root.querySelector('.lbc-problems');
+  assert.equal(cap.querySelector('.lbc-prob-need').textContent,'1','还没有 problems-summary.json 时同步卡住照样亮');assert.ok(cap.title.startsWith('需要验证'));
+  const ok=await runCatalogPage(base,{syncState:{state:'ready',updated_at:'2026-09-25T04:10:00+10:00'},summary:{needs_human:0,auto:0,gave_up:0,skipped:3}});
+  assert.equal(ok.root.querySelector('.lbc-problems').hidden,true,'都为 0 不显示');
+  console.log('PASS: problems entry next to count (orange needs-you / gray others, hidden at 0) opens openProblems');
   console.log('PASS: topic chips (absent when no topics, filter/toggle/single-select, 全部 reset, AND with cats, no aria-label)');
 })().catch(e=>{console.error(e);process.exitCode=1;});

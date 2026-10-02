@@ -113,6 +113,27 @@ STATE_REGISTRY = {  # code 前缀 → 显示；写进 catalog-data.json 的 "sta
 - 卡片：`catalog-view.js:376-381` 角标区按 `it.problems` 追加灰标；`catalog.collect:291-292 attachment_reason` 并入 `problems`。
 - `main.js:649-664 fixFromCatalog` → `openProblems()` 的一个按钮。
 
+**第 4 批落地（10-02，后端）补充的契约**（字段名固定，前端照读）
+```jsonc
+// vault/_archive/problems-summary.json —— problems.jsonl 每次成功追加（report / resolve / 压实）后在 problems 锁里重写；
+// sync_state 每次写 sync-status.json（record / progress / account_problem / account_ok / current）后也重写。写失败 fail-open。
+{"updated_at": "2026-10-02T04:12:00+10:00",
+ "needs_human": 1, "auto": 3, "gave_up": 2, "skipped": 1,          // 未解决的 key 数；skipped 只给「未开启」组，不算问题
+ "last_runs": {"attachments.convert": {"ts": "…", "ok": false}},
+ "sync": {"state": "ready|running|failed|blocked", "code": "", "message": "收藏同步完成", "detail": "",
+          "label": "", "hover": "",                                 // code 非空时从登记表取（hover 已填好）
+          "updated_at": "…", "last_success": "…", "favorites": 120,
+          "new": 2, "deferred": 4,                                  // 本次新收几篇 / 还剩几篇逐晚处理（sync-status.json 新增的两个键）
+          "progress": "", "running": false}}                        // running+pid 已死在 Python 侧改成 failed/INTERRUPTED
+// catalog-data.json：顶层 "state_registry" = problems.registry_for_js()；每个 item 加
+"problems": [{"code": "PERMANENT.PDF_ENCRYPTED", "label": "全文没转出来", "hover": "PDF 有打开密码，字节已保存",
+              "group": "gave_up", "action": "gave_up"}]              // 从对象文件推出、不读 jsonl；SKIPPED 不列；attachment_reason / attachment_errors 照留
+```
+- 「pid 还活着」只在 `sync_state` 判：`load()` 只读修正；`current()` 发现 running+进程已死就把 INTERRUPTED 落盘进 sync-status.json、登记一条 `TRANSIENT.INTERRUPTED`、刷新 summary。`catalog.build` 末尾和 `python -m link_brain problems summary`（页面看到 running 但插件自己没在跑任务时调）都会走 `current()`。
+- `problems list` 每行附 `label / hover（已填 {reason}{next_at}）/ group / where / step_label`；`problems resolve --step S [--item-id X] [--code C]` → `{ok, code, message, resolved}`（夜跑每步成功后调）；`problems summary` → 重写并输出 problems-summary.json。夜跑步骤名 `nightly.<小写字母数字连字符>`。
+- 推送去重（§2.6 的细化）：NEEDS_HUMAN 按「同一步骤 + 同一细分码」去重（key 失效时几十篇都撞 AUTH_FAILED 只推一次）；账号类码（掉登录 / 验证 / 风控 / 熔断 / 登错号 / 没装组件 / `ACCOUNT_BLOCKED`）不管在哪一步撞见，一律登记在 `step=login, item_id=None`（`problems.report_blocked`）。STUCK 仍按 key 记（卡片上看得到是哪篇），推送同样按步骤去重。
+- 新码：`NEEDS_HUMAN.ACCOUNT_BLOCKED / SYNC_STUCK`、`TRANSIENT.FAVORITES_FAILED / SYNC_FAILED / DOWNLOAD_FAILED / PROBE_FAILED / WEB_PROBE_BLOCKED / RETRY_EXHAUSTED / STEP_CRASHED / SECRET_TIMEOUT`、`PERMANENT.CONVERSION_FAILED / STEP_ARGS`；夜跑脚本专用的列在 `problems.EXTERNAL_CODES`。
+
 ---
 
 ## 4. 外部能力的 provider 接口

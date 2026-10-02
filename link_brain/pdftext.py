@@ -4,12 +4,15 @@
 这里只管编排：
 - 转出来 → 写 md（落盘前 mdsafe.neutralize），清掉失败标记，问题记录里这篇的转换问题标已解决；
 - 失败 → attachments.json 记 conversion_failed（带故障码和当时的 sha256），问题记录登记；
-  **只有 PERMANENT（加密 / 损坏 / 不支持的格式）同一份字节不再重试**，SKIPPED（OCR 没开）和 TRANSIENT 下次照转。
+  **只有 PERMANENT（加密 / 损坏 / 不支持的格式）同一份字节不再重试**；SKIPPED（OCR 没开）下次照转；
+  TRANSIENT（OCR 服务故障、超时）按 conversion_failed.next_at 退避（attachments.CONVERT_BACKOFF_DAYS：
+  第 1/2/3/≥4 次失败后隔 1/2/4/7 个日历日，从那天 0 点起可再转）——到点前跳过，到点后自动再转（第 4 批）。
 """
 
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -50,13 +53,23 @@ def _permanent(code: str | None) -> bool:
     return not code or str(code).startswith("PERMANENT.")
 
 
+def _backing_off(prior: dict[str, Any], now: datetime | None = None) -> bool:
+    """TRANSIENT 转换失败还没到 next_at：这次先不转。next_at 缺 / 读不出来 = 不退避（照转）。"""
+    if not str(prior.get("code") or "").startswith("TRANSIENT.") or not prior.get("next_at"):
+        return False
+    try:
+        return datetime.fromisoformat(str(prior["next_at"])) > (now or datetime.now().astimezone())
+    except (TypeError, ValueError):
+        return False
+
+
 def attachment_md_path(source_key: str, source_id: str, doc_id: str) -> Path:
     return storage.derived_dir(source_key, source_id) / "attachments" / f"{doc_id}.md"
 
 
 def convert_object_attachments(
     source_key: str, source_id: str, *, force: bool = False, force_ocr: bool = False,
-    verbose: bool = False,
+    verbose: bool = False, now: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """把一个对象已经下下来的 PDF 附件都转成 `derived/attachments/<doc_id>.md`。"""
     from . import attachments as attachments_mod
@@ -95,6 +108,11 @@ def convert_object_attachments(
             results.append({"doc_id": doc_id, "status": "conversion_failed", "note": prior.get("note"),
                             "code": prior.get("code") or ""})
             continue
+        if prior and not force and prior.get("sha256") == record.get("sha256") and _backing_off(prior, now):
+            # TRANSIENT 退避中：不算这次失败、不重复登记（问题记录里那条带着 next_at）
+            results.append({"doc_id": doc_id, "status": "backoff", "note": prior.get("note"),
+                            "code": prior.get("code") or "", "next_at": prior.get("next_at")})
+            continue
         try:
             outcome = attachment_to_markdown(path, force_ocr=force_ocr, verbose=verbose)
         except Exception as exc:  # noqa: BLE001 - 转换出任何意外都只算这一份失败（下次再试）
@@ -108,10 +126,11 @@ def convert_object_attachments(
             continue
         if outcome["status"] != "ok":
             code = outcome.get("code") or "TRANSIENT.SERVICE_BUSY"
-            attachments_mod.mark_conversion(source_key, source_id, doc_id, outcome["note"], code=code)
+            next_at = attachments_mod.mark_conversion(source_key, source_id, doc_id, outcome["note"], code=code, now=now)
             problems.report("attachments.convert", code, f"{record.get('name') or path.name}：{outcome['note']}",
-                            item_id=item_id, title=meta.get("title"))
-            results.append({"doc_id": doc_id, "status": "failed", "note": outcome["note"], "code": code})
+                            item_id=item_id, title=meta.get("title"), next_at=next_at)
+            results.append({"doc_id": doc_id, "status": "failed", "note": outcome["note"], "code": code,
+                            "next_at": next_at})
             continue
         out.parent.mkdir(parents=True, exist_ok=True)
         from .mdsafe import neutralize  # 1001 C-2：附件全文是别人写的，落盘前打断 Dataview 可执行形态
@@ -172,6 +191,9 @@ def run(args) -> int:
                 print(f"{source_id}  = {r['path']}（已有，--force 可重转）")
             elif r["status"] == "skipped":
                 print(f"{source_id}  - 跳过：{r.get('note')}", file=sys.stderr)
+            elif r["status"] == "backoff":
+                # 上次 TRANSIENT 失败、还没到下次重试时刻：有计划的剩余，不算这次出错（CONVENTIONS §1.2）
+                print(f"{source_id}  … 上次没转成（{r.get('note')}），{r.get('next_at')} 之后再转", file=sys.stderr)
             else:
                 failed = True
                 print(f"{source_id}  ✗ {r.get('note')}", file=sys.stderr)

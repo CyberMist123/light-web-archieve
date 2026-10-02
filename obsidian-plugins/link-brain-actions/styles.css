@@ -59,3 +59,21 @@
 @keyframes lb-dots {
   0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; }
 }
+
+/* 第 4 批：问题列表（目录页顶部问题入口点开，problems-ui.js） */
+.lb-problems-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.lb-problems-head h2 { margin: 0; }
+.lb-problems-status { color: var(--text-muted); font-size: 13px; }
+.lb-problems-status.mod-warning { color: var(--text-error); }
+.lb-problems-group { margin-top: 18px; }
+.lb-problems-group h3 { font-size: 13px; font-weight: 600; color: var(--text-muted); margin: 0 0 6px; }
+.lb-problems-group.is-needs_you h3 { color: #c77700; }
+.lb-problem { padding: 8px 0; border-bottom: 1px solid var(--background-modifier-border); }
+.lb-problem:last-child { border-bottom: none; }
+.lb-problem-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 13px; }
+.lb-problem-time, .lb-problem-action, .lb-problem-count { color: var(--text-muted); font-size: 12px; }
+.lb-problem-title { color: var(--text-normal); font-weight: 500; overflow-wrap: anywhere; }
+.lb-problem-label { color: var(--text-muted); }
+.lb-problems-group.is-needs_you .lb-problem-label { color: #c77700; }
+.lb-problem-why { font-size: 12px; color: var(--text-faint); margin-top: 2px; overflow-wrap: anywhere; }
+.lb-problem-btns { display: flex; gap: 8px; margin-top: 6px; }

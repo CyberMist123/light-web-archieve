@@ -27,11 +27,12 @@ style.textContent = `
 .lbc-search{width:100%!important;min-width:0;max-width:440px!important;text-align:center;height:36px!important;box-shadow:none!important;border-radius:0!important;background:transparent!important;border:0!important;border-bottom:1px solid var(--background-modifier-border)!important;padding:0 2px!important;}
 .lbc-search:focus{border-bottom-color:var(--interactive-accent)!important;}
 .lbc-sub{font-size:12px;color:var(--text-normal);white-space:nowrap;}
-.lbc-sync{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e08a1e;color:#fff;font-size:11px;font-weight:700;font-family:sans-serif;cursor:pointer;flex:0 0 auto;}
-.lbc-sync[hidden]{display:none;}
-.lbc-wrap button.lbc-sync.lbc-account-status{width:16px;height:16px!important;min-height:0;padding:0!important;border:0!important;box-shadow:none!important;background:#e08a1e!important;color:#fff;font-size:11px;font-weight:700;border-radius:50%!important;}
-.lbc-wrap button.lbc-sub.lbc-account-status{background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important;height:auto!important;cursor:default;}
-.lbc-account-status[hidden]{display:none!important;}
+.lbc-wrap button.lbc-problems{display:inline-flex;align-items:center;gap:3px;min-height:0;height:auto!important;padding:0!important;border:0!important;box-shadow:none!important;background:transparent!important;cursor:pointer;flex:0 0 auto;}
+.lbc-problems[hidden],.lbc-syncing[hidden],.lbc-syncinfo[hidden]{display:none!important;}
+.lbc-prob-n{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;box-sizing:border-box;border-radius:8px;font-size:10.5px;font-weight:700;font-family:sans-serif;line-height:16px;}
+.lbc-prob-need{background:#e08a1e;color:#fff;}
+.lbc-prob-other{background:var(--background-modifier-border);color:var(--text-muted);font-weight:600;}
+.lbc-syncinfo{font-size:10px;color:var(--text-faint);letter-spacing:.04em;white-space:nowrap;}
 .lbc-grid{columns:250px;column-gap:32px;}
 .lbc-card{display:inline-block;vertical-align:top;width:100%;margin:0 0 36px;break-inside:avoid;cursor:pointer;position:relative;}
 .lbc-attach{position:absolute;top:8px;right:8px;font-size:11px;line-height:1;padding:4px 8px;border-radius:9px;background:rgba(0,0,0,.55);color:#fff;pointer-events:none;backdrop-filter:blur(2px);}
@@ -154,6 +155,8 @@ style.textContent = `
 @media(hover:none){.lbc-star{opacity:1;pointer-events:auto;}}
 .lbc-badges{position:absolute;top:8px;left:8px;display:flex;gap:5px;align-items:center;}
 .lbc-badges .lbc-attach{position:static;display:inline-flex;align-items:center;line-height:16px;padding:3px 6px;gap:4px;height:22px;box-sizing:border-box;}
+.lbc-badges .lbc-prob{pointer-events:auto;cursor:help;color:var(--text-muted);background:var(--background-secondary);border-color:var(--background-modifier-border);}
+.lbc-badges .lbc-prob.is-need{color:#a86513;background:#fff8eb;border-color:#e8d8bc;}
 .lbc-badges svg{display:block;width:14px;height:14px;flex:none;stroke:currentColor;stroke-width:1.6;fill:none;}
 .lbc-simple .lbc-grid-inner{columns:auto;}.lbc-simple .lbc-card{padding:18px 42px 18px 0;}.lbc-simple .lbc-body{padding:0;}.lbc-simple .lbc-badges{position:static;float:right;margin:2px 0 0 12px;}.lbc-simple .lbc-star{top:16px;right:0;}.lbc-simple .lbc-cmeta{margin-top:4px;}
 .lbchat-bookmark svg{width:18px;height:18px;display:block;stroke:currentColor;stroke-width:1.6;fill:none;}.lbchat-bookmark.is-saved svg{fill:currentColor;}
@@ -197,7 +200,7 @@ let committed='',chatMode=false,messages=[],busy=false;
 // 数据变了（同步进来新的、删了、挂了附件）：不重建整页，只换数据再画卡片（卡片按 id 复用，见 render）
 async function refresh(next){
   try{data=await LB.data.load();}catch{if(!next)return;data=next;}
-  items=data.items||[];refreshTags();renderCatBar();render();
+  items=data.items||[];refreshTags();renderCatBar();render();paintProblems();   // 登记表跟着新数据走
   const view=root.__lbView;if(view)view.version=await LB.data.version();   // 已经是新数据了：下一次 Dataview 重跑别再更新一遍
 }
 function attachmentPanel(list){if(typeof provider()?.openAttachments!=='function'){importStatus.setText('附件工具未载入，请重新启用 Link Brain Actions 插件。');return;}provider().openAttachments(list,refresh);}
@@ -213,36 +216,70 @@ const importButton=titleText.createEl('button',{cls:'lbc-import',text:'+'});
 const subLine=titleBlock.createEl('div',{cls:'lbc-subline'});
 let todayOnly=false;
 const sub=subLine.createEl('span',{cls:'lbc-sub'});
-// 0927 Owner：只留一个「!」，只报要人处理的错（同步/账号）；附件待补会自动重跑，补齐入口只在底栏。
-let todoCount=0;
-// 0926 Owner：按老样子——只有出问题时才在计数后面出一个橙色圆「!」，悬停看原因，点一下直接修。
-const accountStatus=subLine.createEl('button',{cls:'lbc-sync lbc-account-status'});accountStatus.hidden=true;
-// 同步状态：出问题时是「! 需要登录 / 需要验证 / 同步失败」，点一下直接进入修复（扫码 / 验证窗口）。
-let syncState=null;
-async function refreshSyncStatus(){
-  try { let s=JSON.parse(await app.vault.adapter.read(lbPath('_archive/sync-status.json'))); if(s&&s.state==='running'&&s.pid){let alive=true;try{process.kill(s.pid,0);}catch(e){alive=e.code==='EPERM';}if(!alive)s={...s,state:'failed',code:'INTERRUPTED',message:'上次同步中途被打断（Obsidian 关闭或进程被结束），已抓的都在；再点一次同步会接着来',detail:s.progress||''};} syncState=s; } catch { syncState=null; }
-  const st=syncState||{};
-  const label={NOT_LOGGED_IN:'需要登录',CAPTCHA_REQUIRED:'需要验证',WRONG_ACCOUNT:'登错号',INTERRUPTED:'同步被打断',DISCONNECTED:'服务未运行',NOT_INSTALLED:'未安装读取组件'}[st.code]
-    ||(st.state==='blocked'?(st.account?'需要登录':'同步暂停'):st.state==='failed'?'同步失败':'');
-  syncLabel=label;paintBadge();
+// 第 4 批（CONVENTIONS §3.3）：顶部问题入口——原来的「!」升级。数字来自 _archive/problems-summary.json（Python 每次问题记录变动后重写）：
+// 「要你处理」橙色数字，其余（自动处理中 + 已放弃）灰色数字，都为 0 不显示；「未开启」不计数。点开 = 插件 openProblems() 问题列表。
+// 同步状态以 summary.sync 为准（进程死了还停在 running 由 Python 改判 INTERRUPTED，页面不再自己查 pid）；sync-status.json 比它新时用新的。
+// 文案（标签 / 悬停原因）只从 catalog-data 的 state_registry 取，JS 不写状态文案。
+const probBtn=subLine.createEl('button',{cls:'lbc-problems'});probBtn.type='button';probBtn.hidden=true;
+const syncing=subLine.createEl('span',{cls:'lbc-sub lbc-syncing',text:'· 同步中…'});syncing.hidden=true;
+// 同步概况：上次同步时间 · 本次新收 N 篇 · 还剩 N 篇逐晚处理（summary.sync 里缺哪项就不显示哪项）
+const syncInfo=titleBlock.createEl('div',{cls:'lbc-syncinfo'});syncInfo.hidden=true;
+let syncState=null,probSummary=null;
+function regEntry(code){
+  const reg=data.state_registry||{};code=String(code||'');if(!code)return null;
+  if(reg[code])return reg[code];
+  const dot=code.indexOf('.'),sub=dot>=0?code.slice(dot+1):code;
+  const hit=Object.keys(reg).find(k=>!k.endsWith('.*')&&k.slice(k.indexOf('.')+1)===sub);
+  return hit?reg[hit]:(dot>=0?reg[code.slice(0,dot)+'.*']||null:null);
 }
-let syncLabel='';
-function paintBadge(){
-  const st=syncState||{};const label=syncLabel;
-  const why=[label&&label+(st.detail||st.message?'：'+(st.detail||st.message):'')].filter(Boolean);
-  accountStatus.empty();accountStatus.className='lbc-sync lbc-account-status';
-  if(why.length){accountStatus.setText('!');accountStatus.title=why.join('\n')+'\n点击处理';}
-  else if(st.state==='running'){accountStatus.className='lbc-sub lbc-account-status';accountStatus.setText('· 同步中…');accountStatus.title='';}
-  // 0926 Owner：已同步就不显示，只有报错才出现
-  accountStatus.hidden=!why.length&&st.state!=='running';
+async function readArchiveJson(p){try{const v=JSON.parse(await app.vault.adapter.read(lbPath(p)));return v&&typeof v==='object'?v:null;}catch{return null;}}
+const tsOf=v=>{const t=Date.parse(v||'');return Number.isFinite(t)?t:0;};
+const numOf=(o,...keys)=>{for(const k of keys){const v=o?.[k];if(v!==null&&v!==undefined&&v!==''&&Number.isFinite(Number(v)))return Number(v);}return null;};
+function mergeSync(raw,sum){
+  const s=sum&&sum.sync&&typeof sum.sync==='object'?sum.sync:null;
+  if(!s)return raw;if(!raw)return s;
+  return tsOf(raw.updated_at)>(tsOf(s.updated_at)||tsOf(sum.updated_at))?{...s,...raw}:{...raw,...s};
 }
-accountStatus.onclick=async()=>{
-  try { await (await LB.ensure('fixFromCatalog')).fixFromCatalog(); }
+const shortTime=v=>{const t=tsOf(v);return t?new Date(t).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):'';};
+async function refreshProblems(){
+  const [raw,sum]=await Promise.all([readArchiveJson('_archive/sync-status.json'),readArchiveJson('_archive/problems-summary.json')]);
+  probSummary=sum;syncState=mergeSync(raw,sum);paintProblems();
+  // 显示「同步中」但插件这头没在跑任务：可能是上次 Obsidian 关掉时被打断的那次。请 Python 核一次（problems summary：
+  // 进程已死就落盘 INTERRUPTED 并重写 summary），每次打开页面最多一次；页面自己不查 pid（§3 迁移点）。
+  const p=provider();
+  if(syncState?.state==='running'&&!aliveChecked&&p&&!p.running&&typeof p.refreshProblemSummary==='function'){
+    aliveChecked=true;p.refreshProblemSummary().then(r=>{if(r)refreshProblems();}).catch(()=>{});
+  }
+}
+let aliveChecked=false;
+function paintProblems(){
+  const st=syncState||{},s=probSummary;
+  let need=numOf(s,'needs_human')||0;const auto=numOf(s,'auto')||0,gaveUp=numOf(s,'gave_up')||0;
+  if(!s&&st.state==='blocked')need=1;   // 还没有 problems-summary.json（老库第一次）：同步卡在要人处理时照样亮
+  probBtn.empty();
+  if(need)probBtn.createEl('span',{cls:'lbc-prob-n lbc-prob-need',text:String(need)});
+  if(auto+gaveUp)probBtn.createEl('span',{cls:'lbc-prob-n lbc-prob-other',text:String(auto+gaveUp)});
+  probBtn.hidden=!need&&!(auto+gaveUp);
+  const lines=[];
+  if(st.state==='blocked'||st.state==='failed'){const why=st.detail||st.message||'';const head=st.label||regEntry(st.code)?.label||'';if(head||why)lines.push(head&&why?head+'：'+why:head||why);}
+  const counts=[need&&`要你处理 ${need}`,auto&&`正在自动处理 ${auto}`,gaveUp&&`已放弃 ${gaveUp}`].filter(Boolean);
+  if(counts.length)lines.push(counts.join(' · '));
+  probBtn.title=probBtn.hidden?'':[...lines,'点击查看问题列表'].join('\n');
+  syncing.hidden=st.state!=='running';
+  const ss=s&&s.sync&&typeof s.sync==='object'?s.sync:{};
+  const last=shortTime(ss.last_success||ss.last_sync_at),added=numOf(ss,'new','new_count'),left=numOf(ss,'deferred','remaining');
+  const parts=[last&&`上次同步 ${last}`,added!=null&&`本次新收 ${added} 篇`,left>0&&`还剩 ${left} 篇逐晚处理`].filter(Boolean);
+  syncInfo.setText(parts.join(' · '));syncInfo.hidden=!parts.length;
+}
+probBtn.onclick=async()=>{
+  try { await (await LB.ensure('openProblems')).openProblems(); }
   catch(error){try{new Notice(error.message,10000);}catch{window.alert(error.message);}}
 };
-await refreshSyncStatus();
+await refreshProblems();
+// 文件监听（§5.7）：同步状态 / 问题汇总一变只重画入口这几个字，不动整页
 if(app.vault.on && dv.component?.registerEvent){
-  const update=file=>{if(file.path===lbPath('_archive/sync-status.json'))refreshSyncStatus();};
+  const watched=new Set([lbPath('_archive/sync-status.json'),lbPath('_archive/problems-summary.json')]);
+  const update=file=>{if(watched.has(file?.path))refreshProblems();};
   dv.component.registerEvent(app.vault.on('modify',update));
   dv.component.registerEvent(app.vault.on('create',update));
 }
@@ -386,7 +423,7 @@ function openCardMenu(e,body,it){
 // 卡片按 id 复用（§5.5）：内容和选中状态都没变的卡片原样挂回，封面图不重载、不闪；变了的才重建。
 const cardCache=new Map();
 function cardSig(it,fuzzy){
-  return JSON.stringify([it.title,it.cover,it.cover_w,it.cover_h,it.kind,it.attachment,it.attachment_reason,!!it.starred,it.author,it.source,it.likes,it.note,
+  return JSON.stringify([it.title,it.cover,it.cover_w,it.cover_h,it.kind,it.attachment,it.attachment_reason,!!it.starred,it.author,it.source,it.likes,it.note,it.problems||null,
     fuzzy,selectMode&&selected.has(it.id)]);
 }
 function render(){renderGrid();saveState();}
@@ -398,7 +435,6 @@ function renderGrid(){
   const ranked=rankItems(filtered,q,data.pinyin_chars,data.aliases||[]);
   const shown=[...ranked.exact,...ranked.possible];
   sub.setText((q||todayOnly||todoOnly||starredPage||mediaFilter||activeTopic?`${ranked.exact.length} / ${items.length} 篇`+(ranked.possible.length?` · 可能相关 ${ranked.possible.length}`:''):`${items.length} 篇`)+` · 更新 ${new Date(data.built_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}`);
-  todoCount=items.filter(x=>x.attachment==='待补').length;paintBadge();
   ai.hidden=!asking;grid.hidden=asking;
   if(asking){selbar.hidden=true;return;}
   if(simplePage&&!starredPage&&!q&&!activeCat&&!activeTopic&&!todayOnly&&!todoOnly){grid.createEl('div',{cls:'lbc-empty',text:'输入关键词搜索收藏；想让 AI 分析，点上面的「问收藏」。'});selbar.hidden=true;return;}
@@ -437,6 +473,15 @@ function buildCard(cards,it,fuzzy){
  else if(it.attachment==='线索')badges.createEl('div',{cls:'lbc-attach lbc-attach-hint',text:'疑似附件',attr:{title:it.attachment_reason||'正文提到附件，但没找到文件'}});
     else if(it.attachment==='downloaded')badges.createEl('div',{cls:'lbc-attach',text:'文件'});
     const badge=badges.querySelector('.lbc-attach:not(.lbc-video)');if(badge){try{const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');icon.setAttribute('viewBox','0 0 24 24');icon.innerHTML='<path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>';badge.prepend(icon);}catch(err){window.alert(err.message);}}
+    // 第 4 批：这篇的问题标（灰；要你处理的用醒目色），悬停看原因。标签和原因都是 Python 填好的（problems 登记表）；
+    // 同一个标签只出一个（几份 PDF 都没转出来 = 一个「全文没转出来」，悬停把原因并起来），和上面附件标同名的不重复出；「未开启」不上卡片。
+    const shownLabels=new Set(Array.from(badges.querySelectorAll('.lbc-attach'),b=>b.textContent));const probs=new Map();
+    for(const p of Array.isArray(it.problems)?it.problems:[]){
+      if(!p||!p.label||p.group==='off'||shownLabels.has(p.label))continue;
+      const g=probs.get(p.label)||{need:false,hover:[]};g.need=g.need||p.group==='needs_you';
+      const why=p.hover||p.reason;if(why&&!g.hover.includes(why))g.hover.push(why);probs.set(p.label,g);
+    }
+    for(const [label,g] of probs){const b=badges.createEl('span',{cls:'lbc-attach lbc-prob'+(g.need?' is-need':''),text:label});if(g.hover.length)b.title=g.hover.join('\n');}
     const star=card.createEl('button',{cls:'lbc-star'+(it.starred?' is-on':''),text:it.starred?'★':'☆'});
     star.setAttribute('aria-pressed',String(!!it.starred));star.createEl('span',{cls:'lb-visually-hidden',text:it.starred?'取消收藏':'收藏'});
     star.onclick=async e=>{e.preventDefault();e.stopPropagation();star.disabled=true;const x=cur();try{const result=await provider().starNote(x.id,!x.starred);x.starred=result.starred;render();}catch(err){importStatus.setText(err.message);star.disabled=false;}};

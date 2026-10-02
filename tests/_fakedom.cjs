@@ -62,6 +62,8 @@ function makeDom() {
       this.append(el); return el;
     }
     createDiv(o = {}) { return this.createEl('div', o); }
+    createSpan(o = {}) { return this.createEl('span', o); }
+    addClass(...c) { this.classList.add(...c); }
     append(...nodes) { for (const n of flatten(nodes)) { detach(n); n.parentNode = this; this.childNodes.push(n); } }
     appendChild(n) { this.append(n); return n; }
     prepend(...nodes) { const flat = flatten(nodes); for (const n of flat) { detach(n); n.parentNode = this; } this.childNodes.unshift(...flat); }

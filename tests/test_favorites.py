@@ -37,7 +37,7 @@ def _wire(monkeypatch, favs, *, ingest=None, alerts=None):
         },
     )
     if alerts is not None:
-        monkeypatch.setattr(fav_mod.alert_mod, "alert", lambda *a, **k: alerts.append((a, k)))
+        monkeypatch.setattr("link_brain.alert._alert", lambda *a, **k: alerts.append((a, k)))
     if ingest is not None:
         monkeypatch.setattr(fav_mod.ingest_mod, "ingest_url", ingest)
 
@@ -77,7 +77,7 @@ def test_limit_respected(monkeypatch):
     assert out["favorites"] == 3 and out["synced"] == 3
 
 
-def test_service_down_stops_and_alerts(monkeypatch):
+def test_service_down_stops_without_pushing(monkeypatch):
     favs = [_fav("aaa"), _fav("bbb"), _fav("ccc")]
     alerts: list = []
 
@@ -91,7 +91,8 @@ def test_service_down_stops_and_alerts(monkeypatch):
     out = fav_mod.sync_favorites()
     # aaa 成功、bbb blocked 后立刻停车，ccc 根本没跑
     assert [i["status"] for i in out["items"]] == ["new", "blocked"]
-    assert len(alerts) == 1
+    # 第 4 批：读取服务挂了是 TRANSIENT（下次自动再试），不推送；登记在 sync_state.record（见 test_problems_batch4）
+    assert alerts == []
 
 
 def test_login_required_blocks_whole_batch(monkeypatch, capsys):
@@ -99,7 +100,7 @@ def test_login_required_blocks_whole_batch(monkeypatch, capsys):
         raise xhs.AccountBlockedError("收藏掉登录了，去扫码")
 
     monkeypatch.setattr(fav_mod, "fetch_favorites", boom)
-    monkeypatch.setattr(fav_mod.alert_mod, "alert", lambda *a, **k: None)
+    monkeypatch.setattr("link_brain.alert._alert", lambda *a, **k: None)
 
     class Args:
         limit = 50
@@ -140,7 +141,7 @@ def test_favorite_account_tag_is_deduplicated_and_survives_meta_rebuild(tmp_path
 def test_wrong_account_stops_before_ingest(monkeypatch):
     """0927：登错号（测试号）时整批不入库，报 WRONG_ACCOUNT；第一次同步的号被钉住。"""
     from link_brain import accounts, favorites as fav
-    monkeypatch.setattr(fav.alert_mod, "alert", lambda *a, **k: None)
+    monkeypatch.setattr("link_brain.alert._alert", lambda *a, **k: None)
     def fake_fetch(nick):
         def _f(**kw):
             fav._CURRENT_ACCOUNT = {"nickname": nick, "user_id": ""}

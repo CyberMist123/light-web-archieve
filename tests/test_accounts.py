@@ -141,17 +141,22 @@ def test_favorites_captcha_stops_without_retry(clean, monkeypatch):
     fake = FakeReader(monkeypatch, {'/api/v1/login/session': {'state': 'idle'},
                                     '/api/v1/favorites': accounts.ReaderError('CAPTCHA_REQUIRED')})
     alerts = []
-    monkeypatch.setattr(favorites.alert_mod, 'alert', lambda *a, **k: alerts.append(a))
+    monkeypatch.setattr("link_brain.alert._alert", lambda *a, **k: alerts.append(a))
     out = favorites.sync_favorites()
     assert out['code'] == 'CAPTCHA_REQUIRED' and out['items'][0]['status'] == 'blocked'
-    assert fake.calls.count('/api/v1/favorites') == 1 and len(alerts) == 1
+    assert fake.calls.count('/api/v1/favorites') == 1
+    # 第 4 批：推送只有 problems.report 一个出口——同步的结论由 sync_state.record 登记（_run 每次都调）
+    from link_brain import problems, sync_state
+    sync_state.record('finished', payload=out)
+    assert len(alerts) == 1
+    assert [(r['step'], r['code']) for r in problems.load()] == [('login', 'NEEDS_HUMAN.CAPTCHA_REQUIRED')]
 
 
 def test_favorites_rate_limited_is_quiet(clean, monkeypatch):
     FakeReader(monkeypatch, {'/api/v1/login/session': {'state': 'idle'},
                              '/api/v1/favorites': accounts.ReaderError('RATE_LIMITED')})
     alerts = []
-    monkeypatch.setattr(favorites.alert_mod, 'alert', lambda *a, **k: alerts.append(a))
+    monkeypatch.setattr("link_brain.alert._alert", lambda *a, **k: alerts.append(a))
     assert favorites.sync_favorites()['code'] == 'RATE_LIMITED' and not alerts
 
 

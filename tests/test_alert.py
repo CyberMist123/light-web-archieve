@@ -56,7 +56,7 @@ def test_alert_runs_external_command_with_json_on_stdin(tmp_path, monkeypatch):
     )
     monkeypatch.setenv(alert_mod.ENV_ALERT_CMD, f'"{sys.executable}" "{script}"')
 
-    assert alert_mod.alert(alert_mod.KIND_ACCOUNT, "标题", "正文", url="u") is True
+    assert alert_mod._alert(alert_mod.KIND_ACCOUNT, "标题", "正文", url="u") is True
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["kind"] == alert_mod.KIND_ACCOUNT
     assert payload["title"] == "标题" and payload["body"] == "正文" and payload["url"] == "u"
@@ -64,13 +64,13 @@ def test_alert_runs_external_command_with_json_on_stdin(tmp_path, monkeypatch):
 
 def test_alert_without_command_still_writes_stderr(monkeypatch, capsys):
     monkeypatch.delenv(alert_mod.ENV_ALERT_CMD, raising=False)
-    assert alert_mod.alert("k", "t", "b") is False
+    assert alert_mod._alert("k", "t", "b") is False
     assert "t" in capsys.readouterr().err
 
 
 def test_alert_never_raises_when_command_is_broken(monkeypatch, capsys):
     monkeypatch.setenv(alert_mod.ENV_ALERT_CMD, "definitely-not-a-real-command-xyz")
-    assert alert_mod.alert("k", "t", "b") is False  # 报警自己挂了也不能带走归档
+    assert alert_mod._alert("k", "t", "b") is False  # 报警自己挂了也不能带走归档
     assert "报警命令" in capsys.readouterr().err
 
 

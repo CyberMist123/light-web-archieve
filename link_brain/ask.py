@@ -301,6 +301,11 @@ def _answer_qa(question, items, settings, history=None):
         except (ValueError,TypeError,AttributeError):
             # ask-9：筛选只是锦上添花；模型没按格式回 / 接口抖一下就退回普通检索的前 top_k，接着作答（fail-open）
             selected,candidate_count,selection_failed=matches[:top_k],min(len(matches),top_k),True
+            try:
+                from . import problems
+                problems.report('ask', 'SKIPPED.FALLBACK', '问答挑选材料没成（模型没按格式回或接口抖了一下），已退回普通检索的前几条接着回答', action='skipped')
+            except Exception:  # noqa: BLE001 - 记录失败不影响作答
+                pass
         # Multi-topic requests lost entire topics during model selection in the live benchmark.
         # Retain the strongest local evidence for every meaningful clause, then add selected details.
         facets=query_facets(items,question)

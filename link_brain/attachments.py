@@ -28,11 +28,11 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from . import alert as alert_mod, storage
+from . import problems as problems_mod, storage
 from .adapters import xiaohongshu as xhs
 
 EXIT_NEEDS_HUMAN = 5  # 登录态失效 / 安全验证，要人处理（和 ingest 同一套码）
@@ -199,13 +199,16 @@ def acquire(source_key: str, source_id: str, *, doc_id: str, name: str, xsec_tok
                        if r["doc_id"] == record["doc_id"] and r["status"] == "failed"]
             except Exception as exc:  # noqa: BLE001 - 转换出意外也不该让已下好的字节作废
                 bad = [{"note": f"{type(exc).__name__}: {exc}"}]
-                mark_conversion(source_key, source_id, record["doc_id"], bad[0]["note"], code="TRANSIENT.SERVICE_BUSY")
+                next_at = mark_conversion(source_key, source_id, record["doc_id"], bad[0]["note"],
+                                          code="TRANSIENT.SERVICE_BUSY")
+                problems_mod.report("attachments.convert", "TRANSIENT.SERVICE_BUSY",
+                                    f"{record.get('file')}：{bad[0]['note']}"[:200], item_id=f"xhs-{source_id}",
+                                    next_at=next_at)
             if bad:
+                # 第 4 批：不推送。转换失败已按码登记（加密 / 损坏 PERMANENT，卡片标「全文没转出来」；
+                # OCR 故障 / 超时 TRANSIENT，按 next_at 退避自动再转）
                 print(f"[attachment] {record['file']} 已下好，但转 md 失败（字节留着，不再重下）："
                       f"{bad[0].get('note') or ''}", file=sys.stderr)
-                alert_mod.alert(alert_mod.KIND_ATTACHMENT, "附件已下好，但转不成文字",
-                                describe_problem(source_key, source_id, record.get("file"),
-                                                 str(bad[0].get("note") or "")))
             return load_downloaded(source_key, source_id).get(record["doc_id"], record)
         except AttachmentNeedsHuman:
             raise
@@ -238,13 +241,9 @@ def grab_after_ingest(source_key: str, source_id: str, *, budget_left=None) -> s
         finally:
             conn.close()
         for r in outcome["results"]:
-            if r["status"] == "failed":
-                blocked = bool(r.get("code"))
-                if blocked and not blocked_code:
-                    blocked_code = str(r["code"])
-                alert_mod.alert(alert_mod.KIND_ACCOUNT if blocked else alert_mod.KIND_ATTACHMENT,
-                                "附件没拿到" + ("（账号要处理：登录/安全验证）" if blocked else "（今晚 4 点会再补）"),
-                                f"{outcome['item_id']}: {str(r.get('error'))[:300]}", item_id=outcome["item_id"])
+            # 问题登记在 download_for_object 里统一做（账号类 NEEDS_HUMAN 推一次；其余 TRANSIENT，夜里再补）
+            if r["status"] == "failed" and r.get("code") and not blocked_code:
+                blocked_code = str(r["code"])
     except Exception as exc:  # noqa: BLE001 - 附件是锦上添花，别拖垮已落盘的归档
         print(f"[attachment] 入库后顺手下附件出错（今晚 4 点会再补）：{exc}", file=sys.stderr)
     return blocked_code
@@ -369,17 +368,33 @@ def update_status(source_key, source_id):
     return report
 
 
+CONVERT_BACKOFF_DAYS = (1, 2, 4, 7)  # TRANSIENT 转换失败第 1/2/3/≥4 次之后，隔几个日历日再转（封顶 7 天）
+
+
+def conversion_next_at(tries: int, now: datetime | None = None) -> str:
+    """TRANSIENT 转换失败后的下次可重试时刻：第 n 次失败后隔 CONVERT_BACKOFF_DAYS[n-1] 个**日历日**，
+    从那天 00:00（本地时间）起可以再转。按日历日不按 24 小时：凌晨 4:10 失败、第二晚 4:05 的夜跑也照样重试。"""
+    now = (now or datetime.now().astimezone()).astimezone()
+    days = CONVERT_BACKOFF_DAYS[min(max(tries, 1), len(CONVERT_BACKOFF_DAYS)) - 1]
+    day = (now + timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return day.isoformat(timespec="seconds")
+
+
 def mark_conversion(source_key: str, source_id: str, doc_id: str, note: str | None, *,
-                    partial_pages: int = 0, code: str = "") -> None:
+                    partial_pages: int = 0, code: str = "", now: datetime | None = None) -> str | None:
     """记下这份附件转 md 的结果：失败就标 conversion_failed（带故障码和当时的 sha256，换了文件自动作废），成功就清掉。
-    PERMANENT 码的同一份字节 pdftext 不再重试；别的码（TRANSIENT）下次照转。
+
+    第 4 批：PERMANENT 码（加密 / 损坏 / 不支持）的同一份字节 pdftext 不再重试；TRANSIENT 码（OCR 服务故障、超时）
+    记 `tries`（同一份字节、连着几次 TRANSIENT）和 `next_at`（见 conversion_next_at：1、2、4、7 天，封顶 7 天），
+    到点之前 pdftext 跳过、到点之后自动再转。返回 next_at（PERMANENT / 成功时为 None）。
 
     partial_pages：转出来了但有几页没认出来——记 conversion_partial（累计次数），pdftext 据此再试几次。
     """
     known = load_downloaded(source_key, source_id)
     rec = known.get(doc_id)
     if not rec:
-        return
+        return None
+    next_at = None
     if note is None:
         before = json.dumps(rec, sort_keys=True, ensure_ascii=False)
         rec.pop("conversion_failed", None)
@@ -390,11 +405,19 @@ def mark_conversion(source_key: str, source_id: str, doc_id: str, note: str | No
         else:
             rec.pop("conversion_partial", None)
         if json.dumps(rec, sort_keys=True, ensure_ascii=False) == before:
-            return
+            return None
     else:
-        rec["conversion_failed"] = {"note": str(note)[:300], "sha256": rec.get("sha256"), "code": code,
-                                    "at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")}
+        when = (now or datetime.now().astimezone()).astimezone()
+        failed = {"note": str(note)[:300], "sha256": rec.get("sha256"), "code": code,
+                  "at": when.isoformat(timespec="seconds")}
+        if str(code or "").startswith("TRANSIENT."):
+            prior = rec.get("conversion_failed") or {}
+            same = prior.get("sha256") == rec.get("sha256") and str(prior.get("code") or "").startswith("TRANSIENT.")
+            failed["tries"] = int(prior.get("tries") or 1) + 1 if same else 1
+            failed["next_at"] = next_at = conversion_next_at(failed["tries"], when)
+        rec["conversion_failed"] = failed
     storage.write_json(attachments_path(source_key, source_id), {"schema_version": 1, "files": list(known.values())})
+    return next_at
 
 
 def convert_downloads(source_key, source_id):
@@ -522,8 +545,32 @@ def download_for_object(
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "errors": errors,
     })
-
+    _report_downloads(meta, results)
     return {"item_id": meta["item_id"], "results": results}
+
+
+def _report_downloads(meta: dict[str, Any], results: list[dict[str, Any]]) -> None:
+    """下附件的结论进问题记录（CONVENTIONS §2 迁移点；attachments.json / attachment-state.json 照写）。
+
+    - 撞到账号要处理（带码，或报错文本像掉登录 / 验证）→ NEEDS_HUMAN，登记在 login（同一件事一把 key，只推一次）；
+    - 其余没下好（下载超时、读取服务没起来、附件页没下载按钮、正文提到附件但没找到文件编号）→ TRANSIENT.DOWNLOAD_FAILED，
+      只记不推：每晚 4 点 attachments --all 自动再补，同一篇连续 3 天都不行才升级 STUCK 推一次；
+    - 这次没有失败、也没有因时间不够留到下次的 → 这篇的下载问题标已解决。"""
+    item_id, title = meta.get("item_id"), meta.get("title")
+    failed = [r for r in results if r.get("status") == "failed"]
+    try:
+        for r in failed:
+            message = str(r.get("error") or "附件没下好")
+            name = r.get("name") or r.get("file") or r.get("doc_id") or "附件"
+            if r.get("code") or xhs.looks_blocked(message):
+                problems_mod.report_blocked("attachments.download", r.get("code") or "", f"下附件时：{message}"[:200])
+            else:
+                problems_mod.report("attachments.download", "TRANSIENT.DOWNLOAD_FAILED", f"{name}：{message}"[:200],
+                                    item_id=item_id, title=title)
+        if not failed and not any(r.get("status") == "deferred" for r in results):
+            problems_mod.resolve("attachments.download", item_id)
+    except Exception as exc:  # noqa: BLE001 - 登记失败不影响附件本身
+        print(f"[attachment] 问题记录没写上：{exc}", file=sys.stderr)
 
 
 def _can_claim_lone(att: dict[str, Any], known: dict[str, dict[str, Any]], src: Path) -> bool:
@@ -846,7 +893,7 @@ def _run(args, budget_left=None) -> int:
     failed = False
     account_blocked = False
     any_downloaded = False
-    problems: list[str] = []
+    problem_lines: list[str] = []
     deferred_objects = 0
     for n, (source_key, source_id) in enumerate(targets):
         if not _fits(budget_left, attempt_cost(1)):
@@ -869,14 +916,12 @@ def _run(args, budget_left=None) -> int:
                 failed = True
                 message = str(r.get("error") or "")
                 line = describe_problem(source_key, source_id, r.get("name") or r.get("file") or r.get("doc_id"), message)
-                problems.append(line)
+                problem_lines.append(line)
                 print(f"✗ {line}", file=sys.stderr)
-                # 附件要登录态，挂了很可能是掉线/撞风控 —— 这种不能默默地就过去了
-                blocked = bool(r.get("code")) or xhs.looks_blocked(message)
-                if blocked:
+                # 附件要登录态，挂了很可能是掉线/撞风控 —— 停车；问题已在 download_for_object 里登记
+                # （账号类 NEEDS_HUMAN 推一次，其余 TRANSIENT 只记）
+                if r.get("code") or xhs.looks_blocked(message):
                     account_blocked = True
-                    alert_mod.alert(alert_mod.KIND_ACCOUNT, "附件没拿到（账号要处理：登录/安全验证）", line[:300],
-                                    item_id=outcome["item_id"])
         if convert_downloads(source_key, source_id):
             failed = True
         render_mod.render_object(source_key, source_id)
@@ -896,13 +941,12 @@ def _run(args, budget_left=None) -> int:
         print(f"时间预算到了：还有 {deferred_objects} 篇没看，下次接着补", file=sys.stderr)
     # 下到了新字节就重建目录，否则 UI 角标还停在「待补」（补跑却没同步就是这坑）
     rebuilt = _rebuild_catalog(True)
-    if problems:
-        # 一条一条列清楚是哪篇哪个文件，单项重跑即可（0929 Owner）
-        print(f"\n附件没下好 {len(problems)} 个：", file=sys.stderr)
-        for line in problems:
+    if problem_lines:
+        # 一条一条列清楚是哪篇哪个文件，单项重跑即可（0929 Owner）。第 4 批：不推送，
+        # 每篇已按码登记进问题记录（目录页顶部问题入口 / 卡片悬停看得到）
+        print(f"\n附件没下好 {len(problem_lines)} 个：", file=sys.stderr)
+        for line in problem_lines:
             print(f"  - {line}", file=sys.stderr)
-        alert_mod.alert(alert_mod.KIND_ATTACHMENT, f"附件没下好 {len(problems)} 个",
-                        "\n".join(problems[:8]) + (f"\n…另 {len(problems) - 8} 个见日志" if len(problems) > 8 else ""))
     # 1001 统一退出码：0 成功 / 部分完成 · 1 出错 · 5 要人处理（上面已返回）· 6 号被占用
     return 1 if failed or not rebuilt else 0
 
@@ -1011,7 +1055,7 @@ def recheck(*, limit: int = 0, verbose: bool = False, budget_left=None) -> dict[
     探到就下字节并挂上；结果记 derived/web_recheck.json，探明的不再重复查。仍探不到的汇总报警。
     """
     from .adapters import xiaohongshu as xhs
-    from . import alert as alert_mod, render as render_mod
+    from . import render as render_mod
     base = storage.vault_root() / "_archive" / "xiaohongshu"
     found, failed, checked = [], [], 0
     blocked = ""
@@ -1053,8 +1097,8 @@ def recheck(*, limit: int = 0, verbose: bool = False, budget_left=None) -> dict[
             if logged.get("needs_human"):
                 storage.write_json(mark, {"checked_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "ok": False,
                                           "related_file": None, "error": logged["error"]})
-                alert_mod.alert(alert_mod.KIND_ACCOUNT, "附件补查停了（账号要处理：登录/安全验证）", logged["error"][:300])
                 blocked = logged.get("code") or "NOT_LOGGED_IN"
+                problems_mod.report_blocked("attachments.recheck", blocked, f"附件补查停了：{logged['error']}"[:200])
                 break
             if logged.get("ok"):
                 probe = logged
@@ -1064,8 +1108,10 @@ def recheck(*, limit: int = 0, verbose: bool = False, budget_left=None) -> dict[
         storage.write_json(mark, {"checked_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "ok": bool(probe.get("ok")),
                                   "related_file": rf or None, "error": probe.get("error")})
         if not probe.get("ok"):
-            failed.append({"id": source_id, "line": describe_problem("xiaohongshu", source_id, None, probe.get("error") or "")})
+            failed.append({"id": source_id, "line": describe_problem("xiaohongshu", source_id, None, probe.get("error") or ""),
+                           "error": probe.get("error") or "", "title": meta.get("title")})
             continue
+        problems_mod.resolve("attachments.recheck", meta.get("item_id") or f"xhs-{source_id}")
         doc_id = str(rf.get("docId") or "")
         if not doc_id:
             continue
@@ -1093,15 +1139,20 @@ def recheck(*, limit: int = 0, verbose: bool = False, budget_left=None) -> dict[
             break
         except AttachmentNeedsHuman as exc:
             storage.write_json(mark, {**storage.read_json(mark), "download_error": str(exc)[:200]})
-            alert_mod.alert(alert_mod.KIND_ACCOUNT, "附件没拿到（账号要处理：登录/安全验证）", f"{source_id}: {exc}"[:300])
             blocked = exc.code or "NOT_LOGGED_IN"
+            problems_mod.report_blocked("attachments.recheck", blocked, f"附件补查时下载撞墙：{exc}"[:200])
             break  # 撞验证就停，绝不接着开页
         except (AttachmentError, OSError, KeyError, ValueError) as exc:
             storage.write_json(mark, {**storage.read_json(mark), "download_error": str(exc)[:200]})
-            failed.append({"id": source_id, "line": describe_problem("xiaohongshu", source_id, name, f"下载失败：{exc}")})
-    if failed:
-        alert_mod.alert(alert_mod.KIND_ATTACHMENT, f"附件补查：{len(failed)} 篇没查清",
-                        "\n".join(f["line"] for f in failed[:8]) + (f"\n…另 {len(failed) - 8} 篇见日志" if len(failed) > 8 else ""))
+            failed.append({"id": source_id, "line": describe_problem("xiaohongshu", source_id, name, f"下载失败：{exc}"),
+                           "error": f"探到了附件但下载失败：{exc}", "title": meta.get("title")})
+    for f in failed:
+        # 第 4 批：不推送。没查清的每篇登记 TRANSIENT（明晚接着查），连续 3 天都查不清才升级 STUCK 推一次
+        problems_mod.report("attachments.recheck", "TRANSIENT.PROBE_FAILED", str(f.get("error") or f["line"])[:200],
+                            item_id=f"xhs-{f['id']}", title=f.get("title"))
+    for f in failed:
+        f.pop("error", None)
+        f.pop("title", None)
     if found:
         _rebuild_catalog(True)
     out = {"checked": checked, "found": found, "failed": failed}

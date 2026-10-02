@@ -19,7 +19,7 @@ def at(day: int, hour: int = 4):
 @pytest.fixture
 def pushes(monkeypatch):
     sent = []
-    monkeypatch.setattr(alert_mod, "alert", lambda kind, title, body, **extra: sent.append((kind, title, body, extra)) or True)
+    monkeypatch.setattr(alert_mod, "_alert", lambda kind, title, body, **extra: sent.append((kind, title, body, extra)) or True)
     return sent
 
 
@@ -147,7 +147,7 @@ def test_report_never_raises_on_disk_failure(monkeypatch, pushes):
     def boom(rows):
         raise OSError("磁盘满了")
     monkeypatch.setattr(problems, "_append", boom)
-    row = problems.report("embed", "NEEDS_HUMAN.AUTH_FAILED", "401", _now_fn=at(1))
+    row = problems.report("login", "NEEDS_HUMAN.NOT_LOGGED_IN", "掉登录", _now_fn=at(1))
     assert row["written"] is False and len(pushes) == 1, "写不进去也照样推（要人处理的事不能因为磁盘丢）"
 
 
@@ -188,8 +188,9 @@ def test_transient_three_consecutive_days_escalates_to_stuck_once(pushes):
     assert pushes == [] and all(r["code"] != "NEEDS_HUMAN.STUCK" for r in problems.load())
     problems.report("videos.transcribe", "TRANSIENT.HTTP_5XX", "接口 500", item_id="xhs-5", title="视频", _now_fn=at(3))
     stuck = [r for r in problems.load() if r["code"] == "NEEDS_HUMAN.STUCK"]
-    assert len(stuck) == 1 and stuck[0]["key"] == "videos.transcribe|xhs-5|STUCK"
-    assert stuck[0]["item_id"] == "xhs-5" and "连续 3 天" in stuck[0]["reason"] and stuck[0]["group"] == "needs_you"
+    # 升级按步骤记（item_id=None）：同一个原因卡住多篇也只算一件事
+    assert len(stuck) == 1 and stuck[0]["key"] == "videos.transcribe||STUCK"
+    assert stuck[0]["item_id"] is None and "连续 3 天" in stuck[0]["reason"] and stuck[0]["group"] == "needs_you"
     assert len(pushes) == 1 and pushes[0][1].startswith("连续几天没修好")
     # 第 4 天还在：STUCK 没解决，不重推、不重复登记
     problems.report("videos.transcribe", "TRANSIENT.HTTP_5XX", "接口 500", item_id="xhs-5", _now_fn=at(4))

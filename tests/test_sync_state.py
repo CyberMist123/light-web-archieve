@@ -6,7 +6,7 @@ def test_failed_sync_is_visible_without_notification_connector(monkeypatch):
     def expired(**kwargs):
         raise xhs.AccountBlockedError('登录已失效')
     monkeypatch.setattr(favorites, 'fetch_favorites', expired)
-    monkeypatch.setattr(favorites.alert_mod, 'alert', lambda *a, **k: False)
+    monkeypatch.setattr("link_brain.alert._alert", lambda *a, **k: False)
     args = type('Args', (), {})()
     assert favorites.run(args) == 5
     status = sync_state.load()

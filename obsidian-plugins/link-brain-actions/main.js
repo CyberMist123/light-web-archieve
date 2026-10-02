@@ -218,6 +218,23 @@ function parseLastJson(out) {
 function stderrTail(err, n = 3) {
   return String(err || "").trim().split("\n").map(s => s.trimEnd()).filter(Boolean).slice(-n).join("\n");
 }
+// 第 4 批：同步状态 = problems-summary.json 的 sync 段（Python 已改判死掉的 running）与 sync-status.json 取较新的那份（目录页同一规则）
+function mergeSyncStatus(raw, sum) {
+  const s = sum && sum.sync && typeof sum.sync === "object" ? sum.sync : null;
+  if (!s) return raw || null;
+  if (!raw) return s;
+  const ts = v => { const t = Date.parse(v || ""); return Number.isFinite(t) ? t : 0; };
+  return ts(raw.updated_at) > (ts(s.updated_at) || ts(sum.updated_at)) ? { ...s, ...raw } : { ...raw, ...s };
+}
+// 状态码（裸码 NOT_LOGGED_IN 或 类.细分）→ 登记表那一行；先精确，再按细分码，再 `类.*` 兜底
+function registryEntry(reg, code) {
+  code = String(code || "");
+  if (!reg || !code) return null;
+  if (reg[code]) return reg[code];
+  const dot = code.indexOf("."), sub = dot >= 0 ? code.slice(dot + 1) : code;
+  const hit = Object.keys(reg).find(k => !k.endsWith(".*") && k.slice(k.indexOf(".") + 1) === sub);
+  return hit ? reg[hit] : (dot >= 0 ? reg[code.slice(0, dot) + ".*"] || null : null);
+}
 
 // 同步收藏夹设置：立即同步 + 定时（每天/每周几点，自定义）。Owner 2026-09-17。
 const WEEKDAYS = [["Monday","周一"],["Tuesday","周二"],["Wednesday","周三"],["Thursday","周四"],["Friday","周五"],["Saturday","周六"],["Sunday","周日"]];
@@ -516,10 +533,33 @@ class LinkBrainActions extends Plugin {
     modal.open();
   }
 
+  // 第 4 批（CONVENTIONS §3「pid 还活着」只留 Python 一份）：同步进程死了还停在 running 的，由 Python 改判 INTERRUPTED 写进
+  // problems-summary.json 的 sync 段；这里以它为准，sync-status.json 比它新时（刚开始的一次同步）用新的。不再自己 process.kill 查 pid。
   async readSyncStatus() {
-    // 0929：同步进程被打断时状态会停在 running；核一下进程还在不在（signal 0 只查不杀）
-    try { let s = JSON.parse(await this.app.vault.adapter.read(this.lbPath('_archive/sync-status.json'))); if(s&&s.state==='running'&&s.pid){let alive=true;try{process.kill(s.pid,0);}catch(e){alive=e.code==='EPERM';}if(!alive)s={...s,state:'failed',code:'INTERRUPTED',message:'上次同步中途被打断（Obsidian 关闭或进程被结束），已抓的都在；再点一次同步会接着来',detail:s.progress||''};} return s; }
-    catch { return null; }
+    const read = async p => { try { const v = JSON.parse(await this.app.vault.adapter.read(this.lbPath(p))); return v && typeof v === 'object' ? v : null; } catch { return null; } };
+    const [raw, sum] = await Promise.all([read('_archive/sync-status.json'), read('_archive/problems-summary.json')]);
+    return mergeSyncStatus(raw, sum);
+  }
+
+  // 第 4 批：目录页顶部问题入口 → 问题列表（整个窗口在 problems-ui.js）
+  problemsUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'problems-ui.js'))(obsidian, this); }
+  openProblems() { return this.problemsUI().open(); }
+  // 请 Python 核一次同步进程还在不在、刷新 problems-summary.json（目录页看到「同步中」而插件没在跑任务时调；并发合并成一次）
+  refreshProblemSummary() {
+    if (!this.summaryCheck) this.summaryCheck = this.runPy(['-m', 'link_brain', 'problems', 'summary'], { label: '核对同步状态', timeoutMs: 60000 })
+      .then(r => r.json).catch(() => null).finally(() => { this.summaryCheck = null; });
+    return this.summaryCheck;
+  }
+
+  // 状态码 → 显示文案：唯一来源是 Python 的 problems.STATE_REGISTRY（catalog-data.json 的 state_registry），JS 不写状态文案
+  async stateRegistry() {
+    const cached = this.catalogCache?.data?.state_registry;
+    if (cached) return cached;
+    if (!this.registryCache) this.registryCache = (async () => {
+      try { return JSON.parse(await this.app.vault.adapter.read(this.lbPath('_archive/catalog-data.json'))).state_registry || {}; }
+      catch { return {}; }
+    })();
+    return this.registryCache;
   }
 
   renderSyncRow(c) {
@@ -560,31 +600,35 @@ class LinkBrainActions extends Plugin {
     let primary, more, current = null;
     row.addButton(b => { primary = b; b.buttonEl.hide(); });
     row.addExtraButton(b => { more = b; b.setIcon('more-horizontal').setTooltip('更多'); });
-    // 每种状态：状态字 · 下一步一句话 · 主按钮
+    // 每种状态：状态字 · 下一步一句话 · 主按钮。第 4 批：带故障码的几种（掉登录 / 验证 / 服务没起 / 未安装）状态字取 Python 登记表
+    // （state_registry，按行里的 code），下一步取后端给的 next_step（accounts.SOLUTIONS）；这里只留没有故障码的状态字和按钮名。
     const VIEW = {
       ready: ['✓ 已登录', '', ''],
-      expired: ['已过期', '登录已失效，重新扫码即可。', '重新登录'],
-      not_logged_in: ['未登录', '登录后自动同步收藏。', '登录'],
-      captcha: ['需要验证', '小红书要求安全验证：打开窗口手动拖一下滑块，完成后关掉窗口。', '去验证'],
+      expired: ['', '', '重新登录'],
+      not_logged_in: ['', '', '登录'],
+      captcha: ['', '', '去验证'],
       busy: ['进行中', '', ''],
-      disconnected: ['服务未运行', '点「重试」会自动启动读取组件。', '重试'],
-      unconfigured: ['未安装', '需要先安装读取组件，见 README「读取组件」。', ''],
+      disconnected: ['', '', '重试'],
+      unconfigured: ['', '', ''],
       error: ['没有完成', '', '重试'],
       unknown: ['无法确认', '暂时无法确认登录状态，稍后重试。', '重试'],
       checking: ['检查中', '加载中，请稍候', ''],
     };
+    let registry = {};
     const paint = (r, running = false) => {
       current = r;
-      const [label, tip, button] = VIEW[r.state] || VIEW.unknown;
+      const [plain, tip, button] = VIEW[r.state] || VIEW.unknown;
+      const label = (r.code && registryEntry(registry, r.code)?.label) || plain || r.message || VIEW.unknown[0];
       who.setText(r.account ? ` · ${r.account}` : '');
       state.setText(` · ${label}`);
       state.className = 'lb-acct-state is-' + r.state;
-      guide.setText(r.state === 'ready' ? '' : (r.state === 'error' || r.state === 'busy' ? (r.next_step || r.message || '') : tip));
+      guide.setText(r.state === 'ready' ? '' : (r.next_step || tip || (plain ? r.message : '') || ''));
       guide.toggleClass('lb-loading', r.state === 'checking' || r.state === 'busy');
       if (running) bar.addClass('is-running'); else bar.removeClass('is-running');
       const btnText = r.state === 'error' && r.action === 'login' ? '登录' : button;
       if (btnText) { primary.setButtonText(btnText); primary.buttonEl.show(); primary.setDisabled(false); } else primary.buttonEl.hide();
     };
+    this.stateRegistry().then(reg => { registry = reg || {}; if (current && current.code) paint(current); }).catch(() => {});
     const refresh = async () => {
       paint({state: 'checking'}, true);
       try { paint(await platform.status(this)); }
@@ -796,11 +840,15 @@ class LinkBrainActions extends Plugin {
     return r;
   }
 
-  // 目录页「!」直达：按上次同步失败的原因直接进入修复（扫码 / 验证），其余打开账号面板。
-  async fixFromCatalog() {
-    const st = await this.readSyncStatus();
-    const code = (st && st.code) || '';
-    if (st && st.state === 'blocked' && (code === 'NOT_LOGGED_IN' || (!code && st.account))) {
+  // 修复入口（第 4 批起是问题列表里「扫码登录」「打开验证」两个按钮的动作）：kind = 'login' | 'verify'；
+  // 不传就按上次同步失败的原因自己判（扫码 / 验证），其余打开账号面板。
+  async fixFromCatalog(kind = '') {
+    if (!kind) {
+      const st = await this.readSyncStatus();
+      const code = (st && st.code) || '';
+      kind = st && st.state === 'blocked' && (code === 'NOT_LOGGED_IN' || (!code && st.account)) ? 'login' : code === 'CAPTCHA_REQUIRED' ? 'verify' : '';
+    }
+    if (kind === 'login') {
       new Notice('将自动弹出浏览器，扫码后会自动关闭窗口。', 8000);
       try {
         const r = await this.loginAccount();
@@ -810,7 +858,7 @@ class LinkBrainActions extends Plugin {
       this.openAccountStatus();
       return;
     }
-    if (code === 'CAPTCHA_REQUIRED') { try { await this.openVerify(); } catch (e) { new Notice(e.message, 10000); } return; }
+    if (kind === 'verify') { try { await this.openVerify(); } catch (e) { new Notice(e.message, 10000); } return; }
     this.openAccountStatus();
   }
 
@@ -1482,3 +1530,5 @@ class LinkBrainSettingTab extends PluginSettingTab {
 
 module.exports = LinkBrainActions;
 module.exports.rewriteInbox = rewriteInbox;   // 给 node 单测（第 3 批投喂回写）
+module.exports.mergeSyncStatus = mergeSyncStatus;   // 给 node 单测（第 4 批）
+module.exports.registryEntry = registryEntry;

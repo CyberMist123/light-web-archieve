@@ -213,6 +213,72 @@ def _attachment_reason(obj_dir: Path, meta: dict[str, Any], badge: str) -> str:
     return "正文提到附件，但笔记页里没找到文件" + (f"（{_clip(str(why), 60)}）" if why else "（页面上确实没挂文件）")
 
 
+def _problem(code: str, reason: str | None, action: str | None = None, next_at: str | None = None) -> dict[str, str]:
+    from . import problems
+    shown = problems.describe(code, reason, next_at)
+    cls = shown["code"].split(".", 1)[0]
+    return {"code": shown["code"], "label": shown["label"], "hover": shown["hover"], "group": shown["group"],
+            "action": action or problems.DEFAULT_ACTION.get(cls, "retry_later")}
+
+
+def item_problems(obj_dir: Path, report: dict[str, Any], vision: dict[str, Any], transcript: dict[str, Any],
+                  extracted: dict[str, Any]) -> list[dict[str, str]]:
+    """这一篇眼下的问题（CONVENTIONS §3.4）：只从各对象文件推出，**不读 problems.jsonl**；文案只从登记表取。
+
+    [{code, label, hover, group, action}]，每个码一条（同一篇几张图 / 几份附件同码只列一次，原因取第一条）。
+    来源：attachments.json 的 conversion_failed · attachment-state.json 的下载错误 · transcript.json ·
+    vision.json（第一层识图接口故障 / 第二层精细识别放弃）· extracted.json（概要失败）· enrich-state.json（连着失败暂时放弃）。
+    SKIPPED（没配置 / 关了）不算问题，不列。"""
+    out: dict[str, dict[str, str]] = {}
+
+    def add(code, reason, action=None, next_at=None):
+        if not code:
+            return
+        try:
+            row = _problem(code, reason, action, next_at)
+        except Exception:  # noqa: BLE001 - 坏码不拖垮目录重建
+            return
+        if row["code"].startswith("SKIPPED."):
+            return
+        out.setdefault(row["code"], row)
+
+    att = _load_json(obj_dir / "attachments.json") or {}
+    for rec in (att.get("files") or []) if isinstance(att, dict) else []:
+        failed = rec.get("conversion_failed") if isinstance(rec, dict) else None
+        if not isinstance(failed, dict) or failed.get("sha256") != rec.get("sha256"):
+            continue  # 换了文件：旧失败作废
+        code = failed.get("code") or "PERMANENT.CONVERSION_FAILED"  # 旧记录没有码（当时只有加密 / 损坏才会落）
+        name = rec.get("name") or rec.get("file") or "附件"
+        add(code, f"{name}：{failed.get('note') or '转换失败'}",
+            "gave_up" if str(code).startswith("PERMANENT.") else "retry_later", failed.get("next_at"))
+    for err in report.get("errors") or []:
+        if isinstance(err, dict) and err.get("error"):
+            add("TRANSIENT.DOWNLOAD_FAILED", str(err["error"])[:200])
+    status = transcript.get("status") if isinstance(transcript, dict) else None
+    if status == "no_speech":
+        add("PERMANENT.NO_SPEECH", "视频里没听出人声（背景音乐 / 环境声）")
+    elif status == "no_audio":
+        add("PERMANENT.NO_AUDIO", "视频没有音轨")
+    elif status == "failed":
+        add(transcript.get("code") or "TRANSIENT.SERVICE_BUSY", transcript.get("error") or "语音识别失败",
+            "retry_later", transcript.get("retry_after"))
+    for im in (vision.get("images") or []) if isinstance(vision, dict) else []:
+        visual = im.get("visual") or {}
+        if visual.get("status") not in (None, "ok") and visual.get("code"):
+            add(visual["code"], visual.get("error") or "识图失败")
+        ref = im.get("refine") or {}
+        if ref.get("status") == "failed":
+            add("PERMANENT.MODEL_OUTPUT_INVALID", f"精细识别：{ref.get('error') or '结果不合格'}")
+    state = _load_json(obj_dir / "enrich-state.json") or {}
+    from .enrich import MAX_FAILS
+    if isinstance(state, dict) and int(state.get("fails") or 0) >= MAX_FAILS:
+        add("TRANSIENT.RETRY_EXHAUSTED", f"识图 / 概要连着 {state.get('fails')} 次没补成：{state.get('last_error') or ''}",
+            "gave_up", state.get("retry_after"))
+    elif isinstance(extracted, dict) and extracted.get("status") == "failed":
+        add(extracted.get("code") or "TRANSIENT.SERVICE_BUSY", f"概要没生成：{extracted.get('error') or ''}")
+    return list(out.values())
+
+
 def _image_search_text(image: dict[str, Any]) -> str:
     """一张图进检索的文字：本地 OCR 原文 + 识图结果。第二层精细识图（refined）成功时替代第一层 visual，
     与机读版 agent.md 的取法一致（render.py image_lines）；只读已有的 vision.json，不调识图模型。"""
@@ -324,6 +390,8 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                 "last_comment": last_comment,
                 "attachment": (badge := _attachment_badge(obj_dir, meta, report)),
                 "attachment_reason": _attachment_reason(obj_dir, meta, badge),
+                # 第 4 批：卡片悬停的问题原因（label / hover 已从 problems 登记表取好；attachment_reason 照留）
+                "problems": item_problems(obj_dir, report, vision, transcript, extracted),
                 # 收藏来自哪个号（0926）：同步时写进 meta.favorited_by，供按账号筛选
                 "accounts": [a.get("nickname") or a.get("user_id") for a in (meta.get("favorited_by") or [])
                              if isinstance(a, dict)],
@@ -364,6 +432,11 @@ def library_pages(vault):
     return pages
 
 
+def _state_registry() -> dict[str, dict[str, str]]:
+    from . import problems
+    return problems.registry_for_js()
+
+
 @storage.locked("catalog-build", wait_s=120)  # CONVENTIONS §6.4：remove / attachments / topics / 插件都会调
 def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Path, int, Path]:
     vault = vault or storage.vault_root()
@@ -401,6 +474,8 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
                 "aliases": ALIASES,
                 "items": items,
                 "pinyin_chars": pinyin_chars(items),
+                # 第 4 批：状态文案唯一源（CONVENTIONS §3.1），页面只从这里取 label / hover，不自己写
+                "state_registry": _state_registry(),
             },
             ensure_ascii=False,
             indent=1,
@@ -428,6 +503,11 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
     )
     from .remove import publish_trash
     publish_trash(vault)
+    try:  # 第 4 批：顺手核一次同步进程（running 但进程已死 → 落盘 INTERRUPTED，页面不再自己判 pid）
+        from . import sync_state
+        sync_state.current()
+    except Exception:  # noqa: BLE001
+        pass
     return catalog_path, len(items), data_path
 
 

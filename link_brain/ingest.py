@@ -16,7 +16,7 @@ from typing import Any
 
 import httpx
 
-from . import __version__, alert as alert_mod, index as index_mod, storage
+from . import __version__, index as index_mod, problems, storage
 from .adapters import xiaohongshu as xhs
 
 EXIT_OK = 0
@@ -363,6 +363,7 @@ def ingest_url(
 
         log(f"MCP {xhs.MCP_TOOL} @ {xhs.MCP_ENDPOINT}")
         raw = _fetch_with_retry(parsed, log=log, comment_floors=comment_floors, budget_left=budget_left)
+        problems.resolve("ingest", None)  # 抓到了 = 读取服务好着：之前「服务没起来 / 超时」那几条步骤级问题算解决
 
         # 附件元数据只有笔记网页版有（MCP 不返回），游客可见；失败不阻断
         log(f"网页探测附件 {xhs.CANONICAL_FMT.format(note_id=parsed['note_id'])}")
@@ -384,13 +385,13 @@ def ingest_url(
         if not web_probe["ok"]:
             log(f"网页探测失败（退回正文线索）: {web_probe['error']}")
             if web_probe.get("blocked"):
-                # 网页那侧被拦了（验证码/登录墙）。MCP 还能抓就不中止，但必须让人知道
-                alert_mod.alert(
-                    alert_mod.KIND_ACCOUNT,
-                    "小红书网页那侧被拦了（附件元数据会缺）",
-                    f"{parsed['note_id']}: {web_probe['error']}",
-                    url=web_probe["url"],
-                )
+                # 游客网页那侧被拦了（验证码 / 登录墙），登录号补看也没拿到、但号本身没事（号出事上面已经整批停车）。
+                # MCP 还能抓就不中止：只缺附件元数据，夜里 attachments --recheck 会再补查——TRANSIENT，只记不推。
+                problems.report("ingest", "TRANSIENT.WEB_PROBE_BLOCKED",
+                                f"网页那侧被拦了，附件信息暂缺：{web_probe['error']}"[:200],
+                                item_id=f"xhs-{parsed['note_id']}")
+        else:
+            problems.resolve("ingest", f"xhs-{parsed['note_id']}", "TRANSIENT.WEB_PROBE_BLOCKED")
 
         captured_at = now_iso()
         source = xhs.normalize(raw, parsed, captured_at=captured_at, web_probe=web_probe)
@@ -526,14 +527,10 @@ def run(args) -> int:
             refresh=getattr(args, "refresh", False),
         )
     except xhs.NeedsHumanError as exc:
-        # 号出事 / 服务出事：单独一个退出码 + 报警，别让批量脚本闷头把剩下的全刷成失败
+        # 号出事 / 服务出事：单独一个退出码 + 登记问题（账号类 NEEDS_HUMAN 推一次；服务类 TRANSIENT 只记），
+        # 别让批量脚本闷头把剩下的全刷成失败
         service = isinstance(exc, xhs.ServiceDownError)
-        alert_mod.alert(
-            alert_mod.KIND_SERVICE if service else alert_mod.KIND_ACCOUNT,
-            "小红书归档停了：" + ("读取服务要处理" if service else "账号要处理"),
-            str(exc),
-            url=args.target,
-        )
+        problems.report_blocked("ingest", getattr(exc, "code", "") or "", f"导入停了：{exc}", service=service)
         print(f"归档中止（{'服务' if service else '账号/风控'}）: {exc}", file=sys.stderr)
         return EXIT_NEEDS_HUMAN
     except xhs.AdapterError as exc:

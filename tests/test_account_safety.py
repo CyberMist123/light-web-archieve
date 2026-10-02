@@ -155,7 +155,7 @@ def test_sync_stops_at_first_risk_page_through_real_mcp_path(tmp_path, monkeypat
     })
     calls, alerts = [], []
     _fake_mcp(monkeypatch, ["获取Feed详情失败: 笔记不可访问: [CAPTCHA_REQUIRED] 请完成安全验证"] * 3, calls)
-    monkeypatch.setattr(favorites.alert_mod, "alert", lambda *a, **k: alerts.append(a))
+    monkeypatch.setattr("link_brain.alert._alert", lambda *a, **k: alerts.append(a))
     code = favorites.run(_args())
     out = _json_out(capsys)
     assert code == 5
@@ -176,7 +176,7 @@ HOLD = {"code": "ACCOUNT_RISK", "since": "2026-10-01T04:02:21+08:00", "detail": 
 def test_sync_under_risk_hold_opens_nothing(monkeypatch, capsys):
     reader = Reader(monkeypatch, {"/api/v1/login/session": {"state": "idle", "risk_hold": HOLD, "lock": None}})
     alerts = []
-    monkeypatch.setattr(favorites.alert_mod, "alert", lambda *a, **k: alerts.append(a))
+    monkeypatch.setattr("link_brain.alert._alert", lambda *a, **k: alerts.append(a))
     code = cli.main(["sync-favorites", "--limit", "0", "--wait-lock-min", "0"])
     out = _json_out(capsys)
     assert code == 5 and out["code"] == "RISK_HOLD"
@@ -191,7 +191,7 @@ def test_hold_file_is_honoured_when_reader_is_down(monkeypatch, tmp_path, capsys
     profile = accounts.profile_dir()
     profile.mkdir(parents=True, exist_ok=True)
     (profile / "risk-hold.json").write_text(json.dumps(HOLD), "utf-8")
-    monkeypatch.setattr(favorites.alert_mod, "alert", lambda *a, **k: None)
+    monkeypatch.setattr("link_brain.alert._alert", lambda *a, **k: None)
     assert favorites.run(_args()) == 5
     assert _json_out(capsys)["code"] == "RISK_HOLD"
 

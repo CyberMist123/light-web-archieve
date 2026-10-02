@@ -30,7 +30,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from . import sync_state
-from . import alert as alert_mod, ingest as ingest_mod, read as read_mod
+from . import ingest as ingest_mod, read as read_mod
 from .adapters import xiaohongshu as xhs
 from . import accounts
 
@@ -121,13 +121,9 @@ def _sync_one(fav: dict[str, Any], *, origin: str, actor: str, verbose: bool, bu
     except accounts.AccountBusyError:
         raise  # 本进程的账号锁被接管了：整批停（退出 6），不当成这一篇的错
     except xhs.NeedsHumanError as exc:
+        # 第 4 批：不在这里报警。整批停车后 sync_state.record 按码登记问题（账号类 NEEDS_HUMAN 推一次，
+        # 服务类 TRANSIENT 下次再试），推不推由 problems.report 唯一出口判定。
         service = isinstance(exc, xhs.ServiceDownError)
-        alert_mod.alert(
-            alert_mod.KIND_SERVICE if service else alert_mod.KIND_ACCOUNT,
-            "小红书收藏同步停了：" + ("读取服务要人管" if service else "号要人处理"),
-            str(exc),
-            url=url,
-        )
         return {"item_id": None, "status": "blocked", "url": url, "error": str(exc),
                 "login_account": None if service else 'xhs', "code": getattr(exc, "code", "")}
     except Exception as exc:  # noqa: BLE001 - 一条收藏挂了不该带走整批
@@ -225,12 +221,8 @@ def sync_favorites(
     except xhs.NeedsHumanError as exc:
         service = isinstance(exc, xhs.ServiceDownError)
         code = getattr(exc, "code", "")
-        if code != "RATE_LIMITED":  # 限频只是「刚同步过」，不打扰人
-            alert_mod.alert(
-                alert_mod.KIND_SERVICE if service else alert_mod.KIND_ACCOUNT,
-                "小红书收藏同步停了：" + ("读取服务要处理" if service else "账号要处理"),
-                str(exc),
-            )
+        # 问题登记在 sync_state.record（_run 拿到这个 payload 就记）：账号类 NEEDS_HUMAN；服务类（含读收藏
+        # FAVORITES_FAILED / 超时）TRANSIENT；RATE_LIMITED 只是「刚同步过」，不登记
         return {
             "favorites": 0,
             "synced": 0,
@@ -247,8 +239,7 @@ def sync_favorites(
         suspicious = "收藏读回 0 条：多半是收藏页没加载完或被限流，这次不算同步成功"
     elif last and total < last / 2:
         suspicious = f"收藏只读回 {total} 条（上次 {last} 条），少了一半以上：多半只读到一截，这次不算同步成功"
-    if suspicious:
-        alert_mod.alert(alert_mod.KIND_BATCH, "小红书收藏同步可疑：读到的收藏数不对", suspicious)
+    # 可疑 = 停车待人看：sync_state.record 记 NEEDS_HUMAN.FAVORITES_SUSPICIOUS（推一次；连着 3 晚同一个数就认作新基准）
 
     # 0927 认号：收藏同步钉在一个号上。登错号（如测试号）时整批不入库、目录页亮「!」，
     # 免得把别的号的收藏悄悄灌进库（0926–0927 测试号登着，夜跑收了它 33 篇）。换号走「更换账号」。
@@ -258,7 +249,7 @@ def sync_favorites(
         accounts.save({"sync_account": current})
     elif current and pinned and current != pinned:
         msg = f"现在登录的是「{current}」，不是平时同步的「{pinned}」：没有同步。要换成这个号，请在账号面板点「更换账号」"
-        alert_mod.alert(alert_mod.KIND_ACCOUNT, "小红书收藏同步停了：登错号", msg)
+        # 登错号 = NEEDS_HUMAN.WRONG_ACCOUNT（sync_state.record 登记在 login，推一次）
         return {"favorites": len(favs), "synced": 0, "login_account": "xhs", "code": "WRONG_ACCOUNT",
                 "items": [{"item_id": None, "status": "blocked", "url": None, "error": msg, "code": "WRONG_ACCOUNT"}]}
 
@@ -341,8 +332,10 @@ def sync_favorites(
         if consecutive >= MAX_CONSECUTIVE_FAILURES:
             stop_code = "TOO_MANY_FAILURES"
             recent = [x.get("error") or "" for x in items if x.get("status") == "error"][-MAX_CONSECUTIVE_FAILURES:]
-            alert_mod.alert(alert_mod.KIND_BATCH, f"小红书收藏同步停了：连续 {consecutive} 篇没抓到",
-                            "先停下，免得接着开页。最近的原因：\n" + "\n".join(e[:160] for e in recent))
+            # 连着几篇抓不到但没撞风控 / 掉登录（那些是 blocked，上面已经停车）：TRANSIENT.TOO_MANY_FAILURES，
+            # 只记不推，下次同步再来；连续 3 天都这样才升级推一次（sync_state.record 登记）
+            print(f"[sync-favorites] 连续 {consecutive} 篇没抓到，先停下。最近的原因：\n"
+                  + "\n".join(e[:160] for e in recent), file=sys.stderr)
             break
     failures.save()
     out: dict[str, Any] = {"favorites": len(favs), "synced": len(items), "items": items}
@@ -525,11 +518,13 @@ def _run(args) -> tuple[int, dict[str, Any]]:
         accounts.check_risk_hold()
     except accounts.ReaderError as exc:
         text = f"{accounts.SOLUTIONS['RISK_HOLD'][1]}（{exc.detail}）：{accounts.SOLUTIONS['RISK_HOLD'][2]}"
-        alert_mod.alert(alert_mod.KIND_ACCOUNT, "小红书收藏同步没跑：风控暂停中", text)
         payload = {"favorites": 0, "synced": 0, "login_account": "xhs", "code": "RISK_HOLD",
                    "items": [{"item_id": None, "status": "blocked", "url": None, "error": text, "code": "RISK_HOLD"}]}
         if not sync_state.running_elsewhere():
-            sync_state.record("finished", payload=payload)
+            sync_state.record("finished", payload=payload)  # 顺带登记 NEEDS_HUMAN.RISK_HOLD（login）
+        else:
+            from . import problems
+            problems.report_blocked("sync.favorites", "RISK_HOLD", text)
         return _exit_code(payload), payload
 
     # ② 账号锁（B-6）：拿不到就退出 6，不碰状态文件（那是正在跑的那一趟的）

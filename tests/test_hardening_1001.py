@@ -174,21 +174,21 @@ def test_alert_uses_command_file_when_env_is_unset(tmp_path, monkeypatch, capsys
     home = Path(os.environ["LINK_BRAIN_HOME"])
     home.mkdir(parents=True, exist_ok=True)
     (home / "alert-cmd.txt").write_text("# 报警出口\n\n" + command + "\n", encoding="utf-8")
-    assert alert_mod.alert(alert_mod.KIND_ACCOUNT, "号要人处理", "详情") is True
+    assert alert_mod._alert(alert_mod.KIND_ACCOUNT, "号要人处理", "详情") is True
     assert json.loads(out.read_text("utf-8"))["title"] == "号要人处理"
     assert "号要人处理" in capsys.readouterr().err
 
 
 def test_env_command_wins_and_missing_file_means_stderr_only(tmp_path, monkeypatch, capsys):
     assert alert_mod.alert_command() == ""
-    assert alert_mod.alert("normal", "只打 stderr", "x") is False
+    assert alert_mod._alert("normal", "只打 stderr", "x") is False
     assert "只打 stderr" in capsys.readouterr().err
     out, command = _catcher(tmp_path)
     monkeypatch.setenv(alert_mod.ENV_ALERT_CMD, command)
     home = Path(os.environ["LINK_BRAIN_HOME"])
     home.mkdir(parents=True, exist_ok=True)
     (home / "alert-cmd.txt").write_text("definitely-not-a-real-command-xyz\n", encoding="utf-8")
-    assert alert_mod.alert("normal", "环境变量优先", "x") is True
+    assert alert_mod._alert("normal", "环境变量优先", "x") is True
     assert json.loads(out.read_text("utf-8"))["title"] == "环境变量优先"
 
 

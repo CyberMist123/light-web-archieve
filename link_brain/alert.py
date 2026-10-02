@@ -1,4 +1,4 @@
-"""出事了要吵醒人：登录态掉了、撞风控验证码、附件下不来。
+"""推送出口（只给 problems.report 用）：要人处理的事（掉登录、验证码、熔断、登错号、key 失效、连续几天没好）。
 
 **本仓库公开**，所以这里不含任何推送地址/key，只认一个外部命令：
 
@@ -81,8 +81,12 @@ def alert_command() -> str:
     return ""
 
 
-def alert(kind: str, title: str, body: str, **extra: Any) -> bool:
-    """报一次警。返回外部命令是否成功；没配命令返回 False（但 stderr 一定有）。"""
+def _alert(kind: str, title: str, body: str, **extra: Any) -> bool:
+    """报一次警。返回外部命令是否成功；没配命令返回 False（但 stderr 一定有）。
+
+    第 4 批（CONVENTIONS §2.6）：**模块私有**，仓内只有 problems._push 调它——推不推由 problems.report
+    按故障类判定（NEEDS_HUMAN 推一次、TRANSIENT 连续 3 天升级 STUCK 推一次，其余只记不推）。
+    别的模块要报问题一律 problems.report；tests/test_problems_alert_exit.py 扫源码守住这条。"""
     payload = {"kind": kind, "title": title, "body": body, **extra}
     print(f"[alert] {kind}: {title} — {body}", file=sys.stderr)
     command = alert_command()

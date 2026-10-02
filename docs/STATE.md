@@ -1,5 +1,18 @@
 # Current State
 
+## 2026-10-02 第 4 批：故障分类接进调用点 + 目录页顶部问题入口（分支 batch4-problems，叠在第 3 批上）
+
+- 页面：目录页顶部「!」升级为问题入口：读 `_archive/problems-summary.json`，要你处理橙色数字、自动处理中 + 已放弃灰色数字、未开启不计数、都为 0 不显示；「· 同步中…」照旧；标题下一行灰字同步概况（上次同步 · 本次新收 N 篇 · 还剩 N 篇逐晚处理）。文件一变只重画这几个字，不重建整页。页面和插件都不再自己查 pid：以 summary 的 sync 段为准；看到「同步中」而插件没在跑任务时，请 Python 跑一次 `problems summary` 核对。
+- 点开是问题列表（新文件 `problems-ui.js`，main.js 两行接入，doctor 必需文件已加）：分「等你处理 / 正在自动处理 / 已放弃 / 未开启」四组，每行时间 · 标题 · 标签 · 系统已做什么 · 次数 · 查看；登录 / 验证类带「扫码登录」「打开验证」（`fixFromCatalog(kind)`）；「复制报错」走 `problems export --plugin-version`，复制前已脱敏。卡片按 `it.problems` 出灰色小标（要你处理用醒目色），悬停看原因；状态文案只从 `state_registry` 取。
+- 推送口径（主审定）：升级 STUCK 按「步骤」记一条（各篇同一原因连着 3 个日历日 → 一件事，顶部橙色 +1、推一次；这一步各篇都好了才解决）；key 失效 / 欠费（AUTH_FAILED / QUOTA_EXCEEDED）至少在 2 个日历日出现过才推（产品规则「连续几晚没修好」），第一晚只进列表。
+- 夜跑脚本（仓外）配合：每步失败 `problems report --step nightly.<步骤>`、成功 `problems resolve`；汇总报警删掉；收藏同步 exit 1（非风控）等 25 分钟自动再试一次。报警出口 lwa-alert.py 加了 kind=problem。
+
+- 17 处 `alert_mod.alert` 全部迁到 `problems.report`；`alert.alert` 改名 `_alert`（模块私有，仓内只有 `problems._push` 调，`tests/test_problems_alert_exit.py` 扫源码守住）。推不推只由 problems 判：NEEDS_HUMAN（掉登录 / 验证 / 风控 / 熔断 / 登错号 / key 失效 / 欠费 / 收藏数可疑）推一次，按「同一步骤 + 同一码」去重；账号类不管哪步撞见都记在 `login`；TRANSIENT / PERMANENT / SKIPPED 只记不推，TRANSIENT 同 key 连续 3 个日历日 → STUCK 推一次。
+- 同步：结论由 `sync_state.record` 统一登记 / 解决（读取服务挂了、读收藏 500、连着几篇抓不到 = TRANSIENT；同步成功把收藏同步和账号问题都标已解决）；`account_problem / account_ok` 记 / 清 `login`。账号文案唯一源 = 登记表（`_ACCOUNT_MESSAGES` 删除）。`current()` 把「running 但进程已死」落盘成 INTERRUPTED，页面不再自己判 pid。sync-status.json 新增 `new / deferred` 两个键（旧键不动）。
+- 附件转 md：PERMANENT（加密 / 损坏 / 不支持）同一份字节不再转；TRANSIENT（OCR 故障 / 超时）按 `conversion_failed.next_at` 退避 1 / 2 / 4 / 7 个日历日（到那天 0 点起可再转），第二晚的夜跑就会重试。下附件 / 附件补查的失败逐篇 TRANSIENT 登记。
+- enrich：连着 3 次没补成不再报警、不再永久放弃——登记 `TRANSIENT.RETRY_EXHAUSTED`（action=gave_up）并按 2 / 4 / 7 天退避自动捡回来；以前已放弃（fails≥3、没有 retry_after）的下一晚就会再试一次。`--pending` 本来就会捡概要失败 / 从没生成过的。问答资料筛选失败记 `SKIPPED.FALLBACK`。
+- 给页面：`_archive/problems-summary.json`（计数 + sync 段），catalog-data 顶层 `state_registry`、每篇 `problems`；CLI `problems list`（带 label / hover / group）、`problems resolve`、`problems summary`。契约见 CONVENTIONS §3「第 4 批落地」。
+
 ## 2026-10-02 第 3 批：用户操作的结果如实反馈 + 问答停止（分支 batch3-feedback）
 
 - 问答：后端阶段（检索收藏 / 挑选材料 / 生成回答）经 `serve.py` 发 `{"type":"phase"}`，页面只显示这些；作答中有「停止」，走 `{"id","type":"cancel"}`：worker 用 `text_stream.CANCEL` 叫停——命令行模型整棵杀（`procs.kill_tree`，跳过读取服务）、HTTP 关流，回 `status=cancelled` 带半截，页面标「已停止生成」且不给收藏 / 导出；排队中的被取消就直接跳过；插件兜底超时也走这条，worker 8 秒不回才 `killTree` 整个 worker。

@@ -192,8 +192,11 @@ def test_transient_failure_is_retried_next_time(monkeypatch, tmp_path):
     first = pdftext.convert_object_attachments(source, source_id)
     assert first[0]["status"] == "failed" and first[0]["code"].startswith("TRANSIENT.")
     monkeypatch.setattr(pdftext, "attachment_to_markdown", real)
-    again = pdftext.convert_object_attachments(source, source_id)
-    assert again[0]["status"] == "ok", "TRANSIENT 失败下次照转"
+    # 第 4 批：TRANSIENT 按 next_at 退避（到点之前跳过，到点之后照转）
+    assert pdftext.convert_object_attachments(source, source_id)[0]["status"] == "backoff"
+    from datetime import datetime
+    again = pdftext.convert_object_attachments(source, source_id, now=datetime.fromisoformat(first[0]["next_at"]))
+    assert again[0]["status"] == "ok", "TRANSIENT 失败到点照转"
     assert not [r for r in problems.load() if r["step"] == "attachments.convert"], "转成了就标已解决"
 
 

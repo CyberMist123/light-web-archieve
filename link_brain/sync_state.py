@@ -1,5 +1,6 @@
 """Last sync outcome for the local UI, independent of notification integrations."""
 import os
+import sys
 from datetime import datetime
 
 from . import storage
@@ -30,18 +31,93 @@ def _alive(pid) -> bool:
         return False
 
 
-def load():
+INTERRUPTED_MESSAGE = '上次同步中途被打断（Obsidian 关闭或进程被结束），已抓的都在；再点一次同步会接着来'
+
+
+def _read_raw():
     try:
         status = storage.read_json(path())
     except (OSError, ValueError):
         return {}
-    # 0929：同步进程被打断（关 Obsidian / 结束进程）时来不及写结果，状态会永远停在「正在同步」。
-    # 读的时候核一下进程还在不在，不在就如实说中断了。
+    return status if isinstance(status, dict) else {}
+
+
+def _interrupted(status):
+    return {**status, 'state': 'failed', 'code': 'INTERRUPTED', 'message': INTERRUPTED_MESSAGE,
+            'detail': status.get('progress', '')}
+
+
+def load():
+    """sync-status.json，读的时候核一下进程还在不在（只读，不落盘）。
+
+    0929：同步进程被打断（关 Obsidian / 结束进程）时来不及写结果，状态会永远停在「正在同步」。
+    第 4 批：「pid 还活着」只在 Python 这一份判（CONVENTIONS §3 迁移点），页面不再自己 process.kill(pid, 0)；
+    页面拿到的是 problems-summary.json 的 sync 段（page_state），或调 `problems summary` 让 current() 落盘。"""
+    status = _read_raw()
     if status.get('state') == 'running' and status.get('pid') and not _alive(status['pid']):
-        status = {**status, 'state': 'failed', 'code': 'INTERRUPTED',
-                  'message': '上次同步中途被打断（Obsidian 关闭或进程被结束），已抓的都在；再点一次同步会接着来',
-                  'detail': status.get('progress', '')}
+        status = _interrupted(status)
     return status
+
+
+def current():
+    """和 load() 一样，但发现「running + 进程已死」时把 INTERRUPTED 落盘进 sync-status.json（页面不用自判）、
+    登记一条 TRANSIENT.INTERRUPTED（下次同步成功自动解决），并刷新 problems-summary.json。永不抛异常。"""
+    raw = _read_raw()
+    if not (raw.get('state') == 'running' and raw.get('pid') and not _alive(raw['pid'])):
+        return load()
+    status = {**_interrupted(raw), 'updated_at': datetime.now().astimezone().isoformat()}
+    try:
+        storage.write_json(path(), status)
+    except OSError:
+        return status
+    _problem('sync.favorites', 'INTERRUPTED', status['message'] + (f"（停在：{status['detail']}）" if status.get('detail') else ''))
+    _refresh_summary()
+    return status
+
+
+def page_state():
+    """problems-summary.json 的 sync 段（只读）：修正后的状态 + 上次同步时间 + 本次新收几篇 + 还剩几篇逐晚处理。
+
+    {state, code, message, label, hover, detail, updated_at, last_success, favorites, new, deferred, progress, running}
+    label / hover 来自 problems 登记表（code 为空时是空串）；new / deferred 是这次同步才开始记的字段，旧文件没有就是 null。"""
+    from . import problems
+    status = load()
+    code = str(status.get('code') or '')
+    shown = problems.describe(code, status.get('detail') or status.get('message')) if code else {}
+    return {
+        'state': status.get('state') or '', 'code': code, 'message': status.get('message') or '',
+        'label': shown.get('label', ''), 'hover': shown.get('hover', ''),
+        'updated_at': status.get('updated_at'), 'last_success': status.get('last_success'),
+        'favorites': status.get('favorites'), 'new': status.get('new'), 'deferred': status.get('deferred'),
+        'detail': status.get('detail') or '', 'progress': status.get('progress') or '',
+        'running': status.get('state') == 'running',
+    }
+
+
+def _problem(step, code, reason, **kw):
+    """问题记录（fail-open：记录失败绝不影响 sync-status.json）。"""
+    try:
+        from . import problems
+        return problems.report(step, code, reason, **kw)
+    except Exception as exc:  # noqa: BLE001
+        print(f'[sync_state] 问题记录没写上（{type(exc).__name__}: {exc}）', file=sys.stderr)
+        return None
+
+
+def _resolve(step, code=None):
+    try:
+        from . import problems
+        return problems.resolve(step, None, code)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _refresh_summary():
+    try:
+        from . import problems
+        problems.write_summary()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def progress_log():
@@ -58,6 +134,7 @@ def progress(text):
         if status.get('state') == 'running':
             storage.write_json(path(), {**status, 'message': f'正在同步收藏：{text}', 'progress': text,
                                         'updated_at': now.isoformat()})
+            _refresh_summary()
     except (OSError, ValueError):
         pass
 
@@ -93,6 +170,7 @@ def _update_baseline(status, payload):
 
 def record(state, *, payload=None, message='', account=None, code=''):
     previous = load()
+    finished = state == 'finished'
     now = datetime.now().astimezone().isoformat()
     payload = payload or {}
     # known_bad = 以前就抓不到的收藏（已删 / 仅作者可见）又没抓到：不算这次同步失败（1001）
@@ -137,6 +215,10 @@ def record(state, *, payload=None, message='', account=None, code=''):
               'code': code, 'detail': detail}
     status.update({k: previous[k] for k in _CARRY if k in previous})
     _update_baseline(status, payload)
+    if finished:
+        # 第 4 批：目录页顶部的同步概况要「本次新收几篇 / 还剩几篇逐晚处理」（新增字段，旧字段不动）
+        status['new'] = len(payload.get('fetched_new') or [])
+        status['deferred'] = int(payload.get('deferred') or 0)
     if state == 'running':
         status['pid'] = os.getpid()
         if previous.get('state') != 'running':
@@ -144,7 +226,36 @@ def record(state, *, payload=None, message='', account=None, code=''):
         elif isinstance(previous.get('before'), dict):
             status['before'] = previous['before']
     storage.write_json(path(), status)
+    _record_problems(status)
+    _refresh_summary()
     return status
+
+
+def _record_problems(status):
+    """这次同步的结论进问题记录（CONVENTIONS §2 迁移点）：sync-status.json 照写，这里只多登记 / 解决一次。
+
+    - ready → 收藏同步和账号的问题全部标已解决（读到了收藏 = 号和服务都好着）；
+    - blocked → 账号类（掉登录 / 验证 / 风控 / 熔断 / 登错号）NEEDS_HUMAN 记在 login；服务类 TRANSIENT 记在 sync.favorites；
+    - failed → FAVORITES_SUSPICIOUS（停车待人看）NEEDS_HUMAN；TOO_MANY_FAILURES / 没码的失败（部分收藏没抓到、
+      同步进程出错）TRANSIENT：下次同步自动再来，连续 3 天还这样才升级推送。"""
+    from . import problems
+    state, code = status.get('state'), str(status.get('code') or '')
+    if state == 'running':
+        return
+    if state == 'ready':
+        if code != 'RATE_LIMITED':
+            _resolve('sync.favorites')
+            _resolve('login')
+        return
+    reason = '；'.join(x for x in (str(status.get('message') or ''), str(status.get('detail') or '')) if x)
+    if state == 'blocked' or code in problems.ACCOUNT_CODES:
+        problems.report_blocked('sync.favorites', code, reason, service=status.get('account') != 'xhs')
+        return
+    try:
+        problems.normalize(code or 'TRANSIENT.SYNC_FAILED')
+    except problems.BadCode:
+        code = ''
+    _problem('sync.favorites', code or 'TRANSIENT.SYNC_FAILED', reason or '同步没做完')
 
 
 def running_elsewhere() -> bool:
@@ -154,35 +265,51 @@ def running_elsewhere() -> bool:
 
 
 ACCOUNT_CODES = ('NOT_LOGGED_IN', 'CAPTCHA_REQUIRED', 'ACCOUNT_RISK', 'RISK_HOLD')
-_ACCOUNT_MESSAGES = {
-    'NOT_LOGGED_IN': '小红书账号掉登录了：点「!」扫码登录',
-    'CAPTCHA_REQUIRED': '小红书要安全验证：点「!」打开验证窗口',
-    'ACCOUNT_RISK': '小红书把读取号跳到了登录/安全页：同步已全部暂停，点「!」处理',
-    'RISK_HOLD': '风控暂停中：所有用号的同步都停了，点「!」处理后自动恢复',
-}
+
+
+def account_message(code):
+    """账号类状态的那句话：唯一文案源是 problems.STATE_REGISTRY（第 4 批，三处合一；页面经 catalog-data 的
+    state_registry 读同一份）。未知码按「要安全验证」说。"""
+    from . import problems
+    try:
+        shown = problems.describe(code if code in ACCOUNT_CODES else 'CAPTCHA_REQUIRED')
+    except Exception:  # noqa: BLE001
+        return '小红书账号要处理：点目录页顶部的问题入口检查'
+    return shown['hover']
 
 
 def account_problem(code, detail=''):
-    """任何环节（同步 / 附件下载 / 附件补查 / 登录检查）撞见掉登录或安全验证，都记到目录页那个「!」上。
+    """任何环节（同步 / 附件下载 / 附件补查 / 登录检查）撞见掉登录或安全验证，都记到目录页顶部的问题入口上（第 4 批：「!」并进了问题入口）。
 
     0927：以前只有同步收藏会写这里，下载附件时掉登录只发手机提醒、目录页照样显示正常。
     """
     previous = load()
     if previous.get('state') == 'blocked' and previous.get('code') == code:
         return previous
-    message = _ACCOUNT_MESSAGES.get(code, _ACCOUNT_MESSAGES['CAPTCHA_REQUIRED'])
+    message = account_message(code)
     status = {**previous, 'state': 'blocked', 'message': message, 'account': 'xhs', 'code': code,
               'detail': str(detail)[:300], 'updated_at': datetime.now().astimezone().isoformat()}
     storage.write_json(path(), status)
+    try:
+        from . import problems
+        problems.report_blocked('login', code, f'{message}（{str(detail)[:150]}）' if detail else message)
+    except Exception:  # noqa: BLE001
+        pass
+    _refresh_summary()
     return status
 
 
 def account_ok():
     """登录恢复了：只清掉『账号类』的「!」，别的失败原样留着。"""
     previous = load()
+    # 问题记录：登录检查通过 = 掉登录 / 要验证 / 风控跳页这几件事都好了（登错号要等下次同步认号才算好）
+    resolved = sum(_resolve('login', c) for c in (*ACCOUNT_CODES, 'ACCOUNT_BLOCKED', 'NOT_INSTALLED'))
     if previous.get('state') == 'blocked' and previous.get('code') in ACCOUNT_CODES:
         status = {**previous, 'state': 'ready', 'message': '已重新登录，下次同步照常进行', 'code': '', 'detail': '',
                   'updated_at': datetime.now().astimezone().isoformat()}
         storage.write_json(path(), status)
+        _refresh_summary()
         return status
+    if resolved:
+        _refresh_summary()
     return previous

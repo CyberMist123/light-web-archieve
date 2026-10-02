@@ -25,7 +25,7 @@ import sys
 from typing import Any
 from urllib.parse import urlsplit
 
-from . import accounts, alert as alert_mod, ingest as ingest_mod, read as read_mod, storage
+from . import accounts, ingest as ingest_mod, problems, read as read_mod, storage
 from .adapters import xiaohongshu as xhs
 
 EXIT_OK = 0
@@ -134,14 +134,10 @@ def _catch_one(
         return {"item_id": None, "status": "busy", "url": url, "error": f"{BUSY_MESSAGE}（{exc}）",
                 "code": "ACCOUNT_BUSY"}
     except xhs.NeedsHumanError as exc:
-        # 号出事 / 服务出事，不是这条链接的问题：报警 + 让上层停车，别把剩下的全刷成失败
+        # 号出事 / 服务出事，不是这条链接的问题：登记问题 + 让上层停车，别把剩下的全刷成失败。
+        # 账号类 NEEDS_HUMAN（记在 login，推一次）；读取服务没起来 / 超时 TRANSIENT（只记不推，下次再试）
         service = isinstance(exc, xhs.ServiceDownError)
-        alert_mod.alert(
-            alert_mod.KIND_SERVICE if service else alert_mod.KIND_ACCOUNT,
-            "小红书归档停了：" + ("读取服务要处理" if service else "账号要处理"),
-            str(exc),
-            url=url,
-        )
+        problems.report_blocked("ingest", getattr(exc, "code", "") or "", f"导入停了：{exc}", service=service)
         return {"item_id": None, "status": "blocked", "url": url, "error": str(exc),
                 "code": getattr(exc, "code", "") or ""}
     except Exception as exc:  # noqa: BLE001 - 一条链接抓挂了不该带走整条消息
