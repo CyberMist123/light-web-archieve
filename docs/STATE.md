@@ -1,5 +1,13 @@
 # Current State
 
+## 2026-10-02 第 6 批：远程阅读（MCP，高级）（分支 batch6-remote）
+
+- 新包 `link_brain/remote/`：只读 MCP over HTTP（mcp SDK Streamable HTTP，无状态 + JSON 应答），只监听 127.0.0.1；独立后台服务，不挂在 Obsidian 下——Windows 上「启用」注册计划任务 `LinkBrainRemote`（登录时启动 + 每 5 分钟看门狗，IgnoreNew），「停用」停掉并删除；macOS / Linux 手动 `python -m link_brain remote serve`。配置唯一来源 = 插件 data.json 的 `remote` 段（开关 / 域名 / 端口 / 文件夹），按 mtime 热重载；关掉开关或改端口服务自己退出（计划任务按新端口拉起，设置页也会主动重启）。
+- 认证照私人桥的协议做法并收紧：OAuth 动态注册（回调只收 https 或本机 http）+ **强制 PKCE S256** + 口令批准页（scrypt；错 5 次锁 15 分钟）+ 授权码 5 分钟一次性 + 访问令牌 1 小时 / 刷新令牌 90 天轮换；另有「给其他客户端的访问令牌」（不过期、可单个撤销）和「撤销全部访问」。口令 / 令牌在 `~/.link-brain/remote/auth.json`，只存哈希，不进 data.json。Host 只认设置里的域名和本机，Origin 只认这几个来源，不发 CORS 头，每令牌每分钟 120 次。
+- 工具只有 search（复用 `retrieval.rank_query` 词法 + 语义，只回白名单路径；用户加的文件夹逐文件匹配）/ read（分页）/ list；没有写入、执行、问答（lb_ask）。白名单三道：规范形（拒 `..`、绝对路径、反斜杠、`:`、空段、段尾点空格、设备名）→ 规则（`.` 开头、`_trash`、`_archive` 里除机读版 / 附件全文 / notes.json 外一律拒，只读 .md/.markdown/.txt）→ 文件系统（非链接 / 非联接点、单硬链接、realpath 与规范形逐字相等，挡住大小写 / 8.3 / 父目录链接）。
+- 设置页：`obsidian-plugins/link-brain-actions/remote-ui.js`（整节在「高级设置」末尾），main.js 只两行接入。状态 / 出错原因 / 最近访问来自 `remote status`；新故障码 `NEEDS_HUMAN.PORT_IN_USE`、`PERMANENT.REMOTE_TASK_FAILED`（step `remote`）已登记。
+- 部署要点：插件目录多一个 `remote-ui.js`（doctor 已把它列进必需文件）；不开开关什么都不跑。接域名由作者决定（插件不管隧道）。
+
 ## 2026-10-02 第 0 批公共件（分支 batch0-base）
 
 - 插件唯一 Python 入口 `spawnPy`/`runPy` + 唯一杀树 `killTree`（跳过 link-brain-reader 及其浏览器，不再 `taskkill /T`）；读取服务经 `cmd /c start` 中转拉起、不再是任何 Python 的子孙（0929 根治）；`storage.file_lock`（账号锁是它的实例，目录重建 / answers.json / sync-quota 加锁）与原子写收口；`cli_call` 默认 180 秒超时杀树；`problems.py` 骨架（问题记录、分类、登记表、推送出口、`problems list|report|export`），未接调用点；`package.json` + `tests/run-node.cjs`。验收见 `tests/acceptance/20261002-batch0.md`。
