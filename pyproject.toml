@@ -37,7 +37,7 @@ link-brain = "link_brain.cli:main"
 include = ["link_brain*"]
 
 [tool.setuptools.package-data]
-link_brain = ["assets/*.js", "assets/*.css", "assets/*.json", "assets/*.yaml", "assets/*.wav"]
+link_brain = ["assets/*.js", "assets/*.css", "assets/*.json", "assets/*.yaml", "assets/*.wav", "pricing.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

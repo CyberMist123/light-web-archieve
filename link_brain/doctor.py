@@ -16,8 +16,9 @@ def read_json(path: Path, default):
         return default
 
 
-# 插件目录里必须有的文件（main.js 按需 require 其余几个；第 5 批 B2 加了首次引导和并进来的图片导航）
-PLUGIN_FILES = ('main.js', 'manifest.json', 'library-ui.js', 'remote-ui.js', 'problems-ui.js', 'report-ui.js', 'onboarding-ui.js', 'media-nav.js')
+# 插件目录里必须有的文件（main.js 按需 require 其余几个；第 5 批 B2 加了首次引导和并进来的图片导航；第 7 批加「开始」页向导）
+PLUGIN_FILES = ('main.js', 'manifest.json', 'library-ui.js', 'remote-ui.js', 'problems-ui.js', 'report-ui.js', 'onboarding-ui.js', 'media-nav.js',
+                'setup-ui.js')
 
 
 def dataview_ready(obs: Path) -> bool:

@@ -496,6 +496,7 @@ def test_doctor_plugin_files_match_plugin_dir_and_dataview_required(tmp_path):
     for name in doctor.PLUGIN_FILES:
         assert (plugin_dir / name).is_file(), f"doctor 要求的 {name} 不在插件目录里"
     assert "media-nav.js" in doctor.PLUGIN_FILES and "onboarding-ui.js" in doctor.PLUGIN_FILES
+    assert "setup-ui.js" in doctor.PLUGIN_FILES, "第 7 批「开始」页向导"
     rows = {r["id"]: r for r in doctor.diagnose(obsidian_dir=str(tmp_path / ".obsidian"), only="local")["checks"]}
     assert rows["dataview"]["state"] == "missing" and rows["dataview"]["optional"] is False, "Dataview 首版是必装依赖"
     assert rows["obsidian"]["message"] == "未安装"

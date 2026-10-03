@@ -1,5 +1,16 @@
 # Current State
 
+## 2026-10-03 第 7 批（后端）：「开始」页向导 `setup plan / check / install / estimate / backfill`（分支 batch7-setup）
+
+- 新包 `link_brain/setup/`（契约 `docs/SETUP-CONTRACT.md`），`python -m link_brain setup <子命令>`，输出 §1 形状、退出码 0 成功 · 1 失败 · 5 只能手动（Dataview / 填 key / 发布地址没配 / 别人装的 CapsWriter 缺模型）。
+- **plan**：9 项功能（core / reader / dataview / ocr / asr / capslock / ai_text / ai_vision / remote）+ 三个预设，每项带 `disk_mb / ram_mb / basis`。装了的现量（目录和 Python 包按文件逐个 stat、跟着目录联接走；CapsWriter 服务端 / 客户端在跑就读它们的峰值工作集，Windows ctypes 只读查询），没装的按官方包 / 模型解压大小；量不到的用 `components.RAM_MEASURED`（10-03 开发机实测：后端进程 151 MB；PP-OCRv6 识别峰值 medium 672 / small 397 MB，在临时进程里真加载认一张 1080×1440 图量的；CapsWriter 客户端 143 MB；服务端 Qwen3-ASR-1.7B 三个进程峰值之和 2187 MB）。读收藏时开的浏览器没实测（开发中不许起读取服务），按 300 MB 估并写明。
+- **check**：只读。status 多一个 `needs_key`（ai_text / ai_vision 没配 key：不算没装好，`all_ready` 不被它拖住，前端放到 ⑤）。`ok` = 没有 failed；`all_ready` = 除 needs_key 外全 ready。
+- **install**：stdout 一行一个 `{"type":"progress",…}`，最后一行 `{"type":"result",…,"status","check"}`（装完自己再 check）。core / ocr 缺包用当前 Python 的 pip 补（没有 pip 如实说用 `uv tool install --reinstall`）；ocr 缺 PP-OCRv6 medium 模型时按 rapidocr 自带清单（default_models.yaml 的官方地址 + sha256）下到 `~/.link-brain/models/rapidocr` 并写 `ocr.modelDir`，加载模型认一张测试图自检；reader 调现有 `reader install`（发布地址空 = 手动）；dataview / ai_* / remote 只报怎么手动做。
+- **CapsWriter 一键安装**（`setup/capswriter.py`）：官方 v2.6 `CapsWriter-Offline-20260914.zip` + 模型 `Qwen3-ASR-1.7B-q4_k.zip`（可 `--asr-model sensevoice`），地址 / 大小 / sha256 取 GitHub Releases API 的 asset digest（10-03 核对，许可 MIT）。下载到 `~/.link-brain/downloads/`（`.part` 续传，HTTP Range）→ 校验 → 解到 `capswriter.staging-<pid>` → 只改这份新解出来的 `config_server.py`（`addr` 改成 127.0.0.1，上游默认 0.0.0.0 会对局域网开放；选模型）→ 写安装记录 → 整目录一次改名成 `~/.link-brain/capswriter`（中途断掉不会留半截）→ 删下载包 → 写插件设置（`asrAI` 地址端口、`voice.capsWriterDir`；同时在 result 里带 `settings_patch`，插件开着时请它自己 merge 保存，免得被内存里的旧设置盖掉）→ 经 `procs.spawn_detached` 拉起服务端 → 随包 3 秒样例真识别一次。**已装的不管谁装的都不重装、不改文件和设置**：服务端在跑 = ready；没在跑只拉起来自检（别人装的先试计划任务「CapsWriter Server」，和插件同规则）；别人装的缺模型 = 手动。包里中文文件名是 GBK，解压时还原；装前核磁盘空间（新码 `PERMANENT.DISK_FULL`，只出现在命令结果里）。在作者本机只读跑过：detect 认出正在跑的那份，install asr / capslock 都是「没动它」；自检函数对本机服务端真识别出「你好，这是语音识别测试。」。**没在真机上走过一次完整下载安装**（1.5 GB，待她：一步——找台没装过的 Windows 点一次）。
+- **estimate**：价格表 `link_brain/pricing.json`（DeepSeek / 通义千问 / OpenAI / Gemini / OpenAI 转写 / 阿里 Paraformer、Fun-ASR，官方页 10-03 核对，查不到的 whisper-1 记 null；美元按 9-29 人民币中间价 6.7411 换；`~/.link-brain/pricing.json` 可覆盖）。量取自收藏库：概要用 extracted.json 记的 token、识图用 vision.json 每张真调过模型的 tokens、视频用 duration_sec；设置里配的模型在表里就按它算，否则按推荐。作者库（361 篇）算出每 100 篇：概要 qwen3.7-flash ¥0.08（DeepSeek ¥0.75）、识图 qwen3.8-flash ¥0.82、视频转写（用 API 时）¥0.47，问答一次 DeepSeek 约 ¥0.02。
+- **backfill**：总数 = sync-status 的 last_favorites，已入库 = favorited_by 不空的篇数，还剩 = 上次同步的 deferred → 退到总数 − 已入库，预计天数 = 还剩 ÷ 每天上限向上取整（0 = 不限 → 1 晚）。
+- 另：doctor 必需文件加 `setup-ui.js`（前端 aa62bcc）；pyproject 的 package-data 加 `pricing.json`。测试 `tests/test_setup.py` 26 例（本地假发布包 + 支持 Range 的小 HTTP 服务，不联网）；pytest 822 过。
+
 ## 2026-10-03 10-03 小改（第 6 批）：目录页「本周同步情况」+ 机读版外链拆开（分支 batch6-tweaks）
 
 - 目录页标题区：删掉第 4 批加的「上次同步 · 本次新收 · 还剩」那行（`.lbc-syncinfo`）；「N 篇 · 更新 …」那行可点（灰字不变、悬停下划线、提示「看本周同步情况」），点了 `LB.ensure('openWeekReport')`。问题入口照留。

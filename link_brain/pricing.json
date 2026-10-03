@@ -1,0 +1,116 @@
+{
+  "_doc": "「开始」页 ⑤ AI 的价格表（第 7 批）。只放各家官方定价页上的公开单价；查不到的写 null，不编。用户可在 ~/.link-brain/pricing.json 写同样结构覆盖（按键深合并）。单位：per_million_tokens = 每百万 token；per_second / per_minute = 每秒 / 每分钟音频。currency 是这家官方标价的币种，USD 按 usd_cny 换算成人民币。",
+  "as_of": "2026-10-03",
+  "usd_cny": {
+    "rate": 6.7411,
+    "date": "2026-09-29",
+    "source": "https://www.xinhuanet.com/20260929/6ccf1b9d94dd45fcb3cf3fb95addc85f/c.html",
+    "note": "中国外汇交易中心公布的人民币汇率中间价（100 美元 = 674.11 元），新华网转载；只用来把美元标价换成人民币估算"
+  },
+  "sources": {
+    "deepseek": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
+    "aliyun": "https://help.aliyun.com/zh/model-studio/model-pricing",
+    "openai": "https://developers.openai.com/api/docs/pricing",
+    "google": "https://ai.google.dev/gemini-api/docs/pricing"
+  },
+  "models": {
+    "deepseek-flash": {
+      "provider": "DeepSeek", "kind": ["text"], "currency": "CNY", "unit": "per_million_tokens",
+      "input": 2.0, "output": 8.0, "input_cache_hit": 0.04,
+      "input_offpeak": 1.0, "output_offpeak": 4.0, "input_cache_hit_offpeak": 0.02,
+      "aliases": ["deepseek-v4-flash"],
+      "note": "高峰价 = 北京时间周一至周五 9:00-12:00、14:00-18:00；其余时段（含周末、法定节假日）半价。旧名 deepseek-v4-flash 仍可调用，由 DeepSeek-V4.1-Flash 提供服务、按 Flash 价计费。",
+      "source": "deepseek", "checked": "2026-10-03"
+    },
+    "deepseek-v4-pro": {
+      "provider": "DeepSeek", "kind": ["text"], "currency": "CNY", "unit": "per_million_tokens",
+      "input": 9.0, "output": 27.0, "input_cache_hit": 0.30,
+      "input_offpeak": 4.5, "output_offpeak": 13.5, "input_cache_hit_offpeak": 0.15,
+      "note": "高峰 / 空闲时段同上。", "source": "deepseek", "checked": "2026-10-03"
+    },
+    "qwen3.7-flash": {
+      "provider": "通义千问", "kind": ["text"], "currency": "CNY", "unit": "per_million_tokens",
+      "input": 0.2, "output": 0.8,
+      "note": "华北 2（北京），单次输入 ≤32K token 档；32K-256K 为 0.6 / 2.4，256K-1M 为 1.2 / 4.8。新开通有 100 万 token 免费额度（90 天）。",
+      "source": "aliyun", "checked": "2026-10-03"
+    },
+    "qwen3.8-flash": {
+      "provider": "通义千问", "kind": ["text", "vision"], "currency": "CNY", "unit": "per_million_tokens",
+      "input": 0.8, "output": 2.7,
+      "note": "华北 2（北京），0<Token≤1M。图片按 token 计入输入（实测一张小红书图连提示词约 2100 token）。",
+      "source": "aliyun", "checked": "2026-10-03"
+    },
+    "qwen3.8-max": {
+      "provider": "通义千问", "kind": ["text", "vision"], "currency": "CNY", "unit": "per_million_tokens",
+      "input": 12.0, "output": 36.0,
+      "note": "华北 2（北京），0<Token≤1M。识图第二层（精细识别）用。",
+      "source": "aliyun", "checked": "2026-10-03"
+    },
+    "qwen3-vl-flash": {
+      "provider": "通义千问", "kind": ["vision"], "currency": "CNY", "unit": "per_million_tokens",
+      "input": 0.15, "output": 1.5,
+      "note": "华北 2（北京），单次输入 ≤32K token 档。",
+      "source": "aliyun", "checked": "2026-10-03"
+    },
+    "gpt-6-luna": {
+      "provider": "OpenAI", "kind": ["text", "vision"], "currency": "USD", "unit": "per_million_tokens",
+      "input": 0.10, "output": 0.50, "input_cache_hit": 0.01,
+      "note": "Standard、短上下文档。", "source": "openai", "checked": "2026-10-03"
+    },
+    "gpt-6.1-sol": {
+      "provider": "OpenAI", "kind": ["text", "vision"], "currency": "USD", "unit": "per_million_tokens",
+      "input": 2.00, "output": 10.00, "input_cache_hit": 0.10,
+      "note": "Standard、短上下文档。", "source": "openai", "checked": "2026-10-03"
+    },
+    "gemini-3.5-flash-lite": {
+      "provider": "Google Gemini", "kind": ["text", "vision"], "currency": "USD", "unit": "per_million_tokens",
+      "input": 0.30, "output": 2.50,
+      "note": "付费档；输入价对文本 / 图片 / 视频 / 音频相同。", "source": "google", "checked": "2026-10-03"
+    },
+    "gemini-3.8-flash": {
+      "provider": "Google Gemini", "kind": ["text", "vision"], "currency": "USD", "unit": "per_million_tokens",
+      "input": 0.75, "output": 3.75,
+      "note": "付费档，此价到 2026-12-31；2027-01-01 起输入 1.50、输出 7.50。", "source": "google", "checked": "2026-10-03"
+    },
+    "gpt-4o-mini-transcribe": {
+      "provider": "OpenAI", "kind": ["asr"], "currency": "USD", "unit": "per_minute",
+      "price": 0.003, "openai_compatible": true,
+      "note": "官方页的 Estimated cost。接口是 /audio/transcriptions，插件「语音识别 → 自定义接口」可直接用。",
+      "source": "openai", "checked": "2026-10-03"
+    },
+    "gpt-transcribe": {
+      "provider": "OpenAI", "kind": ["asr"], "currency": "USD", "unit": "per_minute",
+      "price": 0.0045, "openai_compatible": true,
+      "note": "官方页的 Estimated cost。", "source": "openai", "checked": "2026-10-03"
+    },
+    "whisper-1": {
+      "provider": "OpenAI", "kind": ["asr"], "currency": "USD", "unit": "per_minute",
+      "price": null, "openai_compatible": true,
+      "note": "2026-10-03 的官方定价页上已不列 whisper-1，价格查不到。", "source": "openai", "checked": "2026-10-03"
+    },
+    "paraformer-v2": {
+      "provider": "阿里 Paraformer", "kind": ["asr"], "currency": "CNY", "unit": "per_second",
+      "price": 0.00008, "openai_compatible": false,
+      "note": "录音文件识别，华北 2（北京）；每月 1 日发 36,000 秒（10 小时）免费额度。走百炼自己的录音文件识别接口，不是 OpenAI 兼容的 /audio/transcriptions，插件现在不能直接接。",
+      "source": "aliyun", "checked": "2026-10-03"
+    },
+    "fun-asr": {
+      "provider": "阿里 Fun-ASR", "kind": ["asr"], "currency": "CNY", "unit": "per_second",
+      "price": 0.00022, "openai_compatible": false,
+      "note": "录音文件识别，华北 2（北京）；新开通 36,000 秒免费额度（90 天）。同样不是 OpenAI 兼容接口。",
+      "source": "aliyun", "checked": "2026-10-03"
+    }
+  },
+  "recommended": {
+    "summary": "deepseek-flash",
+    "vision": "qwen3.8-flash",
+    "video": "gpt-4o-mini-transcribe",
+    "ask": "deepseek-flash"
+  },
+  "alternatives": {
+    "summary": ["qwen3.7-flash", "gpt-6-luna", "gemini-3.5-flash-lite"],
+    "vision": ["qwen3-vl-flash", "gpt-6-luna", "gemini-3.5-flash-lite"],
+    "video": ["gpt-transcribe", "paraformer-v2", "fun-asr"],
+    "ask": ["qwen3.7-flash", "gpt-6-luna", "gemini-3.8-flash"]
+  }
+}
