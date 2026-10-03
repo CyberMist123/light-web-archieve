@@ -239,7 +239,8 @@ def sync_favorites(
         suspicious = "收藏读回 0 条：多半是收藏页没加载完或被限流，这次不算同步成功"
     elif last and total < last / 2:
         suspicious = f"收藏只读回 {total} 条（上次 {last} 条），少了一半以上：多半只读到一截，这次不算同步成功"
-    # 可疑 = 停车待人看：sync_state.record 记 NEEDS_HUMAN.FAVORITES_SUSPICIOUS（推一次；连着 3 晚同一个数就认作新基准）
+    # 可疑 = 这次不算同步成功：sync_state.record 记 TRANSIENT.FAVORITES_SUSPICIOUS（下次同步自动再读，
+    # 连着 3 天才升级推一次；连着 3 晚同一个数就认作新基准）
 
     # 0927 认号：收藏同步钉在一个号上。登错号（如测试号）时整批不入库、目录页亮「!」，
     # 免得把别的号的收藏悄悄灌进库（0926–0927 测试号登着，夜跑收了它 33 篇）。换号走「更换账号」。

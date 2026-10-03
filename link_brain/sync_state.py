@@ -236,7 +236,7 @@ def _record_problems(status):
 
     - ready → 收藏同步和账号的问题全部标已解决（读到了收藏 = 号和服务都好着）；
     - blocked → 账号类（掉登录 / 验证 / 风控 / 熔断 / 登错号）NEEDS_HUMAN 记在 login；服务类 TRANSIENT 记在 sync.favorites；
-    - failed → FAVORITES_SUSPICIOUS（停车待人看）NEEDS_HUMAN；TOO_MANY_FAILURES / 没码的失败（部分收藏没抓到、
+    - failed → FAVORITES_SUSPICIOUS（读取服务只读到一截，下次自动再读）TRANSIENT；TOO_MANY_FAILURES / 没码的失败（部分收藏没抓到、
       同步进程出错）TRANSIENT：下次同步自动再来，连续 3 天还这样才升级推送。"""
     from . import problems
     state, code = status.get('state'), str(status.get('code') or '')

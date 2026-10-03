@@ -72,9 +72,9 @@ def test_one_account_problem_seen_by_sync_attachments_and_ingest_pushes_once(pus
 def test_needs_human_for_many_items_pushes_once_per_step(pushes):
     """要人处理的码各篇都撞见：只推一次（同一步骤 + 同一码）。"""
     for i in range(5):
-        problems.report("ingest", "NEEDS_HUMAN.FAVORITES_SUSPICIOUS", "数不对", item_id=f"xhs-{i}")
+        problems.report("ingest", "NEEDS_HUMAN.WRONG_ACCOUNT", "登错号", item_id=f"xhs-{i}")
     assert len(pushes) == 1 and len(problems.load()) == 5
-    problems.report("sync.favorites", "NEEDS_HUMAN.FAVORITES_SUSPICIOUS", "数不对")  # 另一步骤再推一次
+    problems.report("sync.favorites", "NEEDS_HUMAN.WRONG_ACCOUNT", "登错号")  # 另一步骤再推一次
     assert len(pushes) == 2
 
 
@@ -167,7 +167,8 @@ def test_record_wrong_account_and_suspicious_push(pushes):
     assert _codes() == [("login", "NEEDS_HUMAN.WRONG_ACCOUNT")] and len(pushes) == 1
     sync_state.record("finished", payload={"favorites": 0, "synced": 0, "items": [], "favorites_total": 0,
                                            "suspicious": "收藏读回 0 条", "code": "FAVORITES_SUSPICIOUS"})
-    assert ("sync.favorites", "NEEDS_HUMAN.FAVORITES_SUSPICIOUS") in _codes() and len(pushes) == 2
+    # 收藏数可疑 = 临时故障：记下、不推（读取服务偶尔只读到第一页）
+    assert ("sync.favorites", "TRANSIENT.FAVORITES_SUSPICIOUS") in _codes() and len(pushes) == 1
 
 
 def test_record_too_many_failures_and_crash_are_transient(pushes):
