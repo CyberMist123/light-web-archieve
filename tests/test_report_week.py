@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import json
+
+import pytest
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -75,6 +77,23 @@ def _library():
     _obj("d" * 24, title="前天那篇", at=_ts(1, 23, 50))
     _obj("e" * 24, title="很久以前", at=datetime(2026, 9, 20, 4, 0).astimezone().isoformat())
     _obj("f" * 24, title="没有时间", at=None)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_tool_dir(monkeypatch, tmp_path):
+    """report 还会读读取组件目录下旧夜跑脚本的 fav-sync.log：测试里指到空的临时目录，别读到本机真日志。"""
+    monkeypatch.setenv("LINK_BRAIN_XHS_TOOL_DIR", str(tmp_path / "xhs-tool"))
+
+
+def test_old_script_log_is_read_too(tmp_path):
+    _library()
+    tool = tmp_path / "xhs-tool"
+    tool.mkdir()
+    (tool / "fav-sync.log").write_text("2026-10-02 04:00:00  === 夜跑开始 ===\n2026-10-02 06:00:00  === 夜跑结束 ===\n",
+                                       encoding="utf-8")
+    out = report.week(7, now=NOW)
+    assert out["nightly_source"] == "log"
+    assert any(r["date"] == "2026-10-02" and r["nightly"]["finished"] is True for r in out["rows"])
 
 
 def test_week_counts_per_day_without_index_db():

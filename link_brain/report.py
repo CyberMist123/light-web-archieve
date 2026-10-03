@@ -7,7 +7,7 @@
 - 附件 = `attachments.inventory`（attachments.json + source.json 声明）：该有的（有文件编号或已下到的；只是正文
   提到「附件」、找不到文件的「线索」不算该有）下好几个、还缺几个；下好的 PDF / Word 转成文字（derived/attachments/*.md）几个。
 - 识图 / 概要还差 = `enrich.needs`（夜跑补处理用的同一个判断）。
-- 那天夜跑走完没有：有包内夜跑日志（`~/.link-brain/nightly.log`）就按「=== 夜跑开始 / 结束 ===」判；
+- 那天夜跑走完没有：有包内夜跑日志（`~/.link-brain/nightly.log`）或读取组件目录下旧夜跑脚本的 `fav-sync.log`，就按「=== 夜跑开始 / 结束 ===」判；
   没有（比如还在用仓外脚本）就不判走没走完，只列那天登记过的问题（problems.jsonl）+ sync-status.json 说得上的那天。
 - 还剩几篇逐晚处理 = sync-status.json 的 `deferred`。
 stdout 只有一行 JSON（CONVENTIONS §1），人话进 stderr。
@@ -148,21 +148,34 @@ def _add(counts: dict[str, Any], st: dict[str, Any]) -> None:
 
 # ------------------------------------------------------------------ 夜跑
 def _nightly_runs() -> dict[date, dict[str, Any]] | None:
-    """包内夜跑日志：{日: {started_at, ended_at|None}}（那天最后一趟）；没有日志 = None。"""
-    from . import nightly
+    """夜跑日志：{日: {started_at, ended_at|None}}（那天最后一趟）；一份日志都没有 = None。
 
-    log = nightly.default_log_path()
-    try:
-        with open(log, "rb") as fh:
-            fh.seek(0, 2)
-            size = fh.tell()
-            fh.seek(max(0, size - NIGHTLY_LOG_TAIL))
-            text = fh.read().decode("utf-8", "replace")
-    except OSError:
+    读包内夜跑日志，外加读取组件目录下旧版夜跑脚本的 fav-sync.log（同样的开始 / 结束标记；
+    还没切到包内夜跑的老用户靠它）。"""
+    from . import accounts, nightly
+
+    texts = []
+    for log in (nightly.default_log_path(), accounts.tool_dir() / "fav-sync.log"):
+        try:
+            with open(log, "rb") as fh:
+                fh.seek(0, 2)
+                size = fh.tell()
+                fh.seek(max(0, size - NIGHTLY_LOG_TAIL))
+                texts.append(fh.read().decode("utf-8", "replace"))
+        except OSError:
+            continue
+    if not texts:
         return None
     runs: dict[date, dict[str, Any]] = {}
+    lines: list[str | None] = []
+    for text in texts:  # 每份日志各自配对开始 / 结束，别把一份的「结束」配到另一份的「开始」上
+        lines.append(None)
+        lines.extend(text.splitlines())
     current: dict[str, Any] | None = None
-    for line in text.splitlines():
+    for line in lines:
+        if line is None:
+            current = None
+            continue
         if nightly.START_MARK in line or nightly.END_MARK in line:
             try:
                 at = datetime.strptime(line.strip()[:19], "%Y-%m-%d %H:%M:%S")
