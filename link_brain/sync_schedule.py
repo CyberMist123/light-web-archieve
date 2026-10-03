@@ -162,6 +162,10 @@ def _int(v):
         return None
 
 
+# 触发器起点改成不带时区的本地时间（[datetime] 把 …Z 解析成本地时间，ToString('s') 不带偏移）
+LOCAL_FIX = "$new.StartBoundary=([datetime]$new.StartBoundary).ToString('s');"
+
+
 def build_set_ps(trig: str, index: int | None, count: int) -> str:
     """换触发器的 PowerShell：读出全部触发器 → 核对数量和那一个的类型没变（读和写之间被别处改了就不动）→
     只替换 index 那一个（None = 追加）→ Set-ScheduledTask 整组写回 → 启用任务。错误信息只用 ASCII 标记（控制台编码不可靠）。"""
@@ -174,7 +178,9 @@ def build_set_ps(trig: str, index: int | None, count: int) -> str:
                   "if($c -notlike '*DailyTrigger' -and $c -notlike '*WeeklyTrigger'){throw 'LWA_TRIGGERS_CHANGED'};")
         swap = f"$list[{i}]=$new;"
     return (f"$t=Get-ScheduledTask -TaskName '{TASK}' -ErrorAction Stop;$list=@($t.Triggers|Where-Object{{$_}});{guard}"
-            f"$new={trig};{swap}"
+            # 10-03：New-ScheduledTaskTrigger 记的是 UTC（…Z）=「跨时区同步」，夏令时一到就整点漂一小时；
+            # 改写成不带时区的本地时间，触发器按本机钟点走
+            f"$new={trig};" + LOCAL_FIX + f"{swap}"
             f"Set-ScheduledTask -TaskName '{TASK}' -Trigger $list -ErrorAction Stop | Out-Null;"
             f"Enable-ScheduledTask -TaskName '{TASK}' -ErrorAction Stop | Out-Null;'ok'")
 
@@ -289,6 +295,7 @@ def nightly_install_script(exe: str, args: list[str], workdir: str, hh: int, mm:
         "$u=[System.Security.Principal.WindowsIdentity]::GetCurrent().Name;"
         f"$a=New-ScheduledTaskAction -Execute {_psq(exe)} -Argument {_psq(argline)} -WorkingDirectory {_psq(workdir)};"
         f"$t=New-ScheduledTaskTrigger -Daily -At ([datetime]::Today.AddHours({hh}).AddMinutes({mm}));"
+        "$t.StartBoundary=([datetime]$t.StartBoundary).ToString('s');"  # 本地钟点，不跟夏令时漂（见 LOCAL_FIX）
         "$s=New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries "
         f"-ExecutionTimeLimit (New-TimeSpan -Hours {int(limit_hours)}) -MultipleInstances IgnoreNew;"
         "$p=New-ScheduledTaskPrincipal -UserId $u -LogonType Interactive -RunLevel Limited;"

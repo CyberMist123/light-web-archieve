@@ -133,3 +133,17 @@ def test_save_without_task_says_not_found(fake):
     f = fake("none")
     r = ss.set_schedule("daily", "04:00")
     assert r["ok"] is False and "找不到" in r["error"] and len(f.cmds) == 1
+
+
+def test_triggers_are_written_in_local_time_not_utc():
+    """10-03：New-ScheduledTaskTrigger 记 UTC（…Z），夏令时一到 04:00 就漂成 05:00；写回前改成本地钟点。"""
+    from link_brain import sync_schedule
+    ps = sync_schedule.build_set_ps("New-ScheduledTaskTrigger -Daily -At '04:00'", 0, 1)
+    assert sync_schedule.LOCAL_FIX in ps and ps.index("$new=") < ps.index(sync_schedule.LOCAL_FIX)
+
+
+def test_nightly_install_registers_local_time_trigger():
+    from link_brain import sync_schedule
+    ps = sync_schedule.nightly_install_script("python.exe", ["-m", "link_brain", "nightly"], ".", 4, 0, 7)
+    assert "$t.StartBoundary=([datetime]$t.StartBoundary).ToString('s');" in ps
+    assert ps.index("$t=New-ScheduledTaskTrigger") < ps.index("$t.StartBoundary=") < ps.index("Register-ScheduledTask")
