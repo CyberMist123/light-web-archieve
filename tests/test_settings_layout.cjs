@@ -143,7 +143,7 @@ const REMOVED = ['搜索收藏'];   // 唯一删掉的一行：目录页本来�
   let tab = openTab(env.p);
   let root = tab.containerEl;
   const top = rowsOf(root).filter(r => visible(r, root)).map(idOf);
-  assert.deepEqual(top, ['〔账号卡片〕', '收藏同步', '每天最多新抓', '文本 AI', '接口地址', 'API Key', '模型', '测试文本 AI', '其他 AI 能力', '批注昵称'], '第一层只有这几行');
+  assert.deepEqual(top, ['〔账号卡片〕', '收藏同步', '每天最多新抓', '文本 AI', '接口地址', 'API Key', '模型', '测试文本 AI', '其他 AI 能力', '批注昵称', '批注留言对象'], '第一层只有这几行');
   const heads = root.children.filter(e => /^H[234]$/.test(e.tagName)).map(e => e.textContent);
   assert.deepEqual(heads, ['账号', '收藏同步', 'AI（问收藏用）', '批注'], '第一层标题');
   assert.equal(root.children.at(-1).tagName, 'DETAILS', '「更多」在最后');

@@ -24,12 +24,23 @@ function makeDom() {
   }
   const flatten = nodes => nodes.flatMap(n => (n instanceof Fragment ? n.childNodes.splice(0) : [typeof n === 'string' ? new TextNode(n) : n]));
   function detach(n) { const p = n.parentNode; if (p) { const i = p.childNodes.indexOf(n); if (i >= 0) p.childNodes.splice(i, 1); n.parentNode = null; } }
+  function simpleSel(s) {
+    const m = s.match(/^([a-z0-9]*)((?:\.[\w-]+)*)((?::not\(\.[\w-]+\))*)$/i);
+    if (!m) return () => false;
+    const tag = m[1].toUpperCase(), cls = m[2].split('.').filter(Boolean), nots = [...m[3].matchAll(/:not\(\.([\w-]+)\)/g)].map(x => x[1]);
+    return el => (!tag || el.tagName === tag) && cls.every(c => el.classList.contains(c)) && nots.every(c => !el.classList.contains(c));
+  }
+  // 支持后代选择器「.a .b」（最后一段匹配元素本身，前面几段按顺序在祖先里找）
   function parseSel(sel) {
     return sel.split(',').map(s => s.trim()).filter(Boolean).map(s => {
-      const m = s.replace(/^:scope\s*>\s*/, '').match(/^([a-z0-9]*)((?:\.[\w-]+)*)((?::not\(\.[\w-]+\))*)$/i);
-      if (!m) return () => false;
-      const tag = m[1].toUpperCase(), cls = m[2].split('.').filter(Boolean), nots = [...m[3].matchAll(/:not\(\.([\w-]+)\)/g)].map(x => x[1]);
-      return el => (!tag || el.tagName === tag) && cls.every(c => el.classList.contains(c)) && nots.every(c => !el.classList.contains(c));
+      const parts = s.replace(/^:scope\s*>\s*/, '').split(/\s+/).map(simpleSel);
+      const last = parts.pop();
+      return el => {
+        if (!last(el)) return false;
+        let i = parts.length - 1, n = el.parentNode;
+        while (i >= 0 && n) { if (n.classList && parts[i](n)) i--; n = n.parentNode; }
+        return i < 0;
+      };
     });
   }
   class El {

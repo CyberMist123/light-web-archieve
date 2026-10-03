@@ -6,11 +6,18 @@
 // Dataview 每 2.5 秒（库里任何一篇 md 变了）重跑这块：notes.json 没变 → 上一次的批注框原样留着（正在打的字、光标都在）；
 // 变了（另一个窗格 / 手机同步 / ⭐）→ 只重读、重画列表，不重建框。前导不在（单测直接跑本文件）就照旧每次重建。
 const LB = typeof lbPageLib === 'function' ? lbPageLib(dv, app, 'annotate') : null;
-if (LB && await LB.reuseDom()) return;
+// 10-03 她：批注又跑到最底下了。根因：Obsidian 重画左栏 / 重开这篇时，批注框跟着旧左栏被摘下，
+// reuseDom 把它挂回本容器（全文最底下）就 return 了，没再挪回左栏。现在复用这条路也照样挪。
+// 硬规矩（她定，别再改）：阅读视图里批注框永远在左栏图片 / 视频下面。tests/test_annot_side.cjs 守着。
+if (LB && await LB.reuseDom()) { placeUnderImages(dv.container, LB.container?.__lbView?.el); return; }
 const root = dv.container;
 root.classList.add('lba-annot-host');
 const notify = (m) => { try { new Notice(m); } catch { console.log('[annot]', m); } };
 const nickname = () => app.plugins.plugins['link-brain-actions']?.settings?.nickname || '';
+// 10-03 她：「@某人 开头 = 留言给某人」是她自己的设置（给她的 AI），默认不启用；设置里「批注留言对象」填名字才开。
+// 存储字段沿用 to_fable（下游按它读），显示用设置里的名字。
+const mention = () => String(app.plugins.plugins['link-brain-actions']?.settings?.annotateMention || '').trim();
+const isMention = (t) => { const m = mention(); return !!m && String(t).toLowerCase().startsWith('@' + m.toLowerCase()); };
 
 // 1002：样式放进 document.head（全页共用一份）。原来放在批注块自己的容器里——批注框挪进左栏后，
 // Obsidian 卸载底部那段时样式跟着没了，左栏里的批注框就变成没样式的样子。
@@ -61,7 +68,9 @@ ta.placeholder = '写批注…';  // 真正的提示由 setPlaceholder() 按有�
 // 1002：Obsidian 阅读视图按滚动位置渲染 / 卸载段落——长笔记里批注块渲染时，左栏那段可能还没渲染或已被卸掉，
 // 旧版只等 3 秒就放弃，批注就留在全文最底下。改成一直盯着这篇的视图：左栏一出现（或被重建）就挪过去。
 // 同一篇重渲染出新的批注块时，旧块让位（lbaGen 只认最新的那个），不会两个块抢一个左栏。
-(function moveUnderImages() {
+placeUnderImages(root, box);
+function placeUnderImages(root, box) {
+  if (!root || !box) return;
   const view = root.closest('.markdown-reading-view, .markdown-preview-view');
   if (!view) return;
   const gen = String(Date.now()) + Math.random().toString(36).slice(2, 6);
@@ -70,6 +79,7 @@ ta.placeholder = '写批注…';  // 真正的提示由 setPlaceholder() 按有�
   const place = () => {
     queued = false;
     if (!view.isConnected || view.dataset.lbaGen !== gen) { mo?.disconnect(); return; }
+    fixVideos(view);
     const side = view.querySelector('.xhs-note .lb-side');
     if (!side || box.parentElement === side) return;
     side.querySelectorAll(':scope > .lba-annot').forEach(el => { if (el !== box) el.remove(); });
@@ -79,7 +89,38 @@ ta.placeholder = '写批注…';  // 真正的提示由 setPlaceholder() 按有�
   place();
   mo = new MutationObserver(() => { if (!queued) { queued = true; requestAnimationFrame(place); } });
   mo.observe(view, { childList: true, subtree: true });
-})();
+}
+
+// 10-03 她：视频变成一个奇怪的横条（灰底、没封面）。根因：Obsidian 阅读视图只改写 <img src> / <video src> 的相对路径，
+// 不改 poster——封面加载不出来，视频框按默认比例显示。这里把 poster 换成 Obsidian 能加载的地址，并按封面比例定框，
+// 看起来和封面图一样，点一下开始播放。Obsidian 重画左栏后新的 <video> 也会被 place() 再修一遍（幂等）。
+function fixVideos(view) {
+  let folder = '';
+  try { folder = (dv.current()?.file?.folder || ''); } catch {}
+  for (const v of view.querySelectorAll('.lb-side video')) {
+    const raw = v.getAttribute && v.getAttribute('poster');
+    if (!raw || v.dataset.lbPoster === raw) continue;
+    v.dataset.lbPoster = raw;
+    if (/^(app|https?|data|blob):/i.test(raw)) continue;
+    const parts = [];
+    for (const seg of (folder ? folder + '/' + raw : raw).split('/')) {
+      if (!seg || seg === '.') continue;
+      if (seg === '..') parts.pop(); else parts.push(seg);
+    }
+    let url = '';
+    try { url = app.vault.adapter.getResourcePath(decodeURIComponent(parts.join('/'))); } catch { continue; }
+    v.setAttribute('poster', url);
+    v.dataset.lbPoster = url;
+    v.preload = 'none';   // 点了再加载：封面先出来，不先拉视频头
+    const img = new Image();
+    img.onload = () => {
+      if (!img.naturalWidth || !img.naturalHeight) return;
+      Object.assign(v.style, { aspectRatio: img.naturalWidth + ' / ' + img.naturalHeight, width: '100%', height: 'auto',
+        maxHeight: '75vh', objectFit: 'contain', background: 'transparent', borderRadius: 'inherit' });
+    };
+    img.src = url;
+  }
+}
 
 let data = { starred: false, annotations: [], draft: '' };
 // 1001（审计 note-9 / ui-6）：同一篇在两个窗格开着、或手机经 WebDAV 同步回来一条，以前后保存的一方整份覆盖、
@@ -177,7 +218,7 @@ function setPlaceholder() {
   // 已经有批注时不再写那长串灰字提示（Owner 2026-09-17）
   ta.placeholder = data.annotations.length
     ? '写批注…'
-    : '写批注…（@fable 开头 = 留言给 Fable）';
+    : (mention() ? `写批注…（@${mention()} 开头 = 留言给 ${mention()}）` : '写批注…');
 }
 // 第 3 批：失败回滚用的快照（批注列表 + 草稿）；提示固定句式（CONVENTIONS §1.5），比 1.4 秒的小字多留一会儿
 function snapshot() { return { annotations: JSON.parse(JSON.stringify(data.annotations)), draft: data.draft }; }
@@ -207,7 +248,7 @@ function startEdit(el, textSpan, key, initial) {
       const prev = snapshot();
       if (!cur.id) cur.id = newId();
       cur.text = t;
-      cur.to_fable = t.toLowerCase().startsWith('@fable');
+      cur.to_fable = isMention(t);
       cur.edited = true;
       try { await persist(); }
       catch (err) {
@@ -235,7 +276,7 @@ function renderList() {
     const el = list.createEl('div', { cls: 'lba-annot-item' + (a.to_fable ? ' is-fable' : '') });
     const who = a.author || (a.to_fable ? '' : nickname());
     const ts = el.createEl('span', { cls: 'lba-ts', text: (who ? who + ' · ' : '') + fmtTs(a.ts) });
-    if (a.to_fable) ts.createEl('span', { cls: 'lba-fable-tag', text: '给 Fable' });
+    if (a.to_fable) ts.createEl('span', { cls: 'lba-fable-tag', text: mention() ? '给 ' + mention() : '留言' });
     if (a.edited) ts.createEl('span', { cls: 'lba-edited', text: '· 已编辑' });
     const textSpan = el.createEl('span', { cls: 'lba-annot-text' });
     textSpan.setText(a.text || '');
@@ -276,7 +317,7 @@ async function commit() {
   if (locked) return;  // 文件读坏了：字留在输入框里，不清、不存
   const text = ta.value.trim();
   if (!text) { if (data.draft) { data.draft = ''; try { await persist(); } catch (err) { flash('草稿没清掉：' + (err.message || err)); } } return; }
-  const to_fable = text.toLowerCase().startsWith('@fable');
+  const to_fable = isMention(text);
   const prev = snapshot();
   data.annotations.push({ id: newId(), ts: new Date().toISOString(), text, to_fable, author: to_fable ? '' : nickname() });
   data.draft = '';
