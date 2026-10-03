@@ -177,18 +177,28 @@ function lbPageLib(dv, app, role) {
   }
   // 封面图懒加载、内容逐步长高：最多试 maxMs；用户自己动了滚轮 / 键盘就不再抢
   // 恢复后再「守」一小会儿：Obsidian 后退时会按它自己记的位置（按行算，对整页一个代码块的目录页就是 0）再滚一次，把我们恢复的冲掉
+  // 1003：用户动一下就放手——滚轮 / 触摸 / 按住滚动条在滚动容器上；键盘在整页任何地方（焦点常在正文 body 上，不在滚动容器里）。
+  // 同一个滚动容器上新起一次恢复先停掉上一次（以前两个循环会每帧轮流把 scrollTop 设成各自的值）；结束时摘掉自己的监听。
   let restoring = false;
   function restoreScroll(top, { maxMs = 2500, holdMs = 1200 } = {}) {
     const el = scroller();
     if (!el || !(top > 0)) return Promise.resolve(false);
+    try { el.__lbRestoreStop?.(); } catch {}
     return new Promise(resolve => {
       const until = clock() + maxMs;
-      let stop = false, reachedAt = 0;
+      let stop = false, reachedAt = 0, finished = false;
       const quit = () => { stop = true; };
-      const opts = { once: true, passive: true };
-      try { el.addEventListener('wheel', quit, opts); el.addEventListener('keydown', quit, opts); el.addEventListener('pointerdown', quit, opts); } catch {}
+      const doc = typeof document !== 'undefined' ? document : G.document;
+      const on = [[el, 'wheel'], [el, 'touchstart'], [el, 'pointerdown'], [el, 'keydown'], [doc, 'keydown']].filter(([t]) => t && typeof t.addEventListener === 'function');
+      for (const [t, type] of on) { try { t.addEventListener(type, quit, { passive: true }); } catch {} }
+      el.__lbRestoreStop = quit;
       const raf = G.requestAnimationFrame || (fn => setTimeout(fn, 16));
-      const done = ok => { restoring = false; resolve(ok); };
+      const done = ok => {
+        if (finished) return; finished = true;
+        for (const [t, type] of on) { try { t.removeEventListener(type, quit); } catch {} }
+        if (el.__lbRestoreStop === quit) { delete el.__lbRestoreStop; restoring = false; }
+        resolve(ok);
+      };
       restoring = true;
       const step = () => {
         if (stop) return done(reachedAt > 0);

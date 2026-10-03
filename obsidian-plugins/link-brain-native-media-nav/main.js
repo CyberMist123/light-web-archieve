@@ -244,6 +244,7 @@ module.exports = class LinkBrainNativeMediaNavPlugin extends Plugin {
 
     this.registerDomEvent(document, "click", (e) => {
       if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      if (e.defaultPrevented) return;   // 1003：新旧两份插件同开时另一份已经接了这一下，别再弹第二层大图
       const img = e.target instanceof Element ? e.target.closest(IMG_SELECTOR) : null;
       if (!img || img.closest(".lb-lightbox")) return;
       if (!img.closest(NOTE_ROOT_SELECTOR)) return;   // 只在小红书归档笔记里接管
@@ -269,19 +270,7 @@ module.exports = class LinkBrainNativeMediaNavPlugin extends Plugin {
     setLocked(false); // 0926 Owner：默认不钉，图/视频按原尺寸跟正文一起滚；要钉住再点右上角的钉
     // 0926 Owner：滚轮停在图片上 = 翻页（一格一张，节流防连跳）；刚打开的笔记直接认它，←/→ 不用先点图。
     this.activeCarousel=carousel;
-    let flipAt=0;
-    const flip=e=>{
-      if(e.ctrlKey||Math.abs(e.deltaY)<Math.abs(e.deltaX)||!e.target.closest('.lb-carousel'))return false;
-      const list=getSlides(carousel);if(list.length<2)return false;
-      e.preventDefault();const now=Date.now();if(now-flipAt<350)return true;flipAt=now;
-      const i=Math.max(0,Math.min(list.length-1,getNearestIndex(carousel,list)+(e.deltaY>0?1:-1)));
-      carousel.scrollTo({left:list[i].offsetLeft-list[0].offsetLeft,behavior:'smooth'});this.activeCarousel=carousel;return true;
-    };
-    const wheel=e=>{if(flip(e))return;if(!note.classList.contains('lb-media-locked')||e.ctrlKey||Math.abs(e.deltaX)>Math.abs(e.deltaY))return;
-      const scroller=note.querySelector('.lb-scroll');if(scroller&&!e.target.closest('.lb-scroll')){scroller.scrollTop+=e.deltaY*(e.deltaMode===1?16:1);e.preventDefault();}
-    };
-    preview?.addEventListener('wheel',wheel,{passive:false});
-    this.register(()=>{preview?.removeEventListener('wheel',wheel);preview?.classList.remove('lb-pane-locked');});
+    if(preview)this.paneWheel(preview);
     const pin=media.createEl('button',{cls:'lb-media-pin'});
     pin.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l-1 6 4 4v2H5v-2l4-4zM12 15v7"/></svg><span class="lb-visually-hidden">取消固定媒体</span>';
     pin.setAttribute('aria-pressed','false');pin.querySelector('span').textContent='固定媒体';
@@ -302,5 +291,37 @@ module.exports = class LinkBrainNativeMediaNavPlugin extends Plugin {
       return;
     }
     bar.remove(); // Image paging uses the original centered controls and per-image counter.
+  }
+
+  // 1003 修「目录页 / 问收藏页有时滚轮滚不动」：Obsidian 同一个标签页换文件时复用同一个 .markdown-preview-view。
+  // 以前每篇笔记往它身上挂一个滚轮监听、闭包里攥着那篇笔记、到插件卸载才摘——换到目录页 / 问收藏页后，
+  // 看过并「钉住媒体」的旧笔记（已不在页面上，类名还是 lb-media-locked）的监听照样把滚轮转给它那条脱离页面的 .lb-scroll
+  // 并 preventDefault → 整页滚不动。现在：每个预览容器只挂一个监听（挂点 PANE_WHEEL_KEY 新旧两份插件共用，后来的替换先前的，
+  // 不会两份都翻页），事件来了才现找「这个容器里此刻」被钉住的笔记 / 光标下的图片；找不到就什么都不拦，顺手清掉残留的 lb-pane-locked。
+  paneWheel(preview){
+    const KEY='__lbMediaWheel';
+    const prev=preview[KEY];if(prev)preview.removeEventListener('wheel',prev);
+    const wheel=e=>{
+      const t=e.target instanceof Element?e.target:null;
+      if(!t||!preview.contains(t)||e.ctrlKey)return;
+      if(Math.abs(e.deltaY)>=Math.abs(e.deltaX)){   // 图片上滚轮 = 翻页（一格一张，节流防连跳）
+        const carousel=t.closest('.lb-carousel');
+        if(carousel&&carousel.dataset.lbEnhanced){
+          const list=getSlides(carousel);
+          if(list.length>=2){
+            e.preventDefault();const now=Date.now();if(now-(carousel.lbFlipAt||0)<350)return;carousel.lbFlipAt=now;
+            const i=Math.max(0,Math.min(list.length-1,getNearestIndex(carousel,list)+(e.deltaY>0?1:-1)));
+            carousel.scrollTo({left:list[i].offsetLeft-list[0].offsetLeft,behavior:'smooth'});this.activeCarousel=carousel;return;
+          }
+        }
+      }
+      if(Math.abs(e.deltaX)>Math.abs(e.deltaY))return;
+      const note=preview.querySelector('.lb-note.lb-media-locked');
+      if(!note){if(preview.classList.contains('lb-pane-locked'))preview.classList.remove('lb-pane-locked');return;}
+      const scroller=note.querySelector('.lb-scroll');
+      if(scroller&&!t.closest('.lb-scroll')){scroller.scrollTop+=e.deltaY*(e.deltaMode===1?16:1);e.preventDefault();}
+    };
+    preview[KEY]=wheel;preview.addEventListener('wheel',wheel,{passive:false});
+    this.register(()=>{preview.removeEventListener('wheel',wheel);if(preview[KEY]===wheel){delete preview[KEY];preview.classList.remove('lb-pane-locked');}});
   }
 };

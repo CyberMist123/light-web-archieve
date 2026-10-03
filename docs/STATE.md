@@ -11,6 +11,13 @@
 - **backfill**：总数 = sync-status 的 last_favorites，已入库 = favorited_by 不空的篇数，还剩 = 上次同步的 deferred → 退到总数 − 已入库，预计天数 = 还剩 ÷ 每天上限向上取整（0 = 不限 → 1 晚）。
 - 另：doctor 必需文件加 `setup-ui.js`（前端 aa62bcc）；pyproject 的 package-data 加 `pricing.json`。测试 `tests/test_setup.py` 26 例（本地假发布包 + 支持 Range 的小 HTTP 服务，不联网）；pytest 822 过。
 
+## 2026-10-03 热修（分支 hotfix-scroll）：目录页 / 问收藏页滚轮偶尔滚不动 + 点来源后问收藏回首行
+
+- 滚不动根因：图片导航（`media-nav.js` 与旧插件 `link-brain-native-media-nav` 同一段）每篇笔记往 `.markdown-preview-view` 挂一个滚轮监听、闭包攥着那篇笔记、到卸载才摘；Obsidian 同一标签页换文件复用这个容器，看过「钉住媒体」的笔记后再回目录页 / 问收藏页，旧监听把滚轮转给已脱离页面的 `.lb-scroll` 并 preventDefault。现在每个预览容器只挂一个监听（新旧两份共用挂点 `__lbMediaWheel`，后来的替换先前的），事件来时才现找容器里此刻钉住的笔记 / 光标下的图片，找不到不拦并清掉残留 `lb-pane-locked`；点图大图加 `defaultPrevented` 判断，两份同开不弹两层。旧插件 manifest 0.0.2。
+- 回首行根因：问收藏的对话区是页内滚动容器 `.lbchat-body`，浏览器摘下再挂上元素会把 scrollTop 归零——第一次点「查看」/引用编号时 Obsidian 拆分标签页把本页 DOM 挪进新分栏；Dataview 重跑 `reuseDom` 也是摘下再挂回。现在 chat-view 记 `lastTop`（只记用户滚动），没有用户输入的「归零」不记、滚回原处（在底部跟随的回到底部）；打开来源后、layout-change、重跑挂回、尺寸变化时各确认一次。页头 / 输入框上滚滚轮也滚对话区。
+- `lb-page-lib.restoreScroll` 加固：整页任何地方按键、触摸都算用户动了；同一容器新一次恢复先停掉上一次；结束摘监听。
+- 测试：`tests/test_scroll_hotfix.cjs`（假 DOM 复现两处，修前失败）；`npm test` 21 过 0 败 4 跳；pytest 796 过；`test_annot_side.cjs` 照过。没在 Obsidian 里点过（待她：一步）。
+
 ## 2026-10-03 10-03 小改（第 6 批）：目录页「本周同步情况」+ 机读版外链拆开（分支 batch6-tweaks）
 
 - 目录页标题区：删掉第 4 批加的「上次同步 · 本次新收 · 还剩」那行（`.lbc-syncinfo`）；「N 篇 · 更新 …」那行可点（灰字不变、悬停下划线、提示「看本周同步情况」），点了 `LB.ensure('openWeekReport')`。问题入口照留。

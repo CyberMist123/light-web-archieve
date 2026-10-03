@@ -54,7 +54,8 @@ const openNote = (source,compare=false,context="") => {
   const src=typeof source==='string'?{note:source}:source;
   const chunks=(src?.excerpts||[]).filter(p=>p.field==='body'||p.field==='comments');
   if(context){const normalized=context.replace(/\s/g,'').toLowerCase();const score=p=>{const text=String(p.text).replace(/\s/g,'').toLowerCase();let n=0;for(let i=0;i<normalized.length-3;i++)if(text.includes(normalized.slice(i,i+4)))n++;return n;};chunks.sort((a,b)=>score(b)-score(a));}
-  if(src?.note)return Promise.resolve(provider().openArchiveSource(src.note,root,compare,chunks)).then(()=>paintSourceBar()).catch(e=>window.alert(e.message));
+  if(src?.note){userAt=0;dragging=false;}   // 点来源这一下不是在滚（之前滚到一半的不算）
+  if(src?.note)return Promise.resolve(provider().openArchiveSource(src.note,root,compare,chunks)).then(()=>{paintSourceBar();settle();}).catch(e=>window.alert(e.message));
 };
 
 const style = root.createEl('style');
@@ -308,6 +309,29 @@ const bodyEl = wrap.createEl('div', { cls: 'lbchat-body' });
 let stick = true, drawing = false;
 const nearBottom = () => bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight < 48;
 const follow = () => { if (stick) bodyEl.scrollTop = bodyEl.scrollHeight; };
+// 1003 修「点到来源，问收藏自动回首行」：对话区是页里自己的滚动容器（.lbchat-body）。浏览器把元素摘下再挂上时会把它的滚动位置归零——
+// 点「查看」/引用编号第一次开右侧来源窗格，Obsidian 拆分标签页会把本页整个 DOM 挪进新分栏；Dataview 重跑时 reuseDom 把整页摘下再挂回。
+// 两种都不是用户在滚。lastTop 只记用户滚动 / 我们自己定的位置；没有用户输入却「归零」了就滚回 lastTop（在底部跟随的回到底部）。
+// 「用户在滚」= 最近 400ms 有滚轮 / 触摸 / 按键（连续滚时事件一直来，会一直续上），或正按着对话区的滚动条拖
+let lastTop = Number.isFinite(pageState.scrollTop) ? pageState.scrollTop : 0, userAt = 0, dragging = false;
+const touched = e => {
+  if (e && e.type === 'pointerdown') { if (e.target !== bodyEl) return; dragging = true; }   // 只有点在对话区滚动条上的 pointerdown 算滚动
+  userAt = Date.now();
+};
+const userRecently = () => dragging || Date.now() - userAt < 400;
+for (const t of ['wheel', 'touchstart', 'pointerdown', 'keydown']) bodyEl.addEventListener?.(t, touched, { passive: true });
+LB.listen('scroll-keys', document, 'keydown', touched);   // 焦点不在对话区时按 PageUp / Home 也算
+LB.listen('scroll-drag-end', document, 'pointerup', () => { dragging = false; });
+const reset = () => bodyEl.scrollTop < 2 && lastTop > 2 && !userRecently();
+function keepPlace() {
+  if (lane !== 'chat' || drawing || !bodyEl.isConnected) return;
+  if (stick) { follow(); return; }
+  if (Math.abs(bodyEl.scrollTop - lastTop) > 2) bodyEl.scrollTop = lastTop;
+}
+// 挪 DOM 的那一刻和 Obsidian 排版可能差一帧：当下滚回去，下一帧再确认一次
+function settle() { keepPlace(); try { requestAnimationFrame(keepPlace); } catch {} }
+// 摘下再挂上 / 分栏变窄时对话区尺寸会变：顺带滚回原处（防住 Obsidian 不发 layout-change 的挪法）
+try { const ro = new ResizeObserver(() => { if (reset() || stick) keepPlace(); }); ro.observe(bodyEl); dv.component?.register?.(() => ro.disconnect()); } catch {}
 // 右侧来源窗格开着时才出现的一行：明确的「退出对照」「收起来源」
 const sourceBar = wrap.createEl('div', { cls: 'lbchat-srcbar' });
 sourceBar.hidden = true;
@@ -331,7 +355,7 @@ search.onkeydown = e => {
 
 // ── 会话渲染 ──
 async function drawChat() {
-  const scroll=bodyEl.scrollTop, wasStick=stick;
+  const scroll=reset()?lastTop:bodyEl.scrollTop, wasStick=stick;
   drawing=true;  // 清空重画时浏览器会把滚动夹回 0 并发 scroll 事件：那不是用户在翻，别据此改跟随
   bodyEl.empty();
   search.placeholder=session.turns.length?'继续追问…':'搜索你的收藏，或直接提问…';
@@ -496,12 +520,33 @@ LB.t('render');
 // 对话区滚动位置（§5.3）：记下来，换页回来恢复；没记过 = 停在最新一轮（底部）
 if (Number.isFinite(pageState.scrollTop)) { bodyEl.scrollTop = pageState.scrollTop; stick = nearBottom(); }
 else { stick = true; follow(); }
-bodyEl.addEventListener?.('scroll', () => { if (lane !== 'chat' || drawing) return; stick = nearBottom(); LB.state.patch({ scrollTop: bodyEl.scrollTop }); }, { passive: true });
+bodyEl.addEventListener?.('scroll', () => {
+  if (lane !== 'chat' || drawing || !bodyEl.isConnected) return;
+  if (reset()) { keepPlace(); return; }   // 被挪过 DOM 的归零：不记、滚回去
+  lastTop = bodyEl.scrollTop; stick = nearBottom(); LB.state.patch({ scrollTop: lastTop });
+}, { passive: true });
+// 页头 / 输入框上滚滚轮也滚对话区（整页是定高的，那一块本身没有可滚的东西）；对话区里面、能滚的输入框里面交给浏览器
+const canScroll = (el, dy) => {
+  for (let n = el; n && n !== wrap; n = n.parentElement) {
+    const room = n.scrollHeight - n.clientHeight;
+    if (room > 1 && (n.tagName === 'TEXTAREA' || /(auto|scroll)/.test(getComputedStyle(n).overflowY || '')) && (dy > 0 ? n.scrollTop < room - 1 : n.scrollTop > 0)) return true;
+  }
+  return false;
+};
+wrap.addEventListener?.('wheel', e => {
+  if (e.ctrlKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+  const t = e.target;
+  if (!t || typeof t.closest !== 'function' || bodyEl.contains(t) || t.closest('select') || canScroll(t, e.deltaY)) return;
+  userAt = Date.now();
+  bodyEl.scrollTop += e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? bodyEl.clientHeight : 1);
+  if (lane === 'chat') { lastTop = bodyEl.scrollTop; stick = nearBottom(); }
+  e.preventDefault();
+}, { passive: false });
 LB.t('restore');
 paintSourceBar();
 if (app.workspace.on && dv.component?.registerEvent) {
   // 用户自己关了右侧窗格：那一行跟着收起
-  dv.component.registerEvent(app.workspace.on('layout-change', () => paintSourceBar()));
+  dv.component.registerEvent(app.workspace.on('layout-change', () => { paintSourceBar(); settle(); }));
   // 别的页面（换页前的那一个）答完了：重读会话再画
   dv.component.registerEvent(app.workspace.on('link-brain:chat-session', from => {
     paintSend();
@@ -512,7 +557,7 @@ if (app.workspace.on && dv.component?.registerEvent) {
 // 登记这一版 DOM：catalog-data 变了只换数据、改篇数，不重建对话
 LB.keep(wrap, { version: await LB.data.version(), update: async () => {
   try { data = await LB.data.load(); items = data.items || []; paintSub(); } catch {}
-}, onReuse: () => { paintSourceBar(); paintSend(); } });
+}, onReuse: () => { paintSourceBar(); paintSend(); settle(); } });
 LB.t('total');
 
 if(provider()?.pendingArchiveQuestion){const q=provider().pendingArchiveQuestion;delete provider().pendingArchiveQuestion;await submit(q);}
