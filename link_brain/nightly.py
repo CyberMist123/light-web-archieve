@@ -172,6 +172,7 @@ class Nightly:
         self.account_stop_why = ""
         self.problems: list[str] = []
         self.vault = storage.vault_root()
+        self.run_id: str | None = None   # 10-03 同步记录：这一晚那行的编号（每一步子进程带着它，结果并进同一行）
 
     # ------------------------------------------------------------ 日志
     def _write(self, text: str) -> None:
@@ -194,6 +195,13 @@ class Nightly:
     # ------------------------------------------------------------ 问题记录（进程内调 problems，失败只记日志）
     def register(self, step_name: str, code: str, reason: str) -> None:
         self.problems.append(reason)
+        if self.run_id:
+            try:
+                from . import synclog
+                synclog.error("nightly." + step_slug(step_name), reason, code)
+                synclog.flush()
+            except Exception as exc:  # noqa: BLE001
+                self.log(f"[同步记录] 没写进去（{type(exc).__name__}: {exc}）")
         try:
             from . import problems
             row = problems.report("nightly." + step_slug(step_name), code, reason)
@@ -215,6 +223,9 @@ class Nightly:
         env["PYTHONIOENCODING"] = "utf-8"
         env["PYTHONUNBUFFERED"] = "1"   # 子进程逐行吐，日志才是实时的
         env[storage.ENV_VAULT] = str(self.vault)  # 每一步都用同一个收藏库，不各自再猜
+        if self.run_id:
+            from . import synclog
+            env[synclog.ENV_RUN] = self.run_id
         if extra:
             env.update(extra)
         return env
@@ -521,6 +532,12 @@ class Nightly:
         self._rotate()
         self.log(START_MARK)
         self.log(f"[夜跑] 收藏库：{self.vault}；总预算 {self.budget_min:g} 分钟")
+        try:
+            from . import synclog
+            # 夜跑自己是一次同步；外面给了编号（仓外脚本包着它）就用那个
+            self.run_id = synclog.begin(own=True, run_id=os.environ.get(synclog.ENV_RUN) or None)
+        except Exception as exc:  # noqa: BLE001
+            self.log(f"[同步记录] 没开上（{type(exc).__name__}: {exc}）")
         if unfinished:
             self.log(f"[夜跑] 上一晚没走完：{unfinished['start']}；日志停在「{unfinished['last']}」")
             self.register("run", "TRANSIENT.INTERRUPTED",
@@ -550,6 +567,12 @@ class Nightly:
             if self.problems:
                 self.log(f"[夜跑] 有问题的步骤：{'；'.join(self.problems)}（已登记进问题记录，不推送）")
             self.log(f"[夜跑] 汇总 exit={exit_code}")
+            if self.run_id:
+                try:
+                    from . import synclog
+                    synclog.end(self.run_id, exit_code=exit_code)
+                except Exception as exc:  # noqa: BLE001
+                    self.log(f"[同步记录] 没收上尾（{type(exc).__name__}: {exc}）")
             self.log(END_MARK)
         message = {EXIT_OK: "夜跑完成", EXIT_MISSING: "夜跑完成，还有附件没下全",
                    EXIT_NEEDS_HUMAN: "号要人处理，今晚跳过了碰号的步骤",

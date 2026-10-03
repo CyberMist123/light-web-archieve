@@ -224,6 +224,10 @@ def enrich_one(source_key: str, source_id: str, *, llm: bool = True, timeout: fl
     state = load_state(source_key, source_id)
     error = ""
     timed_out = False
+    try:
+        before = needs(source_key, source_id, llm=llm)   # 10-03 同步记录：这次要补的是哪几项
+    except Exception:  # noqa: BLE001
+        before = []
     if os.environ.get("LINK_BRAIN_RENDER_INPROC"):  # 测试里要吃 monkeypatch，就地跑
         try:
             code = _child(source_key, source_id, llm)
@@ -245,6 +249,7 @@ def enrich_one(source_key: str, source_id: str, *, llm: bool = True, timeout: fl
             new_state["pending"] = False
         _save_state(source_key, source_id, new_state)
         problems.resolve("enrich.summary", item_id, "TRANSIENT.RETRY_EXHAUSTED")
+        _synclog(source_key, source_id, item_id, before, [], "")
         return {"item_id": item_id, "status": "done"}
     fails = int(state.get("fails") or 0) + 1
     if not error and code == _CHILD_INCOMPLETE:
@@ -261,8 +266,25 @@ def enrich_one(source_key: str, source_id: str, *, llm: bool = True, timeout: fl
         problems.report("enrich.summary", "TRANSIENT.RETRY_EXHAUSTED",
                         f"识图 / 概要连着 {fails} 次没补成：{error}"[:200], item_id=item_id,
                         title=_title(source_key, source_id), action="gave_up", next_at=retry_after)
+    try:
+        left = needs(source_key, source_id, llm=llm)
+    except Exception:  # noqa: BLE001
+        left = list(before)
+    _synclog(source_key, source_id, item_id, before, left, error)
     return {"item_id": item_id, "status": "failed", "error": error, "fails": fails,
             "gave_up": fails >= MAX_FAILS, "retry_after": retry_after}
+
+
+def _synclog(source_key: str, source_id: str, item_id: str, before: list[str], left: list[str], error: str) -> None:
+    """10-03 同步记录：这次补的识图 / 概要，补上了 ✅、还缺 ❌（带原因）。本来就不缺的不记。"""
+    try:
+        from . import synclog
+        title = _title(source_key, source_id)
+        for kind in ("vision", "summary"):
+            if kind in before:
+                synclog.note(kind, item_id, kind not in left, title=title, reason=error or "没补成")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[synclog] {type(exc).__name__}: {exc}", file=sys.stderr)
 
 
 def _title(source_key: str, source_id: str) -> str | None:

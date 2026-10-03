@@ -558,6 +558,17 @@ def _report_downloads(meta: dict[str, Any], results: list[dict[str, Any]]) -> No
     - 这次没有失败、也没有因时间不够留到下次的 → 这篇的下载问题标已解决。"""
     item_id, title = meta.get("item_id"), meta.get("title")
     failed = [r for r in results if r.get("status") == "failed"]
+    try:  # 10-03 同步记录：这次真下到的 ✅、没下好的 ❌（已有 / 留到下次的不算）
+        from . import synclog
+        for r in results:
+            if r.get("status") == "downloaded":
+                synclog.note("attachment", item_id, True, title=title, note_path=meta.get("visible_note"))
+            elif r.get("status") == "failed":
+                name = r.get("name") or r.get("file") or r.get("doc_id") or "附件"
+                synclog.note("attachment", item_id, False, title=title, note_path=meta.get("visible_note"),
+                             reason=f"{name}：{r.get('error') or '没下好'}", code=r.get("code") or "")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[synclog] {type(exc).__name__}: {exc}", file=sys.stderr)
     try:
         for r in failed:
             message = str(r.get("error") or "附件没下好")

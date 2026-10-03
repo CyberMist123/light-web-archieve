@@ -123,6 +123,7 @@ function makePlugin(saved = {}) {
   p.killTree = async pid => { killed.push(pid); p.backend.finishPending?.(); return [pid]; };
   p.getSyncSchedule = async () => ({ freq: 'daily', enabled: true, time: '04:30', others: [] });
   p.setSyncSchedule = async (...a) => { schedules.push(a); return { ok: true, detail: '已保存' }; };
+  p.setSyncRules = async rules => { schedules.push(['rules', rules]); return { ok: true, detail: '已保存：' + rules.map(r => r.kind).join(',') }; };
   p.answerArchive = async req => { asks.push(req); return p.backend.answer(req); };
   p.stopArchiveAnswer = () => 0;
   // 后端替身：按子命令回话；install 由场景表决定（可以挂起，等测试放行）
@@ -344,22 +345,25 @@ const line = l => JSON.stringify(l);
   assert.equal(stepHeading(root), '④ 同步设置');
   const body = () => q(root, '.lb-step-body');
   const rowNamed = n => qa(body(), '.setting-item').find(x => x.querySelector('.setting-item-name').textContent.trim() === n);
-  for (const n of ['每天几点同步', '每天最多新抓', '下载图片', '下载视频', '评论 · 自动拉取']) assert.ok(rowNamed(n), '④ 有「' + n + '」');
+  for (const n of ['定时同步', '每天最多新抓', '下载图片', '下载视频', '评论 · 自动拉取']) assert.ok(rowNamed(n), '④ 有「' + n + '」');
   assert.match(body().textContent, /附件（PDF \/ Word 等）/);
-  assert.equal(rowNamed('每天几点同步').querySelector('input').value, '04:30', '读到现在的定时');
-  assert.match(rowNamed('每天几点同步').querySelector('.setting-item-description').textContent, /当前：每天 04:30/);
+  // 10-03：定时是和设置页「定时…」弹窗同一个组件（schedule-ui.js）
+  const sched = q(body(), '.lb-sched');
+  assert.ok(sched, '④ 的定时 = 共用组件');
+  assert.equal(sched.querySelector('.lb-sched-times').value, '04:30', '读到现在的定时');
+  assert.match(sched.querySelector('.lb-sched-status').textContent, /当前：每天 04:30/);
   assert.equal(q(root, '.lb-backfill-line').textContent, '收藏 1159 篇，已入库 361 篇，按每天 50 篇约还要 16 天');
   assert.equal(q(root, '.lb-backfill').querySelector('.lb-bar-fill').style.width, '31%');
   const lim = rowNamed('每天最多新抓').querySelector('input'); lim.value = '100'; await lim.oninput(); await flush();
   assert.equal(env.p.settings.sync.dailyNewLimit, 100, '复用原设置项（同一个键）');
   assert.equal(q(root, '.lb-backfill-line').textContent, '收藏 1159 篇，已入库 361 篇，按每天 100 篇约还要 8 天', '改上限天数跟着变');
-  const tIn = rowNamed('每天几点同步').querySelector('input');
+  const tIn = sched.querySelector('.lb-sched-times');
   tIn.value = '25:00'; tIn.oninput();
-  await btn(rowNamed('每天几点同步'), '保存定时').onclick(); await flush();
+  await sched.querySelector('.lb-sched-save').onclick(); await flush();
   assert.equal(env.schedules.length, 0); assert.match(notices.at(-1), /时间格式不对/);
-  tIn.value = '23:15'; tIn.oninput();
-  await btn(rowNamed('每天几点同步'), '保存定时').onclick(); await flush();
-  assert.deepEqual(env.schedules.at(-1), ['daily', '23:15', null], '定时走原来的 setSyncSchedule');
+  tIn.value = '23:15, 4:00'; tIn.oninput();
+  await sched.querySelector('.lb-sched-save').onclick(); await flush();
+  assert.deepEqual(env.schedules.at(-1), ['rules', [{ kind: 'daily', times: ['04:00', '23:15'] }]], '一天两次 → 一条每天规则两个时刻（setSyncRules）');
 
   // —— 6. ⑤ AI ——
   btn(root, '下一步').click(); await flush(5);

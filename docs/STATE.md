@@ -1,5 +1,14 @@
 # Current State
 
+## 2026-10-03 第 9 批：同步记录 + 灵活定时 + 瀑布流列数 + 目录页入口（分支 batch9-synclog）
+
+- **同步记录**（替换「本周同步情况」窗口；`report week` CLI 保留）：`link_brain/synclog.py` → `vault/_archive/sync-log.jsonl`，一次同步一行（开始 / 结束 / 触发来源 手动·夜跑·定时·命令行·重试 / 新收几篇 / 正文·附件·视频·识图·概要 各成功失败数 / 每篇标题·笔记·失败原因 / 步骤级报错 / 夜跑退出码），storage 锁 `sync-log` 里读改写、只留最近 200 行、每行最多 200 条标题。记录点就在各步骤完成处（`favorites.sync_favorites` 新收 / 抓不到 / 号出事、`attachments._report_downloads` 下到 / 没下好、`pdftext` 转文字成败、`enrich.enrich_one` 补前缺的识图 / 概要补没补上、`videos._report` 转写、`vision --upgrade` 补跑），进程内先攒、`cli.main` 每个命令结束 `finish_command` 并进去——不重扫全库。同一次同步靠 `LINK_BRAIN_SYNC_RUN` 串起来：包内夜跑开一行、每步子进程带编号、收尾记退出码；插件「立即同步」带 `LINK_BRAIN_SYNC_TRIGGER=manual`，命令结束就收尾；仓外夜跑脚本不改也能记：`sync-favorites` 开一行（自动），后面不带编号的步骤并进「8 小时内没收尾的自动行」，`attachments --audit`（最后一步）或下一次开始给它收尾。CLI `synclog list|begin|end|record|retry`。
+- 窗口（`report-ui.js`，目录页「N 篇 · 更新」那行点开，插件 `openSyncLog()`，旧名 `openWeekReport` 留作别名）：顶部「立即同步」「改定时」；第一排「一共 N 篇收藏，已入库 M 篇，预计还要 D 天同步完」（第 7 批 `setup backfill`，积压清零不显示）；每次一行「10/03 04:00 夜跑 · 新收 3 · 正文 3 ✅ 附件 2 ✅ 1 ❌」，⬇️ 展开看标题（点了同窗格打开）。有报错的默认展开：原因 +「重试」（`synclog retry --run`：只重跑失败的那几篇 / 那一步——附件 `attachments <id>`、转文字 `pdf2md <id>`、视频 `videos <id> --transcribe`、识图 / 概要 `enrich --item`、抓不到的 `ingest <url>`、离线步骤原命令；收藏同步 / 附件补下这类碰号的步骤级报错不在这里重跑，提示去「立即同步」；结果并回同一行、如实提示几项成了几项没好）；没报错的收起只一行。没后端（手机）直接读 jsonl。
+- **灵活定时**：`sync_schedule` 加规则（一次性 / 每周几多选 + 时刻 / 每天一天几次 / 每 1–6 小时 = 每日触发器 + 1 天内重复间隔），`sync-schedule --rules JSON`。我们写的触发器打标 `Id=LWA-n`，读写只动打了标的（一个都没打标时按第 5 批规则认那个旧的每日 / 每周），其余原样保留；写前核对触发器个数和我们那几个的类型；每个新触发器都过 LOCAL_FIX 写本机钟点。`get_schedule` 多给 `rules / mine / summary`（「每周一 08:00 · 每 4 小时一次 · 下次 10/06 08:00」）。旧的 `--set daily/weekly` 改走规则。插件 `setSyncRules`（没任务先 `--install` 再写规则）。组件 `schedule-ui.js`：设置页「定时…」弹窗和「开始」页 ④ 共用；每几小时那条下面写一句风控提醒（不拦）。单测全是假 PowerShell 输出；生成的写脚本过了 PowerShell 语法解析、触发器在内存里建过一遍核对 Id / 重复间隔 / 本地钟点，读脚本在本机真任务上只读跑过；**没在真计划任务上写过**。
+- **瀑布流列数**：目录页 / 星标页 Ctrl + 加减号、Ctrl + 滚轮（往上 / 加号 = 卡片变大），2–6 列；键盘只在这一页是当前视图或鼠标在页上时拦（capture 阶段 preventDefault，挡住 Obsidian 整窗缩放），滚轮监听只挂在本页；只改 grid 上的 CSS 变量，卡片不重建；记在插件设置 `catalogColumns`（0 = 按宽度自动）。
+- **目录页入口（她 10-03 拍板）**：「+」= 导入网址 / 立即同步收藏 / 账号登录 / 换号；「…」= 改标题（`catalogTitle`）/ 每行几列（同一个 `catalogColumns`）/ 管理分类 / 回收站 / 导出资料 / 设置 / 刷新目录（小字「重新整理分类」）；「模型与提示词」并进「设置」。改完发 `link-brain:catalog-prefs`，开着的页就地换。搜索卡片：低置信度命中（同义词 / 拼音 / 错字 / 漏字，以后的 semantic 等非 exact 的 kind；结果自带 `match.snippet` / `hit.snippet` 就用它）标题下浅色一行检索到的那段，原词命中只留标题。
+- 测试：`tests/test_synclog.py`、`tests/test_sync_schedule.py` 加 6 例、`tests/test_batch9_synclog_ui.cjs`；pytest 862 过；`npm test` 23 过 0 败 4 跳。没在 Obsidian 里点过（待她：一步）。
+
 ## 2026-10-03 第 7 批（后端）：「开始」页向导 `setup plan / check / install / estimate / backfill`（分支 batch7-setup）
 
 - 新包 `link_brain/setup/`（契约 `docs/SETUP-CONTRACT.md`），`python -m link_brain setup <子命令>`，输出 §1 形状、退出码 0 成功 · 1 失败 · 5 只能手动（Dataview / 填 key / 发布地址没配 / 别人装的 CapsWriter 缺模型）。

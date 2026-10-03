@@ -120,6 +120,11 @@ def isolated_vault_and_home(monkeypatch, tmp_path):
     monkeypatch.setenv("LWA_FETCH_REST", "0,0")
     # 0929：同步里的识图/概要平时开子进程限时；测试里就地跑，好让 monkeypatch 生效
     monkeypatch.setenv("LINK_BRAIN_RENDER_INPROC", "1")
+    # 10-03 同步记录：本机若设了这两个变量别带进测试；上一个用例攒下没写的清掉
+    monkeypatch.delenv("LINK_BRAIN_SYNC_RUN", raising=False)
+    monkeypatch.delenv("LINK_BRAIN_SYNC_TRIGGER", raising=False)
+    from link_brain import synclog
+    synclog.reset()
 
 
 @pytest.fixture(autouse=True)

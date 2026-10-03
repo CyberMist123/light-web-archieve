@@ -9,6 +9,7 @@
 // 进行中的检查 / 安装 / 试问状态放在插件对象（plugin.setupState），换分页、重画都接得上，关设置页也不打断。
 'use strict';
 
+const scheduleUI = require('./schedule-ui.js');
 const STEPS = ['选功能', '检查并安装', '扫码登录', '同步设置', 'AI（选填）'];
 const NUM = ['①', '②', '③', '④', '⑤'];
 const TABS = new Set(['start', 'sync', 'ai', 'remote', 'advanced']);
@@ -486,29 +487,11 @@ module.exports = function setupUI(obsidian, plugin) {
 
     // ④ 同步设置：每天几点 / 每天上限 / 图片·视频·评论 / 附件 + 补跑进度
     function step4(box) {
-      const timeRow = new Setting(box).setName('每天几点同步').setDesc('读取当前定时…');
-      let time = '04:00';
-      timeRow.addText(t => { t.setPlaceholder('04:00').setValue(time).onChange(v => { time = v.trim(); }); timeRow.timeInput = t; })
-        .addButton(b => b.setButtonText('保存定时').onClick(async () => {
-          if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(time)) { new Notice('时间格式不对：24 小时制，如 04:00 / 22:30', 8000); return; }
-          b.setDisabled(true);
-          try {
-            const r = await plugin.setSyncSchedule('daily', time, null);
-            if (r && r.ok) { new Notice(r.detail || '已保存：每天 ' + time + ' 自动同步', 8000); readSchedule(); }
-            else new Notice('没保存上：' + ((r && (r.detail || r.error || r.message)) || '可能需要管理员权限'), 10000);
-          } catch (e) { new Notice('没保存上：' + errText(e), 10000); }
-          finally { b.setDisabled(false); }
-        }))
-        .addButton(b => b.setButtonText('更多选项…').onClick(() => plugin.openSyncSettings()));
-      const readSchedule = async () => {
-        try {
-          const cur = await plugin.getSyncSchedule();
-          if (!me.alive) return;
-          if (cur && cur.time && (cur.freq === 'daily' || cur.freq === 'weekly')) { time = cur.time; timeRow.timeInput?.setValue(time); }
-          timeRow.setDesc('关着 Obsidian 也按时同步（电脑要开着）。' + (plugin.scheduleStatusText ? plugin.scheduleStatusText(cur) : ''));
-        } catch (e) { if (me.alive) timeRow.setDesc('读不到当前定时：' + errText(e)); }
-      };
-      readSchedule();
+      // 10-03：定时和设置页「定时…」弹窗是同一个组件（schedule-ui.js）：一次性 / 每周几 / 每天几次 / 每 1–6 小时
+      const sched = new Setting(box).setName('定时同步').setDesc('关着 Obsidian 也按时同步（电脑要开着）。');
+      sched.settingEl.addClass('lb-sched-setting');
+      try { me.sched = scheduleUI(obsidian, plugin).render(box.createDiv({ cls: 'lb-sched-host' })); }
+      catch (e) { box.createEl('p', { cls: 'lb-setup-error', text: '定时设置没加载上：' + errText(e) }); }
       tab.fieldDailyLimit(box, () => paintBackfill());
       tab.fieldMediaToggles(box);
       box.createEl('p', { cls: 'setting-item-description', text: '附件（PDF / Word 等）：同步时自动下载、在本机转成文字，不用设置；网页上要手动下载的，放进「同步与内容」里的下载文件夹会自动认领。' });

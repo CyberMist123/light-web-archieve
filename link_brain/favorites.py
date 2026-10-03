@@ -23,13 +23,14 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import random
 import sys
 import time
 from datetime import datetime, timedelta
 from typing import Any
 
-from . import sync_state
+from . import sync_state, synclog
 from . import ingest as ingest_mod, read as read_mod
 from .adapters import xiaohongshu as xhs
 from . import accounts
@@ -200,6 +201,25 @@ def _rest(wait: float, verbose: bool = True) -> None:
         _sleep(wait)
 
 
+def _log_entry(entry: dict[str, Any], fav: dict[str, Any], in_library: bool, known_bad: bool) -> None:
+    """10-03 同步记录：这一篇这次怎样（新收 = 正文 ✅；抓不到 / 渲染失败 = 正文 ❌；号出事 = 步骤级报错）。"""
+    status = entry.get("status")
+    try:
+        if status == "new":
+            synclog.count_new(1)
+            synclog.note("note", entry.get("item_id"), not entry.get("error"), title=entry.get("title"),
+                         reason=entry.get("error") or "")
+        elif status == "error" and not in_library and not known_bad:
+            nid = fav.get("note_id")
+            synclog.note("note", entry.get("item_id") or (f"xhs-{nid}" if nid else None), False,
+                         title=fav.get("title") or entry.get("title"), reason=entry.get("error") or "没抓到",
+                         url=entry.get("url") or fav.get("url"))
+        elif status == "blocked":
+            synclog.error("sync-favorites", entry.get("error") or "号要处理，已停车", entry.get("code") or "")
+    except Exception as exc:  # noqa: BLE001 - 记录出错不挡同步
+        print(f"[synclog] {type(exc).__name__}: {exc}", file=sys.stderr)
+
+
 def sync_favorites(
     *,
     limit: int = 50,
@@ -221,6 +241,8 @@ def sync_favorites(
     except xhs.NeedsHumanError as exc:
         service = isinstance(exc, xhs.ServiceDownError)
         code = getattr(exc, "code", "")
+        synclog.error("sync-favorites", ("刚同步过（收藏每 10 分钟最多读一次），这次跳过" if code == "RATE_LIMITED"
+                                         else f"读收藏没成：{exc}"), code)
         # 问题登记在 sync_state.record（_run 拿到这个 payload 就记）：账号类 NEEDS_HUMAN；服务类（含读收藏
         # FAVORITES_FAILED / 超时）TRANSIENT；RATE_LIMITED 只是「刚同步过」，不登记
         return {
@@ -250,6 +272,7 @@ def sync_favorites(
         accounts.save({"sync_account": current})
     elif current and pinned and current != pinned:
         msg = f"现在登录的是「{current}」，不是平时同步的「{pinned}」：没有同步。要换成这个号，请在账号面板点「更换账号」"
+        synclog.error("sync-favorites", msg, "WRONG_ACCOUNT")
         # 登错号 = NEEDS_HUMAN.WRONG_ACCOUNT（sync_state.record 登记在 login，推一次）
         return {"favorites": len(favs), "synced": 0, "login_account": "xhs", "code": "WRONG_ACCOUNT",
                 "items": [{"item_id": None, "status": "blocked", "url": None, "error": msg, "code": "WRONG_ACCOUNT"}]}
@@ -295,6 +318,7 @@ def sync_favorites(
         entry = _sync_one(fav, origin=origin, actor=actor, verbose=verbose, budget_left=budget_left)
         source_id = entry.pop("_source_id", None)
         attachment_block = entry.pop("_blocked_code", "")
+        _log_entry(entry, fav, in_library, known_bad)
         if not in_library:
             fetched_any = True
             status = entry.get("status")
@@ -339,6 +363,10 @@ def sync_favorites(
                   + "\n".join(e[:160] for e in recent), file=sys.stderr)
             break
     failures.save()
+    if suspicious:
+        synclog.error("sync-favorites", suspicious, "FAVORITES_SUSPICIOUS")
+    if stop_code:
+        synclog.error("sync-favorites", f"连着 {consecutive} 篇没抓到，先停下（下次同步再来）", stop_code)
     out: dict[str, Any] = {"favorites": len(favs), "synced": len(items), "items": items}
     if total:
         out["favorites_total"] = total
@@ -514,6 +542,10 @@ def _run(args) -> tuple[int, dict[str, Any]]:
     budget = float(getattr(args, "budget_min", 0) or 0)
     deadline = _clock() + budget * 60 if budget > 0 else None
     wait_s = float(getattr(args, "wait_lock_min", 10) or 0) * 60
+    # 10-03 同步记录：这次同步开一行（夜跑子进程带着 LINK_BRAIN_SYNC_RUN 就并进夜跑那行；插件「立即同步」带
+    # LINK_BRAIN_SYNC_TRIGGER=manual → 命令结束就收尾；仓外夜跑脚本什么都不带 → 等夜跑最后一步收尾）
+    if not os.environ.get(synclog.ENV_RUN):
+        synclog.begin(own=bool(os.environ.get(synclog.ENV_TRIGGER)))
 
     # ① 熔断中：一页都不开（B-3）
     try:
@@ -522,6 +554,7 @@ def _run(args) -> tuple[int, dict[str, Any]]:
         text = f"{accounts.SOLUTIONS['RISK_HOLD'][1]}（{exc.detail}）：{accounts.SOLUTIONS['RISK_HOLD'][2]}"
         payload = {"favorites": 0, "synced": 0, "login_account": "xhs", "code": "RISK_HOLD",
                    "items": [{"item_id": None, "status": "blocked", "url": None, "error": text, "code": "RISK_HOLD"}]}
+        synclog.error("sync-favorites", text, "RISK_HOLD")
         if not sync_state.running_elsewhere():
             sync_state.record("finished", payload=payload)  # 顺带登记 NEEDS_HUMAN.RISK_HOLD（login）
         else:
@@ -546,6 +579,7 @@ def _run(args) -> tuple[int, dict[str, Any]]:
                 raise
     except accounts.AccountBusyError as exc:
         print(f"sync-favorites: {exc}", file=sys.stderr)
+        synclog.error("sync-favorites", f"号被别的任务占着，这次没同步：{exc}", "ACCOUNT_BUSY")
         return EXIT_ACCOUNT_BUSY, {"favorites": 0, "synced": 0, "items": [], "code": "ACCOUNT_BUSY",
                                    "error": str(exc)}
 

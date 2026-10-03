@@ -118,6 +118,9 @@ const DEFAULT_SETTINGS = {
   // 目录页顶部大类筛选（空=用内置 BIG_CATS）；形如 [{name, keywords:[...]}]。
   catalogCats: [],
   hiddenCats: [],
+  // 10-03：目录页 / 星标页瀑布流列数（Ctrl + 加减号 / Ctrl + 滚轮 / 「…→每行几列」调，2–6；0 = 按页面宽度自动）
+  catalogColumns: 0,
+  catalogTitle: "",   // 目录页大标题（空 = Collections）
   downloads: {folder: path.join(require("os").homedir(), "Downloads"), waitMinutes: 5},
   nickname: "",   // 批注署名（留空 = 不署名）
   annotateMention: "",   // 批注留言对象：填名字后「@名字」开头的批注标成留言给它（10-03：默认不启用）
@@ -356,6 +359,11 @@ function syncStateHead(st) {
 function scheduleStatusText(cur) {
   cur = cur || {};
   if (cur.error) return "当前：读不到计划任务（" + cur.error + "）";
+  // 10-03：Python 读出规则后给一行人话（「每周一 08:00 · 每 4 小时一次 · 下次 10/06 08:00」）
+  if (cur.summary && cur.freq !== "none") {
+    const others = Array.isArray(cur.others) ? cur.others.filter(Boolean) : [];
+    return "当前：" + cur.summary + (others.length && Array.isArray(cur.rules) && cur.rules.length ? "　·　另有：" + others.join("、") + "（不改动）" : "");
+  }
   if (cur.freq === "none") return cur.installable ? "当前：还没开启定时同步（开启 = 注册计划任务 " + NIGHTLY_TASK + "，关着 Obsidian 也按时同步）" : "当前：没有计划任务";
   const dayCN = { Monday: "周一", Tuesday: "周二", Wednesday: "周三", Thursday: "周四", Friday: "周五", Saturday: "周六", Sunday: "周日" };
   const others = Array.isArray(cur.others) ? cur.others.filter(Boolean) : [];
@@ -394,59 +402,61 @@ function registryEntry(reg, code) {
 
 // 同步收藏夹设置：立即同步 + 定时（每天/每周几点，自定义）。Owner 2026-09-17。
 const WEEKDAYS = [["Monday","周一"],["Tuesday","周二"],["Wednesday","周三"],["Thursday","周四"],["Friday","周五"],["Saturday","周六"],["Sunday","周日"]];
-class SyncSettingsModal extends Modal {
-  constructor(plugin) { super(plugin.app); this.plugin = plugin; this.freq = "daily"; this.time = "04:00"; this.day = "Monday"; }
-  async onOpen() {
+// 菜单项下面一行小字（Obsidian 菜单标题收 DocumentFragment）；拿不到 createFragment（单测）就写进括号
+function menuTitle(main, sub) {
+  if (typeof createFragment === "function") return createFragment(f => { f.appendText(main); f.createEl("div", { cls: "lb-menu-sub", text: sub }); });
+  return `${main}（${sub}）`;
+}
+// 「…→改标题」：目录页大标题（空 = Collections）
+class CatalogTitleModal extends Modal {
+  constructor(plugin) { super(plugin.app); this.plugin = plugin; }
+  onOpen() {
     const el = this.contentEl; el.empty();
-    el.createEl("h2", { text: "同步收藏夹" });
-    const status = el.createEl("p", { cls: "setting-item-description", text: "读取当前设置…" });
-
-    new Setting(el).setName("立即同步").setDesc("现在补跑一次：拉新收藏 + 附件，几十分钟")
-      .addButton(b => b.setButtonText("立即同步").setCta().onClick(() => { this.plugin.syncNow(); this.close(); }));
-
-    let cur = {};
-    try { cur = await this.plugin.getSyncSchedule(); } catch (e) { cur = { error: e.message }; }
-    // 第 5 批 4.4：Python 读全部触发器，认出每天 / 每周那一个（freq）；认不出的是 unknown——不冒充「每天」，
-    // 下拉默认「不改动」，选了每天 / 每周才新加一个，原来的触发器保留。「关闭」= 停用整个计划任务。
-    const off = cur.enabled === false || cur.trigger_enabled === false;
-    this.freq = off ? "off" : (cur.freq === "weekly" || cur.freq === "daily" ? cur.freq : "keep");
-    this.time = cur.time || "04:00";
-    this.day = (cur.day || "Monday").split(",")[0].trim() || "Monday";
-    status.setText(scheduleStatusText(cur));
-
-    const daySetting = { el: null };
-    const timeSetting = { el: null };
-    const sync = () => {
-      if (timeSetting.el) timeSetting.el.style.display = this.freq === "off" || this.freq === "keep" ? "none" : "";
-      if (daySetting.el) daySetting.el.style.display = this.freq === "weekly" ? "" : "none";
-    };
-    new Setting(el).setName("定时").setDesc("自动同步的频率。关闭 = 停用整个计划任务（任务里别的触发器也停，但都不删，改回每天 / 每周就恢复）。")
-      .addDropdown(d => {
-        if (this.freq === "keep") d.addOption("keep", "不改动（自定义触发器）");
-        d.addOption("daily", "每天").addOption("weekly", "每周").addOption("off", "关闭");
-        d.setValue(this.freq).onChange(v => { this.freq = v; sync(); });
-      });
-    const ts = new Setting(el).setName("时间").setDesc("24 小时制，如 04:00 / 22:30")
-      .addText(t => t.setPlaceholder("04:00").setValue(this.time).onChange(v => this.time = v.trim()));
-    timeSetting.el = ts.settingEl;
-    const ds = new Setting(el).setName("周几").addDropdown(d => {
-      WEEKDAYS.forEach(([k, label]) => d.addOption(k, label));
-      d.setValue(this.day).onChange(v => this.day = v);
-    });
-    daySetting.el = ds.settingEl;
-    sync();
-
+    el.createEl("h2", { text: "改标题" });
+    let value = this.plugin.settings.catalogTitle || "";
+    new Setting(el).setName("目录页标题").setDesc("留空 = Collections")
+      .addText(t => { t.setPlaceholder("Collections").setValue(value).onChange(v => { value = v; }); this.input = t; });
     new Setting(el).addButton(b => b.setButtonText("保存").setCta().onClick(async () => {
-      if (this.freq === "keep") { new Notice("没改动：计划任务保持原样"); this.close(); return; }
-      b.setDisabled(true);
-      try {
-        const r = await this.plugin.setSyncSchedule(this.freq, this.freq === "off" ? null : this.time, this.freq === "weekly" ? this.day : null);
-        if (r && r.ok) { new Notice(r.task && r.detail ? r.detail : "已保存同步计划", 8000); this.close(); }
-        else { new Notice("保存失败：" + ((r && (r.detail || r.error || r.message)) || "可能需要管理员权限"), 10000); b.setDisabled(false); }
-      } catch (e) { new Notice("保存失败：" + (e.message || e)); b.setDisabled(false); }
+      try { await this.plugin.setCatalogPrefs({ title: value }); this.close(); }
+      catch (e) { new Notice("没保存上：" + (e.message || e)); }
     }));
   }
   onClose() { this.contentEl.empty(); }
+}
+// 「…→每行几列」：2–6 列或自动（和 Ctrl + 加减号 / Ctrl + 滚轮同一个设置）
+class ColumnsModal extends Modal {
+  constructor(plugin) { super(plugin.app); this.plugin = plugin; }
+  onOpen() {
+    const el = this.contentEl; el.empty();
+    el.createEl("h2", { text: "每行几列" });
+    el.createEl("p", { cls: "setting-item-description", text: "目录页 / 星标页的瀑布流。在目录页上按 Ctrl + 加号 / 减号，或 Ctrl + 鼠标滚轮，也能直接调。" });
+    const cur = Number(this.plugin.settings.catalogColumns) || 0;
+    const row = el.createDiv({ cls: "lb-cols-pick" });
+    for (const n of [0, 2, 3, 4, 5, 6]) {
+      const b = row.createEl("button", { cls: "lb-cols-btn" + (n === cur ? " mod-cta" : ""), text: n ? `${n} 列` : "自动" });
+      b.onclick = async () => {
+        try { await this.plugin.setCatalogPrefs({ columns: n }); this.close(); }
+        catch (e) { new Notice("没保存上：" + (e.message || e)); }
+      };
+    }
+  }
+  onClose() { this.contentEl.empty(); }
+}
+
+class SyncSettingsModal extends Modal {
+  constructor(plugin) { super(plugin.app); this.plugin = plugin; }
+  // 10-03：定时更灵活（一次性 / 每周几多选 / 每天几次 / 每 1–6 小时）。和「开始」页 ④ 用同一个组件 schedule-ui.js。
+  onOpen() {
+    const el = this.contentEl; el.empty();
+    el.createEl("h2", { text: "同步收藏夹" });
+    new Setting(el).setName("立即同步").setDesc("现在补跑一次：拉新收藏 + 附件，几十分钟")
+      .addButton(b => b.setButtonText("立即同步").setCta().onClick(() => { this.plugin.syncNow(); this.close(); }));
+    el.createEl("h3", { text: "定时同步" });
+    el.createEl("p", { cls: "setting-item-description", text: "关着 Obsidian 也按时同步（电脑要开着）。可以几条一起用：比如每周一 08:00 + 每天 16:00。关闭 = 停用整个计划任务（触发器都不删，保存就恢复）。" });
+    try { this.editor = this.plugin.scheduleUI().render(el.createDiv()); }
+    catch (e) { el.createEl("p", { cls: "mod-warning", text: "定时设置没加载上：" + (e.message || e) }); }
+  }
+  onClose() { try { this.editor?.destroy(); } catch {} this.contentEl.empty(); }
 }
 
 class LinkBrainActions extends Plugin {
@@ -490,7 +500,7 @@ class LinkBrainActions extends Plugin {
       id: "sync-favorites",
       name: "补跑收藏同步（漏了一晚时用，几十分钟）",
       callback: () =>
-        this.run(["-m", "link_brain", "sync-favorites", "--extract"], "同步收藏", true),
+        this.run(["-m", "link_brain", "sync-favorites", "--extract"], "同步收藏", true, { env: { LINK_BRAIN_SYNC_TRIGGER: "manual" } }),
     });
 
     // 默认不占快捷键：语音输入走全局 CapsLock（CapsWriter），要在 Obsidian 里另绑可去「设置 → 快捷键」。
@@ -546,41 +556,48 @@ class LinkBrainActions extends Plugin {
 
   openImportModal() { new ImportModal(this).open(); }
   openSyncSettings() { new SyncSettingsModal(this).open(); }
-  // 「+」下拉：导入收藏 / 同步收藏夹（含定时）——两个页面同一入口（Owner 2026-09-17）
+  // 「+」下拉（10-03 她定）：导入网址 / 立即同步收藏 / 账号登录 / 换号（断了登录就近重连、换号都走账号面板的扫码 / 更换账号）。
+  // 定时在「同步记录」窗口顶部的「改定时」和设置页里。
   openPlusMenu(evt) {
     const menu = new obsidian.Menu();
     menu.addItem(i => i.setTitle('导入网址').setIcon('link').onClick(() => this.openImportModal()));
-    menu.addItem(i => i.setTitle('同步收藏夹…').setIcon('refresh-cw').onClick(() => this.openSyncSettings()));
+    menu.addItem(i => i.setTitle('立即同步收藏').setIcon('refresh-cw').onClick(() => this.syncNow()));
     menu.addSeparator();
-    menu.addItem(i => i.setTitle('账号登录…').setIcon('user').onClick(() => this.openAccountStatus()));
+    menu.addItem(i => i.setTitle('账号登录 / 换号').setIcon('user').onClick(() => this.openAccountStatus()));
     if (evt && typeof evt.pageX === 'number') menu.showAtMouseEvent(evt);
     else if (evt?.currentTarget) menu.showAtPosition({ x: evt.currentTarget.getBoundingClientRect().left, y: evt.currentTarget.getBoundingClientRect().bottom });
     else menu.showAtPosition({ x: 100, y: 100 });
   }
   openAISettingsMenu(evt) {
     const menu=new obsidian.Menu();
-    menu.addItem(i=>i.setTitle('模型与提示词').setIcon('settings-2').onClick(()=>{this.app.setting.open();this.app.setting.openTabById(this.manifest.id);}));
-    menu.addItem(i=>i.setTitle('查看导出资料').setIcon('folder-open').onClick(()=>this.openExportFolder()));
+    // 10-03：「模型与提示词」并进「设置」（直达插件设置页）
+    menu.addItem(i=>i.setTitle('设置').setIcon('settings-2').onClick(()=>this.openPluginSettings(this.manifest.id)));
+    menu.addItem(i=>i.setTitle('导出资料').setIcon('folder-open').onClick(()=>this.openExportFolder()));
     menu.showAtMouseEvent(evt);
   }
   openExportFolder() {
     const folder=path.join(this.app.vault.adapter.getBasePath(),this.lbPath('收藏导出'));
     require('fs').mkdirSync(folder,{recursive:true});require('electron').shell.openPath(folder);
   }
+  // 右上「…」（10-03 她定）：改标题 / 每行几列 / 管理分类 / 回收站 / 导出资料 / 设置 / 刷新目录（小字：重新整理分类）
   openManageMenu(evt, actions = {}) {
     const menu = new obsidian.Menu();
-    menu.addItem(i=>i.setTitle('查看导出资料').setIcon('folder-open').onClick(()=>this.openExportFolder()));
+    menu.addItem(i=>i.setTitle('改标题…').setIcon('pencil').onClick(()=>this.openCatalogTitle()));
+    menu.addItem(i=>i.setTitle('每行几列…').setIcon('layout-grid').onClick(()=>this.openColumnsPicker()));
     if(actions.categories)menu.addItem(i=>i.setTitle('管理分类').setIcon('tags').onClick(actions.categories));
     // 第 3 批：回收站页按页头 lb-page: trash 找（她改了名也找得到）；旧版没标记的那份由 catalog 重建时补上标记
     menu.addItem(i=>i.setTitle('回收站').setIcon('trash-2').onClick(()=>this.openLibraryPage('trash')));
-    menu.addItem(i=>i.setTitle('刷新目录').setIcon('refresh-cw').onClick(()=>this.run(['-m','link_brain','catalog'],'刷新目录',true)));
+    menu.addItem(i=>i.setTitle('导出资料').setIcon('folder-open').onClick(()=>this.openExportFolder()));
+    menu.addItem(i=>i.setTitle('设置').setIcon('settings-2').onClick(()=>this.openPluginSettings(this.manifest.id)));
+    menu.addItem(i=>i.setTitle(menuTitle('刷新目录','重新整理分类')).setIcon('refresh-cw').onClick(()=>this.run(['-m','link_brain','catalog'],'刷新目录',true)));
 
     const r=evt.currentTarget.getBoundingClientRect();menu.showAtPosition({x:r.left,y:r.bottom});
   }
   syncNow() {
     if (this.running) { new Notice('已有归档任务在跑'); return; }
     // --limit 0 = 全部收藏；新抓数量由设置里的「每天最多新抓」控制（Python 侧 _Quota）
-    return this.run(['-m', 'link_brain', 'sync-favorites', '--limit', '0', '--extract'], '同步收藏', true);
+    // 10-03 同步记录：标成「手动」，这次同步完就在 sync-log.jsonl 收尾一行
+    return this.run(['-m', 'link_brain', 'sync-favorites', '--limit', '0', '--extract'], '同步收藏', true, { env: { LINK_BRAIN_SYNC_TRIGGER: 'manual' } });
   }
   // 定时同步（第 5 批 B2）：管哪个计划任务 = LinkBrainNightly（包内夜跑）→ 没有它就旧任务 XhsFavSync（作者本机现状）→ 都没有 = null；
   // 环境变量 LINK_BRAIN_SYNC_TASK 设了就只认它。读法都是 `sync-schedule`（只读），任务名经 LINK_BRAIN_SYNC_TASK 传给 Python。
@@ -627,6 +644,25 @@ class LinkBrainActions extends Plugin {
     }
     return { ok: true, detail: json.message, task: this.syncTask };
   }
+  // 10-03 灵活定时：rules 见 schedule-ui.js；Python `sync-schedule --rules JSON` 只换我们打了标的那几个触发器，其余原样保留。
+  async setSyncRules(rules) {
+    if (this.syncTask === undefined) { try { await this.getSyncSchedule(); } catch (e) { return { ok: false, error: e.message }; } }
+    if (!this.syncTask) {
+      // 还没有计划任务：先注册包内夜跑（每天定点，时刻取第一条规则的），再把触发器换成这几条规则
+      const first = (rules || []).find(r => r && (r.times || r.from)) || {};
+      const at = (first.times && first.times[0]) || first.from || '04:00';
+      const args = ['-m', 'link_brain', 'sync-schedule', '--install', '--at', at];
+      if (this.vaultDir) args.push('--vault', this.vaultDir);
+      const { json } = await this.runPy(args, { label: '开启定时同步', fallback: '没注册上计划任务' });
+      if (!json) return { ok: false, error: '后台没返回结果' };
+      if (!json.ok) return { ...json, error: json.message || '没注册上计划任务' };
+      this.syncTask = json.task || NIGHTLY_TASK;
+    }
+    const r = await this.runPy(['-m', 'link_brain', 'sync-schedule', '--rules', JSON.stringify(rules || [])],
+      { label: '保存同步计划', fallback: '保存失败', okCodes: [0, 1], env: { LINK_BRAIN_SYNC_TASK: this.syncTask } });
+    return r.json || { ok: false, error: '后台没返回结果' };
+  }
+  scheduleUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'schedule-ui.js'))(obsidian, this); }
   // 收藏库（LINK_BRAIN_VAULT）= 本库根 + lbRoot 的真路径；后端 = 仓库模式 / 后端命令 / 没找到。onload 和首次引导改位置后调。
   async locateCollection() {
     const base = this.app.vault.adapter.getBasePath();
@@ -851,7 +887,17 @@ class LinkBrainActions extends Plugin {
   openProblems() { return this.problemsUI().open(); }
   // 第 6 批：目录页标题下「N 篇 · 更新 …」那行点开 → 本周同步情况（整个窗口在 report-ui.js）
   reportUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'report-ui.js'))(obsidian, this); }
-  openWeekReport() { return this.reportUI().open(); }
+  // 10-03：目录页标题（大标题 Collections 可改）和瀑布流列数（2–6；和 Ctrl + 滚轮同一个设置）。改完通知开着的目录页 / 星标页就地换。
+  async setCatalogPrefs({ title, columns } = {}) {
+    if (title !== undefined) this.settings.catalogTitle = String(title || '').trim().slice(0, 40);
+    if (columns !== undefined) { const n = Number(columns) || 0; this.settings.catalogColumns = n >= 2 && n <= 6 ? Math.round(n) : 0; }
+    await this.saveSettings();
+    try { this.app.workspace.trigger('link-brain:catalog-prefs', { title: this.settings.catalogTitle, columns: this.settings.catalogColumns }); } catch {}
+  }
+  openCatalogTitle() { new CatalogTitleModal(this).open(); }
+  openColumnsPicker() { new ColumnsModal(this).open(); }
+  openSyncLog() { return this.reportUI().open(); }        // 10-03：目录页「N 篇 · 更新」那行点开的「同步记录」
+  openWeekReport() { return this.openSyncLog(); }          // 旧名（第 6 批页面脚本还在调）
   // 请 Python 核一次同步进程还在不在、刷新 problems-summary.json（目录页看到「同步中」而插件没在跑任务时调；并发合并成一次）
   refreshProblemSummary() {
     if (!this.summaryCheck) this.summaryCheck = this.runPy(['-m', 'link_brain', 'problems', 'summary'], { label: '核对同步状态', timeoutMs: 60000 })
@@ -1451,12 +1497,12 @@ class LinkBrainActions extends Plugin {
 
   // 一次只准跑一个动作：这些命令会开浏览器、吃内存，叠着跑必炸（18060 负载重就 Failed to get the debug url）。
   // 互斥长任务的界面壳：spawnPy({exclusive}) + 开跑 / 完成提示 + 写 ob-actions.log。返回 {code, out(含 stderr), stdout}。
-  async run(args, label, slow = false) {
+  async run(args, label, slow = false, { env = null } = {}) {
     if (this.running) {
       new Notice(`还在跑「${this.running}」，等它完事再点`);
       return { code: 1, out: "" };
     }
-    const pending = this.spawnPy(args, { exclusive: true, label });
+    const pending = this.spawnPy(args, { exclusive: true, label, env });
     new Notice(slow ? `${label}：开跑了，慢活，完事会再弹一次` : `${label}…`);
     const r = await pending;
     if (r.code === -1 && !r.all) {

@@ -206,6 +206,11 @@ def run_upgrade(args) -> int:
         pictures += sum(1 for im in doc["images"] if im.get("layout") == "picture")
         render_mod.render_object(row["source"], row["source_id"])
         done += 1
+        try:  # 10-03 同步记录：识图第一层补跑了这一篇
+            from . import synclog
+            synclog.note("vision", _item_id(row["source"], row["source_id"]), True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[synclog] {type(exc).__name__}: {exc}", file=sys.stderr)
     read_mod.dump_json({"objects": done, "tables": tables, "pictures": pictures})
     return 0
 

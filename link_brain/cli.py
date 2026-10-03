@@ -241,6 +241,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--set", choices=["daily", "weekly", "off"], help="改成每天/每周/关闭；不给就只报当前")
     p.add_argument("--at", help="时间 HH:mm（如 04:00 / 22:30）；配合 --set daily/weekly")
     p.add_argument("--day", help="周几（Monday…Sunday）；配合 --set weekly")
+    p.add_argument("--rules", help='10-03 灵活定时：规则 JSON，如 [{"kind":"weekly","days":["Monday"],"times":["08:00"]},'
+                                   '{"kind":"hourly","hours":4}]；kind = once / daily / weekly / hourly（每 1–6 小时）')
     g = p.add_mutually_exclusive_group()
     g.add_argument("--install", action="store_true",
                    help="注册每天跑 nightly 的计划任务 LinkBrainNightly（--at 时间，默认 04:00；--vault 收藏库）")
@@ -271,6 +273,8 @@ def build_parser() -> argparse.ArgumentParser:
     nightly_mod.add_parser(sub)
     reader_install.add_parser(sub)
     report_mod.add_parser(sub)
+    from . import synclog as synclog_mod
+    synclog_mod.add_parser(sub)
     from . import setup as setup_mod
     setup_mod.add_parser(sub)
 
@@ -299,16 +303,23 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return EXIT_OK
 
-    from . import accounts, storage
+    from . import accounts, storage, synclog
+    code = EXIT_ERROR
     try:
-        return _dispatch(args)
+        code = _dispatch(args)
+        return code
     except accounts.AccountBusyError as exc:
         print(f"没跑：{exc}", file=sys.stderr)
-        return EXIT_ACCOUNT_BUSY
+        code = EXIT_ACCOUNT_BUSY
+        return code
     except storage.LockBusy as exc:
         # 跨入口文件锁（目录重建等）等满了还拿不到：stderr 最后一行给人看的原因（CONVENTIONS §1.1）
         print(f"没跑完：{exc}", file=sys.stderr)
         return EXIT_ERROR
+    finally:
+        # 10-03 同步记录：这一步攒下的结果并进这次同步那行（sync-log.jsonl）；插件「立即同步」自己开的那次收尾
+        if args.command != "synclog":
+            synclog.finish_command(args.command, args, code)
 
 
 def _account_lock(args, owner: str):
@@ -333,6 +344,9 @@ def _dispatch(args) -> int:
     if args.command == 'report':
         from . import report
         return report.run(args)
+    if args.command == 'synclog':
+        from . import synclog
+        return synclog.run(args)
     if args.command == 'setup':
         from . import setup as setup_mod
         return setup_mod.run(args)

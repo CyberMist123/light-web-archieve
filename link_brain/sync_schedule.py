@@ -13,6 +13,7 @@ import json
 import os
 import re
 import subprocess
+from datetime import datetime
 from typing import Any
 
 TASK = os.environ.get("LINK_BRAIN_SYNC_TASK", "XhsFavSync")
@@ -64,7 +65,8 @@ _READ_PS = (
     "if(-not $t){{'none'}}else{{"
     "$info=Get-ScheduledTaskInfo -TaskName '{task}';"
     "$tr=@($t.Triggers|Where-Object{{$_}}|ForEach-Object{{[pscustomobject]@{{cls=[string]$_.CimClass.CimClassName;"
-    "start=[string]$_.StartBoundary;enabled=[bool]$_.Enabled;"
+    "start=[string]$_.StartBoundary;enabled=[bool]$_.Enabled;id=[string]$_.Id;"
+    "rep=$(try{{[string]$_.Repetition.Interval}}catch{{''}});"
     "days=$(try{{[int]$_.DaysOfWeek}}catch{{0}});"
     "interval=$(try{{if($_.DaysInterval){{[int]$_.DaysInterval}}elseif($_.WeeksInterval){{[int]$_.WeeksInterval}}else{{1}}}}catch{{1}})}}}});"
     "[pscustomobject]@{{state=[string]$t.State;"
@@ -132,19 +134,258 @@ def parse_state(out: str) -> dict[str, Any]:
     if isinstance(trs, dict):  # 只有一个时 ConvertTo-Json 可能不包数组
         trs = [trs]
     trs = [t for t in trs if isinstance(t, dict)]
-    idx = next((i for i, t in enumerate(trs) if _managed(t) and t.get("enabled") is not False), None)
-    if idx is None:
-        idx = next((i for i, t in enumerate(trs) if _managed(t)), None)
+    ours = [i for i, t in enumerate(trs) if _tagged(t)]
+    if ours:
+        idx = ours[0]
+    else:   # 10-03 以前存的没打标：沿用第 5 批的认法（第一个间隔 1 的每日 / 每周，启用的优先），它就是「我们的」
+        idx = next((i for i, t in enumerate(trs) if _managed(t) and t.get("enabled") is not False), None)
+        if idx is None:
+            idx = next((i for i, t in enumerate(trs) if _managed(t)), None)
+        ours = [idx] if idx is not None else []
     mine = trs[idx] if idx is not None else {}
+    rules = rules_from_triggers([trs[i] for i in ours])
     freq = {"Daily": "daily", "Weekly": "weekly"}.get(_kind(mine.get("cls")), "unknown")
+    if len(rules) > 1 or (rules and rules[0]["kind"] in ("once", "hourly")) \
+            or (rules and len(rules[0].get("times") or []) > 1):
+        freq = "custom"   # 一次性 / 每 N 小时 / 一天多次 / 几条组合：旧的每天 / 每周下拉表达不了
     days = _days(mine.get("days")) if freq == "weekly" else []
-    return {"task": TASK, "freq": freq, "enabled": str(data.get("state") or "") != "Disabled",
-            "last_run": data.get("last_run") or "", "last_result": _int(data.get("last_result")),
-            "next_run": data.get("next_run") or "",
-            "time": _hm(mine.get("start")) if mine else "", "day": ",".join(days),
-            "managed_index": idx, "trigger_count": len(trs),
-            "trigger_enabled": (mine.get("enabled") is not False) if mine else None,
-            "others": [describe_trigger(t) for i, t in enumerate(trs) if i != idx]}
+    enabled = str(data.get("state") or "") != "Disabled"
+    on = [trs[i] for i in ours if trs[i].get("enabled") is not False]
+    out = {"task": TASK, "freq": freq, "enabled": enabled,
+           "last_run": data.get("last_run") or "", "last_result": _int(data.get("last_result")),
+           "next_run": data.get("next_run") or "",
+           "time": _hm(mine.get("start")) if mine else "", "day": ",".join(days),
+           "managed_index": idx, "trigger_count": len(trs), "mine": ours,
+           "mine_classes": [str(trs[i].get("cls") or "") for i in ours],
+           "trigger_enabled": (mine.get("enabled") is not False) if mine else None,
+           "rules": rules,
+           "others": [describe_trigger(t) for i, t in enumerate(trs) if i not in ours]}
+    out["summary"] = summary_text(out if on else {**out, "rules": []}, enabled=enabled)
+    return out
+
+
+# ---------------------------------------------------------------- 10-03：更灵活的定时（规则）
+# 规则（插件和 CLI 都用这个形状；一条规则可能对应好几个触发器）：
+#   {"kind": "once",   "at": "2026-10-03 17:00"}                         一次性（某月某日某时）
+#   {"kind": "daily",  "times": ["04:00", "16:00"]}                       每天，一天可以几次
+#   {"kind": "weekly", "days": ["Monday", "Thursday"], "times": ["08:00"]}  每周几（可多选）+ 时刻
+#   {"kind": "hourly", "hours": 4, "from": "00:00"}                       每 N 小时（1–6）后台同步（触发器重复间隔）
+# 我们写的触发器都打标（Id = LWA-<n>），读写只动打了标的那几个（一个都没打标时按第 5 批规则认一个），其余原样保留。
+# 时刻全部写成本机钟点（LOCAL_FIX：New-ScheduledTaskTrigger 记 UTC，夏令时会漂）。
+
+TAG = "LWA"
+MAX_RULE_TRIGGERS = 16
+HOURLY_MIN, HOURLY_MAX = 1, 6
+
+
+def _tagged(tr: dict[str, Any]) -> bool:
+    return str(tr.get("id") or "").upper().startswith(TAG)
+
+
+def _rep_hours(rep: Any) -> int | None:
+    m = re.fullmatch(r"PT(\d+)H", str(rep or "").strip().upper())
+    return int(m.group(1)) if m else None
+
+
+def rules_from_triggers(trs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """我们的触发器 → 规则（每天的几个时刻并成一条；同一组周几并成一条）。"""
+    daily: list[str] = []
+    weekly: dict[tuple, list[str]] = {}
+    extra: list[dict[str, Any]] = []
+    for t in trs:
+        kind, hm = _kind(t.get("cls")), _hm(t.get("start"))
+        hours = _rep_hours(t.get("rep"))
+        if kind == "Time":
+            m = re.match(r"(\d{4}-\d{2}-\d{2})", str(t.get("start") or ""))
+            extra.append({"kind": "once", "at": f"{m.group(1) if m else ''} {hm}".strip()})
+        elif kind == "Daily" and hours:
+            extra.append({"kind": "hourly", "hours": hours, "from": hm or "00:00"})
+        elif kind == "Daily":
+            if hm and hm not in daily:
+                daily.append(hm)
+        elif kind == "Weekly":
+            key = tuple(_days(t.get("days")))
+            weekly.setdefault(key, [])
+            if hm and hm not in weekly[key]:
+                weekly[key].append(hm)
+    rules: list[dict[str, Any]] = []
+    if daily:
+        rules.append({"kind": "daily", "times": sorted(daily)})
+    for days, times in weekly.items():
+        rules.append({"kind": "weekly", "days": list(days), "times": sorted(times)})
+    rules += [r for r in extra if r["kind"] == "hourly"]
+    rules += sorted((r for r in extra if r["kind"] == "once"), key=lambda r: r["at"])
+    return rules
+
+
+def _short_dt(text: str) -> str:
+    m = re.match(r"\d{4}-(\d{2})-(\d{2})[T ](\d{2}:\d{2})", str(text or ""))
+    return f"{m.group(1)}/{m.group(2)} {m.group(3)}" if m else str(text or "")
+
+
+def describe_rule(r: dict[str, Any]) -> str:
+    kind = r.get("kind")
+    if kind == "daily":
+        return "每天 " + "、".join(r.get("times") or [])
+    if kind == "weekly":
+        days = "、".join(_DAY_CN.get(d, d) for d in r.get("days") or [])
+        return f"每{days} " + "、".join(r.get("times") or [])
+    if kind == "hourly":
+        start = r.get("from") or "00:00"
+        return f"每 {r.get('hours')} 小时一次" + ("" if start == "00:00" else f"（从 {start} 起）")
+    if kind == "once":
+        return f"{_short_dt(r.get('at'))} 一次"
+    return "自定义"
+
+
+def summary_text(st: dict[str, Any], *, enabled: bool = True) -> str:
+    """当前状态一行人话：「每周一 08:00 · 每 4 小时一次 · 下次 10/06 08:00」。"""
+    if st.get("freq") == "none":
+        return "没有定时同步"
+    if not enabled:
+        return "已关闭"
+    parts = [describe_rule(r) for r in st.get("rules") or []]
+    if not parts:
+        return "没有定时同步" if not st.get("others") else "自定义触发器（" + "、".join(st["others"]) + "），未改动"
+    if st.get("next_run"):
+        parts.append("下次 " + _short_dt(st["next_run"]))
+    return " · ".join(parts)
+
+
+def _times(values: Any) -> list[tuple[int, int]] | None:
+    vals = values if isinstance(values, list) else [values]
+    out: list[tuple[int, int]] = []
+    for v in vals:
+        hm = _hour_minute(str(v or ""))
+        if hm is None:
+            return None
+        if hm not in out:
+            out.append(hm)
+    return sorted(out) or None
+
+
+def normalize_rules(rules: Any, *, now: datetime | None = None) -> tuple[list[dict[str, Any]], str]:
+    """校验 + 规整。返回 (规则, 错误)；错误非空 = 不写（格式不对的绝不拼进 PowerShell）。"""
+    if not isinstance(rules, list) or not rules:
+        return [], "至少要有一条定时（不想定时就选「关闭」）"
+    now = now or datetime.now()
+    out: list[dict[str, Any]] = []
+    n = 0
+    for r in rules:
+        if not isinstance(r, dict):
+            return [], "规则格式不对"
+        kind = r.get("kind")
+        if kind == "once":
+            m = re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})[T ](\d{1,2}):(\d{2})(?::\d{2})?", str(r.get("at") or "").strip())
+            try:
+                when = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)),
+                                int(m.group(5))) if m else None
+            except ValueError:
+                when = None
+            if when is None:
+                return [], f"一次性的时间不对：{r.get('at')}（写成 2026-10-03 17:00）"
+            if when <= now:
+                return [], f"{when:%m/%d %H:%M} 已经过了"
+            out.append({"kind": "once", "at": f"{when:%Y-%m-%d %H:%M}"})
+            n += 1
+        elif kind in ("daily", "weekly"):
+            times = _times(r.get("times") if r.get("times") is not None else r.get("at"))
+            if times is None:
+                return [], f"时间格式不对：{r.get('times') or r.get('at')}（写成 04:00 或 22:30）"
+            rule: dict[str, Any] = {"kind": kind, "times": [f"{h:02d}:{m:02d}" for h, m in times]}
+            if kind == "weekly":
+                days = r.get("days") if isinstance(r.get("days"), list) else [r.get("days")]
+                days = [d for d in DAYS if d in days]
+                if not days:
+                    return [], "每周要至少选一天"
+                rule["days"] = days
+            n += len(times)
+            out.append(rule)
+        elif kind == "hourly":
+            try:
+                hours = int(r.get("hours"))
+            except (TypeError, ValueError):
+                hours = 0
+            if not HOURLY_MIN <= hours <= HOURLY_MAX:
+                return [], f"每几小时只能是 {HOURLY_MIN}–{HOURLY_MAX}"
+            start = _hour_minute(str(r.get("from") or "00:00"))
+            if start is None:
+                return [], f"起始时间格式不对：{r.get('from')}"
+            out.append({"kind": "hourly", "hours": hours, "from": f"{start[0]:02d}:{start[1]:02d}"})
+            n += 1
+        else:
+            return [], f"不认识的定时类型：{kind}"
+    if n > MAX_RULE_TRIGGERS:
+        return [], f"定时太多了（{n} 个），最多 {MAX_RULE_TRIGGERS} 个"
+    return out, ""
+
+
+def _at_ps(hh: int, mm: int) -> str:
+    return f"([datetime]::Today.AddHours({int(hh)}).AddMinutes({int(mm)}))"
+
+
+def rule_triggers_ps(rules: list[dict[str, Any]]) -> list[str]:
+    """规整过的规则 → 每个触发器一段给 $new 的 PowerShell（已含 $new=…;）。"""
+    out: list[str] = []
+    for r in rules:
+        kind = r["kind"]
+        if kind == "once":
+            d = datetime.strptime(r["at"], "%Y-%m-%d %H:%M")
+            out.append(f"$new=New-ScheduledTaskTrigger -Once -At ([datetime]::new({d.year},{d.month},{d.day},{d.hour},{d.minute},0));")
+        elif kind in ("daily", "weekly"):
+            for t in r["times"]:
+                hh, mm = map(int, t.split(":"))
+                if kind == "daily":
+                    out.append(f"$new=New-ScheduledTaskTrigger -Daily -At {_at_ps(hh, mm)};")
+                else:
+                    out.append(f"$new=New-ScheduledTaskTrigger -Weekly -DaysOfWeek {','.join(r['days'])} -At {_at_ps(hh, mm)};")
+        elif kind == "hourly":
+            hh, mm = map(int, r["from"].split(":"))
+            at = _at_ps(hh, mm)
+            # 每天从起点开始、一天之内每 N 小时重复一次 = 全天每 N 小时（重复间隔，不是一堆每日触发器）
+            out.append(f"$new=New-ScheduledTaskTrigger -Daily -At {at};"
+                       f"$new.Repetition=(New-ScheduledTaskTrigger -Once -At {at} -RepetitionInterval "
+                       f"(New-TimeSpan -Hours {int(r['hours'])}) -RepetitionDuration (New-TimeSpan -Days 1)).Repetition;")
+    return out
+
+
+def build_rules_ps(rules: list[dict[str, Any]], mine: list[int], classes: list[str], count: int) -> str:
+    """写规则的 PowerShell：读出全部触发器 → 核对个数、我们那几个的类型没变（读和写之间被别处改了就不动）→
+    去掉我们那几个、别的原样留着 → 每条规则新建触发器（打标 LWA-n、改成本机钟点）追加 → 整组写回 → 启用任务。
+    错误信息只用 ASCII 标记（控制台编码不可靠）。"""
+    guard = f"if($list.Count -ne {int(count)}){{throw 'LWA_TRIGGERS_CHANGED'}};"
+    for i, cls in zip(mine, classes):
+        suffix = re.sub(r"[^A-Za-z]", "", re.sub(r"^MSFT_Task", "", str(cls or ""))) or "Trigger"
+        guard += f"if([string]$list[{int(i)}].CimClass.CimClassName -notlike '*{suffix}'){{throw 'LWA_TRIGGERS_CHANGED'}};"
+    drop = ",".join(str(int(i)) for i in mine) or "-1"
+    keep = f"$keep=@();for($i=0;$i -lt $list.Count;$i++){{if(@({drop}) -notcontains $i){{$keep+=$list[$i]}}}};"
+    adds = ""
+    for n, expr in enumerate(rule_triggers_ps(rules), 1):
+        adds += expr + f"$new.Id='{TAG}-{n}';" + LOCAL_FIX + "$keep+=$new;"
+    return (f"$t=Get-ScheduledTask -TaskName '{TASK}' -ErrorAction Stop;$list=@($t.Triggers|Where-Object{{$_}});"
+            f"{guard}{keep}{adds}"
+            f"Set-ScheduledTask -TaskName '{TASK}' -Trigger $keep -ErrorAction Stop | Out-Null;"
+            f"Enable-ScheduledTask -TaskName '{TASK}' -ErrorAction Stop | Out-Null;'ok'")
+
+
+def set_rules(rules: Any, *, now: datetime | None = None) -> dict[str, Any]:
+    """按规则重写我们那几个触发器（其余原样保留），并启用任务。"""
+    norm, err = normalize_rules(rules, now=now)
+    if err:
+        return {"ok": False, "task": TASK, "error": err}
+    cur = get_schedule()
+    if cur.get("error"):
+        return {"ok": False, "task": TASK, "error": "读不到计划任务：" + str(cur["error"])[:200]}
+    if cur.get("freq") == "none":
+        return {"ok": False, "task": TASK, "error": f"找不到计划任务 {TASK}"}
+    ok, out = _ps(build_rules_ps(norm, list(cur.get("mine") or []), list(cur.get("mine_classes") or []),
+                                 int(cur.get("trigger_count") or 0)))
+    if not ok and "LWA_TRIGGERS_CHANGED" in out:
+        out = "计划任务的触发器刚被别处改过，没动它；关掉这个窗口重开再保存"
+    if not ok and ("Access is denied" in out or "拒绝访问" in out):
+        out += "（改计划任务可能要管理员权限）"
+    text = " · ".join(describe_rule(r) for r in norm)
+    return {"ok": ok, "task": TASK, "rules": norm, "detail": ("已保存：" + text) if ok else out[:240]}
 
 
 def get_schedule() -> dict[str, Any]:
@@ -197,19 +438,15 @@ def set_schedule(freq: str, at: str | None = None, day: str | None = None) -> di
         at_ok = _norm_time(at)
         if at_ok is None:
             return {"ok": False, "freq": freq, "task": TASK, "error": f"时间格式不对：{at}（写成 04:00 或 22:30）"}
-        cur = get_schedule()
-        if cur.get("error"):
-            return {"ok": False, "freq": freq, "task": TASK, "error": "读不到计划任务：" + str(cur["error"])[:200]}
-        if cur.get("freq") == "none":
-            return {"ok": False, "freq": freq, "task": TASK, "error": f"找不到计划任务 {TASK}"}
-        if freq == "daily":
-            trig = f"New-ScheduledTaskTrigger -Daily -At '{at_ok}'"
-        else:
-            wd = day if day in DAYS else "Monday"
-            trig = f"New-ScheduledTaskTrigger -Weekly -DaysOfWeek {wd} -At '{at_ok}'"
-        ok, out = _ps(build_set_ps(trig, cur.get("managed_index"), int(cur.get("trigger_count") or 0)))
-        if not ok and "LWA_TRIGGERS_CHANGED" in out:
-            out = "计划任务的触发器刚被别处改过，没动它；关掉这个窗口重开再保存"
+        hm = _hour_minute(at_ok)
+        if hm is None:
+            return {"ok": False, "freq": freq, "task": TASK, "error": f"时间格式不对：{at}（写成 04:00 或 22:30）"}
+        rule: dict[str, Any] = {"kind": freq, "times": [f"{hm[0]:02d}:{hm[1]:02d}"]}
+        if freq == "weekly":
+            rule["days"] = [d for d in DAYS if d in str(day or "").split(",")] or ["Monday"]
+        r = set_rules([rule])   # 10-03：每天 / 每周也走规则（只换我们那几个触发器，其余原样保留）
+        r["freq"] = freq
+        return r
     else:
         return {"ok": False, "freq": freq, "error": f"未知周期: {freq}（要 daily/weekly/off）"}
     if not ok and ("Access is denied" in out or "拒绝访问" in out):
@@ -220,6 +457,17 @@ def set_schedule(freq: str, at: str | None = None, day: str | None = None) -> di
 def run(args) -> int:
     from .read import EXIT_ERROR, EXIT_OK, dump_json
 
+    if getattr(args, "rules", None):
+        try:
+            rules = json.loads(args.rules)
+        except ValueError:
+            rules = None
+        result = set_rules(rules) if rules is not None else {"ok": False, "task": TASK, "error": "--rules 不是 JSON"}
+        if not result.get("ok"):
+            import sys
+            print(result.get("error") or result.get("detail") or "没保存上", file=sys.stderr)
+        dump_json(result)
+        return EXIT_OK if result.get("ok") else EXIT_ERROR
     if getattr(args, "set", None):
         result = set_schedule(args.set, getattr(args, "at", None), getattr(args, "day", None))
         dump_json(result)

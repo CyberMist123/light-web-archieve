@@ -220,3 +220,38 @@ a.lb-report-title { color: var(--link-color); cursor: pointer; }
   .lb-setup-right { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "bar" "body" "nav"; }
   .lb-steps { flex-direction: row; flex-wrap: wrap; border-right: none; border-bottom: 1px solid var(--background-modifier-border); padding: 0 0 6px; }
 }
+
+/* 10-03 同步记录（report-ui.js）+ 灵活定时（schedule-ui.js） */
+.lb-synclog-backlog { padding: 8px 10px; margin: 0 0 8px; border-radius: 8px; background: var(--background-secondary); font-size: 13px; font-weight: 500; }
+.lb-synclog-run { padding: 7px 0; border-bottom: 1px solid var(--background-modifier-border); font-size: 13px; }
+.lb-synclog-head { display: flex; align-items: center; gap: 8px; }
+.lb-synclog-line { flex: 1; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.lb-synclog-run.is-running .lb-synclog-line { color: var(--text-muted); }
+button.lb-synclog-toggle { flex: none; height: auto; padding: 0 6px; background: transparent; box-shadow: none; border: 0; cursor: pointer; }
+.lb-synclog-detail { margin: 6px 0 2px; padding-left: 10px; border-left: 2px solid var(--background-modifier-border); }
+.lb-synclog-run.is-error .lb-synclog-detail { border-left-color: #e0a14a; }
+.lb-synclog-err { color: var(--text-error); font-size: 12px; padding: 2px 0; overflow-wrap: anywhere; }
+.lb-synclog-item { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: 12px; padding: 2px 0; }
+.lb-synclog-kind { color: var(--text-muted); }
+.lb-synclog-title { overflow-wrap: anywhere; }
+a.lb-synclog-title { color: var(--link-color); cursor: pointer; }
+.lb-synclog-reason { color: var(--text-faint); overflow-wrap: anywhere; }
+.lb-synclog-more { color: var(--text-faint); font-size: 11px; }
+.lb-synclog-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.lb-synclog-retrymsg { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.lb-sched { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 12px; }
+.lb-sched-rows { display: flex; flex-direction: column; gap: 6px; }
+.lb-sched-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.lb-sched-days { display: inline-flex; gap: 3px; }
+button.lb-sched-day { min-width: 28px; height: 26px; padding: 0 6px; font-size: 12px; }
+button.lb-sched-day.is-on { background: var(--interactive-accent); color: var(--text-on-accent); }
+input.lb-sched-times { width: 140px; }
+.lb-sched-hint { color: var(--text-muted); font-size: 12px; }
+button.lb-sched-del { height: 26px; padding: 0 8px; }
+button.lb-sched-add { align-self: flex-start; font-size: 12px; }
+.lb-sched-warn { color: #c77700; }
+.lb-sched-warn[hidden] { display: none; }
+.lb-sched-actions { display: flex; gap: 8px; }
+.lb-synclog-top { display: flex; gap: 8px; margin: 0 0 10px; }
+.lb-menu-sub { font-size: 11px; color: var(--text-faint); line-height: 1.3; }
+.lb-cols-pick { display: flex; flex-wrap: wrap; gap: 8px; }

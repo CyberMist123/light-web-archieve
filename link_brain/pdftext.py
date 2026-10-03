@@ -67,6 +67,16 @@ def attachment_md_path(source_key: str, source_id: str, doc_id: str) -> Path:
     return storage.derived_dir(source_key, source_id) / "attachments" / f"{doc_id}.md"
 
 
+def _synclog_convert(item_id: str, meta: dict[str, Any], ok: bool, reason: str = "", code: str = "") -> None:
+    """10-03 同步记录：附件转文字这次真转了的结果（并在「附件」那一项里；重试 = pdf2md 这一篇）。"""
+    try:
+        from . import synclog
+        synclog.note("attachment", item_id, ok, title=meta.get("title"), note_path=meta.get("visible_note"),
+                     reason=reason, code=code, retry=None if ok else ["pdf2md", item_id])
+    except Exception as exc:  # noqa: BLE001
+        print(f"[synclog] {type(exc).__name__}: {exc}", file=sys.stderr)
+
+
 def convert_object_attachments(
     source_key: str, source_id: str, *, force: bool = False, force_ocr: bool = False,
     verbose: bool = False, now: datetime | None = None,
@@ -131,6 +141,7 @@ def convert_object_attachments(
                             item_id=item_id, title=meta.get("title"), next_at=next_at)
             results.append({"doc_id": doc_id, "status": "failed", "note": outcome["note"], "code": code,
                             "next_at": next_at})
+            _synclog_convert(item_id, meta, False, f"{record.get('name') or path.name} 没转成文字：{outcome['note']}", code)
             continue
         out.parent.mkdir(parents=True, exist_ok=True)
         from .mdsafe import neutralize  # 1001 C-2：附件全文是别人写的，落盘前打断 Dataview 可执行形态
@@ -138,6 +149,7 @@ def convert_object_attachments(
         attachments_mod.mark_conversion(source_key, source_id, doc_id, None,
                                         partial_pages=int(outcome.get("partial") or 0))
         problems.resolve("attachments.convert", item_id)
+        _synclog_convert(item_id, meta, True)
         results.append(
             {"doc_id": doc_id, "status": "ok", "method": outcome["method"],
              "note": outcome["note"], "path": str(out)}

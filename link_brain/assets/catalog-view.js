@@ -178,6 +178,10 @@ style.textContent = `
 .lbc-possible-title{font-size:13px;font-weight:500;color:var(--text-muted);}
 .lbc-possible-note{font-size:11px;color:var(--text-faint);}
 .lbc-card.is-possible .lbc-cover{opacity:.85;}
+/* 10-03：Ctrl + 加减号 / Ctrl + 滚轮定了列数（2–6）就按列数排，不再按宽度自动 */
+.lbc-grid.lbc-has-cols .lbc-grid-inner{columns:auto;column-count:var(--lbc-cols);column-width:auto;}
+/* 10-03（她定）：低置信度命中（同义词 / 换语种 / 扩词 / 拼音 / 错字 / 漏字 / 语义）标题下浅色一段检索到的内容；原词命中只有标题 */
+.lbc-lowhit{font-size:12px;line-height:1.55;color:var(--text-faint);margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;}
 
 `;
 // 刚部署了新插件、内存里还是旧实例（缺新方法）：重载一次；正在同步 / 导入时不动它
@@ -211,16 +215,19 @@ const top=wrap.createEl('div',{cls:'lbc-top'});
 const head=top.createEl('div',{cls:'lbc-head'});
 const titleBlock=head.createEl('div',{cls:'lbc-titleblock'});
 const titleRow=titleBlock.createEl('div',{cls:'lbc-titlerow'});
-const titleText=titleRow.createEl('span',{cls:'lbc-title',text:'Collections'});
+// 10-03：大标题可改（「…→改标题」，存插件设置 catalogTitle；空 = Collections）
+const titleOf=()=>String(LB.provider()?.settings?.catalogTitle||'').trim()||'Collections';
+const titleText=titleRow.createEl('span',{cls:'lbc-title'});
+const titleLabel=titleText.createEl('span',{cls:'lbc-title-text',text:titleOf()});
 const tools=head.createEl('div',{cls:'lbc-tools'});
 const importButton=titleText.createEl('button',{cls:'lbc-import',text:'+'});
 const subLine=titleBlock.createEl('div',{cls:'lbc-subline'});
 let todayOnly=false;
-// 第 6 批（她定）：「N 篇 · 更新 …」这行可点，打开「本周同步情况」（插件 openWeekReport()）；灰字不变，悬停下划线
+// 第 6 批（她定）：「N 篇 · 更新 …」这行可点；10-03 起打开「同步记录」（插件 openSyncLog()）；灰字不变，悬停下划线
 const sub=subLine.createEl('span',{cls:'lbc-sub lbc-sub-link'});
-sub.title='看本周同步情况';sub.setAttribute('role','button');sub.tabIndex=0;
+sub.title='看同步记录';sub.setAttribute('role','button');sub.tabIndex=0;
 sub.onclick=async()=>{
-  try { await (await LB.ensure('openWeekReport')).openWeekReport(); }
+  try { await (await LB.ensure('openSyncLog')).openSyncLog(); }
   catch(error){try{new Notice(error.message,10000);}catch{window.alert(error.message);}}
 };
 sub.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();sub.onclick();}};
@@ -357,7 +364,7 @@ if(saved.ts){
 let scrollTop=savedScroll;
 function saveState(){
   LB.state.save({q:committed,input:search.value,cat:activeCat,topic:activeTopic,today:todayOnly,todo:todoOnly,media:mediaFilter,star:starOnly,
-    selectMode,select:[...selected],scrollTop});
+    selectMode,select:[...selected],scrollTop,cols});
 }
 const selbar=wrap.createEl('div',{cls:'lbc-selbar'});selbar.hidden=true;
 const selCount=selbar.createEl('span',{cls:'lbc-selcount'});
@@ -370,6 +377,66 @@ delBtn.onclick=()=>confirmDelete(items.filter(x=>selected.has(x.id)));
 const clrBtn=selbar.createEl('button',{text:'退出多选'});clrBtn.onclick=()=>{selectMode=false;selected.clear();render();};
 const ai=wrap.createEl('section',{cls:'lbc-ai'});ai.hidden=true;
 const grid=wrap.createEl('div',{cls:'lbc-grid'});
+// 10-03（她定）：Ctrl + 加号 / 减号、Ctrl + 鼠标滚轮调瀑布流列数，最少 2 列、最多 6 列（加号 / 往上滚 = 卡片变大、列变少）。
+// 只在鼠标在这一页上 / 这一页是当前视图时生效，别的页面 Ctrl + 滚轮照旧；只改布局（grid 上一个 CSS 变量），不重建卡片（§5）。
+// 列数记在插件设置 catalogColumns（目录页和星标页同一个）；插件不在就记在页面状态。0 = 没调过，按页面宽度自动（CSS columns:230px）。
+const COLS_MIN=2,COLS_MAX=6,COL_W=230,COL_GAP=24;
+let cols=0,colsTimer=null,hover=false,wheelAcc=0,wheelAt=0;
+const colsOf=v=>{v=Number(v)||0;return v>=COLS_MIN&&v<=COLS_MAX?Math.round(v):0;};
+function savedCols(){const p=provider();return colsOf(p?.settings?.catalogColumns)||(p?.settings?0:colsOf(saved.cols));}
+function applyCols(){
+  const l=grid.classList;if(cols)l.add('lbc-has-cols');else (l.remove||l.delete).call(l,'lbc-has-cols');
+  if(cols){if(grid.style.setProperty)grid.style.setProperty('--lbc-cols',String(cols));else grid.style['--lbc-cols']=String(cols);}
+  else if(grid.style.removeProperty)grid.style.removeProperty('--lbc-cols');else delete grid.style['--lbc-cols'];
+}
+// 还没调过：按现在实际排了几列算起（列宽 230 + 间距 24）
+function currentCols(){
+  if(cols)return cols;
+  const inner=grid.querySelector('.lbc-grid-inner');const w=Number(inner?.clientWidth||grid.clientWidth)||0;
+  return w?Math.max(1,Math.floor((w+COL_GAP)/(COL_W+COL_GAP))):4;
+}
+function setCols(next){
+  next=Math.max(COLS_MIN,Math.min(COLS_MAX,Math.round(next)));
+  if(next===cols)return false;
+  cols=next;applyCols();saveState();
+  const tip=`瀑布流 ${cols} 列`;importStatus.setText(tip);clearTimeout(colsTimer);
+  colsTimer=setTimeout(()=>{if(importStatus.textContent===tip)importStatus.setText('');},1500);
+  const p=provider();
+  if(p?.settings){p.settings.catalogColumns=cols;clearTimeout(p.__lbColsSave);p.__lbColsSave=setTimeout(()=>{try{p.saveSettings?.();}catch{}},600);}
+  return true;
+}
+// dir > 0：卡片变大（列少）；dir < 0：卡片变小（列多）
+function stepCols(dir){return setCols(currentCols()+(dir>0?-1:1));}
+function pageActive(){
+  if(!wrap.isConnected)return false;
+  if(wrap.offsetParent===null&&typeof wrap.getClientRects==='function'&&!wrap.getClientRects().length)return false;   // 藏着的标签页
+  if(hover)return true;
+  const leaf=app.workspace?.activeLeaf;const el=leaf?.view?.containerEl||leaf?.containerEl;
+  return !!(el&&typeof el.contains==='function'&&el.contains(wrap));
+}
+function onColsKey(e){
+  if(!(e.ctrlKey||e.metaKey)||e.altKey)return;
+  const k=e.key,c=e.code;
+  const bigger=k==='='||k==='+'||c==='Equal'||c==='NumpadAdd',smaller=k==='-'||k==='_'||c==='Minus'||c==='NumpadSubtract';
+  if(!bigger&&!smaller)return;
+  if(!pageActive())return;
+  e.preventDefault();e.stopPropagation();e.stopImmediatePropagation?.();   // 这一页上不让 Obsidian 整窗缩放
+  stepCols(bigger?1:-1);
+}
+if(typeof wrap.addEventListener==='function'){
+wrap.addEventListener('mouseenter',()=>{hover=true;});
+wrap.addEventListener('mouseleave',()=>{hover=false;});
+wrap.addEventListener('wheel',e=>{
+  if(!(e.ctrlKey||e.metaKey))return;
+  e.preventDefault();
+  const now=Date.now();if(now-wheelAt>500)wheelAcc=0;wheelAt=now;
+  wheelAcc+=Number(e.deltaY)||0;
+  if(Math.abs(wheelAcc)<100)return;   // 鼠标滚轮一格约 100；触控板捏合是小步，攒够一格再动
+  const dir=wheelAcc<0?1:-1;wheelAcc=0;stepCols(dir);
+},{passive:false});
+}
+{const tgt=typeof window!=='undefined'&&window&&typeof window.addEventListener==='function'?window:document;
+ LB.listen('cols-key',tgt,'keydown',onColsKey,{capture:true});}
 
 // 删除收藏：确认 → 移到回收站 → 本地从 items 摘掉 → 重渲染
 async function confirmDelete(list){
@@ -424,9 +491,9 @@ function openCardMenu(e,body,it){
 }
 // 卡片按 id 复用（§5.5）：内容和选中状态都没变的卡片原样挂回，封面图不重载、不闪；变了的才重建。
 const cardCache=new Map();
-function cardSig(it,fuzzy){
+function cardSig(it,fuzzy,low){
   return JSON.stringify([it.title,it.cover,it.cover_w,it.cover_h,it.kind,it.attachment,it.attachment_reason,!!it.starred,it.author,it.source,it.likes,it.note,it.problems||null,
-    fuzzy,selectMode&&selected.has(it.id)]);
+    fuzzy,selectMode&&selected.has(it.id),low||'']);
 }
 function render(){renderGrid();saveState();}
 function renderGrid(){
@@ -452,12 +519,13 @@ function renderGrid(){
       possibleCards=grid.createEl('div',{cls:'lbc-grid-inner lbc-grid-possible'});
     }
     const cards=possibleCards||exactCards;
-    const sig=cardSig(it,!!match.fuzzy);const cached=cardCache.get(it.id);
+    const low=q?lowConfidenceSnippet(it,match):'';   // 原词命中 = ''（只留标题）
+    const sig=cardSig(it,!!match.fuzzy,low);const cached=cardCache.get(it.id);
     if(cached&&cached.sig===sig){cached.el._lbItem=it;cards.append(cached.el);continue;}
-    const card=buildCard(cards,it,!!match.fuzzy);cardCache.set(it.id,{sig,el:card});
+    const card=buildCard(cards,it,!!match.fuzzy,low);cardCache.set(it.id,{sig,el:card});
   }
 }
-function buildCard(cards,it,fuzzy){
+function buildCard(cards,it,fuzzy,low){
     // 不设 aria-label：Obsidian 会把 aria-label 渲染成 hover 浮框（她不要那个「悬浮的点的字」）。
     const card=cards.createEl('article',{cls:'lbc-card'+(selectMode&&selected.has(it.id)?' is-selected':'')+(fuzzy?' is-possible':'')});card.tabIndex=0;card.setAttribute('role','link');
     // 卡片上的事件一律取 card._lbItem（数据刷新后复用的卡片换成新对象）
@@ -488,6 +556,7 @@ function buildCard(cards,it,fuzzy){
     star.setAttribute('aria-pressed',String(!!it.starred));star.createEl('span',{cls:'lb-visually-hidden',text:it.starred?'取消收藏':'收藏'});
     star.onclick=async e=>{e.preventDefault();e.stopPropagation();star.disabled=true;const x=cur();try{const result=await provider().starNote(x.id,!x.starred);x.starred=result.starred;render();}catch(err){importStatus.setText(err.message);star.disabled=false;}};
     const body=card.createEl('div',{cls:'lbc-body'});body.createEl('div',{cls:'lbc-ctitle',text:it.title||'未命名'});
+    if(low)body.createEl('div',{cls:'lbc-lowhit',text:low});
     const meta=body.createEl('div',{cls:'lbc-cmeta'});meta.createEl('span',{text:it.author||it.source||'收藏'});meta.createEl('span',{cls:'lbc-likes',text:it.likes==null?'':'♡ '+(Number(it.likes)>=10000?(Number(it.likes)/10000).toFixed(1)+'万':it.likes)});
     card.ondragover=e=>{e.preventDefault();};card.ondrop=async e=>{e.preventDefault();e.stopPropagation();const x=cur();const f=e.dataTransfer.files[0];if(!f)return;const fp=f.path||require('electron').webUtils?.getPathForFile(f);if(!fp){attachmentPanel([x]);return;}try{const result=await provider().attachFile(x.id,fp);await refresh();importStatus.setText(result.warning||'附件已保存并加入搜索');}catch(err){importStatus.setText('挂载失败：'+err.message);}};
     // 多选模式：点击=勾选/取消；平时=打开笔记（同一窗格，§5.4；按住 Ctrl 照 Obsidian 习惯开新标签）
@@ -541,15 +610,18 @@ function commitSearch(){
 search.oninput=()=>{if(!search.value&&!busy){committed='';chatMode=false;render();}else saveState();};
 search.value=typeof saved.input==='string'?saved.input:committed;
 let firstCover=null;
+cols=savedCols();applyCols();
 renderCatBar();render();
 LB.t('render');
 // 星标以 catalog-data 为准（点星标时后端同步改它）+ link-brain:star 事件，不再每次打开读 350 份 notes.json（§5.6）
 if(app.workspace.on){const ref=app.workspace.on('link-brain:star',(id,on)=>{const it=items.find(x=>x.id===id);if(it&&it.starred!==on){it.starred=on;render();}});dv.component.registerEvent(ref);}
+// 10-03：「…→改标题 / 每行几列」改完就地换（不重建卡片）
+if(app.workspace.on){const ref=app.workspace.on('link-brain:catalog-prefs',()=>{titleLabel.setText(titleOf());const c=savedCols();if(c!==cols){cols=c;applyCols();}});dv.component.registerEvent(ref);}
 // 点开一篇（同一窗格）之后这一页就要被换掉了：别再记滚动（Obsidian 换笔记时会把滚动容器归零）
 let leaving=false;
 LB.onScroll(top=>{if(leaving)return;scrollTop=top;saveState();});
 // 登记这一版 DOM：Dataview 下次重跑时版本没变就原样挂回；变了走 refresh（只换数据、卡片复用）
-LB.keep(wrap,{version:await LB.data.version(),update:()=>refresh(),onReuse:()=>{if(refreshTags())render();}});
+LB.keep(wrap,{version:await LB.data.version(),update:()=>refresh(),onReuse:()=>{if(refreshTags())render();const c=savedCols();if(c!==cols&&(c||LB.provider()?.settings)){cols=c;applyCols();}if(titleLabel.textContent!==titleOf())titleLabel.setText(titleOf());}});
 if(provider()?.focusCatalogSearch){provider().focusCatalogSearch=false;search.focus();}
 if(savedScroll>0)LB.restoreScroll(savedScroll);   // 滚到位时记一笔 scroll-restored@
 LB.t('restore');

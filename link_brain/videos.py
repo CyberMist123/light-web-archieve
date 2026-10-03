@@ -148,6 +148,15 @@ def _report(row, result):
     from . import problems
     item_id, title = row['item_id'], (row['title'] if 'title' in row.keys() else None)
     status = result.get('status')
+    try:  # 10-03 同步记录：转写这次的结果（没人声 / 没音轨也算处理完了）；没开的不记
+        from . import synclog
+        if status in ('ok', 'no_speech', 'no_audio'):
+            synclog.note('video', item_id, True, title=title)
+        elif status == 'failed':
+            synclog.note('video', item_id, False, title=title, reason=result.get('error') or '语音识别失败',
+                         code=result.get('code') or '')
+    except Exception as exc:  # noqa: BLE001
+        print(f'[synclog] {type(exc).__name__}: {exc}', file=__import__('sys').stderr)
     if status == 'ok':
         problems.resolve('videos.transcribe', item_id)
         problems.resolve('videos.transcribe', None, 'SKIPPED.NOT_CONFIGURED')

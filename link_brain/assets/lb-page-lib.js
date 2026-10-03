@@ -161,14 +161,15 @@ function lbPageLib(dv, app, role) {
   }
 
   // ── 全局监听去重：同一个 key 只留最新一份，组件卸载时摘掉（代替 window.__lbcEsc 这类挂钩） ──
-  function listen(key, target, type, fn) {
+  // opts：addEventListener 的第三个参数（如 {capture: true}）；摘的时候用同一个
+  function listen(key, target, type, fn, opts) {
     const reg = (G.__lbListeners = G.__lbListeners || {});
     const k = role + ':' + key;
     const prev = reg[k];
-    if (prev) { try { prev.target.removeEventListener(prev.type, prev.fn); } catch {} }
-    target.addEventListener(type, fn);
-    reg[k] = { target, type, fn };
-    try { dv.component?.register?.(() => { if (reg[k]?.fn === fn) { target.removeEventListener(type, fn); delete reg[k]; } }); } catch {}
+    if (prev) { try { prev.target.removeEventListener(prev.type, prev.fn, prev.opts); } catch {} }
+    target.addEventListener(type, fn, opts);
+    reg[k] = { target, type, fn, opts };
+    try { dv.component?.register?.(() => { if (reg[k]?.fn === fn) { target.removeEventListener(type, fn, opts); delete reg[k]; } }); } catch {}
   }
 
   // ── 滚动：阅读视图里滚的是整个 .markdown-preview-view；记住位置，回来时等内容长够了再滚回去 ──
