@@ -14,7 +14,7 @@ const NUM = ['①', '②', '③', '④', '⑤'];
 const TABS = new Set(['start', 'sync', 'ai', 'remote', 'advanced']);
 const FREE_LINE = '不填 key 也能用：归档、浏览、关键词搜索、本地 OCR、本地语音。';
 const STATUS_TEXT = { ready: '✓ 就绪', missing: '缺', partial: '不完整', failed: '没装上', unknown: '没查出来',
-  queued: '等着装', installing: '安装中', stopped: '已停止', manual: '要你手动' };
+  queued: '等着装', installing: '安装中', stopped: '已停止', manual: '要你手动', needs_key: '在 ⑤ 填 key' };
 
 const num = v => (v === null || v === undefined || v === '' || typeof v === 'boolean' || !Number.isFinite(Number(v)) ? null : Number(v));
 
@@ -327,7 +327,7 @@ module.exports = function setupUI(obsidian, plugin) {
         const meta = info.createDiv({ cls: 'lb-comp-meta' });
         meta.createSpan({ text: `磁盘 ${fmtMB(c.disk_mb)} · 内存 ${fmtMB(c.ram_mb)}` });
         const status = st.rows[c.id]?.status || c.status;
-        if (status) meta.createSpan({ cls: 'lb-comp-status is-' + status, text: ' · ' + (status === 'ready' ? '已装好' : STATUS_TEXT[status] || status) });
+        if (status && !c.later) meta.createSpan({ cls: 'lb-comp-status is-' + status, text: ' · ' + (status === 'ready' ? '已装好' : STATUS_TEXT[status] || status) });
         if (c.desc || c.detail) info.setAttribute('title', [c.desc, c.detail].filter(Boolean).join('\n'));
         const tabId = TABS.has(c.settings_tab) ? c.settings_tab : 'advanced';
         const gear = row.createEl('button', { cls: 'lb-comp-gear clickable-icon', text: '⚙', attr: { 'aria-label': '详细设置', title: '详细设置', 'data-tab': tabId } });
