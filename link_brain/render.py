@@ -1051,6 +1051,12 @@ def render_agent_md(
         if refined.get("status") == "ok":
             label = {"table": "表格·精细识别", "diagram": "流程图·精细识别", "text": "文字·精细识别"}[refined["kind"]]
             out = [f"{indent}- {image['asset']}（{label}）："] + [f"{indent}  " + row for row in refined["text"].splitlines()]
+            if refined.get("kind") == "diagram":
+                raw = "\n".join(str(line.get("text", "")) if isinstance(line, dict) else str(line)
+                                for line in image.get("lines") or []) or str(image.get("ocr") or "")
+                if raw:
+                    out += [f'{indent}  <details><summary>一层 OCR 原文（识别结果）</summary>',
+                            f'{indent}  <pre>{_safe(raw)}</pre>', f'{indent}  </details>']
             return out + ([origin] if origin else [])
         if visual.get("status") == "ok" and visual.get("v") and visual.get("kind") in ("table", "diagram", "text"):
             # 0927：新版识图已按图纠过错，直接用它；原始 OCR 留在 vision.json

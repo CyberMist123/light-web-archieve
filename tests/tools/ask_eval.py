@@ -81,14 +81,25 @@ def _recall(ids, want, k):
     return round(len(set(ids[:k]) & want) / min(k, len(want)), 3) if want else None
 
 
+def _coverage(ids, want, k):
+    return round(len(set(ids[:k]) & want) / len(want), 3) if want else None
+
+
 def evaluate(cases, items=None, k=8, use_semantic=True, expand_llm=True):
     """逐题跑检索，返回 {summary, results}。items 不传就读当前收藏库的 catalog-data.json。"""
     from link_brain import ai_config, ask, retrieval
-    items = ask.load_items() if items is None else items
+    corpus = {"built_at": None, "kind": "synthetic" if items is not None else "catalog"}
+    if items is None:
+        from link_brain import storage
+        catalog = json.loads((storage.vault_root() / '_archive/catalog-data.json').read_text(encoding='utf-8'))
+        corpus["built_at"] = catalog.get("built_at")
+        items = catalog.get("items", [])
+    corpus["items"] = len(items)
     titles = {it.get("id"): it.get("title") or "" for it in items}
     settings = ai_config.load()
     limits = settings.get("retrieval") or {}
     cap = max(500, int(limits.get("totalCharLimit", 8000)))
+    frag = max(200, int(limits.get("fragChars", 800)))
     top_k = max(1, int(limits.get("topK", 8)))
     original_sem = retrieval.semantic_hits
     if not use_semantic:
@@ -102,20 +113,35 @@ def evaluate(cases, items=None, k=8, use_semantic=True, expand_llm=True):
             for prev in case.get("history") or []:
                 history += [{"role": "user", "content": prev}, {"role": "assistant", "content": "（略）"}]
             start = time.perf_counter()
-            found = ask.recall(question, items, settings, history, allow_expand_call=expand_llm)
+            found = ask.recall(question, items, settings, history, allow_expand_call=expand_llm, trace=True)
             took = round(time.perf_counter() - start, 2)
             pool = [it["id"] for it in found["matches"][:ask.POOL_MAX]]
-            n = ask.primary_count(cap, top_k, len(pool))
+            n, deep = ask.prompt_count(question, found["matches"][:ask.POOL_MAX], cap, top_k)
             lexical = [it["id"] for _, it in retrieval.rank(items, found["terms"])]
             sem = retrieval.semantic_hits(question)  # 同一句有缓存，不再调接口
             semantic = retrieval.sem_order(sem)
             want = set(expected)
             must = list(case.get("must_pool") or [])
+            per = ask.evidence_budget(cap, frag, n, deep)
+            evidence_terms = found["terms"] + found["prior_terms"] + found["expansion"]["terms"]
+            stages = found["stages"]
+            stages["primary"] = [{"id": item["id"], "evidence": [
+                [part["field"], len(part["text"])] for part in retrieval.evidence(
+                    item, evidence_terms, per, found["sem"], window_chars=1000, max_parts=8 if deep else 4, deep=deep)]}
+                for item in found["matches"][:n]]
+            stages["selection_status"] = "retrieval_order_only"
+            stages["deep_read"] = deep
+            stages["export"] = {"status": "not_run", "ids": []}
             rows.append({
                 "question": question, "history": case.get("history") or [], "note": case.get("note", ""), "set": case.get("set", ""),
                 "mode": found["mode"], "terms": found["terms"], "expanded": found["expansion"]["terms"],
                 "expand_status": found["expansion"].get("status"), "expected": expected, "seconds": took,
                 f"recall_at_{k}": _recall(pool, want, k), "recall_at_20": _recall(pool, want, 20),
+                f"coverage_at_{k}": _coverage(pool, want, k), "coverage_at_20": _coverage(pool, want, 20),
+                f"capped_recall_at_{k}": _recall(pool, want, k), "capped_recall_at_20": _recall(pool, want, 20),
+                "coverage_primary": _coverage(pool, want, n), "capped_recall_primary": _recall(pool, want, n),
+                "stages": stages, "evidence_budget": per,
+                "false_rejection": [item_id for item_id in must if item_id not in pool],
                 "recall_primary": _recall(pool, want, n), "primary": n, "pool_size": len(pool),
                 "pool_coverage": round(len(set(pool) & want) / len(want), 3) if want else None,
                 "must_pool": f"{len(set(pool) & set(must))}/{len(must)}" if must else "",
@@ -129,7 +155,8 @@ def evaluate(cases, items=None, k=8, use_semantic=True, expand_llm=True):
         retrieval.semantic_hits = original_sem
 
     def mean(key, subset=None):
-        vals = [r[key] for r in rows if r[key] is not None and (subset is None or r["set"] == subset)]
+        vals = [r[key] for r in rows if r[key] is not None and
+                (r["set"] != "holdout" if subset is None else r["set"] == subset)]
         return round(statistics.mean(vals), 3) if vals else None
 
     summary = {f"recall_at_{k}": mean(f"recall_at_{k}"), "recall_at_20": mean("recall_at_20"),
@@ -139,13 +166,24 @@ def evaluate(cases, items=None, k=8, use_semantic=True, expand_llm=True):
     for subset in sorted({r["set"] for r in rows if r["set"]}):
         summary[f"set_{subset}"] = {f"recall_at_{k}": mean(f"recall_at_{k}", subset), "recall_at_20": mean("recall_at_20", subset),
                                     "pool_coverage": mean("pool_coverage", subset)}
-    return {"summary": summary, "results": rows}
+    metrics = [f"coverage_at_{k}", "coverage_at_20", "coverage_primary", f"capped_recall_at_{k}",
+               "capped_recall_at_20", "capped_recall_primary", "pool_coverage"]
+    summary.update({key: mean(key) for key in metrics})
+    summary["tuning_questions"] = sum(row["set"] != "holdout" for row in rows)
+    summary["false_rejection"] = sum(len(row["false_rejection"]) for row in rows)
+    summary["blocked"] = bool(summary["false_rejection"])
+    summary["sets"] = {subset: {**{key: mean(key, subset) for key in metrics},
+                               "questions": sum(row["set"] == subset for row in rows),
+                               "false_rejection": sum(len(row["false_rejection"]) for row in rows if row["set"] == subset)}
+                       for subset in sorted({row["set"] for row in rows})}
+    return {"summary": summary, "results": rows, "configuration": {"retrieval": limits,
+            "expand_llm": expand_llm, "semantic": use_semantic}, "corpus": corpus}
 
 
 def _print(report, k):
     for r in report["results"]:
         hist = f"（接在 {' → '.join(r['history'])} 之后）" if r["history"] else ""
-        print(f"\n■ {r['question']}{hist}  [{r['mode']}]  recall@{k}={r[f'recall_at_{k}']} · @20={r['recall_at_20']}"
+        print(f"\n■ {r['question']}{hist}  [{r['mode']}]  coverage@{k}={r[f'coverage_at_{k}']} · capped_recall@{k}={r[f'capped_recall_at_{k}']}"
               f" · 池覆盖={r['pool_coverage']} · 池 {r['pool_size']} 篇、送模型 {r['primary']} 篇 · {r['seconds']}s")
         print(f"  应命中 {len(r['expected'])} 篇 · 候选池排名 {r['final_rank'][:12]} · 词法 {r['lexical_rank'][:10]}"
               f" · 语义 {r['semantic_rank'][:10] if r['semantic_rank'] is not None else '未启用'}"

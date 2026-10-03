@@ -540,7 +540,8 @@ def qa_matches(question, items, terms, sem, history=None, extra=None):
     history = [m for m in (history or [])[-8:] if m.get("role") in {"user", "assistant"}]
     asked = [str(m.get("content", ""))[:1000] for m in history if m["role"] == "user"]
     # extra：第 10 批扩词的各路召回（见 expansion_routes），和这一问的原词、语义一起 RRF
-    own = [it for _, it in rank_query(items, question, terms, sem=sem, extra=extra)]
+    own = [{**it, "_fused_score": value} if sem or extra else it
+           for value, it in rank_query(items, question, terms, sem=sem, extra=extra)]
     if not asked:
         return own, "standalone", []
     topic = _topic_terms(items, question)
@@ -573,12 +574,54 @@ def primary_count(cap, top_k, pool_size):
     return max(0, min(pool_size, max(top_k, min(20, cap // 700))))
 
 
-def related_card(item, rank_no):
-    """「其他相关」那一档的来源卡：不取证据（几十篇逐篇切窗口太慢），摘录用概要。"""
-    return {**_card(item, str(item.get("summary") or "")[:120]), "tier": "related", "rank": rank_no}
+def evidence_budget(cap, frag, count, deep=False):
+    if deep:
+        return cap // max(1, count)
+    return max(200, min(max(frag, cap // max(1, count) - 150), 4000, cap // max(1, count) - 20))
 
 
-def recall(question, items, settings, history=None, *, allow_expand_call=True):
+def _title_named(question, item):
+    title = str(item.get("title") or "").casefold()
+    question = question.casefold()
+    return any(title[start:start + 4].strip() and title[start:start + 4] in question
+               for start in range(len(title) - 3))
+
+
+def deep_read_wanted(question, matches):
+    try:
+        if not matches:
+            return False
+        if _title_named(question, matches[0]):
+            return True
+        first = float(matches[0].get("_fused_score", 0))
+        second = float(matches[1].get("_fused_score", 0)) if len(matches) > 1 else 0
+        return first > 0 and second > 0 and first >= 2 * second
+    except Exception:
+        return False
+
+
+def prompt_count(question, pool, cap, top_k):
+    count = primary_count(cap, top_k, len(pool))
+    try:
+        if deep_read_wanted(question, pool):
+            named = 1
+            for item in pool[1:3]:
+                if not _title_named(question, item):
+                    break
+                named += 1
+            return min(count, named), True
+    except Exception:
+        pass
+    return count, False
+
+
+def related_card(item, rank_no, terms=()):
+    from .retrieval import lexical_excerpt
+    snippet = lexical_excerpt(item, terms, 120)
+    return {**_card(item, snippet["text"]), "excerpt_field": snippet["field"], "tier": "related", "rank": rank_no}
+
+
+def recall(question, items, settings, history=None, *, allow_expand_call=True, trace=False):
     """问答的候选池（第 10 批多路召回）：原词 BM25 ∪ 语义（按篇前 40）∪ 扩词（表 + 小模型，每词一路）∪ 扩词语义，加权 RRF。
 
     返回 dict(matches, mode, prior_terms, terms, sem, expansion)。生产 _answer_qa 和评测 tests/tools/ask_eval.py 共用。"""
@@ -597,8 +640,20 @@ def recall(question, items, settings, history=None, *, allow_expand_call=True):
     sem_expanded = semantic_hits(question + " " + " ".join(expansion["llm"])) if expansion["llm"] else None
     extra = expansion_routes(items, expansion["terms"], sem_expanded)
     matches, mode, prior_terms = qa_matches(question, items, terms, sem, history, extra=extra)
-    return {"matches": candidate_pool(matches, items, terms, sem, extra, mode), "mode": mode, "prior_terms": prior_terms,
-            "terms": terms, "sem": _merge_sem(sem, sem_expanded), "expansion": expansion}
+    result = {"matches": candidate_pool(matches, items, terms, sem, extra, mode), "mode": mode, "prior_terms": prior_terms,
+              "terms": terms, "sem": _merge_sem(sem, sem_expanded), "expansion": expansion}
+    if trace:
+        from .retrieval import rank, sem_order
+        result["stages"] = {
+            "lexical": [it["id"] for _, it in rank(items, terms)[:40]],
+            "semantic": sem_order(sem)[:40],
+            "expansion": [{"term": term, "ids": [it["id"] for _, it in rank(items, [term])[:20]]}
+                          for term in expansion["terms"]],
+            "expanded_semantic": sem_order(sem_expanded)[:20],
+            "fusion": [it["id"] for it in matches],
+            "candidate_pool": [it["id"] for it in result["matches"]],
+        }
+    return result
 
 
 POOL_HEADS = {"lexical": 40, "semantic": 40, "expand": 20, "followup": 40}
@@ -658,13 +713,13 @@ def _answer_qa(question, items, settings, history=None, source_ids=None):
     frag = max(200, int(limits.get("fragChars", 800)))
     top_k = max(1, int(limits.get('topK', 8)))
     pool = matches[:POOL_MAX] if not pinned else matches
-    n = primary_count(cap, top_k, len(pool))
+    n, deep = prompt_count(question, pool, cap, top_k)
     order = list(pool)
     candidate_count = len(pool)
     selection_failed = selection_kept = selection_empty = False
     picked = 0
     if _cancelled(): return _stopped()
-    if not pinned and selection_wanted(question, pool, n):
+    if not pinned and not deep and selection_wanted(question, pool, n):
         _phase(f"挑选材料：从 {min(len(pool), 40)} 条候选里挑最合适的排前面")
         try:
             selected, _count = _select_sources(question, pool, terms, settings, n, sem)
@@ -692,9 +747,10 @@ def _answer_qa(question, items, settings, history=None, source_ids=None):
         order = list(selected) + [it for it in pool if it['id'] not in chosen]
     primary, related = order[:n], order[n:]
     blocks, sources, overflow = [], [], []
-    per = max(200, min(max(frag, cap // max(1, len(primary)) - 150), 4000, cap // max(1, len(primary)) - 20))
+    per = evidence_budget(cap, frag, len(primary), deep)
     for it in primary:
-        snippets = locate_excerpts(it, evidence(it, terms + prior_terms + expansion["terms"], per, sem, window_chars=1000, max_parts=4))
+        snippets = locate_excerpts(it, evidence(it, terms + prior_terms + expansion["terms"], per, sem,
+                                              window_chars=1000, max_parts=8 if deep else 4, deep=deep))
         block = f"[来源{len(sources)+1}] {it['title']}\n" + "\n".join(f"[{x['field']}] {x['text']}" for x in snippets)
         remaining = cap - sum(len(x) for x in blocks)
         if remaining < 100:
@@ -704,7 +760,8 @@ def _answer_qa(question, items, settings, history=None, source_ids=None):
         sources.append({**_card(it, snippets[0]["text"] if snippets else ""), "citation": len(sources)+1, "excerpts": snippets, "tier": "primary",
                         "agent_md": str(storage.vault_root() / it["agent_md"]) if it.get("agent_md") else None, "attachments": it.get("attachment_files", [])})
     sent = {s["id"] for s in sources}
-    related_cards = [related_card(it, len(sources) + i + 1) for i, it in enumerate([it for it in overflow + related if it["id"] not in sent])]
+    related_cards = [related_card(it, len(sources) + i + 1, terms + prior_terms + expansion["terms"])
+                     for i, it in enumerate([it for it in overflow + related if it["id"] not in sent])]
     prompt = ai_config.DEFAULT_ANSWER_PROMPT
     custom = (settings.get("prompts") or {}).get("answer", "")
     if custom and '"results"' not in custom and custom not in {prompt,ai_config.LEGACY_ANSWER_PROMPT}:

@@ -449,7 +449,7 @@ def excerpts(item, terms, limit=800, window_chars=450, fallback=True):
     return [{'field':key,'text':text} for key,_,text in selected]
 
 
-def evidence(item, terms, limit, sem=None, window_chars=450, max_parts=3):
+def _evidence(item, terms, limit, sem=None, window_chars=450, max_parts=3):
     """一篇的证据片段：语义命中的 chunk 原文在前，词法窗口补足预算；两边都没有才退回开头+结尾。
 
     1001 审计 ask-7：只靠语义召回的长文（换了说法提问），词法一个词都不中，
@@ -466,6 +466,86 @@ def evidence(item, terms, limit, sem=None, window_chars=450, max_parts=3):
             continue
         out.append({'field':part['field'],'text':text});used+=len(text)
     return out or excerpts(item,terms,limit,window_chars)
+
+
+def lexical_excerpt(item, terms, limit=120):
+    best = None
+    for key, value in fields(item).items():
+        if key in {'title', 'tags', 'cats', 'author', 'summary'} or not value:
+            continue
+        text = str(value)
+        hits = [match.start() for term in terms for variant in variants(term)
+                if (match := _pattern(variant).search(norm(text)))]
+        if hits:
+            start = max(0, min(hits) - limit // 4)
+            candidate = (len(hits), {'field': key, 'text': text[start:start + limit]})
+            if best is None or candidate[0] > best[0]:
+                best = candidate
+    return best[1] if best else {'field': '', 'text': ''}
+
+
+def _content_fields(item):
+    return {key: str(value) for key, value in fields(item).items()
+            if key not in {'title', 'tags', 'cats', 'author', 'summary'} and value}
+
+
+def _field_evidence(item, key, text, terms, budget, sem, window_chars, max_parts):
+    if len(text) <= budget:
+        return [{'field': key, 'text': text}]
+    chunks = [part for part in ((sem or {}).get(item.get('id')) or {}).get('chunks', []) if part.get('field') == key]
+    scoped = {item.get('id'): {'chunks': chunks}}
+    parts = _evidence({'id': item.get('id'), 'search_fields': {key: text}}, terms, budget,
+                      scoped, window_chars, max_parts)
+    if max_parts == 1 and parts:
+        start = text.find(parts[0]['text'])
+        if start >= 0:
+            start = min(start, max(0, len(text) - budget))
+            return [{'field': key, 'text': text[start:start + budget]}]
+    return parts[:max_parts]
+
+
+def evidence(item, terms, limit, sem=None, window_chars=450, max_parts=3, deep=False):
+    legacy = _evidence(item, terms, limit, sem, window_chars, max_parts)
+    try:
+        content = _content_fields(item)
+        if deep:
+            quotas = {}
+            if 'body' in content and len(content['body']) <= 1000:
+                quotas['body'] = min(len(content['body']), limit)
+            remaining = limit - sum(quotas.values())
+            rest = {key: text for key, text in content.items() if key not in quotas}
+            total = sum(map(len, rest.values()))
+            for index, (key, text) in enumerate(rest.items()):
+                budget = min(len(text), remaining if index == len(rest) - 1 else remaining * len(text) // total)
+                quotas[key] = budget
+                remaining -= budget
+                total -= len(text)
+            parts = []
+            for key, budget in quotas.items():
+                if budget > 0:
+                    parts.extend(_field_evidence(item, key, content[key], terms, budget, sem, window_chars, 1))
+            return parts[:max_parts] or legacy
+        total = sum(map(len, content.values()))
+        required = [key for key, text in content.items() if len(text) >= total * .4
+                    and any(has(norm(text), variant) for term in terms for variant in variants(term))]
+        missing = [key for key in required if not any(part['field'] == key for part in legacy)]
+        if not missing:
+            return legacy
+        reserved = []
+        budget = min(window_chars, limit // (len(missing) + 1))
+        for key in missing:
+            reserved.extend(_field_evidence(item, key, content[key], terms, budget, sem, window_chars, 1)[:1])
+        out, remaining = [], limit
+        for part in reserved + legacy:
+            if remaining <= 0 or len(out) >= max_parts:
+                break
+            text = part['text'][:remaining]
+            if text:
+                out.append({**part, 'text': text})
+                remaining -= len(text)
+        return out or legacy
+    except Exception:
+        return legacy
 
 
 _CORPUS_CACHE = (None, "")
