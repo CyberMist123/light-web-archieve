@@ -9,7 +9,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import subprocess
 from typing import Any
 
@@ -18,10 +20,21 @@ AT = "4:00AM"  # 默认凌晨 4 点
 DAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
 
-def _norm_time(at: str | None) -> str:
-    """接受 '4:00AM' / '04:00' / '16:30' 这类，交给 PowerShell 解析，非法就回默认。"""
+_TIME_RE = re.compile(r"^(\d{1,2}):([0-5]\d)(\s?[AaPp][Mm])?$")
+
+
+def _norm_time(at: str | None) -> str | None:
+    """接受 '4:00AM' / '04:00' / '16:30' 这类；空 = 默认 4 点；格式不对返回 None（调用方如实报错，不拼进命令）。"""
     at = (at or "").strip()
-    return at or AT
+    if not at:
+        return AT
+    m = _TIME_RE.match(at)
+    if not m:
+        return None
+    hour = int(m.group(1))
+    if (m.group(3) and not 1 <= hour <= 12) or hour > 23:
+        return None
+    return at
 
 
 def _ps(cmd: str) -> tuple[bool, str]:
@@ -37,28 +50,109 @@ def _ps(cmd: str) -> tuple[bool, str]:
     return proc.returncode == 0, (err or out)
 
 
-def get_schedule() -> dict[str, Any]:
-    """读当前状态：freq(daily/weekly/unknown/none) + enabled。"""
-    ok, out = _ps(
-        f"$t=Get-ScheduledTask -TaskName '{TASK}' -ErrorAction SilentlyContinue;"
-        "if(-not $t){'none'}else{"
-        "$tr=$t.Triggers[0];$state=$t.State;"
-        "if($tr.CimClass.CimClassName -like '*Weekly*'){$f='weekly'}"
-        "elseif($tr.CimClass.CimClassName -like '*Daily*'){$f='daily'}else{$f='unknown'};"
-        "$hm='';try{$hm=([datetime]$tr.StartBoundary).ToString('HH:mm')}catch{};"
-        "$day='';try{if($tr.DaysOfWeek){$day=[string]$tr.DaysOfWeek}}catch{};"
-        f"$info=Get-ScheduledTaskInfo -TaskName '{TASK}';"
-        "\"$f|$state|$($info.LastRunTime.ToString('s'))|$($info.LastTaskResult)|$($info.NextRunTime.ToString('s'))|$hm|$day\"}"
-    )
-    if not ok:
-        return {"task": TASK, "freq": "none", "enabled": False, "error": out}
-    val = out.strip()
+# —— 触发器（第 5 批 4.4）：读**全部**触发器，认出「我们管的那一个」（第一个间隔为 1 的每日 / 每周触发器），
+#    保存时只替换它、其余触发器（一次性、登录时、别人加的）原样保留；一个都认不出时不冒充「每天」。
+_DAY_BITS = (("Sunday", 1), ("Monday", 2), ("Tuesday", 4), ("Wednesday", 8), ("Thursday", 16), ("Friday", 32),
+             ("Saturday", 64))  # MSFT_TaskWeeklyTrigger.DaysOfWeek 是位掩码
+_DAY_CN = {"Monday": "周一", "Tuesday": "周二", "Wednesday": "周三", "Thursday": "周四", "Friday": "周五",
+           "Saturday": "周六", "Sunday": "周日"}
+_KIND_CN = {"Time": "一次性", "Logon": "登录时", "Boot": "开机时", "Idle": "空闲时", "Event": "事件触发",
+            "SessionStateChange": "会话变化时", "Registration": "创建任务时"}
+
+_READ_PS = (
+    "$t=Get-ScheduledTask -TaskName '{task}' -ErrorAction SilentlyContinue;"
+    "if(-not $t){{'none'}}else{{"
+    "$info=Get-ScheduledTaskInfo -TaskName '{task}';"
+    "$tr=@($t.Triggers|Where-Object{{$_}}|ForEach-Object{{[pscustomobject]@{{cls=[string]$_.CimClass.CimClassName;"
+    "start=[string]$_.StartBoundary;enabled=[bool]$_.Enabled;"
+    "days=$(try{{[int]$_.DaysOfWeek}}catch{{0}});"
+    "interval=$(try{{if($_.DaysInterval){{[int]$_.DaysInterval}}elseif($_.WeeksInterval){{[int]$_.WeeksInterval}}else{{1}}}}catch{{1}})}}}});"
+    "[pscustomobject]@{{state=[string]$t.State;"
+    "last_run=$(if($info.LastRunTime){{$info.LastRunTime.ToString('s')}}else{{''}});"
+    "last_result=$info.LastTaskResult;"
+    "next_run=$(if($info.NextRunTime){{$info.NextRunTime.ToString('s')}}else{{''}});"
+    "triggers=$tr}}|ConvertTo-Json -Compress -Depth 4}}"
+)
+
+
+def _kind(cls: str) -> str:
+    """'MSFT_TaskDailyTrigger' → 'Daily'。"""
+    return re.sub(r"^MSFT_Task|Trigger$", "", str(cls or ""))
+
+
+def _hm(start: str) -> str:
+    m = re.search(r"T(\d{2}):(\d{2})", str(start or ""))
+    return f"{m.group(1)}:{m.group(2)}" if m else ""
+
+
+def _days(mask: Any) -> list[str]:
+    try:
+        mask = int(mask or 0)
+    except (TypeError, ValueError):
+        return []
+    days = [name for name, bit in _DAY_BITS if mask & bit]
+    return sorted(days, key=DAYS.index)
+
+
+def _managed(tr: dict[str, Any]) -> bool:
+    """我们的「每天 / 每周」那个：每日或每周、间隔 1（每 2 天 / 隔周这类界面表达不了，算自定义）。"""
+    return _kind(tr.get("cls")) in ("Daily", "Weekly") and int(tr.get("interval") or 1) == 1
+
+
+def describe_trigger(tr: dict[str, Any]) -> str:
+    """一个触发器的中文一句话（给「另有…未改动」用）。"""
+    kind, hm = _kind(tr.get("cls")), _hm(tr.get("start"))
+    n = int(tr.get("interval") or 1)
+    if kind == "Daily":
+        text = ("每天" if n == 1 else f"每 {n} 天") + (f" {hm}" if hm else "")
+    elif kind == "Weekly":
+        days = "、".join(_DAY_CN[d] for d in _days(tr.get("days"))) or "?"
+        text = ("每周" if n == 1 else f"每 {n} 周") + f" {days}" + (f" {hm}" if hm else "")
+    elif kind == "Time":
+        m = re.match(r"(\d{4}-\d{2}-\d{2})", str(tr.get("start") or ""))
+        text = "一次性" + (f" {m.group(1)}" if m else "") + (f" {hm}" if hm else "")
+    else:
+        text = _KIND_CN.get(kind) or "自定义触发器"
+    return text + ("（已停用）" if tr.get("enabled") is False else "")
+
+
+def parse_state(out: str) -> dict[str, Any]:
+    """_READ_PS 的输出 → get_schedule 的结果（纯函数，单测喂假输出）。
+
+    freq：daily / weekly = 认出了我们管的那个触发器；unknown = 有触发器但没有一个是（只显示，不冒充每天）；
+    none = 没有这个任务（或一个触发器都没有时也给 unknown + trigger_count=0，保存会新加一个）。"""
+    val = (out or "").strip()
     if val == "none":
         return {"task": TASK, "freq": "none", "enabled": False}
-    parts = (val.split("|") + [""] * 7)[:7]
-    return {"task": TASK, "freq": parts[0], "enabled": parts[1].strip() != "Disabled",
-            "last_run": parts[2], "last_result": _int(parts[3]), "next_run": parts[4],
-            "time": parts[5] or "04:00", "day": parts[6]}
+    try:
+        data = json.loads(val.splitlines()[-1] if val else "")
+    except ValueError:
+        return {"task": TASK, "freq": "none", "enabled": False, "error": f"读不懂计划任务的输出：{val[:120]}"}
+    trs = data.get("triggers") or []
+    if isinstance(trs, dict):  # 只有一个时 ConvertTo-Json 可能不包数组
+        trs = [trs]
+    trs = [t for t in trs if isinstance(t, dict)]
+    idx = next((i for i, t in enumerate(trs) if _managed(t) and t.get("enabled") is not False), None)
+    if idx is None:
+        idx = next((i for i, t in enumerate(trs) if _managed(t)), None)
+    mine = trs[idx] if idx is not None else {}
+    freq = {"Daily": "daily", "Weekly": "weekly"}.get(_kind(mine.get("cls")), "unknown")
+    days = _days(mine.get("days")) if freq == "weekly" else []
+    return {"task": TASK, "freq": freq, "enabled": str(data.get("state") or "") != "Disabled",
+            "last_run": data.get("last_run") or "", "last_result": _int(data.get("last_result")),
+            "next_run": data.get("next_run") or "",
+            "time": _hm(mine.get("start")) if mine else "", "day": ",".join(days),
+            "managed_index": idx, "trigger_count": len(trs),
+            "trigger_enabled": (mine.get("enabled") is not False) if mine else None,
+            "others": [describe_trigger(t) for i, t in enumerate(trs) if i != idx]}
+
+
+def get_schedule() -> dict[str, Any]:
+    """读当前状态：freq(daily/weekly/unknown/none) + enabled + 其余触发器的描述（others）。"""
+    ok, out = _ps(_READ_PS.format(task=TASK))
+    if not ok:
+        return {"task": TASK, "freq": "none", "enabled": False, "error": out}
+    return parse_state(out)
 
 
 def _int(v):
@@ -68,21 +162,48 @@ def _int(v):
         return None
 
 
+def build_set_ps(trig: str, index: int | None, count: int) -> str:
+    """换触发器的 PowerShell：读出全部触发器 → 核对数量和那一个的类型没变（读和写之间被别处改了就不动）→
+    只替换 index 那一个（None = 追加）→ Set-ScheduledTask 整组写回 → 启用任务。错误信息只用 ASCII 标记（控制台编码不可靠）。"""
+    guard = f"if($list.Count -ne {int(count)}){{throw 'LWA_TRIGGERS_CHANGED'}};"
+    if index is None:
+        swap = "$list+=$new;"
+    else:
+        i = int(index)
+        guard += (f"$c=[string]$list[{i}].CimClass.CimClassName;"
+                  "if($c -notlike '*DailyTrigger' -and $c -notlike '*WeeklyTrigger'){throw 'LWA_TRIGGERS_CHANGED'};")
+        swap = f"$list[{i}]=$new;"
+    return (f"$t=Get-ScheduledTask -TaskName '{TASK}' -ErrorAction Stop;$list=@($t.Triggers|Where-Object{{$_}});{guard}"
+            f"$new={trig};{swap}"
+            f"Set-ScheduledTask -TaskName '{TASK}' -Trigger $list -ErrorAction Stop | Out-Null;"
+            f"Enable-ScheduledTask -TaskName '{TASK}' -ErrorAction Stop | Out-Null;'ok'")
+
+
 def set_schedule(freq: str, at: str | None = None, day: str | None = None) -> dict[str, Any]:
-    """freq: daily / weekly / off；at: 'HH:mm' 或 '4:00AM'（可选）；day: 周几（weekly，可选）。"""
-    at = _norm_time(at)
+    """freq: daily / weekly / off；at: 'HH:mm' 或 '4:00AM'（可选）；day: 周几（weekly，可选）。
+
+    daily / weekly：只替换我们管的那个每日 / 每周触发器（没有就新加一个），其余触发器原样保留，并启用任务。
+    off：停用**整个计划任务**（设置页「关闭」= 不再自动同步；任务里别的触发器也跟着停，触发器本身不删，
+    改回每天 / 每周时原样恢复）。只停我们那一个而让别的触发器照跑，就不是「关闭」了。"""
     if freq == "off":
         ok, out = _ps(f"Disable-ScheduledTask -TaskName '{TASK}' -ErrorAction Stop")
     elif freq in ("daily", "weekly"):
+        at_ok = _norm_time(at)
+        if at_ok is None:
+            return {"ok": False, "freq": freq, "task": TASK, "error": f"时间格式不对：{at}（写成 04:00 或 22:30）"}
+        cur = get_schedule()
+        if cur.get("error"):
+            return {"ok": False, "freq": freq, "task": TASK, "error": "读不到计划任务：" + str(cur["error"])[:200]}
+        if cur.get("freq") == "none":
+            return {"ok": False, "freq": freq, "task": TASK, "error": f"找不到计划任务 {TASK}"}
         if freq == "daily":
-            trig = f"New-ScheduledTaskTrigger -Daily -At '{at}'"
+            trig = f"New-ScheduledTaskTrigger -Daily -At '{at_ok}'"
         else:
             wd = day if day in DAYS else "Monday"
-            trig = f"New-ScheduledTaskTrigger -Weekly -DaysOfWeek {wd} -At '{at}'"
-        ok, out = _ps(
-            f"Enable-ScheduledTask -TaskName '{TASK}' -ErrorAction Stop | Out-Null;"
-            f"Set-ScheduledTask -TaskName '{TASK}' -Trigger ({trig}) -ErrorAction Stop | Out-Null;'ok'"
-        )
+            trig = f"New-ScheduledTaskTrigger -Weekly -DaysOfWeek {wd} -At '{at_ok}'"
+        ok, out = _ps(build_set_ps(trig, cur.get("managed_index"), int(cur.get("trigger_count") or 0)))
+        if not ok and "LWA_TRIGGERS_CHANGED" in out:
+            out = "计划任务的触发器刚被别处改过，没动它；关掉这个窗口重开再保存"
     else:
         return {"ok": False, "freq": freq, "error": f"未知周期: {freq}（要 daily/weekly/off）"}
     if not ok and ("Access is denied" in out or "拒绝访问" in out):
@@ -99,6 +220,7 @@ def run(args) -> int:
         return EXIT_OK if result.get("ok") else EXIT_ERROR
     dump_json(get_schedule())
     return EXIT_OK
+
 
 # ==================================================================================================
 # 第 5 批：注册 / 删除跑 `python -m link_brain nightly` 的计划任务（`sync-schedule --install / --uninstall`）。

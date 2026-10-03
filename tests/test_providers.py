@@ -216,8 +216,18 @@ def test_zero_key_ingest_archives_and_marks_summary_skipped(tmp_path, monkeypatc
 # 设置页「测试」：测的就是生产那一个函数
 # --------------------------------------------------------------------------
 
-def test_selftest_unconfigured_is_skipped_not_error(capsys):
+def _fake_ocr(monkeypatch, status="ok"):
+    from link_brain import vision
+    out = {"ok": {"status": "ok", "ocr": "OCR TEST 2026\n(OCR 行数 1，均信心 0.99)", "code": "",
+                  "lines": [{"text": "OCR TEST 2026", "score": 0.99, "box": [[0, 0], [10, 0], [10, 10], [0, 10]]}]},
+           "skipped": {"status": "skipped", "ocr": None, "code": "SKIPPED.NOT_CONFIGURED", "error": "文字识别关了"},
+           "failed": {"status": "failed", "ocr": None, "code": "TRANSIENT.SERVICE_BUSY", "error": "本地 OCR 失败: boom"}}[status]
+    monkeypatch.setattr(vision, "run_ocr", lambda path, cfg=None, **kw: dict(out))
+
+
+def test_selftest_unconfigured_is_skipped_not_error(capsys, monkeypatch):
     from link_brain import cli
+    _fake_ocr(monkeypatch)
     for kind in ("text", "summary", "vision"):
         out = ask.selftest(kind)
         assert out["ok"] is False and out["skipped"] is True and out["detail"], kind
@@ -231,8 +241,24 @@ def test_selftest_text_uses_the_dropdown_model(monkeypatch):
                         {"status": "ok", "text": "ok"})
     write_data_json({"textAI": {"mode": "http", "endpoint": "https://x.invalid/v1/chat/completions", "model": "m"},
                      "models": [{"name": "Codex", "mode": "cli", "command": "codex exec -"}], "activeModel": "Codex"})
-    assert ask.selftest("text")["ok"] is True
+    out = ask.selftest("text")
+    assert out["ok"] is True and "「Codex」" in out["detail"]
     assert seen[0]["mode"] == "cli", "测的是问答页下拉选中的模型，不是只测文本 AI"
+
+
+def test_selftest_text_follows_what_the_dropdown_shows(monkeypatch):
+    # 第 5 批 4.3：activeModel 不在列表里时，问答页下拉显示（也就会发出去）的是列表第一个——测试按钮跟着它
+    seen = []
+    monkeypatch.setattr(ask, "call_text", lambda instr, text, settings: seen.append(settings["textAI"]) or
+                        {"status": "failed", "error": "接口拒绝了 key（HTTP 401）", "code": "NEEDS_HUMAN.AUTH_FAILED"})
+    write_data_json({"textAI": {"mode": "http", "endpoint": "https://x.invalid/v1/chat/completions", "model": "m"},
+                     "models": [{"name": "Other", "mode": "http", "endpoint": "https://o.invalid/v1/chat/completions",
+                                 "model": "om", "apiKey": "k"}], "activeModel": "已删掉的模型"})
+    out = ask.selftest("text")
+    assert seen[0]["endpoint"] == "https://o.invalid/v1/chat/completions" and seen[0]["model"] == "om"
+    assert out["ok"] is False and out["code"] == "NEEDS_HUMAN.AUTH_FAILED"
+    assert "「Other」（om）" in out["detail"] and "401" in out["detail"]
+    assert ask.chat_model_name({"models": []}) == "" and ask.chat_model_name({"models": [{"name": "A"}], "activeModel": "A"}) == "A"
 
 
 def test_selftest_summary_runs_the_production_call_and_schema(monkeypatch):
@@ -262,13 +288,38 @@ def test_selftest_vision_runs_layer1_understand(monkeypatch):
                                                       "finish_reason": "stop"}], "usage": {}},
                               request=httpx.Request("POST", url))
     monkeypatch.setattr(httpx, "post", post)
-    monkeypatch.setattr(visual, "available", lambda: False)
+    _fake_ocr(monkeypatch)
     out = ask.selftest("vision")
     assert out["ok"] is True and "截图文字" in out["detail"] and sent["body"]["model"] == "vl"
+    assert "本地 OCR 正常" in out["detail"] and "OCR TEST 2026" in json.dumps(sent["body"], ensure_ascii=False), \
+        "两层都测：OCR 文字和生产一样带进识图请求"
     assert sent["url"] == "https://v.invalid/v1/chat/completions"
     monkeypatch.setattr(httpx, "post", lambda url, **kw: httpx.Response(401, text="bad key", request=httpx.Request("POST", url)))
     out = ask.selftest("vision")
     assert out["ok"] is False and out["code"] == "NEEDS_HUMAN.AUTH_FAILED"
+
+
+def test_selftest_vision_without_model_says_only_ocr_was_tested(monkeypatch):
+    # 第 5 批 4.3：识图模型没配——不是只回「没配置」，而是测完本地 OCR 并如实说只测了它
+    write_data_json({"visionAI": {"mode": "off"}})
+    _fake_ocr(monkeypatch)
+    out = ask.selftest("vision")
+    assert out["ok"] is False and out["skipped"] is True
+    assert out["detail"].startswith("识图模型没配") and "只测了本地 OCR" in out["detail"] and "OCR TEST 2026" in out["detail"]
+    _fake_ocr(monkeypatch, "failed")
+    out = ask.selftest("vision")
+    assert out["ok"] is False and out["skipped"] is False and "本地 OCR 失败" in out["detail"]
+
+
+def test_selftest_vision_model_ok_but_ocr_off_is_not_reported_as_fine(monkeypatch):
+    from link_brain import visual
+    write_data_json({"visionAI": {"mode": "http", "endpoint": "https://v.invalid/v1/chat/completions",
+                                  "model": "vl", "apiKey": "k"}})
+    _fake_ocr(monkeypatch, "skipped")
+    monkeypatch.setattr(visual, "understand", lambda path, lines, cfg: {"status": "ok", "kind": "picture", "text": "一张图"})
+    out = ask.selftest("vision")
+    assert out["ok"] is False and "识图模型 vl 正常" in out["detail"] and "本地 OCR 没开" in out["detail"]
+    assert "不会跑" in out["detail"]
 
 
 # --------------------------------------------------------------------------

@@ -499,6 +499,51 @@ def _outcome(kind: str, res: dict[str, Any], detail: str = "", **extra: Any) -> 
             "detail": " ".join(str(text).split())[:200], **extra}
 
 
+def chat_model_name(settings: dict[str, Any]) -> str:
+    """问答页下拉此刻显示的模型名（和 chat-view.js fillModels 同一规则）：activeModel 在列表里就是它，否则列表第一个；没有列表 = ''。"""
+    names = [m.get("name") for m in settings.get("models") or [] if isinstance(m, dict) and m.get("name")]
+    if not names:
+        return ""
+    active = settings.get("activeModel") or ""
+    return active if active in names else names[0]
+
+
+def _selftest_vision(settings: dict[str, Any]) -> dict[str, Any]:
+    """「测试识图」（第 5 批 4.3）：生产里一张图先过本地 OCR（vision.run_ocr），有了 OCR 文字才带着它问识图模型
+    （visual.understand，vision._understand 同一个函数）。两层都测、分别说结果；识图模型没配就如实说只测了本地 OCR。"""
+    from . import providers, vision, visual
+    sample = _sample_image()
+    ocr = vision.run_ocr(sample)
+    if ocr.get("status") == "ok":
+        from .ocrtext import clean_ocr
+        got = " ".join(str(clean_ocr(ocr.get("ocr")) or "").split())[:40]
+        ocr_line = f"本地 OCR 正常（认出「{got}」）" if got else "本地 OCR 正常（这张图没认出文字）"
+    elif ocr.get("status") == "skipped":
+        ocr_line = f"本地 OCR 没开：{ocr.get('error') or '没配置'}"
+    else:
+        ocr_line = f"本地 OCR 失败：{ocr.get('error') or '原因不明'}"
+    cfg = providers.resolve("visionAI", settings)
+    if cfg is None:
+        why = providers.why_not("visionAI", settings) or "没配置"
+        if ocr.get("status") == "failed":
+            return {"kind": "vision", "ok": False, "skipped": False, "code": ocr.get("code") or "",
+                    "detail": f"{ocr_line}；识图模型没配（{why}）", "sample": sample.name}
+        return {"kind": "vision", "ok": False, "skipped": True, "code": "",
+                "detail": f"识图模型没配（{why}），只测了本地 OCR：{ocr_line}", "sample": sample.name}
+    res = visual.understand(sample, ocr.get("lines") or [], cfg)
+    model = cfg.get("model") or ""
+    if res.get("status") == "ok":
+        label = {"table": "表格", "diagram": "流程图", "text": "截图文字", "picture": "图片"}.get(res.get("kind"), res.get("kind"))
+        vis_line = f"识图模型 {model} 正常，判为「{label}」：{' '.join(str(res.get('text') or '').split())[:80]}"
+    else:
+        vis_line = f"识图模型 {model} 失败：{res.get('error') or '没有回复'}"
+    ok = res.get("status") == "ok" and ocr.get("status") == "ok"
+    note = "" if ocr.get("status") == "ok" else "（生产里本地 OCR 不通时识图这一层不会跑）"
+    code = res.get("code") if res.get("status") != "ok" else ("" if ok else ocr.get("code"))
+    return {"kind": "vision", "ok": ok, "skipped": False, "code": code or "",
+            "detail": f"{vis_line}；{ocr_line}{note}", "sample": sample.name, "model": model}
+
+
 def selftest(kind: str) -> dict[str, Any]:
     """设置页「测试」按钮的后端（CONVENTIONS §4.7）：每个能力调 providers.resolve + 和生产同一个函数，真发一次最小调用。"""
     from . import providers
@@ -514,11 +559,20 @@ def selftest(kind: str) -> dict[str, Any]:
         except Exception as exc:  # noqa: BLE001 - 测试按钮只报结果
             return {"kind": "mcp", "ok": False, "detail": f"MCP 没起来：{type(exc).__name__}"}
     if kind == "text":
-        # 问答：和 _answer 同一条路——问答页下拉选中的模型（activeModel）叠在文本 AI 上，再走 text_stream.call
-        chosen = ai_config.with_model(settings, "")
+        # 问答：和 _answer 同一条路——问答页下拉此刻显示的那个模型（chat-view.js：activeModel 在列表里就用它，
+        # 不在就用列表第一个）叠在文本 AI 上，再走 text_stream.call。结果里说清测的是哪个（第 5 批 4.3）。
+        name = chat_model_name(settings)
+        chosen = ai_config.with_model(settings, name)
         res = call_text("只回复两个字：ok", "连通测试", chosen)
         cfg = chosen.get("textAI") or {}
-        return _outcome("text", res, mode=cfg.get("mode"), model=settings.get("activeModel") or cfg.get("model") or "")
+        which = (f"问答页选的「{name}」" if name else "文本 AI") + (
+            f"（{cfg.get('model')}）" if cfg.get("mode") == "http" and cfg.get("model") else
+            "（本机命令行）" if cfg.get("mode") == "cli" else "")
+        if res.get("status") == "ok":
+            detail = f"{which}能用，回复：{' '.join(str(res.get('text') or '').split())[:60]}"
+        else:
+            detail = f"{which}：{res.get('error') or res.get('text') or '没有回复'}"
+        return _outcome("text", res, detail, mode=cfg.get("mode"), model=name or cfg.get("model") or "")
     if kind == "summary":
         # 归档摘要：和 llm.extract 同一个调用 + 同一套 JSON 校验
         cfg = providers.resolve("summaryAI", settings)
@@ -536,17 +590,7 @@ def selftest(kind: str) -> dict[str, Any]:
                         "detail": f"接口通了，但回的不是要求的 JSON：{exc}"}
         return _outcome("summary", res, model=(cfg or {}).get("model", ""))
     if kind == "vision":
-        # 识图：和 vision._understand 同一个 visual.understand（第一层），带本地 OCR 文字一起问
-        from . import visual
-        cfg = providers.resolve("visionAI", settings)
-        if cfg is None:
-            return _outcome("vision", providers.skipped_for("visionAI", settings))
-        sample = _sample_image()
-        lines = (visual.local_ocr(sample).get("lines") or []) if visual.available() else []
-        res = visual.understand(sample, lines, cfg)
-        label = {"table": "表格", "diagram": "流程图", "text": "截图文字", "picture": "图片"}.get(res.get("kind"), res.get("kind"))
-        detail = f"判为「{label}」：{res.get('text')}" if res.get("status") == "ok" else ""
-        return _outcome("vision", res, detail, sample=sample.name, model=cfg.get("model"))
+        return _selftest_vision(settings)
     if kind == "ocr":
         from . import vision
         sample = _sample_image()

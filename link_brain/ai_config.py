@@ -95,7 +95,7 @@ DEFAULTS: dict[str, Any] = {
     "hiddenCats": [],
     "downloads": {"folder": str(Path.home() / "Downloads"), "waitMinutes": 5},
     # 收藏同步选项（0926 Owner）：评论楼层 all/10/20/50（0929 Owner：默认 10 楼，楼中楼照展开、评论图/语音照存；all 要滚全评论区，评论多的会超读取服务 10 分钟上限）；
-    # dailyNewLimit = 每天最多新抓几篇（防风控，第一次补历史收藏分几天完成；1001 Owner：一天 50 篇）。
+    # dailyNewLimit = 每天最多新抓几篇（防风控，第一次补历史收藏分几天完成；1001 Owner：一天 50 篇）；0 = 不限，空 = 50（第 5 批 4.1，见 daily_new_limit）。
     "sync": {"autoAfterLogin": True, "downloadImages": True, "downloadVideo": True,
              "commentFloors": 10, "dailyNewLimit": 50},
 }
@@ -122,16 +122,29 @@ def with_model(settings: dict[str, Any], name: str = '') -> dict[str, Any]:
     return {**settings, 'textAI': {**base, **keep}}
 
 
+def daily_new_limit(value: Any) -> int:
+    """每天最多新抓（第 5 批 4.1，插件 main.js dailyNewLimitOf 同一规则）：0 = 不限；空 / 不是数 / 负数 = 默认 50。"""
+    default = DEFAULTS["sync"]["dailyNewLimit"]
+    if value is None or (isinstance(value, str) and not value.strip()) or isinstance(value, bool):
+        return default
+    try:
+        n = int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+    return n if n >= 0 else default
+
+
 def sync_options() -> dict[str, Any]:
     opts = load().get("sync") or {}
+    limit = daily_new_limit(opts.get("dailyNewLimit"))
     floors = opts.get("commentFloors", 10)
     if floors == "all":
-        return {**DEFAULTS["sync"], **opts, "commentFloors": "all"}
+        return {**DEFAULTS["sync"], **opts, "commentFloors": "all", "dailyNewLimit": limit}
     try:
         floors = int(floors)
     except (TypeError, ValueError):
         floors = 10
-    return {**DEFAULTS["sync"], **opts, "commentFloors": max(10, min(floors, 50))}
+    return {**DEFAULTS["sync"], **opts, "commentFloors": max(10, min(floors, 50)), "dailyNewLimit": limit}
 
 
 def data_json_path() -> Path:

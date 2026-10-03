@@ -152,6 +152,14 @@ def test_note_failing_three_nights_is_skipped_for_a_week(env, capsys):
     assert bad not in env.fetched and out["skipped_failing"] == 1
 
 
+def test_daily_limit_zero_is_unlimited_and_blank_falls_back_to_50():
+    # 第 5 批 4.1：0 = 不限；空 / 乱填 / 负数 = 默认 50（以前 `or 0` 让清空变成不限）
+    from link_brain import ai_config
+    f = ai_config.daily_new_limit
+    assert [f(None), f(""), f("  "), f("abc"), f(-3), f(True)] == [50] * 6
+    assert [f(0), f("0"), f(30), f("120")] == [0, 0, 30, 120]
+
+
 def test_daily_limit_defaults_to_50_and_is_shared_with_the_plugin(env, capsys):
     from datetime import date
     from link_brain import ai_config

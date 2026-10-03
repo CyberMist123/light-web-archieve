@@ -152,7 +152,7 @@ const REMOVED = ['搜索收藏'];   // 唯一删掉的一行：目录页本来�
   assert.ok(root.querySelector('.lb-other-ai-body').classList.contains('is-collapsed'), '「其他 AI 能力」默认收起');
   const row = n => rowsOf(root).find(r => nameOf(r) === n);
   assert.match(row('文本 AI').querySelector('.setting-item-description').textContent, /^问收藏页的回答用它。没配时问答用不了；归档、浏览、关键词搜索不受影响。/);
-  assert.equal(row('每天最多新抓').querySelector('.setting-item-description').textContent, '防风控；第一次补历史收藏会分几天完成。');
+  assert.equal(row('每天最多新抓').querySelector('.setting-item-description').textContent, '防风控；第一次补历史收藏会分几天完成。默认 50，清空就回到 50；填 0 = 不限（一次抓太多容易触发风控）。');
   assert.deepEqual(row('收藏同步').querySelectorAll('button').map(b => b.textContent), ['定时…', '立即同步'], '定时… / 立即同步 照旧');
   assert.ok(!rowsOf(root).some(r => nameOf(r) === '搜索收藏'), '「搜索收藏 · 打开目录」删掉了');
 
@@ -234,5 +234,65 @@ const REMOVED = ['搜索收藏'];   // 唯一删掉的一行：目录页本来�
   assert.match(await syncDesc({ '_archive/problems-summary.json': JSON.stringify({ sync: { state: 'running', message: '正在同步收藏', last_success: new Date().toISOString(), new: 1 } }) }),
     /^正在同步收藏 · 上次：今天 \d\d:\d\d · 新增 1 篇$/, '同步中 / 失败时状态放在前面');
 
-  console.log('PASS settings layout: first layer 10 rows, 更多 + 其他 AI 能力 collapsed by default and remembered per session, nothing lost vs pre-change inventory, AI summary live, sync line from summary');
+  // —— 6. 第 5 批 4.5：设置页开着时监听两份同步文件，变了重画那一行；hide() / 重画整页时注销 ——
+  {
+    const e = makePlugin({}, { '_archive/sync-status.json': JSON.stringify({ state: 'ready', message: '收藏同步完成', updated_at: '2026-10-02T04:20:00' }) });
+    const handlers = []; let offs = 0;
+    e.p.app.vault.on = (ev, cb) => { const ref = { ev, cb, live: true }; handlers.push(ref); return ref; };
+    e.p.app.vault.offref = ref => { ref.live = false; offs++; };
+    const t = openTab(e.p); await flush(); await flush();
+    const desc = () => rowsOf(t.containerEl).find(x => nameOf(x) === '收藏同步').querySelector('.setting-item-description').textContent;
+    assert.match(desc(), /^收藏同步完成/);
+    assert.deepEqual(handlers.map(h => h.ev), ['modify', 'create'], '监听 modify + create');
+    // 同步开始：sync-status.json 改成 running，带后端阶段和（若有）完成数 / 剩余
+    e.files['_archive/sync-status.json'] = JSON.stringify({ state: 'running', message: '正在同步收藏：《a》查附件 / 下附件中', updated_at: new Date().toISOString(), done: 3, total: 10 });
+    handlers.filter(h => h.live).forEach(h => h.cb({ path: 'other.md' }));
+    await new Promise(r => setTimeout(r, 350)); await flush();
+    assert.match(desc(), /^收藏同步完成/, '别的文件变了不重画');
+    handlers.filter(h => h.live && h.ev === 'modify').forEach(h => h.cb({ path: '_archive/sync-status.json' }));
+    await new Promise(r => setTimeout(r, 350)); await flush(); await flush();
+    assert.equal(desc(), '正在同步收藏：《a》查附件 / 下附件中 · 已完成 3/10 篇 · 剩 7 篇');
+    // 重画整页：旧监听注销，新的接上（不会越开越多）
+    t.display(); await flush();
+    assert.equal(offs, 2); assert.equal(handlers.filter(h => h.live).length, 2);
+    t.hide();
+    assert.equal(offs, 4, '关设置页注销'); assert.equal(handlers.filter(h => h.live).length, 0);
+    // 没完成数就只显示阶段，不编数字
+    assert.equal(Plugin.syncStateHead({ state: 'running', message: '正在同步收藏：抓取中' }), '正在同步收藏：抓取中');
+    assert.equal(Plugin.syncStateHead({ state: 'running', message: 'x', remaining: 4 }), 'x · 剩 4 篇');
+    assert.equal(Plugin.syncStateHead({ state: 'ready', message: '收藏同步完成' }), '');
+  }
+
+  // —— 7. 第 5 批 4.1：每天最多新抓——默认 50，清空回 50，0 = 不限 ——
+  {
+    const f = Plugin.dailyNewLimitOf;
+    assert.deepEqual([f(''), f('  '), f(null), f(undefined), f('abc'), f('-3'), f('2.5')], [50, 50, 50, 50, 50, 50, 50]);
+    assert.deepEqual([f('0'), f(0), f('30'), f(200)], [0, 0, 30, 200]);
+    assert.equal(Plugin.__merge({}).sync.dailyNewLimit, 50, '新装默认 50（和 ai_config.py 一致）');
+    const e = makePlugin({}); const t = openTab(e.p);
+    const input = rowsOf(t.containerEl).find(x => nameOf(x) === '每天最多新抓').querySelector('input');
+    assert.equal(input.value, '50');
+    input.value = ''; await input.oninput(); assert.equal(e.p.settings.sync.dailyNewLimit, 50, '清空回落 50');
+    input.value = '0'; await input.oninput(); assert.equal(e.p.settings.sync.dailyNewLimit, 0, '0 = 不限，照存');
+    input.value = '120'; await input.oninput(); assert.equal(e.p.settings.sync.dailyNewLimit, 120);
+    expandAll(t);
+    const floors = rowsOf(t.containerEl).find(x => nameOf(x) === '评论 · 自动拉取');
+    assert.match(floors.querySelector('.setting-item-description').textContent, /默认前 10 楼/);
+    assert.ok(!/默认全部/.test(floors.querySelector('.setting-item-description').textContent), '说明和下拉的默认一致');
+  }
+
+  // —— 8. 第 5 批 4.4：同步计划「当前：…」——认不出的不冒充每天，别的触发器列出来 ——
+  {
+    const st = Plugin.scheduleStatusText;
+    assert.equal(st({ freq: 'daily', enabled: true, time: '04:00', others: ['一次性 2026-10-02 00:00'], next_run: '2026-10-03T04:00:00' }),
+      '当前：每天 04:00　·　另有：一次性 2026-10-02 00:00（不改动）　·　下次 2026-10-03 04:00:00');
+    assert.equal(st({ freq: 'unknown', enabled: true, time: '', others: ['一次性 2026-10-02 00:00', '登录时'] }),
+      '当前：自定义触发器（一次性 2026-10-02 00:00、登录时），未改动');
+    assert.equal(st({ freq: 'weekly', enabled: true, time: '22:30', day: 'Monday,Thursday', others: [] }), '当前：每周周一、周四 22:30');
+    assert.equal(st({ freq: 'daily', enabled: false, time: '04:00', others: [], next_run: '2026-10-03T04:00:00' }), '当前：已关闭（整个计划任务停用，原来是每天 04:00）');
+    assert.equal(st({ freq: 'none' }), '当前：没有计划任务');
+    assert.match(st({ error: '拒绝访问' }), /读不到计划任务（拒绝访问）/);
+  }
+
+  console.log('PASS settings layout: first layer 10 rows, 更多 + 其他 AI 能力 collapsed by default and remembered per session, nothing lost vs pre-change inventory, AI summary live, sync line from summary; batch5: sync row live-watched + unhooked on hide, daily limit 50/0=unlimited, schedule status honest');
 })().catch(e => { console.error(e); process.exitCode = 1; });

@@ -1,5 +1,13 @@
 # Current State
 
+## 2026-10-03 第 5 批（A 设置一致）：每日上限默认 / 测试按钮测实际执行器 / 定时触发器只改自己那个 / 设置页同步状态实时刷新（分支 batch5-delivery）
+
+- 4.1 每天最多新抓：插件 `DEFAULT_SETTINGS` 200 → 50，和 `ai_config.DEFAULTS` 一致；规则一份两写（`ai_config.daily_new_limit` / main.js `dailyNewLimitOf`）：**0 = 不限**，空 / 乱填 / 负数 = 50。`favorites._Quota` 不再 `or 0`（以前清空 = 不限）。设置页说明写明 0 的含义；评论楼层说明改成「默认前 10 楼」（和下拉、ai_config 一致）。
+- 4.3 测试按钮：「测试文本 AI」按问答页下拉**此刻显示**的模型测（`ask.chat_model_name`：activeModel 在列表里就是它，否则列表第一个——和 chat-view.js 同规则），结果写明测的是哪个；「测试识图」先跑本地 OCR（`vision.run_ocr`）再带着 OCR 文字问识图模型（`visual.understand`），两层分别报；识图模型没配 = 「识图模型没配（原因），只测了本地 OCR：…」（skipped，不算失败）；识图通但 OCR 关 / 失败不报正常（生产里没 OCR 文字识图那层不跑）。
+- 4.4 定时（`sync_schedule.get_schedule / set_schedule`）：读全部触发器（JSON），认第一个间隔为 1 的每日 / 每周触发器（启用的优先）；保存只替换它（没有就追加），其余原样写回，写前核对触发器个数和那一个的类型，被别处改过就不动；每周的 DaysOfWeek 按位掩码解（旧代码会拿到数字）；认不出的显示「自定义触发器（…），未改动」、下拉默认「不改动」；时间格式不对直接报错，不拼进 PowerShell。「关闭」照旧 = 停用**整个任务**（关闭 = 不再自动同步；别的触发器也停但不删，改回每天 / 每周恢复），弹窗说明写明。单测全用假 PowerShell 输出（`tests/test_sync_schedule.py`）；读脚本在本机三个真任务上只读跑过、写脚本只做了语法解析，**没在真计划任务上执行过写**。
+- 4.5 设置页（和账号弹窗）的「收藏同步」行：开着时监听 `_archive/sync-status.json` / `problems-summary.json`（vault modify / create，300ms 合并），关设置页（`hide()`）/ 关弹窗 / 整页重画时注销；同步中显示后端写的阶段（message），状态里有 `done / total / remaining` 才显示完成数 / 剩余——**后端现在没写这几个数**，所以眼下只有阶段文字。
+- 测试：pytest 765 过；`npm test` 17 过 0 败 4 跳（playwright 没装）。`test_settings_layout.cjs` 加了 6–8 节，「一项不少」照过。
+
 ## 2026-10-03 第 5 批（B1 打包 Python 侧）：夜跑进包 + 自己注册计划任务 + 收藏库位置解耦 + 读取组件下载（分支 batch5-delivery，插件侧接线另派）
 
 - `python -m link_brain nightly`（`link_brain/nightly.py`）：仓外夜跑脚本第 4 批改好稿的逻辑搬进包。步骤表 `nightly.STEPS`（11 步，限时 / 碰号 / 预留照旧脚本）、总预算 405 分钟、同步 exit 1 等 25 分钟重试一次、碰号步骤 exit 5 后跳过、exit 6 登记 ACCOUNT_BUSY、上一晚没走完登记 INTERRUPTED、同步占号卡住登记 SYNC_STUCK、每步失败登记 / 成功 resolve（`nightly.<步骤>`，slug 和旧脚本一致，问题记录接得上）、附件闸门缺附件退出 2。超时走 `procs.kill_tree`（放过 link-brain-reader 及其浏览器 + xiaohongshu-mcp / xiaohongshu-login；`LINK_BRAIN_KILL_EXCLUDE` 追加）。日志 `~/.link-brain/nightly.log` 边跑边写，>10 MB 转存。精细识图免费 key：环境变量 → `~/.link-brain/config.json` 的 `gemini_keys_cmd`（限时 60 秒、输出不进日志）/ `gemini_keys_file`，只注入那一步；取 key 失败记在 `nightly.gemini-keys`。报警不直调，全走 problems。另一趟夜跑在跑 → 退出 6（文件锁 `nightly`）。`--dry-run` 只打印计划。

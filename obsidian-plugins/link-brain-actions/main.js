@@ -42,9 +42,17 @@ const DEFAULT_SETTINGS = {
   hiddenCats: [],
   downloads: {folder: path.join(require("os").homedir(), "Downloads"), waitMinutes: 5},
   nickname: "ler",   // 批注署名（Owner 2026-09-17）
-  // 收藏同步（0926）：自动拉取评论楼层 10/20/50；全部楼层只在单篇上手动拉取。和 link_brain/ai_config.py 对齐。
-  sync: { autoAfterLogin: true, downloadImages: true, downloadVideo: true, commentFloors: 10, dailyNewLimit: 200 },
+  // 收藏同步（0926）：自动拉取评论楼层 10/20/50/all（默认 10）。dailyNewLimit 默认 50、0 = 不限（第 5 批 4.1）。和 link_brain/ai_config.py 对齐。
+  sync: { autoAfterLogin: true, downloadImages: true, downloadVideo: true, commentFloors: 10, dailyNewLimit: 50 },
 };
+
+// 每天最多新抓（第 5 批 4.1，和 ai_config.daily_new_limit 同一规则）：0 = 不限；空 / 不是数 / 负数 = 默认 50。
+function dailyNewLimitOf(v) {
+  const def = DEFAULT_SETTINGS.sync.dailyNewLimit;
+  if (v === null || v === undefined || typeof v === "boolean" || String(v).trim() === "") return def;
+  const n = Number(String(v).trim());
+  return Number.isInteger(n) && n >= 0 ? n : def;
+}
 
 function mergeSettings(saved) {
   const out = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
@@ -246,6 +254,37 @@ function syncSummaryLine(sum, now = Date.now()) {
   const when = shortWhen(ss.last_success, now), added = num(ss.new), left = num(ss.deferred);
   return [when && `上次：${when}`, added != null && `新增 ${added} 篇`, left != null && `还剩 ${left} 篇`].filter(Boolean).join(" · ");
 }
+// 设置页同步那一行的前缀（第 5 批 4.5）：同步中 = 后端写的阶段（message / progress）+ 完成数 / 剩余数（状态里有这几个数才显示，
+// 不从文字里猜）；失败 / 要人处理 = 登记表的状态字或原因；其余不加前缀。
+function syncStateHead(st) {
+  if (!st || !['running', 'failed', 'blocked'].includes(st.state)) return '';
+  const head = st.label || st.message || (st.state === 'running' ? '正在同步…' : '');
+  if (st.state !== 'running') return head;
+  const num = v => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+  const done = num(st.done), total = num(st.total);
+  const left = num(st.remaining) ?? (done != null && total != null ? Math.max(0, total - done) : null);
+  return [head, done != null && `已完成 ${done}${total != null ? '/' + total : ''} 篇`, left != null && `剩 ${left} 篇`].filter(Boolean).join(' · ');
+}
+// 同步计划弹窗的「当前：…」（第 5 批 4.4）：cur = `sync-schedule` 的 JSON。认不出的触发器如实说「自定义」，不冒充每天；
+// 我们管的那个之外的触发器列在后面「另有：… （不改动）」。
+function scheduleStatusText(cur) {
+  cur = cur || {};
+  if (cur.error) return "当前：读不到计划任务（" + cur.error + "）";
+  if (cur.freq === "none") return "当前：没有计划任务";
+  const dayCN = { Monday: "周一", Tuesday: "周二", Wednesday: "周三", Thursday: "周四", Friday: "周五", Saturday: "周六", Sunday: "周日" };
+  const others = Array.isArray(cur.others) ? cur.others.filter(Boolean) : [];
+  const mine = cur.freq === "daily" ? "每天 " + (cur.time || "")
+    : cur.freq === "weekly" ? "每周" + String(cur.day || "").split(",").map(d => dayCN[d.trim()] || "").filter(Boolean).join("、") + " " + (cur.time || "")
+    : "";
+  let head;
+  if (cur.enabled === false) head = "已关闭（整个计划任务停用" + (mine ? "，原来是" + mine.trim() : "") + "）";
+  else if (cur.trigger_enabled === false) head = "已关闭（" + mine.trim() + " 这个触发器停用）";
+  else if (mine) head = mine.trim();
+  else head = others.length ? "自定义触发器（" + others.join("、") + "），未改动" : "没有定时触发器";
+  const extra = mine && others.length ? "　·　另有：" + others.join("、") + "（不改动）" : "";
+  const next = cur.enabled !== false && cur.next_run ? "　·　下次 " + String(cur.next_run).replace("T", " ") : "";
+  return "当前：" + head + extra + next;
+}
 // 设置页「其他 AI 能力」那一行的摘要：按当前设置生成（归档摘要 / 识图 / 语音识别）
 function otherAISummary(s) {
   const legacy = "旧版配置（已自动换算）";
@@ -281,23 +320,26 @@ class SyncSettingsModal extends Modal {
 
     let cur = {};
     try { cur = await this.plugin.getSyncSchedule(); } catch (e) { cur = { error: e.message }; }
-    this.freq = cur.enabled === false ? "off" : (cur.freq === "weekly" ? "weekly" : (cur.freq === "daily" ? "daily" : "daily"));
+    // 第 5 批 4.4：Python 读全部触发器，认出每天 / 每周那一个（freq）；认不出的是 unknown——不冒充「每天」，
+    // 下拉默认「不改动」，选了每天 / 每周才新加一个，原来的触发器保留。「关闭」= 停用整个计划任务。
+    const off = cur.enabled === false || cur.trigger_enabled === false;
+    this.freq = off ? "off" : (cur.freq === "weekly" || cur.freq === "daily" ? cur.freq : "keep");
     this.time = cur.time || "04:00";
     this.day = (cur.day || "Monday").split(",")[0].trim() || "Monday";
-    if (cur.error) status.setText("当前：读不到计划任务（" + cur.error + "）");
-    else if (cur.freq === "none") status.setText("当前：没有计划任务");
-    else status.setText("当前：" + (this.freq === "off" ? "已关闭" : ((this.freq === "weekly" ? "每周 " : "每天 ") + this.time)) + (cur.next_run ? "　·　下次 " + String(cur.next_run).replace("T", " ") : ""));
+    status.setText(scheduleStatusText(cur));
 
     const daySetting = { el: null };
     const timeSetting = { el: null };
     const sync = () => {
-      if (timeSetting.el) timeSetting.el.style.display = this.freq === "off" ? "none" : "";
+      if (timeSetting.el) timeSetting.el.style.display = this.freq === "off" || this.freq === "keep" ? "none" : "";
       if (daySetting.el) daySetting.el.style.display = this.freq === "weekly" ? "" : "none";
     };
-    new Setting(el).setName("定时").setDesc("自动同步的频率").addDropdown(d => {
-      d.addOption("daily", "每天").addOption("weekly", "每周").addOption("off", "关闭");
-      d.setValue(this.freq).onChange(v => { this.freq = v; sync(); });
-    });
+    new Setting(el).setName("定时").setDesc("自动同步的频率。关闭 = 停用整个计划任务（任务里别的触发器也停，但都不删，改回每天 / 每周就恢复）。")
+      .addDropdown(d => {
+        if (this.freq === "keep") d.addOption("keep", "不改动（自定义触发器）");
+        d.addOption("daily", "每天").addOption("weekly", "每周").addOption("off", "关闭");
+        d.setValue(this.freq).onChange(v => { this.freq = v; sync(); });
+      });
     const ts = new Setting(el).setName("时间").setDesc("24 小时制，如 04:00 / 22:30")
       .addText(t => t.setPlaceholder("04:00").setValue(this.time).onChange(v => this.time = v.trim()));
     timeSetting.el = ts.settingEl;
@@ -309,6 +351,7 @@ class SyncSettingsModal extends Modal {
     sync();
 
     new Setting(el).addButton(b => b.setButtonText("保存").setCta().onClick(async () => {
+      if (this.freq === "keep") { new Notice("没改动：计划任务保持原样"); this.close(); return; }
       b.setDisabled(true);
       try {
         const r = await this.plugin.setSyncSchedule(this.freq, this.freq === "off" ? null : this.time, this.freq === "weekly" ? this.day : null);
@@ -559,7 +602,8 @@ class LinkBrainActions extends Plugin {
       const c = modal.contentEl;
       c.createEl('h2', {text: '账号与同步'});
       this.renderAccounts(c);
-      this.renderSyncRow(c);
+      const stopSync = this.renderSyncRow(c);
+      modal.onClose = () => { stopSync(); c.empty(); };
     };
     modal.open();
   }
@@ -597,19 +641,23 @@ class LinkBrainActions extends Plugin {
     return this.registryCache;
   }
 
+  // 第 5 批 4.5：设置页 / 账号弹窗开着时监听 sync-status.json 和 problems-summary.json（照目录页 catalog-view.js 的写法），
+  // 一变就重画这一行；返回注销函数，关设置页 / 关弹窗 / 重画整页时调它。同步中显示后端写的阶段，有完成数 / 剩余数才显示。
   renderSyncRow(c) {
     const row = new Setting(c).setName('收藏同步').setDesc('读取上次同步结果…');
+    let alive = true, timer = null, refs = [];
     const paint = async () => {
       const { raw, sum } = await this.readSyncFiles();
+      if (!alive) return;
       const st = mergeSyncStatus(raw, sum);
       // 设置页收纳：有 summary 的「上次 / 新增 / 还剩」就用它；同步中 / 失败 / 要人处理时把状态放在前面
       const line = syncSummaryLine(sum);
       if (line) {
-        const head = st && ['running', 'failed', 'blocked'].includes(st.state) ? (st.label || st.message || '') : '';
-        row.setDesc([head, line].filter(Boolean).join(' · '));
+        row.setDesc([syncStateHead(st), line].filter(Boolean).join(' · '));
         return;
       }
       if (!st) { row.setDesc('还没有同步过。登录后点「立即同步」，或点「定时…」开启自动同步。'); return; }
+      if (st.state === 'running') { row.setDesc(syncStateHead(st)); return; }
       const when = st.updated_at ? new Date(st.updated_at).toLocaleString() : '';
       row.setDesc([st.message, when, st.state === 'ready' && st.synced != null ? `本次 ${st.synced} 条` : ''].filter(Boolean).join(' · '));
     };
@@ -618,9 +666,21 @@ class LinkBrainActions extends Plugin {
       if (this.running) { new Notice(`正在${this.running}，完成后再同步。`); return; }
       b.setDisabled(true); row.setDesc('正在同步收藏…（可以关掉这个窗口，完成后目录页会更新）');
       try { await this.syncNow(); } catch (e) { new Notice(e.message, 10000); }
-      finally { b.setDisabled(false); await paint(); }
+      finally { b.setDisabled(false); if (alive) await paint(); }
     }));
     paint();
+    const vault = this.app.vault;
+    if (vault && typeof vault.on === 'function') {
+      const watched = new Set([this.lbPath('_archive/sync-status.json'), this.lbPath('_archive/problems-summary.json')]);
+      // 同步时两份文件常常前后脚写：攒 300ms 只重画一次
+      const onFile = f => { if (!alive || !watched.has(f?.path)) return; clearTimeout(timer); timer = setTimeout(() => { if (alive) paint(); }, 300); };
+      refs = ['modify', 'create'].map(ev => vault.on(ev, onFile));
+    }
+    return () => {
+      alive = false; clearTimeout(timer);
+      for (const r of refs) { try { vault.offref(r); } catch (e) { console.error('[lb] 同步状态监听没注销上', e); } }
+      refs = [];
+    };
   }
 
   // ── 账号（0926 Owner：一行一个平台「小红书 · 用户名 · ✓ 已登录」，无框、无说明小字；每种状态配一个操作；
@@ -720,7 +780,8 @@ class LinkBrainActions extends Plugin {
     if (platform.id !== 'xhs' || !this.settings.sync?.autoAfterLogin) return;
     const st = await this.readSyncStatus();
     if (st?.last_success) return;
-    new Notice('开始同步收藏：已在库里的会跳过，第一次每天最多新抓 ' + (this.settings.sync.dailyNewLimit || 200) + ' 篇。', 10000);
+    const limit = dailyNewLimitOf(this.settings.sync.dailyNewLimit);
+    new Notice('开始同步收藏：已在库里的会跳过，' + (limit ? '每天最多新抓 ' + limit + ' 篇。' : '每天新抓不限量（设置里填了 0）。'), 10000);
     this.syncNow();
   }
 
@@ -1319,6 +1380,11 @@ class LinkBrainSettingTab extends PluginSettingTab {
     draw(); modal.open();
   }
 
+  hide() {
+    this.stopSyncRow?.(); this.stopSyncRow = null;
+    if (typeof super.hide === 'function') super.hide();
+  }
+
   display() {
     const { containerEl: c } = this;
     c.empty();
@@ -1333,10 +1399,12 @@ class LinkBrainSettingTab extends PluginSettingTab {
     this.plugin.renderAccounts(c);
 
     c.createEl('h3', { text: '收藏同步' });
-    this.plugin.renderSyncRow(c);
+    this.stopSyncRow?.();
+    this.stopSyncRow = this.plugin.renderSyncRow(c);   // 第 5 批 4.5：监听同步状态文件，hide() 时注销
     const so = s.sync;
-    new Setting(c).setName('每天最多新抓').setDesc('防风控；第一次补历史收藏会分几天完成。')
-      .addText(t => t.setValue(String(so.dailyNewLimit)).onChange(async v => { so.dailyNewLimit = Math.max(10, parseInt(v) || 200); await save(); }))
+    new Setting(c).setName('每天最多新抓').setDesc('防风控；第一次补历史收藏会分几天完成。默认 50，清空就回到 50；填 0 = 不限（一次抓太多容易触发风控）。')
+      .addText(t => t.setPlaceholder('50').setValue(String(dailyNewLimitOf(so.dailyNewLimit)))
+        .onChange(async v => { so.dailyNewLimit = dailyNewLimitOf(v); await save(); }))
       .then(st => st.controlEl.createSpan({ cls: 'setting-item-description', text: ' 篇' }));
 
     // —— AI（第 1B 批：每个能力一块，块下只有一个「测试」按钮，测的就是生产用的那个函数）——
@@ -1440,7 +1508,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
       .addToggle(t => t.setValue(so.downloadImages).onChange(async v => { so.downloadImages = v; await save(); }));
     new Setting(a).setName('下载视频')
       .addToggle(t => t.setValue(so.downloadVideo).onChange(async v => { so.downloadVideo = v; await save(); }));
-    new Setting(a).setName('评论 · 自动拉取').setDesc('导入 / 同步新收藏时抓的评论（含楼中楼、评论图片和语音）。默认全部；热门笔记会慢几分钟。')
+    new Setting(a).setName('评论 · 自动拉取').setDesc('导入 / 同步新收藏时抓的评论（楼中楼照样展开，评论图片和语音照样存）。默认前 10 楼；选「全部」时热门笔记会慢几分钟。')
       .addDropdown(d => d.addOption('10', '前 10 楼（默认）').addOption('all', '全部').addOption('20', '前 20 楼').addOption('50', '前 50 楼')
         .setValue(String(so.commentFloors)).onChange(async v => { so.commentFloors = v === 'all' ? 'all' : parseInt(v); await save(); }));
     new Setting(a).setName('评论 · 手动拉取').setDesc('超过 50 楼或需要全部评论时：打开那篇笔记，命令面板运行「抓这篇的全部评论」。')
@@ -1583,7 +1651,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
       try {
         const { json, err } = await this.plugin.runPy(args, { label, fallback: "未知错误" });
         const r = json || {};
-        if (r.ok) new Notice("正常：" + (r.detail || "").slice(0, 80), 8000);
+        if (r.ok) new Notice("正常：" + (r.detail || "").slice(0, 200), 8000);
         else if (r.skipped) new Notice("未开启：" + (r.detail || "没配置"), 10000);
         else new Notice("失败：" + (r.detail || stderrTail(err, 1) || "未知错误"), 10000);
       } catch (e) { new Notice((e.result && !e.timedOut ? "接口失败：" : "测试出错：") + e.message, 10000); }
@@ -1598,3 +1666,6 @@ module.exports.mergeSyncStatus = mergeSyncStatus;   // 给 node 单测（第 4 �
 module.exports.registryEntry = registryEntry;
 module.exports.syncSummaryLine = syncSummaryLine;   // 给 node 单测（设置页收纳）
 module.exports.otherAISummary = otherAISummary;
+module.exports.dailyNewLimitOf = dailyNewLimitOf;   // 给 node 单测（第 5 批 4.1）
+module.exports.scheduleStatusText = scheduleStatusText;
+module.exports.syncStateHead = syncStateHead;   // 给 node 单测（第 5 批 4.4）

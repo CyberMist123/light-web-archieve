@@ -15,7 +15,7 @@
 - 只有「抓取阶段」用号：新收藏抓原文 + 本地渲染（不调模型、不识图），标成待 enrich；
   每次联网抓取后（成功失败都算）随机歇 60–180 秒；连续 3 篇抓取失败就停批（退出 1）并报警；
 - 已在库的收藏不再重渲染（只有可见 md 丢了才本地补一份）；
-- 每天新抓上限读插件 data.json 的 sync.dailyNewLimit（缺省 50），插件和夜跑共用；
+- 每天新抓上限读插件 data.json 的 sync.dailyNewLimit（缺省 50，0 = 不限），插件和夜跑共用；
 - `--budget-min N` 到点优雅收尾；`--extract` = 抓完后对本次新收的跑 enrich（不碰号、受剩余预算约束）；
 - 收藏读回 0 条或比上次少一半以上：照常处理读到的，但状态标失败并报警。
 """
@@ -392,7 +392,8 @@ class _Quota:
         from datetime import date
         from .ai_config import sync_options
         from . import storage
-        self.limit = int(sync_options().get("dailyNewLimit") or 0)
+        # 第 5 批 4.1：sync_options 已规整——0 = 不限，空 / 乱填 = 默认 50（以前 `or 0` 让空值变成不限）
+        self.limit = int(sync_options()["dailyNewLimit"])
         self.path = storage.archive_root() / "sync-quota.json"
         self.today = date.today().isoformat()
         try:
