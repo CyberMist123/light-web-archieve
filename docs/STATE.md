@@ -1,5 +1,14 @@
 # Current State
 
+## 2026-10-03 第 5 批（B2 插件侧接线）：后端命令 + LINK_BRAIN_VAULT / 首次引导 / 定时接包内夜跑 / 媒体导航并入 / Dataview 必装（分支 batch5-delivery）
+
+- 后端入口：插件所有 Python 调用（spawnPy / runPy / 问答 worker）走 `pyChild` 一处，每次都带 `LINK_BRAIN_VAULT=<收藏库真路径>`。收藏库上一级或插件目录上两级是 LWA 仓库（有 `link_brain/__init__.py`）= 仓库模式，照旧 `python -m link_brain`、cwd 仓根（作者本机不变）；否则用设置「更多 → 运行环境 → 后端命令」（默认 `link-brain`，PATH 找不到再看 uv 的 `~/.local/bin`；Windows 只认 .exe/.com），调用点的 `-m link_brain` 自动去掉。找不到后端：不起进程，提示「没找到后端程序：先运行 `uv tool install link-brain`」，设置页顶部和启动提示都带「复制安装命令」。
+- 首次引导（`onboarding-ui.js`）：这个库没走过引导、后端找得到、收藏库里还没有 `_archive` 才弹（作者本机不弹）。① 收藏存放位置（库根或库内子文件夹；存插件设置，后端命令模式顺手写 `~/.link-brain/config.json` 的 `vault`）② 读取组件（`reader status` 新增 `release_configured`；发布地址没配时按钮写「发布地址还没配置（测试版）」+ 手动放置说明，不调 install）③ 扫码（就是账号卡片）④ AI（跳设置页）。每步可跳过，状态如实；关窗 = 走过，命令面板「打开首次引导」可再来。
+- 定时同步：任务名 LinkBrainNightly 优先 → 没有就旧任务 XhsFavSync（作者本机照旧管它）→ 都没有时「开启」= `sync-schedule --install --at <时间> --vault <收藏库>`（每周再 `--set weekly`），「关闭」不起进程。任务名经 env `LINK_BRAIN_SYNC_TASK` 传给 Python，读写逻辑没动。
+- 媒体导航：`link-brain-native-media-nav` 的代码原样搬进 `media-nav.js`（只换外壳），main.js 两行接入；旧插件还开着时不接管（避免点图弹两层），设置页提示停用旧插件后重启。旧插件目录保留，manifest 写明已并入。doctor 必需文件加 `onboarding-ui.js`、`media-nav.js`；Dataview 行不再是可选项。
+- Dataview：插件读 Obsidian 插件表判断没装 / 没启用 / 没开 JS 查询，启动提示一次、设置页顶部一块、打开目录类页面（页头 lb-page）时页面顶部一块，按钮打开第三方插件页（没开 JS 时打开 Dataview 设置）。
+- 测试：`tests/test_batch5_delivery_ui.cjs`（假 spawn / 假 runPy）；`npm test` 18 过 0 败 4 跳；pytest 767 过。没在 Obsidian 里点过（待她：一步），没在无作者环境的 Windows 上走过安装流程。
+
 ## 2026-10-03 第 5 批（A 设置一致）：每日上限默认 / 测试按钮测实际执行器 / 定时触发器只改自己那个 / 设置页同步状态实时刷新（分支 batch5-delivery）
 
 - 4.1 每天最多新抓：插件 `DEFAULT_SETTINGS` 200 → 50，和 `ai_config.DEFAULTS` 一致；规则一份两写（`ai_config.daily_new_limit` / main.js `dailyNewLimitOf`）：**0 = 不限**，空 / 乱填 / 负数 = 50。`favorites._Quota` 不再 `or 0`（以前清空 = 不限）。设置页说明写明 0 的含义；评论楼层说明改成「默认前 10 楼」（和下拉、ai_config 一致）。

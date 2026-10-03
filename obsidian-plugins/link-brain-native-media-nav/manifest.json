@@ -3,7 +3,7 @@
   "name": "Link Brain Native Media Nav",
   "version": "0.0.1",
   "minAppVersion": "1.5.0",
-  "description": "Arrow-key navigation for Link Brain native media carousels.",
+  "description": "Merged into Link Brain Actions (media-nav.js) since batch 5; kept only for vaults that still have it installed. Disable it after updating Link Brain Actions and restart Obsidian; while it stays enabled, Link Brain Actions leaves image navigation to it.",
   "author": "cybermist",
   "isDesktopOnly": false
 }

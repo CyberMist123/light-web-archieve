@@ -4,10 +4,88 @@ const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 
-// 归档仓的根 = vault 的上一级（vault 住在 <repo>\vault）。
-// 所有动作都在仓根下跑 `python -m link_brain ...`，输出滚进 vault\_archive\ob-actions.log。
+// 后端入口（第 5 批 B2，单插件交付）：
+//   · 仓库模式（作者本机现状）：收藏库的上一级（或插件目录上两级）是 LWA 仓库（有 link_brain/ 包）→ 在仓根下跑 `python -m link_brain ...`；
+//   · 否则 = 「后端命令」（设置项，默认 `link-brain`，即 `uv tool install link-brain` 装出的入口）+ 子命令。
+// 两种都每次传 LINK_BRAIN_VAULT=<收藏库绝对路径>，收藏库不必在程序目录里。输出滚进 <收藏库>\_archive\ob-actions.log。
 const PY = "python";
+const BACKEND_DEFAULT = "link-brain";
+const BACKEND_INSTALL = "uv tool install link-brain";
+// 定时同步的计划任务名：优先包内夜跑注册的 LinkBrainNightly；没有它而旧夜跑任务在，就继续管旧的（作者本机现状）。
+const NIGHTLY_TASK = "LinkBrainNightly";
+const LEGACY_SYNC_TASK = "XhsFavSync";
 const INBOX_FILE = "📥 投喂.md";
+
+// 「后端命令」拆成 [程序, ...参数]：空白分隔，双引号包住的整段算一个（路径里有空格时用）。
+function splitCommand(text) {
+  const out = []; let cur = "", quoted = false, has = false;
+  for (const ch of String(text || "")) {
+    if (ch === '"') { quoted = !quoted; has = true; continue; }
+    if (!quoted && /\s/.test(ch)) { if (has || cur) out.push(cur); cur = ""; has = false; continue; }
+    cur += ch; has = true;
+  }
+  if (has || cur) out.push(cur);
+  return out;
+}
+// 在 PATH（再加 uv 装工具的默认目录）里找命令；Windows 只认 .exe / .com（不经 shell 起进程，.cmd/.bat 起不来）。找不到 = null。
+function whichCommand(cmd, { env = (typeof process !== "undefined" ? process.env : {}), platform = (typeof process !== "undefined" ? process.platform : ""), exists = p => { try { return fs.statSync(p).isFile(); } catch { return false; } }, home = require("os").homedir() } = {}) {
+  cmd = String(cmd || "").trim();
+  if (!cmd) return null;
+  const win = platform === "win32";
+  const exts = win ? (path.extname(cmd) ? [""] : [".exe", ".com"]) : [""];
+  const tryAt = base => { for (const e of exts) if (exists(base + e)) return base + e; return null; };
+  if (path.isAbsolute(cmd) || /[\\/]/.test(cmd)) return tryAt(cmd);
+  const sep = win ? ";" : ":";
+  const dirs = String(env.PATH || env.Path || "").split(sep).filter(Boolean);
+  // Obsidian 从桌面图标启动时 PATH 可能还是装 uv 之前的：补上 uv tool 的默认 bin 目录
+  for (const d of [env.UV_TOOL_BIN_DIR, env.XDG_BIN_HOME, home && path.join(home, ".local", "bin")]) if (d && !dirs.includes(d)) dirs.push(d);
+  for (const d of dirs) { const hit = tryAt(path.join(d, cmd)); if (hit) return hit; }
+  return null;
+}
+// 选后端：candidates = 可能的仓库根（收藏库上一级、插件目录上两级），第一个带 link_brain 包的 → 仓库模式；
+// 否则按后端命令找程序；找不到 → missing（插件如实提示怎么装）。
+function pickBackend({ candidates = [], command = BACKEND_DEFAULT, isRepo, which = whichCommand } = {}) {
+  for (const root of candidates) if (root && isRepo(root)) return { mode: "repo", exe: PY, prefix: [], cwd: root, command: `${PY} -m link_brain` };
+  const parts = splitCommand(command || BACKEND_DEFAULT);
+  const cmd = parts.length ? parts : [BACKEND_DEFAULT];
+  const exe = which(cmd[0]);
+  return exe ? { mode: "command", exe, prefix: cmd.slice(1), cwd: null, command: cmd.join(" ") }
+    : { mode: "missing", exe: null, prefix: cmd.slice(1), cwd: null, command: cmd.join(" ") };
+}
+// 插件里各调用点写的都是 ['-m','link_brain', 子命令…]：仓库模式原样给 python；后端命令模式去掉前两个，接在命令后面。
+function backendArgv(backend, args) {
+  args = Array.from(args || []);
+  if (!backend || backend.mode === "repo") return args;
+  const rest = args[0] === "-m" && args[1] === "link_brain" ? args.slice(2) : args;
+  return [...(backend.prefix || []), ...rest];
+}
+function backendMissingText(backend) {
+  const cmd = (backend && backend.command) || BACKEND_DEFAULT;
+  return `没找到后端程序（${cmd}）：先运行 \`${BACKEND_INSTALL}\`，再重启 Obsidian。`;
+}
+// 定时同步管哪个计划任务：两份 `sync-schedule` 读到的状态（freq='none' = 没这个任务）→ 任务名；都没有 = null（「开启」时自己注册）。
+function pickSyncTask(nightly, legacy) {
+  const exists = s => !!s && s.freq && s.freq !== "none";
+  if (exists(nightly)) return NIGHTLY_TASK;
+  if (exists(legacy)) return LEGACY_SYNC_TASK;
+  return null;
+}
+// Dataview（首版必装依赖）：'ok' / 'missing'（没装）/ 'disabled'（装了没开）/ 'nojs'（没开 JS 查询）；拿不到插件表 = null（不提示）。
+function dataviewState(app) {
+  const pl = app && app.plugins;
+  if (!pl || !pl.manifests) return null;
+  if (!pl.manifests.dataview) return "missing";
+  const on = pl.enabledPlugins && typeof pl.enabledPlugins.has === "function" ? pl.enabledPlugins.has("dataview") : !!(pl.plugins && pl.plugins.dataview);
+  if (!on) return "disabled";
+  const dv = pl.plugins && pl.plugins.dataview;
+  if (dv && dv.settings && dv.settings.enableDataviewJs === false) return "nojs";
+  return "ok";
+}
+const DATAVIEW_HINT = {
+  missing: "目录页、问收藏页靠 Dataview 插件显示：还没装。到「第三方插件 → 浏览」搜 Dataview 安装并启用，再在它的设置里打开 Enable JavaScript Queries。",
+  disabled: "目录页、问收藏页靠 Dataview 插件显示：已装但没启用。在「第三方插件」里打开 Dataview，再在它的设置里打开 Enable JavaScript Queries。",
+  nojs: "目录页、问收藏页靠 Dataview 的 JS 查询显示：在 Dataview 设置里打开 Enable JavaScript Queries。",
+};
 
 // AI 接口配置的默认值。**必须和 link_brain/ai_config.py 的 DEFAULTS 对齐**（改一处改两处）。
 // Owner 2026-09-16 授权在此配置各接口 endpoint/model/key；凭据只落本插件 data.json
@@ -44,6 +122,10 @@ const DEFAULT_SETTINGS = {
   nickname: "ler",   // 批注署名（Owner 2026-09-17）
   // 收藏同步（0926）：自动拉取评论楼层 10/20/50/all（默认 10）。dailyNewLimit 默认 50、0 = 不限（第 5 批 4.1）。和 link_brain/ai_config.py 对齐。
   sync: { autoAfterLogin: true, downloadImages: true, downloadVideo: true, commentFloors: 10, dailyNewLimit: 50 },
+  // 第 5 批 B2：后端命令（仓库模式下不用它）；收藏存放位置 = 本库里的子文件夹（空 = 库根）；首次引导做过没有
+  backend: { command: BACKEND_DEFAULT },
+  collectionFolder: "",
+  onboarding: { done: false },
 };
 
 // 每天最多新抓（第 5 批 4.1，和 ai_config.daily_new_limit 同一规则）：0 = 不限；空 / 不是数 / 负数 = 默认 50。
@@ -270,7 +352,7 @@ function syncStateHead(st) {
 function scheduleStatusText(cur) {
   cur = cur || {};
   if (cur.error) return "当前：读不到计划任务（" + cur.error + "）";
-  if (cur.freq === "none") return "当前：没有计划任务";
+  if (cur.freq === "none") return cur.installable ? "当前：还没开启定时同步（开启 = 注册计划任务 " + NIGHTLY_TASK + "，关着 Obsidian 也按时同步）" : "当前：没有计划任务";
   const dayCN = { Monday: "周一", Tuesday: "周二", Wednesday: "周三", Thursday: "周四", Friday: "周五", Saturday: "周六", Sunday: "周日" };
   const others = Array.isArray(cur.others) ? cur.others.filter(Boolean) : [];
   const mine = cur.freq === "daily" ? "每天 " + (cur.time || "")
@@ -355,8 +437,8 @@ class SyncSettingsModal extends Modal {
       b.setDisabled(true);
       try {
         const r = await this.plugin.setSyncSchedule(this.freq, this.freq === "off" ? null : this.time, this.freq === "weekly" ? this.day : null);
-        if (r && r.ok) { new Notice("已保存同步计划"); this.close(); }
-        else { new Notice("保存失败：" + ((r && (r.detail || r.error)) || "可能需要管理员权限")); b.setDisabled(false); }
+        if (r && r.ok) { new Notice(r.task && r.detail ? r.detail : "已保存同步计划", 8000); this.close(); }
+        else { new Notice("保存失败：" + ((r && (r.detail || r.error || r.message)) || "可能需要管理员权限"), 10000); b.setDisabled(false); }
       } catch (e) { new Notice("保存失败：" + (e.message || e)); b.setDisabled(false); }
     }));
   }
@@ -366,14 +448,18 @@ class SyncSettingsModal extends Modal {
 class LinkBrainActions extends Plugin {
   async onload() {
     const started = Date.now();
-    // lwa vault 可能被 junction 挂进别的库的子目录（LER Vault/知识库【小红书】）：先找库里哪层带 _archive，再解 junction 拿真仓根
-    this.lbRoot = await this.findArchiveRoot();
-    const lwaVault = path.join(this.app.vault.adapter.getBasePath(), this.lbRoot);
-    try { this.repoRoot = path.resolve(fs.realpathSync.native(lwaVault), ".."); } catch { this.repoRoot = path.resolve(lwaVault, ".."); }
     this.running = null;
     this.importing = false;
     this.settings = mergeSettings(await this.loadData());
+    // 收藏库位置 + 后端（第 5 批 B2）：收藏库可能被 junction 挂进别的库的子目录——先找库里哪层带 _archive（或首次引导选的子文件夹），
+    // 再解 junction 拿真路径；它的上一级是 LWA 仓库就照旧 python -m link_brain（作者本机），否则用设置里的后端命令。
+    await this.locateCollection();
     try { this.remoteUI = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'remote-ui.js'))(obsidian, this); await this.remoteUI.attach(); } catch (e) { console.error('[lb] 远程阅读设置没加载上', e); }   // 第 6 批：远程阅读（MCP）
+    // 第 5 批 B2：原「Link Brain Native Media Nav」插件并进来（图片 ←/→、滚轮翻页、点图放大、钉住媒体、视频倍速）
+    try { this.mediaNav = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'media-nav.js'))(obsidian, this); this.mediaNav.attach(); } catch (e) { console.error('[lb] 图片导航没加载上', e); }
+    // 首次引导 + Dataview 提示（onboarding-ui.js）：窗口开好后再查，不拖慢启动
+    if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => { this.onboardTimer = setTimeout(() => this.startupChecks().catch(e => console.error('[lb] 启动检查没做完', e)), 1500); });
+    this.addCommand({ id: 'open-onboarding', name: '打开首次引导（收藏位置 / 读取组件 / 扫码 / AI）', callback: () => this.openOnboarding() });
     this.addSettingTab(new LinkBrainSettingTab(this.app, this));
     this.addCommand({id:'search-collections',name:'跳转目录并搜索收藏',callback:async()=>{
       this.focusCatalogSearch=true;
@@ -419,6 +505,14 @@ class LinkBrainActions extends Plugin {
       const leaf = this.app.workspace.getActiveViewOfType(obsidian.MarkdownView)?.leaf;
       const vs = leaf?.getViewState();
       if (vs?.state?.mode === 'source') leaf.setViewState({ ...vs, state: { ...vs.state, mode: 'preview' } });
+    }));
+    // 第 5 批 B2：目录页 / 问收藏页 / 回收站（页头 lb-page）靠 Dataview 渲染——它不可用时在页面顶部放一条提示和打开插件设置的按钮
+    if (this.app.workspace?.on) this.registerEvent(this.app.workspace.on('file-open', (file) => {
+      if (!(file instanceof TFile) || !this.app.metadataCache.getFileCache(file)?.frontmatter?.['lb-page']) return;
+      const dv = this.dataviewState();
+      if (!dv || dv === 'ok') return;
+      const view = this.app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+      try { this.onboardingUI().dataviewBanner(view); } catch (e) { console.error('[lb] Dataview 提示没画上', e); }
     }));
 
     this.addCommand({
@@ -482,17 +576,66 @@ class LinkBrainActions extends Plugin {
     // --limit 0 = 全部收藏；新抓数量由设置里的「每天最多新抓」控制（Python 侧 _Quota）
     return this.run(['-m', 'link_brain', 'sync-favorites', '--limit', '0', '--extract'], '同步收藏', true);
   }
-  async getSyncSchedule() {
-    const { json } = await this.runPy(['-m', 'link_brain', 'sync-schedule'], { label: '读取同步计划', fallback: '读不到同步计划' });
+  // 定时同步（第 5 批 B2）：管哪个计划任务 = LinkBrainNightly（包内夜跑）→ 没有它就旧任务 XhsFavSync（作者本机现状）→ 都没有 = null；
+  // 环境变量 LINK_BRAIN_SYNC_TASK 设了就只认它。读法都是 `sync-schedule`（只读），任务名经 LINK_BRAIN_SYNC_TASK 传给 Python。
+  async readSchedule(task) {
+    const { json } = await this.runPy(['-m', 'link_brain', 'sync-schedule'], { label: '读取同步计划', fallback: '读不到同步计划', env: { LINK_BRAIN_SYNC_TASK: task } });
     if (!json) throw new Error('后台没返回同步计划');
     return json;
   }
+  async getSyncSchedule() {
+    const forced = typeof process !== 'undefined' && process.env ? process.env.LINK_BRAIN_SYNC_TASK : '';
+    if (forced) { const cur = await this.readSchedule(forced); this.syncTask = forced; return { ...cur, task: forced }; }
+    const nightly = await this.readSchedule(NIGHTLY_TASK);
+    let legacy = null;
+    if (!pickSyncTask(nightly, null)) legacy = await this.readSchedule(LEGACY_SYNC_TASK);
+    const task = pickSyncTask(nightly, legacy);
+    this.syncTask = task;
+    if (task === NIGHTLY_TASK) return { ...nightly, task };
+    if (task) return { ...legacy, task };
+    // 两个都没有：「开启」= 注册 LinkBrainNightly；读出错如实带上
+    const err = (legacy && legacy.error) || (nightly && nightly.error);
+    return { task: null, freq: 'none', enabled: false, installable: !err, ...(err ? { error: err } : {}) };
+  }
   async setSyncSchedule(freq, at, day) {
-    const args = ['-m', 'link_brain', 'sync-schedule', '--set', freq];
-    if (at) args.push('--at', at);
-    if (day) args.push('--day', day);
-    const { json } = await this.runPy(args, { label: '保存同步计划', fallback: '保存失败' });
-    return json || { ok: false, error: '后台没返回结果' };
+    if (this.syncTask === undefined) { try { await this.getSyncSchedule(); } catch (e) { return { ok: false, error: e.message }; } }
+    const task = this.syncTask;
+    const setArgs = (f) => { const a = ['-m', 'link_brain', 'sync-schedule', '--set', f]; if (at) a.push('--at', at); if (day) a.push('--day', day); return a; };
+    if (task) {
+      const { json } = await this.runPy(setArgs(freq), { label: '保存同步计划', fallback: '保存失败', env: { LINK_BRAIN_SYNC_TASK: task } });
+      return json || { ok: false, error: '后台没返回结果' };
+    }
+    // 还没有计划任务：关闭 = 本来就没开；每天 / 每周 = 先注册包内夜跑（每天定点），每周再把触发器改成每周
+    if (freq === 'off') return { ok: true, detail: '本来就没有定时同步' };
+    if (freq !== 'daily' && freq !== 'weekly') return { ok: false, error: '未知周期：' + freq };
+    const args = ['-m', 'link_brain', 'sync-schedule', '--install', '--at', at || '04:00'];
+    if (this.vaultDir) args.push('--vault', this.vaultDir);
+    const { json } = await this.runPy(args, { label: '开启定时同步', fallback: '没注册上计划任务' });
+    if (!json) return { ok: false, error: '后台没返回结果' };
+    if (!json.ok) return { ...json, error: json.message || '没注册上计划任务' };
+    this.syncTask = json.task || NIGHTLY_TASK;
+    if (freq === 'weekly') {
+      const r = await this.runPy(setArgs('weekly'), { label: '保存同步计划', fallback: '保存失败', env: { LINK_BRAIN_SYNC_TASK: this.syncTask } });
+      if (!r.json || !r.json.ok) return { ok: false, error: '已注册每天夜跑，但改成每周没成功：' + ((r.json && (r.json.detail || r.json.error)) || '后台没返回结果') };
+    }
+    return { ok: true, detail: json.message, task: this.syncTask };
+  }
+  // 收藏库（LINK_BRAIN_VAULT）= 本库根 + lbRoot 的真路径；后端 = 仓库模式 / 后端命令 / 没找到。onload 和首次引导改位置后调。
+  async locateCollection() {
+    const base = this.app.vault.adapter.getBasePath();
+    const folder = String(this.settings?.collectionFolder || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    this.lbRoot = folder || await this.findArchiveRoot();
+    const lwaVault = path.join(base, this.lbRoot);
+    try { this.vaultDir = fs.realpathSync.native(lwaVault); } catch { this.vaultDir = path.resolve(lwaVault); }
+    let pluginDir = null;
+    if (this.manifest?.dir) { pluginDir = path.join(base, this.manifest.dir); try { pluginDir = fs.realpathSync.native(pluginDir); } catch {} }
+    this.backend = pickBackend({
+      candidates: [path.resolve(this.vaultDir, '..'), pluginDir && path.resolve(pluginDir, '..', '..')],
+      command: this.settings?.backend?.command,
+      isRepo: root => { try { return fs.statSync(path.join(root, 'link_brain', '__init__.py')).isFile(); } catch { return false; } },
+    });
+    this.repoRoot = this.backend.mode === 'repo' ? this.backend.cwd : null;
+    return this.backend;
   }
   // lwa 仓根在本库里的相对前缀：独立开 lwa vault 时是 ''，挂进 LER Vault 时是 '知识库【小红书】'。
   async findArchiveRoot() {
@@ -513,14 +656,32 @@ class LinkBrainActions extends Plugin {
 
 
   // 所有 Python 子进程都从这里起（统一 cwd / env / windowsHide）；一次性调用走下面的 spawnPy，常驻问答 worker 直接用它。
-  pyChild(args) { return spawn(PY, args, { cwd: this.repoRoot, env: { ...process.env, ...ENV_EXTRA }, windowsHide: true }); }
+  // 第 5 批 B2：仓库模式 = python -m link_brain（cwd 仓根，作者本机现状）；否则 = 后端命令 + 子命令；都带 LINK_BRAIN_VAULT。
+  // 后端命令找不到：抛 ENOENT 风格的错（spawnPy 接成 code=-1，runPy 给装法）。
+  currentBackend() {
+    if (this.backend) return this.backend;
+    if (this.repoRoot) return { mode: 'repo', exe: PY, prefix: [], cwd: this.repoRoot, command: `${PY} -m link_brain` };
+    return { mode: 'repo', exe: PY, prefix: [], cwd: undefined, command: `${PY} -m link_brain` };   // 没走过 onload（单测）：旧行为
+  }
+  pyEnv(extra = null) {
+    const env = { ...process.env, ...ENV_EXTRA };
+    if (this.vaultDir) env.LINK_BRAIN_VAULT = this.vaultDir;
+    return extra ? { ...env, ...extra } : env;
+  }
+  pyChild(args, { env = null } = {}) {
+    const b = this.currentBackend();
+    if (b.mode === 'missing') throw Object.assign(new Error(backendMissingText(b)), { code: 'ENOENT', backendMissing: true });
+    const opts = { env: this.pyEnv(env), windowsHide: true };
+    opts.cwd = b.mode === 'repo' ? (b.cwd || this.repoRoot) : (this.vaultDir || require('os').homedir());
+    return spawn(b.exe, backendArgv(b, args), opts);
+  }
 
   // ── 唯一的 Python 入口（CONVENTIONS §6.1）：统一 cwd / env / windowsHide / 超时。
   //    exclusive=true：互斥长任务（开浏览器、吃内存，叠着跑必炸），占 this.running，写 ob-actions.log；
   //    exclusive=false：轻量捕获（答题 / 自测 / 清洗链接这类便宜调用），不占锁。
   //    超时 → killTree（跳过读取服务和它的浏览器），返回 code=-2、timedOut=true。
   //    返回 {code, json, out, err, all, timedOut}：json = stdout 最后一行 JSON（没有就是 null）；all = stdout+stderr 按到达顺序。
-  spawnPy(args, { input = null, timeoutMs = 0, exclusive = false, label = '' } = {}) {
+  spawnPy(args, { input = null, timeoutMs = 0, exclusive = false, label = '', env = null } = {}) {
     if (exclusive) {
       if (this.running) return Promise.resolve({ code: 1, json: null, out: '', err: `还在跑「${this.running}」`, all: '', timedOut: false, busy: true });
       this.running = label || '归档任务';
@@ -534,7 +695,7 @@ class LinkBrainActions extends Plugin {
         resolve({ code: timedOut ? -2 : code, json: parseLastJson(out), out, err: spawnError != null ? spawnError : err, all, timedOut });
       };
       try {
-        child = this.pyChild(args);
+        child = this.pyChild(args, { env });
       } catch (e) {
         if (exclusive) this.running = null;
         finish(-1, e.message); return;
@@ -556,12 +717,14 @@ class LinkBrainActions extends Plugin {
   // CONVENTIONS §1：插件消费 CLI 的唯一包装。解析 stdout 最后一行 JSON；
   // 退出码不在 okCodes 里且解析不出 → 抛 stderr 尾三行（没有就抛 fallback）；超时 → 已杀树，抛 timeoutMessage；
   // 找不到 Python → 抛安装指引。其余情况把 {code, json, out, err, timedOut} 交给调用方自己判 json.ok / status。
-  async runPy(args, { input = null, timeoutMs = 0, label = '', fallback = '', okCodes = [0], timeoutMessage = '' } = {}) {
-    const r = await this.spawnPy(args, { input, timeoutMs, label });
+  async runPy(args, { input = null, timeoutMs = 0, label = '', fallback = '', okCodes = [0], timeoutMessage = '', env = null } = {}) {
+    const r = await this.spawnPy(args, { input, timeoutMs, label, env });
     if (r.timedOut) {
       const mins = Math.max(1, Math.round(timeoutMs / 60000));
       throw Object.assign(new Error(timeoutMessage || `${label || '后台命令'}超过 ${mins} 分钟没有结果，已停止。`), { timedOut: true, result: r });
     }
+    // 后端命令模式起不来：如实说「没找到后端程序 + 怎么装」（设置页 / 引导里有复制按钮）；仓库模式照旧指向 Python
+    if (r.code === -1 && r.json == null && this.currentBackend().mode !== 'repo') throw Object.assign(new Error(backendMissingText(this.currentBackend())), { result: r, backendMissing: true });
     if (r.code === -1 && r.json == null) throw Object.assign(new Error('找不到 Python。请按 README 安装 Python 3.11+ 与 link_brain，再重启 Obsidian。\n' + r.err), { result: r });
     if (!okCodes.includes(r.code) && r.json == null) throw Object.assign(new Error(stderrTail(r.err) || fallback || `${label || '后台命令'}失败（退出码 ${r.code}）`), { result: r });
     return r;
@@ -618,6 +781,39 @@ class LinkBrainActions extends Plugin {
   async readSyncStatus() {
     const { raw, sum } = await this.readSyncFiles();
     return mergeSyncStatus(raw, sum);
+  }
+
+  // 第 5 批 B2：首次引导 / 启动提示 / 设置页顶部提示（整块在 onboarding-ui.js）
+  onboardingUI() { return this._onboardingUI || (this._onboardingUI = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'onboarding-ui.js'))(obsidian, this)); }
+  openOnboarding() { return this.onboardingUI().open(); }
+  startupChecks() { return this.onboardingUI().startup(); }
+  renderSetupHints(c) {
+    const dv = this.dataviewState();
+    if (this.currentBackend().mode !== 'missing' && (!dv || dv === 'ok') && !this.mediaNav?.skipped) return [];   // 都正常：什么也不加
+    try { return this.onboardingUI().renderSetupHints(c); } catch (e) { console.error('[lb] 设置页提示没画上', e); return []; }
+  }
+  dataviewState() { return dataviewState(this.app); }
+  dataviewHint(state) { return DATAVIEW_HINT[state] || ''; }
+  backendMissingText() { return backendMissingText(this.currentBackend()); }
+  openPluginSettings(tab = 'community-plugins') { try { this.app.setting.open(); this.app.setting.openTabById(tab); } catch (e) { new Notice('没打开设置：' + e.message); } }
+  openSettingsTab() { this.openPluginSettings(this.manifest.id); }
+  async copyText(text) {
+    try { await navigator.clipboard.writeText(text); new Notice('已复制：' + text); return true; }
+    catch (e) { new Notice('没复制上：' + (e.message || e) + '。请手动输入：' + text, 10000); return false; }
+  }
+  // ~/.link-brain/config.json（Python storage.user_config）合并写几个键：读不懂的不覆盖，先写临时文件再换名
+  writeUserConfig(patch) {
+    const home = process.env.LINK_BRAIN_HOME || path.join(require('os').homedir(), '.link-brain');
+    const file = path.join(home, 'config.json');
+    let cur = {};
+    try { cur = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^﻿/, '')); }
+    catch (e) { if (e.code !== 'ENOENT') throw new Error('config.json 读不懂，没改它：' + e.message); }
+    if (!cur || typeof cur !== 'object' || Array.isArray(cur)) throw new Error('config.json 不是一个对象，没改它');
+    fs.mkdirSync(home, { recursive: true });
+    const tmp = file + '.tmp-' + process.pid;
+    fs.writeFileSync(tmp, JSON.stringify({ ...cur, ...patch }, null, 2), 'utf8');
+    fs.renameSync(tmp, file);
+    return file;
   }
 
   // 第 4 批：目录页顶部问题入口 → 问题列表（整个窗口在 problems-ui.js）
@@ -1027,7 +1223,7 @@ class LinkBrainActions extends Plugin {
     return true;
   }
   stopArchiveAnswer() { let n=0; for(const id of [...(this.answerPending?.keys()||[])]) if(this.cancelAnswer(id)) n++; return n; }
-  onunload(){this.unloading=true;clearTimeout(this.capsTimer);this.catalogCache=null;const worker=this.answerWorker;if(worker)this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});}
+  onunload(){this.unloading=true;clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);this.catalogCache=null;const worker=this.answerWorker;if(worker)this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});}
   // 返回 payload；status='cancelled' = 用户点了停止（markdown 是已生成的半截），不当失败抛。
   async answerArchive({ question, history = [], onDelta, onPhase, model = '' } = {}) {
     const q=(question||'').trim();if(!q)throw new Error('问题是空的');
@@ -1228,7 +1424,8 @@ class LinkBrainActions extends Plugin {
     new Notice(slow ? `${label}：开跑了，慢活，完事会再弹一次` : `${label}…`);
     const r = await pending;
     if (r.code === -1 && !r.all) {
-      new Notice(`${label} 起不来：${r.err}`, 8000);
+      const b = this.currentBackend();
+      new Notice(`${label} 起不来：${b.mode !== 'repo' ? backendMissingText(b) : r.err}`, 10000);
       return { code: -1, out: r.err };
     }
     await this.log(`[${label}] exit=${r.code}\n${r.all.trim()}`);
@@ -1395,6 +1592,8 @@ class LinkBrainSettingTab extends PluginSettingTab {
     let paintOther = null;   // 「其他 AI 能力」摘要：每次保存后重算（改模型名这种不重画整页的也跟着变）
     const save = async () => { await this.plugin.saveSettings(); if (paintOther) paintOther(); };
 
+    // 第 5 批 B2：缺后端程序 / 缺 Dataview / 旧图片导航插件还开着 → 最上面各一块提示（都正常时什么也不加）
+    this.plugin.renderSetupHints?.(c);
     c.createEl('h2', { text: '账号' });
     this.plugin.renderAccounts(c);
 
@@ -1577,6 +1776,18 @@ class LinkBrainSettingTab extends PluginSettingTab {
     };
     new Setting(a).setName('检查本机环境').setDesc('Python 程序、插件、Dataview、AI 配置。')
       .addButton(b => b.setButtonText('检查').onClick(drawEnv));
+    // 第 5 批 B2：后端程序 + 收藏存放位置
+    const backend = this.plugin.currentBackend ? this.plugin.currentBackend() : { mode: 'repo', command: `${PY} -m link_brain` };
+    const backendDesc = backend.mode === 'repo'
+      ? '当前：仓库模式（' + backend.command + '，插件在程序仓库里，这一项用不上）。'
+      : backend.mode === 'command' ? '当前：' + backend.exe + (backend.prefix?.length ? ' ' + backend.prefix.join(' ') : '') + '。改了立即生效（问答进程下次重启时换）。'
+      : backendMissingText(backend);
+    new Setting(a).setName('后端命令').setDesc('插件调用的后台程序，默认 link-brain（用「' + BACKEND_INSTALL + '」装出来的）。' + backendDesc)
+      .addText(t => t.setPlaceholder(BACKEND_DEFAULT).setValue(s.backend?.command || '')
+        .onChange(async v => { s.backend = { ...(s.backend || {}), command: v.trim() || BACKEND_DEFAULT }; await save(); await this.plugin.locateCollection?.(); }))
+      .addButton(b => b.setButtonText('复制安装命令').onClick(() => this.plugin.copyText(BACKEND_INSTALL)));
+    new Setting(a).setName('收藏存放位置').setDesc('当前：' + (this.plugin.vaultDir || '本库根目录') + '。要换位置走首次引导第 ① 步（已有的收藏不会自动搬）。')
+      .addButton(b => b.setButtonText('打开首次引导').onClick(() => this.plugin.openOnboarding()));
 
     a.createEl('h4', { text: '文字识别（OCR）' });
     modeSetting(a, '文字识别（OCR）', '本地 rapidocr（PP-OCRv6）：免费、不要 Key，只占 CPU，能认出表格的版面。图片文字、扫描版 PDF、视频画面文字都靠它；关掉后只存原图。',
@@ -1669,3 +1880,6 @@ module.exports.otherAISummary = otherAISummary;
 module.exports.dailyNewLimitOf = dailyNewLimitOf;   // 给 node 单测（第 5 批 4.1）
 module.exports.scheduleStatusText = scheduleStatusText;
 module.exports.syncStateHead = syncStateHead;   // 给 node 单测（第 5 批 4.4）
+// 第 5 批 B2（单插件交付）：给 node 单测
+Object.assign(module.exports, { splitCommand, whichCommand, pickBackend, backendArgv, backendMissingText, pickSyncTask, dataviewState,
+  BACKEND_DEFAULT, BACKEND_INSTALL, NIGHTLY_TASK, LEGACY_SYNC_TASK });

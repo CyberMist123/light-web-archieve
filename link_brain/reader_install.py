@@ -194,7 +194,9 @@ def status() -> dict[str, Any]:
         related = None
     return {"ok": True, "code": "", "message": "读取组件已就位" if reader else "还没装读取组件",
             "reader": reader, "relatedfile": related if related and Path(related).is_file() else None,
-            "bin_dir": str(accounts.bin_dir()), "tool_dir": str(accounts.tool_dir())}
+            "bin_dir": str(accounts.bin_dir()), "tool_dir": str(accounts.tool_dir()),
+            # 插件引导看这个决定「下载读取组件」能不能点：发布地址和校验和都内置了才算（测试版两个都空）
+            "release_configured": bool(RELEASE_URL.strip() and len(RELEASE_SHA256.strip()) == 64)}
 
 
 def add_parser(sub) -> None:

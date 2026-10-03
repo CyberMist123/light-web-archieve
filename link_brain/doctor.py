@@ -16,6 +16,10 @@ def read_json(path: Path, default):
         return default
 
 
+# 插件目录里必须有的文件（main.js 按需 require 其余几个；第 5 批 B2 加了首次引导和并进来的图片导航）
+PLUGIN_FILES = ('main.js', 'manifest.json', 'library-ui.js', 'remote-ui.js', 'problems-ui.js', 'onboarding-ui.js', 'media-nav.js')
+
+
 def diagnose(*, obsidian_dir: str | None = None, only=None) -> dict:
     rows = []
     vault = storage.vault_root()
@@ -30,7 +34,7 @@ def diagnose(*, obsidian_dir: str | None = None, only=None) -> dict:
     enabled = read_json(obs / 'community-plugins.json', [])
     plugins = obs / 'plugins'
     installed = all((plugins / 'link-brain-actions' / name).is_file()
-                    for name in ('main.js', 'manifest.json', 'library-ui.js', 'remote-ui.js', 'problems-ui.js'))
+                    for name in PLUGIN_FILES)
     plugin_ready = installed and 'link-brain-actions' in enabled
     rows.append(accounts.row('obsidian', 'Obsidian 插件', 'ready' if plugin_ready else 'missing',
                              '已安装并启用' if plugin_ready else ('尚未启用' if installed else '未安装'),
@@ -39,7 +43,7 @@ def diagnose(*, obsidian_dir: str | None = None, only=None) -> dict:
     dv_ready = 'dataview' in enabled and dv.get('enableDataviewJs') is True
     rows.append(accounts.row('dataview', 'Dataview', 'ready' if dv_ready else 'missing',
                              '已启用 JS 查询' if dv_ready else '未检测到 / 未开启 JS',
-                             '' if dv_ready else '安装并启用 Dataview，打开 Enable JavaScript Queries。', optional=True))
+                             '' if dv_ready else '安装并启用 Dataview，打开 Enable JavaScript Queries（目录页靠它显示，首版必装）。'))
     if not only or only in ('xhs', 'favorites', 'attachments'):
         rows.append(accounts.xhs_status(deep=only is not None))
     from . import providers

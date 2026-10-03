@@ -475,3 +475,27 @@ def test_second_concurrent_nightly_exits_6(monkeypatch, capsys, tmp_path):
     finally:
         holder.kill()
         holder.wait(10)
+
+
+# —— 第 5 批 B2（插件侧接线）配合的两处 Python 改动 ——
+
+def test_reader_status_says_whether_release_is_configured(monkeypatch):
+    """插件引导靠 release_configured 决定「下载读取组件」能不能点；测试版发布地址为空 = False。"""
+    monkeypatch.setattr(reader_install, "RELEASE_URL", "")
+    monkeypatch.setattr(reader_install, "RELEASE_SHA256", "")
+    assert reader_install.status()["release_configured"] is False
+    monkeypatch.setattr(reader_install, "RELEASE_URL", "https://example.invalid/reader.zip")
+    assert reader_install.status()["release_configured"] is False, "没有校验和不算配好"
+    monkeypatch.setattr(reader_install, "RELEASE_SHA256", "a" * 64)
+    assert reader_install.status()["release_configured"] is True
+
+
+def test_doctor_plugin_files_match_plugin_dir_and_dataview_required(tmp_path):
+    from link_brain import doctor
+    plugin_dir = Path(__file__).resolve().parent.parent / "obsidian-plugins" / "link-brain-actions"
+    for name in doctor.PLUGIN_FILES:
+        assert (plugin_dir / name).is_file(), f"doctor 要求的 {name} 不在插件目录里"
+    assert "media-nav.js" in doctor.PLUGIN_FILES and "onboarding-ui.js" in doctor.PLUGIN_FILES
+    rows = {r["id"]: r for r in doctor.diagnose(obsidian_dir=str(tmp_path / ".obsidian"), only="local")["checks"]}
+    assert rows["dataview"]["state"] == "missing" and rows["dataview"]["optional"] is False, "Dataview 首版是必装依赖"
+    assert rows["obsidian"]["message"] == "未安装"

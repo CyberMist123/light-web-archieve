@@ -2,15 +2,15 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
 (async()=>{
  const browser=await chromium.launch({headless:true,channel:'msedge'});const page=await browser.newPage({viewport:{width:1100,height:900}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
  const css=fs.readFileSync('link_brain/assets/link-brain.css','utf8');
- const source=fs.readFileSync('obsidian-plugins/link-brain-native-media-nav/main.js','utf8');
+ const source=fs.readFileSync('obsidian-plugins/link-brain-actions/media-nav.js','utf8');   // 第 5 批 B2：图片导航并进主插件
  const data=JSON.parse(fs.readFileSync('vault/_archive/catalog-data.json','utf8'));
  const covers=data.items.filter(x=>x.cover).slice(0,12).map(x=>'data:image/webp;base64,'+fs.readFileSync(path.join('vault',x.cover)).toString('base64'));
  async function setup(video=false){
   await page.setContent(`<style>:root{--background-primary:white;--background-secondary:#f5f5f5;--text-normal:#222;--text-muted:#777;--text-faint:#999;--interactive-accent:#666}body{margin:20px;font-family:Arial}button{cursor:pointer}.markdown-preview-view{height:calc(100vh - 40px);overflow:auto;} ${css}</style><main class="markdown-preview-view xhs-note"><div class="lb-note"><div class="lb-side"><section class="lb-media"><div class="lb-carousel">${video?'<figure class="lb-slide"><video controls></video></figure>':''}${covers.map(src=>`<figure class="lb-slide"><img src="${src}"></figure>`).join('')}</div></section></div><div class="lb-main"><div class="lb-scroll"><h2>图文阅读测试</h2>${'<p>作者正文与评论，可独立滚动查看。</p>'.repeat(70)}</div></div></div><div style="height:500px">笔记底部</div></main>`);
   await page.evaluate(source=>{
    Element.prototype.createEl=function(tag,o={}){const e=document.createElement(tag);if(o.cls)e.className=o.cls;if(o.text!=null)e.textContent=o.text;this.append(e);return e;};Element.prototype.setText=function(s){this.textContent=s;};
-   class Plugin{register(){}registerDomEvent(el,name,fn){el.addEventListener(name,fn);}}
-   const m={exports:{}};new Function('require','module',source)(()=>({Plugin}),m);window.plugin=new m.exports();plugin.onload();
+   const host={app:{},register(){},registerDomEvent(el,name,fn,opts){el.addEventListener(name,fn,opts);}};
+   const m={exports:{}};new Function('require','module',source)(()=>({}),m);window.plugin=m.exports({},host);plugin.attach();
   },source);
  }
  await setup();assert.equal(await page.locator('.lb-media-pin').getAttribute('aria-pressed'),'true');
