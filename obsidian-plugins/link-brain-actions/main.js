@@ -119,7 +119,8 @@ const DEFAULT_SETTINGS = {
   catalogCats: [],
   hiddenCats: [],
   downloads: {folder: path.join(require("os").homedir(), "Downloads"), waitMinutes: 5},
-  nickname: "ler",   // 批注署名（Owner 2026-09-17）
+  nickname: "",   // 批注署名（留空 = 不署名）
+  annotateMention: "",   // 批注留言对象：填名字后「@名字」开头的批注标成留言给它（10-03：默认不启用）
   // 收藏同步（0926）：自动拉取评论楼层 10/20/50/all（默认 10）。dailyNewLimit 默认 50、0 = 不限（第 5 批 4.1）。和 link_brain/ai_config.py 对齐。
   sync: { autoAfterLogin: true, downloadImages: true, downloadVideo: true, commentFloors: 10, dailyNewLimit: 50 },
   // 第 5 批 B2：后端命令（仓库模式下不用它）；收藏存放位置 = 本库里的子文件夹（空 = 库根）；首次引导做过没有
@@ -1682,7 +1683,9 @@ class LinkBrainSettingTab extends PluginSettingTab {
     }));
     c.createEl('h3', { text: '批注' });
     new Setting(c).setName('批注昵称').setDesc('笔记底部批注的署名。')
-      .addText(t => t.setPlaceholder('ler').setValue(s.nickname || '').onChange(async v => { s.nickname = v.trim(); await this.save(); }));
+      .addText(t => t.setPlaceholder('我').setValue(s.nickname || '').onChange(async v => { s.nickname = v.trim(); await this.save(); }));
+    new Setting(c).setName('批注留言对象').setDesc('填一个名字（如你的 AI 助手）后，以「@名字」开头的批注会标成留言给它；留空不启用。')
+      .addText(t => t.setPlaceholder('不启用').setValue(s.annotateMention || '').onChange(async v => { s.annotateMention = v.trim(); await this.save(); }));
   }
 
   dailyLimit() { return dailyNewLimitOf(this.plugin.settings.sync.dailyNewLimit); }

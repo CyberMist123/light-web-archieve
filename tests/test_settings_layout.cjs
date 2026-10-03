@@ -176,7 +176,7 @@ const RENAMED = { '电脑需求 视频：语音转写走上面': '电脑需求 �
 
   tab = openTab(env.p, 'sync'); root = tab.containerEl;
   assert.deepEqual(visibleRows(root), ['〔账号卡片〕', '收藏同步', '每天最多新抓', '登录后自动同步', '下载图片', '下载视频', '评论 · 自动拉取', '评论 · 手动拉取',
-    '下载文件夹', '等待手动下载（分钟）', '待补附件', '批注昵称'], '同步与内容');
+    '下载文件夹', '等待手动下载（分钟）', '待补附件', '批注昵称', '批注留言对象'], '同步与内容');
   assert.deepEqual(headsOf(root), ['账号', '收藏同步', '收藏同步细项', '下载', '附件', '批注']);
   const row = n => rowsOf(root).find(r => nameOf(r) === n);
   assert.equal(row('每天最多新抓').querySelector('.setting-item-description').textContent, '防风控；第一次补历史收藏会分几天完成。默认 50，清空就回到 50；填 0 = 不限（一次抓太多容易触发风控）。');
