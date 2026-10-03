@@ -1309,9 +1309,12 @@ class LinkBrainActions extends Plugin {
   onunload(){this.unloading=true;clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);this.catalogCache=null;const worker=this.answerWorker;if(worker)this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});}
   // 返回 payload；status='cancelled' = 用户点了停止（markdown 是已生成的半截），不当失败抛。
   // sourceIds（第 10 批「按剩下的重新回答」）：只用这些来源作答，不重新检索
-  async answerArchive({ question, history = [], onDelta, onPhase, model = '', sourceIds = null } = {}) {
+  // excludeIds / pinIds（R2 会话面）：本会话排除的、保留（pin）的来源 id，每一问都显式带上；空的不发，请求和以前一样
+  async answerArchive({ question, history = [], onDelta, onPhase, model = '', sourceIds = null, excludeIds = null, pinIds = null } = {}) {
     const q=(question||'').trim();if(!q)throw new Error('问题是空的');
-    const payload=await this.requestAnswer(Array.isArray(sourceIds)?{question:q,history,model,source_ids:sourceIds}:{question:q,history,model},onDelta,onPhase);
+    const ids=v=>Array.isArray(v)?v.filter(x=>typeof x==='string'&&x):[];
+    const constraints={...(ids(excludeIds).length?{exclude_ids:ids(excludeIds)}:{}),...(ids(pinIds).length?{pin_ids:ids(pinIds)}:{})};
+    const payload=await this.requestAnswer(Array.isArray(sourceIds)?{question:q,history,model,source_ids:sourceIds,...constraints}:{question:q,history,model,...constraints},onDelta,onPhase);
     if(payload.status==='cancelled')return payload;
     if(payload.status!=='ok')throw new Error(payload.markdown||payload.error||'回答失败');
     return payload;

@@ -430,29 +430,118 @@ def _card(item: dict[str, Any], excerpt: str) -> dict[str, Any]:
     }
 
 
+def _compact(text):
+    return re.sub(r"\s+", "", str(text or ""))
+
+
+def _segments(item, field):
+    """catalog 拼这个字段时的各段 [(标签, 原文)]：评论 = comment_labels 顺序（c3 / c3.1），图片文字 = 识图成功的各张图。
+    读对象目录里的 source.json / vision.json；读不到返回 []。"""
+    agent = item.get("agent_md")
+    if not agent:
+        return []
+    obj = (storage.vault_root() / agent).parent.parent
+    if field == "comments":
+        return [(label, str(c.get("text") or "")) for label, c in _comment_records(item)]
+    from .catalog import _image_search_text
+    vision = json.loads((obj / "derived" / "vision.json").read_text(encoding="utf-8"))
+    out = [(image, _image_search_text(image)) for image in vision.get("images", []) if image.get("status") == "ok"]
+    return [(image, text) for image, text in out if text]
+
+
+def _segments_hit(segments, field_text, part_text, joiner):
+    """摘录落在哪几段：摘录是该字段的逐字切片时按位置算（catalog 同样用 joiner 拼）；对不上（库重建前后有出入、语义 chunk 改过空白）
+    退回「≥20 字连续原文对得上」。"""
+    joined = joiner.join(text for _, text in segments)
+    start = field_text.find(part_text) if joined == field_text and part_text else -1
+    if start >= 0:
+        end, pos, out = start + len(part_text), 0, []
+        for label, text in segments:
+            if text and pos < end and pos + len(text) > start:
+                out.append(label)
+            pos += len(text) + len(joiner)
+        return out
+    quote = _compact(part_text)
+    return [label for label, text in segments
+            if len(_compact(text)) >= 4 and (_compact(text) in quote
+                                              or any(quote[i:i + 20] in _compact(text) for i in range(max(0, len(quote) - 19))))]
+
+
+def _image_label(image, comment_ids):
+    """图序号：正文图 image-003 → 「图3」；评论区图片 comment-<id>-1 → 「评论c5的图1」（楼号同机读版）。"""
+    asset = str(image.get("asset") or "")
+    m = re.search(r"comment-([0-9a-f]+)-(\d+)\.", asset)
+    if m:
+        return f"评论{comment_ids.get(m.group(1), '')}的图{int(m.group(2))}"
+    m = re.search(r"image-(\d+)", asset)
+    return f"图{int(m.group(1))}" if m else asset
+
+
 def locate_excerpts(item, snippets):
-    """Attach image identity only when a verbatim OCR run matches the excerpt."""
+    """证据身份（R2）：图片文字摘录挂上图（assets + 「图3」这类图序号），评论摘录挂上楼号（comment_labels：c3 / c3.1，
+    和机读版 agent.md 同一套编号）。只加字段不改原文；任何一步读不到就不挂（fail-open）。"""
     agent = item.get("agent_md")
     path = storage.vault_root() / agent if agent else None
     images = []
     if path and path.with_name("vision.json").exists():
         images = json.loads(path.with_name("vision.json").read_text(encoding="utf-8")).get("images", [])
-    def compact(text):
-        return re.sub(r"\s+", "", str(text or ""))
+    fields = item.get("search_fields") or {}
+    cache = {}
+
+    def segments(field):
+        if field not in cache:
+            try:
+                cache[field] = _segments(item, field)
+            except Exception:  # noqa: BLE001 - 身份只是锦上添花
+                cache[field] = []
+        return cache[field]
+
     result = []
     for part in snippets:
         hit = dict(part)
         if part["field"] == "ocr":
-            text = compact(part["text"])
+            text = _compact(part["text"])
             assets = []
             for image in images:
-                ocr = compact(image.get("ocr"))
+                ocr = _compact(image.get("ocr"))
                 if len(ocr) >= 20 and any(text[i:i+20] in ocr for i in range(max(0, len(text)-19))):
                     assets.append(image["asset"])
+            try:
+                for image in _segments_hit(segments("ocr"), str(fields.get("ocr") or ""), str(part["text"]), "\n"):
+                    if image.get("asset") and image["asset"] not in assets:
+                        assets.append(image["asset"])
+                order = {image.get("asset"): i for i, image in enumerate(images)}
+                assets.sort(key=lambda a: order.get(a, len(order)))
+                if assets:
+                    comment_ids = {}
+                    if any("comment-" in a for a in assets):
+                        try:
+                            comment_ids = {str(c.get("comment_id") or ""): label for label, c in _comment_records(item)}
+                        except Exception:  # noqa: BLE001
+                            comment_ids = {}
+                    by_asset = {image.get("asset"): image for image in images}
+                    hit["images"] = [_image_label(by_asset.get(a) or {"asset": a}, comment_ids) for a in assets]
+            except Exception:  # noqa: BLE001
+                pass
             if assets:
                 hit["assets"] = assets
+        elif part["field"] == "comments":
+            try:
+                labels = _segments_hit(segments("comments"), str(fields.get("comments") or ""), str(part["text"]), "\n")
+                if labels:
+                    hit["comment_labels"] = labels
+            except Exception:  # noqa: BLE001
+                pass
         result.append(hit)
     return result
+
+
+def _comment_records(item):
+    agent = item.get("agent_md")
+    obj = (storage.vault_root() / agent).parent.parent
+    meta = json.loads((obj / "meta.json").read_text(encoding="utf-8"))
+    source = json.loads((obj / "raw" / f"v{int(meta.get('current_version') or 1):04d}" / "source.json").read_text(encoding="utf-8"))
+    return llm.comment_labels(source.get("comments") or [])
 
 
 def _select_sources(question, matches, terms, settings, count, sem=None):
@@ -712,7 +801,14 @@ def candidate_pool(matches, items, terms, sem, extra, mode):
     return pool
 
 
-def _answer_qa(question, items, settings, history=None, source_ids=None):
+def _id_list(value):
+    """会话约束里的来源 id 数组；不是字符串数组就当没给（fail-open：约束坏了照常回答，不报错）。"""
+    if not isinstance(value, (list, tuple)):
+        return []
+    return list(dict.fromkeys(v for v in value if isinstance(v, str) and v))
+
+
+def _answer_qa(question, items, settings, history=None, source_ids=None, exclude_ids=None, pin_ids=None):
     from .retrieval import evidence, query_facets
     _phase(f"检索收藏：共 {len(items)} 条")
     history = [m for m in (history or [])[-8:] if m.get("role") in {"user", "assistant"}]
@@ -720,22 +816,30 @@ def _answer_qa(question, items, settings, history=None, source_ids=None):
     base_terms = query_terms(question)
     pinned = source_ids is not None
     by_id = {it.get("id"): it for it in items}
+    # R2 会话面：本会话排除的来源不再用（可恢复，不删归档）；保留（pin）的每一问都带上、排最前，但不锁死搜索范围，
+    # 排除压过保留。两样都没有时下面每一步和以前一模一样。
+    excluded = set(_id_list(exclude_ids))
+    pins = [i for i in _id_list(pin_ids) if i in by_id and i not in excluded and not pinned]
     if pinned:
         # 第 10 批「按剩下的重新回答」：只用页面上留下的来源（她删掉的不要），不重新检索、不挑材料、不撞答案缓存
         from .retrieval import semantic_hits
-        matches = [by_id[i] for i in dict.fromkeys(source_ids) if i in by_id]
+        matches = [by_id[i] for i in dict.fromkeys(source_ids) if i in by_id and i not in excluded]
         expansion = expand_query(question, base_terms, items, llm=llm_expansions(question, allow_call=False))
         sem, prior_terms, terms, cache_hit, qvec = semantic_hits(question), [], base_terms, None, None
         _phase(f"检索收藏：用你留下的 {len(matches)} 条来源")
     else:
         # 答案缓存（Lot D）：只对独立提问撞索引；追问依赖本轮对话，不和历史问题比。任何失败=全新问题。
         qvec = answer_cache.question_vector(question)
-        cache_hit = None if history else answer_cache.lookup(question, base_terms, qvec=qvec)
+        cache_hit = None if history or excluded or pins else answer_cache.lookup(question, base_terms, qvec=qvec)
         found = recall(question, items, settings, history)
         matches, prior_terms, terms, sem, expansion = (found["matches"], found["prior_terms"], found["terms"],
                                                         found["sem"], found["expansion"])
+        if excluded or pins:
+            held = set(pins)
+            matches = [by_id[i] for i in pins] + [it for it in matches if it["id"] not in excluded and it["id"] not in held]
         more = f"（含相关词 {'、'.join(expansion['terms'][:4])}{'…' if len(expansion['terms']) > 4 else ''}）" if expansion["terms"] else ""
-        _phase(f"检索收藏：相关 {min(len(matches), POOL_MAX)} / 共 {len(items)} 条{more}")
+        held_note = (f"，已排除 {len(excluded)} 条" if excluded else "") + (f"，保留 {len(pins)} 条" if pins else "")
+        _phase(f"检索收藏：相关 {min(len(matches), POOL_MAX)} / 共 {len(items)} 条{more}{held_note}")
     if not matches:
         return {"kind": "answer", "markdown": "收藏里没有找到足够相关的材料。可以换个关键词，或先导入相关内容。",
                 "sources": [], "related": [], "matches": 0, "materials": 0, "model_called": False}
@@ -744,7 +848,9 @@ def _answer_qa(question, items, settings, history=None, source_ids=None):
     frag = max(200, int(limits.get("fragChars", 800)))
     top_k = max(1, int(limits.get('topK', 8)))
     pool = matches[:POOL_MAX] if not pinned else matches
-    n, deep = prompt_count(question, pool, cap, top_k, pinned=pinned)
+    n, deep = prompt_count(question, pool, cap, top_k, pinned=pinned or bool(pins))
+    if pins:
+        n = max(n, min(len(pins), 20, len(pool)))
     order = list(pool)
     candidate_count = len(pool)
     selection_failed = selection_kept = selection_empty = False
@@ -776,6 +882,9 @@ def _answer_qa(question, items, settings, history=None, source_ids=None):
         # 第 10 批：挑选只排序不丢弃——挑中的排前，没挑中的按检索顺序跟在后面（仍在候选池里，页面照样列出来）
         chosen = {it['id'] for it in selected}
         order = list(selected) + [it for it in pool if it['id'] not in chosen]
+    if pins:
+        held = set(pins)
+        order = [it for it in order if it["id"] in held] + [it for it in order if it["id"] not in held]
     primary, related = order[:n], order[n:]
     blocks, sources, overflow = [], [], []
     per = evidence_budget(cap, frag, len(primary), deep)
@@ -811,6 +920,8 @@ def _answer_qa(question, items, settings, history=None, source_ids=None):
         note = "（筛选认为这些候选可能都不完全符合提问的条件：逐条核对，真没有符合的就直说没有，不要硬凑。）\n"
     elif pinned:
         note = "（这些是用户自己留下的来源，只依据它们回答。）\n"
+    if pins:
+        note = f"（前 {min(len(pins), len(sources))} 条是用户在本次会话里保留的材料。）\n" + note
     dialog = "\n".join(f"{m['role']}: {str(m.get('content', ''))[:1500]}" for m in history)
     cache_note, hint = "", ""
     if cache_hit:
@@ -839,7 +950,8 @@ def _answer_qa(question, items, settings, history=None, source_ids=None):
     markdown=neutralize(res['text'])
     if res.get('truncated'):markdown+='\n\n> 回答达到输出上限，尚未完成。可缩小问题范围，或在设置中提高回答输出上限后重试。'
     if not pinned:
-        answer_cache.record(question, base_terms, sources, markdown, qvec)
+        if not (excluded or pins):  # 带会话约束的回答不进答案缓存：换个会话同一问不该沿用被约束过的结论
+            answer_cache.record(question, base_terms, sources, markdown, qvec)
     if hint:markdown=hint+'\n\n'+markdown
     result={"kind": "answer", "markdown": markdown, "sources": sources, "related": related_cards, "matches": len(matches),
             "materials": len(sources), "candidates": candidate_count, "truncated": res.get('truncated',False), "model_called": True,
@@ -849,6 +961,7 @@ def _answer_qa(question, items, settings, history=None, source_ids=None):
     if selection_kept:result["selection_kept"]=True
     if selection_empty:result["selection_empty"]=True
     if pinned:result["pinned"]=True
+    if excluded or pins:result["constraints"]={"excluded":sorted(excluded),"pinned":pins}
     return result
 
 
@@ -885,18 +998,20 @@ def delivery_payload(result: dict[str, Any], include=None) -> dict[str, Any]:
 
 
 def answer(question: str, history=None, include=None, on_delta=None, model: str = '', on_phase=None,
-           source_ids=None) -> dict[str, Any]:
-    """source_ids（第 10 批「按剩下的重新回答」）：只用这些来源作答，不重新检索；None = 正常检索。"""
+           source_ids=None, exclude_ids=None, pin_ids=None) -> dict[str, Any]:
+    """source_ids（第 10 批「按剩下的重新回答」）：只用这些来源作答，不重新检索；None = 正常检索。
+    exclude_ids / pin_ids（R2 会话面）：本会话排除 / 保留的来源 id，页面每一问都显式带上；不是字符串数组就当没给。"""
     token = _ON_DELTA.set(on_delta)
     ptoken = _ON_PHASE.set(on_phase)
     try:
-        return _answer(question, history, include, model, source_ids)
+        return _answer(question, history, include, model, source_ids, exclude_ids, pin_ids)
     finally:
         _ON_PHASE.reset(ptoken)
         _ON_DELTA.reset(token)
 
 
-def _answer(question: str, history=None, include=None, model: str = '', source_ids=None) -> dict[str, Any]:
+def _answer(question: str, history=None, include=None, model: str = '', source_ids=None,
+            exclude_ids=None, pin_ids=None) -> dict[str, Any]:
     question = (question or "").strip()
     settings = ai_config.with_model(ai_config.load(), model)
     items = load_items()
@@ -909,7 +1024,8 @@ def _answer(question: str, history=None, include=None, model: str = '', source_i
         return {"status": "error", "markdown": "source_ids 必须是来源 id 的数组。"}
     intent = "qa" if source_ids is not None else detect_intent(question)
     handler = {"github": _answer_github, "links": _answer_links}.get(intent, _answer_qa)
-    result = handler(question, items, settings, history, source_ids) if intent == "qa" else handler(question, items, settings)
+    result = (handler(question, items, settings, history, source_ids, exclude_ids, pin_ids) if intent == "qa"
+              else handler(question, items, settings))
     result.setdefault("status", "ok")
     if result["status"] == "cancelled":
         result["intent"] = intent
@@ -937,6 +1053,7 @@ def run(args) -> int:
             if not isinstance(history, list) or any(not isinstance(m, dict) for m in history):
                 raise ValueError("history 必须是对话消息数组")
             pinned = {"source_ids": request["source_ids"]} if request.get("source_ids") is not None else {}
+            pinned.update({key: request[key] for key in ("exclude_ids", "pin_ids") if request.get(key)})
             result = answer(request["question"], history, request.get("include"), **pinned)
         else:
             history = json.load(sys.stdin) if getattr(args, "history_stdin", False) else []

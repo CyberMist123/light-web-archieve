@@ -3,6 +3,7 @@
 协议（一行一个 JSON）：
   入 {"id", "question", "history", "model", "source_ids"?}      → 出 start · phase* · delta* · result
      source_ids（第 10 批）：「按剩下的重新回答」——只用这些来源作答，不重新检索；result 带 sources（送进模型的）+ related（候选池其余）
+     exclude_ids / pin_ids（R2）：本会话排除 / 保留的来源 id（页面每一问都带上）
   入 {"id", "type": "cancel"}（第 3 批「停止」，CONVENTIONS §6.7） → 正在答的那条：杀掉它起的 claude/codex（不碰读取服务）、
      关掉 HTTP 流，回 result status=cancelled（带已生成的半截）；还在排队的那条：轮到时直接回 cancelled。
 """
@@ -95,6 +96,7 @@ def run(args):
                 result = ask.answer(request['question'], request.get('history'), request.get('include'),
                                     model=request.get('model') or '',
                                     **({'source_ids': request['source_ids']} if request.get('source_ids') is not None else {}),
+                                    **{key: request[key] for key in ('exclude_ids', 'pin_ids') if request.get(key)},
                                     on_delta=lambda text: emit({'id': request_id, 'type': 'delta', 'text': text}),
                                     on_phase=lambda text: emit({'id': request_id, 'type': 'phase', 'text': text}))
             finally:
