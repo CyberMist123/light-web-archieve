@@ -116,6 +116,14 @@ module.exports = function setupUI(obsidian, plugin) {
     catch { const t = plugin.settings.textAI || {}; return t.mode === 'cli' ? !!t.command : t.mode === 'http' ? !!(t.endpoint && (t.apiKey || t.keyFile)) : false; }
   };
   const errText = e => (e && e.message) || String(e || '');
+  // 深合并（对象逐层合，数组 / 标量整体替换）：把后端 install 返回的 settings_patch 合进插件设置
+  const mergeInto = (dst, src) => {
+    for (const [k, v] of Object.entries(src || {})) {
+      if (v && typeof v === 'object' && !Array.isArray(v) && dst[k] && typeof dst[k] === 'object' && !Array.isArray(dst[k])) mergeInto(dst[k], v);
+      else dst[k] = v;
+    }
+    return dst;
+  };
 
   // —— 后端调用（都经 runPy；失败如实带原因）——
   async function loadPlan(force = false) {
@@ -205,6 +213,13 @@ module.exports = function setupUI(obsidian, plugin) {
         if (j.detail) row.detail = j.detail;
         if (j.fix_hint) row.fix_hint = j.fix_hint;
         if (j.fix) row.fix = j.fix;
+        if (!ok && j.manual) row.status = 'manual';   // 只能手动做的（如 Dataview、发布地址没配）：给做法，不算装失败
+        // 后端装完改了插件设置（如 CapsWriter 地址 / 端口、OCR 模型目录）：合进内存里的设置再存，
+        // 不然插件下次保存会用旧设置把它盖掉
+        if (j.settings_patch && typeof j.settings_patch === 'object') {
+          try { mergeInto(plugin.settings, j.settings_patch); await plugin.saveSettings?.(); }
+          catch (e) { row.error = (row.error ? row.error + '；' : '') + '设置没存上：' + errText(e); }
+        }
       } else { row.status = 'failed'; row.error = (String(r.err || '').trim().split('\n').pop()) || '安装没有返回结果'; }
     } catch (e) {
       row.status = st.stop ? 'stopped' : 'failed';

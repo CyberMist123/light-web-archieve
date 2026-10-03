@@ -265,7 +265,8 @@ const line = l => JSON.stringify(l);
       opts.onLine(line({ type: 'progress', component: 'asr', phase: '下载', done: 157286400, total: 629145600, text: 'CapsWriter-Offline' }));
       release = () => res({ code: 1, json: { type: 'result', ok: false, code: 'TRANSIENT.NETWORK', message: '下载中断：连接被重置', status: 'failed' }, out: '', err: '' });
     }),
-    capslock: ok('capslock'),
+    capslock: async () => (installed.add('capslock'), { code: 0, json: { type: 'result', ok: true, code: '', message: '装好了', status: 'ready', component: 'capslock',
+      settings_patch: { voice: { capsWriterDir: 'C:/CapsWriter-test' } } }, out: '', err: '' }),
   };
   assert.ok(!btn(root, '一键检查并安装').disabled);
   const run = btn(root, '一键检查并安装').click();
@@ -289,6 +290,10 @@ const line = l => JSON.stringify(l);
   assert.equal(r.querySelector('.lb-install-error').textContent, '原因：下载中断：连接被重置', '失败如实给原因');
   assert.match(r.querySelector('.lb-install-progress').textContent, /^停在：下载 · 25%/);
   assert.equal(installRow(root, 'capslock').querySelector('.lb-install-status').textContent, '✓ 就绪', '一项失败不挡后面的');
+  // 后端装完改了插件设置（settings_patch）：合进内存设置（不丢同一段里的其他键）并保存，免得插件下次保存把它盖掉
+  assert.equal(env.p.settings.voice.capsWriterDir, 'C:/CapsWriter-test');
+  assert.ok(Object.keys(env.p.settings.voice).length > 1, '深合并：voice 里原有的其他设置还在');
+  assert.equal(env.saves.at(-1).voice.capsWriterDir, 'C:/CapsWriter-test', '合完存盘');
   const dv = installRow(root, 'dataview');
   assert.equal(dv.querySelector('.lb-install-status').textContent, '要你手动');
   assert.match(dv.querySelector('.lb-install-hint').textContent, /^怎么做：在「第三方插件」里搜 Dataview/);
