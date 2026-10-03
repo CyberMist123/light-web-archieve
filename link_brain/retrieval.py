@@ -182,17 +182,40 @@ def score(item, terms, *, require_all=False):
 _RANK_CACHE = (None, None)
 
 
-def rank(items, terms):
-    """BM25 字段加权；同分保持稳定 ID 顺序，不按日期偏向新收藏。"""
-    import math
+def _documents(items):
+    """各篇各字段 norm 过的全文 + 字段平均长度；同一份 items 只算一次（rank / term_stats 共用）。"""
     global _RANK_CACHE
-    if not terms:
-        return []
     if _RANK_CACHE[0] is not items:
         documents = [{k: norm(v) for k, v in fields(it).items()} for it in items]
         averages = {k:sum(len(doc.get(k,'')) for doc in documents)/max(1,len(documents)) or 1 for k in WEIGHTS}
         _RANK_CACHE = (items, (documents, averages))
-    documents, averages = _RANK_CACHE[1]
+    return _RANK_CACHE[1]
+
+
+_META_KEYS = ("title", "tags", "cats")
+
+
+def term_stats(items, term):
+    """(多少篇里有这个词, 其中多少篇是标题 / 标签 / 分类里就有)。只认原词和同义词，不算拼音、错字。
+
+    问答判断追问用：人名、地名这类话题词大多出现在标题标签里；「调料」「价格」「步骤」这类属性词几乎只在正文里。"""
+    documents, _ = _documents(items)
+    vs = variants(term)
+    anywhere = meta = 0
+    for doc in documents:
+        if any(v in text for v in vs for text in doc.values()):
+            anywhere += 1
+            if any(v in doc.get(k, "") for v in vs for k in _META_KEYS):
+                meta += 1
+    return anywhere, meta
+
+
+def rank(items, terms):
+    """BM25 字段加权；同分保持稳定 ID 顺序，不按日期偏向新收藏。"""
+    import math
+    if not terms:
+        return []
+    documents, averages = _documents(items)
     totals = [0.0] * len(items)
     covered = [0] * len(items)
     for term in terms:

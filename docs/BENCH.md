@@ -1,5 +1,21 @@
 # BENCH — 检索与模型验证
 
+## 2026-10-03 问收藏漏查复盘（分支 batch8-search）
+
+题目 = Owner 真实提问 14 题（10-03 会话按原顺序连问 5 题 + 答案缓存里 5 题 + 09-18 验收 4 题）+ 工程补题 8 题（换说法 / 只在评论或附件里 / 真追问 / 省略式追问）；「应命中的篇」由主审读库人工判。题目和笔记 ID 在仓外，结果写在本地 workdesk 报告。复跑（只读、只检索，不调生成模型；`--qvec-cache` 让同一句只调一次 embedding）：
+
+```powershell
+python tests/tools/ask_eval.py --cases <题目.json> --vault <收藏库> --qvec-cache <缓存.json> [--lexical] [--out <结果.json>]
+```
+
+| 指标（22 题，recall@8 = 前 8 里命中 / min(8, 应命中篇数)） | 改前 | 改后 |
+|---|---|---|
+| hybrid（生产路径，含追问处理） | 0.712 | 0.839 |
+| 其中 10-03 那次连问 5 题 | 0.457 | 0.893 |
+| 词法-only（语义层不可用时） | — | 0.764 |
+
+漏的主因不是缺向量：问题短于 18 字一律当追问、按上一问的结果重排（换话题的短问题被拖成上一问的结果，最严重的一问 40 条候选里一篇对的都没有 → 挑材料挑空 → 答「没有」）。合成回归 `tests/test_ask_eval.py`（`tests/fixtures/ask_eval_synthetic.json`，旧逻辑 0.633 → 新 0.967，recall@3 纯词法）。
+
 ## 2026-09-24 Lot B：hybrid（BM25 × embedding RRF）
 
 基线（改动前）与改动后双跑，18 题金标 + 8 题 paraphrase 集（`"set":"paraphrase"`，换说法探针，不冒充金标）。embedding：`qwen3.7-text-embedding-flash`（本机 key 的 MaaS 网关没有 text-embedding-v4，403 Unpurchased；公网 DashScope 该账号欠费），dimensions=1024，全库 236 篇切 3917 chunk / 3912 唯一 hash。
