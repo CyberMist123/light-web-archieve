@@ -26,6 +26,7 @@ import yaml
 from pypinyin import lazy_pinyin
 
 from . import storage
+from .note import annotation_text
 from .ocrtext import clean_ocr
 from .retrieval import pinyin_text
 
@@ -346,6 +347,8 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
         report = inventory(obj_dir, meta)
         vision = _load_json(obj_dir / "derived" / "vision.json") or {}
         transcript = _load_json(obj_dir / "derived/transcript.json") or {}
+        notes_doc = _load_json(obj_dir / "notes.json")
+        notes_doc = notes_doc if isinstance(notes_doc, dict) else {}
         search_fields = {
             "transcript": "\n".join(filter(None, [str(transcript.get("text") or ""),
                                                   str((transcript.get("screen") or {}).get("text") or "")])),
@@ -354,6 +357,8 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
             # 图片文字 + 识图结果（表格 Markdown / 图片描述）一起进检索；精细识图（第二层 refined）成功就用它替代第一层
             "ocr": "\n".join(filter(None, (_image_search_text(im) for im in vision.get("images", []) if im.get("status") == "ok"))),
             "attachments": "\n\n".join(p.read_text(encoding="utf-8") for p in sorted((obj_dir / "derived" / "attachments").glob("*.md"))),
+            # 第 10 批：她自己的批注进检索（词法 + 语义）；问收藏另按 notes.json 的修改时间现读，不必等重建目录
+            "notes": annotation_text(notes_doc),
         }
         archived = _parse_dt(meta.get("first_archived_at"))
         items.append(
@@ -362,8 +367,8 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                 "title": meta.get("title") or source_id,
                 "note": visible,
                 "notes_path": f"_archive/{source}/{source_id}/notes.json",
-                "starred": bool((_load_json(obj_dir / "notes.json") or {}).get("starred")),
-                "starred_at": (_load_json(obj_dir / "notes.json") or {}).get("starred_at"),
+                "starred": bool(notes_doc.get("starred")),
+                "starred_at": notes_doc.get("starred_at"),
                 **dict(zip(("cover", "cover_w", "cover_h"), _cover_info(obj_dir, source, source_id, version))),
                 "summary": _clip(summary),
                 # 1001 审计 ui-4：不再另存拼好的 search_text（与 search_fields 全文重复，占了一半体积）；

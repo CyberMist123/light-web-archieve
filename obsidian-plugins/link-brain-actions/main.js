@@ -114,7 +114,8 @@ const DEFAULT_SETTINGS = {
   activeModel: "DeepSeek",
   chatPlaceholder: "问点什么呢？",
   prompts: { summary: "", answer: DEFAULT_ANSWER_PROMPT },
-  retrieval: { totalCharLimit: 8000, fragChars: 800, topK: 8, expandTerms: false },
+  // 第 10 批：queryExpand 默认开（和 ai_config.DEFAULTS 对齐）；旧键 expandTerms 不再读
+  retrieval: { totalCharLimit: 8000, fragChars: 800, topK: 8, queryExpand: true },
   // 目录页顶部大类筛选（空=用内置 BIG_CATS）；形如 [{name, keywords:[...]}]。
   catalogCats: [],
   hiddenCats: [],
@@ -1261,9 +1262,10 @@ class LinkBrainActions extends Plugin {
   stopArchiveAnswer() { let n=0; for(const id of [...(this.answerPending?.keys()||[])]) if(this.cancelAnswer(id)) n++; return n; }
   onunload(){this.unloading=true;clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);this.catalogCache=null;const worker=this.answerWorker;if(worker)this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});}
   // 返回 payload；status='cancelled' = 用户点了停止（markdown 是已生成的半截），不当失败抛。
-  async answerArchive({ question, history = [], onDelta, onPhase, model = '' } = {}) {
+  // sourceIds（第 10 批「按剩下的重新回答」）：只用这些来源作答，不重新检索
+  async answerArchive({ question, history = [], onDelta, onPhase, model = '', sourceIds = null } = {}) {
     const q=(question||'').trim();if(!q)throw new Error('问题是空的');
-    const payload=await this.requestAnswer({question:q,history,model},onDelta,onPhase);
+    const payload=await this.requestAnswer(Array.isArray(sourceIds)?{question:q,history,model,source_ids:sourceIds}:{question:q,history,model},onDelta,onPhase);
     if(payload.status==='cancelled')return payload;
     if(payload.status!=='ok')throw new Error(payload.markdown||payload.error||'回答失败');
     return payload;
@@ -1933,8 +1935,8 @@ class LinkBrainSettingTab extends PluginSettingTab {
     num('发给模型的总字符上限', () => s.retrieval.totalCharLimit, v => s.retrieval.totalCharLimit = v, 12000);
     num('每篇片段字符上限', () => s.retrieval.fragChars, v => s.retrieval.fragChars = v, 1200);
     num('送模型的片段篇数（topK）', () => s.retrieval.topK, v => s.retrieval.topK = v, 8);
-    new Setting(c).setName('先用小模型扩检索词').setDesc('多花一次很小的调用，换更全的召回。')
-      .addToggle(t => t.setValue(s.retrieval.expandTerms).onChange(async v => { s.retrieval.expandTerms = v; await this.save(); }));
+    new Setting(c).setName('先用小模型扩检索词').setDesc('每问多一次很小的调用（归档摘要模型），把同义词、地名下的城市、作品里的角色一起搜，和检索同时跑；同一个问题只调一次。')
+      .addToggle(t => t.setValue(s.retrieval.queryExpand !== false).onChange(async v => { s.retrieval.queryExpand = v; await this.save(); }));
 
     c.createEl('h4', { text: '目录大类' });
     c.createEl('p', { cls: 'setting-item-description', text: '每行一个：「名称: 关键词1, 关键词2」。标签命中任一关键词就归到该类。留空用内置。' });

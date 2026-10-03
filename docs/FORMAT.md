@@ -744,6 +744,10 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
 
 - 2026-10-02 第 2 批：`items[].cover_w / cover_h` 是封面原图宽高（取 manifest，拿不到为 null，目录页用来先占位）；
   `items[].starred / starred_at` 在 `note star` 时就地更新（不必等重建），目录页以它为准、不再逐篇读 notes.json。
+- 2026-10-03 第 10 批：`search_fields.notes` = 用户在这篇里写的批注（notes.json 里没删的、非空的，一条一行，草稿不算），
+  词法权重同标签、语义单独成块（改批注只重算那一块）；问收藏按 notes.json 修改时间现读，不等重建。
+  问答结果多 `related`（候选池里没送进模型的其余篇，`tier: "related"`）、`sources[].tier = "primary"`、`expansion`；
+  请求可带 `source_ids`（只用这些来源重答）。扩词缓存 `_archive/query-expand-cache.json`（问题 → 词，最多 500 条）。
 - `catalog-data.json.items[].search_fields` 分为 `body/comments/ocr/attachments`，均保留原文；
   `summary` 为模型摘要，检索权重低，不伪装成原文。`agent_md` 是 vault 相对路径。
 - `attachment_files` 逐条提供 `doc_id/name/downloaded/status/file/markdown/url`，文件和 Markdown

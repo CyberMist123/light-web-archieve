@@ -1,5 +1,17 @@
 # Current State
 
+## 2026-10-03 第 10 批：问收藏「宁广勿漏」——多路召回 + 扩词默认开 + 批注进检索 + 来源分层可删（分支 batch10-recall）
+
+- **不再丢候选**：`_select_sources` 去掉 `min(count, 5)`；「挑选材料」只排序（挑中的排前，没挑中的照样送 / 照样列），挑空也不再直接答「候选收藏中没有符合」，改为提示作答模型逐条核对。送进作答模型的篇数 `ask.primary_count` = 按字数预算（每篇约 700 字，默认 8000 字 → 11 篇；最少 topK、最多 20）。
+- **多路召回**（`ask.recall`，生产和 `tests/tools/ask_eval.py` 共用）：原词 BM25 ∪ 语义（`semantic.query_hits` 改为按篇聚合：每篇取最像那块的分，前 40 篇，相对下限「中位数 + 0.2 ×（第一名 − 中位数）」；以前只看前 80 块）∪ 小模型扩出的每个词一路（BM25 前 30，同属一组取最好名次不累加）∪ 原问题 + 扩词的语义一路；加权 RRF（`retrieval.fuse`，扩词路权重 0.15，真库扫过 0.15–0.5 定的）。候选池 `ask.candidate_pool`：各路前几名保底（词法 40 / 语义 40 / 每个扩词 20），融合顺序补满到 80，**全部回给页面**。
+- **扩词默认开**（设置键改名 `retrieval.queryExpand`，默认 true；旧 `expandTerms` 不再读——她 data.json 里那个 false 是 09-16 走命令行模型慢 15 秒时关的）。她 10-03 定：不做手工实体别名表，常识交给模型。每问一次文本 AI 接口（设置里的 textAI 本身，不随问答页下拉换成命令行模型；不是 http 就用归档摘要模型；都没有 = 不扩），`noThinking`（千问关 `enable_thinking`，DeepSeek 关 thinking），和这一问的 embedding 并行，最多等 6 秒（超时先答，后台结果照样进缓存）。缓存 `_archive/query-expand-cache.json`（模型 + 问题 → 词，500 条）。扩出的词去掉原词 / 同义词 / 库里没有的 / 全库四成以上都有的。`search-aliases.json` 不动。
+- **批注进检索**：`catalog-data.items[].search_fields.notes`（`note.annotation_text`：没删的、非空的批注，一条一行）；词法权重同标签（10）；语义单独成块（≥2 字就成块，改批注只重算那一块）；问收藏按各篇 notes.json 的修改时间现读（`ask._with_live_notes`），不等目录重建；目录页要等下一次 `catalog`。
+- **英文按词边界**（`retrieval.has / count / find` ↔ `catalog-search.js termRegex / hasTerm / termIndex`）：字母数字开头的词前面不能紧挨字母数字；4 字母以下的纯字母数字词后面也不能紧挨字母（允许 s / es），长词按词首。`cafeine` 不再命中 `ai`，`dream` 仍命中 `dreaming / dreams`。中文照旧。
+- **目录搜索**：保持关键词精确筛选（不接扩词 / 语义：每敲一次回车调模型太重，她要的「搜广」交给问收藏），结果顶部一行「按关键词筛选。想把同义词、相关内容也找出来 → 去问收藏搜「…」」，点了带着这个词去问收藏（`catalog-view.js` 只加了这 2 行）。`rankItems` 每条多 `row.hit`（懒算）：`{kind: exact|alias|typo|pinyin|gap, confidence: high|low, crossLanguage, term, variant, snippet: {field, label, text, marks}}`，低置信度 = 错字 / 拼音 / 漏字 / 换语种的同义词，给另一路做卡片标题下的浅色小字。
+- **问收藏页来源**（`chat-view.js`）：「主要依据 · N」（送进模型的，带 [来源N]）+「其他相关 · M」（候选池其余，默认收起）；每条 ×（记在这一轮的 `removed`，随会话存）；删过之后「按剩下的 N 条重新回答」（`answerArchive({sourceIds})` → worker `source_ids` → `ask.answer(source_ids=…)`：只用留下的来源，主要依据在前、其他相关按原顺序补到预算篇数，不重新检索、不挑材料、不撞 / 不记答案缓存）和「恢复删掉的」。结果多 `related`、`expansion`，`sources[].tier`。
+- 评测（真库只读，题目在 workdesk 本地）：31 题（第 8 批 22 题 + 她的失败例 9 题）recall@8 0.825 → 0.878、recall@20 0.668 → 0.894、候选池覆盖 0.633 → 0.972（改前页面最多 8 篇、挑选时 5 篇）；失败例那 9 题候选池覆盖 1.0。语义层不可用时 0.781 / 0.887。合成回归：`tests/test_recall_b10.py`（18 例）、`tests/test_ask_sources_b10.cjs`、搜索回归集加 cafeine / 批注两条；`tests/test_ask_eval.py` 挑选语义改了 2 例。pytest 857 过；`npm test` 23 过 0 败 4 跳。
+- 部署：ff 进 main → 拷插件 → `python -m link_brain catalog`（目录带上批注、页面脚本换新）→ `python -m link_brain embed`（只补批注 3 块，1 次接口调用）→ 重载插件。没在 Obsidian 里点过（待她：一步）。
+
 ## 2026-10-03 第 7 批（后端）：「开始」页向导 `setup plan / check / install / estimate / backfill`（分支 batch7-setup）
 
 - 新包 `link_brain/setup/`（契约 `docs/SETUP-CONTRACT.md`），`python -m link_brain setup <子命令>`，输出 §1 形状、退出码 0 成功 · 1 失败 · 5 只能手动（Dataview / 填 key / 发布地址没配 / 别人装的 CapsWriter 缺模型）。

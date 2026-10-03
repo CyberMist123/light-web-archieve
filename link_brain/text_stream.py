@@ -228,6 +228,9 @@ def http_call(instruction, text, cfg, on_delta=None):
             body['reasoning_effort'] = 'low'
     if cfg.get('responseFormat'):
         body['response_format'] = cfg['responseFormat']
+    if cfg.get('noThinking') and not body['model'].startswith('deepseek'):
+        # 第 10 批扩词：千问 3 系列默认先「思考」，一次扩词 20–40 秒；关掉思考（DashScope 兼容接口的 enable_thinking）
+        body['enable_thinking'] = False
     try:
         limit = float(cfg.get('timeoutSec') or 120)
     except (TypeError, ValueError):

@@ -22,7 +22,9 @@ from . import storage
 DB_NAME = "semantic.db"
 # 切块目标：正文/附件/转写 ~200-500 字一块；短字段整块
 CHUNK_MIN, CHUNK_MAX = 200, 500
-_CHUNK_FIELDS = ("body", "ocr", "attachments", "transcript", "comments")
+# notes = 她自己的批注（第 10 批）：单独成块，批注改了只有这一块的 hash 变，增量 embed 只补它
+_CHUNK_FIELDS = ("body", "ocr", "attachments", "transcript", "comments", "notes")
+_MIN_CHARS = {"notes": 2}  # 批注常常就几个字（「好吃」「复刻过」），也要有向量
 
 _QUERY_VEC_CACHE: OrderedDict[str, "object"] = OrderedDict()  # question -> ndarray（只缓存成功）
 _QUERY_VEC_CACHE_MAX = 64
@@ -107,7 +109,7 @@ def chunk_item(item: dict) -> list[tuple[str, int, str]]:
     for field in _CHUNK_FIELDS:
         value = fields.get(field) or ("" if field != "body" else item.get("search_text") or "")
         for seq, text in enumerate(_merge(split_units(str(value)))):
-            if len(text.strip()) >= 8:  # 太短的碎屑没有语义信息
+            if len(text.strip()) >= _MIN_CHARS.get(field, 8):  # 太短的碎屑没有语义信息
                 out.append((field, seq, text))
     return out
 
@@ -299,16 +301,23 @@ def query_vector(question: str):
     return arr
 
 
-def query_hits(question: str, top_chunks: int = 80, chunks_per_item: int = 2):
-    """chunk 余弦扫描 → item 取 max。
+# 语义召回按篇聚合（第 10 批）：每篇取它最像的那块的分数，取前 TOP_ITEMS 篇，且分数要高过
+# 「全库中位数 + REL_FLOOR ×（第一名 − 中位数）」——绝对分数随问题漂（实测中位数 0.27–0.36、第一名 0.48–0.79），用相对下限。
+# 以前只看前 80 块，一篇长文占好几块，真正进候选的只有二三十篇。
+TOP_ITEMS = 40
+REL_FLOOR = 0.2
 
-    返回 {item_id: {"score": float, "chunks": [{"field","text","score"}...]}}；
-    没 db / 没 key / 缺 numpy / HTTP 失败一律返回 None（fail-open）。
+
+def query_hits(question: str, top_chunks: int = 80, chunks_per_item: int = 2, top_items: int = TOP_ITEMS):
+    """chunk 余弦扫描 → 按篇取最高分 → 前 top_items 篇（带相对下限）。
+
+    返回 {item_id: {"score": float, "chunks": [{"field","text","score"}...]}}（chunks = 这篇最像的几块，问答当证据）；
+    没 db / 没 key / 缺 numpy / HTTP 失败一律返回 None（fail-open）。top_chunks 保留只为兼容旧调用。
     """
     try:
         if not db_path().is_file():
             return None
-        import numpy as np  # noqa: F401 - import 失败即退词法
+        import numpy as np
         cfg = load_config()
         data = _load_matrix(cfg["model"])
         if not data:
@@ -320,15 +329,23 @@ def query_hits(question: str, top_chunks: int = 80, chunks_per_item: int = 2):
         if matrix.shape[1] != qvec.shape[0]:
             return None
         sims = matrix @ qvec
-        order = sims.argsort()[::-1][:top_chunks]
-        hits: dict[str, dict] = {}
+        order = np.argsort(-sims)
+        best: dict[str, float] = {}
+        for idx in order:
+            item_id = rows[int(idx)][0]
+            if item_id not in best:
+                best[item_id] = float(sims[int(idx)])
+        scores = sorted(best.values(), reverse=True)
+        floor = scores[len(scores) // 2] + REL_FLOOR * (scores[0] - scores[len(scores) // 2]) if len(scores) > 4 else -1.0
+        keep = [i for i, v in sorted(best.items(), key=lambda kv: -kv[1]) if v >= floor][:top_items]
+        wanted = set(keep)
+        hits: dict[str, dict] = {i: {"score": best[i], "chunks": []} for i in keep}
         for idx in order:
             item_id, field, text = rows[int(idx)]
-            score = float(sims[int(idx)])
-            entry = hits.setdefault(item_id, {"score": score, "chunks": []})
-            entry["score"] = max(entry["score"], score)
-            if len(entry["chunks"]) < chunks_per_item:
-                entry["chunks"].append({"field": field, "text": text, "score": round(score, 4)})
+            if item_id in wanted and len(hits[item_id]["chunks"]) < chunks_per_item:
+                hits[item_id]["chunks"].append({"field": field, "text": text, "score": round(float(sims[int(idx)]), 4)})
+                if all(len(h["chunks"]) >= chunks_per_item for h in hits.values()):
+                    break
         return hits
     except Exception:  # noqa: BLE001 - 硬约束：语义层任何异常都不许影响词法检索
         return None

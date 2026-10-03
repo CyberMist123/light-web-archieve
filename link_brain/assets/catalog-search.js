@@ -21,8 +21,9 @@ function itemText(it) { const fs = it.search_fields; return (fs ? Object.values(
 //    模糊命中的整篇放进「可能相关」区，排在精确命中之后，不混排。
 // 3. 拼音只认整音节：「悉尼」= xi·ni 两个完整音节按顺序相邻；xin 撞不上 xi·ni；至少两个音节才算。
 // 4. 多个词 = 都要中（AND）。排序先看分数，星标只 ×1.15（与 retrieval.rank 同口径），同分星标在前。
-const SEARCH_WEIGHTS = {title:12,tags:10,body:7,attachments:6,transcript:6,ocr:5,comments:3,summary:2,author:1};
-const SEARCH_FIELD_LABELS = {title:'标题',tags:'标签',body:'正文',attachments:'附件',transcript:'视频转写',ocr:'图片文字',comments:'评论',summary:'概要',author:'作者'};
+// notes = 她自己的批注（第 10 批进检索，和标签同权；与 retrieval.WEIGHTS 一致）
+const SEARCH_WEIGHTS = {title:12,tags:10,notes:10,body:7,attachments:6,transcript:6,ocr:5,comments:3,summary:2,author:1};
+const SEARCH_FIELD_LABELS = {title:'标题',tags:'标签',notes:'批注',body:'正文',attachments:'附件',transcript:'视频转写',ocr:'图片文字',comments:'评论',summary:'概要',author:'作者'};
 const STAR_BOOST = 1.15;
 const FUZZY_LABELS = {pinyin:'拼音相近', typo:'标题错字', gap:'漏字'};
 const searchCache = new WeakMap();
@@ -35,8 +36,29 @@ function searchFields(it) {
   return fs;
 }
 function termVariants(term, aliases = []) {
-  return [...new Set([term,...aliases.filter(g=>g.includes(term)||(term==='音'&&g.includes('音乐'))).flat().map(normalize)])];
+  return [...new Set([term,...aliases.filter(g=>Array.isArray(g)&&(g.includes(term)||(term==='音'&&g.includes('音乐')))).flat().map(normalize)])];
 }
+// 英文按词边界（第 10 批，与 retrieval._pattern 同一规则）：字母 / 数字开头的词，前面不能紧挨字母数字（cafeine 不再命中 ai）；
+// 4 个字母以下的纯字母数字词，后面也不能紧挨字母（允许复数 s / es：llm → llms）；长词按词首（dream → dreaming）。中文照旧子串。
+const termRegexCache = new Map();
+function termRegex(v) {
+  if (termRegexCache.has(v)) return termRegexCache.get(v);
+  let re = null;
+  if (/^[a-z0-9]/.test(v)) {
+    const tail = /^[a-z0-9]+$/.test(v) && v.length < 4 ? '(?:e?s)?(?![a-z])' : '';
+    re = new RegExp('(?<![a-z0-9])' + v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + tail, 'g');
+  }
+  termRegexCache.set(v, re);
+  return re;
+}
+function termIndex(text, v, from = 0) {
+  const re = termRegex(v);
+  if (!re) return text.indexOf(v, from);
+  re.lastIndex = from;
+  const m = re.exec(text);
+  return m ? m.index : -1;
+}
+function hasTerm(text, v) { return !!v && text.includes(v) && termIndex(text, v) >= 0; }
 // 条目的拼音音节：catalog.py 写成空格分隔的整音节（标点处是「/」断开）。旧数据是连写的一长串，整音节匹配自然不中（fail-closed）。
 const syllableCache = new WeakMap();
 function itemSyllables(it) {
@@ -85,7 +107,7 @@ function matchItem(it, query, chars = {}, aliases = []) {
     let best = 0, hit = null;
     for (const v of termVariants(term, aliases)) for (const [key, text] of Object.entries(fs)) {
       const w = (SEARCH_WEIGHTS[key] || 1) * (v === term ? 1 : .75);
-      if (w > best && text.includes(v)) { best = w; hit = {term, kind: v === term ? 'exact' : 'alias', field: key, variant: v}; }
+      if (w > best && hasTerm(text, v)) { best = w; hit = {term, kind: v === term ? 'exact' : 'alias', field: key, variant: v}; }
     }
     if (best) { total += best; hits.push(hit); continue; }
     fuzzy = true;
@@ -114,6 +136,9 @@ function rankItems(list, query, chars = {}, aliases = []) {
     const m = matchItem(it, query, chars, aliases);
     if (!m || m.score <= 0) return;
     const row = {it, score: m.score, rank: m.score * (it.starred ? STAR_BOOST : 1), match: m, index};
+    // 第 10 批：每条带命中类型和命中片段（row.hit，见 hitInfo），用到才算——几百条结果不必每条都切摘录
+    let info;
+    Object.defineProperty(row, 'hit', {enumerable: true, get() { if (info === undefined) info = hitInfo(it, m); return info; }});
     (m.fuzzy ? possible : exact).push(row);
   });
   const order = (a, b) => b.rank - a.rank || Number(!!b.it.starred) - Number(!!a.it.starred) || a.index - b.index;
@@ -161,7 +186,7 @@ function resolveQuery(raw, list, chars = {}, aliases = []) {
   return raw;
 }
 // 卡片上的命中摘录：按查询里第一个有原文命中的词定位，标出来自哪里（正文 / 评论 / 图片文字 / 附件 / 视频转写），并给出要高亮的位置。
-const EXCERPT_FIELDS = ['body', 'ocr', 'attachments', 'transcript', 'comments', 'summary'];
+const EXCERPT_FIELDS = ['notes', 'body', 'ocr', 'attachments', 'transcript', 'comments', 'summary'];
 function hitExcerpt(it, m, width = 120) {
   if (!m || !m.hits.length) return null;
   const raw = Object.assign({summary: it.summary, title: it.title}, it.search_fields || {body: it.search_text});
@@ -171,8 +196,8 @@ function hitExcerpt(it, m, width = 120) {
     for (const field of EXCERPT_FIELDS) {
       const original = String(raw[field] || '');
       const lower = original.toLowerCase();
-      let pos = lower.indexOf(h.variant), source = original;
-      if (pos < 0) { const n = normalize(original); pos = n.indexOf(h.variant); source = n; }
+      let pos = termIndex(lower, h.variant), source = original;
+      if (pos < 0) { const n = normalize(original); pos = termIndex(n, h.variant); source = n; }
       if (pos < 0) continue;
       const start = Math.max(0, pos - 30);
       let text = source.slice(start, start + width).replace(/\s+/g, ' ').trim();
@@ -183,11 +208,36 @@ function hitExcerpt(it, m, width = 120) {
   }
   return null;
 }
+// 一条结果的命中类型 + 命中片段（第 10 批，给卡片标题下的浅色小字用）：
+// {kind: 'exact'|'alias'|'typo'|'pinyin'|'gap', confidence: 'high'|'low', crossLanguage, term, variant,
+//  snippet: {field, label, text, marks: [[起, 止]…]} | null}
+// kind = 这一篇里最弱的那种命中（错字 > 拼音 > 漏字 > 同义词 > 原词）；低置信度 = 错字 / 拼音 / 漏字，或换了语种的同义词（做梦 → dream）。
+// snippet 优先给低置信度那个词的出处：同义词按原文摘一段；错字 / 拼音 / 漏字（原文里没有这个词）给标题。
+const HIT_ORDER = ['typo', 'pinyin', 'gap', 'alias'];
+const isLatin = s => /[a-z0-9]/.test(s) && !/[一-鿿]/.test(s);
+function crossLanguage(h) { return h.kind === 'alias' && !!h.variant && isLatin(h.term) !== isLatin(h.variant); }
+function hitInfo(it, m) {
+  if (!m || !m.hits.length) return null;
+  const lowHits = m.hits.filter(h => FUZZY_LABELS[h.kind] || crossLanguage(h));
+  const kind = HIT_ORDER.find(k => m.hits.some(h => h.kind === k)) || 'exact';
+  const focus = lowHits[0] || m.hits[0];
+  let snippet = null;
+  if (focus.variant) {
+    snippet = hitExcerpt(it, {hits: [focus], fuzzy: m.fuzzy});
+    if (!snippet && (focus.field === 'title' || focus.field === 'tags')) {
+      const text = focus.field === 'title' ? String(it.title || '') : (it.tags || []).join(' ');
+      snippet = {field: focus.field, label: SEARCH_FIELD_LABELS[focus.field], text, marks: markRanges(text, [focus.variant])};
+    }
+  }
+  if (!snippet) snippet = {field: 'title', label: SEARCH_FIELD_LABELS.title, text: String(it.title || ''), marks: []};
+  return {kind, confidence: lowHits.length ? 'low' : 'high', crossLanguage: m.hits.some(crossLanguage),
+          term: focus.term, variant: focus.variant || '', snippet};
+}
 function markRanges(text, words) {
   const lower = text.toLowerCase(), out = [];
   for (const w of words) {
     if (!w) continue;
-    for (let i = lower.indexOf(w); i >= 0; i = lower.indexOf(w, i + w.length)) {
+    for (let i = termIndex(lower, w); i >= 0; i = termIndex(lower, w, i + w.length)) {
       if (!out.some(([a, b]) => i < b && i + w.length > a)) out.push([i, i + w.length]);
     }
   }
