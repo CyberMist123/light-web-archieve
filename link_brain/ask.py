@@ -49,6 +49,9 @@ _STOP = {"的", "了", "我", "有", "和", "与", "给", "所有", "全部", "�
          "请", "帮", "找", "查", "列", "列出", "提取", "地址", "链接", "分析", "简单",
          "从收藏", "收藏里", "从收藏里", "给我", "一份", "重点", "重点是", "材料", "步骤", "怎么", "如何", "什么", "有没有", "这些", "相关", "这些", "那些", "哪些", "是", "在", "吗", "呢", "把", "对", "里"}
 
+# 虚字：单独成词、或出现在 2-gram 片段里都不当检索词
+_FUNC_CHARS = set("的了吗呢吧啊呀么嘛哦着过得地是在有和与或及把被给让那这个们也都就还又再很太")
+
 
 # --------------------------------------------------------------------------
 # 本地索引
@@ -80,7 +83,8 @@ def query_terms(question: str) -> list[str]:
     from .retrieval import norm
     jieba.setLogLevel(logging.ERROR)
     ignored = _STOP | {'整理','做法','推荐','有哪些','收藏','归档','库里','原文','怎么回事','需要','想要','内容','告诉','里面','相关','能不能','帮我','方法','看看',
-                      '现有','重要细节','推荐理由','材料缺口','一级标题','二级标题','大小标题','标题','报告','按适合程度筛选','适合程度','筛选','写清','根据','觉得','还有','值得','现在','平时','改善','家里','晚上','只','你','按','想','做','住'}
+                      '现有','重要细节','推荐理由','材料缺口','一级标题','二级标题','大小标题','标题','报告','按适合程度筛选','适合程度','筛选','写清','根据','觉得','还有','值得','现在','平时','改善','家里','晚上','只','你','按','想','做','住',
+                      '好吧','几个','一些'}
     text = norm(question)
     for stop in sorted(ignored, key=len, reverse=True):
         if len(stop) > 1:
@@ -91,8 +95,10 @@ def query_terms(question: str) -> list[str]:
         if all(w in ignored for w in words):continue
         candidates = words + ([chunk] if len(chunk) <= 16 else [])
         if re.fullmatch(r'[一-鿿]+', chunk):
-            candidates += [chunk[i:i+2] for i in range(len(chunk)-1)]
-        terms.extend(w for w in candidates if w not in ignored and w.strip())
+            # 2-gram 兜 jieba 切不开的词（「记忆层」→「忆层」）；跨词的虚字片段（「的低」「那东」「宜的」）只会在
+            # 超长附件里到处撞上，把不相干的大文档顶进前几（10-03 复盘），不要
+            candidates += [g for g in (chunk[i:i+2] for i in range(len(chunk)-1)) if not set(g) & _FUNC_CHARS]
+        terms.extend(w for w in candidates if w not in ignored and w.strip() and w not in _FUNC_CHARS)
     return list(dict.fromkeys(terms))
 
 
@@ -261,12 +267,97 @@ def _select_sources(question, matches, terms, settings, count, sem=None):
     return [candidates[n-1] for n in dict.fromkeys(selected)][:count],len(candidates)
 
 
+_SELECT_RE = re.compile(r'推荐|项目|报告|列(?:一下|出)|盘点|对比|相关|做梦|细节')
+
+
+def selection_wanted(question, matches, top_k):
+    """宽泛的推荐 / 盘点类问题先让小模型从前 40 条候选里挑材料（_select_sources）。"""
+    return len(matches) > top_k and bool(_SELECT_RE.search(question or ""))
+
+
+# 追问里指代上文的说法：去掉它们再看这一问自己还剩什么话题
+_FOLLOWUP_WORDS = re.compile(r"第[一二三四五六七八九十两\d]+(?:个|篇|条|项|种|家|步|点)?|这个|那个|这篇|那篇|这条|那条|这些|那些|上面|上文|刚才|前面|"
+                             r"详细|具体|展开|说说|讲讲|继续|多说|再说|更多|别的|其他|其它|一下|它们|它|他们|她们")
+# 换主语的省略式追问：「那东京的呢」「换成大阪」——沿用上一问的其他条件，只换话题
+_SWITCH_RE = re.compile(r"^(?:(?:好吧|好的|行|嗯|哦|ok)[\s,，、。!！]*)?(?:那么?|换成|换个|如果是|要是)|呢\s*[？?]?\s*$", re.I)
+
+
+def _topic_terms(items, question):
+    """这一问自己的话题词：库里有、但不到一半的篇都有（「AI」这种全库都沾的不算话题）。"""
+    from .retrieval import term_stats
+    cleaned = _FOLLOWUP_WORDS.sub(" ", question or "")
+    out = []
+    for term in query_terms(cleaned):
+        anywhere, meta = term_stats(items, term)
+        if 0 < anywhere < max(2, len(items) * .5):
+            out.append((term, anywhere, meta))
+    return out
+
+
+def _covered(item, term):
+    from .retrieval import fields, norm, variants
+    vs = variants(term)
+    return any(v in norm(text) for v in vs for text in fields(item).values())
+
+
+def _meta_anchored(question, items, candidates):
+    """候选里标题 / 标签 / 分类 / 概要把这一问的话题词全占了的篇（挑材料挑空时的兜底；没话题词就不兜）。"""
+    from .retrieval import norm, variants
+    words = [t for t, _, _ in _topic_terms(items, question)]
+    if not words:
+        return []
+    def meta(it):
+        return norm(" ".join([str(it.get("title") or ""), " ".join(it.get("tags") or []),
+                              " ".join(it.get("cats") or []), str(it.get("summary") or "")]))
+    return [it for it in candidates if all(any(v in meta(it) for v in variants(w)) for w in words)]
+
+
+def qa_matches(question, items, terms, sem, history=None):
+    """问答的候选排序：(matches, mode, prior_terms)。生产 _answer_qa 和评测 tests/tools/ask_eval.py 共用这一个函数。
+
+    mode：standalone = 新话题，只按这一问检索（上文不掺进来）；followup = 追问，上文那一问的结果排前；
+    switch = 换主语的省略式追问（「那东京的呢」），上一问 + 这一问一起检索、先满足这一问的话题词。
+
+    10-03 复盘：以前「问题短于 18 个字就当追问」，连着换话题问几句短问题（某地好吃的 → 另一地好吃的 → 某部小说相关），
+    后几问都被按上一轮的结果重排，最后一问的 40 条候选全是吃的，挑材料一篇没挑上就答「没有」。
+    现在只有这一问自己没有话题（「第二个详细说说」），或话题只是正文里的属性词（「需要哪些调料？」）才算追问。
+    """
+    from .retrieval import rank_query
+    history = [m for m in (history or [])[-8:] if m.get("role") in {"user", "assistant"}]
+    asked = [str(m.get("content", ""))[:1000] for m in history if m["role"] == "user"]
+    own = [it for _, it in rank_query(items, question, terms, sem=sem)]
+    if not asked:
+        return own, "standalone", []
+    topic = _topic_terms(items, question)
+    # 上文的主语：往回找最近一个自己带话题的提问（连着两句追问时主语在更前面）
+    anchor = ""
+    for previous in reversed(asked):
+        anchor = previous + (" " + anchor if anchor else "")
+        if _topic_terms(items, previous):
+            break
+    anchor_terms = query_terms(anchor)
+    topical = [t for t, anywhere, meta in topic if meta and meta >= anywhere * .25]
+    if topic and _SWITCH_RE.search(question.strip()) and len(question) <= 30:
+        words = [t for t, _, _ in topic]
+        combined = [it for _, it in rank_query(items, anchor + " " + question, list(dict.fromkeys(terms + anchor_terms)), sem=sem)]
+        # 先满足这一问的话题词（覆盖得多的在前），同档按上一问 + 这一问的综合分
+        order = sorted(range(len(combined)), key=lambda i: (-sum(_covered(combined[i], w) for w in words), i))
+        matches = [combined[i] for i in order]
+        seen = {it["id"] for it in matches}
+        return matches + [it for it in own if it["id"] not in seen], "switch", anchor_terms
+    if topic and (topical or len(question) >= 18):
+        return own, "standalone", []
+    # 追问：上一问的结果按原顺序排前，这一问自己的命中跟在后面
+    previous = retrieve(items, anchor_terms)
+    seen = {it["id"] for it in previous}
+    return previous + [it for it in own if it["id"] not in seen], "followup", anchor_terms
+
+
 def _answer_qa(question, items, settings, history=None):
-    from .retrieval import evidence, rank_query, query_facets, semantic_hits
+    from .retrieval import evidence, query_facets, semantic_hits
     _phase(f"检索收藏：共 {len(items)} 条")
     history = [m for m in (history or [])[-8:] if m.get("role") in {"user", "assistant"}]
-    # Prior user requests resolve follow-ups; previous model text is never retrieval evidence.
-    prior = " ".join(str(m.get("content", ""))[:1000] for m in history if m["role"] == "user")
+    # 上一轮的用户提问只用来理解追问（qa_matches）；模型之前的回答从不当检索证据
     base_terms = query_terms(question)
     # 答案缓存（Lot D）：只对独立提问撞索引；追问依赖本轮对话，不和历史问题比。任何失败=全新问题。
     qvec = answer_cache.question_vector(question)
@@ -274,15 +365,7 @@ def _answer_qa(question, items, settings, history=None):
     terms = _expand_terms(question, base_terms, settings)
     # ask-7：语义层命中的 chunk 后面还要当证据用；拿一次，排序和取证共用（失败 = None，纯词法）
     sem = semantic_hits(question)
-    matches = [it for _, it in rank_query(items, question, terms, sem=sem)]
-    if prior:
-        previous = retrieve(items, query_terms(prior))
-        seen = {it["id"] for it in matches}
-        matches += [it for it in previous if it["id"] not in seen]
-        # Continuation with little standalone information uses preceding subject first.
-        if len(question) < 18:
-            order = {it["id"]: i for i, it in enumerate(previous)}
-            matches.sort(key=lambda it: order.get(it["id"], len(previous)))
+    matches, _mode, prior_terms = qa_matches(question, items, terms, sem, history)
     _phase(f"检索收藏：相关 {len(matches)} / 共 {len(items)} 条")
     if not matches:
         return {"kind": "answer", "markdown": "收藏里没有找到足够相关的材料。可以换个关键词，或先导入相关内容。",
@@ -295,7 +378,7 @@ def _answer_qa(question, items, settings, history=None):
     selected=matches[:top_k]
     selection_failed=False
     if _cancelled():return _stopped()
-    if len(matches)>top_k and re.search(r'推荐|项目|报告|列(?:一下|出)|盘点|对比|相关|做梦|细节',question):
+    if selection_wanted(question, matches, top_k):
         _phase(f"挑选材料：从 {min(len(matches), 40)} 条候选里挑")
         try:selected,candidate_count=_select_sources(question,matches,terms,settings,top_k,sem)
         except (ValueError,TypeError,AttributeError):
@@ -312,11 +395,17 @@ def _answer_qa(question, items, settings, history=None):
         if len(facets)>=3:
             merged={it['id']:it for it in [*[candidates[0][1] for _,candidates in facets],*selected]}
             selected=list(merged.values())[:top_k]
+    selection_kept=False
+    if not selected and not selection_failed:
+        # 挑材料的小模型一篇都没挑，但前几条里有标题 / 标签 / 概要就写着这一问每个话题词的篇：
+        # 宁可交给作答模型去核对，也别直接答「没有」（10-03 复盘里换话题的短问题答成「没有」那一类）
+        selected=_meta_anchored(question,items,matches[:top_k])
+        selection_kept=bool(selected)
     if not selected:
         return {'kind':'answer','markdown':'候选收藏中没有符合这些条件的内容。可以放宽条件再问。','sources':[], 'model_called':True,'materials':0,'matches':len(matches)}
     blocks, sources = [], []
     for it in selected:
-        snippets = locate_excerpts(it, evidence(it, terms + query_terms(prior), min(max(frag,cap//max(1,len(selected))-150),4000),
+        snippets = locate_excerpts(it, evidence(it, terms + prior_terms, min(max(frag,cap//max(1,len(selected))-150),4000),
                                                 sem, window_chars=1000, max_parts=4))
         block = f"[来源{len(sources)+1}] {it['title']}\n" + "\n".join(f"[{x['field']}] {x['text']}" for x in snippets)
         remaining = cap - sum(len(x) for x in blocks)
@@ -369,6 +458,7 @@ def _answer_qa(question, items, settings, history=None):
             "materials": len(sources), "candidates":candidate_count,"truncated":res.get('truncated',False), "model_called": True, "usage": res.get("usage")}
     if hint:result["answer_cache"]={"asked_at":cache_hit["ts"],"question":cache_hit["question"],"match":cache_hit.get("match")}
     if selection_failed:result["selection_failed"]=True
+    if selection_kept:result["selection_kept"]=True
     return result
 
 
