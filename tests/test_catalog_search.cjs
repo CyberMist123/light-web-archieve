@@ -83,6 +83,11 @@ console.log(`PASS search rules: ${queries.length} regression queries (pinyin who
   // 批注命中：片段标「批注」
   const note = rows('复刻').find(r => r.it.id === 'note-only').hit;
   assert.equal(note.snippet.label, '批注'); assert.equal(note.confidence, 'high');
+  // 只在图片文字里的一两个字母（AI）：低置信度，进「可能相关」
+  const bits = S2.rankItems(data.items, S2.normalize('ai 助手'), data.pinyin_chars, data.aliases);
+  const ocrAi = bits.possible.find(r => r.it.id === 'ocr-ai');
+  assert.ok(ocrAi && !bits.exact.some(r => r.it.id === 'ocr-ai'));
+  assert.equal(ocrAi.hit.kind, 'ocrbits'); assert.equal(ocrAi.hit.confidence, 'low'); assert.equal(ocrAi.hit.snippet.label, '图片文字');
   console.log('PASS batch 10: latin word boundary (cafeine ≠ ai), row.hit kind / confidence / snippet, annotations searchable');
 }
 

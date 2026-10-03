@@ -450,7 +450,7 @@ function renderGrid(){
     if(match.fuzzy&&!possibleCards){
       const headEl=grid.createEl('div',{cls:'lbc-possible-head'});
       headEl.createEl('span',{cls:'lbc-possible-title',text:`可能相关 · ${ranked.possible.length} 篇`});
-      headEl.createEl('span',{cls:'lbc-possible-note',text:'拼音相近、错一个字或漏字，不是原词命中'});
+      headEl.createEl('span',{cls:'lbc-possible-note',text:'拼音相近、错一个字、漏字或图片里的零散字母，不是原词命中'});
       possibleCards=grid.createEl('div',{cls:'lbc-grid-inner lbc-grid-possible'});
     }
     const cards=possibleCards||exactCards;

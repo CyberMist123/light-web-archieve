@@ -25,7 +25,7 @@ function itemText(it) { const fs = it.search_fields; return (fs ? Object.values(
 const SEARCH_WEIGHTS = {title:12,tags:10,notes:10,body:7,attachments:6,transcript:6,ocr:5,comments:3,summary:2,author:1};
 const SEARCH_FIELD_LABELS = {title:'标题',tags:'标签',notes:'批注',body:'正文',attachments:'附件',transcript:'视频转写',ocr:'图片文字',comments:'评论',summary:'概要',author:'作者'};
 const STAR_BOOST = 1.15;
-const FUZZY_LABELS = {pinyin:'拼音相近', typo:'标题错字', gap:'漏字'};
+const FUZZY_LABELS = {ocrbits:'图片里的零散字母', pinyin:'拼音相近', typo:'标题错字', gap:'漏字'};
 const searchCache = new WeakMap();
 function searchFields(it) {
   let fs = searchCache.get(it);
@@ -59,6 +59,9 @@ function termIndex(text, v, from = 0) {
   return m ? m.index : -1;
 }
 function hasTerm(text, v) { return !!v && text.includes(v) && termIndex(text, v) >= 0; }
+// 图片文字里的一两个字母（ai、ok）：OCR 常把小字 / 货架标签拆出零散字母（超市小票里的「AI I」），只在图片文字里中的
+// 一两个字母的英文词算低置信度命中（kind 'ocrbits'，进「可能相关」），不和原词命中混排。与 retrieval.match 同规则。
+const isShortLatin = v => /^[a-z0-9]{1,2}$/.test(v) && !/^[0-9]+$/.test(v);
 // 条目的拼音音节：catalog.py 写成空格分隔的整音节（标点处是「/」断开）。旧数据是连写的一长串，整音节匹配自然不中（fail-closed）。
 const syllableCache = new WeakMap();
 function itemSyllables(it) {
@@ -107,10 +110,12 @@ function matchItem(it, query, chars = {}, aliases = []) {
     let best = 0, hit = null;
     for (const v of termVariants(term, aliases)) for (const [key, text] of Object.entries(fs)) {
       const w = (SEARCH_WEIGHTS[key] || 1) * (v === term ? 1 : .75);
-      if (w > best && hasTerm(text, v)) { best = w; hit = {term, kind: v === term ? 'exact' : 'alias', field: key, variant: v}; }
+      if (w > best && hasTerm(text, v) && !(key === 'ocr' && isShortLatin(v))) { best = w; hit = {term, kind: v === term ? 'exact' : 'alias', field: key, variant: v}; }
     }
     if (best) { total += best; hits.push(hit); continue; }
     fuzzy = true;
+    const bits = termVariants(term, aliases).find(v => isShortLatin(v) && hasTerm(fs.ocr || '', v));
+    if (bits) { total += 2; hits.push({term, kind: 'ocrbits', field: 'ocr', variant: bits}); continue; }
     // 纯字母的短词（xin、ai）错一个字母 / 漏字母能撞上一大片英文单词：字母词至少 4 个才认这两种模糊
     const latinShort = /^[a-z0-9]+$/.test(term) && term.length < 4;
     if (!latinShort && fuzzyContains(fs.title, term)) { total += 3; hits.push({term, kind: 'typo', field: 'title'}); continue; }
@@ -209,11 +214,11 @@ function hitExcerpt(it, m, width = 120) {
   return null;
 }
 // 一条结果的命中类型 + 命中片段（第 10 批，给卡片标题下的浅色小字用）：
-// {kind: 'exact'|'alias'|'typo'|'pinyin'|'gap', confidence: 'high'|'low', crossLanguage, term, variant,
+// {kind: 'exact'|'alias'|'ocrbits'|'typo'|'pinyin'|'gap', confidence: 'high'|'low', crossLanguage, term, variant,
 //  snippet: {field, label, text, marks: [[起, 止]…]} | null}
-// kind = 这一篇里最弱的那种命中（错字 > 拼音 > 漏字 > 同义词 > 原词）；低置信度 = 错字 / 拼音 / 漏字，或换了语种的同义词（做梦 → dream）。
+// kind = 这一篇里最弱的那种命中（错字 > 拼音 > 漏字 > 图片里的零散字母 > 同义词 > 原词）；低置信度 = 前四种，或换了语种的同义词（做梦 → dream）。
 // snippet 优先给低置信度那个词的出处：同义词按原文摘一段；错字 / 拼音 / 漏字（原文里没有这个词）给标题。
-const HIT_ORDER = ['typo', 'pinyin', 'gap', 'alias'];
+const HIT_ORDER = ['typo', 'pinyin', 'gap', 'ocrbits', 'alias'];
 const isLatin = s => /[a-z0-9]/.test(s) && !/[一-鿿]/.test(s);
 function crossLanguage(h) { return h.kind === 'alias' && !!h.variant && isLatin(h.term) !== isLatin(h.variant); }
 function hitInfo(it, m) {

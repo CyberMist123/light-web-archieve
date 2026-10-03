@@ -59,6 +59,12 @@ def count(text, v):
     return text.count(v) if pat is None else sum(1 for _ in pat.finditer(text))
 
 
+def short_latin(v):
+    """一两个字母的英文词（ai、ok）。图片文字里这种词常是 OCR 从货架标签 / 小字里拆出来的零散字母（10-03 目录搜「ai 做梦」
+    冒出超市半价帖：小票上有一行「AI I」）：只在图片文字里中的算低置信度（进「可能相关」）。目录页 isShortLatin 同一规则。"""
+    return bool(re.fullmatch(r"[a-z0-9]{1,2}", v)) and not v.isdigit()
+
+
 def find(text, v, start=0):
     """第一次出现的位置（同 has 的规则）；没有 = -1。"""
     pat = _pattern(v)
@@ -199,7 +205,10 @@ def match(item, terms, *, require_all=False):
         if not term:
             continue
         best = max((WEIGHTS.get(key, 1) * (1 if v == term else .75)
-                    for v in variants(term) for key, text in fs.items() if has(text, v)), default=0)
+                    for v in variants(term) for key, text in fs.items()
+                    if has(text, v) and not (key == "ocr" and short_latin(v))), default=0)
+        if not best and any(short_latin(v) and has(fs.get("ocr", ""), v) for v in variants(term)):
+            best, fuzzy = 2, True  # 只在图片文字里的零散字母：可能相关
         # 纯字母短词（xin、ai）错一个字母 / 漏字母能撞上一大片英文单词：字母词至少 4 个才认这两种模糊（与目录页同）
         latin_short = bool(re.fullmatch(r"[a-z0-9]+", term)) and len(term) < 4
         if not best and not latin_short and _typo_in(fs["title"], term):

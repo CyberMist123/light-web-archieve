@@ -8,9 +8,10 @@
  {"query": "zuomeng", "note": "拼音整音节找回做梦", "must_top": [], "must_include": [], "must_exclude": ["noodle"], "fuzzy_only": ["dream-a", "dream-b", "dream-d"], "exact_max": 0},
  {"query": "鸡肉 电饭煲", "note": "精确的在前（电饭锅是电饭煲的同义词，算原词命中）；鸡腿肉（漏字）放「可能相关」", "must_top": ["chk-rice", "chk-pot", "chk-chestnut"], "must_include": [], "must_exclude": ["chk-sauna"], "fuzzy_only": ["chk-thigh"]},
  {"query": "鸡肉 快手", "note": "同义词 chicken 也算原词命中", "must_top": ["chk-sauna", "chk-alias"], "must_include": [], "must_exclude": ["chk-rice"], "fuzzy_only": ["chk-thigh"]},
- {"query": "AI 做梦", "note": "先看分数：星标 19 分（×1.15）不压过非星标 24 分；同分星标在前；第 10 批：英文按词边界，OCR 里的 cafeine 不再算命中 ai（以前「ai」+「dream」两个词都「中」，超市半价帖混进来）", "must_top": ["dream-a", "dream-b", "dream-c", "dream-d"], "must_include": [], "must_exclude": ["noodle", "half-price"], "fuzzy_only": []},
- {"query": "AI做梦", "note": "中英混写不加空格，和「AI 做梦」同一批、同一顺序；第 10 批：英文按词边界，OCR 里的 cafeine 不再算命中 ai（以前「ai」+「dream」两个词都「中」，超市半价帖混进来）", "must_top": ["dream-a", "dream-b", "dream-c", "dream-d"], "must_include": [], "must_exclude": ["noodle", "half-price"], "fuzzy_only": []},
+ {"query": "AI 做梦", "note": "先看分数：星标 19 分（×1.15）不压过非星标 24 分；同分星标在前；第 10 批：英文按词边界，OCR 里的 cafeine 不再算命中 ai；小票上的零散字母「AI I」只算低置信度，超市半价帖从精确结果挪到「可能相关」", "must_top": ["dream-a", "dream-b", "dream-c", "dream-d"], "must_include": [], "must_exclude": ["noodle"], "fuzzy_only": ["half-price"]},
+ {"query": "AI做梦", "note": "中英混写不加空格，和「AI 做梦」同一批、同一顺序；第 10 批：英文按词边界，OCR 里的 cafeine 不再算命中 ai；小票上的零散字母「AI I」只算低置信度，超市半价帖从精确结果挪到「可能相关」", "must_top": ["dream-a", "dream-b", "dream-c", "dream-d"], "must_include": [], "must_exclude": ["noodle"], "fuzzy_only": ["half-price"]},
  {"query": "AI 记忆 开源", "note": "星标 29 分（×1.15=33.35）不压过 36 分的最佳结果", "must_top": ["mem-open", "mem-star"], "must_include": [], "must_exclude": ["noodle"], "fuzzy_only": []},
  {"query": "复刻", "note": "第 10 批：她自己的批注进检索（只在批注里写了「复刻」的那篇也能搜到）", "must_top": ["note-only"], "must_include": ["note-only"], "must_exclude": [], "fuzzy_only": []},
- {"query": "dream", "note": "第 10 批：英文词首匹配，dream 命中 dreams / Dream bubble；同义词「做梦」的篇也算", "must_top": [], "must_include": ["half-price", "dream-a"], "must_exclude": ["noodle"], "fuzzy_only": []}
+ {"query": "dream", "note": "第 10 批：英文词首匹配，dream 命中 dreams / Dream bubble；同义词「做梦」的篇也算", "must_top": [], "must_include": ["half-price", "dream-a"], "must_exclude": ["noodle"], "fuzzy_only": []},
+ {"query": "ai 助手", "note": "第 10 批：只在图片文字里出现的一两个字母（AI）算低置信度，进「可能相关」（还在，不混进精确结果）", "must_top": [], "must_include": [], "must_exclude": ["half-price"], "fuzzy_only": ["ocr-ai"]}
 ]

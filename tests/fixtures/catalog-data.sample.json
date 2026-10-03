@@ -1,6 +1,6 @@
 {
  "built_at": "2026-10-02T09:00:00+10:00",
- "count": 20,
+ "count": 21,
  "cats_order": [],
  "cats": [],
  "topics": [],
@@ -567,7 +567,7 @@
     "transcript": "",
     "body": "",
     "comments": "",
-    "ocr": "Cafeine free cola 2 for 5\nDream bubble 软糖 半价",
+    "ocr": "Cafeine free cola 2 for 5\nmilk\nai i\nchoc\nDream bubble 软糖 半价",
     "attachments": ""
    },
    "starred": false,
@@ -606,6 +606,31 @@
    "date": "2026-09-20",
    "ts": "2026-09-20T10:00:00+10:00",
    "pinyin": "zhou mo de yi guo dun cai / yi guo dun / jia chang cai"
+  },
+  {
+   "id": "ocr-ai",
+   "title": "手机里的语音助手设置",
+   "tags": [
+    "手机"
+   ],
+   "summary": "截图教程",
+   "search_fields": {
+    "transcript": "",
+    "body": "照着截图点",
+    "comments": "",
+    "ocr": "设置 > AI 助手 > 打开",
+    "attachments": ""
+   },
+   "starred": false,
+   "author": "示例作者",
+   "note": "Web/示例/ocr-ai.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-20",
+   "ts": "2026-09-20T10:00:00+10:00",
+   "pinyin": "shou ji li de yu yin zhu shou she zhi / jie tu jiao cheng / shou ji"
   }
  ],
  "pinyin_chars": {
