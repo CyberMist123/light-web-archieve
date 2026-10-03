@@ -16,6 +16,13 @@ def read_json(path: Path, default):
         return default
 
 
+def dataview_ready(obs: Path) -> bool:
+    """Dataview 装了、启用了、开了 JS 查询（目录 / 问答 / 回收站页都靠它渲染）。"""
+    enabled = read_json(obs / 'community-plugins.json', [])
+    dv = read_json(obs / 'plugins' / 'dataview' / 'data.json', {})
+    return 'dataview' in enabled and dv.get('enableDataviewJs') is True
+
+
 def diagnose(*, obsidian_dir: str | None = None, only=None) -> dict:
     rows = []
     vault = storage.vault_root()
@@ -35,8 +42,7 @@ def diagnose(*, obsidian_dir: str | None = None, only=None) -> dict:
     rows.append(accounts.row('obsidian', 'Obsidian 插件', 'ready' if plugin_ready else 'missing',
                              '已安装并启用' if plugin_ready else ('尚未启用' if installed else '未安装'),
                              '' if plugin_ready else '按 README 复制插件，然后在 Obsidian 社区插件中启用。', optional=True))
-    dv = read_json(plugins / 'dataview' / 'data.json', {})
-    dv_ready = 'dataview' in enabled and dv.get('enableDataviewJs') is True
+    dv_ready = dataview_ready(obs)
     rows.append(accounts.row('dataview', 'Dataview', 'ready' if dv_ready else 'missing',
                              '已启用 JS 查询' if dv_ready else '未检测到 / 未开启 JS',
                              '' if dv_ready else '安装并启用 Dataview，打开 Enable JavaScript Queries。', optional=True))

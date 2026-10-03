@@ -558,5 +558,8 @@ def run(args) -> int:
     path, total, data_path = build()
     print(f"目录已重写：{path}（{total} 篇）")
     print(f"数据：{data_path}")
-    print("提示：OB 需装 Dataview 插件并打开「Enable JavaScript Queries」，页面才会渲染。")
+    # 只在真没装 / 没开 JS 查询时提示（10-03 她：已经装了还每次刷新目录都弹这句）
+    from .doctor import dataview_ready
+    if not dataview_ready(storage.vault_root() / ".obsidian"):
+        print("提示：OB 需装 Dataview 插件并打开「Enable JavaScript Queries」，页面才会渲染。")
     return 0
