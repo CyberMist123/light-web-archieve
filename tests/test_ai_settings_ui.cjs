@@ -53,10 +53,12 @@ function render(saved) {
   settings.length = 0;
   const calls = [];
   const plugin = { settings: Plugin.__merge(saved), saveSettings: async () => {}, renderAccounts() {}, renderSyncRow() {},
-    capsWriterDir: () => null, runPy: async (args) => { calls.push(args); return { json: plugin.reply, err: '' }; } };
+    capsWriterDir: () => null, onboardingUI: () => ({ renderFolder: () => null }), runPy: async (args) => { calls.push(args); return { json: plugin.reply, err: '' }; } };
+  // 第 7 批：设置页分页了，一页一页打开把四个设置分页都画一遍（「开始」页另有 test_setup_wizard.cjs）
   const tab = new Plugin.__SettingTab({}, plugin);
-  tab.display();
-  return { tab, plugin, calls, text: tab.containerEl.allText() };
+  let text = '';
+  for (const id of ['sync', 'ai', 'remote', 'advanced']) { plugin.settingsView = { tab: id, otherAI: false }; tab.display(); text += tab.containerEl.allText() + '\n'; }
+  return { tab, plugin, calls, text };
 }
 
 (async () => {
@@ -77,9 +79,9 @@ function render(saved) {
 
   // 每个能力块下一个测试按钮，调 selftest <能力>
   const tests = settings.flatMap(r => r.buttons).filter(b => /^测试/.test(b.label));
-  assert.deepEqual(tests.map(b => b.label), ['测试文本 AI', '测试归档摘要', '测试识图', '测试语音识别', '测试 MCP', '测试 OCR']);
+  assert.deepEqual(tests.map(b => b.label), ['测试文本 AI', '测试归档摘要', '测试识图', '测试语音识别', '测试 OCR', '测试 MCP']);
   for (const b of tests) await b.onClickCb();
-  assert.deepEqual(calls.map(a => a.at(-1)), ['text', 'summary', 'vision', 'asr', 'mcp', 'ocr']);
+  assert.deepEqual(calls.map(a => a.at(-1)), ['text', 'summary', 'vision', 'asr', 'ocr', 'mcp']);
   assert.ok(calls.every(a => a[2] === 'selftest'));
 
   // 没配 = 「未开启：原因」，不是「失败」

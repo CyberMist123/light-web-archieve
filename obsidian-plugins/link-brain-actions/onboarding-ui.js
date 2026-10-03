@@ -1,12 +1,12 @@
 // onboarding-ui.js — 第 5 批 B2（RELEASE-BAR P8）：首次打开的引导 + 启动时的「缺什么」提示。
 // main.js 只接几行：onboardingUI() 按需 require 本文件；openOnboarding() / startupChecks() / renderSetupHints(c) 转到这里。
-// 引导四步：① 收藏存放位置 ② 读取组件 ③ 扫码登录 ④ 可选填 AI key。每步都能跳过，状态如实（CONVENTIONS §1）：
-// 做成了说做了什么，没做成说原因，跳过就写「已跳过」，没做就空着。关掉窗口 = 引导结束（命令面板「打开首次引导」可再来）。
-// 什么时候自己弹：这个库第一次启用本插件、后端程序找得到、收藏库里还没有 _archive（还没准备好）、没走过引导。作者本机（已有收藏库）不弹。
+// 第 7 批：首次引导不再是弹窗——直接打开设置页「开始」分页（setup-ui.js：选功能 / 检查安装 / 扫码 / 同步 / AI）。
+// 原第 ① 步「收藏存放位置」搬成一行设置 renderFolder（「开始」第 ① 步和「高级」分页共用）；读取组件归第 ② 步 setup install。
+// 什么时候自己打开：这个库第一次启用本插件、后端程序找得到、收藏库里还没有 _archive（还没准备好）、没走过引导。作者本机（已有收藏库）不开。
 // 本模块不起进程：一律经 plugin.runPy（CONVENTIONS §1.4）。
 'use strict';
 module.exports = function (obsidian, plugin) {
-  const { Modal, Notice, Setting } = obsidian;
+  const { Notice, Setting } = obsidian;
   const BACKEND_INSTALL = 'uv tool install link-brain';
 
   const copy = (text) => plugin.copyText(text);
@@ -36,131 +36,43 @@ module.exports = function (obsidian, plugin) {
     return false;
   }
 
-  class OnboardingModal extends Modal {
-    constructor() { super(plugin.app); this.result = {}; }
-
-    // 一步 = 标题 + 说明 + 内容区 + 状态行；setState(kind, text)：done / skipped / failed / ''（没做）
-    step(c, title, desc) {
-      const box = c.createDiv({ cls: 'lb-onb-step' });
-      box.createEl('h3', { text: title });
-      if (desc) box.createEl('p', { cls: 'setting-item-description', text: desc });
-      const body = box.createDiv({ cls: 'lb-onb-body' });
-      const state = box.createDiv({ cls: 'lb-onb-state' });
-      const setState = (kind, text = '') => {
-        state.className = 'lb-onb-state' + (kind ? ' is-' + kind : '');
-        state.setText(kind === 'done' ? '✓ ' + text : kind === 'skipped' ? '已跳过' + (text ? '：' + text : '') : kind === 'failed' ? '没做成：' + text : text);
-      };
-      return { box, body, setState };
+  // 收藏存放位置：本库里的文件夹。改了存插件设置；后端命令模式下顺手写 ~/.link-brain/config.json 的 vault（仓库模式不碰）。
+  async function saveFolder(value) {
+    const n = normalizeFolder(value);
+    if (!n.ok) throw new Error(n.error);
+    const a = plugin.app.vault.adapter;
+    if (n.folder && !(await a.exists(n.folder))) await a.mkdir(n.folder);
+    plugin.settings.collectionFolder = n.folder;
+    await plugin.saveSettings();
+    await plugin.locateCollection();
+    let extra = '';
+    // 命令行 / 外接 MCP / 计划任务不经插件起：后端命令模式下顺手写进 ~/.link-brain/config.json 的 vault（仓库模式不碰）
+    if (plugin.currentBackend().mode === 'command') {
+      try { plugin.writeUserConfig({ vault: plugin.vaultDir }); extra = '（命令行也用这个位置）'; }
+      catch (e) { extra = '（插件里已生效；命令行用的 ~/.link-brain/config.json 没写上：' + e.message + '）'; }
     }
+    return '收藏放在 ' + plugin.vaultDir + extra;
+  }
 
-    onOpen() {
-      const c = this.contentEl; c.empty();
-      this.modalEl?.addClass?.('lb-onboarding');
-      c.createEl('h2', { text: '开始使用 Link Brain' });
-      c.createEl('p', { cls: 'setting-item-description', text: '四步，每步都能跳过。之后想再来：命令面板「打开首次引导」。' });
-      this.drawFolder(c);
-      this.drawReader(c);
-      this.drawLogin(c);
-      this.drawAI(c);
-      new Setting(c).addButton(b => b.setButtonText('完成').setCta().onClick(() => this.close()));
-    }
-
-    // ① 收藏存放位置
-    drawFolder(c) {
-      const st = this.step(c, '① 收藏存放位置', '默认就放在这个库里。想放进单独的文件夹就填文件夹名（在本库里，没有会自动建）。程序装在哪和收藏放在哪互不相关。');
-      let value = plugin.settings.collectionFolder || '';
-      const base = plugin.app.vault.adapter.getBasePath();
-      const preview = st.body.createEl('p', { cls: 'setting-item-description' });
-      const paint = () => { const n = normalizeFolder(value); preview.setText(n.ok ? '收藏会放在：' + (n.folder ? base.replace(/[\\/]+$/, '') + '/' + n.folder : base) : n.error); };
-      new Setting(st.body).setName('文件夹').setDesc('留空 = 库根目录')
-        .addText(t => t.setPlaceholder('留空，或如：收藏').setValue(value).onChange(v => { value = v; paint(); }))
-        .addButton(b => b.setButtonText('保存').setCta().onClick(async () => {
-          b.setDisabled(true);
-          try { st.setState('done', await this.saveFolder(value)); this.result.folder = 'done'; }
-          catch (e) { st.setState('failed', e.message); this.result.folder = 'failed'; }
-          finally { b.setDisabled(false); }
-        }))
-        .addButton(b => b.setButtonText('跳过').onClick(() => { st.setState('skipped', '收藏放在库根目录'); this.result.folder = 'skipped'; }));
-      paint();
-      if (plugin.settings.collectionFolder) st.setState('done', '之前选过：' + plugin.vaultDir);
-    }
-
-    async saveFolder(value) {
-      const n = normalizeFolder(value);
-      if (!n.ok) throw new Error(n.error);
-      const a = plugin.app.vault.adapter;
-      if (n.folder && !(await a.exists(n.folder))) await a.mkdir(n.folder);
-      plugin.settings.collectionFolder = n.folder;
-      await plugin.saveSettings();
-      await plugin.locateCollection();
-      let extra = '';
-      // 命令行 / 外接 MCP / 计划任务不经插件起：后端命令模式下顺手写进 ~/.link-brain/config.json 的 vault（仓库模式不碰）
-      if (plugin.currentBackend().mode === 'command') {
-        try { plugin.writeUserConfig({ vault: plugin.vaultDir }); extra = '（命令行也用这个位置）'; }
-        catch (e) { extra = '（插件里已生效；命令行用的 ~/.link-brain/config.json 没写上：' + e.message + '）'; }
-      }
-      return '收藏放在 ' + plugin.vaultDir + extra;
-    }
-
-    // ② 读取组件：reader status → 已就位 / 下载 / 发布地址还没配（测试版：手动放置）
-    drawReader(c) {
-      const st = this.step(c, '② 读取组件', '读收藏、评论、附件都要它（一个小程序，带自己的浏览器）。');
-      const draw = async () => {
-        st.body.empty(); st.setState('', '检查中…');
-        let r;
-        try { r = (await plugin.runPy(['-m', 'link_brain', 'reader', 'status'], { label: '检查读取组件', fallback: '读不到读取组件状态', timeoutMs: 60000 })).json; }
-        catch (e) { st.setState('failed', e.message); this.result.reader = 'failed'; return; }
-        if (!r) { st.setState('failed', '后台没返回读取组件状态'); this.result.reader = 'failed'; return; }
-        if (r.reader) { st.setState('done', '已就位：' + r.reader); this.result.reader = 'done'; return; }
-        st.setState('', '还没装');
-        const row = new Setting(st.body).setName('下载读取组件');
-        if (r.release_configured === true) {
-          row.setDesc('从发布页下载并校验后装进 ' + (r.bin_dir || '~/.link-brain/bin'));
-          row.addButton(b => b.setButtonText('下载读取组件').setCta().onClick(async () => {
-            b.setDisabled(true); st.setState('', '正在下载…（几十 MB，几分钟）');
-            try {
-              const { json } = await plugin.runPy(['-m', 'link_brain', 'reader', 'install'], { label: '下载读取组件', fallback: '下载失败', timeoutMs: 15 * 60000, okCodes: [0, 1] });
-              if (json && json.ok) { st.setState('done', json.message || '读取组件已装好'); this.result.reader = 'done'; this.refreshAccounts?.(); }
-              else { st.setState('failed', (json && json.message) || '后台没返回结果'); this.result.reader = 'failed'; }
-            } catch (e) { st.setState('failed', e.message); this.result.reader = 'failed'; }
-            finally { b.setDisabled(false); }
-          }));
-        } else {
-          // 发布地址常量还空着（测试版）：不编地址，给手动放置说明
-          row.setDesc('测试版还没有发布下载地址。手动放置：把编译好的 link-brain-reader（Windows 上是 link-brain-reader.exe）和 relatedfile 放进 '
-            + (r.bin_dir || '~/.link-brain/bin') + '，再点「重新检查」。编译方法见仓库 reader/README.md。');
-          row.addButton(b => { b.setButtonText('发布地址还没配置（测试版）').setDisabled(true); });
-        }
-        new Setting(st.body)
-          .addButton(b => b.setButtonText('重新检查').onClick(draw))
-          .addButton(b => b.setButtonText('跳过').onClick(() => { st.setState('skipped', '以后在这里或命令面板再装'); this.result.reader = 'skipped'; }));
-      };
-      this.drawReaderNow = draw;
-      draw();
-    }
-
-    // ③ 扫码登录：直接用设置页的账号卡片（同一个扫码流程）
-    drawLogin(c) {
-      const st = this.step(c, '③ 扫码登录', '用手机小红书 App 扫一次码。一个号覆盖收藏、评论、附件；登录过期才需要再扫。');
-      try { this.refreshAccounts = plugin.renderAccounts(st.body); }
-      catch (e) { st.setState('failed', e.message); }
-      new Setting(st.body).addButton(b => b.setButtonText('跳过').onClick(() => { st.setState('skipped', '以后在设置页「账号」里扫码'); this.result.login = 'skipped'; }));
-    }
-
-    // ④ 可选：AI key（跳到设置页 AI 那块）
-    drawAI(c) {
-      const st = this.step(c, '④ AI（可选）', '问收藏要一个文本 AI：填接口地址 + Key，或用本机已登录的命令行。不填也能归档、浏览、搜索。');
-      if (aiConfigured(plugin.settings)) st.setState('done', '已配置文本 AI');
-      new Setting(st.body)
-        .addButton(b => b.setButtonText('去填 AI 设置').onClick(() => { this.result.ai = 'opened'; this.close(); plugin.openSettingsTab(); }))
-        .addButton(b => b.setButtonText('跳过').onClick(() => { st.setState('skipped'); this.result.ai = 'skipped'; }));
-    }
-
-    onClose() {
-      this.contentEl.empty();
-      plugin.settings.onboarding = { done: true, at: new Date().toISOString(), steps: { ...this.result } };
-      Promise.resolve(plugin.saveSettings()).catch(e => console.error('[lb] 引导状态没存上', e));
-    }
+  // 第 7 批：原首次引导第 ① 步，搬成一行设置（「开始」第 ① 步和「高级」分页共用）：文件夹 + 保存 + 一行如实状态
+  function renderFolder(container) {
+    let value = plugin.settings.collectionFolder || '';
+    const base = String(plugin.app.vault.adapter.getBasePath() || '');
+    const row = new Setting(container).setName('收藏存放位置')
+      .setDesc('默认就放在这个库里；想放进单独的文件夹就填文件夹名（在本库里，没有会自动建）。已有的收藏不会自动搬。');
+    row.settingEl.addClass('lb-folder-row');
+    const state = row.descEl.createDiv({ cls: 'lb-onb-state' });
+    const setState = (kind, text) => { state.className = 'lb-onb-state' + (kind ? ' is-' + kind : ''); state.setText(text); };
+    const preview = () => { const n = normalizeFolder(value); n.ok ? setState('', '收藏会放在：' + (n.folder ? base.replace(/[\\/]+$/, '') + '/' + n.folder : base)) : setState('failed', n.error); };
+    row.addText(t => t.setPlaceholder('留空 = 库根目录，或如：收藏').setValue(value).onChange(v => { value = v; preview(); }))
+      .addButton(b => b.setButtonText('保存').onClick(async () => {
+        b.setDisabled(true);
+        try { setState('done', '✓ ' + await saveFolder(value)); }
+        catch (e) { setState('failed', '没做成：' + e.message); }
+        finally { b.setDisabled(false); }
+      }));
+    setState('', '当前：' + (plugin.vaultDir || base || '本库根目录'));
+    return row;
   }
 
   // 带一个按钮的提示（Obsidian Notice 支持 DocumentFragment；没 document 的环境退回纯文字）
@@ -188,16 +100,24 @@ module.exports = function (obsidian, plugin) {
   }
 
   return {
-    OnboardingModal,
-    open() { const m = new OnboardingModal(); m.open(); return m; },
+    // 首次引导 = 设置页「开始」分页
+    open() { return plugin.openSetupPage('start'); },
     needsOnboarding,
-    // 启动时（窗口开好后）：Dataview 缺了 / 后端程序找不到 → 提示一次（带按钮）；还没准备好的新库 → 弹引导
+    renderFolder,
+    saveFolder,
+    aiConfigured,
+    // 启动时（窗口开好后）：Dataview 缺了 / 后端程序找不到 → 提示一次（带按钮）；还没准备好的新库 → 打开「开始」页（只自动开这一次）
     async startup() {
       const dv = plugin.dataviewState();
       if (dv && dv !== 'ok') noticeWithButton(plugin.dataviewHint(dv), dataviewButtons(dv)[0][0], dataviewButtons(dv)[0][1], 20000);
       const b = plugin.currentBackend();
       if (b.mode === 'missing') { noticeWithButton(plugin.backendMissingText(), '复制安装命令', () => copy(BACKEND_INSTALL), 30000); return 'backend-missing'; }
-      if (await needsOnboarding()) { this.open(); return 'onboarding'; }
+      if (await needsOnboarding()) {
+        plugin.settings.onboarding = { done: true, at: new Date().toISOString(), via: 'setup-page' };
+        Promise.resolve(plugin.saveSettings()).catch(e => console.error('[lb] 引导状态没存上', e));
+        this.open();
+        return 'onboarding';
+      }
       return 'ready';
     },
     // 设置页最上面：缺后端 / 缺 Dataview / 旧图片导航插件还开着 → 各一块提示（都正常就什么也不加）

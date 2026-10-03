@@ -3,8 +3,8 @@
 //   1. 后端选择：收藏库上一级 / 插件目录上两级是 LWA 仓库 → python -m link_brain（cwd 仓根，作者本机现状）；否则后端命令（默认 link-brain，
 //      PATH 找不到时看 uv 的 ~/.local/bin）；都找不到 → missing。每次起进程都带 LINK_BRAIN_VAULT=<收藏库绝对路径>；
 //   2. 找不到后端：runPy / run() 如实说「没找到后端程序：先运行 `uv tool install link-brain`」，设置页顶部有「复制安装命令」；
-//   3. 首次引导：什么时候弹（走过 / 没后端 / 已有 _archive 都不弹）；四步各自的状态与跳过；读取组件发布地址没配时按钮写「发布地址还没配置（测试版）」
-//      并给手动放置说明，不调 install；配了才调 `reader install`；收藏位置写进插件设置 + 后端命令模式写 ~/.link-brain/config.json；关窗 = 走过；
+//   3. 首次引导：什么时候自己打开（走过 / 没后端 / 已有 _archive 都不开）；第 7 批起 = 打开设置页「开始」分页（不再弹窗），开过一次就算走过；
+//      收藏位置那一行写进插件设置 + 后端命令模式写 ~/.link-brain/config.json（读取组件改由「开始」第 ② 步 setup install 装，见 test_setup_wizard.cjs）；
 //   4. 定时同步任务名：LinkBrainNightly 优先 → 旧任务 → 都没有时「开启」= sync-schedule --install --at --vault，「关闭」不起进程；
 //   5. Dataview 缺失 / 没开 JS：设置页顶部提示 + 目录页顶部提示，按钮打开第三方插件页（或 Dataview 设置）；
 //   6. 媒体导航并进主插件：onload 载入 media-nav.js 并接管；旧插件还开着就不接管（不重复弹大图），设置页提示停用旧插件。
@@ -73,7 +73,7 @@ const context = { module: { exports: {} }, process, setTimeout, clearTimeout, co
   window: { confirm: () => true },
   // 插件按「库根 + manifest.dir」require 自己的几个文件；临时库里没拷插件，指回仓库里的源文件
   require: n => n === 'obsidian' ? obsidianStub : n === 'child_process' ? { spawn: fakeSpawn }
-    : /[\\/](onboarding-ui|media-nav|remote-ui)\.js$/.test(n) ? require(path.join(ROOT, PLUGIN_DIR, path.basename(n))) : require(n) };
+    : /[\\/](onboarding-ui|media-nav|remote-ui|setup-ui)\.js$/.test(n) ? require(path.join(ROOT, PLUGIN_DIR, path.basename(n))) : require(n) };
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(path.join(ROOT, PLUGIN_DIR, 'main.js'), 'utf8') + '\nmodule.exports.__SettingTab = LinkBrainSettingTab; module.exports.__merge = mergeSettings;', context);
 const Plugin = context.module.exports;
@@ -180,9 +180,19 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   assert.ok(hint && /没找到后端程序/.test(hint.textContent), '设置页顶部有缺后端提示');
   hint.querySelector('button').click(); await flush();
   assert.equal(context.clipboard, 'uv tool install link-brain');
-  // 「更多 → 运行环境」里有后端命令一行
+  // 「开始」页：后端都找不到时，功能清单读不到 → 如实说 + 「复制安装命令」
+  await flush(); await flush();
+  const startErr = tab.containerEl.querySelector('.lb-setup-error');
+  assert.ok(startErr && /没找到后端程序/.test(startErr.textContent), '「开始」页如实说后端没找到');
+  context.clipboard = '';
+  startErr.querySelectorAll('button').find(b => b.textContent === '复制安装命令').click(); await flush();
+  assert.equal(context.clipboard, 'uv tool install link-brain');
+  // 「高级 → 运行环境」里有后端命令一行、收藏存放位置一行（提示在每个分页顶部都有）
+  tab.showTab('advanced');
+  assert.ok(tab.containerEl.querySelector('.lb-setup-hint'), '换分页提示还在');
   const rowNames = tab.containerEl.querySelectorAll('.setting-item-name').map(e => e.textContent);
   assert.ok(rowNames.includes('后端命令') && rowNames.includes('收藏存放位置'));
+  tab.hide(); env.p.settingsView = null;
   // 启动检查：缺后端只提示，不弹引导
   notices.length = 0;
   assert.equal(await env.p.startupChecks(), 'backend-missing');
@@ -203,63 +213,41 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   env = makePlugin(plainVault, { saved: { backend: { command: `"${fakeExe}"` } } });
   await env.p.locateCollection();
   assert.equal(await env.p.onboardingUI().needsOnboarding(), true);
-  const calls = [];
-  let readerStatus = { ok: true, reader: null, release_configured: false, bin_dir: '~/.link-brain/bin' };
-  env.p.runPy = async (args, opts = {}) => {
-    calls.push({ args: [...args], env: opts.env || null });
-    if (args.includes('reader') && args.includes('status')) return { code: 0, json: readerStatus, out: '', err: '' };
-    if (args.includes('reader') && args.includes('install')) return { code: 0, json: { ok: true, message: '读取组件已装好（2 个文件）' }, out: '', err: '' };
-    throw new Error('意外的调用 ' + args.join(' '));
-  };
-  let accountsRendered = 0;
-  env.p.renderAccounts = c => { accountsRendered++; c.createDiv({ cls: 'lb-accounts' }).createDiv({ text: '小红书 · 未登录' }); return async () => { accountsRendered++; }; };
+  // 第 7 批：首次引导 = 设置页「开始」分页（不再弹窗）。启动时打开它一次，并记下「走过」免得每次启动都开
+  env.p.runPy = async (args) => { throw new Error('意外的调用 ' + args.join(' ')); };
+  env.p.settingTab = { display() { this.shown = (this.shown || 0) + 1; } };
   assert.equal(await env.p.startupChecks(), 'onboarding');
-  const UI = env.p.onboardingUI();
-  let m = new UI.OnboardingModal(); m.open(); await flush(); await flush();
-  const steps = () => m.contentEl.querySelectorAll('div').filter(d => d.classList.contains('lb-onb-step'));
-  assert.equal(steps().length, 4, '四步');
-  assert.deepEqual(steps().map(s => s.querySelector('h3').textContent), ['① 收藏存放位置', '② 读取组件', '③ 扫码登录', '④ AI（可选）']);
-  const stateOf = i => steps()[i].querySelectorAll('div').find(d => d.classList.contains('lb-onb-state')).textContent;
-  const btn = (i, t) => steps()[i].querySelectorAll('button').find(b => b.textContent === t);
-  // ② 发布地址没配：按钮禁用且写明测试版，给手动放置说明，不调 install
-  assert.ok(btn(1, '发布地址还没配置（测试版）')?.disabled, '发布地址没配时按钮写明且不能点');
-  assert.match(steps()[1].textContent, /手动放置.*~\/\.link-brain\/bin/);
-  assert.ok(!calls.some(c => c.args.includes('install')));
-  assert.equal(stateOf(1), '还没装');
-  btn(1, '跳过').click(); assert.match(stateOf(1), /^已跳过/);
-  // ① 收藏位置：乱填如实拒绝；填子文件夹 → 建文件夹、存设置、LINK_BRAIN_VAULT 跟着换、写 ~/.link-brain/config.json
-  const folderInput = steps()[0].querySelector('input');
+  assert.deepEqual(env.p.app.setting.opened.slice(-1), ['link-brain-actions'], '打开本插件设置页');
+  assert.equal(env.p.settingsView.tab, 'start', '停在「开始」分页');
+  assert.equal(env.p.settings.onboarding.done, true, '自动打开一次就算走过');
+  assert.equal(await env.p.onboardingUI().needsOnboarding(), false);
+  // 命令面板「打开首次引导」照旧在：同样打开「开始」分页；设置页已经停在本插件时补一次重画
+  env.p.settingsView.tab = 'ai';
+  env.p.app.setting.activeTab = env.p.settingTab;
+  env.p.openOnboarding();
+  assert.equal(env.p.settingsView.tab, 'start');
+  assert.equal(env.p.settingTab.shown, 1, '已经开着本插件设置页 → 重画一次');
+  // 原第 ① 步「收藏存放位置」搬成一行设置（「开始」第 ① 步和「高级」分页共用）：乱填如实拒绝；填子文件夹 → 建文件夹、存设置、
+  // LINK_BRAIN_VAULT 跟着换、写 ~/.link-brain/config.json
+  const box = dom.document.createElement('div');
+  const frow = env.p.onboardingUI().renderFolder(box);
+  const fstate = () => frow.settingEl.querySelectorAll('div').find(d => d.classList.contains('lb-onb-state')).textContent;
+  const fbtn = frow.settingEl.querySelectorAll('button').find(b => b.textContent === '保存');
+  const folderInput = frow.settingEl.querySelector('input');
+  assert.match(fstate(), /^当前：/);
   folderInput.value = '../外面'; folderInput.oninput();
-  await btn(0, '保存').onclick(); assert.match(stateOf(0), /^没做成：/);
+  assert.match(fstate(), /不能以「\.」开头或用「\.\.」/);
+  await fbtn.onclick(); assert.match(fstate(), /^没做成：/);
   folderInput.value = '收藏'; folderInput.oninput();
-  await btn(0, '保存').onclick();
-  assert.match(stateOf(0), /^✓ 收藏放在 .*收藏（命令行也用这个位置）/);
+  await fbtn.onclick();
+  assert.match(fstate(), /^✓ 收藏放在 .*收藏（命令行也用这个位置）/);
   assert.equal(env.p.settings.collectionFolder, '收藏'); assert.equal(env.p.lbRoot, '收藏');
   assert.equal(env.p.vaultDir, fs.realpathSync.native(path.join(plainVault, '收藏')));
   assert.equal(JSON.parse(fs.readFileSync(path.join(home, 'config.json'), 'utf8')).vault, env.p.vaultDir);
-  // ③ 扫码：就是账号卡片（同一个扫码流程），可跳过
-  assert.ok(steps()[2].querySelector('.lb-accounts'), '引导里放的是账号卡片');
-  btn(2, '跳过').click(); assert.match(stateOf(2), /^已跳过/);
-  // ④ AI：没配不打勾；「去填 AI 设置」关窗并打开本插件设置页
-  assert.equal(stateOf(3), '');
-  btn(3, '去填 AI 设置').click();
-  assert.deepEqual(env.p.app.setting.opened.slice(-1), ['link-brain-actions']);
-  assert.equal(m.opened, false);
-  assert.equal(env.p.settings.onboarding.done, true, '关窗 = 走过引导');
-  assert.equal(await UI.needsOnboarding(), false);
-  // 发布地址配了：按钮可点 → reader install → 状态如实、账号卡片刷新
-  readerStatus = { ok: true, reader: null, release_configured: true, bin_dir: '~/.link-brain/bin' };
-  m = new UI.OnboardingModal(); m.open(); await flush(); await flush();
-  const before = accountsRendered;
-  await btn(1, '下载读取组件').onclick();
-  assert.ok(calls.some(c => c.args.join(' ') === '-m link_brain reader install'));
-  assert.equal(stateOf(1), '✓ 读取组件已装好（2 个文件）');
-  assert.ok(accountsRendered > before, '装好后账号卡片重新检查');
-  // 已就位：直接打勾
-  readerStatus = { ok: true, reader: 'C:/x/link-brain-reader.exe', release_configured: false };
-  m = new UI.OnboardingModal(); m.open(); await flush(); await flush();
-  assert.match(stateOf(1), /^✓ 已就位/);
-  m.close();
+  assert.equal(env.p.onboardingUI().OnboardingModal, undefined, '弹窗没了');
+  assert.equal(env.p.onboardingUI()._internals.aiConfigured({ textAI: { mode: 'http', endpoint: 'https://x', apiKey: 'k' } }), true);
+  assert.equal(env.p.onboardingUI()._internals.aiConfigured({ textAI: { mode: 'http', endpoint: '' } }), false);
+  const UI = env.p.onboardingUI();
   assert.equal(UI._internals.normalizeFolder('C:/x').ok, false);
   assert.equal(UI._internals.normalizeFolder('a\\b/').folder, 'a/b');
   delete process.env.LINK_BRAIN_HOME;
@@ -377,5 +365,5 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   for (const f of ['media-nav.js', 'onboarding-ui.js']) assert.ok(doctorSrc.includes(`'${f}'`) && fs.existsSync(path.join(ROOT, PLUGIN_DIR, f)), f);
 
   fs.rmSync(tmp, { recursive: true, force: true });
-  console.log('PASS batch5 delivery UI: backend choice (repo / command / missing) + LINK_BRAIN_VAULT on every spawn, missing-backend hint with copy, onboarding 4 steps with skip + honest state, sync task LinkBrainNightly → legacy → install, Dataview hints, media-nav merged');
+  console.log('PASS batch5 delivery UI: backend choice (repo / command / missing) + LINK_BRAIN_VAULT on every spawn, missing-backend hint with copy, first run opens settings 开始 tab once + folder row honest state, sync task LinkBrainNightly → legacy → install, Dataview hints, media-nav merged');
 })().catch(e => { console.error(e); process.exitCode = 1; });
