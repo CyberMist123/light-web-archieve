@@ -1,7 +1,7 @@
 // 第 4 批：故障分类 + 问题入口的前端部分（CONVENTIONS §3、§5.7；RELEASE-BAR P12）。真跑页面脚本、problems-ui.js 和插件 main.js，
 // 假 DOM / 假 vault / 假 runPy，不起真进程（§7.5）。断言：
 //   目录页顶部问题入口：要你处理=橙色数字、其余（自动处理中+已放弃）=灰色数字、未开启不计数、都为 0 不显示；同步中显示「· 同步中…」；
-//     副行同步概况（上次同步 · 本次新收 · 还剩 N 篇逐晚处理，缺键不显示）；problems-summary.json / sync-status.json 变了只重画入口，不重建整页、不重读 catalog-data
+//     副行同步概况第 6 批已删；problems-summary.json / sync-status.json 变了只重画入口，不重建整页、不重读 catalog-data
 //   卡片：按 it.problems 出灰标（要你处理的醒目色），悬停 = hover；同标签只出一个；「未开启」不上卡片；和附件标同名不重复
 //   问题列表 Modal：分组「等你处理 / 正在自动处理 / 已放弃 / 未开启」，每行时间 · 标题 · 标签 · 系统动作 · 次数 · 查看；登录 / 验证类带按钮走 fixFromCatalog
 //   复制报错：problems export --plugin-version <manifest.version> → 剪贴板，成功 / 失败如实提示；空列表「没有问题」；runPy 失败如实提示
@@ -72,13 +72,11 @@ async function catalogEntryTests() {
   assert.ok(entry.title.startsWith('需要登录：读取号掉登录'), '悬停第一行 = 登记表标签 + 原因：' + entry.title);
   assert.ok(entry.title.includes('要你处理 2 · 正在自动处理 3 · 已放弃 1'), entry.title);
   assert.equal(q('.lbc-syncing').hidden, true);
-  const info = q('.lbc-syncinfo');
-  assert.equal(info.hidden, false);
-  assert.match(info.textContent, /^上次同步 10\/02 \d\d:\d\d · 本次新收 12 篇 · 还剩 85 篇逐晚处理$/, info.textContent);
+  assert.equal(q('.lbc-syncinfo'), null, '第 6 批：标题下的同步概况行删了（挪进「本周同步情况」窗口）');
   assert.equal(q('.lbc-account-status'), null, '旧「!」没了');
   await entry.onclick();
   assert.equal(opened, 1, '点开 = 插件 openProblems()');
-  console.log('PASS catalog entry: orange needs-you count + gray others, skipped not counted, hover from registry, sync overview line, click → openProblems');
+  console.log('PASS catalog entry: orange needs-you count + gray others, skipped not counted, hover from registry, no sync overview line, click → openProblems');
 
   // ── 卡片问题标 ──
   const card = id => A.container.querySelectorAll('.lbc-card').find(c => c._lbItem.id === id);
@@ -104,7 +102,6 @@ async function catalogEntryTests() {
   assert.equal(V.reads[DATA] || 0, 0, '没重读 catalog-data');
   assert.equal(entry.querySelector('.lbc-prob-need'), null, '要你处理清零后橙色数字消失');
   assert.equal(entry.querySelector('.lbc-prob-other').textContent, '1');
-  assert.equal(info.textContent, `上次同步 ${new Date('2026-10-02T05:00:00+10:00').toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}`, '缺的键不显示');
   // 新一次同步开始：sync-status.json 比 summary 新 → 「· 同步中…」
   V.set(SYNC, JSON.stringify({ state: 'running', pid: 999999, updated_at: '2026-10-02T06:00:00+10:00' }));
   fire('modify', SYNC); await tick(10);

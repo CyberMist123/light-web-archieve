@@ -265,9 +265,10 @@ def build_parser() -> argparse.ArgumentParser:
     from .remote import cli as remote_cli
     remote_cli.add_parser(sub)
 
-    from . import nightly as nightly_mod, reader_install
+    from . import nightly as nightly_mod, reader_install, report as report_mod
     nightly_mod.add_parser(sub)
     reader_install.add_parser(sub)
+    report_mod.add_parser(sub)
 
     p = sub.add_parser("highlight", help="给一篇笔记正文加/去一处高亮（<mark>，持久到重渲染）")
     p.add_argument("target", help="item_id")
@@ -325,6 +326,9 @@ def _dispatch(args) -> int:
     if args.command == 'reader':
         from . import reader_install
         return reader_install.run(args)
+    if args.command == 'report':
+        from . import report
+        return report.run(args)
     if args.command == 'doctor':
         from . import doctor
         return doctor.run(args)

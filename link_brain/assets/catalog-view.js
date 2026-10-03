@@ -27,12 +27,13 @@ style.textContent = `
 .lbc-search{width:100%!important;min-width:0;max-width:440px!important;text-align:center;height:36px!important;box-shadow:none!important;border-radius:0!important;background:transparent!important;border:0!important;border-bottom:1px solid var(--background-modifier-border)!important;padding:0 2px!important;}
 .lbc-search:focus{border-bottom-color:var(--interactive-accent)!important;}
 .lbc-sub{font-size:12px;color:var(--text-normal);white-space:nowrap;}
+.lbc-sub.lbc-sub-link{cursor:pointer;}
+.lbc-sub.lbc-sub-link:hover,.lbc-sub.lbc-sub-link:focus-visible{text-decoration:underline;text-underline-offset:2px;outline:none;}
 .lbc-wrap button.lbc-problems{display:inline-flex;align-items:center;gap:3px;min-height:0;height:auto!important;padding:0!important;border:0!important;box-shadow:none!important;background:transparent!important;cursor:pointer;flex:0 0 auto;}
-.lbc-problems[hidden],.lbc-syncing[hidden],.lbc-syncinfo[hidden]{display:none!important;}
+.lbc-problems[hidden],.lbc-syncing[hidden]{display:none!important;}
 .lbc-prob-n{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;box-sizing:border-box;border-radius:8px;font-size:10.5px;font-weight:700;font-family:sans-serif;line-height:16px;}
 .lbc-prob-need{background:#e08a1e;color:#fff;}
 .lbc-prob-other{background:var(--background-modifier-border);color:var(--text-muted);font-weight:600;}
-.lbc-syncinfo{font-size:10px;color:var(--text-faint);letter-spacing:.04em;white-space:nowrap;}
 .lbc-grid{columns:250px;column-gap:32px;}
 .lbc-card{display:inline-block;vertical-align:top;width:100%;margin:0 0 36px;break-inside:avoid;cursor:pointer;position:relative;}
 .lbc-attach{position:absolute;top:8px;right:8px;font-size:11px;line-height:1;padding:4px 8px;border-radius:9px;background:rgba(0,0,0,.55);color:#fff;pointer-events:none;backdrop-filter:blur(2px);}
@@ -215,15 +216,20 @@ const tools=head.createEl('div',{cls:'lbc-tools'});
 const importButton=titleText.createEl('button',{cls:'lbc-import',text:'+'});
 const subLine=titleBlock.createEl('div',{cls:'lbc-subline'});
 let todayOnly=false;
-const sub=subLine.createEl('span',{cls:'lbc-sub'});
+// 第 6 批（她定）：「N 篇 · 更新 …」这行可点，打开「本周同步情况」（插件 openWeekReport()）；灰字不变，悬停下划线
+const sub=subLine.createEl('span',{cls:'lbc-sub lbc-sub-link'});
+sub.title='看本周同步情况';sub.setAttribute('role','button');sub.tabIndex=0;
+sub.onclick=async()=>{
+  try { await (await LB.ensure('openWeekReport')).openWeekReport(); }
+  catch(error){try{new Notice(error.message,10000);}catch{window.alert(error.message);}}
+};
+sub.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();sub.onclick();}};
 // 第 4 批（CONVENTIONS §3.3）：顶部问题入口——原来的「!」升级。数字来自 _archive/problems-summary.json（Python 每次问题记录变动后重写）：
 // 「要你处理」橙色数字，其余（自动处理中 + 已放弃）灰色数字，都为 0 不显示；「未开启」不计数。点开 = 插件 openProblems() 问题列表。
 // 同步状态以 summary.sync 为准（进程死了还停在 running 由 Python 改判 INTERRUPTED，页面不再自己查 pid）；sync-status.json 比它新时用新的。
 // 文案（标签 / 悬停原因）只从 catalog-data 的 state_registry 取，JS 不写状态文案。
 const probBtn=subLine.createEl('button',{cls:'lbc-problems'});probBtn.type='button';probBtn.hidden=true;
 const syncing=subLine.createEl('span',{cls:'lbc-sub lbc-syncing',text:'· 同步中…'});syncing.hidden=true;
-// 同步概况：上次同步时间 · 本次新收 N 篇 · 还剩 N 篇逐晚处理（summary.sync 里缺哪项就不显示哪项）
-const syncInfo=titleBlock.createEl('div',{cls:'lbc-syncinfo'});syncInfo.hidden=true;
 let syncState=null,probSummary=null;
 function regEntry(code){
   const reg=data.state_registry||{};code=String(code||'');if(!code)return null;
@@ -240,7 +246,6 @@ function mergeSync(raw,sum){
   if(!s)return raw;if(!raw)return s;
   return tsOf(raw.updated_at)>(tsOf(s.updated_at)||tsOf(sum.updated_at))?{...s,...raw}:{...raw,...s};
 }
-const shortTime=v=>{const t=tsOf(v);return t?new Date(t).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):'';};
 async function refreshProblems(){
   const [raw,sum]=await Promise.all([readArchiveJson('_archive/sync-status.json'),readArchiveJson('_archive/problems-summary.json')]);
   probSummary=sum;syncState=mergeSync(raw,sum);paintProblems();
@@ -266,10 +271,7 @@ function paintProblems(){
   if(counts.length)lines.push(counts.join(' · '));
   probBtn.title=probBtn.hidden?'':[...lines,'点击查看问题列表'].join('\n');
   syncing.hidden=st.state!=='running';
-  const ss=s&&s.sync&&typeof s.sync==='object'?s.sync:{};
-  const last=shortTime(ss.last_success||ss.last_sync_at),added=numOf(ss,'new','new_count'),left=numOf(ss,'deferred','remaining');
-  const parts=[last&&`上次同步 ${last}`,added!=null&&`本次新收 ${added} 篇`,left>0&&`还剩 ${left} 篇逐晚处理`].filter(Boolean);
-  syncInfo.setText(parts.join(' · '));syncInfo.hidden=!parts.length;
+  // 第 6 批：标题下的「上次同步 · 本次新收 · 还剩」那行删了（她：不需要）；这些数字挪进「本周同步情况」窗口
 }
 probBtn.onclick=async()=>{
   try { await (await LB.ensure('openProblems')).openProblems(); }

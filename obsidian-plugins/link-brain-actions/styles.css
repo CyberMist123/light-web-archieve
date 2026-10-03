@@ -95,3 +95,25 @@
 .lb-onb-state { font-size: var(--font-ui-small); color: var(--text-muted); min-height: 1.2em; }
 .lb-onb-state.is-done { color: var(--color-green, var(--text-success)); }
 .lb-onb-state.is-failed { color: var(--text-error); }
+
+/* 第 6 批：目录页「N 篇 · 更新 …」点开的本周同步情况 */
+.lb-report-modal h2 { margin: 0 0 8px; }
+.lb-report-status { color: var(--text-muted); font-size: 13px; }
+.lb-report-status.mod-warning { color: var(--text-error); }
+.lb-report-day { padding: 10px 0; border-bottom: 1px solid var(--background-modifier-border); font-size: 13px; }
+.lb-report-day.is-empty { color: var(--text-faint); }
+.lb-report-dayhead { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.lb-report-date { font-weight: 600; font-variant-numeric: tabular-nums; }
+.lb-report-facts, .lb-report-nightly { color: var(--text-muted); font-size: 12px; margin-top: 3px; overflow-wrap: anywhere; }
+.lb-report-nightly.is-warn { color: #c77700; }
+.lb-report-nightly button.lb-report-problems { margin-left: 8px; font-size: 11px; padding: 0 8px; height: auto; }
+.lb-report-todo { margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--background-modifier-border); }
+.lb-report-todo-head { font-size: 12px; color: var(--text-muted); }
+.lb-report-item { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: 12px; padding: 2px 0; }
+.lb-report-title { color: var(--text-normal); overflow-wrap: anywhere; }
+a.lb-report-title { color: var(--link-color); cursor: pointer; }
+.lb-report-missing { color: var(--text-faint); }
+.lb-report-total { margin-top: 12px; font-size: 13px; }
+.lb-report-total-line { font-weight: 500; }
+.lb-report-deferred { color: var(--text-muted); margin-top: 3px; }
+.lb-report-note { color: var(--text-faint); font-size: 11px; margin-top: 3px; }

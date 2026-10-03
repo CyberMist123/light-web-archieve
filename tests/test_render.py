@@ -239,3 +239,49 @@ def test_highlights_that_no_longer_match_are_dropped_quietly():
     once = render_mod.reapply_highlights(content, ["第二段"])
     assert "<mark>第二段</mark>" in once
     assert render_mod.reapply_highlights(once, ["第二段"]) == once  # 已经有了不重复包
+
+
+# --------------------------------------------------------------------------
+# 第 6 批：机读版「外链」里小模型建议的链接——链接只包 URL，建议文字放后面
+# --------------------------------------------------------------------------
+
+
+def test_suggested_link_url_cut_at_fullwidth_paren_and_chinese():
+    cut = render_mod.suggested_link_url
+    assert cut("https://excalidraw.com（开源极简手绘风格白板工具）") == "https://excalidraw.com"
+    assert cut("https://github.com/a/b，值得一看") == "https://github.com/a/b"
+    assert cut("https://example.com/path?q=1 后面的说明") == "https://example.com/path?q=1"
+    assert cut("https://example.com/x.") == "https://example.com/x"
+    assert cut("excalidraw") == "" and cut(None) == ""
+
+
+def test_agent_md_suggested_link_separated_from_advice():
+    why = "开源极简手绘风格白板工具，文中配图即由此生成。"
+    text = render_mod.render_agent_md(
+        source={"note": {"title": "t"}}, vision={"images": []}, meta={"title": "t", "item_id": "xhs-t", "source_id": "t", "current_version": 1},
+        extracted={"links_worth_opening": [
+            {"url": "https://excalidraw.com（开源极简手绘）", "hint": "", "why": why},
+            {"url": "https://github.com/a_b/learn-agent", "hint": "", "why": ""},
+            {"url": "", "hint": "某个仓库名", "why": "提到过"}]})
+    lines = text.splitlines()
+    assert f"- [excalidraw.com](https://excalidraw.com) — 小模型建议：{why}" in lines
+    assert r"- [github.com/a\_b/learn-agent](https://github.com/a_b/learn-agent) — 小模型建议" in lines
+    assert "- 某个仓库名（小模型建议，原帖没给链接：提到过）" in lines
+    assert "https://excalidraw.com（" not in text, "URL 不再和全角括号粘在一起"
+
+
+def test_rerender_updates_old_agent_md_links(tmp_path, monkeypatch):
+    """旧笔记：重渲染（render <id> / render --all）就把机读版的外链换成新格式；机读版全由程序生成，没有手改内容。"""
+    setup_env(tmp_path, monkeypatch)
+    cli.main(["ingest", "https://example.invalid/share"])
+    item_id, source, source_id = _get_item_id(tmp_path)
+    from link_brain import llm as llm_mod
+    storage.write_json(llm_mod.extracted_path(source, source_id), {"status": "ok", "data": {
+        "summary": "s", "key_points": [], "tags": [], "valuable_comments": [], "ads_or_noise": [],
+        "links_worth_opening": [{"url": "https://excalidraw.com", "hint": "", "why": "白板工具"}]}})
+    agent = storage.derived_dir(source, source_id) / "agent.md"
+    agent.write_text("- https://excalidraw.com（小模型建议：白板工具）\n", encoding="utf-8")
+    assert cli.main(["render", item_id]) == 0
+    text = agent.read_text(encoding="utf-8")
+    assert "- [excalidraw.com](https://excalidraw.com) — 小模型建议：白板工具" in text
+    assert "https://excalidraw.com（" not in text

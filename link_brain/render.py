@@ -944,6 +944,26 @@ def _annotate_block(meta: dict[str, Any]) -> str:
     )
 
 
+_URL_TAIL = ".,;:!?'\"*_~"
+
+
+def suggested_link_url(raw: Any) -> str:
+    """小模型给的链接 → 干净的 URL：从 http(s) 开头截到第一个空白 / 全角括号 / 中文字符 / 中文标点为止
+    （和 adapters.xiaohongshu.URL_RE 同一把尺子），再去掉句末的半角标点。不是 http(s) 开头就返回空串。"""
+    from .adapters.xiaohongshu import URL_RE
+
+    m = URL_RE.match(str(raw or "").strip())
+    return m.group(0).rstrip(_URL_TAIL) if m else ""
+
+
+def link_label(url: str, limit: int = 60) -> str:
+    """链接的显示文字：去掉 http(s):// 和结尾的 /，太长截断；转义会被当成强调的 * _。"""
+    text = re.sub(r"^https?://", "", url, flags=re.I).rstrip("/") or url
+    if len(text) > limit:
+        text = text[: limit - 1] + "…"
+    return re.sub(r"([*_])", r"\\\1", text)
+
+
 def render_agent_md(
     *,
     source: dict[str, Any],
@@ -988,8 +1008,10 @@ def render_agent_md(
         link_lines.append(f"- 附件：{attachment_label(att)} {links_text}")
     for x in ex.get("links_worth_opening") or []:
         why = x.get("why") or ""
-        if x.get("url"):
-            link_lines.append(f"- {x['url']}（小模型建议：{why}）")
+        url = suggested_link_url(x.get("url"))
+        if url:
+            # 第 6 批：链接只包 URL 本身，建议文字放链接后面当普通文本（以前 URL 和全角括号粘一起，Obsidian 认成一整条链接、点不开）
+            link_lines.append(f"- [{link_label(url)}]({url}) — 小模型建议" + (f"：{why}" if why else ""))
         elif x.get("hint"):
             link_lines.append(f"- {x['hint']}（小模型建议，原帖没给链接：{why}）")
     if link_lines:

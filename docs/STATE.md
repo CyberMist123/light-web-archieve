@@ -1,5 +1,13 @@
 # Current State
 
+## 2026-10-03 10-03 小改（第 6 批）：目录页「本周同步情况」+ 机读版外链拆开（分支 batch6-tweaks）
+
+- 目录页标题区：删掉第 4 批加的「上次同步 · 本次新收 · 还剩」那行（`.lbc-syncinfo`）；「N 篇 · 更新 …」那行可点（灰字不变、悬停下划线、提示「看本周同步情况」），点了 `LB.ensure('openWeekReport')`。问题入口照留。
+- 「本周同步情况」窗口（新文件 `report-ui.js`，main.js 两行接入，doctor 必需文件已加）：最近 7 天按天一块——新收几篇；正文 / 机读版生成几篇；附件该有的下好几个、还缺几个、PDF/Word 转文字几个；识图 / 概要还差几篇；那天夜跑一句话（有问题带「看问题」→ 问题列表）；还没完成的列标题，点了同一窗格打开笔记（没正文的不给链接）。底部合计 + 「还剩 N 篇收藏逐晚处理」。
+- 后端 `python -m link_brain report week [--days 7]`（`link_brain/report.py`）：只读本地（index.db 只读打开，没有就扫 meta.json），不联网。「那天新收」按 meta.json 的 `first_archived_at`（本机时区日历日）；附件「该有」= 有文件编号或已下到的，只是正文提到附件的线索不算；识图 / 概要差不差用 `enrich.needs`（夜跑补处理同一判断）。夜跑走完没有：有包内夜跑日志（`~/.link-brain/nightly.log`）按开始 / 结束标记判；没有（作者本机还在用仓外脚本）不判走没走完，只列那天登记的问题（problems.jsonl，设置换算 / 问收藏 / 远程阅读不算）+ sync-status.json 说得上的那天。
+- 机读版（agent.md）「外链」里小模型建议的链接：以前 `- https://x.com（小模型建议：…）` URL 和全角括号粘在一起被 Obsidian 认成一整条链接；现在 `- [x.com](https://x.com) — 小模型建议：…`，URL 先按 `URL_RE`（到空白 / 全角括号 / 中文为止）切干净再去句末半角标点（`render.suggested_link_url / link_label`）。旧笔记要重渲染才更新：`python -m link_brain render --all`（agent.md 全由程序生成，没有手改内容；可见笔记照旧走保护手写的合并逻辑）。
+- 测试：`tests/test_report_week.py`、`tests/test_render.py` 加 3 例、`tests/test_batch6_report_ui.cjs`；`test_batch4_ui.cjs` 的同步概况断言改成「那行没了」。pytest 781 过；`npm test` 19 过 0 败 4 跳。没在 Obsidian 里点过（待她：一步）。
+
 ## 2026-10-03 第 5 批（B2 插件侧接线）：后端命令 + LINK_BRAIN_VAULT / 首次引导 / 定时接包内夜跑 / 媒体导航并入 / Dataview 必装（分支 batch5-delivery）
 
 - 后端入口：插件所有 Python 调用（spawnPy / runPy / 问答 worker）走 `pyChild` 一处，每次都带 `LINK_BRAIN_VAULT=<收藏库真路径>`。收藏库上一级或插件目录上两级是 LWA 仓库（有 `link_brain/__init__.py`）= 仓库模式，照旧 `python -m link_brain`、cwd 仓根（作者本机不变）；否则用设置「更多 → 运行环境 → 后端命令」（默认 `link-brain`，PATH 找不到再看 uv 的 `~/.local/bin`；Windows 只认 .exe/.com），调用点的 `-m link_brain` 自动去掉。找不到后端：不起进程，提示「没找到后端程序：先运行 `uv tool install link-brain`」，设置页顶部和启动提示都带「复制安装命令」。

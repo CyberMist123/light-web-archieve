@@ -819,6 +819,9 @@ class LinkBrainActions extends Plugin {
   // 第 4 批：目录页顶部问题入口 → 问题列表（整个窗口在 problems-ui.js）
   problemsUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'problems-ui.js'))(obsidian, this); }
   openProblems() { return this.problemsUI().open(); }
+  // 第 6 批：目录页标题下「N 篇 · 更新 …」那行点开 → 本周同步情况（整个窗口在 report-ui.js）
+  reportUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'report-ui.js'))(obsidian, this); }
+  openWeekReport() { return this.reportUI().open(); }
   // 请 Python 核一次同步进程还在不在、刷新 problems-summary.json（目录页看到「同步中」而插件没在跑任务时调；并发合并成一次）
   refreshProblemSummary() {
     if (!this.summaryCheck) this.summaryCheck = this.runPy(['-m', 'link_brain', 'problems', 'summary'], { label: '核对同步状态', timeoutMs: 60000 })
