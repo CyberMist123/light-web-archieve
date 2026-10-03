@@ -59,9 +59,14 @@ def load_private():
     return [x.strip().lower() for x in lines if x.strip() and not x.strip().startswith("#")]
 
 
+# 测试里故意埋的假密钥（验证「密钥永远读不到 / 不外泄」用）：值本身写明是占位的才放过，真样子的照拦。
+PLACEHOLDER = re.compile(r"never-leak|fake|dummy|example|placeholder|not-a-real", re.I)
+
+
 def scan_text(text, private):
     """返回命中的规则名（不带值）。"""
-    hits = [name for name, rx in SECRETS.items() if rx.search(text)]
+    hits = [name for name, rx in SECRETS.items()
+            if any(not PLACEHOLDER.search(m.group(0)) for m in rx.finditer(text))]
     low = text.lower()
     hits += [f"private pattern #{i + 1}" for i, pat in enumerate(private) if pat in low]
     return hits
