@@ -112,6 +112,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("render", help="拼可见 md + derived/agent.md（先跑 vision，纯程序拼模板）")
     p.add_argument("target", nargs="?", default=None, help="item_id；配合 --all 时可省略")
     p.add_argument("--all", action="store_true", help="对索引里所有对象都渲染一遍")
+    p.add_argument("--no-vision", dest="no_vision", action="store_true",
+                   help="只用已有识图结果重写笔记，不调识图模型（批量更新笔记格式用：不联网、不花钱）")
     p.add_argument(
         "--extract",
         action="store_true",

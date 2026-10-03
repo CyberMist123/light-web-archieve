@@ -1037,8 +1037,16 @@ def render_agent_md(
         visual = image.get("visual") or {}
         refined = image.get("refined") or {}
         # 0928：原图路径写在每张图末尾——机读版看不懂时 AI 直接去看原图，或点名精细识别
-        origin = f"{indent}  - 细节以原图为准：{storage.object_dir('xiaohongshu', meta['source_id']) / image['asset']}" \
-            if meta.get("source_id") else ""
+        # 10-03：写收藏库内的相对路径，不写本机绝对路径（远程阅读会把机读版原样发给远端客户端；
+        # 远端用 read_asset 按这个相对路径看原图，本机 AI 拼上收藏库位置即可）
+        origin = ""
+        if meta.get("source_id"):
+            pic = storage.object_dir('xiaohongshu', meta['source_id']) / image['asset']
+            try:
+                pic_text = pic.relative_to(storage.vault_root()).as_posix()
+            except ValueError:
+                pic_text = pic.name
+            origin = f"{indent}  - 细节以原图为准：{pic_text}（远程阅读用 read_asset 看原图）"
         pending = (image.get("refine") or {}).get("status") == "pending"
         if refined.get("status") == "ok":
             label = {"table": "表格·精细识别", "diagram": "流程图·精细识别", "text": "文字·精细识别"}[refined["kind"]]
@@ -1290,8 +1298,11 @@ def render_item(
     verbose: bool = False,
     llm: bool = False,
     re_extract: bool = False,
+    vision: bool = True,
 ) -> dict[str, Any]:
-    vision_mod.build_vision(source_key, source_id, verbose=verbose)
+    # vision=False：只用已有的识图结果重写笔记，不调识图模型（部署时批量更新笔记格式用，不花钱、不联网）
+    if vision:
+        vision_mod.build_vision(source_key, source_id, verbose=verbose)
     return render_object(
         source_key, source_id, verbose=verbose, llm=llm, re_extract=re_extract
     )
@@ -1329,6 +1340,7 @@ def run(args) -> int:
                 verbose=getattr(args, "verbose", False),
                 llm=getattr(args, "extract", False) or getattr(args, "re_extract", False),
                 re_extract=getattr(args, "re_extract", False),
+                vision=not getattr(args, "no_vision", False),
             )
         except FileNotFoundError as exc:
             print(f"跳过 {source_key}/{source_id}: {exc}", file=sys.stderr)

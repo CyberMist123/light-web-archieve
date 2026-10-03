@@ -33,7 +33,7 @@ function cleanDomain(text) {
 
 function fmtTime(ts) { return ts ? String(ts).replace('T', ' ').slice(5, 16) : ''; }
 
-const ACCESS_TOOL = { search: '搜索', read: '读', list: '列目录', mcp: '连接', http: '请求',
+const ACCESS_TOOL = { search: '搜索', read: '读', read_asset: '看原图', list: '列目录', mcp: '连接', http: '请求',
   'oauth.register': '注册客户端', 'oauth.approve': '授权', 'oauth.token': '换令牌' };
 const ACCESS_CODE = { BAD_TOKEN: '令牌无效或已撤销', BAD_PASSPHRASE: '口令不对', LOCKED: '口令错太多次，暂时锁定',
   BAD_HOST: '地址没登记', BAD_ORIGIN: '来自别的网页', RATE_LIMITED: '太频繁', NOT_SHARED: '不在开放的文件夹里',

@@ -285,3 +285,27 @@ def test_rerender_updates_old_agent_md_links(tmp_path, monkeypatch):
     text = agent.read_text(encoding="utf-8")
     assert "- [excalidraw.com](https://excalidraw.com) — 小模型建议：白板工具" in text
     assert "https://excalidraw.com（" not in text
+
+
+def test_agent_md_image_origin_is_vault_relative(tmp_path, monkeypatch):
+    """10-03：机读版里「细节以原图为准」写收藏库内相对路径——远程阅读会把机读版原样发给远端，不能带本机绝对路径。"""
+    monkeypatch.setenv("LINK_BRAIN_VAULT", str(tmp_path / "vault"))
+    text = render_mod.render_agent_md(
+        source={"note": {"title": "t"}},
+        vision={"images": [{"status": "ok", "asset": "raw/v0001/assets/image-001.webp", "ocr": "字", "visual": {}}]},
+        meta={"title": "t", "item_id": "xhs-t", "source_id": "t", "current_version": 1}, extracted={})
+    assert str(tmp_path) not in text and str(tmp_path).replace("\\", "/") not in text
+    assert "细节以原图为准：_archive/xiaohongshu/t/raw/v0001/assets/image-001.webp" in text
+
+
+def test_render_no_vision_does_not_call_vision(tmp_path, monkeypatch):
+    """部署时批量更新笔记格式：render --all --no-vision 不调识图模型。"""
+    setup_env(tmp_path, monkeypatch)
+    cli.main(["ingest", "https://example.invalid/share"])
+    item_id, _, _ = _get_item_id(tmp_path)
+    calls = []
+    monkeypatch.setattr(render_mod.vision_mod, "build_vision", lambda *a, **k: calls.append(a))
+    assert cli.main(["render", "--all", "--no-vision"]) == 0
+    assert calls == []
+    assert cli.main(["render", item_id]) == 0
+    assert len(calls) == 1
