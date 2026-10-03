@@ -63,7 +63,9 @@ STEP_LABELS = {
 BARE_CLASS = {
     "NOT_LOGGED_IN": "NEEDS_HUMAN", "CAPTCHA_REQUIRED": "NEEDS_HUMAN", "ACCOUNT_RISK": "NEEDS_HUMAN",
     "RISK_HOLD": "NEEDS_HUMAN", "NOT_INSTALLED": "NEEDS_HUMAN", "WRONG_ACCOUNT": "NEEDS_HUMAN",
-    "FAVORITES_SUSPICIOUS": "NEEDS_HUMAN",
+    # 10-03 夜跑实证：读取服务有时只滚到第一页（50 条）就当「全量加载完成」，下一次多半又正常——
+    # 这是临时故障，不是要人处理的事：只记、下次同步自动再读，连着 3 天都这样才升级推一次
+    "FAVORITES_SUSPICIOUS": "TRANSIENT",
     "RATE_LIMITED": "TRANSIENT", "DISCONNECTED": "TRANSIENT", "TIMEOUT": "TRANSIENT", "BUSY": "TRANSIENT",
     "INTERRUPTED": "TRANSIENT", "TOO_MANY_FAILURES": "TRANSIENT", "ACCOUNT_BUSY": "TRANSIENT",
     "ACCOUNT_BLOCKED": "NEEDS_HUMAN",  # 「号出事了」但读取服务没给具体风险码（MCP 报错文本像掉登录 / 验证）
@@ -87,7 +89,7 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "NEEDS_HUMAN.RISK_HOLD": dict(where="top+card", label="风控暂停中", hover="风控暂停中：所有用号的同步都停了，点目录页顶部的问题入口处理，处理完自动恢复", group="needs_you"),
     "NEEDS_HUMAN.NOT_INSTALLED": dict(where="top+card", label="未安装读取组件", hover="按 README「读取组件」安装后刷新", group="needs_you"),
     "NEEDS_HUMAN.WRONG_ACCOUNT": dict(where="top+card", label="登错号", hover="登录的不是收藏所在的号：换号重新扫码", group="needs_you"),
-    "NEEDS_HUMAN.FAVORITES_SUSPICIOUS": dict(where="top+card", label="收藏数异常", hover="{reason}", group="needs_you"),
+    "TRANSIENT.FAVORITES_SUSPICIOUS": dict(where="list", label="收藏数异常", hover="{reason}（下次同步自动再读）", group="auto"),
     "NEEDS_HUMAN.AUTH_FAILED": dict(where="top+card", label="AI key 失效", hover="接口拒绝了 key（401/403）：到设置里换一个", group="needs_you"),
     "NEEDS_HUMAN.QUOTA_EXCEEDED": dict(where="top+card", label="AI 余额不足", hover="接口提示欠费或额度用完：充值或换 key", group="needs_you"),
     "NEEDS_HUMAN.BACKUP_DISK_MISSING": dict(where="top+card", label="备份盘没挂", hover="{reason}", group="needs_you"),

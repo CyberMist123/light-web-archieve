@@ -80,8 +80,8 @@ def test_two_truncated_nights_in_a_row_both_flagged_but_pushed_once(env, capsys)
         code, _ = _run(capsys)
         status = sync_state.load()
         assert code == 1 and status["code"] == "FAVORITES_SUSPICIOUS", night
-        # 第 4 批：两晚都标可疑（目录页看得到），但同一件事没解决只推一次（problems 唯一出口）
-        assert status["last_favorites"] == 10 and len(env.alerts) == (1 if night == 0 else 0), night
+        # 两晚都标可疑（问题列表看得到、这次不算同步成功）；收藏数可疑是临时故障，不推（连着 3 个日历日才升级）
+        assert status["last_favorites"] == 10 and env.alerts == [], night
     # 连着第 3 晚还是差不多这个数：多半是她真删了一批 —— 这晚照样报，之后以它为基准
     code, _ = _run(capsys)
     assert code == 1 and sync_state.load()["last_favorites"] == 4

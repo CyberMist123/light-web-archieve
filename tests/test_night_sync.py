@@ -213,8 +213,8 @@ def test_favorites_count_sanity(env, capsys, last, read, alarm):
     status = sync_state.load()
     if alarm:
         assert code == 1 and status["state"] == "failed" and status["code"] == "FAVORITES_SUSPICIOUS"
-        # 第 4 批：可疑 = 停车待人看 NEEDS_HUMAN.FAVORITES_SUSPICIOUS，经 problems 唯一出口推一次
-        assert [a[1] for a in env.alerts] == ["收藏数异常：收藏同步"] and env.alerts[0][0] == "problem"
+        # 可疑 = TRANSIENT.FAVORITES_SUSPICIOUS：只记不推（读取服务偶尔只读到一截，下次多半正常）
+        assert env.alerts == []
         assert status["last_favorites"] == last  # 可疑的那次不顶掉基准
         assert len(env.fetched) == read  # 读到的照常处理
     else:
