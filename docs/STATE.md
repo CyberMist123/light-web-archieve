@@ -1,5 +1,14 @@
 # Current State
 
+## 2026-10-03 第 5 批（B1 打包 Python 侧）：夜跑进包 + 自己注册计划任务 + 收藏库位置解耦 + 读取组件下载（分支 batch5-delivery，插件侧接线另派）
+
+- `python -m link_brain nightly`（`link_brain/nightly.py`）：仓外夜跑脚本第 4 批改好稿的逻辑搬进包。步骤表 `nightly.STEPS`（11 步，限时 / 碰号 / 预留照旧脚本）、总预算 405 分钟、同步 exit 1 等 25 分钟重试一次、碰号步骤 exit 5 后跳过、exit 6 登记 ACCOUNT_BUSY、上一晚没走完登记 INTERRUPTED、同步占号卡住登记 SYNC_STUCK、每步失败登记 / 成功 resolve（`nightly.<步骤>`，slug 和旧脚本一致，问题记录接得上）、附件闸门缺附件退出 2。超时走 `procs.kill_tree`（放过 link-brain-reader 及其浏览器 + xiaohongshu-mcp / xiaohongshu-login；`LINK_BRAIN_KILL_EXCLUDE` 追加）。日志 `~/.link-brain/nightly.log` 边跑边写，>10 MB 转存。精细识图免费 key：环境变量 → `~/.link-brain/config.json` 的 `gemini_keys_cmd`（限时 60 秒、输出不进日志）/ `gemini_keys_file`，只注入那一步；取 key 失败记在 `nightly.gemini-keys`。报警不直调，全走 problems。另一趟夜跑在跑 → 退出 6（文件锁 `nightly`）。`--dry-run` 只打印计划。
+- `sync-schedule --install [--at HH:mm] [--vault 路径]` / `--uninstall`：注册 / 删除计划任务 **LinkBrainNightly**（当前用户、普通权限、登录时运行；每天定点、错过尽快补跑、执行时限 7 小时、IgnoreNew、用电池也跑；动作 = 当前解释器旁的 pythonw `-m link_brain nightly --vault <库>`）。名字撞 XhsFavSync 直接拒绝。macOS / Linux 只返回 cron 行和 launchd plist。`sync_schedule.py` 里只追加了这些新函数，触发器读写没动（`--set` 仍按 LINK_BRAIN_SYNC_TASK / XhsFavSync 找任务，插件接线时要决定开源用户的 `--set` 指向 LinkBrainNightly）。
+- 收藏库位置：`storage.vault_root()` = LINK_BRAIN_VAULT → `~/.link-brain/config.json` 的 `vault` → 旧默认「程序目录/vault」（作者本机不变）。`link-brain = link_brain.cli:main` 入口本来就有。
+- 读取组件：`accounts.tool_dir()`（LINK_BRAIN_XHS_TOOL_DIR → config.json `xhs_tool_dir` → 默认 `~/.xiaohongshu-mcp`）；找 exe 顺序 `~/.link-brain/bin` → 程序目录 tools/ → 组件目录；relatedfile 同（`xhs.relatedfile_exe()`）。`reader install --url <包> --sha256 <hex>`：下载（https / file://）→ 校验 → 解压（防 zip-slip）→ `~/.link-brain/bin`；`reader status` 只看装没装。发布地址常量 `reader_install.RELEASE_URL` 留空。新码 `PERMANENT.CHECKSUM_MISMATCH / BAD_PACKAGE`（只出现在命令结果里）。
+- 千问 CSV 默认目录：第 1B 批已删（text_stream 不再去任何作者路径），本批核实无回归。
+- 测试：`tests/test_batch5_delivery.py`（假子命令跑夜跑；计划任务只验生成的 PowerShell / cron / launchd；本地 http.server / file:// 假包）。
+
 ## 2026-10-02 第 4 批：故障分类接进调用点 + 目录页顶部问题入口（分支 batch4-problems，叠在第 3 批上）
 
 - 页面：目录页顶部「!」升级为问题入口：读 `_archive/problems-summary.json`，要你处理橙色数字、自动处理中 + 已放弃灰色数字、未开启不计数、都为 0 不显示；「· 同步中…」照旧；标题下一行灰字同步概况（上次同步 · 本次新收 N 篇 · 还剩 N 篇逐晚处理）。文件一变只重画这几个字，不重建整页。页面和插件都不再自己查 pid：以 summary 的 sync 段为准；看到「同步中」而插件没在跑任务时，请 Python 跑一次 `problems summary` 核对。

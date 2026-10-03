@@ -121,12 +121,35 @@ def base_url() -> str:
     return endpoint().removesuffix('/mcp')
 
 
+ENV_TOOL_DIR = 'LINK_BRAIN_XHS_TOOL_DIR'
+LEGACY_TOOL_DIRNAME = '.xiaohongshu-mcp'
+
+
+def bin_dir() -> Path:
+    """`reader install` 把读取组件放这里（`~/.link-brain/bin`）；找组件时第一个看这里。"""
+    return home() / 'bin'
+
+
+def tool_dir() -> Path:
+    """自己编译 / 旧版 xiaohongshu-mcp 习惯放组件的目录（第 5 批可配置）：
+    环境变量 LINK_BRAIN_XHS_TOOL_DIR → `~/.link-brain/config.json` 的 `xhs_tool_dir` → 默认 `~/.xiaohongshu-mcp`（老用户不受影响）。"""
+    explicit = os.environ.get(ENV_TOOL_DIR) or storage.user_config().get('xhs_tool_dir')
+    if isinstance(explicit, str) and explicit.strip():
+        return Path(os.path.expandvars(explicit.strip())).expanduser()
+    return Path.home() / LEGACY_TOOL_DIRNAME
+
+
+def tool_roots() -> tuple[Path, ...]:
+    """找组件 exe 的目录，按顺序：下载装好的 → 程序目录 tools/ → 组件目录。"""
+    return (bin_dir(), storage.repo_root() / 'tools', tool_dir())
+
+
 def executable(env: str, names: tuple[str, ...]) -> str | None:
     explicit = os.environ.get(env)
     if explicit:
         return explicit if Path(explicit).is_file() else shutil.which(explicit)
     for name in names:
-        for root in (home() / 'bin', storage.repo_root() / 'tools', Path.home() / '.xiaohongshu-mcp'):
+        for root in tool_roots():
             if (root / name).is_file():
                 return str(root / name)
         found = shutil.which(name)
@@ -144,7 +167,7 @@ def profile_dir() -> Path:
     explicit = os.environ.get('XHS_PROFILE_DIR') or config().get('profile')
     if explicit:
         return Path(explicit)
-    legacy = Path.home() / '.xiaohongshu-mcp' / 'data' / 'xhs' / 'momo-profile'
+    legacy = tool_dir() / 'data' / 'xhs' / 'momo-profile'
     return legacy if legacy.is_dir() else home() / 'xhs-profile'
 
 

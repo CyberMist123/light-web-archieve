@@ -25,11 +25,51 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def link_brain_home() -> Path:
+    """程序自己的状态目录：`$LINK_BRAIN_HOME`，默认 `~/.link-brain`（锁、日志、读取组件、用户配置都住这里）。"""
+    return Path(os.environ.get("LINK_BRAIN_HOME") or str(Path.home() / ".link-brain"))
+
+
+def user_config_path() -> Path:
+    return link_brain_home() / "config.json"
+
+
+_USER_CONFIG_CACHE: dict = {}
+
+
+def user_config() -> dict:
+    """`~/.link-brain/config.json`（第 5 批）：不属于某个 vault 的用户级设置，如 `vault`（收藏库位置）、
+    `gemini_keys_cmd` / `gemini_keys_file`（夜跑精细识图的 key 来源）、`xhs_tool_dir`（读取组件目录）。
+    没有文件 / 读不动 / 不是对象 = 空字典（fail-open）。按 mtime 缓存，vault_root() 频繁调用也不反复读盘。"""
+    p = user_config_path()
+    try:
+        st = p.stat()
+    except OSError:
+        return {}
+    key = (str(p), st.st_mtime_ns, st.st_size)
+    if _USER_CONFIG_CACHE.get("key") == key:
+        return dict(_USER_CONFIG_CACHE["data"])
+    try:
+        data = json.loads(p.read_text("utf-8-sig"))
+    except (OSError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    _USER_CONFIG_CACHE.update(key=key, data=data)
+    return dict(data)
+
+
 def vault_root() -> Path:
-    """vault 根目录。可用环境变量 LINK_BRAIN_VAULT 覆盖（测试用）。"""
+    """vault 根目录（第 5 批：程序位置和收藏库位置解耦）。
+
+    顺序：环境变量 LINK_BRAIN_VAULT → `~/.link-brain/config.json` 的 `vault` → 旧默认「程序目录/vault」
+    （作者本机现状不变）。插件调用时总会传 LINK_BRAIN_VAULT；计划任务 / 命令行靠后两者。"""
     override = os.environ.get(ENV_VAULT)
     if override:
         return Path(override).resolve()
+    configured = user_config().get("vault")
+    if isinstance(configured, str) and configured.strip():
+        return Path(os.path.expandvars(configured.strip())).expanduser().resolve()
     return repo_root() / VAULT_DIRNAME
 
 
@@ -158,8 +198,7 @@ class LockBusy(RuntimeError):
 
 def locks_dir() -> Path:
     """具名锁住这里：`$LINK_BRAIN_HOME/locks`（默认 ~/.link-brain/locks），不进 vault（vault 会被同步到别处）。"""
-    base = os.environ.get("LINK_BRAIN_HOME") or str(Path.home() / ".link-brain")
-    return Path(base) / "locks"
+    return link_brain_home() / "locks"
 
 
 def pid_state(pid) -> str:

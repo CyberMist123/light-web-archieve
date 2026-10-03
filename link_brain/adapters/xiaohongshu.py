@@ -585,10 +585,22 @@ def fetch_related_file(note_id: str, xsec_token: str | None, *, timeout: int = 3
 
 
 # 游客浏览器兜底：doc_id 只对游客可见，用一次性空 profile 保证不带登录态。
-RELATEDFILE_EXE = os.environ.get(
-    "LINK_BRAIN_RELATEDFILE_EXE",
-    os.path.join(os.path.expanduser("~"), ".xiaohongshu-mcp", "relatedfile.exe"),
-)
+# 第 5 批：位置可配置。环境变量 LINK_BRAIN_RELATEDFILE_EXE 指定就只用它；否则按 accounts.tool_roots() 找
+# （`reader install` 装的 ~/.link-brain/bin → 程序目录 tools/ → 组件目录，默认 ~/.xiaohongshu-mcp，老用户不受影响）。
+RELATEDFILE_EXE = os.environ.get("LINK_BRAIN_RELATEDFILE_EXE", "")
+RELATEDFILE_NAMES = ("relatedfile.exe", "relatedfile")
+
+
+def relatedfile_exe() -> str:
+    """relatedfile 的路径；哪里都没有时返回组件目录下的默认位置（报错信息里给人看）。"""
+    if RELATEDFILE_EXE:
+        return RELATEDFILE_EXE
+    from .. import accounts
+    for root in accounts.tool_roots():
+        for name in RELATEDFILE_NAMES:
+            if (root / name).is_file():
+                return str(root / name)
+    return str(accounts.tool_dir() / RELATEDFILE_NAMES[0 if os.name == "nt" else 1])
 
 
 def _probe_related_file_via_browser(
@@ -599,9 +611,10 @@ def _probe_related_file_via_browser(
     XHS_PROFILE_DIR 指向一次性空目录 = 游客（绝不复用 momo/6A 登录 profile，
     登录态会把 relatedFile 藏掉）。返回 `{"ok", "related_file", "error"}`。
     """
-    if not os.path.exists(RELATEDFILE_EXE):
+    exe = relatedfile_exe()
+    if not os.path.exists(exe):
         return {"ok": False, "related_file": None,
-                "error": f"缺 relatedfile.exe（{RELATEDFILE_EXE}）：先在 .xiaohongshu-mcp\\src 下 go build ./cmd/relatedfile"}
+                "error": f"缺 relatedfile.exe（{exe}）：用 `python -m link_brain reader install` 装读取组件，或自己编译后放进组件目录"}
     tmp = tempfile.mkdtemp(prefix="xhs-guest-")
     # 关键：预置 "Local State" 让浏览器把这个 profile 当"非首次"，从而走 headless——
     # 否则 browser.go 对全新 profile 强制 headed，会在 Owner 屏幕上弹窗（每晚同步都弹）。
@@ -611,7 +624,7 @@ def _probe_related_file_via_browser(
         pass
     env = dict(os.environ)
     env["XHS_PROFILE_DIR"] = tmp
-    args = [RELATEDFILE_EXE, "-note", note_id]
+    args = [exe, "-note", note_id]
     if xsec_token:
         args += ["-token", xsec_token]
     try:

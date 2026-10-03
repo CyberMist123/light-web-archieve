@@ -239,6 +239,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--set", choices=["daily", "weekly", "off"], help="改成每天/每周/关闭；不给就只报当前")
     p.add_argument("--at", help="时间 HH:mm（如 04:00 / 22:30）；配合 --set daily/weekly")
     p.add_argument("--day", help="周几（Monday…Sunday）；配合 --set weekly")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--install", action="store_true",
+                   help="注册每天跑 nightly 的计划任务 LinkBrainNightly（--at 时间，默认 04:00；--vault 收藏库）")
+    g.add_argument("--uninstall", action="store_true", help="删掉计划任务 LinkBrainNightly")
+    p.add_argument("--vault", help="配合 --install：夜跑用的收藏库（默认当前生效的收藏库）")
 
     p = sub.add_parser("inbox", help="列出被戳到某角色且未处理的对象")
     p.add_argument("--for", dest="for_actor", required=True, help="角色名，如 fable")
@@ -259,6 +264,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     from .remote import cli as remote_cli
     remote_cli.add_parser(sub)
+
+    from . import nightly as nightly_mod, reader_install
+    nightly_mod.add_parser(sub)
+    reader_install.add_parser(sub)
 
     p = sub.add_parser("highlight", help="给一篇笔记正文加/去一处高亮（<mark>，持久到重渲染）")
     p.add_argument("target", help="item_id")
@@ -310,6 +319,12 @@ def _dispatch(args) -> int:
     if args.command == 'remote':
         from .remote import cli as remote_cli
         return remote_cli.run(args)
+    if args.command == 'nightly':
+        from . import nightly
+        return nightly.run(args)
+    if args.command == 'reader':
+        from . import reader_install
+        return reader_install.run(args)
     if args.command == 'doctor':
         from . import doctor
         return doctor.run(args)
@@ -459,6 +474,8 @@ def _dispatch(args) -> int:
     if args.command == "sync-schedule":
         from . import sync_schedule as sync_schedule_mod
 
+        if getattr(args, "install", False) or getattr(args, "uninstall", False):
+            return sync_schedule_mod.run_install(args)
         return sync_schedule_mod.run(args)
 
     if args.command in ("comment", "inbox", "resolve"):

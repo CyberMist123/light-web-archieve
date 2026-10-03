@@ -126,6 +126,9 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "PERMANENT.NOTE_GONE": dict(where="card", label="原帖已删除", hover="原帖已删除或不可见，本地存档还在", group="gave_up"),
     "PERMANENT.MODEL_OUTPUT_INVALID": dict(where="card", label="AI 结果不可用", hover="{reason}", group="gave_up"),
     "PERMANENT.REMOTE_TASK_FAILED": dict(where="list", label="远程阅读的计划任务没弄好", hover="{reason}", group="gave_up"),
+    # 第 5 批 `reader install`（用户点的操作，只出现在命令结果里，不登记问题记录）
+    "PERMANENT.CHECKSUM_MISMATCH": dict(where="list", label="下载的组件校验不过", hover="{reason}", group="gave_up"),
+    "PERMANENT.BAD_PACKAGE": dict(where="list", label="组件包不对", hover="{reason}", group="gave_up"),
     "PERMANENT.CONVERSION_FAILED": dict(where="card", label="全文没转出来", hover="{reason}（原件已保存）", group="gave_up"),
     "PERMANENT.STEP_ARGS": dict(where="list", label="程序和夜跑脚本版本对不上", hover="夜跑脚本给的命令参数程序不认：{reason}（更新程序或脚本后自动恢复）", group="gave_up"),
     "PERMANENT.*": dict(where="card", label="已放弃", hover="{reason}", group="gave_up"),
