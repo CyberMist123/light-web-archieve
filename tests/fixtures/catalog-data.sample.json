@@ -1,6 +1,6 @@
 {
  "built_at": "2026-10-02T09:00:00+10:00",
- "count": 18,
+ "count": 21,
  "cats_order": [],
  "cats": [],
  "topics": [],
@@ -554,6 +554,83 @@
    "date": "2026-09-11",
    "ts": "2026-09-11T10:00:00+10:00",
    "pinyin": "mo gu ji tui zhe yang chao / da pei / kuai shou"
+  },
+  {
+   "id": "half-price",
+   "title": "本周超市半价 好东西太多拿不下",
+   "tags": [
+    "超市",
+    "半价"
+   ],
+   "summary": "这周超市打折清单",
+   "search_fields": {
+    "transcript": "",
+    "body": "",
+    "comments": "",
+    "ocr": "Cafeine free cola 2 for 5\nmilk\nai i\nchoc\nDream bubble 软糖 半价",
+    "attachments": ""
+   },
+   "starred": false,
+   "author": "示例作者",
+   "note": "Web/示例/half-price.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-20",
+   "ts": "2026-09-20T10:00:00+10:00",
+   "pinyin": "ben zhou chao shi ban jia / hao dong xi tai duo na bu xia / zhe zhou chao shi da zhe qing dan / chao shi / ban jia"
+  },
+  {
+   "id": "note-only",
+   "title": "周末的一锅炖菜",
+   "tags": [
+    "家常菜"
+   ],
+   "summary": "一锅炖",
+   "search_fields": {
+    "transcript": "",
+    "body": "土豆胡萝卜牛肉一起炖",
+    "comments": "",
+    "ocr": "",
+    "attachments": "",
+    "notes": "复刻过两次，下次少放盐"
+   },
+   "starred": false,
+   "author": "示例作者",
+   "note": "Web/示例/note-only.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-20",
+   "ts": "2026-09-20T10:00:00+10:00",
+   "pinyin": "zhou mo de yi guo dun cai / yi guo dun / jia chang cai"
+  },
+  {
+   "id": "ocr-ai",
+   "title": "手机里的语音助手设置",
+   "tags": [
+    "手机"
+   ],
+   "summary": "截图教程",
+   "search_fields": {
+    "transcript": "",
+    "body": "照着截图点",
+    "comments": "",
+    "ocr": "设置 > AI 助手 > 打开",
+    "attachments": ""
+   },
+   "starred": false,
+   "author": "示例作者",
+   "note": "Web/示例/ocr-ai.md",
+   "cats": [],
+   "topics": [],
+   "attachment": "none",
+   "kind": "image",
+   "date": "2026-09-20",
+   "ts": "2026-09-20T10:00:00+10:00",
+   "pinyin": "shou ji li de yu yin zhu shou she zhi / jie tu jiao cheng / shou ji"
   }
  ],
  "pinyin_chars": {

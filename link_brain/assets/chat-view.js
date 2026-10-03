@@ -367,6 +367,7 @@ async function drawChat() {
     if (t.role === 'user') {
       const el = bodyEl.createEl('div', { cls: 'lbchat-turn lbchat-user' });
       if (t.mode === 'search') el.createEl('span', { cls: 'lbchat-qmark', text: '搜' });
+      if (t.mode === 'reask') el.createEl('span', { cls: 'lbchat-qmark', text: `按留下的 ${t.sources || ''} 条来源重答` });
       el.appendText(t.content);
     } else if (t.role === 'search') {
       const el = bodyEl.createEl('div', { cls: 'lbchat-turn' });
@@ -383,25 +384,14 @@ async function drawChat() {
       const el = bodyEl.createEl('div', { cls: 'lbchat-turn lbchat-answer' });
       try { await provider().renderMarkdownInto(t.content, el); } catch { el.setText(t.content); }
       bindSources(el,t.sources||[]);
-      if (t.sources && t.sources.length) {
-        const refs = el.createEl('details', { cls: 'lbchat-src' });
-        refs.createEl('summary', { text: `参考材料 · ${t.sources.length}` });
-        for (const src of t.sources) {
-          const a = refs.createEl('a', { text: `[来源${src.citation}] ${src.title}` });
-          a.onclick = () => openNote(src);
-          const view=refs.createEl('button',{cls:'lbchat-act',text:'查看'});view.type='button';view.onclick=()=>openNote(src);
-          // 右侧已经开着来源时才有「加入对照」（没有来源可对照时不出现，免得第一次和第二次点行为不同）
-          const compare=refs.createEl('button',{cls:'lbchat-act lbchat-addcmp',text:'加入对照'});compare.type='button';compare.onclick=()=>openNote(src,true);
-          const copySource=refs.createEl('button',{cls:'lbchat-act',text:'复制来源'});copySource.onclick=async()=>{await navigator.clipboard.writeText(sourceText(src));copySource.setText('已复制');};
-
-        }
-      }
+      drawSources(el,t);
       if (!t.failed) {
         const acts = el.createEl('div', { cls: 'lbchat-actions' });
         const copy=acts.createEl('button',{cls:'lbchat-act',text:'复制'});copy.onclick=async()=>{try{await navigator.clipboard.writeText(t.content+'\n\n'+(t.sources||[]).map(sourceText).join('\n\n'));copy.setText('已复制');}catch{copy.setText('复制失败');}};
         const exportOptions=acts.createEl('details',{cls:'lbchat-export'});exportOptions.createEl('summary',{text:'导出'});const imageLabel=exportOptions.createEl('label',{text:'附带原图 '});const bundleImages=imageLabel.createEl('input');bundleImages.type='checkbox';bundleImages.checked=true;
         const used=new Set([...t.content.matchAll(/\[来源(\d+)\]/g)].map(m=>Number(m[1])));
-        const currentSources=(t.sources||[]).filter(s=>!used.size||used.has(Number(s.citation)));
+        const gone=new Set(t.removed||[]);
+        const currentSources=(t.sources||[]).filter(s=>(!used.size||used.has(Number(s.citation)))&&!gone.has(srcKey(s)));
         for(const [label,copy] of [['导出资料包',false],['复制文件包',true]]){
           const exportBtn=exportOptions.createEl('button',{cls:'lbchat-act',text:label});
           exportBtn.onclick=async()=>{exportBtn.disabled=true;exportBtn.setText(copy?'复制中…':'导出中…');try{await provider().exportArchiveBundle(currentSources.map(s=>s.id),bundleImages.checked,answerExportMd({...t,sources:currentSources}),{question:t.q||'当前问答',askedAt:t.askedAt||"unknown",copy});}catch(e){window.alert(e.message);}finally{exportBtn.disabled=false;exportBtn.setText(label);}};
@@ -464,6 +454,46 @@ async function drawArchive() {
     bindSources(b,e.sources||[]);
   }
 }
+// ── 回答下面的来源（第 10 批）：按相关度分两档——「主要依据」= 送进模型的那些（带 [来源N]），「其他相关」= 候选池其余（默认收起）。
+// 每条可 × 删掉（记在这一轮的 removed 里，跟会话一起存）；删过之后出现「按剩下的重新回答」：只用留下的来源再答一次，不重新检索。
+const srcKey = s => s.id || s.note || s.title;
+function drawSources(el, t) {
+  const primary = t.sources || [], related = t.related || [];
+  if (!primary.length && !related.length) return;
+  const removed = new Set(t.removed || []);
+  const remove = async src => { t.removed = [...removed, srcKey(src)]; await keepSession(); await drawChat(); };
+  const row = (box, src, label, full) => {
+    const a = box.createEl('a', { text: label });
+    a.onclick = () => openNote(src);
+    const view = box.createEl('button', { cls: 'lbchat-act', text: '查看' }); view.type = 'button'; view.onclick = () => openNote(src);
+    if (full) {
+      // 右侧已经开着来源时才有「加入对照」（没有来源可对照时不出现，免得第一次和第二次点行为不同）
+      const compare = box.createEl('button', { cls: 'lbchat-act lbchat-addcmp', text: '加入对照' }); compare.type = 'button'; compare.onclick = () => openNote(src, true);
+      const copySource = box.createEl('button', { cls: 'lbchat-act', text: '复制来源' }); copySource.onclick = async () => { await navigator.clipboard.writeText(sourceText(src)); copySource.setText('已复制'); };
+    }
+    if (!busy && srcKey(src)) { const x = box.createEl('button', { cls: 'lbchat-act lbchat-src-del', text: '×', attr: { title: '从来源里删掉' } }); x.type = 'button'; x.onclick = () => remove(src); }
+  };
+  const keptPrimary = primary.filter(s => !removed.has(srcKey(s))), keptRelated = related.filter(s => !removed.has(srcKey(s)));
+  if (keptPrimary.length || !related.length) {
+    const refs = el.createEl('details', { cls: 'lbchat-src' });
+    refs.createEl('summary', { text: related.length ? `主要依据 · ${keptPrimary.length}` : `参考材料 · ${keptPrimary.length}` });
+    for (const src of keptPrimary) row(refs, src, `[来源${src.citation}] ${src.title}`, true);
+  }
+  if (keptRelated.length) {
+    const more = el.createEl('details', { cls: 'lbchat-src lbchat-src-more' });
+    more.createEl('summary', { text: `其他相关 · ${keptRelated.length}` });
+    for (const src of keptRelated) row(more, src, src.title, false);
+  }
+  if (removed.size) {
+    const bar = el.createEl('div', { cls: 'lbchat-actions lbchat-src-redo' });
+    const keep = [...keptPrimary, ...keptRelated].map(s => s.id).filter(Boolean);
+    const redo = bar.createEl('button', { cls: 'lbchat-act', text: `按剩下的 ${keep.length} 条重新回答` }); redo.type = 'button';
+    redo.disabled = busy || !keep.length || !t.q;
+    redo.onclick = () => submit(t.q, { sourceIds: keep });
+    const undo = bar.createEl('button', { cls: 'lbchat-act', text: `恢复删掉的 ${removed.size} 条` }); undo.type = 'button';
+    undo.onclick = async () => { t.removed = []; await keepSession(); await drawChat(); };
+  }
+}
 function fmtTs(ts) { try { const d = new Date(ts); return `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; } catch { return ''; } }
 
 // 换页再回来时上一页还在等回答：插件对象上记一笔（§5.3「进行中的事」），新页面显示「正在生成…」，答完收到事件再重读会话
@@ -471,12 +501,14 @@ function inFlightElsewhere(){const f=provider()?.chatInFlight;return !!(f&&f.pag
 function phaseText(){const f=provider()?.chatInFlight;return (f&&f.phase?f.phase+'…':'正在生成…');}
 function showPhase(text){const p=provider();if(p&&p.chatInFlight)p.chatInFlight.phase=text;const el=bodyEl.querySelector('.lbchat-phase');if(el)el.setText(phaseText());follow();}
 const pageId=uid();
-async function submit(raw) {
+// opts.sourceIds（第 10 批「按剩下的重新回答」）：只用这些来源再答一次，不重新检索
+async function submit(raw, opts = {}) {
   const text = (raw || '').trim(); if (!text || busy) return;
   {
     const q = text.replace(/^\//,'').trim(); if (!q) return;
     const askedAt=new Date().toISOString();
-    session.turns.push({ role: 'user', content: q, mode: 'ask', askedAt });
+    const pinned = Array.isArray(opts.sourceIds) ? opts.sourceIds : null;
+    session.turns.push({ role: 'user', content: q, mode: pinned ? 'reask' : 'ask', askedAt, ...(pinned ? { sources: pinned.length } : {}) });
     await keepSession(); busy = true; stick = true; await drawChat(); follow();
     try {
       const history = session.turns.filter(t => t.role === 'user' || t.role === 'assistant').filter(t => !t.failed)
@@ -485,14 +517,14 @@ async function submit(raw) {
       const p = provider(); if (p) p.chatInFlight = { page: pageId, q };
       paintSend();
       let shown='';
-      const r = await p.answerArchive({ question: q, model: modelPick.hidden?'':modelPick.value, history:history.slice(0,-1),
+      const r = await p.answerArchive({ question: q, model: modelPick.hidden?'':modelPick.value, history:history.slice(0,-1), ...(pinned ? { sourceIds: pinned } : {}),
         onPhase:showPhase,
         onDelta:delta=>{bodyEl.querySelector('.lbchat-think')?.remove();shown+=delta;live.appendText(delta);follow();} });
       if (r.status === 'cancelled') {
         // 停止：留下已经生成的那半截，明确标「已停止」；算失败轮次（不进追问上下文、不给收藏 / 导出）
         const part = (r.markdown || shown || '').trim();
-        session.turns.push({ role: 'assistant', failed: true, stopped: true, content: (part ? part + '\n\n' : '') + '> 已停止生成。', sources: r.sources || [], q, askedAt });
-      } else session.turns.push({ role: 'assistant', content: r.markdown || '没有可用的回答。', sources: r.sources || [], q, askedAt });
+        session.turns.push({ role: 'assistant', failed: true, stopped: true, content: (part ? part + '\n\n' : '') + '> 已停止生成。', sources: r.sources || [], related: r.related || [], q, askedAt });
+      } else session.turns.push({ role: 'assistant', content: r.markdown || '没有可用的回答。', sources: r.sources || [], related: r.related || [], q, askedAt });
     } catch (e) {
       session.turns.push({ role: 'assistant', failed: true, content: '回答失败：' + (e.message || e) + '\n\n请重试。' });
     } finally {
@@ -581,7 +613,7 @@ function answerExportMd(t){
   const L=[`# ${t.q||'AI 整理'}`,'',`> 导出于 ${new Date().toLocaleString('zh-CN')} · 机读版（问收藏）`,'','## 回答','',t.content,''];
   if(t.sources&&t.sources.length){
     L.push('## 参考材料','');
-    const labels={body:'作者正文',comments:'评论',ocr:'图片文字',attachments:'附件正文',transcript:'视频转写'};
+    const labels={body:'作者正文',comments:'评论',ocr:'图片文字',attachments:'附件正文',transcript:'视频转写',notes:'我的批注'};
     for(const s of t.sources){
       L.push(`### [来源${s.citation}] ${s.title}`);
       if(s.url)L.push(`- 链接：${s.url}`);

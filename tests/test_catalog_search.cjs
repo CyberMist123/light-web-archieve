@@ -59,6 +59,38 @@ const fuzzyWalk = S.matchItem(walk, '西尼', data.pinyin_chars, data.aliases);
 assert.ok(fuzzyWalk.fuzzy);assert.equal(S.hitSummary(fuzzyWalk), '拼音相近：西尼');assert.equal(S.hitExcerpt(walk, fuzzyWalk), null);
 console.log(`PASS search rules: ${queries.length} regression queries (pinyin whole-syllable, possible zone, score-first star boost, phrase split, excerpts)`);
 
+// ── 1b. 第 10 批：英文按词边界 + 每条结果的命中类型 / 命中片段（row.hit） ──
+{
+  const S2 = (() => { const c = {}; vm.createContext(c); vm.runInContext(SEARCH + '\nthis.S={hasTerm,termIndex,rankItems,normalize,hitInfo};', c); return c.S; })();
+  assert.ok(!S2.hasTerm('cafeine free', 'ai'), 'cafeine 不算命中 ai');
+  assert.ok(S2.hasTerm('ai做梦', 'ai') && S2.hasTerm('openai 的 ai', 'ai') === true);
+  assert.ok(S2.hasTerm('llms', 'llm') && !S2.hasTerm('llmxyz', 'llm'), '短词允许复数，不许接别的字母');
+  assert.ok(S2.hasTerm('dreaming', 'dream') && !S2.hasTerm('daydream', 'dream'), '长词按词首');
+  assert.equal(S2.termIndex('cafeine ai', 'ai'), 8);
+  const rows = q => { const r = S2.rankItems(data.items, S2.normalize(q), data.pinyin_chars, data.aliases); return [...r.exact, ...r.possible]; };
+  // 原词命中：高置信度，片段来自原文并标出位置
+  const walk = rows('咖啡').find(r => r.it.id === 'syd-walk').hit;
+  assert.equal(walk.kind, 'exact'); assert.equal(walk.confidence, 'high');
+  assert.equal(walk.snippet.field, 'ocr'); assert.equal(walk.snippet.label, '图片文字');
+  assert.deepEqual(Array.from(walk.snippet.marks, ([a, b]) => walk.snippet.text.slice(a, b)), ['咖啡']);
+  // 换语种的同义词（做梦 → dream）：低置信度，片段是 dream 出现的那段
+  const half = rows('做梦').find(r => r.it.id === 'half-price').hit;
+  assert.equal(half.kind, 'alias'); assert.equal(half.confidence, 'low'); assert.ok(half.crossLanguage);
+  assert.equal(half.variant, 'dream'); assert.ok(/dream/i.test(half.snippet.text));
+  // 拼音（西尼 → 悉尼）：低置信度，原文里没有这个词，片段给标题
+  const py = rows('西尼').find(r => r.it.id === 'syd-walk').hit;
+  assert.equal(py.kind, 'pinyin'); assert.equal(py.confidence, 'low'); assert.equal(py.snippet.field, 'title');
+  // 批注命中：片段标「批注」
+  const note = rows('复刻').find(r => r.it.id === 'note-only').hit;
+  assert.equal(note.snippet.label, '批注'); assert.equal(note.confidence, 'high');
+  // 只在图片文字里的一两个字母（AI）：低置信度，进「可能相关」
+  const bits = S2.rankItems(data.items, S2.normalize('ai 助手'), data.pinyin_chars, data.aliases);
+  const ocrAi = bits.possible.find(r => r.it.id === 'ocr-ai');
+  assert.ok(ocrAi && !bits.exact.some(r => r.it.id === 'ocr-ai'));
+  assert.equal(ocrAi.hit.kind, 'ocrbits'); assert.equal(ocrAi.hit.confidence, 'low'); assert.equal(ocrAi.hit.snippet.label, '图片文字');
+  console.log('PASS batch 10: latin word boundary (cafeine ≠ ai), row.hit kind / confidence / snippet, annotations searchable');
+}
+
 // ── 2. 真页面脚本：catalog-search.js + catalog-view.js 整段在假 DOM 里跑，输入查询按回车，看卡片顺序和摘录 ──
 function fakeDom() {
   class El {

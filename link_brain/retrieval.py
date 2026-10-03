@@ -10,7 +10,8 @@ from pathlib import Path
 ALIASES = json.loads((Path(__file__).parent / "assets/search-aliases.json").read_text(encoding="utf-8"))
 # cats 是展示分组（大类），不是内容语义：只留低权兜底，让「搜大类名」能召回
 # 无词帖（如搜"笑话"命中只分了类的帖子）。语义召回由 embedding 接住后应降到 0。
-WEIGHTS = {"title": 12, "tags": 10, "cats": 3, "body": 7, "attachments": 6, "transcript": 6, "ocr": 5, "comments": 3, "summary": 2, "author": 1}
+# notes = 她自己写的批注（notes.json，第 10 批进检索）：她亲手写的，和标签同权
+WEIGHTS = {"title": 12, "tags": 10, "notes": 10, "cats": 3, "body": 7, "attachments": 6, "transcript": 6, "ocr": 5, "comments": 3, "summary": 2, "author": 1}
 
 
 def norm(text):
@@ -24,6 +25,53 @@ def variants(term):
         if term in group or (term == "音" and "音乐" in group):
             expanded.extend(group)
     return list(dict.fromkeys(expanded))
+
+
+# ── 英文按词边界（第 10 批）：拉丁字母 / 数字开头的词，前面不能紧挨字母数字（cafeine 不再命中 ai）；
+# 4 个字母以下的短词，后面也不能紧挨字母（允许复数 s / es：llm → llms），长词按词首匹配（dream → dreaming）。
+# 中文照旧子串匹配。目录页 catalog-search.js termRegex 同一规则。
+_PATTERNS = {}
+
+
+def _pattern(v):
+    if v in _PATTERNS:
+        return _PATTERNS[v]
+    pat = None
+    if re.match(r"[a-z0-9]", v):
+        tail = r"(?:e?s)?(?![a-z])" if re.fullmatch(r"[a-z0-9]+", v) and len(v) < 4 else ""
+        pat = re.compile(r"(?<![a-z0-9])" + re.escape(v) + tail)
+    _PATTERNS[v] = pat
+    return pat
+
+
+def has(text, v):
+    """text、v 都已 norm。"""
+    if not v or v not in text:
+        return False
+    pat = _pattern(v)
+    return True if pat is None else pat.search(text) is not None
+
+
+def count(text, v):
+    if not v or v not in text:
+        return 0
+    pat = _pattern(v)
+    return text.count(v) if pat is None else sum(1 for _ in pat.finditer(text))
+
+
+def short_latin(v):
+    """一两个字母的英文词（ai、ok）。图片文字里这种词常是 OCR 从货架标签 / 小字里拆出来的零散字母（10-03 目录搜「ai 做梦」
+    冒出超市半价帖：小票上有一行「AI I」）：只在图片文字里中的算低置信度（进「可能相关」）。目录页 isShortLatin 同一规则。"""
+    return bool(re.fullmatch(r"[a-z0-9]{1,2}", v)) and not v.isdigit()
+
+
+def find(text, v, start=0):
+    """第一次出现的位置（同 has 的规则）；没有 = -1。"""
+    pat = _pattern(v)
+    if pat is None:
+        return text.find(v, start)
+    m = pat.search(text, start)
+    return m.start() if m else -1
 
 
 # ── 拼音整音节匹配（第 1 批 1002；与目录页 catalog-search.js 同一套规则） ──
@@ -147,7 +195,8 @@ STAR_BOOST = 1.15  # ★ 只做小幅加成：目录页 catalog-search.js 和 ra
 
 def match(item, terms, *, require_all=False):
     """(分数, 是否模糊)。原词（含同义词）命中按字段权重计分；原词不中才认拼写相近 / 拼音整音节，
-    这类命中记 fuzzy=True，调用方把它放进「可能相关」，排在原词命中之后（与目录页同一套规则）。"""
+    这类命中记 fuzzy=True，调用方把它放进「可能相关」，排在原词命中之后（与目录页同一套规则）。
+    第 10 批：英文按词边界（has），cafeine 不再命中 ai。"""
     fs = {key: norm(value) for key, value in fields(item).items()}
     total = 0.0
     fuzzy = False
@@ -156,7 +205,10 @@ def match(item, terms, *, require_all=False):
         if not term:
             continue
         best = max((WEIGHTS.get(key, 1) * (1 if v == term else .75)
-                    for v in variants(term) for key, text in fs.items() if v in text), default=0)
+                    for v in variants(term) for key, text in fs.items()
+                    if has(text, v) and not (key == "ocr" and short_latin(v))), default=0)
+        if not best and any(short_latin(v) and has(fs.get("ocr", ""), v) for v in variants(term)):
+            best, fuzzy = 2, True  # 只在图片文字里的零散字母：可能相关
         # 纯字母短词（xin、ai）错一个字母 / 漏字母能撞上一大片英文单词：字母词至少 4 个才认这两种模糊（与目录页同）
         latin_short = bool(re.fullmatch(r"[a-z0-9]+", term)) and len(term) < 4
         if not best and not latin_short and _typo_in(fs["title"], term):
@@ -203,9 +255,9 @@ def term_stats(items, term):
     vs = variants(term)
     anywhere = meta = 0
     for doc in documents:
-        if any(v in text for v in vs for text in doc.values()):
+        if any(has(text, v) for v in vs for text in doc.values()):
             anywhere += 1
-            if any(v in doc.get(k, "") for v in vs for k in _META_KEYS):
+            if any(has(doc.get(k, ""), v) for v in vs for k in _META_KEYS):
                 meta += 1
     return anywhere, meta
 
@@ -226,7 +278,7 @@ def rank(items, terms):
             for v in vs:
                 value=0
                 for k,text in doc.items():
-                    tf=text.count(v)
+                    tf=count(text,v)
                     if tf:
                         # Saturate within each field: a long attachment must not erase a title hit.
                         length=min(len(text)/averages.get(k,1),3)
@@ -276,39 +328,59 @@ def semantic_hits(question):
         return None
 
 
-def _rrf(lexical_hits, sem, items, k=60):
-    """词法 BM25 排名 × 语义 chunk 排名的 RRF 混排；语义可引入词法零分的 item。"""
-    lex_rank = {it['id']: r for r, (_, it) in enumerate(lexical_hits, 1)}
-    sem_order = sorted(sem.items(), key=lambda kv: -kv[1]['score'])
-    sem_rank = {item_id: r for r, (item_id, _) in enumerate(sem_order, 1)}
+def fuse(routes, items, k=60):
+    """多路召回的加权 RRF：routes = [(权重, [item_id 按名次]) 或 (权重, [...], 组名)]；一篇在几路里都靠前就排前。
+
+    同一组的几路只取这一篇在组里最好的那一路（第 10 批：扩出的十来个词各开一路，一篇泛泛沾上好几个扩词
+    不该累加得比原词命中还高——实测累加时「美食」「餐厅」这类扩词把原词命中的篇挤出前 8）。返回 [(分数, item)]。"""
     by_id = {it.get('id'): it for it in items}
-    fused = []
-    for item_id in dict.fromkeys(list(lex_rank) + list(sem_rank)):
-        it = by_id.get(item_id)
-        if it is None:
-            continue
-        value = (1 / (k + lex_rank[item_id]) if item_id in lex_rank else 0) \
-              + (1 / (k + sem_rank[item_id]) if item_id in sem_rank else 0)
-        fused.append((value, it))
+    scores, groups = {}, {}
+    for route in routes:
+        weight, ids, group = (route + (None,))[:3]
+        for r, item_id in enumerate(dict.fromkeys(ids), 1):
+            if item_id not in by_id:
+                continue
+            value = weight / (k + r)
+            if group is None:
+                scores[item_id] = scores.get(item_id, 0.0) + value
+            else:
+                key = (group, item_id)
+                groups[key] = max(groups.get(key, 0.0), value)
+    for (_, item_id), value in groups.items():
+        scores[item_id] = scores.get(item_id, 0.0) + value
+    fused = [(value, by_id[item_id]) for item_id, value in scores.items()]
     fused.sort(key=lambda x: (-x[0], str(x[1].get('id', ''))))
     return fused
+
+
+def sem_order(sem):
+    return [item_id for item_id, _ in sorted((sem or {}).items(), key=lambda kv: -kv[1]['score'])]
+
+
+def _rrf(lexical_hits, sem, items, k=60):
+    """词法 BM25 排名 × 语义 chunk 排名的 RRF 混排；语义可引入词法零分的 item。"""
+    return fuse([(1, [it['id'] for _, it in lexical_hits]), (1, sem_order(sem))], items, k)
 
 
 _ASK_SEM = object()
 
 
-def rank_query(items, question, terms=None, sem=_ASK_SEM):
+def rank_query(items, question, terms=None, sem=_ASK_SEM, extra=None):
     """Keep distinct clauses represented when a request contains several topics.
 
     sem：调用方已经拿过的 semantic_hits 结果（问答要接着用它的 chunk 当证据，不重算）。
+    extra：别的召回路 [(权重, [item_id…])]（第 10 批：扩词每个词一路、扩词的语义一路），和原词、语义一起 RRF。
     """
     from .ask import query_terms
     terms=terms if terms is not None else query_terms(question)
     hits=rank(items,terms)
     if sem is _ASK_SEM:
         sem=semantic_hits(question)
-    if sem:
-        hits=_rrf(hits,sem,items)
+    if sem or extra:
+        routes=[(1,[it['id'] for _,it in hits])]
+        if sem:
+            routes.append((1,sem_order(sem)))
+        hits=fuse(routes+list(extra or []),items)
     clauses=query_facets(items,question)
     if len(clauses)<2:return hits
     chosen=[];seen=set()
@@ -336,12 +408,12 @@ def excerpts(item, terms, limit=800, window_chars=450, fallback=True):
         starts = dict.fromkeys(range(0, len(text), max(40,width//2)), 0)
         for heading in re.finditer(r'(?m)^(?:#{1,6}\s+|\d+[.、 /|]).{1,75}$', text):
             h = norm(heading.group())
-            if any(v in h for group in groups for v in group):
+            if any(has(h, v) for group in groups for v in group):
                 starts[heading.start()] = 3
         for start, heading_bonus in starts.items():
             window = text[start:start+width]
             normalized = norm(window)
-            counts = [max((normalized.count(v) for v in group), default=0) for group in groups]
+            counts = [max((count(normalized, v) for v in group), default=0) for group in groups]
             windows.append((key, start, window, counts, heading_bonus))
     # A topic word in a few windows carries more evidence than "AI/system"
     # repeated throughout a long post. Score actual occurrences, not just presence.

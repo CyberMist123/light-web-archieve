@@ -87,8 +87,11 @@ DEFAULTS: dict[str, Any] = {
     ],
     "activeModel": "DeepSeek", "chatPlaceholder": "问点什么呢？",
     "prompts": {"summary": "", "answer": DEFAULT_ANSWER_PROMPT},
-    # expandTerms 默认关：开了每次问答要多一次小模型调用扩检索词，慢一倍（Owner 2026-09-16 嫌慢）。
-    "retrieval": {"totalCharLimit": 8000, "fragChars": 800, "topK": 8, "expandTerms": False},
+    # queryExpand（第 10 批，默认开，Owner 10-03「宁可搜广一点」）：每问多一次「归档摘要模型」（小模型，只用 http 接口）扩检索词，
+    # 和这一问的 embedding 同时跑、最多等 6 秒，同一问题有缓存。旧键 expandTerms（09-16 因为走命令行模型慢 15 秒而关掉、
+    # 还存在她 data.json 里的 false）不再读：现在扩词不走命令行模型、也不挡作答。
+    # topK = 送进作答模型的最少篇数；实际篇数按 totalCharLimit 动态（每篇约 700 字，最多 20）。
+    "retrieval": {"totalCharLimit": 8000, "fragChars": 800, "topK": 8, "queryExpand": True},
     # 目录页顶部的大类筛选（catalog.py 读；空=用内置 BIG_CATS）。
     # 形如 [{"name": "人机恋", "keywords": ["人机恋","ai伴侣"]}, ...]
     "catalogCats": [],

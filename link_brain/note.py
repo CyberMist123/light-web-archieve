@@ -51,6 +51,22 @@ def load_notes(source: str, source_id: str) -> dict[str, Any]:
     return data
 
 
+def annotation_text(data: Any) -> str:
+    """批注全文（第 10 批进检索）：没删的、非空的，一条一行。删除墓碑和 annotate-view.js 的 akey 同一认法；草稿不算。"""
+    if not isinstance(data, dict) or not isinstance(data.get("annotations"), list):
+        return ""
+    tomb = set(data.get("deleted") or []) if isinstance(data.get("deleted"), list) else set()
+    out = []
+    for a in data["annotations"]:
+        if not isinstance(a, dict):
+            continue
+        key = a.get("id") or f"ts:{a.get('ts') or ''}|{a.get('text') or ''}"
+        text = str(a.get("text") or "").strip()
+        if text and key not in tomb:
+            out.append(text)
+    return "\n".join(out)
+
+
 def save_notes(source: str, source_id: str, data: dict[str, Any]) -> Path:
     return storage.write_json(notes_path(source, source_id), data)
 

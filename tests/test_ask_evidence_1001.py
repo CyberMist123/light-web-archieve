@@ -79,7 +79,9 @@ def test_selector_bad_format_fails_open_to_plain_retrieval(monkeypatch, selector
     monkeypatch.setattr(ask, "call_text", model)
     r = ask.answer("推荐相关项目")
     assert r["status"] == "ok" and r["selection_failed"] is True
-    assert len(r["sources"]) == 8 and len(calls) == 2
+    # 第 10 批：篇数按字数预算（8000 字 → 11 篇），筛选失败照检索顺序；其余候选在 related
+    assert len(r["sources"]) == ask.primary_count(8000, 8, 12) == 11 and len(calls) == 2
+    assert len(r["related"]) == 1
 
 
 def test_selector_http_error_also_fails_open(monkeypatch):
