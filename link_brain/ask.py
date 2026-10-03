@@ -575,24 +575,46 @@ def primary_count(cap, top_k, pool_size):
 
 
 def evidence_budget(cap, frag, count, deep=False):
+    """每篇证据的字数预算（R0 抽出）。deep（R2 单篇 / 少数篇深读）= 总预算平分给收窄后的那 1–3 篇。"""
     if deep:
         return cap // max(1, count)
     return max(200, min(max(frag, cap // max(1, count) - 150), 4000, cap // max(1, count) - 20))
 
 
-def _title_named(question, item):
-    title = str(item.get("title") or "").casefold()
-    question = question.casefold()
-    return any(title[start:start + 4].strip() and title[start:start + 4] in question
-               for start in range(len(title) - 3))
+# 深读只给「指向具体一篇」的问法；带盘点 / 列举口气的问题（要多篇来源）不收窄
+_MANY_RE = re.compile(r"哪些|有什么|有哪|推荐|盘点|汇总|总结一下|对比|比较|几种|多少种|清单|列表|整理|都有|各种|分别|还有")
+_DEEP_SCAN = 20  # 标题片段要在候选前 20 篇里够独特（≤3 篇有）才算点名
+
+
+def _title_fragments(question, item):
+    """问题里出现的、该篇标题的连续 ≥4 字片段（NFKC + casefold 后比；纯空白 / 标点片段不算）。"""
+    from .retrieval import norm
+    title, question = norm(item.get("title")), norm(question)
+    return {title[start:start + 4] for start in range(len(title) - 3)
+            if re.search(r"\w", title[start:start + 4]) and title[start:start + 4] in question}
+
+
+def _title_named(question, item, pool=None):
+    """问题点名了这篇：含它标题的连续 ≥4 字片段，且这个片段在候选前 20 篇里不超过 3 篇标题有
+    （「AI记忆」这类一大片标题都带的片段不算点名——那是泛问，不该收窄成一篇）。"""
+    fragments = _title_fragments(question, item)
+    if not fragments or pool is None:
+        return bool(fragments)
+    from .retrieval import norm
+    titles = [norm(it.get("title")) for it in pool[:_DEEP_SCAN]]
+    return any(sum(fragment in title for title in titles) <= 3 for fragment in fragments)
 
 
 def deep_read_wanted(question, matches):
+    """R2 单篇 / 少数篇深读的保守判据：问题含第 1 篇标题的独特 ≥4 字片段；或融合分第 1 名 ≥ 第 2 名两倍
+    （且问题没有盘点 / 列举口气）。任何异常 = 不深读（fail-open 回现行为）。"""
     try:
         if not matches:
             return False
-        if _title_named(question, matches[0]):
+        if _title_named(question, matches[0], matches):
             return True
+        if _MANY_RE.search(question or ""):
+            return False
         first = float(matches[0].get("_fused_score", 0))
         second = float(matches[1].get("_fused_score", 0)) if len(matches) > 1 else 0
         return first > 0 and second > 0 and first >= 2 * second
@@ -600,24 +622,33 @@ def deep_read_wanted(question, matches):
         return False
 
 
-def prompt_count(question, pool, cap, top_k):
+def prompt_count(question, pool, cap, top_k, pinned=False):
+    """(送模型几篇, 是否深读)。深读时主要依据收窄到第 1 篇 + 紧跟着也被点名的至多 2 篇；
+    pinned（她留下来源重答）从不深读——她留的来源一篇都不许被挤到「其他相关」。"""
     count = primary_count(cap, top_k, len(pool))
+    if pinned:
+        return count, False
     try:
         if deep_read_wanted(question, pool):
             named = 1
             for item in pool[1:3]:
-                if not _title_named(question, item):
+                if not _title_named(question, item, pool):
                     break
                 named += 1
-            return min(count, named), True
+            return max(1, min(count, named)), True
     except Exception:
         pass
     return count, False
 
 
 def related_card(item, rank_no, terms=()):
-    from .retrieval import lexical_excerpt
-    snippet = lexical_excerpt(item, terms, 120)
+    """「其他相关」那一档的来源卡（R2）：摘录 = 该篇真实命中的一段原文（单字段、≤120 字、纯词法，不调语义）。
+    以前用 summary[:120] 冒充命中依据；一个词都没中就留空，不再拿概要顶。任何异常也留空（fail-open）。"""
+    try:
+        from .retrieval import lexical_excerpt
+        snippet = lexical_excerpt(item, terms, 120)
+    except Exception:  # noqa: BLE001 - 摘录只是锦上添花，取不到不影响列卡
+        snippet = {"field": "", "text": ""}
     return {**_card(item, snippet["text"]), "excerpt_field": snippet["field"], "tier": "related", "rank": rank_no}
 
 
@@ -713,7 +744,7 @@ def _answer_qa(question, items, settings, history=None, source_ids=None):
     frag = max(200, int(limits.get("fragChars", 800)))
     top_k = max(1, int(limits.get('topK', 8)))
     pool = matches[:POOL_MAX] if not pinned else matches
-    n, deep = prompt_count(question, pool, cap, top_k)
+    n, deep = prompt_count(question, pool, cap, top_k, pinned=pinned)
     order = list(pool)
     candidate_count = len(pool)
     selection_failed = selection_kept = selection_empty = False

@@ -6,8 +6,9 @@ from link_brain import ask, retrieval, render
 
 
 def recipe():
+    # 字段字数仿 10-04 实测黑椒那篇（body 173 / 评论 988 / OCR 1904 / 转写 559，合计 3624）
     return {'id': 'recipe', 'title': '黑椒意面做法汇编', 'summary': '不是证据的概要', 'search_fields': {
-        'body': '配方说明。' * 28, 'comments': '评论讲解面汤用法。' * 98,
+        'body': '配方说明。' * 35, 'comments': '评论讲解面汤用法。' * 110,
         'ocr': '黑椒意面小贴士和配料。' * 173, 'transcript': '转写说明翻炒。' * 80}}
 
 

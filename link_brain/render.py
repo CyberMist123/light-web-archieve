@@ -1052,11 +1052,16 @@ def render_agent_md(
             label = {"table": "表格·精细识别", "diagram": "流程图·精细识别", "text": "文字·精细识别"}[refined["kind"]]
             out = [f"{indent}- {image['asset']}（{label}）："] + [f"{indent}  " + row for row in refined["text"].splitlines()]
             if refined.get("kind") == "diagram":
-                raw = "\n".join(str(line.get("text", "")) if isinstance(line, dict) else str(line)
-                                for line in image.get("lines") or []) or str(image.get("ocr") or "")
+                # R2 10-04：二层 Mermaid 会丢非结构文字（黑椒图丢了「小贴士」4 条），图下折叠附一层 OCR 原文。
+                # 每行都缩进、不留空行：HTML 块遇空行就断，缩进不够会跳出这条列表项。
+                raw = [str(line.get("text", "")) if isinstance(line, dict) else str(line)
+                       for line in image.get("lines") or []] or str(image.get("ocr") or "").splitlines()
+                raw = [row for row in (r.strip() for r in raw) if row]
                 if raw:
-                    out += [f'{indent}  <details><summary>一层 OCR 原文（识别结果）</summary>',
-                            f'{indent}  <pre>{_safe(raw)}</pre>', f'{indent}  </details>']
+                    out += [f'{indent}  <details><summary>一层 OCR 原文（识别结果，未经精细识别）</summary>',
+                            f'{indent}  <pre>' + _safe(raw[0])] + [f'{indent}  {_safe(row)}' for row in raw[1:]]
+                    out[-1] += '</pre>'
+                    out.append(f'{indent}  </details>')
             return out + ([origin] if origin else [])
         if visual.get("status") == "ok" and visual.get("v") and visual.get("kind") in ("table", "diagram", "text"):
             # 0927：新版识图已按图纠过错，直接用它；原始 OCR 留在 vision.json
@@ -1110,9 +1115,9 @@ def render_agent_md(
 
     lines += [
         "", "## 元信息", "",
-        f"- item_id: {meta['item_id']}",
+        f"- item_id: {meta.get('item_id')}",
         f"- canonical_url: {meta.get('canonical_url')}",
-        f"- current_version: {meta['current_version']}",
+        f"- current_version: {meta.get('current_version')}",
         f"- images_complete: {meta.get('images_complete')}",
         f"- comments_complete: {meta.get('comments_complete')}",
         f"- attachments_status: {meta.get('attachments_status')}",

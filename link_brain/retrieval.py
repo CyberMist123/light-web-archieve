@@ -469,18 +469,32 @@ def _evidence(item, terms, limit, sem=None, window_chars=450, max_parts=3):
 
 
 def lexical_excerpt(item, terms, limit=120):
+    """一篇的单段命中摘录（R2「其他相关」卡用）：只走词法、只取一个字段、逐字原文、不超过 limit 字。
+
+    选「中的不同词最多」的字段（同数按字段权重），窗口从该字段第一个命中前 limit/4 处开始。
+    一个词都没中返回空串——不拿概要冒充命中依据。"""
+    groups = list(dict.fromkeys(tuple(variants(t)) for t in terms or () if norm(t)))
     best = None
     for key, value in fields(item).items():
-        if key in {'title', 'tags', 'cats', 'author', 'summary'} or not value:
+        if key in {'title', 'tags', 'cats', 'author', 'summary'} or not value or not groups:
             continue
         text = str(value)
-        hits = [match.start() for term in terms for variant in variants(term)
-                if (match := _pattern(variant).search(norm(text)))]
-        if hits:
-            start = max(0, min(hits) - limit // 4)
-            candidate = (len(hits), {'field': key, 'text': text[start:start + limit]})
-            if best is None or candidate[0] > best[0]:
-                best = candidate
+        # 不 strip：位置要和原文对得上；NFKC 改了长度（极少见）时按比例折回原文位置，摘录照样是原文切片
+        low = unicodedata.normalize("NFKC", text).casefold()
+        firsts = []
+        for group in groups:
+            spots = [p for p in (find(low, v) for v in group if v and v in low) if p >= 0]
+            if spots:
+                firsts.append(min(spots))
+        if not firsts:
+            continue
+        hit = min(firsts)
+        if len(low) != len(text):
+            hit = hit * len(text) // max(1, len(low))
+        start = max(0, min(hit - limit // 4, len(text) - limit))
+        rank_key = (len(firsts), WEIGHTS.get(key, 1))
+        if best is None or rank_key > best[0]:
+            best = (rank_key, {'field': key, 'text': text[start:start + limit]})
     return best[1] if best else {'field': '', 'text': ''}
 
 
