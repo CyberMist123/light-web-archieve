@@ -513,7 +513,7 @@ function renderGrid(){
   if(q&&!q.startsWith('#')&&provider()?.openLibraryPage){const tip=grid.createEl('div',{cls:'lbc-possible-note',text:`按关键词筛选。想把同义词、相关内容也找出来 → 去问收藏搜「${committed}」`});tip.style.cursor='pointer';tip.style.margin='0 5px 12px';tip.onclick=()=>{const p=provider();p.pendingArchiveQuestion=committed;p.openLibraryPage('chat');};grid.prepend(tip);}
   if(!shown.length){grid.createEl('div',{cls:'lbc-empty',text:'没找到，试试更短的关键词。'});return;}
   let possibleCards=null;
-  for(const {it,match} of shown){
+  for(const row of shown){const {it,match}=row;
     if(match.fuzzy&&!possibleCards){
       const headEl=grid.createEl('div',{cls:'lbc-possible-head'});
       headEl.createEl('span',{cls:'lbc-possible-title',text:`可能相关 · ${ranked.possible.length} 篇`});
@@ -521,7 +521,7 @@ function renderGrid(){
       possibleCards=grid.createEl('div',{cls:'lbc-grid-inner lbc-grid-possible'});
     }
     const cards=possibleCards||exactCards;
-    const low=q?lowConfidenceSnippet(it,match):'';   // 原词命中 = ''（只留标题）
+    const low=q?lowSnippetFor(row):'';   // 原词 / 同语种同义词命中 = ''（只留标题）；低置信度才出浅色片段
     const sig=cardSig(it,!!match.fuzzy,low);const cached=cardCache.get(it.id);
     if(cached&&cached.sig===sig){cached.el._lbItem=it;cards.append(cached.el);continue;}
     const card=buildCard(cards,it,!!match.fuzzy,low);cardCache.set(it.id,{sig,el:card});

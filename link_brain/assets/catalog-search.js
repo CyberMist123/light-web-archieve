@@ -260,6 +260,18 @@ function hitSummary(m) {
 // 原词命中仍只显示标题（她的规矩：搜索卡片只留标题）。命中明细来自 matchItem 的 hits[].kind（exact 以外都算低置信度，
 // 以后加的 kind 如 semantic 也算）；结果里带了现成片段（match.snippet / hit.snippet）就直接用。
 const LOW_LABELS = {...FUZZY_LABELS, alias: '同义词', semantic: '意思相近', translate: '换语种', expand: '扩词'};
+// 卡片用的入口：优先用第 10 批 rankItems 结果里的 row.hit（confidence 判得更准：同语种同义词 = 高置信度，不出片段）；
+// 没有 row.hit 时退回下面按 hits 自己判的老办法。片段截到 90 字，免得卡片撑太高。
+function lowSnippetFor(row) {
+  const hit = row && row.hit;
+  if (hit && hit.confidence) {
+    if (hit.confidence !== 'low' || !hit.snippet) return '';
+    const text = String(hit.snippet.text || '').replace(/\s+/g, ' ').trim();
+    const cut = text.length > 90 ? text.slice(0, 90) + '…' : text;
+    return cut ? (hit.snippet.label ? hit.snippet.label + '：' : '') + cut : '';
+  }
+  return lowConfidenceSnippet(row && row.it, row && row.match);
+}
 function lowConfidenceSnippet(it, m) {
   if (!m || !Array.isArray(m.hits) || !m.hits.length) return '';
   const low = m.hits.filter(h => h && h.kind && h.kind !== 'exact');
