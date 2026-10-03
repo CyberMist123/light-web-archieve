@@ -176,7 +176,7 @@ def test_oauth_full_flow_with_sdk_client_then_three_tools(remote):
     async def go():
         async with remote_probe.oauth_session(remote.base, PASS) as s:
             names = sorted(t.name for t in (await s.list_tools()).tools)
-            assert names == ["list", "read", "search"]           # 没有写入 / 执行 / 问答
+            assert names == ["list", "read", "read_asset", "search"]   # 没有写入 / 执行 / 问答
             for t in (await s.list_tools()).tools:
                 assert t.annotations.readOnlyHint is True
             err, roots = await remote_probe.call(s, "list", {})

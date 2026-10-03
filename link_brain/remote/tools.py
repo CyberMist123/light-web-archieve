@@ -1,15 +1,21 @@
-"""三个只读工具：search / read / list。全部经 policy 过白名单；没有任何写入、执行、调模型回答的工具。
+"""四个只读工具：search / read / list / read_asset。全部经 policy 过白名单；没有任何写入、执行、调模型回答的工具。
 
 - search：开放了小红书收藏库（@xhs）时，复用问答的检索（`retrieval.rank_query`：词法 BM25 + 语义 RRF，
   语义层缺 key / 缺索引时自动退回纯词法），结果只留白名单内的路径；用户加的文件夹另做逐文件文本匹配。
 - read：读白名单内的文本文件，按字符分页（offset / max_chars → next_offset）。
+- read 读到收藏对象里的文本（机读版 / 附件全文 / 批注 / 可见笔记）时，带上这篇的图片清单 `images`；
+  `include_images=true` 时顺带附前 N 张图（图片块，同 read_asset 的大小上限）。
+- read_asset：读收藏对象里的一张原图，返回 MCP 图片块 + 一段说明。OCR / 识图文字用来找，原图用来判。
 - list：不给 path 列开放的根；给了列那个目录（只露出白名单内的文件和通往它们的目录），分页。
 
 返回值都是可 JSON 化的 dict；拒绝时抛 policy.Denied（服务层翻成 isError 结果）。
+带图的结果另有一个私有键 `_images: [{"data": bytes, "mime": str}]`，服务层把它摘出来翻成 ImageContent 块。
 """
 
 from __future__ import annotations
 
+import io
+import json
 import os
 import re
 import time
@@ -26,6 +32,14 @@ SEARCH_MAX = 30
 SCAN_FILES_MAX = 5000
 SCAN_FILE_BYTES = 2 * 1024 * 1024
 SCAN_SECONDS = 6.0
+IMAGE_MAX_BYTES = 4 * 1024 * 1024       # 超过就缩
+IMAGE_MAX_EDGE = 2048                   # 长边超过就缩
+IMAGE_SOURCE_MAX = 40 * 1024 * 1024     # 原图本身大过这个不打开
+INCLUDE_DEFAULT = 4
+INCLUDE_MAX = 8
+INCLUDE_TOTAL_BYTES = 12 * 1024 * 1024  # 一次 read 附图的总字节
+_PIL_FORMATS = {"WEBP": "image/webp", "JPEG": "image/jpeg", "PNG": "image/png", "GIF": "image/gif"}
+_OBJ = re.compile(r"^_archive/xiaohongshu/([A-Za-z0-9_-]{1,64})/")
 
 TOOLS = [
     {
@@ -42,11 +56,16 @@ TOOLS = [
     {
         "name": "read",
         "description": ("读一个开放的文本文件（.md / .txt；收藏的机读版 agent.md、附件全文、批注 notes.json）。"
-                        "大文件分页：返回 next_offset 不为 null 就带上它再读下一页。路径照 search / list 给出的原样写。"),
+                        "大文件分页：返回 next_offset 不为 null 就带上它再读下一页。路径照 search / list 给出的原样写。"
+                        "读收藏里的一篇时结果带 images（这篇的图片清单：n、path、宽高），要看哪张就用 read_asset 读那个 path；"
+                        f"也可以 include_images=true 顺带附前几张（默认 {INCLUDE_DEFAULT} 张，最多 {INCLUDE_MAX}）。"
+                        "图片文字（OCR / 识图）只用来找，细节以原图为准。"),
         "inputSchema": {"type": "object", "properties": {
             "path": {"type": "string", "description": "vault 内的相对路径，/ 分隔"},
             "offset": {"type": "integer", "description": "从第几个字符开始，默认 0"},
-            "max_chars": {"type": "integer", "description": f"这一页最多多少字符，默认 {READ_DEFAULT}，最多 {READ_MAX}"}},
+            "max_chars": {"type": "integer", "description": f"这一页最多多少字符，默认 {READ_DEFAULT}，最多 {READ_MAX}"},
+            "include_images": {"type": "boolean", "description": "true = 顺带附上这篇的前几张图片（图片块），默认 false"},
+            "max_images": {"type": "integer", "description": f"include_images 时附几张，默认 {INCLUDE_DEFAULT}，最多 {INCLUDE_MAX}"}},
             "required": ["path"]},
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     },
@@ -57,6 +76,17 @@ TOOLS = [
             "path": {"type": "string", "description": "文件夹的相对路径；留空 = 列开放的根"},
             "offset": {"type": "integer", "description": "分页起点，默认 0"},
             "limit": {"type": "integer", "description": f"这一页最多几项，默认 {LIST_DEFAULT}，最多 {LIST_MAX}"}}},
+        "annotations": {"readOnlyHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "read_asset",
+        "description": ("看收藏里的一张原图（返回图片本身 + 路径 / 尺寸 / 字节数）。agent.md 里的图片文字（OCR / 识图）"
+                        "可能有错字，只用来找；搜到以后用 read_asset 看原图核对，以原图为准。path 用 read 结果 images 里给出的原样路径"
+                        "（形如 _archive/xiaohongshu/<id>/raw/v0001/assets/image-001.webp）。一次一张；超过 "
+                        f"{IMAGE_MAX_BYTES // 1024 // 1024} MB 或长边超过 {IMAGE_MAX_EDGE} 的图会等比缩到长边 {IMAGE_MAX_EDGE}（JPEG）再给。"),
+        "inputSchema": {"type": "object", "properties": {
+            "path": {"type": "string", "description": "图片在 vault 内的相对路径，/ 分隔"}},
+            "required": ["path"]},
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     },
 ]
@@ -105,8 +135,155 @@ def read(policy: Policy, args: dict[str, Any]) -> dict[str, Any]:
     limit = _int(args.get("max_chars"), READ_DEFAULT, 1, READ_MAX)
     chunk = text[offset:offset + limit]
     end = offset + len(chunk)
-    return {"path": path, "total_chars": len(text), "offset": offset, "next_offset": end if end < len(text) else None,
-            "text": chunk}
+    out: dict[str, Any] = {"path": path, "total_chars": len(text), "offset": offset,
+                           "next_offset": end if end < len(text) else None, "text": chunk}
+    images = image_list(policy, path)
+    if images is not None:
+        out["images"] = images
+        if args.get("include_images") is True:
+            want = _int(args.get("max_images"), INCLUDE_DEFAULT, 1, INCLUDE_MAX)
+            blobs: list[dict[str, Any]] = []
+            attached: list[dict[str, Any]] = []
+            skipped: list[dict[str, Any]] = []
+            total = 0
+            for img in images[:want]:
+                try:
+                    data, mime, info = load_image(policy, img["path"])
+                except Denied as d:
+                    skipped.append({"n": img["n"], "path": img["path"], "error": d.code})
+                    continue
+                if total + len(data) > INCLUDE_TOTAL_BYTES:
+                    skipped.append({"n": img["n"], "path": img["path"], "error": "BUDGET"})
+                    continue
+                total += len(data)
+                blobs.append({"data": data, "mime": mime})
+                attached.append({"n": img["n"], "path": img["path"], **info})
+            out["attached_images"] = attached
+            if skipped:
+                out["skipped_images"] = skipped
+            out["_images"] = blobs
+    return out
+
+
+# ---------------------------------------------------------------- 图片
+
+def _object_id(policy: Policy, path: str) -> str | None:
+    """这段文本属于哪篇收藏：_archive/xiaohongshu/<id>/… 直接取；可见笔记从目录数据里对。"""
+    if not policy.xhs:
+        return None
+    m = _OBJ.match(path)
+    if m:
+        return m.group(1)
+    if not path.startswith(XHS_VISIBLE + "/"):
+        return None
+    try:
+        from ..ask import load_items
+        for it in load_items():
+            if it.get("note") == path and isinstance(it.get("agent_md"), str):
+                m = _OBJ.match(it["agent_md"])
+                return m.group(1) if m else None
+    except Exception:  # noqa: BLE001 - 对不上就不给清单
+        return None
+    return None
+
+
+def _load_json(p) -> Any:
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def image_list(policy: Policy, path: str) -> list[dict[str, Any]] | None:
+    """一篇收藏的图片清单（同 manifest 顺序：正文图在前、评论图在后）。不是收藏里的文本 → None。
+    只列 read_asset 读得到的路径：规则过、文件真在。meta.json / manifest.json 是服务自己读，不对外开放。"""
+    oid = _object_id(policy, path)
+    if not oid:
+        return None
+    obj_rel = f"{XHS_ARCHIVE}/{oid}"
+    obj = policy.root.joinpath(*obj_rel.split("/"))
+    meta = _load_json(obj / "meta.json") or {}
+    try:
+        version = int(meta.get("current_version") or 0) if isinstance(meta, dict) else 0
+    except (TypeError, ValueError):
+        version = 0
+    rows: list[tuple[str, Any, Any, Any]] = []
+    if version > 0:
+        manifest = _load_json(obj / "raw" / f"v{version:04d}" / "manifest.json") or {}
+        for m in (manifest.get("media") if isinstance(manifest, dict) else None) or []:
+            if isinstance(m, dict) and isinstance(m.get("file"), str):
+                rows.append((m["file"], m.get("width"), m.get("height"), m.get("role")))
+    if not rows:   # 没有 manifest：退回识图记录里的图片
+        vision = _load_json(obj / "derived" / "vision.json") or {}
+        for v in (vision.get("images") if isinstance(vision, dict) else None) or []:
+            if isinstance(v, dict) and isinstance(v.get("asset"), str):
+                rows.append((v["asset"], None, None, None))
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for file, w, h, role in rows:
+        rel = f"{obj_rel}/{file}"
+        if rel in seen or not policy.allowed_asset(rel):
+            continue
+        seen.add(rel)
+        if not policy.root.joinpath(*rel.split("/")).is_file():
+            continue
+        row: dict[str, Any] = {"n": len(out) + 1, "path": rel,
+                               "width": w if isinstance(w, int) else None, "height": h if isinstance(h, int) else None}
+        if role in ("note_image", "comment_image"):
+            row["role"] = "正文图" if role == "note_image" else "评论图"
+        out.append(row)
+    return out
+
+
+def load_image(policy: Policy, path: object) -> tuple[bytes, str, dict[str, Any]]:
+    """过白名单读一张图；超上限就等比缩到长边 IMAGE_MAX_EDGE 转 JPEG。返回 (字节, mime, 说明)。"""
+    target = policy.resolve_asset(path)
+    size = os.path.getsize(target)
+    if size > IMAGE_SOURCE_MAX:
+        raise Denied("TOO_LARGE", f"图片太大（{size // 1024 // 1024} MB），不提供")
+    raw = target.read_bytes()
+    from PIL import Image
+    try:
+        with Image.open(io.BytesIO(raw)) as im:
+            fmt = (im.format or "").upper()
+            if fmt not in _PIL_FORMATS:
+                raise Denied("NOT_IMAGE", "不是能识别的图片")
+            w, h = im.size
+            info: dict[str, Any] = {"width": w, "height": h, "bytes": size, "mime": _PIL_FORMATS[fmt], "resized": False}
+            if size <= IMAGE_MAX_BYTES and max(w, h) <= IMAGE_MAX_EDGE:
+                return raw, _PIL_FORMATS[fmt], info
+            im.seek(0)
+            frame = im.convert("RGBA") if im.mode in ("RGBA", "LA", "P", "PA") else im.convert("RGB")
+    except Denied:
+        raise
+    except Exception:  # noqa: BLE001 - 坏图 / 解码炸弹
+        raise Denied("NOT_IMAGE", "图片打不开（损坏或格式不支持）") from None
+    if frame.mode == "RGBA":
+        bg = Image.new("RGB", frame.size, (255, 255, 255))
+        bg.paste(frame, mask=frame.getchannel("A"))
+        frame = bg
+    frame.thumbnail((IMAGE_MAX_EDGE, IMAGE_MAX_EDGE), Image.LANCZOS)
+    data = b""
+    for quality in (85, 70, 55):
+        buf = io.BytesIO()
+        frame.save(buf, "JPEG", quality=quality, optimize=True)
+        data = buf.getvalue()
+        if len(data) <= IMAGE_MAX_BYTES:
+            break
+    if len(data) > IMAGE_MAX_BYTES:
+        raise Denied("TOO_LARGE", "图片缩过还是太大，不提供")
+    info.update(resized=True, sent_width=frame.size[0], sent_height=frame.size[1], sent_bytes=len(data),
+                sent_mime="image/jpeg")
+    return data, "image/jpeg", info
+
+
+def read_asset(policy: Policy, args: dict[str, Any]) -> dict[str, Any]:
+    path = args.get("path")
+    data, mime, info = load_image(policy, path)
+    note = "这是原图，用来核对 OCR / 识图文字" if not info["resized"] else (
+        f"原图 {info['width']}×{info['height']}、{info['bytes']} 字节，超上限已等比缩到 "
+        f"{info['sent_width']}×{info['sent_height']}（JPEG）再给")
+    return {"path": path, **info, "note": note, "_images": [{"data": data, "mime": mime}]}
 
 
 # ---------------------------------------------------------------- list
@@ -270,4 +447,4 @@ def search(policy: Policy, args: dict[str, Any]) -> dict[str, Any]:
             "note": "只含开放给你的内容；用 read 读 path / agent_md / attachments 的全文"}
 
 
-HANDLERS = {"search": search, "read": read, "list": list_dir}
+HANDLERS = {"search": search, "read": read, "list": list_dir, "read_asset": read_asset}

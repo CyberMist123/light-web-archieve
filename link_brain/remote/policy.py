@@ -11,6 +11,8 @@
      `derived/agent.md`（机读版）、`derived/attachments/*.md`（附件全文）、`notes.json`（批注）。
    - 用户加的文件夹：它下面的文本文件。
    - 只读文本：`.md` / `.markdown` / `.txt`（外加上面那一个 notes.json）；`.txt` 文件名像密钥的也拒。
+   - 图片（只给 read_asset，另走 `asset_rule`）：只开放 `@xhs` 每篇 `_archive/xiaohongshu/<id>/raw/vNNNN/assets/`
+     下的 `.webp / .jpg / .jpeg / .png / .gif`（扩展名小写）。用户加的文件夹里的图片默认不开（`USER_FOLDER_IMAGES`）。
 3. **文件系统**：`lstat` 必须是普通文件（不是符号链接 / 联接点）、只有一个硬链接；
    `realpath` 的结果必须和「vault 真路径 + 规范形」**逐字相等**——父目录里藏着链接 / 联接点、
    大小写不同、8.3 短名，都会让两者对不上而被拒。
@@ -32,9 +34,12 @@ XHS_ARCHIVE = "_archive/xiaohongshu"
 INTERNAL_TOP = {"_archive", "_trash"}
 TEXT_EXT = {".md", ".markdown", ".txt"}
 MAX_READ_BYTES = 30 * 1024 * 1024
+IMAGE_EXT = {".webp": "image/webp", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif"}
+USER_FOLDER_IMAGES = False      # 用户加的文件夹里的图片开不开：默认不开（待主审定）
 
 _ID = r"[A-Za-z0-9_-]{1,64}"
 _ARCHIVE_FILE = re.compile(rf"^_archive/xiaohongshu/{_ID}/(derived/agent\.md|derived/attachments/[^/]+\.md|notes\.json)$")
+_ARCHIVE_ASSET = re.compile(rf"^_archive/xiaohongshu/{_ID}/raw/v[0-9]{{4}}/assets/[^/]+\.(webp|jpg|jpeg|png|gif)$")
 _ARCHIVE_DIR = re.compile(rf"^_archive(/xiaohongshu(/{_ID}(/derived(/attachments)?)?)?)?$")
 _RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$", re.I)
 _SECRETISH = re.compile(r"(api[-_ ]?key|secret|passw|token|credential|cookie|密码|密钥|口令)", re.I)
@@ -130,6 +135,24 @@ class Policy:
             return
         raise Denied("NOT_SHARED", "不在开放的文件夹里")
 
+    def asset_rule(self, rel: str) -> None:
+        """图片（read_asset）的第二道：只看字符串。和 file_rule 互不相通：图片路径 read 读不到，文本路径 read_asset 读不到。"""
+        segs = rel.split("/")
+        if any(s.startswith(".") for s in segs):
+            raise Denied("FORBIDDEN", "隐藏目录和文件（.obsidian 等）永远不开放")
+        ext = os.path.splitext(segs[-1])[1]
+        if ext not in IMAGE_EXT:
+            raise Denied("NOT_IMAGE", "只开放图片（.webp / .jpg / .jpeg / .png / .gif，扩展名小写）")
+        if segs[0] == "_archive":
+            if self.xhs and _ARCHIVE_ASSET.match(rel):
+                return
+            raise Denied("FORBIDDEN", "_archive 里只开放每篇收藏 raw/vNNNN/assets/ 下的原图")
+        if segs[0] in INTERNAL_TOP:
+            raise Denied("FORBIDDEN", "这个目录是程序内部状态，不开放")
+        if USER_FOLDER_IMAGES and any(rel.startswith(f + "/") for f in self.user_folders):
+            return
+        raise Denied("NOT_SHARED", "只开放收藏对象里的图片（read 结果 images 给出的路径）")
+
     def dir_rule(self, rel: str) -> bool:
         """这个目录能不能在 list 里出现 / 被列（祖先目录也算，只露出通往开放文件夹的那一支）。"""
         if rel == "":
@@ -184,6 +207,20 @@ class Policy:
         rel = canonical(rel)
         self.file_rule(rel)
         return self._real_ok(rel, want_dir=False)
+
+    def resolve_asset(self, rel: object) -> Path:
+        rel = canonical(rel)
+        self.asset_rule(rel)
+        return self._real_ok(rel, want_dir=False)
+
+    def allowed_asset(self, rel: str) -> bool:
+        """图片清单过滤用：规范形 + 规则（不碰磁盘）。"""
+        try:
+            canonical(rel)
+            self.asset_rule(rel)
+            return True
+        except Denied:
+            return False
 
     def resolve_dir(self, rel: object) -> tuple[str, Path]:
         rel = canonical(rel, allow_root=True)

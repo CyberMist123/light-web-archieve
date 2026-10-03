@@ -9,7 +9,7 @@ Windows 上「启用」= 注册计划任务 `LinkBrainRemote`（登录时启动�
 - `config`  ：唯一配置源 = 插件 data.json 的 `remote` 段（开关 / 域名 / 端口 / 文件夹）；按 mtime 热重载。
 - `policy`  ：路径白名单。规范化 → 规则核对 → 文件系统核对（lstat 非链接 + realpath 逐字相等），三道都过才读。
 - `store`   ：口令（scrypt）与令牌（只存 sha256）——`~/.link-brain/remote/auth.json`，不进 data.json、不进仓库。
-- `tools`   ：三个只读工具 search / read / list（search 复用 retrieval 的词法 + 语义）。
+- `tools`   ：四个只读工具 search / read / list / read_asset（search 复用 retrieval 的词法 + 语义；read_asset 回原图）。
 - `server`  ：ASGI 应用（Host 校验、OAuth 动态注册 + PKCE + 口令批准页、Bearer、每令牌限速、访问日志）+ uvicorn。
 - `task`    ：Windows 计划任务的注册 / 移除 / 启停（PowerShell ScheduledTasks）。
 - `cli`     ：`python -m link_brain remote <子命令>`，设置页经 runPy 调它。
