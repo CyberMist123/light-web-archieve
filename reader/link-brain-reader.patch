@@ -1155,17 +1155,17 @@ index abed0f7..89107ab 100644
  
 diff --git a/linkbrain_api.go b/linkbrain_api.go
 new file mode 100644
-index 0000000..a7d7f40
+index 0000000..0d8f142
 --- /dev/null
 +++ b/linkbrain_api.go
-@@ -0,0 +1,832 @@
+@@ -0,0 +1,880 @@
 +package main
 +
 +// Link Brain 单账号接口（0925）：一个号、一个持久 profile，评论 / 私密收藏 / 附件
 +// 都在这个进程里跑，由 browser.profileMu 串行——不再有第二套浏览器去顶号。
 +//
 +//   GET  /api/v1/login/session         扫码进度与最近一次已知登录态（不开浏览器，随便轮询）
-+//   GET  /api/v1/favorites             当前账号的收藏列表
++//   GET  /api/v1/favorites[?expect=N]  当前账号的收藏列表；N = 上次正常读到的条数（期望基准），响应带 partial / stop_reason
 +//   POST /api/v1/attachments/download  先看笔记、再点附件页的「下载」按钮，把文件存到 dest_dir
 +//   POST /api/v1/notes/related-file    登录态看笔记页读附件元数据（游客被登录墙挡的笔记用）
 +//
@@ -1185,6 +1185,7 @@ index 0000000..a7d7f40
 +	"net/url"
 +	"os"
 +	"path/filepath"
++	"strconv"
 +	"strings"
 +	"sync"
 +	"time"
@@ -1471,7 +1472,28 @@ index 0000000..a7d7f40
 +const favMinInterval = 10 * time.Minute
 +
 +// 读收藏一次请求内最多 2 次尝试；只有「子 tab 没点中」这种纯前端问题才重试，重试前歇 20–40 秒（0930 连读后被跳到登录错误页）。
++//
++// F1 读收藏次数上限（10-04：同一次请求里先读 49 条、又重读得 540 条，之后夜跑脚本再整份重读一次撞上验证码）：
++//   - 一次请求最多进 2 次收藏页签，**最多滚到底 1 次**：第 2 次只在第 1 次「页签没点中」（滚动前发现，或滚动途中
++//     页签跳走、提前停下）时才有；第 1 次已经滚完一遍才发现页签不对，报不可重试的错（见 GetMyProfileViaSidebar）。
++//   - 一次同步只发 1 次本请求（Python favorites.fetch_favorites）；读到一截 / 可疑时当晚不再重读（Python 侧
++//     sync_state 的重读冷却 + nightly 不对它重试）。服务端另有 favMinInterval 限频。
++//
++// 所以一晚上对收藏列表的全量滚动 ≤ 1 次，进收藏页 ≤ 2 次。
 +const favMaxAttempts = 2
++
++// favRequestTimeout 读收藏整个请求（登录检查 + 进主页 + 点页签 + 等首屏 + 滚动 ≤favScrollBudget + 提取）的上限。
++// Python 客户端超时（favorites.fetch_favorites 660 秒）= 启动 ≤90 + 本值 + 关浏览器 ≤30 + 余量，必须比本值长。
++const favRequestTimeout = 8 * time.Minute
++
++// favExpectParam 解析 ?expect=N（上次正常读到的收藏条数）。乱填 / 负数 / 离谱大数一律当 0（不知道）。
++func favExpectParam(raw string) int {
++	n, err := strconv.Atoi(strings.TrimSpace(raw))
++	if err != nil || n <= 0 || n > 200000 {
++		return 0
++	}
++	return n
++}
 +
 +func favRetryWait() time.Duration { return time.Duration(20+rand.Intn(21)) * time.Second }
 +
@@ -1514,6 +1536,23 @@ index 0000000..a7d7f40
 +	return nil, err
 +}
 +
++// favReadSummary 响应里如实带上这次读收藏的结论：partial（只读到一截）、stop_reason（判停原因）、has_more
++// （页面状态里的「还有更多」，读不到为 null）、expect（调用方给的基准）、scroll（滚了几次 / 用到第几级滚法 / 秒数）。
++// 没有滚动结论（不该发生）按 partial 报，宁可让上层当一截处理，也不把来历不明的条数当全量。
++func favReadSummary(r *xiaohongshu.FavScrollResult, expect int) map[string]any {
++	if r == nil {
++		return map[string]any{"partial": true, "stop_reason": "not_scrolled", "has_more": nil, "expect": expect}
++	}
++	var hasMore any
++	if r.HasMore != nil {
++		hasMore = *r.HasMore
++	}
++	return map[string]any{
++		"partial": r.Partial, "stop_reason": r.Reason, "has_more": hasMore, "expect": expect,
++		"scroll": map[string]any{"loaded": r.Count, "scrolls": r.Scrolls, "level": r.Level, "seconds": r.Seconds},
++	}
++}
++
 +func sleepCtx(ctx context.Context, d time.Duration) error {
 +	select {
 +	case <-ctx.Done():
@@ -1537,8 +1576,9 @@ index 0000000..a7d7f40
 +			map[string]any{"retry_after_s": int(wait.Seconds())})
 +		return
 +	}
++	expect := favExpectParam(c.Query("expect"))
 +	// 与 favdump 一致用独立 context：挂在 HTTP 请求 context 上实测进主页必超时（0925）
-+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
++	ctx, cancel := context.WithTimeout(context.Background(), favRequestTimeout)
 +	defer cancel()
 +	b, berr := s.xiaohongshuService.openBrowser()
 +	if berr != nil { // 排队等锁期间别的请求撞了风控：不开浏览器
@@ -1561,9 +1601,14 @@ index 0000000..a7d7f40
 +			fail = &xiaohongshu.RiskError{Code: xiaohongshu.RiskNotLoggedIn, Detail: "读收藏：读取服务的号是游客"}
 +			return
 +		}
++		var scroll *xiaohongshu.FavScrollResult
 +		profile, err := readFavoritesWithRetry(ctx,
 +			func() (*xiaohongshu.UserProfileResponse, error) {
-+				return xiaohongshu.NewUserProfileAction(page).GetMyProfileViaSidebar(ctx, xiaohongshu.TabFavorites)
++				action := xiaohongshu.NewUserProfileAction(page)
++				action.FavExpect = expect
++				p, err := action.GetMyProfileViaSidebar(ctx, xiaohongshu.TabFavorites)
++				scroll = action.FavScroll
++				return p, err
 +			},
 +			func() *xiaohongshu.RiskError { return xiaohongshu.RiskPage(page) },
 +			sleepCtx,
@@ -1595,6 +1640,9 @@ index 0000000..a7d7f40
 +				URL: fmt.Sprintf("%s/explore/%s?xsec_token=%s&xsec_source=pc_feed", host, f.ID, f.XsecToken)})
 +		}
 +		out = map[string]any{"nickname": profile.UserBasicInfo.Nickname, "count": len(items), "items": items}
++		for k, v := range favReadSummary(scroll, expect) {
++			out[k] = v
++		}
 +	})
 +	if err != nil && fail == nil {
 +		fail = err
@@ -2611,10 +2659,10 @@ index 0000000..ea84ad1
 +}
 diff --git a/risk_hold_test.go b/risk_hold_test.go
 new file mode 100644
-index 0000000..25d3914
+index 0000000..b56028d
 --- /dev/null
 +++ b/risk_hold_test.go
-@@ -0,0 +1,391 @@
+@@ -0,0 +1,431 @@
 +package main
 +
 +import (
@@ -2939,6 +2987,46 @@ index 0000000..25d3914
 +	assert.Equal(t, xiaohongshu.RiskAccount, xiaohongshu.AsRisk(err).Code)
 +	assert.Equal(t, 1, r.reads)
 +	assert.Equal(t, 0, r.waits)
++
++	// F1：已经滚完一遍才发现页签不对 → 报成不可重试的错（不带 ErrTabNotActive），一次请求最多滚到底一次
++	scrolledThenTabWrong := fmt.Errorf("收藏已滚完一遍但提取时页签不对，本次不再重读：%v", tabErr)
++	r, _, err = exec([]error{scrolledThenTabWrong, nil}, 0)
++	assert.Error(t, err)
++	assert.NotErrorIs(t, err, xiaohongshu.ErrTabNotActive)
++	assert.Equal(t, 1, r.reads)
++	assert.Equal(t, 0, r.waits)
++}
++
++// TestFavExpectParam ?expect= 乱填一律当「不知道」，不让请求失败。
++func TestFavExpectParam(t *testing.T) {
++	assert.Equal(t, 1159, favExpectParam("1159"))
++	assert.Equal(t, 1159, favExpectParam(" 1159 "))
++	for _, bad := range []string{"", "0", "-3", "abc", "1e3", "999999999"} {
++		assert.Equal(t, 0, favExpectParam(bad), bad)
++	}
++}
++
++// TestFavReadSummary 响应如实带 partial / stop_reason / has_more（读不到为 null）/ expect；没有滚动结论按 partial 报。
++func TestFavReadSummary(t *testing.T) {
++	no := false
++	got := favReadSummary(&xiaohongshu.FavScrollResult{Count: 1160, HasMore: &no, Reason: xiaohongshu.FavStopEnd,
++		Scrolls: 80, Level: 0, Seconds: 190}, 1159)
++	assert.Equal(t, false, got["partial"])
++	assert.Equal(t, "has_more_false", got["stop_reason"])
++	assert.Equal(t, false, got["has_more"])
++	assert.Equal(t, 1159, got["expect"])
++	assert.Equal(t, 1160, got["scroll"].(map[string]any)["loaded"])
++
++	got = favReadSummary(&xiaohongshu.FavScrollResult{Count: 540, Partial: true, Reason: xiaohongshu.FavStopBelowExpect}, 1159)
++	assert.Equal(t, true, got["partial"])
++	assert.Nil(t, got["has_more"])
++	b, err := json.Marshal(got)
++	require.NoError(t, err)
++	assert.Contains(t, string(b), `"has_more":null`)
++
++	got = favReadSummary(nil, 0)
++	assert.Equal(t, true, got["partial"])
++	assert.Equal(t, "not_scrolled", got["stop_reason"])
 +}
 +
 +// TestLoginWindowFinishesWhenLockBusy 登录窗口 60 秒内拿不到浏览器 → finish 为 failed，状态不许停在 waiting。
@@ -5102,10 +5190,10 @@ index 0000000..b7c399a
 +}
 diff --git a/xiaohongshu/risk_localbrowser_test.go b/xiaohongshu/risk_localbrowser_test.go
 new file mode 100644
-index 0000000..6b978fa
+index 0000000..6c3ddcc
 --- /dev/null
 +++ b/xiaohongshu/risk_localbrowser_test.go
-@@ -0,0 +1,165 @@
+@@ -0,0 +1,232 @@
 +//go:build localbrowser
 +
 +package xiaohongshu
@@ -5271,12 +5359,79 @@ index 0000000..6b978fa
 +	assert.Equal(t, RiskCaptcha, r.Code)
 +	assert.Less(t, time.Since(start), 2*time.Minute, "命中后立即停，不许滚满 8 分钟")
 +}
++
++// favLazyFixture 假收藏页：__INITIAL_STATE__ 结构照小红书 web（user.notes[activeTab.index] + noteQueries[i].hasMore，
++// 外面包一层 {value}），滚到底附近 300ms 后追加一页（30 条），读满 total 条后 hasMore=false。
++// trigger = "scroll"：window 滚动就加载；"wheel"：只认真实滚轮（模拟 scrollTo 触发不了加载的布局）。
++// withQueries=false：页面状态里没有 noteQueries（hasMore 读不到，判停只能靠换滚法 + 基准）。
++func favLazyFixture(total int, trigger string, withQueries bool) string {
++	return fmt.Sprintf(`<div id="feeds" class="feeds-container"></div>
++<script>
++const TOTAL = %d, TRIGGER = %q, WITH_Q = %v;
++const fav = [];
++const st = {user: {notes: {value: [[{id: "own"}], fav]}, activeTab: {value: {index: 1, query: "fav"}}}};
++if (WITH_Q) st.user.noteQueries = {value: [{num: 30, cursor: "", hasMore: false}, {num: 30, cursor: "", hasMore: true}]};
++window.__INITIAL_STATE__ = st;
++let loading = false;
++function addPage() {
++  const box = document.getElementById("feeds");
++  for (let i = 0; i < 30 && fav.length < TOTAL; i++) {
++    fav.push({id: "n" + fav.length});
++    const s = document.createElement("section");
++    s.className = "note-item";
++    s.style.cssText = "height:120px;margin:4px;background:#eee";
++    s.textContent = "card " + fav.length;
++    box.appendChild(s);
++  }
++  if (WITH_Q && fav.length >= TOTAL) st.user.noteQueries.value[1].hasMore = false;
++}
++function maybeLoad() {
++  if (loading || fav.length >= TOTAL) return;
++  if (window.innerHeight + window.scrollY < document.body.scrollHeight - 400) return;
++  loading = true;
++  setTimeout(() => { addPage(); loading = false; }, 300);
++}
++addPage();
++if (TRIGGER === "wheel") window.addEventListener("wheel", () => setTimeout(maybeLoad, 50), {passive: true});
++else window.addEventListener("scroll", maybeLoad, {passive: true});
++</script>`, total, trigger, withQueries)
++}
++
++// TestLocalBrowserFavoritesScrollReadsAll F1：真实 DOM 上的判停接线——
++// ① 页面给 hasMore：读满后按 has_more_false 收工；② 只有真实滚轮才触发加载、页面不给 hasMore、调用方给了基准：
++// 普通滚法停住后要升级到滚轮把剩下的读出来，而不是把第一页当全量。
++func TestLocalBrowserFavoritesScrollReadsAll(t *testing.T) {
++	srv := fixtureServer(t, map[string]string{
++		"/fav/scroll": favLazyFixture(95, "scroll", true),
++		"/fav/wheel":  favLazyFixture(95, "wheel", false),
++	})
++	page := localPage(t)
++	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
++	defer cancel()
++
++	page.MustNavigate(srv.URL + "/fav/scroll").MustWaitLoad()
++	res, r := (&UserProfileAction{page: page}).scrollLoadAllFavorites(ctx)
++	require.Nil(t, r)
++	assert.Equal(t, 95, res.Count)
++	assert.Equal(t, FavStopEnd, res.Reason)
++	assert.False(t, res.Partial)
++	require.NotNil(t, res.HasMore)
++	assert.False(t, *res.HasMore)
++
++	page.MustNavigate(srv.URL + "/fav/wheel").MustWaitLoad()
++	res, r = (&UserProfileAction{page: page, FavExpect: 95}).scrollLoadAllFavorites(ctx)
++	require.Nil(t, r)
++	assert.Equal(t, 95, res.Count, "只认滚轮的页面：升级到真实滚轮后要读满")
++	assert.GreaterOrEqual(t, res.Level, 2)
++	assert.Nil(t, res.HasMore, "页面没给 noteQueries：hasMore 读不到，不许崩")
++	assert.False(t, res.Partial)
++}
 diff --git a/xiaohongshu/risk_test.go b/xiaohongshu/risk_test.go
 new file mode 100644
-index 0000000..98fdf74
+index 0000000..45e3bbe
 --- /dev/null
 +++ b/xiaohongshu/risk_test.go
-@@ -0,0 +1,148 @@
+@@ -0,0 +1,344 @@
 +package xiaohongshu
 +
 +import (
@@ -5363,13 +5518,26 @@ index 0000000..98fdf74
 +	assert.Contains(t, loginStateJS, `location.pathname.startsWith("/website-login")) return "risk"`)
 +}
 +
++// fastFavCfg 单测用：毫秒级的等待，四级滚法。
++func fastFavCfg(expect int) favScrollCfg {
++	return favScrollCfg{
++		Budget: 3 * time.Second, Settle: []time.Duration{30 * time.Millisecond, 40 * time.Millisecond, 50 * time.Millisecond, 60 * time.Millisecond},
++		ConfirmEnd: 15 * time.Millisecond, Expect: expect, ExpectRatio: favExpectRatio, WantTab: "fav",
++		Tick: func(int) time.Duration { return 2 * time.Millisecond },
++	}
++}
++
++func noRisk() *RiskError { return nil }
++
 +// TestScrollFavoritesStopsOnRisk 审查 should-fix：滚收藏（每次滚动都打一次收藏接口）途中要查风控，撞上立即停、不再滚。
 +func TestScrollFavoritesStopsOnRisk(t *testing.T) {
 +	checks, scrolls := 0, 0
 +	count := 0
-+	r := scrollUntilStable(context.Background(), time.Minute, time.Minute, time.Millisecond,
-+		func() int { count += 10; return count }, // 一直在增长，不会自然停
-+		func() { scrolls++ },
++	cfg := fastFavCfg(0)
++	cfg.Budget = time.Minute
++	res, r := scrollFavorites(context.Background(), cfg,
++		func() favProbe { count += 10; return favProbe{Count: count, HasMore: 1, Tab: "fav"} }, // 一直在增长，不会自然停
++		func(int) { scrolls++ },
 +		func() *RiskError {
 +			checks++
 +			if checks == 3 {
@@ -5380,14 +5548,187 @@ index 0000000..98fdf74
 +	require.NotNil(t, r)
 +	assert.Equal(t, RiskAccount, r.Code)
 +	assert.Equal(t, 2*favScrollRiskEvery, scrolls, "第三次检查命中：之前滚了两组，命中后一次都不能再滚")
++	assert.True(t, res.Partial)
++	assert.Equal(t, FavStopRisk, res.Reason)
 +}
 +
-+func TestScrollFavoritesSettlesWithoutRisk(t *testing.T) {
++// TestScrollFavoritesEndsOnHasMoreFalse 页面明确说没有更多：条数稳一小会儿就收工，算读全，不必把几级滚法都试一遍。
++func TestScrollFavoritesEndsOnHasMoreFalse(t *testing.T) {
++	n := 0
++	res, r := scrollFavorites(context.Background(), fastFavCfg(0),
++		func() favProbe {
++			n++
++			if n < 5 {
++				return favProbe{Count: n * 30, HasMore: 1, Tab: "fav"}
++			}
++			return favProbe{Count: 120, HasMore: 0, Tab: "fav"}
++		}, func(int) {}, noRisk)
++	require.Nil(t, r)
++	assert.Equal(t, FavStopEnd, res.Reason)
++	assert.False(t, res.Partial)
++	assert.Equal(t, 120, res.Count)
++	require.NotNil(t, res.HasMore)
++	assert.False(t, *res.HasMore)
++	assert.Equal(t, 0, res.Level)
++}
++
++// TestScrollFavoritesSlowLoadNotMistakenForEnd 慢懒加载：第 0 级「不动」超过 settle 后不收工，换滚法继续，
++// 后面又长出来的条数要读进来（10-03 读回 50、10-04 读回 540 都是这种被误判到底）。
++func TestScrollFavoritesSlowLoadNotMistakenForEnd(t *testing.T) {
++	count := 50
++	levelsSeen := map[int]bool{}
++	res, r := scrollFavorites(context.Background(), fastFavCfg(0),
++		func() favProbe { return favProbe{Count: count, HasMore: -1, Tab: "fav"} },
++		func(level int) {
++			levelsSeen[level] = true
++			if level >= 2 && count < 200 { // 只有真实滚轮那一级才触发得了加载
++				count += 50
++			}
++		}, noRisk)
++	require.Nil(t, r)
++	assert.Equal(t, 200, res.Count, "停在 50 时不能当成全量")
++	assert.True(t, levelsSeen[1] && levelsSeen[2])
++	assert.Equal(t, FavStopStable, res.Reason, "hasMore 读不到、没给基准：几级都试过不再长才按读全处理")
++	assert.False(t, res.Partial)
++	assert.Nil(t, res.HasMore)
++}
++
++// TestScrollFavoritesHasMoreTrueStuckIsPartial 页面说还有更多，但几种滚法都加载不出来：停下并报 partial，不当全量。
++func TestScrollFavoritesHasMoreTrueStuckIsPartial(t *testing.T) {
 +	scrolls := 0
-+	r := scrollUntilStable(context.Background(), time.Minute, 20*time.Millisecond, 5*time.Millisecond,
-+		func() int { return 7 }, func() { scrolls++ }, func() *RiskError { return nil })
-+	assert.Nil(t, r)
++	res, r := scrollFavorites(context.Background(), fastFavCfg(0),
++		func() favProbe { return favProbe{Count: 540, HasMore: 1, Tab: "fav"} },
++		func(int) { scrolls++ }, noRisk)
++	require.Nil(t, r)
++	assert.Equal(t, FavStopStuck, res.Reason)
++	assert.True(t, res.Partial)
++	assert.Equal(t, 540, res.Count)
++	assert.Equal(t, 3, res.Level, "四级滚法都试过才停")
++	require.NotNil(t, res.HasMore)
++	assert.True(t, *res.HasMore)
 +	assert.Greater(t, scrolls, 0)
++}
++
++// TestScrollFavoritesBelowExpectKeepsScrolling 条数停住但远低于基准（页面没给 hasMore）：继续换滚法；
++// 后来长到基准附近就按读全收工；始终长不上去就报 below_expect（partial）。
++func TestScrollFavoritesBelowExpectKeepsScrolling(t *testing.T) {
++	count := 540
++	res, r := scrollFavorites(context.Background(), fastFavCfg(1159),
++		func() favProbe { return favProbe{Count: count, HasMore: -1, Tab: "fav"} },
++		func(level int) {
++			if level >= 1 && count < 1160 {
++				count += 62
++			}
++		}, noRisk)
++	require.Nil(t, r)
++	assert.GreaterOrEqual(t, res.Count, 1159)
++	assert.Equal(t, FavStopStable, res.Reason)
++	assert.False(t, res.Partial)
++
++	res, r = scrollFavorites(context.Background(), fastFavCfg(1159),
++		func() favProbe { return favProbe{Count: 540, HasMore: -1, Tab: "fav"} }, func(int) {}, noRisk)
++	require.Nil(t, r)
++	assert.Equal(t, FavStopBelowExpect, res.Reason)
++	assert.True(t, res.Partial)
++	assert.Equal(t, 1159, res.Expect)
++}
++
++// TestScrollFavoritesHasMoreFalseBelowExpectTriesOnceMore hasMore=false 但远低于基准：先换一级滚法再信它（防字段一时没更新）。
++func TestScrollFavoritesHasMoreFalseBelowExpectTriesOnceMore(t *testing.T) {
++	res, r := scrollFavorites(context.Background(), fastFavCfg(1159),
++		func() favProbe { return favProbe{Count: 600, HasMore: 0, Tab: "fav"} }, func(int) {}, noRisk)
++	require.Nil(t, r)
++	assert.Equal(t, FavStopEnd, res.Reason)
++	assert.False(t, res.Partial, "页面明确说到底了：她真删了一批，照实算读全")
++	assert.GreaterOrEqual(t, res.Level, 1)
++}
++
++// TestScrollFavoritesBudgetIsPartial 预算用完还在长：报 budget（partial）。
++func TestScrollFavoritesBudgetIsPartial(t *testing.T) {
++	count := 0
++	cfg := fastFavCfg(0)
++	cfg.Budget = 60 * time.Millisecond
++	res, r := scrollFavorites(context.Background(), cfg,
++		func() favProbe { count += 5; return favProbe{Count: count, HasMore: -1, Tab: "fav"} }, func(int) {}, noRisk)
++	require.Nil(t, r)
++	assert.Equal(t, FavStopBudget, res.Reason)
++	assert.True(t, res.Partial)
++	assert.Greater(t, res.Count, 0)
++}
++
++// TestScrollFavoritesTabLost 滚动途中页签跳回「笔记」：立即停（10-04 读回的 49 条其实是别的 tab），不滚满 12 秒再报。
++func TestScrollFavoritesTabLost(t *testing.T) {
++	n, scrolls := 0, 0
++	res, r := scrollFavorites(context.Background(), fastFavCfg(0),
++		func() favProbe {
++			n++
++			if n >= 3 {
++				return favProbe{Count: 49, HasMore: -1, Tab: "note"}
++			}
++			return favProbe{Count: 49, HasMore: -1, Tab: "fav"}
++		}, func(int) { scrolls++ }, noRisk)
++	require.Nil(t, r)
++	assert.Equal(t, FavStopTabLost, res.Reason)
++	assert.Equal(t, "note", res.Tab)
++	assert.True(t, res.Partial)
++	assert.Equal(t, 2, scrolls)
++}
++
++// TestScrollFavoritesProbeFailureIsNotGrowth 读数失败（-1）不算增长也不算变化；读不到 tab（空串）不算跳走。
++func TestScrollFavoritesProbeFailureIsNotGrowth(t *testing.T) {
++	n := 0
++	res, r := scrollFavorites(context.Background(), fastFavCfg(0),
++		func() favProbe {
++			n++
++			if n%2 == 0 {
++				return favProbe{Count: -1, HasMore: -1}
++			}
++			return favProbe{Count: 80, HasMore: -1, Tab: ""}
++		}, func(int) {}, noRisk)
++	require.Nil(t, r)
++	assert.Equal(t, 80, res.Count)
++	assert.Equal(t, FavStopStable, res.Reason)
++}
++
++// TestScrollFavoritesCancelled ctx 结束：如实报 cancelled（partial），不卡住。
++func TestScrollFavoritesCancelled(t *testing.T) {
++	ctx, cancel := context.WithCancel(context.Background())
++	n := 0
++	res, r := scrollFavorites(ctx, fastFavCfg(0),
++		func() favProbe {
++			n++
++			if n == 3 {
++				cancel()
++			}
++			return favProbe{Count: n, HasMore: 1, Tab: "fav"}
++		}, func(int) {}, noRisk)
++	require.Nil(t, r)
++	assert.Equal(t, FavStopCancelled, res.Reason)
++	assert.True(t, res.Partial)
++}
++
++// TestFavBudgetRespectsCtxDeadline 滚动预算不超过 ctx 截止前留给提取的那段。
++func TestFavBudgetRespectsCtxDeadline(t *testing.T) {
++	now := time.Now()
++	assert.Equal(t, favScrollBudget, favBudget(context.Background(), now))
++	ctx, cancel := context.WithDeadline(context.Background(), now.Add(2*time.Minute))
++	defer cancel()
++	assert.Equal(t, 2*time.Minute-favExtractReserve, favBudget(ctx, now))
++	ctx2, cancel2 := context.WithDeadline(context.Background(), now.Add(10*time.Second))
++	defer cancel2()
++	assert.Equal(t, time.Duration(0), favBudget(ctx2, now))
++}
++
++// TestFavTickIsJittered 滚动间隔带抖动，不是固定的机枪节奏，且在 1.7 秒以上。
++func TestFavTickIsJittered(t *testing.T) {
++	seen := map[time.Duration]bool{}
++	for i := 0; i < 50; i++ {
++		d := favTick(i)
++		assert.GreaterOrEqual(t, d, 1700*time.Millisecond)
++		assert.Less(t, d, 9200*time.Millisecond)
++		seen[d] = true
++	}
++	assert.Greater(t, len(seen), 10)
 +}
 +
 +// TestCommentLoaderRiskLatch 滚评论：命中一次风控就锁存，之后不再调用探针，hitErr 带出码。
@@ -5424,6 +5765,16 @@ index 0000000..98fdf74
 +	ctx3, cancel3 := context.WithDeadline(context.Background(), now.Add(time.Minute))
 +	defer cancel3()
 +	assert.Equal(t, time.Duration(0), commentBudget(ctx3, now))
++}
++
++// TestScrollFavoritesReachedExpectStopsEarly 页面不给 hasMore，但已不少于基准且不再长：当前级就收工，不再升级滚法多打接口。
++func TestScrollFavoritesReachedExpectStopsEarly(t *testing.T) {
++	res, r := scrollFavorites(context.Background(), fastFavCfg(1159),
++		func() favProbe { return favProbe{Count: 1162, HasMore: -1, Tab: "fav"} }, func(int) {}, noRisk)
++	require.Nil(t, r)
++	assert.Equal(t, FavStopStable, res.Reason)
++	assert.False(t, res.Partial)
++	assert.Equal(t, 0, res.Level)
 +}
 diff --git a/xiaohongshu/search.go b/xiaohongshu/search.go
 index 7c22952..1fe60ee 100644
@@ -5496,18 +5847,39 @@ index 17c82ee..46cfdfe 100644
  
  // UserProfileResponse 用户详情页完整响应
 diff --git a/xiaohongshu/user_profile.go b/xiaohongshu/user_profile.go
-index 61216c7..31f055c 100644
+index 61216c7..df8cf76 100644
 --- a/xiaohongshu/user_profile.go
 +++ b/xiaohongshu/user_profile.go
-@@ -8,6 +8,7 @@ import (
+@@ -3,11 +3,15 @@ package xiaohongshu
+ import (
+ 	"context"
+ 	"encoding/json"
++	"errors"
+ 	"fmt"
++	"math/rand"
+ 	"strings"
  	"time"
  
  	"github.com/go-rod/rod"
++	"github.com/go-rod/rod/lib/proto"
 +	"github.com/sirupsen/logrus"
  	"github.com/xpzouying/xiaohongshu-mcp/humanize"
  )
  
-@@ -54,8 +55,10 @@ func (u *UserProfileAction) UserProfile(ctx context.Context, userID, xsecToken s
+@@ -42,6 +46,12 @@ var tabLabel = map[ProfileTab]string{
+ 
+ type UserProfileAction struct {
+ 	page *rod.Page
++
++	// FavExpect 读收藏时调用方给的期望条数（上次正常读到的基准，0 = 不知道）：
++	// 条数停住但明显低于它时不收工，换滚法再试（见 scrollFavorites）。
++	FavExpect int
++	// FavScroll 读收藏后滚动的结论（条数、是否 partial、判停原因）；没滚过为 nil。
++	FavScroll *FavScrollResult
+ }
+ 
+ func NewUserProfileAction(page *rod.Page) *UserProfileAction {
+@@ -54,8 +64,10 @@ func (u *UserProfileAction) UserProfile(ctx context.Context, userID, xsecToken s
  	page := u.page.Context(ctx).Timeout(60 * time.Second) // 重设被 .Context 清掉的 deadline
  
  	searchURL := makeUserProfileURL(userID, xsecToken, tab)
@@ -5520,7 +5892,7 @@ index 61216c7..31f055c 100644
  
  	return u.extractUserProfileData(page, tab)
  }
-@@ -64,12 +67,25 @@ func (u *UserProfileAction) UserProfile(ctx context.Context, userID, xsecToken s
+@@ -64,12 +76,25 @@ func (u *UserProfileAction) UserProfile(ctx context.Context, userID, xsecToken s
  func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTab) (*UserProfileResponse, error) {
  	page.MustWait(`() => window.__INITIAL_STATE__ !== undefined`)
  
@@ -5547,7 +5919,7 @@ index 61216c7..31f055c 100644
  			if (data) {
  				return JSON.stringify(data);
  			}
-@@ -85,7 +101,7 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
+@@ -85,7 +110,7 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
  	notesResult := page.MustEval(`() => {
  		const u = window.__INITIAL_STATE__ && window.__INITIAL_STATE__.user;
  		if (!u || !u.notes) return "";
@@ -5556,7 +5928,7 @@ index 61216c7..31f055c 100644
  		const notes = unwrap(u.notes);
  		if (!notes) return "";
  		const active = unwrap(u.activeTab) || {};
-@@ -105,6 +121,13 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
+@@ -105,6 +130,13 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
  		return nil, fmt.Errorf("failed to unmarshal userPageData: %w", err)
  	}
  
@@ -5570,7 +5942,7 @@ index 61216c7..31f055c 100644
  	var notesData struct {
  		Notes [][]Feed `json:"notes"`
  		Index int      `json:"index"`
-@@ -120,7 +143,7 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
+@@ -120,7 +152,7 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
  		want = TabNotes
  	}
  	if notesData.Query != "" && ProfileTab(notesData.Query) != want {
@@ -5579,7 +5951,7 @@ index 61216c7..31f055c 100644
  	}
  
  	// 组装响应
-@@ -138,7 +161,7 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
+@@ -138,7 +170,7 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
  }
  
  func makeUserProfileURL(userID, xsecToken string, tab ProfileTab) string {
@@ -5588,7 +5960,7 @@ index 61216c7..31f055c 100644
  	if tab != "" && tab != TabNotes {
  		url += fmt.Sprintf("&tab=%s&subTab=note", tab)
  	}
-@@ -146,26 +169,179 @@ func makeUserProfileURL(userID, xsecToken string, tab ProfileTab) string {
+@@ -146,24 +178,428 @@ func makeUserProfileURL(userID, xsecToken string, tab ProfileTab) string {
  }
  
  func (u *UserProfileAction) GetMyProfileViaSidebar(ctx context.Context, tab ProfileTab) (*UserProfileResponse, error) {
@@ -5626,6 +5998,7 @@ index 61216c7..31f055c 100644
 +		return nil, fmt.Errorf("%w: 当前 tab 为 %q，与请求的 %q 不符", ErrTabNotActive, q, tab)
 +	}
  
+-	return u.extractUserProfileData(page, tab)
 +	if tab == TabFavorites {
 +		// 0925 实测：切完页签数据还没回来时，页面里已有「还没有收藏」占位文字，
 +		// 旧判据一见文字就放行 → 读出 0 条还报成功。现在：先等真有笔记；
@@ -5663,10 +6036,17 @@ index 61216c7..31f055c 100644
 +			case <-time.After(700 * time.Millisecond):
 +			}
 +		}
-+		// 全量翻页：收藏是无限滚动，反复滚到底把后续都加载进 __INITIAL_STATE__.user.notes，
-+		// 直到条数不再增长（到底）或耗尽预算。滚完原 page 可能已超时，下面重开一份提取预算。
-+		if r := u.scrollLoadAllFavorites(ctx); r != nil {
++		// 全量翻页：收藏是无限滚动，反复滚到底把后续都加载进 __INITIAL_STATE__.user.notes。
++		// 判停见 scrollFavorites：页面说「没有更多」才算读全；否则换滚法、放宽等待，实在不行如实报 partial。
++		// 滚完原 page 可能已超时，下面重开一份提取预算。
++		res, r := u.scrollLoadAllFavorites(ctx)
++		u.FavScroll = &res
++		if r != nil {
 +			return nil, r
++		}
++		if res.Reason == FavStopTabLost {
++			// 滚动途中页签跳回了别的 tab：提前停下（没把收藏滚到底），交给上层按「页签没点中」最多再试一次
++			return nil, fmt.Errorf("%w: 滚收藏途中页签跳到了 %q", ErrTabNotActive, res.Tab)
 +		}
 +		page = u.page.Context(ctx).Timeout(60 * time.Second)
 +		if r := RiskPage(u.page); r != nil {
@@ -5683,9 +6063,15 @@ index 61216c7..31f055c 100644
 +	if diagnostic.Get("privacyWall").Bool() {
 +		return nil, fmt.Errorf("favorites privacy wall: current page is not recognized as owner")
 +	}
- 	return u.extractUserProfileData(page, tab)
- }
- 
++	resp, err := u.extractUserProfileData(page, tab)
++	if err != nil && tab == TabFavorites && u.FavScroll != nil && errors.Is(err, ErrTabNotActive) {
++		// F1：收藏已经完整滚过一遍（每次滚动都会打收藏接口），这时才发现页签不对——不再让上层重读整份收藏，
++		// 去掉 ErrTabNotActive 包装，报成不可重试的错（一次请求最多滚到底一次）。
++		return nil, fmt.Errorf("收藏已滚完一遍但提取时页签不对，本次不再重读：%v", err)
++	}
++	return resp, err
++}
++
 +// activeTabQuery 读页面状态里当前子 tab 的 query；读不到返回空串。
 +func (u *UserProfileAction) activeTabQuery(ctx context.Context) string {
 +	q := ""
@@ -5699,36 +6085,143 @@ index 61216c7..31f055c 100644
 +	return q
 +}
 +
-+// scrollLoadAllFavorites 把收藏子 tab 滚到底，加载全量收藏。
-+// 反复滚到页面底 → 等懒加载把新 feed 追加进 __INITIAL_STATE__.user.notes[activeTab.index]，
-+// 直到条数连续几次不再增长（到底）或耗尽预算（最多 ~150s）。只读不写。
-+// favScrollRiskEvery 滚收藏时每隔几轮（每轮约 1.3 秒，每次滚动都会触发一次收藏接口）查一次风控。
-+const favScrollRiskEvery = 4
++// ---------------------------------------------------------------- 收藏全量滚动（F1：判停改可靠）
++//
++// 以前只看「12 秒内条数没增长」就当到底：慢懒加载、或滚动没触发加载时，读回 47 / 50 / 540 这种半截，
++// 还当成全量交出去（10-04 夜里 540 条被当成全量，后面一路连锁撞上验证码）。现在：
++//   - 页面状态 __INITIAL_STATE__.user.noteQueries[activeTab.index].hasMore 明确为 false 才算「读到底」；
++//     这个字段是防御式读的——读不到（-1）就当不知道，不崩、不据此判停；
++//   - 条数停住但页面说还有更多 / 明显低于调用方给的基准时，不收工：换一种滚法（往回滚一截再到底、真实滚轮），
++//     每升一级等待放宽，几种都试过还不动才停，并如实报 partial；
++//   - 滚动节奏带抖动（1.7–3.1 秒一次，偶尔停下来「看一会儿」），不再 1.3 秒机枪式——每次滚动都会打一次收藏接口；
++//   - 总时长守住上层：预算 favScrollBudget，且不超过 ctx 截止前 favExtractReserve。
++//   - 途中风控检查不变：每 favScrollRiskEvery 轮（含第 0 轮）查一次，撞上立即停、返回 RiskError。
 +
-+// scrollLoadAllFavorites 1001：途中每 favScrollRiskEvery 轮查一次风控，撞上立即停、返回它。
-+func (u *UserProfileAction) scrollLoadAllFavorites(ctx context.Context) *RiskError {
-+	return scrollUntilStable(ctx, 240*time.Second, 12*time.Second, 1300*time.Millisecond,
-+		func() int {
-+			cnt := 0
-+			_ = rod.Try(func() {
-+				cnt = u.page.Context(ctx).Timeout(15 * time.Second).MustEval(favCountJS).Int()
-+			})
-+			return cnt
-+		},
-+		func() {
-+			_ = rod.Try(func() {
-+				u.page.Context(ctx).Timeout(15 * time.Second).MustEval(favScrollJS)
-+			})
-+		},
-+		func() *RiskError { return RiskPage(u.page) })
++// 判停原因（响应里的 stop_reason，日志同样写这几个词）。
++const (
++	FavStopEnd         = "has_more_false" // 页面明确说没有更多：读全
++	FavStopStable      = "stable"         // 换了几种滚法条数都不再增长；页面没给 hasMore、也没有基准或已达基准：按读全处理
++	FavStopBelowExpect = "below_expect"   // 换了几种滚法条数都不再增长，但明显低于基准、页面又没说到底：partial
++	FavStopStuck       = "stuck_has_more" // 页面说还有更多，但换了几种滚法都加载不出来：partial
++	FavStopBudget      = "budget"         // 预算用完：partial
++	FavStopCancelled   = "cancelled"      // 请求被取消 / 超时：partial
++	FavStopTabLost     = "tab_lost"       // 滚动途中页签跳到别的 tab：提前停下（上层按「页签没点中」处理）
++	FavStopRisk        = "risk"           // 撞风控：立即停
++)
++
++// FavScrollResult 一次全量滚动的结论。
++type FavScrollResult struct {
++	Count   int     `json:"count"`
++	HasMore *bool   `json:"has_more"` // nil = 页面状态里读不到这个字段
++	Partial bool    `json:"partial"`
++	Reason  string  `json:"stop_reason"`
++	Expect  int     `json:"expect"`
++	Scrolls int     `json:"scrolls"`
++	Level   int     `json:"level"` // 最后用到第几种滚法（0 = 普通滚到底）
++	Seconds float64 `json:"seconds"`
++	Tab     string  `json:"-"` // tab_lost 时跳到的 tab
 +}
 +
-+const favCountJS = `() => {
++// favProbe 一次读数：Count<0 表示这次没读出来；HasMore 1/0/-1 = 有更多/没有/不知道；Tab = activeTab.query（读不到为空）。
++type favProbe struct {
++	Count   int
++	HasMore int
++	Tab     string
++}
++
++type favScrollCfg struct {
++	Budget      time.Duration
++	Settle      []time.Duration // 每一级滚法「条数不动多久」算这一级没招了；级数 = len(Settle)
++	ConfirmEnd  time.Duration   // hasMore=false 之后条数再稳这么久就收工（等最后一页渲染进状态）
++	Expect      int
++	ExpectRatio float64 // 条数 < Expect*ExpectRatio 算「明显低于基准」
++	WantTab     string  // 期望的 activeTab.query；空 = 不核
++	Tick        func(i int) time.Duration
++}
++
++const (
++	// favScrollRiskEvery 滚收藏时每隔几轮查一次风控（每次滚动都会触发一次收藏接口）。
++	favScrollRiskEvery = 4
++	// favScrollBudget 一次全量滚动最多这么久。10-02 读满 1159 条约 3 分钟（1.3 秒一滚）；放慢到平均 ~2.5 秒一滚后
++	// 估计 3–4 分钟，再加几级换滚法的等待。上层：linkbrain_api.go 读收藏 ctx = favRequestTimeout（8 分钟），
++	// Python 客户端超时 660 秒（启动 ≤90 + 8 分钟 + 关浏览器 ≤30），都比它长。
++	favScrollBudget = 300 * time.Second
++	// favExtractReserve 滚动必须在 ctx 截止前这么久收手，给提取 + 风控复查 + 关页留时间。
++	favExtractReserve = 45 * time.Second
++	favExpectRatio    = 0.95
++)
++
++// favSettleLevels 四级滚法各自的「不动多久」：普通滚到底 12s → 往回一截再到底 16s → 真实滚轮 20s → 滚轮 + 末卡入视 25s。
++var favSettleLevels = []time.Duration{12 * time.Second, 16 * time.Second, 20 * time.Second, 25 * time.Second}
++
++// favTick 滚动间隔：1.7–3.1 秒均匀抖动，大约每 12 次多停 3–6 秒（像人停下来看一眼）。
++func favTick(int) time.Duration {
++	d := 1700*time.Millisecond + time.Duration(rand.Int63n(int64(1400*time.Millisecond)))
++	if rand.Intn(12) == 0 {
++		d += 3*time.Second + time.Duration(rand.Int63n(int64(3*time.Second)))
++	}
++	return d
++}
++
++// favBudget 预算 = min(favScrollBudget, ctx 截止 − favExtractReserve)，不为负。
++func favBudget(ctx context.Context, now time.Time) time.Duration {
++	b := favScrollBudget
++	if dl, ok := ctx.Deadline(); ok {
++		if left := dl.Sub(now) - favExtractReserve; left < b {
++			b = left
++		}
++	}
++	if b < 0 {
++		b = 0
++	}
++	return b
++}
++
++// scrollLoadAllFavorites 把收藏子 tab 滚到底（真实页面接线：读数 / 四级滚法 / 风控探针）。
++func (u *UserProfileAction) scrollLoadAllFavorites(ctx context.Context) (FavScrollResult, *RiskError) {
++	cfg := favScrollCfg{
++		Budget: favBudget(ctx, time.Now()), Settle: favSettleLevels, ConfirmEnd: 4 * time.Second,
++		Expect: u.FavExpect, ExpectRatio: favExpectRatio, WantTab: string(TabFavorites), Tick: favTick,
++	}
++	logged := false
++	probe := func() favProbe {
++		p := favProbe{Count: -1, HasMore: -1}
++		_ = rod.Try(func() {
++			v := u.page.Context(ctx).Timeout(15 * time.Second).MustEval(favProbeJS)
++			p = favProbe{Count: v.Get("count").Int(), HasMore: v.Get("hasMore").Int(), Tab: v.Get("tab").Str()}
++			if !logged {
++				logged = true
++				// 真号上 hasMore 字段到底在不在，看这一行（字段名 / 位置变了就是 -1，判停退回「换滚法 + 基准」）
++				logrus.Infof("XHS favorites 滚动开始：已加载 %d 条，页面 hasMore=%d（-1=读不到），基准 %d，预算 %s，noteQueries=%s",
++					p.Count, p.HasMore, cfg.Expect, cfg.Budget.Round(time.Second), v.Get("queryKeys").Str())
++			}
++		})
++		return p
++	}
++	scroll := func(level int) { u.favScroll(ctx, level) }
++	return scrollFavorites(ctx, cfg, probe, scroll, func() *RiskError { return RiskPage(u.page) })
++}
++
++// favProbeJS 读收藏条数 + 「还有没有更多」+ 当前子 tab。全部防御式：任何一项读不到都给「不知道」，不抛错。
++const favProbeJS = `() => {
 +		const unwrap = x => x?.value ?? x?._value ?? x?._rawValue ?? x;
-+		const u = window.__INITIAL_STATE__?.user;
-+		const notes = unwrap(u?.notes);
-+		const active = unwrap(u?.activeTab);
-+		return (notes && active && notes[active.index] && notes[active.index].length) || 0;
++		const out = {count: 0, hasMore: -1, tab: "", queryKeys: ""};
++		try {
++			const u = window.__INITIAL_STATE__?.user;
++			const notes = unwrap(u?.notes);
++			const active = unwrap(u?.activeTab) || {};
++			const idx = active.index;
++			if (typeof active.query === "string") out.tab = active.query;
++			const list = (notes && idx !== undefined && idx !== null) ? unwrap(notes[idx]) : null;
++			out.count = (list && typeof list.length === "number") ? list.length : 0;
++			const qs = unwrap(u?.noteQueries);
++			const q = (qs && idx !== undefined && idx !== null) ? unwrap(qs[idx]) : null;
++			if (q && typeof q === "object") {
++				out.queryKeys = Object.keys(q).slice(0, 8).join(",");
++				if (typeof q.hasMore === "boolean") out.hasMore = q.hasMore ? 1 : 0;
++			}
++		} catch (e) {}
++		return out;
 +	}`
 +
 +// 滚到底触发下一页懒加载（window 和常见滚动容器都滚一下，兜不同布局）
@@ -5738,45 +6231,174 @@ index 61216c7..31f055c 100644
 +				if (sc) sc.scrollTop = sc.scrollHeight;
 +			}`
 +
-+// scrollUntilStable 反复「数一下 → 滚一下 → 歇 tick」，settle 内条数没增长算到底，budget 用完也停；
-+// 每 favScrollRiskEvery 轮（含第 0 轮）滚之前查一次风控，命中返回它、不再滚。
-+func scrollUntilStable(ctx context.Context, budget, settle, tick time.Duration,
-+	count func() int, scroll func(), risk func() *RiskError) *RiskError {
-+	deadline := time.Now().Add(budget)
-+	last := -1
++// 往回滚一截（约 1.2 屏）：有的懒加载靠哨兵元素「进入视口」触发，一直贴在底部它不会再触发一次。
++const favScrollBackJS = `() => {
++				const h = window.innerHeight || 800;
++				window.scrollBy(0, -Math.round(h * 1.2));
++				const sc = document.querySelector('.feeds-container, .feeds-page, #userPostedFeeds, .note-scroll-container');
++				if (sc) sc.scrollTop = Math.max(0, sc.scrollTop - Math.round(h * 1.2));
++			}`
++
++// 把最后一张卡片滚进视口底部（第 3 级兜底）。
++const favLastCardJS = `() => {
++				const cards = document.querySelectorAll('section.note-item, .note-item');
++				const last = cards.length ? cards[cards.length - 1] : null;
++				if (last && last.scrollIntoView) last.scrollIntoView({block: "end"});
++				return cards.length;
++			}`
++
++// favScroll 第 level 级滚法。0 = JS 滚到底；1 = 先往回一截、歇一下再滚到底；2 = 真实滚轮往下；3 = 滚轮 + 末卡入视。
++func (u *UserProfileAction) favScroll(ctx context.Context, level int) {
++	pg := u.page.Context(ctx).Timeout(15 * time.Second)
++	eval := func(js string) { _ = rod.Try(func() { pg.MustEval(js) }) }
++	pause := func(lo, span time.Duration) {
++		select {
++		case <-ctx.Done():
++		case <-time.After(lo + time.Duration(rand.Int63n(int64(span)))):
++		}
++	}
++	wheel := func(screens float64) {
++		_ = rod.Try(func() {
++			v := pg.MustEval(`() => ({w: window.innerWidth || 1200, h: window.innerHeight || 800})`)
++			w, h := v.Get("w").Num(), v.Get("h").Num()
++			x := w*0.45 + float64(rand.Intn(int(w*0.1)+1))
++			y := h*0.5 + float64(rand.Intn(int(h*0.1)+1))
++			_ = pg.Mouse.MoveTo(proto.Point{X: x, Y: y})
++			_ = pg.Mouse.Scroll(0, h*screens, 6+rand.Intn(5))
++		})
++	}
++	switch {
++	case level <= 0:
++		eval(favScrollJS)
++	case level == 1:
++		eval(favScrollBackJS)
++		pause(600*time.Millisecond, 600*time.Millisecond)
++		eval(favScrollJS)
++	case level == 2:
++		wheel(1.6 + rand.Float64())
++	default:
++		wheel(-0.8)
++		pause(500*time.Millisecond, 500*time.Millisecond)
++		wheel(2.5 + rand.Float64())
++		eval(favLastCardJS)
++	}
++}
++
++// scrollFavorites 判停核心（纯逻辑，单测用桩驱动）：反复「读数 → 查风控（每 favScrollRiskEvery 轮）→ 滚 → 歇 Tick」。
++//   - 读数里页签不是 WantTab → tab_lost，立即停；
++//   - hasMore=false 且条数稳了 ConfirmEnd → has_more_false（读全）。条数还明显低于基准时，至少先换过一级滚法再信它；
++//   - 条数在当前级的 Settle 内没增长 → 页面没给 hasMore 但已不少于基准就收工（stable）；否则升一级滚法（等待随之放宽）；
++//     最高级也没招了 → 按 hasMore / 基准给结论；
++//   - 预算用完 → budget（partial，除非页面已说没有更多）；ctx 结束 → cancelled（partial）。
++func scrollFavorites(ctx context.Context, cfg favScrollCfg, probe func() favProbe, scroll func(level int),
++	risk func() *RiskError) (FavScrollResult, *RiskError) {
++	start := time.Now()
++	deadline := start.Add(cfg.Budget)
++	levels := len(cfg.Settle)
++	if levels == 0 {
++		levels, cfg.Settle = 1, []time.Duration{12 * time.Second}
++	}
++	if cfg.Tick == nil {
++		cfg.Tick = favTick
++	}
++	res := FavScrollResult{Expect: cfg.Expect}
++	best, hasMore := 0, -1
 +	lastGrow := time.Now()
-+	for i := 0; time.Now().Before(deadline); i++ {
-+		cnt := count()
-+		if cnt == last {
-+			if time.Since(lastGrow) >= settle {
-+				logrus.Infof("XHS favorites 全量加载完成，共 %d 条", cnt)
-+				return nil
-+			}
++	below := func() bool { return cfg.Expect > 0 && float64(best) < float64(cfg.Expect)*cfg.ExpectRatio }
++	finish := func(reason string) (FavScrollResult, *RiskError) {
++		res.Count, res.Reason, res.Seconds = best, reason, time.Since(start).Round(100*time.Millisecond).Seconds()
++		if hasMore >= 0 {
++			v := hasMore == 1
++			res.HasMore = &v
++		}
++		switch reason {
++		case FavStopEnd, FavStopStable:
++			res.Partial = false
++		default:
++			res.Partial = true
++		}
++		hm := "读不到"
++		if res.HasMore != nil {
++			hm = fmt.Sprint(*res.HasMore)
++		}
++		if res.Partial {
++			logrus.Warnf("XHS favorites 只读到一截，共 %d 条（判停 %s · hasMore=%s · 基准 %d · 滚 %d 次 · 用到第 %d 级滚法 · %.0f 秒）",
++				best, reason, hm, cfg.Expect, res.Scrolls, res.Level, res.Seconds)
 +		} else {
-+			last = cnt
++			logrus.Infof("XHS favorites 全量加载完成，共 %d 条（判停 %s · hasMore=%s · 基准 %d · 滚 %d 次 · 用到第 %d 级滚法 · %.0f 秒）",
++				best, reason, hm, cfg.Expect, res.Scrolls, res.Level, res.Seconds)
++		}
++		return res, nil
++	}
++	for i := 0; ; i++ {
++		if ctx.Err() != nil {
++			return finish(FavStopCancelled)
++		}
++		if !time.Now().Before(deadline) {
++			if hasMore == 0 {
++				return finish(FavStopEnd)
++			}
++			return finish(FavStopBudget)
++		}
++		p := probe()
++		if cfg.WantTab != "" && p.Tab != "" && p.Tab != cfg.WantTab {
++			res.Tab = p.Tab
++			return finish(FavStopTabLost)
++		}
++		if p.HasMore >= 0 {
++			hasMore = p.HasMore
++		}
++		if p.Count > best {
++			best = p.Count
 +			lastGrow = time.Now()
++		}
++		still := time.Since(lastGrow)
++		if p.Count >= 0 && best > 0 && hasMore == 0 && still >= cfg.ConfirmEnd && (!below() || res.Level >= 1) {
++			return finish(FavStopEnd)
++		}
++		if still >= cfg.Settle[res.Level] {
++			if hasMore == -1 && cfg.Expect > 0 && best >= cfg.Expect {
++				// 页面不给 hasMore，但已经读到不少于基准、当前滚法下又不再长：按读全收工，不必再升级滚法多打接口
++				return finish(FavStopStable)
++			}
++			if res.Level+1 < levels {
++				res.Level++
++				lastGrow = time.Now() // 新一级滚法重新计时
++				logrus.Infof("XHS favorites 条数停在 %d 条 %s 没动（hasMore=%d，基准 %d）：换第 %d 级滚法再试",
++					best, still.Round(time.Second), hasMore, cfg.Expect, res.Level)
++			} else {
++				switch {
++				case hasMore == 1:
++					return finish(FavStopStuck)
++				case hasMore == 0:
++					return finish(FavStopEnd)
++				case below():
++					return finish(FavStopBelowExpect)
++				default:
++					return finish(FavStopStable)
++				}
++			}
 +		}
 +		if i%favScrollRiskEvery == 0 {
 +			if r := risk(); r != nil {
 +				logrus.Warnf("滚收藏途中撞到风控，停止滚动: %s", r.Error())
-+				return r
++				res.Count, res.Reason, res.Partial = best, FavStopRisk, true
++				res.Seconds = time.Since(start).Round(100 * time.Millisecond).Seconds()
++				return res, r
 +			}
 +		}
-+		scroll()
++		scroll(res.Level)
++		res.Scrolls++
 +		select {
 +		case <-ctx.Done():
-+			return nil
-+		case <-time.After(tick):
++			return finish(FavStopCancelled)
++		case <-time.After(cfg.Tick(i)):
 +		}
 +	}
-+	logrus.Infof("XHS favorites 全量加载到预算上限，取已加载的 %d 条", last)
-+	return nil
-+}
-+
+ }
+ 
  // selectTab 切到目标子 tab。「笔记」是默认 tab，无需点击。
- func (u *UserProfileAction) selectTab(ctx context.Context, page *rod.Page, tab ProfileTab) error {
- 	if tab == "" || tab == TabNotes {
-@@ -173,23 +349,58 @@ func (u *UserProfileAction) selectTab(ctx context.Context, page *rod.Page, tab P
+@@ -173,23 +609,58 @@ func (u *UserProfileAction) selectTab(ctx context.Context, page *rod.Page, tab P
  	}
  
  	label := tabLabel[tab]
