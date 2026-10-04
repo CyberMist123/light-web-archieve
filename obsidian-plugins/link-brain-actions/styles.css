@@ -147,9 +147,10 @@ a.lb-report-title { color: var(--link-color); cursor: pointer; }
 .lb-comp-meta { font-size: var(--font-ui-smaller); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .lb-comp-status.is-ready { color: var(--color-green, var(--text-success)); }
 .lb-comp-status.is-missing, .lb-comp-status.is-partial, .lb-comp-status.is-failed { color: var(--color-orange, var(--text-warning)); }
-.lb-tag { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: var(--font-ui-smaller); line-height: 1.5;
+/* 只给设置页组件清单里的「以后 / 要 key / 必需」小标签（10-04：以前没加范围，漏到笔记正文的 #标签 上成了灰框） */
+.lb-comp .lb-tag { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: var(--font-ui-smaller); line-height: 1.5;
   color: var(--text-muted); border: 1px solid var(--background-modifier-border); }
-.lb-tag.is-later { color: var(--text-faint); border-style: dashed; }
+.lb-comp .lb-tag.is-later { color: var(--text-faint); border-style: dashed; }
 .lb-comp-gear { flex: none; background: transparent; box-shadow: none; border: none; padding: 2px 6px; height: auto; color: var(--text-muted); cursor: pointer; }
 .lb-comp-gear:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
 .lb-setup-total { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--background-modifier-border); }

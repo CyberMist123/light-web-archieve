@@ -591,3 +591,39 @@
 /* 0926 Owner：图片滑动条不显示横向滚动条（用左右箭头/滚轮/←→翻页） */
 .xhs-note .lb-carousel{scrollbar-width:none;}
 .xhs-note .lb-carousel::-webkit-scrollbar{display:none;}
+
+/* 10-04 Owner：正文不要上下拖动的滚动条——右栏正文 / 评论（.lb-scroll）、钉住时左栏图片区（.lb-side）、整页阅读区都只藏滚动条外观，
+   滚轮 / 触摸 / 键盘照样能滚；不改任何尺寸和布局（两栏 grid、sticky、批注框位置都不动） */
+.markdown-preview-view.xhs-note,
+.markdown-source-view.xhs-note .cm-scroller,
+.xhs-note .lb-main,
+.xhs-note .lb-scroll,
+.xhs-note .lb-side,
+.xhs-note .lb-media-locked .lb-side { scrollbar-width: none; }
+.markdown-preview-view.xhs-note::-webkit-scrollbar,
+.markdown-source-view.xhs-note .cm-scroller::-webkit-scrollbar,
+.xhs-note .lb-main::-webkit-scrollbar,
+.xhs-note .lb-scroll::-webkit-scrollbar,
+.xhs-note .lb-side::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+/* 10-04 Owner：正文里的标签（#codex 那排）外面不要框，只留文字（颜色照旧）。
+   那圈灰框是插件 styles.css 里设置页「要 key / 必需」小标签的 .lb-tag 漏到笔记里来了（插件那边也已收窄到设置页）。 */
+.xhs-note .lb-tags .lb-tag {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  font-size: 0.92em;
+  line-height: 1.65;
+  color: var(--link-color);
+}
+
+/* 10-04 Owner：正文视频的控制条（播放 / 进度 / 音量 / 全屏）和下面那行倍速「1×」平时藏着，鼠标放到视频上才出现；
+   控制条的显隐由插件 media-nav.js 切 video 的 controls 属性（键盘 Tab 到视频上也会出现），这里只管倍速那一行：用透明度，不占位变化 */
+.xhs-note .lb-media:has(video) .lb-media-tools { opacity: 0; transition: opacity .15s; }
+.xhs-note .lb-media:has(video):hover .lb-media-tools,
+.xhs-note .lb-media:has(video):focus-within .lb-media-tools { opacity: 1; }
+@media (hover: none) { .xhs-note .lb-media:has(video) .lb-media-tools { opacity: 1; } }

@@ -620,9 +620,10 @@ def set_highlight(item_id: str, phrase: str, *, remove: bool = False) -> tuple[P
 
 
 def _author_html(note: dict[str, Any]) -> str:
-    """作者那一行（圆点 + 昵称 + 日期/地点）。这块没人要编辑，留在 HTML 里。"""
+    """作者那一行（圆点 + 昵称 + 日期）。这块没人要编辑，留在 HTML 里。
+    10-04 她定：IP 属地（ip_location）不在可见笔记里显示；RAW（source.json）里照旧留着，重渲染即去掉旧笔记里的。"""
     author = (note.get("author") or {}).get("nickname") or "匿名"
-    meta = " · ".join(x for x in (_date(note.get("published_at")), note.get("ip_location")) if x)
+    meta = _date(note.get("published_at")) or ""
     return "".join([
         '<div class="lb-author-row"><div class="lb-author-dot" aria-hidden="true"></div><div class="lb-author-copy">',
         f'<div class="lb-author-name">{_safe(author)}</div>',

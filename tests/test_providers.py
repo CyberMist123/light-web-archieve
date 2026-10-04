@@ -174,6 +174,13 @@ def test_new_style_config_is_left_alone():
     assert not [r for r in problems.load() if r["step"] == "config"]
 
 
+def test_legacy_note_is_withdrawn_once_settings_are_new_style(monkeypatch):
+    problems.report("config", "SKIPPED.LEGACY_CONFIG", "旧设置已换算", action="skipped")
+    write_data_json({"textAI": {"mode": "http", "endpoint": "https://x.invalid/v1/chat/completions", "model": "m"}})
+    ai_config.load()
+    assert not [r for r in problems.load() if r["step"] == "config"]
+
+
 def test_embed_follows_configured_dashscope_endpoint(tmp_path, monkeypatch):
     """1004：设置页存成新格式后 data.json 没有 embedAI —— 向量索引跟着千问兼容接口的 key 走，不悄悄停掉。"""
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)

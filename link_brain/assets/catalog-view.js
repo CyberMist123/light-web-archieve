@@ -182,6 +182,38 @@ style.textContent = `
 .lbc-grid.lbc-has-cols .lbc-grid-inner{columns:auto;column-count:var(--lbc-cols);column-width:auto;}
 /* 10-03（她定）：低置信度命中（同义词 / 换语种 / 扩词 / 拼音 / 错字 / 漏字 / 语义）标题下浅色一段检索到的内容；原词命中只有标题 */
 .lbc-lowhit{font-size:12px;line-height:1.55;color:var(--text-faint);margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;}
+/* 10-04（她定）整页外面那层 dataviewjs 代码块的框（边框 / 底色 / 圆角 / 悬停「编辑代码块」按钮）隐形：阅读视图 + 实时预览 */
+:is(.lb-chatpage,.lb-catalog,.lb-trashpage) :is(.el-pre:has(.block-language-dataviewjs),pre:has(.block-language-dataviewjs),.block-language-dataviewjs,.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs),
+:is(.lb-chatpage,.lb-catalog,.lb-trashpage) :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs):hover{border:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;border-radius:0!important;}
+:is(.lb-chatpage,.lb-catalog,.lb-trashpage) :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-lang-dataviewjs) .edit-block-button{display:none!important;}
+/* 10-04 悬停卡片就出现的选中圈（不用先进「多选模式」）；有选中时每张卡都显示圈 */
+.lbc-wrap button.lbc-check{position:absolute;top:8px;right:8px;z-index:1;width:26px;height:26px;padding:0!important;border-radius:50%!important;border:1.5px solid #fff!important;background:rgba(0,0,0,.28)!important;box-shadow:0 1px 4px #0003!important;color:transparent;display:grid;place-items:center;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .15s,background .12s;}
+.lbc-wrap button.lbc-check svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round;}
+.lbc-card:hover button.lbc-check,.lbc-card:focus-within button.lbc-check,.lbc-wrap.is-selecting button.lbc-check{opacity:1;pointer-events:auto;}
+.lbc-wrap button.lbc-check:hover{background:rgba(0,0,0,.45)!important;}
+.lbc-wrap button.lbc-check.is-on{background:var(--interactive-accent)!important;border-color:var(--interactive-accent)!important;color:#fff;opacity:1;pointer-events:auto;}
+@media(hover:none){.lbc-wrap button.lbc-check{opacity:1;pointer-events:auto;}}
+.lbc-star{right:42px;}
+.lbc-simple button.lbc-check{top:18px;right:34px;border-color:var(--background-modifier-border)!important;background:var(--background-primary)!important;}
+.lbc-simple button.lbc-check.is-on{background:var(--interactive-accent)!important;}
+.lbc-simple .lbc-star{right:0;}
+.lbc-simple .lbc-card{padding-right:72px;}
+/* 10-04 导入时间：筛选条里一个小入口，点开是小菜单（排序 + 范围 + 自定义起止） */
+.lbc-menu .lbc-menu-head{padding:6px 14px 2px;font-size:11px;color:var(--text-faint);}
+.lbc-menu .lbc-menu-item.is-on{color:var(--interactive-accent);font-weight:500;}
+.lbc-menu .lbc-menu-sep{height:1px;margin:4px 6px;background:var(--background-modifier-border);}
+.lbc-menu .lbc-range{display:flex;align-items:center;gap:6px;padding:4px 10px 8px;font-size:12px;color:var(--text-muted);}
+.lbc-menu .lbc-range input{height:26px;font-size:12px;padding:0 4px;}
+.lbc-menu .lbc-range button{height:26px;padding:0 10px;font-size:12px;}
+/* 10-04 存成选集的小对话框 */
+.lbc-dialog-back{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.28);display:grid;place-items:center;}
+.lbc-dialog{width:min(440px,calc(100vw - 32px));box-sizing:border-box;background:var(--background-primary);color:var(--text-normal);border:1px solid var(--background-modifier-border);border-radius:12px;box-shadow:0 10px 32px rgba(0,0,0,.25);padding:18px 18px 14px;font-size:13px;}
+.lbc-dialog h3{margin:0 0 6px;font-size:15px;font-weight:600;}
+.lbc-dialog .lbc-dialog-list{color:var(--text-muted);font-size:12px;line-height:1.6;margin:0 0 12px;max-height:5.2em;overflow:hidden;}
+.lbc-dialog input{width:100%;box-sizing:border-box;height:34px;font-size:14px;}
+.lbc-dialog .lbc-dialog-hint{margin:8px 0 0;font-size:12px;color:var(--text-faint);}
+.lbc-dialog .lbc-dialog-err{margin:8px 0 0;font-size:12px;color:var(--text-error,#c0392b);}
+.lbc-dialog .lbc-dialog-bar{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;}
 
 `;
 // 刚部署了新插件、内存里还是旧实例（缺新方法）：重载一次；正在同步 / 导入时不动它
@@ -311,14 +343,18 @@ importButton.onclick=async e=>{
 };
 // 大类筛选条（小红书式 tab，灰竖线分隔）：单选，一次一个；「全部」或再点当前项清空。
 let activeCat='';let todoOnly=false,mediaFilter='',starOnly=starredPage;
+// 10-04 导入时间（catalog-data 的 ts = 首次入库时间）：排序 ''=默认 / 'recent'=最近导入；范围 ''=全部 / today / 7d / 30d / custom（timeFrom~timeTo，YYYY-MM-DD）
+let timeSort='',timeRange='',timeFrom='',timeTo='';
 // 星标主题（Lot E）：单选，再点取消；可与大类叠加过滤。没有主题时 activeTopic 恒为空、整行不建。
 let activeTopic='',topicBar=null;
 const catBar=top.createEl('div',{cls:'lbc-cats'});
 function renderCatBar(){
   catBar.empty();
   const mk=(label,active,on)=>{const s=catBar.createEl('button',{cls:'lbc-cat'+(active?' is-active':''),text:label});s.setAttribute('aria-pressed',String(active));s.onclick=()=>{if(label!=='…')chatMode=false;on();};return s;};
-  mk('全部',!activeCat&&!todayOnly&&!todoOnly&&!mediaFilter&&!starOnly&&!activeTopic,()=>{if(starredPage){provider().openLibraryPage('catalog');return;}if(activeCat||todayOnly||todoOnly||mediaFilter||starOnly||activeTopic){activeCat='';todayOnly=false;todoOnly=false;mediaFilter='';starOnly=false;activeTopic='';renderCatBar();render();}});
+  mk('全部',!activeCat&&!todayOnly&&!todoOnly&&!mediaFilter&&!starOnly&&!activeTopic&&!timeRange&&!timeSort,()=>{if(starredPage){provider().openLibraryPage('catalog');return;}if(activeCat||todayOnly||todoOnly||mediaFilter||starOnly||activeTopic||timeRange||timeSort){activeCat='';todayOnly=false;todoOnly=false;mediaFilter='';starOnly=false;activeTopic='';timeRange='';timeSort='';renderCatBar();render();}});
   mk('今日新增',todayOnly,()=>{todayOnly=!todayOnly;if(todayOnly)todoOnly=false;renderCatBar();render();});
+  // 10-04：导入时间（排序 + 范围）收在这一个小入口里，点开是小菜单
+  const timeTab=mk(timeLabel(),!!(timeRange||timeSort),()=>{});timeTab.classList.add('lbc-time');timeTab.onclick=e=>{e.stopPropagation();openTimeMenu(timeTab);};
   mk('已收藏',starredPage,()=>provider().openLibraryPage(starredPage?'catalog':'starred'));
   mk('视频',mediaFilter==='video',()=>{mediaFilter=mediaFilter==='video'?'':'video';renderCatBar();render();});
   mk('附件',mediaFilter==='attachment',()=>{mediaFilter=mediaFilter==='attachment'?'':'attachment';renderCatBar();render();});
@@ -344,6 +380,47 @@ function renderTopicBar(){
     chip.onclick=()=>{chatMode=false;activeTopic=(activeTopic===name?'':name);renderCatBar();render();};
   }
 }
+// ── 10-04 导入时间：筛选 + 排序 ──
+const TIME_RANGES={today:'今天',['7d']:'近 7 天',['30d']:'近 30 天'};
+const ymd=d=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+function importedAt(it){const t=Date.parse(it.ts||it.date||'');return Number.isFinite(t)?t:0;}
+function timeLabel(){
+  const range=timeRange==='custom'?`${(timeFrom||'…').slice(5)}~${(timeTo||'…').slice(5)}`:TIME_RANGES[timeRange]||'';
+  return [range,timeSort==='recent'?'最近导入':''].filter(Boolean).join(' · ')||'导入时间';
+}
+function inTimeRange(it){
+  if(!timeRange)return true;
+  const t=importedAt(it);if(!t)return false;
+  if(timeRange==='today')return ymd(new Date(t))===ymd(new Date());
+  if(timeRange==='7d'||timeRange==='30d')return t>=Date.now()-(timeRange==='7d'?7:30)*86400000;
+  const day=ymd(new Date(t));
+  return (!timeFrom||day>=timeFrom)&&(!timeTo||day<=timeTo);
+}
+function openTimeMenu(anchor){
+  document.querySelectorAll('.lbc-menu').forEach(m=>m.remove());
+  const menu=document.body.createEl('div',{cls:'lbc-menu lbc-time-menu'});
+  const r=anchor.getBoundingClientRect();menu.style.cssText=`position:fixed;left:${r.left}px;top:${r.bottom+4}px;z-index:9999;`;
+  const apply=()=>{menu.remove();renderCatBar();render();};
+  const item=(label,on,fn)=>{const b=menu.createEl('button',{cls:'lbc-menu-item'+(on?' is-on':''),text:(on?'✓ ':'')+label});b.onclick=ev=>{ev.stopPropagation();fn();apply();};return b;};
+  menu.createEl('div',{cls:'lbc-menu-head',text:'排序'});
+  item('默认',!timeSort,()=>{timeSort='';});
+  item('最近导入',timeSort==='recent',()=>{timeSort='recent';});
+  menu.createEl('div',{cls:'lbc-menu-sep'});
+  menu.createEl('div',{cls:'lbc-menu-head',text:'导入时间'});
+  item('全部时间',!timeRange,()=>{timeRange='';});
+  for(const [k,label] of Object.entries(TIME_RANGES))item(label,timeRange===k,()=>{timeRange=k;todayOnly=false;});
+  menu.createEl('div',{cls:'lbc-menu-head',text:'自定义起止'});
+  const row=menu.createEl('div',{cls:'lbc-range'});row.onclick=ev=>ev.stopPropagation();
+  const from=row.createEl('input');from.type='date';from.value=timeFrom;
+  row.createEl('span',{text:'~'});
+  const to=row.createEl('input');to.type='date';to.value=timeTo;
+  const ok=row.createEl('button',{text:'筛选'});ok.type='button';
+  ok.onclick=ev=>{ev.stopPropagation();let a=from.value||'',b=to.value||'';if(!a&&!b)return;if(a&&b&&a>b)[a,b]=[b,a];timeFrom=a;timeTo=b;timeRange='custom';todayOnly=false;apply();};
+  const rect=menu.getBoundingClientRect();menu.style.left=Math.max(8,Math.min(r.left,innerWidth-rect.width-8))+'px';
+  const close=ev=>{if(menu.contains(ev?.target))return;menu.remove();document.removeEventListener('click',close);};
+  setTimeout(()=>document.addEventListener('click',close),0);
+  return menu;
+}
 // 多选删除状态
 let selectMode=false;const selected=new Set();
 // 页面状态（§5.3）：打开一篇再返回 / 页面被重建后，搜索词、筛选、多选、滚动位置照旧
@@ -356,6 +433,9 @@ if(saved.ts){
   todayOnly=!!saved.today;todoOnly=!!saved.todo;
   if(['video','attachment'].includes(saved.media))mediaFilter=saved.media;
   if(!starredPage)starOnly=!!saved.star;
+  if(saved.timeSort==='recent')timeSort='recent';
+  if(['today','7d','30d','custom'].includes(saved.timeRange))timeRange=saved.timeRange;
+  const day=v=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v)?v:'';timeFrom=day(saved.timeFrom);timeTo=day(saved.timeTo);
   const known=new Set(items.map(x=>x.id));
   for(const id of Array.isArray(saved.select)?saved.select:[])if(known.has(id))selected.add(id);
   selectMode=!!saved.selectMode;
@@ -364,11 +444,14 @@ if(saved.ts){
 let scrollTop=savedScroll;
 function saveState(){
   LB.state.save({q:committed,input:search.value,cat:activeCat,topic:activeTopic,today:todayOnly,todo:todoOnly,media:mediaFilter,star:starOnly,
-    selectMode,select:[...selected],scrollTop,cols});
+    selectMode,select:[...selected],scrollTop,cols,timeSort,timeRange,timeFrom,timeTo,exportImages:bundleImages.checked});
 }
 const selbar=wrap.createEl('div',{cls:'lbc-selbar'});selbar.hidden=true;
 const selCount=selbar.createEl('span',{cls:'lbc-selcount'});
-const imageLabel=selbar.createEl('label',{text:'附带原图 '});const bundleImages=imageLabel.createEl('input');bundleImages.type='checkbox';bundleImages.checked=true;
+// 「附带原图」记住上次的选择：右键菜单「导出」立即导出时沿用它（默认带图）
+const imageLabel=selbar.createEl('label',{text:'附带原图 '});const bundleImages=imageLabel.createEl('input');bundleImages.type='checkbox';bundleImages.checked=saved.exportImages!==false;
+bundleImages.onchange=()=>saveState();
+const aiBtn=selbar.createEl('button',{text:'给 AI（存成选集）'});aiBtn.onclick=()=>saveSelectionDialog(items.filter(x=>selected.has(x.id)));
 const expBtn=selbar.createEl('button',{text:'导出资料包'});
 expBtn.onclick=async()=>{const sel=items.filter(x=>selected.has(x.id));if(!sel.length){window.alert('先选几篇');return;}expBtn.disabled=true;expBtn.setText('导出中…');try{const {path}=await provider().exportArchiveBundle(sel.map(x=>x.id),bundleImages.checked,'',{question:search.value||'选中收藏'});expBtn.setText('导出资料包');try{new Notice('已导出机读版 → '+path);}catch{}}catch(e){expBtn.setText('导出失败');window.alert('导出失败：'+e.message);}finally{setTimeout(()=>{expBtn.disabled=false;expBtn.setText('导出资料包');},1500);}};
 const copyBundle=selbar.createEl('button',{text:'复制文件包'});copyBundle.onclick=async()=>{copyBundle.disabled=true;try{await provider().exportArchiveBundle(items.filter(x=>selected.has(x.id)).map(x=>x.id),bundleImages.checked,'',{question:search.value||'选中收藏',copy:true});}catch(e){window.alert(e.message);}finally{copyBundle.disabled=false;}};
@@ -479,15 +562,90 @@ function openCardMenu(e,body,it){
   const menu=document.body.createEl('div',{cls:'lbc-menu'});
   menu.style.cssText=`position:fixed;left:${e.clientX}px;top:${e.clientY}px;z-index:9999;`;
   const add=(label,fn,danger)=>{const b=menu.createEl('button',{cls:'lbc-menu-item'+(danger?' is-danger':'')});b.setText(label);b.onclick=ev=>{ev.stopPropagation();menu.remove();fn();};};
-  add('编辑标签',()=>openTagEditor(body,it));
-  if(it.attachment!=='none'){add('下载 / 挂本地文件',()=>attachmentPanel([it]));}
-  if(typeof provider()?.refineImages==='function')add('精细识别图片',()=>provider().refineImages(it.item_id||it.id));
-  add('删除收藏',()=>confirmDelete([it]),true);
-  add('多选删除',()=>{selectMode=true;selected.add(it.id);render();});
-  add('多选导出机读版',()=>{selectMode=true;selected.add(it.id);render();});
+  // 10-04：有选中时右键 = 对选中的这些操作（右键的这张没选上就一起算进来）；「导出」立即导出（沿用上次的「附带原图」，默认带图），不再先进多选
+  if(selectMode&&selected.size){
+    if(!selected.has(it.id)){selected.add(it.id);render();}
+    const list=()=>items.filter(x=>selected.has(x.id));
+    add(`导出选中的 ${selected.size} 篇`,()=>exportNow(list()));
+    add('给 AI（存成选集）',()=>saveSelectionDialog(list()));
+    add(`删除选中的 ${selected.size} 篇`,()=>confirmDelete(list()),true);
+    add('退出多选',()=>{selectMode=false;selected.clear();render();});
+  }else{
+    add('编辑标签',()=>openTagEditor(body,it));
+    if(it.attachment!=='none'){add('下载 / 挂本地文件',()=>attachmentPanel([it]));}
+    if(typeof provider()?.refineImages==='function')add('精细识别图片',()=>provider().refineImages(it.item_id||it.id));
+    add('导出',()=>exportNow([it]));
+    add('给 AI（存成选集）',()=>saveSelectionDialog([it]));
+    add('多选',()=>{selectMode=true;selected.add(it.id);render();});
+    add('删除收藏',()=>confirmDelete([it]),true);
+  }
   const rect=menu.getBoundingClientRect();menu.style.left=Math.max(8,Math.min(e.clientX,innerWidth-rect.width-8))+'px';menu.style.top=Math.max(8,Math.min(e.clientY,innerHeight-rect.height-8))+'px';
   const close=()=>{menu.remove();document.removeEventListener('click',close);document.removeEventListener('contextmenu',close);};
   setTimeout(()=>{document.addEventListener('click',close);document.addEventListener('contextmenu',close);},0);
+}
+const note=(msg,ms=8000)=>{try{new Notice(msg,ms);}catch{importStatus.setText(msg);}};
+// 10-04 右键「导出」：立即导出机读版资料包，沿用「附带原图」上次的选择（默认带图）；结果如实告知
+async function exportNow(list){
+  if(!list.length)return;
+  const p=provider();if(typeof p?.exportArchiveBundle!=='function'){window.alert('导出需要启用 Link Brain Actions 插件');return;}
+  const images=!!bundleImages.checked;importStatus.setText(`正在导出 ${list.length} 篇…`);
+  try{const r=await p.exportArchiveBundle(list.map(x=>x.id),images,'',{question:search.value||'选中收藏'});importStatus.setText('');note(`已导出 ${list.length} 篇机读版${images?'（带原图）':''} → ${r?.path||''}`);}
+  catch(e){importStatus.setText('');window.alert('导出失败：'+e.message);}
+}
+// ── 10-04 选集（给 AI 用）：选中的几篇存成有名字的一组，存 _archive/selections.json；本地 MCP / 远程阅读按名字取 ──
+// 默认名字 = 主题 + 日期（MMDD）：主题取选中篇目共同的标签 → 星标主题 → 大类；都没有就第一篇标题前 8 个字
+function defaultSelectionName(list){
+  const d=new Date(),mmdd=String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
+  const clean=s=>String(s||'').replace(/^#/,'').replace(/[^\p{L}\p{N}]+/gu,'');
+  const common=key=>{if(!list.length)return '';const sets=list.map(x=>new Set((Array.isArray(x[key])?x[key]:[]).map(clean).filter(Boolean)));return [...sets[0]].find(v=>v!=='其他'&&sets.every(s=>s.has(v)))||'';};
+  const theme=(common('tags')||common('topics')||common('cats')||clean(list[0]?.title).slice(0,8)||'选集').slice(0,12);
+  return theme+mmdd;
+}
+const SELECTIONS='_archive/selections.json';
+async function readSelections(){
+  try{const doc=JSON.parse(await app.vault.adapter.read(lbPath(SELECTIONS)));return Array.isArray(doc?.selections)?doc.selections.filter(r=>r&&typeof r.name==='string'):[];}
+  catch{return [];}
+}
+// 存一组：同名先确认再覆盖；写盘成功才提示（§1.5），失败对话框留着、字还在
+async function storeSelection(name,list){
+  const rows=await readSelections();
+  if(rows.some(r=>r.name===name)&&!window.confirm(`已经有叫「${name}」的选集，覆盖它吗？`))return false;
+  const row={name,ids:list.map(x=>x.id),created_at:new Date().toISOString()};
+  await app.vault.adapter.write(lbPath(SELECTIONS),JSON.stringify({selections:[row,...rows.filter(r=>r.name!==name)]},null,1));
+  return true;
+}
+function saveSelectionDialog(list){
+  if(!list.length){window.alert('先选几篇');return;}
+  document.querySelectorAll('.lbc-dialog-back').forEach(e=>e.remove());
+  const back=document.body.createEl('div',{cls:'lbc-dialog-back'});
+  const box=back.createEl('div',{cls:'lbc-dialog'});box.onclick=e=>e.stopPropagation();
+  box.createEl('h3',{text:`存成选集（${list.length} 篇，给 AI 看）`});
+  box.createEl('div',{cls:'lbc-dialog-list',text:list.slice(0,6).map(x=>x.title||x.id).join('、')+(list.length>6?` 等 ${list.length} 篇`:'')});
+  const input=box.createEl('input');input.type='text';input.value=defaultSelectionName(list);input.maxLength=40;
+  const hint=box.createEl('div',{cls:'lbc-dialog-hint'});
+  const paintHint=()=>hint.setText(`名字就是暗号：以后对 AI 说「看一下选集 ${input.value.trim()||'…'}」`);paintHint();
+  const err=box.createEl('div',{cls:'lbc-dialog-err'});err.hidden=true;
+  const bar=box.createEl('div',{cls:'lbc-dialog-bar'});
+  const cancel=bar.createEl('button',{text:'取消'});cancel.type='button';
+  const ok=bar.createEl('button',{text:'存',cls:'mod-cta'});ok.type='button';
+  const close=()=>{back.remove();document.removeEventListener('keydown',onKey,true);};
+  const save=async()=>{
+    const name=input.value.trim().replace(/\s+/g,' ').slice(0,40);
+    if(!name){err.hidden=false;err.setText('起个名字');return;}
+    ok.disabled=true;err.hidden=true;
+    try{
+      if(!(await storeSelection(name,list))){ok.disabled=false;return;}
+      close();
+      const phrase=`看一下选集 ${name}`;let copied=false;
+      try{await navigator.clipboard.writeText(phrase);copied=true;}catch{}
+      note(`已存成选集「${name}」，对 AI 说：${phrase}${copied?'（这句已复制）':''}`,10000);
+    }catch(e){ok.disabled=false;err.hidden=false;err.setText('没存上，可重试：'+((e&&e.message)||e));}
+  };
+  const onKey=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close();}else if(e.key==='Enter'&&!e.isComposing&&document.activeElement===input){e.preventDefault();save();}};
+  document.addEventListener('keydown',onKey,true);
+  input.oninput=paintHint;ok.onclick=save;cancel.onclick=close;back.onclick=close;
+  try{input.focus();input.select?.();}catch{}
+  return box;
 }
 // 卡片按 id 复用（§5.5）：内容和选中状态都没变的卡片原样挂回，封面图不重载、不闪；变了的才重建。
 const cardCache=new Map();
@@ -499,11 +657,14 @@ function render(){renderGrid();saveState();}
 function renderGrid(){
   grid.empty();const exactCards=grid.createEl('div',{cls:'lbc-grid-inner'});const q=normalize(committed);const asking=chatMode;
   const now=new Date();const today=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
-  const filtered=items.filter(it=>(!(starredPage||starOnly)||it.starred)&&(!mediaFilter||(mediaFilter==='video'?it.kind==='video':it.attachment&&it.attachment!=='none'))&&(!todayOnly||it.date===today)&&(!todoOnly||it.attachment==='待补')&&(!activeCat||(it.cats||[]).includes(activeCat))&&(!activeTopic||(it.topics||[]).includes(activeTopic)));
+  const filtered=items.filter(it=>(!(starredPage||starOnly)||it.starred)&&(!mediaFilter||(mediaFilter==='video'?it.kind==='video':it.attachment&&it.attachment!=='none'))&&(!todayOnly||it.date===today)&&(!todoOnly||it.attachment==='待补')&&(!activeCat||(it.cats||[]).includes(activeCat))&&(!activeTopic||(it.topics||[]).includes(activeTopic))&&inTimeRange(it));
   // 第 1 批 1002：先看分数、星标只 ×1.15；拼音 / 错字 / 漏字这类模糊命中单独放「可能相关」，规则见 catalog-search.js rankItems
   const ranked=rankItems(filtered,q,data.pinyin_chars,data.aliases||[]);
+  // 10-04「最近导入」：精确命中 / 可能相关两组各自按导入时间新→旧（同一时间保持原来的相关度顺序）
+  if(timeSort==='recent'){const byTime=(a,b)=>importedAt(b.it)-importedAt(a.it);ranked.exact=[...ranked.exact].sort(byTime);ranked.possible=[...ranked.possible].sort(byTime);}
   const shown=[...ranked.exact,...ranked.possible];
-  sub.setText((q||todayOnly||todoOnly||starredPage||mediaFilter||activeTopic?`${ranked.exact.length} / ${items.length} 篇`+(ranked.possible.length?` · 可能相关 ${ranked.possible.length}`:''):`${items.length} 篇`)+` · 更新 ${new Date(data.built_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}`);
+  {const l=wrap.classList;if(selectMode&&selected.size)l.add('is-selecting');else (l.remove||l.delete).call(l,'is-selecting');}
+  sub.setText((q||todayOnly||todoOnly||starredPage||mediaFilter||activeTopic||timeRange?`${ranked.exact.length} / ${items.length} 篇`+(ranked.possible.length?` · 可能相关 ${ranked.possible.length}`:''):`${items.length} 篇`)+` · 更新 ${new Date(data.built_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}`);
   ai.hidden=!asking;grid.hidden=asking;
   if(asking){selbar.hidden=true;return;}
   if(simplePage&&!starredPage&&!q&&!activeCat&&!activeTopic&&!todayOnly&&!todoOnly){grid.createEl('div',{cls:'lbc-empty',text:'输入关键词搜索收藏；想让 AI 分析，点上面的「问收藏」。'});selbar.hidden=true;return;}
@@ -554,6 +715,11 @@ function buildCard(cards,it,fuzzy,low){
       const why=p.hover||p.reason;if(why&&!g.hover.includes(why))g.hover.push(why);probs.set(p.label,g);
     }
     for(const [label,g] of probs){const b=badges.createEl('span',{cls:'lbc-attach lbc-prob'+(g.need?' is-need':''),text:label});if(g.hover.length)b.title=g.hover.join('\n');}
+    // 10-04：悬停就出现的选中圈——点它直接勾选（不用先进多选）；勾了任何一篇就是多选态，全取消就退出
+    const on=selectMode&&selected.has(it.id);
+    const check=card.createEl('button',{cls:'lbc-check'+(on?' is-on':'')});check.type='button';check.setAttribute('aria-pressed',String(on));
+    check.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12.5l4 4 8-9"/></svg><span class="lb-visually-hidden">'+(on?'取消选中':'选中')+'</span>';
+    check.onclick=e=>{e.preventDefault();e.stopPropagation();const x=cur();if(selectMode&&selected.has(x.id))selected.delete(x.id);else{if(!selectMode)selected.clear();selected.add(x.id);}selectMode=selected.size>0;render();};
     const star=card.createEl('button',{cls:'lbc-star'+(it.starred?' is-on':''),text:it.starred?'★':'☆'});
     star.setAttribute('aria-pressed',String(!!it.starred));star.createEl('span',{cls:'lb-visually-hidden',text:it.starred?'取消收藏':'收藏'});
     star.onclick=async e=>{e.preventDefault();e.stopPropagation();star.disabled=true;const x=cur();try{const result=await provider().starNote(x.id,!x.starred);x.starred=result.starred;render();}catch(err){importStatus.setText(err.message);star.disabled=false;}};

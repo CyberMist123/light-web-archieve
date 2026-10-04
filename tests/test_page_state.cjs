@@ -47,7 +47,7 @@ async function catalogTests() {
   assert.deepEqual(titles(A.container), ['悉尼咖啡地图', '悉尼海边徒步']);
   const cards = A.container.querySelectorAll('.lbc-card');
   cards[0].oncontextmenu({ preventDefault() {}, clientX: 0, clientY: 0 });
-  dom.document.body.querySelectorAll('.lbc-menu-item').find(b => b.textContent === '多选删除').onclick({ stopPropagation() {} });
+  dom.document.body.querySelectorAll('.lbc-menu-item').find(b => b.textContent === '多选')   /* 10-04 右键「多选删除」改名「多选」 */.onclick({ stopPropagation() {} });
   A.container.querySelectorAll('.lbc-card')[1].onclick({});
   assert.equal(A.container.querySelectorAll('.lbc-card.is-selected').length, 2);
   A.host.scrollTop = 640; A.host.fire('scroll'); await tick(40);

@@ -244,9 +244,18 @@ def _migrate_legacy(raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
 def _note_migration(notes: list[str]) -> None:
     """换算说明进问题记录（SKIPPED，列表灰色「未开启」组，不算失败）。同一轮只记一次。"""
     global _LEGACY_NOTE_DONE
-    if not notes or _LEGACY_NOTE_DONE:
+    if _LEGACY_NOTE_DONE:
         return
     _LEGACY_NOTE_DONE = True
+    if not notes:
+        # 1004：设置已经存成新格式 → 那条「旧设置已换算」的说明撤掉（以前没人撤，一直挂在问题列表里）
+        try:
+            from . import problems
+            if problems.is_open("config", None, "SKIPPED.LEGACY_CONFIG"):
+                problems.resolve("config", None, "SKIPPED.LEGACY_CONFIG")
+        except Exception:  # noqa: BLE001 - 记录失败绝不挡住读配置
+            pass
+        return
     try:
         from . import problems
         if problems.is_open("config", None, "SKIPPED.LEGACY_CONFIG"):

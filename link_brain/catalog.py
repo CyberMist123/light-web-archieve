@@ -256,9 +256,8 @@ def item_problems(obj_dir: Path, report: dict[str, Any], vision: dict[str, Any],
         if isinstance(err, dict) and err.get("error"):
             add("TRANSIENT.DOWNLOAD_FAILED", str(err["error"])[:200])
     status = transcript.get("status") if isinstance(transcript, dict) else None
-    if status == "no_speech":
-        add("PERMANENT.NO_SPEECH", "视频里没听出人声（背景音乐 / 环境声）")
-    elif status == "no_audio":
+    # 10-04 她定：「视频里没人说话」不上卡片（连画面字幕也没读到的也不标）——问题面板里有就够了（videos.py 照旧记进 problems.jsonl）
+    if status == "no_audio":
         add("PERMANENT.NO_AUDIO", "视频没有音轨")
     elif status == "failed":
         add(transcript.get("code") or "TRANSIENT.SERVICE_BUSY", transcript.get("error") or "语音识别失败",

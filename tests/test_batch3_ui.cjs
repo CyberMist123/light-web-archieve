@@ -162,7 +162,7 @@ async function deleteTests() {
   input.value = '悉尼'; input.onkeydown({ key: 'Enter', isComposing: false, preventDefault() {} });
   const cards = () => A.container.querySelectorAll('.lbc-card');
   cards()[0].oncontextmenu({ preventDefault() {}, clientX: 0, clientY: 0 });
-  dom.document.body.querySelectorAll('.lbc-menu-item').find(b => b.textContent === '多选删除').onclick({ stopPropagation() {} });
+  dom.document.body.querySelectorAll('.lbc-menu-item').find(b => b.textContent === '多选')   /* 10-04 右键「多选删除」改名「多选」 */.onclick({ stopPropagation() {} });
   cards()[1].onclick({}); cards()[2].onclick({});
   assert.equal(A.container.querySelectorAll('.lbc-card.is-selected').length, 3);
   const del = A.container.querySelectorAll('button').find(b => /^删除选中/.test(b.textContent));
