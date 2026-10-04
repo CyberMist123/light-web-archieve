@@ -77,6 +77,7 @@ function makeDom() {
     addClass(...c) { this.classList.add(...c); }
     append(...nodes) { for (const n of flatten(nodes)) { detach(n); n.parentNode = this; this.childNodes.push(n); } }
     appendChild(n) { this.append(n); return n; }
+    insertBefore(n, ref) { if (!ref) { this.append(n); return n; } detach(n); n.parentNode = this; this.childNodes.splice(this.childNodes.indexOf(ref), 0, n); return n; }
     prepend(...nodes) { const flat = flatten(nodes); for (const n of flat) { detach(n); n.parentNode = this; } this.childNodes.unshift(...flat); }
     appendText(t) { this.append(String(t)); }
     empty() { this.textContent = ''; }

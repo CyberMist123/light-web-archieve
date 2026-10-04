@@ -215,6 +215,12 @@ style.textContent = `
 .lbc-dialog .lbc-dialog-err{margin:8px 0 0;font-size:12px;color:var(--text-error,#c0392b);}
 .lbc-dialog .lbc-dialog-bar{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;}
 
+/* 10-04 ⑧ 一键回顶部：滚下去之后右下角一个小圆钮（不抢眼，跟主题）；钉在视口底部，滚回顶部就消失 */
+.lbc-totop-dock{position:sticky;bottom:22px;height:0;display:flex;justify-content:flex-end;pointer-events:none;z-index:2;}
+.lbc-wrap button.lbc-totop{pointer-events:none;transform:translateY(-100%);width:34px;height:34px;padding:0!important;border-radius:50%!important;border:1px solid var(--background-modifier-border)!important;background:var(--background-primary)!important;color:var(--text-muted);box-shadow:0 2px 10px #0000001a!important;display:grid;place-items:center;cursor:pointer;opacity:0;transition:opacity .18s,color .12s,border-color .12s;}
+.lbc-wrap button.lbc-totop svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+.lbc-totop-dock.is-on button.lbc-totop{opacity:.82;pointer-events:auto;}
+.lbc-totop-dock.is-on button.lbc-totop:hover{opacity:1;color:var(--text-normal);border-color:var(--text-faint)!important;}
 `;
 // 刚部署了新插件、内存里还是旧实例（缺新方法）：重载一次；正在同步 / 导入时不动它
 if(LB.provider() && typeof LB.provider().openAttachments!=='function') await LB.ensure('openAttachments').catch(()=>{});
@@ -787,10 +793,31 @@ if(app.workspace.on){const ref=app.workspace.on('link-brain:star',(id,on)=>{cons
 if(app.workspace.on){const ref=app.workspace.on('link-brain:catalog-prefs',()=>{titleLabel.setText(titleOf());const c=savedCols();if(c!==cols){cols=c;applyCols();}});dv.component.registerEvent(ref);}
 // 点开一篇（同一窗格）之后这一页就要被换掉了：别再记滚动（Obsidian 换笔记时会把滚动容器归零）
 let leaving=false;
-LB.onScroll(top=>{if(leaving)return;scrollTop=top;saveState();});
+// 10-04 ⑧ 一键回顶部：钉在页面最后（sticky 贴视口底），滚过一屏左右才出现
+const toTopDock=wrap.createEl('div',{cls:'lbc-totop-dock'});
+const toTop=toTopDock.createEl('button',{cls:'lbc-totop',attr:{title:'回到顶部','aria-label':'回到顶部'}});toTop.type='button';
+toTop.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></svg>';
+toTop.onclick=()=>{const el=LB.scroller();if(!el)return;try{el.scrollTo({top:0,behavior:'smooth'});}catch{el.scrollTop=0;}};
+function paintToTop(top){
+  const kids=wrap.children;if(kids&&kids[kids.length-1]!==toTopDock)wrap.append(toTopDock);   // 后来挂进 wrap 的东西别把它挤到中间（sticky 底部要在最后才贴得住）
+  const on=Number(top)>600;toTopDock.className='lbc-totop-dock'+(on?' is-on':'');toTop.tabIndex=on?0:-1;
+}
+paintToTop(savedScroll);
+LB.onScroll(top=>{paintToTop(top);if(leaving)return;scrollTop=top;saveState();});
+// 10-04 ⑨ Ctrl+F：当前视图是目录页（或鼠标在页上）时 = 跳到并聚焦目录搜索框，拦掉 Obsidian 自带的查找；别的页不拦
+function onFindKey(e){
+  if(!(e.ctrlKey||e.metaKey)||e.altKey||e.shiftKey)return;
+  if(String(e.key||'').toLowerCase()!=='f'&&e.code!=='KeyF')return;
+  if(!pageActive())return;
+  e.preventDefault();e.stopPropagation();e.stopImmediatePropagation?.();
+  try{search.scrollIntoView?.({block:'nearest'});}catch{}
+  search.focus();try{search.select?.();}catch{}
+}
+{const tgt=typeof window!=='undefined'&&window&&typeof window.addEventListener==='function'?window:document;
+ LB.listen('find-key',tgt,'keydown',onFindKey,{capture:true});}
 // 登记这一版 DOM：Dataview 下次重跑时版本没变就原样挂回；变了走 refresh（只换数据、卡片复用）
 LB.keep(wrap,{version:await LB.data.version(),update:()=>refresh(),onReuse:()=>{if(refreshTags())render();const c=savedCols();if(c!==cols&&(c||LB.provider()?.settings)){cols=c;applyCols();}if(titleLabel.textContent!==titleOf())titleLabel.setText(titleOf());}});
 if(provider()?.focusCatalogSearch){provider().focusCatalogSearch=false;search.focus();}
-if(savedScroll>0)LB.restoreScroll(savedScroll);   // 滚到位时记一笔 scroll-restored@
+if(savedScroll>0)Promise.resolve(LB.restoreScroll(savedScroll)).then(()=>paintToTop(LB.scroller()?.scrollTop||0)).catch(()=>{});   // 滚到位时记一笔 scroll-restored@
 LB.t('restore');
 LB.t('total');
