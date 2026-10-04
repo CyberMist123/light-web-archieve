@@ -299,6 +299,11 @@ def refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budge
         kind = (entry.get("visual") or {}).get("kind") or entry.get("layout") or "text"
         img = storage.object_dir(source_key, source_id) / entry["asset"]
         got = cfg.refine(img, entry.get("lines"), kind) if isinstance(cfg, RefineRouter) else visual.refine(img, entry.get("lines"), kind, cfg)
+        if got.get("status") != "ok" and not str(got.get("code") or "").startswith(("NEEDS_HUMAN.", "SKIPPED.")):
+            retry_cfg = cfg.fallback if isinstance(cfg, RefineRouter) else cfg
+            if retry_cfg:
+                retry_cfg = {**retry_cfg, "temperature": 0, "timeoutSec": min(120, retry_cfg.get("timeoutSec", 120))}
+                got = visual.refine(img, entry.get("lines"), kind, retry_cfg)
         tally["cost_yuan"] += got.get("cost_yuan") or 0.0
         ref["at"] = datetime.now().astimezone().isoformat(timespec="seconds")
         if got.get("status") != "ok" and got.get("api_error"):
@@ -315,6 +320,8 @@ def refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budge
             ref.pop("error", None)
             tally["done"] += 1
             tally["api_streak"] = 0
+            from . import problems
+            problems.resolve("vision.refine", _item_id(source_key, source_id), "PERMANENT.MODEL_OUTPUT_INVALID")
         else:
             ref["tries"] = ref.get("tries", 0) + 1
             tally["api_streak"] = 0

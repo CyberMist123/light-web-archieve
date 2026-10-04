@@ -1199,9 +1199,11 @@ def render_object(
     if llm or re_extract:
         stale = re_extract or not extracted_doc or extracted_doc.get("status") != "ok"
         if stale:
-            extracted_doc = llm_mod.extract(
-                source_key, source_id, force=re_extract, verbose=verbose
-            )
+            try:
+                extracted_doc = llm_mod.extract(source_key, source_id, force=re_extract, verbose=verbose)
+            except Exception as exc:
+                from . import problems
+                problems.report("enrich.summary", "TRANSIENT.SERVICE_BUSY", str(exc), item_id=meta["item_id"])
     extracted = llm_mod.extracted_data(extracted_doc)
 
     transcript_path = derived_dir / 'transcript.json'
@@ -1314,7 +1316,12 @@ def render_item(
 ) -> dict[str, Any]:
     # vision=False：只用已有的识图结果重写笔记，不调识图模型（部署时批量更新笔记格式用，不花钱、不联网）
     if vision:
-        vision_mod.build_vision(source_key, source_id, verbose=verbose)
+        try:
+            vision_mod.build_vision(source_key, source_id, verbose=verbose)
+        except Exception as exc:
+            from . import problems
+            meta = storage.read_json(storage.object_dir(source_key, source_id) / "meta.json")
+            problems.report("vision.layer1", "TRANSIENT.SERVICE_BUSY", str(exc), item_id=meta["item_id"])
     return render_object(
         source_key, source_id, verbose=verbose, llm=llm, re_extract=re_extract
     )

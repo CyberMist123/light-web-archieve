@@ -342,7 +342,12 @@ class Nightly:
             # 统一退出码：0 成功/部分完成、1 出错、2 缺内容闸门、5 要人处理、6 号被别的任务占着
             # Traceback 只在退出码也不正常时才算崩溃（逐篇 print_exc 之后照样 exit 0 的不误报）
             abnormal = r.code not in (0, 2, 5, 6)
-            if r.traceback and abnormal:
+            payload = _json_from_first_brace(r.stdout) or {}
+            partial_sync = step_slug(name) == 'sync-favorites' and (payload.get('no_reread') or payload.get('suspicious') or payload.get('partial'))
+            if partial_sync:
+                self.problems.append(name + ' 只读到一截，今晚不再重读列表')
+                self.resolve(name)
+            elif r.traceback and abnormal:
                 self.register(name, "TRANSIENT.STEP_CRASHED", f"{name} 崩溃（exit={r.code}，日志里有 Traceback）")
             elif r.usage_error:
                 self.register(name, "PERMANENT.STEP_ARGS", f"{name} 参数不认（exit={r.code}，程序版本对不上？）")
@@ -465,6 +470,10 @@ class Nightly:
     # ------------------------------------------------------------ 特殊步骤
     def _sync_with_retry(self, step: Step) -> StepResult:
         r = self.run_step(step)
+        payload = _json_from_first_brace(r.stdout) or {}
+        if payload.get('no_reread') or payload.get('partial') or payload.get('suspicious'):
+            self.log('[同步] 列表不完整，保留已入档内容，今晚不再重读')
+            return r
         if r.code == 6:
             self.log("[护号] 号被别的任务占着（导入 / 插件同步），同步这次没拿到号")
         elif r.code == 1 and not r.timed_out and not r.usage_error:
@@ -528,6 +537,7 @@ class Nightly:
                               "重启 Obsidian 或结束这个 python 进程后，下一晚会接着收。")
             return self._result(EXIT_OK, "收藏同步正在跑，今晚夜跑没起", ran=False)
 
+        repair_since = datetime.now().astimezone().isoformat(timespec="seconds")
         unfinished = self.unfinished_last_night()
         self._rotate()
         self.log(START_MARK)
@@ -560,6 +570,12 @@ class Nightly:
             self.register("run", "TRANSIENT.STEP_CRASHED", f"夜跑自己出错：{type(exc).__name__}: {exc}")
             self.log(f"[夜跑] 出错：{type(exc).__name__}: {exc}")
         finally:
+            try:
+                from . import repair
+                repaired = repair.run(since=repair_since, budget_seconds=min(600, max(0, self.minutes_left() * 60)))
+                self.log('[自愈] ' + repaired['message'])
+            except Exception as exc:
+                self.log(f'[自愈] 未完成：{exc}')
             if self.account_stop:
                 exit_code = EXIT_NEEDS_HUMAN
             elif self.problems:

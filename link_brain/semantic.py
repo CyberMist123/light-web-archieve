@@ -219,7 +219,10 @@ def run_embed(re_embed: bool = False, batch_size: int = 10) -> dict:
         for start in range(0, len(pending), batch_size):
             batch = pending[start:start + batch_size]
             try:
-                vectors = _post_embeddings([texts[h] for h in batch], cfg, timeout=30)
+                try:
+                    vectors = _post_embeddings([texts[h] for h in batch], cfg, timeout=30)
+                except Exception:
+                    vectors = _post_embeddings([texts[h] for h in batch], cfg, timeout=30)
             except Exception as exc:  # noqa: BLE001 - 网络/配置错误一律告警收尾，不炸调用方
                 failed += len(pending) - start
                 error = type(exc).__name__ if not isinstance(exc, RuntimeError) else str(exc)
@@ -354,5 +357,10 @@ def query_hits(question: str, top_chunks: int = 80, chunks_per_item: int = 2, to
 def run(args) -> int:
     from .read import dump_json
     result = run_embed(re_embed=getattr(args, "all", False))
+    from . import problems
+    if result.get("status") == "ok":
+        problems.resolve("embed")
+    else:
+        problems.report("embed", "TRANSIENT.SERVICE_BUSY", result.get("error") or "语义索引未完成")
     dump_json(result)
     return 0 if result.get("status") == "ok" else 1

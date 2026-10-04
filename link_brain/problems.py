@@ -89,7 +89,7 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "NEEDS_HUMAN.RISK_HOLD": dict(where="top+card", label="风控暂停中", hover="风控暂停中：所有用号的同步都停了，点目录页顶部的问题入口处理，处理完自动恢复", group="needs_you"),
     "NEEDS_HUMAN.NOT_INSTALLED": dict(where="top+card", label="未安装读取组件", hover="按 README「读取组件」安装后刷新", group="needs_you"),
     "NEEDS_HUMAN.WRONG_ACCOUNT": dict(where="top+card", label="登错号", hover="登录的不是收藏所在的号：换号重新扫码", group="needs_you"),
-    "TRANSIENT.FAVORITES_SUSPICIOUS": dict(where="list", label="收藏数异常", hover="{reason}（下次同步自动再读）", group="auto"),
+    "TRANSIENT.FAVORITES_SUSPICIOUS": dict(where="list", label="收藏只读到一截", hover="{reason}（本晚不再重读列表）", group="auto"),
     "NEEDS_HUMAN.AUTH_FAILED": dict(where="top+card", label="AI key 失效", hover="接口拒绝了 key（401/403）：到设置里换一个", group="needs_you"),
     "NEEDS_HUMAN.QUOTA_EXCEEDED": dict(where="top+card", label="AI 余额不足", hover="接口提示欠费或额度用完：充值或换 key", group="needs_you"),
     "NEEDS_HUMAN.BACKUP_DISK_MISSING": dict(where="top+card", label="备份盘没挂", hover="{reason}", group="needs_you"),
@@ -608,6 +608,8 @@ def load(limit: int = MAX_KEYS, *, include_resolved: bool = False) -> list[dict[
         out.append({**r, "label": entry["label"], "group": entry["group"], "where": entry["where"],
                     "hover": fill_hover(entry["hover"], r.get("reason"), r.get("next_at")),
                     "step_label": step_label(r.get("step"))})
+        from .repair import describe as repair_description
+        out[-1].update(repair_description(r))
     return out
 
 
@@ -734,6 +736,10 @@ def add_parser(sub) -> None:
     pe.add_argument("--limit", type=int, default=50)
     pe.add_argument("--plugin-version", dest="plugin_version")
     psub.add_parser("summary", help="核一次同步进程还在不在（被打断就如实改成 INTERRUPTED）、刷新 problems-summary.json，输出它")
+    repair = psub.add_parser("repair", help="当场修复非风控问题，不重读收藏列表")
+    repair.add_argument("--key")
+    repair.add_argument("--since")
+    repair.add_argument("--budget-seconds", type=float, default=600)
 
 
 def _valid_step(step: str) -> bool:
@@ -746,6 +752,11 @@ def run(args) -> int:
     from .read import dump_json
 
     cmd = getattr(args, "problems_cmd", None)
+    if cmd == "repair":
+        from . import repair
+        result = repair.run(key=args.key, since=args.since, budget_seconds=args.budget_seconds)
+        dump_json(result)
+        return 0 if result["ok"] else 1
     if cmd == "list":
         dump_json({"ok": True, "code": "", "message": "", "summary": summary(),
                    "problems": load(args.limit, include_resolved=args.all)})

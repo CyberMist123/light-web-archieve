@@ -151,9 +151,11 @@ def _update_baseline(status, payload):
     例外：连着 SUSPECT_ADOPT_NIGHTS 晚读到的都是差不多同一个数（±10%），说明收藏真的变少了（她删了一批），
     这一晚照样报，但之后以它为基准，免得每晚都报。0 条永远不认。"""
     total = payload.get('favorites_total')
-    if not total:
+    if total is None:
         return
-    if not payload.get('suspicious'):
+    bottom = payload.get('stop_reason') == 'has_more_false' and not payload.get('partial')
+    if bottom or (total and not payload.get('partial') and not payload.get('suspicious')
+                  and total >= (status.get('last_favorites') or 0) / 2):
         status['last_favorites'] = total
         status.pop('suspect_favorites', None)
         return
@@ -161,11 +163,7 @@ def _update_baseline(status, payload):
     count = prev.get('count') or 0
     same = count and abs(total - count) <= max(2, count * 0.1)
     nights = (int(prev.get('nights') or 0) + 1) if same else 1
-    if nights >= SUSPECT_ADOPT_NIGHTS:
-        status['last_favorites'] = total
-        status.pop('suspect_favorites', None)
-    else:
-        status['suspect_favorites'] = {'count': total, 'nights': nights}
+    status['suspect_favorites'] = {'count': total, 'nights': nights}
 
 
 def record(state, *, payload=None, message='', account=None, code=''):
@@ -247,7 +245,7 @@ def _record_problems(status):
             _resolve('sync.favorites')
             _resolve('login')
         return
-    reason = '；'.join(x for x in (str(status.get('message') or ''), str(status.get('detail') or '')) if x)
+    reason = '；'.join(dict.fromkeys(x for x in (str(status.get('message') or ''), str(status.get('detail') or '')) if x))
     if state == 'blocked' or code in problems.ACCOUNT_CODES:
         problems.report_blocked('sync.favorites', code, reason, service=status.get('account') != 'xhs')
         return

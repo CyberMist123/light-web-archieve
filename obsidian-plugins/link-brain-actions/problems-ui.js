@@ -10,7 +10,7 @@ module.exports = function (obsidian, plugin) {
   const GROUPS = [['needs_you', '等你处理'], ['auto', '正在自动处理'], ['gave_up', '已放弃'], ['off', '未开启']];
   const GROUP_OF_CLASS = { NEEDS_HUMAN: 'needs_you', TRANSIENT: 'auto', PERMANENT: 'gave_up', SKIPPED: 'off' };
   // 系统已经做了什么（problems.ACTIONS 词表）
-  const ACTION_TEXT = { retrying: '已重试', retry_later: '下晚再试', gave_up: '放弃', needs_human: '等你处理', skipped: '未开启' };
+  const ACTION_TEXT = { retrying: '正在修 / 预计 5 分钟', retry_later: '待修复', gave_up: '已尝试，仍未解决', needs_human: '等你处理', skipped: '未开启' };
   // 要人处理的行带哪个按钮（按细分码，和 accounts.SOLUTIONS 的 action 对齐）
   const LOGIN = new Set(['NOT_LOGGED_IN', 'ACCOUNT_RISK', 'WRONG_ACCOUNT', 'RISK_HOLD']);
   const VERIFY = new Set(['CAPTCHA_REQUIRED', 'RISK_HOLD', 'ACCOUNT_RISK']);
@@ -82,10 +82,27 @@ module.exports = function (obsidian, plugin) {
       head.createEl('h2', { text: '问题' });
       const copy = head.createEl('button', { cls: 'lb-problems-copy', text: '复制报错' });
       copy.onclick = async () => { copy.disabled = true; try { await copyReport(); } finally { copy.disabled = false; } };
+      const repair = head.createEl('button', { text: '全部修一遍' });
+      repair.onclick = () => this.repair(repair);
       this.body = c.createDiv({ cls: 'lb-problems-body' });
       return this.load();
     }
     onClose() { this.contentEl.empty(); }
+    async repair(button, key) {
+      if (this.repairing) return;
+      this.repairing = true;
+      button.disabled = true;
+      const label = button.textContent;
+      button.textContent = key ? '正在修 / 预计 5 分钟' : '正在修 / 最多 10 分钟';
+      try {
+        const args = ['-m', 'link_brain', 'problems', 'repair'];
+        if (key) args.push('--key', key);
+        const result = await plugin.runPy(args, { label: '当场修复', timeoutMs: 660000, exclusive: true });
+        say(result.json?.message || result.err || '修复没有返回结果', 10000);
+      } catch (error) { say('修复未完成：' + error.message, 10000); }
+      finally { this.repairing = false; button.disabled = false; button.textContent = label; }
+      if (this.body && this.body.isConnected !== false) await this.load();
+    }
     async load() {
       const body = this.body;
       body.empty();
@@ -122,6 +139,11 @@ module.exports = function (obsidian, plugin) {
       if (why) row.createDiv({ cls: 'lb-problem-why', text: why });
       const btns = row.createDiv({ cls: 'lb-problem-btns' });
       let n = 0;
+      if (x.repairable && groupOf(x) !== 'needs_you') {
+        n++;
+        const repair = btns.createEl('button', { cls: 'lb-problem-repair', text: '现在修' });
+        repair.onclick = () => this.repair(repair, x.key);
+      }
       if (x.item_id) {
         n++;
         const b = btns.createEl('button', { cls: 'lb-problem-open', text: '查看' });

@@ -63,13 +63,15 @@ def fetch_favorites(*, limit: int = 50, verbose: bool = False) -> list[dict[str,
     其余（服务不在 / 超时 / 限频）→ `ServiceDownError`。一律停车，不在这里重试——
     重试会撞风控验证码（2026-09-25 实测）。
     """
-    global _LAST_TOTAL
+    global _LAST_TOTAL, _LAST_READ
     _LAST_TOTAL = None
+    _LAST_READ = {}
     try:
         accounts.ensure_reader()
         accounts.pace("读收藏")
         # 读取服务最坏约 480 秒（启动 ≤90 + 读 6 分钟 + 关浏览器 ≤30），客户端要比它长，别把「慢」当成「号出事」
-        data = accounts.api("GET", "/api/v1/favorites", timeout=540)
+        expect = int(sync_state.load().get("last_favorites") or 0)
+        data = accounts.api("GET", f"/api/v1/favorites?expect={expect}", timeout=780)
     except accounts.ReaderError as exc:
         msg = accounts.SOLUTIONS.get(exc.code, ("", str(exc), "", ""))
         text = f"{msg[1]}：{msg[2]}" if msg[2] else str(exc)
@@ -78,6 +80,7 @@ def fetch_favorites(*, limit: int = 50, verbose: bool = False) -> list[dict[str,
         raise err from exc
     items = data.get("items") or []
     _LAST_TOTAL = len(items)
+    _LAST_READ = {key: data[key] for key in ("partial", "stop_reason", "has_more", "expect", "scroll") if key in data}
     global _CURRENT_ACCOUNT
     cfg = accounts.config()
     _CURRENT_ACCOUNT = {"nickname": data.get("nickname") or cfg.get("nickname") or "",
@@ -234,8 +237,9 @@ def sync_favorites(
     这是**抓取阶段**（用号）。`extract` 在这里不用——识图/概要由 `run` 在放掉账号锁之后交给 enrich。
     `deadline` 是 time.monotonic() 的时刻：到了就不再开新的抓取，剩下的记 deferred。
     """
-    global _LAST_TOTAL
+    global _LAST_TOTAL, _LAST_READ
     _LAST_TOTAL = None
+    _LAST_READ = {}
     try:
         favs = fetch_favorites(limit=limit, verbose=verbose)
     except xhs.NeedsHumanError as exc:
@@ -257,7 +261,11 @@ def sync_favorites(
     total = _LAST_TOTAL if _LAST_TOTAL is not None else len(favs)
     last = sync_state.load().get("last_favorites") or 0
     suspicious = ""
-    if total == 0:
+    if _LAST_READ.get("partial"):
+        suspicious = f"只读到一截（{_LAST_READ.get('stop_reason') or 'unknown'}）：读回 {total} 条，已读到的新收藏照常入档；今晚不再重读列表"
+    elif _LAST_READ.get("stop_reason") == "has_more_false":
+        pass
+    elif total == 0:
         suspicious = "收藏读回 0 条：多半是收藏页没加载完或被限流，这次不算同步成功"
     elif last and total < last / 2:
         suspicious = f"收藏只读回 {total} 条（上次 {last} 条），少了一半以上：多半只读到一截，这次不算同步成功"
@@ -373,6 +381,8 @@ def sync_favorites(
     if suspicious:
         out["suspicious"] = suspicious
         out["code"] = "FAVORITES_SUSPICIOUS"
+    out.update(_LAST_READ)
+    out["no_reread"] = bool(suspicious)
     if stop_code:
         out["code"] = stop_code
     if deferred_quota or deferred_budget:
@@ -390,6 +400,7 @@ def sync_favorites(
 
 _CURRENT_ACCOUNT: dict[str, str] = {}
 _LAST_TOTAL: int | None = None
+_LAST_READ: dict[str, Any] = {}
 
 
 def tag_account(note_id: str, account: dict[str, str], *, seen_at: str | None = None) -> bool:
