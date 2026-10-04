@@ -510,7 +510,7 @@ function renderGrid(){
   selbar.hidden=!selectMode;
   if(selectMode){selCount.setText(`已选 ${selected.size} 篇 · 点封面继续勾选 · ESC 退出`);delBtn.setText(`删除选中${selected.size?' ('+selected.size+')':''}`);delBtn.disabled=!selected.size;}
   // 第 10 批：目录搜索是关键词精确筛选；想连同义词 / 语义一起找，一键带着这个词去问收藏
-  if(q&&!q.startsWith('#')&&provider()?.openLibraryPage){const tip=grid.createEl('div',{cls:'lbc-possible-note',text:`按关键词筛选。想把同义词、相关内容也找出来 → 去问收藏搜「${committed}」`});tip.style.cursor='pointer';tip.style.margin='0 5px 12px';tip.onclick=()=>{const p=provider();p.pendingArchiveQuestion=committed;p.openLibraryPage('chat');};grid.prepend(tip);}
+  if(q&&!q.startsWith('#')&&provider()?.openLibraryPage){const tip=grid.createEl('div',{cls:'lbc-possible-note',text:`按关键词筛选。想把同义词、相关内容也找出来 → 去问收藏搜「${committed}」`});tip.style.cursor='pointer';tip.style.margin='0 5px 12px';tip.onclick=async()=>{const p=provider();p.pendingArchiveQuestion=committed;await p.openLibraryPage('chat');app.workspace.trigger?.('link-brain:ask-pending');};grid.prepend(tip);}
   if(!shown.length){grid.createEl('div',{cls:'lbc-empty',text:'没找到，试试更短的关键词。'});return;}
   let possibleCards=null;
   for(const row of shown){const {it,match}=row;

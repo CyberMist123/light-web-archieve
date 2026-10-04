@@ -609,7 +609,21 @@ LB.keep(wrap, { version: await LB.data.version(), update: async () => {
 }, onReuse: () => { paintSourceBar(); paintSend(); settle(); } });
 LB.t('total');
 
-if(provider()?.pendingArchiveQuestion){const q=provider().pendingArchiveQuestion;delete provider().pendingArchiveQuestion;await submit(q);}
+// 目录页「去问收藏搜「…」」带词跳过来（R1 修）：以前只在本页第一次画的时候看一眼 pendingArchiveQuestion——问收藏页已经开着时，
+// Dataview 重跑走 reuseDom 直接挂回旧页面，这段根本不跑，带过来的词就一直躺着不问。现在三处都接：第一次画完、旧页面挂回时（onReuse）、
+// 以及目录页发的 link-brain:ask-pending 事件（页面开在别的标签里）。取走即删，同一个词只问一次；正在回答就排进队列。
+function takePending(fromEvent){
+  const p=provider(); const q=p&&p.pendingArchiveQuestion; if(!q||typeof q!=='string')return;
+  if(root.isConnected===false)return;   // 已经关掉 / 被换走的页面不接
+  if(fromEvent&&typeof root.isShown==='function'&&!root.isShown())return;   // 事件只给看得见的那一页接（别的标签里藏着的问收藏页不抢）
+  delete p.pendingArchiveQuestion;
+  if(lane!=='chat')setLane('chat');
+  if(busy){queued.push(q);drawQueue();return;}
+  submit(q);
+}
+LB.container && LB.container.__lbView && (LB.container.__lbView.onReuse = (prev => () => { try { prev && prev(); } finally { takePending(); } })(LB.container.__lbView.onReuse));
+if (app.workspace.on && dv.component?.registerEvent) dv.component.registerEvent(app.workspace.on('link-brain:ask-pending', () => takePending(true)));
+takePending();
 
 function sourceText(src){
   const absolute=src.markdown_path || (src.note&&app.vault.adapter.getBasePath?app.vault.adapter.getBasePath().replace(/[\\/]$/,'')+'/'+lbPath(src.note):src.agent_md||'');
