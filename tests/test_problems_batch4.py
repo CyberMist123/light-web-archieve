@@ -311,7 +311,7 @@ def test_fake_ocr_fault_is_retried_automatically_the_next_night(tmp_path, monkey
     payload = text_pdf(tmp_path / "src.pdf", [["Tutorial line"] * 6]).read_bytes()
     sid = _with_attachment(tmp_path, monkeypatch, "扫描.pdf", payload)
     calls = []
-    ok_after = {"day": 2}
+    ok_after = {"day": 3}  # 10-04：临时故障当场再转一次（第一晚 2 次都失败），第二晚才转成
 
     def fake(path, **kw):
         calls.append(path.name)
@@ -334,11 +334,12 @@ def test_fake_ocr_fault_is_retried_automatically_the_next_night(tmp_path, monkey
     assert [(p["code"], p["group"], p["action"]) for p in it["problems"]] == [("TRANSIENT.SERVICE_BUSY", "auto", "retry_later")]
     assert f"{when} 再试" in it["problems"][0]["hover"] and it["problems"][0]["label"] == data["state_registry"]["TRANSIENT.SERVICE_BUSY"]["label"]
 
+    assert len(calls) == 2, "临时故障当场再转了一次"
     same_night = pdftext.convert_object_attachments("xiaohongshu", sid, now=at(1, 5, 0))
-    assert same_night[0]["status"] == "backoff" and len(calls) == 1  # 退避中：当晚不再白跑 OCR
+    assert same_night[0]["status"] == "backoff" and len(calls) == 2  # 退避中：当晚不再白跑 OCR
 
     night2 = pdftext.convert_object_attachments("xiaohongshu", sid, now=at(2, 4, 5))  # 第二晚 4:05 < 24 小时也照样重试
-    assert night2[0]["status"] == "ok" and len(calls) == 2
+    assert night2[0]["status"] == "ok" and len(calls) == 3
     assert problems.load() == [] and pushes == []
     catalog.build()
     assert _item(sid)[0]["problems"] == []

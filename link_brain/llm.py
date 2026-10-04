@@ -301,6 +301,22 @@ def extracted_data(doc: dict[str, Any] | None) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+STRICT_JSON_SUFFIX = "\n\n（上一次的输出没法按 JSON 解析：这次只输出一个 JSON 对象，不要代码块、不要任何其它文字。）"
+
+
+def alternate_summary_config(primary: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any] | None:
+    """概要的「另一个已配置的模型」：设置里的文本 AI（问答用的那个），和归档摘要模型不是同一个时才算。没有就 None。"""
+    from . import providers
+    try:
+        alt = providers.resolve("textAI", settings)
+    except Exception:  # noqa: BLE001
+        return None
+    if not alt:
+        return None
+    sig = lambda c: (c.get("mode"), c.get("endpoint"), c.get("model"), str(c.get("command") or ""))  # noqa: E731
+    return None if sig(alt) == sig(primary) else alt
+
+
 def extract(source_key: str, source_id: str, *, force: bool = False, verbose: bool = False) -> dict[str, Any]:
     """跑一次小模型派生，写 `derived/extracted.json` 并返回它。
 
@@ -360,11 +376,22 @@ def extract(source_key: str, source_id: str, *, force: bool = False, verbose: bo
     code = ""
     usage_real: dict[str, Any] | None = None
     data: dict[str, Any] | None = None
-    for attempt in range(2):  # 第一次 + 失败重试 1 次
+    # 10-04 当场自愈：第一次 + 失败重试 1 次（上次是格式不对就把「只回 JSON」说得更死）；
+    # 还不行、又不是 key / 欠费 / 没配这类重试没用的，换另一个已配置的文本模型再试一次（alternate_summary_config）
+    plan = [(model_cfg, False), (model_cfg, True)]
+    alt_cfg = alternate_summary_config(model_cfg, settings)
+    if alt_cfg is not None:
+        plan.append((alt_cfg, True))
+    used_cfg = model_cfg
+    for attempt, (cfg_now, strict) in enumerate(plan):
+        if attempt == 2 and (data or code.startswith(("NEEDS_HUMAN.", "SKIPPED."))):
+            break
         attempts = attempt + 1
+        used_cfg = cfg_now
         if verbose:
             print(f"[llm] {meta['item_id']} 第 {attempts} 次调用", file=sys.stderr)
-        result = call_model(instruction, input_text, model_cfg)
+        ask = instruction + (STRICT_JSON_SUFFIX if strict and code == "PERMANENT.MODEL_OUTPUT_INVALID" else "")
+        result = call_model(ask, input_text, cfg_now)
         if result.get("status") != "ok":
             error = result.get("error") or "模型调用失败"
             code = result.get("code") or "TRANSIENT.SERVICE_BUSY"
@@ -389,7 +416,7 @@ def extract(source_key: str, source_id: str, *, force: bool = False, verbose: bo
             code = "PERMANENT.MODEL_OUTPUT_INVALID"
             data = None
 
-    model = str(model_cfg.get("model") or model_cfg.get("command") or "")
+    model = str(used_cfg.get("model") or used_cfg.get("command") or "")
     pin, pout = price_of(cfg, model)
     tin = int((usage_real or {}).get("prompt_tokens") or 0) or input_tokens
     tout = int((usage_real or {}).get("completion_tokens") or 0) or output_tokens
@@ -403,6 +430,7 @@ def extract(source_key: str, source_id: str, *, force: bool = False, verbose: bo
         "generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
         "attempts": attempts,
         "first_try_ok": bool(data) and attempts == 1,
+        **({"fallback_model": True} if used_cfg is not model_cfg else {}),
         "usage": {
             "input_tokens_est": tin,
             "output_tokens_est": tout,

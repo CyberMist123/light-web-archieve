@@ -61,6 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--refine-mark", metavar="ITEM_ID", help="手动点名：把这篇（或 --asset 那一张）标成待精细识别")
     p.add_argument("--asset", help="配合 --refine-mark：只点名这一张（vision.json 里的 asset 路径或文件名）")
     p.add_argument("--now", action="store_true", help="配合 --refine-mark：点名后马上补跑这篇，不等夜里")
+    p.add_argument("--retry-failed", dest="retry_failed", action="store_true",
+                   help="配合 --refine-mark：只重标这篇里精细识别放弃了的图（问题列表「现在修」用）")
     p.add_argument("--limit", type=int, default=30, help="--upgrade 最多几篇 / --refine 最多几张，0 = 全部")
 
     p = sub.add_parser("comments", help="手动抓一篇的评论区（楼中楼 / 评论图片 / 语音评论）")
@@ -184,6 +186,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument('target', nargs='?')
     p.add_argument('--all', action='store_true')
     p.add_argument('--transcribe', action='store_true')
+    p.add_argument('--rescreen', action='store_true', help='配合 --transcribe：没人声 / 没音轨的视频重读一次画面字幕')
 
     sub.add_parser("export-bundle", help="从 stdin 接收选帖，导出 Markdown 与可选原图 ZIP")
 

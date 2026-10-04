@@ -89,7 +89,11 @@ def _understand(entry: dict[str, Any], path: Path, cfg: dict[str, Any] | None, s
 
 
 REFINE_MIN_CHARS = int(os.environ.get("LWA_REFINE_MIN_CHARS", "300"))
-REFINE_TRIES = 3  # 第一次 + 重试 2 次（只数「模型给了结果但不合格」，接口故障不算，见 refine_object）
+REFINE_TRIES = 3  # 请求本身被拒（4xx）这类：跨晚累计 3 次放弃（接口故障不算，见 refine_object）
+# 10-04 当场自愈（Owner：凌晨跑完出 bug 当场修，不留到第二天）：模型给了结果但不合格（复读 / 截断 / 格式坏），
+# 同一次运行里依次：换参数重试（温度调高，跳出复读循环）→ 换另一个已配置的模型 → 还不行才放弃并退回第一层结果。
+RETRY_TEMPERATURE = 0.6
+ALT_TEMPERATURE = 0.3
 API_STREAK_STOP = 3  # 连着几张都是接口故障就今晚收手
 
 
@@ -247,14 +251,18 @@ class RefineRouter:
         self.dead: set[int] = set()
         self.fallback = fallback
         self.used: dict[str, int] = {}
+        self.last_cfg: dict[str, Any] | None = None
 
-    def refine(self, path: Path, lines, kind: str) -> dict[str, Any]:
+    def refine(self, path: Path, lines, kind: str, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+        """overrides：换参数重试时叠在本次用到的配置上（如 temperature）。self.last_cfg = 这次实际用的那份（不含 key 的去向）。"""
         import time
         from . import visual
+        extra = dict(overrides or {})
         for i, key in enumerate(self.keys):
             if i in self.dead:
                 continue
-            cfg = {"endpoint": GEMINI_ENDPOINT, "apiKey": key, "model": GEMINI_MODEL}
+            cfg = {"endpoint": GEMINI_ENDPOINT, "apiKey": key, "model": GEMINI_MODEL, **extra}
+            self.last_cfg = cfg
             got = visual.refine(path, lines, kind, cfg)
             if got.get("http_status") == 503:  # 过载：歇一会儿再试一次
                 time.sleep(30)
@@ -267,9 +275,67 @@ class RefineRouter:
             from . import providers
             return providers.result("failed", code="SKIPPED.NOT_CONFIGURED", api_error=True,
                                     error="免费 key 都用不了，也没配精细识别模型")
-        got = visual.refine(path, lines, kind, self.fallback)
+        self.last_cfg = {**self.fallback, **extra}
+        got = visual.refine(path, lines, kind, self.last_cfg)
         self.used[self.fallback["model"]] = self.used.get(self.fallback["model"], 0) + 1
         return got
+
+
+def _content_invalid(got: dict[str, Any]) -> bool:
+    """模型给了结果、但结果不合格（复读 / 截断 / 流程图或表格格式坏）——换参数 / 换模型有意义；接口故障和请求被拒不算。"""
+    return got.get("status") != "ok" and not got.get("api_error") and bool(got.get("text")) \
+        and not str(got.get("code") or "").startswith(("NEEDS_HUMAN.", "SKIPPED."))
+
+
+def _same_model(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:
+    return bool(a and b) and (a.get("endpoint"), a.get("model")) == (b.get("endpoint"), b.get("model"))
+
+
+def alternate_models(used: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """「另一个已配置的模型」：设置里的精细识别模型、第一层识图模型，去掉刚用过的、去重。"""
+    from . import visual
+    out: list[dict[str, Any]] = []
+    for get in (strong_config, visual.vision_config):
+        try:
+            cfg = get()
+        except Exception:  # noqa: BLE001 - 配置读不动就当没有
+            cfg = None
+        if cfg and cfg.get("model") and not _same_model(cfg, used) and not any(_same_model(cfg, x) for x in out):
+            out.append(cfg)
+    return out
+
+
+def refine_with_fallbacks(img: Path, lines, kind: str, cfg) -> tuple[dict[str, Any], list[str]]:
+    """一张图的精细识别 + 当场自愈梯子。返回 (最后结果, 试过的做法)。
+    ① 原样 ② 结果不合格 → 同一路换参数（温度 RETRY_TEMPERATURE）③ 还不合格 → 依次换别的已配置模型。
+    接口故障 / 要人处理 / 没配：立即返回（交给调用方按原规则处理），不在这里白烧钱。"""
+    from . import visual
+    router = cfg if isinstance(cfg, RefineRouter) else None
+    got = router.refine(img, lines, kind) if router else visual.refine(img, lines, kind, cfg)
+    used = router.last_cfg if router else cfg
+    tried = [str(got.get("model") or (used or {}).get("model") or "模型")]
+    if not _content_invalid(got):
+        return got, tried
+    cost = float(got.get("cost_yuan") or 0.0)
+    first_error = got.get("error")
+    retry = (router.refine(img, lines, kind, {"temperature": RETRY_TEMPERATURE}) if router
+             else visual.refine(img, lines, kind, {**cfg, "temperature": RETRY_TEMPERATURE}))
+    cost += float(retry.get("cost_yuan") or 0.0)
+    tried.append(f"换参数（温度 {RETRY_TEMPERATURE}）")
+    got = retry
+    if got.get("status") == "ok" or not _content_invalid(got) and got.get("api_error"):
+        return {**got, "cost_yuan": cost}, tried
+    for alt in alternate_models(used):
+        nxt = visual.refine(img, lines, kind, {**alt, "temperature": ALT_TEMPERATURE})
+        cost += float(nxt.get("cost_yuan") or 0.0)
+        tried.append(f"换模型 {alt.get('model')}")
+        if nxt.get("status") == "ok":
+            return {**nxt, "cost_yuan": cost}, tried
+        if _content_invalid(nxt) or not got.get("text"):
+            got = nxt
+    if got.get("status") != "ok" and got.get("text") is None:
+        got = {**got, "error": first_error or got.get("error")}
+    return {**got, "cost_yuan": cost, "ladder_exhausted": True, "api_error": False}, tried
 
 
 def refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budget: int = 0,
@@ -298,12 +364,7 @@ def refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budge
         tally["runs"] += 1
         kind = (entry.get("visual") or {}).get("kind") or entry.get("layout") or "text"
         img = storage.object_dir(source_key, source_id) / entry["asset"]
-        got = cfg.refine(img, entry.get("lines"), kind) if isinstance(cfg, RefineRouter) else visual.refine(img, entry.get("lines"), kind, cfg)
-        if got.get("status") != "ok" and not str(got.get("code") or "").startswith(("NEEDS_HUMAN.", "SKIPPED.")):
-            retry_cfg = cfg.fallback if isinstance(cfg, RefineRouter) else cfg
-            if retry_cfg:
-                retry_cfg = {**retry_cfg, "temperature": 0, "timeoutSec": min(120, retry_cfg.get("timeoutSec", 120))}
-                got = visual.refine(img, entry.get("lines"), kind, retry_cfg)
+        got, tried = refine_with_fallbacks(img, entry.get("lines"), kind, cfg)
         tally["cost_yuan"] += got.get("cost_yuan") or 0.0
         ref["at"] = datetime.now().astimezone().isoformat(timespec="seconds")
         if got.get("status") != "ok" and got.get("api_error"):
@@ -318,10 +379,26 @@ def refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budge
             entry["refined"] = got
             ref["status"] = "done"
             ref.pop("error", None)
+            ref.pop("fallback", None)
+            if len(tried) > 1:
+                ref["healed"] = "；".join(tried[1:])  # 当场换参数 / 换模型才成的：留个底
             tally["done"] += 1
             tally["api_streak"] = 0
             from . import problems
             problems.resolve("vision.refine", _item_id(source_key, source_id), "PERMANENT.MODEL_OUTPUT_INVALID")
+        elif got.get("ladder_exhausted"):
+            # 换参数、换模型都试过了还不合格：当场放弃这张，笔记里继续用第一层的结果（写明）
+            ref["tries"] = ref.get("tries", 0) + len(tried)
+            ref["status"] = "failed"
+            ref["fallback"] = "layer1"
+            ref["error"] = got.get("error")
+            tally["api_streak"] = 0
+            tally["failed"] += 1
+            from . import problems
+            problems.report("vision.refine", "PERMANENT.MODEL_OUTPUT_INVALID",
+                            f"{entry['asset'].split('/')[-1]}：{got.get('error') or '精细识别结果不合格'}；"
+                            f"试过 {' / '.join(tried)} 都不合格，已退回第一层识图结果",
+                            item_id=_item_id(source_key, source_id))
         else:
             ref["tries"] = ref.get("tries", 0) + 1
             tally["api_streak"] = 0
@@ -412,10 +489,16 @@ def run_refine_mark(args) -> int:
         return 1
     doc = storage.read_json(vpath)
     marked = 0
+    retry_failed = bool(getattr(args, "retry_failed", False))
     for entry in doc.get("images", []):
         if args.asset and not entry["asset"].endswith(args.asset):
             continue
         if (entry.get("visual") or {}).get("kind") == "title":
+            continue
+        if retry_failed:
+            # 当场自愈（问题列表「现在修」）：只把放弃了的那几张重新标上，别把整篇的图都重跑一遍
+            if (entry.get("refine") or {}).get("status") == "failed":
+                marked += mark_refine(entry, (entry.get("refine") or {}).get("reason") or "重试放弃的图", manual=True)
             continue
         marked += mark_refine(entry, "手动点名", manual=True)
     storage.write_json(vpath, doc)

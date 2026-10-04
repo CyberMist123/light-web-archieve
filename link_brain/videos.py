@@ -188,13 +188,33 @@ def _report(row, result):
                         next_at=result.get('retry_after'))
 
 
-def transcribe(row):
+_ASR_START = {'tried': False, 'ok': False, 'note': ''}  # 一次运行只试着拉起一次转写服务
+
+
+def _asr_ready(cfg):
+    """转写服务能不能用；capswriter 没开就当场试着拉起一次（10-04 当场自愈），一次运行只拉一次。"""
+    from . import asr
+    if asr.available(cfg):
+        return True
+    if cfg.get('mode') != 'capswriter':
+        return False
+    if not _ASR_START['tried']:
+        _ASR_START['tried'] = True
+        ok, note = asr.ensure_running(cfg)
+        _ASR_START.update(ok=ok, note=note)
+        print(f"[videos] 转写服务没开，当场拉起：{note or ('好了' if ok else '没成')}", file=__import__('sys').stderr)
+    return _ASR_START['ok'] and asr.available(cfg)
+
+
+def transcribe(row, *, rescreen=False):
     obj=storage.object_dir(row['source'],row['source_id'])
     output=obj/'derived/transcript.json'
     meta=storage.read_json(obj/'meta.json')
     manifest=storage.read_json(storage.raw_dir(row['source'],row['source_id'],meta['current_version'])/'manifest.json')
     entry=next((m for m in manifest['media'] if m['role']=='video' and m.get('file')),None)
     prev=storage.read_json(output) if output.exists() else {}
+    if rescreen and prev.get('status') in ('no_speech','no_audio') and (prev.get('screen') or {}).get('status')!='ok':
+        prev.pop('screen',None)  # 当场自愈（问题列表「现在修」）：没人声 / 没音轨、上次也没读出字幕的，重读一次画面字幕
     if prev.get('status') in DONE_STATUSES:
         # 0926：语音转写过的视频补「画面文字」（烧录字幕 / 文字卡），不重转语音
         done=prev
@@ -212,10 +232,11 @@ def transcribe(row):
         return {'item_id':row['item_id'],'status':'backoff','error':prev.get('error'),'retry_after':prev['retry_after']}
     from . import asr, providers
     cfg=providers.resolve('asrAI')
-    if cfg is None or not asr.available(cfg):
+    if cfg is None or not _asr_ready(cfg):
         # 语音识别没开 / 没配：先不抽音轨（别白跑 ffmpeg），不写 transcript.json（开了以后自然补上）
         got=asr.not_running(cfg) if cfg else providers.skipped_for('asrAI')
-        result={'status':'skipped','code':got['code'],'error':got['error']}
+        why=got['error']+(f"（当场拉起：{_ASR_START['note']}）" if cfg and _ASR_START['note'] else '')
+        result={'status':'skipped','code':got['code'],'error':why}
         _report(row,result)
         return {'item_id':row['item_id'],'status':'skipped','error':got['error']}
     audio=obj/'derived/transcript-audio.wav';audio.parent.mkdir(exist_ok=True)
@@ -259,7 +280,7 @@ def run(args):
     if args.target:rows=[r for r in rows if r['item_id']==args.target]
     results=[]
     for row in rows:
-        result=transcribe(row) if args.transcribe else backfill(row)
+        result=transcribe(row,rescreen=getattr(args,'rescreen',False)) if args.transcribe else backfill(row)
         results.append(result)
         why=f" {result['error']}" if result.get('error') else ''
         print(row['item_id']+' '+result['status']+why,file=__import__('sys').stderr,flush=True)

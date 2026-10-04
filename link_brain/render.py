@@ -1201,9 +1201,8 @@ def render_object(
         if stale:
             try:
                 extracted_doc = llm_mod.extract(source_key, source_id, force=re_extract, verbose=verbose)
-            except Exception as exc:
-                from . import problems
-                problems.report("enrich.summary", "TRANSIENT.SERVICE_BUSY", str(exc), item_id=meta["item_id"])
+            except Exception as exc:  # noqa: BLE001 - 10-04 入档不被阻断：概要出意外，笔记照样写出来，问题记下来当场 / 夜里补
+                _soft_fail("enrich.summary", "概要", exc, meta.get("item_id"), meta.get("title"))
     extracted = llm_mod.extracted_data(extracted_doc)
 
     transcript_path = derived_dir / 'transcript.json'
@@ -1305,6 +1304,17 @@ def render_object(
     return {"item_id": meta["item_id"], "visible_note": rel_visible, "agent_md": str(derived_dir / "agent.md")}
 
 
+def _soft_fail(step: str, what: str, exc: Exception, item_id: str | None, title: str | None = None) -> None:
+    """识图 / 概要这类「锦上添花」的步骤出了意外：不阻断这篇入档，登记一条（自愈轮 / 「现在修」会重跑这篇）。"""
+    print(f"[render] {what}出错（不影响入档）：{type(exc).__name__}: {exc}", file=sys.stderr)
+    try:
+        from . import problems
+        problems.report(step, "TRANSIENT.STEP_CRASHED", f"{what}出错（正文已入档）：{type(exc).__name__}: {exc}",
+                        item_id=item_id, title=title)
+    except Exception as err:  # noqa: BLE001
+        print(f"[render] 问题记录没写上：{err}", file=sys.stderr)
+
+
 def render_item(
     source_key: str,
     source_id: str,
@@ -1318,10 +1328,10 @@ def render_item(
     if vision:
         try:
             vision_mod.build_vision(source_key, source_id, verbose=verbose)
-        except Exception as exc:
-            from . import problems
-            meta = storage.read_json(storage.object_dir(source_key, source_id) / "meta.json")
-            problems.report("vision.layer1", "TRANSIENT.SERVICE_BUSY", str(exc), item_id=meta["item_id"])
+        except FileNotFoundError:
+            raise  # 根本没归档过：照旧报给调用方
+        except Exception as exc:  # noqa: BLE001 - 10-04 入档不被阻断：识图出意外，用已有结果照样把笔记写出来
+            _soft_fail("vision.layer1", "识图", exc, vision_mod._item_id(source_key, source_id))
     return render_object(
         source_key, source_id, verbose=verbose, llm=llm, re_extract=re_extract
     )

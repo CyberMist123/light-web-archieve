@@ -43,9 +43,11 @@ def _ids(n, prefix="bbbbbbbbbbbbbbbb"):
 @pytest.fixture
 def env(monkeypatch):
     """假读取服务 + 假抓详情（原文用脱敏样本）；记下开了哪几篇、歇了几次。"""
-    state = SimpleNamespace(favs=[], fetched=[], sleeps=[], alerts=[], fail=set(), reader=None)
+    # read：新读取服务（10-04 F1）在收藏响应里多带的 partial / stop_reason / has_more…（旧读取服务没有，默认空）
+    state = SimpleNamespace(favs=[], fetched=[], sleeps=[], alerts=[], fail=set(), reader=None, read={})
     state.reader = Reader(monkeypatch, {"/api/v1/login/session": SESSION,
-                                        "/api/v1/favorites": lambda: {"nickname": "alice", "items": state.favs}})
+                                        "/api/v1/favorites": lambda: {"nickname": "alice", "items": state.favs,
+                                                                      **state.read}})
 
     def fake_fetch(note_id, token, **kw):
         state.fetched.append(note_id)
@@ -206,19 +208,23 @@ def test_extract_runs_enrich_after_the_account_lock_is_released(env, monkeypatch
 
 @pytest.mark.parametrize("last,read,alarm", [(10, 4, True), (10, 0, True), (10, 6, False)])
 def test_favorites_count_sanity(env, capsys, last, read, alarm):
+    """旧读取服务（响应里没有 partial / stop_reason）：0 条 / 少一半以上算可疑。
+    10-04 F1：可疑退出 3（夜跑今晚不重读、不另登记步骤出错）；明显低于基准（< 95%）又没读到底的数不当新基准。"""
     storage.archive_root().mkdir(parents=True, exist_ok=True)
     storage.write_json(sync_state.path(), {"state": "ready", "last_favorites": last})
     env.favs = [_fav(i) for i in _ids(read)]
     code, out = _run(capsys)
     status = sync_state.load()
     if alarm:
-        assert code == 1 and status["state"] == "failed" and status["code"] == "FAVORITES_SUSPICIOUS"
+        assert code == favorites.EXIT_PARTIAL and status["state"] == "failed" and status["code"] == "FAVORITES_SUSPICIOUS"
+        assert out["no_reread"] is True
         # 可疑 = TRANSIENT.FAVORITES_SUSPICIOUS：只记不推（读取服务偶尔只读到一截，下次多半正常）
         assert env.alerts == []
         assert status["last_favorites"] == last  # 可疑的那次不顶掉基准
         assert len(env.fetched) == read  # 读到的照常处理
     else:
-        assert code == 0 and status["state"] == "ready" and status["last_favorites"] == read
+        assert code == 0 and status["state"] == "ready"
+        assert status["last_favorites"] == last, "明显低于基准、读取服务又没说读到底：不顶掉基准"
 
 
 def test_rate_limited_keeps_earlier_failure_and_last_success(env, capsys):

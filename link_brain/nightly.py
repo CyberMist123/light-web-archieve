@@ -18,6 +18,10 @@
 - 精细识图（vision --refine）的免费 key：只从环境变量（变量名 = 设置 visionAI.refineKeysEnv，默认 LWA_GEMINI_KEYS）、
   或 `~/.link-brain/config.json` 的 `gemini_keys_cmd`（一条命令，标准输出就是 key，逗号 / 换行分隔；限时 60 秒，
   输出不进日志）/ `gemini_keys_file`（key 文件）拿；只注入这一步的子进程环境。都没有就照跑（退回设置里的识图模型）。
+- 收藏同步退出 3（只读到一截 / 条数可疑，10-04 F1）：读到的已入档、原因已登记在 sync.favorites，
+  **今晚不再重读列表**，也不另登记「sync-favorites 出错」（同一件事只报一条）；embed 退出 3 同理（原因登记在 embed）。
+- 收尾前跑一轮「自愈轮」（repair.run，10-04 当场自愈）：本次新登记、还没解决的非风控问题各跑一遍修复动作，
+  不过 06:50、最多 30 分钟；号要人处理时碰号的动作不跑。修好的从汇总里去掉。
 - 收尾：附件闸门（attachments --audit，不联网）还缺附件 → 退出 2。
 
 退出码：0 全部正常 · 1 有步骤出问题（都已登记）· 2 还缺附件 · 5 号要人处理（今晚跳过了碰号步骤）· 6 另一趟夜跑正在跑。
@@ -59,6 +63,10 @@ END_MARK = "=== 夜跑结束 ==="
 KILL_EXCLUDE = (*procs.READER_IMAGE_PREFIXES, "xiaohongshu-mcp", "xiaohongshu-login")
 
 EXIT_OK, EXIT_ERROR, EXIT_MISSING, EXIT_NEEDS_HUMAN, EXIT_BUSY = 0, 1, 2, 5, 6
+# 子命令退出 3 = 没做完，但原因已登记在它自己那一步（sync.favorites / embed）：夜跑不重试、不另登记 nightly.<步骤>
+STEP_EXIT_REGISTERED = 3
+REGISTERED_STEP = {"sync-favorites": "sync.favorites", "embed": "embed"}
+REPAIR_MAX_MIN = 30
 
 SYNC_STEP = "sync-favorites"
 REFINE_STEP = "vision --refine"
@@ -171,6 +179,8 @@ class Nightly:
         self.account_stop = False
         self.account_stop_why = ""
         self.problems: list[str] = []
+        # 和 problems 对齐的出处：(问题记录的 step, 码 或 None=那一步任何没解决的)；自愈轮之后据此把修好的从汇总里去掉
+        self._problem_refs: list[tuple[str, str | None] | None] = []
         self.vault = storage.vault_root()
         self.run_id: str | None = None   # 10-03 同步记录：这一晚那行的编号（每一步子进程带着它，结果并进同一行）
 
@@ -195,6 +205,7 @@ class Nightly:
     # ------------------------------------------------------------ 问题记录（进程内调 problems，失败只记日志）
     def register(self, step_name: str, code: str, reason: str) -> None:
         self.problems.append(reason)
+        self._problem_refs.append(("nightly." + step_slug(step_name), code))
         if self.run_id:
             try:
                 from . import synclog
@@ -341,11 +352,13 @@ class Nightly:
             self.log(f"=== {name} 结束 exit={r.code}（{r.minutes} 分钟）===")
             # 统一退出码：0 成功/部分完成、1 出错、2 缺内容闸门、5 要人处理、6 号被别的任务占着
             # Traceback 只在退出码也不正常时才算崩溃（逐篇 print_exc 之后照样 exit 0 的不误报）
-            abnormal = r.code not in (0, 2, 5, 6)
-            payload = _json_from_first_brace(r.stdout) or {}
-            partial_sync = step_slug(name) == 'sync-favorites' and (payload.get('no_reread') or payload.get('suspicious') or payload.get('partial'))
-            if partial_sync:
-                self.problems.append(name + ' 只读到一截，今晚不再重读列表')
+            abnormal = r.code not in (0, 2, STEP_EXIT_REGISTERED, 5, 6)
+            if r.code == STEP_EXIT_REGISTERED:
+                # 10-04：原因已登记在那一步自己的问题里（收藏只读到一截 / 向量没建完）：夜跑这边只记汇总一行，
+                # 不另登记「步骤出错」（以前同一件事报两条、原因还重复一遍）；这一步本身跑完了，旧的步骤级问题标已解决
+                owner = REGISTERED_STEP.get(step_slug(name), "")
+                self.problems.append(f"{name} 没做完（原因见问题列表「{owner or name}」那条）")
+                self._problem_refs.append((owner, None) if owner else None)
                 self.resolve(name)
             elif r.traceback and abnormal:
                 self.register(name, "TRANSIENT.STEP_CRASHED", f"{name} 崩溃（exit={r.code}，日志里有 Traceback）")
@@ -471,8 +484,9 @@ class Nightly:
     def _sync_with_retry(self, step: Step) -> StepResult:
         r = self.run_step(step)
         payload = _json_from_first_brace(r.stdout) or {}
-        if payload.get('no_reread') or payload.get('partial') or payload.get('suspicious'):
-            self.log('[同步] 列表不完整，保留已入档内容，今晚不再重读')
+        if r.code == STEP_EXIT_REGISTERED or payload.get("no_reread"):
+            # 10-04 F1：只读到一截 / 条数可疑 —— 读到的已入档；今晚绝不再读一次列表（一晚读三次撞过滑块）
+            self.log("[同步] 收藏列表只读到一截（或条数可疑）：读到的新收藏已入档，今晚不再重读列表")
             return r
         if r.code == 6:
             self.log("[护号] 号被别的任务占着（导入 / 插件同步），同步这次没拿到号")
@@ -484,8 +498,10 @@ class Nightly:
                 r = self.run_step(step)
                 if r.code == 0:
                     # 重试成功：第一次那条汇总行撤掉（问题记录里已经 resolve）
-                    self.problems = [p for i, p in enumerate(self.problems)
-                                     if not (i < first and p.startswith(step.name + " "))]
+                    keep = [i for i, p in enumerate(self.problems) if not (i < first and p.startswith(step.name + " "))]
+                    refs = self._problem_refs + [None] * (len(self.problems) - len(self._problem_refs))
+                    self.problems = [self.problems[i] for i in keep]
+                    self._problem_refs = [refs[i] for i in keep]
                     self.log("[同步] 再试一次成功")
             else:
                 self.log("[同步] 不是风控的失败（exit 1），但今晚剩的时间不够再试一次")
@@ -537,7 +553,6 @@ class Nightly:
                               "重启 Obsidian 或结束这个 python 进程后，下一晚会接着收。")
             return self._result(EXIT_OK, "收藏同步正在跑，今晚夜跑没起", ran=False)
 
-        repair_since = datetime.now().astimezone().isoformat(timespec="seconds")
         unfinished = self.unfinished_last_night()
         self._rotate()
         self.log(START_MARK)
@@ -548,12 +563,22 @@ class Nightly:
             self.run_id = synclog.begin(own=True, run_id=os.environ.get(synclog.ENV_RUN) or None)
         except Exception as exc:  # noqa: BLE001
             self.log(f"[同步记录] 没开上（{type(exc).__name__}: {exc}）")
+        if not unfinished:
+            # 上一晚走完了：之前登记的「上一晚没走完」这件事已经好了（让它在面板上挂过一整天，下一晚开头才消）；
+            # 走到这里也说明没有卡住的同步占着号了
+            try:
+                from . import problems
+                for code in ("TRANSIENT.INTERRUPTED", "NEEDS_HUMAN.SYNC_STUCK"):
+                    problems.resolve("nightly.run", None, code)
+            except Exception as exc:  # noqa: BLE001
+                self.log(f"[问题记录] 标已解决失败（{type(exc).__name__}: {exc}）")
         if unfinished:
             self.log(f"[夜跑] 上一晚没走完：{unfinished['start']}；日志停在「{unfinished['last']}」")
             self.register("run", "TRANSIENT.INTERRUPTED",
                           f"上一晚收藏夜跑没走完：开始于 {unfinished['start']}，没有「夜跑结束」这一行（被系统强停或断电）。"
                           f"日志最后一行：{unfinished['last'][:160]}")
         exit_code = EXIT_OK
+        repair_since = datetime.now().astimezone().isoformat(timespec="seconds")
         try:
             for step in self.steps:
                 if step.name == SYNC_STEP:
@@ -570,12 +595,7 @@ class Nightly:
             self.register("run", "TRANSIENT.STEP_CRASHED", f"夜跑自己出错：{type(exc).__name__}: {exc}")
             self.log(f"[夜跑] 出错：{type(exc).__name__}: {exc}")
         finally:
-            try:
-                from . import repair
-                repaired = repair.run(since=repair_since, budget_seconds=min(600, max(0, self.minutes_left() * 60)))
-                self.log('[自愈] ' + repaired['message'])
-            except Exception as exc:
-                self.log(f'[自愈] 未完成：{exc}')
+            self._repair_round(repair_since)
             if self.account_stop:
                 exit_code = EXIT_NEEDS_HUMAN
             elif self.problems:
@@ -595,6 +615,33 @@ class Nightly:
                    EXIT_ERROR: "夜跑完成，有步骤出了问题（已登记进问题记录）"}[exit_code]
         return self._result(exit_code, message, ran=True)
 
+    def _repair_round(self, since: str) -> None:
+        """10-04 当场自愈：收尾前对本次新登记、还没解决的非风控问题各跑一遍修复动作；修好的从汇总里去掉。
+        永不抛异常。"""
+        try:
+            from . import repair
+            budget = min(REPAIR_MAX_MIN, max(0.0, self.minutes_left() - 3)) * 60
+            if budget < 60:
+                self.log("[自愈] 今晚剩的时间不够跑自愈轮了；没好的问题都在问题列表里，可以点「现在修」")
+                return
+            self.log(f"[自愈] 开始：本次新登记的非风控问题当场再修一遍（最多 {budget / 60:.0f} 分钟，不过 06:50）")
+            out = repair.run(since=since, auto=True, allow_account=not self.account_stop, budget_seconds=budget)
+            self.log("[自愈] " + str(out.get("message") or ""))
+            for x in out.get("results") or []:
+                if x.get("status") != "resolved":
+                    self.log(f"[自愈] {x.get('step')} {x.get('item_id') or ''}：{x.get('message')}")
+            kept: list[str] = []
+            refs: list[tuple[str, str | None] | None] = []
+            for text, ref in zip(self.problems, self._problem_refs + [None] * len(self.problems)):
+                if ref is None or _still_open(*ref):
+                    kept.append(text)
+                    refs.append(ref)
+            if len(kept) < len(self.problems):
+                self.log(f"[自愈] 汇总里 {len(self.problems) - len(kept)} 条已当场修好")
+            self.problems, self._problem_refs = kept, refs
+        except Exception as exc:  # noqa: BLE001 - 自愈轮出错不能拖垮夜跑收尾
+            self.log(f"[自愈] 没跑完：{type(exc).__name__}: {exc}")
+
     def _result(self, exit_code: int, message: str, *, ran: bool) -> dict[str, Any]:
         return {"ok": exit_code in (EXIT_OK, EXIT_MISSING), "code": "", "message": message, "exit": exit_code,
                 "ran": ran, "problems": list(self.problems), "log": str(self.log_path)}
@@ -612,6 +659,20 @@ class Nightly:
                 "steps": [{"name": s.name, "step": "nightly." + step_slug(s.name), "argv": s.command(self.python),
                            "timeout_min": s.timeout_min, "account": s.account, "reserve_min": s.reserve_min}
                           for s in self.steps]}
+
+
+def _still_open(step: str, code: str | None) -> bool:
+    """问题记录里 step（+ 码）还有没解决的（SKIPPED 不算）。读不动就当还在（宁可多报）。"""
+    try:
+        from . import problems
+        for r in problems.load():
+            if r.get("step") != step or str(r.get("code") or "").startswith("SKIPPED."):
+                continue
+            if code is None or r.get("code") == problems.normalize(code):
+                return True
+        return False
+    except Exception:  # noqa: BLE001
+        return True
 
 
 def _last_json(lines: list[str]) -> Any:

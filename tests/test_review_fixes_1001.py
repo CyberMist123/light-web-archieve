@@ -75,19 +75,20 @@ def test_two_truncated_nights_in_a_row_both_flagged_but_pushed_once(env, capsys)
     storage.archive_root().mkdir(parents=True, exist_ok=True)
     storage.write_json(sync_state.path(), {"state": "ready", "last_favorites": 10})
     env.favs = [_fav(i) for i in _ids(4)]
-    for night in range(2):
+    for night in range(3):
         env.alerts.clear()
         code, _ = _run(capsys)
         status = sync_state.load()
-        assert code == 1 and status["code"] == "FAVORITES_SUSPICIOUS", night
-        # 两晚都标可疑（问题列表看得到、这次不算同步成功）；收藏数可疑是临时故障，不推（连着 3 个日历日才升级）
+        assert code == favorites.EXIT_PARTIAL and status["code"] == "FAVORITES_SUSPICIOUS", night
+        # 每晚都标可疑（问题列表看得到、这次不算同步成功）；收藏数可疑是临时故障，不推（连着 3 个日历日才升级）
         assert status["last_favorites"] == 10 and env.alerts == [], night
-    # 连着第 3 晚还是差不多这个数：多半是她真删了一批 —— 这晚照样报，之后以它为基准
-    code, _ = _run(capsys)
-    assert code == 1 and sync_state.load()["last_favorites"] == 4
+    # 10-04 F1：以前「连着 3 晚同一个数就认作新基准」会把每晚只读到的一截（50 条）认成基准——去掉了。
+    # 只有读取服务明说读到底了（stop_reason=has_more_false）才认：她真删了一批
+    env.read = {"partial": False, "stop_reason": "has_more_false", "has_more": False, "expect": 10}
     env.alerts.clear()
-    code, _ = _run(capsys)
+    code, out = _run(capsys)
     assert code == 0 and sync_state.load()["state"] == "ready" and not env.alerts
+    assert sync_state.load()["last_favorites"] == 4 and out["stop_reason"] == "has_more_false"
 
 
 def test_zero_favorites_never_becomes_the_baseline(env, capsys):
@@ -95,7 +96,7 @@ def test_zero_favorites_never_becomes_the_baseline(env, capsys):
     storage.write_json(sync_state.path(), {"state": "ready", "last_favorites": 10})
     env.favs = []
     for _ in range(4):
-        assert _run(capsys)[0] == 1
+        assert _run(capsys)[0] == favorites.EXIT_PARTIAL
     assert sync_state.load()["last_favorites"] == 10
 
 

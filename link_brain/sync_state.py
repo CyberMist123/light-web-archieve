@@ -142,20 +142,25 @@ def progress(text):
 # 跨次保留的字段：last_favorites = 上次**正常**读到的收藏条数（判「读少了一大截」的基准）；
 # suspect_favorites = 最近几晚连着读到的可疑条数 {count, nights}
 _CARRY = ('last_favorites', 'suspect_favorites')
-SUSPECT_ADOPT_NIGHTS = 3  # 连着 3 晚读到差不多同一个「可疑」条数：多半是她真的删了一批收藏，认作新基准
+# 10-04 F1：「明显低于基准」= 不到基准的这个比例（和读取服务判 below_expect 用的同一个数）
+BASELINE_DROP_RATIO = 0.95
 
 
 def _update_baseline(status, payload):
-    """1001：基准只认正常读到的条数。读到一截（可疑）的那次不能顶掉基准，不然第二晚再截断就不报了。
+    """1001 / 10-04 F1：基准（last_favorites）只认「靠得住的全量」。
 
-    例外：连着 SUSPECT_ADOPT_NIGHTS 晚读到的都是差不多同一个数（±10%），说明收藏真的变少了（她删了一批），
-    这一晚照样报，但之后以它为基准，免得每晚都报。0 条永远不认。"""
+    - 只读到一截（partial）/ 可疑（suspicious）/ 0 条：一律不动基准（不然第二晚再截断就不报了，还会把 expect 带歪）；
+    - 读取服务明说读到底了（stop_reason=has_more_false）：认，哪怕比上次少很多（她真删了收藏）；
+    - 其余：不比基准明显低（≥ BASELINE_DROP_RATIO）才认；明显低于基准、又没读到底的数不参与基准更新。
+    以前「连着 3 晚同一个数就认作新基准」会把读取服务每晚只读到的 50 条认成基准（10-03 实证），已去掉；
+    suspect_favorites 只记最近几晚读到的可疑条数（给人看），不再拿它顶基准。"""
     total = payload.get('favorites_total')
-    if total is None:
+    if not total:
         return
+    last = int(status.get('last_favorites') or 0)
     bottom = payload.get('stop_reason') == 'has_more_false' and not payload.get('partial')
-    if bottom or (total and not payload.get('partial') and not payload.get('suspicious')
-                  and total >= (status.get('last_favorites') or 0) / 2):
+    trusted = not payload.get('partial') and not payload.get('suspicious')
+    if trusted and (bottom or not last or total >= last * BASELINE_DROP_RATIO):
         status['last_favorites'] = total
         status.pop('suspect_favorites', None)
         return
@@ -198,10 +203,12 @@ def record(state, *, payload=None, message='', account=None, code=''):
             status.update({k: previous[k] for k in _CARRY if k in previous})
             storage.write_json(path(), status)
             return status
-        if state == 'ready' and payload.get('suspicious'):
-            # 收藏读回 0 条 / 比上次少了一半以上：照常处理读到的，但不能算「同步完成」
+        if state in ('ready', 'failed') and payload.get('suspicious'):
+            # 只读到一截 / 0 条 / 比上次少一半以上：照常处理读到的，但不能算「同步完成」。
+            # 10-04：同一件事只登记一条（sync.favorites），原因一句话不重复；另有几篇没抓到的附在后面
             state, code, message = 'failed', 'FAVORITES_SUSPICIOUS', payload['suspicious']
-            detail = payload['suspicious']
+            detail = (f"另有 {len(errors)} 篇没抓到：{errors[0].get('error', '')}"[:300] if errors
+                      else payload['suspicious'])
         elif state == 'ready' and payload.get('deferred'):
             if payload.get('deferred_reason') == 'budget':
                 message = f"今天先到这，剩 {payload['deferred']} 篇明天继续"
@@ -245,6 +252,7 @@ def _record_problems(status):
             _resolve('sync.favorites')
             _resolve('login')
         return
+    # 10-04：message 和 detail 常是同一句（可疑那条两边都写原因）——去重，原因只说一遍
     reason = '；'.join(dict.fromkeys(x for x in (str(status.get('message') or ''), str(status.get('detail') or '')) if x))
     if state == 'blocked' or code in problems.ACCOUNT_CODES:
         problems.report_blocked('sync.favorites', code, reason, service=status.get('account') != 'xhs')

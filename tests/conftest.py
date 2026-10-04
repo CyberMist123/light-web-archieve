@@ -174,3 +174,30 @@ def no_web_probe(request, monkeypatch):
     from link_brain import attachments as att_mod
     monkeypatch.setattr(att_mod, "_probe_logged_in",
                         lambda note_id, token: {"ok": False, "error": "测试环境不联网"})
+
+
+@pytest.fixture(autouse=True)
+def no_self_heal_waits(monkeypatch):
+    """10-04 当场自愈：取向量退避重试、附件转换当场再转、转写服务拉起都会歇几秒——测试里不真等，也不真去拉 CapsWriter。"""
+    from link_brain import asr, pdftext, videos
+    monkeypatch.setattr(semantic, "_sleep", lambda s: None)
+    monkeypatch.setattr(pdftext, "CONVERT_RETRY_SECONDS", 0)
+    monkeypatch.setattr(asr, "ensure_running", lambda cfg, **kw: (False, "测试环境不拉起转写服务"))
+    monkeypatch.setitem(videos._ASR_START, "tried", False)
+    monkeypatch.setitem(videos._ASR_START, "ok", False)
+    monkeypatch.setitem(videos._ASR_START, "note", "")
+
+
+@pytest.fixture(autouse=True)
+def no_real_repair_children(monkeypatch):
+    """夜跑收尾的自愈轮 / 「现在修」默认会起 `python -m link_brain …` 修复子进程：测试里一律换成假的（记下想跑什么），
+    要测执行的用例自己传 execute= 或再 monkeypatch。检查读取服务也不真拉起。"""
+    from link_brain import repair
+    calls: list[list[str]] = []
+
+    def fake_child(argv, timeout):
+        calls.append(list(argv))
+        return 1, "测试环境不跑修复子进程", False
+    monkeypatch.setattr(repair, "_child_run", fake_child)
+    monkeypatch.setattr(repair, "_reader_check", lambda timeout: (1, "测试环境没有读取服务", False))
+    return calls

@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,14 @@ def docx_to_markdown(docx_path: Path, *, verbose: bool = False) -> dict[str, Any
 
 CONVERTIBLE_SUFFIXES = (".pdf", ".docx")
 PARTIAL_RETRIES = 3  # 有几页没认出来的，同一份字节最多再转几次（之后就认这份带占位的）
+CONVERT_RETRY_SECONDS = 3.0  # 临时故障当场再转一次之前歇几秒
+
+
+def _convert_once(path: Path, *, force_ocr: bool, verbose: bool) -> dict[str, Any]:
+    try:
+        return attachment_to_markdown(path, force_ocr=force_ocr, verbose=verbose)
+    except Exception as exc:  # noqa: BLE001 - 转换出任何意外都只算这一份失败
+        return {"status": "failed", "note": f"{type(exc).__name__}: {exc}", "code": "TRANSIENT.SERVICE_BUSY"}
 
 
 def attachment_to_markdown(
@@ -123,10 +132,11 @@ def convert_object_attachments(
             results.append({"doc_id": doc_id, "status": "backoff", "note": prior.get("note"),
                             "code": prior.get("code") or "", "next_at": prior.get("next_at")})
             continue
-        try:
-            outcome = attachment_to_markdown(path, force_ocr=force_ocr, verbose=verbose)
-        except Exception as exc:  # noqa: BLE001 - 转换出任何意外都只算这一份失败（下次再试）
-            outcome = {"status": "failed", "note": f"{type(exc).__name__}: {exc}", "code": "TRANSIENT.SERVICE_BUSY"}
+        outcome = _convert_once(path, force_ocr=force_ocr, verbose=verbose)
+        if outcome["status"] == "failed" and str(outcome.get("code") or "TRANSIENT.").startswith("TRANSIENT."):
+            # 10-04 当场自愈：临时故障（OCR 引擎没起来 / 超时 / 意外异常）歇几秒当场再转一次，不等退避到明晚
+            time.sleep(CONVERT_RETRY_SECONDS)
+            outcome = _convert_once(path, force_ocr=force_ocr, verbose=verbose)
         if outcome["status"] == "skipped":
             # 没开（附件转换关了 / 扫描件但 OCR 没开）：不算失败、不标 conversion_failed，开了以后下次自然转
             problems.report("attachments.convert", outcome.get("code") or "SKIPPED.NOT_CONFIGURED",

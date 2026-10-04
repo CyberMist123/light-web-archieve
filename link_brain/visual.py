@@ -406,7 +406,9 @@ def _chat(path: Path, prompt: str, cfg: dict[str, Any], *, max_tokens: int, time
     data = base64.b64encode(path.read_bytes()).decode()
     body = {"model": cfg["model"], "messages": [{"role": "user", "content": [
         {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}},
-        {"type": "text", "text": prompt}]}], "max_tokens": max_tokens, "temperature": 0.1}
+        {"type": "text", "text": prompt}]}], "max_tokens": max_tokens,
+        # 10-04 当场自愈：精细识图输出不合格（复读 / 截断 / 格式坏）时换参数重试，温度由调用方经 cfg 给
+        "temperature": float(cfg.get("temperature", 0.1))}
     # 转录不需要思考；新一代混合模型默认会想，白烧 token。关法各家不同：千问 enable_thinking，Gemini reasoning_effort
     if "generativelanguage.googleapis.com" in cfg["endpoint"]:
         body["reasoning_effort"] = "low" if "pro" in cfg["model"] else "none"

@@ -103,6 +103,36 @@ def available(cfg: dict[str, Any] | None) -> bool:
         return False
 
 
+START_WAIT_S = 120  # 当场拉起 CapsWriter 服务端后最多等它加载模型这么久
+
+
+def ensure_running(cfg: dict[str, Any] | None, *, wait_s: float = START_WAIT_S) -> tuple[bool, str]:
+    """10-04 当场自愈：转写服务没起 → 试着拉起来再等它开好端口。返回 (现在能不能用, 一句说明)。
+
+    只管 capswriter：找到本机装的 CapsWriter（setup.capswriter.detect，只读）就按插件同一规则拉起
+    （有计划任务「CapsWriter Server」就运行它，否则经 cmd start 中转启动 exe——不是 Python 的子孙）。
+    其它方式（http / 关）不在本机起服务，原样返回。永不抛异常。"""
+    if available(cfg):
+        return True, ""
+    if not cfg or cfg.get("mode") != "capswriter":
+        return False, "语音识别不是本机 CapsWriter，没法当场拉起"
+    try:
+        from .setup import capswriter, sysinfo
+        det = capswriter.detect()
+        if not det.get("dir"):
+            return False, "本机没找到 CapsWriter-Offline（设置 → 开始 里装一次）"
+        how = capswriter._start_server(Path(det["dir"]), ours=bool(det.get("ours")))
+        deadline = time.monotonic() + max(0.0, wait_s)
+        host, port = cfg.get("host") or "127.0.0.1", int(cfg.get("port") or det.get("port") or 0)
+        while time.monotonic() < deadline:
+            if sysinfo.port_open(host, port):
+                return True, f"已拉起转写服务（{how}）"
+            time.sleep(2.0)
+        return False, f"拉起了转写服务（{how}），{int(wait_s)} 秒内端口 {host}:{port} 还没开"
+    except Exception as exc:  # noqa: BLE001 - 拉不起来就如实说，转写照旧记「没开」
+        return False, f"拉起转写服务没成：{type(exc).__name__}: {exc}"[:200]
+
+
 def not_running(cfg: dict[str, Any]) -> dict[str, Any]:
     return providers.skipped("asrAI", f"语音识别没开：连不上本机 CapsWriter 服务端（{capswriter_url(cfg)}）。"
                                       "打开 CapsWriter-Offline 的服务端，或在设置里改端口 / 换方式")

@@ -170,6 +170,35 @@ def _endpoint_and_key(cfg: dict) -> tuple[str, str]:
 _HTTP = None
 
 
+class EmbedHTTPError(RuntimeError):
+    def __init__(self, status: int, body: str = ""):
+        super().__init__(f"embeddings HTTP {status}")
+        self.status = status
+        self.body = body
+
+
+# 10-04 当场自愈：一批向量没取到（网络抖 / 5xx / 429）当场退避重试，不留到明晚；key 不对、没 key 重试也没用
+EMBED_TRIES = 3
+EMBED_BACKOFF_SECONDS = (2.0, 8.0)
+
+
+def _sleep(seconds: float) -> None:
+    import time
+    time.sleep(seconds)
+
+
+def embed_error_code(exc: Exception) -> str:
+    """取向量失败 → 故障码。NO_KEY 是本模块内部标记（run() 再按「以前能不能用」翻成 SKIPPED / NEEDS_HUMAN）。"""
+    from . import providers
+    if isinstance(exc, EmbedHTTPError):
+        return providers.http_code(exc.status, exc.body)
+    if str(exc) == "no-api-key":
+        return "NO_KEY"
+    if isinstance(exc, RuntimeError):
+        return "TRANSIENT.SERVICE_BUSY"
+    return "TRANSIENT.NETWORK"
+
+
 def _post_embeddings(texts: list[str], cfg: dict, timeout: float) -> list[list[float]]:
     """一次 HTTP 批量取向量；失败抛异常，由调用方决定告警或退词法。"""
     import httpx
@@ -185,7 +214,7 @@ def _post_embeddings(texts: list[str], cfg: dict, timeout: float) -> list[list[f
         _HTTP = httpx.Client()
     resp = _HTTP.post(endpoint, headers=headers, json=body, timeout=timeout)
     if resp.status_code >= 400:
-        raise RuntimeError(f"embeddings HTTP {resp.status_code}")
+        raise EmbedHTTPError(resp.status_code, resp.text[:500])
     data = resp.json().get("data") or []
     if len(data) != len(texts):
         raise RuntimeError("embeddings 返回数量不符")
@@ -216,17 +245,26 @@ def run_embed(re_embed: bool = False, batch_size: int = 10) -> dict:
             "SELECT hash, MIN(text) FROM chunks GROUP BY hash") if h in set(pending)}
         embedded = failed = 0
         error = None
+        code = ""
+        retried = 0
         for start in range(0, len(pending), batch_size):
             batch = pending[start:start + batch_size]
-            try:
+            vectors = None
+            for attempt in range(EMBED_TRIES):
                 try:
                     vectors = _post_embeddings([texts[h] for h in batch], cfg, timeout=30)
-                except Exception:
-                    vectors = _post_embeddings([texts[h] for h in batch], cfg, timeout=30)
-            except Exception as exc:  # noqa: BLE001 - 网络/配置错误一律告警收尾，不炸调用方
+                    break
+                except Exception as exc:  # noqa: BLE001 - 网络/配置错误一律如实收尾，不炸调用方
+                    code = embed_error_code(exc)
+                    error = type(exc).__name__ if not isinstance(exc, RuntimeError) else str(exc)
+                    if not code.startswith("TRANSIENT.") or attempt + 1 >= EMBED_TRIES:
+                        break
+                    retried += 1
+                    _sleep(EMBED_BACKOFF_SECONDS[min(attempt, len(EMBED_BACKOFF_SECONDS) - 1)])
+            if vectors is None:
                 failed += len(pending) - start
-                error = type(exc).__name__ if not isinstance(exc, RuntimeError) else str(exc)
                 break
+            code, error = "", None  # 重试成功了：前面那次抖动不算
             for h, vec in zip(batch, vectors):
                 blob = array("f", vec).tobytes()
                 conn.execute("INSERT OR REPLACE INTO embeddings(hash, model, dim, vector) VALUES(?,?,?,?)",
@@ -237,13 +275,15 @@ def run_embed(re_embed: bool = False, batch_size: int = 10) -> dict:
     finally:
         conn.close()
     _MATRIX_CACHE.update(stamp=None, data=None)
-    result = {"status": "ok" if not failed else "failed", "model": cfg["model"],
+    result = {"status": "ok" if not failed else "failed", "model": cfg["model"], "retried": retried,
               "items": info["items"], "chunks": info["chunks"],
               "embedded_now": embedded, "embedded_total": done,
               "skipped": max(0, len(pending) - embedded - failed),
               "pending_before": len(pending)}
-    if error:
+    if failed and error:
         result["error"] = f"embedding 调用失败（{error}）；已完成 {embedded}/{len(pending)}，下次增量续跑"
+        result["code"] = code
+        result["had_vectors"] = done > 0
     return result
 
 
@@ -357,10 +397,32 @@ def query_hits(question: str, top_chunks: int = 80, chunks_per_item: int = 2, to
 def run(args) -> int:
     from .read import dump_json
     result = run_embed(re_embed=getattr(args, "all", False))
+    exit_code = _record_problem(result)
+    dump_json(result)
+    return exit_code
+
+
+EXIT_REGISTERED = 3  # 没做完，但原因已经登记进问题记录（step=embed）：夜跑别再按「这一步出错」多登记一条
+
+
+def _record_problem(result: dict) -> int:
+    """embed 的结论进问题记录（10-04：以前语义层没 key 静默停了几天没人知道）。返回退出码。"""
     from . import problems
     if result.get("status") == "ok":
         problems.resolve("embed")
-    else:
-        problems.report("embed", "TRANSIENT.SERVICE_BUSY", result.get("error") or "语义索引未完成")
-    dump_json(result)
-    return 0 if result.get("status") == "ok" else 1
+        return 0
+    code = result.get("code") or ""
+    if not code:
+        return 1  # 没走到取向量（目录数据还没有）：照旧退 1
+    if code == "NO_KEY":
+        from . import providers
+        why = providers.why_not("embedAI") or "向量索引没有可用的 key"
+        if result.get("had_vectors"):
+            # 以前能用、现在拿不到 key（10-04：设置存成新格式后 embedAI 丢了 key）：语义检索悄悄停了，要人看一眼设置
+            problems.report("embed", "NEEDS_HUMAN.AUTH_FAILED",
+                            f"向量索引拿不到 key（{why}）：语义检索停了，问收藏只剩关键词检索")
+            return EXIT_REGISTERED
+        problems.report("embed", "SKIPPED.NOT_CONFIGURED", f"向量索引没开：{why}", action="skipped")
+        return 0
+    problems.report("embed", code, result.get("error") or "向量索引没建完")
+    return EXIT_REGISTERED

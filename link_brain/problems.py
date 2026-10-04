@@ -18,6 +18,9 @@ NEEDS_HUMAN（只报一次）· SKIPPED（未配置 / 已关闭 / 预算到了�
 推送走 alert._alert（模块私有，仓内只有这里调；tests/test_problems_alert_exit.py 扫源码守住）。
 
 第 4 批：17 处报警已全部迁到这里；每次写成功后同锁刷新 `_archive/problems-summary.json`（页面顶部入口读它）。
+
+10-04 当场自愈：每个非风控码的修复动作在 `repair.py`（`repair.plan(row)`）；夜跑收尾的自愈轮和面板「现在修」都走它。
+修复过程写成同 key 的「注记行」（`annotate`，`note: true`）：不加次数、不算出现日，只带 repair_state / repair_note。
 """
 
 from __future__ import annotations
@@ -52,6 +55,9 @@ STEPS = ("sync.favorites", "ingest", "attachments.download", "attachments.conver
          "enrich.summary", "vision.layer1", "vision.refine", "videos.transcribe", "embed", "ask", "login", "config", "remote")
 STEP_PREFIXES = ("nightly.",)
 # 推送标题 / 问题列表里给人看的步骤名（夜跑步骤 nightly.<名> 显示「夜跑：<名>」）
+# 注记行（annotate）能改的字段：自愈动作的状态（running / failed / waiting）、一句「试过什么、为什么没好、下一步」、
+# 什么时候修的、预计几分钟
+NOTE_FIELDS = ("repair_state", "repair_note", "repair_at", "repair_eta_min")
 STEP_LABELS = {
     "sync.favorites": "收藏同步", "ingest": "导入", "attachments.download": "下附件", "attachments.convert": "附件转文字",
     "attachments.recheck": "附件补查", "enrich.summary": "概要 / 识图补处理", "vision.layer1": "识图",
@@ -78,6 +84,8 @@ ACCOUNT_CODES = ("NOT_LOGGED_IN", "CAPTCHA_REQUIRED", "ACCOUNT_RISK", "RISK_HOLD
                  "WRONG_ACCOUNT", "ACCOUNT_BLOCKED")
 
 # 显示登记表（§3.1）：code（或 `类.*` 兜底）→ 显示位置 / 标签 / 悬停 / 分组。Python 是唯一文案源，
+# 每个码「用户看到什么 → 根因 → 修法 / 自愈动作 → 回归用例」记在 docs/ERRORS.md；新增码要同步登记到那里
+# （CONVENTIONS §2），自愈动作登记到 repair.py 的 plan()。
 # 以后写进 catalog-data.json 的 "state_registry" 给页面读；JS 不许自己写状态文案。
 # where：top+card（顶部计数 + 卡片角标）· card · list（只在问题列表）· none（列表灰色「未开启」组）
 # group：needs_you（等你处理）· auto（正在自动处理）· gave_up（已放弃）· off（未开启）
@@ -89,7 +97,7 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "NEEDS_HUMAN.RISK_HOLD": dict(where="top+card", label="风控暂停中", hover="风控暂停中：所有用号的同步都停了，点目录页顶部的问题入口处理，处理完自动恢复", group="needs_you"),
     "NEEDS_HUMAN.NOT_INSTALLED": dict(where="top+card", label="未安装读取组件", hover="按 README「读取组件」安装后刷新", group="needs_you"),
     "NEEDS_HUMAN.WRONG_ACCOUNT": dict(where="top+card", label="登错号", hover="登录的不是收藏所在的号：换号重新扫码", group="needs_you"),
-    "TRANSIENT.FAVORITES_SUSPICIOUS": dict(where="list", label="收藏只读到一截", hover="{reason}（本晚不再重读列表）", group="auto"),
+    "TRANSIENT.FAVORITES_SUSPICIOUS": dict(where="list", label="收藏只读到一截", hover="{reason}", group="auto"),
     "NEEDS_HUMAN.AUTH_FAILED": dict(where="top+card", label="AI key 失效", hover="接口拒绝了 key（401/403）：到设置里换一个", group="needs_you"),
     "NEEDS_HUMAN.QUOTA_EXCEEDED": dict(where="top+card", label="AI 余额不足", hover="接口提示欠费或额度用完：充值或换 key", group="needs_you"),
     "NEEDS_HUMAN.BACKUP_DISK_MISSING": dict(where="top+card", label="备份盘没挂", hover="{reason}", group="needs_you"),
@@ -102,29 +110,29 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "TRANSIENT.HTTP_429": dict(where="list", label="接口限流", hover="{reason}（{next_at} 再试）", group="auto"),
     "TRANSIENT.NETWORK": dict(where="list", label="网络不通", hover="{reason}（{next_at} 再试）", group="auto"),
     "TRANSIENT.SERVICE_BUSY": dict(where="list", label="服务正忙", hover="{reason}（{next_at} 再试）", group="auto"),
-    "TRANSIENT.STEP_TIMEOUT": dict(where="list", label="步骤超时", hover="{reason}（下次自动再跑）", group="auto"),
+    "TRANSIENT.STEP_TIMEOUT": dict(where="list", label="步骤超时", hover="{reason}", group="auto"),
     "TRANSIENT.RATE_LIMITED": dict(where="list", label="刚刚同步过", hover="收藏每 10 分钟最多读一次，稍后自动再试", group="auto"),
     "TRANSIENT.DISCONNECTED": dict(where="list", label="读取服务没在运行", hover="{reason}（下次自动拉起）", group="auto"),
     "TRANSIENT.TIMEOUT": dict(where="list", label="读取服务响应超时", hover="{reason}（稍后自动再试）", group="auto"),
     "TRANSIENT.BUSY": dict(where="list", label="读取服务正忙", hover="正在抓别的笔记，做完自然恢复", group="auto"),
-    "TRANSIENT.INTERRUPTED": dict(where="list", label="被打断", hover="上次中途被打断，已抓的都在；下次接着来", group="auto"),
-    "TRANSIENT.TOO_MANY_FAILURES": dict(where="list", label="连续失败已暂停", hover="{reason}（下次同步再试）", group="auto"),
+    "TRANSIENT.INTERRUPTED": dict(where="list", label="被打断", hover="中途被打断，已抓的都在：{reason}", group="auto"),
+    "TRANSIENT.TOO_MANY_FAILURES": dict(where="list", label="连续失败已暂停", hover="{reason}", group="auto"),
     "TRANSIENT.ACCOUNT_BUSY": dict(where="list", label="号正被占用", hover="另一个任务在用号，这一步今晚没做，下次再试", group="auto"),
     "TRANSIENT.FAVORITES_FAILED": dict(where="list", label="读收藏没成功", hover="{reason}（不是风控，稍后自动再试）", group="auto"),
-    "TRANSIENT.SYNC_FAILED": dict(where="list", label="同步没做完", hover="{reason}（下次同步接着来）", group="auto"),
+    "TRANSIENT.SYNC_FAILED": dict(where="list", label="同步没做完", hover="{reason}", group="auto"),
     "TRANSIENT.DOWNLOAD_FAILED": dict(where="card", label="附件没下好", hover="{reason}（{next_at} 再试）", group="auto"),
     "TRANSIENT.PROBE_FAILED": dict(where="list", label="附件没查清", hover="{reason}（{next_at} 再查）", group="auto"),
     "TRANSIENT.WEB_PROBE_BLOCKED": dict(where="list", label="网页那侧被拦", hover="{reason}（附件信息夜里再补查）", group="auto"),
     "TRANSIENT.RETRY_EXHAUSTED": dict(where="card", label="连着几次没补成", hover="{reason}（{next_at} 再试）", group="auto"),
-    "TRANSIENT.STEP_CRASHED": dict(where="list", label="步骤中途出错退出", hover="{reason}（下次自动再跑）", group="auto"),
-    "TRANSIENT.SECRET_TIMEOUT": dict(where="list", label="取 AI key 超时", hover="从密码库取 key 超时，这一步没跑（下次自动再试）", group="auto"),
+    "TRANSIENT.STEP_CRASHED": dict(where="list", label="步骤中途出错退出", hover="{reason}", group="auto"),
+    "TRANSIENT.SECRET_TIMEOUT": dict(where="list", label="取 AI key 超时", hover="从密码库取 key 没成：{reason}", group="auto"),
     "TRANSIENT.*": dict(where="list", label="稍后自动重试", hover="{reason}（{next_at} 再试）", group="auto"),
     # —— 已放弃（记原因，不再自动重试）——
     "PERMANENT.PDF_ENCRYPTED": dict(where="card", label="全文没转出来", hover="PDF 有打开密码，字节已保存", group="gave_up"),
     "PERMANENT.PDF_DAMAGED": dict(where="card", label="全文没转出来", hover="PDF 文件损坏，字节已保存", group="gave_up"),
     "PERMANENT.DOC_UNSUPPORTED": dict(where="card", label="全文没转出来", hover="这种文档格式还转不了，原件已保存", group="gave_up"),
-    "PERMANENT.NO_AUDIO": dict(where="list", label="视频没有音轨", hover="没有可转写的声音", group="gave_up"),
-    "PERMANENT.NO_SPEECH": dict(where="list", label="视频里没人说话", hover="只有背景音乐或环境声", group="gave_up"),
+    "PERMANENT.NO_AUDIO": dict(where="list", label="视频没有音轨", hover="没有可转写的声音，画面上也没认出字幕", group="gave_up"),
+    "PERMANENT.NO_SPEECH": dict(where="list", label="视频里没人说话", hover="只有背景音乐或环境声，画面上也没认出字幕", group="gave_up"),
     "PERMANENT.NOTE_GONE": dict(where="card", label="原帖已删除", hover="原帖已删除或不可见，本地存档还在", group="gave_up"),
     "PERMANENT.MODEL_OUTPUT_INVALID": dict(where="card", label="AI 结果不可用", hover="{reason}", group="gave_up"),
     "PERMANENT.REMOTE_TASK_FAILED": dict(where="list", label="远程阅读的计划任务没弄好", hover="{reason}", group="gave_up"),
@@ -315,6 +323,11 @@ def _fold(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     for row in rows:
         key = row["key"]
         prev = out.get(key)
+        if row.get("note"):
+            # 注记行（自愈过程）：只并进修复字段，不加次数、不算出现日；那条已解决 / 不存在就丢掉
+            if prev is not None and not prev.get("resolved_at"):
+                out[key] = {**prev, **{k: row[k] for k in NOTE_FIELDS if k in row}}
+            continue
         if row.get("resolved_at"):
             if prev is not None:
                 out[key] = {**prev, "resolved_at": row["resolved_at"], "notified": False}
@@ -329,7 +342,10 @@ def _fold(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
                 days.append(d)
         days = sorted(days)[-DAYS_KEPT:]
         notified = bool(row.get("notified")) or (not fresh and bool(prev.get("notified")))
-        out[key] = {**row, "count": base_count + int(row.get("count") or 1), "days": days,
+        # 新出现一次 = 上一轮的修复注记作废（压实行自己带着的除外）
+        carried = {k: row[k] for k in NOTE_FIELDS if k in row}
+        out[key] = {**{k: v for k, v in row.items() if k not in NOTE_FIELDS}, **carried,
+                    "count": base_count + int(row.get("count") or 1), "days": days,
                     "notified": notified, "resolved_at": None}
     return out
 
@@ -551,6 +567,22 @@ def is_open(step: str, item_id: str | None, code: str) -> bool:
     return bool(row) and not row.get("resolved_at")
 
 
+def annotate(row: dict[str, Any], **fields: Any) -> bool:
+    """给一条还没解决的问题追加一行注记（自愈过程：正在修 / 试过什么没好 / 要等到几点）。
+    不加次数、不算出现日、不推送。只认 NOTE_FIELDS。永不抛异常，返回写没写进去。"""
+    try:
+        note = {"ts": _now().isoformat(timespec="seconds"), "key": row["key"], "step": row.get("step"),
+                "item_id": row.get("item_id") or None, "code": row.get("code"), "note": True,
+                **{k: v for k, v in fields.items() if k in NOTE_FIELDS}}
+        if isinstance(note.get("repair_note"), str):
+            note["repair_note"] = note["repair_note"][:REASON_MAX]
+        _append([note])
+        return True
+    except Exception as exc:  # noqa: BLE001
+        print(f"[problems] 修复注记没写上（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        return False
+
+
 def resolve(step: str, item_id: str | None = None, code: str | None = None, *, _now_fn=None) -> int:
     """把 step（+ item_id；None = 步骤级那几条）下未解决的问题标成已解决。code 给了就只解决那一个码。
     返回解决了几条。永不抛异常（解决失败最多是列表里多挂一条）。"""
@@ -608,8 +640,12 @@ def load(limit: int = MAX_KEYS, *, include_resolved: bool = False) -> list[dict[
         out.append({**r, "label": entry["label"], "group": entry["group"], "where": entry["where"],
                     "hover": fill_hover(entry["hover"], r.get("reason"), r.get("next_at")),
                     "step_label": step_label(r.get("step"))})
-        from .repair import describe as repair_description
-        out[-1].update(repair_description(r))
+        if not r.get("resolved_at"):
+            try:  # 面板要的「现在修」/ 状态一句话（repair.describe）；算不出来不影响列表
+                from . import repair
+                out[-1].update(repair.describe(r))
+            except Exception as exc:  # noqa: BLE001
+                print(f"[problems] 修复说明算不出来（{type(exc).__name__}: {exc}）", file=sys.stderr)
     return out
 
 
@@ -716,7 +752,7 @@ def export_redacted(limit: int = 50, *, plugin_version: str | None = None) -> st
 
 def add_parser(sub) -> None:
     p = sub.add_parser("problems", help="问题记录：list 列出 / report 登记一条（夜跑脚本用）/ export 复制报错（脱敏）")
-    psub = p.add_subparsers(dest="problems_cmd", metavar="<list|report|resolve|export|summary>")
+    psub = p.add_subparsers(dest="problems_cmd", metavar="<list|report|resolve|export|summary|repair>")
     pl = psub.add_parser("list", help="列出问题（折叠后，未解决在前），输出 JSON")
     pl.add_argument("--all", action="store_true", help="连已解决的也列")
     pl.add_argument("--limit", type=int, default=MAX_KEYS)
@@ -736,10 +772,13 @@ def add_parser(sub) -> None:
     pe.add_argument("--limit", type=int, default=50)
     pe.add_argument("--plugin-version", dest="plugin_version")
     psub.add_parser("summary", help="核一次同步进程还在不在（被打断就如实改成 INTERRUPTED）、刷新 problems-summary.json，输出它")
-    repair = psub.add_parser("repair", help="当场修复非风控问题，不重读收藏列表")
-    repair.add_argument("--key")
-    repair.add_argument("--since")
-    repair.add_argument("--budget-seconds", type=float, default=600)
+    pf = psub.add_parser("repair", help="当场自愈：对还没解决的非风控问题跑对应的修复动作（风控 / 登录类绝不碰），输出 JSON")
+    pf.add_argument("--key", help="只修这一条（面板「现在修」）")
+    pf.add_argument("--since", help="只修这个时刻之后登记的（夜跑收尾的自愈轮）")
+    pf.add_argument("--auto", action="store_true", help="夜跑自愈轮：只跑能自动跑的动作（不重读收藏列表、PERMANENT 不重试）")
+    pf.add_argument("--no-account", dest="no_account", action="store_true", help="号要人处理时：碰号的修复动作一律不跑")
+    pf.add_argument("--budget-seconds", dest="budget_seconds", type=float, default=None,
+                    help="这一轮最多跑几秒（默认：单条 20 分钟 / 全部 15 分钟 / 夜跑自愈轮 30 分钟，且不过 06:50）")
 
 
 def _valid_step(step: str) -> bool:
@@ -754,9 +793,11 @@ def run(args) -> int:
     cmd = getattr(args, "problems_cmd", None)
     if cmd == "repair":
         from . import repair
-        result = repair.run(key=args.key, since=args.since, budget_seconds=args.budget_seconds)
+        result = repair.run(key=args.key, since=args.since, auto=args.auto, allow_account=not args.no_account,
+                            budget_seconds=args.budget_seconds)
         dump_json(result)
-        return 0 if result["ok"] else 1
+        # 修不好的已经逐条写回问题记录（试过什么、为什么没好、下一步）：不算「这一步出错」，免得夜跑再多登记一条
+        return 0 if result.get("ran", True) else 1
     if cmd == "list":
         dump_json({"ok": True, "code": "", "message": "", "summary": summary(),
                    "problems": load(args.limit, include_resolved=args.all)})
@@ -805,5 +846,5 @@ def run(args) -> int:
             data = page_summary()
         dump_json({"ok": True, "code": "", "message": "", **data})
         return 0
-    print("用法：python -m link_brain problems list|report|resolve|export|summary", file=sys.stderr)
+    print("用法：python -m link_brain problems list|report|resolve|export|summary|repair", file=sys.stderr)
     return 1

@@ -18,6 +18,13 @@
 - 每天新抓上限读插件 data.json 的 sync.dailyNewLimit（缺省 50，0 = 不限），插件和夜跑共用；
 - `--budget-min N` 到点优雅收尾；`--extract` = 抓完后对本次新收的跑 enrich（不碰号、受剩余预算约束）；
 - 收藏读回 0 条或比上次少一半以上：照常处理读到的，但状态标失败并报警。
+
+10-04 F1（读收藏读不全）：
+- 把上次正常读到的条数当基准传给读取服务（`?expect=N`，没有基准就不带，旧读取服务不认也没事）；
+- 新读取服务回 `partial` / `stop_reason` / `has_more`：partial = 只读到一截。这一截里的新收藏照抓（不浪费），
+  同步结果如实标「只读到一截（原因）」，**当晚不再重读收藏列表**（退出码 3：夜跑不重试、也不另登记「步骤出错」——
+  10-04 就是一晚读三次撞上滑块）；
+- 旧读取服务没这些字段：和以前一样（0 条 / 少一半以上算可疑）。
 """
 
 from __future__ import annotations
@@ -37,6 +44,7 @@ from . import accounts
 
 EXIT_OK = 0
 EXIT_ERROR = 1
+EXIT_PARTIAL = 3  # 只读到一截 / 条数可疑：读到的已照常入档、原因已登记（sync.favorites）；今晚别再重读列表
 EXIT_NEEDS_HUMAN = 5
 EXIT_ACCOUNT_BUSY = 6
 
@@ -69,9 +77,9 @@ def fetch_favorites(*, limit: int = 50, verbose: bool = False) -> list[dict[str,
     try:
         accounts.ensure_reader()
         accounts.pace("读收藏")
-        # 读取服务最坏约 480 秒（启动 ≤90 + 读 6 分钟 + 关浏览器 ≤30），客户端要比它长，别把「慢」当成「号出事」
-        expect = int(sync_state.load().get("last_favorites") or 0)
-        data = accounts.api("GET", f"/api/v1/favorites?expect={expect}", timeout=780)
+        # 读取服务：滚动预算 420 秒、单次请求上限 10 分钟（含启动浏览器 / 关浏览器）；客户端 780 秒比它长，
+        # 别把「慢」当成「号出事」
+        data = accounts.api("GET", favorites_route(), timeout=780)
     except accounts.ReaderError as exc:
         msg = accounts.SOLUTIONS.get(exc.code, ("", str(exc), "", ""))
         text = f"{msg[1]}：{msg[2]}" if msg[2] else str(exc)
@@ -80,7 +88,7 @@ def fetch_favorites(*, limit: int = 50, verbose: bool = False) -> list[dict[str,
         raise err from exc
     items = data.get("items") or []
     _LAST_TOTAL = len(items)
-    _LAST_READ = {key: data[key] for key in ("partial", "stop_reason", "has_more", "expect", "scroll") if key in data}
+    _LAST_READ = {key: data[key] for key in READ_FIELDS if key in data}
     global _CURRENT_ACCOUNT
     cfg = accounts.config()
     _CURRENT_ACCOUNT = {"nickname": data.get("nickname") or cfg.get("nickname") or "",
@@ -90,6 +98,50 @@ def fetch_favorites(*, limit: int = 50, verbose: bool = False) -> list[dict[str,
     if limit and limit > 0:
         items = items[:limit]
     return items
+
+
+# 新读取服务（10-04 F1）在响应里多带的读法结论；旧读取服务没有这些键
+READ_FIELDS = ("partial", "stop_reason", "has_more", "expect", "scroll")
+STOP_REASON_TEXT = {
+    "budget": "滚动时间用完了还在加载",
+    "below_expect": "条数停在上次基准以下、页面又没说到底",
+    "stuck_has_more": "页面说还有更多，但换了几种滚法都加载不出来",
+    "cancelled": "读的时候请求超时被取消",
+    "tab_lost": "滚动途中页签跳走了",
+    "not_scrolled": "读取服务没给出滚动结论",
+    "risk": "撞到风控",
+}
+
+
+def favorites_route() -> str:
+    """读收藏的请求路径：有上次正常读到的条数就当基准带上（`?expect=N`），没有就不带（和以前一模一样）。"""
+    try:
+        expect = int(sync_state.load().get("last_favorites") or 0)
+    except (TypeError, ValueError):
+        expect = 0
+    return f"/api/v1/favorites?expect={expect}" if expect > 0 else "/api/v1/favorites"
+
+
+def suspicious_reason(total: int, last: int, read: dict[str, Any]) -> str:
+    """这次读回的条数靠不靠得住；靠不住就返回一句给人看的原因（空串 = 可以当全量）。
+
+    - 读取服务明说 partial（只读到一截）→ 可疑，带上判停原因；
+    - 0 条永远可疑（哪怕说读到底了）；
+    - 读取服务明说读到底了（stop_reason=has_more_false）→ 可信，哪怕比上次少很多（她真删了收藏）；
+    - 其余（旧读取服务没这些字段 / stable）→ 老规矩：比上次少一半以上算可疑。"""
+    if read.get("partial"):
+        why = STOP_REASON_TEXT.get(str(read.get("stop_reason") or ""), str(read.get("stop_reason") or "原因没报"))
+        base = f"（上次 {last} 条）" if last else ""
+        return (f"收藏只读到一截：读回 {total} 条{base}，{why}。这一截里的新收藏已照常入档；"
+                "今晚不再重读收藏列表（同一晚多读容易撞安全验证）")
+    if total == 0:
+        return "收藏读回 0 条：多半是收藏页没加载完或被限流，这次不算同步成功；今晚不再重读收藏列表"
+    if read.get("stop_reason") == "has_more_false":
+        return ""
+    if last and total < last / 2:
+        return (f"收藏只读回 {total} 条（上次 {last} 条），少了一半以上：多半只读到一截，这次不算同步成功；"
+                "读到的新收藏已照常入档，今晚不再重读收藏列表")
+    return ""
 
 
 def _render_local(source_key: str, source_id: str, *, only_if_missing: bool) -> None:
@@ -257,20 +309,13 @@ def sync_favorites(
             "items": [{"item_id": None, "status": "blocked", "url": None, "error": str(exc), "code": code}],
         }
 
-    # 1001（A-4）：收藏读回 0 条 / 比上次少了一半以上 —— 多半是页面没加载完或被截断，不能当「同步完成」。
+    # 1001（A-4）/ 10-04 F1：只读到一截 / 0 条 / 比上次少一半以上 —— 不能当「同步完成」，但读到的照常处理。
     total = _LAST_TOTAL if _LAST_TOTAL is not None else len(favs)
-    last = sync_state.load().get("last_favorites") or 0
-    suspicious = ""
-    if _LAST_READ.get("partial"):
-        suspicious = f"只读到一截（{_LAST_READ.get('stop_reason') or 'unknown'}）：读回 {total} 条，已读到的新收藏照常入档；今晚不再重读列表"
-    elif _LAST_READ.get("stop_reason") == "has_more_false":
-        pass
-    elif total == 0:
-        suspicious = "收藏读回 0 条：多半是收藏页没加载完或被限流，这次不算同步成功"
-    elif last and total < last / 2:
-        suspicious = f"收藏只读回 {total} 条（上次 {last} 条），少了一半以上：多半只读到一截，这次不算同步成功"
-    # 可疑 = 这次不算同步成功：sync_state.record 记 TRANSIENT.FAVORITES_SUSPICIOUS（下次同步自动再读，
-    # 连着 3 天才升级推一次；连着 3 晚同一个数就认作新基准）
+    last = int(sync_state.load().get("last_favorites") or 0)
+    read = dict(_LAST_READ)
+    suspicious = suspicious_reason(total, last, read)
+    # 可疑 = 这次不算同步成功：sync_state.record 记 TRANSIENT.FAVORITES_SUSPICIOUS（一条，原因一句），
+    # 基准不被这次顶掉（sync_state._update_baseline）；退出码 3 让夜跑今晚不再重读
 
     # 0927 认号：收藏同步钉在一个号上。登错号（如测试号）时整批不入库、目录页亮「!」，
     # 免得把别的号的收藏悄悄灌进库（0926–0927 测试号登着，夜跑收了它 33 篇）。换号走「更换账号」。
@@ -378,11 +423,11 @@ def sync_favorites(
     out: dict[str, Any] = {"favorites": len(favs), "synced": len(items), "items": items}
     if total:
         out["favorites_total"] = total
+    out.update(read)  # partial / stop_reason / has_more / expect / scroll：如实带上，旧读取服务没有就不带
     if suspicious:
         out["suspicious"] = suspicious
         out["code"] = "FAVORITES_SUSPICIOUS"
-    out.update(_LAST_READ)
-    out["no_reread"] = bool(suspicious)
+        out["no_reread"] = True
     if stop_code:
         out["code"] = stop_code
     if deferred_quota or deferred_budget:
@@ -532,15 +577,17 @@ def _exit_code(payload: dict[str, Any]) -> int:
     if blocked:
         print("sync-favorites: 要人处理（登录态/风控/服务挂了），已停车并报警", file=sys.stderr)
         return EXIT_NEEDS_HUMAN
+    if payload.get("suspicious"):
+        # 10-04 F1：只读到一截 / 条数可疑 = 退出 3（不是 1）：夜跑「exit 1 等 25 分钟再读一次」不会触发，
+        # 也不另登记「sync-favorites 步骤出错」——原因已经在 sync.favorites 那一条里（同一件事只报一条）
+        print(f"sync-favorites: {payload['suspicious']}", file=sys.stderr)
+        return EXIT_PARTIAL
     if payload.get("code") == "TOO_MANY_FAILURES":
         print("sync-favorites: 连续几篇都没抓到，已停批并报警", file=sys.stderr)
         return EXIT_ERROR
     # 已知坏篇（以前就抓不到：已删 / 仅作者可见）再失败不算出错，不然每晚都报一次「同步出错」
     if any(item.get("status") == "error" and not item.get("known_bad") for item in items):
         print("sync-favorites: 有收藏没归档成功，详见 JSON 里的 error 字段", file=sys.stderr)
-        return EXIT_ERROR
-    if payload.get("suspicious"):
-        print(f"sync-favorites: {payload['suspicious']}", file=sys.stderr)
         return EXIT_ERROR
     if payload.get("deferred_reason") == "budget":
         print(f"sync-favorites: 今天先到这，剩 {payload.get('deferred')} 篇明天继续", file=sys.stderr)

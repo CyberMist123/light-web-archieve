@@ -320,7 +320,7 @@ def test_nightly_opens_one_line_children_join_it_and_it_closes(tmp_path, monkeyp
              "print('run='+os.environ.get('LINK_BRAIN_SYNC_RUN',''));"
              "synclog.note('video','xhs-v',True,title='V');synclog.flush()" % repo)
     job = Nightly(steps=[Step("videos --transcribe", [], 1, argv=[PY, "-c", child], reserve_min=0),
-                         Step("embed", [], 1, argv=[PY, "-c", "raise SystemExit(3)"], reserve_min=0)],
+                         Step("embed", [], 1, argv=[PY, "-c", "raise SystemExit(4)"], reserve_min=0)],
                   log_path=tmp_path / "nightly.log", workdir=tmp_path, sleep=lambda s: None)
     out = job.run()
     [row] = rows()
