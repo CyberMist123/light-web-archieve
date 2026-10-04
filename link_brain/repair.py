@@ -180,6 +180,10 @@ def plan(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
         return _manual("自愈轮自己出了错：点「复制报错」发给作者")
     if sub == "STEP_ARGS":
         return _manual("程序和夜跑脚本版本对不上：更新程序或夜跑脚本后自动恢复")
+    if sub == "NOTE_GONE":
+        return _manual("原帖已删除或不可见，本地存档还在，不用处理")
+    if sub in ("CHECKSUM_MISMATCH", "BAD_PACKAGE", "DISK_FULL"):
+        return _manual("在设置 →「开始」里重新安装一次（磁盘不够先腾出空间）")
 
     if step in ("sync.favorites", "nightly.sync-favorites"):
         if sub == "FAVORITES_SUSPICIOUS":
@@ -256,6 +260,9 @@ def describe(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]
     elif p["kind"] == "run" and act:
         if row.get("repair_state") == "failed":
             out["status_text"] = f"当场修过没好（{_hm(at)}）：可以再点「现在修」"
+        elif act.name == "screen":
+            # PERMANENT.NO_SPEECH / NO_AUDIO 是结论不是故障（读出字幕的根本不登记）：说清楚不用管，想再读一次字幕才点
+            out["status_text"] = "正文和视频都已存好，不用处理；想再读一次画面字幕可以点「现在修」"
         else:
             out["status_text"] = f"待修复：点「现在修」当场修（约 {act.minutes} 分钟）"
     return out

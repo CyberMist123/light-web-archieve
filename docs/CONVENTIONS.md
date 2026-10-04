@@ -57,6 +57,8 @@ catch (e) { restore(prev); render(); notice('没保存上，内容还在，可�
 4. **唯一问题记录** `vault/_archive/problems.jsonl`：append-only，一行一条；`load()` 按 `key` 折叠（最新一行为准，`count` 累加）；超过 500 条在 §6 锁内压实为最近 500 个 key。「已解决」= 再追加一行同 key 带 `resolved_at`。
 5. 各模块**继续写自己的文件**（attachments.json / transcript.json / vision.json / extracted.json / sync-status.json 格式不动），只是在写入失败状态的同一处多调一次 `problems.report`，在同一步成功处调 `problems.resolve`。日志（sync-progress.log、fav-sync.log）保留，不再是查问题的入口。
 6. **推送只有一个出口**：`problems.report` 内部判定——`NEEDS_HUMAN.*` 推一次（同 key 未解决不重推）；`TRANSIENT.*` 同 key 在**连续 3 个不同日历日**都出现 → 追加一条 `NEEDS_HUMAN.STUCK` 并推一次。`alert.alert` 改为模块私有，仓内禁止直接调用。夜跑脚本自己的汇总推送也取消，改为 `python -m link_brain problems report …`（它只负责登记步骤超时）。
+7. **每个码都有自愈归类 + 一条台账**（10-04）：新增故障码时，同一个提交里 ①在 `repair.plan()` 给它归类——有修复动作（`run`，auto=夜跑自愈轮自动跑）/ 必须等（`wait`，写清等到几点、为什么）/ 要人处理（`human`，只限风控 / 登录 / key）/ 没有自动动作（`manual`，写下一步）；②在 `docs/ERRORS.md` 加一行「用户看到什么 → 根因 → 修法 / 自愈动作 → 回归用例名」。风控 / 登录 / 验证码 / 熔断永远是 `human`，自愈轮绝不重读收藏列表。
+8. **子命令退出 3 = 没做完、原因已登记在它自己那一步**（`sync-favorites` 只读到一截、`embed` 没建完）：夜跑不重试、不另登记 `nightly.<步骤>`（同一件事只报一条）。
 
 **形状**
 ```jsonc

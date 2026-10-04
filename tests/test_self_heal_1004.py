@@ -470,3 +470,36 @@ def test_asr_ensure_running_not_capswriter():
     assert ok is True  # http 方式只看配没配，不在本机起服务
     ok, why = _real_ensure_running(None)
     assert ok is False and "CapsWriter" in why
+
+
+def test_every_code_has_a_plan_and_account_codes_stay_human(monkeypatch):
+    """CONVENTIONS §2.7：登记表里每个码在每个步骤上都有归类（不抛）；风控 / 登录类永远 human，绝不自动处理。"""
+    monkeypatch.setattr(repair, "_last_list_read", lambda: None)
+    steps = list(problems.STEPS) + ["nightly." + nightly.step_slug(s.name) for s in nightly.default_steps()] + \
+        ["nightly.run", "nightly.gemini-keys"]
+    codes = [k for k in problems.STATE_REGISTRY if not k.endswith(".*")]
+    for code in codes:
+        for step in steps:
+            for item in (None, "xhs-a"):
+                p = repair.plan(_row(step, code, item), NOW)
+                assert p["kind"] in ("run", "wait", "human", "manual", "none"), (step, code, p)
+                if p["kind"] == "run":
+                    assert p["action"] in repair.ACTIONS, (step, code)
+                if code.split(".", 1)[1] in problems.ACCOUNT_CODES:
+                    assert p["kind"] == "human", (step, code)
+                if p["kind"] == "run" and repair.ACTIONS[p["action"]].name == "sync":
+                    assert not p.get("auto"), "自愈轮绝不重读收藏列表"
+
+
+def test_errors_md_cites_real_tests():
+    """docs/ERRORS.md 每条写的回归用例都真的存在（台账不许指向不存在的用例）。"""
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "docs" / "ERRORS.md").read_text("utf-8")
+    cited = set(re.findall(r"`(tests/[\w./-]+\.(?:py|cjs))(?:::(\w+))?`", text))
+    assert cited, "ERRORS.md 里没写回归用例"
+    for f, name in cited:
+        src = (root / f).read_text("utf-8")
+        if name:
+            assert re.search(rf"def {name}\b|function {name}\b", src), f"{f}::{name} 不存在"
