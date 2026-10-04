@@ -4,7 +4,7 @@
 //   §5.2 解析结果缓存在插件对象上：换页回来（新容器）同版本不再读文件
 //   §5.3 搜索词 / 筛选 / 多选 / 滚动 / 问答草稿存 sessionStorage，新容器里恢复；草稿不写 vault
 //   §5.6 不读 notes.json；link-brain:star 事件更新卡片
-//   来源阅读：整段单击不打开；引用编号 / 查看 → 单篇；「加入对照」→ compare；「退出对照」「收起来源」走插件；无假进度轮播
+//   来源阅读：整段单击不打开；引用编号 / 标题 → 单篇（10-04 起来源行不再有「查看」「加入对照」）；「收起来源」走插件；无假进度轮播
 //   批注块：notes.json 没变 → 框原样留着、正在打的字不丢；别处改了 → 只重读重画
 'use strict';
 const assert = require('node:assert/strict');
@@ -161,21 +161,16 @@ async function chatTests() {
   await tick(5);
   const bar = A.container.querySelector('.lbchat-srcbar');
   assert.ok(!bar.hidden); assert.ok(bar.textContent.includes('收起来源')); assert.ok(!bar.textContent.includes('退出对照'));
-  // 参考材料：查看 / 加入对照
+  // 参考材料（10-04 ④ 精简）：每行没有「查看」「加入对照」「复制来源」了，点标题打开原文（复用右侧来源窗格）
   const refs = A.container.querySelector('.lbchat-src');
-  const btn = t => refs.querySelectorAll('button').find(b => b.textContent === t);
-  await btn('查看').onclick(); assert.deepEqual(calls.at(-1), ['open', 'Web/a.md', false]);
-  assert.ok(A.container.querySelector('.lbchat-body').classList.contains('lbchat-has-reader'), '右侧有来源时才露出「加入对照」');
-  await btn('加入对照').onclick(); assert.deepEqual(calls.at(-1), ['open', 'Web/a.md', true]);
+  for (const gone of ['查看', '加入对照', '复制来源']) assert.ok(!refs.querySelectorAll('button').some(b => b.textContent === gone), '来源行没有「' + gone + '」');
+  await refs.querySelector('.lbchat-srcrow a').onclick(); assert.deepEqual(calls.at(-1), ['open', 'Web/a.md', false]);
   await tick(5);
-  assert.ok(bar.textContent.includes('退出对照'));
-  bar.querySelectorAll('button').find(b => b.textContent === '退出对照').onclick();
-  assert.deepEqual(calls.at(-1), ['closeCompare']);
-  assert.ok(!bar.textContent.includes('退出对照'));
+  assert.ok(A.container.querySelector('.lbchat-body').classList.contains('lbchat-has-reader'));
   bar.querySelectorAll('button').find(b => b.textContent === '收起来源').onclick();
   assert.deepEqual(calls.at(-1), ['closeAll']);
   assert.ok(bar.hidden);
-  console.log('PASS chat: rerun keeps DOM (even mid-answer), draft in sessionStorage not vault, 正在生成… only, sources open only via cite/title/查看, explicit 加入对照/退出对照/收起来源');
+  console.log('PASS chat: rerun keeps DOM (even mid-answer), draft in sessionStorage not vault, 正在生成… only, sources open only via cite/title (no 查看/加入对照/复制来源 per row), explicit 收起来源');
 }
 
 async function annotateTests() {

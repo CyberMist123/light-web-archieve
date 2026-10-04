@@ -55,7 +55,7 @@ def test_pin_kept_first_and_new_sources_still_come_in(monkeypatch):
     r = ask.answer("交通路线", pin_ids=["food"])
     primary, _ = _ids(r)
     assert primary[0] == "food" and {"t0", "t1", "t2", "t3"} <= set(primary)
-    assert "[来源1] 甜品店" in seen[-1] and "用户在本次会话里保留的材料" in seen[-1]
+    assert "[来源1] 甜品店" in seen[-1] and "[来源1] 是用户手动加入的来源" in seen[-1]
     assert r["constraints"]["pinned"] == ["food"]
 
 

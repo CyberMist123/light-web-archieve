@@ -66,7 +66,7 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
 
   // ⑥ 来源入口：收起时 summary 后面有提示小字；每行 标题 + 保留 + × 在同一行里
   const box = () => all('.lbchat-src')[all('.lbchat-src').length - 2];
-  assert.ok(box().querySelector('summary').textContent.includes('点开可保留 / 删除来源'));
+  assert.ok(box().querySelector('summary').textContent.includes('点开可多选 / 保留 / 删除来源'));
   assert.equal(box().getAttribute('open'), null, '来源默认仍收起');
   const rowOf = title => all('.lbchat-srcrow').filter(r => r.querySelector('a').textContent.includes(title)).pop();
   assert.ok(rowOf('主要a').querySelector('.lbchat-src-pin') && rowOf('主要a').querySelector('.lbchat-src-del'));
@@ -77,12 +77,12 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   assert.ok(box().querySelector('summary').textContent.includes('已保留 1'));
   await rowOf('主要a').querySelector('.lbchat-src-del').onclick(); await tick(5);
 
-  // 追问：只在上一轮留下的来源里答（保留的 b 排前，删掉的 a 不要），不带 pinIds；排除照样带上
+  // 追问：只在上一轮留下的来源里答（保留的 b 排前，删掉的 a 不要）；排除照样带上；10-04 ②：保留的 b 也作为 pinIds 带上
   reply = () => ({ status: 'ok', markdown: '只看留下的 [来源1]', sources: [src('b', 1)], related: [rel('c', 2)] });
   await ask('哪家最便宜');
   assert.deepEqual(Array.from(asks[1].sourceIds), ['b', 'c']);
   assert.deepEqual(Array.from(asks[1].excludeIds), ['a']);
-  assert.equal(asks[1].pinIds, undefined);
+  assert.deepEqual(Array.from(asks[1].pinIds), ['b']);
   assert.equal(asks[1].history.length, 2, '追问照样带上一轮对话');
   let turns = saved().turns;
   assert.equal(turns[2].mode, 'follow');
@@ -112,8 +112,12 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   await ask('接着问');
   assert.ok(!Array.from(asks[4].sourceIds).includes('z'));
 
-  // ① 「清空」：确认后清掉轮次、排除、保留，开关回到默认；清空后第一问照常检索
+  // ① ⑤ 「清空」（10-04 改）：不弹确认、不删记录——当前页面换成一段新对话（轮次、排除、保留清掉，开关回到默认）；清空后第一问照常检索
+  A.window.confirm = () => { throw new Error('清空不该再弹确认'); };
+  const oldId = saved().id;
   await one('.lbchat-clearall').onclick(); await tick(5);
+  assert.notEqual(saved().id, oldId, '换了一段新对话');
+  assert.ok(V.get('_archive/chat-history/' + oldId + '.json'), '旧的那段还在历史里');
   const after = saved();
   assert.deepEqual(after.turns, []); assert.deepEqual(after.excluded, []); assert.deepEqual(after.pinned, []);
   assert.equal(after.follow, 'sources');
@@ -122,10 +126,6 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   await ask('新话题');
   assert.equal(asks.at(-1).sourceIds, undefined);
   assert.equal(asks.at(-1).excludeIds, undefined);
-  // 不确认就不清
-  A.window.confirm = () => false;
-  await one('.lbchat-clearall').onclick(); await tick(5);
-  assert.equal(saved().turns.length, 2);
 
   // 从目录页带词跳过来的那一问（pendingArchiveQuestion）：是新问题，照常检索，不绑上一轮
   plugin.pendingArchiveQuestion = '悉尼咖啡';
@@ -138,5 +138,5 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   await ask('再说说');
   assert.ok(Array.isArray(asks.at(-1).sourceIds));
 
-  console.log('PASS chat 1004: title + removed, 清空 beside the source line above the composer (confirm, resets follow), composer + unchanged, follow-up bound to kept sources by default (pinned first, removed dropped, stopped answers skipped), 改为重新搜 persisted, fresh after clear / catalog jump, source rows show 保留 / × with hint, scrollbar + block frame CSS');
+  console.log('PASS chat 1004: title + removed, 清空 beside the source line above the composer (no confirm, new conversation, old one kept in history, resets follow), composer + unchanged, follow-up bound to kept sources by default (pinned first, removed dropped, stopped answers skipped), 改为重新搜 persisted, fresh after clear / catalog jump, source rows show 保留 / × with hint, scrollbar + block frame CSS');
 })().catch(e => { console.error(e); process.exit(1); });
