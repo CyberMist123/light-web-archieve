@@ -10,6 +10,7 @@
 - `lb_search`：关键词检索（轻，词法），转发 `retrieval.search`。
 - `lb_retrieve`：问题→材料+出处，走 BM25/hybrid 排序，**不调用模型**，转发 `retrieval.retrieve_payload`。
 - `lb_ask`：完整问答，会调用配置好的文本模型（产生模型用量），转发 `ask.answer`。
+- `lb_selections` / `lb_selection`（10-04）：列出 / 按名字取她在目录页存的选集，转发 `selections`，只读不调模型。
 
 fail-open：vault 为空、catalog 缺失、依赖缺失时，被转发的函数本身已经是空结果而不是异常
 （见 `ask.load_items` / `retrieval.search` / `retrieval.retrieve_payload`）；这里只负责协议层
@@ -76,6 +77,42 @@ TOOLS = [
     },
 ]
 
+# 10-04 选集：她在目录页把几篇存成有名字的选集，对 AI 说「看一下选集 xxx」——AI 按名字取（只读，不调模型）
+TOOLS += [
+    {
+        "name": "lb_selections",
+        "description": ("列出她存的选集（目录页多选 →「给 AI（存成选集）」）：名字、创建时间、篇数、每篇标题。"
+                        "她说「我选中了 / 看一下选集 xxx」时先用它对名字；也可以主动提醒她存过哪些选集。只读，不调用模型。"),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "lb_selection",
+        "description": ("按名字取一个选集里的几篇：标题、原文链接、可见笔记和机读版（agent.md）的本地路径，"
+                        "附机读版正文开头（每篇最多 8000 字，超出的按 agent_md 路径读全文）。名字可以只写她说的那个词，"
+                        "大小写 / 空格 / 引号不敏感。只读，不调用模型。"),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"name": {"type": "string", "description": "选集名字（她说的「选集 xxx」里的 xxx）"}},
+            "required": ["name"],
+        },
+    },
+]
+
+
+def _tool_lb_selections(args: dict[str, Any]) -> dict[str, Any]:
+    from . import selections
+    return selections.list_selections()
+
+
+def _tool_lb_selection(args: dict[str, Any]) -> dict[str, Any]:
+    from . import selections, storage
+
+    root = storage.vault_root()
+    # 路径口径同 lb_search：本地绝对路径
+    paths = lambda it: {"visible_note": str(root / it["note"]) if it.get("note") else None,  # noqa: E731
+                        "agent_md": str(root / it["agent_md"]) if it.get("agent_md") else None}
+    return selections.get_selection(args.get("name"), paths=paths, read_text=selections.read_agent)
+
 
 def _offset(args: dict[str, Any]) -> int:
     try:
@@ -125,6 +162,8 @@ _HANDLERS = {
     "lb_search": _tool_lb_search,
     "lb_retrieve": _tool_lb_retrieve,
     "lb_ask": _tool_lb_ask,
+    "lb_selections": _tool_lb_selections,
+    "lb_selection": _tool_lb_selection,
 }
 
 

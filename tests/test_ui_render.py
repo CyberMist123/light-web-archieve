@@ -119,6 +119,23 @@ def test_human_comments_hide_date_location_and_overall_count():
     assert "评论 152" not in text
 
 
+def test_author_row_shows_date_without_ip_location_and_rerender_drops_old_one():
+    """10-04 她定：作者行只留日期，IP 属地不在可见笔记里显示；旧笔记靠重渲染去掉（content 层整段重写）。"""
+    kw = dict(source=_source(), manifest=_manifest(), meta=_meta(),
+              object_rel="_archive/xiaohongshu/0000000000000000deadbeef")
+    block = render.render_content_block(**kw)
+    assert '<div class="lb-post-meta">2026-09-04</div>' in block
+    assert "浙江" not in block
+    old = render.render_visible_md(**kw, existing_text=None).replace(
+        '<div class="lb-post-meta">2026-09-04</div>', '<div class="lb-post-meta">2026-09-04 · 浙江</div>')
+    assert "浙江" in old
+    again = render.render_visible_md(**kw, existing_text=old)
+    assert "浙江" not in again and '<div class="lb-post-meta">2026-09-04</div>' in again
+    # 没有发布日期时整行小字不出（不留空的 · ）
+    src = _source(); src["note"].pop("published_at")
+    assert "lb-post-meta" not in render.render_content_block(**{**kw, "source": src})
+
+
 def test_video_human_view_marks_not_downloaded_without_original_link():
     source = _source()
     source["note"]["kind"] = "video"
