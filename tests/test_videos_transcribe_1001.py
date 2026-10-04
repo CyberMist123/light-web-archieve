@@ -71,9 +71,48 @@ def test_no_speech_is_a_conclusion_not_a_nightly_failure(video_vault):
     assert run_once() == 0
     doc = video_vault.doc()
     assert doc["status"] == "no_speech" and doc["screen"]["text"] == "画面字"
-    assert [r["code"] for r in problems.load() if r["step"] == "videos.transcribe"] == ["PERMANENT.NO_SPEECH"]
+    # 1004：没人声但画面字幕读出来了 → 不进问题记录
+    assert not [r for r in problems.load() if r["step"] == "videos.transcribe"]
     video_vault.calls.clear()
     assert run_once() == 0 and video_vault.calls == []  # 第二晚不再抽音轨、不再上传
+
+
+def _screen_off(monkeypatch):
+    from link_brain import ai_config
+    monkeypatch.setattr(ai_config, "load", lambda: ai_config._deep_merge(
+        ai_config.DEFAULTS, {"visionAI": {"videoScreenText": False}}))
+
+
+def test_no_speech_reads_screen_text_even_when_toggle_is_off(video_vault, monkeypatch):
+    _screen_off(monkeypatch)
+    video_vault.asr = {"status": "ok", "text": "", "code": "", "error": None}
+    assert run_once() == 0
+    assert video_vault.doc()["screen"]["text"] == "画面字"
+    assert not [r for r in problems.load() if r["step"] == "videos.transcribe"]
+
+
+def test_speech_ok_respects_screen_toggle_off(video_vault, monkeypatch):
+    _screen_off(monkeypatch)
+    assert run_once() == 0 and "screen" not in video_vault.doc()
+
+
+def test_no_speech_and_no_screen_text_is_still_listed(video_vault, monkeypatch):
+    monkeypatch.setattr(screentext, "extract", lambda path: {"status": "ok", "segments": [], "text": ""})
+    video_vault.asr = {"status": "ok", "text": "", "code": "", "error": None}
+    assert run_once() == 0
+    rows = [r for r in problems.load() if r["step"] == "videos.transcribe"]
+    assert [r["code"] for r in rows] == ["PERMANENT.NO_SPEECH"] and "字幕" in rows[0]["reason"]
+
+
+def test_old_no_speech_record_gets_screen_text_backfilled(video_vault, monkeypatch):
+    """以前开关关着时落的 no_speech（没有 screen）：下次补抽画面字幕，并把那条「没人声」标成已解决。"""
+    _screen_off(monkeypatch)
+    storage.write_json(storage.object_dir("xiaohongshu", "v1") / "derived" / "transcript.json",
+                       {"status": "no_speech", "text": "", "error": None})
+    problems.report("videos.transcribe", "PERMANENT.NO_SPEECH", "视频里没听出人声", item_id="xhs-v1")
+    assert run_once() == 0 and video_vault.calls == []  # 不重转语音
+    assert video_vault.doc()["screen"]["text"] == "画面字"
+    assert not [r for r in problems.load() if r["step"] == "videos.transcribe"]
 
 
 def test_video_without_audio_track_is_no_audio(video_vault):

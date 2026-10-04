@@ -269,4 +269,29 @@ def load() -> dict[str, Any]:
         return copy.deepcopy(DEFAULTS)
     raw, notes = _migrate_legacy(raw)
     _note_migration(notes)
+    _borrow_embed(raw)
     return _deep_merge(DEFAULTS, raw)
+
+
+_DASHSCOPE_CHAT_TAIL = "/compatible-mode/v1/chat/completions"
+
+
+def _borrow_embed(raw: dict[str, Any]) -> None:
+    """向量索引没有设置页入口：data.json 里没写 embedAI 时，跟着已配好的千问兼容接口走（同一个 key 来源，
+    地址换成 /embeddings）。1004：设置页一存成新格式，旧换算就不再补 embedAI，向量索引和语义检索悄悄停了。
+    一个千问兼容接口都没配 = 不动，照默认（环境变量 DASHSCOPE_API_KEY）。"""
+    if "embedAI" in raw:
+        return
+    for cap in ("summaryAI", "visionAI", "textAI"):
+        cfg = raw.get(cap)
+        if not isinstance(cfg, dict) or cfg.get("mode") != "http":
+            continue
+        endpoint = str(cfg.get("endpoint") or "").strip()
+        if not endpoint.endswith(_DASHSCOPE_CHAT_TAIL):
+            continue
+        borrowed = {k: cfg[k] for k in ("apiKey", "keyFile", "keyField", "apiKeyEnv") if cfg.get(k)}
+        if not borrowed:
+            continue
+        raw["embedAI"] = {"mode": "http", "endpoint": endpoint[: -len("/chat/completions")] + "/embeddings",
+                          "requireKey": True, **borrowed}
+        return

@@ -143,6 +143,16 @@ def _speech(audio, prev, now, cfg):
     return _failed(prev, got.get('error') or '语音识别失败', now, got.get('code') or 'TRANSIENT.SERVICE_BUSY', engine)
 
 
+def _has_screen_text(result):
+    screen = result.get('screen') or {}
+    return screen.get('status') == 'ok' and bool((screen.get('text') or '').strip())
+
+
+def _wants_screen(result):
+    """画面文字：设置开着就抽；关着时，没人声 / 没音轨的视频也抽（否则这条视频一个字都没有）。本地 OCR，不花钱。"""
+    return screen_text_enabled() or result.get('status') in ('no_speech', 'no_audio')
+
+
 def _report(row, result):
     """转写结论进问题记录：失败 / 没音轨 / 没人声按码登记，没开记一条步骤级 SKIPPED，转出来了就清掉这篇的记录。"""
     from . import problems
@@ -163,11 +173,15 @@ def _report(row, result):
     elif status == 'skipped':
         problems.report('videos.transcribe', result.get('code') or 'SKIPPED.NOT_CONFIGURED',
                         result.get('error') or '语音识别没开', action='skipped')
+    elif status in ('no_speech', 'no_audio') and _has_screen_text(result):
+        # 1004：没人声但画面字幕读出来了 = 这条视频有文字可用，不算问题（她：有字幕还报错让人困扰）
+        problems.resolve('videos.transcribe', item_id)
     elif status == 'no_speech':
-        problems.report('videos.transcribe', 'PERMANENT.NO_SPEECH', '视频里没听出人声（背景音乐 / 环境声）',
+        problems.report('videos.transcribe', 'PERMANENT.NO_SPEECH', '视频里没听出人声，画面上也没认出字幕',
                         item_id=item_id, title=title)
     elif status == 'no_audio':
-        problems.report('videos.transcribe', 'PERMANENT.NO_AUDIO', '视频没有音轨', item_id=item_id, title=title)
+        problems.report('videos.transcribe', 'PERMANENT.NO_AUDIO', '视频没有音轨，画面上也没认出字幕',
+                        item_id=item_id, title=title)
     elif status == 'failed':
         problems.report('videos.transcribe', result.get('code') or 'TRANSIENT.SERVICE_BUSY',
                         result.get('error') or '语音识别失败', item_id=item_id, title=title,
@@ -184,10 +198,11 @@ def transcribe(row):
     if prev.get('status') in DONE_STATUSES:
         # 0926：语音转写过的视频补「画面文字」（烧录字幕 / 文字卡），不重转语音
         done=prev
-        if entry and 'screen' not in done and screen_text_enabled():
+        if entry and 'screen' not in done and _wants_screen(done):
             from .screentext import extract
             done['screen']=extract(obj/entry['file'])
             storage.write_json(output,done)
+            if done.get('status')!='ok':_report(row,done)
             render.render_object(row['source'],row['source_id'])
             return {'item_id':row['item_id'],'status':'ok','screen_chars':len(done['screen'].get('text',''))}
         return {'item_id':row['item_id'],'status':'hit'}
@@ -221,7 +236,7 @@ def transcribe(row):
     except (subprocess.SubprocessError,OSError) as exc:
         result=_failed(prev,f'{type(exc).__name__}: {exc}'[:300],now)
     finally:audio.unlink(missing_ok=True)
-    if screen_text_enabled():
+    if _wants_screen(result):
         from .screentext import extract
         old_screen=prev.get('screen') or {}
         # 画面文字与语音并存：背景乐转写成歌词时以它为准；重试转写时上次抽好的画面文字直接沿用

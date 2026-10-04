@@ -174,6 +174,23 @@ def test_new_style_config_is_left_alone():
     assert not [r for r in problems.load() if r["step"] == "config"]
 
 
+def test_embed_follows_configured_dashscope_endpoint(tmp_path, monkeypatch):
+    """1004：设置页存成新格式后 data.json 没有 embedAI —— 向量索引跟着千问兼容接口的 key 走，不悄悄停掉。"""
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    keyfile = tmp_path / "keys.csv"
+    keyfile.write_text("apiKey,QWEN-KEY\n", encoding="utf-8")
+    base = "https://ws-fake.example.invalid/compatible-mode/v1"
+    write_data_json({"textAI": {"mode": "http", "endpoint": "https://x.invalid/v1/chat/completions", "model": "m"},
+                     "visionAI": {"mode": "http", "model": "v", "endpoint": base + "/chat/completions",
+                                  "apiKey": "", "keyFile": str(keyfile), "keyField": "apiKey", "requireKey": True}})
+    emb = providers.resolve("embedAI", ai_config.load())
+    assert emb["endpoint"] == base + "/embeddings" and emb["apiKey"] == "QWEN-KEY"
+    # 她自己写了 embedAI 就不碰
+    write_data_json({"visionAI": {"mode": "http", "model": "v", "endpoint": base + "/chat/completions", "apiKey": "K"},
+                     "embedAI": {"mode": "off"}})
+    assert providers.resolve("embedAI", ai_config.load()) is None
+
+
 # --------------------------------------------------------------------------
 # 零 key（P11）：不配任何 AI 时归档完整，概要标 SKIPPED，问题记录里有一条
 # --------------------------------------------------------------------------
