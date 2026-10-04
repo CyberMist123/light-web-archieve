@@ -425,6 +425,9 @@ def _card(item: dict[str, Any], excerpt: str) -> dict[str, Any]:
         "markdown_path": str(storage.vault_root() / item["note"]) if item.get("note") else None,
         "url": url if _URL_RE.match(str(url or "")) else "",
         "excerpt": excerpt,
+        "author": item.get("author", ""),
+        **({"source_kind": "saved", "saved_id": item["saved_id"], "saved_content": item["saved_content"]}
+           if item.get("source_kind") == "saved" else {}),
         "agent_md": str(storage.vault_root() / item["agent_md"]) if item.get("agent_md") else None,
         "attachments": item.get("attachment_files", []),
     }
@@ -819,11 +822,11 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     # R2 会话面：本会话排除的来源不再用（可恢复，不删归档）；保留（pin）的每一问都带上、排最前，但不锁死搜索范围，
     # 排除压过保留。两样都没有时下面每一步和以前一模一样。
     excluded = set(_id_list(exclude_ids))
-    pins = [i for i in _id_list(pin_ids) if i in by_id and i not in excluded and not pinned]
+    pins = [i for i in _id_list(pin_ids) if i in by_id and i not in excluded]
     if pinned:
         # 第 10 批「按剩下的重新回答」：只用页面上留下的来源（她删掉的不要），不重新检索、不挑材料、不撞答案缓存
         from .retrieval import semantic_hits
-        matches = [by_id[i] for i in dict.fromkeys(source_ids) if i in by_id and i not in excluded]
+        matches = [by_id[i] for i in dict.fromkeys(pins + list(source_ids)) if i in by_id and i not in excluded]
         expansion = expand_query(question, base_terms, items, llm=llm_expansions(question, allow_call=False))
         sem, prior_terms, terms, cache_hit, qvec = semantic_hits(question), [], base_terms, None, None
         _phase(f"检索收藏：用你留下的 {len(matches)} 条来源")
@@ -840,6 +843,11 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
         more = f"（含相关词 {'、'.join(expansion['terms'][:4])}{'…' if len(expansion['terms']) > 4 else ''}）" if expansion["terms"] else ""
         held_note = (f"，已排除 {len(excluded)} 条" if excluded else "") + (f"，保留 {len(pins)} 条" if pins else "")
         _phase(f"检索收藏：相关 {min(len(matches), POOL_MAX)} / 共 {len(items)} 条{more}{held_note}")
+    if not pinned:
+        from .saved_sources import matching_sources
+        saved = matching_sources(question, items)
+        saved_ids = {item["id"] for item in saved}
+        matches = [by_id[key] for key in pins] + [item for item in saved if item["id"] not in excluded and item["id"] not in pins] + [item for item in matches if item["id"] not in saved_ids and item["id"] not in pins]
     if not matches:
         return {"kind": "answer", "markdown": "收藏里没有找到足够相关的材料。可以换个关键词，或先导入相关内容。",
                 "sources": [], "related": [], "matches": 0, "materials": 0, "model_called": False}
@@ -850,7 +858,8 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     pool = matches[:POOL_MAX] if not pinned else matches
     n, deep = prompt_count(question, pool, cap, top_k, pinned=pinned or bool(pins))
     if pins:
-        n = max(n, min(len(pins), 20, len(pool)))
+        n = max(n, min(len(pins), len(pool)))
+        cap = max(cap, len(pins) * (frag + 240))
     order = list(pool)
     candidate_count = len(pool)
     selection_failed = selection_kept = selection_empty = False
@@ -891,7 +900,9 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     for it in primary:
         snippets = locate_excerpts(it, evidence(it, terms + prior_terms + expansion["terms"], per, sem,
                                               window_chars=1000, max_parts=8 if deep else 4, deep=deep))
-        block = f"[来源{len(sources)+1}] {it['title']}\n" + "\n".join(f"[{x['field']}] {x['text']}" for x in snippets)
+        if it["id"] in pins:
+            snippets = locate_excerpts(it, evidence(it, terms, max(per, frag), sem, window_chars=1000, max_parts=4))
+        block = f"[来源{len(sources)+1}] {it['title']}\n作者：{it.get('author') or '未提供昵称'}\n" + "\n".join(f"[{x['field']}] {x['text']}" for x in snippets)
         remaining = cap - sum(len(x) for x in blocks)
         if remaining < 100:
             overflow.append(it)  # 字数预算用完了：这篇挪到「其他相关」最前面
@@ -903,6 +914,7 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     related_cards = [related_card(it, len(sources) + i + 1, terms + prior_terms + expansion["terms"])
                      for i, it in enumerate([it for it in overflow + related if it["id"] not in sent])]
     prompt = ai_config.DEFAULT_ANSWER_PROMPT
+    prompt += "\n不要写‘作者说’或‘作者称’。需要归属时在标题或小节写‘作者：具体昵称’，否则直接分点说；未提供昵称时不编造。"
     custom = (settings.get("prompts") or {}).get("answer", "")
     if custom and '"results"' not in custom and custom not in {prompt,ai_config.LEGACY_ANSWER_PROMPT}:
         prompt += "\n用户的回答风格偏好：" + custom
@@ -921,7 +933,7 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     elif pinned:
         note = "（这些是用户自己留下的来源，只依据它们回答。）\n"
     if pins:
-        note = f"（前 {min(len(pins), len(sources))} 条是用户在本次会话里保留的材料。）\n" + note
+        note = f"（前 {min(len(pins), len(sources))} 条是用户手动加入的材料，必须逐条用到并在回答正文引用对应[来源N]；不适用也须逐条带引用说明为什么用不上。）\n" + note
     dialog = "\n".join(f"{m['role']}: {str(m.get('content', ''))[:1500]}" for m in history)
     cache_note, hint = "", ""
     if cache_hit:
@@ -1014,7 +1026,8 @@ def _answer(question: str, history=None, include=None, model: str = '', source_i
             exclude_ids=None, pin_ids=None) -> dict[str, Any]:
     question = (question or "").strip()
     settings = ai_config.with_model(ai_config.load(), model)
-    items = load_items()
+    from .saved_sources import additional_sources
+    items = load_items() + additional_sources()
     if not isinstance(include, (list, tuple, set, type(None))) or set(include or []) - {"body", "links", "files"}:
         return {"status": "error", "markdown": "include 仅支持 body、links、files。"}
     if not question:
