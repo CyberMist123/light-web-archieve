@@ -199,7 +199,7 @@ class RemoteApp:
         if handler is None:
             self.log({**entry, "status": "denied", "code": "UNKNOWN_TOOL"})
             return types.CallToolResult(content=[types.TextContent(type="text", text=json.dumps(
-                {"error": "UNKNOWN_TOOL", "message": f"没有这个工具：{name}（只有 search / read / list / read_asset）"}, ensure_ascii=False))], isError=True)
+                {"error": "UNKNOWN_TOOL", "message": f"没有这个工具：{name}（只有 {' / '.join(t['name'] for t in self.tools_mod.TOOLS)}）"}, ensure_ascii=False))], isError=True)
         policy = self.policy()
         try:
             result = await anyio.to_thread.run_sync(handler, policy, args)

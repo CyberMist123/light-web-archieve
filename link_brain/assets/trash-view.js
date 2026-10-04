@@ -1,6 +1,11 @@
 const LB_ROOT=(()=>{let d=dv.current()?.file?.folder||'';while(d&&!app.vault.getAbstractFileByPath(d+'/_archive'))d=d.includes('/')?d.slice(0,d.lastIndexOf('/')):'';return d;})();
 const lbPath=p=>LB_ROOT?LB_ROOT+'/'+p:p;
 const root=dv.container;
+// 10-04（她定）：整页外面那层 dataviewjs 代码块的框隐形（阅读视图 + 实时预览、悬停「编辑代码块」按钮），同目录页 / 问收藏页
+{const pane=root.closest&&root.closest('.markdown-preview-view, .markdown-source-view');if(pane)pane.classList.add('lb-trashpage');
+ if(!document.getElementById('lb-trash-frame')){const st=document.head.createEl('style');st.id='lb-trash-frame';st.textContent=
+ '.lb-trashpage :is(.el-pre:has(.block-language-dataviewjs),pre:has(.block-language-dataviewjs),.block-language-dataviewjs,.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs),.lb-trashpage :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs):hover{border:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;border-radius:0!important;}'+
+ '.lb-trashpage :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-lang-dataviewjs) .edit-block-button{display:none!important;}';}}
 const provider=()=>app.plugins.plugins['link-brain-actions'];
 async function action(kind,ids){
   if(kind!=='restore'&&!window.confirm('彻底删除文件？此操作不可恢复，仍会屏蔽以后同步。'))return;

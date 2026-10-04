@@ -1,4 +1,5 @@
-"""四个只读工具：search / read / list / read_asset。全部经 policy 过白名单；没有任何写入、执行、调模型回答的工具。
+"""只读工具：search / read / list / read_asset，10-04 加 selections / read_selection（她在目录页存的选集）。
+全部经 policy 过白名单；没有任何写入、执行、调模型回答的工具。
 
 - search：开放了小红书收藏库（@xhs）时，复用问答的检索（`retrieval.rank_query`：词法 BM25 + 语义 RRF，
   语义层缺 key / 缺索引时自动退回纯词法），结果只留白名单内的路径；用户加的文件夹另做逐文件文本匹配。
@@ -447,4 +448,73 @@ def search(policy: Policy, args: dict[str, Any]) -> dict[str, Any]:
             "note": "只含开放给你的内容；用 read 读 path / agent_md / attachments 的全文"}
 
 
-HANDLERS = {"search": search, "read": read, "list": list_dir, "read_asset": read_asset}
+# ---------------------------------------------------------------- 选集（10-04）
+
+def selections_list(policy: Policy, args: dict[str, Any]) -> dict[str, Any]:
+    """她存的选集：名字、创建时间、每篇标题。只在开放了小红书收藏库时有（选集只装收藏）。"""
+    from .. import selections
+    if not policy.xhs:
+        raise Denied("NOT_OPEN", "小红书收藏库没有开放给你，选集也读不到")
+    out = selections.list_selections()
+    out.pop("hint", None)
+    out["hint"] = "她说「看一下选集 xxx」时用 read_selection 按名字取"
+    return out
+
+
+def read_selection(policy: Policy, args: dict[str, Any]) -> dict[str, Any]:
+    """按名字取一个选集：每篇标题、原文链接、可读路径（过白名单）和机读版正文开头；读不到的路径给 null、不带正文。"""
+    from .. import selections
+    if not policy.xhs:
+        raise Denied("NOT_OPEN", "小红书收藏库没有开放给你，选集也读不到")
+    name = args.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise Denied("INVALID_ARGUMENT", "name 不能为空")
+
+    def paths(it: dict[str, Any]) -> dict[str, Any]:
+        note = it.get("note") if isinstance(it.get("note"), str) else None
+        agent, atts = _archive_paths(it)
+        return {"path": note if note and policy.allowed_file(note) else None,
+                "agent_md": agent if agent and policy.allowed_file(agent) else None,
+                "attachments": [a for a in atts if policy.allowed_file(a)]}
+
+    def text(it: dict[str, Any]) -> str | None:
+        agent = paths(it)["agent_md"]
+        if not agent:
+            return None
+        try:
+            target = policy.resolve_file(agent)   # 和 read 同一道闸（越界 / 链接 / 大小）
+            if os.path.getsize(target) > MAX_READ_BYTES:
+                return None
+            return target.read_bytes().decode("utf-8", errors="replace")
+        except (Denied, OSError):
+            return None
+
+    out = selections.get_selection(name[:200], paths=paths, read_text=text)
+    if out.get("status") == "error":
+        raise Denied("NOT_FOUND", out["error"] + ("；可能是：" + "、".join(out["did_you_mean"]) if out.get("did_you_mean") else ""))
+    out["note"] = "text 是机读版正文开头；truncated=true 的用 read 读 agent_md 全文（分页）"
+    return out
+
+
+TOOLS += [
+    {
+        "name": "selections",
+        "description": ("列出她存的选集（她在收藏目录里多选几篇存成的、有名字的一组）：名字、创建时间、篇数、每篇标题。"
+                        "她说「我选中了 / 看一下选集 xxx」时先用它对上名字；也可以主动提醒她存过哪些选集。"),
+        "inputSchema": {"type": "object", "properties": {}},
+        "annotations": {"readOnlyHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "read_selection",
+        "description": ("按名字取一个选集里的几篇：标题、原文链接、path（给人看的笔记）、agent_md（机读版）、attachments，"
+                        "附机读版正文开头（每篇最多 8000 字；truncated=true 的用 read 读 agent_md 全文）。名字大小写 / 空格不敏感。"),
+        "inputSchema": {"type": "object", "properties": {
+            "name": {"type": "string", "description": "选集名字（她说的「选集 xxx」里的 xxx）"}},
+            "required": ["name"]},
+        "annotations": {"readOnlyHint": True, "openWorldHint": False},
+    },
+]
+NAMES = {t["name"] for t in TOOLS}
+
+HANDLERS = {"search": search, "read": read, "list": list_dir, "read_asset": read_asset,
+            "selections": selections_list, "read_selection": read_selection}
