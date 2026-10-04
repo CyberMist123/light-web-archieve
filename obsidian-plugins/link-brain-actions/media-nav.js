@@ -79,7 +79,7 @@ class MediaNav {
     const observer=new MutationObserver(records=>{if(queued||!records.some(r=>[...r.addedNodes].some(n=>n.nodeType===1)))return;queued=true;queueMicrotask(()=>{queued=false;scan();});});
     observer.observe(document.body,{childList:true,subtree:true});
     this.register(()=>observer.disconnect());
-    this.register(()=>{document.querySelectorAll('.lb-media-tools,.lb-media-pin,.lb-thumbnails').forEach(e=>e.remove());document.querySelectorAll('[data-lb-enhanced]').forEach(e=>delete e.dataset.lbEnhanced);document.querySelectorAll('.lb-media-locked,.lb-media-free').forEach(e=>e.classList.remove('lb-media-locked','lb-media-free'));});
+    this.register(()=>{document.querySelectorAll('.lb-media-tools,.lb-media-pin,.lb-thumbnails').forEach(e=>e.remove());document.querySelectorAll('[data-lb-enhanced]').forEach(e=>delete e.dataset.lbEnhanced);document.querySelectorAll('.lb-media-locked,.lb-media-free').forEach(e=>e.classList.remove('lb-media-locked','lb-media-free'));document.querySelectorAll('.xhs-note .lb-carousel video').forEach(v=>{v.controls=true;});});
 
     const rememberCarousel = (event) => {
       const carousel = getCarouselFromTarget(event.target);
@@ -300,6 +300,7 @@ class MediaNav {
     const bar=media.createEl('div',{cls:'lb-media-tools'});
     const video=carousel.querySelector('video');
     if(video){
+      this.hoverControls(media,video);
       const speed=bar.createEl('button',{cls:'lb-video-speed',text:'1×'});
       const setRate=value=>{video.playbackRate=Math.min(4,Math.max(.25,Math.round(value*20)/20));speed.setText(Number(video.playbackRate.toFixed(2))+'×');};
       let drag=null,moved=false;
@@ -312,6 +313,23 @@ class MediaNav {
       return;
     }
     bar.remove(); // Image paging uses the original centered controls and per-image counter.
+  }
+
+  // 10-04 Owner：正文视频的控制条（播放 / 进度 / 音量 / 全屏 / ⋮）平时藏着，鼠标放到视频（连同下面的倍速行）上才出现，移开就藏。
+  // 做法是切 video 的 controls 属性（原生控制条没法只靠 CSS 稳定地藏）：播放不受影响；键盘 Tab 到视频上（:focus-visible）也出现，
+  // 鼠标点过之后焦点留在视频上不算（不然点完播放移开，控制条一直挂着）。触屏（没有悬停）照旧一直显示；倍速行的显隐在 link-brain.css。
+  hoverControls(media,video){
+    const mm=typeof window!=='undefined'&&window.matchMedia?window.matchMedia('(hover: none)'):null;
+    if(mm&&mm.matches)return;
+    let over=false,keyboard=false;
+    try{over=media.matches(':hover');}catch{}
+    const paint=()=>{video.controls=over||keyboard;};
+    if(!video.hasAttribute('tabindex'))video.tabIndex=0;
+    media.addEventListener('mouseenter',()=>{over=true;paint();});
+    media.addEventListener('mouseleave',()=>{over=false;paint();});
+    media.addEventListener('focusin',e=>{let fv=false;try{fv=e.target.matches(':focus-visible');}catch{}if(fv){keyboard=true;paint();}});
+    media.addEventListener('focusout',e=>{if(!media.contains(e.relatedTarget)){keyboard=false;paint();}});
+    paint();
   }
 
   // 1003 修「目录页 / 问收藏页有时滚轮滚不动」：Obsidian 同一个标签页换文件时复用同一个 .markdown-preview-view。

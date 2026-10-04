@@ -13,7 +13,9 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
    const m={exports:{}};new Function('require','module',source)(()=>({}),m);window.plugin=m.exports({},host);plugin.attach();
   },source);
  }
- await setup();assert.equal(await page.locator('.lb-media-pin').getAttribute('aria-pressed'),'true');
+ // 0926 起默认不钉（跟正文一起滚），要钉住点右上角的钉
+ await setup();assert.equal(await page.locator('.lb-media-pin').getAttribute('aria-pressed'),'false');
+ await page.locator('.lb-carousel').hover();await page.locator('.lb-media-pin').click();assert.equal(await page.locator('.lb-media-pin').getAttribute('aria-pressed'),'true');
  const picture=await page.locator('.lb-carousel').boundingBox();await page.locator('.lb-scroll').evaluate(e=>e.scrollTop=700);assert.equal((await page.locator('.lb-carousel').boundingBox()).y,picture.y);
  assert.equal(await page.locator('.lb-media-pages,.lb-thumbnails').count(),0);
  await page.locator('.lb-carousel').click({position:{x:30,y:50}});await page.keyboard.press('ArrowRight');await page.waitForFunction(()=>document.querySelector('.lb-carousel').scrollLeft>100);
@@ -21,10 +23,25 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
  await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  await setup(true);assert.equal(await page.locator('.lb-media-pages').count(),0);assert.equal(await page.locator('.lb-slide:visible').count(),1);
  const arrow=await page.locator('.lb-carousel').evaluate(e=>getComputedStyle(e,'::scroll-button(right)').content);assert.ok(arrow==='none'||arrow==='normal'||arrow==='');
+ // 10-04：视频控制条和倍速行平时藏着，鼠标放到视频上才出现，移开再藏；Tab 到视频上也出现；藏 / 显不改版面
+ await page.mouse.move(1000,880);await page.waitForTimeout(50);
+ const vbox0=await page.locator('video').boundingBox();
+ assert.equal(await page.locator('video').evaluate(v=>v.controls),false,'not hovered: native controls hidden');
+ assert.equal(await page.locator('.lb-media-tools').evaluate(e=>getComputedStyle(e).opacity),'0','not hovered: speed row hidden');
+ await page.locator('video').hover();await page.waitForTimeout(200);
+ assert.equal(await page.locator('video').evaluate(v=>v.controls),true,'hover: controls shown');
+ assert.equal(await page.locator('.lb-media-tools').evaluate(e=>getComputedStyle(e).opacity),'1','hover: speed row shown');
+ await page.locator('.lb-video-speed').hover();assert.equal(await page.locator('video').evaluate(v=>v.controls),true,'moving onto the speed row keeps controls');
+ await page.mouse.move(1000,880);await page.waitForTimeout(200);
+ assert.equal(await page.locator('video').evaluate(v=>v.controls),false,'leave: hidden again');
+ assert.deepEqual(await page.locator('video').boundingBox(),vbox0,'showing / hiding controls does not move the video');
+ await page.locator('video').evaluate(v=>v.blur());await page.keyboard.press('Tab');await page.waitForTimeout(50);
+ if(await page.evaluate(()=>document.activeElement&&document.activeElement.tagName)==='VIDEO')assert.equal(await page.locator('video').evaluate(v=>v.controls),true,'keyboard focus shows controls');
+ await page.locator('video').hover();await page.locator('.lb-media-pin').click();assert.equal(await page.locator('.lb-media-pin').getAttribute('aria-pressed'),'true');
  const lockedVideo=await page.locator('video').boundingBox();await page.locator('video').hover();await page.mouse.wheel(0,650);await page.waitForTimeout(150);
  assert.equal((await page.locator('video').boundingBox()).y,lockedVideo.y,'video must remain fixed under real wheel input');
  assert.equal(await page.locator('main').evaluate(e=>e.scrollTop),0);assert.ok(await page.locator('.lb-scroll').evaluate(e=>e.scrollTop>0));
  await page.locator('.lb-video-speed').click();assert.equal(await page.locator('video').evaluate(v=>v.playbackRate),1.25);
  const box=await page.locator('.lb-video-speed').boundingBox();await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();await page.mouse.move(box.x+box.width/2+80,box.y+box.height/2,{steps:8});await page.mouse.up();assert.equal(await page.locator('video').evaluate(v=>v.playbackRate),2.25);
- assert.deepEqual(errors,[]);await browser.close();console.log('PASS media: pin/unpin, stationary images, original image paging, no duplicate page toolbar, narrow layout, no video paging overlay, click and drag playback speed');
-})().catch(e=>{console.error(e);process.exitCode=1;});
+ assert.deepEqual(errors,[]);await browser.close();console.log('PASS media: video controls + speed row only on hover / keyboard focus, pin/unpin, stationary images, original image paging, no duplicate page toolbar, narrow layout, no video paging overlay, click and drag playback speed');
+})().catch(e=>{console.error(e);process.exit(1);});
