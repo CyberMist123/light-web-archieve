@@ -58,7 +58,7 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
  }
  for(const prefix of ['', '知识库【小红书】']){
   await setup('chat','light',prefix);
-  await page.locator('.lbchat-plus').click();await page.locator('.lb-manage').click();
+  await page.locator('.lbchat-cplus').click();await page.locator('.lb-manage').click();
   assert.deepEqual(await page.evaluate(()=>menus),['plus','ai-settings']);
   await page.locator('.lbchat-search').fill('不用斜杠也能提问');await page.locator('.lbchat-search').press('Enter');await page.locator('.lbchat-send:enabled').waitFor();
   assert.equal(await page.evaluate(()=>asks[0].question),'不用斜杠也能提问');

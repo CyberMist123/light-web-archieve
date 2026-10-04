@@ -44,11 +44,18 @@ const SESSION = '_archive/chat-session.json';
   const turnEls = () => all('.lbchat-answer');
   const rowButton = (turn, title, cls) => { const links = turn.querySelectorAll('a'); const i = links.findIndex(a => a.textContent.includes(title)); return turn.querySelectorAll(cls)[i]; };
 
-  // 旧会话、没排除没保留：请求和以前一模一样（不带 excludeIds / pinIds）
+  // 旧会话、没排除没保留：10-04 起追问默认「在当前来源里追问」——只交上一轮留下的来源（主要依据 + 其他相关），不带 excludeIds / pinIds
   const expand = () => turnEls()[0].querySelectorAll('.lbchat-act').find(b => b.textContent === '展开重点细节');
   await expand().onclick(); await tick(20);
   assert.equal(asks.length, 1);
-  assert.deepEqual(Object.keys(asks[0]).filter(k => /Ids$/.test(k)), []);
+  assert.deepEqual(Object.keys(asks[0]).filter(k => /Ids$/.test(k)), ['sourceIds']);
+  assert.deepEqual(Array.from(asks[0].sourceIds), ['a', 'b', 'c', 'd']);
+  // 下面验 R2 的「重新检索」那条路：点「改为重新搜」，状态跟会话一起存
+  const sw = () => all('.lbchat-follow-switch')[0];
+  assert.equal(sw().textContent, '改为重新搜');
+  await sw().onclick(); await tick(5);
+  assert.equal(JSON.parse(V.get(SESSION)).follow, 'search');
+  assert.equal(sw().textContent, '改回当前来源');
 
   // ③ 证据身份：来源行悬停看得到楼号 / 图序号
   const linkA = turnEls()[0].querySelectorAll('a').find(a => a.textContent.includes('主要a'));
@@ -92,6 +99,8 @@ const SESSION = '_archive/chat-session.json';
   A = await open();
   saved = JSON.parse(V.get(SESSION));
   assert.deepEqual(saved.pinned, ['b']);
+  assert.equal(saved.follow, 'search', '「改为重新搜」刷新后还在');
+  assert.equal(sw().textContent, '改回当前来源');
   assert.equal(rowButton(turnEls()[0], '主要b', '.lbchat-src-pin').textContent, '已保留');
 
   // 重答（第一轮删过 c）：交留下的来源（保留的排最前），排除照样带上；重答不发 pinIds（sourceIds 已经是全部可用证据）
