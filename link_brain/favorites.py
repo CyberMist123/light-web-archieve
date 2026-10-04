@@ -69,7 +69,7 @@ def fetch_favorites(*, limit: int = 50, verbose: bool = False) -> list[dict[str,
         accounts.ensure_reader()
         accounts.pace("读收藏")
         # 读取服务最坏约 480 秒（启动 ≤90 + 读 6 分钟 + 关浏览器 ≤30），客户端要比它长，别把「慢」当成「号出事」
-        data = accounts.api("GET", "/api/v1/favorites", timeout=540)
+        data = accounts.api("GET", "/api/v1/favorites", timeout=780)
     except accounts.ReaderError as exc:
         msg = accounts.SOLUTIONS.get(exc.code, ("", str(exc), "", ""))
         text = f"{msg[1]}：{msg[2]}" if msg[2] else str(exc)
