@@ -65,6 +65,7 @@ class MediaNav {
   }
   attach() {
     if (this.attached) return true;
+    this.catalogBack();   // 「← 目录」和图片导航无关：旧插件开着也照样加
     if (this.oldPluginEnabled()) { this.skipped = true; console.info('[lb] 旧插件 ' + OLD_PLUGIN_ID + ' 还开着：图片导航先由它负责'); return false; }
     this.attached = true;
     this.onload();
@@ -330,6 +331,37 @@ class MediaNav {
     media.addEventListener('focusin',e=>{let fv=false;try{fv=e.target.matches(':focus-visible');}catch{}if(fv){keyboard=true;paint();}});
     media.addEventListener('focusout',e=>{if(!media.contains(e.relatedTarget)){keyboard=false;paint();}});
     paint();
+  }
+
+  // 10-04 ⑩ 笔记正文回目录页：作者行最左边一个不起眼的「← 目录」（两栏布局不动）。点了在同一个窗格打开目录页
+  // （按页头 lb-page: catalog 找，不写死文件名）；目录页自己记着搜索词和滚动位置，回去就是原来那样。
+  // 不改 render.py（那样要全库重渲染）：笔记渲染出来后由这里补进去，阅读视图和实时预览都认 .lb-note 里的 .lb-author-row。
+  catalogBack() {
+    if (this.backAttached) return;
+    this.backAttached = true;
+    const plugin = this.plugin;
+    const add = row => {
+      if (!row || [...row.children].some(c => c.classList.contains('lb-back-catalog'))) return;
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'lb-back-catalog'; btn.textContent = '← 目录';
+      btn.title = '回到目录页'; btn.setAttribute('aria-label', '回到目录页');
+      const stop = e => { e.preventDefault(); e.stopPropagation(); };
+      btn.addEventListener('mousedown', stop);   // 实时预览里别把光标点进这块 HTML
+      btn.addEventListener('click', e => {
+        stop(e);
+        const ws = plugin.app && plugin.app.workspace;
+        let leaf = null;
+        try { ws.iterateAllLeaves(l => { if (!leaf && l.view && l.view.containerEl && l.view.containerEl.contains(btn)) leaf = l; }); } catch {}
+        Promise.resolve(plugin.openLibraryPage && plugin.openLibraryPage('catalog', leaf)).catch(err => console.error('[lb] 回目录页没打开', err));
+      });
+      row.insertBefore(btn, row.firstChild);
+    };
+    const scan = () => document.querySelectorAll('.lb-note .lb-author-row').forEach(add);
+    scan();
+    let queued = false;
+    const observer = new MutationObserver(records => { if (queued || !records.some(r => [...r.addedNodes].some(n => n.nodeType === 1))) return; queued = true; queueMicrotask(() => { queued = false; scan(); }); });
+    observer.observe(document.body, { childList: true, subtree: true });
+    this.register(() => { observer.disconnect(); document.querySelectorAll('.lb-back-catalog').forEach(e => e.remove()); this.backAttached = false; });
   }
 
   // 1003 修「目录页 / 问收藏页有时滚轮滚不动」：Obsidian 同一个标签页换文件时复用同一个 .markdown-preview-view。

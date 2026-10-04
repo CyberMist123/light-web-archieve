@@ -77,6 +77,7 @@ function makeDom() {
     addClass(...c) { this.classList.add(...c); }
     append(...nodes) { for (const n of flatten(nodes)) { detach(n); n.parentNode = this; this.childNodes.push(n); } }
     appendChild(n) { this.append(n); return n; }
+    insertBefore(n, ref) { if (!ref) { this.append(n); return n; } detach(n); n.parentNode = this; this.childNodes.splice(this.childNodes.indexOf(ref), 0, n); return n; }
     prepend(...nodes) { const flat = flatten(nodes); for (const n of flat) { detach(n); n.parentNode = this; } this.childNodes.unshift(...flat); }
     appendText(t) { this.append(String(t)); }
     empty() { this.textContent = ''; }
@@ -134,7 +135,9 @@ function makeVault(files = {}) {
   const adapter = {
     async read(p) { reads[p] = (reads[p] || 0) + 1; if (!disk.has(p)) throw new Error('ENOENT ' + p); return disk.get(p); },
     async write(p, s) { writes[p] = (writes[p] || 0) + 1; disk.set(p, s); touch(p); },
-    async exists(p) { return disk.has(p); },
+    async exists(p) { return disk.has(p) || [...disk.keys()].some(k => k.startsWith(p + '/')); },
+    async remove(p) { if (!disk.has(p)) throw new Error('ENOENT ' + p); disk.delete(p); },
+    async mkdir() {},
     async stat(p) { return disk.has(p) ? { mtime: mtimes.get(p), size: disk.get(p).length } : null; },
     getResourcePath: p => 'app://' + p,
   };

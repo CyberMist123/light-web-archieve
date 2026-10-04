@@ -103,13 +103,13 @@ const SESSION = '_archive/chat-session.json';
   assert.equal(sw().textContent, '改回当前来源');
   assert.equal(rowButton(turnEls()[0], '主要b', '.lbchat-src-pin').textContent, '已保留');
 
-  // 重答（第一轮删过 c）：交留下的来源（保留的排最前），排除照样带上；重答不发 pinIds（sourceIds 已经是全部可用证据）
+  // 重答（第一轮删过 c）：交留下的来源（保留的排最前），排除照样带上；10-04 ②：保留的也作为 pinIds 带上（后端排最前、要求逐条用到）
   const redo = all('.lbchat-src-redo button').find(b => b.textContent.startsWith('按剩下的'));
   assert.equal(redo.textContent, '按剩下的 3 条重新回答');
   await redo.onclick(); await tick(20);
   assert.deepEqual(Array.from(asks[2].sourceIds), ['b', 'a', 'd']);
   assert.deepEqual(Array.from(asks[2].excludeIds), ['c']);
-  assert.equal(asks[2].pinIds, undefined);
+  assert.deepEqual(Array.from(asks[2].pinIds), ['b']);
 
   // 排除压过保留：把保留着的 b 删掉 → 从 pinned 里拿掉；恢复只恢复这一轮删的
   const last = () => turnEls()[turnEls().length - 1];
