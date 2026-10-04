@@ -200,4 +200,6 @@ def no_real_repair_children(monkeypatch):
         return 1, "测试环境不跑修复子进程", False
     monkeypatch.setattr(repair, "_child_run", fake_child)
     monkeypatch.setattr(repair, "_reader_check", lambda timeout: (1, "测试环境没有读取服务", False))
+    # 自愈轮「06:50 之后不开新修复」看的是真钟点：测试里关掉，要测它的用例自己打开
+    monkeypatch.setattr(repair, "ROUND_WINDOW_END_HOUR", 0)
     return calls

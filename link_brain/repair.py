@@ -29,6 +29,7 @@ from . import problems, storage
 # 夜跑几点开始（等待类问题「等到几点」用）；计划任务改了时间可以用环境变量跟上
 NIGHTLY_AT = os.environ.get("LINK_BRAIN_NIGHTLY_AT", "04:00")
 ROUND_CUTOFF = (6, 50)        # 自愈轮不把夜跑拖过 07:00：06:50 之后不再开新的修复
+ROUND_WINDOW_END_HOUR = 12    # 夜跑在中午之前走到自愈轮才看 06:50 这条线（下午手动跑的夜跑不受限）
 ROUND_MAX_ROWS = 40           # 一轮最多修这么多组（防一晚几百条把时间全吃掉）
 DEFAULT_BUDGET_S = {"key": 20 * 60, "all": 15 * 60, "auto": 30 * 60}
 ATTACHMENT_REOPEN_MIN = 20    # 同一篇 20 分钟内重开附件页容易被软限流
@@ -342,7 +343,8 @@ def run(*, key: str | None = None, since: str | None = None, auto: bool = False,
     budget = DEFAULT_BUDGET_S[mode] if budget_seconds is None else max(0.0, float(budget_seconds))
     deadline = clock() + budget
     start = now_fn()
-    if auto and start.hour < 7:
+    if auto and start.hour < ROUND_WINDOW_END_HOUR:
+        # 夜跑不拖过 07:00：06:50 之后不再开新的修复（夜跑拖到早上才走到这里的，自愈轮整轮让给「现在修」）
         cutoff = start.replace(hour=ROUND_CUTOFF[0], minute=ROUND_CUTOFF[1], second=0, microsecond=0)
         deadline = min(deadline, clock() + max(0.0, (cutoff - start).total_seconds()))
     results: list[dict[str, Any]] = []

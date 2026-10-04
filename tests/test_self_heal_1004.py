@@ -284,11 +284,18 @@ def test_auto_round_only_new_and_auto_rows():
 
 
 def test_round_stops_before_0650(monkeypatch):
+    monkeypatch.setattr(repair, "ROUND_WINDOW_END_HOUR", 12)
     problems.report("embed", "TRANSIENT.NETWORK", "连不上")
     called = []
     out = repair.run(auto=True, execute=lambda argv, t: called.append(argv) or (0, "", False),
                      now_fn=lambda: datetime(2026, 10, 5, 6, 55, tzinfo=TZ))
     assert called == [] and out["results"][0]["status"] == "deferred"
+    out = repair.run(auto=True, execute=lambda argv, t: called.append(argv) or (0, "", False),
+                     now_fn=lambda: datetime(2026, 10, 5, 8, 30, tzinfo=TZ))
+    assert called == [] and out["results"][0]["status"] == "deferred", "夜跑拖到 07:00 之后：自愈轮不再开修复"
+    out = repair.run(auto=True, execute=lambda argv, t: called.append(argv) or (0, "", False),
+                     now_fn=lambda: datetime(2026, 10, 5, 4, 30, tzinfo=TZ))
+    assert called == [["embed"]]
 
 
 def test_describe_running_shows_eta():
