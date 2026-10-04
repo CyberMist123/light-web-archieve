@@ -1339,12 +1339,14 @@ class LinkBrainActions extends Plugin {
     new Notice('文件包已复制，可粘贴到支持文件的应用');
   }
 
-  async openLibraryPage(role) {
+  // leaf（可选，10-04 ⑩）：在指定窗格里打开（笔记正文的「← 目录」= 它自己那一格）；没给 = 当前窗格
+  async openLibraryPage(role, leaf = null) {
     const prefix=this.lbRoot?this.lbRoot+'/':'';
     for(const file of this.app.vault.getMarkdownFiles()){
       if(file.parent.path!==(this.lbRoot||'/')&&file.parent.path!==this.lbRoot)continue;
       const cached=this.app.metadataCache.getFileCache(file)?.frontmatter?.['lb-page'];
       if(cached===role || (await this.app.vault.cachedRead(file)).slice(0,300).includes('lb-page: '+role+'\n')){
+        if(leaf&&typeof leaf.openFile==='function'){await leaf.openFile(file);return;}
         await this.app.workspace.openLinkText(file.path,'',false);return;
       }
     }

@@ -108,6 +108,14 @@ def pinyin_text(*parts):
 
 
 def pinyin_units(term):
+    """词 → 拼音单元（拼音整音节匹配用）。纯函数，按词记忆：match() 每篇每个词都要它，不记的话关键词筛选一次要调几万次 pypinyin
+    （R1 10-04 合成库实测占问收藏召回耗时三成多）。返回新 list，调用方随便改。"""
+    units = _pinyin_units(str(term))
+    return list(units) if units is not None else None
+
+
+@__import__("functools").lru_cache(maxsize=4096)
+def _pinyin_units(term):
     from pypinyin import lazy_pinyin
     units = []
     for part in re.findall(r"[a-z]+|[一-鿿]|[^\sa-z一-鿿]+", norm(term)):
@@ -117,7 +125,7 @@ def pinyin_units(term):
             units.append(("syl", lazy_pinyin(part)[0]))
         elif re.search(r"[0-9a-z一-鿿]", part):
             return None  # 带数字等：不按拼音猜
-    return units or None
+    return tuple(units) or None
 
 
 def pinyin_match(item_syllables, units):
@@ -193,11 +201,42 @@ def _gap_match(hay, term):
 STAR_BOOST = 1.15  # ★ 只做小幅加成：目录页 catalog-search.js 和 rank() 同一个数
 
 
-def match(item, terms, *, require_all=False):
+# ── CJK 复合词子词回退（R1）：短查询（≤ SUBWORD_MAX_TERMS 个词）里的中文词（2–4 个字）整词全库只中 ≤ SUBWORD_MAX_HITS 篇、
+# 整个查询也只找回这么几篇时，
+# 把它拆成单字参与匹配（「面点」→「面」「点」），但降权：BM25 里一个字的命中最多抵整词命中的一半、不算覆盖加成；
+# 关键词筛选里算「可能相关」（kind subword），排在原词命中之后。目录页 catalog-search.js 同一规则（subwordParts / SUBWORD_*）。
+GENERIC_DF = 0.4  # 全库四成以上的篇都有的词算泛（同 ask.EXPAND_GENERIC、recall_core.GENERIC_DF）
+SUBWORD_MAX_HITS = 2
+SUBWORD_MAX_TERMS = 3      # 只给短查询（「面点」这种一两个词的）：长句子别的词已经够召回，拆字只会添噪声
+SUBWORD_WEIGHT = 0.3       # BM25：一个字的得分 × 这个数
+SUBWORD_FIELD_SCALE = 0.05  # 关键词筛选：每个字取它最好的字段权重 × 这个数，几个字相加
+_SUB_FUNC = set("的了吗呢吧啊呀么嘛哦着过得地是在有和与或及把被给让那这个们也都就还又再很太")
+
+
+def subword_parts(term, others=()):
+    """中文词 → 拆出的单字（去虚字）；不是 2–4 个汉字、或查询里已经有它的子串（已经拆过）→ []。"""
+    term = norm(term)
+    if not re.fullmatch(r"[一-鿿]{2,4}", term) or any(o != term and o and o in term for o in map(norm, others)):
+        return []
+    parts = [c for c in dict.fromkeys(term) if c not in _SUB_FUNC]
+    return parts if parts and parts != [term] else []
+
+
+def _subword_score(fs, parts):
+    total = 0.0
+    for part in parts:
+        # cats 不算（目录页的字段里没有它）
+        total += max((WEIGHTS.get(key, 1) for key, text in fs.items() if key != "cats" and part in text), default=0) * SUBWORD_FIELD_SCALE
+    return total
+
+
+def match(item, terms, *, require_all=False, subword=(), fs=None):
     """(分数, 是否模糊)。原词（含同义词）命中按字段权重计分；原词不中才认拼写相近 / 拼音整音节，
     这类命中记 fuzzy=True，调用方把它放进「可能相关」，排在原词命中之后（与目录页同一套规则）。
-    第 10 批：英文按词边界（has），cafeine 不再命中 ai。"""
-    fs = {key: norm(value) for key, value in fields(item).items()}
+    第 10 批：英文按词边界（has），cafeine 不再命中 ai。
+    subword：允许子词回退的词（见 subword_parts；调用方按全库命中数判过），其余模糊都不中时按单字算低分「可能相关」。
+    fs：这篇各字段 norm 过的全文（调用方从 _documents 缓存里给，省得每次重算）。"""
+    fs = fs if fs is not None else {key: norm(value) for key, value in fields(item).items()}
     total = 0.0
     fuzzy = False
     for term in terms:
@@ -221,6 +260,10 @@ def match(item, terms, *, require_all=False):
             best, fuzzy = 2, True
         if not best and not latin_short and _gap_match(" ".join(fs.values()), term):
             best, fuzzy = 1, True
+        if not best and term in subword:
+            sub = _subword_score(fs, subword_parts(term))
+            if sub:
+                best, fuzzy = sub, True
         if not best and require_all:
             return 0, False
         total += best
@@ -239,6 +282,8 @@ def _documents(items):
     global _RANK_CACHE
     if _RANK_CACHE[0] is not items:
         documents = [{k: norm(v) for k, v in fields(it).items()} for it in items]
+        _RANK_MEMO.clear()
+        _STATS_MEMO.clear()
         averages = {k:sum(len(doc.get(k,'')) for doc in documents)/max(1,len(documents)) or 1 for k in WEIGHTS}
         _RANK_CACHE = (items, (documents, averages))
     return _RANK_CACHE[1]
@@ -252,6 +297,10 @@ def term_stats(items, term):
 
     问答判断追问用：人名、地名这类话题词大多出现在标题标签里；「调料」「价格」「步骤」这类属性词几乎只在正文里。"""
     documents, _ = _documents(items)
+    key = (id(documents), str(term))
+    hit = _STATS_MEMO.get(key)
+    if hit is not None:
+        return hit
     vs = variants(term)
     anywhere = meta = 0
     for doc in documents:
@@ -259,38 +308,82 @@ def term_stats(items, term):
             anywhere += 1
             if any(has(doc.get(k, ""), v) for v in vs for k in _META_KEYS):
                 meta += 1
+    if len(_STATS_MEMO) >= 2048:
+        _STATS_MEMO.clear()
+    _STATS_MEMO[key] = (anywhere, meta)
     return anywhere, meta
 
 
-def rank(items, terms):
-    """BM25 字段加权；同分保持稳定 ID 顺序，不按日期偏向新收藏。"""
-    import math
+_STATS_MEMO: dict = {}  # term_stats 按 (这份规范化全文, 词) 记：一问里扩词过滤、话题词、窗口判泛都要问同一个词（R1 10-04）
+
+
+def _bm25(documents, averages, term, aliases=True, best_field=False):
+    """一个词在各篇的字段加权 BM25 词频分（同义词 ×0.75，取最好的那个说法）。各字段相加；best_field = 只取最好的那个字段（泛词用）。"""
+    vs = variants(term) if aliases else [norm(term)]
+    counts = []
+    for doc in documents:
+        best = 0
+        for v in vs:
+            value = 0
+            for k, text in doc.items():
+                tf = count(text, v)
+                if tf:
+                    # Saturate within each field: a long attachment must not erase a title hit.
+                    length = min(len(text)/averages.get(k, 1), 3)
+                    part = WEIGHTS.get(k, 1)*tf*2.2/(tf+1.2*(.25+.75*length))
+                    value = max(value, part) if best_field else value + part
+            best = max(best, value*(1 if v == term else .75))
+        counts.append(best)
+    return counts
+
+
+_RANK_MEMO: dict = {}
+
+
+def rank(items, terms, *, subword=True):
+    """BM25 字段加权；同分保持稳定 ID 顺序，不按日期偏向新收藏。
+    同一份 items、同一组词一问里会被几处要（宽召回核心、追问、多主题），结果按 (items, 词) 记最近几份，返回副本。
+    subword：允不允许 CJK 子词回退（见 _rank）。只给她原话里的词；扩词 / 二轮反馈词这类单开一路的词一律 False——
+    它们本来就是稀有的专名（「布里斯班」整词只中 2 篇），拆成「布」「里」「斯」「班」会把几百篇不相干的拉进融合（10-04 实测）。"""
     if not terms:
         return []
+    documents, _ = _documents(items)
+    key = (id(documents), tuple(map(str, terms)), bool(subword), tuple(bool(it.get("starred")) for it in items))
+    hit = _RANK_MEMO.get(key)
+    if hit is not None:
+        return list(hit)
+    out = _rank(items, terms, subword=subword)
+    if len(_RANK_MEMO) >= 64:
+        _RANK_MEMO.clear()
+    _RANK_MEMO[key] = out
+    return list(out)
+
+
+def _rank(items, terms, subword=True):
+    import math
     documents, averages = _documents(items)
     totals = [0.0] * len(items)
     covered = [0] * len(items)
+    whole = {}
+    raw = {term: _bm25(documents, averages, term) for term in dict.fromkeys(terms)}
+    dfs = {term: sum(tf > 0 for tf in counts) for term, counts in raw.items()}
+    generic = {term for term, df in dfs.items() if df >= len(items) * GENERIC_DF}
+    # 泛词只算最好的那个字段（R1 10-04）：问题里既有泛词（全库四成以上都有，如「ai」）又有不泛的词时，泛词的 idf 虽低，
+    # 可它在标题 / 标签 / 正文 / 附件里处处都中，逐字段累加起来，一篇只沾「ai」的能压过只在长附件里提到一次「回避」的篇
+    # （「ai 吵架 回避」金标第 4 篇词法排 #103，前面八十来篇只沾 ai）。只取最好字段后它排 #21；
+    # 31 题 capped recall@20 0.867 → 0.878，池覆盖持平。只有泛词的问题（就问「AI」）照旧逐字段累加。
+    if generic and any(df and term not in generic for term, df in dfs.items()):
+        raw.update({term: _bm25(documents, averages, term, best_field=True) for term in generic})
     for term in terms:
-        vs = variants(term)
-        counts=[]
-        for doc in documents:
-            best=0
-            for v in vs:
-                value=0
-                for k,text in doc.items():
-                    tf=count(text,v)
-                    if tf:
-                        # Saturate within each field: a long attachment must not erase a title hit.
-                        length=min(len(text)/averages.get(k,1),3)
-                        value+=WEIGHTS.get(k,1)*tf*2.2/(tf+1.2*(.25+.75*length))
-                best=max(best,value*(1 if v==term else .75))
-            counts.append(best)
-        df = sum(tf>0 for tf in counts)
+        counts = raw[term]
+        df = dfs[term]
+        literal = df > 0
         if not df:
             # 原词哪篇都没有（多半是语音同音错字，如「西尼」）：退到拼音整音节，低权，只给标题/概要/标签读音相同的篇
             units = pinyin_units(term)
             counts = [1.0 if units and pinyin_match(item_syllables(it), units) else 0 for it in items]
             df = sum(tf>0 for tf in counts)
+        whole[term] = (counts, df, literal)
         if not df:
             continue
         idf = math.log(1 + (len(items)-df+.5)/(df+.5))
@@ -298,6 +391,25 @@ def rank(items, terms):
             if tf:
                 covered[i] += 1
                 totals[i] += idf * tf
+    # 子词回退（R1）：整个查询只找回 ≤ SUBWORD_MAX_HITS 篇时，稀有的中文复合词拆单字再找一遍，降权、不算覆盖，
+    # 而且一篇从子词拿到的分最多是整词命中里最低那篇的一半——整词命中永远排前
+    if subword and len(terms) <= SUBWORD_MAX_TERMS and sum(1 for value in totals if value > 0) <= SUBWORD_MAX_HITS:
+        floor = min((value for value in totals if value > 0), default=0)
+        for term in terms:
+            counts, df, literal = whole.get(term, ([], 0, False))
+            # 拼音整音节已经找回读音相同的篇（同音错字）：那才是她要的，不再拆字
+            parts = subword_parts(term, terms) if df <= SUBWORD_MAX_HITS and (literal or not df) else []
+            for part in parts:
+                pc = _bm25(documents, averages, part, aliases=False)
+                pdf = sum(tf > 0 for tf in pc)
+                if not pdf:
+                    continue
+                pidf = math.log(1 + (len(items)-pdf+.5)/(pdf+.5))
+                for i, tf in enumerate(pc):
+                    if tf and not (counts and counts[i]):
+                        totals[i] += SUBWORD_WEIGHT * pidf * tf
+        if floor:
+            totals = [value if covered[i] else min(value, floor * .5) for i, value in enumerate(totals)]
     # ★（磁吸）是显式信号：轻微上浮，别盖过内容相关性
     hits = [(value * (1 + .15 * covered[i]) * (STAR_BOOST if it.get('starred') else 1), it)
             for i,(value,it) in enumerate(zip(totals,items)) if value>0]
@@ -325,6 +437,15 @@ def semantic_hits(question):
         from . import semantic
         return semantic.query_hits(question)
     except Exception:  # noqa: BLE001 - fail-open：语义层缺失/损坏不许影响词法路径
+        return None
+
+
+def semantic_deep(question):
+    """语义一路的续取（R1）：相对下限以上的全部篇，不截前 TOP_ITEMS。同一问的查询向量有缓存，不多调接口。失败 = None。"""
+    try:
+        from . import semantic
+        return semantic.query_hits(question, top_items=None)
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -593,28 +714,72 @@ def split_phrase(term, items):
     return got if got and len(got) > 1 else [term]
 
 
-def search(query, limit=20):
-    from .ask import load_items, query_terms
-    from . import storage
-    items = load_items()
-    terms = [part for x in query.split() if x.strip() for part in split_phrase(norm(x), items)]
-    tag_query = query.startswith("#")
-    hits = []
-    for item in items:
-        if tag_query:
-            s, fuzzy = (10 if any(norm(t).lstrip("#") in query.lower().split("#")[1:] for t in item.get("tags", [])) else 0), False
-        else:
-            s, fuzzy = match(item, terms, require_all=True) if terms else (1, False)
-        if s:
-            hits.append((s, fuzzy, item))
-    if not hits and not tag_query:
-        fallback = query_terms(query)
-        hits = [(s, fuzzy, it) for it in items for s, fuzzy in [match(it, fallback)] if s > 0]
+def _keyword_sort(hits):
     # 与目录页同口径：原词命中在前、「可能相关」在后；组内 分数 × 星标加成，同分星标在前，再同分新收藏在前
     hits.sort(key=lambda x: (not x[1], x[0] * (STAR_BOOST if x[2].get("starred") else 1),
                              bool(x[2].get("starred")), x[2].get("ts", "")), reverse=True)
+    return hits
+
+
+def keyword_terms(query, items):
+    return [part for x in str(query or "").split() if x.strip() for part in split_phrase(norm(x), items)]
+
+
+def keyword_hits(query, items):
+    """目录页关键词筛选的 Python 版（与 catalog-search.js rankItems 同规则）：[(分数, 是否可能相关, item)]，已排好序。
+    多个词都要中（AND）；整个查询原词只中 ≤ SUBWORD_MAX_HITS 篇时，稀有中文词再按单字找一遍（只进「可能相关」）。
+    lb_search 和宽召回核心（recall_core 的 keyword 一路）都用它。"""
+    query = str(query or "").strip()
+    tag_query = query.startswith("#")
+    terms = keyword_terms(query, items)
+    documents, _ = _documents(items)
+    hits = []
+    for item, doc in zip(items, documents):
+        if tag_query:
+            s, fuzzy = (10 if any(norm(t).lstrip("#") in query.lower().split("#")[1:] for t in item.get("tags", [])) else 0), False
+        else:
+            s, fuzzy = match(item, terms, require_all=True, fs=doc) if terms else (1, False)
+        if s:
+            hits.append((s, fuzzy, item))
+    if terms and not tag_query and len(terms) <= SUBWORD_MAX_TERMS and sum(1 for _, fuzzy, _ in hits if not fuzzy) <= SUBWORD_MAX_HITS:
+        documents, _ = _documents(items)
+        def literal_df(t):
+            return sum(1 for doc in documents if any(has(text, v) for v in variants(t) for k, text in doc.items() if k != "cats"))
+
+        def homophone(t):  # 原词一篇没有、拼音整音节找回了读音相同的篇（同音错字）：那才是她要的，不再拆字
+            units = pinyin_units(t)
+            return bool(units) and any(pinyin_match(item_syllables(it), units) for it in items)
+
+        rare = set()
+        for t in terms:
+            if subword_parts(t):
+                df = literal_df(t)
+                if df <= SUBWORD_MAX_HITS and not (df == 0 and homophone(t)):
+                    rare.add(t)
+        if rare:
+            have = {id(it) for _, _, it in hits}
+            for item, doc in zip(items, documents):
+                if id(item) in have:
+                    continue
+                s, fuzzy = match(item, terms, require_all=True, subword=rare, fs=doc)
+                if s:
+                    hits.append((s, True, item))
+    return _keyword_sort(hits)
+
+
+def search(query, limit=20, offset=0):
+    from .ask import load_items, query_terms
+    from . import storage
+    items = load_items()
+    hits = keyword_hits(query, items)
+    if not hits and not query.startswith("#"):
+        fallback = query_terms(query)
+        hits = _keyword_sort([(s, fuzzy, it) for it in items for s, fuzzy in [match(it, fallback)] if s > 0])
+    terms = keyword_terms(query, items)
+    offset = max(0, int(offset or 0))
+    page = hits[offset:offset + max(0, int(limit))]
     results = []
-    for s, fuzzy, it in hits[:limit]:
+    for s, fuzzy, it in page:
         results.append({"item_id": it["id"], "title": it["title"], "score": s, "starred": bool(it.get("starred")),
                         "match": "possible" if fuzzy else "exact",
                         "excerpts": excerpts(it, terms, 700), "url": it.get("url"),
@@ -622,7 +787,11 @@ def search(query, limit=20):
                         "agent_md": str(storage.vault_root() / it["agent_md"]) if it.get("agent_md") else None,
                         "attachments": it.get("attachment_files", []), "tags": it.get("tags", []),
                         "summary": it.get("summary", ""), "first_archived": it.get("date", "")})
-    return {"status": "ok", "query": query, "total": len(hits), "results": results, "found": len(results), "items": [{k: row[k] for k in ("item_id", "title", "summary", "tags", "url", "first_archived")} for row in results]}
+    end = offset + len(results)
+    # total = 一共找到几篇；found = 这一页给了几篇（旧键，含义不变）；has_more / next_offset = 还有没有、从哪续取
+    return {"status": "ok", "query": query, "total": len(hits), "results": results, "found": len(results),
+            "offset": offset, "next_offset": end if end < len(hits) else None, "has_more": end < len(hits),
+            "items": [{k: row[k] for k in ("item_id", "title", "summary", "tags", "url", "first_archived")} for row in results]}
 
 
 def _web_url(note):
@@ -633,18 +802,23 @@ def _web_url(note):
     return base+'/'+quote(note) if base else None
 
 
-def retrieve_payload(question, top_k=8):
-    """与问答共享 BM25 和摘录；给 Fable 返回材料，不调用模型。"""
+def retrieve_payload(question, top_k=8, offset=0):
+    """与问答共用宽召回核心（recall_core.candidates：同一个候选集、同一个顺序）和摘录；给 Fable 返回材料，不调作答模型。
+    条数只由 top_k（这一页几篇，封顶 20）和 offset（从第几篇续取）决定；total = 候选集一共几篇。"""
     import os
     from urllib.parse import quote
-    from .ask import load_items, query_terms
-    terms=query_terms(question)
-    sem=semantic_hits(question)
-    hits=rank_query(load_items(),question,terms,sem=sem)
+    from .ask import load_items
+    from . import recall_core
+    # 不现调扩词小模型（README：lb_retrieve 不花模型钱）：只用问收藏已经算过的扩词缓存，没缓存 = 不扩
+    found=recall_core.candidates(question,load_items(),allow_expand_call=False)
+    terms,sem=found["terms"]+found["expansion"]["terms"],found["sem"]
     count=max(1,min(20,top_k))
-    budget=max(100,2500//min(count,len(hits) or 1))
+    rows,info=recall_core.page(found,offset,count)
+    scores=found.get("scores") or {}
+    budget=max(100,2500//max(1,min(count,len(rows) or 1)))
     results=[]
-    for value,it in hits[:count]:
+    for it in rows:
+        value=scores.get(it['id'],0.0)
         note=it.get('note') or ''
         parts=evidence(it,terms,budget,sem)  # 命中 chunk 的原文优先充当证据，词法窗口补足预算
         results.append({'item_id':it['id'],'title':it['title'],'score':round(value,3),
@@ -654,4 +828,6 @@ def retrieve_payload(question, top_k=8):
             'source_url':it.get('url'),'has_attachments':bool(it.get('attachment_files')),
             'has_transcript':bool((it.get('search_fields') or {}).get('transcript')),
             'starred':bool(it.get('starred')),'starred_at':it.get('starred_at')})
-    return {'status':'ok','query':question,'total':len(hits),'results':results,'model_called':False}
+    return {'status':'ok','query':question,'total':info['total'],'results':results,'model_called':False,
+            'offset':info['offset'],'next_offset':info['next_offset'],'has_more':info['has_more'],
+            'expand_status':found["expansion"].get("status")}

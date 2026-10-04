@@ -25,7 +25,28 @@ function itemText(it) { const fs = it.search_fields; return (fs ? Object.values(
 const SEARCH_WEIGHTS = {title:12,tags:10,notes:10,body:7,attachments:6,transcript:6,ocr:5,comments:3,summary:2,author:1};
 const SEARCH_FIELD_LABELS = {title:'标题',tags:'标签',notes:'批注',body:'正文',attachments:'附件',transcript:'视频转写',ocr:'图片文字',comments:'评论',summary:'概要',author:'作者'};
 const STAR_BOOST = 1.15;
-const FUZZY_LABELS = {ocrbits:'图片里的零散字母', pinyin:'拼音相近', typo:'标题错字', gap:'漏字'};
+const FUZZY_LABELS = {ocrbits:'图片里的零散字母', pinyin:'拼音相近', typo:'标题错字', gap:'漏字', subword:'拆字'};
+// ── CJK 复合词子词回退（R1，与 retrieval.subword_parts / keyword_hits 同一规则）：短查询（≤3 个词）原词只中 ≤2 篇时，
+// 全库只中 ≤2 篇的中文词（2–4 个字，没被同音拼音找回）拆成单字再找一遍：「面点」→「面」「点」。只进「可能相关」（kind subword），
+// 分数 = 每个字最好的字段权重 × 0.05 相加，排在原词命中之后。
+const SUBWORD_MAX_HITS = 2, SUBWORD_MAX_TERMS = 3, SUBWORD_FIELD_SCALE = 0.05;
+const SUB_FUNC = new Set('的了吗呢吧啊呀么嘛哦着过得地是在有和与或及把被给让那这个们也都就还又再很太');
+function subwordParts(term, others = []) {
+  term = normalize(term);
+  if (!/^[一-鿿]{2,4}$/.test(term) || others.some(o => { o = normalize(o); return o && o !== term && term.includes(o); })) return [];
+  const parts = [...new Set(term)].filter(c => !SUB_FUNC.has(c));
+  return parts.length && !(parts.length === 1 && parts[0] === term) ? parts : [];
+}
+function subwordHit(fs, parts) {
+  let total = 0, best = null;
+  for (const part of parts) {
+    let w = 0, field = '';
+    for (const [key, text] of Object.entries(fs)) { const kw = SEARCH_WEIGHTS[key] || 1; if (kw > w && text.includes(part)) { w = kw; field = key; } }
+    total += w * SUBWORD_FIELD_SCALE;
+    if (w && (!best || w > best.w)) best = {w, field, part};
+  }
+  return total ? {score: total, field: best.field, variant: best.part} : null;
+}
 const searchCache = new WeakMap();
 function searchFields(it) {
   let fs = searchCache.get(it);
@@ -96,7 +117,7 @@ function pinyinMatch(sylls, units) {
   return false;
 }
 // 一篇对一个查询的命中明细：{score, fuzzy, hits:[{term, kind, field, variant}]}；不中返回 null。
-function matchItem(it, query, chars = {}, aliases = []) {
+function matchItem(it, query, chars = {}, aliases = [], opts = {}) {
   const q = normalize(query);
   if (!q) return {score: 1, fuzzy: false, hits: []};
   if (q.startsWith('#')) {
@@ -129,6 +150,10 @@ function matchItem(it, query, chars = {}, aliases = []) {
       if (p >= 0 && p-start <= term.length*2) { gap = true; break; }
     }
     if (gap) { total += 1; hits.push({term, kind: 'gap', field: ''}); continue; }
+    if (opts.subword && opts.subword.has(term)) {
+      const sub = subwordHit(fs, subwordParts(term));
+      if (sub) { total += sub.score; hits.push({term, kind: 'subword', field: sub.field, variant: sub.variant}); continue; }
+    }
     return null;
   }
   return {score: total, fuzzy, hits};
@@ -146,6 +171,31 @@ function rankItems(list, query, chars = {}, aliases = []) {
     Object.defineProperty(row, 'hit', {enumerable: true, get() { if (info === undefined) info = hitInfo(it, m); return info; }});
     (m.fuzzy ? possible : exact).push(row);
   });
+  // 子词回退（R1）：短查询、原词只中 ≤2 篇时，稀有中文词拆单字再找一遍（只补进「可能相关」）
+  const q = normalize(query), terms = q.startsWith('#') ? [] : q.split(/\s+/).filter(Boolean);
+  if (terms.length && terms.length <= SUBWORD_MAX_TERMS && exact.length <= SUBWORD_MAX_HITS) {
+    const rare = new Set(terms.filter(t => {
+      if (!subwordParts(t).length) return false;
+      const vs = termVariants(t, aliases);
+      const df = list.filter(it => Object.values(searchFields(it)).some(text => vs.some(v => hasTerm(text, v)))).length;
+      if (df > SUBWORD_MAX_HITS) return false;
+      const units = df ? null : pinyinUnits(t, chars);
+      return !(units && list.some(it => pinyinMatch(itemSyllables(it), units)));
+    }));
+    if (rare.size) {
+      const seen = new Set([...exact, ...possible].map(r => r.it));
+      list.forEach((it, index) => {
+        if (seen.has(it)) return;
+        const m = matchItem(it, query, chars, aliases, {subword: rare});
+        if (!m || m.score <= 0) return;
+        m.fuzzy = true;
+        const row = {it, score: m.score, rank: m.score * (it.starred ? STAR_BOOST : 1), match: m, index};
+        let info;
+        Object.defineProperty(row, 'hit', {enumerable: true, get() { if (info === undefined) info = hitInfo(it, m); return info; }});
+        possible.push(row);
+      });
+    }
+  }
   const order = (a, b) => b.rank - a.rank || Number(!!b.it.starred) - Number(!!a.it.starred) || a.index - b.index;
   return {exact: exact.sort(order), possible: possible.sort(order)};
 }
@@ -218,7 +268,7 @@ function hitExcerpt(it, m, width = 120) {
 //  snippet: {field, label, text, marks: [[起, 止]…]} | null}
 // kind = 这一篇里最弱的那种命中（错字 > 拼音 > 漏字 > 图片里的零散字母 > 同义词 > 原词）；低置信度 = 前四种，或换了语种的同义词（做梦 → dream）。
 // snippet 优先给低置信度那个词的出处：同义词按原文摘一段；错字 / 拼音 / 漏字（原文里没有这个词）给标题。
-const HIT_ORDER = ['typo', 'pinyin', 'gap', 'ocrbits', 'alias'];
+const HIT_ORDER = ['subword', 'typo', 'pinyin', 'gap', 'ocrbits', 'alias'];
 const isLatin = s => /[a-z0-9]/.test(s) && !/[一-鿿]/.test(s);
 function crossLanguage(h) { return h.kind === 'alias' && !!h.variant && isLatin(h.term) !== isLatin(h.variant); }
 function hitInfo(it, m) {

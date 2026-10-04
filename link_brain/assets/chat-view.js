@@ -32,6 +32,17 @@ session.pinned = idList(session.pinned);
 // 10-04 追问绑定来源：'sources'（默认）= 有上一轮回答时，追问只在它留下的来源里答、不重新检索；'search' = 她点了「改为重新搜」
 session.follow = session.follow === 'search' ? 'search' : 'sources';
 archive.entries = Array.isArray(archive.entries) ? archive.entries : [];
+// 10-04 ⑤ 历史：每段对话一个 id；所有问答默认自动存进历史（_archive/chat-history/<id>.json + index.json），「清空」只是开始新的一段。
+// 隐私模式（session.private）是个开关：开着时这段对话照样留在当前页（chat-session.json，换页回来还在），但不进历史；清空即没。
+// 旧的 chat-session.json 没有 id：这里补一个，第一次写盘时连同它的轮次一起进历史（旧数据不丢）。
+session.id = typeof session.id === 'string' && session.id ? session.id : uid();
+session.startedAt = session.startedAt || session.turns.find(t => t.askedAt)?.askedAt || new Date().toISOString();
+session.private = !!session.private;
+const HISTORY_DIR = lbPath('_archive/chat-history');
+const HISTORY_INDEX = HISTORY_DIR + '/index.json';
+const historyFile = id => `${HISTORY_DIR}/${String(id).replace(/[^\w-]/g, '')}.json`;
+let hist = { conversations: [] };
+try { const h = JSON.parse(await app.vault.adapter.read(HISTORY_INDEX)); if (Array.isArray(h.conversations)) hist = { conversations: h.conversations.filter(c => c && typeof c.id === 'string') }; } catch {}
 
 // 草稿（正在打的字）只存 sessionStorage（§5.3）：以前每敲一个字都写 vault 里的 chat-session.json，会让别的页跟着刷新
 const pageState = LB.state.load();
@@ -43,7 +54,31 @@ const notice = (msg, ms = 8000) => { try { new Notice(msg, ms); } catch { window
 const NOT_SAVED = '没保存上，内容还在，可重试：';
 const errText = e => (e && e.message) || String(e || '未知原因');
 const writeJson = (file, obj, pretty) => app.vault.adapter.write(file, pretty ? JSON.stringify(obj, null, 2) : JSON.stringify(obj));
-const saveSession = () => writeJson(SESSION_PATH, { turns: session.turns, excluded: session.excluded, pinned: session.pinned, follow: session.follow });
+const sessionSnapshot = () => JSON.parse(JSON.stringify({ id: session.id, startedAt: session.startedAt, turns: session.turns, excluded: session.excluded, pinned: session.pinned, follow: session.follow, private: session.private }));
+const firstQuestion = turns => (turns.find(t => t.role === 'user')?.content || '').trim();
+const ensureHistoryDir = async () => { try { if (!(await app.vault.adapter.exists?.(HISTORY_DIR))) await app.vault.adapter.mkdir?.(HISTORY_DIR); } catch {} };
+// 当前这段写进历史：对话文件 + 目录（index 只放 id / 时间 / 第一问，列表不用读全部对话）
+async function saveToHistory(current) {
+  if (current.private || !current.turns.length) return;
+  await ensureHistoryDir();
+  await writeJson(historyFile(current.id), current);
+  const entry = { id: current.id, startedAt: current.startedAt, updatedAt: new Date().toISOString(), title: firstQuestion(current.turns).slice(0, 120), turns: current.turns.filter(t => t.role === 'user').length };
+  const next = { conversations: [entry, ...hist.conversations.filter(c => c.id !== current.id)] };
+  await writeJson(HISTORY_INDEX, next);
+  hist = next;
+}
+async function dropFromHistory(ids) {
+  const gone = new Set(ids);
+  const next = { conversations: hist.conversations.filter(c => !gone.has(c.id)) };
+  await writeJson(HISTORY_INDEX, next);
+  hist = next;
+  for (const id of gone) { try { await app.vault.adapter.remove?.(historyFile(id)); } catch {} }   // 目录里已经摘掉了，文件删不掉只是留个孤儿
+}
+const saveSession = async () => {
+  const current = sessionSnapshot();
+  await writeJson(SESSION_PATH, current);
+  await saveToHistory(current);
+};
 const saveArchive = () => writeJson(ARCHIVE_PATH, archive, true);
 // 对话轮次：内存里已经显示了，写不进文件只影响「重开页面还在不在」——如实说一句，不打断作答
 const keepSession = async () => { try { await saveSession(); } catch (e) { notice('对话没写进文件，重开这一页会丢：' + errText(e)); } };
@@ -58,6 +93,7 @@ async function archiveChange(mutate) {
 // 「加入对照」把这一篇放到来源窗格下方对照；「退出对照」关掉下方那格；「收起来源」右侧全关。整段文字单击不再打开任何东西。
 const openNote = (source,compare=false,context="") => {
   const src=typeof source==='string'?{note:source}:source;
+  if (src?.source_kind === 'saved') { setLane('archive').then(() => { const item = [...bodyEl.querySelectorAll('.lbchat-arc-item')].find(el => el.dataset.savedId === String(src.saved_id)); if(item){item.open=true;item.scrollIntoView?.({block:'nearest'});} }); return; }
   const chunks=(src?.excerpts||[]).filter(p=>p.field==='body'||p.field==='comments');
   if(context){const normalized=context.replace(/\s/g,'').toLowerCase();const score=p=>{const text=String(p.text).replace(/\s/g,'').toLowerCase();let n=0;for(let i=0;i<normalized.length-3;i++)if(text.includes(normalized.slice(i,i+4)))n++;return n;};chunks.sort((a,b)=>score(b)-score(a));}
   if(src?.note){userAt=0;dragging=false;}   // 点来源这一下不是在滚（之前滚到一半的不算）
@@ -207,7 +243,7 @@ style.textContent = `
 .lbchat .lbchat-composer{margin-top:24px;margin-bottom:14px;}.lbchat{height:calc(100vh - 80px);}
 .lbchat-hist{background:transparent;border:0;color:var(--text-muted);cursor:pointer;padding:6px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;transition:color .12s,background .12s;}
 .lbchat-hist:hover{color:var(--text-normal);background:var(--background-modifier-hover);}
-.lbchat-histpanel{position:fixed;width:320px;max-height:60vh;overflow:auto;background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.22);padding:6px;z-index:9999;}
+.lbchat-histpanel{position:fixed;width:360px;max-height:60vh;overflow:auto;background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.22);padding:6px;z-index:9999;}
 .lbchat-histhead{display:flex;align-items:center;justify-content:space-between;padding:6px 8px 8px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--background-modifier-border);margin-bottom:4px;}
 .lbchat-histclear{cursor:pointer;font-size:12px;color:var(--text-error,#e5534b);background:transparent;border:0;padding:2px 6px;border-radius:6px;}
 .lbchat-histclear:hover{background:var(--background-modifier-hover);}
@@ -276,6 +312,56 @@ style.textContent = `
 .lbchat-srcrow > a{flex:1 1 auto;min-width:0;margin:0;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--link-color);text-decoration:none;}
 .lbchat-srcrow > a:hover{text-decoration:underline;}
 .lbchat-srcrow-acts{flex:none;display:flex;align-items:center;gap:12px;}
+/* ③ 多选：每行左边一个选中圈，悬停（或已有选中）才出现，样子同目录页卡片的圈（小一号） */
+.lbchat button.lbchat-src-check{flex:none;width:17px;height:17px;padding:0!important;margin:0;border-radius:50%!important;border:1.5px solid var(--text-faint)!important;background:var(--background-primary)!important;box-shadow:none!important;color:transparent;display:grid;place-items:center;cursor:pointer;opacity:0;transition:opacity .12s,background .12s;}
+.lbchat button.lbchat-src-check svg{width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;}
+.lbchat-srcrow:hover button.lbchat-src-check,.lbchat-srcrow:focus-within button.lbchat-src-check,.lbchat-selecting button.lbchat-src-check{opacity:1;}
+.lbchat button.lbchat-src-check:hover{border-color:var(--interactive-accent)!important;}
+.lbchat button.lbchat-src-check.is-on{opacity:1;background:var(--interactive-accent)!important;border-color:var(--interactive-accent)!important;color:var(--text-on-accent,#fff);}
+.lbchat-srcrow.is-picked{background:color-mix(in srgb,var(--interactive-accent) 7%,transparent);}
+.lbchat-src-kind{flex:none;font-size:10.5px;line-height:1.6;padding:0 6px;border-radius:999px;color:var(--interactive-accent);border:1px solid color-mix(in srgb,var(--interactive-accent) 45%,transparent);}
+.lbchat-src-bulk{display:flex;gap:16px;align-items:center;font-size:12px;margin:8px 0 2px;padding:7px 12px;border-radius:10px;background:var(--background-secondary);}
+.lbchat-src-bulk[hidden]{display:none;}
+.lbchat-src-bulkcount{color:var(--text-muted);margin-right:auto;}
+.lbchat .lbchat-src-bulk button.lbchat-act{font-size:12px;color:var(--text-normal);}
+.lbchat .lbchat-src-bulk button.lbchat-src-bulkdel:hover{color:var(--text-error,#e5534b);}
+/* ④ 「命中」：点了在该行下面展开 1–2 段命中原文（带字段身份：评论 c3 / 图2 / 我保存的） */
+.lbchat-src-hit{margin:0 0 4px 29px;padding:6px 10px;border-left:2px solid var(--background-modifier-border);color:var(--text-muted);font-size:12px;line-height:1.7;}
+.lbchat-src-hit[hidden]{display:none;}
+.lbchat-src-hit > div + div{margin-top:4px;}
+.lbchat .lbchat-srcrow button.lbchat-src-hitbtn.is-on{color:var(--text-normal);}
+/* ⑥ 已保存：默认只一行标题，点开才展开正文 */
+.lbchat-arc-item{margin:0;border-bottom:1px solid color-mix(in srgb,var(--background-modifier-border) 70%,transparent);}
+.lbchat-arc-item>summary.lbchat-arc-head{list-style:none;cursor:pointer;display:flex;align-items:baseline;gap:12px;padding:11px 2px;}
+.lbchat-arc-item>summary.lbchat-arc-head::-webkit-details-marker{display:none;}
+.lbchat-arc-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;color:var(--text-normal);}
+.lbchat-arc-head:hover .lbchat-arc-title{color:var(--interactive-accent);}
+.lbchat-arc-when{flex:none;font-size:11px;color:var(--text-faint);}
+.lbchat-arc-item[open]{padding-bottom:16px;}
+.lbchat-arc-item[open] .lbchat-arc-title{white-space:normal;font-weight:600;}
+/* ⑤ 隐私模式小字 + 历史面板 */
+.lbchat button.lbchat-privtag{font:inherit;font-size:11.5px;height:auto;padding:2px 8px;border-radius:999px!important;border:1px solid var(--background-modifier-border)!important;background:transparent!important;box-shadow:none!important;color:var(--text-muted);cursor:pointer;}
+.lbchat button.lbchat-privtag[hidden]{display:none;}
+.lbchat-hist.is-private{color:var(--interactive-accent);}
+.lbchat-histhead .lbchat-histtitle{font-weight:600;color:var(--text-normal);}
+.lbchat-histpriv{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-muted);cursor:pointer;}
+.lbchat-histpriv input{margin:0;accent-color:var(--interactive-accent);}
+.lbchat-histbar{display:flex;align-items:center;gap:12px;padding:6px 8px;margin:0 0 4px;border-radius:8px;background:var(--background-secondary);font-size:12px;color:var(--text-muted);}
+.lbchat-histbar span{margin-right:auto;}
+.lbchat-histpanel button.lbchat-histbtn{font:inherit;font-size:12px;height:auto;padding:2px 6px;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-normal);cursor:pointer;}
+.lbchat-histpanel button.lbchat-histdel{color:var(--text-error,#e5534b);}
+.lbchat-histpanel button.lbchat-histbtn:disabled{opacity:.4;cursor:default;}
+.lbchat-histday{padding:10px 8px 4px;font-size:11.5px;color:var(--text-faint);letter-spacing:.02em;}
+.lbchat-histpanel .lbchat-histitem{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;padding:5px 8px;border-radius:8px;white-space:normal;overflow:visible;cursor:default;}
+.lbchat-histpanel .lbchat-histitem:hover,.lbchat-histpanel .lbchat-histitem.is-picked{background:var(--background-modifier-hover);}
+.lbchat-histpanel .lbchat-histitem.is-current .lbchat-histq{font-weight:600;}
+.lbchat-histpanel button.lbchat-histq{flex:1 1 auto;min-width:0;text-align:left;font:inherit;font-size:13px;height:auto;padding:2px 0;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-normal);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lbchat-histnow{flex:none;font-size:10.5px;color:var(--interactive-accent);}
+.lbchat-histtime{flex:none;font-size:11px;color:var(--text-faint);font-variant-numeric:tabular-nums;}
+.lbchat-histpanel button.lbchat-src-check{flex:none;width:16px;height:16px;padding:0!important;border-radius:50%!important;border:1.5px solid var(--text-faint)!important;background:var(--background-primary)!important;box-shadow:none!important;color:transparent;display:grid;place-items:center;cursor:pointer;opacity:0;}
+.lbchat-histpanel button.lbchat-src-check svg{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;}
+.lbchat-histpanel .lbchat-histitem:hover button.lbchat-src-check,.lbchat-histpanel button.lbchat-src-check.is-on,.lbchat-histpanel:has(.lbchat-histbar) button.lbchat-src-check{opacity:1;}
+.lbchat-histpanel button.lbchat-src-check.is-on{background:var(--interactive-accent)!important;border-color:var(--interactive-accent)!important;color:var(--text-on-accent,#fff);}
 .lbchat .lbchat-srcrow button.lbchat-src-pin,.lbchat .lbchat-srcrow button.lbchat-src-del{border:1px solid var(--background-modifier-border)!important;border-radius:999px;padding:0 10px;height:22px;line-height:20px;font-size:11.5px;color:var(--text-muted);background:var(--background-primary)!important;}
 .lbchat .lbchat-srcrow button.lbchat-src-del{padding:0 8px;font-size:13px;}
 .lbchat .lbchat-srcrow button.lbchat-src-pin:hover{color:var(--text-normal);border-color:var(--text-muted)!important;}
@@ -315,8 +401,8 @@ const browse=pageNav.createEl('button',{text:'浏览收藏'});browse.onclick=()=
 const ask=pageNav.createEl('button',{text:'问收藏',cls:'is-current'});ask.setAttribute('aria-current','page');
 const manage=tools.createEl('button',{cls:'lb-manage',text:'…'});
 manage.onclick=e=>provider()?.openAISettingsMenu(e);
-// 提问历史 logo：点开看本会话提过的问题，可一键清空
-const histBtn=tools.createEl('button',{cls:'lbchat-hist',attr:{'aria-label':'提问历史',title:'提问历史'}});
+// ⑤ 历史入口（时钟）：点开 = 全部历史对话，按天分组，点一行恢复；可多选删除；顶上「隐私模式」开关
+const histBtn=tools.createEl('button',{cls:'lbchat-hist',attr:{'aria-label':'历史对话',title:'历史对话（按天，点一段恢复）'}});
 histBtn.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l3.5 2"/></svg>';
 histBtn.onclick=e=>{e.stopPropagation();toggleHistory(histBtn);};
 const composer=wrap.createEl('form',{cls:'lbchat-composer'});
@@ -363,6 +449,26 @@ composer.onsubmit=e=>{e.preventDefault();const v=search.value.trim();if(!v)retur
 const nav = wrap.createEl('div', { cls: 'lbchat-nav' });
 const tabChat = tools.createEl('button', { cls: 'lbchat-tab', text: '对话' });
 const tabArch = tools.createEl('button', { cls: 'lbchat-tab', text: '已保存' });
+// 隐私模式开着时，时钟左边一枚小字「隐私模式」（点它 = 打开历史面板，开关在面板顶上）
+const privTag = tools.createEl('button', { cls: 'lbchat-privtag', text: '隐私模式', attr: { title: '隐私模式：这段对话不进历史（点开历史面板可关掉）' } });
+privTag.type = 'button';
+tools.insertBefore?.(privTag, histBtn);
+privTag.onclick = e => { e.stopPropagation(); toggleHistory(histBtn); };
+const paintPrivacy = () => { privTag.hidden = !session.private; histBtn.classList.toggle('is-private', !!session.private); };
+paintPrivacy();
+// 开 = 这段对话从历史里拿掉、之后也不进；关 = 现在这段（有轮次的话）存进历史。写盘失败原样放回并提示
+async function setPrivate(on) {
+  if (busy || !!on === session.private) return false;
+  const prevHist = hist;
+  session.private = !!on;
+  try {
+    if (on) { if (hist.conversations.some(c => c.id === session.id)) await dropFromHistory([session.id]); await writeJson(SESSION_PATH, sessionSnapshot()); }
+    else await saveSession();
+  } catch (e) { session.private = !on; hist = prevHist; notice(NOT_SAVED + errText(e)); paintPrivacy(); return false; }
+  paintPrivacy();
+  notice(on ? '隐私模式已开：这段对话不进历史' : '隐私模式已关：这段对话会存进历史', 2500);
+  return true;
+}
 
 
 const bodyEl = wrap.createEl('div', { cls: 'lbchat-body' });
@@ -464,7 +570,7 @@ async function drawChat() {
           const exportBtn=exportOptions.createEl('button',{cls:'lbchat-act',text:label});
           exportBtn.onclick=async()=>{exportBtn.disabled=true;exportBtn.setText(copy?'复制中…':'导出中…');try{await provider().exportArchiveBundle(currentSources.map(s=>s.id),bundleImages.checked,answerExportMd({...t,sources:currentSources,related:keptRelated,dropped}),{question:t.q||'当前问答',askedAt:t.askedAt||"unknown",copy});}catch(e){window.alert(e.message);}finally{exportBtn.disabled=false;exportBtn.setText(label);}};
         }
-        const details=acts.createEl('button',{cls:'lbchat-act',text:'展开重点细节'});details.disabled=busy;details.onclick=()=>submit('请继续展开上一答最相关的重点项，摘录原文重要细节，说明具体机制、触发条件和限制，区分作者说法和评论。');
+        const details=acts.createEl('button',{cls:'lbchat-act',text:'展开重点细节'});details.disabled=busy;details.onclick=()=>submit('请继续展开上一答最相关的重点项，摘录原文重要细节，说明具体机制、触发条件和限制，原帖内容和评论区分开写。');
         if(!t.savedId)t.savedId=archive.entries.find(e=>e.kind==='report'&&e.content===t.content)?.id;
         const saved=()=>archive.entries.some(e=>e.id===t.savedId);
         const save=acts.createEl('button',{cls:'lbchat-act lbchat-bookmark'});
@@ -521,20 +627,27 @@ function paintFollow() {
     sw.onclick = async () => { session.follow = bound ? 'search' : 'sources'; paintFollow(); await keepSession(); };
     followBar.createEl('span', { cls: 'lbchat-follow-sep', text: '·' });
   }
-  clearBtn = followBar.createEl('button', { cls: 'lbchat-follow-switch lbchat-clearall', text: '清空', attr: { title: '清空本会话的提问和回答（已保存的不受影响）' } });
+  clearBtn = followBar.createEl('button', { cls: 'lbchat-follow-switch lbchat-clearall', text: '清空', attr: { title: session.private ? '开始新对话（隐私模式：这段不进历史，清空后就没了）' : '开始新对话（这段已自动存进历史，右上角时钟里能找回）' } });
   clearBtn.type = 'button';
   clearBtn.onclick = () => clearSession();
   paintClear();
 }
-// ① 清空本会话（标题旁的「清空」和提问历史里的「一键清空」是同一个）：先确认；写盘失败就原样放回
+// ⑤ 「清空」（10-04 改）：只清当前页面显示、开始一段新对话，不删记录——这一段已经自动存在历史里（隐私模式下的不存，清了就没了）。
+// 不再弹确认（不删东西）。先确保当前这段进了历史，再换成新的一段；写盘失败原样放回
 async function clearSession() {
   if (busy || !session.turns.length) return false;
-  if (!window.confirm('清空本会话所有提问和回答？（已保存的回答不受影响）')) return false;
-  const prev = { turns: session.turns, excluded: session.excluded, pinned: session.pinned, follow: session.follow };
-  session.turns = []; session.excluded = []; session.pinned = []; session.follow = 'sources';
-  try { await saveSession(); } catch (e) { Object.assign(session, prev); notice('没清空：' + errText(e)); return false; }
-  saveDraft(''); lastTop = 0; stick = true; LB.state.patch({ scrollTop: 0 });
-  await drawChat();
+  const prev = sessionSnapshot(), prevHist = hist;
+  try { await saveToHistory(prev); } catch (e) { notice('没清空：这段对话没能存进历史，内容还在：' + errText(e)); return false; }
+  return startConversation(prev, prevHist);
+}
+async function startConversation(prev = sessionSnapshot(), prevHist = hist, next = null) {
+  const keepPrivate = session.private;
+  Object.assign(session, next || { id: uid(), startedAt: new Date().toISOString(), turns: [], excluded: [], pinned: [], follow: 'sources' });
+  session.private = next ? false : keepPrivate;
+  try { await writeJson(SESSION_PATH, sessionSnapshot()); } catch (e) { Object.assign(session, prev); hist = prevHist; notice('没清空：' + errText(e)); return false; }
+  saveDraft(''); lastTop = 0; stick = true; LB.state.patch({ scrollTop: next ? undefined : 0 });
+  paintPrivacy();
+  if (lane !== 'chat') await setLane('chat'); else await drawChat();
   return true;
 }
 
@@ -552,11 +665,15 @@ async function drawArchive() {
     ta.value = ''; await drawArchive(); notice('已保存', 2000);
   };
   if (!archive.entries.length) { bodyEl.createEl('div', { cls: 'lbchat-empty', text: '还没有保存的内容。可以保存回答，或在上面记下自己的判断。' }); return; }
+  // ⑥ 已保存：默认每条只一行标题（回答 = 提问原话；自己写的判断 = 第一行），点开才展开正文
   for (const e of archive.entries) {
-    const item = bodyEl.createEl('div', { cls: 'lbchat-arc-item' });
+    const item = bodyEl.createEl('details', { cls: 'lbchat-arc-item' });
+    item.dataset.savedId=String(e.id);
+    const head = item.createEl('summary', { cls: 'lbchat-arc-head' });
+    head.createEl('span', { cls: 'lbchat-arc-title', text: (e.title || String(e.content || '').trim().split('\n')[0] || '未命名').replace(/^#+\s*/, '') });
+    head.createEl('span', { cls: 'lbchat-arc-when', text: fmtTs(e.ts) });
     const meta = item.createEl('div', { cls: 'lbchat-arc-meta' });
     meta.createEl('span', { cls: 'lbchat-arc-kind', text: e.kind === 'note' ? '判断' : 'AI 报告' });
-    meta.createEl('span', { text: fmtTs(e.ts) + (e.title ? ' · ' + e.title : '') });
     const edit=meta.createEl('button',{cls:'lbchat-act',text:'编辑'});edit.onclick=()=>editText(item,e,async()=>{await saveArchive();await drawArchive();});
     const del = meta.createEl('button', { cls: 'lbchat-arc-del', text: '✕' });
     del.onclick = async () => { if (await archiveChange(() => { archive.entries = archive.entries.filter(x => x.id !== e.id); })) { await drawArchive(); notice('已删除', 2000); } };
@@ -572,55 +689,109 @@ function drawSources(el, t) {
   const primary = t.sources || [], related = t.related || [];
   if (!primary.length && !related.length) return;
   const removed = new Set(t.removed || []);
-  // × = 本会话排除（可恢复）：记进这一轮的 removed（显示），也记进会话的 excluded（之后追问 / 重答都不再用）；排除压过保留
-  const remove = async src => { const k = srcKey(src); t.removed = [...removed, k]; session.excluded = idList([...session.excluded, k]); session.pinned = session.pinned.filter(x => x !== k); await keepSession(); await drawChat(); };
-  // 保留（pin）：这篇在本会话之后的追问 / 重答里一直带上；不锁死搜索范围，新来源照样能进
-  const togglePin = async src => { const k = src.id; session.pinned = session.pinned.includes(k) ? session.pinned.filter(x => x !== k) : idList([...session.pinned, k]); session.excluded = session.excluded.filter(x => x !== k); await keepSession(); await drawChat(); };
-  // 10-04 ⑥：每条来源一行（标题 + 右边一排按钮），「保留」和「×」是同样醒目的小按钮，已保留的实心带 ✓
-  const row = (box, src, label, full) => {
+  // 10-04 ③ 多选：两个列表的每行悬停出选中圈（同目录页），选了就在列表下面出一行「已选 N · 加入来源 · 删除 · 取消」。选中只在这一屏有效，不存盘
+  const selected = new Map();
+  let bulk = null, bulkCount = null;
+  const paintBulk = () => { if (!bulk) return; bulk.hidden = !selected.size; bulkCount.setText(`已选 ${selected.size} 条`); el.classList.toggle('lbchat-selecting', selected.size > 0); };
+  // 加入来源 = 「其他相关」里的提为主要依据，并且和主要依据里选中的一起「保留」（本会话之后的追问 / 重答都带上、排最前）
+  const promote = list => {
+    const ids = list.map(src => src.id).filter(Boolean);
+    if (!ids.length) return 0;
+    session.pinned = idList([...session.pinned, ...ids]);
+    session.excluded = session.excluded.filter(k => !ids.includes(k));
+    t.removed = (t.removed || []).filter(k => !ids.includes(k));
+    let next = Math.max(0, ...(t.sources || []).map(x => Number(x.citation) || 0));
+    const moved = (t.related || []).filter(src => ids.includes(src.id));
+    t.sources = [...(t.sources || []), ...moved.map(src => ({ ...src, citation: ++next, tier: 'primary', added: true }))];
+    t.related = (t.related || []).filter(src => !ids.includes(src.id));
+    t.added = idList([...(t.added || []), ...moved.map(src => src.id)]);   // 从「其他相关」提上来的才算「加入」（重答按钮写明含几条）
+    return ids.length;
+  };
+  // × / 删除 = 本会话排除（可恢复）：记进这一轮的 removed（显示），也记进会话的 excluded（之后追问 / 重答都不再用）；排除压过保留
+  const drop = list => {
+    const keys = list.map(srcKey).filter(Boolean);
+    t.removed = idList([...(t.removed || []), ...keys]);
+    session.excluded = idList([...session.excluded, ...keys]);
+    session.pinned = session.pinned.filter(k => !keys.includes(k));
+    t.added = (t.added || []).filter(k => !keys.includes(k));
+  };
+  const remove = async src => { drop([src]); await keepSession(); await drawChat(); };
+  // 单条「保留」：同「加入来源」（其他相关里的会提到主要依据）；再点一次取消保留（不挪回去）
+  const togglePin = async src => { const k = src.id; if (session.pinned.includes(k)) session.pinned = session.pinned.filter(x => x !== k); else promote([src]); await keepSession(); await drawChat(); };
+  const hitText = src => {
+    const parts = (src.excerpts || []).filter(p => p && p.text).slice(0, 2);
+    const clip = x => { const s = String(x || '').replace(/\s+/g, ' ').trim(); return s.length > 140 ? s.slice(0, 140) + '…' : s; };
+    if (parts.length) return parts.map(p => `${partWhere(p) || '原文'}：${clip(p.text)}`);
+    if (src.excerpt) return [`${partWhere({ field: src.excerpt_field || '' }) || '原文'}：${clip(src.excerpt)}`];
+    return [];
+  };
+  // 10-04 ④ 每行：选中圈 · 标题（点开原文；「我保存的」带小标）· 命中 · 保留 · ×（「查看」「加入对照」「复制来源」去掉了）
+  const row = (box, src, label) => {
     const line = box.createEl('div', { cls: 'lbchat-srcrow' });
+    const key = srcKey(src);
+    if (!busy && key) {
+      const pick = line.createEl('button', { cls: 'lbchat-src-check', attr: { role: 'checkbox', 'aria-checked': 'false', 'aria-label': '选中：' + (src.title || ''), title: '选中（可多选）' } });
+      pick.type = 'button';
+      pick.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+      pick.onclick = e => { e?.stopPropagation?.(); const on = !selected.has(key); if (on) selected.set(key, src); else selected.delete(key); pick.classList.toggle('is-on', on); pick.setAttribute('aria-checked', String(on)); line.classList.toggle('is-picked', on); paintBulk(); };
+    }
+    if (src.source_kind === 'saved') line.createEl('span', { cls: 'lbchat-src-kind', text: '我保存的' });
     const a = line.createEl('a', { text: label });
     const where = evidenceWhere(src);
     if (where) a.setAttribute('title', '命中：' + where);
     a.onclick = () => openNote(src);
     const acts = line.createEl('span', { cls: 'lbchat-srcrow-acts' });
-    const view = acts.createEl('button', { cls: 'lbchat-act', text: '查看' }); view.type = 'button'; view.onclick = () => openNote(src);
-    if (full) {
-      // 右侧已经开着来源时才有「加入对照」（没有来源可对照时不出现，免得第一次和第二次点行为不同）
-      const compare = acts.createEl('button', { cls: 'lbchat-act lbchat-addcmp', text: '加入对照' }); compare.type = 'button'; compare.onclick = () => openNote(src, true);
-      const copySource = acts.createEl('button', { cls: 'lbchat-act', text: '复制来源' }); copySource.onclick = async () => { await navigator.clipboard.writeText(sourceText(src)); copySource.setText('已复制'); };
+    const lines = hitText(src);
+    if (lines.length) {
+      const hit = acts.createEl('button', { cls: 'lbchat-act lbchat-src-hitbtn', text: '命中', attr: { title: '看这一篇命中的原文', 'aria-expanded': 'false' } }); hit.type = 'button';
+      // 命中原文就挂在这一行下面（同一个列表里，紧跟着它）；再点收起
+      const detail = box.createEl('div', { cls: 'lbchat-src-hit' }); detail.hidden = true;
+      for (const l of lines) detail.createEl('div', { text: l });
+      hit.onclick = () => { detail.hidden = !detail.hidden; const open = !detail.hidden; hit.setAttribute('aria-expanded', String(open)); hit.classList.toggle('is-on', open); };
     }
     if (!busy && src.id) { const on = session.pinned.includes(src.id); const pin = acts.createEl('button', { cls: 'lbchat-act lbchat-src-pin' + (on ? ' is-on' : ''), text: on ? '已保留' : '保留', attr: { title: on ? '取消保留' : '本会话后面的追问 / 重答都带上这篇（可取消）', 'aria-pressed': String(on) } }); pin.type = 'button'; pin.onclick = () => togglePin(src); }
-    if (!busy && srcKey(src)) { const x = acts.createEl('button', { cls: 'lbchat-act lbchat-src-del', text: '×', attr: { title: '从来源里删掉（本会话不再用，可恢复）' } }); x.type = 'button'; x.onclick = () => remove(src); }
+    if (!busy && key) { const x = acts.createEl('button', { cls: 'lbchat-act lbchat-src-del', text: '×', attr: { title: '从来源里删掉（本会话不再用，可恢复）' } }); x.type = 'button'; x.onclick = () => remove(src); }
   };
   // 收起时 summary 后面的浅色小字（默认仍收起，她 10-03 验收过）；展开就不再提示
   const summaryOf = (box, text, list, hint) => {
     const s = box.createEl('summary'); s.appendText(text);
     const kept = list.filter(x => x.id && session.pinned.includes(x.id)).length;
     if (kept) s.createEl('span', { cls: 'lbchat-src-kept', text: `已保留 ${kept}` });
-    if (hint && !busy) s.createEl('span', { cls: 'lbchat-src-hint', text: '点开可保留 / 删除来源' });
+    if (hint && !busy) s.createEl('span', { cls: 'lbchat-src-hint', text: '点开可多选 / 保留 / 删除来源' });
   };
   const keptPrimary = primary.filter(s => !removed.has(srcKey(s))), keptRelated = related.filter(s => !removed.has(srcKey(s)));
   let hinted = false;
   if (keptPrimary.length || !related.length) {
     const refs = el.createEl('details', { cls: 'lbchat-src' });
     summaryOf(refs, related.length ? `主要依据 · ${keptPrimary.length}` : `参考材料 · ${keptPrimary.length}`, keptPrimary, hinted = keptPrimary.length > 0);
-    for (const src of keptPrimary) row(refs, src, `[来源${src.citation}] ${src.title}`, true);
+    for (const src of keptPrimary) row(refs, src, `[来源${src.citation}] ${src.title}`);
   }
   if (keptRelated.length) {
     const more = el.createEl('details', { cls: 'lbchat-src lbchat-src-more' });
     summaryOf(more, `其他相关 · ${keptRelated.length}`, keptRelated, !hinted);
-    for (const src of keptRelated) row(more, src, src.title, false);
+    for (const src of keptRelated) row(more, src, src.title);
   }
-  if (removed.size) {
+  if (!busy) {
+    bulk = el.createEl('div', { cls: 'lbchat-src-bulk' }); bulk.hidden = true;
+    bulkCount = bulk.createEl('span', { cls: 'lbchat-src-bulkcount' });
+    const add = bulk.createEl('button', { cls: 'lbchat-act lbchat-src-add', text: '加入来源', attr: { title: '选中的「其他相关」提为主要依据；选中的都保留（之后的追问 / 重答都带上、必须用到）' } }); add.type = 'button';
+    const del = bulk.createEl('button', { cls: 'lbchat-act lbchat-src-bulkdel', text: '删除', attr: { title: '从来源里删掉（本会话不再用，可恢复）' } }); del.type = 'button';
+    const cancel = bulk.createEl('button', { cls: 'lbchat-act', text: '取消' }); cancel.type = 'button';
+    add.onclick = async () => { const n = promote([...selected.values()]); selected.clear(); await keepSession(); await drawChat(); if (n) notice(`已加入 ${n} 条来源：重新回答时排最前、逐条用到`, 3000); };
+    del.onclick = async () => { const n = selected.size; drop([...selected.values()]); selected.clear(); await keepSession(); await drawChat(); if (n) notice(`已删除 ${n} 条来源（可恢复）`, 2500); };
+    cancel.onclick = () => { selected.clear(); for (const b of el.querySelectorAll('.lbchat-src-check.is-on')) { b.classList.remove('is-on'); b.setAttribute('aria-checked', 'false'); } for (const r of el.querySelectorAll('.lbchat-srcrow.is-picked')) r.classList.remove('is-picked'); paintBulk(); };
+  }
+  const added = (t.added || []).filter(k => session.pinned.includes(k) && !removed.has(k));
+  if (removed.size || added.length) {
     const bar = el.createEl('div', { cls: 'lbchat-actions lbchat-src-redo' });
     // 保留过的（含前几轮的）排最前，一起交给重答；删掉的不在里面
     const kept = [...keptPrimary, ...keptRelated].map(s => s.id).filter(Boolean);
     const keep = [...new Set([...session.pinned.filter(k => !removed.has(k)), ...kept])];
-    const redo = bar.createEl('button', { cls: 'lbchat-act', text: `按剩下的 ${keep.length} 条重新回答` }); redo.type = 'button';
+    const label = added.length ? `加入后重新回答（${keep.length} 条，含手动加入 ${added.length} 条）` : `按剩下的 ${keep.length} 条重新回答`;
+    const redo = bar.createEl('button', { cls: 'lbchat-act', text: label }); redo.type = 'button';
     redo.disabled = busy || !keep.length || !t.q;
     redo.onclick = () => submit(t.q, { sourceIds: keep });
-    const undo = bar.createEl('button', { cls: 'lbchat-act', text: `恢复删掉的 ${removed.size} 条` }); undo.type = 'button';
+    const undo = bar.createEl('button', { cls: 'lbchat-act', text: `恢复删掉的 ${removed.size} 条` }); undo.type = 'button'; undo.hidden = !removed.size;
     undo.onclick = async () => { const back = new Set(t.removed || []); t.removed = []; session.excluded = session.excluded.filter(k => !back.has(k)); await keepSession(); await drawChat(); };
   }
 }
@@ -653,8 +824,9 @@ async function submit(raw, opts = {}) {
       const p = provider(); if (p) p.chatInFlight = { page: pageId, q };
       paintSend();
       let shown='';
-      // 会话级约束显式传给后端（不指望 8 条 history 隐式带到）；没排除 / 没保留时请求和以前一模一样
-      const constraints = { ...(session.excluded.length ? { excludeIds: [...session.excluded] } : {}), ...(session.pinned.length && !pinned ? { pinIds: [...session.pinned] } : {}) };
+      // 会话级约束显式传给后端（不指望 8 条 history 隐式带到）；没排除 / 没保留时请求和以前一模一样。
+      // 10-04 ②：保留 / 加入的来源（pinIds）在追问、重答（带 sourceIds）时也一并带上——后端把它们排最前、给足证据、要求逐条用到
+      const constraints = { ...(session.excluded.length ? { excludeIds: [...session.excluded] } : {}), ...(session.pinned.length ? { pinIds: [...session.pinned] } : {}) };
       const r = await p.answerArchive({ question: q, model: modelPick.hidden?'':modelPick.value, history:history.slice(0,-1), ...(pinned ? { sourceIds: pinned } : {}), ...constraints,
         onPhase:showPhase,
         onDelta:delta=>{bodyEl.querySelector('.lbchat-think')?.remove();shown+=delta;live.appendText(delta);follow();} });
@@ -686,6 +858,8 @@ tabChat.onclick = () => setLane('chat');
 tabArch.onclick = () => setLane('archive');
 await setLane('chat');
 paintSend();
+// 旧会话（10-04 前没有历史这回事）：有轮次又不在历史里 → 现在存一次，旧数据不丢
+if (session.turns.length && !session.private && !hist.conversations.some(c => c.id === session.id)) await keepSession();
 LB.t('render');
 // 对话区滚动位置（§5.3）：记下来，换页回来恢复；没记过 = 停在最新一轮（底部）
 if (Number.isFinite(pageState.scrollTop)) { bodyEl.scrollTop = pageState.scrollTop; stick = nearBottom(); }
@@ -721,7 +895,8 @@ if (app.workspace.on && dv.component?.registerEvent) {
   dv.component.registerEvent(app.workspace.on('link-brain:chat-session', from => {
     paintSend();
     if (from === pageId || busy) return;
-    app.vault.adapter.read(SESSION_PATH).then(raw => { const next = JSON.parse(raw); if (Array.isArray(next.turns)) { session.turns = next.turns; session.excluded = idList(next.excluded); session.pinned = idList(next.pinned); session.follow = next.follow === 'search' ? 'search' : 'sources'; if (lane === 'chat') drawChat(); } }).catch(() => {});
+    app.vault.adapter.read(SESSION_PATH).then(raw => { const next = JSON.parse(raw); if (Array.isArray(next.turns)) { session.turns = next.turns; session.excluded = idList(next.excluded); session.pinned = idList(next.pinned); session.follow = next.follow === 'search' ? 'search' : 'sources'; if (typeof next.id === 'string' && next.id) { session.id = next.id; session.startedAt = next.startedAt || session.startedAt; } session.private = !!next.private; paintPrivacy(); if (lane === 'chat') drawChat(); } }).catch(() => {});
+    app.vault.adapter.read(HISTORY_INDEX).then(raw => { const h = JSON.parse(raw); if (Array.isArray(h.conversations)) hist = { conversations: h.conversations.filter(c => c && typeof c.id === 'string') }; }).catch(() => {});
   }));
 }
 // 登记这一版 DOM：catalog-data 变了只换数据、改篇数，不重建对话
@@ -730,7 +905,21 @@ LB.keep(wrap, { version: await LB.data.version(), update: async () => {
 }, onReuse: () => { paintSourceBar(); paintSend(); settle(); } });
 LB.t('total');
 
-if(provider()?.pendingArchiveQuestion){const q=provider().pendingArchiveQuestion;delete provider().pendingArchiveQuestion;await submit(q);}
+// 目录页「去问收藏搜「…」」带词跳过来（R1 修）：以前只在本页第一次画的时候看一眼 pendingArchiveQuestion——问收藏页已经开着时，
+// Dataview 重跑走 reuseDom 直接挂回旧页面，这段根本不跑，带过来的词就一直躺着不问。现在三处都接：第一次画完、旧页面挂回时（onReuse）、
+// 以及目录页发的 link-brain:ask-pending 事件（页面开在别的标签里）。取走即删，同一个词只问一次；正在回答就排进队列。
+function takePending(fromEvent){
+  const p=provider(); const q=p&&p.pendingArchiveQuestion; if(!q||typeof q!=='string')return;
+  if(root.isConnected===false)return;   // 已经关掉 / 被换走的页面不接
+  if(fromEvent&&typeof root.isShown==='function'&&!root.isShown())return;   // 事件只给看得见的那一页接（别的标签里藏着的问收藏页不抢）
+  delete p.pendingArchiveQuestion;
+  if(lane!=='chat')setLane('chat');
+  if(busy){queued.push(q);drawQueue();return;}
+  submit(q);
+}
+LB.container && LB.container.__lbView && (LB.container.__lbView.onReuse = (prev => () => { try { prev && prev(); } finally { takePending(); } })(LB.container.__lbView.onReuse));
+if (app.workspace.on && dv.component?.registerEvent) dv.component.registerEvent(app.workspace.on('link-brain:ask-pending', () => takePending(true)));
+takePending();
 
 function sourceText(src){
   const absolute=src.markdown_path || (src.note&&app.vault.adapter.getBasePath?app.vault.adapter.getBasePath().replace(/[\\/]$/,'')+'/'+lbPath(src.note):src.agent_md||'');
@@ -750,7 +939,7 @@ function safeMd(md){const p=provider();return p&&typeof p.neutralizeMarkdown==='
 // 证据身份（R2）：评论摘录带楼号（c3 = 第 3 楼，c3.1 = 它下面第 1 条回复，和机读版同一套编号），图片文字带图序号（后端给好的「图2」「评论c5的图1」）
 function partWhere(p){
   // 函数里定义（不放顶层 const）：drawChat 在文件读到这里之前就会调到它
-  const label={body:'作者正文',comments:'评论',ocr:'图片文字',attachments:'附件正文',transcript:'视频转写',notes:'我的批注'}[p.field]||p.field||'';
+  const label={body:'作者正文',comments:'评论',ocr:'图片文字',attachments:'附件正文',transcript:'视频转写',notes:'我的批注',saved:'我保存的'}[p.field]||p.field||'';
   if(p.field==='comments'&&p.comment_labels?.length)return `${label} ${p.comment_labels.join('、')}`;
   if(p.field==='ocr'&&p.images?.length)return `${label}（识别结果） ${p.images.join('、')}`;
   return label;
@@ -782,24 +971,84 @@ function answerExportMd(t){
   }
   return safeMd(L.join('\n'));
 }
-// ── 提问历史面板 ──（本会话问过的问题；点一条回填输入框，或一键清空整段对话）
+/// ── ⑤ 历史面板（右上角时钟）──：按天分组（「2026-10-11 周一」下面几行，每行 = 那段对话的第一问 + 时间），点一行恢复那段对话；
+// 悬停出选中圈，可多选删除（删的是历史记录；删到当前这段就顺手开一段新的）。顶上是「隐私模式」开关。
+const WEEK = '日一二三四五六';
+const dayKey = ts => { const d = new Date(ts); if (isNaN(d)) return '更早'; const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} 周${WEEK[d.getDay()]}`; };
+const hhmm = ts => { const d = new Date(ts); return isNaN(d) ? '' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+function historyRows() {
+  const rows = hist.conversations.map(c => ({ ...c }));
+  // 当前这段（有轮次、不是隐私模式）不管写没写进目录都列出来，标「当前」
+  if (session.turns.length && !session.private && !rows.some(c => c.id === session.id))
+    rows.unshift({ id: session.id, startedAt: session.startedAt, title: firstQuestion(session.turns), turns: session.turns.filter(t => t.role === 'user').length });
+  return rows.sort((a, b) => String(b.startedAt || '').localeCompare(String(a.startedAt || '')));
+}
+async function restoreConversation(id) {
+  if (busy || id === session.id) return false;
+  if (session.private && session.turns.length && !window.confirm('隐私模式下的这段对话不进历史，切换后就找不回来了。继续？')) return false;
+  let conv;
+  try { conv = JSON.parse(await app.vault.adapter.read(historyFile(id))); }
+  catch (e) { notice('这段对话没读出来：' + errText(e)); return false; }
+  const prev = sessionSnapshot(), prevHist = hist;
+  try { if (!prev.private) await saveToHistory(prev); } catch (e) { notice('没切换：当前这段没能存进历史，内容还在：' + errText(e)); return false; }
+  return startConversation(prev, prevHist, {
+    id, startedAt: conv.startedAt || new Date().toISOString(), turns: Array.isArray(conv.turns) ? conv.turns : [],
+    excluded: idList(conv.excluded), pinned: idList(conv.pinned), follow: conv.follow === 'search' ? 'search' : 'sources' });
+}
+async function deleteConversations(ids) {
+  if (busy || !ids.length) return false;
+  const prevHist = hist;
+  try { await dropFromHistory(ids); } catch (e) { hist = prevHist; notice('没删掉：' + errText(e)); return false; }
+  if (ids.includes(session.id)) await startConversation();
+  notice(`已删除 ${ids.length} 段对话`, 2500);
+  return true;
+}
 function toggleHistory(anchor){
   document.querySelectorAll('.lbchat-histpanel').forEach(p=>p.remove());
   if(anchor._open){anchor._open=false;return;}
   anchor._open=true;
-  const qs=session.turns.filter(t=>t.role==='user');
   const panel=document.body.createEl('div',{cls:'lbchat-histpanel'});
-  const headRow=panel.createEl('div',{cls:'lbchat-histhead'});
-  headRow.createEl('span',{text:`提问历史 · ${qs.length}`});
-  const clr=headRow.createEl('button',{cls:'lbchat-histclear',text:'一键清空'});
-  clr.disabled=!session.turns.length||busy;
-  clr.onclick=async()=>{if(await clearSession()){panel.remove();anchor._open=false;}};
-  if(!qs.length){panel.createEl('div',{cls:'lbchat-histempty',text:'还没有提问'});}
-  else for(const t of [...qs].reverse()){const row=panel.createEl('button',{cls:'lbchat-histitem'});row.setText((t.mode==='search'?'🔍 ':'')+t.content);row.onclick=()=>{search.value=t.content;saveDraft(t.content);search.focus();panel.remove();anchor._open=false;};}
+  const close=()=>{panel.remove();anchor._open=false;document.removeEventListener('click',outside);};
+  const picked=new Set();
+  const draw=()=>{
+    panel.empty();
+    const rows=historyRows();
+    const headRow=panel.createEl('div',{cls:'lbchat-histhead'});
+    headRow.createEl('span',{cls:'lbchat-histtitle',text:`历史 · ${rows.length} 段`});
+    const priv=headRow.createEl('label',{cls:'lbchat-histpriv',attr:{title:'开着时这段对话不进历史（清空后就没了）'}});
+    const box=priv.createEl('input',{attr:{type:'checkbox'}});box.checked=!!session.private;box.disabled=busy;
+    priv.appendText('隐私模式');
+    box.onchange=async()=>{await setPrivate(box.checked);draw();};
+    if(picked.size){
+      const bar=panel.createEl('div',{cls:'lbchat-histbar'});
+      bar.createEl('span',{text:`已选 ${picked.size} 段`});
+      const all=bar.createEl('button',{cls:'lbchat-histbtn',text:picked.size===rows.length?'全不选':'全选'});all.type='button';
+      all.onclick=()=>{if(picked.size===rows.length)picked.clear();else rows.forEach(r=>picked.add(r.id));draw();};
+      const del=bar.createEl('button',{cls:'lbchat-histbtn lbchat-histdel',text:'删除'});del.type='button';del.disabled=busy;
+      del.onclick=async()=>{if(await deleteConversations([...picked])){picked.clear();draw();}};
+      const cancel=bar.createEl('button',{cls:'lbchat-histbtn',text:'取消'});cancel.type='button';cancel.onclick=()=>{picked.clear();draw();};
+    }
+    if(!rows.length){panel.createEl('div',{cls:'lbchat-histempty',text:session.private?'隐私模式开着：这段对话不进历史':'还没有历史对话。问过的都会自动存在这里'});return;}
+    let day='';
+    for(const c of rows){
+      const k=dayKey(c.startedAt);
+      if(k!==day){day=k;panel.createEl('div',{cls:'lbchat-histday',text:k});}
+      const row=panel.createEl('div',{cls:'lbchat-histitem'+(c.id===session.id?' is-current':'')+(picked.has(c.id)?' is-picked':'')});
+      row.dataset.id=c.id;
+      const pick=row.createEl('button',{cls:'lbchat-src-check lbchat-histcheck'+(picked.has(c.id)?' is-on':''),attr:{role:'checkbox','aria-checked':String(picked.has(c.id)),'aria-label':'选中：'+(c.title||'')}});
+      pick.type='button';pick.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+      pick.onclick=e=>{e?.stopPropagation?.();picked.has(c.id)?picked.delete(c.id):picked.add(c.id);draw();};
+      const q=row.createEl('button',{cls:'lbchat-histq',text:c.title||'（没有提问）',attr:{title:c.title||''}});q.type='button';
+      if(c.id===session.id)row.createEl('span',{cls:'lbchat-histnow',text:'当前'});
+      row.createEl('span',{cls:'lbchat-histtime',text:hhmm(c.startedAt)});
+      q.onclick=async()=>{if(picked.size){picked.has(c.id)?picked.delete(c.id):picked.add(c.id);draw();return;}if(c.id===session.id){close();return;}if(await restoreConversation(c.id))close();};
+    }
+  };
+  draw();
   const r=anchor.getBoundingClientRect();
-  panel.style.top=(r.bottom+6)+'px';panel.style.left=Math.max(8,Math.min(r.left,window.innerWidth-328))+'px';
-  const close=ev=>{if(panel.contains(ev.target)||ev.target===anchor||anchor.contains(ev.target))return;panel.remove();anchor._open=false;document.removeEventListener('click',close);};
-  setTimeout(()=>document.addEventListener('click',close),0);
+  panel.style.top=(r.bottom+6)+'px';panel.style.left=Math.max(8,Math.min(r.right-360,window.innerWidth-368))+'px';
+  const outside=ev=>{if(panel.contains(ev.target)||ev.target===anchor||anchor.contains(ev.target)||!ev.target.isConnected)return;close();};
+  setTimeout(()=>document.addEventListener('click',outside),0);
 }
 function bindSources(el,sources){
   const walker=document.createTreeWalker(el,NodeFilter.SHOW_TEXT);const nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);

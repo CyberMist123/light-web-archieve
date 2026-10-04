@@ -398,6 +398,17 @@ def test_item_problems_from_object_files(tmp_path, monkeypatch):
     assert f"{problems.when_text('2026-10-05T00:00:00+10:00')} 再试" in codes["TRANSIENT.RETRY_EXHAUSTED"]["hover"]
 
 
+def test_no_audio_video_gets_no_card_badge(tmp_path, monkeypatch):
+    """10-04 20:00 她定：「视频没有音轨」和「没人说话」一样不上卡片（问题面板照旧由 videos.py 登记）。"""
+    monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
+    _make_object(tmp_path, "v2", title="无声视频", tags=[], summary="", stem="视频v2", kind="video")
+    obj = storage.object_dir("xiaohongshu", "v2")
+    storage.write_json(obj / "derived" / "transcript.json", {"status": "no_audio", "text": ""})
+    catalog.build()
+    it, _ = _item("v2")
+    assert not any(p["code"] == "PERMANENT.NO_AUDIO" for p in it["problems"])
+
+
 def test_catalog_data_carries_the_state_registry(tmp_path, monkeypatch):
     monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
     _, _, data_path = catalog.build()

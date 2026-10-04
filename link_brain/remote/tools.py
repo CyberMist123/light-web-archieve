@@ -1,8 +1,9 @@
 """只读工具：search / read / list / read_asset，10-04 加 selections / read_selection（她在目录页存的选集）。
 全部经 policy 过白名单；没有任何写入、执行、调模型回答的工具。
 
-- search：开放了小红书收藏库（@xhs）时，复用问答的检索（`retrieval.rank_query`：词法 BM25 + 语义 RRF，
-  语义层缺 key / 缺索引时自动退回纯词法），结果只留白名单内的路径；用户加的文件夹另做逐文件文本匹配。
+- search：开放了小红书收藏库（@xhs）时，用问答同一个宽召回核心（`recall_core.candidates`：词法 BM25 + 语义 + 扩词，
+  缺 key / 缺索引时自动退回纯词法），结果只留白名单内的路径；用户加的文件夹另做逐文件文本匹配。found 是一共找到几条，
+  returned 是这一页几条，has_more / next_offset 分页续取。
 - read：读白名单内的文本文件，按字符分页（offset / max_chars → next_offset）。
 - read 读到收藏对象里的文本（机读版 / 附件全文 / 批注 / 可见笔记）时，带上这篇的图片清单 `images`；
   `include_images=true` 时顺带附前 N 张图（图片块，同 read_asset 的大小上限）。
@@ -47,10 +48,12 @@ TOOLS = [
         "name": "search",
         "description": ("搜索开放给你的收藏和文件夹（只读）。小红书收藏库用关键词 + 语义检索，返回标题、命中摘录和可读路径："
                         "path 是给人看的笔记，agent_md 是机读版全文（含图片文字、评论、附件线索），attachments 是附件全文。"
-                        "拿到路径后用 read 读全文。"),
+                        "拿到路径后用 read 读全文。found = 一共找到几条，returned = 这一页给了几条，"
+                        "has_more 为 true 时带 offset=next_offset 再搜一次续取。"),
         "inputSchema": {"type": "object", "properties": {
             "query": {"type": "string", "description": "要找什么：关键词或一句话"},
-            "limit": {"type": "integer", "description": f"最多返回几条，默认 {SEARCH_DEFAULT}，最多 {SEARCH_MAX}"}},
+            "limit": {"type": "integer", "description": f"这一页最多返回几条，默认 {SEARCH_DEFAULT}，最多 {SEARCH_MAX}"},
+            "offset": {"type": "integer", "description": "从第几条开始，默认 0；上一页 has_more 为 true 时传它给的 next_offset 续取"}},
             "required": ["query"]},
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     },
@@ -350,36 +353,45 @@ def _archive_paths(item: dict[str, Any]) -> tuple[str | None, list[str]]:
     return agent, atts
 
 
-def _search_library(policy: Policy, query: str, limit: int) -> list[dict[str, Any]]:
-    from .. import retrieval
-    from ..ask import load_items, query_terms
+def _library_candidates(policy: Policy, query: str) -> list[dict[str, Any]]:
+    """收藏库的候选（R1：和问收藏、lb_retrieve 同一个宽召回核心 recall_core.candidates，同一个顺序），只留开放给你的篇。
+    这里只按路径规则判（不碰磁盘），给计数和分页用；真正出结果时 _library_row 再核一次文件在不在。"""
+    from .. import recall_core
+    from ..ask import load_items
     items = load_items()
     if not items:
         return []
-    terms = query_terms(query)
-    sem = retrieval.semantic_hits(query)
-    hits = retrieval.rank_query(items, query, terms, sem=sem)
-    out: list[dict[str, Any]] = []
-    for value, it in hits:
-        if len(out) >= limit:
-            break
+    # 远程只读：不为远程请求现调扩词小模型（不花钱、不写扩词缓存），只用问收藏已经算过的那份缓存；没缓存 = 不扩
+    found = recall_core.candidates(query, items, allow_expand_call=False)
+    out = []
+    for it in found["candidates"]:
         note = it.get("note") if isinstance(it.get("note"), str) else None
-        agent, atts = _archive_paths(it)
-        note = note if note and policy.allowed_file(note) else None
-        agent = agent if agent and policy.allowed_file(agent) else None
-        atts = [a for a in atts if policy.allowed_file(a)]
-        if not (note or agent or atts):
-            continue
-        try:
-            parts = retrieval.evidence(it, terms, 900, sem)
-        except Exception:  # noqa: BLE001
-            parts = []
-        out.append({"title": it.get("title"), "item_id": it.get("id"), "score": round(float(value), 4),
-                    "path": note, "agent_md": agent, "attachments": atts,
-                    "summary": it.get("summary") or "", "tags": it.get("tags") or [],
-                    "source_url": it.get("url"), "first_archived": it.get("date") or "",
-                    "excerpts": [{"field": p.get("field"), "text": p.get("text")} for p in parts if isinstance(p, dict)]})
+        agent = it.get("agent_md") if isinstance(it.get("agent_md"), str) else None
+        if (note and policy.allowed_file(note)) or (agent and policy.allowed_file(agent)):
+            out.append({"item": it, "score": found["scores"].get(it.get("id"), 0.0),
+                        "terms": found["terms"] + found["expansion"]["terms"], "sem": found["sem"]})
     return out
+
+
+def _library_row(policy: Policy, cand: dict[str, Any]) -> dict[str, Any] | None:
+    from .. import retrieval
+    it = cand["item"]
+    note = it.get("note") if isinstance(it.get("note"), str) else None
+    agent, atts = _archive_paths(it)
+    note = note if note and policy.allowed_file(note) else None
+    agent = agent if agent and policy.allowed_file(agent) else None
+    atts = [a for a in atts if policy.allowed_file(a)]
+    if not (note or agent or atts):
+        return None
+    try:
+        parts = retrieval.evidence(it, cand["terms"], 900, cand["sem"])
+    except Exception:  # noqa: BLE001
+        parts = []
+    return {"title": it.get("title"), "item_id": it.get("id"), "score": round(float(cand["score"] or 0), 4),
+            "path": note, "agent_md": agent, "attachments": atts,
+            "summary": it.get("summary") or "", "tags": it.get("tags") or [],
+            "source_url": it.get("url"), "first_archived": it.get("date") or "",
+            "excerpts": [{"field": p.get("field"), "text": p.get("text")} for p in parts if isinstance(p, dict)]}
 
 
 def _search_folders(policy: Policy, query: str, limit: int, skip_prefixes: tuple[str, ...]) -> list[dict[str, Any]]:
@@ -433,19 +445,35 @@ def _search_folders(policy: Policy, query: str, limit: int, skip_prefixes: tuple
 
 
 def search(policy: Policy, args: dict[str, Any]) -> dict[str, Any]:
+    """found 如实（R1）：= 一共找到几条（收藏库按检索候选、只算开放给你的 + 文件夹逐文件匹配到的），不是这一页的条数；
+    returned = 这一页给了几条；has_more / next_offset = 还有没有、从哪续取。条数只由 limit / offset 决定。"""
     query = args.get("query")
     if not isinstance(query, str) or not query.strip():
         raise Denied("INVALID_ARGUMENT", "query 不能为空")
     query = query.strip()[:500]
     limit = _int(args.get("limit"), SEARCH_DEFAULT, 1, SEARCH_MAX)
-    results: list[dict[str, Any]] = []
-    if policy.xhs:
-        results += _search_library(policy, query, limit)
+    offset = _int(args.get("offset"), 0, 0, 10 ** 6)
+    library = _library_candidates(policy, query) if policy.xhs else []
     skip = (XHS_VISIBLE,) if policy.xhs else ()   # 收藏的可见笔记已经由上面的检索覆盖
-    if limit - len(results) > 0:
-        results += _search_folders(policy, query, limit - len(results), skip)
-    return {"query": query, "found": len(results), "results": results,
-            "note": "只含开放给你的内容；用 read 读 path / agent_md / attachments 的全文"}
+    folders = _search_folders(policy, query, SCAN_FILES_MAX, skip)
+    total = len(library) + len(folders)
+    results: list[dict[str, Any]] = []
+    pos = offset
+    while len(results) < limit and pos < total:
+        if pos < len(library):
+            row = _library_row(policy, library[pos])
+            if row is None:   # 规则放行但文件不在（极少）：这一条跳过，后面的顶上
+                total -= 1
+                library.pop(pos)
+                continue
+            results.append(row)
+        else:
+            results.append(folders[pos - len(library)])
+        pos += 1
+    return {"query": query, "found": total, "returned": len(results), "offset": offset,
+            "next_offset": pos if pos < total else None, "has_more": pos < total, "results": results,
+            "note": "只含开放给你的内容；用 read 读 path / agent_md / attachments 的全文。"
+                    "found 是一共找到几条，这一页给了 returned 条；has_more 为 true 时带 offset=next_offset 再搜一次续取"}
 
 
 # ---------------------------------------------------------------- 选集（10-04）

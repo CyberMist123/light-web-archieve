@@ -139,9 +139,9 @@ async function chatTests() {
   const body = q('.lbchat-body'); S.setBody(body);
   body.scrollHeight = 2000; body.clientHeight = 400;
   userScroll(body, 300);
-  // 点「查看」：开右侧来源窗格
-  const view = S.A.container.querySelectorAll('.lbchat-src button').find(b => b.textContent === '查看');
-  assert.ok(view, '回答下面有「查看」');
+  // 点来源标题（10-04 起来源行没有「查看」了）：开右侧来源窗格
+  const view = S.A.container.querySelector('.lbchat-src .lbchat-srcrow a');
+  assert.ok(view, '回答下面有来源标题');
   view.onclick(); await tick(5);
   assert.equal(body.scrollTop, 300, '点来源开右侧窗格后，对话区停在原处（不回首行）');
   // 引用编号 [来源1] 也一样

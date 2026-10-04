@@ -31,14 +31,15 @@ TOOLS = [
     {
         "name": "lb_search",
         "description": (
-            "关键词检索小红书收藏库（轻量、纯词法，不调用模型）。"
-            "适合已经知道关键词、想要快速定位条目的场景。"
+            "关键词检索小红书收藏库（轻量、纯词法，不调用模型；和 Obsidian 目录页搜索同一套规则）。"
+            "适合已经知道关键词、想要快速定位条目的场景。total = 一共找到几篇，has_more / next_offset = 还有没有、从哪续取。"
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "搜索关键词，可以是 `#标签` 或普通词组"},
-                "limit": {"type": "integer", "description": "最多返回条数，默认 20", "default": 20},
+                "limit": {"type": "integer", "description": "这一页最多返回几条，默认 20", "default": 20},
+                "offset": {"type": "integer", "description": "从第几条开始（续取用上一页的 next_offset），默认 0", "default": 0},
             },
             "required": ["query"],
         },
@@ -46,14 +47,16 @@ TOOLS = [
     {
         "name": "lb_retrieve",
         "description": (
-            "针对一个问题检索材料与出处（BM25/混合排序 + 原文摘录），**不调用模型**，"
-            "适合需要证据链但想自己组织答案的场景。"
+            "针对一个问题检索材料与出处（和问收藏同一个候选集、同一个顺序：原词 + 语义 + 扩词，附原文摘录），"
+            "**不调用模型**（扩词只用问收藏已经算过的缓存）。适合需要证据链但想自己组织答案的场景。"
+            "total = 候选一共几篇，has_more / next_offset = 还有没有、从哪续取。"
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "question": {"type": "string", "description": "自然语言问题"},
-                "top_k": {"type": "integer", "description": "最多返回条目数，默认 8", "default": 8},
+                "top_k": {"type": "integer", "description": "这一页最多返回几篇，默认 8，最多 20", "default": 8},
+                "offset": {"type": "integer", "description": "从第几篇开始（续取用上一页的 next_offset），默认 0", "default": 0},
             },
             "required": ["question"],
         },
@@ -111,6 +114,13 @@ def _tool_lb_selection(args: dict[str, Any]) -> dict[str, Any]:
     return selections.get_selection(args.get("name"), paths=paths, read_text=selections.read_agent)
 
 
+def _offset(args: dict[str, Any]) -> int:
+    try:
+        return max(0, int(args.get("offset", 0) or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 def _tool_lb_search(args: dict[str, Any]) -> dict[str, Any]:
     from . import retrieval
 
@@ -122,7 +132,7 @@ def _tool_lb_search(args: dict[str, Any]) -> dict[str, Any]:
         limit = int(limit)
     except (TypeError, ValueError):
         limit = 20
-    return retrieval.search(query, limit)
+    return retrieval.search(query, limit, _offset(args))
 
 
 def _tool_lb_retrieve(args: dict[str, Any]) -> dict[str, Any]:
@@ -136,7 +146,7 @@ def _tool_lb_retrieve(args: dict[str, Any]) -> dict[str, Any]:
         top_k = int(top_k)
     except (TypeError, ValueError):
         top_k = 8
-    return retrieval.retrieve_payload(question, top_k)
+    return retrieval.retrieve_payload(question, top_k, _offset(args))
 
 
 def _tool_lb_ask(args: dict[str, Any]) -> dict[str, Any]:
