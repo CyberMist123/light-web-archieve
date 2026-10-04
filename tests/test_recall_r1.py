@@ -341,3 +341,111 @@ def test_no_key_lexical_path_is_unchanged(monkeypatch):
     hist = r["history"]
     follow = ask.answer("第二个详细说说", hist)
     assert follow["status"] == "ok"
+
+
+# ── 6. R1 收尾（10-04 真库评测查出的四条）──
+
+def test_out_of_scope_semantic_ids_are_recorded_not_lost(monkeypatch):
+    """语义索引里还留着已删 / 进回收站的篇：不算「检出了却丢了」（lost 恒为空），单独记 out_of_scope，也不进候选集。"""
+    items = [_item("a", "回避型依恋", "回避"), _item("b", "吵架以后", "吵架")] + _filler(10)
+    sem = {"gone": {"score": .9, "chunks": []}, "a": {"score": .8, "chunks": []}}
+    monkeypatch.setattr(retrieval, "semantic_hits", lambda q: sem)
+    monkeypatch.setattr(retrieval, "semantic_deep", lambda q: sem)
+    monkeypatch.setattr(ask, "llm_expansions", lambda q, **k: {"terms": [], "status": "no-model"})
+    found = recall_core.candidates("回避 吵架", items, trace=True)
+    ids = [it["id"] for it in found["candidates"]]
+    assert "gone" not in ids and "gone" not in found["routes"]["semantic"]
+    assert found["out_of_scope"] == ["gone"] and found["stages"]["out_of_scope"] == ["gone"]
+    assert found["stages"]["lost"] == []
+    assert {"a", "b"} <= set(ids)
+
+
+def test_window_keeps_route_heads_before_semantic_tail(monkeypatch):
+    """首屏窗口先保各路保底名次（这里是扩词一路的前几名），语义续取的长尾只补空位——不许把保底篇挤出 80。"""
+    sem_items = [_item(f"s{k:03d}", f"笔记{k}", "无关正文") for k in range(120)]
+    exp_items = [_item(f"e{k}", f"依恋小记{k}", "依恋") for k in range(10)]
+    items = sem_items + exp_items + _filler(30)
+    top = {f"s{k:03d}": {"score": 1 - k / 1000, "chunks": []} for k in range(40)}
+    deep = {f"s{k:03d}": {"score": 1 - k / 1000, "chunks": []} for k in range(120)}
+    monkeypatch.setattr(retrieval, "semantic_hits", lambda q: top)
+    monkeypatch.setattr(retrieval, "semantic_deep", lambda q: deep)
+    monkeypatch.setattr(ask, "llm_expansions", lambda q, **k: {"terms": ["依恋"], "status": "cached"})
+    found = recall_core.candidates("怎么才能不忘事", items, trace=True)
+    window = [it["id"] for it in found["matches"]]
+    assert len(window) == recall_core.POOL_MAX
+    assert {f"e{k}" for k in range(10)} <= set(window), "扩词路保底的篇被语义长尾挤出了首屏"
+    assert {f"s{k:03d}" for k in range(40)} <= set(window)
+    # 窗口外的语义长尾一篇不丢，按顺序接在候选集后面
+    assert {f"s{k:03d}" for k in range(120)} <= {it["id"] for it in found["candidates"]}
+    assert found["stages"]["lost"] == []
+
+
+def test_expansion_routes_do_not_split_into_single_chars(lexical_only, monkeypatch):
+    """扩词 / 反馈词单开一路时不走 CJK 子词回退：「布里斯班」整词只中 2 篇，拆成单字会拉进几十篇不相干的。"""
+    items = ([_item("bne1", "布里斯班一日游", "布里斯班"), _item("bne2", "南岸公园", "在布里斯班")]
+             + [_item(f"x{k}", f"班级里的事{k}", "里面 上班 斯文") for k in range(40)])
+    assert {it["id"] for _, it in retrieval.rank(items, ["布里斯班"], subword=False)} == {"bne1", "bne2"}
+    assert len(retrieval.rank(items, ["布里斯班"])) > 2   # 她原话里的稀有词照旧回退（目录 / 问收藏的原词路）
+    assert {it["id"] for _, it in retrieval.rank(items, ["布里斯班"], subword=False)} == \
+        {it["id"] for _, it in retrieval.rank(items, ["布里斯班"], subword=False)}  # 记忆化按 subword 分开存
+    monkeypatch.setattr(ask, "llm_expansions", lambda q, **k: {"terms": ["布里斯班"], "status": "cached"})
+    found = recall_core.candidates("澳洲旅行", items + [_item("au", "澳洲旅行清单", "澳洲旅行")])
+    assert set(found["routes"]["expansion"]["布里斯班"]) == {"bne1", "bne2"}
+    assert not any(it["id"].startswith("x") for it in found["candidates"])
+
+
+def test_generic_term_counts_its_best_field_only():
+    """泛词（全库四成以上都有，如「ai」）和不泛的词一起问时只算最好的那个字段：只沾 ai 的篇不许压过提到一次「回避」的篇。"""
+    loud = [_item(f"ai{k}", f"AI 工具{k}", "ai " * 5, tags=["AI"], ocr="AI 截图 ai", comments="ai ai")
+            for k in range(30)]
+    gold = _item("gold", "AI 被动等指令的毛病", "怎么让它主动一点", attachments="很长的附件 " * 300 + "这其实是一种回避 " + "附件 " * 300)
+    plain = _filler(20)
+    items = loud + [gold] + plain
+    ranked = [it["id"] for _, it in retrieval.rank(items, ["ai", "回避"])]
+    assert ranked[0] == "gold"
+    # 只问泛词时照旧逐字段累加：处处是 ai 的排在只有标题带 AI 的前面
+    title_only = _item("t", "AI 一句话", "无关")
+    ranked_ai = [it["id"] for _, it in retrieval.rank(loud + [title_only] + plain, ["ai"])]
+    assert ranked_ai.index("t") > ranked_ai.index("ai0")
+
+
+def test_deep_read_title_named_beats_model_many_unless_listing():
+    """模型说 many（它「拿不准就填 many」），可问题点名了第 1 篇标题、又没有盘点口气：仍深读。追问时不按第 1 名收窄。"""
+    pool = [_item("z", "陪伴型AI记忆调研：Zep 与 Graphiti", "zep graphiti"), _item("m", "记忆系统合集", "记忆"),
+            _item("n", "向量库对比", "向量")]
+    many = {"scope": "many", "output": "answer"}
+    assert ask.prompt_count("陪伴型AI记忆调研里 Zep/Graphiti 的经验", pool, 8000, 8, intent=many) == (1, True)
+    assert ask.prompt_count("推荐几篇陪伴型AI记忆调研", pool, 8000, 8, intent=many) == (3, False)
+    assert ask.prompt_count("向量数据库怎么选", pool, 8000, 8, intent=many) == (3, False)
+    # 追问：候选第 1 名是上一问的第 1 篇，不是「第二个」——模型说 single 也不收窄
+    follow = {"context": "followup", "scope": "single", "output": "answer"}
+    assert ask.prompt_count("第二个详细说说", pool, 8000, 8, intent=follow) == (3, False)
+    # 追问里点名了标题：照样深读
+    assert ask.prompt_count("陪伴型AI记忆调研那篇详细说说", pool, 8000, 8, intent=follow)[1] is True
+
+
+def test_four_entries_agree_with_semantic_and_expansion_on(four_entry, monkeypatch):
+    """同 scope 同配置（语义层开着、扩词缓存里有这一问）：问收藏 / lb_retrieve / 远程 search 候选集同一份同一顺序。"""
+    sem = {f"m{k:02d}": {"score": 1 - k / 100, "chunks": []} for k in range(0, 30, 2)}
+    sem["cmt"] = {"score": .99, "chunks": [{"field": "comments", "text": "记忆加固", "score": .99}]}
+    monkeypatch.setattr(retrieval, "semantic_hits", lambda q: sem)
+    monkeypatch.setattr(retrieval, "semantic_deep", lambda q: sem)
+    # 扩词缓存命中：三个入口拿到同一份（lb_retrieve / 远程只吃缓存，问收藏会调模型——缓存里有就不调）
+    monkeypatch.setattr(ask, "llm_expansions", lambda q, **k: {"terms": ["权重"], "status": "cached"})
+    q = "记忆 加固"
+    core = [it["id"] for it in ask.recall(q, four_entry, {}, [])["candidates"]]
+    assert "cmt" in core and len(core) > 20
+    pages, offset = [], 0
+    while offset is not None:
+        payload = retrieval.retrieve_payload(q, top_k=7, offset=offset)
+        assert payload["total"] == len(core)
+        pages += [r["item_id"] for r in payload["results"]]
+        offset = payload["next_offset"]
+    assert pages == core
+    got, offset = [], 0
+    while offset is not None:
+        res = rtools.search(Policy.build(storage.vault_root(), ["@xhs"]), {"query": q, "limit": 9, "offset": offset})
+        assert res["found"] == len(core)
+        got += [r["item_id"] for r in res["results"]]
+        offset = res["next_offset"]
+    assert got == core

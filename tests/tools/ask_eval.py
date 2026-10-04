@@ -22,7 +22,8 @@
 题目格式：[{"question": "...", "history": ["上一问", ...], "expected": ["item id", ...], "must_pool": [...], "note": "..."}]
   history = 同一会话里这一问之前她问过的话（按顺序），用来复现追问场景。
   recall@k = 前 k 条里命中的应命中篇数 / min(k, 应命中篇数)；pool = 候选池（页面上「主要依据」+「其他相关」）里命中的比例。
-  candidate_coverage = 全量候选集（含首屏窗口之外）里命中的比例；lost = 某一路检出了、却不在候选集里的篇（R1 起应恒为 0）。
+  candidate_coverage = 全量候选集（含首屏窗口之外）里命中的比例；lost = 某一路检出了、却不在候选集里的篇（R1 起应恒为 0）；
+  out_of_scope = 语义索引检出、但已不在归档里的篇（已删 / 回收站，索引没重建），单独计数、不算 lost。
   must_pool = 一定要出现在候选池里的篇（如问国家要带出只写了城市名的篇）。
 """
 from __future__ import annotations
@@ -150,6 +151,7 @@ def evaluate(cases, items=None, k=8, use_semantic=True, expand_llm=True):
                 "candidate_set_size": len(candidates),
                 "candidate_coverage": round(len(set(candidates) & want) / len(want), 3) if want else None,
                 "candidate_rank": _positions(candidates, want), "lost": list(stages.get("lost") or []),
+                "out_of_scope": list(stages.get("out_of_scope") or []),
                 "beyond_window": [x for x in expected if x in candidates and x not in pool],
                 "intent": found.get("intent"), "feedback": found.get("feedback") or [],
                 "must_pool": f"{len(set(pool) & set(must))}/{len(must)}" if must else "",
@@ -180,6 +182,8 @@ def evaluate(cases, items=None, k=8, use_semantic=True, expand_llm=True):
     summary["tuning_questions"] = sum(row["set"] != "holdout" for row in rows)
     summary["false_rejection"] = sum(len(row["false_rejection"]) for row in rows)
     summary["lost"] = sum(len(row["lost"]) for row in rows)
+    # 语义索引里还有、归档里已没有的篇（已删 / 回收站，索引重建前的过渡态）：有系统理由，不算丢失、不阻断，只计数
+    summary["out_of_scope"] = sum(len(row.get("out_of_scope") or []) for row in rows)
     summary["blocked"] = bool(summary["false_rejection"] or summary["lost"])
     summary["sets"] = {subset: {**{key: mean(key, subset) for key in metrics},
                                "questions": sum(row["set"] == subset for row in rows),

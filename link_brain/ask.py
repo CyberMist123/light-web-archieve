@@ -457,7 +457,7 @@ def expansion_routes(items, terms, sem_expanded=None):
     from .retrieval import rank, sem_order
     routes = []
     for term in terms:
-        ids = [it["id"] for _, it in rank(items, [term])[:EXPAND_ROUTE_DEPTH]]
+        ids = [it["id"] for _, it in rank(items, [term], subword=False)[:EXPAND_ROUTE_DEPTH]]
         if ids:
             routes.append((EXPAND_WEIGHT, ids, "expand"))
     if sem_expanded:
@@ -788,9 +788,18 @@ def deep_read_wanted(question, matches, intent=None):
         if not matches:
             return False
         scope = _model_scope(intent)
+        named = _title_named(question, matches[0], matches)
+        if scope == "many" and named and not _MANY_RE.search(question or ""):
+            # 10-04 修：问题点名了第 1 篇的标题（独特片段）、又没有盘点 / 列举口气时，模型说 many 不算数——
+            # 扩词提示词让它「拿不准就填 many」，真库四问（「陪伴型AI记忆调研里 Zep/Graphiti 的经验」「蒜香鱼片怎么做」
+            # 「酸萝卜老鸭汤哪里买材料」…）都被它填成 many，深读 1 篇退成摊薄 11 篇。点名是硬证据，比它的「拿不准」可靠。
+            return True
+        if scope and intent.get("context") == "followup" and not named:
+            # 追问（「第二个详细说说」）时候选第 1 名是上一问的第 1 篇，不是她指的那篇：收窄成 1 篇会读错，照常摊开
+            return False
         if scope:
             return scope != "many" and _anchored(question, matches[0])
-        if _title_named(question, matches[0], matches):
+        if named:
             return True
         if _MANY_RE.search(question or ""):
             return False

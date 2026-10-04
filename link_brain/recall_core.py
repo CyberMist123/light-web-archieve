@@ -134,7 +134,7 @@ def candidates(question, items, *, settings=None, history=None, semantic=True, e
     # 扩词的语义一路：原问题 + 模型给的全部词（库里没有原词的说法，语义上也能接住）
     sem_expanded = retrieval.semantic_hits(question + " " + " ".join(expansion["llm"])) if semantic and expansion["llm"] else None
     # 扩出的每个词一路（全名单记下，融合只用前 EXPAND_ROUTE_DEPTH 名——排序和以前一样；更深的进候选集尾部）
-    expand_full = {term: [it["id"] for _, it in retrieval.rank(items, [term])] for term in expansion["terms"]}
+    expand_full = {term: [it["id"] for _, it in retrieval.rank(items, [term], subword=False)] for term in expansion["terms"]}
     extra = [(ask.EXPAND_WEIGHT, ids[:ask.EXPAND_ROUTE_DEPTH], "expand") for ids in expand_full.values() if ids]
     expanded_sem_ids = retrieval.sem_order(sem_expanded)
     if expanded_sem_ids:
@@ -143,6 +143,12 @@ def candidates(question, items, *, settings=None, history=None, semantic=True, e
     lexical_hits = retrieval.rank(items, terms)
     lexical = [it["id"] for _, it in lexical_hits]
     semantic_ids = retrieval.sem_order(sem)
+    by_id = {it.get("id"): it for it in items}
+    # 归档范围（archive_scope = 这一份 items）之外的 id：语义索引里还留着已删 / 进回收站的篇（索引下次重建才清）。
+    # 它们不是「检出了却丢了」，单独记 out_of_scope（有系统理由、可查看），不算进 lost。10-04 真库评测 lost=8 全是这一类。
+    out_of_scope = sorted({i for i in semantic_ids + expanded_sem_ids if i not in by_id})
+    semantic_ids = [i for i in semantic_ids if i in by_id]
+    expanded_sem_ids = [i for i in expanded_sem_ids if i in by_id]
     keyword_ids = []
     if keyword:
         try:
@@ -154,14 +160,13 @@ def candidates(question, items, *, settings=None, history=None, semantic=True, e
         heads |= set(list(dict.fromkeys(route[1]))[:POOL_HEADS["expand"]])
     if mode != "standalone":
         heads |= {it["id"] for it in matches[:POOL_HEADS["followup"]]}
-    # 首屏窗口 = 融合顺序里「各路保底名次内」或「有具体证据」的篇，最多 POOL_MAX：具体证据 = 语义 / 扩词路检出过，或中了一个
+    # 首屏窗口 = 「各路保底名次内」的篇先占位，空位再按融合顺序补「有具体证据」的篇，最多 POOL_MAX（见 _window）：具体证据 = 语义 / 扩词路检出过，或中了一个
     # 不泛的原词（全库不到 GENERIC_DF 的篇有）。以前不够 80 篇就按融合顺序硬补满，「ai」这种全库七成都沾的词把只沾它的尾巴
     # 混进来；现在只沾泛词的尾巴不补（3 篇相关就是 3 篇），它们留在候选集里不丢。
     specific = (None if WINDOW_FILL_GENERIC else
                 _specific_ids(items, list(dict.fromkeys(terms + list(prior_terms or []))), matches, heads, sem, extra))
-    window = [it for it in matches if specific is None or it["id"] in heads or it["id"] in specific][:POOL_MAX]
+    window = _window(matches, heads, specific)
     shown = {it["id"] for it in window}
-    by_id = {it.get("id"): it for it in items}
     # 二轮扩词（一轮为限）：只补首屏窗口的空位、不改第一轮的排序——反馈词是从结果里猜的，不许压过原问题
     fb_terms, fb_full = [], {}
     if feedback and mode == "standalone" and terms and matches and len(window) < POOL_MAX:
@@ -171,7 +176,7 @@ def candidates(question, items, *, settings=None, history=None, semantic=True, e
             fb_terms = []
         fb_routes = []
         for term in fb_terms:
-            fb_full[term] = [it["id"] for _, it in retrieval.rank(items, [term])]
+            fb_full[term] = [it["id"] for _, it in retrieval.rank(items, [term], subword=False)]
             if fb_full[term]:
                 fb_routes.append((1, fb_full[term][:POOL_HEADS["feedback"]]))
         # 只提「第一轮已经检出、但排在各路保底名次之外」的长尾篇（原问题也沾上了，又和前几篇共享话题词）；
@@ -194,7 +199,8 @@ def candidates(question, items, *, settings=None, history=None, semantic=True, e
             have.add(item_id)
     result = {"matches": window, "candidates": ranked, "mode": mode, "prior_terms": prior_terms, "terms": terms,
               "sem": ask._merge_sem(sem, sem_expanded), "expansion": expansion, "intent": intent, "feedback": fb_terms,
-              "routes": routes, "scores": {it["id"]: float(it.get("_fused_score") or 0) for it in matches}}
+              "routes": routes, "out_of_scope": out_of_scope,
+              "scores": {it["id"]: float(it.get("_fused_score") or 0) for it in matches}}
     for value, it in lexical_hits:  # 没有融合分（纯词法）时用 BM25 分
         result["scores"][it["id"]] = result["scores"].get(it["id"]) or round(value, 4)
     if trace:
@@ -205,6 +211,23 @@ def candidates(question, items, *, settings=None, history=None, semantic=True, e
 GENERIC_DF = 0.4  # 全库四成以上的篇都有的词算泛（同 ask.EXPAND_GENERIC）
 # 回退开关：True = 回到 R1 以前「首屏不够 80 篇就按融合顺序补满」（只沾泛词的尾巴也补）。真库带语义复测后再定，见 R1 报告
 WINDOW_FILL_GENERIC = False
+
+
+def _window(matches, heads, specific):
+    """首屏窗口：先保各路保底名次内的篇（heads），空位再按融合顺序补「有具体证据」的篇（specific；None = 不论证据都补），
+    最后按融合顺序排、最多 POOL_MAX。
+
+    10-04 修：上一版把 heads 和 specific 混在一起按融合顺序截 80——语义续取（不再截前 40）把几十篇语义长尾带进融合，
+    分数压过扩词路的保底篇，「AI 记忆层」这类题扩词路前 20 的金标被挤出窗口（31 题池覆盖 0.981 → 0.972）。
+    保底名次是窗口的硬承诺，长尾只能补空位。"""
+    # 保底本身就超了：按融合顺序取前 POOL_MAX 个保底篇
+    keep = set([it["id"] for it in matches if it["id"] in heads][:POOL_MAX])
+    for it in matches:
+        if len(keep) >= POOL_MAX:
+            break
+        if it["id"] not in keep and (specific is None or it["id"] in specific):
+            keep.add(it["id"])
+    return [it for it in matches if it["id"] in keep]
 
 
 def _specific_ids(items, terms, matches, heads, sem, extra):
@@ -261,7 +284,7 @@ def stages(found, fused=None) -> dict[str, Any]:
         "keyword": routes["keyword"],
         "fusion": [it["id"] for it in (fused if fused is not None else found["candidates"])],
         "candidate_set": ranked, "candidate_pool": window, "window": window,
-        "beyond_window": len(ranked) - len(window), "lost": lost,
+        "beyond_window": len(ranked) - len(window), "lost": lost, "out_of_scope": list(found.get("out_of_scope") or []),
         "intent": found.get("intent"), "mode": found.get("mode"),
     }
 

@@ -108,6 +108,14 @@ def pinyin_text(*parts):
 
 
 def pinyin_units(term):
+    """词 → 拼音单元（拼音整音节匹配用）。纯函数，按词记忆：match() 每篇每个词都要它，不记的话关键词筛选一次要调几万次 pypinyin
+    （R1 10-04 合成库实测占问收藏召回耗时三成多）。返回新 list，调用方随便改。"""
+    units = _pinyin_units(str(term))
+    return list(units) if units is not None else None
+
+
+@__import__("functools").lru_cache(maxsize=4096)
+def _pinyin_units(term):
     from pypinyin import lazy_pinyin
     units = []
     for part in re.findall(r"[a-z]+|[一-鿿]|[^\sa-z一-鿿]+", norm(term)):
@@ -117,7 +125,7 @@ def pinyin_units(term):
             units.append(("syl", lazy_pinyin(part)[0]))
         elif re.search(r"[0-9a-z一-鿿]", part):
             return None  # 带数字等：不按拼音猜
-    return units or None
+    return tuple(units) or None
 
 
 def pinyin_match(item_syllables, units):
@@ -197,6 +205,7 @@ STAR_BOOST = 1.15  # ★ 只做小幅加成：目录页 catalog-search.js 和 ra
 # 整个查询也只找回这么几篇时，
 # 把它拆成单字参与匹配（「面点」→「面」「点」），但降权：BM25 里一个字的命中最多抵整词命中的一半、不算覆盖加成；
 # 关键词筛选里算「可能相关」（kind subword），排在原词命中之后。目录页 catalog-search.js 同一规则（subwordParts / SUBWORD_*）。
+GENERIC_DF = 0.4  # 全库四成以上的篇都有的词算泛（同 ask.EXPAND_GENERIC、recall_core.GENERIC_DF）
 SUBWORD_MAX_HITS = 2
 SUBWORD_MAX_TERMS = 3      # 只给短查询（「面点」这种一两个词的）：长句子别的词已经够召回，拆字只会添噪声
 SUBWORD_WEIGHT = 0.3       # BM25：一个字的得分 × 这个数
@@ -274,6 +283,7 @@ def _documents(items):
     if _RANK_CACHE[0] is not items:
         documents = [{k: norm(v) for k, v in fields(it).items()} for it in items]
         _RANK_MEMO.clear()
+        _STATS_MEMO.clear()
         averages = {k:sum(len(doc.get(k,'')) for doc in documents)/max(1,len(documents)) or 1 for k in WEIGHTS}
         _RANK_CACHE = (items, (documents, averages))
     return _RANK_CACHE[1]
@@ -287,6 +297,10 @@ def term_stats(items, term):
 
     问答判断追问用：人名、地名这类话题词大多出现在标题标签里；「调料」「价格」「步骤」这类属性词几乎只在正文里。"""
     documents, _ = _documents(items)
+    key = (id(documents), str(term))
+    hit = _STATS_MEMO.get(key)
+    if hit is not None:
+        return hit
     vs = variants(term)
     anywhere = meta = 0
     for doc in documents:
@@ -294,11 +308,17 @@ def term_stats(items, term):
             anywhere += 1
             if any(has(doc.get(k, ""), v) for v in vs for k in _META_KEYS):
                 meta += 1
+    if len(_STATS_MEMO) >= 2048:
+        _STATS_MEMO.clear()
+    _STATS_MEMO[key] = (anywhere, meta)
     return anywhere, meta
 
 
-def _bm25(documents, averages, term, aliases=True):
-    """一个词在各篇的字段加权 BM25 词频分（同义词 ×0.75，取最好的那个说法）。"""
+_STATS_MEMO: dict = {}  # term_stats 按 (这份规范化全文, 词) 记：一问里扩词过滤、话题词、窗口判泛都要问同一个词（R1 10-04）
+
+
+def _bm25(documents, averages, term, aliases=True, best_field=False):
+    """一个词在各篇的字段加权 BM25 词频分（同义词 ×0.75，取最好的那个说法）。各字段相加；best_field = 只取最好的那个字段（泛词用）。"""
     vs = variants(term) if aliases else [norm(term)]
     counts = []
     for doc in documents:
@@ -310,7 +330,8 @@ def _bm25(documents, averages, term, aliases=True):
                 if tf:
                     # Saturate within each field: a long attachment must not erase a title hit.
                     length = min(len(text)/averages.get(k, 1), 3)
-                    value += WEIGHTS.get(k, 1)*tf*2.2/(tf+1.2*(.25+.75*length))
+                    part = WEIGHTS.get(k, 1)*tf*2.2/(tf+1.2*(.25+.75*length))
+                    value = max(value, part) if best_field else value + part
             best = max(best, value*(1 if v == term else .75))
         counts.append(best)
     return counts
@@ -319,32 +340,43 @@ def _bm25(documents, averages, term, aliases=True):
 _RANK_MEMO: dict = {}
 
 
-def rank(items, terms):
+def rank(items, terms, *, subword=True):
     """BM25 字段加权；同分保持稳定 ID 顺序，不按日期偏向新收藏。
-    同一份 items、同一组词一问里会被几处要（宽召回核心、追问、多主题），结果按 (items, 词) 记最近几份，返回副本。"""
+    同一份 items、同一组词一问里会被几处要（宽召回核心、追问、多主题），结果按 (items, 词) 记最近几份，返回副本。
+    subword：允不允许 CJK 子词回退（见 _rank）。只给她原话里的词；扩词 / 二轮反馈词这类单开一路的词一律 False——
+    它们本来就是稀有的专名（「布里斯班」整词只中 2 篇），拆成「布」「里」「斯」「班」会把几百篇不相干的拉进融合（10-04 实测）。"""
     if not terms:
         return []
     documents, _ = _documents(items)
-    key = (id(documents), tuple(map(str, terms)), tuple(bool(it.get("starred")) for it in items))
+    key = (id(documents), tuple(map(str, terms)), bool(subword), tuple(bool(it.get("starred")) for it in items))
     hit = _RANK_MEMO.get(key)
     if hit is not None:
         return list(hit)
-    out = _rank(items, terms)
+    out = _rank(items, terms, subword=subword)
     if len(_RANK_MEMO) >= 64:
         _RANK_MEMO.clear()
     _RANK_MEMO[key] = out
     return list(out)
 
 
-def _rank(items, terms):
+def _rank(items, terms, subword=True):
     import math
     documents, averages = _documents(items)
     totals = [0.0] * len(items)
     covered = [0] * len(items)
     whole = {}
+    raw = {term: _bm25(documents, averages, term) for term in dict.fromkeys(terms)}
+    dfs = {term: sum(tf > 0 for tf in counts) for term, counts in raw.items()}
+    generic = {term for term, df in dfs.items() if df >= len(items) * GENERIC_DF}
+    # 泛词只算最好的那个字段（R1 10-04）：问题里既有泛词（全库四成以上都有，如「ai」）又有不泛的词时，泛词的 idf 虽低，
+    # 可它在标题 / 标签 / 正文 / 附件里处处都中，逐字段累加起来，一篇只沾「ai」的能压过只在长附件里提到一次「回避」的篇
+    # （「ai 吵架 回避」金标第 4 篇词法排 #103，前面八十来篇只沾 ai）。只取最好字段后它排 #21；
+    # 31 题 capped recall@20 0.867 → 0.878，池覆盖持平。只有泛词的问题（就问「AI」）照旧逐字段累加。
+    if generic and any(df and term not in generic for term, df in dfs.items()):
+        raw.update({term: _bm25(documents, averages, term, best_field=True) for term in generic})
     for term in terms:
-        counts = _bm25(documents, averages, term)
-        df = sum(tf>0 for tf in counts)
+        counts = raw[term]
+        df = dfs[term]
         literal = df > 0
         if not df:
             # 原词哪篇都没有（多半是语音同音错字，如「西尼」）：退到拼音整音节，低权，只给标题/概要/标签读音相同的篇
@@ -361,7 +393,7 @@ def _rank(items, terms):
                 totals[i] += idf * tf
     # 子词回退（R1）：整个查询只找回 ≤ SUBWORD_MAX_HITS 篇时，稀有的中文复合词拆单字再找一遍，降权、不算覆盖，
     # 而且一篇从子词拿到的分最多是整词命中里最低那篇的一半——整词命中永远排前
-    if len(terms) <= SUBWORD_MAX_TERMS and sum(1 for value in totals if value > 0) <= SUBWORD_MAX_HITS:
+    if subword and len(terms) <= SUBWORD_MAX_TERMS and sum(1 for value in totals if value > 0) <= SUBWORD_MAX_HITS:
         floor = min((value for value in totals if value > 0), default=0)
         for term in terms:
             counts, df, literal = whole.get(term, ([], 0, False))
