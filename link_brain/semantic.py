@@ -308,8 +308,8 @@ TOP_ITEMS = 40
 REL_FLOOR = 0.2
 
 
-def query_hits(question: str, top_chunks: int = 80, chunks_per_item: int = 2, top_items: int = TOP_ITEMS):
-    """chunk 余弦扫描 → 按篇取最高分 → 前 top_items 篇（带相对下限）。
+def query_hits(question: str, top_chunks: int = 80, chunks_per_item: int = 2, top_items: int | None = TOP_ITEMS):
+    """chunk 余弦扫描 → 按篇取最高分 → 前 top_items 篇（带相对下限；None = 下限以上全给，R1 续取用）。
 
     返回 {item_id: {"score": float, "chunks": [{"field","text","score"}...]}}（chunks = 这篇最像的几块，问答当证据）；
     没 db / 没 key / 缺 numpy / HTTP 失败一律返回 None（fail-open）。top_chunks 保留只为兼容旧调用。
@@ -337,7 +337,9 @@ def query_hits(question: str, top_chunks: int = 80, chunks_per_item: int = 2, to
                 best[item_id] = float(sims[int(idx)])
         scores = sorted(best.values(), reverse=True)
         floor = scores[len(scores) // 2] + REL_FLOOR * (scores[0] - scores[len(scores) // 2]) if len(scores) > 4 else -1.0
-        keep = [i for i, v in sorted(best.items(), key=lambda kv: -kv[1]) if v >= floor][:top_items]
+        # top_items=None（R1 宽召回核心）：相对下限以上的全给，不在上游截断——候选集要全量记录，首屏只取前几名
+        keep = [i for i, v in sorted(best.items(), key=lambda kv: -kv[1]) if v >= floor]
+        keep = keep if top_items is None else keep[:top_items]
         wanted = set(keep)
         hits: dict[str, dict] = {i: {"score": best[i], "chunks": []} for i in keep}
         for idx in order:

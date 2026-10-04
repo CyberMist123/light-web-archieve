@@ -1,6 +1,7 @@
 """问收藏检索评测：只读、只检索，不调生成回答的模型。
 
-走生产同一条路：ask.recall（原词 BM25 + 语义 + 扩词表 + 小模型扩词，各路 RRF；含追问处理）→ 候选池前 ask.POOL_MAX 篇 →
+走生产同一条路：ask.recall（= recall_core.candidates 宽召回核心：原词 BM25 + 语义 + 扩词表 + 小模型扩词 + 二轮反馈词，各路 RRF；
+含追问处理）→ 候选集全量（R1 起不截断）→ 首屏窗口（≤ ask.POOL_MAX 篇）→
 按字数预算送进作答模型的前 N 篇（ask.primary_count）。「挑选材料」那一步要调作答模型，评测不跑——第 10 批起它只调顺序、
 不再丢候选，所以候选池和页面上能看到的来源不受它影响。
 
@@ -21,6 +22,7 @@
 题目格式：[{"question": "...", "history": ["上一问", ...], "expected": ["item id", ...], "must_pool": [...], "note": "..."}]
   history = 同一会话里这一问之前她问过的话（按顺序），用来复现追问场景。
   recall@k = 前 k 条里命中的应命中篇数 / min(k, 应命中篇数)；pool = 候选池（页面上「主要依据」+「其他相关」）里命中的比例。
+  candidate_coverage = 全量候选集（含首屏窗口之外）里命中的比例；lost = 某一路检出了、却不在候选集里的篇（R1 起应恒为 0）。
   must_pool = 一定要出现在候选池里的篇（如问国家要带出只写了城市名的篇）。
 """
 from __future__ import annotations
@@ -116,7 +118,8 @@ def evaluate(cases, items=None, k=8, use_semantic=True, expand_llm=True):
             found = ask.recall(question, items, settings, history, allow_expand_call=expand_llm, trace=True)
             took = round(time.perf_counter() - start, 2)
             pool = [it["id"] for it in found["matches"][:ask.POOL_MAX]]
-            n, deep = ask.prompt_count(question, found["matches"][:ask.POOL_MAX], cap, top_k)
+            candidates = [it["id"] for it in found.get("candidates") or found["matches"]]
+            n, deep = ask.prompt_count(question, found["matches"][:ask.POOL_MAX], cap, top_k, intent=found.get("intent"))
             lexical = [it["id"] for _, it in retrieval.rank(items, found["terms"])]
             sem = retrieval.semantic_hits(question)  # 同一句有缓存，不再调接口
             semantic = retrieval.sem_order(sem)
@@ -144,6 +147,11 @@ def evaluate(cases, items=None, k=8, use_semantic=True, expand_llm=True):
                 "false_rejection": [item_id for item_id in must if item_id not in pool],
                 "recall_primary": _recall(pool, want, n), "primary": n, "pool_size": len(pool),
                 "pool_coverage": round(len(set(pool) & want) / len(want), 3) if want else None,
+                "candidate_set_size": len(candidates),
+                "candidate_coverage": round(len(set(candidates) & want) / len(want), 3) if want else None,
+                "candidate_rank": _positions(candidates, want), "lost": list(stages.get("lost") or []),
+                "beyond_window": [x for x in expected if x in candidates and x not in pool],
+                "intent": found.get("intent"), "feedback": found.get("feedback") or [],
                 "must_pool": f"{len(set(pool) & set(must))}/{len(must)}" if must else "",
                 "must_pool_rank": [pool.index(x) + 1 if x in pool else None for x in must],
                 "final_rank": _positions(pool, want), "lexical_rank": _positions(lexical, want),
@@ -167,11 +175,12 @@ def evaluate(cases, items=None, k=8, use_semantic=True, expand_llm=True):
         summary[f"set_{subset}"] = {f"recall_at_{k}": mean(f"recall_at_{k}", subset), "recall_at_20": mean("recall_at_20", subset),
                                     "pool_coverage": mean("pool_coverage", subset)}
     metrics = [f"coverage_at_{k}", "coverage_at_20", "coverage_primary", f"capped_recall_at_{k}",
-               "capped_recall_at_20", "capped_recall_primary", "pool_coverage"]
+               "capped_recall_at_20", "capped_recall_primary", "pool_coverage", "candidate_coverage"]
     summary.update({key: mean(key) for key in metrics})
     summary["tuning_questions"] = sum(row["set"] != "holdout" for row in rows)
     summary["false_rejection"] = sum(len(row["false_rejection"]) for row in rows)
-    summary["blocked"] = bool(summary["false_rejection"])
+    summary["lost"] = sum(len(row["lost"]) for row in rows)
+    summary["blocked"] = bool(summary["false_rejection"] or summary["lost"])
     summary["sets"] = {subset: {**{key: mean(key, subset) for key in metrics},
                                "questions": sum(row["set"] == subset for row in rows),
                                "false_rejection": sum(len(row["false_rejection"]) for row in rows if row["set"] == subset)}
@@ -188,6 +197,8 @@ def _print(report, k):
         print(f"  应命中 {len(r['expected'])} 篇 · 候选池排名 {r['final_rank'][:12]} · 词法 {r['lexical_rank'][:10]}"
               f" · 语义 {r['semantic_rank'][:10] if r['semantic_rank'] is not None else '未启用'}"
               + (f" · 必须在池里 {r['must_pool']} 排 {r['must_pool_rank']}" if r["must_pool"] else ""))
+        print(f"  候选集 {r['candidate_set_size']} 篇、覆盖 {r['candidate_coverage']} · 金标在候选集排名 {r['candidate_rank'][:12]}"
+              f" · 首屏外 {len(r['beyond_window'])} · 丢失 {len(r['lost'])} · 意图 {r['intent'] or '启发式'} · 反馈词 {'、'.join(r['feedback']) or '无'}")
         print(f"  扩词（{r['expand_status']}）：{'、'.join(r['expanded']) or '无'}")
         for i, row in enumerate(r["top"], 1):
             print(f"   {i}. {'✓' if row['expected'] else ' '} {row['title']}")

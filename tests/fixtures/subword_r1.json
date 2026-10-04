@@ -1,0 +1,130 @@
+{
+ "note": "R1 子词回退：tests/test_recall_r1.py 和 tests/test_catalog_subword_r1.cjs 读同一份（Python / 目录页同规则）",
+ "chars": {
+  "西": "xi",
+  "尼": "ni",
+  "面": "mian",
+  "点": "dian",
+  "快": "kuai",
+  "手": "shou"
+ },
+ "items": [
+  {
+   "id": "mian-dian",
+   "title": "广式面点合集",
+   "tags": [],
+   "summary": "",
+   "search_fields": {
+    "body": "各种面点的做法"
+   }
+  },
+  {
+   "id": "noodle-title",
+   "title": "番茄鸡蛋面",
+   "tags": [],
+   "summary": "",
+   "search_fields": {
+    "body": "家常快手"
+   }
+  },
+  {
+   "id": "noodle-body",
+   "title": "周末快手菜",
+   "tags": [],
+   "summary": "",
+   "search_fields": {
+    "body": "手擀面的做法"
+   }
+  },
+  {
+   "id": "dimsum",
+   "title": "早茶点心",
+   "tags": [],
+   "summary": "",
+   "search_fields": {
+    "body": "虾饺烧卖"
+   }
+  },
+  {
+   "id": "hike",
+   "title": "周末徒步路线",
+   "tags": [],
+   "summary": "",
+   "search_fields": {
+    "body": "风景很好"
+   }
+  },
+  {
+   "id": "quick3",
+   "title": "快手早餐",
+   "tags": [],
+   "summary": "",
+   "search_fields": {
+    "body": "十分钟"
+   }
+  },
+  {
+   "id": "xini",
+   "title": "悉尼海边",
+   "tags": [],
+   "summary": "",
+   "pinyin": "xi ni / hai bian",
+   "search_fields": {
+    "body": "晒太阳"
+   }
+  },
+  {
+   "id": "dongxi",
+   "title": "买东西清单",
+   "tags": [],
+   "summary": "",
+   "pinyin": "mai dong xi / qing dan",
+   "search_fields": {
+    "body": "日用品"
+   }
+  }
+ ],
+ "cases": [
+  {
+   "query": "面点",
+   "note": "整词只中 1 篇：拆「面」「点」进可能相关，整词那篇在原词命中区",
+   "exact": [
+    "mian-dian"
+   ],
+   "possible_include": [
+    "noodle-title",
+    "noodle-body",
+    "dimsum"
+   ],
+   "exclude": [
+    "hike"
+   ]
+  },
+  {
+   "query": "快手",
+   "note": "整词中 3 篇（> 2）：不拆字",
+   "exact": [
+    "noodle-title",
+    "noodle-body",
+    "quick3"
+   ],
+   "possible_include": [],
+   "exclude": [
+    "dimsum",
+    "hike",
+    "mian-dian"
+   ]
+  },
+  {
+   "query": "西尼",
+   "note": "原词一篇没有、拼音找回悉尼：那是她要的，不再拆字（买东西不许进来）",
+   "exact": [],
+   "possible_include": [
+    "xini"
+   ],
+   "exclude": [
+    "dongxi"
+   ]
+  }
+ ]
+}
