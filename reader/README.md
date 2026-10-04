@@ -41,7 +41,8 @@ go build -o relatedfile.exe ./cmd/relatedfile   # 附件探测用的游客浏览
 - 取二维码限时 45 秒，任何失败（含异常）都关闭浏览器、释放 profile 锁——修复前一次失败会让整个服务永久卡住。
 
 **读取**
-- `GET /api/v1/favorites`：当前账号的收藏列表（10 分钟限频）；收藏页签点击失败时换干净标签页重试，懒加载以「12 秒无新增」判定到底。
+- `GET /api/v1/favorites[?expect=N]`：当前账号的收藏列表（10 分钟限频）；收藏页签点击失败时换干净标签页重试。判底看页面状态里的「还有更多」（`hasMore=false` 才算读全），条数停住但页面说还有、或明显低于调用方给的基准 `N` 时换滚法再试（四级），滚动间隔带抖动；一次请求最多滚到底 1 次，滚动预算 420 秒、请求上限 10 分钟。响应如实带 `partial` / `stop_reason` / `has_more` / `scroll`，读不全不当全量交出去。
+- 评论逐楼展开：前 `limit` 楼（默认 10）每楼的回复连点「展开」到底；预算在各楼之间轮转分配（每档 30 条），点之前把按钮滚进视口、点不动退回 DOM click 并退避重试，疑似限频就歇一段；整个请求预算默认 540 秒（参数 `comment_budget_s` / `comment_config.budget_s`，每楼回复上限 `max_replies_per_floor`，0 = 全部）。响应 `comment_load` 如实带 `floors_loaded`、`floors_expanded`、每楼缺多少（`replies_partial`）、判停原因和用时。
 - `POST /api/v1/attachments/download`：在有界面的浏览器里点笔记附件页的「下载」（无界面时该下载请求会挂住）。
 - 评论保留 `pictures`（评论图片）与 `audioInfo`（语音评论：音频地址、时长、站点自带转写 `asrText`、标签）。
 - 读首屏评论前等待其加载（最多 10 秒）。

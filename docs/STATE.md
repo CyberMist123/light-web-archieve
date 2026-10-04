@@ -1,5 +1,13 @@
 # Current State
 
+## 2026-10-04 批次：R0–R2 上线 + R1 召回统一 + 界面两批 + 读取组件 F1 / 评论逐楼展开 + 当场自愈
+
+- **检索**：R0 评测双口径、R2 证据身份 / 会话约束 / 单篇深读、R1 宽召回核心（候选不截断、四入口统一、CJK 子词回退、意图分类搭扩词调用）都在 main。真库评测（留出集不调参）：来源池覆盖 0.947 → 1.000，recall@20 0.881 → 0.902；31 题 recall@20 0.878、池 0.986。**未达标**：多词泛问里长尾金标能进池但进不了主要依据（靠 R3 重排）；多篇问题里单篇证据仍只有几百字（「专家版 / 不限字数」是 Owner 的心愿，未动工）。R 批收尾门槛「9 例 Obsidian 真机重跑」仍欠。
+- **夜跑三个病根**：①设置页存成新格式后 data.json 没有 embedAI，向量索引丢 key、语义层静默停——embedAI 缺省时借用已配的千问兼容接口；②没人声 / 没音轨的视频一律读画面字幕，读到字就不算问题；③「旧设置已换算」提示在设置存新格式后自动撤。
+- **读取组件**（`reader/link-brain-reader.patch` 已按最新源码重新导出）：读收藏判底看 `hasMore`、四级滚法、`partial` 如实报，滚动预算 420 秒（真号实测 1120 条用满 300 秒还差 40 条后放宽）；评论逐楼展开到底、预算轮转（真号实测超长评论区一次请求约 110 次点击、约 550 条回复，前 10 楼每楼至少 61 条或展开完）。Python：`sync-favorites` 读到一截退出 3、当晚不重读、基准只认读全的那次；客户端超时 780 秒。
+- **当场自愈**：`link_brain/repair.py`（每个非风控故障码一个修复动作）+ `problems repair`（面板「现在修 / 全部修一遍」、夜跑收尾自愈轮，不重读收藏列表、不过 06:50）；`docs/ERRORS.md` 报错台账。风控 / 登录 / key 类只留人工入口。
+- **界面两批**（Owner 10-04 点名）：问收藏页（灰框隐形、内滚动条隐藏、追问绑定当前来源、来源多选 / 命中 / 保留、清空=新对话 + 按天历史 + 隐私模式、已保存只显标题、「我保存的」进召回、不写「作者说」）；笔记正文（视频控件悬停才出、标签无框、滚动条隐藏、不显示属地、「← 目录」）；目录页（悬停选中、右键立即导出、选集给 MCP `lb_selections` / `lb_selection` 与远程 `selections` / `read_selection`、导入时间筛选排序、回顶、Ctrl+F、去掉「没人说话 / 没有音轨」卡片标）。全部只在仿 Obsidian 截图架里看过，真 Obsidian 待她看。
+- 遗留：`ui_pages_qa` / `catalog_ui_smoke` / `evidence_ui` 三个页面测试基线就跑不过；RELEASE-BAR P13「只读四个工具」现为六个；Python 还没认 `comment_load.replies_partial`（评论缺口没进同步记录）。
 ## 2026-10-03 第 9 批：同步记录 + 灵活定时 + 瀑布流列数 + 目录页入口（分支 batch9-synclog）
 
 - **同步记录**（替换「本周同步情况」窗口；`report week` CLI 保留）：`link_brain/synclog.py` → `vault/_archive/sync-log.jsonl`，一次同步一行（开始 / 结束 / 触发来源 手动·夜跑·定时·命令行·重试 / 新收几篇 / 正文·附件·视频·识图·概要 各成功失败数 / 每篇标题·笔记·失败原因 / 步骤级报错 / 夜跑退出码），storage 锁 `sync-log` 里读改写、只留最近 200 行、每行最多 200 条标题。记录点就在各步骤完成处（`favorites.sync_favorites` 新收 / 抓不到 / 号出事、`attachments._report_downloads` 下到 / 没下好、`pdftext` 转文字成败、`enrich.enrich_one` 补前缺的识图 / 概要补没补上、`videos._report` 转写、`vision --upgrade` 补跑），进程内先攒、`cli.main` 每个命令结束 `finish_command` 并进去——不重扫全库。同一次同步靠 `LINK_BRAIN_SYNC_RUN` 串起来：包内夜跑开一行、每步子进程带编号、收尾记退出码；插件「立即同步」带 `LINK_BRAIN_SYNC_TRIGGER=manual`，命令结束就收尾；仓外夜跑脚本不改也能记：`sync-favorites` 开一行（自动），后面不带编号的步骤并进「8 小时内没收尾的自动行」，`attachments --audit`（最后一步）或下一次开始给它收尾。CLI `synclog list|begin|end|record|retry`。

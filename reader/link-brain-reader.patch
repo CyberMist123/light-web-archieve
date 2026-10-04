@@ -990,10 +990,18 @@ index 74c4654..0195322 100644
 +
 +replace github.com/xpzouying/headless_browser => ./third_party/headless_browser
 diff --git a/handlers_api.go b/handlers_api.go
-index abed0f7..89107ab 100644
+index abed0f7..939c5ad 100644
 --- a/handlers_api.go
 +++ b/handlers_api.go
-@@ -41,8 +41,7 @@ func respondSuccess(c *gin.Context, data any, message string) {
+@@ -3,6 +3,7 @@ package main
+ import (
+ 	"net/http"
+ 	"strconv"
++	"time"
+ 
+ 	"github.com/xpzouying/xiaohongshu-mcp/cookies"
+ 	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
+@@ -41,8 +42,7 @@ func respondSuccess(c *gin.Context, data any, message string) {
  func (s *AppServer) checkLoginStatusHandler(c *gin.Context) {
  	status, err := s.xiaohongshuService.CheckLoginStatus(c.Request.Context())
  	if err != nil {
@@ -1003,7 +1011,7 @@ index abed0f7..89107ab 100644
  		return
  	}
  
-@@ -89,8 +88,7 @@ func (s *AppServer) publishHandler(c *gin.Context) {
+@@ -89,8 +89,7 @@ func (s *AppServer) publishHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.PublishContent(c.Request.Context(), &req)
  	if err != nil {
@@ -1013,7 +1021,7 @@ index abed0f7..89107ab 100644
  		return
  	}
  
-@@ -108,8 +106,7 @@ func (s *AppServer) publishVideoHandler(c *gin.Context) {
+@@ -108,8 +107,7 @@ func (s *AppServer) publishVideoHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.PublishVideo(c.Request.Context(), &req)
  	if err != nil {
@@ -1023,7 +1031,7 @@ index abed0f7..89107ab 100644
  		return
  	}
  
-@@ -120,8 +117,7 @@ func (s *AppServer) publishVideoHandler(c *gin.Context) {
+@@ -120,8 +118,7 @@ func (s *AppServer) publishVideoHandler(c *gin.Context) {
  func (s *AppServer) listFeedsHandler(c *gin.Context) {
  	result, err := s.xiaohongshuService.ListFeeds(c.Request.Context())
  	if err != nil {
@@ -1033,7 +1041,7 @@ index abed0f7..89107ab 100644
  		return
  	}
  
-@@ -156,8 +152,7 @@ func (s *AppServer) searchFeedsHandler(c *gin.Context) {
+@@ -156,8 +153,7 @@ func (s *AppServer) searchFeedsHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.SearchFeeds(c.Request.Context(), keyword, filters)
  	if err != nil {
@@ -1043,7 +1051,16 @@ index abed0f7..89107ab 100644
  		return
  	}
  
-@@ -189,8 +184,7 @@ func (s *AppServer) getFeedDetailHandler(c *gin.Context) {
+@@ -182,6 +178,8 @@ func (s *AppServer) getFeedDetailHandler(c *gin.Context) {
+ 			MaxRepliesThreshold: req.CommentConfig.MaxRepliesThreshold,
+ 			MaxCommentItems:     req.CommentConfig.MaxCommentItems,
+ 			ScrollSpeed:         req.CommentConfig.ScrollSpeed,
++			RequestBudget:       time.Duration(req.CommentConfig.BudgetS) * time.Second,
++			MaxRepliesPerFloor:  req.CommentConfig.MaxRepliesPerFloor,
+ 		}
+ 		result, err = s.xiaohongshuService.GetFeedDetailWithConfig(c.Request.Context(), req.FeedID, req.XsecToken, req.LoadAllComments, config)
+ 	} else {
+@@ -189,8 +187,7 @@ func (s *AppServer) getFeedDetailHandler(c *gin.Context) {
  	}
  
  	if err != nil {
@@ -1053,7 +1070,7 @@ index abed0f7..89107ab 100644
  		return
  	}
  
-@@ -208,8 +202,7 @@ func (s *AppServer) userProfileHandler(c *gin.Context) {
+@@ -208,8 +205,7 @@ func (s *AppServer) userProfileHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.UserProfile(c.Request.Context(), req.UserID, req.XsecToken, req.Tab)
  	if err != nil {
@@ -1063,7 +1080,7 @@ index abed0f7..89107ab 100644
  		return
  	}
  
-@@ -228,8 +221,7 @@ func (s *AppServer) postCommentHandler(c *gin.Context) {
+@@ -228,8 +224,7 @@ func (s *AppServer) postCommentHandler(c *gin.Context) {
  	// 发表评论
  	result, err := s.xiaohongshuService.PostCommentToFeed(c.Request.Context(), req.FeedID, req.XsecToken, req.Content)
  	if err != nil {
@@ -1073,7 +1090,7 @@ index abed0f7..89107ab 100644
  		return
  	}
  
-@@ -247,8 +239,7 @@ func (s *AppServer) replyCommentHandler(c *gin.Context) {
+@@ -247,8 +242,7 @@ func (s *AppServer) replyCommentHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.ReplyCommentToFeed(c.Request.Context(), req.FeedID, req.XsecToken, req.CommentID, req.UserID, req.Content)
  	if err != nil {
@@ -1083,7 +1100,7 @@ index abed0f7..89107ab 100644
  		return
  	}
  
-@@ -272,8 +263,7 @@ func (s *AppServer) likeFeedHandler(c *gin.Context) {
+@@ -272,8 +266,7 @@ func (s *AppServer) likeFeedHandler(c *gin.Context) {
  		result, err = s.xiaohongshuService.LikeFeed(c.Request.Context(), req.FeedID, req.XsecToken)
  	}
  	if err != nil {
@@ -1093,7 +1110,7 @@ index abed0f7..89107ab 100644
  		return
  	}
  
-@@ -297,8 +287,7 @@ func (s *AppServer) favoriteFeedHandler(c *gin.Context) {
+@@ -297,8 +290,7 @@ func (s *AppServer) favoriteFeedHandler(c *gin.Context) {
  		result, err = s.xiaohongshuService.FavoriteFeed(c.Request.Context(), req.FeedID, req.XsecToken)
  	}
  	if err != nil {
@@ -1103,7 +1120,7 @@ index abed0f7..89107ab 100644
  		return
  	}
  
-@@ -321,8 +310,7 @@ func (s *AppServer) myProfileHandler(c *gin.Context) {
+@@ -321,8 +313,7 @@ func (s *AppServer) myProfileHandler(c *gin.Context) {
  	// 获取当前登录用户信息
  	result, err := s.xiaohongshuService.GetMyProfile(c.Request.Context(), c.Query("tab"))
  	if err != nil {
@@ -1113,7 +1130,7 @@ index abed0f7..89107ab 100644
  		return
  	}
  
-@@ -333,8 +321,7 @@ func (s *AppServer) myProfileHandler(c *gin.Context) {
+@@ -333,8 +324,7 @@ func (s *AppServer) myProfileHandler(c *gin.Context) {
  func (s *AppServer) getUnreadCountHandler(c *gin.Context) {
  	result, err := s.xiaohongshuService.GetUnreadCount(c.Request.Context())
  	if err != nil {
@@ -1123,7 +1140,7 @@ index abed0f7..89107ab 100644
  		return
  	}
  
-@@ -360,8 +347,7 @@ func (s *AppServer) listNotificationsHandler(c *gin.Context) {
+@@ -360,8 +350,7 @@ func (s *AppServer) listNotificationsHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.ListNotifications(c.Request.Context(), req.Tab, req.Limit)
  	if err != nil {
@@ -1133,7 +1150,7 @@ index abed0f7..89107ab 100644
  		return
  	}
  
-@@ -379,8 +365,7 @@ func (s *AppServer) replyNotificationHandler(c *gin.Context) {
+@@ -379,8 +368,7 @@ func (s *AppServer) replyNotificationHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.ReplyNotification(c.Request.Context(), req.CommentID, req.Content)
  	if err != nil {
@@ -1143,7 +1160,7 @@ index abed0f7..89107ab 100644
  		return
  	}
  
-@@ -398,8 +383,7 @@ func (s *AppServer) likeNotificationHandler(c *gin.Context) {
+@@ -398,8 +386,7 @@ func (s *AppServer) likeNotificationHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.LikeNotification(c.Request.Context(), req.CommentID, req.Unlike)
  	if err != nil {
@@ -1155,7 +1172,7 @@ index abed0f7..89107ab 100644
  
 diff --git a/linkbrain_api.go b/linkbrain_api.go
 new file mode 100644
-index 0000000..0d8f142
+index 0000000..937147f
 --- /dev/null
 +++ b/linkbrain_api.go
 @@ -0,0 +1,880 @@
@@ -1483,8 +1500,8 @@ index 0000000..0d8f142
 +const favMaxAttempts = 2
 +
 +// favRequestTimeout 读收藏整个请求（登录检查 + 进主页 + 点页签 + 等首屏 + 滚动 ≤favScrollBudget + 提取）的上限。
-+// Python 客户端超时（favorites.fetch_favorites 660 秒）= 启动 ≤90 + 本值 + 关浏览器 ≤30 + 余量，必须比本值长。
-+const favRequestTimeout = 8 * time.Minute
++// Python 客户端超时（favorites.fetch_favorites 780 秒）= 启动 ≤90 + 本值 + 关浏览器 ≤30 + 余量，必须比本值长。
++const favRequestTimeout = 10 * time.Minute
 +
 +// favExpectParam 解析 ?expect=N（上次正常读到的收藏条数）。乱填 / 负数 / 离谱大数一律当 0（不知道）。
 +func favExpectParam(raw string) int {
@@ -2071,11 +2088,66 @@ index c100268..91a304b 100644
  	configs.SetProxy(configs.ProxyFromEnv())
  
  	// 初始化服务
+diff --git a/mcp_handlers.go b/mcp_handlers.go
+index 20a6879..ecf0c9d 100644
+--- a/mcp_handlers.go
++++ b/mcp_handlers.go
+@@ -429,6 +429,34 @@ func (s *AppServer) handleGetFeedDetail(ctx context.Context, args map[string]any
+ 		config.ScrollSpeed = raw
+ 	}
+ 
++	// 1004d：每楼回复上限（0 = 不限）
++	if raw, ok := args["max_replies_per_floor"]; ok {
++		switch v := raw.(type) {
++		case float64:
++			config.MaxRepliesPerFloor = int(v)
++		case int:
++			config.MaxRepliesPerFloor = v
++		case string:
++			if parsed, err := strconv.Atoi(v); err == nil {
++				config.MaxRepliesPerFloor = parsed
++			}
++		}
++	}
++
++	// 1004d：请求时间预算（秒）
++	if raw, ok := args["comment_budget_s"]; ok {
++		switch v := raw.(type) {
++		case float64:
++			config.RequestBudget = time.Duration(v) * time.Second
++		case int:
++			config.RequestBudget = time.Duration(v) * time.Second
++		case string:
++			if parsed, err := strconv.Atoi(v); err == nil {
++				config.RequestBudget = time.Duration(parsed) * time.Second
++			}
++		}
++	}
++
+ 	logrus.Infof("MCP: 获取Feed详情 - Feed ID: %s, loadAllComments=%v, config=%+v", feedID, loadAll, config)
+ 
+ 	result, err := s.xiaohongshuService.GetFeedDetailWithConfig(ctx, feedID, xsecToken, loadAll, config)
 diff --git a/mcp_server.go b/mcp_server.go
-index a8137ee..288c60a 100644
+index a8137ee..7ee1e94 100644
 --- a/mcp_server.go
 +++ b/mcp_server.go
-@@ -137,6 +137,8 @@ func InitMCPServer(appServer *AppServer) *mcp.Server {
+@@ -58,10 +58,12 @@ type FeedDetailArgs struct {
+ 	FeedID           string `json:"feed_id" jsonschema:"小红书笔记ID，从Feed列表获取"`
+ 	XsecToken        string `json:"xsec_token" jsonschema:"访问令牌，从Feed列表的xsecToken字段获取"`
+ 	LoadAllComments  bool   `json:"load_all_comments,omitempty" jsonschema:"是否加载全部评论。false仅返回前10条一级评论（默认），true滚动加载更多评论"`
+-	Limit            int    `json:"limit,omitempty" jsonschema:"【仅当load_all_comments为true时生效】限制加载的一级评论数量。例如20表示最多加载20条，默认20"`
+-	ClickMoreReplies bool   `json:"click_more_replies,omitempty" jsonschema:"【仅当load_all_comments为true时生效】是否展开二级回复。true展开子评论，false不展开（默认）"`
+-	ReplyLimit       int    `json:"reply_limit,omitempty" jsonschema:"【仅当click_more_replies为true时生效】跳过回复数过多的评论。例如10表示跳过超过10条回复的，默认10"`
++	Limit            int    `json:"limit,omitempty" jsonschema:"【仅当load_all_comments为true时生效】楼层上限：加载（并展开回复）前几楼一级评论，默认10"`
++	ClickMoreReplies bool   `json:"click_more_replies,omitempty" jsonschema:"【仅当load_all_comments为true时生效】是否展开二级回复。true把楼层上限内每楼的回复展开到底（每楼最多点30次），false不展开（默认）"`
++	ReplyLimit       int    `json:"reply_limit,omitempty" jsonschema:"已停用：不再按回复数跳过楼层，传了也忽略"`
+ 	ScrollSpeed      string `json:"scroll_speed,omitempty" jsonschema:"【仅当load_all_comments为true时生效】滚动速度slow慢速、normal正常、fast快速"`
++	RepliesPerFloor  int    `json:"max_replies_per_floor,omitempty" jsonschema:"【仅当click_more_replies为true时生效】每楼回复上限：展开到这么多条就不再点这楼；默认0表示不限（全部展开）"`
++	CommentBudgetS   int    `json:"comment_budget_s,omitempty" jsonschema:"【仅当load_all_comments为true时生效】本次请求的时间预算（秒，从请求进来算），评论在预算前30秒收手并在 comment_load 里如实报读到几楼；默认540，范围60-900"`
+ }
+ 
+ // UserProfileArgs 获取用户主页的参数
+@@ -137,6 +139,8 @@ func InitMCPServer(appServer *AppServer) *mcp.Server {
  
  	// 注册所有工具
  	registerTools(server, appServer)
@@ -2084,6 +2156,39 @@ index a8137ee..288c60a 100644
  
  	logrus.Info("MCP Server initialized with official SDK")
  
+@@ -305,23 +309,24 @@ func registerTools(server *mcp.Server, appServer *AppServer) {
+ 			if args.LoadAllComments {
+ 				argsMap["click_more_replies"] = args.ClickMoreReplies
+ 
+-				// 设置评论数量限制，默认20
++				// 楼层上限，默认 10（1004d Owner：同步默认前 10 楼）
+ 				limit := args.Limit
+ 				if limit <= 0 {
+-					limit = 20
++					limit = 10
+ 				}
+ 				argsMap["max_comment_items"] = limit
+ 
+-				// 设置回复数量阈值，默认10
+-				replyLimit := args.ReplyLimit
+-				if replyLimit <= 0 {
+-					replyLimit = 10
+-				}
+-				argsMap["max_replies_threshold"] = replyLimit
++				// reply_limit 已停用（1004d）：楼层上限内一律展开到底，不再按回复数跳过
+ 
+ 				if args.ScrollSpeed != "" {
+ 					argsMap["scroll_speed"] = args.ScrollSpeed
+ 				}
++				if args.RepliesPerFloor > 0 {
++					argsMap["max_replies_per_floor"] = args.RepliesPerFloor
++				}
++				if args.CommentBudgetS > 0 {
++					argsMap["comment_budget_s"] = args.CommentBudgetS
++				}
+ 			}
+ 
+ 			result := appServer.handleGetFeedDetail(ctx, argsMap)
 diff --git a/middleware.go b/middleware.go
 index b38164a..a769bd5 100644
 --- a/middleware.go
@@ -3251,7 +3356,7 @@ index 26b7bf4..e194683 100644
  		api.GET("/login/qrcode", appServer.getLoginQrcodeHandler)
  		api.DELETE("/login/cookies", appServer.deleteCookiesHandler)
 diff --git a/service.go b/service.go
-index f40bb5d..d3fddea 100644
+index f40bb5d..3f68d4e 100644
 --- a/service.go
 +++ b/service.go
 @@ -5,11 +5,11 @@ import (
@@ -3466,11 +3571,15 @@ index f40bb5d..d3fddea 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -420,7 +469,10 @@ func (s *XiaohongshuService) GetFeedDetail(ctx context.Context, feedID, xsecToke
+@@ -420,7 +469,14 @@ func (s *XiaohongshuService) GetFeedDetail(ctx context.Context, feedID, xsecToke
  
  // GetFeedDetailWithConfig 使用配置获取Feed详情
  func (s *XiaohongshuService) GetFeedDetailWithConfig(ctx context.Context, feedID, xsecToken string, loadAllComments bool, config xiaohongshu.CommentLoadConfig) (*FeedDetailResponse, error) {
 -	b := newBrowser()
++	// 1004d：请求预算从这里起算（含排队拿锁、开浏览器），评论按它收手，保证在调用方超时前返回
++	if config.RequestStart.IsZero() {
++		config.RequestStart = time.Now()
++	}
 +	b, berr := s.openBrowser()
 +	if berr != nil {
 +		return nil, berr
@@ -3478,7 +3587,7 @@ index f40bb5d..d3fddea 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -428,8 +480,13 @@ func (s *XiaohongshuService) GetFeedDetailWithConfig(ctx context.Context, feedID
+@@ -428,8 +484,13 @@ func (s *XiaohongshuService) GetFeedDetailWithConfig(ctx context.Context, feedID
  
  	action := xiaohongshu.NewFeedDetailAction(page)
  
@@ -3493,7 +3602,7 @@ index f40bb5d..d3fddea 100644
  		return nil, err
  	}
  
-@@ -441,6 +498,16 @@ func (s *XiaohongshuService) GetFeedDetailWithConfig(ctx context.Context, feedID
+@@ -441,6 +502,16 @@ func (s *XiaohongshuService) GetFeedDetailWithConfig(ctx context.Context, feedID
  	return response, nil
  }
  
@@ -3510,7 +3619,7 @@ index f40bb5d..d3fddea 100644
  // UserProfile 获取用户信息
  func (s *XiaohongshuService) UserProfile(ctx context.Context, userID, xsecToken, tab string) (*UserProfileResponse, error) {
  	parsed, err := xiaohongshu.ParseProfileTab(tab)
-@@ -448,7 +515,10 @@ func (s *XiaohongshuService) UserProfile(ctx context.Context, userID, xsecToken,
+@@ -448,7 +519,10 @@ func (s *XiaohongshuService) UserProfile(ctx context.Context, userID, xsecToken,
  		return nil, err
  	}
  
@@ -3522,7 +3631,7 @@ index f40bb5d..d3fddea 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -472,7 +542,10 @@ func (s *XiaohongshuService) UserProfile(ctx context.Context, userID, xsecToken,
+@@ -472,7 +546,10 @@ func (s *XiaohongshuService) UserProfile(ctx context.Context, userID, xsecToken,
  
  // PostCommentToFeed 发表评论到Feed
  func (s *XiaohongshuService) PostCommentToFeed(ctx context.Context, feedID, xsecToken, content string) (*PostCommentResponse, error) {
@@ -3534,7 +3643,7 @@ index f40bb5d..d3fddea 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -489,7 +562,10 @@ func (s *XiaohongshuService) PostCommentToFeed(ctx context.Context, feedID, xsec
+@@ -489,7 +566,10 @@ func (s *XiaohongshuService) PostCommentToFeed(ctx context.Context, feedID, xsec
  
  // LikeFeed 点赞笔记
  func (s *XiaohongshuService) LikeFeed(ctx context.Context, feedID, xsecToken string) (*ActionResult, error) {
@@ -3546,7 +3655,7 @@ index f40bb5d..d3fddea 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -504,7 +580,10 @@ func (s *XiaohongshuService) LikeFeed(ctx context.Context, feedID, xsecToken str
+@@ -504,7 +584,10 @@ func (s *XiaohongshuService) LikeFeed(ctx context.Context, feedID, xsecToken str
  
  // UnlikeFeed 取消点赞笔记
  func (s *XiaohongshuService) UnlikeFeed(ctx context.Context, feedID, xsecToken string) (*ActionResult, error) {
@@ -3558,7 +3667,7 @@ index f40bb5d..d3fddea 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -519,7 +598,10 @@ func (s *XiaohongshuService) UnlikeFeed(ctx context.Context, feedID, xsecToken s
+@@ -519,7 +602,10 @@ func (s *XiaohongshuService) UnlikeFeed(ctx context.Context, feedID, xsecToken s
  
  // FavoriteFeed 收藏笔记
  func (s *XiaohongshuService) FavoriteFeed(ctx context.Context, feedID, xsecToken string) (*ActionResult, error) {
@@ -3570,7 +3679,7 @@ index f40bb5d..d3fddea 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -534,7 +616,10 @@ func (s *XiaohongshuService) FavoriteFeed(ctx context.Context, feedID, xsecToken
+@@ -534,7 +620,10 @@ func (s *XiaohongshuService) FavoriteFeed(ctx context.Context, feedID, xsecToken
  
  // UnfavoriteFeed 取消收藏笔记
  func (s *XiaohongshuService) UnfavoriteFeed(ctx context.Context, feedID, xsecToken string) (*ActionResult, error) {
@@ -3582,7 +3691,7 @@ index f40bb5d..d3fddea 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -549,7 +634,10 @@ func (s *XiaohongshuService) UnfavoriteFeed(ctx context.Context, feedID, xsecTok
+@@ -549,7 +638,10 @@ func (s *XiaohongshuService) UnfavoriteFeed(ctx context.Context, feedID, xsecTok
  
  // ReplyCommentToFeed 回复指定评论
  func (s *XiaohongshuService) ReplyCommentToFeed(ctx context.Context, feedID, xsecToken, commentID, userID, content string) (*ReplyCommentResponse, error) {
@@ -3594,7 +3703,7 @@ index f40bb5d..d3fddea 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -572,7 +660,10 @@ func (s *XiaohongshuService) ReplyCommentToFeed(ctx context.Context, feedID, xse
+@@ -572,7 +664,10 @@ func (s *XiaohongshuService) ReplyCommentToFeed(ctx context.Context, feedID, xse
  
  // GetUnreadCount 获取通知未读数
  func (s *XiaohongshuService) GetUnreadCount(ctx context.Context) (*xiaohongshu.NotificationCount, error) {
@@ -3606,7 +3715,7 @@ index f40bb5d..d3fddea 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -588,7 +679,10 @@ func (s *XiaohongshuService) ListNotifications(ctx context.Context, tab string,
+@@ -588,7 +683,10 @@ func (s *XiaohongshuService) ListNotifications(ctx context.Context, tab string,
  		return nil, err
  	}
  
@@ -3618,7 +3727,7 @@ index f40bb5d..d3fddea 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -599,7 +693,10 @@ func (s *XiaohongshuService) ListNotifications(ctx context.Context, tab string,
+@@ -599,7 +697,10 @@ func (s *XiaohongshuService) ListNotifications(ctx context.Context, tab string,
  
  // LikeNotification 给通知里的评论点赞或取消点赞
  func (s *XiaohongshuService) LikeNotification(ctx context.Context, commentID string, unlike bool) (*xiaohongshu.NotificationLikeResult, error) {
@@ -3630,7 +3739,7 @@ index f40bb5d..d3fddea 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -610,7 +707,10 @@ func (s *XiaohongshuService) LikeNotification(ctx context.Context, commentID str
+@@ -610,7 +711,10 @@ func (s *XiaohongshuService) LikeNotification(ctx context.Context, commentID str
  
  // ReplyNotification 在通知页就地回复评论
  func (s *XiaohongshuService) ReplyNotification(ctx context.Context, commentID, content string) (*xiaohongshu.NotificationReplyResult, error) {
@@ -3642,7 +3751,7 @@ index f40bb5d..d3fddea 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -619,13 +719,31 @@ func (s *XiaohongshuService) ReplyNotification(ctx context.Context, commentID, c
+@@ -619,13 +723,31 @@ func (s *XiaohongshuService) ReplyNotification(ctx context.Context, commentID, c
  	return xiaohongshu.NewNotificationAction(page).Reply(ctx, commentID, content)
  }
  
@@ -3675,7 +3784,7 @@ index f40bb5d..d3fddea 100644
  func saveCookies(page *rod.Page) error {
  	cks, err := page.Browser().GetCookies()
  	if err != nil {
-@@ -641,17 +759,6 @@ func saveCookies(page *rod.Page) error {
+@@ -641,17 +763,6 @@ func saveCookies(page *rod.Page) error {
  	return cookieLoader.SaveCookies(data)
  }
  
@@ -3693,7 +3802,7 @@ index f40bb5d..d3fddea 100644
  // GetMyProfile 获取当前登录用户的个人信息
  func (s *XiaohongshuService) GetMyProfile(ctx context.Context, tab string) (*UserProfileResponse, error) {
  	parsed, err := xiaohongshu.ParseProfileTab(tab)
-@@ -661,13 +768,39 @@ func (s *XiaohongshuService) GetMyProfile(ctx context.Context, tab string) (*Use
+@@ -661,13 +772,39 @@ func (s *XiaohongshuService) GetMyProfile(ctx context.Context, tab string) (*Use
  
  	var result *xiaohongshu.UserProfileResponse
  
@@ -4159,11 +4268,1806 @@ index 0000000..e22e7cb
 +	}
 +	return page
 +}
+diff --git a/types.go b/types.go
+index c86d1ba..98ad771 100644
+--- a/types.go
++++ b/types.go
+@@ -38,10 +38,14 @@ type MCPContent struct {
+ type CommentLoadConfig struct {
+ 	// 是否点击"更多回复"按钮
+ 	ClickMoreReplies bool `json:"click_more_replies,omitempty"`
+-	// 回复数量阈值，超过这个数量的"更多"按钮将被跳过（0表示不跳过任何）
++	// 已停用（1004d）：楼层上限内每楼回复一律展开到底（每楼最多点 30 次），不再按回复数跳过；保留字段兼容旧调用方
+ 	MaxRepliesThreshold int `json:"max_replies_threshold,omitempty"`
+-	// 最大加载评论数（.parent-comment数量），0表示加载所有
++	// 楼层上限：加载并展开前几楼（一级评论），0 = 默认 10
+ 	MaxCommentItems int `json:"max_comment_items,omitempty"`
++	// 请求时间预算（秒，从请求进来算）：评论在预算 − 30 秒时收手并如实返回 comment_load；0 = 默认 540，夹在 60–900
++	BudgetS int `json:"budget_s,omitempty"`
++	// 每楼回复上限：展开到这么多条就不再点这楼；0 = 不限（全部展开）
++	MaxRepliesPerFloor int `json:"max_replies_per_floor,omitempty"`
+ 	// 滚动速度等级: slow(慢速), normal(正常), fast(快速)
+ 	ScrollSpeed string `json:"scroll_speed,omitempty"`
+ }
+diff --git a/xiaohongshu/comment_floors.go b/xiaohongshu/comment_floors.go
+new file mode 100644
+index 0000000..7893d5a
+--- /dev/null
++++ b/xiaohongshu/comment_floors.go
+@@ -0,0 +1,917 @@
++package xiaohongshu
++
++// 评论楼层加载（1004d）：一次请求、一个预算里「滚评论区加载楼层 + 把楼层上限内每楼的回复展开到底」。
++//
++// 旧加载器（1004 之前）的三个毛病，导致前 10 楼的「展开 N 条回复」没点开：
++//   - 一级评论数 ≥ 上限（默认 10，首屏就有 10 楼）立即返回：第 0 轮只跑了两遍「点按钮」，每遍最多 3–5 个；
++//   - 每遍按页面上 .show-more 的出现顺序点、不认楼，点完不等回复加载出来、也不回头核对，多页回复要连点的楼只点了一次；
++//   - 「展开 N 条回复」的 N 超过 MaxRepliesThreshold（Python 传 100）的楼直接跳过。
++//
++// 新做法：按楼来。每轮读一次页面状态（__INITIAL_STATE__ 里每楼的 subCommentCount / subComments / subCommentHasMore，
++// 加 DOM 里这楼的「展开」按钮），在上限内挑一个楼点它的按钮 → 等回复数变化 → 再读；上限内的楼都处理完才往下滚。
++//
++// 第二版（10-04 19:54 真号试跑：每点一次多 5 条，10 楼全以 click_failed 收场）：
++//   - 根因：按钮元素是从 page.Timeout(2s) 查出来的，句柄带着那个 2 秒超时；点之前还有一段拟人停顿，
++//     停顿 + 滚动一超过 2 秒，点击就因 context deadline 失败。楼越大 DOM 越慢，越往后能点中的越少。
++//     现在找到后把元素重新绑到加载的 ctx，并且每次点都按 comment_id 重新查按钮。
++//   - 点之前把按钮滚到评论滚动容器的中间；拟人点击限时 8 秒，失败退回 DOM click（同 selectTab）。
++//   - 点不动 / 点了不涨：按 2s / 5s / 10s 退避再点这楼（期间先去点别的楼），退避用完还不行才放弃这楼。
++//   - 连续多楼都失败 = 疑似限频：歇 20–40 秒再继续；连着歇两次都没好转判停 throttled。
++//   - 公平分配：按「已加载回复数 / RoundStep」分档，先给每楼都展开到 30 条，再轮到 60 条……；可设每楼回复上限。
++//   - 每次失败记诊断（点击报错、按钮文本 / 位置 / 是否在视口 / 被谁遮挡 / disabled / loading、DOM 与状态里的回复数、
++//     离上次成功多久），写日志并放进 replies_partial[].detail。
++//
++// 判停核心 loadFloors 是纯逻辑（读数 / 点击 / 诊断 / 滚动 / 风控全部注入），单测用桩驱动；真实页面接线在 floorOpsFor。
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"math/rand"
++	"strings"
++	"time"
++
++	"github.com/go-rod/rod"
++	"github.com/sirupsen/logrus"
++	"github.com/xpzouying/xiaohongshu-mcp/humanize"
++)
++
++// 判停原因（响应 comment_load.stop_reason，日志同样写这几个词）。
++const (
++	CommentStopFloorLimit  = "floor_limit"  // 楼层上限内的楼都读到了，回复都处理完
++	CommentStopEnd         = "end"          // 评论区到底（总楼数不到上限），回复都处理完
++	CommentStopNoComments  = "no_comments"  // 没有评论
++	CommentStopStuck       = "stuck"        // 页面说还有楼，但换了几种滚法都滚不出来：partial
++	CommentStopBudget      = "budget"       // 预算用完：partial
++	CommentStopCancelled   = "cancelled"    // 请求被取消 / 超时：partial
++	CommentStopProbeFailed = "probe_failed" // 连续读不出页面状态：partial
++	CommentStopThrottled   = "throttled"    // 连续多楼点不动，歇过两次仍不行（疑似限频）：partial
++	CommentStopRisk        = "risk"         // 撞风控：立即停（整篇按风控失败）
++)
++
++// 某楼回复没展开完的原因（comment_load.replies_partial[].reason）。
++const (
++	ReplyGapCap           = "cap"            // 点到每楼点击上限还有
++	ReplyGapReplyCap      = "reply_cap"      // 到了调用方给的每楼回复上限（不算 partial）
++	ReplyGapNoGrowth      = "no_growth"      // 点了回复数不涨，退避重试用完
++	ReplyGapNoButton      = "no_button"      // 页面说还有回复，但楼里找不到「展开」按钮
++	ReplyGapClickFailed   = "click_failed"   // 按钮在，但点不动，退避重试用完
++	ReplyGapNotReached    = "not_reached"    // 预算 / 风控 / 取消 / 限频停下时这楼还没展开完
++	ReplyGapNotExpanded   = "not_expanded"   // 调用方没要求展开回复（click_more_replies=false）
++	ReplyGapCountMismatch = "count_mismatch" // 按钮没了、页面也不说还有，但条数比楼上显示的少（多半是删除 / 折叠的回复）
++)
++
++// ReplyGap 楼层上限内某一楼的回复没拿全。
++type ReplyGap struct {
++	Floor     int    `json:"floor"` // 第几楼，从 1 起
++	CommentID string `json:"comment_id"`
++	Shown     int    `json:"shown"`   // 楼上显示的回复数（subCommentCount）；读不到为 -1
++	Loaded    int    `json:"loaded"`  // 实际加载到的回复数
++	Missing   int    `json:"missing"` // max(shown − loaded, 0)
++	HasMore   bool   `json:"has_more"`
++	Clicks    int    `json:"clicks"`
++	Reason    string `json:"reason"`
++	Detail    string `json:"detail"` // 最后一次失败的诊断（点击报错 / 按钮状态 / 条数），没有为空
++}
++
++// CommentLoadResult 一次评论加载的结论（响应 data.comment_load）。
++type CommentLoadResult struct {
++	FloorLimit     int        `json:"floor_limit"`           // 楼层上限（请求参数 limit，默认 10）
++	ReplyCap       int        `json:"replies_per_floor_cap"` // 每楼回复上限（0 = 不限）
++	FloorsLoaded   int        `json:"floors_loaded"`         // 页面里已加载的一级评论（楼）数，可能超过上限（站点一页给 10 楼）
++	FloorsExpanded int        `json:"floors_expanded"`       // 从第 1 楼起连续「回复已展开到底」的楼数（≤ 上限）
++	TotalShown     *int       `json:"comments_total_shown"`  // 页面显示的总评论数（含楼中楼）；读不到为 null
++	HasMore        *bool      `json:"comments_has_more"`     // 页面状态里一级评论还有没有更多；读不到为 null
++	RepliesPartial []ReplyGap `json:"replies_partial"`       // 上限内回复没拿全的楼；空数组 = 全齐
++	RepliesMissing int        `json:"replies_missing"`       // 上面各楼 missing 之和
++	Partial        bool       `json:"partial"`               // 楼没读到上限 / 有楼没展开完（count_mismatch、reply_cap 不算）
++	Reason         string     `json:"stop_reason"`
++	Clicks         int        `json:"clicks"`          // 点下去的次数（含没涨的）
++	ClickFails     int        `json:"click_fails"`     // 点不动的次数
++	DOMClicks      int        `json:"dom_clicks"`      // 拟人点击失败、退回 DOM click 的次数
++	ThrottlePauses int        `json:"throttle_pauses"` // 疑似限频歇了几次
++	Scrolls        int        `json:"scrolls"`
++	Seconds        float64    `json:"seconds"`
++	BudgetSeconds  float64    `json:"budget_seconds"`
++}
++
++// floorInfo 一楼的读数。HasMore 1/0/-1 = 还有 / 没有 / 读不到；Shown -1 = 读不到。
++type floorInfo struct {
++	Index   int
++	ID      string
++	Shown   int
++	Loaded  int
++	HasMore int
++	Button  bool   // 楼里有可见的「展开 … 回复」按钮
++	BtnText string // 按钮文本（点完文本变了也算有反应）
++}
++
++// floorSnapshot 一次页面读数。OK=false 表示这次没读出来。Floors 只含上限内的楼。
++type floorSnapshot struct {
++	OK         bool
++	Floors     []floorInfo
++	Loaded     int  // 已加载楼数
++	Total      int  // 页面显示的总评论数，-1 = 读不到
++	HasMore    int  // 一级评论还有没有更多：1/0/-1
++	End        bool // 评论区底部「THE END」出现
++	NoComments bool
++}
++
++// clickResult 点一次的结果。DOM=true 表示拟人点击失败、退回了 DOM click；Detail 是失败诊断。
++type clickResult struct {
++	OK     bool
++	DOM    bool
++	Detail string
++}
++
++type floorLoadCfg struct {
++	FloorLimit        int
++	Expand            bool
++	Budget            time.Duration
++	ReplyCap          int             // 每楼回复上限，0 = 不限
++	RoundStep         int             // 公平分档：每档每楼多展开这么多条；≤0 = 按楼序一楼点完再下一楼
++	MaxClicksPerFloor int             // 每楼最多点几次（安全阀）
++	Backoff           []time.Duration // 这楼连续失败第 n 次后，再点它之前等 Backoff[n-1]；用完还失败就放弃这楼
++	NoButtonLimit     int             // 页面说还有回复、却连续几次找不到按钮就放弃
++	GrowWait          time.Duration   // 点完最多等多久看回复数 / 按钮文本变化
++	Poll              time.Duration   // 等变化 / 读数失败时的轮询间隔
++	ThrottleStreak    int             // 自上次成功以来累计这么多次失败、且涉及 ≥2 楼 = 疑似限频
++	ThrottlePause     func() time.Duration
++	MaxThrottlePauses int             // 连着歇这么多次都没好转（期间没有一次成功）就判停 throttled
++	ScrollSettle      []time.Duration // 每级滚法「楼数不涨多久」算没招；级数 = len
++	ProbeFailLimit    int             // 连续读不出页面状态几次就停
++	RiskEvery         int             // 滚动时每隔几轮查一次风控（点击前另外必查）
++	Tick              func(i int) time.Duration
++}
++
++type floorOps struct {
++	probe    func() floorSnapshot
++	expand   func(f floorInfo) clickResult // 点这楼的「展开」按钮
++	diagnose func(f floorInfo) string      // 点了没反应时读一次按钮 / 楼的状态（可为 nil）
++	scroll   func(level int)               // 往下滚加载更多楼，level 越高滚得越狠
++	risk     func() *RiskError
++}
++
++const (
++	// maxReplyClicksPerFloor 每楼最多点 300 次（真号一次约给 5 条，约 1500 条）：只是防死循环的安全阀，平时由预算收口。
++	maxReplyClicksPerFloor = 300
++	// defaultRoundStep 公平分档：先让每楼都到 30 条，再 60、90……
++	defaultRoundStep = 30
++	commentRiskEvery = 3
++)
++
++// commentFloorSettle 滚楼层的三级：普通滚 15s 不涨 → 大幅滚 20s → 连推冲刺 25s，仍不涨就判 stuck。
++var commentFloorSettle = []time.Duration{15 * time.Second, 20 * time.Second, 25 * time.Second}
++
++// clickBackoff 一楼连续失败后的退避。
++var clickBackoff = []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second}
++
++// commentTick 滚动之间的停顿：0.8–2.0 秒抖动，偶尔多停 2–4 秒（像人在看）。
++func commentTick(int) time.Duration {
++	d := 800*time.Millisecond + time.Duration(rand.Int63n(int64(1200*time.Millisecond)))
++	if rand.Intn(8) == 0 {
++		d += 2*time.Second + time.Duration(rand.Int63n(int64(2*time.Second)))
++	}
++	return d
++}
++
++// throttlePause 疑似限频时歇 20–40 秒（均匀抖动）。
++func throttlePause() time.Duration {
++	return 20*time.Second + time.Duration(rand.Int63n(int64(20*time.Second)))
++}
++
++func defaultFloorLoadCfg(limit int, expand bool, budget time.Duration, replyCap int) floorLoadCfg {
++	return floorLoadCfg{
++		FloorLimit: limit, Expand: expand, Budget: budget, ReplyCap: replyCap, RoundStep: defaultRoundStep,
++		MaxClicksPerFloor: maxReplyClicksPerFloor, Backoff: clickBackoff, NoButtonLimit: 3,
++		GrowWait: 6 * time.Second, Poll: 500 * time.Millisecond,
++		ThrottleStreak: 4, ThrottlePause: throttlePause, MaxThrottlePauses: 2,
++		ScrollSettle: commentFloorSettle, ProbeFailLimit: 10, RiskEvery: commentRiskEvery, Tick: commentTick,
++	}
++}
++
++func floorKey(f floorInfo) string {
++	if f.ID != "" {
++		return f.ID
++	}
++	return fmt.Sprintf("#%d", f.Index)
++}
++
++// floorDone 这楼不用再点：没有按钮、页面也没说还有。
++func floorDone(f floorInfo) bool { return !f.Button && f.HasMore != 1 }
++
++// floorCapped 到了每楼回复上限。
++func floorCapped(f floorInfo, replyCap int) bool { return replyCap > 0 && f.Loaded >= replyCap }
++
++// floorState 判停核心里每楼的计数。
++type floorState struct {
++	clicks    int
++	fails     int // 连续失败（点不动 / 点了不涨）
++	noBtn     int
++	notBefore time.Time
++	gaveUp    string
++	detail    string
++}
++
++// loadFloors 判停核心（纯逻辑）。每轮：读数 → 查预算 → 上限内挑一楼点（分档最低、楼序最前、不在退避中）并等变化 →
++// 都展开完了：楼数够上限 / 到底就收工，否则查风控（每 RiskEvery 轮）、滚一下、歇 Tick。
++// 楼数在当前级的 ScrollSettle 内没涨就升一级滚法，最高级也没招 → stuck。每次点击前必查风控。
++func loadFloors(ctx context.Context, cfg floorLoadCfg, ops floorOps) (CommentLoadResult, *RiskError) {
++	start := time.Now()
++	deadline := start.Add(cfg.Budget)
++	if len(cfg.ScrollSettle) == 0 {
++		cfg.ScrollSettle = []time.Duration{15 * time.Second}
++	}
++	if cfg.Tick == nil {
++		cfg.Tick = commentTick
++	}
++	if cfg.Poll <= 0 {
++		cfg.Poll = 500 * time.Millisecond
++	}
++	if cfg.ThrottlePause == nil {
++		cfg.ThrottlePause = throttlePause
++	}
++	res := CommentLoadResult{FloorLimit: cfg.FloorLimit, ReplyCap: cfg.ReplyCap, BudgetSeconds: cfg.Budget.Round(time.Second).Seconds()}
++	var last floorSnapshot
++	st := map[string]*floorState{}
++	get := func(k string) *floorState {
++		if st[k] == nil {
++			st[k] = &floorState{}
++		}
++		return st[k]
++	}
++	level, best, probeFails := 0, -1, 0
++	lastGrow := time.Now()
++	lastSuccess := start
++	var streak []string // 自上次成功以来的失败楼（可重复）
++	pausesNoGain := 0
++
++	sleep := func(d time.Duration) bool {
++		if left := time.Until(deadline); d > left {
++			d = left
++		}
++		if d <= 0 {
++			return ctx.Err() == nil
++		}
++		select {
++		case <-ctx.Done():
++			return false
++		case <-time.After(d):
++			return true
++		}
++	}
++	finish := func(reason string) (CommentLoadResult, *RiskError) {
++		res.Reason = reason
++		res.Seconds = time.Since(start).Round(100 * time.Millisecond).Seconds()
++		summarizeFloors(&res, last, cfg, st)
++		logFloorResult(res)
++		return res, nil
++	}
++	// waitChange 点完之后等这楼的回复数涨、按钮文本变、或者按钮消失且页面不再说还有。
++	waitChange := func(before floorInfo) bool {
++		until := time.Now().Add(cfg.GrowWait)
++		for time.Now().Before(until) && time.Now().Before(deadline) {
++			if !sleep(cfg.Poll) {
++				return false
++			}
++			s := ops.probe()
++			if !s.OK {
++				continue
++			}
++			last = s
++			for _, f := range s.Floors {
++				if floorKey(f) != floorKey(before) {
++					continue
++				}
++				if f.Loaded > before.Loaded || floorDone(f) || (f.Button && f.BtnText != before.BtnText) {
++					return true
++				}
++			}
++		}
++		return false
++	}
++	// onFail 记一次失败：退避或放弃这楼；跨楼连续失败够多就按疑似限频歇一下。返回 true = 该判停 throttled。
++	onFail := func(f floorInfo, reason, detail string) bool {
++		k := floorKey(f)
++		fs := get(k)
++		fs.fails++
++		if reason == ReplyGapClickFailed {
++			res.ClickFails++
++		}
++		since := time.Since(lastSuccess).Round(100 * time.Millisecond)
++		fs.detail = truncRunes(fmt.Sprintf("%s；距上次成功 %s", detail, since), 300)
++		if fs.fails > len(cfg.Backoff) {
++			fs.gaveUp = reason
++			logrus.Warnf("评论第 %d 楼：连续 %d 次失败（%s），放弃这楼（%d/%d）：%s", f.Index+1, fs.fails, reason, f.Loaded, f.Shown, fs.detail)
++		} else {
++			wait := cfg.Backoff[fs.fails-1]
++			fs.notBefore = time.Now().Add(wait)
++			logrus.Warnf("评论第 %d 楼：第 %d 次失败（%s），%s 后再点（%d/%d）：%s", f.Index+1, fs.fails, reason, wait, f.Loaded, f.Shown, fs.detail)
++		}
++		streak = append(streak, k)
++		if cfg.ThrottleStreak <= 0 || len(streak) < cfg.ThrottleStreak || distinct(streak) < 2 {
++			return false
++		}
++		if pausesNoGain >= cfg.MaxThrottlePauses {
++			logrus.Warnf("评论：连续 %d 次失败涉及 %d 楼，已歇 %d 次仍不行，按疑似限频停下", len(streak), distinct(streak), pausesNoGain)
++			return true
++		}
++		d := cfg.ThrottlePause()
++		pausesNoGain++
++		res.ThrottlePauses++
++		logrus.Warnf("评论：自上次成功（%s 前）连续 %d 次失败、涉及 %d 楼，疑似限频，歇 %s 再试", since, len(streak), distinct(streak), d.Round(time.Second))
++		streak = nil
++		sleep(d)
++		for _, s := range st { // 歇完给放弃的楼一次重来的机会
++			if s.gaveUp == ReplyGapClickFailed || s.gaveUp == ReplyGapNoGrowth {
++				s.gaveUp, s.fails = "", 0
++			}
++			s.notBefore = time.Time{}
++		}
++		return false
++	}
++
++	for i := 0; ; i++ {
++		if ctx.Err() != nil {
++			return finish(CommentStopCancelled)
++		}
++		s := ops.probe()
++		if !s.OK {
++			probeFails++
++			if probeFails >= max(1, cfg.ProbeFailLimit) {
++				return finish(CommentStopProbeFailed)
++			}
++			if !time.Now().Before(deadline) {
++				return finish(CommentStopBudget)
++			}
++			sleep(cfg.Poll)
++			continue
++		}
++		probeFails = 0
++		last = s
++		if s.NoComments || (s.Loaded == 0 && s.Total == 0) {
++			return finish(CommentStopNoComments)
++		}
++		if s.Loaded > best {
++			best, lastGrow = s.Loaded, time.Now()
++		}
++		if !time.Now().Before(deadline) {
++			return finish(CommentStopBudget)
++		}
++
++		// 1. 上限内挑一楼展开
++		if cfg.Expand {
++			f, ok, wait := pickFloor(s, cfg, st, time.Now())
++			if ok {
++				fs := get(floorKey(f))
++				switch {
++				case !f.Button:
++					// 页面说还有回复，却找不到按钮：可能还在渲染，等一下再看；几次都没有就放弃这楼
++					fs.noBtn++
++					if fs.noBtn >= max(1, cfg.NoButtonLimit) {
++						fs.gaveUp = ReplyGapNoButton
++						if ops.diagnose != nil {
++							fs.detail = truncRunes(ops.diagnose(f), 300)
++						}
++						logrus.Warnf("评论第 %d 楼：页面说还有回复（%d/%d），但找不到「展开」按钮，放弃这楼：%s", f.Index+1, f.Loaded, f.Shown, fs.detail)
++					} else {
++						sleep(cfg.Poll)
++					}
++				case fs.clicks >= cfg.MaxClicksPerFloor:
++					fs.gaveUp = ReplyGapCap
++					logrus.Warnf("评论第 %d 楼：点了 %d 次（上限）还没展开完（%d/%d），先放下", f.Index+1, fs.clicks, f.Loaded, f.Shown)
++				default:
++					if r := ops.risk(); r != nil { // 点「展开回复」之前必查
++						return riskStop(&res, start, last, cfg, st, r)
++					}
++					out := ops.expand(f)
++					if out.DOM {
++						res.DOMClicks++
++					}
++					if !out.OK {
++						if onFail(f, ReplyGapClickFailed, "点不动："+out.Detail) {
++							return finish(CommentStopThrottled)
++						}
++						continue
++					}
++					fs.clicks++
++					res.Clicks++
++					if waitChange(f) {
++						fs.fails, fs.notBefore, fs.detail = 0, time.Time{}, ""
++						lastSuccess, streak, pausesNoGain = time.Now(), nil, 0
++					} else if ctx.Err() == nil && time.Now().Before(deadline) {
++						d := fmt.Sprintf("点了（%s）%s 内回复数没变", map[bool]string{true: "DOM click", false: "拟人点击"}[out.DOM], cfg.GrowWait)
++						if ops.diagnose != nil {
++							d += "；" + ops.diagnose(f)
++						}
++						if onFail(f, ReplyGapNoGrowth, d) {
++							return finish(CommentStopThrottled)
++						}
++					}
++				}
++				continue
++			}
++			if !wait.IsZero() {
++				// 还有楼没展开完，但都在退避中：等到最早那个
++				sleep(min(time.Until(wait), 2*time.Second))
++				continue
++			}
++		}
++
++		// 2. 上限内的楼都处理完了：够上限 / 到底就收工
++		if s.Loaded >= cfg.FloorLimit {
++			return finish(CommentStopFloorLimit)
++		}
++		if s.End || s.HasMore == 0 {
++			return finish(CommentStopEnd)
++		}
++
++		// 3. 往下滚加载更多楼
++		if still := time.Since(lastGrow); still >= cfg.ScrollSettle[level] {
++			if level+1 >= len(cfg.ScrollSettle) {
++				return finish(CommentStopStuck)
++			}
++			level++
++			lastGrow = time.Now()
++			logrus.Infof("评论楼数停在 %d 楼 %s 没涨（页面 hasMore=%d）：换第 %d 级滚法", s.Loaded, still.Round(time.Second), s.HasMore, level)
++		}
++		if cfg.RiskEvery > 0 && i%cfg.RiskEvery == 0 {
++			if r := ops.risk(); r != nil {
++				return riskStop(&res, start, last, cfg, st, r)
++			}
++		}
++		ops.scroll(level)
++		res.Scrolls++
++		if !sleep(cfg.Tick(i)) {
++			return finish(CommentStopCancelled)
++		}
++	}
++}
++
++// pickFloor 上限内挑下一楼：没展开完、没放弃、没到回复上限的楼里，分档（已加载 / RoundStep）最低、楼序最前、且不在退避中的那个。
++// 有候选但都在退避中时 ok=false、wait=最早可点的时刻；没有候选时两者都为零值。
++func pickFloor(s floorSnapshot, cfg floorLoadCfg, st map[string]*floorState, now time.Time) (floorInfo, bool, time.Time) {
++	var pick floorInfo
++	found := false
++	bestTier := 0
++	var wait time.Time
++	for _, f := range s.Floors {
++		fs := st[floorKey(f)]
++		if floorDone(f) || floorCapped(f, cfg.ReplyCap) || (fs != nil && fs.gaveUp != "") {
++			continue
++		}
++		if fs != nil && now.Before(fs.notBefore) {
++			if wait.IsZero() || fs.notBefore.Before(wait) {
++				wait = fs.notBefore
++			}
++			continue
++		}
++		tier := 0
++		if cfg.RoundStep > 0 {
++			tier = f.Loaded / cfg.RoundStep
++		}
++		if !found || tier < bestTier {
++			pick, bestTier, found = f, tier, true
++		}
++	}
++	if found {
++		return pick, true, time.Time{}
++	}
++	return floorInfo{}, false, wait
++}
++
++func distinct(keys []string) int {
++	m := map[string]bool{}
++	for _, k := range keys {
++		m[k] = true
++	}
++	return len(m)
++}
++
++func truncRunes(s string, n int) string {
++	r := []rune(s)
++	if len(r) <= n {
++		return s
++	}
++	return string(r[:n]) + "…"
++}
++
++// riskStop 撞风控：记下当时的读数后立即返回 RiskError。
++func riskStop(res *CommentLoadResult, start time.Time, last floorSnapshot, cfg floorLoadCfg,
++	st map[string]*floorState, r *RiskError) (CommentLoadResult, *RiskError) {
++	logrus.Warnf("加载评论途中撞到风控，停止: %s", r.Error())
++	res.Reason = CommentStopRisk
++	res.Seconds = time.Since(start).Round(100 * time.Millisecond).Seconds()
++	summarizeFloors(res, last, cfg, st)
++	res.Partial = true
++	return *res, r
++}
++
++// summarizeFloors 按最后一次读数填楼数、每楼缺口和 partial。
++func summarizeFloors(res *CommentLoadResult, last floorSnapshot, cfg floorLoadCfg, st map[string]*floorState) {
++	res.FloorsLoaded = last.Loaded
++	if last.Total >= 0 && last.OK {
++		v := last.Total
++		res.TotalShown = &v
++	}
++	if last.HasMore >= 0 {
++		v := last.HasMore == 1
++		res.HasMore = &v
++	}
++	res.RepliesPartial, res.RepliesMissing, res.FloorsExpanded = []ReplyGap{}, 0, 0
++	leading, incomplete := true, false
++	for _, f := range last.Floors {
++		fs := st[floorKey(f)]
++		if fs == nil {
++			fs = &floorState{}
++		}
++		reason := fs.gaveUp
++		switch {
++		case floorDone(f):
++			reason = ""
++			if f.Shown >= 0 && f.Loaded < f.Shown {
++				reason = ReplyGapCountMismatch
++			}
++		case reason != "":
++		case floorCapped(f, cfg.ReplyCap):
++			reason = ReplyGapReplyCap
++		case !cfg.Expand:
++			reason = ReplyGapNotExpanded
++		default:
++			reason = ReplyGapNotReached
++		}
++		if leading && floorDone(f) {
++			res.FloorsExpanded++
++		} else {
++			leading = false
++		}
++		if reason == "" {
++			continue
++		}
++		missing := 0
++		if f.Shown > f.Loaded {
++			missing = f.Shown - f.Loaded
++		}
++		detail := fs.detail
++		if reason == ReplyGapCountMismatch || reason == ReplyGapReplyCap {
++			detail = ""
++		}
++		res.RepliesPartial = append(res.RepliesPartial, ReplyGap{Floor: f.Index + 1, CommentID: f.ID, Shown: f.Shown,
++			Loaded: f.Loaded, Missing: missing, HasMore: f.HasMore == 1, Clicks: fs.clicks, Reason: reason, Detail: detail})
++		res.RepliesMissing += missing
++		if reason != ReplyGapCountMismatch && reason != ReplyGapReplyCap {
++			incomplete = true
++		}
++	}
++	switch res.Reason {
++	case CommentStopFloorLimit, CommentStopEnd, CommentStopNoComments:
++		res.Partial = incomplete
++	default:
++		res.Partial = true
++	}
++}
++
++func logFloorResult(res CommentLoadResult) {
++	total := "读不到"
++	if res.TotalShown != nil {
++		total = fmt.Sprint(*res.TotalShown)
++	}
++	msg := fmt.Sprintf("评论加载：读到 %d 楼（上限 %d，前 %d 楼回复已展开到底），页面显示共 %s 条评论；回复没拿全 %d 楼、缺 %d 条；判停 %s · 点展开 %d 次（点不动 %d、DOM click %d）· 疑似限频歇 %d 次 · 滚 %d 次 · %.0f/%.0f 秒",
++		res.FloorsLoaded, res.FloorLimit, res.FloorsExpanded, total, len(res.RepliesPartial), res.RepliesMissing,
++		res.Reason, res.Clicks, res.ClickFails, res.DOMClicks, res.ThrottlePauses, res.Scrolls, res.Seconds, res.BudgetSeconds)
++	if res.Partial {
++		logrus.Warn(msg + "（partial）")
++		for _, g := range res.RepliesPartial {
++			logrus.Warnf("  第 %d 楼回复 %d/%d，缺 %d（%s，点了 %d 次）%s", g.Floor, g.Loaded, g.Shown, g.Missing, g.Reason, g.Clicks, g.Detail)
++		}
++		return
++	}
++	logrus.Info(msg)
++}
++
++// ========== 真实页面接线 ==========
++
++// expandButtonSelector 楼里「展开回复」按钮的候选（多候选防改版；文案再用 isExpandRepliesButton 过滤）。
++const expandButtonSelector = `.show-more, [class*="show-more"], .reply-container [class*="more"]`
++
++// floorProbeJS 读楼层状态，全部防御式：读不到的项给「不知道」，不抛错。
++// 楼层数据优先取 __INITIAL_STATE__（抽取也读它）；状态里没有列表时退回 DOM 数楼（Shown 不知道）。
++const floorProbeJS = `(feedID, limit, pattern, sels) => {
++  const w = x => x?.value ?? x?._value ?? x?._rawValue ?? x;
++  const out = {ok: false, floors: [], loaded: 0, total: -1, hasMore: -1, end: false, none: false};
++  try {
++    const re = new RegExp(pattern);
++    const btnIn = root => {
++      if (!root) return null;
++      return Array.from(root.querySelectorAll(sels)).find(b =>
++        re.test((b.innerText || b.textContent || "").trim()) && b.offsetParent !== null) || null;
++    };
++    const m = w(window.__INITIAL_STATE__?.note?.noteDetailMap) || {};
++    const d = w(m[feedID]) || w(Object.values(m)[0]) || {};
++    const cm = w(d.comments) || {};
++    const list = w(cm.list) || [];
++    if (typeof cm.hasMore === "boolean") out.hasMore = cm.hasMore ? 1 : 0;
++    const tc = parseInt(String(w(d.note)?.interactInfo?.commentCount ?? ""), 10);
++    if (!isNaN(tc)) out.total = tc;
++    if (out.total < 0) {
++      const t = document.querySelector(".comments-container .total, .comments-el .total");
++      const mm = t && (t.innerText || "").match(/(\d+)/);
++      if (mm) out.total = parseInt(mm[1], 10);
++    }
++    const parents = Array.from(document.querySelectorAll(".parent-comment"));
++    const rootOf = (id, i) => {
++      if (id) {
++        const el = document.getElementById("comment-" + id);
++        if (el) return el.closest(".parent-comment") || el.parentElement;
++      }
++      return parents[i] || null;
++    };
++    const push = (id, shown, loaded, hasMore, root) => {
++      const b = btnIn(root);
++      out.floors.push({id, shown, loaded, hasMore, button: !!b, btnText: b ? (b.innerText || "").trim().slice(0, 40) : ""});
++    };
++    if (list.length) {
++      out.loaded = list.length;
++      for (let i = 0; i < Math.min(list.length, limit); i++) {
++        const c = w(list[i]) || {};
++        const subs = w(c.subComments) || [];
++        const sc = parseInt(String(c.subCommentCount ?? ""), 10);
++        push(String(c.id || ""), isNaN(sc) ? -1 : sc, subs.length || 0,
++          typeof c.subCommentHasMore === "boolean" ? (c.subCommentHasMore ? 1 : 0) : -1, rootOf(String(c.id || ""), i));
++      }
++    } else {
++      out.loaded = parents.length;
++      for (let i = 0; i < Math.min(parents.length, limit); i++) {
++        const p = parents[i];
++        const item = p.querySelector(".comment-item");
++        const id = item && item.id && item.id.startsWith("comment-") ? item.id.slice(8) : "";
++        push(id, -1, p.querySelectorAll(".comment-item-sub, .reply-container .comment-item").length, -1, p);
++      }
++    }
++    const end = document.querySelector(".end-container");
++    out.end = !!end && /THE\s*END/i.test((end.innerText || "").replace(/\s+/g, " "));
++    const nc = document.querySelector(".no-comments-text");
++    out.none = !!nc && (nc.innerText || "").includes("这是一片荒地");
++    out.ok = true;
++  } catch (e) {}
++  return out;
++}`
++
++// floorDiagJS 点不动 / 点了没反应时读一次这楼的状态（只读）：按钮文本、位置、是否在视口、中心点被谁遮挡、
++// disabled / loading、DOM 里的回复条数、状态里的回复条数。
++const floorDiagJS = `(feedID, id, idx, pattern, sels) => {
++  const w = x => x?.value ?? x?._value ?? x?._rawValue ?? x;
++  const o = {};
++  try {
++    const re = new RegExp(pattern);
++    const parents = document.querySelectorAll(".parent-comment");
++    let root = null;
++    if (id) { const el = document.getElementById("comment-" + id); if (el) root = el.closest(".parent-comment") || el.parentElement; }
++    if (!root) root = parents[idx] || null;
++    o.root = !!root;
++    if (root) o.domSubs = root.querySelectorAll(".comment-item-sub, .reply-container .comment-item").length;
++    const m = w(window.__INITIAL_STATE__?.note?.noteDetailMap) || {};
++    const d = w(m[feedID]) || w(Object.values(m)[0]) || {};
++    const list = w(w(d.comments)?.list) || [];
++    const c = list.map(w).find(x => String(x?.id || "") === id) || w(list[idx]);
++    if (c) { o.stateSubs = (w(c.subComments) || []).length; o.hasMore = c.subCommentHasMore; o.shown = c.subCommentCount; }
++    const cands = root ? Array.from(root.querySelectorAll(sels)) : [];
++    o.cands = cands.length;
++    const b = cands.find(x => re.test((x.innerText || x.textContent || "").trim())) || null;
++    if (b) {
++      const r = b.getBoundingClientRect();
++      o.text = (b.innerText || b.textContent || "").trim().slice(0, 30);
++      o.rect = [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
++      o.vh = window.innerHeight;
++      o.inView = r.bottom > 0 && r.top < window.innerHeight && r.width > 0 && r.height > 0;
++      const t = o.inView ? document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) : null;
++      o.covered = t && !b.contains(t) && !t.contains(b) ? ((t.className && String(t.className)) || t.tagName).slice(0, 40) : "";
++      o.disabled = !!(b.disabled || b.getAttribute("aria-disabled") === "true" || b.getAttribute("aria-busy") === "true");
++      o.loading = /loading|spin/i.test(String(b.className) + " " + (b.innerHTML || "").slice(0, 300));
++      o.visible = b.offsetParent !== null;
++    }
++  } catch (e) { o.err = String(e).slice(0, 80); }
++  return JSON.stringify(o);
++}`
++
++// formatFloorDiag 把 floorDiagJS 的结果压成一句中文（进日志和 replies_partial[].detail）。
++func formatFloorDiag(raw string) string {
++	var o struct {
++		Root      bool   `json:"root"`
++		DomSubs   *int   `json:"domSubs"`
++		StateSubs *int   `json:"stateSubs"`
++		HasMore   any    `json:"hasMore"`
++		Shown     any    `json:"shown"`
++		Cands     int    `json:"cands"`
++		Text      string `json:"text"`
++		Rect      []int  `json:"rect"`
++		VH        int    `json:"vh"`
++		InView    bool   `json:"inView"`
++		Covered   string `json:"covered"`
++		Disabled  bool   `json:"disabled"`
++		Loading   bool   `json:"loading"`
++		Visible   bool   `json:"visible"`
++		Err       string `json:"err"`
++	}
++	if err := json.Unmarshal([]byte(raw), &o); err != nil {
++		return "诊断读不出：" + truncRunes(raw, 80)
++	}
++	yn := func(b bool) string { return map[bool]string{true: "是", false: "否"}[b] }
++	num := func(p *int) string {
++		if p == nil {
++			return "?"
++		}
++		return fmt.Sprint(*p)
++	}
++	parts := []string{}
++	if !o.Root {
++		parts = append(parts, "找不到这楼的 DOM")
++	} else if o.Text == "" {
++		parts = append(parts, fmt.Sprintf("楼里没有展开按钮（候选 %d 个）", o.Cands))
++	} else {
++		r := "?"
++		if len(o.Rect) == 4 {
++			r = fmt.Sprintf("(%d,%d %d×%d)/视口高%d", o.Rect[0], o.Rect[1], o.Rect[2], o.Rect[3], o.VH)
++		}
++		cov := "无"
++		if o.Covered != "" {
++			cov = o.Covered
++		}
++		parts = append(parts, fmt.Sprintf("按钮「%s」位置%s 视口内=%s 可见=%s 遮挡=%s disabled=%s loading=%s",
++			o.Text, r, yn(o.InView), yn(o.Visible), cov, yn(o.Disabled), yn(o.Loading)))
++	}
++	parts = append(parts, fmt.Sprintf("回复 DOM %s 条 / 状态 %s 条 / 显示 %v，hasMore=%v", num(o.DomSubs), num(o.StateSubs), o.Shown, o.HasMore))
++	if o.Err != "" {
++		parts = append(parts, "JS 错误 "+o.Err)
++	}
++	return strings.Join(parts, "；")
++}
++
++// loadCommentFloors 真实页面接线入口。
++func (f *FeedDetailAction) loadCommentFloors(ctx context.Context, feedID string, config CommentLoadConfig, budget time.Duration) (CommentLoadResult, *RiskError) {
++	cfg := defaultFloorLoadCfg(config.MaxCommentItems, config.ClickMoreReplies, budget, config.MaxRepliesPerFloor)
++	logrus.Infof("评论加载开始：楼层上限 %d，展开回复=%v，每楼回复上限 %d（0=不限），预算 %s，分档 %d 条",
++		cfg.FloorLimit, cfg.Expand, cfg.ReplyCap, budget.Round(time.Second), cfg.RoundStep)
++
++	ops := f.floorOpsFor(ctx, feedID, cfg, config.ScrollSpeed)
++	if budget > 0 {
++		if r := ops.risk(); r != nil {
++			res := CommentLoadResult{FloorLimit: cfg.FloorLimit, Reason: CommentStopRisk, Partial: true, RepliesPartial: []ReplyGap{}}
++			return res, r
++		}
++		_ = rod.Try(func() { scrollToCommentsArea(f.page.Context(ctx)) })
++		humanize.Delay(ctx, humanize.BetweenScroll)
++	}
++	return loadFloors(ctx, cfg, ops)
++}
++
++// floorOpsFor 真实页面的五个动作。读数 / 诊断用不带 ctx 的原页面（预算用完时照样读得了），点击 / 滚动绑 ctx。
++func (f *FeedDetailAction) floorOpsFor(ctx context.Context, feedID string, cfg floorLoadCfg, speed string) floorOps {
++	page := f.page.Context(ctx)
++	preClick := f.preClick
++	if preClick == nil {
++		preClick = func(ctx context.Context) { humanize.Delay(ctx, humanize.Reading) }
++	}
++	return floorOps{
++		probe: func() floorSnapshot {
++			s := floorSnapshot{Total: -1, HasMore: -1}
++			_ = rod.Try(func() {
++				v := f.page.Timeout(10*time.Second).MustEval(floorProbeJS, feedID, cfg.FloorLimit, expandRepliesPattern, expandButtonSelector)
++				if !v.Get("ok").Bool() {
++					return
++				}
++				s.OK = true
++				s.Loaded, s.Total, s.HasMore = v.Get("loaded").Int(), v.Get("total").Int(), v.Get("hasMore").Int()
++				s.End, s.NoComments = v.Get("end").Bool(), v.Get("none").Bool()
++				for i, it := range v.Get("floors").Arr() {
++					s.Floors = append(s.Floors, floorInfo{Index: i, ID: it.Get("id").Str(), Shown: it.Get("shown").Int(),
++						Loaded: it.Get("loaded").Int(), HasMore: it.Get("hasMore").Int(), Button: it.Get("button").Bool(),
++						BtnText: it.Get("btnText").Str()})
++				}
++			})
++			return s
++		},
++		expand: func(fl floorInfo) clickResult {
++			return clickFloorButton(ctx, page, fl, preClick)
++		},
++		diagnose: func(fl floorInfo) string {
++			raw := ""
++			err := rod.Try(func() {
++				raw = f.page.Timeout(5*time.Second).MustEval(floorDiagJS, feedID, fl.ID, fl.Index, expandRepliesPattern, expandButtonSelector).Str()
++			})
++			if err != nil {
++				return "诊断失败：" + truncRunes(err.Error(), 80)
++			}
++			return formatFloorDiag(raw)
++		},
++		scroll: func(level int) {
++			_ = rod.Try(func() {
++				if getCommentCount(page) > 0 {
++					scrollToLastComment(page)
++					time.Sleep(400 * time.Millisecond) // 技术 settle：等 scrollIntoView 落位
++				}
++				switch {
++				case level <= 0:
++					humanScroll(ctx, page, speed, false, 1)
++				case level == 1:
++					humanScroll(ctx, page, speed, true, 3+rand.Intn(3))
++				default:
++					humanScroll(ctx, page, speed, true, 8+rand.Intn(5))
++				}
++			})
++		},
++		risk: func() *RiskError { return RiskPage(f.page) },
++	}
++}
++
++// clickFloorButton 点这楼的「展开」：每次都按 comment_id 重新查按钮（点完会被重渲染换掉）→ 滚到评论容器中间 →
++// 拟人停顿 → 拟人点击（限时 8 秒）→ 不行退回 DOM click。失败时 Detail 带上点击报错和这楼的诊断。
++func clickFloorButton(ctx context.Context, page *rod.Page, fl floorInfo, preClick func(context.Context)) clickResult {
++	el, text, why := floorExpandButton(ctx, page, fl)
++	if el == nil {
++		return clickResult{Detail: why}
++	}
++	// 滚到评论滚动容器（不只是 window）的中间：贴边时常被底部输入栏 / 浮层盖住，WaitInteractable 一直等
++	_ = rod.Try(func() {
++		el.Timeout(3 * time.Second).MustEval(`function () { this.scrollIntoView({block: "center", inline: "nearest"}) }`)
++	})
++	time.Sleep(time.Duration(300+rand.Intn(300)) * time.Millisecond) // 技术 settle：等滚动落位
++	preClick(ctx)
++	if ctx.Err() != nil {
++		return clickResult{Detail: "预算到点：" + ctx.Err().Error()}
++	}
++	logrus.Debugf("评论第 %d 楼：点「%s」（已加载 %d/%d）", fl.Index+1, text, fl.Loaded, fl.Shown)
++	herr := rod.Try(func() {
++		if err := humanize.Click(el.Timeout(8 * time.Second)); err != nil {
++			panic(err)
++		}
++	})
++	if herr == nil {
++		return clickResult{OK: true}
++	}
++	// 拟人点击失败：退回 DOM click（同 selectTab 的做法）；有没有生效由上层看回复数
++	_, derr := el.Timeout(5 * time.Second).Eval(`function () { this.click() }`)
++	if derr == nil {
++		logrus.Infof("评论第 %d 楼：拟人点击失败（%s），已退回 DOM click", fl.Index+1, truncRunes(herr.Error(), 120))
++		return clickResult{OK: true, DOM: true}
++	}
++	return clickResult{DOM: true, Detail: truncRunes(fmt.Sprintf("拟人点击：%v；DOM click：%v", herr, derr), 200)}
++}
++
++// floorExpandButton 找这楼里可点的「展开 … 回复」按钮：先按评论 id 定位楼，找不到再按楼序取 .parent-comment。
++// 查找一律用不等待的 page.Elements（page 绑着加载的 ctx），**不用 page.Timeout(2s).Element**：rod 的元素句柄
++// 连同它的 page 一起继承查询时的 ctx，带着 2 秒超时的句柄过了拟人停顿再去点，必然 context deadline exceeded
++// （19:54 真号 10 楼全部 click_failed 的根因；对 el.Context(ctx) 改绑也不够，鼠标走的是 el.Page() 的旧 ctx）。
++// 找不到时返回原因。
++func floorExpandButton(ctx context.Context, page *rod.Page, fl floorInfo) (*rod.Element, string, string) {
++	_ = ctx // page 已绑 ctx；参数留给调用方对齐
++	var root *rod.Element
++	_ = rod.Try(func() {
++		if id := strings.Trim(fl.ID, `"\ `); id != "" {
++			if els, err := page.Elements(fmt.Sprintf(`[id="comment-%s"]`, id)); err == nil && len(els) > 0 {
++				if ps, err := els.First().Parents(".parent-comment"); err == nil && len(ps) > 0 {
++					root = ps.First()
++				} else if p, err := els.First().Parent(); err == nil {
++					root = p
++				}
++			}
++		}
++		if root == nil {
++			if els, err := page.Elements(".parent-comment"); err == nil && fl.Index < len(els) {
++				root = els[fl.Index]
++			}
++		}
++	})
++	if root == nil {
++		return nil, "", "找不到这楼的 DOM"
++	}
++	var btn *rod.Element
++	var text string
++	seen := 0
++	err := rod.Try(func() {
++		els, err := root.Elements(expandButtonSelector)
++		if err != nil {
++			panic(err)
++		}
++		for _, el := range els {
++			seen++
++			t, err := el.Text()
++			if err != nil || !isExpandRepliesButton(t) {
++				continue
++			}
++			if !isElementClickable(el) {
++				continue
++			}
++			btn, text = el, strings.TrimSpace(t)
++			return
++		}
++	})
++	if btn == nil {
++		why := fmt.Sprintf("楼里没找到可见的展开按钮（候选 %d 个）", seen)
++		if err != nil {
++			why += "：" + truncRunes(err.Error(), 80)
++		}
++		return nil, "", why
++	}
++	return btn, text, ""
++}
+diff --git a/xiaohongshu/comment_floors_localbrowser_test.go b/xiaohongshu/comment_floors_localbrowser_test.go
+new file mode 100644
+index 0000000..744fc52
+--- /dev/null
++++ b/xiaohongshu/comment_floors_localbrowser_test.go
+@@ -0,0 +1,120 @@
++//go:build localbrowser
++
++package xiaohongshu
++
++// 1004d：楼层探针 JS + 按楼找「展开」按钮 + 拟人点击，在真实 DOM 上走一遍（不碰小红书，见 risk_localbrowser_test.go 的说明）。
++// 跑法：go test -tags localbrowser -count=1 -timeout 600s -run LocalBrowserCommentFloors ./xiaohongshu
++
++import (
++	"context"
++	"fmt"
++	"testing"
++	"time"
++
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++// floorsFixture 12 楼（第 13 楼起靠滚动加载，hasMore=true）；每楼 subCommentCount 见 shown，首屏每楼带 1 条回复，
++// 「展开 N 条回复」点一次 300ms 后补 10 条（state 和 DOM 一起），还有就变成「展开更多回复」，没有就移除按钮。
++// 第 4 楼 120 条（旧逻辑按阈值 100 跳过），第 7 楼 49 条（要连点 5 次）。
++func floorsFixture(id string) string { return floorsFixtureBar(id, false) }
++
++// floorsFixtureBar bar=true 时视口底部有一条 140px 的固定输入栏（像详情页底部的互动栏），贴底的按钮会被它盖住。
++func floorsFixtureBar(id string, bar bool) string {
++	barHTML := ""
++	if bar {
++		barHTML = `<div class="engage-bar" style="position:fixed;left:0;right:0;bottom:0;height:140px;z-index:50;background:#fafafa">说点什么</div>`
++	}
++	return barHTML + fmt.Sprintf(`<div id="noteContainer" class="note-container">
++<div id="detail-title">楼层测试</div><div id="detail-desc">正文</div>
++<div class="note-scroller" style="height:600px;overflow:auto"><div class="interact-container">赞</div>
++<div class="comments-el"><div class="comments-container"><div class="total">共 400 条评论</div><div id="list"></div></div></div></div></div>
++<script>
++const SHOWN = [0, 3, 25, 120, 1, 0, 49, 10, 2, 11, 500, 7];
++const list = SHOWN.map((n, i) => ({id: "c" + i, content: "楼 " + (i + 1), subCommentCount: String(n),
++  subComments: n ? [{id: "c" + i + "-0", content: "回复 0"}] : [], subCommentHasMore: n > 1}));
++window.__INITIAL_STATE__ = {note: {noteDetailMap: {%q: {note: {noteId: %q, title: "楼层测试", desc: "正文",
++  interactInfo: {commentCount: "400"}}, comments: {list, cursor: "x", hasMore: true}}}}};
++const box = document.getElementById("list");
++function render(i) {
++  const c = list[i];
++  let p = document.getElementById("floor-" + i);
++  if (!p) { p = document.createElement("div"); p.className = "parent-comment"; p.id = "floor-" + i; box.appendChild(p); }
++  const left = Number(c.subCommentCount) - c.subComments.length;
++  p.innerHTML = '<div class="comment-item" id="comment-' + c.id + '" style="height:60px">' + c.content + '</div>' +
++    '<div class="reply-container"><div class="list-container">' +
++    c.subComments.map(s => '<div class="comment-item comment-item-sub" style="height:20px">' + s.content + '</div>').join("") +
++    '</div>' + (left > 0 ? '<div class="show-more" style="display:inline-block;width:140px;height:24px;cursor:pointer">' +
++    (c.subComments.length <= 1 ? "展开 " + left + " 条回复" : "展开更多回复") + '</div>' : "") + '</div>';
++  const btn = p.querySelector(".show-more");
++  if (btn) btn.addEventListener("click", () => setTimeout(() => {
++    for (let k = 0; k < 10 && c.subComments.length < Number(c.subCommentCount); k++)
++      c.subComments.push({id: c.id + "-" + c.subComments.length, content: "回复 " + c.subComments.length});
++    c.subCommentHasMore = c.subComments.length < Number(c.subCommentCount);
++    render(i);
++  }, 300));
++}
++list.forEach((_, i) => render(i));
++</script>`, id, id)
++}
++
++// TestLocalBrowserCommentFloorsExpandAll 前 10 楼每楼回复都点到底（含 120 条、要连点的楼），上限外的楼不点；
++// comment_load 如实报：floor_limit、前 10 楼全展开、无缺口、读到 12 楼、页面显示 400 条。
++func TestLocalBrowserCommentFloorsExpandAll(t *testing.T) {
++	srv := fixtureServer(t, map[string]string{"/explore/floors01": floorsFixture("floors01")})
++	t.Setenv("XHS_HOST", srv.URL)
++	page := localPage(t)
++
++	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
++	defer cancel()
++	cfg := CommentLoadConfig{ClickMoreReplies: true, MaxCommentItems: 10}
++	res, err := NewFeedDetailAction(page).GetFeedDetailWithConfig(ctx, "floors01", "tok", true, cfg)
++	require.NoError(t, err)
++	require.NotNil(t, res.CommentLoad)
++	cl := res.CommentLoad
++	t.Logf("comment_load = %+v", *cl)
++	assert.Equal(t, CommentStopFloorLimit, cl.Reason)
++	assert.False(t, cl.Partial)
++	assert.Empty(t, cl.RepliesPartial)
++	assert.Equal(t, 10, cl.FloorsExpanded)
++	assert.Equal(t, 12, cl.FloorsLoaded)
++	require.NotNil(t, cl.TotalShown)
++	assert.Equal(t, 400, *cl.TotalShown)
++	require.NotNil(t, cl.HasMore)
++	assert.True(t, *cl.HasMore)
++
++	shown := []int{0, 3, 25, 120, 1, 0, 49, 10, 2, 11, 500, 7}
++	require.Len(t, res.Comments.List, 12)
++	for i := 0; i < 10; i++ {
++		assert.Len(t, res.Comments.List[i].SubComments, shown[i], "第 %d 楼回复要全", i+1)
++	}
++	assert.Len(t, res.Comments.List[10].SubComments, 1, "上限外的第 11 楼不点")
++}
++
++// TestLocalBrowserCommentFloorsSlowClickAndBar 19:54 真号失败的复现：点前拟人停顿 2.5 秒（> 查按钮时的 2 秒超时）、
++// 视口底部有固定输入栏。第一版里按钮句柄带着 2 秒超时，点击必然 context deadline；第二版要照样全部点开。
++func TestLocalBrowserCommentFloorsSlowClickAndBar(t *testing.T) {
++	srv := fixtureServer(t, map[string]string{"/explore/floors02": floorsFixtureBar("floors02", true)})
++	t.Setenv("XHS_HOST", srv.URL)
++	page := localPage(t)
++
++	ctx, cancel := context.WithTimeout(context.Background(), 9*time.Minute)
++	defer cancel()
++	action := NewFeedDetailAction(page)
++	action.preClick = func(ctx context.Context) { time.Sleep(2500 * time.Millisecond) }
++	cfg := CommentLoadConfig{ClickMoreReplies: true, MaxCommentItems: 4, RequestBudget: 10 * time.Minute}
++	res, err := action.GetFeedDetailWithConfig(ctx, "floors02", "tok", true, cfg)
++	require.NoError(t, err)
++	require.NotNil(t, res.CommentLoad)
++	cl := res.CommentLoad
++	t.Logf("comment_load = %+v gaps=%+v", *cl, cl.RepliesPartial)
++	assert.Equal(t, CommentStopFloorLimit, cl.Reason)
++	assert.False(t, cl.Partial)
++	assert.Equal(t, 0, cl.ClickFails)
++	assert.Equal(t, 4, cl.FloorsExpanded)
++	shown := []int{0, 3, 25, 120}
++	for i := 0; i < 4; i++ {
++		assert.Len(t, res.Comments.List[i].SubComments, shown[i], "第 %d 楼回复要全", i+1)
++	}
++}
+diff --git a/xiaohongshu/comment_floors_test.go b/xiaohongshu/comment_floors_test.go
+new file mode 100644
+index 0000000..05b938d
+--- /dev/null
++++ b/xiaohongshu/comment_floors_test.go
+@@ -0,0 +1,423 @@
++package xiaohongshu
++
++import (
++	"context"
++	"encoding/json"
++	"testing"
++	"time"
++
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++// fakeFloor 假楼：shown = 楼上显示的回复数，loaded = 已加载，perClick = 点一次加载几条（0 = 点了不涨）。
++type fakeFloor struct {
++	id       string
++	shown    int
++	loaded   int
++	perClick int
++	noButton bool // 页面说还有，但没有按钮
++	hasMore  int  // 覆盖 hasMore（0 = 按 loaded<shown 算）
++	failNext int  // 接下来这么多次点击「点不动」
++	failAll  bool // 一直点不动
++}
++
++// fakeComments 假评论区：floors 是全部楼，visible 是已加载楼数，scroll 一次多加载 pageSize 楼（canScroll=false 时滚不动）。
++type fakeComments struct {
++	floors    []*fakeFloor
++	visible   int
++	pageSize  int
++	canScroll bool
++	clicks    map[string]int
++	scrolls   int
++	noState   bool
++	order     []string // 点中的楼序列
++	blocked   bool     // 全局点不动（模拟限频），由测试切换
++}
++
++func newFake(visible int, floors ...*fakeFloor) *fakeComments {
++	return &fakeComments{floors: floors, visible: visible, pageSize: 10, canScroll: true, clicks: map[string]int{}}
++}
++
++func (fc *fakeComments) probe(limit int) floorSnapshot {
++	if fc.noState {
++		return floorSnapshot{}
++	}
++	s := floorSnapshot{OK: true, Loaded: fc.visible, Total: 999, HasMore: 0}
++	if fc.visible < len(fc.floors) {
++		s.HasMore = 1
++	}
++	for i := 0; i < fc.visible && i < limit; i++ {
++		f := fc.floors[i]
++		hm := 0
++		if f.loaded < f.shown {
++			hm = 1
++		}
++		if f.hasMore != 0 {
++			hm = f.hasMore
++		}
++		s.Floors = append(s.Floors, floorInfo{Index: i, ID: f.id, Shown: f.shown, Loaded: f.loaded, HasMore: hm,
++			Button: hm == 1 && !f.noButton})
++	}
++	return s
++}
++
++func (fc *fakeComments) expand(fl floorInfo) clickResult {
++	for _, f := range fc.floors {
++		if f.id == fl.ID {
++			if fc.blocked || f.failAll || f.failNext > 0 {
++				if f.failNext > 0 {
++					f.failNext--
++				}
++				return clickResult{Detail: "context deadline exceeded"}
++			}
++			fc.clicks[f.id]++
++			fc.order = append(fc.order, f.id)
++			f.loaded += f.perClick
++			if f.loaded > f.shown {
++				f.loaded = f.shown
++			}
++			return clickResult{OK: true}
++		}
++	}
++	return clickResult{Detail: "找不到这楼的 DOM"}
++}
++
++func (fc *fakeComments) scroll(int) {
++	fc.scrolls++
++	if fc.canScroll {
++		fc.visible += fc.pageSize
++		if fc.visible > len(fc.floors) {
++			fc.visible = len(fc.floors)
++		}
++	}
++}
++
++func (fc *fakeComments) ops(limit int) floorOps {
++	return floorOps{probe: func() floorSnapshot { return fc.probe(limit) }, expand: fc.expand, scroll: fc.scroll, risk: noRisk}
++}
++
++func fastFloorCfg(limit int, budget time.Duration) floorLoadCfg {
++	cfg := defaultFloorLoadCfg(limit, true, budget, 0)
++	cfg.GrowWait, cfg.Poll = 30*time.Millisecond, time.Millisecond
++	cfg.Backoff = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
++	cfg.ThrottlePause = func() time.Duration { return time.Millisecond }
++	cfg.ScrollSettle = []time.Duration{20 * time.Millisecond, 20 * time.Millisecond}
++	cfg.Tick = func(int) time.Duration { return time.Millisecond }
++	return cfg
++}
++
++func floors(n int, mk func(i int) *fakeFloor) []*fakeFloor {
++	out := make([]*fakeFloor, n)
++	for i := range out {
++		out[i] = mk(i)
++	}
++	return out
++}
++
++func id(i int) string { return string(rune('a'+i/26)) + string(rune('a'+i%26)) }
++
++// TestLoadFloorsExpandsEveryFrontFloor 前 10 楼每楼的回复都点到底，包括「展开 120 条回复」（旧逻辑按阈值 100 跳过）
++// 和要连点多次的楼（旧逻辑只点一次）；首屏已有 10 楼时不滚动。
++func TestLoadFloorsExpandsEveryFrontFloor(t *testing.T) {
++	shown := []int{0, 3, 25, 120, 1, 0, 49, 10, 2, 11, 500, 7}
++	fc := newFake(10, floors(len(shown), func(i int) *fakeFloor {
++		return &fakeFloor{id: id(i), shown: shown[i], loaded: min(1, shown[i]), perClick: 10}
++	})...)
++	res, r := loadFloors(context.Background(), fastFloorCfg(10, time.Minute), fc.ops(10))
++	require.Nil(t, r)
++	assert.Equal(t, CommentStopFloorLimit, res.Reason)
++	assert.False(t, res.Partial)
++	assert.Empty(t, res.RepliesPartial)
++	assert.Equal(t, 10, res.FloorsExpanded)
++	assert.Equal(t, 10, res.FloorsLoaded)
++	assert.Equal(t, 0, fc.scrolls, "首屏已够 10 楼就不再滚（不多打接口）")
++	for i := 0; i < 10; i++ {
++		assert.Equal(t, shown[i], fc.floors[i].loaded, "第 %d 楼", i+1)
++	}
++	assert.Equal(t, 12, fc.clicks[id(3)], "120 条回复的楼要连点 12 次")
++	assert.Equal(t, 0, fc.clicks[id(10)], "上限外的楼不点")
++	require.NotNil(t, res.TotalShown)
++	assert.Equal(t, 999, *res.TotalShown)
++}
++
++// TestLoadFloorsPerFloorCap 一楼几千条回复：点到每楼上限就放下，后面的楼照样展开；如实报缺多少。
++func TestLoadFloorsPerFloorCap(t *testing.T) {
++	fc := newFake(3, &fakeFloor{id: "a", shown: 2000, loaded: 1, perClick: 10},
++		&fakeFloor{id: "b", shown: 30, loaded: 1, perClick: 10}, &fakeFloor{id: "c", shown: 0})
++	cfg := fastFloorCfg(10, time.Minute)
++	cfg.MaxClicksPerFloor = 5
++	res, r := loadFloors(context.Background(), cfg, fc.ops(10))
++	require.Nil(t, r)
++	assert.Equal(t, CommentStopEnd, res.Reason)
++	assert.True(t, res.Partial)
++	require.Len(t, res.RepliesPartial, 1)
++	g := res.RepliesPartial[0]
++	assert.Equal(t, 1, g.Floor)
++	assert.Equal(t, ReplyGapCap, g.Reason)
++	assert.Equal(t, 51, g.Loaded)
++	assert.Equal(t, 2000-51, g.Missing)
++	assert.Equal(t, 5, g.Clicks)
++	assert.True(t, g.HasMore)
++	assert.Equal(t, 2000-51, res.RepliesMissing)
++	assert.Equal(t, 30, fc.floors[1].loaded, "放下第 1 楼后第 2 楼照样展开")
++	assert.Equal(t, 0, res.FloorsExpanded, "第 1 楼没展开完，连续展开到底的楼数是 0")
++}
++
++// TestLoadFloorsNoGrowth 点了回复数不涨（点了没加载出来）：连着几次就放弃这楼，不无限点。
++func TestLoadFloorsNoGrowth(t *testing.T) {
++	fc := newFake(2, &fakeFloor{id: "a", shown: 8, loaded: 1, perClick: 0}, &fakeFloor{id: "b", shown: 4, loaded: 1, perClick: 10})
++	res, r := loadFloors(context.Background(), fastFloorCfg(10, time.Minute), fc.ops(10))
++	require.Nil(t, r)
++	assert.Equal(t, 4, fc.clicks["a"], "1 次 + 退避 3 次")
++	require.Len(t, res.RepliesPartial, 1)
++	assert.Equal(t, ReplyGapNoGrowth, res.RepliesPartial[0].Reason)
++	assert.Equal(t, 7, res.RepliesPartial[0].Missing)
++	assert.Equal(t, 4, fc.floors[1].loaded)
++	assert.True(t, res.Partial)
++}
++
++// TestLoadFloorsNoButton 页面说还有回复，但楼里找不到按钮：等几次后放弃并标 no_button。
++func TestLoadFloorsNoButton(t *testing.T) {
++	fc := newFake(1, &fakeFloor{id: "a", shown: 8, loaded: 2, noButton: true})
++	res, _ := loadFloors(context.Background(), fastFloorCfg(10, time.Minute), fc.ops(10))
++	require.Len(t, res.RepliesPartial, 1)
++	assert.Equal(t, ReplyGapNoButton, res.RepliesPartial[0].Reason)
++	assert.Equal(t, 0, fc.clicks["a"])
++	assert.True(t, res.Partial)
++}
++
++// TestLoadFloorsCountMismatchIsReportedNotPartial 按钮没了、页面也说没有更多，但条数少于楼上显示：
++// 列进 replies_partial（count_mismatch，含缺几条）但不算 partial（多半是删除 / 折叠的回复，再点也没有）。
++func TestLoadFloorsCountMismatchIsReportedNotPartial(t *testing.T) {
++	fc := newFake(2, &fakeFloor{id: "a", shown: 9, loaded: 6, hasMore: -1}, &fakeFloor{id: "b"})
++	res, _ := loadFloors(context.Background(), fastFloorCfg(10, time.Minute), fc.ops(10))
++	assert.Equal(t, CommentStopEnd, res.Reason)
++	require.Len(t, res.RepliesPartial, 1)
++	assert.Equal(t, ReplyGapCountMismatch, res.RepliesPartial[0].Reason)
++	assert.Equal(t, 3, res.RepliesPartial[0].Missing)
++	assert.False(t, res.Partial)
++	assert.Equal(t, 2, res.FloorsExpanded)
++}
++
++// TestLoadFloorsScrollsForMoreFloors 首屏不够上限：边滚边展开，楼够上限就停。
++func TestLoadFloorsScrollsForMoreFloors(t *testing.T) {
++	fc := newFake(3, floors(30, func(i int) *fakeFloor { return &fakeFloor{id: id(i), shown: 5, loaded: 1, perClick: 10} })...)
++	fc.pageSize = 4
++	res, r := loadFloors(context.Background(), fastFloorCfg(10, time.Minute), fc.ops(10))
++	require.Nil(t, r)
++	assert.Equal(t, CommentStopFloorLimit, res.Reason)
++	assert.Equal(t, 2, fc.scrolls)
++	assert.Equal(t, 11, res.FloorsLoaded)
++	assert.Equal(t, 10, res.FloorsExpanded)
++	assert.False(t, res.Partial)
++	assert.Equal(t, 1, fc.floors[10].loaded, "上限外的第 11 楼不展开")
++}
++
++// TestLoadFloorsBigLimitStopsOnBudget 楼层上限放宽（统计「一次最多几楼」）：预算到了收手，如实报读到几楼、没轮到的楼。
++func TestLoadFloorsBigLimitStopsOnBudget(t *testing.T) {
++	fc := newFake(10, floors(5000, func(i int) *fakeFloor { return &fakeFloor{id: id(i % 676), shown: 0} })...)
++	for i, f := range fc.floors {
++		f.id = id(i/676) + id(i%676)
++	}
++	cfg := fastFloorCfg(2000, 60*time.Millisecond)
++	cfg.Tick = func(int) time.Duration { return 5 * time.Millisecond }
++	res, r := loadFloors(context.Background(), cfg, fc.ops(2000))
++	require.Nil(t, r)
++	assert.Equal(t, CommentStopBudget, res.Reason)
++	assert.True(t, res.Partial)
++	assert.Greater(t, res.FloorsLoaded, 10)
++	assert.Less(t, res.FloorsLoaded, 2000)
++	assert.Equal(t, res.FloorsLoaded, res.FloorsExpanded)
++	assert.InDelta(t, 0.06, res.BudgetSeconds, 0.5)
++}
++
++// TestLoadFloorsBudgetMarksUnreachedFloors 预算用完时还没轮到的楼标 not_reached。
++func TestLoadFloorsBudgetMarksUnreachedFloors(t *testing.T) {
++	fc := newFake(3, &fakeFloor{id: "a", shown: 8, loaded: 1, perClick: 0}, &fakeFloor{id: "b", shown: 6, loaded: 1, perClick: 1},
++		&fakeFloor{id: "c", shown: 2, loaded: 0, perClick: 1})
++	cfg := fastFloorCfg(10, 40*time.Millisecond)
++	cfg.GrowWait = 25 * time.Millisecond
++	cfg.Backoff = make([]time.Duration, 100)
++	res, _ := loadFloors(context.Background(), cfg, fc.ops(10))
++	assert.Equal(t, CommentStopBudget, res.Reason)
++	assert.True(t, res.Partial)
++	reasons := map[string]string{}
++	for _, g := range res.RepliesPartial {
++		reasons[g.CommentID] = g.Reason
++	}
++	assert.Equal(t, ReplyGapNotReached, reasons["a"])
++	assert.Equal(t, ReplyGapNotReached, reasons["c"])
++}
++
++// TestLoadFloorsRiskBeforeClick 每次点「展开」前查风控，命中立即停、不再点，返回 RiskError。
++func TestLoadFloorsRiskBeforeClick(t *testing.T) {
++	fc := newFake(2, &fakeFloor{id: "a", shown: 30, loaded: 1, perClick: 10}, &fakeFloor{id: "b", shown: 5, loaded: 1, perClick: 10})
++	calls := 0
++	ops := fc.ops(10)
++	ops.risk = func() *RiskError {
++		calls++
++		if calls == 2 {
++			return &RiskError{Code: RiskCaptcha, Detail: "overlay"}
++		}
++		return nil
++	}
++	res, r := loadFloors(context.Background(), fastFloorCfg(10, time.Minute), ops)
++	require.NotNil(t, r)
++	assert.Equal(t, RiskCaptcha, r.Code)
++	assert.Equal(t, CommentStopRisk, res.Reason)
++	assert.True(t, res.Partial)
++	assert.Equal(t, 1, fc.clicks["a"], "命中后不再点")
++	assert.Equal(t, 0, fc.clicks["b"])
++}
++
++// TestLoadFloorsRiskWhileScrolling 滚楼层时也按 RiskEvery 查风控。
++func TestLoadFloorsRiskWhileScrolling(t *testing.T) {
++	fc := newFake(1, floors(30, func(i int) *fakeFloor { return &fakeFloor{id: id(i)} })...)
++	fc.pageSize = 1
++	ops := fc.ops(10)
++	ops.risk = func() *RiskError {
++		if fc.scrolls >= 3 {
++			return &RiskError{Code: RiskAccount, Detail: "redirect"}
++		}
++		return nil
++	}
++	cfg := fastFloorCfg(10, time.Minute)
++	cfg.RiskEvery = 1
++	_, r := loadFloors(context.Background(), cfg, ops)
++	require.NotNil(t, r)
++	assert.Equal(t, 3, fc.scrolls)
++}
++
++// TestLoadFloorsEndBeforeLimit 总共不到 10 楼：读完就是 end，不算 partial。
++func TestLoadFloorsEndBeforeLimit(t *testing.T) {
++	fc := newFake(4, floors(4, func(i int) *fakeFloor { return &fakeFloor{id: id(i), shown: 3, loaded: 1, perClick: 10} })...)
++	res, _ := loadFloors(context.Background(), fastFloorCfg(10, time.Minute), fc.ops(10))
++	assert.Equal(t, CommentStopEnd, res.Reason)
++	assert.False(t, res.Partial)
++	assert.Equal(t, 4, res.FloorsExpanded)
++	assert.Equal(t, 0, fc.scrolls)
++	require.NotNil(t, res.HasMore)
++	assert.False(t, *res.HasMore)
++}
++
++// TestLoadFloorsStuckScroll 页面说还有楼，但几级滚法都滚不出来：stuck（partial）。
++func TestLoadFloorsStuckScroll(t *testing.T) {
++	fc := newFake(3, floors(30, func(i int) *fakeFloor { return &fakeFloor{id: id(i)} })...)
++	fc.canScroll = false
++	res, _ := loadFloors(context.Background(), fastFloorCfg(10, time.Minute), fc.ops(10))
++	assert.Equal(t, CommentStopStuck, res.Reason)
++	assert.True(t, res.Partial)
++	assert.Equal(t, 3, res.FloorsLoaded)
++	assert.Greater(t, fc.scrolls, 1)
++}
++
++// TestLoadFloorsNoComments 没评论：立即收工。
++func TestLoadFloorsNoComments(t *testing.T) {
++	ops := floorOps{probe: func() floorSnapshot { return floorSnapshot{OK: true, Total: 0, HasMore: -1} },
++		expand: func(floorInfo) clickResult { t.Fatal("不该点"); return clickResult{} }, scroll: func(int) { t.Fatal("不该滚") }, risk: noRisk}
++	res, r := loadFloors(context.Background(), fastFloorCfg(10, time.Minute), ops)
++	require.Nil(t, r)
++	assert.Equal(t, CommentStopNoComments, res.Reason)
++	assert.False(t, res.Partial)
++}
++
++// TestLoadFloorsProbeFailed 页面状态连续读不出来：probe_failed（partial），不空转到预算用完。
++func TestLoadFloorsProbeFailed(t *testing.T) {
++	fc := newFake(0)
++	fc.noState = true
++	res, _ := loadFloors(context.Background(), fastFloorCfg(10, time.Minute), fc.ops(10))
++	assert.Equal(t, CommentStopProbeFailed, res.Reason)
++	assert.True(t, res.Partial)
++}
++
++// TestLoadFloorsExpandDisabled 调用方没要展开回复：只滚楼层，没展开的楼标 not_expanded。
++func TestLoadFloorsExpandDisabled(t *testing.T) {
++	fc := newFake(2, &fakeFloor{id: "a", shown: 5, loaded: 1, perClick: 10}, &fakeFloor{id: "b"})
++	cfg := fastFloorCfg(10, time.Minute)
++	cfg.Expand = false
++	res, _ := loadFloors(context.Background(), cfg, fc.ops(10))
++	assert.Equal(t, 0, fc.clicks["a"])
++	require.Len(t, res.RepliesPartial, 1)
++	assert.Equal(t, ReplyGapNotExpanded, res.RepliesPartial[0].Reason)
++	assert.True(t, res.Partial)
++}
++
++// TestLoadFloorsCancelled ctx 取消：cancelled（partial）。
++func TestLoadFloorsCancelled(t *testing.T) {
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel()
++	fc := newFake(2, &fakeFloor{id: "a", shown: 5, loaded: 1, perClick: 10})
++	res, _ := loadFloors(ctx, fastFloorCfg(10, time.Minute), fc.ops(10))
++	assert.Equal(t, CommentStopCancelled, res.Reason)
++	assert.True(t, res.Partial)
++}
++
++// TestLoadFloorsZeroBudgetStillReports 预算已经是 0（离总时限太近）：不点不滚，但仍读一次如实报。
++func TestLoadFloorsZeroBudgetStillReports(t *testing.T) {
++	fc := newFake(10, floors(10, func(i int) *fakeFloor { return &fakeFloor{id: id(i), shown: 4, loaded: 1, perClick: 10} })...)
++	res, _ := loadFloors(context.Background(), fastFloorCfg(10, 0), fc.ops(10))
++	assert.Equal(t, CommentStopBudget, res.Reason)
++	assert.Equal(t, 10, res.FloorsLoaded)
++	assert.Len(t, res.RepliesPartial, 10)
++	assert.Equal(t, 30, res.RepliesMissing)
++	assert.Empty(t, fc.clicks)
++}
++
++// TestCommentLoadWindowRespectsRequestBudget 评论预算 = min(commentBudget, 请求预算剩余 − 尾巴)。
++func TestCommentLoadWindowRespectsRequestBudget(t *testing.T) {
++	now := time.Now()
++	cfg := CommentLoadConfig{RequestBudget: 540 * time.Second, RequestStart: now}
++	assert.Equal(t, commentLoadBudget, commentLoadWindow(context.Background(), cfg, now), "刚进来：8 分钟上限说了算")
++	cfg.RequestStart = now.Add(-200 * time.Second) // 排队 + 开浏览器用了 200 秒
++	assert.Equal(t, 540*time.Second-200*time.Second-requestTailReserve, commentLoadWindow(context.Background(), cfg, now))
++	cfg.RequestStart = now.Add(-600 * time.Second)
++	assert.Equal(t, time.Duration(0), commentLoadWindow(context.Background(), cfg, now))
++	ctx, cancel := context.WithDeadline(context.Background(), now.Add(4*time.Minute))
++	defer cancel()
++	cfg.RequestStart = now
++	assert.Equal(t, 4*time.Minute-extractReserve, commentLoadWindow(ctx, cfg, now), "总时限更紧时听总时限")
++}
++
++// TestNormalizeRequestBudget 请求预算：0 用默认 540 秒，过小 / 过大夹到 [60 秒, 15 分钟]。
++func TestNormalizeRequestBudget(t *testing.T) {
++	assert.Equal(t, defaultCommentRequestBudget, CommentLoadConfig{}.normalize().RequestBudget)
++	assert.Equal(t, minCommentRequestBudget, CommentLoadConfig{RequestBudget: time.Second}.normalize().RequestBudget)
++	assert.Equal(t, maxCommentRequestBudget, CommentLoadConfig{RequestBudget: time.Hour}.normalize().RequestBudget)
++	assert.Equal(t, 300*time.Second, CommentLoadConfig{RequestBudget: 300 * time.Second}.normalize().RequestBudget)
++	assert.Equal(t, 10, CommentLoadConfig{}.normalize().MaxCommentItems, "楼层上限默认 10")
++}
++
++// TestCommentTickIsJittered 滚动停顿带抖动、不低于 0.8 秒。
++func TestCommentTickIsJittered(t *testing.T) {
++	seen := map[time.Duration]bool{}
++	for i := 0; i < 50; i++ {
++		d := commentTick(i)
++		assert.GreaterOrEqual(t, d, 800*time.Millisecond)
++		assert.Less(t, d, 6*time.Second)
++		seen[d] = true
++	}
++	assert.Greater(t, len(seen), 10)
++}
++
++// TestCommentLoadJSONContract 响应字段名是给 Python 的契约：data.comment_load 下这些键一个都不能改名。
++func TestCommentLoadJSONContract(t *testing.T) {
++	fc := newFake(2, &fakeFloor{id: "a", shown: 9, loaded: 6, hasMore: -1}, &fakeFloor{id: "b"})
++	res, _ := loadFloors(context.Background(), fastFloorCfg(10, time.Minute), fc.ops(10))
++	raw, err := json.Marshal(FeedDetailResponse{CommentLoad: &res})
++	require.NoError(t, err)
++	var got map[string]map[string]any
++	require.NoError(t, json.Unmarshal(raw, &got))
++	cl := got["comment_load"]
++	for _, k := range []string{"floor_limit", "floors_loaded", "floors_expanded", "comments_total_shown", "comments_has_more",
++		"replies_partial", "replies_missing", "partial", "stop_reason", "clicks", "scrolls", "seconds", "budget_seconds",
++		"replies_per_floor_cap", "click_fails", "dom_clicks", "throttle_pauses"} {
++		assert.Contains(t, cl, k)
++	}
++	gap := cl["replies_partial"].([]any)[0].(map[string]any)
++	for _, k := range []string{"floor", "comment_id", "shown", "loaded", "missing", "has_more", "clicks", "reason", "detail"} {
++		assert.Contains(t, gap, k)
++	}
++	raw, _ = json.Marshal(FeedDetailResponse{})
++	assert.NotContains(t, string(raw), "comment_load", "没加载评论时不带这个键")
++}
+diff --git a/xiaohongshu/comment_floors_v2_test.go b/xiaohongshu/comment_floors_v2_test.go
+new file mode 100644
+index 0000000..c34c295
+--- /dev/null
++++ b/xiaohongshu/comment_floors_v2_test.go
+@@ -0,0 +1,168 @@
++package xiaohongshu
++
++// 1004d 第二版（19:54 真号试跑之后）：公平分档、每楼回复上限、退避重试、疑似限频、诊断。
++
++import (
++	"context"
++	"testing"
++	"time"
++
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++// TestLoadFloorsFairRounds 公平分档：先让每楼都到 30 条，再轮回来继续，不让前几楼吃光预算。
++func TestLoadFloorsFairRounds(t *testing.T) {
++	fc := newFake(3, &fakeFloor{id: "a", shown: 100, loaded: 1, perClick: 10},
++		&fakeFloor{id: "b", shown: 100, loaded: 1, perClick: 10}, &fakeFloor{id: "c", shown: 100, loaded: 1, perClick: 10})
++	res, _ := loadFloors(context.Background(), fastFloorCfg(10, time.Minute), fc.ops(10))
++	require.GreaterOrEqual(t, len(fc.order), 18)
++	assert.Equal(t, []string{"a", "a", "a", "b", "b", "b", "c", "c", "c"}, fc.order[:9], "第一档：每楼先到 30 条")
++	assert.Equal(t, []string{"a", "a", "a", "b", "b", "b", "c", "c", "c"}, fc.order[9:18], "第二档：再各到 60 条")
++	assert.Equal(t, CommentStopEnd, res.Reason)
++	assert.False(t, res.Partial)
++}
++
++// TestLoadFloorsFairUnderBudget 预算只够点一部分：每楼都分到一批，缺口如实报。
++func TestLoadFloorsFairUnderBudget(t *testing.T) {
++	fc := newFake(10, floors(10, func(i int) *fakeFloor { return &fakeFloor{id: id(i), shown: 200, loaded: 1, perClick: 5} })...)
++	ops := fc.ops(10)
++	inner := ops.expand
++	ops.expand = func(f floorInfo) clickResult { time.Sleep(2 * time.Millisecond); return inner(f) }
++	res, _ := loadFloors(context.Background(), fastFloorCfg(10, 250*time.Millisecond), ops)
++	assert.Equal(t, CommentStopBudget, res.Reason)
++	assert.True(t, res.Partial)
++	for i, f := range fc.floors {
++		assert.Greater(t, f.loaded, 1, "第 %d 楼也要分到一批", i+1)
++	}
++	assert.Len(t, res.RepliesPartial, 10)
++	assert.Greater(t, res.RepliesMissing, 0)
++}
++
++// TestLoadFloorsReplyCap 每楼回复上限：到了就不再点，列 reply_cap 但不算 partial。
++func TestLoadFloorsReplyCap(t *testing.T) {
++	fc := newFake(2, &fakeFloor{id: "a", shown: 100, loaded: 1, perClick: 10}, &fakeFloor{id: "b", shown: 5, loaded: 1, perClick: 10})
++	cfg := fastFloorCfg(10, time.Minute)
++	cfg.ReplyCap = 20
++	res, _ := loadFloors(context.Background(), cfg, fc.ops(10))
++	assert.Equal(t, 21, fc.floors[0].loaded)
++	assert.Equal(t, 2, fc.clicks["a"])
++	require.Len(t, res.RepliesPartial, 1)
++	assert.Equal(t, ReplyGapReplyCap, res.RepliesPartial[0].Reason)
++	assert.Equal(t, 79, res.RepliesPartial[0].Missing)
++	assert.False(t, res.Partial)
++	assert.Equal(t, 20, res.ReplyCap)
++}
++
++// TestLoadFloorsClickFailBackoffThenRecovers 点不动两次后能点了：按退避重试，不放弃，最后展开到底。
++func TestLoadFloorsClickFailBackoffThenRecovers(t *testing.T) {
++	fc := newFake(1, &fakeFloor{id: "a", shown: 30, loaded: 1, perClick: 10, failNext: 2})
++	cfg := fastFloorCfg(10, time.Minute)
++	cfg.Backoff = []time.Duration{20 * time.Millisecond, 50 * time.Millisecond, time.Second}
++	start := time.Now()
++	res, _ := loadFloors(context.Background(), cfg, fc.ops(10))
++	assert.GreaterOrEqual(t, time.Since(start), 70*time.Millisecond, "两次失败后分别退避 20ms、50ms")
++	assert.Equal(t, 30, fc.floors[0].loaded)
++	assert.Equal(t, 2, res.ClickFails)
++	assert.Empty(t, res.RepliesPartial)
++	assert.False(t, res.Partial)
++}
++
++// TestLoadFloorsBackoffServesOtherFloors 一楼在退避时先去点别的楼，不干等。
++func TestLoadFloorsBackoffServesOtherFloors(t *testing.T) {
++	fc := newFake(2, &fakeFloor{id: "a", shown: 11, loaded: 1, perClick: 10, failNext: 1}, &fakeFloor{id: "b", shown: 11, loaded: 1, perClick: 10})
++	cfg := fastFloorCfg(10, time.Minute)
++	cfg.Backoff = []time.Duration{100 * time.Millisecond, time.Second, time.Second}
++	loadFloors(context.Background(), cfg, fc.ops(10))
++	assert.Equal(t, []string{"b", "a"}, fc.order)
++}
++
++// TestLoadFloorsClickFailedGivesUpWithDetail 一直点不动：退避用完放弃，detail 带点击报错和离上次成功多久。
++func TestLoadFloorsClickFailedGivesUpWithDetail(t *testing.T) {
++	fc := newFake(2, &fakeFloor{id: "a", shown: 30, loaded: 1, perClick: 10, failAll: true}, &fakeFloor{id: "b"})
++	res, _ := loadFloors(context.Background(), fastFloorCfg(10, time.Minute), fc.ops(10))
++	require.Len(t, res.RepliesPartial, 1)
++	g := res.RepliesPartial[0]
++	assert.Equal(t, ReplyGapClickFailed, g.Reason)
++	assert.Contains(t, g.Detail, "点不动")
++	assert.Contains(t, g.Detail, "context deadline exceeded")
++	assert.Contains(t, g.Detail, "距上次成功")
++	assert.Equal(t, 4, res.ClickFails)
++	assert.True(t, res.Partial)
++}
++
++// TestLoadFloorsNoGrowthDetailHasDiagnosis 点了不涨：detail 带诊断（按钮状态 / 条数）。
++func TestLoadFloorsNoGrowthDetailHasDiagnosis(t *testing.T) {
++	fc := newFake(1, &fakeFloor{id: "a", shown: 8, loaded: 1, perClick: 0})
++	ops := fc.ops(10)
++	ops.diagnose = func(floorInfo) string { return "按钮「展开更多回复」遮挡=engage-bar" }
++	res, _ := loadFloors(context.Background(), fastFloorCfg(10, time.Minute), ops)
++	require.Len(t, res.RepliesPartial, 1)
++	assert.Equal(t, ReplyGapNoGrowth, res.RepliesPartial[0].Reason)
++	assert.Contains(t, res.RepliesPartial[0].Detail, "遮挡=engage-bar")
++	assert.Contains(t, res.RepliesPartial[0].Detail, "回复数没变")
++}
++
++// TestLoadFloorsThrottledStops 连续多楼都点不动：歇两次仍不行就判停 throttled。
++func TestLoadFloorsThrottledStops(t *testing.T) {
++	fc := newFake(3, floors(3, func(i int) *fakeFloor { return &fakeFloor{id: id(i), shown: 30, loaded: 1, perClick: 10} })...)
++	fc.blocked = true
++	cfg := fastFloorCfg(10, time.Minute)
++	pauses := 0
++	cfg.ThrottlePause = func() time.Duration { pauses++; return time.Millisecond }
++	res, _ := loadFloors(context.Background(), cfg, fc.ops(10))
++	assert.Equal(t, CommentStopThrottled, res.Reason)
++	assert.Equal(t, 2, res.ThrottlePauses)
++	assert.Equal(t, 2, pauses)
++	assert.True(t, res.Partial)
++	assert.Empty(t, fc.clicks)
++}
++
++// TestLoadFloorsThrottlePauseRecovers 疑似限频歇一次后恢复：继续展开到底，放弃过的楼也重新给机会。
++func TestLoadFloorsThrottlePauseRecovers(t *testing.T) {
++	fc := newFake(3, floors(3, func(i int) *fakeFloor { return &fakeFloor{id: id(i), shown: 30, loaded: 1, perClick: 10} })...)
++	fc.blocked = true
++	cfg := fastFloorCfg(10, time.Minute)
++	cfg.ThrottlePause = func() time.Duration { fc.blocked = false; return 20 * time.Millisecond }
++	res, _ := loadFloors(context.Background(), cfg, fc.ops(10))
++	assert.Equal(t, CommentStopEnd, res.Reason)
++	assert.Equal(t, 1, res.ThrottlePauses)
++	assert.False(t, res.Partial)
++	for _, f := range fc.floors {
++		assert.Equal(t, 30, f.loaded)
++	}
++}
++
++// TestLoadFloorsButtonTextChangeCountsAsResponse 点完回复数没涨但按钮文本变了（「展开 N 条」→「展开更多」）：算有反应，不记失败。
++func TestLoadFloorsButtonTextChangeCountsAsResponse(t *testing.T) {
++	clicks := 0
++	snap := func() floorSnapshot {
++		text, loaded, hasMore := "展开 9 条回复", 1, 1
++		if clicks >= 1 {
++			text = "展开更多回复"
++		}
++		if clicks >= 2 {
++			loaded, hasMore = 10, 0
++		}
++		f := floorInfo{ID: "a", Shown: 10, Loaded: loaded, HasMore: hasMore, Button: hasMore == 1, BtnText: text}
++		return floorSnapshot{OK: true, Floors: []floorInfo{f}, Loaded: 1, Total: 10, HasMore: 0}
++	}
++	ops := floorOps{probe: snap, expand: func(floorInfo) clickResult { clicks++; return clickResult{OK: true} },
++		scroll: func(int) {}, risk: noRisk}
++	res, _ := loadFloors(context.Background(), fastFloorCfg(10, time.Minute), ops)
++	assert.Equal(t, 2, clicks)
++	assert.Equal(t, 0, res.ClickFails)
++	assert.False(t, res.Partial)
++}
++
++// TestFormatFloorDiag 诊断压成一句：按钮文本、位置、视口、遮挡、disabled、DOM / 状态条数。
++func TestFormatFloorDiag(t *testing.T) {
++	got := formatFloorDiag(`{"root":true,"domSubs":96,"stateSubs":96,"hasMore":true,"shown":"224","cands":1,"text":"展开更多回复",` +
++		`"rect":[300,860,120,24],"vh":900,"inView":true,"covered":"engage-bar","disabled":false,"loading":false,"visible":true}`)
++	for _, want := range []string{"展开更多回复", "(300,860 120×24)", "视口内=是", "遮挡=engage-bar", "disabled=否", "DOM 96", "状态 96", "224"} {
++		assert.Contains(t, got, want)
++	}
++	assert.Contains(t, formatFloorDiag(`{"root":false}`), "找不到这楼")
++	assert.Contains(t, formatFloorDiag(`{"root":true,"cands":0}`), "没有展开按钮")
++	assert.Contains(t, formatFloorDiag(`oops`), "诊断读不出")
++}
 diff --git a/xiaohongshu/feed_detail.go b/xiaohongshu/feed_detail.go
-index 2cfde9f..900aa2b 100644
+index 2cfde9f..24e9b7e 100644
 --- a/xiaohongshu/feed_detail.go
 +++ b/xiaohongshu/feed_detail.go
-@@ -109,7 +109,8 @@ func (f *FeedDetailAction) GetFeedDetailWithConfig(ctx context.Context, feedID,
+@@ -6,7 +6,6 @@ import (
+ 	"fmt"
+ 	"math/rand"
+ 	"regexp"
+-	"strconv"
+ 	"strings"
+ 	"time"
+ 
+@@ -20,15 +19,9 @@ import (
+ 
+ // ========== 配置常量 ==========
+ const (
+-	defaultMaxAttempts   = 500
+-	stagnantLimit        = 20
+-	minScrollDelta       = 10
+-	maxClickPerRound     = 3
+-	largeScrollTrigger   = 5 // 停滞多少次后触发大滚动
+-	buttonClickInterval  = 3 // 每隔多少次尝试点击一次按钮
+-	finalSprintPushCount = 15
+-
+-	// 以下三个只用于查找单条评论，与批量加载的 defaultMaxAttempts 不共用
++	maxClickPerRound = 3 // 查找单条评论时每轮最多点几个「展开回复」
++
++	// 以下三个只用于查找单条评论
+ 	maxSearchScrolls  = 25               // 最多下滚轮数
+ 	maxExpandRounds   = 5                // 最多连续展开而不下滚的轮数
+ 	maxSearchDuration = 90 * time.Second // 单次查找的墙钟上限
+@@ -37,17 +30,34 @@ const (
+ // ========== 数据结构 ==========
+ 
+ type CommentLoadConfig struct {
+-	ClickMoreReplies    bool
++	ClickMoreReplies bool
++	// MaxRepliesThreshold 1004d 起不再用来跳过回复多的楼（楼层上限内一律展开到底，每楼另有点击上限）；保留字段兼容旧调用方。
+ 	MaxRepliesThreshold int
+-	MaxCommentItems     int
+-	ScrollSpeed         string
++	// MaxCommentItems 楼层上限：加载并展开前几楼（一级评论）。
++	MaxCommentItems int
++	// MaxRepliesPerFloor 每楼回复上限：展开到这么多条就不再点这楼。0 = 不限（Owner：全部展开）。
++	MaxRepliesPerFloor int
++	ScrollSpeed        string
++	// RequestBudget 一次请求的时间预算（从 RequestStart 起算，含排队拿锁、开浏览器、导航）：
++	// 评论在「RequestStart + RequestBudget − requestTailReserve」收手。0 = defaultCommentRequestBudget。
++	RequestBudget time.Duration
++	// RequestStart 请求进来的时刻（service 层填）；零值 = 进详情页动作时才开始算。
++	RequestStart time.Time
+ }
+ 
+ // 未显式指定时的默认值。
+ const (
+-	defaultMaxCommentItems     = 20
++	defaultMaxCommentItems     = 10 // 1004d Owner：同步默认前 10 楼
+ 	defaultMaxRepliesThreshold = 10
+ 	defaultScrollSpeed         = "normal"
++
++	// defaultCommentRequestBudget 一次详情请求默认预算。Python 客户端（ingest 楼层模式）超时 600 秒：
++	// 540 秒预算 − 30 秒尾巴 = 评论最晚 510 秒收手，再加抽取 + 关浏览器（≤30 秒）仍在 600 秒内返回。
++	defaultCommentRequestBudget = 540 * time.Second
++	minCommentRequestBudget     = 60 * time.Second
++	maxCommentRequestBudget     = 15 * time.Minute
++	// requestTailReserve 评论收手后给抽取、风控复查、关浏览器留的时间（抽取本身另有 2 分钟硬上限）。
++	requestTailReserve = 30 * time.Second
+ )
+ 
+ func DefaultCommentLoadConfig() CommentLoadConfig {
+@@ -56,6 +66,7 @@ func DefaultCommentLoadConfig() CommentLoadConfig {
+ 		MaxRepliesThreshold: defaultMaxRepliesThreshold,
+ 		MaxCommentItems:     defaultMaxCommentItems,
+ 		ScrollSpeed:         defaultScrollSpeed,
++		RequestBudget:       defaultCommentRequestBudget,
+ 	}
+ }
+ 
+@@ -72,17 +83,30 @@ func (c CommentLoadConfig) normalize() CommentLoadConfig {
+ 	if c.MaxCommentItems <= 0 {
+ 		c.MaxCommentItems = defaultMaxCommentItems
+ 	}
++	if c.MaxRepliesPerFloor < 0 {
++		c.MaxRepliesPerFloor = 0
++	}
+ 	if c.MaxRepliesThreshold <= 0 {
+ 		c.MaxRepliesThreshold = defaultMaxRepliesThreshold
+ 	}
+ 	if c.ScrollSpeed == "" {
+ 		c.ScrollSpeed = defaultScrollSpeed
+ 	}
++	switch {
++	case c.RequestBudget <= 0:
++		c.RequestBudget = defaultCommentRequestBudget
++	case c.RequestBudget < minCommentRequestBudget:
++		c.RequestBudget = minCommentRequestBudget
++	case c.RequestBudget > maxCommentRequestBudget:
++		c.RequestBudget = maxCommentRequestBudget
++	}
+ 	return c
+ }
+ 
+ type FeedDetailAction struct {
+ 	page *rod.Page
++	// preClick 点「展开回复」前的拟人停顿；nil = humanize.Reading（测试里注入更长的停顿复现 19:54 的超时）
++	preClick func(context.Context)
+ }
+ 
+ func NewFeedDetailAction(page *rod.Page) *FeedDetailAction {
+@@ -97,19 +121,23 @@ func (f *FeedDetailAction) GetFeedDetail(ctx context.Context, feedID, xsecToken
+ 
+ func (f *FeedDetailAction) GetFeedDetailWithConfig(ctx context.Context, feedID, xsecToken string, loadAllComments bool, config CommentLoadConfig) (*FeedDetailResponse, error) {
+ 	config = config.normalize()
++	if config.RequestStart.IsZero() {
++		config.RequestStart = time.Now()
++	}
+ 
+ 	page := f.page.Context(ctx).Timeout(10 * time.Minute)
+ 	url := makeFeedDetailURL(feedID, xsecToken)
+ 
+ 	logrus.Infof("打开 feed 详情页: %s", url)
+-	logrus.Infof("配置: 点击更多=%v, 回复阈值=%d, 最大评论数=%d, 滚动速度=%s",
+-		config.ClickMoreReplies, config.MaxRepliesThreshold, config.MaxCommentItems, config.ScrollSpeed)
++	logrus.Infof("配置: 展开回复=%v, 楼层上限=%d, 每楼回复上限=%d, 请求预算=%s, 滚动速度=%s",
++		config.ClickMoreReplies, config.MaxCommentItems, config.MaxRepliesPerFloor, config.RequestBudget, config.ScrollSpeed)
+ 
+ 	// 使用retry-go处理页面导航和DOM稳定等待
  	err := retry.Do(
  		func() error {
  			page.MustNavigate(url)
@@ -4173,7 +6077,7 @@ index 2cfde9f..900aa2b 100644
  			return nil
  		},
  		retry.Attempts(3),
-@@ -125,13 +126,32 @@ func (f *FeedDetailAction) GetFeedDetailWithConfig(ctx context.Context, feedID,
+@@ -125,293 +153,94 @@ func (f *FeedDetailAction) GetFeedDetailWithConfig(ctx context.Context, feedID,
  	}
  	humanize.Delay(ctx, humanize.AfterNavigate)
  
@@ -4185,170 +6089,430 @@ index 2cfde9f..900aa2b 100644
  		return nil, err
  	}
  
--	if loadAllComments {
--		if err := f.loadAllCommentsWithConfig(ctx, page, config); err != nil {
--			logrus.Warnf("加载全部评论失败: %v", err)
 +	// 首屏评论是异步补进来的：等它出现再读（最多 10s）。0926 曾怀疑 pc_share 来源导致评论为空并加过
 +	// 「换来源重开」，后查明是同一篇短时间多开触发的软限流，已撤掉（重开只会加重限流）。
 +	waitFirstComments(page)
-+	if loadAllComments && commentBudget(ctx, time.Now()) <= 0 {
-+		logrus.Warn("离总时限太近，跳过加载全部评论，只交回首屏评论")
-+	} else if loadAllComments {
-+		// 0929：滚评论只给 8 分钟，到点停下、把已经滚出来的交回去。以前滚满整页 10 分钟上限，
-+		// 连抽取都一起超时，一条评论都拿不回来（评论上千的笔记必撞）。
-+		// 1001：还要给抽取留出时间，整篇不超过调用方的总时限（锁看门狗之下）。
-+		loadCtx, loadCancel := context.WithTimeout(ctx, commentBudget(ctx, time.Now()))
-+		err := f.loadAllCommentsWithConfig(loadCtx, page.Context(loadCtx), config)
++	var load *CommentLoadResult
+ 	if loadAllComments {
+-		if err := f.loadAllCommentsWithConfig(ctx, page, config); err != nil {
+-			logrus.Warnf("加载全部评论失败: %v", err)
++		// 0929：滚评论有上限，到点停下、把已经滚出来的交回去（以前滚满整页 10 分钟，连抽取都一起超时）。
++		// 1001：给抽取留时间，整篇不超过锁看门狗之下的总时限。
++		// 1004d：再按请求预算收手（从请求进来算，含排队和开浏览器），保证在 Python 客户端超时前返回；
++		// 滚楼层和展开每楼回复在同一个预算里做，结论如实放进 comment_load。
++		budget := commentLoadWindow(ctx, config, time.Now())
++		loadCtx, loadCancel := context.WithTimeout(ctx, budget+time.Second)
++		res, r := f.loadCommentFloors(loadCtx, feedID, config, budget)
 +		loadCancel()
-+		if r := AsRisk(err); r != nil {
++		if r != nil {
 +			// 1001：滚评论途中弹了验证 / 被跳走：立即停，整篇按风控失败，不拿半截数据当成功
 +			return nil, r
-+		}
-+		if err != nil {
-+			logrus.Warnf("加载全部评论未完成，交回已加载部分: %v", err)
  		}
++		load = &res
  	}
  
-@@ -139,10 +159,46 @@ func (f *FeedDetailAction) GetFeedDetailWithConfig(ctx context.Context, feedID,
+ 	// ctx 已取消时直接返回，避免在已取消的 page 上执行 MustEval 触发 panic
  	if err := ctx.Err(); err != nil {
  		return nil, err
  	}
+-
+-	return f.extractFeedDetail(page, feedID)
+-}
+-
+-// ========== 评论加载器 ==========
+-
+-type commentLoader struct {
+-	page   *rod.Page
+-	config CommentLoadConfig
+-	stats  *loadStats
+-	state  *loadState
+-}
+-
+-type loadStats struct {
+-	totalClicked int
+-	totalSkipped int
+-	attempts     int
+-}
+-
+-type loadState struct {
+-	lastCount      int
+-	lastScrollTop  int
+-	stagnantChecks int
+-}
+-
+-func (f *FeedDetailAction) loadAllCommentsWithConfig(ctx context.Context, page *rod.Page, config CommentLoadConfig) error {
+-	loader := &commentLoader{
+-		page:   page,
+-		config: config,
+-		stats:  &loadStats{},
+-		state:  &loadState{},
 +	// 1001：抽取前再查一次。滚评论（或等首屏评论）期间弹出的验证，数据虽然还在 __INITIAL_STATE__ 里读得出来，
 +	// 也必须按风控停下写熔断——否则夜跑会拿着被标记的号接着开下一篇。
 +	if r := RiskPage(f.page); r != nil {
 +		return nil, r
-+	}
-+
+ 	}
+ 
+-	return loader.load(ctx)
+-}
+-
+-func (cl *commentLoader) load(ctx context.Context) error {
+-	maxAttempts := cl.calculateMaxAttempts()
+-
+-	logrus.Info("开始加载评论...")
+-	scrollToCommentsArea(cl.page)
+-	humanize.Delay(ctx, humanize.BetweenScroll)
+-
+-	// 检查是否没有评论
+-	if cl.checkNoComments() {
+-		return nil
+-	}
+-
+-	for cl.stats.attempts = 0; cl.stats.attempts < maxAttempts; cl.stats.attempts++ {
+-		// 协作取消点：ctx 取消后干净退出，避免空转直到撞上 MustEval panic
+-		if err := ctx.Err(); err != nil {
+-			logrus.Infof("上下文已取消，停止加载评论: %v", err)
+-			return err
+-		}
+-
+-		logrus.Debugf("=== 尝试 %d/%d ===", cl.stats.attempts+1, maxAttempts)
+-
+-		if cl.checkComplete(ctx) {
+-			return nil
+-		}
+-
+-		if cl.shouldClickButtons() {
+-			cl.clickButtonsWithRetry(ctx)
+-		}
+-
+-		currentCount := getCommentCount(cl.page)
+-		cl.updateState(currentCount)
+-
+-		if cl.shouldStopAtTarget(currentCount) {
+-			return nil
 +	// 抽取用新计时，不吃滚评论剩下的时间
 +	res, err := f.extractFeedDetail(f.page.Context(ctx).Timeout(2*time.Minute), feedID)
 +	if err != nil {
 +		// 读不到详情时先看是不是中途被跳到风控页：那是「号出事」，不是「这篇没了」
 +		if r := RiskPage(f.page); r != nil {
 +			return nil, r
-+		}
-+	}
+ 		}
+-
+-		cl.performScroll(ctx)
+-		cl.handleStagnation(ctx)
+-
+-		humanize.Delay(ctx, humanize.BetweenScroll)
+ 	}
+-
+-	cl.performFinalSprint(ctx)
+-	return nil
+-}
+-
+-func (cl *commentLoader) calculateMaxAttempts() int {
+-	if cl.config.MaxCommentItems > 0 {
+-		return cl.config.MaxCommentItems * 3
+-	}
+-	return defaultMaxAttempts
+-}
+-
+-func (cl *commentLoader) checkNoComments() bool {
+-	if checkNoCommentsArea(cl.page) {
+-		logrus.Infof("✓ 检测到无评论区域（这是一片荒地），跳过加载")
+-		return true
+-	}
+-	return false
+-}
+-
+-func (cl *commentLoader) checkComplete(ctx context.Context) bool {
+-	if !checkEndContainer(cl.page) {
+-		return false
+-	}
+-
+-	// 到底之后再展开一轮：评论区不用怎么滚就能到底时，循环第一轮就走到这里，
+-	// 主流程里的展开步骤根本没机会执行。点开了就先不算加载完，让下一轮重新判断
+-	// （展开会露出新的按钮）；一个都没点开就收工，避免被阈值跳过的按钮卡住。
+-	if cl.config.ClickMoreReplies && cl.clickButtonsWithRetry(ctx) > 0 {
+-		return false
+-	}
+-
+-	currentCount := getCommentCount(cl.page)
+-	logrus.Infof("✓ 检测到 'THE END' 元素，已滑动到底部")
+-	humanize.Delay(ctx, humanize.BetweenScroll)
+-	logrus.Infof("✓ 加载完成: %d 条评论, 尝试次数: %d, 点击: %d, 跳过: %d",
+-		currentCount, cl.stats.attempts+1, cl.stats.totalClicked, cl.stats.totalSkipped)
+-	return true
+-}
+-
+-func (cl *commentLoader) shouldClickButtons() bool {
+-	return cl.config.ClickMoreReplies && cl.stats.attempts%buttonClickInterval == 0
+-}
+-
+-// clickButtonsWithRetry 展开当前页上的回复按钮，返回本次点开的个数。
+-func (cl *commentLoader) clickButtonsWithRetry(ctx context.Context) int {
+-	clicked, skipped := clickShowMoreButtonsSmart(ctx, cl.page, cl.config.MaxRepliesThreshold)
+-	if clicked == 0 && skipped == 0 {
+-		return 0
+-	}
+-
+-	cl.stats.totalClicked += clicked
+-	cl.stats.totalSkipped += skipped
+-	logrus.Infof("点击'更多': %d 个, 跳过: %d 个, 累计点击: %d, 累计跳过: %d",
+-		clicked, skipped, cl.stats.totalClicked, cl.stats.totalSkipped)
+-
+-	humanize.Delay(ctx, humanize.Reading)
+-
+-	// 重试一轮
+-	clicked2, skipped2 := clickShowMoreButtonsSmart(ctx, cl.page, cl.config.MaxRepliesThreshold)
+-	if clicked2 > 0 || skipped2 > 0 {
+-		cl.stats.totalClicked += clicked2
+-		cl.stats.totalSkipped += skipped2
+-		logrus.Infof("第 2 轮: 点击 %d, 跳过 %d", clicked2, skipped2)
+-		humanize.Delay(ctx, humanize.Reading)
++	if res != nil {
++		res.CommentLoad = load
+ 	}
+-
+-	return clicked + clicked2
 +	return res, err
-+}
-+
+ }
+ 
+-func (cl *commentLoader) updateState(currentCount int) {
+-	totalCount := getTotalCommentCount(cl.page)
+-	logrus.Debugf("当前评论: %d, 目标: %d", currentCount, totalCount)
+-
+-	if currentCount != cl.state.lastCount {
+-		logrus.Infof("✓ 评论增加: %d -> %d (+%d)",
+-			cl.state.lastCount, currentCount, currentCount-cl.state.lastCount)
+-		cl.state.lastCount = currentCount
+-		cl.state.stagnantChecks = 0
+-	} else {
+-		cl.state.stagnantChecks++
+-		if cl.state.stagnantChecks%5 == 0 {
+-			logrus.Debugf("评论停滞 %d 次", cl.state.stagnantChecks)
++// commentLoadWindow 这次评论加载能用多久：min(commentBudget, 请求预算剩余 − requestTailReserve)，不小于 0。
++func commentLoadWindow(ctx context.Context, cfg CommentLoadConfig, now time.Time) time.Duration {
++	b := commentBudget(ctx, now)
++	if !cfg.RequestStart.IsZero() && cfg.RequestBudget > 0 {
++		if left := cfg.RequestStart.Add(cfg.RequestBudget).Sub(now) - requestTailReserve; left < b {
++			b = left
+ 		}
+ 	}
+-}
+-
+-func (cl *commentLoader) shouldStopAtTarget(currentCount int) bool {
+-	// 如果未设置最大评论数，或者还未达到目标，继续加载
+-	if cl.config.MaxCommentItems <= 0 {
+-		return false
++	if b < 0 {
++		b = 0
+ 	}
+-
+-	// 如果已达到或超过目标评论数，立即停止
+-	if currentCount >= cl.config.MaxCommentItems {
+-		logrus.Infof("✓ 已达到目标评论数: %d/%d, 停止加载",
+-			currentCount, cl.config.MaxCommentItems)
+-		return true
+-	}
+-
+-	return false
++	return b
+ }
+ 
+-func (cl *commentLoader) performScroll(ctx context.Context) {
+-	currentCount := getCommentCount(cl.page)
+-	if currentCount > 0 {
+-		scrollToLastComment(cl.page)
+-		time.Sleep(400 * time.Millisecond) // 技术 settle：等 scrollIntoView 动画落位
+-	}
 +// commentLoadBudget 滚评论区的时间上限（整页另有 10 分钟总上限）。
 +const commentLoadBudget = 8 * time.Minute
-+
+ 
+-	largeMode := cl.state.stagnantChecks >= largeScrollTrigger
+-	pushCount := 1
+-	if largeMode {
+-		pushCount = 3 + rand.Intn(3)
+-	}
 +// extractReserve 滚评论之后给抽取（最多 2 分钟）和收尾留的时间。
 +const extractReserve = 150 * time.Second
  
--	return f.extractFeedDetail(page, feedID)
+-	_, scrollDelta, currentScrollTop := humanScroll(ctx, cl.page, cl.config.ScrollSpeed, largeMode, pushCount)
+-
+-	if scrollDelta < minScrollDelta || currentScrollTop == cl.state.lastScrollTop {
+-		cl.state.stagnantChecks++
+-		if cl.state.stagnantChecks%5 == 0 {
+-			logrus.Debugf("滚动停滞 %d 次", cl.state.stagnantChecks)
 +// commentBudget 滚评论能用多久：min(8 分钟, 离 ctx 截止还剩的时间 − 抽取预留)，不小于 0。
 +func commentBudget(ctx context.Context, now time.Time) time.Duration {
 +	b := commentLoadBudget
 +	if dl, ok := ctx.Deadline(); ok {
 +		if left := dl.Sub(now) - extractReserve; left < b {
 +			b = left
-+		}
-+	}
+ 		}
+-	} else {
+-		cl.state.stagnantChecks = 0
+-		cl.state.lastScrollTop = currentScrollTop
+ 	}
+-}
+-
+-func (cl *commentLoader) handleStagnation(ctx context.Context) {
+-	if cl.state.stagnantChecks >= stagnantLimit {
+-		logrus.Infof("停滞过多，尝试大冲刺...")
+-		humanScroll(ctx, cl.page, cl.config.ScrollSpeed, true, 10)
+-		cl.state.stagnantChecks = 0
+-
+-		if checkEndContainer(cl.page) {
+-			currentCount := getCommentCount(cl.page)
+-			logrus.Infof("✓ 到达底部，评论数: %d", currentCount)
+-		}
 +	if b < 0 {
 +		b = 0
-+	}
+ 	}
+-}
+-
+-func (cl *commentLoader) performFinalSprint(ctx context.Context) {
+-	logrus.Infof("达到最大尝试次数，最后冲刺...")
+-	humanScroll(ctx, cl.page, cl.config.ScrollSpeed, true, finalSprintPushCount)
+-
+-	currentCount := getCommentCount(cl.page)
+-	hasEnd := checkEndContainer(cl.page)
+-	logrus.Infof("✓ 加载结束: %d 条评论, 点击: %d, 跳过: %d, 到达底部: %v",
+-		currentCount, cl.stats.totalClicked, cl.stats.totalSkipped, hasEnd)
 +	return b
  }
  
-+// riskCheckEvery 滚评论时每隔几轮查一次风控（每轮之间还有拟人停顿，约几秒一次）。
-+const riskCheckEvery = 3
-+
- // ========== 评论加载器 ==========
+ // ========== 按钮点击 ==========
  
- type commentLoader struct {
-@@ -150,6 +206,32 @@ type commentLoader struct {
- 	config CommentLoadConfig
- 	stats  *loadStats
- 	state  *loadState
-+	risk   func() *RiskError // 1001：滚动 / 点「展开回复」之前查风控；nil 表示不查
-+	hit    *RiskError
-+}
-+
-+// riskHit 查一次风控；命中就记下并返回 true（之后别再滚、别再点）。
-+func (cl *commentLoader) riskHit() bool {
-+	if cl.hit != nil {
-+		return true
-+	}
-+	if cl.risk == nil {
-+		return false
-+	}
-+	if r := cl.risk(); r != nil {
-+		logrus.Warnf("滚评论途中撞到风控，停止加载: %s", r.Error())
-+		cl.hit = r
-+		return true
-+	}
-+	return false
-+}
-+
-+// hitErr 命中过风控就返回它（作为 error），否则 nil（避免 typed nil）。
-+func (cl *commentLoader) hitErr() error {
-+	if cl.hit != nil {
-+		return cl.hit
-+	}
-+	return nil
+-func clickShowMoreButtonsSmart(ctx context.Context, page *rod.Page, maxRepliesThreshold int) (clicked, skipped int) {
+-	elements, err := page.Elements(".show-more")
+-	if err != nil {
+-		return 0, 0
+-	}
+-
+-	replyCountRegex := regexp.MustCompile(`展开\s*(\d+)\s*条回复`)
+-	maxClick := maxClickPerRound + rand.Intn(maxClickPerRound)
+-	clickedInRound := 0
+-
+-	for _, el := range elements {
+-		if clickedInRound >= maxClick {
+-			break
+-		}
+-
+-		if !isElementClickable(el) {
+-			continue
+-		}
+-
+-		text, err := el.Text()
+-		if err != nil {
+-			continue
+-		}
+-
+-		if !isSafeExpandButton(el, text) {
+-			continue
+-		}
+-
+-		if shouldSkipButton(text, maxRepliesThreshold, replyCountRegex) {
+-			skipped++
+-			continue
+-		}
+-
+-		if clickElementWithHumanBehavior(ctx, page, el, text) {
+-			clicked++
+-			clickedInRound++
+-		}
+-	}
+-
+-	return clicked, skipped
+-}
+-
+ // expandNearbyReplies 展开视口附近的「展开 N 条回复」，返回本轮点开的个数。
+ // 限定在视口附近，避免 ScrollIntoView 把页面拽回顶部、与向下滚动互相抵消。
+ func expandNearbyReplies(ctx context.Context, page *rod.Page) int {
+@@ -464,8 +293,11 @@ func isSafeExpandButton(el *rod.Element, text string) bool {
+ 	return true
  }
  
- type loadStats struct {
-@@ -170,6 +252,8 @@ func (f *FeedDetailAction) loadAllCommentsWithConfig(ctx context.Context, page *
- 		config: config,
- 		stats:  &loadStats{},
- 		state:  &loadState{},
-+		// 用不带 loadCtx 的原页面查：滚评论的预算用完时照样查得了
-+		risk: func() *RiskError { return RiskPage(f.page) },
- 	}
- 
- 	return loader.load(ctx)
-@@ -179,6 +263,9 @@ func (cl *commentLoader) load(ctx context.Context) error {
- 	maxAttempts := cl.calculateMaxAttempts()
- 
- 	logrus.Info("开始加载评论...")
-+	if cl.riskHit() {
-+		return cl.hit
-+	}
- 	scrollToCommentsArea(cl.page)
- 	humanize.Delay(ctx, humanize.BetweenScroll)
- 
-@@ -196,11 +283,18 @@ func (cl *commentLoader) load(ctx context.Context) error {
- 
- 		logrus.Debugf("=== 尝试 %d/%d ===", cl.stats.attempts+1, maxAttempts)
- 
-+		if cl.stats.attempts%riskCheckEvery == 0 && cl.riskHit() {
-+			return cl.hit
-+		}
+-// 两种文案：「展开 N 条回复」，以及点开一次后不带数字的「展开更多回复」。
+-var expandRepliesTextRegex = regexp.MustCompile(`^展开\s*(\d+\s*条|更多)回复$`)
++// 文案：「展开 N 条回复」、点开一次后不带数字的「展开更多回复」；1004d 防改版多认「查看更多回复」「查看全部 N 条回复」。
++// 楼层探针 JS（floorProbeJS）里有同一条正则，改这里要一起改。
++const expandRepliesPattern = `^(展开|查看)\s*(\d+\s*条|更多|全部\s*(\d+\s*条)?)\s*回复$`
 +
- 		if cl.checkComplete(ctx) {
--			return nil
-+			return cl.hitErr()
- 		}
++var expandRepliesTextRegex = regexp.MustCompile(expandRepliesPattern)
  
- 		if cl.shouldClickButtons() {
-+			if cl.riskHit() { // 点「展开回复」之前
-+				return cl.hit
-+			}
- 			cl.clickButtonsWithRetry(ctx)
- 		}
- 
-@@ -217,6 +311,9 @@ func (cl *commentLoader) load(ctx context.Context) error {
- 		humanize.Delay(ctx, humanize.BetweenScroll)
- 	}
- 
-+	if cl.riskHit() {
-+		return cl.hit
-+	}
- 	cl.performFinalSprint(ctx)
- 	return nil
+ func isExpandRepliesButton(text string) bool {
+ 	return expandRepliesTextRegex.MatchString(strings.TrimSpace(text))
+@@ -509,21 +341,6 @@ func isElementClickable(el *rod.Element) bool {
+ 	return err == nil && len(box.Quads) > 0
  }
-@@ -244,7 +341,7 @@ func (cl *commentLoader) checkComplete(ctx context.Context) bool {
- 	// 到底之后再展开一轮：评论区不用怎么滚就能到底时，循环第一轮就走到这里，
- 	// 主流程里的展开步骤根本没机会执行。点开了就先不算加载完，让下一轮重新判断
- 	// （展开会露出新的按钮）；一个都没点开就收工，避免被阈值跳过的按钮卡住。
--	if cl.config.ClickMoreReplies && cl.clickButtonsWithRetry(ctx) > 0 {
-+	if cl.config.ClickMoreReplies && !cl.riskHit() && cl.clickButtonsWithRetry(ctx) > 0 {
- 		return false
- 	}
  
-@@ -922,6 +1019,10 @@ func checkPageAccessible(page *rod.Page) error {
+-func shouldSkipButton(text string, threshold int, regex *regexp.Regexp) bool {
+-	if threshold <= 0 {
+-		return false
+-	}
+-
+-	matches := regex.FindStringSubmatch(text)
+-	if len(matches) > 1 {
+-		if replyCount, err := strconv.Atoi(matches[1]); err == nil && replyCount > threshold {
+-			logrus.Debugf("跳过'%s'（回复数 %d > 阈值 %d）", text, replyCount, threshold)
+-			return true
+-		}
+-	}
+-	return false
+-}
+-
+ func clickElementWithHumanBehavior(ctx context.Context, page *rod.Page, el *rod.Element, text string) bool {
+ 	var clickSuccess bool
+ 
+@@ -803,49 +620,6 @@ func getCommentCount(page *rod.Page) int {
+ 	return result
+ }
+ 
+-// getTotalCommentCount 取笔记的评论总数，读 __INITIAL_STATE__ 里的
+-// interactInfo.commentCount，不依赖评论区文案。取不到返回 0。
+-func getTotalCommentCount(page *rod.Page) int {
+-	res, err := page.Eval(`() => {
+-		const m = window.__INITIAL_STATE__?.note?.noteDetailMap;
+-		if (!m) return "";
+-		for (const v of Object.values(m)) {
+-			const c = v?.note?.interactInfo?.commentCount;
+-			if (c !== undefined && c !== null) return String(c);
+-		}
+-		return "";
+-	}`)
+-	if err != nil {
+-		logrus.Debugf("获取总评论计数失败: %v", err)
+-		return 0
+-	}
+-
+-	count, err := strconv.Atoi(strings.TrimSpace(res.Value.Str()))
+-	if err != nil {
+-		return 0
+-	}
+-	return count
+-}
+-
+-func checkNoCommentsArea(page *rod.Page) bool {
+-	// 查找无评论区域
+-	noCommentsEl, err := page.Timeout(2 * time.Second).Element(".no-comments-text")
+-	if err != nil {
+-		// 未找到无评论元素，说明有评论或评论区正常
+-		return false
+-	}
+-
+-	// 获取文本内容
+-	text, err := noCommentsEl.Text()
+-	if err != nil {
+-		return false
+-	}
+-
+-	// 检查是否包含"这是一片荒地"等关键词
+-	text = strings.TrimSpace(text)
+-	return strings.Contains(text, "这是一片荒地")
+-}
+-
+ func checkEndContainer(page *rod.Page) bool {
+ 	var result bool
+ 
+@@ -922,6 +696,10 @@ func checkPageAccessible(page *rod.Page) error {
  		"因违规无法查看",
  	}
  
@@ -4359,7 +6523,7 @@ index 2cfde9f..900aa2b 100644
  	for _, kw := range keywords {
  		if strings.Contains(text, kw) {
  			logrus.Warnf("笔记不可访问: %s", kw)
-@@ -1001,5 +1102,29 @@ func (f *FeedDetailAction) extractFeedDetail(page *rod.Page, feedID string) (*Fe
+@@ -1001,5 +779,29 @@ func (f *FeedDetailAction) extractFeedDetail(page *rod.Page, feedID string) (*Fe
  }
  
  func makeFeedDetailURL(feedID, xsecToken string) string {
@@ -4390,6 +6554,41 @@ index 2cfde9f..900aa2b 100644
 +	logrus.Warn("首屏评论 10s 内没有加载出来")
 +	return false
  }
+diff --git a/xiaohongshu/feed_detail_test.go b/xiaohongshu/feed_detail_test.go
+index e9c9881..60b99c7 100644
+--- a/xiaohongshu/feed_detail_test.go
++++ b/xiaohongshu/feed_detail_test.go
+@@ -13,6 +13,9 @@ func TestIsExpandRepliesButton(t *testing.T) {
+ 		"展开1条回复",
+ 		" 展开 2 条回复 ",
+ 		"展开更多回复",
++		"查看更多回复",
++		"查看全部 12 条回复",
++		"查看全部回复",
+ 	}
+ 	for _, text := range accepted {
+ 		assert.True(t, isExpandRepliesButton(text), "应匹配: %q", text)
+@@ -26,6 +29,8 @@ func TestIsExpandRepliesButton(t *testing.T) {
+ 		"展开 2 条回复并关注",
+ 		"点击领取优惠券",
+ 		"展开 abc 条回复",
++		"展开更多",
++		"回复",
+ 	}
+ 	for _, text := range rejected {
+ 		assert.False(t, isExpandRepliesButton(text), "不应匹配: %q", text)
+@@ -70,11 +75,3 @@ func TestCommentLoadConfig_normalize(t *testing.T) {
+ 		assert.Greater(t, d.MaxCommentItems, 0, "默认配置不能是无上限")
+ 	})
+ }
+-
+-// TestCalculateMaxAttempts 规范化之后不该再落到 500 轮那条兜底上。
+-func TestCalculateMaxAttempts(t *testing.T) {
+-	cl := &commentLoader{config: CommentLoadConfig{}.normalize()}
+-	assert.Equal(t, defaultMaxCommentItems*3, cl.calculateMaxAttempts())
+-	assert.Less(t, cl.calculateMaxAttempts(), defaultMaxAttempts,
+-		"默认配置的滚动轮数应远小于无上限时的 %d", defaultMaxAttempts)
+-}
 diff --git a/xiaohongshu/feeds.go b/xiaohongshu/feeds.go
 index ce158e3..af09658 100644
 --- a/xiaohongshu/feeds.go
@@ -5428,10 +7627,10 @@ index 0000000..6c3ddcc
 +}
 diff --git a/xiaohongshu/risk_test.go b/xiaohongshu/risk_test.go
 new file mode 100644
-index 0000000..45e3bbe
+index 0000000..69a6992
 --- /dev/null
 +++ b/xiaohongshu/risk_test.go
-@@ -0,0 +1,344 @@
+@@ -0,0 +1,323 @@
 +package xiaohongshu
 +
 +import (
@@ -5731,27 +7930,6 @@ index 0000000..45e3bbe
 +	assert.Greater(t, len(seen), 10)
 +}
 +
-+// TestCommentLoaderRiskLatch 滚评论：命中一次风控就锁存，之后不再调用探针，hitErr 带出码。
-+func TestCommentLoaderRiskLatch(t *testing.T) {
-+	calls := 0
-+	cl := &commentLoader{risk: func() *RiskError {
-+		calls++
-+		if calls == 2 {
-+			return &RiskError{Code: RiskCaptcha, Detail: "overlay"}
-+		}
-+		return nil
-+	}}
-+	assert.False(t, cl.riskHit())
-+	assert.Nil(t, cl.hitErr(), "没命中时必须是真正的 nil error")
-+	assert.True(t, cl.riskHit())
-+	assert.True(t, cl.riskHit())
-+	assert.Equal(t, 2, calls)
-+	got := AsRisk(cl.hitErr())
-+	require.NotNil(t, got)
-+	assert.Equal(t, RiskCaptcha, got.Code)
-+	assert.False(t, (&commentLoader{}).riskHit(), "没配探针时不拦")
-+}
-+
 +// TestCommentBudgetLeavesRoomForExtraction 滚评论预算 = min(8 分钟, 离总时限剩余 − 抽取预留)。
 +func TestCommentBudgetLeavesRoomForExtraction(t *testing.T) {
 +	now := time.Now()
@@ -5831,10 +8009,19 @@ index 7c22952..1fe60ee 100644
 +	return fmt.Sprintf("%s/search_result?%s", SiteHost(), values.Encode())
  }
 diff --git a/xiaohongshu/types.go b/xiaohongshu/types.go
-index 17c82ee..46cfdfe 100644
+index 17c82ee..9385cfa 100644
 --- a/xiaohongshu/types.go
 +++ b/xiaohongshu/types.go
-@@ -266,6 +266,11 @@ type Comment struct {
+@@ -111,6 +111,8 @@ type VideoCapability struct {
+ type FeedDetailResponse struct {
+ 	Note     FeedDetail  `json:"note"`
+ 	Comments CommentList `json:"comments"`
++	// CommentLoad 1004d：这次加载评论的结论（读到几楼、每楼回复展开完没有、判停原因、用时）；没加载评论时省略。
++	CommentLoad *CommentLoadResult `json:"comment_load,omitempty"`
+ }
+ 
+ // FeedDetail 表示详情页的笔记内容
+@@ -266,6 +268,11 @@ type Comment struct {
  	SubCommentCount string    `json:"subCommentCount"`
  	SubComments     []Comment `json:"subComments"`
  	ShowTags        []string  `json:"showTags"`
@@ -5847,7 +8034,7 @@ index 17c82ee..46cfdfe 100644
  
  // UserProfileResponse 用户详情页完整响应
 diff --git a/xiaohongshu/user_profile.go b/xiaohongshu/user_profile.go
-index 61216c7..df8cf76 100644
+index 61216c7..74184ca 100644
 --- a/xiaohongshu/user_profile.go
 +++ b/xiaohongshu/user_profile.go
 @@ -3,11 +3,15 @@ package xiaohongshu
@@ -6143,9 +8330,9 @@ index 61216c7..df8cf76 100644
 +	// favScrollRiskEvery 滚收藏时每隔几轮查一次风控（每次滚动都会触发一次收藏接口）。
 +	favScrollRiskEvery = 4
 +	// favScrollBudget 一次全量滚动最多这么久。10-02 读满 1159 条约 3 分钟（1.3 秒一滚）；放慢到平均 ~2.5 秒一滚后
-+	// 估计 3–4 分钟，再加几级换滚法的等待。上层：linkbrain_api.go 读收藏 ctx = favRequestTimeout（8 分钟），
-+	// Python 客户端超时 660 秒（启动 ≤90 + 8 分钟 + 关浏览器 ≤30），都比它长。
-+	favScrollBudget = 300 * time.Second
++	// 10-04 真号实测 1120 条用满 300 秒（每滚约 10 条、平均 2.7 秒一滚）还差 40 条，所以放到 420 秒；估计 5–6 分钟，再加几级换滚法的等待。上层：linkbrain_api.go 读收藏 ctx = favRequestTimeout（10 分钟），
++	// Python 客户端超时 780 秒（启动 ≤90 + 10 分钟 + 关浏览器 ≤30），都比它长。
++	favScrollBudget = 420 * time.Second
 +	// favExtractReserve 滚动必须在 ctx 截止前这么久收手，给提取 + 风控复查 + 关页留时间。
 +	favExtractReserve = 45 * time.Second
 +	favExpectRatio    = 0.95
