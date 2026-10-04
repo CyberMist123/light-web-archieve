@@ -15,7 +15,7 @@ module.exports = function (obsidian, plugin) {
   const n = v => Number(v) || 0;
   const KIND_ORDER = ['note', 'attachment', 'video', 'vision', 'summary'];
   const KIND_CN = { note: '正文', attachment: '附件', video: '视频', vision: '识图', summary: '概要' };
-  const TRIGGER_CN = { manual: '手动', nightly: '夜跑', schedule: '定时', cli: '命令行', retry: '重试' };
+  const TRIGGER_CN = { manual: '手动', nightly: '夜跑', schedule: '定时', cli: '命令行', retry: '重试', import: '手动导入', repair: '自愈' };
   const LOG = '_archive/sync-log.jsonl';
   const pad = x => String(x).padStart(2, '0');
 

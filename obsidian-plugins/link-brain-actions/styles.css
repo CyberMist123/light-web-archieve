@@ -259,12 +259,3 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-synclog-top { display: flex; gap: 8px; margin: 0 0 10px; }
 .lb-menu-sub { font-size: 11px; color: var(--text-faint); line-height: 1.3; }
 .lb-cols-pick { display: flex; flex-wrap: wrap; gap: 8px; }
-
-/* 10-04 ⑩ 笔记正文「← 目录」：作者行最左边，浅色小字，不抢眼（media-nav.js 补进去） */
-.lb-note .lb-author-row > button.lb-back-catalog {
-  flex: none; align-self: center; height: auto; margin: 0 4px 0 0; padding: 2px 8px 2px 0;
-  border: 0; border-right: 1px solid var(--background-modifier-border); border-radius: 0;
-  background: transparent; box-shadow: none; color: var(--text-faint); font-size: 12px; line-height: 1.4; cursor: pointer;
-}
-.lb-note .lb-author-row > button.lb-back-catalog:hover { color: var(--text-normal); background: transparent; }
-.lb-note .lb-author-row > button.lb-back-catalog:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; }

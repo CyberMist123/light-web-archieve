@@ -26,10 +26,10 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
     async answerArchive(req) { asks.push(req); return reply(req); },
   };
   const app = { vault: V.vault, workspace: makeWorkspace(), plugins: { plugins: { 'link-brain-actions': plugin }, enablePlugin: async () => {}, disablePlugin: async () => {} }, metadataCache: { getCache: () => null } };
-  let A;
+  let A, DOM;
   const open = async () => {
     delete globalThis.__lbState; delete globalThis.__lbListeners;
-    A = dataviewBlock({ dom: makeDom(), app, code: CODE });
+    DOM = makeDom(); A = dataviewBlock({ dom: DOM, app, code: CODE });
     A.window.confirm = () => true;
     await A.run();
   };
@@ -47,7 +47,7 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   one('.lbchat-cplus').onclick({});
   assert.deepEqual(menus, ['plus']);
   // ④ ③ 样式：dataviewjs 外框隐形（阅读 + 实时预览、悬停编辑按钮），对话区不画滚动条
-  const css = one('style').textContent;
+  const css = (DOM.document.getElementById('lbchat-style') || one('style')).textContent;   // 10-04 晚：样式挪进 document.head
   assert.ok(css.includes('.lb-chatpage,.lb-catalog,.lb-trashpage') && css.includes('.cm-embed-block:has(.block-language-dataviewjs)') && css.includes('.edit-block-button{display:none!important;}'));
   assert.ok(/\.lbchat \.lbchat-body,[^{]*\{scrollbar-width:none;\}/.test(css) && css.includes('.lbchat .lbchat-body::-webkit-scrollbar'));
 

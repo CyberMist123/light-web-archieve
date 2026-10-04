@@ -239,6 +239,27 @@ def catch_message(
     return {"found": len(items), "items": items}
 
 
+def _log_import(payload: dict[str, Any]) -> None:
+    """10-04：手动导入（插件「导入网址」/ 命令行 catch）也进同步记录，一次导入一行，来源标「手动导入」。
+    夜跑 / 别的同步带着编号调进来的并进那一行。记不上不挡导入。"""
+    try:
+        import os
+
+        from . import synclog
+        if not os.environ.get(synclog.ENV_RUN):
+            env = (os.environ.get(synclog.ENV_TRIGGER) or "").strip()
+            synclog.begin(env if env in synclog.TRIGGER_CN else "import", own=True)
+        for item in payload.get("items") or []:
+            status = item.get("status")
+            ok = status not in ("error", "blocked", "busy")
+            if status == "new":
+                synclog.count_new(1)
+            synclog.note("note", item.get("item_id"), ok, title=item.get("title"), note_path=item.get("visible_note"),
+                         reason=item.get("error") or "", code=item.get("code") or "", url=item.get("url"))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[synclog] {type(exc).__name__}: {exc}", file=sys.stderr)
+
+
 def run(args) -> int:
     with contextlib.redirect_stdout(sys.stderr):  # stdout 只留最后那一个 JSON（lwa 依赖）
         payload = catch_message(
@@ -250,6 +271,7 @@ def run(args) -> int:
             refresh=getattr(args, "refresh", False),
             wait_lock_s=float(getattr(args, "wait_lock_min", 2) or 0) * 60,
         )
+        _log_import(payload)
         statuses = {item.get("status") for item in payload["items"]}
         if "blocked" in statuses:
             print("catch: 要人处理（登录态/风控/服务挂了），已停车并报警", file=sys.stderr)

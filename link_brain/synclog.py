@@ -40,7 +40,9 @@ ENV_RUN = "LINK_BRAIN_SYNC_RUN"
 ENV_TRIGGER = "LINK_BRAIN_SYNC_TRIGGER"
 KINDS = ("note", "attachment", "video", "vision", "summary")
 KIND_CN = {"note": "正文", "attachment": "附件", "video": "视频", "vision": "识图", "summary": "概要"}
-TRIGGER_CN = {"manual": "手动", "nightly": "夜跑", "schedule": "定时", "cli": "命令行", "retry": "重试"}
+TRIGGER_CN = {"manual": "手动", "nightly": "夜跑", "schedule": "定时", "cli": "命令行", "retry": "重试",
+              # 10-04：「导入网址」和问题面板 / 夜跑收尾的自愈轮以前不进同步记录
+              "import": "手动导入", "repair": "自愈"}
 
 # 这一进程攒着的（命令结束时 flush）
 _pending: list[dict[str, Any]] = []

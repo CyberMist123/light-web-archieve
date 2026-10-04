@@ -236,7 +236,8 @@ function tagsOf(it){
   if(page&&page.tags!==undefined)return typeof page.tags==='string'?[page.tags]:Array.from(page.tags||[]);
   return null;
 }
-function refreshTags(){let changed=0;for(const it of items){const tags=tagsOf(it);if(tags&&JSON.stringify(tags)!==JSON.stringify(it.tags||[])){it.tags=tags;changed++;}}return changed;}
+// 10-04：刚在卡片上改过标签的那篇，Obsidian 的元数据缓存要过一会儿才跟上——缓存还是旧的时候别把刚存的标签读回去（看起来像「保存不了」）
+function refreshTags(){let changed=0;for(const it of items){const tags=tagsOf(it);if(it._pendingTags){if(tags&&JSON.stringify(tags)===it._pendingTags)delete it._pendingTags;else continue;}if(tags&&JSON.stringify(tags)!==JSON.stringify(it.tags||[])){it.tags=tags;changed++;}}return changed;}
 refreshTags();
 const provider=LB.provider;
 let committed='',chatMode=false,messages=[],busy=false;
@@ -558,7 +559,7 @@ function openTagEditor(body,it){
   const cancel=form.createEl('button',{text:'取消'});cancel.type='button';cancel.onclick=()=>form.remove();
   form.onsubmit=async e=>{e.preventDefault();save.disabled=true;
     try{const file=app.vault.getAbstractFileByPath(lbPath(it.note));const tags=[...new Set(field.value.split(/[,，\n]/).map(t=>t.trim().replace(/^#/, '')).filter(Boolean))];
-      await app.fileManager.processFrontMatter(file,fm=>{fm.tags=tags;});it.tags=tags;searchCache.delete(it);render();
+      await app.fileManager.processFrontMatter(file,fm=>{fm.tags=tags;});it.tags=tags;it._pendingTags=JSON.stringify(tags);searchCache.delete(it);try{new Notice('标签已保存');}catch{}render();
     }catch{save.disabled=false;save.setText('保存失败，重试');}
   };field.focus();
 }

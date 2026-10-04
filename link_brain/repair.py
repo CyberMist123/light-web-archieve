@@ -362,6 +362,7 @@ def run(*, key: str | None = None, since: str | None = None, auto: bool = False,
             msg = "这条已经好了" if row is None else _not_runnable(row, plan(row, start))
             return {"ok": row is None, "ran": True, "fixed": 0, "left": 0 if row is None else 1, "message": msg,
                     "results": [] if row is None else [{"key": key, "status": "not_runnable", "message": msg}]}
+        log_id = _open_log() if picked else None
         groups: dict[tuple[str, str], list[tuple[dict[str, Any], dict[str, Any]]]] = {}
         for r, p in picked:
             groups.setdefault((p["action"], str(r.get("item_id") or "")), []).append((r, p))
@@ -414,6 +415,7 @@ def run(*, key: str | None = None, since: str | None = None, auto: bool = False,
                 problems.annotate(r, repair_state="failed", repair_at=_iso(now_fn()), repair_note=note)
                 results.append(_res(r, "unresolved", note))
     finally:
+        _close_log(locals().get("log_id"), results)
         lock.__exit__(None, None, None)
     fixed = sum(1 for x in results if x["status"] == "resolved")
     left = len(results) - fixed
@@ -422,6 +424,44 @@ def run(*, key: str | None = None, since: str | None = None, auto: bool = False,
     else:
         msg = f"自愈：修好 {fixed} 条" + (f"，还剩 {left} 条（每条都写了试过什么、为什么没好、下一步）" if left else "")
     return {"ok": left == 0, "ran": True, "fixed": fixed, "left": left, "message": msg, "results": results}
+
+
+def _open_log() -> str | None:
+    """10-04：自愈也进同步记录。面板点的 / 手动跑的这一轮自己开一行（来源「自愈」），修复子进程带着编号并进来；
+    夜跑里的自愈轮已经有编号（包内夜跑）或有没收尾的夜跑行（仓外脚本）时并进那一行，不另开。记不上不挡修复。"""
+    try:
+        import os
+
+        from . import synclog
+        if os.environ.get(synclog.ENV_RUN):
+            return None
+        rows = synclog.load(limit=5)
+        if any(not r.get("finished_at") for r in rows):
+            return None  # 有一次同步还没收尾（夜跑正在跑这一轮）：不另开一行
+        rid = synclog.begin("repair", own=True)
+        if rid:
+            os.environ[synclog.ENV_RUN] = rid
+        return rid
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _close_log(rid: str | None, results: list[dict[str, Any]]) -> None:
+    try:
+        import os
+
+        from . import synclog
+        for x in results:
+            if x.get("status") == "unresolved":
+                synclog.error("repair." + str(x.get("step") or ""), x.get("message") or "", "")
+        if rid:
+            os.environ.pop(synclog.ENV_RUN, None)
+            synclog.flush()
+            synclog.end(rid, exit_code=0)
+        elif results:
+            synclog.flush()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _iso(dt: datetime) -> str:

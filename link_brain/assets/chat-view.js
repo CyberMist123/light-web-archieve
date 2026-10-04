@@ -100,7 +100,10 @@ const openNote = (source,compare=false,context="") => {
   if(src?.note)return Promise.resolve(provider().openArchiveSource(src.note,root,compare,chunks)).then(()=>{paintSourceBar();settle();}).catch(e=>window.alert(e.message));
 };
 
-const style = root.createEl('style');
+// 10-04：样式放进 document.head（全页共用一份，按 id 复用）。原来挂在 dv.container 上——Dataview 重跑会清空容器、
+// reuseDom 只把 wrap 挂回来，样式就丢了：整页变成没样式的裸按钮、笔记属性也露出来（她两次截图「渲染乱了」，时好时坏）。
+const hasDoc = typeof document !== 'undefined' && !!document.head;   // 单测的假 DOM 里没有 document
+const style = (hasDoc && document.getElementById('lbchat-style')) || (hasDoc ? document.head : root).createEl('style', { attr: { id: 'lbchat-style' } });
 style.textContent = `
 .markdown-preview-view.lb-chatpage,.markdown-source-view.lb-chatpage{--file-line-width:100%;}
 .lb-chatpage .markdown-preview-sizer,.lb-chatpage .markdown-preview-section,.lb-chatpage .cm-sizer,.lb-chatpage .cm-contentContainer,.lb-chatpage .cm-content,.lb-chatpage .block-language-dataviewjs{width:100%!important;max-width:none!important;}
