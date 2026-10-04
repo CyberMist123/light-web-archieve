@@ -197,7 +197,7 @@ async function modalTests() {
   const rows = c.querySelectorAll('.lb-problem');
   const text = r => r.querySelector('.lb-problem-line').textContent;
   assert.match(text(rows[0]), /^10-02 \d\d:\d\dlogin需要登录等你处理$/, '没有标题时用 step：' + text(rows[0]));
-  assert.ok(text(rows[2]).includes('悉尼咖啡地图') && text(rows[2]).includes('网络不通') && /下晚再试（10-0[23] \d\d:\d\d）/.test(text(rows[2])) && text(rows[2]).includes('3 次'), text(rows[2]));
+  assert.ok(text(rows[2]).includes('悉尼咖啡地图') && text(rows[2]).includes('网络不通') && /待修复（10-0[23] \d\d:\d\d）/.test(text(rows[2])) && !text(rows[2]).includes('下晚再试') && text(rows[2]).includes('3 次'), text(rows[2]));
   assert.ok(text(rows[3]).includes('全文没转出来') && text(rows[3]).includes('放弃'), text(rows[3]));
   assert.ok(text(rows[4]).includes('未开启') && text(rows[4]).includes('4 次'));
   assert.equal(rows[2].querySelector('.lb-problem-why').textContent, 'OCR 服务连不上（10-03 04:00 再试）', '原因一句话来自 Python hover');
@@ -305,8 +305,72 @@ async function pluginTests() {
   console.log('PASS plugin: sync status from problems-summary (no pid check), registry lookup for labels, fixFromCatalog(kind), openProblems loads problems-ui.js');
 }
 
+// ── 10-04 当场自愈：「现在修」/「全部修一遍」/ Python 填好的状态一句话 ──
+async function repairTests() {
+  const dom = makeDom(), notices = [];
+  const obsidian = fakeObsidian(dom, notices);
+  const factory = require(path.join(ROOT, PLUGIN_DIR, 'problems-ui.js'));
+  const rows = [
+    { ts: '2026-10-04T04:01:00+10:00', key: 'login||CAPTCHA_REQUIRED', step: 'login', code: 'NEEDS_HUMAN.CAPTCHA_REQUIRED', action: 'needs_human', count: 1, resolved_at: null, label: '需要验证', hover: '要安全验证', group: 'needs_you', repairable: false, repair_kind: 'human', status_text: '' },
+    { ts: '2026-10-04T04:02:00+10:00', key: 'enrich.summary||STUCK', step: 'enrich.summary', code: 'NEEDS_HUMAN.STUCK', action: 'needs_human', count: 1, resolved_at: null, label: '连续几天没修好', hover: '连续 3 天', group: 'needs_you', repairable: true, repair_minutes: 10, status_text: '待修复：点「现在修」当场修（约 10 分钟）' },
+    { ts: '2026-10-04T04:03:00+10:00', key: 'embed||NETWORK', step: 'embed', step_label: '语义索引', code: 'TRANSIENT.NETWORK', action: 'retry_later', count: 1, resolved_at: null, label: '网络不通', hover: '连不上', group: 'auto', repairable: true, repair_minutes: 4, status_text: '当场修过没好（10-04 04:30）：可以再点「现在修」', repair_state: 'failed', repair_note: '已试：重建语义索引（04:30）；没好：连不上；下一步：到设置里确认 key' },
+    { ts: '2026-10-04T04:04:00+10:00', key: 'sync.favorites||FAVORITES_SUSPICIOUS', step: 'sync.favorites', step_label: '收藏同步', code: 'TRANSIENT.FAVORITES_SUSPICIOUS', action: 'retry_later', count: 1, resolved_at: null, label: '收藏只读到一截', hover: '收藏只读到一截：读回 540 条', group: 'auto', repairable: false, repair_kind: 'wait', status_text: '等到 10-05 04:00：今晚已经读到一截收藏列表，同一晚再读容易撞安全验证' },
+    { ts: '2026-10-04T04:05:00+10:00', key: 'vision.refine|xhs-a|MODEL_OUTPUT_INVALID', step: 'vision.refine', item_id: 'a', title: '悉尼咖啡地图', code: 'PERMANENT.MODEL_OUTPUT_INVALID', action: 'gave_up', count: 1, resolved_at: null, label: 'AI 结果不可用', hover: '复读', group: 'gave_up', repairable: true, repair_minutes: 4, repairing: true, status_text: '正在修 / 预计 4 分钟' },
+  ];
+  let release;
+  const gate = new Promise(r => { release = r; });
+  const replies = {
+    list: { ok: true, problems: rows },
+    repair: async (args) => { await gate; return { code: 0, json: { ok: args.includes('--key'), message: args.includes('--key') ? '自愈：修好 1 条' : '自愈：修好 2 条，还剩 1 条（每条都写了试过什么、为什么没好、下一步）', results: [{ key: 'x', status: 'resolved' }] }, out: '', err: '', timedOut: false }; },
+  };
+  const { plugin, calls } = makeProblemsPlugin(dom, replies);
+  const runs = [];
+  const orig = plugin.runPy;
+  plugin.runPy = (args, opts) => { runs.push(opts); return orig.call(plugin, args, opts); };
+  const ui = factory(obsidian, plugin);
+  const m = ui.open(); await m.opened;
+  const c = m.contentEl;
+  const all = c.querySelector('.lb-problems-repair-all');
+  assert.ok(all && all.textContent === '全部修一遍', '顶部有「全部修一遍」');
+  const list = c.querySelectorAll('.lb-problem');
+  const btnTexts = r => r.querySelectorAll('button').map(b => b.textContent);
+  assert.deepEqual(btnTexts(list[0]), ['打开验证'], '风控 / 验证类：只有人工按钮，没有「现在修」');
+  assert.deepEqual(btnTexts(list[1]), ['现在修'], '「连续几天没修好」不是风控：给「现在修」');
+  assert.deepEqual(btnTexts(list[2]), ['现在修']);
+  assert.deepEqual(btnTexts(list[3]), [], '必须等的（今晚已读到一截）：不给「现在修」');
+  const line = r => r.querySelector('.lb-problem-line').textContent;
+  assert.ok(line(list[3]).includes('等到 10-05 04:00'), '要等的写清等到几点：' + line(list[3]));
+  assert.ok(!c.textContent.includes('下晚再试'), '面板上不再出现「下晚再试」');
+  assert.equal(list[2].querySelector('.lb-problem-repair-note').textContent, rows[2].repair_note, '修不好：试过什么、为什么没好、下一步');
+  const busy = list[4].querySelector('.lb-problem-repair');
+  assert.ok(busy.disabled && busy.textContent === '正在修 / 预计 4 分钟', '后台正在修的：按钮显示进行中');
+  // 点「现在修」：进行中显示「正在修 / 预计 N 分钟」，跑完提示结果、重读列表
+  const b = list[2].querySelector('.lb-problem-repair');
+  const pending = b.onclick();
+  assert.ok(b.disabled && b.textContent === '正在修 / 预计 4 分钟', b.textContent);
+  release();
+  await pending;
+  const repairCall = calls.find(a => a[1] === 'repair');
+  assert.deepEqual(repairCall, ['problems', 'repair', '--key', 'embed||NETWORK']);
+  assert.ok(runs.some(o => o && o.timeoutMs >= 20 * 60000), '单条修复的超时长于后端 20 分钟预算');
+  assert.ok(notices.some(n => String(n).startsWith('自愈：修好 1 条')), notices.join(' | '));
+  assert.deepEqual(calls.at(-1), ['problems', 'list'], '修完重读列表');
+  // 全部修一遍
+  const m2 = ui.open(); await m2.opened;
+  await m2.contentEl.querySelector('.lb-problems-repair-all').onclick();
+  assert.deepEqual(calls.filter(a => a[1] === 'repair').at(-1), ['problems', 'repair']);
+  assert.ok(notices.some(n => String(n).includes('还剩 1 条')));
+  // 后端报错：如实提示
+  const bad = makeProblemsPlugin(dom, { list: { ok: true, problems: rows }, repair: () => { throw new Error('找不到 Python。'); } });
+  const m3 = factory(obsidian, bad.plugin).open(); await m3.opened;
+  await m3.contentEl.querySelector('.lb-problems-repair-all').onclick();
+  assert.equal(notices.at(-1), '修复没跑完：找不到 Python。');
+  console.log('PASS problems repair: 现在修 per non-risk row (STUCK too, not captcha/login), waits show 等到几点, running shows 正在修 / 预计 N 分钟, repair_note shown, 全部修一遍, failures honest, no 下晚再试');
+}
+
 (async () => {
   await catalogEntryTests();
   await modalTests();
+  await repairTests();
   await pluginTests();
 })().catch(e => { console.error(e); process.exitCode = 1; });

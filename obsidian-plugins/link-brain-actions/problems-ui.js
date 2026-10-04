@@ -4,13 +4,19 @@
 //       python -m link_brain problems export --plugin-version X → {ok, text}（Python 已脱敏）
 // 文案：每条的标签 / 原因（label / hover）全由 Python 登记表填好（problems.STATE_REGISTRY）；这里只有分组名、按钮名、系统动作的中文。
 // 本模块不起进程：一律经 plugin.runPy（CONVENTIONS §1.4），失败如实提示。
+// 10-04 当场自愈：每条非风控问题一个「现在修」（problems repair --key K），顶部「全部修一遍」（problems repair）；
+//       状态一句话（status_text：正在修 / 预计 N 分钟、等到几点、要你看一眼…）和修不好的说明（repair_note）都由 Python 填好。
+//       风控 / 登录类（等你处理组）保持原来的人工按钮，绝不自动处理。
 'use strict';
 module.exports = function (obsidian, plugin) {
   const { Modal, Notice } = obsidian;
   const GROUPS = [['needs_you', '等你处理'], ['auto', '正在自动处理'], ['gave_up', '已放弃'], ['off', '未开启']];
   const GROUP_OF_CLASS = { NEEDS_HUMAN: 'needs_you', TRANSIENT: 'auto', PERMANENT: 'gave_up', SKIPPED: 'off' };
   // 系统已经做了什么（problems.ACTIONS 词表）
-  const ACTION_TEXT = { retrying: '正在修 / 预计 5 分钟', retry_later: '待修复', gave_up: '已尝试，仍未解决', needs_human: '等你处理', skipped: '未开启' };
+  // 10-04：不再说「下晚再试」——非风控的问题都能当场修；要等的（限频 / 网页那侧拦了）由 Python 的 status_text 写清等到几点
+  const ACTION_TEXT = { retrying: '正在修', retry_later: '待修复', gave_up: '已放弃', needs_human: '等你处理', skipped: '未开启' };
+  // 「现在修」/「全部修一遍」等多久（后端默认预算：单条 20 分钟、全部 15 分钟；这里多给 2 分钟收尾）
+  const REPAIR_ONE_MS = 22 * 60000, REPAIR_ALL_MS = 17 * 60000;
   // 要人处理的行带哪个按钮（按细分码，和 accounts.SOLUTIONS 的 action 对齐）
   const LOGIN = new Set(['NOT_LOGGED_IN', 'ACCOUNT_RISK', 'WRONG_ACCOUNT', 'RISK_HOLD']);
   const VERIFY = new Set(['CAPTCHA_REQUIRED', 'RISK_HOLD', 'ACCOUNT_RISK']);
@@ -26,6 +32,7 @@ module.exports = function (obsidian, plugin) {
     return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
   }
   function actionText(r) {
+    if (r.status_text) return r.status_text;
     const base = ACTION_TEXT[r.action] || '';
     const at = r.action === 'retry_later' || r.action === 'retrying' ? shortTime(r.next_at) : '';
     return at ? `${base}（${at}）` : base;
@@ -82,26 +89,37 @@ module.exports = function (obsidian, plugin) {
       head.createEl('h2', { text: '问题' });
       const copy = head.createEl('button', { cls: 'lb-problems-copy', text: '复制报错' });
       copy.onclick = async () => { copy.disabled = true; try { await copyReport(); } finally { copy.disabled = false; } };
-      const repair = head.createEl('button', { text: '全部修一遍' });
+      const repair = head.createEl('button', { cls: 'lb-problems-repair-all', text: '全部修一遍' });
       repair.onclick = () => this.repair(repair);
       this.body = c.createDiv({ cls: 'lb-problems-body' });
       return this.load();
     }
     onClose() { this.contentEl.empty(); }
-    async repair(button, key) {
-      if (this.repairing) return;
+    // 「现在修」（key = 那一条）/「全部修一遍」（不带 key）：进行中按钮显示「正在修 / 预计 N 分钟」，结束如实提示结果再重读列表
+    async repair(button, key, minutes) {
+      if (this.repairing) { say('上一轮修复还在跑，等它跑完'); return null; }
       this.repairing = true;
-      button.disabled = true;
       const label = button.textContent;
-      button.textContent = key ? '正在修 / 预计 5 分钟' : '正在修 / 最多 10 分钟';
+      button.disabled = true;
+      button.addClass?.('is-running');
+      button.textContent = key ? `正在修 / 预计 ${Math.max(1, Number(minutes) || 5)} 分钟` : '正在修 / 最多 15 分钟';
+      let j = null;
       try {
         const args = ['-m', 'link_brain', 'problems', 'repair'];
         if (key) args.push('--key', key);
-        const result = await plugin.runPy(args, { label: '当场修复', timeoutMs: 660000, exclusive: true });
-        say(result.json?.message || result.err || '修复没有返回结果', 10000);
-      } catch (error) { say('修复未完成：' + error.message, 10000); }
-      finally { this.repairing = false; button.disabled = false; button.textContent = label; }
+        const r = await plugin.runPy(args, { label: '当场修复', fallback: '修复没有返回结果', timeoutMs: key ? REPAIR_ONE_MS : REPAIR_ALL_MS });
+        j = r.json || null;
+        const left = j && Array.isArray(j.results) ? j.results.find(x => x && x.status !== 'resolved') : null;
+        say((j && j.message ? j.message : '修复没有返回结果') + (key && left && left.message ? '\n' + left.message : ''), 12000);
+      } catch (e) { say('修复没跑完：' + e.message, 12000); }
+      finally {
+        this.repairing = false;
+        button.disabled = false;
+        button.removeClass?.('is-running');
+        button.textContent = label;
+      }
       if (this.body && this.body.isConnected !== false) await this.load();
+      return j;
     }
     async load() {
       const body = this.body;
@@ -137,12 +155,16 @@ module.exports = function (obsidian, plugin) {
       if (Number(x.count) > 1) line.createSpan({ cls: 'lb-problem-count', text: `${x.count} 次` });
       const why = x.hover || x.reason;
       if (why) row.createDiv({ cls: 'lb-problem-why', text: why });
+      // 当场修过没好：试过什么、为什么没好、下一步（Python 写好的一句）
+      if (x.repair_note && x.repair_state === 'failed') row.createDiv({ cls: 'lb-problem-repair-note', text: x.repair_note });
       const btns = row.createDiv({ cls: 'lb-problem-btns' });
       let n = 0;
-      if (x.repairable && groupOf(x) !== 'needs_you') {
+      // 风控 / 登录 / key 这类（等你处理）保持人工按钮；「连续几天没修好」不是风控，也给「现在修」
+      if (x.repairable && (groupOf(x) !== 'needs_you' || subOf(x.code) === 'STUCK')) {
         n++;
         const repair = btns.createEl('button', { cls: 'lb-problem-repair', text: '现在修' });
-        repair.onclick = () => this.repair(repair, x.key);
+        if (x.repairing) { repair.disabled = true; repair.textContent = `正在修 / 预计 ${Math.max(1, Number(x.repair_minutes) || 5)} 分钟`; }
+        repair.onclick = () => this.repair(repair, x.key, x.repair_minutes);
       }
       if (x.item_id) {
         n++;
