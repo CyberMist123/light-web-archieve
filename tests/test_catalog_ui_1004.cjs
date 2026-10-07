@@ -59,7 +59,7 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
 
   // ⑬ 有选中时右键：右键的这张没选上就一起算进来；「导出」立即导出、默认带图，不弹二次选项
   card('d20').oncontextmenu(ev);
-  assert.deepEqual(menuItems().map(b => b.textContent), ['导出选中的 3 篇', '给 AI（存成选集）', '删除选中的 3 篇', '退出多选']);
+  assert.deepEqual(menuItems().map(b => b.textContent), ['导出选中的 3 篇', '给 AI（存成选集）', '收藏选中的 3 篇', '删除选中的 3 篇', '退出多选']);
   await pick('导出选中的 3 篇').onclick(ev); await tick(5);
   assert.equal(exports.length, 1);
   assert.deepEqual(exports[0].ids.sort(), ['d20', 'd3', 'old']);
@@ -79,7 +79,7 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
   $('.lbc-selbar input').checked = true; $('.lbc-selbar input').onchange();
   // 没选中时右键单张：导出这一篇（立即）、给 AI、多选、删除
   card('today').oncontextmenu(ev);
-  assert.deepEqual(menuItems().map(b => b.textContent), ['编辑标签', '导出', '给 AI（存成选集）', '多选', '删除收藏']);
+  assert.deepEqual(menuItems().map(b => b.textContent), ['收藏', '编辑标签', '导出', '给 AI（存成选集）', '多选', '删除收藏']);
   await pick('导出').onclick(ev); await tick(5);
   assert.deepEqual(exports[2].ids, ['today']); assert.equal(exports[2].images, true);
 

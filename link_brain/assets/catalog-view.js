@@ -42,7 +42,8 @@ style.textContent = `
 .lbc-card:hover .lbc-cover{filter:brightness(.95);}
 .lbc-card:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:5px;border-radius:16px;}
 .lbc-card.is-selected .lbc-cover,.lbc-card.is-selected .lbc-nocover{outline:3px solid var(--interactive-accent);outline-offset:2px;filter:brightness(.92);}
-.lbc-selbar{display:flex;gap:12px;align-items:center;margin:0 0 18px;padding:10px 14px;border-radius:12px;background:var(--background-secondary);}
+.lbc-selbar{display:flex;gap:12px;align-items:center;margin:0 0 18px;padding:10px 14px;border-radius:12px;background:var(--background-secondary);position:sticky;top:0;z-index:5;box-shadow:0 2px 8px #0002;}
+.lbc-selbar .lbc-selhint{margin-left:auto;font-size:12px;color:var(--text-muted);}
 .lbc-selbar[hidden]{display:none!important;}
 .lbc-selcount{font-size:13px;color:var(--text-muted);margin-right:auto;}
 .lbc-selbar button{border:0;border-radius:8px;padding:6px 14px;}
@@ -152,7 +153,7 @@ style.textContent = `
 @media(max-width:700px){.lbc-wrap{padding:12px 6px 0;}.lbc-head{gap:12px;}.lbc-title{font-size:28px;}.lbc-grid-inner{columns:145px;column-gap:14px;}.lbc-cats{gap:18px;}}
 
 .lb-visually-hidden{position:absolute!important;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;}
-.lbc-star{opacity:0;pointer-events:none;transition:opacity .15s;}.lbc-card:hover .lbc-star,.lbc-card:focus-within .lbc-star{opacity:1;pointer-events:auto;}
+.lbc-star{opacity:.55;transition:opacity .15s;}.lbc-card:hover .lbc-star,.lbc-card:focus-within .lbc-star,.lbc-star.is-on{opacity:1;}
 @media(hover:none){.lbc-star{opacity:1;pointer-events:auto;}}
 .lbc-badges{position:absolute;top:8px;left:8px;display:flex;gap:5px;align-items:center;}
 .lbc-badges .lbc-attach{position:static;display:inline-flex;align-items:center;line-height:16px;padding:3px 6px;gap:4px;height:22px;box-sizing:border-box;}
@@ -459,12 +460,15 @@ const selCount=selbar.createEl('span',{cls:'lbc-selcount'});
 const imageLabel=selbar.createEl('label',{text:'附带原图 '});const bundleImages=imageLabel.createEl('input');bundleImages.type='checkbox';bundleImages.checked=saved.exportImages!==false;
 bundleImages.onchange=()=>saveState();
 const aiBtn=selbar.createEl('button',{text:'给 AI（存成选集）'});aiBtn.onclick=()=>saveSelectionDialog(items.filter(x=>selected.has(x.id)));
+// 1008 她：目录页也要能收藏（★）——多选栏一键收藏 / 取消收藏选中的
+const starSel=selbar.createEl('button',{text:'收藏选中'});starSel.onclick=()=>starMany(items.filter(x=>selected.has(x.id)));
 const expBtn=selbar.createEl('button',{text:'导出资料包'});
-expBtn.onclick=async()=>{const sel=items.filter(x=>selected.has(x.id));if(!sel.length){window.alert('先选几篇');return;}expBtn.disabled=true;expBtn.setText('导出中…');try{const {path}=await provider().exportArchiveBundle(sel.map(x=>x.id),bundleImages.checked,'',{question:search.value||'选中收藏'});expBtn.setText('导出资料包');try{new Notice('已导出机读版 → '+path);}catch{}}catch(e){expBtn.setText('导出失败');window.alert('导出失败：'+e.message);}finally{setTimeout(()=>{expBtn.disabled=false;expBtn.setText('导出资料包');},1500);}};
+expBtn.onclick=async()=>{const sel=items.filter(x=>selected.has(x.id));if(!sel.length){window.alert('先选几篇');return;}expBtn.disabled=true;expBtn.setText('导出中…');try{const {path}=await provider().exportArchiveBundle(sel.map(x=>x.id),bundleImages.checked,'',{question:search.value||'选中收藏'});expBtn.setText('导出资料包');try{new Notice('已导出机读版 → '+path+'；按 Esc 退出多选');}catch{}}catch(e){expBtn.setText('导出失败');window.alert('导出失败：'+e.message);}finally{setTimeout(()=>{expBtn.disabled=false;expBtn.setText('导出资料包');},1500);}};
 const copyBundle=selbar.createEl('button',{text:'复制文件包'});copyBundle.onclick=async()=>{copyBundle.disabled=true;try{await provider().exportArchiveBundle(items.filter(x=>selected.has(x.id)).map(x=>x.id),bundleImages.checked,'',{question:search.value||'选中收藏',copy:true});}catch(e){window.alert(e.message);}finally{copyBundle.disabled=false;}};
 const delBtn=selbar.createEl('button',{text:'删除选中',cls:'mod-warning'});
 delBtn.onclick=()=>confirmDelete(items.filter(x=>selected.has(x.id)));
 const clrBtn=selbar.createEl('button',{text:'退出多选'});clrBtn.onclick=()=>{selectMode=false;selected.clear();render();};
+selbar.createEl('span',{cls:'lbc-selhint',text:'按 Esc 退出多选'});
 const ai=wrap.createEl('section',{cls:'lbc-ai'});ai.hidden=true;
 const grid=wrap.createEl('div',{cls:'lbc-grid'});
 // 10-03（她定）：Ctrl + 加号 / 减号、Ctrl + 鼠标滚轮调瀑布流列数，最少 2 列、最多 6 列（加号 / 往上滚 = 卡片变大、列变少）。
@@ -575,9 +579,11 @@ function openCardMenu(e,body,it){
     const list=()=>items.filter(x=>selected.has(x.id));
     add(`导出选中的 ${selected.size} 篇`,()=>exportNow(list()));
     add('给 AI（存成选集）',()=>saveSelectionDialog(list()));
+    add(list().every(x=>x.starred)?`取消收藏选中的 ${selected.size} 篇`:`收藏选中的 ${selected.size} 篇`,()=>starMany(list()));
     add(`删除选中的 ${selected.size} 篇`,()=>confirmDelete(list()),true);
     add('退出多选',()=>{selectMode=false;selected.clear();render();});
   }else{
+    add(it.starred?'取消收藏':'收藏',()=>starMany([it]));
     add('编辑标签',()=>openTagEditor(body,it));
     if(it.attachment!=='none'){add('下载 / 挂本地文件',()=>attachmentPanel([it]));}
     if(typeof provider()?.refineImages==='function')add('精细识别图片',()=>provider().refineImages(it.item_id||it.id));
@@ -591,12 +597,19 @@ function openCardMenu(e,body,it){
   setTimeout(()=>{document.addEventListener('click',close);document.addEventListener('contextmenu',close);},0);
 }
 const note=(msg,ms=8000)=>{try{new Notice(msg,ms);}catch{importStatus.setText(msg);}};
+// 1008 她：目录页收藏。全选中的都已收藏 → 取消；否则把没收藏的都点亮（逐篇走 starNote，和笔记页同一后端）
+async function starMany(list){
+  const p=provider();if(typeof p?.starNote!=='function'){window.alert('收藏需要启用 Link Brain Actions 插件');return;}
+  const on=!list.every(x=>x.starred);const todo=list.filter(x=>!!x.starred!==on);if(!todo.length)return;
+  let done=0;for(const x of todo){try{const r=await p.starNote(x.id,on);x.starred=r.starred;done++;}catch(e){importStatus.setText((on?'收藏':'取消收藏')+'失败：'+e.message);}}
+  render();if(done)note(on?`已收藏 ${done} 篇（在「已收藏」里看）`:`已取消收藏 ${done} 篇`);
+}
 // 10-04 右键「导出」：立即导出机读版资料包，沿用「附带原图」上次的选择（默认带图）；结果如实告知
 async function exportNow(list){
   if(!list.length)return;
   const p=provider();if(typeof p?.exportArchiveBundle!=='function'){window.alert('导出需要启用 Link Brain Actions 插件');return;}
   const images=!!bundleImages.checked;importStatus.setText(`正在导出 ${list.length} 篇…`);
-  try{const r=await p.exportArchiveBundle(list.map(x=>x.id),images,'',{question:search.value||'选中收藏'});importStatus.setText('');note(`已导出 ${list.length} 篇机读版${images?'（带原图）':''} → ${r?.path||''}`);}
+  try{const r=await p.exportArchiveBundle(list.map(x=>x.id),images,'',{question:search.value||'选中收藏'});importStatus.setText('');note(`已导出 ${list.length} 篇机读版${images?'（带原图）':''} → ${r?.path||''}`+(selectMode?'；按 Esc 退出多选':''));}
   catch(e){importStatus.setText('');window.alert('导出失败：'+e.message);}
 }
 // ── 10-04 选集（给 AI 用）：选中的几篇存成有名字的一组，存 _archive/selections.json；本地 MCP / 远程阅读按名字取 ──
