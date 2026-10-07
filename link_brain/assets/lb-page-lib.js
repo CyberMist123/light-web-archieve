@@ -303,7 +303,7 @@ function lbPageLib(dv, app, role) {
     listen('scroll', el, 'scroll', handler);
   }
 
-  // ── 样式挂 head（X14，§5.10）：按 id 建一个 <style>，文本不同才替换；没有 head（极简环境）挂到 container ──
+  // ── 样式挂 head（X14，§5.11）：按 id 建一个 <style>，文本不同才替换；没有 head（极简环境）挂到 container ──
   function style(id, css) {
     css = String(css ?? '');
     let el = null;
@@ -319,7 +319,7 @@ function lbPageLib(dv, app, role) {
   }
   try { style('lb-shared', LB_SHARED_CSS); } catch {}
 
-  // ── 提示（X6，§1.7）：优先插件 notify（同一套时长 / 按钮）；插件不在时 new Notice；单测里没有 Notice 就记进 globalThis.__lbNotices ──
+  // ── 提示（X6，§1.8）：优先插件 notify（同一套时长 / 按钮）；插件不在时 new Notice；单测里没有 Notice 就记进 globalThis.__lbNotices ──
   // actions: [{label, run}]（点了先关提示再 run）。默认时长：成功 / 普通 3 秒，失败 / 警示 8 秒；ms=0 常驻。
   function record(msg, opts) { const list = (G.__lbNotices = G.__lbNotices || []); const n = { message: msg, ...opts, hidden: false, setMessage(m) { n.message = m; }, hide() { n.hidden = true; } }; list.push(n); return n; }
   function say(msg, { kind = 'info', ms, actions } = {}) {
