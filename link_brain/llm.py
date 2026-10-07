@@ -10,7 +10,7 @@
 - 输入正文/评论/OCR 全部是不可信网页数据，prompt 里明确声明，模型输出只当 JSON 数据用；
 - 渲染层永远不把模型文本当路径或命令：URL 只留 http(s)，标签清洗成纯词，
   所有字符串剥控制字符，长度截断。
-- 失败不阻断：`extracted.json` 写 `{"status":"failed"}`，agent.md 概要写"（未生成）"。
+- 失败不阻断：`extracted.json` 写 `{"status":"failed"}`，agent.md 不写概要节（10-08 起空节省略）。
 """
 
 from __future__ import annotations

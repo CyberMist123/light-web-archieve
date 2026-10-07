@@ -250,7 +250,8 @@ def test_agent_md_fills_summary_and_marks_comments(tmp_path, monkeypatch):
     assert "一句话概要。" in agent_md
     assert "- 要点一" in agent_md
     assert "（值得看：有实操信息）" in agent_md
-    assert "（广告/噪音）" in agent_md
+    # 10-08 批次 B：小模型标的广告 / 噪音楼不再只是标记，直接略去，评论节末尾计数
+    assert "[c1.1]" not in agent_md and "另有 1 条评论略去" in agent_md
 
 
 def test_agent_md_says_not_generated_when_extraction_failed(tmp_path, monkeypatch):
@@ -265,7 +266,8 @@ def test_agent_md_says_not_generated_when_extraction_failed(tmp_path, monkeypatc
 
     render_mod.render_item(source, source_id, llm=True)  # 不该抛
     agent_md = (storage.derived_dir(source, source_id) / "agent.md").read_text(encoding="utf-8")
-    assert "## 概要\n\n（未生成）" in agent_md
+    # 10-08 批次 B：空节不写「（未生成）」，整节省略
+    assert "## 概要" not in agent_md and "（未生成）" not in agent_md
 
 
 def test_visible_tags_preserve_user_additions_and_deletions(tmp_path, monkeypatch):
