@@ -182,19 +182,25 @@ async function annotateTests() {
   globalThis.Notice = class {};
   const code = LIB + '\n' + asset('annotate-view.js');
   const A = dataviewBlock({ dom, app, code, params: { itemId: 'xhs-n1', notePath: NOTE } });
+  // 批次 D 地基：假 DOM 现在和真宿主一样「被摘下的子树里有焦点 → 失焦」。生产的笔记阅读视图里批注框在左栏 .xhs-note .lb-side
+  // （placeUnderImages 挪过去，Dataview 清空容器碰不到它，所以焦点和正在打的字都在），这里按生产结构搭左栏。
+  // 批注框留在容器里（单栏笔记 / 实时预览）时，重跑会失焦、外部改动会用草稿盖掉正在打的字——见批次 D 地基报告给笔记线的说明。
+  A.host.classList.add('xhs-note');
+  A.host.createEl('div', { cls: 'lb-side' });
   await A.run();
-  const box = A.container.querySelector('.lba-annot');
+  const box = A.host.querySelector('.lba-annot');
   const ta = box.querySelector('.lba-annot-input');
   ta.focus(); ta.value = '正在打的字';
   const readsBefore = V.reads[NOTE];
   await A.rerun();
-  assert.equal(A.container.querySelector('.lba-annot'), box, '批注框原样留着');
+  assert.equal(A.host.querySelector('.lba-annot'), box, '批注框原样留着');
+  assert.equal(dom.document.activeElement, ta, '左栏里的批注框不受 Dataview 清空容器影响，焦点还在');
   assert.equal(V.reads[NOTE], readsBefore, 'notes.json 没变不重读');
   assert.equal(ta.value, '正在打的字');
   // 手机同步回来一条：重读、列表多一条，输入框里的字不动
   V.set(NOTE, JSON.stringify({ starred: true, annotations: [{ id: 'a1', ts: '2026-09-01T00:00:00Z', text: '旧的' }, { id: 'a2', ts: '2026-09-02T00:00:00Z', text: '手机写的' }] }));
   await A.rerun();
-  assert.equal(A.container.querySelector('.lba-annot'), box);
+  assert.equal(A.host.querySelector('.lba-annot'), box);
   assert.deepEqual(box.querySelectorAll('.lba-annot-text').map(x => x.textContent), ['旧的', '手机写的']);
   assert.ok(box.querySelector('.lba-star').classList.contains('is-on'));
   assert.equal(ta.value, '正在打的字');
