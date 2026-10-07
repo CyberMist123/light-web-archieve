@@ -84,6 +84,9 @@ ACTIONS: dict[str, Action] = {a.name: a for a in (
     Action("catalog", "重写目录页", 2, lambda i: ["catalog"], resolves_self=False),
     Action("reader", "检查读取服务，没在跑就拉起", 1, None,
            next_hint="打开「账号与同步」看读取组件状态"),
+    Action("comments_fill", "接着读没读全的评论区（一次一篇，约 9 分钟）", 10,
+           lambda i: ["comments", "--fill-pending", "--limit", "1", "--budget-min", "10"], account=True,
+           next_hint="评论区太长就先这样；要全量可以手动 comments <item_id>", resolves_self=False),
     Action("sync", "重新同步收藏（会读一次收藏列表）", 20,
            lambda i: ["sync-favorites", "--limit", "0", "--budget-min", "18"], account=True,
            next_hint="隔 30 分钟以上再点，或等下次夜跑"),
@@ -94,7 +97,7 @@ NIGHTLY_STEP_ACTION = {
     "catalog": "catalog", "catalog-final": "catalog", "enrich-pending": "enrich_pending",
     "vision-upgrade": "vision_upgrade", "vision-refine": "refine_run", "videos-transcribe": "videos_all",
     "embed": "embed", "attachments-all": "attachments_all", "attachments-audit": "audit",
-    "sync-favorites": "sync",
+    "sync-favorites": "sync", "comments-fill-pending": "comments_fill",
 }
 
 
@@ -172,6 +175,14 @@ def plan(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
     transient = cls == "TRANSIENT"
     if cls == "SKIPPED":
         return dict(NONE)
+    if step.startswith("ai.") and (transient or sub in ("AUTH_FAILED", "QUOTA_EXCEEDED")):
+        # 1008：AI 接口故障归并的那一条（ai_health）。key / 欠费要人先换 key（面板保留「打开设置」），换好点「现在修」= 补跑；
+        # 断网 / 限流 / 服务挂这类临时的，自愈轮自动补
+        name = {"ai.summary": "enrich_pending", "ai.vision": "enrich_pending", "ai.refine": "refine_run",
+                "ai.embed": "embed"}.get(step)
+        if not name:
+            return _manual("问答接口出错：到设置里点「测试」看文本 AI 能不能用")
+        return _run(name, auto=transient)
     if cls == "NEEDS_HUMAN":
         if sub == "STUCK":  # 连着几天自动重试没好：按那一步的动作修（各篇一起）
             inner = plan({**row, "code": "TRANSIENT.RETRY_EXHAUSTED"}, now)

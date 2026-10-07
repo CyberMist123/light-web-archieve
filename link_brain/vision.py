@@ -45,13 +45,17 @@ def run_ocr(image_path: Path, cfg: dict[str, Any] | None = None, *, timeout: int
     return out
 
 
-def _layer1_problem(got: dict[str, Any], source_key: str, item_id: str | None) -> None:
-    """第一层识图的结果进问题记录：接口故障按码登记（同一篇一条），成功就把这篇的记录清掉。"""
+def _layer1_problem(got: dict[str, Any], source_key: str, item_id: str | None, cfg: dict[str, Any] | None = None) -> None:
+    """第一层识图的结果进问题记录：成功就把这篇的记录清掉；这篇自己的问题按篇登一条；
+    接口那一侧的故障（key / 欠费 / 断网 / 限流 / 服务挂）归并到 ai.vision 一条（1008 Owner：一个原因一条）。"""
     if not item_id:
         return
-    from . import problems
+    from . import ai_health, problems
     if got.get("status") == "ok":
         problems.resolve("vision.layer1", item_id)
+        ai_health.clear("visionAI")
+    elif ai_health.is_api_failure(got):
+        ai_health.record("visionAI", got, item_id=item_id, cfg=cfg)
     elif got.get("code"):
         problems.report("vision.layer1", got["code"], got.get("error") or "识图失败", item_id=item_id)
 
@@ -82,7 +86,7 @@ def _understand(entry: dict[str, Any], path: Path, cfg: dict[str, Any] | None, s
         if got.get("status") == "ok":
             entry["layout"] = got["kind"]
             mark_refine(entry, refine_reason(entry))
-        _layer1_problem(got, source_key, item_id)
+        _layer1_problem(got, source_key, item_id, cfg)
     elif old.get("status") == "ok" and old.get("v") == visual.VISUAL_VERSION:
         entry["layout"] = old["kind"]  # 已是新版结果：类型以模型判的为准，别被本地版面判断盖掉
     return entry
@@ -457,13 +461,16 @@ def run_refine(args) -> int:
             print("[refine] 识图接口连着不通，今晚先停（待补的图留着，明晚再来，不算失败次数）", file=sys.stderr)
             break
         refine_object(source_key, source_id, cfg, budget=args.limit, tally=tally)
-    from . import problems
+    from . import ai_health, problems
     if tally.get("needs_human"):
-        problems.report("vision.refine", tally["needs_human"]["code"], tally["needs_human"]["error"] or "识图接口要人处理")
+        # 1008：key / 欠费归并到 ai.refine 一条（带哪个接口、哪把 key、怎么办）
+        ai_health.record("visionAI.refine", {**tally["needs_human"], "api_error": True}, cfg=cfg.last_cfg or fallback)
     elif tally.get("api_streak", 0) >= API_STREAK_STOP:
-        problems.report("vision.refine", "TRANSIENT.SERVICE_BUSY", "识图接口连着不通，今晚先停，明晚接着补")
+        ai_health.record("visionAI.refine", {"code": "TRANSIENT.SERVICE_BUSY", "error": "识图接口连着不通，今晚先停，明晚接着补",
+                                             "api_error": True}, cfg=cfg.last_cfg or fallback)
     elif tally["runs"]:
         problems.resolve("vision.refine", None)
+        ai_health.clear("visionAI.refine")
     left = sum(n for _, _, n in pending_refines())
     dump_json({"models": cfg.used, "refined": tally["done"], "failed": tally["failed"], "will_retry": tally["retry"],
                "api_errors": tally.get("api_errors", 0),

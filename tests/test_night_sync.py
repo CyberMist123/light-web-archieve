@@ -286,7 +286,9 @@ def test_enrich_gives_up_after_three_failures_but_item_still_works(env, monkeypa
     from link_brain import problems
     env.favs = [_fav(_ids(1)[0])]
     _run(capsys)
-    monkeypatch.setattr(llm_mod, "call_model", _model(ok=False))
+    # 1008：接口那一侧的故障（500 / key / 断网）不再记这篇的失败次数（归并到 ai.summary 一条，见 test_ai_health_1008）；
+    # 「连着 3 次放弃」只针对这篇自己的问题——模型回了东西但不合格
+    monkeypatch.setattr(llm_mod, "call_model", lambda *a: {"status": "ok", "text": "不是 JSON", "error": None})
     alerts = []
     monkeypatch.setattr(alert_mod, "_alert", lambda *a, **k: alerts.append(a))
     for n in range(3):

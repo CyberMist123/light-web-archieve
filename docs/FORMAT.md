@@ -92,6 +92,7 @@ D:\LIGHT WEB ARCHIEVE\vault\
 | `kind` | `image` / `video` / `text` | 视频型笔记只记 `video_url` + 封面，不下载视频 |
 | `images_complete` | `true` / `false` | 与 `manifest.json` 顶层同名字段一致；`false` 时 CLI 退出码 2 |
 | `comments_complete` | `"unknown"` / `true` / `false` | 抓不全无法证明时是 `"unknown"`，**不阻断** |
+| `comment_load` | 对象 / `null` | 读取组件（≥ 10-04）给的评论加载结论，压缩后：`stop_reason`、`floor_limit`、`floors_loaded`、`floors_expanded`、`has_more`、`replies_missing`、`gaps[]`（只留 `missing>0` 的楼：`floor / comment_id / shown / loaded / missing / reason`）、`seconds`；续读过的多 `fill_attempts`、`fill_last_at`、`floors_not_found[]`。老组件没有 → `null` |
 | `attachments_status` | `"none"` / `"metadata_only"` / `"downloaded"` / `"unavailable"` | 由 `attachments[].status` 取最好的一个汇总而来；见 `source.json` 那节 |
 | `origin` | `tg` / `cmx` / `cc` / `cli` | 从哪个端进来的 |
 | `actor` | `human` / `ai:<name>` | 谁把它丢进来的 |

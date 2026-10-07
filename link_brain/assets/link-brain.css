@@ -424,6 +424,15 @@
   font-size: 0.97em;
 }
 
+.xhs-note .lb-comments-note {
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--background-secondary);
+  font-size: 0.8em;
+  color: var(--text-muted);
+}
+
 .xhs-note .lb-more-replies {
   margin-top: 1px;
   font-family: "Noto Sans SC", "Segoe UI", "Microsoft YaHei UI", sans-serif;

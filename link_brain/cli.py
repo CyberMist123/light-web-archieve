@@ -65,9 +65,14 @@ def build_parser() -> argparse.ArgumentParser:
                    help="配合 --refine-mark：只重标这篇里精细识别放弃了的图（问题列表「现在修」用）")
     p.add_argument("--limit", type=int, default=30, help="--upgrade 最多几篇 / --refine 最多几张，0 = 全部")
 
-    p = sub.add_parser("comments", help="手动抓一篇的评论区（楼中楼 / 评论图片 / 语音评论）")
-    p.add_argument("target", help="item_id（xhs-<note_id>）或链接")
+    p = sub.add_parser("comments", help="手动抓一篇的评论区（楼中楼 / 评论图片 / 语音评论）；--fill 续读上次没读全的楼")
+    p.add_argument("target", nargs="?", default=None, help="item_id（xhs-<note_id>）或链接")
     p.add_argument("--floors", default="all", choices=["all", "20", "50"], help="默认全量；慢，热门笔记可能要十几分钟")
+    p.add_argument("--fill", action="store_true", help="续读：只展开上次预算用完没读全的那几楼（每次约 9 分钟）")
+    p.add_argument("--fill-pending", dest="fill_pending", action="store_true",
+                   help="夜跑用：给库里还有缺口的篇各续读一次（缺得多的在前）")
+    p.add_argument("--limit", type=int, default=0, help="配合 --fill-pending：最多续几篇（0=不限）")
+    p.add_argument("--budget-min", dest="budget_min", type=float, default=0, help="配合 --fill-pending：最多跑几分钟")
     p.add_argument("--wait-lock-min", dest="wait_lock_min", type=float, default=2,
                    help="号被别的任务占着时最多等几分钟（默认 2），等不到退出码 6")
 

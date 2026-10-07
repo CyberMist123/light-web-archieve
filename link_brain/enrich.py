@@ -34,6 +34,8 @@ IMAGE_SUFFIXES = {".webp", ".jpg", ".jpeg", ".png", ".gif", ".avif", ".heic", ".
 EXIT_OK = 0
 EXIT_ERROR = 1
 _CHILD_INCOMPLETE = 3  # 子进程跑完了但还缺东西（概要失败 / 有图没识出来）
+_CHILD_API_FAILURE = 4  # 1008：还缺，但缺的原因是接口那一侧（key / 欠费 / 断网 / 限流）——不是这篇的错，不记失败次数
+API_STREAK_STOP = 2     # 同一批里连着几篇都撞接口故障就收手：一个原因一条，别逐篇白等、白烧重试
 
 
 def _now() -> str:
@@ -170,8 +172,29 @@ def _child(source_key: str, source_id: str, llm: bool) -> int:
     left = needs(source_key, source_id, llm=llm)
     if left:
         print(f"还缺：{'、'.join(left)}", file=sys.stderr)
-        return _CHILD_INCOMPLETE
+        return _CHILD_API_FAILURE if _api_side_failure(source_key, source_id, left) else _CHILD_INCOMPLETE
     return 0
+
+
+def _api_side_failure(source_key: str, source_id: str, left: list[str]) -> bool:
+    """这篇还缺的东西，是不是因为接口那一侧出事（概要 extracted.json 标了 api_error / 识图最近一次是接口故障码）。"""
+    from . import ai_health
+    try:
+        if "summary" in left:
+            from . import llm as llm_mod
+            doc = llm_mod.load_extracted(source_key, source_id) or {}
+            if doc.get("api_error") or str(doc.get("code") or "") in ai_health.API_CODES:
+                return True
+        if "vision" in left:
+            vision_path = storage.derived_dir(source_key, source_id) / "vision.json"
+            if vision_path.exists():
+                for img in storage.read_json(vision_path).get("images", []):
+                    code = str(((img.get("visual") or {}).get("code")) or "")
+                    if code in ai_health.API_CODES:
+                        return True
+    except (OSError, ValueError):
+        pass
+    return False
 
 
 def kill_tree(proc: subprocess.Popen) -> None:
@@ -251,6 +274,14 @@ def enrich_one(source_key: str, source_id: str, *, llm: bool = True, timeout: fl
         problems.resolve("enrich.summary", item_id, "TRANSIENT.RETRY_EXHAUSTED")
         _synclog(source_key, source_id, item_id, before, [], "")
         return {"item_id": item_id, "status": "done"}
+    if code == _CHILD_API_FAILURE:
+        # 接口那一侧的故障：原因已归并进 ai.<能力> 那一条（ai_health），这篇不记失败次数、不单独登记，留着接口好了再补
+        left = needs(source_key, source_id, llm=llm)
+        reason = "接口故障，等接口好了自动补（原因见问题面板的接口那一条）：还缺 " + "、".join(left)
+        _save_state(source_key, source_id, {**state, "last_error": reason})
+        _synclog(source_key, source_id, item_id, before, left, reason)
+        return {"item_id": item_id, "status": "failed", "error": reason, "fails": int(state.get("fails") or 0),
+                "gave_up": False, "retry_after": None, "api_error": True}
     fails = int(state.get("fails") or 0) + 1
     if not error and code == _CHILD_INCOMPLETE:
         error = "还缺：" + "、".join(needs(source_key, source_id, llm=llm))
@@ -298,8 +329,15 @@ def enrich_items(targets: list[tuple[str, str]], *, llm: bool = True, deadline: 
                  limit: int = 0, verbose: bool = True) -> dict[str, Any]:
     """逐篇补；deadline（time.monotonic）到了就收手，剩下的留给下次。"""
     done, failed, deferred = [], [], 0
+    api_streak = 0
     for i, (key, sid) in enumerate(targets):
         if limit and len(done) + len(failed) >= limit:
+            deferred += len(targets) - i
+            break
+        if api_streak >= API_STREAK_STOP:
+            # 1008：连着几篇都是接口那一侧出事（key / 欠费 / 断网）——同一个原因，别再一篇篇试；剩下的留给接口好了再补
+            if verbose:
+                print(f"[enrich] 接口连着出事，这一批先停（剩 {len(targets) - i} 篇留着）；原因见问题面板", file=sys.stderr)
             deferred += len(targets) - i
             break
         left = None if deadline is None else deadline - time.monotonic()
@@ -309,6 +347,7 @@ def enrich_items(targets: list[tuple[str, str]], *, llm: bool = True, deadline: 
         if verbose:
             print(f"[enrich] {i + 1}/{len(targets)} xhs-{sid} 识图 / 概要中", file=sys.stderr)
         out = enrich_one(key, sid, llm=llm, timeout=left)
+        api_streak = api_streak + 1 if out.get("api_error") else 0
         if out["status"] == "done":
             done.append(out["item_id"])
         elif out["status"] == "deferred":

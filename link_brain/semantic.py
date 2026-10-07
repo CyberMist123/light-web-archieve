@@ -409,9 +409,10 @@ EXIT_REGISTERED = 3  # 没做完，但原因已经登记进问题记录（step=e
 
 def _record_problem(result: dict) -> int:
     """embed 的结论进问题记录（10-04：以前语义层没 key 静默停了几天没人知道）。返回退出码。"""
-    from . import problems
+    from . import ai_health, problems
     if result.get("status") == "ok":
         problems.resolve("embed")
+        ai_health.clear("embedAI")
         return 0
     code = result.get("code") or ""
     if not code:
@@ -421,10 +422,15 @@ def _record_problem(result: dict) -> int:
         why = providers.why_not("embedAI") or "向量索引没有可用的 key"
         if result.get("had_vectors"):
             # 以前能用、现在拿不到 key（10-04：设置存成新格式后 embedAI 丢了 key）：语义检索悄悄停了，要人看一眼设置
-            problems.report("embed", "NEEDS_HUMAN.AUTH_FAILED",
-                            f"向量索引拿不到 key（{why}）：语义检索停了，问收藏只剩关键词检索")
+            ai_health.record("embedAI", {"code": "NEEDS_HUMAN.AUTH_FAILED", "api_error": True,
+                                         "error": f"向量索引拿不到 key（{why}）：语义检索停了，问收藏只剩关键词检索"},
+                             cfg=providers.resolve("embedAI"))
             return EXIT_REGISTERED
         problems.report("embed", "SKIPPED.NOT_CONFIGURED", f"向量索引没开：{why}", action="skipped")
         return 0
-    problems.report("embed", code, result.get("error") or "向量索引没建完")
+    if ai_health.is_api_failure(result):
+        from . import providers
+        ai_health.record("embedAI", result, cfg=providers.resolve("embedAI"))
+    else:
+        problems.report("embed", code, result.get("error") or "向量索引没建完")
     return EXIT_REGISTERED

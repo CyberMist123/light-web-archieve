@@ -160,7 +160,8 @@ module.exports = function (obsidian, plugin) {
       const btns = row.createDiv({ cls: 'lb-problem-btns' });
       let n = 0;
       // 风控 / 登录 / key 这类（等你处理）保持人工按钮；「连续几天没修好」不是风控，也给「现在修」
-      if (x.repairable && (groupOf(x) !== 'needs_you' || subOf(x.code) === 'STUCK')) {
+      // 1008：AI 接口归并的那一条（step ai.*）换好 key 后也能点「现在修」补跑
+      if (x.repairable && (groupOf(x) !== 'needs_you' || subOf(x.code) === 'STUCK' || String(x.step || '').startsWith('ai.'))) {
         n++;
         const repair = btns.createEl('button', { cls: 'lb-problem-repair', text: '现在修' });
         if (x.repairing) { repair.disabled = true; repair.textContent = `正在修 / 预计 ${Math.max(1, Number(x.repair_minutes) || 5)} 分钟`; }

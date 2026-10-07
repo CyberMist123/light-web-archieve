@@ -398,6 +398,8 @@ def fetch_detail(
     reply_limit: int = 100,
     full_comments: bool = False,
     timeout: float = 600,
+    comment_budget_s: int | None = None,
+    expand_floors: list[str] | None = None,
 ) -> dict[str, Any]:
     """调 `get_feed_detail`，返回**原始**响应（原样落 `mcp_raw.json`）。
 
@@ -418,6 +420,11 @@ def fetch_detail(
             "reply_limit": reply_limit,
             "scroll_speed": "normal",
         }
+        if comment_budget_s:
+            arguments["comment_budget_s"] = int(comment_budget_s)  # 读取组件：评论在预算前 30 秒收手并如实报 comment_load
+        if expand_floors:
+            # 1008 续读：只展开这些楼（上次预算用完没读全的），其它楼不点；读取组件 ≥ r03 才认，老组件忽略即退回整读
+            arguments["expand_floors"] = list(expand_floors)
     else:
         # 默认：前 10 楼 + 楼中楼，不滚全评论区。
         arguments = {
@@ -732,6 +739,107 @@ def _comment(raw: dict[str, Any], floor: int) -> dict[str, Any]:
     return entry
 
 
+# 读取组件说这楼没读全的原因 → 人话（可见页 / 机读版 / 同步记录用）
+REPLY_GAP_CN = {
+    "not_reached": "评论区太长，这次时间用完", "budget": "评论区太长，这次时间用完", "cancelled": "评论区太长，这次时间用完",
+    "cap": "回复太多，这次先到这", "no_growth": "点了展开但没加载出来", "click_failed": "展开按钮点不动",
+    "no_button": "页面说还有回复但没有展开按钮", "not_expanded": "这楼没要求展开", "count_mismatch": "原站显示的条数比能看到的多（删除 / 折叠）",
+    "risk": "撞到风控先停", "throttled": "被限频先停", "stuck": "评论区滚不动",
+}
+# 这些原因下次还能接着读（续读 comments --fill）；count_mismatch / no_button / not_expanded 读多少次都一样，不续
+RESUMABLE_GAPS = ("not_reached", "budget", "cancelled", "cap", "no_growth", "click_failed", "throttled", "stuck", "risk")
+
+
+def compact_comment_load(raw: Any) -> dict[str, Any] | None:
+    """读取组件的 `comment_load` 压成归档里存的那份：判停原因、读到几楼、展开几楼、缺多少条、哪几楼缺（只留真缺口）。
+    老读取组件没有这个字段 → None。gaps 只收 missing>0 的楼：旧组件会把「已展开完但页面状态陈旧 hasMore=true」的楼也列进来，
+    那不是缺口（r03 组件已修，这里再挡一道）。"""
+    if not isinstance(raw, dict):
+        return None
+    gaps = []
+    for g in raw.get("replies_partial") or []:
+        if not isinstance(g, dict):
+            continue
+        try:
+            missing = int(g.get("missing") or 0)
+        except (TypeError, ValueError):
+            missing = 0
+        if missing <= 0:
+            continue
+        gaps.append({"floor": _int_or_none(g.get("floor")), "comment_id": str(g.get("comment_id") or ""),
+                     "shown": _int_or_none(g.get("shown")), "loaded": _int_or_none(g.get("loaded")), "missing": missing,
+                     "reason": str(g.get("reason") or "")})
+    out = {
+        "floor_limit": _int_or_none(raw.get("floor_limit")),
+        "floors_loaded": _int_or_none(raw.get("floors_loaded")),
+        "floors_expanded": _int_or_none(raw.get("floors_expanded")),
+        "has_more": raw.get("comments_has_more") if isinstance(raw.get("comments_has_more"), bool) else None,
+        "stop_reason": str(raw.get("stop_reason") or ""),
+        "partial": bool(raw.get("partial")) and bool(gaps),
+        "replies_missing": sum(g["missing"] for g in gaps),
+        "seconds": raw.get("seconds"),
+        "gaps": gaps,
+    }
+    if raw.get("floors_not_found"):
+        out["floors_not_found"] = [str(x) for x in raw["floors_not_found"]]
+    return out
+
+
+def merge_comments(old: list[dict[str, Any]], new: list[dict[str, Any]], expanded: set[str]) -> list[dict[str, Any]]:
+    """续读合并：新响应里只有 `expanded` 那几楼是展开过的；其它楼若老版本的楼中楼更多就沿用老的。
+    一级评论以新响应的顺序为准；老版本有、新响应没滚到的楼接在后面（删除的评论留着：归档不丢）。"""
+    by_id_old = {str(c.get("comment_id") or ""): c for c in old}
+    out = []
+    seen = set()
+    for c in new:
+        cid = str(c.get("comment_id") or "")
+        seen.add(cid)
+        prev = by_id_old.get(cid)
+        if prev and cid not in expanded and len(prev.get("sub_comments") or []) > len(c.get("sub_comments") or []):
+            c = {**c, "sub_comments": prev["sub_comments"], "sub_comments_complete": prev.get("sub_comments_complete"),
+                 "sub_comment_count": max(int(c.get("sub_comment_count") or 0), int(prev.get("sub_comment_count") or 0))}
+        out.append(c)
+    for c in old:
+        if str(c.get("comment_id") or "") not in seen:
+            out.append(c)
+    for i, c in enumerate(out, start=1):
+        c["floor"] = 1  # 一级评论的层级字段（不是楼序）
+    return out
+
+
+def merge_comment_load(old: dict[str, Any] | None, new: dict[str, Any] | None, expanded: set[str],
+                       comments: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """续读后的 comment_load：这次要的楼以新结果为准，其它楼沿用老缺口；缺口按合并后的评论重算 missing。"""
+    if new is None and old is None:
+        return None
+    base = dict(new or old or {})
+    old_gaps = {g.get("comment_id"): g for g in ((old or {}).get("gaps") or []) if g.get("comment_id")}
+    new_gaps = {g.get("comment_id"): g for g in ((new or {}).get("gaps") or []) if g.get("comment_id")}
+    gaps: dict[str, dict[str, Any]] = {}
+    for cid, g in old_gaps.items():
+        if cid not in expanded:
+            gaps[cid] = dict(g)
+    for cid, g in new_gaps.items():
+        gaps[cid] = dict(g)
+    # 按合并后的评论重算：楼里实际有多少、原站显示多少
+    have = {str(c.get("comment_id") or ""): c for c in comments}
+    kept = []
+    for cid, g in gaps.items():
+        c = have.get(cid)
+        if c is not None:
+            loaded = len(c.get("sub_comments") or [])
+            shown = int(c.get("sub_comment_count") or g.get("shown") or 0)
+            g["loaded"], g["shown"], g["missing"] = loaded, shown, max(0, shown - loaded)
+        if int(g.get("missing") or 0) > 0:
+            kept.append(g)
+    base["gaps"] = kept
+    base["replies_missing"] = sum(int(g["missing"]) for g in kept)
+    base["partial"] = bool(kept) and str(base.get("stop_reason") or "") not in ("end", "no_comments")
+    base["fill_attempts"] = int((old or {}).get("fill_attempts") or 0) + (1 if new is not None else 0)
+    base["fill_last_at"] = (new or {}).get("fill_last_at") or (old or {}).get("fill_last_at")
+    return base
+
+
 def normalize(
     raw: dict[str, Any],
     parsed: dict[str, Any],
@@ -751,6 +859,7 @@ def normalize(
     # hasMore 是 MCP 明确给出的信号：False 就是真的抓完了，不必写 "unknown"
     has_more = comments_block.get("hasMore")
     comments_complete = "unknown" if has_more is None else (not has_more)
+    comment_load = compact_comment_load(data.get("comment_load"))
 
     body = note.get("desc") or ""
     interact = note.get("interactInfo") or {}
@@ -792,6 +901,7 @@ def normalize(
             "mcp_tool": MCP_TOOL,
             "comments_complete": comments_complete,
             "comments_cursor": comments_block.get("cursor"),
+            "comment_load": comment_load,
             "web_probe": (
                 None
                 if web_probe is None

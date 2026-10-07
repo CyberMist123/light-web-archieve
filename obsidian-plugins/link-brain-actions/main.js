@@ -466,6 +466,9 @@ class LinkBrainActions extends Plugin {
     this.running = null;
     this.importing = false;
     this.settings = mergeSettings(await this.loadData());
+    // 1008 Owner：「开始」页选了轻量版 = 不跑 AI 概要 / 识图、也不报它们的失败（后端 providers 按 setup.selected 门禁）。
+    // 老用户以前 selected 可能停在轻量版、却早已配好 key 在用——第一次升级时把已配好的 AI 组件勾回去，之后以「开始」页的选择为准。
+    try { if (await this.syncSetupSelectionWithAI()) await this.saveSettings(); } catch (e) { console.error('[lb] 功能选择没对齐', e); }
     // 收藏库位置 + 后端（第 5 批 B2）：收藏库可能被 junction 挂进别的库的子目录——先找库里哪层带 _archive（或首次引导选的子文件夹），
     // 再解 junction 拿真路径；它的上一级是 LWA 仓库就照旧 python -m link_brain（作者本机），否则用设置里的后端命令。
     await this.locateCollection();
@@ -554,6 +557,19 @@ class LinkBrainActions extends Plugin {
   }
 
   async saveSettings() { await this.saveData(this.settings); }
+  // 1008：setup.selected 是列表、还没对齐过 → 已配好的 textAI / summaryAI 勾上 ai_text、visionAI 勾上 ai_vision。返回有没有改动。
+  syncSetupSelectionWithAI() {
+    const su = this.settings.setup;
+    if (!su || !Array.isArray(su.selected) || su.aiSynced) return false;
+    const on = (c) => c && (c.mode === 'cli' ? !!c.command : c.mode === 'http' ? !!(c.endpoint && (c.apiKey || c.keyFile || c.apiKeyEnv)) : false);
+    const want = [];
+    if (on(this.settings.textAI) || on(this.settings.summaryAI)) want.push('ai_text');
+    if (on(this.settings.visionAI)) want.push('ai_vision');
+    let changed = false;
+    for (const id of want) if (!su.selected.includes(id)) { su.selected.push(id); changed = true; }
+    su.aiSynced = true;
+    return true;
+  }
 
   openImportModal() { new ImportModal(this).open(); }
   openSyncSettings() { new SyncSettingsModal(this).open(); }

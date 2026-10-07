@@ -39,7 +39,7 @@ from . import storage
 FILE_NAME = "problems.jsonl"
 SUMMARY_NAME = "problems-summary.json"
 MAX_KEYS = 500
-REASON_MAX = 200
+REASON_MAX = 320  # 1008：AI 接口归并那一条要写清 哪个 key / 原因 / 处理 / 影响几篇 / 花费，放宽
 TITLE_MAX = 120
 STUCK_DAYS = 3
 # key 失效 / 欠费：产品规则是「连续几晚没修好」才推——至少在这么多个日历日出现过才推（列表里一直看得到）
@@ -52,7 +52,9 @@ ACTIONS = ("gave_up", "retry_later", "retrying", "needs_human", "skipped")
 DEFAULT_ACTION = {"TRANSIENT": "retry_later", "PERMANENT": "gave_up", "NEEDS_HUMAN": "needs_human",
                   "SKIPPED": "skipped"}
 STEPS = ("sync.favorites", "ingest", "attachments.download", "attachments.convert", "attachments.recheck",
-         "enrich.summary", "vision.layer1", "vision.refine", "videos.transcribe", "embed", "ask", "login", "config", "remote")
+         "enrich.summary", "vision.layer1", "vision.refine", "videos.transcribe", "embed", "ask", "login", "config", "remote",
+         # 1008：AI 接口故障归并到能力级（ai_health.py），一个原因一条
+         "ai.summary", "ai.vision", "ai.refine", "ai.embed", "ai.ask")
 STEP_PREFIXES = ("nightly.",)
 # 推送标题 / 问题列表里给人看的步骤名（夜跑步骤 nightly.<名> 显示「夜跑：<名>」）
 # 注记行（annotate）能改的字段：自愈动作的状态（running / failed / waiting）、一句「试过什么、为什么没好、下一步」、
@@ -63,6 +65,8 @@ STEP_LABELS = {
     "attachments.recheck": "附件补查", "enrich.summary": "概要 / 识图补处理", "vision.layer1": "识图",
     "vision.refine": "精细识图", "videos.transcribe": "视频转写", "embed": "语义索引", "ask": "问收藏",
     "login": "小红书账号", "config": "设置", "remote": "远程阅读",
+    "ai.summary": "AI 概要 / 打标接口", "ai.vision": "识图接口", "ai.refine": "精细识图接口", "ai.embed": "向量索引接口",
+    "ai.ask": "问答接口",
 }
 
 # 现有裸码 → 类（§2.2：复用现有码、不改拼写）
@@ -98,8 +102,9 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "NEEDS_HUMAN.NOT_INSTALLED": dict(where="top+card", label="未安装读取组件", hover="按 README「读取组件」安装后刷新", group="needs_you"),
     "NEEDS_HUMAN.WRONG_ACCOUNT": dict(where="top+card", label="登错号", hover="登录的不是收藏所在的号：换号重新扫码", group="needs_you"),
     "TRANSIENT.FAVORITES_SUSPICIOUS": dict(where="list", label="收藏只读到一截", hover="{reason}", group="auto"),
-    "NEEDS_HUMAN.AUTH_FAILED": dict(where="top+card", label="AI key 失效", hover="接口拒绝了 key（401/403）：到设置里换一个", group="needs_you"),
-    "NEEDS_HUMAN.QUOTA_EXCEEDED": dict(where="top+card", label="AI 余额不足", hover="接口提示欠费或额度用完：充值或换 key", group="needs_you"),
+    # 1008：原因由 ai_health 写全（哪个接口 / 哪把 key / 为什么 / 怎么办 / 影响几篇 / 补齐花费），hover 直接显示它
+    "NEEDS_HUMAN.AUTH_FAILED": dict(where="top+card", label="AI key 失效", hover="{reason}", group="needs_you"),
+    "NEEDS_HUMAN.QUOTA_EXCEEDED": dict(where="top+card", label="AI 余额不足", hover="{reason}", group="needs_you"),
     "NEEDS_HUMAN.BACKUP_DISK_MISSING": dict(where="top+card", label="备份盘没挂", hover="{reason}", group="needs_you"),
     "NEEDS_HUMAN.STUCK": dict(where="top+card", label="连续几天没修好", hover="{reason}", group="needs_you"),
     "NEEDS_HUMAN.PORT_IN_USE": dict(where="top+card", label="远程阅读端口被占用", hover="{reason}", group="needs_you"),
@@ -558,6 +563,14 @@ def report_blocked(step: str, code: str | None, reason: str, *, service: bool = 
         return None
 
 
+def is_open_step(step: str) -> bool:
+    """这一步还有没有没解决的问题（任何码、任何篇）。"""
+    try:
+        return any(r.get("step") == step and not r.get("resolved_at") for r in _fold(_read_rows()).values())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def is_open(step: str, item_id: str | None, code: str) -> bool:
     """这个 step + item_id + 码现在有没有一条还没解决的记录（只记一次的说明类用它去重）。读不动就当没有。"""
     try:
@@ -799,6 +812,8 @@ def run(args) -> int:
         # 修不好的已经逐条写回问题记录（试过什么、为什么没好、下一步）：不算「这一步出错」，免得夜跑再多登记一条
         return 0 if result.get("ran", True) else 1
     if cmd == "list":
+        from . import ai_health
+        ai_health.migrate_legacy_rows()  # 1008：老记录里按篇登的 key 失效 / 欠费收成每个接口一条（幂等，没有就 0 开销）
         dump_json({"ok": True, "code": "", "message": "", "summary": summary(),
                    "problems": load(args.limit, include_resolved=args.all)})
         return 0

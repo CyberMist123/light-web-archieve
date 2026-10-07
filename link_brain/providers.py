@@ -132,7 +132,28 @@ def _timeout(cfg: dict[str, Any], cap: str) -> float:
     return 120.0
 
 
-def _check(cap: str, cfg: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
+# 1008 Owner：「开始」页选了轻量版（不带 AI 的功能组合）就是另一种模式——AI 概要 / 识图不该再跑、更不该报失败。
+# 门禁只看 setup.selected 里有没有勾对应组件；没走过「开始」页（selected 不是列表）= 不拦（fail-open，老用户零感知）。
+SETUP_COMPONENT = {"textAI": "ai_text", "summaryAI": "ai_text", "embedAI": "ai_text",
+                   "visionAI": "ai_vision", "visionAI.refine": "ai_vision"}
+SETUP_COMPONENT_CN = {"ai_text": "AI 问答 · 概要 · 打标", "ai_vision": "识图"}
+
+
+def setup_off_reason(cap: str, settings: dict[str, Any] | None = None) -> str:
+    """这项能力被「开始」页的功能选择关掉了 → 一句原因；没关 → 空串。"""
+    comp = SETUP_COMPONENT.get(cap)
+    if not comp:
+        return ""
+    setup = _settings(settings).get("setup") or {}
+    selected = setup.get("selected")
+    # aiSynced：插件启动时把「已配好 key 的 AI」勾回 selected 后置 true；没对齐过的老设置不拦（否则升级当晚夜跑就把 AI 关了）
+    if not isinstance(selected, list) or comp in selected or not setup.get("aiSynced"):
+        return ""
+    label = LABEL.get(cap, cap)
+    return f"{label}未开启：「开始」页选的功能组合不含「{SETUP_COMPONENT_CN[comp]}」（轻量版）；要用就去「开始」页勾上它"
+
+
+def _check(cap: str, cfg: dict[str, Any], settings: dict[str, Any] | None = None) -> tuple[dict[str, Any] | None, str]:
     label = LABEL.get(cap, cap)
     mode = str(cfg.get("mode") or "").strip()
     if cap == "summaryAI" and cfg.get("inherited"):
@@ -141,6 +162,9 @@ def _check(cap: str, cfg: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
         label += " "  # 「文本 AI 没填…」
     if mode == "off":
         return None, f"{label}已关闭"
+    off = setup_off_reason(cap, settings)
+    if off:
+        return None, off
     allowed = MODES.get(cap, ())
     if mode not in allowed:
         return None, f"{label}的方式「{mode or '空'}」不认识（可选：{' / '.join(allowed)}）"
@@ -154,6 +178,7 @@ def _check(cap: str, cfg: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
             return None, f"{label}没填模型名"
         key, err = resolve_key(cfg)
         out["apiKey"] = key
+        out["keySource"] = key_source(cfg)
         out.pop("keyFile", None)
         out.pop("keyField", None)
         if cfg.get("requireKey") and not key:
@@ -177,13 +202,33 @@ def resolve(cap: str, settings: dict[str, Any] | None = None) -> dict[str, Any] 
     """合并默认值、解 key、带 timeoutSec；None = 未配置 / 关了（原因见 why_not）。"""
     if cap not in CAPS:
         raise ValueError(f"不认识的能力：{cap}")
-    cfg, _ = _check(cap, raw_config(cap, settings))
+    cfg, _ = _check(cap, raw_config(cap, settings), settings)
     return cfg
 
 
 def why_not(cap: str, settings: dict[str, Any] | None = None) -> str:
-    _, reason = _check(cap, raw_config(cap, settings))
+    _, reason = _check(cap, raw_config(cap, settings), settings)
     return reason
+
+
+def key_source(cfg: dict[str, Any]) -> str:
+    """key 是从哪来的（给报错看，不含 key 本身）：设置里填的 / 密钥文件 <文件名> / 环境变量 <名>。"""
+    if str(cfg.get("apiKey") or "").strip():
+        return "设置里填的 key"
+    if cfg.get("keyFile"):
+        name = Path(str(cfg["keyFile"])).name
+        field = cfg.get("keyField") or "apiKey"
+        return f"密钥文件 {name} 里的「{field}」"
+    if cfg.get("apiKeyEnv"):
+        return f"环境变量 {cfg['apiKeyEnv']}"
+    return "没有 key"
+
+
+def key_hint(cfg: dict[str, Any]) -> str:
+    """「设置里填的 key（尾号 ab12）」——报错里认 key 用；只给末 4 位。"""
+    src = cfg.get("keySource") or key_source(cfg)
+    key = str(cfg.get("apiKey") or "").strip()
+    return f"{src}（尾号 {key[-4:]}）" if len(key) >= 8 else src
 
 
 def finalize(cap: str, cfg: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:

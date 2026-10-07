@@ -283,6 +283,7 @@ def _comment_html(
     manifest: dict[str, Any],
     *,
     nested: bool = False,
+    gap_reasons: dict[str, str] | None = None,
 ) -> str:
     """Human comment row: author + text only; no date/location/overall count."""
     author = (comment.get("author") or {}).get("nickname") or "匿名"
@@ -331,10 +332,52 @@ def _comment_html(
             except (TypeError, ValueError):
                 declared = 0
             if declared > len(subs):
-                parts.append(f'<div class="lb-more-replies">展开 {declared} 条回复</div>')
+                parts.append(f'<div class="lb-more-replies">{_gap_text(comment, declared - len(subs), gap_reasons)}</div>')
             parts.append("</div>")
+        else:
+            try:
+                declared = int(comment.get("sub_comment_count") or 0)
+            except (TypeError, ValueError):
+                declared = 0
+            if declared > 0:
+                parts.append(f'<div class="lb-replies"><div class="lb-more-replies">{_gap_text(comment, declared, gap_reasons)}</div></div>')
     parts.append("</article>")
     return "".join(parts)
+
+
+def _gap_text(comment: dict[str, Any], missing: int, gap_reasons: dict[str, str] | None) -> str:
+    """这楼还有几条回复没拿到、为什么（1008 Owner：缺口如实标，不写假的「展开 N 条回复」）。"""
+    from .adapters import xiaohongshu as xhs
+    reason = (gap_reasons or {}).get(str(comment.get("comment_id") or ""))
+    if reason is None:
+        return f"还有 {missing} 条回复没拿到（只展开前几楼的回复）"
+    why = xhs.REPLY_GAP_CN.get(reason, "没读全")
+    tail = "，下次同步接着读" if reason in xhs.RESUMABLE_GAPS else ""
+    return f"还有 {missing} 条回复没拿到（{why}{tail}）"
+
+
+def _comments_note_html(capture: dict[str, Any] | None, comments: list[dict[str, Any]]) -> str:
+    """评论区顶上的一行状态：读到几楼、展开几楼、还缺几条——只在没读全时出现。"""
+    cl = (capture or {}).get("comment_load") or {}
+    missing = int(cl.get("replies_missing") or 0)
+    if missing <= 0:
+        return ""
+    from .adapters import xiaohongshu as xhs
+    bits = [f"评论读到 {cl.get('floors_loaded') or len(comments)} 楼"]
+    if cl.get("floor_limit"):
+        bits.append(f"前 {cl['floor_limit']} 楼展开回复")
+    gaps = cl.get("gaps") or []
+    main = max(gaps, key=lambda g: int(g.get("missing") or 0)).get("reason") if gaps else cl.get("stop_reason")
+    why = xhs.REPLY_GAP_CN.get(str(main or ""), "没读全")
+    attempts = int(cl.get("fill_attempts") or 0)
+    if any(g.get("reason") in xhs.RESUMABLE_GAPS for g in gaps) and attempts < 3:
+        tail = "，下次同步接着读" + (f"（已续读 {attempts} 次）" if attempts else "")
+    elif attempts >= 3:
+        tail = f"，已续读 {attempts} 次，剩下的太长不再读"
+    else:
+        tail = ""
+    bits.append(f"楼中楼还缺 {missing} 条（{why}{tail}）")
+    return f'<div class="lb-comments-note">{_safe("，".join(bits))}</div>'
 
 
 def split_layers(existing_text: str | None) -> tuple[str | None, str | None]:
@@ -633,7 +676,8 @@ def _author_html(note: dict[str, Any]) -> str:
 
 
 def _comments_html(
-    note: dict[str, Any], comments: list[dict[str, Any]], manifest: dict[str, Any], object_rel: str
+    note: dict[str, Any], comments: list[dict[str, Any]], manifest: dict[str, Any], object_rel: str,
+    capture: dict[str, Any] | None = None,
 ) -> str:
     """标签 + 互动 + 原站评论树。结构复杂又不用编辑，继续走 HTML。"""
     parts = [
@@ -641,9 +685,12 @@ def _comments_html(
         _tag_html(note.get("hashtags") or []),
         _engagement_html(note),
         '<div class="lb-comments">',
+        _comments_note_html(capture, comments),
     ]
+    gap_reasons = {str(g.get("comment_id") or ""): str(g.get("reason") or "")
+                   for g in (((capture or {}).get("comment_load") or {}).get("gaps") or [])}
     if comments:
-        parts.extend(_comment_html(c, object_rel, manifest) for c in comments)
+        parts.extend(_comment_html(c, object_rel, manifest, gap_reasons=gap_reasons) for c in comments)
     else:
         parts.append('<div class="lb-empty">暂无评论</div>')
     parts += ["</div>", "</section>"]
@@ -704,7 +751,7 @@ def render_content_block(
         body += '<details class="lb-transcript"><summary>视频文字稿</summary>' + _body_html(note['transcript']) + '</details>'
     if note.get('screen_text'):
         body += '<details class="lb-transcript"><summary>视频画面文字</summary>' + _body_html(note['screen_text']) + '</details>'
-    detail = _comments_html(note, comments, manifest, object_rel)
+    detail = _comments_html(note, comments, manifest, object_rel, source.get("capture"))
     # Owner 2026-09-15：头像/作者在**正文上方**（右栏顶部），不跟图片在左栏。
     # 左栏只有图片、sticky 固定；右栏 = 作者 → 正文 → 评论，随页滚动。
     if has_media:
@@ -1096,6 +1143,14 @@ def render_agent_md(
             seen_text += '\n' + kept
     lines += ["", "## 评论", ""]
     comments = source.get("comments") or []
+    cl = (source.get("capture") or {}).get("comment_load") or {}
+    if int(cl.get("replies_missing") or 0) > 0:
+        from .adapters import xiaohongshu as xhs
+        gaps = cl.get("gaps") or []
+        main = max(gaps, key=lambda g: int(g.get("missing") or 0)).get("reason") if gaps else cl.get("stop_reason")
+        lines.append(f"（评论读到 {cl.get('floors_loaded') or len(comments)} 楼，楼中楼还缺 {cl['replies_missing']} 条："
+                     f"{xhs.REPLY_GAP_CN.get(str(main or ''), '没读全')}；下面标「还缺」的楼不全）")
+        lines.append("")
     if comments:
         valuable = {x.get("id"): x.get("why") or "" for x in ex.get("valuable_comments") or []}
         noise = set(ex.get("ads_or_noise") or [])
@@ -1107,7 +1162,15 @@ def render_agent_md(
             elif label in noise:
                 mark = "（广告/噪音）"
             nickname = (c.get("author") or {}).get("nickname") or "匿名"
-            lines.append(f"{indent}- [{label}] {nickname}：{c.get('text')}{mark}")
+            gap = ""
+            if "." not in label:
+                try:
+                    short = int(c.get("sub_comment_count") or 0) - len(c.get("sub_comments") or [])
+                except (TypeError, ValueError):
+                    short = 0
+                if short > 0:
+                    gap = f"（还缺 {short} 条回复）"
+            lines.append(f"{indent}- [{label}] {nickname}：{c.get('text')}{mark}{gap}")
             for image in comment_images.get(str(c.get("comment_id") or ""), []):
                 lines.append(f"{indent}  - 评论图片：")
                 lines.extend(image_lines(image, indent + "    "))

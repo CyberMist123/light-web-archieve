@@ -38,8 +38,8 @@ MAX_ITEMS = 200          # 一次同步最多记几条标题（够看；防一�
 OPEN_STALE_HOURS = 8     # 没收尾、这么久没动 = 当它结束了（被强停 / 仓外脚本没调收尾）
 ENV_RUN = "LINK_BRAIN_SYNC_RUN"
 ENV_TRIGGER = "LINK_BRAIN_SYNC_TRIGGER"
-KINDS = ("note", "attachment", "video", "vision", "summary")
-KIND_CN = {"note": "正文", "attachment": "附件", "video": "视频", "vision": "识图", "summary": "概要"}
+KINDS = ("note", "attachment", "video", "vision", "summary", "comments")
+KIND_CN = {"note": "正文", "attachment": "附件", "video": "视频", "vision": "识图", "summary": "概要", "comments": "评论"}
 TRIGGER_CN = {"manual": "手动", "nightly": "夜跑", "schedule": "定时", "cli": "命令行", "retry": "重试",
               # 10-04：「导入网址」和问题面板 / 夜跑收尾的自愈轮以前不进同步记录
               "import": "手动导入", "repair": "自愈"}

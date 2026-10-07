@@ -254,8 +254,17 @@ SERVICE_RETRIES = 3
 SERVICE_BACKOFF = (20, 60)
 
 
-def _detail_kwargs(comment_floors: int | str | None) -> dict[str, Any]:
-    """评论楼层：10（默认，秒回）/ 20 / 50（滚评论区并展开楼中楼，限楼数）/ "all"（手动全量）。"""
+FILL_BUDGET_S = 540  # 续读一次给读取组件的评论预算（秒）；请求超时比它多 60 秒
+FILL_MAX_ATTEMPTS = 3  # 一篇最多续读几次（每次能多拿约 500 条回复；再多就是几千楼的帖子，如实标缺）
+FILL_GAP_HOURS = 20    # 两次续读同一篇至少隔这么久（同一晚别反复开同一页）
+
+
+def _detail_kwargs(comment_floors: int | str | None, expand_floors: list[str] | None = None) -> dict[str, Any]:
+    """评论楼层：10（默认，秒回）/ 20 / 50（滚评论区并展开楼中楼，限楼数）/ "all"（手动全量）。
+    expand_floors（1008 续读）：只展开这些楼，给足预算。"""
+    if expand_floors:
+        return {"full_comments": True, "comment_limit": 10, "timeout": FILL_BUDGET_S + 60,
+                "comment_budget_s": FILL_BUDGET_S, "expand_floors": list(expand_floors)}
     if comment_floors is None:
         from .ai_config import sync_options
         comment_floors = sync_options()["commentFloors"]
@@ -267,13 +276,13 @@ def _detail_kwargs(comment_floors: int | str | None) -> dict[str, Any]:
     return {"full_comments": True, "comment_limit": floors, "timeout": 600}
 
 
-def _fetch_with_retry(parsed: dict[str, Any], *, log, comment_floors=None, budget_left=None) -> Any:
+def _fetch_with_retry(parsed: dict[str, Any], *, log, comment_floors=None, budget_left=None, expand_floors=None) -> Any:
     """抓详情；服务没起来时隔一会儿重试（最多 SERVICE_RETRIES 次）。
 
     budget_left（1001）：返回「这一批还剩几秒」的函数。剩下的不够再等一轮 + 再抓一次的最坏耗时，就不重试了，
     直接把 ServiceDownError 抛给调用方——夜跑的同步步骤有外层限时，别在预算尽头又挂一个 10 分钟的请求被整棵杀。
     """
-    kwargs = _detail_kwargs(comment_floors)
+    kwargs = _detail_kwargs(comment_floors, expand_floors)
     from . import accounts
     for attempt in range(1, SERVICE_RETRIES + 1):
         accounts.pace("打开笔记")  # 1001：跨进程开页间隔（与附件、补看、读收藏共用一个时刻戳）
@@ -293,6 +302,64 @@ def _fetch_with_retry(parsed: dict[str, Any], *, log, comment_floors=None, budge
     raise AssertionError("unreachable")
 
 
+def _merge_fill(source: dict[str, Any], existing: Any, expanded: set[str], captured_at: str, log) -> dict[str, Any]:
+    meta = storage.read_json(storage.object_dir(xhs.SOURCE, source["source_id"]) / "meta.json")
+    old = storage.read_json(storage.raw_dir(xhs.SOURCE, source["source_id"], meta["current_version"]) / "source.json")
+    merged = xhs.merge_comments(old.get("comments") or [], source.get("comments") or [], expanded)
+    new_cl = source["capture"].get("comment_load")
+    if new_cl is not None:
+        new_cl = {**new_cl, "fill_last_at": captured_at}
+    cl = xhs.merge_comment_load((old.get("capture") or {}).get("comment_load"), new_cl, expanded, merged)
+    before = sum(len(c.get("sub_comments") or []) for c in old.get("comments") or [])
+    after = sum(len(c.get("sub_comments") or []) for c in merged)
+    log(f"续读合并：楼中楼 {before} → {after} 条，还缺 {(cl or {}).get('replies_missing', 0)} 条")
+    return {**source, "comments": merged, "capture": {**source["capture"], "comment_load": cl}}
+
+
+def _log_comment_load(source: dict[str, Any], log) -> None:
+    """评论读到哪一步、缺多少，进同步记录（1008 Owner：缺口要让人看到，不能悄悄少一截）。"""
+    cl = (source.get("capture") or {}).get("comment_load")
+    if not cl:
+        return
+    missing = int(cl.get("replies_missing") or 0)
+    item_id = f"xhs-{source['source_id']}"
+    title = (source.get("note") or {}).get("title")
+    try:
+        from . import synclog
+        if missing > 0:
+            why = xhs.REPLY_GAP_CN.get(_main_gap_reason(cl), "没读全")
+            fillable = _fillable(cl)
+            tail = "，下次同步接着读" if fillable else ""
+            synclog.note("comments", item_id, False, title=title, reason=f"楼中楼还缺 {missing} 条（{why}）{tail}",
+                         code="COMMENTS_PARTIAL", retry=["comments", item_id, "--fill"] if fillable else None)
+            log(f"评论：楼中楼还缺 {missing} 条（{why}）")
+        elif int(cl.get("fill_attempts") or 0) > 0:
+            synclog.note("comments", item_id, True, title=title)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[synclog] {type(exc).__name__}: {exc}", file=sys.stderr)
+
+
+def _main_gap_reason(cl: dict[str, Any]) -> str:
+    gaps = cl.get("gaps") or []
+    if not gaps:
+        return str(cl.get("stop_reason") or "")
+    return max(gaps, key=lambda g: int(g.get("missing") or 0)).get("reason") or str(cl.get("stop_reason") or "")
+
+
+def _fillable(cl: dict[str, Any]) -> bool:
+    """这篇还能不能续读：有能续的缺口、次数没用完。"""
+    if int(cl.get("replies_missing") or 0) <= 0 or int(cl.get("fill_attempts") or 0) >= FILL_MAX_ATTEMPTS:
+        return False
+    return any(g.get("reason") in xhs.RESUMABLE_GAPS and g.get("comment_id") for g in cl.get("gaps") or [])
+
+
+def fill_targets(cl: dict[str, Any]) -> list[str]:
+    """要续读的楼（comment_id），缺得多的在前。"""
+    gaps = [g for g in cl.get("gaps") or [] if g.get("reason") in xhs.RESUMABLE_GAPS and g.get("comment_id")]
+    gaps.sort(key=lambda g: -int(g.get("missing") or 0))
+    return [str(g["comment_id"]) for g in gaps]
+
+
 def ingest_url(
     target: str,
     *,
@@ -305,6 +372,7 @@ def ingest_url(
     comment_floors: int | str | None = None,
     parsed: dict[str, Any] | None = None,
     budget_left=None,
+    expand_floors: list[str] | None = None,
 ) -> dict[str, Any]:
     """抓一条链接并落一份不可变 RAW。返回摘要 dict（含 exit_code）。
 
@@ -362,7 +430,8 @@ def ingest_url(
             }
 
         log(f"MCP {xhs.MCP_TOOL} @ {xhs.MCP_ENDPOINT}")
-        raw = _fetch_with_retry(parsed, log=log, comment_floors=comment_floors, budget_left=budget_left)
+        raw = _fetch_with_retry(parsed, log=log, comment_floors=comment_floors, budget_left=budget_left,
+                                expand_floors=expand_floors)
         problems.resolve("ingest", None)  # 抓到了 = 读取服务好着：之前「服务没起来 / 超时」那几条步骤级问题算解决
 
         # 附件元数据只有笔记网页版有（MCP 不返回），游客可见；失败不阻断
@@ -395,6 +464,10 @@ def ingest_url(
 
         captured_at = now_iso()
         source = xhs.normalize(raw, parsed, captured_at=captured_at, web_probe=web_probe)
+        if expand_floors and existing is not None:
+            # 1008 续读：这次只展开了指定的楼，其它楼的楼中楼沿用上一版（不然新版本反而少了）
+            source = _merge_fill(source, existing, set(expand_floors), captured_at, log)
+        _log_comment_load(source, log)
         new_sha = index_mod.normalized_source_sha256(source)
 
         object_dir = storage.object_dir(xhs.SOURCE, parsed["note_id"])
@@ -579,7 +652,7 @@ def run(args) -> int:
     return summary["exit_code"]
 
 
-def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = False) -> dict[str, Any]:
+def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = False, fill: bool = False) -> dict[str, Any]:
     """手动抓一篇的评论区（Owner 0926：超过 50 楼 / 全量只在指定笔记上手动抓，不进每晚同步）。
 
     target 可以是 item_id（xhs-<note_id>）或链接；用归档里最新的 xsec_token 重抓（--refresh 语义，
@@ -598,21 +671,99 @@ def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = Fa
         meta = storage.read_json(storage.object_dir(row["source"], row["source_id"]) / "meta.json")
         note = storage.read_json(storage.raw_dir(row["source"], row["source_id"], meta["current_version"]) / "source.json")["note"]
         url = f"https://www.xiaohongshu.com/explore/{row['source_id']}?xsec_token={note.get('xsec_token') or ''}"
-    summary = ingest_url(url, refresh=True, comment_floors=floors, verbose=verbose)
+    expand = None
+    if fill:
+        if target.startswith("http"):
+            raise FileNotFoundError("续读要给已归档的 item_id")
+        cl = (storage.read_json(storage.raw_dir(row["source"], row["source_id"], meta["current_version"]) / "source.json")
+              .get("capture") or {}).get("comment_load") or {}
+        expand = fill_targets(cl)
+        if not expand:
+            return {"item_id": row["item_id"], "note_id": row["source_id"], "filled": False, "reason": "没有能续读的缺口",
+                    "comments": None, "sub_comments": None, "comments_complete": None, "version": meta["current_version"],
+                    "refreshed_unchanged": True}
+    summary = ingest_url(url, refresh=True, comment_floors=floors, verbose=verbose, expand_floors=expand)
     catch_mod._ensure_rendered(xhs.SOURCE, summary["note_id"], force=True, extract=False)
+    if fill:
+        summary["filled"] = not summary.get("refreshed_unchanged")
     return summary
+
+
+def pending_fills(*, limit: int = 0, now: datetime | None = None) -> list[tuple[str, str, dict[str, Any]]]:
+    """还有能续读缺口的篇：[(source, source_id, comment_load)]，缺得多的在前；20 小时内刚续过的跳过。"""
+    now = now or datetime.now().astimezone()
+    conn = index_mod.connect()
+    try:
+        rows = conn.execute("SELECT source, source_id FROM objects ORDER BY item_id").fetchall()
+    finally:
+        conn.close()
+    out = []
+    for r in rows:
+        try:
+            meta = storage.read_json(storage.object_dir(r["source"], r["source_id"]) / "meta.json")
+            cl = (storage.read_json(storage.raw_dir(r["source"], r["source_id"], meta["current_version"]) / "source.json")
+                  .get("capture") or {}).get("comment_load")
+        except (OSError, ValueError, KeyError):
+            continue
+        if not cl or not _fillable(cl):
+            continue
+        last = cl.get("fill_last_at")
+        if last:
+            try:
+                if (now - datetime.fromisoformat(str(last))).total_seconds() < FILL_GAP_HOURS * 3600:
+                    continue
+            except ValueError:
+                pass
+        out.append((r["source"], r["source_id"], cl))
+    out.sort(key=lambda x: -int(x[2].get("replies_missing") or 0))
+    return out[:limit] if limit else out
+
+
+def run_fill_pending(args) -> int:
+    """`comments --fill-pending [--limit N] [--budget-min M]`：夜跑步骤——给预算内能续读的篇各续一次。"""
+    import time
+    from .read import dump_json
+    budget = float(getattr(args, "budget_min", 0) or 0)
+    deadline = time.monotonic() + budget * 60 if budget > 0 else None
+    done, failed, skipped = [], [], 0
+    targets = pending_fills(limit=int(getattr(args, "limit", 0) or 0))
+    for i, (src, sid, cl) in enumerate(targets):
+        if deadline is not None and deadline - time.monotonic() < FILL_BUDGET_S + 120:
+            skipped = len(targets) - i
+            break
+        item_id = f"xhs-{sid}"
+        try:
+            out = fetch_comments(item_id, floors=10, fill=True, verbose=getattr(args, "verbose", False))
+            done.append({"item_id": item_id, "filled": out.get("filled"), "sub_comments": out.get("sub_comments")})
+        except xhs.NeedsHumanError as exc:
+            print(f"续读中止（账号或服务要处理）: {exc}", file=sys.stderr)
+            dump_json({"done": done, "failed": failed, "stopped": str(exc), "left": len(targets) - i})
+            return EXIT_NEEDS_HUMAN
+        except (xhs.AdapterError, FileNotFoundError, OSError) as exc:
+            failed.append({"item_id": item_id, "error": str(exc)[:200]})
+    dump_json({"candidates": len(targets), "done": done, "failed": failed, "deferred": skipped})
+    return EXIT_ERROR if failed and not done else EXIT_OK
 
 
 def run_comments(args) -> int:
     from .read import dump_json
+    if getattr(args, "fill_pending", False):
+        return run_fill_pending(args)
+    if not args.target:
+        print("要给 item_id 或链接（或用 --fill-pending）", file=sys.stderr)
+        return EXIT_ERROR
     try:
-        summary = fetch_comments(args.target, floors=args.floors if args.floors == "all" else int(args.floors),
-                                 verbose=getattr(args, "verbose", False))
+        floors = args.floors if args.floors == "all" else int(args.floors)
+        if getattr(args, "fill", False):
+            floors = 10
+        summary = fetch_comments(args.target, floors=floors, verbose=getattr(args, "verbose", False),
+                                 fill=getattr(args, "fill", False))
     except xhs.NeedsHumanError as exc:
         print(f"评论抓取中止（账号或服务要处理）: {exc}", file=sys.stderr)
         return EXIT_NEEDS_HUMAN
     except (xhs.AdapterError, FileNotFoundError) as exc:
         print(f"评论抓取失败: {exc}", file=sys.stderr)
         return EXIT_ERROR
-    dump_json({k: summary.get(k) for k in ("item_id", "note_id", "comments", "sub_comments", "comments_complete", "version", "refreshed_unchanged")})
+    dump_json({k: summary.get(k) for k in ("item_id", "note_id", "comments", "sub_comments", "comments_complete", "version",
+                                            "refreshed_unchanged", "filled", "reason") if k in summary})
     return 0

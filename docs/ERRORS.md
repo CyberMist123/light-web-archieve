@@ -57,6 +57,24 @@
 - **修法**：可疑 / 只读到一截退出 3 = 「原因已登记在 sync.favorites」，夜跑不另登记、只在汇总里留一行指过去（CONVENTIONS §2.8）；拼原因去重；有篇没抓到的附在同一条后面（「另有 N 篇没抓到：…」），不另起一条。
 - **回归用例**：`tests/test_self_heal_1004.py::test_nightly_partial_sync_no_reread_and_single_problem`、`tests/test_self_heal_1004.py::test_reason_dedup_message_and_detail`、`tests/test_self_heal_1004.py::test_partial_with_failed_notes_still_one_row_and_no_retry_code`。
 
+### 8. 一把 key 坏了，问题面板刷出 300 条「AI key 失效」（10-06 / 10-08）
+- **用户看到**：手动同步一次，问题列表「等你处理」里 254 条识图 + 42 条概要，每条都是「接口拒绝了 key（HTTP 403）」；看不出是哪把 key、为什么、要花多少补回来。
+- **根因**：概要 / 识图按篇登记问题（`enrich.summary|<篇>`、`vision.layer1|<篇>`），接口那一侧出事（key 无效 / 欠费 / 断网 / 限流）时每篇一条；而且这类失败还给这篇记失败次数，3 次就「连着没补成」退避几天——明明不是这篇的错。
+- **修法 / 自愈**（1008 Owner：一个原因一条）：接口那一侧的码（`AUTH_FAILED / QUOTA_EXCEEDED / NETWORK / HTTP_429 / HTTP_5XX / SERVICE_BUSY`）不再按篇记，归并到 `ai.summary / ai.vision / ai.refine / ai.embed` 一条（`link_brain/ai_health.py`）：原因写清**哪个接口、哪个模型、key 从哪来（尾号）、HTTP 多少、是 key 无效还是欠费还是断网、怎么办、影响了几篇、补齐这些篇约多少 token / 多少钱**（按库里实际平均量 × 官方单价，和「开始」页的估价同一套）。受影响的篇只记在 `_archive/ai-health.json`，本身留在待补、不记失败次数；同一批里连着 2 篇撞接口就收手（别逐篇白试）；接口再成功一次这条就消。换好 key 后点这条的「现在修」= 补跑。老记录里按篇登的那几百条在下次打开面板时自动折成一条。
+- **回归用例**：`tests/test_ai_health_1008.py::test_record_folds_many_items_into_one_row_with_cause_key_and_estimate`、`tests/test_ai_health_1008.py::test_enrich_api_failure_is_one_row_no_fails_and_batch_stops`、`tests/test_ai_health_1008.py::test_legacy_per_item_rows_fold_into_one`、`tests/test_ai_health_1008.py::test_item_own_failure_still_counts`。
+
+### 9. 选了轻量版还在报「AI 概要失败」（10-08）
+- **用户看到**：「开始」页选的是「轻量版（不要任何 key）」，问题面板却有概要 / 识图失败。
+- **根因**：功能选择只影响「开始」页的勾选，后端照旧按设置里有没有配接口来决定跑不跑 AI。轻量版本来就是另一种模式，不该跑、更不该报失败。
+- **修法**：`providers.resolve` 按 `setup.selected` 门禁——没勾「AI 问答 · 概要 · 打标」就不跑概要 / 问答 / 向量索引，没勾「识图」就不跑识图，`extracted.json` 记 `skipped`（灰色「未开启」，不是失败），原因写明去「开始」页勾上。门禁只在插件把「已配好 key 的 AI 组件」对齐回 `selected` 之后生效（`setup.aiSynced`），升级当晚不会把人家在用的 AI 关掉。
+- **回归用例**：`tests/test_ai_health_1008.py::test_light_preset_turns_ai_off_with_reason`、`tests/test_ai_health_1008.py::test_light_preset_enrich_marks_skipped_not_failed`、`tests/test_ai_health_1008.py::test_recommended_or_no_selection_keeps_ai`。
+
+### 10. 超长评论区的楼中楼拿不全，页面还写着「展开 N 条回复」（10-07 / 10-08）
+- **用户看到**：一楼有上千条回复的笔记，归档里只有几百条；可见页每楼下面一句「展开 1153 条回复」像个能点的按钮，其实什么都没有；同步记录里也看不出评论少了。
+- **根因**：①读取组件一次请求的评论预算 480 秒用完就 `cancelled`，Python 没把 `comment_load.replies_partial` 存下来，下次同步又从头读、读到同样的地方停；②读取组件把「已展开完但页面状态里 `subCommentHasMore` 陈旧为 true」的楼也算缺口，`floors_expanded` 一直是 0 / 1，真缺口被淹没；③渲染层拿 `sub_comment_count` 和已有回复数一比就写「展开 N 条回复」。
+- **修法 / 自愈**：读取组件（r03）：没按钮且已加载 ≥ 显示数的楼算展开到底；新参数 `expand_floors`（只展开指定楼）+ `floors_not_found`。Python：`capture.comment_load` 存判停原因、读到几楼、每楼缺多少（只留 `missing>0`）；可见页顶上一行「评论读到 N 楼，楼中楼还缺 M 条（原因，下次同步接着读）」、每楼如实写「还有 N 条回复没拿到（原因）」；机读版同样标；同步记录多一项「评论 ❌ 楼中楼还缺 M 条」带续读命令。续读 `comments <id> --fill` 只展开缺口楼（预算 540 秒），合并进新 RAW 版本（其它楼沿用上一版）；夜跑新步骤 `comments --fill-pending` 每晚最多 2 篇、同一篇间隔 ≥ 20 小时、最多 3 次，之后页面写「已续读 3 次，剩下的太长不再读」。不进问题记录（不是故障，是如实标缺）。
+- **回归用例**：`tests/test_comments_fill_1008.py::test_compact_drops_zero_missing_and_sums`、`tests/test_comments_fill_1008.py::test_ingest_records_gap_everywhere`、`tests/test_comments_fill_1008.py::test_fill_expands_only_gap_floors_and_merges`、`tests/test_comments_fill_1008.py::test_pending_fills_respects_attempts_and_gap_hours`、`tests/test_comments_fill_1008.py::test_fill_pending_cli_and_nightly_step`。
+
 ---
 
 ## 二、故障码对照（用户看到 → 常见根因 → 自愈动作）
@@ -67,7 +85,8 @@
 | 码 | 用户看到 | 常见根因 | 同次 | 自愈轮 | 现在修 / 下一步 |
 |---|---|---|---|---|---|
 | `NEEDS_HUMAN.NOT_LOGGED_IN` / `CAPTCHA_REQUIRED` / `ACCOUNT_RISK` / `RISK_HOLD` / `ACCOUNT_BLOCKED` / `WRONG_ACCOUNT` / `NOT_INSTALLED` | 需要登录 / 需要验证 / 账号风控 / 风控暂停中 / 账号要处理 / 登错号 / 未安装读取组件 | 号掉登录、撞安全验证、被跳到风控页、熔断中、登的不是同步号、组件没装 | 立即停车，不重试 | — | 人工：扫码登录 / 打开验证 / 账号与同步 |
-| `NEEDS_HUMAN.AUTH_FAILED` / `QUOTA_EXCEEDED` | AI key 失效 / AI 余额不足 | 401/403、欠费；向量索引拿不到 key | 不重试（重试没用） | — | 人工：打开设置换 key / 充值 |
+| `NEEDS_HUMAN.AUTH_FAILED` / `QUOTA_EXCEEDED`（step `ai.summary / ai.vision / ai.refine / ai.embed`，1008 起不按篇记） | AI key 失效 / AI 余额不足：一条写清哪个接口、哪把 key（尾号）、HTTP、原因、影响几篇、补齐约多少 token / 钱 | 401/403、欠费；向量索引拿不到 key | 不重试（重试没用）；同批连着 2 篇撞上就收手 | — | 人工：打开设置换 key / 充值，然后点这条的「现在修」补跑 |
+| `TRANSIENT.NETWORK` / `HTTP_429` / `HTTP_5XX` / `SERVICE_BUSY`（step `ai.*`） | 连不上接口 / 限流 / 接口那侧出错：同样一条，带影响几篇 | 断网、代理没开、接口地址错、限额、服务抖动 | 同批连着 2 篇撞上就收手，这篇不记失败次数 | ✔ 补跑待补的识图 / 概要 | 接口好了自动补；也可点「现在修」 |
 | `NEEDS_HUMAN.STUCK` | 连续几天没修好 | 同一步的临时故障连着 3 个日历日都在 | — | — | 「现在修」= 那一步各篇一起修 |
 | `NEEDS_HUMAN.SYNC_STUCK` | 同步卡住了 | 一次同步占着号几小时没进展 | — | — | 人工：重启 Obsidian / 结束那个进程；下一晚夜跑开头自动消 |
 | `NEEDS_HUMAN.BACKUP_DISK_MISSING` / `PORT_IN_USE` | 备份盘没挂 / 远程阅读端口被占用 | 外接盘没插 / 端口被别的程序占 | — | — | 人工 |

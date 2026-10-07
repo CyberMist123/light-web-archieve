@@ -441,10 +441,18 @@ def extract(source_key: str, source_id: str, *, force: bool = False, verbose: bo
         "error": error,
         "data": data,
     }
+    from . import ai_health
+    api_side = not data and ai_health.is_api_failure({"code": code, "api_error": bool(result.get("api_error"))})
+    if api_side:
+        doc["api_error"] = True  # 接口那一侧的事，不是这篇的：enrich 不给这篇记失败次数（见 enrich._child）
     storage.write_json(extracted_path(source_key, source_id), doc)
     if data:
         problems.resolve("enrich.summary", item_id)
         problems.resolve("enrich.summary", None, "SKIPPED.NOT_CONFIGURED")
+        ai_health.clear("summaryAI")
+    elif api_side:
+        # 1008 Owner：key 失效 / 欠费 / 断网一个原因一条，归并到 ai.summary，不按篇刷屏
+        ai_health.record("summaryAI", {**result, "code": code}, item_id=item_id, cfg=used_cfg)
     else:
         problems.report("enrich.summary", code, error or "概要没生成", item_id=item_id, title=title)
     return doc

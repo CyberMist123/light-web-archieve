@@ -98,6 +98,9 @@ def default_steps() -> list[Step]:
         Step("attachments --all", ["attachments", "--all", "--budget-min", "30"], 35, account=True),
         Step("attachments --recheck", ["attachments", "--recheck", "--limit", "20", "--budget-min", "20"], 25,
              account=True),
+        # 4b) 评论续读（1008 Owner：超长评论区一次读不完，下次接着读）：碰号，每晚最多 2 篇、各约 9 分钟
+        Step("comments --fill-pending", ["comments", "--fill-pending", "--limit", "2", "--budget-min", "22"], 25,
+             account=True),
         # 5) 识图 + 概要：只对本地已存的原文跑，不碰号
         Step("enrich --pending", ["enrich", "--pending", "--budget-min", "60"], 70),
         # 6) 识图第一层补跑
