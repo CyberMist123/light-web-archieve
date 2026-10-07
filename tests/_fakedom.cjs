@@ -18,6 +18,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const { makeMiniMd } = require('./_mini_md.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const asset = name => fs.readFileSync(path.join(ROOT, 'link_brain', 'assets', name), 'utf8');
@@ -509,12 +510,13 @@ function dataviewBlock({ dom, app, code, params = {}, folder = '', mode = 'readi
     if (editBtn) section.insertBefore(container, editBtn); else section.append(container);
     if (mode === 'live' && !editBtn) section.createEl('div', { cls: 'edit-block-button', attr: { 'aria-label': 'Edit this block' } });
     const component = newComponent();
+    // dv.el / paragraph / header / span：和 Dataview 一样把字符串按行内 markdown 渲染（**粗体**、`代码`、![[图]]），手机兜底页用
+    const md = makeMiniMd();
     const dv = { container, component, current: () => ({ file: { folder, path: (folder ? folder + '/' : '') + 'page.md' } }), page: () => null,
-      paragraph(t) { container.createEl('p', { text: t }); },
-      // 极简 markdown：# 标题 / 段落 / - 列表（手机兜底页用）
-      el(tag, text) { const el = container.createEl(tag); el.textContent = String(text ?? ''); return el; },
-      header(level, text) { return container.createEl('h' + level, { text }); },
-      span(text) { return container.createEl('span', { text }); } };
+      el(tag, text, attrs = {}) { const el = container.createEl(tag, attrs); md.renderInline(text, el); return el; },
+      paragraph(t, attrs) { return dv.el('p', t, attrs); },
+      header(level, text, attrs) { return dv.el('h' + level, text, attrs); },
+      span(text, attrs) { return dv.el('span', text, attrs); } };
     return { container, component, dv };
   };
   cur = mkContainer();

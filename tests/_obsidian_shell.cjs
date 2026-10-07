@@ -375,8 +375,9 @@ function shellRuntime(cfg) {
   const shell = W.__shell = { container: D.querySelector(sel.container), component: makeComponent(), runs: 0, errors: [], params: cfg.params || {} };
   shell.section = shell.container && shell.container.parentElement;
   shell.dv = () => ({ container: shell.container, component: shell.component, current: () => ({ file: { folder: cfg.folder || '', path: cfg.pagePath || ((cfg.folder ? cfg.folder + '/' : '') + 'page.md') } }), page: () => null,
-    paragraph: t => { const e = D.createElement('p'); e.textContent = String(t); shell.container.appendChild(e); return e; },
-    el: (tag, text) => { const e = D.createElement(tag); e.textContent = String(text ?? ''); shell.container.appendChild(e); return e; },
+    // 和 Dataview 一样：字符串按行内 markdown 渲染（**粗体** / `代码` / ![[图]]）
+    paragraph: t => shell.dv().el('p', t),
+    el: (tag, text) => { const e = D.createElement(tag); W.__miniMd.renderInline(text, e); shell.container.appendChild(e); return e; },
     header: (lv, text) => shell.dv().el('h' + lv, text), span: text => shell.dv().el('span', text) });
   shell.run = async () => {
     if (!cfg.code) return;
@@ -399,7 +400,7 @@ function shellRuntime(cfg) {
 function loadPlaywright() { try { return require('playwright'); } catch { return null; } }
 function requirePlaywright() {
   const pw = loadPlaywright();
-  if (!pw) { console.log('SKIP 没装 playwright：UI 层没跑（按 tests/README 或批次 D 地基说明接上共享 node_modules 后再跑 npm run test:ui）'); process.exit(SKIP); }
+  if (!pw) { console.log('SKIP 没装 playwright：UI 层没跑（照 docs/CONVENTIONS.md §7.7 接上共享 node_modules 后再跑 npm run test:ui）'); process.exit(SKIP); }
   return pw;
 }
 // 默认 msedge（本机标准路径有）；LWA_PW_CHANNEL='' 用 playwright 自带的 chromium；起不来就退回自带的
@@ -533,9 +534,10 @@ function makeHandle(page, host, errors) {
   return S;
 }
 
-// 笔记页：mdHtml = 生产 render 出来的笔记 HTML（顶栏 callout + .lb-note 块）；annotate:true（默认）末尾带批注块容器；code 给了就在批注块里跑
+// 笔记页：mdHtml = 生产 render 出来的笔记 HTML（顶栏 callout + .lb-note 块）；annotate:true（默认）末尾带批注块容器；
+// kind:'annotate'（要带 params:{itemId, notePath} 和 files 里的 notes.json）或 code 给了就在批注块里跑
 async function openNote(page, opts = {}) {
-  return openPage(page, { ...opts, host: 'note-reading', kind: opts.kind || (opts.code ? null : null), run: !!opts.code });
+  return openPage(page, { ...opts, host: 'note-reading', kind: opts.kind || null, run: !!(opts.code || opts.kind) });
 }
 // L5 草案里的名字：notePage(page, {mdHtml, css, theme, width})
 async function notePage(page, { mdHtml = '', css = [], theme = 'light', width = null, ...rest } = {}) {

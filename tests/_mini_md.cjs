@@ -48,7 +48,9 @@ function makeMiniMd() {
     let disposed = false;
     return Promise.resolve({ dispose() { if (disposed) return; disposed = true; stats.disposes++; stats.live--; } });
   }
-  return { render, stats, reset() { stats.renders = 0; stats.disposes = 0; stats.live = 0; } };
+  // 只渲染行内（**粗体** / `代码` / ![[图]] / [来源N]），不包 <p>：Dataview 的 dv.el / dv.paragraph 对字符串就是这样渲染的
+  function renderInline(text, el) { inline(el.ownerDocument || document, el, String(text ?? '')); return el; }
+  return { render, renderInline, stats, reset() { stats.renders = 0; stats.disposes = 0; stats.live = 0; } };
 }
 
 function miniMdSource(name = '__miniMd') {
