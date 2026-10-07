@@ -21,7 +21,6 @@ from . import attachments as attachments_mod
 from . import llm as llm_mod
 from . import mdsafe
 from . import vision as vision_mod
-from .ocrtext import reflow_ocr
 
 
 def dedupe_lines(text: str, seen: str = '') -> str:
@@ -1012,6 +1011,47 @@ def link_label(url: str, limit: int = 60) -> str:
     return re.sub(r"([*_])", r"\\\1", text)
 
 
+AGENT_SOFT_LIMIT = 10000
+AGENT_MIN_ROOM = 3000
+# 全文超过软上限时依次压：评论 → 图片 → 画面文字（正文、概要不动）。每档 = (评论条数, 评论字数, 图片总字数, 画面文字字数)
+_AGENT_BUDGETS = [
+    (30, 3000, 3000, 1500),
+    (20, 2000, 3000, 1500),
+    (12, 1000, 3000, 1500),
+    (12, 1000, 1500, 1500),
+    (12, 1000, 1500, 800),
+    (6, 500, 800, 400),
+]
+
+
+def _url_key(url: str) -> str:
+    return re.sub(r"^https?://", "", str(url or "").strip(), flags=re.I).rstrip("/").lower()
+
+
+def agent_info_line(note: dict[str, Any], meta: dict[str, Any]) -> str:
+    """标题下一行：来源 · 作者 · 发布日期 · 点赞/收藏/评论 · 版本（原「数据点」「元信息」两节合并；None 不写）。"""
+    parts = []
+    if meta.get("canonical_url") or note.get("canonical_url"):
+        parts.append(f"来源 {meta.get('canonical_url') or note.get('canonical_url')}")
+    nickname = ((note.get("author") or {}).get("nickname") or "").strip()
+    if nickname:
+        parts.append(f"作者 {nickname}")
+    if note.get("published_at") or meta.get("published_at"):
+        parts.append(f"发布 {_date(note.get('published_at') or meta.get('published_at'))}")
+    engagement = note.get("engagement") or {}
+    names = {"liked": "赞", "collected": "藏", "comment_count": "评", "shared": "转"}
+    stats = [f"{names.get(k, k)} {v}" for k, v in engagement.items() if v is not None and str(v) != ""]
+    if stats:
+        parts.append(" / ".join(stats))
+    if meta.get("current_version"):
+        parts.append(f"v{meta['current_version']}")
+    if meta.get("images_complete") is False:
+        parts.append("图片没下全")
+    if meta.get("comments_complete") is False:
+        parts.append("评论没读全")
+    return " · ".join(parts)
+
+
 def render_agent_md(
     *,
     source: dict[str, Any],
@@ -1019,32 +1059,51 @@ def render_agent_md(
     meta: dict[str, Any],
     extracted: dict[str, Any] | None = None,
 ) -> str:
+    """机读版（给 AI 读）。10-08 批次 B 精简：空节不写、数据点 / 元信息并成标题下一行、图片和评论去噪限额，
+    全文软上限约 1 万字（超了依次压评论 → 图片 → 画面文字，正文和概要不动）。规则细节在 agentmd.py。"""
+    from rapidfuzz import fuzz
+
+    from . import agentmd
+
     note = source["note"]
     title = note.get("title") or meta.get("title") or "（无标题）"
     ex = extracted or {}
+    comments = source.get("comments") or []
+    labeled = llm_mod.comment_labels(comments)
+    label_by_cid = {str(c.get("comment_id") or ""): label for label, c in labeled if c.get("comment_id")}
 
-    lines = [f"# {title}", "", "## 概要", ""]
-    lines.append(ex.get("summary") or "（未生成）")
+    head = [f"# {title}"]
+    info = agent_info_line(note, meta)
+    if info:
+        head += ["", info]
 
-    lines += ["", "## 重要细节", ""]
-    key_points = ex.get("key_points") or []
+    fixed: list[tuple[str, list[str]]] = []   # 不参与压缩的节
+    summary = str(ex.get("summary") or "").strip()
+    if summary:
+        fixed.append(("## 概要", [summary]))
+    summary_norm = agentmd.norm(summary)
+    key_points = [str(x) for x in ex.get("key_points") or [] if str(x).strip()]
+    if summary_norm:
+        key_points = [x for x in key_points if not (agentmd.norm(x) in summary_norm
+                                                    or fuzz.partial_ratio(agentmd.norm(x), summary_norm) >= 90)]
     if key_points:
-        lines.extend(f"- {x}" for x in key_points)
-    else:
-        lines.append("（未生成）")
+        fixed.append(("## 重要细节", [f"- {x}" for x in key_points]))
 
-    lines += ["", "## 数据点", ""]
-    engagement = note.get("engagement") or {}
-    if engagement:
-        lines.extend(f"- {k}: {v}" for k, v in engagement.items())
-    else:
-        lines.append("（未生成）")
-
-    lines += ["", "## 外链", ""]
-    links = note.get("links") or []
-    link_lines = [
-        f"- [{x.get('text') or x.get('url')}]({x.get('url')})（{x.get('where')}）" for x in links
-    ]
+    # 外链：同一个 URL 只写一次；没有 http 链接的「小模型建议」不写
+    link_lines: list[str] = []
+    seen_urls: dict[str, int] = {}
+    for x in note.get("links") or []:
+        url = x.get("url")
+        key = _url_key(url)
+        if not url or key in seen_urls:
+            continue
+        where = str(x.get("where") or "")
+        if where.startswith("comment:"):
+            where = f"评论 {label_by_cid.get(where.split(':', 1)[1], '')}".strip()
+        elif where == "body":
+            where = "正文"
+        seen_urls[key] = len(link_lines)
+        link_lines.append(f"- [{x.get('text') or link_label(url)}]({url})" + (f"（{where}）" if where else ""))
     for att in note.get("attachments") or []:
         target = att.get("file") or att.get("url") or ""
         doc_id = att.get("doc_id")
@@ -1057,17 +1116,24 @@ def render_agent_md(
     for x in ex.get("links_worth_opening") or []:
         why = x.get("why") or ""
         url = suggested_link_url(x.get("url"))
-        if url:
-            # 第 6 批：链接只包 URL 本身，建议文字放链接后面当普通文本（以前 URL 和全角括号粘一起，Obsidian 认成一整条链接、点不开）
-            link_lines.append(f"- [{link_label(url)}]({url}) — 小模型建议" + (f"：{why}" if why else ""))
-        elif x.get("hint"):
-            link_lines.append(f"- {x['hint']}（小模型建议，原帖没给链接：{why}）")
+        if not url:
+            continue
+        key = _url_key(url)
+        if key in seen_urls:
+            if why and seen_urls[key] >= 0:
+                link_lines[seen_urls[key]] += f" — 小模型建议：{why}"
+                seen_urls[key] = -1
+            continue
+        seen_urls[key] = -1
+        # 第 6 批：链接只包 URL 本身，建议文字放链接后面当普通文本（以前 URL 和全角括号粘一起，Obsidian 认成一整条链接、点不开）
+        link_lines.append(f"- [{link_label(url)}]({url}) — 小模型建议" + (f"：{why}" if why else ""))
     if link_lines:
-        lines.extend(link_lines)
-    else:
-        lines.append("（未生成）")
+        fixed.append(("## 外链", link_lines))
 
-    lines += ["", "## 原文", "", note.get("body") or "（未生成）", "", "## 图片 OCR", ""]
+    body = note.get("body") or ""
+    if body.strip():
+        fixed.append(("## 原文", [body]))
+
     all_images = (vision or {}).get("images") or []
     # 0927 Owner：评论区图片的识别结果挂到它所在的那条评论下面，不混在正文图片里
     comment_images: dict[str, list[dict[str, Any]]] = {}
@@ -1079,116 +1145,108 @@ def render_agent_md(
         else:
             images.append(image)
 
-    def image_lines(image: dict[str, Any], indent: str) -> list[str]:
-        if image.get("status") != "ok":
-            return [f"{indent}- {image['asset']}：（识别失败：{image.get('error')}）"]
-        visual = image.get("visual") or {}
-        refined = image.get("refined") or {}
-        # 0928：原图路径写在每张图末尾——机读版看不懂时 AI 直接去看原图，或点名精细识别
-        # 10-03：写收藏库内的相对路径，不写本机绝对路径（远程阅读会把机读版原样发给远端客户端；
-        # 远端用 read_asset 按这个相对路径看原图，本机 AI 拼上收藏库位置即可）
-        origin = ""
-        if meta.get("source_id"):
-            pic = storage.object_dir('xiaohongshu', meta['source_id']) / image['asset']
+    def origin(asset: str) -> str:
+        # 10-03：写收藏库内的相对路径，不写本机绝对路径（远程阅读会把机读版原样发给远端，远端用 read_asset 按它看原图）
+        if not meta.get("source_id"):
+            return asset
+        pic = storage.object_dir("xiaohongshu", meta["source_id"]) / asset
+        try:
+            return pic.relative_to(storage.vault_root()).as_posix()
+        except ValueError:
+            return asset
+
+    # 0926 Owner：机读版查重——文字稿 / 画面文字里跟正文或前面重复的句子只留一次
+    transcript = dedupe_lines(agentmd.merge_stutter(note.get("transcript") or ""), body)
+    if len(transcript) > agentmd.TRANSCRIPT_PARAGRAPH:
+        transcript = agentmd.paragraphs(transcript)
+    screen = agentmd.screen_units(note.get("screen_text") or "", body + "\n" + transcript,
+                                  legacy=not note.get("screen_v"))
+
+    # 评论：先算出每楼要写的行，再按预算挑
+    valuable = {x.get("id"): x.get("why") or "" for x in ex.get("valuable_comments") or []}
+    noise = set(ex.get("ads_or_noise") or [])
+    author_id = str((note.get("author") or {}).get("user_id") or "")
+    comment_rows: dict[str, list[str]] = {}
+    with_text: set[str] = set()
+    for label, c in labeled:
+        indent = "  " if "." in label else ""
+        mark = f"（值得看：{valuable[label]}）" if label in valuable else ""
+        nickname = (c.get("author") or {}).get("nickname") or "匿名"
+        if author_id and str((c.get("author") or {}).get("user_id") or "") == author_id:
+            nickname += "（作者）"
+        gap = ""
+        if "." not in label:
             try:
-                pic_text = pic.relative_to(storage.vault_root()).as_posix()
-            except ValueError:
-                pic_text = pic.name
-            origin = f"{indent}  - 细节以原图为准：{pic_text}（远程阅读用 read_asset 看原图）"
-        pending = (image.get("refine") or {}).get("status") == "pending"
-        if refined.get("status") == "ok":
-            label = {"table": "表格·精细识别", "diagram": "流程图·精细识别", "text": "文字·精细识别"}[refined["kind"]]
-            out = [f"{indent}- {image['asset']}（{label}）："] + [f"{indent}  " + row for row in refined["text"].splitlines()]
-            if refined.get("kind") == "diagram":
-                # R2 10-04：二层 Mermaid 会丢非结构文字（黑椒图丢了「小贴士」4 条），图下折叠附一层 OCR 原文。
-                # 每行都缩进、不留空行：HTML 块遇空行就断，缩进不够会跳出这条列表项。
-                raw = [str(line.get("text", "")) if isinstance(line, dict) else str(line)
-                       for line in image.get("lines") or []] or str(image.get("ocr") or "").splitlines()
-                raw = [row for row in (r.strip() for r in raw) if row]
-                if raw:
-                    out += [f'{indent}  <details><summary>一层 OCR 原文（识别结果，未经精细识别）</summary>',
-                            f'{indent}  <pre>' + _safe(raw[0])] + [f'{indent}  {_safe(row)}' for row in raw[1:]]
-                    out[-1] += '</pre>'
-                    out.append(f'{indent}  </details>')
-            return out + ([origin] if origin else [])
-        if visual.get("status") == "ok" and visual.get("v") and visual.get("kind") in ("table", "diagram", "text"):
-            # 0927：新版识图已按图纠过错，直接用它；原始 OCR 留在 vision.json
-            label = {"table": "表格", "diagram": "流程图要点", "text": "文字（按图校对）"}[visual["kind"]]
-            label += "，待精细识别" if pending else ""
-            out = [f"{indent}- {image['asset']}（{label}）："] + [f"{indent}  " + row for row in visual["text"].splitlines()]
-            return out + ([origin] if origin else [])
-        text =(reflow_ocr(image.get('ocr')) or '（无文字）').replace("\n", "\n" + indent + "  ") if indent else (reflow_ocr(image.get('ocr')) or '（无文字）')
-        out = [f"{indent}- {image['asset']}：{text}"]
-        visual = image.get("visual") or {}
-        if visual.get("status") == "ok":
-            label = {"table": "表格", "title": "标题图"}.get(visual.get("kind"), "图片描述")
-            out.append(f"{indent}  - （{label}）")
-            out.extend(f"{indent}    " + row for row in visual["text"].splitlines())
-        if origin and visual.get("kind") != "title":
-            out.append(origin)
-        return out
+                short = int(c.get("sub_comment_count") or 0) - len(c.get("sub_comments") or [])
+            except (TypeError, ValueError):
+                short = 0
+            if short > 0:
+                gap = f"（还缺 {short} 条回复）"
+        text = re.sub(r"\s*\n\s*", " ", str(c.get("text") or "")).strip()
+        rows = [f"{indent}- [{label}] {nickname}：{text}{mark}{gap}"]
+        for image in comment_images.get(str(c.get("comment_id") or ""), []):
+            asset = str(image.get("asset") or "")
+            got = agentmd.comment_image_text(image)
+            m = re.search(r"-(\d+)\.\w+$", asset)
+            name = f"评论图{int(m.group(1))} {agentmd.asset_name(asset)}" if m else agentmd.asset_name(asset)
+            why = agentmd.shaky(image)
+            if got:
+                with_text.add(label)
+                rows.append(f"{indent}  - {name}：{got}")
+            if why and (got or image.get("status") != "ok"):
+                rows.append(f"{indent}  - {name} 识别没把握（{why}），原图：{origin(asset)}")
+        comment_rows[label] = rows
 
-    if images:
-        for image in images:
-            lines.extend(image_lines(image, ""))
-    else:
-        lines.append("（未生成）")
-
-    # 0926 Owner：机读版查重——文字稿/画面文字里跟正文或前面重复的句子只留一次（歌词副歌、字幕逐帧重复常见）
-    seen_text = note.get('body') or ''
-    for key, heading in (('transcript', '## 视频文字稿'), ('screen_text', '## 视频画面文字')):
-        kept = dedupe_lines(note.get(key) or '', seen_text)
-        if kept:
-            lines += ['', heading, '', kept]
-            seen_text += '\n' + kept
-    lines += ["", "## 评论", ""]
-    comments = source.get("comments") or []
     cl = (source.get("capture") or {}).get("comment_load") or {}
+    gap_line: list[str] = []
     if int(cl.get("replies_missing") or 0) > 0:
         from .adapters import xiaohongshu as xhs
         gaps = cl.get("gaps") or []
         main = max(gaps, key=lambda g: int(g.get("missing") or 0)).get("reason") if gaps else cl.get("stop_reason")
-        lines.append(f"（评论读到 {cl.get('floors_loaded') or len(comments)} 楼，楼中楼还缺 {cl['replies_missing']} 条："
-                     f"{xhs.REPLY_GAP_CN.get(str(main or ''), '没读全')}；下面标「还缺」的楼不全）")
-        lines.append("")
-    if comments:
-        valuable = {x.get("id"): x.get("why") or "" for x in ex.get("valuable_comments") or []}
-        noise = set(ex.get("ads_or_noise") or [])
-        for label, c in llm_mod.comment_labels(comments):
-            indent = "  " if "." in label else ""
-            mark = ""
-            if label in valuable:
-                mark = f"（值得看：{valuable[label]}）"
-            elif label in noise:
-                mark = "（广告/噪音）"
-            nickname = (c.get("author") or {}).get("nickname") or "匿名"
-            gap = ""
-            if "." not in label:
-                try:
-                    short = int(c.get("sub_comment_count") or 0) - len(c.get("sub_comments") or [])
-                except (TypeError, ValueError):
-                    short = 0
-                if short > 0:
-                    gap = f"（还缺 {short} 条回复）"
-            lines.append(f"{indent}- [{label}] {nickname}：{c.get('text')}{mark}{gap}")
-            for image in comment_images.get(str(c.get("comment_id") or ""), []):
-                lines.append(f"{indent}  - 评论图片：")
-                lines.extend(image_lines(image, indent + "    "))
-    else:
-        lines.append("（未生成）")
+        gap_line = [f"（评论读到 {cl.get('floors_loaded') or len(comments)} 楼，楼中楼还缺 {cl['replies_missing']} 条："
+                    f"{xhs.REPLY_GAP_CN.get(str(main or ''), '没读全')}；下面标「还缺」的楼不全）", ""]
 
-    lines += [
-        "", "## 元信息", "",
-        f"- item_id: {meta.get('item_id')}",
-        f"- canonical_url: {meta.get('canonical_url')}",
-        f"- current_version: {meta.get('current_version')}",
-        f"- images_complete: {meta.get('images_complete')}",
-        f"- comments_complete: {meta.get('comments_complete')}",
-        f"- attachments_status: {meta.get('attachments_status')}",
-        f"- extracted: {'ok' if extracted else '未生成'}",
-    ]
+    def build(budget: tuple[int, int, int, int]) -> tuple[str, int]:
+        n_comments, n_chars, image_total, screen_total = budget
+        sections = list(fixed)
+        image_rows = agentmd.image_section(images, origin, image_total)
+        if image_rows:
+            sections.append(("## 图片 OCR", image_rows))
+        if transcript:
+            sections.append(("## 视频文字稿", [transcript]))
+        if screen:
+            sections.append(("## 视频画面文字", agentmd.cap_units(screen, screen_total)))
+        if labeled:
+            chosen, why = agentmd.select_comments(labeled, author_id=author_id, valuable=set(valuable), noise=noise,
+                                                  with_text=with_text, max_count=n_comments, max_chars=n_chars)
+            rows = list(gap_line)
+            for label, _ in labeled:
+                if label in chosen:
+                    rows += comment_rows[label]
+            skipped = len(labeled) - len(chosen)
+            if skipped:
+                detail = "，".join(x for x in [f"水话 / 噪音 {why['chatter']} 条" if why["chatter"] else "",
+                                                 f"超出上限 {skipped - why['chatter']} 条" if skipped > why["chatter"] else ""] if x)
+                rows.append(f"（另有 {skipped} 条评论略去：{detail}）")
+            sections.append(("## 评论", rows))
+        elif gap_line:
+            sections.append(("## 评论", gap_line[:1]))
+        lines = list(head)
+        squeezable = 0
+        for heading, rows in sections:
+            lines += ["", heading, ""] + rows
+            if heading in ("## 图片 OCR", "## 视频画面文字", "## 评论"):
+                squeezable += sum(len(r) + 1 for r in rows)
+        return "\n".join(lines), squeezable
+
+    text = ""
+    for budget in _AGENT_BUDGETS:
+        text, squeezable = build(budget)
+        # 正文 / 概要 / 文字稿本身就超了上限时，可压的三节仍给 AGENT_MIN_ROOM 字（不为长口播把评论压到没有）
+        if len(text) <= AGENT_SOFT_LIMIT or squeezable <= max(AGENT_SOFT_LIMIT - (len(text) - squeezable), AGENT_MIN_ROOM):
+            break
     # 1001 审计 C-2：正文/评论/识图都是别人写的，机读版整份过清洗，别让 Dataview 当代码执行
-    return mdsafe.neutralize("\n".join(lines)) + "\n"
+    return mdsafe.neutralize(text) + "\n"
 
 
 def brief_summary(source: dict[str, Any], extracted: dict[str, Any] | None = None) -> str:
@@ -1273,6 +1331,7 @@ def render_object(
     transcript = transcript_doc.get('text', '')
     source_doc['note']['transcript'] = transcript
     source_doc['note']['screen_text'] = (transcript_doc.get('screen') or {}).get('text', '')
+    source_doc['note']['screen_v'] = (transcript_doc.get('screen') or {}).get('v')  # 10-08：v2 起画面文字按 OCR 行存，旧的是一帧一行
     if not (source_doc['note'].get('title') or meta.get('title')):
         fallback = (extracted or {}).get('title') or transcript.split('。')[0] or source_doc['note'].get('body') or next((x.get('ocr') for x in vision_doc.get('images', []) if x.get('ocr')), '')
         title = re.sub(r'\s+', ' ', str(fallback)).strip()[:30] or '视频收藏'

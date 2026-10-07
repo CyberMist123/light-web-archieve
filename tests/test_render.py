@@ -266,7 +266,8 @@ def test_agent_md_suggested_link_separated_from_advice():
     lines = text.splitlines()
     assert f"- [excalidraw.com](https://excalidraw.com) — 小模型建议：{why}" in lines
     assert r"- [github.com/a\_b/learn-agent](https://github.com/a_b/learn-agent) — 小模型建议" in lines
-    assert "- 某个仓库名（小模型建议，原帖没给链接：提到过）" in lines
+    # 10-08 批次 B：没有 http 链接的「小模型建议」（hint）不再写进机读版
+    assert "某个仓库名" not in text
     assert "https://excalidraw.com（" not in text, "URL 不再和全角括号粘在一起"
 
 
@@ -288,14 +289,20 @@ def test_rerender_updates_old_agent_md_links(tmp_path, monkeypatch):
 
 
 def test_agent_md_image_origin_is_vault_relative(tmp_path, monkeypatch):
-    """10-03：机读版里「细节以原图为准」写收藏库内相对路径——远程阅读会把机读版原样发给远端，不能带本机绝对路径。"""
+    """10-03：机读版里的原图位置写收藏库内相对路径——远程阅读会把机读版原样发给远端，不能带本机绝对路径。
+    10-08 批次 B：不再逐图写「细节以原图为准」，节开头写一次原图目录；识别没把握的图才单独给路径。"""
     monkeypatch.setenv("LINK_BRAIN_VAULT", str(tmp_path / "vault"))
     text = render_mod.render_agent_md(
         source={"note": {"title": "t"}},
-        vision={"images": [{"status": "ok", "asset": "raw/v0001/assets/image-001.webp", "ocr": "字", "visual": {}}]},
+        vision={"images": [{"status": "ok", "asset": "raw/v0001/assets/image-001.webp", "ocr": "图上的字", "visual": {}},
+                           {"status": "ok", "asset": "raw/v0001/assets/image-002.webp", "ocr": "第二张",
+                            "visual": {"status": "ok", "kind": "picture", "text": "一只猫", "shaky": "输出被截断"}}]},
         meta={"title": "t", "item_id": "xhs-t", "source_id": "t", "current_version": 1}, extracted={})
     assert str(tmp_path) not in text and str(tmp_path).replace("\\", "/") not in text
-    assert "细节以原图为准：_archive/xiaohongshu/t/raw/v0001/assets/image-001.webp" in text
+    assert "原图在 `_archive/xiaohongshu/t/raw/v0001/assets/`" in text
+    assert "细节以原图为准" not in text
+    assert text.count("_archive/xiaohongshu/t/raw/v0001/assets/image-") == 1
+    assert "识别没把握（输出被截断），原图：_archive/xiaohongshu/t/raw/v0001/assets/image-002.webp" in text
 
 
 def test_render_no_vision_does_not_call_vision(tmp_path, monkeypatch):
