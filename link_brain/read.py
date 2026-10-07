@@ -39,6 +39,22 @@ def dump_json(payload: Any) -> None:
     buffer.flush()
 
 
+def outcome(payload: dict[str, Any] | None, *, ok: bool, message: str, code: str | None = None) -> dict[str, Any]:
+    """CONVENTIONS §1 的统一外形（批次 D 地基）：在 payload 上补 ok / code / message，**不改旧键**（返回新 dict，不动原对象）。
+
+    - ok：这次做成没有（和退出码一致：0 ↔ True；部分完成按 §1.2 也算 0）；
+    - code：§2 的故障码，成功为空串；不传就沿用 payload 里已有的 code（RISK_HOLD 之类），都没有 = ''；
+    - message：一句能直接给人看的话，插件 run() 结束提示只用它。
+    新 CLI 的最后一行 JSON 一律 `dump_json(outcome(...))`：stdout 只有这一行，人话进度走 stderr，退出码 0 / 1 / 2。
+    """
+    base = dict(payload or {})
+    existing = base.get("code")
+    base["ok"] = bool(ok)
+    base["code"] = str(code) if code is not None else (str(existing) if existing not in (None, "") else "")
+    base["message"] = str(message or "")
+    return base
+
+
 def _one_line(text: str | None, limit: int = 120) -> str:
     text = (text or "").strip()
     text = " ".join(text.split())  # 折叠换行/空白成一行

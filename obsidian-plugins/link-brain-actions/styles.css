@@ -1,6 +1,14 @@
 /* Link Brain Actions — 账号与设置页。苹果式：无框、留白、灰字状态，需要处理时才用淡橙。
    颜色尽量走 Obsidian 主题变量，深浅色通用。 */
 
+/* 批次 D 地基：共享颜色变量（X13）。和 link_brain/assets/lb-page-lib.js 的 LB_SHARED_CSS 同值，tests/test_css_vars_x13.cjs 锁住；
+   改一处必须改两处。橙色只给状态字和细条，说明文字保持正文色、前面加「⚠」。 */
+body{--lb-warn:var(--text-warning,var(--color-orange));--lb-warn-bg:var(--background-secondary);--lb-warn-border:var(--background-modifier-border);--lb-danger:var(--text-error);--lb-danger-bg:var(--background-secondary);--lb-ok:var(--text-success,var(--color-green));--lb-star:var(--color-yellow,#d9a21b);}
+@supports (color: color-mix(in srgb, red, blue)){body{--lb-warn-bg:color-mix(in srgb,var(--lb-warn) 14%,var(--background-primary));--lb-warn-border:color-mix(in srgb,var(--lb-warn) 35%,var(--background-modifier-border));--lb-danger-bg:color-mix(in srgb,var(--text-error) 12%,var(--background-primary));}}
+/* 地基：notify 带按钮的提示（老版本 Notice 没有 addButton 时的自绘按钮）、确认框正文 */
+.lb-notice-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.lb-confirm-modal .lb-confirm-body { white-space: pre-wrap; color: var(--text-normal); }
+
 /* 账号行（0926）：一行「小红书 · 用户名 · ✓ 已登录」，每种状态右侧一个操作 */
 .lb-accounts .lb-acct-row { border-top: none; padding: 8px 0; }
 .lb-acct-platform { font-weight: 600; color: var(--text-normal); }

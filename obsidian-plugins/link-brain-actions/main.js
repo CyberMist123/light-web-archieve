@@ -134,6 +134,8 @@ const DEFAULT_SETTINGS = {
   // 第 7 批「开始」页：selected = 勾的功能 id（null = 还没选过，用后端 plan 的「推荐」）；step = 向导停在第几步；
   // collapsed = 收成总览；passed = 点过「下一步」的步骤号。只给「开始」页用，后端不读。
   setup: { selected: null, step: 1, collapsed: false, passed: [] },
+  // 批次 D：笔记页视频单曲循环（loop）；连播弹窗上次选的顺序（playlistOrder：newest / oldest / shuffle）。只给插件用，后端不读。
+  media: { loop: false, playlistOrder: "newest" },
 };
 
 // 每天最多新抓（第 5 批 4.1，和 ai_config.daily_new_limit 同一规则）：0 = 不限；空 / 不是数 / 负数 = 默认 50。
@@ -475,6 +477,15 @@ class LinkBrainActions extends Plugin {
     try { this.remoteUI = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'remote-ui.js'))(obsidian, this); await this.remoteUI.attach(); } catch (e) { console.error('[lb] 远程阅读设置没加载上', e); }   // 第 6 批：远程阅读（MCP）
     // 第 5 批 B2：原「Link Brain Native Media Nav」插件并进来（图片 ←/→、滚轮翻页、点图放大、钉住媒体、视频倍速）
     try { this.mediaNav = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'media-nav.js'))(obsidian, this); this.mediaNav.attach(); } catch (e) { console.error('[lb] 图片导航没加载上', e); }
+    // 批次 D 地基：笔记页动作 / 笔记工具 / 图片动作 / 连播 各一个文件，挂到 this.noteActions / noteTools / imageActions / playerUI。
+    // 各线只改自己那个文件（工厂 (obsidian, plugin) => ({attach(){}})），onload 这里不再动；卸载清理各自用 plugin.register / registerEvent。
+    for (const [file, key] of [['note-actions.js', 'noteActions'], ['note-tools.js', 'noteTools'], ['image-actions.js', 'imageActions'], ['player-ui.js', 'playerUI']]) {
+      try {
+        this[key] = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, file))(obsidian, this);
+        const r = this[key].attach();
+        if (r && typeof r.catch === 'function') r.catch(e => console.error(`[lb] ${file} 没挂上`, e));
+      } catch (e) { console.error(`[lb] ${file} 没加载上`, e); }
+    }
     // 首次引导 + Dataview 提示（onboarding-ui.js）：窗口开好后再查，不拖慢启动
     if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => { this.onboardTimer = setTimeout(() => this.startupChecks().catch(e => console.error('[lb] 启动检查没做完', e)), 1500); });
     // 第 7 批：首次引导 = 设置页「开始」分页（选功能 / 检查安装 / 扫码 / 同步 / AI）；命令 id 不变
@@ -556,7 +567,8 @@ class LinkBrainActions extends Plugin {
     try { console.debug(`[lb] plugin onload ${this.onloadMs}ms`); } catch {}
   }
 
-  async saveSettings() { await this.saveData(this.settings); }
+  // 批次 D：每次保存后广播 link-brain:settings（页面用 dv.component.registerEvent 订阅、自己 rAF 合并；模型增删改名也走它）
+  async saveSettings() { await this.saveData(this.settings); try { this.app?.workspace?.trigger?.('link-brain:settings'); } catch (e) { console.error('[lb] 设置广播没发出', e); } }
   // 1008：setup.selected 是列表、还没对齐过 → 已配好的 textAI / summaryAI 勾上 ai_text、visionAI 勾上 ai_vision。返回有没有改动。
   syncSetupSelectionWithAI() {
     const su = this.settings.setup;
@@ -726,6 +738,8 @@ class LinkBrainActions extends Plugin {
   pyEnv(extra = null) {
     const env = { ...process.env, ...ENV_EXTRA };
     if (this.vaultDir) env.LINK_BRAIN_VAULT = this.vaultDir;
+    // 批次 D：Obsidian 真正的配置目录（库根 + configDir，不一定叫 .obsidian），后端写 CSS 片段等用
+    try { const base = this.app?.vault?.adapter?.getBasePath?.(), cfg = this.app?.vault?.configDir; if (base && cfg) env.LINK_BRAIN_OBSIDIAN_DIR = path.join(base, cfg); } catch {}
     return extra ? { ...env, ...extra } : env;
   }
   pyChild(args, { env = null } = {}) {
@@ -1301,13 +1315,15 @@ class LinkBrainActions extends Plugin {
     return (2*sec+60)*1000;
   }
   // onPhase：后端真实阶段（检索收藏 / 挑选材料 / 生成回答），页面只显示这些，不轮播假文案（§1.6）。
-  requestAnswer(request,onDelta,onPhase) {
+  // 批次 D 地基：tag（'chat' / 'setup'…）记在这一问上，stopArchiveAnswer(tag) 只停同 tag 的；onStart(id) 在拿到请求 id 时回调（调用方只取消自己那一问）。
+  requestAnswer(request,onDelta,onPhase,{tag=null,onStart=null}={}) {
     const worker=this.ensureAnswerWorker();
     const id=String(this.answerSequence=(this.answerSequence||0)+1);
     return new Promise((resolve,reject)=>{
       // 兜底超时也走「停止」协议（§6.7）：worker 杀掉自己起的 claude / codex、回 cancelled；不再整个 worker 一刀切
       const timer=setTimeout(()=>{const p=this.answerPending.get(id);if(p)p.timedOut=true;this.cancelAnswer(id);},this.answerBackstopMs());
-      this.answerPending.set(id,{resolve,reject,onDelta,onPhase,timer,worker});
+      this.answerPending.set(id,{resolve,reject,onDelta,onPhase,timer,worker,tag:tag||null});
+      if(typeof onStart==='function'){try{onStart(id);}catch(e){console.error('[lb] onStart 出错',e);}}
       worker.stdin.write(JSON.stringify({id,...request})+'\n');
     });
   }
@@ -1321,16 +1337,18 @@ class LinkBrainActions extends Plugin {
     pending.cancelTimer=setTimeout(()=>{if(this.answerPending.get(id)!==pending)return;this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});},this.answerCancelGraceMs||8000);
     return true;
   }
-  stopArchiveAnswer() { let n=0; for(const id of [...(this.answerPending?.keys()||[])]) if(this.cancelAnswer(id)) n++; return n; }
+  // 带 tag 只停这个 tag 的请求（「开始」页试问一句不再停掉问收藏页正在生成的回答）；不带 tag 全停（旧调用兼容）
+  stopArchiveAnswer(tag) { let n=0; for(const [id,p] of [...(this.answerPending?.entries()||[])]) { if(tag!=null&&p.tag!==tag)continue; if(this.cancelAnswer(id)) n++; } return n; }
   onunload(){this.unloading=true;clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);this.catalogCache=null;const worker=this.answerWorker;if(worker)this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});}
   // 返回 payload；status='cancelled' = 用户点了停止（markdown 是已生成的半截），不当失败抛。
   // sourceIds（第 10 批「按剩下的重新回答」）：只用这些来源作答，不重新检索
   // excludeIds / pinIds（R2 会话面）：本会话排除的、保留（pin）的来源 id，每一问都显式带上；空的不发，请求和以前一样
-  async answerArchive({ question, history = [], onDelta, onPhase, model = '', sourceIds = null, excludeIds = null, pinIds = null } = {}) {
+  // tag / onStart（批次 D 地基）：只是透传给 requestAnswer，请求体不变
+  async answerArchive({ question, history = [], onDelta, onPhase, model = '', sourceIds = null, excludeIds = null, pinIds = null, tag = null, onStart = null } = {}) {
     const q=(question||'').trim();if(!q)throw new Error('问题是空的');
     const ids=v=>Array.isArray(v)?v.filter(x=>typeof x==='string'&&x):[];
     const constraints={...(ids(excludeIds).length?{exclude_ids:ids(excludeIds)}:{}),...(ids(pinIds).length?{pin_ids:ids(pinIds)}:{})};
-    const payload=await this.requestAnswer(Array.isArray(sourceIds)?{question:q,history,model,source_ids:sourceIds,...constraints}:{question:q,history,model,...constraints},onDelta,onPhase);
+    const payload=await this.requestAnswer(Array.isArray(sourceIds)?{question:q,history,model,source_ids:sourceIds,...constraints}:{question:q,history,model,...constraints},onDelta,onPhase,{tag,onStart});
     if(payload.status==='cancelled')return payload;
     if(payload.status!=='ok')throw new Error(payload.markdown||payload.error||'回答失败');
     return payload;
@@ -1647,6 +1665,135 @@ class LinkBrainActions extends Plugin {
   async ingestClipboard() {
     await this.importText(await navigator.clipboard.readText(),text=>new Notice(text));
   }
+
+  // ════════ foundation（批次 D 地基，CONVENTIONS §1.7 / §5.3）：各线共用的提示 / 确认 / 菜单 / 忙碌态 / 刷新目录 / 大图转发 ════════
+  // 本段合入后冻结：要新的共享接口由主审出地基补丁，别在这里各自加。
+
+  // 提示条：kind = ok / info / warn / error；默认时长成功 / 普通 3 秒、失败 / 警示 8 秒，带按钮的 8 秒；ms=0 常驻（进度提示，用返回值 setMessage / hide）。
+  // actions: [{label, run}]：Obsidian 1.14 的 Notice.addButton（点了先收起再 run）；老版本退回 DocumentFragment 自己放按钮。
+  notify(msg, { kind = 'info', ms, actions = null } = {}) {
+    const text = String(msg ?? '');
+    const list = Array.isArray(actions) ? actions.filter(a => a && a.label) : [];
+    const dur = ms ?? (kind === 'error' || kind === 'warn' || list.length ? 8000 : 3000);
+    const run = a => Promise.resolve().then(() => a.run?.()).catch(e => this.notify(e?.message || String(e), { kind: 'error' }));
+    if (typeof Notice !== 'function') { console.log('[lb]', text); return null; }
+    let notice;
+    if (list.length && typeof Notice.prototype?.addButton !== 'function' && typeof document !== 'undefined' && document.createDocumentFragment) {
+      const frag = document.createDocumentFragment();
+      const p = document.createElement('div'); p.className = 'lb-notice-text'; p.textContent = text; frag.appendChild(p);
+      const row = document.createElement('div'); row.className = 'lb-notice-actions'; frag.appendChild(row);
+      for (const a of list) {
+        const b = document.createElement('button'); b.className = 'lb-notice-btn'; b.textContent = a.label;
+        b.addEventListener('click', e => { try { e?.preventDefault?.(); e?.stopPropagation?.(); } catch {} try { notice?.hide?.(); } catch {} run(a); });
+        row.appendChild(b);
+      }
+      notice = new Notice(frag, dur);
+    } else {
+      notice = new Notice(text, dur);
+      for (const a of list) notice.addButton?.(a.label, () => run(a));
+    }
+    try { (notice?.containerEl || notice?.noticeEl)?.classList?.add('lb-notice', 'is-' + kind); } catch {}
+    return notice;
+  }
+
+  // Obsidian 风格确认框：Enter = 确定（打开时焦点在确定按钮），Esc / 关窗 = false；danger 用 mod-warning（同 ButtonComponent.setWarning）
+  confirm({ title = '确定吗？', body = '', ok = '确定', cancel = '取消', danger = false } = {}) {
+    return new Promise(resolve => {
+      try { new ConfirmModal(this.app, { title, body, ok, cancel, danger }, resolve).open(); }
+      catch (e) { console.error('[lb] 确认框没打开', e); resolve(false); }
+    });
+  }
+
+  // 菜单（obsidian.Menu，自带 Esc / 方向键）：items = [{title, sub?, icon?, danger?, disabled?, checked?, onClick} | {separator:true}]。
+  // 开着时 menuOpen=true，关掉后延一拍才变回 false（同一次 Esc 冒泡到页面时还是 true，页面别把它当成「清多选」）。
+  showMenu(items, evt) {
+    const menu = new obsidian.Menu();
+    for (const it of items || []) {
+      if (!it) continue;
+      if (it.separator) { menu.addSeparator(); continue; }
+      menu.addItem(i => {
+        i.setTitle(it.sub ? menuTitle(it.title, it.sub) : it.title);
+        if (it.icon) i.setIcon(it.icon);
+        if (it.checked != null) i.setChecked?.(!!it.checked);
+        if (it.disabled) i.setDisabled?.(true);
+        if (it.danger) { if (typeof i.setWarning === 'function') i.setWarning(true); else i.dom?.classList?.add('is-warning'); }
+        if (typeof it.onClick === 'function') i.onClick(e => it.onClick(e));
+      });
+    }
+    this.menuOpen = true; this._lbMenu = menu;
+    menu.onHide?.(() => setTimeout(() => { if (this._lbMenu === menu) { this.menuOpen = false; this._lbMenu = null; } }, 0));
+    if (evt && typeof evt.pageX === 'number') menu.showAtMouseEvent(evt);
+    else {
+      const r = (evt?.currentTarget || evt?.target)?.getBoundingClientRect?.();
+      menu.showAtPosition(r ? { x: r.left, y: r.bottom } : { x: 100, y: 100 });
+    }
+    return menu;
+  }
+
+  // 插件侧按钮的「正在…」：禁用 + 换字 + .is-busy；done(finalText?, holdMs?) 恢复（给了 finalText 先显示它 holdMs 毫秒）
+  busyButton(btn, text = '') {
+    if (!btn) return () => {};
+    const prevNodes = Array.from(btn.childNodes || []), prevDisabled = !!btn.disabled;
+    btn.disabled = true; btn.classList?.add('is-busy'); btn.setAttribute?.('aria-busy', 'true');
+    if (text) btn.textContent = text;
+    let finished = false;
+    const restore = () => { btn.textContent = ''; btn.append(...prevNodes); btn.disabled = prevDisabled; btn.classList?.remove('is-busy'); btn.removeAttribute?.('aria-busy'); };
+    return (finalText, holdMs = 1200) => {
+      if (finished) return; finished = true;
+      if (!finalText) return restore();
+      btn.textContent = finalText; setTimeout(restore, holdMs);
+    };
+  }
+
+  // 统一的占用句（「还在跑」都用它）：正在X（进度），完成后再点，或在底部状态栏停止。进度来自 this.runningProgress（状态栏那条线写）
+  busyText(label) {
+    const what = label || this.running || (this.importing ? '导入' : '') || '处理';
+    const prog = this.runningProgress ? `（${this.runningProgress}）` : '';
+    return `正在${what}${prog}，完成后再点，或在底部状态栏停止`;
+  }
+
+  // 「…→刷新目录」和各处「刷新目录」按钮：统一入口（结束提示归 run()）
+  refreshCatalog() { return this.run(['-m', 'link_brain', 'catalog'], '刷新目录', true); }
+
+  // 大图查看器：转给 media-nav（实现在笔记线）；media-nav 被跳过（旧插件还开着）或还没有这个方法时返回 null，调用方保持原行为
+  openLightbox(images, index = 0, opts = {}) {
+    const nav = this.mediaNav;
+    if (!nav || nav.skipped || typeof nav.openLightbox !== 'function') return null;
+    return nav.openLightbox(images, index, opts);
+  }
+}
+
+// 批次 D 地基：插件 confirm() 用的确认框（标题 + 正文 + 取消 / 确定）
+class ConfirmModal extends Modal {
+  constructor(app, opts, done) { super(app); this.opts = opts || {}; this.done = done; this.answered = false; }
+  onOpen() {
+    const { title, body, ok, cancel, danger } = this.opts;
+    try { this.modalEl?.classList?.add('lb-confirm-modal'); } catch {}
+    if (this.titleEl && typeof this.titleEl.setText === 'function') this.titleEl.setText(title || '');
+    else this.contentEl.createEl('h3', { text: title || '' });
+    for (const para of String(body || '').split(/\n{2,}/).filter(Boolean)) this.contentEl.createEl('p', { text: para, cls: 'lb-confirm-body' });
+    const row = this.contentEl.createDiv({ cls: 'modal-button-container' });
+    // 按钮走 obsidian.ButtonComponent（setWarning / setCta 的样子跟着 Obsidian 版本走：1.14.4 的 setWarning = mod-destructive + mod-cta）
+    const BC = obsidian.ButtonComponent;
+    const mk = (text, kind) => {
+      if (typeof BC === 'function') { const b = new BC(row).setButtonText(text); if (kind === 'warn') b.setWarning(); else if (kind === 'cta') b.setCta(); return b.buttonEl; }
+      return row.createEl('button', { text, cls: kind === 'warn' ? 'mod-warning' : kind === 'cta' ? 'mod-cta' : '' });
+    };
+    const no = mk(cancel || '取消', '');
+    const yes = mk(ok || '确定', danger ? 'warn' : 'cta');
+    no.addEventListener('click', () => this.finish(false));
+    yes.addEventListener('click', () => this.finish(true));
+    // Enter = 确定（输入法组字中不算）；焦点在按钮上时交给按钮自己的点击
+    (this.modalEl || this.contentEl).addEventListener('keydown', e => {
+      if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+      if (e.target && e.target.tagName === 'BUTTON') return;
+      e.preventDefault?.(); this.finish(true);
+    });
+    this.okButton = yes; this.cancelButton = no;
+    setTimeout(() => { try { yes.focus(); } catch {} }, 0);
+  }
+  finish(value) { if (this.answered) return; this.answered = true; try { this.done(!!value); } finally { this.close(); } }
+  onClose() { try { this.contentEl.empty(); } catch {} if (!this.answered) { this.answered = true; this.done(false); } }
 }
 
 // ── 设置页：各 AI 接口的 endpoint/model/key + 两类提示词。数据只落本插件 data.json。 ──
