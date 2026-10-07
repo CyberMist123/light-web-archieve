@@ -16,6 +16,12 @@
 4. 插件：所有 Python 调用走**一个**包装函数；禁止再出现「忽略退出码 / 只读 stdout / 空串当 `{}`」。
 5. 页面：**写盘成功才改内存和界面**；若先改了内存（乐观更新），必须留快照并在失败时回滚，提示固定句式「没保存上，内容还在，可重试：<原因>」。禁止 `catch {}` 空吞。
 6. 成功提示说做了什么（「已删 3 篇」「已保存」）；失败提示带原因；进行中只显示后端真实发来的阶段，没有阶段就显示「正在…」，不轮播假文案。
+7. （批次 D）新 CLI 的最后一行 JSON 一律 `read.dump_json(read.outcome(payload, ok=…, message=…, code=…))`：在旧键之外补 `ok / code / message`，不改旧键；`message` 是一句能直接给人看的话。插件 `run()` 的结束提示**只用 `json.message`**（没有 JSON 才按退出码兜底），永远不把整段 JSON、`exit=…`、stdout 尾巴弹给她。
+8. （批次 D）提示与确认的规矩：
+   - 做完 = 提示条：插件 `notify(msg, {kind, ms, actions})`，页面 `LB.say(msg, {kind, ms, actions})`（插件在就转给 notify）。默认时长成功 / 普通 3 秒、失败 / 警示 8 秒、带按钮 8 秒；`ms=0` 常驻，只给进度用（`LB.progress(msg)` → `{set, hide}`，set 只换成后端真实阶段）。
+   - 要确认 = Obsidian 风格确认框：插件 `confirm({title, body, ok, cancel, danger})` / 页面 `LB.confirm(...)` → `Promise<boolean>`，Enter 确定、Esc / 关窗 = false；会丢东西的操作 `danger:true`。能撤销的操作不确认，改用 `LB.undoNotice(msg, onUndo, ms=6000)`（同一时刻只留最新一个；撤销失败照第 5 条的固定句式说原因）。
+   - 进行中显示在发起处：页面 `LB.busy(el, text)`，插件 `busyButton(btn, text)`；「还在跑别的」一律用 `plugin.busyText(label?)` 那一句（正在X（进度），完成后再点，或在底部状态栏停止）。
+   - 全仓**不许** `window.alert`；`window.confirm` 只允许出现在 lb-page-lib 的兜底分支（插件没加载 / 手机上）。
 
 **形状**
 ```jsonc
@@ -184,8 +190,35 @@ R = {"status": "ok|failed|skipped", "text": str|None, "code": "<故障码或空>
 4. 打开一篇再返回：**保持现在的打开方式**（同一窗格打开，不默认开新标签，免得标签越开越多）；返回时靠 §5.1 版本比对 + §5.3 状态恢复，回到原来的搜索词和滚动位置。按住 Ctrl 点开新标签照 Obsidian 习惯。
 5. 数据变了只做**增量**：items 按 id diff，只重建变化的卡片；搜索框、滚动位置永不被重建影响。
 6. 星标状态以 `catalog-data.json.items[].starred` 为准 + `link-brain:star` 事件更新，**不再每次打开读 350 份 notes.json**。
-7. 文件监听只监听 `_archive/sync-status.json` 和 `_archive/problems.jsonl`（`vault.on('modify')`），其它用版本比对。
+7. 文件监听只监听 `_archive/sync-status.json`、`_archive/problems-summary.json`（第 4 批起代替 problems.jsonl）和 `_archive/catalog-data.json`（批次 D：数据变了可见就刷新、不可见记 stale，800ms 防抖）（`vault.on('modify' / 'create')`），其它用版本比对。
 8. 性能埋点：`console.debug('[lb] <页> <阶段> <ms>')`，默认开，每页四个点（read / parse / render / restore）。
+9. （批次 D）**页面挂在 host 上**：目录 / 已收藏 / 回收站 / 问收藏页的 DOM 挂在 `LB.mountHost(cls)` 返回的 `div.lb-page-host`（`dv.container` 后面的兄弟节点，`data-lb-role=<页>`），不进 `dv.container`。原因：Dataview 0.5.68 重跑只执行 `container.innerHTML=''`（碰不到兄弟节点），页面挂在容器里会被摘下来再挂回去，输入框失焦、输入法断（C4）；它还给容器写行内 `overflow-x:auto`，容器成了滚动框，吸顶失效（C1）。host 由 `dv.component.register` 在卸载时摘掉，建之前先摘同 role 的残留；`keep()` 连 host 一起登记，重跑时挂回原处。**批注块不用 host**（它要挪到左栏图片下面）。
+10. （批次 D）**版本推进语义**：`reuseDom()` 里数据版本变了才调页面的 `update(v)`；**update 成功才推进 `view.version`**，失败记 `view.lastError`、保留旧版本，下次重跑重试；`view.updating` 是进行中锁，两次重跑叠在一起只做一次。页面自己刚写过版本文件：批注块用 `LB.rekeep()`；改了 catalog-data（点星 → `patch_items`）用 `LB.data.adopt(await LB.data.version(), data)`（data 必须就是插件缓存那份对象），下次重跑 0 读。目录数据的「更新于」统一用 `LB.dataUpdatedAt(data)`（= `built_at`）。
+11. （批次 D）**样式挂 head**：页面样式一律 `LB.style(id, css)`（按 id 建或复用 `<style>`，文本不同才替换），不放进 wrap / 容器（复用时样式跟着走的老做法会因页面打开顺序互相盖）。共用规则和共享颜色变量在 `lb-shared`（lb-page-lib 初始化时自动注入），页面只放自己的规则；页面样式 id：目录 / 已收藏 `lbc-style`、问收藏 `lbchat-style`、回收站 `lb-trash-style`。跨页可能撞名的选择器加页面根前缀（目录 `.lbc-wrap`、问收藏 `.lbchat`）。颜色只用共享变量（`--lb-warn / --lb-warn-bg / --lb-warn-border / --lb-danger / --lb-danger-bg / --lb-ok / --lb-star`，插件 styles.css 顶部和 lb-shared 两份同值，`tests/test_css_vars_x13.cjs` 锁住）；橙色只给状态字和细条，说明文字保持正文色、前面加「⚠」。
+12. （批次 D）**焦点与快捷键**：会被整页重建的输入框挂 `LB.trackFocus(input, key)`，首建末尾调 `LB.restoreFocus(input, key)`（3 秒内还原焦点和选区）；页面级快捷键（Ctrl+F、Ctrl+±、Esc 清多选）只给 `LB.activeLeafHas(wrap)` 为真的那一页；页面的全局 Esc 先判 `LB.menuOpen()`（菜单关掉后延一拍才变回 false）。菜单用 `LB.showMenu(items, evt)`（插件的 obsidian.Menu，自带 Esc / 方向键）；只有要放输入框的弹层（如时间菜单）才自制，并自己做键盘操作。
+13. （批次 D）**手机只读与跳页**：`LB.mobile`（`app.isMobile`）为真时插件不在，需要插件的按钮点了只 `LB.need(method)` 说一句（`LB.MOBILE_ONLY_TEXT`）并返回 null；`LB.ensure(method)` 在手机上直接抛同一句、不去 enablePlugin；页首 `LB.mobileNote(host)` 插一次浅色小字。跳到目录 / 问收藏 / 已收藏 / 回收站用 `LB.openPage(role)`（按仓根那层 frontmatter 的 `lb-page` 找文件，不依赖插件）。所有 `provider().X()` 调用改成 `LB.need('X')?.X()` 或 `(await LB.ensure('X')).X()`。
+
+**5.3 插件对象字段登记表**（跨页面交接和进行中的事只放插件对象上；新字段先在这里登记一行，各线只在自己那一小节里加）
+
+| 字段 / 事件 | 谁写 | 谁读 | 说明 |
+|---|---|---|---|
+| `running` / `runningChild` / `importing` | 插件 spawnPy / importText | 页面 ensure、busyText | 互斥长任务（已有） |
+| `runningProgress` | 状态栏那条线（L4） | `busyText()` | 占用句里的「（进度）」，没有就不写 |
+| `catalogCache` `{version, root, data}` | lb-page-lib `data.load` / `data.adopt` | 三张页 | §5.2；adopt 只在 data 就是缓存那份时推进版本 |
+| `answerWorker` / `answerPending` / `answerSequence` | 插件问答 worker | 插件 | pending 每条带 `tag`（`'chat'` / `'setup'`），`stopArchiveAnswer(tag)` 只停同 tag |
+| `menuOpen` / `_lbMenu` | 插件 `showMenu` | `LB.menuOpen()` | 关掉后延一拍才变 false |
+| `mediaNav` | onload | 插件 `openLightbox` 转发 | 被跳过（旧插件开着）时 `skipped=true` |
+| `noteActions` / `noteTools` / `imageActions` / `playerUI` | onload 的四个挂载点 | 各线自己 | `require(<文件>)(obsidian, plugin).attach()`；各线只改自己那个文件 |
+| `focusCatalogSearch` / `pendingArchiveQuestion` | 命令 / 目录页 | 目录 / 问收藏页 | 已有 |
+| 事件 `link-brain:settings` | 插件 `saveSettings()` 每次保存后 | 页面（`dv.component.registerEvent`，自己 rAF 合并） | 模型增删改名、设置变化都走它，不另设 models-changed |
+| 事件 `link-brain:star` / `link-brain:catalog-prefs` | 插件 | 目录 / 批注块 | 已有 |
+| 事件 `link-brain:ask-pending` / `link-brain:chat-session` | 插件 / 问收藏页 | 问收藏页 | 已有 |
+
+- 目录线（L1）：`pendingCatalogQuery` + 事件 `link-brain:catalog-query`（笔记线写、目录读，读完即删）。
+- 问收藏线（L2）：`pendingArchiveScope`、`chatInFlight` / `chatQueue` / `chatSaveChain`，事件 `link-brain:chat-live` / `link-brain:chat-queue`。
+- 笔记线（L3）：`body.lb-actions-on`（note-actions attach 时加、卸载时去）。
+- 设置线（L4）：`accountCache`、事件 `link-brain:task`、`onTask(cb)`。
+- 功能线（L5）：`settings.media = {loop, playlistOrder}`（插件设置，后端不读）。
 
 **形状**
 ```js
@@ -202,6 +235,7 @@ if (await LB.reuseDom(dv.container)) return;   // 版本同、DOM 在 → 挂回
 - 三份「插件方法不在就 disable/enable」：`catalog-view.js:170-174, 228-233, 256-262` → `LB.provider({require:'openPlusMenu'})` 一处。
 - `catalog.py:305-307` 内联拼接处加 `lb-page-lib.js`；`catalog-view.js:361 sort` 等搜索规则留给第 1 批。
 - **第 2 批落地（10-02）与上文的出入**：①版本用 `catalog-data.json` 的 `mtime:size`（先用 Obsidian 文件索引里的同步 stat 挂回旧 DOM，再用 `adapter.stat` 核一次，变了走页面的 `update()`），没用 `built_at`（要先解析才拿得到）；②`render.py` 烤进每篇笔记的批注 bootstrap 不动（改它要重渲全部笔记），前导拼在 `_archive/annotate-view.js` 最前面，批注块的版本是那篇的 `notes.json`；③新增：同一标签页里藏着的编辑视图（实时预览）也会跑一遍 dataviewjs，看不见时先不画（`deferIfHidden`），切到编辑模式再由 Dataview 重画；④星标：`note star` 顺手把 `starred / starred_at` 改进 catalog-data（`catalog.patch_items`，和重建抢同一把锁，拿不到就跳过）；⑤卡片按 id + 内容签名复用（封面图元素不换）；catalog-data 多了 `cover_w / cover_h`，卡片先占位，返回时滚动一次到位；⑥Obsidian 后退时会按行号把滚动容器归零，`restoreScroll` 恢复后再守 1.2 秒（用户动了滚轮 / 键盘就停）。
+- **批次 D 地基（10-08）**：lb-page-lib 加 9–13 条的助手（mountHost / style + lb-shared / adopt / dataUpdatedAt / say / progress / undoNotice / confirm / busy / need / ensure 手机只读 / mobileNote / openPage / showMenu / menuOpen / trackFocus / restoreFocus / activeLeafHas），插件末尾 foundation 段加 notify / confirm / showMenu / busyButton / busyText / refreshCatalog / openLightbox 转发。迁移由各页面线做：`catalog-view.js` / `trash-view.js`（目录线）、`chat-view.js`（问收藏线）改挂 host、样式进 head、`window.alert / confirm` 换 `LB.say / LB.confirm`、`provider().X` 换 `LB.need / LB.ensure`；`annotate-view.js`（笔记线）只换提示。lb-page-lib.js 合入后冻结，新的共享接口由主审出地基补丁。
 
 ---
 
@@ -242,9 +276,35 @@ provider().killTree(pid)   // 同一排除规则
 3. **真实入口验收记录** `tests/acceptance/YYYYMMDD-<批次>.md`，固定模板：入口（Obsidian 按钮 / 夜跑步骤 / CLI）· 步骤 · 预期 · 实测 · 体验预算实测值（RELEASE-BAR §2 对应行）· 「待她：一步」清单。没有这份文件的批次不算完成。
 4. 每个新故障码：pytest 一条判定用例 + registry 对齐用例；每个页面改动：`test_assets_syntax.cjs` 必过 + 对应 `.cjs` 交互用例更新。
 5. 测试不碰真库、不联网、不起小红书组件（`conftest.py` 现有闸门不动；node 侧同样不许 `spawn` 真 Python）。
+6. （批次 D）**测试架要像真宿主**，冻结的共用件：`tests/_fakedom.cjs`（node 假 DOM：Dataview 容器行内 `overflow-x:auto`、阅读视图 / 实时预览两种祖先链、脱离文档即失焦、`dataviewBlock` 的 rerun / recreate / detach）、`tests/_fakeobsidian.cjs`（Menu / Notice / Modal / Setting 渲染真结构，node 和 playwright 共用）、`tests/_obsidian_shell.cjs`（playwright 外壳：page-reading / page-live / note-reading / settings-modal 四种宿主、亮 / 暗 / 改了橙色三套主题、Obsidian 1.14.4 CSS 子集逐条注明出处）、`tests/_clock.cjs`、`tests/_mini_md.cjs`、`tests/tools/synth_vault.py`。各线只在自己的 `tests/_fake_<线>.cjs` 里加东西；守卫 `tests/test_rig_selfcheck.cjs` 和 `tests/ui/rig_selfcheck_ui.cjs` 必过——别把外壳「修」得不像真宿主。Obsidian 升级后跑 `python tests/tools/obsidian_css.py --check` 复核子集里的规则还在。
+7. （批次 D）页面测试一律放 `tests/ui/*.cjs`（run-node 自动发现，不再改 UI_FILES 列表）。没装 playwright 时 UI 层全部 SKIP，汇总最后一行写「UI 层没跑」——验收文件必须照写，不许当通过。worktree 里接共享 node_modules：`New-Item -ItemType Junction node_modules -Target <共享目录>\node_modules`（node_modules 在 .gitignore 里）。
+8. （批次 D）**红线规矩**：新写的几何 / 焦点类用例（吸顶、失焦、滚轮够不着这类）必须先在出问题那一版的资产上跑红（外壳的 `pageAssets(kind, {rev})` 用 `git show` 只读取旧版），把红的读数记进验收文件，再开工修；改完同一个用例转绿。
 
 **迁移点**
 - 新建 `package.json`（`devDependencies: playwright` 可选）、`tests/run-node.cjs`；修 `test_accounts_ui.cjs:33`（mock `window.confirm`）、`test_catalog_interactions.cjs:63,162`（缺 `workspace.onLayoutReady`、旧文案）。
 - `scripts/smoke.py` 的 `check()` 输出格式对齐验收模板，`--offline` 作为 CI 可跑的一层。
+- 批次 D：`catalog_ui_smoke.cjs` 早已过期（还在用 `.lbc-sync`、「打字不搜」），装上 playwright 后在基线就挂（目录线按边打边搜重写）；`ui_pages_qa.cjs` 里用 `window.scrollTo` 断言吸顶的那条是假阳性（真宿主滚的是 `.markdown-preview-view` / `.cm-scroller`），改用外壳。
+
+---
+
+## 8. 界面用词（批次 D，X5）
+
+**规则**：界面字符串照下表；已有页面文件名（`星标收藏.md` / `收藏搜索.md`）不改，靠页头 `lb-page` 找页。README 和插件说明里面向用户的描述不在本表管辖内（改之前先问作者）。
+
+| 东西 | 用词 | 不再用 |
+|---|---|---|
+| ★ | 收藏 / 取消收藏；筛选叫「已收藏」 | 星标收藏、加入星标收藏 |
+| 删条目 | 删除（移到回收站） | 删除收藏 |
+| 回答书签 | 存到已保存；提示「已存到「已保存」」/「已从「已保存」移除」 | 收藏回答 |
+| 页面名 | 目录 · 问收藏 · 已收藏 · 回收站 · 同步记录 · 问题 | 收藏搜索、星标页 |
+| 分类 | 分类（「管理分类」「加一个分类」） | 目录大类、目录标签、大类 |
+| 导入 | 导入网址（可批量） | 导入收藏、导入链接 |
+| 收件箱 | 投喂文件 | — |
+| 同步动作 | 立即同步收藏 | 补跑收藏同步 |
+| 只读提示 | 手机上只能看：导入、同步、问 AI、收藏要在电脑上用（`LB.MOBILE_ONLY_TEXT`） | 英文报错、「请启用插件」 |
+| 占用 | 正在X（进度），完成后再点，或在底部状态栏停止（`plugin.busyText()`） | 「还在跑…等它完事再点」各写各的 |
+| 失败回滚 | 没保存上，内容还在，可重试：<原因>（§1.5） | — |
+
+各页面里的字由各自所属的线改（目录 L1、问收藏 L2、批注 L3、插件与设置 L4）；`tests/test_terms_x5.cjs`（L4）全部合入后设为必过。
 
 ---
