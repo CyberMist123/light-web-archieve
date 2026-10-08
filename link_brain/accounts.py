@@ -185,7 +185,32 @@ PAGE_ROUTES = ('/api/v1/favorites', '/api/v1/attachments/download', '/api/v1/not
                '/api/v1/login/status')
 
 
+GUARD_FILE = 'account-guard.json'
+
+
+def _account_guard() -> None:
+    """本机碰号闸（1008 事故后加）：home()/account-guard.json 列了 allowed_roots 时，只有从这些程序目录里跑的代码
+    能联系读取服务；开发副本、worktree、一次性脚本一律拒绝（不开页、不拉起服务）。没有这个文件就不设闸（开源用户默认）。
+    文件坏了按「拒绝」处理（宁可不碰号）。conftest 把 LINK_BRAIN_HOME 隔离到临时目录，测试不受影响。"""
+    p = home() / GUARD_FILE
+    if not p.exists():
+        return
+    try:
+        roots = json.loads(p.read_text('utf-8')).get('allowed_roots') or []
+    except Exception:  # noqa: BLE001
+        roots = []
+    here = Path(__file__).resolve().parent.parent
+    for r in roots:
+        try:
+            here.relative_to(Path(r).resolve())
+            return
+        except (ValueError, OSError):
+            continue
+    raise ReaderError('DEV_COPY_BLOCKED', f'这份代码不在允许用号的程序目录里（{p} 的 allowed_roots），开发副本 / 测试脚本不许联系读取服务')
+
+
 def api(method: str, route: str, *, timeout: float = 45, body: dict | None = None) -> dict:
+    _account_guard()
     opens_page = route.split('?', 1)[0] in PAGE_ROUTES
     try:
         response = httpx.request(method, base_url() + route, json=body, timeout=timeout)
