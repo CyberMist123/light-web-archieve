@@ -116,6 +116,9 @@ def fetch_favorites(*, limit: int = 50, verbose: bool = False) -> list[dict[str,
                         "user_id": cfg.get("user_id") or ""}
     if verbose:
         print(f"[sync-favorites] {data.get('nickname')} 收藏 {len(items)} 条", file=sys.stderr)
+    # 读全时把「笔记 id → 最新口令」存到本地（零开页），附件补查 / 下载优先用它（批次 D · L6 P8）
+    from . import attachments
+    attachments.remember_fav_tokens(items, partial=bool(data.get("partial")))
     if limit and limit > 0:
         items = items[:limit]
     return items
