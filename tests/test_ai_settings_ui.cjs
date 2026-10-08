@@ -6,7 +6,7 @@ const fs = require('fs'), vm = require('vm'), assert = require('assert/strict');
 const notices = [];
 const settings = [];   // 每个 new Setting(...) 的记录
 class FakeEl {
-  constructor(tag = 'div', opts = {}) { this.tag = tag; this.text = opts.text || ''; this.children = []; this.style = {}; }
+  constructor(tag = 'div', opts = {}) { this.tag = tag; this.text = opts.text || ''; this.children = []; this.style = {}; this.classList = { toggle() {} }; }
   createEl(tag, opts = {}) { const el = new FakeEl(tag, opts); this.children.push(el); return el; }
   createDiv(opts = {}) { return this.createEl('div', opts); }
   createSpan(opts = {}) { return this.createEl('span', opts); }
@@ -14,13 +14,14 @@ class FakeEl {
   addClass() {}
   toggleClass() {}
   addEventListener() {}
+  querySelector() { return this.children.find(child => child.tag === 'input') || null; }
   setText(t) { this.text = t; }
   remove() {}
   allText() { return [this.text, ...this.children.map(c => c.allText())].join('\n'); }
 }
 class FakeSetting {
   constructor(container) { this.container = container; this.rec = { name: '', desc: '', dropdown: null, buttons: [], texts: [] };
-    settings.push(this.rec); this.controlEl = new FakeEl(); }
+    settings.push(this.rec); this.controlEl = new FakeEl(); this.descEl = new FakeEl(); }
   setName(n) { this.rec.name = n; return this; }
   setDesc(d) { this.rec.desc = d; return this; }
   addDropdown(cb) {
@@ -29,8 +30,8 @@ class FakeSetting {
       onChange(f) { this.onChangeCb = f; return this; } };
     this.rec.dropdown = dd; cb(dd); return this;
   }
-  addText(cb) { const t = { inputEl: { style: {} }, value: '', setPlaceholder(p) { this.placeholder = p; return this; },
-    setValue(v) { this.value = v; return this; }, onChange(f) { this.cb = f; return this; } }; this.rec.texts.push(t); cb(t); return this; }
+  addText(cb) { const t = { inputEl: this.controlEl.createEl('input'), value: '', setPlaceholder(p) { this.placeholder = p; return this; },
+    setValue(v) { this.value = v; this.inputEl.value = v; return this; }, onChange(f) { this.cb = f; return this; } }; this.rec.texts.push(t); cb(t); return this; }
   addTextArea(cb) { return this.addText(cb); }
   addToggle(cb) { const t = { setValue() { return this; }, onChange() { return this; } }; cb(t); return this; }
   addButton(cb) { const b = { label: '', onClickCb: null, setButtonText(l) { this.label = this.label || l; return this; },
@@ -40,7 +41,7 @@ class FakeSetting {
   then(cb) { cb(this); return this; }
 }
 
-const context = { module: { exports: {} }, process, setTimeout, clearTimeout, console,
+const context = { module: { exports: {} }, process, setTimeout, clearTimeout, setInterval, clearInterval, URL, console,
   require: n => n === 'obsidian' ? { Plugin: class {}, PluginSettingTab: class { constructor(app, plugin) { this.app = app; this.plugin = plugin; this.containerEl = new FakeEl(); } },
     Modal: class {}, Setting: FakeSetting, Notice: class { constructor(m) { notices.push(m); } } }
     : n === 'child_process' ? { spawn() { throw new Error('测试里不许 spawn 真进程'); } } : require(n) };
@@ -52,12 +53,12 @@ const Plugin = context.module.exports;
 function render(saved) {
   settings.length = 0;
   const calls = [];
-  const plugin = { settings: Plugin.__merge(saved), saveSettings: async () => {}, renderAccounts() {}, renderSyncRow() {},
+  const plugin = { app: { workspace: { getActiveFile: () => null } }, mcpArgv: () => ['python', '-m', 'link_brain', 'mcp'], testMcp: async () => { calls.push(['mcp']); return { json: plugin.reply }; }, settings: Plugin.__merge(saved), saveSettings: async () => {}, renderAccounts() {}, renderSyncRow() {},
     capsWriterDir: () => null, onboardingUI: () => ({ renderFolder: () => null }), runPy: async (args) => { calls.push(args); return { json: plugin.reply, err: '' }; } };
   // 第 7 批：设置页分页了，一页一页打开把四个设置分页都画一遍（「开始」页另有 test_setup_wizard.cjs）
   const tab = new Plugin.__SettingTab({}, plugin);
   let text = '';
-  for (const id of ['sync', 'ai', 'remote', 'advanced']) { plugin.settingsView = { tab: id, otherAI: false }; tab.display(); text += tab.containerEl.allText() + '\n'; }
+  for (const id of ['sync', 'ai', 'remote', 'advanced']) { plugin.settingsView = { ...plugin.settingsView, tab: id, otherAI: false }; tab.display(); text += tab.containerEl.allText() + '\n'; }
   return { tab, plugin, calls, text };
 }
 
@@ -82,16 +83,17 @@ function render(saved) {
   assert.deepEqual(tests.map(b => b.label), ['测试文本 AI', '测试归档摘要', '测试识图', '测试语音识别', '测试 OCR', '测试 MCP']);
   for (const b of tests) await b.onClickCb();
   assert.deepEqual(calls.map(a => a.at(-1)), ['text', 'summary', 'vision', 'asr', 'ocr', 'mcp']);
-  assert.ok(calls.every(a => a[2] === 'selftest'));
+  assert.ok(calls.slice(0, -1).every(a => a[2] === 'selftest'));
+  assert.deepEqual(calls.at(-1), ['mcp']);
 
   // 没配 = 「未开启：原因」，不是「失败」
   notices.length = 0;
   plugin.reply = { kind: 'summary', ok: false, skipped: true, detail: '文本 AI没填接口地址' };
   await tests[1].onClickCb();
-  assert.match(notices.at(-1), /^未开启：/);
+  assert.match(plugin.settingsView.tests.summary.text, /^未开启/);
   plugin.reply = { kind: 'vision', ok: false, skipped: false, code: 'NEEDS_HUMAN.AUTH_FAILED', detail: '接口拒绝了 key（HTTP 401）' };
   await tests[2].onClickCb();
-  assert.match(notices.at(-1), /^失败：.*401/);
+  assert.match(plugin.settingsView.tests.vision.text, /^✗ 失败.*401/);
 
   // CapsWriter 目录的提示里不带任何本机盘位
   const capsDir = byName('　CapsWriter 目录');

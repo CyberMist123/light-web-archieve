@@ -121,7 +121,7 @@ class CategoriesModal extends Modal {
   constructor(plugin,cats,selected,refresh){super(plugin.app);this.plugin=plugin;this.cats=JSON.parse(JSON.stringify(cats));this.selected=selected;this.refresh=refresh;this.hidden=new Set(plugin.settings.hiddenCats);}
   onOpen(){this.draw();}
   draw(){
-    const el=this.contentEl;el.empty();el.createEl('h2',{text:'目录标签'});
+    const el=this.contentEl;el.empty();el.createEl('h2',{text:'管理分类'});
     el.createEl('p',{text:'关联标签用逗号分隔。隐藏只影响目录；增减关联标签不会改写笔记。'});
     this.cats.forEach((cat,i)=>{
       const row=el.createEl('div');row.style.cssText='display:flex;gap:6px;flex-wrap:wrap;margin:10px 0';
@@ -133,7 +133,7 @@ class CategoriesModal extends Modal {
       row.createEl('button',{text:'删除'}).onclick=()=>{this.cats.splice(i,1);this.draw();};
       if(cat.name===this.selected)setTimeout(()=>tags.focus(),0);
     });
-    el.createEl('button',{text:'增加大类'}).onclick=()=>{this.cats.push({name:'新大类',keywords:[]});this.draw();};
+    el.createEl('button',{text:'加一个分类'}).onclick=()=>{this.cats.push({name:'新分类',keywords:[]});this.draw();};
     const save=el.createEl('button',{text:'保存',cls:'mod-cta'});
     save.onclick=async()=>{
       save.disabled=true;

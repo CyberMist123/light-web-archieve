@@ -91,13 +91,8 @@ module.exports = function remoteUI(obsidian, plugin) {
     }).open();
   }
 
-  function confirmModal(title, text, okText, onOk) {
-    new TextModal(title, (el, modal) => {
-      el.createEl('p', { text });
-      new Setting(el)
-        .addButton(b => b.setButtonText('取消').onClick(() => modal.close()))
-        .addButton(b => b.setButtonText(okText).setWarning().onClick(async () => { modal.close(); await onOk(); }));
-    }).open();
+  async function confirmModal(title, text, okText, onOk) {
+    if (await plugin.confirm({ title, body: text, ok: okText, danger: true })) await onOk();
   }
 
   function addFolderModal(redraw) {
@@ -153,6 +148,7 @@ module.exports = function remoteUI(obsidian, plugin) {
         new Setting(box).setName('启用').setDesc('开启 = 注册并启动一个后台服务（Windows 计划任务 LinkBrainRemote：登录时启动，意外退出 5 分钟内自动拉起）；关闭 = 停止并删除它。')
           .addToggle(t => t.setValue(r.enabled).onChange(async v => {
             t.setDisabled(true);
+            st.setDesc(v ? '正在注册并启动后台服务（十几秒）…' : '正在停止…');
             r.enabled = v; await save();
             if (v) {
               const res = await act(['enable', ...settingsArgs()], '没启用上');

@@ -1,0 +1,12 @@
+[
+  ["chat", "https://api.deepseek.com/chat/completions", "https://api.deepseek.com/chat/completions"],
+  ["chat", "https://api.deepseek.com", "https://api.deepseek.com/v1/chat/completions"],
+  ["chat", " https://api.openai.com/v1/ ", "https://api.openai.com/v1/chat/completions"],
+  ["chat", "dashscope.aliyuncs.com", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"],
+  ["chat", "https://sample.maas.aliyuncs.com/compatible-mode/v1/chat/completions", "https://sample.maas.aliyuncs.com/compatible-mode/v1/chat/completions"],
+  ["chat", "https://example.test/v1/chat", "https://example.test/v1/chat"],
+  ["chat", "https://generativelanguage.googleapis.com", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"],
+  ["asr", "https://api.openai.com/v1", "https://api.openai.com/v1/audio/transcriptions"],
+  ["embed", "https://example.test", "https://example.test/v1/embeddings"],
+  ["chat", "", ""]
+]

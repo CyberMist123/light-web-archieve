@@ -1263,6 +1263,8 @@ def _answer(question: str, history=None, include=None, model: str = '', source_i
             exclude_ids=None, pin_ids=None) -> dict[str, Any]:
     question = (question or "").strip()
     settings = ai_config.with_model(ai_config.load(), model)
+    if settings.get('modelFallback'):
+        _phase(f'「{settings["modelFallback"]["name"]}」没填 Key，改用文本 AI')
     items = load_items()
     if not isinstance(include, (list, tuple, set, type(None))) or set(include or []) - {"body", "links", "files"}:
         return {"status": "error", "markdown": "include 仅支持 body、links、files。"}
@@ -1293,6 +1295,8 @@ def _answer(question: str, history=None, include=None, model: str = '', source_i
         from .mdsafe import neutralize
         result["markdown"] = neutralize(result["markdown"])
     result["intent"] = intent
+    if settings.get('modelFallback'):
+        result['model_fallback'] = settings['modelFallback']
     result["index_size"] = len(items)
     result["delivery"] = delivery_payload(result, include)
     result["history"] = ([{"role": m["role"], "content": str(m.get("content", ""))}
@@ -1433,7 +1437,13 @@ def selftest(kind: str) -> dict[str, Any]:
             detail = f"{which}能用，回复：{' '.join(str(res.get('text') or '').split())[:60]}"
         else:
             detail = f"{which}：{res.get('error') or res.get('text') or '没有回复'}"
-        return _outcome("text", res, detail, mode=cfg.get("mode"), model=name or cfg.get("model") or "")
+        state = ai_config.describe_model(settings, name)
+        if chosen.get('modelFallback'):
+            detail = (f'问答页选的「{name}」没填 Key（它的接口 {chosen["modelFallback"]["host"]} 和文本 AI 不是一家，'
+                      '不会借用文本 AI 的 Key），这次改用文本 AI 测：' + detail)
+        return _outcome("text", res, detail, mode=cfg.get("mode"), model=name or cfg.get("model") or "",
+                        model_fallback=chosen.get('modelFallback'),
+                        effective={'host': state['host'], 'model': state['model'], 'key_source': state['key']})
     if kind == "summary":
         # 归档摘要：和 llm.extract 同一个调用 + 同一套 JSON 校验
         cfg = providers.resolve("summaryAI", settings)

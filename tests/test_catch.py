@@ -94,7 +94,7 @@ def test_no_link_returns_found_zero(tmp_path, monkeypatch, capsys):
 
     code = cli.main(["catch", "今天天气不错，晚点聊"])
     assert code == 0
-    assert only_json(capsys) == {"found": 0, "items": []}
+    data = only_json(capsys); assert (data["found"], data["items"]) == (0, [])
 
 
 # --------------------------------------------------------------------------

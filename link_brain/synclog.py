@@ -560,6 +560,8 @@ def retry(run_id: str, *, runner: Callable[[list[str], str, float], tuple[int | 
 def add_parser(sub) -> None:
     p = sub.add_parser("synclog", help="同步记录（目录页「同步记录」窗口）：list / begin / end / record / retry")
     ss = p.add_subparsers(dest="synclog_command")
+    q = ss.add_parser('stop', help='插件停止自己启动的同步后收尾')
+    q.add_argument('--by-user', action='store_true')
     q = ss.add_parser("list", help="最近几次同步（新的在前）+ 第一排的积压")
     q.add_argument("--limit", type=int, default=50)
     q = ss.add_parser("begin", help="开一次同步，输出 run_id（仓外夜跑脚本开头用：设成环境变量 LINK_BRAIN_SYNC_RUN）")
@@ -582,7 +584,13 @@ def run(args) -> int:
 
     cmd = getattr(args, "synclog_command", None)
     with contextlib.redirect_stdout(sys.stderr):
-        if cmd == "begin":
+        if cmd == 'stop':
+            from . import sync_state
+            stopped = bool(args.by_user and sync_state.stopped_by_user())
+            if stopped:
+                end()
+            out = {'ok': stopped, 'code': '', 'message': '已手动停止' if stopped else '没有已停止的同步可收尾'}
+        elif cmd == "begin":
             rid = begin(args.trigger, own=False)
             out = {"ok": bool(rid), "code": "", "message": "已开一次同步记录" if rid else "同步记录没开上", "run_id": rid}
         elif cmd == "end":

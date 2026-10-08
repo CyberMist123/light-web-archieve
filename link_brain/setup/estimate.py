@@ -246,6 +246,12 @@ def estimate(posts: int = 100) -> dict[str, Any]:
     hows = {"summary": s_how, "vision": v_how,
             "video": f"平均每篇视频 {basis['avg_video_min']} 分钟（没视频的篇算 0）× 每分钟单价",
             "ask": f"一次带检索摘录约 {ctx_chars} 字 + 提示词 ≈ {a_in} token 输入，输出按 maxTokens 一半 ≈ {a_out} token"}
+    def connection(item, key, info):
+        provider = (pricing.get('providers') or {}).get(info.get('provider'), {})
+        return {'api_model': info.get('api_model') or next(iter(info.get('aliases') or []), key),
+                'endpoint': provider.get('asr_endpoint' if item == 'video' else 'endpoint', ''),
+                'openai_compatible': info.get('openai_compatible')}
+
     items = []
     for item in ("summary", "vision", "video", "ask"):
         key, info, mine = pick(item)
@@ -254,7 +260,7 @@ def estimate(posts: int = 100) -> dict[str, Any]:
         for alt in dict.fromkeys([rec.get(item, ""), *(alts.get(item) or [])]):
             hit = _price(pricing, alt)
             if hit and hit[0] != key:
-                alt_rows.append({"model": hit[0], "provider": hit[1].get("provider"),
+                alt_rows.append({**connection(item, *hit), "model": hit[0], "provider": hit[1].get("provider"),
                                  "yuan": _round(cost_of(item, hit[0], hit[1])),
                                  "openai_compatible": hit[1].get("openai_compatible")})
         how = hows[item] + offpeak_note(info)
@@ -262,7 +268,7 @@ def estimate(posts: int = 100) -> dict[str, Any]:
             how += "；别家图片折 token 的方式不同，备选价格只是按同样 token 数粗比"
         if item == "video" and info.get("openai_compatible") is False:
             how += "；这个接口不是 OpenAI 兼容的，插件现在不能直接接"
-        items.append({"id": item, "name": names[item], "provider": info.get("provider"), "model": key or None,
+        items.append({**connection(item, key, info), "id": item, "name": names[item], "provider": info.get("provider"), "model": key or None,
                       "configured": mine, "yuan": _round(yuan), "per": "次" if item == "ask" else f"{posts} 篇",
                       "how": how, "price": {k: info.get(k) for k in ("currency", "unit", "input", "output", "price")
                                              if k in info}, "alternatives": alt_rows})

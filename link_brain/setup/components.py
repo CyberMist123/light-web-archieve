@@ -293,6 +293,8 @@ def _ai(item: str) -> dict[str, Any]:
     label = "文本 AI" if cap == "textAI" else "识图"
     if cfg:
         row = _row(item, "ready", f"{label}已配置（{cfg.get('model') or cfg.get('mode')}；没调用验证，⑤ 里「试问一句」验）")
+    elif providers.gate(cap, settings)['gated']:
+        row = _row(item, 'not_selected', f'已填好，但「开始」页没勾「{label}」，现在不会跑')
     else:
         # 要 key 的项不算「没装好」：前端放在 ⑤ 填 key，② 一键检查不被它拖住（status 单列 needs_key）
         row = _row(item, "needs_key", f"{label}没配 key（不填也能用归档、浏览、关键词搜索、本地 OCR、本地语音）", fix="manual",

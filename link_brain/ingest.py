@@ -760,10 +760,17 @@ def run_comments(args) -> int:
                                  fill=getattr(args, "fill", False))
     except xhs.NeedsHumanError as exc:
         print(f"评论抓取中止（账号或服务要处理）: {exc}", file=sys.stderr)
+        dump_json({'ok': False, 'code': 'NEEDS_HUMAN', 'message': f'评论没抓：{exc}'})
         return EXIT_NEEDS_HUMAN
     except (xhs.AdapterError, FileNotFoundError) as exc:
         print(f"评论抓取失败: {exc}", file=sys.stderr)
+        dump_json({'ok': False, 'code': '', 'message': f'评论没抓：{exc}'})
         return EXIT_ERROR
-    dump_json({k: summary.get(k) for k in ("item_id", "note_id", "comments", "sub_comments", "comments_complete", "version",
-                                            "refreshed_unchanged", "filled", "reason") if k in summary})
+    out = {k: summary.get(k) for k in ("item_id", "note_id", "comments", "sub_comments", "comments_complete", "version",
+                                       "refreshed_unchanged", "filled", "reason") if k in summary}
+    message = (f'评论没有变化（{summary.get("comments", 0)} 条）' if summary.get('refreshed_unchanged') else
+               f'评论已更新：{summary.get("comments", 0)} 条一级、{summary.get("sub_comments", 0)} 条回复')
+    if summary.get('comments_complete') is False:
+        message += '；还有没读全的楼，夜里接着读'
+    dump_json({**out, 'ok': True, 'code': '', 'message': message})
     return 0

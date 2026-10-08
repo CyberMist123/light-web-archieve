@@ -284,5 +284,12 @@ def run(args) -> int:
             code = EXIT_ERROR
         else:
             code = EXIT_OK
+    items = payload.get('items') or []
+    item = next((item for item in items if item.get('error')), items[0] if items else {})
+    status = item.get('status')
+    message = {'new': f'已导入：{item.get("title") or item.get("item_id") or "新收藏"}',
+               'hit': '已在库里', 'trashed': '这条在回收站，恢复后可用', 'busy': BUSY_MESSAGE,
+               'blocked': item.get('error') or '账号需要处理'}.get(status, '没导入成：' + str(item.get('error') or '没有识别到链接')[:80])
+    payload.update(ok=code == EXIT_OK, code=item.get('code') or '', message=message)
     read_mod.dump_json(payload)
     return code

@@ -32,7 +32,7 @@ const Plugin = context.module.exports;
 
 (async () => {
   const p = new Plugin(); p.repoRoot = 'D:/repo';
-  p.app = { vault: { adapter: { exists: async () => false, read: async () => '', write: async () => {} } }, workspace: { trigger() {} } };
+  p.app = { vault: { adapter: { stat: async () => null, append: async () => {}, exists: async () => false, read: async () => '', write: async () => {} } }, workspace: { trigger() {} } };
   p.lbPath = x => x;
 
   // spawnPy：统一 cwd / env / windowsHide；最后一行 JSON；stdout 里的人话不影响解析
