@@ -190,6 +190,22 @@ def call_text(instruction, input_text, settings):
     return call(instruction, input_text, settings.get('textAI') or {}, _ON_DELTA.get())
 
 
+_REAL_CALL_TEXT = call_text
+
+
+def _text_ai_missing(settings) -> str:
+    """批次 D · L2 A6：问答 AI 没配好 → 返回一句原因（和 text_stream.call 同一判定：providers.finalize('textAI')）；配好了返回 ''。
+    call_text 被换掉（单测 / 嵌入方自带模型）时由替换者负责，这里不拦。"""
+    if call_text is not _REAL_CALL_TEXT:
+        return ""
+    from . import providers
+    try:
+        resolved, why = providers.finalize("textAI", dict(settings.get("textAI") or {}))
+    except Exception as exc:  # noqa: BLE001 - 判定本身出错 = 当作没配好，照样列来源
+        return f"文本 AI 配置读不出来：{type(exc).__name__}"
+    return "" if resolved is not None else (why or "文本 AI 没配置")
+
+
 # --------------------------------------------------------------------------
 # 三种答法
 # --------------------------------------------------------------------------
@@ -1027,7 +1043,10 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
         expansion = expand_query(question, base_terms, items, llm=llm_expansions(question, allow_call=False))
         sem, prior_terms, terms, cache_hit, qvec = semantic_hits(question), [], base_terms, None, None
         intent, beyond, total = None, [], len(matches)
-        _phase(f"检索收藏：用你留下的 {len(matches)} 条来源")
+        if len(matches) == 1:   # N11「问这篇」：只给一篇
+            _phase(f"只看这一篇：{str(matches[0].get('title') or '未命名')[:30]}")
+        else:
+            _phase(f"检索收藏：用你留下的 {len(matches)} 条来源")
     else:
         # 答案缓存（Lot D）：只对独立提问撞索引；追问依赖本轮对话，不和历史问题比。任何失败=全新问题。
         qvec = answer_cache.question_vector(question)
@@ -1068,7 +1087,9 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     selection_failed = selection_kept = selection_empty = False
     picked = 0
     if _cancelled(): return _stopped()
-    if not pinned and not deep and selection_wanted(question, pool, n):
+    # A6：问答 AI 没配好——不挑材料（白跑还会登记 SKIPPED.FALLBACK）、不发「挑选材料 / 生成回答」，本地证据照常组成来源列给她
+    missing_ai = _text_ai_missing(settings)
+    if not missing_ai and not pinned and not deep and selection_wanted(question, pool, n):
         _phase(f"挑选材料：从 {min(len(pool), 40)} 条候选里挑最合适的排前面")
         try:
             selected, _count = _select_sources(question, pool, terms, settings, n, sem)
@@ -1150,6 +1171,10 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
         except Exception:  # noqa: BLE001 - fail-open：注入失败就当全新问题
             cache_note, hint, cache_hit = "", "", None
     if _cancelled(): return _stopped()
+    if missing_ai:
+        return {"status": "error", "kind": "answer", "error_kind": "not_configured", "code": "SKIPPED.NOT_CONFIGURED",
+                "error": missing_ai, "markdown": "问答模型还没配好（设置 → AI → 文本 AI）：" + missing_ai,
+                "sources": sources, "related": related_cards, "matches": len(matches), "materials": len(sources), "model_called": False}
     _phase(f"生成回答：用 {len(sources)} 条材料")
     if hint and _ON_DELTA.get():
         _ON_DELTA.get()(hint + "\n\n")
@@ -1160,8 +1185,12 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
         out["sources"], out["related"] = sources, related_cards
         return out
     if res.get("status") != "ok" or not (res.get("text") or "").strip():
-        lead = "问答模型还没配好（设置 → AI → 文本 AI）：" if res.get("status") == "skipped" else "AI 回答失败："
+        skipped = res.get("status") == "skipped"
+        lead = "问答模型还没配好（设置 → AI → 文本 AI）：" if skipped else "AI 回答失败："
+        # A5：页面按 error_kind / code 分文案（不再把整句 markdown 当原因）；markdown 原句保留（设置页「试问一句」照旧显示它）
         return {"status": "error", "kind": "answer", "markdown": lead + str(res.get("error") or "空响应"),
+                "error_kind": "not_configured" if skipped else "api", "code": str(res.get("code") or ""),
+                "error": str(res.get("error") or "空响应")[:300],
                 "sources": sources, "related": related_cards, "matches": len(matches), "materials": len(sources), "model_called": True}
     from .mdsafe import neutralize  # 1001 C-2：回答引用了别人的原文，落盘/渲染前打断 Dataview 可执行形态
     markdown=neutralize(embed_images(res['text'], sources))  # 1008：模型写的 [看图：来源N 图M] 换成真图，对不上的删掉
@@ -1249,6 +1278,7 @@ def _answer(question: str, history=None, include=None, model: str = '', source_i
         # R1：扩词小模型 + embedding 一开头就并行起（recall_core.Probe）；先等扩词那份顺带给的意图决定答法，
         # 再把两份原样交给检索，不多调一次模型、不加等待。没 key / 失败 / 旧缓存 = 没意图，退回正则启发式。
         from . import recall_core
+        _phase("理解问题")   # A13：扩词 / 意图先跑，冷启动时她看到的第一步是真的
         probe = recall_core.Probe(question, history)
         intent, intent_source = route_intent(question, probe.llm().get("intent"))
     handler = {"github": _answer_github, "links": _answer_links}.get(intent, _answer_qa)

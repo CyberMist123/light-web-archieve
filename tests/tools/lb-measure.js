@@ -159,6 +159,15 @@
         await waitFor(() => C().querySelector('.lbchat-search'));
         res.open_chat_ms = Math.round(performance.now() - t0);
         res.chat = { fake_progress_in_page: /正在检索收藏…/.test(await app.vault.cachedRead(role('chat'))), reader_layout_select: !!C().querySelector('.lbchat-reader-layout') };
+        // 批次 D · L2（只读也能量）：页面计时、DOM 节点数、是否挂在 host 上、一次目录跳转（有 ≥2 问时）的耗时
+        {
+          await sleep(300);
+          const wrapC = C().querySelector('.lbchat');
+          Object.assign(res.chat, { perf: (window.__lbPerf && window.__lbPerf.chat && window.__lbPerf.chat.marks) || null, dom_nodes: wrapC ? wrapC.querySelectorAll('*').length : 0,
+            on_host: !!(wrapC && wrapC.parentElement && wrapC.parentElement.classList.contains('lb-page-host')) });
+          const tq = C().querySelectorAll('.lbchat-toc .lbchat-toc-q');
+          if (tq.length >= 2) { const t1 = performance.now(); tq[0].click(); res.chat.toc_jump_ms = Math.round((performance.now() - t1) * 10) / 10; C().querySelector('.lbchat-back')?.click(); }
+        }
         if (!opts.readOnly) {
           const sp = lbPath('_archive/chat-session.json');
           const st0 = await app.vault.adapter.stat(sp);
@@ -170,6 +179,15 @@
           Object.assign(res.chat, { draft_writes_vault: !!(st1 && (!st0 || st1.mtime !== st0.mtime)), same_dom_after_rerun: C().querySelector('.lbchat') === wrap0,
             draft_after_rerun: C().querySelector('.lbchat-search')?.value || '' });
           const ta2 = C().querySelector('.lbchat-search'); ta2.value = ''; ta2.dispatchEvent(new Event('input'));
+          // 合成库里：点「保留」到按钮变样（同步部分）、点保留后 markdown 渲染次数（应为 0：只重建来源块）
+          const pin = C().querySelector('.lbchat-answer .lbchat-src-pin');
+          if (pin) {
+            const md = C().querySelector('.lbchat-answer .lbchat-md'), before = md ? md.innerHTML : '';
+            const t1 = performance.now(); pin.click(); res.chat.pin_click_ms = Math.round((performance.now() - t1) * 10) / 10;
+            await sleep(300);
+            res.chat.pin_md_rerendered = !md || !md.isConnected || md.innerHTML !== before;
+            C().querySelector('.lbchat-answer .lbchat-src-pin')?.click(); await sleep(300);   // 还原
+          }
         }
         log('chat ' + res.open_chat_ms + ' ' + JSON.stringify(res.chat));
       }

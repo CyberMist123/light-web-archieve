@@ -35,7 +35,9 @@ def test_answer_reports_real_phases_in_order(fake_index, monkeypatch):
     assert r["status"] == "ok"
     # 阶段带真实条数（她要的「相关 xx / 共 xx 条」）：总数 = 索引条数，生成回答 = 实际送进模型的材料数
     n = len(FAKE_ITEMS)
-    assert phases[0] == f"检索收藏：共 {n} 条"
+    # 批次 D · L2 A13：扩词 / 意图先跑，第一步是「理解问题」
+    assert phases[0] == "理解问题"
+    assert phases[1] == f"检索收藏：共 {n} 条"
     assert any(p.startswith("检索收藏：相关 ") and p.endswith(f" / 共 {n} 条") for p in phases)
     assert phases[-1] == f"生成回答：用 {len(r['sources'])} 条材料"
 
@@ -115,6 +117,31 @@ def test_worker_cancel_protocol(monkeypatch):
     assert results["3"] == {"status": "ok", "markdown": "答：正常"}
     assert {"id": "1", "type": "phase", "text": "检索收藏"} in events
     assert not any(e["id"] == "2" and e["type"] == "start" for e in events), "排队中被取消的不该开始作答"
+
+
+def test_worker_exception_reports_reason(monkeypatch, capsys):
+    """批次 D · L2 A5：ask.answer 抛错 → result 带 error_kind=crash、原因（类型 + 文本）；堆栈进 stderr，stdout 只有协议行。"""
+    def boom(*a, **k):
+        raise RuntimeError("索引坏了")
+
+    monkeypatch.setattr(serve.ask, "answer", boom)
+    monkeypatch.setattr(serve, "_warm", lambda: None)
+    stdin, out = _Stdin(), io.StringIO()
+    monkeypatch.setattr(sys, "stdin", stdin)
+    monkeypatch.setattr(sys, "stdout", out)
+    worker = threading.Thread(target=serve.run, args=(SimpleNamespace(),), daemon=True)
+    worker.start()
+    stdin.put({"id": "9", "question": "随便"})
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and '"type": "result"' not in out.getvalue():
+        time.sleep(0.05)
+    stdin.put(None)
+    worker.join(5)
+    events = [json.loads(line) for line in out.getvalue().splitlines() if line.strip()]
+    result = next(e["result"] for e in events if e["type"] == "result")
+    assert result["status"] == "error" and result["error_kind"] == "crash"
+    assert "RuntimeError" in result["markdown"] and "索引坏了" in result["markdown"]
+    assert "Traceback" in capsys.readouterr().err
 
 
 # ── 删除：逐条结果、退出码与 JSON 一致、中途失败也重建目录 ──────────────

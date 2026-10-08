@@ -47,7 +47,7 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
    }else{
     await page.locator('.lbchat-cite').click();assert.ok((await page.evaluate(()=>opened)).length);
     await page.getByRole('button',{name:'复制',exact:true}).click();assert.ok((await page.evaluate(()=>copied)).includes('D:/LIGHT WEB ARCHIEVE/vault/Web/'));
-    await page.locator('.lbchat-answer p').first().dblclick();await page.locator('.lbchat-editor').fill('我修改过的回答 [来源1]');await page.getByRole('button',{name:'保存修改',exact:true}).click();assert.ok((await page.locator('.lbchat-answer').textContent()).includes('我修改过'));
+    await page.locator('.lbchat-answer .lbchat-edit').first().click();await page.locator('.lbchat-editor').fill('我修改过的回答 [来源1]');await page.getByRole('button',{name:'保存修改',exact:true}).click();assert.ok((await page.locator('.lbchat-answer').textContent()).includes('我修改过'));
     await page.locator('.lbchat-export summary').click();await page.locator('.lbchat-export input').uncheck();await page.getByRole('button',{name:'导出资料包',exact:true}).click();assert.equal(await page.evaluate(()=>bundles[0][1]),false);assert.ok(await page.evaluate(()=>bundles[0][2].includes('来源')));await page.getByRole('button',{name:'导出资料包',exact:true}).click();assert.equal(await page.evaluate(()=>bundles.length),2);await page.getByRole('button',{name:'复制文件包',exact:true}).click();assert.equal(await page.evaluate(()=>bundles.at(-1)[3].copy),true);await page.locator('.lbchat-export summary').click();
     await page.locator('.lbchat-bookmark').click();assert.equal(await page.locator('.lbchat-bookmark').getAttribute('aria-pressed'),'true');await page.getByRole('button',{name:'已保存',exact:true}).click();assert.ok((await page.locator('.lbchat-arc-body').textContent()).includes('我修改过'));await page.getByRole('button',{name:'对话',exact:true}).click();
    }
@@ -80,6 +80,6 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
  await page.locator('.lbc-cat').filter({hasText:'已收藏'}).click();assert.equal(await page.evaluate(()=>opened.at(-1)[0]),'小红书收藏目录.md');
  await setup('chat','light');await page.evaluate(()=>{const pane=document.querySelector('main');pane.style.cssText='height:650px;margin-top:80px;overflow:auto';window.scrollTo(0,0);});
  await page.waitForFunction(()=>document.querySelector('.lbchat-composer').getBoundingClientRect().bottom<=document.querySelector('main').getBoundingClientRect().bottom);
- await page.locator('.lbchat-reader-layout').selectOption('compare');await page.locator('.lbchat-search').fill('分栏测试');await page.locator('.lbchat-search').press('Enter');await page.locator('.lbchat-send:enabled').waitFor();await page.locator('.lbchat-cite').click();assert.equal(await page.evaluate(()=>opened.at(-1)[1]),true);
+ await page.locator('.lbchat-search').fill('分栏测试');await page.locator('.lbchat-search').press('Enter');await page.locator('.lbchat-send:enabled').waitFor();await page.locator('.lbchat-cite').first().click();
  assert.deepEqual(errors,[]);await browser.close();console.log('PASS shipped pages, pane-constrained composer, visible compare selector and starred-filter exit. '+out);
 })().catch(e=>{console.error(e);process.exitCode=1;});

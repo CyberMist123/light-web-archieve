@@ -215,7 +215,17 @@ R = {"status": "ok|failed|skipped", "text": str|None, "code": "<故障码或空>
 | 事件 `link-brain:ask-pending` / `link-brain:chat-session` | 插件 / 问收藏页 | 问收藏页 | 已有 |
 
 - 目录线（L1）：`pendingCatalogQuery` + 事件 `link-brain:catalog-query`（笔记线写、目录读，读完即删）。
-- 问收藏线（L2）：`pendingArchiveScope`、`chatInFlight` / `chatQueue` / `chatSaveChain`，事件 `link-brain:chat-live` / `link-brain:chat-queue`。
+- 问收藏线（L2）：
+
+  | 字段 / 事件 | 谁写 | 谁读 | 说明 |
+  |---|---|---|---|
+  | `chatInFlight` `{page, id, userTurnId, convId, private, q, askedAt, phase, text, startedAt}` | 问收藏页 `submit`（第一个 await 之前同步写；onPhase / onDelta 写 phase / text） | 所有问收藏页 | 同一时刻只答一问：`isBusy() = 自己在答 \|\| chatInFlight 属于别的页`。答完由发起那一页（哪怕已经换走、只剩旧闭包）删掉；`id` = 回答轮的 id，`userTurnId` = 它的问题 |
+  | `chatQueue` `[{q, opts, at}]` | 问收藏页（作答中再发 / 忙时带词跳来） | 所有问收藏页 | `opts` 可带 `sourceIds` / `fresh` / `scope`；看得见、不忙的那一页从队首取（`drainQueue`），取走即删 |
+  | `chatSaveChain` Promise | 问收藏页 `enqueueWrite` | 问收藏页 | `chat-session.json` / 历史文件只经这条链串行写（含换页前那一页的旧闭包）；答完的回答在链里先读磁盘、插回自己那条问题后面再写，不整份覆盖 |
+  | `pendingArchiveScope` `{ids, title, note, at}` | 插件 `askAboutNote`（笔记 ⋯ / 命令） | 问收藏页 `takePending` | 「问这篇」：取走即删，超过 5 分钟丢弃；页面存进页面状态 `scope`，不自动提交 |
+  | 事件 `link-brain:chat-live`(pageId) | 正在答的那一页（每个 delta / 阶段） | 别的问收藏页 | 收到后从 `chatInFlight.text / phase` 画流式那一块（200ms 节流） |
+  | 事件 `link-brain:chat-session`(pageId) | 问收藏页每次写会话成功后 | 别的问收藏页 | 重读会话、强制全量重建，然后看排队；`from === 自己` 或自己在答时不理 |
+  | 事件 `link-brain:chat-queue`(pageId) | 改了 `chatQueue` 的那一页 | 别的问收藏页 | 重画排队行 |
 - 笔记线（L3）：`body.lb-actions-on`（note-actions attach 时加、卸载时去）。
 - 设置线（L4）：`accountCache`、事件 `link-brain:task`、`onTask(cb)`。
 - 功能线（L5）：`settings.media = {loop, playlistOrder}`（插件设置，后端不读）。

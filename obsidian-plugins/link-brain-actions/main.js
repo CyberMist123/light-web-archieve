@@ -1280,10 +1280,17 @@ class LinkBrainActions extends Plugin {
 
   // catalog-view.js 的 /问AI 入口。后端 `link_brain ask` 自己读整个本地索引重新检索、
   // 只把挑出的少量片段送模型（token 控制全在 Python），这里只做薄壳 + 解析。
+  // 批次 D · L2 A5：问答失败带原因类别（kind: config / api / crash / timeout）+ 后端 code / detail / payload；message 不变（设置页照旧显示）
+  answerError(message,{kind='api',code='',detail='',payload=null}={}) {
+    const e=new Error(message||'回答失败');e.kind=kind;e.code=code||'';e.detail=detail||'';if(payload)e.payload=payload;return e;
+  }
+  // stderr 最后一行（崩溃时拼进提示；只给她本人看，不写问题记录）
+  answerErrLast() { const lines=String(this.answerErrTail||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean); return (lines.pop()||'').slice(0,200); }
   ensureAnswerWorker() {
     if(this.answerWorker)return this.answerWorker;
     const child=this.pyChild(['-m','link_brain','serve','--stdio']);
     this.answerWorker=child;this.answerPending=this.answerPending||new Map();
+    this.answerWorkerSpawnedAt=this.nowMs();this.answerErrTail='';
     let buffer='';child.stdout.setEncoding('utf8');
     child.stdout.on('data',chunk=>{
       buffer+=chunk;let end;
@@ -1294,19 +1301,20 @@ class LinkBrainActions extends Plugin {
         if(event.type==='delta')pending.onDelta?.(event.text);
         if(event.type==='phase')pending.onPhase?.(event.text);
         if(event.type==='result'){clearTimeout(pending.timer);clearTimeout(pending.cancelTimer);this.answerPending.delete(event.id);
-          if(pending.timedOut)pending.reject(new Error('回答超过 '+Math.round(this.answerBackstopMs()/1000)+' 秒没有完成，已停止。可以缩小问题范围后重试'));else pending.resolve(event.result);}
+          if(pending.timedOut)pending.reject(this.answerError('回答超过 '+Math.round(this.answerBackstopMs()/1000)+' 秒没有完成，已停止。可以缩小问题范围后重试',{kind:'timeout'}));else pending.resolve(event.result);}
       }
     });
-    child.stderr.on('data',()=>{});
+    child.stderr.on('data',d=>{if(this.answerWorker===child)this.answerErrTail=(String(this.answerErrTail||'')+d).slice(-2000);});
     const ended=()=>{
       if(this.answerWorker!==child)return;
       this.answerWorker=null;
       const hadPending=this.answerPending.size>0;
-      for(const request of this.answerPending.values()){clearTimeout(request.timer);clearTimeout(request.cancelTimer);if(request.cancelTimer&&!request.timedOut)request.resolve({status:'cancelled',markdown:''});else request.reject(new Error(request.timedOut?'回答超时，已停止':'问答连接已断开，请重试'));}
+      const last=this.answerErrLast();
+      for(const request of this.answerPending.values()){clearTimeout(request.timer);clearTimeout(request.cancelTimer);if(request.cancelTimer&&!request.timedOut)request.resolve({status:'cancelled',markdown:''});else request.reject(request.timedOut?this.answerError('回答超时，已停止',{kind:'timeout'}):this.answerError('问答进程断开了'+(last?'：'+last:''),{kind:'crash',detail:last}));}
       this.answerPending.clear();
       if(hadPending&&!this.unloading)this.ensureAnswerWorker();
     };
-    child.on('close',ended);child.on('error',()=>{this.answerWorker=null;for(const request of this.answerPending.values()){clearTimeout(request.timer);request.reject(new Error('无法启动问答进程'));}this.answerPending.clear();});
+    child.on('close',ended);child.on('error',err=>{this.answerWorker=null;const why=(err&&err.message)||'';for(const request of this.answerPending.values()){clearTimeout(request.timer);request.reject(this.answerError('无法启动问答进程'+(why?'：'+why:''),{kind:'crash',detail:why}));}this.answerPending.clear();});
     child.stdin.on('error',()=>{});
     return child;
   }
@@ -1319,8 +1327,12 @@ class LinkBrainActions extends Plugin {
   }
   // onPhase：后端真实阶段（检索收藏 / 挑选材料 / 生成回答），页面只显示这些，不轮播假文案（§1.6）。
   // 批次 D 地基：tag（'chat' / 'setup'…）记在这一问上，stopArchiveAnswer(tag) 只停同 tag 的；onStart(id) 在拿到请求 id 时回调（调用方只取消自己那一问）。
+  // 批次 D · L2 A13：冷启动（这一问要新起 worker，或刚起不到 4 秒）先报一步「正在启动问答」，不让她干等一个假阶段
+  nowMs() { return typeof this.now==='function'?this.now():Date.now(); }
   requestAnswer(request,onDelta,onPhase,{tag=null,onStart=null}={}) {
+    const cold=!this.answerWorker||this.nowMs()-(this.answerWorkerSpawnedAt||0)<4000;
     const worker=this.ensureAnswerWorker();
+    if(cold&&typeof onPhase==='function'){try{onPhase('正在启动问答');}catch{}}
     const id=String(this.answerSequence=(this.answerSequence||0)+1);
     return new Promise((resolve,reject)=>{
       // 兜底超时也走「停止」协议（§6.7）：worker 杀掉自己起的 claude / codex、回 cancelled；不再整个 worker 一刀切
@@ -1342,6 +1354,8 @@ class LinkBrainActions extends Plugin {
     return true;
   }
   // 带 tag 只停这个 tag 的请求（「开始」页试问一句不再停掉问收藏页正在生成的回答）；不带 tag 全停（旧调用兼容）
+  // 问收藏页她开始打字时预热（同一页 60 秒内只调一次）：没有 worker、也不在卸载时才起；返回是否新起了
+  warmAnswerWorker() { if(this.answerWorker||this.unloading)return false; try{this.ensureAnswerWorker();return true;}catch(e){console.error('[lb] 预热问答进程没成',e);return false;} }
   stopArchiveAnswer(tag) { let n=0; for(const [id,p] of [...(this.answerPending?.entries()||[])]) { if(tag!=null&&p.tag!==tag)continue; if(this.cancelAnswer(id)) n++; } return n; }
   onunload(){this.unloading=true;clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);this.catalogCache=null;
     for(const k of ['noteActions','noteTools','imageActions','playerUI']){try{this[k]?.detach?.();}catch(e){console.error('[lb] '+k+' 卸载出错',e);}}   // 批次 D 地基：四个挂载点
@@ -1356,7 +1370,12 @@ class LinkBrainActions extends Plugin {
     const constraints={...(ids(excludeIds).length?{exclude_ids:ids(excludeIds)}:{}),...(ids(pinIds).length?{pin_ids:ids(pinIds)}:{})};
     const payload=await this.requestAnswer(Array.isArray(sourceIds)?{question:q,history,model,source_ids:sourceIds,...constraints}:{question:q,history,model,...constraints},onDelta,onPhase,{tag,onStart});
     if(payload.status==='cancelled')return payload;
-    if(payload.status!=='ok')throw new Error(payload.markdown||payload.error||'回答失败');
+    if(payload.status!=='ok'){
+      // A5：kind 判定——没配 AI → config；worker 里崩了 → crash；其余（接口拒绝 / 限流 / 网络）→ api
+      const code=String(payload.code||'');
+      const kind=payload.error_kind==='not_configured'||code.startsWith('SKIPPED.')?'config':payload.error_kind==='crash'?'crash':'api';
+      throw this.answerError(payload.markdown||payload.error||'回答失败',{kind,code,detail:payload.error||'',payload});
+    }
     return payload;
   }
 
@@ -1380,6 +1399,19 @@ class LinkBrainActions extends Plugin {
       let err='';child.stderr.on('data',d=>err+=d);child.on('error',reject);child.on('close',code=>code===0?resolve():reject(new Error(err||'复制文件失败')));
     });
     new Notice('文件包已复制，可粘贴到支持文件的应用');
+  }
+
+  // 批次 D · L2 N11「问这篇」：问收藏页的来源预设成这一篇（不自动提交）。L3 在笔记 ⋯ 菜单 / 命令面板里调它。
+  async askAboutNote(file = this.app.workspace.getActiveFile?.()) {
+    const fm = file ? this.app.metadataCache.getFileCache(file)?.frontmatter : null;
+    const id = fm?.link_brain?.item_id;
+    if (!file || typeof id !== 'string' || !id) { new Notice('这篇不是收藏笔记，没法只问这篇'); return false; }
+    const prefix = this.lbRoot ? this.lbRoot + '/' : '';
+    const note = prefix && file.path.startsWith(prefix) ? file.path.slice(prefix.length) : file.path;
+    this.pendingArchiveScope = { ids: [id], title: String(fm.title || file.basename || ''), note, at: Date.now() };
+    await this.openLibraryPage('chat');
+    this.app.workspace.trigger('link-brain:ask-pending');
+    return true;
   }
 
   // leaf（可选，10-04 ⑩）：在指定窗格里打开（笔记正文的「← 目录」= 它自己那一格）；没给 = 当前窗格
@@ -1535,6 +1567,24 @@ class LinkBrainActions extends Plugin {
       .replace(/(`+)(?=[ \t]*\$?=)/g, (_, ticks) => ticks + Z)
       .replace(/^([ \t>]*)(?=\$?=)/gm, (_, lead) => lead + Z)
       .replace(/<(?=code[\s>/])/gi, "<" + Z);
+  }
+
+  // 批次 D · L2（A1 / A4 / M4）：每次渲染一个自己的 Component，返回 {dispose}——页面换掉 / 摘掉某一轮、换下一版流式稿、卸载时调，
+  // 嵌入的子组件（图片、链接预览）跟着卸，不再挂在插件身上只增不减。renderMarkdownInto 原样留给旧调用。
+  async renderMarkdownScoped(markdown, el, sourcePath = "") {
+    markdown = this.neutralizeMarkdown(markdown);
+    const MR = obsidian.MarkdownRenderer;
+    const Comp = obsidian.Component;
+    const comp = typeof Comp === "function" ? new Comp() : null;
+    try { comp?.load?.(); } catch {}
+    let disposed = false;
+    const dispose = () => { if (disposed) return; disposed = true; try { comp?.unload?.(); } catch {} };
+    try {
+      if (MR && typeof MR.render === "function") await MR.render(this.app, markdown, el, sourcePath, comp || this);
+      else if (MR && typeof MR.renderMarkdown === "function") await MR.renderMarkdown(markdown, el, sourcePath, comp || this);
+      else el.setText(markdown);
+    } catch (e) { dispose(); throw e; }
+    return { dispose };
   }
 
   async renderMarkdownInto(markdown, el, sourcePath = "") {

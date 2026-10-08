@@ -130,51 +130,51 @@ async function chatTests() {
   const code = LIB + '\n' + SEARCH + '\n' + asset('chat-view.js');
   const A = dataviewBlock({ dom, app, code });
   await A.run();
-  const wrap = A.container.querySelector('.lbchat');
-  assert.equal(A.container.querySelector('.lbchat-reader-layout'), null, '「单篇 / 对照」下拉去掉了');
+  const wrap = A.section.querySelector('.lbchat');
+  assert.equal(A.section.querySelector('.lbchat-reader-layout'), null, '「单篇 / 对照」下拉去掉了');
   // 打草稿：不写 vault
-  const ta = A.container.querySelector('.lbchat-search');
+  const ta = A.section.querySelector('.lbchat-search');
   ta.value = '半句草稿'; ta.oninput();
   assert.equal(V.writes['_archive/chat-session.json'] || 0, 0, '键入不写 chat-session.json');
   await A.rerun();
-  assert.equal(A.container.querySelector('.lbchat'), wrap, '问收藏页重跑也挂回旧 DOM');
-  assert.equal(A.container.querySelector('.lbchat-search').value, '半句草稿');
+  assert.equal(A.section.querySelector('.lbchat'), wrap, '问收藏页重跑也挂回旧 DOM');
+  assert.equal(A.section.querySelector('.lbchat-search').value, '半句草稿');
   const B = dataviewBlock({ dom, app, code });
   await B.run();
-  assert.equal(B.container.querySelector('.lbchat-search').value, '半句草稿', '换页回来草稿还在');
+  assert.equal(B.section.querySelector('.lbchat-search').value, '半句草稿', '换页回来草稿还在');
 
-  // 提问：只显示「正在生成…」，不轮播
-  ta.value = '悉尼有什么'; await A.container.querySelector('.lbchat-composer').onsubmit({ preventDefault() {} });
+  // 提问：只显示「正在处理…」，不轮播
+  ta.value = '悉尼有什么'; await A.section.querySelector('.lbchat-composer').onsubmit({ preventDefault() {} });
   await tick(5);
-  assert.ok(wrap.textContent.includes('正在生成…'));
+  assert.ok(wrap.textContent.includes('正在处理…'));
   assert.ok(!/正在检索收藏|正在读相关笔记|正在整理答案/.test(wrap.textContent));
   // 生成中 Dataview 重跑：旧 DOM 挂回，流式文字照样写进来
   await A.rerun();
-  assert.equal(A.container.querySelector('.lbchat'), wrap);
+  assert.equal(A.section.querySelector('.lbchat'), wrap);
   finish({ status: 'ok', markdown: '第一段。\n\n咖啡店在这里 [来源1]', sources: [{ citation: 1, title: '悉尼咖啡地图', note: 'Web/a.md', excerpts: [] }] });
   await tick(20);
   assert.equal(V.writes['_archive/chat-session.json'], 2, '只在轮次变化时写会话（问出去一次、答完一次）');
   assert.ok(!JSON.parse(V.get('_archive/chat-session.json')).draft, '会话文件里不再存草稿');
   // 整段单击不打开来源
-  const para = A.container.querySelectorAll('p').find(p => p.textContent.includes('咖啡店在这里'));
+  const para = A.section.querySelectorAll('p').find(p => p.textContent.includes('咖啡店在这里'));
   assert.ok(!para.onclick, '段落上没有单击打开');
   assert.ok(!para.classList.contains('lbchat-source-block'));
   // 引用编号 → 单篇（复用右侧来源窗格）
   await para.querySelector('.lbchat-cite').onclick({ stopPropagation() {} });
   assert.deepEqual(calls.at(-1), ['open', 'Web/a.md', false]);
   await tick(5);
-  const bar = A.container.querySelector('.lbchat-srcbar');
+  const bar = A.section.querySelector('.lbchat-srcbar');
   assert.ok(!bar.hidden); assert.ok(bar.textContent.includes('收起来源')); assert.ok(!bar.textContent.includes('退出对照'));
   // 参考材料（10-04 ④ 精简）：每行没有「查看」「加入对照」「复制来源」了，点标题打开原文（复用右侧来源窗格）
-  const refs = A.container.querySelector('.lbchat-src');
+  const refs = A.section.querySelector('.lbchat-src');
   for (const gone of ['查看', '加入对照', '复制来源']) assert.ok(!refs.querySelectorAll('button').some(b => b.textContent === gone), '来源行没有「' + gone + '」');
   await refs.querySelector('.lbchat-srcrow a').onclick(); assert.deepEqual(calls.at(-1), ['open', 'Web/a.md', false]);
   await tick(5);
-  assert.ok(A.container.querySelector('.lbchat-body').classList.contains('lbchat-has-reader'));
+  assert.ok(A.section.querySelector('.lbchat-body').classList.contains('lbchat-has-reader'));
   bar.querySelectorAll('button').find(b => b.textContent === '收起来源').onclick();
   assert.deepEqual(calls.at(-1), ['closeAll']);
   assert.ok(bar.hidden);
-  console.log('PASS chat: rerun keeps DOM (even mid-answer), draft in sessionStorage not vault, 正在生成… only, sources open only via cite/title (no 查看/加入对照/复制来源 per row), explicit 收起来源');
+  console.log('PASS chat: rerun keeps DOM (even mid-answer), draft in sessionStorage not vault, 正在处理… only, sources open only via cite/title (no 查看/加入对照/复制来源 per row), explicit 收起来源');
 }
 
 async function annotateTests() {

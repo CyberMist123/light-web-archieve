@@ -816,3 +816,30 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
   - `status.json`：服务自报 `{pid, port, version, state: running|stopped|error, code, message, started_at, domain, folders, updated_at}`。
   - `access.log`：一行一条 `{ts, client, tool, path?, status: ok|denied|error, code?, n?}`，不记查询词和内容；超过 1 MB 轮转一份 `.log.1`。
   - `server.log`：服务自己的运行日志（1 MB × 3）。
+
+## 2026-10-08 问收藏会话（`_archive/chat-session.json` 与 `_archive/chat-history/<id>.json`，批次 D · L2）
+
+两者同一个形状（历史文件 = 某一段对话的快照）；只由问收藏页经插件写链串行写，手机 / 插件没启用时只读不写。旧文件没有的字段照读，第一次写盘时补上轮次 `id`。
+
+```json
+{
+  "id": "m1abc2de",
+  "startedAt": "2026-10-08T09:00:00+10:00",
+  "private": false,
+  "follow": "sources",
+  "excluded": ["xhs-9"],
+  "pinned": ["xhs-2"],
+  "turns": [
+    {"id": "m1abc3fg", "role": "user", "content": "番茄炒蛋放几个蛋", "mode": "scope", "scopeTitle": "番茄炒蛋", "sources": 1, "askedAt": "2026-10-08T09:00:05+10:00"},
+    {"id": "m1abc4hi", "role": "assistant", "content": "三个 [来源1]", "q": "番茄炒蛋放几个蛋", "askedAt": "2026-10-08T09:00:05+10:00", "sources": [], "related": [], "removed": [], "added": [], "savedId": null},
+    {"id": "m1abc5jk", "role": "user", "content": "要放糖吗", "mode": "follow", "sources": 3, "askedAt": "2026-10-08T09:01:00+10:00"},
+    {"id": "m1abc6lm", "role": "assistant", "failed": true, "error": {"kind": "api", "code": "TRANSIENT.HTTP_429", "detail": "429"}, "content": "接口限流了，过一会儿再试", "q": "要放糖吗", "askedAt": "2026-10-08T09:01:00+10:00", "retry": {"sourceIds": ["xhs-1", "xhs-2", "xhs-3"]}, "mode": "follow", "sources": [], "related": []}
+  ]
+}
+```
+
+- 轮次 `id`：页面按它缓存每一轮的 DOM、把答完的回答插回自己那条问题后面；同一文件内唯一。
+- 用户轮 `mode`：`ask`（照常检索）/ `follow`（绑上一轮留下的来源，`sources` = 条数）/ `reask`（按留下的重答）/ `scope`（问这篇，`scopeTitle` = 标题）/ `search`（旧版搜索轮）。
+- 回答轮失败：`failed: true` + `error: {kind: config|api|crash|timeout, code, detail}`，`content` 是页面给她看的一句人话；`retry` 是「重试」原样再问要带的参数（`{sourceIds}` / `{fresh: true}` / `{}`）。停止的：`failed: true, stopped: true`，`content` 末尾一行「> 已停止生成。」。旧版失败轮没有 `error`，照原文显示。
+- `removed`：这一轮被 × 的来源 key（`id || note || title`）；`added`：从「其他相关」加入主要依据的 id。会话级 `excluded` / `pinned` 跨轮生效。
+- 历史目录 `_archive/chat-history/index.json`：`{"conversations": [{id, startedAt, updatedAt, title, turns}]}`，写前重读、按 id 合并。草稿不进文件（只在 `sessionStorage['lb:chat']`）。

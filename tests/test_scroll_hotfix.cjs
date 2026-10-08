@@ -135,12 +135,12 @@ const userScroll = (body, top) => { fireWheel(body, body); body.scrollTop = top;
 async function chatTests() {
   const S = chatSetup();
   await S.A.run();
-  const q = s => S.A.container.querySelector(s);
+  const q = s => S.A.section.querySelector(s);
   const body = q('.lbchat-body'); S.setBody(body);
   body.scrollHeight = 2000; body.clientHeight = 400;
   userScroll(body, 300);
   // 点来源标题（10-04 起来源行没有「查看」了）：开右侧来源窗格
-  const view = S.A.container.querySelector('.lbchat-src .lbchat-srcrow a');
+  const view = S.A.section.querySelector('.lbchat-src .lbchat-srcrow a');
   assert.ok(view, '回答下面有来源标题');
   view.onclick(); await tick(5);
   assert.equal(body.scrollTop, 300, '点来源开右侧窗格后，对话区停在原处（不回首行）');
@@ -153,7 +153,7 @@ async function chatTests() {
   assert.equal(body.scrollTop, 300, 'layout-change 后回到原处');
   // Dataview 重跑把整页摘下再挂回：浏览器把挂回来的滚动容器归零 → 回到原处
   body.scrollTop = 0; await S.A.rerun(); await tick(5);
-  assert.equal(S.A.container.querySelector('.lbchat-body'), body, '重跑挂回的是同一份 DOM');
+  assert.equal(S.A.section.querySelector('.lbchat-body'), body, '重跑挂回的是同一份 DOM');
   assert.equal(body.scrollTop, 300, 'Dataview 重跑挂回后对话区回到原处');
   // 记下来的位置没被「归零」那一下冲掉（换页再回来也对）
   assert.equal(JSON.parse(globalThis.sessionStorage?.getItem?.('lb:chat') || globalThis.__lbState['lb:chat']).scrollTop, 300, '页面状态里记的仍是 300');
