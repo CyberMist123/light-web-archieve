@@ -51,6 +51,21 @@ def load_notes(source: str, source_id: str) -> dict[str, Any]:
     return data
 
 
+def live_annotations(data: Any) -> list[dict[str, Any]]:
+    """没删的、非空的批注条目（原顺序）。批次 D · F3 打印 / 压缩包用；认法同 annotation_text。"""
+    if not isinstance(data, dict) or not isinstance(data.get("annotations"), list):
+        return []
+    tomb = set(data.get("deleted") or []) if isinstance(data.get("deleted"), list) else set()
+    out = []
+    for a in data["annotations"]:
+        if not isinstance(a, dict):
+            continue
+        key = a.get("id") or f"ts:{a.get('ts') or ''}|{a.get('text') or ''}"
+        if str(a.get("text") or "").strip() and key not in tomb:
+            out.append(a)
+    return out
+
+
 def annotation_text(data: Any) -> str:
     """批注全文（第 10 批进检索）：没删的、非空的，一条一行。删除墓碑和 annotate-view.js 的 akey 同一认法；草稿不算。"""
     if not isinstance(data, dict) or not isinstance(data.get("annotations"), list):
@@ -101,6 +116,11 @@ def _resolve(target: str):
         }
     finally:
         conn.close()
+
+
+def resolve(target: str):
+    """公开别名（批次 D · F1/F3/F6）：{item_id, source, source_id, visible_note, title} | None。"""
+    return _resolve(target)
 
 
 def set_star(target: str, on: bool, *, patch: bool = True, updates: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:

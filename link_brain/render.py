@@ -432,6 +432,68 @@ def split_layers(existing_text: str | None) -> tuple[str | None, str | None]:
     return existing_text[start:end], None
 
 
+# 批次 D · F1-c：受管块外的行，哪些是机器碎片（残缺的 HTML / 标记 / 围栏），其余算她手写
+MACHINE_FRAGMENT = re.compile(
+    r'class="lb-|<!--\s*link-brain|\[!(?:link-brain|lb-)|^```|annotate-view\.js|'
+    r'^</?(?:div|section|figure|article|img|video|audio|details|summary|span|br|p)\b'
+)
+_DVJS_RE = re.compile(r"```dataviewjs\r?\n.*?```", re.S)
+
+
+def stray_human_lines(text: str | None) -> tuple[list[str], list[str]]:
+    """受管块之外的行 → (她手写的, 机器碎片)。新渲染的笔记两列都为空。"""
+    if not text:
+        return [], []
+    body = text
+    m = FRONTMATTER_RE.match(body)
+    if m:
+        body = body[m.end():]
+    s, e = body.find(COMMENTS_START), body.find(COMMENTS_END)
+    if s != -1 and e > s:
+        body = body[:s] + "\n" + body[e + len(COMMENTS_END):]
+    body = _DVJS_RE.sub(lambda mm: "\n" if "annotate-view.js" in mm.group(0) else mm.group(0), body)
+    s, e = body.find(CONTENT_START), body.find(CONTENT_END)
+    if s != -1 and e > s:
+        body = body[:s] + "\n" + body[e + len(CONTENT_END):]
+    elif s != -1:
+        # 只剩 START：到下一个已知边界都算机器层
+        cands = [x for x in (body.find(COMMENTS_START, s), body.find("```dataviewjs", s)) if x != -1]
+        body = body[:s] + "\n" + body[min(cands) if cands else len(body):]
+    elif e != -1:
+        body = body[e + len(CONTENT_END):]
+    human: list[str] = []
+    machine: list[str] = []
+    in_callout = False
+    for line in body.split("\n"):
+        stripped = line.strip()
+        if re.match(r"^>\s*\[!(?:lb-topbar|link-brain-file)\]", stripped):
+            in_callout = True
+            continue
+        if in_callout and stripped.startswith(">"):
+            continue
+        in_callout = False
+        if not stripped:
+            continue
+        (machine if MACHINE_FRAGMENT.search(stripped) else human).append(line.rstrip("\r"))
+    return human, machine
+
+
+def append_moved_comment(block: str, lines: list[str]) -> str:
+    """把块外手写搬进留言层（COMMENTS_END 前）。搬进去后就在留言层里了，下次不再算块外（幂等）。"""
+    if not lines:
+        return block
+    now = datetime.now()
+    first, rest = lines[0].strip(), [x.strip() for x in lines[1:]]
+    new = ["> [!link-brain-comment]", f"> 「{now:%Y%m%d} 人」（重写笔记时从正文外搬来）{first}"]
+    new += [f"> {x}" if x else ">" for x in rest]
+    new.append(f"<!-- link-brain: id=moved-{now:%Y%m%d%H%M%S} actor=human target=none status=open -->")
+    end = block.rfind(COMMENTS_END)
+    if end == -1:
+        return block.rstrip("\n") + "\n" + "\n".join(new) + "\n" + COMMENTS_END
+    head = block[:end].rstrip("\n")
+    return head + "\n" + "\n".join(new) + "\n" + block[end:]
+
+
 def merge_existing(primary: str | None, secondary: str | None) -> str | None:
     """同一个对象有两份可见 md 时（改名前后各一份），把**手写的部分**并成一份再渲染。
 
@@ -1058,6 +1120,9 @@ def render_visible_md(
         comments_block = render_comments_block(meta.get("note"), note.get("links") or [])
     else:
         comments_block = _upgrade_comments_block(comments_block)
+    stray_human, _ = stray_human_lines(existing_text)   # 批次 D · F1-c：块外手写搬进留言层，不再被重写吞掉
+    if stray_human:
+        comments_block = append_moved_comment(comments_block, stray_human)
 
     content = render_content_block(source=source, manifest=manifest, meta=meta, object_rel=object_rel)
     # Owner 在正文里划的 ==重点== 要跨重渲染活下来（2026-09-05 定的）
@@ -1418,8 +1483,13 @@ def render_object(
     verbose: bool = False,
     llm: bool = False,
     re_extract: bool = False,
+    target: Path | None = None,
+    existing_override: str | None = None,
 ) -> dict[str, Any]:
     """拼可见 md + agent.md。
+
+    批次 D · F1：target = 钉死写回这个路径（restore 用：不改名、不合并、不删原文件）；
+    existing_override = 拿这段文本当「旧可见 md」（restore 的 seed）。两者默认 None = 原来的行为。
 
     `llm=True` 时才会调小模型生成 `derived/extracted.json`（缺了或上次失败才调，
     `re_extract=True` 强制重调）。不管调没调，已有的 `extracted.json` 都会被读进来用。
@@ -1487,16 +1557,17 @@ def render_object(
 
     visible_dir = storage.visible_dir()
     visible_dir.mkdir(parents=True, exist_ok=True)
-    visible_path = resolve_visible_path(
+    clean_path = resolve_visible_path(
         visible_dir,
         source_doc["note"].get("title") or meta.get("title") or "",
         source_id,
         meta["item_id"],
     )
+    visible_path = Path(target) if target else clean_path
 
-    old_visible = meta.get("visible_note")
+    old_visible = None if target else meta.get("visible_note")
     old_path = storage.vault_root() / old_visible if old_visible else None
-    if old_path is None or not old_path.exists():
+    if not target and (old_path is None or not old_path.exists()):
         # 1001（审计 render-8）：meta 记的路径没文件了 = 她在 Obsidian 里改了名或挪了位置。
         # 先按 frontmatter 的 item_id 在可见目录（含子目录）里找回那份，沿用她的名字和位置，别另写一份干净的
         found = find_visible_by_item_id(meta["item_id"])
@@ -1538,6 +1609,21 @@ def render_object(
             # 同一个文件：**原文照用**。merge_existing 只留 frontmatter + 留言层，
             # 拿它当 existing_text 会把 content 层（连带 Owner 划的 ==重点==）洗掉。
             existing_text = old_path.read_text(encoding="utf-8")
+    if target and visible_path.exists():
+        existing_text = visible_path.read_text(encoding="utf-8")
+    if existing_override is not None:
+        existing_text = existing_override
+    elif existing_text:
+        # 批次 D · F1-c：块外有手写 / 机器碎片 → 重写前先存一份快照（丢掉的碎片在快照里有原样）
+        human, machine = stray_human_lines(existing_text)
+        if human or machine:
+            from . import history as history_mod
+            try:
+                history_mod.snapshot(object_dir, existing_text, "render")
+            except OSError as exc:
+                print(f"[render] 快照没存上：{exc}", file=sys.stderr)
+    if target and visible_path.resolve() != clean_path.resolve():
+        meta["visible_note_pinned"] = True
 
     storage.atomic_write_text(
         visible_path,
