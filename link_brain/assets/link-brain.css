@@ -653,3 +653,5 @@ body.lb-actions-on .xhs-note .lb-tags .lb-tag:hover { text-decoration: underline
 /* F6：循环 / 连播和倍速同字号（不被上面 button:first-child / :last-child 的 18px 放大） */
 .xhs-note .lb-media-tools .lb-video-loop, .xhs-note .lb-media-tools .lb-video-playlist { font-size: 13px !important; }
 .xhs-note .lb-media-tools .lb-video-loop[aria-pressed="true"] { color: var(--text-normal); font-weight: 600; }
+/* N10：划重点先乐观包上的那层（写上之前淡一点；没写上会退回） */
+.xhs-note mark.lb-mark-pending { opacity: .6; }
