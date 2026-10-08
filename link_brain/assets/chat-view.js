@@ -809,17 +809,22 @@ function paintExtras(el, t) {
   el._lbActs.replaceWith(acts); el._lbActs = acts;
   if (focusKey) { const again = el.querySelector(`[data-k="${focusKey}"]`); try { again?.focus?.({ preventScroll: true }); } catch {} }
 }
-// pinned / excluded 是会话级的：所有回答轮的来源块一起重建（同步，点下那一帧就是新状态），不碰 markdown
-function paintAllExtras() {
-  for (const t of session.turns) { if (t.role !== 'assistant') continue; const v = views.get(t.id); if (v) paintExtras(v.el, t); }
-  paintFollow(); paintToc();
+// pinned / excluded 是会话级的：所有回答轮的来源块都要重建（不碰 markdown）。点的那一轮同步重建（点下那一帧就是新状态），
+// 其余轮下一帧一起补（十几轮时同步全做会吃掉一帧的预算）
+let extrasQueued = false;
+function paintAllExtras(nowId = null) {
+  const paintOne = t => { const v = views.get(t.id); if (v) paintExtras(v.el, t); };
+  const rest = () => { extrasQueued = false; for (const t of session.turns) if (t.role === 'assistant' && t.id !== nowId) paintOne(t); paintFollow(); paintToc(); };
+  if (!nowId) { rest(); return; }
+  const t = session.turns.find(x => x.id === nowId); if (t) paintOne(t);
+  if (!extrasQueued) { extrasQueued = true; requestAnimationFrame(() => { nowId = null; rest(); }); }
 }
 // 来源类操作（保留 / × / 加入来源 / 删除 / 恢复）：先改内存、同步重建来源块，写盘放后台（写链串行）。
 // 写盘失败：读回磁盘上的会话当真值（连点多次时以磁盘为准，不把后面成功的也回滚），重画，说原因
-function srcOp(mutate) {
+function srcOp(mutate, tid = null) {
   if (readOnly) return Promise.resolve();
   mutate();
-  paintAllExtras();
+  paintAllExtras(tid);
   return persist().catch(async e => {
     try {
       const disk = JSON.parse(await app.vault.adapter.read(SESSION_PATH));
@@ -1115,7 +1120,7 @@ function drawSources(box, el, t) {
     session.excluded = session.excluded.filter(k => !back.has(k));
     for (const k of keys) struck.delete(t.id + ':' + k);
   };
-  const togglePin = src => srcOp(() => { const k = src.id; if (session.pinned.includes(k)) session.pinned = session.pinned.filter(x => x !== k); else promote([src]); });
+  const togglePin = src => srcOp(() => { const k = src.id; if (session.pinned.includes(k)) session.pinned = session.pinned.filter(x => x !== k); else promote([src]); }, t.id);
   const hitText = src => {
     const parts = (src.excerpts || []).filter(p => p && p.text).slice(0, 2);
     const clip = x => { const s = String(x || '').replace(/\s+/g, ' ').trim(); return s.length > 140 ? s.slice(0, 140) + '…' : s; };
@@ -1147,8 +1152,8 @@ function drawSources(box, el, t) {
     a.onclick = () => openNote(src);
     const acts = line.createEl('span', { cls: 'lbchat-srcrow-acts' });
     if (gone) {
-      const back = acts.createEl('button', { cls: 'lbchat-act lbchat-src-restore', text: '恢复', attr: { title: '放回来源（本会话之后的追问 / 重答照常用它）' } }); back.type = 'button'; back.dataset.k = 'restore:' + key;
-      back.onclick = () => srcOp(() => restore([key]));
+      const rb = acts.createEl('button', { cls: 'lbchat-act lbchat-src-restore', text: '恢复', attr: { title: '放回来源（本会话之后的追问 / 重答照常用它）' } }); rb.type = 'button'; rb.dataset.k = 'restore:' + key;
+      rb.onclick = () => srcOp(() => restore([key]), t.id);
       return;
     }
     // F5：本轮正文里引用过它 → 「↑ 引用处」跳到第一个胶囊
@@ -1168,7 +1173,7 @@ function drawSources(box, el, t) {
     }
     if (src.source_kind === 'saved') drawSavedInline(list, t, src);
     if (canEdit && src.id) { const on = session.pinned.includes(src.id); const pin = acts.createEl('button', { cls: 'lbchat-act lbchat-src-pin' + (on ? ' is-on' : ''), text: on ? '已保留' : '保留', attr: { title: on ? '取消保留' : '本会话后面的追问 / 重答都带上这篇（可取消）', 'aria-pressed': String(on) } }); pin.type = 'button'; pin.dataset.k = 'pin:' + key; pin.onclick = () => togglePin(src); }
-    if (canEdit && key) { const x = acts.createEl('button', { cls: 'lbchat-act lbchat-src-del', text: '×', attr: { title: '从来源里删掉（本会话不再用，可恢复）' } }); x.type = 'button'; x.dataset.k = 'del:' + key; x.onclick = () => srcOp(() => drop([src])); }
+    if (canEdit && key) { const x = acts.createEl('button', { cls: 'lbchat-act lbchat-src-del', text: '×', attr: { title: '从来源里删掉（本会话不再用，可恢复）' } }); x.type = 'button'; x.dataset.k = 'del:' + key; x.onclick = () => srcOp(() => drop([src]), t.id); }
   };
   // 收起时 summary 后面的浅色小字（默认仍收起，她 10-03 验收过）；展开就不再提示
   const summaryOf = (d, text, list, hint) => {
@@ -1204,8 +1209,8 @@ function drawSources(box, el, t) {
     const add = bulk.createEl('button', { cls: 'lbchat-act lbchat-src-add', text: '加入来源', attr: { title: '选中的「其他相关」提为主要依据；选中的都保留（之后的追问 / 重答都带上、必须用到）' } }); add.type = 'button';
     const del = bulk.createEl('button', { cls: 'lbchat-act lbchat-src-bulkdel', text: '删除', attr: { title: '从来源里删掉（本会话不再用，可恢复）' } }); del.type = 'button';
     const cancel = bulk.createEl('button', { cls: 'lbchat-act', text: '取消' }); cancel.type = 'button';
-    add.onclick = () => { let n = 0; const list = [...selected.values()]; selected.clear(); const p = srcOp(() => { n = promote(list); }); if (n) notice(`已加入 ${n} 条来源：重新回答时排最前、逐条用到`, 3000); return p; };
-    del.onclick = () => { const list = [...selected.values()]; const n = list.length; selected.clear(); const p = srcOp(() => drop(list)); if (n) notice(`已删除 ${n} 条来源（可恢复）`, 2500); return p; };
+    add.onclick = () => { let n = 0; const list = [...selected.values()]; selected.clear(); const p = srcOp(() => { n = promote(list); }, t.id); if (n) notice(`已加入 ${n} 条来源：重新回答时排最前、逐条用到`, 3000); return p; };
+    del.onclick = () => { const list = [...selected.values()]; const n = list.length; selected.clear(); const p = srcOp(() => drop(list), t.id); if (n) notice(`已删除 ${n} 条来源（可恢复）`, 2500); return p; };
     cancel.onclick = () => { selected.clear(); for (const b of box.querySelectorAll('.lbchat-src-check.is-on')) { b.classList.remove('is-on'); b.setAttribute('aria-checked', 'false'); } for (const r of box.querySelectorAll('.lbchat-srcrow.is-picked')) r.classList.remove('is-picked'); paintBulk(); };
     paintBulk();
   }
@@ -1220,7 +1225,7 @@ function drawSources(box, el, t) {
     redo.disabled = isBusy() || !keep.length || !t.q;
     redo.onclick = () => submit(t.q, { sourceIds: keep });
     const undo = bar.createEl('button', { cls: 'lbchat-act', text: `恢复删掉的 ${removed.size} 条` }); undo.type = 'button'; undo.hidden = !removed.size; undo.dataset.k = 'undo';
-    undo.onclick = () => srcOp(() => restore([...(t.removed || [])]));
+    undo.onclick = () => srcOp(() => restore([...(t.removed || [])]), t.id);
   }
 }
 const flashKeys = new Set();
