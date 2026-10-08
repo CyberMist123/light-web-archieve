@@ -289,7 +289,7 @@ function rewriteInbox(current, original, byUrl) {
 class ImportModal extends Modal {
   constructor(plugin){super(plugin.app);this.plugin=plugin;}
   onOpen(){
-    const el=this.contentEl;el.createEl('h2',{text:'导入收藏'});
+    const el=this.contentEl;el.createEl('h2',{text:'导入网址'});
     el.createEl('p',{text:'粘贴链接或整段分享文案，支持多条。自动清洗、去重、短链展开；目前支持小红书。'});
     const input=el.createEl('textarea');input.style.cssText='width:100%;min-height:180px';input.placeholder='粘贴一个或多个链接…';
     this.input = input; input.value = this.plugin.importDraft || '';
@@ -518,7 +518,7 @@ class ColumnsModal extends Modal {
   onOpen() {
     const el = this.contentEl; el.empty();
     el.createEl("h2", { text: "每行几列" });
-    el.createEl("p", { cls: "setting-item-description", text: "目录页 / 星标页的瀑布流。在目录页上按 Ctrl + 加号 / 减号，或 Ctrl + 鼠标滚轮，也能直接调。" });
+    el.createEl("p", { cls: "setting-item-description", text: "目录页 / 已收藏页的瀑布流。在目录页上按 Ctrl + 加号 / 减号，或 Ctrl + 鼠标滚轮，也能直接调。" });
     const cur = Number(this.plugin.settings.catalogColumns) || 0;
     const row = el.createDiv({ cls: "lb-cols-pick" });
     for (const n of [0, 2, 3, 4, 5, 6]) {
@@ -650,13 +650,13 @@ class LinkBrainActions extends Plugin {
 
     this.addCommand({
       id: "ingest-inbox",
-      name: "投喂：把「📥 投喂」里的链接抓进来",
+      name: "投喂文件：导入里面的新链接",
       callback: () => this.ingestInbox(),
     });
 
     this.addCommand({
       id: "ingest-clipboard",
-      name: "投喂：抓剪贴板里的链接",
+      name: "投喂：导入剪贴板里的链接",
       callback: () => this.ingestClipboard(),
     });
 
@@ -702,7 +702,7 @@ class LinkBrainActions extends Plugin {
   openAISettingsMenu(evt) {
     const menu=new obsidian.Menu();
     // 10-03：「模型与提示词」并进「设置」（直达插件设置页）
-    menu.addItem(i=>i.setTitle('设置').setIcon('settings-2').onClick(()=>this.openPluginSettings(this.manifest.id)));
+    menu.addItem(i=>i.setTitle('设置').setIcon('settings-2').onClick(()=>this.openSetupPage('ai')));
     menu.addItem(i=>i.setTitle('导出资料').setIcon('folder-open').onClick(()=>this.openExportFolder()));
     menu.showAtMouseEvent(evt);
   }
@@ -719,7 +719,7 @@ class LinkBrainActions extends Plugin {
     // 第 3 批：回收站页按页头 lb-page: trash 找（她改了名也找得到）；旧版没标记的那份由 catalog 重建时补上标记
     menu.addItem(i=>i.setTitle('回收站').setIcon('trash-2').onClick(()=>this.openLibraryPage('trash')));
     menu.addItem(i=>i.setTitle('导出资料').setIcon('folder-open').onClick(()=>this.openExportFolder()));
-    menu.addItem(i=>i.setTitle('设置').setIcon('settings-2').onClick(()=>this.openPluginSettings(this.manifest.id)));
+    menu.addItem(i=>i.setTitle('设置').setIcon('settings-2').onClick(()=>this.openSetupPage()));
     menu.addItem(i=>i.setTitle(menuTitle('刷新目录','重新整理分类')).setIcon('refresh-cw').onClick(()=>this.run(['-m','link_brain','catalog'],'刷新目录',true)));
 
     const r=evt.currentTarget.getBoundingClientRect();menu.showAtPosition({x:r.left,y:r.bottom});
@@ -1035,7 +1035,7 @@ class LinkBrainActions extends Plugin {
       detail: Array.isArray(tools) ? tools.map(tool => tool.name).join('、') : stderrTail(result.err) || '没有返回工具列表' } };
   }
   // 第 7 批：打开本插件设置页并切到某个分页（默认「开始」）。设置页已经停在本插件时 Obsidian 不会重画，这里补一次。
-  setupDone() { const setup = this.settings.setup || {}; return !!(setup.collapsed || (setup.passed || []).includes(5) || (setup.passed || []).length >= 4); }
+  setupDone() { const setup = this.settings?.setup || {}; return !!(setup.collapsed || (setup.passed || []).includes(5) || (setup.passed || []).length >= 4); }
   openSetupPage(tab = null) {
     (this.settingsView || (this.settingsView = { otherAI: false })).tab = tab || (this.setupDone() ? 'sync' : 'start');
     const already = this.app.setting?.activeTab && this.app.setting.activeTab === this.settingTab;
@@ -1285,7 +1285,7 @@ class LinkBrainActions extends Plugin {
       await new Promise(r => setTimeout(r, 400));
       target = this.app.workspace.getMostRecentLeaf()?.view.containerEl.querySelector('.lbchat-search');
       button = target?.closest('form')?.querySelector('.lbchat-mic') || null;
-      if (!target) { new Notice('没找到问 AI 输入框，请先打开「收藏搜索」页。'); return; }
+      if (!target) { new Notice('没找到问 AI 输入框，请先打开「问收藏」页。'); return; }
     }
     let stream;
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
@@ -1650,7 +1650,7 @@ class LinkBrainActions extends Plugin {
         await this.app.workspace.openLinkText(file.path,'',false);return;
       }
     }
-    new Notice('未找到该收藏页面，请重建目录');
+    this.notify('还没有这个页面：点「…→刷新目录」生成', { kind: 'warn', actions: [{ label: '刷新目录', run: () => this.run(['-m', 'link_brain', 'catalog'], '刷新目录') }] });
   }
   async openArchiveMedia(item, kind, evt) {
     if(kind==='file'){
@@ -1946,7 +1946,7 @@ class LinkBrainActions extends Plugin {
       progress(0,urls.length);
       for(const [i,url] of urls.entries()){
         report(`正在导入 ${i+1}/${urls.length}`);
-        const res=await this.run(['-m','link_brain','catch',url,'--origin','cli','--actor','human'],'导入收藏',false,{quiet:true});
+        const res=await this.run(['-m','link_brain','catch',url,'--origin','cli','--actor','human'],'导入网址',false,{quiet:true});
         let item;
         try{item=JSON.parse(res.stdout || '{}').items?.[0];}catch{}
         if(item?.status==='trashed'){
@@ -2480,8 +2480,15 @@ class LinkBrainSettingTab extends PluginSettingTab {
       .setDesc('开启后，电脑上所有程序都可以用：按住 CapsLock 说话，松开后文字直接打进光标所在的输入框（包括这里的搜索框和问 AI）。'
         + '短按 CapsLock 仍是切换大小写。由本机 CapsWriter 提供，关闭即停止它的客户端。')
       .addToggle(t => t.setValue(!!s.voice.capsLock).onChange(async v => {
-        const ok = await this.plugin.setCapsVoice(v);
-        s.voice.capsLock = v && ok; await this.save(); if (v && !ok) this.display();
+        const capsRow = t.toggleEl?.closest?.('.setting-item'), capsDesc = capsRow?.querySelector?.('.setting-item-description');
+        const oldDesc = capsDesc?.textContent;
+        t.setDisabled(true);
+        if (capsDesc) capsDesc.textContent = v ? '正在开启…（启动 CapsWriter 客户端）' : '正在关闭…';
+        let ok = false;
+        try { ok = await this.plugin.setCapsVoice(v); } finally { t.setDisabled(false); }
+        s.voice.capsLock = v && ok; await this.save();
+        if (v && !ok) t.setValue(false);
+        if (capsDesc) capsDesc.textContent = v ? (ok ? '已开启：按住 CapsLock 说话' : '没开成：没找到 CapsWriter（start_client.exe）') : (oldDesc || '');
       }));
     if (s.voice.capsLock || !this.plugin.capsWriterDir()) new Setting(ob).setName('　CapsWriter 目录').setDesc('留空自动查找（含 start_client.exe 的文件夹）。')
       .addText(t => t.setPlaceholder('例如 C:\\CapsWriter-Offline').setValue(s.voice.capsWriterDir || '')
@@ -2630,18 +2637,20 @@ class LinkBrainSettingTab extends PluginSettingTab {
     new Setting(c).setName('先用小模型扩检索词').setDesc('每问多一次很小的调用（归档摘要模型），把同义词、地名下的城市、作品里的角色一起搜，和检索同时跑；同一个问题只调一次。')
       .addToggle(t => t.setValue(s.retrieval.queryExpand !== false).onChange(async v => { s.retrieval.queryExpand = v; await this.save(); }));
 
-    c.createEl('h4', { text: '目录大类' });
+    c.createEl('h4', { text: '分类' });
     c.createEl('p', { cls: 'setting-item-description', text: '每行一个：「名称: 关键词1, 关键词2」。标签命中任一关键词就归到该类。留空用内置。' });
     let catsArea;
     new Setting(c).addTextArea(t => { catsArea = t; t.inputEl.rows = 8; t.inputEl.style.width = '100%'; t.inputEl.style.fontFamily = 'var(--font-monospace)';
       t.setPlaceholder('人机恋: 人机恋, ai伴侣, 陪伴\nAI·模型: claude, gpt, 大模型').setValue(serializeCats(s.catalogCats))
         .onChange(async v => { s.catalogCats = parseCatsText(v); await this.save(); }); });
     new Setting(c)
-      .addButton(b => b.setButtonText('载入当前大类').onClick(async () => {
+      .addButton(b => b.setButtonText('载入当前分类').onClick(async () => {
+        const restore = this.plugin.busyButton(b, '载入中…');
         try {
           const r = await this.plugin.runJSON(['-m', 'link_brain', 'catalog', '--print-cats'], '载入失败');
-          if (r.text != null) { catsArea.setValue(r.text); s.catalogCats = parseCatsText(r.text); await this.save(); new Notice('已载入当前大类'); }
-        } catch (e) { new Notice('载入失败：' + e.message, 8000); }
+          if (r.text != null) { catsArea.setValue(r.text); s.catalogCats = parseCatsText(r.text); await this.save(); this.plugin.notify('已载入当前分类', { kind: 'ok' }); }
+        } catch (e) { this.plugin.notify('载入失败：' + e.message, { kind: 'error' }); }
+        finally { restore(); }
       }))
       .addButton(b => b.setButtonText('清空（用内置）').onClick(async () => {
         const snapshot = JSON.parse(JSON.stringify(s.catalogCats)); s.catalogCats = []; catsArea.setValue(''); await this.save();

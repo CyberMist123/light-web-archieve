@@ -69,7 +69,7 @@ function statusLine(cur) {
 
 module.exports = function scheduleUI(obsidian, plugin) {
   const Notice = obsidian.Notice;
-  const say = (message, ms = 8000) => plugin.notify(message, { ms });
+  const say = (message, ms = 8000) => plugin.notify ? plugin.notify(message, { ms }) : new Notice(message, ms);
 
   function render(el, { onSaved = null } = {}) {
     const box = el.createDiv({ cls: 'lb-sched' });
