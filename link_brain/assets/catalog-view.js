@@ -633,13 +633,26 @@ function paintSelbar() {
   for (const b of [starSel, aiBtn, expBtn, moreBtn, delBtn]) b.disabled = !selected.size || deleting;
 }
 // 多选栏显隐：吸顶区变高 / 变矮的那一截补进滚动，下面的卡视觉上不动（C1 / C10）
+// 以顶栏下第一张卡为锚：切换后量它挪了多少就补多少（浏览器自己的滚动锚定已经补过时量出来是 0，不会补两遍）；下一帧再核一次
+function cardUnderTop() {
+  const barBottom = top.getBoundingClientRect().bottom;
+  for (const c of grid.querySelectorAll('.lbc-card')) { if (c.getBoundingClientRect().bottom > barBottom + 1) return c; }
+  return null;
+}
 function setSelbarVisible(on) {
   if (!selbar || selbar.hidden === !on) return;
-  const before = top.offsetHeight || 0;
-  selbar.hidden = !on;
-  const after = top.offsetHeight || 0;
   const sc = LB.scroller();
-  if (sc && after !== before) sc.scrollTop = Math.max(0, (sc.scrollTop || 0) + (after - before));
+  const a = sc ? cardUnderTop() : null, y0 = a ? a.getBoundingClientRect().top : 0;
+  const h0 = top.offsetHeight || 0;
+  selbar.hidden = !on;
+  if (!sc) return;
+  if (a) {
+    const fix = () => { if (!a.isConnected) return; const d = a.getBoundingClientRect().top - y0; if (Math.abs(d) >= 0.5) sc.scrollTop = Math.max(0, sc.scrollTop + d); };
+    fix(); requestAnimationFrame(fix);
+  } else {
+    const d = (top.offsetHeight || 0) - h0;
+    if (d) sc.scrollTop = Math.max(0, (sc.scrollTop || 0) + d);
+  }
 }
 // 批量收藏 / 删除进行中：栏上能点的都灰掉（「退出多选」保留），收藏按钮换成「正在…」
 function setSelbarBusy(text) {
