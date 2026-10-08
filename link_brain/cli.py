@@ -140,7 +140,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--doc-id", default=None, help="手动挂载到指定附件")
     p.add_argument("--audit", action="store_true", help="输出附件完整性 JSON，不联网")
     p.add_argument("--recheck", action="store_true", help="补查当时网页探测失败的笔记（游客浏览器），探到附件就下载；查不清的报警")
-    p.add_argument("--limit", type=int, default=0, help="--recheck 每次最多查几篇（0=不限）")
+    p.add_argument("--limit", type=int, default=0,
+                   help="--recheck 每次最多查几篇（0=不限；--guest-only 时 0=自动：平时 20、积压期 40；--logged-in-tail 时 0=5）")
+    p.add_argument("--guest-only", dest="guest_only", action="store_true",
+                   help="配合 --recheck：游客段——不碰号（不拉起读取服务、不拿账号锁），只登记探到的附件，不下载")
+    p.add_argument("--logged-in-tail", dest="logged_in_tail", action="store_true",
+                   help="配合 --recheck：收尾段——游客读不到的用登录号看一眼（碰号，熔断 / 账号锁 / 开页间隔照旧）")
+    p.add_argument("--recheck-status", dest="recheck_status", action="store_true", help="输出附件补查状态 JSON，不联网")
+    p.add_argument("--skipped", default=None, help="记一笔「收尾段今晚跳过了」和原因（夜跑脚本用），不联网")
+    p.add_argument("--reconcile", action="store_true", help="附件补查本地对账（不联网），输出 JSON")
     p.add_argument("--attach", default=None,
                    help="把本地已下好的文件手动挂到这篇（系统下不了时用）：给文件路径")
     p.add_argument("--dedupe", action="store_true",

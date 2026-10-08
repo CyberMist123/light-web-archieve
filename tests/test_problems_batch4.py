@@ -381,6 +381,9 @@ def test_item_problems_from_object_files(tmp_path, monkeypatch):
     storage.write_json(obj / "derived" / "extracted.json", {"status": "failed", "code": "TRANSIENT.HTTP_5XX", "error": "502"})
     storage.write_json(obj / "attachment-state.json", {"errors": [{"doc_id": "d", "error": "附件下载超时"}]})
     storage.write_json(obj / "enrich-state.json", {"fails": 1})
+    # 1008：接口那一侧的码只在 ai-health 里这个能力还开着时才照原码上卡片（否则降成「待补」，见 test_card_problems_1008）
+    storage.write_json(storage.archive_root() / "ai-health.json",
+                       {"visionAI": {"code": "NEEDS_HUMAN.AUTH_FAILED"}, "summaryAI": {"code": "TRANSIENT.HTTP_5XX"}})
     catalog.build()
     it, _ = _item("v1")
     codes = {p["code"]: p for p in it["problems"]}

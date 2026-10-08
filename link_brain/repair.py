@@ -219,8 +219,8 @@ def plan(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
         if now < last + timedelta(minutes=ATTACHMENT_REOPEN_MIN):
             return {**_run("attachments"), "not_before": (last + timedelta(minutes=ATTACHMENT_REOPEN_MIN)).isoformat(timespec="seconds")}
         return _run("attachments")
-    if step == "attachments.recheck" or step == "nightly.attachments-recheck":
-        return _wait(next_nightly(now), "网页那侧没查清；同一晚再开容易被限流，夜里的附件补查会再看")
+    if step == "attachments.recheck" or step.startswith("nightly.attachments-recheck"):
+        return _recheck_plan(row, now)
     if step == "attachments.convert":
         return _run("convert", auto=transient) if item else _manual("看附件那几条各自的原因")
     if step in ("enrich.summary", "vision.layer1"):
@@ -261,6 +261,42 @@ def _gave_up_retried(row: dict[str, Any]) -> bool:
         return False
 
 
+def _recheck_plan(row: dict[str, Any], now: datetime) -> dict[str, Any]:
+    """1008（B3-P5）：附件没查清的状态句按真实情况写——它在补查队列里排第几、今晚轮不轮得到、昨晚为什么没跑，
+    几晚没进展就照实说「已经 N 晚没进展」；不再每天往后滚一天写「等到明早 04:00」。"""
+    item = row.get("item_id")
+    eta: dict[str, Any] = {}
+    if item:
+        try:
+            from . import attachments
+            eta = attachments.recheck_eta(item)
+        except Exception:  # noqa: BLE001 - 算不出来就按老说法
+            eta = {}
+    first = _parse(row.get("ts")) or now
+    stalled = (now.date() - first.date()).days
+    prefix = f"已经 {stalled} 晚没进展：" if stalled >= 2 else ""
+    if eta.get("queue") == "tail":
+        if eta.get("skipped"):
+            why = f"游客看不到这篇，要用登录号看一眼；碰号的补查最近没跑（{eta['skipped']}），号处理好后的第一晚自动看，你不用另外做什么"
+        else:
+            why = (f"游客看不到这篇，要用登录号看一眼：排在第 {eta['pos']} 篇，号正常的晚上每晚看 5 篇，"
+                   f"预计 {eta['when']} 轮到")
+    elif eta.get("queue") == "guest":
+        why = f"排在游客补查第 {eta['pos']} 篇（不用你的号），预计 {eta['when']} 轮到"
+    else:
+        return {**_wait(next_nightly(now), prefix + "网页那侧没查清；夜里的附件补查会再看"), "plain": True}
+    until = next_nightly(now)
+    try:
+        month, day = (int(x) for x in str(eta.get("when") or "").split("-"))
+        cand = until.replace(month=month, day=day)
+        if cand < until:
+            cand = cand.replace(year=cand.year + 1)
+        until = cand
+    except (TypeError, ValueError):
+        pass
+    return {**_wait(until, prefix + why), "plain": True}
+
+
 def describe(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
     """面板要的几项：repairable（给不给「现在修」）、repair_kind、repair_what、repair_minutes、status_text（一句话状态）。"""
     now = now or _now()
@@ -274,7 +310,7 @@ def describe(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]
         out["status_text"] = f"正在修 / 预计 {int(row.get('repair_eta_min') or (act.minutes if act else 5))} 分钟"
         out["repairing"] = True
     elif p["kind"] == "wait":
-        out["status_text"] = f"等到 {_hm(_parse(p['wait_until']))}：{p['why']}"
+        out["status_text"] = p["why"] if p.get("plain") else f"等到 {_hm(_parse(p['wait_until']))}：{p['why']}"
         out["wait_until"] = p["wait_until"]
     elif p["kind"] == "manual":
         out["status_text"] = "要你看一眼：" + p["next"]
