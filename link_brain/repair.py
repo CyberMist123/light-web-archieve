@@ -178,7 +178,7 @@ def plan(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
     transient = cls == "TRANSIENT"
     if cls == "SKIPPED":
         return dict(NONE)
-    if step == "render.check":
+    if step == "render.check" and sub == "NOTE_DAMAGED":   # 只认这个码；别的码照通用规则（账号类永远 human）
         return _restore_plan(row, now)
     if step.startswith("ai.") and (transient or sub in ("AUTH_FAILED", "QUOTA_EXCEEDED")):
         # 1008：AI 接口故障归并的那一条（ai_health）。key / 欠费要人先换 key（面板保留「打开设置」），换好点「现在修」= 补跑；
