@@ -336,10 +336,17 @@ def refine(path: Path, lines: list[dict[str, Any]] | None, kind: str, cfg: dict[
 
 
 def shaky_reason(raw: str, tidy: str, finish: str | None) -> str:
-    """模型输出靠不住的迹象：被截断 / 复读（清理掉了一大截）。"""
+    """模型输出靠不住的迹象：被截断 / 复读（真的收掉了复读）/ 单行长得离谱。
+
+    1008：以前「有一行超过 600 字就截掉、看到截断标记就报复读」——论文页的长段落、聊天截图里的长气泡没有一个字重复，
+    也被判成复读、判 PERMANENT，换模型重跑多少次都一样（docs/ERRORS.md）。现在只在 tidy_output 真收掉了复读时才报。"""
     if finish == "length":
         return "输出被截断"
-    if "…（截断）" in tidy or len(tidy) < 0.7 * len(raw.strip()):
+    if REPEAT_MARK in tidy:
+        return "出现复读"
+    if TOO_LONG_MARK in tidy:
+        return "输出过长"
+    if len(tidy) < 0.7 * len(raw.strip()):
         return "出现复读"
     return ""
 
@@ -383,8 +390,48 @@ def table_problem(text: str) -> str:
     return ""
 
 
+REPEAT_MARK = "…（复读已收）"
+TOO_LONG_MARK = "…（输出过长，截断）"
+REPEAT_MIN_UNIT = 12      # 同一段 ≥12 字……
+REPEAT_MIN_TIMES = 4      # ……连着重复 ≥4 次才算复读
+DIVERSITY_CHUNK = 20      # 一行里不重复的 20 字片段占比 < 0.5 也算复读（打乱顺序的复读）
+DIVERSITY_MIN = 0.5
+LINE_HARD_MAX = 4000      # 单行超过这么长才硬截断（另报「输出过长」，不是复读）
+
+
+def _collapse_repeats(line: str) -> tuple[str, bool]:
+    """收掉一行里真正的复读，返回 (收完的行, 收没收)。长段落（没有重复）原样返回。"""
+    import re
+    rx = re.compile(r"(.{%d,}?)\1{%d,}" % (REPEAT_MIN_UNIT, REPEAT_MIN_TIMES - 1), re.S)
+    hit = False
+
+    def one(m):
+        nonlocal hit
+        if len(set(m.group(1))) < 4:  # 分隔线 / 省略号 / 点线（「━━━━」「……」）不是复读
+            return m.group(0)
+        hit = True
+        return m.group(1) + REPEAT_MARK
+
+    out = rx.sub(one, line)
+    if hit:
+        return out, True
+    if len(line) >= DIVERSITY_CHUNK * 10 and len(set(line)) >= 4:
+        chunks = [line[i:i + DIVERSITY_CHUNK] for i in range(0, len(line) - DIVERSITY_CHUNK + 1, DIVERSITY_CHUNK)]
+        if chunks and len(set(chunks)) / len(chunks) < DIVERSITY_MIN:
+            seen, keep = set(), []
+            for c in chunks:
+                if c in seen:
+                    break
+                seen.add(c)
+                keep.append(c)
+            return "".join(keep) + REPEAT_MARK, True
+    return line, False
+
+
 def tidy_output(text: str) -> str:
-    """小模型偶尔复读（0927 实测：[打码] 连写上百个、class 行编出 AM…ZZ）：收掉复读，去掉样式行。"""
+    """小模型偶尔复读（0927 实测：[打码] 连写上百个、class 行编出 AM…ZZ）：收掉复读，去掉样式行。
+
+    1008：不再按长度截断（长段落 / 长气泡不是复读）；只收真复读（见 _collapse_repeats），单行超过 LINE_HARD_MAX 才硬截断。"""
     import re
     text = re.sub(r"(\[打码\][\s，,、]*){2,}", "[打码] ", text)
     text = re.sub(r"(\[看不清\][\s，,、]*){2,}", "[看不清] ", text)
@@ -392,8 +439,9 @@ def tidy_output(text: str) -> str:
     for line in text.splitlines():
         if re.match(r"\s*(style|classDef|class|linkStyle)\s", line):
             continue
-        if len(line) > 600:  # 单行过长基本是复读，截断
-            line = line[:600] + "…（截断）"
+        line, _ = _collapse_repeats(line)
+        if len(line) > LINE_HARD_MAX:
+            line = line[:LINE_HARD_MAX] + TOO_LONG_MARK
         if lines and line.strip() and line == lines[-1]:
             continue
         lines.append(line)

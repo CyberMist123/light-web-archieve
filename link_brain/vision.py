@@ -355,6 +355,7 @@ def refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budge
         return tally
     doc = storage.read_json(vpath)
     changed = False
+    healed_any = False
     for entry in doc.get("images", []):
         ref = entry.get("refine") or {}
         if ref.get("status") != "pending":
@@ -388,8 +389,7 @@ def refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budge
                 ref["healed"] = "；".join(tried[1:])  # 当场换参数 / 换模型才成的：留个底
             tally["done"] += 1
             tally["api_streak"] = 0
-            from . import problems
-            problems.resolve("vision.refine", _item_id(source_key, source_id), "PERMANENT.MODEL_OUTPUT_INVALID")
+            healed_any = True  # 1008：整篇跑完再判要不要消这篇的「AI 结果不可用」（见循环后）
         elif got.get("ladder_exhausted"):
             # 换参数、换模型都试过了还不合格：当场放弃这张，笔记里继续用第一层的结果（写明）
             ref["tries"] = ref.get("tries", 0) + len(tried)
@@ -423,6 +423,11 @@ def refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budge
                   f"（{ref.get('reason')}；{got.get('model')} ¥{got.get('cost_yuan') or 0:.4f}"
                   + (f"；{ref.get('error')}" if ref.get("error") else "") + "）", file=sys.stderr)
         storage.write_json(vpath, doc)  # 每张写一次：中途被打断也不丢已补好的
+    if healed_any and not any((e.get("refine") or {}).get("status") == "failed" for e in doc.get("images", [])):
+        # 1008（B2-D）：问题按篇登记，一张图成功不能把整篇消掉——同一篇别的图还挂着 failed 时留着（不然出孤儿灰标、
+        # 下一张失败又从头计数）；这篇没有任何一张还是 failed 才算好了
+        from . import problems
+        problems.resolve("vision.refine", _item_id(source_key, source_id), "PERMANENT.MODEL_OUTPUT_INVALID")
     if changed:
         render_mod.render_object(source_key, source_id)
     return tally
