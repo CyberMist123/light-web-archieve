@@ -301,6 +301,11 @@ def build_parser() -> argparse.ArgumentParser:
     synclog_mod.add_parser(sub)
     from . import setup as setup_mod
     setup_mod.add_parser(sub)
+    # 批次 D · L5：恢复这篇 / 单篇导出 / 按标签连播
+    from . import note_print, playlist as playlist_mod, restore as restore_mod
+    restore_mod.add_parser(sub)
+    note_print.add_parser(sub)
+    playlist_mod.add_parser(sub)
 
     p = sub.add_parser("highlight", help="给一篇笔记正文加/去一处高亮（<mark>，持久到重渲染）")
     p.add_argument("target", help="item_id")
@@ -503,6 +508,18 @@ def _dispatch(args) -> int:
     if args.command == "export-bundle":
         from . import export_bundle
         return export_bundle.run(args)
+
+    if args.command == "restore":
+        from . import restore as restore_mod
+        return restore_mod.run(args)
+
+    if args.command == "export-note":
+        from . import note_print
+        return note_print.run(args)
+
+    if args.command == "playlist":
+        from . import playlist as playlist_mod
+        return playlist_mod.run(args)
 
     if args.command == "catalog":
         from . import catalog as catalog_mod

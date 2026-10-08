@@ -159,5 +159,6 @@
 | `PERMANENT.REMOTE_TASK_FAILED` | 远程阅读的计划任务没弄好 | 计划任务注册失败 | — | — | 设置 → 远程阅读 关掉再打开 |
 | `PERMANENT.CHECKSUM_MISMATCH` / `BAD_PACKAGE` / `DISK_FULL` | 组件校验不过 / 包不对 / 磁盘不够 | 只在安装命令结果里出现 | — | — | 设置 →「开始」重装；先腾空间 |
 | `SKIPPED.*` | 未配置 / 已关闭 / 额度到了 / 已退回普通方式 / 旧设置已换算 | 没开、没配 | — | — | 不是问题，不计数 |
+| `PERMANENT.NOTE_DAMAGED`（step `render.check`） | 笔记页被改坏（两栏散了 / 正文没了），打开时就地提示一次 | 手改 md 删了受管标记 / 属性 / 批注块，或把两栏块换行拆开 | 打开时提示「恢复」，不弹窗不阻断 | 默认关（`LINK_BRAIN_AUTO_RESTORE=1` 才自动；24 小时没动才跑，失败不再自动） | ⋯ 菜单「恢复这篇」/「从快照找回…」；回归 `tests/test_note_damage_1009.py`、`tests/test_restore_1009.py`、`tests/test_note_tools_1009.cjs` |
 
 入档不被阻断（B2.4）：同步 / 导入时识图、概要、附件、转写都在入档之后单独做；渲染时识图或概要出意外只登记一条（`TRANSIENT.STEP_CRASHED`，正文已入档），笔记照写——`tests/test_self_heal_1004.py::test_render_survives_vision_crash`。

@@ -54,7 +54,9 @@ DEFAULT_ACTION = {"TRANSIENT": "retry_later", "PERMANENT": "gave_up", "NEEDS_HUM
 STEPS = ("sync.favorites", "ingest", "attachments.download", "attachments.convert", "attachments.recheck",
          "enrich.summary", "vision.layer1", "vision.refine", "videos.transcribe", "embed", "ask", "login", "config", "remote",
          # 1008：AI 接口故障归并到能力级（ai_health.py），一个原因一条
-         "ai.summary", "ai.vision", "ai.refine", "ai.embed", "ai.ask")
+         "ai.summary", "ai.vision", "ai.refine", "ai.embed", "ai.ask",
+         # 批次 D · F1-d：笔记页被手改坏了（restore --scan 只读检查）
+         "render.check")
 STEP_PREFIXES = ("nightly.",)
 # 推送标题 / 问题列表里给人看的步骤名（夜跑步骤 nightly.<名> 显示「夜跑：<名>」）
 # 注记行（annotate）能改的字段：自愈动作的状态（running / failed / waiting）、一句「试过什么、为什么没好、下一步」、
@@ -77,7 +79,7 @@ STEP_LABELS = {
     "vision.refine": "精细识图", "videos.transcribe": "视频转写", "embed": "语义索引", "ask": "问收藏",
     "login": "小红书账号", "config": "设置", "remote": "远程阅读",
     "ai.summary": "AI 概要 / 打标接口", "ai.vision": "识图接口", "ai.refine": "精细识图接口", "ai.embed": "向量索引接口",
-    "ai.ask": "问答接口",
+    "ai.ask": "问答接口", "render.check": "笔记页检查",
 }
 
 # 现有裸码 → 类（§2.2：复用现有码、不改拼写）
@@ -155,6 +157,7 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "PERMANENT.PDF_DAMAGED": dict(where="card", label="全文没转出来", hover="PDF 文件损坏，字节已保存", group="gave_up"),
     "PERMANENT.DOC_UNSUPPORTED": dict(where="card", label="全文没转出来", hover="这种文档格式还转不了，原件已保存", group="gave_up"),
     "PERMANENT.NO_AUDIO": dict(where="list", label="视频没有音轨", hover="没有可转写的声音，画面上也没认出字幕", group="gave_up"),
+    "PERMANENT.NOTE_DAMAGED": dict(where="list", label="笔记页被改坏", hover="{reason}；一天没动会自动按存档恢复（改坏的那版存了快照，可撤销）", group="gave_up"),
     "PERMANENT.NO_SPEECH": dict(where="list", label="视频里没人说话", hover="只有背景音乐或环境声，画面上也没认出字幕", group="gave_up"),
     # 1008：补查判定「原帖打不开」只上卡片、不进问题列表（她：没人声的不是问题）；分不清删了还是仅作者可见，别直说「已删除」
     "PERMANENT.NOTE_GONE": dict(where="card", label="原帖打不开", hover="原帖打不开（可能已删或仅作者可见），本地存档还在", group="gave_up"),

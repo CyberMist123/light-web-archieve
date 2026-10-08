@@ -85,6 +85,7 @@ def summary() -> dict                                       # {needs_human: n, a
 def export_redacted() -> str                                # §3「复制报错」
 ```
 `step` 词表：`sync.favorites / ingest / attachments.download / attachments.convert / attachments.recheck / enrich.summary / vision.layer1 / vision.refine / videos.transcribe / embed / nightly.<stepname> / ask / login / config / remote / ai.summary / ai.vision / ai.refine / ai.embed / ai.ask`（`ai.*` = 接口那一侧的故障按能力归并成一条，item_id 为空，由 `ai_health.record` 写；调用点拿到 `api_error=True` 的结果**不要**再按篇 `problems.report`）（`remote` = 远程阅读服务：端口被占 `NEEDS_HUMAN.PORT_IN_USE`、计划任务没弄好 `PERMANENT.REMOTE_TASK_FAILED`）。
+（批次 D · L5 追加）`render.check`：只读扫可见目录里改坏的归档笔记（`restore --scan --report`、repair 每轮开头），码 `PERMANENT.NOTE_DAMAGED`，修复动作 `restore`。
 
 **迁移点**（每条：原状态文件照写 + `report/resolve`）
 - 附件转 md：`attachments.mark_conversion:374-395`（failed → `PERMANENT.PDF_ENCRYPTED|PDF_DAMAGED` 或 `TRANSIENT.*`；`note is None` → resolve）；`pdftext.py:111-118,171-172,193-200` 给出区分码，不再只给一句 note；`pdftext.py:273-277` 的「同 sha 永不重试」只对 PERMANENT 成立，TRANSIENT 按 `next_at` 退避。

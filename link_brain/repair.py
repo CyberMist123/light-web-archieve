@@ -87,6 +87,9 @@ ACTIONS: dict[str, Action] = {a.name: a for a in (
     Action("comments_fill", "接着读没读全的评论区（一次一篇，约 9 分钟）", 10,
            lambda i: ["comments", "--fill-pending", "--limit", "1", "--budget-min", "10"], account=True,
            next_hint="评论区太长就先这样；要全量可以手动 comments <item_id>", resolves_self=False),
+    Action("restore", "按存档重写这篇笔记（改坏的那版先存快照，可撤销）", 1,
+           lambda i: ["restore", _item(i), "--json"],
+           next_hint="打开这篇，⋯ 菜单「从快照找回…」看看改坏前的样子"),
     Action("sync", "重新同步收藏（会读一次收藏列表）", 20,
            lambda i: ["sync-favorites", "--limit", "0", "--budget-min", "18"], account=True,
            next_hint="隔 30 分钟以上再点，或等下次夜跑"),
@@ -175,6 +178,8 @@ def plan(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
     transient = cls == "TRANSIENT"
     if cls == "SKIPPED":
         return dict(NONE)
+    if step == "render.check" and sub == "NOTE_DAMAGED":   # 只认这个码；别的码照通用规则（账号类永远 human）
+        return _restore_plan(row, now)
     if step.startswith("ai.") and (transient or sub in ("AUTH_FAILED", "QUOTA_EXCEEDED")):
         # 1008：AI 接口故障归并的那一条（ai_health）。key / 欠费要人先换 key（面板保留「打开设置」），换好点「现在修」= 补跑；
         # 断网 / 限流 / 服务挂这类临时的，自愈轮自动补
@@ -250,6 +255,34 @@ def plan(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
         if name:
             return _run(name, auto=transient)
     return _manual("没有自动修复动作：看原因处理；拿不准就点「复制报错」发给作者")
+
+
+RESTORE_QUIET_H = 24
+# 夜里自愈开关（默认关）：主审在真库只读 `restore --scan --json` 确认 0 误报后再打开（LINK_BRAIN_AUTO_RESTORE=1）。
+ENV_AUTO_RESTORE = "LINK_BRAIN_AUTO_RESTORE"
+
+
+def auto_restore_enabled() -> bool:
+    return os.environ.get(ENV_AUTO_RESTORE, "").strip() in ("1", "true", "on", "yes")
+
+
+def _restore_plan(row: dict[str, Any], now: datetime) -> dict[str, Any]:
+    """批次 D · F1-d：笔记页被改坏。24 小时没动才自动恢复（别和她正在改的打架）；自动恢复失败过就不再自动。"""
+    if row.get("action") == "gave_up" or row.get("repair_state") == "failed":
+        return _run("restore", auto=False)
+    mtime = None
+    try:
+        from . import restore as restore_mod
+        _, vis = restore_mod.resolve(row.get("item_id"))
+        if vis.is_file():
+            mtime = datetime.fromtimestamp(vis.stat().st_mtime).astimezone()
+    except Exception:  # noqa: BLE001 - 认不出 / 读不了就按「现在可修」给，夜里也试一次
+        mtime = None
+    if mtime is not None and now - mtime < timedelta(hours=RESTORE_QUIET_H):
+        # action 留着：自愈轮不跑 wait，面板点名「现在修」照样能跑（_select 的 key 分支认它）
+        return {**_wait(mtime + timedelta(hours=RESTORE_QUIET_H), "你最近在改这篇，24 小时没动再自动恢复（可先点「现在修」）"),
+                "action": "restore"}
+    return _run("restore", auto=auto_restore_enabled())
 
 
 def _gave_up_retried(row: dict[str, Any]) -> bool:
@@ -375,7 +408,7 @@ def _select(rows: list[dict[str, Any]], *, key: str | None, since: str | None, a
         if key:
             if target is None:
                 break
-            if r["key"] == key and p["kind"] == "run":
+            if r["key"] == key and (p["kind"] == "run" or (p["kind"] == "wait" and p.get("action") == "restore")):
                 picked.append((r, p))
             elif target.get("code") == "NEEDS_HUMAN.STUCK" and r.get("step") == target.get("step") \
                     and p["kind"] == "run":
@@ -420,6 +453,11 @@ def run(*, key: str | None = None, since: str | None = None, auto: bool = False,
         return {"ok": False, "ran": True, "fixed": 0, "left": 0, "results": [],
                 "message": "另一轮修复正在跑（夜跑自愈轮或面板），等它跑完再点"}
     try:
+        try:   # 批次 D · F1-d：先只读扫一遍改坏的笔记，登记 / 解除 render.check
+            from . import restore as restore_mod
+            restore_mod.scan(report=True)
+        except Exception as exc:  # noqa: BLE001 - 扫描出错不挡这一轮
+            print(f"[repair] 笔记页检查没做完：{exc}", file=sys.stderr)
         rows = problems.load()
         picked = _select(rows, key=key, since=since, auto=auto, now=start)
         if key and not picked:
