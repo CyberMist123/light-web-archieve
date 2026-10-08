@@ -128,9 +128,11 @@ def publish_trash(vault=None):
     storage.write_json(vault / '_archive/trash-data.json', {'items': items})
     script = (Path(__file__).parent / 'assets/trash-view.js').read_text(encoding='utf-8')
     # 第 3 批：页头带 lb-page: trash，她改了名也按标记找回那一份重写（不再按固定名另冒一份「回收站.md」）
-    from .catalog import library_pages
+    # 批次 D · C16：和目录页同一套前导（lb-page-lib 内联在前面：host、样式挂 head、提示 / 确认 / busy、手机只读）；
+    # 标题和说明挪进页面脚本里画（cssclasses 让外框隐形规则只作用在这一页）
+    from .catalog import _PAGE_LIB, library_pages
     page = library_pages(vault)['trash']
-    storage.atomic_write_text(vault / page, '---\nlb-page: trash\n---\n\n# 回收站\n\n删除的收藏不会再次同步。请在「设置 → 文件与链接 → 排除的文件」加入 `_trash`。\n\n```dataviewjs\n' + script + '\n```\n')
+    storage.atomic_write_text(vault / page, '---\nlb-page: trash\ncssclasses: [lb-trashpage]\n---\n\n```dataviewjs\n' + _PAGE_LIB + '\n' + script + '\n```\n')
 
 
 def _one(action, conn, item_id: str) -> dict[str, Any]:

@@ -144,6 +144,16 @@ const shell = require('../_obsidian_shell.cjs');
       assert.equal(op, '0.55', `${order.join(' → ')}：☆ 常显（opacity ${op}）`);
       if (order[0] === 'chat') { await page.evaluate(() => document.querySelector('.lbc-wrap').scrollIntoView()); await S.screenshot('catalog-after-chat'); }
       await page.close();
+    }    // 回收站页同理（主审裁决 1）：页头吸顶 |delta| ≤ 1，阅读视图 / 实时预览
+    for (const host of ['page-reading', 'page-live']) {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+      const trash = { items: Array.from({ length: 60 }, (_, i) => ({ item_id: 'xhs-' + i, title: '删掉的收藏 ' + i, deleted_at: '2026-10-07T10:00:00+10:00', restorable: true, has_files: true })) };
+      const S = await shell.page(page, { host, kind: 'trash', files: { '_archive/trash-data.json': JSON.stringify(trash) } });
+      const r = await S.probeSticky({ target: '.lbt-head', by: 800 });
+      results[`C1 trash ${host}`] = r;
+      assert.ok(Math.abs(r.delta) <= 1, `回收站 ${host}：页头吸顶 ${JSON.stringify(r)}`);
+      if (host === 'page-reading') { await S.scrollTo(0); await S.screenshot('trash-list'); }
+      await page.close();
     }    const pageErrorsNote = '';
     console.log('C1 / C4 读数：' + JSON.stringify(results));
     console.log('PASS catalog host: sticky top |delta| ≤ 1 in reading + live (light / dark), selbar inside sticky top, first select / star keep cards in place, to-top dock, rerun keeps typing + focus, masonry first row = top N and resize keeps card elements, 390 no h-scroll, ☆ opacity 0.55 after chat page' + pageErrorsNote);
