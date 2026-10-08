@@ -499,14 +499,15 @@ class MediaNav {
       speed.onpointermove=e=>{if(!drag)return;const delta=e.clientX-drag.x;if(Math.abs(delta)>4)moved=true;if(moved)setRate(drag.rate+delta/80);};
       speed.onpointerup=e=>{drag=null;if(speed.hasPointerCapture(e.pointerId))speed.releasePointerCapture(e.pointerId);};
       speed.onpointercancel=()=>{drag=null;};
-      speed.onclick=()=>{if(moved){moved=false;return;}const rates=[1,1.25,1.5,2,3];setRate(rates.find(r=>r>video.playbackRate+.01)||1);};
+      speed.onclick=e=>{if(e&&e.detail&&speed.blur)speed.blur();if(moved){moved=false;return;}const rates=[1,1.25,1.5,2,3];setRate(rates.find(r=>r>video.playbackRate+.01)||1);};
       speed.onkeydown=e=>{if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.preventDefault();setRate(video.playbackRate+(e.key==='ArrowRight'?.25:-.25));}};
       // 批次 D · F6：单曲循环（记住选择，settings.media.loop）+「连播…」（按标签连播，播放器归 L5 的 player-ui）
       const loopOn=!!(this.plugin.settings&&this.plugin.settings.media&&this.plugin.settings.media.loop);
       video.loop=loopOn;
       const loop=bar.createEl('button',{cls:'lb-video-loop',text:'循环'});
       loop.setAttribute('aria-pressed',String(loopOn));loop.setAttribute('title','单曲循环（再点关掉）');
-      loop.onclick=async()=>{
+      loop.onclick=async e=>{
+        if(e&&e.detail&&loop.blur)loop.blur();   // 鼠标点完不留焦点：不然 :focus-within 让工具行一直挂着（她要悬停才出现）
         const on=!video.loop;
         const s=this.plugin.settings||(this.plugin.settings={});
         s.media={...(s.media||{}),loop:on};
@@ -517,7 +518,8 @@ class MediaNav {
       };
       const playlist=bar.createEl('button',{cls:'lb-video-playlist',text:'连播…'});
       playlist.setAttribute('title','按标签连播视频');
-      playlist.onclick=()=>{
+      playlist.onclick=e=>{
+        if(e&&e.detail&&playlist.blur)playlist.blur();
         const ui=this.plugin.playerUI;
         if(ui&&typeof ui.openTagPicker==='function'){try{const r=ui.openTagPicker({itemId:this.itemIdOf(note)});if(r&&typeof r.catch==='function')r.catch(e=>console.error('[lb] 连播没打开',e));}catch(e){console.error('[lb] 连播没打开',e);}}
         else this.notice('连播还没装好：更新 Link Brain Actions 插件后再试');

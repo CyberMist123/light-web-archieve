@@ -1,0 +1,655 @@
+/* Link Brain · Xiaohongshu human view
+   只作用于 cssclasses: [link-brain, xhs-note]。
+   render.py 会把这份受管 CSS 同步到 vault/.obsidian/snippets/link-brain.css。
+   Reading View + Live Preview 共用同一套视觉。
+*/
+
+.xhs-note {
+  --lb-gap: clamp(16px, 2vw, 28px);
+  --lb-radius: 16px;
+  --lb-body-size: clamp(15px, 1.15vw, 17px);
+  --lb-comment-size: clamp(14px, 1vw, 15.5px);
+  --lb-muted: var(--text-muted);
+  --lb-faint: var(--text-faint);
+  --lb-line: color-mix(in srgb, var(--text-normal) 12%, transparent);
+  --lb-reply-line: color-mix(in srgb, var(--text-muted) 24%, transparent);
+  --lb-surface: color-mix(in srgb, var(--background-secondary) 88%, transparent);
+  --file-line-width: 1380px;
+}
+
+/* 容器必须建在父节点上；sizer 自己当容器时会出现断点半生效。 */
+.markdown-preview-view.xhs-note,
+.markdown-source-view.xhs-note {
+  container-type: inline-size;
+  container-name: link-brain-note;
+}
+
+.markdown-preview-view.xhs-note .markdown-preview-sizer,
+.markdown-source-view.xhs-note .cm-contentContainer {
+  width: min(100%, 1380px);
+  max-width: min(100%, 1380px) !important;
+  box-sizing: border-box;
+}
+
+.markdown-preview-view.xhs-note .markdown-preview-sizer {
+  padding-left: clamp(10px, 2vw, 28px);
+  padding-right: clamp(10px, 2vw, 28px);
+}
+
+.xhs-note .metadata-container {
+  display: none !important;
+}
+
+.markdown-source-view.xhs-note .cm-line:has(.cm-comment) {
+  display: none !important;
+}
+
+.xhs-note .inline-title {
+  font-size: clamp(1.42rem, 2.4vw, 2.1rem);
+  line-height: 1.22;
+  margin-bottom: 0.55em;
+  letter-spacing: -0.015em;
+}
+
+.xhs-note .callout[data-callout="link-brain-comment"],
+.xhs-note .callout[data-callout="quote"] {
+  margin: 0 0 clamp(14px, 2vw, 22px);
+  padding: 10px 13px;
+  border: 0;
+  border-left: 3px solid var(--interactive-accent);
+  border-radius: 10px;
+  background: var(--lb-surface);
+  box-shadow: none;
+}
+
+.xhs-note .callout[data-callout="link-brain-comment"] .callout-title,
+.xhs-note .callout[data-callout="quote"] .callout-title {
+  display: none;
+}
+
+.xhs-note .callout[data-callout="link-brain-comment"] .callout-content,
+.xhs-note .callout[data-callout="quote"] .callout-content {
+  padding: 0;
+  font-size: clamp(13.5px, 1.1vw, 15px);
+  line-height: 1.55;
+}
+
+.xhs-note .callout[data-callout="link-brain-comment"] p,
+.xhs-note .callout[data-callout="quote"] p {
+  margin: 0.25em 0;
+}
+
+/*
+  真·左右两栏（Owner 2026-09-15）：grid 两列——左栏 `.lb-side`（图片+作者）sticky 固定，
+  右栏 `.lb-main`（正文+评论）随页滚动。正文改成 HTML（`_body_html`），整块 `.lb-note`
+  是一个连续 HTML 块、内部无空行，Obsidian 不会把它闭合，两个容器才立得住。
+  48.5% 是此前等宽两栏的比例；图片 width/max-height/object-fit 不动、头像不动（Owner：其他比例不变）。
+*/
+.xhs-note .lb-note {
+  display: grid;
+  grid-template-columns: 48.5% 1fr;
+  column-gap: var(--lb-gap);
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+}
+
+.xhs-note .lb-note.lb-no-media {
+  display: block;
+  max-width: 780px;
+  margin-inline: auto;
+}
+
+.xhs-note .lb-side {
+  position: sticky;
+  top: 8px;
+  align-self: start;
+  min-width: 0;
+}
+
+.xhs-note .lb-main {
+  min-width: 0;
+  height: min(78vh, 860px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.xhs-note .inline-title { display: none; }
+.xhs-note .lb-scroll { overflow-y: auto; min-height: 0; padding-right: 12px; scrollbar-width: thin; }
+.xhs-note .lb-no-media .lb-main { height: auto; }
+.xhs-note .lb-author-row { flex-shrink: 0; }
+.xhs-note .lb-note-title { font-size: 1.2em; line-height: 1.5; margin: 0 0 14px; }
+.lb-inbox .metadata-container,.lb-catalog .metadata-container { display: none!important; }
+.lb-catalog .inline-title { display: none!important; }
+
+.xhs-note .lb-media {
+  width: 100%;               /* 图片占满左栏（Owner 2026-09-07：图左评论右） */
+  margin: 2px 0 12px;
+  min-width: 0;
+}
+
+/* 只有手机大小才收成单栏；此时左栏不再 sticky。桌面 / 普通窄 pane 继续左固定右滚动。 */
+@container link-brain-note (max-width: 600px) {
+  .xhs-note .lb-note {
+    display: block;
+  }
+  .xhs-note .lb-side {
+    position: static;
+    margin-bottom: 14px;
+  }
+  .xhs-note .lb-main { height: auto; overflow: visible; }
+  .xhs-note .lb-scroll { overflow: visible; }
+  .xhs-note .lb-media {
+    width: 100%;
+    margin: 0 0 14px;
+  }
+}
+
+.xhs-note .lb-carousel {
+  position: relative;
+  display: flex !important;
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto !important;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  border-radius: var(--lb-radius);
+  background: var(--background-secondary);
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 28%, transparent) transparent;
+}
+
+.xhs-note .lb-slide {
+  position: relative;
+  flex: 0 0 100% !important;
+  width: 100%;
+  min-width: 100% !important;
+  margin: 0 !important;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.xhs-note .lb-slide img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: min(78vh, 860px);
+  object-fit: contain;
+  object-position: center;
+  border-radius: var(--lb-radius);
+  margin: 0;
+}
+
+.xhs-note .lb-counter {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 4;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1;
+  color: white;
+  background: rgb(0 0 0 / 0.56);
+  backdrop-filter: blur(5px);
+}
+
+.xhs-note .lb-video-badge {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 4;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+  color: white;
+  background: rgb(0 0 0 / 0.68);
+  pointer-events: none;
+}
+
+.xhs-note .lb-detail {
+  font-size: var(--lb-body-size);
+  line-height: 1.72;
+  overflow-wrap: anywhere;
+}
+
+.xhs-note .lb-author-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 2px 0 14px;
+}
+
+/* 恢复 9/4 晚上稳定版：30px、无外框，不再用 9/5 凌晨的 28px + border。 */
+.xhs-note .lb-author-dot {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--interactive-accent) 24%, var(--background-secondary));
+}
+
+.xhs-note .lb-author-copy {
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.xhs-note .lb-author-name {
+  font-weight: 700;
+  color: var(--text-normal);
+}
+
+.xhs-note .lb-post-meta {
+  margin-top: 2px;
+  font-size: 0.78em;
+  color: var(--lb-muted);
+}
+
+/* 正文现在是 HTML `<p>`（在 .lb-body 里）；字号/行高保持原样。 */
+.xhs-note .lb-body p {
+  font-size: var(--lb-body-size);
+  line-height: 1.72;
+  color: var(--text-normal);
+  margin: 0 0 0.82em;
+  overflow-wrap: anywhere;
+}
+
+.xhs-note .lb-body p:last-child {
+  margin-bottom: 0;
+}
+
+.xhs-note mark {
+  background: color-mix(in srgb, var(--text-accent) 22%, transparent);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+/* 顶部原文/机读版/附件：保留 9/5 已确认的分隔符间距。 */
+.xhs-note .callout[data-callout="link-brain-file"] {
+  margin: 2px 0 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  mix-blend-mode: normal;
+  font-size: 0.86em;
+  color: var(--text-muted);
+}
+
+.xhs-note .callout[data-callout="link-brain-file"] .callout-title {
+  display: none;
+}
+
+.xhs-note .callout[data-callout="link-brain-file"] .callout-content {
+  padding: 0;
+}
+
+.xhs-note .callout[data-callout="link-brain-file"] p {
+  margin: 0;
+  word-spacing: 0.32em;
+  line-height: 1.75;
+}
+
+.xhs-note .callout[data-callout="link-brain-file"] p + p {
+  margin-top: 6px;
+}
+
+.xhs-note .callout[data-callout="link-brain-file"] a,
+.xhs-note .callout[data-callout="link-brain-file"] a.internal-link {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.xhs-note .callout[data-callout="link-brain-file"] a:hover,
+.xhs-note .callout[data-callout="link-brain-file"] a.internal-link:hover {
+  color: var(--interactive-accent);
+  text-decoration: underline;
+}
+
+/* 顶部 原文·机读版 入口：无框，链接用主题的链接色（不再发灰）。Owner 2026-09-17。 */
+.xhs-note .callout[data-callout="lb-topbar"] {
+  margin: 2px 0 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  mix-blend-mode: normal;
+  font-size: 0.86em;
+}
+.xhs-note .callout[data-callout="lb-topbar"] .callout-title { display: none; }
+.xhs-note .callout[data-callout="lb-topbar"] .callout-content { padding: 0; }
+.xhs-note .callout[data-callout="lb-topbar"] p {
+  margin: 0;
+  word-spacing: 0.28em;
+  line-height: 1.7;
+}
+/* Owner 要发灰，跟下面的附件文件链接一样。 */
+.xhs-note .callout[data-callout="lb-topbar"] a,
+.xhs-note .callout[data-callout="lb-topbar"] a.internal-link {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.xhs-note .callout[data-callout="lb-topbar"] a:hover,
+.xhs-note .callout[data-callout="lb-topbar"] a.internal-link:hover {
+  color: var(--interactive-accent);
+  text-decoration: underline;
+}
+
+.xhs-note .lb-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 10px 0 6px;
+}
+
+.xhs-note .lb-tag {
+  display: inline;
+  padding: 0;
+  border-radius: 0;
+  font-size: 0.92em;
+  line-height: 1.65;
+  color: var(--link-color);
+  background: transparent;
+}
+
+.xhs-note .lb-engagement {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 9px 0 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--lb-line);
+  font-size: 0.78em;
+  color: var(--lb-muted);
+}
+
+.xhs-note .lb-comments {
+  margin-top: 14px;
+}
+
+.xhs-note .lb-comment {
+  margin: 0 0 17px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: var(--lb-comment-size);
+  line-height: 1.62;
+}
+
+.xhs-note .lb-comment-author {
+  margin-bottom: 2px;
+  font-family: "Noto Sans SC", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  font-size: 0.86em;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.xhs-note .lb-comment-text {
+  font-family: "Kaiti SC", STKaiti, KaiTi, "楷体", serif;
+  font-size: 1.04em;
+  color: var(--text-normal);
+  overflow-wrap: anywhere;
+}
+
+.xhs-note .lb-reply-target {
+  color: var(--text-muted);
+}
+
+.xhs-note .lb-comment-actions {
+  margin-top: 2px;
+  font-family: "Noto Sans SC", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  font-size: 0.72em;
+  color: var(--text-faint);
+}
+
+.xhs-note .lb-replies {
+  position: relative;
+  margin-top: 8px;
+  margin-left: clamp(8px, 1.25vw, 15px);
+  padding-left: clamp(11px, 1.45vw, 17px);
+  border-left: 1px solid var(--lb-reply-line);
+}
+
+.xhs-note .lb-reply {
+  margin-bottom: 10px;
+  font-size: 0.97em;
+}
+
+.xhs-note .lb-comments-note {
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--background-secondary);
+  font-size: 0.8em;
+  color: var(--text-muted);
+}
+
+.xhs-note .lb-more-replies {
+  margin-top: 1px;
+  font-family: "Noto Sans SC", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  font-size: 0.76em;
+  color: var(--text-muted);
+}
+
+.xhs-note .lb-comment-media {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.xhs-note .lb-comment-image {
+  width: auto;
+  max-width: min(180px, 48%);
+  max-height: 180px;
+  border-radius: 9px;
+  object-fit: contain;
+  margin: 0;
+}
+/* 0928 Owner：表情包小一点，截图/表格/流程图大一点，多张并排 */
+.xhs-note .lb-comment-image.lb-ci-sticker { max-width: 96px; max-height: 96px; }
+.xhs-note .lb-comment-image.lb-ci-photo { max-width: min(260px, 70%); max-height: 260px; }
+.xhs-note .lb-comment-image.lb-ci-doc { max-width: 100%; max-height: 520px; }
+.xhs-note .lb-comment-media.lb-ci-n2,
+.xhs-note .lb-comment-media.lb-ci-n3 { display: grid; gap: 6px; align-items: start; }
+.xhs-note .lb-comment-media.lb-ci-n2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.xhs-note .lb-comment-media.lb-ci-n3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.xhs-note .lb-ci-n2 .lb-comment-image.lb-ci-doc,
+.xhs-note .lb-ci-n3 .lb-comment-image.lb-ci-doc,
+.xhs-note .lb-ci-n2 .lb-comment-image.lb-ci-photo,
+.xhs-note .lb-ci-n3 .lb-comment-image.lb-ci-photo { width: 100%; max-width: 100%; max-height: 360px; object-fit: cover; object-position: top; }
+/* 机读版里的 Mermaid 流程图：缩放到一屏宽，不横向拖（0928 Owner：别像清明上河图） */
+.markdown-rendered .mermaid svg { max-width: 100% !important; height: auto; }
+.markdown-rendered .mermaid { overflow: visible; text-align: center; }
+
+.xhs-note .lb-empty {
+  color: var(--lb-muted);
+  font-size: 0.9em;
+}
+
+/* 600–800px 仍保持两栏；这里只保留原来的图片高度/文字响应规则，不再改 lb-media 宽度。 */
+@container link-brain-note (max-width: 800px) {
+  .xhs-note .lb-slide img {
+    max-height: 70vh;
+  }
+
+  .xhs-note .lb-detail {
+    font-size: clamp(15px, 3.6cqi, 16px);
+    line-height: 1.68;
+  }
+
+  .xhs-note .lb-replies {
+    margin-left: 6px;
+    padding-left: 10px;
+  }
+
+  .xhs-note .lb-comment {
+    font-size: clamp(13.8px, 3.4cqi, 15px);
+  }
+}
+
+@container link-brain-note (max-width: 480px) {
+  .xhs-note .inline-title {
+    font-size: clamp(1.32rem, 6.4cqi, 1.68rem);
+  }
+
+  .xhs-note .lb-counter,
+  .xhs-note .lb-video-badge {
+    font-size: 11px;
+  }
+
+  .xhs-note .lb-author-dot {
+    width: 27px;
+    height: 27px;
+    flex-basis: 27px;
+  }
+
+  .xhs-note .lb-replies {
+    margin-left: 3px;
+    padding-left: 8px;
+  }
+}
+
+/* Search reader: images, author text and comments form one vertical document. */
+.lb-source-reader .lb-note{display:block!important;}
+.lb-source-reader .lb-side{position:static!important;}
+.lb-source-reader .lb-main{height:auto!important;overflow:visible!important;}
+.lb-source-reader .lb-scroll{overflow:visible!important;}
+.lb-source-reader .lb-slide img,.lb-source-reader .lb-slide video{max-height:48vh!important;}
+
+/* Controls sit outside the media rather than over the picture/video. */
+.lb-visually-hidden{position:absolute!important;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;}
+.xhs-note .lb-media{position:relative;}
+.xhs-note .lb-carousel:has(video)::scroll-button(left),.xhs-note .lb-carousel:has(video)::scroll-button(right){content:none!important;display:none!important;}
+@supports selector(.lb-carousel::scroll-button(left)){
+ .xhs-note .lb-carousel:not(:has(video))::scroll-button(left),.xhs-note .lb-carousel:not(:has(video))::scroll-button(right){position:absolute;top:50%;transform:translateY(-50%);z-index:5;width:34px;height:34px;border:0;border-radius:50%;color:white;background:rgb(0 0 0 / .45);font-size:28px;line-height:1;opacity:0;cursor:pointer;}
+ .xhs-note .lb-carousel:not(:has(video)):has(.lb-slide:nth-child(2))::scroll-button(left){content:'‹';left:8px;right:auto;}
+ .xhs-note .lb-carousel:not(:has(video)):has(.lb-slide:nth-child(2))::scroll-button(right){content:'›';right:8px;left:auto;}
+ .xhs-note .lb-carousel:hover::scroll-button(left),.xhs-note .lb-carousel:hover::scroll-button(right){opacity:1;}
+}
+.xhs-note .lb-counter{right:48px;}
+.xhs-note .lb-carousel:has(video) .lb-slide:not(:has(video)){display:none!important;}
+.xhs-note .lb-carousel:has(video){overflow:hidden!important;}
+.xhs-note .lb-media-pin{position:absolute;right:8px;top:8px;z-index:6;border:0;box-shadow:0 1px 4px #0002;background:var(--background-primary);color:var(--text-muted);border-radius:50%;width:30px;height:30px;padding:6px;cursor:pointer;}
+.xhs-note .lb-media-pin svg{display:block;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;}
+.xhs-note .lb-media-pin[aria-pressed=true]{color:var(--text-normal);}.xhs-note .lb-media-pin[aria-pressed=true] svg{fill:currentColor;}
+.xhs-note .lb-media:has(.lb-media-tools) .lb-counter{display:none;}
+.xhs-note .lb-media-tools{display:flex;align-items:center;justify-content:center;gap:16px;margin-top:8px;}
+.xhs-note .lb-media-tools button{background:transparent;box-shadow:none;border:0;color:var(--text-muted);font:inherit;font-size:13px;padding:4px 10px;height:30px;cursor:pointer;}
+.xhs-note .lb-media-tools button:first-child,.xhs-note .lb-media-tools button:last-child{font-size:18px;}
+.xhs-note .lb-media-tools .lb-video-speed{font-size:13px!important;touch-action:none;cursor:ew-resize;user-select:none;}
+.xhs-note .lb-thumbnails{display:grid;grid-template-columns:repeat(auto-fill,minmax(56px,1fr));gap:7px;max-height:240px;overflow:auto;margin-top:10px;padding:4px;}
+.xhs-note .lb-thumbnails[hidden]{display:none!important;}
+.xhs-note .lb-thumbnails button{display:flex;flex-direction:column;align-items:center;gap:3px;height:auto;padding:3px;border:1px solid transparent;background:var(--background-secondary);box-shadow:none;font-size:11px;color:var(--text-muted);}
+.xhs-note .lb-thumbnails button.is-current{border-color:var(--text-muted);}
+.xhs-note .lb-thumbnails img{height:62px;width:100%;object-fit:cover;margin:0;border-radius:3px;}
+.xhs-note .lb-note.lb-media-free .lb-side{position:static!important;}
+.xhs-note .lb-note.lb-media-free .lb-main{height:auto!important;overflow:visible!important;}
+.xhs-note .lb-note.lb-media-free .lb-scroll{overflow:visible!important;}
+.lb-source-reader .lb-note.lb-media-locked{display:flex!important;flex-direction:column;height:var(--lb-reader-height,calc(100vh - 150px));}
+.lb-source-reader .lb-media-locked .lb-side{flex:none;width:100%;}
+.lb-source-reader .lb-media-locked .lb-slide img,.lb-source-reader .lb-media-locked .lb-slide video{max-height:min(36vh,calc(var(--lb-reader-height,100vh) * .42))!important;}
+.lb-source-reader .lb-media-locked .lb-main{flex:1;min-height:100px;width:100%;height:auto!important;overflow:hidden!important;}
+.lb-source-reader .lb-media-locked .lb-scroll{overflow:auto!important;}
+@container link-brain-note (max-width:600px){
+ .xhs-note .lb-note.lb-media-locked{display:flex;flex-direction:column;height:var(--lb-reader-height,calc(100vh - 150px));}
+ .xhs-note .lb-media-locked .lb-side{flex:none;width:100%;}
+ .xhs-note .lb-media-locked .lb-slide img,.xhs-note .lb-media-locked .lb-slide video{max-height:min(36vh,calc(var(--lb-reader-height,100vh) * .42))!important;}
+ .xhs-note .lb-media-locked .lb-main{flex:1;min-height:100px;width:100%;overflow:hidden;}
+ .xhs-note .lb-media-locked .lb-scroll{overflow:auto;}
+}
+
+/* Evidence stays in the existing reader; no extra window. */
+.lb-evidence-bar{position:sticky;top:0;z-index:8;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;background:var(--background-primary);border-bottom:1px solid var(--background-modifier-border);font-size:12px;}
+.lb-evidence-bar details{max-width:100%;}.lb-evidence-bar blockquote{max-height:180px;overflow:auto;white-space:pre-wrap;}
+.lb-evidence-hit{outline:2px solid var(--interactive-accent)!important;outline-offset:3px;background:var(--text-highlight-bg)!important;border-radius:4px;}
+
+/* Hide only this library's internal data from the everyday file tree. */
+.nav-folder:has(> .nav-folder-title[data-path="_archive"]),
+.nav-folder:has(> .nav-folder-title[data-path="_trash"]),
+.nav-folder:has(> .nav-folder-title[data-path="知识库【小红书】/_archive"]),
+.nav-folder:has(> .nav-folder-title[data-path="知识库【小红书】/_trash"]){display:none;}
+
+/* Lock the reading viewport as well as the inner article. */
+.lb-pane-locked{overflow:hidden!important;overscroll-behavior:none;}
+.xhs-note .lb-note.lb-media-locked{height:var(--lb-reader-height,78vh);overflow:hidden;}
+.xhs-note .lb-media-locked .lb-main{height:100%!important;min-height:0!important;overflow:hidden!important;}
+.xhs-note .lb-media-locked .lb-scroll{flex:1;min-height:0;overflow:auto!important;overscroll-behavior:contain;}
+.xhs-note .lb-media-locked .lb-slide img,.xhs-note .lb-media-locked .lb-slide video{max-height:calc(var(--lb-reader-height,78vh) - 50px);}
+/* 0929 Owner：钉住时左栏图片下的批注输入框也要够得着——左栏自己能滚 */
+.xhs-note .lb-media-locked .lb-side{max-height:var(--lb-reader-height,78vh);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;}
+
+/* 语音评论（0926）：标签 + 站点自带转写 + 播放器，素净 */
+.xhs-note .lb-comment-audio { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.xhs-note .lb-comment-audio-label { font-size: 12px; color: var(--text-muted); }
+.xhs-note .lb-comment-asr { font-size: 13px; color: var(--text-normal); line-height: 1.55; }
+.xhs-note .lb-comment-audio audio { height: 32px; max-width: 280px; }
+
+/* 0926 Owner：固定按钮平时隐藏，鼠标移到图片/视频上才出现 */
+.xhs-note .lb-media-pin{opacity:0;transition:opacity .15s;}
+.xhs-note .lb-media:hover .lb-media-pin,.xhs-note .lb-media-pin:focus-visible{opacity:1;}
+/* 0926 Owner：图片滑动条不显示横向滚动条（用左右箭头/滚轮/←→翻页） */
+.xhs-note .lb-carousel{scrollbar-width:none;}
+.xhs-note .lb-carousel::-webkit-scrollbar{display:none;}
+
+/* 10-04 Owner：正文不要上下拖动的滚动条——右栏正文 / 评论（.lb-scroll）、钉住时左栏图片区（.lb-side）、整页阅读区都只藏滚动条外观，
+   滚轮 / 触摸 / 键盘照样能滚；不改任何尺寸和布局（两栏 grid、sticky、批注框位置都不动） */
+.markdown-preview-view.xhs-note,
+.markdown-source-view.xhs-note .cm-scroller,
+.xhs-note .lb-main,
+.xhs-note .lb-scroll,
+.xhs-note .lb-side,
+.xhs-note .lb-media-locked .lb-side { scrollbar-width: none; }
+.markdown-preview-view.xhs-note::-webkit-scrollbar,
+.markdown-source-view.xhs-note .cm-scroller::-webkit-scrollbar,
+.xhs-note .lb-main::-webkit-scrollbar,
+.xhs-note .lb-scroll::-webkit-scrollbar,
+.xhs-note .lb-side::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+/* 10-04 Owner：正文里的标签（#codex 那排）外面不要框，只留文字（颜色照旧）。
+   那圈灰框是插件 styles.css 里设置页「要 key / 必需」小标签的 .lb-tag 漏到笔记里来了（插件那边也已收窄到设置页）。 */
+.xhs-note .lb-tags .lb-tag {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  font-size: 0.92em;
+  line-height: 1.65;
+  color: var(--link-color);
+}
+
+/* 10-04 Owner：正文视频的控制条（播放 / 进度 / 音量 / 全屏）和下面那行倍速「1×」平时藏着，鼠标放到视频上才出现；
+   控制条的显隐由插件 media-nav.js 切 video 的 controls 属性（键盘 Tab 到视频上也会出现），这里只管倍速那一行：用透明度，不占位变化 */
+.xhs-note .lb-media:has(video) .lb-media-tools { opacity: 0; transition: opacity .15s; }
+.xhs-note .lb-media:has(video):hover .lb-media-tools,
+.xhs-note .lb-media:has(video):focus-within .lb-media-tools { opacity: 1; }
+@media (hover: none) { .xhs-note .lb-media:has(video) .lb-media-tools { opacity: 1; } }
+
+/* ── 批次 D · L3 笔记页（10-08）：只在末尾追加，已有规则一条不改；插件把同一份（note.css）注入 head ── */
+/* N8 / N14：「现在抓全部评论」入口——只在桌面插件开着时显示（note-actions 给 body 加 lb-actions-on），手机上 / 插件没开时不露点了没反应的字 */
+.xhs-note .lb-act { display: none; }
+body.lb-actions-on .xhs-note .lb-act { display: inline; margin-left: 8px; color: var(--text-muted); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-size: .95em; }
+body.lb-actions-on .xhs-note .lb-act:hover { color: var(--interactive-accent); }
+/* N9：正文标签（原帖话题）点了回目录按 #标签 筛：悬停下划线，颜色不变、不加框 */
+body.lb-actions-on .xhs-note .lb-tags .lb-tag { cursor: pointer; }
+body.lb-actions-on .xhs-note .lb-tags .lb-tag:hover { text-decoration: underline; text-underline-offset: 2px; }
+/* N17：Dataview（或它的 JS 查询）没开时不露批注 bootstrap 的源码，由页顶提示条说明原因 */
+.xhs-note pre.language-dataviewjs, .xhs-note pre:has(> code.language-dataviewjs) { display: none; }
+/* N15：钉住时视频的倍速 / 循环行浮在视频左上角（仍只在悬停时出现），让出位置给批注框；视频本身不缩 */
+.xhs-note .lb-media-locked .lb-media:has(video) .lb-media-tools { position: absolute; left: 8px; top: 8px; z-index: 6; margin: 0; gap: 4px; padding: 0 6px; border-radius: 999px; background: rgb(0 0 0 / .45); }
+.xhs-note .lb-media-locked .lb-media:has(video) .lb-media-tools button { color: #fff; }
+/* F6：循环 / 连播和倍速同字号（不被上面 button:first-child / :last-child 的 18px 放大） */
+.xhs-note .lb-media-tools .lb-video-loop, .xhs-note .lb-media-tools .lb-video-playlist { font-size: 13px !important; }
+.xhs-note .lb-media-tools .lb-video-loop[aria-pressed="true"] { color: var(--text-normal); font-weight: 600; }

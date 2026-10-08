@@ -303,8 +303,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("highlight", help="给一篇笔记正文加/去一处高亮（<mark>，持久到重渲染）")
     p.add_argument("target", help="item_id")
-    p.add_argument("phrase", help="要高亮的原文片段（原样、含标点，需在正文里出现过）")
-    p.add_argument("--remove", action="store_true", help="去掉这处高亮")
+    p.add_argument("phrase", nargs="+", help="要高亮的原文片段（原样、含标点，需在正文里出现过）；可以给几段，一次写盘")
+    p.add_argument("--remove", action="store_true", help="去掉这几处高亮")
+    p.add_argument("--json", action="store_true", help="最后一行输出 JSON（插件用）")
 
     return parser
 
@@ -470,10 +471,25 @@ def _dispatch(args) -> int:
     if args.command == "highlight":
         from . import render as render_mod
 
-        path, changed = render_mod.set_highlight(args.target, args.phrase, remove=args.remove)
+        r = render_mod.set_highlights(args.target, list(args.phrase), remove=args.remove)
         verb = "去掉高亮" if args.remove else "加高亮"
-        print(f"{verb}：{'已改' if changed else '未找到该片段 / 无变化'} · {path}")
-        return EXIT_OK if changed else 1
+        n = len(r["changed"])
+        if args.json:
+            from .read import dump_json
+            if n:
+                message = ("已取消 %d 处" if args.remove else "已划 %d 处") % n
+            elif r["already"] and not r["missing"]:
+                message = "这几处已经划过了"
+            else:
+                message = "没找到这段原文"
+            results = ([{"phrase": x, "status": "ok"} for x in r["changed"]]
+                       + [{"phrase": x, "status": "already"} for x in r["already"]]
+                       + [{"phrase": x, "status": "missing"} for x in r["missing"]])
+            dump_json({"ok": bool(n), "code": "", "message": message, "item_id": args.target,
+                       "changed": r["changed"], "missing": r["missing"], "already": r["already"], "results": results})
+        else:
+            print(f"{verb}：{'已改 %d 处' % n if n else '未找到该片段 / 无变化'} · {r['visible']}")
+        return EXIT_OK if n else 1
 
     if args.command == "sync-favorites":
         from . import favorites as favorites_mod

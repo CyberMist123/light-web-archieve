@@ -636,3 +636,20 @@
 .xhs-note .lb-media:has(video):hover .lb-media-tools,
 .xhs-note .lb-media:has(video):focus-within .lb-media-tools { opacity: 1; }
 @media (hover: none) { .xhs-note .lb-media:has(video) .lb-media-tools { opacity: 1; } }
+
+/* ── 批次 D · L3 笔记页（10-08）：只在末尾追加，已有规则一条不改；插件把同一份（note.css）注入 head ── */
+/* N8 / N14：「现在抓全部评论」入口——只在桌面插件开着时显示（note-actions 给 body 加 lb-actions-on），手机上 / 插件没开时不露点了没反应的字 */
+.xhs-note .lb-act { display: none; }
+body.lb-actions-on .xhs-note .lb-act { display: inline; margin-left: 8px; color: var(--text-muted); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-size: .95em; }
+body.lb-actions-on .xhs-note .lb-act:hover { color: var(--interactive-accent); }
+/* N9：正文标签（原帖话题）点了回目录按 #标签 筛：悬停下划线，颜色不变、不加框 */
+body.lb-actions-on .xhs-note .lb-tags .lb-tag { cursor: pointer; }
+body.lb-actions-on .xhs-note .lb-tags .lb-tag:hover { text-decoration: underline; text-underline-offset: 2px; }
+/* N17：Dataview（或它的 JS 查询）没开时不露批注 bootstrap 的源码，由页顶提示条说明原因 */
+.xhs-note pre.language-dataviewjs, .xhs-note pre:has(> code.language-dataviewjs) { display: none; }
+/* N15：钉住时视频的倍速 / 循环行浮在视频左上角（仍只在悬停时出现），让出位置给批注框；视频本身不缩 */
+.xhs-note .lb-media-locked .lb-media:has(video) .lb-media-tools { position: absolute; left: 8px; top: 8px; z-index: 6; margin: 0; gap: 4px; padding: 0 6px; border-radius: 999px; background: rgb(0 0 0 / .45); }
+.xhs-note .lb-media-locked .lb-media:has(video) .lb-media-tools button { color: #fff; }
+/* F6：循环 / 连播和倍速同字号（不被上面 button:first-child / :last-child 的 18px 放大） */
+.xhs-note .lb-media-tools .lb-video-loop, .xhs-note .lb-media-tools .lb-video-playlist { font-size: 13px !important; }
+.xhs-note .lb-media-tools .lb-video-loop[aria-pressed="true"] { color: var(--text-normal); font-weight: 600; }
