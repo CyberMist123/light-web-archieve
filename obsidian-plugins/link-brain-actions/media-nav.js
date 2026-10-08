@@ -1,6 +1,8 @@
-// media-nav.js — 第 5 批 B2：原「Link Brain Native Media Nav」插件（obsidian-plugins/link-brain-native-media-nav）并进主插件，行为不变：
+// media-nav.js — 第 5 批 B2：原「Link Brain Native Media Nav」插件（obsidian-plugins/link-brain-native-media-nav）并进主插件：
 // 归档笔记里图片 ←/→ 与滚轮翻页、点图放大（lightbox）、钉住媒体、视频倍速。main.js 只接两行：require 本文件 → attach()。
-// 下面除了外壳（类名、register 转给主插件、旧插件还开着就不接管）都是原插件代码原样搬来的。
+// 批次 D · L3（本文件全归笔记线）：N1 滚轮翻到头放行；N12 只盯新出现的轮播、尺寸监听用完就放；N15 默认钉住 + 每篇记住钉没钉 / 第几张 / 正文滚到哪、
+// 钉住时左栏能用滚轮滚；N-M2 ←/→ 不翻后台 / 别的分栏；MN-0 旧插件只在 manifests 里也有时才让位；
+// 对外：openLightbox(images, index, {caption, onCaption, onClose})（L2 问收藏回答里的图用）、hoverControls；视频工具行「循环」「连播…」。
 'use strict';
 const OLD_PLUGIN_ID = 'link-brain-native-media-nav';
 
@@ -21,6 +23,9 @@ const BLOCKED_SELECTOR = [
   ".suggestion-container",
   '[contenteditable="true"]'
 ].join(", ");
+const STATE_MAX = 200;   // 每篇记住的状态最多留 200 篇（按最近使用淘汰，插件卸载就清空）
+const raf = (f) => (typeof requestAnimationFrame === 'function' ? requestAnimationFrame(f) : setTimeout(f, 16));
+const nowMs = () => (typeof performance !== 'undefined' && performance && typeof performance.now === 'function' ? performance.now() : Date.now());
 
 function getCarouselFromTarget(target) {
   if (!(target instanceof Element)) return null;
@@ -53,15 +58,35 @@ function isBlockedTarget(target) {
   return target instanceof Element && !!target.closest(BLOCKED_SELECTOR);
 }
 
+// 这个元素在 dy 方向上还能不能自己滚（滚动容器 + 还没到头）
+function canScroll(el, dy) {
+  if (!el || el.nodeType !== 1) return false;
+  const sh = el.scrollHeight || 0, ch = el.clientHeight || 0;
+  if (sh <= ch + 1) return false;
+  let oy = '';
+  try { oy = (typeof getComputedStyle === 'function' ? getComputedStyle(el).overflowY : '') || ''; } catch {}
+  if (!oy && el.style) oy = el.style.overflowY || '';
+  if (oy !== 'auto' && oy !== 'scroll') return false;
+  const top = el.scrollTop || 0;
+  return dy > 0 ? top + ch < sh - 1 : top > 0;
+}
+
 class MediaNav {
-  constructor(plugin) { this.plugin = plugin; this.attached = false; }
+  constructor(plugin, obsidian) {
+    this.plugin = plugin; this.obsidian = obsidian || null; this.attached = false;
+    this.stats = { scan: 0, fit: 0, fitMs: 0 };   // N12：只是整数累加（测量用，正式代码里也留着）
+    this.ros = new Set();                           // 每个轮播一个尺寸监听；轮播不在了就自己断开
+    this.noteState = new Map();                     // N15：key（item_id / 文件路径）→ {locked, slide, scroll}
+  }
   // 原插件里的 this.register / this.registerDomEvent：挂到主插件上，主插件卸载时一起清掉
   register(fn) { this.plugin.register(fn); }
   registerDomEvent(el, type, fn, opts) { this.plugin.registerDomEvent(el, type, fn, opts); }
   // 旧插件还开着就不接管（两份同时开会弹两层大图），由它继续工作；停用旧插件后重启 Obsidian 即由这里接管。
+  // MN-0：Obsidian 1.14 会把目录已经不在的插件 id 留在 enabledPlugins 里（只对 manifests 里有的才 loadPlugin）——只认「开着且真装着」。
   oldPluginEnabled() {
     const pl = this.plugin.app && this.plugin.app.plugins;
-    return !!(pl && pl.enabledPlugins && typeof pl.enabledPlugins.has === 'function' && pl.enabledPlugins.has(OLD_PLUGIN_ID));
+    if (!pl || !pl.enabledPlugins || typeof pl.enabledPlugins.has !== 'function' || !pl.enabledPlugins.has(OLD_PLUGIN_ID)) return false;
+    return !!((pl.manifests && pl.manifests[OLD_PLUGIN_ID]) || (pl.plugins && pl.plugins[OLD_PLUGIN_ID]));
   }
   attach() {
     if (this.attached) return true;
@@ -70,16 +95,50 @@ class MediaNav {
     this.onload();
     return true;
   }
+  notice(msg) {
+    try { if (typeof this.plugin.notify === 'function') { this.plugin.notify(msg); return; } } catch {}
+    try { const N = (this.obsidian && this.obsidian.Notice) || (typeof Notice === 'function' ? Notice : null); if (N) new N(msg); } catch {}
+  }
+
+  // 整页锁（lb-pane-locked）残留：同一窗格从钉住的笔记换到目录页时，不清掉整页 overflow:hidden 就滚不动了
+  cleanupStaleLocks() {
+    if (typeof document.querySelectorAll !== 'function') return;
+    document.querySelectorAll('.lb-pane-locked').forEach(p => { if (!p.querySelector('.lb-media-locked')) p.classList.remove('lb-pane-locked'); });
+  }
+  scan() {
+    this.cleanupStaleLocks();
+    if (typeof document.querySelectorAll !== 'function') return;
+    document.querySelectorAll(CAROUSEL_SELECTOR).forEach(c => this.enhance(c));
+  }
 
   onload() {
     this.activeCarousel = null;
-    const scan=()=>{document.querySelectorAll('.lb-pane-locked').forEach(p=>{if(!p.querySelector('.lb-media-locked'))p.classList.remove('lb-pane-locked');});document.querySelectorAll(CAROUSEL_SELECTOR).forEach(c=>this.enhance(c));};
-    scan();
-    let queued=false;
-    const observer=new MutationObserver(records=>{if(queued||!records.some(r=>[...r.addedNodes].some(n=>n.nodeType===1)))return;queued=true;queueMicrotask(()=>{queued=false;scan();});});
-    observer.observe(document.body,{childList:true,subtree:true});
-    this.register(()=>observer.disconnect());
-    this.register(()=>{document.querySelectorAll('.lb-media-tools,.lb-media-pin,.lb-thumbnails').forEach(e=>e.remove());document.querySelectorAll('[data-lb-enhanced]').forEach(e=>delete e.dataset.lbEnhanced);document.querySelectorAll('.lb-media-locked,.lb-media-free').forEach(e=>e.classList.remove('lb-media-locked','lb-media-free'));document.querySelectorAll('.xhs-note .lb-carousel video').forEach(v=>{v.controls=true;});});
+    this.scan();
+    // N12：只对新出现的轮播排一次 scan（问收藏流式出答案、别处打字这类无关插入不再全文档扫描）；
+    // 新节点落在一个已锁整页、但里面已经没有钉住笔记的窗格里（换到了目录页）就地清锁。
+    let queued = false;
+    const observer = new MutationObserver(records => {
+      let want = false;
+      for (const r of records) {
+        for (const n of r.addedNodes || []) {
+          if (!n || n.nodeType !== 1) continue;
+          const pv = typeof n.closest === 'function' ? n.closest('.lb-pane-locked') : null;
+          if (pv && !pv.querySelector('.lb-media-locked')) pv.classList.remove('lb-pane-locked');
+          if (!want && ((typeof n.matches === 'function' && n.matches('.lb-carousel')) || (typeof n.querySelector === 'function' && n.querySelector('.lb-carousel')))) want = true;
+        }
+      }
+      if (!want || queued) return;
+      queued = true;
+      queueMicrotask(() => { queued = false; this.stats.scan++; this.scan(); });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    this.register(() => observer.disconnect());
+    const ws = this.plugin.app && this.plugin.app.workspace;
+    if (ws && typeof ws.on === 'function' && typeof this.plugin.registerEvent === 'function') {
+      for (const ev of ['file-open', 'layout-change']) this.plugin.registerEvent(ws.on(ev, () => { this.cleanupStaleLocks(); queueMicrotask(() => this.scan()); }));
+    }
+    this.register(() => { for (const ro of this.ros) { try { ro.disconnect(); } catch {} } this.ros.clear(); this.noteState.clear(); });
+    this.register(()=>{document.querySelectorAll('.lb-media-tools,.lb-media-pin,.lb-thumbnails').forEach(e=>e.remove());document.querySelectorAll('[data-lb-enhanced]').forEach(e=>delete e.dataset.lbEnhanced);document.querySelectorAll('.lb-media-locked,.lb-media-free').forEach(e=>e.classList.remove('lb-media-locked','lb-media-free'));document.querySelectorAll('.lb-pane-locked').forEach(e=>e.classList.remove('lb-pane-locked'));document.querySelectorAll('.xhs-note .lb-carousel video').forEach(v=>{v.controls=true;});});
 
     const rememberCarousel = (event) => {
       const carousel = getCarouselFromTarget(event.target);
@@ -103,6 +162,7 @@ class MediaNav {
       const carousel = getCarouselFromTarget(target) || this.activeCarousel;
       if (!carousel || !carousel.isConnected) return;
       if (!carousel.closest(NOTE_ROOT_SELECTOR)) return;
+      if (!this.isCarouselActive(carousel, target)) return;   // N-M2：后台标签页 / 另一个分栏里看不见的那篇不翻
 
       const slides = getSlides(carousel);
       if (slides.length < 2) return;
@@ -127,6 +187,21 @@ class MediaNav {
     this.setupLightbox();
   }
 
+  // N-M2：①display:none（后台标签页）不接管；②按键发生在另一个 leaf 里不接管；③焦点在 body / 不在任何 leaf 里时，要求当前活动 leaf 包含它
+  isCarouselActive(carousel, target) {
+    if (carousel.offsetParent === null) return false;
+    const leafOf = (el) => (el && typeof el.closest === 'function' ? el.closest('.workspace-leaf') : null);
+    const tl = target && target !== document.body ? leafOf(target) : null;
+    const cl = leafOf(carousel);
+    if (tl && cl && tl !== cl) return false;
+    if (!tl) {
+      const al = this.plugin.app && this.plugin.app.workspace && this.plugin.app.workspace.activeLeaf;
+      const ce = al && al.containerEl;
+      if (ce && typeof ce.contains === 'function' && !ce.contains(carousel)) return false;
+    }
+    return true;
+  }
+
   // 1002 Owner：单击图片放大看。左栏图片和评论图都能点；←/→、滚轮切换上一张/下一张，
   // Ctrl+滚轮或双击放大（+ / - / 0 也行），放大后拖动或滚轮挪画面，Esc / 点空白处关闭。
   // 关闭时左栏滑动条停在最后看的那张。
@@ -144,124 +219,14 @@ class MediaNav {
       ".lb-lightbox .lb-lb-next{right:18px;top:50%;transform:translateY(-50%);}",
       ".lb-lightbox .lb-lb-close{right:18px;top:18px;width:38px;height:38px;font-size:16px;}",
       ".lb-lightbox .lb-lb-count{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);color:rgba(255,255,255,.85);font-size:13px;background:rgba(0,0,0,.35);padding:3px 12px;border-radius:999px;}",
+      ".lb-lightbox .lb-lb-caption{position:absolute;left:50%;bottom:50px;transform:translateX(-50%);max-width:80vw;text-align:center;color:rgba(255,255,255,.85);font-size:13px;}",
+      ".lb-lightbox .lb-lb-caption.is-link{cursor:pointer;text-decoration:underline;text-underline-offset:2px;}",
+      ".lb-lightbox .lb-lb-caption:empty{display:none;}",
       ".lb-lightbox[data-single] .lb-lb-prev,.lb-lightbox[data-single] .lb-lb-next{display:none;}",
     ].join("\n");
     document.head.appendChild(style);
     this.register(() => style.remove());
-
-    let current = null;
-    const close = () => { if (current) { const c = current; current = null; c(); } };
-    this.register(close);
-
-    const open = (img) => {
-      close();
-      const carousel = img.closest(".lb-carousel");
-      const note = img.closest(".xhs-note") || document;
-      const imgs = carousel
-        ? getSlides(carousel).map((s) => s.querySelector("img")).filter(Boolean)
-        : Array.from(note.querySelectorAll("img.lb-comment-image"));
-      if (!imgs.length) return;
-      let index = Math.max(0, imgs.indexOf(img));
-      let scale = 1, tx = 0, ty = 0, lastWheel = 0, drag = null;
-
-      const el = document.body.createDiv({ cls: "lb-lightbox" });
-      if (imgs.length < 2) el.dataset.single = "1";
-      const view = el.createEl("img");
-      const prev = el.createEl("button", { cls: "lb-lb-prev", text: "‹" });
-      const next = el.createEl("button", { cls: "lb-lb-next", text: "›" });
-      const shut = el.createEl("button", { cls: "lb-lb-close", text: "✕" });
-      const count = el.createDiv({ cls: "lb-lb-count" });
-      prev.setAttribute("aria-label", "上一张");
-      next.setAttribute("aria-label", "下一张");
-      shut.setAttribute("aria-label", "关闭");
-
-      const apply = () => {
-        view.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
-        el.classList.toggle("is-zoomed", scale > 1.01);
-      };
-      const resetZoom = () => { scale = 1; tx = 0; ty = 0; apply(); };
-      const show = (i) => {
-        index = (i + imgs.length) % imgs.length;
-        view.src = imgs[index].currentSrc || imgs[index].src;
-        view.alt = imgs[index].alt || "";
-        count.setText(`${index + 1} / ${imgs.length}`);
-        resetZoom();
-      };
-      // 以光标为中心缩放：光标下那一点缩放前后不动
-      const zoomAt = (factor, cx, cy) => {
-        const r = view.getBoundingClientRect();
-        const ox = cx - (r.left + r.width / 2), oy = cy - (r.top + r.height / 2);
-        const ns = Math.min(8, Math.max(1, scale * factor));
-        const k = ns / scale;
-        tx += ox * (1 - k);
-        ty += oy * (1 - k);
-        scale = ns;
-        if (scale <= 1.01) { scale = 1; tx = 0; ty = 0; }
-        apply();
-      };
-
-      const onKey = (e) => {
-        const stop = () => { e.preventDefault(); e.stopPropagation(); };
-        if (e.key === "Escape" || e.key === "Esc" || e.keyCode === 27) { stop(); close(); }
-        else if (e.key === "ArrowLeft" || e.key === "ArrowRight") { stop(); show(index + (e.key === "ArrowRight" ? 1 : -1)); }
-        else if (e.key === "+" || e.key === "=") { stop(); zoomAt(1.25, innerWidth / 2, innerHeight / 2); }
-        else if (e.key === "-") { stop(); zoomAt(0.8, innerWidth / 2, innerHeight / 2); }
-        else if (e.key === "0") { stop(); resetZoom(); }
-      };
-      const onWheel = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.ctrlKey) { zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY); return; }
-        if (scale > 1.01) { tx -= e.deltaX; ty -= e.deltaY; apply(); return; }   // 放大后滚轮挪画面
-        const now = Date.now();
-        if (now - lastWheel < 220 || Math.abs(e.deltaY) + Math.abs(e.deltaX) < 4) return;
-        lastWheel = now;
-        show(index + ((e.deltaY || e.deltaX) > 0 ? 1 : -1));
-      };
-      const onDown = (e) => {
-        if (e.target !== view || scale <= 1.01) return;
-        e.preventDefault();
-        drag = { x: e.clientX, y: e.clientY, tx, ty, moved: false };
-        el.classList.add("is-dragging");
-      };
-      const onMove = (e) => {
-        if (!drag) return;
-        const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-        if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
-        tx = drag.tx + dx;
-        ty = drag.ty + dy;
-        apply();
-      };
-      const onUp = () => {
-        if (!drag) return;
-        el.classList.remove("is-dragging");
-        setTimeout(() => { drag = null; }, 0);   // 让紧跟着的 click 知道刚才是在拖
-      };
-
-      view.addEventListener("dblclick", (e) => { e.stopPropagation(); scale > 1.01 ? resetZoom() : zoomAt(2, e.clientX, e.clientY); });
-      view.addEventListener("click", (e) => e.stopPropagation());
-      el.addEventListener("click", (e) => { if (drag && drag.moved) return; if (e.target === el) close(); });
-      prev.addEventListener("click", (e) => { e.stopPropagation(); show(index - 1); });
-      next.addEventListener("click", (e) => { e.stopPropagation(); show(index + 1); });
-      shut.addEventListener("click", (e) => { e.stopPropagation(); close(); });
-      el.addEventListener("wheel", onWheel, { passive: false });
-      el.addEventListener("pointerdown", onDown);
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
-      window.addEventListener("keydown", onKey, true);
-      show(index);
-
-      current = () => {
-        window.removeEventListener("keydown", onKey, true);
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
-        el.remove();
-        if (carousel && carousel.isConnected) {
-          const slides = getSlides(carousel), s = slides[index];
-          if (s) carousel.scrollTo({ left: s.offsetLeft - slides[0].offsetLeft, behavior: "auto" });
-        }
-      };
-    };
+    this.register(() => this.closeLightbox());
 
     this.registerDomEvent(document, "click", (e) => {
       if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
@@ -269,34 +234,260 @@ class MediaNav {
       const img = e.target instanceof Element ? e.target.closest(IMG_SELECTOR) : null;
       if (!img || img.closest(".lb-lightbox")) return;
       if (!img.closest(NOTE_ROOT_SELECTOR)) return;   // 只在小红书归档笔记里接管
+      const carousel = img.closest(".lb-carousel");
+      const note = img.closest(".xhs-note") || document;
+      const imgs = carousel
+        ? getSlides(carousel).map((s) => s.querySelector("img")).filter(Boolean)
+        : Array.from(note.querySelectorAll("img.lb-comment-image"));
+      if (!imgs.length) return;
       e.preventDefault();
       e.stopPropagation();
-      open(img);
+      const lbNote = img.closest('.lb-note');
+      this.openLightbox(imgs, Math.max(0, imgs.indexOf(img)), { onClose: (last) => {
+        if (!carousel || !carousel.isConnected) return;
+        const slides = getSlides(carousel), s = slides[last];
+        if (s) carousel.scrollTo({ left: s.offsetLeft - slides[0].offsetLeft, behavior: "auto" });
+        if (lbNote) this.saveNoteState(this.noteKey(lbNote), { slide: last });
+      } });
     }, true);
+  }
+  closeLightbox() { if (this._lbClose) { const c = this._lbClose; this._lbClose = null; c(); } }
+
+  // 大图查看器（笔记页点图、L2 问收藏回答里的图共用一套）：images = img 元素或 {src, alt}；
+  // opts.caption(i) 显示在计数上面，给了 onCaption(i) 就能点（点了先关）；opts.onClose(lastIndex)。返回 {close()}；没有图返回 null。
+  // 右键菜单开着时 Esc / 方向键归菜单；只有左键能拖动。
+  openLightbox(images, index = 0, opts = {}) {
+    const imgs = (Array.isArray(images) ? images : []).map(x => (typeof x === 'string' ? { src: x } : x)).filter(x => x && (x.currentSrc || x.src));
+    if (!imgs.length) return null;
+    this.closeLightbox();
+    let idx = Math.max(0, Math.min(imgs.length - 1, Number(index) || 0));
+    let scale = 1, tx = 0, ty = 0, lastWheel = 0, drag = null;
+    const menuOpen = () => !!(this.plugin.menuOpen || (typeof document.querySelector === 'function' && document.querySelector('body > .menu')));
+
+    const el = document.body.createDiv({ cls: "lb-lightbox" });
+    if (imgs.length < 2) el.dataset.single = "1";
+    const view = el.createEl("img");
+    const prev = el.createEl("button", { cls: "lb-lb-prev", text: "‹" });
+    const next = el.createEl("button", { cls: "lb-lb-next", text: "›" });
+    const shut = el.createEl("button", { cls: "lb-lb-close", text: "✕" });
+    const count = el.createDiv({ cls: "lb-lb-count" });
+    const cap = typeof opts.caption === 'function' ? el.createDiv({ cls: "lb-lb-caption" + (typeof opts.onCaption === 'function' ? " is-link" : "") }) : null;
+    prev.setAttribute("aria-label", "上一张");
+    next.setAttribute("aria-label", "下一张");
+    shut.setAttribute("aria-label", "关闭");
+
+    const apply = () => {
+      view.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+      el.classList.toggle("is-zoomed", scale > 1.01);
+    };
+    const resetZoom = () => { scale = 1; tx = 0; ty = 0; apply(); };
+    const show = (i) => {
+      idx = (i + imgs.length) % imgs.length;
+      view.src = imgs[idx].currentSrc || imgs[idx].src;
+      view.alt = imgs[idx].alt || "";
+      count.setText(`${idx + 1} / ${imgs.length}`);
+      if (cap) { let t = ''; try { t = String(opts.caption(idx) || ''); } catch {} cap.setText(t); }
+      resetZoom();
+    };
+    // 以光标为中心缩放：光标下那一点缩放前后不动
+    const zoomAt = (factor, cx, cy) => {
+      const r = view.getBoundingClientRect();
+      const ox = cx - (r.left + r.width / 2), oy = cy - (r.top + r.height / 2);
+      const ns = Math.min(8, Math.max(1, scale * factor));
+      const k = ns / scale;
+      tx += ox * (1 - k);
+      ty += oy * (1 - k);
+      scale = ns;
+      if (scale <= 1.01) { scale = 1; tx = 0; ty = 0; }
+      apply();
+    };
+
+    const onKey = (e) => {
+      if (menuOpen()) return;   // 右键菜单开着：Esc / 方向键归菜单
+      const stop = () => { e.preventDefault(); e.stopPropagation(); };
+      if (e.key === "Escape" || e.key === "Esc" || e.keyCode === 27) { stop(); this.closeLightbox(); }
+      else if (e.key === "ArrowLeft" || e.key === "ArrowRight") { stop(); show(idx + (e.key === "ArrowRight" ? 1 : -1)); }
+      else if (e.key === "+" || e.key === "=") { stop(); zoomAt(1.25, innerWidth / 2, innerHeight / 2); }
+      else if (e.key === "-") { stop(); zoomAt(0.8, innerWidth / 2, innerHeight / 2); }
+      else if (e.key === "0") { stop(); resetZoom(); }
+    };
+    const onWheel = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.ctrlKey) { zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY); return; }
+      if (scale > 1.01) { tx -= e.deltaX; ty -= e.deltaY; apply(); return; }   // 放大后滚轮挪画面
+      const now = Date.now();
+      if (now - lastWheel < 220 || Math.abs(e.deltaY) + Math.abs(e.deltaX) < 4) return;
+      lastWheel = now;
+      show(idx + ((e.deltaY || e.deltaX) > 0 ? 1 : -1));
+    };
+    const onDown = (e) => {
+      if (typeof e.button === 'number' && e.button !== 0) return;   // 右键不拖
+      if (e.target !== view || scale <= 1.01) return;
+      e.preventDefault();
+      drag = { x: e.clientX, y: e.clientY, tx, ty, moved: false };
+      el.classList.add("is-dragging");
+    };
+    const onMove = (e) => {
+      if (!drag) return;
+      const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      tx = drag.tx + dx;
+      ty = drag.ty + dy;
+      apply();
+    };
+    const onUp = () => {
+      if (!drag) return;
+      el.classList.remove("is-dragging");
+      setTimeout(() => { drag = null; }, 0);   // 让紧跟着的 click 知道刚才是在拖
+    };
+
+    view.addEventListener("dblclick", (e) => { e.stopPropagation(); scale > 1.01 ? resetZoom() : zoomAt(2, e.clientX, e.clientY); });
+    view.addEventListener("click", (e) => e.stopPropagation());
+    el.addEventListener("click", (e) => { if (drag && drag.moved) return; if (e.target === el) this.closeLightbox(); });
+    prev.addEventListener("click", (e) => { e.stopPropagation(); show(idx - 1); });
+    next.addEventListener("click", (e) => { e.stopPropagation(); show(idx + 1); });
+    shut.addEventListener("click", (e) => { e.stopPropagation(); this.closeLightbox(); });
+    if (cap && typeof opts.onCaption === 'function') cap.addEventListener("click", (e) => { e.stopPropagation(); const i = idx; this.closeLightbox(); try { opts.onCaption(i); } catch (err) { console.error('[lb] 大图说明点击出错', err); } });
+    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("keydown", onKey, true);
+    show(idx);
+
+    const closer = () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      el.remove();
+      if (typeof opts.onClose === 'function') { try { opts.onClose(idx); } catch (err) { console.error('[lb] 大图关闭回调出错', err); } }
+    };
+    this._lbClose = closer;
+    return { close: () => { if (this._lbClose === closer) this.closeLightbox(); }, get index() { return idx; }, el };
+  }
+
+  // ── N15：每篇的状态（key = .lb-note 的 data-lb-item；没有就用所在 markdown leaf 的文件路径）──
+  leafOfNote(note) {
+    const ws = this.plugin.app && this.plugin.app.workspace;
+    if (!ws) return null;
+    const leaves = typeof ws.getLeavesOfType === 'function' ? ws.getLeavesOfType('markdown') : (ws.leaves || []);
+    for (const l of leaves || []) { const c = l && l.view && l.view.containerEl; if (c && typeof c.contains === 'function' && c.contains(note)) return l; }
+    return null;
+  }
+  noteKey(note) {
+    const id = note && note.dataset && note.dataset.lbItem;
+    if (id) return 'item:' + id;
+    const l = this.leafOfNote(note);
+    const p = l && l.view && l.view.file && l.view.file.path;
+    return p ? 'path:' + p : '';
+  }
+  itemIdOf(note) {
+    const id = note && note.dataset && note.dataset.lbItem;
+    if (id) return id;
+    const l = this.leafOfNote(note), f = l && l.view && l.view.file;
+    try { return (f && this.plugin.app.metadataCache.getFileCache(f)?.frontmatter?.link_brain?.item_id) || ''; } catch { return ''; }
+  }
+  getNoteState(key) {
+    if (!key || !this.noteState.has(key)) return null;
+    const st = this.noteState.get(key);
+    this.noteState.delete(key); this.noteState.set(key, st);   // 最近使用排到最后
+    return st;
+  }
+  saveNoteState(key, patch) {
+    if (!key) return;
+    const st = { ...(this.noteState.get(key) || {}), ...patch };
+    this.noteState.delete(key); this.noteState.set(key, st);
+    while (this.noteState.size > STATE_MAX) this.noteState.delete(this.noteState.keys().next().value);
+  }
+  // 问收藏的来源窗格（登记在 leaf.lbArchiveReader / lbArchiveCompare）
+  isArchiveReaderLeaf(note) {
+    const ws = this.plugin.app && this.plugin.app.workspace;
+    if (!ws) return false;
+    const leaves = typeof ws.getLeavesOfType === 'function' ? ws.getLeavesOfType('markdown') : (ws.leaves || []);
+    for (const l of leaves || []) {
+      const r = l && l.lbArchiveReader;
+      for (const x of [r, r && r.lbArchiveCompare]) {
+        const c = x && ((x.view && x.view.containerEl) || x.containerEl);
+        if (c && typeof c.contains === 'function' && c.contains(note)) return true;
+      }
+    }
+    return false;
+  }
+  // 默认钉住只在：阅读视图里、不在来源窗格 / 悬停预览 / 嵌入里（那些地方钉住会让图变小或抢滚轮）
+  shouldDefaultLock(note, preview) {
+    if (!preview || typeof note.closest !== 'function') return false;
+    if (!note.closest('.markdown-reading-view')) return false;
+    if (note.closest('.lb-source-reader, .hover-popover, .popover, .markdown-embed')) return false;
+    if (this.isArchiveReaderLeaf(note)) return false;
+    return true;
+  }
+  // 钉住时 note 顶部已经被滚出 preview 上沿（Obsidian 恢复了旧的滚动位置 / 先往下滚了再点钉）：把 preview 往回滚差值
+  ensureLockedInView(note, preview) {
+    if (!preview || typeof note.getBoundingClientRect !== 'function' || typeof preview.getBoundingClientRect !== 'function') return;
+    const nt = note.getBoundingClientRect().top, pt = preview.getBoundingClientRect().top;
+    if (nt < pt - 0.5) { preview.scrollTop = Math.max(0, (preview.scrollTop || 0) - (pt - nt)); if (typeof note.querySelector === 'function') note.querySelector('.lb-carousel')?.lbFit?.(); }
   }
 
   enhance(carousel){
-    if(carousel.dataset.lbEnhanced){carousel.lbFit?.();return;}carousel.dataset.lbEnhanced='1';
+    if(carousel.dataset.lbEnhanced){const n=carousel.closest('.lb-note');if(n&&n.classList.contains('lb-media-locked'))carousel.lbFit?.();return;}   // N12：只给钉住的再量一次
+    carousel.dataset.lbEnhanced='1';
     const media=carousel.closest('.lb-media'),note=carousel.closest('.lb-note');
     if(!media||!note)return;
     const leaf=note.closest('.workspace-leaf-content');
+    let resize=null;
     // 0929 Owner：钉住时评论拉不到底——右下角状态栏浮在页面上盖住底部，要让开它
-    const fit=()=>{let bottom=Math.min(window.innerHeight,leaf?.getBoundingClientRect().bottom||window.innerHeight);const sb=document.querySelector('.status-bar')?.getBoundingClientRect(),nr=note.getBoundingClientRect();if(sb&&sb.height&&sb.top<bottom&&sb.left<nr.right&&sb.right>nr.left)bottom=sb.top;note.style.setProperty('--lb-reader-height',Math.max(200,bottom-note.getBoundingClientRect().top-20)+'px');};
-    const resize=new ResizeObserver(fit);carousel.lbFit=fit;resize.observe(leaf||document.documentElement);this.register(()=>resize.disconnect());fit();
+    const fit=()=>{
+      if(carousel.isConnected===false){if(resize){resize.disconnect();this.ros.delete(resize);resize=null;}return;}   // N12：轮播不在了就放掉监听
+      const t0=nowMs();this.stats.fit++;
+      let bottom=Math.min(window.innerHeight,leaf?.getBoundingClientRect().bottom||window.innerHeight);const sb=document.querySelector('.status-bar')?.getBoundingClientRect(),nr=note.getBoundingClientRect();if(sb&&sb.height&&sb.top<bottom&&sb.left<nr.right&&sb.right>nr.left)bottom=sb.top;note.style.setProperty('--lb-reader-height',Math.max(200,bottom-note.getBoundingClientRect().top-20)+'px');
+      this.stats.fitMs+=nowMs()-t0;
+    };
+    if(typeof ResizeObserver==='function'){resize=new ResizeObserver(fit);resize.observe(leaf||document.documentElement);this.ros.add(resize);}
+    carousel.lbFit=fit;fit();
     const preview=note.closest('.markdown-preview-view, .markdown-reading-view');
+    const key=this.noteKey(note);
+    const st=this.getNoteState(key);
+    let pin=null,touched=false,onPaneScroll=null;
     const setLocked=locked=>{
       note.classList.toggle('lb-media-locked',locked);note.classList.toggle('lb-media-free',!locked);
-      preview?.classList.toggle('lb-pane-locked',locked);fit();
+      preview?.classList.toggle('lb-pane-locked',locked);
+      if(pin){pin.setAttribute('aria-pressed',String(locked));const s=pin.querySelector('span');if(s)s.textContent=locked?'取消固定媒体':'固定媒体';}
+      fit();
+      if(locked&&preview){
+        this.ensureLockedInView(note,preview);
+        if(!onPaneScroll){let q=false;onPaneScroll=()=>{if(q)return;q=true;raf(()=>{q=false;if(note.classList.contains('lb-media-locked'))this.ensureLockedInView(note,preview);});};preview.addEventListener('scroll',onPaneScroll);}
+        // 钉住后页面不能滚：促一下 Obsidian 阅读视图把底部（批注 bootstrap 那段）渲染出来
+        raf(()=>{try{if(typeof preview.dispatchEvent==='function'&&typeof Event==='function')preview.dispatchEvent(new Event('scroll'));}catch{}});
+      }else if(onPaneScroll&&preview){preview.removeEventListener('scroll',onPaneScroll);onPaneScroll=null;}
     };
-    setLocked(false); // 0926 Owner：默认不钉，图/视频按原尺寸跟正文一起滚；要钉住再点右上角的钉
     // 0926 Owner：滚轮停在图片上 = 翻页（一格一张，节流防连跳）；刚打开的笔记直接认它，←/→ 不用先点图。
     this.activeCarousel=carousel;
     if(preview)this.paneWheel(preview);
-    const pin=media.createEl('button',{cls:'lb-media-pin'});
+    pin=media.createEl('button',{cls:'lb-media-pin'});
     pin.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l-1 6 4 4v2H5v-2l4-4zM12 15v7"/></svg><span class="lb-visually-hidden">取消固定媒体</span>';
-    pin.setAttribute('aria-pressed','false');pin.querySelector('span').textContent='固定媒体';
-    pin.onclick=()=>{const locked=!note.classList.contains('lb-media-locked');setLocked(locked);pin.setAttribute('aria-pressed',String(locked));pin.querySelector('span').textContent=locked?'取消固定媒体':'固定媒体';};
+    pin.onclick=()=>{touched=true;const locked=!note.classList.contains('lb-media-locked');setLocked(locked);this.saveNoteState(key,{locked});};
+    // 1008 她定：默认钉住（批注框紧贴图片下面、能直接写）；同一篇后台重写后照原样（钉没钉、第几张、正文滚到哪）
+    const auto=this.shouldDefaultLock(note,preview);
+    setLocked(st&&typeof st.locked==='boolean'?st.locked:auto);
+    if(!st&&auto)raf(()=>raf(()=>{if(!touched&&note.isConnected!==false&&!this.shouldDefaultLock(note,preview))setLocked(false);}));   // 来源窗格的类是 openFile 之后才加的
     const slides=getSlides(carousel);
+    if(st&&st.slide>0&&slides[st.slide])raf(()=>carousel.scrollTo({left:slides[st.slide].offsetLeft-slides[0].offsetLeft,behavior:'auto'}));
+    let slideTimer=null;
+    carousel.addEventListener('scroll',()=>{clearTimeout(slideTimer);slideTimer=setTimeout(()=>this.saveNoteState(key,{slide:getNearestIndex(carousel,getSlides(carousel))}),150);});
+    const sc=note.querySelector('.lb-scroll');
+    if(sc){
+      let q=false,restoring=false;
+      sc.addEventListener('scroll',()=>{if(restoring||q)return;q=true;raf(()=>{q=false;this.saveNoteState(key,{scroll:sc.scrollTop||0});});});
+      if(st&&st.scroll>0&&note.classList.contains('lb-media-locked')){
+        // 评论图懒加载会长高：最多试 1 秒；她一动滚轮 / 键盘就停
+        restoring=true;const until=Date.now()+1000,target=st.scroll;
+        const stop=()=>{restoring=false;note.removeEventListener('wheel',stop);note.removeEventListener('keydown',stop);};
+        note.addEventListener('wheel',stop);note.addEventListener('keydown',stop);
+        const step=()=>{if(!restoring)return;sc.scrollTop=target;if(Math.abs((sc.scrollTop||0)-target)<=1||Date.now()>until){stop();return;}raf(step);};
+        step();
+      }
+    }
     const bar=media.createEl('div',{cls:'lb-media-tools'});
     const video=carousel.querySelector('video');
     if(video){
@@ -310,6 +501,27 @@ class MediaNav {
       speed.onpointercancel=()=>{drag=null;};
       speed.onclick=()=>{if(moved){moved=false;return;}const rates=[1,1.25,1.5,2,3];setRate(rates.find(r=>r>video.playbackRate+.01)||1);};
       speed.onkeydown=e=>{if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.preventDefault();setRate(video.playbackRate+(e.key==='ArrowRight'?.25:-.25));}};
+      // 批次 D · F6：单曲循环（记住选择，settings.media.loop）+「连播…」（按标签连播，播放器归 L5 的 player-ui）
+      const loopOn=!!(this.plugin.settings&&this.plugin.settings.media&&this.plugin.settings.media.loop);
+      video.loop=loopOn;
+      const loop=bar.createEl('button',{cls:'lb-video-loop',text:'循环'});
+      loop.setAttribute('aria-pressed',String(loopOn));loop.setAttribute('title','单曲循环（再点关掉）');
+      loop.onclick=async()=>{
+        const on=!video.loop;
+        const s=this.plugin.settings||(this.plugin.settings={});
+        s.media={...(s.media||{}),loop:on};
+        video.loop=on;loop.setAttribute('aria-pressed',String(on));
+        document.querySelectorAll('.xhs-note .lb-carousel video').forEach(v=>{v.loop=on;});
+        document.querySelectorAll('.xhs-note .lb-video-loop').forEach(b=>b.setAttribute('aria-pressed',String(on)));
+        try{await this.plugin.saveSettings?.();}catch(e){console.error('[lb] 循环设置没存上',e);}
+      };
+      const playlist=bar.createEl('button',{cls:'lb-video-playlist',text:'连播…'});
+      playlist.setAttribute('title','按标签连播视频');
+      playlist.onclick=()=>{
+        const ui=this.plugin.playerUI;
+        if(ui&&typeof ui.openTagPicker==='function'){try{const r=ui.openTagPicker({itemId:this.itemIdOf(note)});if(r&&typeof r.catch==='function')r.catch(e=>console.error('[lb] 连播没打开',e));}catch(e){console.error('[lb] 连播没打开',e);}}
+        else this.notice('连播还没装好：更新 Link Brain Actions 插件后再试');
+      };
       return;
     }
     bar.remove(); // Image paging uses the original centered controls and per-image counter.
@@ -333,10 +545,9 @@ class MediaNav {
   }
 
   // 1003 修「目录页 / 问收藏页有时滚轮滚不动」：Obsidian 同一个标签页换文件时复用同一个 .markdown-preview-view。
-  // 以前每篇笔记往它身上挂一个滚轮监听、闭包里攥着那篇笔记、到插件卸载才摘——换到目录页 / 问收藏页后，
-  // 看过并「钉住媒体」的旧笔记（已不在页面上，类名还是 lb-media-locked）的监听照样把滚轮转给它那条脱离页面的 .lb-scroll
-  // 并 preventDefault → 整页滚不动。现在：每个预览容器只挂一个监听（挂点 PANE_WHEEL_KEY 新旧两份插件共用，后来的替换先前的，
-  // 不会两份都翻页），事件来了才现找「这个容器里此刻」被钉住的笔记 / 光标下的图片；找不到就什么都不拦，顺手清掉残留的 lb-pane-locked。
+  // 每个预览容器只挂一个监听（挂点 PANE_WHEEL_KEY 新旧两份插件共用，后来的替换先前的，不会两份都翻页），
+  // 事件来了才现找「这个容器里此刻」被钉住的笔记 / 光标下的图片；找不到就什么都不拦，顺手清掉残留的 lb-pane-locked。
+  // 批次 D：N1 翻到最后一张（或第一张往上）后放行，不再吞滚轮；N15 钉住时左栏（批注列表）能用滚轮滚，左栏到头才转给正文栏。
   paneWheel(preview){
     const KEY='__lbMediaWheel';
     const prev=preview[KEY];if(prev)preview.removeEventListener('wheel',prev);
@@ -348,9 +559,17 @@ class MediaNav {
         if(carousel&&carousel.dataset.lbEnhanced){
           const list=getSlides(carousel);
           if(list.length>=2){
-            e.preventDefault();const now=Date.now();if(now-(carousel.lbFlipAt||0)<350)return;carousel.lbFlipAt=now;
-            const i=Math.max(0,Math.min(list.length-1,getNearestIndex(carousel,list)+(e.deltaY>0?1:-1)));
-            carousel.scrollTo({left:list[i].offsetLeft-list[0].offsetLeft,behavior:'smooth'});this.activeCarousel=carousel;return;
+            const now=Date.now(),since=now-(carousel.lbFlipAt||0);
+            // 平滑滚动还没到位时 getNearestIndex 会落后：600ms 内认上次的目标
+            const cur=since<600&&typeof carousel.lbTargetIndex==='number'?carousel.lbTargetIndex:getNearestIndex(carousel,list);
+            const next=Math.max(0,Math.min(list.length-1,cur+(e.deltaY>0?1:-1)));
+            if(next!==cur){
+              e.preventDefault();if(since<350)return;
+              carousel.lbFlipAt=now;carousel.lbTargetIndex=next;
+              carousel.scrollTo({left:list[next].offsetLeft-list[0].offsetLeft,behavior:'smooth'});this.activeCarousel=carousel;return;
+            }
+            if(since<350){e.preventDefault();return;}   // 惯性还在翻页动画里：不突然滚页面
+            // 到头了：放行（钉住时转给正文栏，没钉住时浏览器滚整页）
           }
         }
       }
@@ -358,13 +577,20 @@ class MediaNav {
       const note=preview.querySelector('.lb-note.lb-media-locked');
       if(!note){if(preview.classList.contains('lb-pane-locked'))preview.classList.remove('lb-pane-locked');return;}
       const scroller=note.querySelector('.lb-scroll');
-      if(scroller&&!t.closest('.lb-scroll')){scroller.scrollTop+=e.deltaY*(e.deltaMode===1?16:1);e.preventDefault();}
+      if(!scroller||t.closest('.lb-scroll'))return;
+      const side=t.closest('.lb-side');
+      if(side&&note.contains(side)&&!t.closest('.lb-carousel')){
+        for(let el=t;el;el=el.parentNode){if(canScroll(el,e.deltaY))return;if(el===side)break;}   // 左栏自己还能滚：交给浏览器
+      }
+      scroller.scrollTop+=e.deltaY*(e.deltaMode===1?16:1);e.preventDefault();
     };
     preview[KEY]=wheel;preview.addEventListener('wheel',wheel,{passive:false});
     this.register(()=>{preview.removeEventListener('wheel',wheel);if(preview[KEY]===wheel){delete preview[KEY];preview.classList.remove('lb-pane-locked');}});
   }
 }
 
-module.exports = function (obsidian, plugin) { return new MediaNav(plugin); };
+module.exports = function (obsidian, plugin) { return new MediaNav(plugin, obsidian); };
 module.exports.MediaNav = MediaNav;
 module.exports.OLD_PLUGIN_ID = OLD_PLUGIN_ID;
+module.exports.getSlides = getSlides;
+module.exports.canScroll = canScroll;
