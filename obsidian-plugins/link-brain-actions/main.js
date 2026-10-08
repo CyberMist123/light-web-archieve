@@ -478,10 +478,13 @@ class LinkBrainActions extends Plugin {
     // 第 5 批 B2：原「Link Brain Native Media Nav」插件并进来（图片 ←/→、滚轮翻页、点图放大、钉住媒体、视频倍速）
     try { this.mediaNav = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'media-nav.js'))(obsidian, this); this.mediaNav.attach(); } catch (e) { console.error('[lb] 图片导航没加载上', e); }
     // 批次 D 地基：笔记页动作 / 笔记工具 / 图片动作 / 连播 各一个文件，挂到 this.noteActions / noteTools / imageActions / playerUI。
-    // 各线只改自己那个文件（工厂 (obsidian, plugin) => ({attach(){}})），onload 这里不再动；卸载清理各自用 plugin.register / registerEvent。
+    // 各线只改自己那个文件（工厂 (obsidian, plugin) => ({attach(){}, detach?(){}})），onload 这里不再动；卸载清理各自用 plugin.register / registerEvent，
+    // 或给实例一个 detach()（onunload 会调）。先删 require 缓存再加载：只重载插件（LB.ensure 关了再开）也拿到新部署的文件，不用重启 Obsidian。
     for (const [file, key] of [['note-actions.js', 'noteActions'], ['note-tools.js', 'noteTools'], ['image-actions.js', 'imageActions'], ['player-ui.js', 'playerUI']]) {
       try {
-        this[key] = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, file))(obsidian, this);
+        const p = path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, file);
+        for (const r of [require, typeof window !== 'undefined' ? window.require : null]) { try { if (r && r.cache) delete r.cache[typeof r.resolve === 'function' ? r.resolve(p) : p]; } catch {} }
+        this[key] = require(p)(obsidian, this);
         const r = this[key].attach();
         if (r && typeof r.catch === 'function') r.catch(e => console.error(`[lb] ${file} 没挂上`, e));
       } catch (e) { console.error(`[lb] ${file} 没加载上`, e); }
@@ -1323,8 +1326,9 @@ class LinkBrainActions extends Plugin {
       // 兜底超时也走「停止」协议（§6.7）：worker 杀掉自己起的 claude / codex、回 cancelled；不再整个 worker 一刀切
       const timer=setTimeout(()=>{const p=this.answerPending.get(id);if(p)p.timedOut=true;this.cancelAnswer(id);},this.answerBackstopMs());
       this.answerPending.set(id,{resolve,reject,onDelta,onPhase,timer,worker,tag:tag||null});
-      if(typeof onStart==='function'){try{onStart(id);}catch(e){console.error('[lb] onStart 出错',e);}}
+      // 先写请求再回调 onStart：onStart 里马上取消时，cancel 那一行排在请求后面，worker 认得这个 id（不然 8 秒后 killTree 整个 worker）
       worker.stdin.write(JSON.stringify({id,...request})+'\n');
+      if(typeof onStart==='function'){try{onStart(id);}catch(e){console.error('[lb] onStart 出错',e);}}
     });
   }
   // 第 3 批「停止」：发 {"id","type":"cancel"}，worker 杀掉这一问起的 claude / codex 子进程（不碰读取服务）并回 cancelled。
@@ -1339,7 +1343,9 @@ class LinkBrainActions extends Plugin {
   }
   // 带 tag 只停这个 tag 的请求（「开始」页试问一句不再停掉问收藏页正在生成的回答）；不带 tag 全停（旧调用兼容）
   stopArchiveAnswer(tag) { let n=0; for(const [id,p] of [...(this.answerPending?.entries()||[])]) { if(tag!=null&&p.tag!==tag)continue; if(this.cancelAnswer(id)) n++; } return n; }
-  onunload(){this.unloading=true;clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);this.catalogCache=null;const worker=this.answerWorker;if(worker)this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});}
+  onunload(){this.unloading=true;clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);this.catalogCache=null;
+    for(const k of ['noteActions','noteTools','imageActions','playerUI']){try{this[k]?.detach?.();}catch(e){console.error('[lb] '+k+' 卸载出错',e);}}   // 批次 D 地基：四个挂载点
+    const worker=this.answerWorker;if(worker)this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});}
   // 返回 payload；status='cancelled' = 用户点了停止（markdown 是已生成的半截），不当失败抛。
   // sourceIds（第 10 批「按剩下的重新回答」）：只用这些来源作答，不重新检索
   // excludeIds / pinIds（R2 会话面）：本会话排除的、保留（pin）的来源 id，每一问都显式带上；空的不发，请求和以前一样
@@ -1706,11 +1712,16 @@ class LinkBrainActions extends Plugin {
 
   // 菜单（obsidian.Menu，自带 Esc / 方向键）：items = [{title, sub?, icon?, danger?, disabled?, checked?, onClick} | {separator:true}]。
   // 开着时 menuOpen=true，关掉后延一拍才变回 false（同一次 Esc 冒泡到页面时还是 true，页面别把它当成「清多选」）。
+  // 位置：鼠标点的按指针；键盘触发的 click（Enter / 空格：detail=0、坐标 0,0）和不带坐标的按发起元素左下角（不再落到窗口左上角）。
+  // 1.14.4 的 Menu.onHide 只有一个槽位：返回的菜单上调用方再设 onHide(cb) 也照样复位 menuOpen（包了一层，两个都跑）。
+  // 没有菜单项：Obsidian 不显示（也就不会 hide），不设 menuOpen；show 抛错同样不设。
   showMenu(items, evt) {
     const menu = new obsidian.Menu();
+    let count = 0;
     for (const it of items || []) {
       if (!it) continue;
       if (it.separator) { menu.addSeparator(); continue; }
+      count++;
       menu.addItem(i => {
         i.setTitle(it.sub ? menuTitle(it.title, it.sub) : it.title);
         if (it.icon) i.setIcon(it.icon);
@@ -1720,13 +1731,24 @@ class LinkBrainActions extends Plugin {
         if (typeof it.onClick === 'function') i.onClick(e => it.onClick(e));
       });
     }
-    this.menuOpen = true; this._lbMenu = menu;
-    menu.onHide?.(() => setTimeout(() => { if (this._lbMenu === menu) { this.menuOpen = false; this._lbMenu = null; } }, 0));
-    if (evt && typeof evt.pageX === 'number') menu.showAtMouseEvent(evt);
-    else {
-      const r = (evt?.currentTarget || evt?.target)?.getBoundingClientRect?.();
-      menu.showAtPosition(r ? { x: r.left, y: r.bottom } : { x: 100, y: 100 });
+    if (!count) return menu;
+    const reset = () => setTimeout(() => { if (this._lbMenu === menu) { this.menuOpen = false; this._lbMenu = null; } }, 0);
+    if (typeof menu.onHide === 'function') {
+      const setHide = menu.onHide.bind(menu);
+      setHide(reset);
+      menu.onHide = cb => { setHide(() => { reset(); if (typeof cb === 'function') cb(); }); return menu; };
     }
+    const anchor = evt?.currentTarget || evt?.target || null;
+    const keyboard = !!evt && evt.type !== 'contextmenu' && evt.detail === 0;
+    const pointer = !!evt && typeof evt.clientX === 'number' && !keyboard && !(evt.clientX === 0 && evt.clientY === 0);
+    try {
+      if (pointer) menu.showAtMouseEvent(evt);
+      else {
+        const r = anchor?.getBoundingClientRect?.();
+        menu.showAtPosition(r ? { x: r.left, y: r.bottom } : { x: 100, y: 100 }, anchor?.ownerDocument);
+      }
+    } catch (e) { console.error('[lb] 菜单没打开', e); return menu; }
+    this.menuOpen = true; this._lbMenu = menu;
     return menu;
   }
 

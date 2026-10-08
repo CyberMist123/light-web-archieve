@@ -22,8 +22,8 @@ function fakeSpawn(exe, args, opts) {
   c.stdin = new EventEmitter(); c.stdin.lines = []; c.stdin.write = s => { c.stdin.lines.push(JSON.parse(s)); }; c.stdin.end = () => {};
   c.kill = () => c.emit('close'); spawned.push({ exe, args, opts, child: c }); return c;
 }
-const attached = [];
-const stubFactory = name => (obsidian, plugin) => ({ attach() { attached.push([name, obsidian === obs, !!plugin]); } });
+const attached = [], detached = [];
+const stubFactory = name => (obsidian, plugin) => ({ attach() { attached.push([name, obsidian === obs, !!plugin]); }, detach() { detached.push(name); } });
 const context = { module: { exports: {} }, process, setTimeout, clearTimeout, console, Buffer, document: dom.document,
   require: n => n === 'obsidian' ? obs : n === 'child_process' ? { spawn: fakeSpawn }
     : /[\\/](note-actions|note-tools|image-actions|player-ui)\.js$/.test(n) ? stubFactory(path.basename(n))
@@ -114,9 +114,32 @@ function makePlugin() {
   await tick(); assert.equal(p.menuOpen, false, '下一拍变回 false');
   const btn = dom.document.body.createEl('button'); btn._rect = { left: 100, top: 20, width: 40, height: 30 };
   const m2 = p.showMenu([{ title: 'a', onClick() {} }], { currentTarget: btn });
-  assert.deepEqual({ ...m2.pos }, { x: 100, y: 50 }, '没有 pageX：按发起元素的左下角 showAtPosition');
+  assert.deepEqual({ ...m2.pos }, { x: 100, y: 50 }, '没有坐标：按发起元素的左下角 showAtPosition');
   dom.document.dispatchEvent({ type: 'keydown', key: 'Escape' });
   assert.equal(m2.shown, false, 'Esc 关菜单'); await tick(); assert.equal(p.menuOpen, false);
+  // 键盘（Enter / 空格）触发的 click：Chromium 给的是 PointerEvent，detail=0、坐标 0,0 → 按发起元素左下角，不落到窗口左上角
+  const mk = p.showMenu([{ title: 'a', onClick() {} }], { type: 'click', detail: 0, pageX: 0, pageY: 0, clientX: 0, clientY: 0, currentTarget: btn });
+  assert.deepEqual({ ...mk.pos }, { x: 100, y: 50 }, '键盘打开：菜单在按钮下面');
+  mk.hide(); await tick();
+  // Shift+F10 / 菜单键的 contextmenu 带元素坐标：照指针
+  const mc = p.showMenu([{ title: 'a', onClick() {} }], { type: 'contextmenu', detail: 0, pageX: 222, pageY: 218, clientX: 222, clientY: 218, currentTarget: btn });
+  assert.deepEqual({ ...mc.pos }, { x: 222, y: 218 }); mc.hide(); await tick();
+  // 调用方对返回的菜单再设 onHide：两个都跑，menuOpen 照样复位（1.14.4 的 onHide 只有一个槽位）
+  const mh = p.showMenu([{ title: 'a', onClick() {} }], { currentTarget: btn });
+  let userHid = 0; mh.onHide(() => { userHid++; });
+  assert.equal(p.menuOpen, true);
+  mh.hide(); await tick();
+  assert.equal(userHid, 1, '调用方的 onHide 照样调到'); assert.equal(p.menuOpen, false, 'menuOpen 没被卡在 true');
+  // 没有菜单项（只有分隔线）：Obsidian 不显示，menuOpen 不设
+  const me = p.showMenu([{ separator: true }, null], { currentTarget: btn });
+  assert.equal(me.shown, false); assert.equal(p.menuOpen, false, '空菜单不把 menuOpen 卡住');
+  // show 抛错：不设 menuOpen
+  const origShow = obs.Menu.prototype.showAtPosition;
+  obs.Menu.prototype.showAtPosition = function () { throw new Error('坏了'); };
+  const ce0 = console.error; console.error = () => {};
+  p.showMenu([{ title: 'a', onClick() {} }], { currentTarget: btn });
+  console.error = ce0; obs.Menu.prototype.showAtPosition = origShow;
+  assert.equal(p.menuOpen, false, 'show 抛错不把 menuOpen 卡住');
 
   // ── busyButton / busyText ──
   const b = dom.document.body.createEl('button', { text: '导入' }); b.createEl('span', { cls: 'svg-icon' });
@@ -143,11 +166,14 @@ function makePlugin() {
   // ── 问答管道：onStart 拿到 id；stop(tag) 只停这个 tag ──
   p.repoRoot = ROOT; p.killTree = async () => [];
   const ids = [];
-  const a1 = p.answerArchive({ question: '设置页试问', tag: 'setup', onStart: id => ids.push(['setup', id]) });
-  const a2 = p.answerArchive({ question: '问收藏', tag: 'chat', onStart: id => ids.push(['chat', id]) });
+  // onStart 回调时请求已经写给 worker 了（复审：先回调后写，onStart 里马上取消会让 cancel 排在请求前面，worker 不认、8 秒后整个被 killTree）
+  const written = id => spawned.at(-1).child.stdin.lines.some(l => l.id === id && !l.type);
+  const a1 = p.answerArchive({ question: '设置页试问', tag: 'setup', onStart: id => ids.push(['setup', id, written(id)]) });
+  const a2 = p.answerArchive({ question: '问收藏', tag: 'chat', onStart: id => ids.push(['chat', id, written(id)]) });
   const a3 = p.answerArchive({ question: '老调用不带 tag' });
   const worker = spawned.at(-1).child;
   assert.deepEqual(ids.map(x => x[0]), ['setup', 'chat']); assert.ok(ids.every(x => typeof x[1] === 'string' && x[1]));
+  assert.ok(ids.every(x => x[2] === true), 'onStart 在请求写出之后才回调');
   assert.deepEqual(worker.stdin.lines.map(l => l.question), ['设置页试问', '问收藏', '老调用不带 tag']);
   assert.ok(worker.stdin.lines.every(l => !('tag' in l) && !('onStart' in l)), '请求体不变（tag 只在插件这头）');
   assert.equal(p.stopArchiveAnswer('setup'), 1, '只停 setup 那一问');
@@ -171,11 +197,21 @@ function makePlugin() {
   const before = spawned.length;
   const q = makePlugin();
   q.p.loadData = async () => null; q.p.saveData = async () => {};
+  // require 缓存：四个文件加载前先删缓存（只重载插件也拿到新部署的文件）；别的模块的缓存不动
+  const base = path.join(path.sep, 'fake-vault', PLUGIN_DIR);
+  const mountFiles = ['note-actions.js', 'note-tools.js', 'image-actions.js', 'player-ui.js'].map(f => path.join(base, f));
+  context.require.cache = Object.fromEntries([...mountFiles.map(f => [f, 'old']), ['other.js', 'keep']]);
+  context.require.resolve = x => x;
   await q.p.onload();
+  assert.deepEqual(Object.keys(context.require.cache), ['other.js'], '四个挂载点的 require 缓存先删掉再加载');
+  delete context.require.cache; delete context.require.resolve;
   assert.deepEqual(attached.map(a => a[0]), ['note-actions.js', 'note-tools.js', 'image-actions.js', 'player-ui.js'], '依次 require + attach');
   assert.ok(attached.every(a => a[1] && a[2]), '工厂拿到 (obsidian, plugin)');
   for (const k of ['noteActions', 'noteTools', 'imageActions', 'playerUI']) assert.equal(typeof q.p[k]?.attach, 'function', 'this.' + k + ' 挂上了');
   assert.equal(spawned.length, before, 'onload 不起进程');
+  // onunload：有 detach 的挂载点各调一次
+  q.p.onunload();
+  assert.deepEqual(detached, ['note-actions.js', 'note-tools.js', 'image-actions.js', 'player-ui.js'], 'onunload 调各挂载点的 detach');
   // 某个文件挂不上：别的照常
   attached.length = 0;
   const badRequire = context.require;
@@ -191,5 +227,5 @@ function makePlugin() {
     const inst = require(path.join(ROOT, PLUGIN_DIR, f))(obs, {});
     assert.equal(typeof inst.attach, 'function', f);
   }
-  console.log('PASS plugin foundation: notify (3s/8s/0, Notice.addButton actions run + hide, error re-notify), ConfirmModal (Enter / Esc / close / danger), showMenu (item mapping, pageX vs anchor, menuOpen false one tick after hide), busyButton / busyText, refreshCatalog args, openLightbox forward, saveSettings → link-brain:settings, answerArchive onStart + stopArchiveAnswer(tag), pyEnv LINK_BRAIN_OBSIDIAN_DIR, settings.media defaults, onload attaches 4 mount points without spawning');
+  console.log('PASS plugin foundation: notify (3s/8s/0, Notice.addButton actions run + hide, error re-notify), ConfirmModal (Enter / Esc / close / danger), showMenu (item mapping, pointer vs anchor incl. keyboard click detail=0 → under the button, caller onHide chained so menuOpen resets, empty / throwing menus leave menuOpen false, menuOpen false one tick after hide), busyButton / busyText, refreshCatalog args, openLightbox forward, saveSettings → link-brain:settings, answerArchive onStart (after the request is written) + stopArchiveAnswer(tag), pyEnv LINK_BRAIN_OBSIDIAN_DIR, settings.media defaults, onload attaches 4 mount points without spawning (require cache dropped first; onunload calls detach)');
 })().catch(e => { console.error(e); process.exit(1); });

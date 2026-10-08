@@ -27,15 +27,25 @@ body{--lb-warn:var(--text-warning,var(--color-orange));--lb-warn-bg:var(--backgr
 .is-busy{cursor:progress;}
 .lb-busy-veil{position:absolute;inset:0;z-index:3;display:grid;place-items:center;border-radius:inherit;background:var(--background-primary);opacity:.85;color:var(--text-muted);font-size:12px;cursor:progress;}
 `;
+// 页面样式的 id（CONVENTIONS §5.11）：lb-shared 必须排在它们前面（页面窄屏覆盖共用规则靠「后写的赢」）
+const LB_PAGE_STYLE_IDS = ['lbc-style', 'lbchat-style', 'lb-trash-style', 'lba-annot-style'];
 function lbPageLib(dv, app, role) {
   const G = typeof globalThis !== 'undefined' ? globalThis : {};
-  const clock = () => (G.performance && typeof G.performance.now === 'function' ? G.performance.now() : Date.now());
+  // 计时 / 帧先用词法名字（Dataview 里就是全局；单测经 dataviewBlock({params}) 注入 tests/_clock.cjs 的假时钟），没有再退回 globalThis
+  const perfObj = (typeof performance !== 'undefined' && performance && typeof performance.now === 'function') ? performance
+    : (G.performance && typeof G.performance.now === 'function' ? G.performance : null);
+  const clock = () => (perfObj ? perfObj.now() : Date.now());
+  const raf = (typeof requestAnimationFrame === 'function' && requestAnimationFrame)
+    || (typeof G.requestAnimationFrame === 'function' && (f => G.requestAnimationFrame(f))) || (f => setTimeout(f, 16));
   const started = clock();
   let last = started;
   const container = dv && dv.container;
-  // Dataview 页里 document / window / Notice 都是全局；node 单测（tests/_fakedom.cjs）把它们当参数传进来
-  const doc = (typeof document !== 'undefined' && document) || G.document || null;
-  const win = (typeof window !== 'undefined' && window) || G.window || null;
+  // Dataview 页里 document / window / Notice 都是全局（脚本在主窗口里 eval）；页面开在弹出窗口里时容器在弹出窗口的 document 里——
+  // 建元素、挂样式、兜底确认框都按容器所在的 document / window 来（node 单测 tests/_fakedom.cjs 把它们当参数传进来）
+  const gdoc = (typeof document !== 'undefined' && document) || G.document || null;
+  const cdoc = container && container.ownerDocument;
+  const doc = (cdoc && typeof cdoc.createElement === 'function') ? cdoc : gdoc;
+  const win = (doc && doc.defaultView) || (typeof window !== 'undefined' && window) || G.window || null;
   const NoticeCls = (typeof Notice === 'function' && Notice) || (typeof G.Notice === 'function' && G.Notice) || null;
   const perf = (G.__lbPerf = G.__lbPerf || {});
   const marks = [];
@@ -98,21 +108,27 @@ function lbPageLib(dv, app, role) {
     try { const s = G.sessionStorage; if (!s) return null; s.setItem('lb:__probe', '1'); s.removeItem('lb:__probe'); return s; }
     catch { return null; }
   })();
-  const state = {
-    load() {
-      try { const raw = store ? store.getItem(KEY) : mem[KEY]; const v = raw ? JSON.parse(raw) : null; return v && typeof v === 'object' ? v : {}; }
-      catch { return {}; }
-    },
-    save(obj) {
-      try {
-        const raw = JSON.stringify({ ...obj, ts: Date.now() });
-        if (raw.length > 200000) return false;   // 防呆：别把 items 之类的大东西塞进来
-        if (store) store.setItem(KEY, raw); else mem[KEY] = raw;
-        return true;
-      } catch { return false; }
-    },
-    patch(obj) { return state.save({ ...state.load(), ...obj }); },
+  const mkState = key => {
+    const s = {
+      load() {
+        try { const raw = store ? store.getItem(key) : mem[key]; const v = raw ? JSON.parse(raw) : null; return v && typeof v === 'object' ? v : {}; }
+        catch { return {}; }
+      },
+      save(obj) {
+        try {
+          const raw = JSON.stringify({ ...obj, ts: Date.now() });
+          if (raw.length > 200000) return false;   // 防呆：别把 items 之类的大东西塞进来
+          if (store) store.setItem(key, raw); else mem[key] = raw;
+          return true;
+        } catch { return false; }
+      },
+      patch(obj) { return s.save({ ...s.load(), ...obj }); },
+    };
+    return s;
   };
+  const state = mkState(KEY);
+  // 焦点记录单放一个键（'lb:<role>:focus'）：页面 state.save({...}) 整体覆盖页面状态时不会把它冲掉
+  const focusState = mkState(KEY + ':focus');
 
   // ── 数据版本（§5.1）+ 解析缓存（§5.2） ──
   const DATA = '_archive/catalog-data.json';
@@ -145,15 +161,25 @@ function lbPageLib(dv, app, role) {
     },
     // 页面刚自己写过数据（点星后 catalog.patch_items 改了 catalog-data）：内存里那份就是磁盘上的新内容 →
     // 把插件缓存的版本和本页登记的版本都推进到 v，下次 Dataview 重跑不再整读（CM3）。dataObj 必须就是缓存里那份对象。
-    adopt(v, dataObj) {
+    // written（可选，强烈建议）：写者报回的「写完那一刻」的 stat {mtime, size}（或 'mtime:size'）。给了就核：v 和它对不上
+    // （写者放锁之后、页面 stat 之前别人——比如夜跑的 catalog.build——又写过）→ 不 adopt，返回 false，走正常 update。
+    // 只推进「版本看 catalog-data」的那一页（批注块的版本看 notes.json，不碰）。
+    adopt(v, dataObj, written = null) {
       const c = provider()?.catalogCache;
       if (!v || !c || c.root !== root || !dataObj || c.data !== dataObj) return false;
+      if (written != null && !sameStat(v, written)) return false;
       c.version = v;
       const view = container && container.__lbView;
-      if (view && view.role === role) view.version = v;
+      if (view && view.role === role && view.versionOf === DATA) view.version = v;
       return true;
     },
   };
+  // 'mtime:size' 和写者报的 stat 是否同一次写：size 相等、mtime 差 ≤1ms（Obsidian 的 stat 是 Math.round(mtimeMs)，Python 侧四舍五入方式不同）
+  function sameStat(v, w) {
+    const parse = x => (typeof x === 'string' ? (([m, s]) => ({ mtime: Number(m), size: Number(s) }))(x.split(':')) : { mtime: Number(x && x.mtime), size: Number(x && x.size) });
+    const a = parse(v), b = parse(w);
+    return Number.isFinite(a.mtime) && Number.isFinite(b.mtime) && a.size === b.size && Math.abs(a.mtime - b.mtime) <= 1;
+  }
   // 目录数据的生成时刻（catalog.build 每次重写；patch_items 不改它）：目录页和问收藏页的「更新 …」都显示它（F4）
   const dataUpdatedAt = d => (d && typeof d === 'object' && d.built_at ? String(d.built_at) : null);
 
@@ -162,6 +188,7 @@ function lbPageLib(dv, app, role) {
   // 卸载（Obsidian 重画这一段 / 关页）时 component.register 摘掉 host。批注块不用它（它要挪到左栏图片下面）。
   let hostEl = null;
   function mountHost(cls = '') {
+    if (hostEl) return hostEl;   // 同一次运行里再调：还是这一个（不把刚建好、已经画了内容的 host 当残留删掉）
     if (!container || typeof container.after !== 'function' || !doc) return container;
     for (let n = container.nextElementSibling ?? container.nextSibling; n;) {
       const next = n.nextElementSibling ?? n.nextSibling;
@@ -180,11 +207,11 @@ function lbPageLib(dv, app, role) {
 
   // ── 旧 DOM 复用（§5.1） ──
   // keep(el, {version, versionOf, update, onReuse})：页面建好后登记；update(newVersion) 由页面做增量更新
-  // 用了 mountHost 的页面会连 host 一起登记，重跑时把 host 挂回 container 后面、el 挂回 host
+  // 用了 mountHost 的页面会连 host 一起登记，重跑时把 host 挂回 container 后面、el 挂回 host（el 就是 host 本身也行）
   function keep(el, opts = {}) {
     if (!container) return;
     container.__lbView = { role, el, host: opts.host || hostEl, version: opts.version ?? null, versionOf: opts.versionOf || DATA, update: opts.update, onReuse: opts.onReuse,
-      updating: false, lastError: null };
+      updating: null, lastError: null };
   }
   // 页面自己刚写过版本文件（批注保存）：把登记的版本跟上，免得下次重跑当成「别处改了」再读一遍
   async function rekeep() {
@@ -195,7 +222,7 @@ function lbPageLib(dv, app, role) {
   // 看不见就先不画，等它真的露出来（切到编辑模式）再让 Dataview 重画这一块。
   async function deferIfHidden() {
     if (!container || typeof container.closest !== 'function') return false;
-    if (!container.isConnected) await new Promise(r => (G.requestAnimationFrame || (f => setTimeout(f, 16)))(r));
+    if (!container.isConnected) await new Promise(r => raf(r));
     const editor = container.closest('.markdown-source-view');
     if (!editor || typeof container.isShown !== 'function' || container.isShown()) return false;
     if (typeof G.ResizeObserver !== 'function' || typeof dv.component?.render !== 'function') return false;
@@ -207,7 +234,10 @@ function lbPageLib(dv, app, role) {
   }
   // 返回 true = 这一次不用再画了（旧 DOM 已挂回 / 增量更新完 / 在看不见的编辑视图里先不画）
   // 版本语义（批次 D，F4）：update 成功才推进 view.version；失败记 view.lastError、保留旧版本，下次重跑重试；
-  // view.updating 是进行中锁——两次重跑叠在一起时只做一次 update。
+  // view.updating 是进行中锁——两次重跑叠在一起时只做一次 update；update 做完再核一次磁盘版本，期间又变了（撞锁的那次重跑带来的新版本）
+  // 就接着再做一轮（最多 3 轮），不把新版本丢给「下一次 Dataview 重跑」（catalog-data 变了本身不触发重跑）。
+  // 锁 30 秒兜底：update 卡死（永不 resolve）时，之后的重跑照样能更新。
+  const UPDATE_LOCK_MS = 30000;
   async function reuseDom() {
     if (await deferIfHidden()) return true;
     const view = container && container.__lbView;
@@ -215,22 +245,34 @@ function lbPageLib(dv, app, role) {
     if (view.host) {
       // 挂在 host 上的页：host 被摘了（少见）就挂回 container 后面；el 始终在 host 里
       if (!view.host.isConnected && container.isConnected && typeof container.after === 'function') container.after(view.host);
-      if (view.el.parentNode !== view.host) view.host.append(view.el);
+      if (view.el !== view.host && view.el.parentNode !== view.host) view.host.append(view.el);
     } else if (!view.el.isConnected && view.el.parentNode !== container) container.append(view.el);   // 批注框挪在左栏就留在原处；被 Dataview 清空摘下来的挂回本容器
     t('reuse');
     const v = await version(view.versionOf);
     if (v && view.version && v !== view.version && typeof view.update === 'function') {
-      if (view.updating) { t('total'); return true; }
-      view.updating = true;
-      const before = view.version;
+      if (view.updating && Date.now() - view.updating.at < UPDATE_LOCK_MS) { t('total'); return true; }
+      const lock = { at: Date.now() };
+      view.updating = lock;
       try {
-        await view.update(v);
-        if (view.version === before) view.version = v;   // update 自己推进过（rekeep / adopt）就以它为准
-        view.lastError = null;
-      } catch (e) {
-        view.lastError = e;
-        try { console.debug('[lb] ' + role + ' update failed (will retry on next rerun)', e); } catch {}
-      } finally { view.updating = false; }
+        let target = v;
+        for (let round = 0; round < 3 && view.updating === lock; round++) {
+          const before = view.version;
+          try {
+            await view.update(target);
+            if (view.updating !== lock) break;   // 卡过 30 秒、锁被后来的重跑接管了：版本由接管的那一轮推进
+            if (view.version === before) view.version = target;   // update 自己推进过（rekeep / adopt）就以它为准
+            view.lastError = null;
+          } catch (e) {
+            if (view.updating !== lock) break;
+            view.lastError = e;
+            try { console.debug('[lb] ' + role + ' update failed (will retry on next rerun)', e); } catch {}
+            break;
+          }
+          const now = await version(view.versionOf);
+          if (!now || now === view.version) break;
+          target = now;
+        }
+      } finally { if (view.updating === lock) view.updating = null; }
       t('update');
     } else {
       if (v && !view.version) view.version = v;
@@ -269,11 +311,9 @@ function lbPageLib(dv, app, role) {
       const until = clock() + maxMs;
       let stop = false, reachedAt = 0, finished = false;
       const quit = () => { stop = true; };
-      const doc = typeof document !== 'undefined' ? document : G.document;
-      const on = [[el, 'wheel'], [el, 'touchstart'], [el, 'pointerdown'], [el, 'keydown'], [doc, 'keydown']].filter(([t]) => t && typeof t.addEventListener === 'function');
+      const on = [[el, 'wheel'], [el, 'touchstart'], [el, 'pointerdown'], [el, 'keydown'], [el.ownerDocument || doc, 'keydown']].filter(([t]) => t && typeof t.addEventListener === 'function');
       for (const [t, type] of on) { try { t.addEventListener(type, quit, { passive: true }); } catch {} }
       el.__lbRestoreStop = quit;
-      const raf = G.requestAnimationFrame || (fn => setTimeout(fn, 16));
       const done = ok => {
         if (finished) return; finished = true;
         for (const [t, type] of on) { try { t.removeEventListener(type, quit); } catch {} }
@@ -296,7 +336,6 @@ function lbPageLib(dv, app, role) {
     const el = scroller();
     if (!el) return;
     let queued = false;
-    const raf = G.requestAnimationFrame || (f => setTimeout(f, 16));
     // 同一个标签页里换成别的笔记时 Obsidian 复用这个滚动容器、把它滚回 0：那不是本页的滚动，不记
     const mine = () => !!(container && container.isConnected && el.contains(container));
     const handler = () => { if (queued || restoring || !mine()) return; queued = true; raf(() => { queued = false; if (mine() && !restoring) fn(el.scrollTop); }); };
@@ -304,12 +343,21 @@ function lbPageLib(dv, app, role) {
   }
 
   // ── 样式挂 head（X14，§5.11）：按 id 建一个 <style>，文本不同才替换；没有 head（极简环境）挂到 container ──
+  // head 取容器所在的 document（弹出窗口里打开的页有自己的一份）。lb-shared 总排在各页样式（LB_PAGE_STYLE_IDS）前面：
+  // 页面窄屏下对共用规则的覆盖靠「后写的赢」；热部署不重启时旧的页面样式可能先在 head 里，这时把 lb-shared 挪到它前面。
   function style(id, css) {
     css = String(css ?? '');
     let el = null;
     if (doc && doc.head) {
       el = (typeof doc.getElementById === 'function' && doc.getElementById(id)) || null;
       if (!el) { el = doc.createElement('style'); el.setAttribute('id', id); doc.head.appendChild(el); }
+      if (id === 'lb-shared') {
+        try {
+          const kids = [...doc.head.children];
+          const first = kids.find(k => k !== el && LB_PAGE_STYLE_IDS.includes(k.getAttribute?.('id')));
+          if (first && kids.indexOf(first) < kids.indexOf(el)) doc.head.insertBefore(el, first);
+        } catch {}
+      }
     } else if (container) {
       el = [...(container.querySelectorAll?.('style') || [])].find(s => s.getAttribute?.('id') === id) || null;
       if (!el) { el = (doc || container.ownerDocument)?.createElement?.('style') || null; if (!el) return null; el.setAttribute('id', id); container.append(el); }
@@ -373,21 +421,30 @@ function lbPageLib(dv, app, role) {
   async function confirm({ title = '确定吗？', body = '', ok = '确定', cancel = '取消', danger = false } = {}) {
     const p = provider();
     if (typeof p?.confirm === 'function') { try { return !!(await p.confirm({ title, body, ok, cancel, danger })); } catch { return false; } }
-    // 全仓唯一允许的浏览器自带确认框（tests/test_no_native_dialogs.cjs 只放行这里）
-    try { return typeof window !== 'undefined' && typeof window.confirm === 'function' ? !!window.confirm(title + (body ? '\n\n' + body : '')) : !!win?.confirm?.(title + (body ? '\n\n' + body : '')); } catch { return false; }
+    // 全仓唯一允许的浏览器自带确认框（tests/test_no_native_dialogs.cjs 只放行这里）；用容器所在的窗口（弹出窗口里弹在弹出窗口上）
+    try { return !!(win && typeof win.confirm === 'function' && win.confirm(title + (body ? '\n\n' + body : ''))); } catch { return false; }
   }
   // 发起处的「正在…」：按钮禁用换字；卡片 / 区块加 .is-busy 和一层 .lb-busy-veil。done(finalText?, holdMs?) 恢复原样（给了 finalText 先显示它 holdMs 毫秒）
+  // 遮罩是 position:absolute; inset:0——目标本身没定位（static）就临时给它行内 position:relative，恢复时还原（不然遮罩盖住最近的定位祖先，整页变灰）
   function busy(el, text = '') {
     if (!el) return () => {};
     const isButton = el.tagName === 'BUTTON';
     const prevNodes = isButton ? [...(el.childNodes || [])] : null, prevDisabled = !!el.disabled;
-    let veil = null, finished = false;
+    let veil = null, finished = false, prevPos = null;
     el.classList?.add('is-busy'); el.setAttribute?.('aria-busy', 'true');
     if (isButton) { el.disabled = true; if (text) el.textContent = text; }
-    else if (doc) { veil = doc.createElement('div'); veil.className = 'lb-busy-veil'; veil.textContent = text; el.append(veil); }
+    else if (doc) {
+      try {
+        const gcs = (win && typeof win.getComputedStyle === 'function') ? (x => win.getComputedStyle(x)) : (typeof getComputedStyle === 'function' ? getComputedStyle : null);
+        const pos = (gcs && gcs(el)?.position) || el.style?.position || '';
+        if ((!pos || pos === 'static') && el.style) { prevPos = el.style.position || ''; el.style.position = 'relative'; }
+      } catch {}
+      veil = doc.createElement('div'); veil.className = 'lb-busy-veil'; veil.textContent = text; el.append(veil);
+    }
     const restore = () => {
       if (isButton) { el.textContent = ''; el.append(...prevNodes); el.disabled = prevDisabled; }
       veil?.remove(); el.classList?.remove('is-busy'); el.removeAttribute?.('aria-busy');
+      if (prevPos !== null) { try { el.style.position = prevPos; } catch {} }
     };
     return (finalText, holdMs = 1200) => {
       if (finished) return; finished = true;
@@ -437,21 +494,25 @@ function lbPageLib(dv, app, role) {
   const menuOpen = () => !!provider()?.menuOpen;
 
   // ── 焦点兜底（C4）：整页重建（新容器）后 3 秒内把焦点和选区还给同一个输入框 ──
+  // 记录单放 'lb:<role>:focus'（focusState），页面 state.save 整体覆盖页面状态时冲不掉它。
+  // Chromium 摘掉有焦点的元素时同步发 blur（元素还连着、relatedTarget=null）：blur 时先记 blurAt（失焦那一刻），等一拍再看——
+  // 还在文档里 = 她点走了，清掉；已经摘掉 = 整页重建，留着。3 秒窗口从 max(focusAt, blurAt) 算：她停手好一会儿后才重建也照样还。
   function trackFocus(input, key) {
     if (!input || typeof input.addEventListener !== 'function') return;
-    const save = () => { try { state.patch({ focus: key, selStart: input.selectionStart ?? null, selEnd: input.selectionEnd ?? null, focusAt: Date.now() }); } catch {} };
+    const save = () => { try { focusState.save({ focus: key, selStart: input.selectionStart ?? null, selEnd: input.selectionEnd ?? null, focusAt: Date.now() }); } catch {} };
     for (const type of ['focus', 'focusin', 'input', 'keyup', 'select']) input.addEventListener(type, save);
     input.addEventListener('blur', e => {
       const to = e && e.relatedTarget;
       const scope = (container && container.__lbView && container.__lbView.host) || hostEl || container;
       if (to && scope && typeof scope.contains === 'function' && scope.contains(to)) return;
-      // 被整页重建摘掉（不是她点走）不清：等一拍看它还在不在文档里
-      setTimeout(() => { try { if (input.isConnected && state.load().focus === key) state.patch({ focus: null }); } catch {} }, 0);
+      try { const st = focusState.load(); if (st.focus === key) focusState.save({ ...st, blurAt: Date.now() }); } catch {}
+      setTimeout(() => { try { if (input.isConnected && focusState.load().focus === key) focusState.patch({ focus: null }); } catch {} }, 0);
     });
   }
   function restoreFocus(input, key, withinMs = 3000) {
-    const st = state.load();
-    if (!input || st.focus !== key || !(Date.now() - (Number(st.focusAt) || 0) < withinMs)) return false;
+    const st = focusState.load();
+    const at = Math.max(Number(st.focusAt) || 0, Number(st.blurAt) || 0);
+    if (!input || st.focus !== key || !(Date.now() - at < withinMs)) return false;
     try { input.focus({ preventScroll: true }); } catch { try { input.focus(); } catch { return false; } }
     try { if (st.selStart != null && typeof input.setSelectionRange === 'function') input.setSelectionRange(st.selStart, st.selEnd ?? st.selStart); } catch {}
     return true;
