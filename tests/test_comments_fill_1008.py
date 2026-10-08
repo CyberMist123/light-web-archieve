@@ -205,5 +205,6 @@ def test_old_reader_without_comment_load_renders_plain_hint(tmp_path, monkeypatc
     assert cli.main(["ingest", "https://example.invalid/share"]) in (0, 2)
     capsys.readouterr()
     md = next(storage.vault_root().glob("Web/Xiaohongshu/*.md")).read_text(encoding="utf-8")
-    assert "还有 7 条回复没拿到（只展开前几楼的回复）" in md and "楼中楼还缺" not in md
+    # 批次 D · N8：说人话；老读取组件按楼算出缺口时顶上也出一行（同样不编原因）+「现在抓全部评论」
+    assert "另有 7 条回复没存（只存了前几楼的回复）" in md and "楼中楼还缺 7 条（只存了前几楼的回复）" in md
     assert ingest_mod.pending_fills() == []

@@ -392,6 +392,7 @@ link_brain:
 - `cssclasses: [link-brain]` 配 `vault/.obsidian/snippets/link-brain.css`（render 时不存在就写、存在不覆盖）：两栏 flex 布局、缩略图网格、隐藏属性面板、`## 评论`/`## 归档信息` 调成浅色小字。**Owner 要在 设置 → 外观 → CSS 片段 里手动打开一次 `link-brain`**。
 - 可见 tag 只放原帖 hashtag（Lot 4 起可加小模型建议 tag）；用户手写 tag 永不被覆盖。
 - 留言层永远不出现 `@ # todo` 之类协议词，人看到的就是「日期 角色」引用行。
+- （批次 D · L3）内容层的 `.lb-note` 带 `data-lb-item="<item_id>"`（插件图片导航按它记住每篇钉没钉 / 第几张 / 正文滚到哪；没有时退回文件路径）；笔记图和评论图 `<img>` 带 manifest 里的 `width` / `height`（两个都是正整数才写），视频的行内 style 带 `aspect-ratio:<宽> / <高>`（视频条目自己的，没有就用封面的）。评论缺口和「原帖有 N 条评论，这次没存下来」行末尾有 `<span class="lb-act lb-act-fetch-comments" role="button" tabindex="0">`（插件开着时才显示）；正文标签 `<span class="lb-tag" title="在目录里看带 #x 的收藏">`。HTML 属性一律双引号。CSS 片段写到插件传来的 `LINK_BRAIN_OBSIDIAN_DIR/snippets/`（没有就写收藏库已有的 `.obsidian`，再没有往上 3 层找带 `app.json` 的库），不再在收藏子目录里新建 `.obsidian`；桌面插件另把同一份样式（`obsidian-plugins/link-brain-actions/note.css`，和 `link_brain/assets/link-brain.css` 逐字节相同）挂进 head。
 
 ### 留言行格式
 

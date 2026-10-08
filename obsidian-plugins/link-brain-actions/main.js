@@ -82,9 +82,9 @@ function dataviewState(app) {
   return "ok";
 }
 const DATAVIEW_HINT = {
-  missing: "目录页、问收藏页靠 Dataview 插件显示：还没装。到「第三方插件 → 浏览」搜 Dataview 安装并启用，再在它的设置里打开 Enable JavaScript Queries。",
-  disabled: "目录页、问收藏页靠 Dataview 插件显示：已装但没启用。在「第三方插件」里打开 Dataview，再在它的设置里打开 Enable JavaScript Queries。",
-  nojs: "目录页、问收藏页靠 Dataview 的 JS 查询显示：在 Dataview 设置里打开 Enable JavaScript Queries。",
+  missing: "目录页、问收藏页和笔记下面的批注靠 Dataview 插件显示：还没装。到「第三方插件 → 浏览」搜 Dataview 安装并启用，再在它的设置里打开 Enable JavaScript Queries。",
+  disabled: "目录页、问收藏页和笔记下面的批注靠 Dataview 插件显示：已装但没启用。在「第三方插件」里打开 Dataview，再在它的设置里打开 Enable JavaScript Queries。",
+  nojs: "目录页、问收藏页和笔记下面的批注靠 Dataview 的 JS 查询显示：在 Dataview 设置里打开 Enable JavaScript Queries。",
 };
 
 // AI 接口配置的默认值。**必须和 link_brain/ai_config.py 的 DEFAULTS 对齐**（改一处改两处）。
@@ -1736,12 +1736,12 @@ class LinkBrainActions extends Plugin {
     const args = ["-m", "link_brain", "note", "star", itemId];
     if (!on) args.push("--off");
     try {
-      const { json } = await this.runPy(args, { label: "收藏", fallback: "收藏失败" });
+      const { json } = await this.runPy(args, { label: "收藏", fallback: "后台没返回结果" });
       const result = json || {};
       if(result.status!=='ok')throw new Error(result.status||'后台没返回结果');
       this.app.workspace.trigger('link-brain:star',itemId,result.starred);
       return result;
-    } catch(e) { throw new Error("收藏失败："+e.message); }
+    } catch(e) { const m=String((e&&e.message)||e||''); throw new Error(/^收藏失败/.test(m)?m:"收藏失败："+m); }   // 批次 D · N13：前缀只有一个
   }
 
   // 批次 D · C3：目录页单星 / 批量收藏走这里。每 200 个 id 起一次 `note star <ids...> [--off]`（避开 Windows 命令行长度上限），

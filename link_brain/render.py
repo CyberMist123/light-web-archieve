@@ -8,6 +8,7 @@ from __future__ import annotations
 from functools import lru_cache
 import html
 import json
+import os
 import re
 import sys
 from datetime import datetime
@@ -149,7 +150,10 @@ def _body_html(text: str) -> str:
 
 
 def _tag_html(tags: list[str]) -> str:
-    chips = "".join(f'<span class="lb-tag">#{_safe(x)}</span>' for x in tags or [] if x)
+    # 批次 D · N9：仍是原帖话题（note.hashtags）；桌面插件开着时点了回目录按 #标签 筛（note-actions.js 接点击）
+    chips = "".join(
+        f'<span class="lb-tag" title="在目录里看带 #{_safe(x)} 的收藏">#{_safe(x)}</span>' for x in tags or [] if x
+    )
     return f'<div class="lb-tags">{chips}</div>' if chips else ""
 
 
@@ -229,15 +233,33 @@ def _img_from_manifest(object_rel: str, file_rel: str) -> str:
     return f"![[{src}]]" if src == raw else f"![[{src}]] （原图：[[{raw}]]）"
 
 
-def _comment_image_files(comment_id: str | None, manifest: dict[str, Any]) -> list[str]:
+def _comment_image_files(comment_id: str | None, manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    """这条评论的图（manifest 条目：file / width / height）。"""
     if not comment_id:
         return []
     return [
-        m["file"] for m in manifest.get("media", [])
+        m for m in manifest.get("media", [])
         if m.get("role") == "comment_image"
         and m.get("comment_id") == comment_id
         and m.get("file")
     ]
+
+
+def _dims_attr(entry: dict[str, Any] | None) -> str:
+    """批次 D · N6：manifest 里有正整数宽高就写进 <img>，浏览器按比例先占位（打开一次到位、翻图不跳）。"""
+    try:
+        w, h = int((entry or {}).get("width") or 0), int((entry or {}).get("height") or 0)
+    except (TypeError, ValueError):
+        return ""
+    return f' width="{w}" height="{h}"' if w > 0 and h > 0 else ""
+
+
+def _dims(entry: dict[str, Any] | None) -> tuple[int, int] | None:
+    try:
+        w, h = int((entry or {}).get("width") or 0), int((entry or {}).get("height") or 0)
+    except (TypeError, ValueError):
+        return None
+    return (w, h) if w > 0 and h > 0 else None
 
 
 @lru_cache(maxsize=64)
@@ -283,6 +305,7 @@ def _comment_html(
     *,
     nested: bool = False,
     gap_reasons: dict[str, str] | None = None,
+    floor_limit: int | None = None,
 ) -> str:
     """Human comment row: author + text only; no date/location/overall count."""
     author = (comment.get("author") or {}).get("nickname") or "匿名"
@@ -293,8 +316,8 @@ def _comment_html(
 
     files = _comment_image_files(comment.get("comment_id"), manifest)
     media = "".join(
-        f'<img class="lb-comment-image lb-ci-{_comment_image_size(object_rel, f)}" '
-        f'src="../../{_safe(_img_srcs(object_rel, f)[0])}" loading="lazy" alt="评论图片">'
+        f'<img class="lb-comment-image lb-ci-{_comment_image_size(object_rel, f["file"])}" '
+        f'src="../../{_safe(_img_srcs(object_rel, f["file"])[0])}"{_dims_attr(f)} loading="lazy" alt="评论图片">'
         for f in files
     )
     # 0928 Owner：表情包小一点、截图/表格/流程图大一点、多张并排
@@ -331,7 +354,7 @@ def _comment_html(
             except (TypeError, ValueError):
                 declared = 0
             if declared > len(subs):
-                parts.append(f'<div class="lb-more-replies">{_gap_text(comment, declared - len(subs), gap_reasons)}</div>')
+                parts.append(f'<div class="lb-more-replies">{_gap_text(comment, declared - len(subs), gap_reasons, floor_limit)}</div>')
             parts.append("</div>")
         else:
             try:
@@ -339,20 +362,27 @@ def _comment_html(
             except (TypeError, ValueError):
                 declared = 0
             if declared > 0:
-                parts.append(f'<div class="lb-replies"><div class="lb-more-replies">{_gap_text(comment, declared, gap_reasons)}</div></div>')
+                parts.append(f'<div class="lb-replies"><div class="lb-more-replies">{_gap_text(comment, declared, gap_reasons, floor_limit)}</div></div>')
     parts.append("</article>")
     return "".join(parts)
 
 
-def _gap_text(comment: dict[str, Any], missing: int, gap_reasons: dict[str, str] | None) -> str:
-    """这楼还有几条回复没拿到、为什么（1008 Owner：缺口如实标，不写假的「展开 N 条回复」）。"""
+def _gap_text(comment: dict[str, Any], missing: int, gap_reasons: dict[str, str] | None,
+              floor_limit: int | None = None) -> str:
+    """这楼还有几条回复没拿到、为什么（1008 Owner：缺口如实标，不写假的「展开 N 条回复」）。
+    批次 D · N8：楼层上限外没展开的（原因不知道 / not_expanded）说人话：「另有 N 条回复没存（只存了前 10 楼的回复）」。"""
     from .adapters import xiaohongshu as xhs
     reason = (gap_reasons or {}).get(str(comment.get("comment_id") or ""))
-    if reason is None:
-        return f"还有 {missing} 条回复没拿到（只展开前几楼的回复）"
+    if reason is None or reason == "not_expanded":
+        floors = f"前 {floor_limit} 楼" if isinstance(floor_limit, int) and floor_limit > 0 else "前几楼"
+        return f"另有 {missing} 条回复没存（只存了{floors}的回复）"
     why = xhs.REPLY_GAP_CN.get(reason, "没读全")
     tail = "，下次同步接着读" if reason in xhs.RESUMABLE_GAPS else ""
     return f"还有 {missing} 条回复没拿到（{why}{tail}）"
+
+
+# 批次 D · N8 / N14：评论区里「现在抓全部评论」的入口（点击由插件 note-actions.js 接；body.lb-actions-on 时才显示）
+FETCH_COMMENTS_ACT = '<span class="lb-act lb-act-fetch-comments" role="button" tabindex="0">{label}</span>'
 
 
 def _comments_note_html(capture: dict[str, Any] | None, comments: list[dict[str, Any]]) -> str:
@@ -360,7 +390,19 @@ def _comments_note_html(capture: dict[str, Any] | None, comments: list[dict[str,
     cl = (capture or {}).get("comment_load") or {}
     missing = int(cl.get("replies_missing") or 0)
     if missing <= 0:
-        return ""
+        if cl:
+            return ""
+        # 老读取组件没有 comment_load：按楼算楼中楼还缺几条（不编原因）
+        lack = 0
+        for c in comments or []:
+            try:
+                lack += max(0, int(c.get("sub_comment_count") or 0) - len(c.get("sub_comments") or []))
+            except (TypeError, ValueError):
+                continue
+        if lack <= 0:
+            return ""
+        return (f'<div class="lb-comments-note">{_safe(f"楼中楼还缺 {lack} 条（只存了前几楼的回复）")}'
+                + FETCH_COMMENTS_ACT.format(label="现在抓全部评论") + "</div>")
     from .adapters import xiaohongshu as xhs
     bits = [f"评论读到 {cl.get('floors_loaded') or len(comments)} 楼"]
     if cl.get("floor_limit"):
@@ -376,7 +418,7 @@ def _comments_note_html(capture: dict[str, Any] | None, comments: list[dict[str,
     else:
         tail = ""
     bits.append(f"楼中楼还缺 {missing} 条（{why}{tail}）")
-    return f'<div class="lb-comments-note">{_safe("，".join(bits))}</div>'
+    return f'<div class="lb-comments-note">{_safe("，".join(bits))}' + FETCH_COMMENTS_ACT.format(label="现在抓全部评论") + "</div>"
 
 
 def split_layers(existing_text: str | None) -> tuple[str | None, str | None]:
@@ -516,12 +558,15 @@ def _media_html(note: dict[str, Any], manifest: dict[str, Any], object_rel: str)
     if video or remote:
         src = '../../' + _img_srcs(object_rel, video['file'])[0] if video else remote
         poster = '../../' + _img_srcs(object_rel, entries[0]['file'])[0] if entries else ''
-        parts.append(f'<figure class="lb-slide"><video controls preload="metadata" playsinline poster="{_safe(poster)}" src="{_safe(src)}" style="width:100%;max-height:75vh">视频无法播放，请打开原文</video></figure>')
+        # 批次 D · N6：视频一出来就按自己的比例占位（没有就按封面），不再是灰色横条
+        dims = _dims(video) or (_dims(entries[0]) if entries else None)
+        style = f"width:100%;height:auto;max-height:75vh;aspect-ratio:{dims[0]} / {dims[1]}" if dims else "width:100%;max-height:75vh"
+        parts.append(f'<figure class="lb-slide"><video controls preload="metadata" playsinline poster="{_safe(poster)}" src="{_safe(src)}" style="{style}">视频无法播放，请打开原文</video></figure>')
     for i, entry in enumerate(entries, 1):
         src, _ = _img_srcs(object_rel, entry["file"])
         parts += [
             '<figure class="lb-slide">',
-            f'<img src="../../{_safe(src)}" loading="lazy" alt="图片 {i} / {total}">',
+            f'<img src="../../{_safe(src)}"{_dims_attr(entry)} loading="lazy" alt="图片 {i} / {total}">',
             f'<figcaption class="lb-counter">{i} / {total}</figcaption>' if total > 1 else "",
             "</figure>",
         ]
@@ -608,11 +653,40 @@ def collect_highlights(text: str | None) -> list[str]:
     return sorted(seen, key=len, reverse=True)
 
 
+_TAG_SPLIT_RE = re.compile(r"(<[^>]+>)")
+
+
+def _find_in_text(html_text: str, needle: str, start: int = 0, end: int | None = None) -> int:
+    """在 html_text[start:end] 里找 needle，只认**标签之外的文字段**（不落进 alt="图片 1 / 3" 这种属性里），
+    也不落在已有的 <mark>…</mark> 里面；needle 不跨标签。找不到返回 -1。（批次 D · N10）"""
+    if not needle:
+        return -1
+    end = len(html_text) if end is None else end
+    pos, depth = 0, 0
+    for part in _TAG_SPLIT_RE.split(html_text):
+        seg_start, pos = pos, pos + len(part)
+        if part.startswith("<") and part.endswith(">"):
+            low = part.lower()
+            if low.startswith("<mark"):
+                depth += 1
+            elif low.startswith("</mark"):
+                depth = max(0, depth - 1)
+            continue
+        if depth or pos <= start or seg_start >= end:
+            continue
+        lo = max(seg_start, start)
+        hi = min(pos, end)
+        idx = html_text.find(needle, lo, hi)
+        if idx != -1:
+            return idx
+    return -1
+
+
 def reapply_highlights(content: str, highlights: list[str]) -> str:
     """重渲染后把重点贴回去，包成 `<mark>`。
 
     正文是转义过的 HTML，所以按**转义后**的片段匹配。只做原样匹配：原文变了（作者编辑过）
-    就悄悄丢掉那条，不猜。已经在 `<mark>` 里的不重复包。
+    就悄悄丢掉那条，不猜。已经在 `<mark>` 里的不重复包；只在标签外的文字里找（批次 D：以前会包进 alt 属性、把 HTML 写坏）。
     """
     for phrase in highlights:
         if not phrase:
@@ -620,18 +694,18 @@ def reapply_highlights(content: str, highlights: list[str]) -> str:
         esc = _safe(phrase)
         if f"<mark>{esc}</mark>" in content:
             continue
-        index = content.find(esc)
+        index = _find_in_text(content, esc)
         if index == -1:
             continue
         content = content[:index] + f"<mark>{esc}</mark>" + content[index + len(esc):]
     return content
 
 
-def set_highlight(item_id: str, phrase: str, *, remove: bool = False) -> tuple[Path, bool]:
-    """给一篇笔记的正文加/去一处高亮（Owner 2026-09-15）。
+def set_highlights(item_id: str, phrases: list[str], *, remove: bool = False) -> dict[str, Any]:
+    """给一篇笔记正文加 / 去几处高亮，一次读、全部改完再原子写一次（批次 D · N10）。
 
-    直接改可见 md 的 content 层里那段**转义后**的片段：加 = 包上 `<mark>`，去 = 拆掉。
-    下次 render 会从 `<mark>` 收集、原样贴回，所以这次改动能持久。返回 (可见 md 路径, 是否改动)。
+    返回 {changed: [...], missing: [...], already: [...], visible: Path}。加 = 只在 content 层的标签外文字里找；
+    去 = 拆掉 `<mark>片段</mark>`。下次 render 会从 `<mark>` 收集、原样贴回，所以改动能持久。
     """
     from . import storage
 
@@ -640,25 +714,43 @@ def set_highlight(item_id: str, phrase: str, *, remove: bool = False) -> tuple[P
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     visible = storage.vault_root() / meta["visible_note"]
     text = visible.read_text(encoding="utf-8")
-    esc = _safe(phrase.strip())
-    marked = f"<mark>{esc}</mark>"
-    if remove:
-        if marked not in text:
-            return visible, False
-        new = text.replace(marked, esc)
-    else:
-        if marked in text:
-            return visible, False
-        # 只在 content 层里找，别误伤别处
-        start, end = text.find(CONTENT_START), text.find(CONTENT_END)
+    out: dict[str, Any] = {"changed": [], "missing": [], "already": [], "visible": visible}
+    new = text
+    for raw in phrases:
+        phrase = (raw or "").strip()
+        if not phrase:
+            continue
+        esc = _safe(phrase)
+        marked = f"<mark>{esc}</mark>"
+        if remove:
+            if marked not in new:
+                out["missing"].append(phrase)
+                continue
+            new = new.replace(marked, esc)
+            out["changed"].append(phrase)
+            continue
+        start, end = new.find(CONTENT_START), new.find(CONTENT_END)
         if start == -1 or end == -1:
-            return visible, False
-        idx = text.find(esc, start, end)
+            out["missing"].append(phrase)
+            continue
+        if marked in new[start:end]:
+            out["already"].append(phrase)
+            continue
+        idx = _find_in_text(new, esc, start, end)
         if idx == -1:
-            return visible, False
-        new = text[:idx] + marked + text[idx + len(esc):]
-    storage.atomic_write_text(visible, new)
-    return visible, True
+            out["missing"].append(phrase)
+            continue
+        new = new[:idx] + marked + new[idx + len(esc):]
+        out["changed"].append(phrase)
+    if new != text:
+        storage.atomic_write_text(visible, new)
+    return out
+
+
+def set_highlight(item_id: str, phrase: str, *, remove: bool = False) -> tuple[Path, bool]:
+    """给一篇笔记的正文加/去一处高亮（Owner 2026-09-15）。set_highlights 的单句包装，返回 (可见 md 路径, 是否改动)。"""
+    r = set_highlights(item_id, [phrase], remove=remove)
+    return r["visible"], bool(r["changed"])
 
 
 def _author_html(note: dict[str, Any]) -> str:
@@ -686,12 +778,23 @@ def _comments_html(
         '<div class="lb-comments">',
         _comments_note_html(capture, comments),
     ]
+    cl = (capture or {}).get("comment_load") or {}
     gap_reasons = {str(g.get("comment_id") or ""): str(g.get("reason") or "")
-                   for g in (((capture or {}).get("comment_load") or {}).get("gaps") or [])}
+                   for g in (cl.get("gaps") or [])}
+    try:
+        floor_limit = int(cl.get("floor_limit")) if cl.get("floor_limit") is not None else None
+    except (TypeError, ValueError):
+        floor_limit = None
     if comments:
-        parts.extend(_comment_html(c, object_rel, manifest, gap_reasons=gap_reasons) for c in comments)
+        parts.extend(_comment_html(c, object_rel, manifest, gap_reasons=gap_reasons, floor_limit=floor_limit) for c in comments)
     else:
-        parts.append('<div class="lb-empty">暂无评论</div>')
+        # 批次 D · N14：原帖有评论、这次没存下来 ≠ 暂无评论
+        n = (note.get("engagement") or {}).get("comment_count")
+        if isinstance(n, int) and not isinstance(n, bool) and n > 0:
+            parts.append(f'<div class="lb-empty">原帖有 {n} 条评论，这次没存下来'
+                         + FETCH_COMMENTS_ACT.format(label="现在抓") + "</div>")
+        else:
+            parts.append('<div class="lb-empty">暂无评论</div>')
     parts += ["</div>", "</section>"]
     return "".join(parts)
 
@@ -753,15 +856,17 @@ def render_content_block(
     detail = _comments_html(note, comments, manifest, object_rel, source.get("capture"))
     # Owner 2026-09-15：头像/作者在**正文上方**（右栏顶部），不跟图片在左栏。
     # 左栏只有图片、sticky 固定；右栏 = 作者 → 正文 → 评论，随页滚动。
+    # 批次 D · N15：.lb-note 带 data-lb-item，图片导航按它记住每篇钉没钉 / 第几张 / 正文滚到哪
+    item_attr = f' data-lb-item="{_safe(meta.get("item_id") or "")}"' if meta.get("item_id") else ""
     if has_media:
         note_html = (
-            f'<div class="{cls}">'
+            f'<div class="{cls}"{item_attr}>'
             f'<div class="lb-side">{media}</div>'
             f'<div class="lb-main">{author}<div class="lb-scroll">{title}{body}{detail}</div></div>'
             f"</div>"
         )
     else:
-        note_html = f'<div class="{cls}"><div class="lb-main">{author}<div class="lb-scroll">{title}{body}{detail}</div></div></div>'
+        note_html = f'<div class="{cls}"{item_attr}><div class="lb-main">{author}<div class="lb-scroll">{title}{body}{detail}</div></div></div>'
 
     # `.lb-note` 必须是**一整块、内部零换行**的 HTML——任何文本字段（评论/正文/标题）里
     # 带的换行都会被 Obsidian 当成空行、把 <div> 提前闭合，左右两栏就散了（2026-09-17 Owner 报的）。
@@ -1257,15 +1362,53 @@ def brief_summary(source: dict[str, Any], extracted: dict[str, Any] | None = Non
     return _first_n_chars((source.get("note") or {}).get("body"), 120)
 
 
+def snippet_targets() -> list[Path]:
+    """CSS 片段该写到哪些 Obsidian 配置目录（批次 D · N2）。
+
+    ① 插件传来的 LINK_BRAIN_OBSIDIAN_DIR（Obsidian 真正的 configDir）；② 收藏库里已经有的 .obsidian；
+    ③ 前两样都没有时，往上最多 3 层找带 .obsidian/app.json 的库（收藏库被挂进别的库的子目录）。
+    按 resolve() 去重；不再在收藏子目录里凭空建 .obsidian。
+    """
+    out: list[Path] = []
+    seen: set[str] = set()
+
+    def add(d: Path) -> None:
+        try:
+            key = str(d.resolve()).lower()
+        except OSError:
+            key = str(d).lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(d / "snippets" / "link-brain.css")
+
+    env = os.environ.get("LINK_BRAIN_OBSIDIAN_DIR")
+    if env:
+        add(Path(env))
+    own = storage.vault_root() / ".obsidian"
+    if own.is_dir():
+        add(own)
+    if not out:
+        cur = storage.vault_root()
+        for _ in range(3):
+            cur = cur.parent
+            if (cur / ".obsidian" / "app.json").is_file():
+                add(cur / ".obsidian")
+                break
+    return out
+
+
 def ensure_css_snippet() -> None:
-    """Sync managed CSS into the vault so UI changes actually reach existing vaults."""
-    target = storage.vault_root() / ".obsidian" / "snippets" / "link-brain.css"
+    """Sync managed CSS into the vault so UI changes actually reach existing vaults.（写失败只打 stderr，不挡渲染）"""
     template = Path(__file__).resolve().parent / "assets" / "link-brain.css"
     content = template.read_text(encoding="utf-8")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists() and target.read_text(encoding="utf-8") == content:
-        return
-    storage.atomic_write_text(target, content)
+    for target in snippet_targets():
+        try:
+            if target.exists() and target.read_text(encoding="utf-8") == content:
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            storage.atomic_write_text(target, content)
+        except OSError as exc:
+            print(f"CSS 片段没写上：{target}（{exc}）", file=sys.stderr)
 
 
 def render_object(
