@@ -40,7 +40,7 @@ const SESSION = '_archive/chat-session.json';
     return A;
   };
   let A = await open();
-  const all = s => A.container.querySelectorAll(s);
+  const all = s => A.section.querySelectorAll(s);
   const turnEls = () => all('.lbchat-answer');
   const rowButton = (turn, title, cls) => { const links = turn.querySelectorAll('a'); const i = links.findIndex(a => a.textContent.includes(title)); return turn.querySelectorAll(cls)[i]; };
 

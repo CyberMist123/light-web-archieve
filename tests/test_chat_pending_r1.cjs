@@ -33,7 +33,7 @@ const DATA = '_archive/catalog-data.json';
   plugin.pendingArchiveQuestion = '担担面';
   await A.rerun(); await tick(30);
   assert.deepEqual(asks, ['面点', '担担面'], '页面开着、挂回旧 DOM 时也要问');
-  assert.equal(A.container.querySelectorAll('.lbchat-answer').length, 2);
+  assert.equal(A.section.querySelectorAll('.lbchat-answer').length, 2);
 
   // 页面开在别的标签里、Dataview 没重跑：目录页点了之后发 link-brain:ask-pending 事件
   plugin.pendingArchiveQuestion = '红烧牛肉';

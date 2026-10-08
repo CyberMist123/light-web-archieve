@@ -45,13 +45,13 @@ async function chatTests() {
   const app = makeApp(V, plugin);
   const A = dataviewBlock({ dom, app, code: LIB + '\n' + SEARCH + '\n' + asset('chat-view.js') });
   await A.run();
-  const q = s => A.container.querySelector(s);
+  const q = s => A.section.querySelector(s);
   const stop = q('.lbchat-stop');
   assert.ok(stop && stop.hidden, '没在作答时不显示停止');
   // 问一句：显示停止；进度只显示后端阶段
   q('.lbchat-search').value = '悉尼有什么'; await q('.lbchat-composer').onsubmit({ preventDefault() {} }); await tick(5);
   assert.ok(!stop.hidden, '作答中显示停止');
-  assert.ok(q('.lbchat-body').textContent.includes('正在生成…'), '还没阶段时显示「正在生成…」');
+  assert.ok(q('.lbchat-body').textContent.includes('正在处理…'), '还没阶段时显示「正在处理…」');
   req.onPhase('挑选材料');
   assert.ok(q('.lbchat-body').textContent.includes('挑选材料…'), '后端阶段原样显示');
   // 跟到底：停在底部时，新一问 / 逐行出字自动带到眼前；自己往上翻了就不抢
@@ -78,17 +78,17 @@ async function chatTests() {
   q('.lbchat-search').value = '第一问'; await q('.lbchat-composer').onsubmit({ preventDefault() {} }); await tick(5);
   const first = req;
   for (const v of ['第二问', '第三问']) { q('.lbchat-search').value = v; await q('.lbchat-composer').onsubmit({ preventDefault() {} }); }
-  let rows = A.container.querySelectorAll('.lbchat-queued');
+  let rows = A.section.querySelectorAll('.lbchat-queued');
   assert.equal(rows.length, 2, '作答中再发进排队');
   rows[1].querySelector('.lbchat-queued-now').onclick();
   assert.equal(stops, 2, '立即发送 = 停掉当前回答');
-  assert.deepEqual(A.container.querySelectorAll('.lbchat-queued-text').map(e => e.textContent), ['第三问', '第二问'], '被点的那条挪到队首');
+  assert.deepEqual(A.section.querySelectorAll('.lbchat-queued-text').map(e => e.textContent), ['第三问', '第二问'], '被点的那条挪到队首');
   first.res({ status: 'cancelled', markdown: '' }); await tick(10);
   assert.equal(req.question, '第三问', '停下后马上问被点的那条');
-  rows = A.container.querySelectorAll('.lbchat-queued');
+  rows = A.section.querySelectorAll('.lbchat-queued');
   assert.equal(rows.length, 1);
   rows[0].querySelector('.lbchat-queued-x').onclick();
-  assert.equal(A.container.querySelectorAll('.lbchat-queued').length, 0, '× 取消发送');
+  assert.equal(A.section.querySelectorAll('.lbchat-queued').length, 0, '× 取消发送');
   req.res({ status: 'ok', markdown: '第三问的答案', sources: [] }); await tick(10);
   assert.equal(req.question, '第三问', '取消的那条不再发');
   console.log('PASS chat queue: 立即发送 stops current and asks that one next; × cancels a queued question');
@@ -105,18 +105,18 @@ async function chatTests() {
   console.log('PASS chat: stop button → stopArchiveAnswer, partial kept + 已停止生成, real phases only, bookmark not shown saved when write fails');
 
   // 「已保存」栏：存判断失败字留在框里；删除失败那条还在
-  const tabs = A.container.querySelectorAll('.lbchat-tab');
+  const tabs = A.section.querySelectorAll('.lbchat-tab');
   await tabs.find(t => t.textContent === '已保存').onclick(); await tick(5);
   const ta = q('.lbchat-arc-input');
   ta.value = 'ib 机不适合'; await q('.lbchat-arc-save').onclick(); await tick(5);
   assert.equal(q('.lbchat-arc-input').value, 'ib 机不适合', '失败时字留在框里');
-  assert.equal(A.container.querySelectorAll('.lbchat-arc-item').length, 0, '界面上不出现没存上的那条');
+  assert.equal(A.section.querySelectorAll('.lbchat-arc-item').length, 0, '界面上不出现没存上的那条');
   V.vault.adapter.write = async (p, s) => { V.set(p, s); };
   await q('.lbchat-arc-save').onclick(); await tick(5);
-  assert.equal(A.container.querySelectorAll('.lbchat-arc-item').length, 1);
+  assert.equal(A.section.querySelectorAll('.lbchat-arc-item').length, 1);
   failWrites(V, new Set(['_archive/chat-archive.json']));
   await q('.lbchat-arc-del').onclick(); await tick(5);
-  assert.equal(A.container.querySelectorAll('.lbchat-arc-item').length, 1, '删除没写上，那条还在');
+  assert.equal(A.section.querySelectorAll('.lbchat-arc-item').length, 1, '删除没写上，那条还在');
   assert.equal(JSON.parse(V.get('_archive/chat-archive.json')).entries.length, 1);
   console.log('PASS chat archive: save failure keeps text in box, delete failure keeps the entry, both say 没保存上…可重试');
 }
@@ -218,7 +218,7 @@ async function pluginCancelTests() {
   const a = p.answerArchive({ question: '慢', onPhase: t => phases.push(t) });
   const c = children[0]; const id = c.sent[0].id;
   c.stdout.emit('data', JSON.stringify({ id, type: 'phase', text: '检索收藏' }) + '\n');
-  assert.deepEqual(phases, ['检索收藏']);
+  assert.deepEqual(phases, ['正在启动问答', '检索收藏'], '新起 worker 先报「正在启动问答」（A13）');
   assert.equal(p.stopArchiveAnswer(), 1);
   assert.deepEqual(c.sent.at(-1), { id, type: 'cancel' });
   c.stdout.emit('data', JSON.stringify({ id, type: 'result', result: { status: 'cancelled', markdown: '半截' } }) + '\n');

@@ -44,8 +44,8 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
     A = dataviewBlock({ dom, app, code: CODE });
     await A.run(); await tick(5);
   };
-  const all = s => A.container.querySelectorAll(s);
-  const one = s => A.container.querySelector(s);
+  const all = s => A.section.querySelectorAll(s);
+  const one = s => A.section.querySelector(s);
   const ask = async q => { one('.lbchat-search').value = q; await one('.lbchat-composer').requestSubmit(); await tick(20); };
   const session = () => JSON.parse(V.get(SESSION));
   const index = () => JSON.parse(V.get(INDEX));
@@ -152,7 +152,7 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   await panel().querySelectorAll('.lbchat-histq').find(b => b.textContent === '旧问题').onclick(); await tick(5);
   assert.equal(session().id, firstId);
   assert.equal(panel(), null, '恢复后面板收起');
-  assert.ok(A.container.textContent.includes('旧回答') && A.container.textContent.includes('重答'));
+  assert.ok(A.section.textContent.includes('旧回答') && A.section.textContent.includes('重答'));
   assert.deepEqual(session().excluded, ['a'], '会话级排除 / 保留一起恢复');
 
   // 多选删除：选中「悉尼咖啡」那段 → 删除；删的是记录
