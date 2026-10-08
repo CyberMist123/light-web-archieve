@@ -125,8 +125,10 @@ function makeObsidian(document, opts) {
     }
     addItem(cb) { const it = new MenuItem(this); this.items.push(it); cb(it); return this; }
     addSeparator() { this.items.push({ separator: true, dom: el('div', 'menu-separator') }); return this; }
+    // 1.14.4：onHide 只有一个槽位（后设的顶掉先设的）；hide() 先把槽位清空再回调；没有菜单项时 showAtPosition 直接返回、不显示
     onHide(fn) { this.hideCallback = fn; return this; }
     showAtPosition(pos) {
+      if (this.items.length === 0) { this.unload(); return this; }
       if (Menu.open && Menu.open !== this) Menu.open.hide();
       this.pos = pos || { x: 0, y: 0 };
       for (const it of this.items) this.scrollEl.appendChild(it.dom);
@@ -137,12 +139,12 @@ function makeObsidian(document, opts) {
       this.register(offKey); this.register(offDown);
       return this;
     }
-    showAtMouseEvent(evt) { this.mouseEvent = evt; return this.showAtPosition({ x: evt.clientX != null ? evt.clientX : evt.pageX, y: evt.clientY != null ? evt.clientY : evt.pageY }); }
+    showAtMouseEvent(evt) { this.mouseEvent = evt; return this.showAtPosition({ x: evt.clientX, y: evt.clientY }); }   // 1.14.4 只看 clientX / clientY
     hide() {
       if (!this.shown) return this;
       this.shown = false; this.dom.remove(); if (Menu.open === this) Menu.open = null;
       this.unload();
-      const cb = this.hideCallback; if (cb) cb();
+      const cb = this.hideCallback; this.hideCallback = null; if (cb) cb();
       return this;
     }
     close() { return this.hide(); }

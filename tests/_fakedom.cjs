@@ -9,7 +9,9 @@
 //     clientWidth、offsetHeight、offsetWidth、offsetTop 可写；el._rect = {top,left,width,height} 注入 getBoundingClientRect；
 //     dataset ↔ data-* 属性、id ↔ id 属性互通；style 有 setProperty / getPropertyValue / removeProperty / cssText。
 //   - 焦点：document.activeElement 初始是 body；focus() 只对连在文档上的元素生效并发 blur/focusout → focus/focusin（focusin/out 冒泡）；
-//     **被摘下的子树里有焦点 → activeElement 回到 body**（innerHTML='' 清空也算；和 Chromium 一样不发 blur）——没有这条测不出 C4。
+//     **被摘下（或挪走）的子树里有焦点 → activeElement 回到 body，并在焦点元素上同步发 blur（不冒泡）和 focusout（冒泡），relatedTarget=null**；
+//     发事件时 activeElement 已经是 body、元素还连在文档上，发完才摘（innerHTML='' / textContent='' / remove() / append 到别处都算）。
+//     和 Chromium 151 / Edge 150 实测一致（批次 D 地基复审）——没有这条测不出 C4，也测不出「失焦即保存」被 Dataview 重跑误触发。
 //   - 事件：el.fire(type, ev) 只调自己的监听（老行为）；el.dispatchEvent(ev) 按 bubbles 冒泡到祖先和 document；click() 调自己的监听 + onclick。
 //   - dataviewBlock：真实祖先链（阅读视图 / mode:'live' 实时预览），容器带 Dataview 写的行内 overflow-x:auto；
 //     返回 section、q / qa、component.unload / recreate / detach、可控 ResizeObserver、Notice 记录（setMessage / hide / addButton）。
@@ -68,9 +70,23 @@ function makeDom() {
     appendText(t) { this.append(String(t)); }
   }
   const flatten = nodes => nodes.flatMap(n => (n instanceof Fragment ? n.childNodes.splice(0) : [typeof n === 'string' ? new TextNode(n) : n]));
-  // 被摘下的子树里有焦点：activeElement 回到 body（Chromium 不对被移除的焦点元素发 blur）
-  function dropFocusIn(n) { const a = doc.activeElement; if (a && a !== doc.body && n && (a === n || (typeof n.contains === 'function' && n.contains(a)))) doc.activeElement = doc.body; }
-  function detach(n) { const p = n.parentNode; if (p) { const i = p.childNodes.indexOf(n); if (i >= 0) p.childNodes.splice(i, 1); n.parentNode = null; dropFocusIn(n); } }
+  // 要摘下的子树里有焦点：先把 activeElement 交回 body，再在焦点元素上发 blur（不冒泡）+ focusout（冒泡），这时它还连在文档上；
+  // 调用方发完事件再摘（Chromium：Document::RemoveFocusedElementOfSubtree 在摘节点之前同步派发）
+  function blurIfFocusIn(n) {
+    const a = doc.activeElement;
+    if (!a || a === doc.body || !n || !(a === n || (typeof n.contains === 'function' && n.contains(a)))) return;
+    doc.activeElement = doc.body;
+    if (!a.isConnected) return;
+    emit(a, mkEvent('blur', { relatedTarget: null }));
+    emit(a, mkEvent('focusout', { relatedTarget: null, bubbles: true }));
+  }
+  function detach(n) {
+    if (!n.parentNode) return;
+    blurIfFocusIn(n);
+    const p = n.parentNode;   // blur 处理函数可能已经把它挪走了
+    if (!p) return;
+    const i = p.childNodes.indexOf(n); if (i >= 0) p.childNodes.splice(i, 1); n.parentNode = null;
+  }
   function simpleSel(s) {
     const m = s.match(/^([a-z0-9]*)((?:\.[\w-]+|\[[\w-]+(?:=["']?[^\]"']*["']?)?\])*)((?::not\(\.[\w-]+\))*)$/i);
     if (!m) return () => false;
@@ -174,7 +190,11 @@ function makeDom() {
     get ownerDocument() { return doc; }
     get isConnected() { let n = this; while (n.parentNode) n = n.parentNode; return n === doc.documentElement; }
     get textContent() { return this.childNodes.map(n => n.textContent).join(''); }
-    set textContent(v) { for (const n of this.childNodes) { n.parentNode = null; dropFocusIn(n); } this.childNodes = []; if (v !== '' && v != null) this.append(String(v)); }
+    set textContent(v) {
+      if (doc.activeElement !== this) blurIfFocusIn(this);   // 焦点在子孙里：先发 blur / focusout 再清空（元素自己保持焦点）
+      for (const n of this.childNodes) n.parentNode = null;
+      this.childNodes = []; if (v !== '' && v != null) this.append(String(v));
+    }
     set innerHTML(v) { this.textContent = ''; if (v) this.append(String(v).replace(/<[^>]+>/g, '')); }
     get innerHTML() { return this.textContent; }
     // 量尺寸：显式写过的值优先，其次注入的 _rect，都没有就是 0
@@ -441,7 +461,7 @@ function makeResizeObservers() {
 //            .markdown-preview-view.markdown-rendered（= A.host / A.scroller，滚动容器）> .markdown-preview-sizer.markdown-preview-section >
 //            .el-pre（= A.section）> .block-language-dataviewjs（= A.container，行内 overflow-x:auto）
 //   mode:'live' .view-content > .markdown-source-view.mod-cm6.is-live-preview > .cm-editor > .cm-scroller（= A.host / A.scroller）> .cm-sizer >
-//            .cm-contentContainer > .cm-content > .cm-preview-code-block.cm-embed-block.cm-lang-dataviewjs（= A.section）> 容器 + .edit-block-button
+//            .cm-contentContainer > .cm-content > .cm-preview-code-block.cm-embed-block.cm-lang-dataviewjs（= A.section）> 容器 + .embed-actions > .edit-block-button
 // 选项：active:false（叶子不带 .mod-active）；params 里可覆盖 setTimeout / clearTimeout / Date 等（tests/_clock.cjs）
 function dataviewBlock({ dom, app, code, params = {}, folder = '', mode = 'reading', active = true } = {}) {
   const D = dom.document;
@@ -506,9 +526,10 @@ function dataviewBlock({ dom, app, code, params = {}, folder = '', mode = 'readi
     const container = D.createElement('div');
     container.className = 'block-language-dataviewjs node-insert-event';
     container.style.overflowX = 'auto';   // Dataview 0.5.68 main.js:20535-20537 在 dataviewjs(el) 里写的行内样式
-    const editBtn = mode === 'live' ? section.querySelector('.edit-block-button') : null;
-    if (editBtn) section.insertBefore(container, editBtn); else section.append(container);
-    if (mode === 'live' && !editBtn) section.createEl('div', { cls: 'edit-block-button', attr: { 'aria-label': 'Edit this block' } });
+    // 实时预览：Obsidian 1.14.4 的 widget 在容器后面放 .embed-actions > .embed-action.edit-block-button（app.js addEditButton）
+    const actions = mode === 'live' ? section.querySelector('.embed-actions') : null;
+    if (actions) section.insertBefore(container, actions); else section.append(container);
+    if (mode === 'live' && !actions) section.createEl('div', { cls: 'embed-actions' }).createEl('div', { cls: 'embed-action edit-block-button', attr: { 'aria-label': 'Edit this block' } });
     const component = newComponent();
     // dv.el / paragraph / header / span：和 Dataview 一样把字符串按行内 markdown 渲染（**粗体**、`代码`、![[图]]），手机兜底页用
     const md = makeMiniMd();

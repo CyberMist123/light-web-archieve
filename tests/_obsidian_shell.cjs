@@ -33,7 +33,7 @@ const QA_DIR = process.env.LWA_QA_DIR || path.join(os.tmpdir(), 'lwa-qa');
 const THEME_CSS = `
 body{--header-height:40px;--ribbon-width:44px;--layer-menu:65;--layer-modal:50;--layer-notice:60;--status-bar-position:fixed;--file-line-width:700px;
 --file-margins-x:32px;--file-margins-y:32px;--file-margins:var(--file-margins-y) var(--file-margins-x);--font-text-size:16px;--font-preferred-size:var(--font-text-size);
---font-ui-smaller:12px;--font-ui-small:13px;--font-ui-medium:15px;--line-height-normal:1.5;--line-height-tight:1.3;--radius-s:4px;--radius-m:8px;--radius-l:12px;
+--font-ui-smaller:12px;--font-ui-small:13px;--font-ui-medium:15px;--line-height-normal:1.5;--line-height-tight:1.3;--radius-s:4px;--radius-m:8px;--radius-l:12px;--size-2-1:2px;--size-2-2:4px;--size-2-3:6px;
 --size-4-1:4px;--size-4-2:8px;--size-4-3:12px;--size-4-4:16px;--size-4-5:20px;--size-4-6:24px;--size-4-8:32px;--size-4-12:48px;--dialog-width:560px;--dialog-max-width:80vw;
 --accent-h:258;--accent-s:88%;--accent-l:66%;
 --font-default:ui-sans-serif,-apple-system,BlinkMacSystemFont,system-ui,"Segoe UI","Microsoft YaHei",Roboto,sans-serif;--font-interface:var(--font-default);--font-text:var(--font-default);--font-monospace:ui-monospace,Consolas,monospace;
@@ -91,7 +91,11 @@ body{font-family:var(--font-interface);line-height:var(--line-height-tight);font
 .markdown-source-view.mod-cm6 .cm-content>*{margin:0!important;display:block;}
 .markdown-source-view.mod-cm6 .cm-content>[contenteditable=false]{contain:paint!important;}
 .markdown-source-view.mod-cm6 .cm-embed-block{position:relative;white-space:normal;overflow-wrap:normal;word-break:normal;}
+@media (hover: hover){
 .markdown-source-view.mod-cm6 .cm-embed-block:not(.cm-table-widget,.cm-lang-base):hover{box-shadow:var(--embed-block-shadow-hover);border-radius:var(--radius-s);overflow:hidden;cursor:text;}
+.markdown-source-view.mod-cm6 .cm-embed-block:not(.cm-table-widget,.cm-lang-base):hover .embed-actions{opacity:1;}
+}
+.markdown-source-view.mod-cm6 .embed-actions{position:absolute;top:var(--size-2-2);inset-inline-end:var(--size-2-2);display:flex;gap:var(--size-2-1);opacity:0;transition:opacity 0.07s ease-out;}
 .status-bar{position:var(--status-bar-position);width:auto;bottom:0;inset-inline-end:0;display:flex;gap:8px;padding:4px 8px;font-size:var(--font-ui-smaller);color:var(--text-muted);background-color:var(--status-bar-background);border-top:1px solid var(--divider-color);border-left:1px solid var(--divider-color);border-radius:var(--radius-m) 0 0 0;z-index:var(--layer-notice);}
 .notice-container{z-index:var(--layer-notice);position:fixed;top:22px;inset-inline-end:0;padding:10px;overflow:hidden;pointer-events:none;}
 .notice{display:flex;flex-direction:column;gap:var(--size-4-2);background-color:var(--notice-background);border-radius:var(--radius-m);color:white;font-size:var(--font-ui-small);padding:10px 14px;margin-bottom:8px;max-width:340px;pointer-events:auto;}
@@ -174,7 +178,7 @@ function leafHtml({ mode, title, body, active = true, extraLeafCls = '', mdCls =
       + `<div class="cm-editor"><div class="cm-scroller"><div class="cm-sizer"><div class="inline-title" contenteditable="true">${esc(title)}</div>`
       + `<div class="cm-contentContainer"><div class="cm-content cm-lineWrapping" contenteditable="true" role="textbox">`
       + `<div class="cm-line">---</div><div class="cm-line">lb-page: …</div><div class="cm-line">---</div>`
-      + `<div class="cm-preview-code-block cm-embed-block markdown-rendered cm-lang-dataviewjs" contenteditable="false">${body}<div class="edit-block-button" aria-label="Edit this block"></div></div>`
+      + `<div class="cm-preview-code-block cm-embed-block markdown-rendered cm-lang-dataviewjs" contenteditable="false">${body}<div class="embed-actions"><div class="embed-action edit-block-button" aria-label="Edit this block"></div></div></div>`
       + `<div class="cm-line"><br></div></div></div></div></div></div></div>`
     : `<div class="markdown-reading-view" style="width: 100%; height: 100%;"><div class="markdown-preview-view markdown-rendered node-insert-event is-readable-line-width allow-fold-headings show-indentation-guide allow-fold-lists show-properties ${mdCls}">`
       + `<div class="markdown-preview-sizer markdown-preview-section"><div class="markdown-preview-pusher" style="width: 1px; height: 0.1px; margin-bottom: 0px;"></div>`
@@ -345,15 +349,26 @@ function shellRuntime(cfg) {
     p.showMenu = (items, evt) => {
       rec('showMenu', [(items || []).map(it => (it && it.separator ? '—' : it && it.title))]);
       const menu = new obs.Menu();
+      let count = 0;
       for (const it of items || []) {
         if (!it) continue;
         if (it.separator) { menu.addSeparator(); continue; }
+        count++;
         menu.addItem(i => { i.setTitle(it.sub ? it.title + '（' + it.sub + '）' : it.title); if (it.icon) i.setIcon(it.icon); if (it.checked != null) i.setChecked(!!it.checked); if (it.disabled) i.setDisabled(true); if (it.danger) i.setWarning(true); if (it.onClick) i.onClick(e => it.onClick(e)); });
       }
+      if (!count) return menu;
+      const reset = () => setTimeout(() => { if (p._menu === menu) { p.menuOpen = false; p._menu = null; } }, 0);
+      const setHide = menu.onHide.bind(menu);
+      setHide(reset);
+      menu.onHide = cb => { setHide(() => { reset(); if (typeof cb === 'function') cb(); }); return menu; };
+      const anchor = evt && (evt.currentTarget || evt.target) || null;
+      const keyboard = !!evt && evt.type !== 'contextmenu' && evt.detail === 0;
+      const pointer = !!evt && typeof evt.clientX === 'number' && !keyboard && !(evt.clientX === 0 && evt.clientY === 0);
+      try {
+        if (pointer) menu.showAtMouseEvent(evt);
+        else { const r = anchor && anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : null; menu.showAtPosition(r ? { x: r.left, y: r.bottom } : { x: 100, y: 100 }); }
+      } catch (e) { return menu; }
       p.menuOpen = true; p._menu = menu;
-      menu.onHide(() => setTimeout(() => { if (p._menu === menu) { p.menuOpen = false; p._menu = null; } }, 0));
-      if (evt && typeof evt.pageX === 'number') menu.showAtMouseEvent(evt);
-      else { const r = (evt && (evt.currentTarget || evt.target))?.getBoundingClientRect?.(); menu.showAtPosition(r ? { x: r.left, y: r.bottom } : { x: 100, y: 100 }); }
       return menu;
     };
     p.busyText = label => `正在${label || p.running || '处理'}，完成后再点，或在底部状态栏停止`;
@@ -489,8 +504,12 @@ function makeHandle(page, host, errors) {
     guards: () => page.evaluate(([cs]) => {
       const c = document.querySelector(cs);
       const sheet = [...document.styleSheets].map(s => { try { return [...s.cssRules].map(r => r.cssText).join('\n'); } catch { return ''; } }).join('\n');
+      // 1.14.4 的 :hover{overflow:hidden} 在 @media (hover: hover) 里：规则在 media 块里，且这台「电脑」匹配 hover:hover（有鼠标）
+      const inHoverMedia = [...document.styleSheets].some(s => { try { return [...s.cssRules].some(r => r.media && /hover:\s*hover/.test(r.media.mediaText) && /\.cm-embed-block:not\([^)]*\):hover\s*\{[^}]*overflow:\s*hidden/.test(r.cssText)); } catch { return false; } });
       return { containerInlineOverflowX: c ? c.style.overflowX : null, containerComputedOverflowY: c ? getComputedStyle(c).overflowY : null,
         hoverOverflowHidden: /\.cm-embed-block:not\([^)]*\):hover\s*\{[^}]*overflow:\s*hidden/.test(sheet),
+        hoverInMedia: inHoverMedia, hoverMediaMatches: matchMedia('(hover: hover)').matches,
+        embedActions: !!(c && c.parentElement && c.parentElement.querySelector(':scope > .embed-actions > .edit-block-button')),
         containPaint: /\.cm-content\s*>\s*\[contenteditable="?false"?\]\s*\{[^}]*contain:\s*paint/.test(sheet),
         inEmbedBlock: !!(c && c.closest('.cm-embed-block.cm-lang-dataviewjs')), inPreviewView: !!(c && c.closest('.markdown-preview-view')) };
     }, [sel.container]),
@@ -501,8 +520,10 @@ function makeHandle(page, host, errors) {
       await S.settle(0);
     },
     // C1 探针：鼠标停在页面上（实时预览的 .cm-embed-block:hover{overflow:hidden} 要靠它触发），滚动容器往下滚 by 像素，
-    // 量 target 顶边和滚动容器顶边的差 delta。滚动容器有上内边距（Obsidian 的 --file-margins，阅读视图 / 实时预览都是 32px），
-    // Chromium 的 sticky top:0 贴在内边距下沿，所以吸顶正常 = delta≈0（top 抵消了内边距）或 delta≈padTop；吸顶失效 → delta ≈ 原位置 − by（一大段负数）
+    // 量 target 顶边和滚动容器顶边的差 delta。口径照 L1：吸顶正常 = |delta| ≤ 1（贴住滚动容器顶）。
+    // 滚动容器有上内边距（Obsidian 的 --file-margins，阅读视图 / 实时预览都是 32px）：Chromium 的 sticky top:0 停在内边距下沿，delta = padTop，
+    // 这时顶栏上方那条缝里看得见滚上去的卡片——探针判红（gap 里报出缝里是什么）。要不要接受这条缝是界面口味，归主审裁决，测试架不替她默认。
+    // 例外：缝里取点（左 / 中 / 右三处）只碰到滚动容器本身或目标自己（页面把缝盖住了）也算正常。吸顶失效 → delta ≈ 原位置 − by（一大段负数）。
     async probeSticky({ target = '.lbc-top', hover = true, by = 1500 } = {}) {
       if (hover) await S.hoverScroller();
       await S.scrollBy(by);
@@ -514,7 +535,17 @@ function makeHandle(page, host, errors) {
         const sr = s.getBoundingClientRect(), tr = t.getBoundingClientRect(), padTop = Math.round(parseFloat(getComputedStyle(s).paddingTop) || 0);
         const delta = Math.round(tr.top - sr.top);
         const hovered = [...document.querySelectorAll(':hover')].map(e => e.className && String(e.className).split(' ')[0]).filter(Boolean);
-        return { ok: Math.abs(delta) <= 1 || Math.abs(delta - padTop) <= 1, delta, padTop, targetTop: Math.round(tr.top), scrollerTop: Math.round(sr.top), scrollTop: Math.round(s.scrollTop), embedHovered: hovered.includes('cm-preview-code-block') };
+        const desc = e => (e ? e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.trim().split(/\s+/).join('.') : '') : null);
+        // 缝（滚动容器顶 → 目标顶）里露出来的是什么：只有 delta > 1 时才有缝
+        let gap = null, gapClean = false;
+        if (delta > 1) {
+          const y = sr.top + Math.max(1, Math.floor(delta / 2));
+          const xs = [tr.left + 8, (tr.left + tr.right) / 2, tr.right - 8];
+          const hits = xs.map(x => document.elementFromPoint(x, y));
+          gapClean = hits.every(h => h && (h === s || t.contains(h)));
+          gap = hits.map(desc);
+        }
+        return { ok: Math.abs(delta) <= 1 || gapClean, delta, padTop, gap, targetTop: Math.round(tr.top), scrollerTop: Math.round(sr.top), scrollTop: Math.round(s.scrollTop), embedHovered: hovered.includes('cm-preview-code-block') };
       }, [sel.scroller, target]);
     },
     // C4 探针：点进输入框、打几个字，中间穿插 reruns 次 Dataview 重跑，最后看值和焦点。正常 → value===text 且焦点还在
