@@ -17,6 +17,7 @@ Owner 2026-09-15 拍板改法（推翻 09-07 的「小模型 category 分文件�
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -385,6 +386,8 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                 # 整音节、空格分隔（标点处「/」断开）：搜索只认整音节，见 retrieval.pinyin_match / catalog-search.js
                 "pinyin": pinyin_text(str(meta.get('title') or ''), summary, *tags),
                 "tags": tags,
+                # 批次 D · N9：原帖话题（正文里显示的那一串 #）；目录「#x」筛选看 tags ∪ hashtags（她改过的 tags 可能删掉了某个）
+                "hashtags": [str(t).strip().lstrip('#') for t in (note.get('hashtags') or []) if str(t).strip().lstrip('#')][:30],
                 "cats": _cats(tags, big_cats),
                 "kind": meta.get("kind", "image"),
                 "date": archived.strftime("%Y-%m-%d") if archived else "",
@@ -517,12 +520,20 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
 PATCHABLE = frozenset({"starred", "starred_at"})
 
 
-def patch_items(updates: dict[str, dict[str, Any]], vault: Path | None = None, *, wait_s: float = 5) -> int:
+def file_stat(path: Path) -> dict[str, int]:
+    """写者报回的「写完那一刻」的 stat（CONVENTIONS §5.10）：mtime 用毫秒、四舍五入（和 Obsidian 的 Math.round(mtimeMs) 同口径）。"""
+    st = os.stat(path)
+    return {"mtime": int(round(st.st_mtime_ns / 1e6)), "size": int(st.st_size)}
+
+
+def patch_items(updates: dict[str, dict[str, Any]], vault: Path | None = None, *, wait_s: float = 5,
+                report: dict[str, Any] | None = None) -> int:
     """把几篇的少量字段（星标）就地改进 catalog-data.json，不整份重建（第 2 批，CONVENTIONS §5.6）：
     目录页以 catalog-data 的 starred 为准，不再每次打开读几百份 notes.json。
 
     和 build 抢同一把锁；拿不到（正在重建）就跳过——重建本身会从 notes.json 读到最新星标。
-    文件不在 / 读坏了也跳过（fail-open，星标本身已经写进 notes.json）。返回改了几篇。"""
+    文件不在 / 读坏了也跳过（fail-open，星标本身已经写进 notes.json）。返回改了几篇。
+    report（批次 D，CM3）：给了就在锁里写完立刻 os.stat，填 report['catalog_stat'] = {mtime, size}（页面 LB.data.adopt 的 written）。"""
     vault = vault or storage.vault_root()
     data_path = vault / "_archive" / DATA_NAME
     if not updates or not data_path.exists():
@@ -541,6 +552,8 @@ def patch_items(updates: dict[str, dict[str, Any]], vault: Path | None = None, *
                         changed += 1
             if changed:
                 storage.atomic_write_text(data_path, json.dumps(data, ensure_ascii=False, indent=1))
+                if report is not None:
+                    report["catalog_stat"] = file_stat(data_path)
             return changed
     except (storage.LockBusy, OSError, ValueError):
         return 0
