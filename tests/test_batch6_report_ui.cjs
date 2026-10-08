@@ -30,18 +30,20 @@ async function catalogTests() {
   const app = { vault: V.vault, workspace: makeWorkspace(), plugins: { plugins: { 'link-brain-actions': plugin }, enablePlugin: async () => {}, disablePlugin: async () => {} }, metadataCache: { getCache: () => null } };
   const A = dataviewBlock({ dom, app, code: LIB + '\n' + SEARCH + '\n' + asset('catalog-view.js') });
   await A.run();
-  const q = s => A.container.querySelector(s);
+  const q = s => A.section.querySelector(s);
   assert.equal(q('.lbc-syncinfo'), null, '「上次同步 · 本次新收 · 还剩」那行删了');
-  assert.ok(!/上次同步/.test(A.container.textContent), '页面上不再出现「上次同步」');
-  const sub = q('.lbc-sub-link');
-  assert.ok(sub, '「N 篇 · 更新 …」那行可点');
-  assert.match(sub.textContent, /^2 篇 · 更新 /);
-  assert.equal(sub.title, '看同步记录');
-  assert.equal(sub.tagName, 'SPAN', '保持灰字，不做成按钮块');
+  assert.ok(!/上次同步/.test(A.section.textContent), '页面上不再出现「上次同步」');
+  // 批次 D · F4：标题下那行拆成三块——计数只是字；「更新 …」是按钮（悬停说目录数据生成时刻），点了开同步记录
+  assert.equal(q('.lbc-count').textContent, '2 篇');
+  assert.equal(q('.lbc-count').onclick, undefined); assert.equal(q('.lbc-count').getAttribute('role'), null);
+  const sub = q('.lbc-updated');
+  assert.ok(sub, '「更新 …」那块可点');
+  assert.match(sub.textContent, /^更新 \d\d\/\d\d \d\d:\d\d$/);
+  assert.match(sub.title, /^目录数据生成于 \d{4}-\d\d-\d\d \d\d:\d\d（同步或刷新目录后更新）· 点开看同步记录$/);
+  assert.equal(sub.tagName, 'BUTTON', '键盘可达（回车 / 空格按原生按钮行为），样式是灰字');
+  assert.ok(sub.classList.contains('lbc-sub-link'));
   await sub.onclick();
   assert.equal(opened, 1, '点了 = 插件 openSyncLog()');
-  await sub.onkeydown({ key: 'Enter', preventDefault() {} });
-  assert.equal(opened, 2, '键盘回车也能开');
   // 插件里还没有 openSyncLog（刚部署、旧实例在内存）：LB.ensure 重载一次插件再调
   {
     delete globalThis.__lbState;
@@ -52,10 +54,10 @@ async function catalogTests() {
         enablePlugin: async () => { reloaded++; app2.plugins.plugins['link-brain-actions'] = { ...old, openSyncLog() { got++; } }; } } };
     const B = dataviewBlock({ dom, app: app2, code: LIB + '\n' + SEARCH + '\n' + asset('catalog-view.js') });
     await B.run();
-    await B.container.querySelector('.lbc-sub-link').onclick();
+    await B.section.querySelector('.lbc-updated').onclick();
     assert.equal(reloaded, 1); assert.equal(got, 1, '重载后调到新方法');
   }
-  console.log('PASS catalog title: sync overview line removed; "N 篇 · 更新" line clickable (title 看同步记录) → LB.ensure(openSyncLog)');
+  console.log('PASS catalog title: sync overview line removed; 「更新 …」is its own button (title = data built time) → LB.ensure(openSyncLog)');
 }
 
 (async () => {

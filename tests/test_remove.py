@@ -165,3 +165,20 @@ def test_purge_keeps_tombstone(tmp_path, monkeypatch):
     assert ingest.ingest_url('https://example.invalid')['status'] == 'trashed'
     assert remove.restore_item(conn, item_id)['status'] == 'purged'
     conn.close()
+
+
+def test_publish_trash_page_uses_page_lib(tmp_path, monkeypatch):
+    """批次 D · C16：回收站页和目录页同一套前导（lb-page-lib 内联），cssclasses 让外框隐形只作用在这一页，标题挪进脚本。"""
+    from link_brain import catalog
+    conn, item_id, obj, note = _trash_fixture(tmp_path, monkeypatch)
+    remove.delete_item(conn, item_id)
+    conn.close()
+    remove.publish_trash(tmp_path)
+    page_path = tmp_path / catalog.library_pages(tmp_path)['trash']
+    page = page_path.read_text(encoding='utf-8')
+    assert page.startswith('---\nlb-page: trash\ncssclasses: [lb-trashpage]\n---\n')
+    assert 'function lbPageLib(' in page and "lbPageLib(dv, app, 'trash')" in page
+    assert '# 回收站' not in page
+    assert catalog.library_pages(tmp_path)['trash'] == page_path.relative_to(tmp_path).as_posix(), '还认得出这一页'
+    data = json.loads((tmp_path / '_archive/trash-data.json').read_text(encoding='utf-8'))
+    assert data['items'][0]['item_id'] == item_id and data['items'][0]['restorable'] is True

@@ -769,6 +769,11 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
 
 - 2026-10-02 第 2 批：`items[].cover_w / cover_h` 是封面原图宽高（取 manifest，拿不到为 null，目录页用来先占位）；
   `items[].starred / starred_at` 在 `note star` 时就地更新（不必等重建），目录页以它为准、不再逐篇读 notes.json。
+- 2026-10-08 批次 D：`items[].hashtags` = 原帖话题（source.json 的 `note.hashtags`，去掉开头 `#`，最多 30 个）；目录页「#x」筛选看 `tags ∪ hashtags`
+  （她改过的 frontmatter tags 可能删掉了某个原帖话题）。`note star <target...> [--off]` 一次接多个 id：
+  `{ok, code, message, results:[{item_id, status, starred, starred_at, error}], count_ok, catalog_patched, catalog_stat?}`，
+  catalog-data 整批只改一次；`catalog_stat = {mtime, size}` 是锁内写完那一刻的 stat（mtime = round(st_mtime_ns / 1e6)），只在真改了才给；
+  只有一个 target 时额外带旧顶层键 `item_id / status / starred / starred_at`。全部 ok 退出码 0，否则 1。
 - 2026-10-03 第 10 批：`search_fields.notes` = 用户在这篇里写的批注（notes.json 里没删的、非空的，一条一行，草稿不算），
   词法权重同标签、语义单独成块（改批注只重算那一块）；问收藏按 notes.json 修改时间现读，不等重建。
   问答结果多 `related`（候选池里没送进模型的其余篇，`tier: "related"`）、`sources[].tier = "primary"`、`expansion`；

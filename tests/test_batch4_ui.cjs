@@ -59,12 +59,13 @@ async function catalogEntryTests() {
   });
   const fire = watchable(V);
   let opened = 0, aliveChecks = 0;
-  const plugin = { settings: { hiddenCats: [] }, openAttachments() {}, openCategories() {}, openLibraryPage() {}, openProblems() { opened++; },
+  let syncLogs = 0;
+  const plugin = { settings: { hiddenCats: [] }, openAttachments() {}, openCategories() {}, openLibraryPage() {}, openProblems() { opened++; }, openSyncLog() { syncLogs++; },
     refreshProblemSummary: async () => { aliveChecks++; return null; } };
   const app = makeApp(V, plugin);
   const A = dataviewBlock({ dom, app, code: LIB + '\n' + SEARCH + '\n' + asset('catalog-view.js') });
   await A.run();
-  const q = s => A.container.querySelector(s);
+  const q = s => A.section.querySelector(s);
   const entry = q('.lbc-problems');
   assert.equal(entry.hidden, false);
   assert.equal(entry.querySelector('.lbc-prob-need').textContent, '2', '要你处理 = 橙色数字');
@@ -79,7 +80,7 @@ async function catalogEntryTests() {
   console.log('PASS catalog entry: orange needs-you count + gray others, skipped not counted, hover from registry, no sync overview line, click → openProblems');
 
   // ── 卡片问题标 ──
-  const card = id => A.container.querySelectorAll('.lbc-card').find(c => c._lbItem.id === id);
+  const card = id => A.section.querySelectorAll('.lbc-card').find(c => c._lbItem.id === id);
   const probs = id => card(id).querySelectorAll('.lbc-prob');
   assert.equal(probs('a').length, 1, '同一个标签只出一个');
   assert.equal(probs('a')[0].textContent, '全文没转出来');
@@ -109,7 +110,19 @@ async function catalogEntryTests() {
   assert.equal(aliveChecks, 1, '插件没在跑任务时请 Python 核一次进程（problems summary）');
   fire('modify', SYNC); await tick(10);
   assert.equal(aliveChecks, 1, '每次打开页面最多核一次');
-  // Python 改判进程已死（summary 更新得更晚）→ 不再显示同步中；页面自己不查 pid
+  // 批次 D · C14：「· 同步中」带上阶段，悬停看全句，点开同步记录
+  const syncingAt = (progress, at) => { V.set(SYNC, JSON.stringify({ state: 'running', progress, updated_at: at })); fire('modify', SYNC); return tick(10); };
+  await syncingAt('第 3/40 条收藏是新的…抓取中', '2026-10-02T06:01:00+10:00');
+  assert.equal(q('.lbc-syncing').textContent, '· 同步中 3/40');
+  assert.equal(q('.lbc-syncing').title, '第 3/40 条收藏是新的…抓取中\n点开看同步记录');
+  await syncingAt('《咖啡》查附件 / 下附件中', '2026-10-02T06:02:00+10:00');
+  assert.ok(q('.lbc-syncing').textContent.startsWith('· 同步中 · 《咖啡》查附件'), q('.lbc-syncing').textContent);
+  assert.ok(q('.lbc-syncing').textContent.endsWith('…'), '超长加 …');
+  await syncingAt('', '2026-10-02T06:03:00+10:00');
+  assert.equal(q('.lbc-syncing').textContent, '· 同步中…');
+  assert.equal(q('.lbc-syncing').tagName, 'BUTTON');
+  await q('.lbc-syncing').onclick({}); await tick(5);
+  assert.equal(syncLogs, 1, '点「同步中」= 打开同步记录（和「更新」同一个入口）');  // Python 改判进程已死（summary 更新得更晚）→ 不再显示同步中；页面自己不查 pid
   V.set(SUMMARY, JSON.stringify({ updated_at: '2026-10-02T06:30:00+10:00', needs_human: 0, auto: 0, gave_up: 0, skipped: 2,
     sync: { state: 'failed', code: 'INTERRUPTED', updated_at: '2026-10-02T06:30:00+10:00' } }));
   fire('modify', SUMMARY); await tick(10);
@@ -132,11 +145,11 @@ async function catalogEntryTests() {
     const B = dataviewBlock({ dom, app: makeApp(V2, p2), code: LIB + '\n' + SEARCH + '\n' + asset('catalog-view.js') });
     await B.run(); await tick(10);
     assert.equal(checks, 0, '插件正在跑同步时不核');
-    assert.equal(B.container.querySelector('.lbc-syncing').hidden, false);
+    assert.equal(B.section.querySelector('.lbc-syncing').hidden, false);
     p2.running = null; await B.rerun(); fire2('modify', SYNC); await tick(10);
     assert.equal(checks, 1);
-    assert.equal(B.container.querySelector('.lbc-syncing').hidden, true, '核完重读 summary：不再显示同步中');
-    assert.equal(B.container.querySelector('.lbc-prob-other').textContent, '1');
+    assert.equal(B.section.querySelector('.lbc-syncing').hidden, true, '核完重读 summary：不再显示同步中');
+    assert.equal(B.section.querySelector('.lbc-prob-other').textContent, '1');
   }
   console.log('PASS file watch: summary / sync-status change repaints entry only (no rebuild, no catalog reread); running shown; INTERRUPTED from summary wins; hidden at 0');
 }

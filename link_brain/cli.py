@@ -154,7 +154,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("note", help="笔记批注 / ⭐ 收藏（sidecar，不改正文）")
     nsub = p.add_subparsers(dest="note_command")
     pn = nsub.add_parser("star", help="⭐ 收藏开关：点亮复制正文到 vault 根，熄灭删副本")
-    pn.add_argument("target", help="item_id 或裸 source_id")
+    pn.add_argument("target", nargs="+", help="item_id 或裸 source_id（可以一次给多个：catalog-data 整批只改一次）")
     pn.add_argument("--off", action="store_true", help="取消收藏（默认是点亮）")
     pn = nsub.add_parser("add", help="加一条批注（@fable 开头会打标）")
     pn.add_argument("target", help="item_id 或裸 source_id")

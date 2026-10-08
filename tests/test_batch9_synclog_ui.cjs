@@ -322,10 +322,14 @@ async function columnsTests() {
   const code = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' + asset('catalog-view.js');
   const A = dataviewBlock({ dom, app, code });
   await A.run();
-  const grid = A.container.querySelector('.lbc-grid');
-  const wrap = A.container.querySelector('.lbc-wrap');
+  const grid = A.section.querySelector('.lbc-grid');
+  const wrap = A.section.querySelector('.lbc-wrap');
   assert.ok(!grid.classList.contains('lbc-has-cols'), '没调过 = 按宽度自动');
-  const cardsBefore = A.container.querySelectorAll('.lbc-card');
+  // 批次 D · C9：网格 1210 宽 → 自动 4 列（按行瀑布流，JS 摆）
+  grid.clientWidth = 1210; A.resize.trigger(1210); await new Promise(r => setTimeout(r, 5));
+  assert.equal(A.section.querySelectorAll('.lbc-col').length, 4);
+  const cardsBefore = A.section.querySelectorAll('.lbc-card');
+  const sameCards = list => list.length === cardsBefore.length && list.every(c => cardsBefore.includes(c));
   const key = (k, extra = {}) => {
     let prevented = false;
     const ev = { key: k, code: '', ctrlKey: true, metaKey: false, altKey: false, preventDefault() { prevented = true; }, stopPropagation() {}, stopImmediatePropagation() {}, ...extra };
@@ -341,6 +345,8 @@ async function columnsTests() {
   assert.equal(key('='), true, '在目录页上拦下 Ctrl + 加号');
   assert.ok(grid.classList.contains('lbc-has-cols'));
   assert.equal(grid.style['--lbc-cols'], '3');
+  assert.equal(A.section.querySelectorAll('.lbc-col').length, 3, '列数变了：卡片在列之间挪');
+  assert.equal(A.notices.at(-1), '瀑布流 3 列', 'C7：列数提示走 Notice（不再写顶部小字）');
   key('+'); key('=', { key: '=', code: 'Equal' }); key('=');
   assert.equal(grid.style['--lbc-cols'], '2', '最少 2 列');
   for (let i = 0; i < 6; i++) key('-');
@@ -351,9 +357,10 @@ async function columnsTests() {
   assert.equal(plugin.settings.catalogColumns, 5, '列数记在插件设置');
   await new Promise(r => setTimeout(r, 700));
   assert.ok(saves >= 1, '设置存盘（合并成一次）');
-  // Ctrl + 滚轮：鼠标在页上才有（监听挂在本页上）；往上滚一格 = 卡片变大
+  // Ctrl + 滚轮：鼠标在页上且按着 Ctrl 才挂监听（C10）；往上滚一格 = 卡片变大
   workspace.activeLeaf = null;
   let prevented = false;
+  wrap.fire('mouseenter', { ctrlKey: true });
   wrap.fire('wheel', { ctrlKey: true, deltaY: -100, preventDefault() { prevented = true; } });
   assert.equal(prevented, true); assert.equal(grid.style['--lbc-cols'], '4');
   wrap.fire('wheel', { ctrlKey: true, deltaY: 40 }); wrap.fire('wheel', { ctrlKey: true, deltaY: 40 });
@@ -363,35 +370,37 @@ async function columnsTests() {
   prevented = false;
   wrap.fire('wheel', { ctrlKey: false, deltaY: 100, preventDefault() { prevented = true; } });
   assert.equal(prevented, false, '不按 Ctrl 的滚轮照常滚动');
-  // 鼠标在页上（不是当前视图也算）：键盘也生效
-  wrap.fire('mouseenter');
-  assert.equal(key('-'), true); assert.equal(grid.style['--lbc-cols'], '6');
+  // CM1：鼠标在页上、但不是当前视图：键盘不拦（只认 activeLeaf）
+  assert.equal(key('-'), false, 'hover 不再算');
   wrap.fire('mouseleave');
-  assert.equal(key('-'), false, '鼠标离开、又不是当前视图：不拦');
-  const cardsAfter = A.container.querySelectorAll('.lbc-card');
-  assert.ok(cardsAfter.length === cardsBefore.length && cardsAfter.every((c, i) => c === cardsBefore[i]), '只改布局，卡片一张没重建');
+  workspace.activeLeaf = { view: { containerEl: A.host } };
+  assert.equal(key('-'), true); assert.equal(grid.style['--lbc-cols'], '6');
+  const cardsAfter = A.section.querySelectorAll('.lbc-card');
+  assert.ok(sameCards(cardsAfter), '只改布局，卡片一张没重建');
   // 重开页面：按插件设置里记的列数排
   delete globalThis.__lbState;
   const nKeys = (dom.document.listeners.keydown || []).length;
   const B = dataviewBlock({ dom, app, code });
   await B.run();
-  const g2 = B.container.querySelector('.lbc-grid');
+  const g2 = B.section.querySelector('.lbc-grid');
   assert.ok(g2.classList.contains('lbc-has-cols')); assert.equal(g2.style['--lbc-cols'], '6');
   assert.equal((dom.document.listeners.keydown || []).length, nKeys, '重开页面摘掉上一份键盘监听，不叠加');
   // 「…→改标题 / 每行几列」：事件来了就地换标题和列数，卡片不重建
-  assert.equal(B.container.querySelector('.lbc-title-text').textContent, 'Collections', '没改过 = Collections');
+  assert.equal(B.section.querySelector('.lbc-title-text').textContent, 'Collections', '没改过 = Collections');
   plugin.settings.catalogTitle = '我的书架'; plugin.settings.catalogColumns = 3;
-  const cardsB = B.container.querySelectorAll('.lbc-card');
+  const cardsB = B.section.querySelectorAll('.lbc-card');
   for (const fn of workspace.handlers['link-brain:catalog-prefs'] || []) fn({});
-  assert.equal(B.container.querySelector('.lbc-title-text').textContent, '我的书架');
+  assert.equal(B.section.querySelector('.lbc-title-text').textContent, '我的书架');
   assert.equal(g2.style['--lbc-cols'], '3');
+  assert.equal(B.section.querySelectorAll('.lbc-col').length, 3);
   plugin.settings.catalogColumns = 0;
   for (const fn of workspace.handlers['link-brain:catalog-prefs'] || []) fn({});
   assert.ok(!g2.classList.contains('lbc-has-cols'), '改回自动');
-  assert.ok(B.container.querySelectorAll('.lbc-card').every((c, i) => c === cardsB[i]));
+  assert.ok(B.section.querySelectorAll('.lbc-card').every(c => cardsB.includes(c)) && B.section.querySelectorAll('.lbc-card').length === cardsB.length);
   const css = asset('catalog-view.js');
-  assert.ok(css.includes('.lbc-grid.lbc-has-cols .lbc-grid-inner{columns:auto;column-count:var(--lbc-cols);'), 'CSS 按变量定列数');
-  console.log('PASS catalog columns: Ctrl +/- and Ctrl+wheel change waterfall columns 2–6 only when the page is active/hovered, no card rebuild, remembered in plugin settings');
+  assert.ok(css.includes('.lbc-masonry{display:flex;'), 'C9：JS 按行排，列是 flex 子列（不再用 CSS columns）');
+  assert.ok(!/\.lbc-grid-inner\{columns:/.test(css));
+  console.log('PASS catalog columns: Ctrl +/- and Ctrl+wheel change waterfall columns 2–6 only only when the page is the active leaf (Ctrl+wheel while hovered with Ctrl held), no card rebuild, remembered in plugin settings');
 }
 
 async function lowHitTests() {
@@ -420,18 +429,18 @@ async function lowHitTests() {
   const app = { vault: V.vault, workspace: makeWorkspace(), plugins: { plugins: { 'link-brain-actions': plugin }, enablePlugin: async () => {}, disablePlugin: async () => {} }, metadataCache: { getCache: () => null } };
   const A = dataviewBlock({ dom, app, code: asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' + asset('catalog-view.js') });
   await A.run();
-  assert.equal(A.container.querySelectorAll('.lbc-lowhit').length, 0, '没搜索不显示');
-  const search = A.container.querySelector('.lbc-search');
+  assert.equal(A.section.querySelectorAll('.lbc-lowhit').length, 0, '没搜索不显示');
+  const search = A.section.querySelector('.lbc-search');
   search.value = 'coffee';
-  search.onkeydown({ key: 'Enter', isComposing: false, preventDefault() {} });
-  const cards = A.container.querySelectorAll('.lbc-card');
+  search.fire('keydown', { key: 'Enter', isComposing: false, preventDefault() {} });
+  const cards = A.section.querySelectorAll('.lbc-card');
   const byTitle = t => cards.find(c => c.querySelector('.lbc-ctitle').textContent === t);
   assert.ok(byTitle('旧书店') && !byTitle('旧书店').querySelector('.lbc-lowhit'), '原词命中：只有标题');
   const lowEl = byTitle('悉尼咖啡地图').querySelector('.lbc-lowhit');
   assert.ok(lowEl, '同义词命中：标题下浅色片段');
   assert.match(lowEl.textContent, /^正文：周末去了悉尼的一家咖啡店/);
-  search.value = ''; search.oninput();
-  assert.equal(A.container.querySelectorAll('.lbc-lowhit').length, 0, '清空搜索片段就没了');
+  search.value = ''; search.fire('input');
+  assert.equal(A.section.querySelectorAll('.lbc-lowhit').length, 0, '清空搜索片段就没了');
   console.log('PASS low-confidence hits: alias / pinyin / typo / gap / semantic show a faint snippet under the title; exact hits stay title-only');
 }
 

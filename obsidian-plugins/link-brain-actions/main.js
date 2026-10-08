@@ -1364,7 +1364,10 @@ class LinkBrainActions extends Plugin {
     const r=await this.runPy(['-m','link_brain','export-bundle'],{input:JSON.stringify({ids,images,answer,question:options.question,asked_at:options.askedAt}),label:'导出',fallback:'导出失败'});
     if(r.code!==0)throw new Error(stderrTail(r.err)||'导出失败');
     const result=r.json;if(!result)throw new Error('导出后端没返回可解析结果');
-    new Notice(`已导出 ${result.notes} 篇、${result.images} 张原图${result.missing.length?'；部分图片缺失，见包内索引':''}`);
+    // 批次 D · CM2：导出成功只由这一条提示（页面不再另报）；路径写相对仓根的，复制时由复制成功的提示说明
+    let shown=String(result.path||'');
+    try{const base=this.app.vault.adapter.getBasePath?.();if(base){const rel=path.relative(base,shown);if(rel&&!rel.startsWith('..')&&!path.isAbsolute(rel))shown=rel.split(path.sep).join('/');}}catch{}
+    new Notice(`已导出 ${result.notes} 篇、${result.images} 张原图 → ${shown}${options.copy?'':'（已在资源管理器里选中）'}${(result.missing||[]).length?'；部分图片缺失，见包内索引':''}`);
     if(options.copy)await this.copyFileBundle(result.path);
     else require('electron').shell.showItemInFolder(result.path);
     return result;
@@ -1603,6 +1606,38 @@ class LinkBrainActions extends Plugin {
       this.app.workspace.trigger('link-brain:star',itemId,result.starred);
       return result;
     } catch(e) { throw new Error("收藏失败："+e.message); }
+  }
+
+  // 批次 D · C3：目录页单星 / 批量收藏走这里。每 200 个 id 起一次 `note star <ids...> [--off]`（避开 Windows 命令行长度上限），
+  // catalog-data 每批只改一次；每个 ok 的 id 发一次 'link-brain:star'。只有一批都拿不到 JSON 才 throw（错误文字就是原因本身）。
+  // 返回 {ok, results:[{item_id,status,starred,error}], done, failed, catalog_patched, catalog_stat}；catalog_stat 是最后一批写完那一刻的 stat
+  // （页面 LB.data.adopt 的 written，CONVENTIONS §5.10；只有一批时才给，多批时中间版本对不上没有意义）。
+  async starNotes(ids, on) {
+    const list = [...new Set((ids || []).filter(Boolean).map(String))];
+    const out = { ok: true, results: [], done: 0, failed: 0, catalog_patched: false, catalog_stat: null };
+    const batches = [];
+    for (let i = 0; i < list.length; i += 200) batches.push(list.slice(i, i + 200));
+    let gotJson = false, lastError = null;
+    for (const batch of batches) {
+      const args = ['-m', 'link_brain', 'note', 'star', ...batch];
+      if (!on) args.push('--off');
+      let json = null, why = '';
+      try { ({ json } = await this.runPy(args, { label: '收藏', fallback: '收藏没保存上' })); }
+      catch (e) { lastError = e; why = e.message; }
+      if (Array.isArray(json?.results)) gotJson = true;
+      else if (json && !why) why = '后台没回逐条结果';
+      const rows = Array.isArray(json?.results) ? json.results : batch.map(id => ({ item_id: id, status: 'failed', starred: null, error: why || '后台没回这一篇的结果' }));
+      for (const r of rows) {
+        out.results.push({ item_id: r.item_id, status: r.status, starred: r.starred, error: r.error || '' });
+        if (r.status === 'ok') { out.done++; this.app.workspace.trigger('link-brain:star', r.item_id, !!r.starred); }
+        else out.failed++;
+      }
+      if (json?.catalog_patched) out.catalog_patched = true;
+      out.catalog_stat = batches.length === 1 && json?.catalog_stat ? json.catalog_stat : null;
+    }
+    if (batches.length && !gotJson) throw (lastError || new Error('后台没回逐条结果'));
+    out.ok = out.failed === 0;
+    return out;
   }
 
   // 手动挂本地文件：spawn `link_brain attachments <id> --attach <path>`（复制进 attachments、标已下、重建目录）。

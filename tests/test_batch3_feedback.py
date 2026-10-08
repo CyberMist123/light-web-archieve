@@ -167,7 +167,7 @@ def test_trash_page_has_marker_and_follows_rename(tmp_path, monkeypatch):
     remove.index_mod.connect().close()
     remove.publish_trash(tmp_path)
     page = tmp_path / "回收站.md"
-    assert page.read_text(encoding="utf-8").startswith("---\nlb-page: trash\n---\n")
+    assert page.read_text(encoding="utf-8").startswith("---\nlb-page: trash\ncssclasses: [lb-trashpage]\n---\n")
     page.rename(tmp_path / "我的回收站.md")
     remove.publish_trash(tmp_path)
     assert not (tmp_path / "回收站.md").exists(), "改名后不该再冒出一份「回收站.md」"
