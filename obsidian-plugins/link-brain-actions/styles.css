@@ -96,6 +96,15 @@ body{--lb-warn:var(--text-warning,var(--color-orange));--lb-warn-bg:var(--backgr
 .lb-problem-repair-note { font-size: 12px; color: var(--text-muted); margin-top: 2px; overflow-wrap: anywhere; }
 .lb-problem-repair.is-running, .lb-problems-repair-all.is-running { opacity: .75; cursor: progress; }
 .lb-problems-head .lb-problems-copy { margin-left: auto; }
+/* 1008（L6）：问题面板——正在刷新（C20）、组标题旁「全部隐藏」、默认收起的「已隐藏」区、修好的行（不删行免得跳动） */
+.lb-problems-refresh { font-size: 12px; color: var(--text-faint); }
+.lb-problems-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.lb-problems-group-head h3 { margin-bottom: 6px; }
+.lb-problems-hide-all, .lb-problems-hidden-toggle { font-size: 12px; }
+.lb-problems-hidden-list[hidden] { display: none; }
+.lb-problem.is-hidden .lb-problem-line, .lb-problem.is-hidden .lb-problem-why { opacity: .7; }
+.lb-problem-hidden-repeats { color: var(--text-faint); font-size: 12px; }
+.lb-problem.is-resolved .lb-problem-done { color: var(--text-success, #2e7d32); font-size: 13px; }
 
 /* 第 5 批 B2：设置页 / 目录页顶部「缺什么」提示、首次引导 */
 .lb-setup-hint { border: 1px solid var(--background-modifier-border); border-left: 3px solid var(--color-orange, var(--text-accent)); border-radius: 6px; padding: 8px 12px; margin: 0 0 12px; background: var(--background-secondary); }
