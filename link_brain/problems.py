@@ -109,7 +109,7 @@ ACCOUNT_CODES = ("NOT_LOGGED_IN", "CAPTCHA_REQUIRED", "ACCOUNT_RISK", "RISK_HOLD
 STATE_REGISTRY: dict[str, dict[str, str]] = {
     # —— 要人处理 ——
     "NEEDS_HUMAN.NOT_LOGGED_IN": dict(where="top+card", label="需要登录", hover="小红书账号掉登录了：点目录页顶部的问题入口扫码登录", group="needs_you"),
-    "NEEDS_HUMAN.CAPTCHA_REQUIRED": dict(where="top+card", label="需要验证", hover="小红书要安全验证：点目录页顶部的问题入口打开验证窗口", group="needs_you"),
+    "NEEDS_HUMAN.CAPTCHA_REQUIRED": dict(where="top+card", label="需要验证", hover="小红书要安全验证：点「打开验证」，窗口打开后点一下「收藏」页签（上次是读收藏时被拦的）；出现滑块就拖完再关窗，没出现就直接关窗", group="needs_you"),
     "NEEDS_HUMAN.ACCOUNT_RISK": dict(where="top+card", label="账号风控", hover="小红书把读取号跳到了登录/安全页：同步已全部暂停，点目录页顶部的问题入口处理", group="needs_you"),
     "NEEDS_HUMAN.RISK_HOLD": dict(where="top+card", label="风控暂停中", hover="风控暂停中：所有用号的同步都停了，点目录页顶部的问题入口处理，处理完自动恢复", group="needs_you"),
     "NEEDS_HUMAN.NOT_INSTALLED": dict(where="top+card", label="未安装读取组件", hover="按 README「读取组件」安装后刷新", group="needs_you"),
@@ -430,6 +430,22 @@ def compact() -> bool:
         return done
 
 
+def last_risk() -> dict[str, Any] | None:
+    """最近一次撞验证 / 风控跳页（不管解没解决）：{at, code, text, open}。设置页「立即同步」旁如实写
+    「上次 HH:MM 在读收藏时判到验证」（她 1008：不拦、不冷却，只照实说）。读不动 = None。"""
+    try:
+        rows = [r for r in _read_rows() if r.get("step") == "login" and not r.get("note") and "dismiss" not in r
+                and not r.get("resolved_at") and str(r.get("key", "")).rsplit("|", 1)[-1] in INCIDENT_CODES]
+        if not rows:
+            return None
+        r = max(rows, key=lambda x: str(x.get("ts") or ""))
+        row = _fold(_read_rows()).get(r["key"]) or {}
+        return {"at": r.get("ts"), "code": r.get("code"), "text": str(r.get("reason") or "")[:160],
+                "open": not row.get("resolved_at")}
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def summary_path() -> Path:
     return storage.archive_root() / SUMMARY_NAME
 
@@ -437,7 +453,7 @@ def summary_path() -> Path:
 def page_summary() -> dict[str, Any]:
     """`problems-summary.json` 的内容：{updated_at, needs_human, auto, gave_up, skipped, last_runs, sync}。
     sync 段 = 修正后的同步状态（进程已死的 running 已改成 INTERRUPTED），见 sync_state.page_state。"""
-    out: dict[str, Any] = {"updated_at": _now().isoformat(timespec="seconds"), **summary()}
+    out: dict[str, Any] = {"updated_at": _now().isoformat(timespec="seconds"), **summary(), "last_risk": last_risk()}
     try:
         from . import sync_state
         out["sync"] = sync_state.page_state()
@@ -615,7 +631,14 @@ def report_blocked(step: str, code: str | None, reason: str, *, service: bool = 
         full = normalize(raw)
         sub = full.split(".", 1)[1]
         if sub in ACCOUNT_CODES and full.startswith("NEEDS_HUMAN."):
-            return report("login", full, reason, title=title)
+            # 1008：出事那一刻的证据目录名（读取组件写在本机熔断文件里）——面板「查看截图」用；路径本身不进记录
+            eid = None
+            try:
+                from . import accounts
+                eid = accounts.evidence_id(accounts._hold_file()) or None
+            except Exception:  # noqa: BLE001
+                eid = None
+            return report("login", full, reason, title=title, evidence_id=eid)
         return report(step, full, reason, item_id=item_id, title=title)
     except Exception as exc:  # noqa: BLE001 - 登记失败不能把归档带走
         print(f"[problems] 登记失败（{type(exc).__name__}: {exc}）", file=sys.stderr)
@@ -950,6 +973,8 @@ _SECRET_RE = re.compile(
 _BEARER_RE = re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]+")
 _XSEC_RE = re.compile(r"(?i)(xsec_token=)[^&\s\"'<>]+")
 _SK_RE = re.compile(r"\bsk-[A-Za-z0-9_-]{8,}")
+# 1008：出事证据目录（截图里有私密收藏）的路径不进「复制报错」：整段换成占位
+_EVIDENCE_RE = re.compile(r"[A-Za-z]:[\\/][^\s\"'<>]*?risk-evidence[^\s\"'<>]*|[~/][^\s\"'<>]*?risk-evidence[^\s\"'<>]*")
 
 
 def redact(text: str, *, vault: Path | None = None, home: Path | None = None) -> str:
@@ -959,6 +984,7 @@ def redact(text: str, *, vault: Path | None = None, home: Path | None = None) ->
     text = _SECRET_RE.sub(lambda m: m.group(1) + ('"<redacted>"' if m.group(2).startswith('"') else "<redacted>"), text)
     text = _XSEC_RE.sub(r"\1<redacted>", text)
     text = _SK_RE.sub("sk-<redacted>", text)
+    text = _EVIDENCE_RE.sub("<本机证据目录>", text)
     vault = Path(vault) if vault else storage.vault_root()
     home = Path(home) if home else Path.home()
     for raw, token in ((str(vault), "<vault>"), (str(home), "~")):

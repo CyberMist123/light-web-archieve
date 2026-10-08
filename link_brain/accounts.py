@@ -46,7 +46,10 @@ RISK_CODES = ('CAPTCHA_REQUIRED', 'ACCOUNT_RISK', 'RISK_HOLD')
 # code -> (状态, 一句话原因, 下一步, 界面按钮 action)
 SOLUTIONS = {
     'NOT_LOGGED_IN': ('expired', '登录已失效', '点击「扫码登录」，用收藏所在的小红书账号扫码。', 'login'),
-    'CAPTCHA_REQUIRED': ('captcha', '小红书要求安全验证', '点击「打开验证」，在弹出的窗口里手动拖动滑块，完成后关掉窗口；也可以过几小时再试。不要反复重试。', 'verify'),
+    # 1008（B1 A3）：上次多半是读收藏时被拦的——只有在窗口里点一下「收藏」页签，还在生效的验证才会露出来
+    'CAPTCHA_REQUIRED': ('captcha', '小红书要求安全验证',
+                         '点击「打开验证」，窗口打开后点一下「收藏」页签（上次是读收藏时被拦的）；出现滑块就拖完再关窗，'
+                         '没出现就直接关窗。不要反复重试。', 'verify'),
     'ACCOUNT_RISK': ('expired', '小红书把读取号跳到了登录/安全页（风控）',
                      '所有用号的同步都已暂停。点击「扫码登录」用收藏所在的号重新登录，登录成功会自动恢复；'
                      '如果弹的是拼图验证就点「打开验证」手动完成。不要反复重试。', 'login'),
@@ -210,7 +213,7 @@ def api(method: str, route: str, *, timeout: float = 45, body: dict | None = Non
         exc = ReaderError(code, payload.get('error') or payload.get('message') or '',
                           json.dumps(detail, ensure_ascii=False) if isinstance(detail, (dict, list)) else str(detail or ''),
                           hold=hold)
-        _note_account(exc.code, f'{route}: {exc}')
+        _note_account(exc.code, (f'{hold_text(hold)}：' if hold else '') + f'{route}: {exc}')
         raise exc
     return payload.get('data', payload)
 
@@ -330,6 +333,47 @@ def risk_hold() -> dict | None:
     except ReaderError:
         return _hold_file()
     return hold_from_session(session)
+
+
+# ---- 1008（读取组件 d7）熔断对象 {code, since, detail, tab, want_tab, incident_page, evidence}：
+# evidence 是本机证据目录的绝对路径（~/.link-brain/risk-evidence/<YYYYMMDD-HHMMSS>，里面 shot.png / hit.html / meta.json，
+# 有私密收藏）——进问题记录 / 复制报错 / stdout / 通知之前一律剥掉，只留目录名 evidence_id，面板「查看截图」自己拼本机路径打开。
+HOLD_PUBLIC_KEYS = ('code', 'since', 'detail', 'tab', 'want_tab', 'incident_page')
+TAB_WHERE = {'fav': '读收藏时', 'collect': '读收藏时', 'note': '打开笔记时', 'notes': '打开主页时', 'like': '读点赞时'}
+
+
+def evidence_id(hold: dict | None) -> str:
+    """证据目录的名字（不是路径）；没有证据 = ''。"""
+    raw = str((hold or {}).get('evidence') or '').strip().rstrip('/\\')
+    if not raw:
+        return ''
+    name = raw.replace('\\', '/').rsplit('/', 1)[-1]
+    return name if name and name not in ('.', '..') else ''
+
+
+def public_hold(hold: dict | None) -> dict | None:
+    """给 stdout / 问题记录用的熔断对象：只留公开字段 + evidence_id。"""
+    if not isinstance(hold, dict):
+        return hold
+    out = {k: hold[k] for k in HOLD_PUBLIC_KEYS if k in hold}
+    eid = evidence_id(hold)
+    if eid:
+        out['evidence_id'] = eid
+    return out
+
+
+def hold_text(hold: dict | None) -> str:
+    """一句如实的话：「10-08 05:19 在读收藏时判到验证」。读不出时间就只说在哪。"""
+    if not isinstance(hold, dict) or not hold:
+        return ''
+    try:
+        when = datetime.fromisoformat(str(hold.get('since'))).astimezone().strftime('%m-%d %H:%M')
+    except (TypeError, ValueError):
+        when = ''
+    where = TAB_WHERE.get(str(hold.get('want_tab') or hold.get('tab') or ''), '用号开页时')
+    what = {'CAPTCHA_REQUIRED': '判到验证', 'ACCOUNT_RISK': '被跳到登录 / 安全页', 'NOT_LOGGED_IN': '发现掉登录'}.get(
+        str(hold.get('code') or ''), '撞到风控')
+    return ' '.join(x for x in (when, f'在{where}{what}') if x)
 
 
 def hold_error(hold: dict) -> ReaderError:
@@ -480,10 +524,12 @@ def hold_row(hold: dict, key='xhs', label='小红书账号') -> dict:
     if action == 'login':
         state = 'expired'
     since = str(hold.get('since') or '')
-    detail = ' · '.join(x for x in (cause, since, str(hold.get('detail') or '')) if x)
+    detail = ' · '.join(x for x in (cause, hold_text(hold) or since, str(hold.get('detail') or '')) if x)
+    if action == 'verify':
+        step = SOLUTIONS['CAPTCHA_REQUIRED'][2]
     out = row(key, label, state, message, step, detail, action=action)
     out['code'] = 'RISK_HOLD'
-    out['risk_hold'] = hold
+    out['risk_hold'] = public_hold(hold)
     return out
 
 
@@ -491,14 +537,42 @@ def hold_row(hold: dict, key='xhs', label='小红书账号') -> dict:
 LOGIN_STATES = {'logged_in': 0, 'guest': 3, 'unknown': 4, 'risk_hold': 5}
 
 
-def status_report(*, deep=True) -> tuple[dict, str]:
+def idle_row() -> dict:
+    """浅查时读取服务没在运行 / 还不知道登录状态：如实说「还没确认」，不拉起服务、不开页（S4）。"""
+    out = row('xhs', '小红书账号', 'idle', '还没确认', '读取服务没在运行；点「检查」会启动它并确认登录', action='retry')
+    out['code'] = ''
+    return out
+
+
+def status_report(*, deep=True, launch=True) -> tuple[dict, str]:
     """(界面那一行, login_state)。login_state ∈ logged_in / guest / unknown / risk_hold。
 
     1001：熔断中不开浏览器；账号锁被别的任务占着（同步收藏在跑）、或读取服务正在干活时也不开浏览器，
     直接报「查不清」——以前这时去排队，45 秒超时就被 20:00 的检查报成「掉登录了，去扫码」。
+    1008（S4）：launch=False（插件设置页的浅查）只问一次 /login/session，服务没起不拉起、还不知道登录状态不深查，
+    都回 idle（login_state=unknown，退出码 4）；只有「重新检查」才深查（会开页）。
     """
+    if not launch:
+        try:
+            session = api('GET', '/api/v1/login/session', timeout=5)
+        except ReaderError as exc:
+            hold = _hold_file()
+            if hold:
+                return hold_row(hold), 'risk_hold'
+            if exc.code == 'DISCONNECTED':
+                return idle_row(), 'unknown'
+            return error_row(exc), 'unknown'
+        except Exception as exc:  # noqa: BLE001
+            return error_row(exc), 'unknown'
+        if not hold_from_session(session) and session.get('logged_in') is None \
+                and session.get('state') != 'waiting' and not session.get('verifying'):
+            return idle_row(), 'unknown'
+        deep = False
+        ensure = lambda: session  # noqa: E731
+    else:
+        ensure = ensure_reader
     try:
-        session = ensure_reader()
+        session = ensure()
     except ReaderError as exc:
         hold = _hold_file()
         if hold:
@@ -587,6 +661,24 @@ def _finish_login(s: dict) -> dict:
                '已切换账号：收藏同步将读取这个号的收藏。' if switched else '', account=name)
 
 
+def _after_login(s: dict) -> dict:
+    """扫码成功：记下账号；但 state=success 不代表熔断已解（登录窗口一打开就是登录态时只解 NOT_LOGGED_IN，
+    验证码类熔断还在）——看 risk_hold，还在就如实说「已登录，但验证的暂停还在」，别让插件接着自动同步。"""
+    done = _finish_login(s)
+    hold = hold_from_session(s) if 'risk_hold' in s else None
+    if hold is None and 'risk_hold' not in s:
+        try:
+            hold = hold_from_session(api('GET', '/api/v1/login/session', timeout=10))
+        except Exception:  # noqa: BLE001 - 读不到就看本机熔断文件
+            hold = _hold_file()
+    if hold and str(hold.get('code') or '') != 'NOT_LOGGED_IN':
+        out = hold_row(hold)
+        out.update(message='已登录，但安全验证的暂停还在', account=done.get('account', ''))
+        return out
+    _note_account('OK')
+    return done
+
+
 def login(*, timeout=420) -> dict:  # 服务端最长：等锁 60 秒 + 扫码 300 秒，再留余量
     """打开小红书官方登录窗口，人在官方页面扫码；这里只轮询服务内存态，窗口由服务关闭并落盘。"""
     ensure_reader()
@@ -603,7 +695,7 @@ def login(*, timeout=420) -> dict:  # 服务端最长：等锁 60 秒 + 扫码 3
         s = api('GET', '/api/v1/login/session', timeout=10)
         state = s.get('state')
         if state == 'success':
-            return _finish_login(s)
+            return _after_login(s)
         if state == 'cancelled':
             return row('xhs', '小红书账号', 'not_logged_in', '已取消登录', '需要时再点「扫码登录」。', action='login')
         if state == 'failed':
@@ -645,8 +737,8 @@ def login_qr(*, timeout=270, open_browser=True) -> dict:
             time.sleep(2)
             s = api('GET', '/api/v1/login/session', timeout=10)
             if s.get('state') == 'success':
-                result = _finish_login(s)
-                page.write_text(_login_page(result['message'], done=True, ok=True), 'utf-8')
+                result = _after_login(s)
+                page.write_text(_login_page(result['message'], done=True, ok=result['state'] == 'ready'), 'utf-8')
                 return result
             if s.get('state') == 'timeout':
                 break
@@ -659,11 +751,95 @@ def login_qr(*, timeout=270, open_browser=True) -> dict:
         raise
 
 
-def open_verify() -> dict:
-    ensure_reader()
-    api('POST', '/api/v1/verify/window', timeout=20)
-    return row('xhs', '小红书账号', 'busy', '验证窗口已打开',
-               '在弹出的小红书窗口里手动完成拼图验证，然后关掉窗口，再点「刷新」。', action='wait')
+VERIFY_WAIT_SECONDS = 13 * 60   # 读取服务验证窗口最长 12 分钟，再留 1 分钟
+VERIFY_POLL_SECONDS = 2.0
+# /login/session 的 verify_result（读取组件 d7）→ 关窗后给她的话。not_logged_in 优先于 no_captcha_seen（服务端已排好）。
+VERIFY_RESULT_TEXT = {
+    'no_captcha_seen': ('captcha', '窗口里没出现验证，暂停还在',
+                        '如果你确实没看到滑块：点「没看到验证，恢复」（你确认后才恢复）；或者先放着，今晚夜跑会跳过用号的步骤，不会伤号。'),
+    'not_logged_in': ('expired', '关窗前没看到已登录，暂停还在', '点「扫码登录」用收藏所在的号重新登录。'),
+    'still_risk': ('captcha', '关窗时页面上还有验证，暂停还在', '再点「打开验证」，把滑块拖完、看到页面正常再关窗。'),
+    'not_read': ('captcha', '验证窗口里没读到页面，暂停还在', '再点一次「打开验证」；还不行就先放着，今晚夜跑会跳过用号的步骤。'),
+    'window_failed': ('captcha', '验证窗口没打开成功，暂停还在', '稍后再点一次「打开验证」。'),
+}
+
+
+def _hold_cleared_row(message: str) -> dict:
+    """熔断已经没了：只看内存里的登录态（不开页）把面板刷绿——不裸调 account_ok()（没登录时会把掉登录也误清掉）。"""
+    out, _ = status_report(deep=False)
+    if out.get('state') == 'ready':
+        out['message'] = message
+        out['next_step'] = ''
+    return out
+
+
+def _note_verify(result: str) -> None:
+    """把验证窗口的结论记到问题记录那条（面板据此给「没看到验证，恢复」）。永不抛异常。"""
+    try:
+        from . import problems
+        now = datetime.now().astimezone().isoformat(timespec='seconds')
+        for r in problems.load():
+            if r.get('step') == 'login' and str(r.get('code') or '').split('.')[-1] in RISK_CODES:
+                problems.annotate(r, verify_result=result, verify_at=now)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def open_verify(*, wait: bool = False) -> dict:
+    """「打开验证」（B1 A1/A2）：先只读看一眼熔断还在不在——不在就不开窗口，直接把面板刷掉（「已经好了」）；
+    在才开窗口。wait=True 时只轮询 /login/session（内存，不开页、不拿锁）等窗口关掉，再如实回报结论。"""
+    session = ensure_reader()
+    if not hold_from_session(session):
+        return _hold_cleared_row('暂停已经解除了，不用再验证')
+    opened = api('POST', '/api/v1/verify/window', timeout=20)
+    if isinstance(opened, dict) and opened.get('result') == 'no_hold':
+        return _hold_cleared_row('暂停已经解除了，不用再验证')
+    if not wait:
+        return row('xhs', '小红书账号', 'busy', '验证窗口已打开', SOLUTIONS['CAPTCHA_REQUIRED'][2], action='wait')
+    deadline = time.monotonic() + VERIFY_WAIT_SECONDS
+    s = session
+    while time.monotonic() < deadline:
+        time.sleep(VERIFY_POLL_SECONDS)
+        try:
+            s = api('GET', '/api/v1/login/session', timeout=10)
+        except ReaderError:
+            continue
+        if not s.get('verifying'):
+            break
+    hold = hold_from_session(s)
+    result = str(s.get('verify_result') or '')
+    if not hold:
+        _note_verify('cleared')
+        return _hold_cleared_row('验证完成，暂停已解除')
+    _note_verify(result or 'still_held')
+    state, message, step = VERIFY_RESULT_TEXT.get(result, ('captcha', '验证窗口关了，暂停还在', SOLUTIONS['CAPTCHA_REQUIRED'][2]))
+    out = hold_row(hold)
+    out.update(state=state, message=message, next_step=step, verify_result=result,
+               action='login' if result == 'not_logged_in' else 'verify')
+    return out
+
+
+def clear_hold(*, by_owner: bool) -> dict:
+    """「没看到验证，恢复」（B1 A5）：只有她亲手点、带 --by-owner 才发 POST /api/v1/risk/clear（一次）；
+    在问题记录留痕「她确认没看到验证」，再按内存登录态刷面板。绝不进「全部修一遍」或夜跑。"""
+    if not by_owner:
+        out = row('xhs', '小红书账号', 'error', '没有恢复', '只有你亲手确认（--by-owner）才会解除暂停。', action='none')
+        out['code'] = 'NOT_CONFIRMED'
+        return out
+    session = ensure_reader()
+    if not hold_from_session(session):
+        return _hold_cleared_row('暂停已经解除了，不用再恢复')
+    api('POST', '/api/v1/risk/clear', timeout=20)
+    try:
+        from . import problems
+        now = datetime.now().astimezone()
+        for r in problems.load():
+            if r.get('step') == 'login' and str(r.get('code') or '').split('.')[-1] in (*RISK_CODES, 'ACCOUNT_BLOCKED'):
+                problems.annotate(r, verify_result='owner_cleared', verify_at=now.isoformat(timespec='seconds'),
+                                  repair_note=f'她确认没看到验证，{now:%m-%d %H:%M} 亲手恢复')
+    except Exception:  # noqa: BLE001
+        pass
+    return _hold_cleared_row('已恢复（你确认没看到验证）')
 
 
 def run_login(args) -> int:
@@ -674,8 +850,9 @@ def run_login(args) -> int:
     脚本（xhs-login-check.ps1）判 `login_state` 或退出码，**不要判 `state`**（那是插件的取值）。
     """
     from .read import dump_json
-    if getattr(args, 'status', False) and not any(getattr(args, k, False) for k in ('verify', 'logout', 'qr')):
-        result, login_state = status_report()
+    if getattr(args, 'status', False) and not any(getattr(args, k, False) for k in ('verify', 'logout', 'qr', 'clear_hold')):
+        shallow = getattr(args, 'shallow', False)
+        result, login_state = status_report(deep=not shallow, launch=not shallow)
         hold = result.get('risk_hold') if isinstance(result.get('risk_hold'), dict) else {}
         result = {**result, 'login_state': login_state, 'code': result.get('code') or '',
                   'detail': result.get('detail') or '',
@@ -689,8 +866,10 @@ def run_login(args) -> int:
             print(result['message'] + ('\n下一步：' + result['next_step'] if result['next_step'] else ''))
         return LOGIN_STATES[login_state]
     try:
-        if getattr(args, 'verify', False):
-            result = open_verify()
+        if getattr(args, 'clear_hold', False):
+            result = clear_hold(by_owner=getattr(args, 'by_owner', False))
+        elif getattr(args, 'verify', False):
+            result = open_verify(wait=getattr(args, 'wait', False))
         elif getattr(args, 'logout', False):
             result = logout()
         elif getattr(args, 'qr', False):

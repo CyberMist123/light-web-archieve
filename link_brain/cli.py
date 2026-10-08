@@ -49,6 +49,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument('--qr', action='store_true', help='出二维码网页（远程扫码用），默认打开小红书官方登录窗口')
     p.add_argument('--timeout', type=int, default=270, help='扫码等待秒数')
     p.add_argument('--json', action='store_true')
+    # 1008（L6·S4 / B1）
+    p.add_argument('--shallow', action='store_true',
+                   help='配合 --status：浅查——只问读取服务内存里的状态，服务没起不拉起、不开浏览器（设置页账号行用）')
+    p.add_argument('--wait', action='store_true', help='配合 --verify：等验证窗口关掉，如实回报结论（只轮询内存状态，不开页）')
+    p.add_argument('--clear-hold', dest='clear_hold', action='store_true',
+                   help='「没看到验证，恢复」：解除风控暂停（必须同时带 --by-owner，表示是你亲手确认的）')
+    p.add_argument('--by-owner', dest='by_owner', action='store_true', help='配合 --clear-hold：你亲手确认')
 
     p = sub.add_parser("transcribe", help="把一段录音转成文字（问 AI 的语音输入用）")
     p.add_argument("file")
