@@ -473,12 +473,13 @@ class MediaNav {
     if(!st&&auto)raf(()=>raf(()=>{if(!touched&&note.isConnected!==false&&!this.shouldDefaultLock(note,preview))setLocked(false);}));   // 来源窗格的类是 openFile 之后才加的
     const slides=getSlides(carousel);
     if(st&&st.slide>0&&slides[st.slide])raf(()=>carousel.scrollTo({left:slides[st.slide].offsetLeft-slides[0].offsetLeft,behavior:'auto'}));
-    let slideTimer=null;
-    carousel.addEventListener('scroll',()=>{clearTimeout(slideTimer);slideTimer=setTimeout(()=>this.saveNoteState(key,{slide:getNearestIndex(carousel,getSlides(carousel))}),150);});
+    // 当前张：每帧最多记一次；轮播已被摘下（Obsidian 重写这篇）就不记（摘下后 offsetLeft 全是 0，会把「第几张」冲成 0）
+    let slideQ=false;
+    carousel.addEventListener('scroll',()=>{if(slideQ)return;slideQ=true;raf(()=>{slideQ=false;if(carousel.isConnected===false)return;this.saveNoteState(key,{slide:getNearestIndex(carousel,getSlides(carousel))});});});
     const sc=note.querySelector('.lb-scroll');
     if(sc){
       let q=false,restoring=false;
-      sc.addEventListener('scroll',()=>{if(restoring||q)return;q=true;raf(()=>{q=false;this.saveNoteState(key,{scroll:sc.scrollTop||0});});});
+      sc.addEventListener('scroll',()=>{if(restoring||q)return;q=true;raf(()=>{q=false;if(sc.isConnected===false)return;this.saveNoteState(key,{scroll:sc.scrollTop||0});});});
       if(st&&st.scroll>0&&note.classList.contains('lb-media-locked')){
         // 评论图懒加载会长高：最多试 1 秒；她一动滚轮 / 键盘就停
         restoring=true;const until=Date.now()+1000,target=st.scroll;
