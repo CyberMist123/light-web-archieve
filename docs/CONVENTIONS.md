@@ -61,6 +61,8 @@ catch (e) { restore(prev); render(); notice('没保存上，内容还在，可�
 2. 细分码全大写下划线，**复用现有码**不改拼写：`NOT_LOGGED_IN / CAPTCHA_REQUIRED / ACCOUNT_RISK / RISK_HOLD / NOT_INSTALLED / WRONG_ACCOUNT / RATE_LIMITED / DISCONNECTED / TIMEOUT / BUSY / INTERRUPTED / TOO_MANY_FAILURES / FAVORITES_SUSPICIOUS`。类由 `problems.classify(code)` 推出，所以 `sync-status.json.code`、`ReaderError.code` 的现有格式不变。
 3. 新增细分码（首批）：`TRANSIENT.HTTP_5XX / HTTP_429 / NETWORK / SERVICE_BUSY / STEP_TIMEOUT`；`PERMANENT.PDF_ENCRYPTED / PDF_DAMAGED / DOC_UNSUPPORTED / NO_AUDIO / NO_SPEECH / NOTE_GONE / MODEL_OUTPUT_INVALID`（重试耗尽后）；`NEEDS_HUMAN.AUTH_FAILED（401/403）/ QUOTA_EXCEEDED / BACKUP_DISK_MISSING / STUCK（升级）`；`SKIPPED.NOT_CONFIGURED / DISABLED / BUDGET`。
 4. **唯一问题记录** `vault/_archive/problems.jsonl`：append-only，一行一条；`load()` 按 `key` 折叠（最新一行为准，`count` 累加）；超过 500 条在 §6 锁内压实为最近 500 个 key。「已解决」= 再追加一行同 key 带 `resolved_at`。
+   **隐藏（1008，B2）**：她手动、可恢复、照样导出——追加 `{"ts","key","dismiss":true,"by":"owner"}`，恢复追加 `{"ts","key","dismiss":false}`；和注记行一样不加次数、不算出现日。只接受没解决的 `PERMANENT`（`NEEDS_HUMAN` / `TRANSIENT` 一律拒绝，回一句原因）。口径：一直隐藏到这个 key 被解决为止——同一 key 没解决又报一次照样藏着（`hidden_repeats` +1），解决后再坏才重新出现；`_fold` 从上一轮**显式**带过来 `dismissed_at`（注记字段在复发时会被扔掉，隐藏不能跟着丢），压实保留。`summary()` 隐藏的不计数、另给 `hidden`；`load()` 每行带 `hidden / hidden_repeats / dismissable`；「复制报错」照样导出、状态写「已隐藏」；周报（report）里隐藏的不算 open。这不违反 1004「实际报错照实显示、不藏」：藏的是她看过、决定不管的那条，诊断一行不丢。CLI：`problems dismiss --key K | --group gave_up`、`problems undismiss --key K`（§1 的 `{ok, code, message, dismissed|restored}`）。真正的「删除」只在她删掉那篇笔记时发生（`problems.resolve_item`，remove 调）。
+   **证据（1008，读取组件 d7）**：熔断对象的 `evidence` 是本机证据目录的绝对路径（截图里有私密收藏）——进问题记录 / stdout / 「复制报错」/ 通知前一律剥掉，只留目录名 `evidence_id`（问题行上、`login --status --json` 的 `risk_hold` 里），面板「查看截图」自己拼本机路径打开；`export_redacted` 另把任何 `…risk-evidence…` 路径换成占位。
 5. 各模块**继续写自己的文件**（attachments.json / transcript.json / vision.json / extracted.json / sync-status.json 格式不动），只是在写入失败状态的同一处多调一次 `problems.report`，在同一步成功处调 `problems.resolve`。日志（sync-progress.log、fav-sync.log）保留，不再是查问题的入口。
 6. **推送只有一个出口**：`problems.report` 内部判定——`NEEDS_HUMAN.*` 推一次（同 key 未解决不重推）；`TRANSIENT.*` 同 key 在**连续 3 个不同日历日**都出现 → 追加一条 `NEEDS_HUMAN.STUCK` 并推一次。`alert.alert` 改为模块私有，仓内禁止直接调用。夜跑脚本自己的汇总推送也取消，改为 `python -m link_brain problems report …`（它只负责登记步骤超时）。
 7. **每个码都有自愈归类 + 一条台账**（10-04）：新增故障码时，同一个提交里 ①在 `repair.plan()` 给它归类——有修复动作（`run`，auto=夜跑自愈轮自动跑）/ 必须等（`wait`，写清等到几点、为什么）/ 要人处理（`human`，只限风控 / 登录 / key）/ 没有自动动作（`manual`，写下一步）；②在 `docs/ERRORS.md` 加一行「用户看到什么 → 根因 → 修法 / 自愈动作 → 回归用例名」。风控 / 登录 / 验证码 / 熔断永远是 `human`，自愈轮绝不重读收藏列表。
@@ -101,7 +103,8 @@ def export_redacted() -> str                                # §3「复制报错
 1. **登记制**：任何新故障码 / 新对象状态，必须同时在 `problems.STATE_REGISTRY` 登记一行，否则 `tests/test_problems_registry.py` 不过（它遍历代码里 `problems.report(` 的字面码 + registry，双向对齐）。
 2. 显示位置只有四种：`top`（目录页顶部问题入口计数）· `card`（卡片角标 + 悬停原因）· `list`（只在问题列表里）· `none`（SKIPPED 之类，仅列表灰色「未开启」组）。NEEDS_HUMAN 一律 `top+card`。
 3. 顶部入口 = 现在的「!」（`catalog-view.js:206-236`）升级：有「要你处理」显示橙色数字，其余灰色数字，为 0 不显示；点开 = 插件 `openProblems()` Modal，分组「等你处理 / 正在自动处理 / 已放弃 / 未开启」，每行：时间 · 标题 · 码 · 系统已做什么 · 「查看」（开那篇）· NEEDS_HUMAN 行附带 `accounts.SOLUTIONS` 的按钮。设置页不放诊断。
-4. `catalog.collect` 给每个 item 加 `problems: [{code, reason, action}]`（从各对象文件推出，不读 jsonl），卡片悬停直接用；标签文案只从 registry 取，**JS 不许自己写状态文案**。
+4. `catalog.collect` 给每个 item 加 `problems: [{code, reason, action}]`（从各对象文件推出），卡片悬停直接用；标签文案只从 registry 取，**JS 不许自己写状态文案**。
+   1008（B2）：仍从对象文件推出，但**再减去她隐藏的 (item_id, 细分码)**（读 problems.jsonl 折叠出的隐藏集合，一次 build 只读一回），且**接口那一侧的码以 ai-health 为准**：`ai_health.API_CODES`（key 失效 / 欠费 / 断网 / 限流 / 5xx / 服务忙）只在 `_archive/ai-health.json` 里这个能力还开着时照原码出，否则降成 `TRANSIENT.AI_PENDING`（灰色「待补识图 / 概要」——这篇确实还缺，照实显示，不整个藏掉）；附件补查判「原帖打不开」的（`derived/web_recheck.json` 的 `gone`）出 `PERMANENT.NOTE_GONE`（只上卡片、不进问题列表）。catalog build **不写**问题记录（Obsidian「刷新目录」不该有副作用）：卡片有标、面板没有的补登记做成一次性迁移（`problems.migrate_orphan_refine`，问题面板打开时跑，做过就记在 `problem-migrations.json`）。
 5. 「复制报错」= `problems.export_redacted()`：插件版本 · Python 版本 · 各 step 上次运行结果 · 最近 50 条问题。脱敏：去掉 `apiKey/token/cookie/Authorization/Bearer` 后面的值、`~` 替换家目录、`<vault>` 替换 vault 绝对路径、去掉 `xsec_token=` 参数值；保留 item_id 和标题（用户自己的数据）。
 6. 登录/验证的「!」逻辑合并进去：`sync-status.json` 的 `blocked` 即 registry 里的 NEEDS_HUMAN 行，不再单独维护文案表。
 
@@ -127,7 +130,10 @@ STATE_REGISTRY = {  # code 前缀 → 显示；写进 catalog-data.json 的 "sta
 // sync_state 每次写 sync-status.json（record / progress / account_problem / account_ok / current）后也重写。写失败 fail-open。
 {"updated_at": "2026-10-02T04:12:00+10:00",
  "needs_human": 1, "auto": 3, "gave_up": 2, "skipped": 1,          // 未解决的 key 数；skipped 只给「未开启」组，不算问题
- "last_runs": {"attachments.convert": {"ts": "…", "ok": false}},
+ "hidden": 0,                                                     // 1008：她隐藏的（不进上面四个数）
+ "last_runs": {"attachments.convert": {"ts": "…", "ok": false}},   // 1008：按步骤取最近一次登记 / 解决，ok = 这一步现在没有开着的问题；
+                                                                   //   attachments.recheck 另以 attachments-recheck-status.json 为准（跳过也写，带 skipped / note）
+ "last_risk": {"at": "…", "code": "NEEDS_HUMAN.CAPTCHA_REQUIRED", "text": "…", "open": true},  // 1008：设置页「立即同步」旁如实说明，不拦
  "sync": {"state": "ready|running|failed|blocked", "code": "", "message": "收藏同步完成", "detail": "",
           "label": "", "hover": "",                                 // code 非空时从登记表取（hover 已填好）
           "updated_at": "…", "last_success": "…", "favorites": 120,

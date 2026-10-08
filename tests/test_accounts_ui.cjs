@@ -49,7 +49,7 @@ const ok = out => ({code:0, json:(()=>{try{return JSON.parse(out);}catch{return 
   // 状态检查超过 3 分钟：报错并给出下一步，不无限转圈
   let seenTimeout = 0;
   p.spawnPy = async (args, opts) => { seenTimeout = opts?.timeoutMs; return {code:-2, json:null, out:'', err:'', all:'', timedOut:true}; };
-  await assert.rejects(p.accountStatus(), /超过 3 分钟/);
+  await assert.rejects(p.accountStatus({deep: true}), /超过 3 分钟/);
   assert.equal(seenTimeout, 180000);
 
   // 退出码非 0 且没有 JSON：抛 stderr 尾三行（不再把空串当成功）

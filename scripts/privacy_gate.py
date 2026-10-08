@@ -27,6 +27,10 @@ BLOCKED_FILES = re.compile(
     r"|(^|/)cookies[^/]*\.json$|(^|/)\.env$)",
     re.I,
 )
+# 白名单：公开仓里有意放的小样本（合成、不含任何私人内容），路径精确匹配。新增要在提交说明里写清来源。
+ALLOWED_FILES = {
+    "tests/fixtures/tiny-1s.mp4",  # 1 秒合成测试视频（纯色 + 静音，ffmpeg 生成），播放器 / 媒体工具的 UI 用例用
+}
 SECRETS = {
     "openai-style key": re.compile(r"\bsk-[A-Za-z0-9_-]{20,}"),
     "google api key": re.compile(r"\bAIza[0-9A-Za-z_-]{30,}"),
@@ -72,6 +76,22 @@ def scan_text(text, private):
     return hits
 
 
+def blocked_path(path):
+    return bool(BLOCKED_FILES.search(path)) and path not in ALLOWED_FILES
+
+
+def added_paths(sha):
+    """这个提交新增 / 改名 / 复制 / 修改进来的文件路径。
+
+    1008：文件类型不能从 -p 补丁里的「+++ b/<路径>」认——二进制文件（mp4、db、kdbx…）的补丁只有一行
+    「Binary files … differ」，没有 +++ 行，旧写法整个漏检。改从 --name-status 拿路径（-z：带空格 / 中文的名字原样）。"""
+    out = git("diff-tree", "--root", "-r", "-z", "--no-renames", "--name-status", "--diff-filter=ACMRT", sha)
+    parts = [x for x in out.split("\0") if x != ""]
+    if parts and re.fullmatch(r"[0-9a-f]{40}", parts[0]):
+        parts = parts[1:]  # 单个提交时开头是提交号
+    return [parts[i + 1] for i in range(0, len(parts) - 1, 2)]
+
+
 def scan_commit(sha, private):
     problems = []
     who = git("show", "-s", "--format=%ae%n%ce", sha).split()
@@ -81,14 +101,13 @@ def scan_commit(sha, private):
             break
     message = git("show", "-s", "--format=%B", sha)
     problems += [f"commit message: {h}" for h in scan_text(message, private)]
+    problems += [f"{path}: private file type" for path in added_paths(sha) if blocked_path(path)]
     diff = git("diff-tree", "-p", "--root", "-r", "-U0", "--no-color", "--no-ext-diff", sha)
     path = None
     for line in diff.splitlines():
         if line.startswith("+++ "):
             name = line[4:].rstrip()  # 带空格的文件名 git 会在末尾补一个 tab
             path = None if name == "/dev/null" else name.removeprefix("b/")
-            if path and BLOCKED_FILES.search(path):
-                problems.append(f"{path}: private file type")
         elif line.startswith("+") and path:
             problems += [f"{path}: {h}" for h in scan_text(line[1:], private)]
     return sorted(set(problems))

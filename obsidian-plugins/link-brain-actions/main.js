@@ -263,11 +263,29 @@ class ImportModal extends Modal {
   }
 }
 
+// 1008（L6·S4）：账号行缓存多久内直接用（不起进程）；账号类码（sync-status 里出现就让缓存作废）
+const ACCOUNT_CACHE_MS = 10 * 60000;
+const ACCOUNT_CODES = ['NOT_LOGGED_IN', 'CAPTCHA_REQUIRED', 'ACCOUNT_RISK', 'RISK_HOLD', 'WRONG_ACCOUNT'];
+function confirmedAgo(at, now = Date.now()) {
+  const min = Math.floor((now - at) / 60000);
+  return min < 1 ? '刚刚确认' : `${min} 分钟前确认`;
+}
+// 1008（L6·B1）：设置页「立即同步」旁的如实说明——上次几点在哪一步判到验证（不拦、不冷却，只照实说）。
+// 数据：problems-summary.json 的 last_risk（Python problems.last_risk）；还开着或 24 小时内的才说。
+function lastRiskNote(sum, now = Date.now()) {
+  const r = sum && sum.last_risk;
+  if (!r || !r.at) return '';
+  const t = Date.parse(r.at);
+  if (!Number.isFinite(t) || (!r.open && now - t > 24 * 3600000)) return '';
+  const what = String(r.code || '').endsWith('ACCOUNT_RISK') ? '被跳到登录 / 安全页' : '判到验证';
+  return `⚠ 上次 ${shortWhen(r.at, now)} 在读收藏时${what}` + (r.open ? '（暂停中，处理见问题入口）' : '');
+}
+
 // 可登录的平台。以后加 B 站 / 知乎 / Reddit：往这里加一项（status / login / logout / verify 四个动作）。
 const PLATFORMS = [{
   id: 'xhs', name: '小红书',
   afterLoginNotice: '登录完成。电脑网页版同一个号只能登录一处：如果其他浏览器里登录这个号，这里会被顶掉，回到这里重新登录即可。手机 App 不受影响。',
-  status: p => p.accountStatus(), login: (p, force) => p.loginAccount(force),
+  status: (p, deep) => p.accountStatus({ deep: !!deep }), login: (p, force) => p.loginAccount(force),
   logout: p => p.logoutAccount(), verify: p => p.openVerify(),
 }];
 
@@ -961,8 +979,9 @@ class LinkBrainActions extends Plugin {
       const st = mergeSyncStatus(raw, sum);
       // 设置页收纳：有 summary 的「上次 / 新增 / 还剩」就用它；同步中 / 失败 / 要人处理时把状态放在前面
       const line = syncSummaryLine(sum);
+      const risk = lastRiskNote(sum);   // 1008（L6·B1）：上次几点判到验证，照实说（不拦、不冷却）
       if (line) {
-        row.setDesc([syncStateHead(st), line].filter(Boolean).join(' · '));
+        row.setDesc([syncStateHead(st), line, risk].filter(Boolean).join(' · '));
         return;
       }
       if (!st) { row.setDesc('还没有同步过。登录后点「立即同步」，或点「定时…」开启自动同步。'); return; }
@@ -1025,6 +1044,7 @@ class LinkBrainActions extends Plugin {
       error: ['没有完成', '', '重试'],
       unknown: ['无法确认', '暂时无法确认登录状态，稍后重试。', '重试'],
       checking: ['检查中', '加载中，请稍候', ''],
+      idle: ['未确认', '', '检查'],
     };
     let registry = {};
     const paint = (r, running = false) => {
@@ -1035,7 +1055,8 @@ class LinkBrainActions extends Plugin {
       const [plain, tip, button] = VIEW[r.state] || VIEW.unknown;
       const label = (r.code && registryEntry(registry, r.code)?.label) || plain || r.message || VIEW.unknown[0];
       who.setText(r.account ? ` · ${r.account}` : '');
-      state.setText(` · ${label}`);
+      // S4：缓存画出来的那一行带上「N 分钟前确认」
+      state.setText(` · ${label}` + (r._at && r.state === 'ready' ? `（${confirmedAgo(r._at)}）` : ''));
       state.className = 'lb-acct-state is-' + r.state;
       guide.setText(r.state === 'ready' ? '' : (r.next_step || tip || (plain ? r.message : '') || ''));
       guide.toggleClass('lb-loading', r.state === 'checking' || r.state === 'busy');
@@ -1044,9 +1065,14 @@ class LinkBrainActions extends Plugin {
       if (btnText) { primary.setButtonText(btnText); primary.buttonEl.show(); primary.setDisabled(false); } else primary.buttonEl.hide();
     };
     this.stateRegistry().then(reg => { registry = reg || {}; if (current && current.code) paint(current); }).catch(() => {});
-    const refresh = async () => {
-      paint({state: 'checking'}, true);
-      try { paint(await platform.status(this)); }
+    // S4：打开设置页不再开浏览器访问小红书——10 分钟内的缓存直接画；过期先画缓存、后台浅查；没缓存才「检查中」+ 浅查。
+    // deep=true（「重新检查」/ 主按钮重试）才深查。
+    const refresh = async (deep = false) => {
+      const cached = this.accountCache;
+      if (!deep && cached && !(await this.accountCacheStale())) { paint({...cached.row, _at: cached.at}); return; }
+      if (!deep && this.accountCache) paint({...this.accountCache.row, _at: this.accountCache.at}, true);
+      else paint({state: 'checking'}, true);
+      try { const r = await platform.status(this, deep); paint({...r, _at: Date.now()}); }
       catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); }
     };
     const login = async (force = false) => {
@@ -1054,6 +1080,7 @@ class LinkBrainActions extends Plugin {
       paint({state: 'busy', next_step: '已打开登录窗口，用手机 App 扫码并确认。'}, true);
       try {
         const r = await platform.login(this, force);
+        this.accountCache = { row: r, at: Date.now(), deep: true };
         paint(r);
         if (r.state === 'ready') await this.afterLogin(platform);
       } catch (e) { paint({state: 'error', next_step: e.message, action: 'login'}); }
@@ -1064,11 +1091,11 @@ class LinkBrainActions extends Plugin {
       if (current?.state === 'captcha' || act === 'verify') {
         try { paint(await platform.verify(this)); } catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); }
       } else if (['expired', 'not_logged_in'].includes(current?.state) || act === 'login') await login();
-      else await refresh();
+      else await refresh(true);
     });
     more.onClick(() => {
       const menu = new obsidian.Menu();
-      menu.addItem(i => i.setTitle('重新检查').setIcon('rotate-cw').onClick(refresh));
+      menu.addItem(i => i.setTitle('重新检查').setIcon('rotate-cw').onClick(() => refresh(true)));
       if (current?.state === 'ready') {
         menu.addItem(i => i.setTitle('更换账号').setIcon('user-cog').onClick(async () => {
           paint({state: 'busy', next_step: '正在退出当前账号'}, true);
@@ -1076,7 +1103,7 @@ class LinkBrainActions extends Plugin {
         }));
         menu.addItem(i => i.setTitle('退出登录').setIcon('log-out').onClick(async () => {
           paint({state: 'busy', next_step: '正在退出'}, true);
-          try { paint(await platform.logout(this)); } catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); }
+          try { const r = await platform.logout(this); this.accountCache = { row: r, at: Date.now(), deep: true }; paint(r); } catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); }
         }));
       }
       const rect = more.extraSettingsEl.getBoundingClientRect();
@@ -1219,9 +1246,32 @@ class LinkBrainActions extends Plugin {
     try { return await this.runtimeCheck; } finally { this.runtimeCheck = null; }
   }
 
-  async accountStatus() {
+  // 1008（L6·S4）：默认浅查（--shallow：只问读取服务内存里的状态，服务没起不拉起、不开浏览器，20 秒）；
+  // deep=true 才深查（会开页，只在「重新检查」/ 主按钮重试时）。同一时刻只跑一个检查（多处画账号行共用一个 Promise）；
+  // 结果存 this.accountCache = {row, at, deep}（10 分钟内画账号行直接用它）。
+  async accountStatus({ deep = false } = {}) {
     if (this.running === '账号登录') return {state: 'busy', next_step: '正在等待扫码…', action: 'none'};
-    return this.runJSON(['-m', 'link_brain', 'login', '--status', '--json'], '检查登录状态失败', 180000);
+    const cur = this.accountCheck;
+    if (cur && (cur.deep || !deep)) return cur.promise;
+    if (cur) { try { await cur.promise; } catch {} }   // 深查排在正在跑的浅查后面，不并发
+    const args = ['-m', 'link_brain', 'login', '--status', '--json'];
+    if (!deep) args.push('--shallow');
+    const promise = this.runJSON(args, '检查登录状态失败', deep ? 180000 : 20000).then(row => {
+      this.accountCache = { row, at: Date.now(), deep };
+      return row;
+    }).finally(() => { if (this.accountCheck && this.accountCheck.promise === promise) this.accountCheck = null; });
+    this.accountCheck = { promise, deep };
+    return promise;
+  }
+  // 账号类故障出现在同步状态里、且比缓存新：缓存作废（掉登录 / 要验证这类事件的失效通道）
+  async accountCacheStale() {
+    const c = this.accountCache;
+    if (!c) return true;
+    let st = null;
+    try { st = await this.readSyncStatus(); } catch {}
+    const t = Date.parse(st?.updated_at || '');
+    if (st && st.state === 'blocked' && ACCOUNT_CODES.includes(st.code) && Number.isFinite(t) && t > c.at) { this.accountCache = null; return true; }
+    return Date.now() - c.at >= ACCOUNT_CACHE_MS;
   }
 
   // 0927 换号可打断：有任务在跑（多半是登错号后自动开始的同步）时，问一句再停掉它，而不是让人干等。
@@ -1250,10 +1300,46 @@ class LinkBrainActions extends Plugin {
     } finally { this.running = null; }
   }
 
+  // 1008（L6·B1）：先查再开（熔断已经没了就不开窗口，直接说「已经好了」）；开了就等窗口关掉（只轮询内存状态，不开页），
+  // 再如实说结论：解除了 / 窗口里没出现验证（给「没看到验证，恢复」）/ 关窗前没看到已登录（去扫码）。
   async openVerify() {
-    const r = await this.runJSON(['-m', 'link_brain', 'login', '--verify', '--json'], '打开验证窗口失败');
-    new Notice(r.next_step || r.message, 12000);
+    new Notice('如果弹出小红书窗口：先点一下「收藏」页签（上次是读收藏时被拦的）；出现滑块就拖完再关窗，没出现就直接关窗。关窗后这里会告诉你结果。', 15000);
+    const r = await this.runJSON(['-m', 'link_brain', 'login', '--verify', '--wait', '--json'], '打开验证窗口失败', 14 * 60000);
+    this.accountCache = { row: r, at: Date.now(), deep: false };
+    new Notice([r.message, r.next_step].filter(Boolean).join('：'), 15000);
     return r;
+  }
+  // 「没看到验证，恢复」：她亲手确认才解除暂停（login --clear-hold --by-owner，只发一次 risk/clear，问题记录里留痕）。
+  // 绝不进「全部修一遍」或夜跑。
+  async restoreHold() {
+    const ok = await this.confirm({
+      title: '没看到验证，恢复？',
+      body: '建议先点「打开验证」，在窗口里点一下「收藏」页签看一眼——真有滑块的话拖完就能解掉。确认窗口里确实没有验证再恢复；恢复后用号的同步照常进行。',
+      ok: '确认恢复', cancel: '先不恢复',
+    });
+    if (!ok) return null;
+    const r = await this.runJSON(['-m', 'link_brain', 'login', '--clear-hold', '--by-owner', '--json'], '恢复没成功', 60000);
+    this.accountCache = { row: r, at: Date.now(), deep: false };
+    new Notice([r.message, r.next_step].filter(Boolean).join('：'), 12000);
+    return r;
+  }
+  // 「查看截图」：出事那一刻程序看见的页面（~/.link-brain/risk-evidence/<名字>/shot.png，读取组件落的，14 天自动删）。
+  // 只给名字、这里拼本机路径直接打开；路径不进问题记录 / 复制报错 / 通知。
+  evidenceRoot() {
+    const env = typeof process !== 'undefined' && process.env ? process.env : {};
+    if (env.LINK_BRAIN_EVIDENCE_DIR) return env.LINK_BRAIN_EVIDENCE_DIR;
+    return path.join(env.LINK_BRAIN_HOME || path.join(require('os').homedir(), '.link-brain'), 'risk-evidence');
+  }
+  async openRiskEvidence(id) {
+    const name = String(id || '');
+    if (!/^[A-Za-z0-9_.-]+$/.test(name) || name === '.' || name === '..') throw new Error('证据目录名不对');
+    const dir = path.join(this.evidenceRoot(), name);
+    const shot = path.join(dir, 'shot.png');
+    const target = fs.existsSync(shot) ? shot : dir;
+    if (!fs.existsSync(target)) throw new Error('截图已经不在了（证据只留 14 天）');
+    const err = await require('electron').shell.openPath(target);
+    if (err) throw new Error(err);
+    return target;
   }
 
   // 修复入口（第 4 批起是问题列表里「扫码登录」「打开验证」两个按钮的动作）：kind = 'login' | 'verify'；
@@ -2315,3 +2401,4 @@ module.exports.syncStateHead = syncStateHead;   // 给 node 单测（第 5 批 4
 // 第 5 批 B2（单插件交付）：给 node 单测
 Object.assign(module.exports, { splitCommand, whichCommand, pickBackend, backendArgv, backendMissingText, pickSyncTask, dataviewState,
   BACKEND_DEFAULT, BACKEND_INSTALL, NIGHTLY_TASK, LEGACY_SYNC_TASK });
+module.exports.lastRiskNote = lastRiskNote;   // 1008（L6）：给 node 单测（设置页「立即同步」旁的验证说明）

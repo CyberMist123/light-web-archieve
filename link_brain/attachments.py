@@ -57,7 +57,8 @@ class AttachmentDeferred(Exception):
 # 装得下这一步的最坏耗时；装不下就收手、正常收尾（重建目录、汇总），别在读取服务那侧下载到一半被杀。
 DOWNLOAD_TIMEOUT_SECONDS = 240
 LOGGED_PROBE_TIMEOUT_SECONDS = 150
-GUEST_PROBE_SECONDS = 90
+# 游客探测最坏：httpx 30 秒 + 一次性游客浏览器兜底 100 秒（1008 复核：以前写 90 偏小）
+GUEST_PROBE_SECONDS = 130
 
 
 def _clock() -> float:
@@ -85,6 +86,11 @@ def attempt_cost(attempt: int = 1) -> float:
 def probe_cost() -> float:
     """补查一篇最坏要多久：探测间隔 + 游客探测 + 开页间隔 + 登录号补看超时。"""
     return PROBE_GAP_SECONDS[1] + GUEST_PROBE_SECONDS + _open_gap_hi() + LOGGED_PROBE_TIMEOUT_SECONDS
+
+
+def guest_cost() -> float:
+    """游客段补查一篇最坏要多久：探测间隔 90 + httpx 30 + 游客浏览器 100 = 220 秒（不碰号，没有开页间隔 / 登录号补看）。"""
+    return PROBE_GAP_SECONDS[1] + GUEST_PROBE_SECONDS
 
 
 def _fits(budget_left, need: float) -> bool:
@@ -170,7 +176,7 @@ def _have_by_name(object_dir: Path, name: str) -> Path | None:
 
 
 def acquire(source_key: str, source_id: str, *, doc_id: str, name: str, xsec_token: str,
-            verbose: bool = False, budget_left=None) -> dict[str, Any]:
+            verbose: bool = False, budget_left=None, tries: int | None = None) -> dict[str, Any]:
     """下一份附件，验到『文件头对得上类型』为止；半截 / 网页占位页就歇更久、重下，最多 TRIES 次。
 
     1001（审计 attach-4）：文件头校验通过就算下好了。转 md 失败（加密 / 损坏 / 扫描件空白页）不再删字节重下——
@@ -183,7 +189,7 @@ def acquire(source_key: str, source_id: str, *, doc_id: str, name: str, xsec_tok
     object_dir = storage.object_dir(source_key, source_id)
     staging = object_dir / ".attachment-staging"
     last_error = ""
-    for attempt in range(1, TRIES + 1):
+    for attempt in range(1, (tries or TRIES) + 1):
         if not _fits(budget_left, attempt_cost(attempt)):
             raise AttachmentDeferred(f"时间预算不够再开附件页了（{name}），下次接着下"
                                      + (f"；前一次：{last_error}" if last_error else ""))
@@ -469,6 +475,8 @@ def download_for_object(
     results: list[dict[str, Any]] = []
     dest_dir = object_dir / "attachments"
     staging = object_dir / ".attachment-staging"
+    backoff = _load_backoff(object_dir)
+    now = datetime.now().astimezone()
 
     for att in attachments:
         doc_id = att.get("doc_id")
@@ -513,9 +521,17 @@ def download_for_object(
                 known = load_downloaded(source_key, source_id)
                 results.append({**known[doc_id], "status": "downloaded"})
                 continue
+            prior = backoff.get(doc_id) or {}
+            if not force and prior.get("next_at") and now < _parse_dt(prior["next_at"], now):
+                # 1008（B3-P3）：同一份附件下载失败后按 1/2/4/7 天跨夜退避，退避期内不开页（以前每晚最多开 6 次号页）
+                results.append({"doc_id": doc_id, "name": att.get("name"), "status": "backoff",
+                                "error": f"上次没下好（{prior.get('error') or '原因见上次'}），{prior['next_at'][5:16]} 之后再试"})
+                continue
             record = acquire(source_key, source_id, doc_id=doc_id, name=att.get("name") or "file",
-                             xsec_token=note.get("xsec_token") or "", verbose=verbose, budget_left=budget_left)
+                             xsec_token=fresh_token(source_id) or note.get("xsec_token") or "", verbose=verbose,
+                             budget_left=budget_left, tries=1 if prior else None)
             known = load_downloaded(source_key, source_id)
+            backoff.pop(doc_id, None)
             results.append({**record, "status": "downloaded"})
         except AttachmentDeferred as exc:
             results.append({"doc_id": doc_id, "name": att.get("name"), "status": "deferred", "error": str(exc)})
@@ -525,7 +541,10 @@ def download_for_object(
             break  # 账号要人处理：余下附件等处理完再补
         except (AttachmentError, subprocess.SubprocessError, OSError) as exc:
             results.append({"doc_id": doc_id, "status": "failed", "error": f"{type(exc).__name__}: {exc}"})
+            n = int((backoff.get(doc_id) or {}).get("tries") or 0) + 1
+            backoff[doc_id] = {"tries": n, "next_at": conversion_next_at(n, now), "error": str(exc)[:120]}
 
+    _save_backoff(object_dir, backoff)
     if staging.exists() and not any(staging.iterdir()):
         staging.rmdir()
 
@@ -543,7 +562,7 @@ def download_for_object(
         errors += [e for e in before if e.get("doc_id") in deferred_ids]
     storage.write_json(object_dir / "attachment-state.json", {
         "checked_at": datetime.now(timezone.utc).isoformat(),
-        "errors": errors,
+        "errors": errors, **({"download_backoff": backoff} if backoff else {}),
     })
     _report_downloads(meta, results)
     return {"item_id": meta["item_id"], "results": results}
@@ -578,7 +597,7 @@ def _report_downloads(meta: dict[str, Any], results: list[dict[str, Any]]) -> No
             else:
                 problems_mod.report("attachments.download", "TRANSIENT.DOWNLOAD_FAILED", f"{name}：{message}"[:200],
                                     item_id=item_id, title=title)
-        if not failed and not any(r.get("status") == "deferred" for r in results):
+        if not failed and not any(r.get("status") in ("deferred", "backoff") for r in results):
             problems_mod.resolve("attachments.download", item_id)
     except Exception as exc:  # noqa: BLE001 - 登记失败不影响附件本身
         print(f"[attachment] 问题记录没写上：{exc}", file=sys.stderr)
@@ -799,8 +818,24 @@ def run(args) -> int:
     熔断中 → 退出 5 一页不开；号被别的任务占着 → 退出 6。--audit / --attach 不联网，不受影响。"""
     if getattr(args, "audit", False) or getattr(args, "attach", None) or getattr(args, "dedupe", False):
         return _run(args)
-    from . import accounts
     from .read import dump_json
+    if getattr(args, "recheck_status", False) or getattr(args, "skipped", None) or getattr(args, "reconcile", False):
+        # 纯本地：状态 / 跳过记一笔（夜跑脚本用 -Account 跳过收尾段时调）/ 本地对账
+        if getattr(args, "skipped", None):
+            write_recheck_status("tail", {"checked": 0, "skipped": args.skipped, "stopped_reason": "skipped"})
+        if getattr(args, "reconcile", False):
+            dump_json(reconcile())
+        else:
+            dump_json(recheck_status())
+        return 0
+    if getattr(args, "recheck", False) and getattr(args, "guest_only", False):
+        # 1008（B3-P1）：游客段——不调 check_risk_hold / ensure_reader（那会拉起读取服务）、不拿账号锁；
+        # 只读本地熔断文件决定开不开页（见 recheck_guest）
+        out = recheck_guest(limit=getattr(args, "limit", 0) or 0, verbose=True,
+                            budget_left=budget_from_minutes(getattr(args, "budget_min", 0)))
+        dump_json(out)
+        return 0
+    from . import accounts
     try:
         accounts.check_risk_hold()
     except accounts.ReaderError as exc:
@@ -828,7 +863,10 @@ def _run(args, budget_left=None) -> int:
         budget_left = budget_from_minutes(getattr(args, "budget_min", 0))
     if getattr(args, "recheck", False):
         from .read import dump_json
-        out = recheck(limit=getattr(args, "limit", 0) or 0, verbose=True, budget_left=budget_left)
+        if getattr(args, "logged_in_tail", False):
+            out = recheck_tail(limit=getattr(args, "limit", 0) or TAIL_LIMIT, verbose=True, budget_left=budget_left)
+        else:
+            out = recheck(limit=getattr(args, "limit", 0) or 0, verbose=True, budget_left=budget_left)
         dump_json(out)
         return EXIT_NEEDS_HUMAN if out.get("blocked") else 0
     if getattr(args, "dedupe", False):
@@ -839,9 +877,12 @@ def _run(args, budget_left=None) -> int:
         from .read import dump_json
         metas = list((storage.vault_root() / "_archive" / "xiaohongshu").glob("*/meta.json"))
         rows = [inventory(p.parent) for p in metas]
-        unprobed = [p.parent.name for p in metas if probe_state(p.parent) == "unprobed"]
+        states = {p.parent.name: probe_state(p.parent) for p in metas}
+        unprobed = [k for k, v in states.items() if v == "unprobed"]
         dump_json({"items": [r for r in rows if r["total"]], "missing": sum(r["missing"] for r in rows),
                    "unprobed": len(unprobed), "unprobed_ids": unprobed,
+                   "gone": sum(1 for v in states.values() if v == "gone"),
+                   "recheck": recheck_status(),
                    "total": sum(r["total"] for r in rows), "unconfirmed": sum(r["unconfirmed"] for r in rows)})
         return 0
     # 手动挂本地文件：认领一篇 → 复制进 attachments → 标已下 → 渲染 + 重建目录
@@ -920,7 +961,7 @@ def _run(args, budget_left=None) -> int:
                 print(f"{outcome['item_id']}  ↓ {r['file']}  {r['bytes']} 字节  {r['sha256'][:12]}…")
             elif r["status"] == "already":
                 print(f"{outcome['item_id']}  = {r['file']}（已有，--force 可重下）")
-            elif r["status"] == "deferred":
+            elif r["status"] in ("deferred", "backoff"):
                 print(f"{outcome['item_id']}  … {r.get('name') or r.get('doc_id') or '附件'}：{r.get('error')}",
                       file=sys.stderr)
             else:
@@ -995,12 +1036,16 @@ def _probe_logged_in(note_id: str, token: str | None) -> dict[str, Any]:
     except (httpx.HTTPError, OSError, ValueError) as exc:
         # 0929：读取服务连接被重置（10054）以前直接抛出，整晚补查崩掉、后面的笔记全没查；现在只算这篇没查清，明晚再来
         return {"ok": False, "error": f"读取服务连接出错：{type(exc).__name__} {exc}"[:200]}
-    if d.get("guest") or d.get("loginBtn"):
+    path = str(d.get("path") or "")
+    if d.get("guest") or d.get("loginBtn") or path.startswith("/login") or "/website-login" in path:
+        # 落到登录页一律是号的问题：停车、要人处理，绝不判成删帖（1008 B3-P2）
         accounts._note_account("NOT_LOGGED_IN", "附件补查：登录号打开笔记是游客")
-        return {"ok": False, "needs_human": True, "code": "NOT_LOGGED_IN",
+        return {"ok": False, "needs_human": True, "code": "NOT_LOGGED_IN", "path": path,
                 "error": "读取服务的号没登录：先在目录里点「扫码登录」"}
     if d.get("wall") or not d.get("hasNote"):
-        return {"ok": False, "error": f"登录也打不开这篇（{d.get('path')}：多半已删或仅作者可见）"}
+        return {"ok": False, "path": path, "wall": bool(d.get("wall")), "has_note": bool(d.get("hasNote")),
+                "gone_like": (path.startswith("/explore") or path.startswith("/404")) and not d.get("hasNote"),
+                "error": f"登录也打不开这篇（{path}：可能已删、仅作者可见、审核中，或链接口令过期）"}
     rf = d.get("relatedFile")
     if rf and rf.get("docId"):
         return {"ok": True, "related_file": rf, "error": None}
@@ -1019,6 +1064,12 @@ def probe_state(obj: Path) -> str:
     mark = obj / "derived" / "web_recheck.json"
     if mark.exists():
         m = storage.read_json(mark)
+        if m.get("gone"):
+            # 1008（B3-P2）：原帖打不开 = 终态，不算没查清；每 30 天游客复查一次，以后再看到就翻回来
+            gone_at = _parse_dt(m.get("gone_at"), None)
+            if gone_at and datetime.now().astimezone() - gone_at < timedelta(days=GONE_RECHECK_DAYS):
+                return "gone"
+            return "unprobed"
         if m.get("ok") and not m.get("download_error"):
             return "checked"
         return "unprobed"
@@ -1071,9 +1122,8 @@ def recheck(*, limit: int = 0, verbose: bool = False, budget_left=None) -> dict[
     found, failed, checked = [], [], 0
     blocked = ""
     out_of_time = False
-    # 从没补查过的排前面，游客也读不到的排后面，免得它们每晚占满名额
-    for meta_path in sorted(base.glob("*/meta.json"),
-                            key=lambda p: ((p.parent / "derived" / "web_recheck.json").exists(), p.parent.name)):
+    # 从没补查过的排前面；查过的按上次查的时间轮流（谁最久没查谁先，1008：以前查过的永远垫底、一次都轮不到）
+    for meta_path in sorted(base.glob("*/meta.json"), key=_queue_key):
         obj = meta_path.parent
         source_id = obj.name
         mark = obj / "derived" / "web_recheck.json"
@@ -1172,4 +1222,487 @@ def recheck(*, limit: int = 0, verbose: bool = False, budget_left=None) -> dict[
     if out_of_time:
         out["out_of_time"] = True
         print("[recheck] 时间预算到了，剩下的明晚接着查", file=sys.stderr)
+    return out
+
+
+# ==========================================================================
+# 1008（L6·B3）附件补查拆两段 + 终态 + 本地对账 + 状态文件
+#
+# 游客段（--recheck --guest-only）：不碰号——不调读取服务、不拿账号锁、不调 check_risk_hold（它会拉起读取服务），
+#   只读本地熔断文件；每篇前只读看一眼账号锁（号正被同步 / lwa 占着就收工，别和号的活动从同一个 IP 叠在一起）；
+#   无条件保险丝：连续 2 篇游客读不到 / 游客浏览器自己出错 → 当晚停；游客页上出现验证专用词 → 立刻停、不起浏览器兜底、
+#   登记步骤级 TRANSIENT.WEB_PROBE_BLOCKED。探到附件只登记（--all 去下），不下载。
+#   熔断夜（她 1008 答：照跑）：开关 LWA_GUEST_RECHECK_DURING_HOLD 默认开，开了也守 ≤10 篇、离验证 ≥60 分钟。
+# 收尾段（--recheck --logged-in-tail，碰号）：只看游客读不到的，每晚 ≤5 篇；原有门槛一条不少（熔断、账号锁、pace、
+#   撞验证即停）；第一次遇到服务那侧的失败（TIMEOUT / BUSY / 连不上）就收工。
+# 「原帖打不开」终态：登录号落到 /explore 或 /404、页面上没有这条笔记、不是游客、没有登录按钮——两个不同的晚上各看到
+#   一次（或用读收藏时存下的新口令看到一次）才定；落到 /login 一律按号的问题停车，绝不判删帖。
+# 状态文件 _archive/attachments-recheck-status.json：两段每次运行都写，跳过也写（--skipped），面板 / 夜跑如实说。
+# ==========================================================================
+
+GONE_RECHECK_DAYS = 30
+GUEST_RETRY_DAYS = 7          # 游客读不到的：7 天内不再用游客看（交给收尾段），之后游客再试一次（口令可能换了）
+GUEST_LIMIT = 20
+GUEST_LIMIT_BACKLOG = 40      # 她 1008：积压期（没查清 >20 篇）游客段每晚上限提到 40
+BACKLOG_THRESHOLD = 20
+GUEST_HOLD_LIMIT = 10
+GUEST_HOLD_MIN_GAP_MIN = 60
+GUEST_FUSE_MISSES = 2
+TAIL_LIMIT = 5                # 她 1008：号正常的晚上收尾段每晚 ≤5 篇
+STATUS_NAME = "attachments-recheck-status.json"
+FAV_TOKENS_NAME = "fav-tokens.json"
+FRESH_TOKEN_DAYS = 7
+SERVICE_CODES = ("TIMEOUT", "BUSY", "DISCONNECTED", "RATE_LIMITED", "VERIFY_WINDOW_OPEN", "LOGIN_IN_PROGRESS")
+
+
+def _parse_dt(value, default):
+    try:
+        return datetime.fromisoformat(str(value)).astimezone()
+    except (TypeError, ValueError):
+        return default
+
+
+def _now_local() -> datetime:
+    return datetime.now().astimezone()
+
+
+def _iso(dt: datetime) -> str:
+    return dt.isoformat(timespec="seconds")
+
+
+def _load_backoff(object_dir: Path) -> dict[str, Any]:
+    try:
+        state = storage.read_json(object_dir / "attachment-state.json")
+    except (OSError, ValueError):
+        return {}
+    data = state.get("download_backoff") if isinstance(state, dict) else None
+    return dict(data) if isinstance(data, dict) else {}
+
+
+def _save_backoff(object_dir: Path, backoff: dict[str, Any]) -> None:
+    """退避表跟着 attachment-state.json 走（download_for_object 末尾整份写），这里不单独写。"""
+    return None
+
+
+# ---------------------------------------------------------------- 新口令（P8，零开页）
+
+def fav_tokens_path() -> Path:
+    return storage.archive_root() / FAV_TOKENS_NAME
+
+
+def remember_fav_tokens(items: list[dict[str, Any]], *, partial: bool) -> int:
+    """读收藏读全（partial=false）时，把「笔记 id → 最新口令」存到本地（纯本地写，零开页）。补查 / 下载优先用它。
+    只认读全的那一次：读一截时存下来的不全，判「原帖打不开」时会误以为它不在收藏里。返回存了几条。永不抛异常。"""
+    if partial:
+        return 0
+    try:
+        from urllib.parse import parse_qs, urlsplit
+        now = _iso(_now_local())
+        out: dict[str, Any] = {}
+        for it in items or []:
+            nid = str(it.get("note_id") or it.get("id") or "")
+            token = it.get("xsec_token") or (parse_qs(urlsplit(str(it.get("url") or "")).query).get("xsec_token") or [""])[0]
+            if nid and token:
+                out[nid] = {"token": token, "at": now}
+        if out:
+            storage.write_json(fav_tokens_path(), {"schema_version": 1, "at": now, "tokens": out})
+        return len(out)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[recheck] 新口令没存上（不影响同步）：{exc}", file=sys.stderr)
+        return 0
+
+
+def fresh_token(note_id: str) -> str | None:
+    """最近一次读全收藏时拿到的这篇的口令（FRESH_TOKEN_DAYS 天内）；没有就 None（调用方退回入库时的旧口令）。"""
+    try:
+        data = storage.read_json(fav_tokens_path())
+    except (OSError, ValueError):
+        return None
+    row = ((data or {}).get("tokens") or {}).get(str(note_id)) or {}
+    at = _parse_dt(row.get("at"), None)
+    if not row.get("token") or not at or _now_local() - at > timedelta(days=FRESH_TOKEN_DAYS):
+        return None
+    return str(row["token"])
+
+
+def _old_token(obj: Path, meta: dict[str, Any]) -> str | None:
+    raw = storage.raw_dir("xiaohongshu", obj.name, meta["current_version"])
+    web = raw / "web_raw.json"
+    url = (storage.read_json(web).get("url") or "") if web.exists() else ""
+    token = (re.search(r"xsec_token=([^&]+)", url) or [None, None])[1]
+    if token:
+        from urllib.parse import unquote
+        return unquote(token)
+    src = raw / "source.json"
+    return (storage.read_json(src).get("note") or {}).get("xsec_token") if src.exists() else None
+
+
+# ---------------------------------------------------------------- 队列
+
+def _mark_of(obj: Path) -> dict[str, Any]:
+    try:
+        m = storage.read_json(obj / "derived" / "web_recheck.json")
+        return m if isinstance(m, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _queue_key(path: Path):
+    """从没补查过的在前；查过的按上次查的时间轮流（谁最久没查谁先）。"""
+    obj = path.parent if path.name == "meta.json" else path
+    m = _mark_of(obj)
+    if not m:
+        return (0, "", obj.name)
+    return (1, str(m.get("guest_at") or m.get("checked_at") or ""), obj.name)
+
+
+def _recent(value, days: int) -> bool:
+    at = _parse_dt(value, None)
+    return bool(at) and _now_local() - at < timedelta(days=days)
+
+
+def recheck_queues() -> dict[str, Any]:
+    """{guest: [obj], tail: [obj], gone: n, unprobed: n}：游客段要看的、收尾段（登录号）要看的、已判原帖打不开的。"""
+    base = storage.vault_root() / "_archive" / "xiaohongshu"
+    guest, tail, gone = [], [], 0
+    for meta_path in base.glob("*/meta.json"):
+        obj = meta_path.parent
+        try:
+            state = probe_state(obj)
+        except (OSError, ValueError, KeyError):
+            continue
+        if state == "gone":
+            gone += 1
+            continue
+        if state != "unprobed":
+            continue
+        m = _mark_of(obj)
+        if m.get("stage") in ("guest_unseen", "gone_suspected") and _recent(m.get("guest_at"), GUEST_RETRY_DAYS):
+            tail.append(obj)
+        else:
+            guest.append(obj)
+    guest.sort(key=_queue_key)
+    tail.sort(key=lambda o: (str(_mark_of(o).get("logged_at") or ""), o.name))
+    return {"guest": guest, "tail": tail, "gone": gone, "unprobed": len(guest) + len(tail)}
+
+
+def guest_limit(backlog: int) -> int:
+    return GUEST_LIMIT_BACKLOG if backlog > BACKLOG_THRESHOLD else GUEST_LIMIT
+
+
+def _guest_during_hold() -> bool:
+    return os.environ.get("LWA_GUEST_RECHECK_DURING_HOLD", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+# ---------------------------------------------------------------- 本地对账（P0，零联网）
+
+def reconcile() -> dict[str, Any]:
+    """纯本地对账（部署当刻跑一次，以后每晚游客段开头也跑）：
+    - 补查探到了附件（web_recheck 带 docId）→ 记进对象级声明（_remember_probed），附件检查如实数「未下载」，--all 去下；
+      download_error 清掉（下载归 --all 管，带跨夜退避），这篇算查清；
+    - 旧记录里游客 + 登录号两路都打不开、登录号落在 /explore 的 → 判「原帖打不开」（gone），PROBE_FAILED 标已解决。
+    返回 {cleared, declared, gone}。"""
+    base = storage.vault_root() / "_archive" / "xiaohongshu"
+    out = {"cleared": 0, "declared": 0, "gone": 0}
+    for mark_path in base.glob("*/derived/web_recheck.json"):
+        obj = mark_path.parents[1]
+        try:
+            m = storage.read_json(mark_path)
+            meta = storage.read_json(obj / "meta.json")
+        except (OSError, ValueError):
+            continue
+        changed = False
+        rf = m.get("related_file") or {}
+        if m.get("ok") and rf.get("docId"):
+            before = len(load_resolved(obj))
+            try:
+                _remember_probed(obj, meta, str(rf["docId"]), rf.get("name") or f"{rf['docId']}.bin", rf)
+            except (OSError, ValueError, KeyError) as exc:
+                print(f"[recheck] {obj.name} 附件声明没记上：{exc}", file=sys.stderr)
+            out["declared"] += len(load_resolved(obj)) > before
+            if m.get("download_error"):
+                m.pop("download_error", None)
+                m["download_error_cleared"] = "下载交给 attachments --all（带跨夜退避）"
+                out["cleared"] += 1
+                changed = True
+        elif (not m.get("ok") and not m.get("gone") and not m.get("stage")
+              and "登录也打不开" in str(m.get("error") or "") and "/explore" in str(m.get("error") or "")):
+            m.update(gone=True, gone_at=m.get("checked_at") and _iso(_parse_dt(m["checked_at"], _now_local())) or _iso(_now_local()),
+                     stage="gone", gone_why="游客和登录号都打不开，登录号落到 /explore（本地对账）")
+            out["gone"] += 1
+            changed = True
+            problems_mod.resolve("attachments.recheck", meta.get("item_id") or f"xhs-{obj.name}")
+        if changed:
+            storage.write_json(mark_path, m)
+    return out
+
+
+# ---------------------------------------------------------------- 状态文件（P4）
+
+def status_path() -> Path:
+    return storage.archive_root() / STATUS_NAME
+
+
+def _read_status() -> dict[str, Any]:
+    try:
+        st = storage.read_json(status_path())
+        return st if isinstance(st, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _eta_date(nights: int) -> str:
+    when = _now_local()
+    if when.hour >= 4:
+        when += timedelta(days=1)
+    return (when + timedelta(days=max(0, nights - 1))).strftime("%m-%d")
+
+
+def status_text(st: dict[str, Any], q: dict[str, Any]) -> str:
+    """一行如实的话（面板 / 夜跑日志）：还剩几篇、每晚怎么查、预计哪天查完、上次查了什么 / 为什么没查。"""
+    left_g, left_t = len(q["guest"]), len(q["tail"])
+    if not left_g and not left_t:
+        gone = f"（{q['gone']} 篇原帖打不开，本地存档还在）" if q["gone"] else ""
+        return "每篇原网页都查过附件了" + gone
+    lim = guest_limit(left_g + left_t)
+    parts = []
+    if left_g:
+        nights = -(-left_g // lim)
+        parts.append(f"附件补查：还有 {left_g} 篇没查清原网页有没有附件 · 每晚用游客方式查 {lim} 篇，不用你的号 · "
+                     f"预计 {_eta_date(nights)} 查完")
+    if left_t:
+        parts.append(f"要用登录号看一眼的 {left_t} 篇：号正常的晚上每晚看 {TAIL_LIMIT} 篇（约 {-(-left_t // TAIL_LIMIT)} 晚）")
+    g = st.get("guest") or {}
+    if g.get("at"):
+        why = {"account_hold": "号要验证，按开关今晚游客补查没开页", "hold_too_recent": "刚撞验证不到 1 小时，游客补查今晚没开页",
+               "account_busy": "号正被别的任务用着，游客补查让路", "captcha": "游客页出现安全验证，当晚停了",
+               "fuse": "连着 2 篇游客读不到，当晚停了", "guest_browser_error": "游客浏览器出错，当晚停了"}.get(
+                   str(g.get("stopped_reason") or ""), "")
+        parts.append(f"上次 {str(g['at'])[5:16].replace('T', ' ')} 查了 {g.get('checked', 0)} 篇，"
+                     f"{len(g.get('found') or [])} 篇发现附件" + (f"（{why}）" if why else ""))
+    t = st.get("tail") or {}
+    if t.get("skipped"):
+        parts.append(f"碰号的补查 {str(t.get('at') or '')[5:16].replace('T', ' ')} 没跑：{t['skipped']}")
+    return " · ".join(parts)
+
+
+def write_recheck_status(phase: str, data: dict[str, Any]) -> dict[str, Any]:
+    """记一次补查运行（跑了 / 跳过 / 被拦 / 时间用完都写）。永不抛异常。"""
+    try:
+        st = _read_status()
+        q = recheck_queues()
+        entry = {"at": _iso(_now_local()), "phase": phase,
+                 **{k: v for k, v in data.items() if k in ("checked", "found", "gone", "guest_unseen", "stopped_reason",
+                                                         "skipped", "account_hold", "limit", "reconciled")}}
+        if isinstance(entry.get("found"), list):
+            entry["found"] = [x.get("id") if isinstance(x, dict) else x for x in entry["found"]][:20]
+        st[phase] = entry
+        st.update(at=entry["at"], phase=phase, stopped_reason=entry.get("stopped_reason"),
+                  skipped=entry.get("skipped"), left_unprobed=len(q["guest"]), tail_pending=len(q["tail"]),
+                  gone_total=q["gone"])
+        st["eta_nights"] = -(-len(q["guest"]) // guest_limit(q["unprobed"])) + -(-len(q["tail"]) // TAIL_LIMIT)
+        st["text"] = status_text(st, q)
+        hist = [h for h in (st.get("history") or []) if isinstance(h, dict)][-13:]
+        st["history"] = hist + [{k: entry.get(k) for k in ("at", "phase", "checked", "stopped_reason", "skipped")}]
+        storage.write_json(status_path(), st)
+        try:
+            problems_mod.write_summary()
+        except Exception:  # noqa: BLE001
+            pass
+        return st
+    except Exception as exc:  # noqa: BLE001
+        print(f"[recheck] 状态文件没写上：{exc}", file=sys.stderr)
+        return {}
+
+
+def recheck_status() -> dict[str, Any]:
+    """当前的补查状态（读状态文件 + 现数一遍队列），给 --audit / 面板 / 夜跑用。"""
+    st = _read_status()
+    q = recheck_queues()
+    return {**{k: v for k, v in st.items() if k != "history"}, "left_unprobed": len(q["guest"]),
+            "tail_pending": len(q["tail"]), "gone_total": q["gone"], "text": status_text(st, q)}
+
+
+def recheck_eta(item_id: str) -> dict[str, Any]:
+    """这一篇在补查队列里的真实位置（repair.describe 写状态句用）：{queue: guest|tail|none, pos, nights, when, skipped}。"""
+    sid = str(item_id or "").removeprefix("xhs-")
+    q = recheck_queues()
+    st = _read_status()
+    for name, lim in (("tail", TAIL_LIMIT), ("guest", guest_limit(q["unprobed"]))):
+        ids = [o.name for o in q[name]]
+        if sid in ids:
+            pos = ids.index(sid) + 1
+            nights = -(-pos // lim)
+            return {"queue": name, "pos": pos, "nights": nights, "when": _eta_date(nights),
+                    "skipped": ((st.get("tail") or {}).get("skipped") if name == "tail" else None),
+                    "last_at": (st.get(name) or {}).get("at")}
+    return {"queue": "none"}
+
+
+# ---------------------------------------------------------------- 游客段
+
+def _write_mark(obj: Path, **fields: Any) -> dict[str, Any]:
+    mark = obj / "derived" / "web_recheck.json"
+    mark.parent.mkdir(parents=True, exist_ok=True)
+    m = {**_mark_of(obj), **fields}
+    storage.write_json(mark, m)
+    return m
+
+
+def recheck_guest(*, limit: int = 0, verbose: bool = False, budget_left=None) -> dict[str, Any]:
+    """游客段（不碰号）。返回 {phase, checked, found, guest_unseen, stopped_reason, account_hold, reconciled}；永远退出 0。"""
+    from . import accounts
+    from .adapters import xiaohongshu as xhs
+    out: dict[str, Any] = {"phase": "guest", "checked": 0, "found": [], "guest_unseen": 0, "stopped_reason": "done"}
+    out["reconciled"] = reconcile()
+    q = recheck_queues()
+    lim = limit or guest_limit(q["unprobed"])
+    hold = accounts._hold_file()
+    out["account_hold"] = bool(hold)
+    if hold:
+        since = _parse_dt(hold.get("since"), None)
+        if not _guest_during_hold():
+            out["stopped_reason"] = "account_hold"
+        elif since and _now_local() - since < timedelta(minutes=GUEST_HOLD_MIN_GAP_MIN):
+            out["stopped_reason"] = "hold_too_recent"
+        lim = min(lim, GUEST_HOLD_LIMIT)
+    out["limit"] = lim
+    if out["stopped_reason"] != "done":
+        print(f"[recheck] 游客补查今晚不开页：{out['stopped_reason']}（本地对账照做了）", file=sys.stderr)
+        write_recheck_status("guest", out)
+        return out
+    misses = 0
+    for obj in q["guest"]:
+        if out["checked"] >= lim:
+            out["stopped_reason"] = "limit"
+            break
+        if not _fits(budget_left, guest_cost()):
+            out["stopped_reason"] = "out_of_time"
+            break
+        now_hold = accounts._hold_file()
+        if now_hold and not hold:
+            out["stopped_reason"] = "account_hold"  # 跑着跑着号出事了：游客也先停，别和那件事叠在一起
+            break
+        if accounts.lock_holder():
+            out["stopped_reason"] = "account_busy"
+            break
+        try:
+            meta = storage.read_json(obj / "meta.json")
+        except (OSError, ValueError):
+            continue
+        if out["checked"]:
+            gap = random.uniform(*PROBE_GAP_SECONDS)
+            if verbose:
+                print(f"[recheck] 歇 {gap:.0f} 秒再看下一篇", file=sys.stderr)
+            time.sleep(gap)
+        token = fresh_token(obj.name) or _old_token(obj, meta)
+        probe = xhs.fetch_related_file(obj.name, token, stop_on_captcha=True)
+        out["checked"] += 1
+        now = _iso(_now_local())
+        if probe.get("captcha"):
+            out["stopped_reason"] = "captcha"
+            problems_mod.report("attachments.recheck", "TRANSIENT.WEB_PROBE_BLOCKED",
+                                "附件补查（游客）打开笔记页时出现了安全验证 / 访问频繁：当晚游客补查停了，没碰号")
+            break
+        if probe.get("ok"):
+            misses = 0
+            rf = probe.get("related_file") or {}
+            gone_back = {"gone": False, "gone_at": None} if _mark_of(obj).get("gone") else {}
+            _write_mark(obj, checked_at=now, guest_at=now, ok=True, related_file=rf or None, error=None,
+                        stage="guest", via=probe.get("via") or "httpx", **gone_back)
+            problems_mod.resolve("attachments.recheck", meta.get("item_id") or f"xhs-{obj.name}")
+            if rf.get("docId"):
+                _remember_probed(obj, meta, str(rf["docId"]), rf.get("name") or f"{rf['docId']}.bin", rf)
+                out["found"].append({"id": obj.name, "file": rf.get("name")})
+            continue
+        misses += 1
+        out["guest_unseen"] += 1
+        m = _mark_of(obj)
+        if m.get("gone"):
+            _write_mark(obj, gone_at=now, guest_at=now)  # 30 天复查游客还是看不到：终态续 30 天
+        else:
+            _write_mark(obj, checked_at=now, guest_at=now, ok=False, related_file=None,
+                        stage="guest_unseen", error=str(probe.get("error") or "")[:200])
+        if probe.get("browser_error"):
+            out["stopped_reason"] = "guest_browser_error"
+            break
+        if misses >= GUEST_FUSE_MISSES:
+            out["stopped_reason"] = "fuse"
+            break
+    if out["found"]:
+        _rebuild_catalog(True)
+    write_recheck_status("guest", out)
+    return out
+
+
+# ---------------------------------------------------------------- 收尾段（碰号）
+
+def recheck_tail(*, limit: int = TAIL_LIMIT, verbose: bool = False, budget_left=None) -> dict[str, Any]:
+    """收尾段：游客读不到的用登录号看一眼（每晚 ≤limit 篇）。调用方（run）已过熔断检查、拿了账号锁。
+    撞验证 / 掉登录 → blocked（退出 5）；服务那侧第一次失败就收工。返回 {phase, checked, found, gone, blocked?, stopped_reason}。"""
+    q = recheck_queues()
+    out: dict[str, Any] = {"phase": "tail", "checked": 0, "found": [], "gone": 0, "stopped_reason": "done", "limit": limit}
+    today = _now_local().date().isoformat()
+    for obj in q["tail"]:
+        if out["checked"] >= limit:
+            out["stopped_reason"] = "limit"
+            break
+        if not _fits(budget_left, _open_gap_hi() + LOGGED_PROBE_TIMEOUT_SECONDS):
+            out["stopped_reason"] = "out_of_time"
+            break
+        try:
+            meta = storage.read_json(obj / "meta.json")
+        except (OSError, ValueError):
+            continue
+        item_id = meta.get("item_id") or f"xhs-{obj.name}"
+        fresh = fresh_token(obj.name)
+        logged = _probe_logged_in(obj.name, fresh or _old_token(obj, meta))
+        out["checked"] += 1
+        now = _iso(_now_local())
+        if logged.get("needs_human"):
+            _write_mark(obj, logged_at=now, error=logged.get("error"))
+            out["blocked"] = logged.get("code") or "NOT_LOGGED_IN"
+            out["stopped_reason"] = "blocked"
+            problems_mod.report_blocked("attachments.recheck", out["blocked"], f"附件补查停了：{logged.get('error')}"[:200])
+            break
+        if logged.get("ok"):
+            rf = logged.get("related_file") or {}
+            _write_mark(obj, checked_at=now, logged_at=now, ok=True, related_file=rf or None, error=None, stage="logged")
+            problems_mod.resolve("attachments.recheck", item_id)
+            if rf.get("docId"):
+                _remember_probed(obj, meta, str(rf["docId"]), rf.get("name") or f"{rf['docId']}.bin", rf)
+                out["found"].append({"id": obj.name, "file": rf.get("name")})
+            continue
+        err = str(logged.get("error") or "")
+        if logged.get("code") in SERVICE_CODES or "读取服务连接出错" in err:
+            out["stopped_reason"] = "service"  # 09-29 连着 4 次 TIMEOUT 还接着开页：第一次就收工
+            print(f"[recheck] 读取服务那侧出错，今晚收尾段收工：{err[:120]}", file=sys.stderr)
+            break
+        if logged.get("gone_like"):
+            m = _mark_of(obj)
+            nights = sorted({*(m.get("gone_nights") or []), today})
+            if len(nights) >= 2 or fresh:
+                _write_mark(obj, checked_at=now, logged_at=now, ok=False, gone=True, gone_at=now, stage="gone",
+                            gone_nights=nights, error=err[:200],
+                            gone_why="游客和登录号都打不开、登录号落到 " + str(logged.get("path") or "") +
+                                     ("（用读收藏时的新口令看的）" if fresh else "（两个晚上各看了一次）"))
+                problems_mod.resolve("attachments.recheck", item_id)
+                out["gone"] += 1
+            else:
+                _write_mark(obj, logged_at=now, stage="gone_suspected", gone_nights=nights, error=err[:200])
+            continue
+        _write_mark(obj, logged_at=now, error=err[:200])
+        eta = recheck_eta(item_id)
+        next_at = None
+        if eta.get("when"):
+            try:
+                y = _now_local().year
+                next_at = _iso(datetime.strptime(f"{y}-{eta['when']} 04:00", "%Y-%m-%d %H:%M").astimezone())
+            except ValueError:
+                next_at = None
+        problems_mod.report("attachments.recheck", "TRANSIENT.PROBE_FAILED", f"登录号也没看清：{err}"[:200],
+                            item_id=item_id, title=meta.get("title"), next_at=next_at)
+    if out["found"]:
+        _rebuild_catalog(True)
+    write_recheck_status("tail", out)
     return out

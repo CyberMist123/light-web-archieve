@@ -64,6 +64,21 @@ GRAB_RESERVE_SECONDS = 20 * 60
 ENRICH_DEFAULT_BUDGET_MIN = 30
 
 
+# 1008（读取组件 d7）：读收藏「这次先停、下次照常」的两种（503，不写熔断）——登记 TRANSIENT、退出 3（读到一截那一类：
+# 夜跑今晚不再重读收藏，但不算要人处理，当晚其它碰号步骤照跑）
+SOFT_STOP_CODES = ("HIDDEN_WIDGET", "FAV_TAB_STUCK")
+SOFT_STOP_TEXT = {
+    "HIDDEN_WIDGET": "页面里有验证组件但没显示滑块，这次先停，下次照常读",
+    "FAV_TAB_STUCK": "收藏页签点不动，疑似小红书在限流，今晚先不读收藏",
+}
+
+
+class FavoritesSoftStop(RuntimeError):
+    """读收藏这次先停（不熔断、不要人处理）：带 .code（HIDDEN_WIDGET / FAV_TAB_STUCK）。"""
+
+    code = ""
+
+
 def fetch_favorites(*, limit: int = 50, verbose: bool = False) -> list[dict[str, Any]]:
     """经读取服务 `/api/v1/favorites` 读当前登录账号的收藏（与评论/附件同一个号、同一个会话）。
 
@@ -81,6 +96,12 @@ def fetch_favorites(*, limit: int = 50, verbose: bool = False) -> list[dict[str,
         # 别把「慢」当成「号出事」
         data = accounts.api("GET", favorites_route(), timeout=780)
     except accounts.ReaderError as exc:
+        if exc.code in SOFT_STOP_CODES:
+            # 1008（读取组件 d7）：看不见的验证组件 / 页签点不动——只停这一次读收藏，不熔断、不是要人处理，
+            # 不能当 ServiceDownError 走退出码 5（那会挡掉当晚其它碰号步骤）
+            err = FavoritesSoftStop(str(exc) or SOFT_STOP_TEXT[exc.code])
+            err.code = exc.code
+            raise err from exc
         msg = accounts.SOLUTIONS.get(exc.code, ("", str(exc), "", ""))
         text = f"{msg[1]}：{msg[2]}" if msg[2] else str(exc)
         err = (xhs.AccountBlockedError if exc.needs_human else xhs.ServiceDownError)(text)
@@ -105,7 +126,10 @@ READ_FIELDS = ("partial", "stop_reason", "has_more", "expect", "scroll")
 STOP_REASON_TEXT = {
     "budget": "滚动时间用完了还在加载",
     "below_expect": "条数停在上次基准以下、页面又没说到底",
-    "stuck_has_more": "页面说还有更多，但换了几种滚法都加载不出来",
+    # 1008（读取组件 d7）：stalled 取代 stuck_has_more（卡住只换第 1 级滚法，还不动就停）
+    "stalled": "列表停住了、页面又说还有更多，换了一种滚法还是不动，就先停了（不再硬滚）",
+    "hidden_widget": "滚动途中页面里出现了看不见的验证组件，先停了（不熔断，下次照常读）",
+    "api_refused": "收藏接口回了拒绝，先停了（不再接着打接口）",
     "cancelled": "读的时候请求超时被取消",
     "tab_lost": "滚动途中页签跳走了",
     "not_scrolled": "读取服务没给出滚动结论",
@@ -294,6 +318,13 @@ def sync_favorites(
     _LAST_READ = {}
     try:
         favs = fetch_favorites(limit=limit, verbose=verbose)
+    except FavoritesSoftStop as exc:
+        code = getattr(exc, "code", "") or "HIDDEN_WIDGET"
+        text = f"{SOFT_STOP_TEXT.get(code, '')}（读取服务：{exc}）" if str(exc) and str(exc) != SOFT_STOP_TEXT.get(code) \
+            else SOFT_STOP_TEXT.get(code, str(exc))
+        synclog.error("sync-favorites", f"读收藏这次先停了：{text}", code)
+        # 不进 items（不是 blocked → 不走退出码 5）；suspicious 让它退出 3、不顶基准，suspicious_code 让问题记录登记成这个码
+        return {"favorites": 0, "synced": 0, "code": code, "suspicious": text, "suspicious_code": code, "items": []}
     except xhs.NeedsHumanError as exc:
         service = isinstance(exc, xhs.ServiceDownError)
         code = getattr(exc, "code", "")
