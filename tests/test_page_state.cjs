@@ -36,44 +36,48 @@ async function catalogTests() {
   const A = dataviewBlock({ dom, app, code });
   await A.run();
   assert.equal(V.reads[DATA], 1);
-  const wrap = A.container.querySelector('.lbc-wrap');
-  assert.ok(wrap.querySelector('style'), '样式在 wrap 里，复用时跟着走');
+  const wrap = A.section.querySelector('.lbc-wrap');
+  assert.ok(dom.document.getElementById('lbc-style'), 'X14c：样式挂 head（#lbc-style）');
+  assert.equal(wrap.querySelector('style'), null, 'wrap 里没有 style');
+  assert.equal(A.container.children.length, 0, 'C4：页面挂在 host 上，dv.container 本身空着');
+  assert.ok(A.container.nextSibling.classList.contains('lb-page-host'));
   // 封面先占位：有宽高就写进 img 属性
-  const img = A.container.querySelector('.lbc-cover');
+  const img = A.section.querySelector('.lbc-cover');
   assert.equal(img.getAttribute('width'), '600'); assert.equal(img.getAttribute('height'), '800');
   // 搜「悉尼」，进多选，选两篇
-  const input = A.container.querySelector('.lbc-search');
-  input.value = '悉尼'; input.onkeydown({ key: 'Enter', isComposing: false, preventDefault() {} });
-  assert.deepEqual(titles(A.container), ['悉尼咖啡地图', '悉尼海边徒步']);
-  const cards = A.container.querySelectorAll('.lbc-card');
+  const input = A.section.querySelector('.lbc-search');
+  input.value = '悉尼'; input.fire('keydown', { key: 'Enter', isComposing: false, preventDefault() {} });
+  assert.deepEqual(titles(A.section), ['悉尼咖啡地图', '悉尼海边徒步']);
+  const cards = A.section.querySelectorAll('.lbc-card');
   cards[0].oncontextmenu({ preventDefault() {}, clientX: 0, clientY: 0 });
   dom.document.body.querySelectorAll('.lbc-menu-item').find(b => b.textContent === '多选')   /* 10-04 右键「多选删除」改名「多选」 */.onclick({ stopPropagation() {} });
-  A.container.querySelectorAll('.lbc-card')[1].onclick({});
-  assert.equal(A.container.querySelectorAll('.lbc-card.is-selected').length, 2);
+  A.section.querySelectorAll('.lbc-card')[1].onclick({});
+  assert.equal(A.section.querySelectorAll('.lbc-card.is-selected').length, 2);
   A.host.scrollTop = 640; A.host.fire('scroll'); await tick(40);
 
   // ── Dataview 重跑、数据没变：整页 DOM 是同一个、不重读、搜索词和多选都在 ──
-  const firstCard = A.container.querySelectorAll('.lbc-card')[0];
+  const firstCard = A.section.querySelectorAll('.lbc-card')[0];
   await A.rerun();
-  assert.equal(A.container.querySelector('.lbc-wrap'), wrap, '旧 DOM 挂回');
-  assert.equal(A.container.children.length, 1, '没有叠出第二份');
+  assert.equal(A.section.querySelector('.lbc-wrap'), wrap, '旧 DOM 挂回');
+  assert.equal(A.section.querySelectorAll('.lb-page-host').length, 1, '没有叠出第二份');
+  assert.equal(A.container.children.length, 0);
   assert.equal(V.reads[DATA], 1, '版本没变不重读 catalog-data');
-  assert.equal(A.container.querySelector('.lbc-search').value, '悉尼');
-  assert.equal(A.container.querySelectorAll('.lbc-card.is-selected').length, 2);
+  assert.equal(A.section.querySelector('.lbc-search').value, '悉尼');
+  assert.equal(A.section.querySelectorAll('.lbc-card.is-selected').length, 2);
 
   // ── 数据变了（同步进来一篇）：不重建整页，旧卡片元素复用，新卡片出现，搜索词不丢 ──
   V.set(DATA, JSON.stringify(catalogData([['d', '悉尼超市折扣日']])));
   await A.rerun();
-  assert.equal(A.container.querySelector('.lbc-wrap'), wrap, '版本变了也不换整页');
+  assert.equal(A.section.querySelector('.lbc-wrap'), wrap, '版本变了也不换整页');
   assert.equal(V.reads[DATA], 2);
-  assert.deepEqual(titles(A.container), ['悉尼咖啡地图', '悉尼海边徒步', '悉尼超市折扣日']);
-  assert.equal(A.container.querySelectorAll('.lbc-card')[0], firstCard, '没变的卡片是同一个元素（封面不重载）');
-  assert.equal(A.container.querySelector('.lbc-search').value, '悉尼');
+  assert.deepEqual(titles(A.section), ['悉尼咖啡地图', '悉尼海边徒步', '悉尼超市折扣日']);
+  assert.equal(A.section.querySelectorAll('.lbc-card')[0], firstCard, '没变的卡片是同一个元素（封面不重载）');
+  assert.equal(A.section.querySelector('.lbc-search').value, '悉尼');
 
   // ── 星标：不读 notes.json；事件更新卡片 ──
   assert.equal(Object.keys(V.reads).filter(p => p.endsWith('notes.json')).length, 0, '不再逐篇读 notes.json');
   app.workspace.trigger('link-brain:star', 'b', true);
-  const cardB = A.container.querySelectorAll('.lbc-card').find(c => c.querySelector('.lbc-ctitle').textContent === '悉尼海边徒步');
+  const cardB = A.section.querySelectorAll('.lbc-card').find(c => c.querySelector('.lbc-ctitle').textContent === '悉尼海边徒步');
   assert.ok(cardB.querySelector('.lbc-star').classList.contains('is-on'));
   assert.equal(plugin.catalogCache.data.items.find(x => x.id === 'b').starred, true, '缓存里的条目跟着改');
 
@@ -81,25 +85,25 @@ async function catalogTests() {
   const B = dataviewBlock({ dom, app, code });
   await B.run();
   assert.equal(V.reads[DATA], 2, '换页回来同版本：用插件对象里的解析结果');
-  assert.equal(B.container.querySelector('.lbc-search').value, '悉尼');
-  assert.equal(titles(B.container).length, 3);
-  assert.equal(B.container.querySelectorAll('.lbc-card.is-selected').length, 2, '多选状态恢复');
-  assert.ok(!B.container.querySelector('.lbc-selbar').hidden, '多选条还在');
+  assert.equal(B.section.querySelector('.lbc-search').value, '悉尼');
+  assert.equal(titles(B.section).length, 3);
+  assert.equal(B.section.querySelectorAll('.lbc-card.is-selected').length, 2, '多选状态恢复');
+  assert.ok(!B.section.querySelector('.lbc-selbar').hidden, '多选条还在');
   await tick(5);
   assert.equal(B.host.scrollTop, 640, '滚动位置恢复');
   // 筛选也恢复：点「吃的」，再换页回来
-  B.container.querySelector('.lbc-search').value = ''; B.container.querySelector('.lbc-search').oninput();
-  B.container.querySelectorAll('.lbc-cat').find(x => x.textContent === '吃的').onclick();
+  B.section.querySelector('.lbc-search').value = ''; B.section.querySelector('.lbc-search').fire('input');
+  B.section.querySelectorAll('.lbc-cat').find(x => x.textContent === '吃的').onclick();
   const C = dataviewBlock({ dom, app, code });
   await C.run();
-  assert.ok(C.container.querySelectorAll('.lbc-cat').find(x => x.textContent === '吃的').classList.contains('is-active'));
-  assert.deepEqual(titles(C.container), ['电饭煲鸡肉饭']);
+  assert.ok(C.section.querySelectorAll('.lbc-cat').find(x => x.textContent === '吃的').classList.contains('is-active'));
+  assert.deepEqual(titles(C.section), ['电饭煲鸡肉饭']);
   // 平时点卡片：同一窗格打开（openLinkText 第三个参数 false），按住 Ctrl 才开新标签
   const D = dataviewBlock({ dom, app, code });
   delete globalThis.__lbState;
   await D.run();
-  D.container.querySelectorAll('.lbc-card')[0].onclick({});
-  D.container.querySelectorAll('.lbc-card')[0].onclick({ ctrlKey: true });
+  D.section.querySelectorAll('.lbc-card')[0].onclick({});
+  D.section.querySelectorAll('.lbc-card')[0].onclick({ ctrlKey: true });
   assert.deepEqual(app.workspace.opened.map(x => x[2]), [false, true]);
   // 计时埋点（§5.8）
   const marks = globalThis.__lbPerf.catalog.marks.map(m => m[0]);
@@ -126,51 +130,51 @@ async function chatTests() {
   const code = LIB + '\n' + SEARCH + '\n' + asset('chat-view.js');
   const A = dataviewBlock({ dom, app, code });
   await A.run();
-  const wrap = A.container.querySelector('.lbchat');
-  assert.equal(A.container.querySelector('.lbchat-reader-layout'), null, '「单篇 / 对照」下拉去掉了');
+  const wrap = A.section.querySelector('.lbchat');
+  assert.equal(A.section.querySelector('.lbchat-reader-layout'), null, '「单篇 / 对照」下拉去掉了');
   // 打草稿：不写 vault
-  const ta = A.container.querySelector('.lbchat-search');
+  const ta = A.section.querySelector('.lbchat-search');
   ta.value = '半句草稿'; ta.oninput();
   assert.equal(V.writes['_archive/chat-session.json'] || 0, 0, '键入不写 chat-session.json');
   await A.rerun();
-  assert.equal(A.container.querySelector('.lbchat'), wrap, '问收藏页重跑也挂回旧 DOM');
-  assert.equal(A.container.querySelector('.lbchat-search').value, '半句草稿');
+  assert.equal(A.section.querySelector('.lbchat'), wrap, '问收藏页重跑也挂回旧 DOM');
+  assert.equal(A.section.querySelector('.lbchat-search').value, '半句草稿');
   const B = dataviewBlock({ dom, app, code });
   await B.run();
-  assert.equal(B.container.querySelector('.lbchat-search').value, '半句草稿', '换页回来草稿还在');
+  assert.equal(B.section.querySelector('.lbchat-search').value, '半句草稿', '换页回来草稿还在');
 
-  // 提问：只显示「正在生成…」，不轮播
-  ta.value = '悉尼有什么'; await A.container.querySelector('.lbchat-composer').onsubmit({ preventDefault() {} });
+  // 提问：只显示「正在处理…」，不轮播
+  ta.value = '悉尼有什么'; await A.section.querySelector('.lbchat-composer').onsubmit({ preventDefault() {} });
   await tick(5);
-  assert.ok(wrap.textContent.includes('正在生成…'));
+  assert.ok(wrap.textContent.includes('正在处理…'));
   assert.ok(!/正在检索收藏|正在读相关笔记|正在整理答案/.test(wrap.textContent));
   // 生成中 Dataview 重跑：旧 DOM 挂回，流式文字照样写进来
   await A.rerun();
-  assert.equal(A.container.querySelector('.lbchat'), wrap);
+  assert.equal(A.section.querySelector('.lbchat'), wrap);
   finish({ status: 'ok', markdown: '第一段。\n\n咖啡店在这里 [来源1]', sources: [{ citation: 1, title: '悉尼咖啡地图', note: 'Web/a.md', excerpts: [] }] });
   await tick(20);
   assert.equal(V.writes['_archive/chat-session.json'], 2, '只在轮次变化时写会话（问出去一次、答完一次）');
   assert.ok(!JSON.parse(V.get('_archive/chat-session.json')).draft, '会话文件里不再存草稿');
   // 整段单击不打开来源
-  const para = A.container.querySelectorAll('p').find(p => p.textContent.includes('咖啡店在这里'));
+  const para = A.section.querySelectorAll('p').find(p => p.textContent.includes('咖啡店在这里'));
   assert.ok(!para.onclick, '段落上没有单击打开');
   assert.ok(!para.classList.contains('lbchat-source-block'));
   // 引用编号 → 单篇（复用右侧来源窗格）
   await para.querySelector('.lbchat-cite').onclick({ stopPropagation() {} });
   assert.deepEqual(calls.at(-1), ['open', 'Web/a.md', false]);
   await tick(5);
-  const bar = A.container.querySelector('.lbchat-srcbar');
+  const bar = A.section.querySelector('.lbchat-srcbar');
   assert.ok(!bar.hidden); assert.ok(bar.textContent.includes('收起来源')); assert.ok(!bar.textContent.includes('退出对照'));
   // 参考材料（10-04 ④ 精简）：每行没有「查看」「加入对照」「复制来源」了，点标题打开原文（复用右侧来源窗格）
-  const refs = A.container.querySelector('.lbchat-src');
+  const refs = A.section.querySelector('.lbchat-src');
   for (const gone of ['查看', '加入对照', '复制来源']) assert.ok(!refs.querySelectorAll('button').some(b => b.textContent === gone), '来源行没有「' + gone + '」');
   await refs.querySelector('.lbchat-srcrow a').onclick(); assert.deepEqual(calls.at(-1), ['open', 'Web/a.md', false]);
   await tick(5);
-  assert.ok(A.container.querySelector('.lbchat-body').classList.contains('lbchat-has-reader'));
+  assert.ok(A.section.querySelector('.lbchat-body').classList.contains('lbchat-has-reader'));
   bar.querySelectorAll('button').find(b => b.textContent === '收起来源').onclick();
   assert.deepEqual(calls.at(-1), ['closeAll']);
   assert.ok(bar.hidden);
-  console.log('PASS chat: rerun keeps DOM (even mid-answer), draft in sessionStorage not vault, 正在生成… only, sources open only via cite/title (no 查看/加入对照/复制来源 per row), explicit 收起来源');
+  console.log('PASS chat: rerun keeps DOM (even mid-answer), draft in sessionStorage not vault, 正在处理… only, sources open only via cite/title (no 查看/加入对照/复制来源 per row), explicit 收起来源');
 }
 
 async function annotateTests() {

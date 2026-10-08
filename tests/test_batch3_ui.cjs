@@ -45,13 +45,13 @@ async function chatTests() {
   const app = makeApp(V, plugin);
   const A = dataviewBlock({ dom, app, code: LIB + '\n' + SEARCH + '\n' + asset('chat-view.js') });
   await A.run();
-  const q = s => A.container.querySelector(s);
+  const q = s => A.section.querySelector(s);
   const stop = q('.lbchat-stop');
   assert.ok(stop && stop.hidden, '没在作答时不显示停止');
   // 问一句：显示停止；进度只显示后端阶段
   q('.lbchat-search').value = '悉尼有什么'; await q('.lbchat-composer').onsubmit({ preventDefault() {} }); await tick(5);
   assert.ok(!stop.hidden, '作答中显示停止');
-  assert.ok(q('.lbchat-body').textContent.includes('正在生成…'), '还没阶段时显示「正在生成…」');
+  assert.ok(q('.lbchat-body').textContent.includes('正在处理…'), '还没阶段时显示「正在处理…」');
   req.onPhase('挑选材料');
   assert.ok(q('.lbchat-body').textContent.includes('挑选材料…'), '后端阶段原样显示');
   // 跟到底：停在底部时，新一问 / 逐行出字自动带到眼前；自己往上翻了就不抢
@@ -78,17 +78,17 @@ async function chatTests() {
   q('.lbchat-search').value = '第一问'; await q('.lbchat-composer').onsubmit({ preventDefault() {} }); await tick(5);
   const first = req;
   for (const v of ['第二问', '第三问']) { q('.lbchat-search').value = v; await q('.lbchat-composer').onsubmit({ preventDefault() {} }); }
-  let rows = A.container.querySelectorAll('.lbchat-queued');
+  let rows = A.section.querySelectorAll('.lbchat-queued');
   assert.equal(rows.length, 2, '作答中再发进排队');
   rows[1].querySelector('.lbchat-queued-now').onclick();
   assert.equal(stops, 2, '立即发送 = 停掉当前回答');
-  assert.deepEqual(A.container.querySelectorAll('.lbchat-queued-text').map(e => e.textContent), ['第三问', '第二问'], '被点的那条挪到队首');
+  assert.deepEqual(A.section.querySelectorAll('.lbchat-queued-text').map(e => e.textContent), ['第三问', '第二问'], '被点的那条挪到队首');
   first.res({ status: 'cancelled', markdown: '' }); await tick(10);
   assert.equal(req.question, '第三问', '停下后马上问被点的那条');
-  rows = A.container.querySelectorAll('.lbchat-queued');
+  rows = A.section.querySelectorAll('.lbchat-queued');
   assert.equal(rows.length, 1);
   rows[0].querySelector('.lbchat-queued-x').onclick();
-  assert.equal(A.container.querySelectorAll('.lbchat-queued').length, 0, '× 取消发送');
+  assert.equal(A.section.querySelectorAll('.lbchat-queued').length, 0, '× 取消发送');
   req.res({ status: 'ok', markdown: '第三问的答案', sources: [] }); await tick(10);
   assert.equal(req.question, '第三问', '取消的那条不再发');
   console.log('PASS chat queue: 立即发送 stops current and asks that one next; × cancels a queued question');
@@ -105,18 +105,18 @@ async function chatTests() {
   console.log('PASS chat: stop button → stopArchiveAnswer, partial kept + 已停止生成, real phases only, bookmark not shown saved when write fails');
 
   // 「已保存」栏：存判断失败字留在框里；删除失败那条还在
-  const tabs = A.container.querySelectorAll('.lbchat-tab');
+  const tabs = A.section.querySelectorAll('.lbchat-tab');
   await tabs.find(t => t.textContent === '已保存').onclick(); await tick(5);
   const ta = q('.lbchat-arc-input');
   ta.value = 'ib 机不适合'; await q('.lbchat-arc-save').onclick(); await tick(5);
   assert.equal(q('.lbchat-arc-input').value, 'ib 机不适合', '失败时字留在框里');
-  assert.equal(A.container.querySelectorAll('.lbchat-arc-item').length, 0, '界面上不出现没存上的那条');
+  assert.equal(A.section.querySelectorAll('.lbchat-arc-item').length, 0, '界面上不出现没存上的那条');
   V.vault.adapter.write = async (p, s) => { V.set(p, s); };
   await q('.lbchat-arc-save').onclick(); await tick(5);
-  assert.equal(A.container.querySelectorAll('.lbchat-arc-item').length, 1);
+  assert.equal(A.section.querySelectorAll('.lbchat-arc-item').length, 1);
   failWrites(V, new Set(['_archive/chat-archive.json']));
   await q('.lbchat-arc-del').onclick(); await tick(5);
-  assert.equal(A.container.querySelectorAll('.lbchat-arc-item').length, 1, '删除没写上，那条还在');
+  assert.equal(A.section.querySelectorAll('.lbchat-arc-item').length, 1, '删除没写上，那条还在');
   assert.equal(JSON.parse(V.get('_archive/chat-archive.json')).entries.length, 1);
   console.log('PASS chat archive: save failure keeps text in box, delete failure keeps the entry, both say 没保存上…可重试');
 }
@@ -129,7 +129,7 @@ async function annotateTests() {
   const app = makeApp(V, { settings: {} });
   const A = dataviewBlock({ dom, app, code: LIB + '\n' + asset('annotate-view.js'), params: { itemId: 'xhs-n1', notePath: NOTE } });
   await A.run();
-  const box = A.container.querySelector('.lba-annot');
+  const box = A.section.querySelector('.lba-annot');   // 批次 D · L3：批注框挂在 dv.container 后面的 host 上（不进容器）
   const texts = () => box.querySelectorAll('.lba-annot-text').map(x => x.textContent);
   failWrites(V, new Set([NOTE]));
   // 删除失败：那条还在、不报「已删」
@@ -158,20 +158,22 @@ async function deleteTests() {
   const A = dataviewBlock({ dom, app, code: LIB + '\n' + SEARCH + '\n' + asset('catalog-view.js') });
   A.window.confirm = () => true;
   await A.run();
-  const input = A.container.querySelector('.lbc-search');
-  input.value = '悉尼'; input.onkeydown({ key: 'Enter', isComposing: false, preventDefault() {} });
-  const cards = () => A.container.querySelectorAll('.lbc-card');
+  const input = A.section.querySelector('.lbc-search');
+  input.value = '悉尼'; input.fire('keydown', { key: 'Enter', isComposing: false, preventDefault() {} });
+  const cards = () => A.section.querySelectorAll('.lbc-card');
   cards()[0].oncontextmenu({ preventDefault() {}, clientX: 0, clientY: 0 });
   dom.document.body.querySelectorAll('.lbc-menu-item').find(b => b.textContent === '多选')   /* 10-04 右键「多选删除」改名「多选」 */.onclick({ stopPropagation() {} });
   cards()[1].onclick({}); cards()[2].onclick({});
-  assert.equal(A.container.querySelectorAll('.lbc-card.is-selected').length, 3);
-  const del = A.container.querySelectorAll('button').find(b => /^删除选中/.test(b.textContent));
+  assert.equal(A.section.querySelectorAll('.lbc-card.is-selected').length, 3);
+  const del = A.section.querySelectorAll('button').find(b => /^删除选中/.test(b.textContent));
   await del.onclick(); await tick(10);
   const left = cards().map(c => c.querySelector('.lbc-ctitle').textContent);
   assert.ok(!left.includes('悉尼咖啡地图'), '确认删掉的摘掉');
   assert.equal(left.length, 2, '没删掉的两篇还在');
-  assert.equal(A.container.querySelectorAll('.lbc-card.is-selected').length, 2, '没删掉的保持选中');
-  const msg = A.alerts.at(-1);
+  assert.equal(A.section.querySelectorAll('.lbc-card.is-selected').length, 2, '没删掉的保持选中');
+  // 批次 D · C3：结果走 Notice，不再 window.alert
+  assert.equal(A.alerts.length, 0, '不弹 window.alert');
+  const msg = A.notices.at(-1);
   assert.ok(msg.startsWith('已删 1 篇；2 篇没删掉：') && msg.includes('WinError 32') && msg.includes('库里没有'), msg);
   console.log('PASS delete: only confirmed deletions removed, failures stay selected with reasons');
 }
@@ -218,7 +220,7 @@ async function pluginCancelTests() {
   const a = p.answerArchive({ question: '慢', onPhase: t => phases.push(t) });
   const c = children[0]; const id = c.sent[0].id;
   c.stdout.emit('data', JSON.stringify({ id, type: 'phase', text: '检索收藏' }) + '\n');
-  assert.deepEqual(phases, ['检索收藏']);
+  assert.deepEqual(phases, ['正在启动问答', '检索收藏'], '新起 worker 先报「正在启动问答」（A13）');
   assert.equal(p.stopArchiveAnswer(), 1);
   assert.deepEqual(c.sent.at(-1), { id, type: 'cancel' });
   c.stdout.emit('data', JSON.stringify({ id, type: 'result', result: { status: 'cancelled', markdown: '半截' } }) + '\n');

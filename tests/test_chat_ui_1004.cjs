@@ -33,8 +33,8 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
     A.window.confirm = () => true;
     await A.run();
   };
-  const all = s => A.container.querySelectorAll(s);
-  const one = s => A.container.querySelector(s);
+  const all = s => A.section.querySelectorAll(s);
+  const one = s => A.section.querySelector(s);
   const ask = async q => { one('.lbchat-search').value = q; await one('.lbchat-composer').requestSubmit(); await tick(20); };
   const saved = () => JSON.parse(V.get(SESSION));
 
@@ -87,7 +87,7 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   let turns = saved().turns;
   assert.equal(turns[2].mode, 'follow');
   assert.equal(turns[2].sources, 2);
-  assert.ok(A.container.textContent.includes('在当前 2 条来源里追问'));
+  assert.ok(A.section.textContent.includes('在当前 2 条来源里追问'));
 
   // 改为重新搜：下一问重新检索（不带 sourceIds，带会话的排除 / 保留），状态存进会话文件
   await one('.lbchat-follow-switch').onclick(); await tick(5);

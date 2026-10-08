@@ -114,3 +114,63 @@ def test_note_missing_target(tmp_path, monkeypatch):
     index_mod.connect().close()
     assert note.set_star("nope", True)["status"] == "missing"
     assert note.add_annotation("nope", "x")["status"] == "missing"
+
+
+# ── 批次 D · C3 / CM3：note star 一次接多个 id，catalog-data 整批只改一次，结果里报回写完那一刻的 stat ──
+
+def test_set_stars_patches_catalog_once_and_reports_stat(tmp_path, monkeypatch):
+    item_id = _ingest(tmp_path, monkeypatch)
+    from link_brain import catalog
+    calls = []
+
+    def fake_patch(updates, vault=None, *, wait_s=5, report=None):
+        calls.append(dict(updates))
+        if report is not None:
+            report["catalog_stat"] = {"mtime": 1234, "size": 56}
+        return len(updates)
+
+    monkeypatch.setattr(catalog, "patch_items", fake_patch)
+    out = note.set_stars([item_id, "nope", NOTE_ID], True)
+    assert len(calls) == 1, "整批只 patch 一次"
+    assert list(calls[0]) == [item_id]   # 第三个是同一篇的裸 source_id：同一个 item_id，只出现一次
+    assert [r["status"] for r in out["results"]] == ["ok", "missing", "ok"]
+    assert out["results"][1]["error"]
+    assert out["ok"] is False and out["count_ok"] == 2
+    assert out["catalog_patched"] is True
+    assert out["catalog_stat"] == {"mtime": 1234, "size": 56}
+    assert "item_id" not in out, "多个 target 时不带旧的顶层键"
+
+
+def test_note_star_cli_multi_exit_code_and_single_compat(tmp_path, monkeypatch, capsys):
+    item_id = _ingest(tmp_path, monkeypatch)
+    capsys.readouterr()
+    from link_brain import catalog
+    seen = []
+    monkeypatch.setattr(catalog, "patch_items", lambda updates, vault=None, *, wait_s=5, report=None: seen.append(updates) or 0)
+    code = cli.main(["note", "star", item_id, "nope"])
+    out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert code == 1 and out["count_ok"] == 1 and len(seen) == 1
+    assert out["catalog_patched"] is False and "catalog_stat" not in out, "patch 返回 0：catalog_patched 跟着它"
+    code = cli.main(["note", "star", item_id, "--off"])
+    out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert code == 0
+    # 单个 target：旧的顶层键照旧（批注块的 starNote 只看这些）
+    assert out["item_id"] == item_id and out["status"] == "ok" and out["starred"] is False
+    assert out["ok"] is True and out["message"].startswith("已取消收藏 1 篇")
+
+
+def test_patch_items_reports_stat_inside_lock(tmp_path, monkeypatch):
+    monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
+    from link_brain import catalog
+    data_path = tmp_path / "_archive" / catalog.DATA_NAME
+    data_path.parent.mkdir(parents=True, exist_ok=True)
+    data_path.write_text(json.dumps({"built_at": "2026-10-08T05:09:12", "items": [{"id": "x1", "starred": False}]}), encoding="utf-8")
+    report = {}
+    assert catalog.patch_items({"x1": {"starred": True}}, report=report) == 1
+    st = data_path.stat()
+    assert report["catalog_stat"] == {"mtime": round(st.st_mtime_ns / 1e6), "size": st.st_size}
+    data = json.loads(data_path.read_text(encoding="utf-8"))
+    assert data["built_at"] == "2026-10-08T05:09:12", "patch_items 不改 built_at（F4）"
+    report2 = {}
+    assert catalog.patch_items({"x1": {"starred": True}}, report=report2) == 0
+    assert report2 == {}, "没改就不写、不报 stat"

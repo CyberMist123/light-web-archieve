@@ -103,7 +103,8 @@ def _resolve(target: str):
         conn.close()
 
 
-def set_star(target: str, on: bool) -> dict[str, Any]:
+def set_star(target: str, on: bool, *, patch: bool = True, updates: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+    """patch=False（批量 set_stars 用）：不逐篇改 catalog-data，把这一篇的字段放进 updates，由调用方整批 patch 一次。"""
     obj = _resolve(target)
     if obj is None:
         return {"target": target, "status": "missing"}
@@ -115,13 +116,18 @@ def set_star(target: str, on: bool) -> dict[str, Any]:
     else:
         data.pop("starred_at", None)
     save_notes(obj["source"], obj["source_id"], data)
-    # 第 2 批：目录页以 catalog-data 的 starred 为准（不再每次读几百份 notes.json），这里顺手把这一篇改进去
-    try:
-        from . import catalog
+    fields = {"starred": data["starred"], "starred_at": data.get("starred_at")}
+    if not patch:
+        if updates is not None:
+            updates[obj["item_id"]] = fields
+    else:
+        # 第 2 批：目录页以 catalog-data 的 starred 为准（不再每次读几百份 notes.json），这里顺手把这一篇改进去
+        try:
+            from . import catalog
 
-        catalog.patch_items({obj["item_id"]: {"starred": data["starred"], "starred_at": data.get("starred_at")}})
-    except Exception:  # noqa: BLE001 - fail-open：星标已写进 notes.json，下次重建目录也会读到
-        pass
+            catalog.patch_items({obj["item_id"]: fields})
+        except Exception:  # noqa: BLE001 - fail-open：星标已写进 notes.json，下次重建目录也会读到
+            pass
     return {
         "item_id": obj["item_id"],
         "status": "ok",
@@ -162,12 +168,63 @@ def list_notes(target: str) -> dict[str, Any]:
     return {"item_id": obj["item_id"], "status": "ok", **data}
 
 
+def set_stars(targets: list[str], on: bool) -> dict[str, Any]:
+    """批次 D · C3：一次收藏 / 取消多篇。逐条单独 try（CONVENTIONS §1.3），catalog-data 整批只 patch 一次。
+
+    返回 {ok, code, message, results:[{item_id, status, starred, starred_at, error}], count_ok, catalog_patched, catalog_stat?}；
+    只有一个 target 时额外带旧的顶层键（item_id / status / starred / starred_at），批注块的旧 starNote 照用。"""
+    results: list[dict[str, Any]] = []
+    updates: dict[str, dict[str, Any]] = {}
+    for target in targets:
+        try:
+            r = set_star(target, on, patch=False, updates=updates)
+            row = {"item_id": r.get("item_id") or target, "status": r.get("status") or "failed",
+                   "starred": bool(r.get("starred")) if r.get("status") == "ok" else None,
+                   "starred_at": r.get("starred_at"), "error": ""}
+            if row["status"] == "missing":
+                row["error"] = "库里没有这一篇"
+        except NotesCorrupt as exc:
+            row = {"item_id": target, "status": "corrupt", "starred": None, "starred_at": None, "error": str(exc)[:200]}
+        except Exception as exc:  # noqa: BLE001 - 逐条兜底，原因交给页面
+            reason = (str(exc) or type(exc).__name__)[:200]
+            if isinstance(exc, PermissionError):
+                reason = "文件被占用或没有权限：" + reason
+            row = {"item_id": target, "status": "failed", "starred": None, "starred_at": None, "error": reason}
+        results.append(row)
+    report: dict[str, Any] = {}
+    patched = 0
+    if updates:
+        try:
+            from . import catalog
+
+            patched = catalog.patch_items(updates, report=report)
+        except Exception:  # noqa: BLE001 - fail-open：星标已写进 notes.json，下次重建目录也会读到
+            patched = 0
+    count_ok = sum(1 for r in results if r["status"] == "ok")
+    verb = "收藏" if on else "取消收藏"
+    failed = len(results) - count_ok
+    message = f"已{verb} {count_ok} 篇" + (f"；{failed} 篇没{verb}上" if failed else "")
+    out: dict[str, Any] = {"ok": failed == 0, "code": "" if failed == 0 else "PARTIAL", "message": message,
+                           "results": results, "count_ok": count_ok, "catalog_patched": patched > 0}
+    if patched and report.get("catalog_stat"):
+        out["catalog_stat"] = report["catalog_stat"]
+    if len(results) == 1:
+        one = results[0]
+        out.update({"item_id": one["item_id"], "status": one["status"], "starred": one["starred"], "starred_at": one["starred_at"]})
+        if one["status"] == "missing":
+            out["target"] = targets[0]
+    return out
+
+
 def run(args) -> int:
     sub = getattr(args, "note_command", None)
     try:
         if sub == "star":
             on = not getattr(args, "off", False)
-            out = set_star(args.target, on)
+            targets = args.target if isinstance(args.target, list) else [args.target]
+            out = set_stars(targets, on)
+            print(json.dumps(out, ensure_ascii=False))
+            return EXIT_OK if out["ok"] else 1
         elif sub == "add":
             out = add_annotation(args.target, args.text)
         elif sub == "list":

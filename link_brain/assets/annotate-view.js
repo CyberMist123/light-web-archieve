@@ -9,9 +9,13 @@ const LB = typeof lbPageLib === 'function' ? lbPageLib(dv, app, 'annotate') : nu
 // 10-03 她：批注又跑到最底下了。根因：Obsidian 重画左栏 / 重开这篇时，批注框跟着旧左栏被摘下，
 // reuseDom 把它挂回本容器（全文最底下）就 return 了，没再挪回左栏。现在复用这条路也照样挪。
 // 硬规矩（她定，别再改）：阅读视图里批注框永远在左栏图片 / 视频下面。tests/test_annot_side.cjs 守着。
-if (LB && await LB.reuseDom()) { placeUnderImages(dv.container, LB.container?.__lbView?.el); return; }
+// 批次 D · L3（主审裁决 3）：批注框挂在 LB.mountHost 的 host（dv.container 后面的兄弟节点）上，不进 dv.container——
+// 单栏笔记 / 实时预览里没有左栏可挪，框留在容器里时 Dataview 重跑清空容器会把它摘下，Chromium 同步发 blur，
+// 「失焦即定稿」就把半截字存成一条正式批注、清空输入框（tests/test_annot_1008.cjs 的单栏用例守着）。登记的是 host，框本身记在 view.box。
+if (LB && await LB.reuseDom()) { placeUnderImages(dv.container, LB.container?.__lbView?.box || LB.container?.__lbView?.el); return; }
 const root = dv.container;
 root.classList.add('lba-annot-host');
+const mount = (LB && typeof LB.mountHost === 'function') ? LB.mountHost('lba-annot-mount') : root;
 const notify = (m) => { try { new Notice(m); } catch { console.log('[annot]', m); } };
 const nickname = () => app.plugins.plugins['link-brain-actions']?.settings?.nickname || '';
 // 10-03 她：「@某人 开头 = 留言给某人」是她自己的设置（给她的 AI），默认不启用；设置里「批注留言对象」填名字才开。
@@ -40,7 +44,7 @@ style.textContent = `
 .lba-annot-item .lba-fable-tag{font-size:10px;color:var(--interactive-accent);font-weight:600;margin-left:6px;}
 .lba-edited{font-size:10px;color:var(--text-faint);margin-left:6px;}
 .lba-annot-text{display:inline;}
-.lba-ctl{position:absolute;top:0;right:0;display:flex;gap:10px;align-items:center;opacity:0;transition:opacity .12s;}
+.lba-ctl{position:absolute;top:0;right:0;display:flex;gap:14px;align-items:center;opacity:0;transition:opacity .12s;}
 .lba-annot-item:hover .lba-ctl{opacity:1;}
 .lba-ctl .lba-edit,.lba-ctl .lba-del{cursor:pointer;color:var(--text-faint);font-size:13px;line-height:1;transition:.12s;user-select:none;}
 .lba-ctl .lba-edit:hover{opacity:1;color:var(--interactive-accent);}
@@ -49,9 +53,20 @@ style.textContent = `
 .lba-annot-input{width:100%;min-height:38px;resize:vertical;border:none;border-radius:0;padding:6px 0;font:inherit;font-size:14px;background:transparent;color:var(--text-normal);box-sizing:border-box;}
 .lba-annot-input:focus{outline:none;}
 .lba-annot-input::placeholder{color:var(--text-faint);}
+@media (hover:none){.lba-ctl{opacity:1;}}
+.lba-undo-row{font-size:12px;color:var(--text-faint);padding:2px 0;}
+.lba-undo{color:var(--text-muted);text-decoration:underline;cursor:pointer;}
+.lba-star.is-busy{opacity:.7;cursor:progress;}
+.lba-star.is-disabled{opacity:.25;cursor:not-allowed;filter:grayscale(1);}
+/* 批次 D · N15：钉住时批注输入框紧贴图片下面（只调钉住模式下的间距和顺序；两栏 grid、图片尺寸一条不动） */
+.xhs-note .lb-media-locked .lb-side:has(> .lba-annot) > .lb-media{margin-bottom:6px;}
+.xhs-note .lb-media-locked .lba-annot.lba-in-side{margin-top:0;display:flex;flex-direction:column;}
+.xhs-note .lb-media-locked .lba-annot.lba-in-side > .lba-annot-input{order:-1;padding-top:4px;}
+.xhs-note .lb-media-locked .lba-annot.lba-in-side > .lba-annot-head{margin:8px 0;}
+.xhs-note .lb-media-locked .lba-annot.lba-in-side > .lba-annot-list{gap:12px;margin-bottom:12px;}
 `;
 
-const box = root.createEl('div', { cls: 'lba-annot' });
+const box = mount.createEl('div', { cls: 'lba-annot' });
 const head = box.createEl('div', { cls: 'lba-annot-head' });
 head.createEl('span', { cls: 'lba-annot-title', text: '批注' });
 const star = head.createEl('span', { cls: 'lba-star', text: '★' });
@@ -210,10 +225,6 @@ function fmtTs(ts) {
   try { const d = new Date(ts); return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; }
   catch { return ts || ''; }
 }
-function renderStar() {
-  star.classList.toggle('is-on', data.starred);
-  starHint.setText(data.starred ? '已收藏' : '');
-}
 function setPlaceholder() {
   // 已经有批注时不再写那长串灰字提示（Owner 2026-09-17）
   ta.placeholder = data.annotations.length
@@ -228,6 +239,21 @@ function failNotice(err) {
   notify(msg);
   saveHint.setText(msg); saveHint.style.opacity = '1'; clearTimeout(flash._t); flash._t = setTimeout(() => { saveHint.style.opacity = '0'; }, 6000);
 }
+// 批次 D · N5：输入框 / 编辑框随内容长高，上限约 40% 窗口高（再多就框内滚）。假 DOM 没有 scrollHeight 时什么也不改。
+function fitHeight(el) {
+  if (!el || !el.style) return;
+  const max = Math.round((typeof innerHeight === 'number' ? innerHeight : 800) * 0.4);
+  el.style.height = 'auto';
+  const h = el.scrollHeight || 0;
+  if (!h) { el.style.height = ''; return; }
+  el.style.height = Math.min(h, max) + 'px';
+  el.style.overflowY = h > max ? 'auto' : 'hidden';
+}
+// 批次 D · N4：删掉的那条原位可撤销 5 秒（只留最近一条）。N-M1：正在编辑的那条先存，再按 key 重新找行。
+const UNDO_MS = (typeof globalThis !== 'undefined' && globalThis.__lbaUndoMs) || 5000;
+let undo = null, undoTimer = null, openEditor = null;
+const rowOf = (key) => [...list.querySelectorAll('.lba-annot-item')].find(r => r.__lbaKey === key) || null;
+async function flushEditor() { const cur = openEditor; if (cur) await cur.save(); }
 function startEdit(el, textSpan, key, initial) {
   if (el.querySelector('.lba-edit-input')) return;   // 已在编辑
   const a = data.annotations.find(x => akey(x) === key);
@@ -237,9 +263,12 @@ function startEdit(el, textSpan, key, initial) {
   textSpan.style.display = 'none';
   editor.focus();
   editor.setSelectionRange(editor.value.length, editor.value.length);
+  fitHeight(editor);
+  editor.oninput = () => fitHeight(editor);
   let done = false;
   const save = async () => {
     if (done) return; done = true;
+    if (openEditor && openEditor.save === save) openEditor = null;
     const t = editor.value.trim();
     // 按 key 取当前那条（中途 persist 过的话内存里已是新对象）；老批注没 id：先给一个，旧 key 自然成墓碑
     const cur = data.annotations.find(x => akey(x) === key);
@@ -254,7 +283,7 @@ function startEdit(el, textSpan, key, initial) {
       catch (err) {
         restore(prev); renderList();
         failNotice(err);
-        const row = [...list.querySelectorAll('.lba-annot-item')][data.annotations.findIndex(x => akey(x) === key)];
+        const row = rowOf(key);
         if (row) { startEdit(row, row.querySelector('.lba-annot-text'), key, t); }
         return;
       }
@@ -262,12 +291,38 @@ function startEdit(el, textSpan, key, initial) {
     }
     renderList();
   };
-  const cancel = () => { if (done) return; done = true; renderList(); };
+  const cancel = () => { if (done) return; done = true; if (openEditor && openEditor.save === save) openEditor = null; renderList(); };
+  openEditor = { key, save };
   editor.onkeydown = (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); save(); }
     else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
   };
   editor.onblur = save;
+}
+function renderUndo() {
+  if (!undo || Date.now() > undo.until) { undo = null; return; }
+  const u = undo;
+  const row = list.createEl('div', { cls: 'lba-undo-row' });
+  row.createEl('span', { text: '已删 · ' });
+  const btn = row.createEl('span', { cls: 'lba-undo', text: '撤销', attr: { role: 'button', tabindex: '0' } });
+  if (typeof list.insertBefore === 'function') {
+    const ref = [...list.querySelectorAll('.lba-annot-item')][u.index];
+    if (ref) list.insertBefore(row, ref);
+  }
+  clearTimeout(undoTimer);
+  undoTimer = setTimeout(() => { if (undo === u) { undo = null; row.remove(); } }, Math.max(0, u.until - Date.now()));
+  btn.onclick = async (ev) => {
+    if (ev && ev.stopPropagation) ev.stopPropagation();
+    if (undo !== u) return;
+    const prev = snapshot();
+    // 换 id：persist 的墓碑按旧 key（删除优先），原 key 放回去会被吃掉；ts / text / author / to_fable / edited 都保留，按 ts 排回原位
+    data.annotations.push({ ...u.item, id: newId() });
+    try { await persist(); } catch (err) { restore(prev); renderList(); failNotice(err); return; }
+    if (undo === u) undo = null;
+    renderList();
+    flash('已撤销');
+  };
+  btn.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); btn.onclick(e); } };
 }
 function renderList() {
   list.empty();
@@ -281,36 +336,60 @@ function renderList() {
     const textSpan = el.createEl('span', { cls: 'lba-annot-text' });
     textSpan.setText(a.text || '');
     const ctl = el.createEl('span', { cls: 'lba-ctl' });
+    // N-M1：按下 ✎✕ 时不让输入框 / 编辑框失焦——不然先触发 blur 提交、列表重画，这一下就点空了
+    ctl.onpointerdown = (e) => { if (e && e.preventDefault) e.preventDefault(); };
+    ctl.onmousedown = ctl.onpointerdown;
     const edit = ctl.createEl('span', { cls: 'lba-edit', text: '✎' });
 
     const key = akey(a);
-    edit.onclick = (ev) => { ev.stopPropagation(); startEdit(el, textSpan, key); };
+    el.__lbaKey = key;
+    if (el.dataset) el.dataset.key = key;
+    edit.onclick = async (ev) => {
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      if (openEditor && openEditor.key === key) return;
+      await flushEditor();
+      const row = rowOf(key);
+      if (row) startEdit(row, row.querySelector('.lba-annot-text'), key);
+    };
     const del = ctl.createEl('span', { cls: 'lba-del', text: '✕' });
 
     // 按批注的 key 删（不认渲染时的下标 / 对象身份：合并保存后内存里换成了新对象）
     del.onclick = async (ev) => {
-      ev.stopPropagation();
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      if (openEditor && openEditor.key !== key) await flushEditor();
       const prev = snapshot();
       const idx = data.annotations.findIndex(x => akey(x) === key);
-      if (idx >= 0) data.annotations.splice(idx, 1);
-      // 删成功才说「已删」；失败把这条放回去（以前先报错、紧接着 flash('已删') 把错误盖掉）
+      if (idx < 0) { renderList(); return; }
+      const item = JSON.parse(JSON.stringify(data.annotations[idx]));
+      data.annotations.splice(idx, 1);
+      // 删成功才出撤销行；失败把这条放回去
       try { await persist(); } catch (err) { restore(prev); renderList(); failNotice(err); return; }
+      undo = { item, index: idx, until: Date.now() + UNDO_MS };
+      openEditor = null;
       renderList();
-      flash('已删');
     };
   }
+  renderUndo();
   setPlaceholder();
 }
 
 // 自动保存草稿（防丢）：停手 500ms 落一次 draft，不新增条目
 let draftTimer;
 ta.oninput = () => {
+  fitHeight(ta);
   clearTimeout(draftTimer);
   draftTimer = setTimeout(async () => {
     data.draft = ta.value;
     try { await persist(); flash('草稿已存'); } catch (err) { flash('草稿没存上：' + (err.message || err)); }
   }, 500);
 };
+// 只存草稿（不落条目）：批注框被后台摘下 / 挪走时用
+async function saveDraftNow() {
+  clearTimeout(draftTimer);
+  if (locked || ta.disabled || ta.value === data.draft) return;
+  data.draft = ta.value;
+  try { await persist(); flash('草稿已存'); } catch (err) { flash('草稿没存上：' + (err.message || err)); }
+}
 // 落成一条批注：失焦或 Ctrl/Cmd+Enter；空白就只清草稿
 async function commit() {
   clearTimeout(draftTimer);
@@ -324,24 +403,78 @@ async function commit() {
   // 失败把刚 push 的那条撤回（不然再提交一次会多出一条重复批注），字留在输入框里
   try { await persist(); } catch (err) { restore(prev); failNotice(err); return; }
   ta.value = '';
-  renderList();
+  fitHeight(ta);
+  if (!list.querySelector('.lba-edit-input')) renderList();   // N-M1：正在编辑某条时不重画（persist 里同样的保护）
   flash('已保存');
 }
-ta.onblur = commit;
+// 失焦即定稿（她 1008 定，N3 不改）——但只认「她离开输入框」。主审裁决 3：Dataview 重跑 / Obsidian 重画这一段 / 框被挪进左栏时，
+// Chromium 在摘下（挪走）有焦点的元素之前同步发 blur（那一刻元素还连着）。等这一轮同步代码跑完（微任务）再看：
+// 框已不在文档里、或换了父节点 = 后台动的，不定稿，只存草稿；框还在文档里、焦点掉到了 body 就把焦点和光标还回去。
+let blurSeq = 0;
+ta.onblur = () => {
+  const seq = ++blurSeq;
+  const parent = box.parentNode;
+  const sel = [ta.selectionStart, ta.selectionEnd];
+  let moved = false;
+  return Promise.resolve()
+    .then(() => { moved = ta.isConnected === false || box.parentNode !== parent; })
+    .then(() => new Promise(r => setTimeout(r, 0)))
+    .then(() => {
+      if (seq !== blurSeq) return undefined;
+      if (!moved) return commit();
+      const active = hasDoc ? document.activeElement : null;
+      if (ta.isConnected !== false && !ta.disabled && (!active || active === document.body)) {
+        try { ta.focus(); if (typeof sel[0] === 'number') ta.setSelectionRange(sel[0], sel[1]); } catch {}
+      }
+      return saveDraftNow();
+    });
+};
 ta.onkeydown = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); commit(); } };
 
+// ★：N13 点下就变（乐观更新，失败回滚），提示只说一次；N16 手机上 / 插件没开时灰掉并说明（同一篇只提示一次）
+const provider = () => app.plugins && app.plugins.plugins && app.plugins.plugins['link-brain-actions'];
+const mobile = !!(app.isMobile || (hasDoc && document.body && document.body.classList && document.body.classList.contains('is-mobile')));
+let starBusy = false, starTold = false, starHintTimer = null;
+function starOffText() {
+  if (mobile) return '手机上只能看，收藏请在电脑上点';
+  if (typeof provider()?.starNote !== 'function') return '收藏要先启用 Link Brain Actions 插件（设置 → 第三方插件）';
+  return '';
+}
+function renderStar() {
+  star.classList.toggle('is-on', !!data.starred);
+  const off = starOffText();
+  star.classList.toggle('is-disabled', !!off);
+  if (typeof star.setAttribute === 'function') star.setAttribute('title', off);
+  if (!starBusy && !starHintTimer) starHint.setText(data.starred ? '已收藏' : '');
+}
 star.onclick = async () => {
+  if (starBusy) return;
+  const off = starOffText();
+  if (off) { if (!starTold) { starTold = true; notify(off); } return; }
   const next = !data.starred;
-  const provider = app.plugins.plugins['link-brain-actions'];
-  if (typeof provider?.starNote !== 'function') { notify('收藏需要启用 Link Brain Actions 插件'); return; }
-  star.style.pointerEvents = 'none';
+  starBusy = true;
+  star.classList.add('is-busy');
+  clearTimeout(starHintTimer); starHintTimer = null;
+  data.starred = next;
+  renderStar();
+  starHint.setText(next ? '正在收藏…' : '正在取消…');
   try {
-    const r = await provider.starNote(itemId, next);
+    const r = await provider().starNote(itemId, next);
     data.starred = (r && typeof r.starred === 'boolean') ? r.starred : next;
+    starBusy = false;
     renderStar();
-    notify(data.starred ? '已加入星标收藏' : '已取消收藏');
-  } catch (e) { notify('收藏失败：' + (e.message || e)); }
-  finally { star.style.pointerEvents = ''; }
+    notify(data.starred ? '已收藏' : '已取消收藏');
+  } catch (e) {
+    data.starred = !next;
+    starBusy = false;
+    renderStar();
+    notify((e && e.message) || String(e));   // starNote 报错自带「收藏失败：」前缀，这里不再加
+    starHint.setText('没收藏上');
+    starHintTimer = setTimeout(() => { starHintTimer = null; renderStar(); }, 6000);
+  } finally {
+    starBusy = false;
+    star.classList.remove('is-busy');
+  }
 };
 
 await load();
@@ -349,15 +482,18 @@ LB?.t('read');
 renderStar();
 renderList();
 ta.value = data.draft || '';
+fitHeight(ta);
 LB?.t('render');
 // 登记这一版：notes.json 没变就留着这个框；变了只重读重画（正在编辑某条、正在输入框里打字时不动那部分）
-LB?.keep(box, { versionOf: { abs: notePath }, version: await LB.data.version({ abs: notePath }), update: async () => {
+// 登记的是 host（框挪进左栏后 host 空着也没关系）；reuseDom 只把 host 挂回 container 后面，不碰左栏里的框
+LB?.keep(mount === root ? box : mount, { versionOf: { abs: notePath }, version: await LB.data.version({ abs: notePath }), update: async () => {
   await load();
   renderStar();
   if (!list.querySelector('.lba-edit-input')) renderList();
   const typing = typeof document !== 'undefined' && document.activeElement === ta;
-  if (!typing && !ta.disabled) ta.value = data.draft || '';
+  if (!typing && !ta.disabled) { ta.value = data.draft || ''; fitHeight(ta); }
 } });
+if (LB?.container?.__lbView) LB.container.__lbView.box = box;
 LB?.t('total');
 
-if(app.workspace.on){const ref=app.workspace.on('link-brain:star',(id,on)=>{if(id===itemId){data.starred=on;renderStar();}});dv.component.registerEvent(ref);}
+if(app.workspace.on){const ref=app.workspace.on('link-brain:star',(id,on)=>{if(id===itemId&&!starBusy){data.starred=on;renderStar();}});dv.component.registerEvent(ref);}

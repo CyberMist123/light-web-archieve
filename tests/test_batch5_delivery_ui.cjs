@@ -342,13 +342,17 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   for (const t of ['pointerdown', 'focusin', 'keydown', 'click']) assert.ok(events.includes(t), '接管了 ' + t);
   assert.equal(nav.attach(), true, '重复 attach 不重复挂'); assert.equal(events.filter(t => t === 'keydown').length, 1);
   events.length = 0;
-  const old = factory({}, { ...host, app: { plugins: { enabledPlugins: new Set(['link-brain-native-media-nav']) } } });
+  // 批次 D · MN-0：Obsidian 1.14 会把目录已经不在的插件 id 留在 enabledPlugins 里——只列着、manifests 里没有 = 没装，照样接管
+  const ghost = factory({}, { ...host, app: { plugins: { enabledPlugins: new Set(['link-brain-native-media-nav']), manifests: {} } } });
+  assert.equal(ghost.attach(), true, '旧插件只在 enabledPlugins 里、目录已不在 → 本插件接管'); assert.ok(!ghost.skipped);
+  events.length = 0;
+  const old = factory({}, { ...host, app: { plugins: { enabledPlugins: new Set(['link-brain-native-media-nav']), manifests: { 'link-brain-native-media-nav': {} } } } });
   assert.equal(old.attach(), false); assert.equal(old.skipped, true); assert.equal(events.length, 0, '旧插件开着就不接管（不重复弹大图）');
   // main.js onload 真的接上 media-nav.js；旧插件开着时设置页提示停用它
   const p = new Plugin();
   p.manifest = { id: 'link-brain-actions', dir: PLUGIN_DIR };
   p.app = { vault: { adapter: { getBasePath: () => ROOT, exists: async () => false, list: async () => ({ folders: [] }) } }, workspace: { onLayoutReady() {} },
-    plugins: { manifests: { dataview: {} }, enabledPlugins: new Set(['dataview', 'link-brain-native-media-nav']), plugins: { dataview: { settings: { enableDataviewJs: true } } } } };
+    plugins: { manifests: { dataview: {}, 'link-brain-native-media-nav': {} }, enabledPlugins: new Set(['dataview', 'link-brain-native-media-nav']), plugins: { dataview: { settings: { enableDataviewJs: true } } } } };
   p.loadData = async () => null; p.addSettingTab = () => {}; p.addCommand = () => {}; p.addRibbonIcon = () => {}; p.register = () => {}; p.registerDomEvent = () => {};
   p.addStatusBarItem = () => ({ setText() {} }); p.readSyncFiles = async () => ({});
   await p.onload();

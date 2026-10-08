@@ -99,3 +99,81 @@ def test_router_rotates_keys_then_falls_back(monkeypatch):
     monkeypatch.setattr(visual, "refine", lambda *a, **k: {"status": "failed", "error": "Mermaid 引号不成对"})
     r2 = vision.RefineRouter(None)
     assert "引号" in r2.refine(None, [], "diagram")["error"] and not r2.dead
+
+
+# --------------------------------------------------------------------------
+# 1008（L6·B2）：长段落 / 长气泡不是复读；真复读照样收、照样报；一篇里一张成功不消整篇的问题
+# --------------------------------------------------------------------------
+
+LONG_EN = ("Large language model agents increasingly rely on retrieval to ground their answers, yet the way an agent "
+           "reads a document is rarely designed with the same care as the model itself. In this section we describe "
+           "how we restructured the reading loop: instead of feeding whole pages, the agent first skims headings, "
+           "then requests the paragraphs it believes are relevant, and finally verifies each quoted claim against the "
+           "source span before it is allowed into the final response. We measured accuracy, latency and token usage "
+           "across three benchmark suites and found that the staged approach reduced hallucinated citations by a wide "
+           "margin while keeping median latency within two seconds of the baseline configuration we started from.")
+LONG_ZH = ("今天把迁移方案又过了一遍：先把旧库的快照导出来，核对条数和校验和，再在测试环境里按新的表结构重建索引，"
+           "跑完全量回放之后对比两边的查询结果，差异全部记进表格里逐条确认原因；确认没问题以后才切流量，"
+           "切的时候保留旧库只读一周，万一新库出事可以在十分钟之内切回去。另外提醒一下，周四晚上机房要停电检修，"
+           "所有定时任务记得提前暂停，检修结束后按顺序恢复，先恢复采集再恢复汇总，别让汇总读到半截数据。"
+           "还有那份对外的说明文档，我改了第三节的措辞，把容易引起误会的几个说法换掉了，你有空看看行不行。") * 2
+
+
+def test_long_paragraph_is_not_repetition():
+    assert len(LONG_EN) > 605
+    for text in (LONG_EN, LONG_ZH.replace("。还有", "。补充：还有", 1)):
+        tidy = visual.tidy_output(text)
+        assert visual.REPEAT_MARK not in tidy and "截断" not in tidy
+        assert visual.shaky_reason(text, tidy, "stop") == ""
+
+
+def test_true_repetition_still_flagged():
+    for raw in ("[打码]" * 100, "前面正常的一句话。" + "这是同一段二十个字的复读内容反复出现了" * 30,
+                "数据数据" + "".join(f"片段{i % 3}abcdefghijklmnopq" for i in range(60))):
+        tidy = visual.tidy_output(raw)
+        assert visual.shaky_reason(raw, tidy, "stop") == "出现复读", raw[:20]
+
+
+def test_separator_line_is_not_repetition():
+    raw = "━" * 300 + "\n" + "……" * 40
+    assert visual.shaky_reason(raw, visual.tidy_output(raw), "stop") == ""
+
+
+def test_hard_cap_reports_too_long():
+    raw = "".join(chr(0x4e00 + i) for i in range(5000))
+    tidy = visual.tidy_output(raw)
+    assert visual.shaky_reason(raw, tidy, "stop") == "输出过长"
+
+
+def test_refine_ladder_passes_long_paragraph(tmp_path, monkeypatch):
+    """假模型回一段 700 字的合法长段落：精细识别 status=ok（以前判「出现复读」→ PERMANENT）。"""
+    monkeypatch.setattr(visual, "_chat", lambda *a, **k: {"status": "ok", "text": LONG_EN + " " + LONG_EN[:100],
+                                                           "finish": "stop", "tokens": 1, "cost_yuan": 0.01})
+    img = tmp_path / "a.png"
+    img.write_bytes(b"x")
+    got = visual.refine(img, [], "text", {"model": "m", "endpoint": "https://example.invalid"})
+    assert got["status"] == "ok", got.get("error")
+
+
+def test_one_image_ok_does_not_resolve_item_while_another_failed(tmp_path, monkeypatch):
+    from link_brain import problems
+    ok_e, bad_e = _entry(), _entry()
+    bad_e["asset"] = "raw/v0001/assets/image-006.webp"
+    vision.mark_refine(ok_e, "x")
+    bad_e["refine"] = {"status": "failed", "tries": 3, "reason": "x"}
+    _setup(tmp_path, monkeypatch, ok_e)
+    vpath = storage.derived_dir("xiaohongshu", "abc") / "vision.json"
+    doc = storage.read_json(vpath)
+    doc["images"].append(bad_e)
+    storage.write_json(vpath, doc)
+    item = vision._item_id("xiaohongshu", "abc")
+    problems.report("vision.refine", "PERMANENT.MODEL_OUTPUT_INVALID", "image-006.webp：坏", item_id=item)
+    monkeypatch.setattr(visual, "refine", lambda *a, **k: {"status": "ok", "kind": "diagram", "text": "图", "model": "m"})
+    vision.refine_object("xiaohongshu", "abc", {"model": "m"})
+    assert problems.is_open("vision.refine", item, "PERMANENT.MODEL_OUTPUT_INVALID"), "另一张还 failed：问题留着"
+    # 那张也好了 → 整篇才消
+    doc = storage.read_json(vpath)
+    doc["images"][1]["refine"]["status"] = "pending"
+    storage.write_json(vpath, doc)
+    vision.refine_object("xiaohongshu", "abc", {"model": "m"})
+    assert not problems.is_open("vision.refine", item, "PERMANENT.MODEL_OUTPUT_INVALID")

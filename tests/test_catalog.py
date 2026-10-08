@@ -92,3 +92,27 @@ def test_empty_vault_is_ok(tmp_path, monkeypatch):
 def test_explicitly_empty_tags_stay_empty(tmp_path):
     _make_object(tmp_path, 'empty', title='清空标签', tags=[], summary='摘要', stem='清空标签')
     assert catalog.collect(tmp_path)[0]['tags'] == []
+
+
+def test_collect_carries_hashtags(tmp_path, monkeypatch):
+    """批次 D · N9：catalog-data 每篇带原帖话题 hashtags（去掉开头 #，最多 30 个）。"""
+    monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
+    _make_object(tmp_path, "h1", title="悉尼咖啡", tags=["咖啡"], summary="x", stem="悉尼咖啡")
+    src = tmp_path / "_archive" / "xiaohongshu" / "h1" / "raw" / "v0001" / "source.json"
+    src.write_text(json.dumps({"note": {"hashtags": ["#悉尼生活", "咖啡", " ", "#"] + [f"t{i}" for i in range(40)]}}, ensure_ascii=False), encoding="utf-8")
+    _, _, data_path = catalog.build()
+    it = json.loads(data_path.read_text(encoding="utf-8"))["items"][0]
+    assert it["hashtags"][:2] == ["悉尼生活", "咖啡"]
+    assert len(it["hashtags"]) == 30
+
+
+def test_build_built_at_advances(tmp_path, monkeypatch):
+    """F4：每次 build 都重写 built_at（页面「更新」显示它）。"""
+    import time
+    monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
+    _, _, data_path = catalog.build()
+    a = json.loads(data_path.read_text(encoding="utf-8"))["built_at"]
+    time.sleep(1.1)
+    catalog.build()
+    b = json.loads(data_path.read_text(encoding="utf-8"))["built_at"]
+    assert b > a

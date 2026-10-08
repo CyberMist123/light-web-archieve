@@ -45,12 +45,12 @@ assert.equal(Plugin.serializeCats(cats),'人机恋: 人机恋, ai伴侣\n吃的:
   const empty=await plugin.deleteItems([]);assert.equal(empty.deleted,0);assert.equal(empty.results.length,0);  // 空不 spawn
   // 目录页「+」菜单按钮：旧插件实例缺 openPlusMenu 时 disable/enable 恢复后再打开
   const view=fs.readFileSync('link_brain/assets/catalog-view.js','utf8');
-  const handler=view.slice(view.indexOf('importButton.onclick=')+'importButton.onclick='.length,view.indexOf('\n// 大类筛选条'));
+  const mark='importButton.onclick = ';const handler=view.slice(view.indexOf(mark)+mark.length,view.indexOf('\n// 大类筛选条')).trim().replace(/;$/,'');
   let opened=0,reloaded=0,status='';const button={disabled:false};
   const app={plugins:{plugins:{'link-brain-actions':{}},disablePlugin:async()=>{},enablePlugin:async()=>{reloaded++;app.plugins.plugins['link-brain-actions']={openPlusMenu:()=>opened++};}}};
   const lib=fs.readFileSync('link_brain/assets/lb-page-lib.js','utf8');
   const LB=new Function('dv','app',lib+';return lbPageLib(dv,app,"catalog")')({container:{},current:()=>({file:{folder:''}})},app);
-  const click=new Function('app','importButton','importStatus','LB','return '+handler)(app,button,{setText:s=>status=s},LB);
+  const click=new Function('app','importButton','LB','return '+handler)(app,button,LB);
   await click({preventDefault(){},stopPropagation(){}});
   assert.equal(reloaded,1);assert.equal(opened,1);assert.equal(button.disabled,false);
   // answerArchive 薄壳：解析后端 `ask` 的 JSON、非 ok 抛错
@@ -75,46 +75,19 @@ assert.equal(Plugin.serializeCats(cats),'人机恋: 人机恋, ai伴侣\n吃的:
 // ── Lot E 星标主题 chip：用极简假 DOM 真跑整段目录页脚本（search + view） ──
 // 断言：无主题时不建 .lbc-topics（DOM 与没有这功能时一致）；有主题时 chip 出现、点击过滤、再点取消、
 // 与「全部」/大类联动；全页不设 aria-label（Obsidian 会渲染成悬浮框，Owner 不要）。
-function fakeDom(){
-  class El{
-    constructor(tag){this.tagName=String(tag).toUpperCase();this.children=[];this.parent=null;this.attrs={};this.classList=new Set();this.style={};this.hidden=false;this._text='';}
-    get className(){return [...this.classList].join(' ');}
-    set className(v){this.classList=new Set(String(v||'').split(/\s+/).filter(Boolean));}
-    get textContent(){return this._text+this.children.map(c=>typeof c==='string'?c:c.textContent).join('');}
-    set textContent(v){this.children=[];this._text=String(v);}
-    createEl(tag,opts={}){const el=new El(tag);if(opts.cls)el.className=opts.cls;if(opts.text!=null)el._text=String(opts.text);for(const [k,v] of Object.entries(opts))if(!['cls','text'].includes(k))el.setAttribute(k,v);this.append(el);return el;}
-    append(...nodes){for(const n of nodes){if(n instanceof El){n.parent=this;}this.children.push(n);}}
-    prepend(n){if(n instanceof El)n.parent=this;this.children.unshift(n);}
-    appendText(t){this.children.push(String(t));}
-    empty(){this.children=[];this._text='';}
-    setText(t){this.textContent=t;}
-    remove(){if(this.parent){this.parent.children=this.parent.children.filter(c=>c!==this);this.parent=null;}}
-    setAttribute(k,v){this.attrs[k]=String(v);}
-    getAttribute(k){return this.attrs[k]??null;}
-    hasClass(c){return this.classList.has(c);}
-    closest(){return null;}
-    matches(sel){const m=sel.match(/^([a-z]*)((?:\.[\w-]+)*)(?::not\(\.([\w-]+)\))?$/i);if(!m)return false;
-      if(m[1]&&this.tagName!==m[1].toUpperCase())return false;
-      for(const c of (m[2]||'').split('.').filter(Boolean))if(!this.classList.has(c))return false;
-      return !(m[3]&&this.classList.has(m[3]));}
-    all(){const out=[];for(const c of this.children)if(c instanceof El){out.push(c,...c.all());}return out;}
-    querySelector(sel){return this.all().find(e=>e.matches(sel))||null;}
-    querySelectorAll(sel){return this.all().filter(e=>e.matches(sel));}
-    getBoundingClientRect(){return {width:0,height:0};}
-  }
-  const body=new El('body');
-  const document={body,addEventListener(){},removeEventListener(){},querySelectorAll:s=>body.querySelectorAll(s),createElementNS:(ns,t)=>new El(t)};
-  return {El,document};
-}
+// 批次 D：改用共享假 DOM（tests/_fakedom.cjs）；页面挂在 host 上，查 A.section
+const { makeDom, makeApp, dataviewBlock } = require('./_fakedom.cjs');
 async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/catalog-view.js','utf8'),syncState={},summary=null,onAccountOpen=()=>{}}={}){
-  const {El,document}=fakeDom();
-  const root=new El('div');const window={alert(){},confirm:()=>false};
-  const app={vault:{adapter:{read:async p=>{if(p.endsWith('problems-summary.json')){if(!summary)throw new Error('ENOENT');return JSON.stringify(summary);}return JSON.stringify(p.endsWith('sync-status.json')?syncState:data);},getResourcePath:x=>x},getAbstractFileByPath:()=>null},
-    plugins:{plugins:{'link-brain-actions':{settings:{hiddenCats:[]},openAccountStatus:onAccountOpen,openProblems:onAccountOpen,openAttachments(){},openCategories(){},openLibraryPage(){}}}},
-    workspace:{openLinkText(){}}};
-  const dv={container:root,current:()=>({file:{folder:''}}),page:()=>null};
+  delete globalThis.__lbState; delete globalThis.__lbListeners;
+  const files={'_archive/catalog-data.json':JSON.stringify(data),'_archive/sync-status.json':JSON.stringify(syncState)};
+  if(summary)files['_archive/problems-summary.json']=JSON.stringify(summary);
+  const plugin={settings:{hiddenCats:[]},openAccountStatus:onAccountOpen,openProblems:onAccountOpen,openAttachments(){},openCategories(){},openLibraryPage(){}};
+  const {app}=makeApp({files,plugin});
+  const dom=makeDom();
   const search=fs.readFileSync('link_brain/assets/lb-page-lib.js','utf8')+'\n'+fs.readFileSync('link_brain/assets/catalog-search.js','utf8');
-  await new Function('app','dv','document','window','return (async()=>{'+search+'\n'+view+'\n})()')(app,dv,document,window);
+  const A=dataviewBlock({dom,app,code:search+'\n'+view});
+  await A.run();
+  const root=A.section;
   const cards=()=>root.querySelectorAll('.lbc-card').map(c=>c.querySelector('.lbc-ctitle').textContent);
   const chips=()=>root.querySelectorAll('.lbc-topic');
   const cat=label=>root.querySelectorAll('.lbc-cat').find(b=>b.textContent===label);
@@ -130,35 +103,35 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
   for(const data of [{...base,items:base.items.map(({topics,...it})=>it)},{...base,topics:[]}]){
     const page=await runCatalogPage(data);
     assert.equal(page.root.querySelectorAll('.lbc-topics').length,0);
-    assert.deepEqual(page.root.querySelector('.lbc-top').children.map(c=>c.className),['lbc-head','lbc-cats']);
+    assert.deepEqual(page.root.querySelector('.lbc-top').children.map(c=>c.className),['lbc-head','lbc-cats','lbc-selbar'],'C1：多选栏在吸顶区里（最后一个子节点）');
     assert.equal(page.cards().length,3);
   }
   // 有主题：chip 出现、★ 前缀、点击过滤、再点取消
   const page=await runCatalogPage({...base,topics:['AI 记忆层','睡眠']});
-  assert.deepEqual(page.root.querySelector('.lbc-top').children.map(c=>c.className),['lbc-head','lbc-cats','lbc-topics']);
+  assert.deepEqual(page.root.querySelector('.lbc-top').children.map(c=>c.className),['lbc-head','lbc-cats','lbc-topics','lbc-selbar']);
   assert.deepEqual(page.chips().map(c=>c.textContent),['★AI 记忆层','★睡眠']);
   assert.equal(page.chips()[0].querySelector('.lbc-topic-star').textContent,'★');
   page.chips()[0].onclick();
   assert.deepEqual(page.cards(),['长期记忆方案','睡前记忆整理']);
-  assert.ok(page.chips()[0].classList.has('is-active'));assert.equal(page.chips()[0].getAttribute('aria-pressed'),'true');
-  assert.ok(!page.cat('全部').classList.has('is-active'));
-  assert.ok(page.root.querySelector('.lbc-sub').textContent.startsWith('2 / 3 篇'));
+  assert.ok(page.chips()[0].classList.contains('is-active'));assert.equal(page.chips()[0].getAttribute('aria-pressed'),'true');
+  assert.ok(!page.cat('全部').classList.contains('is-active'));
+  assert.equal(page.root.querySelector('.lbc-count').textContent,'2 / 3 篇');
   page.chips()[0].onclick();
-  assert.equal(page.cards().length,3);assert.ok(page.cat('全部').classList.has('is-active'));
+  assert.equal(page.cards().length,3);assert.ok(page.cat('全部').classList.contains('is-active'));
   // 单选：切到「睡眠」只剩 c
   page.chips()[0].onclick();page.chips()[1].onclick();
   assert.deepEqual(page.cards(),['睡前记忆整理']);
-  assert.ok(!page.chips()[0].classList.has('is-active')&&page.chips()[1].classList.has('is-active'));
+  assert.ok(!page.chips()[0].classList.contains('is-active')&&page.chips()[1].classList.contains('is-active'));
   // 「全部」清掉主题
   page.cat('全部').onclick();
-  assert.equal(page.cards().length,3);assert.ok(page.chips().every(c=>!c.classList.has('is-active')));
+  assert.equal(page.cards().length,3);assert.ok(page.chips().every(c=>!c.classList.contains('is-active')));
   // 与大类叠加：吃的 ∩ AI 记忆层 = 空；记忆 ∩ AI 记忆层 = a,c
   page.cat('吃的').onclick();page.chips()[0].onclick();
   assert.equal(page.cards().length,0);
   page.cat('记忆').onclick();
   assert.deepEqual(page.cards(),['长期记忆方案','睡前记忆整理']);
   // 全页不设 aria-label
-  assert.equal(page.root.all().filter(e=>'aria-label' in e.attrs||'title' in e.attrs).length,0);
+  assert.equal(page.root.querySelector('.lbc-wrap').all().filter(e=>('aria-label' in e.attrs||'title' in e.attrs)&&!e.classList.contains('lbc-updated')&&!e.classList.contains('lbc-totop')).length,0,'卡片 / 筛选条不设 aria-label、title（「更新」的 title 是她要的悬停全句）');
   // 主题名不认识的旧 activeTopic / 坏数据不炸
   const bad=await runCatalogPage({...base,topics:[null,'',42]});
   assert.equal(bad.root.querySelectorAll('.lbc-topics').length,0);

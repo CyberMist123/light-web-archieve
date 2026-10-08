@@ -219,8 +219,8 @@ def plan(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
         if now < last + timedelta(minutes=ATTACHMENT_REOPEN_MIN):
             return {**_run("attachments"), "not_before": (last + timedelta(minutes=ATTACHMENT_REOPEN_MIN)).isoformat(timespec="seconds")}
         return _run("attachments")
-    if step == "attachments.recheck" or step == "nightly.attachments-recheck":
-        return _wait(next_nightly(now), "网页那侧没查清；同一晚再开容易被限流，夜里的附件补查会再看")
+    if step == "attachments.recheck" or step.startswith("nightly.attachments-recheck"):
+        return _recheck_plan(row, now)
     if step == "attachments.convert":
         return _run("convert", auto=transient) if item else _manual("看附件那几条各自的原因")
     if step in ("enrich.summary", "vision.layer1"):
@@ -252,6 +252,51 @@ def plan(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
     return _manual("没有自动修复动作：看原因处理；拿不准就点「复制报错」发给作者")
 
 
+def _gave_up_retried(row: dict[str, Any]) -> bool:
+    """已放弃（PERMANENT）且当场修过没好：「全部修一遍」不再拿它花钱（10-08 04:38 那轮把 2 张图又付费重跑了一遍）。
+    第一次照样重试（10-04 的设计：PERMANENT 也再试一次）；免费的 convert / screen 也一样只试一次——再试也是同一个结论。"""
+    try:
+        return problems.classify(row.get("code") or "") == "PERMANENT" and row.get("repair_state") == "failed"
+    except problems.BadCode:
+        return False
+
+
+def _recheck_plan(row: dict[str, Any], now: datetime) -> dict[str, Any]:
+    """1008（B3-P5）：附件没查清的状态句按真实情况写——它在补查队列里排第几、今晚轮不轮得到、昨晚为什么没跑，
+    几晚没进展就照实说「已经 N 晚没进展」；不再每天往后滚一天写「等到明早 04:00」。"""
+    item = row.get("item_id")
+    eta: dict[str, Any] = {}
+    if item:
+        try:
+            from . import attachments
+            eta = attachments.recheck_eta(item)
+        except Exception:  # noqa: BLE001 - 算不出来就按老说法
+            eta = {}
+    first = _parse(row.get("ts")) or now
+    stalled = (now.date() - first.date()).days
+    prefix = f"已经 {stalled} 晚没进展：" if stalled >= 2 else ""
+    if eta.get("queue") == "tail":
+        if eta.get("skipped"):
+            why = f"游客看不到这篇，要用登录号看一眼；碰号的补查最近没跑（{eta['skipped']}），号处理好后的第一晚自动看，你不用另外做什么"
+        else:
+            why = (f"游客看不到这篇，要用登录号看一眼：排在第 {eta['pos']} 篇，号正常的晚上每晚看 5 篇，"
+                   f"预计 {eta['when']} 轮到")
+    elif eta.get("queue") == "guest":
+        why = f"排在游客补查第 {eta['pos']} 篇（不用你的号），预计 {eta['when']} 轮到"
+    else:
+        return {**_wait(next_nightly(now), prefix + "网页那侧没查清；夜里的附件补查会再看"), "plain": True}
+    until = next_nightly(now)
+    try:
+        month, day = (int(x) for x in str(eta.get("when") or "").split("-"))
+        cand = until.replace(month=month, day=day)
+        if cand < until:
+            cand = cand.replace(year=cand.year + 1)
+        until = cand
+    except (TypeError, ValueError):
+        pass
+    return {**_wait(until, prefix + why), "plain": True}
+
+
 def describe(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
     """面板要的几项：repairable（给不给「现在修」）、repair_kind、repair_what、repair_minutes、status_text（一句话状态）。"""
     now = now or _now()
@@ -265,12 +310,17 @@ def describe(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]
         out["status_text"] = f"正在修 / 预计 {int(row.get('repair_eta_min') or (act.minutes if act else 5))} 分钟"
         out["repairing"] = True
     elif p["kind"] == "wait":
-        out["status_text"] = f"等到 {_hm(_parse(p['wait_until']))}：{p['why']}"
+        out["status_text"] = p["why"] if p.get("plain") else f"等到 {_hm(_parse(p['wait_until']))}：{p['why']}"
         out["wait_until"] = p["wait_until"]
     elif p["kind"] == "manual":
         out["status_text"] = "要你看一眼：" + p["next"]
     elif p["kind"] == "run" and act:
-        if row.get("repair_state") == "failed":
+        permanent = str(row.get("code") or "").startswith("PERMANENT.")
+        tries = int(row.get("count") or 1) + (1 if row.get("repair_state") == "failed" else 0)
+        if permanent and act.name != "screen" and (row.get("repair_state") == "failed" or tries >= 2):
+            # 1008：已放弃的别再劝她点——说实话：同样原因失败过几次、再点多半一样、可以隐藏
+            out["status_text"] = f"同样的原因已失败 {tries} 次，再点「再试一次」多半一样；不想看到就点「隐藏」"
+        elif row.get("repair_state") == "failed":
             out["status_text"] = f"当场修过没好（{_hm(at)}）：可以再点「现在修」"
         elif act.name == "screen":
             # PERMANENT.NO_SPEECH / NO_AUDIO 是结论不是故障（读出字幕的根本不登记）：说清楚不用管，想再读一次字幕才点
@@ -333,6 +383,10 @@ def _select(rows: list[dict[str, Any]], *, key: str | None, since: str | None, a
             continue
         if p["kind"] != "run" or p.get("group"):
             continue
+        if r.get("hidden") or problems.is_hidden(r):
+            continue  # 1008：她隐藏了的，只在点名单条时才跑
+        if _gave_up_retried(r):
+            continue  # 1008：已放弃、当场修过没好的不再进「全部修一遍」（同样原因再跑多半一样，还花钱）；点名单条照样跑
         if auto:
             ts = _parse(r.get("ts"))
             if not p.get("auto") or (since_dt and (ts is None or ts < since_dt)):

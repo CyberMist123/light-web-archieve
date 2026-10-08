@@ -17,7 +17,7 @@
 - **用户看到**：夜跑后「收藏数异常」——收藏一千多条，只读回 50 / 540 / 1120 条；以前还会在连着 3 晚读到同一个截断数后把它认成新基准，之后再截断也不报了。
 - **根因**：读取组件判「滚到底」靠「条数稳住一会儿」：页面加载慢、滚动没触发加载时，条数停住就当读完了；Python 侧拿不到「到底有没有读完」的信号，只能按「比上次少一半」猜。
 - **修法 / 自愈**：
-  - 读取组件（Go）：`GET /api/v1/favorites?expect=N` 接受上次基准；判停看页面状态里的 `hasMore`，换四级滚法、节奏带抖动；读不全如实报 `partial` + `stop_reason`（has_more_false / stable / below_expect / stuck_has_more / budget / cancelled / tab_lost / risk）。滚动预算 420 秒、单次请求上限 10 分钟。
+  - 读取组件（Go）：`GET /api/v1/favorites?expect=N` 接受上次基准；判停看页面状态里的 `hasMore`，换四级滚法、节奏带抖动；读不全如实报 `partial` + `stop_reason`（has_more_false / stable / below_expect / stalled / hidden_widget / api_refused / budget / cancelled / tab_lost / risk；1008 读取组件 d7：`stalled` 取代 stuck_has_more——卡住只换第 1 级滚法，还不动就停）。滚动预算 420 秒、单次请求上限 10 分钟。
   - Python：有基准才带 `?expect=N`（旧读取服务行为不变）；客户端超时 780 秒（≥ 660）；`partial` = 只读到一截：这一截里的新收藏照抓，同步结果如实标「只读到一截（原因）」；基准只认靠得住的全量（`partial` / 可疑 / 明显低于基准且没读到底的都不认，读取服务明说 `has_more_false` 才认——她真删了收藏）。
 - **回归用例**：`tests/test_self_heal_1004.py::test_route_passes_baseline_only_when_known`、`tests/test_self_heal_1004.py::test_partial_read_ingests_new_ones_flags_once_and_keeps_baseline`、`tests/test_self_heal_1004.py::test_baseline_only_from_trustworthy_reads`、`tests/test_review_fixes_1001.py::test_two_truncated_nights_in_a_row_both_flagged_but_pushed_once`；Go 侧 `reader/link-brain-reader.patch` 里的 `TestScrollFavoritesBudgetIsPartial` / `TestScrollFavoritesEndsOnHasMoreFalse` / `TestFavReadSummary`。
 
@@ -48,6 +48,7 @@
 ### 6. 精细识图输出复读，试一次就放弃（10-04）
 - **用户看到**：架构图 / 表格的精细识别「AI 结果不可用」，笔记里只有第一层的粗结果；要等后面几晚才再试。
 - **根因**：模型偶尔复读（同一段输出几十遍）或截断，结果过不了格式检查；以前同一张图每晚只试一次、跨 3 晚才放弃，当晚不换参数也不换模型。
+  **1008 补一种根因：我们自己的判据误判**——「有一行超过 600 字就截掉、看到截断标记就报复读」，论文页的长段落、聊天截图里的长气泡没有一个字重复，也被判「出现复读」→ PERMANENT，换模型重跑多少次都一样、每次都花钱（见第 11 条）。
 - **修法 / 自愈**（同一次运行里）：原样 → **换参数**（温度调到 0.6，跳出复读循环）→ **换另一个已配置的模型**（设置里的精细识别模型 / 第一层识图模型，去重）→ 都不合格才当场放弃这张，笔记继续用第一层结果，并在问题里写明「试过 … 都不合格，已退回第一层识图结果」。接口故障（限流 / 断网）不算次数，留待补。「现在修」只重标放弃了的那几张（`vision --refine-mark <id> --retry-failed --now`）。
 - **回归用例**：`tests/test_self_heal_1004.py::test_refine_ladder_heals_with_new_params`、`tests/test_self_heal_1004.py::test_refine_ladder_switches_model_then_falls_back_to_layer1`、`tests/test_self_heal_1004.py::test_refine_retry_failed_only_remarks_failed_images`、`tests/test_vision_refine.py::test_refine_object_gives_up_after_three_tries`。
 
@@ -75,6 +76,47 @@
 - **修法 / 自愈**：读取组件（r03）：没按钮且已加载 ≥ 显示数的楼算展开到底；新参数 `expand_floors`（只展开指定楼）+ `floors_not_found`。Python：`capture.comment_load` 存判停原因、读到几楼、每楼缺多少（只留 `missing>0`）；可见页顶上一行「评论读到 N 楼，楼中楼还缺 M 条（原因，下次同步接着读）」、每楼如实写「还有 N 条回复没拿到（原因）」；机读版同样标；同步记录多一项「评论 ❌ 楼中楼还缺 M 条」带续读命令。续读 `comments <id> --fill` 只展开缺口楼（预算 540 秒），合并进新 RAW 版本（其它楼沿用上一版）；夜跑新步骤 `comments --fill-pending` 每晚最多 2 篇、同一篇间隔 ≥ 20 小时、最多 3 次，之后页面写「已续读 3 次，剩下的太长不再读」。不进问题记录（不是故障，是如实标缺）。
 - **回归用例**：`tests/test_comments_fill_1008.py::test_compact_drops_zero_missing_and_sums`、`tests/test_comments_fill_1008.py::test_ingest_records_gap_everywhere`、`tests/test_comments_fill_1008.py::test_fill_expands_only_gap_floors_and_merges`、`tests/test_comments_fill_1008.py::test_pending_fills_respects_attempts_and_gap_hours`、`tests/test_comments_fill_1008.py::test_fill_pending_cli_and_nightly_step`。
 
+### 11. 「AI 结果不可用」其实是我们自己的复读判据误判长段落（10-02 / 10-08）
+- **用户看到**：两篇的精细识图一直「AI 结果不可用」，点「现在修」、换模型都一样；另一张卡片上有灰标，问题面板里却没有这一条。
+- **根因**：①`visual.tidy_output` 把超过 600 字的行一律截断、`shaky_reason` 看到截断标记就报「出现复读」（第一层识图同样误判，误判后自动排进精细识图）；②`vision.refine_object` 一张图成功就把整篇的问题消掉，同一篇别的图还 failed 时出孤儿灰标、下一张失败计数从头算；③当时问题面板还没接上这类报错。
+- **修法**：只收真复读（同一段 ≥12 字连着 ≥4 次，或一行里不重复的 20 字片段不到一半；分隔线 / 省略号不算），单行超过 4000 字才硬截断并另报「输出过长」；「出现复读」只在真收掉复读时报；整篇跑完、没有任何一张还 failed 才解决这篇的问题。卡片有标、面板没有的精细识图失败做成一次性迁移（问题面板打开时补登记一次，ts 用 vision.json 的 refine.at）。**不 bump VISUAL_VERSION**（会让全库第一层重跑）。
+- **回归用例**：`tests/test_vision_refine.py::test_long_paragraph_is_not_repetition`、`tests/test_vision_refine.py::test_true_repetition_still_flagged`、`tests/test_vision_refine.py::test_separator_line_is_not_repetition`、`tests/test_vision_refine.py::test_refine_ladder_passes_long_paragraph`、`tests/test_vision_refine.py::test_one_image_ok_does_not_resolve_item_while_another_failed`、`tests/test_card_problems_1008.py::test_orphan_refine_backfilled_once_with_refine_time`。
+
+### 12. 已放弃的问题删不掉，顶部灰色数字一直挂着；「全部修一遍」拿它们反复花钱（10-08）
+- **用户看到**：问题面板「已放弃」两条永远在，顶部灰色数字不归零；卡片上 5 个橙色「AI key 失效」其实 key 早好了；10-08 04:38 又有一轮「全部修一遍」付费重跑了那两张图。
+- **根因**：①问题记录没有隐藏态，一条只有被修好才消失，而已放弃的靠程序永远修不好；②`repair._select` 在「全部修一遍」里对当场修过没好的 PERMANENT 照样再跑（会花钱的精细识图）；③卡片角标只看每篇自己的对象文件，接口那一侧的码在 1008 改成以 ai-health 为准后卡片没跟上。
+- **修法**：加「隐藏」——只收没解决的 PERMANENT，她手动、可恢复、照样导出（「复制报错」里状态写「已隐藏」）；隐藏到这个 key 解决为止（同一件事复发照样藏着、记「隐藏后又出现 N 次」，解决后再坏才重新出现；压实不丢）；NEEDS_HUMAN / TRANSIENT 一律不能隐藏。这不违反 1004「实际报错照实显示」：藏的是她看过、决定不管的那条，诊断记录一行不丢。面板：已放弃的行「再试一次」+「隐藏」、组标题旁「全部隐藏（N）」、底部默认收起的「已隐藏 · N」可恢复；状态句说实话（「同样原因已失败 N 次，再点多半一样，不想看就隐藏」）。「全部修一遍」跳过当场修过没好的已放弃条目和隐藏的（第一次照样试，点名单条照样跑）。删笔记时撤掉这篇名下的问题（`problems.resolve_item`，唯一的「真删除」）。卡片角标减去隐藏集合；接口那一侧的码只在 ai-health 里这个能力还开着时照原码出，否则降成灰色「待补识图 / 概要」。
+- **回归用例**：`tests/test_problems_dismiss_1008.py::test_dismiss_only_gave_up_rows`、`tests/test_problems_dismiss_1008.py::test_dismiss_survives_same_cause_recurrence`、`tests/test_problems_dismiss_1008.py::test_dismiss_reappears_after_resolve_then_recur`、`tests/test_problems_dismiss_1008.py::test_dismiss_survives_compaction`、`tests/test_problems_dismiss_1008.py::test_export_marks_hidden_rows`、`tests/test_problems_dismiss_1008.py::test_repair_all_skips_failed_permanent_but_single_still_runs`、`tests/test_problems_dismiss_1008.py::test_delete_note_resolves_its_problems_via_remove`、`tests/test_card_problems_1008.py::test_item_problems_skips_dismissed_pairs`、`tests/test_card_problems_1008.py::test_item_problems_drops_stale_api_codes_when_ai_health_clear`、`tests/test_problems_dismiss_ui.cjs`。
+
+### 13. 「附件没查清」挂好几天不动，面板天天写「等到明早」；附件检查谎报「全部已保存」（09-27 起 / 10-08）
+- **用户看到**：「正在自动处理」里两条「附件没查清 · 稍后再查」挂了 3 天，什么都没发生；附件检查说「已知附件全部已保存」，其实有一份 PDF 从 09-29 起就没下到。
+- **根因**：①补查九成只走游客，却整步算碰号，号一要验证整晚跳过；②每篇按最坏 370 秒预留、只给 20 分钟，「每晚补查 20 篇」做不到；③没有「原帖打不开」这个终态，查过的永远排队尾；④一直用入库时的旧口令；⑤面板状态句按当前时间现编，跳过只写日志不写记录；⑥补查探到但没下好的附件没记进声明，附件检查数不到它。
+- **修法**：拆两段——游客段（不碰号、熔断夜照跑但守 ≤10 篇和离验证 ≥60 分钟、号被占就让路、无条件保险丝）和收尾段（碰号、每晚 ≤5 篇、服务失败第一次就收工）；每篇按 220 秒预留，积压期上限 40；查过的按上次查的时间轮流；登录号落 /explore 或 /404 两晚各一次（或新口令一次）才判「原帖打不开」，落 /login 一律停车；本地对账（每晚游客段开头）把探到的附件记进声明、旧的双路证据转终态；下载跨夜退避；状态文件每次运行都写、跳过也写；面板状态句按真实队列位置写。
+- **「附件下不了 / 没查清」的每种原因**（上线前清零的清单）：
+
+| 原因 | 码 / 状态 | 修法 | 回归用例 |
+|---|---|---|---|
+| 游客读不到（登录墙） | `web_recheck.stage=guest_unseen` → 收尾段 | 号正常的晚上登录号看一眼（≤5 篇） | `tests/test_attachments_recheck_1008.py::test_tail_only_looks_at_guest_unseen_and_gone_needs_two_nights` |
+| 登录号落 /explore、/404（删了 / 仅作者可见 / 审核中 / 口令过期） | `gone_suspected` → `gone`（卡片「原帖打不开」） | 两晚各一次或新口令一次才定；30 天游客复查 | `tests/test_attachments_recheck_1008.py::test_tail_fresh_token_settles_gone_in_one_night` |
+| 登录号落 /login、是游客 | 账号类（停车、要人处理） | 绝不判删帖 | `tests/test_attachments_recheck_1008.py::test_tail_login_wall_stops_and_never_judges_gone` |
+| 读取服务超时 / 忙 / 断开 | 收尾段收工 | 第一次就停，不接着开页 | `tests/test_attachments_recheck_1008.py::test_tail_stops_on_first_service_failure` |
+| 游客页出现安全验证 / 访问频繁（页面有验证词、没有 SSR 状态的验证页、461 / 471 状态码、跳到 website-login / captcha） | `TRANSIENT.WEB_PROBE_BLOCKED`（步骤级） | 游客段当晚停、不起浏览器兜底，没碰号 | `tests/test_attachments_recheck_1008.py::test_guest_fuse_and_captcha_stop`、`tests/test_attachments_recheck_1008.py::test_captcha_page_stops_before_guest_browser`、`tests/test_attachments_recheck_1008.py::test_captcha_variants_stop_without_browser` |
+| 号正被同步 / lwa 占着 | 游客段让路 | 同 IP 不和号的活动叠在一起 | `tests/test_attachments_recheck_1008.py::test_guest_yields_when_account_is_busy` |
+| 探到了附件但下载失败（超时 / 占位页） | `TRANSIENT.DOWNLOAD_FAILED` + 跨夜退避 1/2/4/7 天 | --all 退避到点后一晚试 1 次 | `tests/test_attachments_recheck_1008.py::test_download_backoff_across_nights` |
+| 探到了但没记进声明（「全部已保存」谎报） | 本地对账 `_remember_probed` | 附件检查如实数「未下载」 | `tests/test_attachments_recheck_1008.py::test_reconcile_declares_found_file_and_turns_explore_evidence_into_gone` |
+| 文件早下好了、标记没清（download_error） | 本地对账清标 | 算查清 | 同上 |
+| 时间预算到了 | 不算失败，留给下次 | 按 220 秒/篇预留，积压期 40 篇 | `tests/test_attachments_recheck_1008.py::test_guest_budget_reaches_limit_with_220s_reserve` |
+| 收尾段被跳过（号要处理） | 状态文件 `tail.skipped` | 面板如实说、不写「等到明早」 | `tests/test_attachments_recheck_1008.py::test_skipped_tail_is_recorded_and_shows_in_last_runs`、`tests/test_attachments_recheck_1008.py::test_nightly_skipped_tail_writes_status` |
+| 附件页没下载按钮 / 有密码 / 损坏 / 转不了 | `NO_DOWNLOAD_BUTTON` / `PERMANENT.PDF_*` | 原件已保存；手动下载后「挂附件」 | 见上表与第 6 条 |
+
+- **回归用例**：`tests/test_attachments_recheck_1008.py::test_guest_only_never_touches_account_and_runs_during_old_hold`、`tests/test_attachments_recheck_1008.py::test_guest_skips_when_hold_is_recent_or_switch_off`、`tests/test_attachments_recheck_1008.py::test_order_never_checked_first_then_oldest`、`tests/test_attachments_recheck_1008.py::test_tail_limit_five`、`tests/test_attachments_recheck_1008.py::test_repair_describe_recheck_reports_real_state`。
+
+### 14. 验证窗口里没看到验证就解除，面板过时，手动同步再撞（10-04 / 10-08）
+- **用户看到**：04:01 夜里「需要验证」；她点「打开验证」，窗口里没有滑块，关掉后面板还是「需要验证」；再点一次又空开了 12 分钟；05:11 点同步，05:19 又撞了验证。
+- **根因**：①验证窗口只开到主页默认「笔记」页签，不碰出事的「收藏」；②关窗即解除，不要求窗口里出现过验证（读取组件 d7 已改：没出现过就保持熔断，给 `verify_result=no_captcha_seen`）；③Python 侧打开窗口就返回，不等结果、不先看熔断还在不在，面板靠下一次登录检查才变；④「页签点不动 / 列表卡住」这两个前兆出现后还在加码（d7 已改成前兆即停，回 `FAV_TAB_STUCK` / `stalled`）；⑤出事不留证据（d7 已落 `~/.link-brain/risk-evidence`）。
+- **修法**（Python + 插件）：「打开验证」先只读看熔断，不在就不开窗口、按内存登录态刷绿；在才开，`--wait` 只轮询内存状态等窗口关掉，按 `verify_result` 如实回报（not_logged_in 优先）；关窗后熔断还在才给「没看到验证，恢复」，她亲手确认才发一次 `risk/clear`（`login --clear-hold --by-owner`，问题记录留痕，绝不进「全部修一遍」和夜跑）；扫码成功不等于熔断已解，看 `risk_hold`；验证提示改成「窗口打开后先点一下『收藏』页签」；撞验证当时就通知（面板没刷掉之前又撞一次新的照样推），熔断行写清「几点、在哪一步判到验证」，有证据给「查看截图」（证据路径不进记录 / 复制报错 / 通知，只给目录名）；设置页「立即同步」旁如实写「上次 HH:MM 判到验证」，**不拦、不冷却**（她 1008 定）。`HIDDEN_WIDGET`（看不见的验证组件）/ `FAV_TAB_STUCK`（页签点不动）只停这一次读收藏：TRANSIENT、退出 3，不挡当晚其它碰号步骤。
+- **回归用例**：`tests/test_verify_hold_1008.py::test_open_verify_skips_window_when_no_hold`、`tests/test_verify_hold_1008.py::test_open_verify_wait_reports_no_captcha_seen`、`tests/test_verify_hold_1008.py::test_clear_hold_requires_owner_and_posts_once`、`tests/test_verify_hold_1008.py::test_login_success_with_captcha_hold_still_reports_hold`、`tests/test_verify_hold_1008.py::test_soft_stop_codes_do_not_exit_5`、`tests/test_verify_hold_1008.py::test_evidence_never_leaves_the_machine`、`tests/test_problems_dismiss_1008.py::test_captcha_pushes_again_on_new_incident`、`tests/test_problems_dismiss_ui.cjs`。
+
 ---
 
 ## 二、故障码对照（用户看到 → 常见根因 → 自愈动作）
@@ -94,7 +136,9 @@
 | `TRANSIENT.FAVORITES_FAILED` / `TIMEOUT` / `DISCONNECTED` / `BUSY` / `SYNC_FAILED` / `TOO_MANY_FAILURES` / `ACCOUNT_BUSY` / `INTERRUPTED`（sync.favorites） | 读收藏没成功 / 读取服务超时 / 没在运行 / 正忙 / 同步没做完 / 连续失败 / 号被占 / 被打断 | 机器卡、读取服务没起、号被别的任务占 | 夜跑 exit 1 等 25 分钟重试一次 | — 不重读列表 | 「现在修」= 重新同步（距上次读 ≥ 30 分钟，否则写明等到几点） |
 | `TRANSIENT.RATE_LIMITED` | 刚刚同步过 | 读取服务 10 分钟限频 | — | — | 等 10 分钟（写明几点） |
 | `TRANSIENT.DISCONNECTED` / `TIMEOUT` / `BUSY`（ingest 步骤级） | 读取服务没在运行 / 超时 / 正忙 | 读取服务没起来 | — | ✔ 检查读取服务、没在跑就拉起 | 同左 |
-| `TRANSIENT.WEB_PROBE_BLOCKED`（ingest）/ `PROBE_FAILED`（attachments.recheck） | 网页那侧被拦 / 附件没查清 | 游客网页被登录墙 / 验证挡住 | 当场用登录号再看一次 | — | 等到下次夜跑的附件补查（写明几点；同一晚再开容易被限流） |
+| `TRANSIENT.WEB_PROBE_BLOCKED`（ingest / attachments.recheck 游客段）/ `PROBE_FAILED`（attachments.recheck 收尾段） | 网页那侧被拦 / 附件没查清 | 游客网页被登录墙 / 验证挡住；登录号也没看清 | 游客段无条件保险丝；收尾段服务失败第一次就收工 | — | 面板写真实队列位置（排第几、预计哪天、碰号补查为什么没跑、几晚没进展），不再天天「等到明早」；见第 13 条 |
+| `TRANSIENT.HIDDEN_WIDGET` / `FAV_TAB_STUCK`（sync.favorites） | 收藏这次先停了 / 收藏页签点不动 | 页面里有验证组件但没显示滑块 / 收藏接口疑似限流 | 读取组件当场停、不熔断；退出 3 | — 今晚不再重读 | 下次同步照常读；见第 14 条 |
+| `TRANSIENT.AI_PENDING`（只上卡片） | 待补识图 / 概要 | 当时接口出错（key / 断网），接口现在已经好了 | — | ✔ enrich --pending 补 | 不用处理 |
 | `TRANSIENT.DOWNLOAD_FAILED` | 附件没下好 | 504 / 超时 / 网页占位页 / 文件头不对 | 带退避重下，最多 3 次 | ✔（号没出事、离上次开这一篇 ≥ 20 分钟） | 「现在修」= 重下这篇附件；不行就手动下载后「挂附件」 |
 | `TRANSIENT.SERVICE_BUSY` / `STEP_TIMEOUT`（attachments.convert） | 服务正忙 / 步骤超时 | 本地 OCR 没起来、超时 | 歇几秒当场再转一次 | ✔ 强制重转 | 同左 |
 | `PERMANENT.PDF_ENCRYPTED` / `PDF_DAMAGED` / `DOC_UNSUPPORTED` / `CONVERSION_FAILED` | 全文没转出来 | 有密码、文件坏、格式不支持 | 字节照存，不删不重下 | — | 「现在修」= 再强制转一次；原件已保存 |
@@ -102,7 +146,7 @@
 | `TRANSIENT.RETRY_EXHAUSTED` | 连着几次没补成 | 识图 / 概要连着 3 次没补成 | — | ✔ 重跑这篇（不等退避） | 同左 |
 | `TRANSIENT.STEP_CRASHED`（vision.layer1 / enrich.summary） | 步骤中途出错退出 | 识图 / 概要代码意外异常（正文已入档） | 不阻断入档，照样渲染笔记 | ✔ 重跑这篇 | 同左 |
 | `PERMANENT.MODEL_OUTPUT_INVALID`（enrich.summary） | AI 结果不可用 | 概要两次都不是合法 JSON | 第二次把「只回 JSON」说死 → 换文本 AI 模型 | — | 「现在修」= 重跑这篇 |
-| `PERMANENT.MODEL_OUTPUT_INVALID`（vision.refine） | AI 结果不可用 | 精细识别复读 / 截断 / 流程图格式坏 | 原样 → 换参数 → 换模型 → 退回第一层结果 | — | 「现在修」= 放弃了的图重新精细识别 |
+| `PERMANENT.MODEL_OUTPUT_INVALID`（vision.refine） | AI 结果不可用 | 精细识别真复读 / 截断 / 流程图格式坏（1008 起长段落不再误判，见第 11 条） | 原样 → 换参数 → 换模型 → 退回第一层结果 | — | 「再试一次」= 放弃了的图重新精细识别；修过没好的不进「全部修一遍」；可「隐藏」 |
 | `TRANSIENT.SERVICE_BUSY` / `HTTP_*` / `NETWORK`（vision.refine 步骤级） | 接口连着不通 | 免费 key 限额、兜底模型也不通 | 429 换 key、503 歇一会儿同 key 再试、全不行退回设置里的模型 | ✔ 补跑 10 张 | 同左 |
 | `TRANSIENT.*`（videos.transcribe） | 服务正忙 / 步骤超时 | 转写服务没起、抽音轨超时 | 转写服务没起：当场拉起（CapsWriter）再转 | ✔ 拉起后重转这条 | 同左；不行到设置里测试语音识别 |
 | `PERMANENT.NO_SPEECH` / `NO_AUDIO` | 视频里没人说话 / 没有音轨（画面上也没认出字幕） | 纯音乐 / 没音轨，且没有画面字幕 | 没人声也抽画面字幕；读出字幕就不登记 | — | 不用处理；「现在修」= 重读一次画面字幕 |
@@ -111,7 +155,7 @@
 | `TRANSIENT.INTERRUPTED`（nightly.run） | 被打断 | 上一晚夜跑被系统强停 / 断电 | — | — | 等下一晚夜跑走完自动消（写明几点） |
 | `TRANSIENT.SECRET_TIMEOUT` | 取 AI key 超时 | 密码库卡住 | 没 key 照跑，退回设置里的模型 | — | 人看一眼密码库 |
 | `PERMANENT.STEP_ARGS` | 程序和夜跑脚本版本对不上 | 夜跑脚本给的参数程序不认 | — | — | 更新程序或夜跑脚本 |
-| `PERMANENT.NOTE_GONE` | 原帖已删除 | 原帖删了 / 不可见 | — | — | 不用处理，本地存档还在 |
+| `PERMANENT.NOTE_GONE`（只上卡片） | 原帖打不开 | 删了 / 仅作者可见 / 审核中（分不清，所以不说「已删除」） | — | — | 不用处理，本地存档还在；30 天游客复查一次 |
 | `PERMANENT.REMOTE_TASK_FAILED` | 远程阅读的计划任务没弄好 | 计划任务注册失败 | — | — | 设置 → 远程阅读 关掉再打开 |
 | `PERMANENT.CHECKSUM_MISMATCH` / `BAD_PACKAGE` / `DISK_FULL` | 组件校验不过 / 包不对 / 磁盘不够 | 只在安装命令结果里出现 | — | — | 设置 →「开始」重装；先腾空间 |
 | `SKIPPED.*` | 未配置 / 已关闭 / 额度到了 / 已退回普通方式 / 旧设置已换算 | 没开、没配 | — | — | 不是问题，不计数 |

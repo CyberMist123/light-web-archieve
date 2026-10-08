@@ -71,6 +71,7 @@ REPAIR_MAX_MIN = 30
 SYNC_STEP = "sync-favorites"
 REFINE_STEP = "vision --refine"
 AUDIT_STEP = "attachments --audit"
+TAIL_STEP = "attachments --recheck --logged-in-tail"
 KEYS_STEP = "gemini-keys"  # 取免费 key 单独记一步：精细识图没 key 照样成功，别把「取 key 失败」顺手标成已解决
 
 
@@ -94,9 +95,14 @@ def default_steps() -> list[Step]:
         Step(SYNC_STEP, ["sync-favorites", "--limit", "0", "--budget-min", "150"], 170, account=True),
         # 2) 目录页：就算同步出错也重写一次（库里可能已经落了几篇新的）
         Step("catalog", ["catalog"], 10),
-        # 3) 附件补下 / 4) 附件补查：碰号。--budget-min 比时限少 5 分钟，Python 自己收手，不在下载半路被杀
+        # 3a) 附件补查·游客段（1008 B3）：不碰号（不拉起读取服务、不拿账号锁），号要验证的晚上也跑（开关
+        #     LWA_GUEST_RECHECK_DURING_HOLD 默认开，≤10 篇、离验证 ≥60 分钟，带自己的保险丝）；放在 --all 之前，
+        #     今晚新探到的附件今晚就能下。上限自动：平时 20、积压期 40；每篇按最坏 220 秒预留
+        Step("attachments --recheck --guest-only", ["attachments", "--recheck", "--guest-only", "--budget-min", "150"], 155),
+        # 3b) 附件补下：碰号。--budget-min 比时限少 5 分钟，Python 自己收手，不在下载半路被杀
         Step("attachments --all", ["attachments", "--all", "--budget-min", "30"], 35, account=True),
-        Step("attachments --recheck", ["attachments", "--recheck", "--limit", "20", "--budget-min", "20"], 25,
+        # 4) 附件补查·收尾段：游客读不到的用登录号看一眼（碰号，每晚 ≤5 篇；服务那侧第一次失败就收工）
+        Step(TAIL_STEP, ["attachments", "--recheck", "--logged-in-tail", "--limit", "5", "--budget-min", "20"], 25,
              account=True),
         # 4b) 评论续读（1008 Owner：超长评论区一次读不完，下次接着读）：碰号，每晚最多 2 篇、各约 9 分钟
         Step("comments --fill-pending", ["comments", "--fill-pending", "--limit", "2", "--budget-min", "22"], 25,
@@ -244,6 +250,15 @@ class Nightly:
             env.update(extra)
         return env
 
+    def _note_tail_skipped(self, why: str) -> None:
+        """收尾段被跳过也要让面板看得到（RELEASE-BAR §3.2）：进程内记一笔补查状态（纯本地，不联网）。"""
+        try:
+            from . import attachments
+            attachments.write_recheck_status("tail", {"checked": 0, "skipped": f"号要处理（{why}）"[:120],
+                                                      "stopped_reason": "skipped"})
+        except Exception as exc:  # noqa: BLE001
+            self.log(f"[附件补查] 跳过没记进状态文件（{type(exc).__name__}: {exc}）")
+
     def minutes_left(self) -> float:
         return (self.deadline - self.clock()) / 60
 
@@ -252,6 +267,8 @@ class Nightly:
         if step.account and self.account_stop:
             r.skipped = True
             self.log(f"[{step.name}] 跳过（碰号）：{self.account_stop_why}")
+            if step.name == TAIL_STEP:
+                self._note_tail_skipped(self.account_stop_why)
             return r
         left = self.minutes_left() - step.reserve_min
         if left < 2:
@@ -536,8 +553,12 @@ class Nightly:
             missing = True
         else:
             self.log("[附件检查] 已知附件全部已保存")
-        if (data.get("unprobed") or 0) > 0:
-            self.log(f"[附件检查] 还有 {data['unprobed']} 篇没查清原网页有没有附件（每晚补查 20 篇）")
+        recheck = data.get("recheck") if isinstance(data.get("recheck"), dict) else {}
+        if recheck.get("text"):
+            # 1008（B3-P6）：真实数字（还剩几篇 / 每晚查几篇 / 预计哪天 / 上次查了什么），不再写死「每晚补查 20 篇」
+            self.log(f"[附件检查] {recheck['text']}")
+        elif (data.get("unprobed") or 0) > 0:
+            self.log(f"[附件检查] 还有 {data['unprobed']} 篇没查清原网页有没有附件")
         else:
             self.log("[附件检查] 每篇原网页都查过附件了")
         return r, missing

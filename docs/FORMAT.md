@@ -392,6 +392,7 @@ link_brain:
 - `cssclasses: [link-brain]` 配 `vault/.obsidian/snippets/link-brain.css`（render 时不存在就写、存在不覆盖）：两栏 flex 布局、缩略图网格、隐藏属性面板、`## 评论`/`## 归档信息` 调成浅色小字。**Owner 要在 设置 → 外观 → CSS 片段 里手动打开一次 `link-brain`**。
 - 可见 tag 只放原帖 hashtag（Lot 4 起可加小模型建议 tag）；用户手写 tag 永不被覆盖。
 - 留言层永远不出现 `@ # todo` 之类协议词，人看到的就是「日期 角色」引用行。
+- （批次 D · L3）内容层的 `.lb-note` 带 `data-lb-item="<item_id>"`（插件图片导航按它记住每篇钉没钉 / 第几张 / 正文滚到哪；没有时退回文件路径）；笔记图和评论图 `<img>` 带 manifest 里的 `width` / `height`（两个都是正整数才写），视频的行内 style 带 `aspect-ratio:<宽> / <高>`（视频条目自己的，没有就用封面的）。评论缺口和「原帖有 N 条评论，这次没存下来」行末尾有 `<span class="lb-act lb-act-fetch-comments" role="button" tabindex="0">`（插件开着时才显示）；正文标签 `<span class="lb-tag" title="在目录里看带 #x 的收藏">`。HTML 属性一律双引号。CSS 片段写到插件传来的 `LINK_BRAIN_OBSIDIAN_DIR/snippets/`（没有就写收藏库已有的 `.obsidian`，再没有往上 3 层找带 `app.json` 的库），不再在收藏子目录里新建 `.obsidian`；桌面插件另把同一份样式（`obsidian-plugins/link-brain-actions/note.css`，和 `link_brain/assets/link-brain.css` 逐字节相同）挂进 head。
 
 ### 留言行格式
 
@@ -769,6 +770,11 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
 
 - 2026-10-02 第 2 批：`items[].cover_w / cover_h` 是封面原图宽高（取 manifest，拿不到为 null，目录页用来先占位）；
   `items[].starred / starred_at` 在 `note star` 时就地更新（不必等重建），目录页以它为准、不再逐篇读 notes.json。
+- 2026-10-08 批次 D：`items[].hashtags` = 原帖话题（source.json 的 `note.hashtags`，去掉开头 `#`，最多 30 个）；目录页「#x」筛选看 `tags ∪ hashtags`
+  （她改过的 frontmatter tags 可能删掉了某个原帖话题）。`note star <target...> [--off]` 一次接多个 id：
+  `{ok, code, message, results:[{item_id, status, starred, starred_at, error}], count_ok, catalog_patched, catalog_stat?}`，
+  catalog-data 整批只改一次；`catalog_stat = {mtime, size}` 是锁内写完那一刻的 stat（mtime = round(st_mtime_ns / 1e6)），只在真改了才给；
+  只有一个 target 时额外带旧顶层键 `item_id / status / starred / starred_at`。全部 ok 退出码 0，否则 1。
 - 2026-10-03 第 10 批：`search_fields.notes` = 用户在这篇里写的批注（notes.json 里没删的、非空的，一条一行，草稿不算），
   词法权重同标签、语义单独成块（改批注只重算那一块）；问收藏按 notes.json 修改时间现读，不等重建。
   问答结果多 `related`（候选池里没送进模型的其余篇，`tier: "related"`）、`sources[].tier = "primary"`、`expansion`；
@@ -811,3 +817,30 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
   - `status.json`：服务自报 `{pid, port, version, state: running|stopped|error, code, message, started_at, domain, folders, updated_at}`。
   - `access.log`：一行一条 `{ts, client, tool, path?, status: ok|denied|error, code?, n?}`，不记查询词和内容；超过 1 MB 轮转一份 `.log.1`。
   - `server.log`：服务自己的运行日志（1 MB × 3）。
+
+## 2026-10-08 问收藏会话（`_archive/chat-session.json` 与 `_archive/chat-history/<id>.json`，批次 D · L2）
+
+两者同一个形状（历史文件 = 某一段对话的快照）；只由问收藏页经插件写链串行写，手机 / 插件没启用时只读不写。旧文件没有的字段照读，第一次写盘时补上轮次 `id`。
+
+```json
+{
+  "id": "m1abc2de",
+  "startedAt": "2026-10-08T09:00:00+10:00",
+  "private": false,
+  "follow": "sources",
+  "excluded": ["xhs-9"],
+  "pinned": ["xhs-2"],
+  "turns": [
+    {"id": "m1abc3fg", "role": "user", "content": "番茄炒蛋放几个蛋", "mode": "scope", "scopeTitle": "番茄炒蛋", "sources": 1, "askedAt": "2026-10-08T09:00:05+10:00"},
+    {"id": "m1abc4hi", "role": "assistant", "content": "三个 [来源1]", "q": "番茄炒蛋放几个蛋", "askedAt": "2026-10-08T09:00:05+10:00", "sources": [], "related": [], "removed": [], "added": [], "savedId": null},
+    {"id": "m1abc5jk", "role": "user", "content": "要放糖吗", "mode": "follow", "sources": 3, "askedAt": "2026-10-08T09:01:00+10:00"},
+    {"id": "m1abc6lm", "role": "assistant", "failed": true, "error": {"kind": "api", "code": "TRANSIENT.HTTP_429", "detail": "429"}, "content": "接口限流了，过一会儿再试", "q": "要放糖吗", "askedAt": "2026-10-08T09:01:00+10:00", "retry": {"sourceIds": ["xhs-1", "xhs-2", "xhs-3"]}, "mode": "follow", "sources": [], "related": []}
+  ]
+}
+```
+
+- 轮次 `id`：页面按它缓存每一轮的 DOM、把答完的回答插回自己那条问题后面；同一文件内唯一。
+- 用户轮 `mode`：`ask`（照常检索）/ `follow`（绑上一轮留下的来源，`sources` = 条数）/ `reask`（按留下的重答）/ `scope`（问这篇，`scopeTitle` = 标题）/ `search`（旧版搜索轮）。
+- 回答轮失败：`failed: true` + `error: {kind: config|api|crash|timeout, code, detail}`，`content` 是页面给她看的一句人话；`retry` 是「重试」原样再问要带的参数（`{sourceIds}` / `{fresh: true}` / `{}`）。停止的：`failed: true, stopped: true`，`content` 末尾一行「> 已停止生成。」。旧版失败轮没有 `error`，照原文显示。
+- `removed`：这一轮被 × 的来源 key（`id || note || title`）；`added`：从「其他相关」加入主要依据的 id。会话级 `excluded` / `pinned` 跨轮生效。
+- 历史目录 `_archive/chat-history/index.json`：`{"conversations": [{id, startedAt, updatedAt, title, turns}]}`，写前重读、按 id 合并。草稿不进文件（只在 `sessionStorage['lb:chat']`）。

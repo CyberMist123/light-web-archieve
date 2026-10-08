@@ -219,7 +219,7 @@ def record(state, *, payload=None, message='', account=None, code=''):
         if state in ('ready', 'failed') and payload.get('suspicious'):
             # 只读到一截 / 0 条 / 比上次少一半以上：照常处理读到的，但不能算「同步完成」。
             # 10-04：同一件事只登记一条（sync.favorites），原因一句话不重复；另有几篇没抓到的附在后面
-            state, code, message = 'failed', 'FAVORITES_SUSPICIOUS', payload['suspicious']
+            state, code, message = 'failed', payload.get('suspicious_code') or 'FAVORITES_SUSPICIOUS', payload['suspicious']
             detail = (f"另有 {len(errors)} 篇没抓到：{errors[0].get('error', '')}"[:300] if errors
                       else payload['suspicious'])
         elif state == 'ready' and payload.get('deferred'):

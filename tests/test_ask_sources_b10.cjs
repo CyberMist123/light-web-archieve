@@ -30,7 +30,7 @@ const DATA = '_archive/catalog-data.json';
   const app = { vault: V.vault, workspace: makeWorkspace(), plugins: { plugins: { 'link-brain-actions': plugin }, enablePlugin: async () => {}, disablePlugin: async () => {} }, metadataCache: { getCache: () => null } };
   const A = dataviewBlock({ dom, app, code: asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' + asset('chat-view.js') });
   await A.run();
-  const all = s => A.container.querySelectorAll(s);
+  const all = s => A.section.querySelectorAll(s);
   const boxes = () => all('.lbchat-src');
   // 两档：主要依据（送进模型的，带 [来源N]）在前，其他相关在后
   assert.equal(boxes().length, 2);
@@ -40,8 +40,11 @@ const DATA = '_archive/catalog-data.json';
   const del = (box, title) => { const links = box.querySelectorAll('a'); const i = links.findIndex(a => a.textContent.includes(title)); return box.querySelectorAll('.lbchat-src-del')[i]; };
   await del(boxes()[0], '主要a').onclick(); await tick(5);
   await del(boxes()[1], '相关d').onclick(); await tick(5);
-  assert.ok(!boxes()[0].textContent.includes('主要a') && boxes()[0].textContent.includes('主要依据 · 1'));
-  assert.ok(boxes()[1].textContent.includes('其他相关 · 2') && !boxes()[1].textContent.includes('相关d'));
+  // 批次 D · L2 A1：× 之后那行留在原位划掉（is-removed，只剩「恢复」），summary 计数按留下的算
+  const rowIn = (box, title) => box.querySelectorAll('.lbchat-srcrow').find(r => r.querySelector('a').textContent.includes(title));
+  assert.ok(rowIn(boxes()[0], '主要a').classList.contains('is-removed') && boxes()[0].textContent.includes('主要依据 · 1'));
+  assert.deepEqual(rowIn(boxes()[0], '主要a').querySelectorAll('button').map(b => b.textContent), ['恢复']);
+  assert.ok(boxes()[1].textContent.includes('其他相关 · 2') && rowIn(boxes()[1], '相关d').classList.contains('is-removed'));
   const saved = JSON.parse(V.get('_archive/chat-session.json'));
   assert.deepEqual(saved.turns[1].removed, ['a', 'd'], '删除记在这一轮里，跟会话一起存');
   // 按剩下的重新回答：只交留下的来源（主要依据在前、其他相关按原顺序），问题不变
@@ -55,7 +58,7 @@ const DATA = '_archive/catalog-data.json';
   assert.equal(after.length, 4);
   assert.equal(after[2].mode, 'reask');
   assert.deepEqual(after[3].related.map(r => r.id), ['e'], '新回答带回新的两档来源');
-  assert.ok(A.container.textContent.includes('按留下的 3 条来源重答'));
+  assert.ok(A.section.textContent.includes('按留下的 3 条来源重答'));
   // 恢复删掉的
   const undo = all('.lbchat-src-redo button').find(b => b.textContent.startsWith('恢复删掉的'));
   await undo.onclick(); await tick(5);

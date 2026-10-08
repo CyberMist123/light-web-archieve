@@ -49,6 +49,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument('--qr', action='store_true', help='出二维码网页（远程扫码用），默认打开小红书官方登录窗口')
     p.add_argument('--timeout', type=int, default=270, help='扫码等待秒数')
     p.add_argument('--json', action='store_true')
+    # 1008（L6·S4 / B1）
+    p.add_argument('--shallow', action='store_true',
+                   help='配合 --status：浅查——只问读取服务内存里的状态，服务没起不拉起、不开浏览器（设置页账号行用）')
+    p.add_argument('--wait', action='store_true', help='配合 --verify：等验证窗口关掉，如实回报结论（只轮询内存状态，不开页）')
+    p.add_argument('--clear-hold', dest='clear_hold', action='store_true',
+                   help='「没看到验证，恢复」：解除风控暂停（必须同时带 --by-owner，表示是你亲手确认的）')
+    p.add_argument('--by-owner', dest='by_owner', action='store_true', help='配合 --clear-hold：你亲手确认')
 
     p = sub.add_parser("transcribe", help="把一段录音转成文字（问 AI 的语音输入用）")
     p.add_argument("file")
@@ -140,7 +147,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--doc-id", default=None, help="手动挂载到指定附件")
     p.add_argument("--audit", action="store_true", help="输出附件完整性 JSON，不联网")
     p.add_argument("--recheck", action="store_true", help="补查当时网页探测失败的笔记（游客浏览器），探到附件就下载；查不清的报警")
-    p.add_argument("--limit", type=int, default=0, help="--recheck 每次最多查几篇（0=不限）")
+    p.add_argument("--limit", type=int, default=0,
+                   help="--recheck 每次最多查几篇（0=不限；--guest-only 时 0=自动：平时 20、积压期 40；--logged-in-tail 时 0=5）")
+    p.add_argument("--guest-only", dest="guest_only", action="store_true",
+                   help="配合 --recheck：游客段——不碰号（不拉起读取服务、不拿账号锁），只登记探到的附件，不下载")
+    p.add_argument("--logged-in-tail", dest="logged_in_tail", action="store_true",
+                   help="配合 --recheck：收尾段——游客读不到的用登录号看一眼（碰号，熔断 / 账号锁 / 开页间隔照旧）")
+    p.add_argument("--recheck-status", dest="recheck_status", action="store_true", help="输出附件补查状态 JSON，不联网")
+    p.add_argument("--skipped", default=None, help="记一笔「收尾段今晚跳过了」和原因（夜跑脚本用），不联网")
+    p.add_argument("--reconcile", action="store_true", help="附件补查本地对账（不联网），输出 JSON")
     p.add_argument("--attach", default=None,
                    help="把本地已下好的文件手动挂到这篇（系统下不了时用）：给文件路径")
     p.add_argument("--dedupe", action="store_true",
@@ -154,7 +169,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("note", help="笔记批注 / ⭐ 收藏（sidecar，不改正文）")
     nsub = p.add_subparsers(dest="note_command")
     pn = nsub.add_parser("star", help="⭐ 收藏开关：点亮复制正文到 vault 根，熄灭删副本")
-    pn.add_argument("target", help="item_id 或裸 source_id")
+    pn.add_argument("target", nargs="+", help="item_id 或裸 source_id（可以一次给多个：catalog-data 整批只改一次）")
     pn.add_argument("--off", action="store_true", help="取消收藏（默认是点亮）")
     pn = nsub.add_parser("add", help="加一条批注（@fable 开头会打标）")
     pn.add_argument("target", help="item_id 或裸 source_id")
@@ -289,8 +304,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("highlight", help="给一篇笔记正文加/去一处高亮（<mark>，持久到重渲染）")
     p.add_argument("target", help="item_id")
-    p.add_argument("phrase", help="要高亮的原文片段（原样、含标点，需在正文里出现过）")
-    p.add_argument("--remove", action="store_true", help="去掉这处高亮")
+    p.add_argument("phrase", nargs="+", help="要高亮的原文片段（原样、含标点，需在正文里出现过）；可以给几段，一次写盘")
+    p.add_argument("--remove", action="store_true", help="去掉这几处高亮")
+    p.add_argument("--json", action="store_true", help="最后一行输出 JSON（插件用）")
 
     return parser
 
@@ -459,10 +475,25 @@ def _dispatch(args) -> int:
     if args.command == "highlight":
         from . import render as render_mod
 
-        path, changed = render_mod.set_highlight(args.target, args.phrase, remove=args.remove)
+        r = render_mod.set_highlights(args.target, list(args.phrase), remove=args.remove)
         verb = "去掉高亮" if args.remove else "加高亮"
-        print(f"{verb}：{'已改' if changed else '未找到该片段 / 无变化'} · {path}")
-        return EXIT_OK if changed else 1
+        n = len(r["changed"])
+        if args.json:
+            from .read import dump_json
+            if n:
+                message = ("已取消 %d 处" if args.remove else "已划 %d 处") % n
+            elif r["already"] and not r["missing"]:
+                message = "这几处已经划过了"
+            else:
+                message = "没找到这段原文"
+            results = ([{"phrase": x, "status": "ok"} for x in r["changed"]]
+                       + [{"phrase": x, "status": "already"} for x in r["already"]]
+                       + [{"phrase": x, "status": "missing"} for x in r["missing"]])
+            dump_json({"ok": bool(n), "code": "", "message": message, "item_id": args.target,
+                       "changed": r["changed"], "missing": r["missing"], "already": r["already"], "results": results})
+        else:
+            print(f"{verb}：{'已改 %d 处' % n if n else '未找到该片段 / 无变化'} · {r['visible']}")
+        return EXIT_OK if n else 1
 
     if args.command == "sync-favorites":
         from . import favorites as favorites_mod

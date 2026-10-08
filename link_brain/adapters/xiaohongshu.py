@@ -534,7 +534,35 @@ def _links(body: str, comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def fetch_related_file(note_id: str, xsec_token: str | None, *, timeout: int = 30) -> dict[str, Any]:
+# 1008（L6·B3）：游客补查的保险丝只认这些「验证专用词」（不用笼统的「登录」——游客页本来就到处是登录按钮）
+CAPTCHA_HINTS = ("验证码", "captcha", "滑块", "安全验证", "访问频繁", "website-login")
+
+
+def captcha_page(text: str | None) -> bool:
+    low = (text or "").lower()
+    return any(h.lower() in low for h in CAPTCHA_HINTS)
+
+
+# 风控状态码（461 / 471）：服务器直接拒了这次访问，和「这篇没了」不是一回事
+CAPTCHA_STATUS = (461, 471)
+
+
+def _guest_captcha_response(resp: Any) -> bool:
+    """游客这次响应是不是落到了验证 / 风控：跳到 website-login / captcha、风控状态码、或页面上有验证专用词。"""
+    if getattr(resp, "status_code", 200) in CAPTCHA_STATUS:
+        return True
+    final = str(getattr(resp, "url", "") or "").lower()
+    if "website-login" in final or "captcha" in final:
+        return True
+    text = getattr(resp, "text", "") or ""
+    if INITIAL_STATE_RE.search(text):
+        # 有 SSR 状态的正常页：只有没这条笔记时才看验证词（交给下面的分支），避免正文里提到「验证码」误停
+        return False
+    return captcha_page(text[:8000])
+
+
+def fetch_related_file(note_id: str, xsec_token: str | None, *, timeout: int = 30,
+                       stop_on_captcha: bool = False) -> dict[str, Any]:
     """去笔记网页版拿附件元数据（MCP 的 `get_feed_detail` 不返回它）。
 
     网页 SSR 的 `__INITIAL_STATE__.note.noteDetailMap[<id>].note.relatedFile` **游客可见**，
@@ -555,6 +583,13 @@ def fetch_related_file(note_id: str, xsec_token: str | None, *, timeout: int = 3
             timeout=timeout,
             follow_redirects=True,
         )
+        if stop_on_captcha and _guest_captcha_response(resp):
+            # 游客页落到验证 / 风控：不管状态码、有没有 __INITIAL_STATE__，都立刻停，
+            # 不再起游客浏览器兜底（附件补查的保险丝，见 attachments.recheck_guest）
+            result["captcha"] = True
+            result["blocked"] = True
+            result["error"] = "游客打开笔记页时出现了安全验证 / 访问频繁的页面"
+            return result
         resp.raise_for_status()
         match = INITIAL_STATE_RE.search(resp.text)
         if not match:
@@ -570,6 +605,11 @@ def fetch_related_file(note_id: str, xsec_token: str | None, *, timeout: int = 3
                 result["error"] = "笔记页里没有这条笔记（登录墙 / 已删 / 反爬占位页？）"
                 # 页面上直接写着"验证码/请登录"这类词 = 被拦了，调用方要报警，不是"这篇没附件"
                 result["blocked"] = looks_blocked(resp.text[:8000])
+                if stop_on_captcha and captcha_page(resp.text[:8000]):
+                    # 游客页上出现了验证专用词：立刻停，不再起游客浏览器兜底（附件补查的保险丝，见 attachments.recheck_guest）
+                    result["captcha"] = True
+                    result["error"] = "游客打开笔记页时出现了安全验证 / 访问频繁的页面"
+                    return result
             else:
                 result["ok"] = True
                 result["related_file"] = note.get("relatedFile") or None
@@ -588,6 +628,8 @@ def fetch_related_file(note_id: str, xsec_token: str | None, *, timeout: int = 3
             result["blocked"] = False
         else:
             result["error"] = (result.get("error") or "") + f"；游客浏览器兜底：{fb.get('error')}"
+            # 游客浏览器自己出错（没装 / 起不来 / 超时），区别于「打开了但没这条笔记」
+            result["browser_error"] = not str(fb.get("error") or "").startswith("游客浏览器也没读到")
     return result
 
 

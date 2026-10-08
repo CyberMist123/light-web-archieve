@@ -11,6 +11,7 @@ import json
 import queue
 import sys
 import threading
+import traceback
 from . import ask, text_stream
 
 
@@ -105,4 +106,9 @@ def run(args):
                     state.update(id=None, cancel=None)
             emit({'id': request_id, 'type': 'result', 'result': result})
         except Exception as exc:
-            emit({'id': request.get('id'), 'type': 'result', 'result': {'status': 'error', 'markdown': '问答失败：' + type(exc).__name__}})
+            # A5：原因写给页面（类型 + 前 200 字），堆栈进 stderr（插件留尾巴）；stdout 仍只发协议行
+            traceback.print_exc(file=sys.stderr)
+            reason = str(exc)[:200]
+            emit({'id': request.get('id'), 'type': 'result', 'result': {
+                'status': 'error', 'error_kind': 'crash', 'error': reason,
+                'markdown': '问答出错了：' + type(exc).__name__ + ('：' + reason if reason else '')}})

@@ -32,7 +32,7 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
     delete globalThis.__lbListeners;
     dom = makeDom(); A = dataviewBlock({ dom, app, code: CODE }); A.window.confirm = () => true; await A.run();
   };
-  const $ = s => A.container.querySelector(s), $$ = s => A.container.querySelectorAll(s);
+  const $ = s => A.section.querySelector(s), $$ = s => A.section.querySelectorAll(s);   // 批次 D：页面挂在 dv.container 后面的 host 上
   const ids = () => $$('.lbc-card').map(c => items.find(it => it.title === c.querySelector('.lbc-ctitle').textContent).id);
   const card = id => $$('.lbc-card').find(c => c.querySelector('.lbc-ctitle').textContent === items.find(it => it.id === id).title);
   const menuItems = () => dom.document.body.querySelectorAll('.lbc-menu-item');
@@ -40,12 +40,13 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
   const ev = { preventDefault() {}, stopPropagation() {}, clientX: 0, clientY: 0 };
 
   await open();
-  // ④ 目录页也带外框隐形样式
-  assert.ok($('style').textContent.includes('.cm-embed-block:has(.block-language-dataviewjs)'));
+  // ④ 目录页也带外框隐形样式（X14c：样式挂 head 的 #lbc-style，wrap 里没有 style）
+  assert.ok(dom.document.getElementById('lbc-style').textContent.includes('.cm-embed-block:has(.block-language-dataviewjs)'));
+  assert.equal($$('style').length, 0);
 
   // ⑫ 每张卡都有选中圈；平时不是多选态
   assert.equal($$('.lbc-check').length, 4);
-  assert.ok(!A.container.querySelector('.lbc-wrap').classList.contains('is-selecting'));
+  assert.ok(!A.section.querySelector('.lbc-wrap').classList.contains('is-selecting'));
   card('d3').querySelector('.lbc-check').onclick(ev);
   assert.ok(card('d3').classList.contains('is-selected'));
   assert.equal($('.lbc-selbar').hidden, false, '点圈直接进多选态');
@@ -59,15 +60,17 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
 
   // ⑬ 有选中时右键：右键的这张没选上就一起算进来；「导出」立即导出、默认带图，不弹二次选项
   card('d20').oncontextmenu(ev);
-  assert.deepEqual(menuItems().map(b => b.textContent), ['导出选中的 3 篇', '给 AI（存成选集）', '收藏选中的 3 篇', '删除选中的 3 篇', '退出多选']);
+  assert.deepEqual(menuItems().map(b => b.textContent), ['导出选中的 3 篇', '给 AI（存成选集）', '收藏选中的 3 篇', '删除选中的 3 篇（移到回收站）', '退出多选']);
   await pick('导出选中的 3 篇').onclick(ev); await tick(5);
   assert.equal(exports.length, 1);
   assert.deepEqual(exports[0].ids.sort(), ['d20', 'd3', 'old']);
   assert.equal(exports[0].images, true);
   assert.equal(dom.document.body.querySelectorAll('.lbc-dialog').length, 0);
-  assert.ok(A.notices.some(m => m.includes('已导出 3 篇机读版（带原图）')));
-  // 上次取消了「附带原图」：右键导出沿用；换页回来还记得
-  const imgBox = $('.lbc-selbar input'); imgBox.checked = false; imgBox.onchange();
+  // CM2：成功提示由插件那一条负责；页面只发一条「正在导出」并收起
+  assert.ok(A.noticeLog.some(n => n.message === '正在导出 3 篇…' && n.hidden));
+  assert.ok(!A.notices.some(m => m.includes('已导出')));
+  // 上次取消了「附带原图」（C15：收进「更多…」）：右键导出沿用；换页回来还记得
+  $('.lbc-moresel').onclick(ev); pick('附带原图').onclick(ev);
   card('d3').oncontextmenu(ev); await pick('导出选中的 3 篇').onclick(ev); await tick(5);
   assert.equal(exports[1].images, false);
   // 取消选中到 0：退出多选态
@@ -75,11 +78,14 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
   assert.equal($('.lbc-selbar').hidden, true);
   assert.ok(!$('.lbc-wrap').classList.contains('is-selecting'));
   await open(true);
-  assert.equal($('.lbc-selbar input').checked, false, '附带原图的选择记住了');
-  $('.lbc-selbar input').checked = true; $('.lbc-selbar input').onchange();
+  card('d3').querySelector('.lbc-check').onclick(ev);
+  $('.lbc-moresel').onclick(ev);
+  assert.equal(menuItems().find(b => b.textContent.endsWith('附带原图')).textContent, '附带原图', '附带原图的选择记住了（没打勾）');
+  pick('附带原图').onclick(ev);
+  card('d3').querySelector('.lbc-check').onclick(ev);
   // 没选中时右键单张：导出这一篇（立即）、给 AI、多选、删除
   card('today').oncontextmenu(ev);
-  assert.deepEqual(menuItems().map(b => b.textContent), ['收藏', '编辑标签', '导出', '给 AI（存成选集）', '多选', '删除收藏']);
+  assert.deepEqual(menuItems().map(b => b.textContent), ['收藏', '编辑标签', '导出', '给 AI（存成选集）', '多选', '删除（移到回收站）']);
   await pick('导出').onclick(ev); await tick(5);
   assert.deepEqual(exports[2].ids, ['today']); assert.equal(exports[2].images, true);
 
@@ -153,9 +159,9 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
   await open(true);
   assert.deepEqual(ids(), ['d3', 'd20']);
   // 和搜索叠加：搜「图」只剩 d3（old 不在时间范围里）
-  $('.lbc-search').value = '图'; $('.lbc-search').onkeydown({ key: 'Enter', isComposing: false, preventDefault() {} });
+  $('.lbc-search').value = '图'; $('.lbc-search').fire('keydown', { key: 'Enter', isComposing: false, preventDefault() {} });
   assert.deepEqual(ids(), ['d3']);
-  $('.lbc-search').value = ''; $('.lbc-search').oninput();
+  $('.lbc-search').value = ''; $('.lbc-search').fire('input');
   // 「全部」把时间筛选和排序一并清掉
   $$('.lbc-cat').find(b => b.textContent === '全部').onclick();
   assert.deepEqual(ids(), ['old', 'd3', 'today', 'd20']);
