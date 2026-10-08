@@ -17,7 +17,8 @@
   const DVP = app.plugins.plugins.dataview;
   const refresh = () => { DVP.index.touch(); app.workspace.trigger('dataview:refresh-views'); };   // 同 Dataview 命令「Force refresh all views and blocks」
   const loadedCover = c => { const im = c.querySelector('.lbc-cover'); return im && im.complete && im.naturalWidth ? im : null; };
-  const enter = (input, q) => { input.value = q; input.onkeydown({ key: 'Enter', isComposing: false, preventDefault() {} }); };
+  // 批次 D：搜索框改成 addEventListener（边打边搜），按回车照样立刻搜
+  const enter = (input, q) => { input.value = q; input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); };
   const lbPath = p => app.plugins.plugins['link-brain-actions']?.lbPath?.(p) || p;
   (async () => {
     const leaf = app.workspace.getLeaf('split', 'vertical');
@@ -58,7 +59,63 @@
           search_kept: C().querySelector('.lbc-search')?.value === Q, scroll_before: s0, scroll_after: Math.round(scroller().scrollTop) };
         log('rerun_same ' + JSON.stringify(res.rerun_same));
       }
+      // 3c. 批次 D · L1 目录探针（只读：不写文件；勾选只进 sessionStorage）
+      {
+        const sc = scroller(), top = () => C().querySelector('.lbc-top');
+        // sticky_top_px：滚 1500 后顶栏顶边离滚动容器顶边多少（0 = 吸顶不留缝）
+        enter(C().querySelector('.lbc-search'), ''); await frame(); sc.scrollTop = 1500; await sleep(300);
+        res.sticky_top_px = Math.round(top().getBoundingClientRect().top - sc.getBoundingClientRect().top);
+        // typing_ms：边打边搜，每 60ms 一个字共 6 个，最后一个 input → 网格变动后的下一帧（5 轮）
+        res.typing_ms = [];
+        for (const w of opts.typing || ['悉尼咖啡店铺', '电饭煲鸡肉', 'AI记忆系统', '快手菜做法', '东京旅行记']) {
+          const input = C().querySelector('.lbc-search'); input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); await sleep(200);
+          let last = 0, hit = 0;
+          const mo = new MutationObserver(() => { if (last && !hit) { const t = performance.now(); requestAnimationFrame(() => { if (!hit) hit = performance.now(); }); void t; } });
+          mo.observe(C().querySelector('.lbc-grid'), { childList: true, subtree: true });
+          for (const ch of [...w].slice(0, 6)) { input.value += ch; last = performance.now(); hit = 0; input.dispatchEvent(new Event('input', { bubbles: true })); await sleep(60); }
+          await sleep(500); mo.disconnect();
+          res.typing_ms.push(hit ? Math.round(hit - last) : null);
+        }
+        // rerun_focus_kept：聚焦搜索框、打字、Dataview 重跑 → 焦点和字还在
+        { const input = C().querySelector('.lbc-search'); input.focus(); input.value = 'kafei'; input.dispatchEvent(new Event('input', { bubbles: true }));
+          refresh(); await sleep(900); const i2 = C().querySelector('.lbc-search');
+          res.rerun_focus_kept = { focused: document.activeElement === i2, value: i2?.value || '' };
+          i2.value = ''; i2.dispatchEvent(new Event('input', { bubbles: true })); i2.blur(); await sleep(200); }
+        // select_shift_px：滚 1500，点第一张可见卡的勾选圈，那张卡挪了多少（0 = 不往下错）；再 Esc 退出
+        { sc.scrollTop = 1500; await sleep(300);
+          const barB = top().getBoundingClientRect().bottom;
+          const card = [...C().querySelectorAll('.lbc-card')].find(c => c.getBoundingClientRect().top > barB + 20);
+          if (card) { const y0 = card.getBoundingClientRect().top; card.querySelector('.lbc-check')?.click(); await frame(); res.select_shift_px = Math.round(card.getBoundingClientRect().top - y0);
+            C().querySelector('.lbc-clrsel')?.click(); await frame(); } }
+        // fast_scroll：每秒 3000px 从顶滚到底，记帧耗时、视口内没解码完的封面比例、停下 300ms 后视口内空白封面数、内存增量
+        { sc.scrollTop = 0; await sleep(300);
+          const mem0 = performance.memory?.usedJSHeapSize || 0, rss0 = (typeof process !== 'undefined' && process.memoryUsage) ? process.memoryUsage().rss : 0;
+          const frames = [], blank = []; let prev = performance.now();
+          await new Promise(done => { const step = now => { frames.push(now - prev); const dt = now - prev; prev = now; sc.scrollTop += 3000 * dt / 1000;
+            const vr = sc.getBoundingClientRect(); const vis = [...C().querySelectorAll('.lbc-cover')].filter(im => { const r = im.getBoundingClientRect(); return r.bottom > vr.top && r.top < vr.bottom; });
+            if (vis.length) blank.push(vis.filter(im => !im.complete).length / vis.length);
+            if (sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 2) done(); else requestAnimationFrame(step); }; requestAnimationFrame(step); });
+          await sleep(300);
+          const vr = sc.getBoundingClientRect();
+          const still = [...C().querySelectorAll('.lbc-cover')].filter(im => { const r = im.getBoundingClientRect(); return r.bottom > vr.top && r.top < vr.bottom && !(im.complete && im.naturalWidth); }).length;
+          const f = frames.slice(1).sort((a, b) => a - b), p95 = f[Math.min(f.length - 1, Math.ceil(f.length * 0.95) - 1)] || 0;
+          res.fast_scroll = { frames: f.length, p95_frame_ms: Math.round(p95), over50_pct: f.length ? Math.round(f.filter(x => x > 50).length / f.length * 1000) / 10 : 0,
+            mean_undecoded_ratio: blank.length ? Math.round(blank.reduce((a, b) => a + b, 0) / blank.length * 100) / 100 : 0, blank_after_300ms: still,
+            heap_delta_mb: mem0 ? Math.round(((performance.memory?.usedJSHeapSize || 0) - mem0) / 1048576) : null,
+            rss_delta_mb: rss0 ? Math.round((process.memoryUsage().rss - rss0) / 1048576) : null };
+          sc.scrollTop = 0; await sleep(200); }
+        log('catalog probes ' + JSON.stringify({ sticky_top_px: res.sticky_top_px, typing_ms: res.typing_ms, rerun_focus_kept: res.rerun_focus_kept, select_shift_px: res.select_shift_px, fast_scroll: res.fast_scroll }));
+      }
+      // 3d. star_click_ms（会写 notes.json / catalog-data：只在测试库）：点 ☆ 到 ★ 出现、到插件返回
       if (!opts.readOnly) {
+        enter(C().querySelector('.lbc-search'), ''); await frame();
+        const star = C().querySelector('.lbc-card .lbc-star:not(.is-on)');
+        if (star) { const card = star.closest('.lbc-card'); const t0 = performance.now(); star.click(); const sync = performance.now() - t0;
+          await waitFor(() => !card.classList.contains('is-starring'), 15000);
+          res.star_click_ms = { to_star: Math.round(sync), to_done: Math.round(performance.now() - t0) };
+          star.click(); await waitFor(() => !card.classList.contains('is-starring'), 15000); }
+        log('star ' + JSON.stringify(res.star_click_ms));
+      }      if (!opts.readOnly) {
         // 3b. 数据变了（catalog-data 原样写回，只让版本变）
         enter(C().querySelector('.lbc-search'), Q); await frame(); scroller().scrollTop = 700; await sleep(300);
         const p = lbPath('_archive/catalog-data.json');
@@ -92,7 +149,7 @@
         await sleep(2000);
         res.back = { ms_until_cover: ms, search: C().querySelector('.lbc-search')?.value || '', scroll_before: before, scroll_after: Math.round(scroller()?.scrollTop || 0) };
         log('back ' + JSON.stringify(res.back));
-        const i2 = C().querySelector('.lbc-search'); if (i2) { i2.value = ''; i2.oninput?.(); }
+        const i2 = C().querySelector('.lbc-search'); if (i2) { i2.value = ''; i2.dispatchEvent(new Event('input', { bubbles: true })); }
       }
       // 6. 问收藏页
       {
