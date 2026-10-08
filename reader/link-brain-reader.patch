@@ -1182,10 +1182,10 @@ index abed0f7..5245f75 100644
  
 diff --git a/linkbrain_api.go b/linkbrain_api.go
 new file mode 100644
-index 0000000..937147f
+index 0000000..155b7f7
 --- /dev/null
 +++ b/linkbrain_api.go
-@@ -0,0 +1,880 @@
+@@ -0,0 +1,1065 @@
 +package main
 +
 +// Link Brain 单账号接口（0925）：一个号、一个持久 profile，评论 / 私密收藏 / 附件
@@ -1239,6 +1239,17 @@ index 0000000..937147f
 +	verifying bool      // 人工验证窗口开着
 +	lastFav   time.Time // 上次读收藏（限频，防风控）
 +	captcha   time.Time // 最近一次撞见验证码
++
++	// 1008（B3）最近一次验证窗口的结论（见 verifyClears）：verify_result / verify_finished_at / verify_hold_since。
++	// verifyHoldSince = 窗口针对的那次熔断的 since，调用方拿它和当前 risk_hold.since 对上才算数。
++	verifyResult    string
++	verifyFinished  time.Time
++	verifyHoldSince string
++}
++
++// resetVerify 清掉上一轮验证窗口的结论（开新窗口 / 写了新的熔断时）。调用方持锁。
++func (l *loginState) resetVerify() {
++	l.verifyResult, l.verifyFinished, l.verifyHoldSince = "", time.Time{}, ""
 +}
 +
 +func (l *loginState) begin(seq uint64, timeout time.Duration) {
@@ -1254,11 +1265,17 @@ index 0000000..937147f
 +	if l.seq != seq { // 已被新的二维码取代
 +		return
 +	}
++	already := state == loginAlready
++	if already {
++		state = "success" // 对外照旧：登录窗口成功（调用方按 success 等）
++	}
 +	l.state, l.user, l.finished = state, user, time.Now()
 +	if state == "success" {
 +		t := true
 +		l.loggedIn, l.checkedAt = &t, time.Now()
-+		l.lastFav, l.captcha = time.Time{}, time.Time{} // 刚扫完码允许马上同步
++		if !already { // 没扫码就不清限频 / 验证码时间（熔断也没全解）
++			l.lastFav, l.captcha = time.Time{}, time.Time{} // 刚扫完码允许马上同步
++		}
 +	}
 +}
 +
@@ -1335,6 +1352,13 @@ index 0000000..937147f
 +	if !l.captcha.IsZero() {
 +		out["captcha_at"] = l.captcha.Format(time.RFC3339)
 +	}
++	if l.verifyResult != "" {
++		out["verify_result"] = l.verifyResult
++		out["verify_hold_since"] = l.verifyHoldSince
++		if !l.verifyFinished.IsZero() {
++			out["verify_finished_at"] = l.verifyFinished.Format(time.RFC3339)
++		}
++	}
 +	return out
 +}
 +
@@ -1365,19 +1389,60 @@ index 0000000..937147f
 +func (s *AppServer) loginSessionHandler(c *gin.Context) {
 +	out := s.xiaohongshuService.state.snapshot()
 +	if h := s.xiaohongshuService.hold.get(); h != nil {
-+		out["risk_hold"] = h
++		out["risk_hold"] = h.view(true) // 带证据目录（查看截图），不带 url（本号主页 + xsec_token）
 +	} else {
 +		out["risk_hold"] = nil
 +	}
 +	out["lock"] = lockSnapshot(currentLock(), time.Now())
 +	respondSuccess(c, out, "ok")
++	// 服务常驻、几周不出事时也要清掉 14 天前的证据：顺手在后台清，最多每小时一次（不拖慢这个只读接口）
++	go func() {
++		defer recoverLog("清旧证据")
++		xiaohongshu.MaybePruneEvidence(time.Now())
++	}()
 +}
 +
 +// windowLockWait 登录/验证窗口拿 profile 锁最多等这么久；拿不到就报失败，不让状态永远停在 waiting。
 +const windowLockWait = 60 * time.Second
 +
-+// verifyWindowMax 验证窗口最长开多久（要短于锁看门狗的 XHS_LOCK_MAX_S=900s）。
-+const verifyWindowMax = 12 * time.Minute
++// verifyWindowMax 验证窗口最长开多久（要短于锁看门狗的 XHS_LOCK_MAX_S=900s）；verifyTick 多久看一眼（测试里改小）。
++var (
++	verifyWindowMax = 12 * time.Minute
++	verifyTick      = 2 * time.Second
++)
++
++// verifyAliveFails alive() 连续这么多次失败才算她关了窗口（页面跳转时会偶尔读不到一次）。
++const verifyAliveFails = 2
++
++// 验证窗口的结论（/login/session 的 verify_result）。
++const (
++	verifyCleared      = "cleared"         // 窗口里出现过风控、关窗前已消失（掉登录类：看到已登录）→ 已解除
++	verifyNoCaptcha    = "no_captcha_seen" // 窗口里从头到尾没出现过验证 / 风控页 → 不自动解除，交给她确认（risk/clear）
++	verifyStillRisk    = "still_risk"      // 关窗前页面仍在风控 → 保持
++	verifyNotRead      = "not_read"        // 窗口里一次都没读到页面 → 保持
++	verifyNotLoggedIn  = "not_logged_in"   // 掉登录 / 安全跳转类：关窗前没看到已登录 → 保持
++	verifyNoHold       = "no_hold"         // 没有熔断（开窗前就没有，或窗口期间被别的路解除了）
++	verifyWindowFailed = "window_failed"   // 窗口没打开（浏览器被别的操作占着）
++)
++
++// verifyHintText 出事在读收藏时（tab=fav 或 want_tab=fav）注入在验证窗口页面顶部的一行提示。窗口不替她点「收藏」：
++// 熔断期间程序替她发收藏请求是自动化动作，要她明确同意（本批不做）。提示里不带「安全验证」字样、id 不带 captcha，
++// 不会被风控探针当成浮层。「等两三秒再关窗」：窗口 1 秒看一眼，拖完立刻关可能没来得及看到滑块消失。
++const verifyHintText = "请点一下『收藏』页签看看有没有滑块：出现滑块就拖完，等两三秒再关窗；没出现就直接关窗"
++
++// verifyHintTick 有提示（她要去点收藏、可能拖滑块）时看得勤一点，免得 2 秒一次漏看一闪而过的滑块。
++const verifyHintTick = time.Second
++
++const verifyHintJS = `(text) => {
++ if (document.getElementById("lb-verify-hint")) return false;
++ const d = document.createElement("div");
++ d.id = "lb-verify-hint";
++ d.textContent = text;
++ d.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:2147483647;padding:6px 12px;background:#fff3cd;color:#664d03;" +
++  "font:14px/1.5 system-ui,sans-serif;text-align:center;pointer-events:none;border-bottom:1px solid #ffe69c";
++ (document.body || document.documentElement).appendChild(d);
++ return true;
++}`
 +
 +// openWindowBrowser 登录/验证窗口用的有界面浏览器，拿锁最多等 windowLockWait（测试里替换成桩）。
 +var openWindowBrowser = func() (*browser.Browser, error) {
@@ -1390,100 +1455,206 @@ index 0000000..937147f
 +	}
 +}
 +
-+// verifyWindowHandler 打开有界面的浏览器停在自己的主页，由人手动过验证；关窗即结束。
++// siteHostOK 熔断记下的出事页面能不能拿来开验证窗口：只认小红书 / rednote 的域名和当前读取域名。
++func siteHostOK(host string) bool {
++	host = strings.ToLower(host)
++	for _, base := range []string{xiaohongshu.SiteHost(), xiaohongshu.LoginHost()} {
++		if u, err := url.Parse(base); err == nil && strings.EqualFold(u.Host, host) {
++			return true
++		}
++	}
++	for _, d := range []string{"xiaohongshu.com", "rednote.com"} {
++		if host == d || strings.HasSuffix(host, "."+d) {
++			return true
++		}
++	}
++	return false
++}
++
++// verifyTarget 验证窗口打开哪一页（1008 B3）：熔断记下的出事页面；返回空串 = 走老路（首页 → 侧栏「我」）。
++//   - 去掉 tab / subTab 参数：带着 tab=fav 直开主页，页面会自己去读收藏——那等于程序替她点了「收藏」；
++//   - /website-login/* 安全跳转页不直开（那是跳转的结果，不是出事的页面），走老路，被拦的话站点会自己再跳过去。
++//
++// hint = 要不要在页面顶部提示她自己点「收藏」：出事时停在收藏页签（tab=fav），或者程序正要去收藏页签（want_tab=fav：
++// 页签没点动接着弹验证——B4 最常见的出事路径——那一刻 activeTab 还是 note）。要提示时出事页面不是主页（如还在 /explore），
++// 走老路落到她的主页，她才有「收藏」可点。
++func verifyTarget(h *riskHold) (target string, hint bool) {
++	if h == nil {
++		return "", false
++	}
++	fav := string(xiaohongshu.TabFavorites)
++	hint = h.Tab == fav || h.WantTab == fav
++	u, err := url.Parse(strings.TrimSpace(h.URL))
++	if err != nil || h.URL == "" || (u.Scheme != "http" && u.Scheme != "https") || !siteHostOK(u.Host) ||
++		strings.HasPrefix(strings.ToLower(u.Path), "/website-login") {
++		return "", hint
++	}
++	if hint && !strings.HasPrefix(strings.ToLower(u.Path), "/user/profile/") {
++		return "", hint
++	}
++	q := u.Query()
++	for k := range q {
++		if strings.EqualFold(k, "tab") || strings.EqualFold(k, "subTab") {
++			q.Del(k)
++		}
++	}
++	u.RawQuery = q.Encode()
++	u.Fragment = ""
++	return u.String(), hint
++}
++
++// verifyWindowHandler 打开有界面的浏览器，由人手动过验证；关窗即结束。
++// 1008（B3）：没有熔断直接回 result=no_hold、不开窗；有熔断就开出事的那一页（verifyTarget），
++// 出事时在收藏页签的，页面顶部提示她自己点「收藏」（窗口不替她点）。
 +func (s *AppServer) verifyWindowHandler(c *gin.Context) {
 +	st := &s.xiaohongshuService.state
++	h := s.xiaohongshuService.hold.get()
++	if h == nil {
++		respondSuccess(c, map[string]any{"opened": false, "result": verifyNoHold, "risk_hold": nil}, "当前没有风控熔断，不用验证")
++		return
++	}
 +	started := false
 +	st.set(func(l *loginState) {
 +		if !l.verifying && l.state != "waiting" {
 +			l.verifying, started = true, true
++			l.resetVerify()
++			l.verifyHoldSince = h.Since
 +		}
 +	})
 +	if !started {
 +		respondError(c, http.StatusConflict, "BUSY", "已有登录或验证窗口在进行", nil)
 +		return
 +	}
++	target, hint := verifyTarget(h)
 +	go func() {
 +		defer st.set(func(l *loginState) { l.verifying = false })
 +		defer recoverLog("验证窗口")
 +		b, err := openWindowBrowser()
 +		if err != nil {
 +			logrus.Warnf("验证窗口没打开：%v（%s 内没等到浏览器空出来）", err, windowLockWait)
++			s.xiaohongshuService.noteVerify(verifyWindowFailed)
 +			return
 +		}
 +		defer b.Close()
 +		page := b.NewPage()
 +		_ = rod.Try(func() {
++			if target != "" {
++				logrus.Infof("验证窗口打开出事的页面（tab=%s want_tab=%s，提示点收藏=%v）", h.Tab, h.WantTab, hint)
++				page.Timeout(30 * time.Second).MustNavigate(target)
++				return
++			}
 +			page.Timeout(30 * time.Second).MustNavigate(xiaohongshu.SiteHost() + "/explore")
 +			time.Sleep(4 * time.Second)
 +			_ = page.Timeout(15*time.Second).MustElement(`.user.side-bar-component a[href*="/user/profile/"]`).Click(proto.InputMouseButtonLeft, 1)
 +		})
 +		// 1001：窗口活着的时候每 2 秒看一眼并记住最后一次读数；关窗后页面已死、什么都读不到，
-+		// 不能拿「读不到」当「没风险」。只按关窗前最后一次有效读数决定解不解熔断。
-+		last, seen := watchVerifyWindow(time.Now().Add(verifyWindowMax), 2*time.Second,
++		// 不能拿「读不到」当「没风险」。1008：另记窗口里有没有出现过风控（seenRisk）；有提示时 1 秒看一眼。
++		tick := verifyTick
++		if hint && tick > verifyHintTick {
++			tick = verifyHintTick
++		}
++		last, seen, seenRisk := watchVerifyWindow(time.Now().Add(verifyWindowMax), tick,
 +			func() bool { _, err := page.Timeout(3 * time.Second).Eval(`() => 1`); return err == nil },
-+			func() verifyReading { return verifyProbe(page) })
-+		s.xiaohongshuService.finishVerify(last, seen)
++			func() verifyReading {
++				if hint {
++					_ = rod.Try(func() { page.Timeout(2*time.Second).MustEval(verifyHintJS, verifyHintText) })
++				}
++				return verifyProbe(page)
++			})
++		s.xiaohongshuService.finishVerify(last, seen, seenRisk)
 +	}()
-+	respondSuccess(c, map[string]any{"opened": true, "timeout": verifyWindowMax.String()}, "验证窗口已打开，完成后关闭窗口即可")
++	respondSuccess(c, map[string]any{"opened": true, "timeout": verifyWindowMax.String(), "incident_page": target != "", "tab_hint": hint},
++		"验证窗口已打开，完成后关闭窗口即可")
 +}
 +
-+// verifyReading 验证窗口里读一次页面的结果。ok=false 表示这次没读到（页面在跳转或已关），不作数。
++// verifyReading 验证窗口里读一次页面的结果。ok=false 表示这次没读到完整读数（页面在跳转或已关），不作「最后一次读数」。
 +type verifyReading struct {
 +	ok       bool
-+	risk     *xiaohongshu.RiskError // 页面上仍有的风控（验证浮层 / 安全跳转页）
++	riskRead bool                   // 风控探针这次读到了页面（登录态没读到也算）：看到的风控照样算「出现过」
++	risk     *xiaohongshu.RiskError // 页面上仍有的风控（看得见的验证浮层 / 安全跳转页）
 +	loggedIn bool                   // 页面状态里是已登录用户
 +}
 +
-+// verifyProbe 读一次验证窗口的页面：风控 + 登录态，不导航、不点（测试里替换）。
++// verifyProbe 读一次验证窗口的页面：风控 + 登录态，不导航、不点、不落证据（测试里替换）。
 +var verifyProbe = func(page *rod.Page) verifyReading {
 +	r, ok := xiaohongshu.RiskPageRead(page)
 +	st := xiaohongshu.PageLoginState(page)
-+	return verifyReading{ok: ok && st != "", risk: r, loggedIn: st == "user"}
++	return verifyReading{ok: ok && st != "", riskRead: ok, risk: r, loggedIn: st == "user"}
 +}
 +
-+// watchVerifyWindow 每 tick 看一眼：窗口还活着就采样，记住最后一次有效读数；窗口关了或到时就返回。
-+func watchVerifyWindow(deadline time.Time, tick time.Duration, alive func() bool, sample func() verifyReading) (last verifyReading, seen bool) {
++// watchVerifyWindow 每 tick 看一眼：窗口还活着就采样，记住最后一次有效读数、有没有出现过风控；
++// alive() 连续 verifyAliveFails 次失败（她关了窗口）或到时就返回。只失败一次（页面跳转）不算关窗。
++// seenRisk 只要风控探针读到并命中就置位，不要求同一次也读到登录态（审查：一闪而过的滑块别因为登录态没读到而漏掉）。
++func watchVerifyWindow(deadline time.Time, tick time.Duration, alive func() bool, sample func() verifyReading) (last verifyReading, seen, seenRisk bool) {
++	fails := 0
 +	for time.Now().Before(deadline) {
 +		time.Sleep(tick)
 +		if !alive() {
-+			break // 用户关了窗口
++			if fails++; fails >= verifyAliveFails {
++				break // 用户关了窗口
++			}
++			continue
 +		}
-+		if r := sample(); r.ok {
++		fails = 0
++		r := sample()
++		if (r.ok || r.riskRead) && r.risk != nil {
++			seenRisk = true
++		}
++		if r.ok {
 +			last, seen = r, true
 +		}
 +	}
-+	return last, seen
++	return last, seen, seenRisk
 +}
 +
-+// verifyClears 验证窗口结束后能不能解熔断：要有有效读数、最后一次没有风控；
-+// 不是验证码类的熔断（掉登录 / 安全跳转）还要最后看到的是已登录用户。
-+func verifyClears(holdCode string, last verifyReading, seen bool) (bool, string) {
++// verifyClears 验证窗口结束后能不能解熔断，返回（解不解、verify_result、原因）。
++//   - 要有有效读数、关窗前最后一次没有风控、而且看到已登录（审查：验证码类也要——被踢到登录页、回到首页是游客、关窗，
++//     不能当成验证过了）；
++//   - 掉登录（NOT_LOGGED_IN）：看到已登录就解（登录是状态，看到了就是证据）；
++//   - 验证码 / 安全跳转：1008（B3）要求窗口里**出现过**风控、最后又干净（她真拖过了）；从头到尾没出现过 →
++//     不自动解除（no_captcha_seen）——验证只在读收藏那一下出，窗口里看不到不等于没事（10-08 04:02 就是这么被
++//     误解除、05:11 手动同步又撞上的）。
++func verifyClears(holdCode string, last verifyReading, seen, seenRisk bool) (bool, string, string) {
 +	switch {
 +	case !seen:
-+		return false, "窗口里一次都没读到页面状态"
++		return false, verifyNotRead, "窗口里一次都没读到页面状态"
 +	case last.risk != nil:
-+		return false, "关窗前页面仍在风控（" + last.risk.Code + "）"
-+	case holdCode != xiaohongshu.RiskCaptcha && !last.loggedIn:
-+		return false, "关窗前没看到已登录（" + holdCode + " 要确认登录还在）"
++		return false, verifyStillRisk, "关窗前页面仍在风控（" + last.risk.Code + "）"
++	case !last.loggedIn:
++		return false, verifyNotLoggedIn, "关窗前没看到已登录（" + holdCode + " 要确认登录还在）"
++	case holdCode == xiaohongshu.RiskNotLoggedIn:
++		return true, verifyCleared, ""
++	case !seenRisk:
++		return false, verifyNoCaptcha, "窗口里从头到尾没出现过验证 / 风控页，不自动解除（要她确认没事再恢复）"
 +	}
-+	return true, ""
++	return true, verifyCleared, ""
 +}
 +
-+// finishVerify 验证窗口收尾：按关窗前最后一次读数决定解除还是保持熔断。
-+func (s *XiaohongshuService) finishVerify(last verifyReading, seen bool) {
++// noteVerify 记下这一轮验证窗口的结论（/login/session 的 verify_result）。
++func (s *XiaohongshuService) noteVerify(result string) {
++	s.state.set(func(l *loginState) { l.verifyResult, l.verifyFinished = result, time.Now() })
++}
++
++// finishVerify 验证窗口收尾：按窗口里的读数决定解除还是保持熔断，结论记进 verify_result。
++func (s *XiaohongshuService) finishVerify(last verifyReading, seen, seenRisk bool) string {
 +	h := s.hold.get()
 +	if h == nil {
 +		if seen && last.risk == nil {
 +			s.state.set(func(l *loginState) { l.captcha = time.Time{} })
 +		}
-+		return
++		s.noteVerify(verifyNoHold)
++		return verifyNoHold
 +	}
-+	if ok, why := verifyClears(h.Code, last, seen); !ok {
-+		logrus.Warnf("验证窗口结束，熔断保持（%s）：%s", h.Code, why)
-+		return
++	ok, result, why := verifyClears(h.Code, last, seen, seenRisk)
++	if !ok {
++		logrus.Warnf("验证窗口结束，熔断保持（%s，%s）：%s", h.Code, result, why)
++	} else if h.Code == xiaohongshu.RiskNotLoggedIn {
++		s.clearRisk("人工验证窗口完成（关窗前看到已登录、页面无风控）")
++	} else {
++		s.clearRisk("人工验证窗口完成（窗口里出现过验证，关窗前已消失）")
 +	}
-+	s.clearRisk("人工验证窗口完成（关窗前页面无风控）")
++	s.noteVerify(result)
++	return result
 +}
 +
 +type favItem struct {
@@ -1498,16 +1669,18 @@ index 0000000..937147f
 +
 +const favMinInterval = 10 * time.Minute
 +
-+// 读收藏一次请求内最多 2 次尝试；只有「子 tab 没点中」这种纯前端问题才重试，重试前歇 20–40 秒（0930 连读后被跳到登录错误页）。
++// 读收藏一次请求只进 1 次收藏页签（1008 B4 前兆即停）：
 +//
-+// F1 读收藏次数上限（10-04：同一次请求里先读 49 条、又重读得 540 条，之后夜跑脚本再整份重读一次撞上验证码）：
-+//   - 一次请求最多进 2 次收藏页签，**最多滚到底 1 次**：第 2 次只在第 1 次「页签没点中」（滚动前发现，或滚动途中
-+//     页签跳走、提前停下）时才有；第 1 次已经滚完一遍才发现页签不对，报不可重试的错（见 GetMyProfileViaSidebar）。
++//   - 以前「子 tab 没点中」会歇 20–40 秒、换干净标签页、再做一次登录检查、再点 3 轮。过去 10 次读收藏里，
++//     第 1 轮点不动的 6 次有 4 次接着撞验证——点不动多半是收藏接口在拒绝，换页重来只会加码。现在：页签第 1 轮没点中，
++//     在原页面歇 20–40 秒再拟人点 1 次（见 xiaohongshu.selectTab）；还不生效就结束本次读收藏，回 503 FAV_TAB_STUCK
++//     （TRANSIENT「页签点不动，疑似小红书在限流，今晚先不读收藏」），**不写熔断**、不换新页、不做第二次登录检查。
++//   - F1（10-04）：一次请求**最多滚到底 1 次**；已经滚完一遍才发现页签不对，报不可重试的错（见 GetMyProfileViaSidebar）。
 +//   - 一次同步只发 1 次本请求（Python favorites.fetch_favorites）；读到一截 / 可疑时当晚不再重读（Python 侧
 +//     sync_state 的重读冷却 + nightly 不对它重试）。服务端另有 favMinInterval 限频。
 +//
-+// 所以一晚上对收藏列表的全量滚动 ≤ 1 次，进收藏页 ≤ 2 次。
-+const favMaxAttempts = 2
++// 所以一晚上对收藏列表的全量滚动 ≤ 1 次，进收藏页 ≤ 1 次。
++const codeFavTabStuck = "FAV_TAB_STUCK"
 +
 +// favRequestTimeout 读收藏整个请求（登录检查 + 进主页 + 点页签 + 等首屏 + 滚动 ≤favScrollBudget + 提取）的上限。
 +// Python 客户端超时（favorites.fetch_favorites 780 秒）= 启动 ≤90 + 本值 + 关浏览器 ≤30 + 余量，必须比本值长。
@@ -1522,49 +1695,36 @@ index 0000000..937147f
 +	return n
 +}
 +
-+func favRetryWait() time.Duration { return time.Duration(20+rand.Intn(21)) * time.Second }
-+
-+// readFavoritesWithRetry 重试策略：风控类错误立即停；非 tab 问题不重试；重试前先查风控再等待。
-+func readFavoritesWithRetry(ctx context.Context,
-+	read func() (*xiaohongshu.UserProfileResponse, error),
-+	riskCheck func() *xiaohongshu.RiskError,
-+	wait func(context.Context, time.Duration) error,
-+	freshPage func(),
-+) (*xiaohongshu.UserProfileResponse, error) {
-+	var err error
-+	for attempt := 1; attempt <= favMaxAttempts; attempt++ {
-+		if attempt > 1 {
-+			if r := riskCheck(); r != nil {
-+				return nil, r
-+			}
-+			d := favRetryWait()
-+			logrus.Infof("read favorites: 页签没点中，歇 %s 再试最后一次", d)
-+			if werr := wait(ctx, d); werr != nil {
-+				return nil, err
-+			}
-+			freshPage()
-+		}
-+		var profile *xiaohongshu.UserProfileResponse
-+		profile, err = read()
-+		if err == nil {
-+			return profile, nil
-+		}
-+		logrus.Warnf("read favorites %d/%d: %v", attempt, favMaxAttempts, err)
-+		if r := xiaohongshu.AsRisk(err); r != nil {
-+			return nil, r
-+		}
-+		if r := riskCheck(); r != nil {
-+			return nil, r
-+		}
-+		if ctx.Err() != nil || !errors.Is(err, xiaohongshu.ErrTabNotActive) {
-+			return nil, err
-+		}
++// readFavorites 读一次收藏（不重试）：风控类错误原样返回；别的失败先查一次风控（只读页面），
++// 页面已是风控页就按风控报，否则原样返回（页签没点中 / 没停住由调用方报 FAV_TAB_STUCK）。
++func readFavorites(read func() (*xiaohongshu.UserProfileResponse, error),
++	riskCheck func() *xiaohongshu.RiskError) (*xiaohongshu.UserProfileResponse, error) {
++	profile, err := read()
++	if err == nil {
++		return profile, nil
++	}
++	logrus.Warnf("read favorites: %v", err)
++	if r := xiaohongshu.AsRisk(err); r != nil {
++		return nil, r
++	}
++	// 看不见的验证组件不盖掉原来的错（页签点不动 FAV_TAB_STUCK 更说明问题）；它的证据已经落了
++	if r := riskCheck(); r != nil && !r.Hidden() {
++		return nil, r
 +	}
 +	return nil, err
 +}
 +
++// favTabStuckText 页签没点中 / 没停住时给她看的话。
++func favTabStuckText(err error) string {
++	if errors.Is(err, xiaohongshu.ErrTabStuck) {
++		return "页签点不动，疑似小红书在限流，今晚先不读收藏"
++	}
++	return "收藏页签没停住，疑似小红书在限流，今晚先不读收藏"
++}
++
 +// favReadSummary 响应里如实带上这次读收藏的结论：partial（只读到一截）、stop_reason（判停原因）、has_more
 +// （页面状态里的「还有更多」，读不到为 null）、expect（调用方给的基准）、scroll（滚了几次 / 用到第几级滚法 / 秒数）。
++// 列表卡住时另带 evidence（证据目录，只在本机）。
 +// 没有滚动结论（不该发生）按 partial 报，宁可让上层当一截处理，也不把来历不明的条数当全量。
 +func favReadSummary(r *xiaohongshu.FavScrollResult, expect int) map[string]any {
 +	if r == nil {
@@ -1574,10 +1734,14 @@ index 0000000..937147f
 +	if r.HasMore != nil {
 +		hasMore = *r.HasMore
 +	}
-+	return map[string]any{
++	out := map[string]any{
 +		"partial": r.Partial, "stop_reason": r.Reason, "has_more": hasMore, "expect": expect,
 +		"scroll": map[string]any{"loaded": r.Count, "scrolls": r.Scrolls, "level": r.Level, "seconds": r.Seconds},
 +	}
++	if r.Evidence != "" {
++		out["evidence"] = r.Evidence
++	}
++	return out
 +}
 +
 +func sleepCtx(ctx context.Context, d time.Duration) error {
@@ -1614,8 +1778,12 @@ index 0000000..937147f
 +	}
 +	defer b.Close()
 +	page := b.NewPage()
++	// 1008（B1）：从第一次导航起就记收藏接口的回包（HTTP 状态 + code/msg），出事时写进证据。只读浏览器内存，不发请求。
++	watch := xiaohongshu.WatchCollectAPI(page)
++	defer watch.Stop()
 +	var out map[string]any
 +	var fail error
++	var evidence string
 +	err := rod.Try(func() {
 +		login := xiaohongshu.NewLogin(page)
 +		ok, err := login.CheckLoginStatus(ctx)
@@ -1629,28 +1797,26 @@ index 0000000..937147f
 +			return
 +		}
 +		var scroll *xiaohongshu.FavScrollResult
-+		profile, err := readFavoritesWithRetry(ctx,
++		profile, err := readFavorites(
 +			func() (*xiaohongshu.UserProfileResponse, error) {
 +				action := xiaohongshu.NewUserProfileAction(page)
 +				action.FavExpect = expect
 +				p, err := action.GetMyProfileViaSidebar(ctx, xiaohongshu.TabFavorites)
-+				scroll = action.FavScroll
++				scroll, evidence = action.FavScroll, action.Evidence
 +				return p, err
 +			},
-+			func() *xiaohongshu.RiskError { return xiaohongshu.RiskPage(page) },
-+			sleepCtx,
-+			func() {
-+				// 上一次失败的页面常处于点击挂住的坏状态，在它上面重试必然再超时（0925 实测）：换干净标签页。
-+				_ = page.Close()
-+				page = b.NewPage()
-+			})
++			func() *xiaohongshu.RiskError { return xiaohongshu.RiskPage(page) })
 +		if err != nil {
 +			fail = err
 +			return
 +		}
 +		if r := xiaohongshu.RiskPage(page); r != nil {
-+			fail = r
-+			return
++			if !r.Hidden() {
++				fail = r
++				return
++			}
++			// 看不见的验证组件：列表已经读完（不再滚、不再点），按滚动结论交回；证据已落
++			logrus.Warnf("读完收藏后页面里有看不见的验证组件（%s）：不写熔断，按滚动结论交回", r.Why)
 +		}
 +		if len(profile.Feeds) == 0 {
 +			if d := os.Getenv("LB_DEBUG_DIR"); d != "" {
@@ -1679,6 +1845,16 @@ index 0000000..937147f
 +	}
 +	if r := xiaohongshu.AsRisk(fail); r != nil {
 +		s.respondRisk(c, r)
++		return
++	}
++	if fail != nil && ctx.Err() == nil && errors.Is(fail, xiaohongshu.ErrTabNotActive) {
++		// 1008（B4）：页签点不动 / 没停住 = 前兆，本次不读了；不写熔断（不是撞了验证），不换新页重来
++		body := gin.H{"error": favTabStuckText(fail), "code": codeFavTabStuck, "details": fail.Error()}
++		if evidence != "" {
++			body["evidence"] = evidence
++		}
++		logrus.Warnf("%s %s %d %s：%v", c.Request.Method, c.Request.URL.Path, http.StatusServiceUnavailable, codeFavTabStuck, fail)
++		c.JSON(http.StatusServiceUnavailable, body)
 +		return
 +	}
 +	if fail != nil {
@@ -1947,7 +2123,8 @@ index 0000000..937147f
 +// 在读取用的域名上复核一次，然后关窗落盘。用户手动关窗 = 取消。
 +//
 +// 1001：拿浏览器锁最多等 windowLockWait，拿不到就 finish 为 failed；窗口里出错（panic）也 finish，
-+// 状态不会永远停在 waiting。5 分钟扫码时限从拿到锁之后才开始算。成功 = 解除风控熔断。
++// 状态不会永远停在 waiting。5 分钟扫码时限从拿到锁之后才开始算。扫码成功 = 解除风控熔断；
++// 1008（审查）：一打开就是登录态（没扫码）只解登录类熔断，验证码 / 安全跳转类保留。
 +func (s *AppServer) loginWindowHandler(c *gin.Context) {
 +	st := &s.xiaohongshuService.state
 +	if code := st.busy(); code != "" {
@@ -1965,8 +2142,13 @@ index 0000000..937147f
 +		if errText != "" {
 +			logrus.Warnf("登录窗口 #%d: %s", seq, errText)
 +		}
-+		if result == "success" {
++		switch result {
++		case "success": // 真扫了码：已验证的登录，什么熔断都解
 +			s.xiaohongshuService.clearRisk(fmt.Sprintf("登录窗口 #%d 登录成功", seq))
++		case loginAlready:
++			// 1008（审查）：一打开就是登录态、没扫码——只证明登录还在，只解掉登录类熔断（和扫码入口的捷径一致）。
++			// 验证码 / 安全跳转类保留：那类验证只在读收藏那一下出，/explore 页面干净不说明没事
++			s.xiaohongshuService.clearRiskIf(xiaohongshu.RiskNotLoggedIn, fmt.Sprintf("登录窗口 #%d：已是登录态", seq))
 +		}
 +		st.finish(seq, result, user, errText)
 +		logrus.Infof("登录窗口 #%d 结束：%s", seq, result)
@@ -1976,6 +2158,9 @@ index 0000000..937147f
 +
 +// runLoginWindowFn 测试里替换成桩（真窗口要人扫码）。
 +var runLoginWindowFn = (*AppServer).runLoginWindow
++
++// loginAlready 登录窗口一打开就是登录态（没扫码）。对外（/login/session 的 state）照旧报 success。
++const loginAlready = "already_logged_in"
 +
 +func (s *AppServer) runLoginWindow(parent context.Context, seq uint64, timeout time.Duration) (result string, user *xiaohongshu.CurrentUser, errText string) {
 +	result = "timeout"
@@ -1998,10 +2183,10 @@ index 0000000..937147f
 +	err = rod.Try(func() {
 +		_ = page.Timeout(30 * time.Second).Navigate(host + "/explore")
 +		login := xiaohongshu.NewLogin(page)
-+		// 已经登录：直接成功
++		// 已经登录：直接结束（loginAlready：对外照旧是 success，但只解登录类熔断，见 loginWindowHandler）
 +		if _, e := page.Timeout(8 * time.Second).Element(".login-container"); e != nil {
 +			if ok, _ := login.CheckLoginStatus(ctx); ok {
-+				result = "success"
++				result = loginAlready
 +				user, _ = login.CurrentUser(ctx)
 +				return
 +			}
@@ -2067,18 +2252,24 @@ index 0000000..937147f
 +	respondSuccess(c, map[string]any{"logged_out": true}, "已退出登录")
 +}
 diff --git a/main.go b/main.go
-index c100268..91a304b 100644
+index c100268..a7b7099 100644
 --- a/main.go
 +++ b/main.go
-@@ -6,7 +6,6 @@ import (
+@@ -2,11 +2,12 @@ package main
+ 
+ import (
+ 	"flag"
++	"time"
+ 
  	"github.com/sirupsen/logrus"
  	"github.com/xpzouying/xiaohongshu-mcp/browser"
  	"github.com/xpzouying/xiaohongshu-mcp/configs"
 -	"github.com/xpzouying/xiaohongshu-mcp/cookies"
++	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
  )
  
  // version 构建版本号，发布时通过 -ldflags "-X main.version=vX.Y.Z" 注入。
-@@ -18,7 +17,7 @@ func main() {
+@@ -18,7 +19,7 @@ func main() {
  		port     string
  	)
  	flag.BoolVar(&headless, "headless", true, "是否无头模式")
@@ -2087,7 +2278,7 @@ index c100268..91a304b 100644
  	flag.Parse()
  
  	logrus.Infof("xiaohongshu-mcp version: %s", version)
-@@ -32,9 +31,7 @@ func main() {
+@@ -32,11 +33,12 @@ func main() {
  
  	configs.InitHeadless(headless)
  	// 入口层解析出 seed 和代理，经 configs 透传给浏览器工厂。
@@ -2097,7 +2288,12 @@ index c100268..91a304b 100644
 +	configs.SetFingerprintSeed(configs.FingerprintSeedFromEnv())
  	configs.SetProxy(configs.ProxyFromEnv())
  
++	// 1008：出事证据（截图里有私密收藏）只留 14 天，启动时清一遍（每次落新证据时也会清）
++	go xiaohongshu.PruneEvidence(xiaohongshu.EvidenceRoot(), xiaohongshu.EvidenceKeep, time.Now())
++
  	// 初始化服务
+ 	xiaohongshuService := NewXiaohongshuService()
+ 
 diff --git a/mcp_handlers.go b/mcp_handlers.go
 index 20a6879..d07183f 100644
 --- a/mcp_handlers.go
@@ -2299,12 +2495,380 @@ index b38164a..a769bd5 100644
  		c.Next()
  	}
  }
+diff --git a/risk_evidence_localbrowser_test.go b/risk_evidence_localbrowser_test.go
+new file mode 100644
+index 0000000..27b2f2e
+--- /dev/null
++++ b/risk_evidence_localbrowser_test.go
+@@ -0,0 +1,362 @@
++//go:build localbrowser
++
++package main
++
++// 1008（B1 / B3 / B4）端到端：真实入口（/api/v1/favorites、/api/v1/verify/window）→ 内置浏览器（无界面、临时 profile、
++// 挂死代理只通本机）→ 本机假站点。不碰小红书、不碰真 profile、不碰真 ~/.link-brain/risk-evidence。
++// 跑法：go test -tags localbrowser -count=1 -timeout 900s -run LocalBrowser .
++
++import (
++	"encoding/json"
++	"fmt"
++	"net/http"
++	"net/url"
++	"os"
++	"path/filepath"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"github.com/xpzouying/xiaohongshu-mcp/browser"
++	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
++)
++
++// fakeSite 假小红书：首页（已登录 + 侧栏「我」）→ 自己的主页（笔记 / 收藏两个页签）→ 收藏接口。
++// mode：收藏页签点了以后——"dead" 没反应；"captcha" 先打收藏接口（回 461 / code 300011），回来后切到收藏、地址栏带上
++// tab=fav、弹出验证组件。记下每个路径被请求了几次、主页请求带的 query、页签被点的情况、验证窗口提示有没有出现。
++type fakeSite struct {
++	mu       sync.Mutex
++	mode     string
++	hits     map[string]int
++	queries  []string
++	clicks   []string
++	sawHint  int
++	noteMode string
++}
++
++func (f *fakeSite) count(p string) int {
++	f.mu.Lock()
++	defer f.mu.Unlock()
++	return f.hits[p]
++}
++
++func (f *fakeSite) handler(w http.ResponseWriter, r *http.Request) {
++	f.mu.Lock()
++	f.hits[r.URL.Path]++
++	mode := f.mode
++	switch r.URL.Path {
++	case "/user/profile/me":
++		f.queries = append(f.queries, r.URL.RawQuery)
++	case "/clicked":
++		f.clicks = append(f.clicks, r.URL.Query().Get("trusted")+":"+r.URL.Query().Get("text"))
++	case "/saw-hint":
++		f.sawHint++
++	}
++	f.mu.Unlock()
++	switch r.URL.Path {
++	case "/api/sns/web/v2/note/collect/page":
++		w.Header().Set("Content-Type", "application/json")
++		w.WriteHeader(461)
++		fmt.Fprint(w, `{"code":300011,"success":false,"msg":"当前账号存在异常"}`)
++	case "/clicked", "/saw-hint":
++		w.WriteHeader(http.StatusNoContent)
++	case "/explore":
++		html(w, `<div id="app"><ul class="side-bar"><li class="user side-bar-component"><a href="/user/profile/me">我</a></li></ul></div>
++<script>window.__INITIAL_STATE__ = {user: {userInfo: {value: {guest: false, userId: "me", nickname: "测试号"}}}};</script>`)
++	case "/user/profile/me":
++		html(w, fmt.Sprintf(`<div class="reds-tab-list" style="padding:40px 20px">
++<div class="reds-tab-item sub-tab-list" style="display:inline-block;width:90px;height:40px;line-height:40px">笔记</div>
++<div class="reds-tab-item sub-tab-list" id="fav-tab" style="display:inline-block;width:90px;height:40px;line-height:40px">收藏</div></div>
++<div class="feeds-container" style="height:300px"></div>
++<script>
++const MODE = %q;
++window.__INITIAL_STATE__ = {user: {userInfo: {value: {guest: false, userId: "me"}}, activeTab: {value: {index: 0, query: "note"}},
++  notes: {value: [[{id: "own"}], []]}, userPageData: {value: {basicInfo: {nickname: "测试号"}}}}};
++document.getElementById("fav-tab").addEventListener("click", e => {
++  fetch("/clicked?trusted=" + e.isTrusted + "&text=" + encodeURIComponent(e.target.innerText.trim()), {keepalive: true});
++  if (MODE === "hidden") {
++    // 页签切过去了，但页面里多了一个看不见的验证组件（在屏幕外，里面有滑块画布）
++    window.__INITIAL_STATE__.user.activeTab.value = {index: 1, query: "fav"};
++    const h = document.createElement("div");
++    h.className = "red-captcha-container";
++    h.style.cssText = "position:fixed;left:-10000px;top:100px;width:320px;height:240px";
++    h.innerHTML = '<canvas width="300" height="150"></canvas><div>拖动滑块完成拼图</div>';
++    document.body.appendChild(h);
++    return;
++  }
++  if (MODE === "dead-captcha") {
++    // 页签点了没反应，紧接着弹出看得见的验证组件（B4 最常见的出事路径：那一刻 activeTab 还是 note）
++    if (document.querySelector(".red-captcha-container")) return;
++    const d = document.createElement("div");
++    d.className = "red-captcha-container";
++    d.style.cssText = "position:fixed;top:120px;left:40px;width:320px;height:240px;background:#eee;z-index:99";
++    document.body.appendChild(d);
++    return;
++  }
++  if (MODE !== "captcha") return;
++  fetch("/api/sns/web/v2/note/collect/page?num=30&cursor=").then(r => r.text()).then(() => {
++    history.replaceState(null, "", location.pathname + "?xsec_token=t&tab=fav&subTab=note");
++    window.__INITIAL_STATE__.user.activeTab.value = {index: 1, query: "fav"};
++    const d = document.createElement("div");
++    d.className = "red-captcha-container";
++    d.style.cssText = "position:fixed;top:120px;left:40px;width:320px;height:240px;background:#eee;z-index:99";
++    document.body.appendChild(d);
++  });
++}, true);
++const hintPoll = setInterval(() => {
++  if (document.getElementById("lb-verify-hint")) { clearInterval(hintPoll); fetch("/saw-hint", {keepalive: true}); }
++}, 200);
++</script>`, mode))
++	case "/explore/n1":
++		// 验证窗口用：已登录的笔记页，验证组件出现 1.5 秒后消失（她拖过了）
++		html(w, `<div class="note-container" style="height:300px">一篇笔记</div>
++<div id="cap" class="red-captcha-container" style="position:fixed;top:100px;left:40px;width:320px;height:240px;background:#eee;z-index:99"></div>
++<script>window.__INITIAL_STATE__ = {user: {userInfo: {value: {guest: false, userId: "me"}}}};
++setTimeout(() => document.getElementById("cap").remove(), 1500);</script>`)
++	default:
++		http.NotFound(w, r)
++	}
++}
++
++func newFakeSite(t *testing.T, mode string) (*AppServer, string, *fakeSite) {
++	t.Helper()
++	f := &fakeSite{mode: mode, hits: map[string]int{}}
++	app, dir := localSite(t, f.handler)
++	return app, dir, f
++}
++
++func fastTabPause(t *testing.T) {
++	old := xiaohongshu.FavTabRetryPause
++	xiaohongshu.FavTabRetryPause = func() time.Duration { return 300 * time.Millisecond }
++	t.Cleanup(func() { xiaohongshu.FavTabRetryPause = old })
++}
++
++// TestLocalBrowserFavoritesTabStuckIsTransient B4：收藏页签点不动——只拟人点 2 次（真实点击）、不换新页、不做第二次登录检查
++// （/explore 只开 1 次），回 503 FAV_TAB_STUCK（TRANSIENT），**不写熔断**；响应带第 1 轮落的证据目录。
++func TestLocalBrowserFavoritesTabStuckIsTransient(t *testing.T) {
++	evRoot := t.TempDir()
++	t.Setenv("LINK_BRAIN_EVIDENCE_DIR", evRoot)
++	fastTabPause(t)
++	app, dir, site := newFakeSite(t, "dead")
++	code, out := doJSON(t, setupRoutes(app), "GET", "/api/v1/favorites?expect=1216", "")
++	require.Equal(t, http.StatusServiceUnavailable, code, "%v", out)
++	assert.Equal(t, "FAV_TAB_STUCK", out["code"])
++	assert.Equal(t, "页签点不动，疑似小红书在限流，今晚先不读收藏", out["error"])
++	assert.Equal(t, "", holdOnDisk(t, dir), "点不动不写熔断")
++	assert.Nil(t, app.xiaohongshuService.hold.get())
++
++	assert.Equal(t, 1, site.count("/explore"), "不换新页、不做第二次登录检查")
++	assert.Equal(t, 1, site.count("/user/profile/me"))
++	assert.Equal(t, 0, site.count("/api/sns/web/v2/note/collect/page"))
++	time.Sleep(300 * time.Millisecond) // keepalive 的上报可能晚一点到
++	site.mu.Lock()
++	clicks := append([]string(nil), site.clicks...)
++	site.mu.Unlock()
++	assert.Equal(t, []string{"true:收藏", "true:收藏"}, clicks, "只有 2 次真实点击，没有 DOM 合成点击（isTrusted=false）")
++
++	ev, _ := out["evidence"].(string)
++	require.NotEmpty(t, ev)
++	assert.True(t, strings.HasPrefix(ev, evRoot), "证据落在证据根目录下")
++	data, err := os.ReadFile(filepath.Join(ev, "meta.json"))
++	require.NoError(t, err)
++	var meta map[string]any
++	require.NoError(t, json.Unmarshal(data, &meta))
++	assert.Equal(t, "fav_tab_click", meta["trigger"])
++	assert.NotNil(t, meta["collect_api"], "读收藏时收藏接口监听已挂上")
++}
++
++// TestLocalBrowserCaptchaEvidenceThenVerifyWindow B1 + B3：
++//  1. 点「收藏」后收藏接口回 461 / code 300011、弹出验证组件 → 423 CAPTCHA_REQUIRED；risk-hold.json 带出事页面（url）、
++//     页签（tab=fav）、证据目录；证据里有截图、命中元素、收藏接口的 HTTP 状态和 code；/login/session 带出这三项。
++//  2. 打开验证窗口：开的是出事的那一页，但去掉了 tab=fav（不让页面自己去读收藏）；页面顶部有「请点一下『收藏』」提示；
++//     窗口不替她点「收藏」（没有点击、没有收藏接口请求）；窗口里一次验证都没出现 → 关窗后熔断保留，verify_result=no_captcha_seen。
++func TestLocalBrowserCaptchaEvidenceThenVerifyWindow(t *testing.T) {
++	evRoot := t.TempDir()
++	t.Setenv("LINK_BRAIN_EVIDENCE_DIR", evRoot)
++	fastTabPause(t)
++	app, dir, site := newFakeSite(t, "captcha")
++	router := setupRoutes(app)
++
++	code, out := doJSON(t, router, "GET", "/api/v1/favorites", "")
++	require.Equal(t, http.StatusLocked, code, "%v", out)
++	assert.Equal(t, xiaohongshu.RiskCaptcha, out["code"])
++	assert.Equal(t, xiaohongshu.RiskCaptcha, holdOnDisk(t, dir))
++
++	h := app.xiaohongshuService.hold.get()
++	require.NotNil(t, h)
++	assert.Equal(t, "fav", h.Tab)
++	assert.Contains(t, h.Detail, "HTTP 461", "收藏接口回的拒绝写进熔断说明（调查用例 8）")
++	assert.Contains(t, h.Detail, "300011")
++	assert.Contains(t, h.URL, "/user/profile/me")
++	assert.Contains(t, h.URL, "tab=fav", "出事那一刻地址栏就是这样")
++	require.NotEmpty(t, h.Evidence)
++	assert.True(t, strings.HasPrefix(h.Evidence, evRoot))
++	for _, f := range []string{"shot.png", "hit.html", "meta.json"} {
++		_, err := os.Stat(filepath.Join(h.Evidence, f))
++		assert.NoError(t, err, f)
++	}
++	data, err := os.ReadFile(filepath.Join(h.Evidence, "meta.json"))
++	require.NoError(t, err)
++	var meta map[string]any
++	require.NoError(t, json.Unmarshal(data, &meta))
++	assert.Equal(t, "risk", meta["trigger"])
++	assert.Equal(t, "fav", meta["tab"])
++	assert.Equal(t, "fav", meta["want_tab"], "程序正在为收藏干活")
++	assert.Equal(t, "widget", meta["why"])
++	assert.Equal(t, "fav", h.WantTab)
++	call := meta["collect_api"].(map[string]any)["recent"].([]any)[0].(map[string]any)
++	assert.Equal(t, float64(461), call["status"])
++	assert.Equal(t, float64(300011), call["code"])
++
++	_, out = doJSON(t, router, "GET", "/api/v1/login/session", "")
++	hold := out["data"].(map[string]any)["risk_hold"].(map[string]any)
++	assert.Equal(t, h.Evidence, hold["evidence"])
++	assert.Equal(t, "fav", hold["tab"])
++
++	// ---- 验证窗口 ----
++	oldOpen, oldMax, oldTick := openWindowBrowser, verifyWindowMax, verifyTick
++	openWindowBrowser = func() (*browser.Browser, error) {
++		return browser.NewBrowserWait(5*time.Second, true, browser.WithProxy("http://127.0.0.1:9"))
++	}
++	verifyWindowMax, verifyTick = 6*time.Second, 300*time.Millisecond
++	t.Cleanup(func() { openWindowBrowser, verifyWindowMax, verifyTick = oldOpen, oldMax, oldTick })
++
++	profileBefore, apiBefore, exploreBefore := site.count("/user/profile/me"), site.count("/api/sns/web/v2/note/collect/page"), site.count("/explore")
++	site.mu.Lock()
++	clicksBefore := len(site.clicks)
++	site.mu.Unlock()
++	code, out = doJSON(t, router, "POST", "/api/v1/verify/window", "")
++	require.Equal(t, http.StatusOK, code, "%v", out)
++	vd := out["data"].(map[string]any)
++	assert.Equal(t, true, vd["opened"])
++	assert.Equal(t, true, vd["incident_page"])
++	assert.Equal(t, true, vd["tab_hint"])
++	for i := 0; i < 300; i++ {
++		if app.xiaohongshuService.state.snapshot()["verifying"] == false {
++			break
++		}
++		time.Sleep(100 * time.Millisecond)
++	}
++	snap := app.xiaohongshuService.state.snapshot()
++	require.Equal(t, false, snap["verifying"])
++
++	assert.Equal(t, profileBefore+1, site.count("/user/profile/me"), "窗口直接开出事的主页")
++	site.mu.Lock()
++	q, _ := url.ParseQuery(site.queries[len(site.queries)-1])
++	sawHint, clicksAfter := site.sawHint, len(site.clicks)
++	site.mu.Unlock()
++	assert.Equal(t, "t", q.Get("xsec_token"))
++	assert.Empty(t, q.Get("tab"), "去掉 tab=fav：不让页面自己去读收藏")
++	assert.Empty(t, q.Get("subTab"))
++	assert.GreaterOrEqual(t, sawHint, 1, "页面顶部有「请点一下『收藏』」提示")
++	assert.Equal(t, clicksBefore, clicksAfter, "窗口不替她点「收藏」")
++	assert.Equal(t, apiBefore, site.count("/api/sns/web/v2/note/collect/page"), "窗口里没有收藏接口请求")
++	assert.Equal(t, exploreBefore, site.count("/explore"), "开出事页面，不走首页 → 侧栏「我」")
++
++	assert.Equal(t, "no_captcha_seen", snap["verify_result"])
++	assert.Equal(t, h.Since, snap["verify_hold_since"])
++	assert.NotNil(t, app.xiaohongshuService.hold.get(), "窗口里没出现过验证：不自动解除")
++}
++
++// TestLocalBrowserFavoritesHiddenWidgetIsTransient 1008 第二轮：点「收藏」后页面里多了一个看不见的验证组件（在屏幕外）——
++// 本次读收藏立即停，回 503 HIDDEN_WIDGET（TRANSIENT「…这次先停，下次照常读」），**不写熔断**；证据落盘（trigger=hidden_widget）。
++func TestLocalBrowserFavoritesHiddenWidgetIsTransient(t *testing.T) {
++	evRoot := t.TempDir()
++	t.Setenv("LINK_BRAIN_EVIDENCE_DIR", evRoot)
++	fastTabPause(t)
++	app, dir, site := newFakeSite(t, "hidden")
++	code, out := doJSON(t, setupRoutes(app), "GET", "/api/v1/favorites?expect=1216", "")
++	require.Equal(t, http.StatusServiceUnavailable, code, "%v", out)
++	assert.Equal(t, "HIDDEN_WIDGET", out["code"])
++	assert.Equal(t, xiaohongshu.HiddenWidgetText, out["error"])
++	assert.Equal(t, "", holdOnDisk(t, dir), "看不见的验证组件不写熔断")
++	assert.Nil(t, app.xiaohongshuService.hold.get())
++	assert.Equal(t, 0, site.count("/api/sns/web/v2/note/collect/page"))
++
++	ev, _ := out["evidence"].(string)
++	require.NotEmpty(t, ev)
++	assert.True(t, strings.HasPrefix(ev, evRoot))
++	data, err := os.ReadFile(filepath.Join(ev, "meta.json"))
++	require.NoError(t, err)
++	var meta map[string]any
++	require.NoError(t, json.Unmarshal(data, &meta))
++	assert.Equal(t, "hidden_widget", meta["trigger"])
++	assert.Equal(t, "HIDDEN_WIDGET", meta["code"])
++	assert.Equal(t, "hidden-widget", meta["why"])
++	assert.Equal(t, "offscreen", meta["hidden_why"])
++	assert.Equal(t, "fav", meta["want_tab"])
++
++	// 下次照常：没有熔断，接口照常放行（限频另算）
++	app.xiaohongshuService.state.set(func(l *loginState) { l.lastFav = time.Time{} })
++	_, out = doJSON(t, setupRoutes(app), "GET", "/api/v1/login/session", "")
++	assert.Nil(t, out["data"].(map[string]any)["risk_hold"])
++}
++
++// TestLocalBrowserTabStuckThenCaptchaHintsFav 审查：页签点不动、紧接着弹验证（B4 最常见的出事路径）——那一刻 activeTab 还是 note，
++// 但熔断记下 want_tab=fav；验证窗口照样开她的主页、提示她自己点「收藏」（窗口不替她点）。
++func TestLocalBrowserTabStuckThenCaptchaHintsFav(t *testing.T) {
++	evRoot := t.TempDir()
++	t.Setenv("LINK_BRAIN_EVIDENCE_DIR", evRoot)
++	fastTabPause(t)
++	app, _, site := newFakeSite(t, "dead-captcha")
++	router := setupRoutes(app)
++	code, out := doJSON(t, router, "GET", "/api/v1/favorites", "")
++	require.Equal(t, http.StatusLocked, code, "%v", out)
++	assert.Equal(t, xiaohongshu.RiskCaptcha, out["code"])
++	h := app.xiaohongshuService.hold.get()
++	require.NotNil(t, h)
++	assert.Equal(t, "note", h.Tab, "页签没点动：activeTab 还是 note")
++	assert.Equal(t, "fav", h.WantTab, "程序要去的是收藏")
++	site.mu.Lock()
++	clicks := len(site.clicks)
++	site.mu.Unlock()
++	assert.Equal(t, 1, clicks, "第 1 轮之后就撞验证：不再点第 2 次")
++
++	oldOpen, oldMax, oldTick := openWindowBrowser, verifyWindowMax, verifyTick
++	openWindowBrowser = func() (*browser.Browser, error) {
++		return browser.NewBrowserWait(5*time.Second, true, browser.WithProxy("http://127.0.0.1:9"))
++	}
++	verifyWindowMax, verifyTick = 5*time.Second, 300*time.Millisecond
++	t.Cleanup(func() { openWindowBrowser, verifyWindowMax, verifyTick = oldOpen, oldMax, oldTick })
++	code, out = doJSON(t, router, "POST", "/api/v1/verify/window", "")
++	require.Equal(t, http.StatusOK, code, "%v", out)
++	vd := out["data"].(map[string]any)
++	assert.Equal(t, true, vd["tab_hint"], "want_tab=fav：要提示她点「收藏」")
++	assert.Equal(t, true, vd["incident_page"])
++	for i := 0; i < 300 && app.xiaohongshuService.state.snapshot()["verifying"] == true; i++ {
++		time.Sleep(100 * time.Millisecond)
++	}
++	site.mu.Lock()
++	sawHint, clicksAfter := site.sawHint, len(site.clicks)
++	site.mu.Unlock()
++	assert.GreaterOrEqual(t, sawHint, 1, "页面顶部有「请点一下『收藏』」提示")
++	assert.Equal(t, clicks, clicksAfter, "窗口不替她点「收藏」")
++	assert.Equal(t, "no_captcha_seen", app.xiaohongshuService.state.snapshot()["verify_result"])
++	assert.NotNil(t, app.xiaohongshuService.hold.get())
++}
++
++// TestLocalBrowserVerifyWindowSeenRiskClears B3：窗口里出现过验证、关窗前已消失（她拖过了）→ 解除，verify_result=cleared。
++func TestLocalBrowserVerifyWindowSeenRiskClears(t *testing.T) {
++	app, _, site := newFakeSite(t, "dead")
++	app.xiaohongshuService.hold.trip(xiaohongshu.RiskCaptcha, "读笔记撞验证",
++		&xiaohongshu.Evidence{URL: os.Getenv("XHS_HOST") + "/explore/n1", Code: xiaohongshu.RiskCaptcha})
++	oldOpen, oldMax, oldTick := openWindowBrowser, verifyWindowMax, verifyTick
++	openWindowBrowser = func() (*browser.Browser, error) {
++		return browser.NewBrowserWait(5*time.Second, true, browser.WithProxy("http://127.0.0.1:9"))
++	}
++	verifyWindowMax, verifyTick = 6*time.Second, 300*time.Millisecond
++	t.Cleanup(func() { openWindowBrowser, verifyWindowMax, verifyTick = oldOpen, oldMax, oldTick })
++
++	code, out := doJSON(t, setupRoutes(app), "POST", "/api/v1/verify/window", "")
++	require.Equal(t, http.StatusOK, code, "%v", out)
++	assert.Equal(t, false, out["data"].(map[string]any)["tab_hint"])
++	for i := 0; i < 300 && app.xiaohongshuService.state.snapshot()["verifying"] == true; i++ {
++		time.Sleep(100 * time.Millisecond)
++	}
++	assert.Equal(t, 1, site.count("/explore/n1"))
++	assert.Equal(t, "cleared", app.xiaohongshuService.state.snapshot()["verify_result"])
++	assert.Nil(t, app.xiaohongshuService.hold.get())
++}
 diff --git a/risk_guard_test.go b/risk_guard_test.go
 new file mode 100644
-index 0000000..083a983
+index 0000000..1854369
 --- /dev/null
 +++ b/risk_guard_test.go
-@@ -0,0 +1,259 @@
+@@ -0,0 +1,388 @@
 +package main
 +
 +import (
@@ -2427,9 +2991,9 @@ index 0000000..083a983
 +	assert.Equal(t, int32(0), launched.Load())
 +}
 +
-+// ---- 验证窗口：只按关窗前最后一次有效读数解熔断（审查 should-fix） ----
++// ---- 验证窗口：只按关窗前最后一次有效读数解熔断（审查 should-fix）；1008 B3：验证码类要窗口里出现过风控 ----
 +
-+func verifyRun(alive []bool, readings []verifyReading) (verifyReading, bool) {
++func verifyRun(alive []bool, readings []verifyReading) (verifyReading, bool, bool) {
 +	i, j := 0, 0
 +	return watchVerifyWindow(time.Now().Add(time.Minute), time.Millisecond,
 +		func() bool {
@@ -2450,8 +3014,10 @@ index 0000000..083a983
 +
 +func TestVerifyWindowDecision(t *testing.T) {
 +	captcha := &xiaohongshu.RiskError{Code: xiaohongshu.RiskCaptcha, Detail: "x"}
++	redirect := &xiaohongshu.RiskError{Code: xiaohongshu.RiskAccount, Detail: "x"}
 +	clean := verifyReading{ok: true, loggedIn: true}
 +	stillCaptcha := verifyReading{ok: true, risk: captcha, loggedIn: true}
++	stillRedirect := verifyReading{ok: true, risk: redirect}
 +	guest := verifyReading{ok: true}
 +	unread := verifyReading{ok: false}
 +
@@ -2461,25 +3027,149 @@ index 0000000..083a983
 +		alive    []bool
 +		readings []verifyReading
 +		wantHeld bool
++		result   string
 +	}{
-+		{"关窗时验证码还在", xiaohongshu.RiskCaptcha, []bool{true, true, false}, []verifyReading{clean, stillCaptcha}, true},
-+		{"一打开就关（一次都没读到）", xiaohongshu.RiskCaptcha, []bool{false}, nil, true},
-+		{"验证过了再关", xiaohongshu.RiskCaptcha, []bool{true, true, false}, []verifyReading{stillCaptcha, clean}, false},
-+		{"最后一次没读到不作数，按上一次有效读数", xiaohongshu.RiskCaptcha, []bool{true, true, false}, []verifyReading{clean, unread}, false},
-+		{"掉登录的熔断：开关验证窗口但没登录", xiaohongshu.RiskNotLoggedIn, []bool{true, false}, []verifyReading{guest}, true},
-+		{"安全跳转的熔断：页面干净但不是登录用户", xiaohongshu.RiskAccount, []bool{true, false}, []verifyReading{guest}, true},
-+		{"安全跳转的熔断：已登录且干净", xiaohongshu.RiskAccount, []bool{true, false}, []verifyReading{clean}, false},
++		{"关窗时验证码还在", xiaohongshu.RiskCaptcha, []bool{true, true}, []verifyReading{clean, stillCaptcha}, true, verifyStillRisk},
++		{"一打开就关（一次都没读到）", xiaohongshu.RiskCaptcha, nil, nil, true, verifyNotRead},
++		{"验证过了再关：出现过 → 消失", xiaohongshu.RiskCaptcha, []bool{true, true}, []verifyReading{stillCaptcha, clean}, false, verifyCleared},
++		{"出现过、最后一次没读到不作数，按上一次有效读数", xiaohongshu.RiskCaptcha, []bool{true, true, true},
++			[]verifyReading{stillCaptcha, clean, unread}, false, verifyCleared},
++		// 1008 B3：10-08 04:02 那种——窗口里一次验证都没出现，关窗不再自动解除
++		{"窗口里从头到尾干净：不自动解除", xiaohongshu.RiskCaptcha, []bool{true, true, true}, []verifyReading{clean, clean, clean}, true, verifyNoCaptcha},
++		{"干净、最后一次没读到：仍不解除", xiaohongshu.RiskCaptcha, []bool{true, true}, []verifyReading{clean, unread}, true, verifyNoCaptcha},
++		{"掉登录的熔断：开关验证窗口但没登录", xiaohongshu.RiskNotLoggedIn, []bool{true}, []verifyReading{guest}, true, verifyNotLoggedIn},
++		{"掉登录的熔断：看到已登录且干净 → 解除", xiaohongshu.RiskNotLoggedIn, []bool{true}, []verifyReading{clean}, false, verifyCleared},
++		{"安全跳转的熔断：页面干净但不是登录用户", xiaohongshu.RiskAccount, []bool{true, true}, []verifyReading{stillRedirect, guest}, true, verifyNotLoggedIn},
++		{"安全跳转的熔断：跳过 → 已登录且干净", xiaohongshu.RiskAccount, []bool{true, true}, []verifyReading{stillRedirect, clean}, false, verifyCleared},
++		{"安全跳转的熔断：从没跳过：不自动解除", xiaohongshu.RiskAccount, []bool{true}, []verifyReading{clean}, true, verifyNoCaptcha},
++		// 审查：验证码类也要看到已登录——被踢到登录页、回到首页是游客、关窗，不算验证过了
++		{"验证码的熔断：出现过 → 消失，但最后是游客", xiaohongshu.RiskCaptcha, []bool{true, true}, []verifyReading{stillCaptcha, guest}, true, verifyNotLoggedIn},
++		{"验证码的熔断：被跳去登录页 → 回来是游客", xiaohongshu.RiskCaptcha, []bool{true, true}, []verifyReading{stillRedirect, guest}, true, verifyNotLoggedIn},
++		// 审查：一闪而过的滑块——那次登录态没读到（ok=false），风控照样算「出现过」
++		{"验证码的熔断：滑块那次登录态没读到，照样算出现过", xiaohongshu.RiskCaptcha, []bool{true, true},
++			[]verifyReading{{riskRead: true, risk: captcha}, clean}, false, verifyCleared},
 +	}
 +	for _, c := range cases {
 +		t.Run(c.name, func(t *testing.T) {
 +			t.Setenv("XHS_PROFILE_DIR", t.TempDir())
 +			svc := NewXiaohongshuService()
 +			svc.tripRisk(c.hold, "test")
-+			last, seen := verifyRun(c.alive, c.readings)
-+			svc.finishVerify(last, seen)
++			last, seen, seenRisk := verifyRun(c.alive, c.readings)
++			assert.Equal(t, c.result, svc.finishVerify(last, seen, seenRisk))
 +			assert.Equal(t, c.wantHeld, svc.hold.get() != nil)
++			snap := svc.state.snapshot()
++			assert.Equal(t, c.result, snap["verify_result"])
++			assert.NotEmpty(t, snap["verify_finished_at"])
 +		})
 +	}
++}
++
++// TestVerifyNoCaptchaSeenKeepsHold 1008（B3）：seenRisk 两种分支走真实 /login/session；alive() 只失败 1 次不算关窗。
++func TestVerifyNoCaptchaSeenKeepsHold(t *testing.T) {
++	captcha := &xiaohongshu.RiskError{Code: xiaohongshu.RiskCaptcha, Detail: "x"}
++	clean := verifyReading{ok: true, loggedIn: true}
++	stillCaptcha := verifyReading{ok: true, risk: captcha, loggedIn: true}
++
++	// 读数一直干净 → 熔断保留，session 给 verify_result=no_captcha_seen
++	app, _ := testApp(t)
++	app.xiaohongshuService.tripRisk(xiaohongshu.RiskCaptcha, "读收藏撞验证")
++	since := app.xiaohongshuService.hold.get().Since
++	app.xiaohongshuService.state.set(func(l *loginState) { l.verifyHoldSince = since })
++	last, seen, seenRisk := verifyRun([]bool{true, true}, []verifyReading{clean, clean})
++	assert.False(t, seenRisk)
++	app.xiaohongshuService.finishVerify(last, seen, seenRisk)
++	_, out := doJSON(t, setupRoutes(app), "GET", "/api/v1/login/session", "")
++	data := out["data"].(map[string]any)
++	assert.Equal(t, "no_captcha_seen", data["verify_result"])
++	assert.Equal(t, since, data["verify_hold_since"])
++	require.NotNil(t, data["risk_hold"], "从没出现过验证：熔断保留")
++
++	// 一次新的熔断（清掉后又撞上）：上一轮的结论作废
++	app.xiaohongshuService.clearRisk("test")
++	app.xiaohongshuService.tripRisk(xiaohongshu.RiskCaptcha, "又撞了")
++	assert.Nil(t, app.xiaohongshuService.state.snapshot()["verify_result"])
++
++	// 读数「有风控 → 干净」→ 解除
++	last, seen, seenRisk = verifyRun([]bool{true, true}, []verifyReading{stillCaptcha, clean})
++	assert.True(t, seenRisk)
++	assert.Equal(t, verifyCleared, app.xiaohongshuService.finishVerify(last, seen, seenRisk))
++	assert.Nil(t, app.xiaohongshuService.hold.get())
++
++	// alive() 只失败 1 次（页面跳转）不算关窗：后面那次「干净」读数照样采到，所以「出现过 → 消失」照样解除
++	app.xiaohongshuService.tripRisk(xiaohongshu.RiskCaptcha, "再撞")
++	last, seen, seenRisk = verifyRun([]bool{true, false, true}, []verifyReading{stillCaptcha, clean})
++	require.True(t, seenRisk)
++	assert.Nil(t, last.risk, "单次 alive 失败后继续采样")
++	assert.Equal(t, verifyCleared, app.xiaohongshuService.finishVerify(last, seen, seenRisk))
++	// 连续 2 次失败才算关窗：之后的读数不会再采
++	n := 0
++	_, _, _ = watchVerifyWindow(time.Now().Add(time.Minute), time.Millisecond,
++		func() bool { return false }, func() verifyReading { n++; return clean })
++	assert.Equal(t, 0, n)
++}
++
++// TestVerifyWindowNoHoldDoesNotOpen 1008（B3）：没有熔断时 /verify/window 直接回 no_hold，不开窗、不拿浏览器锁。
++func TestVerifyWindowNoHoldDoesNotOpen(t *testing.T) {
++	app, _ := testApp(t)
++	var opened atomic.Int32
++	old := openWindowBrowser
++	openWindowBrowser = func() (*browser.Browser, error) { opened.Add(1); return nil, browser.ErrProfileBusy }
++	t.Cleanup(func() { openWindowBrowser = old })
++	router := setupRoutes(app)
++
++	code, out := doJSON(t, router, "POST", "/api/v1/verify/window", "")
++	require.Equal(t, http.StatusOK, code)
++	data := out["data"].(map[string]any)
++	assert.Equal(t, false, data["opened"])
++	assert.Equal(t, "no_hold", data["result"])
++	time.Sleep(100 * time.Millisecond)
++	assert.Equal(t, int32(0), opened.Load(), "没有熔断不许开窗")
++	assert.Equal(t, false, app.xiaohongshuService.state.snapshot()["verifying"])
++
++	// 对照：有熔断才开（桩回「忙」→ 窗口没打开，结论 window_failed，熔断保留）
++	app.xiaohongshuService.tripRisk(xiaohongshu.RiskCaptcha, "test")
++	code, out = doJSON(t, router, "POST", "/api/v1/verify/window", "")
++	require.Equal(t, http.StatusOK, code)
++	assert.Equal(t, true, out["data"].(map[string]any)["opened"])
++	for i := 0; i < 100 && app.xiaohongshuService.state.snapshot()["verifying"] == true; i++ {
++		time.Sleep(10 * time.Millisecond)
++	}
++	assert.Equal(t, int32(1), opened.Load())
++	assert.Equal(t, "window_failed", app.xiaohongshuService.state.snapshot()["verify_result"])
++	assert.NotNil(t, app.xiaohongshuService.hold.get())
++}
++
++// TestVerifyTargetOpensIncidentPage 1008（B3）：验证窗口开出事的那一页，但去掉 tab / subTab（不让页面自己去读收藏）；
++// 安全跳转页、外站、没记 url 的走老路（首页 → 侧栏「我」）。tab=fav 才提示她自己点「收藏」。
++func TestVerifyTargetOpensIncidentPage(t *testing.T) {
++	t.Setenv("XHS_HOST", "")
++	cases := []struct {
++		hold     riskHold
++		want     string
++		wantHint bool
++	}{
++		{riskHold{URL: "https://www.xiaohongshu.com/user/profile/u1?tab=fav&subTab=note&xsec_token=t", Tab: "fav"},
++			"https://www.xiaohongshu.com/user/profile/u1?xsec_token=t", true},
++		{riskHold{URL: "https://www.rednote.com/user/profile/u1", Tab: "note"}, "https://www.rednote.com/user/profile/u1", false},
++		{riskHold{URL: "https://www.xiaohongshu.com/explore/n1?xsec_token=t#c"}, "https://www.xiaohongshu.com/explore/n1?xsec_token=t", false},
++		{riskHold{URL: "https://www.xiaohongshu.com/website-login/captcha?redirectPath=x", Tab: "fav"}, "", true},
++		{riskHold{URL: "https://evil.example.com/user/profile/u1", Tab: "fav"}, "", true},
++		{riskHold{URL: "javascript:alert(1)"}, "", false},
++		{riskHold{}, "", false},
++		// 审查：页签没点动接着弹验证——activeTab 还是 note，但程序要去收藏（want_tab=fav）：照样提示她点「收藏」
++		{riskHold{URL: "https://www.xiaohongshu.com/user/profile/u1?xsec_token=t", Tab: "note", WantTab: "fav"},
++			"https://www.xiaohongshu.com/user/profile/u1?xsec_token=t", true},
++		// 要提示点收藏、出事页面却不是主页（还在 /explore）：走老路落到她的主页，她才有「收藏」可点
++		{riskHold{URL: "https://www.xiaohongshu.com/explore?channel_id=x", WantTab: "fav"}, "", true},
++	}
++	for _, c := range cases {
++		got, hint := verifyTarget(&c.hold)
++		assert.Equal(t, c.want, got, c.hold.URL)
++		assert.Equal(t, c.wantHint, hint, c.hold.URL)
++	}
++	assert.NotContains(t, verifyHintText, "安全验证", "提示语不能被风控探针当成验证浮层")
++	assert.NotContains(t, strings.ToLower(verifyHintJS), "captcha")
++	assert.Contains(t, verifyHintText, "等两三秒再关窗")
 +}
 +
 +// TestQrcodeShortcutClearsOnlyNotLoggedIn 扫码入口发现「已是登录态」只能解掉登录类熔断（审查 nit）。
@@ -2562,22 +3252,30 @@ index 0000000..083a983
 +		d, _ := os.MkdirTemp("", "lbr-test-profile-")
 +		os.Setenv("XHS_PROFILE_DIR", d)
 +	}
++	// 出事证据也一律落临时目录（不管外面设没设 LINK_BRAIN_HOME），真 ~/.link-brain/risk-evidence 一个字节都不碰
++	ev, _ := os.MkdirTemp("", "lbr-test-evidence-")
++	os.Setenv("LINK_BRAIN_EVIDENCE_DIR", ev)
 +	os.Exit(m.Run())
 +}
 diff --git a/risk_hold.go b/risk_hold.go
 new file mode 100644
-index 0000000..ea84ad1
+index 0000000..93bf037
 --- /dev/null
 +++ b/risk_hold.go
-@@ -0,0 +1,276 @@
+@@ -0,0 +1,338 @@
 +package main
 +
 +// 风控熔断（1001）：撞到验证码 / 安全跳转页 / 需要登录却是游客之后，拒绝一切会开浏览器的请求，
 +// 直到有人处理。状态落在 <XHS_PROFILE_DIR>/risk-hold.json，重启服务后仍生效。
 +//
-+// 解除只有三条路：登录窗口成功（已验证登录）、人工验证窗口完成（关窗前最后一次读数没有风控；
-+// 掉登录 / 安全跳转类还要看到已登录）、POST /api/v1/risk/clear（外加远程扫码 /login/qrcode 扫码成功，
-+// 它也是一次已验证的登录；取码时发现「已是登录态」只解 NOT_LOGGED_IN）。
++// 解除只有三条路：登录窗口成功（已验证登录）、人工验证窗口完成、POST /api/v1/risk/clear（外加远程扫码
++// /login/qrcode 扫码成功，它也是一次已验证的登录；取码时发现「已是登录态」只解 NOT_LOGGED_IN）。
++// 1008（审查）：登录窗口同理——真扫了码才全解；一打开就发现「已是登录态」（没扫码）只解 NOT_LOGGED_IN，
++// 验证码 / 安全跳转类保留（那类验证只在读收藏那一下出，/explore 页面干净不说明没事）。
++// 1008 第二轮：看不见的验证组件（HIDDEN_WIDGET）不写熔断：停本次、回 503，下次照常。
++// 1008（B3）验证窗口：验证码 / 安全跳转类要求窗口里**出现过**风控、关窗前最后一次读数又干净（她真拖过了）才解除；
++// 从头到尾没出现过 → 不自动解除，/login/session 给 verify_result="no_captcha_seen"，交给她亲手确认（risk/clear）。
++// 掉登录类仍按「关窗前看到已登录、页面干净」解除。
 +// 登录窗口、验证窗口、扫码、/login/session、/login/logout、/risk/clear 不受熔断拦截。
 +//
 +// 两道闸：请求进来时（riskGuard / mcpRiskMiddleware），以及拿到浏览器锁之后、启动之前
@@ -2608,6 +3306,37 @@ index 0000000..ea84ad1
 +	Code   string `json:"code"`
 +	Since  string `json:"since"` // RFC3339
 +	Detail string `json:"detail"`
++	// 1008（B1）：出事那一刻程序在哪一页（location.href）、哪个子页签（activeTab.query，如 fav）、程序要去的子页签
++	// （want_tab：读收藏 = fav；页签没点动接着弹验证时 tab 还是 note）、证据目录（<risk-evidence>/<时间>，里面
++	// shot.png / hit.html / meta.json，见 xiaohongshu/evidence.go）。只有经页面探针撞上的风控才有；掉登录（NOT_LOGGED_IN）等没有。
++	// url 含本号主页 id 和 xsec_token：只落在 risk-hold.json、只给验证窗口用，HTTP 一律不回（见 view）。
++	URL      string `json:"url,omitempty"`
++	Tab      string `json:"tab,omitempty"`
++	WantTab  string `json:"want_tab,omitempty"`
++	Evidence string `json:"evidence,omitempty"`
++}
++
++// riskHoldView 熔断的对外样子（HTTP）：不带 url（本号主页 id + xsec_token）；证据目录（本机绝对路径）只给 /login/session
++// （Python 的「查看截图」要用），423 响应里不带——423 的 hold 会被 Python 原样转进状态行、问题记录、stdout。
++type riskHoldView struct {
++	Code         string `json:"code"`
++	Since        string `json:"since"`
++	Detail       string `json:"detail"`
++	Tab          string `json:"tab,omitempty"`
++	WantTab      string `json:"want_tab,omitempty"`
++	IncidentPage bool   `json:"incident_page,omitempty"` // 记下了出事页面（验证窗口会直接开它）
++	Evidence     string `json:"evidence,omitempty"`
++}
++
++func (h *riskHold) view(withEvidence bool) *riskHoldView {
++	if h == nil {
++		return nil
++	}
++	v := &riskHoldView{Code: h.Code, Since: h.Since, Detail: h.Detail, Tab: h.Tab, WantTab: h.WantTab, IncidentPage: h.URL != ""}
++	if withEvidence {
++		v.Evidence = h.Evidence
++	}
++	return v
 +}
 +
 +type holdStore struct {
@@ -2645,8 +3374,8 @@ index 0000000..ea84ad1
 +	return &c
 +}
 +
-+// trip 写熔断；已在熔断中则保留最早那次（since 不刷新）。
-+func (h *holdStore) trip(code, detail string) *riskHold {
++// trip 写熔断；已在熔断中则保留最早那次（since 不刷新）。ev 为这次出事的证据（可为 nil）。
++func (h *holdStore) trip(code, detail string, ev *xiaohongshu.Evidence) *riskHold {
 +	h.mu.Lock()
 +	defer h.mu.Unlock()
 +	if h.cur != nil {
@@ -2654,6 +3383,9 @@ index 0000000..ea84ad1
 +		return &c
 +	}
 +	r := riskHold{Code: code, Since: time.Now().Format(time.RFC3339), Detail: detail}
++	if ev != nil {
++		r.URL, r.Tab, r.WantTab, r.Evidence = ev.URL, ev.Tab, ev.WantTab, ev.Dir
++	}
 +	h.cur = &r
 +	if err := writeFileAtomic(h.path, r); err != nil {
 +		logrus.Errorf("风控熔断写盘失败（内存里仍生效）：%v", err)
@@ -2693,18 +3425,31 @@ index 0000000..ea84ad1
 +	return os.Rename(tmp, path)
 +}
 +
-+// tripRisk 写熔断（验证码另记 captcha_at，兼容旧字段）。
++// riskEvidenceMaxAge 写熔断时只认这么久以内落的风控证据（同一请求里撞上就写熔断，远小于这个数）。
++const riskEvidenceMaxAge = 2 * time.Minute
++
++// tripRisk 写熔断（验证码另记 captcha_at，兼容旧字段）。1008：把这次撞风控时页面探针落的证据挂上（url / tab / evidence）；
++// 这是一次新的熔断时，上一轮验证窗口的结论（verify_result）作废。
 +func (s *XiaohongshuService) tripRisk(code, detail string) *riskHold {
++	if code == xiaohongshu.RiskHiddenWidget { // 看不见的验证组件只停本次、不写熔断（调用方本该先分流，这里兜底）
++		logrus.Warnf("看不见的验证组件不写熔断：%s", detail)
++		return s.hold.get()
++	}
 +	if code == xiaohongshu.RiskCaptcha {
 +		s.state.set(func(l *loginState) { l.captcha = time.Now() })
 +	}
-+	return s.hold.trip(code, detail)
++	fresh := s.hold.get() == nil
++	h := s.hold.trip(code, detail, xiaohongshu.TakeRiskEvidence(code, riskEvidenceMaxAge))
++	if fresh {
++		s.state.set(func(l *loginState) { l.resetVerify() })
++	}
++	return h
 +}
 +
-+// noteRisk 错误若是风控类就写熔断，返回它；否则返回 nil。
++// noteRisk 错误若是风控类就写熔断，返回它；否则返回 nil。看不见的验证组件（HIDDEN_WIDGET）返回它但不写熔断。
 +func (s *XiaohongshuService) noteRisk(err error) *xiaohongshu.RiskError {
 +	r := xiaohongshu.AsRisk(err)
-+	if r != nil {
++	if r != nil && !r.Hidden() {
 +		s.tripRisk(r.Code, r.Detail)
 +	}
 +	return r
@@ -2766,8 +3511,18 @@ index 0000000..ea84ad1
 +}
 +
 +// respondRisk 风控停车：写熔断，按码回 423 / 401。
++// 1008 第二轮：看不见的验证组件（HIDDEN_WIDGET）不写熔断，回 503（TRANSIENT：这次先停，下次照常），带证据目录（只在本机）。
 +func (s *AppServer) respondRisk(c *gin.Context, r *xiaohongshu.RiskError) {
-+	hold := s.xiaohongshuService.tripRisk(r.Code, r.Detail)
++	if r.Hidden() {
++		body := gin.H{"error": xiaohongshu.HiddenWidgetText, "code": r.Code, "details": r.Detail}
++		if r.Evidence != "" {
++			body["evidence"] = r.Evidence
++		}
++		logrus.Warnf("%s %s %d %s（%s）", c.Request.Method, c.Request.URL.Path, http.StatusServiceUnavailable, r.Code, r.Why)
++		c.JSON(http.StatusServiceUnavailable, body)
++		return
++	}
++	hold := s.xiaohongshuService.tripRisk(r.Code, r.Detail).view(false)
 +	status, msg, hint := http.StatusLocked, "小红书把账号跳到了登录异常/安全页，已停止操作", "先在手机 App 看看账号状态，再扫码登录；期间不要反复重试"
 +	switch r.Code {
 +	case xiaohongshu.RiskCaptcha:
@@ -2782,7 +3537,7 @@ index 0000000..ea84ad1
 +func respondHold(c *gin.Context, h *riskHold) {
 +	logrus.Warnf("%s %s 423 RISK_HOLD（%s）", c.Request.Method, c.Request.URL.Path, h.Code)
 +	c.AbortWithStatusJSON(http.StatusLocked, gin.H{"error": "读取服务处于风控熔断中，已拒绝开浏览器", "code": codeRiskHold,
-+		"details": "扫码登录、打开验证窗口完成，或确认没事后 POST /api/v1/risk/clear", "hold": h})
++		"details": "扫码登录、打开验证窗口完成，或确认没事后 POST /api/v1/risk/clear", "hold": h.view(false)})
 +}
 +
 +// holdExempt 熔断中仍放行的接口：它们要么不开浏览器，要么就是用来解除熔断的。
@@ -2848,10 +3603,10 @@ index 0000000..ea84ad1
 +}
 diff --git a/risk_hold_test.go b/risk_hold_test.go
 new file mode 100644
-index 0000000..b56028d
+index 0000000..2008a59
 --- /dev/null
 +++ b/risk_hold_test.go
-@@ -0,0 +1,431 @@
+@@ -0,0 +1,564 @@
 +package main
 +
 +import (
@@ -2910,10 +3665,10 @@ index 0000000..b56028d
 +	h := loadHoldStore(path)
 +	require.Nil(t, h.get())
 +
-+	first := h.trip(xiaohongshu.RiskAccount, "跳到 /website-login/error")
++	first := h.trip(xiaohongshu.RiskAccount, "跳到 /website-login/error", nil)
 +	_, err := time.Parse(time.RFC3339, first.Since)
 +	require.NoError(t, err, "since 必须是 RFC3339")
-+	again := h.trip(xiaohongshu.RiskCaptcha, "later")
++	again := h.trip(xiaohongshu.RiskCaptcha, "later", &xiaohongshu.Evidence{Dir: "x", URL: "y", Tab: "fav"})
 +	assert.Equal(t, first, again, "已在熔断中：保留最早那次")
 +
 +	var onDisk riskHold
@@ -2931,6 +3686,97 @@ index 0000000..b56028d
 +	_, err = os.Stat(path)
 +	assert.True(t, os.IsNotExist(err))
 +	assert.False(t, reloaded.clear("again"))
++
++	// 没有证据时文件里不出现 url / tab / evidence（老格式不变，Python 旧版照读）
++	assert.NotContains(t, string(data), `"evidence"`)
++}
++
++// TestHoldCarriesIncidentEvidence 1008（B1）：熔断带出事页面 / 页签 / 证据目录，落盘、重启后仍在，/login/session 带出。
++func TestHoldCarriesIncidentEvidence(t *testing.T) {
++	app, dir := testApp(t)
++	ev := &xiaohongshu.Evidence{Dir: filepath.Join(dir, "ev"), URL: "https://www.xiaohongshu.com/user/profile/u1?tab=fav", Tab: "fav",
++		Code: xiaohongshu.RiskCaptcha}
++	h := app.xiaohongshuService.hold.trip(xiaohongshu.RiskCaptcha, "撞了验证", ev)
++	assert.Equal(t, ev.URL, h.URL)
++	assert.Equal(t, "fav", h.Tab)
++	assert.Equal(t, ev.Dir, h.Evidence)
++
++	var onDisk riskHold
++	data, err := os.ReadFile(filepath.Join(dir, "risk-hold.json"))
++	require.NoError(t, err)
++	require.NoError(t, json.Unmarshal(data, &onDisk))
++	assert.Equal(t, *h, onDisk)
++	assert.Equal(t, ev.Dir, loadHoldStore(filepath.Join(dir, "risk-hold.json")).get().Evidence, "重启后仍在")
++
++	router := setupRoutes(app)
++	_, out := doJSON(t, router, "GET", "/api/v1/login/session", "")
++	hold := out["data"].(map[string]any)["risk_hold"].(map[string]any)
++	assert.Equal(t, "fav", hold["tab"])
++	assert.Equal(t, ev.Dir, hold["evidence"], "/login/session 带证据目录（查看截图）")
++	assert.Equal(t, true, hold["incident_page"])
++	assert.NotContains(t, hold, "url", "url 带本号主页 id 和 xsec_token：HTTP 一律不回")
++
++	// 423：hold 只带公开字段（Python 会把它原样转进状态行 / 问题记录 / stdout）
++	code, out := doJSON(t, router, "GET", "/api/v1/favorites", "")
++	require.Equal(t, http.StatusLocked, code)
++	h423 := out["hold"].(map[string]any)
++	assert.Equal(t, xiaohongshu.RiskCaptcha, h423["code"])
++	assert.Equal(t, "fav", h423["tab"])
++	assert.NotContains(t, h423, "url")
++	assert.NotContains(t, h423, "evidence")
++	raw, _ := json.Marshal(out)
++	assert.NotContains(t, string(raw), "xsec_token")
++	assert.NotContains(t, string(raw), ev.Dir)
++}
++
++// TestHoldCarriesWantTab 1008（审查）：页签没点动接着弹验证——出事时 activeTab 还是 note，但程序要去的是收藏（want_tab=fav）；
++// 熔断记下它，验证窗口据此提示她点「收藏」。
++func TestHoldCarriesWantTab(t *testing.T) {
++	app, _ := testApp(t)
++	h := app.xiaohongshuService.hold.trip(xiaohongshu.RiskCaptcha, "页签点不动后弹验证", &xiaohongshu.Evidence{Dir: "D",
++		URL: "https://www.xiaohongshu.com/user/profile/u1?xsec_token=t", Tab: "note", WantTab: "fav", Code: xiaohongshu.RiskCaptcha})
++	assert.Equal(t, "fav", h.WantTab)
++	target, hint := verifyTarget(h)
++	assert.True(t, hint, "want_tab=fav 也要提示她点「收藏」")
++	assert.Equal(t, "https://www.xiaohongshu.com/user/profile/u1?xsec_token=t", target)
++	_, out := doJSON(t, setupRoutes(app), "GET", "/api/v1/login/session", "")
++	assert.Equal(t, "fav", out["data"].(map[string]any)["risk_hold"].(map[string]any)["want_tab"])
++}
++
++// TestHiddenWidgetDoesNotTripHold 1008 第二轮：看不见的验证组件——停本次、回 503（TRANSIENT），不写熔断；MCP / 服务层同样不写。
++// 报错文本不带 Python looks_blocked 认的那些字（否则会被当成「号出事」要人处理）。
++func TestHiddenWidgetDoesNotTripHold(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++	app, dir := testApp(t)
++	r := &xiaohongshu.RiskError{Code: xiaohongshu.RiskHiddenWidget, Detail: "页面里有验证组件但没显示出来", Why: "hidden-widget:offscreen", Evidence: "EV"}
++	w := httptest.NewRecorder()
++	c, _ := gin.CreateTestContext(w)
++	c.Request = httptest.NewRequest("GET", "/api/v1/favorites", nil)
++	app.respondRisk(c, r)
++	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
++	var out map[string]any
++	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
++	assert.Equal(t, "HIDDEN_WIDGET", out["code"])
++	assert.Equal(t, xiaohongshu.HiddenWidgetText, out["error"])
++	assert.Equal(t, "EV", out["evidence"])
++	assert.NotContains(t, out, "hold")
++	_, err := os.Stat(filepath.Join(dir, "risk-hold.json"))
++	assert.True(t, os.IsNotExist(err), "不写熔断")
++	assert.Nil(t, app.xiaohongshuService.hold.get())
++
++	assert.NotNil(t, app.xiaohongshuService.noteRisk(fmt.Errorf("获取Feed详情失败: %w", r)), "照样停本次")
++	assert.Nil(t, app.xiaohongshuService.hold.get(), "MCP / 服务层也不写熔断")
++	app.xiaohongshuService.tripRisk(xiaohongshu.RiskHiddenWidget, "兜底")
++	assert.Nil(t, app.xiaohongshuService.hold.get())
++
++	// MCP 报错文本：Python adapters/xiaohongshu.py 的 RISK_MARKERS / BLOCKED_HINTS 一个都不能中
++	text := strings.ToLower(fmt.Errorf("获取Feed详情失败: %w", &xiaohongshu.RiskError{Code: xiaohongshu.RiskHiddenWidget,
++		Detail: xiaohongshu.HiddenWidgetDetail}).Error())
++	for _, hint := range []string{"captcha_required", "account_risk", "not_logged_in", "risk_hold", "未登录", "请登录", "登录后",
++		"登录态", "重新登录", "cookie", "not logged in", "login required", "unauthorized", "登录即可", "验证码", "captcha",
++		"滑块", "安全验证", "行为异常", "账号异常", "风控", "访问频繁", "操作频繁", "too many requests", "rate limit", "429", "website-login"} {
++		assert.NotContains(t, text, hint)
++	}
 +}
 +
 +func TestHoldStoreUnreadableFileFailsClosed(t *testing.T) {
@@ -3112,25 +3958,22 @@ index 0000000..b56028d
 +	assert.Contains(t, out.Result.Content[0].Text, "[RISK_HOLD]")
 +}
 +
-+// TestReadFavoritesRetryPolicy 读收藏最多 2 次；只有「页签没点中」才重试；重试前先查风控再歇 20–40 秒。
-+func TestReadFavoritesRetryPolicy(t *testing.T) {
-+	tabErr := fmt.Errorf("%w: 当前 tab 为 %q", xiaohongshu.ErrTabNotActive, "note")
++// TestReadFavoritesNoRetry 1008（B4）：读收藏一次请求只读 1 次——页签没点中 / 没停住不再换新页重试（也就没有第二次登录检查）；
++// 失败后只查一次风控（只读页面），页面已是风控页就按风控报。
++func TestReadFavoritesNoRetry(t *testing.T) {
++	tabErr := fmt.Errorf("%w（收藏）", xiaohongshu.ErrTabStuck)
 +	ok := &xiaohongshu.UserProfileResponse{}
 +
-+	type run struct {
-+		reads, waits, fresh, risks int
-+		waited                     time.Duration
-+	}
-+	exec := func(results []error, riskAfter int) (run, *xiaohongshu.UserProfileResponse, error) {
++	type run struct{ reads, risks int }
++	exec := func(result error, riskAfter int) (run, *xiaohongshu.UserProfileResponse, error) {
 +		var r run
-+		p, err := readFavoritesWithRetry(context.Background(),
++		p, err := readFavorites(
 +			func() (*xiaohongshu.UserProfileResponse, error) {
-+				e := results[r.reads]
 +				r.reads++
-+				if e == nil {
++				if result == nil {
 +					return ok, nil
 +				}
-+				return nil, e
++				return nil, result
 +			},
 +			func() *xiaohongshu.RiskError {
 +				r.risks++
@@ -3138,52 +3981,50 @@ index 0000000..b56028d
 +					return &xiaohongshu.RiskError{Code: xiaohongshu.RiskAccount, Detail: "x"}
 +				}
 +				return nil
-+			},
-+			func(_ context.Context, d time.Duration) error { r.waits++; r.waited = d; return nil },
-+			func() { r.fresh++ })
++			})
 +		return r, p, err
 +	}
 +
-+	// 页签没点中 → 歇 20–40 秒换页再试一次 → 成功
-+	r, p, err := exec([]error{tabErr, nil}, 0)
++	r, p, err := exec(nil, 0)
 +	require.NoError(t, err)
 +	assert.Same(t, ok, p)
-+	assert.Equal(t, 2, r.reads)
-+	assert.Equal(t, 1, r.waits)
-+	assert.Equal(t, 1, r.fresh)
-+	assert.GreaterOrEqual(t, r.waited, 20*time.Second)
-+	assert.LessOrEqual(t, r.waited, 40*time.Second)
++	assert.Equal(t, run{reads: 1}, r)
 +
-+	// 两次都没点中 → 就此放弃（不许第 3 次）
-+	r, _, err = exec([]error{tabErr, tabErr, tabErr}, 0)
++	// 页签点不动 → 不重试，原样交给 handler 报 FAV_TAB_STUCK
++	r, _, err = exec(tabErr, 0)
++	assert.ErrorIs(t, err, xiaohongshu.ErrTabStuck)
 +	assert.ErrorIs(t, err, xiaohongshu.ErrTabNotActive)
-+	assert.Equal(t, 2, r.reads)
++	assert.Equal(t, run{reads: 1, risks: 1}, r)
++	assert.Equal(t, "页签点不动，疑似小红书在限流，今晚先不读收藏", favTabStuckText(err))
++	assert.Contains(t, favTabStuckText(fmt.Errorf("%w: 滚收藏途中页签跳到了 %q", xiaohongshu.ErrTabNotActive, "note")), "没停住")
 +
 +	// 其他失败（没加载出来）→ 不重试
-+	r, _, err = exec([]error{errors.New("favorites did not load"), nil}, 0)
++	r, _, err = exec(errors.New("favorites did not load"), 0)
 +	assert.Error(t, err)
 +	assert.Equal(t, 1, r.reads)
-+	assert.Equal(t, 0, r.waits)
 +
-+	// 读的时候就撞风控 → 立即停，不重试
-+	r, _, err = exec([]error{&xiaohongshu.RiskError{Code: xiaohongshu.RiskCaptcha, Detail: "x"}, nil}, 0)
++	// 读的时候就撞风控 → 原样返回，不再查
++	r, _, err = exec(&xiaohongshu.RiskError{Code: xiaohongshu.RiskCaptcha, Detail: "x"}, 0)
 +	assert.Equal(t, xiaohongshu.RiskCaptcha, xiaohongshu.AsRisk(err).Code)
-+	assert.Equal(t, 1, r.reads)
-+	assert.Equal(t, 0, r.risks)
++	assert.Equal(t, run{reads: 1}, r)
 +
-+	// 页签没点中但页面已是风控页 → 不等、不重试
-+	r, _, err = exec([]error{tabErr, nil}, 1)
++	// 页签没点中但页面已是风控页 → 按风控报
++	r, _, err = exec(tabErr, 1)
 +	assert.Equal(t, xiaohongshu.RiskAccount, xiaohongshu.AsRisk(err).Code)
 +	assert.Equal(t, 1, r.reads)
-+	assert.Equal(t, 0, r.waits)
 +
-+	// F1：已经滚完一遍才发现页签不对 → 报成不可重试的错（不带 ErrTabNotActive），一次请求最多滚到底一次
++	// F1：已经滚完一遍才发现页签不对 → 不可重试的错（不带 ErrTabNotActive），handler 报 FAVORITES_FAILED
 +	scrolledThenTabWrong := fmt.Errorf("收藏已滚完一遍但提取时页签不对，本次不再重读：%v", tabErr)
-+	r, _, err = exec([]error{scrolledThenTabWrong, nil}, 0)
-+	assert.Error(t, err)
++	_, _, err = exec(scrolledThenTabWrong, 0)
 +	assert.NotErrorIs(t, err, xiaohongshu.ErrTabNotActive)
-+	assert.Equal(t, 1, r.reads)
-+	assert.Equal(t, 0, r.waits)
++
++	// 1008 第二轮：失败后复查只看到看不见的验证组件——不盖掉原来的错（页签点不动更说明问题）
++	_, err = readFavorites(func() (*xiaohongshu.UserProfileResponse, error) { return nil, tabErr },
++		func() *xiaohongshu.RiskError {
++			return &xiaohongshu.RiskError{Code: xiaohongshu.RiskHiddenWidget, Detail: "x"}
++		})
++	assert.ErrorIs(t, err, xiaohongshu.ErrTabStuck)
++	assert.Nil(t, xiaohongshu.AsRisk(err))
 +}
 +
 +// TestFavExpectParam ?expect= 乱填一律当「不知道」，不让请求失败。
@@ -3212,6 +4053,13 @@ index 0000000..b56028d
 +	b, err := json.Marshal(got)
 +	require.NoError(t, err)
 +	assert.Contains(t, string(b), `"has_more":null`)
++
++	assert.NotContains(t, got, "evidence")
++
++	// 1008：列表卡住时带上证据目录
++	got = favReadSummary(&xiaohongshu.FavScrollResult{Count: 1150, Partial: true, Reason: xiaohongshu.FavStopStalled, Evidence: "D"}, 1216)
++	assert.Equal(t, "stalled", got["stop_reason"])
++	assert.Equal(t, "D", got["evidence"])
 +
 +	got = favReadSummary(nil, 0)
 +	assert.Equal(t, true, got["partial"])
@@ -3271,6 +4119,46 @@ index 0000000..b56028d
 +		}
 +		runLoginWindowFn = old
 +		assert.Equal(t, wantHeld, app.xiaohongshuService.hold.get() != nil, result)
++	}
++}
++
++// TestLoginWindowAlreadyLoggedInClearsOnlyNotLoggedIn 1008（审查）：登录窗口一打开就是登录态（没扫码）——
++// 只解登录类熔断，验证码 / 安全跳转类保留（和扫码入口的捷径一致）；对外状态照旧是 success。真扫了码才全解。
++func TestLoginWindowAlreadyLoggedInClearsOnlyNotLoggedIn(t *testing.T) {
++	for _, c := range []struct {
++		result, hold string
++		wantHeld     bool
++	}{
++		{loginAlready, xiaohongshu.RiskNotLoggedIn, false},
++		{loginAlready, xiaohongshu.RiskCaptcha, true},
++		{loginAlready, xiaohongshu.RiskAccount, true},
++		{"success", xiaohongshu.RiskCaptcha, false},
++		{"success", xiaohongshu.RiskAccount, false},
++	} {
++		t.Run(c.result+"/"+c.hold, func(t *testing.T) {
++			app, _ := testApp(t)
++			old := runLoginWindowFn
++			runLoginWindowFn = func(*AppServer, context.Context, uint64, time.Duration) (string, *xiaohongshu.CurrentUser, string) {
++				return c.result, nil, ""
++			}
++			t.Cleanup(func() { runLoginWindowFn = old })
++			app.xiaohongshuService.tripRisk(c.hold, "test")
++			app.xiaohongshuService.state.set(func(l *loginState) { l.lastFav = time.Now() })
++			router := setupRoutes(app)
++			code, _ := doJSON(t, router, "POST", "/api/v1/login/window", "")
++			require.Equal(t, http.StatusOK, code)
++			for i := 0; i < 50 && app.xiaohongshuService.state.waiting(); i++ {
++				time.Sleep(20 * time.Millisecond)
++			}
++			assert.Equal(t, c.wantHeld, app.xiaohongshuService.hold.get() != nil)
++			snap := app.xiaohongshuService.state.snapshot()
++			assert.Equal(t, "success", snap["state"], "对外照旧报 success")
++			assert.Equal(t, true, snap["logged_in"])
++			app.xiaohongshuService.state.mu.Lock()
++			lastFavKept := !app.xiaohongshuService.state.lastFav.IsZero()
++			app.xiaohongshuService.state.mu.Unlock()
++			assert.Equal(t, c.result == loginAlready, lastFavKept, "没扫码不清读收藏限频")
++		})
 +	}
 +}
 +
@@ -6226,8 +7114,1312 @@ index 0000000..c34c295
 +	assert.Contains(t, formatFloorDiag(`{"root":true,"cands":0}`), "没有展开按钮")
 +	assert.Contains(t, formatFloorDiag(`oops`), "诊断读不出")
 +}
+diff --git a/xiaohongshu/evidence.go b/xiaohongshu/evidence.go
+new file mode 100644
+index 0000000..5f0bc8d
+--- /dev/null
++++ b/xiaohongshu/evidence.go
+@@ -0,0 +1,731 @@
++package xiaohongshu
++
++// 出事证据（1008，B1）：撞风控、「切换到收藏第 1 轮未生效」、「列表卡住且 hasMore=true」这三个时刻，
++// 当场把程序看见的页面落盘，事后谁都能核对「到底有没有滑块、是谁挡住了点击、收藏接口回了什么」。
++//
++//	~/.link-brain/risk-evidence/<YYYYMMDD-HHMMSS>/
++//	  shot.png   视口截图（CDP Page.captureScreenshot，只截当前视口：不改视口尺寸、不滚动，不会触发懒加载请求）
++//	  hit.html   开头一行 CSP（default-src 'none'：双击打开也不去拉小红书的资源）+ 命中元素 outerHTML，共 ≤2KB
++//	             （没有命中元素时：页签中心那个元素；再没有：body）
++//	  meta.json  url / path / tab（activeTab.query）/ want_tab（程序要去的子页签）/ why · kind · hidden_why / verdict（复读后的结论）/
++//	             命中元素 tag·class·id·rect / 祖先链样式 / 中心点 elementFromPoint 是不是它自己 /
++//	             「收藏」页签中心 elementFromPoint 的元素 / 收藏接口回包摘要 / probe_error（最近读页失败）
++//
++// 时刻另有：看不见的验证组件（hidden_widget，1008 第二轮）、收藏接口回拒绝（fav_api_refused）。
++// 只读页面，不点、不导航、不发任何网络请求。截图里有私密收藏：只存本机，保留 14 天自动删（每次落证据、服务启动、
++// /login/session 被轮询时最多每小时一次）；不进「复制报错」、不进 WebDAV（Python 侧负责排除）。
++// 根目录：LINK_BRAIN_EVIDENCE_DIR → $LINK_BRAIN_HOME/risk-evidence → ~/.link-brain/risk-evidence（与 Python 的 home() 一致）。
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"os"
++	"path/filepath"
++	"regexp"
++	"strings"
++	"sync"
++	"time"
++	"unicode/utf8"
++
++	"github.com/go-rod/rod"
++	"github.com/go-rod/rod/lib/proto"
++	"github.com/sirupsen/logrus"
++)
++
++// 落证据的时刻（meta.json 的 trigger）。
++const (
++	EvidenceRisk     = "risk"             // 命中风控（RiskPage / 详情页错误容器写着安全验证）
++	EvidenceHidden   = "hidden_widget"    // 看不见的验证组件（停本次、不写熔断；1008 第二轮）
++	EvidenceTabClick = "fav_tab_click"    // 切换到收藏第 1 轮拟人点击没生效
++	EvidenceStalled  = "fav_list_stalled" // 收藏列表卡住、页面还说有更多（hasMore=true）
++	EvidenceRefused  = "fav_api_refused"  // 收藏接口回了拒绝（HTTP ≥400 / success=false）
++)
++
++// EvidenceKeep 证据保留多久。
++const EvidenceKeep = 14 * 24 * time.Hour
++
++const (
++	evidenceHitMax    = 2048 // hit.html 上限（字节，含开头那行 CSP）
++	evidenceSnippet   = 1024 // meta.json 里中心点元素 outerHTML 上限（字节）
++	evidenceDedupe    = 30 * time.Second
++	evidenceDirLayout = "20060102-150405"
++	// hitCSP hit.html 开头加一行 CSP：她双击打开时浏览器不去拉小红书的图片 / iframe / 脚本（那会带着她日常浏览器的登录态）。
++	hitCSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">` + "\n"
++	// evidencePruneEvery 服务常驻、几周不出事时也要清旧证据：/login/session 被轮询时顺手清，最多每小时一次。
++	evidencePruneEvery = time.Hour
++	// probeErrorKeep 读页失败记录多久内算「这次的」（进下一份证据的 probe_error）。
++	probeErrorKeep = 10 * time.Minute
++)
++
++var evidenceDirRe = regexp.MustCompile(`^(\d{8}-\d{6})(-\d+)?$`)
++
++// evidenceFiles 证据目录里只会有这几个文件；清旧证据时目录里有别的东西就不删（不是本模块建的）。
++var evidenceFiles = map[string]bool{"shot.png": true, "hit.html": true, "meta.json": true}
++
++// Evidence 一次落盘的证据（服务层只用 Dir / URL / Tab / WantTab / Code）。
++type Evidence struct {
++	Dir     string
++	Trigger string
++	Code    string
++	URL     string
++	Tab     string
++	// WantTab 出事时程序要去的子页签（读收藏 = fav），见 SetPageIntent。页签没点动接着弹验证时 Tab 还是 note，靠它知道是读收藏出的事。
++	WantTab string
++	At      time.Time
++}
++
++// ---- 页面意图：这一页是在为哪个子页签干活（读收藏 = fav），落证据时一并记下 ----
++
++var pageIntents sync.Map // proto.TargetTargetID → string
++
++// SetPageIntent 记下这一页正在为哪个子页签干活；返回撤销函数（defer 调）。
++func SetPageIntent(page *rod.Page, tab string) func() {
++	if page == nil || tab == "" {
++		return func() {}
++	}
++	id := page.TargetID
++	prev, had := pageIntents.Load(id)
++	pageIntents.Store(id, tab)
++	return func() {
++		if had {
++			pageIntents.Store(id, prev)
++		} else {
++			pageIntents.Delete(id)
++		}
++	}
++}
++
++func pageIntent(page *rod.Page) string {
++	if page == nil {
++		return ""
++	}
++	if v, ok := pageIntents.Load(page.TargetID); ok {
++		return v.(string)
++	}
++	return ""
++}
++
++// ---- 风控探针读页失败：写日志（readRiskProbe），并记进下一份证据的 probe_error ----
++
++var probeErr struct {
++	mu     sync.Mutex
++	target proto.TargetTargetID
++	at     time.Time
++	msg    string
++	count  int
++}
++
++func noteProbeError(page *rod.Page, err error) {
++	if page == nil || err == nil {
++		return
++	}
++	probeErr.mu.Lock()
++	defer probeErr.mu.Unlock()
++	if probeErr.target != page.TargetID || time.Since(probeErr.at) > probeErrorKeep {
++		probeErr.count = 0
++	}
++	probeErr.target, probeErr.at, probeErr.msg = page.TargetID, time.Now(), truncBytes(err.Error(), 300)
++	probeErr.count++
++}
++
++// lastProbeError 这一页最近 probeErrorKeep 内的读页失败（没有返回 nil）。
++func lastProbeError(page *rod.Page) map[string]any {
++	probeErr.mu.Lock()
++	defer probeErr.mu.Unlock()
++	if page == nil || probeErr.target != page.TargetID || probeErr.at.IsZero() || time.Since(probeErr.at) > probeErrorKeep {
++		return nil
++	}
++	return map[string]any{"at": probeErr.at.Format(time.RFC3339), "error": probeErr.msg, "count": probeErr.count}
++}
++
++// EvidenceRoot 证据根目录。
++func EvidenceRoot() string {
++	if d := strings.TrimSpace(os.Getenv("LINK_BRAIN_EVIDENCE_DIR")); d != "" {
++		return d
++	}
++	if h := strings.TrimSpace(os.Getenv("LINK_BRAIN_HOME")); h != "" {
++		return filepath.Join(h, "risk-evidence")
++	}
++	home, err := os.UserHomeDir()
++	if err != nil {
++		return filepath.Join(os.TempDir(), "link-brain-risk-evidence")
++	}
++	return filepath.Join(home, ".link-brain", "risk-evidence")
++}
++
++// PruneEvidence 删掉 root 下早于 now-keep 的证据目录；只认本模块起的目录名（YYYYMMDD-HHMMSS[-n]），
++// 而且目录里只能有本模块写的文件（shot.png / hit.html / meta.json，没有子目录）——LINK_BRAIN_EVIDENCE_DIR 配错、
++// 指到一个按时间命名的备份目录时，别人的东西一概不碰。
++func PruneEvidence(root string, keep time.Duration, now time.Time) int {
++	entries, err := os.ReadDir(root)
++	if err != nil {
++		return 0
++	}
++	removed := 0
++	for _, e := range entries {
++		m := evidenceDirRe.FindStringSubmatch(e.Name())
++		if !e.IsDir() || m == nil {
++			continue
++		}
++		at, err := time.ParseInLocation(evidenceDirLayout, m[1], time.Local)
++		if err != nil || now.Sub(at) <= keep {
++			continue
++		}
++		dir := filepath.Join(root, e.Name())
++		if !onlyEvidenceFiles(dir) {
++			logrus.Warnf("出事证据：%s 里有不是本模块写的东西，不删", dir)
++			continue
++		}
++		if os.RemoveAll(dir) == nil {
++			removed++
++		}
++	}
++	if removed > 0 {
++		logrus.Infof("出事证据：删掉 %d 份超过 %s 的旧证据（%s）", removed, keep, root)
++	}
++	return removed
++}
++
++func onlyEvidenceFiles(dir string) bool {
++	es, err := os.ReadDir(dir)
++	if err != nil {
++		return false
++	}
++	for _, f := range es {
++		if f.IsDir() || !evidenceFiles[f.Name()] {
++			return false
++		}
++	}
++	return true
++}
++
++var lastPrune struct {
++	mu sync.Mutex
++	at time.Time
++}
++
++// MaybePruneEvidence 节流清旧证据（最多每 evidencePruneEvery 一次）：服务常驻、几周不出事也照样清。
++// /login/session 被轮询时在后台调，不拖慢它。
++func MaybePruneEvidence(now time.Time) bool {
++	lastPrune.mu.Lock()
++	if !lastPrune.at.IsZero() && now.Sub(lastPrune.at) < evidencePruneEvery {
++		lastPrune.mu.Unlock()
++		return false
++	}
++	lastPrune.at = now
++	lastPrune.mu.Unlock()
++	PruneEvidence(EvidenceRoot(), EvidenceKeep, now)
++	return true
++}
++
++// newEvidenceDir 在 root 下按时刻建目录；同一秒已有就加 -2、-3…
++func newEvidenceDir(root string, at time.Time) (string, error) {
++	if err := os.MkdirAll(root, 0o700); err != nil {
++		return "", err
++	}
++	base := at.Format(evidenceDirLayout)
++	for i := 1; i < 100; i++ {
++		name := base
++		if i > 1 {
++			name = fmt.Sprintf("%s-%d", base, i)
++		}
++		dir := filepath.Join(root, name)
++		if err := os.Mkdir(dir, 0o700); err == nil {
++			return dir, nil
++		} else if !os.IsExist(err) {
++			return "", err
++		}
++	}
++	return "", fmt.Errorf("证据目录重名太多：%s", base)
++}
++
++// evidenceJS 读一次页面要落进 meta.json 的东西（只读）。label = 要看的子页签文字（如「收藏」），空串不看。
++const evidenceJS = `(label) => {
++ const hit = (` + riskFindJS + `)();
++ const unwrap = x => x?.value ?? x?._value ?? x?._rawValue ?? x;
++ const vw = window.innerWidth || 0, vh = window.innerHeight || 0;
++ const cls = (e) => { const c = e.className; return String((c && typeof c === "object" && "baseVal" in c) ? c.baseVal : (c || "")).slice(0, 300); };
++ const rectOf = (e) => { const r = e.getBoundingClientRect(); return {x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height)}; };
++ const style = (e) => { const cs = getComputedStyle(e); return {display: cs.display, visibility: cs.visibility, opacity: cs.opacity,
++   position: cs.position, z_index: cs.zIndex, pointer_events: cs.pointerEvents}; };
++ const brief = (e, n) => e ? {tag: e.tagName.toLowerCase(), id: e.id || "", class: cls(e), rect: rectOf(e), html: (e.outerHTML || "").slice(0, n)} : null;
++ const centerOf = (e) => { const r = e.getBoundingClientRect(); return {x: r.left + r.width / 2, y: r.top + r.height / 2}; };
++ const inView = (r) => r.w > 0 && r.h > 0 && r.x < vw && r.y < vh && r.x + r.w > 0 && r.y + r.h > 0;
++ const at = (p) => (p.x >= 0 && p.y >= 0 && p.x < vw && p.y < vh) ? document.elementFromPoint(p.x, p.y) : null;
++ const out = {url: location.href, path: location.pathname, title: (document.title || "").slice(0, 200), tab: "", tab_index: null,
++   viewport: {w: vw, h: vh, scroll_x: Math.round(window.scrollX || 0), scroll_y: Math.round(window.scrollY || 0)},
++   why: hit.why, kind: hit.kind || "", hidden_why: hit.hidden_why || "", hit: null, tab_probe: null, body_html: ""};
++ try {
++  const a = unwrap(window.__INITIAL_STATE__?.user?.activeTab) || {};
++  if (typeof a.query === "string") out.tab = a.query;
++  if (typeof a.index === "number") out.tab_index = a.index;
++ } catch (e) {}
++ if (hit.el) {
++  const e = hit.el, r = rectOf(e), c = centerOf(e), ce = at(c);
++  const anc = [];
++  for (let a = e.parentElement; a && anc.length < 40; a = a.parentElement) {
++   anc.push(Object.assign({tag: a.tagName.toLowerCase(), id: a.id || "", class: cls(a).slice(0, 120)}, style(a)));
++  }
++  out.hit = Object.assign(brief(e, 4096), {style: style(e), in_viewport: inView(r), center: {x: Math.round(c.x), y: Math.round(c.y)},
++   center_hit_self: !!(ce && (ce === e || e.contains(ce))), center_el: brief(ce, 2048), ancestors: anc});
++ }
++ if (label) {
++  const t = Array.from(document.querySelectorAll(".reds-tab-item.sub-tab-list")).find(x => (x.innerText || x.textContent || "").trim() === label);
++  if (t) {
++   const r = rectOf(t), c = centerOf(t), ce = at(c);
++   out.tab_probe = Object.assign(brief(t, 2048), {label, found: true, style: style(t), in_viewport: inView(r),
++    center: {x: Math.round(c.x), y: Math.round(c.y)}, center_is_tab: !!(ce && (ce === t || t.contains(ce))), center_el: brief(ce, 2048)});
++  } else {
++   out.tab_probe = {label, found: false};
++  }
++ }
++ if (!hit.el) out.body_html = ((document.body || document.documentElement).outerHTML || "").slice(0, 4096);
++ return JSON.stringify(out);
++}`
++
++// truncBytes 截到最多 n 字节，不切坏 UTF-8。
++func truncBytes(s string, n int) string {
++	if len(s) <= n {
++		return s
++	}
++	cut := n
++	for cut > 0 && !utf8.RuneStart(s[cut]) {
++		cut--
++	}
++	return s[:cut]
++}
++
++// trimHTMLField 把 m[key]（一个 brief 对象）里的 html 截到 n 字节。
++func trimHTMLField(m map[string]any, key string, n int) {
++	if sub, ok := m[key].(map[string]any); ok {
++		if h, ok := sub["html"].(string); ok {
++			sub["html"] = truncBytes(h, n)
++		}
++	}
++}
++
++// CaptureEvidence 当场落一份证据，返回它（失败返回 nil，从不 panic、不影响调用方）。
++// risk 可为 nil（非风控时刻）；tabLabel 为要看的子页签文字（「收藏」），空串不看。
++func CaptureEvidence(page *rod.Page, trigger string, risk *RiskError, tabLabel string) (ev *Evidence) {
++	if page == nil {
++		return nil
++	}
++	defer func() {
++		if r := recover(); r != nil {
++			logrus.Warnf("落出事证据出错（不影响本次操作）：%v", r)
++			ev = nil
++		}
++	}()
++	root := EvidenceRoot()
++	now := time.Now()
++	PruneEvidence(root, EvidenceKeep, now)
++	dir, err := newEvidenceDir(root, now)
++	if err != nil {
++		logrus.Warnf("落出事证据失败（建目录）：%v", err)
++		return nil
++	}
++	// 调用方的 page 常带着已经用完的 ctx / deadline：换一份干净的，只给几秒
++	pg := page.Context(context.Background())
++	var errs []string
++	meta := map[string]any{}
++	var raw string
++	if err := rod.Try(func() { raw = pg.Timeout(8*time.Second).MustEval(evidenceJS, tabLabel).Str() }); err != nil {
++		errs = append(errs, "读页面失败："+err.Error())
++	} else if err := json.Unmarshal([]byte(raw), &meta); err != nil {
++		errs = append(errs, "页面读数解不开："+err.Error())
++		meta = map[string]any{}
++	}
++	files := map[string]any{"shot": "", "hit": ""}
++	var shot []byte
++	if err := rod.Try(func() {
++		var e error
++		shot, e = pg.Timeout(10*time.Second).Screenshot(false, &proto.PageCaptureScreenshot{Format: proto.PageCaptureScreenshotFormatPng})
++		if e != nil {
++			panic(e)
++		}
++	}); err != nil {
++		errs = append(errs, "截图失败："+err.Error())
++	} else if err := os.WriteFile(filepath.Join(dir, "shot.png"), shot, 0o600); err != nil {
++		errs = append(errs, "截图写盘失败："+err.Error())
++	} else {
++		files["shot"] = "shot.png"
++	}
++
++	// hit.html：命中元素 → 页签中心那个元素 → body
++	hitHTML, hitSource := "", ""
++	if h, ok := meta["hit"].(map[string]any); ok {
++		if s, _ := h["html"].(string); s != "" {
++			hitHTML, hitSource = s, "hit"
++		}
++		h["html_bytes"] = len(truncBytes(hitHTML, evidenceHitMax))
++		delete(h, "html")
++		trimHTMLField(h, "center_el", evidenceSnippet)
++	}
++	if tp, ok := meta["tab_probe"].(map[string]any); ok {
++		if hitHTML == "" {
++			if ce, ok := tp["center_el"].(map[string]any); ok {
++				if s, _ := ce["html"].(string); s != "" {
++					hitHTML, hitSource = s, "tab_center"
++				}
++			}
++		}
++		if s, ok := tp["html"].(string); ok {
++			tp["html"] = truncBytes(s, evidenceSnippet)
++		}
++		trimHTMLField(tp, "center_el", evidenceSnippet)
++	}
++	if body, _ := meta["body_html"].(string); hitHTML == "" && body != "" {
++		hitHTML, hitSource = body, "body"
++	}
++	delete(meta, "body_html")
++	if hitHTML != "" {
++		data := hitCSP + truncBytes(hitHTML, evidenceHitMax-len(hitCSP))
++		if err := os.WriteFile(filepath.Join(dir, "hit.html"), []byte(data), 0o600); err != nil {
++			errs = append(errs, "hit.html 写盘失败："+err.Error())
++		} else {
++			files["hit"] = "hit.html"
++		}
++	}
++
++	meta["trigger"] = trigger
++	meta["at"] = now.Format(time.RFC3339)
++	meta["hit_source"] = hitSource
++	meta["files"] = files
++	wantTab := pageIntent(page)
++	meta["want_tab"] = wantTab
++	if risk != nil {
++		meta["code"], meta["detail"] = risk.Code, risk.Detail
++		// 探针（复读后）的结论：why 是落证据这一刻重读的，可能已经变了（出现一下又没了），以这个为准
++		meta["verdict"] = risk.Why
++	}
++	if pe := lastProbeError(page); pe != nil {
++		meta["probe_error"] = pe
++	}
++	if w := collectWatchFor(page); w != nil {
++		w.waitBodies(1500 * time.Millisecond) // 刚回来的那一包回包还在取（读浏览器内存），等一小会儿
++		meta["collect_api"] = w.Summary()
++	} else {
++		meta["collect_api"] = nil
++	}
++	if len(errs) > 0 {
++		meta["errors"] = errs
++	}
++	data, _ := json.MarshalIndent(meta, "", "  ")
++	if err := os.WriteFile(filepath.Join(dir, "meta.json"), data, 0o600); err != nil {
++		logrus.Warnf("落出事证据失败（meta.json）：%v", err)
++	}
++	ev = &Evidence{Dir: dir, Trigger: trigger, At: now, WantTab: wantTab}
++	ev.URL, _ = meta["url"].(string)
++	ev.Tab, _ = meta["tab"].(string)
++	if risk != nil {
++		ev.Code = risk.Code
++	}
++	logrus.Warnf("出事证据已落盘（%s%s）：%s", trigger, map[bool]string{true: " " + ev.Code, false: ""}[ev.Code != ""], dir)
++	return ev
++}
++
++// ---- 撞风控时的证据：RiskPage 命中就落一份，服务层写熔断时取走挂进 risk-hold.json ----
++
++var riskEv struct {
++	mu     sync.Mutex
++	last   *Evidence
++	target proto.TargetTargetID
++	taken  bool
++}
++
++// noteRiskEvidence RiskPage 命中时调用：同一页面、同一码 30 秒内只落一份（同一件事常被连查两次）；
++// 证据目录记进 r.Evidence（没落新的就用 30 秒内那份）。看不见的验证组件也落（trigger=hidden_widget）。
++func noteRiskEvidence(page *rod.Page, r *RiskError) {
++	if page == nil || r == nil {
++		return
++	}
++	riskEv.mu.Lock()
++	if l := riskEv.last; l != nil && riskEv.target == page.TargetID && l.Code == r.Code && time.Since(l.At) < evidenceDedupe {
++		r.Evidence = l.Dir
++		riskEv.mu.Unlock()
++		return
++	}
++	riskEv.mu.Unlock()
++	trigger := EvidenceRisk
++	if r.Hidden() {
++		trigger = EvidenceHidden
++	}
++	ev := CaptureEvidence(page, trigger, r, tabLabel[TabFavorites])
++	if ev == nil {
++		return
++	}
++	r.Evidence = ev.Dir
++	riskEv.mu.Lock()
++	riskEv.last, riskEv.target, riskEv.taken = ev, page.TargetID, false
++	riskEv.mu.Unlock()
++}
++
++// TakeRiskEvidence 写熔断时取走最近一份同码、maxAge 内、还没被取走的风控证据；没有返回 nil。
++// 浏览器操作在进程内串行（profile 锁），所以「最近一份」就是这次出事的那份。
++func TakeRiskEvidence(code string, maxAge time.Duration) *Evidence {
++	riskEv.mu.Lock()
++	defer riskEv.mu.Unlock()
++	l := riskEv.last
++	if l == nil || riskEv.taken || l.Code != code || time.Since(l.At) > maxAge {
++		return nil
++	}
++	riskEv.taken = true
++	c := *l
++	return &c
++}
++
++// ---- 收藏接口回包：/api/sns/web/v2/note/collect/page 的 HTTP 状态和 JSON code / msg ----
++
++const collectAPIPath = "/api/sns/web/v2/note/collect/page"
++
++// CollectCall 一次收藏接口调用的摘要（不留数据本身：只留状态码、code、msg、has_more、这一页几条）。
++type CollectCall struct {
++	At      string `json:"at"`
++	Status  int    `json:"status"`
++	Code    any    `json:"code,omitempty"`
++	Success *bool  `json:"success,omitempty"`
++	Msg     string `json:"msg,omitempty"`
++	HasMore *bool  `json:"has_more,omitempty"`
++	Notes   *int   `json:"notes,omitempty"`
++	Failed  string `json:"failed,omitempty"` // 请求没回来（loadingFailed 的 errorText）
++	Body    string `json:"body_error,omitempty"`
++}
++
++// CollectWatch 监听一个页面上的收藏接口回包（CDP Network 事件 + getResponseBody：都是读浏览器内存，不发请求）。
++type CollectWatch struct {
++	mu      sync.Mutex
++	calls   []CollectCall
++	total   int
++	pending map[proto.NetworkRequestID]int // requestId → 在 calls 里的位置（-1 = 已被挤出窗口）
++	stop    context.CancelFunc
++	target  proto.TargetTargetID
++}
++
++const collectKeep = 20
++
++var collectWatches sync.Map // proto.TargetTargetID → *CollectWatch
++
++func collectWatchFor(page *rod.Page) *CollectWatch {
++	if page == nil {
++		return nil
++	}
++	if w, ok := collectWatches.Load(page.TargetID); ok {
++		return w.(*CollectWatch)
++	}
++	return nil
++}
++
++// WatchCollectAPI 开始监听；用完调 Stop。监听本身不发任何网络请求。
++func WatchCollectAPI(page *rod.Page) *CollectWatch {
++	ctx, cancel := context.WithCancel(context.Background())
++	w := &CollectWatch{pending: map[proto.NetworkRequestID]int{}, stop: cancel}
++	if page == nil {
++		return w
++	}
++	w.target = page.TargetID
++	// 先限时开 Network 域：EachEvent 自己开域时用的是不带截止的 ctx，浏览器这时卡住的话，读收藏请求会拿着
++	// profile 锁一直挂着。开成功后 rod 记下「已启用」，EachEvent 就不再自己开；开不了就不监听（不影响读收藏）。
++	if err := (proto.NetworkEnable{}).Call(page.Context(context.Background()).Timeout(5 * time.Second)); err != nil {
++		logrus.Warnf("收藏接口监听没挂上（Network.enable 5 秒内没回，不影响读收藏）：%v", err)
++		return w
++	}
++	p := page.Context(ctx)
++	err := rod.Try(func() {
++		wait := p.EachEvent(
++			func(e *proto.NetworkResponseReceived) {
++				if e.Response == nil || !strings.Contains(e.Response.URL, collectAPIPath) {
++					return
++				}
++				w.add(e.RequestID, CollectCall{At: time.Now().Format(time.RFC3339), Status: e.Response.Status})
++			},
++			func(e *proto.NetworkLoadingFinished) {
++				if !w.tracked(e.RequestID) {
++					return
++				}
++				id := e.RequestID
++				go func() {
++					var body string
++					err := rod.Try(func() {
++						res, err := proto.NetworkGetResponseBody{RequestID: id}.Call(p.Timeout(5 * time.Second))
++						if err != nil {
++							panic(err)
++						}
++						body = res.Body
++					})
++					w.fill(id, body, err)
++				}()
++			},
++			func(e *proto.NetworkLoadingFailed) {
++				if w.tracked(e.RequestID) {
++					w.fail(e.RequestID, e.ErrorText)
++				}
++			},
++		)
++		go wait()
++	})
++	if err != nil {
++		logrus.Warnf("收藏接口监听没挂上（不影响读收藏）：%v", err)
++		return w
++	}
++	collectWatches.Store(page.TargetID, w)
++	return w
++}
++
++// Stop 停止监听。
++func (w *CollectWatch) Stop() {
++	if w == nil {
++		return
++	}
++	w.stop()
++	if w.target != "" {
++		collectWatches.CompareAndDelete(w.target, w)
++	}
++}
++
++func (w *CollectWatch) add(id proto.NetworkRequestID, c CollectCall) {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	w.total++
++	w.calls = append(w.calls, c)
++	if len(w.calls) > collectKeep {
++		drop := len(w.calls) - collectKeep
++		w.calls = w.calls[drop:]
++		for k, v := range w.pending {
++			if v -= drop; v < 0 {
++				v = -1
++			}
++			w.pending[k] = v
++		}
++	}
++	w.pending[id] = len(w.calls) - 1
++}
++
++func (w *CollectWatch) tracked(id proto.NetworkRequestID) bool {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	_, ok := w.pending[id]
++	return ok
++}
++
++func (w *CollectWatch) slot(id proto.NetworkRequestID) *CollectCall {
++	i, ok := w.pending[id]
++	if !ok || i < 0 || i >= len(w.calls) {
++		return nil
++	}
++	return &w.calls[i]
++}
++
++func (w *CollectWatch) fill(id proto.NetworkRequestID, body string, err error) {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	c := w.slot(id)
++	delete(w.pending, id)
++	if c == nil {
++		return
++	}
++	if err != nil {
++		c.Body = "取不到回包：" + err.Error()
++		return
++	}
++	var resp struct {
++		Code    any    `json:"code"`
++		Success *bool  `json:"success"`
++		Msg     string `json:"msg"`
++		Data    *struct {
++			HasMore *bool             `json:"has_more"`
++			Notes   []json.RawMessage `json:"notes"`
++		} `json:"data"`
++	}
++	if json.Unmarshal([]byte(body), &resp) != nil {
++		c.Body = "回包不是 JSON：" + truncBytes(strings.TrimSpace(body), 120)
++		return
++	}
++	c.Code, c.Success, c.Msg = resp.Code, resp.Success, truncBytes(resp.Msg, 200)
++	if resp.Data != nil {
++		c.HasMore = resp.Data.HasMore
++		if resp.Data.Notes != nil {
++			n := len(resp.Data.Notes)
++			c.Notes = &n
++		}
++	}
++}
++
++func (w *CollectWatch) fail(id proto.NetworkRequestID, text string) {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	if c := w.slot(id); c != nil {
++		c.Failed = text
++	}
++	delete(w.pending, id)
++}
++
++// waitBodies 等还在取的回包最多 max（落证据前调；平时不等）。
++func (w *CollectWatch) waitBodies(max time.Duration) {
++	deadline := time.Now().Add(max)
++	for {
++		w.mu.Lock()
++		n := len(w.pending)
++		w.mu.Unlock()
++		if n == 0 || time.Now().After(deadline) {
++			return
++		}
++		time.Sleep(50 * time.Millisecond)
++	}
++}
++
++// Calls 最近的调用（最多 20 次，旧的在前）。
++func (w *CollectWatch) Calls() []CollectCall {
++	if w == nil {
++		return nil
++	}
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	return append([]CollectCall(nil), w.calls...)
++}
++
++// Refused 最近一次收藏接口回包是不是拒绝（HTTP ≥400，或 JSON success=false）；是就返回一句说明，否则空串。
++// 只看最近一次：被拒之后又正常回了一页就不算。请求没回来（loadingFailed，如换页时被取消）不算拒绝。
++func (w *CollectWatch) Refused() string {
++	if w == nil {
++		return ""
++	}
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	for i := len(w.calls) - 1; i >= 0; i-- {
++		c := w.calls[i]
++		if c.Failed != "" {
++			continue
++		}
++		if c.Status >= 400 || (c.Success != nil && !*c.Success) {
++			s := fmt.Sprintf("收藏接口回 HTTP %d", c.Status)
++			if c.Code != nil {
++				s += fmt.Sprintf(" code=%v", c.Code)
++			}
++			if c.Msg != "" {
++				s += " msg=" + c.Msg
++			}
++			return s
++		}
++		return ""
++	}
++	return ""
++}
++
++// CollectRefused 这一页上挂着的收藏接口监听看到的拒绝（没挂监听 / 没被拒返回空串）。
++func CollectRefused(page *rod.Page) string { return collectWatchFor(page).Refused() }
++
++// Summary 落进 meta.json 的摘要：总次数 + 最近 10 次。
++func (w *CollectWatch) Summary() map[string]any {
++	if w == nil {
++		return nil
++	}
++	calls := w.Calls()
++	w.mu.Lock()
++	total := w.total
++	w.mu.Unlock()
++	if len(calls) > 10 {
++		calls = calls[len(calls)-10:]
++	}
++	return map[string]any{"total": total, "recent": calls}
++}
+diff --git a/xiaohongshu/evidence_localbrowser_test.go b/xiaohongshu/evidence_localbrowser_test.go
+new file mode 100644
+index 0000000..146f030
+--- /dev/null
++++ b/xiaohongshu/evidence_localbrowser_test.go
+@@ -0,0 +1,350 @@
++//go:build localbrowser
++
++package xiaohongshu
++
++// 1008（B1 / B4）本地浏览器测试：内置浏览器（无界面、临时 profile、挂死代理只通本机）打开本机假站点，
++// 验证出事证据落盘、收藏接口回包被记下、页签点不动时只拟人点 2 次（不 DOM 合成点击）、列表卡住只换到第 1 级。
++// 不碰小红书、不碰真 profile、不碰真 ~/.link-brain/risk-evidence（LINK_BRAIN_EVIDENCE_DIR 指临时目录）。
++// 跑法：go test -tags localbrowser -count=1 -timeout 900s -run LocalBrowser ./xiaohongshu
++
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"path/filepath"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/go-rod/rod"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++// evidenceDirs 列出证据根目录下的证据目录。
++func evidenceDirs(t *testing.T, root string) []string {
++	t.Helper()
++	es, _ := os.ReadDir(root)
++	var out []string
++	for _, e := range es {
++		if e.IsDir() {
++			out = append(out, filepath.Join(root, e.Name()))
++		}
++	}
++	return out
++}
++
++func readMeta(t *testing.T, dir string) map[string]any {
++	t.Helper()
++	data, err := os.ReadFile(filepath.Join(dir, "meta.json"))
++	require.NoError(t, err)
++	var m map[string]any
++	require.NoError(t, json.Unmarshal(data, &m))
++	return m
++}
++
++// profileTabs 假主页的两个子页签（结构照小红书 web：.reds-tab-item.sub-tab-list）。
++const profileTabs = `<div class="reds-tab-list" style="padding:40px 20px">
++<div class="reds-tab-item sub-tab-list" style="display:inline-block;width:90px;height:40px;line-height:40px;text-align:center;background:#f3f3f3">笔记</div>
++<div class="reds-tab-item sub-tab-list" id="fav-tab" style="display:inline-block;width:90px;height:40px;line-height:40px;text-align:center;background:#f3f3f3">收藏</div>
++</div>`
++
++// TestLocalBrowserRiskEvidenceWritten B1：撞风控时 risk-evidence/<时间>/ 里有 shot.png、hit.html（≤2KB）、
++// meta.json（url / path / tab / why / rect / 祖先样式 / 中心点 / 「收藏」页签中心的元素 / 收藏接口的 HTTP 状态和 code）；
++// 写熔断时取得到这份证据；同一件事连查两次只落一份。
++func TestLocalBrowserRiskEvidenceWritten(t *testing.T) {
++	root := t.TempDir()
++	t.Setenv("LINK_BRAIN_EVIDENCE_DIR", root)
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.URL.Path == collectAPIPath {
++			w.Header().Set("Content-Type", "application/json")
++			w.WriteHeader(461)
++			fmt.Fprint(w, `{"code":300011,"success":false,"msg":"当前账号存在异常，请验证","data":{}}`)
++			return
++		}
++		if r.URL.Path != "/user/profile/me" {
++			http.NotFound(w, r)
++			return
++		}
++		w.Header().Set("Content-Type", "text/html; charset=utf-8")
++		fmt.Fprint(w, `<!doctype html><html><head><meta charset=utf-8><title>me</title></head><body>`+profileTabs+`
++<div class="outer" style="position:relative;opacity:1"><div class="mid" style="visibility:visible">
++<div class="red-captcha-container" style="width:320px;height:240px;background:#eee">`+strings.Repeat("<span>拖动滑块完成拼图</span>", 200)+`</div>
++</div></div>
++<script>
++window.__INITIAL_STATE__ = {user: {activeTab: {value: {index: 1, query: "fav"}}, notes: {value: [[], []]}}};
++window.__api = fetch("/api/sns/web/v2/note/collect/page?num=30&cursor=").then(r => r.text()).then(() => { window.__apiDone = true; });
++</script></body></html>`)
++	}))
++	t.Cleanup(srv.Close)
++	require.True(t, strings.HasPrefix(srv.URL, "http://127.0.0.1:"))
++	page := localPage(t)
++	watch := WatchCollectAPI(page)
++	t.Cleanup(watch.Stop)
++	page.Timeout(20 * time.Second).MustNavigate(srv.URL + "/user/profile/me?xsec_token=t").MustWaitLoad()
++	page.Timeout(10 * time.Second).MustWait(`() => window.__apiDone === true`)
++
++	r := RiskPage(page)
++	require.NotNil(t, r)
++	assert.Equal(t, RiskCaptcha, r.Code)
++	again := RiskPage(page) // 同一件事连查两次（handler 的 panic 兜底常这样）：只落一份
++	require.NotNil(t, again)
++	dirs := evidenceDirs(t, root)
++	require.Len(t, dirs, 1)
++	dir := dirs[0]
++
++	shot, err := os.ReadFile(filepath.Join(dir, "shot.png"))
++	require.NoError(t, err)
++	assert.True(t, bytes.HasPrefix(shot, []byte("\x89PNG")), "shot.png 是 PNG")
++	hit, err := os.ReadFile(filepath.Join(dir, "hit.html"))
++	require.NoError(t, err)
++	assert.LessOrEqual(t, len(hit), 2048)
++	assert.Contains(t, string(hit), `class="red-captcha-container"`)
++	assert.True(t, strings.HasPrefix(string(hit), `<meta http-equiv="Content-Security-Policy" content="default-src 'none'`),
++		"hit.html 开头一行 CSP：双击打开也不去拉小红书的资源")
++
++	m := readMeta(t, dir)
++	assert.Equal(t, "risk", m["trigger"])
++	assert.Equal(t, RiskCaptcha, m["code"])
++	assert.Contains(t, m["url"], "/user/profile/me?xsec_token=t")
++	assert.Equal(t, "/user/profile/me", m["path"])
++	assert.Equal(t, "fav", m["tab"])
++	assert.Equal(t, "widget", m["why"])
++	assert.Equal(t, "visible", m["kind"])
++	assert.Equal(t, "widget", m["verdict"], "复读后的结论")
++	assert.Equal(t, "hit", m["hit_source"])
++	h := m["hit"].(map[string]any)
++	assert.Equal(t, "div", h["tag"])
++	assert.Contains(t, h["class"], "red-captcha-container")
++	rect := h["rect"].(map[string]any)
++	assert.Equal(t, float64(320), rect["w"])
++	assert.Equal(t, true, h["in_viewport"])
++	assert.Equal(t, true, h["center_hit_self"])
++	anc := h["ancestors"].([]any)
++	require.GreaterOrEqual(t, len(anc), 3)
++	first := anc[0].(map[string]any)
++	assert.Contains(t, first["class"], "mid")
++	for _, k := range []string{"display", "visibility", "opacity", "position", "z_index"} {
++		assert.Contains(t, first, k)
++	}
++	tp := m["tab_probe"].(map[string]any)
++	assert.Equal(t, true, tp["found"])
++	assert.Equal(t, "收藏", tp["label"])
++	assert.Equal(t, true, tp["center_is_tab"])
++	assert.NotNil(t, tp["center_el"])
++	api := m["collect_api"].(map[string]any)
++	assert.Equal(t, float64(1), api["total"])
++	call := api["recent"].([]any)[0].(map[string]any)
++	assert.Equal(t, float64(461), call["status"])
++	assert.Equal(t, float64(300011), call["code"])
++	assert.Equal(t, "当前账号存在异常，请验证", call["msg"])
++
++	ev := TakeRiskEvidence(RiskCaptcha, time.Minute)
++	require.NotNil(t, ev)
++	assert.Equal(t, dir, ev.Dir)
++	assert.Equal(t, "fav", ev.Tab)
++	assert.Contains(t, ev.URL, "/user/profile/me")
++}
++
++// tabFixture 假主页：点「收藏」后怎么反应由 mode 定——
++//
++//	"ok"：页签切过去；"dead"：点了没反应（前端不响应）；"mask"：页签被一层透明遮罩盖住；
++//	"captcha"：点了没反应，紧接着弹出验证浮层。
++//
++// 每次 click 事件（含 DOM 合成点击）都记进 window.__clicks（isTrusted / 点在谁身上）。
++func tabFixture(mode string) string {
++	return fmt.Sprintf(`<!doctype html><html><head><meta charset=utf-8></head><body>%s
++<div class="feeds-container" style="height:400px"></div>
++<script>
++const MODE = %q;
++window.__INITIAL_STATE__ = {user: {activeTab: {value: {index: 0, query: "note"}}, notes: {value: [[{id: "own"}], []]}}};
++window.__clicks = [];
++document.addEventListener("click", e => {
++  window.__clicks.push({trusted: e.isTrusted, text: (e.target.innerText || "").trim(), cls: String(e.target.className || "")});
++}, true);
++const fav = document.getElementById("fav-tab");
++fav.addEventListener("click", () => {
++  if (MODE === "ok") window.__INITIAL_STATE__.user.activeTab.value = {index: 1, query: "fav"};
++  if (MODE === "captcha" && !document.getElementById("cap")) {
++    const d = document.createElement("div");
++    d.id = "cap";
++    d.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.4)";
++    d.innerHTML = '<div style="width:320px;height:240px;margin:80px auto;background:#fff">安全验证<p>请拖动下方滑块完成拼图</p></div>';
++    document.body.appendChild(d);
++  }
++});
++if (MODE === "mask") {
++  const m = document.createElement("div");
++  m.className = "reds-mask";
++  m.style.cssText = "position:fixed;inset:0;z-index:50;background:transparent";
++  document.body.appendChild(m);
++}
++</script></body></html>`, profileTabs, mode)
++}
++
++type clickRec struct {
++	Trusted bool   `json:"trusted"`
++	Text    string `json:"text"`
++	Cls     string `json:"cls"`
++}
++
++func clicksOn(t *testing.T, page *rod.Page) []clickRec {
++	t.Helper()
++	var out []clickRec
++	raw := page.Timeout(5 * time.Second).MustEval(`() => JSON.stringify(window.__clicks || [])`).Str()
++	require.NoError(t, json.Unmarshal([]byte(raw), &out))
++	return out
++}
++
++// TestLocalBrowserSelectTabNoSyntheticClick B4：第 1 轮拟人点击没生效 → 查风控、落证据、原页面歇一会儿 → 第 2 轮拟人点击 →
++// 还不生效返回 ErrTabStuck。全程只有 2 次真实点击（isTrusted），没有 DOM this.click() 合成点击；被遮罩盖住时一次都点不到页签，
++// 证据里写清是谁盖住了页签中心。一点就中：不落证据、不歇。中途弹验证：第 2 轮之前就停。
++func TestLocalBrowserSelectTabNoSyntheticClick(t *testing.T) {
++	root := t.TempDir()
++	t.Setenv("LINK_BRAIN_EVIDENCE_DIR", root)
++	pauses := 0
++	old := FavTabRetryPause
++	FavTabRetryPause = func() time.Duration { pauses++; return 300 * time.Millisecond }
++	t.Cleanup(func() { FavTabRetryPause = old })
++	var mu sync.Mutex
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		mu.Lock()
++		defer mu.Unlock()
++		w.Header().Set("Content-Type", "text/html; charset=utf-8")
++		fmt.Fprint(w, tabFixture(strings.TrimPrefix(r.URL.Path, "/p/")))
++	}))
++	t.Cleanup(srv.Close)
++	page := localPage(t)
++	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
++	defer cancel()
++	open := func(mode string) *UserProfileAction {
++		page.Timeout(20 * time.Second).MustNavigate(srv.URL + "/p/" + mode).MustWaitLoad()
++		return &UserProfileAction{page: page}
++	}
++
++	// 一点就中
++	u := open("ok")
++	require.NoError(t, u.selectTab(ctx, page, TabFavorites))
++	assert.Len(t, clicksOn(t, page), 1)
++	assert.Equal(t, 0, pauses)
++	assert.Empty(t, u.Evidence)
++	assert.Empty(t, evidenceDirs(t, root))
++
++	// 点了没反应：只拟人点 2 次，不合成点击
++	u = open("dead")
++	err := u.selectTab(ctx, page, TabFavorites)
++	require.ErrorIs(t, err, ErrTabStuck)
++	assert.ErrorIs(t, err, ErrTabNotActive)
++	assert.Nil(t, AsRisk(err), "点不动不是风控，不写熔断")
++	cl := clicksOn(t, page)
++	require.Len(t, cl, 2, "第 1 轮 + 歇过之后第 2 轮，各一次")
++	for _, c := range cl {
++		assert.True(t, c.Trusted, "不许 DOM this.click() 合成点击：%+v", c)
++		assert.Equal(t, "收藏", c.Text)
++	}
++	assert.Equal(t, 1, pauses)
++	require.NotEmpty(t, u.Evidence)
++	m := readMeta(t, u.Evidence)
++	assert.Equal(t, "fav_tab_click", m["trigger"])
++	assert.Equal(t, "note", m["tab"])
++	assert.Equal(t, true, m["tab_probe"].(map[string]any)["center_is_tab"])
++	_, err = os.Stat(filepath.Join(u.Evidence, "shot.png"))
++	assert.NoError(t, err)
++
++	// 页签被透明遮罩盖住：拟人点击点不到它；以前第 2/3 轮的 DOM 合成点击会穿过遮罩直接点中——现在一次都没有
++	pauses = 0
++	u = open("mask")
++	err = u.selectTab(ctx, page, TabFavorites)
++	require.ErrorIs(t, err, ErrTabStuck)
++	for _, c := range clicksOn(t, page) {
++		assert.True(t, c.Trusted, "%+v", c)
++		assert.NotEqual(t, "收藏", c.Text, "遮罩下的页签不该被点到（只有合成点击才点得到）")
++	}
++	assert.Equal(t, 1, pauses)
++	m = readMeta(t, u.Evidence)
++	tp := m["tab_probe"].(map[string]any)
++	assert.Equal(t, false, tp["center_is_tab"], "证据要写清页签中心被谁盖住")
++	assert.Contains(t, tp["center_el"].(map[string]any)["class"], "reds-mask")
++	hit, _ := os.ReadFile(filepath.Join(u.Evidence, "hit.html"))
++	assert.Contains(t, string(hit), "reds-mask", "没有风控命中元素时，hit.html 记页签中心那个元素")
++
++	// 第 1 轮之后弹了验证：第 2 轮之前就返回风控，不再点、不歇
++	pauses = 0
++	u = open("captcha")
++	err = u.selectTab(ctx, page, TabFavorites)
++	r := AsRisk(err)
++	require.NotNil(t, r, "err=%v", err)
++	assert.Equal(t, RiskCaptcha, r.Code)
++	assert.Len(t, clicksOn(t, page), 1)
++	assert.Equal(t, 0, pauses)
++}
++
++// favStallFixture 假收藏页：每次滚到底附近追加 30 条，但到 stallAt 条就再也加载不出来，页面状态仍说 hasMore=true
++// （10-08 05:18 卡在 1150 条那种）。记录真实滚轮事件次数。
++func favStallFixture(stallAt int) string {
++	return fmt.Sprintf(`<div id="feeds" class="feeds-container"></div>
++<script>
++const STALL = %d;
++const fav = [];
++const st = {user: {notes: {value: [[{id: "own"}], fav]}, activeTab: {value: {index: 1, query: "fav"}},
++  noteQueries: {value: [{hasMore: false}, {hasMore: true}]}}};
++window.__INITIAL_STATE__ = st;
++window.__wheels = 0;
++window.addEventListener("wheel", () => { window.__wheels++; }, {passive: true});
++let loading = false;
++function addPage() {
++  const box = document.getElementById("feeds");
++  for (let i = 0; i < 30 && fav.length < STALL; i++) {
++    fav.push({id: "n" + fav.length});
++    const s = document.createElement("section");
++    s.className = "note-item";
++    s.style.cssText = "height:120px;margin:4px;background:#eee";
++    s.textContent = "card " + fav.length;
++    box.appendChild(s);
++  }
++}
++function maybeLoad() {
++  if (loading || fav.length >= STALL) return;
++  if (window.innerHeight + window.scrollY < document.body.scrollHeight - 400) return;
++  loading = true;
++  setTimeout(() => { addPage(); loading = false; }, 300);
++}
++addPage();
++window.addEventListener("scroll", maybeLoad, {passive: true});
++</script>`, stallAt)
++}
++
++// TestLocalBrowserFavoritesStallStopsAtLevel1 B4：真实 DOM 上列表卡住、页面说还有更多——换过第 1 级就停（stalled、partial），
++// 没有一次真实滚轮；卡住那一刻落了证据（trigger=fav_list_stalled）。
++func TestLocalBrowserFavoritesStallStopsAtLevel1(t *testing.T) {
++	root := t.TempDir()
++	t.Setenv("LINK_BRAIN_EVIDENCE_DIR", root)
++	srv := fixtureServer(t, map[string]string{"/fav/stall": favStallFixture(60)})
++	page := localPage(t)
++	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
++	defer cancel()
++	page.MustNavigate(srv.URL + "/fav/stall").MustWaitLoad()
++	u := &UserProfileAction{page: page, FavExpect: 95}
++	start := time.Now()
++	res, r := u.scrollLoadAllFavorites(ctx)
++	require.Nil(t, r)
++	assert.Equal(t, FavStopStalled, res.Reason)
++	assert.True(t, res.Partial)
++	assert.Equal(t, 60, res.Count)
++	assert.Equal(t, 1, res.Level)
++	require.NotNil(t, res.HasMore)
++	assert.True(t, *res.HasMore)
++	assert.Less(t, time.Since(start), 90*time.Second, "12s + 16s 两级就停，不走满四级")
++	wheels := page.MustEval(`() => window.__wheels`).Int()
++	assert.Equal(t, 0, wheels, "hasMore=true 卡住时不上真实滚轮")
++	require.NotEmpty(t, res.Evidence)
++	assert.Equal(t, res.Evidence, u.Evidence)
++	m := readMeta(t, res.Evidence)
++	assert.Equal(t, "fav_list_stalled", m["trigger"])
++	assert.Equal(t, "fav", m["tab"])
++}
+diff --git a/xiaohongshu/evidence_test.go b/xiaohongshu/evidence_test.go
+new file mode 100644
+index 0000000..5d9ec96
+--- /dev/null
++++ b/xiaohongshu/evidence_test.go
+@@ -0,0 +1,205 @@
++package xiaohongshu
++
++import (
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/go-rod/rod/lib/proto"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++func TestMain(m *testing.M) {
++	// 保险：出事证据一律落临时目录，真 ~/.link-brain/risk-evidence 一个字节都不碰。
++	ev, _ := os.MkdirTemp("", "lbr-test-evidence-")
++	os.Setenv("LINK_BRAIN_EVIDENCE_DIR", ev)
++	if os.Getenv("XHS_PROFILE_DIR") == "" {
++		d, _ := os.MkdirTemp("", "lbr-test-profile-")
++		os.Setenv("XHS_PROFILE_DIR", d)
++	}
++	os.Exit(m.Run())
++}
++
++// TestEvidenceRoot 根目录：LINK_BRAIN_EVIDENCE_DIR → $LINK_BRAIN_HOME/risk-evidence → ~/.link-brain/risk-evidence。
++func TestEvidenceRoot(t *testing.T) {
++	t.Setenv("LINK_BRAIN_EVIDENCE_DIR", "")
++	t.Setenv("LINK_BRAIN_HOME", filepath.Join("X", "lb"))
++	assert.Equal(t, filepath.Join("X", "lb", "risk-evidence"), EvidenceRoot())
++	t.Setenv("LINK_BRAIN_HOME", "")
++	home, _ := os.UserHomeDir()
++	assert.Equal(t, filepath.Join(home, ".link-brain", "risk-evidence"), EvidenceRoot())
++	t.Setenv("LINK_BRAIN_EVIDENCE_DIR", "Y")
++	assert.Equal(t, "Y", EvidenceRoot())
++}
++
++// TestPruneEvidenceKeeps14Days 只删超过 14 天、且是本模块起名的目录；别的文件 / 目录一概不碰。
++func TestPruneEvidenceKeeps14Days(t *testing.T) {
++	root := t.TempDir()
++	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.Local)
++	mk := func(name string) {
++		require.NoError(t, os.MkdirAll(filepath.Join(root, name), 0o700))
++		require.NoError(t, os.WriteFile(filepath.Join(root, name, "meta.json"), []byte("{}"), 0o600))
++	}
++	mk("20260920-040145")   // 18 天前：删
++	mk("20260923-235959-2") // 14 天多一点：删
++	mk("20260925-040145")   // 13 天前：留
++	mk("20261008-051957")   // 今天：留
++	mk("my-notes")          // 不是本模块的：不碰
++	require.NoError(t, os.WriteFile(filepath.Join(root, "20200101-000000.txt"), nil, 0o600))
++
++	assert.Equal(t, 2, PruneEvidence(root, EvidenceKeep, now))
++	left, _ := os.ReadDir(root)
++	var names []string
++	for _, e := range left {
++		names = append(names, e.Name())
++	}
++	assert.ElementsMatch(t, []string{"20260925-040145", "20261008-051957", "my-notes", "20200101-000000.txt"}, names)
++	assert.Equal(t, 0, PruneEvidence(filepath.Join(root, "nope"), EvidenceKeep, now), "根目录不在不报错")
++
++	// 审查：名字像、但里面有不是本模块写的东西（LINK_BRAIN_EVIDENCE_DIR 配错指到按时间命名的备份目录）→ 不删
++	mk("20260901-000000")
++	require.NoError(t, os.WriteFile(filepath.Join(root, "20260901-000000", "backup.zip"), []byte("x"), 0o600))
++	require.NoError(t, os.MkdirAll(filepath.Join(root, "20260902-000000", "sub"), 0o700))
++	mk("20260903-000000")
++	require.NoError(t, os.WriteFile(filepath.Join(root, "20260903-000000", "shot.png"), []byte("x"), 0o600))
++	require.NoError(t, os.WriteFile(filepath.Join(root, "20260903-000000", "hit.html"), []byte("x"), 0o600))
++	assert.Equal(t, 1, PruneEvidence(root, EvidenceKeep, now), "只删 20260903（全是本模块的文件）")
++	for _, keep := range []string{"20260901-000000", "20260902-000000"} {
++		_, err := os.Stat(filepath.Join(root, keep))
++		assert.NoError(t, err, keep)
++	}
++}
++
++// TestMaybePruneEvidenceThrottled 服务常驻不出事也要清：/login/session 轮询时顺手清，最多每小时一次。
++func TestMaybePruneEvidenceThrottled(t *testing.T) {
++	root := t.TempDir()
++	t.Setenv("LINK_BRAIN_EVIDENCE_DIR", root)
++	lastPrune.mu.Lock()
++	lastPrune.at = time.Time{}
++	lastPrune.mu.Unlock()
++	now := time.Now()
++	old := now.Add(-20 * 24 * time.Hour).Format(evidenceDirLayout)
++	require.NoError(t, os.MkdirAll(filepath.Join(root, old), 0o700))
++	assert.True(t, MaybePruneEvidence(now))
++	_, err := os.Stat(filepath.Join(root, old))
++	assert.True(t, os.IsNotExist(err), "超过 14 天的清掉")
++	require.NoError(t, os.MkdirAll(filepath.Join(root, old), 0o700))
++	assert.False(t, MaybePruneEvidence(now.Add(30*time.Minute)), "一小时内不再清")
++	assert.True(t, MaybePruneEvidence(now.Add(61*time.Minute)))
++}
++
++// TestSetPageIntent 落证据时的 want_tab：设了就记，撤销后恢复原样。
++func TestSetPageIntent(t *testing.T) {
++	assert.Equal(t, "", pageIntent(nil))
++	SetPageIntent(nil, "fav")() // 不崩
++}
++
++// TestCollectWatchRefused 收藏接口最近一次回包是拒绝（HTTP ≥400 / success=false）才算；之后又正常回了一页就不算；
++// 请求没回来（换页时被取消）不算。
++func TestCollectWatchRefused(t *testing.T) {
++	w := &CollectWatch{pending: map[proto.NetworkRequestID]int{}}
++	assert.Equal(t, "", w.Refused())
++	w.add("a", CollectCall{Status: 200})
++	w.fill("a", `{"code":0,"success":true,"data":{"has_more":true,"notes":[]}}`, nil)
++	assert.Equal(t, "", w.Refused())
++	w.add("b", CollectCall{Status: 461})
++	assert.Contains(t, w.Refused(), "461", "状态码先到：回包还没取也算")
++	w.fill("b", `{"code":300011,"success":false,"msg":"当前账号存在异常"}`, nil)
++	assert.Contains(t, w.Refused(), "300011")
++	w.add("c", CollectCall{Status: 200})
++	w.fail("c", "net::ERR_ABORTED")
++	assert.Contains(t, w.Refused(), "461", "没回来的请求跳过，看它前面那次")
++	w.add("d", CollectCall{Status: 200})
++	w.fill("d", `{"code":-1,"success":false,"msg":"x"}`, nil)
++	assert.Contains(t, w.Refused(), "code=-1")
++	w.add("e", CollectCall{Status: 200})
++	w.fill("e", `{"code":0,"success":true}`, nil)
++	assert.Equal(t, "", w.Refused(), "之后又正常回了一页：不算")
++	var nilWatch *CollectWatch
++	assert.Equal(t, "", nilWatch.Refused())
++	assert.Equal(t, "", CollectRefused(nil))
++}
++
++// TestNewEvidenceDirUnique 同一秒两次出事：第二份加 -2，不覆盖第一份。
++func TestNewEvidenceDirUnique(t *testing.T) {
++	root := t.TempDir()
++	at := time.Date(2026, 10, 8, 5, 19, 57, 0, time.Local)
++	a, err := newEvidenceDir(root, at)
++	require.NoError(t, err)
++	b, err := newEvidenceDir(root, at)
++	require.NoError(t, err)
++	assert.Equal(t, "20261008-051957", filepath.Base(a))
++	assert.Equal(t, "20261008-051957-2", filepath.Base(b))
++	assert.True(t, evidenceDirRe.MatchString(filepath.Base(b)))
++}
++
++// TestTruncBytesKeepsUTF8 hit.html 截到 2KB 时不切坏中文。
++func TestTruncBytesKeepsUTF8(t *testing.T) {
++	s := strings.Repeat("验", 1000) // 3000 字节
++	got := truncBytes(s, evidenceHitMax)
++	assert.LessOrEqual(t, len(got), evidenceHitMax)
++	assert.True(t, strings.HasPrefix(s, got))
++	assert.Equal(t, 0, len(got)%3)
++	assert.Equal(t, "abc", truncBytes("abc", 10))
++}
++
++// TestTakeRiskEvidence 写熔断时只取同码、新鲜、没被取过的那份；取过一次就没了。
++func TestTakeRiskEvidence(t *testing.T) {
++	set := func(ev *Evidence) {
++		riskEv.mu.Lock()
++		riskEv.last, riskEv.target, riskEv.taken = ev, "t1", false
++		riskEv.mu.Unlock()
++	}
++	t.Cleanup(func() { set(nil) })
++	set(&Evidence{Dir: "D", Code: RiskCaptcha, URL: "u", Tab: "fav", At: time.Now()})
++	assert.Nil(t, TakeRiskEvidence(RiskAccount, time.Minute), "码对不上不取")
++	got := TakeRiskEvidence(RiskCaptcha, time.Minute)
++	require.NotNil(t, got)
++	assert.Equal(t, "D", got.Dir)
++	assert.Nil(t, TakeRiskEvidence(RiskCaptcha, time.Minute), "取过就没了")
++
++	set(&Evidence{Dir: "old", Code: RiskCaptcha, At: time.Now().Add(-5 * time.Minute)})
++	assert.Nil(t, TakeRiskEvidence(RiskCaptcha, 2*time.Minute), "太旧的不挂到新熔断上")
++	assert.Nil(t, TakeRiskEvidence(RiskCaptcha, time.Minute))
++}
++
++// TestCollectWatchParsesBody 收藏接口回包只留状态 / code / msg / has_more / 条数，不留数据本身；窗口只留最近 20 次。
++func TestCollectWatchParsesBody(t *testing.T) {
++	w := &CollectWatch{pending: map[proto.NetworkRequestID]int{}}
++	w.add("r1", CollectCall{Status: 200})
++	w.fill("r1", `{"code":0,"success":true,"msg":"成功","data":{"has_more":true,"notes":[{"note_id":"secret"},{}]}}`, nil)
++	w.add("r2", CollectCall{Status: 461})
++	w.fill("r2", `{"code":300011,"success":false,"msg":"账号异常"}`, nil)
++	w.add("r3", CollectCall{Status: 200})
++	w.fail("r3", "net::ERR_FAILED")
++	w.add("r4", CollectCall{Status: 200})
++	w.fill("r4", "<html>", nil)
++
++	calls := w.Calls()
++	require.Len(t, calls, 4)
++	assert.Equal(t, float64(0), calls[0].Code)
++	require.NotNil(t, calls[0].HasMore)
++	assert.True(t, *calls[0].HasMore)
++	assert.Equal(t, 2, *calls[0].Notes)
++	assert.Equal(t, 461, calls[1].Status)
++	assert.Equal(t, float64(300011), calls[1].Code)
++	assert.Equal(t, "账号异常", calls[1].Msg)
++	assert.Equal(t, "net::ERR_FAILED", calls[2].Failed)
++	assert.Contains(t, calls[3].Body, "不是 JSON")
++	b, _ := json.Marshal(w.Summary())
++	assert.NotContains(t, string(b), "secret", "不留收藏数据本身")
++	assert.Contains(t, string(b), `"total":4`)
++
++	for i := 0; i < 30; i++ {
++		w.add(proto.NetworkRequestID("x"+string(rune('a'+i))), CollectCall{Status: 200})
++	}
++	assert.Len(t, w.Calls(), collectKeep)
++	assert.Len(t, w.Summary()["recent"], 10)
++	var nilWatch *CollectWatch
++	assert.Nil(t, nilWatch.Summary())
++	nilWatch.Stop()
++}
 diff --git a/xiaohongshu/feed_detail.go b/xiaohongshu/feed_detail.go
-index 2cfde9f..5a7ccaf 100644
+index 2cfde9f..503166c 100644
 --- a/xiaohongshu/feed_detail.go
 +++ b/xiaohongshu/feed_detail.go
 @@ -6,7 +6,6 @@ import (
@@ -6816,18 +9008,19 @@ index 2cfde9f..5a7ccaf 100644
  func checkEndContainer(page *rod.Page) bool {
  	var result bool
  
-@@ -922,6 +715,10 @@ func checkPageAccessible(page *rod.Page) error {
+@@ -922,6 +715,11 @@ func checkPageAccessible(page *rod.Page) error {
  		"因违规无法查看",
  	}
  
 +	if r := accessTextRisk(text); r != nil {
++		noteRiskEvidence(page, r) // 1008（B1）：同样落出事证据
 +		return r
 +	}
 +
  	for _, kw := range keywords {
  		if strings.Contains(text, kw) {
  			logrus.Warnf("笔记不可访问: %s", kw)
-@@ -1001,5 +798,29 @@ func (f *FeedDetailAction) extractFeedDetail(page *rod.Page, feedID string) (*Fe
+@@ -1001,5 +799,29 @@ func (f *FeedDetailAction) extractFeedDetail(page *rod.Page, feedID string) (*Fe
  }
  
  func makeFeedDetailURL(feedID, xsecToken string) string {
@@ -6931,7 +9124,7 @@ index ce158e3..af09658 100644
  	if result == "" {
  		return nil, errors.ErrNoFeeds
 diff --git a/xiaohongshu/login.go b/xiaohongshu/login.go
-index 67e002d..99caa73 100644
+index 67e002d..ecd9384 100644
 --- a/xiaohongshu/login.go
 +++ b/xiaohongshu/login.go
 @@ -3,10 +3,14 @@ package xiaohongshu
@@ -6949,7 +9142,7 @@ index 67e002d..99caa73 100644
  )
  
  type LoginAction struct {
-@@ -19,21 +23,181 @@ func NewLogin(page *rod.Page) *LoginAction {
+@@ -19,21 +23,182 @@ func NewLogin(page *rod.Page) *LoginAction {
  
  func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
  	// 加超时保护：只是查登录态的快速检查，不应无限挂（登录扫码的等待在 Login/WaitForLogin 里）
@@ -7042,8 +9235,9 @@ index 67e002d..99caa73 100644
 +	}
 +	ok, err := a.awaitLoginState(ctx, 18*time.Second)
 +	if !ok {
-+		// 1001：被跳到 /website-login/* 或弹验证时，「没登录」是假象，要按风控停车
-+		if r := RiskPage(a.page); r != nil {
++		// 1001：被跳到 /website-login/* 或弹验证时，「没登录」是假象，要按风控停车。
++		// 1008 第二轮：看不见的验证组件不改「没登录」的结论（游客页上有个没画出来的组件，号照样是掉了）
++		if r := RiskPage(a.page); r != nil && !r.Hidden() {
 +			err = r
 +		}
 +	}
@@ -7140,7 +9334,7 @@ index 67e002d..99caa73 100644
  }
  
  // CurrentUser 当前登录用户的基础信息。
-@@ -49,7 +213,7 @@ func (a *LoginAction) CurrentUser(ctx context.Context) (*CurrentUser, error) {
+@@ -49,7 +214,7 @@ func (a *LoginAction) CurrentUser(ctx context.Context) (*CurrentUser, error) {
  
  	res, err := pp.Eval(`() => {
  		const u = window.__INITIAL_STATE__ && window.__INITIAL_STATE__.user;
@@ -7149,7 +9343,7 @@ index 67e002d..99caa73 100644
  		if (!info || info.guest) return "";
  		return JSON.stringify({nickname: info.nickname, userId: info.userId || info.user_id});
  	}`)
-@@ -70,20 +234,89 @@ func (a *LoginAction) CurrentUser(ctx context.Context) (*CurrentUser, error) {
+@@ -70,20 +235,89 @@ func (a *LoginAction) CurrentUser(ctx context.Context) (*CurrentUser, error) {
  	return &user, nil
  }
  
@@ -7244,7 +9438,7 @@ index 67e002d..99caa73 100644
  	return nil
  }
  
-@@ -91,15 +324,29 @@ func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error
+@@ -91,15 +325,29 @@ func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error
  	pp := a.page.Context(ctx)
  
  	// 导航到小红书首页，这会触发二维码弹窗
@@ -7279,7 +9473,7 @@ index 67e002d..99caa73 100644
  	if err != nil {
  		return "", false, errors.Wrap(err, "get qrcode src failed")
  	}
-@@ -110,20 +357,48 @@ func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error
+@@ -110,20 +358,48 @@ func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error
  	return *src, false, nil
  }
  
@@ -7536,13 +9730,14 @@ index 0000000..01490b9
 +}
 diff --git a/xiaohongshu/risk.go b/xiaohongshu/risk.go
 new file mode 100644
-index 0000000..b7c399a
+index 0000000..3889b4a
 --- /dev/null
 +++ b/xiaohongshu/risk.go
-@@ -0,0 +1,151 @@
+@@ -0,0 +1,388 @@
 +package xiaohongshu
 +
 +import (
++	"context"
 +	"encoding/json"
 +	stderrors "errors"
 +	"fmt"
@@ -7558,15 +9753,33 @@ index 0000000..b7c399a
 +	RiskCaptcha     = "CAPTCHA_REQUIRED" // 页面出现「安全验证」拼图/滑块
 +	RiskAccount     = "ACCOUNT_RISK"     // 被跳到 /website-login/*（error、captcha…）等安全跳转
 +	RiskNotLoggedIn = "NOT_LOGGED_IN"    // 需要登录的操作发现是游客
++	// RiskHiddenWidget（1008 第二轮）页面里有验证组件，但没画出来（不在视口 / 祖先透明 / 被盖住 / display:none…，
++	// 可能是 SDK 预载或后台静默校验），或者出现了一下 1.5 秒内又没了。停下**本次**操作（不再滚、不再点），
++	// 但**不写熔断**——服务层回 TRANSIENT，下次照常。码名和 Detail 故意不带「captcha / 滑块 / 安全验证 / 风控」
++	// 这些字：Python 的 looks_blocked 按这些字把报错当成「号出事」（要人处理）。
++	RiskHiddenWidget = "HIDDEN_WIDGET"
 +)
++
++// HiddenWidgetText 给她看的话（HTTP 响应的 error 字段）。
++const HiddenWidgetText = "页面里有验证组件但没显示滑块，这次先停，下次照常读"
++
++// HiddenWidgetDetail RiskError.Detail（会进 MCP 报错文本）：不带 looks_blocked 认的那些字。
++const HiddenWidgetDetail = "页面里有验证组件但没显示出来（可能是后台静默校验），这次先停，下次照常读，不暂停账号"
 +
 +// RiskError 风控停车信号。Error() 以 "[CODE]" 开头，MCP 报错文本里原样带出，调用方按方括号码识别。
 +type RiskError struct {
 +	Code   string
 +	Detail string
++	// Why 探针的判据（iframe / widget / overlay / hidden-widget:<原因> / path），只进日志和证据。
++	Why string
++	// Evidence 这次命中时落的证据目录（RiskPage 落的；没落成为空）。
++	Evidence string
 +}
 +
 +func (e *RiskError) Error() string { return "[" + e.Code + "] " + e.Detail }
++
++// Hidden 是不是「看不见的验证组件」（停本次、不写熔断）。
++func (e *RiskError) Hidden() bool { return e != nil && e.Code == RiskHiddenWidget }
 +
 +// AsRisk 从错误链里取出 RiskError；不是风控类返回 nil。
 +func AsRisk(err error) *RiskError {
@@ -7577,41 +9790,110 @@ index 0000000..b7c399a
 +	return nil
 +}
 +
-+// ErrTabNotActive 主页子 tab 没点中（纯前端问题），是读收藏唯一允许重试的失败。
++// ErrTabNotActive 主页子 tab 没点中 / 没停住。1008（B4）起读收藏不再为它换新页重试：
++// 「点不动」多半是收藏接口被拒的早期表现，服务层报 TRANSIENT（FAV_TAB_STUCK）、当晚不读收藏、不写熔断。
 +var ErrTabNotActive = stderrors.New("子 tab 没点中")
++
++// ErrTabStuck 拟人点了两次页签都没切过去（第 1 轮没生效 → 落证据、查风控、原页面歇 20–40 秒 → 第 2 轮仍没生效）。
++// errors.Is(err, ErrTabNotActive) 同样为真。
++var ErrTabStuck = fmt.Errorf("%w：拟人点了两次页签都没切过去", ErrTabNotActive)
 +
 +// riskContentSelector 用户内容容器：笔记标题/正文/评论/收藏卡片。这里面的字是别人写的，
 +// 一篇叫「手机号安全验证怎么办」的笔记不能把号判成撞了验证码（1001 审查 must-fix）。
 +const riskContentSelector = `.note-container, #noteContainer, .note-detail-mask, .note-content, #detail-title, #detail-desc, ` +
 +	`.comments-container, .comments-el, .comment-item, .parent-comment, .feeds-container, .feeds-page, .note-item, .reds-note-card, .user-page .feeds-tab-container`
 +
-+// riskProbeJS 只读页面，不点、不解。验证浮层按结构认，不扫整页文字：
++// riskFindJS 探针的判据本体（只读页面，不点、不解），返回 {why, el, kind, hidden_why}。
++// 验证浮层按结构认，不扫整页文字。候选：
 +//
-+//	① 可见的验证组件：class/id 带 captcha 的元素，或 src 带 captcha 的 iframe；
-+//	② 固定定位（position: fixed）的可见浮层里有一句短的「安全验证」，且浮层总字数少、带操作提示（拖动/拼图/滑块/点击/验证）。
++//	① class/id 带 captcha 的元素，或 src 带 captcha 的 iframe；
++//	② 固定定位（position: fixed）的浮层里有一句短的「安全验证」，且浮层总字数少、带操作提示（拖动/拼图/滑块/点击/验证）。
 +//
-+// 两条都跳过用户内容容器里的元素。
-+const riskProbeJS = `() => {
++// 两条都跳过用户内容容器里的元素。riskProbeJS（判风控）和 evidenceJS（出事落证据）共用这一份，判据不会两处走样。
++//
++// 1008 第二轮（她：打开报错时既没有验证窗口也没掉登录，怀疑误检测）——「看得见」收紧成：
++//   - 与视口有交集；祖先链（含自己）没有 display:none、visibility:hidden，透明度连乘 > 0.05，clip / clip-path 没把它裁没；
++//   - 可见部分的中心点 elementFromPoint 命中它自己或子孙（没被别的东西盖住）；
++//   - 面积 > 90% 视口的大容器（html / body / #app 一类）里得有验证内容（iframe / canvas / img 或「验证 / 拖动 / 滑块」字样，
++//     且总字数 ≤ 300：整页包装层不算）才当候选，否则整个不算。
++//
++// kind：visible（真看得见：why = iframe / widget / overlay）· hidden（why = hidden-widget，hidden_why 写原因）· ""（没有）。
++// hidden 只认两种：旧判据（只看自身样式和尺寸）会命中、新判据看不见的（不在视口 / 祖先透明 / 被盖住 / 被裁）；
++// 以及自身被藏起来（display:none / visibility:hidden / 透明 / 被裁）但里面有验证内容的。空的、藏起来的占位容器
++// （旧判据也从来不认）仍然不算，免得 SDK 常驻的空壳让每次读都停。
++// 看得见的优先：页面上只要有一个看得见的就报 visible。是不是「隔 1.5 秒仍成立」由 RiskPage 复读判，这里只读一次。
++const riskFindJS = `() => {
 + const EXCLUDE = ` + "`" + riskContentSelector + "`" + `;
-+ const shown = (e) => {
-+  if (!e || !e.getBoundingClientRect) return false;
++ const vw = window.innerWidth || document.documentElement.clientWidth || 0;
++ const vh = window.innerHeight || document.documentElement.clientHeight || 0;
++ const WORDS = /验证|拖动|滑块|拼图|滑动/;
++ const lenient = (e) => {
 +  const r = e.getBoundingClientRect();
 +  if (r.width < 40 || r.height < 30) return false;
 +  const cs = getComputedStyle(e);
 +  return cs.display !== "none" && cs.visibility !== "hidden" && parseFloat(cs.opacity || "1") > 0.05;
 + };
++ const clippedAway = (cs) => {
++  const cp = String(cs.clipPath || "none").trim();
++  if (cp !== "none" && /^(inset\(\s*(5\d|[6-9]\d|100)%|circle\(\s*0(px|%)?\s*(at|\))|ellipse\(\s*0(px|%)?\s)/.test(cp)) return true;
++  const m = String(cs.clip || "auto").match(/^rect\(\s*(-?[\d.]+)px,?\s*(-?[\d.]+)px,?\s*(-?[\d.]+)px,?\s*(-?[\d.]+)px\s*\)$/);
++  if (m && (cs.position === "absolute" || cs.position === "fixed")) {
++   const t = +m[1], r = +m[2], b = +m[3], l = +m[4];
++   if (r - l <= 1 || b - t <= 1) return true;
++  }
++  return false;
++ };
++ // 藏起来的原因（自身或祖先样式）；"" = 样式上没藏
++ const styleHidden = (e) => {
++  let op = 1;
++  for (let a = e; a && a.nodeType === 1; a = a.parentElement) {
++   const cs = getComputedStyle(a);
++   if (cs.display === "none") return a === e ? "display-none" : "ancestor-display-none";
++   if (a === e && cs.visibility === "hidden") return "visibility-hidden";
++   op *= parseFloat(cs.opacity || "1");
++   if (op <= 0.05) return a === e ? "opacity-0" : "ancestor-opacity-0";
++   if (clippedAway(cs)) return a === e ? "clipped" : "ancestor-clipped";
++  }
++  return "";
++ };
++ // 看不见的原因；"" = 真看得见
++ const hiddenWhy = (e) => {
++  const s = styleHidden(e);
++  if (s) return s;
++  const r = e.getBoundingClientRect();
++  if (r.width < 40 || r.height < 30) return "too-small";
++  const x0 = Math.max(0, r.left), y0 = Math.max(0, r.top), x1 = Math.min(vw, r.right), y1 = Math.min(vh, r.bottom);
++  if (x1 - x0 < 1 || y1 - y0 < 1) return "offscreen";
++  const p = document.elementFromPoint((x0 + x1) / 2, (y0 + y1) / 2);
++  if (!p || (p !== e && !e.contains(p))) return "occluded";
++  return "";
++ };
++ const verifyContent = (e) => e.tagName === "IFRAME" || !!e.querySelector("iframe, canvas, img") ||
++  WORDS.test(String(e.textContent || "").slice(0, 2000));
++ const big = (e) => {
++  if (e === document.body || e === document.documentElement) return true;
++  const r = e.getBoundingClientRect();
++  return vw > 0 && vh > 0 && r.width * r.height > 0.9 * vw * vh;
++ };
++ const bigCounts = (e) => String(e.innerText || e.textContent || "").trim().length <= 300 && verifyContent(e);
++ let hidden = null;
++ for (const e of document.querySelectorAll('[class*="captcha" i], [id*="captcha" i], iframe[src*="captcha" i]')) {
++  if (e.closest(EXCLUDE)) continue;
++  if (big(e) && !bigCounts(e)) continue;
++  const why = hiddenWhy(e);
++  if (!why) return {why: e.tagName === "IFRAME" ? "iframe" : "widget", el: e, kind: "visible", hidden_why: ""};
++  if (hidden) continue;
++  if (lenient(e) || (why !== "too-small" && why !== "offscreen" && why !== "occluded" && verifyContent(e))) {
++   hidden = {why: "hidden-widget", el: e, kind: "hidden", hidden_why: why};
++  }
++ }
 + const fixedBox = (e) => {
 +  for (let a = e; a && a !== document.documentElement; a = a.parentElement) {
 +   if (getComputedStyle(a).position === "fixed") return a;
 +  }
 +  return null;
 + };
-+ let why = "";
-+ for (const e of document.querySelectorAll('[class*="captcha" i], [id*="captcha" i], iframe[src*="captcha" i]')) {
-+  if (e.closest(EXCLUDE)) continue;
-+  if (shown(e)) { why = "captcha-element"; break; }
-+ }
-+ if (!why && document.body) {
++ if (document.body) {
 +  const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
 +  while (w.nextNode()) {
 +   const s = (w.currentNode.nodeValue || "").trim();
@@ -7619,12 +9901,22 @@ index 0000000..b7c399a
 +   const el = w.currentNode.parentElement;
 +   if (!el || el.closest(EXCLUDE)) continue;
 +   const box = fixedBox(el);
-+   if (!box || !shown(box)) continue;
++   if (!box || !lenient(box)) continue;
 +   const t = (box.innerText || "").trim();
-+   if (t.length <= 300 && /拖动|拼图|滑块|滑动|点击|验证/.test(t.replace(/安全验证/g, ""))) { why = "overlay"; break; }
++   if (t.length > 300 || !/拖动|拼图|滑块|滑动|点击|验证/.test(t.replace(/安全验证/g, ""))) continue;
++   const why = hiddenWhy(box);
++   if (!why) return {why: "overlay", el: box, kind: "visible", hidden_why: ""};
++   if (!hidden) hidden = {why: "hidden-widget", el: box, kind: "hidden", hidden_why: "overlay-" + why};
 +  }
 + }
-+ return JSON.stringify({path: location.pathname, captcha: !!why, why});
++ return hidden || {why: "", el: null, kind: "", hidden_why: ""};
++}`
++
++// riskProbeJS 读一次页面的风控读数：{path, captcha（看得见的验证）, hidden（看不见的验证组件）, why, hidden_why}。
++const riskProbeJS = `() => {
++ const hit = (` + riskFindJS + `)();
++ return JSON.stringify({path: location.pathname, captcha: hit.kind === "visible", hidden: hit.kind === "hidden",
++  why: hit.why, hidden_why: hit.hidden_why || ""});
 +}`
 +
 +// ClassifyRisk 按页面路径和验证浮层判风控（纯函数）。
@@ -7639,44 +9931,183 @@ index 0000000..b7c399a
 +	return nil
 +}
 +
-+// RiskPage 统一风控检查：导航后、关键步骤前调用。页面读不出来（已关、超时）按「看不出风险」处理。
++// riskProbe 一次读数。
++type riskProbe struct {
++	Path      string `json:"path"`
++	Captcha   bool   `json:"captcha"` // 看得见的验证（iframe / widget / overlay）
++	Hidden    bool   `json:"hidden"`  // 看不见的验证组件（hidden-widget）
++	Why       string `json:"why"`
++	HiddenWhy string `json:"hidden_why"`
++}
++
++func (p riskProbe) seen() bool { return p.Captcha || p.Hidden }
++
++func (p riskProbe) label() string {
++	switch {
++	case p.Captcha:
++		return p.Why
++	case p.Hidden:
++		return p.Why + ":" + p.HiddenWhy
++	}
++	return "none"
++}
++
++// RiskConfirmDelay 探针第一次看到验证组件后，隔多久再读一次确认（1008 第二轮：隔 1.5 秒仍成立才算；测试里改小）。
++var RiskConfirmDelay = 1500 * time.Millisecond
++
++// readRiskProbe 读一次页面。
++//
++// 1008 审查 blocker：调用方的 page 常带着已经过期的 deadline（NewUserProfileAction 的 page.Timeout(60s) 从构造那一刻起算，
++// 滚收藏 6 分钟后它早就过期了），从它派生 Timeout(5s) 会立刻失败、被当成「没风险」——卡住期间每轮查风控、歇完再查
++// 全成了空转。现在一律换一份干净的 context、只给 5 秒（只读页面，不导航、不点）。读不到照旧按「看不出风险」处理，
++// 但写一行日志，并记下来进下一份证据（probe_error）。
++func readRiskProbe(page *rod.Page) (riskProbe, error) {
++	var p riskProbe
++	var raw string
++	err := rod.Try(func() { raw = page.Context(context.Background()).Timeout(5 * time.Second).MustEval(riskProbeJS).Str() })
++	if err == nil {
++		if e := json.Unmarshal([]byte(raw), &p); e != nil {
++			err = fmt.Errorf("读数解不开：%w", e)
++		}
++	}
++	if err != nil {
++		noteProbeError(page, err)
++		logrus.Warnf("风控探针读不到页面（按看不出风险处理）：%v", err)
++		return riskProbe{}, err
++	}
++	return p, nil
++}
++
++// RiskPage 统一风控检查：导航后、关键步骤前调用。页面读不出来（已关、超时）按「看不出风险」处理（记日志）。
++//
++// 1008 第二轮：看到验证组件后隔 RiskConfirmDelay（1.5 秒）再读一次——
++//   - 两次都看得见 → CAPTCHA_REQUIRED（照旧立即停 + 熔断，安全第一，不放宽）；
++//   - 只看见过看不见的组件、或出现了一下又没了 → HIDDEN_WIDGET（停本次、不写熔断，见 RiskHiddenWidget）；
++//   - 第一次没看见、第二次才看得见 → 再隔一次读第三次，看得见才算 CAPTCHA_REQUIRED；
++//   - 复读读不到页面（两次）→ 按第一次的读数（宁可停）。
++//
++// 被跳到 /website-login/*（路径就是证据）不复读，直接 ACCOUNT_RISK。
++// 1008（B1）：命中时当场落一份出事证据（截图 + 命中元素 + 收藏接口回包，见 evidence.go），目录记进 RiskError.Evidence；
++// 服务层写熔断时把它挂进 risk-hold.json（url / tab / evidence）。
 +func RiskPage(page *rod.Page) *RiskError {
-+	r, _ := RiskPageRead(page)
++	if page == nil {
++		return nil
++	}
++	r := confirmRisk(page)
++	if r != nil {
++		// 收藏接口刚回了拒绝（461 / 300011 之类）：这是「不是误报」最硬的证据，写进 Detail（熔断的 detail、MCP 报错文本都看得到）
++		if w := collectWatchFor(page); w != nil && !r.Hidden() {
++			w.waitBodies(time.Second) // 刚回来的回包还在取（读浏览器内存），等一小会儿好带上 code
++			if why := w.Refused(); why != "" {
++				r.Detail += "；" + why
++			}
++		}
++		noteRiskEvidence(page, r)
++	}
 +	return r
 +}
 +
-+// RiskPageRead 同 RiskPage，另报这次到底读没读到页面（ok=false：页面已关/超时，结果不作数）。
-+// 验证窗口要靠它区分「没风险」和「根本没看到」。
++func confirmRisk(page *rod.Page) *RiskError {
++	p1, err := readRiskProbe(page)
++	if err != nil {
++		return nil
++	}
++	if r := ClassifyRisk(p1.Path, false); r != nil {
++		r.Why = "path"
++		logrus.Warnf("风控页: %s（path=%s why=path）", r.Error(), p1.Path)
++		return r
++	}
++	if !p1.seen() {
++		return nil
++	}
++	reads := []riskProbe{p1}
++	again := func() (riskProbe, bool) {
++		for i := 0; i < 2; i++ {
++			time.Sleep(RiskConfirmDelay)
++			if p, err := readRiskProbe(page); err == nil {
++				reads = append(reads, p)
++				return p, true
++			}
++		}
++		return riskProbe{}, false
++	}
++	labels := func() string {
++		s := make([]string, len(reads))
++		for i, p := range reads {
++			s[i] = p.label()
++		}
++		return strings.Join(s, " → ")
++	}
++	captcha := func(p riskProbe) *RiskError {
++		if r := ClassifyRisk(p.Path, false); r != nil {
++			r.Why = "path"
++			logrus.Warnf("风控页: %s（path=%s why=path，复读时被跳走）", r.Error(), p.Path)
++			return r
++		}
++		r := ClassifyRisk(p.Path, true)
++		r.Why = p.Why
++		logrus.Warnf("风控页: %s（path=%s why=%s，读数 %s）", r.Error(), p.Path, p.Why, labels())
++		return r
++	}
++	hidden := func(p riskProbe) *RiskError {
++		why := "hidden-widget:" + p1.HiddenWhy
++		if p1.Captcha {
++			why = "appeared-then-gone:" + p1.Why
++		}
++		logrus.Warnf("看不见的验证组件（%s，path=%s，读数 %s）：本次停下、不写熔断", why, p.Path, labels())
++		return &RiskError{Code: RiskHiddenWidget, Detail: HiddenWidgetDetail, Why: why}
++	}
++	p2, ok := again()
++	switch {
++	case !ok: // 复读读不到页面：按第一次的读数，宁可停
++		if p1.Captcha {
++			return captcha(p1)
++		}
++		return hidden(p1)
++	case ClassifyRisk(p2.Path, false) != nil:
++		return captcha(p2)
++	case p1.Captcha && p2.Captcha:
++		return captcha(p2)
++	case p2.Captcha: // 第一次没看见、第二次才看得见：再确认一次
++		p3, ok := again()
++		if !ok || p3.Captcha || ClassifyRisk(p3.Path, false) != nil {
++			if ok {
++				return captcha(p3)
++			}
++			return captcha(p2)
++		}
++		return hidden(p3)
++	}
++	return hidden(p2)
++}
++
++// RiskPageRead 读一次页面（不复读、不落证据），另报这次到底读没读到页面（ok=false：页面已关/超时，结果不作数）。
++// 验证窗口要靠它区分「没风险」和「根本没看到」：验证窗口每 2 秒读一次，滑块挂着时不能每 2 秒截一张图。
++// 只报看得见的验证和安全跳转；看不见的验证组件（hidden-widget）不算——她在窗口里看不见、也拖不了它。
 +func RiskPageRead(page *rod.Page) (*RiskError, bool) {
 +	if page == nil {
 +		return nil, false
 +	}
-+	var raw string
-+	if err := rod.Try(func() { raw = page.Timeout(5 * time.Second).MustEval(riskProbeJS).Str() }); err != nil {
++	p, err := readRiskProbe(page)
++	if err != nil {
 +		return nil, false
 +	}
-+	var probe struct {
-+		Path    string `json:"path"`
-+		Captcha bool   `json:"captcha"`
-+		Why     string `json:"why"`
-+	}
-+	if json.Unmarshal([]byte(raw), &probe) != nil {
-+		return nil, false
-+	}
-+	r := ClassifyRisk(probe.Path, probe.Captcha)
++	r := ClassifyRisk(p.Path, p.Captcha)
 +	if r != nil {
-+		logrus.Warnf("风控页: %s（path=%s why=%s）", r.Error(), probe.Path, probe.Why)
++		r.Why = p.Why
++		logrus.Warnf("风控页: %s（path=%s why=%s）", r.Error(), p.Path, p.Why)
 +	}
 +	return r, true
 +}
 +
 +// PageLoginState 读一次页面登录标志（不导航、不等待）：user / guest / guestflag / risk / pending；读不到返回空串。
++// 同 readRiskProbe，换一份干净的 context（调用方的 page 可能带着过期的 deadline）。
 +func PageLoginState(page *rod.Page) string {
 +	if page == nil {
 +		return ""
 +	}
 +	st := ""
-+	_ = rod.Try(func() { st = page.Timeout(5 * time.Second).MustEval(loginStateJS).Str() })
++	_ = rod.Try(func() { st = page.Context(context.Background()).Timeout(5 * time.Second).MustEval(loginStateJS).Str() })
 +	return st
 +}
 +
@@ -7931,10 +10362,10 @@ index 0000000..6c3ddcc
 +}
 diff --git a/xiaohongshu/risk_test.go b/xiaohongshu/risk_test.go
 new file mode 100644
-index 0000000..69a6992
+index 0000000..95f5ddb
 --- /dev/null
 +++ b/xiaohongshu/risk_test.go
-@@ -0,0 +1,323 @@
+@@ -0,0 +1,431 @@
 +package xiaohongshu
 +
 +import (
@@ -8055,6 +10486,69 @@ index 0000000..69a6992
 +	assert.Equal(t, FavStopRisk, res.Reason)
 +}
 +
++// TestScrollFavoritesStopsOnHiddenWidget 1008 第二轮：滚动途中页面里有看不见的验证组件（或出现一下又没了）——立即停、
++// 一次都不再滚，不返回风控（不写熔断），已读到的按 partial 交回（hidden_widget），带证据目录。
++func TestScrollFavoritesStopsOnHiddenWidget(t *testing.T) {
++	scrolls, count := 0, 0
++	cfg := fastFavCfg(0)
++	cfg.Budget = time.Minute
++	res, r := scrollFavorites(context.Background(), cfg,
++		func() favProbe { count += 10; return favProbe{Count: count, HasMore: 1, Tab: "fav"} },
++		func(int) { scrolls++ },
++		func() *RiskError {
++			if count >= 50 {
++				return &RiskError{Code: RiskHiddenWidget, Detail: HiddenWidgetDetail, Why: "hidden-widget:offscreen", Evidence: "EV"}
++			}
++			return nil
++		})
++	assert.Nil(t, r, "看不见的验证组件不是风控：不写熔断")
++	assert.Equal(t, FavStopHidden, res.Reason)
++	assert.True(t, res.Partial)
++	assert.Equal(t, "EV", res.Evidence)
++	n := scrolls
++	assert.Equal(t, res.Count, count, "命中那轮的读数照样算进去")
++	assert.Equal(t, n, res.Scrolls, "命中后一次都不再滚")
++	assert.Equal(t, favScrollRiskEvery, scrolls, "第 2 次检查（第 4 轮）命中：之前滚了一组")
++}
++
++// TestScrollFavoritesStopsOnAPIRefused 1008（审查）：收藏接口已经回了拒绝——再滚只是接着打被拒的接口，立即停（api_refused，partial），
++// 当场落证据；不返回风控（页面同时弹了验证由上层的风控复查写熔断）。
++func TestScrollFavoritesStopsOnAPIRefused(t *testing.T) {
++	scrolls, count, refusedCalls := 0, 0, 0
++	cfg := fastFavCfg(0)
++	cfg.Budget = time.Minute
++	cfg.Refused = func() string {
++		if count >= 30 {
++			return "收藏接口回 HTTP 461（code=300011）"
++		}
++		return ""
++	}
++	cfg.OnRefused = func(string) string { refusedCalls++; return "EV" }
++	res, r := scrollFavorites(context.Background(), cfg,
++		func() favProbe { count += 10; return favProbe{Count: count, HasMore: 1, Tab: "fav"} },
++		func(int) { scrolls++ }, noRisk)
++	assert.Nil(t, r)
++	assert.Equal(t, FavStopRefused, res.Reason)
++	assert.True(t, res.Partial)
++	assert.Equal(t, 30, res.Count)
++	assert.Equal(t, 2, scrolls, "第 3 次读数时已被拒：之后不再滚")
++	assert.Equal(t, 1, refusedCalls)
++	assert.Equal(t, "EV", res.Evidence)
++}
++
++// TestHiddenWidgetTextAvoidsBlockedHints HIDDEN_WIDGET 的报错文本会进 MCP 报错：不能带 Python looks_blocked 认的字，
++// 否则会被当成「号出事」整批停车。给她看的 HTTP 文案照施工单。
++func TestHiddenWidgetTextAvoidsBlockedHints(t *testing.T) {
++	text := strings.ToLower((&RiskError{Code: RiskHiddenWidget, Detail: HiddenWidgetDetail}).Error())
++	for _, hint := range []string{"captcha", "验证码", "滑块", "安全验证", "风控", "登录", "账号异常", "行为异常", "频繁"} {
++		assert.NotContains(t, text, hint)
++	}
++	assert.Equal(t, "页面里有验证组件但没显示滑块，这次先停，下次照常读", HiddenWidgetText)
++	assert.True(t, (&RiskError{Code: RiskHiddenWidget}).Hidden())
++	assert.False(t, (&RiskError{Code: RiskCaptcha}).Hidden())
++	assert.False(t, (*RiskError)(nil).Hidden())
++}
++
 +// TestScrollFavoritesEndsOnHasMoreFalse 页面明确说没有更多：条数稳一小会儿就收工，算读全，不必把几级滚法都试一遍。
 +func TestScrollFavoritesEndsOnHasMoreFalse(t *testing.T) {
 +	n := 0
@@ -8096,20 +10590,65 @@ index 0000000..69a6992
 +	assert.Nil(t, res.HasMore)
 +}
 +
-+// TestScrollFavoritesHasMoreTrueStuckIsPartial 页面说还有更多，但几种滚法都加载不出来：停下并报 partial，不当全量。
-+func TestScrollFavoritesHasMoreTrueStuckIsPartial(t *testing.T) {
-+	scrolls := 0
-+	res, r := scrollFavorites(context.Background(), fastFavCfg(0),
-+		func() favProbe { return favProbe{Count: 540, HasMore: 1, Tab: "fav"} },
-+		func(int) { scrolls++ }, noRisk)
++// TestScrollStalledStopsAfterLevel1 1008（B4 前兆即停）：页面说还有更多（hasMore=true）但条数卡住（10-08 05:18 卡在 1150）——
++// 最多换第 1 级滚法（往回滚一截），还不动就停：stop_reason=stalled、partial；不再升到真实滚轮那两级；
++// 卡住那一刻落一次证据；卡住期间每轮都查风控。
++func TestScrollStalledStopsAfterLevel1(t *testing.T) {
++	rounds, risks, scrolls, stalls := 0, 0, 0, 0
++	maxLevel := -1
++	res, r := scrollFavorites(context.Background(), func() favScrollCfg {
++		cfg := fastFavCfg(1216)
++		cfg.OnStall = func(count int) string { stalls++; assert.Equal(t, 1150, count); return "EVIDENCE-DIR" }
++		return cfg
++	}(),
++		func() favProbe { rounds++; return favProbe{Count: 1150, HasMore: 1, Tab: "fav"} },
++		func(level int) {
++			scrolls++
++			if level > maxLevel {
++				maxLevel = level
++			}
++		},
++		func() *RiskError { risks++; return nil })
 +	require.Nil(t, r)
-+	assert.Equal(t, FavStopStuck, res.Reason)
++	assert.Equal(t, FavStopStalled, res.Reason)
 +	assert.True(t, res.Partial)
-+	assert.Equal(t, 540, res.Count)
-+	assert.Equal(t, 3, res.Level, "四级滚法都试过才停")
++	assert.Equal(t, 1150, res.Count)
++	assert.Equal(t, 1, res.Level, "最多到第 1 级")
++	assert.Equal(t, 1, maxLevel, "不许用到第 2/3 级（真实滚轮）")
 +	require.NotNil(t, res.HasMore)
 +	assert.True(t, *res.HasMore)
++	assert.Equal(t, 1, stalls, "卡住那一刻只落一次证据")
++	assert.Equal(t, "EVIDENCE-DIR", res.Evidence)
 +	assert.Greater(t, scrolls, 0)
++	// 第 0 轮照例查一次；之后每一轮（条数一直没长）都查：查的次数 = 走到滚动那一步的轮数
++	assert.Equal(t, scrolls, risks, "卡住期间每轮都查风控")
++
++	// 卡住途中弹了验证：下一轮就停，返回风控
++	n := 0
++	_, r = scrollFavorites(context.Background(), fastFavCfg(0),
++		func() favProbe { return favProbe{Count: 540, HasMore: 1, Tab: "fav"} }, func(int) {},
++		func() *RiskError {
++			if n++; n == 3 {
++				return ClassifyRisk("/explore", true)
++			}
++			return nil
++		})
++	require.NotNil(t, r)
++	assert.Equal(t, RiskCaptcha, r.Code)
++	assert.Equal(t, 3, n, "第 0 轮查过之后，每轮都查（不是每 4 轮）")
++}
++
++// TestScrollGrowingHasMoreChecksRiskEvery4 对照：一直在长（正常翻页）时仍是每 4 轮查一次风控，不额外加检查。
++func TestScrollGrowingHasMoreChecksRiskEvery4(t *testing.T) {
++	count, risks, scrolls := 0, 0, 0
++	cfg := fastFavCfg(0)
++	cfg.Budget = 200 * time.Millisecond
++	_, r := scrollFavorites(context.Background(), cfg,
++		func() favProbe { count += 10; return favProbe{Count: count, HasMore: 1, Tab: "fav"} },
++		func(int) { scrolls++ }, func() *RiskError { risks++; return nil })
++	require.Nil(t, r)
++	require.Greater(t, scrolls, 8)
++	assert.Equal(t, (scrolls+favScrollRiskEvery-1)/favScrollRiskEvery, risks)
 +}
 +
 +// TestScrollFavoritesBelowExpectKeepsScrolling 条数停住但远低于基准（页面没给 hasMore）：继续换滚法；
@@ -8258,6 +10797,341 @@ index 0000000..69a6992
 +	assert.False(t, res.Partial)
 +	assert.Equal(t, 0, res.Level)
 +}
+diff --git a/xiaohongshu/risk_visibility_localbrowser_test.go b/xiaohongshu/risk_visibility_localbrowser_test.go
+new file mode 100644
+index 0000000..a4fea99
+--- /dev/null
++++ b/xiaohongshu/risk_visibility_localbrowser_test.go
+@@ -0,0 +1,329 @@
++//go:build localbrowser
++
++package xiaohongshu
++
++// 1008 第二轮 + 审查修复的本地浏览器测试：内置浏览器（无界面、临时 profile、挂死代理只通本机）打开本机假页面。
++// 不碰小红书、不碰真 profile、不碰真 ~/.link-brain/risk-evidence（LINK_BRAIN_EVIDENCE_DIR 指临时目录）。
++// 跑法：go test -tags localbrowser -count=1 -timeout 900s -run LocalBrowser ./xiaohongshu
++
++import (
++	"context"
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++const (
++	slider       = `<canvas width="300" height="150"></canvas><div>拖动滑块完成拼图</div>`
++	capBox       = `position:fixed;top:100px;left:40px;width:320px;height:240px;background:#eee`
++	longPageText = `这是一段很长的正文，用来模拟整页包装层里的内容。`
++)
++
++// TestLocalBrowserProbeVisibility 1008 第二轮：
++//   - 看得见的验证（组件 / iframe / 带验证内容的全屏遮罩）→ 隔 1.5 秒复读仍在 → CAPTCHA_REQUIRED（熔断）；
++//   - display:none（里面有验证内容）/ 祖先 opacity:0 / 屏幕外 / 被盖住 / 被 clip-path 裁没的验证容器 → HIDDEN_WIDGET（停本次、不熔断），
++//     验证窗口用的单次读数（RiskPageRead）不算风控；
++//   - 大容器 class 带 captcha 但里面没有验证内容（整页包装层、body）→ 不算；空的 display:none 占位 → 不算；
++//   - 1.5 秒内出现又消失 → 仍停本次（HIDDEN_WIDGET，不熔断）。
++func TestLocalBrowserProbeVisibility(t *testing.T) {
++	root := t.TempDir()
++	t.Setenv("LINK_BRAIN_EVIDENCE_DIR", root)
++	long := strings.Repeat(longPageText, 20)
++	srv := fixtureServer(t, map[string]string{
++		"/v/slider":         `<div class="red-captcha-container" style="` + capBox + `">` + slider + `</div>`,
++		"/v/iframe":         `<iframe src="/captcha-frame" style="position:fixed;top:100px;left:40px;width:320px;height:240px;border:0"></iframe>`,
++		"/v/big-puzzle":     `<div class="red-captcha-mask" style="position:fixed;inset:0;background:rgba(0,0,0,.4)"><div style="width:320px;height:240px;margin:80px auto;background:#fff">` + slider + `</div></div>`,
++		"/v/display-none":   `<div class="red-captcha-container" style="display:none;width:320px;height:240px">` + slider + `</div>`,
++		"/v/ancestor-alpha": `<div style="opacity:0"><div class="red-captcha-container" style="width:320px;height:240px;background:#eee"></div></div>`,
++		"/v/offscreen":      `<div class="red-captcha-container" style="position:fixed;left:-10000px;top:100px;width:320px;height:240px"></div>`,
++		"/v/occluded": `<div class="red-captcha-container" style="` + capBox + `;z-index:1"></div>` +
++			`<div style="position:fixed;top:90px;left:30px;width:400px;height:300px;background:#fff;z-index:10">别的东西盖在上面</div>`,
++		"/v/clipped":     `<div class="red-captcha-container" style="` + capBox + `;clip-path:inset(50%)"></div>`,
++		"/v/big-wrapper": `<div id="app" class="app captcha-ready" style="position:fixed;inset:0;background:#fff"><img src="/x.png" width="40" height="40"><p>` + long + `</p></div>`,
++		"/v/body-class":  `<p>` + long + `</p><img src="/x.png" width="40" height="40"><script>document.body.className = "x-captcha-ready";</script>`,
++		"/v/empty-hidden": `<div id="captcha-root" style="display:none;width:320px;height:240px"></div>` +
++			`<div class="captcha-placeholder" style="opacity:0;width:320px;height:240px"></div>`,
++		"/v/flash": `<div id="cap" class="red-captcha-container" style="` + capBox + `">` + slider + `</div>`,
++	})
++	page := localPage(t)
++	cases := []struct {
++		path, want, why string
++		single          bool // RiskPageRead（验证窗口的单次读数）也算风控
++	}{
++		{"/v/slider", RiskCaptcha, "widget", true},
++		{"/v/iframe", RiskCaptcha, "iframe", true},
++		{"/v/big-puzzle", RiskCaptcha, "widget", true},
++		{"/v/display-none", RiskHiddenWidget, "hidden-widget:display-none", false},
++		{"/v/ancestor-alpha", RiskHiddenWidget, "hidden-widget:ancestor-opacity-0", false},
++		{"/v/offscreen", RiskHiddenWidget, "hidden-widget:offscreen", false},
++		{"/v/occluded", RiskHiddenWidget, "hidden-widget:occluded", false},
++		{"/v/clipped", RiskHiddenWidget, "hidden-widget:clipped", false},
++		{"/v/big-wrapper", "", "", false},
++		{"/v/body-class", "", "", false},
++		{"/v/empty-hidden", "", "", false},
++	}
++	for _, c := range cases {
++		page.Timeout(20 * time.Second).MustNavigate(srv.URL + c.path).MustWaitLoad()
++		r := RiskPage(page)
++		if c.want == "" {
++			assert.Nil(t, r, c.path)
++		} else if assert.NotNil(t, r, c.path) {
++			assert.Equal(t, c.want, r.Code, c.path)
++			assert.Equal(t, c.why, r.Why, c.path)
++			assert.NotEmpty(t, r.Evidence, "%s：落了证据", c.path)
++			if r.Hidden() {
++				m := readMeta(t, r.Evidence)
++				assert.Equal(t, "hidden_widget", m["trigger"], c.path)
++				assert.Equal(t, "hidden", m["kind"], c.path)
++			}
++		}
++		single, ok := RiskPageRead(page)
++		require.True(t, ok, c.path)
++		if c.single {
++			assert.NotNil(t, single, c.path)
++		} else {
++			assert.Nil(t, single, "%s：单次读数只认看得见的验证", c.path)
++		}
++	}
++
++	// 1.5 秒内出现又消失：第一次读看得见，复读时没了 → 仍停本次，但不算看得见的验证（不熔断）
++	page.Timeout(20 * time.Second).MustNavigate(srv.URL + "/v/flash").MustWaitLoad()
++	page.MustEval(`() => setTimeout(() => document.getElementById("cap").remove(), 600)`)
++	r := RiskPage(page)
++	require.NotNil(t, r)
++	assert.Equal(t, RiskHiddenWidget, r.Code)
++	assert.Equal(t, "appeared-then-gone:widget", r.Why)
++}
++
++// TestLocalBrowserRiskAfterActionDeadline 审查 blocker：NewUserProfileAction 给 page 套的期限（生产 60 秒）过期之后，
++// 风控检查必须照样读得到页面——滚收藏的 risk 闭包、selectTab 歇完之后那次检查都要判出 CAPTCHA_REQUIRED，
++// selectTab 返回 RiskError（以前读不到页面就当「没风险」，滚 6 分钟后的每轮检查全是空转）。
++func TestLocalBrowserRiskAfterActionDeadline(t *testing.T) {
++	root := t.TempDir()
++	t.Setenv("LINK_BRAIN_EVIDENCE_DIR", root)
++	oldBudget := profileActionBudget
++	profileActionBudget = 300 * time.Millisecond
++	t.Cleanup(func() { profileActionBudget = oldBudget })
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		w.Header().Set("Content-Type", "text/html; charset=utf-8")
++		switch r.URL.Path {
++		case "/fav/captcha":
++			fmt.Fprint(w, "<!doctype html><html><head><meta charset=utf-8></head><body>"+favStallFixture(60)+
++				`<div class="red-captcha-container" style="`+capBox+`;z-index:99">`+slider+`</div></body></html>`)
++		default:
++			fmt.Fprint(w, tabFixture("dead"))
++		}
++	}))
++	t.Cleanup(srv.Close)
++	page := localPage(t)
++	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
++	defer cancel()
++
++	// 滚收藏的 risk 闭包
++	page.Timeout(20 * time.Second).MustNavigate(srv.URL + "/fav/captcha").MustWaitLoad()
++	u := NewUserProfileAction(page)
++	time.Sleep(600 * time.Millisecond)
++	require.Error(t, u.page.GetContext().Err(), "前提：动作的 page 期限已过（生产上滚到 6 分钟时就是这样）")
++	r := RiskPage(u.page)
++	require.NotNil(t, r, "期限过了也要读得到页面")
++	assert.Equal(t, RiskCaptcha, r.Code)
++	res, r := u.scrollLoadAllFavorites(ctx)
++	require.NotNil(t, r, "滚收藏的风控检查不能空转：stop_reason=%s", res.Reason)
++	assert.Equal(t, RiskCaptcha, r.Code)
++	assert.Equal(t, FavStopRisk, res.Reason)
++
++	// selectTab：第 1 轮没点中，歇着的时候弹了验证浮层 → 歇完那次检查要判出来，返回 RiskError，不再点
++	page.Timeout(20 * time.Second).MustNavigate(srv.URL + "/p/dead").MustWaitLoad()
++	u = NewUserProfileAction(page)
++	pauses := 0
++	oldPause := FavTabRetryPause
++	FavTabRetryPause = func() time.Duration {
++		pauses++
++		page.MustEval(`() => { const d = document.createElement("div"); d.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.4)";
++  d.innerHTML = '<div style="width:320px;height:240px;margin:80px auto;background:#fff">安全验证<p>请拖动下方滑块完成拼图</p></div>'; document.body.appendChild(d); }`)
++		return 300 * time.Millisecond
++	}
++	t.Cleanup(func() { FavTabRetryPause = oldPause })
++	err := u.selectTab(ctx, nil, TabFavorites)
++	r = AsRisk(err)
++	require.NotNil(t, r, "err=%v", err)
++	assert.Equal(t, RiskCaptcha, r.Code)
++	assert.Equal(t, 1, pauses)
++	assert.Len(t, clicksOn(t, page), 1, "歇完发现验证：不再点第 2 次")
++}
++
++// collectFixtureServer 假主页 + 假收藏接口：点「收藏」后页面去打收藏接口。
++//
++//	mode "slow"：接口 delay 后才回（限流时就这样），回来后页签才切到收藏；
++//	mode "refused"：接口立刻回 461 / code 300011，页签不动。
++func collectFixtureServer(t *testing.T, mode string, delay time.Duration) (*httptest.Server, *atomic.Int32) {
++	t.Helper()
++	var calls atomic.Int32
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.URL.Path == collectAPIPath {
++			calls.Add(1)
++			w.Header().Set("Content-Type", "application/json")
++			if mode == "refused" {
++				w.WriteHeader(461)
++				fmt.Fprint(w, `{"code":300011,"success":false,"msg":"当前账号存在异常"}`)
++				return
++			}
++			time.Sleep(delay)
++			fmt.Fprint(w, `{"code":0,"success":true,"data":{"has_more":true,"notes":[{"note_id":"n1"}]}}`)
++			return
++		}
++		w.Header().Set("Content-Type", "text/html; charset=utf-8")
++		fmt.Fprintf(w, `<!doctype html><html><head><meta charset=utf-8></head><body>%s
++<script>
++window.__INITIAL_STATE__ = {user: {activeTab: {value: {index: 0, query: "note"}}, notes: {value: [[{id: "own"}], []]}}};
++window.__clicks = [];
++document.addEventListener("click", e => {
++  window.__clicks.push({trusted: e.isTrusted, text: (e.target.innerText || "").trim(), cls: String(e.target.className || "")});
++}, true);
++document.getElementById("fav-tab").addEventListener("click", () => {
++  fetch("%s?num=30&cursor=").then(r => r.json()).then(j => {
++    if (j.success) window.__INITIAL_STATE__.user.activeTab.value = {index: 1, query: "fav"};
++  });
++});
++</script></body></html>`, profileTabs, collectAPIPath)
++	}))
++	t.Cleanup(srv.Close)
++	require.True(t, strings.HasPrefix(srv.URL, "http://127.0.0.1:"))
++	return srv, &calls
++}
++
++// TestLocalBrowserSelectTabLateActivationNoSecondClick 审查：限流时收藏接口慢，第 1 次点击在歇着的时候才迟到生效——
++// 点第 2 次之前先只读看一眼 activeTab，已经是收藏就不再点（再点一次已激活的页签会再打一次收藏接口）。
++func TestLocalBrowserSelectTabLateActivationNoSecondClick(t *testing.T) {
++	t.Setenv("LINK_BRAIN_EVIDENCE_DIR", t.TempDir())
++	srv, calls := collectFixtureServer(t, "slow", 8*time.Second)
++	oldPause := FavTabRetryPause
++	FavTabRetryPause = func() time.Duration { return 6 * time.Second }
++	t.Cleanup(func() { FavTabRetryPause = oldPause })
++	page := localPage(t)
++	page.Timeout(20 * time.Second).MustNavigate(srv.URL + "/p/slow").MustWaitLoad()
++	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
++	defer cancel()
++	u := NewUserProfileAction(page)
++	require.NoError(t, u.selectTab(ctx, nil, TabFavorites))
++	cl := clicksOn(t, page)
++	require.Len(t, cl, 1, "迟到生效：只有第 1 次点击")
++	assert.True(t, cl[0].Trusted)
++	assert.Equal(t, int32(1), calls.Load(), "收藏接口只被请求 1 次")
++	assert.NotEmpty(t, u.Evidence, "第 1 轮没生效那一刻照样落了证据")
++}
++
++// TestLocalBrowserSelectTabRefusedNoSecondClick 审查：第 1 次点击换来的收藏接口回包已经是拒绝（461 / 300011）——
++// 不再点第 2 次，返回 ErrTabStuck（服务层报 TRANSIENT、不写熔断）。
++func TestLocalBrowserSelectTabRefusedNoSecondClick(t *testing.T) {
++	t.Setenv("LINK_BRAIN_EVIDENCE_DIR", t.TempDir())
++	srv, calls := collectFixtureServer(t, "refused", 0)
++	pauses := 0
++	oldPause := FavTabRetryPause
++	FavTabRetryPause = func() time.Duration { pauses++; return 300 * time.Millisecond }
++	t.Cleanup(func() { FavTabRetryPause = oldPause })
++	page := localPage(t)
++	watch := WatchCollectAPI(page)
++	t.Cleanup(watch.Stop)
++	page.Timeout(20 * time.Second).MustNavigate(srv.URL + "/p/refused").MustWaitLoad()
++	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
++	defer cancel()
++	u := NewUserProfileAction(page)
++	err := u.selectTab(ctx, nil, TabFavorites)
++	require.ErrorIs(t, err, ErrTabStuck)
++	assert.Nil(t, AsRisk(err), "接口被拒但页面没弹验证：不写熔断")
++	assert.Contains(t, err.Error(), "461")
++	assert.Len(t, clicksOn(t, page), 1, "被拒之后不再点第 2 次")
++	assert.Equal(t, int32(1), calls.Load())
++	assert.Equal(t, 1, pauses)
++}
++
++// favRefusedFixture 假收藏页：滚到底附近去打收藏接口加载下一页；接口前 okPages 次正常、之后回 461（页面状态仍说 hasMore=true）。
++func favRefusedFixture() string {
++	return fmt.Sprintf(`<div id="feeds" class="feeds-container"></div>
++<script>
++const fav = [];
++const st = {user: {notes: {value: [[{id: "own"}], fav]}, activeTab: {value: {index: 1, query: "fav"}},
++  noteQueries: {value: [{hasMore: false}, {hasMore: true}]}}};
++window.__INITIAL_STATE__ = st;
++window.__wheels = 0;
++window.addEventListener("wheel", () => { window.__wheels++; }, {passive: true});
++let loading = false;
++function addPage() {
++  const box = document.getElementById("feeds");
++  for (let i = 0; i < 30; i++) {
++    fav.push({id: "n" + fav.length});
++    const s = document.createElement("section");
++    s.className = "note-item";
++    s.style.cssText = "height:120px;margin:4px;background:#eee";
++    s.textContent = "card " + fav.length;
++    box.appendChild(s);
++  }
++}
++function maybeLoad() {
++  if (loading) return;
++  if (window.innerHeight + window.scrollY < document.body.scrollHeight - 400) return;
++  loading = true;
++  fetch("%s?num=30&cursor=" + fav.length).then(r => r.json()).then(j => { if (j.success) addPage(); }).finally(() => { loading = false; });
++}
++addPage();
++window.addEventListener("scroll", maybeLoad, {passive: true});
++</script>`, collectAPIPath)
++}
++
++// TestLocalBrowserFavoritesAPIRefusedStops 审查：滚收藏时收藏接口开始回 461——立即停（api_refused，partial），当场落证据，
++// 不再走换滚法那几轮（一次真实滚轮都没有），接口不再被多打。
++func TestLocalBrowserFavoritesAPIRefusedStops(t *testing.T) {
++	root := t.TempDir()
++	t.Setenv("LINK_BRAIN_EVIDENCE_DIR", root)
++	var mu sync.Mutex
++	calls := 0
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.URL.Path == collectAPIPath {
++			mu.Lock()
++			calls++
++			n := calls
++			mu.Unlock()
++			w.Header().Set("Content-Type", "application/json")
++			if n > 2 {
++				w.WriteHeader(461)
++				fmt.Fprint(w, `{"code":300011,"success":false,"msg":"当前账号存在异常"}`)
++				return
++			}
++			fmt.Fprint(w, `{"code":0,"success":true,"data":{"has_more":true,"notes":[]}}`)
++			return
++		}
++		w.Header().Set("Content-Type", "text/html; charset=utf-8")
++		fmt.Fprint(w, "<!doctype html><html><head><meta charset=utf-8></head><body>"+favRefusedFixture()+"</body></html>")
++	}))
++	t.Cleanup(srv.Close)
++	page := localPage(t)
++	watch := WatchCollectAPI(page)
++	t.Cleanup(watch.Stop)
++	page.Timeout(20 * time.Second).MustNavigate(srv.URL + "/fav/refused").MustWaitLoad()
++	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
++	defer cancel()
++	u := &UserProfileAction{page: page, FavExpect: 200}
++	start := time.Now()
++	res, r := u.scrollLoadAllFavorites(ctx)
++	require.Nil(t, r)
++	assert.Equal(t, FavStopRefused, res.Reason)
++	assert.True(t, res.Partial)
++	assert.Equal(t, 90, res.Count, "前 2 页正常（30 + 30 + 30）")
++	assert.Less(t, time.Since(start), 30*time.Second, "被拒就停，不等卡住再换滚法")
++	assert.Equal(t, 0, page.MustEval(`() => window.__wheels`).Int())
++	mu.Lock()
++	assert.Equal(t, 3, calls, "被拒之后不再打接口")
++	mu.Unlock()
++	require.NotEmpty(t, res.Evidence)
++	m := readMeta(t, res.Evidence)
++	assert.Equal(t, "fav_api_refused", m["trigger"])
++}
 diff --git a/xiaohongshu/search.go b/xiaohongshu/search.go
 index 7c22952..1fe60ee 100644
 --- a/xiaohongshu/search.go
@@ -8338,7 +11212,7 @@ index 17c82ee..9385cfa 100644
  
  // UserProfileResponse 用户详情页完整响应
 diff --git a/xiaohongshu/user_profile.go b/xiaohongshu/user_profile.go
-index 61216c7..74184ca 100644
+index 61216c7..2724a00 100644
 --- a/xiaohongshu/user_profile.go
 +++ b/xiaohongshu/user_profile.go
 @@ -3,11 +3,15 @@ package xiaohongshu
@@ -8357,7 +11231,7 @@ index 61216c7..74184ca 100644
  	"github.com/xpzouying/xiaohongshu-mcp/humanize"
  )
  
-@@ -42,6 +46,12 @@ var tabLabel = map[ProfileTab]string{
+@@ -42,10 +46,23 @@ var tabLabel = map[ProfileTab]string{
  
  type UserProfileAction struct {
  	page *rod.Page
@@ -8367,10 +11241,22 @@ index 61216c7..74184ca 100644
 +	FavExpect int
 +	// FavScroll 读收藏后滚动的结论（条数、是否 partial、判停原因）；没滚过为 nil。
 +	FavScroll *FavScrollResult
++	// Evidence 这次读主页时落的非风控证据目录（页签第 1 轮没点中 / 列表卡住；见 evidence.go），没有为空。
++	Evidence string
  }
  
++// profileActionBudget NewUserProfileAction 给 page 套的期限（从构造那一刻起算；测试里改小）。
++// 1008 审查 blocker：它过期后 u.page 上的直接读页都会失败——风控探针（readRiskProbe）和证据（CaptureEvidence）因此
++// 一律换干净的 context，别的读页都走 u.page.Context(ctx) 重设。
++var profileActionBudget = 60 * time.Second
++
  func NewUserProfileAction(page *rod.Page) *UserProfileAction {
-@@ -54,8 +64,10 @@ func (u *UserProfileAction) UserProfile(ctx context.Context, userID, xsecToken s
+-	pp := page.Timeout(60 * time.Second)
++	pp := page.Timeout(profileActionBudget)
+ 	return &UserProfileAction{page: pp}
+ }
+ 
+@@ -54,8 +71,10 @@ func (u *UserProfileAction) UserProfile(ctx context.Context, userID, xsecToken s
  	page := u.page.Context(ctx).Timeout(60 * time.Second) // 重设被 .Context 清掉的 deadline
  
  	searchURL := makeUserProfileURL(userID, xsecToken, tab)
@@ -8383,7 +11269,7 @@ index 61216c7..74184ca 100644
  
  	return u.extractUserProfileData(page, tab)
  }
-@@ -64,12 +76,25 @@ func (u *UserProfileAction) UserProfile(ctx context.Context, userID, xsecToken s
+@@ -64,12 +83,25 @@ func (u *UserProfileAction) UserProfile(ctx context.Context, userID, xsecToken s
  func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTab) (*UserProfileResponse, error) {
  	page.MustWait(`() => window.__INITIAL_STATE__ !== undefined`)
  
@@ -8410,7 +11296,7 @@ index 61216c7..74184ca 100644
  			if (data) {
  				return JSON.stringify(data);
  			}
-@@ -85,7 +110,7 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
+@@ -85,7 +117,7 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
  	notesResult := page.MustEval(`() => {
  		const u = window.__INITIAL_STATE__ && window.__INITIAL_STATE__.user;
  		if (!u || !u.notes) return "";
@@ -8419,7 +11305,7 @@ index 61216c7..74184ca 100644
  		const notes = unwrap(u.notes);
  		if (!notes) return "";
  		const active = unwrap(u.activeTab) || {};
-@@ -105,6 +130,13 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
+@@ -105,6 +137,13 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
  		return nil, fmt.Errorf("failed to unmarshal userPageData: %w", err)
  	}
  
@@ -8433,7 +11319,7 @@ index 61216c7..74184ca 100644
  	var notesData struct {
  		Notes [][]Feed `json:"notes"`
  		Index int      `json:"index"`
-@@ -120,7 +152,7 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
+@@ -120,7 +159,7 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
  		want = TabNotes
  	}
  	if notesData.Query != "" && ProfileTab(notesData.Query) != want {
@@ -8442,7 +11328,7 @@ index 61216c7..74184ca 100644
  	}
  
  	// 组装响应
-@@ -138,7 +170,7 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
+@@ -138,7 +177,7 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
  }
  
  func makeUserProfileURL(userID, xsecToken string, tab ProfileTab) string {
@@ -8451,7 +11337,7 @@ index 61216c7..74184ca 100644
  	if tab != "" && tab != TabNotes {
  		url += fmt.Sprintf("&tab=%s&subTab=note", tab)
  	}
-@@ -146,24 +178,428 @@ func makeUserProfileURL(userID, xsecToken string, tab ProfileTab) string {
+@@ -146,50 +185,636 @@ func makeUserProfileURL(userID, xsecToken string, tab ProfileTab) string {
  }
  
  func (u *UserProfileAction) GetMyProfileViaSidebar(ctx context.Context, tab ProfileTab) (*UserProfileResponse, error) {
@@ -8459,6 +11345,11 @@ index 61216c7..74184ca 100644
 -
 -	// 创建导航动作
 -	navigate := NewNavigate(page)
++	// 1008（审查）：落证据时记下「这一页是在为哪个子页签干活」（want_tab）——页签没点动接着弹验证时 activeTab 还是 note，
++	// 验证窗口要靠它知道是读收藏出的事、提示她点「收藏」。
++	if tab != "" && tab != TabNotes {
++		defer SetPageIntent(u.page, string(tab))()
++	}
 +	// 导航阶段自带预算（见 NavigateAction），这里先别开表——
 +	// 提前开表就会出现"导航花掉的时间算在提取头上"，那正是这个工具原来挂掉的方式。
 +	navigate := NewNavigate(u.page)
@@ -8481,6 +11372,8 @@ index 61216c7..74184ca 100644
  	if err := u.selectTab(ctx, page, tab); err != nil {
  		return nil, err
  	}
++	// 1008：页签第 1 轮没点中时 selectTab 会在原页面歇 20–40 秒，上面那份 60 秒预算可能已经用掉大半，重开一份
++	page = u.page.Context(ctx).Timeout(60 * time.Second)
 +	if r := RiskPage(u.page); r != nil {
 +		return nil, r
 +	}
@@ -8514,6 +11407,13 @@ index 61216c7..74184ca 100644
 +					empty = u.page.Context(ctx).Timeout(10 * time.Second).MustEval(`() => /还没有收藏|暂无收藏/.test(document.body.innerText)`).Bool()
 +				})
 +				if empty && time.Since(start) > 15*time.Second {
++					// 1008：收藏接口刚回了拒绝时，「还没有收藏」是被拒后的占位，不是真的空——别把 0 条当成功交出去
++					if why := CollectRefused(u.page); why != "" {
++						if ev := CaptureEvidence(u.page, EvidenceRefused, nil, tabLabel[TabFavorites]); ev != nil {
++							u.Evidence = ev.Dir
++						}
++						return nil, fmt.Errorf("收藏接口被拒，页面上的「还没有收藏」不作数，这次先停：%s", why)
++					}
 +					logrus.Info("XHS favorites: 页面明确为空收藏")
 +					break
 +				}
@@ -8536,12 +11436,17 @@ index 61216c7..74184ca 100644
 +			return nil, r
 +		}
 +		if res.Reason == FavStopTabLost {
-+			// 滚动途中页签跳回了别的 tab：提前停下（没把收藏滚到底），交给上层按「页签没点中」最多再试一次
++			// 滚动途中页签跳回了别的 tab：提前停下（没把收藏滚到底）。1008（B4）起上层不再换新页重读，报 TRANSIENT
 +			return nil, fmt.Errorf("%w: 滚收藏途中页签跳到了 %q", ErrTabNotActive, res.Tab)
 +		}
 +		page = u.page.Context(ctx).Timeout(60 * time.Second)
 +		if r := RiskPage(u.page); r != nil {
-+			return nil, r
++			if !r.Hidden() {
++				return nil, r
++			}
++			// 看不见的验证组件：滚动已经停了，下面只从页面状态里取数据（不再发请求、不再点）。滚动的结论（读全 / 一截）照实交回，
++			// 证据已经落了（RiskPage）
++			logrus.Warnf("滚完收藏后页面里有看不见的验证组件（%s）：不再滚、不再点，按滚动结论 %s 交回", r.Why, res.Reason)
 +		}
 +	}
 +	diagnostic := page.MustEval(`() => {
@@ -8582,23 +11487,34 @@ index 61216c7..74184ca 100644
 +// 还当成全量交出去（10-04 夜里 540 条被当成全量，后面一路连锁撞上验证码）。现在：
 +//   - 页面状态 __INITIAL_STATE__.user.noteQueries[activeTab.index].hasMore 明确为 false 才算「读到底」；
 +//     这个字段是防御式读的——读不到（-1）就当不知道，不崩、不据此判停；
-+//   - 条数停住但页面说还有更多 / 明显低于调用方给的基准时，不收工：换一种滚法（往回滚一截再到底、真实滚轮），
++//   - 页面没给 hasMore、条数停住又明显低于调用方给的基准时，不收工：换一种滚法（往回滚一截再到底、真实滚轮），
 +//     每升一级等待放宽，几种都试过还不动才停，并如实报 partial；
++//   - 1008（B4 前兆即停）：条数停住而页面说还有更多（hasMore=true）——多半是收藏接口开始拒绝，10-06 / 10-08 两次
++//     都是先卡住、硬滚之后才出验证——最多换第 1 级（往回滚一截再到底），还不动就停（stalled，partial），
++//     不再升到真实滚轮那两级；卡住那一刻落一份证据（见 evidence.go），卡住期间每轮都查风控；
 +//   - 滚动节奏带抖动（1.7–3.1 秒一次，偶尔停下来「看一会儿」），不再 1.3 秒机枪式——每次滚动都会打一次收藏接口；
 +//   - 总时长守住上层：预算 favScrollBudget，且不超过 ctx 截止前 favExtractReserve。
-+//   - 途中风控检查不变：每 favScrollRiskEvery 轮（含第 0 轮）查一次，撞上立即停、返回 RiskError。
++//   - 途中风控检查：每 favScrollRiskEvery 轮（含第 0 轮）查一次，hasMore=true 却没长的那几轮每轮都查；撞上立即停、返回 RiskError
++//     （看不见的验证组件只停、不返回风控：hidden_widget，partial）；收藏接口回了拒绝也立即停（api_refused，partial）。
 +
 +// 判停原因（响应里的 stop_reason，日志同样写这几个词）。
 +const (
 +	FavStopEnd         = "has_more_false" // 页面明确说没有更多：读全
 +	FavStopStable      = "stable"         // 换了几种滚法条数都不再增长；页面没给 hasMore、也没有基准或已达基准：按读全处理
 +	FavStopBelowExpect = "below_expect"   // 换了几种滚法条数都不再增长，但明显低于基准、页面又没说到底：partial
-+	FavStopStuck       = "stuck_has_more" // 页面说还有更多，但换了几种滚法都加载不出来：partial
++	FavStopStalled     = "stalled"        // 页面说还有更多，但条数停住、换了第 1 级滚法也不动：为免被拦先停，partial（1008 起取代 stuck_has_more）
 +	FavStopBudget      = "budget"         // 预算用完：partial
 +	FavStopCancelled   = "cancelled"      // 请求被取消 / 超时：partial
-+	FavStopTabLost     = "tab_lost"       // 滚动途中页签跳到别的 tab：提前停下（上层按「页签没点中」处理）
++	FavStopTabLost     = "tab_lost"       // 滚动途中页签跳到别的 tab：提前停下（上层按「页签没停住」报 TRANSIENT）
 +	FavStopRisk        = "risk"           // 撞风控：立即停
++	// FavStopHidden 滚动途中页面里出现看不见的验证组件（或验证出现一下又没了）：立即停、不写熔断，已读到的按 partial 交回（1008 第二轮）
++	FavStopHidden = "hidden_widget"
++	// FavStopRefused 收藏接口回了拒绝（HTTP ≥400 / success=false）：立即停、不写熔断（除非页面同时弹了验证），partial（1008）
++	FavStopRefused = "api_refused"
 +)
++
++// favStalledMaxLevel hasMore=true 卡住时最多用到第几级滚法（1 = 往回滚一截再到底；不上真实滚轮）。
++const favStalledMaxLevel = 1
 +
 +// FavScrollResult 一次全量滚动的结论。
 +type FavScrollResult struct {
@@ -8611,6 +11527,8 @@ index 61216c7..74184ca 100644
 +	Level   int     `json:"level"` // 最后用到第几种滚法（0 = 普通滚到底）
 +	Seconds float64 `json:"seconds"`
 +	Tab     string  `json:"-"` // tab_lost 时跳到的 tab
++	// Evidence 列表卡住（hasMore=true）那一刻落的证据目录；没卡住为空。
++	Evidence string `json:"evidence,omitempty"`
 +}
 +
 +// favProbe 一次读数：Count<0 表示这次没读出来；HasMore 1/0/-1 = 有更多/没有/不知道；Tab = activeTab.query（读不到为空）。
@@ -8628,6 +11546,12 @@ index 61216c7..74184ca 100644
 +	ExpectRatio float64 // 条数 < Expect*ExpectRatio 算「明显低于基准」
 +	WantTab     string  // 期望的 activeTab.query；空 = 不核
 +	Tick        func(i int) time.Duration
++	// OnStall 列表卡住且 hasMore=true 的那一刻调一次（落证据），返回证据目录；nil = 不落。
++	OnStall func(count int) string
++	// Refused 收藏接口最近一次是不是回了拒绝（说明；空串 = 没有），每轮滚之前看一眼（读内存，不发请求）；nil = 不看。
++	Refused func() string
++	// OnRefused 看到拒绝那一刻调一次（落证据），返回证据目录；nil = 不落。
++	OnRefused func(why string) string
 +}
 +
 +const (
@@ -8643,6 +11567,7 @@ index 61216c7..74184ca 100644
 +)
 +
 +// favSettleLevels 四级滚法各自的「不动多久」：普通滚到底 12s → 往回一截再到底 16s → 真实滚轮 20s → 滚轮 + 末卡入视 25s。
++// 后两级只给「页面不给 hasMore」时用；hasMore=true 卡住最多到第 1 级（favStalledMaxLevel）。
 +var favSettleLevels = []time.Duration{12 * time.Second, 16 * time.Second, 20 * time.Second, 25 * time.Second}
 +
 +// favTick 滚动间隔：1.7–3.1 秒均匀抖动，大约每 12 次多停 3–6 秒（像人停下来看一眼）。
@@ -8688,6 +11613,21 @@ index 61216c7..74184ca 100644
 +			}
 +		})
 +		return p
++	}
++	cfg.OnStall = func(int) string {
++		if ev := CaptureEvidence(u.page, EvidenceStalled, nil, tabLabel[TabFavorites]); ev != nil {
++			u.Evidence = ev.Dir
++			return ev.Dir
++		}
++		return ""
++	}
++	cfg.Refused = func() string { return CollectRefused(u.page) }
++	cfg.OnRefused = func(string) string {
++		if ev := CaptureEvidence(u.page, EvidenceRefused, nil, tabLabel[TabFavorites]); ev != nil {
++			u.Evidence = ev.Dir
++			return ev.Dir
++		}
++		return ""
 +	}
 +	scroll := func(level int) { u.favScroll(ctx, level) }
 +	return scrollFavorites(ctx, cfg, probe, scroll, func() *RiskError { return RiskPage(u.page) })
@@ -8778,8 +11718,12 @@ index 61216c7..74184ca 100644
 +// scrollFavorites 判停核心（纯逻辑，单测用桩驱动）：反复「读数 → 查风控（每 favScrollRiskEvery 轮）→ 滚 → 歇 Tick」。
 +//   - 读数里页签不是 WantTab → tab_lost，立即停；
 +//   - hasMore=false 且条数稳了 ConfirmEnd → has_more_false（读全）。条数还明显低于基准时，至少先换过一级滚法再信它；
-+//   - 条数在当前级的 Settle 内没增长 → 页面没给 hasMore 但已不少于基准就收工（stable）；否则升一级滚法（等待随之放宽）；
-+//     最高级也没招了 → 按 hasMore / 基准给结论；
++//   - 条数在当前级的 Settle 内没增长 → 页面没给 hasMore 但已不少于基准就收工（stable）；
++//     页面说还有更多（hasMore=true）：第一次卡住时 OnStall 落证据，已用到第 favStalledMaxLevel 级就停（stalled，partial）；
++//     否则升一级滚法（等待随之放宽）；最高级也没招了 → 按 hasMore / 基准给结论；
++//   - 风控：每 favScrollRiskEvery 轮查一次；hasMore=true 而这一轮没长（或已在换滚法）时每轮都查；
++//     看不见的验证组件（RiskError.Hidden）→ hidden_widget（partial，不返回风控、不写熔断）；
++//   - 收藏接口回了拒绝（cfg.Refused）→ api_refused（partial），当场落证据；
 +//   - 预算用完 → budget（partial，除非页面已说没有更多）；ctx 结束 → cancelled（partial）。
 +func scrollFavorites(ctx context.Context, cfg favScrollCfg, probe func() favProbe, scroll func(level int),
 +	risk func() *RiskError) (FavScrollResult, *RiskError) {
@@ -8794,6 +11738,7 @@ index 61216c7..74184ca 100644
 +	}
 +	res := FavScrollResult{Expect: cfg.Expect}
 +	best, hasMore := 0, -1
++	stallNoted := false
 +	lastGrow := time.Now()
 +	below := func() bool { return cfg.Expect > 0 && float64(best) < float64(cfg.Expect)*cfg.ExpectRatio }
 +	finish := func(reason string) (FavScrollResult, *RiskError) {
@@ -8839,7 +11784,8 @@ index 61216c7..74184ca 100644
 +		if p.HasMore >= 0 {
 +			hasMore = p.HasMore
 +		}
-+		if p.Count > best {
++		grew := p.Count > best
++		if grew {
 +			best = p.Count
 +			lastGrow = time.Now()
 +		}
@@ -8852,6 +11798,21 @@ index 61216c7..74184ca 100644
 +				// 页面不给 hasMore，但已经读到不少于基准、当前滚法下又不再长：按读全收工，不必再升级滚法多打接口
 +				return finish(FavStopStable)
 +			}
++			if hasMore == 1 {
++				// 1008（B4）：页面说还有更多却加载不出来——收藏接口多半在拒绝。第一次卡住落证据；换过第 1 级还不动就停
++				if !stallNoted {
++					stallNoted = true
++					logrus.Warnf("XHS favorites 列表卡住：条数停在 %d 条 %s 没动，页面说还有更多（基准 %d），落证据",
++						best, still.Round(time.Second), cfg.Expect)
++					if cfg.OnStall != nil {
++						res.Evidence = cfg.OnStall(best)
++					}
++				}
++				if res.Level >= favStalledMaxLevel || res.Level+1 >= levels {
++					logrus.Warnf("XHS favorites 换过第 %d 级滚法仍卡在 %d 条：为免被拦先停（不上真实滚轮）", res.Level, best)
++					return finish(FavStopStalled)
++				}
++			}
 +			if res.Level+1 < levels {
 +				res.Level++
 +				lastGrow = time.Now() // 新一级滚法重新计时
@@ -8859,8 +11820,6 @@ index 61216c7..74184ca 100644
 +					best, still.Round(time.Second), hasMore, cfg.Expect, res.Level)
 +			} else {
 +				switch {
-+				case hasMore == 1:
-+					return finish(FavStopStuck)
 +				case hasMore == 0:
 +					return finish(FavStopEnd)
 +				case below():
@@ -8870,12 +11829,34 @@ index 61216c7..74184ca 100644
 +				}
 +			}
 +		}
-+		if i%favScrollRiskEvery == 0 {
++		// 卡住期间（hasMore=true 却没长，或已在换滚法）每轮都查风控；平时每 favScrollRiskEvery 轮查一次
++		stuck := i > 0 && hasMore == 1 && (!grew || res.Level >= 1)
++		if i%favScrollRiskEvery == 0 || stuck {
 +			if r := risk(); r != nil {
++				if r.Hidden() {
++					// 1008 第二轮：看不见的验证组件 / 出现一下又没了——立即停（不再滚、不再点），不写熔断，已读到的按 partial 交回
++					logrus.Warnf("滚收藏途中页面里有看不见的验证组件，停止滚动（不写熔断）：%s", r.Why)
++					if res.Evidence == "" {
++						res.Evidence = r.Evidence
++					}
++					return finish(FavStopHidden)
++				}
 +				logrus.Warnf("滚收藏途中撞到风控，停止滚动: %s", r.Error())
 +				res.Count, res.Reason, res.Partial = best, FavStopRisk, true
 +				res.Seconds = time.Since(start).Round(100 * time.Millisecond).Seconds()
 +				return res, r
++			}
++		}
++		// 1008（审查）：收藏接口已经回了拒绝（461 / 300011 之类）——再滚只是接着打被拒的接口，立即停
++		if cfg.Refused != nil {
++			if why := cfg.Refused(); why != "" {
++				logrus.Warnf("XHS favorites 收藏接口回了拒绝，停止滚动（读到 %d 条）：%s", best, why)
++				if cfg.OnRefused != nil {
++					if ev := cfg.OnRefused(why); ev != "" {
++						res.Evidence = ev
++					}
++				}
++				return finish(FavStopRefused)
 +			}
 +		}
 +		scroll(res.Level)
@@ -8886,61 +11867,124 @@ index 61216c7..74184ca 100644
 +		case <-time.After(cfg.Tick(i)):
 +		}
 +	}
++}
++
++// FavTabRetryPause 页签第 1 轮拟人点击没生效之后，在原页面歇多久再拟人点第 2 次（20–40 秒；测试里替换）。
++var FavTabRetryPause = func() time.Duration { return time.Duration(20+rand.Intn(21)) * time.Second }
++
++// findSubTab 找文字为 label 的主页子 tab（每次现找：页面重渲染后旧元素会失效）。
++func (u *UserProfileAction) findSubTab(ctx context.Context, label string) (*rod.Element, error) {
++	elems, err := u.page.Context(ctx).Timeout(10 * time.Second).Elements(`.reds-tab-item.sub-tab-list`)
++	if err != nil {
++		return nil, fmt.Errorf("未找到主页子 tab: %w", err)
++	}
++	for _, elem := range elems {
++		if text, err := elem.Text(); err == nil && strings.TrimSpace(text) == label {
++			return elem, nil
++		}
++	}
++	return nil, fmt.Errorf("未找到子 tab %q", label)
  }
  
  // selectTab 切到目标子 tab。「笔记」是默认 tab，无需点击。
-@@ -173,23 +609,58 @@ func (u *UserProfileAction) selectTab(ctx context.Context, page *rod.Page, tab P
+-func (u *UserProfileAction) selectTab(ctx context.Context, page *rod.Page, tab ProfileTab) error {
++//
++// 1008（B4 前兆即停）：过去 10 次读收藏，第 1 轮点不动的 6 次里有 4 次接着撞验证，一点就中的 4 次全部顺利读完。
++// 所以点不动时只收、不加码：
++//   - 第 1 轮拟人点击（限时 8 秒，0925：被浮层盖住时 WaitInteractable 会死等），核对 activeTab；
++//   - 没生效 → 查一次风控、落证据（谁挡住了页签中心），在**原页面**歇 20–40 秒，再查一次风控；
++//   - 点第 2 次之前先只读看一眼 activeTab：限流时收藏接口慢，第 1 次点击常在歇着的时候迟到生效——已经是目标页签就
++//     不再点（再点一次已激活的页签会再打一次收藏接口）；收藏接口已经回了拒绝（第 1 次点击换来的 461 之类）也不再点；
++//   - 都不是才再拟人点 1 次；还不生效 → 返回 ErrTabStuck（服务层报 TRANSIENT、当晚不读收藏、不写熔断）。
++//
++// 不再用 DOM this.click() 合成点击（isTrusted=false），不换新页、不再做第二次登录检查（见 linkbrain_api.go）。
++// 每一步各开各的预算，不吃调用方那份 60 秒（歇的那 20–40 秒会把它吃光）。
++func (u *UserProfileAction) selectTab(ctx context.Context, _ *rod.Page, tab ProfileTab) error {
+ 	if tab == "" || tab == TabNotes {
+ 		return nil
  	}
  
  	label := tabLabel[tab]
+-	elems, err := page.Elements(`.reds-tab-item.sub-tab-list`)
 +
 +	// 子 tab 是 hydration 之后才挂上的，一发即查会随机扑空
 +	// （实测 liked 能中、fav 报「未找到子 tab」，纯看运气）。先等它出现。
-+	_ = rod.Try(func() { page.Timeout(15 * time.Second).MustElement(`.reds-tab-item.sub-tab-list`) })
++	_ = rod.Try(func() { u.page.Context(ctx).Timeout(15 * time.Second).MustElement(`.reds-tab-item.sub-tab-list`) })
 +
- 	elems, err := page.Elements(`.reds-tab-item.sub-tab-list`)
++	elem, err := u.findSubTab(ctx, label)
  	if err != nil {
- 		return fmt.Errorf("未找到主页子 tab: %w", err)
+-		return fmt.Errorf("未找到主页子 tab: %w", err)
++		return err
  	}
  
+-	for _, elem := range elems {
+-		text, err := elem.Text()
+-		if err != nil || strings.TrimSpace(text) != label {
+-			continue
+-		}
 +	activeJS := fmt.Sprintf(`() => {
 +		const u = window.__INITIAL_STATE__ && window.__INITIAL_STATE__.user;
 +		const unwrap = (o) => o?.value ?? o?._value ?? o?._rawValue ?? o;
 +		const active = u ? (unwrap(u.activeTab) || {}) : {};
 +		return active.query === %q;
 +	}`, string(tab))
- 	for _, elem := range elems {
- 		text, err := elem.Text()
- 		if err != nil || strings.TrimSpace(text) != label {
- 			continue
- 		}
--		humanize.Delay(ctx, humanize.BeforeClick)
++	click := func(el *rod.Element) bool {
+ 		humanize.Delay(ctx, humanize.BeforeClick)
 -		if err := humanize.Click(elem); err != nil {
 -			return fmt.Errorf("切换到 %s 失败: %w", label, err)
-+		// 0925 实测：humanize.Click 卡在 WaitInteractable（页签被浮层盖住时永远等不到），
-+		// 吃光整页 60s 预算；点中了也常不切 tab。所以：拟人点击限时 8s → 退回 DOM click，
-+		// 每次点完核对 activeTab，最多三轮。
-+		for round := 1; round <= 3; round++ {
-+			if round == 1 {
-+				humanize.Delay(ctx, humanize.BeforeClick)
-+				_ = rod.Try(func() { _ = humanize.Click(elem.Timeout(8 * time.Second)) })
-+			} else {
-+				_, _ = elem.Timeout(5 * time.Second).Eval(`function () { this.click() }`)
-+			}
-+			ok := false
-+			_ = rod.Try(func() { page.Timeout(6 * time.Second).MustWait(activeJS); ok = true })
-+			if ok {
-+				return nil
-+			}
-+			logrus.Warnf("切换到 %s 第 %d 轮未生效", label, round)
- 		}
+-		}
 -		humanize.Delay(ctx, humanize.AfterClick)
 -		page.MustWaitStable()
-+		// 交给 extractUserProfileData 复核 activeTab，给出说得清的错。
++		_ = rod.Try(func() { _ = humanize.Click(el.Context(ctx).Timeout(8 * time.Second)) })
++		ok := false
++		_ = rod.Try(func() { u.page.Context(ctx).Timeout(6 * time.Second).MustWait(activeJS); ok = true })
++		return ok
++	}
++
++	if click(elem) {
++		return nil
++	}
++	logrus.Warnf("切换到 %s 第 1 轮未生效：查风控、落证据，原页面歇一会儿再拟人点 1 次（不合成点击、不换新页）", label)
++	if r := RiskPage(u.page); r != nil {
++		return r
++	}
++	if ev := CaptureEvidence(u.page, EvidenceTabClick, nil, label); ev != nil {
++		u.Evidence = ev.Dir
++	}
++	d := FavTabRetryPause()
++	logrus.Infof("切换到 %s：原页面歇 %s 再点", label, d.Round(time.Second))
++	select {
++	case <-ctx.Done():
++		return ctx.Err()
++	case <-time.After(d):
++	}
++	if r := RiskPage(u.page); r != nil {
++		return r
++	}
++	active := false
++	_ = rod.Try(func() { active = u.page.Context(ctx).Timeout(3 * time.Second).MustEval(activeJS).Bool() })
++	if active {
++		logrus.Infof("切换到 %s 第 1 轮迟到生效（歇着的时候切过去了）：不再点", label)
  		return nil
  	}
- 	return fmt.Errorf("未找到子 tab %q", label)
- }
+-	return fmt.Errorf("未找到子 tab %q", label)
++	if why := CollectRefused(u.page); why != "" {
++		logrus.Warnf("切换到 %s：第 1 次点击换来的收藏接口回包是拒绝，不再点第 2 次（%s）", label, why)
++		return fmt.Errorf("%w（%s；%s）", ErrTabStuck, label, why)
++	}
++	if el, err := u.findSubTab(ctx, label); err == nil {
++		elem = el
++	}
++	if click(elem) {
++		logrus.Infof("切换到 %s 第 2 轮生效", label)
++		return nil
++	}
++	logrus.Warnf("切换到 %s 第 2 轮仍未生效：本次不读了（疑似限流）", label)
++	if r := RiskPage(u.page); r != nil {
++		return r
++	}
++	return fmt.Errorf("%w（%s）", ErrTabStuck, label)
++}
 +
 +// waitTabActive 等页面状态里的 activeTab 切到目标 tab，最多 10 秒，超时不算错。
 +func (u *UserProfileAction) waitTabActive(ctx context.Context, tab ProfileTab) {
@@ -8952,4 +11996,4 @@ index 61216c7..74184ca 100644
 +		return active.query === %q;
 +	}`, string(tab))
 +	_ = rod.Try(func() { page.MustWait(js) })
-+}
+ }
