@@ -122,7 +122,9 @@ function matchItem(it, query, chars = {}, aliases = [], opts = {}) {
   if (!q) return {score: 1, fuzzy: false, hits: []};
   if (q.startsWith('#')) {
     const wanted = q.split(/[\s#]+/).filter(Boolean);
-    return wanted.some(t => (it.tags || []).some(tag => normalize(tag).replace(/^#/, '') === t)) ? {score: 10, fuzzy: false, hits: [{term: q, kind: 'exact', field: 'tags', variant: ''}]} : null;
+    // 批次 D · N9：标签 ∪ 原帖话题（正文里显示的是原帖话题；她改过的 frontmatter tags 可能删掉了其中某个）
+    const own = [...(it.tags || []), ...(it.hashtags || [])].map(tag => normalize(tag).replace(/^#/, ''));
+    return wanted.some(t => own.includes(t)) ? {score: 10, fuzzy: false, hits: [{term: q, kind: 'exact', field: 'tags', variant: ''}]} : null;
   }
   const fs = searchFields(it);
   let total = 0, fuzzy = false;
@@ -343,4 +345,50 @@ function spokenKeywords(text) {
   const parts = String(text || '').replace(/[，。！？、,.!?；;：:“”"'（）()\s]+/g, ' ').replace(SPOKEN_FILLER, ' ')
     .split(/[\s的]+/).filter(t => t.length >= 2 || /[a-z0-9]/i.test(t));
   return [...new Set(parts)].join(' ');
+}
+
+// ── 批次 D · C9 按行瀑布流（她定：小红书式，每张放进当前最矮的一列）：纯函数，页面和单测都从这里取 ──
+// 列数：cols 在 2–6 之间就直接用；否则按列宽 230（窄屏 145）+ 间距 24（窄屏 14）能放几列（和原来 CSS columns 的算法一致）
+function lbcColumns(width, {cols = 0, narrow = false} = {}) {
+  if (cols >= 2 && cols <= 6) return Math.round(cols);
+  const cw = narrow ? 145 : 230, g = narrow ? 14 : 24;
+  return Math.max(1, Math.floor((Number(width) + g) / (cw + g)));
+}
+// 预估卡片高度（只按数据，不读真实高度——同宽度下分配确定，返回目录时滚动恢复看到的还是那几张）：
+// 封面按宽高比（没有就 4:3，最高 360）；标题按字宽估行数（中日韩 1、其余 0.55，最多 2 行）；低置信度片段 12px 字最多 2 行
+function lbcCardHeight(it, colW, {low = ''} = {}) {
+  colW = Math.max(1, Number(colW) || 1);
+  const ratio = it && it.cover_w > 0 && it.cover_h > 0 ? it.cover_h / it.cover_w : 4 / 3;
+  const cover = it && it.cover ? Math.min(360, colW * ratio) : colW * 0.75;
+  const units = s => [...String(s || '')].reduce((n, ch) => n + (/[\u3000-\u9fff\uac00-\ud7af\uf900-\ufaff\uff00-\uffef]/.test(ch) ? 1 : 0.55), 0);
+  const lines = (s, px) => Math.min(2, Math.max(1, Math.ceil(units(s) / Math.max(4, Math.floor(colW / px)))));
+  const title = lines((it && it.title) || '未命名', 14);
+  const snip = low ? lines(low, 12) : 0;
+  return cover + 12 + title * 22.4 + 8 + 17 + (snip ? 4 + snip * 18.6 : 0) + 26;
+}
+// 每张放进当前最矮的一列；只有比最左的候选矮 0.5px 以上才换列（平局取最左，结果确定）
+function lbcAssign(heights, n) {
+  n = Math.max(1, n | 0);
+  const cols = Array.from({length: n}, () => []), sums = new Array(n).fill(0);
+  heights.forEach((h, i) => {
+    let best = 0;
+    for (let c = 1; c < n; c++) if (sums[c] < sums[best] - 0.5) best = c;
+    cols[best].push(i); sums[best] += Number(h) || 0;
+  });
+  return {cols, heights: sums};
+}
+// 批次 D · C5 首次搜索预热：空闲时分片算好每篇的 searchFields（9MB 文本的 normalize），最后算一次 corpusText；
+// 第一下打字不再现算。返回 {cancel()}；signal.aborted 也会停。
+function warmSearch(list, {chunk = 40, signal = null, idle = null} = {}) {
+  const ric = idle || (typeof requestIdleCallback === 'function' ? (f => requestIdleCallback(f, {timeout: 500})) : (f => setTimeout(f, 50)));
+  let i = 0, stopped = false;
+  const step = () => {
+    if (stopped || (signal && signal.aborted)) return;
+    const end = Math.min(list.length, i + chunk);
+    for (; i < end; i++) { try { searchFields(list[i]); } catch {} }
+    if (i < list.length) ric(step);
+    else { try { corpusText(list); } catch {} }
+  };
+  ric(step);
+  return {cancel() { stopped = true; }, get done() { return i >= list.length; }};
 }

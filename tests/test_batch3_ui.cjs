@@ -158,20 +158,22 @@ async function deleteTests() {
   const A = dataviewBlock({ dom, app, code: LIB + '\n' + SEARCH + '\n' + asset('catalog-view.js') });
   A.window.confirm = () => true;
   await A.run();
-  const input = A.container.querySelector('.lbc-search');
-  input.value = '悉尼'; input.onkeydown({ key: 'Enter', isComposing: false, preventDefault() {} });
-  const cards = () => A.container.querySelectorAll('.lbc-card');
+  const input = A.section.querySelector('.lbc-search');
+  input.value = '悉尼'; input.fire('keydown', { key: 'Enter', isComposing: false, preventDefault() {} });
+  const cards = () => A.section.querySelectorAll('.lbc-card');
   cards()[0].oncontextmenu({ preventDefault() {}, clientX: 0, clientY: 0 });
   dom.document.body.querySelectorAll('.lbc-menu-item').find(b => b.textContent === '多选')   /* 10-04 右键「多选删除」改名「多选」 */.onclick({ stopPropagation() {} });
   cards()[1].onclick({}); cards()[2].onclick({});
-  assert.equal(A.container.querySelectorAll('.lbc-card.is-selected').length, 3);
-  const del = A.container.querySelectorAll('button').find(b => /^删除选中/.test(b.textContent));
+  assert.equal(A.section.querySelectorAll('.lbc-card.is-selected').length, 3);
+  const del = A.section.querySelectorAll('button').find(b => /^删除选中/.test(b.textContent));
   await del.onclick(); await tick(10);
   const left = cards().map(c => c.querySelector('.lbc-ctitle').textContent);
   assert.ok(!left.includes('悉尼咖啡地图'), '确认删掉的摘掉');
   assert.equal(left.length, 2, '没删掉的两篇还在');
-  assert.equal(A.container.querySelectorAll('.lbc-card.is-selected').length, 2, '没删掉的保持选中');
-  const msg = A.alerts.at(-1);
+  assert.equal(A.section.querySelectorAll('.lbc-card.is-selected').length, 2, '没删掉的保持选中');
+  // 批次 D · C3：结果走 Notice，不再 window.alert
+  assert.equal(A.alerts.length, 0, '不弹 window.alert');
+  const msg = A.notices.at(-1);
   assert.ok(msg.startsWith('已删 1 篇；2 篇没删掉：') && msg.includes('WinError 32') && msg.includes('库里没有'), msg);
   console.log('PASS delete: only confirmed deletions removed, failures stay selected with reasons');
 }

@@ -46,6 +46,6 @@ const DATA = '_archive/catalog-data.json';
 
   // 目录页那一行：点了先设 pending、开问收藏页，再发事件
   const VIEW = asset('catalog-view.js');
-  assert.match(VIEW, /p\.pendingArchiveQuestion=committed;await p\.openLibraryPage\('chat'\);app\.workspace\.trigger\?\.\('link-brain:ask-pending'\)/);
+  // 批次 D（L1）：跳页改走 LB.openPage（手机 / 插件不在也能跳）\n  assert.match(VIEW, /p\.pendingArchiveQuestion = q;\s*await LB\.openPage\('chat'\);\s*app\.workspace\.trigger\?\.\('link-brain:ask-pending'\)/);
   console.log('PASS chat pending (R1): first render / reuseDom / ask-pending event, consumed once');
 })().catch(e => { console.error(e); process.exit(1); });

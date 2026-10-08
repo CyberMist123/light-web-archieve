@@ -91,54 +91,26 @@ console.log(`PASS search rules: ${queries.length} regression queries (pinyin who
   console.log('PASS batch 10: latin word boundary (cafeine ≠ ai), row.hit kind / confidence / snippet, annotations searchable');
 }
 
-// ── 2. 真页面脚本：catalog-search.js + catalog-view.js 整段在假 DOM 里跑，输入查询按回车，看卡片顺序和摘录 ──
-function fakeDom() {
-  class El {
-    constructor(tag) { this.tagName = String(tag).toUpperCase(); this.children = []; this.parent = null; this.attrs = {}; this.classList = new Set(); this.style = {}; this.hidden = false; this._text = ''; }
-    get className() { return [...this.classList].join(' '); }
-    set className(v) { this.classList = new Set(String(v || '').split(/\s+/).filter(Boolean)); }
-    get textContent() { return this._text + this.children.map(c => typeof c === 'string' ? c : c.textContent).join(''); }
-    set textContent(v) { this.children = []; this._text = String(v); }
-    createEl(tag, opts = {}) { const el = new El(tag); if (opts.cls) el.className = opts.cls; if (opts.text != null) el._text = String(opts.text); for (const [k, v] of Object.entries(opts)) if (!['cls', 'text'].includes(k)) el.setAttribute(k, v); this.append(el); return el; }
-    append(...nodes) { for (const n of nodes) { if (n instanceof El) n.parent = this; this.children.push(n); } }
-    prepend(n) { if (n instanceof El) n.parent = this; this.children.unshift(n); }
-    appendText(t) { this.children.push(String(t)); }
-    empty() { this.children = []; this._text = ''; }
-    setText(t) { this.textContent = t; }
-    remove() { if (this.parent) { this.parent.children = this.parent.children.filter(c => c !== this); this.parent = null; } }
-    setAttribute(k, v) { this.attrs[k] = String(v); }
-    getAttribute(k) { return this.attrs[k] ?? null; }
-    closest() { return null; }
-    focus() {}
-    matches(sel) { const m = sel.match(/^([a-z]*)((?:\.[\w-]+)*)$/i); if (!m) return false; if (m[1] && this.tagName !== m[1].toUpperCase()) return false; return (m[2] || '').split('.').filter(Boolean).every(c => this.classList.has(c)); }
-    all() { const out = []; for (const c of this.children) if (c instanceof El) out.push(c, ...c.all()); return out; }
-    querySelector(sel) { return this.all().find(e => e.matches(sel)) || null; }
-    querySelectorAll(sel) { return this.all().filter(e => e.matches(sel)); }
-    getBoundingClientRect() { return {width: 0, height: 0, top: 0, bottom: 0}; }
-  }
-  const body = new El('body');
-  return {El, document: {body, addEventListener() {}, removeEventListener() {}, querySelectorAll: s => body.querySelectorAll(s), createElementNS: (ns, t) => new El(t)}};
-}
+// ── 2. 真页面脚本：catalog-search.js + catalog-view.js 整段在假 DOM（tests/_fakedom.cjs）里跑，输入查询按回车，看卡片顺序和摘录 ──
+// 批次 D：页面挂在 dv.container 后面的 host 上（查 A.section）；网格宽度 0 → 1 列，DOM 顺序就是排名顺序
+const { makeDom, makeApp, dataviewBlock } = require('./_fakedom.cjs');
 async function openCatalog() {
-  const {El, document} = fakeDom();
-  const root = new El('div');
-  const app = {vault: {adapter: {read: async p => JSON.stringify(p.endsWith('sync-status.json') ? {} : data), getResourcePath: x => x}, getAbstractFileByPath: () => null},
-    plugins: {plugins: {'link-brain-actions': {settings: {hiddenCats: []}, openAttachments() {}, openCategories() {}, openLibraryPage() {}}}},
-    workspace: {openLinkText() {}}};
-  const dv = {container: root, current: () => ({file: {folder: ''}}), page: () => null};
-  await new Function('app', 'dv', 'document', 'window', 'return (async()=>{' + LIB + '\n' + SEARCH + '\n' + VIEW + '\n})()')(app, dv, document, {alert() {}, confirm: () => false});
-  const input = root.querySelector('input.lbc-search');
-  const grid = root.querySelector('div.lbc-grid');
+  delete globalThis.__lbState; delete globalThis.__lbListeners;
+  const plugin = { settings: { hiddenCats: [] }, openAttachments() {}, openCategories() {}, openLibraryPage() {} };
+  const { app } = makeApp({ files: { '_archive/catalog-data.json': JSON.stringify(data), '_archive/sync-status.json': '{}' }, plugin });
+  const dom = makeDom();
+  const A = dataviewBlock({ dom, app, code: LIB + '\n' + SEARCH + '\n' + VIEW });
+  await A.run();
+  const input = A.q('input.lbc-search');
   return {
-    root,
-    search(text) { input.value = text; input.onkeydown({key: 'Enter', isComposing: false, preventDefault() {}}); }
+    root: A.section,
+    search(text) { input.value = text; input.fire('keydown', { key: 'Enter', isComposing: false, keyCode: 13, preventDefault() {} }); }
   };
-}
-(async () => {
+}(async () => {
   // 卡片没有 id 属性，用标题反查
   const byTitle = Object.fromEntries(data.items.map(it => [it.title, it.id]));
   const page = await openCatalog();
-  const ids = () => page.root.querySelector('div.lbc-grid').all().filter(e => e.matches('.lbc-ctitle') || e.matches('.lbc-possible-head'))
+  const ids = () => page.root.querySelector('.lbc-grid').all().filter(e => e.matches('.lbc-ctitle') || e.matches('.lbc-possible-head'))
     .map(e => e.matches('.lbc-possible-head') ? '|' : byTitle[e.textContent]);
   for (const q of queries) {
     page.search(q.query);
@@ -156,11 +128,23 @@ async function openCatalog() {
   page.search('西尼');
   assert.ok(page.root.querySelector('.lbc-possible-head').textContent.startsWith('可能相关 · 2 篇'));
   const fuzzyCard = page.root.querySelector('article.lbc-card');
-  assert.ok(fuzzyCard.classList.has('is-possible'));
-  assert.ok(page.root.querySelector('.lbc-sub').textContent.startsWith(`0 / ${data.items.length} 篇 · 可能相关 2`));
+  assert.ok(fuzzyCard.classList.contains('is-possible'));
+  assert.equal(page.root.querySelector('.lbc-count').textContent, `0 / ${data.items.length} 篇`);
+  assert.equal(page.root.querySelector('.lbc-possible-link').textContent, '可能相关 2', 'F4：「可能相关」单独一块，点了跳到那一组');
   // 没有查询词时不出摘录、不分区
   page.search('');
   assert.equal(page.root.querySelectorAll('.lbc-result-excerpt').length, 0);
   assert.equal(page.root.querySelectorAll('.lbc-possible-head').length, 0);
   console.log('PASS catalog page: Enter → exact cards, then 「可能相关」 group; cards show titles only');
 })().catch(e => { console.error(e); process.exitCode = 1; });
+
+// 批次 D · N9：「#x」筛选看 tags ∪ hashtags（原帖话题）；两边都 normalize、去掉开头 #
+{
+  const matchItem = new Function(SEARCH + ';return matchItem')();
+  const it = { title: 't', tags: ['咖啡'], hashtags: ['悉尼生活', '#Cafe'] };
+  assert.ok(matchItem(it, '#悉尼生活'), 'hashtags 里有就命中');
+  assert.ok(matchItem(it, '#cafe'), '大小写 / 开头 # 都不影响');
+  assert.ok(matchItem(it, '#咖啡'), 'tags 照旧');
+  assert.equal(matchItem({ title: 't', tags: ['咖啡'] }, '#悉尼生活'), null, '没有 hashtags 字段时结果不变');
+  console.log('PASS N9: #tag matches tags ∪ hashtags');
+}
