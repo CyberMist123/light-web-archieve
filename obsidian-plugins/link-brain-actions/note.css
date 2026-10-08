@@ -655,3 +655,5 @@ body.lb-actions-on .xhs-note .lb-tags .lb-tag:hover { text-decoration: underline
 .xhs-note .lb-media-tools .lb-video-loop[aria-pressed="true"] { color: var(--text-normal); font-weight: 600; }
 /* N10：划重点先乐观包上的那层（写上之前淡一点；没写上会退回） */
 .xhs-note mark.lb-mark-pending { opacity: .6; }
+/* N6：评论图预写的 width/height 只做占位（防跳），高度仍按比例由宽度算，不让 height 属性变成真高度 */
+.xhs-note .lb-comment-image { height: auto; }

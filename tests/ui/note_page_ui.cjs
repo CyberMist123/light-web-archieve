@@ -173,6 +173,23 @@ const clickPin = async page => { await page.hover('.workspace-leaf.mod-active .l
       await page.close();
     }
 
+    // ── N6 评论图：预写 width/height 只占位，不改显示尺寸（改前 HTML 无属性 + 932b9f7 样式 vs 改后 HTML 带属性 + 当前样式）──
+    {
+      const COMMENT_CASES = [['photo', 1, 1920, 1080], ['photo', 2, 1080, 720], ['photo', 3, 1080, 1440], ['doc', 1, 1600, 900], ['doc', 2, 900, 1600], ['sticker', 1, 240, 240], ['photo', 1, 720, 1280]];
+      const html = withDims => '<div class="xhs-note" style="width:420px">' + COMMENT_CASES.map(([k, n, w, h], c) => `<div class="lb-comment-media lb-ci-n${n}" data-case="${c}">` +
+        Array.from({ length: n }, () => `<img class="lb-comment-image lb-ci-${k}" src="${svg(w, h, `${w}×${h}`)}"${withDims ? ` width="${w}" height="${h}"` : ''} alt="评论图片">`).join('') + '</div>').join('') + '</div>';
+      const geom = async (rev, withDims) => {
+        const page = await browser.newPage({ viewport: { width: 800, height: 900 } });
+        await page.setContent(`<!doctype html><html><head><style>${shell.readAsset('link-brain.css', rev)}</style></head><body>${html(withDims)}</body></html>`);
+        await page.waitForFunction(() => [...document.images].every(i => i.complete && i.naturalWidth > 0));
+        const g = await page.evaluate(() => [...document.querySelectorAll('[data-case] img')].map(i => { const r = i.getBoundingClientRect(); return [Math.round(r.width * 10) / 10, Math.round(r.height * 10) / 10]; }));
+        await page.close();
+        return g;
+      };
+      const old = await geom(BEFORE, false), now = await geom(null, true);
+      console.log('评论图尺寸 改前 / 改后：', JSON.stringify(old), JSON.stringify(now));
+      old.forEach(([w, h], i) => assert.ok(Math.abs(now[i][0] - w) <= 1 && Math.abs(now[i][1] - h) <= 1, `评论图 ${i}：带 width/height 后显示尺寸不变（${w}×${h} → ${now[i][0]}×${now[i][1]}）`));
+    }
     // ── 主审裁决 3：单栏 / 实时预览重跑不定稿（真 Chromium，当前资产）──
     for (const host of ['page-reading', 'page-live']) {
       const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -189,7 +206,7 @@ const clickPin = async page => { await page.hover('.workspace-leaf.mod-active .l
       assert.deepEqual(r, { saved: ['第 1 条批注：合成的批注文字。'], value: '正在打打打', focused: true, boxes: 1 }, host + '：不定稿、字和焦点都在');
       await page.close();
     }
-    console.log(`PASS note page (L3): N15 measured ${rows.length} cells (pinned media height unchanged vs ${BEFORE}, image input first line in view at 1280×800 / 1440×900 / 1920×1080 with and without sidebar), N5 autosize keeps caret in view, left column wheel-scrolls when pinned, N1 wheel passes through at last image (pinned → body column, free → page), rewrite keeps pin / slide / scroll, single-column + live preview reruns keep typing (no commit)`);
+    console.log(`PASS note page (L3): N15 measured ${rows.length} cells (pinned media height unchanged vs ${BEFORE}, image input first line in view at 1280×800 / 1440×900 / 1920×1080 with and without sidebar), N6 comment images keep old size with width/height attrs, N5 autosize keeps caret in view, left column wheel-scrolls when pinned, N1 wheel passes through at last image (pinned → body column, free → page), rewrite keeps pin / slide / scroll, single-column + live preview reruns keep typing (no commit)`);
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });
 

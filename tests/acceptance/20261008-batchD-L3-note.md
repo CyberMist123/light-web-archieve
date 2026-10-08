@@ -70,6 +70,8 @@
 
 - node：`test_annot_1008`（裁决 3、N4、N5、N13、N16、N-M1、紧凑样式）、`test_media_nav_1008`（N1、N12、N15 ①–⑧、N-M2、循环 / 连播、openLightbox）、`test_note_actions_1008`（N2、N8/N14、N9、N11、N17、DATAVIEW_HINT、starNote 前缀）、`test_batch5_delivery_ui`（MN-0 两种情况）、`media_controls_ui`（不再读真库，worktree 里也跑；循环 / 连播按钮悬停才出现、13px）。
 - pytest：`test_note_render_1008`（N2 片段目录 / note.css 同步、N6 宽高、N8 文案、N14、N9 title、data-lb-item）、`test_highlight_1008`（N10 不写坏 alt、多段一次写盘、CLI --json / 退出码）、`test_note_fixture_golden`；`test_comments_fill_1008` 期望改成新文案。
+- 外壳 
+ote_page_ui：N6 评论图几何对照——改前 HTML（无 width/height）+ 932b9f7 样式 vs 改后 HTML（带属性）+ 当前样式，单张 / 两张 / 三张照片、单张 / 两张文档、表情包、竖图共 11 张，宽高差都 ≤1px（审查抓到：不加 `.lb-comment-image { height: auto }` 时 height 属性会变成真高度，横图被撑成方框）。
 
 ## 待她：一步
 
