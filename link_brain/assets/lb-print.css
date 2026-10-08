@@ -1,0 +1,43 @@
+/* Link Brain · 笔记页打印版（批次 D · F3-b）
+   叠在 link-brain.css 之后，只作用于 note_print.py 拼出来的 .lb-print 页面：
+   首屏两栏、左栏全部图片竖排 + 批注、评论通栏；纸面固定浅色。 */
+@page { size: A4; margin: 14mm 12mm 16mm; }
+@page { @bottom-right { content: counter(page) " / " counter(pages); font-size: 8pt; color: #999; } }
+
+:root {
+  --text-normal: #222; --text-muted: #6b6b72; --text-faint: #999; --background-primary: #fff;
+  --background-secondary: #f6f6f7; --link-color: #6b71c9; --interactive-accent: #6b71c9; --lb-gap: 6mm;
+}
+html, body { background: #fff; color: #222; margin: 0; }
+body { font-family: var(--lb-font, system-ui, "Microsoft YaHei", "PingFang SC", sans-serif); font-size: 10.5pt; line-height: 1.65; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.lb-print { padding: 0; max-width: none; }
+.lb-print .lb-print-head { display: flex; justify-content: space-between; gap: 12px; color: #6b6b72; font-size: 8.5pt; margin: 0 0 4mm; }
+.lb-print .lb-print-head a { color: #6b71c9; text-decoration: none; word-break: break-all; }
+
+.lb-print .lb-note { display: flex; gap: var(--lb-gap); align-items: flex-start; height: auto !important; max-height: none !important; overflow: visible !important; }
+.lb-print .lb-side { position: static !important; max-height: none !important; overflow: visible !important; flex: 0 0 44%; width: 44%; }
+.lb-print .lb-no-media .lb-main, .lb-print .lb-note.lb-no-media .lb-main { flex: 1 1 auto; width: 100%; }
+.lb-print .lb-carousel { display: block !important; overflow: visible !important; scroll-snap-type: none !important; }
+.lb-print .lb-slide { display: block !important; width: auto !important; margin: 0 0 3mm; break-inside: avoid; flex: none !important; }
+.lb-print .lb-slide img { width: 100%; height: auto; max-height: 230mm; object-fit: contain; display: block; }
+.lb-print .lb-main { height: auto !important; max-height: none !important; overflow: visible !important; flex: 1 1 auto; min-width: 0; }
+.lb-print .lb-scroll { overflow: visible !important; padding: 0; height: auto !important; max-height: none !important; }
+
+.lb-print .lb-print-video { position: relative; }
+.lb-print .lb-print-video figcaption { color: #6b6b72; font-size: 8.5pt; margin-top: 1mm; }
+.lb-print .lb-print-video-box { border: .3pt solid #ccc; height: 40mm; display: flex; align-items: center; justify-content: center; color: #999; }
+
+.lb-counter, .lb-media-pin, .lb-media-tools, .lb-act, .lb-video-badge { display: none !important; }
+
+.lb-print .lb-print-annots { margin-top: 3mm; }
+.lb-print .lb-print-annots h4, .lb-print .lb-print-extra h4 { font-size: 9pt; color: #6b6b72; margin: 0 0 1.5mm; font-weight: 600; }
+.lb-print .lb-print-annot { margin: 0 0 2mm; break-inside: avoid; }
+.lb-print .lb-print-annot-meta { display: block; color: #999; font-size: 8pt; }
+
+.lb-print .lb-detail { margin-top: 6mm; padding-top: 4mm; border-top: .3pt solid #ddd; }
+.lb-print .lb-comment { break-inside: avoid-page; }
+.lb-print .lb-print-extra { margin-top: 5mm; padding-top: 3mm; border-top: .3pt solid #ddd; }
+.lb-print .lb-print-extra p { margin: 0 0 1.5mm; }
+.lb-print details > summary { list-style: none; color: #6b6b72; }
+.lb-print mark { background: #fff3a3; color: inherit; }
+.lb-print .lb-tag, .lb-print .lb-tags a { border: 0 !important; background: none !important; padding: 0 !important; }
