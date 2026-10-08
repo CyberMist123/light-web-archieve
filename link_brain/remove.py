@@ -73,6 +73,9 @@ def delete_item(conn, item_id: str) -> dict[str, Any]:
         cover, datetime.now(timezone.utc).isoformat(), relative))
     conn.execute('DELETE FROM objects WHERE item_id = ?', (item_id,))
     conn.commit()
+    # 1008（L6·B2）：删掉这篇 = 它名下没解决的问题一并标已解决（问题面板唯一的「真删除」）；永不抛异常
+    from . import problems
+    problems.resolve_item(item_id)
     return {'item_id': item_id, 'status': 'deleted', 'note': visible}
 
 

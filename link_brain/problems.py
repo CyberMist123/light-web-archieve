@@ -59,7 +59,18 @@ STEP_PREFIXES = ("nightly.",)
 # 推送标题 / 问题列表里给人看的步骤名（夜跑步骤 nightly.<名> 显示「夜跑：<名>」）
 # 注记行（annotate）能改的字段：自愈动作的状态（running / failed / waiting）、一句「试过什么、为什么没好、下一步」、
 # 什么时候修的、预计几分钟
-NOTE_FIELDS = ("repair_state", "repair_note", "repair_at", "repair_eta_min")
+NOTE_FIELDS = ("repair_state", "repair_note", "repair_at", "repair_eta_min",
+               # 1008（B1 A2）：验证窗口关窗后的结论（读取服务 /login/session 的 verify_result）与时刻，面板据此给「没看到验证，恢复」
+               "verify_result", "verify_at")
+# 1008（B2）隐藏：她手动、可恢复、照样导出（不违反 1004「实际报错照实显示、不藏」——藏的是她看过、决定不管的那条）。
+# 只有没解决的 PERMANENT（已放弃）能隐藏；NEEDS_HUMAN（要她处理）和 TRANSIENT（正在自动处理）一律不能。
+# 口径：一直隐藏到这个 key 被解决为止；同一 key 没解决又报一次 = 还是那件事，照样藏着（hidden_repeats 记又出现几次）；
+# 解决后又坏了才重新出现。写法：追加 {"ts","key","dismiss":true,"by":"owner"}；恢复追加 {"ts","key","dismiss":false}。
+DISMISSABLE_CLASSES = ("PERMANENT",)
+# 1008：撞验证 / 风控跳页是「一次一件事」——上一次推过、面板还没刷掉，隔了这么久又撞一次，也当场再推一次
+# （同一次出事在一个进程里会经两条路各登记一回，间隔是秒级，靠这个窗口去重）。熔断中（RISK_HOLD）不算新出事。
+INCIDENT_CODES = ("CAPTCHA_REQUIRED", "ACCOUNT_RISK")
+INCIDENT_REPUSH_MIN = 15
 STEP_LABELS = {
     "sync.favorites": "收藏同步", "ingest": "导入", "attachments.download": "下附件", "attachments.convert": "附件转文字",
     "attachments.recheck": "附件补查", "enrich.summary": "概要 / 识图补处理", "vision.layer1": "识图",
@@ -328,6 +339,15 @@ def _fold(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     for row in rows:
         key = row["key"]
         prev = out.get(key)
+        if "dismiss" in row:
+            # 隐藏 / 恢复行：不加次数、不算出现日；那条已解决 / 不存在就丢掉（隐藏只对「这一轮」有效）
+            if prev is not None and not prev.get("resolved_at"):
+                if row.get("dismiss"):
+                    out[key] = {**prev, "dismissed_at": prev.get("dismissed_at") or row.get("ts"),
+                                "hidden_repeats": int(prev.get("hidden_repeats") or 0)}
+                else:
+                    out[key] = {k: v for k, v in prev.items() if k not in ("dismissed_at", "hidden_repeats")}
+            continue
         if row.get("note"):
             # 注记行（自愈过程）：只并进修复字段，不加次数、不算出现日；那条已解决 / 不存在就丢掉
             if prev is not None and not prev.get("resolved_at"):
@@ -352,7 +372,19 @@ def _fold(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         out[key] = {**{k: v for k, v in row.items() if k not in NOTE_FIELDS}, **carried,
                     "count": base_count + int(row.get("count") or 1), "days": days,
                     "notified": notified, "resolved_at": None}
+        if not fresh and prev.get("dismissed_at"):
+            # 隐藏要从上一轮显式带过来（注记字段在复发时会被扔掉，隐藏不能跟着丢）：同一件事又报一次，照样藏着
+            out[key]["dismissed_at"] = prev["dismissed_at"]
+            out[key]["hidden_repeats"] = int(prev.get("hidden_repeats") or 0) + 1
+        elif fresh and not row.get("dismissed_at"):
+            out[key].pop("dismissed_at", None)
+            out[key].pop("hidden_repeats", None)
     return out
+
+
+def is_hidden(row: dict[str, Any]) -> bool:
+    """这条是她手动隐藏、还没解决的（隐藏的不进顶部计数，列表里放在「已隐藏」区）。"""
+    return bool(row.get("dismissed_at")) and not row.get("resolved_at")
 
 
 def _append(rows: list[dict[str, Any]]) -> None:
@@ -464,7 +496,8 @@ def _consecutive_days(days: list[str], n: int, today: date) -> bool:
 
 
 def report(step: str, code: str, reason: str, *, item_id: str | None = None, title: str | None = None,
-           action: str | None = None, next_at: str | None = None, _now_fn=None) -> dict[str, Any]:
+           action: str | None = None, next_at: str | None = None, evidence_id: str | None = None,
+           _now_fn=None) -> dict[str, Any]:
     """登记一条问题，返回写进文件的那一行。推送判定在这里（见模块说明）。
 
     码格式不对抛 BadCode（调用方写错码是 bug，要在测试里炸出来）；写盘失败不抛，返回的行带 written=False。"""
@@ -479,6 +512,9 @@ def report(step: str, code: str, reason: str, *, item_id: str | None = None, tit
         "title": (title or "")[:TITLE_MAX] or None, "code": full, "reason": str(reason or "")[:REASON_MAX],
         "action": action or DEFAULT_ACTION[cls], "next_at": next_at, "count": 1, "resolved_at": None,
     }
+    if evidence_id:
+        # 出事证据目录的名字（~/.link-brain/risk-evidence/<名字>），不是路径：本机绝对路径不进问题记录（面板「查看截图」自己拼）
+        row["evidence_id"] = str(evidence_id)[:40]
     try:
         folded = _fold(_read_rows())
     except Exception:  # noqa: BLE001
@@ -488,6 +524,9 @@ def report(step: str, code: str, reason: str, *, item_id: str | None = None, tit
     # 同一步骤 + 同一细分码、还没解决的各篇合起来，出现过哪几个日历日（一件事 = 一个原因，不按篇算）
     days = sorted({*_open_days(folded, step, sub), today})
     push = cls == "NEEDS_HUMAN" and not _already_pushed(folded, step, full)
+    if (not push and cls == "NEEDS_HUMAN" and sub in INCIDENT_CODES
+            and not _already_pushed(folded, step, full, within=now - timedelta(minutes=INCIDENT_REPUSH_MIN))):
+        push = True  # 1008（她：撞验证「当时就通知」）：上一次推过之后又撞了一次新的，照样当场推
     if push and sub in DELAYED_PUSH and len(days) < DELAYED_PUSH_DAYS:
         push = False  # key 失效 / 欠费：产品规则「连续几晚没修好」才推；先进列表（橙色计数照样有）
     if push:
@@ -527,15 +566,27 @@ def _open_days(folded: dict[str, dict[str, Any]], step: str, sub: str) -> set[st
     return out
 
 
-def _already_pushed(folded: dict[str, dict[str, Any]], step: str, full_code: str) -> bool:
+def _already_pushed(folded: dict[str, dict[str, Any]], step: str, full_code: str,
+                    within: datetime | None = None) -> bool:
     """同一步骤 + 同一细分码还有没解决、推过的记录 → 这件事已经告诉过人了（各篇共用一次推送：
     key 失效时 50 篇概要都会撞 AUTH_FAILED，只推一次）。"""
     sub = full_code.split(".", 1)[1]
     for r in folded.values():
         if (r.get("step") == step and not r.get("resolved_at") and r.get("notified")
                 and str(r.get("key", "")).rsplit("|", 1)[-1] == sub):
-            return True
+            if within is None:
+                return True
+            ts = _parse_ts(r.get("ts"))
+            if ts is None or ts >= within:
+                return True
     return False
+
+
+def _parse_ts(ts) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(ts)).astimezone()
+    except (TypeError, ValueError):
+        return None
 
 
 def report_blocked(step: str, code: str | None, reason: str, *, service: bool = False,
@@ -652,7 +703,10 @@ def load(limit: int = MAX_KEYS, *, include_resolved: bool = False) -> list[dict[
             entry = {"label": r.get("code", ""), "hover": "{reason}", "where": "list", "group": "auto"}
         out.append({**r, "label": entry["label"], "group": entry["group"], "where": entry["where"],
                     "hover": fill_hover(entry["hover"], r.get("reason"), r.get("next_at")),
-                    "step_label": step_label(r.get("step"))})
+                    "step_label": step_label(r.get("step")),
+                    # 1008：她手动隐藏的（面板放进默认收起的「已隐藏」区，可恢复）
+                    "hidden": is_hidden(r), "hidden_repeats": int(r.get("hidden_repeats") or 0),
+                    "dismissable": _dismissable(r)})
         if not r.get("resolved_at"):
             try:  # 面板要的「现在修」/ 状态一句话（repair.describe）；算不出来不影响列表
                 from . import repair
@@ -670,13 +724,23 @@ def _neg_ts(ts) -> float:
 
 
 def summary() -> dict[str, Any]:
-    """{needs_human, auto, gave_up, skipped, last_runs: {step: {ts, ok}}}——顶部入口的计数。"""
+    """{needs_human, auto, gave_up, skipped, hidden, last_runs: {step: {ts, ok}}}——顶部入口的计数。
+
+    1008：她隐藏的不计数（另给 hidden）；last_runs 按步骤取最近一次登记 / 解决的时刻，ok = 这一步现在没有还开着的问题
+    （以前取原始最后一行：注记行、某一篇的老失败都会顶上来，补查正常跑完不写行就一直停在「有问题」）。
+    附件补查另以 _archive/attachments-recheck-status.json（每次运行都写，跳过也写）为准，比问题记录新就用它。"""
     rows = _read_rows()
     folded = _fold(rows)
-    counts = {"needs_human": 0, "auto": 0, "gave_up": 0, "skipped": 0}
+    counts = {"needs_human": 0, "auto": 0, "gave_up": 0, "skipped": 0, "hidden": 0}
+    open_steps: set[str] = set()
     for r in folded.values():
         if r.get("resolved_at"):
             continue
+        if is_hidden(r):
+            counts["hidden"] += 1
+            continue
+        if r.get("step"):
+            open_steps.add(r["step"])
         try:
             counts[SUMMARY_KEY[classify(r.get("code", ""))]] += 1
         except BadCode:
@@ -684,9 +748,134 @@ def summary() -> dict[str, Any]:
     last: dict[str, dict[str, Any]] = {}
     for r in rows:
         step = r.get("step")
-        if step:
-            last[step] = {"ts": r.get("ts"), "ok": bool(r.get("resolved_at"))}
+        if not step or r.get("note") or "dismiss" in r:
+            continue  # 注记 / 隐藏行不是一次运行
+        if step not in last or str(r.get("ts") or "") >= str(last[step]["ts"] or ""):
+            last[step] = {"ts": r.get("ts"), "ok": step not in open_steps}
+    for step, info in last.items():
+        info["ok"] = step not in open_steps
+    run = _recheck_run()
+    if run and (not last.get("attachments.recheck") or _neg_ts(run["ts"]) <= _neg_ts(last["attachments.recheck"]["ts"])):
+        last["attachments.recheck"] = run
     return {**counts, "last_runs": last}
+
+
+def _recheck_run() -> dict[str, Any] | None:
+    """附件补查最近一次运行（attachments.recheck_status 写的状态文件）→ {ts, ok, skipped?, note}。读不到 = None。"""
+    try:
+        st = storage.read_json(storage.archive_root() / "attachments-recheck-status.json")
+    except (OSError, ValueError):
+        return None
+    if not isinstance(st, dict) or not st.get("at"):
+        return None
+    out = {"ts": st.get("at"), "ok": not st.get("stopped_reason") or st.get("stopped_reason") in ("done", "limit", "out_of_time")}
+    if st.get("skipped"):
+        out["skipped"] = st.get("skipped")
+    if st.get("text"):
+        out["note"] = str(st.get("text"))[:200]
+    return out
+
+
+# --------------------------------------------------------------------------
+# 隐藏 / 恢复（1008，B2）
+# --------------------------------------------------------------------------
+
+
+def _dismissable(r: dict[str, Any]) -> bool:
+    try:
+        return (not r.get("resolved_at") and classify(r.get("code") or "") in DISMISSABLE_CLASSES)
+    except BadCode:
+        return False
+
+
+def _refuse_reason(r: dict[str, Any]) -> str:
+    try:
+        cls = classify(r.get("code") or "")
+    except BadCode:
+        cls = ""
+    if cls == "NEEDS_HUMAN":
+        return "这条要你处理（账号 / key / 备份盘这类），不能隐藏"
+    if cls == "TRANSIENT":
+        return "这条正在自动处理，修好会自己消失，不能隐藏"
+    return "这条不是「已放弃」的问题，不能隐藏"
+
+
+def dismiss(key: str | None = None, group: str | None = None, *, _now_fn=None) -> dict[str, Any]:
+    """隐藏一条（key）或整组已放弃（group="gave_up"）。只接受没解决的 PERMANENT。
+    返回 {ok, code, message, dismissed:[key]}（CONVENTIONS §1 的形状）。"""
+    try:
+        folded = _fold(_read_rows())
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "code": "READ_FAILED", "message": f"问题记录读不出来：{exc}", "dismissed": []}
+    if group:
+        if group != "gave_up":
+            return {"ok": False, "code": "BAD_GROUP", "message": "只能整组隐藏「已放弃」", "dismissed": []}
+        targets = [r for r in folded.values() if _dismissable(r) and not is_hidden(r)]
+    else:
+        r = folded.get(str(key or ""))
+        if r is None or r.get("resolved_at"):
+            return {"ok": False, "code": "NOT_FOUND", "message": "这条已经好了或不存在", "dismissed": []}
+        if not _dismissable(r):
+            return {"ok": False, "code": "NOT_DISMISSABLE", "message": _refuse_reason(r), "dismissed": []}
+        if is_hidden(r):
+            return {"ok": True, "code": "", "message": "这条已经隐藏了", "dismissed": []}
+        targets = [r]
+    if not targets:
+        return {"ok": True, "code": "", "message": "没有要隐藏的", "dismissed": []}
+    now = (_now_fn or _now)().isoformat(timespec="seconds")
+    try:
+        _append([{"ts": now, "key": r["key"], "step": r.get("step"), "item_id": r.get("item_id") or None,
+                  "code": r.get("code"), "dismiss": True, "by": "owner"} for r in targets])
+    except OSError as exc:
+        return {"ok": False, "code": "WRITE_FAILED", "message": f"问题记录写不进去：{exc}", "dismissed": []}
+    n = len(targets)
+    return {"ok": True, "code": "", "dismissed": [r["key"] for r in targets],
+            "message": f"已隐藏 {n} 条，可在列表最下面「已隐藏」里恢复；同样的原因再出现不会再打扰你"}
+
+
+def undismiss(key: str, *, _now_fn=None) -> dict[str, Any]:
+    """恢复显示一条隐藏的。返回 {ok, code, message, restored:[key]}。"""
+    try:
+        r = _fold(_read_rows()).get(str(key or ""))
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "code": "READ_FAILED", "message": f"问题记录读不出来：{exc}", "restored": []}
+    if r is None or r.get("resolved_at"):
+        return {"ok": False, "code": "NOT_FOUND", "message": "这条已经好了或不存在", "restored": []}
+    if not is_hidden(r):
+        return {"ok": True, "code": "", "message": "这条本来就显示着", "restored": []}
+    now = (_now_fn or _now)().isoformat(timespec="seconds")
+    try:
+        _append([{"ts": now, "key": r["key"], "step": r.get("step"), "item_id": r.get("item_id") or None,
+                  "code": r.get("code"), "dismiss": False, "by": "owner"}])
+    except OSError as exc:
+        return {"ok": False, "code": "WRITE_FAILED", "message": f"问题记录写不进去：{exc}", "restored": []}
+    return {"ok": True, "code": "", "message": "已恢复显示", "restored": [r["key"]]}
+
+
+def dismissed_pairs() -> set[tuple[str, str]]:
+    """{(item_id, 细分码)}：她隐藏了、还没解决的按篇问题（目录卡片角标据此不出标）。读不动就当没有。"""
+    try:
+        folded = _fold(_read_rows())
+    except Exception:  # noqa: BLE001
+        return set()
+    return {(str(r.get("item_id")), str(r.get("key", "")).rsplit("|", 1)[-1])
+            for r in folded.values() if is_hidden(r) and r.get("item_id")}
+
+
+def resolve_item(item_id: str, *, _now_fn=None) -> int:
+    """她删掉一篇笔记：这篇名下所有没解决的问题标成已解决（真正的「删除」只发生在这里）。永不抛异常。"""
+    try:
+        folded = _fold(_read_rows())
+        targets = [r for r in folded.values() if (r.get("item_id") or None) == item_id and not r.get("resolved_at")]
+        if not targets:
+            return 0
+        now = (_now_fn or _now)().isoformat(timespec="seconds")
+        _append([{"ts": now, "key": r["key"], "step": r.get("step"), "item_id": item_id, "code": r["code"],
+                  "resolved_at": now, "count": 0, "why": "note_removed"} for r in targets])
+        return len(targets)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[problems] 删笔记时撤问题没成（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        return 0
 
 
 # --------------------------------------------------------------------------
@@ -737,7 +926,8 @@ def export_redacted(limit: int = 50, *, plugin_version: str | None = None) -> st
         "# Link Brain 诊断信息（已脱敏）",
         f"- 插件版本：{plugin_version or _plugin_version()} · link_brain {__version__}",
         f"- Python：{platform.python_version()} · {platform.system()} {platform.release()}",
-        f"- 问题计数：要你处理 {s['needs_human']} · 自动处理中 {s['auto']} · 已放弃 {s['gave_up']} · 未开启 {s['skipped']}",
+        f"- 问题计数：要你处理 {s['needs_human']} · 自动处理中 {s['auto']} · 已放弃 {s['gave_up']} · 未开启 {s['skipped']}"
+        f" · 已隐藏 {s.get('hidden', 0)}",
         "",
         "## 各步骤上次记录",
     ]
@@ -749,7 +939,7 @@ def export_redacted(limit: int = 50, *, plugin_version: str | None = None) -> st
     rows = load(MAX_KEYS, include_resolved=True)
     rows.sort(key=lambda r: _neg_ts(r.get("ts")))
     for r in rows[:limit]:
-        state = "已解决" if r.get("resolved_at") else r.get("action") or ""
+        state = "已解决" if r.get("resolved_at") else "已隐藏" if r.get("hidden") else r.get("action") or ""
         lines.append(" · ".join(str(x) for x in (r.get("ts"), r.get("step"), r.get("item_id") or "-",
                                                  r.get("title") or "", r.get("code"), state,
                                                  f"×{r.get('count')}", r.get("reason") or "") if x != ""))
@@ -765,7 +955,7 @@ def export_redacted(limit: int = 50, *, plugin_version: str | None = None) -> st
 
 def add_parser(sub) -> None:
     p = sub.add_parser("problems", help="问题记录：list 列出 / report 登记一条（夜跑脚本用）/ export 复制报错（脱敏）")
-    psub = p.add_subparsers(dest="problems_cmd", metavar="<list|report|resolve|export|summary|repair>")
+    psub = p.add_subparsers(dest="problems_cmd", metavar="<list|report|resolve|export|summary|repair|dismiss|undismiss>")
     pl = psub.add_parser("list", help="列出问题（折叠后，未解决在前），输出 JSON")
     pl.add_argument("--all", action="store_true", help="连已解决的也列")
     pl.add_argument("--limit", type=int, default=MAX_KEYS)
@@ -784,6 +974,12 @@ def add_parser(sub) -> None:
     pe = psub.add_parser("export", help="复制报错：脱敏后的诊断信息，输出 JSON {text}")
     pe.add_argument("--limit", type=int, default=50)
     pe.add_argument("--plugin-version", dest="plugin_version")
+    pd = psub.add_parser("dismiss", help="隐藏已放弃的问题（她手动、可恢复、照样导出），输出 JSON")
+    pd_one = pd.add_mutually_exclusive_group(required=True)
+    pd_one.add_argument("--key", help="只隐藏这一条")
+    pd_one.add_argument("--group", choices=("gave_up",), help="整组隐藏「已放弃」")
+    pu = psub.add_parser("undismiss", help="恢复显示一条隐藏的问题，输出 JSON")
+    pu.add_argument("--key", required=True)
     psub.add_parser("summary", help="核一次同步进程还在不在（被打断就如实改成 INTERRUPTED）、刷新 problems-summary.json，输出它")
     pf = psub.add_parser("repair", help="当场自愈：对还没解决的非风控问题跑对应的修复动作（风控 / 登录类绝不碰），输出 JSON")
     pf.add_argument("--key", help="只修这一条（面板「现在修」）")
@@ -851,6 +1047,16 @@ def run(args) -> int:
         n = resolve(args.step, args.item_id, args.code)
         dump_json({"ok": True, "code": "", "message": f"已解决 {n} 条" if n else "没有要解决的", "resolved": n})
         return 0
+    if cmd == "dismiss":
+        result = dismiss(key=args.key, group=args.group)
+        dump_json(result)
+        if result.get("dismissed"):
+            write_summary()
+        return 0 if result["ok"] else 1
+    if cmd == "undismiss":
+        result = undismiss(args.key)
+        dump_json(result)
+        return 0 if result["ok"] else 1
     if cmd == "summary":
         from . import sync_state
         sync_state.current()  # 进程已死的 running → 落盘成 INTERRUPTED（并登记一条），顺带刷新 summary
@@ -861,5 +1067,5 @@ def run(args) -> int:
             data = page_summary()
         dump_json({"ok": True, "code": "", "message": "", **data})
         return 0
-    print("用法：python -m link_brain problems list|report|resolve|export|summary|repair", file=sys.stderr)
+    print("用法：python -m link_brain problems list|report|resolve|export|summary|repair|dismiss|undismiss", file=sys.stderr)
     return 1
