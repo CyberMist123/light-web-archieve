@@ -91,6 +91,8 @@ BARE_CLASS = {
     "INTERRUPTED": "TRANSIENT", "TOO_MANY_FAILURES": "TRANSIENT", "ACCOUNT_BUSY": "TRANSIENT",
     "ACCOUNT_BLOCKED": "NEEDS_HUMAN",  # 「号出事了」但读取服务没给具体风险码（MCP 报错文本像掉登录 / 验证）
     "FAVORITES_FAILED": "TRANSIENT",  # 读取服务读收藏失败（如机器卡导致登录检查超时，HTTP 500）——不是风控
+    # 1008（读取组件 d7）：页面里有验证组件但没显示滑块 / 收藏页签点不动——只停这一次读收藏、不写熔断、下次照常读
+    "HIDDEN_WIDGET": "TRANSIENT", "FAV_TAB_STUCK": "TRANSIENT",
 }
 
 # 账号类（撞见就整批停车、要人处理）：这些码不管在哪一步撞见，一律登记在 step=login、item_id=None，
@@ -142,6 +144,11 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "TRANSIENT.RETRY_EXHAUSTED": dict(where="card", label="连着几次没补成", hover="{reason}（{next_at} 再试）", group="auto"),
     "TRANSIENT.STEP_CRASHED": dict(where="list", label="步骤中途出错退出", hover="{reason}", group="auto"),
     "TRANSIENT.SECRET_TIMEOUT": dict(where="list", label="取 AI key 超时", hover="从密码库取 key 没成：{reason}", group="auto"),
+    # 1008：卡片上过期的接口码（当时 key 失效 / 断网，接口现在已经好了）降成这一行：这篇确实还缺识图 / 概要，照实显示
+    "TRANSIENT.AI_PENDING": dict(where="card", label="待补识图 / 概要", hover="{reason}：今晚夜跑自动补上，不用处理", group="auto"),
+    # 1008（读取组件 d7）：读收藏「只停这一次、不熔断」的两种——只停收藏，当晚其它步骤照跑，下次照常读
+    "TRANSIENT.HIDDEN_WIDGET": dict(where="list", label="收藏这次先停了", hover="{reason}", group="auto"),
+    "TRANSIENT.FAV_TAB_STUCK": dict(where="list", label="收藏页签点不动", hover="{reason}", group="auto"),
     "TRANSIENT.*": dict(where="list", label="稍后自动重试", hover="{reason}（{next_at} 再试）", group="auto"),
     # —— 已放弃（记原因，不再自动重试）——
     "PERMANENT.PDF_ENCRYPTED": dict(where="card", label="全文没转出来", hover="PDF 有打开密码，字节已保存", group="gave_up"),
@@ -149,7 +156,8 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "PERMANENT.DOC_UNSUPPORTED": dict(where="card", label="全文没转出来", hover="这种文档格式还转不了，原件已保存", group="gave_up"),
     "PERMANENT.NO_AUDIO": dict(where="list", label="视频没有音轨", hover="没有可转写的声音，画面上也没认出字幕", group="gave_up"),
     "PERMANENT.NO_SPEECH": dict(where="list", label="视频里没人说话", hover="只有背景音乐或环境声，画面上也没认出字幕", group="gave_up"),
-    "PERMANENT.NOTE_GONE": dict(where="card", label="原帖已删除", hover="原帖已删除或不可见，本地存档还在", group="gave_up"),
+    # 1008：补查判定「原帖打不开」只上卡片、不进问题列表（她：没人声的不是问题）；分不清删了还是仅作者可见，别直说「已删除」
+    "PERMANENT.NOTE_GONE": dict(where="card", label="原帖打不开", hover="原帖打不开（可能已删或仅作者可见），本地存档还在", group="gave_up"),
     "PERMANENT.MODEL_OUTPUT_INVALID": dict(where="card", label="AI 结果不可用", hover="{reason}", group="gave_up"),
     "PERMANENT.REMOTE_TASK_FAILED": dict(where="list", label="远程阅读的计划任务没弄好", hover="{reason}", group="gave_up"),
     # 第 5 批 `reader install`（用户点的操作，只出现在命令结果里，不登记问题记录）
@@ -776,6 +784,60 @@ def _recheck_run() -> dict[str, Any] | None:
     return out
 
 
+MIGRATIONS_NAME = "problem-migrations.json"
+
+
+def migrate_orphan_refine() -> int:
+    """一次性迁移（1008，B2-7）：卡片上有「AI 结果不可用」标（vision.json 里有 refine failed 的图）、问题记录里却没有
+    没解决的条目——当时问题面板还没接上这类报错。补登记一次，好让她在面板里看得到、能隐藏。
+    ts 用 vision.json 里那张图的 refine.at（不是「现在」）；PERMANENT 不推送。做过一次就记在 problem-migrations.json，
+    之后零开销。不放在 catalog build 里（Obsidian「刷新目录」也会 build，刷新不该有写问题记录的副作用）。永不抛异常。"""
+    try:
+        mark = storage.archive_root() / MIGRATIONS_NAME
+        try:
+            done = storage.read_json(mark)
+        except (OSError, ValueError):
+            done = {}
+        if not isinstance(done, dict):
+            done = {}
+        if done.get("orphan_refine_1008"):
+            return 0
+        folded = _fold(_read_rows())
+        rows = []
+        for vpath in sorted(storage.archive_root().glob("*/*/derived/vision.json")):
+            try:
+                doc = storage.read_json(vpath)
+            except (OSError, ValueError):
+                continue
+            failed = [im for im in doc.get("images", []) if (im.get("refine") or {}).get("status") == "failed"]
+            if not failed:
+                continue
+            obj = vpath.parents[1]
+            try:
+                item_id = storage.read_json(obj / "meta.json").get("item_id") or f"xhs-{obj.name}"
+            except (OSError, ValueError):
+                item_id = f"xhs-{obj.name}"
+            code = "PERMANENT.MODEL_OUTPUT_INVALID"
+            prev = folded.get(make_key("vision.refine", item_id, code))
+            if prev and not prev.get("resolved_at"):
+                continue
+            last = max(failed, key=lambda im: str((im.get("refine") or {}).get("at") or ""))
+            ref = last.get("refine") or {}
+            ts = str(ref.get("at") or "") or _now().isoformat(timespec="seconds")
+            reason = (f"{str(last.get('asset') or '').split('/')[-1]}：{ref.get('error') or '精细识别结果不合格'}"
+                      "（补登记：卡片上一直有这个标，当时问题面板还没接上）")
+            rows.append({"ts": ts, "key": make_key("vision.refine", item_id, code), "step": "vision.refine",
+                         "item_id": item_id, "title": None, "code": code, "reason": reason[:REASON_MAX],
+                         "action": "gave_up", "next_at": None, "count": 1, "resolved_at": None})
+        if rows:
+            _append(rows)
+        storage.write_json(mark, {**done, "orphan_refine_1008": _now().isoformat(timespec="seconds")})
+        return len(rows)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[problems] 一次性补登记没做成（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        return 0
+
+
 # --------------------------------------------------------------------------
 # 隐藏 / 恢复（1008，B2）
 # --------------------------------------------------------------------------
@@ -1010,6 +1072,7 @@ def run(args) -> int:
     if cmd == "list":
         from . import ai_health
         ai_health.migrate_legacy_rows()  # 1008：老记录里按篇登的 key 失效 / 欠费收成每个接口一条（幂等，没有就 0 开销）
+        migrate_orphan_refine()  # 1008：卡片上有标、面板里没有的精细识图失败补登记一次（做过就不再做）
         dump_json({"ok": True, "code": "", "message": "", "summary": summary(),
                    "problems": load(args.limit, include_resolved=args.all)})
         return 0

@@ -222,6 +222,37 @@ def _problem(code: str, reason: str | None, action: str | None = None, next_at: 
             "action": action or problems.DEFAULT_ACTION.get(cls, "retry_later")}
 
 
+# 1008（L6·B2）：卡片角标要减去她隐藏的 (item_id, 细分码)，接口那一侧的码以 ai-health 为准。
+# 这两份是全库共用的：一次 catalog build 只读一回（按两个文件的 mtime 缓存），不在每篇里各读一遍 problems.jsonl。
+_CTX: dict[str, Any] = {"key": None, "val": None}
+# 卡片上的接口码来自哪份对象文件 → 那个能力在 ai-health.json 里的名字
+_API_CAP = {"vision": "visionAI", "extracted": "summaryAI"}
+
+
+def _mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _problem_context() -> dict[str, Any]:
+    """{hidden: {(item_id, 细分码)}, ai_open: {能力名}, api_codes: set}。读不动就当没有（fail-open：照旧出标）。"""
+    from . import ai_health, problems
+    key = (str(storage.archive_root()), _mtime(problems.path()), _mtime(storage.archive_root() / ai_health.FILE_NAME))
+    if _CTX["key"] != key:
+        try:
+            hidden = problems.dismissed_pairs()
+        except Exception:  # noqa: BLE001
+            hidden = set()
+        try:
+            ai_open = set(ai_health._load())
+        except Exception:  # noqa: BLE001
+            ai_open = set()
+        _CTX.update(key=key, val={"hidden": hidden, "ai_open": ai_open, "api_codes": set(ai_health.API_CODES)})
+    return _CTX["val"]
+
+
 def item_problems(obj_dir: Path, report: dict[str, Any], vision: dict[str, Any], transcript: dict[str, Any],
                   extracted: dict[str, Any]) -> list[dict[str, str]]:
     """这一篇眼下的问题（CONVENTIONS §3.4）：只从各对象文件推出，**不读 problems.jsonl**；文案只从登记表取。
@@ -229,17 +260,27 @@ def item_problems(obj_dir: Path, report: dict[str, Any], vision: dict[str, Any],
     [{code, label, hover, group, action}]，每个码一条（同一篇几张图 / 几份附件同码只列一次，原因取第一条）。
     来源：attachments.json 的 conversion_failed · attachment-state.json 的下载错误 · transcript.json ·
     vision.json（第一层识图接口故障 / 第二层精细识别放弃）· extracted.json（概要失败）· enrich-state.json（连着失败暂时放弃）。
-    SKIPPED（没配置 / 关了）不算问题，不列。"""
-    out: dict[str, dict[str, str]] = {}
+    SKIPPED（没配置 / 关了）不算问题，不列。
 
-    def add(code, reason, action=None, next_at=None):
+    1008：她在问题面板隐藏了的 (item_id, 细分码) 不出标；接口那一侧的码（key 失效 / 欠费 / 断网 / 限流 / 5xx / 服务忙）
+    只在 ai-health.json 里这个能力确实还开着时才照原码出标，否则降成灰色「待补识图 / 概要」（这篇确实还缺，照实显示）；
+    补查判定「原帖打不开」的（derived/web_recheck.json 的 gone）出「原帖已删除」标（只上卡片、不进问题列表）。"""
+    out: dict[str, dict[str, str]] = {}
+    ctx = _problem_context()
+    item_id = str(report.get("item_id") or "")
+
+    def add(code, reason, action=None, next_at=None, cap=None):
         if not code:
             return
+        if cap and str(code) in ctx["api_codes"] and cap not in ctx["ai_open"]:
+            code, reason, action = "TRANSIENT.AI_PENDING", f"{reason}（当时接口出错；接口现在已经好了）", "retry_later"
         try:
             row = _problem(code, reason, action, next_at)
         except Exception:  # noqa: BLE001 - 坏码不拖垮目录重建
             return
         if row["code"].startswith("SKIPPED."):
+            return
+        if (item_id, row["code"].split(".", 1)[1]) in ctx["hidden"]:
             return
         out.setdefault(row["code"], row)
 
@@ -264,7 +305,7 @@ def item_problems(obj_dir: Path, report: dict[str, Any], vision: dict[str, Any],
     for im in (vision.get("images") or []) if isinstance(vision, dict) else []:
         visual = im.get("visual") or {}
         if visual.get("status") not in (None, "ok") and visual.get("code"):
-            add(visual["code"], visual.get("error") or "识图失败")
+            add(visual["code"], visual.get("error") or "识图失败", cap=_API_CAP["vision"])
         ref = im.get("refine") or {}
         if ref.get("status") == "failed":
             add("PERMANENT.MODEL_OUTPUT_INVALID", f"精细识别：{ref.get('error') or '结果不合格'}")
@@ -274,7 +315,11 @@ def item_problems(obj_dir: Path, report: dict[str, Any], vision: dict[str, Any],
         add("TRANSIENT.RETRY_EXHAUSTED", f"识图 / 概要连着 {state.get('fails')} 次没补成：{state.get('last_error') or ''}",
             "gave_up", state.get("retry_after"))
     elif isinstance(extracted, dict) and extracted.get("status") == "failed":
-        add(extracted.get("code") or "TRANSIENT.SERVICE_BUSY", f"概要没生成：{extracted.get('error') or ''}")
+        add(extracted.get("code") or "TRANSIENT.SERVICE_BUSY", f"概要没生成：{extracted.get('error') or ''}",
+            cap=_API_CAP["extracted"])
+    mark = _load_json(obj_dir / "derived" / "web_recheck.json") or {}
+    if isinstance(mark, dict) and mark.get("gone"):
+        add("PERMANENT.NOTE_GONE", "原帖打不开（可能已删或仅作者可见），本地存档还在")
     return list(out.values())
 
 
