@@ -400,8 +400,9 @@ def scan(report: bool = False) -> dict[str, Any]:
             if r["issues"] and r["item_id"]:
                 bad_ids.add(r["item_id"])
                 if r["item_id"] not in open_ids:
+                    # action 显式 retry_later：PERMANENT 默认是 gave_up，那样 repair 永远不会自动恢复（自动恢复失败才登记 gave_up）
                     problems.report(STEP, "PERMANENT.NOTE_DAMAGED", reason_text(r["issues"]),
-                                    item_id=r["item_id"], title=Path(r["path"]).stem)
+                                    item_id=r["item_id"], title=Path(r["path"]).stem, action="retry_later")
         for iid in open_ids - bad_ids:
             if iid:
                 problems.resolve(STEP, iid)

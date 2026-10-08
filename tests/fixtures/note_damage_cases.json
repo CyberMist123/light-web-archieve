@@ -1,0 +1,116 @@
+{
+ "base": "---\ncssclasses: [link-brain, xhs-note]\ntags: [\"测试\", \"样例\"]\nlink_brain:\n  item_id: xhs-0000000000000000deadbeef\n  source: xiaohongshu\n  source_id: 0000000000000000deadbeef\n  canonical_url: https://www.xiaohongshu.com/explore/0000000000000000deadbeef\n  origin: cli\n  ingest_kind: shared\n  actor: human\n  actor_id: null\n  first_archived: 2026-10-08T22:47:20+11:00\n  current_version: 1\n  images_complete: false\n  comments_complete: true\n---\n\n> [!lb-topbar]\n> [原文](https://www.xiaohongshu.com/explore/0000000000000000deadbeef?xsec_token=FAKE_TOKEN_FOR_TESTS&xsec_source=pc_feed) · [[_archive/xiaohongshu/0000000000000000deadbeef/derived/agent.md|机读版]]\n\n<!-- link-brain:content:start -->\n> [!link-brain-file]\n> 附件里放了速查表（拿不到）\n\n<div class=\"lb-note\" data-lb-item=\"xhs-0000000000000000deadbeef\"><div class=\"lb-side\"><section class=\"lb-media\"><div class=\"lb-carousel\"><figure class=\"lb-slide\"><img src=\"../../_archive/xiaohongshu/0000000000000000deadbeef/assets/image-001.png\" loading=\"lazy\" alt=\"图片 1 / 2\"><figcaption class=\"lb-counter\">1 / 2</figcaption></figure><figure class=\"lb-slide\"><img src=\"../../_archive/xiaohongshu/0000000000000000deadbeef/assets/image-002.png\" loading=\"lazy\" alt=\"图片 2 / 2\"><figcaption class=\"lb-counter\">2 / 2</figcaption></figure></div></section></div><div class=\"lb-main\"><div class=\"lb-author-row\"><div class=\"lb-author-dot\" aria-hidden=\"true\"></div><div class=\"lb-author-copy\"><div class=\"lb-author-name\">示例用户</div><div class=\"lb-post-meta\">2026-05-29</div></div></div><div class=\"lb-scroll\"><h2 class=\"lb-note-title\">脱敏样例笔记</h2><div class=\"lb-body\"><p>第一行正文。<br>附件里放了速查表。<br>看看 https://example.com/a 这个链接</p></div><section class=\"lb-detail\"><div class=\"lb-tags\"><span class=\"lb-tag\" title=\"在目录里看带 #测试 的收藏\">#测试</span><span class=\"lb-tag\" title=\"在目录里看带 #样例 的收藏\">#样例</span></div><div class=\"lb-engagement\"><span>♡ 12</span><span>☆ 3</span></div><div class=\"lb-comments\"><article class=\"lb-comment\"><div class=\"lb-comment-author\">评论者甲</div><div class=\"lb-comment-text\">一级评论示例</div><div class=\"lb-comment-actions\">♡ 1</div><div class=\"lb-replies\"><article class=\"lb-comment lb-reply\"><div class=\"lb-comment-author\">评论者乙</div><div class=\"lb-comment-text\">楼中楼示例</div></article></div></article></div></section></div></div></div>\n<!-- link-brain:content:end -->\n\n<!-- link-brain:comments:start -->\n<!-- link-brain:comments:end -->\n\n```dataviewjs\nconst itemId = \"xhs-0000000000000000deadbeef\";\nlet lbRoot = dv.current()?.file?.folder || \"\";\nwhile (lbRoot && !app.vault.getAbstractFileByPath(lbRoot + \"/_archive\")) lbRoot = lbRoot.includes(\"/\") ? lbRoot.slice(0, lbRoot.lastIndexOf(\"/\")) : \"\";\nconst lbPath = p => lbRoot ? lbRoot + \"/\" + p : p;\nconst notePath = lbPath(\"_archive/xiaohongshu/0000000000000000deadbeef/notes.json\");\ntry {\n  const code = await app.vault.adapter.read(lbPath(\"_archive/annotate-view.js\"));\n  // 脚本里有顶层 await，必须用 AsyncFunction 构造（普通 Function 会当语法错误抛）\n  const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;\n  await new AsyncFunction(\"dv\", \"app\", \"itemId\", \"notePath\", code)(dv, app, itemId, notePath);\n} catch (e) { dv.paragraph(\"批注块暂不可用：\" + (e.message || e)); }\n```\n",
+ "cases": [
+  {
+   "name": "完好",
+   "patch": [],
+   "expect": []
+  },
+  {
+   "name": "删了 CONTENT 开始标记",
+   "patch": [
+    [
+     "replace",
+     "<!-- link-brain:content:start -->",
+     ""
+    ]
+   ],
+   "expect": [
+    "CONTENT_MARKERS_MISSING"
+   ]
+  },
+  {
+   "name": "整个 CONTENT 层删了",
+   "patch": [
+    [
+     "cut",
+     "<!-- link-brain:content:start -->",
+     "<!-- link-brain:content:end -->"
+    ]
+   ],
+   "expect": [
+    "CONTENT_MARKERS_MISSING",
+    "NOTE_BLOCK_MISSING"
+   ]
+  },
+  {
+   "name": "删了 item_id",
+   "patch": [
+    [
+     "replace",
+     "  item_id: xhs-0000000000000000deadbeef\n",
+     ""
+    ]
+   ],
+   "expect": [
+    "ITEM_ID_MISSING"
+   ]
+  },
+  {
+   "name": "cssclasses 少了 xhs-note",
+   "patch": [
+    [
+     "replace",
+     "cssclasses: [link-brain, xhs-note]",
+     "cssclasses: [link-brain]"
+    ]
+   ],
+   "expect": [
+    "CSSCLASSES_MISSING"
+   ]
+  },
+  {
+   "name": "两栏块被换行拆开",
+   "patch": [
+    [
+     "replace",
+     "<div class=\"lb-main\">",
+     "\n<div class=\"lb-main\">"
+    ]
+   ],
+   "expect": [
+    "NOTE_BLOCK_SPLIT"
+   ]
+  },
+  {
+   "name": "删了留言结束标记",
+   "patch": [
+    [
+     "replace",
+     "<!-- link-brain:comments:end -->",
+     ""
+    ]
+   ],
+   "expect": [
+    "COMMENTS_MARKERS_MISSING"
+   ]
+  },
+  {
+   "name": "批注块没了",
+   "patch": [
+    [
+     "replace",
+     "annotate-view.js",
+     "x-view.js"
+    ]
+   ],
+   "expect": [
+    "ANNOTATE_BLOCK_MISSING"
+   ]
+  },
+  {
+   "name": "frontmatter 写坏",
+   "patch": [
+    [
+     "replace",
+     "cssclasses: [link-brain, xhs-note]",
+     "cssclasses: [link-brain, xhs-note\nbad:\n  - [unclosed\n  - x: : y"
+    ]
+   ],
+   "expect": [
+    "FRONTMATTER_BROKEN",
+    "CSSCLASSES_MISSING"
+   ]
+  }
+ ]
+}

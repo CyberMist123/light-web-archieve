@@ -483,10 +483,14 @@ def append_moved_comment(block: str, lines: list[str]) -> str:
     if not lines:
         return block
     now = datetime.now()
-    first, rest = lines[0].strip(), [x.strip() for x in lines[1:]]
-    new = ["> [!link-brain-comment]", f"> 「{now:%Y%m%d} 人」（重写笔记时从正文外搬来）{first}"]
-    new += [f"> {x}" if x else ">" for x in rest]
-    new.append(f"<!-- link-brain: id=moved-{now:%Y%m%d%H%M%S} actor=human target=none status=open -->")
+    # 一行一条留言：留言层的解析只认每条的第一行，几段并成一条会让后几段在留言视图里看不见
+    new: list[str] = []
+    for n, line in enumerate((x.strip() for x in lines if x.strip()), 1):
+        lead = "（重写笔记时从正文外搬来）" if n == 1 else ""
+        new += ["> [!link-brain-comment]", f"> 「{now:%Y%m%d} 人」{lead}{line}",
+                f"<!-- link-brain: id=moved-{now:%Y%m%d%H%M%S}-{n} actor=human target=none status=open -->"]
+    if not new:
+        return block
     end = block.rfind(COMMENTS_END)
     if end == -1:
         return block.rstrip("\n") + "\n" + "\n".join(new) + "\n" + COMMENTS_END

@@ -271,6 +271,8 @@ def print_pdf(browser: str, html_path: Path, out_pdf: Path, timeout: float = PRI
     kw: dict[str, Any] = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "stdin": subprocess.DEVNULL}
     if sys.platform == "win32":
         kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    import time
+    deadline = time.monotonic() + timeout
     proc = subprocess.Popen(args, **kw)
     try:
         proc.communicate(timeout=timeout)
@@ -281,7 +283,13 @@ def print_pdf(browser: str, html_path: Path, out_pdf: Path, timeout: float = PRI
         except Exception:  # noqa: BLE001
             pass
         return False
-    return True
+    # Windows 上 msedge.exe 启动器常常先退出、真正的无头进程（同一个独立 profile）随后才写完 PDF：
+    # 等文件出现且能打开（或到总时限），不按退出码判断
+    while time.monotonic() < deadline:
+        if _pdf_ok(out_pdf):
+            return True
+        time.sleep(0.2)
+    return False
 
 
 # --------------------------------------------------------------------------

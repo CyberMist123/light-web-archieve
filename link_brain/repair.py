@@ -258,6 +258,12 @@ def plan(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
 
 
 RESTORE_QUIET_H = 24
+# 夜里自愈开关（默认关）：主审在真库只读 `restore --scan --json` 确认 0 误报后再打开（LINK_BRAIN_AUTO_RESTORE=1）。
+ENV_AUTO_RESTORE = "LINK_BRAIN_AUTO_RESTORE"
+
+
+def auto_restore_enabled() -> bool:
+    return os.environ.get(ENV_AUTO_RESTORE, "").strip() in ("1", "true", "on", "yes")
 
 
 def _restore_plan(row: dict[str, Any], now: datetime) -> dict[str, Any]:
@@ -276,7 +282,7 @@ def _restore_plan(row: dict[str, Any], now: datetime) -> dict[str, Any]:
         # action 留着：自愈轮不跑 wait，面板点名「现在修」照样能跑（_select 的 key 分支认它）
         return {**_wait(mtime + timedelta(hours=RESTORE_QUIET_H), "你最近在改这篇，24 小时没动再自动恢复（可先点「现在修」）"),
                 "action": "restore"}
-    return _run("restore", auto=True)
+    return _run("restore", auto=auto_restore_enabled())
 
 
 def _gave_up_retried(row: dict[str, Any]) -> bool:
