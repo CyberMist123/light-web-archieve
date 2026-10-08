@@ -1878,8 +1878,8 @@ function toggleHistory(anchor) {
       row.createEl('span', { cls: 'lbchat-histtime', text: hhmm(c.startedAt) });
       q.onclick = async () => {
         if (picked.size) { picked.has(c.id) ? picked.delete(c.id) : picked.add(c.id); draw(); return; }
-        if (c.id === session.id) { close(); return; }
         if (isBusy()) { notice(BUSY_TEXT, 3000); return; }
+        if (c.id === session.id) { close(); return; }
         if (await restoreConversation(c.id)) close();
       };
     }
