@@ -26,6 +26,15 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const pageId = uid();
 // 轮次稳定 id（A1）：旧会话没有 id 的这里补上，第一次写盘时带进文件
 const ensureIds = turns => { for (const t of turns || []) if (t && (typeof t.id !== 'string' || !t.id)) t.id = uid(); return turns; };
+// 磁盘读回的轮次并进内存：同 id 的轮次保留内存里的对象、原地换成磁盘字段（编辑框 / 视图闭包拿着的对象不失效），新的直接用磁盘对象
+const adoptTurns = (mem, disk) => {
+  const byId = new Map((mem || []).filter(t => t && t.id).map(t => [t.id, t]));
+  return ensureIds(disk).map(d => {
+    const m = d && byId.get(d.id); if (!m || m === d) return d;
+    for (const k of Object.keys(m)) if (!(k in d)) delete m[k];
+    return Object.assign(m, d);
+  });
+};
 
 let data = {};
 try { data = await LB.data.load(); } catch {}
@@ -829,7 +838,7 @@ function srcOp(mutate, tid = null) {
     try {
       const disk = JSON.parse(await app.vault.adapter.read(SESSION_PATH));
       if (disk && Array.isArray(disk.turns) && disk.id === session.id) {
-        session.turns = ensureIds(disk.turns); session.excluded = idList(disk.excluded); session.pinned = idList(disk.pinned);
+        session.turns = adoptTurns(session.turns, disk.turns); session.excluded = idList(disk.excluded); session.pinned = idList(disk.pinned);
       }
     } catch {}
     notice(NOT_SAVED + errText(e));
@@ -902,7 +911,9 @@ function drawActions(acts, el, t) {
 const stripStopped = s => String(s || '').replace(/\n*> 已停止生成。\s*$/, '').trim();
 
 // ── A3 编辑：原地替换正文（编辑框在来源块之前）；Ctrl+Enter 保存、Esc 取消；写盘失败内容改回、编辑框留着 ──
-function editText(mdEl, entry, save, focus = true) {
+function editText(mdEl, entryOrGet, save, focus = true) {
+  const cur = () => (typeof entryOrGet === 'function' ? entryOrGet() : entryOrGet);
+  const entry = cur();
   const parent = mdEl.parentNode;
   if (!parent || parent.querySelector('.lbchat-editor')) return null;
   const editor = createEl('textarea', { cls: 'lbchat-editor' }); editor.value = entry.content;
@@ -916,9 +927,9 @@ function editText(mdEl, entry, save, focus = true) {
   grow(); editor.oninput = grow;
   const close = () => { editor.remove(); bar.remove(); mdEl.hidden = false; };
   const doSave = async () => {
-    const prev = entry.content; entry.content = editor.value; ok.disabled = true;
-    try { await save(); if (editor.isConnected) close(); }
-    catch (e) { entry.content = prev; notice(NOT_SAVED + errText(e)); }
+    const e0 = cur(); const prev = e0.content; e0.content = editor.value; ok.disabled = true;
+    try { await save(e0); if (editor.isConnected) close(); }
+    catch (e) { e0.content = prev; notice(NOT_SAVED + errText(e)); }
     finally { ok.disabled = false; }
   };
   ok.onclick = doSave; cancel.onclick = close;
@@ -933,9 +944,10 @@ function editText(mdEl, entry, save, focus = true) {
 }
 function editAnswer(el, t, focus) {
   const mdEl = el.querySelector('.lbchat-md'); if (!mdEl) return;
-  editText(mdEl, t, async () => {
-    const stored = archive.entries.find(x => x.id === t.savedId);
-    if (stored) { const prev = stored.content; stored.content = t.content; try { await saveArchive(); } catch (e) { stored.content = prev; throw e; } }
+  // 按 id 取会话里当前那一轮（作答中 / 别的页写盘后会话会被读回合并）
+  editText(mdEl, () => session.turns.find(x => x && x.id === t.id) || t, async cur => {
+    const stored = archive.entries.find(x => x.id === cur.savedId);
+    if (stored) { const prev = stored.content; stored.content = cur.content; try { await saveArchive(); } catch (e) { stored.content = prev; throw e; } }
     await enqueueWrite(saveSession); announce();
     await drawChat();
   }, focus);
@@ -1410,7 +1422,7 @@ function commitAnswer(info, turn) {
     if (disk && Array.isArray(disk.turns) && disk.id === info.convId) {
       insert(ensureIds(disk.turns));
       if (session.id === info.convId) {
-        session.turns = disk.turns; session.excluded = idList(disk.excluded); session.pinned = idList(disk.pinned);
+        session.turns = adoptTurns(session.turns, disk.turns); session.excluded = idList(disk.excluded); session.pinned = idList(disk.pinned);
         session.follow = disk.follow === 'search' ? 'search' : 'sources'; session.private = !!disk.private;
         await saveSession();
       } else { await writeJson(SESSION_PATH, disk); if (!disk.private) await saveToHistory({ ...disk, startedAt: disk.startedAt || info.askedAt }); }
@@ -1681,11 +1693,11 @@ if (app.workspace.on && dv.component?.registerEvent) {
     app.vault.adapter.read(SESSION_PATH).then(async raw => {
       const next = JSON.parse(raw);
       if (!Array.isArray(next.turns)) return;
-      session.turns = ensureIds(next.turns); session.excluded = idList(next.excluded); session.pinned = idList(next.pinned);
+      session.turns = adoptTurns(session.id === next.id ? session.turns : [], next.turns); session.excluded = idList(next.excluded); session.pinned = idList(next.pinned);
       session.follow = next.follow === 'search' ? 'search' : 'sources';
       if (typeof next.id === 'string' && next.id) { session.id = next.id; session.startedAt = next.startedAt || session.startedAt; }
       session.private = !!next.private; paintPrivacy();
-      resetViews();
+      if (!bodyEl.querySelector('.lbchat-editor')) resetViews();
       if (lane === 'chat') await drawChat();
       drainQueue(true);
     }).catch(() => {});

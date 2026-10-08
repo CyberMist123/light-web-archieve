@@ -231,6 +231,41 @@ async function n11() {
   console.log('PASS chat L2 N11: pendingArchiveScope presets the source (no auto submit, focus in box, survives rerun / rebuild), submit sends sourceIds and marks the turn, 取消 clears; busy catalog jump goes into plugin.chatQueue');
 }
 
+// 审查回归：作答中编辑另一条回答、答完后保存，改动不能丢（答完读回磁盘合并时保留内存里的轮次对象）；
+// 别的问收藏页写了会话时，这一页开着的编辑框和里面的字还在
+async function editWhileBusy() {
+  const P = makePlugin();
+  const C = await openChat({ plugin: P });
+  await C.ask('第一问');
+  P.hold(); await C.ask('第二问');
+  C.answers()[0].querySelector('.lbchat-edit').onclick(); await tick(5);
+  const ed = C.q('.lbchat-editor'); assert.ok(ed, '作答中可以打开编辑');
+  ed.value = '我改过的回答';
+  P.reply({ status: 'ok', markdown: '答二', sources: [], related: [] }); await tick(40);
+  assert.ok(C.q('.lbchat-editor'), '答完编辑框还在');
+  C.q('.lbchat-editsave').onclick(); await tick(40);
+  const disk = C.saved().turns;
+  assert.equal(disk.length, 4);
+  assert.equal(disk[1].content, '我改过的回答', '磁盘上是改后的正文');
+  assert.equal(disk[3].content, '答二', '第二问的回答也在');
+  assert.ok(C.answers()[0].querySelector('.lbchat-md').textContent.includes('我改过的回答'), '屏幕上是改后的正文');
+
+  // 两页：B 开着编辑框，A 写了会话（问一句）→ B 的编辑框和字都在，保存后两条都在磁盘
+  const shared = { plugin: P, app: C.app, dom: C.dom, V: C.V };
+  const B = await openChat(shared);
+  B.answers()[0].querySelector('.lbchat-edit').onclick(); await tick(5);
+  const edB = B.q('.lbchat-editor'); edB.value = 'B 改的';
+  P.release(); await C.ask('第三问', 40);
+  assert.equal(C.saved().turns.length, 6, 'A 的第三问写盘了');
+  assert.ok(edB.isConnected && B.q('.lbchat-editor') === edB, 'B 的编辑框没被摘掉');
+  assert.equal(edB.value, 'B 改的');
+  B.q('.lbchat-editsave').onclick(); await tick(40);
+  const d2 = C.saved().turns;
+  assert.equal(d2.length, 6, 'B 保存没把 A 的第三问冲掉');
+  assert.equal(d2[1].content, 'B 改的');
+  console.log('PASS chat L2 edit while busy: an edit opened during answering saves to disk and screen after the answer lands; another page writing the session keeps the open editor on this page and its text');
+}
+
 (async () => {
   await a6();
   await a12();
@@ -240,4 +275,5 @@ async function n11() {
   await a17();
   await m1m3();
   await n11();
+  await editWhileBusy();
 })().catch(e => { console.error(e); process.exit(1); });
