@@ -543,6 +543,24 @@ def captcha_page(text: str | None) -> bool:
     return any(h.lower() in low for h in CAPTCHA_HINTS)
 
 
+# 风控状态码（461 / 471）：服务器直接拒了这次访问，和「这篇没了」不是一回事
+CAPTCHA_STATUS = (461, 471)
+
+
+def _guest_captcha_response(resp: Any) -> bool:
+    """游客这次响应是不是落到了验证 / 风控：跳到 website-login / captcha、风控状态码、或页面上有验证专用词。"""
+    if getattr(resp, "status_code", 200) in CAPTCHA_STATUS:
+        return True
+    final = str(getattr(resp, "url", "") or "").lower()
+    if "website-login" in final or "captcha" in final:
+        return True
+    text = getattr(resp, "text", "") or ""
+    if INITIAL_STATE_RE.search(text):
+        # 有 SSR 状态的正常页：只有没这条笔记时才看验证词（交给下面的分支），避免正文里提到「验证码」误停
+        return False
+    return captcha_page(text[:8000])
+
+
 def fetch_related_file(note_id: str, xsec_token: str | None, *, timeout: int = 30,
                        stop_on_captcha: bool = False) -> dict[str, Any]:
     """去笔记网页版拿附件元数据（MCP 的 `get_feed_detail` 不返回它）。
@@ -565,6 +583,13 @@ def fetch_related_file(note_id: str, xsec_token: str | None, *, timeout: int = 3
             timeout=timeout,
             follow_redirects=True,
         )
+        if stop_on_captcha and _guest_captcha_response(resp):
+            # 游客页落到验证 / 风控：不管状态码、有没有 __INITIAL_STATE__，都立刻停，
+            # 不再起游客浏览器兜底（附件补查的保险丝，见 attachments.recheck_guest）
+            result["captcha"] = True
+            result["blocked"] = True
+            result["error"] = "游客打开笔记页时出现了安全验证 / 访问频繁的页面"
+            return result
         resp.raise_for_status()
         match = INITIAL_STATE_RE.search(resp.text)
         if not match:

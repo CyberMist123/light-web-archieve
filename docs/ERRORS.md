@@ -100,7 +100,7 @@
 | 登录号落 /explore、/404（删了 / 仅作者可见 / 审核中 / 口令过期） | `gone_suspected` → `gone`（卡片「原帖打不开」） | 两晚各一次或新口令一次才定；30 天游客复查 | `tests/test_attachments_recheck_1008.py::test_tail_fresh_token_settles_gone_in_one_night` |
 | 登录号落 /login、是游客 | 账号类（停车、要人处理） | 绝不判删帖 | `tests/test_attachments_recheck_1008.py::test_tail_login_wall_stops_and_never_judges_gone` |
 | 读取服务超时 / 忙 / 断开 | 收尾段收工 | 第一次就停，不接着开页 | `tests/test_attachments_recheck_1008.py::test_tail_stops_on_first_service_failure` |
-| 游客页出现安全验证 / 访问频繁 | `TRANSIENT.WEB_PROBE_BLOCKED`（步骤级） | 游客段当晚停、不起浏览器兜底，没碰号 | `tests/test_attachments_recheck_1008.py::test_guest_fuse_and_captcha_stop`、`tests/test_attachments_recheck_1008.py::test_captcha_page_stops_before_guest_browser` |
+| 游客页出现安全验证 / 访问频繁（页面有验证词、没有 SSR 状态的验证页、461 / 471 状态码、跳到 website-login / captcha） | `TRANSIENT.WEB_PROBE_BLOCKED`（步骤级） | 游客段当晚停、不起浏览器兜底，没碰号 | `tests/test_attachments_recheck_1008.py::test_guest_fuse_and_captcha_stop`、`tests/test_attachments_recheck_1008.py::test_captcha_page_stops_before_guest_browser`、`tests/test_attachments_recheck_1008.py::test_captcha_variants_stop_without_browser` |
 | 号正被同步 / lwa 占着 | 游客段让路 | 同 IP 不和号的活动叠在一起 | `tests/test_attachments_recheck_1008.py::test_guest_yields_when_account_is_busy` |
 | 探到了附件但下载失败（超时 / 占位页） | `TRANSIENT.DOWNLOAD_FAILED` + 跨夜退避 1/2/4/7 天 | --all 退避到点后一晚试 1 次 | `tests/test_attachments_recheck_1008.py::test_download_backoff_across_nights` |
 | 探到了但没记进声明（「全部已保存」谎报） | 本地对账 `_remember_probed` | 附件检查如实数「未下载」 | `tests/test_attachments_recheck_1008.py::test_reconcile_declares_found_file_and_turns_explore_evidence_into_gone` |

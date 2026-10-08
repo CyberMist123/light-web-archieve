@@ -331,3 +331,42 @@ def test_captcha_page_stops_before_guest_browser(monkeypatch):
     assert out["captcha"] is True and out["ok"] is False and browser == []
     out = xhs.fetch_related_file("0000000000000000deadbeef", "tok")
     assert browser == [1] and not out.get("captcha") and out.get("browser_error") is False
+
+
+class _Resp:
+    def __init__(self, text="", status=200, url="https://example.invalid/explore/x"):
+        self.text, self.status_code, self.url = text, status, url
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+
+@pytest.mark.parametrize("resp", [
+    _Resp("<html><div>访问频繁，请稍后再试</div></html>"),                      # 没有 __INITIAL_STATE__ 的验证页
+    _Resp("<html>blocked</html>", status=461),                                  # 风控状态码
+    _Resp("<html>请登录</html>", url="https://example.invalid/website-login/captcha?redirectPath=x"),  # 302 跳到验证
+], ids=["no-state-captcha", "status-461", "redirect-website-login"])
+@pytest.mark.real_web_probe
+def test_captcha_variants_stop_without_browser(guest_env, monkeypatch, resp):
+    """审查意见：各种验证页形态都要立刻停——不起游客浏览器兜底，补查第 1 篇就以 captcha 停下。"""
+    browser = []
+    monkeypatch.setattr(xhs.httpx, "get", lambda *a, **k: resp)
+    monkeypatch.setattr(xhs, "_probe_related_file_via_browser",
+                        lambda *a, **k: browser.append(1) or {"ok": False, "error": "游客浏览器也没读到这条笔记"})
+    out = xhs.fetch_related_file("0000000000000000deadbeef", "tok", stop_on_captcha=True)
+    assert out["captcha"] is True and out["ok"] is False and browser == []
+    for i in range(3):
+        _obj(f"cv{i:02d}")
+    out = att.recheck_guest()
+    assert out["stopped_reason"] == "captcha" and browser == []
+
+
+@pytest.mark.real_web_probe
+def test_normal_page_mentioning_captcha_word_is_not_stopped(monkeypatch):
+    """正常笔记页正文里提到「验证码」不算撞验证。"""
+    page = ('<script>window.__INITIAL_STATE__={"note":{"noteDetailMap":{"0000000000000000deadbeef":'
+            '{"note":{"title":"教你收验证码"}}}}}</script>')
+    monkeypatch.setattr(xhs.httpx, "get", lambda *a, **k: _Resp(page))
+    out = xhs.fetch_related_file("0000000000000000deadbeef", "tok", stop_on_captcha=True)
+    assert out["ok"] is True and not out.get("captcha")
