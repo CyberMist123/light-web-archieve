@@ -123,11 +123,15 @@ const CSS = `
 .lbc-wrap .lbc-attach-hint{color:var(--text-muted);background:var(--background-secondary);border-color:var(--background-modifier-border);}
 .lbc-wrap .lbc-badges .lbc-prob{pointer-events:auto;cursor:help;color:var(--text-muted);background:var(--background-secondary);border-color:var(--background-modifier-border);}
 .lbc-wrap .lbc-badges svg{display:block;width:14px;height:14px;flex:none;stroke:currentColor;stroke-width:1.6;fill:none;}
-/* ★ 常显（1008 她定）：没收藏的半透明，悬停 / 聚焦 / 已收藏全显；加 .lbc-wrap 前缀，不受问收藏页样式影响（X14c） */
-.lbc-wrap .lbc-star{position:absolute;right:42px;top:8px;width:30px;height:30px;padding:0!important;border:0!important;border-radius:50%;background:var(--background-primary)!important;color:var(--text-muted);box-shadow:0 1px 5px #0002!important;font-size:21px;cursor:pointer;opacity:.55;pointer-events:auto;transition:opacity .15s;}
-.lbc-wrap .lbc-card:hover .lbc-star,.lbc-wrap .lbc-card:focus-within .lbc-star,.lbc-wrap .lbc-star.is-on{opacity:1;}
-.lbc-wrap .lbc-star.is-on{color:var(--text-normal);}
-.lbc-wrap .lbc-star.is-static{right:8px;cursor:default;box-shadow:none!important;}
+/* ☆（1008 18:50 她定，覆盖早上的「常显」）：没收藏的平时不显示，鼠标停在卡上才出现（和选中圈一样）；已收藏的常显。
+   样子和选中圈同款：同尺寸、同顶距、同描边 / 阴影，两颗圈左右并排、上下对齐；已收藏 = 星色实心 + 白星（对应选中圈的 accent 实心 + 白勾）。加 .lbc-wrap 前缀（X14c） */
+.lbc-wrap .lbc-star{position:absolute;top:8px;right:40px;z-index:1;box-sizing:border-box;width:26px;height:26px;padding:0!important;border-radius:50%!important;border:1.5px solid #fff!important;background:rgba(0,0,0,.28)!important;box-shadow:0 1px 4px #0003!important;color:#fff;display:grid;place-items:center;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .15s,background .12s;}
+.lbc-wrap .lbc-star svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round;}
+.lbc-wrap .lbc-card:hover .lbc-star,.lbc-wrap .lbc-card:focus-within .lbc-star{opacity:1;pointer-events:auto;}
+.lbc-wrap .lbc-star:hover{background:rgba(0,0,0,.45)!important;}
+.lbc-wrap .lbc-star.is-on{background:var(--lb-star)!important;border-color:var(--lb-star)!important;opacity:1;pointer-events:auto;}
+.lbc-wrap .lbc-star.is-on svg{fill:currentColor;}
+.lbc-wrap .lbc-star.is-static{right:8px;cursor:default;}
 .lbc-wrap .lbc-card.is-starring .lbc-star{animation:lbc-pulse .8s ease-in-out infinite;cursor:progress;}
 @keyframes lbc-pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.15);}}
 .lbc-wrap .lbc-card.is-deleting{opacity:.45;pointer-events:none;}
@@ -147,7 +151,7 @@ const CSS = `
 .lbc-card:hover button.lbc-check,.lbc-card:focus-within button.lbc-check,.lbc-wrap.is-selecting button.lbc-check{opacity:1;pointer-events:auto;}
 .lbc-wrap button.lbc-check:hover{background:rgba(0,0,0,.45)!important;}
 .lbc-wrap button.lbc-check.is-on{background:var(--interactive-accent)!important;border-color:var(--interactive-accent)!important;color:#fff;opacity:1;pointer-events:auto;}
-@media(hover:none){.lbc-wrap button.lbc-check{opacity:1;pointer-events:auto;}.lbc-card-more{opacity:1;}.lbc-cmeta{padding-right:30px;}.lbc-card:hover .lbc-likes{opacity:1;}.lbc-wrap .lbc-star{opacity:1;}}
+@media(hover:none){.lbc-wrap button.lbc-check{opacity:1;pointer-events:auto;}.lbc-card-more{opacity:1;}.lbc-cmeta{padding-right:30px;}.lbc-card:hover .lbc-likes{opacity:1;}}
 /* 星标页（.lbc-simple）：单列列表 */
 .lbc-simple .lbc-grid{max-width:820px;margin:0 auto;}
 .lbc-simple .lbc-card{display:block;margin:0;padding:18px 72px 18px 0;border-bottom:1px solid var(--background-modifier-border);}
@@ -157,7 +161,8 @@ const CSS = `
 .lbc-simple .lbc-head{max-width:820px;margin:0 0 24px;}
 .lbc-simple .lbc-cats{max-width:820px;margin:0 auto;}
 .lbc-wrap.lbc-simple .lbc-badges{position:static;float:right;margin:2px 0 0 12px;}
-.lbc-wrap.lbc-simple .lbc-star{top:16px;right:0;}
+.lbc-wrap.lbc-simple .lbc-star{top:18px;right:0;border-color:var(--background-modifier-border)!important;background:var(--background-primary)!important;color:var(--text-muted);}
+.lbc-wrap.lbc-simple .lbc-star.is-on{background:var(--lb-star)!important;border-color:var(--lb-star)!important;color:#fff;}
 .lbc-simple button.lbc-check{top:18px;right:34px;border-color:var(--background-modifier-border)!important;background:var(--background-primary)!important;}
 .lbc-simple button.lbc-check.is-on{background:var(--interactive-accent)!important;}
 /* 10-04 存成选集的小对话框 */
@@ -983,6 +988,7 @@ let firstCover = null;
 function cardSig(it, fuzzy, low) {
   return JSON.stringify([it.title, it.cover, it.cover_w, it.cover_h, it.kind, it.attachment, it.attachment_reason, it.author, it.source, it.likes, it.note, it.problems || null, fuzzy, low || '']);
 }
+const STAR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l2.55 5.17 5.7.83-4.13 4.02.98 5.68L12 16.62l-5.1 2.68.98-5.68L3.75 9.6l5.7-.83z"/></svg>';
 function paintCardState(card, it) {
   if (!card || !it) return;
   const on = selected.has(it.id);
@@ -994,8 +1000,6 @@ function paintCardState(card, it) {
   if (star) {
     if (mobile) { star.hidden = !it.starred; return; }
     star.classList.toggle('is-on', !!it.starred);
-    const t = [...star.childNodes].find(n => n.nodeType === 3);
-    if (t) t.textContent = it.starred ? '★' : '☆'; else star.prepend(it.starred ? '★' : '☆');
     star.setAttribute('aria-pressed', String(!!it.starred));
     star.disabled = !!it._starBusy;
     const h = star.querySelector('.lb-visually-hidden'); if (h) h.textContent = it.starred ? '取消收藏' : '收藏';
@@ -1053,12 +1057,13 @@ function buildCard(it, fuzzy, low) {
     check.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12.5l4 4 8-9"/></svg>';
     check.createEl('span', { cls: 'lb-visually-hidden', text: '选中' });
     check.onclick = e => { e?.preventDefault?.(); e?.stopPropagation?.(); toggleSelect(cur().id); };
-    const star = card.createEl('button', { cls: 'lbc-star', text: '☆' }); star.type = 'button';
+    const star = card.createEl('button', { cls: 'lbc-star' }); star.type = 'button';
+    star.innerHTML = STAR_SVG;
     star.createEl('span', { cls: 'lb-visually-hidden', text: '收藏' });
     star.onclick = e => { e?.preventDefault?.(); e?.stopPropagation?.(); const x = cur(); if (x._starBusy) return; starMany([x], { single: true }); };
   } else {
     // 手机：只给已收藏的篇显示一个不可点的 ★（C12）
-    card.createEl('span', { cls: 'lbc-star is-on is-static', text: '★' });
+    const st = card.createEl('span', { cls: 'lbc-star is-on is-static' }); st.innerHTML = STAR_SVG;
   }
   const body = card.createEl('div', { cls: 'lbc-body' }); body.createEl('div', { cls: 'lbc-ctitle', text: it.title || '未命名' });
   if (low) body.createEl('div', { cls: 'lbc-lowhit', text: low });
@@ -1196,7 +1201,7 @@ function renderEmpty() {
     btn('立即同步收藏', async () => (await want('syncNow'))?.syncNow());
     return;
   }
-  if ((starOnly || starredPage) && !items.some(x => x.starred)) { text('还没有收藏的：在卡片上点 ☆'); return; }
+  if ((starOnly || starredPage) && !items.some(x => x.starred)) { text('还没有收藏的：鼠标停在卡片上，点右上角的 ☆'); return; }
   const label = filterLabel();
   if (label) {
     text(committed ? `「${label}」里没有「${committed}」` : `「${label}」里没有内容`);

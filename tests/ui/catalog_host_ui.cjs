@@ -6,7 +6,7 @@
 //   ⑤ C4：聚焦搜索框打字，中间 Dataview 重跑 3 次 → 字不丢、焦点还在
 //   ⑥ C9：第一排是排名前 N 篇（rect.top 相差 ≤ 2、按 x 递增）；视口 1280 → 900 列数变了、带标记的卡片元素还在（没重建）
 //   ⑦ C2：点 ☆ 之后那张卡原地不动（rect 前后一样）、变成 ★
-//   ⑧ X14c：先开问收藏页（它的 head 样式里抄过 .lbc-star{opacity:0}）再开目录 → 没收藏的 ☆ 计算 opacity 是 0.55
+//   ⑧ X14c：先开问收藏页（它的 head 样式里抄过 .lbc-star{opacity:0}）再开目录 → 没收藏的 ☆ 计算 opacity 是 0（1008 18:50 她：平时隐藏，悬停才出现）
 // 截图进 LWA_QA_DIR（默认系统临时目录下 lwa-qa；施工时设成 <worktree>/qa，不提交）
 'use strict';
 const assert = require('node:assert/strict');
@@ -126,7 +126,7 @@ const shell = require('../_obsidian_shell.cjs');
       await page.close();
     }
 
-    // ⑧ X14c：两种打开顺序下 ☆ 的计算 opacity 都是 0.55（第二页在同一个阅读视图里另起一段 dataviewjs 容器跑）
+    // ⑧ X14c：两种打开顺序下没收藏的 ☆ 计算 opacity 都是 0（平时隐藏）（第二页在同一个阅读视图里另起一段 dataviewjs 容器跑）
     for (const order of [['chat', 'catalog'], ['catalog', 'chat']]) {
       const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
       const S = await shell.page(page, { host: 'page-reading', kind: order[0], data });
@@ -141,7 +141,7 @@ const shell = require('../_obsidian_shell.cjs');
       }, shell.pageAssets(order[1]));
       await S.settle(60);
       const op = await page.evaluate(() => { const st = [...document.querySelectorAll('.lbc-card .lbc-star')].find(s => !s.classList.contains('is-on')); return st ? getComputedStyle(st).opacity : null; });
-      assert.equal(op, '0.55', `${order.join(' → ')}：☆ 常显（opacity ${op}）`);
+      assert.equal(op, '0', `${order.join(' → ')}：没收藏的 ☆ 平时隐藏（opacity ${op}）`);
       if (order[0] === 'chat') { await page.evaluate(() => document.querySelector('.lbc-wrap').scrollIntoView()); await S.screenshot('catalog-after-chat'); }
       await page.close();
     }    // 回收站页同理（主审裁决 1）：页头吸顶 |delta| ≤ 1，阅读视图 / 实时预览
@@ -156,6 +156,6 @@ const shell = require('../_obsidian_shell.cjs');
       await page.close();
     }    const pageErrorsNote = '';
     console.log('C1 / C4 读数：' + JSON.stringify(results));
-    console.log('PASS catalog host: sticky top |delta| ≤ 1 in reading + live (light / dark), selbar inside sticky top, first select / star keep cards in place, to-top dock, rerun keeps typing + focus, masonry first row = top N and resize keeps card elements, 390 no h-scroll, ☆ opacity 0.55 after chat page' + pageErrorsNote);
+    console.log('PASS catalog host: sticky top |delta| ≤ 1 in reading + live (light / dark), selbar inside sticky top, first select / star keep cards in place, to-top dock, rerun keeps typing + focus, masonry first row = top N and resize keeps card elements, 390 no h-scroll, unstarred ☆ hidden (opacity 0) after chat page' + pageErrorsNote);
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });

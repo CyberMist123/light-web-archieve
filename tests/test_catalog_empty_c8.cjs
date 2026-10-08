@@ -19,7 +19,7 @@ const { code } = require('./_fake_l1.cjs');
   const items = [item('a', '悉尼咖啡地图', { cats: ['吃的'], kind: 'image' }), item('b', '电饭煲鸡肉饭', { cats: ['吃的'] }), item('c', '悉尼徒步', { kind: 'video' })];
   P = await openCatalog({ items, plugin });
   P.cat('已收藏').onclick();
-  assert.equal(P.$('.lbc-empty-text').textContent, '还没有收藏的：在卡片上点 ☆');
+  assert.equal(P.$('.lbc-empty-text').textContent, '还没有收藏的：鼠标停在卡片上，点右上角的 ☆');
   P.cat('已收藏').onclick();
   // ⑤ 选了大类：计数「x / y 篇」
   P.cat('吃的').onclick();

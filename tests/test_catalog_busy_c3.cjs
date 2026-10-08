@@ -14,12 +14,12 @@ const { DATA, tick, item, catalogData, deferred, openCatalog, ev, asset } = requ
   // ① 单星：点完立刻 ★ + .is-starring，按钮 disabled；reject → 回滚，Notice 说原因
   const s = () => P.card('c').querySelector('.lbc-star');
   s().onclick(ev()); await tick(0);
-  assert.ok(s().classList.contains('is-on') && s().firstChild.textContent === '★', '点完立刻 ★');
+  assert.ok(s().classList.contains('is-on') && s().getAttribute('aria-pressed') === 'true', '点完立刻 ★');
   assert.ok(P.card('c').classList.contains('is-starring')); assert.equal(s().disabled, true);
   s().onclick(ev()); await tick(0);
   assert.equal(starCalls.length, 1, 'busy 时再点不重复调');
   star.reject(new Error('EBUSY')); await tick(5);
-  assert.ok(!s().classList.contains('is-on') && s().firstChild.textContent === '☆', '回滚');
+  assert.ok(!s().classList.contains('is-on') && s().getAttribute('aria-pressed') === 'false', '回滚');
   assert.ok(!P.card('c').classList.contains('is-starring')); assert.equal(s().disabled, false);
   assert.ok(A.notices.at(-1).includes('收藏没保存上，可重试：EBUSY'), A.notices.at(-1));
   assert.equal(A.alerts.length, 0);

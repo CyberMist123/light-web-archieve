@@ -37,8 +37,8 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
     await page.locator('.lbchat-send:enabled').waitFor();assert.equal(await page.locator('.lbchat-src').getAttribute('open'),null);
    }
    if(kind==='catalog'){
-    // 1008：☆ 常显（半透明 0.55）；批次 D · C3：点星走 starNotes 一次批量（这里的插件桩只有 starNote → 页面先重载插件再说一句，星回滚）
-    assert.equal(await page.locator('.lbc-star').first().evaluate(e=>getComputedStyle(e).opacity),'0.55');await page.evaluate(()=>{app.plugins.plugins['link-brain-actions'].starNotes=async(ids,on)=>({ok:true,results:ids.map(id=>({item_id:id,status:'ok',starred:on})),catalog_patched:false});});await page.locator('.lbc-card').first().hover();await page.locator('.lbc-star').first().click();assert.equal(await page.locator('.lbc-star').first().getAttribute('aria-pressed'),'true');
+    // 1008 18:50 她：没收藏的 ☆ 平时隐藏（opacity 0），悬停才出现；批次 D · C3：点星走 starNotes 一次批量（这里的插件桩只有 starNote → 页面先重载插件再说一句，星回滚）
+    assert.equal(await page.locator('.lbc-star').first().evaluate(e=>getComputedStyle(e).opacity),'0');await page.evaluate(()=>{app.plugins.plugins['link-brain-actions'].starNotes=async(ids,on)=>({ok:true,results:ids.map(id=>({item_id:id,status:'ok',starred:on})),catalog_patched:false});});await page.locator('.lbc-card').first().hover();await page.locator('.lbc-star').first().click();assert.equal(await page.locator('.lbc-star').first().getAttribute('aria-pressed'),'true');
     await page.getByRole('button',{name:'视频',exact:true}).click();assert.ok(await page.locator('.lbc-card').count()>0);await page.locator('.lbc-video').first().click();assert.equal(await page.evaluate(()=>mediaOpened.at(-1)),'video');await page.getByRole('button',{name:'全部',exact:true}).click();
     assert.equal(await page.locator('.lbc-grid').evaluate(el=>getComputedStyle(el).overflowY),'visible');
     assert.ok((await page.locator('.lbc-grid').boundingBox()).height>1920,'waterfall must extend beyond the viewport');
