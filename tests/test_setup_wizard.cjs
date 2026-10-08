@@ -114,6 +114,7 @@ function makePlugin(saved = {}) {
   p.lbRoot = ''; p.vaultDir = 'D:/vault';
   p.settings = Plugin.__merge(saved);
   p.saveSettings = async () => { saves.push(JSON.parse(JSON.stringify(p.settings))); };
+  p.app.workspace = { getActiveFile: () => null };
   p.accountRenders = 0;
   p.renderAccounts = c => { p.accountRenders++; c.createDiv({ cls: 'lb-accounts' }).createDiv({ cls: 'setting-item lb-acct-row' }); };
   p.renderSyncRow = () => () => {};

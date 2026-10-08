@@ -69,7 +69,7 @@ function statusLine(cur) {
 
 module.exports = function scheduleUI(obsidian, plugin) {
   const Notice = obsidian.Notice;
-  const say = (m, ms = 8000) => { try { new Notice(m, ms); } catch {} };
+  const say = (message, ms = 8000) => plugin.notify(message, { ms });
 
   function render(el, { onSaved = null } = {}) {
     const box = el.createDiv({ cls: 'lb-sched' });
@@ -130,14 +130,14 @@ module.exports = function scheduleUI(obsidian, plugin) {
     }
     add.onclick = () => { rows.push({ kind: 'daily', times: ['04:00'] }); paint(); };
 
-    async function refresh() {
+    async function refresh(preserveDraft = false) {
       add.disabled = save.disabled = off.disabled = true;
       list.classList.add('is-loading');
       try { cur = await plugin.getSyncSchedule(); }
       catch (e) { cur = { error: e.message || String(e) }; }
       if (!alive) return cur;
       status.setText(statusLine(cur) || (plugin.scheduleStatusText ? plugin.scheduleStatusText(cur) : ''));
-      rows = rowsFromState(cur);
+      rows = preserveDraft && plugin.scheduleDraft ? plugin.scheduleDraft : rowsFromState(cur);
       paint();
       add.disabled = save.disabled = off.disabled = false;
       list.classList.remove('is-loading');
@@ -164,8 +164,8 @@ module.exports = function scheduleUI(obsidian, plugin) {
       finally { save.disabled = false; off.disabled = false; }
     };
     paint();
-    const ready = refresh();
-    return { el: box, ready, refresh, destroy() { alive = false; }, get rows() { return rows; } };
+    const ready = refresh(true);
+    return { el: box, ready, refresh, destroy() { alive = false; plugin.scheduleDraft = rows; }, get rows() { return rows; } };
   }
 
   return { render, _internals: { rowsFromState, rulesFromRows, parseTimes, statusLine, HOURLY_WARN } };

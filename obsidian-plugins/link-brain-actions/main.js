@@ -23,6 +23,11 @@ function scheduleShort(cur) {
   if (cur.enabled === false) return '定时：已关闭';
   return cur.summary ? '定时：' + cur.summary : '';
 }
+function backendDesc(backend) {
+  if (backend.mode === 'repo') return `当前：仓库模式（${backend.command}）。`;
+  if (backend.mode === 'command') return `✓ 找到：${backend.exe}`;
+  return '✗ 没找到这个程序。' + backendMissingText(backend);
+}
 function effectiveTextAI(settings, name = settings.activeModel) {
   const entry = (settings.models || []).find(model => model.name === name);
   if (!entry || entry.mode === 'inherit') return settings;
@@ -445,7 +450,7 @@ function scheduleStatusText(cur) {
   return "当前：" + head + extra + next;
 }
 // 设置页「其他 AI 能力」那一行的摘要：按当前设置生成（归档摘要 / 识图 / 语音识别）
-function otherAISummary(s) {
+function otherAISummary(s, tests = {}) {
   const legacy = "旧版配置（已自动换算）";
   const sum = s.summaryAI || {}, vis = s.visionAI || {}, asr = s.asrAI || {};
   const summary = sum.mode === "off" ? "关闭" : sum.mode === "http" ? "单独接口" + (sum.model ? " · " + sum.model : "")
@@ -453,7 +458,8 @@ function otherAISummary(s) {
   const vision = vis.mode === "off" ? "未开启" : vis.mode === "media" ? legacy : (vis.endpoint || vis.keyFile ? (vis.model || "已开启") : "未配置");
   const speech = asr.mode === "off" ? "关闭" : asr.mode === "http" ? "接口" + (asr.model ? " " + asr.model : "")
     : asr.mode === "media" ? legacy : "本机 CapsWriter";
-  return `归档摘要：${summary} · 识图：${vision} · 语音识别：${speech}`;
+  const mark = kind => tests[kind]?.state === 'ok' ? ' ✓' : tests[kind]?.state === 'fail' ? ' ✗' : '';
+  return `归档摘要：${summary}${mark('summary')} · 识图：${vision}${mark('vision')} · 语音识别：${speech}${mark('asr')}`;
 }
 // 状态码（裸码 NOT_LOGGED_IN 或 类.细分）→ 登记表那一行；先精确，再按细分码，再 `类.*` 兜底
 function registryEntry(reg, code) {
@@ -541,7 +547,6 @@ class LinkBrainActions extends Plugin {
     if (this.app.vault.on) for (const event of ['modify', 'create']) this.registerEvent(this.app.vault.on(event, file => {
       if (['_archive/sync-status.json', '_archive/problems-summary.json'].some(name => file?.path === this.lbPath(name))) refreshTask().catch(console.error);
     }));
-    refreshTask().catch(console.error);
     this.settings = mergeSettings(await this.loadData());
     // 1008 Owner：「开始」页选了轻量版 = 不跑 AI 概要 / 识图、也不报它们的失败（后端 providers 按 setup.selected 门禁）。
     // 老用户以前 selected 可能停在轻量版、却早已配好 key 在用——第一次升级时把已配好的 AI 组件勾回去，之后以「开始」页的选择为准。
@@ -549,6 +554,7 @@ class LinkBrainActions extends Plugin {
     // 收藏库位置 + 后端（第 5 批 B2）：收藏库可能被 junction 挂进别的库的子目录——先找库里哪层带 _archive（或首次引导选的子文件夹），
     // 再解 junction 拿真路径；它的上一级是 LWA 仓库就照旧 python -m link_brain（作者本机），否则用设置里的后端命令。
     await this.locateCollection();
+    refreshTask().catch(console.error);
     try { this.remoteUI = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'remote-ui.js'))(obsidian, this); await this.remoteUI.attach(); } catch (e) { console.error('[lb] 远程阅读设置没加载上', e); }   // 第 6 批：远程阅读（MCP）
     // 第 5 批 B2：原「Link Brain Native Media Nav」插件并进来（图片 ←/→、滚轮翻页、点图放大、钉住媒体、视频倍速）
     try { this.mediaNav = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'media-nav.js'))(obsidian, this); this.mediaNav.attach(); } catch (e) { console.error('[lb] 图片导航没加载上', e); }
@@ -714,6 +720,13 @@ class LinkBrainActions extends Plugin {
     return json;
   }
   async getSyncSchedule() {
+    if (this.scheduleCache && Date.now() - this.scheduleCache.at < 60000) return this.scheduleCache.cur;
+    if (this.schedulePending) return this.schedulePending;
+    this.schedulePending = this.loadSyncSchedule();
+    try { const cur = await this.schedulePending; this.scheduleCache = { cur, at: Date.now() }; return cur; }
+    finally { this.schedulePending = null; }
+  }
+  async loadSyncSchedule() {
     const forced = typeof process !== 'undefined' && process.env ? process.env.LINK_BRAIN_SYNC_TASK : '';
     if (forced) { const cur = await this.readSchedule(forced); this.syncTask = forced; return { ...cur, task: forced }; }
     const nightly = await this.readSchedule(NIGHTLY_TASK);
@@ -729,6 +742,7 @@ class LinkBrainActions extends Plugin {
   }
   scheduleStatusText(cur) { return scheduleStatusText(cur); }   // 「开始」页第 ④ 步显示当前定时用（和弹窗同一句）
   async setSyncSchedule(freq, at, day) {
+    this.scheduleCache = null;
     if (this.syncTask === undefined) { try { await this.getSyncSchedule(); } catch (e) { return { ok: false, error: e.message }; } }
     const task = this.syncTask;
     const setArgs = (f) => { const a = ['-m', 'link_brain', 'sync-schedule', '--set', f]; if (at) a.push('--at', at); if (day) a.push('--day', day); return a; };
@@ -753,6 +767,7 @@ class LinkBrainActions extends Plugin {
   }
   // 10-03 灵活定时：rules 见 schedule-ui.js；Python `sync-schedule --rules JSON` 只换我们打了标的那几个触发器，其余原样保留。
   async setSyncRules(rules) {
+    this.scheduleCache = null;
     if (this.syncTask === undefined) { try { await this.getSyncSchedule(); } catch (e) { return { ok: false, error: e.message }; } }
     if (!this.syncTask) {
       // 还没有计划任务：先注册包内夜跑（每天定点，时刻取第一条规则的），再把触发器换成这几条规则
@@ -834,7 +849,7 @@ class LinkBrainActions extends Plugin {
   //    超时 → killTree（跳过读取服务和它的浏览器），返回 code=-2、timedOut=true。
   //    返回 {code, json, out, err, all, timedOut}：json = stdout 最后一行 JSON（没有就是 null）；all = stdout+stderr 按到达顺序。
   //    第 7 批：onLine(line) = stdout 每来一整行就回调一次（setup install 的进度事件）；onChild(child) = 起好后把子进程交给调用方（「停止」用 killTree）。
-  spawnPy(args, { input = null, timeoutMs = 0, exclusive = false, label = '', env = null, onLine = null, onChild = null } = {}) {
+  spawnPy(args, { input = null, timeoutMs = 0, exclusive = false, label = '', env = null, onLine = null, onChild = null, raw = null } = {}) {
     if (exclusive) {
       if (this.running) return Promise.resolve({ code: 6, json: null, out: '', err: this.busyText(), all: '', timedOut: false, busy: true });
       this.running = label || '归档任务';
@@ -850,7 +865,7 @@ class LinkBrainActions extends Plugin {
         resolve({ code: timedOut ? -2 : code, json: parseLastJson(out), out, err: spawnError != null ? spawnError : err, all, timedOut });
       };
       try {
-        child = this.pyChild(args, { env });
+        child = raw ? spawn(raw.exe, raw.args, { cwd: raw.cwd, env: this.pyEnv(env), windowsHide: true }) : this.pyChild(args, { env });
       } catch (e) {
         if (exclusive) this.running = null;
         finish(-1, e.message); return;
@@ -989,6 +1004,18 @@ class LinkBrainActions extends Plugin {
     if (tab) (this.settingsView || (this.settingsView = {})).tab = tab;
     this.openPluginSettings(this.manifest.id);
   }
+  mcpArgv() {
+    const backend = this.currentBackend();
+    return backend.mode === 'repo' ? [PY, '-m', 'link_brain', 'mcp'] : [backend.exe, ...(backend.prefix || []), 'mcp'];
+  }
+  async testMcp() {
+    const [exe, ...args] = this.mcpArgv();
+    const result = await this.spawnPy([], { raw: { exe, args }, timeoutMs: 15000,
+      input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) + '\n', label: '测试 MCP' });
+    const tools = result.json?.result?.tools;
+    return { json: { ok: result.code === 0 && Array.isArray(tools),
+      detail: Array.isArray(tools) ? tools.map(tool => tool.name).join('、') : stderrTail(result.err) || '没有返回工具列表' } };
+  }
   // 第 7 批：打开本插件设置页并切到某个分页（默认「开始」）。设置页已经停在本插件时 Obsidian 不会重画，这里补一次。
   setupDone() { const setup = this.settings.setup || {}; return !!(setup.collapsed || (setup.passed || []).includes(5) || (setup.passed || []).length >= 4); }
   openSetupPage(tab = null) {
@@ -1056,6 +1083,8 @@ class LinkBrainActions extends Plugin {
   // 一变就重画这一行；返回注销函数，关设置页 / 关弹窗 / 重画整页时调它。同步中显示后端写的阶段，有完成数 / 剩余数才显示。
   renderSyncRow(c) {
     const row = new Setting(c).setName('收藏同步').setDesc('读取上次同步结果…');
+    const setDesc = row.setDesc.bind(row);
+    row.setDesc = value => setDesc([value, scheduleShort(this.scheduleCache?.cur)].filter(Boolean).join(' · '));
     let alive = true, timer = null, refs = [];
     const paint = async () => {
       const { raw, sum } = await this.readSyncFiles();
@@ -1080,6 +1109,7 @@ class LinkBrainActions extends Plugin {
       finally { b.setDisabled(false); if (alive) await paint(); }
     }));
     paint();
+    if (!this.scheduleCache) this.getSyncSchedule().then(() => { if (alive) paint(); }).catch(() => {});
     const vault = this.app.vault;
     if (vault && typeof vault.on === 'function') {
       const watched = new Set([this.lbPath('_archive/sync-status.json'), this.lbPath('_archive/problems-summary.json')]);
@@ -1204,8 +1234,9 @@ class LinkBrainActions extends Plugin {
     const itemId = file && this.app.metadataCache.getFileCache(file)?.frontmatter?.link_brain?.item_id;
     if (!itemId) { new Notice('先打开一篇归档的笔记，再运行这个命令。'); return; }
     if (this.running) { new Notice(`正在${this.running}，完成后再试。`); return; }
-    new Notice('开始抓全部评论（含楼中楼、评论图片和语音）。热门笔记可能要十几分钟，完成后页面自动更新。', 10000);
-    await this.run(['-m', 'link_brain', 'comments', itemId], '抓全部评论', true);
+    const title = this.app.metadataCache.getFileCache(file)?.frontmatter?.title || file.basename;
+    await this.run(['-m', 'link_brain', 'comments', itemId], '抓全部评论', true,
+      { start: `开始抓《${title}》的全部评论（热门笔记可能十几分钟，底部状态栏能看进度）` });
   }
 
   // 0928 精细识别（第二层手动点名）：这篇的图交给强模型重认一遍，流程图出 Mermaid、表格出完整表。
@@ -1383,7 +1414,13 @@ class LinkBrainActions extends Plugin {
   // catalog-view.js 的 /问AI 入口。后端 `link_brain ask` 自己读整个本地索引重新检索、
   // 只把挑出的少量片段送模型（token 控制全在 Python），这里只做薄壳 + 解析。
   ensureAnswerWorker() {
+    const command = this.currentBackend().command;
+    if (this.answerWorker && this.answerWorkerBackend !== command && !this.answerPending?.size) {
+      const previous = this.answerWorker; this.answerWorker = null;
+      this.killTree(previous.pid).catch(console.error);
+    }
     if(this.answerWorker)return this.answerWorker;
+    this.answerWorkerBackend = command;
     const child=this.pyChild(['-m','link_brain','serve','--stdio']);
     this.answerWorker=child;this.answerPending=this.answerPending||new Map();
     let buffer='';child.stdout.setEncoding('utf8');
@@ -2124,8 +2161,13 @@ class LinkBrainSettingTab extends PluginSettingTab {
     new Setting(c).setName('登录后自动同步').setDesc('第一次登录成功后自动开始同步收藏。')
       .addToggle(t => t.setValue(so.autoAfterLogin).onChange(async v => { so.autoAfterLogin = v; await this.save(); }));
     this.fieldMediaToggles(c);
-    new Setting(c).setName('评论 · 手动拉取').setDesc('超过 50 楼或需要全部评论时：打开那篇笔记，命令面板运行「抓这篇的全部评论」。')
-      .addButton(b => b.setButtonText('抓当前笔记').onClick(() => this.plugin.fetchAllComments()));
+    const file = this.plugin.app.workspace.getActiveFile?.();
+    const frontmatter = file && this.app.metadataCache?.getFileCache(file)?.frontmatter;
+    const archived = !!frontmatter?.link_brain?.item_id;
+    const title = String(frontmatter?.title || file?.basename || '');
+    new Setting(c).setName('评论 · 手动拉取').setDesc(archived ? '抓这篇笔记的全部评论。' : '先打开一篇收藏')
+      .addButton(b => b.setButtonText(archived ? `抓《${title.slice(0, 16)}${title.length > 16 ? '…' : ''}》的全部评论` : '抓当前笔记')
+        .setDisabled(!archived).onClick(() => this.plugin.fetchAllComments(file)));
   }
   fieldDownloadFolder(c) {
     const s = this.plugin.settings;
@@ -2225,7 +2267,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
     const other = c.createDiv({ cls: 'lb-other-ai' });
     const otherRow = new Setting(other).setName('其他 AI 能力');
     const ob = other.createDiv({ cls: 'lb-other-ai-body' });
-    this.paintOther = () => otherRow.setDesc(otherAISummary(s));   // 每次保存后重算（改模型名这种不重画整页的也跟着变）
+    this.paintOther = () => otherRow.setDesc(otherAISummary(s, this.view().tests));
     this.paintOther();
     let otherBtn = null;
     const applyOther = () => { ob.toggleClass('is-collapsed', !view.otherAI); otherBtn?.setButtonText(view.otherAI ? '收起' : '展开设置'); };
@@ -2310,26 +2352,29 @@ class LinkBrainSettingTab extends PluginSettingTab {
 
   // —— 远程阅读：先说清要什么，再是本机 AI 外接（复制命令）和远程 MCP（remote-ui.js）——
   renderRemoteTab(c) {
-    const note = c.createDiv({ cls: 'lb-remote-intro' });
-    note.createEl('p', { text: '远程阅读需要自备域名和隧道（高级）：在外面用手机上的 GPT 等读你的收藏，要你自己有一个域名，并用隧道或反向代理把它接到本机。不需要的话这一页可以不管。' });
-    note.createEl('p', { cls: 'setting-item-description', text: '接到 Notion：以后支持。' });
 
     // —— 外接 MCP（0926）：让本机的 Claude Code / Codex / 别的 AI 直接查这个收藏库（不需要域名）——
-    c.createEl('h4', { text: '外接 MCP' });
+    c.createEl('h4', { text: '接本机 AI（不用域名）' });
     c.createEl('p', { cls: 'setting-item-description', text: '把收藏库接给本机的其他 AI 用（不需要域名）。提供三个工具：lb_search（关键词找）、lb_retrieve（按问题取原文，不花模型钱）、lb_ask（完整问答，会用「AI」分页选的模型）。本机运行，不开网络端口。' });
     const steps = c.createEl('ol', { cls: 'lb-install-steps setting-item-description' });
     for (const line of ['点下面对应客户端的「复制」，粘到终端里运行（Claude Desktop / Cursor 这类把 JSON 粘进它的 MCP 配置）。',
       '重启那个 AI 客户端，让它载入新工具。',
       '对它说「用 lb_search 在我的收藏里找……」试一句；不灵就点「测试 MCP」看本机这头通不通。']) steps.createEl('li', { text: line });
-    const mcpCmd = { claude: `claude mcp add light-web-archieve -- ${PY} -m link_brain.mcp_server`,
-      codex: `codex mcp add light-web-archieve -- ${PY} -m link_brain.mcp_server`,
-      json: JSON.stringify({ mcpServers: { 'light-web-archieve': { command: PY, args: ['-m', 'link_brain.mcp_server'] } } }, null, 2) };
+    const argv = this.plugin.mcpArgv();
+    const command = argv.map(part => /\s/.test(part) ? JSON.stringify(part) : part).join(' ');
+    const mcpCmd = { claude: `claude mcp add light-web-archieve -- ${command}`,
+      codex: `codex mcp add light-web-archieve -- ${command}`,
+      json: JSON.stringify({ mcpServers: { 'light-web-archieve': { command: argv[0], args: argv.slice(1) } } }, null, 2) };
     const copyRow = (name, desc, text) => new Setting(c).setName(name).setDesc(desc)
       .addButton(b => b.setButtonText('复制').onClick(async () => { await navigator.clipboard.writeText(text); new Notice('已复制'); }));
     copyRow('Claude Code', mcpCmd.claude, mcpCmd.claude);
     copyRow('Codex', mcpCmd.codex, mcpCmd.codex);
     copyRow('其他客户端（JSON 配置）', 'Claude Desktop / Cursor 等：粘到它们的 MCP 配置里。', mcpCmd.json);
     this.addTestButton(c, '测试 MCP', ['-m', 'link_brain', 'selftest', 'mcp']);
+
+    const note = c.createDiv({ cls: 'lb-remote-intro' });
+    note.createEl('p', { cls: 'setting-item-description', text: '接到 Notion：以后支持。' });
+    note.createEl('p', { text: '远程阅读需要自备域名和隧道（高级）：在外面用手机上的 GPT 等读你的收藏，要你自己有一个域名，并用隧道或反向代理把它接到本机。不需要的话这一节可以不管。' });
 
     this.plugin.remoteUI?.render(c, () => this.display());   // 第 6 批：远程阅读（MCP），整节在 remote-ui.js
   }
@@ -2358,13 +2403,19 @@ class LinkBrainSettingTab extends PluginSettingTab {
       .addButton(b => b.setButtonText('检查').onClick(drawEnv));
     // 第 5 批 B2：后端程序 + 收藏存放位置
     const backend = this.plugin.currentBackend ? this.plugin.currentBackend() : { mode: 'repo', command: `${PY} -m link_brain` };
-    const backendDesc = backend.mode === 'repo'
-      ? '当前：仓库模式（' + backend.command + '，插件在程序仓库里，这一项用不上）。'
-      : backend.mode === 'command' ? '当前：' + backend.exe + (backend.prefix?.length ? ' ' + backend.prefix.join(' ') : '') + '。改了立即生效（问答进程下次重启时换）。'
-      : backendMissingText(backend);
-    new Setting(c).setName('后端命令').setDesc('插件调用的后台程序，默认 link-brain（用「' + BACKEND_INSTALL + '」装出来的）。' + backendDesc)
+    const prefix = '插件调用的后台程序，默认 link-brain（用「' + BACKEND_INSTALL + '」装出来的）。';
+    const backendRow = new Setting(c).setName('后端命令').setDesc(prefix + backendDesc(backend));
+    backendRow
       .addText(t => t.setPlaceholder(BACKEND_DEFAULT).setValue(s.backend?.command || '')
-        .onChange(async v => { s.backend = { ...(s.backend || {}), command: v.trim() || BACKEND_DEFAULT }; await this.save(); await this.plugin.locateCollection?.(); }))
+        .onChange(v => {
+          s.backend = { ...(s.backend || {}), command: v.trim() || BACKEND_DEFAULT };
+          clearTimeout(this.backendTimer);
+          this.backendTimer = setTimeout(async () => {
+            await this.save(); await this.plugin.locateCollection();
+            backendRow.setDesc(prefix + backendDesc(this.plugin.currentBackend()));
+            this.hintsEl.empty(); this.plugin.renderSetupHints?.(this.hintsEl);
+          }, 300);
+        }))
       .addButton(b => b.setButtonText('复制安装命令').onClick(() => this.plugin.copyText(BACKEND_INSTALL)));
     this.fieldCollectionFolder(c);
 
@@ -2391,7 +2442,11 @@ class LinkBrainSettingTab extends PluginSettingTab {
       .addTextArea(t => { t.inputEl.rows = 5; t.inputEl.style.width = '100%';
         t.setValue(s.prompts.answer).onChange(async v => { s.prompts.answer = v; await this.save(); }); })
       .addExtraButton(b => b.setIcon('reset').setTooltip('恢复默认').onClick(async () => {
-        s.prompts.answer = DEFAULT_ANSWER_PROMPT; await this.save(); this.display();
+        const previous = s.prompts.answer;
+        s.prompts.answer = DEFAULT_ANSWER_PROMPT; await this.save(); this.redraw();
+        this.plugin.notify('已恢复默认问答提示词', { actions: [{ label: '撤销', run: async () => {
+          s.prompts.answer = previous; await this.save(); this.redraw();
+        } }] });
       }));
 
     c.createEl('h4', { text: '问答用量' });
@@ -2438,13 +2493,16 @@ class LinkBrainSettingTab extends PluginSettingTab {
   addTestButton(container, label, args) {
     const kind = args.at(-1), view = this.view(); view.tests ||= {};
     const row = new Setting(container), result = row.descEl.createDiv({ cls: 'lb-test-result' });
-    const paint = () => result.setText(view.tests[kind]?.text || ''); paint();
+    const paint = () => {
+      result.setText(view.tests[kind]?.text || '');
+      for (const state of ['ok', 'fail', 'off']) result.classList.toggle('is-' + state, view.tests[kind]?.state === state);
+    }; paint();
     row.addButton(b => b.setButtonText(label).onClick(async () => {
       b.setButtonText("测试中…"); b.setDisabled(true);
       const started = Date.now();
       const elapsed = setInterval(() => { if (Date.now() - started >= 5000) result.setText(`测试中…已用 ${Math.floor((Date.now() - started) / 1000)} 秒`); }, 1000);
       try {
-        const { json, err } = await this.plugin.runPy(args, { label, fallback: "未知错误" });
+        const { json, err } = kind === 'mcp' ? await this.plugin.testMcp() : await this.plugin.runPy(args, { label, fallback: "未知错误" });
         const r = json || {};
         const state = r.skipped ? 'off' : r.ok ? 'ok' : 'fail';
         view.tests[kind] = { state, at: Date.now(), text: `${state === 'ok' ? '✓ 正常' : state === 'off' ? '未开启' : '✗ 失败'} · ${new Date().toLocaleTimeString()} · ${r.detail || stderrTail(err, 1) || '没配置'}` };

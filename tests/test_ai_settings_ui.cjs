@@ -6,7 +6,7 @@ const fs = require('fs'), vm = require('vm'), assert = require('assert/strict');
 const notices = [];
 const settings = [];   // 每个 new Setting(...) 的记录
 class FakeEl {
-  constructor(tag = 'div', opts = {}) { this.tag = tag; this.text = opts.text || ''; this.children = []; this.style = {}; }
+  constructor(tag = 'div', opts = {}) { this.tag = tag; this.text = opts.text || ''; this.children = []; this.style = {}; this.classList = { toggle() {} }; }
   createEl(tag, opts = {}) { const el = new FakeEl(tag, opts); this.children.push(el); return el; }
   createDiv(opts = {}) { return this.createEl('div', opts); }
   createSpan(opts = {}) { return this.createEl('span', opts); }
@@ -53,7 +53,7 @@ const Plugin = context.module.exports;
 function render(saved) {
   settings.length = 0;
   const calls = [];
-  const plugin = { settings: Plugin.__merge(saved), saveSettings: async () => {}, renderAccounts() {}, renderSyncRow() {},
+  const plugin = { app: { workspace: { getActiveFile: () => null } }, mcpArgv: () => ['python', '-m', 'link_brain', 'mcp'], testMcp: async () => { calls.push(['mcp']); return { json: plugin.reply }; }, settings: Plugin.__merge(saved), saveSettings: async () => {}, renderAccounts() {}, renderSyncRow() {},
     capsWriterDir: () => null, onboardingUI: () => ({ renderFolder: () => null }), runPy: async (args) => { calls.push(args); return { json: plugin.reply, err: '' }; } };
   // 第 7 批：设置页分页了，一页一页打开把四个设置分页都画一遍（「开始」页另有 test_setup_wizard.cjs）
   const tab = new Plugin.__SettingTab({}, plugin);
@@ -83,7 +83,8 @@ function render(saved) {
   assert.deepEqual(tests.map(b => b.label), ['测试文本 AI', '测试归档摘要', '测试识图', '测试语音识别', '测试 OCR', '测试 MCP']);
   for (const b of tests) await b.onClickCb();
   assert.deepEqual(calls.map(a => a.at(-1)), ['text', 'summary', 'vision', 'asr', 'ocr', 'mcp']);
-  assert.ok(calls.every(a => a[2] === 'selftest'));
+  assert.ok(calls.slice(0, -1).every(a => a[2] === 'selftest'));
+  assert.deepEqual(calls.at(-1), ['mcp']);
 
   // 没配 = 「未开启：原因」，不是「失败」
   notices.length = 0;

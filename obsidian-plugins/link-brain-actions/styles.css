@@ -16,7 +16,7 @@ body{--lb-warn:var(--text-warning,var(--color-orange));--lb-warn-bg:var(--backgr
 .lb-acct-state { color: var(--text-muted); font-weight: 400; }
 .lb-acct-state.is-expired,
 .lb-acct-state.is-captcha,
-.lb-acct-state.is-disconnected { color: #c77700; }
+.lb-acct-state.is-disconnected { color: var(--lb-warn); }
 .lb-acct-guide { font-size: 12.5px; color: var(--text-muted); }
 .lb-acct-guide:empty { display: none; }
 
@@ -83,14 +83,14 @@ body{--lb-warn:var(--text-warning,var(--color-orange));--lb-warn-bg:var(--backgr
 .lb-problems-status.mod-warning { color: var(--text-error); }
 .lb-problems-group { margin-top: 18px; }
 .lb-problems-group h3 { font-size: 13px; font-weight: 600; color: var(--text-muted); margin: 0 0 6px; }
-.lb-problems-group.is-needs_you h3 { color: #c77700; }
+.lb-problems-group.is-needs_you h3 { color: var(--lb-warn); }
 .lb-problem { padding: 8px 0; border-bottom: 1px solid var(--background-modifier-border); }
 .lb-problem:last-child { border-bottom: none; }
 .lb-problem-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 13px; }
 .lb-problem-time, .lb-problem-action, .lb-problem-count { color: var(--text-muted); font-size: 12px; }
 .lb-problem-title { color: var(--text-normal); font-weight: 500; overflow-wrap: anywhere; }
 .lb-problem-label { color: var(--text-muted); }
-.lb-problems-group.is-needs_you .lb-problem-label { color: #c77700; }
+.lb-problems-group.is-needs_you .lb-problem-label { color: var(--lb-warn); }
 .lb-problem-why { font-size: 12px; color: var(--text-faint); margin-top: 2px; overflow-wrap: anywhere; }
 .lb-problem-btns { display: flex; gap: 8px; margin-top: 6px; }
 .lb-problem-repair-note { font-size: 12px; color: var(--text-muted); margin-top: 2px; overflow-wrap: anywhere; }
@@ -116,7 +116,7 @@ body{--lb-warn:var(--text-warning,var(--color-orange));--lb-warn-bg:var(--backgr
 .lb-report-dayhead { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
 .lb-report-date { font-weight: 600; font-variant-numeric: tabular-nums; }
 .lb-report-facts, .lb-report-nightly { color: var(--text-muted); font-size: 12px; margin-top: 3px; overflow-wrap: anywhere; }
-.lb-report-nightly.is-warn { color: #c77700; }
+.lb-report-nightly.is-warn { color: var(--text-normal); border-left: 2px solid var(--lb-warn); }
 .lb-report-nightly button.lb-report-problems { margin-left: 8px; font-size: 11px; padding: 0 8px; height: auto; }
 .lb-report-todo { margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--background-modifier-border); }
 .lb-report-todo-head { font-size: 12px; color: var(--text-muted); }
@@ -266,7 +266,11 @@ input.lb-sched-times { width: 140px; }
 .lb-sched-hint { color: var(--text-muted); font-size: 12px; }
 button.lb-sched-del { height: 26px; padding: 0 8px; }
 button.lb-sched-add { align-self: flex-start; font-size: 12px; }
-.lb-sched-warn { color: #c77700; }
+.lb-sched-warn { color: var(--text-normal); border-left: 2px solid var(--lb-warn); padding-left: 6px; }
+.lb-test-result, .lb-model-now, .lb-field-hint { color: var(--text-normal); line-height: 1.6; overflow-wrap: anywhere; }
+.lb-test-result.is-ok { border-left: 2px solid var(--lb-ok); padding-left: 6px; }
+.lb-test-result.is-fail { border-left: 2px solid var(--lb-danger); padding-left: 6px; }
+.lb-test-result.is-off { color: var(--text-muted); }
 .lb-sched-warn[hidden] { display: none; }
 .lb-sched-actions { display: flex; gap: 8px; }
 .lb-synclog-top { display: flex; gap: 8px; margin: 0 0 10px; }

@@ -219,6 +219,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument('question')
     p.add_argument('--top-k', type=int, default=8)
 
+    sub.add_parser('mcp', help='MCP stdio 服务（给本机 AI 客户端接）')
     p = sub.add_parser('serve', help='常驻 stdio 问答 worker')
     p.add_argument('--stdio', action='store_true', required=True)
 
@@ -336,6 +337,9 @@ def _account_lock(args, owner: str):
 
 
 def _dispatch(args) -> int:
+    if args.command == 'mcp':
+        from . import mcp_server
+        return mcp_server.main()
 
     if args.command == 'problems':
         from . import problems

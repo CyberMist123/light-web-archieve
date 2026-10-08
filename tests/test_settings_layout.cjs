@@ -82,6 +82,7 @@ function makePlugin(saved, files = {}) {
   const saves = [];
   p.app = { vault: { adapter: { getBasePath: () => 'D:/vault', exists: async f => f in files, read: async f => { if (!(f in files)) throw new Error('ENOENT ' + f); return files[f]; } } } };
   p.lbRoot = '';
+  p.app.workspace = { getActiveFile: () => null };
   p.settings = Plugin.__merge(saved);
   p.saveSettings = async () => { saves.push(JSON.parse(JSON.stringify(p.settings))); };
   p.renderAccounts = c => { c.createDiv({ cls: 'lb-accounts' }).createDiv({ cls: 'setting-item lb-acct-row' }); };
@@ -198,7 +199,7 @@ const RENAMED = { '电脑需求 视频：语音转写走上面': '电脑需求 �
   assert.match(paneOf(root).querySelector('.lb-remote-intro').textContent, /Notion.*以后支持/);
   assert.deepEqual(visibleRows(root), ['Claude Code', 'Codex', '其他客户端（JSON 配置）', '测试 MCP'], '外接 MCP 的复制按钮');
   assert.equal(paneOf(root).querySelector('ol.lb-install-steps').querySelectorAll('li').length, 3, '外接的安装 / 复制三步');
-  assert.deepEqual(headsOf(root), ['外接 MCP', '远程阅读（MCP）']);
+  assert.deepEqual(headsOf(root), ['接本机 AI（不用域名）', '远程阅读（MCP）']);
 
   tab = openTab(env.p, 'advanced'); root = tab.containerEl;
   assert.deepEqual(visibleRows(root), ['检查本机环境', '后端命令', '收藏存放位置', '摘要提示词（归档时抽取）', '问答提示词（/问AI）', '回答输出上限（max_tokens）', '发给模型的总字符上限',
@@ -274,12 +275,12 @@ const RENAMED = { '电脑需求 视频：语音转写走上面': '电脑需求 �
   assert.match(line({ sync: { last_success: new Date(2026, 8, 20, 22, 30).toISOString() } }, now), /^上次：9\/20 22:30$/);
   // 接到设置页：有 summary 用它；没有 summary 用原来的状态文字
   assert.match(await syncDesc({ '_archive/problems-summary.json': JSON.stringify({ sync: { state: 'ready', last_success: new Date().toISOString(), new: 3, deferred: 1 } }) }),
-    /^上次：今天 \d\d:\d\d · 新增 3 篇 · 还剩 1 篇$/);
-  assert.equal(await syncDesc({}), '还没有同步过。登录后点「立即同步」，或点「定时…」开启自动同步。');
+    /^上次：今天 \d\d:\d\d · 新增 3 篇 · 还剩 1 篇 · 定时：没开$/);
+  assert.equal(await syncDesc({}), '还没有同步过。登录后点「立即同步」，或点「定时…」开启自动同步。 · 定时：没开');
   assert.match(await syncDesc({ '_archive/sync-status.json': JSON.stringify({ state: 'ready', message: '收藏同步完成', updated_at: '2026-10-02T04:20:00', synced: 5 }) }),
-    /^收藏同步完成 · .* · 本次 5 条$/, 'summary 里没有这几项：照旧显示状态文字');
+    /^收藏同步完成 · .* · 本次 5 条 · 定时：没开$/, 'summary 里没有这几项：照旧显示状态文字');
   assert.match(await syncDesc({ '_archive/problems-summary.json': JSON.stringify({ sync: { state: 'running', message: '正在同步收藏', last_success: new Date().toISOString(), new: 1 } }) }),
-    /^正在同步收藏 · 上次：今天 \d\d:\d\d · 新增 1 篇$/, '同步中 / 失败时状态放在前面');
+    /^正在同步收藏 · 上次：今天 \d\d:\d\d · 新增 1 篇 · 定时：没开$/, '同步中 / 失败时状态放在前面');
 
   // —— 6. 第 5 批 4.5：设置页开着时监听两份同步文件，变了重画那一行；hide() / 重画整页 / 换分页时注销 ——
   {
@@ -298,7 +299,7 @@ const RENAMED = { '电脑需求 视频：语音转写走上面': '电脑需求 �
     assert.match(desc(), /^收藏同步完成/, '别的文件变了不重画');
     handlers.filter(h => h.live && h.ev === 'modify').forEach(h => h.cb({ path: '_archive/sync-status.json' }));
     await new Promise(r => setTimeout(r, 350)); await flush(); await flush();
-    assert.equal(desc(), '正在同步收藏：《a》查附件 / 下附件中 · 已完成 3/10 篇 · 剩 7 篇');
+    assert.equal(desc(), '正在同步收藏：《a》查附件 / 下附件中 · 已完成 3/10 篇 · 剩 7 篇 · 定时：没开');
     // 重画整页：旧监听注销，新的接上（不会越开越多）
     t.display(); await flush();
     assert.equal(offs, 2); assert.equal(handlers.filter(h => h.live).length, 2);
