@@ -177,3 +177,14 @@ def test_one_image_ok_does_not_resolve_item_while_another_failed(tmp_path, monke
     storage.write_json(vpath, doc)
     vision.refine_object("xiaohongshu", "abc", {"model": "m"})
     assert not problems.is_open("vision.refine", item, "PERMANENT.MODEL_OUTPUT_INVALID")
+
+
+def test_quote_mermaid_nodes_fixes_unquoted_labels_1009():
+    """1009：超密架构图节点漏引号 → 判失败前自动补；已引的不动、补完能过检查、补两遍不变。"""
+    from link_brain.visual import mermaid_problem, quote_mermaid_nodes
+    s = ("```mermaid\nflowchart TD\n  subgraph S1[前端 层]\n  A[用户(手机端)] --> B((圆心))\n"
+         "  B -->|调用| C{判断?}\n  C --> D(\"已引\") & E([胶囊])\n  end\n```")
+    t = quote_mermaid_nodes(s)
+    assert mermaid_problem(s) and mermaid_problem(t) == ""
+    assert 'A["用户(手机端)"]' in t and 'B(("圆心"))' in t and 'D("已引")' in t and "|调用|" in t
+    assert quote_mermaid_nodes(t) == t

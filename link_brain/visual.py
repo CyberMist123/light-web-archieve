@@ -326,6 +326,8 @@ def refine(path: Path, lines: list[dict[str, Any]] | None, kind: str, cfg: dict[
         return out
     tidy = tidy_output(out["text"])
     got = "diagram" if "```mermaid" in tidy else "table" if tidy.lstrip().startswith("|") else "text"
+    if got == "diagram":
+        tidy = quote_mermaid_nodes(tidy)
     problem = shaky_reason(out["text"], tidy, out.get("finish")) or (mermaid_problem(tidy) if got == "diagram" else "") \
         or (table_problem(tidy) if got == "table" else "")
     base = {"kind": got, "text": tidy, "model": cfg["model"], "tokens": out.get("tokens"),
@@ -349,6 +351,49 @@ def shaky_reason(raw: str, tidy: str, finish: str | None) -> str:
     if len(tidy) < 0.7 * len(raw.strip()):
         return "出现复读"
     return ""
+
+
+# 长的形状先试：「((」要在「(」前面
+_MERMAID_SHAPES = (("[[", "]]"), ("((", "))"), ("([", "])"), ("[(", ")]"), ("{{", "}}"),
+                   ("[", "]"), ("(", ")"), ("{", "}"))
+
+
+def quote_mermaid_nodes(text: str) -> str:
+    """1009：超密架构图里模型常给节点文字漏引号（A[用户(手机端)]），判失败前先替它补上。
+    只动 ```mermaid 块里「标识符紧跟形状括号、且括号里没有引号」的节点；补不出来的原样留给 mermaid_problem 判。"""
+    import re
+
+    def fix_line(line: str) -> str:
+        if line.strip().startswith("%%"):
+            return line
+        out, i = [], 0
+        while i < len(line):
+            if line[i] == '"':  # 已经在引号里的节点文字原样跳过
+                j = line.find('"', i + 1)
+                j = len(line) - 1 if j < 0 else j
+                out.append(line[i:j + 1])
+                i = j + 1
+                continue
+            hit = None
+            if i and re.match(r"\w", line[i - 1]):
+                for op, cl in _MERMAID_SHAPES:
+                    if line.startswith(op, i) and not line.startswith(op + '"', i):
+                        j = line.find(cl, i + len(op))
+                        inner = line[i + len(op):j] if j > 0 else ""
+                        if inner.strip() and '"' not in inner:
+                            hit = (op, cl, inner, j + len(cl))
+                        break
+            if hit:
+                op, cl, inner, i = hit
+                out.append(f'{op}"{inner}"{cl}')
+            else:
+                out.append(line[i])
+                i += 1
+        return "".join(out)
+
+    return re.sub(r"(```mermaid\s*\n)(.*?)(```)",
+                  lambda m: m.group(1) + "\n".join(fix_line(l) for l in m.group(2).split("\n")) + m.group(3),
+                  text, flags=re.S)
 
 
 def mermaid_problem(text: str) -> str:
@@ -376,7 +421,8 @@ def mermaid_problem(text: str) -> str:
             depth -= 1
             if depth < 0:
                 return "Mermaid 多了 end"
-        elif re.search(r'\w\[(?!")', bare) or re.search(r'\w\((?!")', bare):
+        # 形状括号可以叠（((圆)) / ([胶囊]) / {{六边形}}），整串括号后面紧跟引号才算加了
+        elif re.search(r'\w[\[\(\{]+(?![\[\(\{"])', bare):
             return f"Mermaid 节点文字没加引号：{line[:40]}"
         elif line.count('"') % 2:
             return f"Mermaid 引号不成对：{line[:40]}"
