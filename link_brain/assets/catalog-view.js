@@ -1010,13 +1010,9 @@ function getCard(row) {
   if (cached && cached.sig === sig) { cached.el._lbItem = it; paintCardState(cached.el, it); return cached.el; }
   const card = buildCard(it, fuzzy, low);
   // C4：同一篇的卡要重建、旧卡里开着标签框——整个搬进新卡，焦点和选区跟着
+  // （摘下来时丢的焦点由 layoutGrid 摆完后还回去）
   const form = cached?.el?.querySelector?.('form.lbc-tagform');
-  if (form) {
-    const field = form.querySelector('input');
-    const had = field && document.activeElement === field, s = field?.selectionStart, e = field?.selectionEnd;
-    card.querySelector('.lbc-body')?.append(form);
-    if (had) { try { field.focus({ preventScroll: true }); } catch { field.focus(); } try { field.setSelectionRange(s, e); } catch {} }
-  }
+  if (form) card.querySelector('.lbc-body')?.append(form);
   cardCache.set(it.id, { sig, el: card });
   return card;
 }
@@ -1151,6 +1147,18 @@ function layoutGrid() {
   const n = colCount();
   perfCounts.layout++;
   laidKey = r.key; laidN = n;
+  // 重摆会把卡片摘下再挂回（Chromium 摘有焦点的元素会失焦）：记下网格里有焦点的元素和选区，摆完还回去
+  const ae = document.activeElement;
+  const keep = ae && ae !== document.body && grid.contains(ae) ? { el: ae, s: ae.selectionStart, e: ae.selectionEnd } : null;
+  try { layoutBody(r, n); }
+  finally {
+    if (keep && keep.el.isConnected && document.activeElement !== keep.el) {
+      try { keep.el.focus({ preventScroll: true }); } catch { try { keep.el.focus(); } catch {} }
+      if (keep.s != null) { try { keep.el.setSelectionRange(keep.s, keep.e); } catch {} }
+    }
+  }
+}
+function layoutBody(r, n) {
   grid.empty();
   const shown = r.exact.length + r.possible.length;
   // 第 10 批：目录搜索是关键词精确筛选；想连同义词 / 语义一起找，一键带着这个词去问收藏
