@@ -1247,7 +1247,8 @@ function scrollToPossible() {
 // ── 搜索（C5：边打边搜；防抖按渲染耗时自适应 40–120ms；输入法组字中不搜；选完字 / 回车立刻搜） ──
 let typingTimer = null, composing = false, renderEma = 30;
 const now = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
-const delay = () => Math.max(40, Math.min(120, 140 - renderEma));
+// 防抖 + 渲染 + 下一帧 ≤150ms（RELEASE-BAR §2）：外壳实测按 140−EMA 算正好压线（p95 151ms），留一帧的余量取 120−EMA、上限 100
+const delay = () => Math.max(40, Math.min(100, 120 - renderEma));
 // 目录只做搜索（0926 Owner）：整句（语音打进来的）搜不到时退成关键词再搜；规则在 catalog-search.js resolveQuery
 function commitSearch() {
   clearTimeout(typingTimer); typingTimer = null;
