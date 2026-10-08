@@ -62,9 +62,9 @@ def test_note_css_in_sync():
 
 
 def test_snippet_goes_to_env_configdir(tmp_path, monkeypatch):
-    vault = tmp_path / "LER" / "收藏"
+    vault = tmp_path / "MainVault" / "收藏"
     vault.mkdir(parents=True)
-    cfg = tmp_path / "LER" / ".obsidian"
+    cfg = tmp_path / "MainVault" / ".obsidian"
     cfg.mkdir()
     monkeypatch.setenv(storage.ENV_VAULT, str(vault))
     monkeypatch.setenv("LINK_BRAIN_OBSIDIAN_DIR", str(cfg))
@@ -74,15 +74,15 @@ def test_snippet_goes_to_env_configdir(tmp_path, monkeypatch):
 
 
 def test_snippet_ancestor_vault(tmp_path, monkeypatch):
-    vault = tmp_path / "LER" / "sub" / "收藏"
+    vault = tmp_path / "MainVault" / "sub" / "收藏"
     vault.mkdir(parents=True)
-    (tmp_path / "LER" / ".obsidian").mkdir()
-    (tmp_path / "LER" / ".obsidian" / "app.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "MainVault" / ".obsidian").mkdir()
+    (tmp_path / "MainVault" / ".obsidian" / "app.json").write_text("{}", encoding="utf-8")
     monkeypatch.setenv(storage.ENV_VAULT, str(vault))
     monkeypatch.delenv("LINK_BRAIN_OBSIDIAN_DIR", raising=False)
-    assert render.snippet_targets() == [tmp_path / "LER" / ".obsidian" / "snippets" / "link-brain.css"]
+    assert render.snippet_targets() == [tmp_path / "MainVault" / ".obsidian" / "snippets" / "link-brain.css"]
     render.ensure_css_snippet()
-    assert (tmp_path / "LER" / ".obsidian" / "snippets" / "link-brain.css").exists()
+    assert (tmp_path / "MainVault" / ".obsidian" / "snippets" / "link-brain.css").exists()
     assert not (vault / ".obsidian").exists()
 
 
