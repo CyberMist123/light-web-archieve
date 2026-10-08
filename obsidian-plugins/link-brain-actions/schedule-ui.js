@@ -131,12 +131,16 @@ module.exports = function scheduleUI(obsidian, plugin) {
     add.onclick = () => { rows.push({ kind: 'daily', times: ['04:00'] }); paint(); };
 
     async function refresh() {
+      add.disabled = save.disabled = off.disabled = true;
+      list.classList.add('is-loading');
       try { cur = await plugin.getSyncSchedule(); }
       catch (e) { cur = { error: e.message || String(e) }; }
       if (!alive) return cur;
       status.setText(statusLine(cur) || (plugin.scheduleStatusText ? plugin.scheduleStatusText(cur) : ''));
       rows = rowsFromState(cur);
       paint();
+      add.disabled = save.disabled = off.disabled = false;
+      list.classList.remove('is-loading');
       return cur;
     }
     save.onclick = async () => {

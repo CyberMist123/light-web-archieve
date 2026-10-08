@@ -20,6 +20,7 @@ import io
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 CAPS = ("textAI", "summaryAI", "visionAI", "visionAI.refine", "ocr", "asrAI", "docConvert", "embedAI")
 MODES = {
@@ -139,6 +140,40 @@ SETUP_COMPONENT = {"textAI": "ai_text", "summaryAI": "ai_text", "embedAI": "ai_t
 SETUP_COMPONENT_CN = {"ai_text": "AI 问答 · 概要 · 打标", "ai_vision": "识图"}
 
 
+def normalize_endpoint(kind: str, url: str) -> str:
+    url = str(url or '').strip().rstrip('/')
+    if not url:
+        return url
+    if '://' not in url:
+        url = 'https://' + url
+    parsed = urlsplit(url)
+    suffix = {'chat': '/chat/completions', 'asr': '/audio/transcriptions', 'embed': '/embeddings'}[kind]
+    if parsed.path.endswith(suffix):
+        return url
+    if parsed.path in ('/v1', '/compatible-mode/v1', '/openai', '/v1beta/openai'):
+        return url + suffix
+    if not parsed.path:
+        prefix = {'dashscope.aliyuncs.com': '/compatible-mode/v1',
+                  'generativelanguage.googleapis.com': '/v1beta/openai'}.get(parsed.hostname, '/v1')
+        return url + prefix + suffix
+    return url
+
+
+def gate(cap: str, settings: dict[str, Any] | None = None) -> dict[str, Any]:
+    from .setup.components import PRESETS
+    comp = SETUP_COMPONENT.get(cap)
+    setup = _settings(settings).get('setup') or {}
+    selected = setup.get('selected')
+    gated = bool(comp and isinstance(selected, list) and setup.get('aiSynced') and comp not in selected)
+    preset = 'light' if isinstance(selected, list) and set(selected) == set(PRESETS['light']) else ''
+    reason = ''
+    if gated:
+        reason = f'{LABEL.get(cap, cap)}现在不会跑：「开始」页没勾「{SETUP_COMPONENT_CN[comp]}」'
+        reason += '（轻量版）' if preset else ''
+        reason += '；要用就在「开始」页勾上，或在 AI 页点「勾上」'
+    return {'gated': gated, 'component': comp, 'preset': preset, 'reason': reason}
+
+
 def setup_off_reason(cap: str, settings: dict[str, Any] | None = None) -> str:
     """这项能力被「开始」页的功能选择关掉了 → 一句原因；没关 → 空串。"""
     comp = SETUP_COMPONENT.get(cap)
@@ -150,7 +185,7 @@ def setup_off_reason(cap: str, settings: dict[str, Any] | None = None) -> str:
     if not isinstance(selected, list) or comp in selected or not setup.get("aiSynced"):
         return ""
     label = LABEL.get(cap, cap)
-    return f"{label}未开启：「开始」页选的功能组合不含「{SETUP_COMPONENT_CN[comp]}」（轻量版）；要用就去「开始」页勾上它"
+    return gate(cap, settings)['reason']
 
 
 def _check(cap: str, cfg: dict[str, Any], settings: dict[str, Any] | None = None) -> tuple[dict[str, Any] | None, str]:
@@ -172,6 +207,7 @@ def _check(cap: str, cfg: dict[str, Any], settings: dict[str, Any] | None = None
     out["cap"] = cap
     out["timeoutSec"] = _timeout(cfg, cap)
     if mode == "http":
+        out['endpoint'] = normalize_endpoint('asr' if cap == 'asrAI' else 'embed' if cap == 'embedAI' else 'chat', cfg.get('endpoint'))
         if not str(cfg.get("endpoint") or "").strip():
             return None, f"{label}没填接口地址"
         if cap != "embedAI" and not str(cfg.get("model") or "").strip() and cap != "asrAI":

@@ -91,6 +91,8 @@ def page_state():
         'favorites': status.get('favorites'), 'new': status.get('new'), 'deferred': status.get('deferred'),
         'detail': status.get('detail') or '', 'progress': status.get('progress') or '',
         'running': status.get('state') == 'running',
+        'done': status.get('done'), 'total': status.get('total'),
+        'remaining': max(0, status['total'] - status['done']) if status.get('total') is not None and status.get('done') is not None else None,
     }
 
 
@@ -124,7 +126,7 @@ def progress_log():
     return storage.archive_root() / 'sync-progress.log'
 
 
-def progress(text):
+def progress(text, done=None, total=None):
     """同步走到哪一步：写进状态（设置页显示）并追加到 _archive/sync-progress.log（事后查卡在哪）。"""
     now = datetime.now().astimezone()
     try:
@@ -132,11 +134,22 @@ def progress(text):
             f.write(f"{now:%Y-%m-%d %H:%M:%S}  {text}\n")
         status = storage.read_json(path())
         if status.get('state') == 'running':
-            storage.write_json(path(), {**status, 'message': f'正在同步收藏：{text}', 'progress': text,
+            counts = {key: value for key, value in {'done': done, 'total': total}.items() if value is not None}
+            storage.write_json(path(), {**status, **counts, 'message': f'正在同步收藏：{text}', 'progress': text,
                                         'updated_at': now.isoformat()})
             _refresh_summary()
     except (OSError, ValueError):
         pass
+
+
+def stopped_by_user():
+    status = _read_raw()
+    if status.get('state') != 'running' or _alive(status.get('pid')):
+        return False
+    storage.write_json(path(), {**status, 'state': 'failed', 'code': '', 'message': '已手动停止，已入库的不受影响',
+                                'updated_at': datetime.now().astimezone().isoformat()})
+    _refresh_summary()
+    return True
 
 
 # 跨次保留的字段：last_favorites = 上次**正常**读到的收藏条数（判「读少了一大截」的基准）；

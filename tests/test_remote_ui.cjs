@@ -51,6 +51,7 @@ function makePlugin(saved, replies) {
   const calls = [];
   const saves = [];
   const plugin = {
+    confirm: async options => { plugin.confirmOptions = options; return plugin.confirmed === true; },
     app: { vault: { adapter: { getBasePath: () => 'D:/vault' } } }, manifest: { dir: '.obsidian/plugins/link-brain-actions' }, settings: { other: 1 },
     loadData: async () => saved,
     saveSettings: async () => { saves.push(JSON.parse(JSON.stringify(plugin.settings))); },
@@ -194,7 +195,9 @@ const STATUS_RUNNING = { ok: true, state: 'running', message: '运行中（127.0
   assert.ok(!JSON.stringify(env.plugin.settings).includes('lbr_p_SECRET'));
   await byName('撤销全部访问').buttons[0].cb();
   assert.ok(!env.calls.some(c => c.args[3] === 'revoke-all'), '要先确认');
-  await settings.at(-1).buttons.find(b => b.label === '撤销全部').cb();
+  assert.equal(env.plugin.confirmOptions.ok, '撤销全部');
+  env.plugin.confirmed = true;
+  await byName('撤销全部访问').buttons[0].cb();
   assert.ok(env.calls.some(c => c.args[3] === 'revoke-all'));
   assert.ok(notices.includes('已撤销全部访问：1 个 OAuth 客户端、0 个访问令牌'));
 

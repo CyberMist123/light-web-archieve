@@ -91,13 +91,8 @@ module.exports = function remoteUI(obsidian, plugin) {
     }).open();
   }
 
-  function confirmModal(title, text, okText, onOk) {
-    new TextModal(title, (el, modal) => {
-      el.createEl('p', { text });
-      new Setting(el)
-        .addButton(b => b.setButtonText('取消').onClick(() => modal.close()))
-        .addButton(b => b.setButtonText(okText).setWarning().onClick(async () => { modal.close(); await onOk(); }));
-    }).open();
+  async function confirmModal(title, text, okText, onOk) {
+    if (await plugin.confirm({ title, body: text, ok: okText, danger: true })) await onOk();
   }
 
   function addFolderModal(redraw) {

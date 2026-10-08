@@ -67,7 +67,7 @@ class FakeSetting {
 const notices = [];
 const OBS = { Plugin: class {}, PluginSettingTab: class { constructor(app, plugin) { this.app = app; this.plugin = plugin; this.containerEl = dom.document.createElement('div'); } },
   Modal: class {}, Setting: FakeSetting, Notice: class { constructor(m) { notices.push(m); } }, Menu: class {} };
-const context = { module: { exports: {} }, process, setTimeout, clearTimeout, console, navigator: { clipboard: { writeText: async () => {} } },
+const context = { module: { exports: {} }, process, setTimeout, clearTimeout, setInterval, clearInterval, document: dom.document, URL, console, navigator: { clipboard: { writeText: async () => {} } },
   require: n => n === 'obsidian' ? OBS
     : n === 'child_process' ? { spawn() { throw new Error('测试里不许 spawn 真进程'); } } : require(n) };
 vm.createContext(context);
@@ -154,7 +154,7 @@ const BASELINE = {
 const REMOVED = ['搜索收藏'];   // 唯一删掉的一行：目录页本来就有入口
 
 // 第 7 批改了文字的行（内容没少，只是说法跟着分页变了）：旧身份 → 新身份
-const RENAMED = { '电脑需求 视频：语音转写走上面': '电脑需求 视频：语音转写走「A' };
+const RENAMED = { '电脑需求 视频：语音转写走上面': '电脑需求 视频：语音转写走「A', DeepSeek: '文本 AI' };
 
 (async () => {
   if (process.env.LB_DUMP) {
@@ -184,7 +184,7 @@ const RENAMED = { '电脑需求 视频：语音转写走上面': '电脑需求 �
   tab.hide();
 
   tab = openTab(env.p, 'ai'); root = tab.containerEl;
-  assert.deepEqual(visibleRows(root), ['文本 AI', '接口地址', 'API Key', '模型', '测试文本 AI', '其他 AI 能力', '输入框提示文字', 'DeepSeek', 'Codex', 'Sonnet', '添加模型',
+  assert.deepEqual(visibleRows(root), ['文本 AI', '接口地址', 'API Key', '模型', '测试文本 AI', '其他 AI 能力', '输入框提示文字', '文本 AI', 'Codex', 'Sonnet', '添加模型',
     '文字识别（OCR）', '识别精度', '模型目录（可选）', '测试 OCR'], 'AI（其他 AI 能力收起）');
   assert.deepEqual(headsOf(root), ['AI（问收藏用）', '问答模型', '文字识别（OCR）']);
   assert.match(rowsOf(root).find(r => nameOf(r) === '文本 AI').querySelector('.setting-item-description').textContent, /^问收藏页的回答用它。没配时问答用不了；归档、浏览、关键词搜索不受影响。/);

@@ -77,6 +77,7 @@ vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js', '
 const Plugin = context.module.exports;
 const PLUGIN_DIR = '../obsidian-plugins/link-brain-actions/';
 const setupFactory = require(PLUGIN_DIR + 'setup-ui.js');
+global.requestAnimationFrame = callback => setTimeout(callback, 0);
 const flush = async (n = 3) => { for (let i = 0; i < n; i++) await new Promise(r => setTimeout(r, 0)); };
 
 // —— 契约形状的假后端 ——
@@ -125,6 +126,7 @@ function makePlugin(saved = {}) {
   p.setSyncSchedule = async (...a) => { schedules.push(a); return { ok: true, detail: '已保存' }; };
   p.setSyncRules = async rules => { schedules.push(['rules', rules]); return { ok: true, detail: '已保存：' + rules.map(r => r.kind).join(',') }; };
   p.answerArchive = async req => { asks.push(req); return p.backend.answer(req); };
+  p.renderMarkdownInto = async (text, element) => element.setText(text);
   p.stopArchiveAnswer = () => 0;
   // 后端替身：按子命令回话；install 由场景表决定（可以挂起，等测试放行）
   p.backend = {

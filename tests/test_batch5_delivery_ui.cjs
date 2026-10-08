@@ -350,6 +350,7 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   p.app = { vault: { adapter: { getBasePath: () => ROOT, exists: async () => false, list: async () => ({ folders: [] }) } }, workspace: { onLayoutReady() {} },
     plugins: { manifests: { dataview: {} }, enabledPlugins: new Set(['dataview', 'link-brain-native-media-nav']), plugins: { dataview: { settings: { enableDataviewJs: true } } } } };
   p.loadData = async () => null; p.addSettingTab = () => {}; p.addCommand = () => {}; p.addRibbonIcon = () => {}; p.register = () => {}; p.registerDomEvent = () => {};
+  p.addStatusBarItem = () => ({ setText() {} }); p.readSyncFiles = async () => ({});
   await p.onload();
   assert.ok(p.mediaNav && p.mediaNav.skipped === true, 'onload 载入了 media-nav.js（旧插件开着 → 先不接管）');
   p.renderAccounts = c => c.createDiv({ cls: 'lb-accounts' }); p.renderSyncRow = () => () => {}; p.capsWriterDir = () => null; p.saveSettings = async () => {};

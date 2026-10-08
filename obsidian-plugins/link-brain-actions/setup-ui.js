@@ -15,7 +15,7 @@ const NUM = ['①', '②', '③', '④', '⑤'];
 const TABS = new Set(['start', 'sync', 'ai', 'remote', 'advanced']);
 const FREE_LINE = '不填 key 也能用：归档、浏览、关键词搜索、本地 OCR、本地语音。';
 const STATUS_TEXT = { ready: '✓ 就绪', missing: '缺', partial: '不完整', failed: '没装上', unknown: '没查出来',
-  queued: '等着装', installing: '安装中', stopped: '已停止', manual: '要你手动', needs_key: '在 ⑤ 填 key' };
+  queued: '等着装', installing: '安装中', stopped: '已停止', manual: '要你手动', needs_key: '在 ⑤ 填 key', not_selected: '已填，没勾' };
 
 const num = v => (v === null || v === undefined || v === '' || typeof v === 'boolean' || !Number.isFinite(Number(v)) ? null : Number(v));
 
@@ -303,7 +303,15 @@ module.exports = function setupUI(obsidian, plugin) {
       for (const [k, label] of [['light', '轻量版（不要任何 key）'], ['recommended', '推荐'], ['full', '全部']]) {
         if (!Array.isArray(presets[k])) continue;
         const b = pre.createEl('button', { cls: 'lb-preset' + (cur === k ? ' is-active' : ''), text: label, attr: { 'data-preset': k } });
-        b.onclick = async () => { cfg().selected = withDeps(presets[k], cs); await save(); paintAll(); };
+        b.onclick = async () => {
+          const configured = ['textAI', 'summaryAI', 'visionAI'].some(cap => {
+            const value = plugin.settings[cap] || {};
+            return value.mode === 'cli' && value.command || value.mode === 'http' && value.endpoint && (value.apiKey || value.keyFile || value.apiKeyEnv);
+          });
+          if (k === 'light' && configured && !await plugin.confirm({ title: '换成轻量版？', body: '会停掉已配好的问答、概要和识图（Key 不删，随时勾回来）。', ok: '换成轻量版', danger: true })) return;
+          cfg().selected = withDeps(presets[k], cs); await save();
+          if (cfg().step <= 2) paintAll(); else { paintLeft(); paintBar(); paintStepParts?.(); }
+        };
       }
       const list = left.createDiv({ cls: 'lb-setup-list' });
       const sel = new Set(ids);
@@ -317,7 +325,8 @@ module.exports = function setupUI(obsidian, plugin) {
         box.onchange = async () => {
           if (c.required) { box.checked = true; return; }
           cfg().selected = toggleSelection(selected(), c.id, !!box.checked, cs);
-          await save(); paintAll();
+          await save();
+          if (cfg().step <= 2) paintAll(); else { paintLeft(); paintBar(); paintStepParts?.(); }
         };
         const info = row.createDiv({ cls: 'lb-comp-info' });
         const head = info.createDiv({ cls: 'lb-comp-name' });
@@ -529,9 +538,27 @@ module.exports = function setupUI(obsidian, plugin) {
         for (const it of d.items || []) {
           const row = tbl.createDiv({ cls: 'lb-estimate-row', attr: { 'data-id': it.id || '' } });
           row.createSpan({ cls: 'lb-estimate-name', text: it.name || it.id });
-          row.createSpan({ cls: 'lb-estimate-model', text: [it.provider, it.model].filter(Boolean).join(' · ') });
+          row.createSpan({ cls: 'lb-estimate-model', text: [it.provider, it.api_model || it.model].filter(Boolean).join(' · ') });
           row.createSpan({ cls: 'lb-estimate-price', text: yuan(it.yuan) + ' / ' + (it.per || '100 篇') });
           if (it.how) row.setAttribute('title', it.how);
+          if (it.endpoint && it.openai_compatible !== false) {
+            row.createEl('button', { text: '用这个' }).onclick = async () => {
+              const capability = ({ vision: 'visionAI', video: 'asrAI' })[it.id] || 'textAI';
+              const previous = JSON.parse(JSON.stringify(plugin.settings[capability] || {}));
+              const next = { ...previous, mode: 'http', endpoint: it.endpoint, model: it.api_model || it.model };
+              const host = value => { try { return new URL(value).hostname; } catch { return ''; } };
+              const changedHost = host(previous.endpoint) !== host(next.endpoint);
+              if (changedHost) for (const key of ['apiKey', 'keyFile', 'keyField', 'apiKeyEnv']) delete next[key];
+              plugin.settings[capability] = next;
+              await tab.autoSelectAI(); await tab.save();
+              plugin.notify(`已换成 ${it.provider} 的地址和模型${changedHost ? '；Key 清空了，请填这家的 Key' : ''}`, {
+                ms: 8000, actions: [{ label: '撤销', run: async () => {
+                  plugin.settings[capability] = previous; await tab.save(); tab.redraw();
+                } }],
+              });
+              tab.redraw();
+            };
+          }
         }
         const basis = d.basis || {};
         const how = basis.from_library
@@ -547,26 +574,35 @@ module.exports = function setupUI(obsidian, plugin) {
       tab.sectionTextAI(box, { heading: false });
 
       // 试问一句：走真实问答（和问收藏页同一个 answerArchive），回答直接显示在这一步
-      let question = '我的收藏里有什么值得先看的？';
+      let question = S().askDraft ?? '我的收藏里有什么值得先看的？';
       const ask = new Setting(box).setName('试问一句').setDesc('用上面的文本 AI 真问一次你的收藏（和「问收藏」页同一条路）。');
       ask.settingEl.addClass('lb-ask-row');
-      ask.addText(t => t.setValue(question).onChange(v => { question = v; }));
+      ask.addText(t => {
+        t.setValue(question).onChange(v => { question = v; S().askDraft = v; });
+        t.inputEl.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); askOnce(question); } });
+      });
       ask.addButton(b => b.setButtonText('问').setCta().onClick(() => askOnce(question)));
       const out = box.createDiv({ cls: 'lb-ask-out' });
+      const phase = out.createDiv({ cls: 'lb-ask-phase' });
+      const stop = out.createEl('button', { cls: 'lb-ask-stop', text: '停止' });
+      stop.onclick = () => plugin.cancelAnswer(S().ask?.reqId);
+      const answer = out.createDiv({ cls: 'lb-ask-answer' });
+      const meta = out.createDiv({ cls: 'lb-ask-meta setting-item-description' });
+      let rendered = null;
       const paintAsk = () => {
-        out.empty();
         const a = S().ask;
+        stop.hidden = !a || a.status !== 'running';
         if (!a) return;
-        if (a.status === 'running') {
-          const top = out.createDiv({ cls: 'lb-ask-phase lb-loading', text: a.phase || '正在问' });
-          top.createEl('button', { cls: 'lb-ask-stop', text: '停止' }).onclick = () => plugin.stopArchiveAnswer?.();
-        }
-        if (a.status === 'error') out.createDiv({ cls: 'lb-ask-error', text: '没答上：' + a.error });
-        if (a.status === 'cancelled') out.createDiv({ cls: 'lb-ask-phase', text: '已停止生成' });
-        if (a.text) out.createDiv({ cls: 'lb-ask-answer', text: a.text });
-        if (a.status === 'ok' && a.sources != null) out.createDiv({ cls: 'setting-item-description', text: `用了 ${a.sources} 条收藏做依据。` });
+        const bottom = answer.scrollTop + answer.clientHeight >= answer.scrollHeight - 8;
+        phase.setText(a.status === 'error' ? '没答上：' + a.error : a.status === 'cancelled' ? '已停止生成' : a.status === 'running' ? a.phase || '正在问' : '');
+        phase.classList.toggle('lb-ask-error', a.status === 'error');
+        answer.classList.toggle('is-streaming', a.status === 'running');
+        if (a.status === 'running') answer.setText(a.text || '');
+        else if (rendered !== a) { rendered = a; answer.empty(); plugin.renderMarkdownInto(a.text || '', answer); }
+        meta.setText(a.status === 'ok' && a.sources != null ? `用了 ${a.sources} 条收藏做依据。` : '');
+        if (bottom) answer.scrollTop = answer.scrollHeight;
       };
-      paintStepParts = () => { paintEst(); paintAsk(); };
+      paintStepParts = paintAsk;
       paintAsk();
     }
     async function askOnce(question) {
@@ -577,7 +613,9 @@ module.exports = function setupUI(obsidian, plugin) {
       const a = st.ask = { status: 'running', phase: '', text: '' };
       notify();
       try {
-        const r = await plugin.answerArchive({ question: q, onPhase: t => { a.phase = t; rowsPainter?.(); }, onDelta: d => { a.text += d || ''; rowsPainter?.(); } });
+        let frame = null;
+        const update = () => { if (frame != null) return; frame = requestAnimationFrame(() => { frame = null; rowsPainter?.(); }); };
+        const r = await plugin.answerArchive({ question: q, onStart: id => { a.reqId = id; }, onPhase: t => { a.phase = t; update(); }, onDelta: d => { a.text += d || ''; update(); } });
         if (r && r.status === 'cancelled') { a.status = 'cancelled'; a.text = r.markdown || a.text; }
         else { a.status = 'ok'; a.text = (r && r.markdown) || a.text || '（回答是空的）'; a.sources = Array.isArray(r?.sources) ? r.sources.length : null; }
       } catch (e) { a.status = 'error'; a.error = errText(e); }
