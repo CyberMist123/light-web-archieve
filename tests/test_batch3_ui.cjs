@@ -129,7 +129,7 @@ async function annotateTests() {
   const app = makeApp(V, { settings: {} });
   const A = dataviewBlock({ dom, app, code: LIB + '\n' + asset('annotate-view.js'), params: { itemId: 'xhs-n1', notePath: NOTE } });
   await A.run();
-  const box = A.container.querySelector('.lba-annot');
+  const box = A.section.querySelector('.lba-annot');   // 批次 D · L3：批注框挂在 dv.container 后面的 host 上（不进容器）
   const texts = () => box.querySelectorAll('.lba-annot-text').map(x => x.textContent);
   failWrites(V, new Set([NOTE]));
   // 删除失败：那条还在、不报「已删」
