@@ -844,3 +844,30 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
 - 回答轮失败：`failed: true` + `error: {kind: config|api|crash|timeout, code, detail}`，`content` 是页面给她看的一句人话；`retry` 是「重试」原样再问要带的参数（`{sourceIds}` / `{fresh: true}` / `{}`）。停止的：`failed: true, stopped: true`，`content` 末尾一行「> 已停止生成。」。旧版失败轮没有 `error`，照原文显示。
 - `removed`：这一轮被 × 的来源 key（`id || note || title`）；`added`：从「其他相关」加入主要依据的 id。会话级 `excluded` / `pinned` 跨轮生效。
 - 历史目录 `_archive/chat-history/index.json`：`{"conversations": [{id, startedAt, updatedAt, title, turns}]}`，写前重读、按 id 合并。草稿不进文件（只在 `sessionStorage['lb:chat']`）。
+
+## 2026-10-09 单篇快照 / 导出 / 连播（批次 D · L5）
+
+### 对象目录 `history/`（可见 md 的快照）
+- `_archive/<source>/<source_id>/history/visible-YYYYMMDD-HHMMSS[-n]-<reason>.txt`：整篇可见 md 的原文，原子写，每篇只留最近 20 份。
+- `reason` 词表：`restore`（恢复前）/ `undo`（撤销前）/ `render`（重渲染发现块外内容，先存一份）/ `heal`（夜里自愈前）。
+- 任何「整篇重写可见 md」的功能都先存快照。块外她手写的段落重渲染时一行一条搬进留言层（`id=moved-YYYYMMDDHHMMSS-n`，幂等）；机器碎片不搬，只在快照里留原样。
+
+### `restore [<item_id>] [--path <收藏库相对路径>] [--undo [--snapshot NAME]] [--list] [--scan [--report]] [--dry-run] --json`
+- 恢复：`{ok, code, message, item_id, path, snapshot, issues_before, kept}`；失败 `code=PERMANENT.NOTE_DAMAGED`，文件不动。
+- `--list`：`{ok, item_id, path, snapshots:[{name, ts, reason, bytes}]}`（新的在前）。
+- `--scan`：只读，`{ok, total, damaged, stray, results:[{item_id, path, issues, stray_human, stray_machine}]}`；`--report` 时坏的登记 `render.check` / `PERMANENT.NOTE_DAMAGED`，好了自动解除。
+- 问题码（`issues`，固定顺序）：`FRONTMATTER_BROKEN / ITEM_ID_MISSING / CSSCLASSES_MISSING / CONTENT_MARKERS_MISSING / NOTE_BLOCK_MISSING / NOTE_BLOCK_SPLIT / COMMENTS_MARKERS_MISSING / ANNOTATE_BLOCK_MISSING`；插件 `noteDamage` 与它同口径（共用样本 `tests/fixtures/note_damage_cases.json`）。
+- 夜里自愈默认关：环境变量 `LINK_BRAIN_AUTO_RESTORE=1` 才让 repair 自愈轮自动恢复（只动 24 小时没改过的文件）。
+
+### `export-note <target> --pdf|--html|--zip [--no-video] [--no-pdf] [--font F | --stdin] --json`
+- 落在收藏库根的 `收藏导出/`，重名加「（2）」，先写 `.part` 再改名。stderr 阶段行 `[export] 排版` / `[export] 打印 PDF` / `[export] 打包视频（85 MB）`。
+- `--pdf`：和笔记页同一套 render 片段 + `link-brain.css` + `lb-print.css` 拼打印 HTML（`<base>` 指可见目录），系统 Edge / Chrome 无头打印（独立临时 profile，只开本地 file://）。
+  `{ok, code, message:'已导出 PDF（6 页）', path, rel, pages, engine:'msedge'|'chrome'|'', fallback:''|'html', item_id, results}`；
+  没浏览器 → `ok:true, fallback:'html'`，path 指 `.html`；打印失败 / 超时 → `ok:false, code:'TRANSIENT.STEP_TIMEOUT'`，网页版照样写出（当场告知，不进问题记录）。浏览器可用 `LINK_BRAIN_PDF_BROWSER` 指定。
+- `--zip`：`<标题>_<作者>_<YYYYMMDD-HHMMSS>.zip`，包内一个同名文件夹：`索引.md`（有什么 / 缺什么）、`笔记页.pdf`（有浏览器才有）、`正文与识图.md`、`批注.md`、`留言.md`、`images/NN.<原扩展名>`、`comments/c<楼>-<n>.<ext>`、`video/video.mp4`（ZIP_STORED）、`attachments/<原名>` 与转出的 `.md`。不放 raw JSON（有 xsec_token）。
+  `{ok, message:'已打包：12 张原图、1 个视频、2 个附件（86 MB）', path, rel, counts:{images, comment_images, comment_audio, video, attachments}, missing, bytes}`。
+
+### `playlist --tag X [--order newest|oldest|shuffle] [--seed N] [--start ITEM] --json` / `playlist --tags --json`
+- 纯读 `_archive/catalog-data.json` + 对象 manifest：只收 `kind=video` 且视频下载成功、文件在的；标签不分大小写、带不带 `#`、子标签（`健身/拉伸`）都算命中。
+- `{ok, code, message, tag, order, seed, start_index, items:[{item_id, title, author, note, video, poster, duration_sec, width, height, bytes, date}], skipped:[{item_id, title, reason}], suggestions}`；路径都是收藏库相对。乱序不给 seed 时用当前毫秒并回传（可复现）。
+- `--tags`：`{ok, tags:[{tag, count, playable}]}`，按能播的条数降序。退出码：0 有结果；1 目录还没建好；2 没命中（带 suggestions）。
