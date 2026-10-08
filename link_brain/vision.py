@@ -494,10 +494,12 @@ def run_refine_mark(args) -> int:
         conn.close()
     if not row:
         print(f"没有归档过: {args.refine_mark}", file=sys.stderr)
+        dump_json({'ok': False, 'code': '', 'message': '没有归档过这篇笔记'})
         return 1
     vpath = storage.derived_dir(row["source"], row["source_id"]) / "vision.json"
     if not vpath.exists():
         print("这篇还没有识图结果", file=sys.stderr)
+        dump_json({'ok': False, 'code': '', 'message': '这篇还没有识图结果'})
         return 1
     doc = storage.read_json(vpath)
     marked = 0
@@ -514,11 +516,17 @@ def run_refine_mark(args) -> int:
             continue
         marked += mark_refine(entry, "手动点名", manual=True)
     storage.write_json(vpath, doc)
-    out: dict[str, Any] = {"item_id": args.refine_mark, "marked": marked}
+    out: dict[str, Any] = {"item_id": args.refine_mark, "marked": marked, 'ok': True, 'code': '',
+                           'message': f'已记下 {marked} 张图，夜里补跑' if marked else '这篇没有要精细识别的图'}
     if args.now and marked:
         cfg = RefineRouter(strong_config())
         if cfg.keys or cfg.fallback:
             tally = refine_object(row["source"], row["source_id"], cfg)
             out.update(refined=tally["done"], failed=tally["failed"], cost_yuan=round(tally["cost_yuan"], 4))
+            out['message'] = f'精细识别完成：{tally["done"]} 张'
+            if tally['failed']:
+                out['message'] += f'，{tally["failed"]} 张没认出来（见问题列表）'
+        else:
+            out.update(code='SKIPPED.NOT_CONFIGURED', message=f'已记下 {marked} 张图；精细识别模型没配，配好后夜里补跑')
     dump_json(out)
     return 0

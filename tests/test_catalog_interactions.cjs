@@ -31,7 +31,7 @@ assert.equal(Plugin.serializeCats(cats),'人机恋: 人机恋, ai伴侣\n吃的:
   const plugin=new Plugin();const calls=[];
   plugin.run=async args=>{calls.push(args);return {stdout:JSON.stringify({items:[{status:'hit',visible_note:'Web/Xiaohongshu/已归档.md'}]})};};
   let lastDone=-1,lastTotal=-1;
-  const results=await plugin.importText('https://xhslink.com/a/test https://xhslink.com/a/test',()=>{},(d,t)=>{lastDone=d;lastTotal=t;});
+  const {results}=await plugin.importText('https://xhslink.com/a/test https://xhslink.com/a/test',()=>{},(d,t)=>{lastDone=d;lastTotal=t;});
   assert.equal(results.length,1);assert.equal(results[0].note,'已归档');assert.equal(calls.length,2);
   assert.equal(calls[1][2],'catalog');assert.equal(plugin.importing,false);
   assert.equal(lastDone,1);assert.equal(lastTotal,1);  // 进度回调到位
@@ -65,6 +65,7 @@ assert.equal(Plugin.serializeCats(cats),'人机恋: 人机恋, ai伴侣\n吃的:
   // 设置默认值合到位（未存过 data 时用内置默认）
   const p3=new Plugin();p3.app={vault:{adapter:{getBasePath:()=>'/repo/vault'}},workspace:{onLayoutReady:()=>{}}};p3.loadData=async()=>null;
   p3.addSettingTab=()=>{};p3.addCommand=()=>{};p3.addRibbonIcon=()=>{};
+  p3.addStatusBarItem=()=>({setText(){}});p3.readSyncFiles=async()=>({});
   await p3.onload();
   assert.equal(p3.settings.textAI.mode,'http');assert.equal(p3.settings.asrAI.mode,'capswriter');assert.equal(p3.settings.summaryAI.mode,'inherit');assert.equal(p3.settings.retrieval.topK,8);
   assert.ok(p3.settings.prompts.answer.length>10);

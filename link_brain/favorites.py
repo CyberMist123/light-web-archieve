@@ -696,5 +696,25 @@ def _run(args) -> tuple[int, dict[str, Any]]:
 def run(args) -> int:
     with contextlib.redirect_stdout(sys.stderr):  # stdout 只留最后那一个 JSON
         code, payload = _run(args)
+    items = payload.get('items') or []
+    new = len(payload.get('fetched_new') or [])
+    blocked = [item for item in items if item.get('status') == 'blocked']
+    if blocked and all(item.get('code') == 'RATE_LIMITED' for item in blocked):
+        message = '刚同步过（收藏每 10 分钟最多读一次），这次跳过'
+    elif code == EXIT_PARTIAL:
+        message = f'这次只读到一部分收藏：读到的已入库（新收 {new} 篇），原因见同步记录'
+    elif code == EXIT_NEEDS_HUMAN:
+        message = (blocked[0].get('error') if blocked else payload.get('error')) or '账号需要处理，见问题列表'
+    elif code == EXIT_ACCOUNT_BUSY:
+        message = '正在执行其他账号任务，完成后再点，或在底部状态栏停止'
+    elif code == EXIT_ERROR:
+        failed = sum(item.get('status') == 'error' for item in items)
+        message = f'{failed} 篇没归档成功，其余已入库（原因见同步记录）'
+    else:
+        message = f'同步完成：新收 {new} 篇' if new else '同步完成：没有新收藏'
+        if payload.get('deferred'):
+            message += f'，还剩 {payload["deferred"]} 篇明天继续'
+    payload.update(ok=code in (EXIT_OK, EXIT_PARTIAL), message=message)
+    payload.setdefault('code', '')
     read_mod.dump_json(payload)
     return code

@@ -614,13 +614,18 @@ def run(args) -> int:
         # 机器可读：设置页「载入当前大类」按钮读这份
         from .read import dump_json
 
-        dump_json({"text": dump_cats_text()})
+        dump_json({"text": dump_cats_text(), 'ok': True, 'code': '', 'message': '已载入当前分类'})
         return 0
     path, total, data_path = build()
-    print(f"目录已重写：{path}（{total} 篇）")
-    print(f"数据：{data_path}")
+    import sys
+    from .read import dump_json
+    print(f"目录已重写：{path}（{total} 篇）", file=sys.stderr)
+    print(f"数据：{data_path}", file=sys.stderr)
+    result = {'ok': True, 'code': '', 'message': f'目录已刷新（{total} 篇）', 'total': total, 'path': str(path), 'data': str(data_path)}
     # 只在真没装 / 没开 JS 查询时提示（10-03 她：已经装了还每次刷新目录都弹这句）
     from .doctor import dataview_ready
     if not dataview_ready(storage.vault_root() / ".obsidian"):
-        print("提示：OB 需装 Dataview 插件并打开「Enable JavaScript Queries」，页面才会渲染。")
+        result['dataview_hint'] = 'Dataview 的 JS 查询没开，页面显示不出来'
+        result['message'] += '；提示：' + result['dataview_hint']
+    dump_json(result)
     return 0

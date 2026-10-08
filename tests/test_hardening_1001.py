@@ -145,8 +145,10 @@ def test_new_http_model_sends_its_own_key(tmp_path, monkeypatch):
 
 def test_other_endpoint_without_key_does_not_get_deepseek_key(tmp_path, monkeypatch):
     settings = _settings(tmp_path, {"name": "Other", "mode": "http", "endpoint": "https://other.example/v1/chat"})
-    _, headers = _send(monkeypatch, settings, "Other")
-    assert "Authorization" not in headers
+    url, headers = _send(monkeypatch, settings, "Other")
+    assert url == settings['textAI']['endpoint']
+    assert headers['Authorization'] == 'Bearer DS-KEY-FROM-FILE'
+    assert ai_config.with_model(settings, 'Other')['modelFallback']['reason'] == 'no_key_other_host'
 
 
 def test_deepseek_entry_still_uses_the_key_file(tmp_path, monkeypatch):

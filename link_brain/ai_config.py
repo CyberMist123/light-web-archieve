@@ -13,6 +13,7 @@ Owner 2026-09-16 授权在插件里配置各接口的 endpoint / model / key（�
 """
 
 from __future__ import annotations
+from urllib.parse import urlsplit
 
 import copy
 import json
@@ -77,7 +78,7 @@ DEFAULTS: dict[str, Any] = {
     "voice": {"capsLock": True, "capsWriterDir": ""},
     # 问答页的模型下拉（0926）：mode=http 走接口；mode=cli 走本机命令行（codex / claude 用自己的登录）。
     "models": [
-        {"name": "DeepSeek", "mode": "http", "endpoint": "https://api.deepseek.com/chat/completions", "model": "", "apiKey": ""},
+        {"name": "文本 AI", "mode": "inherit"},
         {"name": "Codex", "mode": "cli", "command": "codex exec --skip-git-repo-check -s read-only -c model_reasoning_effort=low -"},
         # 1001（审计 C-1）：收权——不继承本机全局的 bypassPermissions，禁掉会动本机的工具，不加载任何 MCP。
         # text_stream.harden_command 对她 data.json 里存着的旧命令也会补上这些参数。
@@ -85,7 +86,7 @@ DEFAULTS: dict[str, Any] = {
                                                     "--disallowedTools Bash,PowerShell,Write,Edit,MultiEdit,NotebookEdit,WebFetch,WebSearch "
                                                     "--strict-mcp-config"},
     ],
-    "activeModel": "DeepSeek", "chatPlaceholder": "问点什么呢？",
+    "activeModel": "文本 AI", "chatPlaceholder": "问点什么呢？",
     "prompts": {"summary": "", "answer": DEFAULT_ANSWER_PROMPT},
     # queryExpand（第 10 批，默认开，Owner 10-03「宁可搜广一点」）：每问多一次「归档摘要模型」（小模型，只用 http 接口）扩检索词，
     # 和这一问的 embedding 同时跑、最多等 6 秒，同一问题有缓存。旧键 expandTerms（09-16 因为走命令行模型慢 15 秒而关掉、
@@ -104,25 +105,62 @@ DEFAULTS: dict[str, Any] = {
 }
 
 
+LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+
+
+def endpoint_host(url: str) -> str:
+    return (urlsplit(url if '://' in url else 'https://' + url).hostname or '').lower().removeprefix('www.')
+
+
 def with_model(settings: dict[str, Any], name: str = '') -> dict[str, Any]:
     """问答页下拉选的模型（models 里按 name 找）盖到 textAI 上；没选/找不到就用 activeModel，再不行原样。"""
     name = name or settings.get('activeModel') or ''
     entry = next((m for m in settings.get('models') or [] if isinstance(m, dict) and m.get('name') == name), None)
-    if not entry:
+    if not entry or entry.get('mode') == 'inherit':
         return settings
     keep = {k: v for k, v in entry.items() if k != 'name' and v not in (None, '')}
     base = dict(settings.get('textAI', {}))
     # 1001（审计 C-3）：继承来的仓外密钥文件（keyFile/keyField）只属于 textAI 自己那个接口。
     # 条目自带 apiKey、或指向别的接口地址时，一律不带过去——否则 DeepSeek 的 key 会被当 Bearer 发给别家。
     # （条目地址和 textAI 一样、自己又没填 key 的，照旧用那份密钥文件：她的 DeepSeek 条目就是这样。）
-    own_key = bool(str(keep.get('apiKey') or '').strip())
-    other_endpoint = bool(keep.get('endpoint')) and keep.get('endpoint') != base.get('endpoint')
+    own_key = any(str(keep.get(key) or '').strip() for key in ('apiKey', 'keyFile', 'apiKeyEnv'))
+    host = endpoint_host(keep.get('endpoint') or base.get('endpoint') or '')
+    other_endpoint = host != endpoint_host(base.get('endpoint') or '')
+    if entry.get('mode') == 'http' and not own_key and other_endpoint and host not in LOOPBACK:
+        return {**settings, 'modelFallback': {'name': name, 'reason': 'no_key_other_host', 'host': host}}
+    if own_key or other_endpoint:
+        for key in ('apiKey', 'apiKeyEnv', 'keyFile', 'keyField'):
+            base.pop(key, None)
     if (own_key or other_endpoint) and 'keyFile' not in keep:
         base.pop('keyFile', None)
         base.pop('keyField', None)
     if other_endpoint and not own_key:
         base.pop('apiKey', None)  # textAI 自己填的 key 同理，不发给别的接口
     return {**settings, 'textAI': {**base, **keep}}
+
+
+def describe_model(settings: dict[str, Any], name: str = '') -> dict[str, Any]:
+    from . import providers
+    name = name or settings.get('activeModel') or ''
+    entry = next((model for model in settings.get('models') or [] if model.get('name') == name), {})
+    chosen = with_model(settings, name)
+    cfg = chosen.get('textAI') or {}
+    inherited = not entry or entry.get('mode') == 'inherit' or bool(chosen.get('modelFallback'))
+    key = 'n/a' if cfg.get('mode') != 'http' else 'none'
+    if cfg.get('mode') == 'http':
+        if cfg.get('apiKey'):
+            key = 'own' if not inherited and entry.get('apiKey') else 'inherit-key'
+        elif cfg.get('keyFile'):
+            key = 'file' if not inherited and entry.get('keyFile') else 'inherit-file'
+        elif cfg.get('apiKeyEnv'):
+            key = 'env'
+    effective, why = providers.finalize('textAI', cfg)
+    if providers.setup_off_reason('textAI', chosen):
+        effective, why = None, providers.setup_off_reason('textAI', chosen)
+    return {'name': name, 'mode': cfg.get('mode'), 'fallback': bool(chosen.get('modelFallback')),
+            'reason': (chosen.get('modelFallback') or {}).get('reason', ''),
+            'host': endpoint_host(cfg.get('endpoint') or ''), 'model': cfg.get('model', ''),
+            'key': key, 'usable': effective is not None, 'why': why}
 
 
 def daily_new_limit(value: Any) -> int:

@@ -248,7 +248,7 @@ def test_live_running_sync_is_left_alone(monkeypatch):
 
 SUMMARY_KEYS = {"updated_at", "needs_human", "auto", "gave_up", "skipped", "hidden", "last_runs", "last_risk", "sync"}
 SYNC_KEYS = {"state", "code", "message", "label", "hover", "detail", "updated_at", "last_success", "favorites", "new",
-             "deferred", "progress", "running"}
+             "deferred", "progress", "running", "done", "total", "remaining"}
 
 
 def test_summary_file_is_written_after_every_report_and_resolve(pushes):

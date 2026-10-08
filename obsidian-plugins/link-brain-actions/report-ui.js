@@ -83,6 +83,15 @@ module.exports = function (obsidian, plugin) {
       c.createEl('h2', { text: '同步记录' });
       // 10-03（她定）：顶部「立即同步」「改定时」
       const top = c.createDiv({ cls: 'lb-synclog-top' });
+      const task = top.createDiv({ cls: 'lb-synclog-now' });
+      const paintTask = () => {
+        task.empty();
+        if (plugin.running) {
+          task.createSpan({ text: `正在${plugin.running}${plugin.runningProgress ? ' · ' + plugin.runningProgress : ''}` });
+          task.createEl('button', { text: '停止' }).onclick = () => plugin.stopRunning();
+        } else if (plugin.taskLabel) task.setText('夜跑在同步（计划任务），这里停不了');
+      };
+      this.stopTask = plugin.onTask?.(paintTask); paintTask();
       const now = top.createEl('button', { cls: 'mod-cta lb-synclog-sync', text: '立即同步' });
       now.onclick = () => { this.close(); try { plugin.syncNow(); } catch (e) { say('没同步起来：' + e.message); } };
       const plan = top.createEl('button', { cls: 'lb-synclog-plan', text: '改定时' });
@@ -90,7 +99,7 @@ module.exports = function (obsidian, plugin) {
       this.body = c.createDiv({ cls: 'lb-report-body lb-synclog' });
       return this.load();
     }
-    onClose() { this.contentEl.empty(); }
+    onClose() { this.stopTask?.(); this.contentEl.empty(); }
     async load() {
       const body = this.body;
       body.empty();

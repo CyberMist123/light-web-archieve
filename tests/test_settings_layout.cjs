@@ -67,7 +67,7 @@ class FakeSetting {
 const notices = [];
 const OBS = { Plugin: class {}, PluginSettingTab: class { constructor(app, plugin) { this.app = app; this.plugin = plugin; this.containerEl = dom.document.createElement('div'); } },
   Modal: class {}, Setting: FakeSetting, Notice: class { constructor(m) { notices.push(m); } }, Menu: class {} };
-const context = { module: { exports: {} }, process, setTimeout, clearTimeout, console, navigator: { clipboard: { writeText: async () => {} } },
+const context = { module: { exports: {} }, process, setTimeout, clearTimeout, setInterval, clearInterval, document: dom.document, URL, console, navigator: { clipboard: { writeText: async () => {} } },
   require: n => n === 'obsidian' ? OBS
     : n === 'child_process' ? { spawn() { throw new Error('测试里不许 spawn 真进程'); } } : require(n) };
 vm.createContext(context);
@@ -82,6 +82,7 @@ function makePlugin(saved, files = {}) {
   const saves = [];
   p.app = { vault: { adapter: { getBasePath: () => 'D:/vault', exists: async f => f in files, read: async f => { if (!(f in files)) throw new Error('ENOENT ' + f); return files[f]; } } } };
   p.lbRoot = '';
+  p.app.workspace = { getActiveFile: () => null };
   p.settings = Plugin.__merge(saved);
   p.saveSettings = async () => { saves.push(JSON.parse(JSON.stringify(p.settings))); };
   p.renderAccounts = c => { c.createDiv({ cls: 'lb-accounts' }).createDiv({ cls: 'setting-item lb-acct-row' }); };
@@ -147,14 +148,14 @@ const CONFIGS = {
   legacy: { textAI: { mode: 'http', endpoint: 'https://api.example.com/v1/chat/completions', keyFile: 'k.csv' }, visionAI: { mode: 'media' }, asrAI: { mode: 'media' }, ocr: { mode: 'media' } },
 };
 const BASELINE = {
-  defaults: ["〔账号卡片〕","收藏同步","登录后自动同步","下载图片","下载视频","评论 · 自动拉取","评论 · 手动拉取","每天最多新抓","文本 AI","接口地址","API Key","模型","测试文本 AI","归档摘要模型（默认同文本 AI）","模型","测试归档摘要","识图接口","接口地址","API Key","模型","精细识别模型","测试识图","视频画面文字","语音识别","端口","测试语音识别","CapsLock 语音输入","CapsWriter 目录","输入框提示文字","DeepSeek","Codex","Sonnet","添加模型","Claude Code","Codex","其他客户端（JSON 配置）","测试 MCP","搜索收藏","批注昵称","下载文件夹","检查本机环境","文字识别（OCR）","识别精度","模型目录（可选）","测试 OCR","摘要提示词（归档时抽取）","问答提示词（/问AI）","回答输出上限（max_tokens）","发给模型的总字符上限","每篇片段字符上限","送模型的片段篇数（topK）","先用小模型扩检索词","载入当前大类+清空（用内置）+重建目录","等待手动下载（分钟）","待补附件","电脑需求 必需：Windows","电脑需求 内存：建议 8 GB","电脑需求 收藏问答：文本模型（","电脑需求 图片文字：本地 OC","电脑需求 附件：PDF / W","电脑需求 视频：语音转写走上面","电脑需求 语音输入：CapsW","〔远程阅读〕"],
-  alt: ["〔账号卡片〕","收藏同步","登录后自动同步","下载图片","下载视频","评论 · 自动拉取","评论 · 手动拉取","每天最多新抓","文本 AI","命令","测试文本 AI","归档摘要模型（默认同文本 AI）","接口地址","API Key","模型","测试归档摘要","识图接口","测试识图","视频画面文字","语音识别","接口地址","API Key","模型","测试语音识别","CapsLock 语音输入","CapsWriter 目录","输入框提示文字","DeepSeek","Codex","Sonnet","添加模型","Claude Code","Codex","其他客户端（JSON 配置）","测试 MCP","搜索收藏","批注昵称","下载文件夹","检查本机环境","文字识别（OCR）","识别精度","模型目录（可选）","测试 OCR","摘要提示词（归档时抽取）","问答提示词（/问AI）","回答输出上限（max_tokens）","发给模型的总字符上限","每篇片段字符上限","送模型的片段篇数（topK）","先用小模型扩检索词","载入当前大类+清空（用内置）+重建目录","等待手动下载（分钟）","待补附件","电脑需求 必需：Windows","电脑需求 内存：建议 8 GB","电脑需求 收藏问答：文本模型（","电脑需求 图片文字：本地 OC","电脑需求 附件：PDF / W","电脑需求 视频：语音转写走上面","电脑需求 语音输入：CapsW","〔远程阅读〕"],
-  legacy: ["〔账号卡片〕","收藏同步","登录后自动同步","下载图片","下载视频","评论 · 自动拉取","评论 · 手动拉取","每天最多新抓","文本 AI","接口地址","API Key","模型","测试文本 AI","归档摘要模型（默认同文本 AI）","模型","测试归档摘要","识图接口","测试识图","视频画面文字","语音识别","测试语音识别","CapsLock 语音输入","CapsWriter 目录","输入框提示文字","DeepSeek","Codex","Sonnet","添加模型","Claude Code","Codex","其他客户端（JSON 配置）","测试 MCP","搜索收藏","批注昵称","下载文件夹","检查本机环境","文字识别（OCR）","测试 OCR","摘要提示词（归档时抽取）","问答提示词（/问AI）","回答输出上限（max_tokens）","发给模型的总字符上限","每篇片段字符上限","送模型的片段篇数（topK）","先用小模型扩检索词","载入当前大类+清空（用内置）+重建目录","等待手动下载（分钟）","待补附件","电脑需求 必需：Windows","电脑需求 内存：建议 8 GB","电脑需求 收藏问答：文本模型（","电脑需求 图片文字：本地 OC","电脑需求 附件：PDF / W","电脑需求 视频：语音转写走上面","电脑需求 语音输入：CapsW","〔远程阅读〕"],
+  defaults: ["〔账号卡片〕","收藏同步","登录后自动同步","下载图片","下载视频","评论 · 自动拉取","评论 · 手动拉取","每天最多新抓","文本 AI","接口地址","API Key","模型","测试文本 AI","归档摘要模型（默认同文本 AI）","模型","测试归档摘要","识图接口","接口地址","API Key","模型","精细识别模型","测试识图","视频画面文字","语音识别","端口","测试语音识别","CapsLock 语音输入","CapsWriter 目录","输入框提示文字","DeepSeek","Codex","Sonnet","添加模型","Claude Code","Codex","其他客户端（JSON 配置）","测试 MCP","搜索收藏","批注昵称","下载文件夹","检查本机环境","文字识别（OCR）","识别精度","模型目录（可选）","测试 OCR","摘要提示词（归档时抽取）","问答提示词（/问AI）","回答输出上限（max_tokens）","发给模型的总字符上限","每篇片段字符上限","送模型的片段篇数（topK）","先用小模型扩检索词","载入当前分类+清空（用内置）+重建目录","等待手动下载（分钟）","待补附件","电脑需求 必需：Windows","电脑需求 内存：建议 8 GB","电脑需求 收藏问答：文本模型（","电脑需求 图片文字：本地 OC","电脑需求 附件：PDF / W","电脑需求 视频：语音转写走上面","电脑需求 语音输入：CapsW","〔远程阅读〕"],
+  alt: ["〔账号卡片〕","收藏同步","登录后自动同步","下载图片","下载视频","评论 · 自动拉取","评论 · 手动拉取","每天最多新抓","文本 AI","命令","测试文本 AI","归档摘要模型（默认同文本 AI）","接口地址","API Key","模型","测试归档摘要","识图接口","测试识图","视频画面文字","语音识别","接口地址","API Key","模型","测试语音识别","CapsLock 语音输入","CapsWriter 目录","输入框提示文字","DeepSeek","Codex","Sonnet","添加模型","Claude Code","Codex","其他客户端（JSON 配置）","测试 MCP","搜索收藏","批注昵称","下载文件夹","检查本机环境","文字识别（OCR）","识别精度","模型目录（可选）","测试 OCR","摘要提示词（归档时抽取）","问答提示词（/问AI）","回答输出上限（max_tokens）","发给模型的总字符上限","每篇片段字符上限","送模型的片段篇数（topK）","先用小模型扩检索词","载入当前分类+清空（用内置）+重建目录","等待手动下载（分钟）","待补附件","电脑需求 必需：Windows","电脑需求 内存：建议 8 GB","电脑需求 收藏问答：文本模型（","电脑需求 图片文字：本地 OC","电脑需求 附件：PDF / W","电脑需求 视频：语音转写走上面","电脑需求 语音输入：CapsW","〔远程阅读〕"],
+  legacy: ["〔账号卡片〕","收藏同步","登录后自动同步","下载图片","下载视频","评论 · 自动拉取","评论 · 手动拉取","每天最多新抓","文本 AI","接口地址","API Key","模型","测试文本 AI","归档摘要模型（默认同文本 AI）","模型","测试归档摘要","识图接口","测试识图","视频画面文字","语音识别","测试语音识别","CapsLock 语音输入","CapsWriter 目录","输入框提示文字","DeepSeek","Codex","Sonnet","添加模型","Claude Code","Codex","其他客户端（JSON 配置）","测试 MCP","搜索收藏","批注昵称","下载文件夹","检查本机环境","文字识别（OCR）","测试 OCR","摘要提示词（归档时抽取）","问答提示词（/问AI）","回答输出上限（max_tokens）","发给模型的总字符上限","每篇片段字符上限","送模型的片段篇数（topK）","先用小模型扩检索词","载入当前分类+清空（用内置）+重建目录","等待手动下载（分钟）","待补附件","电脑需求 必需：Windows","电脑需求 内存：建议 8 GB","电脑需求 收藏问答：文本模型（","电脑需求 图片文字：本地 OC","电脑需求 附件：PDF / W","电脑需求 视频：语音转写走上面","电脑需求 语音输入：CapsW","〔远程阅读〕"],
 };
 const REMOVED = ['搜索收藏'];   // 唯一删掉的一行：目录页本来就有入口
 
 // 第 7 批改了文字的行（内容没少，只是说法跟着分页变了）：旧身份 → 新身份
-const RENAMED = { '电脑需求 视频：语音转写走上面': '电脑需求 视频：语音转写走「A' };
+const RENAMED = { '电脑需求 视频：语音转写走上面': '电脑需求 视频：语音转写走「A', DeepSeek: '文本 AI' };
 
 (async () => {
   if (process.env.LB_DUMP) {
@@ -184,7 +185,7 @@ const RENAMED = { '电脑需求 视频：语音转写走上面': '电脑需求 �
   tab.hide();
 
   tab = openTab(env.p, 'ai'); root = tab.containerEl;
-  assert.deepEqual(visibleRows(root), ['文本 AI', '接口地址', 'API Key', '模型', '测试文本 AI', '其他 AI 能力', '输入框提示文字', 'DeepSeek', 'Codex', 'Sonnet', '添加模型',
+  assert.deepEqual(visibleRows(root), ['文本 AI', '接口地址', 'API Key', '模型', '测试文本 AI', '其他 AI 能力', '输入框提示文字', '文本 AI', 'Codex', 'Sonnet', '添加模型',
     '文字识别（OCR）', '识别精度', '模型目录（可选）', '测试 OCR'], 'AI（其他 AI 能力收起）');
   assert.deepEqual(headsOf(root), ['AI（问收藏用）', '问答模型', '文字识别（OCR）']);
   assert.match(rowsOf(root).find(r => nameOf(r) === '文本 AI').querySelector('.setting-item-description').textContent, /^问收藏页的回答用它。没配时问答用不了；归档、浏览、关键词搜索不受影响。/);
@@ -198,12 +199,12 @@ const RENAMED = { '电脑需求 视频：语音转写走上面': '电脑需求 �
   assert.match(paneOf(root).querySelector('.lb-remote-intro').textContent, /Notion.*以后支持/);
   assert.deepEqual(visibleRows(root), ['Claude Code', 'Codex', '其他客户端（JSON 配置）', '测试 MCP'], '外接 MCP 的复制按钮');
   assert.equal(paneOf(root).querySelector('ol.lb-install-steps').querySelectorAll('li').length, 3, '外接的安装 / 复制三步');
-  assert.deepEqual(headsOf(root), ['外接 MCP', '远程阅读（MCP）']);
+  assert.deepEqual(headsOf(root), ['接本机 AI（不用域名）', '远程阅读（MCP）']);
 
   tab = openTab(env.p, 'advanced'); root = tab.containerEl;
   assert.deepEqual(visibleRows(root), ['检查本机环境', '后端命令', '收藏存放位置', '摘要提示词（归档时抽取）', '问答提示词（/问AI）', '回答输出上限（max_tokens）', '发给模型的总字符上限',
-    '每篇片段字符上限', '送模型的片段篇数（topK）', '先用小模型扩检索词', '', '载入当前大类+清空（用内置）+重建目录'], '高级（空名那行是目录大类的输入框）');
-  assert.deepEqual(headsOf(root), ['运行环境', '电脑需求', '提示词', '问答用量', '目录大类']);
+    '每篇片段字符上限', '送模型的片段篇数（topK）', '先用小模型扩检索词', '', '载入当前分类+清空（用内置）+重建目录'], '高级（空名那行是目录大类的输入框）');
+  assert.deepEqual(headsOf(root), ['运行环境', '电脑需求', '提示词', '问答用量', '分类']);
   assert.ok(!rowsOf(root).some(r => nameOf(r) === '搜索收藏'), '「搜索收藏 · 打开目录」删掉了');
 
   // —— 2. 分页 / 展开记在插件对象上（本次会话），不写 data.json ——
@@ -274,12 +275,12 @@ const RENAMED = { '电脑需求 视频：语音转写走上面': '电脑需求 �
   assert.match(line({ sync: { last_success: new Date(2026, 8, 20, 22, 30).toISOString() } }, now), /^上次：9\/20 22:30$/);
   // 接到设置页：有 summary 用它；没有 summary 用原来的状态文字
   assert.match(await syncDesc({ '_archive/problems-summary.json': JSON.stringify({ sync: { state: 'ready', last_success: new Date().toISOString(), new: 3, deferred: 1 } }) }),
-    /^上次：今天 \d\d:\d\d · 新增 3 篇 · 还剩 1 篇$/);
-  assert.equal(await syncDesc({}), '还没有同步过。登录后点「立即同步」，或点「定时…」开启自动同步。');
+    /^上次：今天 \d\d:\d\d · 新增 3 篇 · 还剩 1 篇 · 定时：没开$/);
+  assert.equal(await syncDesc({}), '还没有同步过。登录后点「立即同步」，或点「定时…」开启自动同步。 · 定时：没开');
   assert.match(await syncDesc({ '_archive/sync-status.json': JSON.stringify({ state: 'ready', message: '收藏同步完成', updated_at: '2026-10-02T04:20:00', synced: 5 }) }),
-    /^收藏同步完成 · .* · 本次 5 条$/, 'summary 里没有这几项：照旧显示状态文字');
+    /^收藏同步完成 · .* · 本次 5 条 · 定时：没开$/, 'summary 里没有这几项：照旧显示状态文字');
   assert.match(await syncDesc({ '_archive/problems-summary.json': JSON.stringify({ sync: { state: 'running', message: '正在同步收藏', last_success: new Date().toISOString(), new: 1 } }) }),
-    /^正在同步收藏 · 上次：今天 \d\d:\d\d · 新增 1 篇$/, '同步中 / 失败时状态放在前面');
+    /^正在同步收藏 · 上次：今天 \d\d:\d\d · 新增 1 篇 · 定时：没开$/, '同步中 / 失败时状态放在前面');
 
   // —— 6. 第 5 批 4.5：设置页开着时监听两份同步文件，变了重画那一行；hide() / 重画整页 / 换分页时注销 ——
   {
@@ -298,7 +299,7 @@ const RENAMED = { '电脑需求 视频：语音转写走上面': '电脑需求 �
     assert.match(desc(), /^收藏同步完成/, '别的文件变了不重画');
     handlers.filter(h => h.live && h.ev === 'modify').forEach(h => h.cb({ path: '_archive/sync-status.json' }));
     await new Promise(r => setTimeout(r, 350)); await flush(); await flush();
-    assert.equal(desc(), '正在同步收藏：《a》查附件 / 下附件中 · 已完成 3/10 篇 · 剩 7 篇');
+    assert.equal(desc(), '正在同步收藏：《a》查附件 / 下附件中 · 已完成 3/10 篇 · 剩 7 篇 · 定时：没开');
     // 重画整页：旧监听注销，新的接上（不会越开越多）
     t.display(); await flush();
     assert.equal(offs, 2); assert.equal(handlers.filter(h => h.live).length, 2);

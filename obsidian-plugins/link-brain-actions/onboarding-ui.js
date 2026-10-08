@@ -77,13 +77,7 @@ module.exports = function (obsidian, plugin) {
 
   // 带一个按钮的提示（Obsidian Notice 支持 DocumentFragment；没 document 的环境退回纯文字）
   function noticeWithButton(text, label, onClick, timeout = 0) {
-    if (typeof document === 'undefined' || !document.createDocumentFragment) return new Notice(text, timeout || 15000);
-    const frag = document.createDocumentFragment();
-    const p = document.createElement('div'); p.textContent = text; frag.appendChild(p);
-    const b = document.createElement('button'); b.textContent = label; b.style.marginTop = '6px';
-    b.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
-    frag.appendChild(b);
-    return new Notice(frag, timeout);
+    return plugin.notify(text, { ms: timeout, actions: [{ label, run: onClick }] });
   }
 
   // 一块醒目的提示：文字 + 按钮（设置页顶部、目录页顶部共用）
