@@ -111,7 +111,7 @@ const clickLabel = async (page, path) => { await page.evaluate(p => [...document
       assert.equal(await page.evaluate(() => document.querySelector('.lbc-count').textContent), '120 篇', `${theme}：索引视图里计数行是全库篇数`);
       const tree = await page.evaluate(() => {
         const lab = p => { const n = [...document.querySelectorAll('.lbi-node')].find(x => x.dataset.path === p); const l = n && n.querySelector(':scope > .lbi-row .lbi-label'); if (!l) return null; const r = l.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, cy: (r.top + r.bottom) / 2, text: l.textContent }; };
-        return { root: lab(''), cook: lab('做饭'), home: lab('做饭/家常菜'), bake: lab('做饭/烘焙'), pork: lab('做饭/家常菜/红烧肉'), unc: lab('未归类'), empty: lab('空节点'),
+        return { root: lab(''), cook: lab('做饭'), home: lab('做饭/家常菜'), bake: lab('做饭/烘焙'), pork: lab('做饭/家常菜/红烧肉'), unc: lab('∅未归类'), empty: lab('空节点'),
           fold: (() => { const n = [...document.querySelectorAll('.lbi-node')].find(x => x.dataset.path === '做饭/家常菜'); return n && n.querySelector(':scope > .lbi-row .lbi-fold')?.textContent; })(),
           list: document.querySelector('.lbi-panel').classList.contains('is-list') };
       });

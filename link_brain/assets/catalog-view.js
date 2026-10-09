@@ -287,7 +287,7 @@ refreshTags();
 // ── 10-10 索引树：_archive/index-data.json（Python 解析 索引.md、归类好的；页面只读，这里不解析、不归类） ──
 // 第一级 = 顶部分类 tab（activeCat 存节点路径，「美食/菜谱」）；选中一个大类时下面一行它的二级小标签；「索引」= 横向分叉树。
 // 没有这份文件（旧后端 / 还没重算过）= 照旧按 catalog-data 的 cats_order / items[].cats。
-const UNC = '未归类';
+const UNC = '∅未归类', UNC_LABEL = '未归类';   // 「未归类」那一档在页面里的键（节点路径不会以 ∅ 开头，她把一个节点叫「未归类」也不撞）
 let idx = null, idxRev = 0;
 const idxByPath = new Map(), idxSets = new Map();
 async function loadIndex() {
@@ -308,7 +308,7 @@ function nodeIds(path) {
   idxSets.set(path, s);
   return s;
 }
-const catLabel = c => String(c || '').split('/').join(' › ');
+const catLabel = c => (c === UNC ? UNC_LABEL : String(c || '').split('/').join(' › '));
 function knownCat(c) {
   if (typeof c !== 'string' || !c) return false;
   if (!idx) return (data.cats_order || []).includes(c);
@@ -574,7 +574,7 @@ function renderCatBar({ reveal = false } = {}) {
       if (!mobile) tab.oncontextmenu = e => { e.preventDefault(); editCategories(p); };
     }
     if (idx.unclassified?.count) {
-      const tab = mk(UNC, !indexView && activeCat === UNC, tabClick(() => { activeCat = (activeCat === UNC ? '' : UNC); }));
+      const tab = mk(UNC_LABEL, !indexView && activeCat === UNC, tabClick(() => { activeCat = (activeCat === UNC ? '' : UNC); }));
       tab.classList.add('lbc-unc-tab');
     }
   } else {
@@ -949,7 +949,7 @@ function renderIndexPanel() {
   }
   const tree = ipanel.createEl('div', { cls: 'lbi-tree' });
   const kids = roots.slice();
-  if (unc) kids.push({ path: UNC, name: UNC, count: unc, children: [], unc: true });
+  if (unc) kids.push({ path: UNC, name: UNC_LABEL, count: unc, children: [], unc: true });
   treeNode(tree, { path: '', name: '全部', count: idx.total, kids }, 0, 'lbi-root');
   if (activeCat) for (const el of tree.querySelectorAll('.lbi-node')) if (el.dataset.path === activeCat) el.querySelector('.lbi-label')?.classList.add('is-current');
 }
