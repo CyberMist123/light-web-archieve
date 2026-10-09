@@ -80,7 +80,15 @@ async function mediaTests() {
   assert.ok(!e.prevented, '目录页上滚轮不能被旧笔记的监听吃掉');
   assert.equal(A.sc.scrollTop, 100, '也不再去滚已经不在页面上的旧正文栏');
   assert.ok(!preview.classList.contains('lb-pane-locked'), '旧笔记留下的「整页锁住」类名清掉（不然整页 overflow:hidden 滚不动）');
-  console.log('PASS media-nav: pinned note left the pane → wheel on catalog/chat page no longer swallowed, stale lb-pane-locked cleared');
+  // 1010：钉住时挂在预览容器上的 scroll 监听（笔记顶被滚出上沿就往回滚）——笔记被摘下后不能再拉目录页
+  // （摘下的元素 rect 全 0、容器顶 = 标签栏 + 视图头 78px：旧代码每次滚动都往回拉 78，一路拉到 0）
+  preview._rect = { top: 78, height: 800 };
+  preview.scrollTop = 500;
+  for (const fn of [...(preview.listeners.scroll || [])]) fn({ type: 'scroll', target: preview });
+  await tick(40);
+  assert.equal(preview.scrollTop, 500, '笔记被换走后滚动目录页：不被往回拉');
+  assert.equal((preview.listeners.scroll || []).length, 0, '那个 scroll 监听摘掉了（不再攥着已经摘下的笔记）');
+  console.log('PASS media-nav: pinned note left the pane → wheel on catalog/chat page no longer swallowed, stale lb-pane-locked cleared, stale pane scroll listener removes itself (1010)');
 
   // 再在同一个标签页打开另一篇：预览容器上始终只有一个滚轮监听
   card.parentNode.remove(); preview.classList.add('xhs-note');

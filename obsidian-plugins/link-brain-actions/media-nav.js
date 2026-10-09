@@ -77,6 +77,7 @@ class MediaNav {
     this.stats = { scan: 0, fit: 0, fitMs: 0 };   // N12：只是整数累加（测量用，正式代码里也留着）
     this.ros = new Set();                           // 每个轮播一个尺寸监听；轮播不在了就自己断开
     this.noteState = new Map();                     // N15：key（item_id / 文件路径）→ {locked, slide, scroll}
+    this.paneScrolls = new Map();                   // 1010：钉住时挂在预览容器上的 scroll 监听 → 容器（插件卸载时一起摘）
   }
   // 原插件里的 this.register / this.registerDomEvent：挂到主插件上，主插件卸载时一起清掉
   register(fn) { this.plugin.register(fn); }
@@ -137,7 +138,8 @@ class MediaNav {
     if (ws && typeof ws.on === 'function' && typeof this.plugin.registerEvent === 'function') {
       for (const ev of ['file-open', 'layout-change']) this.plugin.registerEvent(ws.on(ev, () => { this.cleanupStaleLocks(); queueMicrotask(() => this.scan()); }));
     }
-    this.register(() => { for (const ro of this.ros) { try { ro.disconnect(); } catch {} } this.ros.clear(); this.noteState.clear(); });
+    this.register(() => { for (const ro of this.ros) { try { ro.disconnect(); } catch {} } this.ros.clear(); this.noteState.clear();
+      for (const [fn, pv] of this.paneScrolls) { try { pv.removeEventListener('scroll', fn); } catch {} } this.paneScrolls.clear(); });
     this.register(()=>{document.querySelectorAll('.lb-media-tools,.lb-media-pin,.lb-thumbnails').forEach(e=>e.remove());document.querySelectorAll('[data-lb-enhanced]').forEach(e=>delete e.dataset.lbEnhanced);document.querySelectorAll('.lb-media-locked,.lb-media-free').forEach(e=>e.classList.remove('lb-media-locked','lb-media-free'));document.querySelectorAll('.lb-pane-locked').forEach(e=>e.classList.remove('lb-pane-locked'));document.querySelectorAll('.xhs-note .lb-carousel video').forEach(v=>{v.controls=true;});});
 
     const rememberCarousel = (event) => {
@@ -423,8 +425,11 @@ class MediaNav {
     return true;
   }
   // 钉住时 note 顶部已经被滚出 preview 上沿（Obsidian 恢复了旧的滚动位置 / 先往下滚了再点钉）：把 preview 往回滚差值
+  // 1010：笔记已经不在这个预览容器里（同一标签页换成了目录页，Obsidian 复用容器、把笔记摘下）就什么都不做——
+  // 摘下的元素 getBoundingClientRect() 全是 0，会被当成「顶在上沿外」，把目录页一路拉回顶部。
   ensureLockedInView(note, preview) {
     if (!preview || typeof note.getBoundingClientRect !== 'function' || typeof preview.getBoundingClientRect !== 'function') return;
+    if (note.isConnected === false || (typeof preview.contains === 'function' && !preview.contains(note))) return;
     const nt = note.getBoundingClientRect().top, pt = preview.getBoundingClientRect().top;
     if (nt < pt - 0.5) { preview.scrollTop = Math.max(0, (preview.scrollTop || 0) - (pt - nt)); if (typeof note.querySelector === 'function') note.querySelector('.lb-carousel')?.lbFit?.(); }
   }
@@ -456,10 +461,15 @@ class MediaNav {
       fit();
       if(locked&&preview){
         this.ensureLockedInView(note,preview);
-        if(!onPaneScroll){let q=false;onPaneScroll=()=>{if(q)return;q=true;raf(()=>{q=false;if(note.classList.contains('lb-media-locked'))this.ensureLockedInView(note,preview);});};preview.addEventListener('scroll',onPaneScroll);}
+        // 1010 她报「连播 / 看完笔记回到目录，往下滚不动、反复被拉回顶部」：这个 scroll 监听挂在预览容器上，而同一标签页换文件时
+        // Obsidian 复用这个容器——笔记被摘下后它还在，每次滚动都把目录页往回拉。现在笔记一不在容器里就摘掉自己。
+        if(!onPaneScroll){let q=false;const fn=onPaneScroll=()=>{
+          if(note.isConnected===false||!preview.contains(note)){preview.removeEventListener('scroll',fn);this.paneScrolls.delete(fn);if(onPaneScroll===fn)onPaneScroll=null;return;}
+          if(q)return;q=true;raf(()=>{q=false;if(note.isConnected!==false&&note.classList.contains('lb-media-locked'))this.ensureLockedInView(note,preview);});};
+          preview.addEventListener('scroll',fn);this.paneScrolls.set(fn,preview);}
         // 钉住后页面不能滚：促一下 Obsidian 阅读视图把底部（批注 bootstrap 那段）渲染出来
         raf(()=>{try{if(typeof preview.dispatchEvent==='function'&&typeof Event==='function')preview.dispatchEvent(new Event('scroll'));}catch{}});
-      }else if(onPaneScroll&&preview){preview.removeEventListener('scroll',onPaneScroll);onPaneScroll=null;}
+      }else if(onPaneScroll&&preview){preview.removeEventListener('scroll',onPaneScroll);this.paneScrolls.delete(onPaneScroll);onPaneScroll=null;}
     };
     // 0926 Owner：滚轮停在图片上 = 翻页（一格一张，节流防连跳）；刚打开的笔记直接认它，←/→ 不用先点图。
     this.activeCarousel=carousel;
