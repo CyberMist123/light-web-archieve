@@ -342,20 +342,39 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-remote-sub { margin: 10px 0 2px; color: var(--text-muted); }
 .lb-remote-depth2 .setting-item-name { padding-left: 1.5em; }
 
-/* —— 1009 她：设置页一页——状态 · 功能（开关 + 一键装好 / 跑完）· 连接 AI · 高级（一个折叠）—— */
-.lb-settings .lb-section { margin: 0 0 18px; }
-.lb-settings .lb-section > h3, .lb-home-head h3, .lb-connect > h3 { margin: 6px 0 6px; font-size: var(--font-ui-medium); }
-.lb-home-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.lb-home-presets { display: flex; gap: 6px; flex-wrap: wrap; }
-.lb-home-presets .lb-preset { font-size: var(--font-ui-small); height: auto; padding: 2px 10px; }
+/* —— 1010 她：设置页分栏（概览 / 收藏与同步 / AI / 连接其他 AI / 高级），按新手重写 ——
+   每栏最多一个主按钮（mod-cta）；次要动作是「像链接的一行字」（.lb-link）；「?」悬停讲规则（.lb-help）；读不到的块（.lb-fail）。 */
+.lb-tab-intro { margin: 2px 0 12px; color: var(--text-muted); }
+.lb-tab-pane > h4, .lb-tab-pane .lb-connect > h4 { margin: 20px 0 4px; font-size: var(--font-ui-small); color: var(--text-muted); }
+.lb-settings .lb-help { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-left: 6px; border-radius: 50%;
+  font-size: 11px; line-height: 1; color: var(--text-faint); border: 1px solid var(--background-modifier-border); cursor: help; vertical-align: 1px; }
+.lb-settings .lb-help:hover, .lb-settings .lb-help:focus-visible { color: var(--text-normal); border-color: var(--text-muted); outline: none; }
+.lb-settings button.lb-link { background: transparent !important; box-shadow: none !important; border: 0 !important; height: auto; padding: 2px 4px;
+  color: var(--text-accent); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-size: var(--font-ui-small); }
+.lb-settings button.lb-link:hover { color: var(--text-accent-hover, var(--text-accent)); }
+.lb-settings button.lb-link:disabled { color: var(--text-faint); text-decoration: none; cursor: default; }
+.lb-settings button.lb-link.is-hidden { display: none; }
+.lb-price { margin-left: 8px; padding: 0 7px; border-radius: 9px; font-size: var(--font-ui-smaller); font-weight: 400; line-height: 1.6;
+  color: var(--text-muted); background: var(--background-secondary); white-space: nowrap; }
+.lb-price.is-free { color: var(--lb-ok); }
+.lb-feat.lb-sub { padding-left: 22px; }
 .lb-feat.is-required .setting-item-name { color: var(--text-muted); }
-.lb-feat-total { margin: 4px 0 8px; color: var(--text-muted); font-size: var(--font-ui-small); font-variant-numeric: tabular-nums; }
+.lb-ai-lead { margin: 2px 0 10px; padding: 8px 12px; border-radius: 8px; background: var(--background-secondary); color: var(--text-normal); }
+.lb-ai-keys .lb-key-note, .lb-ai-silent { color: var(--text-muted); }
 .lb-feat-ai { margin: 4px 0 10px; }
 .lb-feat-cap { border-left: 3px solid var(--background-modifier-border); padding: 0 0 4px 12px; margin: 8px 0; }
 .lb-feat-cap > h4 { margin: 6px 0 2px; font-size: var(--font-ui-small); color: var(--text-muted); }
-.lb-estimate-line { line-height: 1.7; }
-.lb-estimate-use { margin-left: 6px; font-size: var(--font-ui-smaller); height: auto; padding: 1px 8px; }
-.lb-run { border: 1px solid var(--background-modifier-border); border-radius: 8px; padding: 10px 12px; background: var(--background-secondary); }
+.lb-sub-line { margin-top: 2px; color: var(--text-faint); font-size: var(--font-ui-smaller); }
+.lb-why { color: var(--text-muted); }
+.lb-fail { margin: 6px 0; padding: 6px 10px; border-radius: 6px; background: var(--background-secondary); color: var(--text-normal); border-left: 2px solid var(--lb-warn); }
+.lb-fail-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.lb-fail-detail > summary { cursor: pointer; color: var(--text-muted); font-size: var(--font-ui-smaller); margin-top: 4px; }
+.lb-fail-detail pre { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--font-ui-smaller); color: var(--text-muted); }
+.lb-settings details.lb-fold { margin: 14px 0 6px; }
+.lb-settings details.lb-fold > summary { cursor: pointer; color: var(--text-muted); padding: 4px 0; }
+.lb-settings details.lb-fold[open] > summary { color: var(--text-normal); }
+.lb-sched-host { margin: -6px 0 6px; }
+.lb-run { margin-top: 14px; border: 1px solid var(--background-modifier-border); border-radius: 8px; padding: 10px 12px; background: var(--background-secondary); }
 .lb-run-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .lb-run-actions .setting-item-description { flex: 1 1 260px; }
 .lb-run-steps { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
@@ -368,7 +387,6 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-run-text { color: var(--text-muted); font-size: var(--font-ui-small); overflow-wrap: anywhere; min-width: 0; }
 .lb-run-result { margin-top: 8px; font-weight: var(--font-semibold); }
 .lb-run-result.is-failed { color: var(--lb-warn); }
-.lb-fill-row button.is-hidden { display: none; }
 .lb-connect-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
 .lb-connect-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid var(--background-modifier-border); border-radius: 999px; cursor: pointer; user-select: none; }
 .lb-connect-chip.is-on { border-color: var(--interactive-accent); background: var(--background-modifier-hover); }
@@ -378,6 +396,7 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-connect-howto .setting-item-name { margin-top: 8px; }
 .lb-connect-cmd { display: block; user-select: all; word-break: break-all; padding: 4px 6px; margin-top: 4px; background: var(--background-secondary); border-radius: 4px; }
 .lb-connect-pick .setting-item-control { flex-wrap: wrap; gap: 6px; }
-.lb-adv > summary { cursor: pointer; font-weight: var(--font-semibold); font-size: var(--font-ui-medium); padding: 6px 0; border-top: 1px solid var(--background-modifier-border); }
-.lb-adv-body h4 { margin: 18px 0 4px; font-size: var(--font-ui-small); color: var(--text-muted); }
+.lb-connect .lb-remote-nodomain { margin: -4px 0 8px; padding-left: 2px; }
+.lb-connect .lb-remote-nodomain > summary { cursor: pointer; color: var(--text-accent); }
+.lb-connect .lb-remote-nodomain p { margin: 4px 0; }
 .lb-remote-recent { line-height: 1.7; max-height: 14em; overflow: auto; }

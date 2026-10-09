@@ -185,7 +185,7 @@ def test_status_shapes(capsys, fake_ps):
     write_settings(vault, port, enabled=True)
     replies.append((True, "none"))
     code, out = run_cli(capsys, ["remote", "status"])
-    assert out["state"] == "error" and "计划任务没注册" in out["message"]
+    assert out["state"] == "error" and "后台服务没装上" in out["message"]
     assert any("还没设口令" in w for w in out["warnings"])
     rstore.write_status({"state": "error", "code": "NEEDS_HUMAN.PORT_IN_USE", "message": f"端口 {port} 被别的程序占着：到设置里换一个端口"})
     replies.append((True, "Ready|2026-10-02T10:00:00|0|pythonw.exe|-m link_brain remote serve"))

@@ -54,20 +54,22 @@ module.exports = function (obsidian, plugin) {
     return '收藏放在 ' + plugin.vaultDir + extra;
   }
 
-  // 第 7 批：原首次引导第 ① 步，搬成一行设置（「开始」第 ① 步和「高级」分页共用）：文件夹 + 保存 + 一行如实状态
-  function renderFolder(container) {
+  // 第 7 批：原首次引导第 ① 步，搬成一行设置。1010：设置页里只在「收藏与同步」这一处（main.js fieldCollectionFolder 调它，
+  // 不再有第二份兜底的同名行）。文件夹 + 保存 + 一行如实状态。
+  function renderFolder(container, tab = null) {
     let value = plugin.settings.collectionFolder || '';
     const base = String(plugin.app.vault.adapter.getBasePath() || '');
-    const row = new Setting(container).setName('收藏存放位置')
-      .setDesc('默认就放在这个库里；想放进单独的文件夹就填文件夹名（在本库里，没有会自动建）。已有的收藏不会自动搬。');
+    const row = new Setting(container).setName('收藏放在哪')
+      .setDesc('默认就在这个库里；填文件夹名就放进那个文件夹（没有会自动建）。');
     row.settingEl.addClass('lb-folder-row');
+    if (tab && typeof tab.help === 'function') tab.help(row, '只能填这个库里的文件夹名，不填盘符或完整路径。');
     const state = row.descEl.createDiv({ cls: 'lb-onb-state' });
     const setState = (kind, text) => { state.className = 'lb-onb-state' + (kind ? ' is-' + kind : ''); state.setText(text); };
     const preview = () => { const n = normalizeFolder(value); n.ok ? setState('', '收藏会放在：' + (n.folder ? base.replace(/[\\/]+$/, '') + '/' + n.folder : base)) : setState('failed', n.error); };
     row.addText(t => t.setPlaceholder('留空 = 库根目录，或如：收藏').setValue(value).onChange(v => { value = v; preview(); }))
       .addButton(b => b.setButtonText('保存').onClick(async () => {
         b.setDisabled(true);
-        try { setState('done', '✓ ' + await saveFolder(value)); }
+        try { setState('done', '✓ ' + await saveFolder(value) + '（已经存下的收藏不会跟着搬）'); }
         catch (e) { setState('failed', '没做成：' + e.message); }
         finally { b.setDisabled(false); }
       }));

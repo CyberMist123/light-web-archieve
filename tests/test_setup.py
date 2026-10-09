@@ -554,6 +554,16 @@ def test_estimate_empty_library_uses_typical():
     assert next(i for i in out["items"] if i["id"] == "summary")["yuan"] > 0
 
 
+def test_estimate_items_carry_where_to_get_a_key():
+    """1010 设置页「AI」：去哪弄密钥——每家官方「新建密钥」页面放在 pricing.json 的 providers 里，estimate 原样带出。"""
+    out = estimate.estimate(100)
+    items = {i["id"]: i for i in out["items"]}
+    assert items["summary"]["key_url"] == "https://platform.deepseek.com/api_keys"
+    assert items["vision"]["key_url"].startswith("https://bailian.console.aliyun.com/")
+    data = json.loads(estimate.PRICING_PATH.read_text(encoding="utf-8"))
+    assert all(p.get("key_url", "").startswith("https://") for p in data["providers"].values())
+
+
 def test_pricing_table_sane():
     data = json.loads(estimate.PRICING_PATH.read_text(encoding="utf-8"))
     assert data["as_of"] and data["usd_cny"]["rate"] and data["usd_cny"]["source"].startswith("https://")

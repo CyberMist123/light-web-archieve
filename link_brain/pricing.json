@@ -14,10 +14,10 @@
     "google": "https://ai.google.dev/gemini-api/docs/pricing"
   },
   "providers": {
-    "DeepSeek": {"endpoint": "https://api.deepseek.com/chat/completions"},
-    "通义千问": {"endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"},
-    "OpenAI": {"endpoint": "https://api.openai.com/v1/chat/completions", "asr_endpoint": "https://api.openai.com/v1/audio/transcriptions"},
-    "Google Gemini": {"endpoint": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"}
+    "DeepSeek": {"endpoint": "https://api.deepseek.com/chat/completions", "key_url": "https://platform.deepseek.com/api_keys"},
+    "通义千问": {"endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", "key_url": "https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key"},
+    "OpenAI": {"endpoint": "https://api.openai.com/v1/chat/completions", "asr_endpoint": "https://api.openai.com/v1/audio/transcriptions", "key_url": "https://platform.openai.com/api-keys"},
+    "Google Gemini": {"endpoint": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", "key_url": "https://aistudio.google.com/apikey"}
   },
   "models": {
     "deepseek-flash": {

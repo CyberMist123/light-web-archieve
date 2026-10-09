@@ -1,4 +1,4 @@
-// 1009 设置页「连接 AI」+「高级 → 远程服务」（obsidian-plugins/link-brain-actions/remote-ui.js）。
+// 1009 设置页「连接 AI」+「高级 → 远程服务」；1010 她：设置页分栏后是「连接其他 AI」一整栏，远程访问的东西都在这一栏（高级在最下面一个折叠里）。
 // 不起真进程（CONVENTIONS §7.5）：runPy 是替身，按子命令回预设 JSON；Obsidian 的 Setting / Modal / Notice / FuzzySuggestModal 是假的。
 // 断言：attach 把 data.json 的 remote 段挂回 settings；勾了哪个客户端就出哪一步（本机一键写配置 / 撤销；网页一屏给全）；
 // 远程服务开关先存再 enable、注册失败退回；域名格式不对不存；口令只走 stdin、令牌只在弹窗里出现，都不进 settings（= data.json）；
@@ -80,7 +80,7 @@ function makePlugin(saved, replies, extra = {}) {
   return { plugin, calls, saves };
 }
 
-const STATUS_RUNNING = { ok: true, state: 'running', message: '运行中（127.0.0.1:18080）', warnings: ['没填域名：现在只有本机能连'],
+const STATUS_RUNNING = { ok: true, state: 'running', message: '运行中（127.0.0.1:18080）', warnings: ['还没填网址：现在只有这台电脑自己能连'],
   auth: { passphrase_set: true, passphrase_copyable: true, passphrase_set_at: '2026-10-02T10:00:00', personal: [{ id: 'pt_1', label: 'Claude 桌面', created: '2026-10-02T10:05:00', last_used: null }],
           clients: [{ id: 'lbc_1', name: 'ChatGPT', connected_at: '2026-10-02T10:30:00', last_used: '2026-10-02T11:00:00' }] },
   recent: [{ ts: '2026-10-02T11:00:00', client: 'ChatGPT', tool: 'read', path: 'Web/Xiaohongshu/a.md', status: 'ok' },
@@ -119,15 +119,17 @@ const LOCAL = { ok: true, clients: { 'claude-code': { installed: true, connected
   let root = new FakeEl();
   r.renderConnect(root, () => {});
   await tick(8);
-  for (const n of ['Claude Code', 'Claude Desktop', '远程服务', '域名', '连接地址', '口令', '再开放一个文件夹']) assert.ok(byName(n), '缺「' + n + '」');
-  assert.ok(!byName('其他 MCP 客户端'), '没勾的不出');
+  for (const n of ['Claude Code', 'Claude Desktop', '远程访问', '你的网址', '连接地址', '口令', '再开放一个文件夹']) assert.ok(byName(n), '缺「' + n + '」');
+  assert.ok(!byName('其他 AI 软件'), '没勾的不出');
   assert.match(root.allText(), /claude\.ai（网页 \/ 手机 App）：设置 → Connectors/);
   assert.ok(!/ChatGPT：设置/.test(root.allText()), '没勾 ChatGPT 不出它的步骤');
-  assert.equal(byName('远程服务').desc, '● 运行中（127.0.0.1:18080）');
+  assert.equal(byName('远程访问').desc, '● 开着：运行中（127.0.0.1:18080）');
+  assert.ok(!/OAuth/.test(root.allText()), '界面上没有 OAuth 这个词');
+  assert.match(root.allText(), /还没有网址？/); assert.match(root.allText(), /Cloudflare/); assert.match(root.allText(), /Tailscale/);
   assert.equal(byName('连接地址').desc, 'https://a.example.com/mcp');
   await byName('连接地址').buttons[0].cb();
   assert.equal(global.__clip, 'https://a.example.com/mcp');
-  assert.match(root.allText(), /已连接的网页客户端/);
+  assert.match(root.allText(), /已经连上的网页版/);
   // Claude Code：一键接上 = connect add claude-code（结果带「撤销」）
   const cc = byName('Claude Code');
   assert.equal(cc.buttons[0].label, '一键接上');
@@ -145,15 +147,15 @@ const LOCAL = { ok: true, clients: { 'claude-code': { installed: true, connected
   const box = chip.children.find(c => c.tag === 'input');
   box.checked = true; await box.onchange(); await tick(6);
   assert.deepEqual(env.plugin.settings.connect.clients, ['claude-code', 'claude-desktop', 'claude-ai', 'other']);
-  assert.ok(byName('其他 MCP 客户端'), '勾上「其他」就出复制 JSON');
+  assert.ok(byName('其他 AI 软件'), '勾上「其他」就出复制设置（JSON）');
 
   // —— 远程服务开关：先存开关再调 enable；注册失败 → 开关退回、提示原因 ——
   env = makePlugin({ remote: { enabled: false } }, { 'remote status': { ok: true, state: 'stopped', message: '已停', auth: {}, recent: [] }, 'connect status': LOCAL,
     'remote enable': { ok: false, code: 'PERMANENT.REMOTE_TASK_FAILED', message: '没注册上计划任务：Access is denied.' } }, { connect: { clients: ['chatgpt'] } });
   r = factory(obsidian, env.plugin); await r.attach(); settings.length = 0; notices.length = 0;
   r.renderConnect(new FakeEl(), () => {}); await tick(8);
-  assert.match(new FakeEl().allText() + byName('远程服务').desc, /已停/);
-  await byName('远程服务').toggle.cb(true); await tick(4);
+  assert.match(byName('远程访问').desc, /没开/);
+  await byName('远程访问').toggle.cb(true); await tick(4);
   assert.equal(env.saves[env.saves.length - 2].remote.enabled, true, '先把开关写进 data.json，服务才读得到');
   assert.deepEqual(env.calls.find(c => c.args[3] === 'enable').args,
     ['-m', 'link_brain', 'remote', 'enable', '--settings', path.join('D:/vault', '.obsidian/plugins/link-brain-actions', 'data.json')]);
@@ -164,9 +166,9 @@ const LOCAL = { ok: true, clients: { 'claude-code': { installed: true, connected
   env = makePlugin({ remote: { enabled: true, domain: '' } }, { 'remote status': STATUS_RUNNING, 'connect status': LOCAL }, { connect: { clients: ['claude-ai'] } });
   r = factory(obsidian, env.plugin); await r.attach(); settings.length = 0;
   r.renderConnect(new FakeEl(), () => {}); await tick(8);
-  assert.match(byName('连接地址').desc, /先填上面的域名/);
+  assert.match(byName('连接地址').desc, /先填上面的网址/);
   assert.ok(byName('连接地址').buttons[0].disabled);
-  const dom = byName('域名').texts[0];
+  const dom = byName('你的网址').texts[0];
   dom.inputEl.value = 'http://bad.example.com'; await dom.inputEl.listeners.change();
   assert.equal(env.plugin.settings.remote.domain, '');
   dom.inputEl.value = 'https://Read.Example.com/'; await dom.inputEl.listeners.change();
@@ -178,7 +180,7 @@ const LOCAL = { ok: true, clients: { 'claude-code': { installed: true, connected
   r = factory(obsidian, env.plugin); await r.attach(); settings.length = 0; modals.length = 0;
   r.renderConnect(new FakeEl(), () => {}); await tick(8);
   const pass = byName('口令');
-  assert.deepEqual(pass.buttons.map(b => b.label), ['复制口令', '随机生成', '修改口令']);
+  assert.deepEqual(pass.buttons.map(b => b.label), ['复制口令', '换一个新口令（旧的作废）', '自己改一个']);
   await pass.buttons[0].cb();
   assert.equal(global.__clip, '旧口令-ABC12345');
   await pass.buttons[2].cb();
@@ -219,26 +221,26 @@ const LOCAL = { ok: true, clients: { 'claude-code': { installed: true, connected
 
   // —— 高级 → 远程服务：端口 / 令牌（只在弹窗里出现）/ 撤销全部要确认 / 最近访问 ——
   env = makePlugin({ remote: { enabled: true, port: 18080 } }, { 'remote status': STATUS_RUNNING,
-    'remote token new': { ok: true, id: 'pt_9', label: '桌面', token: 'lbr_p_SECRET', message: '已生成' }, 'remote revoke-all': { ok: true, message: '已撤销全部访问：1 个 OAuth 客户端、0 个访问令牌' } });
+    'remote token new': { ok: true, id: 'pt_9', label: '桌面', token: 'lbr_p_SECRET', message: '已生成' }, 'remote revoke-all': { ok: true, message: '已全部断开：1 个网页版、0 个访问令牌' } });
   r = factory(obsidian, env.plugin); await r.attach(); settings.length = 0; modals.length = 0; notices.length = 0;
   root = new FakeEl();
   r.renderAdvanced(root); await tick(8);
-  for (const n of ['远程服务状态', '端口', '给其他客户端的访问令牌', '撤销全部访问']) assert.ok(byName(n), '缺「' + n + '」');
+  for (const n of ['远程访问的运行情况', '端口', '访问令牌（给不支持口令的软件）', '全部断开']) assert.ok(byName(n), '缺「' + n + '」');
   assert.match(root.allText(), /ChatGPT · 读 · Web\/Xiaohongshu\/a\.md · 成功/);
   assert.ok(settings.some(s => /Claude 桌面/.test(s.name)), '访问令牌列表');
-  const tok = byName('给其他客户端的访问令牌');
+  const tok = byName('访问令牌（给不支持口令的软件）');
   tok.texts[0].cb('桌面');
   await tok.buttons[0].cb();
   assert.deepEqual(env.calls.find(c => c.args[3] === 'token').args.slice(3), ['token', 'new', '--label', '桌面']);
   assert.match(modals.at(-1).contentEl.allText(), /lbr_p_SECRET/);
   assert.ok(!JSON.stringify(env.plugin.settings).includes('lbr_p_SECRET'));
-  await byName('撤销全部访问').buttons[0].cb();
+  await byName('全部断开').buttons[0].cb();
   assert.ok(!env.calls.some(c => c.args[3] === 'revoke-all'), '要先确认');
-  assert.equal(env.plugin.confirmOptions.ok, '撤销全部');
+  assert.equal(env.plugin.confirmOptions.ok, '全部断开');
   env.plugin.confirmed = true;
-  await byName('撤销全部访问').buttons[0].cb();
+  await byName('全部断开').buttons[0].cb();
   assert.ok(env.calls.some(c => c.args[3] === 'revoke-all'));
-  assert.ok(notices.includes('已撤销全部访问：1 个 OAuth 客户端、0 个访问令牌'));
+  assert.ok(notices.includes('已全部断开：1 个网页版、0 个访问令牌'));
 
-  console.log('ok remote-ui (1009 连接 AI)');
+  console.log('ok remote-ui (1009 连接 AI → 1010「连接其他 AI」一整栏：口令为主、「还没有网址？」紧挨网址、令牌只在高级折叠、界面没有 OAuth)');
 })().catch(e => { console.error(e); process.exit(1); });

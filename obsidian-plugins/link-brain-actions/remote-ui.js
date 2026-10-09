@@ -1,12 +1,13 @@
-// 连接 AI（1009 她：连几个 MCP 要看好几个地方 → 一个模块）——设置页「连接 AI」这一节的全部界面 + 「高级 → 远程服务」。
+// 连接其他 AI（1009 她：连几个 MCP 要看好几个地方 → 一个模块；1010 她：设置页分栏，这是「连接其他 AI」一整栏）。
 // main.js 只有几处接入：
 //   onload：this.remoteUI = require(<插件目录>/remote-ui.js)(obsidian, this); await this.remoteUI.attach();
 //   saveSettings：保存前 await this.remoteUI.beforeSave()（remote 段以磁盘为准，见下）
-//   设置页：this.plugin.remoteUI?.renderConnect(c, redraw)；高级里 this.plugin.remoteUI?.renderAdvanced(c, redraw)
-// 选要连的客户端（Claude Code / Claude Desktop / claude.ai / ChatGPT / 其他 MCP 客户端，可多选，存 settings.connect.clients），每个一步：
+//   设置页「连接其他 AI」：this.plugin.remoteUI?.renderConnect(c, redraw, tab)——远程访问的东西全在这一栏（1010 她：别拆两处）
+// 选要连的软件（Claude Code / Claude Desktop / claude.ai / ChatGPT / 其他 AI 软件，可多选，存 settings.connect.clients），每个一步：
 //   · 本机的（Claude Code / Claude Desktop）：一键写配置（`connect add`，写前备份、写完报结果、可「撤销」= `connect remove`）；
-//   · 网页的（claude.ai / ChatGPT）：一屏给全——远程服务开没开、域名、连接地址（复制）、口令（复制 / 随机生成）、几步做法；
-//   · 其他：本机 JSON 片段（复制）+ 远程地址；不支持 OAuth 的到「高级 → 远程服务」生成访问令牌。
+//   · 网页版（claude.ai / ChatGPT）：一屏给全——远程访问开没开、你的网址（紧挨着「还没有网址？」两条路）、连接地址、口令、几步做法；
+//   · 其他：本机设置片段（复制）+ 远程地址；不支持口令的软件到这一栏最下面「高级」里生成访问令牌。
+// 对新手只讲「口令」；访问令牌只在「高级」折叠里给不支持口令的软件用；「OAuth」这个词不在界面上出现。
 // 开放哪些文件夹（权限）只在这里一处：小红书收藏库开关 + 已开放的列表 +「从库内选…」「选本机文件夹…」两个入口并排（手输路径留作兜底）。
 // 服务本体是独立后台进程（python -m link_brain remote serve，Windows 上由计划任务 LwaMcp 常驻），关掉 Obsidian 照常可连。
 // 口令 / 令牌不经过 data.json：口令走 stdin 交给 Python（哈希 + DPAPI 副本存 ~/.link-brain/remote），令牌只在生成时显示一次。
@@ -18,18 +19,18 @@
 // 必须和 link_brain/remote/config.py 的 DEFAULTS 一致（tests/test_remote_cli.py 核对），改一处改两处。
 const REMOTE_DEFAULTS = {"enabled": false, "domain": "", "port": 18071, "folders": ["@xhs"]};
 const XHS = '@xhs';
-const XHS_LABEL = '小红书收藏库（可见笔记 + 每篇的机读版、附件全文、批注）';
+const XHS_LABEL = '小红书收藏库';
 const DOMAIN_RE = /^https:\/\/([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
 const DOCS_URL = 'https://github.com/CyberMist123/light-web-archieve/blob/main/docs/remote-access.md';
-// 「连接 AI」的客户端（id → 名字 / 本机还是网页）
+// 「连接其他 AI」的软件（id → 名字 / 本机还是网页）
 const CLIENTS = [['claude-code', 'Claude Code', 'local'], ['claude-desktop', 'Claude Desktop', 'local'], ['claude-ai', 'claude.ai', 'web'],
-  ['chatgpt', 'ChatGPT', 'web'], ['other', '其他 MCP 客户端', 'other']];
+  ['chatgpt', 'ChatGPT', 'web'], ['other', '其他 AI 软件', 'other']];
 const WEB_STEPS = {
   'claude-ai': ['claude.ai（网页 / 手机 App）：设置 → Connectors → Add custom connector，名字填 LWA，URL 粘「连接地址」，点 Add。',
-    '点 Connect，会打开本机服务的授权页：粘贴口令 →「允许连接」，自动跳回就连上了。',
+    '点 Connect，会打开这台电脑上的授权页：粘贴口令 →「允许连接」，自动跳回就连上了。',
     '聊天里在工具菜单打开 LWA，说「在我的收藏里搜……」试一句。'],
-  chatgpt: ['ChatGPT：设置 → Apps & Connectors → Advanced settings 打开 Developer mode。',
-    '回到 Apps & Connectors → Create：名字 LWA，MCP Server URL 粘「连接地址」，Authentication 选 OAuth，勾「我信任这个应用」，Create。',
+  chatgpt: ['ChatGPT：设置 → Apps & Connectors → Advanced settings，打开 Developer mode。',
+    '回到 Apps & Connectors → Create：名字 LWA，MCP Server URL（服务器地址那一格）粘「连接地址」；Authentication 选会弹授权页的那一项（不是 No authentication），勾「我信任这个应用」，Create。',
     '弹出授权页：粘贴口令 →「允许连接」。新对话里在 + → 更多 选上 LWA 再提问。'],
 };
 
@@ -137,10 +138,9 @@ module.exports = function remoteUI(obsidian, plugin) {
   }
 
   function passphraseModal(done) {
-    new TextModal('设置远程 MCP 口令', (el, modal) => {
-      el.createEl('p', { cls: 'setting-item-description', text: 'claude.ai / ChatGPT 第一次连接时会打开一个授权页，要输这个口令。至少 8 个字符。'
-        + '验证只用哈希；另存一份用 Windows 账户加密的副本（~/.link-brain/remote，不进插件设置、不进仓库），供「复制口令」用。'
-        + '改口令不影响已经连上的客户端；要让某个客户端重新授权，在「已连接」里吊销它。' });
+    new TextModal('设一个口令', (el, modal) => {
+      el.createEl('p', { cls: 'setting-item-description', text: '网页版 AI 第一次连接时，授权页会让你输这个口令。至少 8 个字。' });
+      el.createEl('p', { cls: 'setting-item-description', text: '口令只加密存在这台电脑上，不进插件设置。改口令不影响已经连上的；想让某个重新授权，在「已经连上的网页版」里断开它。' });
       const a = el.createEl('input', { type: 'password', attr: { placeholder: '新口令', autocomplete: 'new-password' } });
       const b = el.createEl('input', { type: 'password', attr: { placeholder: '再输一次', autocomplete: 'new-password' } });
       for (const i of [a, b]) { i.style.width = '100%'; i.style.marginBottom = '8px'; }
@@ -212,15 +212,15 @@ module.exports = function remoteUI(obsidian, plugin) {
 
   function showToken(token) {
     new TextModal('新的访问令牌', (el, modal) => {
-      el.createEl('p', { text: '只显示这一次，关掉就看不到了。请现在复制，放进客户端的请求头：Authorization: Bearer <令牌>。' });
+      el.createEl('p', { text: '只显示这一次，关掉就看不到了：现在复制，填进那个软件的「访问令牌」一格（有的软件叫 Authorization 请求头：Bearer <令牌>）。' });
       const code = el.createEl('code', { text: token }); code.style.cssText = 'display:block;word-break:break-all;user-select:all;padding:8px;';
       new Setting(el).addButton(b => b.setButtonText('复制').setCta().onClick(() => copy(token, '访问令牌')))
         .addButton(b => b.setButtonText('关闭').onClick(() => modal.close()));
     }).open();
   }
   function showManual(command) {
-    new TextModal('这台电脑要手动启动', (el, modal) => {
-      el.createEl('p', { text: '不是 Windows，没法自动注册后台服务。开关已打开；请在终端运行下面这条命令（可以交给 launchd / systemd 开机自启）：' });
+    new TextModal('这台电脑要手动启动远程访问', (el, modal) => {
+      el.createEl('p', { text: '这台电脑不是 Windows，没法自动在后台常驻。开关已经打开；请在终端里运行下面这条命令（想开机自动运行，把它加进系统的开机启动项）：' });
       const code = el.createEl('code', { text: command }); code.style.cssText = 'display:block;word-break:break-all;user-select:all;padding:8px;';
       new Setting(el).addButton(b => b.setButtonText('复制').setCta().onClick(() => copy(command, '命令')))
         .addButton(b => b.setButtonText('关闭').onClick(() => modal.close()));
@@ -242,6 +242,81 @@ module.exports = function remoteUI(obsidian, plugin) {
     return true;
   }
 
+  // 「连接其他 AI」最下面的「高级」（默认收起，开没开记在这次会话里）：运行情况 · 端口 · 访问令牌（给不支持口令的软件）·
+  // 全部断开 · 后台服务 · 最近访问 · 测一下本机的连接程序。对新手只讲「口令」——令牌只在这里出现。
+  let advOpen = false;
+  function renderAdvancedInto(container, tab = null) {
+    if (!plugin.settings.remote) plugin.settings.remote = normalizeRemote(null);
+    const box = container.createDiv({ cls: 'lb-remote-adv' });
+    const help = (row, text) => (tab && typeof tab.help === 'function' ? tab.help(row, text) : null);
+    const redraw = async () => { await syncFromDisk(); box.empty(); draw(); };
+    const draw = () => {
+      const r = s();
+      const st = new Setting(box).setName('远程访问的运行情况').setDesc('读取中…');
+      st.addExtraButton(b => b.setIcon('refresh-cw').setTooltip('刷新').onClick(() => redraw()));
+      const portRow = new Setting(box).setName('端口').setDesc('这台电脑上远程访问服务用的端口（1024–65535）。');
+      help(portRow, '你的隧道（Cloudflare / Tailscale）那头要指到同一个端口。');
+      portRow.addText(t => {
+        t.setValue(String(r.port));
+        t.inputEl.addEventListener('change', async () => {
+          const p = parseInt(t.inputEl.value, 10);
+          if (!(p >= 1024 && p <= 65535)) { new Notice('端口要在 1024–65535 之间', 8000); t.setValue(String(r.port)); return; }
+          if (p === r.port) return;
+          await saveRemote(x => { x.port = p; });
+          if (s().enabled) { const res = await act(['restart'], '端口已保存，但服务没重启上'); if (res.ok) new Notice('端口已改成 ' + p + '，服务已重启（隧道那头也要跟着改）'); }
+          else new Notice('端口已保存');
+          redraw();
+        });
+      });
+      const tokSet = new Setting(box).setName('访问令牌（给不支持口令的软件）').setDesc('有的软件不会弹授权页、只能填一串令牌：在这里生成一个给它。');
+      help(tokSet, '放进那个软件的「访问令牌」一格（有的软件叫 Authorization 请求头：Bearer <令牌>）。');
+      let label = '';
+      tokSet.addText(t => t.setPlaceholder('备注（可选）').onChange(v => label = v));
+      tokSet.addButton(b => b.setButtonText('生成（只显示一次）').onClick(async () => {
+        b.setDisabled(true);
+        const res = await act(['token', 'new', '--label', label || '访问令牌'], '没生成出来');
+        b.setDisabled(false);
+        if (res.ok && res.token) showToken(res.token);
+        redraw();
+      }));
+      const tokBox = box.createDiv();
+      const revoke = new Setting(box).setName('全部断开').setDesc('所有连上的软件和访问令牌都会立刻失效；口令不变。');
+      revoke.addButton(b => b.setButtonText('全部断开（都要重新授权）').setWarning().onClick(() => confirmModal('全部断开？',
+        'claude.ai / ChatGPT 等所有连上的软件、所有访问令牌马上失效，要重新授权才能再连。口令不变。', '全部断开', async () => {
+          const res = await act(['revoke-all'], '没断开');
+          if (res.ok) new Notice(res.message || '已全部断开');
+          redraw();
+        })));
+      const taskLine = box.createEl('p', { cls: 'setting-item-description' });
+      box.createDiv({ cls: 'setting-item-name', text: '最近访问' }).style.marginTop = '12px';
+      const recent = box.createDiv({ cls: 'setting-item-description lb-remote-recent' });
+      recent.setText('读取中…');
+      if (tab && typeof tab.addTestButton === 'function') tab.addTestButton(box, '测一下本机的连接程序（MCP）', ['-m', 'link_brain', 'selftest', 'mcp']);
+      (async () => {
+        let j = null;
+        try { ({ json: j } = await run(['status', ...settingsArgs()], { timeoutMs: 30000, fallback: '读不到状态' })); }
+        catch (e) { st.setDesc(''); if (typeof plugin.failBox === 'function') plugin.failBox(st.descEl, '', e, () => redraw()); recent.setText(''); return; }
+        if (!j) { st.setDesc(''); if (typeof plugin.failBox === 'function') plugin.failBox(st.descEl, '', new Error('后台没有返回'), () => redraw()); recent.setText(''); return; }
+        st.setDesc((j.state === 'running' ? '● 开着：' : j.state === 'error' ? '✗ 出了问题：' : '○ 没开：') + (j.message || j.state));
+        const t = j.task || {};
+        taskLine.setText('后台服务：计划任务 ' + (t.name || 'LwaMcp') + (t.registered ? '（' + (t.state || '已注册') + (t.last_run ? '，上次启动 ' + fmtTime(t.last_run) : '') + '）' : t.supported === false ? '（不是 Windows：要手动启动）' : '（还没注册）')
+          + ' · 设置文件 ' + (j.settings_path || ''));
+        for (const p of (j.auth || {}).personal || []) new Setting(tokBox).setName('　' + (p.label || '访问令牌'))
+          .setDesc('生成于 ' + fmtTime(p.created) + (p.last_used ? ' · 最近用过 ' + fmtTime(p.last_used) : ' · 还没用过'))
+          .addButton(b => b.setButtonText('作废').onClick(async () => {
+            const res = await act(['token', 'revoke', p.id], '没作废');
+            if (res.ok) new Notice('已作废「' + (p.label || '访问令牌') + '」');
+            redraw();
+          }));
+        recent.empty();
+        const rows = j.recent || [];
+        if (!rows.length) recent.setText('还没有访问记录。');
+        for (const row of rows.slice(0, 20)) recent.createDiv({ text: accessLine(row) });
+      })();
+    };
+    syncFromDisk().then(draw, draw);
+  }
+
   return {
     REMOTE_DEFAULTS, normalizeRemote, cleanDomain, accessLine, isExternal, chosenClients, vaultRelative, CLIENTS, pickFolder, addFolder,
 
@@ -251,19 +326,24 @@ module.exports = function remoteUI(obsidian, plugin) {
     // 插件任何一次保存前调：remote 段以磁盘为准（除非这一页刚经 saveRemote 改过）
     async beforeSave() { if (!fresh) await syncFromDisk(); },
 
-    // —— 设置页「连接 AI」——
-    renderConnect(container, redrawAll) {
+    // —— 设置页「连接其他 AI」一整栏（1010 她：远程访问的东西都在这一栏；「还没有网址？」紧挨着网址那一格）——
+    renderConnect(container, redrawAll, tab = null) {
       if (!plugin.settings.remote) plugin.settings.remote = normalizeRemote(null);
       const box = container.createDiv({ cls: 'lb-connect' });
       let alive = true;
       const redraw = async () => { if (!alive) return; await syncFromDisk(); box.empty(); draw(); };
       let status = null, local = null;   // 后端回来的：remote status / connect status
+      const help = (row, text) => (tab && typeof tab.help === 'function' ? tab.help(row, text) : null);
+      const linkBtn = (row, text, onClick, title = '') => row.addButton(b => { b.setButtonText(text).onClick(onClick); b.buttonEl?.addClass?.('lb-link'); if (title) b.buttonEl?.setAttribute?.('aria-label', title); });
+      const fail = (where, what, err, retry) => (typeof plugin.failBox === 'function' ? plugin.failBox(where, what, err, retry)
+        : where.createEl('p', { cls: 'lb-setup-error', text: (what ? what + '：' : '') + '这一块暂时读不到，点重试' }));
+      const statusText = () => !status ? '读取中…' : status.unreadable ? '' : status.state === 'running' ? '● 开着：' + (status.message || '在运行')
+        : status.state === 'error' ? '✗ 出了问题：' + (status.message || '') : '○ 没开';
 
       const draw = () => {
         const r = s();
         const url = r.domain ? r.domain + '/mcp' : '';
-        box.createEl('h3', { text: '连接 AI' });
-        box.createEl('p', { cls: 'setting-item-description', text: '让别的 AI 读你的收藏：搜索、阅读、看图、星标主题、问收藏（会花模型钱）。勾上要连的，每个只要一步；不能改动或删除收藏本身。' });
+        box.createEl('p', { cls: 'lb-tab-intro', text: '让 Claude、ChatGPT 这些 AI 读你的收藏：能搜、能读、能看图，不能改也不能删。' });
         const chips = box.createDiv({ cls: 'lb-connect-chips' });
         const picked = new Set(chosenClients(plugin.settings));
         for (const [id, name] of CLIENTS) {
@@ -271,10 +351,13 @@ module.exports = function remoteUI(obsidian, plugin) {
           const cb = lab.createEl('input', { type: 'checkbox' }); cb.type = 'checkbox'; cb.checked = picked.has(id);
           lab.createSpan({ text: name });
           cb.onchange = async () => {
+            const before = plugin.settings.connect ? JSON.parse(JSON.stringify(plugin.settings.connect)) : null;
             const next = new Set(chosenClients(plugin.settings));
             if (cb.checked) next.add(id); else next.delete(id);
             plugin.settings.connect = { ...(plugin.settings.connect || {}), clients: CLIENTS.map(c => c[0]).filter(x => next.has(x)) };
-            await plugin.saveSettings(); redraw();
+            try { await plugin.saveSettings(); }
+            catch (e) { plugin.settings.connect = before; cb.checked = !cb.checked; new Notice('没保存上，已改回原来的：' + e.message, 8000); return; }
+            redraw();
           };
         }
         if (!picked.size) box.createEl('p', { cls: 'setting-item-description', text: '上面勾一个，这里就出它的那一步。' });
@@ -287,17 +370,18 @@ module.exports = function remoteUI(obsidian, plugin) {
           const note = row.descEl.createDiv({ cls: 'lb-connect-note' });
           const set = text => note.setText(text);
           if (!local) set('读取中…');
-          else if (st && st.connected) set('✓ 已接上（工具名以 lwa 开头）' + (id === 'claude-desktop' ? '。改了要完全退出 Claude Desktop 再打开' : '。重开 Claude Code 生效'));
+          else if (local.unreadable) { set(''); fail(row.descEl, '', new Error(local.error || ''), async () => { local = null; redraw(); await loadLocal(); redraw(); }); }
+          else if (st && st.connected) set('✓ 已接上（工具名以 lwa 开头）' + (id === 'claude-desktop' ? '：改了要完全退出 Claude Desktop 再打开' : '：重开 Claude Code 生效'));
           else if (st && !st.installed) set(id === 'claude-code' ? '没找到 claude 命令：装好 Claude Code 再点；或复制命令到终端运行' : '没找到 Claude Desktop：装好并打开过一次再点');
-          else set(id === 'claude-code' ? '点一下就写进 Claude Code 的用户级配置（写前备份，可撤销）' : '点一下就写进 Claude Desktop 的配置（写前备份，可撤销）');
+          else set(id === 'claude-code' ? '写进 Claude Code 的设置（先备份，随时能撤销）' : '写进 Claude Desktop 的设置（先备份，随时能撤销）');
           if (st && st.connected) row.addButton(b => b.setButtonText('撤销').onClick(async () => {
             b.setDisabled(true);
             const res = await connectCmd(['remove', id], '没撤掉');
             if (res.ok) new Notice(res.message || '已撤掉');
             await loadLocal(); redraw();
           }));
-          else row.addButton(b => b.setButtonText('一键接上').setCta().setDisabled(!!local && !!st && !st.installed && id === 'claude-desktop').onClick(async () => {
-            b.setDisabled(true); set('正在写配置…');
+          else row.addButton(b => b.setButtonText('一键接上').setDisabled(!!local && !!st && !st.installed && id === 'claude-desktop').onClick(async () => {
+            b.setDisabled(true); set('正在写设置…');
             const res = await connectCmd(['add', id], '');
             if (res.ok) {
               plugin.notify(res.message || '已接上', { kind: 'ok', actions: res.changed ? [{ label: '撤销', run: async () => {
@@ -309,67 +393,98 @@ module.exports = function remoteUI(obsidian, plugin) {
             } else new Notice('没接上：' + (res.message || '没有原因'), 10000);
             await loadLocal(); if (res.ok || !res.command) redraw(); else b.setDisabled(false);
           }));
-          if (id === 'claude-code' && st && st.command && !st.connected) row.addExtraButton(b => b.setIcon('copy').setTooltip('复制命令（自己到终端运行）').onClick(() => copy(st.command, ' Claude Code 命令')));
+          if (id === 'claude-code' && st && st.command && !st.connected) row.addExtraButton(b => b.setIcon('copy').setTooltip('复制命令（自己到终端里运行）').onClick(() => copy(st.command, ' Claude Code 命令')));
         }
 
-        // 网页的：远程服务 + 域名 + 连接地址 + 口令 + 几步
+        // 网页版：远程访问 · 你的网址（+ 还没有网址？）· 测一下 · 连接地址 · 口令 · 几步做法 · 已经连上的
         const webPicked = CLIENTS.filter(c => c[2] === 'web' && picked.has(c[0]));
         if (webPicked.length || picked.has('other')) {
           const web = box.createDiv({ cls: 'lb-connect-web' });
-          const svc = new Setting(web).setName('远程服务').setDesc(status ? ((status.state === 'running' ? '● ' : status.state === 'error' ? '✗ 出错：' : '○ ') + (status.message || status.state)) : '读取中…');
-          svc.addToggle(t => t.setValue(r.enabled).onChange(async v => { t.setDisabled(true); svc.setDesc(v ? '正在注册并启动后台服务（十几秒）…' : '正在停止…'); await setEnabled(v); await loadStatus(); redraw(); }));
+          const svc = new Setting(web).setName('远程访问').setDesc(statusText());
+          svc.settingEl.addClass('lb-remote-svc');
+          help(svc, '网页版 AI 在外网，要经过你自己的网址，连到这台电脑上的一个小服务；关着 Obsidian 也照常能连。');
+          if (status && status.unreadable) fail(svc.descEl, '', new Error(status.error || ''), async () => { status = null; redraw(); await loadStatus(); redraw(); });
+          svc.addToggle(t => t.setValue(r.enabled).onChange(async v => {
+            t.setDisabled?.(true); svc.setDesc(v ? '正在打开（注册后台服务，十几秒）…' : '正在关…');
+            // 存失败 / 起不来：提示一句，重画时开关按磁盘上的真实状态回到原位
+            try { await setEnabled(v); } catch (e) { new Notice('没保存上，开关已拨回原来的位置：' + e.message, 8000); }
+            await loadStatus(); redraw();
+          }));
           if (status && status.state === 'error') svc.descEl.addClass?.('mod-warning');
-          const dom = new Setting(web).setName('域名').setDesc(r.domain ? '' : '填 https://主机名（不带路径）。还没有？看「高级 → 远程服务」里的教程（Cloudflare 命名隧道 / Tailscale Funnel）。')
+          const dom = new Setting(web).setName('你的网址').setDesc(r.domain ? '' : '填 https:// 开头的网址（只到域名，不带路径）。')
             .addText(t => {
               t.setPlaceholder('https://lwa.example.com').setValue(r.domain || '');
               t.inputEl.style.width = '16em';
               t.inputEl.addEventListener('change', async () => {
                 const v = cleanDomain(t.inputEl.value);
-                if (v === null) { new Notice('域名格式不对：只填 https://主机名，不带端口和路径', 8000); return; }
-                await saveRemote(x => { x.domain = v; });
-                new Notice(v ? '域名已保存' + (r.enabled ? '，几秒内生效' : '') : '已清空域名：只有本机能连'); redraw();
+                if (v === null) { new Notice('网址格式不对：只填 https://主机名，不带端口和路径', 8000); return; }
+                try { await saveRemote(x => { x.domain = v; }); }
+                catch (e) { new Notice('没保存上，网址没改：' + e.message, 8000); t.setValue(r.domain || ''); return; }
+                new Notice(v ? '网址已保存' + (r.enabled ? '，几秒内生效' : '') : '已清空网址：只有这台电脑自己能连'); redraw();
               });
             });
           dom.settingEl.addClass('lb-remote-domain');
-          if (r.domain) dom.addButton(b => b.setButtonText('测试公网').onClick(async () => {
-            b.setDisabled(true); dom.setDesc('正在从外面绕一圈：域名 → 隧道 → 本机服务…');
-            let j = null;
-            try { ({ json: j } = await run(['probe', ...settingsArgs()], { timeoutMs: 30000, fallback: '测不了' })); } catch (e) { j = { ok: false, message: e.message }; }
-            dom.setDesc((j && j.ok ? '✓ ' : '✗ ') + ((j && j.message) || '没有结果')); b.setDisabled(false);
-          }));
-          new Setting(web).setName('连接地址').setDesc(url || '先填上面的域名。')
-            .addButton(b => b.setButtonText('复制').setCta().setDisabled(!url).onClick(() => copy(url, '连接地址')));
+          help(dom, '网页版 AI 通过这个网址连回这台电脑；它要指到这台电脑上的远程访问服务（端口在下面「高级」里）。');
+          if (r.domain) {
+            linkBtn(dom, '测一下外面能不能连上', async () => {
+              dom.setDesc('正在从外面绕一圈：网址 → 你的隧道 → 这台电脑…');
+              let j = null;
+              try { ({ json: j } = await run(['probe', ...settingsArgs()], { timeoutMs: 30000, fallback: '测不了' })); } catch (e) { j = { ok: false, message: e.message }; }
+              dom.setDesc((j && j.ok ? '✓ ' : '✗ ') + ((j && j.message) || '没有结果'));
+            }, '从外网访问一次你的网址，看能不能连到这台电脑（只读，不改设置）');
+          }
+          // 「还没有网址？」——紧挨着网址那一格，没填网址时默认展开；两条路
+          const nd = web.createEl('details', { cls: 'lb-remote-nodomain' });
+          nd.open = !r.domain;
+          nd.createEl('summary', { text: '还没有网址？' });
+          const ndb = nd.createDiv({ cls: 'setting-item-description' });
+          ndb.createEl('p', { text: '① 已经有自己的域名：用 Cloudflare 免费建一条「隧道」（把外网的网址接到这台电脑上的一根管子），子域名指到 http://127.0.0.1:' + r.port + '，再把 https://子域名 填在上面。' });
+          ndb.createEl('p', { text: '② 没有域名：装 Tailscale，打开它的 Funnel，会给你一个固定的网址 https://<电脑名>.<你的名字>.ts.net，填在上面。' });
+          ndb.createEl('p', { text: '不推荐临时网址（trycloudflare 那种）：每次重启都会换，已经连上的都要重连。' });
+          const doc = new Setting(ndb).setName('图文教程').setDesc('两条路一步一步怎么做，还有常见报错。');
+          linkBtn(doc, '打开教程', async () => {
+            const p = plugin.repoRoot ? require('path').join(plugin.repoRoot, 'docs', 'remote-access.md') : null;
+            let err = 'no repo';
+            try { err = p ? await require('electron').shell.openPath(p) : 'no repo'; } catch (e) { err = e.message; }
+            if (err) window.open(DOCS_URL);
+          }, '打开本机的说明文档（打不开就去 GitHub 上看）');
+          const addr = new Setting(web).setName('连接地址').setDesc(url || '先填上面的网址，这里才有地址可复制。');
+          addr.addButton(b => b.setButtonText('复制').setDisabled(!url).onClick(() => copy(url, '连接地址')));
           const auth = (status && status.auth) || {};
-          const pass = new Setting(web).setName('口令').setDesc(!status ? '读取中…' : auth.passphrase_set
-            ? (auth.passphrase_copyable ? '授权页要输它：点「复制口令」。' : '这个口令是旧版设的、取不回来：点「随机生成」重设一次，以后就能复制。')
-            : '还没设：点「随机生成」最省事（生成即复制）。');
+          const pass = new Setting(web).setName('口令').setDesc(!status || status.unreadable ? '读取中…' : auth.passphrase_set
+            ? (auth.passphrase_copyable ? '网页版第一次连接时，授权页会让你输它。' : '这个口令是旧版设的、取不回来：点「换一个新口令」重设一次，以后就能复制。')
+            : '还没设：点「随机生成一个」最省事（生成就复制好了）。');
+          help(pass, '口令只加密存在这台电脑上；只在网页版第一次授权时用。');
           pass.addButton(b => b.setButtonText('复制口令').setDisabled(!(auth.passphrase_set && auth.passphrase_copyable)).onClick(async () => {
             const j = await act(['passphrase', '--reveal'], '没取回口令');
             if (j.ok && j.passphrase) await copy(j.passphrase, '口令');
           }));
-          pass.addButton(b => b.setButtonText('随机生成').onClick(async () => {
+          pass.addButton(b => b.setButtonText(auth.passphrase_set ? '换一个新口令（旧的作废）' : '随机生成一个').onClick(async () => {
             const go = async () => { const j = await act(['passphrase', '--generate'], '没生成出来'); if (j.ok && j.passphrase) { await copy(j.passphrase, '新口令（已保存）'); await loadStatus(); redraw(); } };
-            if (auth.passphrase_set) await confirmModal('换一个随机口令？', '旧口令立即作废（已连上的客户端不受影响）。新口令会自动复制到剪贴板。', '生成并复制', go);
+            if (auth.passphrase_set) await confirmModal('换一个随机口令？', '旧口令马上作废（已经连上的不受影响）。新口令会自动复制到剪贴板。', '生成并复制', go);
             else await go();
           }));
-          pass.addButton(b => b.setButtonText(auth.passphrase_set ? '修改口令' : '设置口令').onClick(() => passphraseModal(async () => { await loadStatus(); redraw(); })));
+          pass.addButton(b => b.setButtonText(auth.passphrase_set ? '自己改一个' : '自己设一个').onClick(() => passphraseModal(async () => { await loadStatus(); redraw(); })));
           for (const [id, name] of webPicked) {
             const how = web.createDiv({ cls: 'lb-connect-howto setting-item-description', attr: { 'data-client': id } });
             how.createEl('div', { cls: 'setting-item-name', text: name + ' 怎么连' });
             const ol = how.createEl('ol'); for (const l of WEB_STEPS[id]) ol.createEl('li', { text: l });
           }
           if (picked.has('other')) {
-            const other = new Setting(web).setName('其他 MCP 客户端').setDesc('本机的（Cursor、Codex 等）：复制 JSON 粘进它的 MCP 配置；远程的：用上面的连接地址，支持 OAuth 就走口令，不支持的到「高级 → 远程服务」生成访问令牌。');
-            other.addButton(b => b.setButtonText('复制 JSON').setDisabled(!local || !local.json).onClick(() => copy(local.json, ' JSON 配置')));
+            const other = new Setting(web).setName('其他 AI 软件').setDesc('本机的（Cursor、Codex 等）：复制设置粘进它的连接设置；网页的：用上面的连接地址和口令。');
+            help(other, '这些软件用一种叫 MCP 的通用接口读本机数据；不支持口令的，到下面「高级」里生成一个访问令牌。');
+            const why = !local ? '读取中…' : !local.json ? '暂时拿不到这台电脑的设置片段' : '';
+            other.addButton(b => b.setButtonText('复制设置（JSON）').setDisabled(!!why).onClick(() => copy(local.json, ' 设置（JSON）')));
+            if (why) other.descEl.createDiv({ cls: 'lb-why', text: '按钮现在不能点：' + why });
           }
           const clients = auth.clients || [];
           if (clients.length) {
-            web.createDiv({ cls: 'setting-item-name lb-remote-sub', text: '已连接的网页客户端' });
+            web.createDiv({ cls: 'setting-item-name lb-remote-sub', text: '已经连上的网页版' });
             for (const c of clients) new Setting(web).setName('　' + c.name)
-              .setDesc('连上于 ' + fmtTime(c.connected_at) + (c.last_used ? ' · 最近使用 ' + fmtTime(c.last_used) : ''))
-              .addButton(b => b.setButtonText('吊销').onClick(() => confirmModal('吊销「' + c.name + '」？', '它的访问立即失效，要重新授权才能再连。', '吊销', async () => {
-                const res = await act(['client', 'revoke', c.id], '没吊销成功');
-                if (res.ok) new Notice('已吊销「' + c.name + '」');
+              .setDesc('连上于 ' + fmtTime(c.connected_at) + (c.last_used ? ' · 最近用过 ' + fmtTime(c.last_used) : ''))
+              .addButton(b => b.setButtonText('断开').onClick(() => confirmModal('断开「' + c.name + '」？', '它马上就连不上了，要重新授权才能再连。', '断开', async () => {
+                const res = await act(['client', 'revoke', c.id], '没断开');
+                if (res.ok) new Notice('已断开「' + c.name + '」');
                 await loadStatus(); redraw();
               })));
           }
@@ -378,22 +493,29 @@ module.exports = function remoteUI(obsidian, plugin) {
 
         // 权限：开放哪些文件夹（对所有连上的 AI 都一样）
         box.createEl('h4', { text: '开放给 AI 的文件夹' });
-        box.createEl('p', { cls: 'setting-item-description', text: '开放了的，连上的 AI 能搜索、阅读里面的文本文件（.md / .txt，含子文件夹）。.obsidian、隐藏文件夹、插件设置、密钥、数据库和日志永远不开放。改完几秒内生效。' });
+        box.createEl('p', { cls: 'setting-item-description', text: '连上的 AI 能搜、能读这些文件夹里的笔记（含子文件夹）；改完几秒内生效。' });
         const have = new Set(r.folders);
-        new Setting(box).setName(XHS_LABEL).setDesc('收藏库本体（推荐开）')
-          .addToggle(t => t.setValue(have.has(XHS)).onChange(async v => {
-            await saveRemote(x => { x.folders = v ? [...new Set([...x.folders, XHS])] : x.folders.filter(f => f !== XHS); });
+        const xhsRow = new Setting(box).setName(XHS_LABEL).setDesc('可见笔记，加上每篇的机读版、附件全文、批注（推荐开）。');
+        help(xhsRow, '.obsidian、隐藏文件夹、插件设置、密钥、数据库和日志永远不开放，开了也读不到。');
+        xhsRow.addToggle(t => {
+          let reverting = false;
+          t.setValue(have.has(XHS)).onChange(async v => {
+            if (reverting) return;
+            try { await saveRemote(x => { x.folders = v ? [...new Set([...x.folders, XHS])] : x.folders.filter(f => f !== XHS); }); }
+            catch (e) { reverting = true; try { t.setValue(!v); } catch {} finally { reverting = false; } new Notice('没保存上，开关已拨回原来的位置：' + e.message, 8000); return; }
             new Notice((v ? '已开放' : '已不再开放') + '小红书收藏库' + (s().enabled ? '，几秒内生效' : ''));
-          }));
+          });
+        });
         for (const f of r.folders.filter(f => f !== XHS)) {
-          const row = new Setting(box).setName(f).setDesc(isExternal(f) ? '库外文件夹（AI 看到的是 @ext/<文件夹名>/…）' : '库里的文件夹');
+          const row = new Setting(box).setName(f).setDesc(isExternal(f) ? '这个库外面的文件夹（AI 看到的是 @ext/<文件夹名>/…）' : '这个库里的文件夹');
           row.settingEl.addClass('lb-connect-folder');
           row.addExtraButton(b => b.setIcon('trash').setTooltip('不再开放').onClick(async () => {
             await saveRemote(x => { x.folders = x.folders.filter(y => y !== f); });
             new Notice('已不再开放「' + f + '」'); redraw();
           }));
         }
-        const pick = new Setting(box).setName('再开放一个文件夹').setDesc('库里的从「从库内选…」搜；库外的点「选本机文件夹…」弹系统对话框。对话框弹不出来就把路径粘到框里点「添加」。');
+        const pick = new Setting(box).setName('再开放一个文件夹').setDesc('库里的点「从库内选…」；库外的点「选本机文件夹…」。');
+        help(pick, '对话框弹不出来时，把文件夹路径粘到右边的框里点「添加」。');
         pick.settingEl.addClass('lb-connect-pick');
         let manual = null;
         pick.addButton(b => b.setButtonText('从库内选…').onClick(async () => { const rel = await pickVaultFolder(); if (rel) await addFolder(rel, redraw); }));
@@ -404,100 +526,30 @@ module.exports = function remoteUI(obsidian, plugin) {
         }));
         pick.addText(t => { manual = t; t.setPlaceholder('或粘贴路径：D:\\笔记\\读书'); t.inputEl.style.width = '13em'; });
         pick.addButton(b => b.setButtonText('添加').onClick(() => addFolder(manual && manual.inputEl.value, redraw)));
+
+        // 高级（默认收起）：端口 · 访问令牌（给不支持口令的软件）· 撤销全部 · 访问记录 · 测一下本机的连接程序
+        const adv = box.createEl('details', { cls: 'lb-fold lb-connect-adv' });
+        adv.open = !!advOpen;
+        adv.createEl('summary', { text: '高级：端口、访问令牌、访问记录' });
+        let advDrawn = false;
+        const fillAdv = () => { if (advDrawn || !adv.open) return; advDrawn = true; renderAdvancedInto(adv.createDiv({ cls: 'lb-connect-adv-body' }), tab); };
+        adv.addEventListener?.('toggle', () => { advOpen = adv.open; fillAdv(); });
+        fillAdv();
       };
 
       const loadStatus = async () => {
-        try { const { json } = await run(['status', ...settingsArgs()], { timeoutMs: 30000, fallback: '读不到状态' }); status = json || { state: 'error', message: '读不到状态' }; }
-        catch (e) { status = { state: 'error', message: '读不到状态：' + e.message }; }
+        try { const { json } = await run(['status', ...settingsArgs()], { timeoutMs: 30000, fallback: '读不到状态' }); status = json || { unreadable: true, error: '后台没有返回' }; }
+        catch (e) { status = { unreadable: true, error: e.message }; }
       };
       const loadLocal = async () => {
-        try { const { json } = await plugin.runPy(['-m', 'link_brain', 'connect', 'status'], { label: '连接 AI', timeoutMs: 60000 }); local = json || { clients: {} }; }
-        catch (e) { local = { clients: {}, error: e.message }; }
+        try { const { json } = await plugin.runPy(['-m', 'link_brain', 'connect', 'status'], { label: '连接 AI', timeoutMs: 60000 }); local = json || { clients: {}, unreadable: true, error: '后台没有返回' }; }
+        catch (e) { local = { clients: {}, unreadable: true, error: e.message }; }
       };
       syncFromDisk().then(() => { if (!alive) return; draw(); Promise.all([loadStatus(), loadLocal()]).then(() => redraw()); }, () => draw());
       return () => { alive = false; };
     },
 
-    // —— 高级 → 远程服务：端口 · 访问令牌 · 最近访问 · 撤销全部 · 还没有域名？——
-    renderAdvanced(container) {
-      if (!plugin.settings.remote) plugin.settings.remote = normalizeRemote(null);
-      const box = container.createDiv({ cls: 'lb-remote-adv' });
-      const redraw = async () => { await syncFromDisk(); box.empty(); draw(); };
-      const draw = () => {
-        const r = s();
-        const st = new Setting(box).setName('远程服务状态').setDesc('读取中…');
-        st.addExtraButton(b => b.setIcon('refresh-cw').setTooltip('刷新').onClick(() => redraw()));
-        new Setting(box).setName('端口').setDesc('本机监听端口（1024–65535）。改了会自动重启服务；隧道那头也要跟着改。')
-          .addText(t => {
-            t.setValue(String(r.port));
-            t.inputEl.addEventListener('change', async () => {
-              const p = parseInt(t.inputEl.value, 10);
-              if (!(p >= 1024 && p <= 65535)) { new Notice('端口要在 1024–65535 之间', 8000); t.setValue(String(r.port)); return; }
-              if (p === r.port) return;
-              await saveRemote(x => { x.port = p; });
-              if (s().enabled) { const res = await act(['restart'], '端口已保存，但服务没重启上'); if (res.ok) new Notice('端口已改成 ' + p + '，服务已重启'); }
-              else new Notice('端口已保存');
-              redraw();
-            });
-          });
-        const tokSet = new Setting(box).setName('给其他客户端的访问令牌')
-          .setDesc('不支持 OAuth 的客户端用：请求头带 Authorization: Bearer <令牌>。令牌只在生成时显示一次。');
-        let label = '';
-        tokSet.addText(t => t.setPlaceholder('备注（可选）').onChange(v => label = v));
-        tokSet.addButton(b => b.setButtonText('生成').onClick(async () => {
-          b.setDisabled(true);
-          const res = await act(['token', 'new', '--label', label || '访问令牌'], '没生成出来');
-          b.setDisabled(false);
-          if (res.ok && res.token) showToken(res.token);
-          redraw();
-        }));
-        const tokBox = box.createDiv();
-        new Setting(box).setName('撤销全部访问').setDesc('所有已连接的客户端和访问令牌立即失效，都要重新授权。口令不变。')
-          .addButton(b => b.setButtonText('撤销全部').setWarning().onClick(() => confirmModal('撤销全部访问？',
-            '撤销后，claude.ai / ChatGPT 等所有已连接的客户端、所有访问令牌立即失效，要重新授权才能再连。口令不变。', '撤销全部', async () => {
-              const res = await act(['revoke-all'], '没撤销成功');
-              if (res.ok) new Notice(res.message || '已撤销全部访问');
-              redraw();
-            })));
-        const taskLine = box.createEl('p', { cls: 'setting-item-description' });
-        box.createDiv({ cls: 'setting-item-name', text: '最近访问' }).style.marginTop = '12px';
-        const recent = box.createDiv({ cls: 'setting-item-description lb-remote-recent' });
-        recent.setText('读取中…');
-        const nd = box.createEl('details', { cls: 'lb-remote-nodomain' });
-        nd.createEl('summary', { text: '还没有域名？' });
-        const ndb = nd.createDiv({ cls: 'setting-item-description' });
-        ndb.createEl('p', { text: '最省事：已有一个托管在 Cloudflare 的域名 → 建一条命名隧道（cloudflared），把子域名指到 http://127.0.0.1:' + r.port + '，再把 https://子域名 填到「连接 AI」里。'
-          + '没有域名：Tailscale Funnel 能给你一个固定的 https://<机器名>.<tailnet>.ts.net。不推荐 trycloudflare 临时地址：每次重启都换网址，已连的客户端全要重连。' });
-        new Setting(ndb).setName('图文教程').setDesc('docs/remote-access.md：命名隧道 + 已有域名 / Tailscale Funnel / 常见报错。')
-          .addButton(b => b.setButtonText('打开本机文档').onClick(async () => {
-            const p = plugin.repoRoot ? require('path').join(plugin.repoRoot, 'docs', 'remote-access.md') : null;
-            const err = p ? await require('electron').shell.openPath(p) : 'no repo';
-            if (err) window.open(DOCS_URL);
-          }))
-          .addButton(b => b.setButtonText('在 GitHub 看').onClick(() => window.open(DOCS_URL)));
-        (async () => {
-          let j = null;
-          try { ({ json: j } = await run(['status', ...settingsArgs()], { timeoutMs: 30000, fallback: '读不到状态' })); }
-          catch (e) { st.setDesc('读不到状态：' + e.message); recent.setText(''); return; }
-          if (!j) { st.setDesc('读不到状态'); recent.setText(''); return; }
-          st.setDesc((j.state === 'running' ? '● ' : j.state === 'error' ? '✗ 出错：' : '○ ') + (j.message || j.state));
-          const t = j.task || {};
-          taskLine.setText('后台服务：计划任务 ' + (t.name || 'LwaMcp') + (t.registered ? '（' + (t.state || '已注册') + (t.last_run ? '，上次启动 ' + fmtTime(t.last_run) : '') + '）' : t.supported === false ? '（非 Windows：手动启动）' : '（没注册）')
-            + ' · 设置文件 ' + (j.settings_path || ''));
-          for (const p of (j.auth || {}).personal || []) new Setting(tokBox).setName('　' + (p.label || '访问令牌'))
-            .setDesc('生成于 ' + fmtTime(p.created) + (p.last_used ? ' · 最近使用 ' + fmtTime(p.last_used) : ' · 还没用过'))
-            .addButton(b => b.setButtonText('撤销').onClick(async () => {
-              const res = await act(['token', 'revoke', p.id], '没撤销成功');
-              if (res.ok) new Notice('已撤销「' + (p.label || '访问令牌') + '」');
-              redraw();
-            }));
-          recent.empty();
-          const rows = j.recent || [];
-          if (!rows.length) recent.setText('还没有访问记录。');
-          for (const row of rows.slice(0, 20)) recent.createDiv({ text: accessLine(row) });
-        })();
-      };
-      syncFromDisk().then(draw, draw);
-    },
+    // —— 「连接其他 AI」最下面的「高级」：端口 · 访问令牌 · 撤销全部 · 访问记录（也单独导出给单测）——
+    renderAdvanced(container, tab = null) { renderAdvancedInto(container, tab); },
   };
 };

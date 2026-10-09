@@ -248,8 +248,10 @@ def estimate(posts: int = 100) -> dict[str, Any]:
             "ask": f"一次带检索摘录约 {ctx_chars} 字 + 提示词 ≈ {a_in} token 输入，输出按 maxTokens 一半 ≈ {a_out} token"}
     def connection(item, key, info):
         provider = (pricing.get('providers') or {}).get(info.get('provider'), {})
+        # 1010：key_url = 这家「新建密钥」的官方页面（设置页「去哪弄密钥」直接给链接）
         return {'api_model': info.get('api_model') or next(iter(info.get('aliases') or []), key),
                 'endpoint': provider.get('asr_endpoint' if item == 'video' else 'endpoint', ''),
+                'key_url': provider.get('key_url', ''),
                 'openai_compatible': info.get('openai_compatible')}
 
     items = []

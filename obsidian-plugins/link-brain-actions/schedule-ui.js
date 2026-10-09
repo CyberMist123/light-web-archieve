@@ -60,7 +60,7 @@ function rulesFromRows(rows) {
 }
 function statusLine(cur) {
   cur = cur || {};
-  if (cur.error) return '当前：读不到计划任务（' + cur.error + '）';
+  if (cur.error) return '当前：暂时读不到现在的定时（点「保存定时」会按下面的设置重写一遍）';   // 1010：原始报错不直接露，折在「详情」里
   if (cur.freq === 'none') return cur.installable ? '当前：还没开启定时同步（保存 = 注册计划任务，关着 Obsidian 也按时同步）' : '当前：没有计划任务';
   if (cur.enabled === false) return '当前：已关闭' + (cur.summary && cur.summary !== '已关闭' ? '（保存就重新打开）' : '');
   if (cur.summary) return '当前：' + cur.summary + (Array.isArray(cur.others) && cur.others.length && cur.rules && cur.rules.length ? '　·　另有：' + cur.others.join('、') + '（不改动）' : '');
@@ -137,6 +137,7 @@ module.exports = function scheduleUI(obsidian, plugin) {
       catch (e) { cur = { error: e.message || String(e) }; }
       if (!alive) return cur;
       status.setText(statusLine(cur) || (plugin.scheduleStatusText ? plugin.scheduleStatusText(cur) : ''));
+      if (cur && cur.error) { const det = status.createEl('details', { cls: 'lb-fail-detail' }); det.createEl('summary', { text: '详情' }); det.createEl('pre', { text: String(cur.error).slice(0, 2000) }); }
       rows = preserveDraft && plugin.scheduleDraft ? plugin.scheduleDraft : rowsFromState(cur);
       paint();
       add.disabled = save.disabled = off.disabled = false;

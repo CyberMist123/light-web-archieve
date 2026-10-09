@@ -1,18 +1,21 @@
-// 第 1B 批：设置页 AI 区——每个能力块下只有一个「测试」按钮，调的是 selftest <能力>；mode 下拉里没有 media；
-// 旧的 media 配置只读显示（加一个「旧版本机配置（已自动换算）」选项 + 一句说明），不在界面里偷偷改写。
+// 第 1B 批：设置页 AI——每个能力块下只有一个「测试」按钮，调的是 selftest <能力>；方式下拉里没有 media；
+// 旧的 media 配置只如实说一句（不在界面里偷偷改写，改了那一格才存成新格式）。
+// 1010 她：设置页分栏、按新手重写——「AI」那一栏：问收藏 / 识图的接口 · 密钥 · 模型 + 测试；「高级」：写概要用的模型、认字、语音转文字的细项 + 测试；
+// 测试按钮把后果写在按钮字上（要花钱的写「几乎不花钱」，本机的写「本机跑，不花钱」）；子选项只在父开关打开后出现。
 // 不起真进程：runPy 是替身（CONVENTIONS §7.5）。
 const fs = require('fs'), vm = require('vm'), assert = require('assert/strict');
 
 const notices = [];
 const settings = [];   // 每个 new Setting(...) 的记录
 class FakeEl {
-  constructor(tag = 'div', opts = {}) { this.tag = tag; this.text = opts.text || ''; this.children = []; this.style = {}; this.classList = { toggle() {} }; }
+  constructor(tag = 'div', opts = {}) { this.tag = tag; this.text = opts.text || ''; this.children = []; this.style = {}; this.classList = { toggle() {}, add() {} }; this.attrs = {}; }
   createEl(tag, opts = {}) { const el = new FakeEl(tag, opts); this.children.push(el); return el; }
   createDiv(opts = {}) { return this.createEl('div', opts); }
   createSpan(opts = {}) { return this.createEl('span', opts); }
   empty() { this.children = []; }
   addClass() {}
   toggleClass() {}
+  setAttribute(k, v) { this.attrs[k] = v; }
   addEventListener() {}
   querySelector() { return this.children.find(child => child.tag === 'input') || null; }
   setText(t) { this.text = t; }
@@ -20,8 +23,8 @@ class FakeEl {
   allText() { return [this.text, ...this.children.map(c => c.allText())].join('\n'); }
 }
 class FakeSetting {
-  constructor(container) { this.container = container; this.rec = { name: '', desc: '', dropdown: null, buttons: [], texts: [] };
-    settings.push(this.rec); this.controlEl = new FakeEl(); this.descEl = new FakeEl(); }
+  constructor(container) { this.container = container; this.rec = { name: '', desc: '', dropdown: null, buttons: [], texts: [], toggle: null };
+    settings.push(this.rec); this.settingEl = container.createDiv(); this.nameEl = new FakeEl(); this.controlEl = new FakeEl(); this.descEl = new FakeEl(); }
   setName(n) { this.rec.name = n; return this; }
   setDesc(d) { this.rec.desc = d; return this; }
   addDropdown(cb) {
@@ -33,9 +36,9 @@ class FakeSetting {
   addText(cb) { const t = { inputEl: this.controlEl.createEl('input'), value: '', setPlaceholder(p) { this.placeholder = p; return this; },
     setValue(v) { this.value = v; this.inputEl.value = v; return this; }, onChange(f) { this.cb = f; return this; } }; this.rec.texts.push(t); cb(t); return this; }
   addTextArea(cb) { return this.addText(cb); }
-  addToggle(cb) { const t = { setValue() { return this; }, onChange() { return this; } }; cb(t); return this; }
+  addToggle(cb) { const t = { value: null, setValue(v) { this.value = v; return this; }, onChange(f) { this.cb = f; return this; } }; this.rec.toggle = t; cb(t); return this; }
   addButton(cb) { const b = { label: '', onClickCb: null, setButtonText(l) { this.label = this.label || l; return this; },
-    setDisabled() { return this; }, setCta() { return this; }, onClick(f) { this.onClickCb = f; return this; } };
+    setDisabled() { return this; }, setCta() { return this; }, setWarning() { return this; }, onClick(f) { this.onClickCb = f; return this; } };
     this.rec.buttons.push(b); cb(b); return this; }
   addExtraButton(cb) { const b = { setIcon() { return this; }, setTooltip() { return this; }, onClick() { return this; } }; cb(b); return this; }
   then(cb) { cb(this); return this; }
@@ -50,66 +53,75 @@ vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js', '
   + '\nmodule.exports.__SettingTab = LinkBrainSettingTab; module.exports.__merge = mergeSettings;', context);
 const Plugin = context.module.exports;
 
+// 画「AI」和「高级」两栏（各画一遍，记录叠在一起）
 function render(saved) {
   settings.length = 0;
   const calls = [];
   const plugin = { app: { workspace: { getActiveFile: () => null } }, mcpArgv: () => ['python', '-m', 'link_brain', 'mcp'], testMcp: async () => { calls.push(['mcp']); return { json: plugin.reply }; }, settings: Plugin.__merge(saved), saveSettings: async () => {}, renderAccounts() {}, renderSyncRow() {},
-    capsWriterDir: () => null, onboardingUI: () => ({ renderFolder: () => null }), runPy: async (args) => { calls.push(args); return { json: plugin.reply, err: '' }; } };
-  // 1009：设置页是一页——「功能」里 AI 打开就原地出接口那几格（这里替身直接画两块），其余在「高级」（展开着画）
-  plugin.homeUI = () => ({ renderStatus: () => () => {}, renderFeatures: (c, tab) => { tab.sectionTextAI(c, { heading: false }); tab.sectionVisionAI(c); return () => {}; } });
-  plugin.remoteUI = { renderConnect: () => () => {}, renderAdvanced: () => {} };
-  plugin.settingsView = { adv: true };
+    capsWriterDir: () => null, onboardingUI: () => ({ renderFolder: () => null }), runPy: async (args) => { calls.push(args); return { json: plugin.reply, err: '' }; },
+    failBox: (c, what, e) => c.createEl('p', { text: (what || '') + '这一块暂时读不到：' + e.message }) };
+  // 「AI」那一栏：home-ui 打开了的两项会原地画接口那几格（这里替身直接画两块）
+  plugin.homeUI = () => ({ renderStatus: () => () => {}, renderRun: () => () => {}, renderAI: (c, tab) => { tab.sectionTextAI(c, { heading: false }); tab.sectionVisionAI(c); return () => {}; } });
+  plugin.remoteUI = { renderConnect: () => () => {} };
   const tab = new Plugin.__SettingTab({}, plugin);
-  tab.display();
-  const text = tab.containerEl.allText() + '\n';
+  plugin.settingsView = { tab: 'ai' }; tab.display();
+  const aiText = tab.containerEl.allText();
+  plugin.settingsView.tab = 'advanced'; tab.display();
+  const text = aiText + '\n' + tab.containerEl.allText() + '\n';
   return { tab, plugin, calls, text };
 }
+const ALL_ON = { setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'asr', 'ai_text', 'ai_vision'], aiSynced: true } };
 
 (async () => {
-  // —— 新装（没有 data.json）——
-  let { plugin, calls, text } = render({});
+  // —— 新装（没有 data.json，功能都打开）——
+  let { plugin, calls, text } = render(ALL_ON);
   const byName = n => settings.find(r => r.name === n);
-  for (const [name, modes] of [['文本 AI', ['http', 'cli', 'off']], ['归档摘要模型（默认同文本 AI）', ['inherit', 'http', 'off']],
-    ['识图接口', ['http', 'off']], ['语音识别', ['capswriter', 'http', 'off']]]) {   // 1009：OCR 的开关在「功能」里（只有开 / 关），这里不再有方式下拉
-    const rec = byName(name);
-    assert.ok(rec && rec.dropdown, `缺「${name}」`);
-    assert.deepEqual(rec.dropdown.options.map(o => o[0]), modes, `${name} 的方式`);
-    assert.ok(!rec.dropdown.options.some(o => o[0] === 'media'), `${name} 不该再有 media`);
-  }
-  assert.equal(byName('语音识别').dropdown.value, 'capswriter', '语音识别默认本机 CapsWriter');
-  assert.equal(byName('归档摘要模型（默认同文本 AI）').dropdown.value, 'inherit');
-  assert.ok(!/收藏问答与归档摘要/.test(settings.map(r => r.desc).join('\n')), '不再写「问答与归档摘要」这种不实说法');
+  // 「AI」那一栏没有方式下拉了（开关在功能清单上，命令行在「高级 → 开发者」）；接口 · 密钥 · 模型名
+  for (const n of ['接口地址', '密钥（API Key）', '模型名']) assert.ok(byName(n), `缺「${n}」`);
+  assert.ok(!byName('文本 AI') && !byName('识图接口') && !byName('语音识别'), '没有方式下拉了');
+  // 「高级」：写概要用的模型（和问收藏一样 / 另配一个接口 / 不写概要）
+  const sum = byName('写概要用的模型');
+  assert.ok(sum && sum.dropdown);
+  assert.deepEqual(sum.dropdown.options.map(o => o[0]), ['inherit', 'http', 'off']);
+  assert.equal(sum.dropdown.value, 'inherit');
+  assert.ok(!sum.dropdown.options.some(o => o[0] === 'media'), '不该再有 media');
+  assert.ok(byName('视频转文字改用在线接口').toggle, '在线转写是一个开关');
+  assert.equal(byName('视频转文字改用在线接口').toggle.value, false, '默认本机');
   assert.ok(!/旧版「本机千问配置」/.test(text), '新装不显示旧配置说明');
 
-  // 每个能力块下一个测试按钮，调 selftest <能力>
+  // 每个能力块下一个测试按钮，调 selftest <能力>；后果写在按钮字上
   const tests = settings.flatMap(r => r.buttons).filter(b => /^测试/.test(b.label));
-  assert.deepEqual(tests.map(b => b.label), ['测试文本 AI', '测试识图', '测试归档摘要', '测试语音识别', '测试 OCR', '测试 MCP'], '「功能」里的两块在前，其余在「高级」');
+  assert.deepEqual(tests.map(b => b.label), ['测试（发一句话，几乎不花钱）', '测试识图（发一张小图，几乎不花钱）', '测试概要模型（发一段短文，几乎不花钱）',
+    '测试认字（本机跑，不花钱）', '测试语音转文字（本机跑，不花钱）'], '「AI」里的两块在前，其余在「高级」');
   for (const b of tests) await b.onClickCb();
-  assert.deepEqual(calls.map(a => a.at(-1)), ['text', 'vision', 'summary', 'asr', 'ocr', 'mcp']);
-  assert.ok(calls.slice(0, -1).every(a => a[2] === 'selftest'));
-  assert.deepEqual(calls.at(-1), ['mcp']);
+  assert.deepEqual(calls.map(a => a.at(-1)), ['text', 'vision', 'summary', 'ocr', 'asr']);
+  assert.ok(calls.every(a => a[2] === 'selftest'));
 
-  // 没配 = 「未开启：原因」，不是「失败」
+  // 没配 = 「还没打开：原因」，不是「没通过」
   notices.length = 0;
-  plugin.reply = { kind: 'summary', ok: false, skipped: true, detail: '文本 AI没填接口地址' };
+  plugin.reply = { kind: 'summary', ok: false, skipped: true, detail: '问收藏那一格没填接口地址' };
   await tests[2].onClickCb();
-  assert.match(plugin.settingsView.tests.summary.text, /^未开启/);
+  assert.match(plugin.settingsView.tests.summary.text, /^还没打开/);
   plugin.reply = { kind: 'vision', ok: false, skipped: false, code: 'NEEDS_HUMAN.AUTH_FAILED', detail: '接口拒绝了 key（HTTP 401）' };
   await tests[1].onClickCb();
-  assert.match(plugin.settingsView.tests.vision.text, /^✗ 失败.*401/);
+  assert.match(plugin.settingsView.tests.vision.text, /^✗ 没通过.*401/);
 
-  // CapsWriter 目录的提示里不带任何本机盘位
-  const capsDir = byName('CapsWriter 目录');
+  // CapsWriter 装在哪：提示里不带任何本机盘位
+  const capsDir = byName('CapsWriter 装在哪');
   assert.ok(capsDir && !/\\AI\\/.test(capsDir.texts[0].placeholder));
 
-  // —— 旧配置（作者本机那种 mode=media）：只读显示，加一个说明 ——
-  ({ text } = render({ textAI: { mode: 'http', endpoint: 'https://api.deepseek.com/chat/completions', model: '', keyFile: 'x.csv', keyField: 'ds' },
+  // —— 子选项只在父开关打开后出现：没开 OCR / 语音 / AI 时，「高级」里对应的细项和测试都不出 ——
+  ({ text } = render({ setup: { selected: ['core', 'reader', 'dataview'], aiSynced: true }, ocr: { mode: 'off' }, asrAI: { mode: 'off' } }));
+  for (const n of ['写概要用的模型', '认字精度', '认视频画面里的字', '本机语音识别的端口', '精细识图模型']) assert.ok(!byName(n), `父开关没开，不该出「${n}」`);
+  assert.ok(!settings.flatMap(r => r.buttons).some(b => /^测试(认字|语音|概要)/.test(b.label)), '对应的测试也不出');
+
+  // —— 旧配置（作者以前那种 mode=media）：如实说一句；改了那一格才存成新格式 ——
+  ({ text, plugin } = render({ ...ALL_ON, textAI: { mode: 'http', endpoint: 'https://api.deepseek.com/chat/completions', model: '', keyFile: 'x.csv', keyField: 'ds' },
     visionAI: { mode: 'media', model: 'qwen3.8-flash' }, asrAI: { mode: 'media' }, ocr: { mode: 'media', via: 'local' } }));
   assert.match(text, /旧版「本机千问配置」/);
-  for (const name of ['识图接口', '语音识别']) {
-    const rec = byName(name);
-    assert.equal(rec.dropdown.value, 'media');
-    assert.deepEqual(rec.dropdown.options.at(-1), ['media', '旧版本机配置（已自动换算）']);
-  }
-  console.log('PASS AI settings: one test button per capability → selftest <cap>; no media mode; skipped shows 未开启; legacy media shown read-only');
+  assert.equal(plugin.settings.visionAI.mode, 'media', '画页面不改写');
+  const visionModel = settings.filter(r => r.name === '模型名')[1];
+  await visionModel.texts[0].cb('qwen3.8-flash');
+  assert.equal(plugin.settings.visionAI.mode, 'http', '改了识图那一格 → 存成新格式');
+  console.log('PASS AI settings (1010 tabs): one test button per capability → selftest <cap> (consequence in the label); no mode dropdowns for the newbie, summary model select without media; skipped shows 还没打开; sub-options hidden until the parent is on; legacy media told once, converted on edit');
 })().catch(e => { console.error(e); process.exitCode = 1; });

@@ -175,7 +175,7 @@ class AuthStore:
                 if not c.get("token_at") and now - float(c.get("created", 0)) > PENDING_CLIENT_TTL:
                     clients.pop(cid, None)
             if len(clients) >= MAX_CLIENTS:
-                raise ValueError("已注册的客户端太多：到设置里「撤销全部访问」后再连")
+                raise ValueError("连上的网页版太多了：到设置「连接其他 AI → 高级 → 全部断开」后再连")
             clients[client_id] = {"name": name, "redirect_uris": redirect_uris, "created": now, "token_at": None,
                                   "last_used": None}
         self._mutate(apply)

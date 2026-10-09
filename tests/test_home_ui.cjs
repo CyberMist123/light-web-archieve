@@ -1,6 +1,6 @@
-// 1009 她的裁决：设置页顶部（home-ui.js）——功能开关 +「一键装好 / 跑完」+ 零配置首次自动跑。
+// 1009 她的裁决：功能开关 +「一键装好 / 跑完」+ 零配置首次自动跑；1010：设置页分栏后这一块在「概览」（renderRun）和「AI」（renderAI）。
 // 断言：
-//   1. 纯函数：没选过 = 轻量版；依赖联动；进度事件 → 各步状态；评论补齐那一行；
+//   1. 纯函数：没选过 = 轻量版；依赖联动；进度事件 → 各步状态；评论补齐那一行；每个功能旁的价钱（本地免费 / 约 ¥x / 100 篇 / 约 ¥x / 次 / 按用量）；
 //   2. 「一键装好 / 跑完」：经 spawnPy（exclusive）跑 `setup run`，stdout 一行一个事件画成各步 ✓ / ⟳ / ✗ + 当前在装的进度条，
 //      结果一句话；要人处理（掉登录 / 验证）给「去扫码 / 验证」按钮；
 //   3. 首次：老库（已有目录数据）只记一笔、选择不动、不跑；新库 → 选轻量版、自动跑一次；跑过不再跑；
@@ -70,8 +70,16 @@ const PLAN = { ok: true, components: [
   assert.equal(run.state, 'done'); assert.equal(run.result.message, '都跑完了');
   const now = Date.parse('2026-10-10T01:00:00+11:00');
   assert.equal(H.fillLine({ state: 'running', message: '正在补评论 · 已补齐 3/197 篇', updated_at: new Date(now - 60000).toISOString() }, null, now), '正在补评论 · 已补齐 3/197 篇');
-  assert.equal(H.fillLine({ state: 'done', message: '评论都补齐了' }, { ok: true, pending: 0, stuck: 2 }, now), '评论都补齐了（2 篇连着补不上，见问题面板）');
+  assert.equal(H.fillLine({ state: 'done', message: '评论都补齐了' }, { ok: true, pending: 0, stuck: 2 }, now), '评论都补齐了（2 篇连着补不上，见问题列表）');
   assert.equal(H.fillLine(null, { ok: true, pending: 5, missing: 70, stuck: 0 }, now), '5 篇的评论还没补齐（共缺 70 条回复）');
+  // 1010 她：每个功能旁标清价钱
+  const EST = { data: { items: [{ id: 'summary', yuan: 0.8, per: '100 篇' }, { id: 'ask', yuan: 0.004, per: '次' }, { id: 'vision', yuan: null, per: '100 篇' }] } };
+  assert.equal(H.priceText('ocr', EST), '免费（本机跑）');
+  assert.equal(H.priceText('capslock', null), '免费（本机跑）');
+  assert.equal(H.priceText('ai_text', EST), '概要和打标签 约 ¥0.80 / 100 篇 · 问收藏 约 ¥0.004 / 次');
+  assert.equal(H.priceText('ai_vision', EST), '按用量', '估不出价 → 按用量');
+  assert.equal(H.priceText('ai_vision', { error: 'x' }), '按用量');
+  assert.equal(H.priceText('core', EST), '', '必需的不标价');
 
   // —— 2. 一键装好 / 跑完 ——
   const files = {};
@@ -104,7 +112,11 @@ const PLAN = { ok: true, components: [
   const home = homeFactory(OBS, p);
   const pane = dom.document.createElement('div');
   const tab = { sectionTextAI: () => {}, sectionVisionAI: () => {} };
-  const stop = home.renderFeatures(pane, tab);
+  const stop = home.renderRun(pane, tab);
+  // 按钮不能点时，旁边一句为什么（功能清单还在读）
+  const go0 = pane.querySelector('.lb-run-go');
+  assert.ok(go0 && go0.disabled, '还没读到功能清单：先不能点');
+  assert.match(pane.querySelector('.lb-why').textContent, /正在看这台电脑装了什么/);
   await flush(10);
   const go = pane.querySelector('.lb-run-go');
   assert.ok(go && !go.disabled, '功能清单读到后按钮可点');
@@ -164,5 +176,5 @@ const PLAN = { ok: true, components: [
     assert.equal(child.pid, 99);
     assert.equal(res.json.ok, true, '结果照旧是最后一行 JSON');
   }
-  console.log('PASS home-ui (1009): light by default, deps, run events → step marks + result + 去扫码 action, first run (old library untouched / new library light + auto run once), spawnPy onLine whole lines');
+  console.log('PASS home-ui (1009 / 1010): light by default, deps, prices next to features, run button (disabled reason while loading) → step marks + result + 去扫码 action, first run (old library untouched / new library light + auto run once), spawnPy onLine whole lines');
 })().catch(e => { console.error(e); process.exitCode = 1; });

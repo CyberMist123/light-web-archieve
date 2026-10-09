@@ -103,18 +103,18 @@ def status(settings_path=None, state_dir=None) -> dict[str, Any]:
         if srv.get("state") == "error" and srv.get("message"):
             message = srv["message"]
         elif tstate.get("supported") and tstate.get("registered") is False:
-            message = "开关开着，但计划任务没注册：点「启用」"
+            message = "开关开着，但后台服务没装上：把「远程访问」关掉再打开一次"
         elif srv.get("state") == "stopped" and srv.get("message"):
             message = f"没在运行：{srv['message']}"
         else:
-            message = "没在运行（计划任务每 5 分钟会再拉起一次）"
+            message = "没在运行（后台每 5 分钟会自动再拉起一次）"
     warnings: list[str] = list(problems)
     if cfg["enabled"] and not auth["passphrase_set"]:
-        warnings.append("还没设口令：GPT 网页版这类走 OAuth 的客户端连不上（访问令牌照常能用）")
+        warnings.append("还没设口令：claude.ai / ChatGPT 网页版连不上（在上面「口令」那一行设一个）")
     if cfg["enabled"] and not cfg["domain"]:
-        warnings.append("没填域名：现在只有本机能连（填了域名并接好隧道，claude.ai / ChatGPT 才连得上）")
+        warnings.append("还没填网址：现在只有这台电脑自己能连（填好网址、接好隧道，claude.ai / ChatGPT 才连得上）")
     if auth["corrupt"]:
-        warnings.append("口令 / 令牌文件损坏：所有令牌都不认了。点「撤销全部访问」重建，再重设口令")
+        warnings.append("口令文件坏了：之前连上的都不认了。点最下面「高级 → 全部断开」重建，再重设口令")
     return {"ok": True, "code": "", "message": message, "state": state, "enabled": cfg["enabled"],
             "domain": cfg["domain"], "port": cfg["port"], "folders": cfg["folders"],
             "url": (cfg["domain"] + "/mcp") if cfg["domain"] else f"http://127.0.0.1:{cfg['port']}/mcp",
@@ -139,7 +139,7 @@ def probe(settings_path=None, timeout: float = 10.0) -> dict[str, Any]:
     from . import config as cfg_mod
     cfg, _ = cfg_mod.load(settings_path)
     if not cfg["domain"]:
-        return {"ok": False, "code": "NO_DOMAIN", "message": "还没填域名"}
+        return {"ok": False, "code": "NO_DOMAIN", "message": "还没填网址"}
     url = cfg["domain"] + "/.well-known/oauth-authorization-server"
     import time as _t
     import httpx
@@ -259,7 +259,7 @@ def run(args) -> int:
         return _out({"ok": False, "message": "要 token new 或 token revoke <id>"})
     if cmd == "revoke-all":
         counts = _store(state_dir).revoke_all()
-        return _out({"ok": True, "message": f"已撤销全部访问：{counts['clients']} 个 OAuth 客户端、{counts['personal']} 个访问令牌",
+        return _out({"ok": True, "message": f"已全部断开：{counts['clients']} 个网页版、{counts['personal']} 个访问令牌",
                      **counts})
     if cmd == "folders":
         return _out(folders_payload(settings_path, getattr(args, "check", None)))
