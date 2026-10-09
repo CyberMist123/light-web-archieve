@@ -315,6 +315,8 @@ module.exports = function homeUI(obsidian, plugin) {
         aiBox.createEl('p', { cls: 'setting-item-description lb-free-line', text: '不填 key 也能用：归档、浏览、关键词搜索、本地 OCR、本地语音。打开上面「AI 问答」或「识图」就在这里填接口。' });
         return;
       }
+      // 1009 她：开了 AI，以前没补的后台静默补（今晚夜跑；想现在补就点一键），卡片上不标「待补」
+      aiBox.createEl('p', { cls: 'setting-item-description lb-ai-silent', text: '打开后，以前没补过的识图 / 概要会在后台静默补上（今晚夜跑；想现在就补，点下面「一键装好 / 跑完」），卡片上不标「待补」。' });
       const est = S().estimate;
       const estLine = aiBox.createDiv({ cls: 'setting-item-description lb-estimate-line' });
       if (!est) { estLine.setText('估算价格…'); loadEstimate().then(() => { if (alive) paintAI(); }); }

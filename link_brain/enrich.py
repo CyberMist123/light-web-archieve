@@ -362,13 +362,33 @@ def enrich_items(targets: list[tuple[str, str]], *, llm: bool = True, deadline: 
 
 def run(args) -> int:
     """`python -m link_brain enrich [--pending] [--item ID] [--budget-min N] [--limit N]`。stdout 只有一个 JSON。"""
+    from .read import dump_json
+
+    budget = float(getattr(args, "budget_min", 0) or 0)
+    deadline = time.monotonic() + budget * 60 if budget > 0 else None
+    pending_lock = None
+    if getattr(args, "pending", False) and not getattr(args, "item", None):
+        # 1009：--pending 同一时刻只跑一份（夜跑、「一键装好 / 跑完」、自愈轮都会调它），别把同一篇补两遍、花两份钱
+        try:
+            pending_lock = storage.file_lock("enrich-pending", wait_s=0, owner="enrich --pending")
+            pending_lock.__enter__()
+        except storage.LockBusy:
+            print("[enrich] 已经有一份在补识图 / 概要，这次不重复跑", file=sys.stderr)
+            dump_json({"candidates": 0, "done": [], "failed": [], "already_running": True})
+            return EXIT_OK
+    try:
+        return _run_locked(args, deadline)
+    finally:
+        if pending_lock is not None:
+            pending_lock.__exit__(None, None, None)
+
+
+def _run_locked(args, deadline) -> int:
     import contextlib
 
     from . import index as index_mod
     from .read import dump_json
 
-    budget = float(getattr(args, "budget_min", 0) or 0)
-    deadline = time.monotonic() + budget * 60 if budget > 0 else None
     with contextlib.redirect_stdout(sys.stderr):
         if getattr(args, "item", None):
             conn = index_mod.connect()

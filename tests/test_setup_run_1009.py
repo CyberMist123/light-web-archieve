@@ -73,3 +73,21 @@ def test_cli_streams_events_then_result(monkeypatch, capsys):
     assert cli.main(["setup", "run"]) == 0
     lines = [json.loads(x) for x in capsys.readouterr().out.strip().splitlines()]
     assert lines[0]["type"] == "progress" and lines[-1]["type"] == "result" and lines[-1]["message"] == "都跑完了"
+
+
+def test_enrich_pending_is_single_instance(capsys, monkeypatch):
+    """夜跑、「一键装好 / 跑完」、自愈轮都会调 enrich --pending：同一时刻只跑一份，别把同一篇补两遍、花两份钱。"""
+    import os, time as _t
+    from link_brain import cli, enrich
+    lock = storage.locks_dir() / "enrich-pending.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text(json.dumps({"pid": os.getppid(), "owner": "enrich --pending", "heartbeat_ts": _t.time()}), "utf-8")
+    monkeypatch.setattr(enrich, "candidates", lambda: (_ for _ in ()).throw(AssertionError("不该开工")))
+    assert cli.main(["enrich", "--pending"]) == 0
+    out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert out["already_running"] is True and out["candidates"] == 0
+    lock.unlink()
+    monkeypatch.setattr(enrich, "candidates", lambda: [])
+    assert cli.main(["enrich", "--pending"]) == 0
+    assert json.loads(capsys.readouterr().out.strip().splitlines()[-1])["candidates"] == 0
+    assert not lock.exists(), "跑完放锁"
