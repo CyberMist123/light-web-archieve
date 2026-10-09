@@ -107,7 +107,8 @@ def test_initialize_tools_list_and_lb_search_lb_retrieve(tmp_path):
         client.send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
         reply = client.recv()
         names = {t["name"] for t in reply["result"]["tools"]}
-        assert names == {"search", "ask", "read", "image", "files", "topics", "selections", "recent", "history"}
+        assert names == {"search", "ask", "read", "image", "files", "topics", "selections", "recent", "history",
+                         "index", "wiki", "guide"}
         for tool in reply["result"]["tools"]:
             assert "description" in tool and "inputSchema" in tool
         ask_tool = next(t for t in reply["result"]["tools"] if t["name"] == "ask")

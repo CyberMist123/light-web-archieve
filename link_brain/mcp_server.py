@@ -7,7 +7,7 @@
 - server 的 stdout **只能**写协议消息，任何日志/打印都必须走 stderr。
 
 工具（10-09 起）：定义只有一份，在 `mcp_tools.py`，和远程 `remote serve` 共用——
-search / ask / read / image / files / topics / selections / recent / history。
+search / ask / read / image / files / topics / selections / recent / history / index / wiki / guide。
 旧名字 lb_search / lb_retrieve / lb_ask / lb_selections / lb_selection 不再列出，但照样能调。
 白名单同远程（插件 data.json 的 remote.folders）；本机返回绝对路径。
 

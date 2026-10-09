@@ -890,3 +890,67 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
   进程没了而状态还停在 running/waiting/paused：Python（`comments --fill-status`）改报 stopped。
 - `comments --fill-status` → `{ok, code, message, floors, pending, ready, cooling, stuck, missing, running, status}`（本地读，不碰号）；
   `comments --fill-pending --detach` → 拉起 `--until-done` 后台补跑（单实例，已在跑就 `already`）。
+
+## 2026-10-10 索引树（库根 `索引.md` → `_archive/index-data.json`）与节点 wiki
+
+**唯一真相 = 库根一个 `索引.md`**（路径在插件设置 `indexFile` 里可改，库根相对、必须 `.md`、不许进 `_` / `.` 开头的目录）。
+解析与归类只在 `link_brain/indextree.py`；插件和 MCP 只读结果。
+
+- 写法：一行一个节点；缩进 = 下一级（Tab 按 4 列算、空格按 1 列、全角空格按 2 列，按相对缩进判层级，可混用）；行首 `- ` `* ` `+ ` `1. ` `1、` 可有可无；
+  `名字：标签1, 标签2`（`：` `:` 都认；标签之间 `,` `，` `、` `;` 或空格）= 绑标签；没有冒号的 `A, B, C`（`,` `，` `、`）= 一行几个同级节点；
+  行里任意位置的 `[wiki]`（`［ wiki ］` `【WIKI】` 也认）= 给这个节点做 wiki（一行几个节点时这一行都算）。
+  忽略：frontmatter、`%% … %%`（没闭合的到文件尾）、`<!-- … -->`、标题行（`# `）、分隔线、空行。名字里的 `[[…]]`、`**…**`、开头的 `#` 去掉。
+- 容错进 `warnings`（不报错）：同一父节点下重名 → 合并（标签并集；只写名字的那份把名字留作标签）；冒号前没名字 → 用第一个标签当名字；
+  一行几个节点、下面又有缩进的 → 算在最后一个下面；`[wiki]` 前没名字 → 跳过。
+- 节点路径 = 各级名字用 `/` 连（名字里本来的 `/` 换成 `∕`）；查找时分隔符 `/ ／ > › »` 都认、大小写 / 全半角不敏感、唯一的名字也行。
+- 归类：笔记标签（frontmatter `tags`，不含原帖话题 hashtags）和节点标签都按 `docs/tag-vocab.yaml` 别名归一 + NFKC + casefold 后**相等**才算；
+  笔记的子标签 `美食/菜谱` 也算 `美食`；只写名字的节点 = 名字当标签 + 标题里出现这个名字（大小写 / 全半角不敏感）。
+  一篇可挂多个节点；父节点 = 自己命中 ∪ 子孙命中；哪个都没命中 = 未归类。
+- 第一次没有 `索引.md`：按 `catalog.effective_big_cats()`（设置「分类」/ 内置 BIG_CATS）迁移——每类一行，后面是库里含那些关键词的标签
+  （出现 ≥2 次的全列 + 只出现一次的挑最少几个保证现有每篇都还在）；第一级 = 今天目录页那排分类，每篇的归属和今天一样（别名归一多归进去的除外）。
+  之后（有文本 AI、库 ≥30 篇、还没有草稿）后台起草一版（`index draft --auto`）。文件被删了下次重算再迁移一次并在 warnings 里说。
+
+```jsonc
+// _archive/index-data.json（indextree.build 原子写；锁 index-build；catalog build 每次 force 重算，插件监听 索引.md 保存后 `index build`）
+{"version": 1, "code_version": "1010.1", "generated_at": "…", "file": "索引.md", "draft_file": "索引.草稿.md",
+ "source_hash": "sha256:…", "vocab_hash": "sha256:…", "catalog_built_at": "…（= catalog-data.json 的 built_at）",
+ "total": 601, "classified": 444, "roots": ["美食", "旅游"], "cats_order": ["美食", "旅游", "未归类"],
+ "nodes": [{"path": "美食/菜谱", "name": "菜谱", "parent": "美食", "depth": 2, "line": 6, "tags": ["红烧肉"], "explicit": true,
+            "wiki": false, "count": 12, "self_count": 9, "items": ["xhs-…"], "children": ["美食/菜谱/红烧肉"]}],   // 先序；items 按目录顺序（新→旧）
+ "unclassified": {"count": 157, "items": ["xhs-…"]},
+ "warnings": [{"line": 12, "text": "第 12 行「菜谱」在「美食」下面重复了（第 5 行已有），合并成一个"}],   // line=0 是整份文件的提示
+ "draft": null | {"file": "索引.草稿.md", "exists": true, "hash": "…", "generated_at": "…", "mode": "ai|tags", "roots": […], "nodes": 23,
+                  "classified": 510, "unclassified": 91, "total": 601, "warnings": 0, "wiki_suggest": ["旅游", "美食/菜谱"]},
+ "wiki": {"旅游": {"file": "wiki/旅游.md", "exists": true, "marked": true, "in_index": true, "based": 12, "new_since": 2, "generated_at": "…"}},
+ "migrated_at": "…"}   // 第一次迁移的时间；build() 的返回值另有 migrated={at, again}，只在刚迁移那一次、不落盘
+```
+
+- `catalog-data.json`：`cats_order` / `items[].cats` 改由索引第一级给（没归进任何节点 = `["未归类"]`）；顶层多 `index: {file, generated_at, roots, unclassified, migrated} | null`
+  （null = 索引没算出来，照旧按关键词分）。`cats`（关键词表）照留给旧的「管理分类」。
+- 只在这一处写回 `索引.md`：`index use-draft`（草稿去掉 `%% AI 起草` 那一行后整份换进去）和 `index apply`（补标签：冒号行接在后面、沿用这一行的逗号写法；
+  只写了名字的改成 `名字：名字, 新标签`；一行几个节点的拆出单独一行；新节点插在父节点整棵子树最后一行后面，缩进 / 行首符号照抄兄弟或父节点；
+  换行风格 CRLF / LF 原样）。都是原子写，写前把原文存进 `_archive/index-history/索引-YYYYMMDD-HHMMSS[-n]-<reason>.txt`（reason：use-draft / suggest / draft-old / draft-used；留最近 30 份）。
+- `_archive/index-suggestions.json`：`{generated_at, source_hash, mode: ai|tags|none, unclassified, suggestions: [{id, action: add_tags|new_node, path（目标节点 / 新节点的父节点，第一级为空）,
+  name, tags, why, from: ai|tags, gain（在副本上真算的「未归类少几篇」，只列 >0 的）, count_after, examples: [标题]}]}`；`apply` 按 id 取，用过的删掉。
+- `_archive/index-state.json`：`{created_at, migrated_at, draft: {generated_at, mode, wiki_suggest, model, usage}, draft_used_at}`。
+
+CLI（stdout 最后一行 JSON，`read.outcome` 形状；退出码 0 成功 / 1 失败 / 2 参数不对或没东西可做）：
+`index build [--force]` → `{total, classified, unclassified, roots, warnings, file, migrated, unchanged, draft}` ·
+`index show [--node P | --unclassified]` · `index draft [--no-ai]` → `{file, mode, roots, stats, wiki_suggest, model, usage, ai_error}` ·
+`index use-draft` → `{backup, roots, unclassified}` · `index suggest [--no-ai] [--limit N]` → 上面那份文件的内容 ·
+`index apply --id X [--id Y]` → `{results: [{id, status: ok|failed|missing, error}], unclassified}`。
+文本 AI 取法（起草 / 建议 / wiki 共用 `indextree.text_ai()`）：问收藏正在用的文本 AI（叠上选中的模型）；没有能用的 key 时退到归档摘要模型；本机接口不要 key。
+
+**节点 wiki**（`link_brain/wiki.py`，方法 `docs/deep-report.md`）：`wiki build "<节点路径>" [--estimate]` 只读这个节点收的笔记的机读版（每篇 ≤8000 字，按 24000 字一批抽对象，
+3 路并发，再一次定稿分类排序），写 `vault/wiki/<各级名字>.md`（名字里 Windows 不认的字符换 `_`），旧版先备份进 `_archive/wiki-history/`；`--estimate` 不调模型，
+给 `{items, calls, tokens_in, tokens_out, model, yuan, message}`。没有能用的文本 AI → `code=SKIPPED.NOT_CONFIGURED`、退出码 2、message 指向 MCP（guide / index / read）。
+页面：frontmatter `lb-wiki: "<路径>"`、`cssclasses: [lb-wiki]`；标题下一行 `> 基于 N 篇，生成于 YYYY-MM-DD HH:MM；之后新增 M 篇（点「更新」重新生成）` /
+`；之后没有新增`——M = 这个节点现在的篇目减去生成时的篇目，`indextree.build` 每次重算时只改这一行。
+链接只收原帖里逐字出现过的（「帖内给出」），其余写「无链接，看原帖」；对象的出处必须在这批篇目里；「出自」写 `[[笔记文件名|标题]]（item_id）`。
+`_archive/wiki-meta.json`：`{"pages": {"<节点路径>": {file, based_ids, generated_at, model, usage, objects}}}`。
+`wiki list` → `{pages: [{path, file, exists, marked, based, new_since, generated_at}]}` · `wiki show "<路径>"` → `{page, text}`。
+
+MCP（`mcp_tools.py`，本机 stdio 与远程同一份，只读）：`index`（无参数 = 整棵树 `{nodes: [{path, name, depth, count, wiki?, wiki_page?}], total, classified, unclassified, warnings?}`；
+`path` = 节点 → `{path, tags, wiki, children: [{path, count}], count, offset, next_offset, items: [{id, title, date, summary}]}`；`path='unclassified'` / `未归类` = 未归类）·
+`wiki`（无参数 = `pages`；`path` = 全文分页 `{path, exists, file, based, new_since, generated_at, total_chars, offset, next_offset, text}`）·
+`guide`（`docs/deep-report.md` 全文）。`index` / `wiki` 要收藏库开放给这个客户端（`@xhs`），`guide` 不限。

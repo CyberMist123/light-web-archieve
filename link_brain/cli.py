@@ -223,6 +223,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("catalog", help="重写 vault 里的收藏目录页（纯程序拼，不联网）")
     p.add_argument("--print-cats", action="store_true", help="只打印当前生效的大类（设置页载入用），不重建")
 
+    # 10-10 索引树（库根 索引.md → _archive/index-data.json）与节点 wiki
+    from . import indextree, wiki as wiki_mod
+    indextree.add_parser(sub)
+    wiki_mod.add_parser(sub)
+
     p = sub.add_parser("topic", help="星标主题：口头建、AI 配关键词，目录页 cats 栏下出一排 chip（输出 JSON）")
     tsub = p.add_subparsers(dest="topic_command")
     pt = tsub.add_parser("add", help="建主题：用问答模型扩 5-10 个关键词（模型不可用就用主题名本身）")
@@ -563,6 +568,14 @@ def _dispatch(args) -> int:
         from . import catalog as catalog_mod
 
         return catalog_mod.run(args)
+
+    if args.command == "index":
+        from . import indextree
+        return indextree.run(args)
+
+    if args.command == "wiki":
+        from . import wiki as wiki_mod
+        return wiki_mod.run(args)
 
     if args.command == "ask":
         from . import ask as ask_mod

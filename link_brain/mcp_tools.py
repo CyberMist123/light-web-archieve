@@ -15,6 +15,10 @@
 - selections 暗号（选集）：list / get / save。get 认「最新」、编号「2」、多个「3,4,5」/「345」、名字。
 - recent    最近新增（标题 · 概要 · 日期）+ 最近几次同步记录。
 - history   搜索历史 md 的尾部。
+- index     索引树（10-10）：无参数 = 整棵树带篇数；带节点路径 = 这个节点的笔记（id · 标题 · 日期 · 一句概要）；
+            `unclassified` = 未归类。读 `_archive/index-data.json`（和 索引.md 对不上就当场重算，解析 / 归类只在 indextree）。
+- wiki      节点 wiki：无参数列出有哪些（已生成 / 标了还没生成）；带节点路径读全文（分页）。
+- guide     收藏深度报告的方法（docs/deep-report.md）：GPT 要自己写某个节点的汇总时先取它。
 
 上下文 `Ctx`：policy（路径白名单，见 remote/policy.py）、local（本机 stdio 给绝对路径，远程给 vault 相对路径）、
 who（谁在调，进搜索历史）。返回值是可 JSON 化的 dict；拒绝抛 `policy.Denied`；带图的结果另有私有键
@@ -689,6 +693,92 @@ def history(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
     return {"text": "\n".join(tail), "total_lines": len(lines), "path": _abs(ctx, f"_archive/{HISTORY_FILE}")}
 
 
+# ---------------------------------------------------------------- index / wiki / guide（10-10 索引树）
+
+INDEX_LIST_DEFAULT = 50
+INDEX_LIST_MAX = 200
+WIKI_READ_DEFAULT = 30000
+
+
+def _compact(it: dict[str, Any]) -> dict[str, Any]:
+    return {"id": _short_id(it.get("id")), "title": it.get("title") or "", "date": it.get("date") or "",
+            "summary": _one_sentence(it.get("summary"))}
+
+
+def index(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
+    from . import indextree
+    if not ctx.policy.xhs:
+        raise Denied("NOT_OPEN", "收藏库没有开放给你")
+    data = indextree.load()
+    path = _str(args, "path", limit=300)
+    wiki_rows = data.get("wiki") or {}
+    if not path:
+        nodes = [{"path": n.get("path"), "name": n.get("name"), "depth": n.get("depth"), "count": n.get("count"),
+                  **({"wiki": True, "wiki_page": bool((wiki_rows.get(n.get("path")) or {}).get("exists"))} if n.get("wiki") else {})}
+                 for n in data.get("nodes") or []]
+        out = {"generated_at": data.get("generated_at"), "total": data.get("total"), "classified": data.get("classified"),
+               "unclassified": (data.get("unclassified") or {}).get("count", 0), "nodes": nodes,
+               "note": "path 给节点路径（如「美食/菜谱」）看这个节点的笔记；path='unclassified' 看未归类；"
+                       "一篇可以在几个节点里，父节点的篇数含子节点"}
+        if data.get("warnings"):
+            out["warnings"] = [w.get("text") for w in data["warnings"] if isinstance(w, dict)][:20]
+        return out
+    limit = _int(args.get("limit"), INDEX_LIST_DEFAULT, 1, INDEX_LIST_MAX)
+    offset = _int(args.get("offset"), 0, 0, 10 ** 6)
+    if indextree.norm_path(path) in {indextree.norm_path(x) for x in indextree.UNCLASSIFIED_REFS}:
+        ids, head = list((data.get("unclassified") or {}).get("items") or []), {"path": indextree.UNCLASSIFIED}
+    else:
+        node, near = indextree.find_node(data, path)
+        if node is None:
+            raise Denied("NOT_FOUND", f"索引里没有「{path}」" + (f"；是不是：{'、'.join(near[:8])}" if near else "")
+                         + "（不带 path 调用看整棵树）")
+        ids = list(node.get("items") or [])
+        by_path = {n.get("path"): n for n in data.get("nodes") or []}
+        head = {"path": node["path"], "tags": node.get("tags") or [], "wiki": bool(node.get("wiki")),
+                "children": [{"path": c, "count": (by_path.get(c) or {}).get("count", 0)} for c in node.get("children") or []]}
+        if node.get("wiki"):
+            head["wiki_page"] = bool((wiki_rows.get(node["path"]) or {}).get("exists"))
+    by_id = {str(it.get("id")): it for it in _items()}
+    page = [by_id[i] for i in ids[offset:offset + limit] if i in by_id]
+    end = offset + limit
+    return {**head, "count": len(ids), "offset": offset, "next_offset": end if end < len(ids) else None,
+            "items": [_compact(it) for it in page], "note": "要看全文用 read(id)"}
+
+
+def wiki(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
+    from . import wiki as wiki_mod
+    if not ctx.policy.xhs:
+        raise Denied("NOT_OPEN", "收藏库没有开放给你")
+    path = _str(args, "path", limit=300)
+    if not path:
+        rows = wiki_mod.pages()
+        return {"pages": [{**r, "file": _abs(ctx, r.get("file")) if r.get("exists") else None} for r in rows],
+                "note": "path 给节点路径读全文；标了 wiki 还没生成的，可以照 guide 的方法用 index + read 自己整理"}
+    row, text, cands = wiki_mod.read_page(path)
+    if row is None:
+        raise Denied("NOT_FOUND", f"没有「{path}」的 wiki" + (f"；有：{'、'.join(cands[:10])}" if cands else ""))
+    if text is None:
+        return {"path": row["path"], "exists": False,
+                "note": "这个节点标了 wiki，还没生成：可以照 guide 的方法，用 index(path) 拿篇目、read 逐篇读，自己写一份"}
+    offset = _int(args.get("offset"), 0, 0, len(text))
+    limit = _int(args.get("max_chars"), WIKI_READ_DEFAULT, 1, READ_MAX)
+    chunk = text[offset:offset + limit]
+    end = offset + len(chunk)
+    return {"path": row["path"], "exists": True, "file": _abs(ctx, row.get("file")), "based": row.get("based"),
+            "new_since": row.get("new_since"), "generated_at": row.get("generated_at"), "total_chars": len(text),
+            "offset": offset, "next_offset": end if end < len(text) else None, "text": chunk}
+
+
+def guide(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
+    from . import wiki as wiki_mod
+    text = wiki_mod.method_text()
+    if text is None:
+        raise Denied("NOT_FOUND", "方法文档（docs/deep-report.md）不在这个安装里")
+    return {"name": "收藏深度报告 / 节点 wiki 的方法", "text": text,
+            "how": "index 看树、index(path) 拿某个节点的篇目 → read 逐篇读（核心帖连评论区、图片文字一起读）→ 按方法写；"
+                   "已经生成过的用 wiki(path) 先看"}
+
+
 # ---------------------------------------------------------------- 工具表
 
 def _ann(read_only: bool, *, open_world: bool = False, destructive: bool = False) -> dict[str, Any]:
@@ -784,11 +874,38 @@ TOOLS: list[dict[str, Any]] = [
          "lines": {"type": "integer", "minimum": 1, "maximum": HISTORY_TAIL_MAX, "default": HISTORY_TAIL_DEFAULT,
                    "description": "要最后几行"}}},
      "annotations": _ann(True)},
+    {"name": "index",
+     "description": ("她的收藏「索引树」（她自己在库根 索引.md 里写的多级分类，一个节点按标签 / 名字收笔记）。"
+                     "不带 path = 整棵树和每个节点的篇数（先看这个，知道收藏大概分布）；path=节点路径（如「美食/菜谱」，也可以只写唯一的名字）"
+                     " = 这个节点的笔记：id · 标题 · 日期 · 一句概要（分页）；path='unclassified' = 哪个节点都没收的。"
+                     "一篇可以在几个节点里，父节点含子节点。要看全文用 read(id)。"),
+     "inputSchema": {"type": "object", "additionalProperties": False, "properties": {
+         "path": {"type": "string", "description": "节点路径（/ 分隔）；'unclassified' = 未归类；不给 = 整棵树"},
+         "limit": {"type": "integer", "minimum": 1, "maximum": INDEX_LIST_MAX, "default": INDEX_LIST_DEFAULT, "description": "这一页最多几篇"},
+         "offset": {"type": "integer", "minimum": 0, "default": 0, "description": "从第几篇开始（续取用 next_offset）"}}},
+     "annotations": _ann(True)},
+    {"name": "wiki",
+     "description": ("节点 wiki：索引里标了 [wiki] 的节点，按 guide 的方法从这个节点的笔记里整理出的清单"
+                     "（名字 · 链接 · 出自哪篇 · 帖里怎么说 · 借鉴，分类排好，顶部「先看这几个」）。"
+                     "不带 path = 列出有哪些（已生成 / 标了还没生成，new_since = 生成之后这个节点又多了几篇）；"
+                     "带 path = 读全文（分页）。"),
+     "inputSchema": {"type": "object", "additionalProperties": False, "properties": {
+         "path": {"type": "string", "description": "节点路径；不给 = 列出全部"},
+         "offset": {"type": "integer", "minimum": 0, "default": 0, "description": "从第几个字符开始"},
+         "max_chars": {"type": "integer", "minimum": 1, "maximum": READ_MAX, "default": WIKI_READ_DEFAULT,
+                       "description": "这一页最多多少字符"}}},
+     "annotations": _ann(True)},
+    {"name": "guide",
+     "description": ("取「收藏深度报告 / 节点 wiki」的方法全文：她让你从收藏里整理一个主题（「我收藏里关于 X 有什么」"
+                     "「给 X 做个汇总 / wiki」）时，先取这个照着做：广搜、通读核心帖、抽具体对象、每条写出处和借鉴、7 类左右。"),
+     "inputSchema": {"type": "object", "additionalProperties": False, "properties": {}},
+     "annotations": _ann(True)},
 ]
 
 HANDLERS: dict[str, Callable[[Ctx, dict[str, Any]], dict[str, Any]]] = {
     "search": search, "ask": ask, "read": read, "image": image, "files": files, "topics": topics,
     "selections": selections, "recent": recent, "history": history,
+    "index": index, "wiki": wiki, "guide": guide,
 }
 NAMES = [t["name"] for t in TOOLS]
 

@@ -517,6 +517,22 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
     cats_order = [name for name, _ in effective_big_cats()] + [OTHER_CAT]
     present = {c for it in items for c in it["cats"]}
     cats_order = [c for c in cats_order if c in present]
+    # 10-10 索引树：目录页顶部分类 = 索引.md 的第一级，每篇的 cats = 它所在的第一级节点（没归进任何节点 = 未归类）。
+    # 解析 / 归类只在 indextree（第一次没有 索引.md 时按上面这套关键词迁移出一版，第一天和今天分得一样）。
+    # fail-open：索引算不出来就照旧按关键词分。
+    index_info = None
+    try:
+        from . import indextree
+        idx = indextree.build(vault, items=items, catalog_built_at=now.isoformat(), force=True, auto_draft=False)
+        per = indextree.item_cats(idx["_parsed"], idx["_result"])
+        for it in items:
+            it["cats"] = per.get(str(it.get("id")), [indextree.UNCLASSIFIED])
+        cats_order = list(idx["cats_order"])
+        index_info = {"file": idx["file"], "generated_at": idx["generated_at"], "roots": idx["roots"],
+                      "unclassified": idx["unclassified"]["count"], "migrated": bool(idx.get("migrated"))}
+    except Exception as exc:  # noqa: BLE001
+        import sys
+        print(f"[catalog] 索引没算出来，顶部分类先照旧按关键词分：{type(exc).__name__}: {exc}", file=sys.stderr)
     # 星标主题（Lot E）：只是展示分组，写进 catalog-data 给目录页 chip 用，不进检索字段。
     # fail-open：topics.json 缺/坏或算隶属出错 = 没有主题，页面与没这功能时一致。
     try:
@@ -537,6 +553,8 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
                 "count": len(items),
                 "cats_order": cats_order,
                 "cats": [{"name": name, "keywords": list(kws)} for name, kws in effective_big_cats()],
+                # 10-10：cats_order / items[].cats 来自索引树时带上它（页面的二级小标签、索引图读 _archive/index-data.json）
+                "index": index_info,
                 "topics": [t["name"] for t in topic_list],
                 "aliases": ALIASES,
                 "items": items,
@@ -570,6 +588,13 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
     )
     from .remove import publish_trash
     publish_trash(vault)
+    if index_info and index_info.get("migrated"):
+        # 第一次迁移出 索引.md：目录数据写好之后再（有文本 AI 时）后台起草一版草稿，免得草稿读到旧目录
+        try:
+            from . import indextree
+            indextree.maybe_auto_draft(vault, len(items))
+        except Exception:  # noqa: BLE001
+            pass
     try:  # 第 4 批：顺手核一次同步进程（running 但进程已死 → 落盘 INTERRUPTED，页面不再自己判 pid）
         from . import sync_state
         sync_state.current()
