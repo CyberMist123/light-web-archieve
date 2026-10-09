@@ -596,8 +596,8 @@ function renderSubBar() {
   const rootPath = idx && activeCat && activeCat !== UNC && !indexView ? activeCat.split('/')[0] : '';
   const rootNode = rootPath ? idxByPath.get(rootPath) : null;
   const kids = (rootNode?.children || []).map(p => idxByPath.get(p)).filter(n => n && n.count);
-  const depth = activeCat ? activeCat.split('/').length : 0;
-  if (!kids.length && depth < 3) { if (subBar) { subBar.remove(); subBar = null; } return; }
+  const depth = rootNode ? activeCat.split('/').length : 0;
+  if (!rootNode || (!kids.length && depth < 3)) { if (subBar) { subBar.remove(); subBar = null; } return; }
   if (!subBar) { subBar = top.createEl('div', { cls: 'lbc-subcats' }); top.insertBefore(subBar, catBar.nextSibling); barWheel(subBar); }
   const left = subBar.scrollLeft || 0;
   subBar.empty();

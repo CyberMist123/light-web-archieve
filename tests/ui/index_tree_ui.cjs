@@ -151,6 +151,10 @@ const clickLabel = async (page, path) => { await page.evaluate(p => [...document
       assert.equal(titles.length, count('做饭/家常菜/红烧肉'), `${theme}：筛到红烧肉 ${titles.length}`);
       c = await chips(page);
       assert.ok(c.find(x => x.path === '做饭/家常菜').on && c.find(x => x.path === '做饭/家常菜/红烧肉' && x.on), `${theme}：第三级有带 ✕ 的尾巴 ${JSON.stringify(c)}`);
+      await clickTab(page, '索引'); await S.settle();
+      assert.equal(await page.evaluate(() => document.querySelector('.lbc-subcats')), null, `${theme}：索引视图里不出二级小标签（哪怕选着第三级）`);
+      await clickTab(page, '索引'); await S.settle();
+      assert.equal((await cardTitles(page)).length, count('做饭/家常菜/红烧肉'), `${theme}：再点「索引」回到原来的筛选`);
       await page.evaluate(() => [...document.querySelectorAll('.lbc-subcats .lbc-subcat')].find(b => b.dataset.path === '做饭/家常菜/红烧肉').click()); await S.settle();
       assert.equal((await cardTitles(page)).length, count('做饭/家常菜'), `${theme}：点 ✕ 回到第二级`);
       // 未归类
