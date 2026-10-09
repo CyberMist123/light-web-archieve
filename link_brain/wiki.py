@@ -460,8 +460,18 @@ def _add_usage(acc: dict[str, int], usage: Any) -> None:
                 pass
 
 
-def build(node_path: str, vault: Path | None = None, *, estimate_only: bool = False) -> dict[str, Any]:
+def build(node_path: str, vault: Path | None = None, *, estimate_only: bool = False, progress=None) -> dict[str, Any]:
+    """生成 / 更新一个节点的 wiki。progress(事件) 给了就报真实阶段：{type:'progress', text, done, total}（CLI --progress 打到 stdout，插件状态里显示）。"""
     vault = vault or storage.vault_root()
+
+    def say(text: str, done: int | None = None, total: int | None = None) -> None:
+        print(f"[wiki] {text}", file=sys.stderr, flush=True)
+        if progress:
+            try:
+                progress({"type": "progress", "text": text, "done": done, "total": total})
+            except Exception:  # noqa: BLE001 - 进度报不出去不影响生成
+                pass
+
     p = plan(node_path, vault)
     if not p.get("ok") or estimate_only:
         return public_plan(p)
@@ -478,9 +488,9 @@ def build(node_path: str, vault: Path | None = None, *, estimate_only: bool = Fa
         with lock:
             results[i] = r
             done[0] += 1
-            print(f"[wiki] 读完第 {done[0]}/{len(bs)} 批", file=sys.stderr, flush=True)
+            say(f"读完第 {done[0]}/{len(bs)} 批", done[0], len(bs))
 
-    print(f"[wiki] 「{node['path']}」{len(mats)} 篇分 {len(bs)} 批读", file=sys.stderr, flush=True)
+    say(f"「{node['path']}」{len(mats)} 篇分 {len(bs)} 批读", 0, len(bs))
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(WORKERS, max(1, len(bs)))) as pool:
         list(pool.map(work, range(len(bs))))
     failed = [r for r in results if not r or not r.get("ok")]
@@ -493,7 +503,7 @@ def build(node_path: str, vault: Path | None = None, *, estimate_only: bool = Fa
     objects = [o for r in results if r and r.get("ok") for o in r["objects"]]
     no_pick = [n for r in results if r and r.get("ok") for n in r["no_pick"]]
     titles = {m["id"]: m["title"] for m in mats}
-    print(f"[wiki] 抽出 {len(objects)} 个对象，正在分类排序", file=sys.stderr, flush=True)
+    say(f"抽出 {len(objects)} 个对象，正在分类排序", len(bs), len(bs))
     red = _run_reduce(objects, topic, cfg, titles) if objects else {"ok": False}
     _add_usage(usage, red.get("usage"))
     org = _organize(objects, red.get("payload") if red.get("ok") else None)
@@ -576,6 +586,7 @@ def add_parser(sub) -> None:
     pb = wsub.add_parser("build", help="生成 / 更新一个节点的 wiki（会花模型钱；--estimate 只估价）")
     pb.add_argument("node", help="节点路径，如 旅游/成都（也可以只写唯一的名字）")
     pb.add_argument("--estimate", action="store_true", help="只报大概要调几次模型、多少钱，不生成")
+    pb.add_argument("--progress", action="store_true", help="进度事件一行一个 JSON 打到 stdout（最后一行照旧是结果）")
     wsub.add_parser("list", help="列出已生成的 wiki 和标了 [wiki] 还没生成的节点")
     ps = wsub.add_parser("show", help="打印一个节点的 wiki 全文")
     ps.add_argument("node")
@@ -600,7 +611,8 @@ def run(args) -> int:
         dump_json(outcome({"page": row, "text": text}, ok=True, message=f"「{row['path']}」"))
         return 0
     try:
-        r = build(args.node, estimate_only=getattr(args, "estimate", False))
+        r = build(args.node, estimate_only=getattr(args, "estimate", False),
+                  progress=dump_json if getattr(args, "progress", False) else None)
     except storage.LockBusy as exc:
         r = {"ok": False, "code": "TRANSIENT.SERVICE_BUSY", "message": f"正忙：{exc}"}
     print(r.get("message") or "", file=sys.stderr)

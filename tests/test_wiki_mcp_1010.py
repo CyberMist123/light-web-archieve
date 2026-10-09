@@ -192,3 +192,13 @@ def test_guide_doc_has_no_private_traces():
     assert text and "C:\\Users" not in text and "claude.ai/artifact" not in text and "workdesk" not in text
     for field in ("名字", "链接", "核实", "出自", "帖里", "借鉴"):
         assert field in text
+
+
+def test_wiki_build_progress_events_then_result_last(vault, monkeypatch, capsys):
+    setup_library(vault)
+    fake_ai(monkeypatch, [])
+    code = cli.main(["wiki", "build", "工具", "--progress"])
+    lines = [json.loads(x) for x in capsys.readouterr().out.strip().splitlines()]
+    assert code == 0 and lines[-1]["ok"] and lines[-1]["file"] == "wiki/工具.md"
+    events = [x for x in lines[:-1] if x.get("type") == "progress"]
+    assert [e["text"] for e in events][0].startswith("「工具」2 篇分 1 批读") and events[-1]["text"].startswith("抽出 2 个对象")

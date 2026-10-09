@@ -71,6 +71,56 @@ const CSS = `
 .lbc-topics button.lbc-topic:hover{color:var(--text-normal);}
 .lbc-topics button.lbc-topic.is-active{color:var(--text-normal);border-color:var(--text-normal)!important;font-weight:500;}
 .lbc-topic-star{color:var(--lb-star);margin-right:4px;}
+/* 10-10 索引树：选中一个大类时下面一行它的二级小标签（带篇数）；更深一级（索引图里点的）多一个带 ✕ 的小尾巴 */
+.lbc-subcats{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;margin:0;padding:0 0 12px;font-family:inherit;scrollbar-width:thin;}
+.lbc-subcats button.lbc-subcat{flex:none;display:inline-flex;align-items:baseline;gap:5px;height:auto;padding:3px 11px;border:1px solid var(--background-modifier-border)!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--text-muted);font-size:12px;font-weight:400;line-height:1.6;cursor:pointer;transition:color .12s,border-color .12s;}
+.lbc-subcats button.lbc-subcat:hover{color:var(--text-normal);}
+.lbc-subcats button.lbc-subcat.is-active{color:var(--text-normal);border-color:var(--text-normal)!important;font-weight:500;}
+.lbc-subcat-n{font-size:10.5px;color:var(--text-faint);font-variant-numeric:tabular-nums;}
+.lbc-subcats button.lbc-subcat.is-deep{border-style:dashed!important;}
+/* 10-10「索引」视图：横向分叉树（思维导图式），纯 DOM + CSS 连线；窄了（<640px 或手机）退化成缩进列表 */
+.lbi-panel{padding:6px 5px 40px;}
+.lbi-panel[hidden]{display:none!important;}
+.lbi-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:4px 0 14px;}
+.lbi-sum{font-size:12px;color:var(--text-muted);margin-right:auto;}
+.lbi-bar button{height:auto;padding:5px 12px;font-size:12px;border-radius:8px;}
+.lbi-note{font-size:12px;line-height:1.6;color:var(--text-muted);margin:0 0 12px;}
+.lbi-banner{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 12px;padding:9px 14px;border-radius:10px;background:var(--background-secondary);font-size:13px;}
+.lbi-banner-text{margin-right:auto;}
+.lbi-banner button{height:auto;padding:4px 12px;font-size:12px;border-radius:8px;}
+.lbi-warn{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px;margin:0 0 12px;font-size:12px;line-height:1.6;color:var(--text-normal);}
+.lbi-warn-mark{color:var(--lb-warn);}
+.lbi-warn ol{margin:4px 0 0;padding-left:20px;flex-basis:100%;color:var(--text-muted);}
+.lbi-panel button.lbi-link{font:inherit;font-size:12px;color:var(--text-muted);background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important;height:auto!important;cursor:pointer;text-decoration:underline;text-underline-offset:2px;}
+.lbi-tree{overflow-x:auto;padding:8px 2px 18px;font-size:13px;}
+.lbi-node{display:flex;align-items:center;}
+.lbi-row{display:flex;align-items:center;gap:6px;flex:none;}
+.lbi-panel button.lbi-label{display:inline-flex;align-items:baseline;gap:6px;height:auto;padding:5px 12px;border:1px solid var(--background-modifier-border)!important;border-radius:999px!important;background:var(--background-primary)!important;box-shadow:none!important;color:var(--text-normal);font-size:13px;font-weight:400;line-height:1.5;cursor:pointer;white-space:nowrap;transition:border-color .12s,color .12s;}
+.lbi-panel button.lbi-label:hover{border-color:var(--text-faint)!important;}
+.lbi-panel button.lbi-label.is-empty{color:var(--text-faint);}
+.lbi-panel button.lbi-label.is-current{border-color:var(--text-normal)!important;font-weight:500;}
+.lbi-panel .lbi-root>.lbi-row button.lbi-label{font-weight:600;}
+.lbi-panel .lbi-unc>.lbi-row button.lbi-label{border-style:dashed!important;color:var(--text-muted);}
+.lbi-n{font-size:11px;color:var(--text-faint);font-variant-numeric:tabular-nums;}
+.lbi-panel button.lbi-fold{height:auto;min-width:22px;padding:1px 6px;font-size:11px;line-height:1.4;border:1px solid var(--background-modifier-border)!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--text-muted);cursor:pointer;}
+.lbi-wiki{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);}
+.lbi-panel .lbi-wiki button{height:auto;padding:1px 7px;font-size:11px;border-radius:6px;box-shadow:none;}
+.lbi-wiki-tag{padding:1px 6px;border-radius:6px;background:var(--background-secondary);}
+.lbi-wiki-new{color:var(--lb-warn);}
+.lbi-kids{display:flex;flex-direction:column;justify-content:center;position:relative;margin-left:26px;}
+.lbi-kids::before{content:"";position:absolute;left:-26px;top:50%;width:26px;border-top:1px solid var(--background-modifier-border);}
+.lbi-kids>.lbi-node{position:relative;padding:3px 0 3px 18px;}
+.lbi-kids>.lbi-node::before{content:"";position:absolute;left:0;top:50%;width:18px;border-top:1px solid var(--background-modifier-border);}
+.lbi-kids>.lbi-node::after{content:"";position:absolute;left:0;top:0;bottom:0;border-left:1px solid var(--background-modifier-border);}
+.lbi-kids>.lbi-node:first-child::after{top:50%;}
+.lbi-kids>.lbi-node:last-child::after{bottom:50%;}
+.lbi-kids>.lbi-node:only-child::after{display:none;}
+.lbi-panel.is-list .lbi-node{display:block;}
+.lbi-panel.is-list .lbi-row{padding:3px 0;}
+.lbi-panel.is-list .lbi-kids{margin-left:14px;padding-left:12px;border-left:1px solid var(--background-modifier-border);}
+.lbi-panel.is-list .lbi-kids::before,.lbi-panel.is-list .lbi-kids>.lbi-node::before,.lbi-panel.is-list .lbi-kids>.lbi-node::after{display:none;}
+.lbi-panel.is-list .lbi-kids>.lbi-node{padding:0;}
+.lbi-panel.is-list button.lbi-label{white-space:normal;text-align:left;}
 /* C1 / C15：多选栏在吸顶区里（.lbc-top 最后一个子节点），常用的留在栏上，其余收进「更多…」 */
 .lbc-selbar{display:flex;flex-wrap:wrap;row-gap:8px;gap:8px 12px;align-items:center;margin:8px 0 10px;padding:10px 14px;border-radius:12px;background:var(--background-secondary);}
 .lbc-selbar[hidden]{display:none!important;}
@@ -234,9 +284,48 @@ function refreshTags() {
 }
 refreshTags();
 
+// ── 10-10 索引树：_archive/index-data.json（Python 解析 索引.md、归类好的；页面只读，这里不解析、不归类） ──
+// 第一级 = 顶部分类 tab（activeCat 存节点路径，「美食/菜谱」）；选中一个大类时下面一行它的二级小标签；「索引」= 横向分叉树。
+// 没有这份文件（旧后端 / 还没重算过）= 照旧按 catalog-data 的 cats_order / items[].cats。
+const UNC = '未归类';
+let idx = null, idxRev = 0;
+const idxByPath = new Map(), idxSets = new Map();
+async function loadIndex() {
+  let next = null;
+  try {
+    const v = JSON.parse(await app.vault.adapter.read(lbPath('_archive/index-data.json')));
+    if (v && Array.isArray(v.nodes) && Array.isArray(v.roots)) next = v;
+  } catch {}
+  idx = next; idxByPath.clear(); idxSets.clear(); idxRev++;
+  for (const n of idx?.nodes || []) if (n && typeof n.path === 'string') idxByPath.set(n.path, n);
+  return idx;
+}
+function nodeIds(path) {
+  if (!idx || !path) return null;
+  if (idxSets.has(path)) return idxSets.get(path);
+  const ids = path === UNC ? idx.unclassified?.items : idxByPath.get(path)?.items;
+  const s = Array.isArray(ids) ? new Set(ids) : null;
+  idxSets.set(path, s);
+  return s;
+}
+const catLabel = c => String(c || '').split('/').join(' › ');
+function knownCat(c) {
+  if (typeof c !== 'string' || !c) return false;
+  if (!idx) return (data.cats_order || []).includes(c);
+  return c === UNC ? !!idx.unclassified?.count : idxByPath.has(c);
+}
+function inCat(it) {
+  if (!activeCat) return true;
+  const s = nodeIds(activeCat);
+  return s ? s.has(it.id) : (it.cats || []).includes(activeCat);
+}
+await loadIndex();
+
 // ── 页面状态 ──
 let committed = '', lastRaw = '';
 let activeCat = '', todayOnly = false, todoOnly = false, mediaFilter = '', starOnly = starredPage;
+let indexView = false;                    // 10-10「索引」视图开着（网格藏起来）
+const foldOverride = new Map();           // 索引图里手动展开 / 收起过的节点：路径 → true 展开 / false 收起（默认：第二级以下收起）
 // 10-04 导入时间（catalog-data 的 ts = 首次入库时间）：排序 ''=默认 / 'recent'=最近导入；范围 ''=全部 / today / 7d / 30d / custom
 let timeSort = '', timeRange = '', timeFrom = '', timeTo = '';
 let activeTopic = '', topicBar = null;
@@ -257,6 +346,8 @@ async function refresh({ strict = false } = {}) {
   try { v = await LB.data.version(); next = await LB.data.load(); }
   catch (e) { if (strict) throw e; return false; }
   data = next; items = data.items || [];
+  await loadIndex();
+  if (activeCat && !knownCat(activeCat)) activeCat = '';
   refreshTags(); dataRev++; stale = false;
   startWarm();
   renderCatBar();
@@ -267,7 +358,22 @@ async function refresh({ strict = false } = {}) {
   return true;
 }
 function attachmentPanel(list) { want('openAttachments').then(p => p?.openAttachments(list, () => refresh())); }
-function editCategories(sel = '') { want('openCategories').then(p => p?.openCategories(data.cats || [], sel, () => refresh())); }
+// 10-10：分类就是 索引.md 的第一级——「管理分类」/ 右键一个分类 = 打开 索引.md（右键的那一类直接跳到那一行）；旧后端没有索引才走旧的分类弹窗
+function editCategories(sel = '') {
+  if (idx) { openVaultFile(idx.file || '索引.md', sel ? idxByPath.get(sel)?.line : null); return; }
+  want('openCategories').then(p => p?.openCategories(data.cats || [], sel, () => refresh()));
+}
+// 打开库里一个文件（索引.md / 草稿 / wiki）：同一窗格（§5.4）；给了行号就滚到那一行。不要插件，手机上也能用
+async function openVaultFile(rel, line = null) {
+  const f = app.vault.getAbstractFileByPath(lbPath(rel));
+  if (!f) { LB.say(`找不到 ${rel}：先刷新一次目录`, { kind: 'error' }); return; }
+  leaving = true;
+  try {
+    const leaf = app.workspace.getLeaf ? app.workspace.getLeaf(false) : null;
+    if (leaf?.openFile) await leaf.openFile(f, Number(line) > 0 ? { eState: { line: Number(line) - 1 } } : undefined);
+    else await app.workspace.openLinkText(lbPath(rel), '', false);
+  } catch (e) { leaving = false; LB.say('没打开：' + (e?.message || e), { kind: 'error' }); }
+}
 
 // ── 顶栏（吸顶）：标题「Collections +」+ 标题下那一行 + 搜索 + 页面导航 + 大类条 + 多选栏 ──
 const top = wrap.createEl('div', { cls: 'lbc-top' });
@@ -311,6 +417,17 @@ function mergeSync(raw, sum) {
   const s = sum && sum.sync && typeof sum.sync === 'object' ? sum.sync : null;
   if (!s) return raw; if (!raw) return s;
   return tsOf(raw.updated_at) > (tsOf(s.updated_at) || tsOf(sum.updated_at)) ? { ...s, ...raw } : { ...raw, ...s };
+}
+let pageReady = false, idxPending = false;
+async function reloadIndex() {
+  if (!pageReady) { idxPending = true; return; }
+  idxPending = false;
+  await loadIndex();
+  if (activeCat && !knownCat(activeCat)) activeCat = '';
+  if (indexView && !idx) indexView = false;
+  panelKey = null;
+  renderCatBar();
+  withAnchor(() => render());
 }
 async function refreshProblems() {
   const [raw, sum] = await Promise.all([readArchiveJson('_archive/sync-status.json'), readArchiveJson('_archive/problems-summary.json')]);
@@ -382,12 +499,15 @@ possibleLink.onclick = () => scrollToPossible();
 if (app.vault.on && dv.component?.registerEvent) {
   const watched = new Set([lbPath('_archive/sync-status.json'), lbPath('_archive/problems-summary.json')]);
   const dataPath = lbPath('_archive/catalog-data.json');
-  let freshTimer = null;
+  const idxDataPath = lbPath('_archive/index-data.json');
+  let freshTimer = null, idxTimer = null;
   const onFile = file => {
     if (watched.has(file?.path)) refreshProblems();
     else if (file?.path === dataPath) { clearTimeout(freshTimer); freshTimer = setTimeout(() => checkFresh(), 800); }
+    // 10-10：她改完 索引.md 保存 → 插件重算 index-data.json → 这里 300ms 防抖后换上新的分类 / 索引图（卡片不重建）
+    else if (file?.path === idxDataPath) { clearTimeout(idxTimer); idxTimer = setTimeout(() => reloadIndex(), 300); }
   };
-  cleanups.push(() => clearTimeout(freshTimer));
+  cleanups.push(() => { clearTimeout(freshTimer); clearTimeout(idxTimer); });
   dv.component.registerEvent(app.vault.on('modify', onFile));
   dv.component.registerEvent(app.vault.on('create', onFile));
 }
@@ -410,7 +530,7 @@ if (importButton) importButton.onclick = async e => {
 // 大类筛选条（小红书式 tab）：单选，一次一个；「全部」或再点当前项清空。
 const catBar = top.createEl('div', { cls: 'lbc-cats' });
 function anyFilter() { return !!(activeCat || todayOnly || todoOnly || mediaFilter || (starOnly && !starredPage) || activeTopic || timeRange || timeSort); }
-function clearFilters({ keepStar = starredPage } = {}) { activeCat = ''; todayOnly = false; todoOnly = false; mediaFilter = ''; activeTopic = ''; timeRange = ''; timeSort = ''; timeFrom = ''; timeTo = ''; starOnly = keepStar; }
+function clearFilters({ keepStar = starredPage } = {}) { activeCat = ''; todayOnly = false; todoOnly = false; mediaFilter = ''; activeTopic = ''; timeRange = ''; timeSort = ''; timeFrom = ''; timeTo = ''; starOnly = keepStar; indexView = false; }
 // C19：重建前记下横向位置和焦点所在的 tab，重建后还原；只有用户点 tab 引起的重建才把选中项滚进视野
 function renderCatBar({ reveal = false } = {}) {
   const left = catBar.scrollLeft || 0;
@@ -423,11 +543,16 @@ function renderCatBar({ reveal = false } = {}) {
     s.onclick = e => on(e);
     return s;
   };
-  const tabClick = fn => () => { fn(); renderCatBar({ reveal: true }); render(); scrollToResults(); };
-  mk('全部', !anyFilter() && !starredPage, () => {
+  const tabClick = fn => () => { indexView = false; fn(); renderCatBar({ reveal: true }); render(); scrollToResults(); };
+  mk('全部', !anyFilter() && !starredPage && !indexView, () => {
     if (starredPage) { LB.openPage('catalog'); return; }
-    if (anyFilter()) tabClick(() => clearFilters())();
+    if (anyFilter() || indexView) tabClick(() => clearFilters())();
   });
+  // 10-10「索引」：横向分叉树看分布，点一个节点 = 筛到那些笔记
+  if (idx) {
+    const t = mk('索引', indexView, () => { indexView = !indexView; renderCatBar({ reveal: true }); render(); scrollToResults(); });
+    t.classList.add('lbc-index-tab');
+  }
   mk('今日新增', todayOnly, tabClick(() => { todayOnly = !todayOnly; if (todayOnly) todoOnly = false; }));
   // 10-04：导入时间（排序 + 范围）收在这一个小入口里，点开是小菜单
   const timeTab = mk(timeLabel(), !!(timeRange || timeSort), e => { e?.stopPropagation?.(); openTimeMenu(timeTab); }); timeTab.classList.add('lbc-time');
@@ -437,15 +562,64 @@ function renderCatBar({ reveal = false } = {}) {
   mk('附件', mediaFilter === 'attachment', tabClick(() => { mediaFilter = mediaFilter === 'attachment' ? '' : 'attachment'; }));
   const todo = items.filter(x => x.attachment === '待补').length;
   if (todo) mk(`待补附件 ${todo}`, todoOnly, tabClick(() => { todoOnly = !todoOnly; if (todoOnly) todayOnly = false; }));
-  for (const cat of (data.cats_order || []).filter(c => !(provider()?.settings?.hiddenCats || []).includes(c))) {
-    const tab = mk(cat, activeCat === cat, tabClick(() => { activeCat = (activeCat === cat ? '' : cat); }));
-    if (!mobile) tab.oncontextmenu = e => { e.preventDefault(); editCategories(cat); };
+  const hiddenCats = provider()?.settings?.hiddenCats || [];
+  if (idx) {
+    // 第一级节点（有篇数的）= 分类 tab；选中它或它下面任何一级都算选中这一类；点已选中的那一类 = 回到全部
+    for (const p of idx.roots) {
+      const n = idxByPath.get(p);
+      if (!n || !n.count || hiddenCats.includes(n.name)) continue;
+      const on = !indexView && (activeCat === p || activeCat.startsWith(p + '/'));
+      const tab = mk(n.name, on, tabClick(() => { activeCat = (activeCat === p ? '' : p); }));
+      tab.dataset.path = p;
+      if (!mobile) tab.oncontextmenu = e => { e.preventDefault(); editCategories(p); };
+    }
+    if (idx.unclassified?.count) {
+      const tab = mk(UNC, !indexView && activeCat === UNC, tabClick(() => { activeCat = (activeCat === UNC ? '' : UNC); }));
+      tab.classList.add('lbc-unc-tab');
+    }
+  } else {
+    for (const cat of (data.cats_order || []).filter(c => !hiddenCats.includes(c))) {
+      const tab = mk(cat, activeCat === cat, tabClick(() => { activeCat = (activeCat === cat ? '' : cat); }));
+      if (!mobile) tab.oncontextmenu = e => { e.preventDefault(); editCategories(cat); };
+    }
   }
   catBar.scrollLeft = left;
   if (focusedLabel) { const again = [...catBar.querySelectorAll('.lbc-cat')].find(b => b.textContent === focusedLabel); try { again?.focus({ preventScroll: true }); } catch { again?.focus?.(); } }
   if (reveal) { try { catBar.querySelector('.lbc-cat.is-active')?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' }); } catch {} }
   paintCatFade();
+  renderSubBar();
   renderTopicBar();
+}
+// 10-10 二级小标签：选中的大类下面的子节点（带篇数）；点一个 = 筛到它，再点 = 回到这一大类；索引图里点到更深一级时多一个带 ✕ 的尾巴
+let subBar = null;
+function renderSubBar() {
+  const rootPath = idx && activeCat && activeCat !== UNC && !indexView ? activeCat.split('/')[0] : '';
+  const rootNode = rootPath ? idxByPath.get(rootPath) : null;
+  const kids = (rootNode?.children || []).map(p => idxByPath.get(p)).filter(n => n && n.count);
+  const depth = activeCat ? activeCat.split('/').length : 0;
+  if (!kids.length && depth < 3) { if (subBar) { subBar.remove(); subBar = null; } return; }
+  if (!subBar) { subBar = top.createEl('div', { cls: 'lbc-subcats' }); top.insertBefore(subBar, catBar.nextSibling); barWheel(subBar); }
+  const left = subBar.scrollLeft || 0;
+  subBar.empty();
+  for (const n of kids) {
+    const on = activeCat === n.path || activeCat.startsWith(n.path + '/');
+    const chip = subBar.createEl('button', { cls: 'lbc-subcat' + (on ? ' is-active' : '') });
+    chip.type = 'button'; chip.dataset.path = n.path; chip.setAttribute('aria-pressed', String(on));
+    chip.append(n.name);
+    chip.createEl('span', { cls: 'lbc-subcat-n', text: String(n.count) });
+    chip.onclick = () => { activeCat = (activeCat === n.path ? rootPath : n.path); renderCatBar(); render(); scrollToResults(); };
+    if (!mobile) chip.oncontextmenu = e => { e.preventDefault(); editCategories(n.path); };
+  }
+  if (depth >= 3) {
+    const deep = idxByPath.get(activeCat);
+    const back = activeCat.split('/').slice(0, 2).join('/');
+    const chip = subBar.createEl('button', { cls: 'lbc-subcat is-active is-deep' });
+    chip.type = 'button'; chip.dataset.path = activeCat; chip.setAttribute('aria-pressed', 'true');
+    chip.append('› ' + (deep?.name || activeCat.split('/').pop()));
+    chip.createEl('span', { cls: 'lbc-subcat-n', text: (deep ? String(deep.count) + ' ' : '') + '✕' });
+    chip.onclick = () => { activeCat = idxByPath.has(back) ? back : rootPath; renderCatBar(); render(); scrollToResults(); };
+  }
+  subBar.scrollLeft = left;
 }
 function paintCatFade() {
   const max = (catBar.scrollWidth || 0) - (catBar.clientWidth || 0);
@@ -471,7 +645,7 @@ function renderTopicBar() {
   const names = Array.isArray(data.topics) ? data.topics.filter(n => typeof n === 'string' && n) : [];
   if (!names.includes(activeTopic)) activeTopic = '';
   if (!names.length) { if (topicBar) { topicBar.remove(); topicBar = null; } return; }
-  if (!topicBar) { topicBar = top.createEl('div', { cls: 'lbc-topics' }); top.insertBefore(topicBar, catBar.nextSibling); barWheel(topicBar); }
+  if (!topicBar) { topicBar = top.createEl('div', { cls: 'lbc-topics' }); top.insertBefore(topicBar, (subBar || catBar).nextSibling); barWheel(topicBar); }
   topicBar.empty();
   for (const name of names) {
     // 不设 aria-label / title：Obsidian 会渲染成悬浮框（她不要）。
@@ -578,7 +752,9 @@ let savedScroll = 0;
 if (saved.ts) {
   committed = typeof saved.q === 'string' ? saved.q : '';
   lastRaw = typeof saved.raw === 'string' ? saved.raw : (typeof saved.input === 'string' && saved.input === saved.q ? saved.input.trim() : '');
-  if (typeof saved.cat === 'string' && (data.cats_order || []).includes(saved.cat)) activeCat = saved.cat;
+  if (knownCat(saved.cat)) activeCat = saved.cat;
+  indexView = !!saved.iview && !!idx;
+  for (const pair of Array.isArray(saved.fold) ? saved.fold : []) if (Array.isArray(pair) && typeof pair[0] === 'string') foldOverride.set(pair[0], !!pair[1]);
   if (typeof saved.topic === 'string') activeTopic = saved.topic;   // renderTopicBar 会把已不存在的主题清掉
   todayOnly = !!saved.today; todoOnly = !!saved.todo;
   if (['video', 'attachment'].includes(saved.media)) mediaFilter = saved.media;
@@ -597,7 +773,8 @@ if (saved.ts) {
 let scrollTop = savedScroll;
 function saveState() {
   LB.state.save({ q: committed, raw: lastRaw, input: search.value, cat: activeCat, topic: activeTopic, today: todayOnly, todo: todoOnly, media: mediaFilter, star: starOnly,
-    selectMode, select: [...selected], scrollTop, cols, timeSort, timeRange, timeFrom, timeTo, exportImages });
+    selectMode, select: [...selected], scrollTop, cols, timeSort, timeRange, timeFrom, timeTo, exportImages,
+    iview: indexView, fold: [...foldOverride].slice(-200) });
 }
 
 // ── 多选栏（C1 放进吸顶区、C15 常用的留在栏上） ──
@@ -667,6 +844,114 @@ function setSelbarBusy(text) {
   for (const b of [starSel, aiBtn, expBtn, moreBtn, delBtn]) b.disabled = true;
   if (text) starSel.setText(text);
   return () => { selBusy = false; starSel.setText(prev); paintSelbar(); };
+}
+
+// ── 10-10「索引」视图：横向分叉树（第二级以下默认收起，点「+N」展开），节点带篇数，点节点 = 筛到这些笔记 ──
+// 起草 / 用这版 / 未归类建议 / 生成 wiki 要插件（跑 Python）；打开 索引.md / 草稿 / wiki 页不要插件（手机上也能看）。
+const ipanel = wrap.createEl('div', { cls: 'lbi-panel' });
+ipanel.hidden = true;
+let panelKey = null;
+function nodeOpen(path, depth) { return foldOverride.has(path) ? foldOverride.get(path) : depth < 2; }
+function openNode(path) {
+  activeCat = path; indexView = false;
+  renderCatBar({ reveal: true }); render(); scrollToResults();
+}
+async function indexAction(method, btn, busyText, ...args) {
+  const p = await want(method); if (!p) return null;
+  const done = btn ? LB.busy(btn, busyText) : () => {};
+  try { return await p[method](...args); }
+  catch (e) { LB.say((busyText || '').replace(/…$/, '') + '没成：' + (e?.message || e), { kind: 'error' }); return null; }
+  finally { done(); }
+}
+function panelButton(box, label, fn, cls = '') {
+  const b = box.createEl('button', { text: label, cls }); b.type = 'button';
+  b.onclick = e => { e?.stopPropagation?.(); fn(b); };
+  return b;
+}
+function wikiPill(row, n) {
+  const st = (idx.wiki || {})[n.path] || {};
+  const pill = row.createEl('span', { cls: 'lbi-wiki' + (st.exists ? ' has-page' : '') });
+  if (st.exists) {
+    panelButton(pill, 'wiki', () => openVaultFile(st.file), 'lbi-wiki-open');
+    if (st.new_since) pill.createEl('span', { cls: 'lbi-wiki-new', text: `新增 ${st.new_since}` });
+  } else pill.createEl('span', { cls: 'lbi-wiki-tag', text: 'wiki' });
+  if (!mobile) {
+    const gen = panelButton(pill, st.exists ? '更新' : '生成', b => indexAction('wikiBuild', b, '正在生成 wiki…', n.path), 'lbi-wiki-gen');
+    if (!idx.text_ai?.ok) gen.disabled = true;
+  }
+}
+function treeNode(box, n, depth, cls = '') {
+  const el = box.createEl('div', { cls: 'lbi-node' + (cls ? ' ' + cls : '') });
+  el.dataset.path = n.path;
+  const row = el.createEl('div', { cls: 'lbi-row' });
+  const label = row.createEl('button', { cls: 'lbi-label' + (n.count ? '' : ' is-empty') });
+  label.type = 'button';
+  label.createEl('span', { cls: 'lbi-name', text: n.name });
+  label.createEl('span', { cls: 'lbi-n', text: String(n.count) });
+  if (n.path) label.onclick = () => openNode(n.path);
+  else label.onclick = () => { clearFilters(); renderCatBar({ reveal: true }); render(); scrollToResults(); };
+  if (!mobile && n.line) label.oncontextmenu = e => { e.preventDefault(); editCategories(n.path); };
+  const kids = n.kids || (n.children || []).map(p => idxByPath.get(p)).filter(Boolean);
+  if (n.wiki) wikiPill(row, n);
+  if (!kids.length) return el;
+  const open = n.path ? nodeOpen(n.path, depth) : true;
+  if (n.path) {
+    const fold = panelButton(row, open ? '−' : '+' + kids.length, () => { foldOverride.set(n.path, !open); panelKey = null; renderIndexPanel(); saveState(); }, 'lbi-fold');
+    fold.setAttribute('aria-expanded', String(open));
+  }
+  if (open) {
+    const kidsBox = el.createEl('div', { cls: 'lbi-kids' });
+    for (const k of kids) treeNode(kidsBox, k, depth + 1, k.unc ? 'lbi-unc' : '');
+  }
+  return el;
+}
+function panelNarrow() { const w = Number(wrap.clientWidth) || (typeof innerWidth === 'number' ? innerWidth : 1200); return mobile || w < 640; }
+function renderIndexPanel() {
+  if (!idx) { ipanel.empty(); return; }
+  const key = JSON.stringify([idxRev, [...foldOverride], panelNarrow(), activeCat]);
+  if (key === panelKey) return;
+  panelKey = key;
+  ipanel.empty();
+  ipanel.classList.toggle('is-list', panelNarrow());
+  const roots = idx.roots.map(p => idxByPath.get(p)).filter(Boolean);
+  const unc = idx.unclassified?.count || 0;
+  const bar = ipanel.createEl('div', { cls: 'lbi-bar' });
+  bar.createEl('span', { cls: 'lbi-sum', text: `${idx.total} 篇 · ${roots.length} 个大类 · 未归类 ${unc}` });
+  panelButton(bar, '编辑索引', () => openVaultFile(idx.file || '索引.md'), 'lbi-edit');
+  if (!mobile) {
+    panelButton(bar, idx.text_ai?.ok ? 'AI 起草' : '起草一版', b => indexAction('indexDraft', b, '正在起草…'), 'lbi-draft-btn');
+    if (unc) panelButton(bar, '未归类建议', b => indexAction('openIndexSuggestions', b, '正在找建议…'), 'lbi-suggest-btn');
+  }
+  if (!mobile && !idx.text_ai?.ok) {
+    ipanel.createEl('p', { cls: 'lbi-note', text: `没有能用的文本 AI（${idx.text_ai?.why || '设置里没配'}）：「起草一版」按高频标签出草稿；`
+      + 'wiki 生成不了，可以让 GPT 经 MCP 来写（guide 取方法、index 看这个节点的篇目、read 读全文）。' });
+  }
+  if (idx.drafting) {
+    ipanel.createEl('div', { cls: 'lbi-banner lbi-drafting' }).createEl('span', { cls: 'lbi-banner-text', text: 'AI 正在起草一版新的索引…（好了会出现在这里，不会改你的 索引.md）' });
+  } else if (idx.draft?.exists) {
+    const d = idx.draft;
+    const banner = ipanel.createEl('div', { cls: 'lbi-banner lbi-draft' });
+    banner.createEl('span', { cls: 'lbi-banner-text', text: `${d.mode === 'ai' ? 'AI 起草了一版' : '起草了一版'}：${(d.roots || []).length} 个大类，能归进 ${d.classified}/${d.total} 篇（现在这版 ${idx.classified}/${idx.total}）` });
+    panelButton(banner, '看草稿', () => openVaultFile(d.file || idx.draft_file));
+    if (!mobile) panelButton(banner, '用这版', b => indexAction('indexUseDraft', b, '正在换…'), 'mod-cta lbi-use-draft');
+  }
+  const warns = (idx.warnings || []).filter(w => w && w.text);
+  if (warns.length) {
+    const w = ipanel.createEl('div', { cls: 'lbi-warn' });
+    w.createEl('span', { cls: 'lbi-warn-mark', text: '⚠' });
+    w.createEl('span', { text: `${idx.file || '索引.md'} 有 ${warns.length} 处写法要看一眼：${warns[0].text}` });
+    if (warns[0].line) panelButton(w, '去改', () => openVaultFile(idx.file || '索引.md', warns[0].line), 'lbi-link');
+    if (warns.length > 1) {
+      const list = w.createEl('ol'); list.hidden = true;
+      for (const x of warns.slice(1, 30)) list.createEl('li', { text: x.text });
+      const more = panelButton(w, `还有 ${warns.length - 1} 处`, () => { list.hidden = !list.hidden; more.setText(list.hidden ? `还有 ${warns.length - 1} 处` : '收起'); }, 'lbi-link');
+    }
+  }
+  const tree = ipanel.createEl('div', { cls: 'lbi-tree' });
+  const kids = roots.slice();
+  if (unc) kids.push({ path: UNC, name: UNC, count: unc, children: [], unc: true });
+  treeNode(tree, { path: '', name: '全部', count: idx.total, kids }, 0, 'lbi-root');
+  if (activeCat) for (const el of tree.querySelectorAll('.lbi-node')) if (el.dataset.path === activeCat) el.querySelector('.lbi-label')?.classList.add('is-current');
 }
 
 // ── 网格 ──
@@ -941,7 +1226,7 @@ function saveSelectionDialog(list) {
 
 // ── 排名（C2：结果集只在 key 变了才重算；点星 / 勾选不重排） ──
 let lastRanked = { key: null, exact: [], possible: [], q: '' };
-function rankKey() { return JSON.stringify([committed, activeCat, activeTopic, todayOnly, todoOnly, mediaFilter, starOnly || starredPage, timeSort, timeRange, timeFrom, timeTo, dataRev]); }
+function rankKey() { return JSON.stringify([committed, activeCat, activeTopic, todayOnly, todoOnly, mediaFilter, starOnly || starredPage, timeSort, timeRange, timeFrom, timeTo, dataRev, idxRev]); }
 function rankRows() {
   const key = rankKey();
   if (lastRanked.key === key) return lastRanked;
@@ -949,7 +1234,7 @@ function rankRows() {
   const q = normalize(committed);
   const today = ymd(new Date());
   const filtered = items.filter(it => (!(starredPage || starOnly) || it.starred) && (!mediaFilter || (mediaFilter === 'video' ? it.kind === 'video' : it.attachment && it.attachment !== 'none'))
-    && (!todayOnly || it.date === today) && (!todoOnly || it.attachment === '待补') && (!activeCat || (it.cats || []).includes(activeCat))
+    && (!todayOnly || it.date === today) && (!todoOnly || it.attachment === '待补') && inCat(it)
     && (!activeTopic || (it.topics || []).includes(activeTopic)) && inTimeRange(it));
   // 第 1 批 1002：先看分数、星标只 ×1.15；拼音 / 错字 / 漏字这类模糊命中单独放「可能相关」，规则见 catalog-search.js rankItems
   const ranked = rankItems(filtered, q, data.pinyin_chars, data.aliases || []);
@@ -962,12 +1247,12 @@ function rankRows() {
 }
 // 当前的筛选拼成一句（C8 空状态用）
 function filterLabel() {
-  return [activeCat, activeTopic && '★' + activeTopic, todayOnly && '今日新增', todoOnly && '待补附件', mediaFilter === 'video' && '视频', mediaFilter === 'attachment' && '附件',
+  return [activeCat && catLabel(activeCat), activeTopic && '★' + activeTopic, todayOnly && '今日新增', todoOnly && '待补附件', mediaFilter === 'video' && '视频', mediaFilter === 'attachment' && '附件',
     starOnly && !starredPage && '已收藏', timeRange && timeLabel().split(' · ')[0]].filter(Boolean).join(' · ');
 }
 function paintSub() {
   const r = lastRanked.key ? lastRanked : null;
-  const filtered = !!(committed || todayOnly || todoOnly || starredPage || starOnly || mediaFilter || activeTopic || activeCat || timeRange);
+  const filtered = !(indexView && idx) && !!(committed || todayOnly || todoOnly || starredPage || starOnly || mediaFilter || activeTopic || activeCat || timeRange);
   countEl.setText(filtered && r ? `${r.exact.length} / ${items.length} 篇` : `${items.length} 篇`);
   const nPossible = r && !grid.hidden ? r.possible.length : 0;
   possibleLink.hidden = !nPossible; sepPossible.hidden = !nPossible;
@@ -1216,6 +1501,10 @@ function renderEmpty() {
   }
 }
 function render() {
+  // 10-10「索引」视图开着：网格藏起来（布局不动、不重摆），画分叉树
+  const showIndex = indexView && !!idx;
+  ipanel.hidden = !showIndex; grid.hidden = showIndex;
+  if (showIndex) { renderIndexPanel(); paintSub(); paintSelectMode(); saveState(); return; }
   const r = rankRows();
   const n = colCount();
   if (r.key !== laidKey || n !== laidN) layoutGrid();
@@ -1343,9 +1632,10 @@ if (typeof ResizeObserver === 'function') {
     if (w > 0) roWidth = Math.max(0, w - 10);
     paintStickyTop();
     if (pending) return; pending = true;
-    requestAnimationFrame(() => { pending = false; if (colCount() !== laidN) withAnchor(() => layoutGrid()); });
+    requestAnimationFrame(() => { pending = false; if (indexView && idx) { renderIndexPanel(); return; } if (colCount() !== laidN) withAnchor(() => layoutGrid()); });
   });
   ro.observe(grid);
+  ro.observe(ipanel);
   cleanups.push(() => ro.disconnect());
 }
 
@@ -1367,6 +1657,8 @@ const restoredWithPending = takePendingQuery();
 // 上次离开时防抖还没触发（输入框里的字和上次搜的不一样）：恢复后补跑一次
 if (!restoredWithPending && saved.ts && typeof saved.input === 'string' && saved.input.trim() !== lastRaw) commitSearch();
 renderCatBar(); render();
+pageReady = true;
+if (idxPending) reloadIndex();
 paintStickyTop();
 LB.t('render');
 startWarm();
