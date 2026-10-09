@@ -159,28 +159,67 @@ function setup({ runPy, files = {}, root = '' } = {}) {
     S.events['layout-change'](); lf.view.getMode = () => 'preview'; S.events['layout-change'](); await tick();
     assert.ok(S.notices.at(-1).msg.includes('底部的批注块没了'));
   }
-  // ── F3-a：post-processor 注入（幂等；只对归档笔记）──
+  // ── 1010：顶栏那一行 =「← 目录　原文　机读版」（post-processor 注入「← 目录」、去掉「·」；幂等；只对归档笔记；不再有「导出 ▾」）──
   {
+    const opened = [];
     const S = setup();
-    const mk = () => {
+    S.plugin.openLibraryPage = async (role, leaf) => { opened.push([role, leaf]); };
+    const mk = (withOldButton = false) => {
       const el = S.D.createElement('div');
       const c = el.createEl('div', { cls: 'callout', attr: { 'data-callout': 'lb-topbar' } });
       c.createEl('div', { cls: 'callout-title' });
-      c.createEl('div', { cls: 'callout-content' }).createEl('p', { text: '原文' });
+      const content = c.createEl('div', { cls: 'callout-content' });
+      const p = content.createEl('p');
+      p.createEl('a', { cls: 'external-link', text: '原文' });
+      p.appendChild(S.D.createTextNode(' · '));
+      p.createEl('a', { cls: 'internal-link', text: '机读版' });
+      if (withOldButton) content.createEl('span', { cls: 'lb-topbar-tools' }).createEl('button', { cls: 'lb-topbar-export', text: '导出' });
       return el;
     };
-    const el = mk();
+    const el = mk(true);
     S.pps[0](el, { sourcePath: S.note.path, frontmatter: { link_brain: { item_id: 'xhs-abc' } } });
     S.pps[0](el, { sourcePath: S.note.path, frontmatter: { link_brain: { item_id: 'xhs-abc' } } });
-    const btns = el.querySelectorAll('.lb-topbar-export');
-    assert.equal(btns.length, 1); assert.equal(btns[0].textContent, '导出'); assert.equal(btns[0].getAttribute('aria-haspopup'), 'menu');
+    const p = el.querySelector('.callout-content p');
+    assert.ok(p.classList.contains('lb-topbar-row'));
+    assert.deepEqual(p.children.map(x => x.textContent), ['← 目录', '原文', '机读版'], '一行三样：← 目录 · 原文 · 机读版（顺序）');
+    assert.ok(!p.textContent.includes('·'), '中间的「·」去掉了（间距交给样式）');
+    assert.equal(el.querySelectorAll('.lb-topbar-back').length, 1, '幂等：再跑一次不重复插');
+    assert.equal(el.querySelectorAll('.lb-topbar-export, .lb-topbar-tools').length, 0, '老版本留下的「导出 ▾」摘掉了');
+    const back = p.children[0];
+    assert.equal(back.tagName, 'A', '是一个链接样的字，不是按钮（不吃主题的按钮框）');
+    assert.equal(back.getAttribute('tabindex'), '0');
     const el2 = mk(); S.pps[0](el2, { sourcePath: S.other.path, frontmatter: {} });
-    assert.equal(el2.querySelectorAll('.lb-topbar-export').length, 0);
-    // 点了出菜单两项
-    btns[0].click?.() ?? btns[0].dispatchEvent({ type: 'click' });
-    const menu = S.obs.Menu.open;
-    assert.ok(menu, '出菜单');
-    assert.deepEqual(menu.items.map(i => i.title), ['导出 PDF（和页面一样）', '导出压缩包（这一篇的全部本地资料）']);
+    assert.equal(el2.querySelectorAll('.lb-topbar-back').length, 0, '不是归档笔记：不动');
+    // 点「← 目录」：在笔记自己那一格打开目录页（目录页自己记着滚动和筛选）；Ctrl 点开新标签
+    const leaf = { view: { containerEl: el, getViewType: () => 'markdown' } };
+    S.ws.leaves.push(leaf);
+    let stopped = 0;
+    for (const fn of back.listeners.click) fn({ preventDefault() {}, stopPropagation() { stopped++; } });
+    await tick();
+    assert.deepEqual(opened.at(-1), ['catalog', leaf]);
+    assert.equal(stopped, 1);
+    for (const fn of back.listeners.click) fn({ ctrlKey: true, preventDefault() {}, stopPropagation() {} });
+    await tick();
+    assert.equal(opened.at(-1)[0], 'catalog'); assert.notEqual(opened.at(-1)[1], leaf); assert.deepEqual(S.ws.gotLeaves.at(-1), 'tab');
+    for (const fn of back.listeners.keydown) fn({ key: 'Enter', preventDefault() {} });
+    await tick();
+    assert.deepEqual(opened.at(-1), ['catalog', leaf], '键盘 Enter 也行');
+  }
+  // ── 1010：导出在 ⋮ 菜单里是「导出 ▸」子菜单（Obsidian 1.14 有 setSubmenu）——PDF / 压缩包 ──
+  {
+    const S = setup();
+    const proto = Object.getPrototypeOf(new S.obs.Menu().addItem(() => {}).items[0]);
+    proto.setSubmenu = function () { this.submenu = this.submenu || new S.obs.Menu(); return this.submenu; };   // 照 1.14.4 MenuItem.setSubmenu（返回一个 Menu）
+    try {
+      const m = new S.obs.Menu(); S.events['file-menu'](m, S.note, 'more-options');
+      const ex = m.find('导出');
+      assert.ok(ex && ex.submenu, '⋮ 菜单里一项「导出」，带子菜单');
+      assert.deepEqual(ex.submenu.items.map(i => i.title), ['PDF（和页面一样）', '压缩包（这一篇的全部本地资料）']);
+      assert.ok(!m.find('导出 PDF（和页面一样）'), '不再平铺两项');
+      assert.ok(m.find('恢复这篇（按存档重写，可撤销）'));
+      const m2 = new S.obs.Menu(); S.events['file-menu'](m2, S.bare, 'more-options');
+      assert.ok(!m2.find('导出'), '没有 item_id 的不给导出');
+    } finally { delete proto.setSubmenu; }
   }
   // ── F3：进行中防连点；成功 / 降级 / 失败提示 ──
   {

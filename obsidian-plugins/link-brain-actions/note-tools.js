@@ -1,7 +1,9 @@
 // note-tools.js — 批次 D · L5：笔记工具。
 //   F1-b 恢复这篇：⋯ 菜单 / 文件列表右键 / 命令「恢复这篇」「撤销上次恢复」「从快照找回…」（后端 restore，先存快照、可撤销）；
 //   F1-d 打开改坏的笔记就地提示一次（noteDamage 与 link_brain/restore.py 的 diagnose 同口径，共用样本 tests/fixtures/note_damage_cases.json）；
-//   F3-a 顶栏右端「导出 ▾」（markdown post-processor 注入，不烤进 md）+ 命令 + ⋯ 菜单：PDF（渲染版）/ 压缩包（这一篇的全部本地资料）。
+//   F3-a 导出：右上角 ⋮ 菜单「导出 ▸」子菜单（PDF / 压缩包）+ 命令。1010 她：顶栏右端那个带框的「导出 ▾」删掉。
+//   1010 她：笔记顶上插件那一行变成一行很轻的字「← 目录　原文↗　机读版」——「← 目录」由 markdown post-processor 注入（不烤进 md），
+//   点了在这一格打开目录页（目录页自己记着刚才的滚动位置和筛选）；md 里 原文 / 机读版 之间的「·」在显示时去掉，间距交给样式。
 // 插件 onload 里 require(...)(obsidian, plugin).attach()，实例在 plugin.noteTools。
 'use strict';
 
@@ -250,23 +252,40 @@ module.exports = (obsidian, plugin, deps = {}) => {
   const exportPdf = (file, btn) => exportNote(file, 'pdf', btn);
   const exportZip = (file, btn) => exportNote(file, 'zip', btn);
 
-  function zipTitle(info) {
+  function zipTitle(info, short = false) {
     const n = videoBytes(info);
-    return '导出压缩包（这一篇的全部本地资料）' + (n ? ` · 含视频 ${fmtSize(n)}` : '');
+    return (short ? '压缩包（这一篇的全部本地资料）' : '导出压缩包（这一篇的全部本地资料）') + (n ? ` · 含视频 ${fmtSize(n)}` : '');
   }
-  function openExportMenu(file, evt, btn) {
-    const info = itemOf(file);
-    if (!info) return null;
-    if (exporting.has(file.path)) { plugin.notify('正在导出，稍等'); return null; }
-    const menu = new obsidian.Menu();
-    menu.addItem(i => i.setTitle('导出 PDF（和页面一样）').setIcon?.('file-text').onClick(() => exportPdf(file, btn)));
-    menu.addItem(i => i.setTitle(zipTitle(info)).setIcon?.('package').onClick(() => exportZip(file, btn)));
-    if (evt && typeof menu.showAtMouseEvent === 'function') menu.showAtMouseEvent(evt);
-    else if (btn && btn.getBoundingClientRect) { const r = btn.getBoundingClientRect(); menu.showAtPosition({ x: r.left, y: r.bottom }); }
-    return menu;
+  // 导出的几种格式：⋮ 菜单「导出 ▸」的子菜单（Obsidian 1.14 的 MenuItem.setSubmenu）；没有子菜单的老版本退回两项平铺
+  function addExportItems(menu, file, info) {
+    let sub = null;
+    menu.addItem(item => {
+      item.setTitle('导出').setIcon?.('download');
+      try { sub = typeof item.setSubmenu === 'function' ? item.setSubmenu() : null; } catch { sub = null; }
+      if (!sub) item.setTitle('导出 PDF（和页面一样）').setIcon?.('file-text').onClick(() => exportPdf(file));
+    });
+    if (sub) {
+      sub.addItem(i => i.setTitle('PDF（和页面一样）').setIcon?.('file-text').onClick(() => exportPdf(file)));
+      sub.addItem(i => i.setTitle(zipTitle(info, true)).setIcon?.('package').onClick(() => exportZip(file)));
+    } else menu.addItem(i => i.setTitle(zipTitle(info)).setIcon?.('package').onClick(() => exportZip(file)));
+    return sub;
   }
 
-  // 顶栏 callout 末尾注入「导出 ▾」（幂等；只对归档笔记）
+  // 笔记在哪一格（点「← 目录」就在这一格打开目录页）
+  function leafOfEl(el) {
+    let leaves = [];
+    try { leaves = app().workspace.getLeavesOfType('markdown') || []; } catch {}
+    return leaves.find(l => { const c = l && l.view && l.view.containerEl; return c && typeof c.contains === 'function' && c.contains(el); }) || null;
+  }
+  async function backToCatalog(el, evt) {
+    const ws = app().workspace;
+    const leaf = evt && (evt.ctrlKey || evt.metaKey) && typeof ws.getLeaf === 'function' ? ws.getLeaf('tab') : leafOfEl(el);
+    try { await plugin.openLibraryPage('catalog', leaf || null); }
+    catch (err) { console.error('[lb] 目录没打开', err); plugin.notify('目录没打开：' + ((err && err.message) || err), { kind: 'error' }); }
+  }
+
+  // 顶栏 callout（「原文 · 机读版」那一行）：最左插一个「← 目录」，去掉中间的「·」（幂等；只对归档笔记）。
+  // 老版本插件留下的「导出 ▾」按钮（热重载时还在页面上）顺手摘掉。
   function postProcess(el, ctx) {
     if (!el || !el.querySelectorAll) return;
     const sp = (ctx && ctx.sourcePath) || '';
@@ -276,31 +295,33 @@ module.exports = (obsidian, plugin, deps = {}) => {
     const callouts = [...(el.matches && el.matches('.callout[data-callout="lb-topbar"]') ? [el] : []), ...el.querySelectorAll('.callout[data-callout="lb-topbar"]')];
     for (const c of callouts) {
       const content = c.querySelector('.callout-content');
-      if (!content || content.querySelector('.lb-topbar-export')) continue;
-      const D = content.ownerDocument || doc();
-      const wrap = D.createElement('span'); wrap.className = 'lb-topbar-tools';
-      const b = D.createElement('button'); b.className = 'lb-topbar-export'; b.type = 'button';
-      b.setAttribute('aria-haspopup', 'menu'); b.textContent = '导出';
-      b.addEventListener('click', e => {
-        try { e.preventDefault(); e.stopPropagation(); } catch {}
-        const file = app().vault.getAbstractFileByPath(sp);
-        if (b.getAttribute('aria-busy') === 'true') { plugin.notify('正在导出，稍等'); return; }
-        openExportMenu(file, e, b);
-      });
-      wrap.appendChild(b); content.appendChild(wrap);
+      if (!content) continue;
+      for (const old of [...content.querySelectorAll('.lb-topbar-tools')]) old.remove();
+      const row = content.querySelector('p') || content;
+      row.classList.add('lb-topbar-row');
+      for (const n of [...row.childNodes]) if (n.nodeType === 3 && /^[\s·•]*$/.test(n.textContent || '')) n.remove();
+      if (row.querySelector('.lb-topbar-back')) continue;
+      const D = row.ownerDocument || doc();
+      const a = D.createElement('a');
+      a.className = 'lb-topbar-back';
+      a.textContent = '← 目录';
+      a.setAttribute('role', 'link');
+      a.setAttribute('tabindex', '0');
+      a.setAttribute('aria-label', '回到目录页（停在刚才看的位置）');
+      a.addEventListener('click', e => { try { e.preventDefault(); e.stopPropagation(); } catch {} backToCatalog(a, e); });
+      a.addEventListener('keydown', e => { if (e.key !== 'Enter' && e.key !== ' ') return; try { e.preventDefault(); } catch {} backToCatalog(a, e); });
+      row.insertBefore(a, row.firstChild);
     }
   }
 
-  function fileMenu(menu, file) {
+  // ⋮ 菜单 / 文件列表右键 / 标签页右键：导出 ▸（PDF / 压缩包）· 恢复这篇 · 从快照找回…
+  function fileMenu(menu, file, source) {
     const info = itemOf(file);
     if (!info) return;
     menu.addSeparator?.();
+    if (info.itemId) addExportItems(menu, file, info);
     menu.addItem(i => i.setTitle('恢复这篇（按存档重写，可撤销）').setIcon?.('history').onClick(() => restore(file)));
     if (hasSnapshots(info)) menu.addItem(i => i.setTitle('从快照找回…').setIcon?.('archive-restore').onClick(() => pickSnapshot(file)));
-    if (info.itemId) {
-      menu.addItem(i => i.setTitle('导出 PDF（和页面一样）').setIcon?.('file-text').onClick(() => exportPdf(file)));
-      menu.addItem(i => i.setTitle(zipTitle(info)).setIcon?.('package').onClick(() => exportZip(file)));
-    }
   }
 
   const activeFile = () => { try { return app().workspace.getActiveFile(); } catch { return null; } };
@@ -318,7 +339,7 @@ module.exports = (obsidian, plugin, deps = {}) => {
       plugin.registerMarkdownPostProcessor?.((el, ctx) => postProcess(el, ctx));
       const ws = app().workspace;
       if (ws && ws.on) {
-        plugin.registerEvent(ws.on('file-menu', (menu, file) => fileMenu(menu, file)));
+        plugin.registerEvent(ws.on('file-menu', (menu, file, source) => fileMenu(menu, file, source)));
         plugin.registerEvent(ws.on('file-open', file => { if (file) checkDamage(file).catch?.(() => {}); }));
         plugin.registerEvent(ws.on('layout-change', () => {
           let leaves = [];
@@ -336,8 +357,8 @@ module.exports = (obsidian, plugin, deps = {}) => {
       cmd('export-note-pdf', '导出当前笔记为 PDF', f => exportPdf(f), i => !!i.itemId);
       cmd('export-note-zip', '导出当前笔记为压缩包', f => exportZip(f), i => !!i.itemId);
     },
-    restore, undo, pickSnapshot, exportPdf, exportZip, openExportMenu, checkDamage, noteDamage, itemOf,
-    _internals: { postProcess, fileMenu, hasSnapshots, videoBytes, snapLabel, reasonText, warned, restoring, exporting },
+    restore, undo, pickSnapshot, exportPdf, exportZip, checkDamage, noteDamage, itemOf, backToCatalog,
+    _internals: { postProcess, fileMenu, addExportItems, hasSnapshots, videoBytes, snapLabel, reasonText, warned, restoring, exporting },
   };
   return inst;
 };

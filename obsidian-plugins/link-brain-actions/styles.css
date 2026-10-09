@@ -286,14 +286,11 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-menu-sub { font-size: 11px; color: var(--text-faint); line-height: 1.3; }
 .lb-cols-pick { display: flex; flex-wrap: wrap; gap: 8px; }
 
-/* L5：顶栏「导出」（note-tools.js 注入，不烤进 md）——顶栏高度、两栏都不变 */
-.xhs-note .callout[data-callout="lb-topbar"] .callout-content { display: flex; align-items: baseline; gap: 12px; }
-.lb-topbar-tools { margin-left: auto; flex: none; }
-.lb-topbar-export { all: unset; cursor: pointer; color: var(--text-muted); font-size: inherit; line-height: inherit; }
-.lb-topbar-export::after { content: " ▾"; font-size: .85em; }
-.lb-topbar-export:hover { color: var(--interactive-accent); text-decoration: underline; }
-.lb-topbar-export:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; border-radius: 2px; }
-.lb-topbar-export[aria-busy="true"] { cursor: progress; }
+/* 1010 她：笔记顶上插件那一行 = 一行很轻的字「← 目录　原文↗　机读版」（note-tools.js 注入「← 目录」、去掉「·」）；
+   没有框、没有右侧控件（导出在右上角 ⋮ 菜单）。颜色 / 悬停沿用 link-brain.css 里这一行链接的规则（灰字，悬停主题色 + 下划线） */
+.xhs-note .callout[data-callout="lb-topbar"] p.lb-topbar-row { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 1.25em; row-gap: 2px; word-spacing: normal; }
+.xhs-note .callout[data-callout="lb-topbar"] a.lb-topbar-back { cursor: pointer; white-space: nowrap; }
+.xhs-note .callout[data-callout="lb-topbar"] a.lb-topbar-back:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; border-radius: 2px; }
 
 /* L5：连播——标签弹窗 + 播放视图（列表无灰框、不显示滚动条） */
 .lb-tagpick-input { width: 100%; margin-bottom: 8px; }
