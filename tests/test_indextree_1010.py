@@ -595,3 +595,11 @@ def test_edit_keeps_line_numbers_with_odd_line_separators():
     assert out == "%% 说明\x0c里有换页符 和行分隔符 %%\n- 美食：家常菜, 快手菜\n- 旅游\n"
     out2 = it.edit_new_node(text, "旅游", "成都")
     assert out2.endswith("- 旅游\n\t- 成都\n") and out2.startswith("%% 说明\x0c")
+
+
+def test_catalog_cli_says_index_was_created_first_time(vault, capsys):
+    _make_object(vault, "d1", title="美食", tags=["美食教程"], summary="x", stem="美食")
+    code, out = run_cli(capsys, "catalog")
+    assert code == 0 and "第一次建了 索引.md" in out["message"] and out["index"]["migrated"] is True
+    code, out = run_cli(capsys, "catalog")
+    assert "第一次" not in out["message"] and out["index"]["migrated"] is False

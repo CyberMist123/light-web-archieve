@@ -530,6 +530,7 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
         cats_order = list(idx["cats_order"])
         index_info = {"file": idx["file"], "generated_at": idx["generated_at"], "roots": idx["roots"],
                       "unclassified": idx["unclassified"]["count"], "migrated": bool(idx.get("migrated"))}
+        LAST_INDEX.clear(); LAST_INDEX.update(index_info, warnings=len(idx.get("warnings") or []))
     except Exception as exc:  # noqa: BLE001
         import sys
         print(f"[catalog] 索引没算出来，顶部分类先照旧按关键词分：{type(exc).__name__}: {exc}", file=sys.stderr)
@@ -604,6 +605,7 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
 
 
 PATCHABLE = frozenset({"starred", "starred_at"})
+LAST_INDEX: dict[str, Any] = {}   # 上一次 build 算出的索引摘要（run() 拼提示用）
 
 
 def file_stat(path: Path) -> dict[str, int]:
@@ -663,6 +665,12 @@ def run(args) -> int:
     print(f"目录已重写：{path}（{total} 篇）", file=sys.stderr)
     print(f"数据：{data_path}", file=sys.stderr)
     result = {'ok': True, 'code': '', 'message': f'目录已刷新（{total} 篇）', 'total': total, 'path': str(path), 'data': str(data_path)}
+    if LAST_INDEX:
+        result['index'] = dict(LAST_INDEX)
+        if LAST_INDEX.get('migrated'):
+            result['message'] += f"；第一次建了 {LAST_INDEX.get('file')}（按原来的分类，顶部分类不变）"
+        elif LAST_INDEX.get('warnings'):
+            result['message'] += f"；{LAST_INDEX.get('file')} 有 {LAST_INDEX['warnings']} 处写法要看一眼（目录页「索引」里有）"
     # 只在真没装 / 没开 JS 查询时提示（10-03 她：已经装了还每次刷新目录都弹这句）
     from .doctor import dataview_ready
     if not dataview_ready(storage.vault_root() / ".obsidian"):
