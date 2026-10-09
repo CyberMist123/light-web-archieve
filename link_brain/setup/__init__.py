@@ -20,8 +20,8 @@ EXIT_OK, EXIT_FAILED, EXIT_NEEDS_HUMAN = 0, 1, 5
 
 
 def add_parser(sub) -> None:
-    p = sub.add_parser("setup", help="「开始」页向导：plan / check / install / estimate / backfill")
-    ssub = p.add_subparsers(dest="setup_command", metavar="<plan|check|install|estimate|backfill>")
+    p = sub.add_parser("setup", help="设置页「功能」：plan / check / install / estimate / backfill / run")
+    ssub = p.add_subparsers(dest="setup_command", metavar="<plan|check|install|estimate|backfill|run>")
     ssub.add_parser("plan", help="功能清单（每项磁盘 / 内存占用、状态、预设）")
     pc = ssub.add_parser("check", help="逐项检查（只读）")
     pc.add_argument("--components", default="", help="逗号分隔的功能 id，不给 = 全部")
@@ -31,6 +31,8 @@ def add_parser(sub) -> None:
     pe = ssub.add_parser("estimate", help="每 N 篇的 AI 花费估算")
     pe.add_argument("--posts", type=int, default=100)
     ssub.add_parser("backfill", help="补历史收藏进度和预计天数")
+    ssub.add_parser("run", help="一键装好 / 跑完（1009）：装好缺的 → 确认登录 → 同步 → 识图 / 概要 → 目录 → 索引 → 评论补齐转后台；"
+                                "stdout 一行一个进度事件，最后一行 result")
 
 
 def _say(message: str) -> None:
@@ -74,5 +76,15 @@ def run(args) -> int:
     if cmd == "backfill":
         dump_json(backfill.backfill())
         return EXIT_OK
+    if cmd == "run":
+        from . import pipeline
+        try:
+            out = pipeline.run(stdout_emit)
+        except KeyboardInterrupt:
+            out = {"type": "result", "ok": False, "code": "TRANSIENT.INTERRUPTED", "message": "被打断了：做了的都存好了，再点一次接着来"}
+        if not out["ok"]:
+            _say(out["message"])
+        stdout_emit(out)
+        return EXIT_OK if out["ok"] else (EXIT_NEEDS_HUMAN if out.get("code") == "NEEDS_HUMAN" else EXIT_FAILED)
     dump_json({"ok": False, "code": "SKIPPED.NOT_CONFIGURED", "message": "要给子命令：plan / check / install / estimate / backfill"})
     return EXIT_FAILED

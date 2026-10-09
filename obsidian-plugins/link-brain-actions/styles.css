@@ -334,3 +334,43 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-remote-nodomain > summary { cursor: pointer; color: var(--text-accent); }
 .lb-remote-sub { margin: 10px 0 2px; color: var(--text-muted); }
 .lb-remote-depth2 .setting-item-name { padding-left: 1.5em; }
+
+/* —— 1009 她：设置页一页——状态 · 功能（开关 + 一键装好 / 跑完）· 连接 AI · 高级（一个折叠）—— */
+.lb-settings .lb-section { margin: 0 0 18px; }
+.lb-settings .lb-section > h3, .lb-home-head h3, .lb-connect > h3 { margin: 6px 0 6px; font-size: var(--font-ui-medium); }
+.lb-home-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.lb-home-presets { display: flex; gap: 6px; flex-wrap: wrap; }
+.lb-home-presets .lb-preset { font-size: var(--font-ui-small); height: auto; padding: 2px 10px; }
+.lb-feat.is-required .setting-item-name { color: var(--text-muted); }
+.lb-feat-total { margin: 4px 0 8px; color: var(--text-muted); font-size: var(--font-ui-small); font-variant-numeric: tabular-nums; }
+.lb-feat-ai { margin: 4px 0 10px; }
+.lb-feat-cap { border-left: 3px solid var(--background-modifier-border); padding: 0 0 4px 12px; margin: 8px 0; }
+.lb-feat-cap > h4 { margin: 6px 0 2px; font-size: var(--font-ui-small); color: var(--text-muted); }
+.lb-estimate-line { line-height: 1.7; }
+.lb-estimate-use { margin-left: 6px; font-size: var(--font-ui-smaller); height: auto; padding: 1px 8px; }
+.lb-run { border: 1px solid var(--background-modifier-border); border-radius: 8px; padding: 10px 12px; background: var(--background-secondary); }
+.lb-run-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.lb-run-actions .setting-item-description { flex: 1 1 260px; }
+.lb-run-steps { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+.lb-run-step { display: flex; gap: 8px; align-items: baseline; line-height: 1.6; }
+.lb-run-mark { flex: none; width: 1.4em; text-align: center; }
+.lb-run-step.is-ok .lb-run-mark { color: var(--lb-ok); }
+.lb-run-step.is-failed .lb-run-mark { color: var(--lb-danger); }
+.lb-run-step.is-skipped { color: var(--text-muted); }
+.lb-run-label { flex: none; }
+.lb-run-text { color: var(--text-muted); font-size: var(--font-ui-small); overflow-wrap: anywhere; min-width: 0; }
+.lb-run-result { margin-top: 8px; font-weight: var(--font-semibold); }
+.lb-run-result.is-failed { color: var(--lb-warn); }
+.lb-fill-row button.is-hidden { display: none; }
+.lb-connect-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
+.lb-connect-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid var(--background-modifier-border); border-radius: 999px; cursor: pointer; user-select: none; }
+.lb-connect-chip.is-on { border-color: var(--interactive-accent); background: var(--background-modifier-hover); }
+.lb-connect-chip input { margin: 0; }
+.lb-connect-web { border-left: 3px solid var(--interactive-accent); padding: 0 0 4px 12px; margin: 6px 0 10px; }
+.lb-connect-howto ol { margin: 2px 0 8px; padding-left: 20px; line-height: 1.7; }
+.lb-connect-howto .setting-item-name { margin-top: 8px; }
+.lb-connect-cmd { display: block; user-select: all; word-break: break-all; padding: 4px 6px; margin-top: 4px; background: var(--background-secondary); border-radius: 4px; }
+.lb-connect-pick .setting-item-control { flex-wrap: wrap; gap: 6px; }
+.lb-adv > summary { cursor: pointer; font-weight: var(--font-semibold); font-size: var(--font-ui-medium); padding: 6px 0; border-top: 1px solid var(--background-modifier-border); }
+.lb-adv-body h4 { margin: 18px 0 4px; font-size: var(--font-ui-small); color: var(--text-muted); }
+.lb-remote-recent { line-height: 1.7; max-height: 14em; overflow: auto; }

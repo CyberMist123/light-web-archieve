@@ -212,7 +212,7 @@ async function pluginTests() {
     assert.equal(opened.length, 1);
   } finally { fs.rmSync(evRoot, { recursive: true, force: true }); delete process.env.LINK_BRAIN_EVIDENCE_DIR; }
   // 设置页「立即同步」旁：如实写上次几点判到验证（不拦）
-  const at = new Date(Date.now() - 3600000).toISOString();
+  const d0 = new Date(); d0.setSeconds(0, 0); d0.setMinutes(Math.max(0, d0.getMinutes() - 1)); const at = d0.toISOString();   // 今天之内（以前取一小时前，半夜跑会落到昨天）
   assert.match(Plugin.lastRiskNote({ last_risk: { at, code: 'NEEDS_HUMAN.CAPTCHA_REQUIRED', open: true } }), /^⚠ 上次 今天 \d\d:\d\d 在读收藏时判到验证（暂停中/);
   assert.equal(Plugin.lastRiskNote({ last_risk: { at: '2026-01-01T00:00:00Z', open: false } }), '');
   assert.equal(Plugin.lastRiskNote({}), '');

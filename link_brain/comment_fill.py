@@ -676,8 +676,13 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
                 continue
             done.append({"item_id": item_id, "filled": out.get("filled"), "missing_after": out.get("missing_after"),
                          "done": out.get("done"), "stuck": out.get("stuck")})
+            print(f"[comments] {datetime.now():%H:%M:%S} {item_id}《{entry['title'][:30]}》{out.get('mode')}："
+                  f"缺 {out.get('missing_before')} → {out.get('missing_after')}"
+                  + ("，补齐了" if out.get("done") else "，连着补不上，进问题面板" if out.get("stuck") else "，下次接着补"),
+                  file=sys.stderr)
             if out.get("done"):
                 status.done_ids.add(item_id)
+                status.data["done"] = len(status.done_ids)
                 since_catalog += 1
             if since_catalog >= CATALOG_EVERY:
                 since_catalog = 0

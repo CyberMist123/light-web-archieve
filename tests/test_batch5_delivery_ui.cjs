@@ -73,7 +73,7 @@ const context = { module: { exports: {} }, process, setTimeout, clearTimeout, co
   window: { confirm: () => true },
   // 插件按「库根 + manifest.dir」require 自己的几个文件；临时库里没拷插件，指回仓库里的源文件
   require: n => n === 'obsidian' ? obsidianStub : n === 'child_process' ? { spawn: fakeSpawn }
-    : /[\\/](onboarding-ui|media-nav|remote-ui|setup-ui)\.js$/.test(n) ? require(path.join(ROOT, PLUGIN_DIR, path.basename(n))) : require(n) };
+    : /[\\/](onboarding-ui|media-nav|remote-ui|home-ui)\.js$/.test(n) ? require(path.join(ROOT, PLUGIN_DIR, path.basename(n))) : require(n) };
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(path.join(ROOT, PLUGIN_DIR, 'main.js'), 'utf8') + '\nmodule.exports.__SettingTab = LinkBrainSettingTab; module.exports.__merge = mergeSettings;', context);
 const Plugin = context.module.exports;
@@ -180,16 +180,16 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   assert.ok(hint && /没找到后端程序/.test(hint.textContent), '设置页顶部有缺后端提示');
   hint.querySelector('button').click(); await flush();
   assert.equal(context.clipboard, 'uv tool install link-brain');
-  // 「开始」页：后端都找不到时，功能清单读不到 → 如实说 + 「复制安装命令」
+  // 设置页「功能」：后端都找不到时，功能清单读不到 → 如实说 + 「复制安装命令」
   await flush(); await flush();
   const startErr = tab.containerEl.querySelector('.lb-setup-error');
-  assert.ok(startErr && /没找到后端程序/.test(startErr.textContent), '「开始」页如实说后端没找到');
+  assert.ok(startErr && /没找到后端程序/.test(startErr.textContent), '「功能」如实说后端没找到');
   context.clipboard = '';
   startErr.querySelectorAll('button').find(b => b.textContent === '复制安装命令').click(); await flush();
   assert.equal(context.clipboard, 'uv tool install link-brain');
   // 「高级 → 运行环境」里有后端命令一行、收藏存放位置一行（提示在每个分页顶部都有）
-  tab.showTab('advanced');
-  assert.ok(tab.containerEl.querySelector('.lb-setup-hint'), '换分页提示还在');
+  env.p.settingsView = { ...(env.p.settingsView || {}), adv: true }; tab.display();   // 1009：一页，「高级」展开
+  assert.ok(tab.containerEl.querySelector('.lb-setup-hint'), '提示在页顶');
   const rowNames = tab.containerEl.querySelectorAll('.setting-item-name').map(e => e.textContent);
   assert.ok(rowNames.includes('后端命令') && rowNames.includes('收藏存放位置'));
   tab.hide(); env.p.settingsView = null;
@@ -213,19 +213,21 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   env = makePlugin(plainVault, { saved: { backend: { command: `"${fakeExe}"` } } });
   await env.p.locateCollection();
   assert.equal(await env.p.onboardingUI().needsOnboarding(), true);
-  // 第 7 批：首次引导 = 设置页「开始」分页（不再弹窗）。启动时打开它一次，并记下「走过」免得每次启动都开
+  // 1009 她：零配置——新库第一次启动不弹分步向导，按轻量版自动跑一次（home-ui firstRun），记下「走过」免得每次启动都跑
   env.p.runPy = async (args) => { throw new Error('意外的调用 ' + args.join(' ')); };
   env.p.settingTab = { display() { this.shown = (this.shown || 0) + 1; } };
+  const firstRuns = [];
+  env.p.homeUI = () => ({ firstRun: async () => { firstRuns.push(Date.now()); return 'started'; } });
+  const opened = env.p.app.setting.opened.length;
   assert.equal(await env.p.startupChecks(), 'onboarding');
-  assert.deepEqual(env.p.app.setting.opened.slice(-1), ['link-brain-actions'], '打开本插件设置页');
-  assert.equal(env.p.settingsView.tab, 'start', '停在「开始」分页');
-  assert.equal(env.p.settings.onboarding.done, true, '自动打开一次就算走过');
+  assert.equal(firstRuns.length, 1, '按轻量版自动跑一次');
+  assert.equal(env.p.app.setting.opened.length, opened, '不弹设置页 / 向导');
+  assert.equal(env.p.settings.onboarding.done, true, '跑过一次就算走过');
   assert.equal(await env.p.onboardingUI().needsOnboarding(), false);
-  // 命令面板「打开首次引导」照旧在：同样打开「开始」分页；设置页已经停在本插件时补一次重画
-  env.p.settingsView.tab = 'ai';
+  // 命令面板「打开设置（功能 · 一键装好 / 跑完）」：打开设置页、滚到「功能」；设置页已经停在本插件时补一次重画
   env.p.app.setting.activeTab = env.p.settingTab;
-  env.p.openOnboarding();
-  assert.equal(env.p.settingsView.tab, 'start');
+  env.p.openSetupPage('features');
+  assert.equal(env.p.settingsView.focus, 'features');
   assert.equal(env.p.settingTab.shown, 1, '已经开着本插件设置页 → 重画一次');
   // 原第 ① 步「收藏存放位置」搬成一行设置（「开始」第 ① 步和「高级」分页共用）：乱填如实拒绝；填子文件夹 → 建文件夹、存设置、
   // LINK_BRAIN_VAULT 跟着换、写 ~/.link-brain/config.json

@@ -1,6 +1,6 @@
 // onboarding-ui.js — 第 5 批 B2（RELEASE-BAR P8）：首次打开的引导 + 启动时的「缺什么」提示。
 // main.js 只接几行：onboardingUI() 按需 require 本文件；openOnboarding() / startupChecks() / renderSetupHints(c) 转到这里。
-// 第 7 批：首次引导不再是弹窗——直接打开设置页「开始」分页（setup-ui.js：选功能 / 检查安装 / 扫码 / 同步 / AI）。
+// 1009 她：首次不弹分步向导了——零配置，装上就按轻量版自动跑一次（home-ui.js firstRun）；设置页顶部就是功能开关。
 // 原第 ① 步「收藏存放位置」搬成一行设置 renderFolder（「开始」第 ① 步和「高级」分页共用）；读取组件归第 ② 步 setup install。
 // 什么时候自己打开：这个库第一次启用本插件、后端程序找得到、收藏库里还没有 _archive（还没准备好）、没走过引导。作者本机（已有收藏库）不开。
 // 本模块不起进程：一律经 plugin.runPy（CONVENTIONS §1.4）。
@@ -95,7 +95,7 @@ module.exports = function (obsidian, plugin) {
 
   return {
     // 首次引导 = 设置页「开始」分页
-    open() { return plugin.openSetupPage('start'); },
+    open() { return plugin.openSetupPage('features'); },
     needsOnboarding,
     renderFolder,
     saveFolder,
@@ -107,11 +107,13 @@ module.exports = function (obsidian, plugin) {
       const b = plugin.currentBackend();
       if (b.mode === 'missing') { noticeWithButton(plugin.backendMissingText(), '复制安装命令', () => copy(BACKEND_INSTALL), 30000); return 'backend-missing'; }
       if (await needsOnboarding()) {
-        plugin.settings.onboarding = { done: true, at: new Date().toISOString(), via: 'setup-page' };
+        // 1009 她：零配置——装上就按轻量版自动跑（装好缺的 → 同步 → OCR → 目录 → 索引），不弹分步向导
+        plugin.settings.onboarding = { done: true, at: new Date().toISOString(), via: 'first-run' };
         Promise.resolve(plugin.saveSettings()).catch(e => console.error('[lb] 引导状态没存上', e));
-        this.open();
+        try { await plugin.homeUI().firstRun(); } catch (e) { console.error('[lb] 首次自动跑没起来', e); this.open(); }
         return 'onboarding';
       }
+      try { await plugin.homeUI().firstRun(); } catch (e) { console.error('[lb] 首次标记没记上', e); }
       return 'ready';
     },
     // 设置页最上面：缺后端 / 缺 Dataview / 旧图片导航插件还开着 → 各一块提示（都正常就什么也不加）

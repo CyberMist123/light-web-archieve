@@ -55,10 +55,13 @@ function render(saved) {
   const calls = [];
   const plugin = { app: { workspace: { getActiveFile: () => null } }, mcpArgv: () => ['python', '-m', 'link_brain', 'mcp'], testMcp: async () => { calls.push(['mcp']); return { json: plugin.reply }; }, settings: Plugin.__merge(saved), saveSettings: async () => {}, renderAccounts() {}, renderSyncRow() {},
     capsWriterDir: () => null, onboardingUI: () => ({ renderFolder: () => null }), runPy: async (args) => { calls.push(args); return { json: plugin.reply, err: '' }; } };
-  // 第 7 批：设置页分页了，一页一页打开把四个设置分页都画一遍（「开始」页另有 test_setup_wizard.cjs）
+  // 1009：设置页是一页——「功能」里 AI 打开就原地出接口那几格（这里替身直接画两块），其余在「高级」（展开着画）
+  plugin.homeUI = () => ({ renderStatus: () => () => {}, renderFeatures: (c, tab) => { tab.sectionTextAI(c, { heading: false }); tab.sectionVisionAI(c); return () => {}; } });
+  plugin.remoteUI = { renderConnect: () => () => {}, renderAdvanced: () => {} };
+  plugin.settingsView = { adv: true };
   const tab = new Plugin.__SettingTab({}, plugin);
-  let text = '';
-  for (const id of ['sync', 'ai', 'remote', 'advanced']) { plugin.settingsView = { ...plugin.settingsView, tab: id, otherAI: false }; tab.display(); text += tab.containerEl.allText() + '\n'; }
+  tab.display();
+  const text = tab.containerEl.allText() + '\n';
   return { tab, plugin, calls, text };
 }
 
@@ -67,7 +70,7 @@ function render(saved) {
   let { plugin, calls, text } = render({});
   const byName = n => settings.find(r => r.name === n);
   for (const [name, modes] of [['文本 AI', ['http', 'cli', 'off']], ['归档摘要模型（默认同文本 AI）', ['inherit', 'http', 'off']],
-    ['识图接口', ['http', 'off']], ['语音识别', ['capswriter', 'http', 'off']], ['文字识别（OCR）', ['local', 'off']]]) {
+    ['识图接口', ['http', 'off']], ['语音识别', ['capswriter', 'http', 'off']]]) {   // 1009：OCR 的开关在「功能」里（只有开 / 关），这里不再有方式下拉
     const rec = byName(name);
     assert.ok(rec && rec.dropdown, `缺「${name}」`);
     assert.deepEqual(rec.dropdown.options.map(o => o[0]), modes, `${name} 的方式`);
@@ -80,30 +83,30 @@ function render(saved) {
 
   // 每个能力块下一个测试按钮，调 selftest <能力>
   const tests = settings.flatMap(r => r.buttons).filter(b => /^测试/.test(b.label));
-  assert.deepEqual(tests.map(b => b.label), ['测试文本 AI', '测试归档摘要', '测试识图', '测试语音识别', '测试 OCR', '测试 MCP']);
+  assert.deepEqual(tests.map(b => b.label), ['测试文本 AI', '测试识图', '测试归档摘要', '测试语音识别', '测试 OCR', '测试 MCP'], '「功能」里的两块在前，其余在「高级」');
   for (const b of tests) await b.onClickCb();
-  assert.deepEqual(calls.map(a => a.at(-1)), ['text', 'summary', 'vision', 'asr', 'ocr', 'mcp']);
+  assert.deepEqual(calls.map(a => a.at(-1)), ['text', 'vision', 'summary', 'asr', 'ocr', 'mcp']);
   assert.ok(calls.slice(0, -1).every(a => a[2] === 'selftest'));
   assert.deepEqual(calls.at(-1), ['mcp']);
 
   // 没配 = 「未开启：原因」，不是「失败」
   notices.length = 0;
   plugin.reply = { kind: 'summary', ok: false, skipped: true, detail: '文本 AI没填接口地址' };
-  await tests[1].onClickCb();
+  await tests[2].onClickCb();
   assert.match(plugin.settingsView.tests.summary.text, /^未开启/);
   plugin.reply = { kind: 'vision', ok: false, skipped: false, code: 'NEEDS_HUMAN.AUTH_FAILED', detail: '接口拒绝了 key（HTTP 401）' };
-  await tests[2].onClickCb();
+  await tests[1].onClickCb();
   assert.match(plugin.settingsView.tests.vision.text, /^✗ 失败.*401/);
 
   // CapsWriter 目录的提示里不带任何本机盘位
-  const capsDir = byName('　CapsWriter 目录');
+  const capsDir = byName('CapsWriter 目录');
   assert.ok(capsDir && !/\\AI\\/.test(capsDir.texts[0].placeholder));
 
   // —— 旧配置（作者本机那种 mode=media）：只读显示，加一个说明 ——
   ({ text } = render({ textAI: { mode: 'http', endpoint: 'https://api.deepseek.com/chat/completions', model: '', keyFile: 'x.csv', keyField: 'ds' },
     visionAI: { mode: 'media', model: 'qwen3.8-flash' }, asrAI: { mode: 'media' }, ocr: { mode: 'media', via: 'local' } }));
   assert.match(text, /旧版「本机千问配置」/);
-  for (const name of ['识图接口', '语音识别', '文字识别（OCR）']) {
+  for (const name of ['识图接口', '语音识别']) {
     const rec = byName(name);
     assert.equal(rec.dropdown.value, 'media');
     assert.deepEqual(rec.dropdown.options.at(-1), ['media', '旧版本机配置（已自动换算）']);

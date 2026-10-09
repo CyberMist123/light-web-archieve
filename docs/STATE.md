@@ -1,5 +1,13 @@
 # Current State
 
+## 2026-10-09 晚反馈批次：评论补齐 + 设置一页（状态 · 功能 · 连接 AI · 高级）+ 连接 AI + 选本机文件夹（分支 wt/1009-fill-setup）
+
+- **评论补齐**（她：评论楼层 N = 前 N 楼、每楼楼中楼全抓全，读不完后台自动续到补齐）：根因 = 10-08 以前入库的笔记没有 comment_load，续读排程只认 comment_load 里的缺口 → 永远排不上（真库 195 篇 / 5863 条）；夜跑每晚只续 2 篇、总共 3 次。改成按存下的评论现算缺口（设置楼数内）、并集合并（调小不删）、没多拿到不出新版本、图 / 视频引用旧文件；连着 3 次没进展才进问题面板（PERMANENT.COMMENTS_INCOMPLETE）。后台补跑 `comments --fill-pending --until-done`：单实例、每篇自己拿账号锁、篇间 60–180 秒、撞验证 / 掉登录只看内存状态等她、夜跑时让路、别的任务在等号先让（FileLock「我在等」标记）；进度 `_archive/comments-fill-status.json`，插件状态栏 / 设置页显示；夜跑这一步去掉每晚 2 篇上限、40 分钟没补完转后台；楼数调大 / 同步完 / 打开 Obsidian 自动拉起。
+- **设置一页**（她 10-09 的裁决，SETUP-CONTRACT 顶部）：不再分页、不再分步向导；顶部「状态 · 功能（开关 + AI 原地填 + 一键装好 / 跑完）· 连接 AI」，其余一个「高级」；重复项删到只剩一处；零配置首次按轻量版自动跑一次。后端 `setup run`（装好 → 确认登录 → 同步 → 识图 / 概要 → 目录 → 索引 → 评论补齐转后台）。
+- **连接 AI**：五个客户端可勾；Claude Code（`claude mcp add lwa -s user`）/ Claude Desktop（改 claude_desktop_config.json）一键写配置、写前备份、可撤销（`connect add|remove|status`）；claude.ai / ChatGPT 一屏给全；开放文件夹「从库内选…」（FuzzySuggestModal）+「选本机文件夹…」（Electron 拿不到时 `pick-folder` 弹系统对话框，tkinter 置顶 / PowerShell 兜底）。
+- **卡片**：轻量版不标任何 AI 角标；接口好了的待补不再上卡片（撤掉 TRANSIENT.AI_PENDING）。插件「停止同步」记手动停止那条漏了 -m link_brain（仓库模式下报错）已补。
+- 测试：pytest 全量过（test_ask_eval 在作者真库上的 3 条照旧另算）；node 74 个文件（UI 层 9 过 / 1 跳过）。验收记录 tests/acceptance/20261010-comments-settings.md。
+
 ## 2026-10-08 批次 D：界面丝滑度 + 新功能 + 夜跑 / 问题面板 bug（两次上线：21:10 → 932b9f7，23:24 → c464a57）
 
 - **来源**：两轮只读审查（开源门槛 + 界面丝滑度，约 90 条，Owner 逐条批注）+ Owner 当天新提的功能 + 夜跑三个 bug。施工单、裁决与审查原文在作者本机工作区（不进仓）。
