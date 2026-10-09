@@ -75,7 +75,7 @@ def test_local_mcp_tools(vault, tmp_path):
     try:
         client.send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
         names = {t["name"] for t in client.recv()["result"]["tools"]}
-        assert {"lb_selections", "lb_selection"} <= names
+        assert "selections" in names and "lb_selections" not in names   # 旧名字不列出，但照样能调
         result, listed = _call_tool(client, "lb_selections", {}, 3)
         assert result["isError"] is False and listed["selections"][0]["titles"][0] == "图数据库入门"
         result, got = _call_tool(client, "lb_selection", {"name": "graph 1004"}, 4)

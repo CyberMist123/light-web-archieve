@@ -92,7 +92,11 @@ def _valid(entry: Any) -> dict[str, Any] | None:
     if not name or not isinstance(tid, str) or not tid.strip():
         return None
     keywords = clean_keywords(entry.get("keywords") or [], strict=False) or [name]
-    return {"id": tid.strip(), "name": name, "keywords": keywords, "created": str(entry.get("created") or "")}
+    out = {"id": tid.strip(), "name": name, "keywords": keywords, "created": str(entry.get("created") or "")}
+    srcs = entry.get("sources")
+    if isinstance(srcs, list):  # 钉住的文章（MCP topics add_sources）：catalog 重建时直接算命中
+        out["sources"] = list(dict.fromkeys(s for s in srcs if isinstance(s, str) and s.strip()))
+    return out
 
 
 def load(vault: Path | None = None) -> list[dict[str, Any]]:
@@ -265,7 +269,7 @@ def memberships(items: list[dict[str, Any]], topics: list[dict[str, Any]],
                 ok = sim >= cuts[t["id"]] or (strong and sim >= SEM_RESCUE)
             else:
                 ok = strong or any(_kw_hit(k, fs["body"]) for k in t["keywords"])
-            if ok:
+            if ok or item_id in (t.get("sources") or ()):
                 hits.append(t["name"])
         out[item_id] = hits
     return out

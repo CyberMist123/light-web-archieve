@@ -189,6 +189,8 @@ def _finish(entry: dict[str, Any], enriched: dict[str, Any] | None) -> dict[str,
             "url": entry.get("url"),
             "error": f"读归档失败: {type(exc).__name__}: {exc}",
         }
+    # 10-09：raw 包目录（绝对路径），给 TG 钩子等调用方直接用，不用从 agent.md 往上推
+    payload.setdefault("raw_dir", str(storage.object_dir(xhs.SOURCE, source_id).resolve()))
     problem = entry.get("_render_error")
     if enriched and enriched.get("status") == "failed":
         problem = f"识图/概要没补完（归档已存好，夜里会补）：{enriched.get('error')}"

@@ -24,7 +24,7 @@
 | 问一句就把相关收藏汇编好 | 多路召回 → 挑材料 → 带引用作答，证据精确到「评论第 3 楼」「第 2 张图」 |
 | 别把号搞没了 | 一个号一个会话、像人一样慢慢读、撞验证码立刻停，绝不自动过验证 |
 | 出了错别来烦我 | 夜里出的问题当场自己修；修不好的写清试过什么、下一步是什么 |
-| 让别的 AI 也能读我的收藏 | 本地 MCP + 远程只读 MCP；选中几篇存成「选集」，对 AI 说一声名字就行 |
+| 让别的 AI 也能读我的收藏 | 本机 / 远程同一套 MCP：搜、读、问、主题、暗号（选集）、同步记录、搜索历史 |
 
 ---
 
@@ -89,11 +89,50 @@
 - 悬停卡片即可勾选，多选后右键：立即导出、存成选集给 AI、删除（进回收站，可恢复；删过的不会被同步回来）。
 - 右键改标签；手改的标签不会被自动打标覆盖。
 
-### 7. 让别的 AI 读你的收藏
+### 7. 让别的 AI 读你的收藏（LWA MCP）
 
-- **本地 MCP**（stdio，不开端口）：接 Claude Code、Codex、Claude Desktop、Cursor——搜索、按问题取原文（不花模型钱）、完整问答。
-- **远程只读 MCP**（高级，默认关）：自备域名和隧道，GPT 网页版等远程客户端可以只读地搜索、阅读收藏、看原图。OAuth + 口令，只读工具，`.obsidian`、密钥、数据库永远读不到。
-- **选集**：在目录页选中几篇存成一个有名字的选集，对 AI 说「看一下选集 xxx」，它就能按名字取到这几篇全文。
+一份工具定义（`link_brain/mcp_tools.py`），两个入口共用：**本机 stdio**（不开端口）和**远程**（自备域名 + 隧道，默认关）。本机能做的远程也能做，远程拒的路径本机也拒。
+
+| 工具 | 做什么 | 花钱 / 写入 |
+|---|---|---|
+| `search` | 搜收藏 + 开放的文件夹（和问收藏同一套召回）：id · 标题 · 一句概要 · 日期 · agent.md 路径；每次搜索记进 `_archive/search-history.md`（按日期分节） | 不花钱 |
+| `ask` | 问收藏：检索后调文本模型写带出处的回答（远程每令牌每小时 30 次） | **花模型钱** |
+| `read` | 按 id（或原文链接）读一篇的机读版：概要 / 原文 / 图片 OCR / 视频文字稿 / 评论 / 附件全文；头部给本机 raw 包目录和文件清单；`part` 只取一段 | 不花钱 |
+| `image` | 看一张原图（`read` 结果里的 images 路径），OCR 有错以原图为准 | 不花钱 |
+| `files` | 浏览 / 读开放的 Obsidian 文件夹（设置里 `remote.folders` 白名单；越界、隐藏目录、程序内部文件一律拒） | 只读 |
+| `topics` | 星标主题 list / get / create / update（改名、加减关键词、加减钉住的文章）/ delete；改完后台重算目录 | 写 `topics.json`；create 不给关键词时用模型扩词 |
+| `selections` | 暗号（选集）list / get / save：get 认「最新」、编号「2」、多个「3,4,5」或「345」（编号都 <10 才拆；正好有该编号优先）、名字 | 写 `selections.json` |
+| `recent` | 最近 N 天新进库的文章（标题 · 概要 · 日期）+ 每次同步一行摘要 | 只读 |
+| `history` | 搜索历史 md 的尾部 | 只读 |
+
+写入一律「线程锁 + 跨进程文件锁 + 临时文件原子替换」，不会和插件、夜跑、另一个入口并发写坏。旧工具名（`lb_search` / `lb_ask` / `read_asset` / `list` / `read_selection` …）不再列出，但照样能调。
+
+**本机接入**（Claude Code / Claude Desktop / Codex / Cursor 的 MCP 配置）：
+
+```json
+{
+  "mcpServers": {
+    "lwa": {
+      "command": "python",
+      "args": ["-m", "link_brain", "mcp"],
+      "cwd": "<程序目录>",
+      "env": {"LINK_BRAIN_VAULT": "<你的 vault 路径>"}
+    }
+  }
+}
+```
+
+本机返回绝对路径（可以直接交给编辑器 / 文件工具），远程返回 vault 内相对路径（交给 `files` / `image`）。
+
+**远程接入**（claude.ai「自定义连接器」、ChatGPT 连接器等）：
+
+1. Obsidian → Link Brain 设置 → 高级设置 → 远程阅读：填域名（`https://<你的域名>`）、勾开放的文件夹、打开开关；或直接改插件 `data.json` 的 `remote` 段。
+2. 隧道（如 Cloudflare Tunnel）把 `https://<你的域名>` 转到 `http://127.0.0.1:18071`。
+3. 设口令（只在本机终端跑，不进命令行参数）：`echo {"passphrase": "你的口令"} | python -m link_brain remote passphrase`
+4. `python -m link_brain remote enable` 注册常驻（Windows 计划任务，登录时启动、每 5 分钟看门）。
+5. 连接器 URL 填 `https://<你的域名>/mcp`，跳出授权页输口令即连（OAuth + PKCE）。不走 OAuth 的客户端用 `python -m link_brain remote token new --label 名字` 生成访问令牌。
+
+`.obsidian`、密钥样文件名、数据库、日志永远读不到；每次调用记 `~/.link-brain/remote/access.log`（不记查询词）。随时「撤销全部访问」：`python -m link_brain remote revoke-all`。
 
 ### 8. 不伤号
 

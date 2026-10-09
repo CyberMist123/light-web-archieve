@@ -6,11 +6,10 @@
 - 每条消息是一个 JSON-RPC 请求/响应/通知，占一行，用 `\n` 分隔；
 - server 的 stdout **只能**写协议消息，任何日志/打印都必须走 stderr。
 
-三个 tool：
-- `lb_search`：关键词检索（轻，词法），转发 `retrieval.search`。
-- `lb_retrieve`：问题→材料+出处，走 BM25/hybrid 排序，**不调用模型**，转发 `retrieval.retrieve_payload`。
-- `lb_ask`：完整问答，会调用配置好的文本模型（产生模型用量），转发 `ask.answer`。
-- `lb_selections` / `lb_selection`（10-04）：列出 / 按名字取她在目录页存的选集，转发 `selections`，只读不调模型。
+工具（10-09 起）：定义只有一份，在 `mcp_tools.py`，和远程 `remote serve` 共用——
+search / ask / read / image / files / topics / selections / recent / history。
+旧名字 lb_search / lb_retrieve / lb_ask / lb_selections / lb_selection 不再列出，但照样能调。
+白名单同远程（插件 data.json 的 remote.folders）；本机返回绝对路径。
 
 fail-open：vault 为空、catalog 缺失、依赖缺失时，被转发的函数本身已经是空结果而不是异常
 （见 `ask.load_items` / `retrieval.search` / `retrieval.retrieve_payload`）；这里只负责协议层
@@ -25,146 +24,21 @@ from typing import Any
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "light-web-archieve"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "0.2.0"
 
-TOOLS = [
-    {
-        "name": "lb_search",
-        "description": (
-            "关键词检索小红书收藏库（轻量、纯词法，不调用模型；和 Obsidian 目录页搜索同一套规则）。"
-            "适合已经知道关键词、想要快速定位条目的场景。total = 一共找到几篇，has_more / next_offset = 还有没有、从哪续取。"
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "搜索关键词，可以是 `#标签` 或普通词组"},
-                "limit": {"type": "integer", "description": "这一页最多返回几条，默认 20", "default": 20},
-                "offset": {"type": "integer", "description": "从第几条开始（续取用上一页的 next_offset），默认 0", "default": 0},
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "lb_retrieve",
-        "description": (
-            "针对一个问题检索材料与出处（和问收藏同一个候选集、同一个顺序：原词 + 语义 + 扩词，附原文摘录），"
-            "**不调用模型**（扩词只用问收藏已经算过的缓存）。适合需要证据链但想自己组织答案的场景。"
-            "total = 候选一共几篇，has_more / next_offset = 还有没有、从哪续取。"
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "question": {"type": "string", "description": "自然语言问题"},
-                "top_k": {"type": "integer", "description": "这一页最多返回几篇，默认 8，最多 20", "default": 8},
-                "offset": {"type": "integer", "description": "从第几篇开始（续取用上一页的 next_offset），默认 0", "default": 0},
-            },
-            "required": ["question"],
-        },
-    },
-    {
-        "name": "lb_ask",
-        "description": (
-            "完整问答：检索材料后调用已配置的文本模型生成带引用的回答。"
-            "**会产生一次模型调用/用量**，不确定是否需要模型时优先用 lb_retrieve。"
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "question": {"type": "string", "description": "自然语言问题"},
-            },
-            "required": ["question"],
-        },
-    },
-]
+# 10-09：工具定义只有一份，在 mcp_tools.py（远程 remote serve 用的同一份）；这里只管 stdio 协议。
+from . import mcp_tools  # noqa: E402
 
-# 10-04 选集：她在目录页把几篇存成有名字的选集，对 AI 说「看一下选集 xxx」——AI 按名字取（只读，不调模型）
-TOOLS += [
-    {
-        "name": "lb_selections",
-        "description": ("列出她存的选集（目录页多选 →「给 AI（存成选集）」）：名字、创建时间、篇数、每篇标题。"
-                        "她说「我选中了 / 看一下选集 xxx」时先用它对名字；也可以主动提醒她存过哪些选集。只读，不调用模型。"),
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "lb_selection",
-        "description": ("按名字取一个选集里的几篇：标题、原文链接、可见笔记和机读版（agent.md）的本地路径，"
-                        "附机读版正文开头（每篇最多 8000 字，超出的按 agent_md 路径读全文）。名字可以只写她说的那个词，"
-                        "大小写 / 空格 / 引号不敏感。只读，不调用模型。"),
-        "inputSchema": {
-            "type": "object",
-            "properties": {"name": {"type": "string", "description": "选集名字（她说的「选集 xxx」里的 xxx）"}},
-            "required": ["name"],
-        },
-    },
-]
+TOOLS = mcp_tools.TOOLS
+_POLICY: dict[str, Any] = {}
 
 
-def _tool_lb_selections(args: dict[str, Any]) -> dict[str, Any]:
-    from . import selections
-    return selections.list_selections()
-
-
-def _tool_lb_selection(args: dict[str, Any]) -> dict[str, Any]:
-    from . import selections, storage
-
-    root = storage.vault_root()
-    # 路径口径同 lb_search：本地绝对路径
-    paths = lambda it: {"visible_note": str(root / it["note"]) if it.get("note") else None,  # noqa: E731
-                        "agent_md": str(root / it["agent_md"]) if it.get("agent_md") else None}
-    return selections.get_selection(args.get("name"), paths=paths, read_text=selections.read_agent)
-
-
-def _offset(args: dict[str, Any]) -> int:
-    try:
-        return max(0, int(args.get("offset", 0) or 0))
-    except (TypeError, ValueError):
-        return 0
-
-
-def _tool_lb_search(args: dict[str, Any]) -> dict[str, Any]:
-    from . import retrieval
-
-    query = args.get("query")
-    if not isinstance(query, str) or not query.strip():
-        return {"status": "error", "error": "query 不能为空"}
-    limit = args.get("limit", 20)
-    try:
-        limit = int(limit)
-    except (TypeError, ValueError):
-        limit = 20
-    return retrieval.search(query, limit, _offset(args))
-
-
-def _tool_lb_retrieve(args: dict[str, Any]) -> dict[str, Any]:
-    from . import retrieval
-
-    question = args.get("question")
-    if not isinstance(question, str) or not question.strip():
-        return {"status": "error", "error": "question 不能为空"}
-    top_k = args.get("top_k", 8)
-    try:
-        top_k = int(top_k)
-    except (TypeError, ValueError):
-        top_k = 8
-    return retrieval.retrieve_payload(question, top_k, _offset(args))
-
-
-def _tool_lb_ask(args: dict[str, Any]) -> dict[str, Any]:
-    from . import ask
-
-    question = args.get("question")
-    if not isinstance(question, str) or not question.strip():
-        return {"status": "error", "error": "question 不能为空"}
-    return ask.answer(question)
-
-
-_HANDLERS = {
-    "lb_search": _tool_lb_search,
-    "lb_retrieve": _tool_lb_retrieve,
-    "lb_ask": _tool_lb_ask,
-    "lb_selections": _tool_lb_selections,
-    "lb_selection": _tool_lb_selection,
-}
+def _ctx() -> "mcp_tools.Ctx":
+    import time
+    now = time.monotonic()
+    if not _POLICY or now - _POLICY["at"] > 5:   # 设置里改了开放的文件夹：5 秒内生效
+        _POLICY.update(at=now, policy=mcp_tools.local_policy())
+    return mcp_tools.Ctx(policy=_POLICY["policy"], local=True, who="本机")
 
 
 def _log(*parts: Any) -> None:
@@ -210,12 +84,16 @@ def _handle_tools_call(request_id: Any, params: dict[str, Any]) -> None:
     arguments = params.get("arguments") if isinstance(params, dict) else None
     if not isinstance(arguments, dict):
         arguments = {}
-    handler = _HANDLERS.get(name)
-    if handler is None:
+    from .remote.policy import Denied
+    if name not in mcp_tools.HANDLERS and name not in mcp_tools.LEGACY:
         _error(request_id, -32602, f"未知 tool：{name}")
         return
     try:
-        payload = handler(arguments)
+        payload = mcp_tools.call(_ctx(), name, arguments)
+    except Denied as d:
+        _result(request_id, {"content": [{"type": "text", "text": json.dumps(
+            {"status": "error", "error": d.code, "message": d.message}, ensure_ascii=False)}], "isError": True})
+        return
     except Exception as exc:  # 任何业务异常都不许崩进程，包成 tool result isError
         _log(f"[mcp_server] tool {name} raised: {exc}")
         _log(traceback.format_exc())
@@ -225,8 +103,13 @@ def _handle_tools_call(request_id: Any, params: dict[str, Any]) -> None:
             "isError": True,
         })
         return
+    images = payload.pop("_images", None) if isinstance(payload, dict) else None
+    content = [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]
+    import base64
+    content += [{"type": "image", "data": base64.b64encode(img["data"]).decode("ascii"), "mimeType": img["mime"]}
+                for img in images or []]
     _result(request_id, {
-        "content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}],
+        "content": content,
         "isError": bool(isinstance(payload, dict) and payload.get("status") == "error"),
     })
 

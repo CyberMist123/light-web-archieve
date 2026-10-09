@@ -179,6 +179,24 @@ def _catch(capsys, note_id):
     capsys.readouterr()
 
 
+def test_catch_payload_has_raw_dir_and_keeps_old_fields(env, monkeypatch, capsys):
+    """10-09：catch 输出加 raw_dir（raw 包目录绝对路径），旧字段不变（TG 钩子靠它们）。"""
+    import json as _json
+    import os as _os
+    monkeypatch.setattr(att_mod, "grab_after_ingest", lambda *a, **k: "")
+    sid = _ids(1, prefix="ffffffffffffffff")[0]
+    url = f"https://www.xiaohongshu.com/explore/{sid}?xsec_token=T"
+    assert cli.main(["catch", f"存一下 {url}"]) == 0
+    payload = _json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    item = payload["items"][0]
+    for key in ("item_id", "status", "title", "summary", "visible_note", "agent_md", "url"):
+        assert key in item
+    assert _os.path.isabs(item["raw_dir"]) and _os.path.isdir(item["raw_dir"])
+    assert _os.path.isfile(_os.path.join(item["raw_dir"], "meta.json"))
+    if item["agent_md"]:
+        assert _os.path.normcase(_os.path.dirname(_os.path.dirname(item["agent_md"]))) == _os.path.normcase(item["raw_dir"])
+
+
 def _fake_download(clock, monkeypatch, minutes, downloads):
     def fetch_bytes(*, doc_id, note_id, xsec_token, file_name, staging_dir, verbose=False):
         clock["t"] += minutes * 60

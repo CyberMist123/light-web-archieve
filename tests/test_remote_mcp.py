@@ -176,15 +176,19 @@ def test_oauth_full_flow_with_sdk_client_then_three_tools(remote):
     async def go():
         async with remote_probe.oauth_session(remote.base, PASS) as s:
             names = sorted(t.name for t in (await s.list_tools()).tools)
-            assert names == ["list", "read", "read_asset", "read_selection", "search", "selections"]   # 没有写入 / 执行 / 问答
-            for t in (await s.list_tools()).tools:
-                assert t.annotations.readOnlyHint is True
-            err, roots = await remote_probe.call(s, "list", {})
+            assert names == sorted(["search", "ask", "read", "image", "files", "topics", "selections", "recent", "history"])
+            ro = {t.name: t.annotations.readOnlyHint for t in (await s.list_tools()).tools}
+            assert ro["read"] and ro["files"] and not ro["topics"] and not ro["selections"]
+            err, roots = await remote_probe.call(s, "files", {})
             assert not err and [e["path"] for e in roots["entries"]] == ["Web/Xiaohongshu", "_archive/xiaohongshu"]
             err, found = await remote_probe.call(s, "search", {"query": "蒜香鱼片"})
             assert not err and found["found"] == 1
             hit = found["results"][0]
-            assert (hit["path"], hit["agent_md"], hit["attachments"]) == (NOTE, AGENT, [ATT])
+            assert hit == {"id": "abc12345", "title": "蒜香鱼片怎么做", "summary": "蒜香鱼片的做法", "date": "2026-09-01",
+                           "agent_md": AGENT}
+            err, art = await remote_probe.call(s, "read", {"id": "xhs-abc12345", "part": "附件"})
+            assert not err and "蒜香鱼片配料表" in art["text"] and art["raw_dir"].endswith("abc12345")
+            assert "derived/agent.md" in art["raw_files"] and "raw/v0001/source.json" in art["raw_files"]
             err, page = await remote_probe.call(s, "read", {"path": AGENT, "max_chars": 1000})
             assert not err and len(page["text"]) == 1000 and page["next_offset"] == 1000
             assert page["total_chars"] > 20000
@@ -389,13 +393,13 @@ def test_outside_default_unreadable_until_folder_added(remote):
     err, data = tool(remote, t, "read", {"path": OTHER})
     assert err and data["error"] == "NOT_SHARED"
     err, found = tool(remote, t, "search", {"query": "蒜香"})
-    assert not err and [r["path"] for r in found["results"]] == [NOTE]          # search 只回白名单
+    assert not err and [r.get("agent_md") for r in found["results"]] == [AGENT] and "path" not in found["results"][0]   # search 只回白名单
     remote.set_folders(["@xhs", "其他资料"])
     err, data = tool(remote, t, "read", {"path": OTHER})
     assert not err and "另一个文件夹" in data["text"]
     err, found = tool(remote, t, "search", {"query": "蒜香"})
-    paths = [r["path"] for r in found["results"]]
-    assert NOTE in paths and OTHER in paths and "其他资料/plain.txt" in paths
+    paths = [r.get("path") or r.get("agent_md") for r in found["results"]]
+    assert AGENT in paths and OTHER in paths and "其他资料/plain.txt" in paths
     assert "其他资料/api-key.txt" not in paths and not any(p.startswith(("_trash", ".obsidian")) for p in paths)
     err, data = tool(remote, t, "read", {"path": "其他资料/api-key.txt"})
     assert err                                                                    # 像密钥的文件名照样拒
@@ -404,7 +408,7 @@ def test_outside_default_unreadable_until_folder_added(remote):
     err, data = tool(remote, t, "read", {"path": AGENT})
     assert err
     err, found = tool(remote, t, "search", {"query": "蒜香"})
-    assert all(r["path"].startswith("其他资料/") for r in found["results"])
+    assert all((r.get("path") or "").startswith("其他资料/") for r in found["results"])
 
 
 def test_settings_folders_are_filtered_by_policy(tmp_path):
