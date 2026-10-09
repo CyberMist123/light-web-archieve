@@ -90,6 +90,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="评论补齐进度 JSON（本地读，不碰号；插件设置页 / 状态栏用）")
     p.add_argument("--wait-lock-min", dest="wait_lock_min", type=float, default=2,
                    help="号被别的任务占着时最多等几分钟（默认 2），等不到退出码 6")
+    p.add_argument("--progress", action="store_true",
+                   help="手动抓一篇时 stdout 一行一个进度事件 JSON（等号 / 读评论区 / 下评论图 / 写进笔记），最后一行照旧是结果（插件笔记页画进度用）")
 
     p = sub.add_parser("ingest", help="归档一个链接（URL / xhslink 短链 / 分享文本）")
     p.add_argument("target", help="链接或包含链接的分享文本")
@@ -364,9 +366,9 @@ def main(argv: list[str] | None = None) -> int:
             synclog.finish_command(args.command, args, code)
 
 
-def _account_lock(args, owner: str):
+def _account_lock(args, owner: str, on_wait=None):
     from . import accounts
-    return accounts.account_session(owner, wait_s=float(getattr(args, "wait_lock_min", 2) or 0) * 60)
+    return accounts.account_session(owner, wait_s=float(getattr(args, "wait_lock_min", 2) or 0) * 60, on_wait=on_wait)
 
 
 def _dispatch(args) -> int:
@@ -418,8 +420,24 @@ def _dispatch(args) -> int:
         from . import ingest
         if getattr(args, 'fill_pending', False) or getattr(args, 'fill_status', False):
             return ingest.run_comments(args)  # 1009：补跑每篇自己拿账号锁（不整晚攥着）；进度只读本地
-        with _account_lock(args, "comments"):
-            return ingest.run_comments(args)
+        # 1010：--progress（插件「抓全部评论」）——等号、读评论区、下评论图、写进笔记，一步一个进度事件（最后一行照旧是结果）
+        emit = ingest.progress_emitter(args)
+        if emit is None:
+            with _account_lock(args, "comments"):
+                return ingest.run_comments(args)
+        emit("start", "准备抓这篇的全部评论")
+        from . import accounts
+        try:
+            with _account_lock(args, "comments", on_wait=ingest.lock_wait_reporter(emit, getattr(args, "wait_lock_min", 2))):
+                return ingest.run_comments(args)
+        except accounts.AccountBusyError as exc:
+            # 等满了还没轮到：最后一行给插件一句人话（不然插件拿到的最后一行是进度事件，只能按退出码瞎猜「在跑别的任务」）
+            from .read import dump_json, outcome
+            mins = float(getattr(args, "wait_lock_min", 2) or 0)
+            dump_json(outcome({"results": []}, ok=False, code="BUSY",
+                              message=f"号一直被「{ingest.owner_text(exc.holder)}」占着，等了 {mins:.0f} 分钟没轮到：过一会儿再点"))
+            print(f"没跑：{exc}", file=sys.stderr)
+            return EXIT_ACCOUNT_BUSY
     if args.command == 'login':
         from . import accounts
         return accounts.run_login(args)

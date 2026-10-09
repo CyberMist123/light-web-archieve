@@ -127,15 +127,37 @@ def _download_comment_audio(audio: dict[str, Any], comment_id: str, assets: Path
     return entry
 
 
-def download_media(source: dict[str, Any], raw_version_dir: Path, rel_prefix: str) -> dict[str, Any]:
-    """按 source.json 下载全部图片，返回 manifest.json 的内容（docs/FORMAT.md §4）。"""
+def _media_todo(source: dict[str, Any], opts: dict[str, Any]) -> int:
+    """这次要下几个文件（图 / 评论图 / 语音 / 视频）：给进度事件当分母。"""
+    note = source["note"]
+    n = len(note.get("images") or []) if opts["downloadImages"] else 0
+    for comment in source.get("comments") or []:
+        for group in [comment, *(comment.get("sub_comments") or [])]:
+            n += len(group.get("images") or [])
+            n += 1 if (group.get("audio") or {}).get("url") else 0
+    if opts["downloadVideo"] and note.get("kind") == "video" and (note.get("video") or {}).get("video_url"):
+        n += 1
+    return n
+
+
+def download_media(source: dict[str, Any], raw_version_dir: Path, rel_prefix: str, *, progress=None) -> dict[str, Any]:
+    """按 source.json 下载全部图片，返回 manifest.json 的内容（docs/FORMAT.md §4）。
+
+    progress(stage, text, done, total)（1010，可选）：每下完一个文件报一次（插件「抓全部评论」在笔记页画进度）。"""
     note = source["note"]
     assets = raw_version_dir / "assets"
     media: list[dict[str, Any]] = []
     is_video = note["kind"] == "video"
     from .ai_config import sync_options
     opts = sync_options()
+    total = _media_todo(source, opts) if progress else 0
 
+    def tick() -> None:
+        if progress and total:
+            progress("media", f"下载图片 / 语音 {len(media)}/{total}", len(media), total)
+
+    if progress and total:
+        progress("media", f"下载图片 / 语音 0/{total}", 0, total)
     with httpx.Client() as client:
         for image in (note["images"] if opts["downloadImages"] else []):
             # 视频型笔记的 imageList 就是封面，role 记 video_cover
@@ -146,6 +168,7 @@ def download_media(source: dict[str, Any], raw_version_dir: Path, rel_prefix: st
             if entry["file"]:
                 entry["file"] = f"{rel_prefix}/assets/{entry['file']}"
             media.append(entry)
+            tick()
 
         for comment in source["comments"]:
             for group in [comment, *(comment.get("sub_comments") or [])]:
@@ -161,13 +184,16 @@ def download_media(source: dict[str, Any], raw_version_dir: Path, rel_prefix: st
                     if entry["file"]:
                         entry["file"] = f"{rel_prefix}/assets/{entry['file']}"
                     media.append(entry)
+                    tick()
                 audio = group.get("audio")
                 if audio and audio.get("url"):
                     media.append(_download_comment_audio(audio, group["comment_id"], assets, rel_prefix, client))
+                    tick()
 
     if opts["downloadVideo"] and is_video and (note.get("video") or {}).get("video_url"):
         from .videos import download
         media.append(download(note['video'], raw_version_dir, rel_prefix))
+        tick()
 
     declared = sum(1 for m in media if m["role"] in ("note_image", "comment_image", "video_cover"))
     ok = sum(
@@ -283,7 +309,7 @@ def _detail_kwargs(comment_floors: int | str | None, expand_floors: list[str] | 
 
 
 def _fetch_with_retry(parsed: dict[str, Any], *, log, comment_floors=None, budget_left=None, expand_floors=None,
-                      fill_budget_s=None) -> Any:
+                      fill_budget_s=None, progress=None) -> Any:
     """抓详情；服务没起来时隔一会儿重试（最多 SERVICE_RETRIES 次）。
 
     budget_left（1001）：返回「这一批还剩几秒」的函数。剩下的不够再等一轮 + 再抓一次的最坏耗时，就不重试了，
@@ -303,6 +329,8 @@ def _fetch_with_retry(parsed: dict[str, Any], *, log, comment_floors=None, budge
                 log(f"服务没起来（第 {attempt}/{SERVICE_RETRIES} 次），这一批的时间不够再试了")
                 raise
             log(f"服务没起来（第 {attempt}/{SERVICE_RETRIES} 次）：{str(exc)[:120]}；{wait}s 后重试")
+            if progress:
+                progress("read", f"读取服务没起来，{wait} 秒后再试（第 {attempt}/{SERVICE_RETRIES} 次）")
         finally:
             accounts.pace_done()  # 开页间隔从这一页看完算起
         time.sleep(wait)
@@ -377,7 +405,7 @@ def fill_targets(cl: dict[str, Any]) -> list[str]:
 
 
 def _reuse_media(source: dict[str, Any], raw_dir: Path, rel_prefix: str, old_manifest: dict[str, Any] | None,
-                 object_dir: Path) -> dict[str, Any]:
+                 object_dir: Path, *, progress=None) -> dict[str, Any]:
     """续读写新版本时：上一版已经下好的图 / 视频 / 语音直接引用旧版本的文件（RAW 不可变，引用安全；识图按资产路径复用，
     不会把整篇图重识一遍），只下这次新冒出来的评论图 / 语音。"""
     old_media = [m for m in (old_manifest or {}).get("media") or [] if m.get("download_status") == "ok" and m.get("file")
@@ -421,7 +449,7 @@ def _reuse_media(source: dict[str, Any], raw_dir: Path, rel_prefix: str, old_man
             if audio and have.get(("comment_audio", cid)):
                 reused.append(dict(have[("comment_audio", cid)]))
                 group["audio"] = None
-    manifest = download_media(trimmed, raw_dir, rel_prefix)
+    manifest = download_media(trimmed, raw_dir, rel_prefix, progress=progress)
     manifest["media"] = reused + manifest["media"]
     counted = [m for m in manifest["media"] if m["role"] in ("note_image", "comment_image", "video_cover")]
     manifest["images_declared"] = len(counted)
@@ -446,8 +474,11 @@ def ingest_url(
     expand_floors: list[str] | None = None,
     fill: bool = False,
     fill_budget_s: int | None = None,
+    progress=None,
 ) -> dict[str, Any]:
     """抓一条链接并落一份不可变 RAW。返回摘要 dict（含 exit_code）。
+
+    progress(stage, text, done=None, total=None)（1010，可选）：开页读评论区 / 下图 / 语音各报一次进度（插件「抓全部评论」用）。
 
     去重：`(source, source_id)` 命中索引且非 `--refresh` → 直接返回已有对象，不联网不下载。
     `--refresh`：重新抓取，规范化比对与最新版本一致就不写新 RAW，只更新 `last_checked_at`；
@@ -518,14 +549,18 @@ def ingest_url(
                 parsed = {**parsed, "xsec_token": (old_source.get("note") or {}).get("xsec_token")}
 
         log(f"MCP {xhs.MCP_TOOL} @ {xhs.MCP_ENDPOINT}")
+        if progress:
+            kw = _detail_kwargs(comment_floors, expand_floors, fill_budget_s if fill else None)
+            cap = int(kw.get("timeout") or 600) // 60
+            progress("read", f"打开这篇，把评论一楼一楼展开读下来（热门笔记要几分钟到十几分钟，最多 {cap} 分钟）")
         raw = _fetch_with_retry(parsed, log=log, comment_floors=comment_floors, budget_left=budget_left,
-                                expand_floors=expand_floors, fill_budget_s=fill_budget_s if fill else None)
+                                expand_floors=expand_floors, fill_budget_s=fill_budget_s if fill else None, progress=progress)
         problems.resolve("ingest", None)  # 抓到了 = 读取服务好着：之前「服务没起来 / 超时」那几条步骤级问题算解决
 
         if fill:
             return _finish_fill(raw, parsed, conn, existing, old_meta, old_source, old_manifest, old_web,
                                 set(expand_floors or []), origin=origin, actor=actor, ingest_kind=ingest_kind,
-                                note=note, created_at=created_at, log=log)
+                                note=note, created_at=created_at, log=log, progress=progress)
 
         # 附件元数据只有笔记网页版有（MCP 不返回），游客可见；失败不阻断
         log(f"网页探测附件 {xhs.CANONICAL_FMT.format(note_id=parsed['note_id'])}")
@@ -612,7 +647,7 @@ def ingest_url(
         # 网页探测的原始结果单独存一份，方便以后回溯"当时页面上有没有附件"
         storage.write_json(raw_dir / "web_raw.json", web_probe)
         storage.write_json(raw_dir / "source.json", source)
-        manifest = download_media(source, raw_dir, rel_prefix)
+        manifest = download_media(source, raw_dir, rel_prefix, progress=progress)
         storage.write_json(raw_dir / "manifest.json", manifest)
 
         first_archived = (
@@ -685,9 +720,11 @@ def ingest_url(
 
 def _finish_fill(raw: Any, parsed: dict[str, Any], conn, existing, old_meta: dict[str, Any], old_source: dict[str, Any],
                  old_manifest: dict[str, Any] | None, old_web: Any, expanded: set[str], *, origin: str, actor: str,
-                 ingest_kind: str, note: str | None, created_at: str, log) -> dict[str, Any]:
+                 ingest_kind: str, note: str | None, created_at: str, log, progress=None) -> dict[str, Any]:
     """评论续读的落盘（ingest_url fill=True 的后半截）：并集合并 → 没多拿到就不出新版本 → 有就写新版本（图 / 视频引用旧文件）。"""
     captured_at = now_iso()
+    if progress:
+        progress("merge", "评论读回来了：和存下的合并")
     fresh = xhs.normalize(raw, parsed, captured_at=captured_at, web_probe=None)
     source = _merge_fill(fresh, old_source, expanded, captured_at, log)
     not_found = list(((raw.get("data") or {}).get("comment_load") or {}).get("floors_not_found") or []) \
@@ -717,7 +754,7 @@ def _finish_fill(raw: Any, parsed: dict[str, Any], conn, existing, old_meta: dic
     storage.write_json(raw_dir / "web_raw.json", old_web if old_web is not None else
                        {"ok": None, "error": "评论续读不探测附件（沿用上一版）"})
     storage.write_json(raw_dir / "source.json", source)
-    manifest = _reuse_media(source, raw_dir, rel_prefix, old_manifest, object_dir)
+    manifest = _reuse_media(source, raw_dir, rel_prefix, old_manifest, object_dir, progress=progress)
     storage.write_json(raw_dir / "manifest.json", manifest)
     meta = _build_meta(parsed=parsed, source=source, manifest=manifest, version=version, captured_at=captured_at,
                        origin=old_meta.get("origin") or origin, actor=old_meta.get("actor") or actor,
@@ -804,11 +841,13 @@ def run(args) -> int:
     return summary["exit_code"]
 
 
-def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = False, fill: bool = False) -> dict[str, Any]:
+def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = False, fill: bool = False,
+                   progress=None) -> dict[str, Any]:
     """手动抓一篇的评论区（Owner 0926：超过 50 楼 / 全量只在指定笔记上手动抓，不进每晚同步）。
 
     target 可以是 item_id（xhs-<note_id>）或链接；用归档里最新的 xsec_token 重抓（--refresh 语义，
     RAW 只在内容有变化时出新版本），含楼中楼、评论图片、语音评论，完了重新渲染可见页。
+    progress（1010）：见 progress_emitter——读评论区 / 合并 / 下图 / 写进笔记各报一次。
     """
     from . import catch as catch_mod
     url = target
@@ -836,7 +875,7 @@ def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = Fa
     if not target.startswith("http"):
         # 1009：手动「现在抓全部评论」也并集合并（调小楼数 / 原帖删了评论都不丢已存的）
         summary = ingest_url(url, refresh=True, comment_floors=floors, verbose=verbose, fill=True,
-                             fill_budget_s=None)
+                             fill_budget_s=None, progress=progress)
         state = comment_fill.load_state(row["source"], row["source_id"])
         _, source2 = comment_fill.current_source(row["source"], row["source_id"])
         sc = comment_fill.scope(source2, comment_fill.floor_target(), state)
@@ -844,9 +883,52 @@ def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = Fa
             from . import problems as problems_mod
             comment_fill._settle(row["source"], row["source_id"], state, row["item_id"], problems_mod)
     else:
-        summary = ingest_url(url, refresh=True, comment_floors=floors, verbose=verbose)
+        summary = ingest_url(url, refresh=True, comment_floors=floors, verbose=verbose, progress=progress)
+    if progress:
+        progress("render", "写进笔记、刷新这一页")
     catch_mod._ensure_rendered(xhs.SOURCE, summary["note_id"], force=True, extract=False)
     return summary
+
+
+# 1010：手动「抓全部评论」的进度事件（--progress）。stdout 一行一个 JSON（和 setup run 同一写法），最后一行照旧是结果：
+#   {"type":"progress","stage":"start|lock|read|merge|media|render","text":"…"[, "done":n, "total":m, "unit":"个"]}
+# 插件（note-actions.js）在笔记页评论区顶上画一行进度 + 细条，底部状态栏同步显示；只报真发生的那一步，不编进度。
+LOCK_OWNER_TEXT = {"comments-fill": "后台补评论", "sync-favorites": "同步收藏", "ingest": "导入", "comments": "另一次抓评论",
+                   "attachments": "补附件", "attachments --recheck": "补查附件", "login-status": "查登录", "catch": "导入"}
+
+
+def owner_text(holder: dict[str, Any] | None) -> str:
+    owner = str((holder or {}).get("owner") or "")
+    return LOCK_OWNER_TEXT.get(owner) or owner or "别的任务"
+
+
+def progress_emitter(args):
+    """`comments <id> --progress`：返回 emit(stage, text, done=None, total=None)；没开就 None（别的入口一字不变）。"""
+    if not getattr(args, "progress", False):
+        return None
+    from .setup.common import stdout_emit
+
+    def emit(stage: str, text: str, done: int | None = None, total: int | None = None) -> None:
+        event: dict[str, Any] = {"type": "progress", "stage": stage, "text": text}
+        if done is not None and total is not None:
+            event.update(done=int(done), total=int(total), unit="个")
+        try:
+            stdout_emit(event)
+        except (OSError, ValueError):
+            pass  # 管道断了（插件那头停了）：照样把活干完，结果靠退出码
+    return emit
+
+
+def lock_wait_reporter(emit, wait_min: float | int | None = None):
+    """号被别的任务占着、要等的时候报一次：「后台补评论正在用号，它这一篇补完就轮到这里（最多等 N 分钟）」。"""
+    if emit is None:
+        return None
+
+    def on_wait(holder: dict[str, Any] | None, left: float) -> None:
+        who = owner_text(holder)
+        tail = "它这一篇补完就轮到这里" if (holder or {}).get("owner") == "comments-fill" else "它用完就轮到这里"
+        emit("lock", f"等号：{who}正在用小红书号，{tail}（最多等 {max(1, round(left / 60))} 分钟）")
+    return on_wait
 
 
 def pending_fills(*, limit: int = 0, now: datetime | None = None) -> list[tuple[str, str, dict[str, Any]]]:
@@ -883,8 +965,9 @@ def run_comments(args) -> int:
         return EXIT_ERROR
     try:
         floors = args.floors if args.floors == "all" else int(args.floors)
+        fill = getattr(args, "fill", False)
         summary = fetch_comments(args.target, floors=floors, verbose=getattr(args, "verbose", False),
-                                 fill=getattr(args, "fill", False))
+                                 fill=fill, progress=None if fill else progress_emitter(args))
     except xhs.NeedsHumanError as exc:
         print(f"评论抓取中止（账号或服务要处理）: {exc}", file=sys.stderr)
         dump_json({'ok': False, 'code': 'NEEDS_HUMAN', 'message': f'评论没抓：{exc}'})

@@ -459,6 +459,16 @@ function commentFillLine(st, now = Date.now()) {
   const tail = human ? '等你处理' : (st.state === 'running' ? prog : (st.wait_code === 'NIGHTLY' ? '让夜跑先跑' : prog || '等一会儿'));
   return { text: [head, tail].filter(Boolean).join(' · '), title: String(st.message || ''), human, running: st.state === 'running' };
 }
+// 1010：手动「抓全部评论」在底部状态栏的那一截（「⟳ 抓全部评论 · 读评论区 1:05」）。st = plugin.commentFetch（后端真实阶段）。
+const FETCH_STAGE_SHORT = { start: '准备', lock: '等号', read: '读评论区', merge: '合并', media: '下图', render: '写进笔记' };
+function mmss(ms) { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
+function commentFetchShort(st, now = Date.now()) {
+  if (!st || st.result) return '';
+  const head = FETCH_STAGE_SHORT[st.stage] || '进行中';
+  if (st.stage === 'media' && st.total) return `${head} ${st.done || 0}/${st.total}`;
+  if (st.stage === 'lock' || st.stage === 'read') return `${head} ${mmss(now - (st.stageAt || now))}`;
+  return head;
+}
 // 同步计划弹窗的「当前：…」（第 5 批 4.4）：cur = `sync-schedule` 的 JSON。认不出的触发器如实说「自定义」，不冒充每天；
 // 我们管的那个之外的触发器列在后面「另有：… （不改动）」。
 function scheduleStatusText(cur) {
@@ -970,8 +980,9 @@ class LinkBrainActions extends Plugin {
       child.stdout.on('data', (d) => {
         const s = d.toString(); out += s; all += s;
         if (exclusive) {
+          // 同步收藏那种只带 done / total 的老式进度行 → 「n/m 篇」；带 stage 的分步事件（setup run、抓全部评论）由调用方的 onLine 自己画
           const progress = parseLastJson(s);
-          if (progress?.done != null && progress?.total != null) {
+          if (progress?.done != null && progress?.total != null && !progress.stage) {
             this.runningProgress = `${progress.done}/${progress.total} 篇`; this.taskChanged();
           }
         }
@@ -1334,13 +1345,45 @@ class LinkBrainActions extends Plugin {
   }
 
   // 手动拉取全部评论（Owner 0926：超过 50 楼 / 全量只在指定笔记上手动抓，慢，热门笔记可能十几分钟）。
+  // 1010 她：「说有进度条，其实没有」——现在是真进度：`comments <id> --progress` 每走一步报一个事件（等号 / 读评论区 / 合并 /
+  // 下图 / 写进笔记，见 link_brain/ingest.py progress_emitter），记在 this.commentFetch；note-actions.js 画在这篇评论区顶上
+  // （一行字 + 细条），底部状态栏「⟳ 抓全部评论 · 读评论区 1:05」同步。号被后台补评论占着时最多等 10 分钟（它这一篇补完就让）。
   async fetchAllComments(file = this.app.workspace.getActiveFile()) {
     const itemId = file && this.app.metadataCache.getFileCache(file)?.frontmatter?.link_brain?.item_id;
     if (!itemId) { new Notice('先打开一篇归档的笔记，再运行这个命令。'); return; }
     if (this.running) { new Notice(`正在${this.running}，完成后再试。`); return; }
     const title = this.app.metadataCache.getFileCache(file)?.frontmatter?.title || file.basename;
-    await this.run(['-m', 'link_brain', 'comments', itemId], '抓全部评论', true,
-      { start: `开始抓《${title}》的全部评论（热门笔记可能十几分钟，底部状态栏能看进度）` });
+    const now = this.nowMs();
+    const st = this.commentFetch = { itemId, title: String(title || ''), stage: 'start', text: '准备抓这篇的全部评论', startedAt: now, stageAt: now,
+      done: null, total: null, result: null };
+    const changed = () => { if (this.running) { this.runningProgress = commentFetchShort(st, this.nowMs()); this.taskChanged(); } this.app.workspace?.trigger?.('link-brain:comment-fetch', st); };
+    changed();
+    // 状态栏上的已用时间：5 秒刷一次（笔记页那一行由 note-actions 每秒刷）
+    const timer = setInterval(() => { if (this.commentFetch === st && !st.result && this.running) { this.runningProgress = commentFetchShort(st, this.nowMs()); this.taskChanged(); } }, 5000);
+    let r = null;
+    try {
+      r = await this.run(['-m', 'link_brain', 'comments', itemId, '--progress', '--wait-lock-min', '10'], '抓全部评论', true, {
+        start: `开始抓《${st.title}》的全部评论：进度在这篇的评论区顶上（底部状态栏也有）`,
+        onLine: line => {
+          let ev; try { ev = JSON.parse(line); } catch { return; }
+          if (!ev || ev.type !== 'progress' || !ev.stage) return;
+          if (ev.stage !== st.stage) st.stageAt = this.nowMs();
+          st.stage = String(ev.stage); st.text = String(ev.text || '');
+          st.done = Number.isFinite(Number(ev.done)) && ev.total != null ? Number(ev.done) : null;
+          st.total = Number.isFinite(Number(ev.total)) && ev.total != null ? Number(ev.total) : null;
+          changed();
+        },
+      });
+    } finally {
+      clearInterval(timer);
+      const j = r && r.json && r.json.type !== 'progress' ? r.json : null;
+      st.result = { ok: !!(j ? j.ok : r && r.code === 0), message: (j && j.message) || (r && r.code === 0 ? '评论已更新' : '没抓完，原因见提示'), code: r ? r.code : null };
+      st.endedAt = this.nowMs();
+      this.app.workspace?.trigger?.('link-brain:comment-fetch', st);
+      // 结果在评论区顶上留一会儿（文件改了 Obsidian 会把这一段重画成新评论，那一行跟着没了）；没成功的多留一会儿
+      setTimeout(() => { if (this.commentFetch === st) { this.commentFetch = null; this.app.workspace?.trigger?.('link-brain:comment-fetch', null); } }, st.result.ok ? 8000 : 20000);
+    }
+    return st.result;
   }
 
   // 0928 精细识别（第二层手动点名）：这篇的图交给强模型重认一遍，流程图出 Mermaid、表格出完整表。
@@ -1899,12 +1942,12 @@ class LinkBrainActions extends Plugin {
 
   // 一次只准跑一个动作：这些命令会开浏览器、吃内存，叠着跑必炸（18060 负载重就 Failed to get the debug url）。
   // 互斥长任务的界面壳：spawnPy({exclusive}) + 开跑 / 完成提示 + 写 ob-actions.log。返回 {code, out(含 stderr), stdout}。
-  async run(args, label, slow = false, { env = null, quiet = false, start = null } = {}) {
+  async run(args, label, slow = false, { env = null, quiet = false, start = null, onLine = null } = {}) {
     if (this.running) {
       if (!quiet) this.notify(this.busyText(), { kind: 'warn' });
       return { code: 6, out: '', json: { ok: false, message: this.busyText() } };
     }
-    const pending = this.spawnPy(args, { exclusive: true, label, env });
+    const pending = this.spawnPy(args, { exclusive: true, label, env, onLine });
     if (slow && !quiet) this.notify(start || `${label}：开始了，完成后会提示（底部状态栏能看进度）`);
     const r = await pending;
     if (r.code === -1 && !r.all) {
@@ -2725,3 +2768,4 @@ Object.assign(module.exports, { splitCommand, whichCommand, pickBackend, backend
 Object.assign(module.exports, { effectiveTextAI, modelState, endpointHost, normalizeEndpoint, aiGate, resultMessage, scheduleShort });
 module.exports.lastRiskNote = lastRiskNote;   // 1008（L6）：给 node 单测（设置页「立即同步」旁的验证说明）
 module.exports.commentFillLine = commentFillLine;   // 1009：给 node 单测（状态栏「补评论」那一行）
+module.exports.commentFetchShort = commentFetchShort;   // 1010：给 node 单测（状态栏「抓全部评论 · 读评论区 1:05」）

@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 
 const NOTE_STYLE_ID = 'lb-note-style';
+const mmss = ms => { const s = Math.max(0, Math.floor((Number(ms) || 0) / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 // 划重点只收这几处的文字（和内容层的转义片段一一对应；评论里的「回复 xx：」不算）
 const PHRASE_SCOPE = '.lb-body p, .lb-comment-text, .lb-note-title, .lb-comment-asr';
 
@@ -60,9 +61,11 @@ class NoteActions {
     const ws = this.app && this.app.workspace;
     if (ws && typeof ws.on === 'function' && typeof this.plugin.registerEvent === 'function') {
       this.plugin.registerEvent(ws.on('file-menu', (menu, file) => this.onFileMenu(menu, file)));
-      this.plugin.registerEvent(ws.on('file-open', (file) => this.onFileOpen(file)));
+      this.plugin.registerEvent(ws.on('file-open', (file) => { this.onFileOpen(file); if (this.plugin.commentFetch) this.paintFetch(); }));
       this.plugin.registerEvent(ws.on('css-change', () => this.keepStyleLast()));
+      this.plugin.registerEvent(ws.on('link-brain:comment-fetch', () => this.paintFetch()));   // 1010：抓全部评论的进度
     }
+    this.plugin.register?.(() => this.stopFetchTick());
     if (typeof this.plugin.addCommand === 'function') {
       this.plugin.addCommand({ id: 'note-ask', name: '问这篇（打开问收藏，来源 = 当前笔记）', checkCallback: (checking) => {
         const file = ws && typeof ws.getActiveFile === 'function' ? ws.getActiveFile() : null;
@@ -81,6 +84,8 @@ class NoteActions {
   }
   detach() {
     this.attached = false;
+    this.stopFetchTick();
+    try { const D = this.doc(); if (D && D.querySelectorAll) for (const b of [...D.querySelectorAll('.lb-fetch-progress')]) b.remove(); } catch {}
     try { this.styleEl && this.styleEl.remove(); } catch {}
     this.styleEl = null;
     const D = this.doc();
@@ -137,8 +142,53 @@ class NoteActions {
     if (!file) { this.notify('没找到这篇笔记'); return; }
     if (this.plugin.running) { this.notify(`正在${this.plugin.running}，完成后再点`); return; }
     // 多点一下确认：这会开页面、用号
-    this.notify('抓这篇的全部评论？热门笔记可能要十几分钟，完成后页面自动更新。', { ms: 12000, actions: [{ label: '开始抓', run: () => this.plugin.fetchAllComments(file) }] });
+    this.notify('抓这篇的全部评论？热门笔记要几分钟到十几分钟；进度就显示在评论区顶上，完成后页面自动更新。', { ms: 12000, actions: [{ label: '开始抓', run: () => this.plugin.fetchAllComments(file) }] });
   }
+
+  // ── 1010：手动「抓全部评论」的进度（plugin.commentFetch，main.js fetchAllComments 写；事件 'link-brain:comment-fetch'）──
+  // 画在这篇笔记（.lb-note[data-lb-item=<id>]）评论区（.lb-comments）最上面：一行字 + 一根细条（读评论区时来回扫，
+  // 下图 / 语音时按真计数走）；只显示后端发来的阶段（CONVENTIONS §1.6），已用时间是本机钟。Obsidian 重画这一段时这一行会丢：
+  // 进行中每秒补画一次（顺手刷新已用时间）；做完显示结果，plugin 过几秒把 commentFetch 清掉，这一行跟着收起。
+  fetchLine(st, now = Date.now()) {
+    if (!st) return '';
+    if (st.result) return (st.result.ok ? '✓ ' : '⚠ 没抓完：') + String(st.result.message || '').replace(/^评论没抓：/, '');
+    const took = mmss(now - (st.stageAt || st.startedAt || now));
+    if (st.stage === 'lock') return `⟳ 抓全部评论 · ${st.text} · 已等 ${took}`;
+    if (st.stage === 'read') return `⟳ 抓全部评论 · ${st.text} · 已用 ${took}`;
+    return `⟳ 抓全部评论 · ${st.text || '正在…'}`;
+  }
+  paintFetch() {
+    const D = this.doc();
+    if (!D || typeof D.querySelectorAll !== 'function') return;
+    const st = this.plugin.commentFetch || null;
+    const boxes = [...D.querySelectorAll('.lb-fetch-progress')];
+    if (!st) { for (const b of boxes) b.remove(); this.stopFetchTick(); return; }
+    const id = String(st.itemId || '');
+    const hosts = [...D.querySelectorAll('.xhs-note .lb-note .lb-comments')].filter(h => h.closest('.lb-note')?.getAttribute?.('data-lb-item') === id);
+    for (const b of boxes) if (!hosts.some(h => h.contains(b))) b.remove();   // 别的笔记上的残留
+    const text = this.fetchLine(st);
+    const pct = !st.result && st.stage === 'media' && st.total ? Math.max(0, Math.min(100, Math.round((st.done || 0) / st.total * 100))) : null;
+    for (const h of hosts) {
+      let box = [...(h.children || [])].find(c => c.classList?.contains('lb-fetch-progress')) || null;
+      if (!box) {
+        box = D.createElement('div'); box.className = 'lb-fetch-progress';
+        box.setAttribute('role', 'status'); box.setAttribute('aria-live', 'polite');
+        const t = D.createElement('div'); t.className = 'lb-fetch-text'; box.appendChild(t);
+        const bar = D.createElement('div'); bar.className = 'lb-fetch-bar';
+        const fill = D.createElement('div'); fill.className = 'lb-fetch-fill'; bar.appendChild(fill); box.appendChild(bar);
+        h.insertBefore(box, h.firstChild);
+      }
+      const t = box.querySelector('.lb-fetch-text'), fill = box.querySelector('.lb-fetch-fill');
+      if (t && t.textContent !== text) t.textContent = text;
+      box.classList.toggle('is-done', !!(st.result && st.result.ok));
+      box.classList.toggle('is-failed', !!(st.result && !st.result.ok));
+      box.classList.toggle('is-indeterminate', !st.result && pct == null);
+      if (fill) fill.style.width = pct == null ? '' : pct + '%';
+    }
+    if (st.result) this.stopFetchTick();
+    else if (!this.fetchTick) this.fetchTick = setInterval(() => this.paintFetch(), 1000);
+  }
+  stopFetchTick() { if (this.fetchTick) { clearInterval(this.fetchTick); this.fetchTick = null; } }
   async openTag(el, e) {
     const tag = String(el.textContent || '').replace(/^#/, '').trim();
     if (!tag) return;

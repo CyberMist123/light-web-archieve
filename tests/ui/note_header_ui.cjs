@@ -1,4 +1,5 @@
-// 1010 她：笔记顶上插件那一行变成一行很轻的字「← 目录　原文↗　机读版」——没有框、没有右侧控件（导出挪进右上角 ⋮ 菜单）。
+// 1010 她：①笔记顶上插件那一行变成一行很轻的字「← 目录　原文↗　机读版」——没有框、没有右侧控件（导出挪进右上角 ⋮ 菜单）；
+// ②「抓全部评论」要有真进度：画在评论区最上面一行 + 细条（note-actions.js paintFetch）。
 // 外壳 note-reading 宿主（真 Chromium，载入真 link-brain.css + 插件 styles.css），亮 / 暗 / 改过橙色的第三方主题各跑一遍：
 // 顶栏 callout 照 Obsidian 渲染出来的样子摆好（原文 · 机读版），跑 note-tools.js 的 markdown post-processor，量：
 //   一行（三样顶边差 ≤ 2px、行高不超过一行半）、顺序「← 目录 / 原文 / 机读版」、没有「·」、没有「导出」按钮、
@@ -77,11 +78,46 @@ function noteHtml() {
       const hover = await page.evaluate(() => { const s = getComputedStyle(document.querySelector('.lb-topbar-back')); return { deco: s.textDecorationLine, color: s.color }; });
       assert.equal(hover.deco, 'underline', theme + '：悬停有下划线');
       await S.screenshot(`note-header-${theme}`, { clip: { x: 0, y: 0, width: 1280, height: 260 } });
+      // —— 同一页：「抓全部评论」的进度（note-actions.js paintFetch）画在评论区最上面，看得见、细条在走 ——
+      const fetchGeo = await page.evaluate(src => {
+        const m = { exports: {} };
+        new Function('require', 'module', 'exports', src)(n => (n === 'fs' ? { readFileSync() { throw new Error('no fs'); } } : { join: (...a) => a.join('/') }), m, m.exports);
+        const plugin = { app: window.app, manifest: { dir: '' }, register() {}, registerEvent() {}, registerDomEvent() {}, addCommand() {}, notify() {}, commentFetch: null };
+        const na = m.exports(window.obsidian, plugin);
+        const now = Date.now();
+        plugin.commentFetch = { itemId: 'xhs-synth0001', stage: 'read', text: '打开这篇，把评论一楼一楼展开读下来（热门笔记要几分钟到十几分钟，最多 25 分钟）', startedAt: now - 5000, stageAt: now - 5000, result: null };
+        na.paintFetch();
+        const box = document.querySelector('.lb-comments > .lb-fetch-progress');
+        const first = box && box.parentElement.firstElementChild === box;
+        const r = box.getBoundingClientRect(), bar = box.querySelector('.lb-fetch-bar').getBoundingClientRect();
+        const next = box.nextElementSibling && box.nextElementSibling.getBoundingClientRect();
+        const anim = getComputedStyle(box.querySelector('.lb-fetch-fill')).animationName;
+        plugin.commentFetch = { ...plugin.commentFetch, stage: 'media', text: '下载图片 / 语音 6/12', done: 6, total: 12 };
+        na.paintFetch();
+        window.__na = { na, plugin };
+        return { first, h: Math.round(r.height), w: Math.round(r.width), barH: Math.round(bar.height), anim,
+          aboveNext: next ? r.bottom <= next.top + 0.5 : true, color: getComputedStyle(box).color };
+      }, fs.readFileSync(path.join(shell.ROOT, 'obsidian-plugins', 'link-brain-actions', 'note-actions.js'), 'utf8'));
+      await page.waitForTimeout(450);   // 细条宽度有 .3s 过渡
+      Object.assign(fetchGeo, await page.evaluate(() => {
+        const box = document.querySelector('.lb-comments > .lb-fetch-progress');
+        const fill = box.querySelector('.lb-fetch-fill').getBoundingClientRect().width / box.querySelector('.lb-fetch-bar').getBoundingClientRect().width;
+        const out = { fill: Math.round(fill * 100) / 100, text: box.querySelector('.lb-fetch-text').textContent };
+        const { na, plugin } = window.__na; na.stopFetchTick(); plugin.commentFetch = null; na.paintFetch();
+        out.gone = !document.querySelector('.lb-fetch-progress');
+        return out;
+      }));
+      console.log(`抓全部评论进度（${theme}）：`, JSON.stringify(fetchGeo));
+      assert.ok(fetchGeo.first && fetchGeo.h >= 18 && fetchGeo.w >= 200, theme + '：进度那一行在评论区最上面、看得见');
+      assert.equal(fetchGeo.barH, 3, theme + '：细条 3px');
+      assert.equal(fetchGeo.anim, 'lb-slide', theme + '：读评论区时细条来回扫');
+      assert.ok(Math.abs(fetchGeo.fill - 0.5) <= 0.02, theme + '：下图 6/12 → 细条走到一半（' + fetchGeo.fill + '）');
+      assert.ok(fetchGeo.aboveNext && fetchGeo.gone, theme + '：不压在第一条评论上；清掉后收起');
       assert.deepEqual(await S.pageErrors(), []);
       await page.close();
     }
     fs.mkdirSync(shell.QA_DIR, { recursive: true });
     fs.writeFileSync(path.join(shell.QA_DIR, 'note-header.json'), JSON.stringify(rows, null, 2));
   } finally { await browser.close(); }
-  console.log('PASS note header (1010): one light row ← 目录 · 原文 · 机读版 (no dots, no boxed 导出), same muted color, single line, light / dark / third-party theme, click → catalog');
+  console.log('PASS note page (1010): header = one light row ← 目录 · 原文 · 机读版 (no dots, no boxed 导出), same muted color, single line, click → catalog; 抓全部评论 progress line on top of comments (indeterminate bar while reading, 6/12 → half), light / dark / third-party theme');
 })().catch(e => { console.error(e); process.exit(1); });

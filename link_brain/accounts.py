@@ -452,12 +452,18 @@ def lock_lost() -> bool:
 
 
 @contextlib.contextmanager
-def account_session(owner: str, wait_s: float = 0, *, polite: bool = False):
+def account_session(owner: str, wait_s: float = 0, *, polite: bool = False, on_wait=None):
     """拿账号锁（同一进程可重入）。wait_s 内拿不到 → AccountBusyError（CLI 退出码 6）。
-    polite=True（1009 后台补评论）：有别的任务在等号就先让它（storage.FileLock.hold）。"""
+    polite=True（1009 后台补评论）：有别的任务在等号就先让它（storage.FileLock.hold）。
+    on_wait(holder, 剩余秒)（1010）：第一次要等时额外回调一次（插件「抓全部评论」在笔记页说「在等号」用）。"""
     def told(holder, left):
         print(f'[lock] 号正被「{holder.get("owner") or "别的任务"}」使用，最多等 {left / 60:.0f} 分钟',
               file=sys.stderr)
+        if on_wait is not None:
+            try:
+                on_wait(holder, left)
+            except Exception:  # noqa: BLE001 - 只是报进度，别让它挡住拿锁
+                pass
 
     with contextlib.ExitStack() as stack:
         try:

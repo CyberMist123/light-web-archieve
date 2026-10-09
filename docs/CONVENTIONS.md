@@ -212,6 +212,7 @@ R = {"status": "ok|failed|skipped", "text": str|None, "code": "<故障码或空>
 |---|---|---|---|
 | `running` / `runningChild` / `importing` | 插件 spawnPy / importText | 页面 ensure、busyText | 互斥长任务（已有） |
 | `commentFill` | 插件读 `_archive/comments-fill-status.json`（文件监听） | 状态栏、设置页同步段 | 1009 后台补评论的进度（running / waiting / paused；超过 10 分钟没刷新当它停了） |
+| `commentFetch` + 事件 `link-brain:comment-fetch` | 插件 `fetchAllComments`（读 `comments <id> --progress` 一行一个进度事件：start / lock / read / merge / media / render，最后一行照旧是结果） | note-actions `paintFetch`（这篇评论区最上面一行 + 细条）、状态栏 | 1010 手动「抓全部评论」的真进度 `{itemId, stage, text, done, total, stageAt, result}`；做完留结果 8 秒（没成功 20 秒）再清空。和后台补评论（`commentFill`）分开：手动的在跑时状态栏显示手动这一条 |
 | `runningProgress` | 状态栏那条线（L4） | `busyText()` | 占用句里的「（进度）」，没有就不写 |
 | `catalogCache` `{version, root, data}` | lb-page-lib `data.load` / `data.adopt` | 三张页 | §5.2；adopt 只在 data 就是缓存那份时推进版本（给了 written 还要和当前 stat 对得上） |
 | `answerWorker` / `answerPending` / `answerSequence` | 插件问答 worker | 插件 | pending 每条带 `tag`（`'chat'` / `'setup'`），`stopArchiveAnswer(tag)` 只停同 tag |
