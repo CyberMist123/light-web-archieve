@@ -50,7 +50,7 @@ function makeIndexData(items, { textAi = false, rename = null } = {}) {
   };
 }
 
-const PLUGIN = { methods: { indexUseDraft: { result: { ok: true } }, indexDraft: { result: { ok: true } }, openIndexSuggestions: { result: null }, wikiBuild: { result: null } } };
+const PLUGIN = { methods: { indexUseDraft: { result: { ok: true } }, indexDraft: { result: { ok: true } }, openIndexSuggestions: { result: null }, wikiBuild: { result: null }, indexRebuild: { result: null } } };
 
 async function open(browser, { width = 1280, height = 900, theme = 'light', idx, mobile = false, data }) {
   const page = await browser.newPage({ viewport: { width, height } });
@@ -171,6 +171,17 @@ const clickLabel = async (page, path) => { await page.evaluate(p => [...document
       assert.ok(t2.includes('吃饭') && !t2.includes('做饭'), `${theme}：改名后的分类出现 ${t2}`);
       assert.ok((await tabs(page)).find(t => t.text === 'AI').on, `${theme}：还在的筛选保留`);
       assert.ok(await page.evaluate(() => !!document.querySelector('.lbc-grid .lbc-card[data-keep="1"]')), `${theme}：卡片元素没重建`);
+      // 索引视图开着时打字搜索 = 回到网格
+      await clickTab(page, '索引'); await S.settle();
+      await page.fill('.lbc-search', '做饭'); await page.keyboard.press('Enter'); await S.settle();
+      const v3 = await page.evaluate(() => ({ panel: document.querySelector('.lbi-panel').hidden, grid: document.querySelector('.lbc-grid').hidden }));
+      assert.ok(v3.panel && !v3.grid, `${theme}：在索引视图里搜索 → 回到网格看结果`);
+      await page.fill('.lbc-search', ''); await page.keyboard.press('Enter'); await S.settle();
+      // 索引是用旧目录数据算的 → 请插件重算一次（每对版本一次）
+      assert.ok(!(await S.calls()).some(c => c[0] === 'indexRebuild'), `${theme}：版本对得上不请`);
+      await S.setFile('_archive/index-data.json', JSON.stringify({ ...fresh, catalog_built_at: '2026-10-01T00:00:00+10:00' }));
+      await page.waitForTimeout(450); await S.settle();
+      assert.equal((await S.calls()).filter(c => c[0] === 'indexRebuild').length, 1, `${theme}：索引比目录旧 → 请插件重算`);
       const errs = await S.pageErrors();
       assert.deepEqual(errs, [], `${theme}：页面没报错 ${errs}`);
       await page.close();

@@ -156,7 +156,8 @@ def materials(vault: Path, ids: list[str]) -> list[dict[str, Any]]:
     return out
 
 
-def batches(mats: list[dict[str, Any]], limit: int = BATCH_CHARS) -> list[list[dict[str, Any]]]:
+def batches(mats: list[dict[str, Any]], limit: int | None = None) -> list[list[dict[str, Any]]]:
+    limit = BATCH_CHARS if limit is None else limit
     out: list[list[dict[str, Any]]] = []
     cur: list[dict[str, Any]] = []
     size = 0
@@ -302,19 +303,21 @@ def _run_map(batch: list[dict[str, Any]], offset: int, topic: str, cfg: dict[str
         payload = salvage_json(raw)          # 写到一半被截断：留下写完整的对象
         if payload is None:
             return {"ok": False, "code": "PERMANENT.MODEL_OUTPUT_INVALID", "error": "模型给的不是 JSON", "usage": res.get("usage")}
-    srcs = "\n".join(m["text"] for m in batch)
+    urls_of = {m["id"]: {_norm_url(u) for u in URL_RE.findall(m["text"])} for m in batch}
     objects, no_pick = [], []
     for o in payload.get("objects") or [] if isinstance(payload.get("objects"), list) else []:
         if not isinstance(o, dict):
             continue
         name = _clean(o.get("name"), 80)
-        ids = [refs[s] for s in (o.get("sources") or []) if isinstance(s, str) and s.strip() in refs] \
+        ids = [refs[s.strip()] for s in (o.get("sources") or []) if isinstance(s, str) and s.strip() in refs] \
             if isinstance(o.get("sources"), list) else []
         ids = list(dict.fromkeys(ids))
         if not name or not ids:
             continue
         url = _clean(o.get("url"), 300)
-        verbatim = bool(url) and re.match(r"^https?://", url, re.I) is not None and url.rstrip("/") in srcs
+        # 链接只收这个对象自己那几篇里逐字出现过的（整条对上，不是前缀碰巧对上）
+        verbatim = bool(url) and re.match(r"^https?://", url, re.I) is not None \
+            and any(_norm_url(url) in urls_of.get(i, set()) for i in ids)
         objects.append({"name": name, "url": url if verbatim else "", "url_status": "帖内给出" if verbatim else "看原帖",
                         "praise": _clean(o.get("praise"), 220), "use": _clean(o.get("use"), 260),
                         "kind": _clean(o.get("kind"), 20) or "其他", "sources": ids})
@@ -326,6 +329,10 @@ def _run_map(batch: list[dict[str, Any]], offset: int, topic: str, cfg: dict[str
         if m["id"] not in picked and m["id"] not in {n["id"] for n in no_pick}:
             no_pick.append({"id": m["id"], "reason": "没抽到可推荐的具体对象"})
     return {"ok": True, "objects": objects, "no_pick": no_pick, "usage": res.get("usage")}
+
+
+def _norm_url(url: str) -> str:
+    return str(url or "").strip().rstrip("/.,;:!?。，；：！？）)]】").rstrip("/").lower()
 
 
 def _run_reduce(objects: list[dict[str, Any]], topic: str, cfg: dict[str, Any], titles: dict[str, str]) -> dict[str, Any]:
@@ -350,22 +357,33 @@ def _organize(objects: list[dict[str, Any]], payload: dict[str, Any] | None) -> 
     ref = {f"o{i}": o for i, o in enumerate(objects, 1)}
     dropped: set[str] = set()
     payload = payload if isinstance(payload, dict) else {}
+    alias: dict[str, str] = {}                     # 被并掉的 → 留下的那个（连着并 [[o1,o2],[o2,o3]] 也落到 o1）
+
+    def root(x: str) -> str:
+        while x in alias:
+            x = alias[x]
+        return x
     for pair in payload.get("merge") or [] if isinstance(payload.get("merge"), list) else []:
         if isinstance(pair, list) and len(pair) >= 2 and all(isinstance(x, str) and x in ref for x in pair):
-            keep = ref[pair[0]]
+            keep_id = root(pair[0])
+            keep = ref[keep_id]
             for other in pair[1:]:
-                if other != pair[0] and other not in dropped:
-                    o = ref[other]
-                    keep["sources"] = list(dict.fromkeys(keep["sources"] + o["sources"]))
-                    if not keep["url"] and o["url"]:
-                        keep["url"], keep["url_status"] = o["url"], o["url_status"]
-                    dropped.add(other)
+                oid = root(other)
+                if oid == keep_id:
+                    continue
+                o = ref[oid]
+                keep["sources"] = list(dict.fromkeys(keep["sources"] + o["sources"]))
+                if not keep["url"] and o["url"]:
+                    keep["url"], keep["url_status"] = o["url"], o["url_status"]
+                alias[oid] = keep_id
+                dropped.add(oid)
     groups, placed = [], set()
     for g in payload.get("groups") or [] if isinstance(payload.get("groups"), list) else []:
         if not isinstance(g, dict):
             continue
         cat = _clean(g.get("category"), 20)
-        ids = [x for x in (g.get("items") or []) if isinstance(x, str) and x in ref and x not in dropped and x not in placed]
+        ids = list(dict.fromkeys(root(x) for x in (g.get("items") or []) if isinstance(x, str) and x in ref))
+        ids = [x for x in ids if x not in placed]
         if not cat or not ids:
             continue
         placed.update(ids)
@@ -383,8 +401,10 @@ def _organize(objects: list[dict[str, Any]], payload: dict[str, Any] | None) -> 
                 groups.append({"category": kind, "desc": "", "items": objs})
     top = []
     for t in payload.get("top") or [] if isinstance(payload.get("top"), list) else []:
-        if isinstance(t, dict) and t.get("id") in ref and t["id"] not in dropped and len(top) < 8:
-            top.append({"obj": ref[t["id"]], "why": _clean(t.get("why"), 100)})
+        if isinstance(t, dict) and t.get("id") in ref and len(top) < 8:
+            obj = ref[root(t["id"])]
+            if all(x["obj"] is not obj for x in top):
+                top.append({"obj": obj, "why": _clean(t.get("why"), 100)})
     if not top:
         for g in groups[:8]:
             if g["items"]:
@@ -489,7 +509,10 @@ def build(node_path: str, vault: Path | None = None, *, estimate_only: bool = Fa
 
     def work(i: int) -> None:
         offset = sum(len(b) for b in bs[:i])
-        r = _run_map(bs[i], offset, topic, cfg)
+        try:
+            r = _run_map(bs[i], offset, topic, cfg)
+        except Exception as exc:  # noqa: BLE001 - 一批出错只算这一批没读成，不拖垮整次（钱已经花了的批次照样用上）
+            r = {"ok": False, "code": "PERMANENT.MODEL_OUTPUT_INVALID", "error": f"{type(exc).__name__}: {exc}"[:200]}
         with lock:
             results[i] = r
             done[0] += 1
@@ -513,7 +536,8 @@ def build(node_path: str, vault: Path | None = None, *, estimate_only: bool = Fa
     _add_usage(usage, red.get("usage"))
     org = _organize(objects, red.get("payload") if red.get("ok") else None)
     by_id = _items_by_id(vault)
-    based_ids = [m["id"] for m in mats]
+    # 「基于 N 篇」只算真读成了的批次（没读成的那几篇算「之后新增」，下次更新会补上）
+    based_ids = [m["id"] for b, r in zip(bs, results) if r and r.get("ok") for m in b]
     generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
     text = render(node["path"], node["name"], org, no_pick, based=len(based_ids), generated_at=generated_at, by_id=by_id,
                   model=p.get("model") or "", n_objects=len(objects))

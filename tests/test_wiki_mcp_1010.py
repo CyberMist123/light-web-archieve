@@ -202,3 +202,46 @@ def test_wiki_build_progress_events_then_result_last(vault, monkeypatch, capsys)
     assert code == 0 and lines[-1]["ok"] and lines[-1]["file"] == "wiki/工具.md"
     events = [x for x in lines[:-1] if x.get("type") == "progress"]
     assert [e["text"] for e in events][0].startswith("「工具」2 篇分 1 批读") and events[-1]["text"].startswith("抽出 2 个对象")
+
+
+def test_wiki_map_refs_with_spaces_exact_urls_and_chained_merges(vault, monkeypatch):
+    items = setup_library(vault, extra=[note(vault, 5, "工具二", ["效率"], "另一个：https://a.example.com/xyz/page")])
+    from link_brain import providers, text_stream
+    monkeypatch.setattr(providers, "resolve", lambda cap, settings=None: {"mode": "cli", "command": "x"})
+
+    def call(instruction, text, cfg, on_delta=None, *, cap="textAI"):
+        if "定稿" in instruction:
+            return {"status": "ok", "text": json.dumps({"groups": [{"category": "工具", "items": ["o1", "o2", "o3"]}],
+                                                        "top": [{"id": "o3", "why": "合并后的"}], "merge": [["o1", "o2"], ["o2", "o3"]]})}
+        return {"status": "ok", "text": json.dumps({"objects": [
+            {"name": "Raycast", "url": "https://www.raycast.com", "praise": "p", "use": "u", "kind": "工具", "sources": [" #1 "]},
+            {"name": "前缀碰巧", "url": "https://a.example.com/x", "praise": "p", "use": "u", "kind": "工具", "sources": ["#3"]},
+            {"name": "Raycast 别名", "url": "", "praise": "p", "use": "u", "kind": "工具", "sources": ["#1"]}]}, ensure_ascii=False)}
+    monkeypatch.setattr(text_stream, "call", call)
+    r = wiki.build("工具", vault)
+    assert r["ok"], r
+    page = (vault / "wiki" / "工具.md").read_text(encoding="utf-8")
+    assert "<https://www.raycast.com>（帖内给出）" in page            # 「 #1 」带空格也认
+    assert "a.example.com/x>" not in page                             # 只是另一条链接的前缀：不收
+    body = page.split("## 工具", 1)[1]
+    assert body.count("- **") == 1                                    # o1 ← o2 ← o3 连着并成一条
+
+
+def test_wiki_failed_batch_not_counted_as_based(vault, monkeypatch):
+    setup_library(vault)
+    monkeypatch.setattr(wiki, "BATCH_CHARS", 10)                      # 一篇一批
+    from link_brain import providers, text_stream
+    monkeypatch.setattr(providers, "resolve", lambda cap, settings=None: {"mode": "cli", "command": "x"})
+
+    def call(instruction, text, cfg, on_delta=None, *, cap="textAI"):
+        if "定稿" in instruction:
+            return {"status": "ok", "text": "{}"}
+        if "纯吐槽" in text:
+            raise RuntimeError("这一批炸了")
+        return {"status": "ok", "text": json.dumps({"objects": [{"name": "Raycast", "url": "", "praise": "p", "use": "u",
+                                                                  "kind": "工具", "sources": ["#1"]}]})}
+    monkeypatch.setattr(text_stream, "call", call)
+    r = wiki.build("工具", vault)
+    assert r["ok"] and r["partial"] and r["items"] == 1
+    assert wiki.load_meta(vault)["工具"]["based_ids"] == ["xhs-n0000001"]
+    assert "> 基于 1 篇" in (vault / "wiki" / "工具.md").read_text(encoding="utf-8")

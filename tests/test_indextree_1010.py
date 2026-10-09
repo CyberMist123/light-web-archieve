@@ -505,17 +505,17 @@ def test_apply_is_atomic_and_stale_ids_do_not_write(vault, monkeypatch):
     out = it.apply_suggestions(["不存在的id"], vault)
     assert not out["ok"] and "过期" in out["message"]
     assert (vault / "索引.md").read_text(encoding="utf-8") == "- 美食\n"
-    real = storage.atomic_write_text
+    real = storage.atomic_write_bytes
 
-    def boom(path, text):
+    def boom(path, data):
         if Path(path).name == "索引.md":
             raise OSError("磁盘满了")
-        return real(path, text)
-    monkeypatch.setattr(storage, "atomic_write_text", boom)
+        return real(path, data)
+    monkeypatch.setattr(storage, "atomic_write_bytes", boom)
     with pytest.raises(OSError):
         it.apply_suggestions([sid], vault)
     assert (vault / "索引.md").read_text(encoding="utf-8") == "- 美食\n"     # 原文件不动
-    monkeypatch.setattr(storage, "atomic_write_text", real)
+    monkeypatch.setattr(storage, "atomic_write_bytes", real)
     assert it.apply_suggestions([sid], vault)["ok"]
     assert (vault / "索引.md").read_text(encoding="utf-8") == "- 美食\n- 健身\n"
 
@@ -603,3 +603,128 @@ def test_catalog_cli_says_index_was_created_first_time(vault, capsys):
     assert code == 0 and "第一次建了 索引.md" in out["message"] and out["index"]["migrated"] is True
     code, out = run_cli(capsys, "catalog")
     assert "第一次" not in out["message"] and out["index"]["migrated"] is False
+
+
+# ── 审查补的边界（10-10） ──
+
+def test_split_out_keeps_links_and_multiline_comment_intact():
+    text = "- 美食\n  - [[川菜]], **粤菜** %% 下面\n  是备注 %%\n- 旅行\n"
+    out = it.edit_add_tags(text, "美食/川菜", ["麻辣"])
+    assert out == "- 美食\n  - [[川菜]]：川菜, 麻辣\n  - **粤菜** %% 下面\n  是备注 %%\n- 旅行\n"
+    p = it.parse(out)
+    assert [n.path for n in p.walk()] == ["美食", "美食/川菜", "美食/粤菜", "旅行"]
+
+
+def test_colon_inside_comment_is_not_the_name_separator():
+    text = "- 美食 %% 注: x, y %% [wiki]\n"
+    out = it.edit_add_tags(text, "美食", ["红烧肉"])
+    assert out == "- 美食：美食, 红烧肉 %% 注: x, y %% [wiki]\n"
+    p = it.parse(out)
+    assert p.roots[0].tags == ["美食", "红烧肉"] and p.roots[0].wiki
+
+
+def test_new_child_under_non_last_node_of_multi_line_and_mixed_indent():
+    text = "- 菜\n  - 川菜, 粤菜, 湘菜\n    - 剁椒鱼头\n"
+    out = it.edit_new_node(text, "菜/川菜", "回锅肉")
+    p = it.parse(out)
+    assert p.find("菜/川菜/回锅肉") is not None and p.find("菜/湘菜/剁椒鱼头") is not None
+    mixed = "- 美食\n\t- 菜谱\n  - 探店\n"
+    out2 = it.edit_new_node(mixed, "美食", "外卖")
+    assert it.parse(out2).find("美食/外卖") is not None and out2.endswith("  - 探店\n  - 外卖\n")
+
+
+def test_not_utf8_index_is_never_rewritten_and_backup_keeps_bytes(vault):
+    write_catalog(vault, [item(1, "a", ["健身"]), item(2, "b", ["健身"])])
+    raw = "- 美食\n".encode("gbk") + "- 生活\n".encode("gbk")
+    (vault / "索引.md").write_bytes(raw)
+    (vault / "_archive" / it.SUGGEST_NAME).write_text(json.dumps({"suggestions": [
+        {"id": "x1", "action": "new_node", "path": "", "name": "健身", "tags": []}]}, ensure_ascii=False), encoding="utf-8")
+    out = it.apply_suggestions(["x1"], vault)
+    assert not out["ok"] and "UTF-8" in out["message"]
+    assert (vault / "索引.md").read_bytes() == raw
+    bom = b"\xef\xbb\xbf" + "- 美食\n".encode("utf-8")
+    (vault / "索引.md").write_bytes(bom)
+    assert it.apply_suggestions(["x1"], vault)["ok"]
+    assert (vault / "索引.md").read_bytes() == bom + "- 健身\n".encode("utf-8")       # BOM 照样带上
+    hist = list((vault / "_archive" / it.HISTORY_DIR).glob("*suggest.txt"))
+    assert hist and hist[0].read_bytes() == bom
+
+
+def test_ascii_name_title_fallback_needs_whole_word():
+    items = [item(1, "Daily notes", []), item(2, "Thailand trip", []), item(3, "AI 伴侣", []), item(4, "用AI做菜", [])]
+    p, r = classify("- AI\n", items)
+    assert ids(r, p, "AI") == ["xhs-3", "xhs-4"]
+
+
+def test_tags_with_spaces_or_separators_still_match():
+    items = [item(1, "x", ["chat gpt"]), item(2, "y", ["吃喝、玩乐"])]
+    big = [("对话", ("chat",)), ("生活", ("吃喝",))]
+    text = it.migrate_text(items, big)
+    assert "chat-gpt" in text and "吃喝-玩乐" in text
+    p, r = classify(text, items)
+    assert ids(r, p, "对话") == ["xhs-1"] and ids(r, p, "生活") == ["xhs-2"]
+
+
+def test_no_migration_from_empty_catalog(vault):
+    write_catalog(vault, [])
+    data = it.build(vault)
+    assert not (vault / "索引.md").exists() and any("目录数据还没建好" in w["text"] for w in data["warnings"])
+    write_catalog(vault, ITEMS, built_at="2026-10-11T01:00:00+11:00")
+    it.build(vault)
+    assert (vault / "索引.md").is_file()
+
+
+def test_read_only_load_does_not_create_index_or_draft(vault, monkeypatch):
+    write_catalog(vault, _many_items())
+    spawned = []
+    monkeypatch.setattr(it, "spawn_draft", lambda v: spawned.append(v) or "queued")
+    data = it.load(vault)
+    assert not (vault / "索引.md").exists() and not spawned and data["roots"]
+    assert any("下次刷新目录时" in w["text"] for w in data["warnings"])
+
+
+def test_older_catalog_never_overwrites_newer_index_data(vault):
+    write_catalog(vault, ITEMS, built_at="2026-10-10T01:00:00+11:00")
+    it.build(vault)
+    newer = it.build(vault, items=ITEMS[:3], catalog_built_at="2026-10-11T01:00:00+11:00", force=True)
+    assert "stale_skipped" not in newer
+    stale = it.build(vault, force=True)                       # 拿旧目录数据算的：不盖
+    assert stale.get("stale_skipped")
+    on_disk = json.loads((vault / "_archive" / "index-data.json").read_text(encoding="utf-8"))
+    assert on_disk["catalog_built_at"] == "2026-10-11T01:00:00+11:00" and on_disk["total"] == 3
+
+
+def test_short_circuit_rechecks_dead_drafting_and_ai_changes(vault, monkeypatch):
+    write_catalog(vault, ITEMS)
+    it.build(vault)
+    it._save_state(vault, drafting={"pid": 999999, "at": "x"})
+    monkeypatch.setattr(storage, "pid_state", lambda pid: "alive")
+    assert "drafting" in it.build(vault, force=True)
+    monkeypatch.setattr(storage, "pid_state", lambda pid: "dead")
+    again = it.build(vault)                                   # 起草进程死了：不短路，「正在起草」去掉
+    assert not again.get("unchanged") and "drafting" not in again
+    from link_brain import providers
+    monkeypatch.setattr(providers, "resolve", lambda cap, settings=None: {"mode": "cli", "command": "x"})
+    after_key = it.build(vault)                               # 刚配上文本 AI：不短路
+    assert not after_key.get("unchanged") and after_key["text_ai"]["ok"]
+
+
+def test_builds_from_threads_do_not_corrupt(vault):
+    import threading as th
+    write_catalog(vault, _many_items())
+    write_index(vault, "- 吃：家常菜\n")
+    errors = []
+
+    def go():
+        try:
+            for _ in range(3):
+                it.build(vault, force=True)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+    ts = [th.Thread(target=go) for _ in range(4)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert not errors
+    assert json.loads((vault / "_archive" / "index-data.json").read_text(encoding="utf-8"))["roots"] == ["吃"]

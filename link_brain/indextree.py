@@ -30,6 +30,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
@@ -376,14 +377,23 @@ def norm_path(path: Any) -> str:
 # 标签归一 + 归类
 # ═══════════════════════════════════════════════════════════════════════════
 
+_TAG_JUNK = re.compile(r"[\s,，、;；:：\[\]【】［］%]+")
+
+
+def tag_text(label: Any) -> str:
+    """写进 索引.md 的标签：空白 / 逗号 / 顿号 / 分号 / 冒号 / 方括号会弄坏写法，一律换成「-」。
+    Matcher.tag 比较时也这样归一，所以写成「chat-gpt」照样对得上笔记里的「chat gpt」。"""
+    return _TAG_JUNK.sub("-", str(label or "").strip().lstrip("#＃")).strip("-")
+
+
 class Matcher:
-    """标签 → 比较键：NFKC + casefold，按 docs/tag-vocab.yaml 别名换成同一个规范名。"""
+    """标签 → 比较键：NFKC + casefold，按 docs/tag-vocab.yaml 别名换成同一个规范名；空白和会弄坏写法的符号都当「-」。"""
 
     def __init__(self, vocab: dict[str, str] | None = None):
         self.alias: dict[str, str] = {}
         for alias, canonical in (vocab if vocab is not None else load_vocab()).items():
             c = key(canonical)
-            for k in (key(alias), key(alias).replace(" ", "-")):
+            for k in (key(alias), _TAG_JUNK.sub("-", key(alias)).strip("-")):
                 if k:
                     self.alias[k] = c
             self.alias.setdefault(c, c)
@@ -394,7 +404,7 @@ class Matcher:
             return ""
         if k in self.alias:
             return self.alias[k]
-        k2 = k.replace(" ", "-")
+        k2 = _TAG_JUNK.sub("-", k).strip("-")
         return self.alias.get(k2, k2)
 
     def item_keys(self, tags: Any) -> set[str]:
@@ -480,6 +490,16 @@ def _item_infos(items: list[dict[str, Any]], matcher: Matcher) -> list[tuple[str
     return out
 
 
+def name_pattern(name: str) -> re.Pattern | None:
+    """只写名字的节点按标题兜底：中文照子串找；名字两头是英文字母 / 数字的要整词（「AI」不算「Daily」「Thailand」里的 ai）。"""
+    k = key(name)
+    if not k:
+        return None
+    pre = r"(?<![a-z0-9])" if re.match(r"[a-z0-9]", k) else ""
+    post = r"(?![a-z0-9])" if re.search(r"[a-z0-9]$", k) else ""
+    return re.compile(pre + re.escape(k) + post)
+
+
 def classify(parsed: Parsed | list[Node], items: list[dict[str, Any]], matcher: Matcher | None = None) -> Result:
     roots = parsed.roots if isinstance(parsed, Parsed) else parsed
     matcher = matcher or Matcher()
@@ -497,9 +517,9 @@ def classify(parsed: Parsed | list[Node], items: list[dict[str, Any]], matcher: 
         mine: set[str] = set()
         for k in matcher.node_keys(node):
             mine |= by_tag.get(k, set())
-        nm = "" if node.explicit else key(node.name)
-        if nm:
-            mine |= {iid for iid, _, title in infos if nm in title}
+        pat = None if node.explicit else name_pattern(node.name)
+        if pat is not None:
+            mine |= {iid for iid, _, title in infos if pat.search(title)}
         hit_any.update(mine)
         acc = set(mine)
         for ch in node.children:
@@ -585,7 +605,7 @@ def migrate_text(items: list[dict[str, Any]], big_cats: list[tuple[str, tuple[st
             keep.append(best)
             uncovered = {iid for iid in uncovered if best not in members[iid]}
         tags = [by_key[k] for k in keep if k in by_key] or [k for k in kws][:12]
-        tags = [t.replace(",", "").replace("，", "") for t in tags]
+        tags = list(dict.fromkeys(x for x in (tag_text(t) for t in tags) if x))
         lines.append(f"- {name}：" + ", ".join(tags) if tags else f"- {name}")
     return "\n".join(lines).rstrip("\n") + "\n"
 
@@ -594,8 +614,9 @@ def migrate_text(items: list[dict[str, Any]], big_cats: list[tuple[str, tuple[st
 # 历史（写前备份）
 # ═══════════════════════════════════════════════════════════════════════════
 
-def backup(text: str, reason: str, vault: Path | None = None) -> str:
-    """写 / 覆盖之前把原文存一份：`_archive/index-history/索引-YYYYMMDD-HHMMSS[-n]-<reason>.txt`（.txt：不进 Obsidian 搜索），留最近 30 份。"""
+def backup(data: str | bytes, reason: str, vault: Path | None = None) -> str:
+    """写 / 覆盖之前把原文存一份：`_archive/index-history/索引-YYYYMMDD-HHMMSS[-n]-<reason>.txt`（.txt：不进 Obsidian 搜索），留最近 30 份。
+    给 bytes 就原样存字节（她的文件哪怕不是 UTF-8，备份也一个字节不变）。"""
     folder = history_dir(vault)
     folder.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -605,7 +626,7 @@ def backup(text: str, reason: str, vault: Path | None = None) -> str:
     while (folder / name).exists():
         name = f"索引-{stamp}-{n}-{reason}.txt"
         n += 1
-    storage.atomic_write_text(folder / name, text)
+    storage.atomic_write_bytes(folder / name, data if isinstance(data, bytes) else data.encode("utf-8"))
     files = sorted((p for p in folder.iterdir() if p.is_file() and p.name.startswith("索引-") and p.suffix == ".txt"),
                    key=lambda p: p.stat().st_mtime, reverse=True)
     for p in files[HISTORY_KEEP:]:
@@ -616,13 +637,38 @@ def backup(text: str, reason: str, vault: Path | None = None) -> str:
     return name
 
 
-def write_index(text: str, reason: str, vault: Path | None = None) -> str | None:
-    """原子写 索引.md；原来有内容就先备份（返回备份名）。"""
+class NotUtf8(ValueError):
+    """索引.md / 草稿不是 UTF-8：写回会把它弄坏，宁可不动。"""
+
+
+_BOM = b"\xef\xbb\xbf"
+
+
+def read_for_edit(path: Path) -> tuple[str, bytes, bool] | None:
+    """要改写的文件：(文本, 原始字节, 有没有 BOM)；不在 = None；不是 UTF-8 → NotUtf8（不 replace 乱码，免得写回时毁掉原文）。"""
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return None
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise NotUtf8(f"{path.name} 不是 UTF-8 编码") from None
+    return text, raw, raw.startswith(_BOM)
+
+
+def write_index(text: str, reason: str, vault: Path | None = None, *, old: bytes | None = None, bom: bool = False) -> str | None:
+    """原子写 索引.md；原来有内容就先备份原始字节（返回备份名）。bom=True 原来带 BOM 就照样带上。"""
     path = index_path(vault)
-    old = _read_text(path)
-    name = backup(old, reason, vault) if old is not None and old != text else None
+    if old is None:
+        try:
+            old = path.read_bytes()
+        except FileNotFoundError:
+            old = None
+    data = (_BOM if bom else b"") + text.encode("utf-8")
+    name = backup(old, reason, vault) if old is not None and old != data else None
     path.parent.mkdir(parents=True, exist_ok=True)
-    storage.atomic_write_text(path, text)
+    storage.atomic_write_bytes(path, data)
     return name
 
 
@@ -686,13 +732,33 @@ def _draft_info(vault: Path, items: list[dict[str, Any]], matcher: Matcher) -> d
             "wiki_suggest": st.get("wiki_suggest") or []}
 
 
-def _short_circuit(vault: Path, source_hash: str, built_at: str) -> dict[str, Any] | None:
+def _wiki_meta_stamp(vault: Path) -> str:
+    try:
+        st = (archive_dir(vault) / "wiki-meta.json").stat()
+        return f"{st.st_mtime_ns}:{st.st_size}"
+    except OSError:
+        return ""
+
+
+def _text_ai_status() -> dict[str, Any]:
+    """页面上「AI 起草」「生成 wiki」能不能点：Python 判（和真正调用同一个 text_ai），页面只读。"""
+    try:
+        cfg, why = text_ai()
+        return {"ok": cfg is not None, "why": why, "model": str((cfg or {}).get("model") or "")}
+    except Exception:  # noqa: BLE001
+        return {"ok": False, "why": "设置读不出来", "model": ""}
+
+
+def _short_circuit(vault: Path, source_hash: str, built_at: str, ai: dict[str, Any]) -> dict[str, Any] | None:
+    """index-data.json 还对得上（索引原文 / 目录数据 / 词表 / 规则版本 / 草稿 / wiki 元数据 / 文本 AI 能不能用都没变，
+    也没挂着「正在起草」）→ 直接用它；否则 None 重算。"""
     old = _load_json(data_path(vault))
     if not isinstance(old, dict):
         return None
     same = (old.get("code_version") == CODE_VERSION and old.get("source_hash") == source_hash
             and old.get("catalog_built_at") == built_at and old.get("vocab_hash") == _vocab_stamp()
-            and old.get("file") == index_rel())
+            and old.get("file") == index_rel() and old.get("wiki_meta") == _wiki_meta_stamp(vault)
+            and (old.get("text_ai") or {}).get("ok") == ai.get("ok") and "drafting" not in old)
     if not same:
         return None
     d = (old.get("draft") or {})
@@ -703,12 +769,34 @@ def _short_circuit(vault: Path, source_hash: str, built_at: str) -> dict[str, An
     return old
 
 
+def _newer(a: str, b: str) -> bool:
+    """目录数据的生成时间 a 比 b 新？读不懂的当不新。"""
+    try:
+        return datetime.fromisoformat(a) > datetime.fromisoformat(b)
+    except (TypeError, ValueError):
+        return False
+
+
+_BUILD_GUARD = threading.RLock()   # 远程 MCP 在线程里跑工具：同一进程里的几次重算排队（file_lock 只管跨进程）
+
+
 def build(vault: Path | None = None, *, items: list[dict[str, Any]] | None = None, catalog_built_at: str | None = None,
-          force: bool = False, write: bool = True, auto_draft: bool = True) -> dict[str, Any]:
+          force: bool = False, write: bool = True, auto_draft: bool = True, migrate: bool = True,
+          wiki_headers: bool = True) -> dict[str, Any]:
     """确保有 索引.md（没有就迁移出一版）→ 解析 → 归类 → 写 `_archive/index-data.json`，返回那份数据（另带 `_parsed` / `_result` 私有键不写盘）。
 
-    items 不给就读 catalog-data.json（插件监听 索引.md 保存时走这条）；catalog.build 自己传刚收集的 items。"""
+    items 不给就读 catalog-data.json（插件监听 索引.md 保存时走这条）；catalog.build 自己传刚收集的 items。
+    - 目录里一篇都没有时不迁移（空库迁出来的只是一行行关键词，以后也不会再迁）；
+    - migrate=False（只读的读者：MCP）：没有 索引.md 就在内存里按迁移那版算，不写文件；wiki_headers=False 不改 wiki 页头；
+    - 写之前在锁里再看一眼：盘上那份是用更新的目录数据算的（catalog build 刚写过）就不拿旧的盖它。"""
     vault = vault or storage.vault_root()
+    with _BUILD_GUARD:
+        return _build(vault, items, catalog_built_at, force=force, write=write, auto_draft=auto_draft, migrate=migrate,
+                      wiki_headers=wiki_headers)
+
+
+def _build(vault: Path, items: list[dict[str, Any]] | None, catalog_built_at: str | None, *, force: bool, write: bool,
+           auto_draft: bool, migrate: bool, wiki_headers: bool) -> dict[str, Any]:
     if items is None:
         items, built = catalog_items(vault)
         catalog_built_at = catalog_built_at or built
@@ -716,21 +804,26 @@ def build(vault: Path | None = None, *, items: list[dict[str, Any]] | None = Non
     matcher = Matcher()
     path = index_path(vault)
     migrated = None
+    pending_migration = False
     text = _read_text(path)
     if text is None:
         existed_before = bool(_state(vault).get("created_at"))
-        text = migrate_text(items, matcher=matcher)
-        with storage.file_lock(LOCK, wait_s=30, owner="index.migrate"):
-            if _read_text(path) is None:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                storage.atomic_write_text(path, text)
-                migrated = {"at": _now(), "again": existed_before}
-                _save_state(vault, created_at=_state(vault).get("created_at") or _now(), migrated_at=migrated["at"])
-            else:
-                text = _read_text(path) or ""
+        text = migrate_text(items, matcher=matcher) if items else ""
+        if items and migrate and write:
+            with storage.file_lock(LOCK, wait_s=30, owner="index.migrate"):
+                if _read_text(path) is None:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    storage.atomic_write_text(path, text)
+                    migrated = {"at": _now(), "again": existed_before}
+                    _save_state(vault, created_at=_state(vault).get("created_at") or _now(), migrated_at=migrated["at"])
+                else:
+                    text = _read_text(path) or ""
+        else:
+            pending_migration = True
+    ai = _text_ai_status()
     source_hash = _sha(text.encode("utf-8"))
-    if write and not force and migrated is None:
-        old = _short_circuit(vault, source_hash, catalog_built_at)
+    if write and not force and migrated is None and not pending_migration:
+        old = _short_circuit(vault, source_hash, catalog_built_at, ai)
         if old is not None:
             old["unchanged"] = True
             return old
@@ -742,6 +835,8 @@ def build(vault: Path | None = None, *, items: list[dict[str, Any]] | None = Non
                                                f"之前的版本在 _archive/{HISTORY_DIR}/ 里"})
     if not items:
         warnings.append({"line": 0, "text": "目录数据还没建好：先刷新一次目录，索引才有篇数"})
+    elif pending_migration:
+        warnings.append({"line": 0, "text": f"还没有 {index_rel()}：下次刷新目录时按原来的分类生成；现在先按那一版算"})
     data: dict[str, Any] = {
         "version": FORMAT_VERSION, "code_version": CODE_VERSION, "generated_at": _now(),
         "file": index_rel(), "draft_file": draft_rel(), "source_hash": source_hash, "vocab_hash": _vocab_stamp(),
@@ -749,7 +844,8 @@ def build(vault: Path | None = None, *, items: list[dict[str, Any]] | None = Non
         "roots": [r.path for r in parsed.roots], "nodes": node_rows(parsed, result),
         "unclassified": {"count": len(result.unclassified), "items": list(result.unclassified)},
         "cats_order": cats_order(parsed, result),
-        "warnings": warnings, "draft": _draft_info(vault, items, matcher),
+        "warnings": warnings, "draft": _draft_info(vault, items, matcher), "text_ai": ai,
+        "wiki_meta": _wiki_meta_stamp(vault),
     }
     st = _state(vault)
     if st.get("migrated_at"):
@@ -757,20 +853,19 @@ def build(vault: Path | None = None, *, items: list[dict[str, Any]] | None = Non
     drafting = st.get("drafting") if isinstance(st.get("drafting"), dict) else None
     if drafting and storage.pid_state(drafting.get("pid")) != "dead":
         data["drafting"] = {"at": drafting.get("at") or "", "auto": bool(drafting.get("auto"))}
-    try:   # 页面上「AI 起草」「生成 wiki」能不能点：Python 判（和真正调用同一个 text_ai），页面只读
-        cfg, why = text_ai()
-        data["text_ai"] = {"ok": cfg is not None, "why": why, "model": str((cfg or {}).get("model") or "")}
-    except Exception:  # noqa: BLE001
-        data["text_ai"] = {"ok": False, "why": "设置读不出来", "model": ""}
     try:
         from . import wiki as wiki_mod
-        data["wiki"] = wiki_mod.status(data, vault, update_headers=write)
+        data["wiki"] = wiki_mod.status(data, vault, update_headers=write and wiki_headers)
     except Exception as exc:  # noqa: BLE001 - wiki 状态坏了不挡索引
         _log(f"[index] wiki 状态没算出来：{type(exc).__name__}: {exc}")
         data["wiki"] = {}
-    if write:
+    if write and not pending_migration:
         with storage.file_lock(LOCK, wait_s=30, owner="index.build"):
-            storage.atomic_write_text(data_path(vault), json.dumps(data, ensure_ascii=False, indent=1))
+            disk = _load_json(data_path(vault))
+            if isinstance(disk, dict) and _newer(str(disk.get("catalog_built_at") or ""), catalog_built_at):
+                data["stale_skipped"] = True     # 盘上那份用的目录数据更新：不拿旧的盖它
+            else:
+                storage.atomic_write_text(data_path(vault), json.dumps(data, ensure_ascii=False, indent=1))
     if migrated:
         data["migrated"] = migrated          # 只在这一次的返回值里（不落盘）：catalog / CLI 据此说「第一次建索引」
     if migrated and auto_draft and write:
@@ -784,20 +879,17 @@ def public(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def load(vault: Path | None = None, *, fresh: bool = True) -> dict[str, Any]:
-    """读者（MCP / CLI show）用：index-data.json 和当前 索引.md / 目录数据对得上就直接用，对不上当场重算（顺手写回）。"""
+    """读者（MCP / CLI show）用：只读——不迁移出 索引.md、不起草、不改 wiki 页头；index-data.json 对得上就直接用，
+    对不上当场重算（只顺手更新 index-data.json 这份缓存）。"""
     vault = vault or storage.vault_root()
-    old = _load_json(data_path(vault))
-    if not fresh and isinstance(old, dict):
-        return old
-    text = _read_text(index_path(vault))
-    _, built = catalog_items(vault)
-    if isinstance(old, dict) and text is not None and old.get("source_hash") == _sha(text.encode("utf-8")) \
-            and old.get("catalog_built_at") == built and old.get("code_version") == CODE_VERSION:
-        return old
+    if not fresh:
+        old = _load_json(data_path(vault))
+        if isinstance(old, dict):
+            return old
     try:
-        return public(build(vault))
+        return public(build(vault, auto_draft=False, migrate=False, wiki_headers=False))
     except storage.LockBusy:
-        return public(build(vault, write=False))
+        return public(build(vault, write=False, auto_draft=False, migrate=False, wiki_headers=False))
 
 
 def maybe_auto_draft(vault: Path, n_items: int) -> str:
@@ -867,7 +959,22 @@ def _split_keep(text: str) -> list[str]:
     return out
 
 
-_TAIL = re.compile(r"(\s*(?:[\[［【]\s*wiki\s*[\]］】])?\s*(?:%%.*?%%)?\s*(?:<!--.*?-->)?\s*)$", re.I)
+def blank_comments(text: str) -> str:
+    """把 frontmatter、%% … %%、<!-- … -->（没闭合的到文件尾）换成同样长度的空格（换行留着）：
+    改写时在这份上找冒号、逗号、名字的位置，坐标和原文一一对应，注释里的冒号逗号不会被当成写法。"""
+    out = list(text)
+
+    def blank(m: re.Match) -> None:
+        for i in range(m.start(), m.end()):
+            if out[i] not in "\r\n":
+                out[i] = " "
+
+    cur = text
+    for rx in (_FM, *_COMMENTS, *_OPEN_COMMENTS):
+        for m in rx.finditer(cur):
+            blank(m)
+        cur = "".join(out)
+    return cur
 
 
 def _sep_style(segment: str) -> str:
@@ -903,88 +1010,177 @@ def _line_body(raw: str) -> str:
     return raw.rstrip("\r\n")
 
 
+_WIKI_TAIL = re.compile(r"(\s*[\[［【]\s*wiki\s*[\]］】])?\s*$", re.I)
+
+
+def _content_span(blank_line: str) -> tuple[int, int]:
+    """一行（注释已抹成空格）里「写法」那一段的起止：去掉缩进、行首符号、勾选框，去掉行尾的 [wiki] 和空白。"""
+    _, start = indent_of(blank_line)
+    rest = blank_line[start:]
+    bm = _BULLET.match(rest)
+    start += len(bm.group(0)) if bm else 0
+    tm = _TASK.match(blank_line[start:])
+    start += len(tm.group(0)) if tm else 0
+    end = len(blank_line)
+    m = _WIKI_TAIL.search(blank_line, start)
+    if m:
+        end = m.start()
+    while end > start and blank_line[end - 1].isspace():
+        end -= 1
+    while start < end and blank_line[start].isspace():
+        start += 1
+    return start, end
+
+
+def _segments(blank_line: str, start: int, end: int) -> list[tuple[int, int]]:
+    """「A, B、C」那一段里每个名字的起止（逗号 , ， 、 ; ；分隔，空的不算）。"""
+    out, i = [], start
+    for m in re.finditer(r"[,，、;；]", blank_line[start:end]):
+        j = start + m.start()
+        a, b = i, j
+        while a < b and blank_line[a].isspace():
+            a += 1
+        while b > a and blank_line[b - 1].isspace():
+            b -= 1
+        if b > a:
+            out.append((a, b))
+        i = j + 1
+    a, b = i, end
+    while a < b and blank_line[a].isspace():
+        a += 1
+    while b > a and blank_line[b - 1].isspace():
+        b -= 1
+    if b > a:
+        out.append((a, b))
+    return out
+
+
+def _split_out(text: str, node: Node) -> str:
+    """把一行几个节点（「成都, 顺德」）里的 node 搬到单独一行：原文里只删掉它那一段（连同一个逗号），别的字、注释原样；
+    新行照抄这一行的缩进和行首符号。node 不是这一行最后一个 → 新行放在原行前面（原行最后一个节点下面的子节点不受影响）；
+    是最后一个 → 放在原行后面（它的子节点紧跟着它）。改不了（对不上名字）→ ValueError。"""
+    blank = blank_comments(text)
+    lines, blines = _split_keep(text), _split_keep(blank)
+    idx = node.line - 1
+    raw, bl = lines[idx], blines[idx]
+    body, end_nl = _line_body(raw), raw[len(_line_body(raw)):]
+    bbody = _line_body(bl)
+    start, end = _content_span(bbody)
+    segs = _segments(bbody, start, end)
+    if len(segs) < 2 or _COLON.search(bbody[start:end]):
+        return text
+    names = [key(clean_name(body[a:b])) for a, b in segs]
+    if key(node.name) not in names:
+        raise ValueError(f"第 {node.line} 行写法太复杂，没能自动改「{node.name}」：请手动拆成一行一个")
+    i = names.index(key(node.name))
+    a, b = segs[i]
+    piece = body[a:b]
+    if i < len(segs) - 1:
+        rest = body[:a] + body[segs[i + 1][0]:]
+    else:
+        rest = body[:segs[i - 1][1]] + body[b:]
+    info_lead = body[:indent_of(bbody)[1]]
+    bm = _BULLET.match(bbody[len(info_lead):])
+    bullet = body[len(info_lead):len(info_lead) + (len(bm.group(0)) if bm else 0)]
+    nl_ = _newline(text)
+    wiki = " [wiki]" if _WIKI.search(bbody) else ""
+    new_line = info_lead + bullet + piece.strip() + wiki + nl_
+    old_line = rest + (end_nl or nl_)
+    lines[idx:idx + 1] = [new_line, old_line] if i < len(segs) - 1 else [old_line, new_line]
+    return "".join(lines)
+
+
 def edit_add_tags(text: str, path: str, tags: list[str]) -> str:
     """给节点 path 补标签。冒号行：接在原标签后面（沿用这一行的逗号写法）；只写了名字的：改成「名字：名字, 新标签」
-    （名字自己留作标签）；一行几个节点的：把它拆出来单独一行（在原行前面，原行最后一个节点下面的子节点不受影响）。"""
+    （名字自己留作标签）；一行几个节点的：先把它拆到单独一行（_split_out）。只动这一行，注释、[wiki]、换行风格原样。"""
     parsed = parse(text)
     node = parsed.find(path)
     if node is None:
         raise KeyError(path)
-    tags = [t for t in clean_tags(", ".join(tags)) if key(t) not in {key(x) for x in (node.tags if node.explicit else [])}]
+    have = {key(x) for x in (node.tags if node.explicit else [])}
+    tags = [t for t in dict.fromkeys(tag_text(t) for t in tags) if t and key(t) not in have]
     if not tags:
         return text
-    lines = _split_keep(text)
-    nl = _newline(text)
+    info = parsed.lines.get(node.line)
+    if info is not None and len(info.nodes) > 1:
+        text = _split_out(text, node)
+        parsed = parse(text)
+        node = parsed.find(path)
+        if node is None:
+            raise KeyError(path)
+    blank = blank_comments(text)
+    lines, blines = _split_keep(text), _split_keep(blank)
     idx = node.line - 1
     raw = lines[idx]
-    body, end = _line_body(raw), raw[len(_line_body(raw)):]
-    info = parsed.lines.get(node.line)
-    colon = _colon_style(text)
-    if info is not None and len(info.nodes) > 1:
-        rest = [n.name for n in info.nodes if n is not node]
-        sep = _sep_style(body)
-        head = info.lead + info.bullet
-        tail = _TAIL.search(body).group(1) if _TAIL.search(body) else ""
-        wiki_mark = " [wiki]" if _WIKI.search(body) else ""
-        new_line = head + node.name + colon + ", ".join([node.name] + tags) + wiki_mark + nl
-        old_line = head + sep.join(rest) + tail.rstrip() + end
-        if node is info.nodes[-1]:
-            lines[idx:idx + 1] = [old_line if old_line.endswith(("\n", "\r")) else old_line + nl, new_line]
-        else:
-            lines[idx:idx + 1] = [new_line, old_line]
-        return "".join(lines)
-    m = _TAIL.search(body)
-    cut = m.start(1) if m else len(body)
-    core, tail = body[:cut], body[cut:]
-    cm = _COLON.search(core)
+    body, end_nl = _line_body(raw), raw[len(_line_body(raw)):]
+    bbody = _line_body(blines[idx])
+    start, end = _content_span(bbody)
+    cm = _COLON.search(bbody, start, end)
     if cm and node.explicit:
-        # 「名字：a, b」→ 接在后面，沿用这一行的逗号（，/ 、/ ,）
-        sep = _sep_style(core[cm.end():])
-        core = core.rstrip().rstrip(",，、").rstrip() + sep + sep.join(tags)
+        # 「名字：a, b」→ 接在最后一个标签后面，沿用这一行的逗号（，/ 、/ ,）
+        sep = _sep_style(bbody[cm.end():end])
+        cut = end
+        while cut > cm.end() and bbody[cut - 1] in ",，、;； \t":
+            cut -= 1
+        insert = sep + sep.join(tags)
+        body = body[:cut] + insert + body[end:]
     elif cm:
         # 「名字：」（冒号后面是空的，算只写了名字）→ 名字自己留作标签
-        core = core.rstrip() + ", ".join([node.name] + tags)
+        body = body[:cm.end()] + ", ".join([tag_text(node.name)] + tags) + body[cm.end():]
     else:
-        core = core.rstrip() + colon + ", ".join([node.name] + tags)
-    lines[idx] = core + tail + end
+        body = body[:end] + _colon_style(text) + ", ".join([tag_text(node.name)] + tags) + body[end:]
+    lines[idx] = body + end_nl
     return "".join(lines)
 
 
+def node_name_for_write(name: str) -> str:
+    """新节点名：去掉会弄坏写法的冒号、逗号、顿号、斜杠、方括号、%。"""
+    return clean_name(re.sub(r"[:：,，、;；/\\\[\]【】%]+", " ", str(name or "")))
+
+
 def edit_new_node(text: str, parent_path: str, name: str, tags: list[str] | None = None) -> str:
-    """在 parent_path 下面（空 = 第一级）加一个节点：插在那个节点整棵子树的最后一行后面，缩进 / 行首符号照抄兄弟或父节点。"""
-    name = clean_name(name.replace(":", "·").replace("：", "·").replace(",", " ").replace("，", " ").replace("、", " "))
+    """在 parent_path 下面（空 = 第一级）加一个节点：插在那个节点整棵子树的最后一行后面，缩进 / 行首符号照抄最后一个直接子节点
+    （没有子节点就父节点再往里缩一级）。父节点在「A, B, C」那种一行里且不是最后一个：先把它拆到单独一行（不然子节点会挂到 C 下面）。"""
+    name = node_name_for_write(name)
     if not name:
         raise ValueError("名字是空的")
-    tags = clean_tags(", ".join(tags or []))
-    parsed = parse(text)
+    tags = [t for t in dict.fromkeys(tag_text(t) for t in (tags or [])) if t]
     nl = _newline(text)
     colon = _colon_style(text)
     content = name + (colon + ", ".join(tags) if tags else "")
-    lines = _split_keep(text)
     if not parent_path:
+        parsed = parse(text)
+        lines = _split_keep(text)
         bullet = next((parsed.lines[r.line].bullet for r in parsed.roots if r.line in parsed.lines), "- ") or ""
         lead = next((parsed.lines[r.line].lead for r in parsed.roots if r.line in parsed.lines), "")
-        new = lead + bullet + content + nl
         if lines and not lines[-1].endswith(("\n", "\r")):
             lines[-1] += nl
-        lines.append(new)
+        lines.append(lead + bullet + content + nl)
         return "".join(lines)
+    parsed = parse(text)
     parent = parsed.find(parent_path)
     if parent is None:
         raise KeyError(parent_path)
     pinfo = parsed.lines.get(parent.line)
-    sib = parent.children[0] if parent.children else None
-    sinfo = parsed.lines.get(sib.line) if sib is not None else None
-    if sinfo is not None:
-        lead, bullet = sinfo.lead, sinfo.bullet
+    if pinfo is not None and len(pinfo.nodes) > 1 and pinfo.nodes[-1] is not parent:
+        text = _split_out(text, parent)
+        parsed = parse(text)
+        parent = parsed.find(parent_path)
+        if parent is None:
+            raise KeyError(parent_path)
+        pinfo = parsed.lines.get(parent.line)
+    lines = _split_keep(text)
+    last_child = parent.children[-1] if parent.children else None
+    cinfo = parsed.lines.get(last_child.line) if last_child is not None else None
+    if cinfo is not None:
+        lead, bullet = cinfo.lead, cinfo.bullet
     else:
         lead = (pinfo.lead if pinfo else "") + _unit(text, parsed)
         bullet = pinfo.bullet if pinfo else "- "
     at = _subtree_last_line(parent)          # 1 起；插在这一行后面
-    new = lead + bullet + content + nl
     if at - 1 < len(lines) and not lines[at - 1].endswith(("\n", "\r")):
         lines[at - 1] += nl
-    lines.insert(at, new)
+    lines.insert(at, lead + bullet + content + nl)
     return "".join(lines)
 
 
@@ -1374,7 +1570,8 @@ def salvage_json(text: str) -> dict[str, Any] | None:
 def spec_to_lines(spec: list[dict[str, Any]], depth: int = 0) -> list[str]:
     lines = []
     for n in spec:
-        content = n["name"] + ("：" + ", ".join(n["tags"]) if n.get("tags") else "")
+        tags = list(dict.fromkeys(x for x in (tag_text(t) for t in n.get("tags") or []) if x))
+        content = n["name"] + ("：" + ", ".join(tags) if tags else "")
         lines.append("\t" * depth + "- " + content)
         lines.extend(spec_to_lines(n.get("children") or [], depth + 1))
     return lines
@@ -1456,10 +1653,13 @@ def _draft(vault: Path, items: list[dict[str, Any]], *, use_ai: bool) -> dict[st
     stats = {"total": len(res.order), "classified": len(res.hit_any), "unclassified": len(res.unclassified)}
     text = draft_text(spec, mode=mode, stats=stats)
     path = draft_path(vault)
-    old = _read_text(path)
+    try:
+        old = path.read_bytes()
+    except FileNotFoundError:
+        old = None
     with storage.file_lock(LOCK, wait_s=30, owner="index.draft"):
-        if old is not None and old != text:
-            backup(old, "draft-old", vault)
+        if old is not None and old != text.encode("utf-8"):
+            backup(old, "draft-old", vault)          # 她可能改过旧草稿：原样字节留一份
         path.parent.mkdir(parents=True, exist_ok=True)
         storage.atomic_write_text(path, text)
     _save_state(vault, draft={"generated_at": _now(), "mode": mode, "wiki_suggest": _wiki_paths(spec),
@@ -1476,14 +1676,19 @@ def use_draft(vault: Path | None = None) -> dict[str, Any]:
     """「用这版」：备份 索引.md → 草稿（去掉只属于草稿的那行说明）写进 索引.md → 草稿移进历史 → 重算。"""
     vault = vault or storage.vault_root()
     path = draft_path(vault)
-    text = _read_text(path)
-    if text is None:
+    try:
+        got = read_for_edit(path)
+        cur = read_for_edit(index_path(vault))
+    except NotUtf8 as exc:
+        return {"ok": False, "code": "PERMANENT.STEP_ARGS", "message": f"{exc}，没敢换：在 Obsidian 里打开它存一下再试"}
+    if got is None:
         return {"ok": False, "code": "PERMANENT.STEP_ARGS", "message": "没有草稿可用（先点「AI 起草」）"}
+    text, draft_raw, _ = got
     kept = [ln for ln in _split_keep(text) if not ln.lstrip().startswith(DRAFT_MARK)]
     new = "".join(kept)
     with storage.file_lock(LOCK, wait_s=30, owner="index.use-draft"):
-        name = write_index(new, "use-draft", vault)
-        backup(text, "draft-used", vault)
+        name = write_index(new, "use-draft", vault, old=cur[1] if cur else None, bom=bool(cur and cur[2]))
+        backup(draft_raw, "draft-used", vault)
         try:
             path.unlink()
         except OSError:
@@ -1520,32 +1725,43 @@ def _sid(s: dict[str, Any]) -> str:
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:10]
 
 
-def _simulate(parsed: Parsed, items: list[dict[str, Any]], matcher: Matcher, s: dict[str, Any],
-              before: Result) -> tuple[int, list[str], int] | None:
-    """在副本上应用一条建议再归类：(未归类少了几篇, 新收进来的 id, 目标节点篇数变化)。应用不了 = None。"""
-    roots = copy.deepcopy(parsed.roots)
-    sim = Parsed(roots=roots, warnings=[], lines={})
+def apply_text(text: str, s: dict[str, Any]) -> str:
+    """一条建议真正写回时的样子（模拟和「加入」用同一个函数，算出来的「多归进几篇」就是写进去以后的）。"""
     if s["action"] == "add_tags":
-        node = sim.find(s["path"])
-        if node is None:
-            return None
-        base = node.tags if node.explicit else [node.name]
-        node.tags = clean_tags(", ".join(base + s["tags"]))
-        node.explicit = True
-        target = node
-    else:
-        parent = sim.find(s["path"]) if s.get("path") else None
+        return edit_add_tags(text, s["path"], s.get("tags") or [])
+    return edit_new_node(text, s.get("path") or "", s.get("name") or "", s.get("tags") or [])
+
+
+def _target_path(s: dict[str, Any]) -> str:
+    if s["action"] == "add_tags":
+        return s["path"]
+    name = node_name_for_write(s.get("name") or "").replace(SEP, "∕")
+    return (s["path"] + SEP if s.get("path") else "") + name
+
+
+def _simulate(text: str, items: list[dict[str, Any]], matcher: Matcher, s: dict[str, Any],
+              before: Result) -> tuple[int, list[str], int] | None:
+    """把建议真的改进一份副本文本、重新解析归类：(未归类少了几篇, 新收进来的 id, 目标节点的篇数)。改不了 / 没变化 = None。"""
+    if s["action"] == "new_node":
+        cur = parse(text)
+        parent = cur.find(s["path"]) if s.get("path") else None
         if s.get("path") and parent is None:
             return None
-        siblings = parent.children if parent is not None else sim.roots
-        if any(key(x.name) == key(s["name"]) for x in siblings):
-            return None
-        target = Node(name=s["name"], tags=list(s["tags"]), explicit=bool(s["tags"]), parent=parent)
-        siblings.append(target)
-    after = classify(sim, items, matcher)
+        siblings = parent.children if parent is not None else cur.roots
+        if any(key(x.name) == key(node_name_for_write(s.get("name") or "")) for x in siblings):
+            return None                     # 和已有节点重名：写进去会合并，不算新节点
+    try:
+        new_text = apply_text(text, s)
+    except (KeyError, ValueError):
+        return None
+    if new_text == text:
+        return None
+    parsed = parse(new_text)
+    after = classify(parsed, items, matcher)
+    target = parsed.find(_target_path(s))
     newly = [i for i in before.unclassified if i in after.hit_any]
     gain = len(before.unclassified) - len(after.unclassified)
-    return gain, newly, len(after.total.get(id(target), ()))
+    return gain, newly, len(after.total.get(id(target), ())) if target is not None else 0
 
 
 def _local_candidates(parsed: Parsed, items: list[dict[str, Any]], matcher: Matcher, res: Result) -> list[dict[str, Any]]:
@@ -1635,6 +1851,7 @@ def suggest(vault: Path | None = None, *, use_ai: bool = True, limit: int = 20) 
     parsed, res = data["_parsed"], data["_result"]
     items, _ = catalog_items(vault)
     matcher = Matcher()
+    text = _read_text(index_path(vault)) or ""
     if not res.unclassified:
         payload = {"generated_at": _now(), "source_hash": data["source_hash"], "mode": "none", "suggestions": [],
                    "unclassified": 0}
@@ -1658,7 +1875,7 @@ def suggest(vault: Path | None = None, *, use_ai: bool = True, limit: int = 20) 
         if sid in seen:
             continue
         seen.add(sid)
-        sim = _simulate(parsed, items, matcher, s, res)
+        sim = _simulate(text, items, matcher, s, res)
         if sim is None or sim[0] <= 0:
             continue
         gain, newly, after_count = sim
@@ -1684,9 +1901,14 @@ def apply_suggestions(ids: list[str], vault: Path | None = None) -> dict[str, An
     rows = {s.get("id"): s for s in stored.get("suggestions") or [] if isinstance(s, dict)}
     results = []
     with storage.file_lock(LOCK, wait_s=30, owner="index.apply"):
-        text = _read_text(index_path(vault))
-        if text is None:
+        try:
+            got = read_for_edit(index_path(vault))
+        except NotUtf8:
+            return {"ok": False, "code": "PERMANENT.STEP_ARGS", "results": [],
+                    "message": f"{index_rel()} 不是 UTF-8 编码，没敢改它：在 Obsidian 里打开它随便改一个字再改回来存一下，再点「加入」"}
+        if got is None:
             return {"ok": False, "code": "PERMANENT.STEP_ARGS", "message": f"{index_rel()} 不在了，先刷新一次索引", "results": []}
+        text, raw, bom = got
         before = text
         for sid in ids:
             s = rows.get(sid)
@@ -1694,10 +1916,7 @@ def apply_suggestions(ids: list[str], vault: Path | None = None) -> dict[str, An
                 results.append({"id": sid, "status": "missing", "error": "这条建议已经过期了，重新点一次「未归类建议」"})
                 continue
             try:
-                if s["action"] == "add_tags":
-                    text = edit_add_tags(text, s["path"], s.get("tags") or [])
-                else:
-                    text = edit_new_node(text, s.get("path") or "", s["name"], s.get("tags") or [])
+                text = apply_text(text, s)
                 results.append({"id": sid, "status": "ok", "action": s["action"], "path": s.get("path"), "name": s.get("name"),
                                 "tags": s.get("tags")})
             except KeyError:
@@ -1705,7 +1924,7 @@ def apply_suggestions(ids: list[str], vault: Path | None = None) -> dict[str, An
             except ValueError as exc:
                 results.append({"id": sid, "status": "failed", "error": str(exc)})
         if text != before:
-            write_index(text, "suggest", vault)
+            write_index(text, "suggest", vault, old=raw, bom=bom)
     if any(r["status"] == "ok" for r in results):
         old_unc = None
         try:

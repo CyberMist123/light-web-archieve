@@ -298,8 +298,16 @@ async function loadIndex() {
   } catch {}
   idx = next; idxByPath.clear(); idxSets.clear(); idxRev++;
   for (const n of idx?.nodes || []) if (n && typeof n.path === 'string') idxByPath.set(n.path, n);
+  // 索引是用更旧的目录数据算的（重建目录时没抢到锁之类）：新收的几篇哪类都不在——请插件重算一次（每对版本只请一次）
+  const built = Date.parse(data?.built_at || ''), at = Date.parse(idx?.catalog_built_at || '');
+  const pair = `${idx?.catalog_built_at}|${data?.built_at}`;
+  if (idx && Number.isFinite(built) && (!Number.isFinite(at) || built > at) && pair !== idxRebuildAsked) {
+    idxRebuildAsked = pair;
+    try { provider()?.indexRebuild?.(); } catch {}
+  }
   return idx;
 }
+let idxRebuildAsked = '';
 function nodeIds(path) {
   if (!idx || !path) return null;
   if (idxSets.has(path)) return idxSets.get(path);
@@ -653,7 +661,7 @@ function renderTopicBar() {
     chip.type = 'button';
     chip.createEl('span', { cls: 'lbc-topic-star', text: '★' }); chip.append(name);
     chip.setAttribute('aria-pressed', String(activeTopic === name));
-    chip.onclick = () => { activeTopic = (activeTopic === name ? '' : name); renderCatBar(); render(); scrollToResults(); };
+    chip.onclick = () => { indexView = false; activeTopic = (activeTopic === name ? '' : name); renderCatBar(); render(); scrollToResults(); };
   }
 }
 // ── 10-04 导入时间：筛选 + 排序 ──
@@ -724,7 +732,7 @@ function popMenu(items, e, anchor, pos) {
 }
 function openTimeMenu(anchor) {
   const { menu, close } = menuShell('lbc-time-menu', anchor);
-  const apply = () => { close(); renderCatBar(); render(); scrollToResults(); };
+  const apply = () => { close(); indexView = false; renderCatBar(); render(); scrollToResults(); };
   const item = (label, on, fn) => { const b = menu.createEl('button', { cls: 'lbc-menu-item' + (on ? ' is-on' : ''), text: (on ? '✓ ' : '') + label }); b.type = 'button'; b.onclick = ev => { ev?.stopPropagation?.(); fn(); apply(); }; return b; };
   menu.createEl('div', { cls: 'lbc-menu-head', text: '排序' });
   item('默认', !timeSort, () => { timeSort = ''; });
@@ -1547,6 +1555,8 @@ const delay = () => Math.max(40, Math.min(100, 120 - renderEma));
 function commitSearch() {
   clearTimeout(typingTimer); typingTimer = null;
   const raw = search.value.trim();
+  // 10-10：「索引」视图开着时打字搜索 = 回到网格看结果（不然结果藏在索引图后面，像什么都没搜到）
+  if (indexView && raw) { indexView = false; renderCatBar(); }
   const before = committed;
   const t0 = now();
   lastRaw = raw;
