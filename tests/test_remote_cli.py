@@ -125,10 +125,10 @@ def test_enable_registers_logon_task_with_watchdog(capsys, fake_ps):
     code, out = run_cli(capsys, ["remote", "enable"])
     assert code == 0 and out["ok"], out
     script = calls[-1]
-    assert "Register-ScheduledTask -TaskName 'LinkBrainRemote'" in script
+    assert "Register-ScheduledTask -TaskName 'LwaMcp'" in script
     assert "-AtLogOn" in script and "-RepetitionInterval (New-TimeSpan -Minutes 5)" in script
     assert "-MultipleInstances IgnoreNew" in script and "-RunLevel Limited" in script and "-LogonType Interactive" in script
-    assert "Start-ScheduledTask -TaskName 'LinkBrainRemote'" in script
+    assert "Start-ScheduledTask -TaskName 'LwaMcp'" in script
     assert "-m link_brain remote serve --vault" in script and "--state-dir" in script
     assert "--settings" not in script                                         # 默认读 vault 里插件的 data.json
     assert re.search(r"pythonw?\.exe", script, re.I)
@@ -140,8 +140,8 @@ def test_disable_unregisters(capsys, fake_ps):
     replies.append((True, "ok"))
     code, out = run_cli(capsys, ["remote", "disable"])
     assert code == 0 and out["message"].startswith("已停止并删除")
-    assert "Stop-ScheduledTask -TaskName 'LinkBrainRemote'" in calls[-1]
-    assert "Unregister-ScheduledTask -TaskName 'LinkBrainRemote' -Confirm:$false" in calls[-1]
+    assert "Stop-ScheduledTask -TaskName 'LwaMcp'" in calls[-1]
+    assert "Unregister-ScheduledTask -TaskName 'LwaMcp' -Confirm:$false" in calls[-1]
     replies.append((True, "none"))
     code, out = run_cli(capsys, ["remote", "disable"])
     assert code == 0 and "本来就没有" in out["message"]

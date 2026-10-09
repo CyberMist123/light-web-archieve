@@ -11,7 +11,9 @@
      `/oauth/authorize`（**必须 PKCE S256**，出口令批准页）、`/oauth/approve`（核口令，错 5 次锁 15 分钟）、
      `/oauth/token`（授权码 5 分钟一次性 + code_verifier；刷新令牌轮换）。
    - `/mcp`：Bearer（OAuth 访问令牌或「给其他客户端的访问令牌」）→ 每令牌限速 → MCP Streamable HTTP
-     （mcp SDK，无状态 + JSON 应答）。工具只有 search / read / list / read_asset，全部只读。
+     （mcp SDK，无状态 + JSON 应答）。工具定义在 link_brain/mcp_tools.py（和本机 stdio 同一份，共 9 个）：
+     读——search / read / image / files / recent / history；写——topics（星标主题）、selections（暗号）；
+     花钱——ask（问收藏，每令牌每小时有上限）。都不能改动或删除收藏本身。
      带图的结果（read_asset、read 的 include_images）回 ImageContent 块；read 附的图第二张起每张再记一次每令牌限速。
 4. 每次工具调用、每次被拒都在 access.log 记一行（时间、谁、工具、路径、结果），不记查询词和内容。
 """
@@ -363,7 +365,7 @@ class RemoteApp:
         if path in ("/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp"):
             return await self._send(send, 200, {"resource": origin + "/mcp", "authorization_servers": [origin],
                                                 "scopes_supported": [SCOPE], "bearer_methods_supported": ["header"],
-                                                "resource_name": "Link Brain 收藏（只读）"})
+                                                "resource_name": "LWA 收藏库（Link Brain）"})
         if path in ("/.well-known/oauth-authorization-server", "/.well-known/oauth-authorization-server/mcp"):
             return await self._send(send, 200, {
                 "issuer": origin, "authorization_endpoint": origin + "/oauth/authorize",
@@ -420,7 +422,7 @@ class RemoteApp:
         page = ("<!doctype html><html lang=\"zh\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
                 f"<title>{html.escape(title)}</title><style>body{{font:16px/1.6 system-ui,sans-serif;max-width:32rem;margin:2rem auto;padding:0 1rem}}"
                 "input[type=password]{width:100%;font-size:1rem;padding:.4rem;box-sizing:border-box}button{margin-top:1rem;font-size:1rem;padding:.4rem 1.2rem}"
-                ".err{color:#b00020}.muted{color:#666;font-size:.9rem}code{word-break:break-all}</style>"
+                ".err{color:#b00020}.muted{color:#666;font-size:.9rem}code{word-break:break-all}h2{font-size:1.05rem;margin:1.2rem 0 .3rem}ul{margin:.2rem 0;padding-left:1.3rem}</style>"
                 f"<h1>{html.escape(title)}</h1>{body_html}</html>")
         # 引用策略用 same-origin：no-referrer 会让浏览器在提交批准表单时发 Origin: null（真机 Chrome 实测）；跳回客户端时照样不带引用
         return page.encode("utf-8"), {"content-security-policy": csp, "x-frame-options": "DENY", "referrer-policy": "same-origin"}
@@ -439,17 +441,33 @@ class RemoteApp:
             self.pending.pop(next(iter(self.pending)))
 
     def _approval_body(self, req_id: str, req: dict[str, Any], error: str = "") -> str:
-        labels = ["小红书收藏库（可见笔记 + 每篇的机读版、附件全文、批注）" if f == config_mod.XHS else f"文件夹「{f}」"
-                  for f in self.policy().folders]
+        labels = []
+        ext = self.policy().ext_map
+        for f in self.policy().folders:
+            if f == config_mod.XHS:
+                labels.append("小红书收藏库（可见笔记 + 每篇的机读版、附件全文、批注）")
+            elif f.startswith("@ext/") and f[5:] in ext:
+                labels.append(f"本机文件夹「{ext[f[5:]]}」")
+            else:
+                labels.append(f"库内文件夹「{f}」")
         shown = "".join(f"<li>{html.escape(x)}</li>" for x in labels) or "<li>（现在没有开放任何文件夹）</li>"
         err = f"<p class=\"err\">{html.escape(error)}</p>" if error else ""
-        return (f"<p><b>{html.escape(req['client_name'])}</b> 想访问你开放的收藏和文件夹：</p><ul>{shown}</ul>"
-                "<p class=\"muted\">能搜索和阅读这些内容、管理星标主题和暗号（选集），也能调用「问收藏」（会花模型钱，每小时有上限）；不能改动或删除收藏本身。随时可以在 Obsidian → Link Brain 设置 → 高级设置 → 远程阅读里「撤销全部访问」。</p>"
+        perms = ("<li><b>搜索、阅读</b>：搜收藏、读机读版全文和附件、看原图、浏览开放的文件夹、看最近收了什么和搜索历史</li>"
+                 "<li><b>写主题和暗号</b>：新建 / 修改 / 删除星标主题，新建 / 修改暗号（选集）</li>"
+                 "<li><b>问收藏（会花模型钱）</b>：让本机调模型基于收藏回答，每个连接每小时最多 "
+                 f"{ASK_PER_HOUR} 次</li>")
+        return (f"<p><b>{html.escape(req['client_name'])}</b> 请求连接你的 LWA 收藏库。</p>"
+                f"<h2>能看到的内容</h2><ul>{shown}</ul>"
+                f"<h2>将授予的权限</h2><ul>{perms}</ul>"
+                "<p class=\"muted\">不能改动或删除收藏本身，也读不到 .obsidian、插件设置、密钥、数据库和日志。"
+                "随时可以在 Obsidian → Link Brain 设置 → 远程 MCP →「已连接的客户端」里单独吊销它。</p>"
                 f"<p class=\"muted\">授权后会跳回：<code>{html.escape(req['redirect_host'])}</code></p>{err}"
                 "<form method=\"post\" action=\"/oauth/approve\">"
                 f"<input type=\"hidden\" name=\"request_id\" value=\"{html.escape(req_id)}\">"
-                "<label>远程阅读口令（在设置里设的那个）<br><input type=\"password\" name=\"passphrase\" required autocomplete=\"current-password\" autofocus></label>"
-                "<br><button type=\"submit\">允许访问</button></form>")
+                "<label><b>输入远程 MCP 口令</b><br><span class=\"muted\">就是 Obsidian → Link Brain 设置 → 远程 MCP →「口令」里设的那个；"
+                "在那里点「复制口令」再粘贴到这里。连续输错 5 次会锁 15 分钟。</span><br>"
+                "<input type=\"password\" name=\"passphrase\" required autocomplete=\"current-password\" autofocus></label>"
+                "<br><button type=\"submit\">允许连接</button></form>")
 
     async def _authorize(self, method, scope, send):
         if method != "GET":
@@ -472,7 +490,7 @@ class RemoteApp:
             return await bounce("invalid_request", "PKCE S256 required")
         if not self.store.passphrase_set():
             return await self._send_page(send, 400, "还没设口令",
-                                         "<p>远程阅读还没设口令。到 Obsidian → Link Brain 设置 → 高级设置 → 远程阅读（MCP）里设一个口令，再回到客户端重新连接。</p>")
+                                         "<p>远程 MCP 还没设口令。到 Obsidian → Link Brain 设置 → 远程 MCP →「口令」点「随机生成」（或自己设一个），再回到客户端重新连接。</p>")
         self._gc()
         req_id = secrets.token_urlsafe(24)
         parts = urlsplit(redirect_uri)
@@ -481,7 +499,7 @@ class RemoteApp:
                                 "redirect_origin": f"{parts.scheme}://{parts.netloc}", "state": state,
                                 "challenge": qs["code_challenge"], "expires": time.monotonic() + PENDING_TTL}
         req = self.pending[req_id]
-        return await self._send_page(send, 200, "授权只读访问", self._approval_body(req_id, req), req["redirect_origin"])
+        return await self._send_page(send, 200, "授权连接 LWA 收藏库", self._approval_body(req_id, req), req["redirect_origin"])
 
     async def _approve(self, method, receive, send):
         import anyio
@@ -508,7 +526,7 @@ class RemoteApp:
                 self.approve_locked_until = now + APPROVE_LOCK_S
                 self.approve_failures.clear()
             self.log({"tool": "oauth.approve", "client": req["client_name"], "status": "denied", "code": "BAD_PASSPHRASE"})
-            return await self._send_page(send, 403, "授权只读访问", self._approval_body(req_id, req, "口令不对。"),
+            return await self._send_page(send, 403, "授权连接 LWA 收藏库", self._approval_body(req_id, req, "口令不对。"),
                                          req["redirect_origin"])
         self.pending.pop(req_id, None)
         code = secrets.token_urlsafe(32)

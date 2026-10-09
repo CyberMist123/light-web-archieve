@@ -159,19 +159,21 @@ def _one_sentence(text: Any, limit: int = 80) -> str:
 def _abs(ctx: Ctx, rel: str | None) -> str | None:
     if not rel:
         return None
-    return str(ctx.policy.root.joinpath(*rel.split("/"))) if ctx.local else rel
+    if not ctx.local:
+        return rel
+    try:
+        return str(ctx.policy.abspath(rel))
+    except Denied:
+        return rel
 
 
 def _to_rel(ctx: Ctx, path: str) -> str:
     """本机允许写绝对路径（必须在 vault 里），统一换成 vault 相对路径再过白名单。远程只收相对路径。"""
     if ctx.local and path and (os.path.isabs(path) or re.match(r"^[A-Za-z]:", path)):
-        root = os.path.normcase(str(ctx.policy.root))
-        p = os.path.normcase(os.path.realpath(path))
-        if p == root:
-            return ""
-        if not p.startswith(root + os.sep):
-            raise Denied("NOT_SHARED", "不在 vault 里")
-        return os.path.realpath(path)[len(str(ctx.policy.root)) + 1:].replace("\\", "/")
+        rel = ctx.policy.rel_for_abs(path)
+        if rel is None:
+            raise Denied("NOT_SHARED", "不在 vault 或开放的库外文件夹里")
+        return rel
     return path
 
 
@@ -363,15 +365,37 @@ def files(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
 
 # ---------------------------------------------------------------- topics
 
-def _topic_public(t: dict[str, Any], items: list[dict[str, Any]], with_items: bool) -> dict[str, Any]:
+def _live_hits(t: dict[str, Any], items: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
+    """当场按这个主题重算命中（和目录重建同一个 topics.memberships：词法 + 本地向量库，不调外部接口）。算不了 → None。"""
+    try:
+        from . import topics as tmod
+        member = tmod.memberships(items, [t])
+    except Exception:  # noqa: BLE001 - fail-open：退回目录里的旧结果
+        return None
+    return [it for it in items if t["name"] in member.get(str(it.get("id")), [])]
+
+
+def _topics_stale() -> bool:
+    """主题文件比目录数据新 = 目录里的命中还是改之前算的。"""
+    from . import topics as tmod
+    try:
+        return tmod.topics_path().stat().st_mtime > (storage.archive_root() / "catalog-data.json").stat().st_mtime
+    except OSError:
+        return False
+
+
+def _topic_public(t: dict[str, Any], items: list[dict[str, Any]], with_items: bool, live: bool = False) -> dict[str, Any]:
     by_id = {str(it.get("id")): it for it in items}
     srcs = []
     for s in t.get("sources") or []:
         it = by_id.get(s)
         srcs.append({"id": _short_id(s), "title": (it or {}).get("title") or "（已不在库里）"})
-    hit = [it for it in items if t["name"] in (it.get("topics") or []) or str(it.get("id")) in (t.get("sources") or [])]
+    hit = _live_hits(t, items) if live else None
+    fresh = hit is not None
+    if hit is None:
+        hit = [it for it in items if t["name"] in (it.get("topics") or []) or str(it.get("id")) in (t.get("sources") or [])]
     out = {"id": t["id"], "name": t["name"], "keywords": t["keywords"], "sources": srcs, "count": len(hit),
-           "created": t.get("created") or ""}
+           "created": t.get("created") or "", "count_fresh": fresh}
     if with_items:
         hit.sort(key=lambda it: str(it.get("ts") or it.get("date") or ""), reverse=True)
         out["items"] = [{"id": _short_id(it.get("id")), "title": it.get("title") or "", "date": it.get("date") or "",
@@ -408,14 +432,19 @@ def topics(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
     action = _str(args, "action") or "list"
     items = _items()
     if action == "list":
-        return {"topics": [_topic_public(t, items, False) for t in tmod.load()]}
+        stale = _topics_stale()
+        out = {"topics": [_topic_public(t, items, False) for t in tmod.load()]}
+        if stale:
+            out["note"] = "主题刚改过、目录还在后台重建：这里的 count 可能是旧的；get 某个主题会当场重算"
+        return out
     ref = _str(args, "topic", limit=60)
     if action == "get":
         t = tmod.find(tmod.load(), ref) if ref else None
         if not t:
             raise Denied("NOT_FOUND", f"没有这个主题：{ref}；有：{'、'.join(x['name'] for x in tmod.load())}")
-        return {"topic": _topic_public(t, items, True),
-                "note": "命中篇目按上次目录重建算；改过主题后后台会重建，约一两分钟后更新"}
+        pub = _topic_public(t, items, True, live=True)
+        return {"topic": pub, "note": "命中篇目是刚刚当场算的" if pub["count_fresh"]
+                else "命中篇目按上次目录重建算（当场重算没成功）" + ("；目录正在后台重建" if _topics_stale() else "")}
     if action not in ("create", "update", "delete"):
         raise Denied("INVALID_ARGUMENT", "action 只能是 list / get / create / update / delete")
     with write_guard("topics"):
@@ -435,7 +464,7 @@ def topics(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
                      "sources": _resolve_sources(_str_list(args.get("add_sources"), "add_sources"), items),
                      "created": datetime.now().astimezone().isoformat(timespec="seconds")}
             tmod.save(current + [topic])
-            result: dict[str, Any] = {"created": _topic_public(topic, items, False), "keywords_from": kw_from}
+            result: dict[str, Any] = {"created": _topic_public(topic, items, False, live=True), "keywords_from": kw_from}
         else:
             t = tmod.find(current, ref)
             if not t:
@@ -468,8 +497,10 @@ def topics(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
                 if new == t:
                     raise Denied("INVALID_ARGUMENT", "没有要改的：给 new_name / add_keywords / remove_keywords / add_sources / remove_sources")
                 tmod.save([new if x["id"] == t["id"] else x for x in current])
-                result = {"updated": _topic_public(new, items, False)}
+                result = {"updated": _topic_public(new, items, False, live=True)}
     result["catalog"] = rebuild_catalog_async()
+    result["note"] = ("这个主题的命中数是刚刚当场算的；目录页 / 其他主题的统计在后台重建，约一两分钟" if action != "delete"
+                      else "已删除；目录在后台重建，约一两分钟")
     return result
 
 

@@ -565,7 +565,7 @@ class LinkBrainActions extends Plugin {
     if (this.app.vault.on) for (const event of ['modify', 'create']) this.registerEvent(this.app.vault.on(event, file => {
       if (['_archive/sync-status.json', '_archive/problems-summary.json'].some(name => file?.path === this.lbPath(name))) refreshTask().catch(console.error);
     }));
-    this.settings = mergeSettings(await this.loadData());
+    { const raw = await this.loadData(); this.snapDisk(raw); this.settings = mergeSettings(raw); this.watchSettingsFile(); }
     // 1008 Owner：「开始」页选了轻量版 = 不跑 AI 概要 / 识图、也不报它们的失败（后端 providers 按 setup.selected 门禁）。
     // 老用户以前 selected 可能停在轻量版、却早已配好 key 在用——第一次升级时把已配好的 AI 组件勾回去，之后以「开始」页的选择为准。
     try { if (await this.syncSetupSelectionWithAI()) await this.saveSettings(); } catch (e) { console.error('[lb] 功能选择没对齐', e); }
@@ -670,7 +670,41 @@ class LinkBrainActions extends Plugin {
   }
 
   // 批次 D：每次保存后广播 link-brain:settings（页面用 dv.component.registerEvent 订阅、自己 rAF 合并；模型增删改名也走它）
-  async saveSettings() { await this.saveData(this.settings); try { this.app?.workspace?.trigger?.('link-brain:settings'); } catch (e) { console.error('[lb] 设置广播没发出', e); } }
+  // 10-09：remote 段以磁盘为准——保存前让 remote-ui 先从 data.json 重读它（防内存旧值盖掉在别处改好的域名 / 文件夹）
+  async saveSettings() { try { await this.remoteUI?.beforeSave?.(); } catch (e) { console.error('[lb] 远程 MCP 设置没对齐', e); } await this.saveMerged(); try { this.app?.workspace?.trigger?.('link-brain:settings'); } catch (e) { console.error('[lb] 设置广播没发出', e); } }
+  // 10-09 设置单一来源 = 插件目录的 data.json（Python 后端 ai_config.data_json_path / remote 服务、将来的网页前端都读写这一份）。
+  // 写前合并：只把「这个窗口加载后真改过」的顶层键写进去，其余键取磁盘最新值——别处（命令行 / 网页 / 另一窗口）改的不会被内存旧值盖掉。
+  // _diskSnap = 上次和磁盘对齐时每个顶层键的 JSON；内存值和它不同 = 本窗口改过。
+  snapDisk(raw) { this._diskSnap = {}; for (const [k, v] of Object.entries(raw || {})) this._diskSnap[k] = JSON.stringify(v); }
+  async saveMerged() {
+    let disk = null;
+    try { disk = await this.loadData(); } catch { disk = null; }
+    const out = { ...(disk || {}) };
+    const snap = this._diskSnap || {};
+    for (const [k, v] of Object.entries(this.settings)) {
+      const mine = JSON.stringify(v);
+      if (!disk || !(k in disk) || mine !== snap[k]) out[k] = v;          // 本窗口改过（或磁盘没有）→ 用内存
+      else this.settings[k] = disk[k];                                      // 没改过 → 磁盘为准，顺手刷新内存
+    }
+    this._selfWriteAt = Date.now();
+    await this.saveData(out);
+    this.snapDisk(out);
+  }
+  // 盯 data.json：别处写了就整份重读（Obsidian 自带 onExternalSettingsChange 只在部分版本 / 同步场景触发，这里兜底）
+  watchSettingsFile() {
+    try {
+      const fs = require('fs');
+      const file = path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'data.json');
+      let timer = null;
+      const w = fs.watch(file, { persistent: false }, () => {
+        if (Date.now() - (this._selfWriteAt || 0) < 1500) return;
+        clearTimeout(timer); timer = setTimeout(() => this.onExternalSettingsChange(), 400);
+      });
+      this.register(() => { clearTimeout(timer); w.close(); });
+    } catch (e) { console.error('[lb] 盯不住设置文件', e); }
+  }
+  // 10-09：data.json 被别处改了（命令行 / 同步 / 另一个窗口）→ Obsidian 调这里：整份重读，别让内存旧值下次保存时盖回去
+  async onExternalSettingsChange() { try { const raw = await this.loadData(); this.snapDisk(raw); this.settings = mergeSettings(raw); await this.remoteUI?.attach?.(); this.app?.workspace?.trigger?.('link-brain:settings'); } catch (e) { console.error('[lb] 外部改了设置，重读失败', e); } }
   // 1008：setup.selected 是列表、还没对齐过 → 已配好的 textAI / summaryAI 勾上 ai_text、visionAI 勾上 ai_vision。返回有没有改动。
   syncSetupSelectionWithAI() {
     const su = this.settings.setup;
@@ -2166,7 +2200,7 @@ class ConfirmModal extends Modal {
 
 // ── 设置页：各 AI 接口的 endpoint/model/key + 两类提示词。数据只落本插件 data.json。 ──
 // 第 7 批：设置页顶部分页（她给的参照：MAA 初始设置 + 某插件设置页顶部一排分页）。只挪位置：存储键、默认值、保存逻辑都没动。
-const SETTING_TABS = [["start", "开始"], ["sync", "同步与内容"], ["ai", "AI"], ["remote", "远程阅读"], ["advanced", "高级"]];
+const SETTING_TABS = [["start", "开始"], ["sync", "同步与内容"], ["ai", "AI"], ["remote", "远程 MCP"], ["advanced", "高级"]];
 class LinkBrainSettingTab extends PluginSettingTab {
   constructor(app, plugin) { super(app, plugin); this.plugin = plugin; }
 
@@ -2533,7 +2567,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
 
     // —— 外接 MCP（0926）：让本机的 Claude Code / Codex / 别的 AI 直接查这个收藏库（不需要域名）——
     c.createEl('h4', { text: '接本机 AI（不用域名）' });
-    c.createEl('p', { cls: 'setting-item-description', text: '把收藏库接给本机的其他 AI 用（不需要域名）。提供三个工具：lb_search（关键词找）、lb_retrieve（按问题取原文，不花模型钱）、lb_ask（完整问答，会用「AI」分页选的模型）。本机运行，不开网络端口。' });
+    c.createEl('p', { cls: 'setting-item-description', text: '把收藏库接给本机的其他 AI 用（不需要域名）。和远程 MCP 同一套 9 个工具：search / read / image / files / recent / history（读）、topics / selections（写星标主题和暗号）、ask（问收藏，会用「AI」分页选的模型、花模型钱）。本机运行，不开网络端口。' });
     const steps = c.createEl('ol', { cls: 'lb-install-steps setting-item-description' });
     for (const line of ['点下面对应客户端的「复制」，粘到终端里运行（Claude Desktop / Cursor 这类把 JSON 粘进它的 MCP 配置）。',
       '重启那个 AI 客户端，让它载入新工具。',
@@ -2552,7 +2586,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
 
     const note = c.createDiv({ cls: 'lb-remote-intro' });
     note.createEl('p', { cls: 'setting-item-description', text: '接到 Notion：以后支持。' });
-    note.createEl('p', { text: '远程阅读需要自备域名和隧道（高级）：在外面用手机上的 GPT 等读你的收藏，要你自己有一个域名，并用隧道或反向代理把它接到本机。不需要的话这一节可以不管。' });
+    note.createEl('p', { text: '远程 MCP 要自备域名和隧道：在外面用手机上的 claude.ai / ChatGPT 连你的收藏，要你自己有一个域名，并用隧道或反向代理把它接到本机（下面「连接 → 还没有域名？」有教程）。不需要的话这一节可以不管。' });
 
     this.plugin.remoteUI?.render(c, () => this.display());   // 第 6 批：远程阅读（MCP），整节在 remote-ui.js
   }

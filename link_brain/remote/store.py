@@ -1,6 +1,7 @@
 """口令与令牌：`$LINK_BRAIN_HOME/remote/auth.json`（默认 ~/.link-brain/remote/），不进 data.json、不进仓库。
 
-- 口令只存 scrypt 哈希（盐 16 字节，n=2**14 r=8 p=1）。
+- 口令验证只认 scrypt 哈希（盐 16 字节，n=2**14 r=8 p=1）；另在同目录存一份 DPAPI（当前 Windows 用户）加密的副本
+  passphrase.dpapi，只给设置页「复制口令」用（见 secret_box.py）。
 - 令牌只存 sha256（明文只在生成的那一刻出现一次）：
   · OAuth 访问令牌 `lbr_a_…`：1 小时；刷新令牌 `lbr_r_…`：90 天，用一次换一张新的（旧的作废）。
   · 给其他客户端的访问令牌 `lbr_p_…`：不过期，直到撤销。
@@ -134,6 +135,22 @@ class AuthStore:
             d["passphrase"] = {"salt": salt.hex(), "hash": digest.hex(), "algo": "scrypt", **{k: _SCRYPT[k] for k in ("n", "r", "p")},
                                "set_at": _iso(_now())}
         self._mutate(apply)
+        from . import secret_box
+        secret_box.save(self.dir, passphrase)   # 「复制口令」用的 DPAPI 副本；验证不靠它
+
+    def reveal_passphrase(self) -> str | None:
+        """取回明文（DPAPI 副本）：没设 / 旧版本设的没有副本 / 不是 Windows / 解不开 → None。"""
+        if not self.passphrase_set():
+            return None
+        from . import secret_box
+        value = secret_box.load(self.dir)
+        return value if value and self.check_passphrase(value) else None
+
+    @staticmethod
+    def generate_passphrase() -> str:
+        """随机口令：4 组 × 5 个字符（去掉易混的 0/O/1/l/I），约 100 位熵，好抄好念。"""
+        alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789"
+        return "-".join("".join(secrets.choice(alphabet) for _ in range(5)) for _ in range(4))
 
     def check_passphrase(self, passphrase: str) -> bool:
         rec = self.view().get("passphrase")
@@ -216,6 +233,19 @@ class AuthStore:
     def revoke_personal(self, tid: str) -> bool:
         return bool(self._mutate(lambda d: d["personal"].pop(tid, None) is not None))
 
+    def revoke_client(self, client_id: str) -> bool:
+        """吊销一个已连接的 OAuth 客户端：删掉它的注册和它名下所有访问 / 刷新令牌。"""
+        def apply(d):
+            if client_id not in d["clients"]:
+                return False
+            d["clients"].pop(client_id, None)
+            for table in ("access", "refresh"):
+                for h, rec in list(d[table].items()):
+                    if rec.get("client_id") == client_id:
+                        d[table].pop(h, None)
+            return True
+        return bool(self._mutate(apply))
+
     def revoke_all(self) -> dict[str, int]:
         def apply(d):
             counts = {"clients": len(d["clients"]), "tokens": len(d["access"]) + len(d["refresh"]),
@@ -280,7 +310,9 @@ class AuthStore:
         personal = [{"id": tid, "label": r.get("label"), "created": _iso(r.get("created")), "last_used": _iso(r.get("last_used"))}
                     for tid, r in d["personal"].items()]
         live_refresh = sum(1 for r in d["refresh"].values() if float(r.get("expires", 0)) >= now)
+        from . import secret_box
         return {"passphrase_set": bool(d.get("passphrase")), "passphrase_set_at": (d.get("passphrase") or {}).get("set_at"),
+                "passphrase_copyable": bool(d.get("passphrase")) and secret_box.path(self.dir).is_file(),
                 "clients": clients, "personal": personal, "live_sessions": live_refresh,
                 "revoked_all_at": d.get("revoked_all_at"), "corrupt": bool(d.get("_corrupt"))}
 

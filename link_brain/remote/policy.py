@@ -10,6 +10,8 @@
    - `@xhs`（小红书收藏库）开放：`Web/Xiaohongshu/**` 的笔记 + 每篇 `_archive/xiaohongshu/<id>/` 下的
      `derived/agent.md`（机读版）、`derived/attachments/*.md`（附件全文）、`notes.json`（批注）。
    - 用户加的文件夹：它下面的文本文件。
+   - 库外的本机文件夹（设置里填绝对路径）：以虚拟路径 `@ext/<名字>/…` 出现，规则和库内文件夹完全一样
+     （同样三道防护，第三道的「真路径」换成那个文件夹的真路径）；不收盘符根、家目录根、包含或位于 vault 内的路径。
    - 只读文本：`.md` / `.markdown` / `.txt`（外加上面那一个 notes.json）；`.txt` 文件名像密钥的也拒。
    - 图片（只给 read_asset，另走 `asset_rule`）：只开放 `@xhs` 每篇 `_archive/xiaohongshu/<id>/raw/vNNNN/assets/`
      下的 `.webp / .jpg / .jpeg / .png / .gif`（扩展名小写）。用户加的文件夹里的图片默认不开（`USER_FOLDER_IMAGES`）。
@@ -28,6 +30,8 @@ from pathlib import Path
 from typing import Iterable
 
 from .config import XHS
+
+EXT = "@ext"            # 库外文件夹的虚拟顶层
 
 XHS_VISIBLE = "Web/Xiaohongshu"
 XHS_ARCHIVE = "_archive/xiaohongshu"
@@ -82,20 +86,57 @@ def canonical(rel: object, *, allow_root: bool = False) -> str:
 class Policy:
     root: Path              # vault 真路径（realpath 过）
     folders: tuple[str, ...]
+    externals: tuple[tuple[str, str], ...] = ()   # 库外文件夹：(名字, 真路径)；在 folders 里以 "@ext/名字" 出现
+
+    @property
+    def ext_map(self) -> dict[str, str]:
+        return dict(self.externals)
+
+    def abspath(self, rel: str) -> Path:
+        """规范形相对路径 → 磁盘路径（`@ext/名字/…` 换成库外文件夹）。只做映射，不做任何检查。"""
+        segs = rel.split("/") if rel else []
+        if segs and segs[0] == EXT:
+            base = self.ext_map.get(segs[1]) if len(segs) > 1 else None
+            if not base:
+                raise Denied("NOT_SHARED", "不在开放的文件夹里")
+            return Path(base).joinpath(*segs[2:])
+        return self.root.joinpath(*segs) if segs else self.root
+
+    def rel_for_abs(self, path: str) -> str | None:
+        """本机绝对路径 → 规范形相对路径（vault 内或某个库外文件夹内）；都不在 → None。"""
+        real = os.path.realpath(path)
+        nreal = os.path.normcase(real)
+        for label, base in [("", str(self.root))] + [(EXT + "/" + n, b) for n, b in self.externals]:
+            nb = os.path.normcase(base)
+            if nreal == nb:
+                return label
+            if nreal.startswith(nb.rstrip(os.sep) + os.sep):
+                tail = real[len(base.rstrip(os.sep)) + 1:].replace("\\", "/")
+                return (label + "/" + tail) if label else tail
+        return None
 
     @classmethod
     def build(cls, vault: str | os.PathLike, folders: Iterable[str]) -> "Policy":
         root = Path(os.path.realpath(vault))
         keep: list[str] = []
+        ext: list[tuple[str, str]] = []
         for f in folders:
             if f == XHS:
                 keep.append(XHS)
                 continue
             try:
-                keep.append(check_folder(root, f))
+                if is_external(f):
+                    real = check_external(root, f)
+                    if any(os.path.normcase(real) == os.path.normcase(b) for _, b in ext):
+                        continue
+                    label = external_label(real, {n for n, _ in ext})
+                    ext.append((label, real))
+                    keep.append(EXT + "/" + label)
+                else:
+                    keep.append(check_folder(root, f))
             except Denied:
                 continue
-        return cls(root=root, folders=tuple(dict.fromkeys(keep)))
+        return cls(root=root, folders=tuple(dict.fromkeys(keep)), externals=tuple(ext))
 
     @property
     def xhs(self) -> bool:
@@ -179,7 +220,7 @@ class Policy:
 
     # —— 第三道：文件系统 ——
     def _real_ok(self, rel: str, want_dir: bool) -> Path:
-        cand = self.root.joinpath(*rel.split("/")) if rel else self.root
+        cand = self.abspath(rel)
         try:
             st = os.lstat(cand)
         except OSError:
@@ -264,7 +305,7 @@ def check_folder(root: str | os.PathLike, rel: object) -> str:
     return rel
 
 
-def candidate_folders(root: str | os.PathLike, *, max_depth: int = 3, limit: int = 500) -> list[str]:
+def candidate_folders(root: str | os.PathLike, *, max_depth: int = 2, limit: int = 500) -> list[str]:
     """设置页「添加文件夹」的候选：vault 里现有的文件夹（不含隐藏 / 内部目录、不跟链接），按路径排序。"""
     root = Path(os.path.realpath(root))
     out: list[str] = []
@@ -294,3 +335,53 @@ def candidate_folders(root: str | os.PathLike, *, max_depth: int = 3, limit: int
             if depth + 1 < max_depth:
                 stack.append((child, depth + 1))
     return sorted(out)[:limit]
+
+
+def is_external(entry: object) -> bool:
+    """设置里的一项是不是库外绝对路径（C:\\… / C:/… / \\\\server\\share / 以 / 开头的 POSIX 路径）。"""
+    if not isinstance(entry, str):
+        return False
+    return bool(re.match(r"^[A-Za-z]:[\\/]", entry)) or entry.startswith("\\\\") or (os.name != "nt" and entry.startswith("/"))
+
+
+def check_external(vault_root: str | os.PathLike, path: str) -> str:
+    """库外文件夹：存在、是文件夹、本身不是链接 / 联接点、路径里没有隐藏段；不收盘符根 / 家目录根 / 和 vault 互相包含的。
+    返回真路径（之后第三道防护按它逐字比对）。"""
+    if not isinstance(path, str) or not path.strip() or "\x00" in path or len(path) > 1024:
+        raise Denied("INVALID_PATH", "路径不合法")
+    path = path.strip()
+    try:
+        st = os.lstat(path)
+    except OSError:
+        raise Denied("NOT_FOUND", "没有这个文件夹") from None
+    if stat.S_ISLNK(st.st_mode) or _is_reparse(st):
+        raise Denied("FORBIDDEN", "不开放链接 / 联接点，填它指向的真实文件夹")
+    if not stat.S_ISDIR(st.st_mode):
+        raise Denied("NOT_FOUND", "不是文件夹")
+    real = os.path.realpath(path)
+    parts = [p for p in re.split(r"[\\/]+", os.path.splitdrive(real)[1]) if p]
+    if not parts:
+        raise Denied("FORBIDDEN", "不能开放整个盘")
+    if any(p.startswith(".") for p in parts):
+        raise Denied("FORBIDDEN", "隐藏目录不能开放")
+    nreal = os.path.normcase(real)
+    if nreal == os.path.normcase(os.path.realpath(Path.home())):
+        raise Denied("FORBIDDEN", "不能开放整个用户目录，选里面具体的文件夹")
+    nv = os.path.normcase(os.path.realpath(vault_root))
+    if nreal == nv or nreal.startswith(nv + os.sep):
+        raise Denied("FORBIDDEN", "这个文件夹在库里：直接在库内文件夹里勾选")
+    if nv.startswith(nreal.rstrip(os.sep) + os.sep):
+        raise Denied("FORBIDDEN", "这个文件夹包含整个库（会绕过库内的规则），选更具体的文件夹")
+    return real
+
+
+def external_label(real: str, used: set[str]) -> str:
+    base = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", os.path.basename(real.rstrip("\\/")) or "folder").strip(" .") or "folder"
+    try:
+        canonical(base)
+    except Denied:
+        base = "folder"
+    label, n = base, 2
+    while label in used:
+        label, n = f"{base}-{n}", n + 1
+    return label

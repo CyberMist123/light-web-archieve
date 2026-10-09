@@ -320,3 +320,17 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-player-list li { cursor: pointer; }
 .lb-player-list li.is-current { color: var(--interactive-accent); font-weight: 600; }
 .lb-player-list li.is-failed { color: var(--text-faint); text-decoration: line-through; }
+
+/* 10-09 远程 MCP：分组折叠（状态 / 连接 / 权限 / 口令 / 高级） */
+.lb-remote-group { border: 1px solid var(--background-modifier-border); border-radius: 8px; margin: 8px 0; padding: 0 12px; }
+.lb-remote-group > summary { cursor: pointer; font-weight: var(--font-semibold); padding: 8px 0; }
+.lb-remote-group[open] > summary { border-bottom: 1px solid var(--background-modifier-border); margin-bottom: 4px; }
+.lb-remote-body { padding-bottom: 8px; }
+.lb-remote-warn div { color: var(--text-warning); margin: 2px 0; }
+.lb-remote-url { display: block; user-select: all; word-break: break-all; padding: 6px 8px; margin: -4px 0 8px; background: var(--background-secondary); border-radius: 4px; }
+.lb-remote-howto ol { margin: 2px 0 10px; padding-left: 20px; line-height: 1.7; }
+.lb-remote-howto .setting-item-name { margin-top: 8px; }
+.lb-remote-nodomain { margin: 8px 0; }
+.lb-remote-nodomain > summary { cursor: pointer; color: var(--text-accent); }
+.lb-remote-sub { margin: 10px 0 2px; color: var(--text-muted); }
+.lb-remote-depth2 .setting-item-name { padding-left: 1.5em; }

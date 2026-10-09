@@ -1,4 +1,4 @@
-"""Windows 计划任务 `LinkBrainRemote`：远程阅读服务的「常驻」做法（不挂在 Obsidian 下）。
+"""Windows 计划任务 `LwaMcp`（10-09 前叫 LinkBrainRemote）：远程 MCP 服务的「常驻」做法（不挂在 Obsidian 下）。
 
 - 启用 = 注册（当前用户、只在登录时运行、普通权限，不要管理员）+ 立即启动：
   · 触发器 1：登录时；触发器 2：从现在起每 5 分钟一次（没在跑就拉起，在跑就忽略——MultipleInstances IgnoreNew），
@@ -19,7 +19,7 @@ from typing import Any
 
 from .. import sync_schedule
 
-DEFAULT_TASK = "LinkBrainRemote"
+DEFAULT_TASK = "LwaMcp"
 REPEAT_MIN = 5
 
 
@@ -78,7 +78,7 @@ def register_script(exe: str, args: list[str], workdir: str) -> str:
         "-ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1);"
         "$p=New-ScheduledTaskPrincipal -UserId $u -LogonType Interactive -RunLevel Limited;"
         f"Register-ScheduledTask -TaskName {name} -Action $a -Trigger @($t1,$t2) -Settings $s -Principal $p "
-        f"-Description {_q('Link Brain 远程阅读（只读 MCP，只监听 127.0.0.1）。在 Obsidian → Link Brain 设置 → 高级设置 → 远程阅读里停用会删掉本任务。')} -Force | Out-Null;"
+        f"-Description {_q('LWA MCP 远程服务（搜索 / 阅读 / 主题 / 暗号 / 问收藏，只监听 127.0.0.1）。在 Obsidian → Link Brain 设置 → 远程 MCP 里停用会删掉本任务。')} -Force | Out-Null;"
         f"Start-ScheduledTask -TaskName {name};'ok'"
     )
 
@@ -170,11 +170,11 @@ def state() -> dict[str, Any]:
         return {"supported": True, "registered": None, "error": out[:300]}
     val = out.strip().splitlines()[-1] if out.strip() else ""
     if val == "none":
-        return {"supported": True, "registered": False}
+        return {"supported": True, "registered": False, "name": task_name()}
     parts = (val.split("|") + [""] * 5)[:5]
     try:
         last = int(parts[2])
     except ValueError:
         last = None
-    return {"supported": True, "registered": True, "state": parts[0], "last_run": parts[1], "last_result": last,
+    return {"supported": True, "registered": True, "name": task_name(), "state": parts[0], "last_run": parts[1], "last_result": last,
             "execute": parts[3], "arguments": parts[4]}
