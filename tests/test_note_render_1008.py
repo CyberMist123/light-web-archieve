@@ -138,6 +138,11 @@ def test_gap_text_plain_language():
     assert render._gap_text(c, 3, None) == "另有 3 条回复没存（只存了前几楼的回复）"
     other = render._gap_text(c, 2, {"c9": "stalled"}, 10)
     assert other.startswith("还有 2 条回复没拿到（") and "只存了" not in other
+    # 1009：按设置楼数现算的缺口（scoped）：楼数之内没展开 / 老读取组件只存了几条 → 后台在补；原站多显示照实说
+    assert render._gap_text(c, 7, {"c9": "not_expanded"}, 10, True) == "还有 7 条回复没拿到（这楼当时没展开，后台在补）"
+    assert render._gap_text(c, 7, {"c9": "old_reader"}, 10, True) == "还有 7 条回复没拿到（以前只存了每楼前几条回复，后台在补）"
+    assert render._gap_text(c, 2, {"c9": "count_mismatch"}, 10, True) == "原站多显示 2 条回复（删了或被折叠，看不到）"
+    assert render._gap_text(c, 7, None, 20, True) == "另有 7 条回复没存（只存了前 20 楼的回复）"
 
 
 def test_status_line_has_fetch_action():
@@ -145,13 +150,17 @@ def test_status_line_has_fetch_action():
                             "gaps": [{"comment_id": "c12", "reason": "not_expanded", "missing": 9}]}}
     comments = [_floor(f"c{i}", subs=1, declared=1) for i in range(11)] + [_floor("c12", declared=9)]
     text = _block(comments=comments, capture=cap)
-    assert "lb-act-fetch-comments" in text and "现在抓全部评论" in text
-    assert "另有 9 条回复没存（只存了前 10 楼的回复）" in text
+    # 1009：设置楼数（10）之内都齐了 → 顶上不出「还缺」那一行；第 12 楼在楼数外，照实说只存了前 10 楼
+    assert "楼中楼还缺" not in text and "另有 9 条回复没存（只存了前 10 楼的回复）" in text
+    # 楼数之内有缺口 → 顶上一行 +「现在抓全部评论」
+    comments[0] = _floor("c0", subs=1, declared=5)
+    text = _block(comments=comments, capture=cap)
+    assert "lb-act-fetch-comments" in text and "现在抓全部评论" in text and "前 10 楼的楼中楼还缺 4 条" in text
 
 
 def test_status_line_for_old_capture_without_comment_load():
     text = _block(comments=[_floor("c1", subs=1, declared=8)])
-    assert "楼中楼还缺 7 条（只存了前几楼的回复）" in text and "现在抓全部评论" in text
+    assert "前 10 楼的楼中楼还缺 7 条（以前只存了每楼前几条回复，后台在补）" in text and "现在抓全部评论" in text
     assert "楼中楼还缺" not in _block(comments=[_floor("c1", subs=2, declared=2)]), "读全了不出这一行"
 
 

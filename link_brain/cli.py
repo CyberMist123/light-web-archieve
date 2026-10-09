@@ -77,9 +77,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--floors", default="all", choices=["all", "20", "50"], help="默认全量；慢，热门笔记可能要十几分钟")
     p.add_argument("--fill", action="store_true", help="续读：只展开上次预算用完没读全的那几楼（每次约 9 分钟）")
     p.add_argument("--fill-pending", dest="fill_pending", action="store_true",
-                   help="夜跑用：给库里还有缺口的篇各续读一次（缺得多的在前）")
+                   help="给库里评论还有缺口的篇各续读一次（按设置里的楼数现算缺口，缺得少的在前；每篇自己拿账号锁）")
     p.add_argument("--limit", type=int, default=0, help="配合 --fill-pending：最多续几篇（0=不限）")
     p.add_argument("--budget-min", dest="budget_min", type=float, default=0, help="配合 --fill-pending：最多跑几分钟")
+    p.add_argument("--until-done", dest="until_done", action="store_true",
+                   help="配合 --fill-pending：后台一直补到全库没有缺口（撞验证 / 掉登录就停下等，处理好自动接着；夜跑时让路）")
+    p.add_argument("--detach", action="store_true",
+                   help="配合 --fill-pending：在后台拉起 --until-done 补跑（单实例，已经在跑就不再起），立刻返回")
+    p.add_argument("--then-background", dest="then_background", action="store_true",
+                   help="配合 --fill-pending（夜跑用）：预算内没补完就转到后台接着补")
+    p.add_argument("--fill-status", dest="fill_status", action="store_true",
+                   help="评论补齐进度 JSON（本地读，不碰号；插件设置页 / 状态栏用）")
     p.add_argument("--wait-lock-min", dest="wait_lock_min", type=float, default=2,
                    help="号被别的任务占着时最多等几分钟（默认 2），等不到退出码 6")
 
@@ -292,6 +300,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     from .remote import cli as remote_cli
     remote_cli.add_parser(sub)
+    from . import pickfolder
+    pickfolder.add_parser(sub)
+    from . import connect as connect_mod
+    connect_mod.add_parser(sub)
 
     from . import nightly as nightly_mod, reader_install, report as report_mod
     nightly_mod.add_parser(sub)
@@ -368,6 +380,12 @@ def _dispatch(args) -> int:
     if args.command == 'remote':
         from .remote import cli as remote_cli
         return remote_cli.run(args)
+    if args.command == 'pick-folder':
+        from . import pickfolder
+        return pickfolder.run(args)
+    if args.command == 'connect':
+        from . import connect as connect_mod
+        return connect_mod.run(args)
     if args.command == 'nightly':
         from . import nightly
         return nightly.run(args)
@@ -398,6 +416,8 @@ def _dispatch(args) -> int:
         return vision.run_upgrade(args)
     if args.command == 'comments':
         from . import ingest
+        if getattr(args, 'fill_pending', False) or getattr(args, 'fill_status', False):
+            return ingest.run_comments(args)  # 1009：补跑每篇自己拿账号锁（不整晚攥着）；进度只读本地
         with _account_lock(args, "comments"):
             return ingest.run_comments(args)
     if args.command == 'login':

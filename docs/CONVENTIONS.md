@@ -85,6 +85,7 @@ def summary() -> dict                                       # {needs_human: n, a
 def export_redacted() -> str                                # §3「复制报错」
 ```
 `step` 词表：`sync.favorites / ingest / attachments.download / attachments.convert / attachments.recheck / enrich.summary / vision.layer1 / vision.refine / videos.transcribe / embed / nightly.<stepname> / ask / login / config / remote / ai.summary / ai.vision / ai.refine / ai.embed / ai.ask`（`ai.*` = 接口那一侧的故障按能力归并成一条，item_id 为空，由 `ai_health.record` 写；调用点拿到 `api_error=True` 的结果**不要**再按篇 `problems.report`）（`remote` = 远程阅读服务：端口被占 `NEEDS_HUMAN.PORT_IN_USE`、计划任务没弄好 `PERMANENT.REMOTE_TASK_FAILED`）。
+（1009 追加）`comments.fill`：评论补齐——设置楼数内的楼中楼连着 3 次续读没多拿到，码 `PERMANENT.COMMENTS_INCOMPLETE`（只进列表、可隐藏），「再试一次」= `comments <id> --fill`；后台补跑撞账号类码照 `report_blocked` 记在 `login`。
 （批次 D · L5 追加）`render.check`：只读扫可见目录里改坏的归档笔记（`restore --scan --report`、repair 每轮开头），码 `PERMANENT.NOTE_DAMAGED`，修复动作 `restore`。
 
 **迁移点**（每条：原状态文件照写 + `report/resolve`）
@@ -105,7 +106,7 @@ def export_redacted() -> str                                # §3「复制报错
 2. 显示位置只有四种：`top`（目录页顶部问题入口计数）· `card`（卡片角标 + 悬停原因）· `list`（只在问题列表里）· `none`（SKIPPED 之类，仅列表灰色「未开启」组）。NEEDS_HUMAN 一律 `top+card`。
 3. 顶部入口 = 现在的「!」（`catalog-view.js:206-236`）升级：有「要你处理」显示橙色数字，其余灰色数字，为 0 不显示；点开 = 插件 `openProblems()` Modal，分组「等你处理 / 正在自动处理 / 已放弃 / 未开启」，每行：时间 · 标题 · 码 · 系统已做什么 · 「查看」（开那篇）· NEEDS_HUMAN 行附带 `accounts.SOLUTIONS` 的按钮。设置页不放诊断。
 4. `catalog.collect` 给每个 item 加 `problems: [{code, reason, action}]`（从各对象文件推出），卡片悬停直接用；标签文案只从 registry 取，**JS 不许自己写状态文案**。
-   1008（B2）：仍从对象文件推出，但**再减去她隐藏的 (item_id, 细分码)**（读 problems.jsonl 折叠出的隐藏集合，一次 build 只读一回），且**接口那一侧的码以 ai-health 为准**：`ai_health.API_CODES`（key 失效 / 欠费 / 断网 / 限流 / 5xx / 服务忙）只在 `_archive/ai-health.json` 里这个能力还开着时照原码出，否则降成 `TRANSIENT.AI_PENDING`（灰色「待补识图 / 概要」——这篇确实还缺，照实显示，不整个藏掉）；附件补查判「原帖打不开」的（`derived/web_recheck.json` 的 `gone`）出 `PERMANENT.NOTE_GONE`（只上卡片、不进问题列表）。catalog build **不写**问题记录（Obsidian「刷新目录」不该有副作用）：卡片有标、面板没有的补登记做成一次性迁移（`problems.migrate_orphan_refine`，问题面板打开时跑，做过就记在 `problem-migrations.json`）。
+   1008（B2）：仍从对象文件推出，但**再减去她隐藏的 (item_id, 细分码)**（读 problems.jsonl 折叠出的隐藏集合，一次 build 只读一回），且**接口那一侧的码以 ai-health 为准**：`ai_health.API_CODES`（key 失效 / 欠费 / 断网 / 限流 / 5xx / 服务忙）只在 `_archive/ai-health.json` 里这个能力还开着时照原码出，否则不上卡片（1009 她：接口好了的后台静默补，状态区一行进度即可，不上卡片角标；1008 的灰色 `TRANSIENT.AI_PENDING`「待补识图 / 概要」撤掉）；**「开始」页没勾的 AI 能力（轻量版）**，识图 / 概要 / 精细识图 / 连着没补成这几类卡片标一律不出（这个模式本来就不做）；附件补查判「原帖打不开」的（`derived/web_recheck.json` 的 `gone`）出 `PERMANENT.NOTE_GONE`（只上卡片、不进问题列表）。catalog build **不写**问题记录（Obsidian「刷新目录」不该有副作用）：卡片有标、面板没有的补登记做成一次性迁移（`problems.migrate_orphan_refine`，问题面板打开时跑，做过就记在 `problem-migrations.json`）。
 5. 「复制报错」= `problems.export_redacted()`：插件版本 · Python 版本 · 各 step 上次运行结果 · 最近 50 条问题。脱敏：去掉 `apiKey/token/cookie/Authorization/Bearer` 后面的值、`~` 替换家目录、`<vault>` 替换 vault 绝对路径、去掉 `xsec_token=` 参数值；保留 item_id 和标题（用户自己的数据）。
 6. 登录/验证的「!」逻辑合并进去：`sync-status.json` 的 `blocked` 即 registry 里的 NEEDS_HUMAN 行，不再单独维护文案表。
 
@@ -210,6 +211,7 @@ R = {"status": "ok|failed|skipped", "text": str|None, "code": "<故障码或空>
 | 字段 / 事件 | 谁写 | 谁读 | 说明 |
 |---|---|---|---|
 | `running` / `runningChild` / `importing` | 插件 spawnPy / importText | 页面 ensure、busyText | 互斥长任务（已有） |
+| `commentFill` | 插件读 `_archive/comments-fill-status.json`（文件监听） | 状态栏、设置页同步段 | 1009 后台补评论的进度（running / waiting / paused；超过 10 分钟没刷新当它停了） |
 | `runningProgress` | 状态栏那条线（L4） | `busyText()` | 占用句里的「（进度）」，没有就不写 |
 | `catalogCache` `{version, root, data}` | lb-page-lib `data.load` / `data.adopt` | 三张页 | §5.2；adopt 只在 data 就是缓存那份时推进版本（给了 written 还要和当前 stat 对得上） |
 | `answerWorker` / `answerPending` / `answerSequence` | 插件问答 worker | 插件 | pending 每条带 `tag`（`'chat'` / `'setup'`），`stopArchiveAnswer(tag)` 只停同 tag |

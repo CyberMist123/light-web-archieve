@@ -87,6 +87,9 @@ ACTIONS: dict[str, Action] = {a.name: a for a in (
     Action("comments_fill", "接着读没读全的评论区（一次一篇，约 9 分钟）", 10,
            lambda i: ["comments", "--fill-pending", "--limit", "1", "--budget-min", "10"], account=True,
            next_hint="评论区太长就先这样；要全量可以手动 comments <item_id>", resolves_self=False),
+    Action("comments_fill_item", "再续读一次这篇的评论（只展开缺口那几楼，约 9 分钟）", 10,
+           lambda i: ["comments", _item(i), "--fill"], account=True,
+           next_hint="原站显示的回复数比能看到的多（删了 / 被折叠）时读多少次都一样，不想看就隐藏这条"),
     Action("restore", "按存档重写这篇笔记（改坏的那版先存快照，可撤销）", 1,
            lambda i: ["restore", _item(i), "--json"],
            next_hint="打开这篇，⋯ 菜单「从快照找回…」看看改坏前的样子"),
@@ -242,6 +245,9 @@ def plan(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
         return _run("embed", auto=transient)
     if step == "remote":
         return _manual("到 设置 → 远程阅读 关掉再打开一次")
+    if step == "comments.fill":
+        # 1009：连着几次补不上才登记的（已放弃）：「再试一次」= 续读这篇一次；自愈轮不自动跑（同一篇反复开页伤号）
+        return _run("comments_fill_item", auto=False) if item else _run("comments_fill", auto=transient)
     if step == "nightly.gemini-keys" or sub == "SECRET_TIMEOUT":
         return _manual("精细识图今晚已退回设置里的模型；检查密码库能不能解锁")
     if step == "nightly.run":

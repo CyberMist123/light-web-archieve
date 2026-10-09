@@ -56,7 +56,9 @@ STEPS = ("sync.favorites", "ingest", "attachments.download", "attachments.conver
          # 1008：AI 接口故障归并到能力级（ai_health.py），一个原因一条
          "ai.summary", "ai.vision", "ai.refine", "ai.embed", "ai.ask",
          # 批次 D · F1-d：笔记页被手改坏了（restore --scan 只读检查）
-         "render.check")
+         "render.check",
+         # 1009：评论补齐（设置楼数内的楼中楼连着几次补不上）
+         "comments.fill")
 STEP_PREFIXES = ("nightly.",)
 # 推送标题 / 问题列表里给人看的步骤名（夜跑步骤 nightly.<名> 显示「夜跑：<名>」）
 # 注记行（annotate）能改的字段：自愈动作的状态（running / failed / waiting）、一句「试过什么、为什么没好、下一步」、
@@ -79,7 +81,7 @@ STEP_LABELS = {
     "vision.refine": "精细识图", "videos.transcribe": "视频转写", "embed": "语义索引", "ask": "问收藏",
     "login": "小红书账号", "config": "设置", "remote": "远程阅读",
     "ai.summary": "AI 概要 / 打标接口", "ai.vision": "识图接口", "ai.refine": "精细识图接口", "ai.embed": "向量索引接口",
-    "ai.ask": "问答接口", "render.check": "笔记页检查",
+    "ai.ask": "问答接口", "render.check": "笔记页检查", "comments.fill": "评论补齐",
 }
 
 # 现有裸码 → 类（§2.2：复用现有码、不改拼写）
@@ -146,8 +148,6 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "TRANSIENT.RETRY_EXHAUSTED": dict(where="card", label="连着几次没补成", hover="{reason}（{next_at} 再试）", group="auto"),
     "TRANSIENT.STEP_CRASHED": dict(where="list", label="步骤中途出错退出", hover="{reason}", group="auto"),
     "TRANSIENT.SECRET_TIMEOUT": dict(where="list", label="取 AI key 超时", hover="从密码库取 key 没成：{reason}", group="auto"),
-    # 1008：卡片上过期的接口码（当时 key 失效 / 断网，接口现在已经好了）降成这一行：这篇确实还缺识图 / 概要，照实显示
-    "TRANSIENT.AI_PENDING": dict(where="card", label="待补识图 / 概要", hover="{reason}：今晚夜跑自动补上，不用处理", group="auto"),
     # 1008（读取组件 d7）：读收藏「只停这一次、不熔断」的两种——只停收藏，当晚其它步骤照跑，下次照常读
     "TRANSIENT.HIDDEN_WIDGET": dict(where="list", label="收藏这次先停了", hover="{reason}", group="auto"),
     "TRANSIENT.FAV_TAB_STUCK": dict(where="list", label="收藏页签点不动", hover="{reason}", group="auto"),
@@ -170,6 +170,8 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "PERMANENT.DISK_FULL": dict(where="list", label="磁盘空间不够", hover="{reason}", group="gave_up"),
     "PERMANENT.CONVERSION_FAILED": dict(where="card", label="全文没转出来", hover="{reason}（原件已保存）", group="gave_up"),
     "PERMANENT.STEP_ARGS": dict(where="list", label="程序和夜跑脚本版本对不上", hover="夜跑脚本给的命令参数程序不认：{reason}（更新程序或脚本后自动恢复）", group="gave_up"),
+    # 1009：设置楼数内的楼中楼连着几次续读都没多拿到（原因照实写）；笔记页自己那一行也照实标
+    "PERMANENT.COMMENTS_INCOMPLETE": dict(where="list", label="评论没补全", hover="{reason}", group="gave_up"),
     "PERMANENT.*": dict(where="card", label="已放弃", hover="{reason}", group="gave_up"),
     # —— 未开启（不算失败）——
     "SKIPPED.NOT_CONFIGURED": dict(where="none", label="未配置", hover="{reason}", group="off"),

@@ -377,9 +377,49 @@ class FileLock:
                 pass
         st.update(stop=None, thread=None, owner="", lost=False)
 
+    # -- 1009：「我在等」标记。后台补跑这类可以晚点做的活拿锁前先看有没有别人在等，有就让（polite）。
+    def _want_path(self, pid: int | None = None) -> Path:
+        return self.path.with_name(f"{self.path.name}.want-{pid or os.getpid()}")
+
+    def _announce(self, owner: str) -> Path | None:
+        p = self._want_path()
+        try:
+            atomic_write_text(p, json.dumps({"pid": os.getpid(), "owner": owner, "ts": time.time()}, ensure_ascii=False))
+            return p
+        except OSError:
+            return None
+
+    def wanted_by_others(self) -> list[dict]:
+        """别的活进程正在等这把锁（它们留了「我在等」标记）。死进程 / 两小时前的旧标记顺手清掉。"""
+        out = []
+        try:
+            marks = list(self.path.parent.glob(self.path.name + ".want-*"))
+        except OSError:
+            return out
+        for p in marks:
+            try:
+                info = json.loads(p.read_text("utf-8"))
+            except (OSError, ValueError):
+                continue
+            pid = info.get("pid") if isinstance(info, dict) else None
+            if pid == os.getpid():
+                continue
+            ts = info.get("ts") if isinstance(info.get("ts"), (int, float)) else 0
+            if self.pid_state(pid) == "dead" or time.time() - ts > 2 * 3600:
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+                continue
+            out.append(info)
+        return out
+
     @contextlib.contextmanager
-    def hold(self, owner: str = "", wait_s: float = 0, on_wait=None):
-        """拿锁（同一进程可重入）。wait_s 内拿不到 → LockBusy。on_wait(holder, 剩余秒) 第一次要等时调一次。"""
+    def hold(self, owner: str = "", wait_s: float = 0, on_wait=None, *, polite: bool = False):
+        """拿锁（同一进程可重入）。wait_s 内拿不到 → LockBusy。on_wait(holder, 剩余秒) 第一次要等时调一次。
+
+        1009：要等的时候留一个「我在等」标记（拿到锁 / 放弃时撤掉）；polite=True（后台补跑）的一方看到别人的标记就先不抢、
+        自己也不留标记——同步、夜跑、导入这些她在等结果的活优先。"""
         owner = owner or f"pid {os.getpid()}"
         st = self.state()
         with _HELD_GUARD:
@@ -395,14 +435,24 @@ class FileLock:
             return
         deadline = time.monotonic() + max(0.0, float(wait_s or 0))
         told = False
-        while not self.try_take(owner):
-            left = deadline - time.monotonic()
-            if left <= 0:
-                raise LockBusy(self.name, self.holder())
-            if not told and on_wait:
-                on_wait(self.holder() or {}, left)
-                told = True
-            time.sleep(min(self.poll_s, max(0.05, left)))
+        want: Path | None = None
+        try:
+            while not ((not polite or not self.wanted_by_others()) and self.try_take(owner)):
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    raise LockBusy(self.name, self.holder())
+                if want is None and not polite:
+                    want = self._announce(owner)
+                if not told and on_wait:
+                    on_wait(self.holder() or {}, left)
+                    told = True
+                time.sleep(min(self.poll_s, max(0.05, left)))
+        finally:
+            if want is not None:
+                try:
+                    want.unlink()
+                except OSError:
+                    pass
         stop = threading.Event()
         thread = threading.Thread(target=self._heartbeat, args=(stop, owner, self.heartbeat_s), daemon=True,
                                   name=f"lock-heartbeat-{self.name}")

@@ -117,6 +117,20 @@
 - **修法**（Python + 插件）：「打开验证」先只读看熔断，不在就不开窗口、按内存登录态刷绿；在才开，`--wait` 只轮询内存状态等窗口关掉，按 `verify_result` 如实回报（not_logged_in 优先）；关窗后熔断还在才给「没看到验证，恢复」，她亲手确认才发一次 `risk/clear`（`login --clear-hold --by-owner`，问题记录留痕，绝不进「全部修一遍」和夜跑）；扫码成功不等于熔断已解，看 `risk_hold`；验证提示改成「窗口打开后先点一下『收藏』页签」；撞验证当时就通知（面板没刷掉之前又撞一次新的照样推），熔断行写清「几点、在哪一步判到验证」，有证据给「查看截图」（证据路径不进记录 / 复制报错 / 通知，只给目录名）；设置页「立即同步」旁如实写「上次 HH:MM 判到验证」，**不拦、不冷却**（她 1008 定）。`HIDDEN_WIDGET`（看不见的验证组件）/ `FAV_TAB_STUCK`（页签点不动）只停这一次读收藏：TRANSIENT、退出 3，不挡当晚其它碰号步骤。
 - **回归用例**：`tests/test_verify_hold_1008.py::test_open_verify_skips_window_when_no_hold`、`tests/test_verify_hold_1008.py::test_open_verify_wait_reports_no_captcha_seen`、`tests/test_verify_hold_1008.py::test_clear_hold_requires_owner_and_posts_once`、`tests/test_verify_hold_1008.py::test_login_success_with_captcha_hold_still_reports_hold`、`tests/test_verify_hold_1008.py::test_soft_stop_codes_do_not_exit_5`、`tests/test_verify_hold_1008.py::test_evidence_never_leaves_the_machine`、`tests/test_problems_dismiss_1008.py::test_captcha_pushes_again_on_new_incident`、`tests/test_problems_dismiss_ui.cjs`。
 
+### 15. 评论楼层选了 10–50，很多笔记楼中楼还是缺（「楼中楼还缺 7 条（只存了前几楼的回复）」）（10-09）
+- **用户看到**：笔记页顶上「楼中楼还缺 N 条（只存了前几楼的回复）」，挂着不动；她的理解是设定的 N 楼、每楼全部回复都要抓全。
+- **根因**（10-09 真库只读实查 601 篇）：①521 篇是 10-08 以前入库的（读取组件还不报 `comment_load`），其中 195 篇前 10 楼缺回复、共 5863 条；
+  续读排程（`pending_fills`）只认 `comment_load` 里登记的缺口，这批**永远排不上**（旧用例甚至断言它们不排）；②夜跑每晚只续 2 篇、
+  一篇总共最多 3 次、同一篇隔 20 小时；③新读取组件入库的 80 篇前 10 楼 0 缺口——540 秒预算、每楼回复上限都不是这次的原因（每楼上限在读取组件里早已停用）。
+- **修法 / 自愈**：缺口按存下的评论现算（`comment_fill.scope`，设置楼数内，老笔记照算）；两种续读：只展开缺口楼（expand_floors）/
+  存下的楼不够就按楼数重读；一律并集合并（调小不删、删掉的评论留着），没多拿到不出新 RAW 版本，写新版本时图 / 视频引用旧文件（不重下、不重识图）；
+  同一篇两次开页至少隔 45 分钟；不再按总次数封顶——**连着 3 次没多拿到**才停、进问题面板 `PERMANENT.COMMENTS_INCOMPLETE`（原因照实写，
+  「再试一次」= 续读这篇一次，不进自愈轮）；原站多显示（`count_mismatch`）、楼已删（`floors_not_found`）不算缺口，页面照实标。
+  后台补跑 `comments --fill-pending --until-done`：单实例、每篇自己拿账号锁、别的任务在等号就先让（「我在等」标记）、夜跑在跑 / 20 分钟内要开始就暂停、
+  撞验证 / 掉登录就停下只看内存状态等她处理，处理好自动接着；夜跑那一步 40 分钟内没补完就转后台（`--then-background`）；
+  楼数调大由插件自动拉起后台补跑。进度写 `_archive/comments-fill-status.json`，插件状态栏 / 设置页显示。
+- **回归用例**：`tests/test_comments_fill_1009.py::test_old_note_gap_inside_floor_setting_is_scheduled_and_filled`、`tests/test_comments_fill_1009.py::test_raise_floors_loads_more_and_lower_never_deletes`、`tests/test_comments_fill_1009.py::test_union_merge_keeps_replies_the_site_no_longer_shows`、`tests/test_comments_fill_1009.py::test_no_progress_three_times_goes_to_problem_panel_then_resolves`、`tests/test_comments_fill_1009.py::test_count_mismatch_and_missing_floor_are_settled_not_gaps`、`tests/test_comments_fill_1009.py::test_fill_reuses_downloaded_media_and_does_not_redownload`、`tests/test_comments_fill_1009.py::test_worker_waits_out_captcha_without_opening_pages_then_resumes`、`tests/test_comments_fill_1009.py::test_worker_yields_to_nightly_and_waiting_tasks`、`tests/test_comments_fill_1009.py::test_polite_session_lets_waiting_task_go_first`、`tests/test_comments_fill_1009.py::test_nightly_step_has_no_two_note_cap_and_hands_over_to_background`。
+
 ---
 
 ## 二、故障码对照（用户看到 → 常见根因 → 自愈动作）
@@ -138,7 +152,7 @@
 | `TRANSIENT.DISCONNECTED` / `TIMEOUT` / `BUSY`（ingest 步骤级） | 读取服务没在运行 / 超时 / 正忙 | 读取服务没起来 | — | ✔ 检查读取服务、没在跑就拉起 | 同左 |
 | `TRANSIENT.WEB_PROBE_BLOCKED`（ingest / attachments.recheck 游客段）/ `PROBE_FAILED`（attachments.recheck 收尾段） | 网页那侧被拦 / 附件没查清 | 游客网页被登录墙 / 验证挡住；登录号也没看清 | 游客段无条件保险丝；收尾段服务失败第一次就收工 | — | 面板写真实队列位置（排第几、预计哪天、碰号补查为什么没跑、几晚没进展），不再天天「等到明早」；见第 13 条 |
 | `TRANSIENT.HIDDEN_WIDGET` / `FAV_TAB_STUCK`（sync.favorites） | 收藏这次先停了 / 收藏页签点不动 | 页面里有验证组件但没显示滑块 / 收藏接口疑似限流 | 读取组件当场停、不熔断；退出 3 | — 今晚不再重读 | 下次同步照常读；见第 14 条 |
-| `TRANSIENT.AI_PENDING`（只上卡片） | 待补识图 / 概要 | 当时接口出错（key / 断网），接口现在已经好了 | — | ✔ enrich --pending 补 | 不用处理 |
+| （1009 撤掉）`TRANSIENT.AI_PENDING` | 卡片上不再标「待补识图 / 概要」：轻量版本来不做；开了 AI 后台静默补，状态栏一行进度 | — | — | ✔ enrich --pending 补 | 不用处理；回归 `tests/test_card_problems_1008.py::test_item_problems_drops_stale_api_codes_when_ai_health_clear`、`tests/test_card_problems_1008.py::test_light_mode_shows_no_ai_badges` |
 | `TRANSIENT.DOWNLOAD_FAILED` | 附件没下好 | 504 / 超时 / 网页占位页 / 文件头不对 | 带退避重下，最多 3 次 | ✔（号没出事、离上次开这一篇 ≥ 20 分钟） | 「现在修」= 重下这篇附件；不行就手动下载后「挂附件」 |
 | `TRANSIENT.SERVICE_BUSY` / `STEP_TIMEOUT`（attachments.convert） | 服务正忙 / 步骤超时 | 本地 OCR 没起来、超时 | 歇几秒当场再转一次 | ✔ 强制重转 | 同左 |
 | `PERMANENT.PDF_ENCRYPTED` / `PDF_DAMAGED` / `DOC_UNSUPPORTED` / `CONVERSION_FAILED` | 全文没转出来 | 有密码、文件坏、格式不支持 | 字节照存，不删不重下 | — | 「现在修」= 再强制转一次；原件已保存 |
@@ -159,6 +173,7 @@
 | `PERMANENT.REMOTE_TASK_FAILED` | 远程阅读的计划任务没弄好 | 计划任务注册失败 | — | — | 设置 → 远程阅读 关掉再打开 |
 | `PERMANENT.CHECKSUM_MISMATCH` / `BAD_PACKAGE` / `DISK_FULL` | 组件校验不过 / 包不对 / 磁盘不够 | 只在安装命令结果里出现 | — | — | 设置 →「开始」重装；先腾空间 |
 | `SKIPPED.*` | 未配置 / 已关闭 / 额度到了 / 已退回普通方式 / 旧设置已换算 | 没开、没配 | — | — | 不是问题，不计数 |
+| `PERMANENT.COMMENTS_INCOMPLETE`（step `comments.fill`） | 评论没补全：设置楼数内的楼中楼还缺 N 条、原因、连着几次没多拿到 | 展开按钮点不动 / 被限频 / 评论区滚不动，连着 3 次续读都没多拿到 | 同一篇隔 45 分钟再续；没进展计数 | — 不自动（同一篇反复开页伤号） | 「再试一次」= 续读这篇一次（`comments <id> --fill`）；补齐了自动消；不想看可隐藏；见第 15 条 |
 | `PERMANENT.NOTE_DAMAGED`（step `render.check`） | 笔记页被改坏（两栏散了 / 正文没了），打开时就地提示一次 | 手改 md 删了受管标记 / 属性 / 批注块，或把两栏块换行拆开 | 打开时提示「恢复」，不弹窗不阻断 | 默认关（`LINK_BRAIN_AUTO_RESTORE=1` 才自动；24 小时没动才跑，失败不再自动） | ⋯ 菜单「恢复这篇」/「从快照找回…」；回归 `tests/test_note_damage_1009.py`、`tests/test_restore_1009.py`、`tests/test_note_tools_1009.cjs` |
 
 入档不被阻断（B2.4）：同步 / 导入时识图、概要、附件、转写都在入档之后单独做；渲染时识图或概要出意外只登记一条（`TRANSIENT.STEP_CRASHED`，正文已入档），笔记照写——`tests/test_self_heal_1004.py::test_render_survives_vision_crash`。

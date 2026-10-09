@@ -104,8 +104,9 @@ def default_steps() -> list[Step]:
         # 4) 附件补查·收尾段：游客读不到的用登录号看一眼（碰号，每晚 ≤5 篇；服务那侧第一次失败就收工）
         Step(TAIL_STEP, ["attachments", "--recheck", "--logged-in-tail", "--limit", "5", "--budget-min", "20"], 25,
              account=True),
-        # 4b) 评论续读（1008 Owner：超长评论区一次读不完，下次接着读）：碰号，每晚最多 2 篇、各约 9 分钟
-        Step("comments --fill-pending", ["comments", "--fill-pending", "--limit", "2", "--budget-min", "22"], 25,
+        # 4b) 评论补齐（1009 Owner：设置楼数内的楼中楼都要抓全，缺口 > 0 的每晚必续）：碰号，每篇自己拿账号锁；
+        #     40 分钟内没补完就转到后台接着补（后台等夜跑做完才碰号）
+        Step("comments --fill-pending", ["comments", "--fill-pending", "--budget-min", "40", "--then-background"], 45,
              account=True),
         # 5) 识图 + 概要：只对本地已存的原文跑，不碰号
         Step("enrich --pending", ["enrich", "--pending", "--budget-min", "60"], 70),

@@ -452,18 +452,27 @@ def lock_lost() -> bool:
 
 
 @contextlib.contextmanager
-def account_session(owner: str, wait_s: float = 0):
-    """拿账号锁（同一进程可重入）。wait_s 内拿不到 → AccountBusyError（CLI 退出码 6）。"""
+def account_session(owner: str, wait_s: float = 0, *, polite: bool = False):
+    """拿账号锁（同一进程可重入）。wait_s 内拿不到 → AccountBusyError（CLI 退出码 6）。
+    polite=True（1009 后台补评论）：有别的任务在等号就先让它（storage.FileLock.hold）。"""
     def told(holder, left):
         print(f'[lock] 号正被「{holder.get("owner") or "别的任务"}」使用，最多等 {left / 60:.0f} 分钟',
               file=sys.stderr)
 
     with contextlib.ExitStack() as stack:
         try:
-            stack.enter_context(_account_lock().hold(owner, wait_s, on_wait=told))
+            stack.enter_context(_account_lock().hold(owner, wait_s, on_wait=told, polite=polite))
         except storage.LockBusy as exc:
             raise AccountBusyError(exc.holder or None) from None
         yield
+
+
+def lock_wanted() -> bool:
+    """有别的任务正在等账号锁（留了「我在等」标记）——后台补跑看到就先让。"""
+    try:
+        return bool(_account_lock().wanted_by_others())
+    except Exception:  # noqa: BLE001
+        return False
 
 
 # ---------------------------------------------------------------------------

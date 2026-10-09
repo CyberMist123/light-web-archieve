@@ -306,6 +306,7 @@ def _comment_html(
     nested: bool = False,
     gap_reasons: dict[str, str] | None = None,
     floor_limit: int | None = None,
+    scoped: bool = False,
 ) -> str:
     """Human comment row: author + text only; no date/location/overall count."""
     author = (comment.get("author") or {}).get("nickname") or "匿名"
@@ -354,7 +355,7 @@ def _comment_html(
             except (TypeError, ValueError):
                 declared = 0
             if declared > len(subs):
-                parts.append(f'<div class="lb-more-replies">{_gap_text(comment, declared - len(subs), gap_reasons, floor_limit)}</div>')
+                parts.append(f'<div class="lb-more-replies">{_gap_text(comment, declared - len(subs), gap_reasons, floor_limit, scoped)}</div>')
             parts.append("</div>")
         else:
             try:
@@ -362,22 +363,31 @@ def _comment_html(
             except (TypeError, ValueError):
                 declared = 0
             if declared > 0:
-                parts.append(f'<div class="lb-replies"><div class="lb-more-replies">{_gap_text(comment, declared, gap_reasons, floor_limit)}</div></div>')
+                parts.append(f'<div class="lb-replies"><div class="lb-more-replies">{_gap_text(comment, declared, gap_reasons, floor_limit, scoped)}</div></div>')
     parts.append("</article>")
     return "".join(parts)
 
 
 def _gap_text(comment: dict[str, Any], missing: int, gap_reasons: dict[str, str] | None,
-              floor_limit: int | None = None) -> str:
+              floor_limit: int | None = None, scoped: bool = False) -> str:
     """这楼还有几条回复没拿到、为什么（1008 Owner：缺口如实标，不写假的「展开 N 条回复」）。
     批次 D · N8：楼层上限外没展开的（原因不知道 / not_expanded）说人话：「另有 N 条回复没存（只存了前 10 楼的回复）」。"""
     from .adapters import xiaohongshu as xhs
     reason = (gap_reasons or {}).get(str(comment.get("comment_id") or ""))
-    if reason is None or reason == "not_expanded":
-        floors = f"前 {floor_limit} 楼" if isinstance(floor_limit, int) and floor_limit > 0 else "前几楼"
+    if reason is None or (reason == "not_expanded" and not scoped):
+        floors = (("全部楼层" if floor_limit >= 2000 else f"前 {floor_limit} 楼")
+                  if isinstance(floor_limit, int) and floor_limit > 0 else "前几楼")
         return f"另有 {missing} 条回复没存（只存了{floors}的回复）"
+    # 1009：设置楼数之内的缺口后台会自动补齐；读多少次都一样的（原站多显示 / 楼已删）照实说，不说「接着读」
+    if reason == "count_mismatch":
+        return f"原站多显示 {missing} 条回复（删了或被折叠，看不到）"
+    if reason == "gone":
+        return f"还有 {missing} 条回复没拿到（这楼在原帖里已经找不到了，存下的是当时那几条）"
+    if reason in ("old_reader", "not_expanded"):  # 只有 scoped（设置楼数之内）才会走到这里
+        from .comment_fill import reason_text
+        return f"还有 {missing} 条回复没拿到（{reason_text(reason)}，后台在补）"
     why = xhs.REPLY_GAP_CN.get(reason, "没读全")
-    tail = "，下次同步接着读" if reason in xhs.RESUMABLE_GAPS else ""
+    tail = "，后台在补" if reason in xhs.RESUMABLE_GAPS else ""
     return f"还有 {missing} 条回复没拿到（{why}{tail}）"
 
 
@@ -385,8 +395,25 @@ def _gap_text(comment: dict[str, Any], missing: int, gap_reasons: dict[str, str]
 FETCH_COMMENTS_ACT = '<span class="lb-act lb-act-fetch-comments" role="button" tabindex="0">{label}</span>'
 
 
-def _comments_note_html(capture: dict[str, Any] | None, comments: list[dict[str, Any]]) -> str:
-    """评论区顶上的一行状态：读到几楼、展开几楼、还缺几条——只在没读全时出现。"""
+def _comments_note_html(capture: dict[str, Any] | None, comments: list[dict[str, Any]],
+                        view: dict[str, Any] | None = None) -> str:
+    """评论区顶上的一行状态：读到几楼、展开几楼、还缺几条——只在没读全时出现。
+
+    1009：有 view（comment_fill.view_for_render）就按设置楼数现算——设置楼数之内没缺口就不出这一行；
+    有缺口写「后台在补」，连着几次补不上写「已记进问题面板」，不再写「下次同步接着读」「不再读」。"""
+    if view is not None:
+        missing = int(view.get("missing") or 0)
+        if missing <= 0:
+            return ""
+        from .comment_fill import floors_label
+        attempts = int(view.get("attempts") or 0)
+        why = view.get("why") or "没读全"
+        if view.get("stuck"):
+            tail = f"，试了 {attempts} 次没补上，已记进问题面板" if attempts else "，已记进问题面板"
+        else:
+            tail = "，后台在补" + (f"（已续读 {attempts} 次）" if attempts else "")
+        text = f"评论读到 {len(comments)} 楼，{floors_label(int(view.get('floors') or 10))}的楼中楼还缺 {missing} 条（{why}{tail}）"
+        return f'<div class="lb-comments-note">{_safe(text)}' + FETCH_COMMENTS_ACT.format(label="现在抓全部评论") + "</div>"
     cl = (capture or {}).get("comment_load") or {}
     missing = int(cl.get("replies_missing") or 0)
     if missing <= 0:
@@ -832,9 +859,20 @@ def _author_html(note: dict[str, Any]) -> str:
     ])
 
 
+def _fill_view(source: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any] | None:
+    """1009：评论补齐的现状（设置楼数、缺口、后台在补 / 已放弃）。读不到就退回旧口径（只看 comment_load）。"""
+    try:
+        from . import comment_fill
+        sid = meta.get("source_id") or source.get("source_id")
+        state = comment_fill.load_state(meta.get("source") or source.get("source") or "xiaohongshu", sid) if sid else {}
+        return comment_fill.view_for_render(source, state)
+    except Exception:  # noqa: BLE001 - 渲染不能被这一行带崩
+        return None
+
+
 def _comments_html(
     note: dict[str, Any], comments: list[dict[str, Any]], manifest: dict[str, Any], object_rel: str,
-    capture: dict[str, Any] | None = None,
+    capture: dict[str, Any] | None = None, view: dict[str, Any] | None = None,
 ) -> str:
     """标签 + 互动 + 原站评论树。结构复杂又不用编辑，继续走 HTML。"""
     parts = [
@@ -842,7 +880,7 @@ def _comments_html(
         _tag_html(note.get("hashtags") or []),
         _engagement_html(note),
         '<div class="lb-comments">',
-        _comments_note_html(capture, comments),
+        _comments_note_html(capture, comments, view),
     ]
     cl = (capture or {}).get("comment_load") or {}
     gap_reasons = {str(g.get("comment_id") or ""): str(g.get("reason") or "")
@@ -851,8 +889,12 @@ def _comments_html(
         floor_limit = int(cl.get("floor_limit")) if cl.get("floor_limit") is not None else None
     except (TypeError, ValueError):
         floor_limit = None
+    if view is not None:
+        gap_reasons = dict(view.get("gap_reasons") or {})
+        floor_limit = int(view.get("floors") or 10)
     if comments:
-        parts.extend(_comment_html(c, object_rel, manifest, gap_reasons=gap_reasons, floor_limit=floor_limit) for c in comments)
+        parts.extend(_comment_html(c, object_rel, manifest, gap_reasons=gap_reasons, floor_limit=floor_limit,
+                                   scoped=view is not None) for c in comments)
     else:
         # 批次 D · N14：原帖有评论、这次没存下来 ≠ 暂无评论
         n = (note.get("engagement") or {}).get("comment_count")
@@ -919,7 +961,7 @@ def render_content_block(
         body += '<details class="lb-transcript"><summary>视频文字稿</summary>' + _body_html(note['transcript']) + '</details>'
     if note.get('screen_text'):
         body += '<details class="lb-transcript"><summary>视频画面文字</summary>' + _body_html(note['screen_text']) + '</details>'
-    detail = _comments_html(note, comments, manifest, object_rel, source.get("capture"))
+    detail = _comments_html(note, comments, manifest, object_rel, source.get("capture"), _fill_view(source, meta))
     # Owner 2026-09-15：头像/作者在**正文上方**（右栏顶部），不跟图片在左栏。
     # 左栏只有图片、sticky 固定；右栏 = 作者 → 正文 → 评论，随页滚动。
     # 批次 D · N15：.lb-note 带 data-lb-item，图片导航按它记住每篇钉没钉 / 第几张 / 正文滚到哪
@@ -1373,7 +1415,13 @@ def render_agent_md(
 
     cl = (source.get("capture") or {}).get("comment_load") or {}
     gap_line: list[str] = []
-    if int(cl.get("replies_missing") or 0) > 0:
+    view = _fill_view(source, meta)
+    if view is not None:
+        if int(view.get("missing") or 0) > 0:
+            from .comment_fill import floors_label
+            gap_line = [f"（评论读到 {len(comments)} 楼，{floors_label(int(view.get('floors') or 10))}的楼中楼还缺 "
+                        f"{view['missing']} 条：{view.get('why') or '没读全'}；下面标「还缺」的楼不全）", ""]
+    elif int(cl.get("replies_missing") or 0) > 0:
         from .adapters import xiaohongshu as xhs
         gaps = cl.get("gaps") or []
         main = max(gaps, key=lambda g: int(g.get("missing") or 0)).get("reason") if gaps else cl.get("stop_reason")

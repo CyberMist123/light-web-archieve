@@ -442,6 +442,21 @@ function syncStateHead(st) {
   const left = num(st.remaining) ?? (done != null && total != null ? Math.max(0, total - done) : null);
   return [head, done != null && `已完成 ${done}${total != null ? '/' + total : ''} 篇`, left != null && `剩 ${left} 篇`].filter(Boolean).join(' · ');
 }
+// 1009：后台补评论（_archive/comments-fill-status.json，Python comment_fill 写）→ 状态栏一行。
+// 还在跑 / 等着 / 暂停（且 10 分钟内刷新过，等待时它每分钟刷一次）才显示；要她处理的（验证 / 掉登录）标出来，点了开问题入口。
+const FILL_HUMAN_CODES = ['CAPTCHA_REQUIRED', 'NOT_LOGGED_IN', 'ACCOUNT_RISK', 'RISK_HOLD', 'ACCOUNT_BLOCKED'];
+function commentFillLine(st, now = Date.now()) {
+  if (!st || typeof st !== 'object' || !['running', 'waiting', 'paused'].includes(st.state)) return null;
+  const at = Date.parse(st.updated_at || '');
+  if (!Number.isFinite(at) || now - at > 10 * 60000) return null;
+  const human = FILL_HUMAN_CODES.includes(String(st.wait_code || ''));
+  const num = v => (Number.isFinite(Number(v)) ? Number(v) : null);
+  const done = num(st.done), total = num(st.total);
+  const prog = total ? `${done || 0}/${total} 篇` : '';
+  const head = st.state === 'running' ? '⟳ 补评论' : (human ? '⚠ 补评论暂停' : '⏸ 补评论');
+  const tail = human ? '等你处理' : (st.state === 'running' ? prog : (st.wait_code === 'NIGHTLY' ? '让夜跑先跑' : prog || '等一会儿'));
+  return { text: [head, tail].filter(Boolean).join(' · '), title: String(st.message || ''), human, running: st.state === 'running' };
+}
 // 同步计划弹窗的「当前：…」（第 5 批 4.4）：cur = `sync-schedule` 的 JSON。认不出的触发器如实说「自定义」，不冒充每天；
 // 我们管的那个之外的触发器列在后面「另有：… （不改动）」。
 function scheduleStatusText(cur) {
@@ -558,12 +573,13 @@ class LinkBrainActions extends Plugin {
     this.taskStatusEl.hidden = true;
     this.taskStatusEl.onclick = () => this.openSyncLog();
     const refreshTask = async () => {
-      const { raw, sum } = await this.readSyncFiles();
+      const { raw, sum, fill } = await this.readSyncFiles();
       this.externalSync = mergeSyncStatus(raw, sum);
+      this.commentFill = fill;   // 1009：后台补评论的进度（_archive/comments-fill-status.json）
       this.taskChanged();
     };
     if (this.app.vault.on) for (const event of ['modify', 'create']) this.registerEvent(this.app.vault.on(event, file => {
-      if (['_archive/sync-status.json', '_archive/problems-summary.json'].some(name => file?.path === this.lbPath(name))) refreshTask().catch(console.error);
+      if (['_archive/sync-status.json', '_archive/problems-summary.json', '_archive/comments-fill-status.json'].some(name => file?.path === this.lbPath(name))) refreshTask().catch(console.error);
     }));
     { const raw = await this.loadData(); this.snapDisk(raw); this.settings = mergeSettings(raw); this.watchSettingsFile(); }
     // 1008 Owner：「开始」页选了轻量版 = 不跑 AI 概要 / 识图、也不报它们的失败（后端 providers 按 setup.selected 门禁）。
@@ -590,6 +606,8 @@ class LinkBrainActions extends Plugin {
     }
     // 首次引导 + Dataview 提示（onboarding-ui.js）：窗口开好后再查，不拖慢启动
     if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => { this.onboardTimer = setTimeout(() => this.startupChecks().catch(e => console.error('[lb] 启动检查没做完', e)), 1500); });
+    // 1009：打开 Obsidian 一分半后看一眼评论有没有没补齐的，有就后台接着补（单实例；号要人处理时它自己停下等）
+    if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => { this.fillTimer = setTimeout(() => this.ensureCommentFill('startup'), 90000); });
     // 第 7 批：首次引导 = 设置页「开始」分页（选功能 / 检查安装 / 扫码 / 同步 / AI）；命令 id 不变
     this.addCommand({ id: 'open-onboarding', name: '打开首次引导（设置页「开始」）', callback: () => this.openOnboarding() });
     this.settingTab = new LinkBrainSettingTab(this.app, this);
@@ -762,7 +780,24 @@ class LinkBrainActions extends Plugin {
     if (this.running) { this.notify(this.busyText(), { kind: 'warn' }); return; }
     // --limit 0 = 全部收藏；新抓数量由设置里的「每天最多新抓」控制（Python 侧 _Quota）
     // 10-03 同步记录：标成「手动」，这次同步完就在 sync-log.jsonl 收尾一行
-    return this.run(['-m', 'link_brain', 'sync-favorites', '--limit', '0', '--extract'], '同步收藏', true, { env: { LINK_BRAIN_SYNC_TRIGGER: 'manual' } });
+    // 1009：同步完有没读全的评论 → 后台接着补（不用她再点）
+    return this.run(['-m', 'link_brain', 'sync-favorites', '--limit', '0', '--extract'], '同步收藏', true, { env: { LINK_BRAIN_SYNC_TRIGGER: 'manual' } })
+      .then(r => { this.ensureCommentFill('sync'); return r; });
+  }
+  // 1009：评论补齐——后台补跑（Python 单实例，自己判已在跑 / 没缺口 / 号要人处理就停下等）。打开 Obsidian、同步完、楼数调大时调。
+  // 只起一个短命令（--detach 拉起后立刻返回），不占「正在跑」的互斥位，也不弹提示；进度看底部状态栏。
+  async ensureCommentFill(why = '') {
+    if (this.commentFillChecking) return null;
+    this.commentFillChecking = true;
+    try {
+      const r = await this.runPy(['-m', 'link_brain', 'comments', '--fill-status'], { timeoutMs: 120000, label: '补评论进度' });
+      const j = r.json || {};
+      this.commentFillInfo = j;
+      if (!j.ok || j.running || !(Number(j.ready) > 0 || Number(j.cooling) > 0)) return j;
+      const s = await this.runPy(['-m', 'link_brain', 'comments', '--fill-pending', '--detach'], { timeoutMs: 60000, label: '补评论' });
+      return s.json || j;
+    } catch (e) { console.error('[lb] 后台补评论没拉起', why, e); return null; }
+    finally { this.commentFillChecking = false; }
   }
   // 定时同步（第 5 批 B2）：管哪个计划任务 = LinkBrainNightly（包内夜跑）→ 没有它就旧任务 XhsFavSync（作者本机现状）→ 都没有 = null；
   // 环境变量 LINK_BRAIN_SYNC_TASK 设了就只认它。读法都是 `sync-schedule`（只读），任务名经 LINK_BRAIN_SYNC_TASK 传给 Python。
@@ -1016,8 +1051,9 @@ class LinkBrainActions extends Plugin {
   // problems-summary.json 的 sync 段；这里以它为准，sync-status.json 比它新时（刚开始的一次同步）用新的。不再自己 process.kill 查 pid。
   async readSyncFiles() {
     const read = async p => { try { const v = JSON.parse(await this.app.vault.adapter.read(this.lbPath(p))); return v && typeof v === 'object' ? v : null; } catch { return null; } };
-    const [raw, sum] = await Promise.all([read('_archive/sync-status.json'), read('_archive/problems-summary.json')]);
-    return { raw, sum };
+    const [raw, sum, fill] = await Promise.all([read('_archive/sync-status.json'), read('_archive/problems-summary.json'),
+      read('_archive/comments-fill-status.json')]);
+    return { raw, sum, fill };
   }
   async readSyncStatus() {
     const { raw, sum } = await this.readSyncFiles();
@@ -1616,7 +1652,7 @@ class LinkBrainActions extends Plugin {
   // 问收藏页她开始打字时预热（同一页 60 秒内只调一次）：没有 worker、也不在卸载时才起；返回是否新起了
   warmAnswerWorker() { if(this.answerWorker||this.unloading)return false; try{this.ensureAnswerWorker();return true;}catch(e){console.error('[lb] 预热问答进程没成',e);return false;} }
   stopArchiveAnswer(tag) { let n=0; for(const [id,p] of [...(this.answerPending?.entries()||[])]) { if(tag!=null&&p.tag!==tag)continue; if(this.cancelAnswer(id)) n++; } return n; }
-  onunload(){this.unloading=true;clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);this.catalogCache=null;
+  onunload(){this.unloading=true;clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);clearTimeout(this.fillTimer);this.catalogCache=null;
     for(const k of ['noteActions','noteTools','imageActions','playerUI']){try{this[k]?.detach?.();}catch(e){console.error('[lb] '+k+' 卸载出错',e);}}   // 批次 D 地基：四个挂载点
     const worker=this.answerWorker;if(worker)this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});}
   // 返回 payload；status='cancelled' = 用户点了停止（markdown 是已生成的半截），不当失败抛。
@@ -2134,10 +2170,12 @@ class LinkBrainActions extends Plugin {
     const live = external?.state === 'running' && Date.now() - Date.parse(external.updated_at || '') < 15 * 60 * 1000;
     const detail = this.runningProgress || (live && external.done != null && external.total != null ? `${external.done}/${external.total} 篇` : '');
     this.taskLabel = this.running || (live ? '夜跑同步' : '');
+    const fill = this.taskLabel ? null : commentFillLine(this.commentFill);
     if (this.taskStatusEl) {
-      this.taskStatusEl.hidden = !this.taskLabel;
-      this.taskStatusEl.setText(this.taskLabel ? `⟳ ${this.taskLabel}${detail ? ' · ' + detail : ''}` : '');
-      this.taskStatusEl.title = this.running ? '点开看同步记录，可停止' : '计划任务在跑，这里停不了';
+      this.taskStatusEl.hidden = !this.taskLabel && !fill;
+      this.taskStatusEl.setText(this.taskLabel ? `⟳ ${this.taskLabel}${detail ? ' · ' + detail : ''}` : (fill ? fill.text : ''));
+      this.taskStatusEl.title = this.running ? '点开看同步记录，可停止' : fill ? (fill.title + (fill.human ? '（点开问题入口处理）' : '')) : '计划任务在跑，这里停不了';
+      this.taskStatusEl.onclick = () => (fill && fill.human && !this.taskLabel ? this.openProblems() : this.openSyncLog());
     }
     for (const callback of this.taskListeners || []) callback({ label: this.taskLabel, detail });
     this.app.workspace?.trigger?.('link-brain:task', { label: this.taskLabel, detail });
@@ -2150,7 +2188,8 @@ class LinkBrainActions extends Plugin {
     if (!this.running || !this.runningChild) { this.notify('计划任务在跑，这里停不了'); return false; }
     const label = this.running;
     if (!(await this.interruptRunning('停止本次任务'))) return false;
-    if (label.includes('同步')) await this.runPy(['synclog', 'stop', '--by-user']);
+    // 1009：漏了 '-m','link_brain'——仓库模式（python -m link_brain）下起的是 `python synclog …`，直接报错（照 spawnPy 统一写法补上）
+    if (label.includes('同步')) { try { await this.runPy(['-m', 'link_brain', 'synclog', 'stop', '--by-user'], { label: '记下手动停止', timeoutMs: 60000 }); } catch (e) { console.error('[lb] 同步记录没记上「手动停止」', e); } }
     this.taskChanged(); this.notify(`已停止「${label}」`); return true;
   }
 
@@ -2357,9 +2396,16 @@ class LinkBrainSettingTab extends PluginSettingTab {
       .addToggle(t => t.setValue(so.downloadImages).onChange(async v => { so.downloadImages = v; await this.save(); }));
     new Setting(c).setName('下载视频')
       .addToggle(t => t.setValue(so.downloadVideo).onChange(async v => { so.downloadVideo = v; await this.save(); }));
-    new Setting(c).setName('评论 · 自动拉取').setDesc('导入 / 同步新收藏时抓的评论（楼中楼照样展开，评论图片和语音照样存）。默认前 10 楼；选「全部」时热门笔记会慢几分钟。')
-      .addDropdown(d => d.addOption('10', '前 10 楼（默认）').addOption('all', '全部').addOption('20', '前 20 楼').addOption('50', '前 50 楼')
-        .setValue(String(so.commentFloors)).onChange(async v => { so.commentFloors = v === 'all' ? 'all' : parseInt(v); await this.save(); }));
+    // 1009 Owner：楼数 = 至少抓到这么多楼，每楼的楼中楼全部抓全；读不完的后台自动接着读。调小不删已抓的；调大旧笔记自动补到新楼数。不提示「冲突」。
+    new Setting(c).setName('评论 · 自动拉取').setDesc('每篇至少抓这么多楼的评论（默认前 10 楼），每楼的回复全部抓全；一次读不完的后台自动接着读，不用管。调小不删已经存下的；调大会在后台给旧笔记补到新楼数。')
+      .addDropdown(d => d.addOption('10', '前 10 楼（默认）').addOption('20', '前 20 楼').addOption('50', '前 50 楼').addOption('all', '全部')
+        .setValue(String(so.commentFloors)).onChange(async v => {
+          const before = so.commentFloors === 'all' ? 2000 : Number(so.commentFloors) || 10;
+          so.commentFloors = v === 'all' ? 'all' : parseInt(v);
+          await this.save();
+          const after = so.commentFloors === 'all' ? 2000 : Number(so.commentFloors) || 10;
+          if (after > before) this.plugin.ensureCommentFill('floors');
+        }));
   }
   fieldSyncDetails(c) {
     const so = this.plugin.settings.sync;
@@ -2740,3 +2786,4 @@ Object.assign(module.exports, { splitCommand, whichCommand, pickBackend, backend
   BACKEND_DEFAULT, BACKEND_INSTALL, NIGHTLY_TASK, LEGACY_SYNC_TASK });
 Object.assign(module.exports, { effectiveTextAI, modelState, endpointHost, normalizeEndpoint, aiGate, resultMessage, scheduleShort });
 module.exports.lastRiskNote = lastRiskNote;   // 1008（L6）：给 node 单测（设置页「立即同步」旁的验证说明）
+module.exports.commentFillLine = commentFillLine;   // 1009：给 node 单测（状态栏「补评论」那一行）

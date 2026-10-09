@@ -92,8 +92,9 @@ def test_ingest_records_gap_everywhere(tmp_path, monkeypatch, capsys):
     # 可见页：顶上一行 + 那楼标「还有 39 条回复没拿到」
     vault = storage.vault_root()
     md = next(vault.glob("Web/Xiaohongshu/*.md")).read_text(encoding="utf-8")
-    assert "楼中楼还缺 39 条" in md and "下次同步接着读" in md
-    assert "还有 39 条回复没拿到（评论区太长，这次时间用完，下次同步接着读）" in md
+    # 1009：设置楼数内的缺口后台自动补，不再写「下次同步接着读」
+    assert "楼中楼还缺 39 条" in md and "后台在补" in md and "下次同步接着读" not in md
+    assert "还有 39 条回复没拿到（评论区太长，这次时间用完，后台在补）" in md
     assert "展开 40 条回复" not in md
     # 机读版
     agent = (storage.object_dir("xiaohongshu", NOTE_ID) / "derived" / "agent.md").read_text(encoding="utf-8")
@@ -120,7 +121,8 @@ def test_fill_expands_only_gap_floors_and_merges(tmp_path, monkeypatch, capsys):
     # 续读那次：读取组件把那楼补齐
     raw2 = json.loads(json.dumps(raw))
     first = raw2["data"]["comments"]["list"][0]
-    first["subComments"] = [{"id": f"sub-{i}", "content": f"回复 {i}", "userInfo": {}} for i in range(40)]
+    kept = first["subComments"][0]  # 上次已经存下的那条，这次照样在（并集合并按 id 去重）
+    first["subComments"] = [kept] + [{"id": f"sub-{i}", "content": f"回复 {i}", "userInfo": {}} for i in range(39)]
     raw2["data"]["comment_load"] = {**RAW_CL, "replies_missing": 0, "partial": False, "stop_reason": "floor_limit",
                                     "replies_partial": [], "floors_expanded": 1}
     # 其它楼在这次响应里只有首屏（没要求展开）——合并后不能丢
@@ -155,21 +157,23 @@ def test_pending_fills_respects_attempts_and_gap_hours(tmp_path, monkeypatch, ca
     monkeypatch.setattr(xhs, "fetch_detail", lambda *a, **k: raw)
     assert cli.main(["ingest", "https://example.invalid/share"]) in (0, 2)
     capsys.readouterr()
-    assert [sid for _, sid, _ in ingest_mod.pending_fills()] == [NOTE_ID]
+    later = datetime.now().astimezone() + timedelta(minutes=50)
+    assert [sid for _, sid, _ in ingest_mod.pending_fills(now=later)] == [NOTE_ID]
     meta = storage.read_json(storage.object_dir("xiaohongshu", NOTE_ID) / "meta.json")
     path = storage.raw_dir("xiaohongshu", NOTE_ID, meta["current_version"]) / "source.json"
     source = storage.read_json(path)
     source["capture"]["comment_load"]["fill_last_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
     storage.write_json(path, source)
-    assert ingest_mod.pending_fills() == []  # 刚续过，20 小时内不再开
-    assert ingest_mod.pending_fills(now=datetime.now().astimezone() + timedelta(hours=21))
-    source["capture"]["comment_load"]["fill_attempts"] = ingest_mod.FILL_MAX_ATTEMPTS
-    storage.write_json(path, source)
+    assert ingest_mod.pending_fills() == []  # 1009：刚开过这一篇，45 分钟内不再开
+    assert ingest_mod.pending_fills(now=datetime.now().astimezone() + timedelta(minutes=50))
+    # 1009：不再按总次数封顶；连着几次没进展才停（进问题面板），见 test_comments_fill_1009.py
+    from link_brain import comment_fill
+    comment_fill.save_state("xiaohongshu", NOTE_ID, {"attempts": 5, "stuck": True, "stuck_floors": 10, "no_progress": 3})
     assert ingest_mod.pending_fills(now=datetime.now().astimezone() + timedelta(hours=21)) == []
-    # 可见页如实说「不再读」
+    # 可见页如实说「已记进问题面板」
     render_mod.render_object("xiaohongshu", NOTE_ID, verbose=False, llm=False)
     md = next(storage.vault_root().glob("Web/Xiaohongshu/*.md")).read_text(encoding="utf-8")
-    assert f"已续读 {ingest_mod.FILL_MAX_ATTEMPTS} 次" in md
+    assert "试了 5 次没补上，已记进问题面板" in md
 
 
 def test_fill_pending_cli_and_nightly_step(tmp_path, monkeypatch, capsys):
@@ -183,6 +187,10 @@ def test_fill_pending_cli_and_nightly_step(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(xhs, "fetch_detail", fake_fetch)
     assert cli.main(["ingest", "https://example.invalid/share"]) in (0, 2)
     capsys.readouterr()
+    from link_brain import comment_fill
+    later = datetime.now().astimezone() + timedelta(minutes=50)
+    monkeypatch.setattr(comment_fill, "_now", lambda: later)
+    monkeypatch.setattr(comment_fill, "account_wait_reason", lambda: ("", ""))
     assert cli.main(["comments", "--fill-pending", "--limit", "2"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["candidates"] == 1 and out["done"][0]["item_id"] == f"xhs-{NOTE_ID}"
@@ -194,7 +202,7 @@ def test_fill_pending_cli_and_nightly_step(tmp_path, monkeypatch, capsys):
 
 
 def test_old_reader_without_comment_load_renders_plain_hint(tmp_path, monkeypatch, capsys):
-    """老读取组件没有 comment_load：楼层上限外的楼只说「只展开前几楼」，不编原因。"""
+    """老读取组件没有 comment_load：1009 起设置楼数之内的缺口照样排进续读（这批以前永远排不上，就是漏的根因）。"""
     setup_env(tmp_path, monkeypatch)
     raw = load_fixture()
     raw["data"].pop("comment_load", None)
@@ -205,6 +213,8 @@ def test_old_reader_without_comment_load_renders_plain_hint(tmp_path, monkeypatc
     assert cli.main(["ingest", "https://example.invalid/share"]) in (0, 2)
     capsys.readouterr()
     md = next(storage.vault_root().glob("Web/Xiaohongshu/*.md")).read_text(encoding="utf-8")
-    # 批次 D · N8：说人话；老读取组件按楼算出缺口时顶上也出一行（同样不编原因）+「现在抓全部评论」
-    assert "另有 7 条回复没存（只存了前几楼的回复）" in md and "楼中楼还缺 7 条（只存了前几楼的回复）" in md
-    assert ingest_mod.pending_fills() == []
+    # 1009：前 10 楼里的缺口 = 以前只存了每楼前几条回复，后台在补；顶上一行 +「现在抓全部评论」
+    assert "还有 7 条回复没拿到（以前只存了每楼前几条回复，后台在补）" in md
+    assert "前 10 楼的楼中楼还缺 7 条（以前只存了每楼前几条回复，后台在补）" in md
+    later = datetime.now().astimezone() + timedelta(minutes=50)
+    assert [sid for _, sid, _ in ingest_mod.pending_fills(now=later)] == [NOTE_ID]

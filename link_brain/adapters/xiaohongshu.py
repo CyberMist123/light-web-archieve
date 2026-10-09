@@ -827,26 +827,67 @@ def compact_comment_load(raw: Any) -> dict[str, Any] | None:
     return out
 
 
-def merge_comments(old: list[dict[str, Any]], new: list[dict[str, Any]], expanded: set[str]) -> list[dict[str, Any]]:
-    """续读合并：新响应里只有 `expanded` 那几楼是展开过的；其它楼若老版本的楼中楼更多就沿用老的。
-    一级评论以新响应的顺序为准；老版本有、新响应没滚到的楼接在后面（删除的评论留着：归档不丢）。"""
-    by_id_old = {str(c.get("comment_id") or ""): c for c in old}
-    out = []
+def _reply_key(s: dict[str, Any]) -> str:
+    cid = str(s.get("comment_id") or "")
+    if cid:
+        return cid
+    return "|".join(str(x) for x in ((s.get("author") or {}).get("user_id"), s.get("created_at"), s.get("text")))
+
+
+def _union_replies(prev: list[dict[str, Any]], cur: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """楼中楼并集：以这次读到的顺序为准，旧版有、这次没有的（删了 / 折叠了 / 这次没展开到）接在后面——归档不丢。"""
     seen = set()
-    for c in new:
-        cid = str(c.get("comment_id") or "")
-        seen.add(cid)
-        prev = by_id_old.get(cid)
-        if prev and cid not in expanded and len(prev.get("sub_comments") or []) > len(c.get("sub_comments") or []):
-            c = {**c, "sub_comments": prev["sub_comments"], "sub_comments_complete": prev.get("sub_comments_complete"),
-                 "sub_comment_count": max(int(c.get("sub_comment_count") or 0), int(prev.get("sub_comment_count") or 0))}
-        out.append(c)
-    for c in old:
-        if str(c.get("comment_id") or "") not in seen:
-            out.append(c)
-    for i, c in enumerate(out, start=1):
+    out = []
+    for s in list(cur) + list(prev):
+        k = _reply_key(s)
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(s)
+    return out
+
+
+def merge_comments(old: list[dict[str, Any]], new: list[dict[str, Any]], expanded: set[str],
+                   *, keep_old_order: bool = False) -> list[dict[str, Any]]:
+    """续读合并（1009 起一律并集，「调小不删已抓的」）：每楼的楼中楼 = 新旧并集，原站显示数取较大的。
+    一级评论默认以新响应的顺序为准，老版本有、新响应没滚到的楼接在后面（删除的评论留着：归档不丢）；
+    keep_old_order=True（只展开几楼的续读，新响应里只有那几楼）：保持老顺序，新冒出来的楼接在后面。"""
+    by_id_old = {str(c.get("comment_id") or ""): c for c in old}
+    by_id_new = {str(c.get("comment_id") or ""): c for c in new}
+
+    def merged(c: dict[str, Any], prev: dict[str, Any] | None) -> dict[str, Any]:
+        if not prev:
+            return c
+        subs = _union_replies(prev.get("sub_comments") or [], c.get("sub_comments") or [])
+        count = max(int(c.get("sub_comment_count") or 0), int(prev.get("sub_comment_count") or 0))
+        return {**c, "sub_comments": subs, "sub_comment_count": count, "sub_comments_complete": len(subs) >= count}
+
+    out = []
+    if keep_old_order:
+        for c in old:
+            cid = str(c.get("comment_id") or "")
+            out.append(merged(by_id_new[cid], c) if cid in by_id_new else c)
+        for c in new:
+            if str(c.get("comment_id") or "") not in by_id_old:
+                out.append(c)
+    else:
+        seen = set()
+        for c in new:
+            cid = str(c.get("comment_id") or "")
+            seen.add(cid)
+            out.append(merged(c, by_id_old.get(cid)))
+        for c in old:
+            if str(c.get("comment_id") or "") not in seen:
+                out.append(c)
+    for c in out:
         c["floor"] = 1  # 一级评论的层级字段（不是楼序）
     return out
+
+
+def comments_signature(comments: list[dict[str, Any]]) -> list[tuple[str, int, tuple[str, ...]]]:
+    """评论区「有没有多拿到东西」的指纹：每楼 id、原站显示数、楼中楼 id 集合（续读没多拿到就不写新 RAW 版本）。"""
+    return sorted((str(c.get("comment_id") or ""), int(c.get("sub_comment_count") or 0),
+                   tuple(sorted(_reply_key(s) for s in c.get("sub_comments") or []))) for c in comments)
 
 
 def merge_comment_load(old: dict[str, Any] | None, new: dict[str, Any] | None, expanded: set[str],

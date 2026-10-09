@@ -237,10 +237,20 @@ def _mtime(path: Path) -> float:
         return 0.0
 
 
+def _ai_off() -> set[str]:
+    """「开始」页没勾的 AI 能力（轻量版 = 两个都没勾）：{'summaryAI', 'visionAI'} 的子集。读不到设置 = 都开着（照旧出标）。"""
+    try:
+        from . import providers
+        return {cap for cap in ("summaryAI", "visionAI") if providers.setup_off_reason(cap)}
+    except Exception:  # noqa: BLE001
+        return set()
+
+
 def _problem_context() -> dict[str, Any]:
-    """{hidden: {(item_id, 细分码)}, ai_open: {能力名}, api_codes: set}。读不动就当没有（fail-open：照旧出标）。"""
-    from . import ai_health, problems
-    key = (str(storage.archive_root()), _mtime(problems.path()), _mtime(storage.archive_root() / ai_health.FILE_NAME))
+    """{hidden: {(item_id, 细分码)}, ai_open: {能力名}, api_codes: set, ai_off: {能力名}}。读不动就当没有（fail-open：照旧出标）。"""
+    from . import ai_config, ai_health, problems
+    key = (str(storage.archive_root()), _mtime(problems.path()), _mtime(storage.archive_root() / ai_health.FILE_NAME),
+           _mtime(ai_config.data_json_path()))
     if _CTX["key"] != key:
         try:
             hidden = problems.dismissed_pairs()
@@ -250,7 +260,8 @@ def _problem_context() -> dict[str, Any]:
             ai_open = set(ai_health._load())
         except Exception:  # noqa: BLE001
             ai_open = set()
-        _CTX.update(key=key, val={"hidden": hidden, "ai_open": ai_open, "api_codes": set(ai_health.API_CODES)})
+        _CTX.update(key=key, val={"hidden": hidden, "ai_open": ai_open, "api_codes": set(ai_health.API_CODES),
+                                  "ai_off": _ai_off()})
     return _CTX["val"]
 
 
@@ -273,8 +284,13 @@ def item_problems(obj_dir: Path, report: dict[str, Any], vision: dict[str, Any],
     def add(code, reason, action=None, next_at=None, cap=None):
         if not code:
             return
-        if cap and str(code) in ctx["api_codes"] and cap not in ctx["ai_open"]:
-            code, reason, action = "TRANSIENT.AI_PENDING", f"{reason}（当时接口出错；接口现在已经好了）", "retry_later"
+        caps = cap if isinstance(cap, tuple) else ((cap,) if cap else ())
+        if caps and all(c in ctx.get("ai_off", ()) for c in caps):
+            return  # 1009 她：轻量版（没勾 AI）本来就不做识图 / 概要，卡片上什么都不标
+        if cap and str(code) in ctx["api_codes"] and not (set(caps) & ctx["ai_open"]):
+            # 1009 她：当时接口出错、接口现在已经好了的——后台静默补（状态栏一行进度），不上卡片角标
+            # （1008 的灰色「待补识图 / 概要」撤掉；接口还坏着的照原码出，问题面板里那一条照旧）
+            return
         try:
             row = _problem(code, reason, action, next_at)
         except Exception:  # noqa: BLE001 - 坏码不拖垮目录重建
@@ -309,12 +325,12 @@ def item_problems(obj_dir: Path, report: dict[str, Any], vision: dict[str, Any],
             add(visual["code"], visual.get("error") or "识图失败", cap=_API_CAP["vision"])
         ref = im.get("refine") or {}
         if ref.get("status") == "failed":
-            add("PERMANENT.MODEL_OUTPUT_INVALID", f"精细识别：{ref.get('error') or '结果不合格'}")
+            add("PERMANENT.MODEL_OUTPUT_INVALID", f"精细识别：{ref.get('error') or '结果不合格'}", cap=_API_CAP["vision"])
     state = _load_json(obj_dir / "enrich-state.json") or {}
     from .enrich import MAX_FAILS
     if isinstance(state, dict) and int(state.get("fails") or 0) >= MAX_FAILS:
         add("TRANSIENT.RETRY_EXHAUSTED", f"识图 / 概要连着 {state.get('fails')} 次没补成：{state.get('last_error') or ''}",
-            "gave_up", state.get("retry_after"))
+            "gave_up", state.get("retry_after"), cap=(_API_CAP["vision"], _API_CAP["extracted"]))
     elif isinstance(extracted, dict) and extracted.get("status") == "failed":
         add(extracted.get("code") or "TRANSIENT.SERVICE_BUSY", f"概要没生成：{extracted.get('error') or ''}",
             cap=_API_CAP["extracted"])

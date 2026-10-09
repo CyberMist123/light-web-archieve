@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import sys
 import time
 from datetime import datetime
@@ -254,35 +255,41 @@ SERVICE_RETRIES = 3
 SERVICE_BACKOFF = (20, 60)
 
 
-FILL_BUDGET_S = 540  # 续读一次给读取组件的评论预算（秒）；请求超时比它多 60 秒
-FILL_MAX_ATTEMPTS = 3  # 一篇最多续读几次（每次能多拿约 500 条回复；再多就是几千楼的帖子，如实标缺）
-FILL_GAP_HOURS = 20    # 两次续读同一篇至少隔这么久（同一晚别反复开同一页）
+from .comment_fill import FILL_BUDGET_S  # noqa: E402 - 续读一次给读取组件的评论预算（秒），规则都在 comment_fill
+FILL_MAX_ATTEMPTS = 3  # 1009 起不再按总次数封顶（连着 comment_fill.NO_PROGRESS_LIMIT 次没进展才停）；留着给旧调用方
+FILL_GAP_HOURS = 20    # 1009 起改成 comment_fill.FILL_GAP_MIN（45 分钟）；留着给旧调用方
 
 
-def _detail_kwargs(comment_floors: int | str | None, expand_floors: list[str] | None = None) -> dict[str, Any]:
+def _detail_kwargs(comment_floors: int | str | None, expand_floors: list[str] | None = None,
+                   budget_s: int | None = None) -> dict[str, Any]:
     """评论楼层：10（默认，秒回）/ 20 / 50（滚评论区并展开楼中楼，限楼数）/ "all"（手动全量）。
-    expand_floors（1008 续读）：只展开这些楼，给足预算。"""
+    expand_floors（1008 续读）：只展开这些楼，给足预算。budget_s（1009 续读）：这次给读取组件的评论预算。"""
     if expand_floors:
-        return {"full_comments": True, "comment_limit": 10, "timeout": FILL_BUDGET_S + 60,
-                "comment_budget_s": FILL_BUDGET_S, "expand_floors": list(expand_floors)}
+        budget = int(budget_s or FILL_BUDGET_S)
+        return {"full_comments": True, "comment_limit": 10, "timeout": budget + 90,
+                "comment_budget_s": budget, "expand_floors": list(expand_floors)}
     if comment_floors is None:
         from .ai_config import sync_options
         comment_floors = sync_options()["commentFloors"]
     if comment_floors == "all":
-        return {"full_comments": True, "comment_limit": 2000, "timeout": 1500}
-    floors = int(comment_floors)
-    # 0929 Owner：10 楼也要展开楼中楼（load_all_comments=false 只给首屏，不点「展开回复」）
-    floors = max(floors, 10)
-    return {"full_comments": True, "comment_limit": floors, "timeout": 600}
+        out = {"full_comments": True, "comment_limit": 2000, "timeout": 1500}
+    else:
+        # 0929 Owner：10 楼也要展开楼中楼（load_all_comments=false 只给首屏，不点「展开回复」）
+        floors = max(int(comment_floors), 10)
+        out = {"full_comments": True, "comment_limit": floors, "timeout": 600}
+    if budget_s:
+        out.update(comment_budget_s=int(budget_s), timeout=min(out["timeout"], int(budget_s) + 90))
+    return out
 
 
-def _fetch_with_retry(parsed: dict[str, Any], *, log, comment_floors=None, budget_left=None, expand_floors=None) -> Any:
+def _fetch_with_retry(parsed: dict[str, Any], *, log, comment_floors=None, budget_left=None, expand_floors=None,
+                      fill_budget_s=None) -> Any:
     """抓详情；服务没起来时隔一会儿重试（最多 SERVICE_RETRIES 次）。
 
     budget_left（1001）：返回「这一批还剩几秒」的函数。剩下的不够再等一轮 + 再抓一次的最坏耗时，就不重试了，
     直接把 ServiceDownError 抛给调用方——夜跑的同步步骤有外层限时，别在预算尽头又挂一个 10 分钟的请求被整棵杀。
     """
-    kwargs = _detail_kwargs(comment_floors, expand_floors)
+    kwargs = _detail_kwargs(comment_floors, expand_floors, fill_budget_s)
     from . import accounts
     for attempt in range(1, SERVICE_RETRIES + 1):
         accounts.pace("打开笔记")  # 1001：跨进程开页间隔（与附件、补看、读收藏共用一个时刻戳）
@@ -302,37 +309,46 @@ def _fetch_with_retry(parsed: dict[str, Any], *, log, comment_floors=None, budge
     raise AssertionError("unreachable")
 
 
-def _merge_fill(source: dict[str, Any], existing: Any, expanded: set[str], captured_at: str, log) -> dict[str, Any]:
-    meta = storage.read_json(storage.object_dir(xhs.SOURCE, source["source_id"]) / "meta.json")
-    old = storage.read_json(storage.raw_dir(xhs.SOURCE, source["source_id"], meta["current_version"]) / "source.json")
-    merged = xhs.merge_comments(old.get("comments") or [], source.get("comments") or [], expanded)
+def _merge_fill(source: dict[str, Any], old: dict[str, Any], expanded: set[str], captured_at: str, log) -> dict[str, Any]:
+    """续读（1009）：正文 / 图片 / 附件沿用上一版（这次只为评论开页），评论和上一版并集合并，comment_load 重算缺口。"""
+    keep_order = bool(expanded)
+    merged = xhs.merge_comments(old.get("comments") or [], source.get("comments") or [], expanded,
+                                keep_old_order=keep_order)
     new_cl = source["capture"].get("comment_load")
     if new_cl is not None:
         new_cl = {**new_cl, "fill_last_at": captured_at}
-    cl = xhs.merge_comment_load((old.get("capture") or {}).get("comment_load"), new_cl, expanded, merged)
+    cl = xhs.merge_comment_load((old.get("capture") or {}).get("comment_load"), new_cl,
+                                expanded or {str(c.get("comment_id") or "") for c in source.get("comments") or []}, merged)
     before = sum(len(c.get("sub_comments") or []) for c in old.get("comments") or [])
     after = sum(len(c.get("sub_comments") or []) for c in merged)
-    log(f"续读合并：楼中楼 {before} → {after} 条，还缺 {(cl or {}).get('replies_missing', 0)} 条")
-    return {**source, "comments": merged, "capture": {**source["capture"], "comment_load": cl}}
+    log(f"续读合并：一级 {len(old.get('comments') or [])} → {len(merged)} 楼，楼中楼 {before} → {after} 条")
+    capture = {**(old.get("capture") or {}), **source["capture"], "comment_load": cl}
+    if (old.get("capture") or {}).get("comments_complete") is True or (new_cl or {}).get("has_more") is False:
+        capture["comments_complete"] = True if (new_cl or {}).get("has_more") is not True else capture.get("comments_complete")
+    note = {**(old.get("note") or {})}
+    if (source.get("note") or {}).get("xsec_token"):
+        note["xsec_token"] = source["note"]["xsec_token"]
+    return {**old, "comments": merged, "note": note, "capture": capture}
 
 
 def _log_comment_load(source: dict[str, Any], log) -> None:
-    """评论读到哪一步、缺多少，进同步记录（1008 Owner：缺口要让人看到，不能悄悄少一截）。"""
-    cl = (source.get("capture") or {}).get("comment_load")
-    if not cl:
-        return
-    missing = int(cl.get("replies_missing") or 0)
+    """评论读到哪一步、缺多少，进同步记录（1008 Owner：缺口要让人看到，不能悄悄少一截）。
+    1009：缺口按设置里的楼数现算（comment_fill.scope），读不完的后台自动接着读。"""
+    from . import comment_fill
+    floors = comment_fill.floor_target()
+    sc = comment_fill.scope(source, floors)
+    cl = (source.get("capture") or {}).get("comment_load") or {}
     item_id = f"xhs-{source['source_id']}"
     title = (source.get("note") or {}).get("title")
     try:
         from . import synclog
-        if missing > 0:
-            why = xhs.REPLY_GAP_CN.get(_main_gap_reason(cl), "没读全")
-            fillable = _fillable(cl)
-            tail = "，下次同步接着读" if fillable else ""
-            synclog.note("comments", item_id, False, title=title, reason=f"楼中楼还缺 {missing} 条（{why}）{tail}",
-                         code="COMMENTS_PARTIAL", retry=["comments", item_id, "--fill"] if fillable else None)
-            log(f"评论：楼中楼还缺 {missing} 条（{why}）")
+        if sc["missing"] > 0:
+            main = max(sc["gaps"], key=lambda g: g["missing"])["reason"]
+            why = comment_fill.reason_text(main)
+            synclog.note("comments", item_id, False, title=title,
+                         reason=f"{comment_fill.floors_label(floors)}的楼中楼还缺 {sc['missing']} 条（{why}），后台自动接着读",
+                         code="COMMENTS_PARTIAL", retry=["comments", item_id, "--fill"])
+            log(f"评论：楼中楼还缺 {sc['missing']} 条（{why}）")
         elif int(cl.get("fill_attempts") or 0) > 0:
             synclog.note("comments", item_id, True, title=title)
     except Exception as exc:  # noqa: BLE001
@@ -347,8 +363,8 @@ def _main_gap_reason(cl: dict[str, Any]) -> str:
 
 
 def _fillable(cl: dict[str, Any]) -> bool:
-    """这篇还能不能续读：有能续的缺口、次数没用完。"""
-    if int(cl.get("replies_missing") or 0) <= 0 or int(cl.get("fill_attempts") or 0) >= FILL_MAX_ATTEMPTS:
+    """（1008 旧口径，只看读取组件报的缺口；1009 起排程看 comment_fill.survey）这份 comment_load 里有没有能续的缺口。"""
+    if int(cl.get("replies_missing") or 0) <= 0:
         return False
     return any(g.get("reason") in xhs.RESUMABLE_GAPS and g.get("comment_id") for g in cl.get("gaps") or [])
 
@@ -358,6 +374,61 @@ def fill_targets(cl: dict[str, Any]) -> list[str]:
     gaps = [g for g in cl.get("gaps") or [] if g.get("reason") in xhs.RESUMABLE_GAPS and g.get("comment_id")]
     gaps.sort(key=lambda g: -int(g.get("missing") or 0))
     return [str(g["comment_id"]) for g in gaps]
+
+
+def _reuse_media(source: dict[str, Any], raw_dir: Path, rel_prefix: str, old_manifest: dict[str, Any] | None,
+                 object_dir: Path) -> dict[str, Any]:
+    """续读写新版本时：上一版已经下好的图 / 视频 / 语音直接引用旧版本的文件（RAW 不可变，引用安全；识图按资产路径复用，
+    不会把整篇图重识一遍），只下这次新冒出来的评论图 / 语音。"""
+    old_media = [m for m in (old_manifest or {}).get("media") or [] if m.get("download_status") == "ok" and m.get("file")
+                 and (object_dir / m["file"]).is_file()]
+
+    def key(m: dict[str, Any]) -> tuple:
+        role = m.get("role")
+        if role in ("comment_image",):
+            return (role, str(m.get("comment_id") or ""), int(m.get("index") or 0))
+        if role == "comment_audio":
+            return (role, str(m.get("comment_id") or ""))
+        if role in ("note_image", "video_cover"):
+            return (role, int(m.get("index") or 0))
+        return (role,)
+
+    have = {key(m): m for m in old_media}
+    trimmed = json.loads(json.dumps(source))
+    reused: list[dict[str, Any]] = []
+    note = trimmed["note"]
+    keep_images = []
+    for image in note.get("images") or []:
+        role = "video_cover" if note.get("kind") == "video" else "note_image"
+        hit = have.get((role, int(image.get("index") or 0)))
+        if hit:
+            reused.append(dict(hit))
+        else:
+            keep_images.append(image)
+    note["images"] = keep_images
+    video_hit = next((m for m in old_media if m.get("role") == "video"), None)
+    if video_hit is not None and (note.get("video") or {}).get("video_url"):
+        reused.append(dict(video_hit))
+        note["video"] = {**note["video"], "video_url": None}
+    for c in trimmed.get("comments") or []:
+        for group in [c, *(c.get("sub_comments") or [])]:
+            cid = str(group.get("comment_id") or "")
+            imgs = group.get("images") or []
+            if imgs and all(have.get(("comment_image", cid, i)) for i in range(1, len(imgs) + 1)):
+                reused.extend(dict(have[("comment_image", cid, i)]) for i in range(1, len(imgs) + 1))
+                group["images"] = []
+            audio = group.get("audio")
+            if audio and have.get(("comment_audio", cid)):
+                reused.append(dict(have[("comment_audio", cid)]))
+                group["audio"] = None
+    manifest = download_media(trimmed, raw_dir, rel_prefix)
+    manifest["media"] = reused + manifest["media"]
+    counted = [m for m in manifest["media"] if m["role"] in ("note_image", "comment_image", "video_cover")]
+    manifest["images_declared"] = len(counted)
+    manifest["images_ok"] = sum(1 for m in counted if m["download_status"] == "ok")
+    manifest["images_complete"] = manifest["images_declared"] == manifest["images_ok"]
+    manifest["reused"] = len(reused)
+    return manifest
 
 
 def ingest_url(
@@ -373,12 +444,18 @@ def ingest_url(
     parsed: dict[str, Any] | None = None,
     budget_left=None,
     expand_floors: list[str] | None = None,
+    fill: bool = False,
+    fill_budget_s: int | None = None,
 ) -> dict[str, Any]:
     """抓一条链接并落一份不可变 RAW。返回摘要 dict（含 exit_code）。
 
     去重：`(source, source_id)` 命中索引且非 `--refresh` → 直接返回已有对象，不联网不下载。
     `--refresh`：重新抓取，规范化比对与最新版本一致就不写新 RAW，只更新 `last_checked_at`；
     有变化才写新版本（`raw/v0001` 字节绝不动）。
+
+    fill=True（1009 评论续读，要求已归档）：这次开页只为评论——不做附件网页探测、不碰登录号补看；
+    正文 / 图片沿用上一版，评论和上一版并集合并（调小楼数不删已抓的）；**没多拿到任何评论就不写新版本**；
+    写新版本时上一版下好的图 / 视频 / 语音直接引用旧文件（不重下、不重识图）。
     """
 
     def log(message: str) -> None:
@@ -429,10 +506,26 @@ def ingest_url(
                 "exit_code": EXIT_OK,
             }
 
+        fill = bool(fill and existing is not None)
+        old_meta = old_source = old_manifest = old_web = None
+        if fill:
+            old_meta = storage.read_json(storage.object_dir(xhs.SOURCE, parsed["note_id"]) / "meta.json")
+            old_dir = storage.raw_dir(xhs.SOURCE, parsed["note_id"], old_meta["current_version"])
+            old_source = storage.read_json(old_dir / "source.json")
+            old_manifest = storage.read_json(old_dir / "manifest.json") if (old_dir / "manifest.json").exists() else None
+            old_web = storage.read_json(old_dir / "web_raw.json") if (old_dir / "web_raw.json").exists() else None
+            if not parsed.get("xsec_token"):
+                parsed = {**parsed, "xsec_token": (old_source.get("note") or {}).get("xsec_token")}
+
         log(f"MCP {xhs.MCP_TOOL} @ {xhs.MCP_ENDPOINT}")
         raw = _fetch_with_retry(parsed, log=log, comment_floors=comment_floors, budget_left=budget_left,
-                                expand_floors=expand_floors)
+                                expand_floors=expand_floors, fill_budget_s=fill_budget_s if fill else None)
         problems.resolve("ingest", None)  # 抓到了 = 读取服务好着：之前「服务没起来 / 超时」那几条步骤级问题算解决
+
+        if fill:
+            return _finish_fill(raw, parsed, conn, existing, old_meta, old_source, old_manifest, old_web,
+                                set(expand_floors or []), origin=origin, actor=actor, ingest_kind=ingest_kind,
+                                note=note, created_at=created_at, log=log)
 
         # 附件元数据只有笔记网页版有（MCP 不返回），游客可见；失败不阻断
         log(f"网页探测附件 {xhs.CANONICAL_FMT.format(note_id=parsed['note_id'])}")
@@ -466,7 +559,9 @@ def ingest_url(
         source = xhs.normalize(raw, parsed, captured_at=captured_at, web_probe=web_probe)
         if expand_floors and existing is not None:
             # 1008 续读：这次只展开了指定的楼，其它楼的楼中楼沿用上一版（不然新版本反而少了）
-            source = _merge_fill(source, existing, set(expand_floors), captured_at, log)
+            prev_meta = storage.read_json(storage.object_dir(xhs.SOURCE, parsed["note_id"]) / "meta.json")
+            prev = storage.read_json(storage.raw_dir(xhs.SOURCE, parsed["note_id"], prev_meta["current_version"]) / "source.json")
+            source = _merge_fill(source, prev, set(expand_floors), captured_at, log)
         _log_comment_load(source, log)
         new_sha = index_mod.normalized_source_sha256(source)
 
@@ -588,6 +683,63 @@ def ingest_url(
         conn.close()
 
 
+def _finish_fill(raw: Any, parsed: dict[str, Any], conn, existing, old_meta: dict[str, Any], old_source: dict[str, Any],
+                 old_manifest: dict[str, Any] | None, old_web: Any, expanded: set[str], *, origin: str, actor: str,
+                 ingest_kind: str, note: str | None, created_at: str, log) -> dict[str, Any]:
+    """评论续读的落盘（ingest_url fill=True 的后半截）：并集合并 → 没多拿到就不出新版本 → 有就写新版本（图 / 视频引用旧文件）。"""
+    captured_at = now_iso()
+    fresh = xhs.normalize(raw, parsed, captured_at=captured_at, web_probe=None)
+    source = _merge_fill(fresh, old_source, expanded, captured_at, log)
+    not_found = list(((raw.get("data") or {}).get("comment_load") or {}).get("floors_not_found") or []) \
+        if isinstance(raw, dict) else []
+    object_dir = storage.object_dir(xhs.SOURCE, parsed["note_id"])
+    meta_path = object_dir / "meta.json"
+    subs = sum(len(c.get("sub_comments") or []) for c in source["comments"])
+    base = {"hit": False, "item_id": old_meta["item_id"], "note_id": parsed["note_id"], "kind": old_meta.get("kind"),
+            "failed": [], "comments": len(source["comments"]), "sub_comments": subs,
+            "comments_complete": source["capture"].get("comments_complete"),
+            "attachments_status": old_meta.get("attachments_status"), "floors_not_found": not_found,
+            "exit_code": EXIT_OK}
+    if xhs.comments_signature(source["comments"]) == xhs.comments_signature(old_source.get("comments") or []):
+        log("续读：这次没多拿到评论，不写新 RAW 版本，只更新 last_checked_at")
+        meta = storage.read_json(meta_path)
+        meta["last_checked_at"] = captured_at
+        storage.write_json(meta_path, meta)
+        return {**base, "refreshed_unchanged": True, "version": meta["current_version"],
+                "raw_dir": storage.raw_dir(xhs.SOURCE, parsed["note_id"], meta["current_version"]), "manifest": None}
+    _log_comment_load(source, log)
+    version = storage.next_version(xhs.SOURCE, parsed["note_id"])
+    raw_dir = storage.ensure_raw_dir(xhs.SOURCE, parsed["note_id"], version)
+    rel_prefix = f"raw/{storage.version_name(version)}"
+    log(f"续读 RAW → {raw_dir}")
+    storage.write_json(raw_dir / "mcp_raw.json", raw)
+    # 这次没探测附件：沿用上一版的网页探测结果（附件补查按它判断），并注明出处
+    storage.write_json(raw_dir / "web_raw.json", old_web if old_web is not None else
+                       {"ok": None, "error": "评论续读不探测附件（沿用上一版）"})
+    storage.write_json(raw_dir / "source.json", source)
+    manifest = _reuse_media(source, raw_dir, rel_prefix, old_manifest, object_dir)
+    storage.write_json(raw_dir / "manifest.json", manifest)
+    meta = _build_meta(parsed=parsed, source=source, manifest=manifest, version=version, captured_at=captured_at,
+                       origin=old_meta.get("origin") or origin, actor=old_meta.get("actor") or actor,
+                       ingest_kind=old_meta.get("ingest_kind") or ingest_kind, note=old_meta.get("note"),
+                       first_archived=old_meta.get("first_archived_at") or captured_at)
+    for key, value in old_meta.items():
+        # 抓取产生不了、只能后加的字段（收藏来自哪个号、她钉住的文件名、可见笔记路径…）原样带上
+        if key not in meta or key in ("visible_note", "visible_note_pinned", "favorited_by"):
+            meta[key] = value
+    meta["current_version"] = version
+    meta["versions"] = storage.existing_versions(xhs.SOURCE, parsed["note_id"])
+    meta["last_checked_at"] = captured_at
+    storage.write_json(meta_path, meta)
+    index_mod.upsert_object(conn, meta, source)
+    index_mod.add_source_version(conn, item_id=meta["item_id"], version=version, raw_dir=raw_dir,
+                                 captured_at=captured_at, adapter=xhs.ADAPTER_VERSION, input_url=parsed["input_url"],
+                                 input_kind=parsed["input_kind"], source_sha256=index_mod.normalized_source_sha256(source))
+    failed = [m for m in manifest["media"] if m["download_status"] == "failed"]
+    return {**base, "refreshed_unchanged": False, "version": version, "raw_dir": raw_dir, "manifest": manifest,
+            "failed": failed, "exit_code": EXIT_MISSING_CONTENT if failed else EXIT_OK}
+
+
 def run(args) -> int:
     try:
         summary = ingest_url(
@@ -671,91 +823,66 @@ def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = Fa
         meta = storage.read_json(storage.object_dir(row["source"], row["source_id"]) / "meta.json")
         note = storage.read_json(storage.raw_dir(row["source"], row["source_id"], meta["current_version"]) / "source.json")["note"]
         url = f"https://www.xiaohongshu.com/explore/{row['source_id']}?xsec_token={note.get('xsec_token') or ''}"
-    expand = None
+    from . import comment_fill
     if fill:
         if target.startswith("http"):
             raise FileNotFoundError("续读要给已归档的 item_id")
-        cl = (storage.read_json(storage.raw_dir(row["source"], row["source_id"], meta["current_version"]) / "source.json")
-              .get("capture") or {}).get("comment_load") or {}
-        expand = fill_targets(cl)
-        if not expand:
-            return {"item_id": row["item_id"], "note_id": row["source_id"], "filled": False, "reason": "没有能续读的缺口",
-                    "comments": None, "sub_comments": None, "comments_complete": None, "version": meta["current_version"],
-                    "refreshed_unchanged": True}
-    summary = ingest_url(url, refresh=True, comment_floors=floors, verbose=verbose, expand_floors=expand)
+        # 1009：按设置里的楼数现算缺口（老笔记没有 comment_load 也认），她点的照跑（不看 45 分钟间隔 / 已放弃）
+        out = comment_fill.fill_one(row["item_id"], verbose=verbose, manual=True)
+        out.setdefault("comments", None)
+        out.setdefault("sub_comments", None)
+        out.setdefault("comments_complete", None)
+        return out
+    if not target.startswith("http"):
+        # 1009：手动「现在抓全部评论」也并集合并（调小楼数 / 原帖删了评论都不丢已存的）
+        summary = ingest_url(url, refresh=True, comment_floors=floors, verbose=verbose, fill=True,
+                             fill_budget_s=None)
+        state = comment_fill.load_state(row["source"], row["source_id"])
+        _, source2 = comment_fill.current_source(row["source"], row["source_id"])
+        sc = comment_fill.scope(source2, comment_fill.floor_target(), state)
+        if not sc["missing"] and state.get("stuck"):
+            from . import problems as problems_mod
+            comment_fill._settle(row["source"], row["source_id"], state, row["item_id"], problems_mod)
+    else:
+        summary = ingest_url(url, refresh=True, comment_floors=floors, verbose=verbose)
     catch_mod._ensure_rendered(xhs.SOURCE, summary["note_id"], force=True, extract=False)
-    if fill:
-        summary["filled"] = not summary.get("refreshed_unchanged")
     return summary
 
 
 def pending_fills(*, limit: int = 0, now: datetime | None = None) -> list[tuple[str, str, dict[str, Any]]]:
-    """还有能续读缺口的篇：[(source, source_id, comment_load)]，缺得多的在前；20 小时内刚续过的跳过。"""
-    now = now or datetime.now().astimezone()
-    conn = index_mod.connect()
-    try:
-        rows = conn.execute("SELECT source, source_id FROM objects ORDER BY item_id").fetchall()
-    finally:
-        conn.close()
-    out = []
-    for r in rows:
-        try:
-            meta = storage.read_json(storage.object_dir(r["source"], r["source_id"]) / "meta.json")
-            cl = (storage.read_json(storage.raw_dir(r["source"], r["source_id"], meta["current_version"]) / "source.json")
-                  .get("capture") or {}).get("comment_load")
-        except (OSError, ValueError, KeyError):
-            continue
-        if not cl or not _fillable(cl):
-            continue
-        last = cl.get("fill_last_at")
-        if last:
-            try:
-                if (now - datetime.fromisoformat(str(last))).total_seconds() < FILL_GAP_HOURS * 3600:
-                    continue
-            except ValueError:
-                pass
-        out.append((r["source"], r["source_id"], cl))
-    out.sort(key=lambda x: -int(x[2].get("replies_missing") or 0))
+    """还有缺口、现在就能续的篇：[(source, source_id, 缺口摘要)]（1009 起按设置楼数现算，见 comment_fill.survey）。"""
+    from . import comment_fill
+    sv = comment_fill.survey(now=now)
+    out = [(e["source"], e["source_id"], {"replies_missing": e["missing"], "mode": e["mode"], "targets": e["targets"]})
+           for e in sv["ready"]]
     return out[:limit] if limit else out
 
 
 def run_fill_pending(args) -> int:
-    """`comments --fill-pending [--limit N] [--budget-min M]`：夜跑步骤——给预算内能续读的篇各续一次。"""
-    import time
-    from .read import dump_json
-    budget = float(getattr(args, "budget_min", 0) or 0)
-    deadline = time.monotonic() + budget * 60 if budget > 0 else None
-    done, failed, skipped = [], [], 0
-    targets = pending_fills(limit=int(getattr(args, "limit", 0) or 0))
-    for i, (src, sid, cl) in enumerate(targets):
-        if deadline is not None and deadline - time.monotonic() < FILL_BUDGET_S + 120:
-            skipped = len(targets) - i
-            break
-        item_id = f"xhs-{sid}"
-        try:
-            out = fetch_comments(item_id, floors=10, fill=True, verbose=getattr(args, "verbose", False))
-            done.append({"item_id": item_id, "filled": out.get("filled"), "sub_comments": out.get("sub_comments")})
-        except xhs.NeedsHumanError as exc:
-            print(f"续读中止（账号或服务要处理）: {exc}", file=sys.stderr)
-            dump_json({"done": done, "failed": failed, "stopped": str(exc), "left": len(targets) - i})
-            return EXIT_NEEDS_HUMAN
-        except (xhs.AdapterError, FileNotFoundError, OSError) as exc:
-            failed.append({"item_id": item_id, "error": str(exc)[:200]})
-    dump_json({"candidates": len(targets), "done": done, "failed": failed, "deferred": skipped})
-    return EXIT_ERROR if failed and not done else EXIT_OK
+    """`comments --fill-pending [--limit N] [--budget-min M] [--until-done] [--then-background]`（见 comment_fill.run）。"""
+    from . import comment_fill
+    return comment_fill.run(args)
 
 
 def run_comments(args) -> int:
     from .read import dump_json
+    if getattr(args, "fill_status", False):
+        from . import comment_fill
+        dump_json(comment_fill.status_payload())
+        return EXIT_OK
     if getattr(args, "fill_pending", False):
+        if getattr(args, "detach", False):
+            from . import comment_fill
+            from .read import outcome
+            r = comment_fill.spawn_worker()
+            dump_json(outcome(r, ok=bool(r.get("ok")), message=r.get("message") or ""))
+            return EXIT_OK if r.get("ok") else EXIT_ERROR
         return run_fill_pending(args)
     if not args.target:
         print("要给 item_id 或链接（或用 --fill-pending）", file=sys.stderr)
         return EXIT_ERROR
     try:
         floors = args.floors if args.floors == "all" else int(args.floors)
-        if getattr(args, "fill", False):
-            floors = 10
         summary = fetch_comments(args.target, floors=floors, verbose=getattr(args, "verbose", False),
                                  fill=getattr(args, "fill", False))
     except xhs.NeedsHumanError as exc:

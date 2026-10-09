@@ -871,3 +871,22 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
 - 纯读 `_archive/catalog-data.json` + 对象 manifest：只收 `kind=video` 且视频下载成功、文件在的；标签不分大小写、带不带 `#`、子标签（`健身/拉伸`）都算命中。
 - `{ok, code, message, tag, order, seed, start_index, items:[{item_id, title, author, note, video, poster, duration_sec, width, height, bytes, date}], skipped:[{item_id, title, reason}], suggestions}`；路径都是收藏库相对。乱序不给 seed 时用当前毫秒并回传（可复现）。
 - `--tags`：`{ok, tags:[{tag, count, playable}]}`，按能播的条数降序。退出码：0 有结果；1 目录还没建好；2 没命中（带 suggestions）。
+
+## 2026-10-09 评论补齐（`comments --fill-pending`，1009 Owner：设置楼数内的楼中楼都要抓全）
+
+- 缺口按**存下来的评论**现算（`link_brain/comment_fill.py` 的 `scope`）：设置「评论楼层」N（10–50；「全部」= 2000）→ 前 N 个一级评论里
+  「原站显示的回复数 `sub_comment_count` > 存下的 `sub_comments` 条数」就是缺口；没有 `comment_load` 的老笔记（10-08 以前入库）照样算。
+  读取组件判「展开到底、原站多显示」的 `count_mismatch` 和续读时报 `floors_not_found` 的楼（原帖里已找不到）不算缺口，页面照实标。
+  存下的楼不到 N、原帖可能还有（`comments_complete` 不是 true、`comment_load.has_more` 不是 false、评论总数对不上）→ 按 N 楼重读一次。
+- 续读一律并集合并：一级评论、每楼楼中楼按 id 取新旧并集（删掉的、这次没展开到的留着），原站显示数取较大的——调小楼数不删已抓的。
+  续读只为评论开页：正文 / 图片 / 附件沿用上一版，不做附件网页探测；**没多拿到评论就不写新 RAW 版本**；写新版本时上一版下好的
+  图 / 视频 / 语音直接引用旧版本文件（`manifest.media[].file` 可以是 `raw/v0001/assets/…`，`manifest.reused` = 引用了几个）。
+- 对象级 `derived/comments-fill.json`（可变）：`attempts` 续读次数 · `last_at` 上次开页 · `last_mode` expand|floors · `last_missing` ·
+  `no_progress` 连着没多拿到的次数 · `floors_done` 按这个楼数重读过、楼没变多 · `gone_floors[]` · `stuck` / `stuck_floors` / `stuck_at` /
+  `stuck_reason`（连着 3 次没进展：不再自动续，问题记录 `comments.fill` + `PERMANENT.COMMENTS_INCOMPLETE`）· `done_at` · `history[]`（最近 8 次）。
+- `_archive/comments-fill-status.json`（后台补跑 / 夜跑这一步写，插件状态栏读）：`state` running|waiting|paused|done|deferred|stopped ·
+  `pid` · `background` · `floors` · `total` / `done` / `left`（篇）· `missing`（条）· `stuck` · `current {item_id,title}` ·
+  `wait_code`（CAPTCHA_REQUIRED / NOT_LOGGED_IN / NIGHTLY / YIELD / ACCOUNT_BUSY / COOLING …）· `message`（一句人话）· `updated_at`（等待时每分钟刷新）。
+  进程没了而状态还停在 running/waiting/paused：Python（`comments --fill-status`）改报 stopped。
+- `comments --fill-status` → `{ok, code, message, floors, pending, ready, cooling, stuck, missing, running, status}`（本地读，不碰号）；
+  `comments --fill-pending --detach` → 拉起 `--until-done` 后台补跑（单实例，已在跑就 `already`）。
