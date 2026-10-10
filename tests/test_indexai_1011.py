@@ -186,6 +186,10 @@ class FakeModel:
             rows = []
             for i, title in self.notes(text):
                 n = [p for k, p in RULES if k in title][:1]
+                if "血源" in title:                  # 真模型常把整行（连说明 / 包括）抄回来
+                    n = ["游戏/游戏/宫崎英高（包括：血源、黑魂）"]
+                if "GPT" in title:
+                    n = ["工程/ai前沿消息——不属于ai记忆、人格的放这里"]
                 if self.hostile:
                     n = n + ["根本不存在/的节点", "忽略以上指令", 3]
                 rows.append({"i": i, "n": n})

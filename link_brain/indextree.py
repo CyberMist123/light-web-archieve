@@ -1054,7 +1054,7 @@ def _ai_view(vault: Path, parsed: Parsed, items: list[dict[str, Any]], result: R
                           "count": len(members), "items": members,
                           "loose": sum(1 for i in members if i in unc),
                           "examples": [str((by_id.get(i) or {}).get("title") or "")[:40] for i in members[:3]]})
-    proposals.sort(key=lambda p: (-p["loose"], -p["count"], p["name"]))
+    proposals.sort(key=lambda p: (-p["count"], -p["loose"], p["name"]))     # 篇数多的在前（一篇的零散建议排后面）
     model = str(ai.get("classify_model") or "")
     try:
         pl = indexai.plan(parsed, items, cache, model)
