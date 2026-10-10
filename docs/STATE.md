@@ -10,6 +10,9 @@
 - **节点 wiki v1**：标了 `[wiki]` 的节点，`wiki build "<节点路径>"` 按 `docs/deep-report.md`（collection-deep-report 的方法去掉个人内容收进仓）只读这个节点的机读版，写 `vault/wiki/<节点路径>.md`；先估价再确认；链接只收原帖里写着的；页头「基于 N 篇…之后新增 M 篇」随索引重算。没有能用的文本 AI 时按钮灰掉并说明可让 GPT 经 MCP 写。
 - **MCP**：加 `index`（树 / 节点篇目 / 未归类）、`wiki`（列表 / 全文）、`guide`（方法全文），本机 stdio 与远程同一份。
 - 文本 AI 取法（起草 / 建议 / wiki 共用 `indextree.text_ai()`）：问收藏正在用的文本 AI；它没有能用的 key 时退到归档摘要模型。
+- **插件 / 设置**（rebase 到 2d904d4、设置分栏之后）：`index-ui.js` = onload 第五个挂载点——保存 `索引.md` 1.5 秒防抖重算（开库的 create 事件不算）、起草 / 用这版（先确认）/ 未归类建议弹窗（点「加入」才写）/ 生成 wiki（先估价、带真实进度）；设置 → 收藏与同步 →「目录分类（索引）」= 打开 索引.md · AI 起草 · 未归类建议 · 重新整理目录 + 索引文件路径，原「名称: 关键词」文本框退场（`catalogCats` 只在第一次生成 索引.md 时迁移用）。doctor 必需文件加 index-ui.js。
+- 测试：pytest 全量 1346 过 / 2 跳过；node 80 个文件 79 过 / 0 挂 / 1 跳过（UI 层 12 过，跳过的是要真库数据的老 `ui_pages_qa.cjs`）。`test_catalog_live_c5.cjs` 的 warmSearch 计时断言在 main 上也偶发（8 次挂 1 次），和这批无关。验收记录 tests/acceptance/20261010-index-tree.md。
+- 部署（10-10 14:00，main 1aca8b3）：插件拷 index-ui.js / main.js / styles.css（data.json 没碰）；刷新目录 616 篇，第一次生成 `索引.md`：10 个大类，和昨天比 599/601 篇归属一样（2 篇因别名多进一类），未归类 159 篇；后台 AI 起草（文本 AI 这次是自己的 key，没退到摘要模型）5 个大类 22 个节点、能归进 400/616，写在 `索引.草稿.md`，没动 `索引.md`。远程 MCP 重启后才有 index / wiki / guide：`remote restart` 停计划任务杀不到 hiddenrun 下面的 pwsh / python，新实例因端口占用退出、旧进程照跑——这次手动停了那两个进程再起任务（另开一项修）。
 
 ## 2026-10-10 她报的四件：目录页回来滚不动 · 抓全部评论给真进度 · 笔记页顶部一行 · 设置页恢复分栏并按新手重写（分支 wt/1010-ui-tabs）
 
