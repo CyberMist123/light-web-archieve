@@ -188,6 +188,36 @@ def test_fill_pending_run_does_not_loop_on_restricted(env, monkeypatch, capsys):
     capsys.readouterr()
 
 
+def test_legacy_given_up_fill_is_released_once_then_classified(env, monkeypatch, capsys):
+    """1011 以前因「not found in noteDetailMap」连着 3 次放弃的续读：本地解开一次（零开页），后台按新办法再试一次 → 记成「网页版要验证」。
+    别的原因放弃的不动；解开过的不再解第二次。"""
+    legacy = "AdapterError: MCP get_feed_detail 报错: 获取Feed详情失败: feed x not found in noteDetailMap"
+    comment_fill.save_state("xiaohongshu", NOTE_ID, {"attempts": 3, "no_progress": 3, "stuck": True, "stuck_floors": 10,
+                                                     "stuck_reason": "这篇读不出来：" + legacy, "last_error": legacy})
+    problems.report(comment_fill.STEP, "PERMANENT.COMMENTS_INCOMPLETE", "评论续读连着 3 次没成", item_id=ITEM, action="gave_up")
+    assert comment_fill.survey()["stuck"], "迁移前：已放弃，后台不会再开"
+    assert restricted.release_legacy_fill_stuck() == [ITEM]
+    st = comment_fill.load_state("xiaohongshu", NOTE_ID)
+    assert not st.get("stuck") and st["no_progress"] == 0 and st.get("legacy_released")
+    assert _rows(comment_fill.STEP) == [], "那条「评论没补全」标已解决"
+    assert restricted.release_legacy_fill_stuck() == [], "幂等"
+    # 后台按新办法试一次：认出来、搜一次、记成「网页版要验证」
+    calls = []
+    monkeypatch.setattr(xhs, "fetch_detail", _restricted_fetch(calls))
+    _search(monkeypatch, {"found": False})
+    later = datetime.now().astimezone() + timedelta(hours=2)
+    monkeypatch.setattr(comment_fill, "_now", lambda: later)
+    monkeypatch.setattr(comment_fill, "account_wait_reason", lambda: ("", ""))
+    monkeypatch.setattr(accounts, "_gap_range", lambda env_name, default: (0.0, 0.0))
+    args = SimpleNamespace(until_done=False, budget_min=0, limit=0, verbose=False, wait_lock_min=0.01, then_background=False)
+    assert comment_fill.run(args, sleep=lambda s: None) == 0
+    capsys.readouterr()
+    assert len(calls) == 1 and restricted.is_restricted(NOTE_ID) and len(_rows()) == 1
+    # 别的原因放弃的不动
+    comment_fill.save_state("xiaohongshu", NOTE_ID, {"stuck": True, "stuck_floors": 10, "stuck_reason": "这楼当时没展开"})
+    assert restricted.release_legacy_fill_stuck() == []
+
+
 def test_search_hitting_account_trouble_stops_like_before(env, monkeypatch):
     calls = []
     monkeypatch.setattr(xhs, "fetch_detail", _restricted_fetch(calls))

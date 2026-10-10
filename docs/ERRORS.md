@@ -144,8 +144,8 @@
   之后后台补评论 / 附件补下 / 碰号的附件补查都跳过这篇。笔记页评论区顶上一行「这篇在小红书网页版要验证才能看」+「打开验证」，
   问题面板那一行也有「打开验证」：开读取服务的笔记验证窗口到这一篇，她过完验证关窗——看到过这篇就清掉标记、记下窗口里的新口令、
   续读计数清零、附件退避清掉、拉起后台补评论（同一篇照旧隔 45 分钟再开），附件今晚 4 点补；没看到就照实说「再点一次」。
-  号本身在熔断中时先走原来的熔断验证。
-- **回归用例**：`tests/test_restricted_1011.py::test_reader_text_is_note_restricted_not_account_trouble`、`tests/test_restricted_1011.py::test_fill_restricted_searches_once_then_opens_with_fresh_token`、`tests/test_restricted_1011.py::test_fill_restricted_not_found_is_one_quiet_item_and_is_skipped`、`tests/test_restricted_1011.py::test_fill_pending_run_does_not_loop_on_restricted`、`tests/test_restricted_1011.py::test_search_hitting_account_trouble_stops_like_before`、`tests/test_restricted_1011.py::test_attachment_restricted_no_triple_retry_and_skipped_after`、`tests/test_restricted_1011.py::test_note_verify_passed_requeues_capture`、`tests/test_restricted_1011.py::test_note_verify_not_passed_keeps_mark`、`tests/test_note_restricted_1011.cjs`；读取组件 `note_verify_test.go`、`xiaohongshu/note_restricted_test.go`、`xiaohongshu/note_restricted_localbrowser_test.go`。
+  号本身在熔断中时先走原来的熔断验证。以前因这句报错连着 3 次放弃了的续读（COMMENTS_INCOMPLETE），后台补评论开跑时本地解开一次（零开页），按新办法再试一次。
+- **回归用例**：`tests/test_restricted_1011.py::test_reader_text_is_note_restricted_not_account_trouble`、`tests/test_restricted_1011.py::test_fill_restricted_searches_once_then_opens_with_fresh_token`、`tests/test_restricted_1011.py::test_fill_restricted_not_found_is_one_quiet_item_and_is_skipped`、`tests/test_restricted_1011.py::test_fill_pending_run_does_not_loop_on_restricted`、`tests/test_restricted_1011.py::test_legacy_given_up_fill_is_released_once_then_classified`、`tests/test_restricted_1011.py::test_search_hitting_account_trouble_stops_like_before`、`tests/test_restricted_1011.py::test_attachment_restricted_no_triple_retry_and_skipped_after`、`tests/test_restricted_1011.py::test_note_verify_passed_requeues_capture`、`tests/test_restricted_1011.py::test_note_verify_not_passed_keeps_mark`、`tests/test_note_restricted_1011.cjs`；读取组件 `note_verify_test.go`、`xiaohongshu/note_restricted_test.go`、`xiaohongshu/note_restricted_localbrowser_test.go`。
 
 ---
 

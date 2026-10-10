@@ -883,7 +883,8 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
   图 / 视频 / 语音直接引用旧版本文件（`manifest.media[].file` 可以是 `raw/v0001/assets/…`，`manifest.reused` = 引用了几个）。
 - 对象级 `derived/comments-fill.json`（可变）：`attempts` 续读次数 · `last_at` 上次开页 · `last_mode` expand|floors · `last_missing` ·
   `no_progress` 连着没多拿到的次数 · `floors_done` 按这个楼数重读过、楼没变多 · `gone_floors[]` · `stuck` / `stuck_floors` / `stuck_at` /
-  `stuck_reason`（连着 3 次没进展：不再自动续，问题记录 `comments.fill` + `PERMANENT.COMMENTS_INCOMPLETE`）· `done_at` · `history[]`（最近 8 次）。
+  `stuck_reason`（连着 3 次没进展：不再自动续，问题记录 `comments.fill` + `PERMANENT.COMMENTS_INCOMPLETE`）· `done_at` · `history[]`（最近 8 次）·
+  `legacy_released`（1011：以前因「not found in noteDetailMap」放弃的，补评论开跑时本地解开过一次的时刻，见 restricted.release_legacy_fill_stuck）。
 - 对象级 `derived/restricted.json`（1011，可变；网页版要验证才给看的笔记，`link_brain/restricted.py`）：`restricted` 现在是不是标着 ·
   `since` / `last_at` / `count` · `via[]`（comments.fill / comments / attachments：哪一步撞见的）· `detail` · `title` ·
   `search {on: 日期, at, result: running|found|not_found|same_token|no_title|error, error?}`（用标题搜新口令；每篇每天最多一次，先记再搜）·

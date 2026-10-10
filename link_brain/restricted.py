@@ -269,6 +269,42 @@ def retry_with_fresh_token(source_id: str, *, title: str | None, old_token: str 
     return False, None
 
 
+LEGACY_HINT = "not found in noteDetailMap"   # 1011 以前读取组件对这类笔记的报错（当普通失败记进了续读状态）
+
+
+def release_legacy_fill_stuck() -> list[str]:
+    """一次性（幂等）的本地迁移，零开页：1011 以前，这类笔记的评论续读连着 3 次「not found in noteDetailMap」后被记成
+    「连着补不上」（COMMENTS_INCOMPLETE，已放弃），之后再也不会自动开它——新逻辑就永远轮不到认它、给它搜一次新口令。
+    这里把这种「已放弃」解开（没进展清零、问题标已解决），让后台补评论按原来的节奏再试**一次**：新读取组件会认出 NOTE_RESTRICTED，
+    走兜底（每天最多搜一次）、还不行就记成「网页版要验证」。只认续读状态里记着这句报错的，别的「已放弃」一概不动。返回解开了哪几篇。"""
+    from . import comment_fill, problems
+    out: list[str] = []
+    base = storage.archive_root() / SOURCE
+    for path in base.glob(f"*/derived/{comment_fill.STATE_NAME}"):
+        sid = path.parents[1].name
+        try:
+            st = storage.read_json(path)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(st, dict) or not st.get("stuck") or st.get("legacy_released"):
+            continue
+        if LEGACY_HINT not in f"{st.get('stuck_reason') or ''} {st.get('last_error') or ''}":
+            continue
+        for k in ("stuck", "stuck_floors", "stuck_at", "stuck_reason"):
+            st.pop(k, None)
+        st["no_progress"] = 0
+        st["legacy_released"] = _iso()
+        try:
+            comment_fill.save_state(SOURCE, sid, st)
+        except OSError:
+            continue
+        problems.resolve(comment_fill.STEP, f"xhs-{sid}")
+        out.append(f"xhs-{sid}")
+    if out:
+        print(f"[restricted] {len(out)} 篇以前因「页面上没有这篇」放弃了的评论续读，按新办法再试一次", file=sys.stderr)
+    return out
+
+
 # --------------------------------------------------------------------------
 # 她点「打开验证」之后
 # --------------------------------------------------------------------------

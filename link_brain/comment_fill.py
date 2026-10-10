@@ -611,6 +611,12 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
         msg = "后台补评论已经在跑，这次不重复开"
         dump_json(outcome({"candidates": None, "done": [], "failed": [], "already_running": True}, ok=True, message=msg))
         return 0
+    try:
+        # 1011：以前因「页面上没有这篇」放弃了的续读解开一次（本地，零开页），让新办法认它、给它搜一次新口令
+        from . import restricted
+        restricted.release_legacy_fill_stuck()
+    except Exception as exc:  # noqa: BLE001 - 迁移没成不挡补评论
+        print(f"[comments] 旧的「已放弃」没解开：{type(exc).__name__}: {exc}", file=sys.stderr)
     floors = floor_target()
     status = Status(floors, background=until_done)
     done: list[dict[str, Any]] = []
