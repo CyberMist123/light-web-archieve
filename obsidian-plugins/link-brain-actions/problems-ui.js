@@ -78,6 +78,9 @@ module.exports = function (obsidian, plugin) {
 
   // 这一行能直接修的按钮：[文字, 动作, cls]
   function fixesFor(r) {
+    // 1011：这篇在小红书网页版要验证才能看（已放弃组、不推送）——一个「打开验证」，开验证窗口到这一篇
+    if (subOf(r.code) === 'NOTE_RESTRICTED' && r.item_id && typeof plugin.openNoteVerify === 'function')
+      return [['打开验证', () => plugin.openNoteVerify(r.item_id)]];
     if (groupOf(r) !== 'needs_you') return [];
     const sub = subOf(r.code), out = [];
     if (LOGIN.has(sub)) out.push(['扫码登录', () => plugin.fixFromCatalog('login')]);
