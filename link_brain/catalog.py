@@ -337,6 +337,11 @@ def item_problems(obj_dir: Path, report: dict[str, Any], vision: dict[str, Any],
     mark = _load_json(obj_dir / "derived" / "web_recheck.json") or {}
     if isinstance(mark, dict) and mark.get("gone"):
         add("PERMANENT.NOTE_GONE", "原帖打不开（可能已删或仅作者可见），本地存档还在")
+    restricted = _load_json(obj_dir / "derived" / "restricted.json") or {}
+    if isinstance(restricted, dict) and restricted.get("restricted"):
+        # 1011：网页版要验证才能看（笔记页 / 问题面板点「打开验证」）
+        add("PERMANENT.NOTE_RESTRICTED", "这篇在小红书网页版要验证才能看：在笔记页点「打开验证」过一下，过完自动补抓评论 / 附件",
+            "gave_up")
     return list(out.values())
 
 

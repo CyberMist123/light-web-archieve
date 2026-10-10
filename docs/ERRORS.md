@@ -131,6 +131,22 @@
   楼数调大由插件自动拉起后台补跑。进度写 `_archive/comments-fill-status.json`，插件状态栏 / 设置页显示。
 - **回归用例**：`tests/test_comments_fill_1009.py::test_old_note_gap_inside_floor_setting_is_scheduled_and_filled`、`tests/test_comments_fill_1009.py::test_raise_floors_loads_more_and_lower_never_deletes`、`tests/test_comments_fill_1009.py::test_union_merge_keeps_replies_the_site_no_longer_shows`、`tests/test_comments_fill_1009.py::test_no_progress_three_times_goes_to_problem_panel_then_resolves`、`tests/test_comments_fill_1009.py::test_count_mismatch_and_missing_floor_are_settled_not_gaps`、`tests/test_comments_fill_1009.py::test_fill_reuses_downloaded_media_and_does_not_redownload`、`tests/test_comments_fill_1009.py::test_worker_waits_out_captcha_without_opening_pages_then_resumes`、`tests/test_comments_fill_1009.py::test_worker_yields_to_nightly_and_waiting_tasks`、`tests/test_comments_fill_1009.py::test_polite_session_lets_waiting_task_go_first`、`tests/test_comments_fill_1009.py::test_nightly_step_has_no_two_note_cap_and_hands_over_to_background`。
 
+### 16. 网页版要验证才给看的笔记：每晚补评论 / 附件 3 次「已放弃」，原因看不懂（10-10 / 10-11）
+- **用户看到**：问题面板里同几篇反复「评论没补全」「附件没下好」，原因是 `feed <id> not found in noteDetailMap` 这种看不懂的字；
+  她在浏览器里打开这些笔记是好的，「只是需要验证」。
+- **根因**（10-11 诊断）：616 篇里约 59 篇在网页版被限制——收藏列表里不出现（`fav-tokens.json` 没有它）、读取服务打开详情页时页面上没有这篇
+  （关键容器 8 秒不出现 → 评论 0 楼白滚 → 抽取找不到）；页面上没有看得见的验证（否则早按风控停了），读取组件当普通失败报，
+  Python 评论补齐 / 附件补下各自重试 3 次再「已放弃」，第二晚再来一遍。
+- **修法 / 自愈**：读取组件 1011 认出 `NOTE_RESTRICTED`（只是这一篇，不写熔断；号的事照旧按风控停，一点不放宽：看得见的验证 / 安全跳转写熔断，
+  页面上有登录框记 `NOT_LOGGED_IN`）。Python 见到它：今天没为这篇搜过就用标题搜一次（`POST /api/v1/notes/search-token`，按 id 认出这篇拿新口令），
+  歇 `LWA_FETCH_REST` 再用新口令开一次（开页前照旧 pace、拿着账号锁；每篇每天最多一次）；还不行就记进 `derived/restricted.json`、问题面板一条
+  `note.restricted` · `PERMANENT.NOTE_RESTRICTED`（一篇一条、不推送、不刷次数，不算评论「没进展」、不报「附件没下好」），
+  之后后台补评论 / 附件补下 / 碰号的附件补查都跳过这篇。笔记页评论区顶上一行「这篇在小红书网页版要验证才能看」+「打开验证」，
+  问题面板那一行也有「打开验证」：开读取服务的笔记验证窗口到这一篇，她过完验证关窗——看到过这篇就清掉标记、记下窗口里的新口令、
+  续读计数清零、附件退避清掉、拉起后台补评论（同一篇照旧隔 45 分钟再开），附件今晚 4 点补；没看到就照实说「再点一次」。
+  号本身在熔断中时先走原来的熔断验证。
+- **回归用例**：`tests/test_restricted_1011.py::test_reader_text_is_note_restricted_not_account_trouble`、`tests/test_restricted_1011.py::test_fill_restricted_searches_once_then_opens_with_fresh_token`、`tests/test_restricted_1011.py::test_fill_restricted_not_found_is_one_quiet_item_and_is_skipped`、`tests/test_restricted_1011.py::test_fill_pending_run_does_not_loop_on_restricted`、`tests/test_restricted_1011.py::test_search_hitting_account_trouble_stops_like_before`、`tests/test_restricted_1011.py::test_attachment_restricted_no_triple_retry_and_skipped_after`、`tests/test_restricted_1011.py::test_note_verify_passed_requeues_capture`、`tests/test_restricted_1011.py::test_note_verify_not_passed_keeps_mark`、`tests/test_note_restricted_1011.cjs`；读取组件 `note_verify_test.go`、`xiaohongshu/note_restricted_test.go`、`xiaohongshu/note_restricted_localbrowser_test.go`。
+
 ---
 
 ## 二、故障码对照（用户看到 → 常见根因 → 自愈动作）
@@ -174,6 +190,7 @@
 | `PERMANENT.CHECKSUM_MISMATCH` / `BAD_PACKAGE` / `DISK_FULL` | 组件校验不过 / 包不对 / 磁盘不够 | 只在安装命令结果里出现 | — | — | 设置 →「开始」重装；先腾空间 |
 | `SKIPPED.*` | 未配置 / 已关闭 / 额度到了 / 已退回普通方式 / 旧设置已换算 | 没开、没配 | — | — | 不是问题，不计数 |
 | `PERMANENT.COMMENTS_INCOMPLETE`（step `comments.fill`） | 评论没补全：设置楼数内的楼中楼还缺 N 条、原因、连着几次没多拿到 | 展开按钮点不动 / 被限频 / 评论区滚不动，连着 3 次续读都没多拿到 | 同一篇隔 45 分钟再续；没进展计数 | — 不自动（同一篇反复开页伤号） | 「再试一次」= 续读这篇一次（`comments <id> --fill`）；补齐了自动消；不想看可隐藏；见第 15 条 |
+| `PERMANENT.NOTE_RESTRICTED`（step `note.restricted`） | 网页版要验证（卡片角标 + 问题面板一条 + 笔记页一行，都带「打开验证」） | 小红书网页版限制了这一篇（她的浏览器里打开要验证），读取服务打开时页面上没有它；不是号的问题 | 今天没搜过就用标题搜一次新口令、歇一会儿再开一次 | — 不自动（要她亲手过验证） | 「打开验证」= 开验证窗口到这篇（`note-verify <id> --wait`），过了自动补抓评论 / 附件；可隐藏；见第 16 条 |
 | `PERMANENT.NOTE_DAMAGED`（step `render.check`） | 笔记页被改坏（两栏散了 / 正文没了），打开时就地提示一次 | 手改 md 删了受管标记 / 属性 / 批注块，或把两栏块换行拆开 | 打开时提示「恢复」，不弹窗不阻断 | 默认关（`LINK_BRAIN_AUTO_RESTORE=1` 才自动；24 小时没动才跑，失败不再自动） | ⋯ 菜单「恢复这篇」/「从快照找回…」；回归 `tests/test_note_damage_1009.py`、`tests/test_restore_1009.py`、`tests/test_note_tools_1009.cjs` |
 
 入档不被阻断（B2.4）：同步 / 导入时识图、概要、附件、转写都在入档之后单独做；渲染时识图或概要出意外只登记一条（`TRANSIENT.STEP_CRASHED`，正文已入档），笔记照写——`tests/test_self_heal_1004.py::test_render_survives_vision_crash`。

@@ -93,6 +93,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--progress", action="store_true",
                    help="手动抓一篇时 stdout 一行一个进度事件 JSON（等号 / 读评论区 / 下评论图 / 写进笔记），最后一行照旧是结果（插件笔记页画进度用）")
 
+    p = sub.add_parser("note-verify", help="1011：这篇在小红书网页版要验证才能看——开验证窗口到这篇，她过完验证关窗后自动补抓评论 / 附件")
+    p.add_argument("target", help="item_id（xhs-<note_id>）")
+    p.add_argument("--wait", action="store_true", help="等窗口关掉再如实回报结果（只轮询读取服务内存状态，不开页）")
+
     p = sub.add_parser("ingest", help="归档一个链接（URL / xhslink 短链 / 分享文本）")
     p.add_argument("target", help="链接或包含链接的分享文本")
     p.add_argument("--origin", choices=ORIGINS, default="cli", help="从哪个端进来的")
@@ -421,6 +425,9 @@ def _dispatch(args) -> int:
         if getattr(args, "refine_mark", None):
             return vision.run_refine_mark(args)
         return vision.run_upgrade(args)
+    if args.command == 'note-verify':
+        from . import restricted
+        return restricted.run_verify(args)
     if args.command == 'comments':
         from . import ingest
         if getattr(args, 'fill_pending', False) or getattr(args, 'fill_status', False):

@@ -393,6 +393,17 @@ def _gap_text(comment: dict[str, Any], missing: int, gap_reasons: dict[str, str]
 
 # 批次 D · N8 / N14：评论区里「现在抓全部评论」的入口（点击由插件 note-actions.js 接；body.lb-actions-on 时才显示）
 FETCH_COMMENTS_ACT = '<span class="lb-act lb-act-fetch-comments" role="button" tabindex="0">{label}</span>'
+# 1011：这篇在小红书网页版要验证才能看——「打开验证」开读取服务的验证窗口到这篇（点击由插件 note-actions.js 接）
+NOTE_VERIFY_ACT = '<span class="lb-act lb-act-note-verify" role="button" tabindex="0">打开验证</span>'
+
+
+def _restricted_note_html(view: dict[str, Any] | None) -> str:
+    """评论区顶上一行：「这篇在小红书网页版要验证才能看」+「打开验证」。没标着就不出。"""
+    r = (view or {}).get("restricted") if isinstance(view, dict) else None
+    if not r:
+        return ""
+    text = f"{r.get('text') or '这篇在小红书网页版要验证才能看'}：评论 / 附件先停在这里，点「打开验证」过一下，过完自动补抓"
+    return f'<div class="lb-comments-note lb-restricted-note">{_safe(text)}' + NOTE_VERIFY_ACT + "</div>"
 
 
 def _comments_note_html(capture: dict[str, Any] | None, comments: list[dict[str, Any]],
@@ -880,6 +891,7 @@ def _comments_html(
         _tag_html(note.get("hashtags") or []),
         _engagement_html(note),
         '<div class="lb-comments">',
+        _restricted_note_html(view),
         _comments_note_html(capture, comments, view),
     ]
     cl = (capture or {}).get("comment_load") or {}

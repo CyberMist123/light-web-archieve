@@ -66,6 +66,10 @@ SOLUTIONS = {
     'DOWNLOAD_TIMEOUT': ('error', '附件下载超时', '稍后重试；多次失败请在网页手动下载后挂载。', 'retry'),
     'TIMEOUT': ('unknown', '读取服务响应超时', '机器负载高时会发生：稍后点击「重试」。', 'retry'),
     'BUSY': ('unknown', '读取服务正忙', '正在抓别的笔记，做完自然恢复；不是掉登录，不用扫码。', 'retry'),
+    # 1011：只是这一篇（网页版要验证才给看），不是号出事——不停整批、不写熔断（link_brain/restricted.py）
+    'NOTE_RESTRICTED': ('error', '这篇在小红书网页版要验证才能看',
+                        '在这篇的笔记页（或问题面板）点「打开验证」，在弹出的窗口里过一下验证、看到笔记后关窗；过了会自动补抓评论 / 附件。',
+                        'verify_note'),
 }
 
 
@@ -182,7 +186,7 @@ def reader_env() -> dict:
 
 # 会让读取服务用号开页的接口：请求回来（成功失败都算）时把开页时刻戳挪到「这页看完」（见 pace_done）
 PAGE_ROUTES = ('/api/v1/favorites', '/api/v1/attachments/download', '/api/v1/notes/related-file',
-               '/api/v1/login/status')
+               '/api/v1/login/status', '/api/v1/notes/search-token')
 
 
 GUARD_FILE = 'account-guard.json'
@@ -857,6 +861,65 @@ def open_verify(*, wait: bool = False) -> dict:
     out.update(state=state, message=message, next_step=step, verify_result=result,
                action='login' if result == 'not_logged_in' else 'verify')
     return out
+
+
+def search_note_token(note_id: str, keyword: str) -> dict:
+    """1011：用标题搜一次（读取服务开一页搜索结果），按笔记 id 认出这篇、拿新的 xsec_token → {found, xsec_token, count}。
+    节奏（每篇每天一次、开页间隔、账号锁）由调用方管（restricted.find_fresh_token）。会开页：走 PAGE_ROUTES 的 pace_done。"""
+    ensure_reader()
+    return api('POST', '/api/v1/notes/search-token', timeout=150, body={'note_id': note_id, 'keyword': keyword})
+
+
+VERIFY_NOTE_RESULT_TEXT = {
+    # /login/session 的 verify_result（笔记验证窗口，读取组件 1011）→ (过了没, 给她的一句话)
+    'note_ok': (True, '过了，这篇能打开了'),
+    'note_not_seen': (False, '窗口里一直没看到这篇打开（还要验证，或没过完就关了）：可以再点一次「打开验证」'),
+    'still_risk': (False, '关窗时页面上还有验证：号的验证暂停已经打开，点问题入口「打开验证」把它过完'),
+    'not_logged_in': (False, '窗口里是没登录的样子：点「扫码登录」用收藏所在的号重新登录'),
+    'not_read': (False, '窗口里没读到页面：再点一次「打开验证」'),
+    'window_failed': (False, '验证窗口没打开成功（读取服务正忙）：稍后再点一次「打开验证」'),
+}
+
+
+def open_note_verify(note_id: str, token: str = '', *, wait: bool = True) -> dict:
+    """1011：「打开验证」（这一篇）：先只读看一眼有没有熔断——号本身要验证就先走原来的熔断验证（号的事更要紧）；
+    没有熔断就开笔记验证窗口（读取组件开有界面的浏览器到这篇），wait=True 时只轮询 /login/session（内存，不开页、不拿锁）
+    等窗口关掉，再按 verify_result / verify_note 如实回报。返回 {mode, result, ok, token, message}。"""
+    session = ensure_reader()
+    if hold_from_session(session):
+        out = open_verify(wait=wait)
+        return {'mode': 'hold', 'result': str(out.get('verify_result') or ''), 'ok': False, 'token': '',
+                'message': '号本身要先过验证：' + ' '.join(x for x in (out.get('message'), out.get('next_step')) if x),
+                'row': out}
+    opened = api('POST', '/api/v1/verify/window', timeout=20, body={'note_id': note_id, 'xsec_token': token or ''})
+    mode = str((opened or {}).get('mode') or '') if isinstance(opened, dict) else ''
+    if mode != 'note':
+        # 旧读取组件不认笔记验证窗口（没有熔断时只回 no_hold、不开窗）
+        return {'mode': mode or 'unsupported', 'result': str((opened or {}).get('result') or ''), 'ok': False, 'token': '',
+                'message': '读取组件还是旧版，开不了这一篇的验证窗口：更新读取组件后再点'}
+    if not wait:
+        return {'mode': 'note', 'result': 'opened', 'ok': False, 'token': '', 'message': '验证窗口已打开：过完验证、看到笔记后关掉窗口'}
+    deadline = time.monotonic() + VERIFY_WAIT_SECONDS
+    s = session
+    while time.monotonic() < deadline:
+        time.sleep(VERIFY_POLL_SECONDS)
+        try:
+            s = api('GET', '/api/v1/login/session', timeout=10)
+        except ReaderError:
+            continue
+        if not s.get('verifying'):
+            break
+    pace_done()  # 窗口开过这一篇：之后的开页间隔从这里算起
+    result = str(s.get('verify_result') or '')
+    note = s.get('verify_note') if isinstance(s.get('verify_note'), dict) else {}
+    if note and str(note.get('note_id') or '') != note_id:
+        result = 'not_read'  # 不是这一次的窗口（被别的窗口顶掉了）：不认
+    ok_flag, text = VERIFY_NOTE_RESULT_TEXT.get(result, (False, '验证窗口关了，这篇还没打开：可以再点一次「打开验证」'))
+    ok = bool(ok_flag and note.get('ok'))
+    hold = hold_from_session(s)
+    if hold:  # 关窗时页面上还要验证 / 是游客：读取组件已按风控写了熔断（号的事），目录页的「!」跟着亮
+        _note_account(str(hold.get('code') or 'RISK_HOLD'), f'{hold_text(hold)}：笔记验证窗口')
+    return {'mode': 'note', 'result': result, 'ok': ok, 'token': str(note.get('token') or '') if ok else '', 'message': text}
 
 
 def clear_hold(*, by_owner: bool) -> dict:

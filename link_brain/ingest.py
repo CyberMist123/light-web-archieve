@@ -874,8 +874,30 @@ def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = Fa
         return out
     if not target.startswith("http"):
         # 1009：手动「现在抓全部评论」也并集合并（调小楼数 / 原帖删了评论都不丢已存的）
-        summary = ingest_url(url, refresh=True, comment_floors=floors, verbose=verbose, fill=True,
-                             fill_budget_s=None, progress=progress)
+        from . import restricted
+        sid = row["source_id"]
+
+        def attempt(token: str) -> dict[str, Any]:
+            return ingest_url(f"https://www.xiaohongshu.com/explore/{sid}?xsec_token={token}", refresh=True,
+                              comment_floors=floors, verbose=verbose, fill=True, fill_budget_s=None, progress=progress)
+
+        old_token = restricted.best_token(sid, note.get("xsec_token") or "")
+        try:
+            summary = attempt(old_token)
+        except xhs.NoteRestrictedError as exc:
+            # 1011：这篇在网页版要验证才能看：今天没搜过就用标题搜一次新口令、歇一会儿再开一次；还不行就如实说、给「打开验证」
+            opened, summary = restricted.retry_with_fresh_token(
+                sid, title=note.get("title"), old_token=old_token, attempt=attempt,
+                restricted_exc=(xhs.NoteRestrictedError,), item_id=row["item_id"], via="comments", detail=str(exc)[:200],
+                progress=progress)
+            if not opened:
+                try:
+                    catch_mod._ensure_rendered(xhs.SOURCE, sid, force=True, extract=False)
+                except Exception as rexc:  # noqa: BLE001 - 笔记页那一行下次渲染会跟上
+                    print(f"[comments] 重渲染没成：{type(rexc).__name__}: {rexc}", file=sys.stderr)
+                raise xhs.NoteRestrictedError(restricted.TEXT) from exc
+        else:
+            restricted.clear(sid, item_id=row["item_id"], why="手动抓评论打开了这篇")
         state = comment_fill.load_state(row["source"], row["source_id"])
         _, source2 = comment_fill.current_source(row["source"], row["source_id"])
         sc = comment_fill.scope(source2, comment_fill.floor_target(), state)
@@ -972,9 +994,20 @@ def run_comments(args) -> int:
         print(f"评论抓取中止（账号或服务要处理）: {exc}", file=sys.stderr)
         dump_json({'ok': False, 'code': 'NEEDS_HUMAN', 'message': f'评论没抓：{exc}'})
         return EXIT_NEEDS_HUMAN
+    except xhs.NoteRestrictedError as exc:
+        # 1011：只是这一篇（网页版要验证才能看）：笔记页评论区顶上已经有「打开验证」
+        print(f"评论没抓：{exc}", file=sys.stderr)
+        dump_json({'ok': False, 'code': 'NOTE_RESTRICTED', 'item_id': args.target,
+                   'message': '评论没抓：这篇在小红书网页版要验证才能看——点评论区顶上的「打开验证」过一下，过完自动补抓'})
+        return EXIT_ERROR
     except (xhs.AdapterError, FileNotFoundError) as exc:
         print(f"评论抓取失败: {exc}", file=sys.stderr)
         dump_json({'ok': False, 'code': '', 'message': f'评论没抓：{exc}'})
+        return EXIT_ERROR
+    if summary.get("restricted"):
+        # 1011：续读（--fill，问题面板「再试一次」）撞到网页版限制：如实说，不说「评论已更新」
+        dump_json({'ok': False, 'code': 'NOTE_RESTRICTED', 'item_id': summary.get('item_id') or args.target,
+                   'message': '评论没抓：这篇在小红书网页版要验证才能看——点评论区顶上的「打开验证」过一下，过完自动补抓'})
         return EXIT_ERROR
     out = {k: summary.get(k) for k in ("item_id", "note_id", "comments", "sub_comments", "comments_complete", "version",
                                        "refreshed_unchanged", "filled", "reason") if k in summary}
