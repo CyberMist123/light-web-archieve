@@ -954,3 +954,58 @@ MCP（`mcp_tools.py`，本机 stdio 与远程同一份，只读）：`index`（�
 `path` = 节点 → `{path, tags, wiki, children: [{path, count}], count, offset, next_offset, items: [{id, title, date, summary}]}`；`path='unclassified'` / `未归类` = 未归类）·
 `wiki`（无参数 = `pages`；`path` = 全文分页 `{path, exists, file, based, new_since, generated_at, total_chars, offset, next_offset, text}`）·
 `guide`（`docs/deep-report.md` 全文）。`index` / `wiki` 要收藏库开放给这个客户端（`@xhs`），`guide` 不限。
+
+
+## 2026-10-11 索引树按内容归类（`link_brain/indexai.py`）+ 解析器认她的真写法
+
+**写法加的几条**（`indextree.parse`，旧写法全部照旧）：
+- 括号（`（）` `()` `【】` `［］`，`【wiki】` 除外）里的话 = 节点的**说明**（`desc`），给 AI 归类看、页面上显示；不参与「、」「，」拆节点，里面的冒号也不算写法。
+- 整行只有括号（`（其他主题）`）或 `...` `…` `等` = **占位**：上一级节点 `open=true`（允许 AI 在它下面按内容建子类，第 3 级的不算）。
+- **说明行**不是节点，进 `comments: [{line, text}]`：冒号前是「需求 / 说明 / 备注 / 注 / 注意 / 要求 / 规则 / 写法 / 提示 / ps / note / todo…」；
+  有句号 / 问号 / 叹号；超过 40 个字；冒号后面（或没冒号的整行按 `,，、;；` 拆开）有一段 ≥5 字、含中文、带「可以 / 最多 / 不属于 / 放这 / 指向 / 如果 / 需要…」这类词；
+  树写完以后（主树 = 节点行最多的那一块，按空行分块）比第一级还靠左的零散行。
+- **最多 3 级**：第 4 级往下的名字（和标签）并进第 3 级当关键词（`hints`，规则匹配和 AI 都用），warnings 里说一句。
+- 新建第一级节点插在**最后一个大类整棵子树的后面**（不再追加到文件尾，免得插到她末尾的说明下面）。
+
+**归类三层**（`classify(parsed, items, ai=, overrides=)`，后面的压过前面的）：①她写了标签的节点按标签收（永远算）；只写名字的按名字找标签 / 标题——
+**只对还没有 AI 结果的篇**；②AI 按内容（`index-ai.json` 的缓存）；③她手动改的（`index-overrides.json`）。
+
+```jsonc
+// _archive/index-ai.json（indexai 写；锁 index-ai）
+{"version": 2, "model": "deepseek-v4-flash",
+ "known": {"美食/菜谱": "<节点签名：路径 + 说明 + hints + 标签 + open>"},          // 所有已判过的篇都对这些节点判过
+ "items": {"xhs-…": {"sig": "<标题 + 标签 + 概要的签名>", "paths": ["美食/菜谱"], "at": "…"}},   // paths 空 = 放不进；tries / gave_up = 模型连漏两次
+ "splits": {"游戏/游戏": {"sig": "…", "n": 26, "groups": [{"name": "空洞骑士", "items": ["xhs-…"]}], "at": "…"}},  // 直接挂着 ≥6 篇的节点细分
+ "leftover": {"hash": "<未归类集合>", "groups": [{"name": "澳洲超市好物", "parent": "", "items": ["xhs-…"]}], "at": "…"},
+ "spent": {"calls": 46, "tokens_in": 131022, "tokens_out": 18208, "yuan": 0.41}, "runs": [/* 最近 20 次 */],
+ "blocked": {"why": "…超过自动上限 ¥3"} | 无, "last_error": {"code", "error", "at"} | 无}
+// _archive/index-overrides.json（她手动改的；锁 index-overrides）
+{"version": 1, "items": {"xhs-…": {"only": ["AI/ai功能/游戏"]} | {"add": [...], "remove": [...]}},
+ "keep_empty": ["工程/工程管理"], "dismissed": ["<建议 id>"], "history": [{"id": "<撤销号>", "prev": {...}}]}
+```
+- 不重复花钱：笔记签名没变、节点签名没变就不再问。新笔记 / 内容变了的整篇重判；新加 / 改了说明的节点只问「这批笔记里哪些属于它」（60 篇一批）；
+  删掉的节点从缓存里拿掉，拿光了的那篇整篇重判；节点直接挂的篇数比上次细分时多了 3 篇以上才重新细分；未归类集合变了才重新分组。
+- 细分（`split`）：第 1–2 级、名字不是「综合 / 其他」的节点，直接挂着 ≥6 篇 → 问有没有 ≥3 篇的具体主题；`open` 的节点 → 直接挂成 **virtual** 子类
+  （最多 6 个，节点行 `virtual: true, proposal: <id>, line: 0`，篇目从父节点挪进来；她「保留」才写进 索引.md），别的节点 →「建议新增」。
+- 放不进的（`leftover`）：一起分组起名、写清放在树的哪里（位置对不上树就放第一级）。
+- 模型输出不可信：路径必须对得上树里的节点（整条路径 / 唯一末级名字），每篇最多 3 个，名字清洗，层级不超过 3，「其他 / 综合」不建。
+- 用哪个模型（`indexai.classifier_ai`）：问收藏的文本 AI，没 key 再用归档摘要模型（10-11 真库对照：千问 flash 关思考常把菜谱归进「家居好物」，质量第一）。
+
+`index-data.json` 加的键：
+```jsonc
+{"nodes": [{"…": "…", "desc": "不属于ai记忆、人格的放这里", "hints": ["血源", "黑魂"], "open": true, "virtual": true, "proposal": "<id>", "keep_empty": true}],
+ "assign": {"xhs-…": ["美食/菜谱"]},                     // 每篇直接在哪些节点（不含祖先），页面「移到…」用
+ "proposals": [{"id", "name", "parent": "游戏/游戏" | "", "kind": "split|leftover", "count", "loose": 0, "items": [...], "examples": [标题]}],
+ "classify": {"ai_ok", "why", "model", "done", "total", "pending": 3, "work": 3, "yuan": 0.02, "spent": {...}, "last_run": {...},
+              "running": {"at", "done", "total", "phase"} | 无, "blocked": {...} | 无, "error": {...} | 无},
+ "comments": [{"line": 9, "text": "需求：最多3级分类…"}], "ai_stamp": "…", "overrides": 2}
+```
+- 后台：`index build`（插件监听 索引.md 保存）和 `catalog build` 发现 `classify.work > 0`、配了模型、没在跑、估价 ≤ ¥3 → 拉起 `index classify --auto`
+  （单实例，等 索引.md 20 秒没再保存才开跑，跑的时候每 4 批重算一次 index-data 让页面看到进度）。超过上限 = 不跑，页面显示原因和「按内容归类」按钮。
+
+CLI（`read.outcome` 形状；退出码 0 成功 / 1 失败 / 2 参数不对或没配模型）：
+`index classify [--auto] [--estimate] [--progress] [--max-yuan X]` → `{full, nodes, splits, leftover, unclassified, usage: {model, calls, tokens_in, tokens_out, yuan}}`
+（`--estimate` 不调模型 → `{calls, tokens_in, tokens_out, yuan, pending, work, full, changed, splits, model, ai_ok, why}`；`--progress` stdout 一行一个 `{"type":"progress","done","total","text"}`）·
+`index assign --op move|add|remove|reset|undo --path P --item X [--item Y]` → `{undo, unclassified}`（move = 只放这一类；undo 时 `--path` 是撤销号）·
+`index accept --id <建议 / virtual 的 id>` → `{path, line, unclassified}`（写进 索引.md：原子写、备份 reason `accept`；这几篇直接归进新节点，新节点记成已判过，不再花钱）·
+`index empty --path P --remove|--keep`（删只删 0 篇的节点那几行，备份 reason `remove`）· `index dismiss --id X`。
