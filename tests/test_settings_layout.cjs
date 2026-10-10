@@ -404,5 +404,57 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     assert.equal(st({ freq: 'none' }), '当前：没有计划任务');
   }
 
+  // —— 9. 10-10 她的 data.json 事故（凌晨问答 / 识图的密钥引用被删、地址被换成价格表里的通用地址）——
+  // 规矩：没有她明确操作，永不删密钥引用字段（apiKey / keyFile / keyField / apiKeyEnv）、不改已经填好的地址。
+  // 照她的配置（问答 DeepSeek + 密钥文件；概要 / 识图 走阿里云专属地址 + 环境变量 / 密钥文件）走一遍首次加载 → 概览 → AI → 拨无关开关 → 高级 → 回 AI；
+  // 页面上要是出现「填上它的地址和模型」就照她那样点下去（确认也点「换」），最后三段 AI 设置和每一次写进 data.json 的都得一字不差。
+  {
+    const DEDICATED = 'https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions';
+    const HERS = {
+      textAI: { mode: 'http', endpoint: 'https://api.deepseek.com/chat/completions', model: 'deepseek-v4-flash', apiKey: '', keyFile: 'C:/keys/llm.json', keyField: 'deepseek', maxTokens: 1200 },
+      summaryAI: { mode: 'http', endpoint: DEDICATED, model: 'qwen3.7-flash', apiKey: '', apiKeyEnv: 'DASHSCOPE_API_KEY', keyFile: 'C:/keys/llm.json', keyField: 'qwen', requireKey: true },
+      visionAI: { mode: 'http', endpoint: DEDICATED, model: 'qwen3.8-flash', refineModel: 'qwen3.8-max', apiKey: '', apiKeyEnv: 'DASHSCOPE_API_KEY', keyFile: 'C:/keys/llm.json', keyField: 'qwen', requireKey: true, videoScreenText: true },
+      setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'ai_text', 'ai_vision'], aiSynced: true },
+    };
+    // setup estimate 按她配的模型算价（configured），地址给的是价格表里这家的通用地址
+    const EST = { ok: true, items: [
+      { id: 'summary', name: '概要 + 打标', provider: '通义千问', model: 'qwen3.7-flash', api_model: 'qwen3.7-flash', configured: true, yuan: 0.3, per: '100 篇', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', key_url: 'https://bailian.console.aliyun.com/' },
+      { id: 'vision', name: '识图', provider: '通义千问', model: 'qwen3.8-flash', api_model: 'qwen3.8-flash', configured: true, yuan: 1.2, per: '100 篇', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions' },
+      { id: 'ask', name: '问答（每问一次）', provider: 'DeepSeek', model: 'deepseek-flash', api_model: 'deepseek-v4-flash', configured: true, yuan: 0.004, per: '次', endpoint: 'https://api.deepseek.com/chat/completions' }],
+      prices: { as_of: '2026-10-03' } };
+    const AI = ['textAI', 'summaryAI', 'visionAI'];
+    const e3 = makePlugin(JSON.parse(JSON.stringify(HERS)), { '_archive/catalog-data.json': '{"items":[]}' });
+    const orig = JSON.stringify(AI.map(k => e3.p.settings[k]));
+    const realRun = e3.p.runPy;
+    e3.p.runPy = async (args, o) => (args.join(' ').includes('setup estimate') ? { code: 0, json: EST, err: '' } : realRun(args, o));
+    e3.p.confirm = async () => true;                                   // 她要是点了，确认也点「换」
+    assert.equal(await e3.p.homeUI().firstRun(), 'existing-library', '老库首次加载只记一笔');
+    let t3 = openPage(e3.p, 'overview'); await settle(); t3.hide();
+    t3 = openPage(e3.p, 'ai'); await settle();
+    const clickFills = async () => { let n = 0; for (const b of t3.containerEl.querySelectorAll('button').filter(x => /^填上它的地址和模型/.test(x.textContent))) { n++; await b.onclick(); await settle(); } return n; };
+    let offered = await clickFills();
+    const featOf = id => t3.containerEl.querySelector(`.lb-feat[data-id="${id}"]`);
+    const flip3 = async (id, on) => { const cb = featOf(id).querySelector('.checkbox-container'); cb.checked = on; await cb.onchange(); await settle(); };
+    await flip3('ocr', false); await flip3('ocr', true); await flip3('ai_vision', true);
+    t3.hide(); t3 = openPage(e3.p, 'advanced'); await settle(); t3.hide();
+    t3 = openPage(e3.p, 'ai'); await settle();
+    offered += await clickFills();
+    t3.hide();
+    assert.equal(JSON.stringify(AI.map(k => e3.p.settings[k])), orig, '问答 / 概要 / 识图的设置被改了（密钥引用字段被删、或地址被换）');
+    for (const sv of e3.saves) assert.equal(JSON.stringify(AI.map(k => sv[k])), orig, '写进 data.json 的 AI 设置被改了');
+    assert.ok(e3.saves.length > 0, '这一路确实存过（首次加载 / 拨开关）');
+    assert.equal(offered, 0, '已经填好地址的，不该再给「填上它的地址和模型」');
+    // 只有空着的才给填：填地址和模型，原来的密钥引用（环境变量名）一个不删
+    const e4 = makePlugin({ textAI: { mode: 'http', endpoint: '', model: '', apiKeyEnv: 'MY_LLM_KEY' }, setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'ai_text'], aiSynced: true } });
+    const t4 = openPage(e4.p, 'ai'); await settle();
+    const fill = t4.containerEl.querySelectorAll('button').find(b => /^填上它的地址和模型/.test(b.textContent));
+    assert.ok(fill, '地址空着：给「填上它的地址和模型」');
+    await fill.onclick(); await settle();
+    assert.equal(e4.p.settings.textAI.endpoint, 'https://api.deepseek.com/chat/completions');
+    assert.equal(e4.p.settings.textAI.model, 'x');
+    assert.equal(e4.p.settings.textAI.apiKeyEnv, 'MY_LLM_KEY', '填推荐值把原来的密钥引用删了');
+    t4.hide();
+  }
+
   console.log('PASS settings page (1010): tabs 概览 · 收藏与同步 · AI · 连接其他 AI · 高级 (one drawn at a time, remembered per session, old open-page names mapped), ≤1 primary per tab, AI toggles drive setup.selected + runtime with deps and sub-options only under an enabled parent, prices + key guide, nothing lost vs pre-1009 inventory (renamed / merged) and no duplicates, one-line descriptions, failed saves revert, sync / fill / problem rows live-watched + unhooked on redraw / tab switch / hide');
 })().catch(e => { console.error(e); process.exitCode = 1; });

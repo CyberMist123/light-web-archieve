@@ -473,8 +473,13 @@ module.exports = function homeUI(obsidian, plugin) {
       const est = S().estimate;
       if (!est) { keys.createEl('p', { cls: 'setting-item-description lb-loading', text: '正在按你的收藏估价' }); return; }
       if (est.error) { failBox(keys, '价格', new Error(est.error), () => { S().estimate = null; paintKeys(); loadEstimate(true).then(() => alive && repaint()); }); return; }
+      // 10-10 她的 data.json 事故：旧版这里对已经配好的也给「用 X 的接口」按钮，点了就把地址换成价格表里的通用地址、
+      // 换服务商时还删掉 keyFile / apiKeyEnv 这些密钥引用；「概要」那一项还错配到了问收藏（textAI）上。
+      // 规矩：没有她明确操作，永不删密钥引用字段、不改已经填好的地址。所以「填上它的地址和模型」只在那一格还空着时出现，
+      // 只填空白、一个字段都不删；概要有自己的设置（高级里「写概要用的模型」不是「和问收藏一样」）时不往问收藏上填。
       const want = [];
-      if (ids.has('ai_text')) want.push(['summary', '概要和打标签', 'textAI'], ['ask', '问收藏', 'textAI']);
+      const sumMode = (plugin.settings.summaryAI || {}).mode;
+      if (ids.has('ai_text')) want.push(['summary', '概要和打标签', !sumMode || sumMode === 'inherit' ? 'textAI' : null], ['ask', '问收藏', 'textAI']);
       if (ids.has('ai_vision')) want.push(['vision', '识图', 'visionAI']);
       const byProvider = new Map();
       for (const [key, label, cap] of want) {
@@ -484,7 +489,7 @@ module.exports = function homeUI(obsidian, plugin) {
         g.uses.push(label);
         const v = num(it.yuan);
         if (v != null) g.prices.push(`${label} 约 ${yuan(v)} / ${it.per === '次' ? '次' : (it.per || '100 篇')}`);
-        if (it.endpoint && it.openai_compatible !== false && !g.caps.has(cap)) g.caps.set(cap, { endpoint: it.endpoint, model: it.api_model || it.model });
+        if (cap && it.endpoint && it.openai_compatible !== false && !g.caps.has(cap)) g.caps.set(cap, { endpoint: it.endpoint, model: it.api_model || it.model });
         byProvider.set(it.provider, g);
       }
       for (const g of byProvider.values()) {
@@ -494,24 +499,23 @@ module.exports = function homeUI(obsidian, plugin) {
         if (g.key_url) linkButton(row, '去拿密钥', () => openUrl(g.key_url), '打开 ' + g.provider + ' 官网的密钥页面：注册 / 登录后新建一个，复制回来填到下面');
         for (const [cap, sugg] of g.caps) {
           const cur = plugin.settings[cap] || {};
-          if (cur.endpoint === sugg.endpoint && cur.model === sugg.model) continue;
+          const blank = v => !String(v || '').trim();
+          // 只给还没填地址的那一格（模型也空着，或者就是这一个）：已经填好的地址一律不提供「换」，要换她自己改下面那几格
+          if (!blank(cur.endpoint) || !(blank(cur.model) || cur.model === sugg.model)) continue;
           linkButton(row, `填上它的地址和模型（${cap === 'visionAI' ? '识图' : '问收藏 · 概要'}）`, async () => {
-            const previous = JSON.parse(JSON.stringify(cur));
-            const host = v => { try { return new URL(v).hostname; } catch { return ''; } };
-            const switching = !!previous.endpoint && host(previous.endpoint) !== host(sugg.endpoint);
+            const target = plugin.settings[cap] || (plugin.settings[cap] = {});
+            if (!blank(target.endpoint)) { paintAll(); return; }          // 点之前已经填上了：什么都不改
+            const previous = JSON.parse(JSON.stringify(target));
             // 现在用的是本机命令行（Codex / Claude Code，不花钱）：换成接口就按用量付费——先说清再换（1010 审查）
-            const fromCli = previous.mode === 'cli';
-            if ((fromCli || (previous.endpoint && previous.endpoint !== sugg.endpoint)) && !await plugin.confirm({ title: `换成 ${g.provider} 的地址和模型？`,
-              body: fromCli ? `现在用的是本机命令行（不花钱）；换成 ${g.provider} 的接口以后按用量付费，还要填这家的密钥。`
-                : '现在填的地址和模型会被换掉' + (switching ? '；换了服务商，密钥要重新填这家的。' : '。'), ok: '换', danger: false })) return;
-            const next = { ...previous, mode: 'http', endpoint: sugg.endpoint, model: sugg.model };
-            if (switching) for (const k of ['apiKey', 'keyFile', 'keyField', 'apiKeyEnv']) delete next[k];
-            plugin.settings[cap] = next;
+            if (previous.mode === 'cli' && !await plugin.confirm({ title: `换成 ${g.provider} 的接口？`,
+              body: `现在用的是本机命令行（不花钱）；换成 ${g.provider} 的接口以后按用量付费，还要填这家的密钥。`, ok: '换', danger: false })) return;
+            // 只填这几样空白；密钥引用（apiKey / keyFile / keyField / apiKeyEnv）和别的字段一个不动、一个不删
+            Object.assign(target, { mode: 'http', endpoint: sugg.endpoint }, blank(target.model) ? { model: sugg.model } : {});
             try { await plugin.saveSettings(); }
-            catch (e) { plugin.settings[cap] = previous; plugin.notify('没保存上，原来的设置没动：' + errText(e), { kind: 'error' }); return; }
+            catch (e) { for (const k of Object.keys(target)) delete target[k]; Object.assign(target, previous); plugin.notify('没保存上，原来的设置没动：' + errText(e), { kind: 'error' }); return; }
             plugin.notify(`已填上 ${g.provider} 的地址和模型：再把这家的密钥填进下面「密钥」那一格`, { ms: 8000 });
             paintAll();
-          }, '把这家的接口地址和推荐模型填进下面那几格');
+          }, '把这家的接口地址和推荐模型填进下面空着的那几格（只填空白，不动密钥）');
         }
       }
       const asOf = est.data.prices && est.data.prices.as_of;
