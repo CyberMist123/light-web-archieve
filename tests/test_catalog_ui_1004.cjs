@@ -141,20 +141,38 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
   timeTab().onclick(ev); pick('最近导入').onclick(ev);
   assert.deepEqual(ids(), ['today', 'd3', 'd20', 'old']);
   assert.equal(timeTab().textContent, '最近导入');
-  timeTab().onclick(ev); pick('近 7 天').onclick(ev);
+  // 1011 紧凑版：排序一行分段、时间一行小块（全部 / 今天 / 7 天 / 30 天 / 自定义），选中的 is-on + aria-checked
+  timeTab().onclick(ev);
+  const tm = () => dom.document.body.querySelector('.lbc-time-menu');
+  assert.deepEqual(tm().querySelectorAll('.lbc-seg-btn').map(b => b.textContent), ['默认', '最近导入']);
+  assert.deepEqual(tm().querySelectorAll('.lbc-chip').map(b => b.textContent), ['全部', '今天', '7 天', '30 天', '自定义']);
+  assert.deepEqual(tm().querySelectorAll('.lbc-menu-item.is-on').map(b => b.textContent), ['最近导入', '全部']);
+  assert.equal(tm().querySelectorAll('.lbc-chip').find(b => b.textContent === '全部').getAttribute('aria-checked'), 'true');
+  assert.equal(tm().querySelector('.lbc-range').hidden, true, '没选自定义时不露起止');
+  pick('7 天').onclick(ev);
   assert.deepEqual(ids(), ['today', 'd3']);
   assert.equal(timeTab().textContent, '近 7 天 · 最近导入');
   assert.ok(timeTab().classList.contains('is-active'));
   timeTab().onclick(ev); pick('今天').onclick(ev); assert.deepEqual(ids(), ['today']);
-  timeTab().onclick(ev); pick('近 30 天').onclick(ev); assert.deepEqual(ids(), ['today', 'd3', 'd20']);
-  // 自定义起止（起止写反了也认）
+  timeTab().onclick(ev); pick('30 天').onclick(ev); assert.deepEqual(ids(), ['today', 'd3', 'd20']);
+  // 自定义起止（起止写反了也认）：点「自定义」只展开起止、菜单不关、筛选不变；点「筛选」才生效
   timeTab().onclick(ev);
   const range = dom.document.body.querySelector('.lbc-range');
+  assert.equal(range.hidden, true);
+  pick('自定义').onclick(ev);
+  assert.ok(tm(), '点自定义菜单不关');
+  assert.equal(range.hidden, false, '点自定义露出起止');
+  assert.deepEqual(tm().querySelectorAll('.lbc-chip.is-on').map(b => b.textContent), ['自定义']);
+  assert.deepEqual(ids(), ['today', 'd3', 'd20'], '还没点筛选：结果不变');
   const [from, to] = range.querySelectorAll('input');
   from.value = ymd(new Date(now - 2 * DAY)); to.value = ymd(new Date(now - 25 * DAY));
   range.querySelector('button').onclick(ev);
   assert.deepEqual(ids(), ['d3', 'd20']);
   assert.ok(/^\d\d-\d\d~\d\d-\d\d · 最近导入$/.test(timeTab().textContent));
+  timeTab().onclick(ev);
+  assert.equal(tm().querySelector('.lbc-range').hidden, false, '已是自定义：再打开直接露起止');
+  assert.deepEqual(tm().querySelectorAll('.lbc-chip.is-on').map(b => b.textContent), ['自定义']);
+  tm().__lbcClose();
   // 换页回来还在
   await open(true);
   assert.deepEqual(ids(), ['d3', 'd20']);

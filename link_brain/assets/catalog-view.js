@@ -138,8 +138,25 @@ const CSS = `
 .lbc-menu .lbc-menu-item.is-on{color:var(--interactive-accent);font-weight:500;}
 .lbc-menu .lbc-menu-sep{height:1px;margin:4px 6px;background:var(--background-modifier-border);}
 .lbc-menu .lbc-range{display:flex;align-items:center;gap:6px;padding:4px 10px 8px;font-size:12px;color:var(--text-muted);}
+.lbc-menu .lbc-range[hidden]{display:none!important;}
 .lbc-menu .lbc-range input{height:26px;font-size:12px;padding:0 4px;}
 .lbc-menu .lbc-range button{height:26px;padding:0 10px;font-size:12px;}
+/* 1011 时间菜单紧凑版：左边一列小标签，右边一行分段 / 一行小块；选中用强调色填满（亮 / 暗主题都跟 Obsidian 变量走） */
+.lbc-menu.lbc-time-menu{padding:8px 10px;min-width:0;max-width:min(380px,calc(100vw - 16px));box-sizing:border-box;}
+.lbc-time-menu .lbc-tm-row{display:flex;align-items:flex-start;gap:10px;padding:3px 0;}
+.lbc-time-menu .lbc-tm-label{flex:0 0 auto;width:2.6em;line-height:26px;font-size:12px;color:var(--text-muted);}
+.lbc-time-menu .lbc-seg{display:inline-flex;padding:2px;gap:2px;border-radius:8px;background:var(--background-modifier-hover);}
+.lbc-time-menu .lbc-chips{display:flex;flex-wrap:wrap;gap:6px;min-width:0;}
+.lbc-time-menu .lbc-menu-item{display:inline-flex;align-items:center;justify-content:center;width:auto;height:26px;line-height:1;white-space:nowrap;font-size:12px;padding:0 10px;background:transparent;box-shadow:none;}
+.lbc-time-menu .lbc-menu-item:hover{background:var(--background-modifier-hover);}
+.lbc-time-menu .lbc-seg-btn{border-radius:6px;color:var(--text-muted);}
+.lbc-time-menu .lbc-seg-btn:hover{background:var(--background-primary);color:var(--text-normal);}
+.lbc-time-menu .lbc-chip{border-radius:13px;border:1px solid var(--background-modifier-border);color:var(--text-normal);}
+.lbc-time-menu .lbc-menu-item.is-on,.lbc-time-menu .lbc-menu-item.is-on:hover{background:var(--interactive-accent);border-color:var(--interactive-accent);color:var(--text-on-accent);font-weight:600;}
+.lbc-time-menu .lbc-menu-item:focus-visible{box-shadow:0 0 0 2px var(--background-modifier-border-focus,var(--interactive-accent));}
+.lbc-time-menu .lbc-range{padding:4px 0 2px calc(2.6em + 10px);flex-wrap:nowrap;}
+.lbc-time-menu .lbc-range input{flex:1 1 8.6em;width:8.6em;min-width:0;}
+.lbc-time-menu .lbc-range button{flex:0 0 auto;}
 /* C9 按行瀑布流：每列一个 flex 子列，卡片按预估高度放进当前最矮的一列 */
 .lbc-grid{height:auto;overflow:visible;display:block;padding:12px 5px 30px;}
 .lbc-grid[hidden]{display:none!important;}
@@ -694,11 +711,15 @@ function menuShell(cls, anchor) {
   menu.__lbcClose = close;
   setTimeout(() => { document.addEventListener('click', onDoc); document.addEventListener('contextmenu', onDoc); }, 0);
   menu.addEventListener('keydown', e => {
+    // 日期框里的 ↑↓←→ / Home / End 是改日期、挪光标的，不拿来换项（Escape / Tab 照样关）
+    const inField = /^(INPUT|TEXTAREA|SELECT)$/.test(String(e.target?.tagName || '').toUpperCase());
+    if (inField && e.key !== 'Escape' && e.key !== 'Tab') return;
     const list = [...menu.querySelectorAll('.lbc-menu-item')];
     const i = list.indexOf(document.activeElement);
     const go = k => { const n = list.length; if (!n) return; const el = list[((k % n) + n) % n]; try { el.focus({ preventScroll: true }); } catch { el.focus(); } };
-    if (e.key === 'ArrowDown') { e.preventDefault(); go(i + 1); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); go(i < 0 ? list.length - 1 : i - 1); }
+    const horiz = menu.classList.contains('lbc-time-menu');   // 1011 时间菜单一行几块：←→ 也能换
+    if (e.key === 'ArrowDown' || (horiz && e.key === 'ArrowRight')) { e.preventDefault(); go(i + 1); }
+    else if (e.key === 'ArrowUp' || (horiz && e.key === 'ArrowLeft')) { e.preventDefault(); go(i < 0 ? list.length - 1 : i - 1); }
     else if (e.key === 'Home') { e.preventDefault(); go(0); }
     else if (e.key === 'End') { e.preventDefault(); go(list.length - 1); }
     else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close({ refocus: true }); }
@@ -730,26 +751,47 @@ function popMenu(items, e, anchor, pos) {
   focusFirst(menu);
   return menu;
 }
+// 1011 紧凑版（她：一项一个整宽按钮太乱）：
+//   排序  [默认 | 最近导入]                 ← 一行分段
+//   时间  [全部] [今天] [7 天] [30 天] [自定义] ← 一行小块（窄了折行）
+//         起 ~ 止 [筛选]                    ← 只在选了「自定义」时出现
+// 状态键不变（timeSort / timeRange / timeFrom / timeTo）；点排序 / 时间块立刻生效并关菜单，「自定义」只展开起止、点「筛选」才生效。
+const TIME_CHIPS = [['', '全部'], ['today', '今天'], ['7d', '7 天'], ['30d', '30 天']];
 function openTimeMenu(anchor) {
   const { menu, close } = menuShell('lbc-time-menu', anchor);
   const apply = () => { close(); indexView = false; renderCatBar(); render(); scrollToResults(); };
-  const item = (label, on, fn) => { const b = menu.createEl('button', { cls: 'lbc-menu-item' + (on ? ' is-on' : ''), text: (on ? '✓ ' : '') + label }); b.type = 'button'; b.onclick = ev => { ev?.stopPropagation?.(); fn(); apply(); }; return b; };
-  menu.createEl('div', { cls: 'lbc-menu-head', text: '排序' });
-  item('默认', !timeSort, () => { timeSort = ''; });
-  item('最近导入', timeSort === 'recent', () => { timeSort = 'recent'; });
-  menu.createEl('div', { cls: 'lbc-menu-sep' });
-  menu.createEl('div', { cls: 'lbc-menu-head', text: '导入时间' });
-  item('全部时间', !timeRange, () => { timeRange = ''; });
-  for (const [k, label] of Object.entries(TIME_RANGES)) item(label, timeRange === k, () => { timeRange = k; todayOnly = false; });
-  menu.createEl('div', { cls: 'lbc-menu-head', text: '自定义起止' });
-  const row = menu.createEl('div', { cls: 'lbc-range' }); row.onclick = ev => ev.stopPropagation();
-  const from = row.createEl('input'); from.type = 'date'; from.value = timeFrom;
-  row.createEl('span', { text: '~' });
-  const to = row.createEl('input'); to.type = 'date'; to.value = timeTo;
-  const ok = row.createEl('button', { text: '筛选' }); ok.type = 'button';
+  const opt = (parent, cls, label, on, fn) => {
+    const b = parent.createEl('button', { cls: 'lbc-menu-item ' + cls + (on ? ' is-on' : ''), text: label });
+    b.type = 'button'; b.setAttribute('role', 'menuitemradio'); b.setAttribute('aria-checked', String(!!on));
+    b.onclick = ev => { ev?.stopPropagation?.(); fn(ev); };
+    return b;
+  };
+  const line = (label) => {
+    const row = menu.createEl('div', { cls: 'lbc-tm-row' });
+    row.createEl('span', { cls: 'lbc-tm-label', text: label });
+    return row;
+  };
+  const seg = line('排序').createEl('div', { cls: 'lbc-seg' }); seg.setAttribute('role', 'group');
+  opt(seg, 'lbc-seg-btn', '默认', !timeSort, () => { timeSort = ''; apply(); });
+  opt(seg, 'lbc-seg-btn', '最近导入', timeSort === 'recent', () => { timeSort = 'recent'; apply(); });
+  const chips = line('时间').createEl('div', { cls: 'lbc-chips' }); chips.setAttribute('role', 'group');
+  for (const [k, label] of TIME_CHIPS) opt(chips, 'lbc-chip', label, timeRange === k, () => { timeRange = k; if (k) todayOnly = false; apply(); });
+  const customChip = opt(chips, 'lbc-chip', '自定义', timeRange === 'custom', () => {
+    // 只展开起止，不改筛选；焦点进「起」
+    range.hidden = false;
+    for (const c of chips.querySelectorAll('.lbc-chip')) { const on = c === customChip; c.classList.toggle('is-on', on); c.setAttribute('aria-checked', String(on)); }
+    place();   // 弹层变宽了：重新夹回视口里
+    try { from.focus({ preventScroll: true }); } catch { from.focus?.(); }
+  });
+  const range = menu.createEl('div', { cls: 'lbc-range' }); range.onclick = ev => ev.stopPropagation();
+  range.hidden = timeRange !== 'custom';
+  const from = range.createEl('input'); from.type = 'date'; from.value = timeFrom; from.setAttribute('aria-label', '起');
+  range.createEl('span', { cls: 'lbc-range-sep', text: '~' });
+  const to = range.createEl('input'); to.type = 'date'; to.value = timeTo; to.setAttribute('aria-label', '止');
+  const ok = range.createEl('button', { cls: 'mod-cta', text: '筛选' }); ok.type = 'button';
   ok.onclick = ev => { ev?.stopPropagation?.(); let a = from.value || '', b = to.value || ''; if (!a && !b) return; if (a && b && a > b) [a, b] = [b, a]; timeFrom = a; timeTo = b; timeRange = 'custom'; todayOnly = false; apply(); };
-  const r = anchor.getBoundingClientRect();
-  placeMenu(menu, r.left, r.bottom + 4);
+  const place = () => { const r = anchor.getBoundingClientRect(); placeMenu(menu, r.left, r.bottom + 4); };
+  place();
   focusFirst(menu);
   return menu;
 }
