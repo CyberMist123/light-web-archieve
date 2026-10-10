@@ -242,5 +242,38 @@ const LOCAL = { ok: true, clients: { 'claude-code': { installed: true, connected
   assert.ok(env.calls.some(c => c.args[3] === 'revoke-all'));
   assert.ok(notices.includes('已全部断开：1 个网页版、0 个访问令牌'));
 
+  // —— 读到状态后的重画（1010 审查）：正在打的网址 / 粘贴路径不丢；最下面「高级」折叠不跟着重建、不再多起一遍 remote status ——
+  {
+    let release; const gate = new Promise(res => { release = res; });
+    env = makePlugin({ remote: { enabled: true, domain: '', folders: ['@xhs'] } }, { 'remote status': STATUS_RUNNING, 'connect status': LOCAL }, { connect: { clients: ['claude-ai'] } });
+    const real = env.plugin.runPy; let statusRuns = 0;
+    env.plugin.runPy = async (args, opts) => {
+      if (args[3] === 'status') { if (args[2] === 'remote') statusRuns++; await gate; }   // 状态读得慢：她已经开始打字了
+      return real(args, opts);
+    };
+    r = factory(obsidian, env.plugin); await r.attach(); settings.length = 0;
+    root = new FakeEl();
+    r.renderConnect(root, () => {}); await tick(8);
+    assert.equal(byName('远程访问').desc, '读取中…');
+    const domIn = byName('你的网址').texts[0].inputEl;
+    domIn.value = 'https://half.exam'; domIn.listeners.input?.();
+    const man = byName('再开放一个文件夹').texts[0].inputEl;
+    man.value = 'E:/资料/读书'; man.listeners.input?.();
+    const adv = root.find(el => el.tag === 'details' && [...el.classes].some(c => c.includes('lb-connect-adv')));
+    adv.open = true; adv.listeners.toggle(); await tick(4);
+    const runsBefore = statusRuns;
+    release(); await tick(16);
+    assert.equal(byName('远程访问').desc, '● 开着：运行中（127.0.0.1:18080）', '状态读回来了');
+    assert.equal(byName('你的网址').texts[0].inputEl.value, 'https://half.exam', '读到状态后的重画把正在打的网址冲掉了');
+    assert.equal(byName('再开放一个文件夹').texts[0].inputEl.value, 'E:/资料/读书', '粘贴到一半的路径被冲掉了');
+    assert.ok(root.find(el => el === adv), '「高级」折叠被重建了（里面正在填的端口 / 令牌备注会丢）');
+    assert.equal(statusRuns, runsBefore, '重画又起了一遍 remote status');
+    // 存好了才清：网址保存成功后，重画显示的是存下的值
+    const domIn2 = byName('你的网址').texts[0].inputEl;
+    domIn2.value = 'https://read.example.com'; domIn2.listeners.input?.(); await domIn2.listeners.change(); await tick(8);
+    assert.equal(byName('你的网址').texts[0].inputEl.value, 'https://read.example.com');
+    assert.equal(env.plugin.settings.remote.domain, 'https://read.example.com');
+  }
+
   console.log('ok remote-ui (1009 连接 AI → 1010「连接其他 AI」一整栏：口令为主、「还没有网址？」紧挨网址、令牌只在高级折叠、界面没有 OAuth)');
 })().catch(e => { console.error(e); process.exit(1); });

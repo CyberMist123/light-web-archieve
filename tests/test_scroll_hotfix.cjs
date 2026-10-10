@@ -90,6 +90,21 @@ async function mediaTests() {
   assert.equal((preview.listeners.scroll || []).length, 0, '那个 scroll 监听摘掉了（不再攥着已经摘下的笔记）');
   console.log('PASS media-nav: pinned note left the pane → wheel on catalog/chat page no longer swallowed, stale lb-pane-locked cleared, stale pane scroll listener removes itself (1010)');
 
+  // 1010 审查：钉着笔记的标签页直接关掉（容器再也不会滚）→ 换页 / 布局变化时把它的 scroll 监听摘掉，不攥着整页
+  {
+    const leaf2 = env.dom.document.body.createEl('div', { cls: 'workspace-leaf-content' });
+    const pv2 = leaf2.createEl('div', { cls: 'markdown-preview-view xhs-note' });
+    const B = buildNote(pv2);
+    nav.scan();
+    B.media.querySelector('.lb-media-pin').onclick();
+    assert.equal((pv2.listeners.scroll || []).length, 1, '钉住挂了一个 scroll 监听');
+    const before = nav.paneScrolls.size;
+    leaf2.remove();
+    nav.prunePaneScrolls();
+    assert.equal((pv2.listeners.scroll || []).length, 0, '关掉的标签页上的 scroll 监听摘掉了');
+    assert.equal(nav.paneScrolls.size, before - 1, 'paneScrolls 里不再留着它');
+  }
+
   // 再在同一个标签页打开另一篇：预览容器上始终只有一个滚轮监听
   card.parentNode.remove(); preview.classList.add('xhs-note');
   const B = buildNote(preview);

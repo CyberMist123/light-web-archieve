@@ -102,6 +102,12 @@ class MediaNav {
   }
 
   // 整页锁（lb-pane-locked）残留：同一窗格从钉住的笔记换到目录页时，不清掉整页 overflow:hidden 就滚不动了
+  // 1010 审查：钉着笔记的标签页直接关掉，那个容器再也不会滚——它的 scroll 监听（连带摘下的笔记）会一直留着。换页 / 布局变了就清一遍。
+  prunePaneScrolls() {
+    for (const [fn, pv] of this.paneScrolls) {
+      if (pv && pv.isConnected === false) { try { pv.removeEventListener('scroll', fn); } catch {} this.paneScrolls.delete(fn); }
+    }
+  }
   cleanupStaleLocks() {
     if (typeof document.querySelectorAll !== 'function') return;
     document.querySelectorAll('.lb-pane-locked').forEach(p => { if (!p.querySelector('.lb-media-locked')) p.classList.remove('lb-pane-locked'); });
@@ -136,7 +142,7 @@ class MediaNav {
     this.register(() => observer.disconnect());
     const ws = this.plugin.app && this.plugin.app.workspace;
     if (ws && typeof ws.on === 'function' && typeof this.plugin.registerEvent === 'function') {
-      for (const ev of ['file-open', 'layout-change']) this.plugin.registerEvent(ws.on(ev, () => { this.cleanupStaleLocks(); queueMicrotask(() => this.scan()); }));
+      for (const ev of ['file-open', 'layout-change']) this.plugin.registerEvent(ws.on(ev, () => { this.cleanupStaleLocks(); this.prunePaneScrolls(); queueMicrotask(() => this.scan()); }));
     }
     this.register(() => { for (const ro of this.ros) { try { ro.disconnect(); } catch {} } this.ros.clear(); this.noteState.clear();
       for (const [fn, pv] of this.paneScrolls) { try { pv.removeEventListener('scroll', fn); } catch {} } this.paneScrolls.clear(); });

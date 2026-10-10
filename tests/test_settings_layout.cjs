@@ -269,6 +269,20 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
   assert.equal(env.p.saveFails, 0, '只存了一次（没来回弹）');
   tab.hide();
 
+  // 「填上它的地址和模型」：现在用本机命令行（不花钱）→ 先确认（换成接口要按用量付费），不点「换」就不动（1010 审查）
+  {
+    const e2 = makePlugin({ textAI: { mode: 'cli', command: 'codex exec' }, setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'ai_text'], aiSynced: true } });
+    const asked = []; e2.p.confirm = async o => { asked.push(o); return false; };
+    const t2 = openPage(e2.p, 'ai'); await settle();
+    const fillBtn = t2.containerEl.querySelectorAll('button').find(b => /^填上它的地址和模型/.test(b.textContent));
+    assert.ok(fillBtn, '有「填上它的地址和模型」');
+    await fillBtn.onclick(); await settle();
+    assert.equal(asked.length, 1, '本机命令行换成接口要先确认');
+    assert.match(asked[0].body, /本机命令行（不花钱）.*按用量付费/);
+    assert.equal(e2.p.settings.textAI.mode, 'cli', '没点「换」：还是本机命令行');
+    t2.hide();
+  }
+
   // —— 3. 停在哪一栏记在插件对象上（本次会话），不写 data.json；「打开设置」旧落点名照认 ——
   const savesBefore = env.saves.length;
   tab = openPage(env.p); root = tab.containerEl; await settle();

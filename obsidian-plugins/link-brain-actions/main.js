@@ -222,6 +222,21 @@ function mergeSettings(saved) {
   return out;
 }
 
+// 1010：磁盘上的值并进内存里原来那个对象（引用不变）。设置页各栏手里拿着 so = s.sync、httpFields(c, s.textAI) 这类子对象；
+// 以前保存 / 外部重读时整个换成新对象，之后在旧对象上改的开关「存成功了」其实没写进 data.json。
+// 值一样就什么都不动；对象按键逐层并（多的键删掉）；数组按位置对不上谁是谁，值变了就整体换内容（数组本身不换）。
+function refreshInPlace(cur, next) {
+  if (JSON.stringify(cur) === JSON.stringify(next)) return cur;
+  const plain = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+  if (Array.isArray(cur) && Array.isArray(next)) { cur.splice(0, cur.length, ...next); return cur; }
+  if (plain(cur) && plain(next)) {
+    for (const k of Object.keys(cur)) if (!(k in next)) delete cur[k];
+    for (const [k, v] of Object.entries(next)) cur[k] = refreshInPlace(cur[k], v);
+    return cur;
+  }
+  return next;
+}
+
 // 小红书 URL 清洗（本地部分）：白名单主机 + 只留 xsec_token/xsec_source、丢分享垃圾参数、
 // 保留 host+path 原样（不改 /explore/、/discovery/item/）、去重。短链的「跟随 redirect 换成长链」
 // 需要联网，走 Python（expandAndCleanLinks / clean 命令）；这里同步版只做能本地做的清洗。
@@ -720,7 +735,7 @@ class LinkBrainActions extends Plugin {
     for (const [k, v] of Object.entries(this.settings)) {
       const mine = JSON.stringify(v);
       if (!disk || !(k in disk) || mine !== snap[k]) out[k] = v;          // 本窗口改过（或磁盘没有）→ 用内存
-      else this.settings[k] = disk[k];                                      // 没改过 → 磁盘为准，顺手刷新内存
+      else this.settings[k] = refreshInPlace(this.settings[k], disk[k]);    // 没改过 → 磁盘为准，并进内存原来的对象（引用不变）
     }
     this._selfWriteAt = Date.now();
     await this.saveData(out);
@@ -740,7 +755,7 @@ class LinkBrainActions extends Plugin {
     } catch (e) { console.error('[lb] 盯不住设置文件', e); }
   }
   // 10-09：data.json 被别处改了（命令行 / 同步 / 另一个窗口）→ Obsidian 调这里：整份重读，别让内存旧值下次保存时盖回去
-  async onExternalSettingsChange() { try { const raw = await this.loadData(); this.snapDisk(raw); this.settings = mergeSettings(raw); await this.remoteUI?.attach?.(); this.app?.workspace?.trigger?.('link-brain:settings'); } catch (e) { console.error('[lb] 外部改了设置，重读失败', e); } }
+  async onExternalSettingsChange() { try { const raw = await this.loadData(); this.snapDisk(raw); refreshInPlace(this.settings, mergeSettings(raw)); await this.remoteUI?.attach?.(); this.app?.workspace?.trigger?.('link-brain:settings'); } catch (e) { console.error('[lb] 外部改了设置，重读失败', e); } }
   // 1008：setup.selected 是列表、还没对齐过 → 已配好的 textAI / summaryAI 勾上 ai_text、visionAI 勾上 ai_vision。返回有没有改动。
   syncSetupSelectionWithAI() {
     const su = this.settings.setup;
@@ -2880,4 +2895,5 @@ Object.assign(module.exports, { splitCommand, whichCommand, pickBackend, backend
 Object.assign(module.exports, { effectiveTextAI, modelState, endpointHost, normalizeEndpoint, aiGate, resultMessage, scheduleShort });
 module.exports.lastRiskNote = lastRiskNote;   // 1008（L6）：给 node 单测（设置页「立即同步」旁的验证说明）
 module.exports.commentFillLine = commentFillLine;   // 1009：给 node 单测（状态栏「补评论」那一行）
+module.exports.refreshInPlace = refreshInPlace;   // 1010：给 node 单测（保存后设置页拿着的子对象引用不变）
 module.exports.commentFetchShort = commentFetchShort;   // 1010：给 node 单测（状态栏「抓全部评论 · 读评论区 1:05」）

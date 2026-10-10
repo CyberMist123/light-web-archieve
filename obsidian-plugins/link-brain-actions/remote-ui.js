@@ -330,8 +330,13 @@ module.exports = function remoteUI(obsidian, plugin) {
     renderConnect(container, redrawAll, tab = null) {
       if (!plugin.settings.remote) plugin.settings.remote = normalizeRemote(null);
       const box = container.createDiv({ cls: 'lb-connect' });
+      // 读到状态 / 改了设置时只重画 main 这一块：最下面的「高级」折叠建一次就不动（里面的端口、令牌备注不被冲掉，也不再多起一遍 remote status）
+      const main = box.createDiv({ cls: 'lb-connect-main' });
+      const typed = {};   // 重画时保住正在打的字（你的网址 / 粘贴路径）：存好了才清掉
+      const focusOf = el => { try { const ae = el.ownerDocument && el.ownerDocument.activeElement; const key = ae && el.contains && el.contains(ae) && ae.getAttribute && ae.getAttribute('data-lb-key'); return key ? { key, a: ae.selectionStart, b: ae.selectionEnd } : null; } catch { return null; } };
+      const refocus = (el, keep) => { if (!keep) return; try { const t = el.querySelector && el.querySelector('[data-lb-key="' + keep.key + '"]'); if (!t) return; t.focus(); if (keep.a != null && t.setSelectionRange) t.setSelectionRange(keep.a, keep.b); } catch {} };
       let alive = true;
-      const redraw = async () => { if (!alive) return; await syncFromDisk(); box.empty(); draw(); };
+      const redraw = async () => { if (!alive) return; await syncFromDisk(); if (!alive) return; const keep = focusOf(main); main.empty(); draw(); refocus(main, keep); };
       let status = null, local = null;   // 后端回来的：remote status / connect status
       const help = (row, text) => (tab && typeof tab.help === 'function' ? tab.help(row, text) : null);
       const linkBtn = (row, text, onClick, title = '') => row.addButton(b => { b.setButtonText(text).onClick(onClick); b.buttonEl?.addClass?.('lb-link'); if (title) b.buttonEl?.setAttribute?.('aria-label', title); });
@@ -341,6 +346,7 @@ module.exports = function remoteUI(obsidian, plugin) {
         : status.state === 'error' ? '✗ 出了问题：' + (status.message || '') : '○ 没开';
 
       const draw = () => {
+        const box = main;
         const r = s();
         const url = r.domain ? r.domain + '/mcp' : '';
         box.createEl('p', { cls: 'lb-tab-intro', text: '让 Claude、ChatGPT 这些 AI 读你的收藏：能搜、能读、能看图，不能改也不能删。' });
@@ -413,13 +419,16 @@ module.exports = function remoteUI(obsidian, plugin) {
           if (status && status.state === 'error') svc.descEl.addClass?.('mod-warning');
           const dom = new Setting(web).setName('你的网址').setDesc(r.domain ? '' : '填 https:// 开头的网址（只到域名，不带路径）。')
             .addText(t => {
-              t.setPlaceholder('https://lwa.example.com').setValue(r.domain || '');
+              t.setPlaceholder('https://lwa.example.com').setValue(typed.domain != null ? typed.domain : (r.domain || ''));
               t.inputEl.style.width = '16em';
+              if (t.inputEl.setAttribute) t.inputEl.setAttribute('data-lb-key', 'domain');
+              t.inputEl.addEventListener('input', () => { typed.domain = t.inputEl.value; });
               t.inputEl.addEventListener('change', async () => {
                 const v = cleanDomain(t.inputEl.value);
                 if (v === null) { new Notice('网址格式不对：只填 https://主机名，不带端口和路径', 8000); return; }
                 try { await saveRemote(x => { x.domain = v; }); }
-                catch (e) { new Notice('没保存上，网址没改：' + e.message, 8000); t.setValue(r.domain || ''); return; }
+                catch (e) { new Notice('没保存上，网址没改：' + e.message, 8000); delete typed.domain; t.setValue(r.domain || ''); return; }
+                delete typed.domain;
                 new Notice(v ? '网址已保存' + (r.enabled ? '，几秒内生效' : '') : '已清空网址：只有这台电脑自己能连'); redraw();
               });
             });
@@ -524,18 +533,23 @@ module.exports = function remoteUI(obsidian, plugin) {
           try { const p = await pickFolder(); if (p) await addFolder(p, redraw); else if (p === null && manual) manual.inputEl.focus(); }
           finally { b.setDisabled(false); }
         }));
-        pick.addText(t => { manual = t; t.setPlaceholder('或粘贴路径：D:\\笔记\\读书'); t.inputEl.style.width = '13em'; });
-        pick.addButton(b => b.setButtonText('添加').onClick(() => addFolder(manual && manual.inputEl.value, redraw)));
-
-        // 高级（默认收起）：端口 · 访问令牌（给不支持口令的软件）· 撤销全部 · 访问记录 · 测一下本机的连接程序
-        const adv = box.createEl('details', { cls: 'lb-fold lb-connect-adv' });
-        adv.open = !!advOpen;
-        adv.createEl('summary', { text: '高级：端口、访问令牌、访问记录' });
-        let advDrawn = false;
-        const fillAdv = () => { if (advDrawn || !adv.open) return; advDrawn = true; renderAdvancedInto(adv.createDiv({ cls: 'lb-connect-adv-body' }), tab); };
-        adv.addEventListener?.('toggle', () => { advOpen = adv.open; fillAdv(); });
-        fillAdv();
+        pick.addText(t => {
+          manual = t; t.setPlaceholder('或粘贴路径：D:\\笔记\\读书'); if (typed.manual) t.setValue(typed.manual); t.inputEl.style.width = '13em';
+          if (t.inputEl.setAttribute) t.inputEl.setAttribute('data-lb-key', 'manual');
+          if (t.inputEl.addEventListener) t.inputEl.addEventListener('input', () => { typed.manual = t.inputEl.value; });
+        });
+        pick.addButton(b => b.setButtonText('添加').onClick(() => addFolder(manual && manual.inputEl.value, () => { delete typed.manual; redraw(); })));
       };
+
+      // 高级（默认收起）：端口 · 访问令牌（给不支持口令的软件）· 撤销全部 · 访问记录 · 测一下本机的连接程序。
+      // 建一次，排在 main 后面；main 重画不碰它（它自己的按钮只重画它自己）
+      const adv = box.createEl('details', { cls: 'lb-fold lb-connect-adv' });
+      adv.open = !!advOpen;
+      adv.createEl('summary', { text: '高级：端口、访问令牌、访问记录' });
+      let advDrawn = false;
+      const fillAdv = () => { if (advDrawn || !adv.open) return; advDrawn = true; renderAdvancedInto(adv.createDiv({ cls: 'lb-connect-adv-body' }), tab); };
+      adv.addEventListener?.('toggle', () => { advOpen = adv.open; fillAdv(); });
+      fillAdv();
 
       const loadStatus = async () => {
         try { const { json } = await run(['status', ...settingsArgs()], { timeoutMs: 30000, fallback: '读不到状态' }); status = json || { unreadable: true, error: '后台没有返回' }; }

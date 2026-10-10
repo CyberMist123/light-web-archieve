@@ -499,8 +499,11 @@ module.exports = function homeUI(obsidian, plugin) {
             const previous = JSON.parse(JSON.stringify(cur));
             const host = v => { try { return new URL(v).hostname; } catch { return ''; } };
             const switching = !!previous.endpoint && host(previous.endpoint) !== host(sugg.endpoint);
-            if (previous.endpoint && previous.endpoint !== sugg.endpoint && !await plugin.confirm({ title: `换成 ${g.provider} 的地址和模型？`,
-              body: '现在填的地址和模型会被换掉' + (switching ? '；换了服务商，密钥要重新填这家的。' : '。'), ok: '换', danger: false })) return;
+            // 现在用的是本机命令行（Codex / Claude Code，不花钱）：换成接口就按用量付费——先说清再换（1010 审查）
+            const fromCli = previous.mode === 'cli';
+            if ((fromCli || (previous.endpoint && previous.endpoint !== sugg.endpoint)) && !await plugin.confirm({ title: `换成 ${g.provider} 的地址和模型？`,
+              body: fromCli ? `现在用的是本机命令行（不花钱）；换成 ${g.provider} 的接口以后按用量付费，还要填这家的密钥。`
+                : '现在填的地址和模型会被换掉' + (switching ? '；换了服务商，密钥要重新填这家的。' : '。'), ok: '换', danger: false })) return;
             const next = { ...previous, mode: 'http', endpoint: sugg.endpoint, model: sugg.model };
             if (switching) for (const k of ['apiKey', 'keyFile', 'keyField', 'apiKeyEnv']) delete next[k];
             plugin.settings[cap] = next;

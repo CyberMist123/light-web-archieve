@@ -345,7 +345,7 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 /* —— 1010 她：设置页分栏（概览 / 收藏与同步 / AI / 连接其他 AI / 高级），按新手重写 ——
    每栏最多一个主按钮（mod-cta）；次要动作是「像链接的一行字」（.lb-link）；「?」悬停讲规则（.lb-help）；读不到的块（.lb-fail）。 */
 .lb-tab-intro { margin: 2px 0 12px; color: var(--text-muted); }
-.lb-tab-pane > h4, .lb-tab-pane .lb-connect > h4 { margin: 20px 0 4px; font-size: var(--font-ui-small); color: var(--text-muted); }
+.lb-tab-pane > h4, .lb-tab-pane .lb-connect-main > h4 { margin: 20px 0 4px; font-size: var(--font-ui-small); color: var(--text-muted); }
 .lb-settings .lb-help { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-left: 6px; border-radius: 50%;
   font-size: 11px; line-height: 1; color: var(--text-faint); border: 1px solid var(--background-modifier-border); cursor: help; vertical-align: 1px; }
 .lb-settings .lb-help:hover, .lb-settings .lb-help:focus-visible { color: var(--text-normal); border-color: var(--text-muted); outline: none; }
