@@ -254,3 +254,61 @@ def test_standalone_process_serves_and_stops_itself_when_disabled(tmp_path):
     finally:
         if proc.poll() is None:
             proc.kill()
+
+
+# ------------------------------------------------------------------ 重启 / 停用要停到真正在听的旧进程（1010）
+
+def test_restart_kills_real_listener_and_confirms_new_pid(capsys, fake_ps):
+    calls, replies = fake_ps
+    vault = Path(os.environ["LINK_BRAIN_VAULT"])
+    make_vault(vault)
+    write_settings(vault, 18099, enabled=True)
+    replies.append((True, "old:4242\nkilled:4100,4242\nleft:\nnew:5151\nok"))
+    code, out = run_cli(capsys, ["remote", "restart"])
+    assert code == 0 and out["ok"] and out["new_pids"] == [5151] and "4242 → 5151" in out["message"]
+    script = calls[-1]
+    assert script.isascii()                                                    # 本机 .ps1 字面量含非 ASCII 会坏
+    assert "$port=18099;" in script and "Get-NetTCPConnection -State Listen -LocalPort $port" in script
+    assert "link_brain\\s+remote\\s+serve" in script                           # 只认远程服务的命令行
+    assert "'^(pwsh|powershell)\\.exe$'" in script and "\\.ps1" in script       # 父进程只停跑启动脚本的 pwsh
+    assert "taskkill" not in script.lower() and "/T" not in script             # 只按 PID 停，不带进程树
+    assert "reader" not in script.lower() and "chrome" not in script.lower()
+    assert script.index("Stop-ScheduledTask") < script.index("$k=Stop-LwaSrv") < script.index("Start-ScheduledTask")
+
+
+def test_restart_reports_old_listener_still_alive(capsys, fake_ps):
+    calls, replies = fake_ps
+    vault = Path(os.environ["LINK_BRAIN_VAULT"])
+    make_vault(vault)
+    write_settings(vault, 18071, enabled=True)
+    replies.append((True, "old:4242\nkilled:\nleft:4242\nnew:\nok"))
+    code, out = run_cli(capsys, ["remote", "restart"])
+    assert code == 1 and not out["ok"] and out["code"] == "PERMANENT.REMOTE_TASK_FAILED"
+    assert "4242" in out["message"] and "已重启" not in out["message"]
+    assert [r for r in problems.load() if r.get("step") == "remote"]
+
+
+def test_restart_without_new_listener_is_not_success(capsys, fake_ps):
+    calls, replies = fake_ps
+    vault = Path(os.environ["LINK_BRAIN_VAULT"])
+    make_vault(vault)
+    write_settings(vault, 18071, enabled=True)
+    replies.append((True, "old:4242\nkilled:4242\nleft:\nnew:\nok"))
+    code, out = run_cli(capsys, ["remote", "restart"])
+    assert code == 1 and not out["ok"] and "没看到新的服务进程" in out["message"]
+    replies.append((True, "none"))
+    code, out = run_cli(capsys, ["remote", "restart"])
+    assert out["code"] == "SKIPPED.NOT_CONFIGURED"
+
+
+def test_disable_also_stops_real_listener(capsys, fake_ps):
+    calls, replies = fake_ps
+    vault = Path(os.environ["LINK_BRAIN_VAULT"])
+    make_vault(vault)
+    write_settings(vault, free_port(), enabled=False)
+    replies.append((True, "killed:4242\nok"))
+    code, out = run_cli(capsys, ["remote", "disable"])
+    assert code == 0 and out["message"].startswith("已停止并删除")
+    script = calls[-1]
+    assert script.isascii() and "$k=Stop-LwaSrv (Get-LwaSrv)" in script
+    assert script.index("Stop-ScheduledTask") < script.rindex("$k=Stop-LwaSrv") < script.index("Unregister-ScheduledTask")

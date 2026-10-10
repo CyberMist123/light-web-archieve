@@ -207,16 +207,17 @@ def run(args) -> int:
         from . import task
         from .server import probe_health
         from . import config as cfg_mod
-        res = task.unregister()
+        cfg, _ = cfg_mod.load(settings_path)
+        res = task.unregister(cfg["port"])
         if res.get("ok"):
-            cfg, _ = cfg_mod.load(settings_path)
             # 计划任务停掉后服务应该已经没了；还在应答（比如手动起的）就如实说
             if probe_health(cfg["port"], timeout=1.0):
                 res["message"] += "；但端口上还有一个远程阅读服务在应答（可能是手动启动的），它看到开关关了会在几秒内自己退出"
         return _out(res)
     if cmd == "restart":
-        from . import task
-        return _out(task.restart())
+        from . import task, config as cfg_mod
+        cfg, _ = cfg_mod.load(settings_path)
+        return _out(task.restart(cfg["port"]))
     if cmd == "passphrase":
         st = _store(state_dir)
         if getattr(args, "reveal", False):
