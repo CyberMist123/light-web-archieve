@@ -9,7 +9,7 @@ const { makeObsidian } = require('./_fakeobsidian.cjs');
 const factory = require(path.join(ROOT, 'obsidian-plugins/link-brain-actions/index-ui.js'));
 const tick = (n = 3) => new Promise(r => { const s = k => (k ? setTimeout(() => s(k - 1), 0) : r()); s(n); });
 
-function setup({ answers = {}, confirm = true, settings = {} } = {}) {
+function setup({ answers = {}, confirm = true, settings = {}, layoutReady = null } = {}) {
   const dom = makeDom(), D = dom.document;
   global.document = D;
   const notices = [];
@@ -18,7 +18,8 @@ function setup({ answers = {}, confirm = true, settings = {} } = {}) {
   const files = new Set(['LB/索引.md', 'LB/索引.草稿.md', 'LB/wiki/旅行.md', 'LB/我的/分类.md']);
   const app = {
     vault: { on: (ev, fn) => { (events[ev] = events[ev] || []).push(fn); return { ev, fn }; }, getAbstractFileByPath: p => (files.has(p) ? { path: p } : null) },
-    workspace: { getLeaf: () => ({ openFile: async (f, o) => opened.push([f.path, o && o.eState ? o.eState.line : null]) }) },
+    workspace: { getLeaf: () => ({ openFile: async (f, o) => opened.push([f.path, o && o.eState ? o.eState.line : null]) }),
+      ...(layoutReady ? { onLayoutReady: fn => layoutReady.push(fn) } : {}) },
   };
   const plugin = {
     app, settings: { ...settings }, lbPath: p => 'LB/' + p,
@@ -136,6 +137,16 @@ function setup({ answers = {}, confirm = true, settings = {} } = {}) {
     const T = setup();
     await T.plugin.openIndexFile(); assert.equal(T.notices.length, 0, '打开得到就不说话');
     T.files.delete('LB/索引.md'); await T.plugin.openIndexFile(); assert.match(T.notices.at(-1).msg, /找不到 索引\.md/);
+  }
+  // Obsidian 开库时给每个已有文件发一次 create：布局好了才挂监听，开库那一下不重算
+  {
+    const ready = [];
+    const S = setup({ layoutReady: ready });
+    S.fire('create', 'LB/索引.md');
+    assert.equal(S.timers.length, 0, '布局好之前不挂');
+    assert.equal(ready.length, 1); ready[0]();
+    S.fire('modify', 'LB/索引.md');
+    assert.equal(S.timers.filter(t => t.live).length, 1, '布局好之后保存就排一次重算');
   }
   console.log('PASS test_index_ui_1010');
 })().catch(e => { console.error('FAIL test_index_ui_1010', e && e.stack || e); process.exit(1); });

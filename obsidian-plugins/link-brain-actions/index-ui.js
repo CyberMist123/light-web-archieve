@@ -153,7 +153,9 @@ module.exports = function indexUI(obsidian, plugin, deps = {}) {
   return {
     indexRel, draftRel, rebuild, schedule, openIndexSuggestions, indexDraft, indexUseDraft, wikiBuild, SuggestModal,
     attach() {
-      if (app.vault?.on) for (const ev of ['modify', 'create']) plugin.registerEvent(app.vault.on(ev, onFile));
+      // Obsidian 开库时会给每个已有文件发一次 create：等布局好了再挂，别一开库就重算一遍
+      const hook = () => { if (app.vault?.on) for (const ev of ['modify', 'create']) plugin.registerEvent(app.vault.on(ev, onFile)); };
+      if (app.workspace?.onLayoutReady) app.workspace.onLayoutReady(hook); else hook();
       // 页面（catalog-view.js）调的入口：LB.ensure / want(method) 找的就是这几个名字
       plugin.indexDraft = indexDraft;
       plugin.indexUseDraft = indexUseDraft;
