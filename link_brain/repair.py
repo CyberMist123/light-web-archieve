@@ -424,6 +424,8 @@ def _select(rows: list[dict[str, Any]], *, key: str | None, since: str | None, a
             continue
         if r.get("hidden") or problems.is_hidden(r):
             continue  # 1008：她隐藏了的，只在点名单条时才跑
+        if r.get("minor") or problems.is_minor(r):
+            continue  # 1011：轻微的（楼中楼只缺 ≤2 条）不进列表，「全部修一遍」也不为它开页
         if _gave_up_retried(r):
             continue  # 1008：已放弃、当场修过没好的不再进「全部修一遍」（同样原因再跑多半一样，还花钱）；点名单条照样跑
         if auto:

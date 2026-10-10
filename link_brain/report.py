@@ -194,8 +194,9 @@ def _day_problems() -> dict[date, list[dict[str, Any]]]:
     from . import problems
 
     rows = problems._read_rows()
-    # 1008：她隐藏了的不算「还开着」（照样列出，只是不计 open）
-    still_open = {k for k, r in problems._fold(rows).items() if not r.get("resolved_at") and not problems.is_hidden(r)}
+    # 1008：她隐藏了的不算「还开着」（照样列出，只是不计 open）；1011：轻微的（楼中楼只缺 ≤2 条）同样不算
+    still_open = {k for k, r in problems._fold(rows).items()
+                  if not r.get("resolved_at") and not problems.is_hidden(r) and not problems.is_minor(r)}
     out: dict[date, dict[str, dict[str, Any]]] = {}
     for r in rows:
         if r.get("resolved_at") or r.get("note") or "dismiss" in r or str(r.get("step") or "") in _NOT_NIGHTLY_STEPS:

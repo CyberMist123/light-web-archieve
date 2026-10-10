@@ -400,6 +400,30 @@ def is_hidden(row: dict[str, Any]) -> bool:
     return bool(row.get("dismissed_at")) and not row.get("resolved_at")
 
 
+# 1011（她：自愈的就不要显示报错）：评论续读放弃了、但设置楼数内的楼中楼只缺这么几条——不影响阅读，
+# 不进问题列表和顶部计数，只留在「复制报错」里（状态写「轻微」）。缺几条优先读行上的 missing，老行从原因里认。
+MINOR_CODES = {"PERMANENT.COMMENTS_INCOMPLETE": 2}
+_MISSING_RE = re.compile(r"楼中楼还缺\s*(\d+)\s*条")
+
+
+def missing_count(row: dict[str, Any]) -> int | None:
+    """这条评论没补全还缺几条回复；认不出来 = None（不当轻微）。"""
+    v = row.get("missing")
+    if isinstance(v, int) and not isinstance(v, bool):
+        return v
+    m = _MISSING_RE.search(str(row.get("reason") or ""))
+    return int(m.group(1)) if m else None
+
+
+def is_minor(row: dict[str, Any]) -> bool:
+    """没解决、但轻微到不该打扰她的（见 MINOR_CODES）：问题列表 / 计数 / 「全部修一遍」都不算，诊断导出照留。"""
+    limit = MINOR_CODES.get(str(row.get("code") or ""))
+    if limit is None or row.get("resolved_at"):
+        return False
+    n = missing_count(row)
+    return n is not None and 0 < n <= limit
+
+
 def _append(rows: list[dict[str, Any]]) -> None:
     """追加行（每行 ≤ 4 KB）；超过 MAX_KEYS 行就压实。锁拿不到也照写（只追加，丢不了别人的行；压实留给下一次）。"""
     p = path()
@@ -526,7 +550,7 @@ def _consecutive_days(days: list[str], n: int, today: date) -> bool:
 
 def report(step: str, code: str, reason: str, *, item_id: str | None = None, title: str | None = None,
            action: str | None = None, next_at: str | None = None, evidence_id: str | None = None,
-           _now_fn=None) -> dict[str, Any]:
+           missing: int | None = None, _now_fn=None) -> dict[str, Any]:
     """登记一条问题，返回写进文件的那一行。推送判定在这里（见模块说明）。
 
     码格式不对抛 BadCode（调用方写错码是 bug，要在测试里炸出来）；写盘失败不抛，返回的行带 written=False。"""
@@ -541,6 +565,8 @@ def report(step: str, code: str, reason: str, *, item_id: str | None = None, tit
         "title": (title or "")[:TITLE_MAX] or None, "code": full, "reason": str(reason or "")[:REASON_MAX],
         "action": action or DEFAULT_ACTION[cls], "next_at": next_at, "count": 1, "resolved_at": None,
     }
+    if missing is not None:
+        row["missing"] = int(missing)  # 1011：评论还缺几条回复（is_minor 判「轻微」用）
     if evidence_id:
         # 出事证据目录的名字（~/.link-brain/risk-evidence/<名字>），不是路径：本机绝对路径不进问题记录（面板「查看截图」自己拼）
         row["evidence_id"] = str(evidence_id)[:40]
@@ -716,11 +742,15 @@ def resolve(step: str, item_id: str | None = None, code: str | None = None, *, _
         return 0
 
 
-def load(limit: int = MAX_KEYS, *, include_resolved: bool = False) -> list[dict[str, Any]]:
-    """折叠后的问题：未解决在前（要你处理 → 自动处理 → 已放弃 → 未开启），同组新的在前。"""
+def load(limit: int = MAX_KEYS, *, include_resolved: bool = False, include_minor: bool = True) -> list[dict[str, Any]]:
+    """折叠后的问题：未解决在前（要你处理 → 自动处理 → 已放弃 → 未开启），同组新的在前。
+
+    1011：include_minor=False（面板 `problems list` 用）把轻微的（is_minor）也拿掉——已解决和轻微的只在诊断导出里。"""
     folded = list(_fold(_read_rows()).values())
     if not include_resolved:
         folded = [r for r in folded if not r.get("resolved_at")]
+    if not include_minor:
+        folded = [r for r in folded if not is_minor(r)]
     order = {"needs_you": 0, "auto": 1, "gave_up": 2, "off": 3}
 
     def sort_key(r):
@@ -742,7 +772,7 @@ def load(limit: int = MAX_KEYS, *, include_resolved: bool = False) -> list[dict[
                     "step_label": step_label(r.get("step")),
                     # 1008：她手动隐藏的（面板放进默认收起的「已隐藏」区，可恢复）
                     "hidden": is_hidden(r), "hidden_repeats": int(r.get("hidden_repeats") or 0),
-                    "dismissable": _dismissable(r)})
+                    "dismissable": _dismissable(r), "minor": is_minor(r)})
         if not r.get("resolved_at"):
             try:  # 面板要的「现在修」/ 状态一句话（repair.describe）；算不出来不影响列表
                 from . import repair
@@ -760,17 +790,21 @@ def _neg_ts(ts) -> float:
 
 
 def summary() -> dict[str, Any]:
-    """{needs_human, auto, gave_up, skipped, hidden, last_runs: {step: {ts, ok}}}——顶部入口的计数。
+    """{needs_human, auto, gave_up, skipped, hidden, minor, last_runs: {step: {ts, ok}}}——顶部入口的计数。
+    1011：轻微的（is_minor）不计数、另给 minor，只为诊断导出。
 
     1008：她隐藏的不计数（另给 hidden）；last_runs 按步骤取最近一次登记 / 解决的时刻，ok = 这一步现在没有还开着的问题
     （以前取原始最后一行：注记行、某一篇的老失败都会顶上来，补查正常跑完不写行就一直停在「有问题」）。
     附件补查另以 _archive/attachments-recheck-status.json（每次运行都写，跳过也写）为准，比问题记录新就用它。"""
     rows = _read_rows()
     folded = _fold(rows)
-    counts = {"needs_human": 0, "auto": 0, "gave_up": 0, "skipped": 0, "hidden": 0}
+    counts = {"needs_human": 0, "auto": 0, "gave_up": 0, "skipped": 0, "hidden": 0, "minor": 0}
     open_steps: set[str] = set()
     for r in folded.values():
         if r.get("resolved_at"):
+            continue
+        if is_minor(r):
+            counts["minor"] += 1  # 1011：轻微的不进任何计数，也不让那一步算「有问题」
             continue
         if is_hidden(r):
             counts["hidden"] += 1
@@ -900,7 +934,7 @@ def dismiss(key: str | None = None, group: str | None = None, *, _now_fn=None) -
     if group:
         if group != "gave_up":
             return {"ok": False, "code": "BAD_GROUP", "message": "只能整组隐藏「已放弃」", "dismissed": []}
-        targets = [r for r in folded.values() if _dismissable(r) and not is_hidden(r)]
+        targets = [r for r in folded.values() if _dismissable(r) and not is_hidden(r) and not is_minor(r)]
     else:
         r = folded.get(str(key or ""))
         if r is None or r.get("resolved_at"):
@@ -1020,7 +1054,7 @@ def export_redacted(limit: int = 50, *, plugin_version: str | None = None) -> st
         f"- 插件版本：{plugin_version or _plugin_version()} · link_brain {__version__}",
         f"- Python：{platform.python_version()} · {platform.system()} {platform.release()}",
         f"- 问题计数：要你处理 {s['needs_human']} · 自动处理中 {s['auto']} · 已放弃 {s['gave_up']} · 未开启 {s['skipped']}"
-        f" · 已隐藏 {s.get('hidden', 0)}",
+        f" · 已隐藏 {s.get('hidden', 0)} · 轻微（不进列表）{s.get('minor', 0)}",
         "",
         "## 各步骤上次记录",
     ]
@@ -1032,7 +1066,8 @@ def export_redacted(limit: int = 50, *, plugin_version: str | None = None) -> st
     rows = load(MAX_KEYS, include_resolved=True)
     rows.sort(key=lambda r: _neg_ts(r.get("ts")))
     for r in rows[:limit]:
-        state = "已解决" if r.get("resolved_at") else "已隐藏" if r.get("hidden") else r.get("action") or ""
+        state = ("已解决" if r.get("resolved_at") else "轻微（不进列表）" if r.get("minor")
+                 else "已隐藏" if r.get("hidden") else r.get("action") or "")
         lines.append(" · ".join(str(x) for x in (r.get("ts"), r.get("step"), r.get("item_id") or "-",
                                                  r.get("title") or "", r.get("code"), state,
                                                  f"×{r.get('count')}", r.get("reason") or "") if x != ""))
@@ -1050,7 +1085,7 @@ def add_parser(sub) -> None:
     p = sub.add_parser("problems", help="问题记录：list 列出 / report 登记一条（夜跑脚本用）/ export 复制报错（脱敏）")
     psub = p.add_subparsers(dest="problems_cmd", metavar="<list|report|resolve|export|summary|repair|dismiss|undismiss>")
     pl = psub.add_parser("list", help="列出问题（折叠后，未解决在前），输出 JSON")
-    pl.add_argument("--all", action="store_true", help="连已解决的也列")
+    pl.add_argument("--all", action="store_true", help="连已解决的、轻微的（楼中楼只缺 ≤2 条）也列")
     pl.add_argument("--limit", type=int, default=MAX_KEYS)
     pr = psub.add_parser("report", help="登记一条问题（夜跑脚本登记步骤超时用），输出 JSON")
     pr.add_argument("--step", required=True)
@@ -1105,7 +1140,7 @@ def run(args) -> int:
         ai_health.migrate_legacy_rows()  # 1008：老记录里按篇登的 key 失效 / 欠费收成每个接口一条（幂等，没有就 0 开销）
         migrate_orphan_refine()  # 1008：卡片上有标、面板里没有的精细识图失败补登记一次（做过就不再做）
         dump_json({"ok": True, "code": "", "message": "", "summary": summary(),
-                   "problems": load(args.limit, include_resolved=args.all)})
+                   "problems": load(args.limit, include_resolved=args.all, include_minor=args.all)})
         return 0
     if cmd == "report":
         if not _valid_step(args.step):

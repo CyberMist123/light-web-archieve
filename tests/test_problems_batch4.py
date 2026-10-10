@@ -246,7 +246,7 @@ def test_live_running_sync_is_left_alone(monkeypatch):
 # problems-summary.json 契约（前端读，字段名固定）
 # --------------------------------------------------------------------------
 
-SUMMARY_KEYS = {"updated_at", "needs_human", "auto", "gave_up", "skipped", "hidden", "last_runs", "last_risk", "sync"}
+SUMMARY_KEYS = {"updated_at", "needs_human", "auto", "gave_up", "skipped", "hidden", "minor", "last_runs", "last_risk", "sync"}  # 1011：minor = 轻微的（不计数、不列）
 SYNC_KEYS = {"state", "code", "message", "label", "hover", "detail", "updated_at", "last_success", "favorites", "new",
              "deferred", "progress", "running", "done", "total", "remaining"}
 

@@ -16,6 +16,8 @@
 //   B1 验证——关窗后熔断还在（verify_result）时多一个「没看到验证，恢复」（plugin.restoreHold，她亲手确认才发）；
 //      出事时落了证据（evidence_id）的给「查看截图」（plugin.openRiskEvidence，直接打开本机文件，路径不出本机）。
 //   X8「打开设置」直达 AI 分页（plugin.openSetupPage('ai')）。
+// 1011（她：自愈的就不要显示报错）：已解决 / 轻微的（Python 标 minor：评论楼中楼只缺 ≤2 条）不进列表、不进组计数——只在「复制报错」里。
+//   「现在修」修好的那一行先就地标「✓ 已修好」（点完那一刻不跳），停 RESOLVED_LINGER_MS 后从列表里拿掉（组空了连组标题一起拿掉）。
 'use strict';
 module.exports = function (obsidian, plugin) {
   const { Modal, Notice } = obsidian;
@@ -54,7 +56,10 @@ module.exports = function (obsidian, plugin) {
     r.verify_result, r.evidence_id, r.repairing].map(v => v == null ? '' : String(v)).join('|');
   const listSignature = rows => (rows || []).map(signature).join('\n');
   const say = (msg, ms = 8000) => { try { new Notice(msg, ms); } catch {} };
-  const openRows = j => (j && Array.isArray(j.problems) ? j.problems.filter(x => x && !x.resolved_at) : []);
+  // 用户看得到的行：没解决、也不是轻微的（Python 的 problems list 已经滤过，这里再守一道，老后端 / 缓存也不漏）
+  const visibleRow = x => !!x && !x.resolved_at && !x.minor;
+  const openRows = j => (j && Array.isArray(j.problems) ? j.problems.filter(visibleRow) : []);
+  const timing = { resolvedLingerMs: 2500 };
 
   // 「查看」：按 item_id 在目录数据里找那篇的笔记，同一窗格打开（和目录卡片点开一样）
   async function catalogItems() {
@@ -203,6 +208,7 @@ module.exports = function (obsidian, plugin) {
         const line = old.querySelector('.lb-problem-line');
         if (line) { line.empty?.(); line.createSpan({ cls: 'lb-problem-done', text: '✓ 已修好' }); }
         old.querySelector('.lb-problem-btns')?.remove();
+        setTimeout(() => this.dropResolved(key), timing.resolvedLingerMs);
       } else {
         const holder = old.parentNode;
         const tmp = holder.createDiv();
@@ -212,6 +218,18 @@ module.exports = function (obsidian, plugin) {
       }
       this.rows = fresh;
       this.updateCounts();
+    }
+    // 修好的那一行停一会儿后拿掉（还标着已修好才拿：期间整体重画过就不用管了）；组空了连组拿掉，全空了画「没有问题」
+    dropResolved(key) {
+      if (!this.alive()) return;
+      const el = this.findRow(key);
+      if (!el || !el.hasClass?.('is-resolved')) return;
+      this.keepScroll(() => {
+        const sec = el.parentNode;
+        el.remove();
+        if (sec && sec.hasClass?.('lb-problems-group') && !sec.querySelector('.lb-problem')) sec.remove();
+        if (!this.body.querySelector('.lb-problem')) this.paint(this.rows);
+      });
     }
     findRow(key) { return Array.from(this.body.querySelectorAll('.lb-problem')).find(r => (r.getAttribute?.('data-key') ?? r.dataset?.key) === key) || null; }
     updateCounts() {
@@ -234,7 +252,7 @@ module.exports = function (obsidian, plugin) {
     paint(problems) {
       const body = this.body;
       body.empty();
-      const rows = (problems || []).filter(x => x && !x.resolved_at);
+      const rows = (problems || []).filter(visibleRow);
       this.rows = rows;
       const shown = rows.filter(x => !isHidden(x)), hidden = rows.filter(isHidden);
       if (!shown.length && !hidden.length) { body.createEl('p', { cls: 'lb-problems-status lb-problems-empty', text: '没有问题' }); return; }
@@ -353,6 +371,6 @@ module.exports = function (obsidian, plugin) {
     ProblemsModal,
     open() { const m = new ProblemsModal(); m.open(); return m; },
     copyReport,
-    _internals: { groupOf, actionText, fixesFor, shortTime, signature },
+    _internals: { groupOf, actionText, fixesFor, shortTime, signature, visibleRow, timing },
   };
 };

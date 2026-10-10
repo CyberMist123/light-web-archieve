@@ -4,6 +4,7 @@
 //   C20：第二次打开时第一帧就按缓存画好（runPy 还挂着、没有「正在读取」）；「现在修」结束只换那一行（修好的标「✓ 已修好」、
 //      别的行还是同一个元素、行数不变）；后台重读没变化一行不动
 //   B1：关窗后熔断还在（verify_result）才给「没看到验证，恢复」；有证据的给「查看截图」；restoreHold 先确认再发 --clear-hold --by-owner
+//   1011：已解决的 / 轻微的（minor：楼中楼只缺 ≤2 条）不进列表、不进组计数；「✓ 已修好」停一会儿后整行拿掉
 //   X8：AUTH_FAILED 行「打开设置」→ openSetupPage('ai')
 //   S4：账号行默认浅查（--shallow），同一时刻只跑一个，10 分钟内再画 0 次进程、显示「N 分钟前确认」；「重新检查」深查；
 //      openVerify 带 --wait；设置页同步行如实写「上次 HH:MM 在读收藏时判到验证」
@@ -35,6 +36,9 @@ const ROWS = () => [
   row({ key: 'vision.refine|xhs-a|MODEL_OUTPUT_INVALID', step: 'vision.refine', item_id: 'xhs-a', title: '合成笔记 A', code: 'PERMANENT.MODEL_OUTPUT_INVALID', action: 'gave_up', label: 'AI 结果不可用', hover: '复读', group: 'gave_up', repairable: true, repair_minutes: 4, dismissable: true, count: 2, status_text: '同样的原因已失败 2 次' }),
   row({ key: 'vision.refine|xhs-b|MODEL_OUTPUT_INVALID', step: 'vision.refine', item_id: 'xhs-b', title: '合成笔记 B', code: 'PERMANENT.MODEL_OUTPUT_INVALID', action: 'gave_up', label: 'AI 结果不可用', hover: '复读', group: 'gave_up', repairable: true, repair_minutes: 4, dismissable: true }),
   row({ key: 'vision.refine|xhs-c|MODEL_OUTPUT_INVALID', step: 'vision.refine', item_id: 'xhs-c', title: '合成笔记 C', code: 'PERMANENT.MODEL_OUTPUT_INVALID', action: 'gave_up', label: 'AI 结果不可用', hover: '复读', group: 'gave_up', dismissable: true, hidden: true, hidden_repeats: 2 }),
+  // 1011：这两条不该出现在面板上（老后端 / --all 也可能带回来）
+  row({ key: 'comments.fill|xhs-m|COMMENTS_INCOMPLETE', step: 'comments.fill', item_id: 'xhs-m', title: '合成笔记 M', code: 'PERMANENT.COMMENTS_INCOMPLETE', action: 'gave_up', label: '评论没补全', hover: '楼中楼还缺 1 条', group: 'gave_up', dismissable: true, minor: true }),
+  row({ key: 'videos.transcribe|xhs-r|NO_SPEECH', step: 'videos.transcribe', item_id: 'xhs-r', title: '合成笔记 R', code: 'PERMANENT.NO_SPEECH', action: 'gave_up', label: '没人声', hover: '', group: 'gave_up', resolved_at: '2026-10-08T05:00:00+11:00' }),
 ];
 
 function makePlugin(state) {
@@ -79,7 +83,9 @@ async function panelTests() {
   const rowOf = key => c.querySelectorAll('.lb-problem').find(r => r.getAttribute('data-key') === key);
   // 分组 + 按钮
   const heads = c.querySelectorAll('.lb-problems-group h3').map(h => h.textContent);
-  assert.deepEqual(heads, ['等你处理 · 2', '正在自动处理 · 2', '已放弃 · 2'], '隐藏的不计入分组');
+  assert.deepEqual(heads, ['等你处理 · 2', '正在自动处理 · 2', '已放弃 · 2'], '隐藏的不计入分组；已解决 / 轻微的不计也不列');
+  assert.equal(rowOf('comments.fill|xhs-m|COMMENTS_INCOMPLETE'), undefined, '轻微的（楼中楼只缺 1 条）不列');
+  assert.equal(rowOf('videos.transcribe|xhs-r|NO_SPEECH'), undefined, '已解决的不列');
   assert.deepEqual(btns(rowOf('login||CAPTCHA_REQUIRED')), ['打开验证', '没看到验证，恢复', '查看截图'], '关窗后熔断还在：多一个恢复；有证据：查看截图');
   assert.deepEqual(btns(rowOf('attachments.recheck|xhs-p|PROBE_FAILED')), ['查看'], '正在自动处理的不能隐藏');
   assert.deepEqual(btns(rowOf('vision.refine|xhs-a|MODEL_OUTPUT_INVALID')), ['再试一次', '隐藏', '查看'], '已放弃：「再试一次」+「隐藏」');
@@ -116,12 +122,19 @@ async function panelTests() {
   const before = c.querySelectorAll('.lb-problem');
   const keep = rowOf('ai.summary||AUTH_FAILED');
   const target = rowOf('embed||NETWORK');
+  ui._internals.timing.resolvedLingerMs = 30;
   await target.querySelector('.lb-problem-repair').onclick();
   const after = c.querySelectorAll('.lb-problem');
   assert.equal(after.length, before.length, '行数不变（修好的不删，免得跳动）');
   assert.ok(target.hasClass('is-resolved') && target.textContent.includes('✓ 已修好') && !target.querySelector('.lb-problem-btns'));
   assert.equal(rowOf('ai.summary||AUTH_FAILED'), keep, '别的行还是同一个元素');
   assert.equal(c.querySelectorAll('.lb-problems-group h3')[1].textContent, '正在自动处理 · 1', '组标题计数跟着改');
+  // 1011：「✓ 已修好」停一会儿后整行拿掉（已解决的不留在列表里），别的行照旧是同一个元素
+  await tick(80);
+  assert.equal(rowOf('embed||NETWORK'), undefined, '修好的那一行停一会儿后拿掉');
+  assert.equal(c.querySelectorAll('.lb-problem').length, before.length - 1);
+  assert.equal(rowOf('ai.summary||AUTH_FAILED'), keep);
+  assert.equal(c.querySelectorAll('.lb-problems-group h3')[1].textContent, '正在自动处理 · 1');
   // 第二次打开：第一帧就按缓存画好，标「正在刷新…」，没有「正在读取」
   let release; state.gate = new Promise(r => { release = r; });
   const m2 = ui.open();
@@ -133,7 +146,7 @@ async function panelTests() {
   assert.equal(m2.contentEl.querySelector('.lb-problems-refresh').textContent, '');
   assert.equal(m2.contentEl.querySelector('.lb-problem'), firstRow, '后台重读没变化：一行不动');
   state.gate = null;
-  console.log('PASS problems C20: repair replaces only that row (✓ 已修好, others same element, count updated), reopen paints cache first with 正在刷新…, unchanged refresh touches nothing');
+  console.log('PASS problems C20: repair replaces only that row (✓ 已修好, others same element, count updated; 1011: resolved row dropped after a beat, resolved / minor rows never listed), reopen paints cache first with 正在刷新…, unchanged refresh touches nothing');
 }
 
 async function pluginTests() {

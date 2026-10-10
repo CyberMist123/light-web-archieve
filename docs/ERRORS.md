@@ -4,6 +4,7 @@
 目标（作者 10-04 定）：风控以外的报错期待是 0；凌晨跑完出 bug **当场修**，不留到第二天；实际报错都要显示出来；
 识图 / 概要 / 附件 / 转写任一步失败都**不阻断入档**（先入档，后补）。
 
+- 「照实显示」的口径（10-11）：问题面板只列现在还要人看一眼的——**已解决 / 当场自愈的不列、不计数**；评论楼中楼只缺 ≤2 条（不影响阅读）算「轻微」，同样不列不计数；两者都只在「复制报错」里（见第 16 条）。
 - 故障码规则见 `docs/CONVENTIONS.md` §2；显示文案只在 `link_brain/problems.py` 的 `STATE_REGISTRY`。
 - 每个码的修复动作在 `link_brain/repair.py`（`plan()` 归类：`run` 有动作 / `wait` 必须等且写清等到几点 / `human` 风控·登录·key / `manual` 写下一步）。
 - 自愈分三层：①**同一次运行里换策略重试**（各模块自己做）；②**夜跑收尾的自愈轮**（`repair.run(since=…, auto=True)`，本次新登记、还没解决的各修一遍，不过 06:50、最多 30 分钟）；③**问题面板「现在修」/「全部修一遍」**。修不好的写清「试过什么、为什么没好、下一步」。
@@ -131,6 +132,14 @@
   楼数调大由插件自动拉起后台补跑。进度写 `_archive/comments-fill-status.json`，插件状态栏 / 设置页显示。
 - **回归用例**：`tests/test_comments_fill_1009.py::test_old_note_gap_inside_floor_setting_is_scheduled_and_filled`、`tests/test_comments_fill_1009.py::test_raise_floors_loads_more_and_lower_never_deletes`、`tests/test_comments_fill_1009.py::test_union_merge_keeps_replies_the_site_no_longer_shows`、`tests/test_comments_fill_1009.py::test_no_progress_three_times_goes_to_problem_panel_then_resolves`、`tests/test_comments_fill_1009.py::test_count_mismatch_and_missing_floor_are_settled_not_gaps`、`tests/test_comments_fill_1009.py::test_fill_reuses_downloaded_media_and_does_not_redownload`、`tests/test_comments_fill_1009.py::test_worker_waits_out_captcha_without_opening_pages_then_resumes`、`tests/test_comments_fill_1009.py::test_worker_yields_to_nightly_and_waiting_tasks`、`tests/test_comments_fill_1009.py::test_polite_session_lets_waiting_task_go_first`、`tests/test_comments_fill_1009.py::test_nightly_step_has_no_two_note_cap_and_hands_over_to_background`。
 
+### 16. 问题面板挂着已经好了的、和只缺一两条楼中楼的「评论没补全」（10-11）
+- **用户看到**：面板「已放弃」里几条「评论没补全：前 10 楼的楼中楼还缺 1 条」，顶部灰色数字一直不归零；点「现在修」修好的那一行还留着「✓ 已修好」。
+- **根因**：①续读连着 3 次没多拿到就进面板，不管缺多少——缺 1 条（这楼当时没展开）和缺几百条一个待遇；②修好的行为了不跳动一直留到关窗。
+- **修法 / 自愈**：面板的 `problems list` 只给没解决、且不是「轻微」的（`problems.is_minor`：`COMMENTS_INCOMPLETE` 楼中楼只缺 ≤2 条；续读写行时带 `missing`，老行从原因认）；
+  轻微的不进顶部计数、不让那一步变红、不进「全部修一遍」/「全部隐藏」、周报不算 open；「复制报错」照留（状态「已解决」/「轻微（不进列表）」）。
+  面板「✓ 已修好」停 2.5 秒后拿掉那一行。缺 3 条以上、续读报错（认不出缺几条）的照常列；笔记页的「楼中楼还缺 N 条」照实标。
+- **回归用例**：`tests/test_problems_minor_1011.py::test_minor_comment_gap_not_listed_or_counted_but_exported`、`tests/test_problems_minor_1011.py::test_only_minor_open_means_step_ok_and_badge_zero`、`tests/test_problems_minor_1011.py::test_resolved_rows_not_listed_but_exported`、`tests/test_problems_minor_1011.py::test_minor_skipped_by_repair_all_and_group_dismiss_but_single_still_runs`；node `tests/test_problems_dismiss_ui.cjs`（已解决 / 轻微的不画、修好的行停一会儿后拿掉）。
+
 ---
 
 ## 二、故障码对照（用户看到 → 常见根因 → 自愈动作）
@@ -173,7 +182,7 @@
 | `PERMANENT.REMOTE_TASK_FAILED` | 远程阅读的计划任务没弄好 | 计划任务注册失败 | — | — | 设置 → 远程阅读 关掉再打开 |
 | `PERMANENT.CHECKSUM_MISMATCH` / `BAD_PACKAGE` / `DISK_FULL` | 组件校验不过 / 包不对 / 磁盘不够 | 只在安装命令结果里出现 | — | — | 设置 →「开始」重装；先腾空间 |
 | `SKIPPED.*` | 未配置 / 已关闭 / 额度到了 / 已退回普通方式 / 旧设置已换算 | 没开、没配 | — | — | 不是问题，不计数 |
-| `PERMANENT.COMMENTS_INCOMPLETE`（step `comments.fill`） | 评论没补全：设置楼数内的楼中楼还缺 N 条、原因、连着几次没多拿到 | 展开按钮点不动 / 被限频 / 评论区滚不动，连着 3 次续读都没多拿到 | 同一篇隔 45 分钟再续；没进展计数 | — 不自动（同一篇反复开页伤号） | 「再试一次」= 续读这篇一次（`comments <id> --fill`）；补齐了自动消；不想看可隐藏；见第 15 条 |
+| `PERMANENT.COMMENTS_INCOMPLETE`（step `comments.fill`） | 评论没补全：设置楼数内的楼中楼还缺 N 条、原因、连着几次没多拿到 | 展开按钮点不动 / 被限频 / 评论区滚不动，连着 3 次续读都没多拿到 | 同一篇隔 45 分钟再续；没进展计数 | — 不自动（同一篇反复开页伤号） | 「再试一次」= 续读这篇一次（`comments <id> --fill`）；补齐了自动消；不想看可隐藏；只缺 ≤2 条的算轻微、不进面板（第 16 条）；见第 15 条 |
 | `PERMANENT.NOTE_DAMAGED`（step `render.check`） | 笔记页被改坏（两栏散了 / 正文没了），打开时就地提示一次 | 手改 md 删了受管标记 / 属性 / 批注块，或把两栏块换行拆开 | 打开时提示「恢复」，不弹窗不阻断 | 默认关（`LINK_BRAIN_AUTO_RESTORE=1` 才自动；24 小时没动才跑，失败不再自动） | ⋯ 菜单「恢复这篇」/「从快照找回…」；回归 `tests/test_note_damage_1009.py`、`tests/test_restore_1009.py`、`tests/test_note_tools_1009.cjs` |
 
 入档不被阻断（B2.4）：同步 / 导入时识图、概要、附件、转写都在入档之后单独做；渲染时识图或概要出意外只登记一条（`TRANSIENT.STEP_CRASHED`，正文已入档），笔记照写——`tests/test_self_heal_1004.py::test_render_survives_vision_crash`。

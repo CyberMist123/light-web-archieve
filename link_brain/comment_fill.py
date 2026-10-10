@@ -332,7 +332,7 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
         save_state(source_key, source_id, state)
         problems.report(STEP, CODE_INCOMPLETE,
                         f"{floors_label(floors)}的楼中楼还缺 {sc2['missing']} 条：{why}；连着 {state['no_progress']} 次续读都没多拿到，先不自动读了",
-                        item_id=item_id, title=title, action="gave_up")
+                        item_id=item_id, title=title, action="gave_up", missing=sc2["missing"])
     else:
         save_state(source_key, source_id, state)
     try:
