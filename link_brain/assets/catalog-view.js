@@ -78,49 +78,75 @@ const CSS = `
 .lbc-subcats button.lbc-subcat.is-active{color:var(--text-normal);border-color:var(--text-normal)!important;font-weight:500;}
 .lbc-subcat-n{font-size:10.5px;color:var(--text-faint);font-variant-numeric:tabular-nums;}
 .lbc-subcats button.lbc-subcat.is-deep{border-style:dashed!important;}
-/* 10-10「索引」视图：横向分叉树（思维导图式），纯 DOM + CSS 连线；窄了（<640px 或手机）退化成缩进列表 */
-.lbi-panel{padding:6px 5px 40px;}
-.lbi-panel[hidden]{display:none!important;}
-.lbi-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:4px 0 14px;}
-.lbi-sum{font-size:12px;color:var(--text-muted);margin-right:auto;}
-.lbi-bar button{height:auto;padding:5px 12px;font-size:12px;border-radius:8px;}
-.lbi-note{font-size:12px;line-height:1.6;color:var(--text-muted);margin:0 0 12px;}
-.lbi-banner{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 12px;padding:9px 14px;border-radius:10px;background:var(--background-secondary);font-size:13px;}
-.lbi-banner-text{margin-right:auto;}
-.lbi-banner button{height:auto;padding:4px 12px;font-size:12px;border-radius:8px;}
-.lbi-warn{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px;margin:0 0 12px;font-size:12px;line-height:1.6;color:var(--text-normal);}
+/* 10-11「索引」视图：左边可折叠的树（带篇数），右边就是卡片网格（点哪个节点右边就是哪些）；窄了（<700px 或手机）树叠在上面。
+   她的口味：不要灰框、不要看得见的滚动条——选中用正文色 + 左侧细线，空分类变淡，按钮都是字链 */
+.lbi-bar{display:flex;flex-direction:column;gap:8px;margin:6px 5px 14px;}
+.lbi-bar[hidden],.lbi-panel[hidden],.lbi-head[hidden]{display:none!important;}
+.lbi-line{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px;font-size:12px;line-height:1.7;color:var(--text-muted);}
+.lbi-sum{color:var(--text-muted);}
+.lbi-status{color:var(--text-muted);}
+.lbi-status.is-warn::before{content:"⚠ ";color:var(--lb-warn);}
+.lbc-wrap button.lbi-link{font:inherit;font-size:12px;color:var(--text-muted);background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important;height:auto!important;cursor:pointer;text-decoration:underline;text-decoration-color:var(--background-modifier-border);text-underline-offset:3px;}
+.lbc-wrap button.lbi-link:hover{color:var(--text-normal);text-decoration-color:currentColor;}
+.lbc-wrap button.lbi-link.is-strong{color:var(--text-normal);font-weight:500;}
+.lbc-wrap button.lbi-link:disabled{opacity:.5;cursor:default;}
+.lbi-unc-link.is-on{color:var(--text-normal)!important;font-weight:500;}
+.lbi-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;}
+.lbi-chips-label{font-size:12px;color:var(--text-muted);margin-right:2px;}
+.lbc-wrap button.lbi-chip{display:inline-flex;align-items:baseline;gap:5px;height:auto;padding:2px 10px;border:1px dashed var(--background-modifier-border)!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--text-muted);font-size:12px;font-weight:400;line-height:1.6;cursor:pointer;transition:color .12s,border-color .12s;}
+.lbc-wrap button.lbi-chip:hover{color:var(--text-normal);border-color:var(--text-faint)!important;}
+.lbc-wrap button.lbi-chip.is-on{color:var(--text-normal);border-style:solid!important;border-color:var(--text-normal)!important;font-weight:500;}
+.lbi-chip-n{font-size:10.5px;color:var(--text-faint);font-variant-numeric:tabular-nums;}
+.lbi-note{font-size:12px;line-height:1.6;color:var(--text-muted);margin:0;}
+.lbi-split.is-on{display:grid;grid-template-columns:minmax(210px,270px) minmax(0,1fr);gap:0 22px;align-items:start;}
+.lbi-split.is-on.is-narrow{display:block;}
+.lbi-main{min-width:0;}
+.lbi-panel{font-size:13px;padding:2px 0 24px 5px;}
+.lbi-split.is-on:not(.is-narrow)>.lbi-panel{position:sticky;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;}
+.lbi-split.is-on:not(.is-narrow)>.lbi-panel::-webkit-scrollbar{display:none;}
+.lbi-split.is-narrow>.lbi-panel{padding-bottom:10px;margin-bottom:6px;border-bottom:1px solid var(--background-modifier-border);}
+.lbi-tree{display:flex;flex-direction:column;}
+.lbi-row{display:flex;align-items:center;gap:2px;min-height:28px;border-left:2px solid transparent;}
+.lbi-row.is-current{border-left-color:var(--text-normal);}
+.lbc-wrap button.lbi-fold{flex:none;width:18px;height:22px;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;color:var(--text-muted);font-size:12px;line-height:1;cursor:pointer;display:grid;place-items:center;}
+.lbc-wrap button.lbi-fold:hover{color:var(--text-normal);}
+.lbi-fold-pad{flex:none;width:18px;}
+.lbc-wrap button.lbi-label{flex:1 1 auto;min-width:0;display:flex;align-items:baseline;gap:8px;height:auto;padding:4px 6px 4px 2px;border:0!important;background:transparent!important;box-shadow:none!important;color:var(--text-normal);font-size:13px;font-weight:400;line-height:1.45;text-align:left;cursor:pointer;}
+.lbc-wrap button.lbi-label:hover .lbi-name{text-decoration:underline;text-decoration-color:var(--background-modifier-border);text-underline-offset:3px;}
+.lbi-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lbi-n{flex:none;font-size:11px;color:var(--text-faint);font-variant-numeric:tabular-nums;}
+.lbi-row.is-current .lbi-name{font-weight:600;}
+.lbi-row.is-root .lbi-name{font-weight:600;}
+.lbi-row.is-empty .lbi-name,.lbi-row.is-empty .lbi-n{color:var(--text-faint);}
+.lbi-row.is-unc .lbi-name{color:var(--text-muted);}
+.lbi-row.is-virtual .lbi-name{color:var(--text-muted);font-style:italic;}
+.lbi-badge{flex:none;font-size:10.5px;color:var(--text-faint);border:1px dashed var(--background-modifier-border);border-radius:6px;padding:0 5px;line-height:1.5;}
+.lbi-acts{flex:none;display:none;gap:8px;padding-right:4px;}
+.lbi-row:hover .lbi-acts,.lbi-row:focus-within .lbi-acts,.lbi-row.is-current .lbi-acts{display:inline-flex;}
+@media(hover:none){.lbi-acts{display:inline-flex;}}
+.lbi-acts button.lbi-link{font-size:11.5px!important;}
+.lbi-wiki-mark{flex:none;font-size:10.5px;color:var(--text-faint);}
+.lbi-wiki-mark.has-page{color:var(--text-muted);}
+.lbi-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px;margin:2px 5px 4px;font-size:13px;line-height:1.7;}
+.lbi-head-title{font-weight:600;color:var(--text-normal);}
+.lbi-head-sub{font-size:12px;color:var(--text-muted);}
+.lbi-warn{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px;font-size:12px;line-height:1.6;color:var(--text-normal);}
 .lbi-warn-mark{color:var(--lb-warn);}
 .lbi-warn ol{margin:4px 0 0;padding-left:20px;flex-basis:100%;color:var(--text-muted);}
-.lbi-panel button.lbi-link{font:inherit;font-size:12px;color:var(--text-muted);background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important;height:auto!important;cursor:pointer;text-decoration:underline;text-underline-offset:2px;}
-.lbi-tree{overflow-x:auto;padding:8px 2px 18px;font-size:13px;}
-.lbi-node{display:flex;align-items:center;}
-.lbi-row{display:flex;align-items:center;gap:6px;flex:none;}
-.lbi-panel button.lbi-label{display:inline-flex;align-items:baseline;gap:6px;height:auto;padding:5px 12px;border:1px solid var(--background-modifier-border)!important;border-radius:999px!important;background:var(--background-primary)!important;box-shadow:none!important;color:var(--text-normal);font-size:13px;font-weight:400;line-height:1.5;cursor:pointer;white-space:nowrap;transition:border-color .12s,color .12s;}
-.lbi-panel button.lbi-label:hover{border-color:var(--text-faint)!important;}
-.lbi-panel button.lbi-label.is-empty{color:var(--text-faint);}
-.lbi-panel button.lbi-label.is-current{border-color:var(--text-normal)!important;font-weight:500;}
-.lbi-panel .lbi-root>.lbi-row button.lbi-label{font-weight:600;}
-.lbi-panel .lbi-unc>.lbi-row button.lbi-label{border-style:dashed!important;color:var(--text-muted);}
-.lbi-n{font-size:11px;color:var(--text-faint);font-variant-numeric:tabular-nums;}
-.lbi-panel button.lbi-fold{height:auto;min-width:22px;padding:1px 6px;font-size:11px;line-height:1.4;border:1px solid var(--background-modifier-border)!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--text-muted);cursor:pointer;}
-.lbi-wiki{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);}
-.lbi-panel .lbi-wiki button{height:auto;padding:1px 7px;font-size:11px;border-radius:6px;box-shadow:none;}
-.lbi-wiki-tag{padding:1px 6px;border-radius:6px;background:var(--background-secondary);}
-.lbi-wiki-new{color:var(--lb-warn);}
-.lbi-kids{display:flex;flex-direction:column;justify-content:center;position:relative;margin-left:26px;}
-.lbi-kids::before{content:"";position:absolute;left:-26px;top:50%;width:26px;border-top:1px solid var(--background-modifier-border);}
-.lbi-kids>.lbi-node{position:relative;padding:3px 0 3px 18px;}
-.lbi-kids>.lbi-node::before{content:"";position:absolute;left:0;top:50%;width:18px;border-top:1px solid var(--background-modifier-border);}
-.lbi-kids>.lbi-node::after{content:"";position:absolute;left:0;top:0;bottom:0;border-left:1px solid var(--background-modifier-border);}
-.lbi-kids>.lbi-node:first-child::after{top:50%;}
-.lbi-kids>.lbi-node:last-child::after{bottom:50%;}
-.lbi-kids>.lbi-node:only-child::after{display:none;}
-.lbi-panel.is-list .lbi-node{display:block;}
-.lbi-panel.is-list .lbi-row{padding:3px 0;}
-.lbi-panel.is-list .lbi-kids{margin-left:14px;padding-left:12px;border-left:1px solid var(--background-modifier-border);}
-.lbi-panel.is-list .lbi-kids::before,.lbi-panel.is-list .lbi-kids>.lbi-node::before,.lbi-panel.is-list .lbi-kids>.lbi-node::after{display:none;}
-.lbi-panel.is-list .lbi-kids>.lbi-node{padding:0;}
-.lbi-panel.is-list button.lbi-label{white-space:normal;text-align:left;}
+.lbi-split.is-on .lbc-grid{padding-top:6px;}
+/* 卡片上「归类…」：只在索引视图里、鼠标停在卡上才出现（和选中圈 / ☆ 同款圆角小钮，排在它们左边） */
+.lbc-wrap button.lbc-reclass{position:absolute;top:8px;right:72px;z-index:1;height:26px;box-sizing:border-box;padding:0 10px!important;border-radius:999px!important;border:1.5px solid #fff!important;background:rgba(0,0,0,.28)!important;box-shadow:0 1px 4px #0003!important;color:#fff;font-size:12px;line-height:1;display:none;align-items:center;cursor:pointer;}
+.lbc-wrap.is-indexview .lbc-card:hover button.lbc-reclass,.lbc-wrap.is-indexview .lbc-card:focus-within button.lbc-reclass{display:inline-flex;}
+.lbc-wrap button.lbc-reclass:hover{background:rgba(0,0,0,.45)!important;}
+@media(hover:none){.lbc-wrap.is-indexview button.lbc-reclass{display:inline-flex;}}
+/* 选分类的小窗（移到… / 也放进…）：上面一个筛选框，下面整棵树；列表能滚但不露滚动条 */
+.lbc-dialog .lbi-pick{margin-top:8px;max-height:min(52vh,420px);overflow-y:auto;scrollbar-width:none;}
+.lbc-dialog .lbi-pick::-webkit-scrollbar{display:none;}
+.lbc-dialog button.lbi-pick-row{display:flex;width:100%;align-items:baseline;gap:8px;height:auto;padding:5px 8px;border:0!important;border-radius:6px;background:transparent!important;box-shadow:none!important;color:var(--text-normal);font-size:13px;text-align:left;cursor:pointer;}
+.lbc-dialog button.lbi-pick-row:hover,.lbc-dialog button.lbi-pick-row:focus-visible,.lbc-dialog button.lbi-pick-row.is-first{background:var(--background-modifier-hover)!important;outline:none;}
+.lbc-dialog button.lbi-pick-row.is-here{color:var(--text-faint);cursor:default;}
+.lbc-dialog .lbi-pick-n{margin-left:auto;font-size:11px;color:var(--text-faint);}
+.lbc-dialog .lbi-pick-empty{padding:10px 8px;color:var(--text-muted);font-size:12px;}
 /* C1 / C15：多选栏在吸顶区里（.lbc-top 最后一个子节点），常用的留在栏上，其余收进「更多…」 */
 .lbc-selbar{display:flex;flex-wrap:wrap;row-gap:8px;gap:8px 12px;align-items:center;margin:8px 0 10px;padding:10px 14px;border-radius:12px;background:var(--background-secondary);}
 .lbc-selbar[hidden]{display:none!important;}
@@ -308,18 +334,22 @@ async function loadIndex() {
   return idx;
 }
 let idxRebuildAsked = '';
+// 10-11「建议新增」也能像节点一样筛（activeCat = '∅建议:<id>'）：右边看这些笔记，上面一行「加进索引 / 不要」
+const PROP = '∅建议:';
+const proposalOf = c => (typeof c === 'string' && c.startsWith(PROP) ? (idx?.proposals || []).find(p => p.id === c.slice(PROP.length)) || null : null);
 function nodeIds(path) {
   if (!idx || !path) return null;
   if (idxSets.has(path)) return idxSets.get(path);
-  const ids = path === UNC ? idx.unclassified?.items : idxByPath.get(path)?.items;
+  const ids = path === UNC ? idx.unclassified?.items : path.startsWith(PROP) ? proposalOf(path)?.items : idxByPath.get(path)?.items;
   const s = Array.isArray(ids) ? new Set(ids) : null;
   idxSets.set(path, s);
   return s;
 }
-const catLabel = c => (c === UNC ? UNC_LABEL : String(c || '').split('/').join(' › '));
+const catLabel = c => (c === UNC ? UNC_LABEL : proposalOf(c) ? '建议新增「' + proposalOf(c).name + '」' : String(c || '').split('/').join(' › '));
 function knownCat(c) {
   if (typeof c !== 'string' || !c) return false;
   if (!idx) return (data.cats_order || []).includes(c);
+  if (c.startsWith(PROP)) return !!proposalOf(c);
   return c === UNC ? !!idx.unclassified?.count : idxByPath.has(c);
 }
 function inCat(it) {
@@ -433,7 +463,7 @@ async function reloadIndex() {
   await loadIndex();
   if (activeCat && !knownCat(activeCat)) activeCat = '';
   if (indexView && !idx) indexView = false;
-  panelKey = null;
+  panelKey = null; barKey = null;
   renderCatBar();
   withAnchor(() => render());
 }
@@ -835,6 +865,7 @@ function setSelbarVisible(on) {
   const a = sc ? cardUnderTop() : null, y0 = a ? a.getBoundingClientRect().top : 0;
   const h0 = top.offsetHeight || 0;
   selbar.hidden = !on;
+  if (indexView && idx) paintIndexSticky();     // 吸顶区变高 / 变矮：左边的树跟着挪
   if (!sc) return;
   if (a) {
     const fix = () => { if (!a.isConnected) return; const d = a.getBoundingClientRect().top - y0; if (Math.abs(d) >= 0.5) sc.scrollTop = Math.max(0, sc.scrollTop + d); };
@@ -854,116 +885,315 @@ function setSelbarBusy(text) {
   return () => { selBusy = false; starSel.setText(prev); paintSelbar(); };
 }
 
-// ── 10-10「索引」视图：横向分叉树（第二级以下默认收起，点「+N」展开），节点带篇数，点节点 = 筛到这些笔记 ──
-// 起草 / 用这版 / 未归类建议 / 生成 wiki 要插件（跑 Python）；打开 索引.md / 草稿 / wiki 页不要插件（手机上也能看）。
-const ipanel = wrap.createEl('div', { cls: 'lbi-panel' });
-ipanel.hidden = true;
-let panelKey = null;
-function nodeOpen(path, depth) { return foldOverride.has(path) ? foldOverride.get(path) : depth < 2; }
-function openNode(path) {
-  activeCat = path; indexView = false;
-  renderCatBar({ reveal: true }); render(); scrollToResults();
+// ── 10-11「索引」视图：左边可折叠的树（带篇数），右边就是卡片网格（同一套卡片，点哪个节点右边就是哪些）；
+//    上面一行：篇数 · 「未归类 N 篇」· 按内容归类的状态 · 「建议新增」chips；右边网格上面一行说清选中的是什么、能做什么。
+// 起草 / 用这版 / 建议 / 改归属 / 生成 wiki 要插件（跑 Python）；打开 索引.md / 草稿 / wiki 页不要插件（手机上也能看）。
+const ibar = wrap.createEl('div', { cls: 'lbi-bar' }); ibar.hidden = true;
+const split = wrap.createEl('div', { cls: 'lbi-split' });
+const ipanel = split.createEl('div', { cls: 'lbi-panel' }); ipanel.hidden = true;
+const imain = split.createEl('div', { cls: 'lbi-main' });
+const ihead = imain.createEl('div', { cls: 'lbi-head' }); ihead.hidden = true;
+let panelKey = null, barKey = null, propsOpen = false;
+// 默认只展开选中的那一支（树不长）；手动展开 / 收起过的照记的来
+function nodeOpen(path) { return foldOverride.has(path) ? foldOverride.get(path) : !!activeCat && (activeCat === path || activeCat.startsWith(path + '/')); }
+function selectNode(path) {
+  activeCat = path || '';
+  for (let p = activeCat.startsWith(PROP) ? '' : activeCat; p.includes('/'); p = p.slice(0, p.lastIndexOf('/'))) foldOverride.delete(p.slice(0, p.lastIndexOf('/')));
+  renderCatBar(); render(); scrollToResults();
 }
 async function indexAction(method, btn, busyText, ...args) {
   const p = await want(method); if (!p) return null;
   const done = btn ? LB.busy(btn, busyText) : () => {};
   try { return await p[method](...args); }
-  catch (e) { LB.say((busyText || '').replace(/…$/, '') + '没成：' + (e?.message || e), { kind: 'error' }); return null; }
+  catch (e) { LB.say((busyText || '').replace(/^正在|…$/g, '') + '没成：' + (e?.message || e), { kind: 'error' }); return null; }
   finally { done(); }
 }
-function panelButton(box, label, fn, cls = '') {
+// 插件那头的结果（{ok, message}）：说一句，成功了马上换上新的索引数据（文件监听也会来，但别让她等 300ms）
+async function indexDone(r, okText = '好了') {
+  if (!r) return false;
+  LB.say(r.message || (r.ok ? okText : '没成'), { kind: r.ok ? 'ok' : 'error' });
+  if (r.ok) await reloadIndex();
+  return !!r.ok;
+}
+function panelButton(box, label, fn, cls = 'lbi-link') {
   const b = box.createEl('button', { text: label, cls }); b.type = 'button';
   b.onclick = e => { e?.stopPropagation?.(); fn(b); };
   return b;
 }
-function wikiPill(row, n) {
-  const st = (idx.wiki || {})[n.path] || {};
-  const pill = row.createEl('span', { cls: 'lbi-wiki' + (st.exists ? ' has-page' : '') });
-  if (st.exists) {
-    panelButton(pill, 'wiki', () => openVaultFile(st.file), 'lbi-wiki-open');
-    if (st.new_since) pill.createEl('span', { cls: 'lbi-wiki-new', text: `新增 ${st.new_since}` });
-  } else pill.createEl('span', { cls: 'lbi-wiki-tag', text: 'wiki' });
-  if (!mobile) {
-    const gen = panelButton(pill, st.exists ? '更新' : '生成', b => indexAction('wikiBuild', b, '正在生成 wiki…', n.path), 'lbi-wiki-gen');
-    if (!idx.text_ai?.ok) gen.disabled = true;
-  }
+const pathText = p => String(p || '').split('/').join(' › ');
+const money = y => (typeof y === 'number' ? (y >= 0.01 ? `，约 ¥${y.toFixed(2)}` : '，不到 1 分钱') : '');
+function classifyStatus() {
+  const c = idx?.classify; if (!c) return null;
+  if (c.running) return { text: `AI 正在按内容归类${c.running.total ? ` ${c.running.done || 0}/${c.running.total}` : ''}…（归好的会陆续出来）` };
+  if (!c.ai_ok) return { text: `没配文本 AI：先按名字和标签找（${c.why || '设置里没配'}）` };
+  if (c.error && c.work) return { text: `上次按内容归类没成：${c.error.error || c.error.code || ''}`, warn: true, action: '重试' };
+  if (c.blocked) return { text: c.blocked.why, action: '按内容归类' };
+  if (c.work) return { text: (c.pending ? `还有 ${c.pending} 篇没按内容归` : '有新改的分类还没核对') + money(c.yuan), action: '按内容归类' };
+  const spent = Number(c.spent?.yuan) || 0;
+  return { text: `已按内容归类${c.model ? ' · ' + c.model : ''}${spent ? ` · 累计约 ¥${spent.toFixed(2)}` : ''}` };
 }
-function treeNode(box, n, depth, cls = '') {
-  const el = box.createEl('div', { cls: 'lbi-node' + (cls ? ' ' + cls : '') });
-  el.dataset.path = n.path;
-  const row = el.createEl('div', { cls: 'lbi-row' });
-  const label = row.createEl('button', { cls: 'lbi-label' + (n.count ? '' : ' is-empty') });
-  label.type = 'button';
-  label.createEl('span', { cls: 'lbi-name', text: n.name });
-  label.createEl('span', { cls: 'lbi-n', text: String(n.count) });
-  if (n.path) label.onclick = () => openNode(n.path);
-  else label.onclick = () => { clearFilters(); renderCatBar({ reveal: true }); render(); scrollToResults(); };
-  if (!mobile && n.line) label.oncontextmenu = e => { e.preventDefault(); editCategories(n.path); };
-  const kids = n.kids || (n.children || []).map(p => idxByPath.get(p)).filter(Boolean);
-  if (n.wiki) wikiPill(row, n);
-  if (!kids.length) return el;
-  const open = n.path ? nodeOpen(n.path, depth) : true;
-  if (n.path) {
-    const fold = panelButton(row, open ? '−' : '+' + kids.length, () => { foldOverride.set(n.path, !open); panelKey = null; renderIndexPanel(); saveState(); }, 'lbi-fold');
-    fold.setAttribute('aria-expanded', String(open));
-  }
-  if (open) {
-    const kidsBox = el.createEl('div', { cls: 'lbi-kids' });
-    for (const k of kids) treeNode(kidsBox, k, depth + 1, k.unc ? 'lbi-unc' : '');
-  }
-  return el;
+async function runClassify(btn) {
+  const r = await indexAction('indexClassify', btn, '正在按内容归类…', { onProgress: ev => { try { btn.setText?.(`正在按内容归类 ${ev.done}/${ev.total}…`); } catch {} } });
+  await indexDone(r, '按内容归好了');
 }
-function panelNarrow() { const w = Number(wrap.clientWidth) || (typeof innerWidth === 'number' ? innerWidth : 1200); return mobile || w < 640; }
-function renderIndexPanel() {
-  if (!idx) { ipanel.empty(); return; }
-  const key = JSON.stringify([idxRev, [...foldOverride], panelNarrow(), activeCat]);
-  if (key === panelKey) return;
-  panelKey = key;
-  ipanel.empty();
-  ipanel.classList.toggle('is-list', panelNarrow());
-  const roots = idx.roots.map(p => idxByPath.get(p)).filter(Boolean);
+function renderIndexBar() {
+  const key = JSON.stringify([idxRev, activeCat, propsOpen, mobile]);
+  if (key === barKey) return;
+  barKey = key;
+  ibar.empty();
   const unc = idx.unclassified?.count || 0;
-  const bar = ipanel.createEl('div', { cls: 'lbi-bar' });
-  bar.createEl('span', { cls: 'lbi-sum', text: `${idx.total} 篇 · ${roots.length} 个大类 · 未归类 ${unc}` });
-  panelButton(bar, '编辑索引', () => openVaultFile(idx.file || '索引.md'), 'lbi-edit');
-  if (!mobile) {
-    panelButton(bar, idx.text_ai?.ok ? 'AI 起草' : '起草一版', b => indexAction('indexDraft', b, '正在起草…'), 'lbi-draft-btn');
-    if (unc) panelButton(bar, '未归类建议', b => indexAction('openIndexSuggestions', b, '正在找建议…'), 'lbi-suggest-btn');
+  const l1 = ibar.createEl('div', { cls: 'lbi-line' });
+  l1.createEl('span', { cls: 'lbi-sum', text: `${idx.total} 篇 · 归进分类 ${idx.classified} 篇` });
+  if (unc) {
+    const u = panelButton(l1, `未归类 ${unc} 篇`, () => selectNode(activeCat === UNC ? '' : UNC), 'lbi-link lbi-unc-link' + (activeCat === UNC ? ' is-on' : ''));
+    u.setAttribute('aria-pressed', String(activeCat === UNC));
+  } else l1.createEl('span', { cls: 'lbi-sum', text: '没有未归类的' });
+  const st = classifyStatus();
+  if (st) {
+    l1.createEl('span', { cls: 'lbi-status' + (st.warn ? ' is-warn' : ''), text: st.text });
+    if (st.action && !mobile) panelButton(l1, st.action, b => runClassify(b), 'lbi-link is-strong lbi-classify-btn');
   }
-  if (!mobile && !idx.text_ai?.ok) {
-    ipanel.createEl('p', { cls: 'lbi-note', text: `没有能用的文本 AI（${idx.text_ai?.why || '设置里没配'}）：「起草一版」按高频标签出草稿；`
-      + 'wiki 生成不了，可以让 GPT 经 MCP 来写（guide 取方法、index 看这个节点的篇目、read 读全文）。' });
+  const tools = ibar.createEl('div', { cls: 'lbi-line' });
+  panelButton(tools, '编辑索引', () => openVaultFile(idx.file || '索引.md'), 'lbi-link lbi-edit');
+  const props = Array.isArray(idx.proposals) ? idx.proposals : [];
+  if (!mobile) {
+    panelButton(tools, idx.text_ai?.ok ? 'AI 起草一版新树' : '起草一版', b => indexAction('indexDraft', b, '正在起草…'), 'lbi-link lbi-draft-btn');
+    if (unc && !props.length) panelButton(tools, '未归类建议', b => indexAction('openIndexSuggestions', b, '正在找建议…'), 'lbi-link lbi-suggest-btn');
+  }
+  if (props.length) {
+    const chips = ibar.createEl('div', { cls: 'lbi-chips' });
+    chips.createEl('span', { cls: 'lbi-chips-label', text: '建议新增' });
+    const shown = propsOpen ? props : props.slice(0, 8);
+    for (const p of shown) {
+      const on = activeCat === PROP + p.id;
+      const chip = chips.createEl('button', { cls: 'lbi-chip' + (on ? ' is-on' : '') }); chip.type = 'button';
+      chip.dataset.id = p.id; chip.setAttribute('aria-pressed', String(on));
+      chip.append(p.name);
+      chip.createEl('span', { cls: 'lbi-chip-n', text: String(p.count) });
+      chip.onclick = () => selectNode(on ? '' : PROP + p.id);
+    }
+    if (props.length > 8) panelButton(chips, propsOpen ? '收起' : `还有 ${props.length - 8} 条`, () => { propsOpen = !propsOpen; barKey = null; renderIndexBar(); }, 'lbi-link');
   }
   if (idx.drafting) {
-    ipanel.createEl('div', { cls: 'lbi-banner lbi-drafting' }).createEl('span', { cls: 'lbi-banner-text', text: 'AI 正在起草一版新的索引…（好了会出现在这里，不会改你的 索引.md）' });
+    ibar.createEl('div', { cls: 'lbi-line lbi-drafting' }).createEl('span', { text: 'AI 正在起草一版新的索引…（好了会出现在这里，不会改你的 索引.md）' });
   } else if (idx.draft?.exists) {
     const d = idx.draft;
-    const banner = ipanel.createEl('div', { cls: 'lbi-banner lbi-draft' });
-    banner.createEl('span', { cls: 'lbi-banner-text', text: `${d.mode === 'ai' ? 'AI 起草了一版' : '起草了一版'}：${(d.roots || []).length} 个大类，能归进 ${d.classified}/${d.total} 篇（现在这版 ${idx.classified}/${idx.total}）` });
-    panelButton(banner, '看草稿', () => openVaultFile(d.file || idx.draft_file));
-    if (!mobile) panelButton(banner, '用这版', b => indexAction('indexUseDraft', b, '正在换…'), 'mod-cta lbi-use-draft');
+    const line = ibar.createEl('div', { cls: 'lbi-line lbi-draft' });
+    line.createEl('span', { cls: 'lbi-draft-text', text: `${d.mode === 'ai' ? 'AI 起草了一版' : '起草了一版'}：${(d.roots || []).length} 个大类，能归进 ${d.classified}/${d.total} 篇` });
+    panelButton(line, '看草稿', () => openVaultFile(d.file || idx.draft_file));
+    if (!mobile) panelButton(line, '用这版', b => indexAction('indexUseDraft', b, '正在换…'), 'lbi-link is-strong lbi-use-draft');
+  }
+  if (!mobile && !idx.text_ai?.ok) {
+    ibar.createEl('p', { cls: 'lbi-note', text: `没有能用的文本 AI（${idx.text_ai?.why || '设置里没配'}）：「起草一版」按高频标签出草稿；`
+      + 'wiki 生成不了，可以让 GPT 经 MCP 来写（guide 取方法、index 看这个节点的篇目、read 读全文）。' });
   }
   const warns = (idx.warnings || []).filter(w => w && w.text);
   if (warns.length) {
-    const w = ipanel.createEl('div', { cls: 'lbi-warn' });
+    const w = ibar.createEl('div', { cls: 'lbi-warn' });
     w.createEl('span', { cls: 'lbi-warn-mark', text: '⚠' });
     w.createEl('span', { text: `${idx.file || '索引.md'} 有 ${warns.length} 处写法要看一眼：${warns[0].text}` });
-    if (warns[0].line) panelButton(w, '去改', () => openVaultFile(idx.file || '索引.md', warns[0].line), 'lbi-link');
+    if (warns[0].line) panelButton(w, '去改', () => openVaultFile(idx.file || '索引.md', warns[0].line));
     if (warns.length > 1) {
       const list = w.createEl('ol'); list.hidden = true;
       for (const x of warns.slice(1, 30)) list.createEl('li', { text: x.text });
-      const more = panelButton(w, `还有 ${warns.length - 1} 处`, () => { list.hidden = !list.hidden; more.setText(list.hidden ? `还有 ${warns.length - 1} 处` : '收起'); }, 'lbi-link');
+      const more = panelButton(w, `还有 ${warns.length - 1} 处`, () => { list.hidden = !list.hidden; more.setText(list.hidden ? `还有 ${warns.length - 1} 处` : '收起'); });
     }
   }
+  const notes = (idx.comments || []).filter(c => c && c.line && !c.placeholder);
+  if (notes.length) {
+    const n = ibar.createEl('div', { cls: 'lbi-line lbi-comments' });
+    n.createEl('span', { text: `${idx.file || '索引.md'} 里有 ${notes.length} 行像是写给自己的说明（「${notes[0].text.slice(0, 16)}…」），没当成分类` });
+    panelButton(n, '去看', () => openVaultFile(idx.file || '索引.md', notes[0].line));
+  }
+}
+function wikiActs(acts, n) {
+  const st = (idx.wiki || {})[n.path] || {};
+  if (st.exists) panelButton(acts, st.new_since ? `wiki（新增 ${st.new_since}）` : 'wiki', () => openVaultFile(st.file), 'lbi-link lbi-wiki-open');
+  if (!mobile) {
+    const gen = panelButton(acts, st.exists ? '更新 wiki' : '生成 wiki', b => indexAction('wikiBuild', b, '正在生成 wiki…', n.path), 'lbi-link lbi-wiki-gen');
+    if (!idx.text_ai?.ok) gen.disabled = true;
+  }
+}
+async function keepOrDropEmpty(n, action, btn) {
+  if (action === 'remove' && !(await LB.confirm({ title: `从 ${idx.file || '索引.md'} 删掉「${n.name}」？`, ok: '删掉',
+    body: `这个分类现在 0 篇。只删它那一行（下面的子类一起），别的字原样；原文先备份到 _archive/index-history/。` }))) return;
+  const r = await indexAction('indexEmpty', btn, action === 'remove' ? '正在删…' : '正在记…', n.path, action);
+  if (await indexDone(r) && action === 'remove' && activeCat === n.path) selectNode('');
+}
+async function acceptProposal(id, btn) {
+  const r = await indexAction('indexAccept', btn, '正在写进索引…', id);
+  const on = activeCat === PROP + id || idxByPath.get(activeCat)?.proposal === id;
+  if (await indexDone(r) && on && r.path) selectNode(r.path);
+}
+async function dismissProposal(id, btn) {
+  const r = await indexAction('indexDismiss', btn, '正在记…', id);
+  const on = activeCat === PROP + id || idxByPath.get(activeCat)?.proposal === id;
+  if (await indexDone(r) && on) selectNode('');
+}
+function treeRow(box, n, depth, { cls = '', kids = null } = {}) {
+  const children = kids || (n.children || []).map(p => idxByPath.get(p)).filter(Boolean);
+  const open = children.length ? (n.path ? nodeOpen(n.path) : true) : false;
+  const empty = !n.count && !!n.path && n.path !== UNC;
+  const row = box.createEl('div', { cls: 'lbi-row' + cls + (empty ? ' is-empty' : '') + (n.virtual ? ' is-virtual' : '')
+    + ((activeCat || '') === n.path ? ' is-current' : '') });
+  row.dataset.path = n.path;
+  row.style.paddingLeft = (depth * 14) + 'px';
+  if (children.length && n.path) {
+    const fold = row.createEl('button', { cls: 'lbi-fold', text: open ? '▾' : '▸' }); fold.type = 'button';
+    fold.setAttribute('aria-expanded', String(open));
+    fold.createEl('span', { cls: 'lb-visually-hidden', text: open ? '收起' : '展开' });
+    fold.onclick = e => { e.stopPropagation(); foldOverride.set(n.path, !open); panelKey = null; renderIndexPanel(); saveState(); };
+  } else row.createEl('span', { cls: 'lbi-fold-pad' });
+  const label = row.createEl('button', { cls: 'lbi-label' }); label.type = 'button';
+  label.setAttribute('aria-pressed', String((activeCat || '') === n.path));
+  label.createEl('span', { cls: 'lbi-name', text: n.name });
+  if (n.virtual) label.createEl('span', { cls: 'lbi-badge', text: 'AI 建' });
+  if (n.wiki) label.createEl('span', { cls: 'lbi-wiki-mark' + ((idx.wiki || {})[n.path]?.exists ? ' has-page' : ''), text: 'wiki' });
+  label.createEl('span', { cls: 'lbi-n', text: String(n.count) });
+  label.onclick = () => selectNode(n.path);
+  if (!mobile && n.line) label.oncontextmenu = e => { e.preventDefault(); editCategories(n.path); };
+  if (!mobile) {
+    const acts = row.createEl('span', { cls: 'lbi-acts' });
+    if (n.virtual) {
+      panelButton(acts, '保留', b => acceptProposal(n.proposal, b), 'lbi-link is-strong lbi-keep-virtual');
+      panelButton(acts, '不要', b => dismissProposal(n.proposal, b), 'lbi-link lbi-drop-virtual');
+    } else if (empty && n.line && !n.keep_empty) {
+      panelButton(acts, '删', b => keepOrDropEmpty(n, 'remove', b), 'lbi-link lbi-empty-drop');
+      panelButton(acts, '留', b => keepOrDropEmpty(n, 'keep', b), 'lbi-link lbi-empty-keep');
+    }
+    if (n.wiki) wikiActs(acts, n);
+    if (!acts.childElementCount) acts.remove();
+  }
+  if (open) for (const k of children) treeRow(box, k, depth + 1);
+}
+function panelNarrow() { const w = Number(wrap.clientWidth) || (typeof innerWidth === 'number' ? innerWidth : 1200); return mobile || w < 700; }
+function renderIndexPanel() {
+  if (!idx) { ipanel.empty(); return; }
+  const key = JSON.stringify([idxRev, [...foldOverride], activeCat, mobile]);
+  if (key === panelKey) return;
+  panelKey = key;
+  ipanel.empty();
   const tree = ipanel.createEl('div', { cls: 'lbi-tree' });
-  const kids = roots.slice();
-  if (unc) kids.push({ path: UNC, name: UNC_LABEL, count: unc, children: [], unc: true });
-  treeNode(tree, { path: '', name: '全部', count: idx.total, kids }, 0, 'lbi-root');
-  if (activeCat) for (const el of tree.querySelectorAll('.lbi-node')) if (el.dataset.path === activeCat) el.querySelector('.lbi-label')?.classList.add('is-current');
+  const roots = idx.roots.map(p => idxByPath.get(p)).filter(Boolean);
+  treeRow(tree, { path: '', name: '全部', count: idx.total }, 0, { cls: ' is-root', kids: [] });
+  for (const r of roots) treeRow(tree, r, 0);
+  const unc = idx.unclassified?.count || 0;
+  if (unc) treeRow(tree, { path: UNC, name: UNC_LABEL, count: unc }, 0, { cls: ' is-unc', kids: [] });
+}
+// 右边网格上面一行：选中的是什么、几篇、她写的说明；建议新增 / AI 建的 / 空的分类在这里也能一键处理
+function renderIndexHead() {
+  ihead.empty();
+  const p = proposalOf(activeCat), n = idxByPath.get(activeCat);
+  if (!activeCat || (!p && !n && activeCat !== UNC)) { ihead.hidden = true; return; }
+  ihead.hidden = false;
+  if (p) {
+    ihead.createEl('span', { cls: 'lbi-head-title', text: `建议新增「${p.name}」` });
+    ihead.createEl('span', { cls: 'lbi-head-sub', text: `${p.parent ? `放在「${pathText(p.parent)}」下面` : '放在第一级'} · ${p.count} 篇${p.loose ? `（其中 ${p.loose} 篇现在没归类）` : ''}` });
+    if (!mobile) {
+      panelButton(ihead, '加进索引', b => acceptProposal(p.id, b), 'lbi-link is-strong lbi-accept');
+      panelButton(ihead, '不要', b => dismissProposal(p.id, b), 'lbi-link lbi-dismiss');
+    }
+    return;
+  }
+  if (activeCat === UNC) {
+    ihead.createEl('span', { cls: 'lbi-head-title', text: '未归类' });
+    ihead.createEl('span', { cls: 'lbi-head-sub', text: `${idx.unclassified?.count || 0} 篇哪个分类都没放进去：卡片上点「归类…」挪到合适的分类，或者点上面的「建议新增」` });
+    return;
+  }
+  ihead.createEl('span', { cls: 'lbi-head-title', text: pathText(n.path) });
+  const bits = [`${n.count} 篇`];
+  if (n.desc && !n.virtual) bits.push(n.desc);
+  if (n.hints?.length) bits.push('包括 ' + n.hints.join('、'));
+  if (n.virtual) bits.push('AI 按内容建的子类，点「保留」才写进索引');
+  ihead.createEl('span', { cls: 'lbi-head-sub', text: bits.join(' · ') });
+  if (mobile) return;
+  if (n.virtual) {
+    panelButton(ihead, '保留', b => acceptProposal(n.proposal, b), 'lbi-link is-strong lbi-keep-virtual');
+    panelButton(ihead, '不要', b => dismissProposal(n.proposal, b), 'lbi-link');
+  } else {
+    if (!n.count && n.line && !n.keep_empty) {
+      panelButton(ihead, '删掉这个分类', b => keepOrDropEmpty(n, 'remove', b), 'lbi-link lbi-empty-drop');
+      panelButton(ihead, '留着', b => keepOrDropEmpty(n, 'keep', b), 'lbi-link lbi-empty-keep');
+    }
+    if (n.line) panelButton(ihead, '在索引里改', () => openVaultFile(idx.file || '索引.md', n.line));
+  }
+}
+// 树钉在左边（吸顶区下面），自己能滚、不露滚动条；高度跟着视口
+function paintIndexSticky() {
+  if (ipanel.hidden || split.classList.contains('is-narrow')) { ipanel.style.top = ''; ipanel.style.maxHeight = ''; return; }
+  const sc = LB.scroller();
+  let pad = 0;
+  try { pad = parseFloat(getComputedStyle(sc).paddingTop) || 0; } catch {}
+  const h = top.offsetHeight || 0;
+  ipanel.style.top = Math.round(h - pad + 8) + 'px';
+  ipanel.style.maxHeight = Math.max(220, (sc?.clientHeight || (typeof innerHeight === 'number' ? innerHeight : 800)) - h - 20) + 'px';
+}
+// ── 改归类（「移到… / 也放进… / 从这里拿掉」）：她手动改的存 index-overrides.json，永远压过 AI；能撤销 ──
+async function reclassify(list, op, path) {
+  if (!list.length) return;
+  const p = await want('indexAssign'); if (!p) return;
+  let r = null;
+  try { r = await p.indexAssign(list.map(x => x.id), op, path); }
+  catch (e) { r = { ok: false, message: '没改上：' + (e?.message || e) }; }
+  if (!r?.ok) { LB.say(r?.message || '没改上', { kind: 'error' }); return; }
+  await reloadIndex();
+  if (r.undo) LB.undoNotice(r.message, async () => { const u = await p.indexAssign([], 'undo', r.undo); if (!u?.ok) throw new Error(u?.message || '没撤销上'); await reloadIndex(); });
+  else LB.say(r.message, { kind: 'ok' });
+}
+function pickNode(title, { here = '' } = {}) {
+  return new Promise(resolve => {
+    document.querySelectorAll('.lbc-dialog-back').forEach(e => e.remove());
+    const back = document.body.createEl('div', { cls: 'lbc-dialog-back' });
+    const box = back.createEl('div', { cls: 'lbc-dialog lbi-pick-dialog' }); box.onclick = e => e.stopPropagation();
+    box.createEl('h3', { text: title });
+    const input = box.createEl('input'); input.type = 'text'; input.placeholder = '搜分类名…';
+    const list = box.createEl('div', { cls: 'lbi-pick' });
+    const nodes = (idx?.nodes || []).filter(n => n && !n.virtual);
+    let first = null, done = false;
+    const close = v => { if (done) return; done = true; back.remove(); document.removeEventListener('keydown', onKey, true); resolve(v); };
+    const paint = () => {
+      list.empty(); first = null;
+      const q = input.value.trim().toLowerCase();
+      const hits = nodes.filter(n => !q || n.path.toLowerCase().includes(q));
+      if (!hits.length) { list.createEl('div', { cls: 'lbi-pick-empty', text: '没有这个分类：先在 索引.md 里加一行' }); return; }
+      for (const n of hits) {
+        const isHere = n.path === here;
+        const b = list.createEl('button', { cls: 'lbi-pick-row' + (isHere ? ' is-here' : '') }); b.type = 'button';
+        b.dataset.path = n.path;
+        b.style.paddingLeft = (8 + (q ? 0 : (n.depth - 1) * 14)) + 'px';
+        b.createEl('span', { text: q ? pathText(n.path) : n.name });
+        b.createEl('span', { cls: 'lbi-pick-n', text: isHere ? '现在在这' : String(n.count) });
+        if (isHere) { b.disabled = true; continue; }
+        if (!first) { first = b; if (q) b.classList.add('is-first'); }
+        b.onclick = () => close(n.path);
+      }
+    };
+    const onKey = e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(null); }
+      else if (e.key === 'Enter' && !e.isComposing && document.activeElement === input && first) { e.preventDefault(); close(first.dataset.path); }
+    };
+    document.addEventListener('keydown', onKey, true);
+    input.oninput = paint; back.onclick = () => close(null);
+    paint();
+    try { input.focus(); } catch {}
+  });
+}
+// 卡片右键 /「归类…」/ 多选栏共用：这几篇的改归类菜单项
+function reclassItems(list) {
+  if (!idx || !list.length) return [];
+  const n = list.length > 1 ? `选中的 ${list.length} 篇` : '';
+  const node = idxByPath.get(activeCat);
+  const here = node && !node.virtual ? node : null;
+  const inHere = here ? list.filter(x => nodeIds(here.path)?.has(x.id)) : [];
+  return [
+    { title: n ? `把${n}移到…` : '移到…（只放这一类）', onClick: async () => { const p = await pickNode(n ? `把${n}移到…` : `把《${(list[0].title || '').slice(0, 18)}》移到…`, { here: list.length === 1 ? (idx.assign?.[list[0].id] || [])[0] : '' }); if (p) reclassify(list, 'move', p); } },
+    { title: n ? `把${n}也放进…` : '也放进…', onClick: async () => { const p = await pickNode(n ? `把${n}也放进…` : `《${(list[0].title || '').slice(0, 18)}》也放进…`); if (p) reclassify(list, 'add', p); } },
+    inHere.length ? { title: `从「${here.name}」拿掉${inHere.length > 1 ? ` ${inHere.length} 篇` : ''}`, onClick: () => reclassify(inHere, 'remove', here.path) } : null,
+  ].filter(Boolean);
 }
 
 // ── 网格 ──
-const grid = wrap.createEl('div', { cls: 'lbc-grid' });
+const grid = imain.createEl('div', { cls: 'lbc-grid' });
 // 10-03（她定）：Ctrl + 加号 / 减号、Ctrl + 鼠标滚轮调瀑布流列数，最少 2 列、最多 6 列（加号 / 往上滚 = 卡片变大、列变少）。
 // 列数记在插件设置 catalogColumns（目录页和星标页同一个）；插件不在就记在页面状态。0 = 没调过，按页面宽度自动。
 const COLS_MIN = 2, COLS_MAX = 6;
@@ -1108,6 +1338,7 @@ function openCardMenu(e, card, it) {
       { title: `导出选中的 ${n} 篇`, onClick: () => exportNow(sel()) },
       { title: '给 AI（存成选集）', onClick: () => saveSelectionDialog(sel()) },
       { title: sel().every(x => x.starred) ? `取消收藏选中的 ${n} 篇` : `收藏选中的 ${n} 篇`, onClick: () => starMany(sel()) },
+      ...reclassItems(sel()),          // 10-11：移到… / 也放进… / 从这里拿掉（有索引才有）
       { title: `删除选中的 ${n} 篇（移到回收站）`, danger: true, onClick: () => confirmDelete(sel()) },
       { title: '退出多选', onClick: () => clearSelection() },
     ];
@@ -1115,6 +1346,7 @@ function openCardMenu(e, card, it) {
     list = [
       { title: it.starred ? '取消收藏' : '收藏', onClick: () => starMany([it], { single: true }) },
       { title: '编辑标签', onClick: () => openTagEditor(card, it) },
+      ...reclassItems([it]),
       it.attachment !== 'none' ? { title: '下载 / 挂本地文件', onClick: () => attachmentPanel([it]) } : null,
       typeof provider()?.refineImages === 'function' ? { title: '精细识别图片', onClick: () => provider().refineImages(it.item_id || it.id) } : null,
       { title: '导出', onClick: () => exportNow([it]) },
@@ -1260,7 +1492,7 @@ function filterLabel() {
 }
 function paintSub() {
   const r = lastRanked.key ? lastRanked : null;
-  const filtered = !(indexView && idx) && !!(committed || todayOnly || todoOnly || starredPage || starOnly || mediaFilter || activeTopic || activeCat || timeRange);
+  const filtered = !!(committed || todayOnly || todoOnly || starredPage || starOnly || mediaFilter || activeTopic || activeCat || timeRange);
   countEl.setText(filtered && r ? `${r.exact.length} / ${items.length} 篇` : `${items.length} 篇`);
   const nPossible = r && !grid.hidden ? r.possible.length : 0;
   possibleLink.hidden = !nPossible; sepPossible.hidden = !nPossible;
@@ -1354,6 +1586,14 @@ function buildCard(it, fuzzy, low) {
     star.innerHTML = STAR_SVG;
     star.createEl('span', { cls: 'lb-visually-hidden', text: '收藏' });
     star.onclick = e => { e?.preventDefault?.(); e?.stopPropagation?.(); const x = cur(); if (x._starBusy) return; starMany([x], { single: true }); };
+    // 10-11「归类…」：只在索引视图里、悬停才出现（CSS 管显隐）——移到… / 也放进… / 从这里拿掉
+    const rc = card.createEl('button', { cls: 'lbc-reclass', text: '归类…' }); rc.type = 'button';
+    rc.onclick = e => {
+      e?.preventDefault?.(); e?.stopPropagation?.();
+      const list = selectMode && selected.size && selected.has(cur().id) ? items.filter(x => selected.has(x.id)) : [cur()];
+      const r = rc.getBoundingClientRect();
+      popMenu(reclassItems(list), e, rc, { x: r.left, y: r.bottom + 4 });
+    };
   } else {
     // 手机：只给已收藏的篇显示一个不可点的 ★（C12）
     const st = card.createEl('span', { cls: 'lbc-star is-on is-static' }); st.innerHTML = STAR_SVG;
@@ -1509,10 +1749,15 @@ function renderEmpty() {
   }
 }
 function render() {
-  // 10-10「索引」视图开着：网格藏起来（布局不动、不重摆），画分叉树
+  // 10-11「索引」视图开着：左边树、右边照样是网格（筛到选中的节点），上面一行状态 / 建议新增
   const showIndex = indexView && !!idx;
-  ipanel.hidden = !showIndex; grid.hidden = showIndex;
-  if (showIndex) { renderIndexPanel(); paintSub(); paintSelectMode(); saveState(); return; }
+  wrap.classList.toggle('is-indexview', showIndex);
+  ibar.hidden = !showIndex; ipanel.hidden = !showIndex;
+  split.classList.toggle('is-on', showIndex);
+  split.classList.toggle('is-narrow', showIndex && panelNarrow());
+  grid.hidden = false;
+  if (showIndex) { renderIndexBar(); renderIndexPanel(); renderIndexHead(); paintIndexSticky(); }
+  else ihead.hidden = true;
   const r = rankRows();
   const n = colCount();
   if (r.key !== laidKey || n !== laidN) layoutGrid();
@@ -1555,8 +1800,7 @@ const delay = () => Math.max(40, Math.min(100, 120 - renderEma));
 function commitSearch() {
   clearTimeout(typingTimer); typingTimer = null;
   const raw = search.value.trim();
-  // 10-10：「索引」视图开着时打字搜索 = 回到网格看结果（不然结果藏在索引图后面，像什么都没搜到）
-  if (indexView && raw) { indexView = false; renderCatBar(); }
+  // 10-11：「索引」视图里网格就在右边，搜索照样在选中的节点里搜（不再跳出索引视图）
   const before = committed;
   const t0 = now();
   lastRaw = raw;
@@ -1633,19 +1877,25 @@ function paintStickyTop() {
   try { const cs = (typeof getComputedStyle === 'function') ? getComputedStyle(sc) : null; pad = parseFloat(cs?.paddingTop) || 0; } catch {}
   const v = pad ? `${-pad}px` : '0px';
   if (top.style.top !== v) top.style.top = v;
+  if (indexView && idx) paintIndexSticky();
 }
 // ── ResizeObserver（C9）：宽度变了导致列数变了才重摆（下一帧、带锚点）；顺手重算吸顶 top ──
 if (typeof ResizeObserver === 'function') {
   let pending = false;
   const ro = new ResizeObserver(entries => {
-    const w = entries?.[0]?.contentRect?.width;
+    const w = (entries || []).find(e => e.target === grid)?.contentRect?.width;
     if (w > 0) roWidth = Math.max(0, w - 10);
     paintStickyTop();
     if (pending) return; pending = true;
-    requestAnimationFrame(() => { pending = false; if (indexView && idx) { renderIndexPanel(); return; } if (colCount() !== laidN) withAnchor(() => layoutGrid()); });
+    requestAnimationFrame(() => {
+      pending = false;
+      // 10-11 索引视图：页面变窄 / 变宽时树在左边还是叠在上面跟着换（换了网格宽度会变，下一次再按列数重摆）
+      if (indexView && idx && split.classList.contains('is-narrow') !== panelNarrow()) { render(); return; }
+      if (colCount() !== laidN) withAnchor(() => layoutGrid());
+    });
   });
   ro.observe(grid);
-  ro.observe(ipanel);
+  ro.observe(wrap);
   cleanups.push(() => ro.disconnect());
 }
 

@@ -1,10 +1,12 @@
-// 10-10 索引树在目录页（Obsidian 外壳：阅读视图 / 亮 · 暗 / 窄屏 / 手机）：
-//   ① 顶部分类 = 索引第一级（顺序照索引，0 篇的不出，末尾「未归类」）；固定入口（全部 / 今日新增 / 导入时间 / 已收藏 / 视频 / 附件）还在，多一个「索引」
-//   ② 选中一个大类 → 下面一行二级小标签（带篇数）；点小标签只剩那几篇；吸顶不受影响（|delta| ≤ 1）
-//   ③「索引」视图：横向分叉树（子节点在父节点右边、父节点竖直居中在子节点之间），第二级以下默认收起、点「+N」展开；点节点 = 回到网格、筛到那些笔记
-//   ④ 草稿横幅「用这版」→ 插件 indexUseDraft；写法提示一行；wiki 小标（有页 / 新增 N / 没文本 AI 时「生成」灰掉并说明可让 GPT 经 MCP 写）
-//   ⑤ index-data.json 一变（她保存 索引.md → 插件重算）→ 300ms 后分类换新，卡片元素不重建
-//   ⑥ 窄屏 / 手机退化成缩进列表、没有横向溢出；⑦ 没有 index-data.json（旧后端）照旧按 cats_order，不出「索引」
+// 索引树在目录页（Obsidian 外壳：阅读视图 / 亮 · 暗 / 窄屏 / 手机）：
+//   ① 顶部分类 = 索引第一级（顺序照索引，0 篇的不出，末尾「未归类」）；固定入口还在，多一个「索引」
+//   ② 选中一个大类 → 下面一行二级小标签（带篇数）；吸顶不受影响（|delta| ≤ 1）
+//   ③ 10-11「索引」视图：左边可折叠的树（带篇数、默认只展开选中那一支），右边就是卡片网格——点节点右边筛到那些篇，
+//      网格上面一行说清选的是什么；树钉在吸顶区下面、自己滚、不露滚动条
+//   ④ 上面一行：「未归类 N 篇」· 按内容归类的状态 + 按钮 · 「建议新增」chips（点 = 右边看那几篇 + 加进索引 / 不要）
+//   ⑤ AI 建的子类（标「AI 建」，保留 / 不要）· 空分类变淡带 0（删 / 留）· 卡片上「归类…」→ 移到… / 也放进…（选分类小窗，能筛）
+//   ⑥ index-data.json 一变（她保存 索引.md / 后台归完）→ 300ms 后换新，卡片元素不重建
+//   ⑦ 窄屏 / 手机：树叠在网格上面、没有横向溢出；⑧ 没有 index-data.json（旧后端）照旧按 cats_order，不出「索引」
 // 截图落 LWA_QA_DIR（不提交、不必逐张看）
 'use strict';
 const assert = require('node:assert/strict');
@@ -12,7 +14,7 @@ const shell = require('../_obsidian_shell.cjs');
 
 const CATS = ['悉尼', '做饭', 'AI', '学习', '穿搭', '家居', '旅行'];
 
-function makeIndexData(items, { textAi = false, rename = null } = {}) {
+function makeIndexData(items, { rename = null, running = false } = {}) {
   const ids = pred => items.filter(pred).map(it => it.id);
   const idOf = it => Number(it.id.slice(-4));
   const cat = it => CATS[idOf(it) % CATS.length];
@@ -24,10 +26,11 @@ function makeIndexData(items, { textAi = false, rename = null } = {}) {
       tags: [], explicit: false, wiki: false, count: ids_.length, self_count: ids_.length, items: ids_, children: [], ...extra });
   };
   const cookIds = ids(it => cat(it) === '做饭');
-  add(cook, cookIds, { children: [cook + '/家常菜', cook + '/烘焙'] });
-  add(cook + '/家常菜', ids(it => cat(it) === '做饭' && idOf(it) % 2 === 0), { children: [cook + '/家常菜/红烧肉'] });
+  add(cook, cookIds, { children: [cook + '/家常菜', cook + '/烘焙', cook + '/空气炸锅'], open: true });
+  add(cook + '/家常菜', ids(it => cat(it) === '做饭' && idOf(it) % 2 === 0), { children: [cook + '/家常菜/红烧肉'], desc: '天天吃的那种' });
   add(cook + '/家常菜/红烧肉', ids(it => cat(it) === '做饭' && idOf(it) % 4 === 0));
-  add(cook + '/烘焙', ids(it => cat(it) === '做饭' && idOf(it) % 2 === 1));
+  add(cook + '/烘焙', ids(it => cat(it) === '做饭' && idOf(it) % 4 === 1));
+  add(cook + '/空气炸锅', ids(it => cat(it) === '做饭' && idOf(it) % 4 === 3), { virtual: true, proposal: 'v1', line: 0, desc: 'AI 按内容建的子类' });
   add('AI', ids(it => cat(it) === 'AI'), { children: ['AI/伴侣', 'AI/工具'] });
   add('AI/伴侣', ids(it => cat(it) === 'AI' && idOf(it) % 3 === 0), { wiki: true });
   add('AI/工具', ids(it => cat(it) === 'AI' && idOf(it) % 3 !== 0));
@@ -37,20 +40,34 @@ function makeIndexData(items, { textAi = false, rename = null } = {}) {
   add('空节点', []);
   const unc = ids(it => cat(it) === '穿搭');
   const roots = rows.filter(r => !r.parent).map(r => r.path);
+  const assign = {};
+  for (const r of rows) for (const i of r.items) if (!rows.some(c => c.parent === r.path && c.items.includes(i))) (assign[i] = assign[i] || []).push(r.path);
   return {
     version: 1, code_version: 'test', generated_at: '2026-10-10T03:00:00+11:00', file: '索引.md', draft_file: '索引.草稿.md',
     source_hash: 'sha256:x' + (rename || ''), catalog_built_at: '2026-10-08T05:09:12+10:00', total: items.length,
     classified: items.length - unc.length, roots, nodes: rows, unclassified: { count: unc.length, items: unc },
     cats_order: [...roots.filter(p => rows.find(r => r.path === p).count), '未归类'],
-    warnings: [{ line: 7, text: `第 7 行「${cook}」在第一级重复了（第 6 行已有），合并成一个` }, { line: 0, text: '目录数据还没建好' }],
-    draft: { file: '索引.草稿.md', exists: true, mode: 'ai', roots: ['吃', '玩', 'AI', '学', '家', '澳洲', '杂'], nodes: 20, classified: 110, unclassified: 10, total: items.length, warnings: 0 },
+    warnings: [{ line: 7, text: `第 7 行「${cook}」在第一级重复了（第 6 行已有），合并成一个` }],
+    comments: [{ line: 3, text: '需求：最多3级分类，分类可以兼容' }],
+    draft: null,
     wiki: { 'AI/伴侣': { file: 'wiki/AI/伴侣.md', exists: true, marked: true, based: 5, new_since: 2, generated_at: '2026-10-10T03:10:00+11:00' },
             '旅行': { file: 'wiki/旅行.md', exists: false, marked: true, based: 0, new_since: 0, generated_at: null } },
-    text_ai: textAi ? { ok: true, why: '', model: 'm' } : { ok: false, why: '文本 AI没有 key', model: '' },
+    text_ai: { ok: true, why: '', model: 'm' },
+    assign,
+    proposals: [
+      { id: 'p1', name: '穿搭灵感', parent: '', kind: 'leftover', count: unc.length, loose: unc.length, items: unc, examples: [] },
+      { id: 'p2', name: '红烧系列', parent: cook + '/家常菜', kind: 'split', count: 3, loose: 0, items: ids(it => cat(it) === '做饭' && idOf(it) % 2 === 0).slice(0, 3), examples: [] },
+    ],
+    classify: { ai_ok: true, why: '', model: 'fake-flash', done: items.length - 3, total: items.length, pending: 3, work: 3, yuan: 0.02,
+      spent: { yuan: 0.31 }, last_run: null, ...(running ? { running: { at: '', done: 40, total: 120, phase: '按内容归类' } } : {}) },
   };
 }
 
-const PLUGIN = { methods: { indexUseDraft: { result: { ok: true } }, indexDraft: { result: { ok: true } }, openIndexSuggestions: { result: null }, wikiBuild: { result: null }, indexRebuild: { result: null } } };
+const PLUGIN = { confirmAnswer: true, methods: {
+  indexUseDraft: { result: { ok: true } }, indexDraft: { result: { ok: true } }, openIndexSuggestions: { result: null }, wikiBuild: { result: null }, indexRebuild: { result: null },
+  indexAssign: { result: { ok: true, message: '已移到「烘焙」（只放这一类）', undo: 'u1' } }, indexAccept: { result: { ok: true, message: '已写进', path: '做饭/家常菜/红烧系列' } },
+  indexDismiss: { result: { ok: true, message: '不要了' } }, indexEmpty: { result: { ok: true, message: '留着' } }, indexClassify: { result: { ok: true, message: '按内容归好了' } },
+} };
 
 async function open(browser, { width = 1280, height = 900, theme = 'light', idx, mobile = false, data }) {
   const page = await browser.newPage({ viewport: { width, height } });
@@ -63,7 +80,11 @@ const tabs = page => page.evaluate(() => [...document.querySelectorAll('.lbc-cat
 const chips = page => page.evaluate(() => [...document.querySelectorAll('.lbc-subcats .lbc-subcat')].map(b => ({ text: b.textContent, on: b.classList.contains('is-active'), path: b.dataset.path })));
 const cardTitles = page => page.evaluate(() => [...document.querySelectorAll('.lbc-grid .lbc-card .lbc-ctitle')].map(e => e.textContent));
 const clickTab = async (page, text) => { await page.evaluate(t => [...document.querySelectorAll('.lbc-cats .lbc-cat')].find(b => b.textContent === t).click(), text); };
-const clickLabel = async (page, path) => { await page.evaluate(p => [...document.querySelectorAll('.lbi-node')].find(n => n.dataset.path === p).querySelector(':scope > .lbi-row .lbi-label').click(), path); };
+const treeRows = page => page.evaluate(() => [...document.querySelectorAll('.lbi-panel .lbi-row')].map(r => ({ path: r.dataset.path, text: r.querySelector('.lbi-label').textContent,
+  cls: r.className, acts: [...r.querySelectorAll('.lbi-acts button')].map(b => b.textContent) })));
+const clickRow = async (page, path) => { await page.evaluate(p => [...document.querySelectorAll('.lbi-row')].find(n => n.dataset.path === p).querySelector('.lbi-label').click(), path); };
+const clickFold = async (page, path) => { await page.evaluate(p => [...document.querySelectorAll('.lbi-row')].find(n => n.dataset.path === p).querySelector('.lbi-fold').click(), path); };
+const calls = async (S, name) => (await S.calls()).filter(c => c[0] === name);
 
 (async () => {
   shell.requirePlaywright();
@@ -75,154 +96,143 @@ const clickLabel = async (page, path) => { await page.evaluate(p => [...document
     for (const theme of ['light', 'dark']) {
       const { page, S } = await open(browser, { theme, idx, data });
       // ① 顶部分类
-      const t0 = await tabs(page);
-      const names = t0.map(t => t.text);
+      const names = (await tabs(page)).map(t => t.text);
       for (const fixed of ['全部', '索引', '今日新增', '已收藏', '视频', '附件']) assert.ok(names.includes(fixed), `${theme}：固定入口「${fixed}」还在 ${names}`);
-      const catTabs = names.slice(names.indexOf('附件') + 1);
-      assert.deepEqual(catTabs, ['做饭', 'AI', '旅行', '悉尼', '学习', '家居', '未归类'], `${theme}：分类 = 索引第一级（0 篇的不出）+ 未归类`);
-      assert.equal(names.indexOf('索引'), names.indexOf('全部') + 1, '「索引」紧挨着「全部」');
+      assert.deepEqual(names.slice(names.indexOf('附件') + 1), ['做饭', 'AI', '旅行', '悉尼', '学习', '家居', '未归类'], `${theme}：分类 = 索引第一级（0 篇的不出）+ 未归类`);
       // ② 大类 → 二级小标签
       await clickTab(page, '做饭'); await S.settle();
-      let titles = await cardTitles(page);
-      assert.equal(titles.length, count('做饭'), `${theme}：点「做饭」只剩这一类 ${titles.length}`);
-      assert.ok(titles.every(t => t.startsWith('做饭')), `${theme}：都是做饭`);
-      let c = await chips(page);
-      assert.deepEqual(c.map(x => x.text), [`家常菜${count('做饭/家常菜')}`, `烘焙${count('做饭/烘焙')}`], `${theme}：二级小标签带篇数 ${JSON.stringify(c)}`);
-      assert.ok((await tabs(page)).find(t => t.text === '做饭').on);
-      const subBelow = await page.evaluate(() => { const a = document.querySelector('.lbc-cats').getBoundingClientRect(), b = document.querySelector('.lbc-subcats').getBoundingClientRect(); return b.top >= a.bottom - 1 && document.querySelector('.lbc-subcats').parentElement === document.querySelector('.lbc-top'); });
-      assert.ok(subBelow, `${theme}：小标签在分类下面一行、也在吸顶区里`);
-      await page.evaluate(() => [...document.querySelectorAll('.lbc-subcats .lbc-subcat')][0].click()); await S.settle();
-      titles = await cardTitles(page);
-      assert.equal(titles.length, count('做饭/家常菜'), `${theme}：点「家常菜」只剩 ${count('做饭/家常菜')} 篇`);
-      c = await chips(page);
-      assert.ok(c[0].on && !c[1].on && (await tabs(page)).find(t => t.text === '做饭').on, `${theme}：小标签选中、大类还亮着`);
-      const sub = await page.evaluate(() => document.querySelector('.lbc-count').textContent);
-      assert.match(sub, new RegExp(`^${count('做饭/家常菜')} / 120 篇`), `${theme}：计数行 ${sub}`);
-      if (theme === 'light') await S.screenshot('index-subcats-light'); else await S.screenshot('index-subcats-dark');
+      assert.equal((await cardTitles(page)).length, count('做饭'), `${theme}：点「做饭」只剩这一类`);
+      const c = await chips(page);
+      assert.ok(c.length >= 2 && c[0].text === `家常菜${count('做饭/家常菜')}`, `${theme}：二级小标签带篇数 ${JSON.stringify(c)}`);
       const c1 = await S.probeSticky({ target: '.lbc-top', by: 600 });
       assert.ok(Math.abs(c1.delta) <= 1, `${theme}：带着二级小标签也吸顶 ${JSON.stringify(c1)}`);
       await S.scrollTo(0);
-      // ③ 索引视图
+      // ③ 索引视图：左边树、右边网格
       await clickTab(page, '索引'); await S.settle();
-      const vis = await page.evaluate(() => ({ panel: !document.querySelector('.lbi-panel').hidden && document.querySelector('.lbi-panel').getBoundingClientRect().height > 0,
-        grid: document.querySelector('.lbc-grid').hidden, sub: !!document.querySelector('.lbc-subcats') }));
-      assert.ok(vis.panel && vis.grid && !vis.sub, `${theme}：索引视图开、网格藏、二级小标签收起 ${JSON.stringify(vis)}`);
-      assert.ok((await tabs(page)).find(t => t.text === '索引').on && !(await tabs(page)).find(t => t.text === '全部').on);
-      assert.equal(await page.evaluate(() => document.querySelector('.lbc-count').textContent), '120 篇', `${theme}：索引视图里计数行是全库篇数`);
-      const tree = await page.evaluate(() => {
-        const lab = p => { const n = [...document.querySelectorAll('.lbi-node')].find(x => x.dataset.path === p); const l = n && n.querySelector(':scope > .lbi-row .lbi-label'); if (!l) return null; const r = l.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, cy: (r.top + r.bottom) / 2, text: l.textContent }; };
-        return { root: lab(''), cook: lab('做饭'), home: lab('做饭/家常菜'), bake: lab('做饭/烘焙'), pork: lab('做饭/家常菜/红烧肉'), unc: lab('∅未归类'), empty: lab('空节点'),
-          fold: (() => { const n = [...document.querySelectorAll('.lbi-node')].find(x => x.dataset.path === '做饭/家常菜'); return n && n.querySelector(':scope > .lbi-row .lbi-fold')?.textContent; })(),
-          list: document.querySelector('.lbi-panel').classList.contains('is-list') };
+      const lay = await page.evaluate(() => {
+        const p = document.querySelector('.lbi-panel'), g = document.querySelector('.lbc-grid'), pr = p.getBoundingClientRect(), gr = g.getBoundingClientRect();
+        return { panel: !p.hidden && pr.height > 0, grid: !g.hidden && gr.height > 0, side: pr.right <= gr.left + 1, sub: !!document.querySelector('.lbc-subcats'),
+          sbw: getComputedStyle(p).scrollbarWidth, pos: getComputedStyle(p).position, cards: document.querySelectorAll('.lbc-grid .lbc-card').length };
       });
-      assert.equal(tree.root.text, '全部120', `${theme}：根 = 全部 + 篇数`);
-      assert.equal(tree.cook.text, `做饭${count('做饭')}`);
-      assert.ok(!tree.list, `${theme}：宽屏是分叉树不是列表`);
-      assert.ok(tree.home.left > tree.cook.right && tree.cook.left > tree.root.right, `${theme}：子节点在父节点右边 ${JSON.stringify(tree)}`);
-      assert.ok(tree.cook.cy >= tree.home.cy - 1 && tree.cook.cy <= tree.bake.cy + 1, `${theme}：父节点竖直居中在子节点之间`);
-      assert.ok(!tree.pork && tree.fold === '+1', `${theme}：第三级默认收起，显示「+1」${tree.fold}`);
-      assert.ok(tree.unc && tree.unc.text === `未归类${idx.unclassified.count}` && tree.empty && tree.empty.text === '空节点0', `${theme}：未归类、0 篇的节点也在图里`);
-      await page.evaluate(() => [...document.querySelectorAll('.lbi-node')].find(x => x.dataset.path === '做饭/家常菜').querySelector(':scope > .lbi-row .lbi-fold').click()); await S.settle();
-      const pork = await page.evaluate(() => !![...document.querySelectorAll('.lbi-node')].find(x => x.dataset.path === '做饭/家常菜/红烧肉'));
-      assert.ok(pork, `${theme}：点「+1」展开第三级`);
-      // ④ 草稿横幅 / 写法提示 / wiki 小标
-      const extras = await page.evaluate(() => ({
-        banner: document.querySelector('.lbi-draft .lbi-banner-text')?.textContent || '',
-        warn: document.querySelector('.lbi-warn')?.textContent || '',
-        note: document.querySelector('.lbi-note')?.textContent || '',
-        wikiPage: (() => { const n = [...document.querySelectorAll('.lbi-node')].find(x => x.dataset.path === 'AI/伴侣'); return n ? n.querySelector(':scope > .lbi-row .lbi-wiki')?.textContent : null; })(),
-        gen: (() => { const n = [...document.querySelectorAll('.lbi-node')].find(x => x.dataset.path === '旅行'); const b = n && n.querySelector(':scope > .lbi-row .lbi-wiki-gen'); return b ? { text: b.textContent, disabled: b.disabled } : null; })(),
-        draftBtn: document.querySelector('.lbi-draft-btn')?.textContent,
-      }));
-      assert.match(extras.banner, /AI 起草了一版：7 个大类，能归进 110\/120 篇/, `${theme}：草稿横幅 ${extras.banner}`);
-      assert.match(extras.warn, /索引\.md 有 2 处写法要看一眼：第 7 行/, `${theme}：写法提示一行 ${extras.warn}`);
-      assert.match(extras.note, /GPT 经 MCP/, `${theme}：没文本 AI 时说清可以让 GPT 经 MCP 写`);
-      assert.match(extras.wikiPage, /wiki.*新增 2/, `${theme}：有 wiki 页的节点 ${extras.wikiPage}`);
-      assert.deepEqual(extras.gen, { text: '生成', disabled: true }, `${theme}：没文本 AI，「生成」灰掉`);
-      assert.equal(extras.draftBtn, '起草一版', `${theme}：没文本 AI 时按钮叫「起草一版」`);
-      if (theme === 'light') await S.screenshot('index-tree-light'); else await S.screenshot('index-tree-dark');
-      await page.click('.lbi-use-draft'); await S.settle();
-      assert.ok((await S.calls()).some(c => c[0] === 'indexUseDraft'), `${theme}：「用这版」调插件 indexUseDraft`);
-      // 点节点 = 回网格、筛到那些笔记（第三级：小标签行多一个带 ✕ 的尾巴）
-      await clickLabel(page, '做饭/家常菜/红烧肉'); await S.settle();
-      titles = await cardTitles(page);
-      const v2 = await page.evaluate(() => ({ panel: document.querySelector('.lbi-panel').hidden, grid: document.querySelector('.lbc-grid').hidden }));
-      assert.ok(v2.panel && !v2.grid, `${theme}：点节点回到网格`);
-      assert.equal(titles.length, count('做饭/家常菜/红烧肉'), `${theme}：筛到红烧肉 ${titles.length}`);
-      c = await chips(page);
-      assert.ok(c.find(x => x.path === '做饭/家常菜').on && c.find(x => x.path === '做饭/家常菜/红烧肉' && x.on), `${theme}：第三级有带 ✕ 的尾巴 ${JSON.stringify(c)}`);
-      await clickTab(page, '索引'); await S.settle();
-      assert.equal(await page.evaluate(() => document.querySelector('.lbc-subcats')), null, `${theme}：索引视图里不出二级小标签（哪怕选着第三级）`);
-      await clickTab(page, '索引'); await S.settle();
-      assert.equal((await cardTitles(page)).length, count('做饭/家常菜/红烧肉'), `${theme}：再点「索引」回到原来的筛选`);
-      await page.evaluate(() => [...document.querySelectorAll('.lbc-subcats .lbc-subcat')].find(b => b.dataset.path === '做饭/家常菜/红烧肉').click()); await S.settle();
-      assert.equal((await cardTitles(page)).length, count('做饭/家常菜'), `${theme}：点 ✕ 回到第二级`);
-      // 未归类
-      await clickTab(page, '未归类'); await S.settle();
-      titles = await cardTitles(page);
-      assert.ok(titles.length === idx.unclassified.count && titles.every(t => t.startsWith('穿搭')), `${theme}：未归类 ${titles.length}`);
-      // ⑤ 她改完索引：index-data.json 变了 → 分类换新，卡片元素不重建
-      await clickTab(page, 'AI'); await S.settle();
+      assert.ok(lay.panel && lay.grid && lay.side && !lay.sub, `${theme}：树在左、网格在右、二级小标签收起 ${JSON.stringify(lay)}`);
+      assert.equal(lay.sbw, 'none', `${theme}：树不露滚动条`);
+      assert.equal(lay.pos, 'sticky', `${theme}：树钉住`);
+      assert.equal(lay.cards, count('做饭'), `${theme}：进索引视图保留刚才选的「做饭」`);
+      let rows = await treeRows(page);
+      assert.equal(rows[0].text, '全部120', `${theme}：第一行 = 全部 + 篇数`);
+      assert.ok(rows.find(r => r.path === '做饭').cls.includes('is-current'), `${theme}：选中的那行标出来`);
+      assert.ok(rows.find(r => r.path === '做饭/家常菜') && !rows.find(r => r.path === 'AI/伴侣'), `${theme}：默认只展开选中的那一支`);
+      assert.ok(rows.find(r => r.path === '∅未归类' && r.text === `未归类${idx.unclassified.count}`), `${theme}：未归类在最后`);
+      const empty = rows.find(r => r.path === '空节点');
+      assert.ok(empty.cls.includes('is-empty') && empty.text === '空节点0' && empty.acts.join() === '删,留', `${theme}：空分类变淡、0、删 / 留 ${JSON.stringify(empty)}`);
+      const virt = rows.find(r => r.path === '做饭/空气炸锅');
+      assert.ok(virt.cls.includes('is-virtual') && /AI 建/.test(virt.text) && virt.acts.slice(0, 2).join() === '保留,不要', `${theme}：AI 建的子类 ${JSON.stringify(virt)}`);
+      await clickFold(page, 'AI'); await S.settle();
+      rows = await treeRows(page);
+      assert.ok(rows.find(r => r.path === 'AI/伴侣' && /wiki/.test(r.text)), `${theme}：展开 AI，wiki 小标 ${JSON.stringify(rows.map(r => r.text))}`);
+      await clickRow(page, '做饭/家常菜'); await S.settle();
+      assert.equal((await cardTitles(page)).length, count('做饭/家常菜'), `${theme}：点「家常菜」右边只剩这几篇`);
+      const head = await page.evaluate(() => document.querySelector('.lbi-head').textContent);
+      assert.match(head, /做饭 › 家常菜.*篇.*天天吃的那种/, `${theme}：网格上面一行说清选的是什么 + 她写的说明 ${head}`);
+      assert.ok((await tabs(page)).find(t => t.text === '索引').on, `${theme}：点节点不跳出索引视图`);
+      assert.match(await page.evaluate(() => document.querySelector('.lbc-count').textContent), new RegExp(`^${count('做饭/家常菜')} / 120 篇`));
+      // ④ 上面一行：未归类 / 状态 / 建议新增
+      const bar = await page.evaluate(() => ({ text: document.querySelector('.lbi-bar').textContent, chips: [...document.querySelectorAll('.lbi-chip')].map(b => b.textContent) }));
+      assert.match(bar.text, /未归类 \d+ 篇/, `${theme}：「未归类 N 篇」${bar.text}`);
+      assert.match(bar.text, /还有 3 篇没按内容归，约 ¥0\.02/, `${theme}：按内容归类的状态`);
+      assert.match(bar.text, /4 行|1 行像是写给自己的说明/, `${theme}：说明行没当成分类，告诉她`);
+      assert.deepEqual(bar.chips, [`穿搭灵感${idx.unclassified.count}`, '红烧系列3'], `${theme}：建议新增 chips`);
+      await page.click('.lbi-classify-btn'); await S.settle();
+      assert.equal((await calls(S, 'indexClassify')).length, 1, `${theme}：「按内容归类」调插件`);
+      await page.evaluate(() => [...document.querySelectorAll('.lbi-chip')].find(b => b.dataset.id === 'p1').click()); await S.settle();
+      assert.equal((await cardTitles(page)).length, idx.unclassified.count, `${theme}：点建议 = 右边看那几篇`);
+      assert.match(await page.evaluate(() => document.querySelector('.lbi-head').textContent), /建议新增「穿搭灵感」.*第一级/);
+      if (theme === 'light') await S.screenshot('index-split-light'); else await S.screenshot('index-split-dark');
+      await page.click('.lbi-head .lbi-accept'); await S.settle();
+      assert.deepEqual((await calls(S, 'indexAccept')).map(c => c[1]), ['p1'], `${theme}：加进索引调插件`);
+      await page.evaluate(() => document.querySelector('.lbi-unc-link').click()); await S.settle();
+      assert.ok((await cardTitles(page)).every(t => t.startsWith('穿搭')), `${theme}：「未归类 N 篇」= 右边看未归类`);
+      // ⑤ 空分类 / AI 建的
+      await page.evaluate(() => [...document.querySelectorAll('.lbi-row')].find(n => n.dataset.path === '空节点').querySelector('.lbi-empty-keep').click()); await S.settle();
+      assert.deepEqual((await calls(S, 'indexEmpty')).map(c => c.slice(1)), [['空节点', 'keep']]);
+      await clickRow(page, '做饭'); await S.settle();          // 选了未归类后「做饭」那一支收起了：选回来就展开
+      await page.evaluate(() => [...document.querySelectorAll('.lbi-row')].find(n => n.dataset.path === '做饭/空气炸锅').querySelector('.lbi-keep-virtual').click()); await S.settle();
+      assert.deepEqual((await calls(S, 'indexAccept')).map(c => c[1]), ['p1', 'v1'], `${theme}：AI 建的「保留」`);
+      // 卡片上「归类…」（只在索引视图悬停出现）→ 移到… → 选分类小窗（能筛、Enter 选第一个）
+      await clickRow(page, '做饭/家常菜'); await S.settle();
+      const card = page.locator('.lbc-grid .lbc-card').first();
+      await card.hover();
+      assert.notEqual(await card.locator('.lbc-reclass').evaluate(b => getComputedStyle(b).display), 'none', `${theme}：悬停出现「归类…」`);
+      await card.locator('.lbc-reclass').click(); await S.settle();
+      const menu = await page.evaluate(() => [...document.querySelectorAll('.menu .menu-item-title, .lbc-menu .lbc-menu-item')].map(e => e.textContent));
+      assert.deepEqual(menu, ['移到…（只放这一类）', '也放进…', '从「家常菜」拿掉'], `${theme}：归类菜单 ${menu}`);
+      await page.evaluate(() => [...document.querySelectorAll('.menu .menu-item, .lbc-menu .lbc-menu-item')].find(e => e.textContent.includes('移到')).click()); await S.settle();
+      const pick = await page.evaluate(() => ({ rows: [...document.querySelectorAll('.lbi-pick-row')].map(b => b.textContent), virt: [...document.querySelectorAll('.lbi-pick-row')].some(b => b.dataset.path === '做饭/空气炸锅'),
+        sbw: getComputedStyle(document.querySelector('.lbi-pick')).scrollbarWidth }));
+      assert.ok(pick.rows.length >= 10 && !pick.virt && pick.sbw === 'none', `${theme}：选分类小窗（没有 AI 建的、不露滚动条）${JSON.stringify(pick)}`);
+      await page.fill('.lbi-pick-dialog input', '烘焙'); await page.keyboard.press('Enter'); await S.settle();
+      const assigned = await calls(S, 'indexAssign');
+      assert.deepEqual(assigned[0].slice(2), ['move', '做饭/烘焙'], `${theme}：移到 = indexAssign(ids, 'move', 路径) ${JSON.stringify(assigned)}`);
+      assert.equal(await page.evaluate(() => !!document.querySelector('.lbc-dialog-back')), false, `${theme}：选完小窗关掉`);
+      // ⑥ 她改完索引：index-data.json 变了 → 换新，卡片元素不重建
+      await clickRow(page, 'AI'); await S.settle();
       await page.evaluate(() => { const c = document.querySelector('.lbc-grid .lbc-card'); c.dataset.keep = '1'; });
-      const fresh = makeIndexData(data.items, { rename: '吃饭', textAi: true });
+      const fresh = makeIndexData(data.items, { rename: '吃饭', running: true });
       await S.setFile('_archive/index-data.json', JSON.stringify(fresh));
       await page.waitForTimeout(450); await S.settle();
-      const t2 = (await tabs(page)).map(t => t.text);
-      assert.ok(t2.includes('吃饭') && !t2.includes('做饭'), `${theme}：改名后的分类出现 ${t2}`);
-      assert.ok((await tabs(page)).find(t => t.text === 'AI').on, `${theme}：还在的筛选保留`);
+      rows = await treeRows(page);
+      assert.ok(rows.find(r => r.path === '吃饭') && !rows.find(r => r.path === '做饭'), `${theme}：改名后的分类出现在树里`);
+      assert.match(await page.evaluate(() => document.querySelector('.lbi-bar').textContent), /AI 正在按内容归类 40\/120/, `${theme}：后台在归：显示真实进度`);
       assert.ok(await page.evaluate(() => !!document.querySelector('.lbc-grid .lbc-card[data-keep="1"]')), `${theme}：卡片元素没重建`);
-      // 索引视图开着时打字搜索 = 回到网格
-      await clickTab(page, '索引'); await S.settle();
-      await page.fill('.lbc-search', '做饭'); await page.keyboard.press('Enter'); await S.settle();
-      const v3 = await page.evaluate(() => ({ panel: document.querySelector('.lbi-panel').hidden, grid: document.querySelector('.lbc-grid').hidden }));
-      assert.ok(v3.panel && !v3.grid, `${theme}：在索引视图里搜索 → 回到网格看结果`);
-      await page.fill('.lbc-search', ''); await page.keyboard.press('Enter'); await S.settle();
-      // 索引是用旧目录数据算的 → 请插件重算一次（每对版本一次）
-      assert.ok(!(await S.calls()).some(c => c[0] === 'indexRebuild'), `${theme}：版本对得上不请`);
-      await S.setFile('_archive/index-data.json', JSON.stringify({ ...fresh, catalog_built_at: '2026-10-01T00:00:00+10:00' }));
-      await page.waitForTimeout(450); await S.settle();
-      assert.equal((await S.calls()).filter(c => c[0] === 'indexRebuild').length, 1, `${theme}：索引比目录旧 → 请插件重算`);
+      // 树钉住：往下滚，树还在吸顶区下面
+      await S.scrollTo(0); await S.settle();
+      await S.scrollBy(500); await S.settle();
+      const stick = await page.evaluate(() => { const t = document.querySelector('.lbc-top').getBoundingClientRect(), p = document.querySelector('.lbi-panel').getBoundingClientRect(); return { gap: p.top - t.bottom }; });
+      assert.ok(stick.gap >= 0 && stick.gap <= 16, `${theme}：树钉在吸顶区下面 ${JSON.stringify(stick)}`);
+      // 不出索引视图搜索：右边照样筛
+      await page.fill('.lbc-search', 'AI'); await page.keyboard.press('Enter'); await S.settle();
+      assert.ok((await tabs(page)).find(t => t.text === '索引').on, `${theme}：在索引视图里搜索不跳出`);
+      const overflow = await page.evaluate(() => { const w = document.querySelector('.lbc-wrap'); return w.scrollWidth - w.clientWidth; });
+      assert.ok(overflow <= 1, `${theme}：没有横向溢出 ${overflow}`);
+      // 出了索引视图：卡片上不出「归类…」
+      await clickTab(page, '全部'); await S.settle();
+      const card2 = page.locator('.lbc-grid .lbc-card').first(); await card2.hover();
+      assert.equal(await card2.locator('.lbc-reclass').evaluate(b => getComputedStyle(b).display), 'none', `${theme}：索引视图外不出「归类…」`);
       const errs = await S.pageErrors();
       assert.deepEqual(errs, [], `${theme}：页面没报错 ${errs}`);
       await page.close();
     }
-    // ⑥ 窄屏：缩进列表、不横向溢出（宽屏换到窄屏也会跟着变）
-    for (const [label, opts] of [['narrow', { width: 520 }], ['mobile', { width: 390, mobile: true }]]) {
+    // ⑦ 窄屏 / 手机：树叠在网格上面
+    for (const [label, opts] of [['narrow', { width: 560 }], ['mobile', { width: 390, mobile: true }]]) {
       const { page, S } = await open(browser, { ...opts, idx, data });
       await clickTab(page, '索引'); await S.settle();
       const m = await page.evaluate(() => {
-        const p = document.querySelector('.lbi-panel');
-        const lab = path => { const n = [...document.querySelectorAll('.lbi-node')].find(x => x.dataset.path === path); const r = n.querySelector(':scope > .lbi-row .lbi-label').getBoundingClientRect(); return { left: r.left, top: r.top, bottom: r.bottom }; };
-        return { list: p.classList.contains('is-list'), overflow: p.scrollWidth - p.clientWidth, cook: lab('做饭'), home: lab('做饭/家常菜'),
-          buttons: [...p.querySelectorAll('.lbi-bar button')].map(b => b.textContent) };
+        const p = document.querySelector('.lbi-panel').getBoundingClientRect(), g = document.querySelector('.lbc-grid').getBoundingClientRect();
+        // 只量索引这一块（树 / 上面一行 / 网格上面那行）：手机上标题行和搜索框本来就有的溢出不归这一批
+        const wr = document.querySelector('.lbc-wrap').getBoundingClientRect();
+        const mine = [...document.querySelectorAll('.lbi-bar, .lbi-bar *, .lbi-split, .lbi-panel *, .lbi-head *')].filter(e => e.getBoundingClientRect().width > 0);
+        const overflow = Math.max(0, ...mine.map(e => e.getBoundingClientRect().right - wr.right));
+        return { stacked: p.bottom <= g.top + 1, narrow: document.querySelector('.lbi-split').classList.contains('is-narrow'), overflow,
+          acts: document.querySelectorAll('.lbi-acts').length, classify: !!document.querySelector('.lbi-classify-btn') };
       });
-      assert.ok(m.list, `${label}：退化成缩进列表`);
+      assert.ok(m.stacked && m.narrow, `${label}：树叠在网格上面 ${JSON.stringify(m)}`);
       assert.ok(m.overflow <= 1, `${label}：没有横向溢出 ${m.overflow}`);
-      assert.ok(m.home.top >= m.cook.bottom - 1 && m.home.left > m.cook.left, `${label}：子节点在下一行、往里缩 ${JSON.stringify(m)}`);
-      if (label === 'mobile') assert.deepEqual(m.buttons, ['编辑索引'], `手机上只留「编辑索引」（起草 / 用这版要电脑）${m.buttons}`);
-      if (label === 'narrow') await S.screenshot('index-tree-narrow');
+      if (label === 'mobile') assert.ok(!m.acts && !m.classify, `手机上没有要插件的按钮 ${JSON.stringify(m)}`);
+      if (label === 'narrow') await S.screenshot('index-split-narrow');
       assert.deepEqual(await S.pageErrors(), []);
       await page.close();
     }
-    {
-      const { page, S } = await open(browser, { width: 1280, idx, data });
-      await clickTab(page, '索引'); await S.settle();
-      await page.setViewportSize({ width: 560, height: 900 }); await page.waitForTimeout(120); await S.settle();
-      assert.ok(await page.evaluate(() => document.querySelector('.lbi-panel').classList.contains('is-list')), '宽屏缩到窄屏：跟着变成列表');
-      await page.close();
-    }
-    // ⑦ 旧后端（没有 index-data.json）：照旧按 cats_order，没有「索引」
+    // ⑧ 旧后端（没有 index-data.json）：照旧按 cats_order，没有「索引」
     {
       const { page, S } = await open(browser, { idx: null, data });
       const names = (await tabs(page)).map(t => t.text);
       assert.ok(!names.includes('索引') && CATS.every(c => names.includes(c)), `旧后端照旧 ${names}`);
       await clickTab(page, '做饭'); await S.settle();
       assert.ok((await cardTitles(page)).every(t => t.startsWith('做饭')));
-      assert.equal(await page.evaluate(() => document.querySelector('.lbc-subcats')), null, '旧后端没有二级小标签');
       assert.deepEqual(await S.pageErrors(), []);
       await page.close();
     }
-    console.log('PASS index_tree_ui：分类 = 索引第一级 · 二级小标签 · 分叉树 / 折叠 / 点节点筛选 · 草稿 / 提示 / wiki · 热更新 · 窄屏列表 · 旧后端兜底');
+    console.log('PASS index_tree_ui：分类 = 索引第一级 · 二级小标签 · 左树右卡 / 折叠 / 钉住 · 未归类 / 归类状态 / 建议新增 · AI 建 / 空分类 · 归类… 移到 · 热更新 · 窄屏 · 旧后端兜底');
   } finally {
     await browser.close();
   }
