@@ -198,6 +198,10 @@ def plan(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
         return dict(HUMAN)
     if step == SELF_STEP:
         return _manual("自愈轮自己出了错：点「复制报错」发给作者")
+    if sub == "NIGHT_CAPTCHA":
+        # 1011：夜里撞的验证码先不叫她——冷却后自查归 night_captcha（夜跑 / 后台补评论里），自愈轮绝不开页、不清熔断
+        return _wait(next_nightly(now), "夜里弹了验证（不是掉登录）：冷却后自己再看一眼，没事就自动恢复；"
+                                        "连着两晚都还在才叫你。想现在处理就在设置里点「打开验证」")
     if sub == "STEP_ARGS":
         return _manual("程序和夜跑脚本版本对不上：更新程序或夜跑脚本后自动恢复")
     if sub == "NOTE_GONE":

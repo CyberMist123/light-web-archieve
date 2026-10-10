@@ -105,6 +105,9 @@ def isolated_vault_and_home(monkeypatch, tmp_path):
     monkeypatch.setenv("LINK_BRAIN_VAULT", str(tmp_path / "vault"))
     monkeypatch.setenv("LINK_BRAIN_HOME", str(tmp_path / "lbhome"))
     monkeypatch.delenv("LINK_BRAIN_ALERT_CMD", raising=False)
+    # 1011：「没人看着」（夜跑 / 后台补评论）默认关；设成空串而不是 delenv——代码里 set_unattended 写进 os.environ 的，
+    # 用例结束时也跟着撤掉（delenv 对原本没有的变量不记账）
+    monkeypatch.setenv("LINK_BRAIN_UNATTENDED", "")
     # 读取服务的账号目录（熔断文件 risk-hold.json 住这里）也指到 tmp，别读到本机真号的状态
     monkeypatch.setenv("XHS_PROFILE_DIR", str(tmp_path / "xhs-profile"))
     # 读取服务默认「没装、没在跑」：要测它的用例自己 monkeypatch accounts.api / httpx.request

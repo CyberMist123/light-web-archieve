@@ -886,10 +886,21 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
   `stuck_reason`（连着 3 次没进展：不再自动续，问题记录 `comments.fill` + `PERMANENT.COMMENTS_INCOMPLETE`）· `done_at` · `history[]`（最近 8 次）。
 - `_archive/comments-fill-status.json`（后台补跑 / 夜跑这一步写，插件状态栏读）：`state` running|waiting|paused|done|deferred|stopped ·
   `pid` · `background` · `floors` · `total` / `done` / `left`（篇）· `missing`（条）· `stuck` · `current {item_id,title}` ·
-  `wait_code`（CAPTCHA_REQUIRED / NOT_LOGGED_IN / NIGHTLY / YIELD / ACCOUNT_BUSY / COOLING …）· `message`（一句人话）· `updated_at`（等待时每分钟刷新）。
+  `wait_code`（CAPTCHA_REQUIRED / NOT_LOGGED_IN / NIGHTLY / YIELD / ACCOUNT_BUSY / COOLING / CAPTCHA_COOLDOWN（1011：撞验证后冷却等自查）…）· `message`（一句人话）· `updated_at`（等待时每分钟刷新）。
   进程没了而状态还停在 running/waiting/paused：Python（`comments --fill-status`）改报 stopped。
 - `comments --fill-status` → `{ok, code, message, floors, pending, ready, cooling, stuck, missing, running, status}`（本地读，不碰号）；
   `comments --fill-pending --detach` → 拉起 `--until-done` 后台补跑（单实例，已在跑就 `already`）。
+
+## 2026-10-11 收藏名单 / 口令 / 夜里撞验证的状态
+
+- `_archive/fav-list.json`（`favorites.py`）：上次**全量**读到的收藏名单，最新在前 —— `{schema_version:1, full_at, at, items:[{note_id, xsec_token, url, title?, type?, author?, author_id?}], full_next?}`。
+  全量读全（不是一截、不可疑）才整份换（`full_at` = 那一刻）；增量读 / 一截只把读到的那段合进最前面（`at` 变、`full_at` 不动）。
+  增量那晚的待抓清单 = 读到的最新一段 + 名单里其余的（积压从这里接着补）。`full_next` = 按名单（旧口令）抓连着失败，下次读收藏读全量。
+- `_archive/fav-tokens.json`（`attachments.py`）：`{schema_version:1, at, full_at, tokens:{note_id:{token, at}}}`；全量整份换，增量只合并读到的那段（各条自己的 `at` 算新不新，7 天内有效）。
+- `~/.link-brain/night-captcha.json`（`night_captcha.py`，`LINK_BRAIN_HOME` 可改）：`{nights:{"YYYY-MM-DD":{incidents, first_at, last_at, probe_at, probe_result, result: recovered|unrecovered|not_logged_in, recovered_at?, why?, escalated?}}}`，
+  「夜跑日」= 当地时间往前推 3 小时的日期，只留最近 14 晚。
+- 读取组件 `<XHS_PROFILE_DIR>/risk-hold.json` 多两个键：`auto_probe_at`（冷却后自查过的时刻；同一次熔断一晚一次）、`auto_probe_result`（没解除时的结论）；
+  `/login/session` 多 `auto_probe: {result, at, hold_since}`。
 
 ## 2026-10-10 索引树（库根 `索引.md` → `_archive/index-data.json`）与节点 wiki
 

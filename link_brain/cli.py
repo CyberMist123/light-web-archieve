@@ -204,6 +204,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="最多跑几分钟（0=不限）：到点不再开新的抓取，剩下的明天继续（退出码 0）")
     p.add_argument("--wait-lock-min", dest="wait_lock_min", type=float, default=10,
                    help="号被别的任务占着时最多等几分钟（默认 10），等不到退出码 6")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--full", action="store_true",
+                   help="这次读全量收藏（滚到底；平时只读最新一段，每周一次全量）")
+    g.add_argument("--from-snapshot", dest="from_snapshot", action="store_true",
+                   help="不读收藏列表，只按上次全量名单补抓积压（夜里撞验证、自查恢复后用）")
 
     p = sub.add_parser("enrich", help="给已归档的笔记补识图 + 概要（不碰号；每篇子进程、20 分钟上限）")
     p.add_argument("--pending", action="store_true",
@@ -314,6 +319,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     from . import nightly as nightly_mod, reader_install, report as report_mod
     nightly_mod.add_parser(sub)
+    from . import night_captcha as night_captcha_mod
+    night_captcha_mod.add_parser(sub)  # 1011 夜里撞验证：冷却后自查一次
     reader_install.add_parser(sub)
     report_mod.add_parser(sub)
     from . import synclog as synclog_mod
@@ -396,6 +403,9 @@ def _dispatch(args) -> int:
     if args.command == 'nightly':
         from . import nightly
         return nightly.run(args)
+    if args.command == 'captcha-recover':
+        from . import night_captcha
+        return night_captcha.run(args)
     if args.command == 'reader':
         from . import reader_install
         return reader_install.run(args)

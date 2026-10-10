@@ -47,7 +47,7 @@ RISK_CODES = ('CAPTCHA_REQUIRED', 'ACCOUNT_RISK', 'RISK_HOLD')
 SOLUTIONS = {
     'NOT_LOGGED_IN': ('expired', '登录已失效', '点击「扫码登录」，用收藏所在的小红书账号扫码。', 'login'),
     # 1008（B1 A3）：上次多半是读收藏时被拦的——只有在窗口里点一下「收藏」页签，还在生效的验证才会露出来
-    'CAPTCHA_REQUIRED': ('captcha', '小红书要求安全验证',
+    'CAPTCHA_REQUIRED': ('captcha', '小红书弹了验证（不是掉登录）',
                          '点击「打开验证」，窗口打开后点一下「收藏」页签（上次是读收藏时被拦的）；出现滑块就拖完再关窗，'
                          '没出现就直接关窗。不要反复重试。', 'verify'),
     'ACCOUNT_RISK': ('expired', '小红书把读取号跳到了登录/安全页（风控）',

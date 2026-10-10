@@ -131,12 +131,24 @@
   楼数调大由插件自动拉起后台补跑。进度写 `_archive/comments-fill-status.json`，插件状态栏 / 设置页显示。
 - **回归用例**：`tests/test_comments_fill_1009.py::test_old_note_gap_inside_floor_setting_is_scheduled_and_filled`、`tests/test_comments_fill_1009.py::test_raise_floors_loads_more_and_lower_never_deletes`、`tests/test_comments_fill_1009.py::test_union_merge_keeps_replies_the_site_no_longer_shows`、`tests/test_comments_fill_1009.py::test_no_progress_three_times_goes_to_problem_panel_then_resolves`、`tests/test_comments_fill_1009.py::test_count_mismatch_and_missing_floor_are_settled_not_gaps`、`tests/test_comments_fill_1009.py::test_fill_reuses_downloaded_media_and_does_not_redownload`、`tests/test_comments_fill_1009.py::test_worker_waits_out_captcha_without_opening_pages_then_resumes`、`tests/test_comments_fill_1009.py::test_worker_yields_to_nightly_and_waiting_tasks`、`tests/test_comments_fill_1009.py::test_polite_session_lets_waiting_task_go_first`、`tests/test_comments_fill_1009.py::test_nightly_step_has_no_two_note_cap_and_hands_over_to_background`。
 
+### 16. 隔一晚凌晨 4 点推一次「需要验证」，她打开窗口什么都没有（10-06 / 10-08 / 10-10 / 10-11）
+- **用户看到**：凌晨 4 点手机响「需要验证」，整晚的同步、附件、评论都停了，只有她能解；10-10 04:02 撞上、04:11 她打开验证窗口已经没有滑块（`no_captcha_seen`）。她：纯噪音，「夜里正常跑就行」。
+- **根因**：①读收藏一开页（0.3–0.5 分钟）就弹滑块，但这个验证一阵子就消；②以前一次验证 = 硬熔断 + 当场推送 + 只有她能清；③负载：每晚把 1230 条收藏整份滚一遍（420 秒）再抓 50 篇两个多小时。
+- **修法 / 自愈**（作者 1011 定）：
+  - 没人看着（夜跑脚本 / 包内 nightly / 后台补评论设 `LINK_BRAIN_UNATTENDED`）时撞的验证码不当场推：登记 `TRANSIENT.NIGHT_CAPTCHA`（只在列表里）；熔断照写、照拦；
+  - 离线步骤照跑（冷却期间一页不开），然后 `captcha-recover` 冷却满 45 分钟自查一次：读取组件 `POST /api/v1/risk/probe` 只开一页本号主页（不点页签、不滚动、只认验证码类、服务端冷却下限 30 分钟、同一次熔断一晚一次），干净且已登录才解除（原因「冷却后自查无验证，自动恢复」，问题记录留一条已解决的痕）；之后接着跑停下的碰号步骤，收藏同步那步停的改成 `--from-snapshot` 按全量名单补抓、**不再读收藏列表**；
+  - 还在 / 读不到 → 今晚安静停；**连着两晚**都这样才推一次 `NEEDS_HUMAN.CAPTCHA_REQUIRED`，标题「小红书弹了验证（不是掉登录）」；一晚只自查一次（同晚再撞安静停）；自查发现是游客 = 掉登录，照旧当场推；
+  - 白天她自己点的同步撞验证照旧当场推（她在看着）；人工 `risk/clear` 语义不变，自动解除走的是读取组件里单独的、有日志的那条路；
+  - 降负载：收藏平时只读最新一段（POST 带已知 id，连着碰到 20 篇读过的就停，`known_streak`），每周日 / 上次全量超过 7 天才滚到底（名单、口令、基准都只由全量刷新）；积压从全量名单 `_archive/fav-list.json` 接着补。
+- **回归用例**：`tests/test_night_captcha_1011.py::test_night_captcha_is_listed_not_pushed`、`tests/test_night_captcha_1011.py::test_attended_captcha_still_pushed_with_plain_words`、`tests/test_night_captcha_1011.py::test_night_login_expired_and_risk_jump_still_pushed`、`tests/test_night_captcha_1011.py::test_wait_then_probe_clean_recovers_and_leaves_audit`、`tests/test_night_captcha_1011.py::test_still_there_stops_quietly_then_second_night_pushes_once`、`tests/test_night_captcha_1011.py::test_once_per_night_even_after_recovery`、`tests/test_night_captcha_1011.py::test_background_fill_cools_down_probes_then_resumes`、`tests/test_night_captcha_1011.py::test_nightly_recovers_and_reruns_skipped_account_steps`、`tests/test_fav_incremental_1011.py::test_incremental_posts_known_ids_and_merges_backlog`、`tests/test_fav_incremental_1011.py::test_read_mode_rules`、`tests/test_fav_incremental_1011.py::test_from_snapshot_does_not_read_the_list`；Go 侧 `reader/link-brain-reader.patch` 里的 `TestRiskProbeCleanClears` / `TestRiskProbeStillRiskKeepsHoldAndProbesOnce` / `TestRiskProbeOnlyCaptcha` / `TestScrollFavoritesStopsAtKnownStreak`。
+
 ---
 
 ## 二、故障码对照（用户看到 → 常见根因 → 自愈动作）
 
 「同次」= 那一步自己那次运行里的换策略重试；「自愈轮」= 夜跑收尾自动再修（✔ 自动 / — 不自动）；「现在修」= 面板按钮跑的动作。
 风控 / 登录类（`NEEDS_HUMAN` 账号码）一律人工入口：不自动处理验证码、不自动清熔断。
+唯一例外（作者 1011 定，见第 16 条）：没人看着时撞的**验证码**，冷却 45 分钟后由读取组件自查一次，干净才由它自己解除；自愈轮、面板「全部修一遍」都不碰。
 
 | 码 | 用户看到 | 常见根因 | 同次 | 自愈轮 | 现在修 / 下一步 |
 |---|---|---|---|---|---|
@@ -146,6 +158,7 @@
 | `NEEDS_HUMAN.STUCK` | 连续几天没修好 | 同一步的临时故障连着 3 个日历日都在 | — | — | 「现在修」= 那一步各篇一起修 |
 | `NEEDS_HUMAN.SYNC_STUCK` | 同步卡住了 | 一次同步占着号几小时没进展 | — | — | 人工：重启 Obsidian / 结束那个进程；下一晚夜跑开头自动消 |
 | `NEEDS_HUMAN.BACKUP_DISK_MISSING` / `PORT_IN_USE` | 备份盘没挂 / 远程阅读端口被占用 | 外接盘没插 / 端口被别的程序占 | — | — | 人工 |
+| `TRANSIENT.NIGHT_CAPTCHA`（login，1011） | 夜里弹了验证（不是掉登录）：冷却后自己再看一眼 | 夜跑 / 后台补评论撞了验证码（一阵子就消的那种） | 离线步骤照跑；冷却 45 分钟自查一次（只开本号主页），干净自动恢复接着跑，还在今晚安静停 | — 不开页、不清熔断（等到明晚） | 连着两晚自查都还在 → 升级成 `NEEDS_HUMAN.CAPTCHA_REQUIRED` 推一次；想现在处理就点「打开验证」；见第 16 条 |
 | `TRANSIENT.FAVORITES_SUSPICIOUS` | 收藏只读到一截 | 读取组件 `partial`、读回 0 条、比上次少一半以上 | 这一截的新收藏照抓；退出 3 | — 今晚绝不重读 | 等到下次夜跑（写明几点）；之后才给「现在修」= 重新同步（距上次读 ≥ 30 分钟） |
 | `TRANSIENT.FAVORITES_FAILED` / `TIMEOUT` / `DISCONNECTED` / `BUSY` / `SYNC_FAILED` / `TOO_MANY_FAILURES` / `ACCOUNT_BUSY` / `INTERRUPTED`（sync.favorites） | 读收藏没成功 / 读取服务超时 / 没在运行 / 正忙 / 同步没做完 / 连续失败 / 号被占 / 被打断 | 机器卡、读取服务没起、号被别的任务占 | 夜跑 exit 1 等 25 分钟重试一次 | — 不重读列表 | 「现在修」= 重新同步（距上次读 ≥ 30 分钟，否则写明等到几点） |
 | `TRANSIENT.RATE_LIMITED` | 刚刚同步过 | 读取服务 10 分钟限频 | — | — | 等 10 分钟（写明几点） |
