@@ -1,5 +1,7 @@
 # Current State
 
+- 2026-10-10 `remote restart` / `disable` 修：停计划任务后按端口停真正在听的 `link_brain remote serve` 及其跑 .ps1 的 pwsh 父进程（只按 PID、不带进程树、不碰读取服务），重启要见到新 PID 才回成功，否则如实失败；真机 restart 旧→新 PID 已换、18061 未受影响。pytest 全量过，node 67 过 / 0 挂 / 13 跳过（无 playwright）。
+
 ## 2026-10-10 索引树 + 节点 wiki（分支 wt/1010-index-tree）
 
 - **她要的**（10-10 定稿）：一棵自己能随时删改的「索引树」看清收藏分布——最简单的多级列表，渲染成思维导图式的分叉树；AI 先写一版、附写法说明，她再改。不做白板、主动搜索、每日简报。
