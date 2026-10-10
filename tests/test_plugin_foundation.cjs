@@ -26,7 +26,7 @@ const attached = [], detached = [];
 const stubFactory = name => (obsidian, plugin) => ({ attach() { attached.push([name, obsidian === obs, !!plugin]); }, detach() { detached.push(name); } });
 const context = { module: { exports: {} }, process, setTimeout, clearTimeout, console, Buffer, document: dom.document,
   require: n => n === 'obsidian' ? obs : n === 'child_process' ? { spawn: fakeSpawn }
-    : /[\\/](note-actions|note-tools|image-actions|player-ui)\.js$/.test(n) ? stubFactory(path.basename(n))
+    : /[\\/](note-actions|note-tools|image-actions|player-ui|index-ui)\.js$/.test(n) ? stubFactory(path.basename(n))
     : /[\\/](remote-ui|media-nav|onboarding-ui)\.js$/.test(n) ? (() => ({ attach() { return true; } }))
     : require(n) };
 vm.createContext(context);
@@ -193,25 +193,25 @@ function makePlugin() {
   assert.deepEqual({ ...Plugin.__merge({}).media }, { loop: false, playlistOrder: 'newest' });
   assert.deepEqual({ ...Plugin.__merge({ media: { loop: true } }).media }, { loop: true, playlistOrder: 'newest' }, '存过的设置合并，缺的键用默认');
 
-  // ── onload：四个挂载点都 attach，没起任何进程 ──
+  // ── onload：五个挂载点（批次 D 四个 + 10-10 索引树 index-ui.js）都 attach，没起任何进程 ──
   const before = spawned.length;
   const q = makePlugin();
   q.p.loadData = async () => null; q.p.saveData = async () => {};
   // require 缓存：四个文件加载前先删缓存（只重载插件也拿到新部署的文件）；别的模块的缓存不动
   const base = path.join(path.sep, 'fake-vault', PLUGIN_DIR);
-  const mountFiles = ['note-actions.js', 'note-tools.js', 'image-actions.js', 'player-ui.js'].map(f => path.join(base, f));
+  const mountFiles = ['note-actions.js', 'note-tools.js', 'image-actions.js', 'player-ui.js', 'index-ui.js'].map(f => path.join(base, f));
   context.require.cache = Object.fromEntries([...mountFiles.map(f => [f, 'old']), ['other.js', 'keep']]);
   context.require.resolve = x => x;
   await q.p.onload();
   assert.deepEqual(Object.keys(context.require.cache), ['other.js'], '四个挂载点的 require 缓存先删掉再加载');
   delete context.require.cache; delete context.require.resolve;
-  assert.deepEqual(attached.map(a => a[0]), ['note-actions.js', 'note-tools.js', 'image-actions.js', 'player-ui.js'], '依次 require + attach');
+  assert.deepEqual(attached.map(a => a[0]), ['note-actions.js', 'note-tools.js', 'image-actions.js', 'player-ui.js', 'index-ui.js'], '依次 require + attach');
   assert.ok(attached.every(a => a[1] && a[2]), '工厂拿到 (obsidian, plugin)');
-  for (const k of ['noteActions', 'noteTools', 'imageActions', 'playerUI']) assert.equal(typeof q.p[k]?.attach, 'function', 'this.' + k + ' 挂上了');
+  for (const k of ['noteActions', 'noteTools', 'imageActions', 'playerUI', 'indexUI']) assert.equal(typeof q.p[k]?.attach, 'function', 'this.' + k + ' 挂上了');
   assert.equal(spawned.length, before, 'onload 不起进程');
   // onunload：有 detach 的挂载点各调一次
   q.p.onunload();
-  assert.deepEqual(detached, ['note-actions.js', 'note-tools.js', 'image-actions.js', 'player-ui.js'], 'onunload 调各挂载点的 detach');
+  assert.deepEqual(detached, ['note-actions.js', 'note-tools.js', 'image-actions.js', 'player-ui.js', 'index-ui.js'], 'onunload 调各挂载点的 detach');
   // 某个文件挂不上：别的照常
   attached.length = 0;
   const badRequire = context.require;
@@ -220,7 +220,7 @@ function makePlugin() {
   const r = makePlugin(); r.p.loadData = async () => null; r.p.saveData = async () => {};
   await r.p.onload();
   console.error = ce; context.require = badRequire;
-  assert.deepEqual(attached.map(a => a[0]), ['note-actions.js', 'image-actions.js', 'player-ui.js'], '一个坏了不拦别的');
+  assert.deepEqual(attached.map(a => a[0]), ['note-actions.js', 'image-actions.js', 'player-ui.js', 'index-ui.js'], '一个坏了不拦别的');
   assert.ok(errs.some(e => e.includes('note-tools.js 没加载上')));
   // 四个桩文件本身：工厂形状对
   for (const f of ['note-actions.js', 'note-tools.js', 'image-actions.js', 'player-ui.js']) {

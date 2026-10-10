@@ -179,8 +179,11 @@ const DEFAULT_SETTINGS = {
   prompts: { summary: "", answer: DEFAULT_ANSWER_PROMPT },
   // 第 10 批：queryExpand 默认开（和 ai_config.DEFAULTS 对齐）；旧键 expandTerms 不再读
   retrieval: { totalCharLimit: 8000, fragChars: 800, topK: 8, queryExpand: true },
-  // 目录页顶部大类筛选（空=用内置 BIG_CATS）；形如 [{name, keywords:[...]}]。
+  // 目录页顶部大类筛选（空=用内置 BIG_CATS）；形如 [{name, keywords:[...]}]。10-10 起目录分类以 索引.md 为准，
+  // 这一项只在第一次生成 索引.md 时用来迁移（顶部分类和原来一样），之后不再读。
   catalogCats: [],
+  // 10-10 索引树：索引文件（收藏库根目录相对的 .md；空 = 索引.md）。和 link_brain/indextree.index_rel 同一规则。
+  indexFile: "",
   hiddenCats: [],
   // 10-03：目录页 / 星标页瀑布流列数（Ctrl + 加减号 / Ctrl + 滚轮 / 「…→每行几列」调，2–6；0 = 按页面宽度自动）
   catalogColumns: 0,
@@ -628,7 +631,8 @@ class LinkBrainActions extends Plugin {
     // 批次 D 地基：笔记页动作 / 笔记工具 / 图片动作 / 连播 各一个文件，挂到 this.noteActions / noteTools / imageActions / playerUI。
     // 各线只改自己那个文件（工厂 (obsidian, plugin) => ({attach(){}, detach?(){}})），onload 这里不再动；卸载清理各自用 plugin.register / registerEvent，
     // 或给实例一个 detach()（onunload 会调）。先删 require 缓存再加载：只重载插件（LB.ensure 关了再开）也拿到新部署的文件，不用重启 Obsidian。
-    for (const [file, key] of [['note-actions.js', 'noteActions'], ['note-tools.js', 'noteTools'], ['image-actions.js', 'imageActions'], ['player-ui.js', 'playerUI']]) {
+    // 10-10：index-ui.js = 索引树（保存 索引.md 就重算、起草 / 用这版、未归类建议、生成 wiki），挂到 this.indexUI。
+    for (const [file, key] of [['note-actions.js', 'noteActions'], ['note-tools.js', 'noteTools'], ['image-actions.js', 'imageActions'], ['player-ui.js', 'playerUI'], ['index-ui.js', 'indexUI']]) {
       try {
         const p = path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, file);
         for (const r of [require, typeof window !== 'undefined' ? window.require : null]) { try { if (r && r.cache) delete r.cache[typeof r.resolve === 'function' ? r.resolve(p) : p]; } catch {} }
@@ -1747,7 +1751,7 @@ class LinkBrainActions extends Plugin {
   warmAnswerWorker() { if(this.answerWorker||this.unloading)return false; try{this.ensureAnswerWorker();return true;}catch(e){console.error('[lb] 预热问答进程没成',e);return false;} }
   stopArchiveAnswer(tag) { let n=0; for(const [id,p] of [...(this.answerPending?.entries()||[])]) { if(tag!=null&&p.tag!==tag)continue; if(this.cancelAnswer(id)) n++; } return n; }
   onunload(){this.unloading=true;clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);clearTimeout(this.fillTimer);this.catalogCache=null;
-    for(const k of ['noteActions','noteTools','imageActions','playerUI']){try{this[k]?.detach?.();}catch(e){console.error('[lb] '+k+' 卸载出错',e);}}   // 批次 D 地基：四个挂载点
+    for(const k of ['noteActions','noteTools','imageActions','playerUI','indexUI']){try{this[k]?.detach?.();}catch(e){console.error('[lb] '+k+' 卸载出错',e);}}   // 批次 D 地基：四个挂载点 + 10-10 索引树
     const worker=this.answerWorker;if(worker)this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});}
   // 返回 payload；status='cancelled' = 用户点了停止（markdown 是已生成的半截），不当失败抛。
   // sourceIds（第 10 批「按剩下的重新回答」）：只用这些来源作答，不重新检索
@@ -2576,29 +2580,32 @@ class LinkBrainSettingTab extends PluginSettingTab {
       .addText(t => t.setValue(s.downloads.folder).onChange(async v => { s.downloads.folder = v.trim(); await this.save(); }));
     return row;
   }
-  // 目录分类（「名称: 关键词」，格式不改；以后升级成多级索引树另开一批）
+  // 目录分类（10-10 索引树）：目录顶部的分类 = 索引.md 的第一级，她在 Obsidian 里直接改；原来的「名称: 关键词」文本框退场
+  // （第一次整理目录时已按它生成 索引.md，顶部分类不变）。按钮只调 index-ui.js 挂到插件上的方法；那个文件没加载上就说一句。
   fieldCategories(c) {
-    const s = this.plugin.settings;
+    const s = this.plugin.settings, P = this.plugin;
+    const file = () => P.indexUI?.indexRel?.() || '索引.md';
+    const call = (method, ...args) => {
+      if (typeof P[method] === 'function') return P[method](...args);
+      P.notify('索引功能没加载上：重启一次 Obsidian 再试', { kind: 'error' });
+      return null;
+    };
     const det = c.createEl('details', { cls: 'lb-fold lb-cats-fold' });
-    det.createEl('summary', { text: '目录分类（自己定）' });
-    det.createEl('p', { cls: 'setting-item-description', text: '每行一个：「名称: 关键词1, 关键词2」。标签里有任一个关键词，就归到这一类；留空用内置的。' });
-    let catsArea;
-    new Setting(det).addTextArea(t => { catsArea = t; t.inputEl.rows = 8; t.inputEl.style.width = '100%'; t.inputEl.style.fontFamily = 'var(--font-monospace)';
-      t.setPlaceholder('人机恋: 人机恋, ai伴侣, 陪伴\nAI·模型: claude, gpt, 大模型').setValue(serializeCats(s.catalogCats))
-        .onChange(async v => { s.catalogCats = parseCatsText(v); await this.save(); }); });
-    const acts = new Setting(det).setName('改完了').setDesc('分类改完，重新整理一次目录才会按新的分。');
-    acts.settingEl.addClass('lb-cats-actions');
-    this.link(acts, '载入现在的分类', async () => {
-      try {
-        const r = await this.plugin.runJSON(['-m', 'link_brain', 'catalog', '--print-cats'], '载入失败');
-        if (r.text != null) { catsArea.setValue(r.text); s.catalogCats = parseCatsText(r.text); await this.save(); this.plugin.notify('已载入现在的分类', { kind: 'ok' }); }
-      } catch (e) { this.plugin.notify('没载入：' + e.message, { kind: 'error' }); }
-    }, '把目录现在用的分类填进上面的框（会换掉框里的内容）');
-    this.link(acts, '清空（改用内置的）', async () => {
-      const snapshot = JSON.parse(JSON.stringify(s.catalogCats)); s.catalogCats = []; catsArea.setValue(''); await this.save();
-      this.plugin.notify('已清空自定义分类（改用内置的）', { actions: [{ label: '撤销', run: async () => { s.catalogCats = snapshot; catsArea.setValue(serializeCats(snapshot)); await this.save(); } }] });
-    }, '清空上面的框，目录改用内置分类（能撤销）');
-    this.link(acts, '重新整理目录', async () => { await this.plugin.run(['-m', 'link_brain', 'catalog'], '整理目录'); }, '按现在的分类重新整理目录页（几秒到一分钟）');
+    det.createEl('summary', { text: '目录分类（索引）' });
+    const row = new Setting(det).setName('编辑索引').setDesc(`目录顶部的分类 = ${file()} 的第一级；改完保存，几秒后目录就换新。`);
+    row.settingEl.addClass('lb-cats-actions');
+    this.help(row, '一行一个分类，往里缩进 = 下一级；「名字：标签1, 标签2」= 收带这些标签的笔记，只写名字 = 拿名字当标签。');
+    this.link(row, `打开 ${file()}`, () => call('openIndexFile'), '在 Obsidian 里打开索引文件直接改');
+    const draftBtn = this.link(row, 'AI 起草', async () => {
+      const done = P.busyButton(draftBtn, '正在起草…');
+      try { await call('indexDraft'); } catch (e) { P.notify('没起草成：' + (e?.message || e), { kind: 'error' }); } finally { done(); }
+    }, '按你的标签起草一版多级分类，写在旁边的草稿里，不动现在这份；没配 AI 就按常用标签起草');
+    this.link(row, '未归类建议', () => call('openIndexSuggestions'), '还没归进任何分类的笔记该放哪：列出建议，点「加入」才写进索引');
+    this.link(row, '重新整理目录', async () => { await P.run(['-m', 'link_brain', 'catalog'], '整理目录'); }, '重新整理一遍目录页（几秒到一分钟）');
+    new Setting(det).setName('索引文件').setDesc('收藏库里的相对路径（.md）；空着 = 索引.md')
+      .addText(t => t.setPlaceholder('索引.md').setValue(s.indexFile || '').onChange(async v => {
+        s.indexFile = v.trim(); await this.save(); P.indexRebuild?.();   // 换了文件：重算一次（那里还没有文件就按原来的分类生成一份）
+      }));
   }
 
   // —— AI 设置的小积木：每个能力块下只有一个「测试」按钮，测的就是生产用的那个函数（第 1B 批）——

@@ -19,7 +19,8 @@ def read_json(path: Path, default):
 # 插件目录里必须有的文件（main.js 按需 require 其余几个；第 5 批 B2 加了首次引导和并进来的图片导航；第 7 批加「开始」页向导，1009 换成设置页顶部 home-ui；10-03 加定时组件）
 PLUGIN_FILES = ('main.js', 'manifest.json', 'library-ui.js', 'remote-ui.js', 'problems-ui.js', 'report-ui.js', 'onboarding-ui.js', 'media-nav.js',
                 'home-ui.js', 'schedule-ui.js',  # 1009：设置页顶部（功能开关 + 一键装好 / 跑完）；10-03：灵活定时组件
-                'note-actions.js', 'note-tools.js', 'image-actions.js', 'player-ui.js')  # 批次 D：onload 的四个挂载点
+                'note-actions.js', 'note-tools.js', 'image-actions.js', 'player-ui.js',  # 批次 D：onload 的四个挂载点
+                'index-ui.js')  # 10-10 索引树（保存 索引.md 重算 / 起草 / 未归类建议 / wiki）
 
 
 def dataview_ready(obs: Path) -> bool:

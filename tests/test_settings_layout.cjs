@@ -9,6 +9,7 @@
 //   4. 五栏全打开（AI 全开、五个软件都勾、折叠都展开）后，第 7 批以来的设置项一项不少（改名 / 合并按表对上），列出的单例只出现一次；
 //   5. 收藏同步说明行；6. 同步 / 补评论 / 问题状态文件监听，重画 / 切栏 / 关设置页注销；7. 每天最多新收几篇、每篇评论抓几楼；8. 同步计划说明；
 //   9. 每项说明一行（≤ 60 字，多的在「?」悬停里）；10. 开关存失败拨回原值。
+//  11. 10-10 目录分类 = 索引.md：编辑索引 / AI 起草 / 未归类建议 / 重新整理目录（次要链接，调 index-ui.js 挂的方法；没加载上只说一句）+ 索引文件路径。
 // 不起真进程（CONVENTIONS §7.5）：child_process 换成一碰就炸的桩，runPy / 账号卡片是替身，home-ui / remote-ui / onboarding-ui / schedule-ui 是真的。
 'use strict';
 const fs = require('fs'), vm = require('vm'), assert = require('assert/strict');
@@ -185,7 +186,7 @@ const RENAMED = {
   '批注昵称': '批注署名', '检查本机环境': '检查这台电脑', '文字识别（OCR）': '认图片里的字', '识别精度': '认字精度', '模型目录（可选）': '认字模型放在哪（可选）',
   '测试 OCR': '测试认字（本机跑，不花钱）', '摘要提示词（归档时抽取）': '写概要的提示词', '问答提示词（/问AI）': '问收藏的提示词',
   '回答输出上限（max_tokens）': '回答最长多少（max_tokens）', '发给模型的总字符上限': '最多给模型看多少字', '每篇片段字符上限': '每篇最多摘多少字',
-  '送模型的片段篇数（topK）': '最多参考几篇（topK）', '先用小模型扩检索词': '提问时先想几个同义词一起搜', '载入当前分类+清空（用内置）+重建目录': '改完了',
+  '送模型的片段篇数（topK）': '最多参考几篇（topK）', '先用小模型扩检索词': '提问时先想几个同义词一起搜', '载入当前分类+清空（用内置）+重建目录': '编辑索引',   // 10-10 索引树：分类文本框换成「编辑索引 / AI 起草 / 未归类建议 / 重新整理目录」
   '等待手动下载（分钟）': '等下载最多几分钟', '待补附件': '还没下到的附件',
   '电脑需求 收藏问答：文本模型（': '电脑需求 问收藏：文本模型（现', '电脑需求 图片文字：本地 OC': '电脑需求 图片里的字：本地 O',
   '电脑需求 视频：语音转写走上面': '电脑需求 视频：语音转文字默认', '电脑需求 语音输入：CapsW': '电脑需求 说话打字：CapsW', '〔远程阅读〕': '〔连接其他 AI〕',
@@ -454,6 +455,41 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     assert.equal(e4.p.settings.textAI.model, 'x');
     assert.equal(e4.p.settings.textAI.apiKeyEnv, 'MY_LLM_KEY', '填推荐值把原来的密钥引用删了');
     t4.hide();
+  }
+
+  // —— 11. 10-10 索引树：「分类」文本框换成 编辑索引 / AI 起草 / 未归类建议 / 重新整理目录（都是次要链接），索引文件路径存进 indexFile ——
+  {
+    const e5 = makePlugin({});
+    const hits = [];
+    Object.assign(e5.p, { openIndexFile: () => hits.push('open'), indexDraft: async () => { hits.push('draft'); }, openIndexSuggestions: () => hits.push('suggest'),
+      indexRebuild: () => hits.push('rebuild'), indexUI: { indexRel: () => e5.p.settings.indexFile || '索引.md' }, run: async args => hits.push('run ' + args.slice(2).join(' ')),
+      busyButton: () => () => {} });
+    const t5 = openPage(e5.p, 'sync'); await settle();
+    const fold = t5.containerEl.querySelector('.lb-cats-fold');
+    assert.ok(fold && !fold.open, '目录分类默认收起');
+    assert.equal(fold.querySelector('summary').textContent, '目录分类（索引）');
+    assert.ok(!fold.querySelector('textarea'), '「名称: 关键词」文本框退场');
+    const row = rowsOf(fold).find(r => nameOf(r) === '编辑索引');
+    const btns = row.querySelectorAll('button');
+    assert.deepEqual(btns.map(b => b.textContent), ['打开 索引.md', 'AI 起草', '未归类建议', '重新整理目录']);
+    assert.ok(btns.every(b => b.classList.contains('lb-link') && !b.classList.contains('mod-cta')), '都是次要链接');
+    for (const b of btns) await b.onclick();
+    await settle();
+    assert.deepEqual(hits, ['open', 'draft', 'suggest', 'run catalog']);
+    const input = rowsOf(fold).find(r => nameOf(r) === '索引文件').querySelector('input');
+    assert.equal(input.getAttribute('placeholder'), '索引.md');
+    input.value = ' 我的/分类.md '; await input.oninput(); await settle();
+    assert.equal(e5.p.settings.indexFile, '我的/分类.md');
+    assert.equal(e5.saves.at(-1).indexFile, '我的/分类.md', '存进设置');
+    assert.equal(hits.at(-1), 'rebuild', '换了索引文件：重算一次');
+    t5.hide();
+    // index-ui.js 没加载上：点了只说一句，不炸
+    const e6 = makePlugin({});
+    const t6 = openPage(e6.p, 'sync'); await settle();
+    const before = notices.length;
+    await rowsOf(t6.containerEl.querySelector('.lb-cats-fold')).find(r => nameOf(r) === '编辑索引').querySelectorAll('button')[0].onclick();
+    assert.match(String(notices.slice(before).at(-1)), /索引功能没加载上/);
+    t6.hide();
   }
 
   console.log('PASS settings page (1010): tabs 概览 · 收藏与同步 · AI · 连接其他 AI · 高级 (one drawn at a time, remembered per session, old open-page names mapped), ≤1 primary per tab, AI toggles drive setup.selected + runtime with deps and sub-options only under an enabled parent, prices + key guide, nothing lost vs pre-1009 inventory (renamed / merged) and no duplicates, one-line descriptions, failed saves revert, sync / fill / problem rows live-watched + unhooked on redraw / tab switch / hide');

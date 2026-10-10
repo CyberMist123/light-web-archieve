@@ -239,7 +239,7 @@ R = {"status": "ok|failed|skipped", "text": str|None, "code": "<故障码或空>
 - 笔记线（L3）：`body.lb-actions-on`（note-actions attach 时加、卸载时去）；写 `pendingCatalogQuery`（点正文标签）；调 `askAboutNote(file)`（⋯ 菜单 / 命令「问这篇」）；`mediaNav.openLightbox(images, index, {caption, onCaption, onClose})` → `{close()}`（没有图返回 null；问收藏回答里的图用）、`mediaNav.hoverControls(media, video)`、`mediaNav.noteState`（按 `data-lb-item` 记的钉住 / 第几张 / 正文滚动，插件卸载就清空）；视频「循环」读写 `settings.media.loop`，「连播…」调 `playerUI.openTagPicker({itemId})`。笔记页命令 id 用 `note-` 前缀（`note-ask`、`note-highlight-selection`）。
 - 设置线（L4）：`accountCache`、事件 `link-brain:task`、`onTask(cb)`。
 - 功能线（L5）：`settings.media = {loop, playlistOrder}`（插件设置，后端不读）。
-- 索引树（1010）：`indexUI`（`index-ui.js`，onload 那排挂载点之一）；它在插件对象上挂页面调的 `indexDraft()` / `indexUseDraft()` / `openIndexSuggestions()` / `wikiBuild(path)` / `openIndexFile(line?)`；设置 `indexFile`（库根相对 .md，后端读同一个键，越界回默认 `索引.md`）。打开 索引.md / 草稿 / wiki 页不经插件（页面自己 `getLeaf(false).openFile`，手机上也能开）；分类 / 未归类 / 草稿 / wiki 状态 / 「AI 能不能点」都只读 `index-data.json`（`text_ai`、`drafting`），页面不判。
+- 索引树（1010）：`indexUI`（`index-ui.js`，onload 那排挂载点之一）；它在插件对象上挂页面调的 `indexDraft()` / `indexUseDraft()` / `openIndexSuggestions()` / `wikiBuild(path)` / `openIndexFile(line?)` / `indexRebuild()`（页面发现索引是用旧目录数据算的、或设置换了索引文件：走同一个防抖重算）；设置 `indexFile`（库根相对 .md，后端读同一个键，越界回默认 `索引.md`）。设置页那一节在 main.js `fieldCategories`（收藏与同步 →「目录分类（索引）」，原「名称: 关键词」文本框退场；`catalogCats` 只在第一次生成 索引.md 时迁移用），按钮只调上面这几个方法。打开 索引.md / 草稿 / wiki 页不经插件（页面自己 `getLeaf(false).openFile`，手机上也能开）；分类 / 未归类 / 草稿 / wiki 状态 / 「AI 能不能点」都只读 `index-data.json`（`text_ai`、`drafting`），页面不判。
 
 **形状**
 ```js

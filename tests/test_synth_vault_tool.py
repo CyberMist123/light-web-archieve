@@ -55,5 +55,5 @@ def test_synth_vault_builds_batch_d_samples(tmp_path):
     # 不再拷贝、启用旧图片导航插件
     assert json.loads((out / ".obsidian" / "community-plugins.json").read_text(encoding="utf-8")) == ["link-brain-actions"]
     assert not (out / ".obsidian" / "plugins" / "link-brain-native-media-nav").exists()
-    for f in ("note-actions.js", "note-tools.js", "image-actions.js", "player-ui.js"):
+    for f in ("note-actions.js", "note-tools.js", "image-actions.js", "player-ui.js", "index-ui.js"):
         assert (out / ".obsidian" / "plugins" / "link-brain-actions" / f).exists()

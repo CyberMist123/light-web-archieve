@@ -2,7 +2,8 @@
 // 1010 设置页（她：恢复分栏，按「什么都不懂的新用户」重写）在真 Chromium + Obsidian 外壳（settings-modal）里，亮 / 暗 / 第三方主题：
 //   ① 五栏：概览 / 收藏与同步 / AI / 连接其他 AI / 高级；一次只画一栏；每栏最多一个主按钮（mod-cta）
 //   ② 概览：账号 · 收藏同步 · 评论补齐 · 问题 · 这台电脑 +「一键装好 / 跑完」（唯一主按钮）
-//   ③ 收藏与同步：收藏放在哪 · 自动同步（编辑器就在这里）· 每天最多新收几篇 · 图片 / 视频 · 每篇评论抓几楼（手动的差别一行小字）…；目录分类默认收起
+//   ③ 收藏与同步：收藏放在哪 · 自动同步（编辑器就在这里）· 每天最多新收几篇 · 图片 / 视频 · 每篇评论抓几楼（手动的差别一行小字）…；目录分类默认收起，
+//      展开 = 编辑索引 / AI 起草 / 未归类建议 / 重新整理目录（10-10 索引树，次要链接、放得下）+ 索引文件路径
 //   ④ AI：第一句「要不要 AI…」；每个功能旁标价钱（本地「免费（本机跑）」/「约 ¥x / 100 篇」「约 ¥x / 次」/ 估不出「按用量」）；
 //      子选项（按住 CapsLock 说话）只在父开关（视频说话转文字）打开后出现；去哪弄密钥 + 价钱；打开了的那几项的接口 / 密钥 / 模型
 //   ⑤ 连接其他 AI：远程访问 · 你的网址（紧挨着「还没有网址？」两条路）· 连接地址 · 口令；访问令牌只在最下面「高级」折叠里；界面上没有 OAuth / Bearer
@@ -14,7 +15,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path');
 const shell = require('../_obsidian_shell.cjs');
 const root = 'obsidian-plugins/link-brain-actions';
-const sources = Object.fromEntries(['main', 'home-ui', 'remote-ui', 'schedule-ui', 'onboarding-ui'].map(name =>
+const sources = Object.fromEntries(['main', 'home-ui', 'remote-ui', 'schedule-ui', 'onboarding-ui', 'index-ui'].map(name =>
   [name + '.js', fs.readFileSync(path.join(root, name + '.js'), 'utf8')]));
 const TABS = ['概览', '收藏与同步', 'AI', '连接其他 AI', '高级'];
 // 新手主界面（不算「高级」那一栏和「连接其他 AI」里的高级折叠）上不该看到的词（她 1010 点名的术语；要留的旁边有人话解释）
@@ -91,6 +92,7 @@ async function open(browser, theme, { failRemote = false } = {}) {
     plugin.setCapsVoice = async () => true;
     plugin.renderAccounts = c => { const s = new window.obsidian.Setting(c).setName('小红书 · momo · ✓ 已登录'); s.settingEl.classList.add('lb-acct-row'); };
     plugin.runPy = async args => ({ code: 0, json: reply(args) });
+    plugin.indexUI = require('index-ui.js')(window.obsidian, plugin); plugin.indexUI.attach();   // 10-10 索引树：设置里「目录分类」那一节的按钮调它挂的方法
     plugin.taskStatusEl = document.querySelector('.status-bar').createDiv({ cls: 'status-bar-item l4-task' });
     plugin.onboardingUI = () => require('onboarding-ui.js')(window.obsidian, plugin);
     plugin.remoteUI = require('remote-ui.js')(window.obsidian, plugin);
@@ -145,6 +147,25 @@ const clickTab = async (page, label) => { await page.locator('.lb-tabs .lb-tab',
       assert.match(p.text, /打开那篇，在右上角 ⋮ 菜单里点「抓全部评论」/, '手动的差别一行小字');
       assert.ok(p.cta <= 1, theme + '：收藏与同步最多一个主按钮 ' + p.ctaText);
       assert.equal(await page.evaluate(() => document.querySelector('.lb-cats-fold').open), false, '目录分类默认收起');
+      // 10-10 索引树：目录分类 = 编辑索引 / AI 起草 / 未归类建议 / 重新整理目录（次要链接，在栏里放得下、不出横向滚动）+ 索引文件路径；文本框退场
+      await page.evaluate(() => { const d = document.querySelector('.lb-cats-fold'); d.open = true; window.l4seen = []; const rp = l4.plugin.runPy;
+        l4.plugin.runPy = async (a, o) => { window.l4seen.push(a.slice(2).join(' ')); return rp(a, o); }; window.l4rp = rp; });
+      await page.locator('.lb-cats-actions button', { hasText: 'AI 起草' }).click();
+      await page.waitForFunction(() => window.l4seen.includes('index draft') && !document.querySelector('.lb-cats-actions button.is-busy'));
+      const cats = await page.evaluate(() => {
+        const det = document.querySelector('.lb-cats-fold'), pane = document.querySelector('.lb-tab-pane').getBoundingClientRect();
+        const row = det.querySelector('.lb-cats-actions'), btns = [...row.querySelectorAll('button')];
+        const out = { names: btns.map(b => b.textContent), cta: btns.filter(b => b.classList.contains('mod-cta')).length, textarea: !!det.querySelector('textarea'),
+          inside: btns.every(b => { const r = b.getBoundingClientRect(); return r.width > 0 && r.left >= pane.left - 1 && r.right <= pane.right + 1; }),
+          overflow: Math.max(row.scrollWidth - row.clientWidth, document.querySelector('.lb-tab-pane').scrollWidth - document.querySelector('.lb-tab-pane').clientWidth),
+          placeholder: det.querySelector('input')?.getAttribute('placeholder'), seen: window.l4seen.slice() };
+        l4.plugin.runPy = window.l4rp; det.open = false;
+        return out;
+      });
+      assert.deepEqual(cats.names, ['打开 索引.md', 'AI 起草', '未归类建议', '重新整理目录'], theme + '：目录分类那一行的链接');
+      assert.equal(cats.cta, 0, '目录分类里没有主按钮'); assert.equal(cats.textarea, false, '「名称: 关键词」文本框退场');
+      assert.ok(cats.inside && cats.overflow <= 1, theme + '：目录分类的链接放得下（不出横向滚动）' + JSON.stringify(cats));
+      assert.equal(cats.placeholder, '索引.md'); assert.deepEqual(cats.seen, ['index draft'], '点「AI 起草」跑的是 index draft');
       assert.deepEqual(p.jargon, []);
       summary[theme]['收藏与同步'] = p.rows;
       await page.screenshot({ path: path.join(shell.QA_DIR, `S1010-settings-sync-${theme}.png`), fullPage: true });

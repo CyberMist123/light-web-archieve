@@ -400,3 +400,11 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-connect .lb-remote-nodomain > summary { cursor: pointer; color: var(--text-accent); }
 .lb-connect .lb-remote-nodomain p { margin: 4px 0; }
 .lb-remote-recent { line-height: 1.7; max-height: 14em; overflow: auto; }
+/* 10-10 索引树：设置里「编辑索引」那一行的几个链接放不下就换行；未归类建议弹窗一条一行、右边「加入」 */
+.lb-cats-actions .setting-item-control { flex-wrap: wrap; gap: 6px; }
+.lb-index-suggest-status { color: var(--text-muted); margin: 0 0 4px; }
+.lb-index-suggest-list { display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow: auto; margin: 8px 0; }
+.lb-index-suggest-row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--background-modifier-border); border-radius: 6px; }
+.lb-index-suggest-row.is-done { opacity: .6; }
+.lb-index-suggest-main { flex: 1; min-width: 0; }
+.lb-index-suggest-sub { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-top: 2px; overflow-wrap: anywhere; }
