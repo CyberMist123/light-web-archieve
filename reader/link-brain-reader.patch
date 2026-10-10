@@ -1182,10 +1182,10 @@ index abed0f7..5245f75 100644
  
 diff --git a/linkbrain_api.go b/linkbrain_api.go
 new file mode 100644
-index 0000000..155b7f7
+index 0000000..19ab54e
 --- /dev/null
 +++ b/linkbrain_api.go
-@@ -0,0 +1,1065 @@
+@@ -0,0 +1,1131 @@
 +package main
 +
 +// Link Brain 单账号接口（0925）：一个号、一个持久 profile，评论 / 私密收藏 / 附件
@@ -1245,6 +1245,11 @@ index 0000000..155b7f7
 +	verifyResult    string
 +	verifyFinished  time.Time
 +	verifyHoldSince string
++
++	// 1011 最近一次冷却后自查（risk_autoprobe.go）：结论 / 时刻 / 针对的熔断 since（/login/session 的 auto_probe）。
++	autoProbeResult    string
++	autoProbeAt        time.Time
++	autoProbeHoldSince string
 +}
 +
 +// resetVerify 清掉上一轮验证窗口的结论（开新窗口 / 写了新的熔断时）。调用方持锁。
@@ -1358,6 +1363,10 @@ index 0000000..155b7f7
 +		if !l.verifyFinished.IsZero() {
 +			out["verify_finished_at"] = l.verifyFinished.Format(time.RFC3339)
 +		}
++	}
++	if l.autoProbeResult != "" {
++		out["auto_probe"] = map[string]any{"result": l.autoProbeResult, "at": l.autoProbeAt.Format(time.RFC3339),
++			"hold_since": l.autoProbeHoldSince}
 +	}
 +	return out
 +}
@@ -1741,6 +1750,9 @@ index 0000000..155b7f7
 +	if r.Evidence != "" {
 +		out["evidence"] = r.Evidence
 +	}
++	if r.Reason == xiaohongshu.FavStopKnown {
++		out["incremental"] = true // 1011：停在了已知处——不是全量，调用方别拿条数当基准、别据此判「不在收藏里」
++	}
 +	return out
 +}
 +
@@ -1753,7 +1765,58 @@ index 0000000..155b7f7
 +	}
 +}
 +
++// favRequest 1011 增量读（POST /api/v1/favorites 的 body；GET 照旧只认 ?expect=N，老调用方不变）：
++// known_ids = 调用方已经知道的笔记 id（上次读到的 + 已在库的），stop_after_known = 从最新往下连着碰到这么多篇已知的就停。
++type favRequest struct {
++	Expect         int      `json:"expect"`
++	KnownIDs       []string `json:"known_ids"`
++	StopAfterKnown int      `json:"stop_after_known"`
++}
++
++// favStopKnownMax 连着几篇已知才停：调用方给的数夹在 [favStopKnownMin, favStopKnownMax]。
++const (
++	favStopKnownMin = 5
++	favStopKnownMax = 200
++)
++
++// parseFavRequest 读收藏的参数：GET 只看 ?expect=N；POST 另读 body（坏 body 报错，不吃限频）。返回 (expect, known, K)。
++func parseFavRequest(c *gin.Context) (int, map[string]bool, int, error) {
++	expect := favExpectParam(c.Query("expect"))
++	if c.Request.Method != http.MethodPost || c.Request.ContentLength == 0 {
++		return expect, nil, 0, nil
++	}
++	var req favRequest
++	if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
++		return 0, nil, 0, err
++	}
++	if req.Expect > 0 {
++		expect = favExpectParam(strconv.Itoa(req.Expect))
++	}
++	k := req.StopAfterKnown
++	if len(req.KnownIDs) == 0 || k <= 0 {
++		return expect, nil, 0, nil // 没给已知 id：老规矩全量
++	}
++	if k < favStopKnownMin {
++		k = favStopKnownMin
++	}
++	if k > favStopKnownMax {
++		k = favStopKnownMax
++	}
++	known := make(map[string]bool, len(req.KnownIDs))
++	for _, id := range req.KnownIDs {
++		if id = strings.TrimSpace(id); id != "" {
++			known[id] = true
++		}
++	}
++	return expect, known, k, nil
++}
++
 +func (s *AppServer) favoritesHandler(c *gin.Context) {
++	expect, known, stopKnown, perr := parseFavRequest(c)
++	if perr != nil {
++		respondError(c, http.StatusBadRequest, "INVALID_REQUEST", "请求参数错误", perr.Error())
++		return
++	}
 +	var wait time.Duration
 +	s.xiaohongshuService.state.set(func(l *loginState) {
 +		if since := time.Since(l.lastFav); since < favMinInterval {
@@ -1767,7 +1830,6 @@ index 0000000..155b7f7
 +			map[string]any{"retry_after_s": int(wait.Seconds())})
 +		return
 +	}
-+	expect := favExpectParam(c.Query("expect"))
 +	// 与 favdump 一致用独立 context：挂在 HTTP 请求 context 上实测进主页必超时（0925）
 +	ctx, cancel := context.WithTimeout(context.Background(), favRequestTimeout)
 +	defer cancel()
@@ -1801,6 +1863,7 @@ index 0000000..155b7f7
 +			func() (*xiaohongshu.UserProfileResponse, error) {
 +				action := xiaohongshu.NewUserProfileAction(page)
 +				action.FavExpect = expect
++				action.FavKnown, action.FavStopKnown = known, stopKnown
 +				p, err := action.GetMyProfileViaSidebar(ctx, xiaohongshu.TabFavorites)
 +				scroll, evidence = action.FavScroll, action.Evidence
 +				return p, err
@@ -1835,6 +1898,9 @@ index 0000000..155b7f7
 +		out = map[string]any{"nickname": profile.UserBasicInfo.Nickname, "count": len(items), "items": items}
 +		for k, v := range favReadSummary(scroll, expect) {
 +			out[k] = v
++		}
++		if stopKnown > 0 {
++			out["stop_after_known"] = stopKnown // 1011：这次是增量读请求（stop_reason=known_streak 才是真停在了已知处）
 +		}
 +	})
 +	if err != nil && fail == nil {
@@ -2470,10 +2536,20 @@ index a8137ee..f38f7de 100644
  
  			result := appServer.handleGetFeedDetail(ctx, argsMap)
 diff --git a/middleware.go b/middleware.go
-index b38164a..a769bd5 100644
+index b38164a..00d36b0 100644
 --- a/middleware.go
 +++ b/middleware.go
-@@ -9,16 +9,14 @@ import (
+@@ -1,7 +1,9 @@
+ package main
+ 
+ import (
++	"net"
+ 	"net/http"
++	"strings"
+ 
+ 	"github.com/gin-gonic/gin"
+ 	"github.com/sirupsen/logrus"
+@@ -9,20 +11,38 @@ import (
  
  // corsMiddleware CORS 中间件
  func corsMiddleware() gin.HandlerFunc {
@@ -2489,12 +2565,554 @@ index b38164a..a769bd5 100644
 -			c.AbortWithStatus(http.StatusNoContent)
 +		if c.GetHeader("Origin") != "" {
 +			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "拒绝来自网页的请求", "code": "FORBIDDEN_ORIGIN"})
++			return
++		}
++		// 1009 reader-7：Host 非回环名一律 403，挡 DNS 重绑定（evil.example 解析到 127.0.0.1 时同源请求不带 Origin）。
++		// 与 src-18060 的 isLoopbackHost 同一实现。
++		if !isLoopbackHost(c.Request.Host) {
++			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "只接受本机地址访问", "code": "FORBIDDEN_HOST"})
  			return
  		}
 -
  		c.Next()
  	}
  }
+ 
++// isLoopbackHost 判断 Host 头（可带端口）是不是回环名。
++func isLoopbackHost(hostport string) bool {
++	host := hostport
++	if h, _, err := net.SplitHostPort(hostport); err == nil {
++		host = h
++	}
++	host = strings.TrimSuffix(strings.TrimPrefix(strings.ToLower(host), "["), "]")
++	switch host {
++	case "127.0.0.1", "localhost", "::1":
++		return true
++	}
++	return false
++}
++
+ // errorHandlingMiddleware 错误处理中间件
+ func errorHandlingMiddleware() gin.HandlerFunc {
+ 	return gin.CustomRecovery(func(c *gin.Context, recovered any) {
+diff --git a/risk_autoprobe.go b/risk_autoprobe.go
+new file mode 100644
+index 0000000..206107e
+--- /dev/null
++++ b/risk_autoprobe.go
+@@ -0,0 +1,262 @@
++package main
++
++// 夜里撞验证后的「冷却后自查」（1011，她定：夜里正常跑就行，别为一次一阵子就消的滑块 4 点叫醒她）。
++//
++// POST /api/v1/risk/probe —— 和人工的 POST /api/v1/risk/clear 是两条路，语义不放宽：
++//   - 只认 CAPTCHA_REQUIRED（读收藏 / 开笔记时弹了滑块）；掉登录（NOT_LOGGED_IN）、安全跳转（ACCOUNT_RISK）一律不碰，
++//     回 result="not_captcha"，照旧等人；
++//   - 熔断写下之后至少冷却 cooldown_s（调用方给，默认 45 分钟；服务端有下限 riskProbeMinCooldown，调用方压不低）才开页，
++//     不到点回 result="cooling" + retry_after_s，一页不开；
++//   - 同一次熔断（同一个 since）一晚只自查一次（两次至少隔 riskProbeRepeatAfter=20 小时）：开页之前先把 auto_probe_at 落进 risk-hold.json（进程崩了重启也不会再查第二次），
++//     再来一次回 result="already_probed"；
++//   - 自查 = 用号开一页「本号主页」（熔断记下的出事页面若就是本号主页，去掉 tab 参数直接开；否则走侧栏「我」进主页），
++//     不点任何页签、不滚动、不读收藏；等页面稳一会儿，过一遍统一风控检查（看得见的验证要复读确认；
++//     看不见的验证组件也当「还在」——宁可今晚不跑）；再看登录态；
++//   - 页面干净且看到已登录 → 解除熔断，原因「冷却后自查无验证，自动恢复」，result="cleared"；
++//     页面还有验证 / 被跳走 → 保持（result="still_risk"）；是游客 → 保持（result="not_logged_in"，掉登录照旧要人扫码）；
++//     页面读不到 → 保持（result="not_read"）。
++// 结论记进 /login/session 的 auto_probe（{result, at, hold_since}），并留在 risk-hold.json（没解除时）。
++// 熔断中这条路由放行（holdExempt），扫码 / 验证窗口开着时照旧 409（busyGuard），拿浏览器锁最多等 windowLockWait。
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"net/http"
++	"strings"
++	"time"
++
++	"github.com/gin-gonic/gin"
++	"github.com/go-rod/rod"
++	"github.com/sirupsen/logrus"
++	"github.com/xpzouying/xiaohongshu-mcp/browser"
++	"github.com/xpzouying/xiaohongshu-mcp/configs"
++	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
++)
++
++// 自查的结论（/risk/probe 的 result，也记进 /login/session 的 auto_probe.result）。
++const (
++	probeCleared       = "cleared"        // 冷却后自查：页面干净、已登录 → 已自动解除
++	probeStillRisk     = "still_risk"     // 页面上验证还在 / 被跳到安全页 → 保持熔断
++	probeNotLoggedIn   = "not_logged_in"  // 是游客 → 保持熔断（掉登录照旧要人扫码）
++	probeNotRead       = "not_read"       // 页面读不到 → 保持熔断
++	probeNoHold        = "no_hold"        // 没有熔断，什么都不做
++	probeNotCaptcha    = "not_captcha"    // 熔断不是验证码类，不归这里管
++	probeCooling       = "cooling"        // 还在冷却，没开页
++	probeAlready       = "already_probed" // 这次熔断已经自查过一次了，不再开页
++	probeWindowFailed  = "window_failed"  // 浏览器被别的操作占着，没开页
++	probeClearedReason = "冷却后自查无验证，自动恢复"
++)
++
++// riskProbeMinCooldown 服务端冷却下限：调用方传多小都按它算（测试里改小）。
++var riskProbeMinCooldown = 30 * time.Minute
++
++// riskProbeDefaultCooldown 调用方不给 cooldown_s 时的冷却。
++const riskProbeDefaultCooldown = 45 * time.Minute
++
++// autoProbeSettle 打开主页后先等这么久再读（滑块常在页面稳下来之后才弹）。
++var autoProbeSettle = 8 * time.Second
++
++type riskProbeRequest struct {
++	CooldownS int    `json:"cooldown_s"`
++	Reason    string `json:"reason"`
++}
++
++// autoProbeFn 真正开页自查（测试里替换成桩）：返回这一页的读数；opened=false = 浏览器被占着、根本没开页。
++var autoProbeFn = func(h *riskHold) (r verifyReading, opened bool) {
++	b, err := browser.NewBrowserWait(windowLockWait, configs.IsHeadless(),
++		browser.WithFingerprintSeed(configs.FingerprintSeed()), browser.WithProxy(configs.Proxy()))
++	if err != nil {
++		logrus.Warnf("冷却后自查：%s 内没等到浏览器空出来，这次不开页：%v", windowLockWait, err)
++		return verifyReading{}, false
++	}
++	defer b.Close()
++	page := b.NewPage()
++	defer page.Close()
++	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
++	defer cancel()
++	opened = true
++	err = rod.Try(func() {
++		target, _ := verifyTarget(h)
++		if target != "" && strings.Contains(strings.ToLower(target), "/user/profile/") {
++			page.Context(ctx).Timeout(40 * time.Second).MustNavigate(target).MustWaitLoad()
++		} else if e := xiaohongshu.NewNavigate(page).ToProfilePage(ctx); e != nil {
++			if rk := xiaohongshu.AsRisk(e); rk != nil {
++				r = verifyReading{ok: true, riskRead: true, risk: rk}
++				return
++			}
++			panic(e)
++		}
++		time.Sleep(autoProbeSettle)
++		r = readAutoProbe(page)
++	})
++	if err != nil && r.risk == nil {
++		// 导航失败：页面多半被跳走了——读一次看看是不是风控页，读不到就是「没读到」
++		if rk := xiaohongshu.RiskPage(page); rk != nil {
++			return verifyReading{ok: true, riskRead: true, risk: rk}, true
++		}
++		if st := xiaohongshu.PageLoginState(page); st == "guest" || st == "guestflag" {
++			return verifyReading{ok: true, riskRead: true}, true // 进不了主页是因为成了游客：掉登录照旧要人扫码
++		}
++		logrus.Warnf("冷却后自查没打开主页：%v", err)
++		return verifyReading{}, true
++	}
++	return r, true
++}
++
++// readAutoProbe 读一次自查页：统一风控检查（复读确认、落证据；看不见的验证组件也算「还在」）+ 登录态。
++func readAutoProbe(page *rod.Page) verifyReading {
++	if rk := xiaohongshu.RiskPage(page); rk != nil {
++		return verifyReading{ok: true, riskRead: true, risk: rk}
++	}
++	st := xiaohongshu.PageLoginState(page)
++	return verifyReading{ok: st != "", riskRead: true, loggedIn: st == "user"}
++}
++
++// autoProbeVerdict 由自查读数给结论（纯逻辑）。
++func autoProbeVerdict(r verifyReading) string {
++	switch {
++	case r.risk != nil:
++		return probeStillRisk
++	case !r.ok:
++		return probeNotRead
++	case !r.loggedIn:
++		return probeNotLoggedIn
++	}
++	return probeCleared
++}
++
++// riskProbeRepeatAfter 同一次熔断两次自查至少隔这么久（= 一晚一次：熔断跨过白天留到下一晚，下一晚可以再看一眼）。
++var riskProbeRepeatAfter = 20 * time.Hour
++
++// probedRecently 这次熔断 riskProbeRepeatAfter 之内自查过（读不懂时刻按查过算，宁可不开页）。
++func probedRecently(at string, now time.Time) bool {
++	if at == "" {
++		return false
++	}
++	t, err := time.Parse(time.RFC3339, at)
++	return err != nil || now.Sub(t) < riskProbeRepeatAfter
++}
++
++// markProbe 开页之前把「这次熔断已经自查过」落盘：同一个 since 只自查一次（进程崩了重启也不会再查）。
++// 返回 false = 熔断变了 / 已经查过 / 没有熔断。
++func (h *holdStore) markProbe(since string, at time.Time) bool {
++	h.mu.Lock()
++	defer h.mu.Unlock()
++	if h.cur == nil || h.cur.Since != since || probedRecently(h.cur.AutoProbeAt, at) {
++		return false
++	}
++	h.cur.AutoProbeAt = at.Format(time.RFC3339)
++	if err := writeFileAtomic(h.path, *h.cur); err != nil {
++		logrus.Errorf("自查标记写盘失败（内存里仍生效）：%v", err)
++	}
++	return true
++}
++
++// unmarkProbe 浏览器被占着、根本没开页：撤掉自查标记（没开页就不算查过）。
++func (h *holdStore) unmarkProbe(since string) {
++	h.mu.Lock()
++	defer h.mu.Unlock()
++	if h.cur == nil || h.cur.Since != since {
++		return
++	}
++	h.cur.AutoProbeAt = ""
++	_ = writeFileAtomic(h.path, *h.cur)
++}
++
++// noteProbeResult 没解除时把自查结论记在熔断上（落盘），给 /login/session 和下次排查看。
++func (h *holdStore) noteProbeResult(since, result string) {
++	h.mu.Lock()
++	defer h.mu.Unlock()
++	if h.cur == nil || h.cur.Since != since {
++		return
++	}
++	h.cur.AutoProbeResult = result
++	if err := writeFileAtomic(h.path, *h.cur); err != nil {
++		logrus.Errorf("自查结论写盘失败：%v", err)
++	}
++}
++
++// probeCooldown 调用方给的冷却（秒），不给用默认，低于下限按下限。
++func probeCooldown(s int) time.Duration {
++	d := riskProbeDefaultCooldown
++	if s > 0 {
++		d = time.Duration(s) * time.Second
++	}
++	if d < riskProbeMinCooldown {
++		d = riskProbeMinCooldown
++	}
++	return d
++}
++
++// autoProbe 冷却后自查的整套判定（服务层；处理函数只管解析和回包）。
++func (s *XiaohongshuService) autoProbe(cooldown time.Duration, now time.Time) map[string]any {
++	h := s.hold.get()
++	if h == nil {
++		return map[string]any{"result": probeNoHold, "risk_hold": nil}
++	}
++	out := map[string]any{"hold_since": h.Since, "hold_code": h.Code, "cooldown_s": int(cooldown.Seconds())}
++	if h.Code != xiaohongshu.RiskCaptcha {
++		out["result"] = probeNotCaptcha
++		return out
++	}
++	if probedRecently(h.AutoProbeAt, now) {
++		out["result"], out["probed_at"] = probeAlready, h.AutoProbeAt
++		return out
++	}
++	since, err := time.Parse(time.RFC3339, h.Since)
++	if err != nil {
++		since = now // 读不懂起始时刻：从现在起算，宁可多等
++	}
++	if wait := since.Add(cooldown).Sub(now); wait > 0 {
++		out["result"], out["retry_after_s"] = probeCooling, int(wait.Seconds())+1
++		return out
++	}
++	if !s.hold.markProbe(h.Since, now) {
++		out["result"] = probeAlready
++		return out
++	}
++	logrus.Infof("冷却后自查：熔断 %s（自 %s）已冷却 %s，开一页本号主页看看（不点页签、不滚动）", h.Code, h.Since, now.Sub(since).Round(time.Second))
++	reading, opened := autoProbeFn(h)
++	if !opened {
++		s.hold.unmarkProbe(h.Since)
++		out["result"] = probeWindowFailed
++		return out
++	}
++	result := autoProbeVerdict(reading)
++	out["probed_at"] = now.Format(time.RFC3339)
++	switch result {
++	case probeCleared:
++		s.clearRiskIf(xiaohongshu.RiskCaptcha, probeClearedReason+fmt.Sprintf("（熔断自 %s，冷却 %s 后打开本号主页没看到验证）", h.Since, cooldown))
++	default:
++		s.hold.noteProbeResult(h.Since, result)
++		why := result
++		if reading.risk != nil {
++			why += "：" + reading.risk.Code
++		}
++		logrus.Warnf("冷却后自查：熔断保持（%s）", why)
++		if reading.risk != nil {
++			out["risk_code"] = reading.risk.Code
++		}
++	}
++	out["result"] = result
++	s.state.set(func(l *loginState) {
++		l.autoProbeResult, l.autoProbeAt, l.autoProbeHoldSince = result, now, h.Since
++	})
++	return out
++}
++
++// riskProbeHandler POST /api/v1/risk/probe：冷却后自查（见文件头）。
++func (s *AppServer) riskProbeHandler(c *gin.Context) {
++	var req riskProbeRequest
++	if c.Request.ContentLength != 0 {
++		if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil {
++			respondError(c, http.StatusBadRequest, "INVALID_REQUEST", "请求参数错误", err.Error())
++			return
++		}
++	}
++	if req.Reason != "" {
++		logrus.Infof("冷却后自查请求：%s", req.Reason)
++	}
++	respondSuccess(c, s.xiaohongshuService.autoProbe(probeCooldown(req.CooldownS), time.Now()), "ok")
++}
+diff --git a/risk_autoprobe_test.go b/risk_autoprobe_test.go
+new file mode 100644
+index 0000000..7386e9f
+--- /dev/null
++++ b/risk_autoprobe_test.go
+@@ -0,0 +1,244 @@
++package main
++
++// 1011 冷却后自查（POST /api/v1/risk/probe）：只认验证码类、冷却够了才开页、同一次熔断只查一次、干净才解除。
++// 全部不开浏览器：真正开页的 autoProbeFn 换成桩；testApp 还占着浏览器锁（万一桩没换上也只会卡住、不会开小红书）。
++
++import (
++	"encoding/json"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/gin-gonic/gin"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
++)
++
++// stubProbe 换掉真正开页的自查，记调用次数。
++func stubProbe(t *testing.T, r verifyReading, opened bool) *int {
++	t.Helper()
++	calls := 0
++	old := autoProbeFn
++	autoProbeFn = func(*riskHold) (verifyReading, bool) { calls++; return r, opened }
++	t.Cleanup(func() { autoProbeFn = old })
++	return &calls
++}
++
++// tripAgo 写一次熔断，并把起始时刻拨到 ago 之前（模拟已经冷却了这么久）。
++func tripAgo(app *AppServer, code string, ago time.Duration) *riskHold {
++	h := app.xiaohongshuService.hold
++	h.trip(code, "夜里读收藏撞了验证", &xiaohongshu.Evidence{URL: "https://www.xiaohongshu.com/user/profile/u1?tab=fav", Tab: "fav"})
++	h.mu.Lock()
++	h.cur.Since = time.Now().Add(-ago).Format(time.RFC3339)
++	_ = writeFileAtomic(h.path, *h.cur)
++	c := *h.cur
++	h.mu.Unlock()
++	return &c
++}
++
++func probe(t *testing.T, router http.Handler, body string) map[string]any {
++	t.Helper()
++	code, out := doJSON(t, router, "POST", "/api/v1/risk/probe", body)
++	require.Equal(t, http.StatusOK, code, "%v", out)
++	return out["data"].(map[string]any)
++}
++
++func TestRiskProbeNoHoldDoesNothing(t *testing.T) {
++	app, _ := testApp(t)
++	calls := stubProbe(t, verifyReading{ok: true, loggedIn: true}, true)
++	assert.Equal(t, probeNoHold, probe(t, setupRoutes(app), "")["result"])
++	assert.Equal(t, 0, *calls)
++}
++
++// TestRiskProbeOnlyCaptcha 掉登录 / 安全跳转类不归自查管：不开页、熔断原样。
++func TestRiskProbeOnlyCaptcha(t *testing.T) {
++	for _, code := range []string{xiaohongshu.RiskNotLoggedIn, xiaohongshu.RiskAccount} {
++		t.Run(code, func(t *testing.T) {
++			app, _ := testApp(t)
++			calls := stubProbe(t, verifyReading{ok: true, loggedIn: true}, true)
++			tripAgo(app, code, 3*time.Hour)
++			out := probe(t, setupRoutes(app), `{"cooldown_s":2700}`)
++			assert.Equal(t, probeNotCaptcha, out["result"], code)
++			assert.Equal(t, 0, *calls, code)
++			require.NotNil(t, app.xiaohongshuService.hold.get(), code)
++		})
++	}
++}
++
++// TestRiskProbeCoolingOpensNothing 冷却没到：一页不开，告诉调用方还要等多久；调用方把冷却压到 1 秒也按服务端下限算。
++func TestRiskProbeCoolingOpensNothing(t *testing.T) {
++	app, _ := testApp(t)
++	calls := stubProbe(t, verifyReading{ok: true, loggedIn: true}, true)
++	tripAgo(app, xiaohongshu.RiskCaptcha, 10*time.Minute)
++	out := probe(t, setupRoutes(app), `{"cooldown_s":1}`)
++	assert.Equal(t, probeCooling, out["result"])
++	left := out["retry_after_s"].(float64)
++	assert.InDelta(t, float64(20*60), left, 5, "下限 30 分钟 − 已过 10 分钟")
++	assert.Equal(t, float64(riskProbeMinCooldown.Seconds()), out["cooldown_s"])
++	assert.Equal(t, 0, *calls)
++	assert.Empty(t, app.xiaohongshuService.hold.get().AutoProbeAt, "没开页就不算查过")
++}
++
++// TestRiskProbeCleanClears 冷却够了、主页干净且已登录：解除熔断（落盘的熔断文件也删了），结论进 /login/session。
++func TestRiskProbeCleanClears(t *testing.T) {
++	app, dir := testApp(t)
++	calls := stubProbe(t, verifyReading{ok: true, riskRead: true, loggedIn: true}, true)
++	h := tripAgo(app, xiaohongshu.RiskCaptcha, 46*time.Minute)
++	router := setupRoutes(app)
++	out := probe(t, router, `{"cooldown_s":2700,"reason":"nightly"}`)
++	assert.Equal(t, probeCleared, out["result"])
++	assert.Equal(t, h.Since, out["hold_since"])
++	assert.Equal(t, 1, *calls)
++	assert.Nil(t, app.xiaohongshuService.hold.get())
++	_, err := os.Stat(filepath.Join(dir, "risk-hold.json"))
++	assert.True(t, os.IsNotExist(err))
++
++	_, sess := doJSON(t, router, "GET", "/api/v1/login/session", "")
++	ap := sess["data"].(map[string]any)["auto_probe"].(map[string]any)
++	assert.Equal(t, probeCleared, ap["result"])
++	assert.Equal(t, h.Since, ap["hold_since"])
++}
++
++// TestRiskProbeStillRiskKeepsHoldAndProbesOnce 验证还在：熔断保持；同一次熔断不再查第二次（重启服务后也不查）。
++func TestRiskProbeStillRiskKeepsHoldAndProbesOnce(t *testing.T) {
++	app, dir := testApp(t)
++	calls := stubProbe(t, verifyReading{ok: true, riskRead: true, risk: &xiaohongshu.RiskError{Code: xiaohongshu.RiskCaptcha}}, true)
++	tripAgo(app, xiaohongshu.RiskCaptcha, 2*time.Hour)
++	router := setupRoutes(app)
++	out := probe(t, router, "")
++	assert.Equal(t, probeStillRisk, out["result"])
++	assert.Equal(t, xiaohongshu.RiskCaptcha, out["risk_code"])
++	held := app.xiaohongshuService.hold.get()
++	require.NotNil(t, held)
++	assert.NotEmpty(t, held.AutoProbeAt)
++	assert.Equal(t, probeStillRisk, held.AutoProbeResult)
++
++	assert.Equal(t, probeAlready, probe(t, router, "")["result"])
++	assert.Equal(t, 1, *calls, "同一次熔断只开一次页")
++
++	restarted := NewAppServer(NewXiaohongshuService()) // 模拟重启服务：标记在熔断文件里
++	assert.Equal(t, probeAlready, probe(t, setupRoutes(restarted), "")["result"])
++	assert.Equal(t, 1, *calls)
++
++	var onDisk riskHold
++	data, err := os.ReadFile(filepath.Join(dir, "risk-hold.json"))
++	require.NoError(t, err)
++	require.NoError(t, json.Unmarshal(data, &onDisk))
++	assert.NotEmpty(t, onDisk.AutoProbeAt)
++
++	// 人工那条路不受影响：risk/clear 照样能解
++	code, _ := doJSON(t, router, "POST", "/api/v1/risk/clear", "")
++	assert.Equal(t, http.StatusOK, code)
++}
++
++// TestRiskProbeNextNightMayLookAgain 熔断跨过白天留到下一晚：隔 20 小时以上可以再自查一次（一晚一次）。
++func TestRiskProbeNextNightMayLookAgain(t *testing.T) {
++	app, _ := testApp(t)
++	calls := stubProbe(t, verifyReading{ok: true, riskRead: true, risk: &xiaohongshu.RiskError{Code: xiaohongshu.RiskCaptcha}}, true)
++	tripAgo(app, xiaohongshu.RiskCaptcha, 30*time.Hour)
++	svc := app.xiaohongshuService
++	first := time.Now().Add(-24 * time.Hour)
++	assert.Equal(t, probeStillRisk, svc.autoProbe(riskProbeDefaultCooldown, first)["result"])
++	assert.Equal(t, probeAlready, svc.autoProbe(riskProbeDefaultCooldown, first.Add(19*time.Hour))["result"])
++	assert.Equal(t, probeStillRisk, svc.autoProbe(riskProbeDefaultCooldown, time.Now())["result"], "第二晚")
++	assert.Equal(t, 2, *calls)
++}
++
++// TestRiskProbeGuestOrUnreadKeepsHold 是游客 / 页面读不到：都不解除。
++func TestRiskProbeGuestOrUnreadKeepsHold(t *testing.T) {
++	cases := map[string]verifyReading{
++		probeNotLoggedIn: {ok: true, riskRead: true, loggedIn: false},
++		probeNotRead:     {},
++	}
++	for want, reading := range cases {
++		t.Run(want, func(t *testing.T) {
++			app, _ := testApp(t)
++			stubProbe(t, reading, true)
++			tripAgo(app, xiaohongshu.RiskCaptcha, time.Hour)
++			assert.Equal(t, want, probe(t, setupRoutes(app), "")["result"])
++			assert.NotNil(t, app.xiaohongshuService.hold.get(), want)
++		})
++	}
++}
++
++// TestRiskProbeBusyBrowserNotCounted 浏览器被占着、根本没开页：不算查过，下次还能查。
++func TestRiskProbeBusyBrowserNotCounted(t *testing.T) {
++	app, _ := testApp(t)
++	calls := stubProbe(t, verifyReading{}, false)
++	tripAgo(app, xiaohongshu.RiskCaptcha, time.Hour)
++	router := setupRoutes(app)
++	assert.Equal(t, probeWindowFailed, probe(t, router, "")["result"])
++	assert.Empty(t, app.xiaohongshuService.hold.get().AutoProbeAt)
++	assert.Equal(t, probeWindowFailed, probe(t, router, "")["result"])
++	assert.Equal(t, 2, *calls)
++}
++
++// TestRiskProbeRefusedWhileWindowOpen 扫码 / 验证窗口开着：照旧 409，不抢浏览器。
++func TestRiskProbeRefusedWhileWindowOpen(t *testing.T) {
++	app, _ := testApp(t)
++	calls := stubProbe(t, verifyReading{ok: true, loggedIn: true}, true)
++	tripAgo(app, xiaohongshu.RiskCaptcha, time.Hour)
++	app.xiaohongshuService.state.set(func(l *loginState) { l.verifying = true })
++	code, _ := doJSON(t, setupRoutes(app), "POST", "/api/v1/risk/probe", "")
++	assert.Equal(t, http.StatusConflict, code)
++	assert.Equal(t, 0, *calls)
++}
++
++func TestAutoProbeVerdict(t *testing.T) {
++	assert.Equal(t, probeStillRisk, autoProbeVerdict(verifyReading{ok: true, risk: &xiaohongshu.RiskError{Code: xiaohongshu.RiskHiddenWidget}}),
++		"看不见的验证组件也当还在（宁可今晚不跑）")
++	assert.Equal(t, probeNotRead, autoProbeVerdict(verifyReading{}))
++	assert.Equal(t, probeNotLoggedIn, autoProbeVerdict(verifyReading{ok: true}))
++	assert.Equal(t, probeCleared, autoProbeVerdict(verifyReading{ok: true, loggedIn: true}))
++}
++
++// TestFavoritesPostParse 1011 增量读：POST body 带已知 id 和停止数；GET 照旧只认 ?expect=N。
++func TestFavoritesPostParse(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++	ctx := func(method, target, body string) *gin.Context {
++		c, _ := gin.CreateTestContext(httptest.NewRecorder())
++		c.Request = httptest.NewRequest(method, target, strings.NewReader(body))
++		return c
++	}
++	e, known, k, err := parseFavRequest(ctx("GET", "/api/v1/favorites?expect=1233", ""))
++	require.NoError(t, err)
++	assert.Equal(t, 1233, e)
++	assert.Nil(t, known)
++	assert.Equal(t, 0, k)
++
++	e, known, k, err = parseFavRequest(ctx("POST", "/api/v1/favorites", `{"expect":1233,"known_ids":["a"," b ",""],"stop_after_known":20}`))
++	require.NoError(t, err)
++	assert.Equal(t, 1233, e)
++	assert.Equal(t, map[string]bool{"a": true, "b": true}, known)
++	assert.Equal(t, 20, k)
++
++	_, _, k, _ = parseFavRequest(ctx("POST", "/api/v1/favorites", `{"known_ids":["a"],"stop_after_known":1}`))
++	assert.Equal(t, favStopKnownMin, k, "停止数太小会把新收藏截掉：夹到下限")
++	_, known, k, _ = parseFavRequest(ctx("POST", "/api/v1/favorites", `{"stop_after_known":20}`))
++	assert.Nil(t, known, "没给已知 id：全量")
++	assert.Equal(t, 0, k)
++
++	_, _, _, err = parseFavRequest(ctx("POST", "/api/v1/favorites", `{not json`))
++	assert.Error(t, err)
++}
++
++// TestFavoritesPostBadBodyDoesNotBurnRateLimit 坏 body 直接 400，不吃 10 分钟限频、不开页。
++func TestFavoritesPostBadBodyDoesNotBurnRateLimit(t *testing.T) {
++	app, _ := testApp(t)
++	code, out := doJSON(t, setupRoutes(app), "POST", "/api/v1/favorites", `{not json`)
++	assert.Equal(t, http.StatusBadRequest, code, "%v", out)
++	app.xiaohongshuService.state.set(func(l *loginState) { assert.True(t, l.lastFav.IsZero()) })
++}
++
++func TestFavReadSummaryMarksIncremental(t *testing.T) {
++	out := favReadSummary(&xiaohongshu.FavScrollResult{Count: 40, Reason: xiaohongshu.FavStopKnown}, 1233)
++	assert.Equal(t, true, out["incremental"])
++	assert.Equal(t, false, out["partial"])
++	full := favReadSummary(&xiaohongshu.FavScrollResult{Count: 1233, Reason: xiaohongshu.FavStopEnd}, 1233)
++	assert.NotContains(t, full, "incremental")
++}
 diff --git a/risk_evidence_localbrowser_test.go b/risk_evidence_localbrowser_test.go
 new file mode 100644
 index 0000000..27b2f2e
@@ -3259,10 +3877,10 @@ index 0000000..1854369
 +}
 diff --git a/risk_hold.go b/risk_hold.go
 new file mode 100644
-index 0000000..93bf037
+index 0000000..a95d295
 --- /dev/null
 +++ b/risk_hold.go
-@@ -0,0 +1,338 @@
+@@ -0,0 +1,343 @@
 +package main
 +
 +// 风控熔断（1001）：撞到验证码 / 安全跳转页 / 需要登录却是游客之后，拒绝一切会开浏览器的请求，
@@ -3314,6 +3932,9 @@ index 0000000..93bf037
 +	Tab      string `json:"tab,omitempty"`
 +	WantTab  string `json:"want_tab,omitempty"`
 +	Evidence string `json:"evidence,omitempty"`
++	// 1011：冷却后自查（risk_autoprobe.go）——这次熔断自查过的时刻（同一次熔断只查一次）与没解除时的结论。
++	AutoProbeAt     string `json:"auto_probe_at,omitempty"`
++	AutoProbeResult string `json:"auto_probe_result,omitempty"`
 +}
 +
 +// riskHoldView 熔断的对外样子（HTTP）：不带 url（本号主页 id + xsec_token）；证据目录（本机绝对路径）只给 /login/session
@@ -3326,13 +3947,15 @@ index 0000000..93bf037
 +	WantTab      string `json:"want_tab,omitempty"`
 +	IncidentPage bool   `json:"incident_page,omitempty"` // 记下了出事页面（验证窗口会直接开它）
 +	Evidence     string `json:"evidence,omitempty"`
++	AutoProbeAt  string `json:"auto_probe_at,omitempty"` // 1011：冷却后自查过的时刻（同一次熔断只查一次）
 +}
 +
 +func (h *riskHold) view(withEvidence bool) *riskHoldView {
 +	if h == nil {
 +		return nil
 +	}
-+	v := &riskHoldView{Code: h.Code, Since: h.Since, Detail: h.Detail, Tab: h.Tab, WantTab: h.WantTab, IncidentPage: h.URL != ""}
++	v := &riskHoldView{Code: h.Code, Since: h.Since, Detail: h.Detail, Tab: h.Tab, WantTab: h.WantTab, IncidentPage: h.URL != "",
++		AutoProbeAt: h.AutoProbeAt}
 +	if withEvidence {
 +		v.Evidence = h.Evidence
 +	}
@@ -3542,7 +4165,7 @@ index 0000000..93bf037
 +
 +// holdExempt 熔断中仍放行的接口：它们要么不开浏览器，要么就是用来解除熔断的。
 +var holdExempt = []string{"/login/session", "/login/window", "/verify/window", "/login/logout", "/risk/clear",
-+	"/login/qrcode", "/login/cookies"}
++	"/login/qrcode", "/login/cookies", "/risk/probe"} // 1011：/risk/probe 只认验证码类、冷却后、每次熔断一次（risk_autoprobe.go）
 +
 +func (s *AppServer) riskGuard() gin.HandlerFunc {
 +	return func(c *gin.Context) {
@@ -3603,10 +4226,10 @@ index 0000000..93bf037
 +}
 diff --git a/risk_hold_test.go b/risk_hold_test.go
 new file mode 100644
-index 0000000..2008a59
+index 0000000..0dc758d
 --- /dev/null
 +++ b/risk_hold_test.go
-@@ -0,0 +1,564 @@
+@@ -0,0 +1,565 @@
 +package main
 +
 +import (
@@ -3650,6 +4273,7 @@ index 0000000..2008a59
 +func doJSON(t *testing.T, h http.Handler, method, path, body string) (int, map[string]any) {
 +	t.Helper()
 +	req := httptest.NewRequest(method, path, strings.NewReader(body))
++	req.Host = "127.0.0.1:18061" // reader-7 起非回环 Host 一律 403（httptest 默认 example.com）
 +	if body != "" {
 +		req.Header.Set("Content-Type", "application/json")
 +	}
@@ -4307,10 +4931,10 @@ index 0000000..40ac86d
 +	assert.Contains(t, again.Content[0].Text, "[RISK_HOLD]", "熔断后拿锁复查即拒绝，不再开浏览器")
 +}
 diff --git a/routes.go b/routes.go
-index 26b7bf4..e194683 100644
+index 26b7bf4..4a6bd30 100644
 --- a/routes.go
 +++ b/routes.go
-@@ -41,7 +41,16 @@ func setupRoutes(appServer *AppServer) *gin.Engine {
+@@ -41,7 +41,18 @@ func setupRoutes(appServer *AppServer) *gin.Engine {
  
  	// API 路由组
  	api := router.Group("/api/v1")
@@ -4318,7 +4942,9 @@ index 26b7bf4..e194683 100644
  	{
 +		api.GET("/login/session", appServer.loginSessionHandler)
 +		api.POST("/risk/clear", appServer.riskClearHandler)
++		api.POST("/risk/probe", appServer.riskProbeHandler) // 1011 冷却后自查（只认验证码类，见 risk_autoprobe.go）
 +		api.GET("/favorites", appServer.favoritesHandler)
++		api.POST("/favorites", appServer.favoritesHandler) // 1011 增量读：body {expect, known_ids, stop_after_known}
 +		api.POST("/verify/window", appServer.verifyWindowHandler)
 +		api.POST("/login/window", appServer.loginWindowHandler)
 +		api.POST("/login/logout", appServer.logoutHandler)
@@ -8418,6 +9044,80 @@ index 0000000..5d9ec96
 +	assert.Nil(t, nilWatch.Summary())
 +	nilWatch.Stop()
 +}
+diff --git a/xiaohongshu/fav_incremental_test.go b/xiaohongshu/fav_incremental_test.go
+new file mode 100644
+index 0000000..dd9a784
+--- /dev/null
++++ b/xiaohongshu/fav_incremental_test.go
+@@ -0,0 +1,68 @@
++package xiaohongshu
++
++// 1011 增量读收藏：从最新往下连着碰到 N 篇已知的就停（known_streak，不算 partial），不再滚完整份收藏。
++
++import (
++	"context"
++	"testing"
++
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++func TestKnownStreakReached(t *testing.T) {
++	known := map[string]bool{"a": true, "b": true, "c": true, "d": true}
++	assert.False(t, KnownStreakReached([]string{"x", "a", "b"}, known, 3))
++	assert.True(t, KnownStreakReached([]string{"x", "a", "b", "c"}, known, 3))
++	assert.False(t, KnownStreakReached([]string{"a", "b", "y", "c", "d"}, known, 3), "中间夹一篇新的：连续数重来")
++	assert.False(t, KnownStreakReached([]string{"a", "", "b", "c"}, known, 3), "空 id 打断连续")
++	assert.False(t, KnownStreakReached([]string{"a", "b", "c"}, nil, 3), "没给已知：永远不停（全量）")
++	assert.False(t, KnownStreakReached([]string{"a", "b", "c"}, known, 0))
++}
++
++// TestScrollFavoritesStopsAtKnownStreak 第一屏就连着碰到 N 篇已知 → 一次都不滚就停；结论不是 partial、条数如实。
++func TestScrollFavoritesStopsAtKnownStreak(t *testing.T) {
++	cfg := fastFavCfg(1233)
++	calls := 0
++	cfg.KnownStop = func() bool { calls++; return true }
++	scrolls := 0
++	res, r := scrollFavorites(context.Background(), cfg,
++		func() favProbe { return favProbe{Count: 30, HasMore: 1, Tab: "fav"} },
++		func(int) { scrolls++ }, noRisk)
++	require.Nil(t, r)
++	assert.Equal(t, FavStopKnown, res.Reason)
++	assert.False(t, res.Partial, "停在已知处不是「只读到一截」")
++	assert.Equal(t, 30, res.Count)
++	assert.Equal(t, 0, scrolls, "第一屏就够了：不滚")
++	assert.Equal(t, 1, calls)
++}
++
++// TestScrollFavoritesKnownStreakAfterGrowth 新收藏多于一屏：滚到碰上已知处才停；条数低于基准也不触发 below_expect。
++func TestScrollFavoritesKnownStreakAfterGrowth(t *testing.T) {
++	cfg := fastFavCfg(1233)
++	count := 30
++	cfg.KnownStop = func() bool { return count >= 90 }
++	res, r := scrollFavorites(context.Background(), cfg,
++		func() favProbe { return favProbe{Count: count, HasMore: 1, Tab: "fav"} },
++		func(int) { count += 30 }, noRisk)
++	require.Nil(t, r)
++	assert.Equal(t, FavStopKnown, res.Reason)
++	assert.Equal(t, 90, res.Count)
++	assert.False(t, res.Partial)
++	assert.Equal(t, 2, res.Scrolls)
++}
++
++// TestScrollFavoritesWithoutKnownIsUnchanged 不给已知（老调用方 GET）：和以前一样滚到页面说到底。
++func TestScrollFavoritesWithoutKnownIsUnchanged(t *testing.T) {
++	n := 0
++	res, r := scrollFavorites(context.Background(), fastFavCfg(0),
++		func() favProbe {
++			n++
++			if n < 4 {
++				return favProbe{Count: n * 30, HasMore: 1, Tab: "fav"}
++			}
++			return favProbe{Count: 120, HasMore: 0, Tab: "fav"}
++		}, func(int) {}, noRisk)
++	require.Nil(t, r)
++	assert.Equal(t, FavStopEnd, res.Reason)
++}
 diff --git a/xiaohongshu/feed_detail.go b/xiaohongshu/feed_detail.go
 index 2cfde9f..503166c 100644
 --- a/xiaohongshu/feed_detail.go
@@ -11212,7 +11912,7 @@ index 17c82ee..9385cfa 100644
  
  // UserProfileResponse 用户详情页完整响应
 diff --git a/xiaohongshu/user_profile.go b/xiaohongshu/user_profile.go
-index 61216c7..2724a00 100644
+index 61216c7..3b81e90 100644
 --- a/xiaohongshu/user_profile.go
 +++ b/xiaohongshu/user_profile.go
 @@ -3,11 +3,15 @@ package xiaohongshu
@@ -11231,7 +11931,7 @@ index 61216c7..2724a00 100644
  	"github.com/xpzouying/xiaohongshu-mcp/humanize"
  )
  
-@@ -42,10 +46,23 @@ var tabLabel = map[ProfileTab]string{
+@@ -42,10 +46,27 @@ var tabLabel = map[ProfileTab]string{
  
  type UserProfileAction struct {
  	page *rod.Page
@@ -11239,6 +11939,10 @@ index 61216c7..2724a00 100644
 +	// FavExpect 读收藏时调用方给的期望条数（上次正常读到的基准，0 = 不知道）：
 +	// 条数停住但明显低于它时不收工，换滚法再试（见 scrollFavorites）。
 +	FavExpect int
++	// FavKnown / FavStopKnown（1011 增量读）：调用方已经知道的笔记 id；从最新往下读，连着碰到 FavStopKnown 篇已知的就停
++	// （stop_reason=known_streak，不算 partial）。任一为空 = 老规矩全量滚到底。
++	FavKnown     map[string]bool
++	FavStopKnown int
 +	// FavScroll 读收藏后滚动的结论（条数、是否 partial、判停原因）；没滚过为 nil。
 +	FavScroll *FavScrollResult
 +	// Evidence 这次读主页时落的非风控证据目录（页签第 1 轮没点中 / 列表卡住；见 evidence.go），没有为空。
@@ -11256,7 +11960,7 @@ index 61216c7..2724a00 100644
  	return &UserProfileAction{page: pp}
  }
  
-@@ -54,8 +71,10 @@ func (u *UserProfileAction) UserProfile(ctx context.Context, userID, xsecToken s
+@@ -54,8 +75,10 @@ func (u *UserProfileAction) UserProfile(ctx context.Context, userID, xsecToken s
  	page := u.page.Context(ctx).Timeout(60 * time.Second) // 重设被 .Context 清掉的 deadline
  
  	searchURL := makeUserProfileURL(userID, xsecToken, tab)
@@ -11269,7 +11973,7 @@ index 61216c7..2724a00 100644
  
  	return u.extractUserProfileData(page, tab)
  }
-@@ -64,12 +83,25 @@ func (u *UserProfileAction) UserProfile(ctx context.Context, userID, xsecToken s
+@@ -64,12 +87,25 @@ func (u *UserProfileAction) UserProfile(ctx context.Context, userID, xsecToken s
  func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTab) (*UserProfileResponse, error) {
  	page.MustWait(`() => window.__INITIAL_STATE__ !== undefined`)
  
@@ -11296,7 +12000,7 @@ index 61216c7..2724a00 100644
  			if (data) {
  				return JSON.stringify(data);
  			}
-@@ -85,7 +117,7 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
+@@ -85,7 +121,7 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
  	notesResult := page.MustEval(`() => {
  		const u = window.__INITIAL_STATE__ && window.__INITIAL_STATE__.user;
  		if (!u || !u.notes) return "";
@@ -11305,7 +12009,7 @@ index 61216c7..2724a00 100644
  		const notes = unwrap(u.notes);
  		if (!notes) return "";
  		const active = unwrap(u.activeTab) || {};
-@@ -105,6 +137,13 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
+@@ -105,6 +141,13 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
  		return nil, fmt.Errorf("failed to unmarshal userPageData: %w", err)
  	}
  
@@ -11319,7 +12023,7 @@ index 61216c7..2724a00 100644
  	var notesData struct {
  		Notes [][]Feed `json:"notes"`
  		Index int      `json:"index"`
-@@ -120,7 +159,7 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
+@@ -120,7 +163,7 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
  		want = TabNotes
  	}
  	if notesData.Query != "" && ProfileTab(notesData.Query) != want {
@@ -11328,7 +12032,7 @@ index 61216c7..2724a00 100644
  	}
  
  	// 组装响应
-@@ -138,7 +177,7 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
+@@ -138,7 +181,7 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page, tab ProfileTa
  }
  
  func makeUserProfileURL(userID, xsecToken string, tab ProfileTab) string {
@@ -11337,7 +12041,7 @@ index 61216c7..2724a00 100644
  	if tab != "" && tab != TabNotes {
  		url += fmt.Sprintf("&tab=%s&subTab=note", tab)
  	}
-@@ -146,50 +185,636 @@ func makeUserProfileURL(userID, xsecToken string, tab ProfileTab) string {
+@@ -146,50 +189,685 @@ func makeUserProfileURL(userID, xsecToken string, tab ProfileTab) string {
  }
  
  func (u *UserProfileAction) GetMyProfileViaSidebar(ctx context.Context, tab ProfileTab) (*UserProfileResponse, error) {
@@ -11511,6 +12215,8 @@ index 61216c7..2724a00 100644
 +	FavStopHidden = "hidden_widget"
 +	// FavStopRefused 收藏接口回了拒绝（HTTP ≥400 / success=false）：立即停、不写熔断（除非页面同时弹了验证），partial（1008）
 +	FavStopRefused = "api_refused"
++	// FavStopKnown 1011 增量读：从最新往下连着碰到 N 篇调用方已知的收藏，后面都是读过的，停（不算 partial，但也不是全量）
++	FavStopKnown = "known_streak"
 +)
 +
 +// favStalledMaxLevel hasMore=true 卡住时最多用到第几级滚法（1 = 往回滚一截再到底；不上真实滚轮）。
@@ -11552,6 +12258,8 @@ index 61216c7..2724a00 100644
 +	Refused func() string
 +	// OnRefused 看到拒绝那一刻调一次（落证据），返回证据目录；nil = 不落。
 +	OnRefused func(why string) string
++	// KnownStop 1011 增量读：列表里从最新往下已经连着出现了足够多的已知笔记（读页面状态，不发请求）；nil = 全量。
++	KnownStop func() bool
 +}
 +
 +const (
@@ -11629,6 +12337,16 @@ index 61216c7..2724a00 100644
 +		}
 +		return ""
 +	}
++	if len(u.FavKnown) > 0 && u.FavStopKnown > 0 {
++		cfg.KnownStop = func() bool {
++			var ids []string
++			_ = rod.Try(func() {
++				raw := u.page.Context(ctx).Timeout(15 * time.Second).MustEval(favIDsJS).Str()
++				_ = json.Unmarshal([]byte(raw), &ids)
++			})
++			return KnownStreakReached(ids, u.FavKnown, u.FavStopKnown)
++		}
++	}
 +	scroll := func(level int) { u.favScroll(ctx, level) }
 +	return scrollFavorites(ctx, cfg, probe, scroll, func() *RiskError { return RiskPage(u.page) })
 +}
@@ -11654,6 +12372,37 @@ index 61216c7..2724a00 100644
 +		} catch (e) {}
 +		return out;
 +	}`
++
++// favIDsJS 1011 增量读：当前收藏列表里的笔记 id（按页面顺序，最新在前）。读不到给空数组。
++const favIDsJS = `() => {
++		const unwrap = x => x?.value ?? x?._value ?? x?._rawValue ?? x;
++		try {
++			const u = window.__INITIAL_STATE__?.user;
++			const notes = unwrap(u?.notes);
++			const active = unwrap(u?.activeTab) || {};
++			const list = (notes && active.index !== undefined && active.index !== null) ? unwrap(notes[active.index]) : null;
++			if (!list || typeof list.length !== "number") return "[]";
++			return JSON.stringify(Array.from(list, n => { n = unwrap(n) || {}; return String(n.id || n.noteId || n.noteCard?.noteId || ""); }));
++		} catch (e) { return "[]"; }
++	}`
++
++// KnownStreakReached 1011 增量读：ids（最新在前）里有没有连着 k 篇都在 known 里（空 id 打断连续）。k<=0 / known 空 = false。
++func KnownStreakReached(ids []string, known map[string]bool, k int) bool {
++	if k <= 0 || len(known) == 0 {
++		return false
++	}
++	run := 0
++	for _, id := range ids {
++		if id != "" && known[id] {
++			if run++; run >= k {
++				return true
++			}
++			continue
++		}
++		run = 0
++	}
++	return false
++}
 +
 +// 滚到底触发下一页懒加载（window 和常见滚动容器都滚一下，兜不同布局）
 +const favScrollJS = `() => {
@@ -11748,7 +12497,7 @@ index 61216c7..2724a00 100644
 +			res.HasMore = &v
 +		}
 +		switch reason {
-+		case FavStopEnd, FavStopStable:
++		case FavStopEnd, FavStopStable, FavStopKnown:
 +			res.Partial = false
 +		default:
 +			res.Partial = true
@@ -11788,6 +12537,10 @@ index 61216c7..2724a00 100644
 +		if grew {
 +			best = p.Count
 +			lastGrow = time.Now()
++		}
++		// 1011 增量读：新加载出来的（或第一屏）里已经连着碰到 N 篇读过的——后面都是读过的，停，不再往下滚
++		if cfg.KnownStop != nil && p.Count > 0 && (grew || i == 0) && cfg.KnownStop() {
++			return finish(FavStopKnown)
 +		}
 +		still := time.Since(lastGrow)
 +		if p.Count >= 0 && best > 0 && hasMore == 0 && still >= cfg.ConfirmEnd && (!below() || res.Level >= 1) {
