@@ -95,7 +95,7 @@ def _srv_fn(port: int) -> str:
             "try{$ls=@(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction Stop)}catch{$ls=@()};"
             "foreach($c in $ls){try{$p=Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$c.OwningProcess) -ErrorAction Stop}catch{$p=$null};"
             "if($p -and $p.CommandLine -match 'link_brain\\s+remote\\s+serve' -and -not ($r|Where-Object{$_.ProcessId -eq $p.ProcessId})){$r+=$p}};"
-            "return ,$r};")
+            "return $r};")
 
 
 def _kill_fn() -> str:
@@ -130,14 +130,14 @@ def restart_script(port: int, wait_s: int = 30) -> str:
     return ("$ErrorActionPreference='SilentlyContinue';" + _srv_fn(port) + _kill_fn() +
             f"$t=Get-ScheduledTask -TaskName {name} -ErrorAction SilentlyContinue;"
             "if(-not $t){'none'}else{"
-            "$old=@(Get-LwaSrv|ForEach-Object{[int]$_.ProcessId});\"old:$($old -join ',')\";"
+            "$old=@(Get-LwaSrv|ForEach-Object{[int]$_.ProcessId}|Where-Object{$_ -gt 0});\"old:$($old -join ',')\";"
             f"Stop-ScheduledTask -TaskName {name} -ErrorAction SilentlyContinue;Start-Sleep -Milliseconds 800;"
             "$k=Stop-LwaSrv (Get-LwaSrv);\"killed:$($k -join ',')\";"
-            "$left=@(Get-LwaSrv|ForEach-Object{[int]$_.ProcessId});\"left:$($left -join ',')\";"
+            "$left=@(Get-LwaSrv|ForEach-Object{[int]$_.ProcessId}|Where-Object{$_ -gt 0});\"left:$($left -join ',')\";"
             f"Start-ScheduledTask -TaskName {name} -ErrorAction Stop;"
             "$new=@();"
             f"for($i=0;$i -lt {int(wait_s)};$i++){{Start-Sleep -Seconds 1;"
-            "$new=@(Get-LwaSrv|ForEach-Object{[int]$_.ProcessId}|Where-Object{$old -notcontains $_});if($new.Count){break}};"
+            "$new=@(Get-LwaSrv|ForEach-Object{[int]$_.ProcessId}|Where-Object{$_ -gt 0}|Where-Object{$old -notcontains $_});if($new.Count){break}};"
             "\"new:$($new -join ',')\";'ok'}")
 
 
@@ -145,7 +145,7 @@ def _pids(out: str, key: str) -> list[int]:
     for line in out.splitlines():
         line = line.strip()
         if line.startswith(key + ":"):
-            return [int(x) for x in line[len(key) + 1:].split(",") if x.strip().isdigit()]
+            return [int(x) for x in line[len(key) + 1:].split(",") if x.strip().isdigit() and int(x) > 0]
     return []
 
 

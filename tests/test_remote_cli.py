@@ -273,6 +273,7 @@ def test_restart_kills_real_listener_and_confirms_new_pid(capsys, fake_ps):
     assert "'^(pwsh|powershell)\\.exe$'" in script and "\\.ps1" in script       # 父进程只停跑启动脚本的 pwsh
     assert "taskkill" not in script.lower() and "/T" not in script             # 只按 PID 停，不带进程树
     assert "reader" not in script.lower() and "chrome" not in script.lower()
+    assert "return ,$r" not in script                                          # 空数组包一层会让 ForEach 冒出 PID 0（1010 真机）
     assert script.index("Stop-ScheduledTask") < script.index("$k=Stop-LwaSrv") < script.index("Start-ScheduledTask")
 
 
