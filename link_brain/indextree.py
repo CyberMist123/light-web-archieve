@@ -48,7 +48,7 @@ HISTORY_DIR = "index-history"
 HISTORY_KEEP = 30
 UNCLASSIFIED = "未归类"
 FORMAT_VERSION = 1
-CODE_VERSION = "1010.1"     # 解析 / 归类规则一变就改它：index-data.json 不再「没变化」短路
+CODE_VERSION = "1011.1"     # 解析 / 归类规则一变就改它：index-data.json 不再「没变化」短路
 LOCK = "index-build"
 SEP = "/"
 NAME_MAX = 60
@@ -166,6 +166,13 @@ class Node:
     col: int = 0
     parent: "Node | None" = field(default=None, repr=False)
     children: list["Node"] = field(default_factory=list, repr=False)
+    # 10-11：括号里的话 = 给归类看的说明（「ai前沿消息（不属于ai记忆的放这里）」）；第 4 级往下的名字并进第 3 级当关键词（hints）；
+    # 下面写了 `...` / `（其他主题）` = 允许 AI 在这里新建子类（open）；virtual = AI 按内容建的子类（不在 索引.md 里，她点「保留」才写进去）
+    desc: str = ""
+    hints: list[str] = field(default_factory=list)
+    open: bool = False
+    open_hint: str = ""
+    virtual: bool = False
 
     @property
     def depth(self) -> int:
@@ -268,6 +275,9 @@ class Parsed:
     roots: list[Node]
     warnings: list[dict[str, Any]]
     lines: dict[int, _LineInfo]
+    comments: list[dict[str, Any]] = field(default_factory=list)   # 10-11：当成说明跳过的行（不是节点）
+    root_open: bool = False          # 第一级下面写了 `...`：AI 可以建新的大类
+    root_open_hint: str = ""
 
     def walk(self) -> Iterable[Node]:
         stack = list(reversed(self.roots))
@@ -284,17 +294,97 @@ class Parsed:
         return None
 
 
+MAX_DEPTH = 3     # 她定（10-11「需求：最多3级分类」）：更深的名字并进第 3 级当关键词，不另成节点
+
+# 括号里的话 = 说明（给 AI 归类看、页面上悬停看），不参与「、」「，」拆节点；【wiki】另算（先认 [wiki] 再剥括号）
+_PAREN = re.compile(r"（[^（）]*）|\([^()]*\)|【[^【】]*】|［[^［］]*］")
+# 占位：「...」「…」「（其他主题）」这种 = 允许 AI 在这一级下面按内容新建子类
+_PLACEHOLDER = re.compile(r"^(?:\.{2,}|…+|。{2,}|·{3,}|etc\.?|等等?|以此类推)$", re.I)
+# 写给自己看的话（不是节点）：「需求：…」「说明：…」这种名字，或冒号后面 / 整行像一句话
+NOTE_WORDS = {"需求", "说明", "备注", "注", "注意", "要求", "规则", "写法", "提示", "想法", "待办", "ps", "p.s", "p.s.",
+              "note", "notes", "todo", "tip", "tips", "memo"}
+_PROSE_WORDS = re.compile(r"可以|最多|最少|不要|不属于|属于|的话|放这|放到|放在|指向|如果|应该|需要|就是|都是|或者|以及|比如|例如|"
+                          r"也就是|不用|只要|而且|但是|因为|所以")
+_CJK = re.compile(r"[㐀-鿿]")
+_SENTENCE_END = re.compile(r"[。！？]")
+
+
+def split_desc(content: str) -> tuple[str, str]:
+    """「ai前沿消息（不属于ai记忆、人格的放这里）」→ ("ai前沿消息", "不属于ai记忆、人格的放这里")。几对括号的说明用「；」连。"""
+    descs: list[str] = []
+
+    def take(m: re.Match) -> str:
+        inner = m.group(0)[1:-1].strip()
+        if inner:
+            descs.append(inner)
+        return " "
+
+    core, prev = str(content or ""), None
+    while prev != core:          # 括号套括号：由里往外剥
+        prev = core
+        core = _PAREN.sub(take, core)
+    return " ".join(core.split()), "；".join(descs)
+
+
+def is_prose(core: str) -> bool:
+    """这一行（括号已剥掉）像是写给自己看的一句话而不是节点：名字是「需求 / 说明 / 备注…」，或冒号后面 / 整行像句子。"""
+    s = str(core or "").strip()
+    if not s:
+        return False
+    if _SENTENCE_END.search(s):
+        return True
+    m = _COLON.search(s)
+    if m:
+        if key(clean_name(s[:m.start()])) in NOTE_WORDS:
+            return True
+        rest = s[m.end():]
+    else:
+        if len(s) > 40:
+            return True
+        rest = s
+    parts = [p.strip() for p in re.split(r"[,，、;；]", rest) if p.strip()]
+    return any(len(p) >= 5 and _CJK.search(p) and _PROSE_WORDS.search(p) for p in parts)
+
+
+@dataclass
+class _Raw:
+    no: int
+    col: int
+    start: int
+    line: str
+    bullet: str
+    content: str        # 去掉行首符号 / 勾选框 / [wiki] 之后
+    core: str           # 再去掉括号说明
+    desc: str
+    wiki: bool
+    block: int
+    kind: str           # node | placeholder | prose
+
+
 def parse(text: str) -> Parsed:
-    """索引.md 原文 → 节点树 + warnings（不抛异常）。"""
+    """索引.md 原文 → 节点树 + warnings（不抛异常）。
+
+    10-11 加的容错（照她的真实写法）：
+    - 括号里的话是说明，不拆节点；整行只有括号（「（其他主题）」）或 `...` = 占位：允许 AI 在这一级下面按内容新建子类；
+    - 写给自己看的话不是节点：「需求：…」「说明：…」这类名字，或冒号后面 / 整行像一句话（有句号、「可以 / 最多 / 指向 / 放这里」这种词）；
+    - 树写完以后、比第一级还靠左的零散几行（「同步的tag：…」）当说明；
+    - 最多 3 级：第 4 级往下的名字并进第 3 级当关键词（warnings 里说一句）。
+    当成说明的行进 `comments`（不是节点、哪里都不显示成节点）。"""
     warnings: list[dict[str, Any]] = []
     roots: list[Node] = []
     infos: dict[int, _LineInfo] = {}
-    stack: list[tuple[int, Node]] = []
-    multi_warned: set[int] = set()
-    clean = strip_comments(str(text or "").lstrip("\ufeff"))
+    comments: list[dict[str, Any]] = []
+    root_open: list[str] = []
+    clean = strip_comments(str(text or "").lstrip("﻿"))
+    # ── 第一遍：每行是什么（节点 / 占位 / 说明），按空行分块 ──
+    raws: list[_Raw] = []
+    block, seen_text = 0, False
     for no, raw in enumerate(clean.split("\n"), 1):
         line = raw.rstrip("\r")
         if not line.strip():
+            if seen_text:
+                block += 1
+                seen_text = False
             continue
         col, start = indent_of(line)
         content = line[start:].strip()
@@ -306,13 +396,52 @@ def parse(text: str) -> Parsed:
         content = _TASK.sub("", content, count=1).strip()
         if not content:
             continue
+        seen_text = True
         wiki = bool(_WIKI.search(content))
         if wiki:
             content = _WIKI.sub(" ", content).strip()
             if not content:
                 _warn(warnings, no, f"第 {no} 行只有 [wiki]，没写名字，跳过了")
                 continue
+        core, desc = split_desc(content)
+        if not core or _PLACEHOLDER.match(core):
+            kind = "placeholder"
+        elif is_prose(core):
+            kind = "prose"
+        else:
+            kind = "node"
+        raws.append(_Raw(no, col, start, line, bullet, content, core, desc, wiki, block, kind))
+    # ── 树写完以后比第一级还靠左的零散行 = 说明（主树 = 节点行最多的那一块） ──
+    sizes = Counter(r.block for r in raws if r.kind == "node")
+    if sizes:
+        main = min(sizes, key=lambda b: (-sizes[b], b))
+        root_col = min(r.col for r in raws if r.kind == "node" and r.block == main)
+        for r in raws:
+            if r.kind != "prose" and r.block > main and r.col < root_col:
+                r.kind = "prose"
+    # ── 第二遍：建树 ──
+    stack: list[tuple[int, Node]] = []
+    multi_warned: set[int] = set()
+    fold_warned: set[int] = set()
+    for r in raws:
+        no, col = r.no, r.col
+        if r.kind == "prose":
+            comments.append({"line": no, "text": r.content[:80]})
+            continue
+        while stack and stack[-1][0] >= col:
+            stack.pop()
+        parent = stack[-1][1] if stack else None
+        if r.kind == "placeholder":
+            if parent is None:
+                root_open.append(r.desc)
+            else:
+                parent.open = True
+                parent.open_hint = "；".join(x for x in (parent.open_hint, r.desc) if x)
+                parent.lines.append(no)
+                stack.append((col, parent))
+            continue
         specs: list[tuple[str, list[str], bool]] = []
+        content = r.core
         m = _COLON.search(content)
         if m:
             name, tags = clean_name(content[:m.start()]), clean_tags(content[m.end():])
@@ -330,9 +459,20 @@ def parse(text: str) -> Parsed:
                     specs.append((name, [], False))
         if not specs:
             continue
-        while stack and stack[-1][0] >= col:
-            stack.pop()
-        parent = stack[-1][1] if stack else None
+        if parent is not None and parent.depth >= MAX_DEPTH:
+            # 第 4 级往下：名字（和标签）并进第 3 级的那个节点当关键词，不另成一类
+            have = {key(x) for x in parent.hints} | {key(parent.name)}
+            for name, tags, _ in specs:
+                for h in [name, *tags]:
+                    if key(h) not in have:
+                        have.add(key(h))
+                        parent.hints.append(h)
+            parent.lines.append(no)
+            if id(parent) not in fold_warned:
+                fold_warned.add(id(parent))
+                _warn(warnings, no, f"第 {no} 行是第 4 级（最多 3 级）：「{specs[0][0]}」这些并进「{parent.name}」当关键词，不另算一类")
+            stack.append((col, parent))
+            continue
         if parent is not None and parent.multi and id(parent) not in multi_warned:
             multi_warned.add(id(parent))
             _warn(warnings, no, f"第 {parent.line} 行一行写了几个节点，下面缩进的算在最后一个「{parent.name}」下面；"
@@ -340,10 +480,17 @@ def parse(text: str) -> Parsed:
         siblings = parent.children if parent is not None else roots
         made: list[Node] = []
         for name, tags, explicit in specs:
-            made.append(_add_node(siblings, parent, name, tags, explicit, wiki, no, col, len(specs) > 1, warnings))
-        infos[no] = _LineInfo(no=no, col=col, lead=line[:start], bullet=bullet, nodes=made)
+            node = _add_node(siblings, parent, name, tags, explicit, r.wiki, no, col, len(specs) > 1, warnings)
+            if r.desc and len(specs) == 1 and r.desc not in node.desc:
+                node.desc = "；".join(x for x in (node.desc, r.desc) if x)
+            made.append(node)
+        infos[no] = _LineInfo(no=no, col=col, lead=r.line[:r.start], bullet=r.bullet, nodes=made)
         stack.append((col, made[-1]))
-    return Parsed(roots=roots, warnings=warnings, lines=infos)
+    out = Parsed(roots=roots, warnings=warnings, lines=infos, comments=comments)
+    if root_open:
+        out.root_open = True
+        out.root_open_hint = "；".join(x for x in root_open if x)
+    return out
 
 
 def _add_node(siblings: list[Node], parent: Node | None, name: str, tags: list[str], explicit: bool, wiki: bool,
@@ -423,7 +570,9 @@ class Matcher:
         return out
 
     def node_keys(self, node: Node) -> set[str]:
-        return {k for k in (self.tag(t) for t in (node.tags if node.explicit else [node.name])) if k}
+        """节点认哪些标签：写了标签就是那些标签，只写名字就是名字；第 4 级并进来的名字（hints）也算。"""
+        base = list(node.tags) if node.explicit else [node.name]
+        return {k for k in (self.tag(t) for t in [*base, *node.hints]) if k}
 
 
 _VOCAB_CACHE: dict[str, Any] = {"stamp": None, "data": {}}
@@ -500,9 +649,15 @@ def name_pattern(name: str) -> re.Pattern | None:
     return re.compile(pre + re.escape(k) + post)
 
 
-def classify(parsed: Parsed | list[Node], items: list[dict[str, Any]], matcher: Matcher | None = None) -> Result:
+def classify(parsed: Parsed | list[Node], items: list[dict[str, Any]], matcher: Matcher | None = None, *,
+             ai: dict[str, list[str]] | None = None, overrides: dict[str, dict[str, Any]] | None = None) -> Result:
+    """每个节点收哪些篇。三层，后面的压过前面的：
+    1. 规则：她写了标签的节点按标签收（永远算）；只写名字的节点按名字找标签 / 标题——只对**还没有 AI 结果**的篇（新收的还没判）；
+    2. AI 按内容（ai：{篇: [节点路径]}，有结果的篇不再按名字字面找，免得「AI/ai功能/游戏」把所有游戏攻略都收走）；
+    3. 她手动改的（overrides：{篇: {only | add | remove}}）。"""
     roots = parsed.roots if isinstance(parsed, Parsed) else parsed
     matcher = matcher or Matcher()
+    ai = ai or {}
     infos = _item_infos(items, matcher)
     order = {iid: i for i, (iid, _, _) in enumerate(infos)}
     by_tag: dict[str, set[str]] = {}
@@ -511,20 +666,68 @@ def classify(parsed: Parsed | list[Node], items: list[dict[str, Any]], matcher: 
             by_tag.setdefault(k, set()).add(iid)
     own: dict[int, set[str]] = {}
     total: dict[int, set[str]] = {}
+    by_path: dict[str, Node] = {}
+    all_nodes: list[Node] = []
+
+    def collect(node: Node) -> None:
+        all_nodes.append(node)
+        by_path[node.path] = node
+        for ch in node.children:
+            collect(ch)
+
+    for r in roots:
+        collect(r)
+    for node in all_nodes:
+        mine: set[str] = set()
+        if node.explicit:
+            for k in {k for k in (matcher.tag(t) for t in node.tags) if k}:
+                mine |= by_tag.get(k, set())
+        name_keys = {k for k in (matcher.tag(t) for t in ([] if node.explicit else [node.name]) + list(node.hints)) if k}
+        named: set[str] = set()
+        for k in name_keys:
+            named |= by_tag.get(k, set())
+        for nm in ([] if node.explicit else [node.name]) + list(node.hints):
+            pat = name_pattern(nm)
+            if pat is not None:
+                named |= {iid for iid, _, title in infos if pat.search(title)}
+        mine |= {i for i in named if i not in ai}
+        own[id(node)] = mine
+    for iid, paths in ai.items():
+        if iid not in order:
+            continue
+        for p in paths:
+            n = by_path.get(p)
+            if n is not None:
+                own[id(n)].add(iid)
+    for iid, ov in (overrides or {}).items():
+        if iid not in order or not isinstance(ov, dict):
+            continue
+        if isinstance(ov.get("only"), list):
+            keep = [by_path[p] for p in ov["only"] if p in by_path]
+            if not keep:
+                continue                      # 她指定的节点都改名 / 删掉了：照自动的来
+            for n in all_nodes:
+                own[id(n)].discard(iid)
+            for n in keep:
+                own[id(n)].add(iid)
+            continue
+        for p in ov.get("remove") or []:
+            n = by_path.get(p)
+            if n is not None:
+                own[id(n)].discard(iid)
+                for d in _descendants(n):
+                    own[id(d)].discard(iid)
+        for p in ov.get("add") or []:
+            n = by_path.get(p)
+            if n is not None:
+                own[id(n)].add(iid)
     hit_any: set[str] = set()
 
     def visit(node: Node) -> set[str]:
-        mine: set[str] = set()
-        for k in matcher.node_keys(node):
-            mine |= by_tag.get(k, set())
-        pat = None if node.explicit else name_pattern(node.name)
-        if pat is not None:
-            mine |= {iid for iid, _, title in infos if pat.search(title)}
-        hit_any.update(mine)
-        acc = set(mine)
+        acc = set(own[id(node)])
+        hit_any.update(acc)
         for ch in node.children:
             acc |= visit(ch)
-        own[id(node)] = mine
         total[id(node)] = acc
         return acc
 
@@ -532,6 +735,12 @@ def classify(parsed: Parsed | list[Node], items: list[dict[str, Any]], matcher: 
         visit(r)
     unclassified = [iid for iid, _, _ in infos if iid not in hit_any]
     return Result(own=own, total=total, order=order, unclassified=unclassified, hit_any=hit_any)
+
+
+def _descendants(node: Node) -> Iterable[Node]:
+    for ch in node.children:
+        yield ch
+        yield from _descendants(ch)
 
 
 def _sorted(ids: Iterable[str], order: dict[str, int]) -> list[str]:
@@ -685,16 +894,31 @@ def catalog_items(vault: Path | None = None) -> tuple[list[dict[str, Any]], str]
     return [it for it in items if isinstance(it, dict)], str(raw.get("built_at") or "")
 
 
-def node_rows(parsed: Parsed, result: Result) -> list[dict[str, Any]]:
+def node_rows(parsed: Parsed, result: Result, *, virtual_ids: dict[int, str] | None = None,
+              kept: Iterable[str] = ()) -> list[dict[str, Any]]:
     rows = []
+    kept = set(kept)
     for n in parsed.walk():
-        rows.append({
+        row = {
             "path": n.path, "name": n.name, "parent": n.parent.path if n.parent is not None else "",
             "depth": n.depth, "line": n.line, "tags": list(n.tags), "explicit": n.explicit, "wiki": n.wiki,
             "count": len(result.total.get(id(n), ())), "self_count": len(result.own.get(id(n), ())),
             "items": _sorted(result.total.get(id(n), ()), result.order),
             "children": [c.path for c in n.children],
-        })
+        }
+        # 10-11：说明 / 并进来的第 4 级名字 / 允许 AI 建子类 / AI 建的子类（virtual + 建议号，「保留」用）/ 空着她说留着
+        if n.desc:
+            row["desc"] = n.desc
+        if n.hints:
+            row["hints"] = list(n.hints)
+        if n.open:
+            row["open"] = True
+        if n.virtual:
+            row["virtual"] = True
+            row["proposal"] = (virtual_ids or {}).get(id(n), "")
+        if n.path in kept:
+            row["keep_empty"] = True
+        rows.append(row)
     return rows
 
 
@@ -741,12 +965,20 @@ def _wiki_meta_stamp(vault: Path) -> str:
 
 
 def _text_ai_status() -> dict[str, Any]:
-    """页面上「AI 起草」「生成 wiki」能不能点：Python 判（和真正调用同一个 text_ai），页面只读。"""
+    """页面上「AI 起草」「生成 wiki」能不能点：Python 判（和真正调用同一个 text_ai），页面只读。
+    classify_* = 按内容归类用的那个（indexai.classifier_ai，先用便宜的归档摘要模型）。"""
     try:
         cfg, why = text_ai()
-        return {"ok": cfg is not None, "why": why, "model": str((cfg or {}).get("model") or "")}
+        out = {"ok": cfg is not None, "why": why, "model": str((cfg or {}).get("model") or "")}
     except Exception:  # noqa: BLE001
-        return {"ok": False, "why": "设置读不出来", "model": ""}
+        out = {"ok": False, "why": "设置读不出来", "model": ""}
+    try:
+        from . import indexai
+        ccfg, cwhy = indexai.classifier_ai()
+        out.update(classify_ok=ccfg is not None, classify_why=cwhy, classify_model=str((ccfg or {}).get("model") or ""))
+    except Exception:  # noqa: BLE001
+        out.update(classify_ok=False, classify_why="设置读不出来", classify_model="")
+    return out
 
 
 def _short_circuit(vault: Path, source_hash: str, built_at: str, ai: dict[str, Any]) -> dict[str, Any] | None:
@@ -755,10 +987,14 @@ def _short_circuit(vault: Path, source_hash: str, built_at: str, ai: dict[str, A
     old = _load_json(data_path(vault))
     if not isinstance(old, dict):
         return None
+    from . import indexai
     same = (old.get("code_version") == CODE_VERSION and old.get("source_hash") == source_hash
             and old.get("catalog_built_at") == built_at and old.get("vocab_hash") == _vocab_stamp()
             and old.get("file") == index_rel() and old.get("wiki_meta") == _wiki_meta_stamp(vault)
-            and (old.get("text_ai") or {}).get("ok") == ai.get("ok") and "drafting" not in old)
+            and (old.get("text_ai") or {}).get("ok") == ai.get("ok") and "drafting" not in old
+            and old.get("ai_stamp") == indexai.stamp(vault)
+            and (old.get("classify") or {}).get("ai_ok") == ai.get("classify_ok")
+            and not (old.get("classify") or {}).get("running"))
     if not same:
         return None
     d = (old.get("draft") or {})
@@ -775,6 +1011,81 @@ def _newer(a: str, b: str) -> bool:
         return datetime.fromisoformat(a) > datetime.fromisoformat(b)
     except (TypeError, ValueError):
         return False
+
+
+def _ai_view(vault: Path, parsed: Parsed, items: list[dict[str, Any]], result: Result, cache: dict[str, Any],
+             ov: dict[str, Any], applied: dict[str, Any], ai: dict[str, Any], st: dict[str, Any]) -> dict[str, Any]:
+    """index-data.json 里 10-11 加的几块：每篇直接在哪些节点（assign，页面「移到… / 也放进…」用）、「建议新增」、
+    按内容归类的状态（进度 / 花了多少 / 为什么没跑）、当成说明跳过的行。"""
+    from . import indexai
+    assign: dict[str, list[str]] = {}
+    for n in parsed.walk():
+        for iid in result.own.get(id(n), ()):
+            assign.setdefault(iid, []).append(n.path)
+    by_id = {str(it.get("id")): it for it in items}
+    unc = set(result.unclassified)
+    real = {n.path: n for n in parsed.walk() if not n.virtual}
+    dismissed = set(ov.get("dismissed") or [])
+    merged: dict[str, dict[str, Any]] = {}
+    for g in indexai.proposal_groups(parsed, cache):
+        if g["id"] in dismissed or not g["name"]:
+            continue
+        parent = g["parent"] if g["parent"] in real else ""
+        if g["kind"] == "split":
+            # 细分出来的：成员现在还直接挂在那个节点上才算（她手动挪走的不算）；够 3 篇才建议
+            members = [i for i in g["items"] if parent and parent in assign.get(i, [])]
+        else:
+            members = [i for i in g["items"] if i in unc]          # 放不进的：现在还没归类的
+        if not members:
+            continue
+        siblings = real[parent].children if parent else parsed.roots
+        if any(key(c.name) == key(g["name"]) for c in siblings):
+            continue                              # 那一级已经有同名的了（她自己加过）
+        slot = merged.setdefault(f"{parent}\u0001{key(g['name'])}", {"id": indexai.group_id(parent, g["name"]),
+                                                                   "name": g["name"], "parent": parent, "items": [],
+                                                                   "kind": g["kind"]})
+        slot["items"].extend(i for i in members if i not in slot["items"])
+    proposals = []
+    for slot in merged.values():
+        if slot["kind"] == "split" and len(slot["items"]) < indexai.SPLIT_GROUP_MIN:
+            continue
+        members = _sorted(slot["items"], result.order)
+        proposals.append({"id": slot["id"], "name": slot["name"], "parent": slot["parent"], "kind": slot["kind"],
+                          "count": len(members), "items": members,
+                          "loose": sum(1 for i in members if i in unc),
+                          "examples": [str((by_id.get(i) or {}).get("title") or "")[:40] for i in members[:3]]})
+    proposals.sort(key=lambda p: (-p["loose"], -p["count"], p["name"]))
+    model = str(ai.get("classify_model") or "")
+    try:
+        pl = indexai.plan(parsed, items, cache, model)
+    except Exception:  # noqa: BLE001
+        pl = {"pending": 0, "work": 0, "yuan": None}
+    done = sum(1 for i in by_id if isinstance((cache.get("items") or {}).get(i), dict) and "paths" in cache["items"][i])
+    cls: dict[str, Any] = {"ai_ok": bool(ai.get("classify_ok")), "why": ai.get("classify_why") or "", "model": model,
+                           "done": done, "total": len(by_id), "pending": int(pl.get("pending") or 0),
+                           "work": int(pl.get("work") or 0),
+                           "yuan": round(pl["yuan"], 3) if isinstance(pl.get("yuan"), (int, float)) else None,
+                           "spent": cache.get("spent") or {}, "last_run": (cache.get("runs") or [None])[-1]}
+    if cache.get("blocked") and pl.get("work"):
+        cls["blocked"] = cache["blocked"]
+    if cache.get("last_error"):
+        cls["error"] = cache["last_error"]
+    running = st.get("classifying") if isinstance(st.get("classifying"), dict) else None
+    if running and storage.pid_state(running.get("pid")) != "dead":
+        cls["running"] = {k: running.get(k) for k in ("at", "done", "total", "phase")}
+    return {"assign": assign, "proposals": proposals, "classify": cls, "comments": list(parsed.comments),
+            "ai_stamp": indexai.stamp(vault), "overrides": len(ov.get("items") or {})}
+
+
+def maybe_classify(vault: Path, data: dict[str, Any]) -> str:
+    """有待按内容归类的（新笔记 / 新节点 / 要细分的 / 未归类要分组）、配了模型、没在跑、没超上限 → 后台拉起 `index classify --auto`。"""
+    from . import indexai
+    cls = data.get("classify") or {}
+    if not cls.get("ai_ok") or not cls.get("work") or cls.get("running"):
+        return "skipped"
+    if cls.get("yuan") is not None and cls["yuan"] > indexai.AUTO_MAX_YUAN:
+        return "over-budget"
+    return indexai.spawn(vault)
 
 
 _BUILD_GUARD = threading.RLock()   # 远程 MCP 在线程里跑工具：同一进程里的几次重算排队（file_lock 只管跨进程）
@@ -828,7 +1139,16 @@ def _build(vault: Path, items: list[dict[str, Any]] | None, catalog_built_at: st
             old["unchanged"] = True
             return old
     parsed = parse(text)
-    result = classify(parsed, items, matcher)
+    # 10-11：AI 按内容归的结果（缓存）+ 她手动改的 → 归类；AI 在允许的节点下建的子类挂进树（virtual）
+    from . import indexai
+    cache = indexai.load_cache(vault)
+    ov = indexai.load_overrides(vault)
+    try:
+        applied = indexai.apply(parsed, items, cache, ov)
+    except Exception as exc:  # noqa: BLE001 - AI 缓存坏了：照纯规则算
+        _log(f"[index] AI 归类结果没套上：{type(exc).__name__}: {exc}")
+        applied = {"ai": {}, "overrides": ov.get("items") or {}, "virtual": []}
+    result = classify(parsed, items, matcher, ai=applied["ai"], overrides=applied["overrides"])
     warnings = list(parsed.warnings)
     if migrated and migrated.get("again"):
         warnings.insert(0, {"line": 0, "text": f"{index_rel()} 找不到了，按原来的分类重新生成了一版；"
@@ -841,13 +1161,16 @@ def _build(vault: Path, items: list[dict[str, Any]] | None, catalog_built_at: st
         "version": FORMAT_VERSION, "code_version": CODE_VERSION, "generated_at": _now(),
         "file": index_rel(), "draft_file": draft_rel(), "source_hash": source_hash, "vocab_hash": _vocab_stamp(),
         "catalog_built_at": catalog_built_at, "total": len(result.order), "classified": len(result.hit_any),
-        "roots": [r.path for r in parsed.roots], "nodes": node_rows(parsed, result),
+        "roots": [r.path for r in parsed.roots],
+        "nodes": node_rows(parsed, result, virtual_ids={id(v["node"]): v["id"] for v in applied["virtual"]},
+                           kept=ov.get("keep_empty") or []),
         "unclassified": {"count": len(result.unclassified), "items": list(result.unclassified)},
         "cats_order": cats_order(parsed, result),
         "warnings": warnings, "draft": _draft_info(vault, items, matcher), "text_ai": ai,
         "wiki_meta": _wiki_meta_stamp(vault),
     }
     st = _state(vault)
+    data.update(_ai_view(vault, parsed, items, result, cache, ov, applied, ai, st))
     if st.get("migrated_at"):
         data["migrated_at"] = st["migrated_at"]
     drafting = st.get("drafting") if isinstance(st.get("drafting"), dict) else None
@@ -974,7 +1297,14 @@ def blank_comments(text: str) -> str:
         for m in rx.finditer(cur):
             blank(m)
         cur = "".join(out)
-    return cur
+    # 10-11：括号里的说明（「ai前沿消息（不属于ai记忆、人格的放这里）」）里的冒号、逗号、顿号也不算写法：里面的字换成「x」（[wiki] 那种不动）
+    for m in _PAREN.finditer(cur):
+        if _WIKI.fullmatch(m.group(0)):
+            continue
+        for i in range(m.start() + 1, m.end() - 1):
+            if out[i] not in "\r\n":
+                out[i] = "x"
+    return "".join(out)
 
 
 def _sep_style(segment: str) -> str:
@@ -1069,7 +1399,7 @@ def _split_out(text: str, node: Node) -> str:
     segs = _segments(bbody, start, end)
     if len(segs) < 2 or _COLON.search(bbody[start:end]):
         return text
-    names = [key(clean_name(body[a:b])) for a, b in segs]
+    names = [key(clean_name(split_desc(body[a:b])[0])) for a, b in segs]
     if key(node.name) not in names:
         raise ValueError(f"第 {node.line} 行写法太复杂，没能自动改「{node.name}」：请手动拆成一行一个")
     i = names.index(key(node.name))
@@ -1153,6 +1483,13 @@ def edit_new_node(text: str, parent_path: str, name: str, tags: list[str] | None
         lines = _split_keep(text)
         bullet = next((parsed.lines[r.line].bullet for r in parsed.roots if r.line in parsed.lines), "- ") or ""
         lead = next((parsed.lines[r.line].lead for r in parsed.roots if r.line in parsed.lines), "")
+        if parsed.roots:
+            # 10-11：插在最后一个大类整棵子树后面（文件末尾可能还有她写给自己的说明，别插到说明下面去）
+            at = _subtree_last_line(parsed.roots[-1])
+            if at - 1 < len(lines) and not lines[at - 1].endswith(("\n", "\r")):
+                lines[at - 1] += nl
+            lines.insert(at, lead + bullet + content + nl)
+            return "".join(lines)
         if lines and not lines[-1].endswith(("\n", "\r")):
             lines[-1] += nl
         lines.append(lead + bullet + content + nl)
@@ -1184,20 +1521,123 @@ def edit_new_node(text: str, parent_path: str, name: str, tags: list[str] | None
     return "".join(lines)
 
 
+def edit_remove_node(text: str, path: str) -> str:
+    """删掉一个节点：它那一行（一行几个节点的只删它那一段）+ 它子树里的行（子节点、并进来的第 4 级、占位）。别的字、注释、换行原样。"""
+    parsed = parse(text)
+    node = parsed.find(path)
+    if node is None:
+        raise KeyError(path)
+    info = parsed.lines.get(node.line)
+    if info is not None and len(info.nodes) > 1:
+        if node.children:
+            raise ValueError(f"第 {node.line} 行一行写了几个节点、下面还有子节点：请手动删")
+        text = _split_out(text, node)
+        parsed = parse(text)
+        node = parsed.find(path)
+        if node is None:
+            raise KeyError(path)
+    drop: set[int] = set()
+
+    def mark(n: Node) -> None:
+        drop.update(n.lines or [n.line])
+        for ch in n.children:
+            mark(ch)
+
+    mark(node)
+    lines = _split_keep(text)
+    return "".join(ln for i, ln in enumerate(lines, 1) if i not in drop)
+
+
+def accept_proposal(gid: str, vault: Path | None = None) -> dict[str, Any]:
+    """她点「加进索引」（建议新增）/「保留」（AI 建的子类）：写进 索引.md（原子写、写前备份、缩进照抄），
+    这几篇直接归进新节点（不再为它花钱跑一遍）。"""
+    from . import indexai
+    vault = vault or storage.vault_root()
+    data = build(vault, auto_draft=False)
+    if data.get("unchanged"):
+        data = build(vault, force=True, write=False, auto_draft=False)
+    prop = next((p for p in data.get("proposals") or [] if p.get("id") == gid), None)
+    virtual = None
+    if prop is None:
+        virtual = next((n for n in data.get("nodes") or [] if n.get("virtual") and n.get("proposal") == gid), None)
+        if virtual is None:
+            return {"ok": False, "code": "PERMANENT.STEP_ARGS", "message": "这条建议已经不在了（可能已经加过、或重新归类过）"}
+        prop = {"name": virtual["name"], "parent": virtual["parent"], "items": list(virtual.get("items") or [])}
+    with storage.file_lock(LOCK, wait_s=30, owner="index.accept"):
+        try:
+            got = read_for_edit(index_path(vault))
+        except NotUtf8:
+            return {"ok": False, "code": "PERMANENT.STEP_ARGS",
+                    "message": f"{index_rel()} 不是 UTF-8 编码，没敢改它：在 Obsidian 里打开它存一下再试"}
+        if got is None:
+            return {"ok": False, "code": "PERMANENT.STEP_ARGS", "message": f"{index_rel()} 不在了，先刷新一次索引"}
+        text, raw, bom = got
+        try:
+            new_text = edit_new_node(text, prop["parent"], prop["name"])
+        except KeyError:
+            return {"ok": False, "code": "PERMANENT.STEP_ARGS", "message": f"「{prop['parent']}」已经不在索引里了"}
+        except ValueError as exc:
+            return {"ok": False, "code": "PERMANENT.STEP_ARGS", "message": str(exc)}
+        parsed = parse(new_text)
+        name = node_name_for_write(prop["name"])
+        new_path = (prop["parent"] + SEP if prop["parent"] else "") + name.replace(SEP, "∕")
+        node = parsed.find(new_path)
+        if node is None:
+            return {"ok": False, "code": "PERMANENT.STEP_ARGS", "message": f"「{name}」没写进去（名字和已有的撞了？）"}
+        write_index(new_text, "accept", vault, old=raw, bom=bom)
+    indexai.seed_accepted(vault, prop["items"], prop["parent"], node.path, indexai.node_sig(node))
+    data = build(vault, force=True, auto_draft=False)
+    where = f"「{prop['parent'].replace(SEP, ' › ')}」下面" if prop["parent"] else "第一级"
+    return {"ok": True, "code": "", "path": node.path, "line": node.line,
+            "message": f"已把「{name}」写进 {index_rel()}（{where}），{len(prop['items'])} 篇归进去了；未归类还剩 "
+                       f"{data['unclassified']['count']} 篇", "unclassified": data["unclassified"]["count"]}
+
+
+def remove_empty(path: str, vault: Path | None = None) -> dict[str, Any]:
+    """空节点「删」：从 索引.md 删掉这一行（只删 0 篇的，原子写、写前备份）。"""
+    vault = vault or storage.vault_root()
+    data = load(vault, fresh=False)
+    node, _ = find_node(data, path)
+    if node is None:
+        return {"ok": False, "code": "PERMANENT.STEP_ARGS", "message": f"索引里没有「{path}」"}
+    if node.get("count"):
+        return {"ok": False, "code": "PERMANENT.STEP_ARGS", "message": f"「{node['name']}」里有 {node['count']} 篇，不是空的，没删"}
+    with storage.file_lock(LOCK, wait_s=30, owner="index.remove"):
+        try:
+            got = read_for_edit(index_path(vault))
+        except NotUtf8:
+            return {"ok": False, "code": "PERMANENT.STEP_ARGS", "message": f"{index_rel()} 不是 UTF-8 编码，没敢改它"}
+        if got is None:
+            return {"ok": False, "code": "PERMANENT.STEP_ARGS", "message": f"{index_rel()} 不在了"}
+        text, raw, bom = got
+        try:
+            new_text = edit_remove_node(text, node["path"])
+        except KeyError:
+            return {"ok": False, "code": "PERMANENT.STEP_ARGS", "message": f"「{node['path']}」已经不在索引里了"}
+        except ValueError as exc:
+            return {"ok": False, "code": "PERMANENT.STEP_ARGS", "message": str(exc)}
+        name = write_index(new_text, "remove", vault, old=raw, bom=bom)
+    build(vault, force=True, auto_draft=False)
+    return {"ok": True, "code": "", "backup": name,
+            "message": f"已从 {index_rel()} 删掉「{node['name']}」（原来的在 _archive/{HISTORY_DIR}/ 里）"}
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 起草（AI / 高频标签）
 # ═══════════════════════════════════════════════════════════════════════════
 
-def text_ai() -> tuple[dict[str, Any] | None, str]:
+def text_ai(order: tuple[tuple[str, str], ...] = (("textAI", "文本 AI"), ("summaryAI", "归档摘要模型"))
+            ) -> tuple[dict[str, Any] | None, str]:
     """起草 / 未归类建议 / wiki 用哪个文本模型：问收藏页正在用的那个（设置里的文本 AI，叠上选中的模型）；它没有能用的 key 时
-    退到「归档摘要模型」（也是文本模型，常常单独配了 key）。都不行 → (None, 一句原因)。本机（127.0.0.1 / localhost）的接口不要 key。"""
+    退到「归档摘要模型」（也是文本模型，常常单独配了 key）。都不行 → (None, 一句原因)。本机（127.0.0.1 / localhost）的接口不要 key。
+    order 可以换先后（按内容归类先用便宜的归档摘要模型：indexai.classifier_ai）。返回的 cfg 带 cap（调用时照它传）。"""
     from . import ai_config, providers
     try:
         settings = ai_config.load()
     except Exception:  # noqa: BLE001
         settings = None
     reasons: list[str] = []
-    for cap, label in (("textAI", "文本 AI"), ("summaryAI", "归档摘要模型")):
+    for cap, label in order:
         try:
             s = ai_config.with_model(settings) if (cap == "textAI" and settings is not None) else settings
             cfg = providers.resolve(cap, s)
@@ -1970,6 +2410,25 @@ def add_parser(sub) -> None:
     pg.add_argument("--limit", type=int, default=20)
     pa = isub.add_parser("apply", help="把几条建议写进 索引.md（--id 可重复）")
     pa.add_argument("--id", dest="ids", action="append", default=[], help="建议 id（suggest 给的）")
+    # 10-11 按内容归类 / 手动改归属 / 建议新增 / 空节点
+    pc = isub.add_parser("classify", help="按内容归类（AI 读标题 + 标签 + 概要，归进 索引.md 的节点；只做新笔记 / 新节点）")
+    pc.add_argument("--auto", action="store_true", help="后台用：等她停手再跑，超过花费上限不跑")
+    pc.add_argument("--estimate", action="store_true", help="只估价，不调模型")
+    pc.add_argument("--progress", action="store_true", help="stdout 一行一个进度事件（最后一行照旧是结果）")
+    pc.add_argument("--max-yuan", dest="max_yuan", type=float, default=None, help="这次最多花多少（元）")
+    pas = isub.add_parser("assign", help="手动改一篇（几篇）的归属：move 只放这一类 / add 也放进 / remove 从这里拿掉 / reset 恢复自动 / undo")
+    pas.add_argument("--item", dest="items", action="append", default=[])
+    pas.add_argument("--op", required=True, choices=["move", "add", "remove", "reset", "undo"])
+    pas.add_argument("--path", default="", help="节点路径；undo 时是撤销号")
+    pac = isub.add_parser("accept", help="把一条「建议新增」/ AI 建的子类写进 索引.md")
+    pac.add_argument("--id", required=True)
+    pe = isub.add_parser("empty", help="空节点：--remove 从 索引.md 删掉 / --keep 留着不再提醒")
+    pe.add_argument("--path", required=True)
+    g = pe.add_mutually_exclusive_group(required=True)
+    g.add_argument("--remove", action="store_true")
+    g.add_argument("--keep", action="store_true")
+    pdm = isub.add_parser("dismiss", help="不要这条「建议新增」")
+    pdm.add_argument("--id", required=True)
 
 
 def argparse_hidden() -> str:
@@ -1990,6 +2449,7 @@ def _brief(data: dict[str, Any]) -> dict[str, Any]:
 def run(args) -> int:
     from .read import dump_json, outcome
     cmd = getattr(args, "index_command", None) or "build"
+    r: dict[str, Any] | None = None
     try:
         if cmd == "build":
             data = build(force=getattr(args, "force", False))
@@ -2003,11 +2463,49 @@ def run(args) -> int:
                 msg = f"索引已更新：{len(pub['roots'])} 个大类，未归类 {unc} 篇"
             if pub.get("warnings"):
                 msg += f"；有 {len(pub['warnings'])} 处写法要看一眼"
+            try:
+                classify_spawn = maybe_classify(storage.vault_root(), pub)
+            except Exception:  # noqa: BLE001
+                classify_spawn = "skipped"
             dump_json(outcome({"total": pub.get("total"), "classified": pub.get("classified"), "unclassified": unc,
                                "roots": pub.get("roots"), "warnings": pub.get("warnings"), "file": pub.get("file"),
                                "migrated": pub.get("migrated"), "unchanged": bool(pub.get("unchanged")),
-                               "draft": pub.get("draft")}, ok=True, message=msg))
+                               "draft": pub.get("draft"), "classify": classify_spawn}, ok=True, message=msg))
             return 0
+        if cmd == "classify":
+            from . import indexai
+            if getattr(args, "estimate", False):
+                est = indexai.estimate()
+                money = ("" if est["yuan"] is None else f"，约 ¥{est['yuan']:.2f}" if est["yuan"] >= 0.01 else "，不到 1 分钱")
+                what = (f"要按内容归 {est['pending']} 篇" if est["pending"] else
+                        f"要核对新节点 {len(est['changed'])} 个" if est["changed"] else
+                        f"要细分 {len(est['splits'])} 个节点" if est["splits"] else "要给放不进的分组")
+                msg = (f"{what}（{est['calls']} 次调用{money}）" if est["work"] else "没有要归的") if est["ai_ok"] \
+                    else f"没法按内容归类：{est['why']}"
+                dump_json(outcome(est, ok=True, message=msg))
+                return 0
+            on = None
+            if getattr(args, "progress", False):
+                on = lambda ev: print(json.dumps(ev, ensure_ascii=False), flush=True)  # noqa: E731
+            r = indexai.run(auto=getattr(args, "auto", False), on_progress=on, max_yuan=getattr(args, "max_yuan", None))
+            if r.get("code", "").startswith("SKIPPED."):
+                print(r.get("message") or "", file=sys.stderr)
+                dump_json(outcome(r, ok=False, message=r.get("message") or "", code=r["code"]))
+                return 2
+        elif cmd == "assign":
+            from . import indexai
+            r = indexai.assign(args.items, args.op, args.path)
+        elif cmd == "accept":
+            r = accept_proposal(args.id)
+        elif cmd == "empty":
+            if args.keep:
+                from . import indexai
+                r = indexai.keep_empty(args.path)
+            else:
+                r = remove_empty(args.path)
+        elif cmd == "dismiss":
+            from . import indexai
+            r = indexai.dismiss(args.id)
         if cmd == "show":
             data = load()
             if getattr(args, "unclassified", False) or (args.node and norm_path(args.node) in {norm_path(x) for x in UNCLASSIFIED_REFS}):
@@ -2025,7 +2523,9 @@ def run(args) -> int:
                 return 0
             dump_json(outcome(_brief(data), ok=True, message=f"{len(data.get('roots') or [])} 个大类"))
             return 0
-        if cmd == "draft":
+        if r is not None:
+            pass                              # 上面 classify / assign / accept / empty / dismiss 已经做了
+        elif cmd == "draft":
             r = draft(use_ai=not getattr(args, "no_ai", False), auto=getattr(args, "auto", False))
         elif cmd == "use-draft":
             r = use_draft()
