@@ -14,6 +14,7 @@ const shell = require('../_obsidian_shell.cjs');
 
 const CATS = ['悉尼', '做饭', 'AI', '学习', '穿搭', '家居', '旅行'];
 
+let idxFacets = [];
 function makeIndexData(items, { rename = null, running = false } = {}) {
   const ids = pred => items.filter(pred).map(it => it.id);
   const idOf = it => Number(it.id.slice(-4));
@@ -27,7 +28,12 @@ function makeIndexData(items, { rename = null, running = false } = {}) {
   };
   const cookIds = ids(it => cat(it) === '做饭');
   add(cook, cookIds, { children: [cook + '/家常菜', cook + '/烘焙', cook + '/空气炸锅'], open: true });
-  add(cook + '/家常菜', ids(it => cat(it) === '做饭' && idOf(it) % 2 === 0), { children: [cook + '/家常菜/红烧肉'], desc: '天天吃的那种' });
+  const homeIds = ids(it => cat(it) === '做饭' && idOf(it) % 2 === 0);
+  // 10-11 细分标签（多选）：红烧 = 每 4 篇一篇，快手 = 每 3 篇一篇——两个都选 = 同时有（越选越窄）
+  const facets = [{ name: '红烧', items: homeIds.filter((_, k) => k % 4 === 0) }, { name: '快手', items: homeIds.filter((_, k) => k % 3 === 0) }, { name: '汤', items: homeIds.slice(0, 2) }]
+    .map(f => ({ ...f, count: f.items.length }));
+  add(cook + '/家常菜', homeIds, { children: [cook + '/家常菜/红烧肉'], desc: '天天吃的那种', facets });
+  idxFacets = facets;
   add(cook + '/家常菜/红烧肉', ids(it => cat(it) === '做饭' && idOf(it) % 4 === 0));
   add(cook + '/烘焙', ids(it => cat(it) === '做饭' && idOf(it) % 4 === 1));
   add(cook + '/空气炸锅', ids(it => cat(it) === '做饭' && idOf(it) % 4 === 3), { virtual: true, proposal: 'v1', line: 0, desc: 'AI 按内容建的子类' });
@@ -54,6 +60,7 @@ function makeIndexData(items, { rename = null, running = false } = {}) {
             '旅行': { file: 'wiki/旅行.md', exists: false, marked: true, based: 0, new_since: 0, generated_at: null } },
     text_ai: { ok: true, why: '', model: 'm' },
     assign,
+    item_tags: Object.fromEntries(items.map(it => [it.id, idxFacets.filter(f => f.items.includes(it.id)).map(f => f.name)]).filter(e => e[1].length)),
     proposals: [
       { id: 'p1', name: '穿搭灵感', parent: '', kind: 'leftover', count: unc.length, loose: unc.length, items: unc, examples: [] },
       { id: 'p2', name: '红烧系列', parent: cook + '/家常菜', kind: 'split', count: 3, loose: 0, items: ids(it => cat(it) === '做饭' && idOf(it) % 2 === 0).slice(0, 3), examples: [] },
@@ -67,6 +74,7 @@ const PLUGIN = { confirmAnswer: true, methods: {
   indexUseDraft: { result: { ok: true } }, indexDraft: { result: { ok: true } }, openIndexSuggestions: { result: null }, wikiBuild: { result: null }, indexRebuild: { result: null },
   indexAssign: { result: { ok: true, message: '已移到「烘焙」（只放这一类）', undo: 'u1' } }, indexAccept: { result: { ok: true, message: '已写进', path: '做饭/家常菜/红烧系列' } },
   indexDismiss: { result: { ok: true, message: '不要了' } }, indexEmpty: { result: { ok: true, message: '留着' } }, indexClassify: { result: { ok: true, message: '按内容归好了' } },
+  indexFacet: { result: { ok: true, message: '已加上细分标签', undo: 'u3' } },
 } };
 
 async function open(browser, { width = 1280, height = 900, theme = 'light', idx, mobile = false, data }) {
@@ -160,12 +168,29 @@ const calls = async (S, name) => (await S.calls()).filter(c => c[0] === name);
       assert.deepEqual((await calls(S, 'indexAccept')).map(c => c[1]), ['p1', 'v1'], `${theme}：AI 建的「保留」`);
       // 卡片上「归类…」（只在索引视图悬停出现）→ 移到… → 选分类小窗（能筛、Enter 选第一个）
       await clickRow(page, '做饭/家常菜'); await S.settle();
+      // 10-11 细分标签：选中节点下面一行 chips（带篇数）；多选 = 同时有；清除；卡片上小字
+      const home = idx.nodes.find(n => n.path === '做饭/家常菜').facets;
+      const both = home[0].items.filter(i => home[1].items.includes(i));
+      let fc = await page.evaluate(() => [...document.querySelectorAll('.lbi-facets .lbi-facet')].map(b => b.textContent));
+      assert.deepEqual(fc, home.map(f => f.name + f.count), `${theme}：细分标签一行 ${fc}`);
+      await page.evaluate(() => document.querySelector('.lbi-facet[data-name="红烧"]').click()); await S.settle();
+      assert.equal((await cardTitles(page)).length, home[0].count, `${theme}：选「红烧」只剩这几篇`);
+      const tagText = await page.evaluate(() => [...document.querySelectorAll('.lbc-grid .lbc-card .lbc-ftags')].map(e => e.hidden ? '' : e.textContent));
+      assert.ok(tagText.length && tagText.every(t => t.includes('红烧')), `${theme}：卡片上小字有细分标签 ${tagText}`);
+      fc = await page.evaluate(() => [...document.querySelectorAll('.lbi-facets .lbi-facet')].map(b => b.textContent));
+      assert.equal(fc.find(t => t.startsWith('快手')), '快手' + both.length, `${theme}：别的标签显示同时有的篇数 ${fc}`);
+      await page.evaluate(() => document.querySelector('.lbi-facet[data-name="快手"]').click()); await S.settle();
+      assert.equal((await cardTitles(page)).length, both.length, `${theme}：两个都选 = 同时有（AND）`);
+      assert.ok(await page.evaluate(() => !!document.querySelector('.lbi-facet-clear')), `${theme}：有「清除」`);
+      await page.evaluate(() => document.querySelector('.lbi-facet-clear').click()); await S.settle();
+      assert.equal((await cardTitles(page)).length, count('做饭/家常菜'), `${theme}：清除回到这一类全部`);
       const card = page.locator('.lbc-grid .lbc-card').first();
       await card.hover();
       assert.notEqual(await card.locator('.lbc-reclass').evaluate(b => getComputedStyle(b).display), 'none', `${theme}：悬停出现「归类…」`);
       await card.locator('.lbc-reclass').click(); await S.settle();
       const menu = await page.evaluate(() => [...document.querySelectorAll('.menu .menu-item-title, .lbc-menu .lbc-menu-item')].map(e => e.textContent));
-      assert.deepEqual(menu, ['移到…（只放这一类）', '也放进…', '从「家常菜」拿掉'], `${theme}：归类菜单 ${menu}`);
+      assert.deepEqual(menu.slice(0, 3), ['移到…（只放这一类）', '也放进…', '从「家常菜」拿掉'], `${theme}：归类菜单 ${menu}`);
+      assert.ok(menu.includes('标签：红烧') && menu.includes('加一个标签…'), `${theme}：归类菜单里能加 / 去掉这篇的标签 ${menu}`);
       await page.evaluate(() => [...document.querySelectorAll('.menu .menu-item, .lbc-menu .lbc-menu-item')].find(e => e.textContent.includes('移到')).click()); await S.settle();
       const pick = await page.evaluate(() => ({ rows: [...document.querySelectorAll('.lbi-pick-row')].map(b => b.textContent), virt: [...document.querySelectorAll('.lbi-pick-row')].some(b => b.dataset.path === '做饭/空气炸锅'),
         sbw: getComputedStyle(document.querySelector('.lbi-pick')).scrollbarWidth }));

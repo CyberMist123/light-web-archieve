@@ -134,6 +134,16 @@ const CSS = `
 .lbi-warn-mark{color:var(--lb-warn);}
 .lbi-warn ol{margin:4px 0 0;padding-left:20px;flex-basis:100%;color:var(--text-muted);}
 .lbi-split.is-on .lbc-grid{padding-top:6px;}
+/* 10-11 细分标签：选中节点下面一行 chips（实线小圆角，选中 = 正文色描边加粗）；卡片上一行淡字 */
+.lbi-facets{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:4px 5px 2px;}
+.lbi-facets[hidden],.lbc-ftags[hidden]{display:none!important;}
+.lbi-facets-label{font-size:12px;color:var(--text-muted);margin-right:2px;}
+.lbc-wrap button.lbi-facet{display:inline-flex;align-items:baseline;gap:5px;height:auto;padding:2px 10px;border:1px solid var(--background-modifier-border)!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--text-muted);font-size:12px;font-weight:400;line-height:1.6;cursor:pointer;transition:color .12s,border-color .12s;}
+.lbc-wrap button.lbi-facet:hover{color:var(--text-normal);border-color:var(--text-faint)!important;}
+.lbc-wrap button.lbi-facet.is-on{color:var(--text-normal);border-color:var(--text-normal)!important;font-weight:500;}
+.lbc-wrap button.lbi-facet.is-zero{opacity:.45;}
+.lbc-wrap button.lbi-facet-clear{border-style:dashed!important;}
+.lbc-ftags{font-size:11px;line-height:1.5;color:var(--text-faint);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 /* 卡片上「归类…」：只在索引视图里、鼠标停在卡上才出现（和选中圈 / ☆ 同款圆角小钮，排在它们左边） */
 .lbc-wrap button.lbc-reclass{position:absolute;top:8px;right:72px;z-index:1;height:26px;box-sizing:border-box;padding:0 10px!important;border-radius:999px!important;border:1.5px solid #fff!important;background:rgba(0,0,0,.28)!important;box-shadow:0 1px 4px #0003!important;color:#fff;font-size:12px;line-height:1;display:none;align-items:center;cursor:pointer;}
 .lbc-wrap.is-indexview .lbc-card:hover button.lbc-reclass,.lbc-wrap.is-indexview .lbc-card:focus-within button.lbc-reclass{display:inline-flex;}
@@ -333,12 +343,16 @@ refreshTags();
 const UNC = '∅未归类', UNC_LABEL = '未归类';   // 「未归类」那一档在页面里的键（节点路径不会以 ∅ 开头，她把一个节点叫「未归类」也不撞）
 let idx = null, idxRev = 0;
 const idxByPath = new Map(), idxSets = new Map();
+let idxRaw = null;
 async function loadIndex() {
-  let next = null;
+  let next = null, raw = null;
   try {
-    const v = JSON.parse(await app.vault.adapter.read(lbPath('_archive/index-data.json')));
+    raw = await app.vault.adapter.read(lbPath('_archive/index-data.json'));
+    if (raw === idxRaw && idx) return false;          // 10-11：内容一字没变（同一次改动的第二个通知）：什么都不动
+    const v = JSON.parse(raw);
     if (v && Array.isArray(v.nodes) && Array.isArray(v.roots)) next = v;
   } catch {}
+  idxRaw = next ? raw : null;
   idx = next; idxByPath.clear(); idxSets.clear(); idxRev++;
   for (const n of idx?.nodes || []) if (n && typeof n.path === 'string') idxByPath.set(n.path, n);
   // 索引是用更旧的目录数据算的（重建目录时没抢到锁之类）：新收的几篇哪类都不在——请插件重算一次（每对版本只请一次）
@@ -348,7 +362,7 @@ async function loadIndex() {
     idxRebuildAsked = pair;
     try { provider()?.indexRebuild?.(); } catch {}
   }
-  return idx;
+  return true;
 }
 let idxRebuildAsked = '';
 // 10-11「建议新增」也能像节点一样筛（activeCat = '∅建议:<id>'）：右边看这些笔记，上面一行「加进索引 / 不要」
@@ -372,7 +386,28 @@ function knownCat(c) {
 function inCat(it) {
   if (!activeCat) return true;
   const s = nodeIds(activeCat);
-  return s ? s.has(it.id) : (it.cats || []).includes(activeCat);
+  if (!(s ? s.has(it.id) : (it.cats || []).includes(activeCat))) return false;
+  for (const f of activeFacets) { const fs = facetIds(f); if (!fs || !fs.has(it.id)) return false; }
+  return true;
+}
+// 10-11 细分标签（她：大类最多 3 级，下面还能细分 tag，一篇可以有几个——空气炸锅 + 牛排）：选中节点的 facets，多选 = AND
+let activeFacets = [], facetNode = '';
+const facetsOf = path => (idxByPath.get(path)?.facets || []).filter(f => f && f.name);
+function facetIds(name) {
+  const key_ = 'facet\u0001' + activeCat + '\u0001' + name;
+  if (idxSets.has(key_)) return idxSets.get(key_);
+  const f = facetsOf(activeCat).find(x => x.name === name);
+  const set = f ? new Set(f.items || []) : null;
+  idxSets.set(key_, set);
+  return set;
+}
+// 筛选结果只跟「选中的这一类有哪些篇 + 选了哪些细分标签」有关：索引重算了但这一类篇目没变 → 结果集的键不变，网格一动不动
+function selSig() {
+  if (!activeCat) return '';
+  const ids = nodeIds(activeCat);
+  let h = 0;
+  for (const id of ids || []) for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  return `${ids ? ids.size : -1}:${h}:${activeFacets.join('\u0001')}:${activeFacets.map(f => facetIds(f)?.size ?? -1).join(',')}`;
 }
 await loadIndex();
 
@@ -491,10 +526,11 @@ let pageReady = false, idxPending = false;
 async function reloadIndex() {
   if (!pageReady) { idxPending = true; return; }
   idxPending = false;
-  await loadIndex();
+  if (!(await loadIndex())) return;
+  perfCounts.indexReload = (perfCounts.indexReload || 0) + 1;
   if (activeCat && !knownCat(activeCat)) activeCat = '';
+  if (activeFacets.length) activeFacets = activeFacets.filter(f => facetsOf(activeCat).some(x => x.name === f));
   if (indexView && !idx) indexView = false;
-  panelKey = null; barKey = null;
   renderCatBar();
   withAnchor(() => render());
 }
@@ -955,6 +991,7 @@ let panelKey = null, barKey = null, propsOpen = false;
 // 默认只展开选中的那一支（树不长）；手动展开 / 收起过的照记的来
 function nodeOpen(path) { return foldOverride.has(path) ? foldOverride.get(path) : !!activeCat && (activeCat === path || activeCat.startsWith(path + '/')); }
 function selectNode(path) {
+  if ((path || '') !== activeCat) activeFacets = [];
   activeCat = path || '';
   for (let p = activeCat.startsWith(PROP) ? '' : activeCat; p.includes('/'); p = p.slice(0, p.lastIndexOf('/'))) foldOverride.delete(p.slice(0, p.lastIndexOf('/')));
   renderCatBar(); render(); scrollToResults();
@@ -995,7 +1032,8 @@ async function runClassify(btn) {
   await indexDone(r, '按内容归好了');
 }
 function renderIndexBar() {
-  const key = JSON.stringify([idxRev, activeCat, propsOpen, mobile]);
+  const key = JSON.stringify([idx.total, idx.classified, idx.unclassified?.count, classifyStatus(), (idx.proposals || []).map(p => [p.id, p.name, p.count]),
+    idx.drafting, idx.draft, idx.warnings, idx.comments, idx.text_ai, activeCat, propsOpen, mobile]);
   if (key === barKey) return;
   barKey = key;
   ibar.empty();
@@ -1125,11 +1163,28 @@ function treeRow(box, n, depth, { cls = '', kids = null } = {}) {
   if (open) for (const k of children) treeRow(box, k, depth + 1);
 }
 function panelNarrow() { const w = Number(wrap.clientWidth) || (typeof innerWidth === 'number' ? innerWidth : 1200); return mobile || w < 700; }
+function treeShape() {
+  // 看得见的行（路径 / 名字 / 标记 / 空不空）+ 展开状态 + 选中：篇数不在里面——篇数变了只改数字
+  const vis = [];
+  const walk = (p, d) => { const n = idxByPath.get(p); if (!n) return; vis.push([p, n.name, !!n.virtual, !!n.wiki, !!n.keep_empty, !n.count, n.proposal || '', d, (idx.wiki || {})[p]?.exists || false]);
+    if ((n.children || []).length && nodeOpen(p)) for (const c of n.children) walk(c, d + 1); };
+  for (const r of idx.roots) walk(r, 0);
+  return JSON.stringify([vis, !!idx.unclassified?.count, activeCat, mobile]);
+}
+function patchTreeCounts() {
+  for (const row of ipanel.querySelectorAll('.lbi-row')) {
+    const p = row.dataset.path;
+    const c = p === '' ? idx.total : p === UNC ? (idx.unclassified?.count || 0) : idxByPath.get(p)?.count;
+    const el = row.querySelector('.lbi-label .lbi-n');
+    if (el && c != null && el.textContent !== String(c)) el.textContent = String(c);
+  }
+}
 function renderIndexPanel() {
-  if (!idx) { ipanel.empty(); return; }
-  const key = JSON.stringify([idxRev, [...foldOverride], activeCat, mobile]);
-  if (key === panelKey) return;
+  if (!idx) { ipanel.empty(); panelKey = null; return; }
+  const key = treeShape();
+  if (key === panelKey) { patchTreeCounts(); return; }
   panelKey = key;
+  const keepScroll = ipanel.scrollTop || 0;
   ipanel.empty();
   const tree = ipanel.createEl('div', { cls: 'lbi-tree' });
   const roots = idx.roots.map(p => idxByPath.get(p)).filter(Boolean);
@@ -1137,6 +1192,47 @@ function renderIndexPanel() {
   for (const r of roots) treeRow(tree, r, 0);
   const unc = idx.unclassified?.count || 0;
   if (unc) treeRow(tree, { path: UNC, name: UNC_LABEL, count: unc }, 0, { cls: ' is-unc', kids: [] });
+  if (keepScroll) ipanel.scrollTop = keepScroll;
+}
+// 选中节点的细分标签：一行 chips（篇数 = 和已选的同时有的篇数），多选越选越窄，「清除」回到这一类全部
+const ifacets = imain.createEl('div', { cls: 'lbi-facets' }); ifacets.hidden = true;
+let facetsKey = null;
+function renderIndexFacets() {
+  const list = indexView && idx && activeCat && !activeCat.startsWith(PROP) && activeCat !== UNC ? facetsOf(activeCat) : [];
+  const base = nodeIds(activeCat);
+  const cur = [...(base || [])].filter(id => activeFacets.every(f => facetIds(f)?.has(id)));
+  const counts = list.map(f => (f.items || []).filter(id => cur.includes(id)).length);
+  const key = JSON.stringify([activeCat, list.map(f => [f.name, f.count]), activeFacets, counts]);
+  if (key === facetsKey) return;
+  facetsKey = key;
+  ifacets.empty();
+  ifacets.hidden = !list.length;
+  if (!list.length) return;
+  ifacets.createEl('span', { cls: 'lbi-facets-label', text: '细分' });
+  list.forEach((f, k) => {
+    const on = activeFacets.includes(f.name);
+    const chip = ifacets.createEl('button', { cls: 'lbi-facet' + (on ? ' is-on' : '') + (!on && !counts[k] ? ' is-zero' : '') }); chip.type = 'button';
+    chip.dataset.name = f.name; chip.setAttribute('aria-pressed', String(on));
+    chip.append(f.name);
+    chip.createEl('span', { cls: 'lbi-chip-n', text: String(on ? cur.length : counts[k]) });
+    chip.onclick = () => { activeFacets = on ? activeFacets.filter(x => x !== f.name) : [...activeFacets, f.name]; render(); scrollToResults(); };
+  });
+  if (activeFacets.length) {
+    const clr = ifacets.createEl('button', { cls: 'lbi-facet lbi-facet-clear', text: '清除' }); clr.type = 'button';
+    clr.onclick = () => { activeFacets = []; render(); scrollToResults(); };
+  }
+}
+// 卡片上小字：这一篇帖子的细分标签（标签属于帖子；只在索引视图里，选中这一类那一行里有的排前面）
+function paintCardFacets() {
+  const on = indexView && idx;
+  const front = new Set(on && activeCat ? facetsOf(activeCat).map(f => f.name) : []);
+  for (const card of grid.querySelectorAll('.lbc-card')) {
+    const id = card._lbItem?.id; const el = card.querySelector('.lbc-ftags'); if (!el) continue;
+    const tags = on ? [...(idx.item_tags?.[id] || [])].sort((a, b) => (front.has(b) - front.has(a))) : [];
+    const text = tags.slice(0, 5).join(' · ');
+    if (el.textContent !== text) el.textContent = text;
+    el.hidden = !text;
+  }
 }
 // 右边网格上面一行：选中的是什么、几篇、她写的说明；建议新增 / AI 建的 / 空的分类在这里也能一键处理
 function renderIndexHead() {
@@ -1247,7 +1343,46 @@ function reclassItems(list) {
     { title: n ? `把${n}移到…` : '移到…（只放这一类）', onClick: async () => { const p = await pickNode(n ? `把${n}移到…` : `把《${(list[0].title || '').slice(0, 18)}》移到…`, { here: list.length === 1 ? (idx.assign?.[list[0].id] || [])[0] : '' }); if (p) reclassify(list, 'move', p); } },
     { title: n ? `把${n}也放进…` : '也放进…', onClick: async () => { const p = await pickNode(n ? `把${n}也放进…` : `《${(list[0].title || '').slice(0, 18)}》也放进…`); if (p) reclassify(list, 'add', p); } },
     inHere.length ? { title: `从「${here.name}」拿掉${inHere.length > 1 ? ` ${inHere.length} 篇` : ''}`, onClick: () => reclassify(inHere, 'remove', here.path) } : null,
+    // 10-11 细分标签 = 帖子的标签（她定：标签属于帖子）：打勾 = 这几篇都有；点一下加上 / 去掉（记成她改的，AI 压不过）；
+    //   列的是这一类那一行的标签 + 这几篇自己身上的；最后一项起个新的
+    ...(() => {
+      const own = list.flatMap(x => idx.item_tags?.[x.id] || []);
+      const names = [...new Set([...(here ? facetsOf(here.path).map(f => f.name) : []), ...own])].slice(0, 14);
+      return names.map(name => {
+        const all = list.every(x => (idx.item_tags?.[x.id] || []).includes(name));
+        return { title: `标签：${name}`, checked: all, onClick: () => setFacet(list, here?.path || '', all ? 'remove' : 'add', name) };
+      });
+    })(),
+    { title: '加一个标签…', onClick: async () => { const name = await askName(`给${n || '这篇'}加一个标签`); if (name) setFacet(list, here?.path || '', 'add', name); } },
   ].filter(Boolean);
+}
+async function setFacet(list, path, op, name) {
+  const p = await want('indexFacet'); if (!p) return;
+  let r = null;
+  try { r = await p.indexFacet(list.map(x => x.id), path, op, name); }
+  catch (e) { r = { ok: false, message: '没改上：' + (e?.message || e) }; }
+  if (!r?.ok) { LB.say(r?.message || '没改上', { kind: 'error' }); return; }
+  await reloadIndex();
+  if (r.undo) LB.undoNotice(r.message, async () => { const u = await (await want('indexAssign'))?.indexAssign([], 'undo', r.undo); if (!u?.ok) throw new Error(u?.message || '没撤销上'); await reloadIndex(); });
+  else LB.say(r.message, { kind: 'ok' });
+}
+function askName(title) {
+  return new Promise(resolve => {
+    document.querySelectorAll('.lbc-dialog-back').forEach(e => e.remove());
+    const back = document.body.createEl('div', { cls: 'lbc-dialog-back' });
+    const box = back.createEl('div', { cls: 'lbc-dialog lbi-name-dialog' }); box.onclick = e => e.stopPropagation();
+    box.createEl('h3', { text: title });
+    const input = box.createEl('input'); input.type = 'text'; input.maxLength = 8; input.placeholder = '2–6 个字，比如 牛排';
+    const bar = box.createEl('div', { cls: 'lbc-dialog-bar' });
+    const cancel = bar.createEl('button', { text: '取消' }); cancel.type = 'button';
+    const ok = bar.createEl('button', { text: '加上', cls: 'mod-cta' }); ok.type = 'button';
+    let done = false;
+    const close = v => { if (done) return; done = true; back.remove(); document.removeEventListener('keydown', onKey, true); resolve(v); };
+    const onKey = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(null); } else if (e.key === 'Enter' && !e.isComposing && document.activeElement === input) { e.preventDefault(); close(input.value.trim() || null); } };
+    document.addEventListener('keydown', onKey, true);
+    ok.onclick = () => close(input.value.trim() || null); cancel.onclick = () => close(null); back.onclick = () => close(null);
+    try { input.focus(); } catch {}
+  });
 }
 
 // ── 网格 ──
@@ -1524,7 +1659,7 @@ function saveSelectionDialog(list) {
 
 // ── 排名（C2：结果集只在 key 变了才重算；点星 / 勾选不重排） ──
 let lastRanked = { key: null, exact: [], possible: [], q: '' };
-function rankKey() { return JSON.stringify([committed, activeCat, activeTopic, todayOnly, todoOnly, mediaFilter, starOnly || starredPage, timeSort, timeRange, timeFrom, timeTo, dataRev, idxRev]); }
+function rankKey() { return JSON.stringify([committed, activeCat, activeTopic, todayOnly, todoOnly, mediaFilter, starOnly || starredPage, timeSort, timeRange, timeFrom, timeTo, dataRev, idx ? selSig() : idxRev]); }
 function rankRows() {
   const key = rankKey();
   if (lastRanked.key === key) return lastRanked;
@@ -1658,6 +1793,7 @@ function buildCard(it, fuzzy, low) {
   }
   const body = card.createEl('div', { cls: 'lbc-body' }); body.createEl('div', { cls: 'lbc-ctitle', text: it.title || '未命名' });
   if (low) body.createEl('div', { cls: 'lbc-lowhit', text: low });
+  const ftags = body.createEl('div', { cls: 'lbc-ftags' }); ftags.hidden = true;   // 10-11 索引视图里：这篇在选中这一类的细分标签
   const meta = body.createEl('div', { cls: 'lbc-cmeta' }); meta.createEl('span', { text: it.author || it.source || '收藏' }); meta.createEl('span', { cls: 'lbc-likes', text: it.likes == null ? '' : '♡ ' + (Number(it.likes) >= 10000 ? (Number(it.likes) / 10000).toFixed(1) + '万' : it.likes) });
   if (!mobile) {
     // C3 拖文件：进入有文件的拖拽 → 虚线框「松手挂到这篇」；松手后 busy 到 attachFile 返回
@@ -1725,18 +1861,22 @@ function clearSelection() {
 // ── 排版（C9：按行瀑布流；只在结果集或列数变化时重摆） ──
 let laidKey = null, laidN = 0;
 function layoutInto(box, rows, n) {
-  box.empty();
+  // 10-11：不再 box.empty() 再整批挂回（她：按 AI 建议刷新目录会闪一下）——列复用、卡片只在位置不对时挪，多余的摘掉
   const W = gridWidth(), g = narrow() ? 14 : 24;
   const colW = n > 1 && W > 0 ? (W - g * (n - 1)) / n : (W || 230);
   box.style.setProperty('--lbc-gap', g + 'px');
   const heights = rows.map(r => lbcCardHeight(r.it, colW, { low: r.low }));
   const { cols: plan } = lbcAssign(heights, n);
-  for (const idxs of plan) {
-    const col = box.createEl('div', { cls: 'lbc-col' });
-    const frag = document.createDocumentFragment();
-    for (const i of idxs) frag.append(getCard(rows[i]));
-    col.append(frag);
-  }
+  for (const el of [...box.children]) if (!el.classList.contains('lbc-col')) el.remove();
+  const cols = [...box.children];
+  while (cols.length < plan.length) cols.push(box.createEl('div', { cls: 'lbc-col' }));
+  while (cols.length > plan.length) cols.pop().remove();
+  plan.forEach((idxs, ci) => {
+    const col = cols[ci];
+    const want = idxs.map(i => getCard(rows[i]));
+    want.forEach((card, k) => { if (col.children[k] !== card) col.insertBefore(card, col.children[k] || null); });
+    while (col.children.length > want.length) col.lastElementChild.remove();
+  });
 }
 function layoutGrid() {
   const r = rankRows();
@@ -1755,24 +1895,46 @@ function layoutGrid() {
   }
 }
 function layoutBody(r, n) {
-  grid.empty();
   const shown = r.exact.length + r.possible.length;
+  const simpleEmpty = simplePage && !starredPage && !committed && !activeCat && !activeTopic && !todayOnly && !todoOnly;
+  if (simpleEmpty || !shown) {
+    grid.empty();
+    if (committed && !committed.startsWith('#') && !mobile && shown) {
+      const tip = grid.createEl('div', { cls: 'lbc-possible-note lbc-ask-tip', text: `按关键词筛选。想把同义词、相关内容也找出来 → 去问收藏搜「${committed}」` });
+      tip.onclick = () => askInChat(committed);
+    }
+    if (simpleEmpty) { grid.createEl('div', { cls: 'lbc-empty', text: '输入关键词搜索收藏；想让 AI 分析，点上面的「问收藏」。' }); return; }
+    renderEmpty(); return;
+  }
+  // 10-11：有卡片的时候不清空网格——几块（搜索提示 / 精确命中 / 可能相关）按需复用，卡片按差异挪（不闪白、焦点和图片都在）
+  const reuse = test => [...grid.children].find(test) || null;
+  const has = (el, c) => el.classList.contains(c);
+  const want = [];
   // 第 10 批：目录搜索是关键词精确筛选；想连同义词 / 语义一起找，一键带着这个词去问收藏
-  if (committed && !committed.startsWith('#') && !mobile && shown) {
-    const tip = grid.createEl('div', { cls: 'lbc-possible-note lbc-ask-tip', text: `按关键词筛选。想把同义词、相关内容也找出来 → 去问收藏搜「${committed}」` });
+  if (committed && !committed.startsWith('#') && !mobile) {
+    const tip = reuse(el => has(el, 'lbc-ask-tip')) || document.createElement('div');
+    tip.className = 'lbc-possible-note lbc-ask-tip';
+    tip.textContent = `按关键词筛选。想把同义词、相关内容也找出来 → 去问收藏搜「${committed}」`;
     tip.onclick = () => askInChat(committed);
+    want.push(tip);
   }
-  if (simplePage && !starredPage && !committed && !activeCat && !activeTopic && !todayOnly && !todoOnly) { grid.createEl('div', { cls: 'lbc-empty', text: '输入关键词搜索收藏；想让 AI 分析，点上面的「问收藏」。' }); return; }
-  if (!shown) { renderEmpty(); return; }
-  const exactBox = grid.createEl('div', { cls: 'lbc-grid-inner lbc-masonry' });
-  layoutInto(exactBox, r.exact, n);
+  const exactBox = reuse(el => has(el, 'lbc-grid-inner') && !has(el, 'lbc-grid-possible')) || Object.assign(document.createElement('div'), { className: 'lbc-grid-inner lbc-masonry' });
+  want.push(exactBox);
   if (r.possible.length) {
-    const headEl = grid.createEl('div', { cls: 'lbc-possible-head' });
-    headEl.createEl('span', { cls: 'lbc-possible-title', text: `可能相关 · ${r.possible.length} 篇` });
-    headEl.createEl('span', { cls: 'lbc-possible-note', text: '拼音相近、错一个字、漏字或图片里的零散字母，不是原词命中' });
-    const possibleBox = grid.createEl('div', { cls: 'lbc-grid-inner lbc-grid-possible lbc-masonry' });
-    layoutInto(possibleBox, r.possible, n);
+    let headEl = reuse(el => has(el, 'lbc-possible-head'));
+    if (!headEl) {
+      headEl = document.createElement('div'); headEl.className = 'lbc-possible-head';
+      headEl.createEl('span', { cls: 'lbc-possible-title' });
+      headEl.createEl('span', { cls: 'lbc-possible-note', text: '拼音相近、错一个字、漏字或图片里的零散字母，不是原词命中' });
+    }
+    headEl.querySelector('.lbc-possible-title').textContent = `可能相关 · ${r.possible.length} 篇`;
+    const possibleBox = reuse(el => has(el, 'lbc-grid-possible')) || Object.assign(document.createElement('div'), { className: 'lbc-grid-inner lbc-grid-possible lbc-masonry' });
+    want.push(headEl, possibleBox);
   }
+  for (const el of [...grid.children]) if (!want.includes(el)) el.remove();
+  want.forEach((el, k) => { if (grid.children[k] !== el) grid.insertBefore(el, grid.children[k] || null); });
+  layoutInto(exactBox, r.exact, n);
+  if (r.possible.length) layoutInto(want[want.length - 1], r.possible, n);
 }
 async function askInChat(q) {
   const p = provider(); if (p) p.pendingArchiveQuestion = q;
@@ -1814,11 +1976,15 @@ function render() {
   split.classList.toggle('is-on', showIndex);
   split.classList.toggle('is-narrow', showIndex && panelNarrow());
   grid.hidden = false;
+  if (activeFacets.length && (!showIndex || facetNode !== activeCat)) activeFacets = [];
+  facetNode = activeCat;
   if (showIndex) { renderIndexBar(); renderIndexPanel(); renderIndexHead(); paintIndexSticky(); }
   else ihead.hidden = true;
+  renderIndexFacets();
   const r = rankRows();
   const n = colCount();
   if (r.key !== laidKey || n !== laidN) layoutGrid();
+  paintCardFacets();
   paintSub();
   paintSelectMode();
   saveState();
