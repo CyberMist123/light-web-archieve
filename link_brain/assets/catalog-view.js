@@ -1198,7 +1198,10 @@ function renderIndexPanel() {
 const ifacets = imain.createEl('div', { cls: 'lbi-facets' }); ifacets.hidden = true;
 let facetsKey = null;
 function renderIndexFacets() {
-  const list = indexView && idx && activeCat && !activeCat.startsWith(PROP) && activeCat !== UNC ? facetsOf(activeCat) : [];
+  const want = indexView && idx && activeCat && !activeCat.startsWith(PROP) && activeCat !== UNC;
+  // 10-11：不在索引视图 / 没选节点时什么都不算（每次 render 都会进来：目录页平常的搜索、打字不能为它多花一点时间）
+  if (!want) { if (facetsKey !== '') { facetsKey = ''; ifacets.empty(); ifacets.hidden = true; } return; }
+  const list = facetsOf(activeCat);
   const base = nodeIds(activeCat);
   const cur = [...(base || [])].filter(id => activeFacets.every(f => facetIds(f)?.has(id)));
   const counts = list.map(f => (f.items || []).filter(id => cur.includes(id)).length);
@@ -1223,8 +1226,12 @@ function renderIndexFacets() {
   }
 }
 // 卡片上小字：这一篇帖子的细分标签（标签属于帖子；只在索引视图里，选中这一类那一行里有的排前面）
+let cardTagsShown = false;
 function paintCardFacets() {
-  const on = indexView && idx;
+  const on = !!(indexView && idx);
+  // 不在索引视图：卡片上本来就没字就什么都不做（平常的搜索 / 打字不为它扫一遍卡片）；刚离开索引视图才清一次
+  if (!on && !cardTagsShown) return;
+  cardTagsShown = on;
   const front = new Set(on && activeCat ? facetsOf(activeCat).map(f => f.name) : []);
   for (const card of grid.querySelectorAll('.lbc-card')) {
     const id = card._lbItem?.id; const el = card.querySelector('.lbc-ftags'); if (!el) continue;
