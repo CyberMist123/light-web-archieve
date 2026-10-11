@@ -601,6 +601,13 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
             indextree.maybe_auto_draft(vault, len(items))
         except Exception:  # noqa: BLE001
             pass
+    if index_info:
+        # 10-11：新收的笔记 / 她新加的节点还没按内容归过 → 目录数据写好之后后台归一下（单实例、有花费上限）
+        try:
+            from . import indextree
+            indextree.maybe_classify(vault, indextree.load(vault, fresh=False))
+        except Exception:  # noqa: BLE001
+            pass
     try:  # 第 4 批：顺手核一次同步进程（running 但进程已死 → 落盘 INTERRUPTED，页面不再自己判 pid）
         from . import sync_state
         sync_state.current()

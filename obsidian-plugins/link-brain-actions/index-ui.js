@@ -150,8 +150,34 @@ module.exports = function indexUI(obsidian, plugin, deps = {}) {
     return j;
   }
 
+  // ── 10-11 按内容归类 / 手动改归属 / 建议新增 / 空节点：都只跑 Python 拿结果（JSON），提示和撤销由页面做（LB.say / LB.undoNotice）；
+  //    写完 Python 会重算 index-data.json，页面的文件监听照样换新 ──
+  async function indexCmd(args, label, fallback, { timeoutMs = 120000, onLine = null } = {}) {
+    try {
+      const r = await plugin.runPy(['-m', 'link_brain', 'index', ...args], { label, fallback, okCodes: [0, 1, 2], timeoutMs, onLine });
+      const j = json(r);
+      return Object.keys(j).length ? j : { ok: false, message: fallback };
+    } catch (e) { return { ok: false, message: `${fallback}：` + (e?.message || e) }; }
+  }
+  // op：move（只放这一类）/ add（也放进）/ remove（从这里拿掉）/ reset / undo（path = 撤销号）
+  function indexAssign(ids, op, path = '') {
+    const args = ['assign', '--op', String(op), '--path', String(path || '')];
+    for (const id of ids || []) args.push('--item', String(id));
+    return indexCmd(args, '改归类', '没改上');
+  }
+  const indexAccept = id => indexCmd(['accept', '--id', String(id)], '加进索引', '没加上');
+  const indexDismiss = id => indexCmd(['dismiss', '--id', String(id)], '不要这条建议', '没记上');
+  const indexEmpty = (path, action) => indexCmd(['empty', '--path', String(path), action === 'remove' ? '--remove' : '--keep'], '空分类', '没改上');
+  // 手动「按内容归类」：带真实进度（Python 一行一个进度事件），整库第一次几分钟
+  function indexClassify({ onProgress = null } = {}) {
+    return indexCmd(['classify', '--progress'], '按内容归类', '没归完', {
+      timeoutMs: 40 * 60000,
+      onLine: line => { try { const ev = JSON.parse(line); if (ev && ev.type === 'progress' && onProgress) onProgress(ev); } catch {} } });
+  }
+
   return {
     indexRel, draftRel, rebuild, schedule, openIndexSuggestions, indexDraft, indexUseDraft, wikiBuild, SuggestModal,
+    indexAssign, indexAccept, indexDismiss, indexEmpty, indexClassify,
     attach() {
       // Obsidian 开库时会给每个已有文件发一次 create：等布局好了再挂，别一开库就重算一遍
       const hook = () => { if (app.vault?.on) for (const ev of ['modify', 'create']) plugin.registerEvent(app.vault.on(ev, onFile)); };
@@ -163,6 +189,11 @@ module.exports = function indexUI(obsidian, plugin, deps = {}) {
       plugin.wikiBuild = wikiBuild;
       plugin.openIndexFile = line => openFile(indexRel(), line);
       plugin.indexRebuild = () => schedule();          // 页面发现索引是用旧目录数据算的：重算一次（防抖、同一时刻一份）
+      plugin.indexAssign = indexAssign;                // 10-11：目录页「移到… / 也放进… / 从这里拿掉」、撤销
+      plugin.indexAccept = indexAccept;                // 「建议新增」加进索引 / AI 建的子类「保留」
+      plugin.indexDismiss = indexDismiss;
+      plugin.indexEmpty = indexEmpty;                  // 空分类：删 / 留
+      plugin.indexClassify = indexClassify;            // 手动「按内容归类」（后台自动的由 Python 自己拉起）
       plugin.addCommand?.({ id: 'index-edit', name: '编辑索引（打开 索引.md）', callback: () => openFile(indexRel()) });
       plugin.addCommand?.({ id: 'index-draft', name: '索引：AI 起草一版（写在草稿里）', callback: () => indexDraft().catch(e => plugin.notify('没起草成：' + (e?.message || e), { kind: 'error' })) });
       plugin.addCommand?.({ id: 'index-suggest', name: '索引：未归类建议', callback: () => openIndexSuggestions() });

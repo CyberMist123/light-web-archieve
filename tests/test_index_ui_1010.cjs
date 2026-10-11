@@ -138,6 +138,31 @@ function setup({ answers = {}, confirm = true, settings = {}, layoutReady = null
     await T.plugin.openIndexFile(); assert.equal(T.notices.length, 0, '打开得到就不说话');
     T.files.delete('LB/索引.md'); await T.plugin.openIndexFile(); assert.match(T.notices.at(-1).msg, /找不到 索引\.md/);
   }
+  // 10-11 改归类 / 建议新增 / 空分类 / 按内容归类：只跑命令、把 JSON 交回页面（提示和撤销由页面做，插件不弹）
+  {
+    const S = setup({ answers: {
+      'index assign --op move --path 美食/菜谱 --item a --item b': { ok: true, message: '2 篇已移到「菜谱」', undo: 'u1' },
+      'index accept --id p1': { ok: true, message: '已写进', path: '美食/健康餐' },
+      'index empty --path 空 --remove': { ok: true, message: '已删' },
+      'index empty --path 空 --keep': { ok: true, message: '留着' },
+      'index dismiss --id p2': { ok: true, message: '不要了' },
+      'index classify --progress': opts => { opts.onLine('{"type":"progress","done":25,"total":616,"text":"按内容归类 25/616"}'); opts.onLine('乱码'); return { code: 0, json: { ok: true, message: '按内容归好了' } }; },
+      'index accept --id bad': { ok: false, code: 'PERMANENT.STEP_ARGS', message: '这条建议已经不在了' },
+      'index dismiss --id boom': new Error('Python 崩了') } });
+    for (const m of ['indexAssign', 'indexAccept', 'indexDismiss', 'indexEmpty', 'indexClassify']) assert.equal(typeof S.plugin[m], 'function', m);
+    assert.deepEqual(await S.plugin.indexAssign(['a', 'b'], 'move', '美食/菜谱'), { ok: true, message: '2 篇已移到「菜谱」', undo: 'u1' });
+    assert.equal((await S.plugin.indexAccept('p1')).path, '美食/健康餐');
+    assert.equal((await S.plugin.indexEmpty('空', 'remove')).message, '已删');
+    assert.equal((await S.plugin.indexEmpty('空', 'keep')).message, '留着');
+    assert.equal((await S.plugin.indexDismiss('p2')).ok, true);
+    const seen = [];
+    assert.equal((await S.plugin.indexClassify({ onProgress: ev => seen.push(ev.done) })).message, '按内容归好了');
+    assert.deepEqual(seen, [25], '进度只转后端真实发来的事件');
+    assert.equal((await S.plugin.indexAccept('bad')).ok, false);
+    const boom = await S.plugin.indexDismiss('boom');
+    assert.ok(!boom.ok && /没记上：Python 崩了/.test(boom.message), '出错也交回一句话，不抛');
+    assert.equal(S.notices.length, 0, '插件这头不弹提示（页面说）');
+  }
   // Obsidian 开库时给每个已有文件发一次 create：布局好了才挂监听，开库那一下不重算
   {
     const ready = [];
