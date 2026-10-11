@@ -49,6 +49,11 @@ class AttachmentNeedsHuman(AttachmentError):
         self.code = code
 
 
+class AttachmentRestricted(AttachmentError):
+    """1011：这篇在小红书网页版要验证才能看（读取组件 NOTE_RESTRICTED）——只是这一篇，不是号出事：不重试、不停整批，
+    记一条「网页版要验证」等她点「打开验证」（link_brain/restricted.py）。"""
+
+
 class AttachmentDeferred(Exception):
     """这一批的时间预算不够再开一个附件页了（1001）：不算失败，留给下一次（今晚 4 点 / 明晚）。"""
 
@@ -126,6 +131,8 @@ def fetch_bytes(
         text = f"{reason}：{step}" if step else f"{exc} {exc.detail}".strip()
         if exc.needs_human:
             raise AttachmentNeedsHuman(text, exc.code) from exc
+        if exc.code == "NOTE_RESTRICTED":
+            raise AttachmentRestricted(reason) from exc
         raise AttachmentError(text) from exc
     path = Path(data["path"])
     if not path.is_file() or path.stat().st_size == 0:
@@ -195,8 +202,16 @@ def acquire(source_key: str, source_id: str, *, doc_id: str, name: str, xsec_tok
                                      + (f"；前一次：{last_error}" if last_error else ""))
         _pace(attempt)
         try:
-            got = fetch_bytes(doc_id=doc_id, note_id=source_id, xsec_token=xsec_token,
-                              file_name=name or "file", staging_dir=staging, verbose=verbose)
+            try:
+                got = fetch_bytes(doc_id=doc_id, note_id=source_id, xsec_token=xsec_token,
+                                  file_name=name or "file", staging_dir=staging, verbose=verbose)
+            except AttachmentRestricted as exc:
+                # 1011：网页版要验证才能看——不进 3 次循环：今天没搜过就用标题搜一次新口令、歇一会儿再开一次，还不行记一条就收
+                got = _restricted_fallback(source_id, doc_id=doc_id, name=name, xsec_token=xsec_token, staging=staging,
+                                           verbose=verbose, budget_left=budget_left, first=exc)
+            else:
+                from . import restricted
+                restricted.clear(source_id, why="附件页打开了这篇")
             _check_file(got)
             out = manual_attach(source_key, source_id, str(got), doc_id, origin="auto")
             record = next(r for r in load_downloaded(source_key, source_id).values() if r.get("file") == out["file"])
@@ -216,7 +231,7 @@ def acquire(source_key: str, source_id: str, *, doc_id: str, name: str, xsec_tok
                 print(f"[attachment] {record['file']} 已下好，但转 md 失败（字节留着，不再重下）："
                       f"{bad[0].get('note') or ''}", file=sys.stderr)
             return load_downloaded(source_key, source_id).get(record["doc_id"], record)
-        except AttachmentNeedsHuman:
+        except (AttachmentNeedsHuman, AttachmentRestricted, AttachmentDeferred):
             raise
         except (AttachmentError, OSError, StopIteration, KeyError, ValueError) as exc:
             last_error = f"{type(exc).__name__}: {exc}"
@@ -224,6 +239,39 @@ def acquire(source_key: str, source_id: str, *, doc_id: str, name: str, xsec_tok
             shutil.rmtree(staging, ignore_errors=True)
         print(f"[attachment] 第 {attempt}/{TRIES} 次没成：{last_error}", file=sys.stderr)
     raise AttachmentError(f"试了 {TRIES} 次仍不行：{last_error}")
+
+
+def _restricted_fallback(source_id: str, *, doc_id: str, name: str, xsec_token: str, staging: Path, verbose: bool,
+                         budget_left, first: AttachmentRestricted) -> Path:
+    """1011：附件页那一步发现这篇在网页版要验证才能看。今天没为这篇搜过就用标题搜一次新口令（restricted.find_fresh_token：
+    先歇 LWA_FETCH_REST），再按附件的开页节奏（_pace）用新口令开一次；还是不行 → 记「网页版要验证」、抛 AttachmentRestricted。
+    时间预算装不下这一轮（搜索 + 歇 + 再开一次）→ AttachmentDeferred（不记、下次再来）。号要人处理 → AttachmentNeedsHuman。"""
+    from . import accounts, restricted
+    try:
+        meta = storage.read_json(storage.object_dir("xiaohongshu", source_id) / "meta.json")
+    except (OSError, ValueError):
+        meta = {}
+    title = meta.get("title") or ""
+    item_id = meta.get("item_id") or f"xhs-{source_id}"
+    if restricted.search_due(restricted.load(source_id)):
+        need = accounts._gap_range(restricted.REST_ENV, restricted.REST_DEFAULT)[1] + 150 + attempt_cost(1)
+        if not _fits(budget_left, need):
+            raise AttachmentDeferred(f"这篇在网页版要验证才能看；用标题搜新口令再开一次的时间不够了，下次接着试（{name}）")
+
+    def again(token: str) -> Path:
+        _pace(1)
+        return fetch_bytes(doc_id=doc_id, note_id=source_id, xsec_token=token, file_name=name or "file",
+                           staging_dir=staging, verbose=verbose)
+
+    try:
+        opened, got = restricted.retry_with_fresh_token(
+            source_id, title=title, old_token=xsec_token, attempt=again, restricted_exc=(AttachmentRestricted,),
+            item_id=item_id, via="attachments", detail=str(first)[:200])
+    except xhs.NeedsHumanError as exc:
+        raise AttachmentNeedsHuman(str(exc), getattr(exc, "code", "") or "ACCOUNT_BLOCKED") from exc
+    if not opened:
+        raise AttachmentRestricted(restricted.TEXT)
+    return got
 
 
 def grab_after_ingest(source_key: str, source_id: str, *, budget_left=None) -> str:
@@ -477,8 +525,19 @@ def download_for_object(
     staging = object_dir / ".attachment-staging"
     backoff = _load_backoff(object_dir)
     now = datetime.now().astimezone()
+    from . import restricted
+    held_back = (not force) and restricted.is_restricted(source_id)
 
     for att in attachments:
+        if held_back:
+            # 1011：这篇在网页版要验证才能看——等她点「打开验证」，不再每晚开页（问题面板 / 卡片上已有一条，不再按附件另记）
+            known_rec = known.get(att.get("doc_id") or "") or {}
+            if att.get("doc_id") and known_rec and (dest_dir / (known_rec.get("file") or "")).is_file():
+                results.append({**known_rec, "status": "already"})
+            else:
+                results.append({"doc_id": att.get("doc_id"), "name": att.get("name") or att.get("hint"),
+                                "status": "restricted", "error": restricted.TEXT})
+            continue
         doc_id = att.get("doc_id")
         if not doc_id:
             # 1001（审计 health/attach-1）：这条线索以前手动挂过文件（记录的 name 就是线索原文、文件在盘上）
@@ -528,11 +587,16 @@ def download_for_object(
                                 "error": f"上次没下好（{prior.get('error') or '原因见上次'}），{prior['next_at'][5:16]} 之后再试"})
                 continue
             record = acquire(source_key, source_id, doc_id=doc_id, name=att.get("name") or "file",
-                             xsec_token=fresh_token(source_id) or note.get("xsec_token") or "", verbose=verbose,
-                             budget_left=budget_left, tries=1 if prior else None)
+                             xsec_token=fresh_token(source_id) or restricted.best_token(source_id, note.get("xsec_token")) or "",
+                             verbose=verbose, budget_left=budget_left, tries=1 if prior else None)
             known = load_downloaded(source_key, source_id)
             backoff.pop(doc_id, None)
             results.append({**record, "status": "downloaded"})
+        except AttachmentRestricted as exc:
+            # 1011：只是这一篇（网页版要验证）——记进 restricted（acquire 里已登记一条），不算下载失败、不进跨夜退避；
+            # 这篇剩下的附件同样打不开，不再开页
+            results.append({"doc_id": doc_id, "name": att.get("name"), "status": "restricted", "error": str(exc)})
+            held_back = True
         except AttachmentDeferred as exc:
             results.append({"doc_id": doc_id, "name": att.get("name"), "status": "deferred", "error": str(exc)})
             break  # 时间到了：余下的附件下次再下
@@ -961,7 +1025,7 @@ def _run(args, budget_left=None) -> int:
                 print(f"{outcome['item_id']}  ↓ {r['file']}  {r['bytes']} 字节  {r['sha256'][:12]}…")
             elif r["status"] == "already":
                 print(f"{outcome['item_id']}  = {r['file']}（已有，--force 可重下）")
-            elif r["status"] in ("deferred", "backoff"):
+            elif r["status"] in ("deferred", "backoff", "restricted"):
                 print(f"{outcome['item_id']}  … {r.get('name') or r.get('doc_id') or '附件'}：{r.get('error')}",
                       file=sys.stderr)
             else:
@@ -1655,6 +1719,9 @@ def recheck_tail(*, limit: int = TAIL_LIMIT, verbose: bool = False, budget_left=
         except (OSError, ValueError):
             continue
         item_id = meta.get("item_id") or f"xhs-{obj.name}"
+        from . import restricted
+        if restricted.is_restricted(obj.name):
+            continue  # 1011：网页版要验证才能看的，等她点「打开验证」，碰号的补查不替她开页
         fresh = fresh_token(obj.name)
         logged = _probe_logged_in(obj.name, fresh or _old_token(obj, meta))
         out["checked"] += 1
@@ -1678,6 +1745,11 @@ def recheck_tail(*, limit: int = TAIL_LIMIT, verbose: bool = False, budget_left=
             out["stopped_reason"] = "service"  # 09-29 连着 4 次 TIMEOUT 还接着开页：第一次就收工
             print(f"[recheck] 读取服务那侧出错，今晚收尾段收工：{err[:120]}", file=sys.stderr)
             break
+        from . import restricted
+        if logged.get("gone_like") and restricted.is_restricted(obj.name):
+            # 1011：读取组件判过「网页版要验证才能看」的——她浏览器里打得开，不是原帖没了：不判「原帖打不开」，等她点「打开验证」
+            _write_mark(obj, logged_at=now, error=err[:200], stage="restricted")
+            continue
         if logged.get("gone_like"):
             m = _mark_of(obj)
             nights = sorted({*(m.get("gone_nights") or []), today})

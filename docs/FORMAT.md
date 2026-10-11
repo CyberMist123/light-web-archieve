@@ -883,7 +883,16 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
   图 / 视频 / 语音直接引用旧版本文件（`manifest.media[].file` 可以是 `raw/v0001/assets/…`，`manifest.reused` = 引用了几个）。
 - 对象级 `derived/comments-fill.json`（可变）：`attempts` 续读次数 · `last_at` 上次开页 · `last_mode` expand|floors · `last_missing` ·
   `no_progress` 连着没多拿到的次数 · `floors_done` 按这个楼数重读过、楼没变多 · `gone_floors[]` · `stuck` / `stuck_floors` / `stuck_at` /
-  `stuck_reason`（连着 3 次没进展：不再自动续，问题记录 `comments.fill` + `PERMANENT.COMMENTS_INCOMPLETE`）· `done_at` · `history[]`（最近 8 次）。
+  `stuck_reason`（连着 3 次没进展：不再自动续，问题记录 `comments.fill` + `PERMANENT.COMMENTS_INCOMPLETE`）· `done_at` · `history[]`（最近 8 次）·
+  `legacy_released`（1011：以前因「not found in noteDetailMap」放弃的，补评论开跑时本地解开过一次的时刻，见 restricted.release_legacy_fill_stuck）。
+- 对象级 `derived/restricted.json`（1011，可变；网页版要验证才给看的笔记，`link_brain/restricted.py`）：`restricted` 现在是不是标着 ·
+  `since` / `last_at` / `count` · `via[]`（comments.fill / comments / attachments：哪一步撞见的）· `detail` · `title` ·
+  `search {on: 日期, at, result: running|found|not_found|same_token|no_title|error, error?}`（用标题搜新口令；每篇每天最多一次，先记再搜）·
+  `token` / `token_at`（搜到的 / 验证窗口里拿到的新口令，之后补评论 / 下附件优先用它）· `verify {at, result, text}`（上次「打开验证」的结论）·
+  `verified_at`（她过了验证；补评论按它也隔 45 分钟再开这篇）· `recapture {queued_at, comments, attachments}` · `cleared_at` / `cleared_why`。
+  标着的笔记：后台补评论（`survey().restricted`）、附件补下（结果 `status=restricted`，不进跨夜退避、不报「附件没下好」）、碰号的附件补查都跳过；
+  问题记录 `note.restricted` + `PERMANENT.NOTE_RESTRICTED`（一篇一条）；卡片角标同码。`note-verify <item_id> [--wait]` →
+  `{ok, code, message, item_id, mode: note|hold|unsupported, result: note_ok|note_not_seen|still_risk|not_logged_in|not_read|window_failed|opened, requeued?}`。
 - `_archive/comments-fill-status.json`（后台补跑 / 夜跑这一步写，插件状态栏读）：`state` running|waiting|paused|done|deferred|stopped ·
   `pid` · `background` · `floors` · `total` / `done` / `left`（篇）· `missing`（条）· `stuck` · `current {item_id,title}` ·
   `wait_code`（CAPTCHA_REQUIRED / NOT_LOGGED_IN / NIGHTLY / YIELD / ACCOUNT_BUSY / COOLING …）· `message`（一句人话）· `updated_at`（等待时每分钟刷新）。

@@ -202,6 +202,9 @@ def plan(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
         return _manual("程序和夜跑脚本版本对不上：更新程序或夜跑脚本后自动恢复")
     if sub == "NOTE_GONE":
         return _manual("原帖已删除或不可见，本地存档还在，不用处理")
+    if sub == "NOTE_RESTRICTED":
+        # 1011：网页版要她亲手过一下验证才给看——自愈轮绝不替她开页 / 过验证；按钮是「打开验证」（problems-ui.fixesFor）
+        return _manual("点「打开验证」，在弹出的窗口里过一下这篇的验证、看到笔记后关窗；过了自动补抓评论 / 附件")
     if sub in ("CHECKSUM_MISMATCH", "BAD_PACKAGE", "DISK_FULL"):
         return _manual("在设置 →「开始」里重新安装一次（磁盘不够先腾出空间）")
 

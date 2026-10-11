@@ -58,7 +58,9 @@ STEPS = ("sync.favorites", "ingest", "attachments.download", "attachments.conver
          # 批次 D · F1-d：笔记页被手改坏了（restore --scan 只读检查）
          "render.check",
          # 1009：评论补齐（设置楼数内的楼中楼连着几次补不上）
-         "comments.fill")
+         "comments.fill",
+         # 1011：这篇在小红书网页版要验证才能看（只是这一篇，不是号出事；link_brain/restricted.py）
+         "note.restricted")
 STEP_PREFIXES = ("nightly.",)
 # 推送标题 / 问题列表里给人看的步骤名（夜跑步骤 nightly.<名> 显示「夜跑：<名>」）
 # 注记行（annotate）能改的字段：自愈动作的状态（running / failed / waiting）、一句「试过什么、为什么没好、下一步」、
@@ -82,6 +84,7 @@ STEP_LABELS = {
     "login": "小红书账号", "config": "设置", "remote": "远程阅读",
     "ai.summary": "AI 概要 / 打标接口", "ai.vision": "识图接口", "ai.refine": "精细识图接口", "ai.embed": "向量索引接口",
     "ai.ask": "问答接口", "render.check": "笔记页检查", "comments.fill": "评论补齐",
+    "note.restricted": "网页版要验证",
 }
 
 # 现有裸码 → 类（§2.2：复用现有码、不改拼写）
@@ -172,6 +175,8 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "PERMANENT.STEP_ARGS": dict(where="list", label="程序和夜跑脚本版本对不上", hover="夜跑脚本给的命令参数程序不认：{reason}（更新程序或脚本后自动恢复）", group="gave_up"),
     # 1009：设置楼数内的楼中楼连着几次续读都没多拿到（原因照实写）；笔记页自己那一行也照实标
     "PERMANENT.COMMENTS_INCOMPLETE": dict(where="list", label="评论没补全", hover="{reason}", group="gave_up"),
+    # 1011：只是这一篇（网页版要验证才给看）——不推送、一篇一条；卡片角标 + 问题面板 / 笔记页给「打开验证」（开验证窗口到这一篇）
+    "PERMANENT.NOTE_RESTRICTED": dict(where="card", label="网页版要验证", hover="{reason}", group="gave_up"),
     "PERMANENT.*": dict(where="card", label="已放弃", hover="{reason}", group="gave_up"),
     # —— 未开启（不算失败）——
     "SKIPPED.NOT_CONFIGURED": dict(where="none", label="未配置", hover="{reason}", group="off"),

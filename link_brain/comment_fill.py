@@ -185,6 +185,11 @@ def last_open(source: dict[str, Any], state: dict[str, Any]) -> datetime | None:
     cap = source.get("capture") or {}
     stamps = [_parse(state.get("last_at")), _parse(cap.get("captured_at")),
               _parse((cap.get("comment_load") or {}).get("fill_last_at"))]
+    sid = source.get("source_id")
+    if sid:
+        # 1011：她在验证窗口里刚开过这篇——同一篇照旧隔 45 分钟再开（别让补抓紧跟着验证窗口）
+        from . import restricted
+        stamps.append(_parse(restricted.load(sid).get("verified_at")))
     stamps = [s for s in stamps if s]
     return max(stamps) if stamps else None
 
@@ -216,10 +221,12 @@ def current_source(source_key: str, source_id: str) -> tuple[dict[str, Any], dic
 
 
 def survey(floors: int | None = None, now: datetime | None = None) -> dict[str, Any]:
-    """全库还有哪些篇要续：ready（现在就能续，缺得少的在前）/ cooling（同一篇 45 分钟内刚开过）/ stuck（进了问题面板）。"""
+    """全库还有哪些篇要续：ready（现在就能续，缺得少的在前）/ cooling（同一篇 45 分钟内刚开过）/ stuck（进了问题面板）/
+    restricted（1011：网页版要验证才能看，等她点「打开验证」，不再自动开页）。"""
+    from . import restricted as restricted_mod
     floors = floors or floor_target()
     now = now or _now()
-    ready, cooling, stuck = [], [], []
+    ready, cooling, stuck, restricted = [], [], [], []
     missing = 0
     for source_key, source_id in _objects():
         if source_key != "xiaohongshu":
@@ -240,6 +247,9 @@ def survey(floors: int | None = None, now: datetime | None = None) -> dict[str, 
         if is_stuck(state, floors):
             stuck.append(entry)
             continue
+        if restricted_mod.is_restricted(source_id):
+            restricted.append(entry)
+            continue
         missing += sc["missing"]
         last = last_open(source, state)
         if last and now - last < timedelta(minutes=FILL_GAP_MIN):
@@ -250,8 +260,8 @@ def survey(floors: int | None = None, now: datetime | None = None) -> dict[str, 
     # 缺得少的先补（大多数笔记只缺几条，补完一篇算一篇）；同样多的按续过的次数少的在前
     ready.sort(key=lambda e: (e["attempts"] > 0, e["missing"] if e["missing"] else 1_000_000, e["item_id"]))
     cooling.sort(key=lambda e: e["eligible_at"])
-    return {"floors": floors, "ready": ready, "cooling": cooling, "stuck": stuck, "missing": missing,
-            "pending": len(ready) + len(cooling)}
+    return {"floors": floors, "ready": ready, "cooling": cooling, "stuck": stuck, "restricted": restricted,
+            "missing": missing, "pending": len(ready) + len(cooling)}
 
 
 # --------------------------------------------------------------------------
@@ -259,8 +269,11 @@ def survey(floors: int | None = None, now: datetime | None = None) -> dict[str, 
 # --------------------------------------------------------------------------
 
 
-def _note_url(source_id: str, source: dict[str, Any]) -> str:
-    token = (source.get("note") or {}).get("xsec_token") or ""
+def _note_url(source_id: str, source: dict[str, Any], token: str | None = None) -> str:
+    if token is None:
+        from . import restricted
+        # 1011：用标题搜到 / 验证窗口里拿到的新口令优先（网页版限制过的笔记，旧口令多半就是打不开的那个）
+        token = restricted.best_token(source_id, (source.get("note") or {}).get("xsec_token") or "")
     return f"https://www.xiaohongshu.com/explore/{source_id}?xsec_token={token}"
 
 
@@ -295,10 +308,35 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
         return {**base, "filled": False, "missing_after": sc["missing"], "reason": "连着几次补不上，已记进问题面板"}
 
     before_missing, before_floors = sc["missing"], sc["stored"]
-    url = _note_url(source_id, source)
-    summary = ingest_mod.ingest_url(url, refresh=True, comment_floors=floors, verbose=verbose,
-                                    expand_floors=targets if mode == "expand" else None, fill=True,
-                                    fill_budget_s=budget_s)
+    from . import restricted
+    from .adapters import xiaohongshu as xhs
+    if not manual and restricted.is_restricted(source_id):
+        # 1011：网页版要验证才能看的，等她点「打开验证」，后台不再自动开页
+        return {**base, "filled": False, "missing_after": sc["missing"], "restricted": True, "reason": restricted.TEXT}
+
+    def attempt(url: str) -> dict[str, Any]:
+        return ingest_mod.ingest_url(url, refresh=True, comment_floors=floors, verbose=verbose,
+                                     expand_floors=targets if mode == "expand" else None, fill=True,
+                                     fill_budget_s=budget_s)
+
+    old_token = (source.get("note") or {}).get("xsec_token") or ""
+    try:
+        summary = attempt(_note_url(source_id, source))
+    except xhs.NoteRestrictedError as exc:
+        # 1011：只是这一篇（网页版要验证）：今天没搜过就用标题搜一次新口令、歇一会儿再开一次；还不行就记一条、跳过这篇。
+        # 不算「没进展」（这不是评论读不全），也不报 COMMENTS_INCOMPLETE
+        opened, summary = restricted.retry_with_fresh_token(
+            source_id, title=title, old_token=restricted.best_token(source_id, old_token),
+            attempt=lambda tok: attempt(_note_url(source_id, source, tok)), restricted_exc=(xhs.NoteRestrictedError,),
+            item_id=item_id, via="comments.fill", detail=str(exc)[:200])
+        if not opened:
+            try:
+                catch_mod._ensure_rendered(source_key, source_id, force=True, extract=False)
+            except Exception as rexc:  # noqa: BLE001 - 笔记页那一行下次渲染会跟上
+                print(f"[comments] 重渲染没成：{type(rexc).__name__}: {rexc}", file=sys.stderr)
+            return {**base, "filled": False, "missing_after": sc["missing"], "restricted": True, "reason": restricted.TEXT}
+    else:
+        restricted.clear(source_id, item_id=item_id, why="评论续读打开了这篇")
     meta2, source2 = current_source(source_key, source_id)
     now = _now().isoformat(timespec="seconds")
     cl2 = (source2.get("capture") or {}).get("comment_load") or {}
@@ -386,8 +424,13 @@ def view_for_render(source: dict[str, Any], state: dict[str, Any] | None, floors
     sc = scope(source, floors, state)
     stuck = is_stuck(state, floors)
     main = max(sc["gaps"], key=lambda g: g["missing"])["reason"] if sc["gaps"] else ""
+    restricted_view = None
+    if source.get("source_id"):
+        from . import restricted
+        restricted_view = restricted.view(source["source_id"])   # 1011：网页版要验证才能看（笔记页给「打开验证」）
     return {**sc, "stuck": stuck, "attempts": _int(state.get("attempts")), "why": reason_text(main) if main else "",
-            "gap_reasons": {g["comment_id"]: g["reason"] for g in sc["gaps"] + sc["settled"]}}
+            "gap_reasons": {g["comment_id"]: g["reason"] for g in sc["gaps"] + sc["settled"]},
+            "restricted": restricted_view}
 
 
 # --------------------------------------------------------------------------
@@ -437,7 +480,7 @@ class Status:
         self.seen_ids |= ids
         self.done_ids -= ids
         self.data.update(total=len(self.seen_ids), done=len(self.done_ids), left=len(ids), missing=sv["missing"],
-                         stuck=len(sv["stuck"]), floors=sv["floors"])
+                         stuck=len(sv["stuck"]), restricted=len(sv.get("restricted") or []), floors=sv["floors"])
 
     def text(self, head: str = "") -> str:
         d = self.data
@@ -568,6 +611,12 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
         msg = "后台补评论已经在跑，这次不重复开"
         dump_json(outcome({"candidates": None, "done": [], "failed": [], "already_running": True}, ok=True, message=msg))
         return 0
+    try:
+        # 1011：以前因「页面上没有这篇」放弃了的续读解开一次（本地，零开页），让新办法认它、给它搜一次新口令
+        from . import restricted
+        restricted.release_legacy_fill_stuck()
+    except Exception as exc:  # noqa: BLE001 - 迁移没成不挡补评论
+        print(f"[comments] 旧的「已放弃」没解开：{type(exc).__name__}: {exc}", file=sys.stderr)
     floors = floor_target()
     status = Status(floors, background=until_done)
     done: list[dict[str, Any]] = []
@@ -675,10 +724,11 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
                 failed.append({"item_id": item_id, "error": str(exc)[:200]})
                 continue
             done.append({"item_id": item_id, "filled": out.get("filled"), "missing_after": out.get("missing_after"),
-                         "done": out.get("done"), "stuck": out.get("stuck")})
+                         "done": out.get("done"), "stuck": out.get("stuck"), "restricted": bool(out.get("restricted"))})
             print(f"[comments] {datetime.now():%H:%M:%S} {item_id}《{entry['title'][:30]}》{out.get('mode')}："
                   f"缺 {out.get('missing_before')} → {out.get('missing_after')}"
-                  + ("，补齐了" if out.get("done") else "，连着补不上，进问题面板" if out.get("stuck") else "，下次接着补"),
+                  + ("，补齐了" if out.get("done") else "，连着补不上，进问题面板" if out.get("stuck") else
+                     "，网页版要验证才能看：记进问题面板，等她点「打开验证」" if out.get("restricted") else "，下次接着补"),
                   file=sys.stderr)
             if out.get("done"):
                 status.done_ids.add(item_id)
@@ -710,6 +760,8 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
                    status.text("补评论") + (f" · {stop_msg}" if stop_msg else " · 剩下的下次接着补"))
             if sv["stuck"]:
                 msg += f" · {len(sv['stuck'])} 篇连着补不上（见问题面板）"
+            if sv.get("restricted"):
+                msg += f" · {len(sv['restricted'])} 篇在网页版要验证才能看（见问题面板，点「打开验证」）"
             status.update(state=final_state, current=None, message=msg, finished_at=_now().isoformat(timespec="seconds"))
         finally:
             lock.__exit__(None, None, None)
@@ -741,5 +793,6 @@ def status_payload() -> dict[str, Any]:
            (f"评论都补齐了（{floors_label(sv['floors'])}）" if not sv["pending"] else
             f"{sv['pending']} 篇的评论还没补齐（共缺 {sv['missing']} 条回复）"))
     return outcome({"floors": sv["floors"], "pending": sv["pending"], "ready": len(sv["ready"]),
-                    "cooling": len(sv["cooling"]), "stuck": len(sv["stuck"]), "missing": sv["missing"],
+                    "cooling": len(sv["cooling"]), "stuck": len(sv["stuck"]),
+                    "restricted": len(sv.get("restricted") or []), "missing": sv["missing"],
                     "running": running, "status": st}, ok=True, message=msg or "")

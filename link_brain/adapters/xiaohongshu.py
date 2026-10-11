@@ -79,6 +79,13 @@ class AccountBlockedError(NeedsHumanError):
     """**号出事了**：登录态失效 / 撞风控验证码 / 被限流。"""
 
 
+class NoteRestrictedError(AdapterError):
+    """1011：**只是这一篇**打不开——小红书网页版限制了它（她的浏览器里打开要「验证一下」），读取服务打开详情页、
+    页面上没有这篇（读取组件 `[NOTE_RESTRICTED]`）。不是号出事：不停整批、不写熔断；处理见 link_brain/restricted.py。"""
+
+    code = "NOTE_RESTRICTED"
+
+
 class ServiceDownError(NeedsHumanError):
     """**服务出事了**：18060 没在听、MCP 内部错、它那个浏览器起不来。
 
@@ -108,6 +115,8 @@ SERVICE_DOWN_HINTS = (
 
 # 1001：读取服务的风险码（MCP 报错文本里带方括号标记）+ 被跳到 /website-login/ 的页面
 RISK_MARKERS = ("CAPTCHA_REQUIRED", "ACCOUNT_RISK", "NOT_LOGGED_IN", "RISK_HOLD")
+# 1011：只是这一篇（网页版限制）——读取组件 MCP 报错文本里的标记；风险码优先于它
+RESTRICTED_MARKER = "[NOTE_RESTRICTED]"
 
 
 def risk_code(text: str | None) -> str:
@@ -293,6 +302,19 @@ def parse_input(text: str, *, client: httpx.Client | None = None) -> dict[str, A
 # --------------------------------------------------------------------------
 
 
+def tool_error(tool: str, joined: str) -> AdapterError:
+    """MCP 工具报错文本 → 该抛哪种异常（风险码 > 1011 网页版限制 > 宽泛的「号出事」词 > 服务出事 > 普通失败）。"""
+    if RESTRICTED_MARKER in joined and not risk_code(joined):
+        # 1011：只是这一篇（网页版要验证才给看），先于宽泛词判断——别把它当成号出事整批停车
+        return NoteRestrictedError(f"这篇在小红书网页版要验证才能看（读取组件：{joined[:200]}）")
+    if looks_blocked(joined):
+        return _blocked_error(f"读取账号需要处理：请在 Link Brain 设置页检查并重新扫码。详情：{joined}", joined)
+    if looks_service_down(joined):
+        return ServiceDownError(
+            f"读取服务暂不可用：请在 Link Brain 设置页检查状态，或运行 link-brain login。MCP {tool} 说「{joined}」")
+    return AdapterError(f"MCP {tool} 报错: {joined}")
+
+
 async def _call_mcp(tool: str, arguments: dict[str, Any], *, endpoint: str, timeout: float) -> Any:
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
@@ -307,17 +329,7 @@ async def _call_mcp(tool: str, arguments: dict[str, Any], *, endpoint: str, time
             result = await session.call_tool(tool, arguments)
             if result.isError:
                 texts = [getattr(c, "text", "") for c in result.content]
-                joined = " ".join(texts)[:400]
-                if looks_blocked(joined):
-                    raise _blocked_error(
-                        f"读取账号需要处理：请在 Link Brain 设置页检查并重新扫码。详情：{joined}", joined
-                    )
-                if looks_service_down(joined):
-                    raise ServiceDownError(
-                        f"读取服务暂不可用：请在 Link Brain 设置页检查状态，或运行 link-brain login。"
-                        f"MCP {tool} 说「{joined}」"
-                    )
-                raise AdapterError(f"MCP {tool} 报错: {joined}")
+                raise tool_error(tool, " ".join(texts)[:400])
             for chunk in result.content:
                 text = getattr(chunk, "text", None)
                 if text:

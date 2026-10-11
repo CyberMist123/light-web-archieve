@@ -88,6 +88,8 @@ def export_redacted() -> str                                # §3「复制报错
 `step` 词表：`sync.favorites / ingest / attachments.download / attachments.convert / attachments.recheck / enrich.summary / vision.layer1 / vision.refine / videos.transcribe / embed / nightly.<stepname> / ask / login / config / remote / ai.summary / ai.vision / ai.refine / ai.embed / ai.ask`（`ai.*` = 接口那一侧的故障按能力归并成一条，item_id 为空，由 `ai_health.record` 写；调用点拿到 `api_error=True` 的结果**不要**再按篇 `problems.report`）（`remote` = 远程阅读服务：端口被占 `NEEDS_HUMAN.PORT_IN_USE`、计划任务没弄好 `PERMANENT.REMOTE_TASK_FAILED`）。
 （1009 追加）`comments.fill`：评论补齐——设置楼数内的楼中楼连着 3 次续读没多拿到，码 `PERMANENT.COMMENTS_INCOMPLETE`（只进列表、可隐藏），「再试一次」= `comments <id> --fill`；后台补跑撞账号类码照 `report_blocked` 记在 `login`。
 （批次 D · L5 追加）`render.check`：只读扫可见目录里改坏的归档笔记（`restore --scan --report`、repair 每轮开头），码 `PERMANENT.NOTE_DAMAGED`，修复动作 `restore`。
+（1011 追加）`note.restricted`：这篇在小红书网页版要验证才能看（读取组件 `NOTE_RESTRICTED`，只是这一篇、不是号出事），码 `PERMANENT.NOTE_RESTRICTED`，一篇一条、不推送、撞见几次都不刷次数；
+修复归类 `manual`（自愈轮绝不替她开页 / 过验证），面板和笔记页的按钮是「打开验证」（`note-verify <id> --wait`）。读取组件里风险码永远优先于它（`xhs.tool_error`）。
 
 **迁移点**（每条：原状态文件照写 + `report/resolve`）
 - 附件转 md：`attachments.mark_conversion:374-395`（failed → `PERMANENT.PDF_ENCRYPTED|PDF_DAMAGED` 或 `TRANSIENT.*`；`note is None` → resolve）；`pdftext.py:111-118,171-172,193-200` 给出区分码，不再只给一句 note；`pdftext.py:273-277` 的「同 sha 永不重试」只对 PERMANENT 成立，TRANSIENT 按 `next_at` 退避。

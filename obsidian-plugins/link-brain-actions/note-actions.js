@@ -2,6 +2,7 @@
 //   N2  笔记样式挂到 document.head（note.css，和 link_brain/assets/link-brain.css 逐字节相同；css-change 后挪到最后，片段旧了也盖不掉新规则）
 //       + body.lb-actions-on（桌面插件开着才显示「现在抓」、可点的标签这些入口）
 //   N8 / N14 评论区「现在抓全部评论 / 现在抓」→ 确认后 plugin.fetchAllComments(file)
+//   1011 评论区顶上「这篇在小红书网页版要验证才能看」的「打开验证」→ plugin.openNoteVerify(itemId)（开读取服务的验证窗口到这篇）
 //   N9  正文标签（原帖话题）点了 → plugin.pendingCatalogQuery='#标签' → 同一窗格开目录（Ctrl 开新标签）→ 'link-brain:catalog-query'
 //   N10 阅读视图选中正文 / 评论文字右键「划重点 / 取消重点」（只走 <mark>，先乐观包上、没写上的退回）
 //   N11 ⋯ 菜单 / 命令面板「问这篇」→ plugin.askAboutNote(file)（问收藏那边由 L2 接）
@@ -125,16 +126,31 @@ class NoteActions {
     if (!t || !D || !D.body.classList.contains('lb-actions-on')) return;
     const act = t.closest('.xhs-note .lb-act-fetch-comments');
     if (act && this.inReading(act)) { e.preventDefault?.(); this.askFetchComments(act); return; }
+    const verify = t.closest('.xhs-note .lb-act-note-verify');
+    if (verify && this.inReading(verify)) { e.preventDefault?.(); this.noteVerify(verify); return; }
     const tag = t.closest('.xhs-note .lb-tags .lb-tag');
     if (tag && this.inReading(tag)) { e.preventDefault?.(); return this.openTag(tag, e); }
     return undefined;
   }
   onKey(e) {
     if (!e || (e.key !== 'Enter' && e.key !== ' ')) return;
-    const t = e.target && typeof e.target.closest === 'function' ? e.target.closest('.xhs-note .lb-act-fetch-comments') : null;
+    const t = e.target && typeof e.target.closest === 'function' ? e.target.closest('.xhs-note .lb-act-fetch-comments, .xhs-note .lb-act-note-verify') : null;
     if (!t || !this.inReading(t)) return;
     e.preventDefault?.();
-    this.askFetchComments(t);
+    if (t.classList?.contains('lb-act-note-verify')) this.noteVerify(t);
+    else this.askFetchComments(t);
+  }
+  // 1011：「打开验证」（这一篇）。条目 id 先看这篇笔记块上的 data-lb-item，再看 frontmatter；同一时刻只开一个窗口
+  async noteVerify(el) {
+    const leaf = this.leafOf(el);
+    const id = el.closest?.('.lb-note')?.getAttribute?.('data-lb-item') || this.itemIdOf(leaf && leaf.view && leaf.view.file);
+    if (!id) { this.notify('没找到这篇笔记'); return null; }
+    if (typeof this.plugin.openNoteVerify !== 'function') { this.notify('「打开验证」要更新 Link Brain Actions 插件'); return null; }
+    if (this.verifying) { this.notify('验证窗口已经开着：过完验证、关掉窗口后这里会告诉你结果'); return null; }
+    this.verifying = true;
+    try { return await this.plugin.openNoteVerify(id); }
+    catch (err) { console.error('[lb] 验证窗口没打开', err); this.notify('验证窗口没打开：' + ((err && err.message) || err)); return null; }
+    finally { this.verifying = false; }
   }
   askFetchComments(el) {
     const leaf = this.leafOf(el);

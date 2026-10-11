@@ -49,6 +49,12 @@ go build -o relatedfile.exe ./cmd/relatedfile   # 附件探测用的游客浏览
   - 状态里 `subCommentHasMore` 会陈旧地停在 true：楼里没有「展开」按钮且已加载 ≥ 楼上显示数，就算展开到底（计入 `floors_expanded`）；缺口为 0 的楼不进 `replies_partial`。
   - 续读 `expand_floors`（MCP 参数，或 REST `comment_config.expand_floors` / 顶层 `expand_floors`；一级评论 `comment_id` 列表）：只展开这些楼的回复（自动展开，不受 `limit` 限制），其它楼不点也不列；一级评论滚到这些楼都出来（或到底 / 预算尽）。`partial`、`replies_partial`、`replies_missing`、`floors_expanded` 只按这些楼算；页面上没找到的 id 列在 `comment_load.floors_not_found`（滚到底仍没有不算 partial）。不传 = 原行为。
 - `POST /api/v1/attachments/download`：在有界面的浏览器里点笔记附件页的「下载」（无界面时该下载请求会挂住）。
+- 网页版限制的笔记（1011：收藏里有、浏览器里打开要「验证一下」，详情页上没有这篇）：先照旧过风控检查和错误容器；都不是、
+  页面状态里又没有这篇时——页面上有登录框 → `NOT_LOGGED_IN`（写熔断）；落在登录类页面 → 不判（原样报错）；其余 → `NOTE_RESTRICTED`：
+  只是这一篇、**不写熔断**，落一份证据（`trigger=note_restricted`）。关键容器没出现时再等 6 秒，判定后就停，不在空页面上滚评论。
+  REST 回 `422 {"code":"NOTE_RESTRICTED"}`（详情、附件下载——附件在笔记页那一步就停，不再去附件页），MCP 报错文本带 `[NOTE_RESTRICTED]`。
+- `POST /api/v1/notes/search-token` `{note_id, keyword}`：用标题搜一次，按笔记 id 从搜索结果里认出这篇，回 `{found, xsec_token, count}`
+  （拿新口令再开一次用）。搜索页导航后、读完都查风控（MCP `search_feeds` 也一并补上）。节奏（每篇每天一次、开页间隔、账号锁）由调用方管。
 - 评论保留 `pictures`（评论图片）与 `audioInfo`（语音评论：音频地址、时长、站点自带转写 `asrText`、标签）。
 - 读首屏评论前等待其加载（最多 10 秒）。
 - 抓全部评论只给 8 分钟：到点停下，把已经加载出来的评论交回，而不是整页超时、一条都拿不回来。
@@ -90,6 +96,10 @@ go build -o relatedfile.exe ./cmd/relatedfile   # 附件探测用的游客浏览
   验证窗口不再「关窗即解除」：没有熔断时不开窗（回 `result:"no_hold"`）；有熔断就打开出事的那一页（去掉 `tab` 参数，不让页面自己去读收藏），出事时在收藏页签、或正要去收藏页签的，页面顶部提示「请点一下『收藏』页签看看有没有滑块」（窗口不替你点；出事页面不是主页时从首页经侧栏「我」进主页）。
   解除都要求关窗前页面干净且看到已登录；验证码 / 安全跳转类另要求窗口里**出现过**验证（她真拖过了）；从头到尾没出现过就保持熔断，`/login/session` 给 `verify_result:"no_captcha_seen"`，由人确认没事后 `POST /api/v1/risk/clear`。连续两次读不到窗口才算关窗；有提示时每秒看一眼。
   取二维码时、或登录窗口一打开就发现「已是登录态」（没扫码），只解除 `NOT_LOGGED_IN`。
+  笔记验证窗口（1011）：`POST /api/v1/verify/window` 带 `{note_id, xsec_token}` 且**没有熔断**时，开有界面的浏览器到这一篇（响应 `mode:"note"`），
+  她过完验证、看到笔记就关窗；关窗前页面上还要验证 / 被跳到安全页 → 按风控写熔断（`still_risk`），有登录框 → `NOT_LOGGED_IN`，
+  窗口里看到过这篇正常渲染 → `note_ok`，否则 `note_not_seen`；`/login/session` 多给 `verify_note`（`note_id` / `ok` / 当时地址里的口令）。
+  有熔断时一律先走熔断验证（`mode:"hold"`）。
   登录窗口、验证窗口、扫码、`/login/session`、`/login/logout`、`/risk/clear` 不受熔断拦截。
 - 两道闸：请求进来时查一次；拿到浏览器锁之后、启动浏览器之前再查一次——排在锁后面等的请求，
   若前一个请求刚撞了风控，也回 `423 RISK_HOLD` / `[RISK_HOLD]`，不开浏览器。

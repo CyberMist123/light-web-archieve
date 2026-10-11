@@ -1610,6 +1610,16 @@ class LinkBrainActions extends Plugin {
     new Notice([r.message, r.next_step].filter(Boolean).join('：'), 15000);
     return r;
   }
+  // 1011：这篇在小红书网页版要验证才能看——开读取服务的验证窗口到这篇（note-verify <id> --wait）。号本身要验证时后端先走原来的
+  // 熔断验证；窗口关了如实说结论：过了（评论后台补、附件今晚补）/ 没看到这篇打开 / 号要处理。笔记页「打开验证」和问题面板都调它。
+  async openNoteVerify(itemId) {
+    if (!itemId) { new Notice('没找到这篇笔记'); return null; }
+    if (this.running) { new Notice(this.busyText ? this.busyText() : `正在${this.running}，完成后再点`, 8000); return null; }
+    new Notice('会弹出小红书窗口打开这篇：照页面提示过完验证、看到笔记内容后关掉窗口。关窗后这里会告诉你结果，过了就自动补抓评论 / 附件。', 15000);
+    const r = await this.runJSON(['-m', 'link_brain', 'note-verify', String(itemId), '--wait'], '验证窗口没打开', 14 * 60000);
+    new Notice(r.message || (r.ok ? '过了，这篇能打开了' : '验证窗口关了，这篇还没打开'), 15000);
+    return r;
+  }
   // 「没看到验证，恢复」：她亲手确认才解除暂停（login --clear-hold --by-owner，只发一次 risk/clear，问题记录里留痕）。
   // 绝不进「全部修一遍」或夜跑。
   async restoreHold() {
