@@ -454,6 +454,20 @@ const staleEl = subLine.createEl('span', { cls: 'lbc-sub lbc-stale', text: '· �
 const probBtn = subLine.createEl('button', { cls: 'lbc-problems' }); probBtn.type = 'button'; probBtn.hidden = true;
 // C14：「· 同步中」带上阶段，悬停看全句，点开同步记录
 const syncing = subLine.createEl('button', { cls: 'lbc-sub lbc-sub-link lbc-syncing', text: '· 同步中…' }); syncing.type = 'button'; syncing.hidden = true;
+// 1011：同步真进度——标题下两行：今天 X/上限 + 细条 + 歇 N 秒（倒计时）；库里 a/b（还差 n 篇）· 《正在抓的》· 约几点抓完。
+// 数和文案由插件 syncProgressView / renderSyncProgress 出（状态栏同一份，样式在插件 styles.css）；刚同步完 10 分钟内一行「同步完了」。
+// 插件不在（手机）就不出，退回上面那个「· 同步中」。
+const syncProg = titleBlock.createEl('div', { cls: 'lb-syncprog lbc-syncprog' }); syncProg.hidden = true;
+let progTimer = null, progPeriod = 0;
+function paintSyncProg() {
+  const p = provider();
+  const view = p && typeof p.syncProgressView === 'function' ? p.syncProgressView(syncState) : null;
+  if (p && typeof p.renderSyncProgress === 'function') p.renderSyncProgress(syncProg, view); else syncProg.hidden = true;
+  const want = view?.resting ? 1000 : view ? 30000 : 0;   // 歇着每秒走倒计时；其余半分钟核一次（「同步完了」10 分钟后收起）
+  if (want !== progPeriod) { clearInterval(progTimer); progTimer = want ? setInterval(paintSyncProg, want) : null; progPeriod = want; }
+  return view;
+}
+cleanups.push(() => { clearInterval(progTimer); progTimer = null; progPeriod = 0; });
 const fmtTime = v => { const d = new Date(v); return Number.isFinite(d.getTime()) ? d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '—'; };
 const fmtFull = v => { const d = new Date(v); if (!Number.isFinite(d.getTime())) return '—'; const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 
@@ -517,6 +531,8 @@ function paintProblems() {
   probBtn.title = probBtn.hidden ? '' : [...lines, '点击查看问题列表'].join('\n');
   syncing.hidden = st.state !== 'running';
   if (!syncing.hidden) { const ph = syncPhase(st); syncing.textContent = ph.text; syncing.title = (ph.full ? ph.full + '\n' : '') + '点开看同步记录'; }
+  const pv = paintSyncProg();
+  if (pv?.running && !syncing.hidden) { syncing.textContent = '· 同步中'; syncing.title = pv.tip + '\n点开看同步记录'; }
   paintSub();
 }
 probBtn.onclick = async () => {

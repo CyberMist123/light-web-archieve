@@ -477,6 +477,82 @@ function commentFillLine(st, now = Date.now()) {
   const tail = human ? '等你处理' : (st.state === 'running' ? prog : (st.wait_code === 'NIGHTLY' ? '让夜跑先跑' : prog || '等一会儿'));
   return { text: [head, tail].filter(Boolean).join(' · '), title: String(st.message || ''), human, running: st.state === 'running' };
 }
+// 1011：收藏同步的真进度。st = 合并后的同步状态（sync-status.json / problems-summary 的 sync 段），live 段由 Python
+// favorites._Live 写（today_new / daily_limit / this_run_new / archived / favorites_total / remaining / title / phase / next_at / eta_at）。
+// 在跑且 15 分钟内刷新过 → {running, pct, today, lib, title, phase, resting, eta, short, tip}；歇着的秒数按 next_at 现算（页面每秒重画）。
+// 刚同步完（10 分钟内，有本次新收数）→ {done, text}；其余 null（不显示）。数都来自后端，缺哪项不显示哪项。
+function syncProgressView(st, now = Date.now()) {
+  if (!st || typeof st !== 'object') return null;
+  const num = v => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+  const at = Date.parse(st.updated_at || '');
+  if (!Number.isFinite(at)) return null;
+  if (st.state === 'running') {
+    const lv = st.live && typeof st.live === 'object' ? st.live : null;
+    if (!lv || now - at > 15 * 60000) return null;
+    const today = num(lv.today_new), limit = num(lv.daily_limit), archived = num(lv.archived), total = num(lv.favorites_total), left = num(lv.remaining);
+    const nextAt = Date.parse(lv.next_at || '');
+    const restLeft = lv.phase === 'resting' && Number.isFinite(nextAt) ? Math.max(0, Math.ceil((nextAt - now) / 1000)) : null;
+    const resting = !!restLeft;
+    const pct = today != null && limit ? Math.min(1, today / limit) : (archived != null && total ? Math.min(1, archived / total) : null);
+    const todayText = today == null ? '' : limit ? `今天 ${today}/${limit}` : `今天 ${today} 篇`;
+    const lib = archived != null && total ? `库里 ${archived}/${total}` + (left ? `（还差 ${left} 篇）` : '') : '';
+    const phase = resting ? `歇 ${restLeft} 秒` : lv.phase === 'resting' ? '马上抓下一篇' : String(lv.phase_text || '');
+    const eta = Date.parse(lv.eta_at || '');
+    const etaText = Number.isFinite(eta) && eta > now ? `约 ${etaWhen(eta, now)} ${limit ? '抓完今天的' : '抓完'}` : '';
+    const title = String(lv.title || '').trim();
+    const runNew = num(lv.this_run_new);
+    return {
+      running: true, pct, today: todayText, lib, title, phase, resting, eta: etaText,
+      short: [todayText, phase].filter(Boolean).join(' · '),
+      tip: [[todayText && todayText + ' 篇', runNew != null && `这一趟新收 ${runNew} 篇`].filter(Boolean).join(' · '), lib,
+        title && `${resting ? '刚抓' : '正在抓'}：《${title}》`, phase, etaText].filter(Boolean).join('\n'),
+    };
+  }
+  if (st.state === 'ready' && now - at < 10 * 60000 && num(st.new) != null) {
+    const left = num(st.deferred);
+    return { running: false, done: true, text: `同步完了 · 新收 ${num(st.new)} 篇` + (left ? ` · 还剩 ${left} 篇明天继续` : '') };
+  }
+  return null;
+}
+// 预计时刻：今天只写 时:分，明天写「明天 时:分」，再远写 月/日 时:分
+function etaWhen(t, now = Date.now()) {
+  const d = new Date(t), pad = n => String(n).padStart(2, '0'), hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const day0 = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day0(d) - day0(new Date(now))) / 86400000);
+  return diff <= 0 ? hm : diff === 1 ? '明天 ' + hm : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+}
+// 把 syncProgressView 的结果画进 el（状态栏一截 compact；目录页两行）。只用标准 DOM，样式在 styles.css 的 .lb-syncprog*。
+function renderSyncProgress(el, view, opts = {}) {
+  if (!el) return;
+  const doc = el.ownerDocument || (typeof document !== 'undefined' ? document : null);
+  el.textContent = '';
+  el.hidden = !view;
+  if (!view || !doc) return;
+  const mk = (parent, cls, text) => { const n = doc.createElement('span'); n.className = cls; if (text) n.textContent = text; parent.appendChild(n); return n; };
+  const bar = parent => {
+    const b = mk(parent, 'lb-syncprog-bar' + (view.pct == null ? ' is-unknown' : ''));
+    const fill = mk(b, 'lb-syncprog-fill');
+    if (view.pct != null) fill.style.width = Math.round(view.pct * 1000) / 10 + '%';
+    return b;
+  };
+  el.classList?.toggle?.('is-compact', !!opts.compact);
+  el.classList?.toggle?.('is-done', !!view.done);
+  if (view.done) { mk(el, 'lb-syncprog-done', view.text); return; }
+  if (opts.compact) {
+    if (view.today) mk(el, 'lb-syncprog-today', view.today);
+    bar(el);
+    if (view.phase) mk(el, 'lb-syncprog-phase' + (view.resting ? ' is-resting' : ''), view.phase);
+    return;
+  }
+  const l1 = mk(el, 'lb-syncprog-line');
+  if (view.today) mk(l1, 'lb-syncprog-today', view.today);
+  bar(l1);
+  if (view.phase) mk(l1, 'lb-syncprog-phase' + (view.resting ? ' is-resting' : ''), view.phase);
+  const l2 = mk(el, 'lb-syncprog-line lb-syncprog-sub');
+  if (view.lib) mk(l2, 'lb-syncprog-lib', view.lib);
+  if (view.title) mk(l2, 'lb-syncprog-title', `《${view.title}》`);
+  if (view.eta) mk(l2, 'lb-syncprog-eta', view.eta);
+}
 // 1010：手动「抓全部评论」在底部状态栏的那一截（「⟳ 抓全部评论 · 读评论区 1:05」）。st = plugin.commentFetch（后端真实阶段）。
 const FETCH_STAGE_SHORT = { start: '准备', lock: '等号', read: '读评论区', merge: '合并', media: '下图', render: '写进笔记' };
 function mmss(ms) { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
@@ -1760,7 +1836,7 @@ class LinkBrainActions extends Plugin {
   // 问收藏页她开始打字时预热（同一页 60 秒内只调一次）：没有 worker、也不在卸载时才起；返回是否新起了
   warmAnswerWorker() { if(this.answerWorker||this.unloading)return false; try{this.ensureAnswerWorker();return true;}catch(e){console.error('[lb] 预热问答进程没成',e);return false;} }
   stopArchiveAnswer(tag) { let n=0; for(const [id,p] of [...(this.answerPending?.entries()||[])]) { if(tag!=null&&p.tag!==tag)continue; if(this.cancelAnswer(id)) n++; } return n; }
-  onunload(){this.unloading=true;clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);clearTimeout(this.fillTimer);this.catalogCache=null;
+  onunload(){this.unloading=true;if(this.syncTick)clearInterval(this.syncTick);clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);clearTimeout(this.fillTimer);this.catalogCache=null;
     for(const k of ['noteActions','noteTools','imageActions','playerUI','indexUI']){try{this[k]?.detach?.();}catch(e){console.error('[lb] '+k+' 卸载出错',e);}}   // 批次 D 地基：四个挂载点 + 10-10 索引树
     const worker=this.answerWorker;if(worker)this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});}
   // 返回 payload；status='cancelled' = 用户点了停止（markdown 是已生成的半截），不当失败抛。
@@ -2277,16 +2353,42 @@ class LinkBrainActions extends Plugin {
     const external = this.externalSync;
     const live = external?.state === 'running' && Date.now() - Date.parse(external.updated_at || '') < 15 * 60 * 1000;
     const detail = this.runningProgress || (live && external.done != null && external.total != null ? `${external.done}/${external.total} 篇` : '');
-    this.taskLabel = this.running || (live ? '夜跑同步' : '');
+    // 1011：带 live 的同步（命令行 / 计划任务 / 插件自己点的都一样）叫「同步收藏」，不再一律说成夜跑
+    this.taskLabel = this.running || (live ? (external.live ? '同步收藏' : '夜跑同步') : '');
     const fill = this.taskLabel ? null : commentFillLine(this.commentFill);
     if (this.taskStatusEl) {
       this.taskStatusEl.hidden = !this.taskLabel && !fill;
-      this.taskStatusEl.setText(this.taskLabel ? `⟳ ${this.taskLabel}${detail ? ' · ' + detail : ''}` : (fill ? fill.text : ''));
-      this.taskStatusEl.title = this.running ? '点开看同步记录，可停止' : fill ? (fill.title + (fill.human ? '（点开问题入口处理）' : '')) : '计划任务在跑，这里停不了';
+      this.taskStatusEl.setText(this.taskLabel ? `⟳ ${this.taskLabel}${detail && !this.syncView() ? ' · ' + detail : ''}` : (fill ? fill.text : ''));
+      this.taskStatusEl.title = this.running ? '点开看同步记录，可停止' : fill ? (fill.title + (fill.human ? '（点开问题入口处理）' : '')) : '命令行 / 计划任务在跑，这里停不了';
       this.taskStatusEl.onclick = () => (fill && fill.human && !this.taskLabel ? this.openProblems() : this.openSyncLog());
     }
+    this.paintSyncBar();
     for (const callback of this.taskListeners || []) callback({ label: this.taskLabel, detail });
     this.app.workspace?.trigger?.('link-brain:task', { label: this.taskLabel, detail });
+  }
+  // 1011：同步真进度（只在同步收藏在跑时有；插件在跑别的任务时不出）
+  syncView(now = this.nowMs()) {
+    if (this.running && !/同步/.test(this.running)) return null;
+    const v = syncProgressView(this.externalSync, now);
+    return v && v.running ? v : null;
+  }
+  syncProgressView(st, now = this.nowMs()) { return syncProgressView(st, now); }   // 给目录页（catalog-view.js）用同一份
+  renderSyncProgress(el, view, opts) { return renderSyncProgress(el, view, opts); }
+  // 状态栏那一截：「⟳ 同步收藏 今天 35/150 ▬▬▭ 歇 77 秒」，悬停看库里几篇 / 正在抓哪篇 / 约几点抓完；歇着时每秒重画倒计时
+  paintSyncBar() {
+    const el = this.taskStatusEl;
+    if (!el || typeof el.appendChild !== 'function') return;
+    const view = this.syncView();
+    let box = this.syncBarEl;
+    if (view && (!box || box.parentNode !== el)) {
+      box = this.syncBarEl = (el.ownerDocument || document).createElement('span');
+      box.className = 'lb-syncprog';
+      el.appendChild(box);
+    }
+    if (box) renderSyncProgress(box, view, { compact: true });
+    if (view) el.title = view.tip + '\n' + (this.running ? '点开看同步记录，可停止' : '命令行 / 计划任务在跑，这里停不了');
+    if (view?.resting && !this.syncTick) this.syncTick = setInterval(() => this.paintSyncBar(), 1000);
+    else if (!view?.resting && this.syncTick) { clearInterval(this.syncTick); this.syncTick = null; }
   }
   onTask(callback) {
     (this.taskListeners || (this.taskListeners = new Set())).add(callback);
@@ -2911,6 +3013,8 @@ Object.assign(module.exports, { splitCommand, whichCommand, pickBackend, backend
   BACKEND_DEFAULT, BACKEND_INSTALL, NIGHTLY_TASK, LEGACY_SYNC_TASK });
 Object.assign(module.exports, { effectiveTextAI, modelState, endpointHost, normalizeEndpoint, aiGate, resultMessage, scheduleShort });
 module.exports.lastRiskNote = lastRiskNote;   // 1008（L6）：给 node 单测（设置页「立即同步」旁的验证说明）
+module.exports.syncProgressView = syncProgressView;   // 1011：同步真进度（状态栏 / 目录页细进度条）
+module.exports.renderSyncProgress = renderSyncProgress;
 module.exports.commentFillLine = commentFillLine;   // 1009：给 node 单测（状态栏「补评论」那一行）
 module.exports.refreshInPlace = refreshInPlace;   // 1010：给 node 单测（保存后设置页拿着的子对象引用不变）
 module.exports.commentFetchShort = commentFetchShort;   // 1010：给 node 单测（状态栏「抓全部评论 · 读评论区 1:05」）

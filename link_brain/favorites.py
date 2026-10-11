@@ -461,6 +461,102 @@ def _rest(wait: float, verbose: bool = True) -> None:
         _sleep(wait)
 
 
+def _library_ids() -> set[str]:
+    """库里已有的（对象目录）+ 回收站里的 note_id：只给进度条数「库里 650/1246」，读不到就是空集（fail-open）。"""
+    ids: set[str] = set()
+    try:
+        from . import storage
+        root = storage.archive_root() / xhs.SOURCE
+        if root.is_dir():
+            ids.update(p.name for p in root.iterdir() if p.is_dir())
+    except OSError:
+        pass
+    try:
+        from . import index as index_mod
+        conn = index_mod.connect()
+        try:
+            ids.update(str(r[0]) for r in conn.execute("SELECT source_id FROM tombstones WHERE source = ?", (xhs.SOURCE,)))
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        pass
+    return ids
+
+
+class _Live:
+    """1011：同步的结构化进度 → sync-status.json 的 `live`（插件状态栏 / 目录页画细进度条，文件监听实时刷新）。
+
+    以前进度句是「第 594/1246 条收藏是新的」：594 是在收藏列表里的位置，看着像进度其实不是。现在分开记：
+    今天新抓了几篇 / 每天上限（sync-quota + dailyNewLimit）、这一趟新抓几篇、库里有几篇 / 收藏一共几篇（还差几篇）、
+    正在抓哪篇、在歇（几秒后抓下一篇）、按眼下的速度今天的额度大约几点抓完。
+    写入节流：只在换阶段时写（读列表 / 开抓一篇 / 存好一篇 / 开始歇 / 收尾），歇着的倒计时由页面按 next_at 自己走，
+    已在库的那些不写。写失败不影响同步（sync_state.progress 自己吞错）。"""
+
+    PHASE_TEXT = {"listing": "读收藏列表", "fetching": "抓取中", "resting": "歇着", "finishing": "收尾"}
+
+    def __init__(self, quota: "_Quota", deadline: float | None = None):
+        self.quota = quota
+        self.deadline = deadline
+        self.total = None          # 收藏一共几篇（全量名单口径）
+        self.archived = None       # 其中库里已有（含回收站）几篇
+        self.remaining = None      # 还差几篇（待抓积压）
+        self.run_new = 0
+        self.started = None        # 这一趟第一篇开抓的时刻（monotonic），估速度用
+        self.title = ""
+
+    def count(self, pool: list[dict[str, Any]]) -> None:
+        try:
+            have = _library_ids()
+            ids = {str(f.get("note_id")) for f in pool if f.get("note_id")}
+            self.total = len(ids)
+            self.archived = len(ids & have)
+            self.remaining = self.total - self.archived
+        except Exception:  # noqa: BLE001 - 数不出来就不显示库里那一行
+            self.total = self.archived = self.remaining = None
+
+    def stored(self) -> None:
+        self.run_new += 1
+        if self.archived is not None:
+            self.archived += 1
+            self.remaining = max(0, (self.remaining or 0) - 1)
+
+    def today_label(self, n: int) -> str:
+        lim = self.quota.limit
+        return f"今天第 {n}/{lim} 篇" if lim > 0 else f"今天第 {n} 篇"
+
+    def _per_item(self) -> float:
+        if self.run_new and self.started is not None:
+            return max(30.0, (_clock() - self.started) / self.run_new)
+        lo, hi = accounts._gap_range("LWA_FETCH_REST", "60,180")
+        return (lo + hi) / 2 + 60   # 还没抓完一篇：歇的平均 + 抓一篇的大概耗时
+
+    def _eta(self) -> str | None:
+        lim = self.quota.limit
+        left = self.remaining
+        if lim > 0:
+            room = max(0, lim - self.quota.count)
+            left = room if left is None else min(left, room)
+        if not left:
+            return None
+        secs = left * self._per_item()
+        if self.deadline is not None:
+            secs = min(secs, max(0.0, self.deadline - _clock()))
+        return (datetime.now().astimezone() + timedelta(seconds=secs)).isoformat(timespec="seconds")
+
+    def push(self, phase: str, text: str, *, rest_s: float | None = None) -> None:
+        live: dict[str, Any] = {
+            "phase": phase, "phase_text": self.PHASE_TEXT.get(phase, phase),
+            "today_new": self.quota.count, "daily_limit": self.quota.limit, "this_run_new": self.run_new,
+            "archived": self.archived, "favorites_total": self.total, "remaining": self.remaining,
+            "title": self.title, "eta_at": self._eta(),
+        }
+        if phase == "resting" and rest_s:
+            live["phase_text"] = f"歇 {rest_s:.0f} 秒"
+            live["rest_s"] = round(rest_s)
+            live["next_at"] = (datetime.now().astimezone() + timedelta(seconds=rest_s)).isoformat(timespec="seconds")
+        sync_state.progress(text, live=live)
+
+
 def _log_entry(entry: dict[str, Any], fav: dict[str, Any], in_library: bool, known_bad: bool) -> None:
     """10-03 同步记录：这一篇这次怎样（新收 = 正文 ✅；抓不到 / 渲染失败 = 正文 ❌；号出事 = 步骤级报错）。"""
     status = entry.get("status")
@@ -521,6 +617,10 @@ def sync_favorites(
         read_label = rmode
         print(f"[sync-favorites] 这次读收藏：{'全量' if rmode == 'full' else '增量（只读最新一段）'}"
               + (f"（{why}）" if why else ""), file=sys.stderr)
+    quota = _Quota()
+    live = _Live(quota, deadline)
+    if read_label != "snapshot":
+        live.push("listing", "读收藏列表")
     try:
         if read_label == "full":
             favs = fetch_favorites(limit=limit, verbose=verbose)
@@ -574,7 +674,8 @@ def sync_favorites(
     favs = sorted(favs, key=lambda f: failures.known(f.get("note_id")))
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
-    quota = _Quota()
+    # 进度条「库里 650/1246」：增量那晚读到的只是最新一段，总数按「这段 + 全量名单其余的」数
+    live.count(favs if read_label != "incremental" else merge_with_snapshot(favs, load_snapshot()))
     deferred_quota = deferred_budget = skipped_failing = held_known_bad = 0
     consecutive = 0
     known_streak = 0
@@ -606,8 +707,14 @@ def sync_favorites(
             if deadline is not None and deadline - _clock() - wait < FETCH_RESERVE_SECONDS:
                 deferred_budget += 1  # 剩下的时间装不下这一篇的最坏耗时：不开了，明天继续
                 continue
+            nth = live.today_label(quota.count + 1)
+            if wait > 0:
+                live.push("resting", f"歇 {wait:.0f} 秒，接着抓{nth}", rest_s=wait)
             _rest(wait, verbose=True)
-            sync_state.progress(f"第 {i + 1}/{len(favs)} 条收藏是新的（{note_id}），抓取中")
+            live.title = str(fav.get("title") or "").strip() or "（没标题的一篇）"
+            if live.started is None:
+                live.started = _clock()
+            live.push("fetching", f"{nth} · 《{live.title}》")
         entry = _sync_one(fav, origin=origin, actor=actor, verbose=verbose, budget_left=budget_left)
         source_id = entry.pop("_source_id", None)
         attachment_block = entry.pop("_blocked_code", "")
@@ -617,6 +724,9 @@ def sync_favorites(
             status = entry.get("status")
             if status == "new":
                 quota.add()
+                live.title = str(entry.get("title") or live.title)
+                live.stored()
+                live.push("fetching", f"{live.today_label(quota.count)}已存好 · 《{live.title}》")
                 failures.clear(note_id)
                 consecutive = 0
                 known_streak = 0
@@ -660,6 +770,9 @@ def sync_favorites(
                 mark_full_next(f"按名单抓连着 {consecutive} 篇失败，口令可能过期了")
             break
     failures.save()
+    if fetched_any:
+        live.title = ""
+        live.push("finishing", "收尾")
     if suspicious:
         synclog.error("sync-favorites", suspicious, "FAVORITES_SUSPICIOUS")
     if stop_code:

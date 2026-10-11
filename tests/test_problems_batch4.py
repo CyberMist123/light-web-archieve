@@ -248,7 +248,7 @@ def test_live_running_sync_is_left_alone(monkeypatch):
 
 SUMMARY_KEYS = {"updated_at", "needs_human", "auto", "gave_up", "skipped", "hidden", "minor", "last_runs", "last_risk", "sync"}  # 1011：minor = 轻微的（不计数、不列）
 SYNC_KEYS = {"state", "code", "message", "label", "hover", "detail", "updated_at", "last_success", "favorites", "new",
-             "deferred", "progress", "running", "done", "total", "remaining"}
+             "deferred", "progress", "running", "done", "total", "remaining", "live"}  # 1011：live = 同步真进度（只在 running 时有，否则 null）
 
 
 def test_summary_file_is_written_after_every_report_and_resolve(pushes):

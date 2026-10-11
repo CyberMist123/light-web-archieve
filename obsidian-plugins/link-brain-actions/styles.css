@@ -40,6 +40,27 @@ body{--lb-warn:var(--text-warning,var(--color-orange));--lb-warn-bg:var(--backgr
 }
 @keyframes lb-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
 
+/* 1011：收藏同步真进度（main.js renderSyncProgress）——状态栏一截（is-compact）和目录页标题下两行共用。
+   细条照上面 .lb-progress：3px、底色走边框色、填充走主题强调色；字走 faint / muted，不加框、不出滚动条。 */
+.lb-syncprog { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.lb-syncprog[hidden] { display: none !important; }
+.lb-syncprog.is-compact { margin-left: 6px; }
+.lb-syncprog-bar { position: relative; display: inline-block; flex: 0 0 auto; width: 56px; height: 3px; border-radius: 3px;
+  background: var(--background-modifier-border); overflow: hidden; vertical-align: middle; }
+.lb-syncprog-fill { display: block; height: 100%; width: 0; border-radius: 3px; background: var(--interactive-accent); transition: width .4s ease; }
+.lb-syncprog-bar.is-unknown .lb-syncprog-fill { width: 35%; animation: lb-slide 1.3s ease-in-out infinite; }
+.lb-syncprog-phase { color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.lb-syncprog-today { font-variant-numeric: tabular-nums; }
+.lb-syncprog:not(.is-compact) { display: flex; flex-direction: column; align-items: center; gap: 3px; margin: 6px auto 0; max-width: min(460px, 100%);
+  font-size: 11px; line-height: 1.5; color: var(--text-muted); letter-spacing: .04em; }
+.lb-syncprog:not(.is-compact) .lb-syncprog-line { display: flex; align-items: center; justify-content: center; gap: 8px; max-width: 100%; min-width: 0; }
+.lb-syncprog:not(.is-compact) .lb-syncprog-bar { width: 140px; }
+.lb-syncprog-sub { color: var(--text-faint); font-size: 10px; }
+.lb-syncprog-title { min-width: 0; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-syncprog-lib, .lb-syncprog-eta { white-space: nowrap; }
+.lb-syncprog-done { color: var(--text-faint); font-size: 10px; }
+@media (max-width: 520px) { .lb-syncprog:not(.is-compact) .lb-syncprog-sub { flex-wrap: wrap; } .lb-syncprog-title { max-width: 60vw; } }
+
 /* 高级设置折叠 */
 .lb-advanced {
   margin-top: 22px;

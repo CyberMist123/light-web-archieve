@@ -91,6 +91,7 @@ def page_state():
         'favorites': status.get('favorites'), 'new': status.get('new'), 'deferred': status.get('deferred'),
         'detail': status.get('detail') or '', 'progress': status.get('progress') or '',
         'running': status.get('state') == 'running',
+        'live': status.get('live') if status.get('state') == 'running' and isinstance(status.get('live'), dict) else None,
         'done': status.get('done'), 'total': status.get('total'),
         'remaining': max(0, status['total'] - status['done']) if status.get('total') is not None and status.get('done') is not None else None,
     }
@@ -126,8 +127,11 @@ def progress_log():
     return storage.archive_root() / 'sync-progress.log'
 
 
-def progress(text, done=None, total=None):
-    """同步走到哪一步：写进状态（设置页显示）并追加到 _archive/sync-progress.log（事后查卡在哪）。"""
+def progress(text, done=None, total=None, live=None):
+    """同步走到哪一步：写进状态（设置页显示）并追加到 _archive/sync-progress.log（事后查卡在哪）。
+
+    live（1011）：结构化进度（favorites._Live 拼好的 dict），整段换掉 sync-status.json 的 `live`；不给就保留上一次的
+    （「已存好」「查附件」这些中间句不动进度条）。record() 重写状态时 live 自然没了 = 进度条收起。"""
     now = datetime.now().astimezone()
     try:
         with progress_log().open('a', encoding='utf-8') as f:
@@ -135,6 +139,8 @@ def progress(text, done=None, total=None):
         status = storage.read_json(path())
         if status.get('state') == 'running':
             counts = {key: value for key, value in {'done': done, 'total': total}.items() if value is not None}
+            if live is not None:
+                counts['live'] = {**live, 'at': now.isoformat()}
             storage.write_json(path(), {**status, **counts, 'message': f'正在同步收藏：{text}', 'progress': text,
                                         'updated_at': now.isoformat()})
             _refresh_summary()

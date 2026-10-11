@@ -145,7 +145,10 @@ STATE_REGISTRY = {  # code 前缀 → 显示；写进 catalog-data.json 的 "sta
           "label": "", "hover": "",                                 // code 非空时从登记表取（hover 已填好）
           "updated_at": "…", "last_success": "…", "favorites": 120,
           "new": 2, "deferred": 4,                                  // 本次新收几篇 / 还剩几篇逐晚处理（sync-status.json 新增的两个键）
-          "progress": "", "running": false}}                        // running+pid 已死在 Python 侧改成 failed/INTERRUPTED
+          "progress": "", "running": false,                         // running+pid 已死在 Python 侧改成 failed/INTERRUPTED
+          "live": null}}   // 1011：同步真进度（只在 running 时有）{phase: listing|fetching|resting|finishing, phase_text, today_new, daily_limit（0 = 不限）,
+                           //   this_run_new, archived, favorites_total, remaining, title, eta_at, rest_s, next_at, at}；favorites._Live 换阶段时写（读列表 / 开抓 / 存好 / 开始歇 / 收尾），
+                           //   歇着的倒计时页面按 next_at 自己走；sync-status.json 同一段。前端只用 main.js syncProgressView / renderSyncProgress 一份（状态栏 + 目录页）
 // catalog-data.json：顶层 "state_registry" = problems.registry_for_js()；每个 item 加
 "problems": [{"code": "PERMANENT.PDF_ENCRYPTED", "label": "全文没转出来", "hover": "PDF 有打开密码，字节已保存",
               "group": "gave_up", "action": "gave_up"}]              // 从对象文件推出、不读 jsonl；SKIPPED 不列；attachment_reason / attachment_errors 照留
@@ -219,6 +222,7 @@ R = {"status": "ok|failed|skipped", "text": str|None, "code": "<故障码或空>
 | `commentFill` | 插件读 `_archive/comments-fill-status.json`（文件监听） | 状态栏、设置页同步段 | 1009 后台补评论的进度（running / waiting / paused；超过 10 分钟没刷新当它停了） |
 | `commentFetch` + 事件 `link-brain:comment-fetch` | 插件 `fetchAllComments`（读 `comments <id> --progress` 一行一个进度事件：start / lock / read / merge / media / render，最后一行照旧是结果） | note-actions `paintFetch`（这篇评论区最上面一行 + 细条）、状态栏 | 1010 手动「抓全部评论」的真进度 `{itemId, stage, text, done, total, stageAt, result}`；做完留结果 8 秒（没成功 20 秒）再清空。和后台补评论（`commentFill`）分开：手动的在跑时状态栏显示手动这一条 |
 | `runningProgress` | 状态栏那条线（L4） | `busyText()` | 占用句里的「（进度）」，没有就不写 |
+| `syncBarEl` / `syncTick` + 方法 `syncProgressView(st)` / `renderSyncProgress(el, view)` | 插件 `paintSyncBar`（taskChanged 时；歇着每秒） | 状态栏、目录页 `.lbc-syncprog` | 1011 收藏同步真进度（读 `externalSync.live`）；目录页插件不在（手机）就不出细条 |
 | `catalogCache` `{version, root, data}` | lb-page-lib `data.load` / `data.adopt` | 三张页 | §5.2；adopt 只在 data 就是缓存那份时推进版本（给了 written 还要和当前 stat 对得上） |
 | `answerWorker` / `answerPending` / `answerSequence` | 插件问答 worker | 插件 | pending 每条带 `tag`（`'chat'` / `'setup'`），`stopArchiveAnswer(tag)` 只停同 tag |
 | `menuOpen` / `_lbMenu` | 插件 `showMenu` | `LB.menuOpen()` | 菜单真显示了才设 true；关掉后延一拍才变 false（调用方再设 onHide 也照样复位） |
