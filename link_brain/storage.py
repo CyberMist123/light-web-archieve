@@ -148,7 +148,18 @@ def atomic_write_bytes(path: Path, data: bytes) -> Path:
                 break
             except PermissionError:
                 if attempt == 5:
-                    raise
+                    # 1011：Obsidian 渲染进程会长期开着某些 md（不带 FILE_SHARE_DELETE），替换永远被拒——
+                    # 目录页因此从 10-10 13:59 起一直没更新、夜跑 catalog 天天崩。退而原地覆写（它允许共享写）；
+                    # 失去「不留半截」保证，但这些都是能整份重生成的派生文件。
+                    if not path.exists():
+                        raise
+                    with open(path, "r+b") as out:
+                        out.write(data)
+                        out.truncate()
+                        out.flush()
+                        os.fsync(out.fileno())
+                    os.unlink(tmp)
+                    break
                 time.sleep(0.05 * (attempt + 1))
     except BaseException:
         try:
