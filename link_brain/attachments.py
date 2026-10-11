@@ -1354,23 +1354,38 @@ def fav_tokens_path() -> Path:
     return storage.archive_root() / FAV_TOKENS_NAME
 
 
-def remember_fav_tokens(items: list[dict[str, Any]], *, partial: bool) -> int:
+def remember_fav_tokens(items: list[dict[str, Any]], *, partial: bool, merge: bool = False) -> int:
     """读收藏读全（partial=false）时，把「笔记 id → 最新口令」存到本地（纯本地写，零开页）。补查 / 下载优先用它。
-    只认读全的那一次：读一截时存下来的不全，判「原帖打不开」时会误以为它不在收藏里。返回存了几条。永不抛异常。"""
-    if partial:
+    只认读全的那一次：读一截时存下来的不全，判「原帖打不开」时会误以为它不在收藏里。返回存了几条。永不抛异常。
+
+    1011 增量读（merge=True）：只读了最新那一段——把读到的这些合进去（口令和时刻按这次的），没读到的原样留着
+    （各自带自己的 at，FRESH_TOKEN_DAYS 照算），整份文件的 full_at 不动：「全量名单」只由每周那次全量读刷新。"""
+    if partial and not merge:
         return 0
     try:
         from urllib.parse import parse_qs, urlsplit
         now = _iso(_now_local())
         out: dict[str, Any] = {}
+        prior: dict[str, Any] = {}
+        if merge:
+            try:
+                prior = storage.read_json(fav_tokens_path()) or {}
+            except (OSError, ValueError):
+                prior = {}
+            if not isinstance(prior, dict):
+                prior = {}
+            out = dict(prior.get("tokens") or {})
+        written = 0
         for it in items or []:
             nid = str(it.get("note_id") or it.get("id") or "")
             token = it.get("xsec_token") or (parse_qs(urlsplit(str(it.get("url") or "")).query).get("xsec_token") or [""])[0]
             if nid and token:
                 out[nid] = {"token": token, "at": now}
+                written += 1
         if out:
-            storage.write_json(fav_tokens_path(), {"schema_version": 1, "at": now, "tokens": out})
-        return len(out)
+            full_at = (prior.get("full_at") or prior.get("at")) if merge else now
+            storage.write_json(fav_tokens_path(), {"schema_version": 1, "at": now, "full_at": full_at, "tokens": out})
+        return written
     except Exception as exc:  # noqa: BLE001
         print(f"[recheck] 新口令没存上（不影响同步）：{exc}", file=sys.stderr)
         return 0

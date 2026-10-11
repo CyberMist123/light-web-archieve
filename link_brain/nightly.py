@@ -73,6 +73,12 @@ REFINE_STEP = "vision --refine"
 AUDIT_STEP = "attachments --audit"
 TAIL_STEP = "attachments --recheck --logged-in-tail"
 KEYS_STEP = "gemini-keys"  # 取免费 key 单独记一步：精细识图没 key 照样成功，别把「取 key 失败」顺手标成已解决
+EMBED_STEP = "embed"
+RECOVER_STEP = "captcha-recover"
+SNAPSHOT_SYNC_STEP = "sync-favorites --from-snapshot"
+# 1011：撞验证后冷却自查——冷却最多等这么久（等的时候不开页）；自查恢复后至少还要剩这么多分钟才值得接着跑碰号步骤
+RECOVER_MAX_WAIT_MIN = 90
+RECOVER_MIN_LEFT_MIN = 60
 
 
 @dataclass
@@ -188,6 +194,9 @@ class Nightly:
         self.deadline = clock() + self.budget_min * 60
         self.account_stop = False
         self.account_stop_why = ""
+        self.account_stop_step = ""        # 1011：哪一步退出 5 让今晚停了碰号
+        self.skipped_account: list[Step] = []  # 1011：因为号要人处理而跳过的碰号步骤（自查恢复后按顺序补跑）
+        self.recover_tried = False
         self.problems: list[str] = []
         # 和 problems 对齐的出处：(问题记录的 step, 码 或 None=那一步任何没解决的)；自愈轮之后据此把修好的从汇总里去掉
         self._problem_refs: list[tuple[str, str | None] | None] = []
@@ -244,6 +253,8 @@ class Nightly:
         env["PYTHONIOENCODING"] = "utf-8"
         env["PYTHONUNBUFFERED"] = "1"   # 子进程逐行吐，日志才是实时的
         env[storage.ENV_VAULT] = str(self.vault)  # 每一步都用同一个收藏库，不各自再猜
+        from . import night_captcha
+        env[night_captcha.ENV_UNATTENDED] = "nightly"  # 1011：夜里没人看着——撞验证先冷却自查，不当场推
         if self.run_id:
             from . import synclog
             env[synclog.ENV_RUN] = self.run_id
@@ -268,6 +279,8 @@ class Nightly:
         if step.account and self.account_stop:
             r.skipped = True
             self.log(f"[{step.name}] 跳过（碰号）：{self.account_stop_why}")
+            if step not in self.skipped_account:
+                self.skipped_account.append(step)
             if step.name == TAIL_STEP:
                 self._note_tail_skipped(self.account_stop_why)
             return r
@@ -393,8 +406,39 @@ class Nightly:
                 self.resolve(name)
         if step.account and r.code == 5:
             self.account_stop = True
+            self.account_stop_step = self.account_stop_step or name
             self.account_stop_why = f"{name} 退出 5（号要人处理：风控/掉登录/熔断），今晚不再开页"
             self.log(f"[护号] {self.account_stop_why}")
+
+    # ------------------------------------------------------------ 1011 撞验证后冷却自查
+    def _captcha_recover(self) -> None:
+        """碰号步骤退出 5 之后（离线步骤都跑过了）：冷却自查一次（captcha-recover，只认验证码类）。
+        干净 → 解除停车，接着跑今晚停下的碰号步骤（收藏同步那一步停的，改成按名单补抓、不再读收藏列表）；
+        否则今晚照旧停（推不推由 night_captcha 判：连着两晚才推）。一晚只做一次。永不抛。"""
+        if not self.account_stop or self.recover_tried:
+            return
+        self.recover_tried = True
+        left = self.minutes_left()
+        wait_cap = min(RECOVER_MAX_WAIT_MIN, left - RECOVER_MIN_LEFT_MIN)
+        if wait_cap < 0:
+            self.log("[验证自查] 今晚剩的时间不够冷却后再跑碰号步骤了，不自查")
+            return
+        step = Step(RECOVER_STEP, [RECOVER_STEP, "--wait", "--max-wait-min", f"{wait_cap:.0f}"], wait_cap + 8, reserve_min=10)
+        r = self.run_step(step)
+        if r.code != 0:
+            self.log(f"[验证自查] 今晚不恢复（exit={r.code}）：碰号步骤照旧跳过")
+            return
+        stopped_at = self.account_stop_step
+        self.account_stop, self.account_stop_why, self.account_stop_step = False, "", ""
+        self.log("[验证自查] 冷却后自查无验证，自动恢复：接着跑今晚停下的碰号步骤（不再读收藏列表）")
+        todo = list(self.skipped_account)
+        self.skipped_account = []
+        if stopped_at == SYNC_STEP:
+            # 收藏同步是在读列表时撞的验证：不再去碰收藏页，按全量名单补抓积压（每天上限照算）
+            self.run_step(Step(SNAPSHOT_SYNC_STEP, ["sync-favorites", "--from-snapshot", "--limit", "0", "--budget-min", "120"],
+                               125, account=True))
+        for st in todo:
+            self.run_step(st)
 
     # ------------------------------------------------------------ 开头的两项检查
     def unfinished_last_night(self) -> dict[str, str] | None:
@@ -606,6 +650,8 @@ class Nightly:
         repair_since = datetime.now().astimezone().isoformat(timespec="seconds")
         try:
             for step in self.steps:
+                if step.name == EMBED_STEP:
+                    self._captcha_recover()  # 1011：离线步骤跑完了（冷却期间没开任何页），撞了验证的话这里自查一次
                 if step.name == SYNC_STEP:
                     self._sync_with_retry(step)
                 elif step.name == REFINE_STEP:

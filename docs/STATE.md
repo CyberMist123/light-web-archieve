@@ -1,6 +1,7 @@
 # Current State
 
 - 2026-10-11（分支 wt/restricted1011，待部署）网页版要验证才给看的笔记（约 59 篇：收藏列表里没有、详情页上没有这篇）：读取组件 1011 认出 `NOTE_RESTRICTED`（只是这一篇、不写熔断；看得见的验证 / 安全跳转 / 登录框照旧按风控停），Python 每篇每天最多用标题搜一次新口令（`/api/v1/notes/search-token`）、歇 LWA_FETCH_REST 再开一次；还不行记 `derived/restricted.json` + 问题面板一条 `note.restricted`（不推送），补评论 / 附件 / 碰号补查跳过它；笔记页 / 问题面板「打开验证」= 笔记验证窗口（`note-verify <id> --wait`），过了自动补抓。读取组件源 `~/.xiaohongshu-mcp/src-restricted`（分支 restricted1011），补丁已重导出。验收记录 tests/acceptance/20261011-restricted.md。
+- 2026-10-11 夜里撞验证不再 4 点叫醒她（她：「正常跑就行」，分支 wt/nightrisk1011 + 读取组件 nightrisk1011，**未部署**）：没人看着（夜跑 / 后台补评论，`LINK_BRAIN_UNATTENDED`）时撞的验证码登记 `TRANSIENT.NIGHT_CAPTCHA` 不推；离线步骤照跑后 `captcha-recover` 冷却 45 分钟自查一次（读取组件 `POST /api/v1/risk/probe`：只认验证码、只开本号主页不点页签不滚、服务端冷却下限 30 分钟、一晚一次），干净自动恢复并接着跑停下的碰号步骤（收藏同步那步改 `--from-snapshot`，不再读列表），还在就安静停，连着两晚才推「小红书弹了验证（不是掉登录）」；掉登录 / 风控跳页照旧。收藏平时增量读（`POST /api/v1/favorites` 带已知 id，连着 20 篇读过的就停），每周日 / 超过 7 天才全量，积压按 `_archive/fav-list.json` 名单补。夜跑脚本新版在 worktree `ops/xhs-fav-sync.new.ps1`（不进 git）。见 ERRORS 第 16 条。
 
 - 2026-10-10 `remote restart` / `disable` 修：停计划任务后按端口停真正在听的 `link_brain remote serve` 及其跑 .ps1 的 pwsh 父进程（只按 PID、不带进程树、不碰读取服务），重启要见到新 PID 才回成功，否则如实失败；真机 restart 旧→新 PID 已换、18061 未受影响。pytest 全量过，node 67 过 / 0 挂 / 13 跳过（无 playwright）。
 

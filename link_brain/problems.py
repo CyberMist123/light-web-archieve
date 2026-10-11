@@ -116,7 +116,9 @@ ACCOUNT_CODES = ("NOT_LOGGED_IN", "CAPTCHA_REQUIRED", "ACCOUNT_RISK", "RISK_HOLD
 STATE_REGISTRY: dict[str, dict[str, str]] = {
     # —— 要人处理 ——
     "NEEDS_HUMAN.NOT_LOGGED_IN": dict(where="top+card", label="需要登录", hover="小红书账号掉登录了：点目录页顶部的问题入口扫码登录", group="needs_you"),
-    "NEEDS_HUMAN.CAPTCHA_REQUIRED": dict(where="top+card", label="需要验证", hover="小红书要安全验证：点「打开验证」，窗口打开后点一下「收藏」页签（上次是读收藏时被拦的）；出现滑块就拖完再关窗，没出现就直接关窗", group="needs_you"),
+    "NEEDS_HUMAN.CAPTCHA_REQUIRED": dict(where="top+card", label="需要验证", hover="小红书弹了验证（不是掉登录）：点「打开验证」，窗口打开后点一下「收藏」页签（上次是读收藏时被拦的）；出现滑块就拖完再关窗，没出现就直接关窗", group="needs_you"),
+    # 1011：没人看着时撞的验证码先不叫她（night_captcha）：冷却后自查一次，干净就自动恢复；连着两晚没好才升级成上面那条
+    "TRANSIENT.NIGHT_CAPTCHA": dict(where="list", label="夜里弹了验证（不是掉登录）", hover="{reason}", group="auto"),
     "NEEDS_HUMAN.ACCOUNT_RISK": dict(where="top+card", label="账号风控", hover="小红书把读取号跳到了登录/安全页：同步已全部暂停，点目录页顶部的问题入口处理", group="needs_you"),
     "NEEDS_HUMAN.RISK_HOLD": dict(where="top+card", label="风控暂停中", hover="风控暂停中：所有用号的同步都停了，点目录页顶部的问题入口处理，处理完自动恢复", group="needs_you"),
     "NEEDS_HUMAN.NOT_INSTALLED": dict(where="top+card", label="未安装读取组件", hover="按 README「读取组件」安装后刷新", group="needs_you"),
@@ -469,7 +471,7 @@ def last_risk() -> dict[str, Any] | None:
     「上次 HH:MM 在读收藏时判到验证」（她 1008：不拦、不冷却，只照实说）。读不动 = None。"""
     try:
         rows = [r for r in _read_rows() if r.get("step") == "login" and not r.get("note") and "dismiss" not in r
-                and not r.get("resolved_at") and str(r.get("key", "")).rsplit("|", 1)[-1] in INCIDENT_CODES]
+                and not r.get("resolved_at") and str(r.get("key", "")).rsplit("|", 1)[-1] in (*INCIDENT_CODES, "NIGHT_CAPTCHA")]
         if not rows:
             return None
         r = max(rows, key=lambda x: str(x.get("ts") or ""))
@@ -533,6 +535,8 @@ def _push(row: dict[str, Any]) -> None:
         step = str(row.get("step") or "")
         where = row.get("title") or row.get("item_id") or step_label(step)
         title = f"{entry['label']}：{where}"
+        if str(row.get("code") or "").endswith(".CAPTCHA_REQUIRED"):
+            title = "小红书弹了验证（不是掉登录）"  # 1011 她：一眼分清是验证还是掉登录
         # 正文 = 登记表那句「该做什么」（已填好）+ 原因详情（不重复时）
         reason = str(row.get("reason") or "")
         body = fill_hover(entry["hover"], reason, row.get("next_at"))
@@ -667,6 +671,10 @@ def report_blocked(step: str, code: str | None, reason: str, *, service: bool = 
         full = normalize(raw)
         sub = full.split(".", 1)[1]
         if sub in ACCOUNT_CODES and full.startswith("NEEDS_HUMAN."):
+            # 1011：没人看着（夜跑 / 后台补评论）时撞的验证码先不叫她：登记 TRANSIENT.NIGHT_CAPTCHA，冷却后自查（night_captcha）
+            from . import night_captcha
+            if night_captcha.defer(sub):
+                return night_captcha.report_deferred(reason)
             # 1008：出事那一刻的证据目录名（读取组件写在本机熔断文件里）——面板「查看截图」用；路径本身不进记录
             eid = None
             try:

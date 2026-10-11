@@ -168,8 +168,8 @@ def _update_baseline(status, payload):
     以前「连着 3 晚同一个数就认作新基准」会把读取服务每晚只读到的 50 条认成基准（10-03 实证），已去掉；
     suspect_favorites 只记最近几晚读到的可疑条数（给人看），不再拿它顶基准。"""
     total = payload.get('favorites_total')
-    if not total:
-        return
+    if not total or payload.get('incremental'):
+        return  # 1011：增量读 / 按名单补抓不是总数，不动基准
     last = int(status.get('last_favorites') or 0)
     bottom = payload.get('stop_reason') == 'has_more_false' and not payload.get('partial')
     trusted = not payload.get('partial') and not payload.get('suspicious')

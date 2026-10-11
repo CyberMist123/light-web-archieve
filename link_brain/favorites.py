@@ -25,6 +25,17 @@
   同步结果如实标「只读到一截（原因）」，**当晚不再重读收藏列表**（退出码 3：夜跑不重试、也不另登记「步骤出错」——
   10-04 就是一晚读三次撞上滑块）；
 - 旧读取服务没这些字段：和以前一样（0 条 / 少一半以上算可疑）。
+
+1011 增量读（作者本机：每晚把 1230 条收藏整份滚一遍，隔一晚撞一次滑块）：
+- 平时只读最新那一段：`POST /api/v1/favorites` 带已知 id（上次全量名单 + 已在库的 + 回收站里的），读取服务从最新往下
+  连着碰到 `LWA_FAV_STOP_KNOWN`（默认 20）篇已知的就停（stop_reason=known_streak，`incremental=true`）；
+- 全量（滚到底）只在：每周一次（`LWA_FAV_FULL_WEEKDAY`，默认周日；-1 = 不按星期）、上次全量超过 7 天、
+  没有全量名单、上一晚按名单抓连着失败（口令可能过期了）、或明确要（`--full`）。全量负责：名单（判删除 / 补积压）、
+  口令刷新、条数基准；
+- 全量名单存在 `_archive/fav-list.json`（最新在前）：增量那晚的待抓清单 = 读到的最新一段 + 名单里其余的（积压从这里接着补，
+  用名单里的口令，7 天内有效）；增量读不动基准、不当「只读到一截」、口令只合并读到的那段（attachments.remember_fav_tokens）；
+- `--from-snapshot`：不读收藏列表，只按名单补抓（夜里撞验证、冷却后自查恢复之后用：不再去碰刚弹过滑块的收藏页）；
+- 老读取服务不认 POST（404 / 405）：退回 GET 读全量（那次没开页、不吃限频）。
 """
 
 from __future__ import annotations
@@ -73,18 +84,158 @@ SOFT_STOP_TEXT = {
 }
 
 
+FAV_LIST_NAME = "fav-list.json"
+STOP_KNOWN_DEFAULT = 20
+FULL_MAX_DAYS = 7
+FULL_WEEKDAY_DEFAULT = 6            # 周日（datetime.weekday()：周一 = 0）
+SNAPSHOT_FIELDS = ("note_id", "xsec_token", "url", "title", "type", "author", "author_id")
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(str(os.environ.get(name) or default).strip())
+    except ValueError:
+        return default
+
+
+def stop_after_known() -> int:
+    return max(5, min(200, _env_int("LWA_FAV_STOP_KNOWN", STOP_KNOWN_DEFAULT)))
+
+
+def fav_list_path():
+    from . import storage
+    return storage.archive_root() / FAV_LIST_NAME
+
+
+def load_snapshot() -> dict[str, Any]:
+    """全量名单 {full_at, at, items:[{note_id, xsec_token, url, title…}], full_next?}；没有 / 坏了 = {}。"""
+    from . import storage
+    try:
+        data = storage.read_json(fav_list_path())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) and isinstance(data.get("items"), list) else {}
+
+
+def _save_snapshot(data: dict[str, Any]) -> None:
+    from . import storage
+    try:
+        storage.write_json(fav_list_path(), data)
+    except OSError as exc:
+        print(f"[sync-favorites] 收藏名单没存上（不影响同步）：{exc}", file=sys.stderr)
+
+
+def _slim(item: dict[str, Any]) -> dict[str, Any]:
+    return {k: item[k] for k in SNAPSHOT_FIELDS if item.get(k) not in (None, "")}
+
+
+def _parse_ts(value: Any) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(value)).astimezone()
+    except (TypeError, ValueError):
+        return None
+
+
+def read_mode(*, force_full: bool = False, now: datetime | None = None) -> tuple[str, str]:
+    """这次读收藏读全量还是增量：('full' | 'incremental', 为什么)。"""
+    now = now or datetime.now().astimezone()
+    if force_full:
+        return "full", "明确要读全量"
+    snap = load_snapshot()
+    if not snap.get("items"):
+        return "full", "还没有全量名单"
+    if snap.get("full_next"):
+        return "full", "上一晚按名单抓连着失败，口令可能过期了"
+    full_at = _parse_ts(snap.get("full_at"))
+    if full_at is None or now - full_at >= timedelta(days=FULL_MAX_DAYS):
+        return "full", f"上次全量超过 {FULL_MAX_DAYS} 天"
+    weekday = _env_int("LWA_FAV_FULL_WEEKDAY", FULL_WEEKDAY_DEFAULT)
+    if 0 <= weekday <= 6 and now.weekday() == weekday and full_at.date() != now.date():
+        return "full", "每周一次的全量"
+    return "incremental", ""
+
+
+def known_ids() -> set[str]:
+    """读取服务判「读到已知处」用的已知 id：全量名单 + 已在库的 + 回收站里（屏蔽同步）的。"""
+    ids = {str(x.get("note_id")) for x in load_snapshot().get("items") or [] if x.get("note_id")}
+    try:
+        from . import index as index_mod
+        conn = index_mod.connect()
+        try:
+            ids.update(str(r[0]) for r in conn.execute("SELECT source_id FROM tombstones WHERE source = ?", (xhs.SOURCE,)))
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001 - 读不到回收站只是少几个已知 id
+        pass
+    try:
+        from . import storage
+        root = storage.archive_root() / xhs.SOURCE
+        if root.is_dir():
+            ids.update(p.name for p in root.iterdir() if p.is_dir())
+    except OSError:
+        pass
+    return {i for i in ids if i}
+
+
+def merge_with_snapshot(items: list[dict[str, Any]], snap: dict[str, Any]) -> list[dict[str, Any]]:
+    """增量读到的最新一段 + 名单里其余的（名单顺序，标 _src=snapshot：口令是名单里的）。"""
+    seen = {str(x.get("note_id")) for x in items if x.get("note_id")}
+    rest = [{**x, "_src": "snapshot"} for x in snap.get("items") or []
+            if x.get("note_id") and str(x.get("note_id")) not in seen]
+    return [*items, *rest]
+
+
+def _remember_list(items: list[dict[str, Any]], *, full: bool) -> None:
+    """全量读全：名单整份换掉（full_at = 现在）；增量 / 一截：读到的合进名单最前面，其余原样，full_at 不动。"""
+    now = datetime.now().astimezone().isoformat(timespec="seconds")
+    if full:
+        _save_snapshot({"schema_version": 1, "full_at": now, "at": now, "items": [_slim(x) for x in items]})
+        return
+    snap = load_snapshot()
+    if not snap.get("items"):
+        return  # 没有全量名单时，一截不当名单
+    merged = [_slim({k: v for k, v in x.items() if k != "_src"}) for x in merge_with_snapshot(items, snap)]
+    _save_snapshot({**snap, "at": now, "items": merged})
+
+
+def mark_full_next(why: str) -> None:
+    snap = load_snapshot()
+    if snap.get("items"):
+        _save_snapshot({**snap, "full_next": why[:120]})
+
+
 class FavoritesSoftStop(RuntimeError):
     """读收藏这次先停（不熔断、不要人处理）：带 .code（HIDDEN_WIDGET / FAV_TAB_STUCK）。"""
 
     code = ""
 
 
-def fetch_favorites(*, limit: int = 50, verbose: bool = False) -> list[dict[str, Any]]:
+def _post_incremental(known: set[str]) -> dict[str, Any] | None:
+    """1011 增量读：POST 带已知 id。老读取服务不认这个路由（404 / 405）→ None（调用方退回 GET 全量）。"""
+    try:
+        expect = int(sync_state.load().get("last_favorites") or 0)
+    except (TypeError, ValueError):
+        expect = 0
+    body = {"known_ids": sorted(known), "stop_after_known": stop_after_known()}
+    if expect > 0:
+        body["expect"] = expect
+    try:
+        return accounts.api("POST", "/api/v1/favorites", timeout=780, body=body)
+    except accounts.ReaderError as exc:
+        if exc.code in ("HTTP_404", "HTTP_405"):
+            print("[sync-favorites] 读取组件还不认增量读，这次退回读全量", file=sys.stderr)
+            return None
+        raise
+
+
+def fetch_favorites(*, limit: int = 50, verbose: bool = False, mode: str = "full") -> list[dict[str, Any]]:
     """经读取服务 `/api/v1/favorites` 读当前登录账号的收藏（与评论/附件同一个号、同一个会话）。
 
     要人处理的（未登录 / 安全验证 / 风控 / 组件未装）→ `AccountBlockedError`，带 `.code`；
     其余（服务不在 / 超时 / 限频）→ `ServiceDownError`。一律停车，不在这里重试——
     重试会撞风控验证码（2026-09-25 实测）。
+
+    mode='incremental'（1011）：只读最新那一段，返回「读到的 + 全量名单里其余的」（积压照补）；_LAST_READ 带 incremental。
     """
     global _LAST_TOTAL, _LAST_READ
     _LAST_TOTAL = None
@@ -94,7 +245,12 @@ def fetch_favorites(*, limit: int = 50, verbose: bool = False) -> list[dict[str,
         accounts.pace("读收藏")
         # 读取服务：滚动预算 420 秒、单次请求上限 10 分钟（含启动浏览器 / 关浏览器）；客户端 780 秒比它长，
         # 别把「慢」当成「号出事」
-        data = accounts.api("GET", favorites_route(), timeout=780)
+        data = None
+        known = known_ids() if mode == "incremental" else set()
+        if mode == "incremental" and known:
+            data = _post_incremental(known)
+        if data is None:
+            data = accounts.api("GET", favorites_route(), timeout=780)
     except accounts.ReaderError as exc:
         if exc.code in SOFT_STOP_CODES:
             # 1008（读取组件 d7）：看不见的验证组件 / 页签点不动——只停这一次读收藏，不熔断、不是要人处理，
@@ -110,22 +266,40 @@ def fetch_favorites(*, limit: int = 50, verbose: bool = False) -> list[dict[str,
     items = data.get("items") or []
     _LAST_TOTAL = len(items)
     _LAST_READ = {key: data[key] for key in READ_FIELDS if key in data}
+    incremental = bool(data.get("incremental")) or data.get("stop_reason") == "known_streak"
+    if incremental:
+        _LAST_READ["incremental"] = True
     global _CURRENT_ACCOUNT
     cfg = accounts.config()
     _CURRENT_ACCOUNT = {"nickname": data.get("nickname") or cfg.get("nickname") or "",
                         "user_id": cfg.get("user_id") or ""}
     if verbose:
         print(f"[sync-favorites] {data.get('nickname')} 收藏 {len(items)} 条", file=sys.stderr)
-    # 读全时把「笔记 id → 最新口令」存到本地（零开页），附件补查 / 下载优先用它（批次 D · L6 P8）
+    # 读全时把「笔记 id → 最新口令」存到本地（零开页），附件补查 / 下载优先用它（批次 D · L6 P8）；
+    # 1011 增量读只合并读到的那段（没读到的口令原样留着，各自按自己的时刻算新不新）
     from . import attachments
-    attachments.remember_fav_tokens(items, partial=bool(data.get("partial")))
+    partial = bool(data.get("partial"))
+    attachments.remember_fav_tokens(items, partial=partial, merge=incremental)
+    # 1011 全量名单：读全才整份换；增量 / 一截只把读到的合进去
+    try:
+        last = int(sync_state.load().get("last_favorites") or 0)
+    except (TypeError, ValueError):
+        last = 0
+    full = not incremental and not partial and bool(items) and not suspicious_reason(len(items), last, _LAST_READ)
+    _remember_list(items, full=full)
+    if incremental:
+        snap = load_snapshot()
+        items = merge_with_snapshot(items, snap)
+        if verbose:
+            print(f"[sync-favorites] 增量读：最新 {_LAST_TOTAL} 条（连着碰到 {stop_after_known()} 篇读过的就停），"
+                  f"连同名单共 {len(items)} 条", file=sys.stderr)
     if limit and limit > 0:
         items = items[:limit]
     return items
 
 
 # 新读取服务（10-04 F1）在响应里多带的读法结论；旧读取服务没有这些键
-READ_FIELDS = ("partial", "stop_reason", "has_more", "expect", "scroll")
+READ_FIELDS = ("partial", "stop_reason", "has_more", "expect", "scroll", "incremental")
 STOP_REASON_TEXT = {
     "budget": "滚动时间用完了还在加载",
     "below_expect": "条数停在上次基准以下、页面又没说到底",
@@ -137,6 +311,7 @@ STOP_REASON_TEXT = {
     "tab_lost": "滚动途中页签跳走了",
     "not_scrolled": "读取服务没给出滚动结论",
     "risk": "撞到风控",
+    "known_streak": "读到上次读过的地方就停了（增量读）",
 }
 
 
@@ -155,7 +330,10 @@ def suspicious_reason(total: int, last: int, read: dict[str, Any]) -> str:
     - 读取服务明说 partial（只读到一截）→ 可疑，带上判停原因；
     - 0 条永远可疑（哪怕说读到底了）；
     - 读取服务明说读到底了（stop_reason=has_more_false）→ 可信，哪怕比上次少很多（她真删了收藏）；
-    - 其余（旧读取服务没这些字段 / stable）→ 老规矩：比上次少一半以上算可疑。"""
+    - 其余（旧读取服务没这些字段 / stable）→ 老规矩：比上次少一半以上算可疑。
+    - 1011 增量读（incremental / stop_reason=known_streak）：本来就只读最新一段，条数少不算可疑（0 条照样可疑）。"""
+    if read.get("incremental") or read.get("stop_reason") == "known_streak":
+        return "" if total > 0 else "收藏读回 0 条：多半是收藏页没加载完或被限流，这次不算同步成功；今晚不再重读收藏列表"
     if read.get("partial"):
         why = STOP_REASON_TEXT.get(str(read.get("stop_reason") or ""), str(read.get("stop_reason") or "原因没报"))
         base = f"（上次 {last} 条）" if last else ""
@@ -310,17 +488,44 @@ def sync_favorites(
     verbose: bool = False,
     extract: bool = False,
     deadline: float | None = None,
+    mode: str = "auto",
 ) -> dict[str, Any]:
     """读收藏 → 逐条 ingest（去重）→ `{"favorites": N, "synced": M, "items": [...]}`。
 
     这是**抓取阶段**（用号）。`extract` 在这里不用——识图/概要由 `run` 在放掉账号锁之后交给 enrich。
     `deadline` 是 time.monotonic() 的时刻：到了就不再开新的抓取，剩下的记 deferred。
+    mode（1011）：auto = 平时增量、每周 / 该全量时全量（read_mode）；full = 读全量；snapshot = 不读列表，只按全量名单补抓。
     """
-    global _LAST_TOTAL, _LAST_READ
+    global _LAST_TOTAL, _LAST_READ, _CURRENT_ACCOUNT
     _LAST_TOTAL = None
     _LAST_READ = {}
+    read_label = ""
+    if mode == "snapshot":
+        snap = load_snapshot()
+        full_at = _parse_ts(snap.get("full_at"))
+        if not snap.get("items") or full_at is None or \
+                datetime.now().astimezone() - full_at >= timedelta(days=FULL_MAX_DAYS):
+            note = "还没有新近的收藏名单（7 天内读过全量才有），这次不按名单补抓"
+            print(f"[sync-favorites] {note}", file=sys.stderr)
+            return {"favorites": 0, "synced": 0, "items": [], "read_mode": "snapshot", "note": note}
+        cfg = accounts.config()
+        _CURRENT_ACCOUNT = {"nickname": "", "user_id": cfg.get("user_id") or ""}
+        _CURRENT_ACCOUNT["nickname"] = cfg.get("sync_account") or cfg.get("nickname") or ""
+        favs = [{**x, "_src": "snapshot"} for x in snap["items"] if x.get("note_id")]
+        if limit and limit > 0:
+            favs = favs[:limit]
+        read_label = "snapshot"
+        print(f"[sync-favorites] 不读收藏列表，按名单（{full_at:%m-%d} 全量）补抓：共 {len(favs)} 条", file=sys.stderr)
+    else:
+        rmode, why = read_mode(force_full=(mode == "full"))
+        read_label = rmode
+        print(f"[sync-favorites] 这次读收藏：{'全量' if rmode == 'full' else '增量（只读最新一段）'}"
+              + (f"（{why}）" if why else ""), file=sys.stderr)
     try:
-        favs = fetch_favorites(limit=limit, verbose=verbose)
+        if read_label == "full":
+            favs = fetch_favorites(limit=limit, verbose=verbose)
+        elif read_label == "incremental":
+            favs = fetch_favorites(limit=limit, verbose=verbose, mode="incremental")
     except FavoritesSoftStop as exc:
         code = getattr(exc, "code", "") or "HIDDEN_WIDGET"
         text = f"{SOFT_STOP_TEXT.get(code, '')}（读取服务：{exc}）" if str(exc) and str(exc) != SOFT_STOP_TEXT.get(code) \
@@ -347,7 +552,7 @@ def sync_favorites(
     total = _LAST_TOTAL if _LAST_TOTAL is not None else len(favs)
     last = int(sync_state.load().get("last_favorites") or 0)
     read = dict(_LAST_READ)
-    suspicious = suspicious_reason(total, last, read)
+    suspicious = "" if mode == "snapshot" else suspicious_reason(total, last, read)
     # 可疑 = 这次不算同步成功：sync_state.record 记 TRANSIENT.FAVORITES_SUSPICIOUS（一条，原因一句），
     # 基准不被这次顶掉（sync_state._update_baseline）；退出码 3 让夜跑今晚不再重读
 
@@ -373,6 +578,7 @@ def sync_favorites(
     deferred_quota = deferred_budget = skipped_failing = held_known_bad = 0
     consecutive = 0
     known_streak = 0
+    fail_srcs: list[str] = []   # 1011：连着失败的那几篇是不是按名单（旧口令）抓的
     fetched_any = False
     fetched_new: list[str] = []
     stop_code = ""
@@ -427,6 +633,7 @@ def sync_favorites(
                               "余下的今晚不再试", file=sys.stderr)
                 else:
                     consecutive += 1
+                    fail_srcs.append(fav.get("_src") or "")
             elif status != "blocked":
                 consecutive = 0
                 known_streak = 0
@@ -448,15 +655,20 @@ def sync_favorites(
             # 只记不推，下次同步再来；连续 3 天都这样才升级推一次（sync_state.record 登记）
             print(f"[sync-favorites] 连续 {consecutive} 篇没抓到，先停下。最近的原因：\n"
                   + "\n".join(e[:160] for e in recent), file=sys.stderr)
+            if fail_srcs[-MAX_CONSECUTIVE_FAILURES:] == ["snapshot"] * MAX_CONSECUTIVE_FAILURES:
+                # 1011：连着失败的都是按名单里的旧口令抓的——口令可能过期了：下一次读收藏读全量（顺带刷新口令）
+                mark_full_next(f"按名单抓连着 {consecutive} 篇失败，口令可能过期了")
             break
     failures.save()
     if suspicious:
         synclog.error("sync-favorites", suspicious, "FAVORITES_SUSPICIOUS")
     if stop_code:
         synclog.error("sync-favorites", f"连着 {consecutive} 篇没抓到，先停下（下次同步再来）", stop_code)
-    out: dict[str, Any] = {"favorites": len(favs), "synced": len(items), "items": items}
-    if total:
-        out["favorites_total"] = total
+    out: dict[str, Any] = {"favorites": len(favs), "synced": len(items), "items": items, "read_mode": read_label}
+    if total and mode != "snapshot" and not read.get("incremental"):
+        out["favorites_total"] = total   # 只有读全量才拿条数当总数 / 基准（增量、按名单补抓都不是总数）
+    elif total and mode != "snapshot":
+        out["favorites_read"] = total
     out.update(read)  # partial / stop_reason / has_more / expect / scroll：如实带上，旧读取服务没有就不带
     if suspicious:
         out["suspicious"] = suspicious
@@ -665,6 +877,8 @@ def _run(args) -> tuple[int, dict[str, Any]]:
                     actor=getattr(args, "actor", "human"),
                     verbose=getattr(args, "verbose", False),
                     deadline=deadline,
+                    mode=("snapshot" if getattr(args, "from_snapshot", False)
+                          else "full" if getattr(args, "full", False) else "auto"),
                 )
             except Exception:
                 sync_state.record("failed", message="同步未完成，请打开账号 / 同步查看详情并重试")

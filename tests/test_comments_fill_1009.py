@@ -238,7 +238,8 @@ def test_worker_waits_out_captcha_without_opening_pages_then_resumes(tmp_path, m
     setup_env(tmp_path, monkeypatch)
     _ingest(monkeypatch, capsys, _raw([_floor("c1", 4, 1)]))
     _later(monkeypatch)
-    answers = iter([("CAPTCHA_REQUIRED", "小红书要安全验证"), ("CAPTCHA_REQUIRED", "小红书要安全验证")])
+    # 1011：验证码改走冷却自查（test_night_captcha_1011）；要人处理的其它码（这里：风控跳页）照旧只看内存状态等她
+    answers = iter([("ACCOUNT_RISK", "小红书把读取号跳到了安全页"), ("ACCOUNT_RISK", "小红书把读取号跳到了安全页")])
     monkeypatch.setattr(comment_fill, "account_wait_reason", lambda: next(answers, ("", "")))
     monkeypatch.setattr(comment_fill, "nightly_busy", lambda *a, **k: "")
     monkeypatch.setattr(accounts, "lock_wanted", lambda: False)
@@ -251,7 +252,7 @@ def test_worker_waits_out_captcha_without_opening_pages_then_resumes(tmp_path, m
     seen = _statuses(monkeypatch)
     naps = []
     assert comment_fill.run(_args(until_done=True), sleep=naps.append) == 0
-    waiting = [s for s in seen if s.get("wait_code") == "CAPTCHA_REQUIRED"]
+    waiting = [s for s in seen if s.get("wait_code") == "ACCOUNT_RISK"]
     assert waiting and all(s["state"] == "waiting" for s in waiting)
     assert len(calls) == 1  # 熔断期间一页没开，过完验证才开
     assert seen[-1]["state"] == "done" and "都补齐了" in seen[-1]["message"]

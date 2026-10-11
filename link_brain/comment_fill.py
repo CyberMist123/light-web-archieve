@@ -558,7 +558,7 @@ def account_wait_reason() -> tuple[str, str]:
     hold = accounts.hold_from_session(session)
     if hold:
         code = str(hold.get("code") or "RISK_HOLD")
-        what = "掉登录了：在设置 / 问题入口扫码登录" if code == "NOT_LOGGED_IN" else "要安全验证：点问题入口「打开验证」"
+        what = "掉登录了：在设置 / 问题入口扫码登录" if code == "NOT_LOGGED_IN" else "弹了验证（不是掉登录）：点问题入口「打开验证」"
         return code, f"小红书{what}，处理好自动接着补（{accounts.hold_text(hold) or '暂停中'}）"
     if isinstance(session, dict):
         if session.get("logged_in") is False:
@@ -599,7 +599,10 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
     from . import accounts
     from .adapters import xiaohongshu as xhs
     from .read import dump_json, outcome
+    from . import night_captcha
     until_done = bool(getattr(args, "until_done", False))
+    if until_done:
+        night_captcha.set_unattended("comments-fill")  # 1011：后台补跑没人看着——撞验证先冷却自查，不当场推
     budget = float(getattr(args, "budget_min", 0) or 0)
     limit = int(getattr(args, "limit", 0) or 0)
     verbose = bool(getattr(args, "verbose", False))
@@ -671,6 +674,23 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
                         message=status.text("补评论暂停") + " · 别的任务要用号，先让它")
                     continue
             code, why = account_wait_reason()
+            if code == "CAPTCHA_REQUIRED" and until_done and night_captcha.unattended():
+                # 1011：后台补评论撞的验证先不叫她——冷却后自查一次（night_captcha），干净就接着补，还在就今天先停（不推）
+                r = night_captcha.recover(wait=False)
+                res = r.get("result")
+                if res in ("cleared", "no_hold"):
+                    continue  # 自查干净 / 暂停已经不在了：回头再看一眼号，接着补
+                if res in ("cooling", "busy", "error"):
+                    left = float(r.get("retry_after_s") or WAIT_BUSY_S)
+                    when = f"，{r['ready_at'][11:16]} 自己再看一眼" if r.get("ready_at") else ""
+                    nap(max(30.0, min(900.0, left)), state="waiting", current=None, wait_code="CAPTCHA_COOLDOWN",
+                        message=status.text("补评论暂停") + f" · {night_captcha.SAY}，先冷却{when}")
+                    continue
+                if res != "not_captcha":
+                    # 今天已经自查过 / 自查验证还在 / 掉登录：今天先停（不推；连着两晚才由 night_captcha 推一次）
+                    stop_msg = f"{night_captcha.SAY}：{r.get('message') or '冷却后自查没过'}"
+                    deferred = len(ready)
+                    break
             if code:
                 if not until_done or code == "NOT_INSTALLED":
                     stop_msg = why if code != "NOT_INSTALLED" else "没装读取组件，补不了评论（装好后同步时会接着补）"

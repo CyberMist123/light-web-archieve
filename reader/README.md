@@ -43,6 +43,7 @@ go build -o relatedfile.exe ./cmd/relatedfile   # 附件探测用的游客浏览
 **读取**
 - `GET /api/v1/favorites[?expect=N]`：当前账号的收藏列表（10 分钟限频）。判底看页面状态里的「还有更多」（`hasMore=false` 才算读全）；页面不给 `hasMore`、条数又明显低于调用方给的基准 `N` 时换滚法再试（四级），滚动间隔带抖动；一次请求最多滚到底 1 次，滚动预算 420 秒、请求上限 10 分钟。响应如实带 `partial` / `stop_reason` / `has_more` / `scroll`，读不全不当全量交出去。
   - 前兆即停（「点不动」「卡住」多半是收藏接口开始拒绝，不再加码）：收藏页签第 1 轮拟人点击没生效 → 查一次风控、落证据、在原页面歇 20–40 秒；点第 2 次之前先只读看一眼——第 1 次点击已经迟到生效就不再点，收藏接口已经回了拒绝也不再点；否则再拟人点 1 次（不用 DOM 合成点击、不换新页、不再做第二次登录检查），还不生效就回 `503 FAV_TAB_STUCK`（「页签点不动，疑似小红书在限流，今晚先不读收藏」，不写熔断）；条数停住而页面说还有更多时最多换第 1 级滚法（往回滚一截），还不动就停（`stop_reason=stalled`，partial），不上真实滚轮，卡住期间每轮都查风控。
+  - 增量读（1011）：`POST /api/v1/favorites`，body `{"expect": N, "known_ids": [...], "stop_after_known": K}`——从最新往下滚，列表里连着出现 K 篇（夹在 5–200）调用方已知的笔记就停，`stop_reason=known_streak`、`partial=false`、`incremental=true`；不给 `known_ids` 等于全量。`GET` 一字不变（老调用方照旧）；坏 body 回 400、不吃限频。
   - 读收藏时监听收藏接口回包（只读浏览器内存）：接口回了拒绝（HTTP ≥400 或 `success=false`）就立即停（`stop_reason=api_refused`，partial）；页面上的「还没有收藏」若是被拒后的占位，不当成空收藏交出去。
   - 滚动途中页面里出现看不见的验证组件（见下「防风控」）：立即停，已读到的按 partial 交回（`stop_reason=hidden_widget`），不写熔断；还没开始滚就碰上，回 `503 HIDDEN_WIDGET`（「页面里有验证组件但没显示滑块，这次先停，下次照常读」）。
 - 评论逐楼展开：前 `limit` 楼（默认 10）每楼的回复连点「展开」到底；预算在各楼之间轮转分配（每档 30 条），点之前把按钮滚进视口、点不动退回 DOM click 并退避重试，疑似限频就歇一段；整个请求预算默认 540 秒（参数 `comment_budget_s` / `comment_config.budget_s`，每楼回复上限 `max_replies_per_floor`，0 = 全部）。响应 `comment_load` 如实带 `floors_loaded`、`floors_expanded`、每楼缺多少（`replies_partial`）、判停原因和用时。
@@ -92,7 +93,7 @@ go build -o relatedfile.exe ./cmd/relatedfile   # 附件探测用的游客浏览
 - 风控熔断：命中 `ACCOUNT_RISK` / `CAPTCHA_REQUIRED` / `NOT_LOGGED_IN` 就写 `<XHS_PROFILE_DIR>/risk-hold.json`（`{"code","since","detail"}`，经页面探针撞上的另带出事页面 `url`、子页签 `tab`、程序要去的子页签 `want_tab`、证据目录 `evidence`；重启服务后仍生效）。
   熔断期间一切会开浏览器的请求都被拒绝：REST 回 `423 {"code":"RISK_HOLD","hold":{…}}`，MCP 工具回 `isError` 且文本含 `[RISK_HOLD]`。
   HTTP 里的熔断对象不带 `url`（含本号主页和 `xsec_token`，只留给验证窗口用）；`423` 里也不带证据目录，只有 `/login/session` 带。
-  只有三种方式解除：登录窗口（或远程扫码）扫码成功、`POST /api/v1/verify/window` 人工验证完成、`POST /api/v1/risk/clear`。
+  只有这几种方式解除：登录窗口（或远程扫码）扫码成功、`POST /api/v1/verify/window` 人工验证完成、`POST /api/v1/risk/clear`，以及（1011，只限验证码类）`POST /api/v1/risk/probe` 冷却后自查干净（见下）。
   验证窗口不再「关窗即解除」：没有熔断时不开窗（回 `result:"no_hold"`）；有熔断就打开出事的那一页（去掉 `tab` 参数，不让页面自己去读收藏），出事时在收藏页签、或正要去收藏页签的，页面顶部提示「请点一下『收藏』页签看看有没有滑块」（窗口不替你点；出事页面不是主页时从首页经侧栏「我」进主页）。
   解除都要求关窗前页面干净且看到已登录；验证码 / 安全跳转类另要求窗口里**出现过**验证（她真拖过了）；从头到尾没出现过就保持熔断，`/login/session` 给 `verify_result:"no_captcha_seen"`，由人确认没事后 `POST /api/v1/risk/clear`。连续两次读不到窗口才算关窗；有提示时每秒看一眼。
   取二维码时、或登录窗口一打开就发现「已是登录态」（没扫码），只解除 `NOT_LOGGED_IN`。
@@ -100,6 +101,12 @@ go build -o relatedfile.exe ./cmd/relatedfile   # 附件探测用的游客浏览
   她过完验证、看到笔记就关窗；关窗前页面上还要验证 / 被跳到安全页 → 按风控写熔断（`still_risk`），有登录框 → `NOT_LOGGED_IN`，
   窗口里看到过这篇正常渲染 → `note_ok`，否则 `note_not_seen`；`/login/session` 多给 `verify_note`（`note_id` / `ok` / 当时地址里的口令）。
   有熔断时一律先走熔断验证（`mode:"hold"`）。
+- 冷却后自查（1011）：`POST /api/v1/risk/probe`（body 可带 `{"cooldown_s": 2700}`）——第四条、单独的解除路，`risk/clear` 语义不变：
+  只认 `CAPTCHA_REQUIRED`（掉登录 / 安全跳转回 `result:"not_captcha"`，什么都不做）；熔断写下后不满冷却（调用方给的数，服务端下限 30 分钟）回 `cooling` + `retry_after_s`、不开页；
+  同一次熔断两次自查至少隔 20 小时（开页前把 `auto_probe_at` 落进 `risk-hold.json`，重启也算数），再来回 `already_probed`；
+  自查 = 用号开一页本号主页（出事页面就是本号主页时去掉 `tab` 直开，否则从侧栏「我」进），不点页签、不滚动、不读收藏，过统一风控检查（看不见的验证组件也当「还在」）+ 读登录态；
+  干净且已登录才解除（日志写「冷却后自查无验证，自动恢复」），还有验证 `still_risk` / 是游客 `not_logged_in` / 读不到 `not_read` 一律保持；浏览器被别的操作占着回 `window_failed`、不算查过。
+  熔断中放行；扫码 / 验证窗口开着照旧 409。结论进 `/login/session` 的 `auto_probe`。
   登录窗口、验证窗口、扫码、`/login/session`、`/login/logout`、`/risk/clear` 不受熔断拦截。
 - 两道闸：请求进来时查一次；拿到浏览器锁之后、启动浏览器之前再查一次——排在锁后面等的请求，
   若前一个请求刚撞了风控，也回 `423 RISK_HOLD` / `[RISK_HOLD]`，不开浏览器。
