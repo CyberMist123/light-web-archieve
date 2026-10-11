@@ -657,3 +657,19 @@ body.lb-actions-on .xhs-note .lb-tags .lb-tag:hover { text-decoration: underline
 .xhs-note mark.lb-mark-pending { opacity: .6; }
 /* N6：评论图预写的 width/height 只做占位（防跳），高度仍按比例由宽度算，不让 height 属性变成真高度 */
 .xhs-note .lb-comment-image { height: auto; }
+
+/* ── 1011 她：打开一篇先露出原始 Markdown（属性块 + 带 link_brain 的 JSON、蓝色「Lb topbar」框、<!-- link-brain:content:start -->）再变正常页 ──
+   插件已让归档笔记直接以阅读视图打开（main.js previewOpenState）；这里是不靠 cssclasses 的第二道：cssclasses 要等 Obsidian
+   解析完这篇的属性才挂到视图上，早一两帧视图上还没有 .xhs-note，上面那些 .xhs-note 规则全不生效。只用归档笔记独有的东西认：
+   ①属性里有 link_brain 的属性块直接不显示；②顶栏 callout（lb-topbar 是我们自己的类型）不靠 .xhs-note 也去框、去标题；
+   ③视图里有带 data-lb-item 的 .lb-note、却还没挂上 .xhs-note 时整页先不露（visibility，占位不变），.xhs-note 一到立刻显示；
+      最多遮 1.2 秒（动画放行），哪怕 cssclasses 被删了也不会一直空白。 */
+.metadata-container:has(.metadata-property[data-property-key="link_brain"]) { display: none !important; }
+.callout[data-callout="lb-topbar"] { margin: 2px 0 16px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; mix-blend-mode: normal; font-size: 0.86em; }
+.callout[data-callout="lb-topbar"] .callout-title { display: none; }
+.callout[data-callout="lb-topbar"] .callout-content { padding: 0; }
+.callout[data-callout="lb-topbar"] p { margin: 0; }
+.callout[data-callout="lb-topbar"] a, .callout[data-callout="lb-topbar"] a.internal-link { color: var(--text-muted); text-decoration: none; }
+@keyframes lb-unveil { from { visibility: hidden; } to { visibility: visible; } }
+.markdown-preview-view:not(.xhs-note):has(> .markdown-preview-sizer > div > .lb-note[data-lb-item]) > .markdown-preview-sizer,
+.markdown-source-view:not(.xhs-note):has(.lb-note[data-lb-item]) .cm-sizer { animation: lb-unveil 0.01s linear 1.2s both; }

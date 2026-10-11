@@ -764,6 +764,11 @@ class LinkBrainActions extends Plugin {
     this.addCommand({ id: 'refine-images', name: '精细识别这篇的图（强模型补跑流程图/表格）', checkCallback: checking => this.archiveCommand(checking, file => this.refineImages(file)) });
     // 0928 Owner：归档笔记默认用阅读视图打开——编辑视图里点一下 HTML 块会变回源码，批注也挪不到图片下面。
     // 只在打开的那一下切一次；之后自己切到编辑视图不会被切回来。
+    // 1011 她：打开一篇先露出原始 Markdown 再变正常页。根因：目录 / 链接 / 同步记录都走 openLinkText、不带 mode，
+    // Obsidian 先按默认（她是实时预览）渲一遍，下面 file-open 里才切阅读视图、再渲一遍——中间那一下就是原始的属性块 +
+    // 「Lb topbar」框 + <!-- link-brain:content:start -->。现在在 leaf.openFile 这一层就带上 mode:'preview'，第一帧就是
+    // 阅读视图；调用方自己给了 mode 的照它的。下面的 file-open 留作兜底（属性缓存还没好时打开的那种）。
+    this.patchOpenFile();
     if (this.app.workspace?.on) this.registerEvent(this.app.workspace.on('file-open', (file) => {
       if (!(file instanceof TFile) || !this.app.metadataCache.getFileCache(file)?.frontmatter?.link_brain?.item_id) return;
       const leaf = this.app.workspace.getActiveViewOfType(obsidian.MarkdownView)?.leaf;
@@ -2343,6 +2348,32 @@ class LinkBrainActions extends Plugin {
   }
 
   // 统一的占用句（「还在跑」都用它）：正在X（进度），完成后再点，或在底部状态栏停止。进度来自 this.runningProgress（状态栏那条线写）
+  // 1011：归档笔记（frontmatter.link_brain.item_id）一律以阅读视图打开——给 openFile 的 openState 补上 mode:'preview'。
+  // 调用方已经指定了 mode 的不动；不是 md / 不是归档笔记的不动；出任何错照原样打开（fail-open）。
+  previewOpenState(file, openState) {
+    if (!(file instanceof TFile) || file.extension !== 'md') return openState;
+    if (!this.app.metadataCache.getFileCache(file)?.frontmatter?.link_brain?.item_id) return openState;
+    const st = openState && openState.state;
+    if (st && st.mode) return openState;
+    return { ...(openState || {}), state: { ...(st || {}), mode: 'preview' } };
+  }
+  patchOpenFile() {
+    const proto = obsidian.WorkspaceLeaf && obsidian.WorkspaceLeaf.prototype;
+    if (!proto || typeof proto.openFile !== 'function') return false;
+    const plugin = this, orig = proto.openFile;
+    let live = true;
+    const wrapped = function (file, openState, ...rest) {
+      let next = openState;
+      if (live) { try { next = plugin.previewOpenState(file, openState); } catch { next = openState; } }
+      return orig.call(this, file, next, ...rest);
+    };
+    wrapped.lbOriginal = orig;
+    proto.openFile = wrapped;
+    // 卸载时还原；别的插件后来又包了一层就不动它的链，只让这一层变成直通
+    this.register(() => { live = false; if (proto.openFile === wrapped) proto.openFile = orig; });
+    return true;
+  }
+
   busyText(label) {
     const what = label || this.running || (this.importing ? '导入' : '') || '处理';
     const prog = this.runningProgress ? `（${this.runningProgress}）` : '';
