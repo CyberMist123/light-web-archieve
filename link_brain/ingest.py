@@ -5,6 +5,7 @@ Lot 1 只到 RAW 落盘；索引（Lot 2）、渲染（Lot 3）在后面接上�
 """
 
 from __future__ import annotations
+from .errtext import errtext
 
 import hashlib
 import io
@@ -123,7 +124,7 @@ def _download_comment_audio(audio: dict[str, Any], comment_id: str, assets: Path
         entry.update(file=f"{rel_prefix}/assets/{name}", bytes=len(response.content),
                      sha256=hashlib.sha256(response.content).hexdigest(), download_status="ok")
     except (httpx.HTTPError, OSError, ValueError) as exc:
-        entry["error"] = f"{type(exc).__name__}: {exc}"[:200]
+        entry["error"] = errtext(exc)[:200]
     return entry
 
 

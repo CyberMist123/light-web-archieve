@@ -9,6 +9,7 @@ MCP 返回结构、CDN 档位、楼中楼深度等实测结论见 `docs/POC-xiao
 """
 
 from __future__ import annotations
+from ..errtext import errtext
 
 import asyncio
 import json
@@ -347,7 +348,7 @@ def flatten_exc(exc: BaseException) -> str:
     anyio 会把 ConnectError 包进 ExceptionGroup，`str(exc)` 只剩
     「unhandled errors in a TaskGroup」——不摊开就永远认不出连不上 18060。
     """
-    parts = [f"{type(exc).__name__}: {exc}"]
+    parts = [f"{type(exc).__name__}: {exc}"]  # errtext-ok
     for sub in getattr(exc, "exceptions", ()) or ():
         parts.append(flatten_exc(sub))
     if exc.__cause__ is not None:
@@ -641,7 +642,7 @@ def fetch_related_file(note_id: str, xsec_token: str | None, *, timeout: int = 3
                 result["ok"] = True
                 result["related_file"] = note.get("relatedFile") or None
     except Exception as exc:  # noqa: BLE001 - 探测失败退回正文启发式，不阻断
-        result["error"] = f"{type(exc).__name__}: {exc}"
+        result["error"] = errtext(exc)
 
     # 裸 httpx 被反爬喂占位页（拿不到笔记）时，回落到干净游客浏览器读 relatedFile。
     # doc_id 只对游客可见（登录态会藏掉），所以兜底一律用一次性空 profile。

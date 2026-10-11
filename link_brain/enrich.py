@@ -14,6 +14,7 @@
 """
 
 from __future__ import annotations
+from .errtext import errtext
 
 import json
 import os
@@ -255,7 +256,7 @@ def enrich_one(source_key: str, source_id: str, *, llm: bool = True, timeout: fl
         try:
             code = _child(source_key, source_id, llm)
         except Exception as exc:  # noqa: BLE001
-            code, error = 1, f"{type(exc).__name__}: {exc}"
+            code, error = 1, errtext(exc)
     else:
         code, err, timed_out = run_limited(_child_argv(source_key, source_id, llm), cap)
         error = (err.splitlines() or [""])[-1][:300]

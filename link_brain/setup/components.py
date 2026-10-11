@@ -5,6 +5,7 @@
 里 2026-10-03 在开发机上实测的典型值（量法写在每条旁边），没法量的写明是估计。
 """
 from __future__ import annotations
+from ..errtext import errtext
 
 import importlib.util
 import os
@@ -351,7 +352,7 @@ def evaluate(ids: list[str] | None = None) -> dict[str, dict[str, Any]]:
         except Exception as exc:  # noqa: BLE001 - 一项检查出错不挡其余（CONVENTIONS §1.3）
             out[cid] = {"disk_mb": None, "ram_mb": None, "basis": "检查出错，量不到", "installed": False,
                         "row": _row(cid, "failed", "检查出错", code="TRANSIENT.STEP_CRASHED",
-                                    error=f"{type(exc).__name__}: {exc}", fix="manual", hint="把这句错误发给开发者")}
+                                    error=errtext(exc), fix="manual", hint="把这句错误发给开发者")}
     return out
 
 

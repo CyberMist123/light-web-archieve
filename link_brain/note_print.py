@@ -7,6 +7,7 @@ PDF：用和笔记页同一套 render 片段 + link-brain.css + lb-print.css 拼
 """
 
 from __future__ import annotations
+from .errtext import errtext
 
 import json
 import os
@@ -425,7 +426,7 @@ def run(args) -> int:
     except ExportError as exc:
         out, code = {"ok": False, "code": exc.code, "message": str(exc), "results": []}, 1
     except Exception as exc:  # noqa: BLE001 - 她点的操作：当场告知原因
-        out, code = {"ok": False, "code": "", "message": f"{type(exc).__name__}: {exc}", "results": []}, 1
+        out, code = {"ok": False, "code": "", "message": errtext(exc), "results": []}, 1
     print(out.get("message") or "", file=sys.stderr)
     dump_json(out)
     return code

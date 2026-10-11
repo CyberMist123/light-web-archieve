@@ -8,6 +8,7 @@
 """
 
 from __future__ import annotations
+from .errtext import errtext
 
 import json
 import os
@@ -45,7 +46,7 @@ def _ps(cmd: str) -> tuple[bool, str]:
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
         )
     except Exception as exc:  # noqa: BLE001
-        return False, f"{type(exc).__name__}: {exc}"
+        return False, errtext(exc)
     out = (proc.stdout or "").strip()
     err = (proc.stderr or "").strip()
     return proc.returncode == 0, (err or out)

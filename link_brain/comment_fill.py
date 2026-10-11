@@ -17,6 +17,7 @@
 """
 
 from __future__ import annotations
+from .errtext import errtext
 
 import json
 import os
@@ -740,7 +741,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
                                                              "小红书要你处理（验证 / 登录），处理好自动接着补"))
                 continue
             except (xhs.AdapterError, FileNotFoundError, OSError, ValueError, KeyError) as exc:
-                note_failure(item_id, f"{type(exc).__name__}: {exc}")
+                note_failure(item_id, errtext(exc))
                 failed.append({"item_id": item_id, "error": str(exc)[:200]})
                 continue
             done.append({"item_id": item_id, "filled": out.get("filled"), "missing_after": out.get("missing_after"),

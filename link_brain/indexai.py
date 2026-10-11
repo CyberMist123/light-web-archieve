@@ -17,6 +17,7 @@
 """
 
 from __future__ import annotations
+from .errtext import errtext
 
 import hashlib
 import json
@@ -730,7 +731,7 @@ def _pool_map(fn: Callable, jobs: list[tuple], meter: Meter) -> Iterable[tuple[t
             try:
                 yield job, f.result()
             except Exception as exc:  # noqa: BLE001
-                meter.errors.append({"code": "TRANSIENT.SERVICE_BUSY", "error": f"{type(exc).__name__}: {exc}"})
+                meter.errors.append({"code": "TRANSIENT.SERVICE_BUSY", "error": errtext(exc)})
                 yield job, None
 
 

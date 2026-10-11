@@ -9,6 +9,7 @@
 """
 
 from __future__ import annotations
+from .errtext import errtext
 
 import concurrent.futures
 import json
@@ -512,7 +513,7 @@ def build(node_path: str, vault: Path | None = None, *, estimate_only: bool = Fa
         try:
             r = _run_map(bs[i], offset, topic, cfg)
         except Exception as exc:  # noqa: BLE001 - 一批出错只算这一批没读成，不拖垮整次（钱已经花了的批次照样用上）
-            r = {"ok": False, "code": "PERMANENT.MODEL_OUTPUT_INVALID", "error": f"{type(exc).__name__}: {exc}"[:200]}
+            r = {"ok": False, "code": "PERMANENT.MODEL_OUTPUT_INVALID", "error": errtext(exc)[:200]}
         with lock:
             results[i] = r
             done[0] += 1

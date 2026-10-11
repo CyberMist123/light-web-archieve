@@ -16,6 +16,7 @@ fail-open：vault 为空、catalog 缺失、依赖缺失时，被转发的函数
 的异常兜底，绝不让一次调用失败拖垮整个常驻进程。
 """
 from __future__ import annotations
+from .errtext import errtext
 
 import json
 import sys
@@ -99,7 +100,7 @@ def _handle_tools_call(request_id: Any, params: dict[str, Any]) -> None:
         _log(traceback.format_exc())
         _result(request_id, {
             "content": [{"type": "text", "text": json.dumps(
-                {"status": "error", "error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False)}],
+                {"status": "error", "error": errtext(exc)}, ensure_ascii=False)}],
             "isError": True,
         })
         return

@@ -19,6 +19,7 @@ JSON 结构见 `docs/FORMAT.md` §10。
 """
 
 from __future__ import annotations
+from .errtext import errtext
 
 import contextlib
 import sys
@@ -145,7 +146,7 @@ def _catch_one(
             "item_id": None,
             "status": "error",
             "url": url,
-            "error": f"{type(exc).__name__}: {exc}",
+            "error": errtext(exc),
         }
 
     if summary.get('status') == 'trashed':

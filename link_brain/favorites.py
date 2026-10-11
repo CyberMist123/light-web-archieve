@@ -39,6 +39,7 @@
 """
 
 from __future__ import annotations
+from .errtext import errtext
 
 import contextlib
 import os
@@ -392,7 +393,7 @@ def _sync_one(fav: dict[str, Any], *, origin: str, actor: str, verbose: bool, bu
             "item_id": None,
             "status": "error",
             "url": url,
-            "error": f"{type(exc).__name__}: {exc}",
+            "error": errtext(exc),
         }
 
     if summary.get("note_id") and _CURRENT_ACCOUNT.get("nickname"):
@@ -1001,7 +1002,7 @@ def _run(args) -> tuple[int, dict[str, Any]]:
             result = enrich_mod.enrich_items([(xhs.SOURCE, sid) for sid in new], llm=True,
                                              deadline=time.monotonic() + max(0.0, left))
         except Exception as exc:  # noqa: BLE001 - 补概要出错不该把整次同步记成失败
-            result = {"error": f"{type(exc).__name__}: {exc}"}
+            result = {"error": errtext(exc)}
         payload["enrich"] = result
     return _exit_code(payload), payload
 

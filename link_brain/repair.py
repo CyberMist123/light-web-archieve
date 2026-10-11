@@ -16,6 +16,7 @@
 """
 
 from __future__ import annotations
+from .errtext import errtext
 
 import os
 import sys
@@ -391,7 +392,7 @@ def _reader_check(timeout: float) -> tuple[int, str, bool]:
     try:
         accounts.ensure_reader(wait=min(40.0, max(5.0, timeout)))
     except Exception as exc:  # noqa: BLE001
-        return 1, f"{type(exc).__name__}: {exc}", False
+        return 1, errtext(exc), False
     problems.resolve("ingest", None)
     return 0, "", False
 
@@ -514,7 +515,7 @@ def run(*, key: str | None = None, since: str | None = None, auto: bool = False,
                 else:
                     code, err, timed_out = execute(act.argv(item or None), timeout)
             except Exception as exc:  # noqa: BLE001 - 一个动作炸了不带走这一轮
-                code, err, timed_out = 1, f"{type(exc).__name__}: {exc}", False
+                code, err, timed_out = 1, errtext(exc), False
             folded = problems._fold(problems._read_rows())
             for r, _ in members:
                 fresh = folded.get(r["key"])

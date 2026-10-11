@@ -17,6 +17,7 @@ RAW 版本写完就封存（TASKBOOK 硬约束 4），附件是事后补下来�
 """
 
 from __future__ import annotations
+from .errtext import errtext
 
 import httpx
 import json
@@ -219,7 +220,7 @@ def acquire(source_key: str, source_id: str, *, doc_id: str, name: str, xsec_tok
                 bad = [r for r in convert_object_attachments(source_key, source_id)
                        if r["doc_id"] == record["doc_id"] and r["status"] == "failed"]
             except Exception as exc:  # noqa: BLE001 - 转换出意外也不该让已下好的字节作废
-                bad = [{"note": f"{type(exc).__name__}: {exc}"}]
+                bad = [{"note": errtext(exc)}]
                 next_at = mark_conversion(source_key, source_id, record["doc_id"], bad[0]["note"],
                                           code="TRANSIENT.SERVICE_BUSY")
                 problems_mod.report("attachments.convert", "TRANSIENT.SERVICE_BUSY",
@@ -234,7 +235,7 @@ def acquire(source_key: str, source_id: str, *, doc_id: str, name: str, xsec_tok
         except (AttachmentNeedsHuman, AttachmentRestricted, AttachmentDeferred):
             raise
         except (AttachmentError, OSError, StopIteration, KeyError, ValueError) as exc:
-            last_error = f"{type(exc).__name__}: {exc}"
+            last_error = errtext(exc)
         finally:
             shutil.rmtree(staging, ignore_errors=True)
         print(f"[attachment] 第 {attempt}/{TRIES} 次没成：{last_error}", file=sys.stderr)
@@ -604,7 +605,7 @@ def download_for_object(
             results.append({"doc_id": doc_id, "status": "failed", "error": str(exc), "code": exc.code})
             break  # 账号要人处理：余下附件等处理完再补
         except (AttachmentError, subprocess.SubprocessError, OSError) as exc:
-            results.append({"doc_id": doc_id, "status": "failed", "error": f"{type(exc).__name__}: {exc}"})
+            results.append({"doc_id": doc_id, "status": "failed", "error": errtext(exc)})
             n = int((backoff.get(doc_id) or {}).get("tries") or 0) + 1
             backoff[doc_id] = {"tries": n, "next_at": conversion_next_at(n, now), "error": str(exc)[:120]}
 

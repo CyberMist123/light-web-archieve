@@ -10,6 +10,7 @@
 """
 
 from __future__ import annotations
+from .errtext import errtext
 
 import sys
 import time
@@ -46,7 +47,7 @@ def _convert_once(path: Path, *, force_ocr: bool, verbose: bool) -> dict[str, An
     try:
         return attachment_to_markdown(path, force_ocr=force_ocr, verbose=verbose)
     except Exception as exc:  # noqa: BLE001 - 转换出任何意外都只算这一份失败
-        return {"status": "failed", "note": f"{type(exc).__name__}: {exc}", "code": "TRANSIENT.SERVICE_BUSY"}
+        return {"status": "failed", "note": errtext(exc), "code": "TRANSIENT.SERVICE_BUSY"}
 
 
 def attachment_to_markdown(

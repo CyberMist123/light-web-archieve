@@ -29,6 +29,7 @@
 """
 
 from __future__ import annotations
+from .errtext import errtext
 
 import os
 import queue
@@ -298,7 +299,7 @@ class Nightly:
                                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                  creationflags=flags)
         except OSError as exc:
-            r.error = f"{type(exc).__name__}: {exc}"
+            r.error = errtext(exc)
             self.log(f"[{step.name}] 起不来：{r.error}")
             self.register(step.name, "TRANSIENT.STEP_CRASHED", f"{step.name} 起不来：{r.error}")
             return r
