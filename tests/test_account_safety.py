@@ -147,6 +147,22 @@ def test_call_tool_unwraps_exception_group(monkeypatch):
     assert "笔记不存在" in str(err.value) and not isinstance(err.value, xhs.NeedsHumanError)
 
 
+def test_call_tool_unwraps_other_errors_in_group(monkeypatch):
+    # 1012：非 AdapterError 的错（如解析失败）也要摊开，别只剩「unhandled errors in a TaskGroup」
+    Reader(monkeypatch, {"/api/v1/login/session": {"state": "idle", "risk_hold": None, "lock": None}})
+    _fake_mcp(monkeypatch, [], [])
+    from mcp import ClientSession  # noqa: F401 - 已被换成 FakeSession
+
+    import mcp
+
+    async def boom(self, tool, arguments):
+        raise KeyError("noteCard")
+    monkeypatch.setattr(mcp.ClientSession, "call_tool", boom)
+    with pytest.raises(KeyError) as err:
+        xhs.call_tool("get_feed_detail", {"feed_id": "c"})
+    assert "TaskGroup" not in repr(err.value) and "noteCard" in str(err.value)
+
+
 def test_sync_stops_at_first_risk_page_through_real_mcp_path(tmp_path, monkeypatch, capsys):
     ids = ["aaaaaaaaaaaaaaaa0001", "aaaaaaaaaaaaaaaa0002", "aaaaaaaaaaaaaaaa0003"]
     reader = Reader(monkeypatch, {

@@ -393,7 +393,22 @@ def call_tool(tool: str, arguments: dict[str, Any], *, endpoint: str | None = No
             raise ServiceDownError(
                 f"读取服务未连接：请在 Link Brain 设置页点击登录，或运行 link-brain login。详情：{text[:300]}"
             ) from exc
+        # 1012：别的异常原样抛 ExceptionGroup 的话，上层 `str(exc)` 只剩「unhandled errors in a TaskGroup
+        # (1 sub-exception)」，同步记录里看不出真因（1011 全量测试 3 篇就是这样）。拆开：只有一个就抛它本身，
+        # 多个就带上摊开的全文。
+        if getattr(exc, "exceptions", None):
+            leaves = _leaves(exc)
+            if len(leaves) == 1:
+                raise leaves[0] from exc
+            raise AdapterError(text[:600]) from exc
         raise
+
+
+def _leaves(exc: BaseException) -> list[BaseException]:
+    subs = getattr(exc, "exceptions", None)
+    if not subs:
+        return [exc]
+    return [leaf for sub in subs for leaf in _leaves(sub)]
 
 
 def check_login_status(*, endpoint: str | None = None, timeout: float = 60) -> Any:
