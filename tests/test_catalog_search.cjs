@@ -129,7 +129,7 @@ async function openCatalog() {
   assert.ok(page.root.querySelector('.lbc-possible-head').textContent.startsWith('可能相关 · 2 篇'));
   const fuzzyCard = page.root.querySelector('article.lbc-card');
   assert.ok(fuzzyCard.classList.contains('is-possible'));
-  assert.equal(page.root.querySelector('.lbc-count').textContent, `0 / ${data.items.length} 篇`);
+  assert.equal(page.root.querySelector('.lbc-count').textContent, `筛出 0 篇（共 ${data.items.length}）`);
   assert.equal(page.root.querySelector('.lbc-possible-link').textContent, '可能相关 2', 'F4：「可能相关」单独一块，点了跳到那一组');
   // 没有查询词时不出摘录、不分区
   page.search('');

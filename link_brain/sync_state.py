@@ -91,6 +91,7 @@ def page_state():
         'favorites': status.get('favorites'), 'new': status.get('new'), 'deferred': status.get('deferred'),
         'detail': status.get('detail') or '', 'progress': status.get('progress') or '',
         'running': status.get('state') == 'running',
+        'trigger': status.get('trigger') if status.get('state') == 'running' else None,
         'live': status.get('live') if status.get('state') == 'running' and isinstance(status.get('live'), dict) else None,
         'done': status.get('done'), 'total': status.get('total'),
         'remaining': max(0, status['total'] - status['done']) if status.get('total') is not None and status.get('done') is not None else None,
@@ -245,6 +246,12 @@ def record(state, *, payload=None, message='', account=None, code=''):
         status['deferred'] = int(payload.get('deferred') or 0)
     if state == 'running':
         status['pid'] = os.getpid()
+        # 1011：谁起的这一趟（命令行 / 夜跑 / 定时 / 插件「立即同步」），插件「这里停不了」那句照实说
+        try:
+            from . import synclog
+            status['trigger'] = synclog.default_trigger()
+        except Exception:  # noqa: BLE001
+            pass
         if previous.get('state') != 'running':
             status['before'] = {k: v for k, v in previous.items() if k != 'before'}
         elif isinstance(previous.get('before'), dict):

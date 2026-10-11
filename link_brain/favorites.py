@@ -462,25 +462,9 @@ def _rest(wait: float, verbose: bool = True) -> None:
 
 
 def _library_ids() -> set[str]:
-    """库里已有的（对象目录）+ 回收站里的 note_id：只给进度条数「库里 650/1246」，读不到就是空集（fail-open）。"""
-    ids: set[str] = set()
-    try:
-        from . import storage
-        root = storage.archive_root() / xhs.SOURCE
-        if root.is_dir():
-            ids.update(p.name for p in root.iterdir() if p.is_dir())
-    except OSError:
-        pass
-    try:
-        from . import index as index_mod
-        conn = index_mod.connect()
-        try:
-            ids.update(str(r[0]) for r in conn.execute("SELECT source_id FROM tombstones WHERE source = ?", (xhs.SOURCE,)))
-        finally:
-            conn.close()
-    except Exception:  # noqa: BLE001
-        pass
-    return ids
+    """库里已有的（对象目录）+ 回收站里的 note_id（口径在 fav_counts，进度条 / 同步记录同一份）。"""
+    from . import fav_counts
+    return fav_counts.library_ids()
 
 
 class _Live:
@@ -505,12 +489,11 @@ class _Live:
         self.title = ""
 
     def count(self, pool: list[dict[str, Any]]) -> None:
+        # 1011：口径只在 fav_counts 一处（同步记录第一排 / setup backfill 用同一个函数），界面统一说「收藏已入库 A/T」
         try:
-            have = _library_ids()
-            ids = {str(f.get("note_id")) for f in pool if f.get("note_id")}
-            self.total = len(ids)
-            self.archived = len(ids & have)
-            self.remaining = self.total - self.archived
+            from . import fav_counts
+            c = fav_counts.counts([f.get("note_id") for f in pool if f.get("note_id")], have=_library_ids())
+            self.total, self.archived, self.remaining = c["favorites_total"], c["archived"], c["remaining"]
         except Exception:  # noqa: BLE001 - 数不出来就不显示库里那一行
             self.total = self.archived = self.remaining = None
 
@@ -572,6 +555,8 @@ def _log_entry(entry: dict[str, Any], fav: dict[str, Any], in_library: bool, kno
                          url=entry.get("url") or fav.get("url"))
         elif status == "blocked":
             synclog.error("sync-favorites", entry.get("error") or "号要处理，已停车", entry.get("code") or "")
+        # 1011：每篇当场写进同步记录（以前攒到命令结束：进程被结束那趟记成「没有新内容」）
+        synclog.flush_progress()
     except Exception as exc:  # noqa: BLE001 - 记录出错不挡同步
         print(f"[synclog] {type(exc).__name__}: {exc}", file=sys.stderr)
 
@@ -983,6 +968,7 @@ def _run(args) -> tuple[int, dict[str, Any]]:
     try:
         with accounts.account_session("sync-favorites", wait_s=wait_s):
             sync_state.record("running", message="正在同步收藏")
+            synclog.fetch_started()   # 1011：记下抓取进程，被结束了同步记录认得出「被中断」
             try:
                 payload = sync_favorites(
                     limit=getattr(args, "limit", 50),

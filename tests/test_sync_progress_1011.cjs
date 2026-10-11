@@ -23,7 +23,7 @@ const running = (lv, at = now - 20000) => ({ state: 'running', updated_at: iso(a
   const v = view(running(live()), now);
   assert.equal(v.running, true);
   assert.equal(v.today, '今天 35/150');
-  assert.equal(v.lib, '库里 650/1246（还差 596 篇）');
+  assert.equal(v.lib, '收藏已入库 650/1246（还差 596 篇）');
   assert.equal(v.title, '悉尼咖啡地图');
   assert.equal(v.phase, '抓取中');
   assert.equal(v.resting, false);
@@ -68,7 +68,7 @@ assert.equal(view({ state: 'failed', updated_at: iso(now), new: 3 }, now), null)
   render(el, view(running(live()), now));
   assert.equal(el.hidden, false);
   assert.equal(el.querySelector('.lb-syncprog-today').textContent, '今天 35/150');
-  assert.equal(el.querySelector('.lb-syncprog-lib').textContent, '库里 650/1246（还差 596 篇）');
+  assert.equal(el.querySelector('.lb-syncprog-lib').textContent, '收藏已入库 650/1246（还差 596 篇）');
   assert.equal(el.querySelector('.lb-syncprog-title').textContent, '《悉尼咖啡地图》');
   assert.equal(el.querySelector('.lb-syncprog-fill').style.width, '23.3%');
   assert.equal(el.querySelectorAll('.lb-syncprog-line').length, 2);
@@ -100,8 +100,8 @@ assert.equal(view({ state: 'failed', updated_at: iso(now), new: 3 }, now), null)
   assert.equal(el.hidden, false);
   assert.match(el.textContent, /^⟳ 同步收藏今天 35\/150歇 7[67] 秒$/, el.textContent);   // 带 live 的不再叫「夜跑同步」
   assert.ok(el.querySelector('.lb-syncprog.is-compact .lb-syncprog-bar'));
-  assert.match(el.title, /库里 650\/1246（还差 596 篇）/);
-  assert.match(el.title, /命令行 \/ 计划任务在跑/);
+  assert.match(el.title, /收藏已入库 650\/1246（还差 596 篇）/);
+  assert.match(el.title, /这里停不了/);   // 1011（晚）：谁在跑照 sync-status 的 trigger 说，见 test_synclog_truth_1011.cjs
   assert.ok(plugin.syncTick, '歇着时每秒重画倒计时');
   // 插件自己在跑别的任务：不出同步细条
   plugin.running = '刷新目录'; plugin.taskChanged();
@@ -140,9 +140,9 @@ assert.equal(view({ state: 'failed', updated_at: iso(now), new: 3 }, now), null)
   assert.ok(box, '标题下有进度块');
   assert.equal(box.hidden, false);
   assert.equal(q('.lbc-syncprog .lb-syncprog-today').textContent, '今天 35/150');
-  assert.equal(q('.lbc-syncprog .lb-syncprog-lib').textContent, '库里 650/1246（还差 596 篇）');
+  assert.equal(q('.lbc-syncprog .lb-syncprog-lib').textContent, '收藏已入库 650/1246（还差 596 篇）');
   assert.equal(q('.lbc-syncing').textContent, '· 同步中', '有细条时「同步中」不再挤一句');
-  assert.match(q('.lbc-syncing').title, /库里 650\/1246/);
+  assert.match(q('.lbc-syncing').title, /收藏已入库 650\/1246/);
 
   // 存好一篇 → 开始歇：数跟着变、倒计时出现
   V.set(SYNC, st(live({ phase: 'resting', today_new: 36, archived: 651, remaining: 595, next_at: iso(Date.now() + 77000) })));

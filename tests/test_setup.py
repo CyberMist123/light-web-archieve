@@ -600,11 +600,30 @@ def test_backfill_from_status_and_library(capsys, tmp_path):
 
 
 def test_backfill_prefers_last_sync_deferred_and_unlimited(tmp_path):
+    # 1011：还差 = 总数 − 已入库（fav_counts 一份口径）；上次同步自己记的 deferred 只作参考（last_sync_deferred）
     (tmp_path / "sync-status.json").write_text(json.dumps({"state": "finished", "favorites": 100, "deferred": 7}),
                                               encoding="utf-8")
     _plugin_data({"sync": {"dailyNewLimit": 0}})
     out = backfill.backfill()
-    assert out["deferred"] == 7 and out["deferred_from"] == "last_sync" and out["days_left"] == 1
+    assert out["deferred"] == 100 and out["remaining"] == 100 and out["deferred_from"] == "total_minus_archived"
+    assert out["last_sync_deferred"] == 7 and out["days_left"] == 1
+
+
+def test_backfill_uses_favorites_list_when_present(tmp_path):
+    """1011：有收藏名单就以名单为准（总数 = 名单条数；已入库 = 名单里在库里 / 回收站里的），不再用停在旧值的 last_favorites。"""
+    v = _vault()
+    for i in range(3):
+        _note(v, f"f{i}", body="x")
+    _note(v, "s", body="x", favorite=False)
+    ids = [p.name for p in (v / "_archive" / "xiaohongshu").iterdir() if p.is_dir()]
+    favs = [i for i in ids if i != "s"][:2] + ["gone1", "gone2", "gone3"]
+    (v / "_archive" / "fav-list.json").write_text(json.dumps({"full_at": "2026-10-11T15:03:25+11:00", "items": [{"note_id": n} for n in favs]}),
+                                                  encoding="utf-8")
+    (tmp_path / "sync-status.json").write_text(json.dumps({"state": "finished", "last_favorites": 1233}), encoding="utf-8")
+    _plugin_data({"sync": {"dailyNewLimit": 2}})
+    out = backfill.backfill()
+    assert out["favorites_total"] == 5 and out["archived"] == 2 and out["remaining"] == 3 and out["deferred"] == 3
+    assert out["archived_all"] == 4 and out["deferred_from"] == "favorites_list" and out["days_left"] == 2
 
 
 def test_backfill_no_data():

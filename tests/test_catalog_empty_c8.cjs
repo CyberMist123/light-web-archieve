@@ -23,7 +23,7 @@ const { code } = require('./_fake_l1.cjs');
   P.cat('已收藏').onclick();
   // ⑤ 选了大类：计数「x / y 篇」
   P.cat('吃的').onclick();
-  assert.equal(P.$('.lbc-count').textContent, '2 / 3 篇');
+  assert.equal(P.$('.lbc-count').textContent, '筛出 2 篇（共 3）');
   // ③ 有筛选、有搜索词、没结果：文案带筛选；[清除筛选] 清筛选、留搜索词
   P.cat('视频').onclick();
   assert.equal(P.$('.lbc-empty-text').textContent, '「吃的 · 视频」里没有内容');

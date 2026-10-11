@@ -167,6 +167,19 @@
   - 降负载：收藏平时只读最新一段（POST 带已知 id，连着碰到 20 篇读过的就停，`known_streak`），每周日 / 上次全量超过 7 天才滚到底（名单、口令、基准都只由全量刷新）；积压从全量名单 `_archive/fav-list.json` 接着补。
 - **回归用例**：`tests/test_night_captcha_1011.py::test_night_captcha_is_listed_not_pushed`、`tests/test_night_captcha_1011.py::test_attended_captcha_still_pushed_with_plain_words`、`tests/test_night_captcha_1011.py::test_night_login_expired_and_risk_jump_still_pushed`、`tests/test_night_captcha_1011.py::test_wait_then_probe_clean_recovers_and_leaves_audit`、`tests/test_night_captcha_1011.py::test_still_there_stops_quietly_then_second_night_pushes_once`、`tests/test_night_captcha_1011.py::test_once_per_night_even_after_recovery`、`tests/test_night_captcha_1011.py::test_background_fill_cools_down_probes_then_resumes`、`tests/test_night_captcha_1011.py::test_nightly_recovers_and_reruns_skipped_account_steps`、`tests/test_fav_incremental_1011.py::test_incremental_posts_known_ids_and_merges_backlog`、`tests/test_fav_incremental_1011.py::test_read_mode_rules`、`tests/test_fav_incremental_1011.py::test_from_snapshot_does_not_read_the_list`；Go 侧 `reader/link-brain-reader.patch` 里的 `TestRiskProbeCleanClears` / `TestRiskProbeStillRiskKeepsHoldAndProbesOnce` / `TestRiskProbeOnlyCaptcha` / `TestScrollFavoritesStopsAtKnownStreak`。
 
+### 19. 笔记页先露原始 Markdown；同一时刻三个数对不上；同步记录说错来源、被停那趟「没有新内容」、早好了的报错还红着（10-11）
+- **用户看到**：①打开一篇停一下，先看到属性块（一大段 link_brain JSON）、蓝色「Lb topbar」框 + 原样链接、字面的 `<!-- link-brain:content:start -->`，标签页还写着目录；
+  ②目录页「43 / 659 篇」、进度条「库里 605/1246（还差 641 篇）」、同步记录「一共 1233 篇收藏，已入库 649 篇」；③同步记录「夜跑在同步（计划任务），这里停不了」其实是命令行；
+  「14:57 命令行 · 没有新内容」那趟其实收了 43 篇（17:00 为换新代码停掉）；04:02 那条「重写目录页 / 补转写视频 PermissionError … 点复制报错发给作者」当天就修好了还红着。
+- **根因**：①目录 / 链接走 openLinkText 不带 mode，按默认（实时预览）先渲一遍，插件 file-open 才切阅读视图；cssclasses 又要等属性解析完才挂上，`.xhs-note` 规则那几帧全不生效。
+  ②三处三套口径：43 是当前筛选命中数、659 是目录 items；进度条按收藏名单 ∩（库 + 回收站）；同步记录按 `last_favorites`（中途被停那次的新总数没进去，停在 1233）和「从收藏进来的对象数」（含 47 篇后来取消收藏的）。
+  ③插件那句是写死的；夜跑脚本由计划任务起在控制台里，isatty 为真被记成命令行；同步记录攒到命令结束才写，进程被结束一条留不下；自愈只看夜跑自己那一步，白天跑好了没人标已解决。
+- **修法 / 自愈**：①`main.js patchOpenFile` 在 `WorkspaceLeaf.openFile` 给归档笔记补 `mode:'preview'`；`link-brain.css` 加不靠 `.xhs-note` 的规则（带 link_brain 的属性块不显示、lb-topbar 去框去标题、有 `.lb-note[data-lb-item]` 却还没挂类时先遮，最多 1.2 秒）。
+  ②`fav_counts.counts()` 一份口径，进度条 / 同步记录 / backfill 同一组数、同一句「收藏已入库 A/T（还差 R 篇）」；目录页改「筛出 n 篇（共 N）」并悬停写明。
+  ③sync-status 记 `trigger`，插件照它说；`LINK_BRAIN_UNATTENDED` 优先于 isatty；每篇当场 flush + `fetch_pid`/`fetch_done` 认「被中断 · 已收 N 篇」，老记录按入库时间补回；
+  离线命令成功收尾时 `heal_after_success` 解决对应 `nightly.<步骤>`，同步记录那条标 `resolved`、灰字「✓ 后来好了」、不红。
+- **回归用例**：`tests/ui/note_first_frame_ui.cjs`（改前 d222a02 红：第 0–2 帧全露）、`tests/test_note_open_preview_1011.cjs`、`tests/test_sync_truth_1011.py::test_progress_line_sync_log_and_backfill_share_one_count`、`tests/test_sync_truth_1011.py::test_unattended_is_nightly_or_schedule_even_in_a_console`、`tests/test_sync_truth_1011.py::test_killed_sync_shows_interrupted_with_what_it_stored`、`tests/test_sync_truth_1011.py::test_old_row_that_lost_its_records_is_recovered_from_the_library`、`tests/test_sync_truth_1011.py::test_step_error_shows_resolved_after_the_same_command_succeeds_later`、`tests/test_synclog_truth_1011.cjs`。
+
 ---
 
 ## 二、故障码对照（用户看到 → 常见根因 → 自愈动作）

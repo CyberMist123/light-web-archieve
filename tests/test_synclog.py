@@ -349,6 +349,6 @@ def test_backlog_row_from_setup_backfill(monkeypatch):
     monkeypatch.setattr(bf, "backfill", lambda: {"favorites_total": 1159, "archived": 361, "deferred": 798, "days_left": 16,
                                                  "daily_limit": 50})
     b = synclog.backlog()
-    assert b["message"] == "一共 1159 篇收藏，已入库 361 篇，预计还要 16 天同步完"
+    assert b["message"] == "收藏 1159 篇，已入库 361 篇，还差 798 篇，预计还要 16 天同步完"
     monkeypatch.setattr(bf, "backfill", lambda: {"favorites_total": 1159, "archived": 1159, "deferred": 0, "days_left": 0})
     assert synclog.backlog() is None, "积压清零不显示"

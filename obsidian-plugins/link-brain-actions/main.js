@@ -495,7 +495,8 @@ function syncProgressView(st, now = Date.now()) {
     const resting = !!restLeft;
     const pct = today != null && limit ? Math.min(1, today / limit) : (archived != null && total ? Math.min(1, archived / total) : null);
     const todayText = today == null ? '' : limit ? `今天 ${today}/${limit}` : `今天 ${today} 篇`;
-    const lib = archived != null && total ? `库里 ${archived}/${total}` + (left ? `（还差 ${left} 篇）` : '') : '';
+    // 1011：和同步记录第一排同一份口径（Python fav_counts：收藏名单里已在库 / 回收站的 / 收藏名单条数），同一句说法
+    const lib = archived != null && total ? `收藏已入库 ${archived}/${total}` + (left ? `（还差 ${left} 篇）` : '') : '';
     const phase = resting ? `歇 ${restLeft} 秒` : lv.phase === 'resting' ? '马上抓下一篇' : String(lv.phase_text || '');
     const eta = Date.parse(lv.eta_at || '');
     const etaText = Number.isFinite(eta) && eta > now ? `约 ${etaWhen(eta, now)} ${limit ? '抓完今天的' : '抓完'}` : '';
@@ -513,6 +514,19 @@ function syncProgressView(st, now = Date.now()) {
     return { running: false, done: true, text: `同步完了 · 新收 ${num(st.new)} 篇` + (left ? ` · 还剩 ${left} 篇明天继续` : '') };
   }
   return null;
+}
+// 1011 她：同步记录里写「夜跑在同步（计划任务），这里停不了」，其实是命令行跑的。照后端记的来源说（sync-status.json 的 trigger，
+// Python synclog.default_trigger：插件「立即同步」= manual、没人看着的夜跑 / 定时 = nightly / schedule、交互终端 = cli）。
+const EXTERNAL_SYNC_TEXT = {
+  cli: '命令行在同步（终端里开的），这里停不了：要停就在那个终端按 Ctrl+C',
+  nightly: '夜跑在同步（计划任务），这里停不了',
+  schedule: '定时同步在跑（计划任务），这里停不了',
+  manual: '之前从插件开的同步还在跑（Obsidian 重开过），这里停不了',
+  retry: '重试在跑，这里停不了',
+};
+function externalSyncText(st) {
+  const t = st && typeof st === 'object' ? String(st.trigger || '') : '';
+  return EXTERNAL_SYNC_TEXT[t] || '后台在同步（不是这个窗口开的），这里停不了';
 }
 // 预计时刻：今天只写 时:分，明天写「明天 时:分」，再远写 月/日 时:分
 function etaWhen(t, now = Date.now()) {
@@ -2390,7 +2404,7 @@ class LinkBrainActions extends Plugin {
     if (this.taskStatusEl) {
       this.taskStatusEl.hidden = !this.taskLabel && !fill;
       this.taskStatusEl.setText(this.taskLabel ? `⟳ ${this.taskLabel}${detail && !this.syncView() ? ' · ' + detail : ''}` : (fill ? fill.text : ''));
-      this.taskStatusEl.title = this.running ? '点开看同步记录，可停止' : fill ? (fill.title + (fill.human ? '（点开问题入口处理）' : '')) : '命令行 / 计划任务在跑，这里停不了';
+      this.taskStatusEl.title = this.running ? '点开看同步记录，可停止' : fill ? (fill.title + (fill.human ? '（点开问题入口处理）' : '')) : this.externalTaskText();
       this.taskStatusEl.onclick = () => (fill && fill.human && !this.taskLabel ? this.openProblems() : this.openSyncLog());
     }
     this.paintSyncBar();
@@ -2403,7 +2417,8 @@ class LinkBrainActions extends Plugin {
     const v = syncProgressView(this.externalSync, now);
     return v && v.running ? v : null;
   }
-  syncProgressView(st, now = this.nowMs()) { return syncProgressView(st, now); }   // 给目录页（catalog-view.js）用同一份
+  syncProgressView(st, now = this.nowMs()) { return syncProgressView(st, now); }
+  externalTaskText(st = this.externalSync) { return externalSyncText(st); }   // 同步记录窗口 / 状态栏悬停 / 停止按钮同一句   // 给目录页（catalog-view.js）用同一份
   renderSyncProgress(el, view, opts) { return renderSyncProgress(el, view, opts); }
   // 状态栏那一截：「⟳ 同步收藏 今天 35/150 ▬▬▭ 歇 77 秒」，悬停看库里几篇 / 正在抓哪篇 / 约几点抓完；歇着时每秒重画倒计时
   paintSyncBar() {
@@ -2417,7 +2432,7 @@ class LinkBrainActions extends Plugin {
       el.appendChild(box);
     }
     if (box) renderSyncProgress(box, view, { compact: true });
-    if (view) el.title = view.tip + '\n' + (this.running ? '点开看同步记录，可停止' : '命令行 / 计划任务在跑，这里停不了');
+    if (view) el.title = view.tip + '\n' + (this.running ? '点开看同步记录，可停止' : this.externalTaskText());
     if (view?.resting && !this.syncTick) this.syncTick = setInterval(() => this.paintSyncBar(), 1000);
     else if (!view?.resting && this.syncTick) { clearInterval(this.syncTick); this.syncTick = null; }
   }
@@ -2426,7 +2441,7 @@ class LinkBrainActions extends Plugin {
     return () => this.taskListeners.delete(callback);
   }
   async stopRunning() {
-    if (!this.running || !this.runningChild) { this.notify('计划任务在跑，这里停不了'); return false; }
+    if (!this.running || !this.runningChild) { this.notify(this.externalTaskText()); return false; }
     const label = this.running;
     if (!(await this.interruptRunning('停止本次任务'))) return false;
     // 1009：漏了 '-m','link_brain'——仓库模式（python -m link_brain）下起的是 `python synclog …`，直接报错（照 spawnPy 统一写法补上）

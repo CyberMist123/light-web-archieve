@@ -900,6 +900,23 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
 - `comments --fill-status` → `{ok, code, message, floors, pending, ready, cooling, stuck, missing, running, status}`（本地读，不碰号）；
   `comments --fill-pending --detach` → 拉起 `--until-done` 后台补跑（单实例，已在跑就 `already`）。
 
+## 2026-10-11（晚）同步进度的数 / 同步记录的被中断与自愈
+
+- **收藏同步进度的数只有一份口径**：`link_brain/fav_counts.py` 的 `counts()` → `{favorites_total, archived, remaining, library_total, basis}`。
+  总数 = `_archive/fav-list.json` 条数（没有名单退到 sync-status.json 的 `last_favorites`，`basis:"baseline"`）；已入库 = 名单里在库里或回收站里的；
+  还差 = 总数 − 已入库；库里一共 = 对象数（含分享 / 导入单篇、后来取消收藏的）。进度条（`live.archived / favorites_total / remaining`）、
+  `synclog list` 的 `backlog`（多 `remaining`，`message` =「收藏 T 篇，已入库 A 篇，还差 R 篇，预计还要 D 天同步完」）、`setup backfill`
+  （`deferred` = `remaining` = 还差；上次同步自记的 deferred 改放 `last_sync_deferred`；`deferred_from: favorites_list|total_minus_archived`）都从它取。
+  界面统一说「收藏已入库 A/T（还差 R 篇）」；目录页标题下的「筛出 n 篇（共 N）」里 N 是目录 items 数（= 库里一共），悬停写明两者区别。
+- `_archive/sync-status.json` running 时多 `trigger`（`synclog.default_trigger()`：manual / nightly / schedule / cli / retry），`problems summary` 的 sync 段同名字段；
+  插件「这里停不了」照它说（命令行 / 夜跑 / 定时…）。`LINK_BRAIN_UNATTENDED` 非空时按时段算 nightly / schedule，不再因为控制台 isatty 记成 cli。
+- `_archive/sync-log.jsonl` 每行多：`pid`（开这一行的进程）、`fetch_pid` / `fetch_done` / `fetch_exit`（收藏同步的抓取进程；正常收尾才标 done）。
+  收藏同步每篇当场 flush（不再攒到命令结束）。`synclog list` 读出来的行可能多：`interrupted`（抓取进程没了又没收尾；或下一条）、`recovered`
+  （老记录一条没写进去、按 index.db `first_archived_at` 落在 [开始, 下一趟开始) 的收藏补回 `new` / `items`）；`errors[]` 多 `resolved` / `resolved_at` / `label`
+  （夜跑离线步骤——重写目录页 / 补转写视频 / 语义索引 / 补识图概要 / 识图补跑 / 精细识图——在问题记录里那一步已全部解决、且解决晚于这条报错），
+  `error` 只看没好的。离线命令成功收尾（`catalog`、`videos --all --transcribe`、`embed`、`enrich --pending`、`vision --upgrade|--refine`）时
+  `synclog.heal_after_success` 解决问题记录里对应的 `nightly.<步骤>`。
+
 ## 2026-10-11 收藏名单 / 口令 / 夜里撞验证的状态
 
 - `_archive/fav-list.json`（`favorites.py`）：上次**全量**读到的收藏名单，最新在前 —— `{schema_version:1, full_at, at, items:[{note_id, xsec_token, url, title?, type?, author?, author_id?}], full_next?}`。

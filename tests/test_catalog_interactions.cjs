@@ -115,7 +115,7 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
   assert.deepEqual(page.cards(),['长期记忆方案','睡前记忆整理']);
   assert.ok(page.chips()[0].classList.contains('is-active'));assert.equal(page.chips()[0].getAttribute('aria-pressed'),'true');
   assert.ok(!page.cat('全部').classList.contains('is-active'));
-  assert.equal(page.root.querySelector('.lbc-count').textContent,'2 / 3 篇');
+  assert.equal(page.root.querySelector('.lbc-count').textContent,'筛出 2 篇（共 3）');
   page.chips()[0].onclick();
   assert.equal(page.cards().length,3);assert.ok(page.cat('全部').classList.contains('is-active'));
   // 单选：切到「睡眠」只剩 c

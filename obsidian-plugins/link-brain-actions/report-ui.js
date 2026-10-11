@@ -4,10 +4,12 @@
 //   counts:{note|attachment|video|vision|summary:{ok,failed}}, items:[{kind,id,title,note,ok,reason}], errors:[{step,reason,code}], error}],
 //   backlog: {favorites_total, archived, deferred, days_left} | null}
 // 没有后端（比如手机上）就直接读库里的 _archive/sync-log.jsonl（看得到记录，没有第一排的积压）。
-// 第一排：「一共 N 篇收藏，已入库 M 篇，预计还要 D 天同步完」（积压清零就不显示）；下面按时间倒序每次同步一行：
+// 第一排：「收藏 T 篇，已入库 A 篇，还差 R 篇，预计还要 D 天同步完」（积压清零就不显示）；下面按时间倒序每次同步一行：
 //   「10/03 04:00 夜跑 · 正文 3 ✅ 附件 2 ✅ 视频 1 ✅」，有失败写「附件 1 ❌」；⬇️ 展开看这次处理了哪些标题（点标题同一窗格打开）。
 // 顶部「立即同步」「改定时」（plugin.syncNow / openSyncSettings）。
 // 有报错的那条默认展开：原因 +「重试」（`synclog retry --run`：只重跑失败的那几篇 / 那一步，结果如实提示）；没报错的默认收起。
+// 1011：被结束的那趟（interrupted，后端按抓取进程 / 库里的入库时间认）写「被中断 · 已收 N 篇」，不再是「没有新内容」；
+//   后来好了的步骤级报错（errors[].resolved）不算这次出错、不红：展开里一行灰字「✓ 后来好了：重写目录页」（docs/ERRORS.md：自愈的不显示）。
 'use strict';
 module.exports = function (obsidian, plugin) {
   const { Modal, Notice } = obsidian;
@@ -35,23 +37,27 @@ module.exports = function (obsidian, plugin) {
     return out.join(' ');
   }
   // 一行：「10/03 04:00 夜跑 · 新收 3 · 正文 3 ✅ 附件 2 ✅」
+  const openErrors = run => (run.errors || []).filter(e => !e.resolved);
   function lineText(run) {
     const head = `${when(run.started_at)} ${TRIGGER_CN[run.trigger] || run.trigger || ''}`.trim();
     const parts = [head];
-    if (n(run.new)) parts.push(`新收 ${n(run.new)}`);
+    if (run.interrupted && !run.running) parts.push(`被中断 · 已收 ${n(run.new)} 篇`);
+    else if (n(run.new)) parts.push(`新收 ${n(run.new)}`);
     const c = countsText(run);
     if (c) parts.push(c);
-    else if (!(run.errors || []).length) parts.push(run.running ? '' : '没有新内容');
+    else if (!openErrors(run).length) parts.push(run.running || run.interrupted ? '' : '没有新内容');
     if (run.running) parts.push('进行中…');
-    else if ((run.errors || []).length && !c) parts.push('没做完');
+    else if (openErrors(run).length && !c && !run.interrupted) parts.push('没做完');
     return parts.filter(Boolean).join(' · ');
   }
+  // 1011：数和句子都以后端（synclog.backlog → fav_counts，和进度条「收藏已入库 A/T」同一份口径）为准；没有 message 的旧后端照同样说法拼
   function backlogText(b) {
     if (!b || !n(b.favorites_total) || !n(b.deferred)) return '';
+    if (typeof b.message === 'string' && b.message) return b.message;
     const days = b.days_left == null ? '' : `，预计还要 ${n(b.days_left)} 天同步完`;
-    return `一共 ${n(b.favorites_total)} 篇收藏，已入库 ${n(b.archived)} 篇${days || '，还在补'}`;
+    return `收藏 ${n(b.favorites_total)} 篇，已入库 ${n(b.archived)} 篇，还差 ${n(b.deferred)} 篇${days}`;
   }
-  const failedCount = run => (run.items || []).filter(it => !it.ok).length + (run.errors || []).length;
+  const failedCount = run => (run.items || []).filter(it => !it.ok).length + openErrors(run).length;
 
   // 没有后端：直接读库里的 jsonl（新的在前；没收尾又 8 小时没动的当作结束了）
   async function readLocal() {
@@ -89,7 +95,7 @@ module.exports = function (obsidian, plugin) {
         if (plugin.running) {
           task.createSpan({ text: `正在${plugin.running}${plugin.runningProgress ? ' · ' + plugin.runningProgress : ''}` });
           task.createEl('button', { text: '停止' }).onclick = () => plugin.stopRunning();
-        } else if (plugin.taskLabel) task.setText('夜跑在同步（计划任务），这里停不了');
+        } else if (plugin.taskLabel) task.setText(typeof plugin.externalTaskText === 'function' ? plugin.externalTaskText() : '后台在同步，这里停不了');
       };
       this.stopTask = plugin.onTask?.(paintTask); paintTask();
       const now = top.createEl('button', { cls: 'mod-cta lb-synclog-sync', text: '立即同步' });
@@ -150,9 +156,12 @@ module.exports = function (obsidian, plugin) {
       paint();
     }
     detail(el, run, bad) {
-      for (const e of run.errors || []) {
+      for (const e of openErrors(run)) {
         el.createDiv({ cls: 'lb-synclog-err', text: '❌ ' + (e.reason || e.code || '出错了') });
       }
+      const healed = (run.errors || []).filter(e => e.resolved);
+      if (healed.length) el.createDiv({ cls: 'lb-synclog-healed', text: '✓ 后来好了：' + [...new Set(healed.map(e => e.label || '一步'))].join('、') });
+      if (run.recovered) el.createDiv({ cls: 'lb-synclog-more', text: '这一趟没来得及记下就被结束了；下面是按入库时间从库里找回来的' });
       const items = [...(run.items || [])].sort((a, b) => (a.ok === b.ok ? KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) : a.ok ? 1 : -1));
       for (const it of items) {
         const row = el.createDiv({ cls: 'lb-synclog-item' + (it.ok ? '' : ' is-failed') });
@@ -176,7 +185,7 @@ module.exports = function (obsidian, plugin) {
       const btn = acts.createEl('button', { cls: 'mod-cta lb-synclog-retry', text: '重试' });
       const msg = acts.createSpan({ cls: 'lb-synclog-retrymsg' });
       if (run.retried_at) msg.setText(`上次重试：${when(run.retried_at)}`);
-      if ((run.errors || []).length && typeof plugin.openProblems === 'function') {
+      if (openErrors(run).length && typeof plugin.openProblems === 'function') {
         const p = acts.createEl('button', { cls: 'lb-report-problems', text: '看问题' });
         p.onclick = async () => { try { await plugin.openProblems(); this.close(); } catch (e) { say('打不开问题列表：' + e.message); } };
       }
@@ -204,6 +213,6 @@ module.exports = function (obsidian, plugin) {
   return {
     SyncLogModal,
     open() { const m = new SyncLogModal(); m.open(); return m; },
-    _internals: { lineText, countsText, backlogText, when },
+    _internals: { lineText, countsText, backlogText, when, failedCount },
   };
 };

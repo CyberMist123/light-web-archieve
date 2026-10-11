@@ -146,6 +146,7 @@ STATE_REGISTRY = {  # code 前缀 → 显示；写进 catalog-data.json 的 "sta
           "updated_at": "…", "last_success": "…", "favorites": 120,
           "new": 2, "deferred": 4,                                  // 本次新收几篇 / 还剩几篇逐晚处理（sync-status.json 新增的两个键）
           "progress": "", "running": false,                         // running+pid 已死在 Python 侧改成 failed/INTERRUPTED
+          "trigger": null,  // 1011（晚）：谁起的这一趟 manual|nightly|schedule|cli|retry（只在 running 时有），插件「这里停不了」照它说
           "live": null}}   // 1011：同步真进度（只在 running 时有）{phase: listing|fetching|resting|finishing, phase_text, today_new, daily_limit（0 = 不限）,
                            //   this_run_new, archived, favorites_total, remaining, title, eta_at, rest_s, next_at, at}；favorites._Live 换阶段时写（读列表 / 开抓 / 存好 / 开始歇 / 收尾），
                            //   歇着的倒计时页面按 next_at 自己走；sync-status.json 同一段。前端只用 main.js syncProgressView / renderSyncProgress 一份（状态栏 + 目录页）

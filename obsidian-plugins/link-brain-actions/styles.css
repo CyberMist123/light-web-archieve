@@ -278,6 +278,7 @@ button.lb-synclog-toggle { flex: none; height: auto; padding: 0 6px; background:
 .lb-synclog-detail { margin: 6px 0 2px; padding-left: 10px; border-left: 2px solid var(--background-modifier-border); }
 .lb-synclog-run.is-error .lb-synclog-detail { border-left-color: #e0a14a; }
 .lb-synclog-err { color: var(--text-error); font-size: 12px; padding: 2px 0; overflow-wrap: anywhere; }
+.lb-synclog-healed { color: var(--text-muted); font-size: 12px; padding: 2px 0; }
 .lb-synclog-item { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: 12px; padding: 2px 0; }
 .lb-synclog-kind { color: var(--text-muted); }
 .lb-synclog-title { overflow-wrap: anywhere; }

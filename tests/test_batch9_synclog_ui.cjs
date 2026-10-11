@@ -58,7 +58,7 @@ async function modalTests() {
   const c = m.contentEl;
   assert.deepEqual(env.calls[0], ['synclog', 'list', '--limit', '30']);
   assert.equal(c.querySelector('h2').textContent, '同步记录');
-  assert.equal(c.querySelector('.lb-synclog-backlog').textContent, '一共 1159 篇收藏，已入库 361 篇，预计还要 16 天同步完', '第一排：积压');
+  assert.equal(c.querySelector('.lb-synclog-backlog').textContent, '收藏 1159 篇，已入库 361 篇，还差 798 篇，预计还要 16 天同步完', '第一排：积压');
   const runs = c.querySelectorAll('.lb-synclog-run');
   assert.equal(runs.length, 3, '每次同步一行，新的在前');
   const line = r => r.querySelector('.lb-synclog-line').textContent;

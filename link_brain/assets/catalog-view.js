@@ -454,7 +454,7 @@ const staleEl = subLine.createEl('span', { cls: 'lbc-sub lbc-stale', text: '· �
 const probBtn = subLine.createEl('button', { cls: 'lbc-problems' }); probBtn.type = 'button'; probBtn.hidden = true;
 // C14：「· 同步中」带上阶段，悬停看全句，点开同步记录
 const syncing = subLine.createEl('button', { cls: 'lbc-sub lbc-sub-link lbc-syncing', text: '· 同步中…' }); syncing.type = 'button'; syncing.hidden = true;
-// 1011：同步真进度——标题下两行：今天 X/上限 + 细条 + 歇 N 秒（倒计时）；库里 a/b（还差 n 篇）· 《正在抓的》· 约几点抓完。
+// 1011：同步真进度——标题下两行：今天 X/上限 + 细条 + 歇 N 秒（倒计时）；收藏已入库 a/b（还差 n 篇）· 《正在抓的》· 约几点抓完。
 // 数和文案由插件 syncProgressView / renderSyncProgress 出（状态栏同一份，样式在插件 styles.css）；刚同步完 10 分钟内一行「同步完了」。
 // 插件不在（手机）就不出，退回上面那个「· 同步中」。
 const syncProg = titleBlock.createEl('div', { cls: 'lb-syncprog lbc-syncprog' }); syncProg.hidden = true;
@@ -1551,7 +1551,11 @@ function filterLabel() {
 function paintSub() {
   const r = lastRanked.key ? lastRanked : null;
   const filtered = !!(committed || todayOnly || todoOnly || starredPage || starOnly || mediaFilter || activeTopic || activeCat || timeRange);
-  countEl.setText(filtered && r ? `${r.exact.length} / ${items.length} 篇` : `${items.length} 篇`);
+  // 1011 她问「43 / 659 是什么」：43 = 当前筛选 / 搜索命中几篇，659 = 目录里一共几篇（库里所有对象：收藏同步进来的 + 分享 / 导入单篇的，
+  // 含后来取消收藏的；回收站里的不算）。和同步进度的「收藏已入库 A/T」不是一个数，悬停写明
+  countEl.setText(filtered && r ? `筛出 ${r.exact.length} 篇（共 ${items.length}）` : `${items.length} 篇`);
+  countEl.title = (filtered && r ? `当前筛选${filterLabel() ? '（' + filterLabel() + '）' : ''}命中 ${r.exact.length} 篇；` : '')
+    + `目录里一共 ${items.length} 篇：收藏同步进来的 + 分享 / 导入单篇的（含后来取消收藏的，回收站里的不算）。收藏夹同步到哪了（收藏已入库几篇 / 还差几篇）点右边「更新」看同步记录`;
   const nPossible = r && !grid.hidden ? r.possible.length : 0;
   possibleLink.hidden = !nPossible; sepPossible.hidden = !nPossible;
   if (nPossible) possibleLink.setText(`可能相关 ${nPossible}`);
