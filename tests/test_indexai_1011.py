@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from link_brain import cli, indexai, indextree as it, storage
+from link_brain import cli, indexai, indextree as it, posttags, storage
 
 
 @pytest.fixture
@@ -217,6 +217,23 @@ class FakeModel:
                 g.append({"name": "其他", "items": [1, 2, 3]})
                 g.append({"name": "坏/名字：带, 逗号", "items": [1]})
             return {"status": "ok", "text": json.dumps({"g": g}, ensure_ascii=False), "usage": usage}
+        if instruction is posttags._INSTRUCTION:
+            self.calls.append("tags")
+            rows = []
+            for i, title in self.notes(text, head="【收藏】"):
+                t = [name for k, name in (("空气炸锅", "空气炸锅"), ("鸡", "鸡肉"), ("丝之歌", "丝之歌"), ("空洞骑士", "空洞骑士"),
+                                          ("锅包肉", "菜谱"), ("Coles", "澳洲超市"), ("Woolworths", "澳洲超市好物")) if k in title]
+                if self.hostile:
+                    t += ["其他", "x", "一句很长很长很长很长的话不是标签"]
+                rows.append({"i": i, "t": t})
+            return {"status": "ok", "text": json.dumps({"r": rows}, ensure_ascii=False), "usage": usage}
+        if instruction is posttags._MERGE_INSTRUCTION:
+            self.calls.append("merge")
+            names = [ln.split("｜")[0] for ln in text.split("\n")]
+            m = [{"to": "澳洲超市好物", "from": ["澳洲超市"]}] if {"澳洲超市", "澳洲超市好物"} <= set(names) else []
+            if self.hostile:
+                m.append({"to": "不存在的名字", "from": ["空气炸锅"]})
+            return {"status": "ok", "text": json.dumps({"m": m}, ensure_ascii=False), "usage": usage}
         if instruction is indexai._LEFTOVER_INSTRUCTION:
             self.calls.append("leftover")
             groups = {}
@@ -233,6 +250,7 @@ def fake(monkeypatch):
     m = FakeModel()
     monkeypatch.setattr(indexai, "_call", m)
     monkeypatch.setattr(indexai, "classifier_ai", lambda: ({"model": "fake-flash", "cap": "textAI", "mode": "http"}, ""))
+    monkeypatch.setattr(indexai, "facet_ai", lambda: ({"model": "fake-cheap", "cap": "summaryAI", "mode": "http"}, ""))
     monkeypatch.setattr(indexai, "price", lambda model, tin, tout: (tin * 1.0 + tout * 4.0) / 1e6)
     monkeypatch.setattr(indexai, "SETTLE_SEC", 0)
     return m
@@ -242,7 +260,7 @@ def rows(data):
     return {n["path"]: n for n in data["nodes"]}
 
 
-def test_full_run_classifies_by_content_virtual_children_proposals_and_caches(vault, fake):
+def test_full_run_classifies_by_content_facets_proposals_and_caches(vault, fake):
     write_catalog(vault, ITEMS)
     write_index(vault, OWNER)
     before = it.public(it.build(vault))
@@ -257,10 +275,14 @@ def test_full_run_classifies_by_content_virtual_children_proposals_and_caches(va
     # 有 AI 结果的篇不再按名字字面找：普通游戏攻略不进「AI/ai功能/游戏」
     assert R["AI/ai功能/游戏"]["items"] == ["xhs-0010"]
     assert R["游戏/游戏/宫崎英高"]["items"] == ["xhs-0009"]
-    # 菜谱下面写了 `...` = 允许 AI 建：空气炸锅 6 篇直接挂成子类（virtual），不进 索引.md
-    v = R["美食/菜谱/空气炸锅菜"]
-    assert v["virtual"] and v["count"] == 6 and v["proposal"] and v["line"] == 0
-    assert "空气炸锅菜" not in (vault / "索引.md").read_text(encoding="utf-8")
+    # 10-11 她：树只来自 索引.md——AI 不再往树里建子类；「菜谱」下面是细分标签（多选：空气炸锅烤鸡 = 空气炸锅 + 鸡肉）
+    assert not any(n.get("virtual") for n in data["nodes"]) and "美食/菜谱/空气炸锅菜" not in R
+    facets = {f["name"]: f for f in R["美食/菜谱"]["facets"]}
+    assert facets["空气炸锅"]["count"] == 6 and facets["鸡肉"]["items"] == ["xhs-0002", "xhs-0016"]
+    assert "菜谱" not in facets                                   # 和节点同名的不在这一行（帖子身上还有）
+    assert "xhs-0016" in facets["空气炸锅"]["items"] and "xhs-0016" in facets["鸡肉"]["items"]
+    assert fake.calls.count("tags") == 1                          # 19 篇一批：一次就打完（只看标题 + 标签 + 概要）
+    assert data["item_tags"]["xhs-0016"] == ["空气炸锅", "鸡肉"]   # 标签属于帖子
     # 「游戏/游戏」没写 `...`：空洞骑士 6 篇 → 建议新增（写清放在哪）
     props = {p["name"]: p for p in data["proposals"]}
     assert props["空洞骑士"]["parent"] == "游戏/游戏" and props["空洞骑士"]["count"] == 6 and props["空洞骑士"]["kind"] == "split"
@@ -387,11 +409,10 @@ def test_manual_move_add_remove_undo_win_over_ai(vault, fake):
     assert "xhs-0001" in rows(it.load(vault, fresh=False))["美食/菜谱/锅包肉"]["items"]
     bad = indexai.assign(["xhs-0001"], "move", "没有这个节点", vault)
     assert not bad["ok"] and bad["code"] == "PERMANENT.STEP_ARGS"
-    virt = indexai.assign(["xhs-0001"], "add", "美食/菜谱/空气炸锅菜", vault)
-    assert not virt["ok"] and "保留" in virt["message"]
+    assert not indexai.assign(["xhs-0001"], "add", "美食/菜谱/空气炸锅菜", vault)["ok"]   # 没有 AI 建的节点了
 
 
-def test_accept_proposal_and_virtual_write_index_keep_format_and_no_rebilling(vault, fake):
+def test_accept_proposal_writes_index_keep_format_and_no_rebilling(vault, fake):
     write_catalog(vault, ITEMS)
     write_index(vault, OWNER.replace("\n", "\r\n"))
     indexai.run(vault)
@@ -408,12 +429,6 @@ def test_accept_proposal_and_virtual_write_index_keep_format_and_no_rebilling(va
     assert R["游戏/游戏/空洞骑士"]["count"] == 6 and R["游戏/游戏"]["count"] == 7
     assert "空洞骑士" not in {p["name"] for p in data["proposals"]}
     assert list((vault / "_archive" / "index-history").glob("索引-*-accept.txt"))
-    # AI 建的子类「保留」：写进 索引.md，篇数不变
-    vid = R["美食/菜谱/空气炸锅菜"]["proposal"]
-    r2 = it.accept_proposal(vid, vault)
-    assert r2["ok"], r2
-    R2 = rows(it.load(vault, fresh=False))
-    assert not R2["美食/菜谱/空气炸锅菜"].get("virtual") and R2["美食/菜谱/空气炸锅菜"]["count"] == 6
     # 根上的建议：插在树的最后一行后面（不插到她末尾的说明下面）
     root = next(p for p in it.load(vault, fresh=False)["proposals"] if p["name"] == "澳洲超市好物")
     assert it.accept_proposal(root["id"], vault)["ok"]
@@ -468,3 +483,79 @@ def test_cli_classify_estimate_assign_accept_shapes(vault, fake, capsys):
     assert code == 0 and j["ok"]
     code, j = run_cli("index", "accept", "--id", "nope")
     assert code == 2 and not j["ok"]
+
+
+def test_post_tags_incremental_manual_history_restore(vault, fake):
+    write_catalog(vault, ITEMS)
+    write_index(vault, OWNER)
+    indexai.run(vault)
+    n = len(fake.calls)
+    indexai.run(vault)
+    assert fake.calls[n:] == []                                   # 再跑：一篇都不重打
+    # 新收 1 篇：只给这一篇打
+    more = ITEMS + [item(22, "空气炸锅烤翅根", ["空气炸锅"])]
+    write_catalog(vault, more, built_at="2026-10-11T03:00:00+11:00")
+    assert len(posttags.pending(more, posttags.load(vault))) == 1
+    indexai.run(vault)
+    assert fake.calls[n:].count("tags") == 1
+    F = {f["name"]: f for f in rows(it.load(vault, fresh=False))["美食/菜谱"]["facets"]}
+    assert "xhs-0022" in F["空气炸锅"]["items"]
+    # 她手动：加一个新标签、去掉 AI 打的 = 改帖子的标签（human）；AI 重打压不过；能撤销；历史一行不少
+    r = indexai.set_facet(["xhs-0001"], "美食/菜谱", "add", "东北菜", vault)
+    assert r["ok"] and r["undo"].startswith("t:")
+    assert it.load(vault, fresh=False)["item_tags"]["xhs-0001"] == ["菜谱", "东北菜"]
+    F = {f["name"]: f for f in rows(it.load(vault, fresh=False))["美食/菜谱"]["facets"]}
+    assert "东北菜" not in F                                      # 只有 1 篇：这一行不列（≥2 篇才列），帖子身上照样有
+    indexai.set_facet(["xhs-0002", "xhs-0016"], "美食/菜谱", "remove", "鸡肉", vault)
+    assert "鸡肉" not in {f["name"] for f in rows(it.load(vault, fresh=False))["美食/菜谱"]["facets"]}
+    items2 = [dict(x, summary="改过的概要") if x["id"] == "xhs-0016" else x for x in more]
+    write_catalog(vault, items2, built_at="2026-10-11T05:00:00+11:00")
+    indexai.run(vault)                                            # AI 重打这一篇也压不过她
+    assert "鸡肉" not in it.load(vault, fresh=False)["item_tags"]["xhs-0016"]
+    assert indexai.assign([], "undo", r["undo"], vault)["ok"]
+    assert "东北菜" not in it.load(vault, fresh=False)["item_tags"].get("xhs-0001", [])
+    hist = posttags.history(vault)
+    whos = {h["who"] for h in hist}
+    assert whos == {"ai", "human"} and all({"ts", "item", "before", "after"} <= set(h) for h in hist)
+    first = next(h for h in hist if h["item"] == "xhs-0016" and h["who"] == "ai")
+    assert posttags.restore(first["id"], vault)["ok"]             # 按历史任意一行恢复
+    assert posttags.final_tags(posttags.load(vault)["posts"]["xhs-0016"]) == []
+    assert not indexai.set_facet(["xhs-0001"], "没有的节点", "add", "x", vault)["ok"]
+
+
+def test_post_tags_vocab_synonyms_hostile_and_no_model(vault, fake, monkeypatch):
+    fake.hostile = True
+    write_catalog(vault, ITEMS)
+    write_index(vault, OWNER)
+    indexai.run(vault)
+    d = posttags.load(vault)
+    assert all(t not in ("其他", "x") and len(t) <= 8 for p in d["posts"].values() for t in posttags.final_tags(p))
+    # 同义词并成一个规范名 + 别名：模型说「澳洲超市」=「澳洲超市好物」→ 两篇都换成规范名、旧名记成别名、历史记 merge
+    assert posttags.final_tags(d["posts"]["xhs-0012"]) == ["澳洲超市好物"] and "澳洲超市" in d["vocab"]["澳洲超市好物"]["aliases"]
+    assert "澳洲超市" not in d["vocab"] and "空气炸锅" in d["vocab"]          # 乱给的 to 不认
+    assert any(h.get("op") == "merge" and h["item"] == "xhs-0012" for h in posttags.history(vault))
+    voc = posttags.Vocab(d)
+    assert voc.canon("澳洲超市") == "澳洲超市好物"
+    assert voc.canon("空气炸锅") == voc.canon("空气炸鍋".replace("鍋", "锅")) == "空气炸锅"
+    assert voc.canon("ＯＢＳＩＤＩＡＮ") == voc.canon("obsidian")
+    # 没有便宜模型：帖子自带的标签就是细分标签
+    monkeypatch.setattr(indexai, "facet_ai", lambda: (None, "没配"))
+    v2 = vault.parent / "v2"
+    (v2 / "_archive").mkdir(parents=True)
+    monkeypatch.setenv(storage.ENV_VAULT, str(v2))
+    write_catalog(v2, ITEMS)
+    write_index(v2, OWNER)
+    indexai.run(v2)
+    G = {f["name"]: f for f in rows(it.load(v2, fresh=False))["游戏/游戏"].get("facets", [])}
+    assert "游戏" not in G                                         # 和节点同名的不在这一行
+    F2 = rows(it.load(v2, fresh=False))["美食/菜谱"]["facets"]
+    assert [f["name"] for f in F2] == ["空气炸锅"] and F2[0]["count"] == 6
+
+
+def test_cli_facet(vault, fake, capsys):
+    write_catalog(vault, ITEMS)
+    write_index(vault, OWNER)
+    indexai.run(vault)
+    code = cli.main(["index", "facet", "--item", "xhs-0001", "--path", "美食/菜谱", "--op", "add", "--name", "东北菜"])
+    j = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert code == 0 and j["ok"] and "东北菜" in j["message"]
