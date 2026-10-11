@@ -1046,3 +1046,35 @@ CLI（`read.outcome` 形状；退出码 0 成功 / 1 失败 / 2 参数不对或�
 `index assign --op move|add|remove|reset|undo --path P --item X [--item Y]` → `{undo, unclassified}`（move = 只放这一类；undo 时 `--path` 是撤销号）·
 `index accept --id <建议 / virtual 的 id>` → `{path, line, unclassified}`（写进 索引.md：原子写、备份 reason `accept`；这几篇直接归进新节点，新节点记成已判过，不再花钱）·
 `index empty --path P --remove|--keep`（删只删 0 篇的节点那几行，备份 reason `remove`）· `index dismiss --id X`。
+
+## 2026-10-11（二）细分标签（标签属于帖子）与原地更新
+
+她定（看过 Obsidian 之后）：**标签属于帖子**——一篇有哪些标签是事实；**树的节点只来自 `索引.md`**（加上她点过「加进索引」的建议），最多 3 级，
+只是把标签排成几级、从不改哪篇有哪个标签。10-11 上午那版「她写了 `...` 的节点下 AI 直接建子类（virtual）」撤掉；写了 `...` 的节点不再做「建议新增」细分。
+数据结构按「以后树的节点 = 一个标签查询」留好：每篇的标签全库一份，节点那一行只是查询结果。
+
+```jsonc
+// _archive/post-tags.json（link_brain/posttags.py；锁 post-tags）
+{"version": 1,
+ "vocab": {"空气炸锅": {"aliases": ["空气炸锅菜"]}},                    // 全库词表：规范名 + 别名（同义的并成一个）
+ "posts": {"xhs-…": {"sig": "<标题 + 标签 + 概要的签名>", "ai": ["空气炸锅", "牛排"], "human_add": ["东北菜"], "human_remove": ["快手菜"],
+                     "at": "…", "model": "qwen3.7-flash" | "tags"}},
+ "merged_names": [...]}                                                // 已经和词表对过同义的名字（只给新名字花钱）
+// 一篇最后的标签 = ai + human_add − human_remove（她的永远赢）
+// _archive/post-tags-history.jsonl：一行一次改动，只追加——{"id", "ts", "who": "ai|human", "item", "before": [...], "after": [...], "op"?: "add|remove|merge|restore", "tag"?, "from"?}
+// index-data.json：nodes[].facets = 这个节点的帖子身上出现的标签 [{"name", "count", "items"}]（≥2 篇、篇多的前 12 个，不列和节点 / 子类 / 第 4 级关键词同名的）；
+//                  item_tags = {"xhs-…": [最后的标签]}（卡片小字、「归类…」打勾用）
+```
+- 打标签：只看标题 + 自带标签 + 概要（不读全文），一篇 3–6 个、宽一点打；40 篇一批，附全库篇数多的 300 个已有标签让它复用写法；
+  新收的 / 内容变了的才打（入库后的后台归类顺手就打了）；模型漏掉的那篇先用它自带的标签，不反复花钱。用**归档摘要模型**（便宜），没 key 用文本 AI，都没有 = 自带标签。
+- 同义合并：每次打完，把新名字和篇数多的老名字一起给**文本 AI**（更稳）看，只并完全同义的；程序再核一道（得有共同汉字或 3 个以上相同字母），
+  一组最多并 5 个；`docs/tag-vocab.yaml` 的别名也算。帖子上的旧名字跟着换成规范名，每篇记一行 `op=merge`。
+- 她手动：`index facet --item X [--item Y] --path <节点，可空> --op add|remove --name <标签>` = 改这几篇的标签（`who=human`）→ `{undo: "t:<历史 id>"}`；
+  撤销 = `index assign --op undo --path t:<id>`；任何一行历史都能按 `posttags.restore(<id>)` 恢复成那一步之前（恢复本身也记一行）。
+- 估价 / 后台拉起同归类（`classify.work` 含要打标签的篇数，`tag_pending`）；用量里 `facet_usage` 单列打标签那个模型。
+
+页面（目录页「索引」）：选中节点时网格上面一行「细分」chips（数字 = 和已选的同时有的篇数），多选 = 同时有（越选越窄），「清除」回到这一类全部；
+卡片上一行淡字 = 这篇帖子的标签（这一行里有的排前面）；「归类…」菜单里列这一类那一行的标签 + 这几篇自己的标签（打勾 = 都有，点一下加 / 去掉）+「加一个标签…」。
+**原地更新**（她：按 AI 建议刷新目录会闪一下）：`index-data.json` 内容没变（同一次改动的第二个通知）什么都不做；选中这一类的篇目和已选细分标签没变 →
+结果集的键不变，网格不重摆；变了 → 列复用、卡片只在位置不对时挪（不再整批摘下再挂回）；树的形状没变只改数字（行元素不换、左栏滚动不动），
+形状变了重画也还原左栏滚动；上面一行按内容变了才重画。

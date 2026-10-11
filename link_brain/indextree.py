@@ -48,7 +48,7 @@ HISTORY_DIR = "index-history"
 HISTORY_KEEP = 30
 UNCLASSIFIED = "未归类"
 FORMAT_VERSION = 1
-CODE_VERSION = "1011.1"     # 解析 / 归类规则一变就改它：index-data.json 不再「没变化」短路
+CODE_VERSION = "1011.2"     # 解析 / 归类规则一变就改它：index-data.json 不再「没变化」短路
 LOCK = "index-build"
 SEP = "/"
 NAME_MAX = 60
@@ -895,7 +895,7 @@ def catalog_items(vault: Path | None = None) -> tuple[list[dict[str, Any]], str]
 
 
 def node_rows(parsed: Parsed, result: Result, *, virtual_ids: dict[int, str] | None = None,
-              kept: Iterable[str] = ()) -> list[dict[str, Any]]:
+              kept: Iterable[str] = (), facets: dict[str, list[dict[str, Any]]] | None = None) -> list[dict[str, Any]]:
     rows = []
     kept = set(kept)
     for n in parsed.walk():
@@ -918,6 +918,8 @@ def node_rows(parsed: Parsed, result: Result, *, virtual_ids: dict[int, str] | N
             row["proposal"] = (virtual_ids or {}).get(id(n), "")
         if n.path in kept:
             row["keep_empty"] = True
+        if (facets or {}).get(n.path):
+            row["facets"] = facets[n.path]          # 10-11 细分标签：[{name, count, items}]，多选
         rows.append(row)
     return rows
 
@@ -992,7 +994,7 @@ def _short_circuit(vault: Path, source_hash: str, built_at: str, ai: dict[str, A
             and old.get("catalog_built_at") == built_at and old.get("vocab_hash") == _vocab_stamp()
             and old.get("file") == index_rel() and old.get("wiki_meta") == _wiki_meta_stamp(vault)
             and (old.get("text_ai") or {}).get("ok") == ai.get("ok") and "drafting" not in old
-            and old.get("ai_stamp") == indexai.stamp(vault)
+            and old.get("ai_stamp") == indexai.stamp(vault) and old.get("tags_stamp") == _tags_stamp(vault)
             and (old.get("classify") or {}).get("ai_ok") == ai.get("classify_ok")
             and not (old.get("classify") or {}).get("running"))
     if not same:
@@ -1057,7 +1059,7 @@ def _ai_view(vault: Path, parsed: Parsed, items: list[dict[str, Any]], result: R
     proposals.sort(key=lambda p: (-p["count"], -p["loose"], p["name"]))     # 篇数多的在前（一篇的零散建议排后面）
     model = str(ai.get("classify_model") or "")
     try:
-        pl = indexai.plan(parsed, items, cache, model)
+        pl = indexai.plan(parsed, items, cache, model, vault)
     except Exception:  # noqa: BLE001
         pl = {"pending": 0, "work": 0, "yuan": None}
     done = sum(1 for i in by_id if isinstance((cache.get("items") or {}).get(i), dict) and "paths" in cache["items"][i])
@@ -1074,7 +1076,33 @@ def _ai_view(vault: Path, parsed: Parsed, items: list[dict[str, Any]], result: R
     if running and storage.pid_state(running.get("pid")) != "dead":
         cls["running"] = {k: running.get(k) for k in ("at", "done", "total", "phase")}
     return {"assign": assign, "proposals": proposals, "classify": cls, "comments": list(parsed.comments),
-            "ai_stamp": indexai.stamp(vault), "overrides": len(ov.get("items") or {})}
+            "ai_stamp": indexai.stamp(vault), "tags_stamp": _tags_stamp(vault), "overrides": len(ov.get("items") or {}),
+            "item_tags": _item_tags_safe(vault)}
+
+
+def _facets_safe(parsed: Parsed, items: list[dict[str, Any]], result: Result, cache: dict[str, Any],
+                 ov: dict[str, Any], vault: Path | None = None) -> dict[str, list[dict[str, Any]]]:
+    """每个节点那一行细分 chips：这个节点的帖子身上出现的标签（标签属于帖子，posttags.py）。"""
+    try:
+        from . import posttags
+        return posttags.node_facets(parsed, result, posttags.load(vault))
+    except Exception as exc:  # noqa: BLE001 - 细分标签坏了不挡索引
+        _log(f"[index] 细分标签没套上：{type(exc).__name__}: {exc}")
+        return {}
+
+
+def _tags_stamp(vault: Path | None) -> str:
+    from . import posttags
+    return posttags.stamp(vault)
+
+
+def _item_tags_safe(vault: Path | None) -> dict[str, list[str]]:
+    """每篇帖子的细分标签（页面卡片上的小字、「归类…」里打勾用）。"""
+    try:
+        from . import posttags
+        return posttags.item_tags(posttags.load(vault))
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def maybe_classify(vault: Path, data: dict[str, Any]) -> str:
@@ -1163,7 +1191,7 @@ def _build(vault: Path, items: list[dict[str, Any]] | None, catalog_built_at: st
         "catalog_built_at": catalog_built_at, "total": len(result.order), "classified": len(result.hit_any),
         "roots": [r.path for r in parsed.roots],
         "nodes": node_rows(parsed, result, virtual_ids={id(v["node"]): v["id"] for v in applied["virtual"]},
-                           kept=ov.get("keep_empty") or []),
+                           kept=ov.get("keep_empty") or [], facets=_facets_safe(parsed, items, result, cache, ov, vault)),
         "unclassified": {"count": len(result.unclassified), "items": list(result.unclassified)},
         "cats_order": cats_order(parsed, result),
         "warnings": warnings, "draft": _draft_info(vault, items, matcher), "text_ai": ai,
@@ -2429,6 +2457,11 @@ def add_parser(sub) -> None:
     g.add_argument("--keep", action="store_true")
     pdm = isub.add_parser("dismiss", help="不要这条「建议新增」")
     pdm.add_argument("--id", required=True)
+    pf = isub.add_parser("facet", help="给几篇加 / 去掉某个节点下的细分标签（压过 AI）")
+    pf.add_argument("--item", dest="items", action="append", default=[])
+    pf.add_argument("--path", required=True, help="节点路径")
+    pf.add_argument("--op", required=True, choices=["add", "remove"])
+    pf.add_argument("--name", required=True, help="细分标签名")
 
 
 def argparse_hidden() -> str:
@@ -2506,6 +2539,9 @@ def run(args) -> int:
         elif cmd == "dismiss":
             from . import indexai
             r = indexai.dismiss(args.id)
+        elif cmd == "facet":
+            from . import indexai
+            r = indexai.set_facet(args.items, args.path, args.op, args.name)
         if cmd == "show":
             data = load()
             if getattr(args, "unclassified", False) or (args.node and norm_path(args.node) in {norm_path(x) for x in UNCLASSIFIED_REFS}):

@@ -250,7 +250,7 @@ R = {"status": "ok|failed|skipped", "text": str|None, "code": "<故障码或空>
 - 设置线（L4）：`accountCache`、事件 `link-brain:task`、`onTask(cb)`。
 - 功能线（L5）：`settings.media = {loop, playlistOrder}`（插件设置，后端不读）。
 - 索引树（1010）：`indexUI`（`index-ui.js`，onload 那排挂载点之一）；它在插件对象上挂页面调的 `indexDraft()` / `indexUseDraft()` / `openIndexSuggestions()` / `wikiBuild(path)` / `openIndexFile(line?)` / `indexRebuild()`（页面发现索引是用旧目录数据算的、或设置换了索引文件：走同一个防抖重算）；设置 `indexFile`（库根相对 .md，后端读同一个键，越界回默认 `索引.md`）。设置页那一节在 main.js `fieldCategories`（收藏与同步 →「目录分类（索引）」，原「名称: 关键词」文本框退场；`catalogCats` 只在第一次生成 索引.md 时迁移用），按钮只调上面这几个方法。打开 索引.md / 草稿 / wiki 页不经插件（页面自己 `getLeaf(false).openFile`，手机上也能开）；分类 / 未归类 / 草稿 / wiki 状态 / 「AI 能不能点」都只读 `index-data.json`（`text_ai`、`drafting`），页面不判。
-  1011 加：`indexAssign(ids, op, path)`（op = move / add / remove / reset / undo）· `indexAccept(id)` · `indexDismiss(id)` · `indexEmpty(path, 'remove'|'keep')` · `indexClassify({onProgress})`——
+  1011 加：`indexAssign(ids, op, path)`（op = move / add / remove / reset / undo）· `indexAccept(id)` · `indexDismiss(id)` · `indexEmpty(path, 'remove'|'keep')` · `indexClassify({onProgress})` · `indexFacet(ids, path, 'add'|'remove', name)`（细分标签）——
   只跑 `index …` 命令、把 JSON 交回页面，**提示和撤销由页面做**（`LB.say` / `LB.undoNotice`），插件不弹；按内容归类的进度 / 花费 / 建议新增 / AI 建的子类都只读 `index-data.json`（`classify`、`proposals`、`nodes[].virtual`），页面不判。
 
 **形状**

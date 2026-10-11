@@ -299,12 +299,21 @@ class Meter:
             self.errors.append({"code": res.get("code") or "TRANSIENT.SERVICE_BUSY", "error": res.get("error") or "模型没回"})
 
     def yuan(self) -> float | None:
-        return price(self.model, self.tin, self.tout)
+        y = price(self.model, self.tin, self.tout)
+        for m in getattr(self, "extra", []):      # 细分标签用的另一个（便宜）模型
+            e = m.yuan()
+            y = None if y is None or e is None else y + e
+        return y
 
     def dump(self) -> dict[str, Any]:
         y = self.yuan()
-        return {"model": self.model, "calls": self.calls, "tokens_in": self.tin, "tokens_out": self.tout,
-                "yuan": round(y, 4) if y is not None else None}
+        out = {"model": self.model, "calls": self.calls, "tokens_in": self.tin, "tokens_out": self.tout,
+               "yuan": round(y, 4) if y is not None else None}
+        extra = getattr(self, "extra", [])
+        if extra:                                 # 细分标签另用的便宜模型（几轮加起来）
+            out["facet_usage"] = {"model": extra[-1].model, "calls": sum(m.calls for m in extra),
+                                  "tokens_in": sum(m.tin for m in extra), "tokens_out": sum(m.tout for m in extra)}
+        return out
 
 
 def classify_batch(outline_text: str, table: dict[str, Any], batch: list[dict[str, Any]], cfg: dict[str, Any],
@@ -444,7 +453,7 @@ def _split_todo(parsed, cache: dict[str, Any], present: set[str]) -> list[str]:
     direct = direct_members(cache, present)
     todo = []
     for n in real_nodes(parsed):
-        if n.depth >= MAX_DEPTH or n.name in GENERIC_NAMES:
+        if n.depth >= MAX_DEPTH or n.name in GENERIC_NAMES or can_open(n):
             continue
         cnt = len(direct.get(n.path, []))
         if cnt < SPLIT_MIN:
@@ -460,7 +469,7 @@ def _leftover_due(cache: dict[str, Any], present: set[str]) -> bool:
     return bool(unc) and (cache.get("leftover") or {}).get("hash") != _h(unc)
 
 
-def plan(parsed, items: list[dict[str, Any]], cache: dict[str, Any], model: str = "") -> dict[str, Any]:
+def plan(parsed, items: list[dict[str, Any]], cache: dict[str, Any], model: str = "", vault: Path | None = None) -> dict[str, Any]:
     nodes = {n.path: n for n in real_nodes(parsed)}
     sigs = {p: node_sig(n) for p, n in nodes.items()}
     known = cache.get("known") or {}
@@ -483,6 +492,10 @@ def plan(parsed, items: list[dict[str, Any]], cache: dict[str, Any], model: str 
     node_items = [i for i in present if i not in fullset] if changed else []
     splits = _split_todo(parsed, cache, present) if not full else []
     leftover = _leftover_due(cache, present) if not full else False
+    from . import posttags
+    tag_todo = len(posttags.pending(items, posttags.load(vault)))
+    facets = [f"{tag_todo} 篇"] if tag_todo else []
+    facet_in = tag_todo * 85 + (math.ceil(tag_todo / posttags.BATCH) * 900 if tag_todo else 0)
     tree_tokens = 30 + 18 * len(nodes)
     n_full = math.ceil(len(full) / BATCH) if full else 0
     n_node = math.ceil(len(node_items) / NODE_BATCH) if node_items else 0
@@ -490,14 +503,19 @@ def plan(parsed, items: list[dict[str, Any]], cache: dict[str, Any], model: str 
            + n_node * (tree_tokens + 300) + len(node_items) * TOKENS_PER_ITEM
            + len(splits) * (300 + 60 * SPLIT_MIN * 3))
     tout = len(full) * TOKENS_OUT_PER_ITEM + len(node_items) * 4 + len(splits) * 120
-    if full:                                 # 归完还要细分 / 给放不进的分组：按经验大约再加三成
-        tin, tout = int(tin * 1.3), int(tout * 1.3)
+    if full:                                 # 归完还要细分 / 给放不进的分组 / 起细分标签：按经验大约再加五成
+        tin, tout = int(tin * 1.5), int(tout * 1.5)
     yuan = price(model, tin, tout) if model and (tin or tout) else (0.0 if not (tin or tout) else None)
+    fcfg = facet_ai()[0] if facets else None
+    fy = price(str((fcfg or {}).get("model") or model), facet_in, tag_todo * 18) if facets else 0.0
+    if yuan is not None and fy is not None:
+        yuan += fy
     pending = len(full)                      # 要整篇判的篇数（页面上「还有 N 篇没按内容归」）
     return {"full": full, "changed": changed if node_items else [], "node_items": node_items, "splits": splits,
-            "leftover": leftover, "sigs": sigs, "calls": n_full + n_node + len(splits) + (1 if leftover else 0),
+            "leftover": leftover, "facets": facets, "sigs": sigs,
+            "calls": n_full + n_node + len(splits) + (1 if leftover else 0) + (math.ceil(tag_todo / posttags.BATCH) if tag_todo else 0),
             "tokens_in": tin, "tokens_out": tout, "yuan": yuan, "pending": pending,
-            "work": pending + len(node_items) + len(splits) + (1 if leftover else 0),
+            "work": pending + len(node_items) + len(splits) + (1 if leftover else 0) + tag_todo, "tag_pending": tag_todo,
             "removed": [p for p in known if p not in nodes]}
 
 
@@ -506,9 +524,8 @@ def plan(parsed, items: list[dict[str, Any]], cache: dict[str, Any], model: str 
 # ═══════════════════════════════════════════════════════════════════════════
 
 def apply(parsed, items: list[dict[str, Any]], cache: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
-    """返回 {ai: {id: [路径]}（有 AI 结果的篇；这些篇不再按名字字面找）, overrides, virtual: [{node, id, items}]}。
-    会在 parsed 里挂上 virtual 节点（她写了 `...` 的节点下、细分出来 ≥3 篇的子类）。"""
-    from .indextree import Node, key
+    """返回 {ai: {id: [路径]}（有 AI 结果的篇；这些篇不再按名字字面找）, overrides, virtual: []}。"""
+    from .indextree import key
     nodes = {n.path: n for n in real_nodes(parsed)}
     present = {str(it.get("id")) for it in items if it.get("id")}
     ai: dict[str, list[str]] = {}
@@ -516,29 +533,20 @@ def apply(parsed, items: list[dict[str, Any]], cache: dict[str, Any], overrides:
         if iid not in present or not isinstance(row, dict) or "paths" not in row:
             continue
         ai[iid] = [p for p in row.get("paths") or [] if isinstance(p, str) and p in nodes]
-    made = []
-    dismissed = set(overrides.get("dismissed") or [])
+    # 10-11 她：树的节点只来自 索引.md（和点过「加进索引」的建议）——AI 不再往树里建子类，细分改成节点下面的细分标签（facets）。
+    # 细分出来的组只有一个用处：她已经加了同名的子类，就直接把这几篇归进去。
     for path, sp in (cache.get("splits") or {}).items():
         parent = nodes.get(path)
         if parent is None or not isinstance(sp, dict):
             continue
-        for g in (sp.get("groups") or [])[:VIRTUAL_MAX]:
-            name = str(g.get("name") or "")
-            members = [i for i in g.get("items") or [] if path in ai.get(i, [])]
-            real = next((c for c in parent.children if key(c.name) == key(name)), None)
-            if real is not None:                   # 她已经加了同名的子类（点过「保留」/「加进索引」）：直接归进去
-                for i in members:
+        for g in sp.get("groups") or []:
+            real = next((c for c in parent.children if key(c.name) == key(str(g.get("name") or ""))), None)
+            if real is None:
+                continue
+            for i in g.get("items") or []:
+                if path in ai.get(i, []):
                     ai[i] = [real.path if p == path else p for p in ai[i]]
-                continue
-            gid = group_id(path, name)
-            if not can_open(parent) or len(members) < SPLIT_GROUP_MIN or gid in dismissed:
-                continue
-            v = Node(name=name, tags=[], explicit=True, line=0, lines=[], parent=parent, virtual=True)
-            v.desc = "AI 按内容建的子类"
-            parent.children.append(v)
-            for i in members:
-                ai[i] = [v.path if p == path else p for p in ai[i]]
-            made.append({"node": v, "id": gid, "items": members})
+    made: list[dict[str, Any]] = []
     return {"ai": ai, "overrides": overrides.get("items") or {}, "virtual": made}
 
 
@@ -559,6 +567,30 @@ def proposal_groups(parsed, cache: dict[str, Any]) -> list[dict[str, Any]]:
         out.append({"id": group_id(parent, g.get("name")), "name": str(g.get("name") or ""), "parent": parent,
                     "items": list(g.get("items") or []), "kind": "leftover"})
     return out
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 细分标签（10-11 她定：标签属于帖子，树只是把标签排成几级）——存取 / 打标签 / 历史都在 posttags.py
+# ═══════════════════════════════════════════════════════════════════════════
+
+def facet_ai() -> tuple[dict[str, Any] | None, str]:
+    """打细分标签用哪个模型：先用便宜的归档摘要模型（只是看标题 + 标签 + 概要起几个词），没 key 再用文本 AI。"""
+    from . import indextree
+    return indextree.text_ai(order=(("summaryAI", "归档摘要模型"), ("textAI", "文本 AI")))
+
+
+def set_facet(ids: list[str], path: str, op: str, name: str, vault: Path | None = None) -> dict[str, Any]:
+    """「归类…」里加 / 去掉细分标签 = 改这几篇帖子的标签（记成 human；path 只用来核对节点还在）。"""
+    from . import indextree, posttags
+    vault = vault or storage.vault_root()
+    if path:
+        node, _ = indextree.find_node(indextree.load(vault, fresh=False), path)
+        if node is None:
+            return {"ok": False, "code": "PERMANENT.STEP_ARGS", "message": f"索引里没有「{path}」"}
+    r = posttags.edit(ids, op, name, vault)
+    if r.get("ok"):
+        indextree.build(vault, force=True, auto_draft=False)
+    return r
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -585,7 +617,7 @@ def estimate(vault: Path | None = None) -> dict[str, Any]:
     items, _ = indextree.catalog_items(vault)
     parsed = indextree.parse(indextree._read_text(indextree.index_path(vault)) or "")
     cfg, why = classifier_ai()
-    pl = plan(parsed, items, load_cache(vault), str((cfg or {}).get("model") or ""))
+    pl = plan(parsed, items, load_cache(vault), str((cfg or {}).get("model") or ""), vault)
     return {**{k: pl[k] for k in ("calls", "tokens_in", "tokens_out", "yuan", "pending", "work")},
             "full": len(pl["full"]), "changed": list(pl["changed"]), "splits": list(pl["splits"]),
             "model": (cfg or {}).get("model") or "", "ai_ok": cfg is not None, "why": why}
@@ -605,7 +637,7 @@ def run(vault: Path | None = None, *, auto: bool = False, on_progress: Callable[
     except storage.LockBusy:
         return {"ok": True, "code": "", "message": "已经在按内容归类了", "already": True}
     meter = Meter(str(cfg.get("model") or ""))
-    did = {"full": 0, "nodes": 0, "splits": 0, "leftover": 0}
+    did = {"full": 0, "nodes": 0, "splits": 0, "leftover": 0, "facets": 0}
     message = ""
     try:
         if auto:
@@ -617,7 +649,7 @@ def run(vault: Path | None = None, *, auto: bool = False, on_progress: Callable[
                 message = "目录或索引还是空的，没东西可归"
                 break
             cache = load_cache(vault)
-            pl = plan(parsed, items, cache, meter.model)
+            pl = plan(parsed, items, cache, meter.model, vault)
             if not pl["work"]:
                 break
             limit = AUTO_MAX_YUAN if (auto and max_yuan is None) else max_yuan
@@ -641,12 +673,13 @@ def run(vault: Path | None = None, *, auto: bool = False, on_progress: Callable[
             cache["last_error"] = {"at": _now(), **meter.errors[-1]}
         elif meter.calls:
             cache.pop("last_error", None)
-        if meter.calls:
+        if meter.calls or getattr(meter, "extra", None):
             cache["runs"] = (list(cache.get("runs") or []) + [run_row])[-HISTORY_KEEP:]
             sp = cache["spent"]
-            sp["calls"] = int(sp.get("calls") or 0) + meter.calls
-            sp["tokens_in"] = int(sp.get("tokens_in") or 0) + meter.tin
-            sp["tokens_out"] = int(sp.get("tokens_out") or 0) + meter.tout
+            ms = [meter, *getattr(meter, "extra", [])]     # 细分标签另用的便宜模型也算进来
+            sp["calls"] = int(sp.get("calls") or 0) + sum(m.calls for m in ms)
+            sp["tokens_in"] = int(sp.get("tokens_in") or 0) + sum(m.tin for m in ms)
+            sp["tokens_out"] = int(sp.get("tokens_out") or 0) + sum(m.tout for m in ms)
             y = meter.yuan()
             if y is not None:
                 sp["yuan"] = round(float(sp.get("yuan") or 0) + y, 4)
@@ -658,11 +691,13 @@ def run(vault: Path | None = None, *, auto: bool = False, on_progress: Callable[
     data = indextree.build(vault, force=True, auto_draft=False)
     unc = data["unclassified"]["count"]
     y = meter.yuan()
-    money = (f"，花了约 ¥{y:.2f}" if y and y >= 0.01 else "，花了不到 1 分钱" if meter.calls else "")
+    calls_all = meter.calls + sum(m.calls for m in getattr(meter, "extra", []))
+    money = (f"，花了约 ¥{y:.2f}" if y and y >= 0.01 else "，花了不到 1 分钱" if calls_all else "")
     if not message:
-        if meter.calls:
+        if calls_all:
             bits = [f"新归 {did['full']} 篇" if did["full"] else "", f"新节点 {did['nodes']} 个" if did["nodes"] else "",
-                    f"细分了 {did['splits']} 个节点" if did["splits"] else ""]
+                    f"细分了 {did['splits']} 个节点" if did["splits"] else "",
+                    f"{did['facets']} 篇打了细分标签" if did["facets"] else ""]
             message = "按内容归好了：" + "、".join(b for b in bits if b) + f"；未归类还剩 {unc} 篇{money}"
             message = message.replace("归好了：；", "归好了；")
         else:
@@ -807,6 +842,17 @@ def _round_run(vault: Path, parsed, items: list[dict[str, Any]], cache: dict[str
             did["leftover"] += 1
             save_cache(cache, vault)
         report("给放不进的分组", 1)
+    # 5) 细分标签：给新的 / 内容变了的帖子打标签（标签属于帖子；只看标题 + 标签 + 概要；便宜的模型，没有就用自带标签）
+    from . import posttags
+    if posttags.pending(items, posttags.load(vault)):
+        fcfg, _why = facet_ai()
+        fmeter = meter if fcfg is None or str(fcfg.get("model") or "") == meter.model else Meter(str(fcfg.get("model") or ""))
+        n = posttags.run(vault, items, fcfg, fmeter, workers=WORKERS, report=lambda k: report("打细分标签", k),
+                         merge_cfg=cfg if fcfg is not None else None, merge_meter=meter)
+        did["facets"] = did.get("facets", 0) + n
+        if fmeter is not meter:
+            meter.extra = getattr(meter, "extra", []) + [fmeter]
+            meter.errors.extend(fmeter.errors)
 
 
 def spawn(vault: Path) -> str:
@@ -838,6 +884,13 @@ def assign(ids: list[str], op: str, path: str = "", vault: Path | None = None) -
     node = None
     with storage.file_lock("index-overrides", wait_s=15, owner="index.assign"):
         ov = load_overrides(vault)
+        if op == "undo" and str(path).startswith("t:"):
+            from . import posttags
+            r = posttags.restore(path, vault)
+            if not r.get("ok"):
+                return r
+            data = indextree.build(vault, force=True, auto_draft=False)
+            return {"ok": True, "code": "", "message": "已撤销", "unclassified": data["unclassified"]["count"]}
         if op == "undo":
             h = next((x for x in ov["history"] if x.get("id") == path), None)
             if h is None:

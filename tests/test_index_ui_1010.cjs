@@ -148,8 +148,10 @@ function setup({ answers = {}, confirm = true, settings = {}, layoutReady = null
       'index dismiss --id p2': { ok: true, message: '不要了' },
       'index classify --progress': opts => { opts.onLine('{"type":"progress","done":25,"total":616,"text":"按内容归类 25/616"}'); opts.onLine('乱码'); return { code: 0, json: { ok: true, message: '按内容归好了' } }; },
       'index accept --id bad': { ok: false, code: 'PERMANENT.STEP_ARGS', message: '这条建议已经不在了' },
-      'index dismiss --id boom': new Error('Python 崩了') } });
-    for (const m of ['indexAssign', 'indexAccept', 'indexDismiss', 'indexEmpty', 'indexClassify']) assert.equal(typeof S.plugin[m], 'function', m);
+      'index dismiss --id boom': new Error('Python 崩了'),
+      'index facet --path 美食/菜谱 --op add --name 牛排 --item a': { ok: true, message: '已加上细分标签「牛排」', undo: 'u2' } } });
+    assert.equal((await S.plugin.indexFacet(['a'], '美食/菜谱', 'add', '牛排')).undo, 'u2');
+    for (const m of ['indexAssign', 'indexAccept', 'indexDismiss', 'indexEmpty', 'indexClassify', 'indexFacet']) assert.equal(typeof S.plugin[m], 'function', m);
     assert.deepEqual(await S.plugin.indexAssign(['a', 'b'], 'move', '美食/菜谱'), { ok: true, message: '2 篇已移到「菜谱」', undo: 'u1' });
     assert.equal((await S.plugin.indexAccept('p1')).path, '美食/健康餐');
     assert.equal((await S.plugin.indexEmpty('空', 'remove')).message, '已删');

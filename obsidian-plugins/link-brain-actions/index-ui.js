@@ -165,6 +165,12 @@ module.exports = function indexUI(obsidian, plugin, deps = {}) {
     for (const id of ids || []) args.push('--item', String(id));
     return indexCmd(args, '改归类', '没改上');
   }
+  // 10-11 细分标签：给几篇加 / 去掉某个节点下的细分标签（op = add / remove），压过 AI
+  function indexFacet(ids, path, op, name) {
+    const args = ['facet', '--path', String(path || ''), '--op', String(op), '--name', String(name || '')];
+    for (const id of ids || []) args.push('--item', String(id));
+    return indexCmd(args, '细分标签', '没改上');
+  }
   const indexAccept = id => indexCmd(['accept', '--id', String(id)], '加进索引', '没加上');
   const indexDismiss = id => indexCmd(['dismiss', '--id', String(id)], '不要这条建议', '没记上');
   const indexEmpty = (path, action) => indexCmd(['empty', '--path', String(path), action === 'remove' ? '--remove' : '--keep'], '空分类', '没改上');
@@ -177,7 +183,7 @@ module.exports = function indexUI(obsidian, plugin, deps = {}) {
 
   return {
     indexRel, draftRel, rebuild, schedule, openIndexSuggestions, indexDraft, indexUseDraft, wikiBuild, SuggestModal,
-    indexAssign, indexAccept, indexDismiss, indexEmpty, indexClassify,
+    indexAssign, indexAccept, indexDismiss, indexEmpty, indexClassify, indexFacet,
     attach() {
       // Obsidian 开库时会给每个已有文件发一次 create：等布局好了再挂，别一开库就重算一遍
       const hook = () => { if (app.vault?.on) for (const ev of ['modify', 'create']) plugin.registerEvent(app.vault.on(ev, onFile)); };
@@ -190,6 +196,7 @@ module.exports = function indexUI(obsidian, plugin, deps = {}) {
       plugin.openIndexFile = line => openFile(indexRel(), line);
       plugin.indexRebuild = () => schedule();          // 页面发现索引是用旧目录数据算的：重算一次（防抖、同一时刻一份）
       plugin.indexAssign = indexAssign;                // 10-11：目录页「移到… / 也放进… / 从这里拿掉」、撤销
+      plugin.indexFacet = indexFacet;                  // 卡片「归类…」里加 / 去掉细分标签
       plugin.indexAccept = indexAccept;                // 「建议新增」加进索引 / AI 建的子类「保留」
       plugin.indexDismiss = indexDismiss;
       plugin.indexEmpty = indexEmpty;                  // 空分类：删 / 留
