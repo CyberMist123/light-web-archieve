@@ -9,7 +9,7 @@ const tick = (ms = 0) => new Promise(r => setTimeout(r, ms));
 const DATA = '_archive/catalog-data.json';
 
 (async () => {
-  const V = makeVault({ [DATA]: JSON.stringify({ built_at: '2026-10-04T10:00:00+10:00', items: [] }),
+  const V = makeVault({ /* 1015 前的默认（追问绑来源、接着这段问），新默认见 test_chat_b2_1015 */ '_archive/chat-prefs.json': '{"follow":"sources","keepThread":true}',  [DATA]: JSON.stringify({ built_at: '2026-10-04T10:00:00+10:00', items: [] }),
     '_archive/chat-session.json': JSON.stringify({ turns: [] }), '_archive/chat-archive.json': '{"entries":[]}' });
   const asks = [];
   const plugin = {

@@ -50,8 +50,15 @@ session.draft = typeof session.draft === 'string' ? session.draft : '';
 const idList = v => Array.isArray(v) ? [...new Set(v.filter(x => typeof x === 'string' && x))] : [];
 session.excluded = idList(session.excluded);
 session.pinned = idList(session.pinned);
-// 10-04 追问绑定来源：'sources'（默认）= 有上一轮回答时，追问只在它留下的来源里答、不重新检索；'search' = 她点了「改为重新搜」
-session.follow = session.follow === 'search' ? 'search' : 'sources';
+// 1015 她定：默认每问重新搜（'search'）；她点「改为在当前来源追问」才 'sources'（这一段对话里记住，followPicked 标明是她点的）。
+// 页面偏好（_archive/chat-prefs.json，跨对话）：follow = 新对话的默认（缺省 'search'）；keepThread = 新问题接着这段问（缺省 false = 每问开新对话，上一段已自动进历史）
+const PREFS_PATH = lbPath('_archive/chat-prefs.json');
+let prefs = { follow: 'search', keepThread: false };
+try { const raw = JSON.parse(await app.vault.adapter.read(PREFS_PATH)); prefs = { follow: raw.follow === 'sources' ? 'sources' : 'search', keepThread: !!raw.keepThread }; } catch {}
+// 读进来的会话（文件 / 历史 / 别页写的）统一过它：她没点过开关的一律按偏好默认
+const followOf = o => (o && o.followPicked && (o.follow === 'search' || o.follow === 'sources') ? o.follow : prefs.follow);
+session.follow = followOf(session);
+session.followPicked = !!session.followPicked;
 archive.entries = Array.isArray(archive.entries) ? archive.entries : [];
 // 10-04 ⑤ 历史：每段对话一个 id；所有问答默认自动存进历史（_archive/chat-history/<id>.json + index.json），「清空」只是开始新的一段。
 // 隐私模式（session.private）是个开关：开着时这段对话照样留在当前页（chat-session.json，换页回来还在），但不进历史；清空即没。
@@ -76,7 +83,7 @@ const BUSY_TEXT = '正在回答，答完再切换';
 const errText = e => (e && e.message) || String(e || '未知原因');
 // 所有写盘的唯一出口：只读（手机 / 插件没启用）一律不写——不产生同步冲突，也不会把失败写回电脑（A11）
 const writeJson = (file, obj, pretty) => readOnly ? Promise.resolve() : app.vault.adapter.write(file, pretty ? JSON.stringify(obj, null, 2) : JSON.stringify(obj));
-const sessionSnapshot = () => JSON.parse(JSON.stringify({ id: session.id, startedAt: session.startedAt, turns: session.turns, excluded: session.excluded, pinned: session.pinned, follow: session.follow, private: session.private }));
+const sessionSnapshot = () => JSON.parse(JSON.stringify({ id: session.id, startedAt: session.startedAt, turns: session.turns, excluded: session.excluded, pinned: session.pinned, follow: session.follow, followPicked: session.followPicked, private: session.private }));
 const firstQuestion = turns => (turns.find(t => t.role === 'user')?.content || '').trim();
 const ensureHistoryDir = async () => { if (readOnly) return; try { if (!(await app.vault.adapter.exists?.(HISTORY_DIR))) await app.vault.adapter.mkdir?.(HISTORY_DIR); } catch {} };
 // 插件级写链（§5.3 chatSaveChain）：几个问收藏页（含换页前那一页还在等回答的旧闭包）写会话 / 历史一律排队，不交叉覆盖
@@ -117,6 +124,7 @@ const saveSession = async () => {
 // 经写链写一次会话，成功后广播（别的问收藏页据此重读）；抛错给调用方
 const persist = () => enqueueWrite(saveSession).then(() => { if (!readOnly) announce(); });
 const saveArchive = () => writeJson(ARCHIVE_PATH, archive, true);
+const savePrefs = () => writeJson(PREFS_PATH, prefs, true);
 // 对话轮次：内存里已经显示了，写不进文件只影响「重开页面还在不在」——如实说一句，不打断作答
 const keepSession = () => persist().catch(e => { notice('对话没写进文件，重开这一页会丢：' + errText(e)); });
 // 「已保存」栏的改动：快照 → 改 → 写盘；失败回滚快照、提示（§1.5 统一写法）
@@ -140,7 +148,50 @@ function openNote(source, compare = false, context = '', fromCite = null) {
     try { return Promise.resolve(app.workspace.openLinkText(lbPath(src.note), '', false)).catch(e => notice('打不开来源：' + errText(e))); }
     catch (e) { notice('打不开来源：' + errText(e)); return; }
   }
-  return Promise.resolve().then(() => p.openArchiveSource(src.note, root, compare, chunks)).then(() => { paintSourceBar(); settle(); }).catch(e => notice('打不开来源：' + errText(e)));
+  return Promise.resolve().then(() => p.openArchiveSource(src.note, root, compare, chunks)).then(() => { paintSourceBar(); settle(); watchReaderVideos(src.note); }).catch(e => notice('打不开来源：' + errText(e)));
+}
+// 1015 右栏来源里的视频没首图（审计 F：问收藏这边没调 fixVideos）。和笔记页 annotate-view 的 fixVideos 同一个修法：
+// Obsidian 阅读视图只改写 <video src>、不改 poster → 把 poster 按笔记所在目录解析成能加载的地址，按封面比例定框，点了再加载视频。
+// 右侧阅读格是异步画的（还会重画），盯 8 秒 DOM 变化，幂等（dataset.lbPoster）。
+function fixVideosIn(view, note) {
+  if (!view?.querySelectorAll) return 0;
+  const folder = String(lbPath(note || '')).split('/').slice(0, -1).join('/');
+  let n = 0;
+  for (const v of view.querySelectorAll('video')) {
+    const raw = v.getAttribute && v.getAttribute('poster');
+    if (!raw || v.dataset.lbPoster === raw) continue;
+    v.dataset.lbPoster = raw;
+    if (/^(app|https?|data|blob|capacitor):/i.test(raw)) continue;
+    const parts = [];
+    for (const seg of (folder ? folder + '/' + raw : raw).split('/')) { if (!seg || seg === '.') continue; if (seg === '..') parts.pop(); else parts.push(seg); }
+    let url = '';
+    try { url = app.vault.adapter.getResourcePath(decodeURIComponent(parts.join('/'))); } catch { continue; }
+    if (!url) continue;
+    v.setAttribute('poster', url); v.dataset.lbPoster = url; v.preload = 'none'; n++;
+    try {
+      const img = new Image();
+      img.onload = () => { if (!img.naturalWidth || !img.naturalHeight) return; Object.assign(v.style, { aspectRatio: img.naturalWidth + ' / ' + img.naturalHeight, width: '100%', height: 'auto', maxHeight: '75vh', objectFit: 'contain', background: 'transparent', borderRadius: 'inherit' }); };
+      img.src = url;
+    } catch {}
+  }
+  return n;
+}
+let readerVideoWatch = null;
+function watchReaderVideos(note) {
+  try { readerVideoWatch?.(); } catch {}
+  readerVideoWatch = null;
+  const p = provider();
+  let leaves = null;
+  try { leaves = p?.archiveLeaves?.(root); } catch {}
+  const panes = [leaves?.reader, leaves?.compare].map(l => l?.view?.containerEl).filter(Boolean);
+  if (!panes.length) return;
+  for (const v of panes) fixVideosIn(v, note);
+  if (typeof MutationObserver !== 'function') return;
+  let queued = false;
+  const mo = new MutationObserver(() => { if (queued) return; queued = true; requestAnimationFrame(() => { queued = false; for (const v of panes) fixVideosIn(v, note); }); });
+  for (const v of panes) mo.observe(v, { childList: true, subtree: true });
+  const timer = setTimeout(() => mo.disconnect(), 8000);
+  readerVideoWatch = () => { clearTimeout(timer); mo.disconnect(); };
 }
 
 // 样式挂 head（LB.style 按 id 去重；lb-shared 排在它前面）。X14：从目录页抄来的 .lb-page-nav / .lb-manage / .lbc-* 规则删了，那些在 lb-shared 里
@@ -449,6 +500,59 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat button.lbchat-tocbtn{font:inherit;font-size:12px;height:auto;padding:4px 0;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-muted);cursor:pointer;}
 .lbchat button.lbchat-tocbtn[hidden]{display:none;}
 .lbchat-tocpanel{position:fixed;width:300px;max-height:60vh;overflow-y:auto;scrollbar-width:none;background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.22);padding:6px 4px;z-index:9999;font-size:12px;color:var(--text-muted);}
+/* ── 1015 第二批 ── */
+/* 目录卡（先目录后展开）：无框，序号 + 标题（点开来源）+ 作者 + 来源类型小标；第二行命中点；右边「展开」 */
+.lbchat-tocard{margin:12px 0 4px;padding:10px 0 4px;border-top:1px solid color-mix(in srgb,var(--background-modifier-border) 70%,transparent);}
+.lbchat-tocard-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 6px;font-size:12.5px;color:var(--text-muted);}
+.lbchat-tocard-title{font-weight:600;color:var(--text-normal);}
+.lbchat-tocard-note{font-size:11.5px;color:var(--text-faint);}
+.lbchat .lbchat-tocard-head button.lbchat-tocard-all{margin-left:auto;color:var(--interactive-accent);}
+.lbchat-tocard-list{list-style:none;margin:0;padding:0;}
+.lbchat-tocard-group{margin:10px 0 2px;font-size:11.5px;color:var(--text-faint);letter-spacing:.02em;}
+.lbchat-tocard-item{display:flex;align-items:flex-start;gap:10px;padding:7px 2px;border-bottom:1px solid color-mix(in srgb,var(--background-modifier-border) 55%,transparent);}
+.lbchat-tocard-item:last-child{border-bottom:0;}
+.lbchat-tocard-n{flex:none;min-width:1.4em;text-align:right;font-size:12px;line-height:1.75;color:var(--text-faint);font-variant-numeric:tabular-nums;}
+.lbchat-tocard-main{flex:1 1 auto;min-width:0;}
+.lbchat-tocard-line{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:14px;line-height:1.6;}
+.lbchat button.lbchat-tocard-name,.lbchat span.lbchat-tocard-name{font:inherit;font-size:14px;font-weight:600;color:var(--text-normal);background:transparent!important;border:0!important;box-shadow:none!important;padding:0;height:auto;text-align:left;cursor:pointer;white-space:normal;}
+.lbchat span.lbchat-tocard-name{cursor:default;}
+.lbchat button.lbchat-tocard-name:hover{color:var(--interactive-accent);}
+.lbchat-tocard-author{font-size:12px;color:var(--text-muted);}
+.lbchat-tocard-kind{font-size:10.5px;line-height:1.6;padding:0 6px;border-radius:999px;color:var(--text-muted);background:var(--background-modifier-hover);}
+.lbchat-tocard-hit{font-size:12.5px;line-height:1.65;color:var(--text-muted);margin-top:1px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.lbchat .lbchat-tocard-item button.lbchat-tocard-expand{flex:none;align-self:center;border:1px solid var(--background-modifier-border)!important;border-radius:999px!important;padding:0 10px!important;height:22px!important;line-height:20px;font-size:11.5px!important;color:var(--text-muted);background:var(--background-primary)!important;}
+.lbchat .lbchat-tocard-item button.lbchat-tocard-expand:hover:not(:disabled){color:var(--text-normal);border-color:var(--text-muted)!important;}
+.lbchat .lbchat-tocard-item button.lbchat-tocard-expand.is-done{color:var(--interactive-accent);border-color:color-mix(in srgb,var(--interactive-accent) 45%,transparent)!important;}
+.lbchat button.lbchat-act:disabled{opacity:.45;cursor:default;}
+.lbchat-tocard-suggest{margin-top:8px;font-size:12px;color:var(--text-faint);}
+/* 目录：1080–1242 时对话列往右让出左栏 */
+.lbchat-bodywrap.is-tight{padding-left:188px;box-sizing:border-box;}
+.lbchat-bodywrap.is-tight > .lbchat-toc{left:4px;}
+.lbchat-toc-item{color:var(--text-muted);}
+/* 「下一问」开关行：两个开关一行放不下就折行 */
+.lbchat-followbar{flex-wrap:wrap;row-gap:2px;}
+/* 已保存：Enter 存、作者小框、× 在标题行 */
+.lbchat-arc-add{align-items:flex-end;}
+.lbchat .lbchat-arc-input{min-height:38px;height:38px;resize:none;}
+.lbchat .lbchat-arc-author{flex:0 0 7.5em;width:7.5em;min-width:0;border:0;border-bottom:1px solid var(--background-modifier-border);border-radius:0;background:transparent!important;box-shadow:none!important;font:inherit;font-size:12.5px;color:var(--text-muted);padding:6px 2px;}
+.lbchat .lbchat-arc-author:focus{border-bottom-color:var(--interactive-accent);outline:none;}
+.lbchat-arc-who{flex:none;font-size:11px;line-height:1.6;padding:0 7px;border-radius:999px;color:var(--interactive-accent);border:1px solid color-mix(in srgb,var(--interactive-accent) 40%,transparent);}
+.lbchat-arc-head .lbchat-arc-del{flex:none;margin-left:0;opacity:0;color:var(--text-faint);}
+.lbchat-arc-item:hover .lbchat-arc-head .lbchat-arc-del,.lbchat-arc-head .lbchat-arc-del:focus-visible{opacity:1;}
+@media (hover:none){.lbchat-arc-head .lbchat-arc-del{opacity:1;}}
+/* mermaid 视口：图大于框时可拖、可缩放；放大看 = 铺满窗口 */
+.lbchat-mmd{position:relative;overflow:hidden;max-height:62vh;margin:.4em 0 .9em;border-radius:8px;background:var(--background-secondary);cursor:grab;touch-action:none;user-select:none;}
+.lbchat-mmd.is-drag{cursor:grabbing;}
+.lbchat-mmd-stage{position:relative;z-index:0;transform-origin:0 0;padding:10px;will-change:transform;}
+.lbchat-mmd-stage .mermaid{margin:0;}
+.lbchat-mmd-stage svg{max-width:100%;height:auto;}
+.lbchat-mmd-bar{position:absolute;z-index:2;right:6px;top:6px;display:flex;gap:4px;opacity:0;transition:opacity .12s;}
+.lbchat-mmd:hover .lbchat-mmd-bar,.lbchat-mmd.is-moved .lbchat-mmd-bar,.lbchat-mmd.is-full .lbchat-mmd-bar,.lbchat-mmd:focus-within .lbchat-mmd-bar{opacity:1;}
+@media (hover:none){.lbchat-mmd-bar{opacity:1;}}
+.lbchat .lbchat-mmd button.lbchat-mmd-btn{font:inherit;font-size:11.5px;height:24px;min-width:24px;padding:0 7px;border-radius:6px!important;border:1px solid var(--background-modifier-border)!important;background:var(--background-primary)!important;box-shadow:none!important;color:var(--text-muted);cursor:pointer;}
+.lbchat .lbchat-mmd button.lbchat-mmd-btn:hover{color:var(--text-normal);}
+.lbchat-mmd.is-full{position:fixed;inset:24px;z-index:9998;max-height:none;background:var(--background-primary);border:1px solid var(--background-modifier-border);box-shadow:0 12px 40px rgba(0,0,0,.28);}
+.lbchat-mmd.is-full .lbchat-mmd-stage svg{max-width:none;}
 `);
 
 const host = LB.mountHost('lbchat-host');
@@ -702,7 +806,7 @@ async function renderScoped(md, el) {
 // 每轮 DOM 缓存（A1）：key = 轮次 id → {el, sig, dispose}。sig 只取影响正文 / 气泡的字段；来源、按钮在 paintExtras 里原地重建
 const views = new Map();
 const sigOf = t => JSON.stringify(t.role === 'user' ? ['u', t.content, t.mode, t.sources, t.scopeTitle]
-  : t.role === 'assistant' ? ['a', t.content, !!t.failed, !!t.stopped, t.error?.kind || '', t.error?.code || '', t.mode || '']
+  : t.role === 'assistant' ? ['a', t.content, !!t.failed, !!t.stopped, t.error?.kind || '', t.error?.code || '', t.mode || '', t.answerMode || '', (t.toc || []).length]
     : [t.role, (t.results || []).length]);
 function disposeView(v) { try { v?.dispose?.(); } catch {} }
 // 强制全量重建（恢复历史 / 清空 / 重读别页写的会话）：兜住 sig 漏掉的字段
@@ -726,6 +830,7 @@ async function buildTurn(t) {
     if (t.mode === 'search') el.createEl('span', { cls: 'lbchat-qmark', text: '搜' });
     if (t.mode === 'reask') el.createEl('span', { cls: 'lbchat-qmark', text: `按留下的 ${t.sources || ''} 条来源重答` });
     if (t.mode === 'follow') el.createEl('span', { cls: 'lbchat-qmark is-follow', text: `在当前 ${t.sources || ''} 条来源里追问` });
+    if (t.mode === 'expand') el.createEl('span', { cls: 'lbchat-qmark is-follow', text: `展开 · ${t.sources || ''} 条来源` });
     el.appendText(t.content);
     return { el, sig: sigOf(t), dispose: () => {} };
   }
@@ -748,13 +853,56 @@ async function buildTurn(t) {
   const md = el.createEl('div', { cls: 'lbchat-md' });
   let dispose = () => {};
   if (t.failed && t.error) md.createEl('div', { cls: 'lbchat-fail', text: t.content });   // A5：失败轮正文就一句人话
-  else { dispose = await renderScoped(t.content, md); bindSources(md, t.sources || []); }
+  else { dispose = await renderScoped(t.content, md); bindSources(md, t.sources || []); enhanceMermaid(md); }
+  el._lbToc = el.createEl('div', { cls: 'lbchat-tocard-box' });
   el._lbSrc = el.createEl('div', { cls: 'lbchat-srcbox' });
   el._lbActs = el.createEl('div', { cls: 'lbchat-actions' });
   paintExtras(el, t);
   return { el, sig: sigOf(t), dispose };
 }
 
+// ── 1015 mermaid 图：自己实现缩放 / 拖动（不装第三方插件）。Obsidian 把 ```mermaid 画成 div.mermaid > svg（异步），
+// 这里给它套一层视口：Ctrl+滚轮 / 「＋ −」缩放，按住拖动平移，双击或「复位」回原样，「放大看」铺满窗口（Esc / 再点退出）。幂等（data-lb-mmd）。
+function enhanceMermaid(scope) {
+  if (!scope?.querySelectorAll) return 0;
+  let n = 0;
+  for (const box of scope.querySelectorAll('.mermaid')) {
+    if (box.dataset.lbMmd || box.closest('.lbchat-live') || box.closest('.lbchat-editor')) continue;
+    const svg = box.querySelector('svg'); if (!svg) continue;
+    box.dataset.lbMmd = '1'; n++;
+    const vp = createDiv({ cls: 'lbchat-mmd' });
+    box.parentNode.insertBefore(vp, box);
+    const stage = vp.createEl('div', { cls: 'lbchat-mmd-stage' });
+    stage.append(box);
+    const bar = vp.createEl('div', { cls: 'lbchat-mmd-bar' });
+    let k = 1, x = 0, y = 0;
+    const apply = () => { stage.style.transform = `translate(${x}px, ${y}px) scale(${k})`; vp.classList.toggle('is-moved', k !== 1 || x !== 0 || y !== 0); };
+    const zoom = (f, cx, cy) => {
+      const nk = Math.min(6, Math.max(0.3, k * f));
+      if (cx != null) { x = cx - (cx - x) * (nk / k); y = cy - (cy - y) * (nk / k); }
+      k = nk; apply();
+    };
+    const reset = () => { k = 1; x = 0; y = 0; apply(); };
+    const btn = (text, title, fn, cls = '') => { const b = bar.createEl('button', { cls: 'lbchat-mmd-btn' + (cls ? ' ' + cls : ''), text, attr: { title, 'aria-label': title } }); b.type = 'button'; b.onclick = e => { e?.stopPropagation?.(); fn(); }; return b; };
+    btn('＋', '放大', () => zoom(1.25)); btn('－', '缩小', () => zoom(0.8)); btn('复位', '回到原样（双击图也行）', reset);
+    const full = btn('放大看', '铺满窗口看（Esc 退出）', () => toggleFull(), 'lbchat-mmd-full');
+    const toggleFull = (force) => { const on = force ?? !vp.classList.contains('is-full'); vp.classList.toggle('is-full', on); full.setText(on ? '退出' : '放大看'); reset(); };
+    vp._lbExitFull = () => { if (!vp.classList.contains('is-full')) return false; toggleFull(false); return true; };
+    vp.addEventListener?.('wheel', e => {
+      if (!e.ctrlKey && !vp.classList.contains('is-full')) return;   // 平时滚轮照常滚对话；Ctrl+滚轮（触控板捏合）才缩放
+      e.preventDefault?.(); e.stopPropagation?.();
+      const r = vp.getBoundingClientRect();
+      zoom(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - r.left, e.clientY - r.top);
+    }, { passive: false });
+    let drag = null;
+    vp.addEventListener?.('pointerdown', e => { if (e.button !== 0 || e.target.closest?.('.lbchat-mmd-bar')) return; drag = { sx: e.clientX, sy: e.clientY, x, y }; vp.classList.add('is-drag'); try { vp.setPointerCapture?.(e.pointerId); } catch {} });
+    vp.addEventListener?.('pointermove', e => { if (!drag) return; x = drag.x + e.clientX - drag.sx; y = drag.y + e.clientY - drag.sy; apply(); });
+    const end = () => { drag = null; vp.classList.remove('is-drag'); };
+    vp.addEventListener?.('pointerup', end); vp.addEventListener?.('pointercancel', end);
+    vp.addEventListener?.('dblclick', e => { if (e.target.closest?.('.lbchat-mmd-bar')) return; reset(); });
+  }
+  return n;
+}
 // ── 会话渲染（A1）：串行锁 + 只重画变了的轮 ──
 let drawP = null, drawAgain = false, drawOpts = {};
 function drawChat(opts = {}) {
@@ -810,6 +958,7 @@ function paintExtras(el, t) {
   if (!el._lbSrc) return;
   const active = document.activeElement;
   const focusKey = active && (el._lbSrc.contains(active) || el._lbActs.contains(active)) ? active.dataset?.k : null;
+  if (el._lbToc) { const tb = createDiv({ cls: 'lbchat-tocard-box' }); drawTocCard(tb, el, t); el._lbToc.replaceWith(tb); el._lbToc = tb; }
   const box = createDiv({ cls: 'lbchat-srcbox' });
   drawSources(box, el, t);
   const acts = createDiv({ cls: 'lbchat-actions' });
@@ -890,7 +1039,12 @@ function drawActions(acts, el, t) {
       finally { exportBtn.disabled = false; if (!failed) exportBtn.setText(label); }
     };
   }
-  const details = mk('展开重点细节', '', 'more'); details.disabled = isBusy(); details.onclick = () => submit('请继续展开上一答最相关的重点项，摘录原文重要细节，说明具体机制、触发条件和限制，原帖内容和评论区分开写。');
+  // 1015：「展开」绑这一答自己（turn + 留下的主要依据 id），不再对「上一答」发固定话术；目录型回答在目录卡里逐条 / 全部展开
+  if (!(t.answerMode === 'toc' && (t.toc || []).length)) {
+    const removedHere = new Set(t.removed || []);
+    const ids = (t.sources || []).filter(s => !removedHere.has(srcKey(s))).map(s => s.id).filter(Boolean);
+    if (ids.length) { const details = mk('展开细节', 'lbchat-expand', 'more', `只在这一答的 ${ids.length} 条来源里展开细节（原帖和评论区分开写）`); details.disabled = isBusy(); details.onclick = () => expandTurn(t, ids, t.q || '这一答'); }
+  }
   if (!t.savedId) t.savedId = archive.entries.find(e => e.kind === 'report' && e.content === t.content)?.id;
   const saved = () => archive.entries.some(e => e.id === t.savedId);
   const save = mk('', 'lbchat-bookmark', 'save');
@@ -907,6 +1061,47 @@ function drawActions(acts, el, t) {
     else { await keepSession(); notice(wasSaved ? '已从「已保存」移除' : '已存到「已保存」', 2500); }
     save.disabled = false; paintSave();
   };
+}
+// 目录卡（1015 先目录后展开）：「1 · 标题 · 作者 · 命中点 · [来源类型]」每条可单独展开，顶上「全部展开」；标题点开来源（右侧）
+function drawTocCard(box, el, t) {
+  const toc = t.answerMode === 'toc' && !t.failed ? (t.toc || []) : [];
+  if (!toc.length) return;
+  const card = box.createEl('div', { cls: 'lbchat-tocard' });
+  const head = card.createEl('div', { cls: 'lbchat-tocard-head' });
+  head.createEl('span', { cls: 'lbchat-tocard-title', text: `目录 · ${toc.length} 条` });
+  if (t.tocNote) head.createEl('span', { cls: 'lbchat-tocard-note', text: t.tocNote });
+  const done = t.expanded && typeof t.expanded === 'object' ? t.expanded : {};
+  const allIds = toc.map(it => it.id).filter(Boolean);
+  const canAct = !readOnly;
+  if (canAct && allIds.length > 1) {
+    const all = head.createEl('button', { cls: 'lbchat-act lbchat-tocard-all', text: '全部展开', attr: { title: `把这 ${allIds.length} 条一起展开（一次作答，按条写细节）` } }); all.type = 'button'; all.dataset.k = 'toc-all';
+    all.disabled = isBusy();
+    all.onclick = () => expandTurn(t, allIds, `全部 ${allIds.length} 条`);
+  }
+  const findSrc = it => [...(t.sources || []), ...(t.related || [])].find(s => s.id && s.id === it.id) || (it.note ? { note: it.note, title: it.title } : null);
+  let group = null;
+  const list = card.createEl('ol', { cls: 'lbchat-tocard-list' });
+  for (const it of toc) {
+    if (it.group && it.group !== group) { group = it.group; list.createEl('li', { cls: 'lbchat-tocard-group', text: it.group }); }
+    const li = list.createEl('li', { cls: 'lbchat-tocard-item' });
+    if (it.id) li.dataset.id = it.id;
+    li.createEl('span', { cls: 'lbchat-tocard-n', text: String(it.n) });
+    const main = li.createEl('div', { cls: 'lbchat-tocard-main' });
+    const line = main.createEl('div', { cls: 'lbchat-tocard-line' });
+    const src = findSrc(it);
+    const tb = line.createEl(src ? 'button' : 'span', { cls: 'lbchat-tocard-name', text: it.title, attr: { title: src ? '在右侧打开这一篇' : it.title } });
+    if (src) { tb.type = 'button'; tb.onclick = () => openNote(src); }
+    if (it.author) line.createEl('span', { cls: 'lbchat-tocard-author', text: it.author });
+    for (const k of kindLabels(it.kind)) line.createEl('span', { cls: 'lbchat-tocard-kind', text: k });
+    const sub = [it.hit, it.price && `价格：${it.price}`, it.where && `哪买：${it.where}`].filter(Boolean).join(' · ');
+    if (sub) main.createEl('div', { cls: 'lbchat-tocard-hit', text: sub });
+    if (!canAct || !it.id) continue;
+    const to = done[it.id];
+    const b = li.createEl('button', { cls: 'lbchat-act lbchat-tocard-expand' + (to ? ' is-done' : ''), text: to ? '已展开 ↓' : '展开', attr: { title: to ? '跳到展开的那一段' : '只展开这一条（带着这一答的 turn 和这篇的 id）' } }); b.type = 'button'; b.dataset.k = 'toc:' + it.id;
+    if (to) b.onclick = () => { const v = views.get(to); if (v) jumpTo(v.el, { flash: true }); else expandTurn(t, [it.id], it.title); };
+    else { b.disabled = isBusy(); b.onclick = () => expandTurn(t, [it.id], it.title); }
+  }
+  if (t.tocSuggest) card.createEl('div', { cls: 'lbchat-tocard-suggest', text: '可补：' + t.tocSuggest });
 }
 const stripStopped = s => String(s || '').replace(/\n*> 已停止生成。\s*$/, '').trim();
 
@@ -984,11 +1179,19 @@ function paintFollow() {
     x.onclick = () => clearScope();
     if (session.turns.length) sep();
   } else if (ids.length) {
-    followBar.createEl('span', { cls: 'lbchat-follow-label', text: bound ? `在当前 ${ids.length} 条来源里追问` : '追问会重新搜索收藏' });
+    followBar.createEl('span', { cls: 'lbchat-follow-label', text: bound ? `在当前 ${ids.length} 条来源里追问` : '下一问重新搜收藏' });
     sep();
-    const sw = followBar.createEl('button', { cls: 'lbchat-follow-switch', text: bound ? '改为重新搜' : '改回当前来源', attr: { title: bound ? '下一问起重新检索整个收藏（不再只看上面这些来源）' : '追问只在上一轮留下的来源里回答，不重新检索', 'aria-pressed': String(!bound) } });
+    const sw = followBar.createEl('button', { cls: 'lbchat-follow-switch', text: bound ? '改为重新搜' : `改为在当前 ${ids.length} 条来源里追问`, attr: { title: bound ? '下一问起重新检索整个收藏（不再只看上面这些来源）' : '追问只在上一轮留下的来源里回答，不重新检索', 'aria-pressed': String(!bound) } });
     sw.type = 'button';
-    sw.onclick = async () => { session.follow = bound ? 'search' : 'sources'; paintFollow(); await keepSession(); };
+    sw.onclick = async () => { session.follow = bound ? 'search' : 'sources'; session.followPicked = true; paintFollow(); await keepSession(); };
+    sep();
+  }
+  // 1015 她定「默认清空（可选不清空）」：重新搜的新问题默认开一段新对话（这段先自动进历史）；隐私模式下不自动清（清了就找不回）
+  if (session.turns.length && !(ids.length && bound) && !session.private) {
+    const keep = !!prefs.keepThread;
+    const kb = followBar.createEl('button', { cls: 'lbchat-follow-switch lbchat-keepthread', text: keep ? '新问题接着这段 · 改为每问新开' : '新问题开新对话 · 改为接着这段', attr: { title: keep ? '改回默认：每个新问题开一段新对话（这段自动存进历史）' : '新问题也留在这段对话里（目录 / 历史里是一整段）', 'aria-pressed': String(keep) } });
+    kb.type = 'button';
+    kb.onclick = async () => { prefs.keepThread = !keep; paintFollow(); try { await savePrefs(); } catch (e) { notice(NOT_SAVED + errText(e)); } };
     sep();
   }
   if (!session.turns.length) return;
@@ -1027,7 +1230,7 @@ async function clearSession() {
 }
 async function startConversation(prev = sessionSnapshot(), prevHist = hist, next = null) {
   const keepPrivate = session.private;
-  Object.assign(session, next ? { ...next, turns: ensureIds(next.turns || []) } : { id: uid(), startedAt: new Date().toISOString(), turns: [], excluded: [], pinned: [], follow: 'sources' });
+  Object.assign(session, next ? { ...next, turns: ensureIds(next.turns || []) } : { id: uid(), startedAt: new Date().toISOString(), turns: [], excluded: [], pinned: [], follow: prefs.follow, followPicked: false });
   session.private = next ? !!next.private : keepPrivate;
   try { await enqueueWrite(() => writeJson(SESSION_PATH, sessionSnapshot())); announce(); }
   catch (e) { Object.assign(session, prev); hist = prevHist; notice('没清空：' + errText(e)); return false; }
@@ -1045,34 +1248,49 @@ async function drawArchive() {
   bodyEl.empty(); disposeArchive(); followBar.hidden = true; cfgBar.hidden = true;
   const addRow = bodyEl.createEl('div', { cls: 'lbchat-arc-add' });
   const ta = addRow.createEl('textarea', { cls: 'lbchat-arc-input' });
-  ta.placeholder = '写一条自己的判断存起来（如「ib 机不适合」）…';
+  ta.placeholder = '写一条自己的判断，Enter 存（Shift+Enter 换行）…';
+  ta.rows = 1;
+  // 1015「标作者」：这条判断是谁说的 / 关于哪位作者——小输入框，空着 = 我
+  const who = addRow.createEl('input', { cls: 'lbchat-arc-author', attr: { type: 'text', placeholder: '作者（空 = 我）', 'aria-label': '作者', title: '这条判断标哪个作者（空着 = 我自己）' } });
+  who.value = typeof LB.state.load().arcAuthor === 'string' ? LB.state.load().arcAuthor : '';
   if (readOnly) addRow.hidden = true;
   const saveIt = addRow.createEl('button', { cls: 'lbchat-arc-save', text: '存' });
+  let saving = false;
   saveIt.onclick = async () => {
-    const txt = ta.value.trim(); if (!txt) return;
+    const txt = ta.value.trim(); if (!txt || saving) return;
+    const author = String(who.value || '').trim();
+    saving = true;
     // 写盘成功才清输入框；失败字留在框里（§1.5）
-    if (!(await archiveChange(() => archive.entries.unshift({ id: uid(), ts: new Date().toISOString(), kind: 'note', title: '', content: txt })))) return;
-    ta.value = ''; await drawArchive(); notice('已保存', 2000);
+    try { if (!(await archiveChange(() => archive.entries.unshift({ id: uid(), ts: new Date().toISOString(), kind: 'note', title: '', content: txt, author: author || '我' })))) return; }
+    finally { saving = false; }
+    ta.value = ''; LB.state.patch({ arcAuthor: author }); await drawArchive(); notice('已保存', 2000);
+    try { bodyEl.querySelector('.lbchat-arc-input')?.focus?.({ preventScroll: true }); } catch {}
   };
+  // 1015：Enter 直接存（组字中不算；Shift+Enter 换行）
+  const enterSave = e => { if (e.isComposing || e.keyCode === 229 || e.key !== 'Enter' || e.shiftKey) return; e.preventDefault?.(); saveIt.onclick(); };
+  ta.addEventListener('keydown', enterSave); who.addEventListener('keydown', enterSave);
   if (!archive.entries.length) { bodyEl.createEl('div', { cls: 'lbchat-empty', text: '还没有保存的内容。可以保存回答，或在上面记下自己的判断。' }); paintFloaters(); paintToc(); return; }
   // ⑥ 已保存：默认每条只一行标题（回答 = 提问原话；自己写的判断 = 第一行），点开才展开正文
   for (const e of archive.entries) {
     const item = bodyEl.createEl('details', { cls: 'lbchat-arc-item' });
     item.dataset.savedId = String(e.id);
     const headEl = item.createEl('summary', { cls: 'lbchat-arc-head' });
+    if (e.kind === 'note') headEl.createEl('span', { cls: 'lbchat-arc-who', text: e.author || '我', attr: { title: '作者' } });
     headEl.createEl('span', { cls: 'lbchat-arc-title', text: (e.title || String(e.content || '').trim().split('\n')[0] || '未命名').replace(/^#+\s*/, '') });
     headEl.createEl('span', { cls: 'lbchat-arc-when', text: fmtTs(e.ts) });
     const meta = item.createEl('div', { cls: 'lbchat-arc-meta' });
-    meta.createEl('span', { cls: 'lbchat-arc-kind', text: e.kind === 'note' ? '判断' : 'AI 报告' });
+    meta.createEl('span', { cls: 'lbchat-arc-kind', text: e.kind === 'note' ? `判断 · ${e.author || '我'}` : 'AI 报告' });
     const b = item.createEl('div', { cls: 'lbchat-arc-body' });
     archiveDisposers.push(await renderScoped(e.content, b));
-    bindSources(b, e.sources || []);
+    bindSources(b, e.sources || []); enhanceMermaid(b);
     if (readOnly) continue;
     const edit = meta.createEl('button', { cls: 'lbchat-act', text: '编辑' }); edit.type = 'button';
     edit.onclick = () => { item.open = true; editText(b, e, async () => { await saveArchive(); await drawArchive(); }); };
-    const del = meta.createEl('button', { cls: 'lbchat-arc-del', text: '✕', attr: { title: '删除（几秒内可撤销）' } }); del.type = 'button';
+    // 1015「可简单删除」：× 放在标题那一行（不用先点开），点了不展开这一条
+    const del = headEl.createEl('button', { cls: 'lbchat-arc-del', text: '✕', attr: { title: '删除（几秒内可撤销）', 'aria-label': '删除这条' } }); del.type = 'button';
     // A15：删了几秒内可撤销（不弹确认，保持她「不弹确认」的风格）；撤销写盘失败照固定句式说
-    del.onclick = async () => {
+    del.onclick = async ev => {
+      ev?.preventDefault?.(); ev?.stopPropagation?.();
       const index = archive.entries.findIndex(x => x.id === e.id);
       if (!(await archiveChange(() => { archive.entries = archive.entries.filter(x => x.id !== e.id); }))) return;
       await drawArchive();
@@ -1357,33 +1575,48 @@ async function submit(raw, opts = {}) {
   const q = text.replace(/^\//, '').trim(); if (!q) return;
   const askedAt = new Date().toISOString();
   const fresh = !!opts.fresh || nextFresh; nextFresh = false;
-  const sc = Array.isArray(opts.sourceIds) ? null : (opts.scope || scope);
-  const ids = Array.isArray(opts.sourceIds) ? opts.sourceIds : sc ? sc.ids : null;
+  // 1015「展开」：绑定那一答的 turn + 来源 id（opts.expand = {turnId, ids, q, label, of}），只在这些来源里展开，不再发固定话术给「上一答」
+  const ex = opts.expand && Array.isArray(opts.expand.ids) && opts.expand.ids.length ? opts.expand : null;
+  const sc = Array.isArray(opts.sourceIds) || ex ? null : (opts.scope || scope);
+  const ids = ex ? ex.ids : Array.isArray(opts.sourceIds) ? opts.sourceIds : sc ? sc.ids : null;
   const reask = Array.isArray(ids);
   const bound = !reask && !fresh ? boundIds() : [];
   const pinned = reask ? ids : bound.length ? bound : null;
-  const mode = sc ? 'scope' : reask ? 'reask' : bound.length ? 'follow' : 'ask';
+  const mode = ex ? 'expand' : sc ? 'scope' : reask ? 'reask' : bound.length ? 'follow' : 'ask';
   // A5「重试」要原样再问一次：记下这一问用的来源 / 是否重新检索
-  const retry = reask ? { sourceIds: [...ids] } : bound.length ? { sourceIds: [...bound] } : fresh ? { fresh: true } : {};
+  const retry = ex ? { expand: { ...ex, ids: [...ex.ids] } } : reask ? { sourceIds: [...ids] } : bound.length ? { sourceIds: [...bound] } : fresh ? { fresh: true } : {};
   if (sc && scope) clearScope();
-  const userTurn = { id: uid(), role: 'user', content: q, mode, askedAt, ...(pinned ? { sources: pinned.length } : {}), ...(sc ? { scopeTitle: sc.title || '' } : {}) };
+  // 1015「默认清空」：重新搜的新问题（含「问这篇」）默认开新对话；她选了「接着这段」/ 隐私模式 / 重试那一问时不清
+  const newThread = (mode === 'ask' || mode === 'scope') && !prefs.keepThread && !opts.keep && !session.private && session.turns.length > 0;
+  const backendQ = ex ? `展开「${ex.label || ex.q || ''}」的细节（原问题：${ex.q || ''}）` : q;
+  const userTurn = { id: uid(), role: 'user', content: q, mode, askedAt, ...(pinned ? { sources: pinned.length } : {}), ...(sc ? { scopeTitle: sc.title || '' } : {}), ...(ex ? { expandOf: ex.of || '' } : {}) };
   const answerId = uid();
   // 第一个 await 之前同步登记（两页不会各取一条并发）
   busy = true;
   const info = { page: pageId, id: answerId, userTurnId: userTurn.id, convId: session.id, private: !!session.private, q, askedAt, phase: '', text: '', startedAt: Date.now() };
   p.chatInFlight = { ...info };
-  session.turns.push(userTurn);
-  stick = true; userAt = 0; back = null; unseen = false;
-  paintSend();
   let turn = null, shown = '';
   try {
+    if (newThread) {
+      // 这段先进历史（写不进就不清，照旧接在这段后面问），再换一段新对话
+      try { const prev = sessionSnapshot(); await enqueueWrite(() => saveToHistory(prev)); beginFresh(); info.convId = session.id; p.chatInFlight.convId = session.id; }
+      catch (e) { notice('这段没能存进历史，新问题先接在这段后面：' + errText(e)); }
+    }
+    session.turns.push(userTurn);
+    if (ex) markExpanded(ex, userTurn.id);
+    stick = true; userAt = 0; back = null; unseen = false;
+    paintSend();
     await keepSession();
     await drawChat({ restore: 'bottom' }); follow();
-    const history = session.turns.filter(t => t.role === 'user' || t.role === 'assistant').filter(t => !t.failed)
-      .map(t => ({ role: t.role === 'assistant' ? 'assistant' : 'user', content: t.content }));
+    // 展开只带被展开那一答（问题 + 回答）当上下文：省 token，也不会被当成新话题
+    const exTurn = ex ? session.turns.find(x => x.id === ex.of) : null;
+    const history = ex ? (exTurn ? [{ role: 'user', content: exTurn.q || ex.q || '' }, { role: 'assistant', content: exTurn.content }] : [])
+      : session.turns.filter(t => t.role === 'user' || t.role === 'assistant').filter(t => !t.failed)
+        .map(t => ({ role: t.role === 'assistant' ? 'assistant' : 'user', content: t.content })).slice(0, -1);
     // 会话级约束显式传给后端：没排除 / 没保留时请求和以前一模一样
     const constraints = { ...(session.excluded.length ? { excludeIds: [...session.excluded] } : {}), ...(session.pinned.length ? { pinIds: [...session.pinned] } : {}) };
-    const r = await p.answerArchive({ question: q, model: modelPick.hidden ? '' : modelPick.value, history: history.slice(0, -1), ...(pinned ? { sourceIds: pinned } : {}), ...constraints, tag: 'chat',
+    const r = await p.answerArchive({ question: backendQ, model: modelPick.hidden ? '' : modelPick.value, history, ...(pinned ? { sourceIds: pinned } : {}), ...constraints, tag: 'chat',
+      ...(ex ? { turnId: ex.turnId, expandIds: [...ex.ids] } : {}),
       onPhase: showPhase,
       onDelta: delta => {
         shown += delta;
@@ -1396,7 +1629,7 @@ async function submit(raw, opts = {}) {
       // 停止：留下已经生成的那半截，明确标「已停止」；算失败轮次（不进追问上下文、不给收藏 / 导出）
       const part = (r.markdown || shown || '').trim();
       turn = { id: answerId, role: 'assistant', failed: true, stopped: true, content: (part ? part + '\n\n' : '') + '> 已停止生成。', sources: r.sources || [], related: r.related || [], q, askedAt, retry, mode };
-    } else turn = { id: answerId, role: 'assistant', content: r.markdown || '没有可用的回答。', sources: r.sources || [], related: r.related || [], q, askedAt };
+    } else turn = { id: answerId, role: 'assistant', content: r.markdown || '没有可用的回答。', sources: r.sources || [], related: r.related || [], q, askedAt, ...answerShape(r), ...(ex ? { expandOf: ex.of || '' } : {}) };
   } catch (e) {
     const payload = e && e.payload || {};
     const sources = payload.sources || [], related = payload.related || [];
@@ -1412,6 +1645,60 @@ async function submit(raw, opts = {}) {
     if (wrap.isConnected) { if (!stick) markUnseen(); await drawChat(); drainQueue(); }
   }
 }
+// 1015 每问开新对话：这段已进历史，换成一段空对话（不画，submit 接着画）
+function beginFresh() {
+  Object.assign(session, { id: uid(), startedAt: new Date().toISOString(), turns: [], excluded: [], pinned: [], follow: prefs.follow, followPicked: false });
+  lastTop = 0; stick = true; back = null; unseen = false; struck.clear(); picks.clear(); openState.clear();
+  LB.state.patch({ scrollTop: 0 });
+  resetViews();
+}
+// ── 1015 先目录后展开：响应里的 mode / toc / turn_id / source_ids（ask 车约定）。缺字段 = 老后端，照原样渲染 ──
+const tocStr = v => (v == null ? '' : String(v)).replace(/\s+/g, ' ').trim();
+function normToc(raw) {
+  const list = Array.isArray(raw) ? raw
+    : raw && Array.isArray(raw.groups) ? raw.groups.flatMap(g => (Array.isArray(g?.items) ? g.items : []).map(it => (it && typeof it === 'object' ? { ...it, group: it.group || g.name } : it)))
+      : raw && Array.isArray(raw.items) ? raw.items : [];
+  return list.filter(x => x && typeof x === 'object').slice(0, 80).map((it, i) => ({
+    n: Number(it.n) || i + 1,
+    id: tocStr(it.id || it.src || it.source_id),
+    title: tocStr(it.title || it.name) || '（无标题）',
+    author: tocStr(it.author || it.nickname),
+    hit: tocStr(it.hit || it.hit_point || it.hits || it.point || it.line || it.why),
+    kind: Array.isArray(it.source_type || it.kind) ? (it.source_type || it.kind).map(tocStr).join('、') : tocStr(it.source_type || it.kind || it.type || it.field),
+    group: tocStr(it.group),
+    note: tocStr(it.note), url: tocStr(it.url),
+    price: tocStr(it.price ?? it.extra?.price), where: tocStr(it.where ?? it.extra?.where),
+  }));
+}
+function answerShape(r) {
+  const out = {};
+  if (!r || typeof r !== 'object') return out;
+  if (typeof r.turn_id === 'string' && r.turn_id) out.turnId = r.turn_id;
+  if (Array.isArray(r.source_ids)) out.sourceIds = idList(r.source_ids);
+  const toc = normToc(r.toc), m = r.mode === 'toc' || r.mode === 'direct' ? r.mode : '';
+  if (toc.length && m !== 'direct') {
+    out.answerMode = 'toc'; out.toc = toc;
+    const cov = tocStr(r.coverage_note || r.toc?.coverage_note), sug = tocStr(r.suggest || r.toc?.suggest);
+    if (cov) out.tocNote = cov;
+    if (sug) out.tocSuggest = sug;
+  } else if (m) out.answerMode = 'direct';
+  return out;
+}
+const KIND_LABEL = { body: '正文', post: '正文', title: '标题', tags: '标签', comments: '评论', comment: '评论', ocr: '图片文字', image: '图片', images: '图片', vision: '图片', video: '视频', transcript: '视频文字稿', frames: '视频画面文字', attachments: '附件', attachment: '附件', file: '附件', notes: '批注', annotation: '批注', annotations: '批注', highlights: '高亮', highlight: '高亮', saved: '我保存的', author: '作者' };
+const kindLabels = k => [...new Set(String(k || '').split(/[,，、|/\s]+/).filter(Boolean).map(x => KIND_LABEL[x.toLowerCase()] || x))];
+// 展开过的条目：记在被展开那一答上（id → 展开那一问的轮次 id），按钮变「已展开 ↓」点了跳过去
+function markExpanded(ex, userTurnId) {
+  const t = session.turns.find(x => x.id === ex.of); if (!t) return;
+  const map = t.expanded && typeof t.expanded === 'object' ? { ...t.expanded } : {};
+  for (const id of ex.ids) map[id] = userTurnId;
+  t.expanded = map;
+}
+// 「展开」一律经它：带上那一答的 turn_id（后端给的，没有就用本地轮次 id）+ 来源 id
+function expandTurn(t, ids, label) {
+  const list = idList(ids);
+  if (!list.length || !t) return;
+  submit(`展开：${label}`, { expand: { turnId: t.turnId || t.id, of: t.id, ids: list, q: t.q || '', label } });
+}
 // 写回合并（A2，修「回答丢了」）：在写链里先读磁盘上的会话，把回答插在自己那条问题后面（找不到就追加），磁盘版并回内存再写。
 // 这段对话已经被换掉了（正常被 isBusy 挡住，这里只是兜底）：写进它的历史文件（隐私模式的不写）
 function commitAnswer(info, turn) {
@@ -1423,7 +1710,7 @@ function commitAnswer(info, turn) {
       insert(ensureIds(disk.turns));
       if (session.id === info.convId) {
         session.turns = adoptTurns(session.turns, disk.turns); session.excluded = idList(disk.excluded); session.pinned = idList(disk.pinned);
-        session.follow = disk.follow === 'search' ? 'search' : 'sources'; session.private = !!disk.private;
+        session.follow = followOf(disk); session.followPicked = !!disk.followPicked; session.private = !!disk.private;
         await saveSession();
       } else { await writeJson(SESSION_PATH, disk); if (!disk.private) await saveToHistory({ ...disk, startedAt: disk.startedAt || info.askedAt }); }
       return;
@@ -1457,7 +1744,7 @@ function retryTurn(t) {
     const prev = session.turns[i - 1];
     session.turns.splice(prev && prev.role === 'user' ? i - 1 : i, prev && prev.role === 'user' ? 2 : 1);
   }
-  return submit(t.q, t.retry || {});
+  return submit(t.q, { ...(t.retry || {}), keep: true });   // 重试是同一问：不因「每问开新对话」清掉这段
 }
 // 「改一下再问」：原问题放回输入框，光标在末尾
 function rephrase(t) {
@@ -1517,6 +1804,11 @@ function fillToc(box, onPick) {
         ab.setText(g.a.failed ? (g.a.stopped ? '已停止' : '没答上') : '回答');
         const ael = views.get(g.a.id)?.el;
         ab.onclick = () => { if (ael) jumpTo(ael, { flash: true }); onPick?.(); };
+        // 目录型回答：条目（前 8 条）也进左栏，点了跳到目录卡那一行
+        if (ael && !g.a.failed && g.a.answerMode === 'toc') for (const it of (g.a.toc || []).slice(0, 8)) {
+          const hb = row.createEl('button', { cls: 'lbchat-toc-h lbchat-toc-item', text: `${it.n} ${it.title}`.slice(0, 14), attr: { title: it.title } }); hb.type = 'button';
+          hb.onclick = () => { const li = [...ael.querySelectorAll('.lbchat-tocard-item')].find(x => x.dataset.id === it.id); jumpTo(li || ael, { flash: true }); onPick?.(); };
+        }
         if (ael && !g.a.failed) for (const h of [...ael.querySelectorAll('.lbchat-md h1, .lbchat-md h2, .lbchat-md h3')].slice(0, 6)) {
           const hb = row.createEl('button', { cls: 'lbchat-toc-h', text: String(h.textContent || '').trim().slice(0, 12), attr: { title: h.textContent || '' } }); hb.type = 'button';
           hb.onclick = () => { jumpTo(h, { flash: true }); onPick?.(); };
@@ -1537,13 +1829,19 @@ function fillToc(box, onPick) {
     }
   });
 }
+// 1015「TOC 又不见了」：根因是 ≥2 问才出、宽窗要 ≥1242。现在 1 问时只要回答有目录卡 / ≥2 个小标题也出；1080 起就有左栏；窄窗 / 收起后页头「目录」按钮弹出层（里面「固定在左边」放回左栏）
+function tocWorth() {
+  const asks = session.turns.filter(t => t.role === 'user').length;
+  if (asks >= TOC_MIN_QUESTIONS) return true;
+  return session.turns.some(t => t.role === 'assistant' && !t.failed && ((t.answerMode === 'toc' && (t.toc || []).length) || (views.get(t.id)?.el?.querySelectorAll('.lbchat-md h1, .lbchat-md h2, .lbchat-md h3').length || 0) >= 2));
+}
 function paintToc() {
   const n = session.turns.filter(t => t.role === 'user').length;
-  const show = lane === 'chat' && n >= TOC_MIN_QUESTIONS;
+  const show = lane === 'chat' && n > 0 && tocWorth();
   const side = show && tocWide && !tocCollapsed;
   tocEl.hidden = !side;
   tocBtn.hidden = !(show && !side);
-  tocBtn.setText(`目录 · ${n} 问`);
+  tocBtn.setText(n >= 2 ? `目录 · ${n} 问` : '目录');
   if (!show) closeTocPanel();
   if (side) {
     tocEl.empty();
@@ -1559,14 +1857,14 @@ function paintToc() {
 }
 // A4 每次流式渲染只更新「回答中」那一条（不整个重排）
 function paintTocLive() { if (!tocEl.hidden || tocPanel) paintToc(); }
-function toggleTocPanel() {
+function toggleTocPanel(anchor = tocBtn) {
   if (tocPanel) { closeTocPanel(); return; }
   const doc = wrap.ownerDocument || document;
   tocPanel = doc.body.createEl('div', { cls: 'lbchat-tocpanel' });
   const headRow = tocPanel.createEl('div', { cls: 'lbchat-tochead' }); headRow.createEl('span', { text: '目录' });
   if (tocWide && tocCollapsed) { const unfold = headRow.createEl('button', { cls: 'lbchat-toc-fold', text: '固定在左边', attr: { title: '宽窗时把目录放回对话左边' } }); unfold.type = 'button'; unfold.onclick = () => { tocCollapsed = false; LB.state.patch({ toc: 'open' }); closeTocPanel(); paintToc(); }; }
   fillToc(tocPanel.createEl('div', { cls: 'lbchat-toclist' }), closeTocPanel);
-  try { const r = tocBtn.getBoundingClientRect(); tocPanel.style.top = (r.bottom + 6) + 'px'; tocPanel.style.left = Math.max(8, Math.min(r.right - 300, (window.innerWidth || 1200) - 308)) + 'px'; } catch {}
+  try { const r = anchor.getBoundingClientRect(); tocPanel.style.top = (r.bottom + 6) + 'px'; tocPanel.style.left = Math.max(8, Math.min(r.right - 300, (window.innerWidth || 1200) - 308)) + 'px'; } catch {}
   const outside = ev => { if (!tocPanel || tocPanel.contains(ev.target) || ev.target === tocBtn || tocBtn.contains(ev.target)) return; closeTocPanel(); };
   tocPanel._lbOutside = outside;
   setTimeout(() => { if (tocPanel && tocPanel._lbOutside === outside) doc.addEventListener('click', outside); }, 0);
@@ -1582,7 +1880,9 @@ dv.component?.register?.(() => closeTocPanel());
 try {
   const tro = new ResizeObserver(entries => {
     const w = bodyWrap.clientWidth || entries?.[0]?.contentRect?.width || 0;
-    const wide = w >= 1242;
+    // ≥1242：左栏放在 850 对话列左边的空白里；1080–1242：对话列往右让出左栏的宽度（is-tight），不重叠
+    const wide = w >= 1080, tight = wide && w < 1242;
+    bodyWrap.classList.toggle('is-tight', tight);
     if (wide !== tocWide) { tocWide = wide; bodyWrap.classList.toggle('is-wide', wide); paintToc(); }
   });
   tro.observe(bodyWrap); dv.component?.register?.(() => tro.disconnect());
@@ -1694,7 +1994,7 @@ if (app.workspace.on && dv.component?.registerEvent) {
       const next = JSON.parse(raw);
       if (!Array.isArray(next.turns)) return;
       session.turns = adoptTurns(session.id === next.id ? session.turns : [], next.turns); session.excluded = idList(next.excluded); session.pinned = idList(next.pinned);
-      session.follow = next.follow === 'search' ? 'search' : 'sources';
+      session.follow = followOf(next); session.followPicked = !!next.followPicked;
       if (typeof next.id === 'string' && next.id) { session.id = next.id; session.startedAt = next.startedAt || session.startedAt; }
       session.private = !!next.private; paintPrivacy();
       if (!bodyEl.querySelector('.lbchat-editor')) resetViews();
@@ -1727,6 +2027,13 @@ LB.keep(wrap, { version: await LB.data.version(), update: async () => {
 }, onReuse: () => { paintSourceBar(); paintSend(); fillModels(); settle(); } });
 LB.t('total');
 
+// mermaid 是异步画出来的 svg：对话区 DOM 一变（rAF 合并）补一遍
+try {
+  let mmdQueued = false;
+  const mmo = new MutationObserver(() => { if (mmdQueued) return; mmdQueued = true; requestAnimationFrame(() => { mmdQueued = false; enhanceMermaid(bodyEl); }); });
+  mmo.observe(bodyEl, { childList: true, subtree: true });
+  dv.component?.register?.(() => mmo.disconnect());
+} catch {}
 // ── A16 键盘与焦点 ──
 // 进页 / 清空 / 恢复后光标在输入框（只在本页是活动标签页时，不抢别处的焦点）；整页重建 3 秒内把焦点和选区还回去
 function focusSearch() {
@@ -1741,7 +2048,9 @@ LB.listen('esc', document, 'keydown', e => {
   const doc = wrap.ownerDocument || document;
   if (doc.querySelector('.modal-container') || doc.querySelector('.lb-lightbox') || LB.menuOpen()) return;
   let done = false;
-  if (histBtn._open) { toggleHistory(histBtn); done = true; }
+  const fullMmd = bodyEl.querySelector('.lbchat-mmd.is-full');
+  if (fullMmd && fullMmd._lbExitFull?.()) done = true;
+  else if (histBtn._open) { toggleHistory(histBtn); done = true; }
   else if (tocPanel) { closeTocPanel(); done = true; }
   else { const ed = bodyEl.querySelector('.lbchat-editor'); if (ed) { ed._lbCancel?.(); done = true; } else if (isBusy()) { done = stopAnswer() || true; } }
   if (done) { e.preventDefault?.(); e.stopPropagation?.(); }
@@ -1835,7 +2144,7 @@ async function restoreConversation(id) {
   try { if (!prev.private) await enqueueWrite(() => saveToHistory(prev)); } catch (e) { notice('没切换：当前这段没能存进历史，内容还在：' + errText(e)); return false; }
   const ok = await startConversation(prev, prevHist, {
     id, startedAt: conv.startedAt || new Date().toISOString(), turns: Array.isArray(conv.turns) ? conv.turns : [],
-    excluded: idList(conv.excluded), pinned: idList(conv.pinned), follow: conv.follow === 'search' ? 'search' : 'sources', private: false });
+    excluded: idList(conv.excluded), pinned: idList(conv.pinned), follow: followOf(conv), followPicked: !!conv.followPicked, private: false });
   if (ok && prev.private && prev.turns.length) LB.undoNotice('已切换（隐私模式那段不进历史）', () => startConversation(sessionSnapshot(), hist, { ...prev, private: true }), 8000);
   return ok;
 }

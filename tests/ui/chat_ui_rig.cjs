@@ -66,7 +66,7 @@ ${img('s' + k + 'a', 1)} ${img('s' + k + 'a', 2)}
 async function openChat(browser, { width = 1440, height = 900, theme = 'light', files = {}, mobile = false, plugin = true } = {}) {
   const page = await browser.newPage({ viewport: { width, height } });
   const S = await shell.page(page, { host: 'page-reading', kind: 'chat', theme, mobile, plugin: plugin ? {} : null, pluginInit: plugin ? pluginInit : null,
-    data: { built_at: '2026-10-08T10:00:00+10:00', items: [] }, files: { '_archive/chat-session.json': '{"turns":[]}', '_archive/chat-archive.json': '{"entries":[]}', ...files } });
+    data: { built_at: '2026-10-08T10:00:00+10:00', items: [] }, files: { '_archive/chat-session.json': '{"turns":[]}', '_archive/chat-archive.json': '{"entries":[]}', /* 1015 前的默认：接着这段问、追问绑来源（多轮用例靠它） */ '_archive/chat-prefs.json': '{"follow":"sources","keepThread":true}', ...files } });
   await S.settle(60);
   return { page, S };
 }
