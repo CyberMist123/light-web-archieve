@@ -430,3 +430,42 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-index-suggest-row.is-done { opacity: .6; }
 .lb-index-suggest-main { flex: 1; min-width: 0; }
 .lb-index-suggest-sub { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-top: 2px; overflow-wrap: anywhere; }
+
+/* —— 1015 她：设置页照 claudian 插件——顶部下划线页签（通用 / 模型与提供商 / 技能）→ 每组一张圆角卡片（标题加粗 + 分隔线）
+   → 每行左标题 + 灰说明、右控件（开关紫色 / 下拉 / 输入框）。卡片是浅底上的白卡；深色主题跟着主题变量走。 */
+.lb-settings { --lbs-card-bg: var(--background-primary); --lbs-page-bg: var(--background-secondary); --lbs-accent: var(--interactive-accent, #7c5cff); }
+.lb-settings .lb-tabs { gap: 2px; margin: 0 0 16px; }
+.lb-settings .lb-tabs .lb-tab { padding: 8px 14px; font-size: var(--font-ui-medium); border-bottom-width: 2px; }
+.lb-settings .lb-tabs .lb-tab.is-active { color: var(--lbs-accent); border-bottom-color: var(--lbs-accent); }
+.lb-settings .lb-tabs .lb-tab:hover { background: transparent; }
+.lb-settings .lb-tab-pane { display: flex; flex-direction: column; gap: 14px; background: var(--lbs-page-bg); padding: 14px; border-radius: 14px; }
+.lb-settings .lb-card { background: var(--lbs-card-bg); border: 1px solid var(--background-modifier-border); border-radius: 12px;
+  padding: 4px 16px 6px; box-shadow: 0 1px 2px rgba(0, 0, 0, .04); }
+.lb-settings .lb-card-head { display: flex; align-items: center; gap: 8px; padding: 12px 0 10px; border-bottom: 1px solid var(--background-modifier-border); }
+.lb-settings .lb-card-title { flex: 1; font-weight: 700; font-size: var(--font-ui-medium); color: var(--text-normal); }
+.lb-settings .lb-card-desc { margin: 10px 0 2px; color: var(--text-muted); font-size: var(--font-ui-small); }
+.lb-settings .lb-card .setting-item { padding: 12px 0; border-top: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border)); }
+.lb-settings .lb-card-body > .setting-item:first-child, .lb-settings .lb-card-desc + .setting-item { border-top: 0; }
+.lb-settings .lb-card .setting-item-name { font-weight: 500; }
+.lb-settings .lb-card .setting-item-description { color: var(--text-muted); }
+.lb-settings .lb-card .checkbox-container.is-enabled { background-color: var(--lbs-accent); }
+.lb-settings .lb-card details.lb-fold { margin: 8px 0; }
+/* 子页签（模型与提供商）：小一号的下划线页签 */
+.lb-settings .lb-subtabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--background-modifier-border); margin: -4px 0 2px; }
+.lb-settings .lb-subtabs .lb-subtab { background: transparent; box-shadow: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+  padding: 6px 12px; height: auto; color: var(--text-muted); font-size: var(--font-ui-small); cursor: pointer; }
+.lb-settings .lb-subtabs .lb-subtab.is-active { color: var(--text-normal); border-bottom-color: var(--lbs-accent); font-weight: 600; }
+.lb-settings .lb-subpane { display: flex; flex-direction: column; gap: 14px; }
+/* 模型勾选列表 */
+.lb-settings .lb-model-row { gap: 10px; }
+.lb-settings .lb-model-check { flex: none; width: 16px; height: 16px; margin: 0 2px 0 0; accent-color: var(--lbs-accent); cursor: pointer; }
+.lb-settings .lb-model-row.is-unchecked .setting-item-name { color: var(--text-faint); }
+.lb-settings .lb-model-row .setting-item-description { overflow-wrap: anywhere; }
+/* 技能页：说明行右边 刷新 / ＋；空状态；隐藏标签 */
+.lb-settings .lb-skill-lead .setting-item-control { gap: 2px; }
+.lb-settings .lb-skill-empty { padding: 18px 4px 14px; color: var(--text-muted); text-align: center; font-size: var(--font-ui-small); border-top: 1px solid var(--background-modifier-border); }
+.lb-settings .lb-skill-row.is-broken .setting-item-description { color: var(--text-error); }
+.lb-settings .lb-skill-row.is-hidden-skill .setting-item-name { color: var(--text-faint); }
+.lb-settings .lb-skill-tag { margin-left: 8px; padding: 0 6px; border-radius: 8px; font-size: var(--font-ui-smaller); font-weight: 400; color: var(--text-muted); background: var(--background-secondary); }
+.lb-settings .lb-skill-hidden-input { width: 220px; }
+.lb-settings .lb-card .extra-setting-button svg.svg-icon { width: var(--icon-size, 18px); height: var(--icon-size, 18px); }

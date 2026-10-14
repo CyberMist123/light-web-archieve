@@ -64,10 +64,10 @@ function render(saved) {
   plugin.homeUI = () => ({ renderStatus: () => () => {}, renderRun: () => () => {}, renderAI: (c, tab) => { tab.sectionTextAI(c, { heading: false }); tab.sectionVisionAI(c); return () => {}; } });
   plugin.remoteUI = { renderConnect: () => () => {} };
   const tab = new Plugin.__SettingTab({}, plugin);
+  // 1015：「AI」→「模型与提供商 → AI 功能」；原「高级」里的 AI 细项 →「识图 · 认字 · 语音」「问收藏模型」「提示词」三个子页签
   plugin.settingsView = { tab: 'ai' }; tab.display();
-  const aiText = tab.containerEl.allText();
-  plugin.settingsView.tab = 'advanced'; tab.display();
-  const text = aiText + '\n' + tab.containerEl.allText() + '\n';
+  let text = tab.containerEl.allText() + '\n';
+  for (const sub of ['media', 'chat', 'prompts']) { plugin.settingsView.sub.providers = sub; tab.display(); text += tab.containerEl.allText() + '\n'; }
   return { tab, plugin, calls, text };
 }
 const ALL_ON = { setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'asr', 'ai_text', 'ai_vision'], aiSynced: true } };
@@ -78,7 +78,7 @@ const ALL_ON = { setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'asr',
   const byName = n => settings.find(r => r.name === n);
   // 「AI」那一栏没有方式下拉了（开关在功能清单上，命令行在「高级 → 开发者」）；接口 · 密钥 · 模型名
   for (const n of ['接口地址', '密钥（API Key）', '模型名']) assert.ok(byName(n), `缺「${n}」`);
-  assert.ok(!byName('文本 AI') && !byName('识图接口') && !byName('语音识别'), '没有方式下拉了');
+  assert.ok(!settings.some(r => r.name === '文本 AI' && r.dropdown) && !byName('识图接口') && !byName('语音识别'), '没有方式下拉了');   // 1015：「文本 AI」只剩问收藏模型勾选列表里那一行
   // 「高级」：写概要用的模型（和问收藏一样 / 另配一个接口 / 不写概要）
   const sum = byName('写概要用的模型');
   assert.ok(sum && sum.dropdown);
@@ -92,7 +92,7 @@ const ALL_ON = { setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'asr',
   // 每个能力块下一个测试按钮，调 selftest <能力>；后果写在按钮字上
   const tests = settings.flatMap(r => r.buttons).filter(b => /^测试/.test(b.label));
   assert.deepEqual(tests.map(b => b.label), ['测试（发一句话，几乎不花钱）', '测试识图（发一张小图，几乎不花钱）', '测试概要模型（发一段短文，几乎不花钱）',
-    '测试认字（本机跑，不花钱）', '测试语音转文字（本机跑，不花钱）'], '「AI」里的两块在前，其余在「高级」');
+    '测试认字（本机跑，不花钱）', '测试语音转文字（本机跑，不花钱）'], '「AI 功能」里的两块在前，其余在「识图 · 认字 · 语音」');
   for (const b of tests) await b.onClickCb();
   assert.deepEqual(calls.map(a => a.at(-1)), ['text', 'vision', 'summary', 'ocr', 'asr']);
   assert.ok(calls.every(a => a[2] === 'selftest'));

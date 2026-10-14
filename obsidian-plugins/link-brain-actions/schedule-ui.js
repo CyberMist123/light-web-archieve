@@ -71,14 +71,15 @@ module.exports = function scheduleUI(obsidian, plugin) {
   const Notice = obsidian.Notice;
   const say = (message, ms = 8000) => plugin.notify ? plugin.notify(message, { ms }) : new Notice(message, ms);
 
-  function render(el, { onSaved = null } = {}) {
+  // primary=false（1015 设置页「定时同步」卡片）：「保存定时」不当主按钮——那一栏的主按钮是「一键装好 / 跑完」
+  function render(el, { onSaved = null, primary = true } = {}) {
     const box = el.createDiv({ cls: 'lb-sched' });
     const status = box.createDiv({ cls: 'setting-item-description lb-sched-status', text: '读取当前定时…' });
     const list = box.createDiv({ cls: 'lb-sched-rows' });
     const add = box.createEl('button', { cls: 'lb-sched-add', text: '+ 加一条' });
     const warn = box.createDiv({ cls: 'setting-item-description lb-sched-warn', text: HOURLY_WARN });
     const actions = box.createDiv({ cls: 'lb-sched-actions' });
-    const save = actions.createEl('button', { cls: 'mod-cta lb-sched-save', text: '保存定时' });
+    const save = actions.createEl('button', { cls: (primary ? 'mod-cta ' : '') + 'lb-sched-save', text: '保存定时' });
     const off = actions.createEl('button', { cls: 'lb-sched-off', text: '关闭定时' });
     const msg = box.createDiv({ cls: 'setting-item-description lb-sched-msg' });
     let rows = [], cur = null, alive = true;

@@ -611,7 +611,7 @@ function aiReady(name) {
 // A17：保留当前选择（原来选中的还在列表里就不变）；没配好的模型标「（未配置）」
 const fillModels = () => {
   const keep = modelPick.value;
-  modelPick.empty(); const list = (cfg().models || []).filter(m => m && m.name);
+  modelPick.empty(); const list = (cfg().models || []).filter(m => m && m.name && !m.hidden);   // 1015：设置里没勾的模型不进下拉
   if (!list.length || readOnly) { modelPick.hidden = true; return; } modelPick.hidden = false;
   for (const m of list) modelPick.createEl('option', { text: m.name + (aiReady(m.name) === false ? '（未配置）' : '') }).value = m.name;
   modelPick.value = list.some(m => m.name === keep) ? keep : list.some(m => m.name === cfg().activeModel) ? cfg().activeModel : list[0].name;

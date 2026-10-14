@@ -604,6 +604,10 @@ def sync_favorites(
         print(f"[sync-favorites] 这次读收藏：{'全量' if rmode == 'full' else '增量（只读最新一段）'}"
               + (f"（{why}）" if why else ""), file=sys.stderr)
     quota = _Quota()
+    # 1015 设置页「定时同步 → 每次同步最多收几篇」：0 = 不限（只受每天上限管）
+    from .ai_config import per_run_limit, sync_options as _sync_opts
+    per_run = per_run_limit(_sync_opts().get("perRunLimit"))
+    run_new = 0
     live = _Live(quota, deadline)
     if read_label != "snapshot":
         live.push("listing", "读收藏列表")
@@ -686,8 +690,8 @@ def sync_favorites(
             if known_bad and known_streak >= MAX_KNOWN_BAD_STREAK:
                 held_known_bad += 1  # 已知坏篇今晚已经连着失败 3 篇了：余下的不再开页
                 continue
-            if quota.exhausted():
-                deferred_quota += 1
+            if quota.exhausted() or (per_run and run_new >= per_run):
+                deferred_quota += 1   # 1015：每次同步篇数到了也算「额度到了」，下次接着收
                 continue
             wait = _rest_wait() if fetched_any else 0.0
             if deadline is not None and deadline - _clock() - wait < FETCH_RESERVE_SECONDS:
@@ -710,6 +714,7 @@ def sync_favorites(
             status = entry.get("status")
             if status == "new":
                 quota.add()
+                run_new += 1
                 live.title = str(entry.get("title") or live.title)
                 live.stored()
                 live.push("fetching", f"{live.today_label(quota.count)}已存好 · 《{live.title}》")
@@ -777,8 +782,11 @@ def sync_favorites(
         out["code"] = stop_code
     if deferred_quota or deferred_budget:
         out["deferred"] = deferred_quota + deferred_budget
-        out["deferred_reason"] = "budget" if deferred_budget else "daily_limit"
+        out["deferred_reason"] = ("budget" if deferred_budget
+                                  else "run_limit" if per_run and run_new >= per_run and not quota.exhausted() else "daily_limit")
         out["daily_limit"] = quota.limit
+        if per_run:
+            out["run_limit"] = per_run
     if skipped_failing or held_known_bad:
         out["skipped_failing"] = skipped_failing + held_known_bad
     if held_known_bad:

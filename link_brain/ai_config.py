@@ -101,7 +101,9 @@ DEFAULTS: dict[str, Any] = {
     # 收藏同步选项（0926 Owner）：评论楼层 all/10/20/50（0929 Owner：默认 10 楼，楼中楼照展开、评论图/语音照存；all 要滚全评论区，评论多的会超读取服务 10 分钟上限）；
     # dailyNewLimit = 每天最多新抓几篇（防风控，第一次补历史收藏分几天完成；1001 Owner：一天 50 篇）；0 = 不限，空 = 50（第 5 批 4.1，见 daily_new_limit）。
     "sync": {"autoAfterLogin": True, "downloadImages": True, "downloadVideo": True,
-             "commentFloors": 10, "dailyNewLimit": 50},
+             "commentFloors": 10, "dailyNewLimit": 50, "perRunLimit": 0, "commentFillGap": 45},
+    # 1015 设置页「技能」：hidden = 不让问收藏自动选用的技能 id（技能本身在收藏库 _skills/<id>/SKILL.md）。
+    "skills": {"hidden": []},
 }
 
 
@@ -175,17 +177,42 @@ def daily_new_limit(value: Any) -> int:
     return n if n >= 0 else default
 
 
+def per_run_limit(value: Any) -> int:
+    """每次同步最多新收几篇（1015 设置页「定时同步」，插件 main.js perRunLimitOf 同一规则）：0 / 空 / 乱填 = 不限（只受每天上限管）。"""
+    if value is None or isinstance(value, bool):
+        return 0
+    try:
+        n = int(str(value).strip())
+    except (TypeError, ValueError):
+        return 0
+    return n if n > 0 else 0
+
+
+FILL_GAP_CHOICES = (45, 90, 180)
+
+
+def comment_fill_gap(value: Any) -> int:
+    """补评论节奏 = 同一篇两次开页至少隔几分钟（1015 设置页）。只认 45 / 90 / 180；别的一律 45（再密会被软限流，见 comment_fill）。"""
+    try:
+        n = int(str(value).strip())
+    except (TypeError, ValueError):
+        return FILL_GAP_CHOICES[0]
+    return n if n in FILL_GAP_CHOICES else FILL_GAP_CHOICES[0]
+
+
 def sync_options() -> dict[str, Any]:
     opts = load().get("sync") or {}
-    limit = daily_new_limit(opts.get("dailyNewLimit"))
+    norm = {"dailyNewLimit": daily_new_limit(opts.get("dailyNewLimit")),
+            "perRunLimit": per_run_limit(opts.get("perRunLimit")),
+            "commentFillGap": comment_fill_gap(opts.get("commentFillGap", FILL_GAP_CHOICES[0]))}
     floors = opts.get("commentFloors", 10)
     if floors == "all":
-        return {**DEFAULTS["sync"], **opts, "commentFloors": "all", "dailyNewLimit": limit}
+        return {**DEFAULTS["sync"], **opts, "commentFloors": "all", **norm}
     try:
         floors = int(floors)
     except (TypeError, ValueError):
         floors = 10
-    return {**DEFAULTS["sync"], **opts, "commentFloors": max(10, min(floors, 50)), "dailyNewLimit": limit}
+    return {**DEFAULTS["sync"], **opts, "commentFloors": max(10, min(floors, 50)), **norm}
 
 
 def data_json_path() -> Path:

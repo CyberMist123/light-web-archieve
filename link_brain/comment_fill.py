@@ -34,7 +34,7 @@ from . import storage
 FLOOR_MIN = 10
 FLOOR_ALL = 2000            # 「全部」= 读取组件一次最多列这么多楼
 FILL_BUDGET_S = 480         # 续读一次给读取组件的评论预算（秒）；请求超时比它多 90 秒。插件「立即同步」等号最多 10 分钟，一篇得在这之内放手
-FILL_GAP_MIN = 45           # 同一篇两次开页至少隔这么久（0926 实测：同一篇 20 分钟开 5 次会被软限流，评论返回空）
+FILL_GAP_MIN = 45           # 同一篇两次开页至少隔这么久（0926 实测：同一篇 20 分钟开 5 次会被软限流，评论返回空）；1015 起设置里可调慢（见 fill_gap_min）
 NO_PROGRESS_LIMIT = 3       # 连着这么多次续读都没多拿到 → 不再自动续，进问题面板（照实说原因）
 SETTLED_REASONS = ("count_mismatch",)   # 读取组件说「展开到底了，原站显示的数比能看到的多（删除 / 折叠）」：读多少次都一样，不算缺口
 STATE_NAME = "comments-fill.json"
@@ -77,6 +77,15 @@ def floor_target(value: Any = None) -> int:
         return max(FLOOR_MIN, min(int(value), 50))
     except (TypeError, ValueError):
         return FLOOR_MIN
+
+
+def fill_gap_min() -> int:
+    """补评论节奏（1015 设置页「定时同步 → 补评论节奏」）：同一篇两次开页至少隔几分钟，只能比 FILL_GAP_MIN 慢。读不到设置按 FILL_GAP_MIN。"""
+    try:
+        from .ai_config import sync_options
+        return max(FILL_GAP_MIN, int(sync_options().get("commentFillGap") or FILL_GAP_MIN))
+    except Exception:  # noqa: BLE001 - 设置坏了按默认节奏
+        return FILL_GAP_MIN
 
 
 def floors_label(floors: int) -> str:
@@ -227,6 +236,7 @@ def survey(floors: int | None = None, now: datetime | None = None) -> dict[str, 
     from . import restricted as restricted_mod
     floors = floors or floor_target()
     now = now or _now()
+    gap = fill_gap_min()
     ready, cooling, stuck, restricted = [], [], [], []
     missing = 0
     for source_key, source_id in _objects():
@@ -253,8 +263,8 @@ def survey(floors: int | None = None, now: datetime | None = None) -> dict[str, 
             continue
         missing += sc["missing"]
         last = last_open(source, state)
-        if last and now - last < timedelta(minutes=FILL_GAP_MIN):
-            entry["eligible_at"] = (last + timedelta(minutes=FILL_GAP_MIN)).isoformat(timespec="seconds")
+        if last and now - last < timedelta(minutes=gap):
+            entry["eligible_at"] = (last + timedelta(minutes=gap)).isoformat(timespec="seconds")
             cooling.append(entry)
         else:
             ready.append(entry)
@@ -660,7 +670,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
                     first = _parse(sv["cooling"][0]["eligible_at"]) or _now()
                     wait = max(30.0, min(900.0, (first - _now()).total_seconds() + 5))
                     nap(wait, state="waiting", current=None, wait_code="COOLING",
-                        message=status.text("补评论") + f" · 同一篇隔 {FILL_GAP_MIN} 分钟再开，{first:%H:%M} 接着补")
+                        message=status.text("补评论") + f" · 同一篇隔 {fill_gap_min()} 分钟再开，{first:%H:%M} 接着补")
                     continue
                 break
             entry = ready[0]
