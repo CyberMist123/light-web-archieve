@@ -46,11 +46,13 @@ function makePlugin(over = {}) {
   };
 }
 
-async function openChat({ turns = [], session = null, plugin = null, files = {}, folder = '', params = {}, active = true, app = null, dom = null, V = null, noPlugin = false, isMobile = false, run = true } = {}) {
+// prefs：1015 起默认每问重新搜、每问开新对话；老用例照 1015 前的行为（追问绑来源、接着这段问）写，夹具默认给老偏好，新用例传 prefs: null 用新默认
+const LEGACY_PREFS = { follow: 'sources', keepThread: true };
+async function openChat({ turns = [], session = null, plugin = null, files = {}, prefs = LEGACY_PREFS, folder = '', params = {}, active = true, app = null, dom = null, V = null, noPlugin = false, isMobile = false, run = true } = {}) {
   const P = plugin || makePlugin();
   const pre = folder ? folder + '/' : '';
   if (!V) V = makeVault({ [pre + DATA]: JSON.stringify({ built_at: '2026-10-08T10:00:00+10:00', items: [] }),
-    [pre + SESSION]: JSON.stringify(session || { turns }), [pre + ARCHIVE]: '{"entries":[]}', ...files });
+    [pre + SESSION]: JSON.stringify(session || { turns }), [pre + ARCHIVE]: '{"entries":[]}', ...(prefs ? { [pre + '_archive/chat-prefs.json']: JSON.stringify(prefs) } : {}), ...files });
   if (!app) app = { vault: V.vault, workspace: makeWorkspace(), isMobile, plugins: { plugins: noPlugin ? {} : { 'link-brain-actions': P.plugin }, enablePlugin: async () => {}, disablePlugin: async () => {} }, metadataCache: { getCache: () => null, getFileCache: () => null } };
   if (!dom) { delete globalThis.__lbState; delete globalThis.__lbListeners; delete globalThis.__lbUndoNotice; dom = makeDom(); }
   const clip = [];

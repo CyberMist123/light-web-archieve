@@ -18,7 +18,7 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   const rel = (id, n, extra = {}) => ({ id, rank: n, title: '相关' + id, note: `Web/${id}.md`, tier: 'related', excerpt: '', ...extra });
   // 旧会话：10-04 前的 chat-session.json，没有 id、没有历史
   const oldSession = { turns: [{ role: 'user', content: '旧问题', askedAt: '2026-10-02T12:00:00+10:00' }, { role: 'assistant', q: '旧问题', content: '旧回答', sources: [], related: [] }], excluded: [], pinned: [] };
-  const V = makeVault({
+  const V = makeVault({ /* 1015 前的默认（追问绑来源、接着这段问），新默认见 test_chat_b2_1015 */ '_archive/chat-prefs.json': '{"follow":"sources","keepThread":true}', 
     [DATA]: JSON.stringify({ built_at: '2026-10-04T10:00:00+10:00', items: [] }),
     [SESSION]: JSON.stringify(oldSession),
     '_archive/chat-archive.json': JSON.stringify({ entries: [

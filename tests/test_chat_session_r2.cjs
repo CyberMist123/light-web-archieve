@@ -18,7 +18,7 @@ const SESSION = '_archive/chat-session.json';
   const turns = [{ role: 'user', content: '担担面有没有汤' },
     { role: 'assistant', content: '没有汤 [来源1]', q: '担担面有没有汤', askedAt: '2026-10-04T10:00:00+10:00',
       sources: [src('a', 1, withId), src('b', 2)], related: [rel('c', 3), rel('d', 4)] }];
-  const V = makeVault({ [DATA]: JSON.stringify({ built_at: '2026-10-04T10:00:00+10:00', items: [] }),
+  const V = makeVault({ /* 1015 前的默认（追问绑来源、接着这段问），新默认见 test_chat_b2_1015 */ '_archive/chat-prefs.json': '{"follow":"sources","keepThread":true}',  [DATA]: JSON.stringify({ built_at: '2026-10-04T10:00:00+10:00', items: [] }),
     [SESSION]: JSON.stringify({ turns }), '_archive/chat-archive.json': '{"entries":[]}' });
   const asks = [], bundles = [];
   const plugin = {
@@ -45,8 +45,9 @@ const SESSION = '_archive/chat-session.json';
   const rowButton = (turn, title, cls) => { const links = turn.querySelectorAll('a'); const i = links.findIndex(a => a.textContent.includes(title)); return turn.querySelectorAll(cls)[i]; };
 
   // 旧会话、没排除没保留：10-04 起追问默认「在当前来源里追问」——只交上一轮留下的来源（主要依据 + 其他相关），不带 excludeIds / pinIds
-  const expand = () => turnEls()[0].querySelectorAll('.lbchat-act').find(b => b.textContent === '展开重点细节');
-  await expand().onclick(); await tick(20);
+  // （1015 起「展开细节」只绑那一答的主要依据，见 test_chat_b2_1015；这里改用输入框追问验追问绑定）
+  const ask = async text => { A.section.querySelector('.lbchat-search').value = text; await A.section.querySelector('.lbchat-composer').onsubmit({ preventDefault() {} }); };
+  await ask('展开重点细节'); await tick(20);
   assert.equal(asks.length, 1);
   assert.deepEqual(Object.keys(asks[0]).filter(k => /Ids$/.test(k)), ['sourceIds']);
   assert.deepEqual(Array.from(asks[0].sourceIds), ['a', 'b', 'c', 'd']);
@@ -55,7 +56,7 @@ const SESSION = '_archive/chat-session.json';
   assert.equal(sw().textContent, '改为重新搜');
   await sw().onclick(); await tick(5);
   assert.equal(JSON.parse(V.get(SESSION)).follow, 'search');
-  assert.equal(sw().textContent, '改回当前来源');
+  assert.ok(sw().textContent.startsWith('改为在当前'));
 
   // ③ 证据身份：来源行悬停看得到楼号 / 图序号
   const linkA = turnEls()[0].querySelectorAll('a').find(a => a.textContent.includes('主要a'));
@@ -88,8 +89,8 @@ const SESSION = '_archive/chat-session.json';
   md = bundles[1][2];
   assert.ok(md.includes('这一轮删掉的来源（没导出）：相关c') && !md.includes('- 相关c') && md.includes('- 相关d'));
 
-  // 追问（展开重点细节 = 一次普通提问）：排除和保留都显式带给后端
-  await expand().onclick(); await tick(20);
+  // 追问（一次普通提问）：排除和保留都显式带给后端
+  await ask('再问一句'); await tick(20);
   assert.equal(asks.length, 2);
   assert.deepEqual(Array.from(asks[1].excludeIds), ['c']);
   assert.deepEqual(Array.from(asks[1].pinIds), ['b']);
@@ -100,7 +101,7 @@ const SESSION = '_archive/chat-session.json';
   saved = JSON.parse(V.get(SESSION));
   assert.deepEqual(saved.pinned, ['b']);
   assert.equal(saved.follow, 'search', '「改为重新搜」刷新后还在');
-  assert.equal(sw().textContent, '改回当前来源');
+  assert.ok(sw().textContent.startsWith('改为在当前'));
   assert.equal(rowButton(turnEls()[0], '主要b', '.lbchat-src-pin').textContent, '已保留');
 
   // 重答（第一轮删过 c）：交留下的来源（保留的排最前），排除照样带上；10-04 ②：保留的也作为 pinIds 带上（后端排最前、要求逐条用到）

@@ -14,7 +14,7 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
 (async () => {
   const src = (id, n) => ({ id, citation: n, title: '主要' + id, note: `Web/${id}.md`, tier: 'primary', excerpts: [] });
   const rel = (id, n) => ({ id, rank: n, title: '相关' + id, note: `Web/${id}.md`, tier: 'related', excerpt: '' });
-  const V = makeVault({ [DATA]: JSON.stringify({ built_at: '2026-10-04T10:00:00+10:00', items: [] }), '_archive/chat-archive.json': '{"entries":[]}' });
+  const V = makeVault({ /* 1015 前的默认（追问绑来源、接着这段问），新默认见 test_chat_b2_1015 */ '_archive/chat-prefs.json': '{"follow":"sources","keepThread":true}',  [DATA]: JSON.stringify({ built_at: '2026-10-04T10:00:00+10:00', items: [] }), '_archive/chat-archive.json': '{"entries":[]}' });
   const asks = [], menus = [];
   let reply = () => ({ status: 'ok', markdown: '第一轮 [来源1]', sources: [src('a', 1), src('b', 2)], related: [rel('c', 3)] });
   const plugin = {
@@ -92,7 +92,7 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   // 改为重新搜：下一问重新检索（不带 sourceIds，带会话的排除 / 保留），状态存进会话文件
   await one('.lbchat-follow-switch').onclick(); await tick(5);
   assert.equal(saved().follow, 'search');
-  assert.ok(one('.lbchat-followbar').textContent.includes('追问会重新搜索收藏') && one('.lbchat-followbar').textContent.includes('改回当前来源'));
+  assert.ok(one('.lbchat-followbar').textContent.includes('下一问重新搜收藏') && one('.lbchat-followbar').textContent.includes('改为在当前'));
   assert.equal(one('.lbchat-search').placeholder, '继续追问…');
   await ask('换个城市呢');
   assert.equal(asks[2].sourceIds, undefined);
@@ -101,7 +101,7 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
 
   // 刷新页面：开关状态还在；改回当前来源
   await open();
-  assert.equal(one('.lbchat-follow-switch').textContent, '改回当前来源');
+  assert.ok(one('.lbchat-follow-switch').textContent.startsWith('改为在当前'));
   await one('.lbchat-follow-switch').onclick(); await tick(5);
   assert.equal(saved().follow, 'sources');
 
