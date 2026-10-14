@@ -299,8 +299,8 @@ def understand(path: Path, lines: list[dict[str, Any]] | None, cfg: dict[str, An
                timeout: float | None = None) -> dict[str, Any]:
     """0927：带着本地 OCR 一起问识图模型——判类型（表格/流程图/截图文字/图片）并按图纠错、标打码。"""
     ocr = "\n".join(l["text"] for l in (lines or []))[:6000] or "（没认出文字）"
-    out = _chat(path, LAYER1_PROMPT.replace("{ocr}", ocr), cfg, max_tokens=3000,
-                timeout=timeout or float(cfg.get("timeoutSec") or 150))
+    out = _chat_filtered_retry(path, LAYER1_PROMPT, ocr, cfg, max_tokens=3000,
+                               timeout=timeout or float(cfg.get("timeoutSec") or 150))
     if out.get("status") != "ok":
         return {"kind": "unknown", **out}
     text = out["text"]
@@ -320,8 +320,8 @@ def refine(path: Path, lines: list[dict[str, Any]] | None, kind: str, cfg: dict[
     """第二层：强模型精细识别一张图。流程图要能通过 mermaid_problem() 的检查，否则算失败。"""
     ocr = "\n".join(l["text"] for l in (lines or []))[:6000] or "（没认出文字）"
     label = {"diagram": "流程图", "table": "表格"}.get(kind, "截图文字")
-    out = _chat(path, REFINE_PROMPT.replace("{kind}", label).replace("{ocr}", ocr), cfg,
-                max_tokens=8000, timeout=timeout or float(cfg.get("timeoutSec") or 240))
+    out = _chat_filtered_retry(path, REFINE_PROMPT.replace("{kind}", label), ocr, cfg,
+                               max_tokens=8000, timeout=timeout or float(cfg.get("timeoutSec") or 240))
     if out.get("status") != "ok":
         return out
     tidy = tidy_output(out["text"])
@@ -492,6 +492,19 @@ def tidy_output(text: str) -> str:
             continue
         lines.append(line)
     return "\n".join(lines).strip()
+
+
+# 1015：百炼内容审核会因为附带的 OCR 文字（政治 / 成人词）整单 HTTP 400 拒掉，图本身其实能过。
+# 这时去掉 OCR 文字只发图再问一次；图本身也被拦就照实记 PERMANENT.CONTENT_FILTERED。
+NO_OCR_NOTE = "（本地 OCR 文字没附上：接口的内容审核不收这段文字。请直接看图转录。）"
+
+
+def _chat_filtered_retry(path: Path, prompt: str, ocr: str, cfg: dict[str, Any], *, max_tokens: int,
+                         timeout: float) -> dict[str, Any]:
+    out = _chat(path, prompt.replace("{ocr}", ocr), cfg, max_tokens=max_tokens, timeout=timeout)
+    if out.get("code") == "PERMANENT.CONTENT_FILTERED" and out.get("filtered_input") == "text":
+        out = _chat(path, prompt.replace("{ocr}", NO_OCR_NOTE), cfg, max_tokens=max_tokens, timeout=timeout)
+    return out
 
 
 def _chat(path: Path, prompt: str, cfg: dict[str, Any], *, max_tokens: int, timeout: float) -> dict[str, Any]:

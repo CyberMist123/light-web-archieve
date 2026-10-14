@@ -211,6 +211,7 @@
 | `TRANSIENT.HTTP_5XX` / `HTTP_429` / `NETWORK` / `SERVICE_BUSY`（vision.layer1 / enrich.summary） | 接口暂时出错 / 限流 / 网络不通 / 服务正忙 | 模型接口抖动、限额 | 识图请求网络抖动重试 1 次；概要：重试 1 次 → 换文本 AI 模型 | ✔ 重跑这篇识图和概要 | 同左；不行到设置里点「测试」 |
 | `TRANSIENT.RETRY_EXHAUSTED` | 连着几次没补成 | 识图 / 概要连着 3 次没补成 | — | ✔ 重跑这篇（不等退避） | 同左 |
 | `TRANSIENT.STEP_CRASHED`（vision.layer1 / enrich.summary） | 步骤中途出错退出 | 识图 / 概要代码意外异常（正文已入档） | 不阻断入档，照样渲染笔记 | ✔ 重跑这篇 | 同左 |
+| `PERMANENT.CONTENT_FILTERED`（vision.layer1 / vision.refine） | 识图被接口审核拦下 | 百炼等接口内容审核回 HTTP 400 `data_inspection_failed`（1015 查明：拦的多是附带的 OCR 文字，如政治 / 成人词，图本身能过） | 拦的是文字 → 去掉 OCR 文字只发图再问一次；图本身也被拦 → 记这一条，OCR 文字照常可搜 | — | 不是设置问题，不用改模型名 / 地址；想要识图可换不带审核的模型 |
 | `PERMANENT.MODEL_OUTPUT_INVALID`（enrich.summary） | AI 结果不可用 | 概要两次都不是合法 JSON | 第二次把「只回 JSON」说死 → 换文本 AI 模型 | — | 「现在修」= 重跑这篇 |
 | `PERMANENT.MODEL_OUTPUT_INVALID`（vision.refine） | AI 结果不可用 | 精细识别真复读 / 截断 / 流程图格式坏（1008 起长段落不再误判，见第 11 条） | 原样 → 换参数 → 换模型 → 退回第一层结果 | — | 「再试一次」= 放弃了的图重新精细识别；修过没好的不进「全部修一遍」；可「隐藏」 |
 | `TRANSIENT.SERVICE_BUSY` / `HTTP_*` / `NETWORK`（vision.refine 步骤级） | 接口连着不通 | 免费 key 限额、兜底模型也不通 | 429 换 key、503 歇一会儿同 key 再试、全不行退回设置里的模型 | ✔ 补跑 10 张 | 同左 |

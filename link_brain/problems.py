@@ -170,6 +170,8 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     # 1008：补查判定「原帖打不开」只上卡片、不进问题列表（她：没人声的不是问题）；分不清删了还是仅作者可见，别直说「已删除」
     "PERMANENT.NOTE_GONE": dict(where="card", label="原帖打不开", hover="原帖打不开（可能已删或仅作者可见），本地存档还在", group="gave_up"),
     "PERMANENT.MODEL_OUTPUT_INVALID": dict(where="card", label="AI 结果不可用", hover="{reason}", group="gave_up"),
+    # 1015：识图接口内容审核拦下（去掉 OCR 文字重试过仍不收）——不是设置问题，OCR 文字照常可用
+    "PERMANENT.CONTENT_FILTERED": dict(where="card", label="识图被接口审核拦下", hover="{reason}；本地 OCR 文字照常可搜", group="gave_up"),
     "PERMANENT.REMOTE_TASK_FAILED": dict(where="list", label="远程阅读的计划任务没弄好", hover="{reason}", group="gave_up"),
     # 第 5 批 `reader install`（用户点的操作，只出现在命令结果里，不登记问题记录）
     "PERMANENT.CHECKSUM_MISMATCH": dict(where="list", label="下载的组件校验不过", hover="{reason}", group="gave_up"),
@@ -199,6 +201,7 @@ PLANNED_CODES = (
     "TRANSIENT.STEP_TIMEOUT",
     "PERMANENT.PDF_ENCRYPTED", "PERMANENT.PDF_DAMAGED", "PERMANENT.DOC_UNSUPPORTED", "PERMANENT.NO_AUDIO",
     "PERMANENT.NO_SPEECH", "PERMANENT.NOTE_GONE", "PERMANENT.MODEL_OUTPUT_INVALID",
+    "PERMANENT.CONTENT_FILTERED",
     "NEEDS_HUMAN.AUTH_FAILED", "NEEDS_HUMAN.QUOTA_EXCEEDED", "NEEDS_HUMAN.BACKUP_DISK_MISSING",
     "NEEDS_HUMAN.STUCK",
     "SKIPPED.NOT_CONFIGURED", "SKIPPED.DISABLED", "SKIPPED.BUDGET", "SKIPPED.FALLBACK",
