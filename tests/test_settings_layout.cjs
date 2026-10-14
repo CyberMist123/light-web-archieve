@@ -1,7 +1,7 @@
-// 设置页（1010 她：「原本的设置分栏还是需要的」——恢复分栏，按「什么都不懂的新用户」重写）。
+// 设置页（1010 她：「原本的设置分栏还是需要的」——恢复分栏，按「什么都不懂的新用户」重写；1015 她：照 claudian 改成 通用 / 模型与提供商 / 技能 三个页签 + 圆角卡片）。
 // 守住 1009 的两条：每个设置只出现在一处；装上自动跑轻量版、一键装好 / 跑完（docs/SETUP-CONTRACT.md 10-10 修订）。
 // 断言：
-//   1. 五栏（概览 / 收藏与同步 / AI / 连接其他 AI / 高级），默认概览；一次只画一栏；每栏最多一个主按钮；
+//   1. 三栏（通用 / 模型与提供商（子页签）/ 技能），默认通用；一次只画一栏；每栏最多一个主按钮；每组一张卡片（标题 + 内容）；
 //      概览 = 账号 · 收藏同步（只有次要的「立即同步」「改时间」）· 评论补齐 · 问题 · 这台电脑 +「一键装好 / 跑完」；
 //   2. AI 那一栏的开关改 setup.selected（依赖联动）并对上实际起作用的设置（OCR 方式 / 本机语音 / CapsLock / AI 方式）；
 //      子选项（按住 CapsLock 说话）只在父开关打开后出现；AI 打开原地出接口那几格 + 价钱；
@@ -78,7 +78,7 @@ const context = { module: { exports: {} }, process, setTimeout, clearTimeout, se
     : n === 'child_process' ? { spawn() { throw new Error('测试里不许 spawn 真进程'); } } : require(n) };
 vm.createContext(context);
 vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js', 'utf8')
-  + '\nmodule.exports.__SettingTab = LinkBrainSettingTab; module.exports.__merge = mergeSettings; module.exports.__TABS = SETTING_TABS;', context);
+  + '\nmodule.exports.__SettingTab = LinkBrainSettingTab; module.exports.__merge = mergeSettings; module.exports.__TABS = SETTING_TABS; module.exports.__SUBTABS = SETTING_SUBTABS;', context);
 const Plugin = context.module.exports;
 const PLUGIN_DIR = '../obsidian-plugins/link-brain-actions/';
 
@@ -132,9 +132,17 @@ function makePlugin(saved, files = {}) {
   p.homeUI = () => p._home || (p._home = require(PLUGIN_DIR + 'home-ui.js')(OBS, p));
   p.scheduleUI = () => require(PLUGIN_DIR + 'schedule-ui.js')(OBS, p);
   p.remoteUI = require(PLUGIN_DIR + 'remote-ui.js')(OBS, p);
+  p.skillsUI = () => require(PLUGIN_DIR + 'skills-ui.js')(OBS, p);
   return { p, saves, files, calls };
 }
-function openPage(p, tabId = null) { if (tabId) p.settingsView = { ...(p.settingsView || {}), tab: tabId }; const tab = new Plugin.__SettingTab({}, p); p.settingTab = tab; tab.display(); return tab; }
+function openPage(p, tabId = null, sub = null) {
+  if (tabId) p.settingsView = { ...(p.settingsView || {}), tab: tabId };
+  if (sub) p.settingsView.sub = { ...(p.settingsView.sub || {}), [tabId]: sub };
+  const tab = new Plugin.__SettingTab({}, p); p.settingTab = tab; tab.display(); return tab;
+}
+// 每个页签 × 子页签（1015：模型与提供商下面有子页签）
+const PAGES = () => Plugin.__TABS.flatMap(([id]) => (Plugin.__SUBTABS[id] || [[null]]).map(([sub]) => [id, sub]));
+const cardOf = (root, section) => root.querySelector(`.lb-card[data-section="${section}"]`);
 const flush = () => new Promise(r => setTimeout(r, 0));
 const settle = async (n = 8) => { for (let i = 0; i < n; i++) await flush(); };
 
@@ -206,11 +214,17 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
   let env = makePlugin({}, { '_archive/problems-summary.json': JSON.stringify(sum) });
   let tab = openPage(env.p); let root = tab.containerEl;
   await settle();
-  assert.deepEqual(root.querySelectorAll('.lb-tabs .lb-tab').map(b => b.textContent), ['概览', '收藏与同步', 'AI', '连接其他 AI', '高级']);
-  assert.deepEqual(root.querySelectorAll('.lb-tab.is-active').map(b => b.textContent), ['概览']);
+  assert.deepEqual(root.querySelectorAll('.lb-tabs .lb-tab').map(b => b.textContent), ['通用', '模型与提供商', '技能']);
+  assert.deepEqual(root.querySelectorAll('.lb-tab.is-active').map(b => b.textContent), ['通用']);
   assert.equal(root.querySelectorAll('.lb-tab-pane').length, 1, '一次只画一栏');
   assert.ok(!root.querySelector('.lb-setup') && !root.querySelector('.lb-steps'), '没有分步向导');
-  assert.deepEqual(visibleRows(root), ['〔账号卡片〕', '收藏同步', '评论补齐', '问题', '这台电脑']);
+  // 1015：每组一张卡片，标题加粗 + 分隔线（卡片头）
+  assert.deepEqual(pane(root).querySelectorAll('.lb-card > .lb-card-head > .lb-card-title').map(t => t.textContent),
+    ['状态', '收藏', '定时同步', '目录与批注', '附件手动下载', '连接其他 AI', '开发者']);
+  assert.ok(pane(root).querySelectorAll('.setting-item').every(r => r.closest ? r.closest('.lb-card') : true), '设置行都在卡片里');
+  assert.deepEqual(rowsOf(cardOf(root, 'status')).filter(r => visible(r, root)).map(idOf), ['〔账号卡片〕', '收藏同步', '评论补齐', '问题', '这台电脑']);
+  assert.deepEqual(rowsOf(cardOf(root, 'schedule')).map(idOf), ['自动同步', '每次同步最多收几篇', '每天最多新收几篇', '每篇评论抓几楼', '补评论节奏'],
+    '定时同步：同步篇数、补评论都在这一张卡片里（她 1015）');
   const statusRow = n => rowsOf(root).find(r => nameOf(r) === n);
   assert.match(statusRow('评论补齐').querySelector('.setting-item-description').textContent, /12 篇的评论还没补齐（共缺 340 条回复）/);
   assert.match(statusRow('问题').querySelector('.setting-item-description').textContent, /⚠ 1 件要你处理/);
@@ -224,7 +238,15 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     await settle();
     assert.equal(pane(root).getAttribute('data-tab'), id);
     assert.ok(ctas(root).length <= 1, `「${label}」最多一个主按钮：${ctas(root)}`);
+    for (const [sub, subLabel] of Plugin.__SUBTABS[id] || []) {
+      pane(root).querySelectorAll('.lb-subtabs .lb-subtab').find(b => b.textContent === subLabel).onclick();
+      await settle();
+      assert.equal(pane(root).querySelector('.lb-subpane').getAttribute('data-sub'), sub);
+      assert.deepEqual(pane(root).querySelectorAll('.lb-subtab.is-active').map(b => b.textContent), [subLabel]);
+      assert.ok(ctas(root).length <= 1, `「${label} → ${subLabel}」最多一个主按钮：${ctas(root)}`);
+    }
   }
+  assert.deepEqual(Array.from(Plugin.__SUBTABS.providers, x => x[1]), ['AI 功能', '问收藏模型', '识图 · 认字 · 语音', '提示词']);
   tab.hide();
 
   // —— 2. AI 那一栏：开关改 setup.selected（依赖联动）+ 对上实际起作用的设置；子选项；AI 打开原地出接口那几格 + 价钱 ——
@@ -287,16 +309,18 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
   // —— 3. 停在哪一栏记在插件对象上（本次会话），不写 data.json；「打开设置」旧落点名照认 ——
   const savesBefore = env.saves.length;
   tab = openPage(env.p); root = tab.containerEl; await settle();
-  assert.equal(pane(root).getAttribute('data-tab'), 'ai', '重开设置页停在上次那一栏');
+  assert.equal(pane(root).getAttribute('data-tab'), 'providers', '重开设置页停在上次那一栏');
+  assert.equal(pane(root).querySelector('.lb-subpane').getAttribute('data-sub'), 'features', '旧名 ai → 模型与提供商 → AI 功能');
   assert.equal(env.saves.length, savesBefore, '切栏不写 data.json');
   assert.ok(!JSON.stringify(env.p.settings).includes('"tab"'), '状态不进 settings');
   env.p.app.setting = { activeTab: null, open() {}, openTabById() {} };
   env.p.openPluginSettings = () => {};
-  for (const [from, to] of [['ai', 'ai'], ['features', 'overview'], ['status', 'overview'], ['remote', 'connect'], ['sync', 'sync'], ['advanced', 'advanced'], ['nope', 'overview']]) {
-    env.p.openSetupPage(from); assert.equal(env.p.settingsView.tab, to, from + ' → ' + to);
+  for (const [from, to, focus] of [['ai', 'providers', null], ['features', 'general', null], ['overview', 'general', 'status'], ['status', 'general', 'status'],
+    ['remote', 'general', 'connect'], ['sync', 'general', 'schedule'], ['advanced', 'general', 'developer'], ['skills', 'skills', null], ['nope', 'general', null]]) {
+    env.p.openSetupPage(from); assert.equal(env.p.settingsView.tab, to, from + ' → ' + to); assert.equal(env.p.settingsView.focus, focus, from + ' 的落点');
   }
-  assert.equal(env.p.settingsView.focus, null);
-  env.p.openSetupPage('status'); assert.equal(env.p.settingsView.focus, 'status', '「去扫码 / 验证」→ 概览的账号那一行');
+  env.p.openSetupPage('ai'); assert.equal(env.p.settingsView.sub.providers, 'features', '问题面板「打开设置」→ AI 功能');
+  env.p.openSetupPage('status'); assert.equal(env.p.settingsView.focus, 'status', '「去扫码 / 验证」→ 通用的状态卡片');
   tab.hide();
 
   // —— 4. 五栏全打开（AI 全开、五个软件都勾、折叠都展开）后一项不少、单例只剩一处 ——
@@ -304,8 +328,8 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     const { p } = makePlugin({ ...cfg, setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'asr', 'capslock', 'ai_text', 'ai_vision'], aiSynced: true },
       connect: { clients: ['claude-code', 'claude-desktop', 'claude-ai', 'chatgpt', 'other'] } });
     const all = [];
-    for (const [id] of Plugin.__TABS) {
-      const t = openPage(p, id); await settle(); openFolds(t.containerEl); await settle();
+    for (const [id, sub] of PAGES()) {
+      const t = openPage(p, id, sub); await settle(); openFolds(t.containerEl); await settle();
       all.push(...inventoryOf(t.containerEl));
       t.hide();
     }
@@ -324,8 +348,8 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     // 9. 每项说明一行：静态说明 ≤ 60 字（多的在「?」悬停里）
     if (k === 'defaults') {
       const long = [];
-      for (const [id] of Plugin.__TABS) {
-        const t = openPage(p, id); await settle(); openFolds(t.containerEl); await settle();
+      for (const [id, sub] of PAGES()) {
+        const t = openPage(p, id, sub); await settle(); openFolds(t.containerEl); await settle();
         for (const r of rowsOf(t.containerEl)) { const n = idOf(r), d = descText(r); if (!DYNAMIC.has(n) && d.length > 60) long.push(`${n}：${d.length} 字`); }
         t.hide();
       }
@@ -345,7 +369,7 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
   assert.equal(line(null, now), '');
   assert.match(await syncDesc({ '_archive/problems-summary.json': JSON.stringify({ sync: { state: 'ready', last_success: new Date().toISOString(), new: 3, deferred: 1 } }) }),
     /^上次：今天 \d\d:\d\d · 新增 3 篇 · 还剩 1 篇 · 自动同步：没开$/);
-  assert.equal(await syncDesc({}), '还没有同步过：登录后点「立即同步」，或在「收藏与同步」里开自动同步。 · 自动同步：没开');
+  assert.equal(await syncDesc({}), '还没有同步过：登录后点「立即同步」，或在「定时同步」里开自动同步。 · 自动同步：没开');
 
   // —— 6. 概览开着时监听同步 / 问题 / 补评论状态文件，变了重画；重画整页 / 切栏 / 关设置页时注销 ——
   {
@@ -353,7 +377,7 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     const handlers = []; let offs = 0;
     e.p.app.vault.on = (ev, cb2) => { const ref = { ev, cb: cb2, live: true }; handlers.push(ref); return ref; };
     e.p.app.vault.offref = ref => { ref.live = false; offs++; };
-    const t = openPage(e.p, 'overview'); await settle();
+    const t = openPage(e.p, 'general'); await settle();
     const desc = () => rowsOf(t.containerEl).find(x => nameOf(x) === '收藏同步').querySelector('.setting-item-description').textContent;
     assert.match(desc(), /^收藏同步完成/);
     const live = () => handlers.filter(h => h.live).length;
@@ -368,8 +392,8 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     assert.equal(rowsOf(t.containerEl).find(x => nameOf(x) === '评论补齐').querySelector('.setting-item-description').textContent, '正在补评论 · 已补齐 5/12 篇');
     t.display(); await settle();
     assert.equal(offs, 4); assert.equal(live(), 4, '重画整页：旧监听注销，新的接上');
-    t.showTab('sync'); await settle();
-    assert.equal(offs, 8, '切到别的栏：概览的监听注销'); assert.equal(live(), 0);
+    t.showTab('providers'); await settle();
+    assert.equal(offs, 8, '切到别的栏：通用（状态卡片）的监听注销'); assert.equal(live(), 0);
     t.hide();
   }
 
@@ -393,7 +417,7 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     assert.equal(e.p.settings.sync.commentFloors, 10); assert.equal(sel.value, '10');
     assert.ok(notices.some(n => String(n).includes('没保存上，已改回原来的楼数')));
     // 自动同步：编辑器就在这一栏（目录页「同步记录」里的弹窗是同一个组件）
-    assert.ok(t.containerEl.querySelector('.lb-sched'), '定时编辑器在「收藏与同步」');
+    assert.ok(cardOf(t.containerEl, 'schedule').querySelector('.lb-sched'), '定时编辑器在「通用 → 定时同步」卡片里');
     t.hide();
   }
 
@@ -492,5 +516,104 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     t6.hide();
   }
 
-  console.log('PASS settings page (1010): tabs 概览 · 收藏与同步 · AI · 连接其他 AI · 高级 (one drawn at a time, remembered per session, old open-page names mapped), ≤1 primary per tab, AI toggles drive setup.selected + runtime with deps and sub-options only under an enabled parent, prices + key guide, nothing lost vs pre-1009 inventory (renamed / merged) and no duplicates, one-line descriptions, failed saves revert, sync / fill / problem rows live-watched + unhooked on redraw / tab switch / hide');
+  // —— 12. 1015 定时同步卡片：每次同步最多收几篇（0 = 不限，存 sync.perRunLimit）· 补评论节奏（45 / 90 / 180，存失败改回）——
+  {
+    assert.deepEqual([Plugin.perRunLimitOf(''), Plugin.perRunLimitOf(null), Plugin.perRunLimitOf('-1'), Plugin.perRunLimitOf('x'), Plugin.perRunLimitOf('7')], [0, 0, 0, 0, 7]);
+    assert.deepEqual([Plugin.fillGapOf(90), Plugin.fillGapOf('180'), Plugin.fillGapOf(10), Plugin.fillGapOf(undefined)], [90, 180, 45, 45], '补评论只能比 45 分钟慢');
+    const e = makePlugin({}); const t = openPage(e.p, 'sync'); await settle();
+    const card = cardOf(t.containerEl, 'schedule');
+    const per = rowsOf(card).find(r => nameOf(r) === '每次同步最多收几篇').querySelector('input');
+    assert.equal(per.value, '0');
+    per.value = '20'; await per.oninput(); assert.equal(e.p.settings.sync.perRunLimit, 20);
+    assert.equal(e.saves.at(-1).sync.perRunLimit, 20, '存进 data.json（后端 sync_options 读同一个键）');
+    per.value = ''; await per.oninput(); assert.equal(e.p.settings.sync.perRunLimit, 0, '清空 = 不限');
+    const pace = rowsOf(card).find(r => nameOf(r) === '补评论节奏').querySelector('select');
+    assert.deepEqual(pace.dropdown.options.map(o => o[0]), ['45', '90', '180']);
+    assert.equal(pace.value, '45');
+    pace.value = '180'; await pace.onchange(); assert.equal(e.p.settings.sync.commentFillGap, 180);
+    e.p.saveFails = 1; notices.length = 0;
+    pace.value = '90'; await pace.onchange();
+    assert.equal(e.p.settings.sync.commentFillGap, 180, '存失败：节奏改回原来的'); assert.equal(pace.value, '180');
+    assert.ok(notices.some(n => String(n).includes('没保存上，已改回原来的节奏')));
+    t.hide();
+  }
+
+  // —— 13. 1015 模型与提供商 → 问收藏模型：勾选列表（不勾 = 不进问收藏页下拉，至少留一个；当前选中的被取消就换一个）——
+  {
+    const e = makePlugin({}); const t = openPage(e.p, 'providers', 'chat'); await settle();
+    const rows = () => rowsOf(cardOf(t.containerEl, 'models')).filter(r => r.classList.contains('lb-model-row'));
+    assert.deepEqual(rows().map(nameOf), ['文本 AI', 'Codex', 'Sonnet']);
+    assert.ok(rows().every(r => r.querySelector('.lb-model-check').checked), '默认都勾着');
+    let trig = 0; e.p.app.workspace.trigger = ev => { if (ev === 'link-brain:models-changed') trig++; };
+    const box = name => rows().find(r => nameOf(r) === name).querySelector('.lb-model-check');
+    box('文本 AI').checked = false; await box('文本 AI').onchange(); await settle();
+    assert.equal(e.p.settings.models[0].hidden, true);
+    assert.equal(e.p.settings.activeModel, 'Codex', '当前选中的被取消：换成下一个勾着的');
+    assert.ok(trig >= 1, '通知问收藏页重画下拉');
+    box('Codex').checked = false; await box('Codex').onchange(); await settle();
+    box('Sonnet').checked = false; await box('Sonnet').onchange(); await settle();
+    assert.equal(box('Sonnet').checked, true, '最后一个不让取消'); assert.ok(!e.p.settings.models[2].hidden);
+    box('文本 AI').checked = true; await box('文本 AI').onchange(); await settle();
+    assert.ok(!('hidden' in e.p.settings.models[0]), '重新勾上：hidden 去掉');
+    // 问收藏页的下拉只列勾着的（chat-view.js fillModels）
+    const chat = fs.readFileSync('link_brain/assets/chat-view.js', 'utf8');
+    assert.match(chat, /filter\(m => m && m\.name && !m\.hidden\)/);
+    t.hide();
+  }
+
+  // —— 14. 1015 技能页：说明行 + 刷新 / ＋ · 读收藏库 _skills · 空状态一句 · 隐藏列表输入框 ——
+  {
+    const files = {};
+    const e = makePlugin({}, files);
+    const ad = e.p.app.vault.adapter;
+    ad.list = async dir => ({ folders: Object.keys(files).filter(f => f.startsWith(dir + '/') && f.endsWith('/SKILL.md')).map(f => f.slice(0, -'/SKILL.md'.length)), files: [] });
+    let t = openPage(e.p, 'skills'); await settle();
+    const skillCard = () => cardOf(t.containerEl, 'skills');
+    const lead = rowsOf(skillCard()).find(r => nameOf(r) === '问收藏时按问题自动选用');
+    assert.ok(lead, '说明行');
+    assert.deepEqual(lead.querySelectorAll('.extra-setting-button').map(b => b.getAttribute('aria-label')), ['刷新', '从本地文件夹导入（只拷文字文件，不执行）']);
+    assert.match(skillCard().querySelector('.lb-skill-empty').textContent, /还没有技能。点右上角 ＋ 从本地文件夹导入/);
+    // 放进两个技能（一个坏的）再点刷新
+    files['_skills'] = '';
+    files['_skills/recipe/SKILL.md'] = '---\nname: recipe\ndescription: 菜谱：列菜名、主料\n---\n正文';
+    files['_skills/broken/SKILL.md'] = '没有 frontmatter';
+    await lead.querySelectorAll('.extra-setting-button')[0].onclick(); await settle();
+    const skillRows = () => skillCard().querySelectorAll('.lb-skill-row');
+    assert.deepEqual(skillRows().map(nameOf), ['broken', 'recipe']);
+    assert.equal(skillRows()[1].querySelector('.setting-item-description').textContent, '菜谱：列菜名、主料');
+    assert.ok(skillRows()[0].classList.contains('is-broken'), '读不懂的也列出来、标出来');
+    // 隐藏列表：逗号分隔存 settings.skills.hidden；列表里标「已隐藏」
+    const hid = rowsOf(cardOf(t.containerEl, 'skills-hidden')).find(r => nameOf(r) === '不自动选用这些技能').querySelector('input');
+    assert.ok(hid.classList.contains('lb-skill-hidden-input'));
+    hid.value = 'recipe， travel recipe'; await hid.oninput();
+    assert.deepEqual(Array.from(e.p.settings.skills.hidden), ['recipe', 'travel']);
+    assert.deepEqual(Array.from(e.saves.at(-1).skills.hidden), ['recipe', 'travel']);
+    t.hide(); t = openPage(e.p, 'skills'); await settle();
+    assert.ok(skillRows().find(r => r.getAttribute('data-skill') === 'recipe').classList.contains('is-hidden-skill'));
+    // ＋导入：只拷文字文件（脚本 / 程序 / 隐藏文件不拷），已有同名的先问
+    const writes = [];
+    ad.write = async (f, text) => { writes.push(f); files[f] = text; };
+    ad.mkdir = async f => { files[f] = ''; };
+    const fileObj = (rel, text) => ({ webkitRelativePath: rel, name: rel.split('/').pop(), size: Buffer.byteLength(text), text: async () => text });
+    const ui = e.p.skillsUI();
+    const n = await ui.importFiles([
+      fileObj('trip-planner/SKILL.md', '---\nname: Trip Planner\ndescription: >\n  旅游攻略：路线、时段\n  预算和坑\n---\n正文'),
+      fileObj('trip-planner/references/checklist.md', '核验清单'),
+      fileObj('trip-planner/scripts/fetch.py', 'import os; os.system("rm -rf /")'),
+      fileObj('trip-planner/run.sh', 'curl x | sh'),
+      fileObj('trip-planner/.env', 'KEY=1'),
+    ]);
+    assert.equal(n, 1);
+    assert.deepEqual(writes.sort(), ['_skills/trip-planner/SKILL.md', '_skills/trip-planner/references/checklist.md'], '只拷文字文件');
+    e.p.confirm = async () => false;
+    writes.length = 0;
+    assert.equal(await ui.importFiles([fileObj('trip-planner/SKILL.md', '---\nname: trip-planner\n---\n')]), 0, '同名不覆盖（没点「覆盖」）');
+    assert.equal(writes.length, 0);
+    notices.length = 0;
+    assert.equal(await ui.importFiles([fileObj('x/readme.md', 'hi')]), 0);
+    assert.match(String(notices.at(-1)), /没有 SKILL\.md/);
+    t.hide();
+  }
+
+  console.log('PASS settings page (1015 claudian): tabs 通用 · 模型与提供商(4 sub-tabs) · 技能 in cards (one drawn at a time, remembered per session, old open-page names mapped), ≤1 primary per tab, AI toggles drive setup.selected + runtime with deps and sub-options only under an enabled parent, prices + key guide, nothing lost vs pre-1009 inventory (renamed / merged) and no duplicates, one-line descriptions, failed saves revert, sync / fill / problem rows live-watched + unhooked on redraw / tab switch / hide');
 })().catch(e => { console.error(e); process.exitCode = 1; });

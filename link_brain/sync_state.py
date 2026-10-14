@@ -234,6 +234,8 @@ def record(state, *, payload=None, message='', account=None, code=''):
         elif state == 'ready' and payload.get('deferred'):
             if payload.get('deferred_reason') == 'budget':
                 message = f"今天先到这，剩 {payload['deferred']} 篇明天继续"
+            elif payload.get('deferred_reason') == 'run_limit':
+                message = f"这次收满 {payload.get('run_limit')} 篇，还有 {payload['deferred']} 篇下次同步接着收"
             else:
                 message = f"今天已新抓 {payload.get('daily_limit')} 篇，还有 {payload['deferred']} 篇明天继续"
     status = {'state': state, 'message': message, 'account': account, 'updated_at': now,

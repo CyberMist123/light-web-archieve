@@ -230,7 +230,7 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   // 命令面板「打开设置（概览 · 一键装好 / 跑完）」：打开设置页的「概览」（旧落点名 'features' 照认）；设置页已经停在本插件时补一次重画
   env.p.app.setting.activeTab = env.p.settingTab;
   env.p.openSetupPage('features');
-  assert.equal(env.p.settingsView.tab, 'overview');
+  assert.equal(env.p.settingsView.tab, 'general');   // 1015：概览并进「通用」
   assert.equal(env.p.settingTab.shown, 1, '已经开着本插件设置页 → 重画一次');
   // 原第 ① 步「收藏存放位置」搬成一行设置（「开始」第 ① 步和「高级」分页共用）：乱填如实拒绝；填子文件夹 → 建文件夹、存设置、
   // LINK_BRAIN_VAULT 跟着换、写 ~/.link-brain/config.json

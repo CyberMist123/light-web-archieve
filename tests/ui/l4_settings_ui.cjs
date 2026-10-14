@@ -1,24 +1,22 @@
 'use strict';
-// 1010 设置页（她：恢复分栏，按「什么都不懂的新用户」重写）在真 Chromium + Obsidian 外壳（settings-modal）里，亮 / 暗 / 第三方主题：
-//   ① 五栏：概览 / 收藏与同步 / AI / 连接其他 AI / 高级；一次只画一栏；每栏最多一个主按钮（mod-cta）
-//   ② 概览：账号 · 收藏同步 · 评论补齐 · 问题 · 这台电脑 +「一键装好 / 跑完」（唯一主按钮）
-//   ③ 收藏与同步：收藏放在哪 · 自动同步（编辑器就在这里）· 每天最多新收几篇 · 图片 / 视频 · 每篇评论抓几楼（手动的差别一行小字）…；目录分类默认收起，
-//      展开 = 编辑索引 / AI 起草 / 未归类建议 / 重新整理目录（10-10 索引树，次要链接、放得下）+ 索引文件路径
-//   ④ AI：第一句「要不要 AI…」；每个功能旁标价钱（本地「免费（本机跑）」/「约 ¥x / 100 篇」「约 ¥x / 次」/ 估不出「按用量」）；
-//      子选项（按住 CapsLock 说话）只在父开关（视频说话转文字）打开后出现；去哪弄密钥 + 价钱；打开了的那几项的接口 / 密钥 / 模型
-//   ⑤ 连接其他 AI：远程访问 · 你的网址（紧挨着「还没有网址？」两条路）· 连接地址 · 口令；访问令牌只在最下面「高级」折叠里；界面上没有 OAuth / Bearer
-//   ⑥ 高级：附件手动下载 · AI 细项 · 问收藏 · 提示词 · 批注留言给 AI · 开发者
+// 1015 设置页（她：照 claudian 插件改版）在真 Chromium + Obsidian 外壳（settings-modal）里，亮 / 暗 / 第三方主题：
+//   ① 顶部下划线页签：通用 / 模型与提供商 / 技能；一次只画一栏；每栏最多一个主按钮（mod-cta）
+//   ② 通用：每组一张圆角卡片（标题加粗 + 分隔线）—— 状态（账号 · 收藏同步 · 评论补齐 · 问题 · 这台电脑 +「一键装好 / 跑完」）· 收藏 ·
+//      定时同步（自动同步编辑器 · 每次同步最多收几篇 · 每天最多新收几篇 · 每篇评论抓几楼 · 补评论节奏）· 目录与批注（目录分类默认收起）·
+//      附件手动下载 · 连接其他 AI（「还没有网址？」紧挨着网址；访问令牌只在最下面「高级」折叠里；界面上没有 OAuth）· 开发者
+//   ③ 模型与提供商：子页签 AI 功能（价钱、子选项只在父开关打开后出现）· 问收藏模型（勾选列表，勾选框在左）· 识图 · 认字 · 语音 · 提示词
+//   ④ 技能：说明行 + 刷新 / ＋ · 读收藏库 _skills 的列表 · 空状态一句 · 隐藏列表输入框
 //   ⑦ 开关改了立刻存，存失败拨回原值并提示（外壳的开关照 1.14.4：setValue 会再触发 onChange——验拨回不来回弹）
 //   ⑧ 读不到的块不露原始报错：「这一块暂时读不到，点重试」+ 折起来的「详情」
-// runPy 是替身（不起真进程）；截图落盘留档（LWA_QA_DIR），不用逐张看。
+// runPy 是替身（不起真进程）；截图落盘留档（LWA_QA_DIR）。
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path');
 const shell = require('../_obsidian_shell.cjs');
 const root = 'obsidian-plugins/link-brain-actions';
-const sources = Object.fromEntries(['main', 'home-ui', 'remote-ui', 'schedule-ui', 'onboarding-ui', 'index-ui'].map(name =>
+const sources = Object.fromEntries(['main', 'home-ui', 'remote-ui', 'schedule-ui', 'onboarding-ui', 'index-ui', 'skills-ui'].map(name =>
   [name + '.js', fs.readFileSync(path.join(root, name + '.js'), 'utf8')]));
-const TABS = ['概览', '收藏与同步', 'AI', '连接其他 AI', '高级'];
-// 新手主界面（不算「高级」那一栏和「连接其他 AI」里的高级折叠）上不该看到的词（她 1010 点名的术语；要留的旁边有人话解释）
+const TABS = ['通用', '模型与提供商', '技能'];
+// 新手主界面（不算「连接其他 AI」里的高级折叠）上不该看到的词（她 1010 点名的术语；要留的旁边有人话解释）
 const JARGON = ['OAuth', 'Bearer', 'Authorization', 'launchd', 'systemd', '标准输入', '标准输出', '扩检索词', '归档摘要模型', '认领', '令牌', '没画上', '读不到状态：', '读不到功能清单：'];
 
 async function open(browser, theme, { failRemote = false } = {}) {
@@ -73,10 +71,15 @@ async function open(browser, theme, { failRemote = false } = {}) {
       return { ok: true };
     };
     const Plugin = require('main.js');
-    const files = { '_archive/comments-fill-status.json': JSON.stringify({ state: 'running', message: '正在补评论 · 已补齐 7/197 篇 · 还缺 5800 条回复', updated_at: new Date().toISOString() }),
+    // 1015 技能页：收藏库 _skills 里两个合成技能
+    window.l4skills = ['recipe', 'travel'];
+    const files = { '_skills/recipe/SKILL.md': '---\nname: recipe\ndescription: 菜谱：列菜名、主料、难度；展开给用量和步骤\n---\n正文',
+      '_skills/travel/SKILL.md': '---\nname: travel\ndescription: >\n  旅游攻略：路线、时段、预算、坑\n---\n',
+      '_archive/comments-fill-status.json': JSON.stringify({ state: 'running', message: '正在补评论 · 已补齐 7/197 篇 · 还缺 5800 条回复', updated_at: new Date().toISOString() }),
       '_archive/problems-summary.json': JSON.stringify({ needs_human: 0, auto: 1, gave_up: 0, sync: { state: 'ready', last_success: new Date().toISOString(), new: 40, deferred: 600 } }) };
     const app = { workspace: { trigger() {}, getActiveFile: () => null },
-      vault: { adapter: { getBasePath: () => '/synthetic-vault', exists: async f => f in files, read: async f => { if (!(f in files)) throw new Error('ENOENT'); return files[f]; } }, getAllLoadedFiles: () => [] },
+      vault: { adapter: { getBasePath: () => '/synthetic-vault', exists: async f => f in files || (f === '_skills' && window.l4skills.length > 0), read: async f => { if (!(f in files)) throw new Error('ENOENT'); return files[f]; },
+        list: async dir => ({ folders: window.l4skills.map(id => dir + '/' + id), files: [] }) }, getAllLoadedFiles: () => [] },
       metadataCache: { getFileCache: () => ({}) } };
     const plugin = new Plugin(app, { id: 'link-brain-actions', dir: '' });
     plugin.settings = Plugin.merge({ textAI: { mode: 'http', endpoint: 'https://api.deepseek.com/chat/completions', model: 'sample-text' },
@@ -124,41 +127,54 @@ const clickTab = async (page, label) => { await page.locator('.lb-tabs .lb-tab',
   shell.requirePlaywright();
   const browser = await shell.launch();
   const summary = {};
+  const tap = (page, sel) => page.evaluate(s => document.querySelector(s).click(), sel);   // 外壳 CSS 子集里开关 0×0：直接在元素上点
+  const clickSub = async (page, label) => { await page.locator('.lb-subtabs .lb-subtab', { hasText: label }).first().click(); await page.waitForTimeout(150); };
+  // 卡片样子（她 1015：照 claudian）：圆角、有边框、标题加粗 + 下面一条分隔线
+  const cardLook = page => page.evaluate(() => [...document.querySelectorAll('.lb-tab-pane .lb-card')].map(c => {
+    const cs = getComputedStyle(c), head = c.querySelector('.lb-card-head'), title = c.querySelector('.lb-card-title');
+    return { title: title.textContent, radius: parseFloat(cs.borderTopLeftRadius), border: cs.borderTopStyle, weight: Number(getComputedStyle(title).fontWeight),
+      sep: getComputedStyle(head).borderBottomStyle, overflow: c.scrollWidth - c.clientWidth };
+  }));
   try {
     for (const theme of ['light', 'dark', 'orange']) {
       const { page, errors } = await open(browser, theme);
-      // ① 五栏，默认概览
-      await page.waitForFunction(() => document.querySelector('.lb-run-go') && /已补齐 7\/197/.test(document.querySelector('.lb-fill-row')?.textContent || ''));
+      // ① 三个页签，默认通用
+      await page.waitForFunction(() => document.querySelector('.lb-run-go') && /已补齐 7\/197/.test(document.querySelector('.lb-fill-row')?.textContent || '')
+        && document.querySelector('.lb-sched-row') && !document.querySelector('.lb-sched-rows.is-loading') && /● 开着/.test(document.querySelector('.lb-remote-svc')?.textContent || ''));
       let p = await readPane(page);
-      assert.deepEqual(p.tabs, TABS); assert.deepEqual(p.active, ['概览']);
-      // ② 概览
-      assert.equal(p.tab, 'overview');
-      for (const n of ['小红书 · momo · ✓ 已登录', '收藏同步', '评论补齐', '问题', '这台电脑']) assert.ok(p.rows.includes(n), `${theme} 概览缺「${n}」：${p.rows}`);
-      assert.deepEqual(p.ctaText, ['一键装好 / 跑完'], theme + '：概览唯一的主按钮');
-      assert.deepEqual(p.jargon, [], theme + '：概览没有术语 / 原始报错');
-      summary[theme] = { 概览: p.rows };
-      await page.screenshot({ path: path.join(shell.QA_DIR, `S1010-settings-overview-${theme}.png`), fullPage: true });
-      // ③ 收藏与同步
-      await clickTab(page, '收藏与同步');
-      await page.waitForFunction(() => document.querySelector('.lb-sched-row') && !document.querySelector('.lb-sched-rows.is-loading'));
-      p = await readPane(page);
-      for (const n of ['收藏放在哪', '自动同步', '每天最多新收几篇', '下载图片', '下载视频', '每篇评论抓几楼', '登录后自动同步', '批注署名']) assert.ok(p.rows.includes(n), `${theme} 收藏与同步缺「${n}」：${p.rows}`);
+      assert.deepEqual(p.tabs, TABS); assert.deepEqual(p.active, ['通用']);
+      assert.equal(p.tab, 'general');
+      // 下划线页签：选中那个有下划线
+      const tabLine = await page.evaluate(() => { const a = document.querySelector('.lb-tabs .lb-tab.is-active'), o = document.querySelector('.lb-tabs .lb-tab:not(.is-active)');
+        return { active: getComputedStyle(a).borderBottomStyle + ' ' + parseFloat(getComputedStyle(a).borderBottomWidth), other: getComputedStyle(o).borderBottomColor, activeColor: getComputedStyle(a).borderBottomColor }; });
+      assert.equal(tabLine.active, 'solid 2'); assert.notEqual(tabLine.activeColor, tabLine.other, theme + '：选中的页签下划线有颜色');
+      // ② 通用：每组一张卡片
+      const looks = await cardLook(page);
+      assert.deepEqual(looks.map(l => l.title), ['状态', '收藏', '定时同步', '目录与批注', '附件手动下载', '连接其他 AI', '开发者']);
+      for (const l of looks) {
+        assert.ok(l.radius >= 8 && l.border === 'solid' && l.weight >= 600 && l.sep === 'solid', theme + '：卡片样子 ' + JSON.stringify(l));
+        assert.ok(l.overflow <= 1, theme + '：卡片里不出横向滚动 ' + JSON.stringify(l));
+      }
+      for (const n of ['小红书 · momo · ✓ 已登录', '收藏同步', '评论补齐', '问题', '这台电脑', '收藏放在哪', '自动同步', '每次同步最多收几篇', '每天最多新收几篇',
+        '下载图片', '下载视频', '每篇评论抓几楼', '补评论节奏', '登录后自动同步', '批注署名', '留言对象', '下载文件夹', '后端命令', '检查这台电脑'])
+        assert.ok(p.rows.includes(n), `${theme} 通用缺「${n}」：${p.rows}`);
+      assert.deepEqual(p.ctaText, ['一键装好 / 跑完'], theme + '：通用唯一的主按钮（「保存定时」在这里是次要的）');
+      const schedRows = await page.evaluate(() => [...document.querySelectorAll('.lb-card[data-section="schedule"] .setting-item-name')].map(e => e.textContent.replace(/\?$/, '')));
+      assert.deepEqual(schedRows, ['自动同步', '每次同步最多收几篇', '每天最多新收几篇', '每篇评论抓几楼', '补评论节奏'], '同步篇数、补评论都在「定时同步」卡片');
       assert.ok(!p.rows.some(r => /评论 · (自动|手动)拉取/.test(r)), '「自动拉取」「手动拉取」合成了一项');
       assert.match(p.text, /打开那篇，在右上角 ⋮ 菜单里点「抓全部评论」/, '手动的差别一行小字');
-      assert.ok(p.cta <= 1, theme + '：收藏与同步最多一个主按钮 ' + p.ctaText);
       assert.equal(await page.evaluate(() => document.querySelector('.lb-cats-fold').open), false, '目录分类默认收起');
-      // 10-10 索引树：目录分类 = 编辑索引 / AI 起草 / 未归类建议 / 重新整理目录（次要链接，在栏里放得下、不出横向滚动）+ 索引文件路径；文本框退场
+      // 10-10 索引树：目录分类 = 编辑索引 / AI 起草 / 未归类建议 / 重新整理目录（次要链接，放得下）+ 索引文件路径；文本框退场
       await page.evaluate(() => { const d = document.querySelector('.lb-cats-fold'); d.open = true; window.l4seen = []; const rp = l4.plugin.runPy;
         l4.plugin.runPy = async (a, o) => { window.l4seen.push(a.slice(2).join(' ')); return rp(a, o); }; window.l4rp = rp; });
       await page.locator('.lb-cats-actions button', { hasText: 'AI 起草' }).click();
       await page.waitForFunction(() => window.l4seen.includes('index draft') && !document.querySelector('.lb-cats-actions button.is-busy'));
       const cats = await page.evaluate(() => {
-        const det = document.querySelector('.lb-cats-fold'), pane = document.querySelector('.lb-tab-pane').getBoundingClientRect();
+        const det = document.querySelector('.lb-cats-fold'), card = det.closest('.lb-card').getBoundingClientRect();
         const row = det.querySelector('.lb-cats-actions'), btns = [...row.querySelectorAll('button')];
         const out = { names: btns.map(b => b.textContent), cta: btns.filter(b => b.classList.contains('mod-cta')).length, textarea: !!det.querySelector('textarea'),
-          inside: btns.every(b => { const r = b.getBoundingClientRect(); return r.width > 0 && r.left >= pane.left - 1 && r.right <= pane.right + 1; }),
-          overflow: Math.max(row.scrollWidth - row.clientWidth, document.querySelector('.lb-tab-pane').scrollWidth - document.querySelector('.lb-tab-pane').clientWidth),
-          placeholder: det.querySelector('input')?.getAttribute('placeholder'), seen: window.l4seen.slice() };
+          inside: btns.every(b => { const r = b.getBoundingClientRect(); return r.width > 0 && r.left >= card.left - 1 && r.right <= card.right + 1; }),
+          overflow: row.scrollWidth - row.clientWidth, placeholder: det.querySelector('input')?.getAttribute('placeholder'), seen: window.l4seen.slice() };
         l4.plugin.runPy = window.l4rp; det.open = false;
         return out;
       });
@@ -166,13 +182,31 @@ const clickTab = async (page, label) => { await page.locator('.lb-tabs .lb-tab',
       assert.equal(cats.cta, 0, '目录分类里没有主按钮'); assert.equal(cats.textarea, false, '「名称: 关键词」文本框退场');
       assert.ok(cats.inside && cats.overflow <= 1, theme + '：目录分类的链接放得下（不出横向滚动）' + JSON.stringify(cats));
       assert.equal(cats.placeholder, '索引.md'); assert.deepEqual(cats.seen, ['index draft'], '点「AI 起草」跑的是 index draft');
-      assert.deepEqual(p.jargon, []);
-      summary[theme]['收藏与同步'] = p.rows;
-      await page.screenshot({ path: path.join(shell.QA_DIR, `S1010-settings-sync-${theme}.png`), fullPage: true });
-      // ④ AI
-      await clickTab(page, 'AI');
+      // 连接其他 AI（通用里的一张卡片）
+      for (const n of ['Claude Code', '远程访问', '你的网址', '连接地址', '口令', '小红书收藏库', '再开放一个文件夹']) assert.ok(p.rows.includes(n), `${theme} 连接缺「${n}」：${p.rows}`);
+      const near = await page.evaluate(() => { const d = document.querySelector('.lb-remote-domain'); const n = d.nextElementSibling; return { next: n && n.tagName + '.' + n.className, open: n && n.open }; });
+      assert.equal(near.next, 'DETAILS.lb-remote-nodomain', '「还没有网址？」紧挨着网址那一格');
+      assert.equal(near.open, true, '没填网址：两条路默认展开');
+      assert.match(p.text, /Cloudflare/); assert.match(p.text, /Tailscale/);
+      assert.ok(!/OAuth/.test(p.text), '界面上没有 OAuth');
+      assert.equal(await page.evaluate(() => document.querySelector('.lb-connect-adv').open), false, '高级折叠默认收起');
+      const addr = await page.evaluate(() => { const r = [...document.querySelectorAll('.setting-item')].find(x => x.querySelector('.setting-item-name')?.textContent === '连接地址'); return { disabled: r.querySelector('button').disabled, desc: r.querySelector('.setting-item-description').textContent }; });
+      assert.ok(addr.disabled && /先填上面的网址/.test(addr.desc), '复制按钮不能点时旁边一句为什么');
+      assert.deepEqual(p.jargon, [], theme + '：通用没有术语 / 原始报错');
+      summary[theme] = { 通用: p.rows };
+      await page.evaluate(() => { document.querySelector('.vertical-tab-content').scrollTop = 0; });
+      await page.screenshot({ path: path.join(shell.QA_DIR, `S1015-settings-general-${theme}.png`), fullPage: true });
+      await page.locator('.lb-connect-adv > summary').click(); await page.waitForTimeout(200);
+      const advRows = await page.evaluate(() => [...document.querySelectorAll('.lb-connect-adv .setting-item-name')].map(e => e.textContent.replace(/\?$/, '')));
+      for (const n of ['远程访问的运行情况', '端口', '访问令牌（给不支持口令的软件）', '全部断开']) assert.ok(advRows.includes(n), '高级折叠缺「' + n + '」' + advRows);
+      assert.ok(await page.locator('.lb-connect-adv button', { hasText: '测一下本机的连接程序（MCP）' }).count(), '测本机连接程序在这里');
+
+      // ③ 模型与提供商：子页签
+      await clickTab(page, '模型与提供商');
       await page.waitForFunction(() => document.querySelectorAll('.lb-feat').length >= 4 && document.querySelector('.lb-key-row'));
       p = await readPane(page);
+      assert.equal(p.tab, 'providers');
+      assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('.lb-subtabs .lb-subtab')].map(b => b.textContent)), ['AI 功能', '问收藏模型', '识图 · 认字 · 语音', '提示词']);
       assert.match(p.text, /要不要 AI：不填也能用；填了多出 问收藏、自动概要、识图。/);
       const prices = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('.lb-feat')].map(r => [r.getAttribute('data-id'), r.querySelector('.lb-price')?.textContent || ''])));
       assert.equal(prices.ocr, '免费（本机跑）'); assert.equal(prices.asr, '免费（本机跑）');
@@ -181,58 +215,61 @@ const clickTab = async (page, label) => { await page.locator('.lb-tabs .lb-tab',
       assert.ok(!('capslock' in prices), '子选项（CapsLock 说话）只在「视频说话转文字」打开后出现');
       for (const n of ['接口地址', '密钥（API Key）', '模型名']) assert.ok(p.rows.includes(n), `${theme} AI 缺「${n}」`);
       assert.ok(p.rows.some(r => /^DeepSeek（概要和打标签、问收藏）$/.test(r)), '去哪弄密钥：按服务商合一行 ' + p.rows);
-      assert.equal(p.cta, 0, theme + '：AI 这一栏没有主按钮（测试是次要的）');
+      assert.equal(p.cta, 0, theme + '：AI 功能没有主按钮（测试是次要的）');
       assert.deepEqual(p.jargon, []);
-      // 打开「视频说话转文字」→ 子选项出现
-      // 外壳的 CSS 子集里没有 Obsidian 开关的尺寸（0×0）：直接在元素上点
-      const tap = sel => page.evaluate(s => document.querySelector(s).click(), sel);
-      await tap('.lb-feat[data-id="asr"] .checkbox-container'); await page.waitForTimeout(150);
+      await tap(page, '.lb-feat[data-id="asr"] .checkbox-container'); await page.waitForTimeout(150);
       assert.ok(await page.locator('.lb-feat[data-id="capslock"]').count(), '父开关打开后，子选项出现');
-      summary[theme].AI = (await readPane(page)).rows;
-      await page.screenshot({ path: path.join(shell.QA_DIR, `S1010-settings-ai-${theme}.png`), fullPage: true });
-      // ⑦ 开关存失败：拨回原值 + 提示一句；外壳开关照 1.14.4 会因 setValue 再触发 onChange——不能来回弹
+      summary[theme]['AI 功能'] = (await readPane(page)).rows;
+      await page.screenshot({ path: path.join(shell.QA_DIR, `S1015-settings-providers-${theme}.png`), fullPage: true });
+      // 开关存失败：拨回原值 + 提示一句；外壳开关照 1.14.4 会因 setValue 再触发 onChange——不能来回弹
       await page.evaluate(() => { window.saveFails = 1; });
-      await tap('.lb-feat[data-id="capslock"] .checkbox-container'); await page.waitForTimeout(200);
+      await tap(page, '.lb-feat[data-id="capslock"] .checkbox-container'); await page.waitForTimeout(200);
       const rev = await page.evaluate(() => ({ on: document.querySelector('.lb-feat[data-id="capslock"] .checkbox-container').classList.contains('is-enabled'),
-        sel: window.l4.plugin.settings.setup.selected.includes('capslock'), notices: [...document.querySelectorAll('.notice')].map(n => n.textContent), left: window.saveFails }));
+        sel: window.l4.plugin.settings.setup.selected.includes('capslock'), notices: [...document.querySelectorAll('.notice')].map(n => n.textContent) }));
       assert.equal(rev.on, false, '存失败：开关拨回关'); assert.equal(rev.sel, false, '设置也还原了');
       assert.ok(rev.notices.some(t => t.includes('没保存上，开关已拨回原来的位置')), rev.notices.join(' | '));
-      // ⑤ 连接其他 AI
-      await clickTab(page, '连接其他 AI');
-      await page.waitForFunction(() => /● 开着/.test(document.querySelector('.lb-remote-svc')?.textContent || ''));
+      // 问收藏模型：勾选列表（勾选框在行的最左边）
+      await clickSub(page, '问收藏模型');
       p = await readPane(page);
-      for (const n of ['Claude Code', '远程访问', '你的网址', '连接地址', '口令', '小红书收藏库', '再开放一个文件夹']) assert.ok(p.rows.includes(n), `${theme} 连接缺「${n}」：${p.rows}`);
-      const near = await page.evaluate(() => { const d = document.querySelector('.lb-remote-domain'); let n = d.nextElementSibling; while (n && n.classList.contains('setting-item') && !n.classList.contains('lb-remote-domain')) break; return { next: n && n.tagName + '.' + n.className, open: n && n.open }; });
-      assert.equal(near.next, 'DETAILS.lb-remote-nodomain', '「还没有网址？」紧挨着网址那一格');
-      assert.equal(near.open, true, '没填网址：两条路默认展开');
-      assert.match(p.text, /Cloudflare/); assert.match(p.text, /Tailscale/);
-      assert.ok(!/OAuth/.test(p.text), '界面上没有 OAuth');
-      assert.equal(await page.evaluate(() => document.querySelector('.lb-connect-adv').open), false, '高级折叠默认收起');
-      assert.ok(p.cta <= 1); assert.deepEqual(p.jargon, []);
-      const addr = await page.evaluate(() => { const r = [...document.querySelectorAll('.setting-item')].find(x => x.querySelector('.setting-item-name')?.textContent === '连接地址'); return { disabled: r.querySelector('button').disabled, desc: r.querySelector('.setting-item-description').textContent }; });
-      assert.ok(addr.disabled && /先填上面的网址/.test(addr.desc), '复制按钮不能点时旁边一句为什么');
-      await page.locator('.lb-connect-adv > summary').click(); await page.waitForTimeout(200);
-      const advRows = await page.evaluate(() => [...document.querySelectorAll('.lb-connect-adv .setting-item-name')].map(e => e.textContent.replace(/\?$/, '')));
-      for (const n of ['远程访问的运行情况', '端口', '访问令牌（给不支持口令的软件）', '全部断开']) assert.ok(advRows.includes(n), '高级折叠缺「' + n + '」' + advRows);
-      assert.ok(await page.locator('.lb-connect-adv button', { hasText: '测一下本机的连接程序（MCP）' }).count(), '测本机连接程序在这里');
-      summary[theme]['连接其他 AI'] = p.rows.concat(advRows.map(n => '高级·' + n));
-      await page.screenshot({ path: path.join(shell.QA_DIR, `S1010-settings-connect-${theme}.png`), fullPage: true });
-      // ⑥ 高级
-      await clickTab(page, '高级');
+      const models = await page.evaluate(() => [...document.querySelectorAll('.lb-model-row')].map(r => { const cb = r.querySelector('.lb-model-check'), nm = r.querySelector('.setting-item-name');
+        return { name: nm.textContent, checked: cb.checked, left: cb.getBoundingClientRect().right <= nm.getBoundingClientRect().left + 1 }; }));
+      assert.deepEqual(models.map(m => m.name), ['文本 AI', 'Codex', 'Sonnet']);
+      assert.ok(models.every(m => m.checked && m.left), theme + '：勾选框在左边、默认勾着 ' + JSON.stringify(models));
+      for (const n of ['输入框里的提示字', '提问时先想几个同义词一起搜', '问收藏 / 概要改用本机命令行', '回答最长多少（max_tokens）', '最多参考几篇（topK）']) assert.ok(p.rows.includes(n), `${theme} 问收藏模型缺「${n}」`);
+      assert.ok(p.cta <= 1);
+      await page.screenshot({ path: path.join(shell.QA_DIR, `S1015-settings-models-${theme}.png`), fullPage: true });
+      await clickSub(page, '识图 · 认字 · 语音');
       p = await readPane(page);
-      const heads = await page.evaluate(() => [...document.querySelectorAll('.lb-tab-pane > h4')].map(h => h.textContent));
-      assert.deepEqual(heads, ['附件手动下载', 'AI 细项', '问收藏', '提示词', '批注留言给 AI', '开发者']);
-      for (const n of ['后端命令', '检查这台电脑', '问收藏 / 概要改用本机命令行', '写概要用的模型']) assert.ok(p.rows.includes(n), `${theme} 高级缺「${n}」：${p.rows}`);
-      assert.ok(p.cta <= 1, theme + '：高级最多一个主按钮 ' + p.ctaText);
-      summary[theme]['高级'] = p.rows;
-      await page.screenshot({ path: path.join(shell.QA_DIR, `S1010-settings-advanced-${theme}.png`), fullPage: true });
+      for (const n of ['写概要用的模型', '认视频画面里的字', '认字精度']) assert.ok(p.rows.includes(n), `${theme} 识图 · 认字 · 语音缺「${n}」：${p.rows}`);
+      summary[theme]['识图 · 认字 · 语音'] = p.rows;
+      await clickSub(page, '提示词');
+      p = await readPane(page);
+      assert.deepEqual(p.rows, ['写概要的提示词', '问收藏的提示词']);
+
+      // ④ 技能：说明行 + 刷新 / ＋ · 列表 · 隐藏列表输入框
+      await clickTab(page, '技能');
+      await page.waitForFunction(() => document.querySelectorAll('.lb-skill-row').length === 2);
+      p = await readPane(page);
+      assert.equal(p.tab, 'skills');
+      const sk = await page.evaluate(() => ({ lead: [...document.querySelectorAll('.lb-skill-lead .extra-setting-button')].map(b => b.getAttribute('aria-label')),
+        rows: [...document.querySelectorAll('.lb-skill-row')].map(r => r.querySelector('.setting-item-name').textContent + '｜' + r.querySelector('.setting-item-description').textContent),
+        hiddenInput: !!document.querySelector('.lb-skill-hidden-input') }));
+      assert.deepEqual(sk.lead, ['刷新', '从本地文件夹导入（只拷文字文件，不执行）']);
+      assert.deepEqual(sk.rows, ['recipe｜菜谱：列菜名、主料、难度；展开给用量和步骤', 'travel｜旅游攻略：路线、时段、预算、坑']);
+      assert.ok(sk.hiddenInput, '隐藏列表输入框');
+      assert.equal(p.cta, 0);
+      await page.screenshot({ path: path.join(shell.QA_DIR, `S1015-settings-skills-${theme}.png`), fullPage: true });
+      // 空状态
+      await page.evaluate(() => { window.l4skills.length = 0; document.querySelector('.lb-skill-lead .extra-setting-button').click(); });
+      await page.waitForFunction(() => document.querySelector('.lb-skill-empty'));
+      assert.match(await page.locator('.lb-skill-empty').textContent(), /还没有技能。点右上角 ＋ 从本地文件夹导入/);
+      if (theme === 'light') await page.screenshot({ path: path.join(shell.QA_DIR, `S1015-settings-skills-empty-${theme}.png`), fullPage: true });
       assert.deepEqual(errors, []);
       await page.close();
     }
     // ⑧ 读不到的块：一句人话 + 重试，原始报错折在「详情」里
     {
       const { page, errors } = await open(browser, 'light', { failRemote: true });
-      await clickTab(page, '连接其他 AI');
       await page.waitForFunction(() => document.querySelector('.lb-remote-svc .lb-fail'));
       const fb = await page.evaluate(() => { const f = document.querySelector('.lb-remote-svc .lb-fail'); const d = f.querySelector('details'); return { line: f.querySelector('.lb-fail-line').textContent, open: d.open, raw: d.textContent }; });
       assert.match(fb.line, /这一块暂时读不到，点重试/);
@@ -243,6 +280,6 @@ const clickTab = async (page, label) => { await page.locator('.lb-tabs .lb-tab',
     }
   } finally { await browser.close(); }
   fs.mkdirSync(shell.QA_DIR, { recursive: true });
-  fs.writeFileSync(path.join(shell.QA_DIR, 'S1010-settings-rows.json'), JSON.stringify(summary, null, 2));
-  console.log('PASS 1010 settings tabs (real Chromium, light / dark / third-party): 概览 · 收藏与同步 · AI · 连接其他 AI · 高级, ≤1 primary per tab, no jargon / raw errors on newbie tabs, prices next to AI features, sub-options only under an enabled parent, 「还没有网址？」next to the domain, tokens only in the fold, failed save reverts the toggle (1.14.4 setValue semantics), unreadable block → retry + folded details');
+  fs.writeFileSync(path.join(shell.QA_DIR, 'S1015-settings-rows.json'), JSON.stringify(summary, null, 2));
+  console.log('PASS 1015 settings (claudian layout, real Chromium, light / dark / third-party): underline tabs 通用 · 模型与提供商 · 技能, rounded bordered cards with bold title + separator, ≤1 primary per tab, sync count + comment pace in 定时同步, provider sub-tabs with model checklist (box on the left), skills list + refresh / ＋ + empty state + hidden input, no jargon / raw errors on newbie pages, failed save reverts the toggle, unreadable block → retry + folded details. Screenshots: ' + shell.QA_DIR);
 })().catch(error => { console.error(error); process.exitCode = 1; });
