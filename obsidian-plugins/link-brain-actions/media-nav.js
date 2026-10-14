@@ -509,6 +509,7 @@ class MediaNav {
     const video=carousel.querySelector('video');
     if(video){
       this.hoverControls(media,video);
+      this.clickToggle(video);
       const speed=bar.createEl('button',{cls:'lb-video-speed',text:'1×'});
       const setRate=value=>{video.playbackRate=Math.min(4,Math.max(.25,Math.round(value*20)/20));speed.setText(Number(video.playbackRate.toFixed(2))+'×');};
       let drag=null,moved=false;
@@ -558,9 +559,32 @@ class MediaNav {
     if(!video.hasAttribute('tabindex'))video.tabIndex=0;
     media.addEventListener('mouseenter',()=>{over=true;paint();});
     media.addEventListener('mouseleave',()=>{over=false;paint();});
+    // 1015：鼠标没动过、视频在光标下被重画时 mouseenter 不会来，控制条就一直藏着——光标一动就补上
+    media.addEventListener('pointermove',e=>{if(!over&&e.pointerType!=='touch'){over=true;paint();}});
     media.addEventListener('focusin',e=>{let fv=false;try{fv=e.target.matches(':focus-visible');}catch{}if(fv){keyboard=true;paint();}});
     media.addEventListener('focusout',e=>{if(!media.contains(e.relatedTarget)){keyboard=false;paint();}});
     paint();
+  }
+
+  // 1015 修「点视频画面正中有时不播、只能点播放键，再点又行」。根因在 Chromium 原生控制条（Edge 150 实测，tests/ui/video_click_ui.cjs）：
+  // ① 点画面的播放/暂停是延后执行的（等约 300ms 看是不是双击），这期间再点一下就把前一下取消——画面没反应时人自然会再点，于是两下都没了；
+  // ② 原生「点画面切换」只在 video.controls 为真时生效，而 controls 由上面的悬停逻辑切，悬停状态没对上时点画面完全没反应。
+  // 改法：画面上的单击由我们自己接管（preventDefault 掉原生那份，立刻切、每下都算），底部原生控制条那一条（进度/音量/全屏）照旧交给原生。
+  clickToggle(video){
+    const BAR=48;   // 原生控制条高度约 40px，留点余量
+    video.addEventListener('click',e=>{
+      if(e.button!==0||e.ctrlKey||e.metaKey||e.shiftKey||e.altKey)return;
+      if(e.target!==video)return;
+      if(video.controls){const r=video.getBoundingClientRect();if(r.height>BAR*2&&e.clientY>r.bottom-BAR)return;}
+      e.preventDefault();
+      MediaNav.togglePlay(video);
+    });
+  }
+  static togglePlay(video){
+    if(video.paused||video.ended){
+      try{const p=video.play();if(p&&typeof p.catch==='function')p.catch(err=>{if(!err||err.name!=='AbortError')console.error('[lb] 视频没播起来',err);});}
+      catch(err){console.error('[lb] 视频没播起来',err);}
+    }else video.pause();
   }
 
   // 1003 修「目录页 / 问收藏页有时滚轮滚不动」：Obsidian 同一个标签页换文件时复用同一个 .markdown-preview-view。
