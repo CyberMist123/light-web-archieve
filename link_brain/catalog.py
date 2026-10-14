@@ -33,6 +33,10 @@ from .retrieval import pinyin_text
 
 CATALOG_NAME = "小红书收藏目录.md"
 DATA_NAME = "catalog-data.json"
+# 1015：检索全文（search_fields）和整音节拼音占了 catalog-data 九成（15.8MB 里 14MB），目录首开不需要——
+# 拆进这份，按 id 存；页面第一次真搜索时才读（catalog-search.js ensureSearchIndex），Python 读方经 merge_search_index 并回。
+SEARCH_NAME = "catalog-search-index.json"
+SEARCH_KEYS = ("search_fields", "pinyin")
 STATE_NAME = "catalog-state.json"
 
 SUMMARY_CHARS = 90
@@ -504,6 +508,50 @@ def library_pages(vault):
     return pages
 
 
+def split_search(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    """(去掉检索字段的 items 浅拷贝, {id: {search_fields, pinyin}})。传进来的 items 不改。"""
+    slim, index = [], {}
+    for it in items:
+        index[str(it.get("id"))] = {k: it[k] for k in SEARCH_KEYS if k in it}
+        slim.append({k: v for k, v in it.items() if k not in SEARCH_KEYS})
+    return slim, index
+
+
+_SEARCH_CACHE: dict[str, Any] = {"stamp": None, "items": None}
+
+
+def load_search_index(vault: Path | None = None) -> dict[str, dict[str, Any]]:
+    """{id: {search_fields, pinyin}}；没有 / 读坏了 = {}（fail-open：读方退回没有全文的老样子）。按 mtime 缓存。"""
+    path = (vault or storage.vault_root()) / "_archive" / SEARCH_NAME
+    try:
+        stamp = (str(path), path.stat().st_mtime_ns)
+        if _SEARCH_CACHE["stamp"] == stamp:
+            return _SEARCH_CACHE["items"]
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    got = raw.get("items") if isinstance(raw, dict) and isinstance(raw.get("items"), dict) else {}
+    _SEARCH_CACHE.update(stamp=stamp, items=got)
+    return got
+
+
+def merge_search_index(items: list[dict[str, Any]], vault: Path | None = None) -> list[dict[str, Any]]:
+    """就地把检索字段并回 catalog-data 的 items（已经带着的不动：旧格式整份数据照旧能用）。返回 items。"""
+    if not any(isinstance(it, dict) and "search_fields" not in it for it in items):
+        return items
+    index = load_search_index(vault)
+    if not index:
+        return items
+    for it in items:
+        if isinstance(it, dict) and "search_fields" not in it:
+            extra = index.get(str(it.get("id")))
+            if isinstance(extra, dict):
+                for k in SEARCH_KEYS:
+                    if k in extra:
+                        it[k] = extra[k]
+    return items
+
+
 def _state_registry() -> dict[str, dict[str, str]]:
     from . import problems
     return problems.registry_for_js()
@@ -550,6 +598,12 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
         topic_list, member = [], {}
     for it in items:
         it["topics"] = member.get(str(it.get("id")), [])
+    slim_items, search_index = split_search(items)
+    # 先写检索索引再写目录数据：页面看到新目录时索引已经是新的（按 id 并，差一拍也只是少几篇的全文）
+    storage.atomic_write_text(
+        vault / "_archive" / SEARCH_NAME,
+        json.dumps({"built_at": now.isoformat(), "items": search_index}, ensure_ascii=False, separators=(",", ":")),
+    )
     storage.atomic_write_text(
         data_path,
         json.dumps(
@@ -563,7 +617,8 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
                 "index": index_info,
                 "topics": [t["name"] for t in topic_list],
                 "aliases": ALIASES,
-                "items": items,
+                "items": slim_items,
+                "search_index": SEARCH_NAME,
                 "pinyin_chars": pinyin_chars(items),
                 # 第 4 批：状态文案唯一源（CONVENTIONS §3.1），页面只从这里取 label / hover，不自己写
                 "state_registry": _state_registry(),

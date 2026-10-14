@@ -781,6 +781,7 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
   问答结果多 `related`（候选池里没送进模型的其余篇，`tier: "related"`）、`sources[].tier = "primary"`、`expansion`；
   请求可带 `source_ids`（只用这些来源重答）。扩词缓存 `_archive/query-expand-cache.json`（问题 → 词，最多 500 条）。
 - `catalog-data.json.items[].search_fields` 分为 `body/comments/ocr/attachments`，均保留原文；
+- 1015：`search_fields` 和 `pinyin` 不再写在 `catalog-data.json` 里，拆到 `_archive/catalog-search-index.json` = `{built_at, items: {<id>: {search_fields, pinyin}}}`（catalog-data 顶层 `search_index` 指向它）。目录页首开不读，第一次带词搜索才读（catalog-search.js `ensureSearchIndex`）；Python 读方经 `catalog.merge_search_index` 并回（`ask.load_items`、`indextree.catalog_items` 已接）。items 自带 `search_fields` 的旧数据照旧能用。
   `summary` 为模型摘要，检索权重低，不伪装成原文。`agent_md` 是 vault 相对路径。
 - `attachment_files` 逐条提供 `doc_id/name/downloaded/status/file/markdown/url`，文件和 Markdown
   路径为本机绝对路径（该索引仅用于本机 UI/CLI）；`attachment_missing` 是未落字节数。
