@@ -48,7 +48,7 @@ const { tick, item, openCatalog, asset } = require('./_fake_l1.cjs');
   const list = Array.from({ length: 95 }, (_, i) => ({ title: '第' + i, search_fields: { body: 'x' + i } }));
   const w = W.warmSearch(list, { chunk: 40, idle: f => setTimeout(f, 0) });
   assert.equal(w.done, false);
-  await tick(20);
+  for (let i = 0; i < 100 && !w.done; i++) await tick(10);  // 分片走 setTimeout，机器忙时 20ms 不够（偶发红）
   assert.ok(w.done && list.every(it => W.searchCache.has(it)), '全部预热');
   assert.ok(W.corpusCache.has(list), '最后算一次 corpusText');
   const list2 = [{ title: 'y' }, { title: 'z' }];
