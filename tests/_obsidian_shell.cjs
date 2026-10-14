@@ -354,6 +354,12 @@ function shellRuntime(cfg) {
         if (!it) continue;
         if (it.separator) { menu.addSeparator(); continue; }
         count++;
+        // 1015 二级菜单（children）：假 Menu 没有 setSubmenu → 照 main.js 的退路平铺（标题行禁用、子项前面空一格）
+        if (Array.isArray(it.children)) {
+          menu.addItem(i => { i.setTitle(it.title); i.setDisabled(true); });
+          for (const k of it.children.filter(Boolean)) menu.addItem(i => { i.setTitle('　' + k.title); if (k.checked != null) i.setChecked(!!k.checked); if (k.onClick) i.onClick(e => k.onClick(e)); });
+          continue;
+        }
         menu.addItem(i => { i.setTitle(it.sub ? it.title + '（' + it.sub + '）' : it.title); if (it.icon) i.setIcon(it.icon); if (it.checked != null) i.setChecked(!!it.checked); if (it.disabled) i.setDisabled(true); if (it.danger) i.setWarning(true); if (it.onClick) i.onClick(e => it.onClick(e)); });
       }
       if (!count) return menu;

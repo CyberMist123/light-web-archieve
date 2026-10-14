@@ -569,7 +569,7 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
         cats_order = list(idx["cats_order"])
         index_info = {"file": idx["file"], "generated_at": idx["generated_at"], "roots": idx["roots"],
                       "unclassified": idx["unclassified"]["count"], "migrated": bool(idx.get("migrated"))}
-        LAST_INDEX.clear(); LAST_INDEX.update(index_info, warnings=len(idx.get("warnings") or []))
+        LAST_INDEX.clear(); LAST_INDEX.update(index_info, warnings=len(indextree.real_warnings(idx.get("warnings"))))
     except Exception as exc:  # noqa: BLE001
         import sys
         print(f"[catalog] 索引没算出来，顶部分类先照旧按关键词分：{type(exc).__name__}: {exc}", file=sys.stderr)

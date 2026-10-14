@@ -168,8 +168,17 @@ async function open({ annotations = [{ id: 'a1', ts: '2026-09-01T00:00:00Z', tex
     const { dom } = await open();
     const text = dom.document.getElementById('lba-annot-style').textContent;
     assert.ok(text.includes('@media (hover:none){.lba-ctl{opacity:1;}}'));
-    assert.ok(text.includes('.lb-media-locked .lba-annot.lba-in-side > .lba-annot-input{order:-1'));
-    assert.ok(!/lb-slide|max-height|grid-template/.test(text.split('批次 D · N15')[1] || ''), '紧凑模式只调间距和顺序，不碰图片尺寸 / grid');
+    assert.ok(text.includes('.lb-media-locked .lba-annot.lba-in-side > .lba-input-row{order:-1'));   // 1015：输入框和 ⭐ 一行，整行钉在图下
+    assert.ok(/\.lba-star\.is-on\{[^}]*color:var\(--lb-star/.test(text), '1015：收藏的星是黄的');
+    assert.ok(!/lb-slide|max-height|grid-template/.test((text.split('批次 D · N15')[1] || '').split('1015')[0]), '紧凑模式只调间距和顺序，不碰图片尺寸 / grid');
+  }
+  // ── 1015 她：删「批注」二字；⭐ 在写批注框边上 ──
+  {
+    const { box } = await open();
+    assert.ok(!box.querySelector('.lba-annot-title'), '没有「批注」两个字');
+    const row = box.querySelector('.lba-input-row');
+    assert.ok(row && row.querySelector('.lba-annot-input') && row.querySelector('.lba-star'), '⭐ 和写批注框在一行');
+    assert.ok(!box.querySelector('.lba-annot-head .lba-star'), '⭐ 不在上面那一行');
   }
   console.log('PASS annotate 1008: single-column rerun keeps typing (no commit, focus kept, detach saves draft only; leaving the box still commits), undo row 5s, autosize, ✎✕ first click works while typing/editing, ★ optimistic + single prefix, mobile ★ disabled once-notice, pinned compact CSS');
 })().catch(e => { console.error(e); process.exit(1); });

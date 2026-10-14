@@ -266,10 +266,33 @@
 }
 
 .xhs-note mark {
-  background: color-mix(in srgb, var(--text-accent) 22%, transparent);
   border-radius: 3px;
   padding: 0 2px;
 }
+/* 1015 她：划重点默认黄色，可换绿 / 蓝 / 粉 / 紫；点一下已划的出小条（换色 / 取消） */
+.xhs-note mark { background: rgba(255, 214, 10, .42); color: inherit; }
+.theme-dark .xhs-note mark { background: rgba(255, 214, 10, .32); }
+.xhs-note mark.lb-hl-green { background: rgba(80, 200, 120, .34); }
+.xhs-note mark.lb-hl-blue { background: rgba(80, 160, 255, .32); }
+.xhs-note mark.lb-hl-pink { background: rgba(255, 120, 170, .32); }
+.xhs-note mark.lb-hl-purple { background: rgba(170, 120, 255, .32); }
+body.lb-actions-on .xhs-note .lb-scroll mark { cursor: pointer; }
+.xhs-note mark.lb-mark-pending { opacity: .65; }
+.lb-hl-pop { position: fixed; z-index: var(--layer-menu, 65); display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 999px; background: var(--background-primary); border: 1px solid var(--background-modifier-border); box-shadow: 0 4px 16px rgba(0, 0, 0, .16); }
+.lb-hl-pop button { box-shadow: none !important; cursor: pointer; }
+.lb-hl-pop .lb-hl-dot { width: 18px; height: 18px; padding: 0 !important; border-radius: 50% !important; border: 2px solid transparent !important; }
+.lb-hl-pop .lb-hl-dot.is-on { border-color: var(--text-normal) !important; }
+.lb-hl-pop .lb-hl-dot-yellow { background: rgb(255, 214, 10) !important; }
+.lb-hl-pop .lb-hl-dot-green { background: rgb(80, 200, 120) !important; }
+.lb-hl-pop .lb-hl-dot-blue { background: rgb(80, 160, 255) !important; }
+.lb-hl-pop .lb-hl-dot-pink { background: rgb(255, 120, 170) !important; }
+.lb-hl-pop .lb-hl-dot-purple { background: rgb(170, 120, 255) !important; }
+.lb-hl-pop .lb-hl-off { height: auto !important; padding: 1px 6px !important; border: 0 !important; background: transparent !important; color: var(--text-muted); font-size: 12px; }
+.lb-hl-pop .lb-hl-off:hover { color: var(--text-normal); }
+/* 1015 她：正文下面「视频文字稿 / 视频画面文字」折叠标题改小字、浅色 */
+.xhs-note details.lb-transcript > summary { font-size: 12px; color: var(--text-faint); font-weight: 400; cursor: pointer; }
+.xhs-note details.lb-transcript > summary:hover { color: var(--text-muted); }
+
 
 /* 顶部原文/机读版/附件：保留 9/5 已确认的分隔符间距。 */
 .xhs-note .callout[data-callout="link-brain-file"] {

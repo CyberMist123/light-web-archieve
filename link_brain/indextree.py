@@ -48,7 +48,7 @@ HISTORY_DIR = "index-history"
 HISTORY_KEEP = 30
 UNCLASSIFIED = "未归类"
 FORMAT_VERSION = 1
-CODE_VERSION = "1011.2"     # 解析 / 归类规则一变就改它：index-data.json 不再「没变化」短路
+CODE_VERSION = "1015.1"     # 解析 / 归类规则一变就改它：index-data.json 不再「没变化」短路
 LOCK = "index-build"
 SEP = "/"
 NAME_MAX = 60
@@ -257,8 +257,17 @@ def clean_tags(raw: str) -> list[str]:
     return out
 
 
-def _warn(warnings: list[dict[str, Any]], line: int, text: str) -> None:
-    warnings.append({"line": line, "text": text})
+def _warn(warnings: list[dict[str, Any]], line: int, text: str, level: str = "") -> None:
+    """level="info"：照规则处理了、不算写错（1015 她：第 4 级并进第 3 级是她要的写法，别再弹「有 N 处写法要看一眼」）。"""
+    row: dict[str, Any] = {"line": line, "text": text}
+    if level:
+        row["level"] = level
+    warnings.append(row)
+
+
+def real_warnings(warnings: Any) -> list[dict[str, Any]]:
+    """真正要她看一眼的写法问题（去掉 level=info 的说明）。"""
+    return [w for w in (warnings or []) if isinstance(w, dict) and w.get("level") != "info"]
 
 
 @dataclass
@@ -470,7 +479,8 @@ def parse(text: str) -> Parsed:
             parent.lines.append(no)
             if id(parent) not in fold_warned:
                 fold_warned.add(id(parent))
-                _warn(warnings, no, f"第 {no} 行是第 4 级（最多 3 级）：「{specs[0][0]}」这些并进「{parent.name}」当关键词，不另算一类")
+                _warn(warnings, no, f"第 {no} 行是第 4 级（最多 3 级）：「{specs[0][0]}」这些并进「{parent.name}」当关键词，不另算一类",
+                      "info")
             stack.append((col, parent))
             continue
         if parent is not None and parent.multi and id(parent) not in multi_warned:
@@ -2457,6 +2467,13 @@ def add_parser(sub) -> None:
     g.add_argument("--keep", action="store_true")
     pdm = isub.add_parser("dismiss", help="不要这条「建议新增」")
     pdm.add_argument("--id", required=True)
+    ped = isub.add_parser("edit", help="1015 大纲树：目录页直接改树——rename 改名 / move 挪（--to 新上级，空 = 第一级；--before 插在哪个兄弟前）"
+                                       " / merge 并进 --to / undo（--path = 撤销号）；写回 索引.md（只动那几行、写前备份）")
+    ped.add_argument("--op", required=True, choices=["rename", "move", "merge", "undo"])
+    ped.add_argument("--path", required=True, help="节点路径；undo 时是撤销号")
+    ped.add_argument("--to", default="", help="move：新的上级（空 = 第一级）；merge：并进哪个节点")
+    ped.add_argument("--name", default="", help="rename：新名字")
+    ped.add_argument("--before", default="", help="move：插在这个兄弟节点前面（名字或路径；空 = 放最后）")
     pf = isub.add_parser("facet", help="给几篇加 / 去掉某个节点下的细分标签（压过 AI）")
     pf.add_argument("--item", dest="items", action="append", default=[])
     pf.add_argument("--path", required=True, help="节点路径")
@@ -2494,8 +2511,8 @@ def run(args) -> int:
                 msg = f"第一次建索引：按原来的分类生成了 {pub['file']}（{len(pub['roots'])} 个大类，未归类 {unc} 篇）"
             else:
                 msg = f"索引已更新：{len(pub['roots'])} 个大类，未归类 {unc} 篇"
-            if pub.get("warnings"):
-                msg += f"；有 {len(pub['warnings'])} 处写法要看一眼"
+            if real_warnings(pub.get("warnings")):
+                msg += f"；有 {len(real_warnings(pub['warnings']))} 处写法要看一眼"
             try:
                 classify_spawn = maybe_classify(storage.vault_root(), pub)
             except Exception:  # noqa: BLE001
@@ -2539,6 +2556,9 @@ def run(args) -> int:
         elif cmd == "dismiss":
             from . import indexai
             r = indexai.dismiss(args.id)
+        elif cmd == "edit":
+            from . import indexedit
+            r = indexedit.edit(args.op, args.path, to=args.to, name=args.name, before=args.before)
         elif cmd == "facet":
             from . import indexai
             r = indexai.set_facet(args.items, args.path, args.op, args.name)
@@ -2560,7 +2580,7 @@ def run(args) -> int:
             dump_json(outcome(_brief(data), ok=True, message=f"{len(data.get('roots') or [])} 个大类"))
             return 0
         if r is not None:
-            pass                              # 上面 classify / assign / accept / empty / dismiss 已经做了
+            pass                              # 上面 classify / assign / accept / empty / dismiss / edit 已经做了
         elif cmd == "draft":
             r = draft(use_ai=not getattr(args, "no_ai", False), auto=getattr(args, "auto", False))
         elif cmd == "use-draft":

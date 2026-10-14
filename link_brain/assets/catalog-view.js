@@ -108,6 +108,14 @@ const CSS = `
 .lbi-tree{display:flex;flex-direction:column;}
 .lbi-row{display:flex;align-items:center;gap:2px;min-height:28px;border-left:2px solid transparent;}
 .lbi-row.is-current{border-left-color:var(--text-normal);}
+/* 1015 大纲树：拖拽落点（上 / 下一条细线 = 插到前 / 后，整行淡底 = 放进去当子类；不能放 = 红色虚线）、改名框 */
+.lbi-row[draggable="true"]{cursor:grab;}
+.lbi-row.is-dragging{opacity:.4;}
+.lbi-row.is-drop-before{box-shadow:inset 0 2px 0 var(--interactive-accent);}
+.lbi-row.is-drop-after{box-shadow:inset 0 -2px 0 var(--interactive-accent);}
+.lbi-row.is-drop-into{background:color-mix(in srgb,var(--interactive-accent) 14%,transparent);border-radius:6px;}
+.lbi-row.is-drop-bad{outline:1px dashed var(--lb-danger);outline-offset:-1px;border-radius:6px;}
+.lbc-wrap input.lbi-rename{flex:1 1 auto;min-width:0;height:26px;font-size:13px;padding:2px 6px;margin:1px 4px 1px 0;}
 .lbc-wrap button.lbi-fold{flex:none;width:18px;height:22px;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;color:var(--text-muted);font-size:12px;line-height:1;cursor:pointer;display:grid;place-items:center;}
 .lbc-wrap button.lbi-fold:hover{color:var(--text-normal);}
 .lbi-fold-pad{flex:none;width:18px;}
@@ -145,7 +153,7 @@ const CSS = `
 .lbc-wrap button.lbi-facet-clear{border-style:dashed!important;}
 .lbc-ftags{font-size:11px;line-height:1.5;color:var(--text-faint);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 /* 卡片上「归类…」：只在索引视图里、鼠标停在卡上才出现（和选中圈 / ☆ 同款圆角小钮，排在它们左边） */
-.lbc-wrap button.lbc-reclass{position:absolute;top:8px;right:72px;z-index:1;height:26px;box-sizing:border-box;padding:0 10px!important;border-radius:999px!important;border:1.5px solid #fff!important;background:rgba(0,0,0,.28)!important;box-shadow:0 1px 4px #0003!important;color:#fff;font-size:12px;line-height:1;display:none;align-items:center;cursor:pointer;}
+.lbc-wrap button.lbc-reclass{position:absolute;top:8px;right:40px;z-index:1;height:26px;box-sizing:border-box;padding:0 10px!important;border-radius:999px!important;border:1.5px solid #fff!important;background:rgba(0,0,0,.28)!important;box-shadow:0 1px 4px #0003!important;color:#fff;font-size:12px;line-height:1;display:none;align-items:center;cursor:pointer;}
 .lbc-wrap.is-indexview .lbc-card:hover button.lbc-reclass,.lbc-wrap.is-indexview .lbc-card:focus-within button.lbc-reclass{display:inline-flex;}
 .lbc-wrap button.lbc-reclass:hover{background:rgba(0,0,0,.45)!important;}
 @media(hover:none){.lbc-wrap.is-indexview button.lbc-reclass{display:inline-flex;}}
@@ -165,11 +173,13 @@ const CSS = `
 .lbc-selbar button.mod-warning{background:var(--lb-danger);color:var(--text-on-accent,#fff);font-weight:600;}
 .lbc-selbar button.mod-warning:hover{filter:brightness(.92);}
 .lbc-selbar button:disabled{opacity:.5;cursor:default;}
-.lbc-selbar .lbc-selhint{margin-left:auto;font-size:12px;color:var(--text-faint);white-space:nowrap;}
+.lbc-selbar .lbc-selhint{font-size:12px;color:var(--text-faint);white-space:nowrap;}
 .lbc-menu{background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.18);padding:5px;min-width:120px;}
 .lbc-menu-item{display:block;width:100%;text-align:left;border:0;background:transparent;color:var(--text-normal);box-shadow:none;height:auto;padding:7px 14px;border-radius:7px;cursor:pointer;font-size:13px;}
 .lbc-menu-item:hover,.lbc-menu-item:focus-visible{background:var(--background-modifier-hover);outline:none;}
 .lbc-menu-item.is-danger{color:var(--lb-danger);}
+.lbc-menu-group{padding:6px 14px 2px;font-size:11.5px;color:var(--text-faint);}
+.lbc-menu-item.is-sub{padding-left:24px;}
 .lbc-menu .lbc-menu-head{padding:6px 14px 2px;font-size:11px;color:var(--text-faint);}
 .lbc-menu .lbc-menu-item.is-on{color:var(--interactive-accent);font-weight:500;}
 .lbc-menu .lbc-menu-sep{height:1px;margin:4px 6px;background:var(--background-modifier-border);}
@@ -202,7 +212,10 @@ const CSS = `
 .lbc-cover{display:block;width:100%;height:auto;max-height:360px;object-fit:cover;object-position:top;border:0;border-radius:12px;transition:transform .16s,box-shadow .16s;pointer-events:none;}
 .lbc-card:hover .lbc-cover{transform:translateY(-2px);box-shadow:0 6px 18px #00000012;}
 .lbc-card:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:5px;border-radius:12px;}
-.lbc-card.is-selected .lbc-cover,.lbc-card.is-selected .lbc-nocover{outline:3px solid var(--interactive-accent);outline-offset:2px;filter:brightness(.92);}
+.lbc-card.is-selected .lbc-cover,.lbc-card.is-selected .lbc-nocover{outline:0;box-shadow:0 0 0 3px var(--interactive-accent)!important;filter:brightness(.94);}
+/* 1015 她：选中的紫框和卡片框叠在一起不舒服——选中只要贴着封面的一圈（不留缝、跟着圆角），选中的卡不再叠键盘焦点框 */
+.lbc-card.is-selected:focus-visible{outline:0;}
+.lbc-card.is-selected:hover .lbc-cover{transform:none;}
 .lbc-nocover{aspect-ratio:4/3;border-radius:12px;background:var(--background-secondary);display:grid;place-items:center;color:var(--text-muted);font-size:30px;}
 .lbc-body{padding:12px 2px 0;}
 .lbc-ctitle{font-size:14px;line-height:1.6;font-weight:500;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
@@ -228,12 +241,16 @@ const CSS = `
 .lbc-wrap .lbc-badges svg{display:block;width:14px;height:14px;flex:none;stroke:currentColor;stroke-width:1.6;fill:none;}
 /* ☆（1008 18:50 她定，覆盖早上的「常显」）：没收藏的平时不显示，鼠标停在卡上才出现（和选中圈一样）；已收藏的常显。
    样子和选中圈同款：同尺寸、同顶距、同描边 / 阴影，两颗圈左右并排、上下对齐；已收藏 = 星色实心 + 白星（对应选中圈的 accent 实心 + 白勾）。加 .lbc-wrap 前缀（X14c） */
-.lbc-wrap .lbc-star{position:absolute;top:8px;right:40px;z-index:1;box-sizing:border-box;width:26px;height:26px;padding:0!important;border-radius:50%!important;border:1.5px solid #fff!important;background:rgba(0,0,0,.28)!important;box-shadow:0 1px 4px #0003!important;color:#fff;display:grid;place-items:center;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .15s,background .12s;}
+.lbc-wrap .lbc-star{position:absolute;top:8px;right:8px;z-index:1;box-sizing:border-box;width:26px;height:26px;padding:0!important;border-radius:50%!important;border:1.5px solid #fff!important;background:rgba(0,0,0,.28)!important;box-shadow:0 1px 4px #0003!important;color:#fff;display:grid;place-items:center;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .15s,background .12s;}
 .lbc-wrap .lbc-star svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round;}
-.lbc-wrap .lbc-card:hover .lbc-star,.lbc-wrap .lbc-card:focus-within .lbc-star{opacity:1;pointer-events:auto;}
+.lbc-wrap .lbc-card:hover .lbc-star,.lbc-wrap .lbc-card:focus-within .lbc-star,.lbc-wrap.is-selecting .lbc-star{opacity:1;pointer-events:auto;}
 .lbc-wrap .lbc-star:hover{background:rgba(0,0,0,.45)!important;}
-.lbc-wrap .lbc-star.is-on{background:var(--lb-star)!important;border-color:var(--lb-star)!important;opacity:1;pointer-events:auto;}
-.lbc-wrap .lbc-star.is-on svg{fill:currentColor;}
+/* 1015 她（D 节）：已收藏的常驻一颗小黄星（不要实心黄底圆）；收藏那一下星变黄、弹一下 */
+.lbc-wrap .lbc-star.is-on{background:transparent!important;border-color:transparent!important;box-shadow:none!important;color:var(--lb-star);opacity:1;pointer-events:auto;}
+.lbc-wrap .lbc-star.is-on svg{width:19px;height:19px;fill:currentColor;stroke:#fff;stroke-width:1.4;filter:drop-shadow(0 1px 2px rgba(0,0,0,.35));}
+.lbc-wrap .lbc-star.is-on:hover{background:rgba(0,0,0,.28)!important;}
+.lbc-wrap .lbc-star.is-pop svg{animation:lbc-starpop .5s cubic-bezier(.3,1.6,.5,1);}
+@keyframes lbc-starpop{0%{transform:scale(.6) rotate(-20deg);}60%{transform:scale(1.35) rotate(8deg);}100%{transform:scale(1) rotate(0);}}
 .lbc-wrap .lbc-star.is-static{right:8px;cursor:default;}
 .lbc-wrap .lbc-card.is-starring .lbc-star{animation:lbc-pulse .8s ease-in-out infinite;cursor:progress;}
 @keyframes lbc-pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.15);}}
@@ -249,7 +266,7 @@ const CSS = `
 .lbc-card-more{position:absolute;right:0;bottom:-4px;width:28px;height:28px;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;color:var(--text-muted);font-size:20px;opacity:0;}
 .lbc-card:hover .lbc-card-more,.lbc-card:focus-within .lbc-card-more{opacity:1;}
 /* 10-04 悬停卡片就出现的选中圈（不用先进「多选模式」）；有选中时每张卡都显示圈 */
-.lbc-wrap button.lbc-check{position:absolute;top:8px;right:8px;z-index:1;width:26px;height:26px;padding:0!important;border-radius:50%!important;border:1.5px solid #fff!important;background:rgba(0,0,0,.28)!important;box-shadow:0 1px 4px #0003!important;color:transparent;display:grid;place-items:center;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .15s,background .12s;}
+.lbc-wrap button.lbc-check{position:absolute;top:8px;left:8px;z-index:1;width:26px;height:26px;padding:0!important;border-radius:50%!important;border:1.5px solid #fff!important;background:rgba(0,0,0,.28)!important;box-shadow:0 1px 4px #0003!important;color:transparent;display:grid;place-items:center;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .15s,background .12s;}
 .lbc-wrap button.lbc-check svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round;}
 .lbc-card:hover button.lbc-check,.lbc-card:focus-within button.lbc-check,.lbc-wrap.is-selecting button.lbc-check{opacity:1;pointer-events:auto;}
 .lbc-wrap button.lbc-check:hover{background:rgba(0,0,0,.45)!important;}
@@ -266,7 +283,7 @@ const CSS = `
 .lbc-wrap.lbc-simple .lbc-badges{position:static;float:right;margin:2px 0 0 12px;}
 .lbc-wrap.lbc-simple .lbc-star{top:18px;right:0;border-color:var(--background-modifier-border)!important;background:var(--background-primary)!important;color:var(--text-muted);}
 .lbc-wrap.lbc-simple .lbc-star.is-on{background:var(--lb-star)!important;border-color:var(--lb-star)!important;color:#fff;}
-.lbc-simple button.lbc-check{top:18px;right:34px;border-color:var(--background-modifier-border)!important;background:var(--background-primary)!important;}
+.lbc-simple button.lbc-check{top:18px;left:auto;right:34px;border-color:var(--background-modifier-border)!important;background:var(--background-primary)!important;}
 .lbc-simple button.lbc-check.is-on{background:var(--interactive-accent)!important;}
 /* 10-04 存成选集的小对话框 */
 .lbc-dialog-back{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.28);display:grid;place-items:center;}
@@ -825,6 +842,16 @@ function popMenu(items, e, anchor, pos) {
   for (const it of items) {
     if (!it) continue;
     if (it.separator) { menu.createEl('div', { cls: 'lbc-menu-sep' }); continue; }
+    if (Array.isArray(it.children)) {
+      // 二级：自制菜单里是一个小标题 + 缩进的一组（键盘照样上下走）
+      menu.createEl('div', { cls: 'lbc-menu-group', text: it.title });
+      for (const k of it.children.filter(Boolean)) {
+        const b = menu.createEl('button', { cls: 'lbc-menu-item is-sub' + (k.checked ? ' is-on' : ''), text: (k.checked ? '✓ ' : '') + k.title });
+        b.type = 'button'; b.setAttribute('role', 'menuitem');
+        b.onclick = ev => { ev?.stopPropagation?.(); close(); k.onClick?.(ev); };
+      }
+      continue;
+    }
     const b = menu.createEl('button', { cls: 'lbc-menu-item' + (it.danger ? ' is-danger' : '') + (it.checked ? ' is-on' : ''), text: (it.checked ? '✓ ' : '') + it.title });
     b.type = 'button'; b.setAttribute('role', 'menuitem');
     b.onclick = ev => { ev?.stopPropagation?.(); close(); it.onClick?.(ev); };
@@ -914,6 +941,7 @@ const selbar = mobile ? null : top.createEl('div', { cls: 'lbc-selbar' });
 let selCount = null, starSel = null, aiBtn = null, expBtn = null, moreBtn = null, delBtn = null, clrBtn = null, selBusy = false;
 if (selbar) {
   selbar.hidden = true;
+  selbar.createEl('span', { cls: 'lbc-selhint', text: '按 Esc 退出多选' });   // 1015 她：放最左
   selCount = selbar.createEl('span', { cls: 'lbc-selcount' });
   // 1008 她：目录页也要能收藏（★）——多选栏一键收藏 / 取消收藏选中的
   starSel = selbar.createEl('button', { cls: 'lbc-starsel', text: '收藏选中' }); starSel.type = 'button';
@@ -935,7 +963,6 @@ if (selbar) {
   delBtn.onclick = () => confirmDelete(items.filter(x => selected.has(x.id)));
   clrBtn = selbar.createEl('button', { cls: 'lbc-clrsel', text: '退出多选' }); clrBtn.type = 'button';
   clrBtn.onclick = () => clearSelection();
-  selbar.createEl('span', { cls: 'lbc-selhint', text: '按 Esc 退出多选' });
 }
 function paintSelbar() {
   if (!selbar) return;
@@ -1083,7 +1110,7 @@ function renderIndexBar() {
     ibar.createEl('p', { cls: 'lbi-note', text: `没有能用的文本 AI（${idx.text_ai?.why || '设置里没配'}）：「起草一版」按高频标签出草稿；`
       + 'wiki 生成不了，可以让 GPT 经 MCP 来写（guide 取方法、index 看这个节点的篇目、read 读全文）。' });
   }
-  const warns = (idx.warnings || []).filter(w => w && w.text);
+  const warns = (idx.warnings || []).filter(w => w && w.text && w.level !== 'info');   // 1015：第 4 级并进第 3 级（info）是她要的写法，不算
   if (warns.length) {
     const w = ibar.createEl('div', { cls: 'lbi-warn' });
     w.createEl('span', { cls: 'lbi-warn-mark', text: '⚠' });
@@ -1146,8 +1173,14 @@ function treeRow(box, n, depth, { cls = '', kids = null } = {}) {
   if (n.virtual) label.createEl('span', { cls: 'lbi-badge', text: 'AI 建' });
   if (n.wiki) label.createEl('span', { cls: 'lbi-wiki-mark' + ((idx.wiki || {})[n.path]?.exists ? ' has-page' : ''), text: 'wiki' });
   label.createEl('span', { cls: 'lbi-n', text: String(n.count) });
-  label.onclick = () => selectNode(n.path);
-  if (!mobile && n.line) label.oncontextmenu = e => { e.preventDefault(); editCategories(n.path); };
+  const editable = !mobile && !!n.line && !n.virtual && !!n.path && n.path !== UNC;
+  label.onclick = e => { if (e?.detail >= 2 && editable && lastTreeDown === n.path) return; selectNode(n.path); };
+  if (n.hints?.length) label.title = '包括 ' + n.hints.join('、');      // 第 4 级并进来的关键词：悬停看
+  if (editable) {
+    label.oncontextmenu = e => { e.preventDefault(); openNodeMenu(e, n, row); };
+    wireDrag(row, n);
+  } else if (!mobile && n.path === '' && idx) wireRootDrop(row);
+  else if (!mobile && n.line) label.oncontextmenu = e => { e.preventDefault(); editCategories(n.path); };
   if (!mobile) {
     const acts = row.createEl('span', { cls: 'lbi-acts' });
     if (n.virtual) {
@@ -1161,6 +1194,159 @@ function treeRow(box, n, depth, { cls = '', kids = null } = {}) {
     if (!acts.childElementCount) acts.remove();
   }
   if (open) for (const k of children) treeRow(box, k, depth + 1);
+}
+// ── 1015 大纲树（她裁定 D）：目录页直接改树——拖拽调层级 / 换顺序、双击改名、右键「改名 / 合并到… / 挪到…」；
+//    Python（index edit）写回 索引.md：只动那几行、格式照旧、写前备份；每一步都能撤销 ──
+let dragPath = '', lastTreeDown = '';
+// 双击改名：第一下选中会重画树、页面还会滚到结果（行换了元素、甚至挪了位置），浏览器的 dblclick 到不了——
+// 改在树上认 mousedown 的连击数（浏览器按位置和时间数，不管元素换没换）：第二下 = 改第一下按到的那一行
+wrap.addEventListener('mousedown', e => {
+  if (e.button !== 0 || mobile) return;
+  if (e.detail === 1) {
+    const r = ipanel.contains(e.target) ? e.target?.closest?.('.lbi-row') : null;
+    lastTreeDown = r && r.querySelector('.lbi-label')?.contains(e.target) ? r.dataset.path : '';
+    return;
+  }
+  if (e.detail === 2 && lastTreeDown) {
+    const n = idxByPath.get(lastTreeDown); lastTreeDown = '';
+    if (!n || !n.line || n.virtual) return;
+    e.preventDefault();
+    // 第二下可能落在挪上来的卡片上：吞掉这一下的 click（别顺手点开一篇）
+    if (!ipanel.contains(e.target)) wrap.addEventListener('click', ev => { ev.stopPropagation(); ev.preventDefault(); }, { capture: true, once: true });
+    startRename(null, n);
+  }
+}, true);
+function movePrefix(from, to) {
+  for (const [k, v] of [...foldOverride]) if (k === from || k.startsWith(from + '/')) { foldOverride.delete(k); foldOverride.set(to + k.slice(from.length), v); }
+  if (activeCat === from || activeCat.startsWith(from + '/')) activeCat = to + activeCat.slice(from.length);
+}
+async function treeEditDone(r, { from = '', to = '' } = {}) {
+  if (!r) return;
+  if (!r.ok) { LB.say(r.message || '没改上', { kind: 'error' }); return; }
+  if (from && to && from !== to) movePrefix(from, to);       // 路径变了：展开状态、选中跟着走
+  panelKey = null;
+  if (r.undo) LB.undoNotice(r.message, async () => {
+    const u = await provider()?.indexEdit?.('undo', r.undo);
+    if (!u?.ok) throw new Error(u?.message || '没撤销上');
+    if (from && to && from !== to) movePrefix(to, from);
+    panelKey = null; await reloadIndex();
+  });
+  else LB.say(r.message || '好了', { kind: 'ok' });
+  await reloadIndex();
+  if (activeCat && !knownCat(activeCat)) selectNode('');
+}
+async function treeEdit(op, n, opts = {}) {
+  const r = await indexAction('indexEdit', null, '正在改索引…', op, n.path, opts);
+  const parent = n.parent || '';
+  const to = r?.path || (op === 'rename' ? (parent ? parent + '/' : '') + opts.name
+    : op === 'move' ? (opts.to ? opts.to + '/' : '') + n.name : opts.to);
+  await treeEditDone(r, { from: n.path, to });
+  return r;
+}
+let renaming = '';           // 正在改名的那一行：改完之前树不重画（不然输入框跟着旧行一起没了）
+function startRename(_row, n) {
+  if (renaming) return;
+  const row = [...ipanel.querySelectorAll('.lbi-row')].find(r => r.dataset.path === n.path) || _row;
+  const label = row?.querySelector('.lbi-label'); if (!label || row.querySelector('.lbi-rename')) return;
+  renaming = n.path;
+  const box = document.createElement('input');
+  box.type = 'text'; box.className = 'lbi-rename'; box.value = n.name; box.maxLength = 60;
+  box.setAttribute('aria-label', `给「${n.name}」改名`);
+  label.hidden = true; label.after(box);
+  try { box.focus(); box.select(); } catch {}
+  let done = false;
+  const finish = async ok => {
+    if (done) return; done = true;
+    const v = box.value.trim();
+    box.remove(); label.hidden = false;
+    renaming = ''; panelKey = null;
+    if (ok && v && v !== n.name) await treeEdit('rename', n, { name: v });
+    else renderIndexPanel();
+  };
+  box.onkeydown = e => {
+    if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); finish(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
+  };
+  box.onblur = () => finish(true);
+  box.onclick = e => e.stopPropagation();
+}
+function openNodeMenu(e, n, row) {
+  const parentPath = n.parent || '';
+  popMenu([
+    { title: '改名', onClick: () => startRename(row, n) },
+    { title: '合并到…', onClick: async () => {
+      const to = await pickNode(`把「${n.name}」合并到…（标签和子类都并过去，「${n.name}」这一行删掉）`, { here: n.path });
+      if (to) await treeEdit('merge', n, { to });
+    } },
+    { title: '挪到…（放进另一个分类下面）', onClick: async () => {
+      const to = await pickNode(`把「${n.name}」挪到哪个分类下面`, { here: parentPath });
+      if (to) await treeEdit('move', n, { to });
+    } },
+    parentPath ? { title: '提到第一级', onClick: () => treeEdit('move', n, { to: '' }) } : null,
+    { separator: true },
+    { title: '在 索引.md 里改', onClick: () => editCategories(n.path) },
+  ], e, row, { x: e?.clientX || 0, y: e?.clientY || 0 });
+}
+// 拖一行：落在别的行上部 = 插到它前面（同一级），下部 = 插到它后面，中间 = 放进它下面当子类；落在「全部」= 提到第一级
+function dropZone(row, e) {
+  const r = row.getBoundingClientRect();
+  const y = ((e.clientY || 0) - r.top) / (r.height || 1);
+  return y < 0.3 ? 'before' : y > 0.7 ? 'after' : 'into';
+}
+const DROP_CLS = ['is-drop-before', 'is-drop-after', 'is-drop-into', 'is-drop-bad'];
+function clearDropMarks() { for (const el of ipanel.querySelectorAll('.lbi-row')) el.classList.remove(...DROP_CLS); }
+// 能不能放：不能放进自己 / 自己下面；放进去当子类时第 3 级下面不能再放；挪过去整棵子树不能超过 3 级
+function subtreeHeight(path) { const n = idxByPath.get(path); return 1 + Math.max(0, ...((n?.children || []).map(subtreeHeight))); }
+function dropProblem(target, zone) {
+  if (!dragPath || !target) return '拖的不是分类';
+  if (target.path === dragPath || target.path.startsWith(dragPath + '/')) return '不能放进它自己下面';
+  const depth = zone === 'into' ? (target.depth || 1) + 1 : (target.depth || 1);
+  if (depth + subtreeHeight(dragPath) - 1 > 3) return '放过去会超过 3 级';
+  return '';
+}
+function wireDrag(row, n) {
+  row.draggable = true;
+  row.ondragstart = e => {
+    dragPath = n.path; row.classList.add('is-dragging');
+    try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/x-lb-index', n.path); } catch {}
+  };
+  row.ondragend = () => { dragPath = ''; row.classList.remove('is-dragging'); clearDropMarks(); };
+  row.ondragover = e => {
+    if (!dragPath) return;
+    const zone = dropZone(row, e), bad = dropProblem(n, zone);
+    clearDropMarks();
+    row.classList.add(bad ? 'is-drop-bad' : 'is-drop-' + zone);
+    if (!bad) { e.preventDefault(); try { e.dataTransfer.dropEffect = 'move'; } catch {} }
+  };
+  row.ondragleave = () => row.classList.remove(...DROP_CLS);
+  row.ondrop = async e => {
+    if (!dragPath) return;
+    e.preventDefault(); e.stopPropagation();
+    const zone = dropZone(row, e), bad = dropProblem(n, zone), src = idxByPath.get(dragPath);
+    dragPath = ''; clearDropMarks();
+    if (!src) return;
+    if (bad) { LB.say(bad, { kind: 'error' }); return; }
+    if (zone === 'into') { if (src.parent !== n.path) await treeEdit('move', src, { to: n.path }); return; }
+    const parent = n.parent || '';
+    const sib = (parent ? idxByPath.get(parent)?.children || [] : idx.roots || []).filter(p => p !== src.path);
+    const k = sib.indexOf(n.path);
+    const beforePath = zone === 'before' ? n.path : (k >= 0 && k + 1 < sib.length ? sib[k + 1] : '');
+    // 原地没动（拖到自己前后）：不写
+    const cur = (parent ? idxByPath.get(parent)?.children || [] : idx.roots || []);
+    const curNext = cur[cur.indexOf(src.path) + 1] || '';
+    if ((src.parent || '') === parent && cur.includes(src.path) && curNext === beforePath) return;
+    await treeEdit('move', src, { to: parent, before: beforePath ? (idxByPath.get(beforePath)?.name || '') : '' });
+  };
+}
+function wireRootDrop(row) {
+  row.ondragover = e => { if (!dragPath || !idxByPath.get(dragPath)?.parent) return; e.preventDefault(); clearDropMarks(); row.classList.add('is-drop-into'); };
+  row.ondragleave = () => row.classList.remove(...DROP_CLS);
+  row.ondrop = async e => {
+    const src = idxByPath.get(dragPath); dragPath = ''; clearDropMarks();
+    if (!src || !src.parent) return;
+    e.preventDefault();
+    await treeEdit('move', src, { to: '' });
+  };
 }
 function panelNarrow() { const w = Number(wrap.clientWidth) || (typeof innerWidth === 'number' ? innerWidth : 1200); return mobile || w < 700; }
 function treeShape() {
@@ -1181,6 +1367,7 @@ function patchTreeCounts() {
 }
 function renderIndexPanel() {
   if (!idx) { ipanel.empty(); panelKey = null; return; }
+  if (renaming && ipanel.querySelector('.lbi-rename')) return;
   const key = treeShape();
   if (key === panelKey) { patchTreeCounts(); return; }
   panelKey = key;
@@ -1354,13 +1541,15 @@ function reclassItems(list) {
     //   列的是这一类那一行的标签 + 这几篇自己身上的；最后一项起个新的
     ...(() => {
       const own = list.flatMap(x => idx.item_tags?.[x.id] || []);
-      const names = [...new Set([...(here ? facetsOf(here.path).map(f => f.name) : []), ...own])].slice(0, 14);
-      return names.map(name => {
+      const names = [...new Set([...(here ? facetsOf(here.path).filter(f => !f.other).map(f => f.name) : []), ...own])].slice(0, 14);
+      // 1015 她：右键菜单太长（标签逐条列出）→ 收进一个「标签 ▸」二级菜单
+      const kids = names.map(name => {
         const all = list.every(x => (idx.item_tags?.[x.id] || []).includes(name));
-        return { title: `标签：${name}`, checked: all, onClick: () => setFacet(list, here?.path || '', all ? 'remove' : 'add', name) };
+        return { title: name, checked: all, onClick: () => setFacet(list, here?.path || '', all ? 'remove' : 'add', name) };
       });
+      kids.push({ title: '加一个标签…', onClick: async () => { const name = await askName(`给${n || '这篇'}加一个标签`); if (name) setFacet(list, here?.path || '', 'add', name); } });
+      return [{ title: '标签', children: kids }];
     })(),
-    { title: '加一个标签…', onClick: async () => { const name = await askName(`给${n || '这篇'}加一个标签`); if (name) setFacet(list, here?.path || '', 'add', name); } },
   ].filter(Boolean);
 }
 async function setFacet(list, path, op, name) {
@@ -1559,12 +1748,20 @@ function openCardMenu(e, card, it) {
 }
 
 // ── 收藏（C3：乐观更新 + busy，失败回滚；一次批量只起 1 个 Python 进程；CM3：写完 adopt，下次重跑 0 读） ──
+// 1015 她：收藏那一下星变黄、弹一下（只在点的那一刻，不在每次重画时）
+function popStar(id) {
+  const st = cardCache.get(id)?.el?.querySelector?.('.lbc-star');
+  if (!st) return;
+  st.classList.remove('is-pop'); void st.offsetWidth; st.classList.add('is-pop');
+  setTimeout(() => st.classList.remove('is-pop'), 600);
+}
 async function starMany(list, { single = false } = {}) {
   const on = single ? !list[0]?.starred : !list.every(x => x.starred);
   const todo = list.filter(x => !!x.starred !== on && !x._starBusy);
   if (!todo.length) return;
   const p = await want('starNotes'); if (!p) return;
   for (const x of todo) { x._prevStar = !!x.starred; x.starred = on; x._starBusy = true; paintCard(x.id); }
+  if (on) for (const x of todo) popStar(x.id);
   const restoreBar = !single ? setSelbarBusy(`正在${on ? '收藏' : '取消收藏'} ${todo.length} 篇…`) : () => {};
   let res = null, err = null;
   try { res = await p.starNotes(todo.map(x => x.id), on); } catch (e) { err = e; }
@@ -1714,8 +1911,36 @@ function paintSub() {
 // ── 卡片（§5.5 按 id 复用；C10：签名里没有星标 / 选中，状态只改 class） ──
 const cardCache = new Map();
 let firstCover = null;
+ // 1015 系列帖（她 H 节）：同一作者几篇标题共用一长串前缀 → 卡片上露后半截（「…第 3 集」），悬停看全名
+let seriesFor = null, seriesCut = new Map();
+const SERIES_MIN = 8, SERIES_STRONG = /[】\]）)》｜|\-—–:：·•,，、]/;
+function seriesCuts() {
+  if (seriesFor === items) return seriesCut;
+  seriesFor = items; seriesCut = new Map();
+  const by = new Map();
+  for (const it of items) { const t = String(it.title || ''); if (t.length < 14) continue; const a = it.author || it.source || ''; if (!by.has(a)) by.set(a, []); by.get(a).push(it); }
+  for (const list of by.values()) {
+    if (list.length < 2) continue;
+    list.sort((a, b) => (String(a.title) < String(b.title) ? -1 : 1));
+    const lcp = (a, b) => { let i = 0; const n = Math.min(a.length, b.length); while (i < n && a[i] === b[i]) i++; return i; };
+    list.forEach((it, k) => {
+      const t = String(it.title);
+      let c = Math.max(k ? lcp(t, String(list[k - 1].title)) : 0, k < list.length - 1 ? lcp(t, String(list[k + 1].title)) : 0);
+      if (c < SERIES_MIN || t.length - c < 2) return;
+      // 别切在一个词中间：往回退到最近的分隔符（「…第 3 集」而不是「…3 集」）；退太多就不退
+      // 先找括号 / 竖线 / 冒号这种明显的分界（「【…】第 3 集」），没有再退到空格
+      let j = c; while (j > 0 && !SERIES_STRONG.test(t[j - 1])) j--;
+      if (j >= SERIES_MIN - 2) c = j;
+      else { j = c; while (j > 0 && !/\s/.test(t[j - 1])) j--; if (j >= SERIES_MIN - 2) c = j; }
+      const rest = t.slice(c).replace(/^[\s｜|\-—–_:：·•,，、]+/, '');
+      if (rest.length >= 2) seriesCut.set(it.id, '…' + rest);
+    });
+  }
+  return seriesCut;
+}
+const cardTitle = it => seriesCuts().get(it.id) || it.title || '未命名';
 function cardSig(it, fuzzy, low) {
-  return JSON.stringify([it.title, it.cover, it.cover_w, it.cover_h, it.kind, it.attachment, it.attachment_reason, it.author, it.source, it.likes, it.note, it.problems || null, fuzzy, low || '']);
+  return JSON.stringify([it.title, cardTitle(it), it.cover, it.cover_w, it.cover_h, it.kind, it.attachment, it.attachment_reason, it.author, it.source, it.likes, it.note, it.problems || null, fuzzy, low || '']);
 }
 const STAR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l2.55 5.17 5.7.83-4.13 4.02.98 5.68L12 16.62l-5.1 2.68.98-5.68L3.75 9.6l5.7-.83z"/></svg>';
 function paintCardState(card, it) {
@@ -1802,7 +2027,9 @@ function buildCard(it, fuzzy, low) {
     // 手机：只给已收藏的篇显示一个不可点的 ★（C12）
     const st = card.createEl('span', { cls: 'lbc-star is-on is-static' }); st.innerHTML = STAR_SVG;
   }
-  const body = card.createEl('div', { cls: 'lbc-body' }); body.createEl('div', { cls: 'lbc-ctitle', text: it.title || '未命名' });
+  const body = card.createEl('div', { cls: 'lbc-body' });
+  const ct = body.createEl('div', { cls: 'lbc-ctitle', text: cardTitle(it) });
+  if (ct.textContent !== (it.title || '未命名')) { ct.title = it.title; ct.classList.add('is-series'); }   // 露后半截的：悬停看全名
   if (low) body.createEl('div', { cls: 'lbc-lowhit', text: low });
   const ftags = body.createEl('div', { cls: 'lbc-ftags' }); ftags.hidden = true;   // 10-11 索引视图里：这篇在选中这一类的细分标签
   const meta = body.createEl('div', { cls: 'lbc-cmeta' }); meta.createEl('span', { text: it.author || it.source || '收藏' }); meta.createEl('span', { cls: 'lbc-likes', text: it.likes == null ? '' : '♡ ' + (Number(it.likes) >= 10000 ? (Number(it.likes) / 10000).toFixed(1) + '万' : it.likes) });

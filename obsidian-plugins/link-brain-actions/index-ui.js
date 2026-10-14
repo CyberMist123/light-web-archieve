@@ -40,7 +40,8 @@ module.exports = function indexUI(obsidian, plugin, deps = {}) {
       if (j.ok === false) plugin.notify(j.message || '索引没重算上', { kind: 'error' });
       else if (!j.unchanged) {
         // 写法提示：同一批提示只说一次（她边写边自动保存，别每次保存都弹）；目录页「索引」里一直有那一行
-        const warns = Array.isArray(j.warnings) ? j.warnings.filter(w => w && w.line) : [];
+        // 1015：level=info（第 4 级并进第 3 级当关键词）是她要的写法，不弹
+        const warns = Array.isArray(j.warnings) ? j.warnings.filter(w => w && w.line && w.level !== 'info') : [];
         const sig = warns.map(w => w.text).join('|');
         if (warns.length && sig !== lastWarn) plugin.notify(`${indexRel()} 有 ${warns.length} 处写法要看一眼：${warns[0].text}`, { kind: 'warn' });
         lastWarn = sig;
@@ -171,6 +172,14 @@ module.exports = function indexUI(obsidian, plugin, deps = {}) {
     for (const id of ids || []) args.push('--item', String(id));
     return indexCmd(args, '细分标签', '没改上');
   }
+  // 1015 大纲树：目录页直接改树（改名 / 拖拽挪 / 合并 / 撤销）→ Python 写回 索引.md（只动那几行、写前备份）
+  function indexEdit(op, path, { to = '', name = '', before = '' } = {}) {
+    const args = ['edit', '--op', String(op), '--path', String(path || '')];
+    if (to) args.push('--to', String(to));
+    if (name) args.push('--name', String(name));
+    if (before) args.push('--before', String(before));
+    return indexCmd(args, '改索引', '没改上');
+  }
   const indexAccept = id => indexCmd(['accept', '--id', String(id)], '加进索引', '没加上');
   const indexDismiss = id => indexCmd(['dismiss', '--id', String(id)], '不要这条建议', '没记上');
   const indexEmpty = (path, action) => indexCmd(['empty', '--path', String(path), action === 'remove' ? '--remove' : '--keep'], '空分类', '没改上');
@@ -183,7 +192,7 @@ module.exports = function indexUI(obsidian, plugin, deps = {}) {
 
   return {
     indexRel, draftRel, rebuild, schedule, openIndexSuggestions, indexDraft, indexUseDraft, wikiBuild, SuggestModal,
-    indexAssign, indexAccept, indexDismiss, indexEmpty, indexClassify, indexFacet,
+    indexAssign, indexAccept, indexDismiss, indexEmpty, indexClassify, indexFacet, indexEdit,
     attach() {
       // Obsidian 开库时会给每个已有文件发一次 create：等布局好了再挂，别一开库就重算一遍
       const hook = () => { if (app.vault?.on) for (const ev of ['modify', 'create']) plugin.registerEvent(app.vault.on(ev, onFile)); };
@@ -197,6 +206,7 @@ module.exports = function indexUI(obsidian, plugin, deps = {}) {
       plugin.indexRebuild = () => schedule();          // 页面发现索引是用旧目录数据算的：重算一次（防抖、同一时刻一份）
       plugin.indexAssign = indexAssign;                // 10-11：目录页「移到… / 也放进… / 从这里拿掉」、撤销
       plugin.indexFacet = indexFacet;                  // 卡片「归类…」里加 / 去掉细分标签
+      plugin.indexEdit = indexEdit;                    // 1015 大纲树：改名 / 挪 / 合并 / 撤销
       plugin.indexAccept = indexAccept;                // 「建议新增」加进索引 / AI 建的子类「保留」
       plugin.indexDismiss = indexDismiss;
       plugin.indexEmpty = indexEmpty;                  // 空分类：删 / 留

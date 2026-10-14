@@ -2305,7 +2305,7 @@ class LinkBrainActions extends Plugin {
     });
   }
 
-  // 菜单（obsidian.Menu，自带 Esc / 方向键）：items = [{title, sub?, icon?, danger?, disabled?, checked?, onClick} | {separator:true}]。
+  // 菜单（obsidian.Menu，自带 Esc / 方向键）：items = [{title, sub?, icon?, danger?, disabled?, checked?, onClick, children?} | {separator:true}]。
   // 开着时 menuOpen=true，关掉后延一拍才变回 false（同一次 Esc 冒泡到页面时还是 true，页面别把它当成「清多选」）。
   // 位置：鼠标点的按指针；键盘触发的 click（Enter / 空格：detail=0、坐标 0,0）和不带坐标的按发起元素左下角（不再落到窗口左上角）。
   // 1.14.4 的 Menu.onHide 只有一个槽位：返回的菜单上调用方再设 onHide(cb) 也照样复位 menuOpen（包了一层，两个都跑）。
@@ -2313,18 +2313,35 @@ class LinkBrainActions extends Plugin {
   showMenu(items, evt) {
     const menu = new obsidian.Menu();
     let count = 0;
+    const fill = (i, it) => {
+      i.setTitle(it.sub ? menuTitle(it.title, it.sub) : it.title);
+      if (it.icon) i.setIcon(it.icon);
+      if (it.checked != null) i.setChecked?.(!!it.checked);
+      if (it.disabled) i.setDisabled?.(true);
+      if (it.danger) { if (typeof i.setWarning === 'function') i.setWarning(true); else i.dom?.classList?.add('is-warning'); }
+      if (typeof it.onClick === 'function') i.onClick(e => it.onClick(e));
+    };
     for (const it of items || []) {
       if (!it) continue;
       if (it.separator) { menu.addSeparator(); continue; }
       count++;
-      menu.addItem(i => {
-        i.setTitle(it.sub ? menuTitle(it.title, it.sub) : it.title);
-        if (it.icon) i.setIcon(it.icon);
-        if (it.checked != null) i.setChecked?.(!!it.checked);
-        if (it.disabled) i.setDisabled?.(true);
-        if (it.danger) { if (typeof i.setWarning === 'function') i.setWarning(true); else i.dom?.classList?.add('is-warning'); }
-        if (typeof it.onClick === 'function') i.onClick(e => it.onClick(e));
-      });
+      // 1015 二级菜单（她：右键菜单太长，标签逐条列出 → 收进「标签 ▸」）：children = 子项；没有 setSubmenu 的老版本退回平铺
+      const kids = Array.isArray(it.children) ? it.children.filter(Boolean) : null;
+      if (kids) {
+        let sub = null;
+        menu.addItem(i => {
+          i.setTitle(it.title);
+          if (it.icon) i.setIcon(it.icon);
+          try { sub = typeof i.setSubmenu === 'function' ? i.setSubmenu() : null; } catch { sub = null; }
+          if (!sub) i.setDisabled?.(true);
+        });
+        for (const k of kids) {
+          if (k.separator) { (sub || menu).addSeparator(); continue; }
+          (sub || menu).addItem(i => fill(i, sub ? k : { ...k, title: '　' + k.title }));
+        }
+        continue;
+      }
+      menu.addItem(i => fill(i, it));
     }
     if (!count) return menu;
     const reset = () => setTimeout(() => { if (this._lbMenu === menu) { this.menuOpen = false; this._lbMenu = null; } }, 0);
