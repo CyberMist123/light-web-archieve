@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 import re
+from pathlib import Path
 from typing import Any, Callable
 
 from .ocrtext import clean_ocr
@@ -459,3 +460,59 @@ def cap_units(units: list[str], limit: int = SCREEN_LIMIT) -> list[str]:
             keep.add(i)
             used += len(units[i])
     return [units[i] for i in sorted(keep)] + [f"（已截断，共 {len(units)} 段）"]
+
+
+# ---------------------------------------------------------------- 1015 水话统计（她 C11：多少被判水话、有没有误伤）
+
+_SUSPECT = re.compile(r"[0-9０-９A-Za-z？?]|多少|哪|怎么|什么|链接|价格")
+
+
+def chatter_suspect(text: Any) -> bool:
+    """判成水话、但可能误伤的：带数字 / 英文 / 问号，或「多少 / 哪 / 怎么」这种在问东西的字眼。"""
+    core = _MENTION.sub("", _EMOJI.sub("", str(text or "")))
+    return bool(_SUSPECT.search(core))
+
+
+def chatter_report(vault: Path | None = None, *, samples: int = 20) -> dict[str, Any]:
+    """全库评论过一遍 chatter()：总条数、判成水话几条（占比）、其中可能误伤几条 + 例子。只读 RAW，不改任何东西。
+    结果写一份 `_archive/chatter-report.json`（面板 / 以后对比用），日志一行由调用方打。"""
+    import json as _json
+
+    from . import llm as llm_mod
+    from . import storage
+    base = (vault / "_archive") if vault else storage.archive_root()
+    total = hit = posts = 0
+    suspects: list[dict[str, Any]] = []
+    n_suspect = 0
+    for meta_path in sorted((base / "xiaohongshu").glob("*/meta.json")):
+        try:
+            meta = _json.loads(meta_path.read_text(encoding="utf-8"))
+            ver = int(meta.get("current_version") or 1)
+            src = _json.loads((meta_path.parent / "raw" / storage.version_name(ver) / "source.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            continue
+        labeled = llm_mod.comment_labels(src.get("comments") or [])
+        if not labeled:
+            continue
+        posts += 1
+        for label, c in labeled:
+            total += 1
+            text = str(c.get("text") or "")
+            if not chatter(text):
+                continue
+            hit += 1
+            if chatter_suspect(text):
+                n_suspect += 1
+                if len(suspects) < samples:
+                    suspects.append({"item": f"xhs-{meta_path.parent.name}", "floor": label, "text": text[:40]})
+    pct = (hit / total * 100) if total else 0.0
+    msg = (f"评论 {total} 条（{posts} 篇），判成水话略去 {hit} 条（{pct:.1f}%）；其中可能误伤 {n_suspect} 条"
+           f"（带数字 / 英文 / 问句）") if total else "库里还没有评论"
+    out = {"ok": True, "message": msg, "total": total, "posts": posts, "chatter": hit, "percent": round(pct, 1),
+           "suspect": n_suspect, "samples": suspects,
+           "at": __import__("datetime").datetime.now().astimezone().isoformat(timespec="seconds")}
+    try:
+        storage.write_json(base / "chatter-report.json", out)
+    except OSError:
+        pass
+    return out

@@ -161,8 +161,9 @@ def seed_text(text: str) -> tuple[str, dict[str, Any]]:
     # 重点
     layer = render_mod.existing_content_layer(text)
     marks = render_mod.collect_highlights(layer if layer is not None else text)
+    colors = render_mod.collect_highlight_colors(layer if layer is not None else text)
     kept["highlights"] = len(marks)
-    parts.append(CONTENT_START + "\n" + "\n".join(f"<mark>{html.escape(h, quote=False)}</mark>" for h in marks)
+    parts.append(CONTENT_START + "\n" + "\n".join(f"{render_mod.mark_open(colors.get(h))}{html.escape(h, quote=False)}</mark>" for h in marks)
                  + ("\n" if marks else "") + CONTENT_END)
     # 留言层
     block, _ = render_mod.split_layers(text)

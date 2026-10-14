@@ -337,10 +337,16 @@ def build_parser() -> argparse.ArgumentParser:
     note_print.add_parser(sub)
     playlist_mod.add_parser(sub)
 
+    p = sub.add_parser("chatter-report", help="1015：全库评论里多少被判成水话（机读版略去）、有没有误伤；只读，结果另存 _archive/chatter-report.json")
+    p.add_argument("--samples", type=int, default=20, help="可能误伤的例子最多列几条")
+    p.add_argument("--json", action="store_true", help="最后一行输出 JSON")
+
     p = sub.add_parser("highlight", help="给一篇笔记正文加/去一处高亮（<mark>，持久到重渲染）")
     p.add_argument("target", help="item_id")
     p.add_argument("phrase", nargs="+", help="要高亮的原文片段（原样、含标点，需在正文里出现过）；可以给几段，一次写盘")
     p.add_argument("--remove", action="store_true", help="去掉这几处高亮")
+    p.add_argument("--color", default=None, choices=["yellow", "green", "blue", "pink", "purple"],
+                   help="颜色（默认黄）；已经划过的给个不同颜色 = 换色")
     p.add_argument("--json", action="store_true", help="最后一行输出 JSON（插件用）")
 
     return parser
@@ -537,10 +543,23 @@ def _dispatch(args) -> int:
 
         return render_mod.run(args)
 
+    if args.command == "chatter-report":
+        from . import agentmd
+        r = agentmd.chatter_report(samples=args.samples)
+        print(r["message"], file=sys.stderr)
+        if args.json:
+            from .read import dump_json
+            dump_json(r)
+        else:
+            print(r["message"])
+            for x in r["samples"]:
+                print(f"  {x['item']} {x['floor']}：{x['text']}")
+        return EXIT_OK
+
     if args.command == "highlight":
         from . import render as render_mod
 
-        r = render_mod.set_highlights(args.target, list(args.phrase), remove=args.remove)
+        r = render_mod.set_highlights(args.target, list(args.phrase), remove=args.remove, color=getattr(args, "color", None))
         verb = "去掉高亮" if args.remove else "加高亮"
         n = len(r["changed"])
         if args.json:

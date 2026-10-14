@@ -16,6 +16,9 @@ const NOTE_STYLE_ID = 'lb-note-style';
 const mmss = ms => { const s = Math.max(0, Math.floor((Number(ms) || 0) / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 // 划重点只收这几处的文字（和内容层的转义片段一一对应；评论里的「回复 xx：」不算）
 const PHRASE_SCOPE = '.lb-body p, .lb-comment-text, .lb-note-title, .lb-comment-asr';
+// 1015 她：划重点默认黄色，可换几种颜色；点一下已划的 = 小条（换色 / 取消）
+const HL_COLORS = [['yellow', '黄'], ['green', '绿'], ['blue', '蓝'], ['pink', '粉'], ['purple', '紫']];
+const markColor = el => { const m = /(?:^|\s)lb-hl-([a-z]+)/.exec((el && el.className) || ''); return m ? m[1] : 'yellow'; };
 
 class NoteActions {
   constructor(obsidian, plugin) {
@@ -85,6 +88,7 @@ class NoteActions {
   }
   detach() {
     this.attached = false;
+    this.closeMarkPop();
     this.stopFetchTick();
     try { const D = this.doc(); if (D && D.querySelectorAll) for (const b of [...D.querySelectorAll('.lb-fetch-progress')]) b.remove(); } catch {}
     try { this.styleEl && this.styleEl.remove(); } catch {}
@@ -130,6 +134,15 @@ class NoteActions {
     if (verify && this.inReading(verify)) { e.preventDefault?.(); this.noteVerify(verify); return; }
     const tag = t.closest('.xhs-note .lb-tags .lb-tag');
     if (tag && this.inReading(tag)) { e.preventDefault?.(); return this.openTag(tag, e); }
+    // 1015：点一下已划的重点（没在选字）→ 小条：换颜色 / 取消
+    if (!t.closest('.lb-hl-pop')) this.closeMarkPop();
+    const mark = t.closest('.xhs-note .lb-scroll mark');
+    if (mark && this.inReading(mark) && !mark.classList.contains('lb-mark-pending')) {
+      const sel = typeof D.getSelection === 'function' ? D.getSelection() : null;
+      if (sel && !sel.isCollapsed) return undefined;
+      const ctx = this.selectionContext(mark);
+      if (ctx && ctx.mark) { e.preventDefault?.(); this.openMarkPop(ctx); }
+    }
     return undefined;
   }
   onKey(e) {
@@ -263,8 +276,15 @@ class NoteActions {
     const ctx = this.selectionContext(t);
     if (!ctx || (!ctx.phrases.length && !ctx.mark)) return;
     const items = [];
-    if (ctx.phrases.length) items.push({ title: '划重点', icon: 'highlighter', onClick: () => this.highlight(ctx) });
-    if (ctx.mark) items.push({ title: '取消重点', icon: 'eraser', onClick: () => this.unhighlight(ctx) });
+    const colorKids = fn => HL_COLORS.map(([c, name]) => ({ title: name, onClick: () => fn(c) }));
+    if (ctx.phrases.length) {
+      items.push({ title: '划重点', icon: 'highlighter', onClick: () => this.highlight(ctx) });   // 默认黄
+      items.push({ title: '划重点（选颜色）', icon: 'palette', children: colorKids(c => this.highlight(ctx, c)) });
+    }
+    if (ctx.mark) {
+      items.push({ title: '换颜色', icon: 'palette', children: colorKids(c => this.recolor(ctx, c)) });
+      items.push({ title: '取消重点', icon: 'eraser', onClick: () => this.unhighlight(ctx) });
+    }
     if (ctx.range) items.push({ title: '复制', icon: 'copy', onClick: () => { try { navigator.clipboard.writeText(String(ctx.range.toString())); } catch {} } });
     e.preventDefault();
     e.stopPropagation();
@@ -272,10 +292,62 @@ class NoteActions {
     const M = this.obsidian.Menu;
     if (!M) return;
     const menu = new M();
-    for (const it of items) menu.addItem(i => i.setTitle(it.title).setIcon(it.icon).onClick(it.onClick));
+    for (const it of items) {
+      if (it.children) { for (const k of it.children) menu.addItem(i => i.setTitle(`${it.title}：${k.title}`).setIcon(it.icon).onClick(k.onClick)); continue; }
+      menu.addItem(i => i.setTitle(it.title).setIcon(it.icon).onClick(it.onClick));
+    }
     menu.showAtMouseEvent(e);
   }
-  async highlight(ctx) {
+  // 点一下已划的重点：贴着它出一个小条（五个色点 + 取消），点别处 / Esc 关
+  openMarkPop(ctx) {
+    const D = this.doc(); if (!D || !D.body) return null;
+    this.closeMarkPop();
+    const pop = D.createElement('div');
+    pop.className = 'lb-hl-pop';
+    pop.setAttribute('role', 'toolbar');
+    pop.setAttribute('aria-label', '重点');
+    const cur = markColor(ctx.mark);
+    for (const [c, name] of HL_COLORS) {
+      const b = D.createElement('button');
+      b.type = 'button'; b.className = 'lb-hl-dot lb-hl-dot-' + c + (c === cur ? ' is-on' : '');
+      b.title = name; b.setAttribute('aria-label', '换成' + name);
+      b.onclick = ev => { ev.stopPropagation?.(); this.closeMarkPop(); if (c !== cur) this.recolor(ctx, c); };
+      pop.appendChild(b);
+    }
+    const x = D.createElement('button');
+    x.type = 'button'; x.className = 'lb-hl-off'; x.textContent = '取消';
+    x.onclick = ev => { ev.stopPropagation?.(); this.closeMarkPop(); this.unhighlight(ctx); };
+    pop.appendChild(x);
+    D.body.appendChild(pop);
+    try {
+      const r = ctx.mark.getBoundingClientRect();
+      pop.style.left = Math.max(8, r.left) + 'px';
+      pop.style.top = Math.max(8, r.top - 38) + 'px';
+    } catch {}
+    this.markPop = pop;
+    this.markPopKey = ev => { if (ev && ev.key === 'Escape') this.closeMarkPop(); };
+    try { D.addEventListener('keydown', this.markPopKey, true); } catch {}
+    return pop;
+  }
+  closeMarkPop() {
+    const D = this.doc();
+    try { this.markPop && this.markPop.remove(); } catch {}
+    this.markPop = null;
+    if (this.markPopKey && D) { try { D.removeEventListener('keydown', this.markPopKey, true); } catch {} }
+    this.markPopKey = null;
+  }
+  async recolor(ctx, color) {
+    const phrase = String(ctx.mark && ctx.mark.textContent || '').trim();
+    if (!phrase) return;
+    const el = ctx.mark, old = el.className;
+    el.className = color === 'yellow' ? '' : 'lb-hl-' + color;     // 先乐观换上，没写上退回
+    let res = null;
+    try { res = await this.plugin.runPy(['-m', 'link_brain', 'highlight', ctx.itemId, phrase, '--color', color, '--json'], { okCodes: [0, 1], timeoutMs: 30000, label: '换颜色', fallback: '颜色没换上' }); }
+    catch (err) { res = { json: null, error: err }; }
+    const json = res && res.json;
+    if (!json || !(json.ok || (json.already || []).length)) { el.className = old; this.notify((json && json.message) || '颜色没换上'); }
+  }
+  async highlight(ctx, color = 'yellow') {
     const D = this.doc();
     const words = ctx.phrases.map(p => p.text);
     const all = String(ctx.scroll.textContent || '');
@@ -290,14 +362,15 @@ class NoteActions {
         const r = D.createRange();
         r.setStart(p.node, p.start); r.setEnd(p.node, p.end);
         const m = D.createElement('mark');
-        m.className = 'lb-mark-pending';
+        m.className = 'lb-mark-pending' + (color && color !== 'yellow' ? ' lb-hl-' + color : '');
         r.surroundContents(m);
         marks.unshift({ text: p.text, el: m });
       } catch { marks.unshift({ text: p.text, el: null }); }
     }
     try { D.getSelection && D.getSelection().removeAllRanges(); } catch {}
     let res = null;
-    try { res = await this.plugin.runPy(['-m', 'link_brain', 'highlight', ctx.itemId, ...words, '--json'], { okCodes: [0, 1], timeoutMs: 30000, label: '划重点', fallback: '划重点没写上' }); }
+    const colorArgs = color && color !== 'yellow' ? ['--color', color] : [];
+    try { res = await this.plugin.runPy(['-m', 'link_brain', 'highlight', ctx.itemId, ...words, ...colorArgs, '--json'], { okCodes: [0, 1], timeoutMs: 30000, label: '划重点', fallback: '划重点没写上' }); }
     catch (err) { res = { json: null, error: err }; }
     const json = res && res.json;
     const ok = new Set(json && Array.isArray(json.changed) ? json.changed : []);
@@ -311,11 +384,25 @@ class NoteActions {
   async unhighlight(ctx) {
     const phrase = String(ctx.mark && ctx.mark.textContent || '').trim();
     if (!phrase) return;
+    const el = ctx.mark, parent = el && el.parentNode, next = el && el.nextSibling;
+    unwrap(el);                                                     // 先乐观拆掉（点了就没），没写上再包回去
+    const rewrap = () => {
+      try {
+        if (!parent) return;
+        const D = this.doc(); const m = D.createElement('mark'); m.className = el.className; m.textContent = phrase;
+        const walker = D.createTreeWalker(parent, 4);
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+          const i = n.data.indexOf(phrase);
+          if (i >= 0) { const r = D.createRange(); r.setStart(n, i); r.setEnd(n, i + phrase.length); r.surroundContents(m); return; }
+        }
+        parent.insertBefore(m, next && next.parentNode === parent ? next : null);
+      } catch {}
+    };
     let res = null;
     try { res = await this.plugin.runPy(['-m', 'link_brain', 'highlight', ctx.itemId, phrase, '--remove', '--json'], { okCodes: [0, 1], timeoutMs: 30000, label: '取消重点', fallback: '取消重点没写上' }); }
-    catch (err) { this.notify('没取消上：' + ((err && err.message) || err)); return; }
+    catch (err) { rewrap(); this.notify('没取消上：' + ((err && err.message) || err)); return; }
     const json = res && res.json;
-    if (!json || !json.ok) this.notify((json && json.message) || '没取消上');
+    if (!json || !json.ok) { rewrap(); this.notify((json && json.message) || '没取消上'); }
   }
 }
 

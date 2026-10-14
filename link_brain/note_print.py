@@ -170,8 +170,10 @@ def print_html(target: str, font: str | None = None, *, data: dict[str, Any] | N
     main = f'{render_mod._author_html(note)}<div class="lb-scroll">{title}{body}</div>'
     detail = render_mod._comments_html(note, d["source"].get("comments") or [], manifest, rel, d["source"].get("capture"))
     # 她划的重点：贴回「右栏 + 评论」（与 render 相同的「首个出现」规则）
-    marks = render_mod.collect_highlights(render_mod.existing_content_layer(d["visible_text"]))
-    joined = render_mod.reapply_highlights(main + "\x00SPLIT\x00" + detail, marks) if marks else main + "\x00SPLIT\x00" + detail
+    _layer = render_mod.existing_content_layer(d["visible_text"])
+    marks = render_mod.collect_highlights(_layer)
+    joined = (render_mod.reapply_highlights(main + "\x00SPLIT\x00" + detail, marks, render_mod.collect_highlight_colors(_layer))
+              if marks else main + "\x00SPLIT\x00" + detail)
     main, _, detail = joined.partition("\x00SPLIT\x00")
     main, detail = _postprocess(main, duration), _postprocess(detail, duration)
     cls = "lb-note" if has_media and media else "lb-note lb-no-media"

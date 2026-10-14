@@ -724,6 +724,25 @@ def _body_html(text: str) -> str:
 
 HIGHLIGHT_RE = re.compile(r"==([^=\n]{1,300})==")
 MARK_RE = re.compile(r"<mark>(.*?)</mark>", re.S)
+# 1015 她：划重点默认黄色，可以换几种颜色——非黄色的写成 <mark class="lb-hl-绿">（默认黄 = 不带 class，和以前的 <mark> 一样）
+HL_COLORS = ("yellow", "green", "blue", "pink", "purple")
+ANY_MARK_RE = re.compile(r'<mark(?:\s+class="lb-hl-([a-z]+)")?>(.*?)</mark>', re.S)
+
+
+def mark_open(color: str | None = None) -> str:
+    """<mark> 开标签：黄色（默认）不带 class，别的颜色带 class="lb-hl-<颜色>"。"""
+    c = (color or "yellow").strip().lower()
+    return "<mark>" if c not in HL_COLORS or c == "yellow" else f'<mark class="lb-hl-{c}">'
+
+
+def collect_highlight_colors(text: str | None) -> dict[str, str]:
+    """已划的重点里不是默认黄色的：{原文片段: 颜色}（重渲染时照原色贴回）。"""
+    out: dict[str, str] = {}
+    for color, esc in ANY_MARK_RE.findall(text or ""):
+        raw = html.unescape(esc).strip()
+        if raw and color and color in HL_COLORS and color != "yellow":
+            out.setdefault(raw, color)
+    return out
 
 
 def existing_content_layer(text: str | None) -> str | None:
@@ -746,7 +765,7 @@ def collect_highlights(text: str | None) -> list[str]:
     if not text:
         return []
     seen: list[str] = []
-    for esc in MARK_RE.findall(text):
+    for _color, esc in ANY_MARK_RE.findall(text):
         raw = html.unescape(esc).strip()
         if raw and raw not in seen:
             seen.append(raw)
@@ -786,7 +805,7 @@ def _find_in_text(html_text: str, needle: str, start: int = 0, end: int | None =
     return -1
 
 
-def reapply_highlights(content: str, highlights: list[str]) -> str:
+def reapply_highlights(content: str, highlights: list[str], colors: dict[str, str] | None = None) -> str:
     """重渲染后把重点贴回去，包成 `<mark>`。
 
     正文是转义过的 HTML，所以按**转义后**的片段匹配。只做原样匹配：原文变了（作者编辑过）
@@ -796,20 +815,21 @@ def reapply_highlights(content: str, highlights: list[str]) -> str:
         if not phrase:
             continue
         esc = _safe(phrase)
-        if f"<mark>{esc}</mark>" in content:
+        if re.search(r'<mark(?:\s+class="lb-hl-[a-z]+")?>' + re.escape(esc) + "</mark>", content):
             continue
         index = _find_in_text(content, esc)
         if index == -1:
             continue
-        content = content[:index] + f"<mark>{esc}</mark>" + content[index + len(esc):]
+        content = content[:index] + mark_open((colors or {}).get(phrase)) + esc + "</mark>" + content[index + len(esc):]
     return content
 
 
-def set_highlights(item_id: str, phrases: list[str], *, remove: bool = False) -> dict[str, Any]:
+def set_highlights(item_id: str, phrases: list[str], *, remove: bool = False, color: str | None = None) -> dict[str, Any]:
     """给一篇笔记正文加 / 去几处高亮，一次读、全部改完再原子写一次（批次 D · N10）。
 
     返回 {changed: [...], missing: [...], already: [...], visible: Path}。加 = 只在 content 层的标签外文字里找；
     去 = 拆掉 `<mark>片段</mark>`。下次 render 会从 `<mark>` 收集、原样贴回，所以改动能持久。
+    1015：color = 颜色（默认黄）；已经划过的再给一个不同颜色 = 换色（算 changed）。
     """
     from . import storage
 
@@ -825,12 +845,13 @@ def set_highlights(item_id: str, phrases: list[str], *, remove: bool = False) ->
         if not phrase:
             continue
         esc = _safe(phrase)
-        marked = f"<mark>{esc}</mark>"
+        marked = mark_open(color) + esc + "</mark>"
+        any_marked = re.compile(r'<mark(?:\s+class="lb-hl-[a-z]+")?>' + re.escape(esc) + "</mark>")
         if remove:
-            if marked not in new:
+            if not any_marked.search(new):
                 out["missing"].append(phrase)
                 continue
-            new = new.replace(marked, esc)
+            new = any_marked.sub(lambda _m: esc, new)
             out["changed"].append(phrase)
             continue
         start, end = new.find(CONTENT_START), new.find(CONTENT_END)
@@ -839,6 +860,11 @@ def set_highlights(item_id: str, phrases: list[str], *, remove: bool = False) ->
             continue
         if marked in new[start:end]:
             out["already"].append(phrase)
+            continue
+        hit = any_marked.search(new, start, end)
+        if hit:                                   # 换色
+            new = new[:hit.start()] + marked + new[hit.end():]
+            out["changed"].append(phrase)
             continue
         idx = _find_in_text(new, esc, start, end)
         if idx == -1:
@@ -1184,7 +1210,8 @@ def render_visible_md(
 
     content = render_content_block(source=source, manifest=manifest, meta=meta, object_rel=object_rel)
     # Owner 在正文里划的 ==重点== 要跨重渲染活下来（2026-09-05 定的）
-    content = reapply_highlights(content, collect_highlights(existing_content_layer(existing_text)))
+    _layer = existing_content_layer(existing_text)
+    content = reapply_highlights(content, collect_highlights(_layer), collect_highlight_colors(_layer))
     # 原文 · 机读版 放**正文之上**（Owner 2026-09-17：这条入口该在顶上，不该沉到底）。
     # 包一层无框 callout [!lb-topbar] 只为能上样式（内部链接在 callout 里照样解析）——
     # 否则纯 markdown 链接吃主题默认色，Owner 反馈"发灰"。

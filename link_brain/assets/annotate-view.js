@@ -34,7 +34,24 @@ style.textContent = `
 .lba-annot-head{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
 .lba-annot-title{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint);}
 .lba-star{cursor:pointer;font-size:18px;line-height:1;user-select:none;filter:grayscale(1);opacity:.45;transition:.12s;}
-.lba-star.is-on{filter:none;opacity:1;}
+/* 1015 她：收藏的星就是黄的（以前点亮了还是正文色），点亮那一下弹一下 */
+.lba-star.is-on{filter:none;opacity:1;color:var(--lb-star,#f5b301);}
+.lba-star.is-pop{animation:lba-starpop .5s cubic-bezier(.3,1.6,.5,1);}
+@keyframes lba-starpop{0%{transform:scale(.6) rotate(-20deg);}60%{transform:scale(1.35) rotate(8deg);}100%{transform:scale(1) rotate(0);}}
+/* 1015 她：⭐ 放在写批注框边上（不在上面那一行）；输入框和星一行 */
+.lba-input-row{display:flex;align-items:flex-start;gap:10px;}
+.lba-input-row > .lba-annot-input{flex:1 1 auto;min-width:0;}
+.lba-input-row > .lba-star{flex:none;padding-top:7px;}
+/* 1015 她：划的重点也算进批注区（一行一条，点了跳到正文那一处；取消在正文里点那一处） */
+.lba-marks{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;}
+.lba-marks[hidden]{display:none;}
+.lba-mark-row{font-size:13px;line-height:1.6;color:var(--text-normal);cursor:pointer;padding-left:9px;border-left:3px solid rgb(255,214,10);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lba-mark-row:hover{color:var(--text-accent);}
+.lba-mark-row.lb-hl-green{border-left-color:rgb(80,200,120);}
+.lba-mark-row.lb-hl-blue{border-left-color:rgb(80,160,255);}
+.lba-mark-row.lb-hl-pink{border-left-color:rgb(255,120,170);}
+.lba-mark-row.lb-hl-purple{border-left-color:rgb(170,120,255);}
+.lba-mark-flash{outline:2px solid var(--interactive-accent);outline-offset:2px;}
 .lba-star:hover{opacity:.85;}
 .lba-star-hint{font-size:11px;color:var(--text-muted);}
 .lba-save-hint{margin-left:auto;font-size:11px;color:var(--text-faint);transition:opacity .2s;}
@@ -61,21 +78,23 @@ style.textContent = `
 /* 批次 D · N15：钉住时批注输入框紧贴图片下面（只调钉住模式下的间距和顺序；两栏 grid、图片尺寸一条不动） */
 .xhs-note .lb-media-locked .lb-side:has(> .lba-annot) > .lb-media{margin-bottom:6px;}
 .xhs-note .lb-media-locked .lba-annot.lba-in-side{margin-top:0;display:flex;flex-direction:column;}
-.xhs-note .lb-media-locked .lba-annot.lba-in-side > .lba-annot-input{order:-1;padding-top:4px;}
+.xhs-note .lb-media-locked .lba-annot.lba-in-side > .lba-input-row{order:-1;padding-top:4px;}
 .xhs-note .lb-media-locked .lba-annot.lba-in-side > .lba-annot-head{margin:8px 0;}
 .xhs-note .lb-media-locked .lba-annot.lba-in-side > .lba-annot-list{gap:12px;margin-bottom:12px;}
 `;
 
 const box = mount.createEl('div', { cls: 'lba-annot' });
+// 1015 她：删掉「批注」两个字；⭐ 挪到写批注框边上。上面这一行只剩收藏 / 保存的小字提示
 const head = box.createEl('div', { cls: 'lba-annot-head' });
-head.createEl('span', { cls: 'lba-annot-title', text: '批注' });
-const star = head.createEl('span', { cls: 'lba-star', text: '★' });
-
 const starHint = head.createEl('span', { cls: 'lba-star-hint' });
 const saveHint = head.createEl('span', { cls: 'lba-save-hint' });
 
+const marksBox = box.createEl('div', { cls: 'lba-marks' }); marksBox.hidden = true;
 const list = box.createEl('div', { cls: 'lba-annot-list' });
-const ta = box.createEl('textarea', { cls: 'lba-annot-input' });
+const inputRow = box.createEl('div', { cls: 'lba-input-row' });
+const ta = inputRow.createEl('textarea', { cls: 'lba-annot-input' });
+const star = inputRow.createEl('span', { cls: 'lba-star', text: '★' });
+if (typeof star.setAttribute === 'function') { star.setAttribute('role', 'button'); star.setAttribute('aria-label', '收藏'); }
 ta.placeholder = '写批注…';  // 真正的提示由 setPlaceholder() 按有没有内容决定
 
 // 0928 Owner：批注挪到左栏图片下面，和图在一屏。只在阅读视图挪（编辑视图里挪 DOM 会和编辑器打架），
@@ -95,6 +114,7 @@ function placeUnderImages(root, box) {
     queued = false;
     if (!view.isConnected || view.dataset.lbaGen !== gen) { mo?.disconnect(); return; }
     fixVideos(view);
+    paintMarks(view, box);
     const side = view.querySelector('.xhs-note .lb-side');
     if (!side || box.parentElement === side) return;
     side.querySelectorAll(':scope > .lba-annot').forEach(el => { if (el !== box) el.remove(); });
@@ -104,6 +124,28 @@ function placeUnderImages(root, box) {
   place();
   mo = new MutationObserver(() => { if (!queued) { queued = true; requestAnimationFrame(place); } });
   mo.observe(view, { childList: true, subtree: true });
+}
+
+// 1015 她：「高亮算进批注」——正文 / 评论里划的重点在批注区列一行一条（颜色条 + 原文），点了滚到正文那一处闪一下。
+// 只读页面上的 <mark>（重点本来就存在 md 里，不另存一份）；正文重画（划 / 取消 / 换色）由上面的 MutationObserver 带着重列。
+function paintMarks(view, box) {
+  const wrap = box && box.querySelector && box.querySelector('.lba-marks');
+  if (!wrap || !view.querySelectorAll) return;
+  const marks = [...view.querySelectorAll('.xhs-note .lb-scroll mark')].filter(m => !String(m.className || '').includes('lb-mark-pending') && String(m.textContent || '').trim());
+  const key = marks.map(m => (m.className || '') + '\u0001' + m.textContent).join('\u0002');
+  if (wrap.dataset.key === key) return;
+  wrap.dataset.key = key;
+  wrap.empty ? wrap.empty() : (wrap.textContent = '');
+  wrap.hidden = !marks.length;
+  for (const m of marks) {
+    const color = (/(?:^|\s)(lb-hl-[a-z]+)/.exec(m.className || '') || [])[1] || '';
+    const row = wrap.createEl('div', { cls: 'lba-mark-row' + (color ? ' ' + color : ''), text: String(m.textContent).trim().slice(0, 80) });
+    row.title = '重点：点一下跳到原文那一处';
+    row.onclick = () => {
+      try { m.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch {}
+      m.classList.add('lba-mark-flash'); setTimeout(() => m.classList.remove('lba-mark-flash'), 1200);
+    };
+  }
 }
 
 // 10-03 她：视频变成一个奇怪的横条（灰底、没封面）。根因：Obsidian 阅读视图只改写 <img src> / <video src> 的相对路径，
@@ -454,6 +496,7 @@ star.onclick = async () => {
   const next = !data.starred;
   starBusy = true;
   star.classList.add('is-busy');
+  if (next) { star.classList.remove('is-pop'); void star.offsetWidth; star.classList.add('is-pop'); setTimeout(() => star.classList.remove('is-pop'), 600); }
   clearTimeout(starHintTimer); starHintTimer = null;
   data.starred = next;
   renderStar();

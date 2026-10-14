@@ -88,3 +88,31 @@ def test_remove(tmp_path, monkeypatch, capsys):
     out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert out["message"] == "已取消 1 处"
     assert "<mark>" not in note.read_text(encoding="utf-8")
+
+
+# ── 1015 她：划重点默认黄、可换色（非黄 = <mark class="lb-hl-…">）、换色 / 取消都认带颜色的 ──
+
+def test_color_add_recolor_remove_and_survive_rerender(tmp_path, monkeypatch):
+    note = _setup(tmp_path, monkeypatch)
+    assert render.set_highlights("xhs-deadbeef01", ["构图"])["changed"] == ["构图"]
+    assert "讲<mark>构图</mark>" in note.read_text(encoding="utf-8")            # 默认黄 = 不带 class
+    r = render.set_highlights("xhs-deadbeef01", ["构图"], color="green")
+    assert r["changed"] == ["构图"] and '讲<mark class="lb-hl-green">构图</mark>' in note.read_text(encoding="utf-8")
+    assert render.set_highlights("xhs-deadbeef01", ["构图"], color="green")["already"] == ["构图"]
+    layer = render.existing_content_layer(note.read_text(encoding="utf-8"))
+    assert render.collect_highlights(layer) == ["构图"] and render.collect_highlight_colors(layer) == {"构图": "green"}
+    # 重渲染照原色贴回
+    out = render.reapply_highlights(ALT_BODY, render.collect_highlights(layer), render.collect_highlight_colors(layer))
+    assert '<mark class="lb-hl-green">构图</mark>' in out
+    assert render.reapply_highlights(out, ["构图"], {"构图": "green"}) == out
+    # 取消认带颜色的
+    assert render.set_highlights("xhs-deadbeef01", ["构图"], remove=True)["changed"] == ["构图"]
+    assert "<mark" not in note.read_text(encoding="utf-8")
+    assert render.mark_open("evil\" onclick=") == "<mark>"                        # 不认的颜色 = 默认黄，不拼进属性
+
+
+def test_cli_highlight_color(tmp_path, monkeypatch, capsys):
+    note = _setup(tmp_path, monkeypatch)
+    code = cli.main(["highlight", "xhs-deadbeef01", "构图", "--color", "pink", "--json"])
+    j = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert code == 0 and j["ok"] and '<mark class="lb-hl-pink">构图</mark>' in note.read_text(encoding="utf-8")
