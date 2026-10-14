@@ -108,7 +108,7 @@ def test_initialize_tools_list_and_lb_search_lb_retrieve(tmp_path):
         reply = client.recv()
         names = {t["name"] for t in reply["result"]["tools"]}
         assert names == {"search", "ask", "read", "image", "files", "topics", "selections", "recent", "history",
-                         "index", "wiki", "guide"}
+                         "index", "wiki", "guide", "skills"}
         for tool in reply["result"]["tools"]:
             assert "description" in tool and "inputSchema" in tool
         ask_tool = next(t for t in reply["result"]["tools"] if t["name"] == "ask")

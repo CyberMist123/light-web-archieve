@@ -11,7 +11,8 @@ ALIASES = json.loads((Path(__file__).parent / "assets/search-aliases.json").read
 # cats 是展示分组（大类），不是内容语义：只留低权兜底，让「搜大类名」能召回
 # 无词帖（如搜"笑话"命中只分了类的帖子）。语义召回由 embedding 接住后应降到 0。
 # notes = 她自己写的批注（notes.json，第 10 批进检索）：她亲手写的，和标签同权
-WEIGHTS = {"title": 12, "tags": 10, "notes": 10, "cats": 3, "body": 7, "attachments": 6, "transcript": 6, "ocr": 5, "comments": 3, "summary": 2, "author": 1}
+WEIGHTS = {"title": 12, "tags": 10, "notes": 10, "highlights": 10, "cats": 3, "body": 7, "attachments": 6, "transcript": 6, "screen": 6,
+           "ocr": 5, "comments": 3, "comment_ocr": 3, "summary": 2, "author": 1}
 
 
 def norm(text):
@@ -826,7 +827,7 @@ def retrieve_payload(question, top_k=8, offset=0):
             'obsidian_url':'obsidian://open?vault='+quote(os.environ.get('LINK_BRAIN_OBSIDIAN_VAULT','vault'))+'&file='+quote(note),
             'web_url':_web_url(note),
             'source_url':it.get('url'),'has_attachments':bool(it.get('attachment_files')),
-            'has_transcript':bool((it.get('search_fields') or {}).get('transcript')),
+            'has_transcript':bool((it.get('search_fields') or {}).get('transcript') or (it.get('search_fields') or {}).get('screen')),
             'starred':bool(it.get('starred')),'starred_at':it.get('starred_at')})
     return {'status':'ok','query':question,'total':info['total'],'results':results,'model_called':False,
             'offset':info['offset'],'next_offset':info['next_offset'],'has_more':info['has_more'],

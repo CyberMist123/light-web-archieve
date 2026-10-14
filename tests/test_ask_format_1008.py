@@ -20,9 +20,13 @@ def test_prompt_carries_format_rules_and_drops_excerpt_section_request(monkeypat
 
 
 def test_excerpt_tag_carries_image_and_comment_identity():
-    assert ask._excerpt_tag({"field": "ocr", "text": "x", "images": ["图2", "图3"]}) == "[ocr 图2、图3]"
-    assert ask._excerpt_tag({"field": "comments", "text": "x", "comments": ["c5", "c5.1"]}) == "[comments c5、c5.1]"
-    assert ask._excerpt_tag({"field": "body", "text": "x"}) == "[body]"
+    # 1015 第二批：标签改成她看得懂的来源类型名；locate_excerpts 实际给的键是 comment_labels（以前只认 comments，楼号从没带上），
+    # 评论另带说话人
+    assert ask._excerpt_tag({"field": "ocr", "text": "x", "images": ["图2", "图3"]}) == "[图片文字 图2、图3]"
+    assert ask._excerpt_tag({"field": "comments", "text": "x", "comments": ["c5", "c5.1"]}) == "[评论区 c5、c5.1]"
+    assert ask._excerpt_tag({"field": "comments", "text": "x", "comment_labels": ["c3"],
+                             "speakers": ["评论者：小王（不是作者）"]}) == "[评论区 c3 · 评论者：小王（不是作者）]"
+    assert ask._excerpt_tag({"field": "body", "text": "x"}) == "[正文]"
 
 
 def _vault_with_images(tmp_path, monkeypatch, n=3):

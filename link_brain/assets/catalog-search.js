@@ -22,8 +22,8 @@ function itemText(it) { const fs = it.search_fields; return (fs ? Object.values(
 // 3. 拼音只认整音节：「悉尼」= xi·ni 两个完整音节按顺序相邻；xin 撞不上 xi·ni；至少两个音节才算。
 // 4. 多个词 = 都要中（AND）。排序先看分数，星标只 ×1.15（与 retrieval.rank 同口径），同分星标在前。
 // notes = 她自己的批注（第 10 批进检索，和标签同权；与 retrieval.WEIGHTS 一致）
-const SEARCH_WEIGHTS = {title:12,tags:10,notes:10,body:7,attachments:6,transcript:6,ocr:5,comments:3,summary:2,author:1};
-const SEARCH_FIELD_LABELS = {title:'标题',tags:'标签',notes:'批注',body:'正文',attachments:'附件',transcript:'视频转写',ocr:'图片文字',comments:'评论',summary:'概要',author:'作者'};
+const SEARCH_WEIGHTS = {title:12,tags:10,notes:10,highlights:10,body:7,attachments:6,transcript:6,screen:6,ocr:5,comments:3,comment_ocr:3,summary:2,author:1};
+const SEARCH_FIELD_LABELS = {title:'标题',tags:'标签',notes:'批注',highlights:'划重点',body:'正文',attachments:'附件',transcript:'视频文字稿',screen:'视频画面文字',ocr:'图片文字',comments:'评论',comment_ocr:'评论区图片',summary:'概要',author:'作者'};
 const STAR_BOOST = 1.15;
 const FUZZY_LABELS = {ocrbits:'图片里的零散字母', pinyin:'拼音相近', typo:'标题错字', gap:'漏字', subword:'拆字'};
 // ── CJK 复合词子词回退（R1，与 retrieval.subword_parts / keyword_hits 同一规则）：短查询（≤3 个词）原词只中 ≤2 篇时，

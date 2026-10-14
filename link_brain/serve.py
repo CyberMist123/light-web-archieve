@@ -97,7 +97,8 @@ def run(args):
                 result = ask.answer(request['question'], request.get('history'), request.get('include'),
                                     model=request.get('model') or '',
                                     **({'source_ids': request['source_ids']} if request.get('source_ids') is not None else {}),
-                                    **{key: request[key] for key in ('exclude_ids', 'pin_ids') if request.get(key)},
+                                    **{key: request[key] for key in ('exclude_ids', 'pin_ids', 'expand', 'mode') if request.get(key)},
+                                    **({'expand': {'turn_id': request['turn_id'], 'ids': request.get('expand_ids')}} if request.get('expand_ids') is not None and not request.get('expand') else {}),
                                     on_delta=lambda text: emit({'id': request_id, 'type': 'delta', 'text': text}),
                                     on_phase=lambda text: emit({'id': request_id, 'type': 'phase', 'text': text}))
             finally:

@@ -177,7 +177,7 @@ def test_oauth_full_flow_with_sdk_client_then_three_tools(remote):
         async with remote_probe.oauth_session(remote.base, PASS) as s:
             names = sorted(t.name for t in (await s.list_tools()).tools)
             assert names == sorted(["search", "ask", "read", "image", "files", "topics", "selections", "recent", "history",
-                                    "index", "wiki", "guide"])
+                                    "index", "wiki", "guide", "skills"])
             ro = {t.name: t.annotations.readOnlyHint for t in (await s.list_tools()).tools}
             assert ro["read"] and ro["files"] and not ro["topics"] and not ro["selections"]
             err, roots = await remote_probe.call(s, "files", {})
@@ -185,6 +185,7 @@ def test_oauth_full_flow_with_sdk_client_then_three_tools(remote):
             err, found = await remote_probe.call(s, "search", {"query": "蒜香鱼片"})
             assert not err and found["found"] == 1
             hit = found["results"][0]
+            hit = {k: v for k, v in hit.items() if k not in ("author", "hits", "kinds", "score")}   # 1015 第二批新增字段
             assert hit == {"id": "abc12345", "title": "蒜香鱼片怎么做", "summary": "蒜香鱼片的做法", "date": "2026-09-01",
                            "agent_md": AGENT}
             err, art = await remote_probe.call(s, "read", {"id": "xhs-abc12345", "part": "附件"})

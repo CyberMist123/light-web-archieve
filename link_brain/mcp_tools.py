@@ -4,7 +4,8 @@
 返回什么，全在这里；换句话说「本机能做的，远程也能做；远程拒的路径，本机也拒」。
 
 工具（名字 → 做什么）：
-- search    搜收藏（关键词 + 语义 + 扩词缓存，和问收藏同一个召回核心）：标题 · 一句概要 · 日期 · id · agent.md 路径；
+- search    搜收藏（关键词 + 语义 + 扩词缓存，和问收藏同一个召回核心）：标题 · 作者 · 一句概要 · 日期 · 类型 · id · agent.md 路径
+            + 命中原文段 hits（来源类型 / 说话人 / 图号楼号）；可按作者 / 收藏时间 / 类型过滤；
             每次搜索（第一页）追加一行到 `_archive/search-history.md`（按日期分节）。
 - ask       问收藏：检索后调已配置的文本模型作答，**会花模型钱**。
 - read      按 id 读一篇：默认机读版（概要 / 原文 / 图片 OCR / 视频文字稿 / 评论 + 附件全文），
@@ -18,7 +19,8 @@
 - index     索引树（10-10）：无参数 = 整棵树带篇数；带节点路径 = 这个节点的笔记（id · 标题 · 日期 · 一句概要）；
             `unclassified` = 未归类。读 `_archive/index-data.json`（和 索引.md 对不上就当场重算，解析 / 归类只在 indextree）。
 - wiki      节点 wiki：无参数列出有哪些（已生成 / 标了还没生成）；带节点路径读全文（分页）。
-- guide     收藏深度报告的方法（docs/deep-report.md）：GPT 要自己写某个节点的汇总时先取它。
+- guide     收藏深度报告的方法（docs/deep-report.md）：GPT 要自己写某个节点的汇总时先取它；带 skill = 取某个问答技能。
+- skills    问收藏的技能（1015 第二批）：list 列出 / get 取正文（写法要求，只读）。
 
 上下文 `Ctx`：policy（路径白名单，见 remote/policy.py）、local（本机 stdio 给绝对路径，远程给 vault 相对路径）、
 who（谁在调，进搜索历史）。返回值是可 JSON 化的 dict；拒绝抛 `policy.Denied`；带图的结果另有私有键
@@ -49,8 +51,10 @@ HISTORY_FILE = "search-history.md"
 HISTORY_TOP = 3            # 搜索历史每条记前几个命中标题
 HISTORY_TAIL_DEFAULT = 60
 HISTORY_TAIL_MAX = 500
-SEARCH_DEFAULT = 10
-SEARCH_MAX = 30
+SEARCH_DEFAULT = 15        # 1015 第二批：十几个合适来源都列一行防漏（E 节）
+SEARCH_MAX = 40
+SEARCH_HITS = 3            # 每篇最多几段命中原文
+SEARCH_HIT_CHARS = 240
 READ_DEFAULT = 30000
 READ_MAX = 100000
 RAW_FILES_MAX = 200
@@ -213,34 +217,76 @@ def record_search(query: str, titles: list[str], found: int, who: str, *, now: d
         storage.atomic_write_text(path, text + line)
 
 
+def _search_filters(args: dict[str, Any]) -> dict[str, Any]:
+    from .ask_intent import KINDS
+    out: dict[str, Any] = {}
+    author = _str(args, "author", limit=40)
+    if author:
+        out["author"] = author
+    for key in ("since", "until"):
+        v = _str(args, key, limit=10)
+        if v:
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
+                raise Denied("INVALID_ARGUMENT", f"{key} 要是 YYYY-MM-DD")
+            out[key] = v
+    kinds = _str_list(args.get("kinds"), "kinds")
+    bad = [k for k in kinds if k not in KINDS]
+    if bad:
+        raise Denied("INVALID_ARGUMENT", f"kinds 只能是 {'/'.join(KINDS)}：{'、'.join(bad)}")
+    if kinds:
+        out["kind"] = kinds
+    return out
+
+
+def _hits_for(cand: dict[str, Any]) -> list[dict[str, Any]]:
+    from . import ask as ask_mod
+    try:
+        return [{k: (v[:SEARCH_HIT_CHARS] if k == "text" else v) for k, v in h.items()}
+                for h in ask_mod.search_hits(cand["item"], cand.get("terms") or [], cand.get("sem"), SEARCH_HITS, SEARCH_HIT_CHARS)]
+    except Exception as exc:  # noqa: BLE001 - 命中段只是加成，取不到照样列这一篇
+        print(f"[mcp] 命中段没取到：{type(exc).__name__}: {exc}", file=sys.stderr)
+        return []
+
+
 def search(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
     from .remote import tools as rtools
-    query = _str(args, "query", required=True)
+    from .ask_intent import item_kinds
+    filters = _search_filters(args)
+    query = _str(args, "query", required=not filters)
     limit = _int(args.get("limit"), SEARCH_DEFAULT, 1, SEARCH_MAX)
     offset = _int(args.get("offset"), 0, 0, 10 ** 6)
+    detail = _str(args, "detail", limit=10) or "hits"
+    if detail not in ("hits", "brief"):
+        raise Denied("INVALID_ARGUMENT", "detail 只能是 hits 或 brief")
     pol = ctx.policy
-    library = rtools._library_candidates(pol, query) if pol.xhs else []
-    folders = rtools._search_folders(pol, query, rtools.SCAN_FILES_MAX, ("Web/Xiaohongshu",) if pol.xhs else ())
+    library = rtools._library_candidates(pol, query, filters) if pol.xhs else []
+    # 带过滤条件时只搜收藏库（文件夹没有作者 / 收藏时间）
+    folders = [] if filters or not query else rtools._search_folders(pol, query, rtools.SCAN_FILES_MAX, ("Web/Xiaohongshu",) if pol.xhs else ())
     total = len(library) + len(folders)
     rows: list[dict[str, Any]] = []
     pos = offset
     while len(rows) < limit and pos < total:
         if pos < len(library):
-            it = library[pos]["item"]
+            cand = library[pos]
+            it = cand["item"]
             agent = it.get("agent_md") if isinstance(it.get("agent_md"), str) and pol.allowed_file(it["agent_md"]) else None
-            rows.append({"id": _short_id(it.get("id")), "title": it.get("title") or "",
-                         "summary": _one_sentence(it.get("summary")), "date": it.get("date") or "",
-                         "agent_md": _abs(ctx, agent)})
+            row = {"id": _short_id(it.get("id")), "title": it.get("title") or "", "author": it.get("author") or "",
+                   "summary": _one_sentence(it.get("summary")), "date": it.get("date") or "",
+                   "kinds": item_kinds(it), "score": round(float(cand.get("score") or 0), 4), "agent_md": _abs(ctx, agent)}
+            if detail == "hits":
+                row["hits"] = _hits_for(cand)
+            rows.append(row)
         else:
             f = folders[pos - len(library)]
             rows.append({"title": f["title"], "path": _abs(ctx, f["path"])})
         pos += 1
     if offset == 0:
         try:
-            record_search(query, [r["title"] for r in rows], total, ctx.who)
+            record_search(query or ("过滤：" + json.dumps(filters, ensure_ascii=False)), [r["title"] for r in rows], total, ctx.who)
         except Exception as exc:  # noqa: BLE001 - 历史只是记录，写不上不影响搜索
             print(f"[mcp] 搜索历史没写上：{type(exc).__name__}: {exc}", file=sys.stderr)
-    return {"found": total, "offset": offset, "next_offset": pos if pos < total else None, "results": rows}
+    return {"found": total, "offset": offset, "next_offset": pos if pos < total else None, "results": rows,
+            **({"filters": filters} if filters else {})}
 
 
 # ---------------------------------------------------------------- ask
@@ -769,7 +815,29 @@ def wiki(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
             "offset": offset, "next_offset": end if end < len(text) else None, "text": chunk}
 
 
+def skills(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
+    """问收藏的技能（1015 第二批）：list = 有哪些（id · 名字 · 一句说明 · 内置 / 用户）；get = 某个技能的正文（写法要求）。只读。"""
+    from . import skills as skills_mod
+    action = _str(args, "action", limit=10) or "list"
+    if action == "list":
+        rows = skills_mod.list_skills()["skills"]
+        return {"skills": [{k: r.get(k) for k in ("id", "title", "description", "source", "ok", "error") if r.get(k) is not None}
+                           for r in rows],
+                "how": "回答某类问题前用 skills(action='get', id=…) 取那个技能的写法要求，照它组织；收藏内容用 search / read 取。"}
+    if action == "get":
+        sid = _str(args, "id", required=True, limit=40)
+        s = skills_mod.get(sid)
+        if not s:
+            raise Denied("NOT_FOUND", f"没有这个技能：{sid}（先 skills(action='list')）")
+        return {"id": s["id"], "title": s.get("title"), "description": s["description"], "source": s.get("source"),
+                "text": s.get("body") or ""}
+    raise Denied("INVALID_ARGUMENT", "action 只能是 list 或 get")
+
+
 def guide(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
+    skill = _str(args, "skill", limit=40)
+    if skill:
+        return skills(ctx, {"action": "get", "id": skill})
     from . import wiki as wiki_mod
     text = wiki_mod.method_text()
     if text is None:
@@ -791,13 +859,24 @@ _ID_DESC = "文章 id（search / recent / selections 给出的；带不带 xhs- 
 TOOLS: list[dict[str, Any]] = [
     {"name": "search",
      "description": ("搜我的收藏（小红书归档 + 开放的文件夹）：关键词或一句话都行，和「问收藏」同一套召回（词法 + 语义 + 扩词缓存），"
-                     "不花模型钱。每条返回 id · 标题 · 一句话概要 · 日期 · agent_md（机读版全文路径）；文件夹命中给 path。"
-                     "要看全文用 read(id)。found = 一共几条，next_offset 不为 null 时带 offset 续取。每次搜索会记进搜索历史。"),
+                     "不花模型钱。每条一行：id · 标题 · 作者 · 一句话概要 · 收藏日期 · kinds（video / attachment / pdf / image）· "
+                     "hits（命中的原文段，每段标来源类型 type：body 正文 / ocr 图片文字 / comment_ocr 评论区图片 / comments 评论区（带 speaker 说话人）/ "
+                     "transcript 视频文字稿 / screen 视频画面文字 / attachments 附件 / notes 她的批注 / highlights 她划的重点；"
+                     "loc = 图N / 楼号 cN，图可以用 read 的 images 路径交给 image 看原图）· agent_md。"
+                     "可按 author / since / until / kinds 过滤（只给过滤不给 query = 按收藏时间新→旧列出）。"
+                     "默认一页 15 条，十几个来源都列一行防漏；found = 一共几条，next_offset 不为 null 时带 offset 续取。"
+                     "要看全文用 read(id)。每次搜索会记进搜索历史。"),
      "inputSchema": {"type": "object", "additionalProperties": False, "properties": {
-         "query": {"type": "string", "minLength": 1, "maxLength": 500, "description": "要找什么：关键词或一句话"},
+         "query": {"type": "string", "maxLength": 500, "description": "要找什么：关键词或一句话（有过滤条件时可以不给）"},
+         "author": {"type": "string", "description": "只要这个作者（小红书昵称，原样）"},
+         "since": {"type": "string", "description": "收藏日期从（YYYY-MM-DD）"},
+         "until": {"type": "string", "description": "收藏日期到（YYYY-MM-DD）"},
+         "kinds": {"type": "array", "items": {"type": "string", "enum": ["video", "attachment", "pdf", "image"]},
+                   "description": "只要这些类型：video 视频 / attachment 带附件 / pdf 带 PDF 附件 / image 图文"},
+         "detail": {"type": "string", "enum": ["hits", "brief"], "default": "hits",
+                    "description": "hits = 每条带最多 3 段命中原文（默认）；brief = 只要标题和概要"},
          "limit": {"type": "integer", "minimum": 1, "maximum": SEARCH_MAX, "default": SEARCH_DEFAULT, "description": "这一页最多几条"},
-         "offset": {"type": "integer", "minimum": 0, "default": 0, "description": "从第几条开始（续取用上一页的 next_offset）"}},
-         "required": ["query"]},
+         "offset": {"type": "integer", "minimum": 0, "default": 0, "description": "从第几条开始（续取用上一页的 next_offset）"}}},
      "annotations": _ann(False)},
     {"name": "ask",
      "description": ("问收藏：先检索，再调用已配置的文本模型写一段带出处的回答。**每次都会花模型钱**；"
@@ -897,15 +976,24 @@ TOOLS: list[dict[str, Any]] = [
      "annotations": _ann(True)},
     {"name": "guide",
      "description": ("取「收藏深度报告 / 节点 wiki」的方法全文：她让你从收藏里整理一个主题（「我收藏里关于 X 有什么」"
-                     "「给 X 做个汇总 / wiki」）时，先取这个照着做：广搜、通读核心帖、抽具体对象、每条写出处和借鉴、7 类左右。"),
-     "inputSchema": {"type": "object", "additionalProperties": False, "properties": {}},
+                     "「给 X 做个汇总 / wiki」）时，先取这个照着做：广搜、通读核心帖、抽具体对象、每条写出处和借鉴、7 类左右。"
+                     "带 skill = 取某个问答技能的写法要求（同 skills get）。"),
+     "inputSchema": {"type": "object", "additionalProperties": False, "properties": {
+         "skill": {"type": "string", "description": "可选：技能 id（skills list 给出的），取它的写法要求"}}},
+     "annotations": _ann(True)},
+    {"name": "skills",
+     "description": ("问收藏的技能（写法要求）：action=list 列出有哪些（通用 / 菜谱 / wiki / 旅行攻略 / 调研对比 / 灵感陈列 + 她导入的）；"
+                     "action=get + id 取正文。回答菜谱、攻略、汇总这类问题前先取对应技能，照它组织；内容从 search / read 拿。"),
+     "inputSchema": {"type": "object", "additionalProperties": False, "properties": {
+         "action": {"type": "string", "enum": ["list", "get"], "default": "list"},
+         "id": {"type": "string", "description": "get：技能 id"}}},
      "annotations": _ann(True)},
 ]
 
 HANDLERS: dict[str, Callable[[Ctx, dict[str, Any]], dict[str, Any]]] = {
     "search": search, "ask": ask, "read": read, "image": image, "files": files, "topics": topics,
     "selections": selections, "recent": recent, "history": history,
-    "index": index, "wiki": wiki, "guide": guide,
+    "index": index, "wiki": wiki, "guide": guide, "skills": skills,
 }
 NAMES = [t["name"] for t in TOOLS]
 

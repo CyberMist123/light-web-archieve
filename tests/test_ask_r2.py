@@ -93,6 +93,7 @@ def test_production_deep_prompt_reads_all_fields(monkeypatch):
     monkeypatch.setattr(ask, 'call_text', lambda prompt, text, settings: seen.append(text) or {'status': 'ok', 'text': '回答[来源1]'})
     result = ask.answer('黑椒意面做法汇编讲了什么')
     assert result['status'] == 'ok'
+    # 1015 第二批：片段标签改成来源类型名（ask.HIT_TYPES）
     for field in item['search_fields']:
-        assert f'[{field}]' in seen[-1]
+        assert f'[{ask.HIT_TYPES[field]}' in seen[-1]
     assert len(result['sources']) == 1

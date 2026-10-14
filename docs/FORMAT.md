@@ -782,6 +782,10 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
   请求可带 `source_ids`（只用这些来源重答）。扩词缓存 `_archive/query-expand-cache.json`（问题 → 词，最多 500 条）。
 - `catalog-data.json.items[].search_fields` 分为 `body/comments/ocr/attachments`，均保留原文；
   `summary` 为模型摘要，检索权重低，不伪装成原文。`agent_md` 是 vault 相对路径。
+- 2026-10-15 第二批：`search_fields` 再分出三路（空的不写）——`comment_ocr` = 评论区图片的文字（资产名 `comment-<id>-<n>.*`，
+  不再混在 `ocr` 里）；`screen` = 视频画面文字（以前拼在 `transcript` 尾巴上，`transcript` 现在只有口播稿）；
+  `highlights` = 她划的重点（可见笔记里的 `<mark>` / `==x==` + notes.json 的 `highlights`，一条一行，权重同批注）。
+  `comments` 仍只放评论原文（昵称不进检索，免得昵称当内容命中）；说话人由问收藏证据阶段按楼号另挂。语义索引同样分块（重建 embed 时补）。
 - `attachment_files` 逐条提供 `doc_id/name/downloaded/status/file/markdown/url`，文件和 Markdown
   路径为本机绝对路径（该索引仅用于本机 UI/CLI）；`attachment_missing` 是未落字节数。
   `attachment_errors` 来自对象级 `attachment-state.json`，包含上次自动下载的错误。
@@ -801,6 +805,62 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
   来源编号存在时只选择被引用材料。链接地址来自归档索引，不从模型文字里提取或虚构。
 - `history` 是可供下次请求传回的最近对话；失败请求不追加一条假答案。
   发送器应消费 `delivery`，不要把内部 `sources` 或本机路径直接展示为公共下载地址。
+
+### 问收藏响应：档位 / 目录 / 展开（2026-10-15 第二批，ask 车 ↔ chat 车约定）
+
+请求（`ask.answer(...)`、`ask --request-stdin`、问答常驻进程 `serve` 的一行 JSON 都一样，新增键可省略）：
+
+```jsonc（带注释，示意）
+{"question": "我要吃辣的", "history": [...], "exclude_ids": [], "pin_ids": [],
+ "mode": "direct | toc（可省略 = 自动判档）",
+ "expand": {"turn_id": "t1015093012ab12cd", "ids": ["xhs-…", "xhs-…"], "all": false}}
+```
+
+- `expand`：展开某一答里的几条。后端按 `turn_id` 查那一答的登记（`_archive/ask-turns.json`，最近 200 轮）：问题用那一答的原问题，
+  `ids` 只留那一答里真有的（别的丢）；省略 `ids` 或 `all:true` = 那一答目录全部（最多 20 条）。登记查不到（过期 / 换机）时
+  用请求里的 `question + ids` 照答。**不再发固定话术、不再绑「上一答」**。展开不重搜、不出目录、每条预算放足（≤3 条按深读）。
+- 默认每问重搜：前端不带 `source_ids` 就是重新检索（「在当前来源里追问」= 照旧带 `source_ids`）。
+
+响应（在原有 `{status,kind,markdown,sources,related,…}` 上新增；旧字段一个不少）：
+
+```jsonc（带注释，示意）
+{"mode": "toc",                      // direct = 直接答（调作答模型）；toc = 目录（不调作答模型，零 token）
+ "turn_id": "t1015093012ab12cd",     // 每一答都有（链接 / GitHub 清单也有）；展开时带回来
+ "source_ids": ["xhs-…", "…"],       // 这一答的来源 id（toc = 目录顺序；direct = sources 顺序）
+ "toc": [{"n": 1, "id": "xhs-…", "title": "…", "author": "…", "date": "2026-09-24",
+          "kinds": ["video"],          // video / attachment / pdf / image
+          "hit": {"type": "comments", "label": "评论区", "text": "≤80 字命中原文", "loc": "c3", "speaker": "评论者：某某（不是作者）"}}],
+ "toc_total": 14,                    // 真命中篇数（toc 最多列 20，其余在 related）
+ "understanding": {"goal": "find|ask|survey", "core": "鱼露", "depth": "precise|detailed",
+                   "filters": {"author": "…", "since": "YYYY-MM-DD", "until": "…", "kind": ["video"]},
+                   "filters_applied": ["author"], "relations": [...], "constraints": {...}, "skill": "recipe", "skill_source": "explicit|model"},
+ "skill": "recipe",                  // 这一答用的技能 id（general = 通用）
+ "suggest": "可补：在小红书搜「寿司醋」…",  // 库里没真命中时才有（她 1015 拍板：只给一行建议，不自动搜）
+ "expanded_from": "t…",              // 展开答才有：展开的是哪一答
+ "mode_reason": "find-main | find-scatter | survey | ask | deep | precise | forced"}
+```
+
+- **chat 车最终字段（1015 协调对齐）**：请求也可平铺 `{"turn_id": "…", "expand_ids": ["…"]}`（等同 `expand`），可同时带 `source_ids`；
+  响应读 `mode` / `toc` / `turn_id` / `source_ids` / `coverage_note`（一句覆盖说明，两种档位都有）/ `suggest`（目录档为空串）；
+  `toc[]` 每条另有 `source_type`（= `hit.type`）、`kind`（主类型，= `kinds[0]`）、`line`（概要第一句 ≤60 字）。
+- 技能隐藏：插件设置 `skills.hidden`（技能文件夹名数组）里的技能照列（`hidden: true`），但路由 / 选用时跳过；技能目录统一 `vault/_skills/`。
+- `sources[]` 新增：`tier`（`primary` 主要依据 / `also` 找回时「也提到」的一行一篇 / `toc` 目录条目）、`hit_types`（这一条用到的
+  来源类型：`body` 正文 · `ocr` 图片文字 · `comment_ocr` 评论区图片 · `comments` 评论区 · `transcript` 视频文字稿 ·
+  `screen` 视频画面文字 · `attachments` 附件 · `notes` 批注 · `highlights` 划重点）、`date`；`excerpts[]` 的评论片段带
+  `comment_labels`（楼号）和 `speakers`（「评论者：昵称（不是作者）」/「作者本人回复」）。目录条目另带 `hit`。
+- 档位规则（她 1015 拍板「多 → 目录；适中 / 要精准 → 直接答」）：深读或 `depth=precise` → direct；`survey` 真命中 ≥5 → toc；
+  `find` 主角篇（标题 / 标签 / 概要就是它）1–3 篇 → direct，否则散在 ≥4 篇 → toc；`ask` 真命中 ≥8 → toc。
+  留来源重答（`source_ids`）、手动保留（`pin_ids`）、展开都不出目录。
+
+### 技能（`link_brain/_skills/<id>/SKILL.md` 内置；`<vault>/_skills/<id>/SKILL.md` 用户，同 id 覆盖内置）
+
+- 格式 = Anthropic Agent Skills：frontmatter `name`（小写英文 id）+ `description`（路由只看这一句）+ 可选 `lwa: {title, aliases, domains, depth_default}`；
+  正文 = 作答时的写法要求（截 1500 字）。可选 `examples.txt`（一行一句路由示例）。
+- 只读文字：导入（`python -m link_brain skills import <SKILL.md 或文件夹> [--overwrite]`）只拷 `SKILL.md` 和 `examples.txt`，
+  别的文件列在 `skipped_files` 里不碰；正文里「忽略以上 / ignore previous」这类行在加载时删掉。坏文件跳过并登记 `SKIPPED.SKILL`。
+- `python -m link_brain skills list` → `{status, skills: [{id, name, title, description, aliases, source: builtin|user, path, ok, error?, overrides?}], user_dir, builtin_dir}`；
+  `skills show <id>` → `{status, skill: {…, body}}`。设置页技能页签读这两个。
+- 选哪个：问句里点名（`/菜谱`、`用 wiki 技能`）> 扩词那次小模型顺带选的（只给它 id + description）> `general`。
 
 ## 2026-10-02 远程阅读（MCP）的配置与本机状态（第 6 批）
 

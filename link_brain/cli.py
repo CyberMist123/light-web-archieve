@@ -262,6 +262,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser('serve', help='常驻 stdio 问答 worker')
     p.add_argument('--stdio', action='store_true', required=True)
 
+    p = sub.add_parser("skills", help="问收藏的技能：list 列出 / show <id> 看正文 / import <SKILL.md 或文件夹> 导入（只拷文字）")
+    p.add_argument("action", nargs="?", default="list", choices=["list", "show", "import"])
+    p.add_argument("target", nargs="?", default="", help="show：技能 id；import：SKILL.md 文件或含它的文件夹")
+    p.add_argument("--overwrite", action="store_true", help="import：同名技能直接覆盖")
+
     p = sub.add_parser("ask", help="基于本地归档库问答（/问AI 的后端；只把少量片段送模型）")
     p.add_argument("question", nargs="?", default="", help="自然语言问题")
     g = p.add_mutually_exclusive_group()
@@ -593,6 +598,10 @@ def _dispatch(args) -> int:
     if args.command == "wiki":
         from . import wiki as wiki_mod
         return wiki_mod.run(args)
+
+    if args.command == "skills":
+        from . import skills as skills_mod
+        return skills_mod.run(args)
 
     if args.command == "ask":
         from . import ask as ask_mod

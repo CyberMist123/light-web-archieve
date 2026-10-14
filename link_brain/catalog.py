@@ -345,6 +345,30 @@ def item_problems(obj_dir: Path, report: dict[str, Any], vision: dict[str, Any],
     return list(out.values())
 
 
+def _is_comment_image(image: dict[str, Any]) -> bool:
+    """评论区的图（资产名 comment-<评论id>-<n>.*）；正文图是 image-NNN.*。"""
+    return bool(re.search(r"(^|/)comment-[0-9a-f]+-\d+\.", str(image.get("asset") or "")))
+
+
+def highlight_text(visible_text: str | None, notes_doc: dict[str, Any] | None = None) -> str:
+    """她划的重点（1015 第二批进检索）：可见笔记里的 <mark> / ==x== + notes.json 的 highlights（[{text}] 或 [str]，
+    带 deleted 的不算）。一条一行；读不出 = 空（fail-open）。"""
+    out: list[str] = []
+    try:
+        from .render import collect_highlights, existing_content_layer
+        layer = existing_content_layer(visible_text) if visible_text else None
+        out.extend(collect_highlights(layer if layer is not None else visible_text))
+    except Exception:  # noqa: BLE001 - 重点只是检索加成
+        pass
+    raw = notes_doc.get("highlights") if isinstance(notes_doc, dict) else None
+    for h in raw if isinstance(raw, list) else []:
+        text = h.get("text") if isinstance(h, dict) and not h.get("deleted") else h if isinstance(h, str) else ""
+        text = str(text or "").strip()
+        if text and text not in out:
+            out.append(text)
+    return "\n".join(out)
+
+
 def _image_search_text(image: dict[str, Any]) -> str:
     """一张图进检索的文字：本地 OCR 原文 + 识图结果。第二层精细识图（refined）成功时替代第一层 visual，
     与机读版 agent.md 的取法一致（render.py image_lines）；只读已有的 vision.json，不调识图模型。"""
@@ -414,17 +438,25 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
         transcript = _load_json(obj_dir / "derived/transcript.json") or {}
         notes_doc = _load_json(obj_dir / "notes.json")
         notes_doc = notes_doc if isinstance(notes_doc, dict) else {}
+        ok_images = [im for im in vision.get("images", []) if im.get("status") == "ok"]
         search_fields = {
-            "transcript": "\n".join(filter(None, [str(transcript.get("text") or ""),
-                                                  str((transcript.get("screen") or {}).get("text") or "")])),
+            # 1015 第二批 ask：视频文字稿 / 画面文字各成一路（结果标来源类型）；评论区的图单列 comment_ocr（不和正文图混）
+            "transcript": str(transcript.get("text") or ""),
+            "screen": str((transcript.get("screen") or {}).get("text") or ""),
             "body": str(note.get("body") or ""),
+            # 评论只放原文进检索：评论者昵称不进（昵称「不是鱼露是鲈鱼」会被当成内容命中）；说话人由问收藏证据阶段另挂
             "comments": "\n".join(str(c.get("text") or "") for _, c in comment_labels(source_doc.get("comments") or [])),
             # 图片文字 + 识图结果（表格 Markdown / 图片描述）一起进检索；精细识图（第二层 refined）成功就用它替代第一层
-            "ocr": "\n".join(filter(None, (_image_search_text(im) for im in vision.get("images", []) if im.get("status") == "ok"))),
+            "ocr": "\n".join(filter(None, (_image_search_text(im) for im in ok_images if not _is_comment_image(im)))),
+            "comment_ocr": "\n".join(filter(None, (_image_search_text(im) for im in ok_images if _is_comment_image(im)))),
             "attachments": "\n\n".join(p.read_text(encoding="utf-8") for p in sorted((obj_dir / "derived" / "attachments").glob("*.md"))),
             # 第 10 批：她自己的批注进检索（词法 + 语义）；问收藏另按 notes.json 的修改时间现读，不必等重建目录
             "notes": annotation_text(notes_doc),
+            # 1015 第二批 ask：她划的重点进检索（和批注同权）
+            "highlights": highlight_text(visible_text, notes_doc),
         }
+        # 新加的三路空着就不写（catalog-data 体积不涨）；老字段照旧总在
+        search_fields = {k: v for k, v in search_fields.items() if v or k not in ("screen", "comment_ocr", "highlights")}
         archived = _parse_dt(meta.get("first_archived_at"))
         items.append(
             {

@@ -189,6 +189,7 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "SKIPPED.BUDGET": dict(where="none", label="今天的额度到了", hover="{reason}（明天接着来）", group="off"),
     "SKIPPED.FALLBACK": dict(where="none", label="已退回普通方式", hover="{reason}", group="off"),
     "SKIPPED.LEGACY_CONFIG": dict(where="none", label="旧设置已自动换算", hover="{reason}", group="off"),
+    "SKIPPED.SKILL": dict(where="none", label="技能文件读不了，已跳过", hover="{reason}（问答退回通用写法）", group="off"),
     "SKIPPED.*": dict(where="none", label="未开启", hover="{reason}", group="off"),
 }
 

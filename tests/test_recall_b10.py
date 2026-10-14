@@ -89,7 +89,7 @@ def fake_model(monkeypatch, tmp_path):
 def test_llm_expansion_is_cached_per_question(fake_model, tmp_path):
     first = ask.llm_expansions("日本好吃的")
     assert first["status"] == "ok" and first["terms"] == ["东京", "大阪", "Tokyo"]
-    assert fake_model[0]["cfg"]["noThinking"] is True and fake_model[0]["cfg"]["maxTokens"] == 300
+    assert fake_model[0]["cfg"]["noThinking"] is True and fake_model[0]["cfg"]["maxTokens"] == 700
     ask._EXPAND_MEM.clear()  # 进程重启：从缓存文件读
     second = ask.llm_expansions("日本好吃的")
     assert second["status"] == "cached" and second["terms"] == first["terms"]

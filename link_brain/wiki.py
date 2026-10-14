@@ -137,7 +137,7 @@ def _note_text(vault: Path, it: dict[str, Any]) -> str:
             text = ""
     if not text:
         fs = it.get("search_fields") or {}
-        text = "\n\n".join(str(fs.get(k) or "") for k in ("body", "ocr", "transcript", "comments", "attachments"))
+        text = "\n\n".join(str(fs.get(k) or "") for k in ("body", "ocr", "transcript", "screen", "comments", "comment_ocr", "attachments"))
     text = text.strip()
     if len(text) > PER_ITEM_CHARS:
         text = text[:PER_ITEM_CHARS] + "\n（后面略）"

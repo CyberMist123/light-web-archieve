@@ -353,14 +353,24 @@ def _archive_paths(item: dict[str, Any]) -> tuple[str | None, list[str]]:
     return agent, atts
 
 
-def _library_candidates(policy: Policy, query: str) -> list[dict[str, Any]]:
+def _library_candidates(policy: Policy, query: str, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """收藏库的候选（R1：和问收藏、lb_retrieve 同一个宽召回核心 recall_core.candidates，同一个顺序），只留开放给你的篇。
-    这里只按路径规则判（不碰磁盘），给计数和分页用；真正出结果时 _library_row 再核一次文件在不在。"""
+    这里只按路径规则判（不碰磁盘），给计数和分页用；真正出结果时 _library_row 再核一次文件在不在。
+    filters（1015 第二批）：{author, since, until, kind: [video|attachment|pdf|image]}，先筛再召回（ask_intent.apply_filters；
+    筛空的那一维不算）。query 为空、只给过滤条件时 = 按收藏时间新→旧列出筛出来的篇。"""
     from .. import recall_core
     from ..ask import load_items
+    from ..ask_intent import apply_filters
     items = load_items()
     if not items:
         return []
+    if filters:
+        items, _ = apply_filters(items, filters)
+    if not str(query or "").strip():
+        rows = sorted(items, key=lambda it: str(it.get("ts") or it.get("date") or ""), reverse=True)
+        return [{"item": it, "score": 0.0, "terms": [], "sem": None} for it in rows
+                if (isinstance(it.get("note"), str) and policy.allowed_file(it["note"]))
+                or (isinstance(it.get("agent_md"), str) and policy.allowed_file(it["agent_md"]))]
     # 远程只读：不为远程请求现调扩词小模型（不花钱、不写扩词缓存），只用问收藏已经算过的那份缓存；没缓存 = 不扩
     found = recall_core.candidates(query, items, allow_expand_call=False)
     out = []

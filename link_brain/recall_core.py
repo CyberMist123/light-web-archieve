@@ -115,13 +115,16 @@ def feedback_terms(items, fused, own_terms, skip=(), *, docs=FEEDBACK_DOCS):
 
 
 def candidates(question, items, *, settings=None, history=None, semantic=True, expand=True, allow_expand_call=True,
-               llm=None, sem=_UNSET, keyword=True, feedback=True, trace=False) -> dict[str, Any]:
+               llm=None, sem=_UNSET, keyword=True, feedback=True, trace=False, core=None) -> dict[str, Any]:
     """一个问题 → 全量候选集。返回 dict：
     matches = 首屏窗口（≤ POOL_MAX，页面主要依据 + 其他相关从这里切）；candidates = 全量（窗口在前，窗口外的按融合顺序跟后面，
     最后是只有关键词筛选命中的篇）；mode / prior_terms / terms / sem / expansion / intent / feedback；routes = 各路完整名单；
     trace=True 时另给 stages（R0 六层记录）。llm / sem 传了就直接用（问收藏开头已经并行起好了，见 Probe）。"""
     from . import ask, retrieval
     terms = ask.query_terms(question)
+    if core and str(core).strip() and str(core).strip() != str(question).strip():
+        # 1015 S1：去口语壳 / 纠错后的检索核心（「鱼路」→「鱼露」）排在原词前面，原问题剥壳后的词照留（并集，不替换）
+        terms = list(dict.fromkeys(ask.query_terms(str(core)) + terms))
     if llm is None or sem is _UNSET:
         probe = Probe(question, history, semantic=semantic and sem is _UNSET,
                       expand=expand and llm is None, allow_expand_call=allow_expand_call)
@@ -131,6 +134,9 @@ def candidates(question, items, *, settings=None, history=None, semantic=True, e
         sem = None
     expansion = ask.expand_query(question, terms, items, llm=llm)
     intent = llm.get("intent") if isinstance(llm.get("intent"), dict) else None
+    s1 = llm.get("s1") if isinstance(llm.get("s1"), dict) else {}
+    if s1.get("goal") in {"find", "ask", "survey"}:
+        intent = {**(intent or {}), "goal": s1["goal"]}  # qa_matches 用：找回句里的「那个」不当追问
     # 扩词的语义一路：原问题 + 模型给的全部词（库里没有原词的说法，语义上也能接住）
     sem_expanded = retrieval.semantic_hits(question + " " + " ".join(expansion["llm"])) if semantic and expansion["llm"] else None
     # 扩出的每个词一路（全名单记下，融合只用前 EXPAND_ROUTE_DEPTH 名——排序和以前一样；更深的进候选集尾部）

@@ -1,5 +1,7 @@
 # Current State
 
+- 2026-10-15 第二批 ask 车（分支 wt/b2-ask，**未部署**）问收藏后端：S0 口语壳剥离 + 作者 / 收藏时间 / 类型规则过滤，S1 扩词那次调用顺带 goal/core/entities/relations/constraints/filters/skills（缓存 v3）；「那个」不再误判追问；评论证据带说话人、评论区预留 25% 预算；目录字段分出 comment_ocr / screen / highlights；档位（盘点多 / 找回散 → 目录零 token，其余直接答；找回直接答附「也提到」一行一篇）；turn_id + 展开（ask-turns.json）；技能 `link_brain/_skills` 6 个内置 + `vault/_skills` 用户导入只拷文字；MCP search 命中段 / 来源类型 / 过滤 + skills 工具。答案级验收见 BENCH 1015。部署后要重建 catalog + embed。
+
 - 2026-10-15（分支 wt/feedback1015 + 读取组件 reader-8 fb1015-ratelimit，**未部署**）她「点开等你处理无事发生」：10-12 起 5 次 ACCOUNT_RISK 证据全是 `/website-login/error?error_code=300013`（访问频繁）、触发接口全是展开楼中楼 `comment/sub/page`——限频不是风控。读取组件认出 300013 记 `XHS_RATE_LIMITED` 限频冷却（2/4/6 小时，到点放行下一个请求当自探、成功自动清，第 4 次才升级 ACCOUNT_RISK 要人），楼中楼只展开前 10 楼、每次点展开前歇 4–9 秒；Python 侧冷却中一页不开但 TRANSIENT 不推、记 login 一把 key，`captcha-recover` 等冷却到点后放夜跑接着跑，自愈轮绝不开页。问题面板：同一次熔断（起因那条 + RISK_HOLD）只显示 / 计数一条；「现在修」时别的行也没了就整体重画（不再「等你处理 · 0」下挂卡片）。ERRORS 新增 XHS_RATE_LIMITED 一行。
 
 - 2026-10-11（分支 wt/bugs1011b，待部署）她截图的三件事：①打开笔记先露原始 Markdown——归档笔记在 `WorkspaceLeaf.openFile` 就以阅读视图打开 + CSS 不靠 cssclasses 先藏属性块 / 去 lb-topbar 框 / 没挂类前先遮（最多 1.2 秒）；②三个数一份口径（`fav_counts`：收藏名单 1246 / 已入库 610 / 还差 636，进度条和同步记录同一句「收藏已入库 A/T」，目录页「筛出 n 篇（共 N）」）；③同步记录照真来源说（命令行 / 夜跑 / 定时）、被停那趟「被中断 · 已收 N 篇」（老的 14:57 那趟按入库时间补回 43 篇）、白天跑好了的夜跑报错标「✓ 后来好了」不红。ERRORS 第 19 条；验收记录 tests/acceptance/20261011-bugs1011b.md（Obsidian 里待她看）。

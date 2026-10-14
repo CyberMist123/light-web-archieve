@@ -57,7 +57,7 @@ def ctx(vault, folders=("@xhs",), local=False):
 def test_one_definition_schema_is_strict():
     names = [t["name"] for t in mt.TOOLS]
     assert names == ["search", "ask", "read", "image", "files", "topics", "selections", "recent", "history",
-                     "index", "wiki", "guide"]
+                     "index", "wiki", "guide", "skills"]
     for t in mt.TOOLS:
         s = t["inputSchema"]
         assert s["type"] == "object" and s["additionalProperties"] is False and t["description"]
@@ -74,8 +74,14 @@ def test_search_compact_and_history(vault):
     c = ctx(vault)
     res = mt.search(c, {"query": "蒜香鱼片"})
     assert res["found"] == 1 and res["next_offset"] is None
-    assert res["results"][0] == {"id": "abc12345", "title": "蒜香鱼片怎么做", "summary": "蒜香鱼片的做法",
-                                 "date": "2026-09-01", "agent_md": AGENT}
+    row = dict(res["results"][0])
+    # 1015 第二批：每条一行另带 作者 · 类型 · 分数 · 命中段（来源类型标注）
+    assert row.pop("score") > 0 and row.pop("kinds") == ["image"] and row.pop("author") == ""
+    hits = row.pop("hits")
+    assert hits[0] == {"type": "body", "label": "正文", "text": "蒜香鱼片：鱼片先腌十分钟。"}
+    assert {h["type"] for h in hits} <= {"body", "attachments"}
+    assert row == {"id": "abc12345", "title": "蒜香鱼片怎么做", "summary": "蒜香鱼片的做法",
+                   "date": "2026-09-01", "agent_md": AGENT}
     mt.search(c, {"query": "番茄"})
     mt.search(c, {"query": "番茄", "offset": 5})   # 续页不记
     text = mt.history_path().read_text("utf-8")

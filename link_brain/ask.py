@@ -122,6 +122,9 @@ def query_terms(question: str) -> list[str]:
     import logging
     from .retrieval import norm
     jieba.setLogLevel(logging.ERROR)
+    # 1015 第二批：先剥口语壳（「我有个 X 忘了哪儿了 帮我找一下」→ X），壳词「忘 / 找 / 那个」不再进原词路
+    from .ask_intent import strip_shell
+    question = strip_shell(question)
     ignored = _STOP | {'整理','做法','推荐','有哪些','收藏','归档','库里','原文','怎么回事','需要','想要','内容','告诉','里面','相关','能不能','帮我','方法','看看',
                       '现有','重要细节','推荐理由','材料缺口','一级标题','二级标题','大小标题','标题','报告','按适合程度筛选','适合程度','筛选','写清','根据','觉得','还有','值得','现在','平时','改善','家里','晚上','只','你','按','想','做','住',
                       '好吧','几个','一些'}
@@ -282,8 +285,20 @@ _EXPAND_INSTRUCTION = (
     "scope：single = 问收藏里具体的某一篇（某个配方的完整做法、「某某帖讲了什么」）；few = 点名两三篇；"
     "many = 盘点、推荐、找资料、泛泛地问某个话题，要看多篇。拿不准就填 many。"
     "output：links = 只要把相关笔记的链接列出来；github = 只要 GitHub 仓库地址清单；其余一律 answer。"
+    # 1015 第二批 S1（ask_intent.parse_s1 只认合法值；缺字段 = 没给，退回规则层）
+    "同一个 JSON 顶层再给这些字段（没有就省略）："
+    "goal：find = 找回收藏里某篇 / 某几篇（她说忘了在哪、之前存的那个 X、有个 X 找一下、那篇讲 X 的）；"
+    "ask = 问一个知识或事实（X 怎么做、是什么、要不要、多少钱）；survey = 盘点 / 推荐 / 汇总 / 某人发过哪些。"
+    "depth：precise = 问一个具体点（是哪个、多少、在哪买）；detailed = 要全面（有哪些、攻略、全部）。"
+    "core：去掉口语（我有个 / 忘了哪儿了 / 帮我找 / 之前存的那个 / 来着）后真正要找的东西，≤16 字，必须来自提问原文；"
+    "提问里有同音错字时 core 和 terms 写正确的字（如 鱼路 → 鱼露）。「那个 / 这个」只是口语，不代表接着上一轮问。"
+    "entities：提问里的具体对象（≤5）。relations：提问问到的两样东西之间的关系 [{\"a\":\"\",\"rel\":\"\",\"b\":\"\"}]（≤3，没有就省略）。"
+    "constraints：{\"must\": [必须满足的硬条件], \"prefer\": [偏好]}；negation：她明确不要的东西。"
+    "filters：{\"author\": 她点名的作者昵称, \"since\": \"YYYY-MM-DD\", \"until\": \"YYYY-MM-DD\", \"kind\": [video|attachment|pdf|image]}，"
+    "只在她明说「某某发的 / 某年存的 / 视频里 / 那个 PDF」时给。facets：复合问题拆成的子对象（2–3 个，单对象省略）。"
+    "skills：从给出的技能列表里选 0–2 个 id（没有合适的就省略）。共现不等于因果；扩词宁缺毋滥。"
 )
-_EXPAND_CACHE_VERSION = "v2"  # 提示词加了意图那一版：旧缓存（只有扩词、没有意图）不再命中，同一问题重算一次
+_EXPAND_CACHE_VERSION = "v3"  # 1015：加了 S1 结构化理解（goal/core/filters/skills…）；旧缓存没有这些字段，同一问题重算一次
 _INTENT_VALUES = {"context": {"new", "followup", "switch"}, "scope": {"single", "few", "many"},
                   "output": {"answer", "links", "github"}}
 _EXPAND_MEM: dict[str, dict[str, Any]] = {}
@@ -304,9 +319,9 @@ def _expand_cache_read() -> dict[str, Any]:
         return {}
 
 
-def _expand_cache_write(key: str, terms: list[str], intent: dict[str, str] | None = None) -> None:
+def _expand_cache_write(key: str, terms: list[str], intent: dict[str, str] | None = None, s1: dict[str, Any] | None = None) -> None:
     from datetime import datetime
-    entry = {"terms": terms, **({"intent": intent} if intent else {})}
+    entry = {"terms": terms, **({"intent": intent} if intent else {}), **({"s1": s1} if s1 else {})}
     with _EXPAND_LOCK:
         _EXPAND_MEM[key] = entry
         try:
@@ -373,6 +388,35 @@ def _parse_intent(text: str, has_previous: bool = False) -> dict[str, str] | Non
     return out or None
 
 
+_S1_KEYS = ("goal", "depth", "core", "entities", "relations", "constraints", "negation", "filters", "facets", "skills")
+
+
+def _raw_s1(text: str) -> dict[str, Any] | None:
+    """S1 原样留着（只挑约定的键、限长）；合法性在用的时候按库里的作者 / 技能表核（ask_intent.parse_s1）。"""
+    from .llm import parse_json
+    try:
+        obj = parse_json(text)
+    except (ValueError, TypeError, AttributeError):
+        return None
+    if not isinstance(obj, dict):
+        return None
+    intent = obj.get("intent") if isinstance(obj.get("intent"), dict) else {}
+    out = {k: obj[k] for k in _S1_KEYS if k in obj}
+    for k in ("goal", "depth"):
+        if k not in out and k in intent:
+            out[k] = intent[k]
+    raw = json.dumps(out, ensure_ascii=False)
+    return out if out and len(raw) <= 4000 else None
+
+
+def _skill_menu() -> list[dict[str, str]]:
+    try:
+        from . import skills
+        return skills.routing_menu()
+    except Exception:  # noqa: BLE001 - 技能表读不了 = 不路由
+        return []
+
+
 def llm_expansions(question: str, *, allow_call: bool = True, wait: float = EXPAND_WAIT, previous: str = "") -> dict[str, Any]:
     """小模型扩词 + 意图分类（同一次调用，带缓存）。返回 {terms, intent?, status: ok|cached|off|no-model|failed|timeout, model}。
     previous = 上一轮她的提问（有就一并判断这一问是接着问还是换话题；缓存也按「这一问 + 上一问」分开存）。
@@ -386,19 +430,25 @@ def llm_expansions(question: str, *, allow_call: bool = True, wait: float = EXPA
     if not cfg:
         return {"terms": [], "status": "no-model"}
     previous = str(previous or "").strip()[:300]
-    key = f"{_EXPAND_CACHE_VERSION}\x00{cfg.get('model')}\x00{norm(question)}" + (f"\x00{norm(previous)}" if previous else "")
+    menu = _skill_menu()
+    menu_key = ",".join(m["id"] for m in menu)
+    key = (f"{_EXPAND_CACHE_VERSION}\x00{cfg.get('model')}\x00{norm(question)}" + (f"\x00{norm(previous)}" if previous else "")
+           + (f"\x00skills={menu_key}" if menu_key else ""))
 
     def cached(entry):
         out = {"terms": entry["terms"], "status": "cached", "model": cfg.get("model")}
         if isinstance(entry.get("intent"), dict):
             out["intent"] = entry["intent"]
+        if isinstance(entry.get("s1"), dict):
+            out["s1"] = entry["s1"]
         return out
 
     if key in _EXPAND_MEM:
         return cached(_EXPAND_MEM[key])
     hit = _expand_cache_read().get(key)
     if isinstance(hit, dict) and isinstance(hit.get("terms"), list):
-        entry = {"terms": hit["terms"], **({"intent": hit["intent"]} if isinstance(hit.get("intent"), dict) else {})}
+        entry = {"terms": hit["terms"], **({"intent": hit["intent"]} if isinstance(hit.get("intent"), dict) else {}),
+                 **({"s1": hit["s1"]} if isinstance(hit.get("s1"), dict) else {})}
         _EXPAND_MEM[key] = entry
         return cached(entry)
     if not allow_call:
@@ -407,11 +457,13 @@ def llm_expansions(question: str, *, allow_call: bool = True, wait: float = EXPA
     import threading
     from .text_stream import call
     box: dict[str, Any] = {}
-    call_cfg = {**cfg, "maxTokens": 300, "timeoutSec": min(float(cfg.get("timeoutSec") or 20), 20.0),
+    call_cfg = {**cfg, "maxTokens": 700, "timeoutSec": min(float(cfg.get("timeoutSec") or 20), 20.0),
                 "responseFormat": {"type": "json_object"}, "noThinking": True, "thinking": False}
     text_in = "提问：" + question[:500]
     if previous:
         text_in += "\n上一轮提问（只用来判断 context，不要拿它扩词）：" + previous
+    if menu:
+        text_in += "\n可选技能（skills 只能从这里选 id）：" + "；".join(f"{m['id']}：{m['desc']}" for m in menu)
 
     def work():
         try:
@@ -423,8 +475,9 @@ def llm_expansions(question: str, *, allow_call: bool = True, wait: float = EXPA
             text = res.get("text") or ""
             terms = _parse_expand(text)
             intent = _parse_intent(text, bool(previous))
-            box["terms"], box["intent"] = terms, intent
-            _expand_cache_write(key, terms, intent)
+            s1 = _raw_s1(text)
+            box["terms"], box["intent"], box["s1"] = terms, intent, s1
+            _expand_cache_write(key, terms, intent, s1)
 
     ctx = contextvars.copy_context()
     worker = threading.Thread(target=ctx.run, args=(work,), daemon=True)
@@ -436,6 +489,8 @@ def llm_expansions(question: str, *, allow_call: bool = True, wait: float = EXPA
         out = {"terms": box["terms"], "status": "ok", "model": cfg.get("model"), "usage": (box.get("res") or {}).get("usage")}
         if box.get("intent"):
             out["intent"] = box["intent"]
+        if box.get("s1"):
+            out["s1"] = box["s1"]
         return out
     return {"terms": [], "status": "failed", "model": cfg.get("model"), "error": (box.get("res") or {}).get("error")}
 
@@ -528,9 +583,15 @@ def _segments(item, field):
     obj = (storage.vault_root() / agent).parent.parent
     if field == "comments":
         return [(label, str(c.get("text") or "")) for label, c in _comment_records(item)]
-    from .catalog import _image_search_text
+    from .catalog import _image_search_text, _is_comment_image
     vision = json.loads((obj / "derived" / "vision.json").read_text(encoding="utf-8"))
-    out = [(image, _image_search_text(image)) for image in vision.get("images", []) if image.get("status") == "ok"]
+    images = [image for image in vision.get("images", []) if image.get("status") == "ok"]
+    fs = item.get("search_fields") or {}
+    if field == "comment_ocr" or "comment_ocr" in fs or "screen" in fs:
+        # 1015 起目录把评论区图片单列 comment_ocr（新目录数据才有；旧的 ocr 里两种图都在）
+        want_comment = field == "comment_ocr"
+        images = [image for image in images if _is_comment_image(image) == want_comment]
+    out = [(image, _image_search_text(image)) for image in images]
     return [(image, text) for image, text in out if text]
 
 
@@ -582,9 +643,10 @@ def locate_excerpts(item, snippets):
         return cache[field]
 
     result = []
+    speakers = None
     for part in snippets:
         hit = dict(part)
-        if part["field"] == "ocr":
+        if part["field"] in ("ocr", "comment_ocr"):
             text = _compact(part["text"])
             assets = []
             for image in images:
@@ -592,7 +654,7 @@ def locate_excerpts(item, snippets):
                 if len(ocr) >= 20 and any(text[i:i+20] in ocr for i in range(max(0, len(text)-19))):
                     assets.append(image["asset"])
             try:
-                for image in _segments_hit(segments("ocr"), str(fields.get("ocr") or ""), str(part["text"]), "\n"):
+                for image in _segments_hit(segments(part["field"]), str(fields.get(part["field"]) or ""), str(part["text"]), "\n"):
                     if image.get("asset") and image["asset"] not in assets:
                         assets.append(image["asset"])
                 order = {image.get("asset"): i for i, image in enumerate(images)}
@@ -615,6 +677,10 @@ def locate_excerpts(item, snippets):
                 labels = _segments_hit(segments("comments"), str(fields.get("comments") or ""), str(part["text"]), "\n")
                 if labels:
                     hit["comment_labels"] = labels
+                    if speakers is None:
+                        speakers = _speaker_map(item)
+                    # 说话人（1015 F：评论者的话不能安到作者头上）：同一段跨几楼时每楼一个，去重
+                    hit["speakers"] = list(dict.fromkeys(speakers[l] for l in labels if speakers.get(l)))
             except Exception:  # noqa: BLE001
                 pass
         result.append(hit)
@@ -725,6 +791,11 @@ def qa_matches(question, items, terms, sem, history=None, extra=None, intent=Non
     if context == "new":
         return own, "standalone", []
     topic = _topic_terms(items, question)
+    from .ask_intent import STRONG_FOLLOWUP, strip_shell
+    strong_follow = bool(STRONG_FOLLOWUP.search(strip_shell(question)))
+    if context == "followup" and topic and not strong_follow and (intent or {}).get("goal") == "find":
+        # 1015 G3：「之前存的那个火锅粉」——「那个」是口语壳不是指代；她要找回一篇新东西，模型说 followup 也按新话题
+        return own, "standalone", []
     # 上文的主语：往回找最近一个自己带话题的提问（连着两句追问时主语在更前面）
     anchor = ""
     for previous in reversed(asked):
@@ -744,7 +815,9 @@ def qa_matches(question, items, terms, sem, history=None, extra=None, intent=Non
         matches = [combined[i] for i in order]
         seen = {it["id"] for it in matches}
         return matches + [it for it in own if it["id"] not in seen], "switch", anchor_terms
-    if context is None and topic and (topical or len(question) >= 18):
+    from .ask_intent import heuristic_goal
+    if context is None and topic and (topical or len(question) >= 18
+                                      or (not strong_follow and heuristic_goal(question) == "find")):
         return own, "standalone", []
     # 追问：上一问的结果按原顺序排前，这一问自己的命中跟在后面
     previous = retrieve(items, anchor_terms)
@@ -865,7 +938,7 @@ def related_card(item, rank_no, terms=()):
     return {**_card(item, snippet["text"]), "excerpt_field": snippet["field"], "tier": "related", "rank": rank_no}
 
 
-def recall(question, items, settings, history=None, *, allow_expand_call=True, trace=False, llm=None, sem=None, probe=None):
+def recall(question, items, settings, history=None, *, allow_expand_call=True, trace=False, llm=None, sem=None, probe=None, core=None):
     """问答的候选集（R1：宽召回核心 recall_core.candidates，lb_retrieve / 远程 search 用同一个）。
 
     返回 dict(matches=首屏窗口 ≤ POOL_MAX, candidates=全量候选（窗口在前）, mode, prior_terms, terms, sem, expansion, intent, …)。
@@ -881,7 +954,7 @@ def recall(question, items, settings, history=None, *, allow_expand_call=True, t
         if sem is not None:
             kwargs["sem"] = sem
     return recall_core.candidates(question, items, settings=settings, history=history,
-                                  allow_expand_call=allow_expand_call, trace=trace, **kwargs)
+                                  allow_expand_call=allow_expand_call, trace=trace, core=core, **kwargs)
 
 
 # 候选池常量在宽召回核心里（这里留名字给旧调用方）；不再有「不够就按融合顺序补满」的 POOL_MIN
@@ -899,7 +972,9 @@ def _id_list(value):
 ATTRIBUTION_RULE = (
     "称呼规则：不要写「作者说」「作者称」「作者表示」「博主说」这类泛称。需要说明出处时，在小节标题或行首写「作者：<材料里给的昵称>」"
     "（例如「### 作者：小王的做法」），评论区的内容标「评论区」；不需要区分出处时直接分点陈述，不加称呼。"
-    "材料里没给昵称就不写称呼，不编造昵称；类型为「我保存的」的材料是用户自己保存的回答或判断，引用时写「你之前保存的」。")
+    "材料里没给昵称就不写称呼，不编造昵称；类型为「我保存的」的材料是用户自己保存的回答或判断，引用时写「你之前保存的」。"
+    "评论区片段的标签里写了说话人（「评论者：某某（不是作者）」/「作者本人回复」）：引用评论区的话写「评论区·某某」，"
+    "绝不能写成作者说的；评论者的昵称只是名字，不是内容。")
 
 
 def source_header(n, item):
@@ -970,11 +1045,83 @@ def embed_images(markdown, sources):
     return _SEE_IMG.sub(_sub, markdown or "")
 
 
+# 1015 第二批：证据 / 目录 / MCP 命中段统一的「来源类型」名（结果标来源类型；她看得懂的叫法）
+HIT_TYPES = {"body": "正文", "ocr": "图片文字", "comment_ocr": "评论区图片", "comments": "评论区", "transcript": "视频文字稿",
+             "screen": "视频画面文字", "attachments": "附件", "notes": "我的批注", "highlights": "我划的重点",
+             "title": "标题", "tags": "标签", "summary": "概要", "author": "作者", "saved": "我保存的"}
+
+
 def _excerpt_tag(x):
-    """送给模型的片段标签：[ocr 图2、图3] / [comments c5、c5.1] / [body]——带身份，模型才能写「看图」占位和楼号。"""
-    ids = x.get("images") or x.get("comments") or []
+    """送给模型的片段标签：[图片文字 图2、图3] / [评论区 c5 · 评论者：小王（不是作者）] / [正文]——带身份和说话人，
+    模型才能写「看图」占位、楼号，评论区的话不会安到作者头上（1015 F：澳洲辣椒酱张冠李戴）。"""
+    ids = x.get("images") or x.get("comment_labels") or x.get("comments") or []
     ids = [str(i) for i in ids if i][:4]
-    return f"[{x['field']}{' ' + '、'.join(ids) if ids else ''}]"
+    label = HIT_TYPES.get(x.get("field"), x.get("field") or "")
+    who = ""
+    speakers = [s for s in x.get("speakers") or [] if s][:3]
+    if speakers:
+        who = " · " + "、".join(speakers)
+    return f"[{label}{' ' + '、'.join(ids) if ids else ''}{who}]"
+
+
+def _speaker_map(item):
+    """评论楼号 → 说话人（「评论者：昵称（不是作者）」/「作者本人回复」）。读不到 = {}。"""
+    try:
+        obj = (storage.vault_root() / item["agent_md"]).parent.parent
+        meta = json.loads((obj / "meta.json").read_text(encoding="utf-8"))
+        source = json.loads((obj / "raw" / f"v{int(meta.get('current_version') or 1):04d}" / "source.json").read_text(encoding="utf-8"))
+        owner = ((source.get("note") or {}).get("author") or {})
+        owner_id, owner_nick = str(owner.get("user_id") or ""), str(owner.get("nickname") or "")
+        out = {}
+        for label, c in llm.comment_labels(source.get("comments") or []):
+            a = c.get("author") if isinstance(c.get("author"), dict) else {}
+            nick = str(a.get("nickname") or "").strip()
+            if (owner_id and str(a.get("user_id") or "") == owner_id) or (nick and nick == owner_nick):
+                out[label] = "作者本人回复"
+            elif nick:
+                out[label] = f"评论者：{nick[:20]}（不是作者）"
+            else:
+                out[label] = "评论者（不是作者）"
+        return out
+    except Exception:  # noqa: BLE001 - 说话人只是锦上添花
+        return {}
+
+
+COMMENT_SHARE = 0.25   # 评论区（含评论区图片）在一篇证据预算里预留的份额（F：8000 字评论挤不进）
+
+
+def _comment_hit(item, terms):
+    from .retrieval import has, norm, variants
+    fs = item.get("search_fields") or {}
+    keys = []
+    for key in ("comments", "comment_ocr"):
+        text = norm(str(fs.get(key) or ""))
+        if text and any(has(text, v) for t in terms for v in variants(t)):
+            keys.append(key)
+    return keys
+
+
+def _with_comment_budget(item, terms, per, sem, *, window_chars=1000, max_parts=4, deep=False):
+    """一篇的证据：评论区（或评论区图片）有命中时，先按 1-COMMENT_SHARE 取正文那几路，再给评论区单留一段——
+    评论里的实测 / 配比 / 渠道（「Aldi 也有类似的」）不再被正文挤掉。没命中评论 = 和以前一样。"""
+    from .retrieval import _field_evidence, evidence
+    keys = _comment_hit(item, terms)
+    if not keys:
+        return evidence(item, terms, per, sem, window_chars=window_chars, max_parts=max_parts, deep=deep)
+    main = evidence(item, terms, max(200, int(per * (1 - COMMENT_SHARE))), sem, window_chars=window_chars,
+                    max_parts=max_parts, deep=deep)
+    have = {p["field"] for p in main}
+    budget = max(150, int(per * COMMENT_SHARE) // len(keys))
+    fs = item.get("search_fields") or {}
+    extra = []
+    for key in keys:
+        if key in have:
+            continue
+        try:
+            extra += _field_evidence(item, key, str(fs.get(key) or ""), terms, budget, sem, 400, 1)[:1]
+        except Exception:  # noqa: BLE001
+            pass
+    return main + extra
 
 
 def pinned_note(citations):
@@ -1022,7 +1169,256 @@ def _saved_lead(pool, n):
     return extra
 
 
-def _answer_qa(question, items, settings, history=None, source_ids=None, exclude_ids=None, pin_ids=None, probe=None):
+# --------------------------------------------------------------------------
+# 1015 第二批：档位（她拍板：结果多 → 出目录；数量适中 / 要精准 → 直接答）
+# --------------------------------------------------------------------------
+
+TOC_MIN = 8            # 问知识（goal=ask）真命中 ≥ 这么多篇才出目录
+TOC_MIN_SURVEY = 5     # 盘点 / 推荐 / 某人发过哪些
+TOC_FIND_SCATTER = 4   # 找回：没有明显主角篇、却散在 ≥ 这么多篇里
+TOC_FIND_MAIN = 3      # 找回：主角篇（标题 / 标签 / 概要里就是它）1–3 篇 = 直接答
+TOC_MAX = 20           # 目录最多列几条（其余留在 related / candidate_set 里）
+ALSO_MAX = 6           # 找回直接答时「也提到 X 的」最多附几篇
+_META_FIELDS = ("title", "tags", "summary")
+
+
+def _skills_list():
+    try:
+        from . import skills
+        return skills.load_all(report=True)[0]
+    except Exception:  # noqa: BLE001 - 技能读不了 = 不用技能
+        return []
+
+
+def understand_question(question, items, llm_out=None, skills_list=None):
+    """S0 规则 + S1 模型 → 这一问的理解（goal / core / filters / skill / relations …），见 ask_intent。任何异常 = 纯规则。"""
+    from . import ask_intent
+    skills_list = skills_list if skills_list is not None else _skills_list()
+    try:
+        s1 = ask_intent.parse_s1((llm_out or {}).get("s1") or {}, question, authors=ask_intent.library_authors(items),
+                                 skill_ids=[s["id"] for s in skills_list])
+    except Exception:  # noqa: BLE001
+        s1 = {}
+    try:
+        return ask_intent.understand(question, items, s1=s1, skills=skills_list)
+    except Exception:  # noqa: BLE001
+        return {"goal": "ask", "core": question, "filters": {}, "skill": None}
+
+
+def core_words(understood, items):
+    """档位判断用的核心词：core 用 jieba 切（不要 2-gram 碎片），去掉全库四成以上都有的泛词。"""
+    import jieba
+    from .retrieval import term_stats
+    core = str((understood or {}).get("core") or "")
+    words = []
+    for chunk in re.findall(r"[A-Za-z0-9][A-Za-z0-9.+-]*|[一-鿿]+", core):
+        parts = jieba.lcut(chunk) if re.match(r"[一-鿿]", chunk) else [chunk.lower()]
+        words += [w for w in parts if w and w not in _STOP and not set(w) <= _FUNC_CHARS]
+    limit = max(2, len(items) * EXPAND_GENERIC)
+    out = []
+    for i, w in enumerate(dict.fromkeys(words)):
+        anywhere, _ = term_stats(items, w)
+        if anywhere == 0 and len(w) >= 2 and i == 0:
+            return None   # 她要找的那个东西（core 第一个词）库里根本没有   # 她要找的东西库里根本没有：别让剩下的泛词（「牌子」）凑出一串「真命中」
+        if 0 < anywhere < limit:
+            out.append(w)
+    return out
+
+
+def _has_all(item, words, keys=None):
+    from .retrieval import fields, has, norm, variants
+    fs = {k: norm(v) for k, v in fields(item).items() if keys is None or k in keys}
+    return all(any(has(text, v) for v in variants(w) for text in fs.values()) for w in words)
+
+
+def strong_hits(pool, understood, items, expansion_terms=(), used_filters=()):
+    """真命中：核心词全中（任一字段）；或命中一个扩出的词（她说「我要吃辣的」→ 麻辣 / 香辣）。
+    没有核心词时：用了作者 / 时间 / 类型过滤 = 过滤后的全部；否则 0（退回直接答）。"""
+    words = core_words(understood, items)
+    if words is None:
+        return []   # 核心词里有库里一篇都没有的（「猫砂」）：没有真命中
+    if not words:
+        return list(pool) if used_filters else []
+    from .retrieval import fields, has, norm
+    # 只认核心词：扩出的词太宽（1015 真库评测：「猫砂哪个牌子好」库里 0 篇也被扩词凑成目录），不参与判档
+    expand = []
+    out = []
+    for it in pool:
+        if it.get("source_kind") == "saved":
+            continue
+        if _has_all(it, words) or (expand and any(has(norm(v), t) for t in expand for k, v in fields(it).items()
+                                                  if k not in ("author", "cats"))):
+            out.append(it)
+    return out
+
+
+def decide_mode(understood, pool, items, *, deep=False, expansion_terms=(), used_filters=(), force=None):
+    """(mode, info)。mode = direct | toc。info = {goal, strong, main, reason}。"""
+    if force in ("direct", "toc"):
+        return force, {"reason": "forced"}
+    goal = (understood or {}).get("goal") or "ask"
+    strong = strong_hits(pool, understood, items, expansion_terms, used_filters)
+    words = core_words(understood, items) or []
+    main = [it for it in strong if words and _has_all(it, words, _META_FIELDS)]
+    info = {"goal": goal, "strong": len(strong), "main": len(main), "strong_items": strong}
+    if deep:
+        return "direct", {**info, "reason": "deep"}
+    if (understood or {}).get("depth") == "precise" and goal != "survey":
+        return "direct", {**info, "reason": "precise"}
+    if goal == "survey":
+        return ("toc" if len(strong) >= TOC_MIN_SURVEY else "direct"), {**info, "reason": "survey"}
+    if goal == "find":
+        if 1 <= len(main) <= TOC_FIND_MAIN:
+            return "direct", {**info, "reason": "find-main"}
+        if len(main) > TOC_FIND_MAIN or len(strong) >= TOC_FIND_SCATTER:
+            return "toc", {**info, "reason": "find-scatter"}
+        return "direct", {**info, "reason": "find-few"}
+    # 问事实（goal=ask）一律直接答：她要的是那个答案，不是目录（1015 评测：便宜的自助火锅 / 汕头猪杂粿被误出目录）
+    return "direct", {**info, "reason": "ask"}
+
+
+def hit_point(item, terms, speakers_cache=None):
+    """目录一条的「命中点」：{type, label, text≤80, loc, speaker}；一个词都没中就用概要第一句（type=summary）。"""
+    from .retrieval import lexical_excerpt
+    try:
+        snip = lexical_excerpt(item, terms, 80)
+    except Exception:  # noqa: BLE001
+        snip = {"field": "", "text": ""}
+    field, text = snip.get("field") or "", " ".join(str(snip.get("text") or "").split())
+    if not field:
+        s = " ".join(str(item.get("summary") or "").split())
+        return {"type": "summary", "label": HIT_TYPES["summary"], "text": s[:80]}
+    out = {"type": field, "label": HIT_TYPES.get(field, field), "text": text[:80]}
+    if field in ("comments", "ocr", "comment_ocr"):
+        try:
+            located = locate_excerpts(item, [{"field": field, "text": snip["text"]}])[0]
+            loc = located.get("comment_labels") or located.get("images") or []
+            if loc:
+                out["loc"] = "、".join(loc[:2])
+            if located.get("speakers"):
+                out["speaker"] = located["speakers"][0]
+        except Exception:  # noqa: BLE001
+            pass
+    return out
+
+
+def search_hits(item, terms, sem=None, limit=3, chars=240):
+    """MCP search 的命中段（1015 第二批）：每个命中的字段取第一处命中附近 ≤chars 字原文，按字段权重排、最多 limit 段；
+    [{type, label, speaker?, text, loc?}]。一个词都没中时用语义命中的那一块。只读，不调模型。"""
+    import unicodedata
+    from .retrieval import WEIGHTS, fields, find, norm, variants
+    groups = [g for g in dict.fromkeys(tuple(variants(t)) for t in terms or () if norm(t))]
+    rows = []
+    for key, value in fields(item).items():
+        if key in ("cats", "author", "summary", "title") or not value or not groups:
+            continue
+        text = str(value)
+        low = unicodedata.normalize("NFKC", text).casefold()
+        spots = [p for g in groups for v in g if v and v in low for p in [find(low, v)] if p >= 0]
+        if not spots:
+            continue
+        hit = min(spots) * len(text) // max(1, len(low)) if len(low) != len(text) else min(spots)
+        start = max(0, min(hit - chars // 4, len(text) - chars))
+        n_terms = sum(any(v and v in low for v in g) for g in groups)
+        rows.append(((n_terms, WEIGHTS.get(key, 1)), {"field": key, "text": text[start:start + chars]}))
+    rows.sort(key=lambda r: r[0], reverse=True)
+    parts = [r[1] for r in rows[:limit]]
+    if not parts:
+        chunks = [c for c in ((sem or {}).get(item.get("id")) or {}).get("chunks") or [] if c.get("field") not in (None, "meta")]
+        parts = [{"field": c["field"], "text": str(c.get("text") or "")[:chars]} for c in chunks[:1]]
+    out = []
+    for part in locate_excerpts(item, parts) if parts else []:
+        row = {"type": part["field"], "label": HIT_TYPES.get(part["field"], part["field"]), "text": " ".join(part["text"].split())}
+        loc = part.get("comment_labels") or part.get("images") or []
+        if loc:
+            row["loc"] = "、".join(loc[:3])
+        if part.get("speakers"):
+            row["speaker"] = part["speakers"][0]
+        out.append(row)
+    return out
+
+
+def toc_entries(strong, terms, limit=TOC_MAX):
+    from .ask_intent import item_kinds
+    out = []
+    for n, it in enumerate(strong[:limit], 1):
+        kinds, hit = item_kinds(it), hit_point(it, terms)
+        s = " ".join(str(it.get("summary") or "").split())
+        line = re.split(r"(?<=[。！？!?])", s)[0][:60] if s else ""
+        # chat 车约定字段：source_type = 命中来源类型（同 hit.type），kind = 主类型，line = 一句话
+        out.append({"n": n, "id": it.get("id"), "title": it.get("title") or "未命名", "author": it.get("author") or "",
+                    "date": it.get("date") or "", "kinds": kinds, "kind": kinds[0], "source_type": hit["type"],
+                    "hit": hit, "line": line})
+    return out
+
+
+def toc_markdown(entries, total, core):
+    head = f"收藏里和「{core}」相关的有 {total} 篇" + (f"，先列前 {len(entries)} 篇" if total > len(entries) else "") + "（点「展开」看某几条的细节）："
+    lines = [head, ""]
+    for e in entries:
+        meta = " · ".join(x for x in (e["author"], e["date"]) if x)
+        hit = e["hit"]
+        where = hit["label"] + (f" {hit['loc']}" if hit.get("loc") else "") + (f"（{hit['speaker']}）" if hit.get("speaker") else "")
+        quote = f"「{hit['text']}」" if hit.get("text") else ""
+        lines.append(f"{e['n']}. **{e['title']}**" + (f" · {meta}" if meta else "") + f" — {where}{quote} [来源{e['n']}]")
+    return "\n".join(lines)
+
+
+def suggest_line(understood):
+    """库里不够时文末一行（她 1015 拍板：只给建议，不自动去小红书搜）。"""
+    core = str((understood or {}).get("core") or "").strip()
+    return f"可补：在小红书搜「{core[:20]}」收藏几篇，下次就能从收藏里答。" if core else ""
+
+
+def _new_turn_id():
+    from . import ask_turns
+    return ask_turns.new_id()
+
+
+def _turn_record(turn_id, question, mode, ids, understood, skill_id, expanded_from=None):
+    try:
+        from . import ask_turns
+        ask_turns.record(turn_id, {"q": question[:1000], "mode": mode, "ids": list(ids)[:200],
+                                   "understanding": {k: understood.get(k) for k in ("goal", "core", "filters", "depth", "relations",
+                                                                                   "constraints", "negation") if understood and understood.get(k)},
+                                   "skill": skill_id, **({"expanded_from": expanded_from} if expanded_from else {})})
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _public_understanding(understood, used_filters=()):
+    keys = ("goal", "goal_source", "core", "depth", "filters", "entities", "relations", "constraints", "negation", "facets",
+            "skill", "skill_source")
+    out = {k: understood.get(k) for k in keys if understood and understood.get(k)}
+    if used_filters:
+        out["filters_applied"] = list(used_filters)
+    return out
+
+
+def _relation_rules(understood):
+    """S1 给了关系 / 硬条件 / 排除项时加进作答提示：关系逐条标证据等级（共现≠因果）。"""
+    u = understood or {}
+    out = ""
+    rels = u.get("relations") or []
+    if rels:
+        listed = "；".join(f"{r['a']} —{r['rel']}→ {r['b']}" for r in rels)
+        out += (f"\n她问到的关系：{listed}。回答里每条关系都标明证据等级：明确支持 / 仅相关（同篇出现但没说明关系）/ 明确反对 / 证据不足，"
+                "并给出处；两样东西出现在同一篇里不等于有因果。")
+    cons = u.get("constraints") or {}
+    if cons.get("must"):
+        out += "\n硬条件（不满足的材料不能当答案）：" + "、".join(cons["must"]) + "。"
+    if cons.get("prefer"):
+        out += "\n偏好（满足的排前）：" + "、".join(cons["prefer"]) + "。"
+    if u.get("negation"):
+        out += "\n她明确不要：" + "、".join(u["negation"]) + "。"
+    if u.get("goal") == "find":
+        out += ("\n这是找回：第一行就给最可能是她要的那一篇（标题 · 作者 · 日期），一两句说要找的东西在这篇里怎么出现（数字照原文）；"
+                "其他也提到的篇每篇一行写清出现在哪（正文 / 评论区·昵称 / 图N / 视频文字稿 / 视频画面文字 / 附件）。不写百科背景。")
+    return out
+
+
+def _answer_qa(question, items, settings, history=None, source_ids=None, exclude_ids=None, pin_ids=None, probe=None,
+               *, force_mode=None, expand_of=None, understood=None):
     from .retrieval import evidence, query_facets
     _phase(f"检索收藏：共 {len(items)} 条")
     history = [m for m in (history or [])[-8:] if m.get("role") in {"user", "assistant"}]
@@ -1036,6 +1432,18 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     # 排除压过保留。两样都没有时下面每一步和以前一模一样。
     excluded = set(_id_list(exclude_ids))
     pins = [i for i in _id_list(pin_ids) if i in by_id and i not in excluded]
+    # 1015 第二批 S0/S1：理解这一问（goal / core / 作者·时间·类型过滤 / 技能）；扩词那次调用顺带的，不另花钱
+    skills_list = _skills_list()
+    if understood is None:
+        understood = understand_question(question, items, probe.llm() if probe is not None
+                                         else llm_expansions(question, allow_call=False), skills_list)
+    used_filters: list[str] = []
+    found_mode = "standalone"
+    from . import skills as skills_mod
+    try:
+        skill = skills_mod.choose(understood, skills_list)
+    except Exception:  # noqa: BLE001
+        skill = None
     if pinned:
         # 第 10 批「按剩下的重新回答」：只用页面上留下的来源（她删掉的不要），不重新检索、不挑材料、不撞答案缓存
         from .retrieval import semantic_hits
@@ -1051,10 +1459,18 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
         # 答案缓存（Lot D）：只对独立提问撞索引；追问依赖本轮对话，不和历史问题比。任何失败=全新问题。
         qvec = answer_cache.question_vector(question)
         cache_hit = None if history or excluded or pins else answer_cache.lookup(question, base_terms, qvec=qvec)
-        found = recall(question, items, settings, history, probe=probe)
+        from .ask_intent import apply_filters
+        scope_items, used_filters = apply_filters(items, understood.get("filters"))
+        if used_filters:
+            cache_hit = None  # 带过滤条件的问法不沿用旧答案
+            _phase("按条件筛选：" + "、".join({"author": f"作者 {understood['filters'].get('author')}",
+                                              "time": "收藏时间", "kind": "类型"}[u] for u in used_filters)
+                   + f"（{len(scope_items)} 条）")
+        found = recall(question, scope_items, settings, history, probe=probe, core=understood.get("core"))
         matches, prior_terms, terms, sem, expansion = (found["matches"], found["prior_terms"], found["terms"],
                                                         found["sem"], found["expansion"])
         intent = found.get("intent")
+        found_mode = found.get("mode") or "standalone"
         # R1：候选集全量记录——首屏窗口之外的篇按同一顺序留着（页面「继续看」等 Owner 定，先只在结果里带上 id）
         candidates_all = found.get("candidates") or matches
         beyond = [it["id"] for it in candidates_all[len(found["matches"]):] if it["id"] not in excluded]
@@ -1067,9 +1483,16 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
         _phase(f"检索收藏：相关 {min(len(matches), POOL_MAX)} / 共 {len(items)} 条{more}{held_note}")
     if not pinned:
         matches = _with_saved(question, matches, saved_items, base_terms, excluded, len(pins))
+    turn_id = _new_turn_id()
+    skill_id = (skill or {}).get("id")
     if not matches:
-        return {"kind": "answer", "markdown": "收藏里没有找到足够相关的材料。可以换个关键词，或先导入相关内容。",
-                "sources": [], "related": [], "matches": 0, "materials": 0, "model_called": False}
+        hint_line = suggest_line(understood)
+        _turn_record(turn_id, question, "direct", [], understood, skill_id, expand_of)
+        return {"kind": "answer", "markdown": "收藏里没有找到足够相关的材料。可以换个关键词，或先导入相关内容。"
+                + ("\n\n" + hint_line if hint_line else ""),
+                "sources": [], "related": [], "matches": 0, "materials": 0, "model_called": False,
+                "mode": "direct", "turn_id": turn_id, "source_ids": [], "suggest": hint_line,
+                "understanding": _public_understanding(understood, used_filters), "skill": skill_id}
     limits = settings.get("retrieval") or {}
     cap = max(500, int(limits.get("totalCharLimit", 8000)))
     frag = max(200, int(limits.get("fragChars", 800)))
@@ -1078,7 +1501,46 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     # 「我保存的」不占收藏笔记的名额、也不触发单篇深读：按笔记算篇数，排在前面的保存条目另加位置
     notes_pool = [it for it in pool if it.get("source_kind") != "saved"]
     n, deep = prompt_count(question, notes_pool, cap, top_k, pinned=pinned or bool(pins), intent=intent)
+    if expand_of:
+        # 展开目录里的几条：每条给足预算（≤3 条按深读），只用这几条
+        n, deep = len(pool), len(notes_pool) <= 3
     n += _saved_lead(pool, n)
+    # 档位（她 1015 拍板）：结果多 → 目录（不调作答模型，零 token）；适中 / 要精准 → 直接答。留来源重答、展开、手动保留时不出目录
+    mode_info: dict[str, Any] = {}
+    mode = "direct"
+    # 追问（「需要哪些调料？」）接着上一答，不出目录
+    if not pinned and not pins and found_mode == "standalone":
+        try:
+            mode, mode_info = decide_mode(understood, notes_pool, items, deep=deep, expansion_terms=expansion["terms"],
+                                          used_filters=used_filters, force=force_mode)
+        except Exception:  # noqa: BLE001 - 判档失败 = 直接答（老路）
+            mode, mode_info = "direct", {}
+    if mode == "toc":
+        strong = mode_info.get("strong_items") or notes_pool
+        toc_terms = list(dict.fromkeys((core_words(understood, items) or []) + terms + expansion["terms"]))
+        entries = toc_entries(strong, toc_terms)
+        listed = {e["id"] for e in entries}
+        toc_sources = [{**_card(it, e["hit"].get("text", "")), "citation": e["n"], "tier": "toc", "hit": e["hit"],
+                        "date": it.get("date") or "", "kinds": e["kinds"]}
+                       for e, it in zip(entries, [x for x in strong if x["id"] in listed])]
+        rest = [it for it in pool if it["id"] not in listed]
+        related_toc = [related_card(it, len(entries) + i + 1, toc_terms) for i, it in enumerate(rest)]
+        core = str(understood.get("core") or question)[:20]
+        markdown = toc_markdown(entries, len(strong), core)
+        _turn_record(turn_id, question, "toc", [e["id"] for e in entries], understood, skill_id)
+        _phase(f"出目录：{len(strong)} 篇相关，先列 {len(entries)} 篇")
+        from .mdsafe import neutralize
+        coverage = f"共检到 {len(strong)} 篇相关" + (f"，目录先列 {len(entries)} 篇，其余在「其他相关」" if len(strong) > len(entries) else "")
+        return {"kind": "answer", "mode": "toc", "markdown": neutralize(markdown), "toc": entries, "toc_total": len(strong),
+                "coverage_note": coverage, "suggest": "",
+                "turn_id": turn_id, "source_ids": [e["id"] for e in entries], "sources": toc_sources, "related": related_toc,
+                "matches": len(matches), "materials": 0, "candidates": len(pool), "model_called": False,
+                "candidate_set": {"total": total, "shown": len(pool), "more": beyond},
+                "understanding": _public_understanding(understood, used_filters), "skill": skill_id,
+                "mode_reason": mode_info.get("reason"), "usage": None,
+                **({"intent_model": intent} if intent else {}),
+                "expansion": {"terms": expansion["terms"], "status": expansion.get("status")}}
+    strong_n = mode_info.get("strong")
     if pins:
         n = max(n, min(len(pins), len(pool)))
         cap = max(cap, len(pins) * (frag + 240))
@@ -1122,8 +1584,8 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     blocks, sources, overflow = [], [], []
     per = evidence_budget(cap, frag, len(primary), deep)
     for it in primary:
-        snippets = locate_excerpts(it, evidence(it, terms + prior_terms + expansion["terms"], per, sem,
-                                              window_chars=1000, max_parts=8 if deep else 4, deep=deep))
+        snippets = locate_excerpts(it, _with_comment_budget(it, terms + prior_terms + expansion["terms"], per, sem,
+                                                            window_chars=1000, max_parts=8 if deep else 4, deep=deep))
         if it["id"] in pins:
             # 她手动加入的：至少拿到一篇常规片段的预算（不因主要依据多被摊薄）
             snippets = locate_excerpts(it, evidence(it, terms + prior_terms + expansion["terms"], max(per, frag), sem,
@@ -1135,11 +1597,32 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
             continue
         blocks.append(block[:remaining])
         sources.append({**_card(it, snippets[0]["text"] if snippets else ""), "citation": len(sources)+1, "excerpts": snippets, "tier": "primary",
-                        "agent_md": str(storage.vault_root() / it["agent_md"]) if it.get("agent_md") else None, "attachments": it.get("attachment_files", [])})
+                        "agent_md": str(storage.vault_root() / it["agent_md"]) if it.get("agent_md") else None, "attachments": it.get("attachment_files", []),
+                        # 1015：这一条用到了哪几类来源（正文 / 评论区 / 图片文字 / 视频文字稿 …），前端标来源类型
+                        "hit_types": list(dict.fromkeys(x["field"] for x in snippets if x.get("field"))), "date": it.get("date") or ""})
+    if (understood or {}).get("goal") == "find" and not pinned and mode_info.get("strong_items"):
+        # 找回（她 1015 验收：鱼露）：主答之外「也提到 X 的」每篇一行——只给出现位置和那一句原文，不展开、不另花大段预算
+        also_terms = list(dict.fromkeys((core_words(understood, items) or []) + terms + expansion["terms"]))
+        shown = {s["id"] for s in sources}
+        for it in [x for x in mode_info["strong_items"] if x["id"] not in shown][:ALSO_MAX]:
+            hp = hit_point(it, also_terms)
+            n_cite = len(sources) + 1
+            where = hp["label"] + (f" {hp['loc']}" if hp.get("loc") else "") + (f"（{hp['speaker']}）" if hp.get("speaker") else "")
+            author = str(it.get("author") or "").strip()
+            blocks.append(f"[来源{n_cite}] {it.get('title') or '未命名'}" + (f"\n作者：{author}" if author else "")
+                          + f"\n（也提到，只列一行）出现在{where}：{hp.get('text') or ''}")
+            sources.append({**_card(it, hp.get("text") or ""), "citation": n_cite, "tier": "also", "hit": hp,
+                            "excerpts": [{"field": hp["type"], "text": hp.get("text") or ""}],
+                            "hit_types": [hp["type"]], "date": it.get("date") or ""})
     sent = {s["id"] for s in sources}
     related_cards = [related_card(it, len(sources) + i + 1, terms + prior_terms + expansion["terms"])
                      for i, it in enumerate([it for it in overflow + related if it["id"] not in sent])]
     prompt = ai_config.DEFAULT_ANSWER_PROMPT + "\n" + ATTRIBUTION_RULE + "\n" + FORMAT_RULES
+    try:
+        from . import skills as _sk
+        prompt += _sk.prompt_block(skill) + _relation_rules(understood)
+    except Exception:  # noqa: BLE001 - 技能 / 关系规则只是加成
+        pass
     custom = (settings.get("prompts") or {}).get("answer", "")
     if custom and '"results"' not in custom and custom not in {prompt,ai_config.DEFAULT_ANSWER_PROMPT,ai_config.LEGACY_ANSWER_PROMPT}:
         prompt += "\n用户的回答风格偏好：" + custom
@@ -1155,6 +1638,9 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
         note = f"（前 {min(picked, len(sources))} 条是筛选认为最符合的，其余是检索到的相关材料，用前先核对。）\n"
     elif selection_empty:
         note = "（筛选认为这些候选可能都不完全符合提问的条件：逐条核对，真没有符合的就直说没有，不要硬凑。）\n"
+    elif expand_of:
+        note = (f"（这 {len(sources)} 条是她在目录里点了「展开」的：逐条写细节，每条一个小节，小节标题用帖子标题，"
+                "按技能要求的字段写；只依据它们回答。）\n")
     elif pinned:
         note = "（这些是用户自己留下的来源，只依据它们回答。）\n"
     pin_cites = [s["citation"] for s in sources if s["id"] in set(pins)]
@@ -1200,7 +1686,15 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
         if not (excluded or pins):  # 带会话约束的回答不进答案缓存：换个会话同一问不该沿用被约束过的结论
             answer_cache.record(question, base_terms, sources, markdown, qvec)
     if hint:markdown=hint+'\n\n'+markdown
-    result={"kind": "answer", "markdown": markdown, "sources": sources, "related": related_cards, "matches": len(matches),
+    hint_line = suggest_line(understood) if strong_n == 0 and not pinned and understood.get("goal") in ("find", "ask") else ""
+    if hint_line:
+        markdown += "\n\n" + hint_line
+    _turn_record(turn_id, question, "direct", [s["id"] for s in sources], understood, skill_id, expand_of)
+    result={"kind": "answer", "markdown": markdown, "mode": "direct", "turn_id": turn_id,
+            "coverage_note": f"用了 {len(sources)} 条材料" + (f"，另有 {len(related_cards)} 条在「其他相关」" if related_cards else ""),
+            "source_ids": [s["id"] for s in sources], "understanding": _public_understanding(understood, used_filters),
+            "skill": skill_id, **({"suggest": hint_line} if hint_line else {}), **({"expanded_from": expand_of} if expand_of else {}),
+            **({"mode_reason": mode_info.get("reason")} if mode_info.get("reason") else {}), "sources": sources, "related": related_cards, "matches": len(matches),
             "materials": len(sources), "candidates": candidate_count, "truncated": res.get('truncated',False), "model_called": True,
             "candidate_set": {"total": total, "shown": candidate_count, "more": beyond}, "deep_read": deep,
             **({"intent_model": intent} if intent else {}),
@@ -1247,21 +1741,57 @@ def delivery_payload(result: dict[str, Any], include=None) -> dict[str, Any]:
 
 
 def answer(question: str, history=None, include=None, on_delta=None, model: str = '', on_phase=None,
-           source_ids=None, exclude_ids=None, pin_ids=None) -> dict[str, Any]:
+           source_ids=None, exclude_ids=None, pin_ids=None, expand=None, mode=None) -> dict[str, Any]:
     """source_ids（第 10 批「按剩下的重新回答」）：只用这些来源作答，不重新检索；None = 正常检索。
-    exclude_ids / pin_ids（R2 会话面）：本会话排除 / 保留的来源 id，页面每一问都显式带上；不是字符串数组就当没给。"""
+    exclude_ids / pin_ids（R2 会话面）：本会话排除 / 保留的来源 id，页面每一问都显式带上；不是字符串数组就当没给。
+    expand（1015 第二批）：{"turn_id": 那一答的 turn_id, "ids": [要展开的来源 id…]}（ids 省略或 "all": true = 那一答目录全部）——
+    按那一答登记的问题和来源作答（ask_turns），不靠「上一答」字面。mode：'direct' | 'toc' 强制档位（不给 = 自动判）。
+    接口约定见 docs/FORMAT.md「问收藏响应：档位 / 目录 / 展开」。"""
     token = _ON_DELTA.set(on_delta)
     ptoken = _ON_PHASE.set(on_phase)
     try:
-        return _answer(question, history, include, model, source_ids, exclude_ids, pin_ids)
+        return _answer(question, history, include, model, source_ids, exclude_ids, pin_ids, expand, mode)
     finally:
         _ON_PHASE.reset(ptoken)
         _ON_DELTA.reset(token)
 
 
+def resolve_expand(question, expand):
+    """展开请求 → (问题, 来源 id, 登记的那一轮 | None) 或抛 ValueError（原因可读）。
+    有登记：问题用登记的原问题，ids 只留那一答里真有的（别的丢）；没给 ids / all=true = 那一答全部（最多 TOC_MAX）。
+    登记丢了（换机 / 清了）：用请求里带的 question + ids（fail-open，照样能答）。"""
+    from . import ask_turns
+    if not isinstance(expand, dict):
+        raise ValueError("expand 要是 {turn_id, ids} 对象")
+    ids = expand.get("ids")
+    if ids is not None and (not isinstance(ids, list) or not all(isinstance(i, str) for i in ids)):
+        raise ValueError("expand.ids 必须是来源 id 的数组")
+    turn = ask_turns.get(expand.get("turn_id"))
+    if turn:
+        known = [i for i in turn.get("ids") or [] if isinstance(i, str)]
+        want = known[:TOC_MAX] if (not ids or expand.get("all")) else [i for i in dict.fromkeys(ids) if i in set(known)]
+        if not want:
+            raise ValueError("要展开的条目不在那一答里")
+        return str(turn.get("q") or question), want, turn
+    if not ids or not question:
+        raise ValueError("找不到那一答的登记（turn_id 过期），请带上 question 和 ids 再展开")
+    return question, list(dict.fromkeys(ids)), None
+
+
 def _answer(question: str, history=None, include=None, model: str = '', source_ids=None,
-            exclude_ids=None, pin_ids=None) -> dict[str, Any]:
+            exclude_ids=None, pin_ids=None, expand=None, mode=None) -> dict[str, Any]:
     question = (question or "").strip()
+    expand_turn, expand_of = None, None
+    if isinstance(expand, dict) and "ids" not in expand and isinstance(expand.get("expand_ids"), list):
+        expand = {**expand, "ids": expand["expand_ids"]}
+    if expand is not None:
+        try:
+            question, source_ids, expand_turn = resolve_expand(question, expand)
+        except ValueError as exc:
+            return {"status": "error", "markdown": f"展开失败：{exc}", "error_kind": "bad_request"}
+        expand_of = str(expand.get("turn_id") or "") or "unregistered"
+    if mode not in (None, "", "direct", "toc"):
+        return {"status": "error", "markdown": "mode 只能是 direct 或 toc。"}
     settings = ai_config.with_model(ai_config.load(), model)
     if settings.get('modelFallback'):
         _phase(f'「{settings["modelFallback"]["name"]}」没填 Key，改用文本 AI')
@@ -1284,8 +1814,17 @@ def _answer(question: str, history=None, include=None, model: str = '', source_i
         probe = recall_core.Probe(question, history)
         intent, intent_source = route_intent(question, probe.llm().get("intent"))
     handler = {"github": _answer_github, "links": _answer_links}.get(intent, _answer_qa)
-    result = (handler(question, items, settings, history, source_ids, exclude_ids, pin_ids, probe) if intent == "qa"
+    understood = None
+    if expand_turn and isinstance(expand_turn.get("understanding"), dict):
+        understood = {"goal": "ask", "filters": {}, **expand_turn["understanding"], "skill": expand_turn.get("skill")}
+    result = (handler(question, items, settings, history, source_ids, exclude_ids, pin_ids, probe,
+                      force_mode=mode or None, expand_of=expand_of, understood=understood) if intent == "qa"
               else handler(question, items, settings))
+    if intent != "qa":
+        # 链接 / GitHub 清单也发 turn_id + 来源 id（前端「展开」/ 绑来源统一按这两个字段走）
+        result.setdefault("mode", "direct")
+        result.setdefault("turn_id", _new_turn_id())
+        result.setdefault("source_ids", [s.get("id") for s in result.get("sources") or [] if s.get("id")])
     result["intent_source"] = intent_source
     result.setdefault("status", "ok")
     if result["status"] == "cancelled":
@@ -1316,7 +1855,9 @@ def run(args) -> int:
             if not isinstance(history, list) or any(not isinstance(m, dict) for m in history):
                 raise ValueError("history 必须是对话消息数组")
             pinned = {"source_ids": request["source_ids"]} if request.get("source_ids") is not None else {}
-            pinned.update({key: request[key] for key in ("exclude_ids", "pin_ids") if request.get(key)})
+            pinned.update({key: request[key] for key in ("exclude_ids", "pin_ids", "expand", "mode") if request.get(key)})
+            if request.get("expand_ids") is not None and "expand" not in pinned:   # chat 车约定：turn_id + expand_ids
+                pinned["expand"] = {"turn_id": request.get("turn_id"), "ids": request["expand_ids"]}
             result = answer(request["question"], history, request.get("include"), **pinned)
         else:
             history = json.load(sys.stdin) if getattr(args, "history_stdin", False) else []
