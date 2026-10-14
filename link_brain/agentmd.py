@@ -63,8 +63,8 @@ def _covered(piece: str, pool: str, threshold: int = 90) -> bool:
 _TRANSCRIBE_HEAD = re.compile(r"[^。\n]*文字(?:转录|内容|如下)[^。\n]*?[:：]")
 _TEXT_WORDS = ("文字", "字幕", "写着", "配文", "标题", "文案", "署名", "水印", "栏目")
 _QUOTE = re.compile(r"[“\"「『]([^”\"」』]{1,80})[”\"」』]")
-DESC_LIMIT = 60
-IMAGE_LIMIT = 150
+DESC_LIMIT = 400        # 识图描述安全上限：按句子边界截，不截半句（10-15 前是 60 字硬截，把「挎…」截在半句）
+IMAGE_LIMIT = 600       # 每图 OCR 文字上限：按整行截
 STRUCTURED_LIMIT = 800
 COMMENT_IMAGE_LIMIT = 300
 
@@ -79,16 +79,43 @@ def asset_name(asset: str) -> str:
 
 
 def ocr_lines(image: dict[str, Any]) -> list[str]:
-    """一张图的 OCR 行：去统计行、乱码行，同图内重复行只留一次。"""
-    out, seen = [], set()
-    for line in clean_ocr(image.get("ocr")).splitlines():
-        s = line.strip()
+    """一张图的 OCR 行：去统计行、乱码行，同图内重复行只留一次。段落间隔（按行框的竖向空隙判断）用空串表示。"""
+    boxed = [x for x in image.get("lines") or [] if isinstance(x, dict) and str(x.get("text") or "").strip()]
+    if boxed and all(isinstance(x.get("box"), (list, tuple)) and len(x["box"]) == 4 for x in boxed):
+        rows = [(str(x["text"]).strip(), x["box"]) for x in boxed]
+    else:
+        rows = [(line.strip(), None) for line in clean_ocr(image.get("ocr")).splitlines()]
+    heights = sorted(b[3] - b[1] for _, b in rows if b) or [0]
+    gap_need = 1.2 * heights[len(heights) // 2]
+    out: list[str] = []
+    seen: set[str] = set()
+    prev_bottom = None
+    for s, box in rows:
         if not s or junk_line(s):
             continue
         key = norm(s)
-        if key and key not in seen:
-            seen.add(key)
-            out.append(s)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        if box and prev_bottom is not None and out and box[1] - prev_bottom > gap_need > 0:
+            out.append("")
+        out.append(s)
+        if box:
+            prev_bottom = box[3]
+    return out
+
+
+def cut_sentences(text: str, limit: int) -> str:
+    """按句子边界截到 limit 字以内，不截半句；第一句就超长时整句保留。截了末尾加「…（略）」。"""
+    text = str(text or "").strip()
+    if len(text) <= limit:
+        return text
+    parts = [x for x in re.split(r"(?<=[。！？!?；;])", text) if x]
+    out = ""
+    for part in parts:
+        if out and len(out) + len(part) > limit:
+            return out.rstrip() + "…（略）"
+        out += part
     return out
 
 
@@ -100,8 +127,9 @@ def watermarks(per_image: list[list[str]]) -> list[str]:
     first: dict[str, str] = {}
     for lines in per_image:
         for line in lines:
-            first.setdefault(norm(line), line)
-        for key in {norm(x) for x in lines if len(x) <= 12 and norm(x)}:
+            if line:
+                first.setdefault(norm(line), line)
+        for key in {norm(x) for x in lines if x and len(x) <= 12 and norm(x)}:
             count[key] = count.get(key, 0) + 1
     need = max(2, math.ceil(len(per_image) * 0.5))
     return [line for key, line in first.items() if count.get(key, 0) >= need]
@@ -190,31 +218,35 @@ def image_entries(images: list[dict[str, Any]], origin: Callable[[str], str]) ->
     for image, lines in zip(images, plain):
         asset = str(image.get("asset") or "")
         no = image_no(asset)
-        head = f"- 图{no} {asset_name(asset)}" if no is not None else f"- {asset_name(asset)}"
+        head = f"### 第{no}张（图{no} · {asset_name(asset)}）" if no is not None else f"### {asset_name(asset)}"
         why = shaky(image)
-        tail = [f"  - 识别没把握（{why}），原图：{origin(asset)}"] if why else []
+        tail = [f"识别没把握（{why}），原图：{origin(asset)}"] if why else []
         if image.get("status") != "ok":
-            entries.append({"lines": [f"{head}：（识别失败：{image.get('error')}）"] + tail, "fixed": True})
+            entries.append({"head": head, "lines": [head, "", f"（识别失败：{image.get('error')}）"] + tail, "fixed": True})
             continue
         structured = _structured_label(image)
         if structured:
             label, rows = structured
             fixed = (image.get("refined") or {}).get("status") == "ok"
-            body = [f"  {row}" for row in rows]
+            body = [row.rstrip() for row in rows]
+            while body and not body[-1]:
+                body.pop()
             if not fixed:
                 body = _cap_rows(body, STRUCTURED_LIMIT)
-            out = [f"{head}（{label}）："] + body
+            out = [head, "", f"{label}：", ""] + [_no_heading(r) for r in body]
             if fixed and (image.get("refined") or {}).get("kind") == "diagram":
-                out += _diagram_raw(image, "")
-            entries.append({"lines": out + tail, "fixed": fixed})
+                out += [""] + [r[2:] for r in _diagram_raw(image, "")]
+            entries.append({"head": head, "lines": out + ([""] + tail if tail else []), "fixed": fixed})
             continue
-        text_lines = [x for x in lines if norm(x) not in mark_keys]
-        ocr_text = " / ".join(text_lines)
+        text_lines = [x for x in lines if not x or norm(x) not in mark_keys]
+        while text_lines and not text_lines[0]:
+            text_lines.pop(0)
+        text_lines = [x for i, x in enumerate(text_lines) if x or (i + 1 < len(text_lines) and text_lines[i - 1])]
         visual = image.get("visual") or {}
         desc = ""
         if visual.get("status") == "ok":
             desc = clean_description(visual.get("text") or "", norm(clean_ocr(image.get("ocr"))))
-        entries.append({"head": head, "ocr": ocr_text, "desc": desc, "tail": tail,
+        entries.append({"head": head, "ocr": text_lines, "desc": desc, "tail": tail,
                         "kind": visual.get("kind"), "no": no if no is not None else asset_name(asset)})
     # 和前面某张图描述差不多（≥80%）的写「同图N」
     from rapidfuzz import fuzz
@@ -242,29 +274,33 @@ def _cap_rows(rows: list[str], limit: int) -> list[str]:
     return out
 
 
-def render_entry(entry: dict[str, Any], limit: int = IMAGE_LIMIT) -> list[str]:
-    """一张普通图片：一行 OCR + 一行描述，合计 ≤ limit 字。"""
+def _no_heading(row: str) -> str:
+    """图上文字顶格的「# 标题」会变成机读版里的真小标题、打乱分节（read 按 ## 取节），转义成字面井号。"""
+    stripped = row.lstrip()
+    return row[: len(row) - len(stripped)] + "\\" + stripped if stripped.startswith("#") else row
+
+
+def render_entry(entry: dict[str, Any]) -> list[str]:
+    """一张普通图片：小标题「第N张」，下面先「描述」（不硬截，按句子边界设安全上限），再「图上文字」（保留原换行和段落）。"""
     if "lines" in entry:
         return entry["lines"]
-    ocr = cut(entry["ocr"], limit, "…（略）") if entry["ocr"] else ""
-    room = min(DESC_LIMIT, limit - len(ocr))
-    label = {"table": "表格", "title": "标题图"}.get(entry.get("kind"), "图片描述")
-    desc = ""
+    label = {"table": "表格", "title": "标题图"}.get(entry.get("kind"), "描述")
+    out = [entry["head"], ""]
     if entry.get("same") is not None:
-        desc = f"（{label}同图{entry['same']}）"
-    elif entry.get("desc") and room >= 10:
-        desc = f"（{label}）" + cut(entry["desc"], room)
-    if ocr:
-        out = [f"{entry['head']}：{ocr}"] + ([f"  - {desc}"] if desc else [])
-    elif desc:
-        out = [f"{entry['head']}：{desc}"]
-    else:
-        out = [f"{entry['head']}：（没认出文字）"]
-    return out + entry["tail"]
+        out += [f"{label}：同第{entry['same']}张", ""]
+    elif entry.get("desc"):
+        out += [f"{label}：" + cut_sentences(entry["desc"], DESC_LIMIT), ""]
+    if entry["ocr"]:
+        out += ["图上文字：", ""] + [_no_heading(r) for r in _cap_rows(entry["ocr"], IMAGE_LIMIT)] + [""]
+    if len(out) == 2:
+        out += ["（没认出文字）", ""]
+    if entry["tail"]:
+        out += entry["tail"] + [""]
+    return out[:-1] if out[-1] == "" else out
 
 
 def image_section(images: list[dict[str, Any]], origin: Callable[[str], str], total: int = 3000) -> list[str]:
-    """「图片 OCR」节的正文行（不含节标题）。超过 total 字后，后面的普通图片只留图号一行。"""
+    """「图片 OCR」节的正文行（不含节标题）。超过 total 字后，后面的普通图片只留小标题和一行「略」。"""
     if not images:
         return []
     marks, entries = image_entries(images, origin)
@@ -272,15 +308,14 @@ def image_section(images: list[dict[str, Any]], origin: Callable[[str], str], to
     out = [f"原图在 `{folder}`（image-NNN.webp 按图号；评论图 comment-<评论id>-N.webp），需要看原图用 read_asset。"]
     if marks:
         out.append("每张图都带：" + "、".join(marks))
-    out.append("")
     used = 0
     for entry in entries:
         rows = render_entry(entry)
-        size = sum(len(r.strip()) for r in rows)
+        size = sum(len(r.strip()) for r in rows[1:])
         if used + size > total and "lines" not in entry:
-            rows = [f"{entry['head']}：（略，超出图片字数上限）"] + entry["tail"]
-            size = len(rows[0])
-        out += rows
+            rows = [entry["head"], "", "（略，超出图片字数上限）"] + ([""] + entry["tail"] if entry["tail"] else [])
+            size = sum(len(r) for r in rows[1:])
+        out += [""] + rows
         used += size
     return out
 
@@ -292,7 +327,7 @@ def comment_image_text(image: dict[str, Any]) -> str:
         rows = [re.sub(r"^\s*[-*]\s+", "", r).replace("**", "").strip() for r in structured[1]]
         text = " / ".join(r for r in rows if r and not r.startswith("```") and not r.startswith("|-") and not junk_line(r))
     else:
-        text = " / ".join(ocr_lines(image))
+        text = " / ".join(x for x in ocr_lines(image) if x)
     return cut(text, COMMENT_IMAGE_LIMIT, "…（略）") if len(norm(text)) >= 4 else ""
 
 
