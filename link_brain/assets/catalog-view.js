@@ -198,7 +198,7 @@ const CSS = `
 .lbc-grid[hidden]{display:none!important;}
 .lbc-masonry{display:flex;align-items:flex-start;gap:0 var(--lbc-gap,24px);}
 .lbc-masonry>.lbc-col{flex:1 1 0;min-width:0;display:flex;flex-direction:column;}
-.lbc-card{display:block;width:100%;margin:0 0 26px;cursor:pointer;position:relative;}
+.lbc-card{display:block;width:100%;margin:0 0 26px;cursor:pointer;position:relative;content-visibility:auto;overflow-clip-margin:28px;}
 .lbc-cover{display:block;width:100%;height:auto;max-height:360px;object-fit:cover;object-position:top;border:0;border-radius:12px;transition:transform .16s,box-shadow .16s;pointer-events:none;}
 .lbc-card:hover .lbc-cover{transform:translateY(-2px);box-shadow:0 6px 18px #00000012;}
 .lbc-card:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:5px;border-radius:12px;}
@@ -1884,7 +1884,8 @@ function layoutInto(box, rows, n) {
   while (cols.length > plan.length) cols.pop().remove();
   plan.forEach((idxs, ci) => {
     const col = cols[ci];
-    const want = idxs.map(i => getCard(rows[i]));
+    // 1015 首开卡：.lbc-card 是 content-visibility:auto（屏外的卡不排版），占位高 = 上面的估算高（画过一次后 auto 记住真高）
+    const want = idxs.map(i => { const c = getCard(rows[i]); const h = Math.round(heights[i]); if (h > 0 && c.__lbH !== h) { c.__lbH = h; c.style.containIntrinsicSize = `auto ${h}px`; } return c; });
     want.forEach((card, k) => { if (col.children[k] !== card) col.insertBefore(card, col.children[k] || null); });
     while (col.children.length > want.length) col.lastElementChild.remove();
   });
