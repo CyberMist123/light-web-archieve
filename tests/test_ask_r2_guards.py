@@ -51,8 +51,9 @@ def test_mermaid_raw_ocr_block_stays_inside_list_item():
         vision={'images': [{'asset': 'image-001.webp', 'status': 'ok',
             'refined': {'status': 'ok', 'kind': 'diagram', 'text': '```mermaid\nflowchart TD\nA-->B\n```'},
             'lines': [{'text': '第一步'}, {'text': ''}, {'text': '小贴士 & 注意'}]}]})
-    block = text[text.index('<details>') - 2:text.index('</details>') + 10].splitlines()
-    assert all(row.startswith('  ') and row.strip() for row in block)
+    block = text[text.index('<details>'):text.index('</details>') + 10].splitlines()
+    assert all(row.strip() for row in block)                       # HTML 块里不留空行，不被拆断
+    assert '\n\n<details>' in text and '### 第1张（图1 · image-001.webp）' in text
     assert '小贴士 &amp; 注意</pre>' in text
     # 非流程图（表格 / 文字）不附
     text = render.render_agent_md(source={'note': {'title': 't', 'body': 'b'}, 'comments': []},

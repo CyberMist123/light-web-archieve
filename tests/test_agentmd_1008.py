@@ -52,8 +52,8 @@ def test_ocr_drops_binary_watermark_and_junk_but_keeps_two_char_words():
     assert "每张图都带：@作者水印、栏目名" in text
     assert text.count("@作者水印") == 1 and text.count("栏目名") == 1
     assert "0001100" not in text and "1100013100131" not in text and "88" not in text and "」 L" not in text
-    assert "- 图1 image-001.webp：见家长怎么介绍自己 / 网恋" in text           # 两个汉字的词不当乱码
-    assert "- 图4 image-004.webp：只有这一张没水印" in text
+    assert "### 第1张（图1 · image-001.webp）\n\n图上文字：\n\n见家长怎么介绍自己\n网恋\n" in text   # 两个汉字的词不当乱码
+    assert "### 第4张（图4 · image-004.webp）\n\n图上文字：\n\n只有这一张没水印" in text
 
 
 def test_junk_line_rules():
@@ -74,10 +74,10 @@ def test_description_drops_ocr_overlap_and_repeats_and_is_capped():
     images = [_img(1, ocr, d1), _img(2, "靠什么生活", d2), _img(3, "第三张的字", d3)]
     text = _render(vision={"images": images})
     assert "文字转录如下" not in text and "图中文字包括" not in text and "上半部分" not in text
-    assert "（图片描述）这是一张上下两格的访谈插画" in text
-    assert "（图片描述同图1）" in text
+    assert "描述：这是一张上下两格的访谈插画" in text
+    assert "描述：同第1张" in text
     line3 = next(x for x in text.splitlines() if "一张很长的描述" in x)
-    assert len(line3.split("（图片描述）", 1)[1]) <= agentmd.DESC_LIMIT + 1 and line3.endswith("…")
+    assert line3 == "描述：" + d3                                         # 没句号的长描述整句保留，不截半句
 
 
 # ---------------------------------------------------------------- 规则 4：评论精选，楼号不变
@@ -205,14 +205,15 @@ def test_image_caps_and_global_soft_limit():
     text = _render(source={"note": {"title": "t", "body": body}, "comments": comments}, vision={"images": images},
                    extracted={"summary": "概要一句"})
     assert body in text and "概要一句" in text                        # 正文、概要不动
-    first = next(x for x in text.splitlines() if x.startswith("- 图1 "))
-    assert len(first) <= len("- 图1 image-001.webp：") + agentmd.IMAGE_LIMIT + 4 and first.endswith("…（略）")
+    block1 = text.split("### 第1张", 1)[1].split("### 第2张", 1)[0]
+    assert "第10行很长的图上文字内容\n第11行很长的图上文字内容\n" in block1          # OCR 按原换行，一行一条
+    assert sum(len(x) for x in block1.splitlines()[3:]) <= agentmd.IMAGE_LIMIT + 10
     for i in range(1, 31):                                             # 每张图的图号都在
-        assert f"- 图{i} image-{i:03d}.webp：" in text
+        assert f"### 第{i}张（图{i} · image-{i:03d}.webp）" in text
     assert "（略，超出图片字数上限）" in text
     assert "条评论略去" in text
     rows = text.split("## 图片 OCR", 1)[1].split("## 评论", 1)[0].strip().splitlines()
-    shown = [r for r in rows if r.startswith("- 图") and not r.endswith("（略，超出图片字数上限）")]
+    shown = [r for r in rows[1:] if not r.startswith("### ") and r != "（略，超出图片字数上限）"]
     assert sum(len(r) for r in shown) <= 3000                          # 图片识别总计 ≤ 3000 字（不含节头和略去行）
 
 
@@ -224,7 +225,7 @@ def test_image_numbers_match_ask_labels():
     text = _render(vision={"images": images})
     for image in images:
         label = ask._image_label(image, {})                              # 「图3」
-        assert f"- {label} {image['asset'].rsplit('/', 1)[1]}：" in text
+        assert f"（{label} · {image['asset'].rsplit('/', 1)[1]}）" in text
 
 
 def test_long_transcript_does_not_squeeze_out_valuable_comment():
@@ -234,3 +235,31 @@ def test_long_transcript_does_not_squeeze_out_valuable_comment():
     text = _render(source={"note": {"title": "t", "transcript": transcript}, "comments": comments},
                    extracted={"valuable_comments": [{"id": "c1", "why": "有用"}]})
     assert long_comment in text and "[c5]" in text                     # 文字稿超长时评论仍有 3000 字的位置
+
+
+# ---------------------------------------------------------------- 10-15：识图描述不截半句；按图分节、描述与文字分开、保留换行
+
+
+def test_description_not_cut_mid_sentence_and_sentence_cap():
+    desc = "上下两幅剧照展示了女演员在办公室场景中的画面。上图为她身穿黑色职业套装、挎着米色包走在办公区过道中；下图为她与同伴并肩交谈。"
+    text = _render(vision={"images": [_img(1, "合成水印字", desc)]})
+    assert "描述：" + desc in text and "挎…" not in text
+    long = "这是第一句很长的描述内容。" * 60
+    capped = agentmd.cut_sentences(long, agentmd.DESC_LIMIT)
+    assert capped.endswith("。…（略）") and len(capped) <= agentmd.DESC_LIMIT + 4
+
+
+def test_image_section_layout_paragraphs_and_no_heading_leak():
+    lines = [{"text": "第一段第一行", "box": [0, 0, 100, 20]}, {"text": "第一段第二行", "box": [0, 22, 100, 42]},
+             {"text": "# 第二段像标题", "box": [0, 120, 100, 140]}]
+    img1 = _img(1, "第一段第一行\n第一段第二行\n# 第二段像标题", "一张合成的说明图。", lines=lines)
+    img2 = _img(2, "", "只有画面没有字的合成图。")
+    img3 = {"asset": "raw/v0001/assets/image-003.webp", "status": "ok", "ocr": "", "visual": {}}
+    text = _render(vision={"images": [img1, img2, img3]})
+    sec = text.split("## 图片 OCR", 1)[1]
+    assert ("### 第1张（图1 · image-001.webp）\n\n描述：一张合成的说明图。\n\n图上文字：\n\n"
+            "第一段第一行\n第一段第二行\n\n\\# 第二段像标题\n") in sec
+    assert "### 第2张（图2 · image-002.webp）\n\n描述：只有画面没有字的合成图。\n" in sec
+    assert "第2张（图2 · image-002.webp）\n\n描述：只有画面没有字的合成图。\n\n图上文字" not in sec   # 空的不出
+    assert "### 第3张（图3 · image-003.webp）\n\n（没认出文字）" in sec
+    assert " / " not in sec.split("需要看原图用 read_asset。", 1)[1]
