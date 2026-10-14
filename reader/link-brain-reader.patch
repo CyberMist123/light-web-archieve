@@ -4483,10 +4483,10 @@ index 0000000..1854369
 +}
 diff --git a/risk_hold.go b/risk_hold.go
 new file mode 100644
-index 0000000..1437a1d
+index 0000000..49f7478
 --- /dev/null
 +++ b/risk_hold.go
-@@ -0,0 +1,347 @@
+@@ -0,0 +1,496 @@
 +package main
 +
 +// 风控熔断（1001）：撞到验证码 / 安全跳转页 / 需要登录却是游客之后，拒绝一切会开浏览器的请求，
@@ -4541,7 +4541,33 @@ index 0000000..1437a1d
 +	// 1011：冷却后自查（risk_autoprobe.go）——这次熔断自查过的时刻（同一次熔断只查一次）与没解除时的结论。
 +	AutoProbeAt     string `json:"auto_probe_at,omitempty"`
 +	AutoProbeResult string `json:"auto_probe_result,omitempty"`
++	// 1015 限频冷却（code=XHS_RATE_LIMITED）：until = 冷却到几点（RFC3339），strikes = 24 小时内第几次被限频。
++	// 冷却期内照常拒绝开页；到点后放行请求当自探（probing），第一个成功的请求自动清掉；自探又被限频 → 下一档冷却；
++	// 超过 len(rateLimitCooldowns) 档仍限频 → 升级成 ACCOUNT_RISK 要人看。
++	Until   string `json:"until,omitempty"`
++	Strikes int    `json:"strikes,omitempty"`
 +}
++
++// rateLimitCooldowns 第 n 次被限频（24 小时内）冷却多久：2 / 4 / 6 小时；超过档数就升级要人处理。
++var rateLimitCooldowns = []time.Duration{2 * time.Hour, 4 * time.Hour, 6 * time.Hour}
++
++// rateLimitStrikeWindow 两次限频隔这么久以内算「连续」。
++const rateLimitStrikeWindow = 24 * time.Hour
++
++// rateLimited 是不是限频冷却类熔断。
++func (h *riskHold) rateLimited() bool { return h != nil && h.Code == xiaohongshu.RiskRateLimited }
++
++// until 冷却到点时刻；读不懂按零值（= 已到点）。
++func (h *riskHold) until() time.Time {
++	t, err := time.Parse(time.RFC3339, h.Until)
++	if err != nil {
++		return time.Time{}
++	}
++	return t
++}
++
++// probing 限频冷却已到点：放行请求当自探。
++func (h *riskHold) probing(now time.Time) bool { return h.rateLimited() && !now.Before(h.until()) }
 +
 +// riskHoldView 熔断的对外样子（HTTP）：不带 url（本号主页 id + xsec_token）；证据目录（本机绝对路径）只给 /login/session
 +// （Python 的「查看截图」要用），423 响应里不带——423 的 hold 会被 Python 原样转进状态行、问题记录、stdout。
@@ -4554,6 +4580,9 @@ index 0000000..1437a1d
 +	IncidentPage bool   `json:"incident_page,omitempty"` // 记下了出事页面（验证窗口会直接开它）
 +	Evidence     string `json:"evidence,omitempty"`
 +	AutoProbeAt  string `json:"auto_probe_at,omitempty"` // 1011：冷却后自查过的时刻（同一次熔断只查一次）
++	Until        string `json:"until,omitempty"`   // 1015：限频冷却到几点
++	Strikes      int    `json:"strikes,omitempty"` // 1015：24 小时内第几次限频
++	Probing      bool   `json:"probing,omitempty"` // 1015：冷却已到点，正放行请求自探（不拦）
 +}
 +
 +func (h *riskHold) view(withEvidence bool) *riskHoldView {
@@ -4561,7 +4590,7 @@ index 0000000..1437a1d
 +		return nil
 +	}
 +	v := &riskHoldView{Code: h.Code, Since: h.Since, Detail: h.Detail, Tab: h.Tab, WantTab: h.WantTab, IncidentPage: h.URL != "",
-+		AutoProbeAt: h.AutoProbeAt}
++		AutoProbeAt: h.AutoProbeAt, Until: h.Until, Strikes: h.Strikes, Probing: h.probing(holdNow())}
 +	if withEvidence {
 +		v.Evidence = h.Evidence
 +	}
@@ -4572,6 +4601,33 @@ index 0000000..1437a1d
 +	mu   sync.Mutex
 +	path string
 +	cur  *riskHold
++}
++
++// holdNow 测试里可替换。
++var holdNow = time.Now
++
++// rateStrikes 限频计数（落在熔断文件旁的 rate-limit-strikes.json）：自探成功清熔断时保留，24 小时内再被限频就接着往上数。
++type rateStrikes struct {
++	Strikes int    `json:"strikes"`
++	Last    string `json:"last"`
++}
++
++func (h *holdStore) strikesPath() string { return filepath.Join(filepath.Dir(h.path), "rate-limit-strikes.json") }
++
++func (h *holdStore) readStrikes(now time.Time) int {
++	data, err := os.ReadFile(h.strikesPath())
++	if err != nil {
++		return 0
++	}
++	var r rateStrikes
++	if json.Unmarshal(data, &r) != nil {
++		return 0
++	}
++	last, err := time.Parse(time.RFC3339, r.Last)
++	if err != nil || now.Sub(last) > rateLimitStrikeWindow {
++		return 0
++	}
++	return r.Strikes
 +}
 +
 +func holdPath() string { return filepath.Join(browser.ProfileDir(), "risk-hold.json") }
@@ -4604,14 +4660,36 @@ index 0000000..1437a1d
 +}
 +
 +// trip 写熔断；已在熔断中则保留最早那次（since 不刷新）。ev 为这次出事的证据（可为 nil）。
++// 1015：现有的是限频冷却时——冷却到点后的自探又撞了限频 → 下一档冷却；撞的是别的风控（验证 / 安全跳转 / 掉登录）→ 换成那个（更严重）。
 +func (h *holdStore) trip(code, detail string, ev *xiaohongshu.Evidence) *riskHold {
 +	h.mu.Lock()
 +	defer h.mu.Unlock()
++	now := holdNow()
 +	if h.cur != nil {
-+		c := *h.cur
-+		return &c
++		replace := h.cur.rateLimited() && (code != xiaohongshu.RiskRateLimited || h.cur.probing(now))
++		if !replace {
++			c := *h.cur
++			return &c
++		}
 +	}
-+	r := riskHold{Code: code, Since: time.Now().Format(time.RFC3339), Detail: detail}
++	r := riskHold{Code: code, Since: now.Format(time.RFC3339), Detail: detail}
++	if code == xiaohongshu.RiskRateLimited {
++		n := h.readStrikes(now) + 1
++		if b, err := json.Marshal(rateStrikes{Strikes: n, Last: now.Format(time.RFC3339)}); err == nil {
++			_ = os.MkdirAll(filepath.Dir(h.path), 0o700)
++			if err := os.WriteFile(h.strikesPath(), b, 0o600); err != nil {
++				logrus.Warnf("限频计数写盘失败：%v", err)
++			}
++		}
++		if n > len(rateLimitCooldowns) {
++			r.Code = xiaohongshu.RiskAccount
++			r.Detail = fmt.Sprintf("连续 %d 次自动冷却（%s）后小红书仍说访问太频繁，要人看一下账号；%s",
++				len(rateLimitCooldowns), cooldownList(), detail)
++		} else {
++			r.Strikes = n
++			r.Until = now.Add(rateLimitCooldowns[n-1]).Format(time.RFC3339)
++		}
++	}
 +	if ev != nil {
 +		r.URL, r.Tab, r.WantTab, r.Evidence = ev.URL, ev.Tab, ev.WantTab, ev.Dir
 +	}
@@ -4619,9 +4697,45 @@ index 0000000..1437a1d
 +	if err := writeFileAtomic(h.path, r); err != nil {
 +		logrus.Errorf("风控熔断写盘失败（内存里仍生效）：%v", err)
 +	}
-+	logrus.Errorf("风控熔断：%s %s —— 之后所有会开浏览器的请求一律拒绝，直到扫码登录/验证窗口/risk/clear", code, detail)
++	if r.rateLimited() {
++		logrus.Warnf("限频冷却（第 %d 次）：%s —— 冷却到 %s，到点放行一次自探，成功自动解除", r.Strikes, detail, r.Until)
++	} else {
++		logrus.Errorf("风控熔断：%s %s —— 之后所有会开浏览器的请求一律拒绝，直到扫码登录/验证窗口/risk/clear", r.Code, r.Detail)
++	}
 +	c := r
 +	return &c
++}
++
++func cooldownList() string {
++	s := make([]string, len(rateLimitCooldowns))
++	for i, d := range rateLimitCooldowns {
++		s[i] = fmt.Sprintf("%g", d.Hours())
++	}
++	return strings.Join(s, "/") + " 小时"
++}
++
++// blocking 现在要拦请求的熔断：限频冷却到点后（自探中）不拦，返回 nil。
++func (h *holdStore) blocking() *riskHold {
++	c := h.get()
++	if c != nil && c.probing(holdNow()) {
++		return nil
++	}
++	return c
++}
++
++// probeOK 限频冷却到点后放行的请求成功了：自动解除（限频计数保留，24 小时内再撞接着往上数）。其他熔断不动。
++func (h *holdStore) probeOK(what string) bool {
++	h.mu.Lock()
++	defer h.mu.Unlock()
++	if h.cur == nil || !h.cur.probing(holdNow()) {
++		return false
++	}
++	h.cur = nil
++	if err := os.Remove(h.path); err != nil && !os.IsNotExist(err) {
++		logrus.Errorf("删除熔断文件失败（重启后会再次生效）：%v", err)
++	}
++	logrus.Infof("限频冷却到点自探成功（%s），已自动解除", what)
++	return true
 +}
 +
 +// clear 解除熔断；原来就没有返回 false。
@@ -4633,6 +4747,7 @@ index 0000000..1437a1d
 +	if err := os.Remove(h.path); err != nil && !os.IsNotExist(err) {
 +		logrus.Errorf("删除熔断文件失败（重启后会再次生效）：%v", err)
 +	}
++	_ = os.Remove(h.strikesPath()) // 人处理过（扫码 / 验证 / risk/clear）：限频计数从头数
 +	if had {
 +		logrus.Infof("风控熔断已解除：%s", reason)
 +	}
@@ -4719,7 +4834,7 @@ index 0000000..1437a1d
 +
 +// holdGuard 给 browser.NewBrowserGuarded：拿到 profile 锁之后、启动浏览器之前再查一次熔断。
 +func (s *XiaohongshuService) holdGuard() error {
-+	if h := s.hold.get(); h != nil {
++	if h := s.hold.blocking(); h != nil {
 +		logrus.Warnf("拿到浏览器锁时已在风控熔断中（%s），不开浏览器", h.Code)
 +		return &holdError{hold: h}
 +	}
@@ -4755,19 +4870,36 @@ index 0000000..1437a1d
 +		c.JSON(http.StatusServiceUnavailable, body)
 +		return
 +	}
-+	hold := s.xiaohongshuService.tripRisk(r.Code, r.Detail).view(false)
++	held := s.xiaohongshuService.tripRisk(r.Code, r.Detail)
++	hold := held.view(false)
 +	status, msg, hint := http.StatusLocked, "小红书把账号跳到了登录异常/安全页，已停止操作", "先在手机 App 看看账号状态，再扫码登录；期间不要反复重试"
-+	switch r.Code {
++	code := r.Code
++	if r.Code == xiaohongshu.RiskRateLimited && held != nil && !held.rateLimited() {
++		code = held.Code // 连续几次冷却后仍限频：已升级成要人处理
++	}
++	switch code {
++	case xiaohongshu.RiskRateLimited:
++		status, msg, hint = http.StatusTooManyRequests, "小红书说访问太频繁（限频，不是封号）", "已自动冷却"
++		if held != nil && held.Until != "" {
++			hint += "到 " + held.Until
++		}
++		hint += "，到点自己再试，不用处理"
 +	case xiaohongshu.RiskCaptcha:
 +		msg, hint = "小红书要求安全验证（拼图滑块），已停止操作", "打开验证窗口手动完成，或等几小时后再试；期间不要反复重试"
 +	case xiaohongshu.RiskNotLoggedIn:
 +		status, msg, hint = http.StatusUnauthorized, "小红书未登录或登录已失效", "扫码登录后再试"
 +	}
 +	logrus.Errorf("%s %s %d %s", c.Request.Method, c.Request.URL.Path, status, r.Code)
-+	c.JSON(status, gin.H{"error": msg, "code": r.Code, "details": r.Detail + "；" + hint, "hold": hold})
++	c.JSON(status, gin.H{"error": msg, "code": code, "details": r.Detail + "；" + hint, "hold": hold})
 +}
 +
 +func respondHold(c *gin.Context, h *riskHold) {
++	if h.rateLimited() {
++		logrus.Warnf("%s %s 423 RISK_HOLD（限频冷却到 %s）", c.Request.Method, c.Request.URL.Path, h.Until)
++		c.AbortWithStatusJSON(http.StatusLocked, gin.H{"error": "读取服务在限频冷却中，已拒绝开浏览器", "code": codeRiskHold,
++			"details": "小红书说访问太频繁；冷却到 " + h.Until + " 自动再试，不用处理", "hold": h.view(false)})
++		return
++	}
 +	logrus.Warnf("%s %s 423 RISK_HOLD（%s）", c.Request.Method, c.Request.URL.Path, h.Code)
 +	c.AbortWithStatusJSON(http.StatusLocked, gin.H{"error": "读取服务处于风控熔断中，已拒绝开浏览器", "code": codeRiskHold,
 +		"details": "扫码登录、打开验证窗口完成，或确认没事后 POST /api/v1/risk/clear", "hold": h.view(false)})
@@ -4786,11 +4918,15 @@ index 0000000..1437a1d
 +				return
 +			}
 +		}
-+		if h := s.xiaohongshuService.hold.get(); h != nil {
++		if h := s.xiaohongshuService.hold.blocking(); h != nil {
 +			respondHold(c, h)
 +			return
 +		}
++		probe := s.xiaohongshuService.hold.get() // 非空 = 限频冷却已到点，这个请求就是自探
 +		c.Next()
++		if probe != nil && c.Writer.Status() < 400 {
++			s.xiaohongshuService.hold.probeOK(c.Request.Method + " " + p)
++		}
 +	}
 +}
 +
@@ -4798,6 +4934,10 @@ index 0000000..1437a1d
 +var mcpHoldExempt = map[string]bool{"delete_cookies": true, "get_login_qrcode": true}
 +
 +func holdText(h *riskHold) string {
++	if h.rateLimited() {
++		return fmt.Sprintf("[RISK_HOLD] 读取服务在限频冷却中（%s，第 %d 次，冷却到 %s）：%s。到点自动再试，不用处理",
++			h.Code, h.Strikes, h.Until, h.Detail)
++	}
 +	return fmt.Sprintf("[RISK_HOLD] 读取服务处于风控熔断中（%s，自 %s）：%s。已拒绝开浏览器；扫码登录、验证窗口完成或 POST /api/v1/risk/clear 之后再试",
 +		h.Code, h.Since, h.Detail)
 +}
@@ -4807,9 +4947,18 @@ index 0000000..1437a1d
 +	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 +		if method == "tools/call" {
 +			if r, ok := req.(*mcp.CallToolRequest); ok && r.Params != nil && !mcpHoldExempt[r.Params.Name] {
-+				if h := s.xiaohongshuService.hold.get(); h != nil {
++				if h := s.xiaohongshuService.hold.blocking(); h != nil {
 +					logrus.Warnf("MCP %s 被熔断拒绝（%s）", r.Params.Name, h.Code)
 +					return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: holdText(h)}}}, nil
++				}
++				if s.xiaohongshuService.hold.get() != nil { // 限频冷却已到点：这次调用就是自探
++					res, err := next(ctx, method, req)
++					if err == nil {
++						if tr, ok := res.(*mcp.CallToolResult); ok && !tr.IsError {
++							s.xiaohongshuService.hold.probeOK("MCP " + r.Params.Name)
++						}
++					}
++					return res, err
 +				}
 +			}
 +		}
@@ -5539,6 +5688,158 @@ index 0000000..40ac86d
 +	again := app.handleGetFeedDetail(context.Background(), map[string]any{"feed_id": "trap02", "xsec_token": "tok"})
 +	require.True(t, again.IsError)
 +	assert.Contains(t, again.Content[0].Text, "[RISK_HOLD]", "熔断后拿锁复查即拒绝，不再开浏览器")
++}
+diff --git a/risk_ratelimit_1015_test.go b/risk_ratelimit_1015_test.go
+new file mode 100644
+index 0000000..b7602b5
+--- /dev/null
++++ b/risk_ratelimit_1015_test.go
+@@ -0,0 +1,146 @@
++package main
++
++import (
++	"net/http"
++	"os"
++	"path/filepath"
++	"testing"
++	"time"
++
++	"github.com/gin-gonic/gin"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
++)
++
++// 1015：/website-login/error?error_code=300013（访问频繁）是限频，不是要人处理的风控：
++// 冷却 2/4/6 小时 → 到点放行请求当自探 → 成功自动清；连续超过 3 档仍限频才升级成 ACCOUNT_RISK。
++
++func fakeClock(t *testing.T, at time.Time) *time.Time {
++	t.Helper()
++	now := at
++	old := holdNow
++	holdNow = func() time.Time { return now }
++	t.Cleanup(func() { holdNow = old })
++	return &now
++}
++
++func TestRateLimitedHoldCoolsDownAndEscalates(t *testing.T) {
++	now := fakeClock(t, time.Date(2026, 10, 15, 10, 0, 0, 0, time.UTC))
++	h := loadHoldStore(filepath.Join(t.TempDir(), "risk-hold.json"))
++
++	first := h.trip(xiaohongshu.RiskRateLimited, "300013", nil)
++	assert.Equal(t, xiaohongshu.RiskRateLimited, first.Code)
++	assert.Equal(t, 1, first.Strikes)
++	assert.Equal(t, now.Add(2*time.Hour).Format(time.RFC3339), first.Until)
++	require.NotNil(t, h.blocking(), "冷却期内拦请求")
++
++	// 冷却期内又撞（排队中的请求）：保留原样，不加档
++	again := h.trip(xiaohongshu.RiskRateLimited, "300013", nil)
++	assert.Equal(t, 1, again.Strikes)
++
++	*now = now.Add(2 * time.Hour)
++	assert.Nil(t, h.blocking(), "到点放行当自探")
++	assert.True(t, h.get().view(false).Probing)
++
++	second := h.trip(xiaohongshu.RiskRateLimited, "300013", nil) // 自探又被限频
++	assert.Equal(t, 2, second.Strikes)
++	assert.Equal(t, now.Add(4*time.Hour).Format(time.RFC3339), second.Until)
++
++	*now = now.Add(4 * time.Hour)
++	third := h.trip(xiaohongshu.RiskRateLimited, "300013", nil)
++	assert.Equal(t, 3, third.Strikes)
++	assert.Equal(t, now.Add(6*time.Hour).Format(time.RFC3339), third.Until)
++
++	*now = now.Add(6 * time.Hour)
++	fourth := h.trip(xiaohongshu.RiskRateLimited, "300013", nil)
++	assert.Equal(t, xiaohongshu.RiskAccount, fourth.Code, "连续 3 档冷却后仍限频：升级要人处理")
++	assert.Contains(t, fourth.Detail, "连续 3 次自动冷却")
++	assert.Empty(t, fourth.Until)
++	require.NotNil(t, h.blocking())
++	assert.False(t, h.probeOK("x"), "升级后的熔断不会被自探清掉")
++}
++
++func TestRateLimitedProbeSuccessClearsButKeepsStrikes(t *testing.T) {
++	now := fakeClock(t, time.Date(2026, 10, 15, 10, 0, 0, 0, time.UTC))
++	path := filepath.Join(t.TempDir(), "risk-hold.json")
++	h := loadHoldStore(path)
++	h.trip(xiaohongshu.RiskRateLimited, "300013", nil)
++	assert.False(t, h.probeOK("x"), "没到点不清")
++	*now = now.Add(2 * time.Hour)
++	assert.True(t, h.probeOK("x"))
++	assert.Nil(t, h.get())
++	_, err := os.Stat(path)
++	assert.True(t, os.IsNotExist(err))
++
++	*now = now.Add(time.Hour) // 24 小时内又撞：接着往上数
++	assert.Equal(t, 2, h.trip(xiaohongshu.RiskRateLimited, "300013", nil).Strikes)
++	h.clear("人工 risk/clear") // 人处理过：计数从头
++	assert.Equal(t, 1, h.trip(xiaohongshu.RiskRateLimited, "300013", nil).Strikes)
++
++	h.clear("x")
++	h.trip(xiaohongshu.RiskRateLimited, "300013", nil)
++	*now = now.Add(25 * time.Hour)
++	h.probeOK("x")
++	assert.Equal(t, 1, h.trip(xiaohongshu.RiskRateLimited, "300013", nil).Strikes, "隔了 24 小时以上：从头数")
++}
++
++func TestRateLimitedReplacedByRealRisk(t *testing.T) {
++	fakeClock(t, time.Date(2026, 10, 15, 10, 0, 0, 0, time.UTC))
++	h := loadHoldStore(filepath.Join(t.TempDir(), "risk-hold.json"))
++	h.trip(xiaohongshu.RiskRateLimited, "300013", nil)
++	got := h.trip(xiaohongshu.RiskCaptcha, "滑块", nil)
++	assert.Equal(t, xiaohongshu.RiskCaptcha, got.Code, "冷却中撞到真验证：换成要人处理的那个")
++	assert.Equal(t, xiaohongshu.RiskCaptcha, h.trip(xiaohongshu.RiskRateLimited, "300013", nil).Code, "真熔断不被限频覆盖")
++}
++
++func TestRiskGuardProbeClearsRateLimitHold(t *testing.T) {
++	now := fakeClock(t, time.Date(2026, 10, 15, 10, 0, 0, 0, time.UTC))
++	app := noBrowserApp(t)
++	app.xiaohongshuService.tripRisk(xiaohongshu.RiskRateLimited, "300013")
++
++	gin.SetMode(gin.TestMode)
++	r := gin.New()
++	r.Use(app.riskGuard())
++	status := http.StatusOK
++	r.GET("/api/v1/x", func(c *gin.Context) { c.JSON(status, gin.H{}) })
++
++	code, out := doJSON(t, r, "GET", "/api/v1/x", "")
++	assert.Equal(t, http.StatusLocked, code, "冷却期内拦")
++	hold := out["hold"].(map[string]any)
++	assert.Equal(t, "XHS_RATE_LIMITED", hold["code"])
++	assert.NotEmpty(t, hold["until"])
++	assert.Contains(t, out["details"], "不用处理")
++
++	*now = now.Add(2 * time.Hour)
++	status = http.StatusInternalServerError
++	code, _ = doJSON(t, r, "GET", "/api/v1/x", "")
++	assert.Equal(t, http.StatusInternalServerError, code, "到点放行")
++	assert.NotNil(t, app.xiaohongshuService.hold.get(), "自探失败（非 2xx）不清")
++
++	status = http.StatusOK
++	code, _ = doJSON(t, r, "GET", "/api/v1/x", "")
++	assert.Equal(t, http.StatusOK, code)
++	assert.Nil(t, app.xiaohongshuService.hold.get(), "自探成功自动清")
++}
++
++func TestRespondRiskRateLimitedIs429NotNeedsHuman(t *testing.T) {
++	fakeClock(t, time.Date(2026, 10, 15, 10, 0, 0, 0, time.UTC))
++	app := noBrowserApp(t)
++	gin.SetMode(gin.TestMode)
++	r := gin.New()
++	r.GET("/x", func(c *gin.Context) {
++		app.respondRisk(c, &xiaohongshu.RiskError{Code: xiaohongshu.RiskRateLimited, Detail: "访问频繁"})
++	})
++	code, out := doJSON(t, r, "GET", "/x", "")
++	assert.Equal(t, http.StatusTooManyRequests, code)
++	assert.Equal(t, "XHS_RATE_LIMITED", out["code"])
++	assert.Equal(t, "XHS_RATE_LIMITED", out["hold"].(map[string]any)["code"])
++}
++
++// noBrowserApp 这几条测试的处理函数都是假的、不开浏览器：不占浏览器锁（全量跑时别的测试可能还没放锁）。
++func noBrowserApp(t *testing.T) *AppServer {
++	t.Helper()
++	t.Setenv("XHS_PROFILE_DIR", t.TempDir())
++	return NewAppServer(NewXiaohongshuService())
 +}
 diff --git a/routes.go b/routes.go
 index 26b7bf4..d73675e 100644
@@ -6524,10 +6825,10 @@ index c86d1ba..c25dec1 100644
  type SearchFeedsRequest struct {
 diff --git a/xiaohongshu/comment_floors.go b/xiaohongshu/comment_floors.go
 new file mode 100644
-index 0000000..a5fe816
+index 0000000..60435af
 --- /dev/null
 +++ b/xiaohongshu/comment_floors.go
-@@ -0,0 +1,982 @@
+@@ -0,0 +1,1013 @@
 +package xiaohongshu
 +
 +// 评论楼层加载（1004d）：一次请求、一个预算里「滚评论区加载楼层 + 把楼层上限内每楼的回复展开到底」。
@@ -6593,6 +6894,7 @@ index 0000000..a5fe816
 +	ReplyGapNoButton      = "no_button"      // 页面说还有回复，但楼里找不到「展开」按钮
 +	ReplyGapClickFailed   = "click_failed"   // 按钮在，但点不动，退避重试用完
 +	ReplyGapNotReached    = "not_reached"    // 预算 / 风控 / 取消 / 限频停下时这楼还没展开完
++	ReplyGapExpandCap     = "expand_cap"     // 1015：楼序超过「展开楼数上限」，这楼的回复不展开（不算 partial）
 +	ReplyGapNotExpanded   = "not_expanded"   // 调用方没要求展开回复（click_more_replies=false；expand_floors 外的楼不列出）
 +	ReplyGapCountMismatch = "count_mismatch" // 按钮没了、页面也不说还有，但条数比楼上显示的少（多半是删除 / 折叠的回复）
 +)
@@ -6680,6 +6982,11 @@ index 0000000..a5fe816
 +	ProbeFailLimit    int             // 连续读不出页面状态几次就停
 +	RiskEvery         int             // 滚动时每隔几轮查一次风控（点击前另外必查）
 +	Tick              func(i int) time.Duration
++	// 1015（楼中楼限频）：10-12 起 5 次「熔断」全是展开楼中楼（comment/sub/page）连点被小红书回 300013「访问频繁」。
++	// ExpandFloorLimit：只展开前这么多楼的回复（0 = 不限；expand_floors 续读不受限）；
++	// ExpandGap：每次点「展开回复」之前先歇这么久（nil = 不歇），和翻一级评论的节奏分开、明显更慢。
++	ExpandFloorLimit int
++	ExpandGap        func() time.Duration
 +}
 +
 +type floorOps struct {
@@ -6696,7 +7003,18 @@ index 0000000..a5fe816
 +	// defaultRoundStep 公平分档：先让每楼都到 30 条，再 60、90……
 +	defaultRoundStep = 30
 +	commentRiskEvery = 3
++	// defaultExpandFloorLimit 1015：默认只展开前 10 楼的楼中楼（其余楼的回复留在 replies_partial，reason=expand_cap）
++	defaultExpandFloorLimit = 10
 +)
++
++// expandGap 1015：点「展开回复」前歇 4–9 秒（均匀抖动），偶尔多歇 5–10 秒。只管楼中楼（sub/page），不影响翻一级评论。
++func expandGap() time.Duration {
++	d := 4*time.Second + time.Duration(rand.Int63n(int64(5*time.Second)))
++	if rand.Intn(5) == 0 {
++		d += 5*time.Second + time.Duration(rand.Int63n(int64(5*time.Second)))
++	}
++	return d
++}
 +
 +// commentFloorSettle 滚楼层的三级：普通滚 15s 不涨 → 大幅滚 20s → 连推冲刺 25s，仍不涨就判 stuck。
 +var commentFloorSettle = []time.Duration{15 * time.Second, 20 * time.Second, 25 * time.Second}
@@ -6725,6 +7043,7 @@ index 0000000..a5fe816
 +		GrowWait: 6 * time.Second, Poll: 500 * time.Millisecond,
 +		ThrottleStreak: 4, ThrottlePause: throttlePause, MaxThrottlePauses: 2,
 +		ScrollSettle: commentFloorSettle, ProbeFailLimit: 10, RiskEvery: commentRiskEvery, Tick: commentTick,
++		ExpandFloorLimit: defaultExpandFloorLimit, ExpandGap: expandGap,
 +	}
 +}
 +
@@ -6769,6 +7088,11 @@ index 0000000..a5fe816
 +		}
 +	}
 +	return out
++}
++
++// floorBeyondExpandCap 楼序超过展开楼数上限（续读 expand_floors 不受限）。
++func floorBeyondExpandCap(cfg floorLoadCfg, f floorInfo) bool {
++	return len(cfg.ExpandFloors) == 0 && cfg.ExpandFloorLimit > 0 && f.Index >= cfg.ExpandFloorLimit
 +}
 +
 +// floorCapped 到了每楼回复上限。
@@ -6952,6 +7276,11 @@ index 0000000..a5fe816
 +					fs.gaveUp = ReplyGapCap
 +					logrus.Warnf("评论第 %d 楼：点了 %d 次（上限）还没展开完（%d/%d），先放下", f.Index+1, fs.clicks, f.Loaded, f.Shown)
 +				default:
++					if cfg.ExpandGap != nil && res.Clicks > 0 { // 1015：楼中楼单独放慢（第一次点不歇，之后每次都歇）
++						if !sleep(cfg.ExpandGap()) {
++							continue
++						}
++					}
 +					if r := ops.risk(); r != nil { // 点「展开回复」之前必查
 +						return riskStop(&res, start, last, cfg, st, r)
 +					}
@@ -7032,7 +7361,8 @@ index 0000000..a5fe816
 +	var wait time.Time
 +	for _, f := range s.Floors {
 +		fs := st[floorKey(f)]
-+		if !wantFloor(cfg, f) || floorDone(f) || floorCapped(f, cfg.ReplyCap) || (fs != nil && fs.gaveUp != "") {
++		if !wantFloor(cfg, f) || floorDone(f) || floorCapped(f, cfg.ReplyCap) || floorBeyondExpandCap(cfg, f) ||
++			(fs != nil && fs.gaveUp != "") {
 +			continue
 +		}
 +		if fs != nil && now.Before(fs.notBefore) {
@@ -7117,6 +7447,8 @@ index 0000000..a5fe816
 +		case reason != "":
 +		case floorCapped(f, cfg.ReplyCap):
 +			reason = ReplyGapReplyCap
++		case cfg.Expand && floorBeyondExpandCap(cfg, f):
++			reason = ReplyGapExpandCap
 +		case !cfg.Expand:
 +			reason = ReplyGapNotExpanded
 +		default:
@@ -7138,13 +7470,13 @@ index 0000000..a5fe816
 +			missing = f.Shown - f.Loaded
 +		}
 +		detail := fs.detail
-+		if reason == ReplyGapCountMismatch || reason == ReplyGapReplyCap {
++		if reason == ReplyGapCountMismatch || reason == ReplyGapReplyCap || reason == ReplyGapExpandCap {
 +			detail = ""
 +		}
 +		res.RepliesPartial = append(res.RepliesPartial, ReplyGap{Floor: f.Index + 1, CommentID: f.ID, Shown: f.Shown,
 +			Loaded: f.Loaded, Missing: missing, HasMore: f.HasMore == 1, Clicks: fs.clicks, Reason: reason, Detail: detail})
 +		res.RepliesMissing += missing
-+		if reason != ReplyGapCountMismatch && reason != ReplyGapReplyCap {
++		if reason != ReplyGapCountMismatch && reason != ReplyGapReplyCap && reason != ReplyGapExpandCap {
 +			incomplete = true
 +		}
 +	}
@@ -7510,6 +7842,75 @@ index 0000000..a5fe816
 +	}
 +	return btn, text, ""
 +}
+diff --git a/xiaohongshu/comment_floors_1015_test.go b/xiaohongshu/comment_floors_1015_test.go
+new file mode 100644
+index 0000000..fd68498
+--- /dev/null
++++ b/xiaohongshu/comment_floors_1015_test.go
+@@ -0,0 +1,63 @@
++package xiaohongshu
++
++import (
++	"context"
++	"testing"
++	"time"
++
++	"github.com/stretchr/testify/assert"
++)
++
++// 1015：楼中楼（comment/sub/page）连点被回 300013「访问频繁」→ 只展开前 N 楼、每次点展开前单独歇。
++func TestExpandFloorLimitOnlyExpandsLeadingFloors(t *testing.T) {
++	fc := newFake(15, floors(15, func(i int) *fakeFloor { return &fakeFloor{id: id(i), shown: 6, perClick: 3} })...)
++	fc.canScroll = false
++	cfg := fastFloorCfg(15, time.Minute)
++	cfg.ExpandFloorLimit = 3
++	res, r := loadFloors(context.Background(), cfg, fc.ops(15))
++	assert.Nil(t, r)
++	for i, f := range fc.floors {
++		if i < 3 {
++			assert.Equal(t, 2, fc.clicks[f.id], "前 3 楼展开到底")
++		} else {
++			assert.Equal(t, 0, fc.clicks[f.id], "第 %d 楼超过展开楼数上限，不点", i+1)
++		}
++	}
++	assert.Equal(t, 3, res.FloorsExpanded)
++	assert.Len(t, res.RepliesPartial, 12)
++	for _, g := range res.RepliesPartial {
++		assert.Equal(t, ReplyGapExpandCap, g.Reason)
++	}
++	assert.False(t, res.Partial, "展开楼数上限是刻意的，不算没拿全")
++}
++
++func TestExpandGapSleepsBetweenExpandClicks(t *testing.T) {
++	fc := newFake(2, floors(2, func(i int) *fakeFloor { return &fakeFloor{id: id(i), shown: 6, perClick: 3} })...)
++	fc.canScroll = false
++	cfg := fastFloorCfg(2, time.Minute)
++	gaps := 0
++	cfg.ExpandGap = func() time.Duration { gaps++; return time.Millisecond }
++	_, r := loadFloors(context.Background(), cfg, fc.ops(2))
++	assert.Nil(t, r)
++	assert.Equal(t, 4, len(fc.order))
++	assert.Equal(t, 3, gaps, "第一次点不歇，之后每次点展开前都歇")
++}
++
++func TestDefaultCfgThrottlesSubComments(t *testing.T) {
++	cfg := defaultFloorLoadCfg(50, true, time.Minute, 0)
++	assert.Equal(t, defaultExpandFloorLimit, cfg.ExpandFloorLimit)
++	if assert.NotNil(t, cfg.ExpandGap) {
++		for i := 0; i < 50; i++ {
++			d := cfg.ExpandGap()
++			assert.GreaterOrEqual(t, d, 4*time.Second)
++			assert.Less(t, d, 19*time.Second)
++		}
++	}
++}
++
++func TestExpandFloorsResumeIgnoresExpandCap(t *testing.T) {
++	cfg := fastFloorCfg(50, time.Minute)
++	cfg.ExpandFloorLimit = 3
++	cfg.ExpandFloors = []string{"x"}
++	assert.False(t, floorBeyondExpandCap(cfg, floorInfo{Index: 20, ID: "x"}))
++}
 diff --git a/xiaohongshu/comment_floors_localbrowser_test.go b/xiaohongshu/comment_floors_localbrowser_test.go
 new file mode 100644
 index 0000000..744fc52
@@ -7763,10 +8164,10 @@ index 0000000..2c40f59
 +}
 diff --git a/xiaohongshu/comment_floors_test.go b/xiaohongshu/comment_floors_test.go
 new file mode 100644
-index 0000000..05b938d
+index 0000000..887b4eb
 --- /dev/null
 +++ b/xiaohongshu/comment_floors_test.go
-@@ -0,0 +1,423 @@
+@@ -0,0 +1,424 @@
 +package xiaohongshu
 +
 +import (
@@ -7873,6 +8274,7 @@ index 0000000..05b938d
 +	cfg.ThrottlePause = func() time.Duration { return time.Millisecond }
 +	cfg.ScrollSettle = []time.Duration{20 * time.Millisecond, 20 * time.Millisecond}
 +	cfg.Tick = func(int) time.Duration { return time.Millisecond }
++	cfg.ExpandFloorLimit, cfg.ExpandGap = 0, nil // 1015 的楼中楼节流另有测试（comment_floors_1015_test.go）
 +	return cfg
 +}
 +
@@ -11398,10 +11800,10 @@ index 0000000..509012f
 +}
 diff --git a/xiaohongshu/risk.go b/xiaohongshu/risk.go
 new file mode 100644
-index 0000000..3889b4a
+index 0000000..9586a43
 --- /dev/null
 +++ b/xiaohongshu/risk.go
-@@ -0,0 +1,388 @@
+@@ -0,0 +1,419 @@
 +package xiaohongshu
 +
 +import (
@@ -11409,6 +11811,7 @@ index 0000000..3889b4a
 +	"encoding/json"
 +	stderrors "errors"
 +	"fmt"
++	"net/url"
 +	"strings"
 +	"time"
 +
@@ -11421,6 +11824,11 @@ index 0000000..3889b4a
 +	RiskCaptcha     = "CAPTCHA_REQUIRED" // 页面出现「安全验证」拼图/滑块
 +	RiskAccount     = "ACCOUNT_RISK"     // 被跳到 /website-login/*（error、captcha…）等安全跳转
 +	RiskNotLoggedIn = "NOT_LOGGED_IN"    // 需要登录的操作发现是游客
++	// RiskRateLimited（1015）被跳到 /website-login/error?error_code=300013（「访问频繁，请稍后再试」）：限频不是封号/验证。
++	// 10-12 起 5 次 ACCOUNT_RISK 全是它，触发接口都是展开楼中楼 comment/sub/page。服务层写的是「冷却」熔断：
++	// 到点自动放行一次当自探，成功就自动清；连着几次冷却后仍限频才升级成 ACCOUNT_RISK 要人看（risk_hold.go）。
++	// 码名故意不叫 RATE_LIMITED：那个码已被「收藏 10 分钟最多读一次」占用（Python 当作「刚同步过」）。
++	RiskRateLimited = "XHS_RATE_LIMITED"
 +	// RiskHiddenWidget（1008 第二轮）页面里有验证组件，但没画出来（不在视口 / 祖先透明 / 被盖住 / display:none…，
 +	// 可能是 SDK 预载或后台静默校验），或者出现了一下 1.5 秒内又没了。停下**本次**操作（不再滚、不再点），
 +	// 但**不写熔断**——服务层回 TRANSIENT，下次照常。码名和 Detail 故意不带「captcha / 滑块 / 安全验证 / 风控」
@@ -11583,13 +11991,37 @@ index 0000000..3889b4a
 +// riskProbeJS 读一次页面的风控读数：{path, captcha（看得见的验证）, hidden（看不见的验证组件）, why, hidden_why}。
 +const riskProbeJS = `() => {
 + const hit = (` + riskFindJS + `)();
-+ return JSON.stringify({path: location.pathname, captcha: hit.kind === "visible", hidden: hit.kind === "hidden",
++ return JSON.stringify({path: location.pathname, search: location.search, captcha: hit.kind === "visible", hidden: hit.kind === "hidden",
 +  why: hit.why, hidden_why: hit.hidden_why || ""});
 +}`
 +
++// rateLimitedErrorCodes 安全跳转页 error_code 里算「限频」的（300013 = 访问频繁，请稍后再试）。
++var rateLimitedErrorCodes = map[string]bool{"300013": true}
++
++// RateLimitedErrorCode /website-login/error 的查询串里是不是限频码；是就返回那个码。
++func RateLimitedErrorCode(path, search string) string {
++	if !strings.HasPrefix(strings.ToLower(path), "/website-login/error") {
++		return ""
++	}
++	q, err := url.ParseQuery(strings.TrimPrefix(search, "?"))
++	if err != nil && q == nil {
++		return ""
++	}
++	if c := strings.TrimSpace(q.Get("error_code")); rateLimitedErrorCodes[c] {
++		return c
++	}
++	return ""
++}
++
 +// ClassifyRisk 按页面路径和验证浮层判风控（纯函数）。
-+func ClassifyRisk(path string, captcha bool) *RiskError {
++func ClassifyRisk(path string, captcha bool) *RiskError { return ClassifyRiskQuery(path, "", captcha) }
++
++// ClassifyRiskQuery 同 ClassifyRisk，另看查询串：/website-login/error?error_code=300013 → XHS_RATE_LIMITED（1015）。
++func ClassifyRiskQuery(path, search string, captcha bool) *RiskError {
 +	p := strings.ToLower(path)
++	if c := RateLimitedErrorCode(path, search); c != "" {
++		return &RiskError{Code: RiskRateLimited, Detail: "小红书说访问太频繁（" + path + " error_code=" + c + "，限频不是封号），已停止操作、自动冷却"}
++	}
 +	if strings.HasPrefix(p, "/website-login") {
 +		return &RiskError{Code: RiskAccount, Detail: "小红书把页面跳到了 " + path + "（登录异常/安全跳转），已停止操作"}
 +	}
@@ -11602,6 +12034,7 @@ index 0000000..3889b4a
 +// riskProbe 一次读数。
 +type riskProbe struct {
 +	Path      string `json:"path"`
++	Search    string `json:"search"` // 1015：location.search（看 /website-login/error 的 error_code）
 +	Captcha   bool   `json:"captcha"` // 看得见的验证（iframe / widget / overlay）
 +	Hidden    bool   `json:"hidden"`  // 看不见的验证组件（hidden-widget）
 +	Why       string `json:"why"`
@@ -11680,7 +12113,7 @@ index 0000000..3889b4a
 +	if err != nil {
 +		return nil
 +	}
-+	if r := ClassifyRisk(p1.Path, false); r != nil {
++	if r := ClassifyRiskQuery(p1.Path, p1.Search, false); r != nil {
 +		r.Why = "path"
 +		logrus.Warnf("风控页: %s（path=%s why=path）", r.Error(), p1.Path)
 +		return r
@@ -11707,12 +12140,12 @@ index 0000000..3889b4a
 +		return strings.Join(s, " → ")
 +	}
 +	captcha := func(p riskProbe) *RiskError {
-+		if r := ClassifyRisk(p.Path, false); r != nil {
++		if r := ClassifyRiskQuery(p.Path, p.Search, false); r != nil {
 +			r.Why = "path"
 +			logrus.Warnf("风控页: %s（path=%s why=path，复读时被跳走）", r.Error(), p.Path)
 +			return r
 +		}
-+		r := ClassifyRisk(p.Path, true)
++		r := ClassifyRiskQuery(p.Path, p.Search, true)
 +		r.Why = p.Why
 +		logrus.Warnf("风控页: %s（path=%s why=%s，读数 %s）", r.Error(), p.Path, p.Why, labels())
 +		return r
@@ -11732,13 +12165,13 @@ index 0000000..3889b4a
 +			return captcha(p1)
 +		}
 +		return hidden(p1)
-+	case ClassifyRisk(p2.Path, false) != nil:
++	case ClassifyRiskQuery(p2.Path, p2.Search, false) != nil:
 +		return captcha(p2)
 +	case p1.Captcha && p2.Captcha:
 +		return captcha(p2)
 +	case p2.Captcha: // 第一次没看见、第二次才看得见：再确认一次
 +		p3, ok := again()
-+		if !ok || p3.Captcha || ClassifyRisk(p3.Path, false) != nil {
++		if !ok || p3.Captcha || ClassifyRiskQuery(p3.Path, p3.Search, false) != nil {
 +			if ok {
 +				return captcha(p3)
 +			}
@@ -11760,7 +12193,7 @@ index 0000000..3889b4a
 +	if err != nil {
 +		return nil, false
 +	}
-+	r := ClassifyRisk(p.Path, p.Captcha)
++	r := ClassifyRiskQuery(p.Path, p.Search, p.Captcha)
 +	if r != nil {
 +		r.Why = p.Why
 +		logrus.Warnf("风控页: %s（path=%s why=%s）", r.Error(), p.Path, p.Why)
@@ -12030,10 +12463,10 @@ index 0000000..6c3ddcc
 +}
 diff --git a/xiaohongshu/risk_test.go b/xiaohongshu/risk_test.go
 new file mode 100644
-index 0000000..95f5ddb
+index 0000000..255f114
 --- /dev/null
 +++ b/xiaohongshu/risk_test.go
-@@ -0,0 +1,431 @@
+@@ -0,0 +1,452 @@
 +package xiaohongshu
 +
 +import (
@@ -12464,6 +12897,27 @@ index 0000000..95f5ddb
 +	assert.Equal(t, FavStopStable, res.Reason)
 +	assert.False(t, res.Partial)
 +	assert.Equal(t, 0, res.Level)
++}
++
++// 1015：300013（访问频繁）= 限频，不是 ACCOUNT_RISK；别的 error_code 和没查询串的照旧 ACCOUNT_RISK。
++func TestClassifyRiskRateLimited300013(t *testing.T) {
++	q := "?redirectPath=https%3A%2F%2Fwww.xiaohongshu.com%2Fexplore%2Fx&error_code=300013&error_msg=%E8%AE%BF%E9%97%AE%E9%A2%91%E7%B9%81&rejectUrl=edith.xiaohongshu.com/api/sns/web/v2/comment/sub/page"
++	r := ClassifyRiskQuery("/website-login/error", q, false)
++	if r == nil || r.Code != RiskRateLimited {
++		t.Fatalf("300013 应判 XHS_RATE_LIMITED，得到 %+v", r)
++	}
++	for _, c := range []struct{ path, q string }{
++		{"/website-login/error", ""},
++		{"/website-login/error", "?error_code=300012"},
++		{"/website-login/captcha", "?error_code=300013"},
++	} {
++		if r := ClassifyRiskQuery(c.path, c.q, false); r == nil || r.Code != RiskAccount {
++			t.Fatalf("%s%s 应仍判 ACCOUNT_RISK，得到 %+v", c.path, c.q, r)
++		}
++	}
++	if r := ClassifyRiskQuery("/explore/x", "?error_code=300013", false); r != nil {
++		t.Fatalf("普通页面带 error_code 不算，得到 %+v", r)
++	}
 +}
 diff --git a/xiaohongshu/risk_visibility_localbrowser_test.go b/xiaohongshu/risk_visibility_localbrowser_test.go
 new file mode 100644

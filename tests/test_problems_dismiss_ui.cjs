@@ -234,7 +234,36 @@ async function pluginTests() {
   console.log('PASS account row S4: shallow by default (20s, single-flight), 10-min cache paints N 分钟前确认 with 0 spawns, account event invalidates, 重新检查 deep; openVerify --wait; restoreHold confirms first; evidence by name only; sync row says 上次 HH:MM 判到验证');
 }
 
+// 1015（她截图：「等你处理 · 0」下面还挂着两张卡）：修一条的同时别的行也没了（同一次熔断解除，ACCOUNT_RISK / RISK_HOLD
+// 一起解决）——不能只换 key 那一行、留下不存在的卡片；整体重画，空组不出现。
+async function staleRowsTest() {
+  const dom = makeDom(), notices = [];
+  const obsidian = fakeObsidian(dom, notices);
+  delete require.cache[require.resolve(path.join(ROOT, PLUGIN_DIR, 'problems-ui.js'))];
+  const factory = require(path.join(ROOT, PLUGIN_DIR, 'problems-ui.js'));
+  let rows = [
+    row({ key: 'login||ACCOUNT_RISK', step: 'login', code: 'NEEDS_HUMAN.ACCOUNT_RISK', action: 'needs_human', label: '账号风控', hover: '跳到安全页', group: 'needs_you' }),
+    row({ key: 'embed||NETWORK', step: 'embed', code: 'TRANSIENT.NETWORK', action: 'retry_later', label: '网络不通', hover: '连不上', group: 'auto', repairable: true, repair_minutes: 4 }),
+    row({ key: 'ingest||NETWORK', step: 'ingest', code: 'TRANSIENT.NETWORK', action: 'retry_later', label: '网络不通', hover: '连不上', group: 'auto', repairable: true, repair_minutes: 4 }),
+  ];
+  const state = { replies: {
+    list: () => ({ ok: true, summary: {}, problems: rows }),
+    repair: () => { rows = rows.filter(r => r.key === 'ingest||NETWORK'); return { ok: true, message: '自愈：修好 1 条', results: [] }; },
+  } };
+  const { plugin } = makePlugin(state);
+  const ui = factory(obsidian, plugin);
+  const m = ui.open(); await m.opened;
+  const c = m.contentEl;
+  const rowOf = key => c.querySelectorAll('.lb-problem').find(r => r.getAttribute('data-key') === key);
+  assert.deepEqual(c.querySelectorAll('.lb-problems-group h3').map(h => h.textContent), ['等你处理 · 1', '正在自动处理 · 2']);
+  await rowOf('embed||NETWORK').querySelector('.lb-problem-repair').onclick();
+  assert.equal(rowOf('login||ACCOUNT_RISK'), undefined, '已经解决的别的行不留卡片');
+  assert.deepEqual(c.querySelectorAll('.lb-problems-group h3').map(h => h.textContent), ['正在自动处理 · 1'], '空组不出现（不会有「等你处理 · 0」）');
+  console.log('PASS problems 1015: repair while other rows vanished repaints (no stale card under 等你处理 · 0)');
+}
+
 (async () => {
   await panelTests();
+  await staleRowsTest();
   await pluginTests();
 })().catch(e => { console.error(e); process.exitCode = 1; });

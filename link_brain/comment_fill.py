@@ -557,6 +557,8 @@ def account_wait_reason() -> tuple[str, str]:
             raise
         return exc.code or "DISCONNECTED", f"读取服务没连上（{exc.code}），稍后自动再试"
     hold = accounts.hold_from_session(session)
+    if hold and accounts.is_rate_limited(hold):
+        return accounts.RATE_LIMIT_CODE, accounts.rate_limit_text(hold)  # 1015：限频冷却，到点自己接着补
     if hold:
         code = str(hold.get("code") or "RISK_HOLD")
         what = "掉登录了：在设置 / 问题入口扫码登录" if code == "NOT_LOGGED_IN" else "弹了验证（不是掉登录）：点问题入口「打开验证」"

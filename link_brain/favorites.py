@@ -919,6 +919,10 @@ def _exit_code(payload: dict[str, Any]) -> int:
     if blocked and all(x.get("code") == "RATE_LIMITED" for x in blocked):
         print("sync-favorites: 刚同步过（收藏每 10 分钟最多读一次），这次跳过，稍后再试", file=sys.stderr)
         return EXIT_OK
+    if blocked and all(x.get("code") == "XHS_RATE_LIMITED" for x in blocked):
+        # 1015：限频冷却中——照旧退出 5（夜跑据此今晚不再开页、交给 captcha-recover 等冷却到点），但不是要人处理
+        print("sync-favorites: 小红书限频冷却中（不是封号，不用处理），这次没开页；冷却到点自动再试", file=sys.stderr)
+        return EXIT_NEEDS_HUMAN
     if blocked:
         print("sync-favorites: 要人处理（登录态/风控/服务挂了），已停车并报警", file=sys.stderr)
         return EXIT_NEEDS_HUMAN
@@ -954,15 +958,19 @@ def _run(args) -> tuple[int, dict[str, Any]]:
     try:
         accounts.check_risk_hold()
     except accounts.ReaderError as exc:
-        text = f"{accounts.SOLUTIONS['RISK_HOLD'][1]}（{exc.detail}）：{accounts.SOLUTIONS['RISK_HOLD'][2]}"
-        payload = {"favorites": 0, "synced": 0, "login_account": "xhs", "code": "RISK_HOLD",
-                   "items": [{"item_id": None, "status": "blocked", "url": None, "error": text, "code": "RISK_HOLD"}]}
-        synclog.error("sync-favorites", text, "RISK_HOLD")
+        hcode = accounts.RATE_LIMIT_CODE if exc.code == accounts.RATE_LIMIT_CODE else "RISK_HOLD"
+        if hcode == accounts.RATE_LIMIT_CODE:
+            text = exc.detail or accounts.SOLUTIONS[hcode][1]  # 1015：限频冷却中，一页不开，不要人处理
+        else:
+            text = f"{accounts.SOLUTIONS['RISK_HOLD'][1]}（{exc.detail}）：{accounts.SOLUTIONS['RISK_HOLD'][2]}"
+        payload = {"favorites": 0, "synced": 0, "login_account": "xhs", "code": hcode,
+                   "items": [{"item_id": None, "status": "blocked", "url": None, "error": text, "code": hcode}]}
+        synclog.error("sync-favorites", text, hcode)
         if not sync_state.running_elsewhere():
             sync_state.record("finished", payload=payload)  # 顺带登记 NEEDS_HUMAN.RISK_HOLD（login）
         else:
             from . import problems
-            problems.report_blocked("sync.favorites", "RISK_HOLD", text)
+            problems.report_blocked("sync.favorites", hcode, text)
         return _exit_code(payload), payload
 
     # ② 账号锁（B-6）：拿不到就退出 6，不碰状态文件（那是正在跑的那一趟的）

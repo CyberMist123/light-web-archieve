@@ -227,6 +227,8 @@ def recover(*, cooldown: float | None = None, wait: bool = False, max_wait_min: 
     if not hold:
         return _out("no_hold", EXIT_STOP, "现在没有风控暂停，不用自查（今晚停下的碰号步骤不自动补跑）")
     code = str(hold.get("code") or "")
+    if accounts.is_rate_limited(hold):
+        return _rate_limit_wait(hold, wait=wait, max_wait_min=max_wait_min, sleep=sleep, now_fn=now_fn)
     if code != CAPTCHA:
         return _out("not_captcha", EXIT_STOP, f"暂停的起因是 {code}，不是验证码：照旧等人处理", hold_code=code)
     if night(key).get("probe_at"):
@@ -288,6 +290,27 @@ def recover(*, cooldown: float | None = None, wait: bool = False, max_wait_min: 
     out = _mark_unrecovered(key, why, now=now)
     return _out(result or "unknown", EXIT_STOP, f"{why}：今晚先停" + ("，已提醒（连着两晚了）" if out.get("escalated") else "（不叫你）"),
                 **out)
+
+
+def _rate_limit_wait(hold: dict[str, Any], *, wait: bool, max_wait_min: float | None,
+                     sleep: Callable[[float], None], now_fn: Callable[[], datetime]) -> dict[str, Any]:
+    """1015：限频冷却（XHS_RATE_LIMITED）不用 /risk/probe——读取组件到点自己放行请求当自探、成功自动清。
+    这里只等：冷却没到 → cooling（retry_after_s / ready_at）；wait=True 且能等到 → 等到点后回 cleared（退出 0，
+    夜跑接着跑停下的碰号步骤，第一个请求就是自探）。不登记、不推送。"""
+    from . import accounts
+    until = accounts.rate_limit_until(hold)
+    left = (until - now_fn()).total_seconds() if until else 0.0
+    if left > 0:
+        cap = None if max_wait_min is None else max_wait_min * 60
+        if not wait or (cap is not None and left > cap):
+            return _out("cooling", EXIT_STOP, accounts.rate_limit_text(hold), retry_after_s=int(left) + 1,
+                        ready_at=until.isoformat(timespec="seconds"), hold_code=accounts.RATE_LIMIT_CODE)
+        print(f"[限频冷却] 小红书说访问太频繁，等到 {until:%H:%M} 再接着跑（这期间不开任何页）", file=sys.stderr)
+        while left > 0:
+            sleep(min(60.0, left))
+            left = (until - now_fn()).total_seconds()
+    return _out("cleared", EXIT_OK, "限频冷却到点：接着跑（下一个用号请求就是自探，成功读取组件自动恢复）",
+                hold_code=accounts.RATE_LIMIT_CODE)
 
 
 # ---------------------------------------------------------------- CLI

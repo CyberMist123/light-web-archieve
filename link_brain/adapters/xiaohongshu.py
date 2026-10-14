@@ -123,6 +123,10 @@ RESTRICTED_MARKER = "[NOTE_RESTRICTED]"
 def risk_code(text: str | None) -> str:
     """文本里的风险码：`[ACCOUNT_RISK]` 这类标记优先；只看到 website-login 字样算 ACCOUNT_RISK。"""
     raw = text or ""
+    # 1015：限频冷却（[XHS_RATE_LIMITED]，或冷却中被拒的 [RISK_HOLD] …（XHS_RATE_LIMITED，…）））优先：
+    # 它的说明里带 /website-login/error，不能落到下面「看到 website-login 就算 ACCOUNT_RISK」
+    if "XHS_RATE_LIMITED" in raw:
+        return "XHS_RATE_LIMITED"
     for code in RISK_MARKERS:
         if f"[{code}]" in raw:
             return code

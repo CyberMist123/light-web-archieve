@@ -47,6 +47,7 @@ go build -o relatedfile.exe ./cmd/relatedfile   # 附件探测用的游客浏览
   - 读收藏时监听收藏接口回包（只读浏览器内存）：接口回了拒绝（HTTP ≥400 或 `success=false`）就立即停（`stop_reason=api_refused`，partial）；页面上的「还没有收藏」若是被拒后的占位，不当成空收藏交出去。
   - 滚动途中页面里出现看不见的验证组件（见下「防风控」）：立即停，已读到的按 partial 交回（`stop_reason=hidden_widget`），不写熔断；还没开始滚就碰上，回 `503 HIDDEN_WIDGET`（「页面里有验证组件但没显示滑块，这次先停，下次照常读」）。
 - 评论逐楼展开：前 `limit` 楼（默认 10）每楼的回复连点「展开」到底；预算在各楼之间轮转分配（每档 30 条），点之前把按钮滚进视口、点不动退回 DOM click 并退避重试，疑似限频就歇一段；整个请求预算默认 540 秒（参数 `comment_budget_s` / `comment_config.budget_s`，每楼回复上限 `max_replies_per_floor`，0 = 全部）。响应 `comment_load` 如实带 `floors_loaded`、`floors_expanded`、每楼缺多少（`replies_partial`）、判停原因和用时。
+  楼中楼单独限速（1015：10-12 起的「熔断」全是展开楼中楼 `comment/sub/page` 被回 300013「访问频繁」）：只展开前 10 楼的回复（其余楼进 `replies_partial`，`reason=expand_cap`，不算 partial；续读 `expand_floors` 不受限），每次点「展开回复」前歇 4–9 秒（偶尔再多 5–10 秒）。
   - 状态里 `subCommentHasMore` 会陈旧地停在 true：楼里没有「展开」按钮且已加载 ≥ 楼上显示数，就算展开到底（计入 `floors_expanded`）；缺口为 0 的楼不进 `replies_partial`。
   - 续读 `expand_floors`（MCP 参数，或 REST `comment_config.expand_floors` / 顶层 `expand_floors`；一级评论 `comment_id` 列表）：只展开这些楼的回复（自动展开，不受 `limit` 限制），其它楼不点也不列；一级评论滚到这些楼都出来（或到底 / 预算尽）。`partial`、`replies_partial`、`replies_missing`、`floors_expanded` 只按这些楼算；页面上没找到的 id 列在 `comment_load.floors_not_found`（滚到底仍没有不算 partial）。不传 = 原行为。
 - `POST /api/v1/attachments/download`：在有界面的浏览器里点笔记附件页的「下载」（无界面时该下载请求会挂住）。
@@ -90,6 +91,7 @@ go build -o relatedfile.exe ./cmd/relatedfile   # 附件探测用的游客浏览
   只读页面、只存本机，保留 14 天自动删（落证据、启动、`/login/session` 被轮询时最多每小时清一次；目录里有别的文件就不删）；
   截图里有私密收藏，不要导出。
 - 一篇详情（导航 + 评论 + 抽取）总时限 = 锁看门狗上限 − 3 分钟（默认 12 分钟），评论预算给抽取留 150 秒，慢夜里不会读到一半被看门狗结束。
+- 限频冷却（1015）：被跳到 `/website-login/error?error_code=300013`（「访问频繁，请稍后再试」）判 `XHS_RATE_LIMITED`，不当 `ACCOUNT_RISK`。照样写 `risk-hold.json`，但带 `until`（冷却到几点）和 `strikes`（24 小时内第几次）：第 1/2/3 次分别冷却 2/4/6 小时，冷却期内拦请求（423，`details` 写明「不用处理」）；到点后放行请求当自探（`/login/session` 的 `risk_hold.probing=true`），第一个成功（2xx / MCP 非错误）的请求自动解除；自探又被限频进下一档；第 4 次升级成 `ACCOUNT_RISK` 要人处理。限频计数在 `rate-limit-strikes.json`，人工解除（扫码 / 验证窗口 / `risk/clear`）时清零。新撞上时回 `429 XHS_RATE_LIMITED`。
 - 风控熔断：命中 `ACCOUNT_RISK` / `CAPTCHA_REQUIRED` / `NOT_LOGGED_IN` 就写 `<XHS_PROFILE_DIR>/risk-hold.json`（`{"code","since","detail"}`，经页面探针撞上的另带出事页面 `url`、子页签 `tab`、程序要去的子页签 `want_tab`、证据目录 `evidence`；重启服务后仍生效）。
   熔断期间一切会开浏览器的请求都被拒绝：REST 回 `423 {"code":"RISK_HOLD","hold":{…}}`，MCP 工具回 `isError` 且文本含 `[RISK_HOLD]`。
   HTTP 里的熔断对象不带 `url`（含本号主页和 `xsec_token`，只留给验证窗口用）；`423` 里也不带证据目录，只有 `/login/session` 带。

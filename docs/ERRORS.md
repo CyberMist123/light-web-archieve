@@ -200,6 +200,7 @@
 | `TRANSIENT.FAVORITES_SUSPICIOUS` | 收藏只读到一截 | 读取组件 `partial`、读回 0 条、比上次少一半以上 | 这一截的新收藏照抓；退出 3 | — 今晚绝不重读 | 等到下次夜跑（写明几点）；之后才给「现在修」= 重新同步（距上次读 ≥ 30 分钟） |
 | `TRANSIENT.FAVORITES_FAILED` / `TIMEOUT` / `DISCONNECTED` / `BUSY` / `SYNC_FAILED` / `TOO_MANY_FAILURES` / `ACCOUNT_BUSY` / `INTERRUPTED`（sync.favorites） | 读收藏没成功 / 读取服务超时 / 没在运行 / 正忙 / 同步没做完 / 连续失败 / 号被占 / 被打断 | 机器卡、读取服务没起、号被别的任务占 | 夜跑 exit 1 等 25 分钟重试一次 | — 不重读列表 | 「现在修」= 重新同步（距上次读 ≥ 30 分钟，否则写明等到几点） |
 | `TRANSIENT.RATE_LIMITED` | 刚刚同步过 | 读取服务 10 分钟限频 | — | — | 等 10 分钟（写明几点） |
+| `TRANSIENT.XHS_RATE_LIMITED`（login） | 小红书限频冷却中 | 小红书回 `/website-login/error?error_code=300013`「访问频繁」（1015 实证：全是展开楼中楼 `comment/sub/page` 时），限频不是封号 | 读取组件写限频冷却（第 1/2/3 次 2/4/6 小时），冷却中一页不开；到点放行下一个请求当自探，成功自动解除 | — 不推送、不进「等你处理」 | 连着 3 档冷却还限频 → 读取组件升级成 `ACCOUNT_RISK`（要人）；楼中楼只展开前 10 楼、每次点前歇 4–9 秒 |
 | `TRANSIENT.DISCONNECTED` / `TIMEOUT` / `BUSY`（ingest 步骤级） | 读取服务没在运行 / 超时 / 正忙 | 读取服务没起来 | — | ✔ 检查读取服务、没在跑就拉起 | 同左 |
 | `TRANSIENT.WEB_PROBE_BLOCKED`（ingest / attachments.recheck 游客段）/ `PROBE_FAILED`（attachments.recheck 收尾段） | 网页那侧被拦 / 附件没查清 | 游客网页被登录墙 / 验证挡住；登录号也没看清 | 游客段无条件保险丝；收尾段服务失败第一次就收工 | — | 面板写真实队列位置（排第几、预计哪天、碰号补查为什么没跑、几晚没进展），不再天天「等到明早」；见第 13 条 |
 | `TRANSIENT.HIDDEN_WIDGET` / `FAV_TAB_STUCK`（sync.favorites） | 收藏这次先停了 / 收藏页签点不动 | 页面里有验证组件但没显示滑块 / 收藏接口疑似限流 | 读取组件当场停、不熔断；退出 3 | — 今晚不再重读 | 下次同步照常读；见第 14 条 |

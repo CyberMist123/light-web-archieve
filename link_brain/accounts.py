@@ -42,6 +42,12 @@ READER_NAMES = ('link-brain-reader.exe', 'link-brain-reader')
 # 要人处理的码（读取服务的风险码 + 本地要装组件）：撞见就停车，绝不重试
 NEEDS_HUMAN_CODES = ('NOT_LOGGED_IN', 'CAPTCHA_REQUIRED', 'ACCOUNT_RISK', 'RISK_HOLD', 'NOT_INSTALLED')
 RISK_CODES = ('CAPTCHA_REQUIRED', 'ACCOUNT_RISK', 'RISK_HOLD')
+# 1015：小红书回 /website-login/error?error_code=300013（访问频繁）= 限频，不是封号 / 验证。读取组件（reader-8）把它记成
+# 限频冷却：熔断对象 code=XHS_RATE_LIMITED，带 until（冷却到几点）/ strikes（24 小时内第几次）/ probing（已到点，放行自探）。
+# 冷却中：照样一页不开，但不要人处理、不推送（TRANSIENT）；到点：当没有熔断（下一个用号请求就是自探，成功读取组件自己清）。
+# 连着 3 档冷却（2/4/6 小时）还限频，读取组件会把它升级成 ACCOUNT_RISK，那时才要人。
+# 码名不叫 RATE_LIMITED：那个已经是「收藏 10 分钟最多读一次」（刚同步过）。
+RATE_LIMIT_CODE = 'XHS_RATE_LIMITED'
 
 # code -> (状态, 一句话原因, 下一步, 界面按钮 action)
 SOLUTIONS = {
@@ -58,6 +64,8 @@ SOLUTIONS = {
                   '暂停会自动解除；在那之前夜里的同步、附件补下都会跳过。', 'verify'),
     'ACCOUNT_BUSY': ('busy', '正在同步收藏', '号正被另一个任务使用（同步收藏 / 附件 / 导入），它做完再试。', 'wait'),
     'RATE_LIMITED': ('busy', '刚刚同步过', '为避免触发风控，收藏每 10 分钟最多读一次，请稍后再试。', 'wait'),
+    RATE_LIMIT_CODE: ('busy', '小红书说访问太频繁（限频，不是封号）',
+                      '已自动冷却，到点自己再试一次，成功就自动恢复，不用处理；连着几次冷却还这样才会叫你。', 'wait'),
     'LOGIN_IN_PROGRESS': ('busy', '正在等待扫码', '先完成或关闭正在进行的扫码，再重试。', 'wait'),
     'VERIFY_WINDOW_OPEN': ('busy', '验证窗口还开着', '完成验证后关掉那个小红书窗口，再重试。', 'wait'),
     'DISCONNECTED': ('disconnected', '读取服务没有运行', '点击「重试」会自动启动；仍失败请查看详情里的日志路径。', 'retry'),
@@ -239,6 +247,8 @@ def api(method: str, route: str, *, timeout: float = 45, body: dict | None = Non
         hold = payload.get('hold') if isinstance(payload.get('hold'), dict) else None
         if code == 'RISK_HOLD' and hold and not detail:
             detail = hold
+        if code == 'RISK_HOLD' and is_rate_limited(hold):
+            code = RATE_LIMIT_CODE  # 限频冷却中：不是要人处理的熔断
         exc = ReaderError(code, payload.get('error') or payload.get('message') or '',
                           json.dumps(detail, ensure_ascii=False) if isinstance(detail, (dict, list)) else str(detail or ''),
                           hold=hold)
@@ -338,20 +348,58 @@ def lock_max_seconds() -> float:
 # ---------------------------------------------------------------------------
 
 
+def is_rate_limited(hold: dict | None) -> bool:
+    """熔断对象是不是限频冷却（1015）。"""
+    return isinstance(hold, dict) and str(hold.get('code') or '') == RATE_LIMIT_CODE
+
+
+def rate_limit_until(hold: dict | None) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str((hold or {}).get('until'))).astimezone()
+    except (TypeError, ValueError):
+        return None
+
+
+def rate_limit_probing(hold: dict | None, now: datetime | None = None) -> bool:
+    """限频冷却已到点（读取组件放行请求当自探）：服务说 probing，或 until 已过 / 读不出。"""
+    if not is_rate_limited(hold):
+        return False
+    if hold.get('probing'):
+        return True
+    until = rate_limit_until(hold)
+    return until is None or (now or datetime.now().astimezone()) >= until
+
+
+def rate_limit_text(hold: dict | None) -> str:
+    """「小红书说访问太频繁，已冷却到 14:05（第 1 次），到点自己再试」。"""
+    until = rate_limit_until(hold)
+    n = int((hold or {}).get('strikes') or 0)
+    when = f'，已冷却到 {until:%H:%M}' if until else '，已自动冷却'
+    nth = f'（今天第 {n} 次）' if n > 1 else ''
+    return f'小红书说访问太频繁（限频，不是封号）{when}{nth}，到点自己再试，不用处理'
+
+
+def _active(hold: dict | None) -> dict | None:
+    """限频冷却到点了就当没有熔断（放行请求当自探）；其余原样。"""
+    if not isinstance(hold, dict) or not hold or rate_limit_probing(hold):
+        return None
+    return hold
+
+
 def _hold_file() -> dict | None:
     path = profile_dir() / 'risk-hold.json'
     try:
         data = json.loads(path.read_text('utf-8'))
     except (OSError, ValueError):
         return None
-    return data if isinstance(data, dict) and data.get('code') else None
+    return _active(data) if isinstance(data, dict) and data.get('code') else None
 
 
 def hold_from_session(session: dict | None) -> dict | None:
-    """session 带 risk_hold 字段就以它为准（服务是权威）；老版本服务没有这个字段就退回读文件。"""
+    """session 带 risk_hold 字段就以它为准（服务是权威）；老版本服务没有这个字段就退回读文件。
+    1015：限频冷却已到点（probing）当没有熔断。"""
     if isinstance(session, dict) and 'risk_hold' in session:
-        hold = session.get('risk_hold')
-        return hold if isinstance(hold, dict) and hold else None
+        return _active(session.get('risk_hold'))
     return _hold_file()
 
 
@@ -367,7 +415,7 @@ def risk_hold() -> dict | None:
 # ---- 1008（读取组件 d7）熔断对象 {code, since, detail, tab, want_tab, incident_page, evidence}：
 # evidence 是本机证据目录的绝对路径（~/.link-brain/risk-evidence/<YYYYMMDD-HHMMSS>，里面 shot.png / hit.html / meta.json，
 # 有私密收藏）——进问题记录 / 复制报错 / stdout / 通知之前一律剥掉，只留目录名 evidence_id，面板「查看截图」自己拼本机路径打开。
-HOLD_PUBLIC_KEYS = ('code', 'since', 'detail', 'tab', 'want_tab', 'incident_page')
+HOLD_PUBLIC_KEYS = ('code', 'since', 'detail', 'tab', 'want_tab', 'incident_page', 'until', 'strikes')
 TAB_WHERE = {'fav': '读收藏时', 'collect': '读收藏时', 'note': '打开笔记时', 'notes': '打开主页时', 'like': '读点赞时'}
 
 
@@ -400,19 +448,23 @@ def hold_text(hold: dict | None) -> str:
     except (TypeError, ValueError):
         when = ''
     where = TAB_WHERE.get(str(hold.get('want_tab') or hold.get('tab') or ''), '用号开页时')
-    what = {'CAPTCHA_REQUIRED': '判到验证', 'ACCOUNT_RISK': '被跳到登录 / 安全页', 'NOT_LOGGED_IN': '发现掉登录'}.get(
+    what = {'CAPTCHA_REQUIRED': '判到验证', 'ACCOUNT_RISK': '被跳到登录 / 安全页', 'NOT_LOGGED_IN': '发现掉登录',
+            RATE_LIMIT_CODE: '被小红书限频'}.get(
         str(hold.get('code') or ''), '撞到风控')
     return ' '.join(x for x in (when, f'在{where}{what}') if x)
 
 
 def hold_error(hold: dict) -> ReaderError:
+    if is_rate_limited(hold):
+        return ReaderError(RATE_LIMIT_CODE, detail=rate_limit_text(hold), hold=hold)
     since = hold.get('since') or ''
     detail = ' · '.join(str(x) for x in (hold.get('code'), since, hold.get('detail')) if x)
     return ReaderError('RISK_HOLD', detail=detail, hold=hold)
 
 
 def check_risk_hold() -> None:
-    """批量入口开工前调：熔断中就抛 ReaderError('RISK_HOLD')，调用方停车（退出码 5），一页都不开。"""
+    """批量入口开工前调：熔断中就抛 ReaderError('RISK_HOLD')，调用方停车（退出码 5），一页都不开。
+    1015：限频冷却中抛 ReaderError('XHS_RATE_LIMITED')（也是一页不开，但不要人处理）；冷却到点不抛（放行自探）。"""
     hold = risk_hold()
     if hold:
         raise hold_error(hold)
@@ -561,7 +613,14 @@ def error_row(exc: Exception, key='xhs', label='小红书账号') -> dict:
 
 
 def hold_row(hold: dict, key='xhs', label='小红书账号') -> dict:
-    """熔断中的一行：按撞到的是什么决定按钮——掉登录 / 登录异常页 → 扫码；验证码 → 打开验证。"""
+    """熔断中的一行：按撞到的是什么决定按钮——掉登录 / 登录异常页 → 扫码；验证码 → 打开验证。
+    1015：限频冷却 → 「等一会儿」，不给扫码 / 验证按钮（她点开也无事发生）。"""
+    if is_rate_limited(hold):
+        state, message, step, action = SOLUTIONS[RATE_LIMIT_CODE]
+        out = row(key, label, state, message, rate_limit_text(hold), str(hold.get('detail') or ''), action=action)
+        out['code'] = RATE_LIMIT_CODE
+        out['risk_hold'] = public_hold(hold)
+        return out
     state, message, step, _ = SOLUTIONS['RISK_HOLD']
     cause = str(hold.get('code') or '')
     action = 'login' if cause in ('NOT_LOGGED_IN', 'ACCOUNT_RISK') else 'verify'

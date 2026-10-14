@@ -205,7 +205,15 @@ module.exports = function (obsidian, plugin) {
       const old = this.findRow(key);
       const now = fresh.find(x => x.key === key);
       const moved = now && old && (isHidden(now) !== old.hasClass?.('is-hidden') || groupOf(now) !== old.dataset?.group);
-      if (!old || moved) { this.keepScroll(() => this.paint(j.problems)); return; }
+      // 1015：别的行也变了（同一次熔断解除时 ACCOUNT_RISK / RISK_HOLD 一起没了，或新冒出来一条）——只换 key 那行会留下
+      // 已经不存在的卡片、组标题却数成「等你处理 · 0」。这时整体重画。
+      const keyOf = el => el.getAttribute?.('data-key') ?? el.dataset?.key;
+      const shownKeys = Array.from(this.body.querySelectorAll('.lb-problem'))
+        .filter(el => !el.hasClass?.('is-resolved')).map(keyOf).filter(k => k !== key);
+      const freshKeys = new Set(fresh.map(x => x.key));
+      const othersChanged = shownKeys.some(k => !freshKeys.has(k)) ||
+        fresh.some(x => x.key !== key && !shownKeys.includes(x.key));
+      if (!old || moved || othersChanged) { this.keepScroll(() => this.paint(j.problems)); return; }
       if (!now) {
         old.addClass?.('is-resolved');
         const line = old.querySelector('.lb-problem-line');

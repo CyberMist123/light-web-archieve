@@ -202,7 +202,9 @@ def record(state, *, payload=None, message='', account=None, code=''):
     detail = errors[0].get('error', '') if errors else ''
     if state == 'finished':
         state = 'blocked' if any(x.get('status') == 'blocked' for x in errors) else ('failed' if errors else 'ready')
-        message = ('同步已暂停，需要恢复登录或连接' if state == 'blocked' else
+        message = ('小红书限频冷却中，到点自动再试（不用处理）'
+                   if state == 'blocked' and all(x.get('code') == 'XHS_RATE_LIMITED' for x in errors if x.get('status') == 'blocked')
+                   else '同步已暂停，需要恢复登录或连接' if state == 'blocked' else
                    '部分收藏未同步成功' if errors else '收藏同步完成')
         account = payload.get('login_account', errors[0].get('login_account') if errors else None)
         code = payload.get('code') or (errors[0].get('code') if errors else '') or ''

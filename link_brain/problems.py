@@ -100,6 +100,8 @@ BARE_CLASS = {
     "FAVORITES_FAILED": "TRANSIENT",  # 读取服务读收藏失败（如机器卡导致登录检查超时，HTTP 500）——不是风控
     # 1008（读取组件 d7）：页面里有验证组件但没显示滑块 / 收藏页签点不动——只停这一次读收藏、不写熔断、下次照常读
     "HIDDEN_WIDGET": "TRANSIENT", "FAV_TAB_STUCK": "TRANSIENT",
+    # 1015：小红书回 300013「访问频繁」= 限频冷却（读取组件到点自探、成功自动清），不是要人处理的风控
+    "XHS_RATE_LIMITED": "TRANSIENT",
 }
 
 # 账号类（撞见就整批停车、要人处理）：这些码不管在哪一步撞见，一律登记在 step=login、item_id=None，
@@ -139,6 +141,7 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "TRANSIENT.SERVICE_BUSY": dict(where="list", label="服务正忙", hover="{reason}（{next_at} 再试）", group="auto"),
     "TRANSIENT.STEP_TIMEOUT": dict(where="list", label="步骤超时", hover="{reason}", group="auto"),
     "TRANSIENT.RATE_LIMITED": dict(where="list", label="刚刚同步过", hover="收藏每 10 分钟最多读一次，稍后自动再试", group="auto"),
+    "TRANSIENT.XHS_RATE_LIMITED": dict(where="list", label="小红书限频冷却中", hover="{reason}", group="auto"),
     "TRANSIENT.DISCONNECTED": dict(where="list", label="读取服务没在运行", hover="{reason}（下次自动拉起）", group="auto"),
     "TRANSIENT.TIMEOUT": dict(where="list", label="读取服务响应超时", hover="{reason}（稍后自动再试）", group="auto"),
     "TRANSIENT.BUSY": dict(where="list", label="读取服务正忙", hover="正在抓别的笔记，做完自然恢复", group="auto"),
@@ -670,6 +673,9 @@ def report_blocked(step: str, code: str | None, reason: str, *, service: bool = 
             raw = "DISCONNECTED" if service else "ACCOUNT_BLOCKED"
         full = normalize(raw)
         sub = full.split(".", 1)[1]
+        if sub == "XHS_RATE_LIMITED":
+            # 1015：限频冷却是号的事、不是某一步的事：不管哪一步撞见都记在 login 一把 key 上（TRANSIENT，不推）
+            return report("login", full, reason, title=title)
         if sub in ACCOUNT_CODES and full.startswith("NEEDS_HUMAN."):
             # 1011：没人看着（夜跑 / 后台补评论）时撞的验证码先不叫她：登记 TRANSIENT.NIGHT_CAPTCHA，冷却后自查（night_captcha）
             from . import night_captcha
@@ -755,6 +761,21 @@ def resolve(step: str, item_id: str | None = None, code: str | None = None, *, _
         return 0
 
 
+# 1015：同一次熔断只显示一条——起因（验证 / 安全跳转 / 掉登录 / 限频）那条还开着时，之后各步撞见「熔断中」登记的
+# RISK_HOLD 是同一件事（她截图里两条一起挂着），面板和计数都只留起因那条。
+HOLD_CAUSE_CODES = ("CAPTCHA_REQUIRED", "ACCOUNT_RISK", "NOT_LOGGED_IN", "ACCOUNT_BLOCKED", "XHS_RATE_LIMITED", "NIGHT_CAPTCHA")
+
+
+def _same_hold_dupes(rows: list[dict[str, Any]]) -> set[str]:
+    """没解决、没隐藏的行里，被起因那条代表了的 RISK_HOLD 行的 key。"""
+    def sub(r):
+        return str(r.get("code") or "").rsplit(".", 1)[-1]
+    live = [r for r in rows if not r.get("resolved_at") and not is_hidden(r)]
+    if not any(sub(r) in HOLD_CAUSE_CODES and r.get("step") in ("login", "comments.fill") for r in live):
+        return set()
+    return {str(r.get("key")) for r in live if sub(r) == "RISK_HOLD"}
+
+
 def load(limit: int = MAX_KEYS, *, include_resolved: bool = False, include_minor: bool = True) -> list[dict[str, Any]]:
     """折叠后的问题：未解决在前（要你处理 → 自动处理 → 已放弃 → 未开启），同组新的在前。
 
@@ -764,6 +785,9 @@ def load(limit: int = MAX_KEYS, *, include_resolved: bool = False, include_minor
         folded = [r for r in folded if not r.get("resolved_at")]
     if not include_minor:
         folded = [r for r in folded if not is_minor(r)]
+    dupes = _same_hold_dupes(folded)
+    if dupes:
+        folded = [r for r in folded if str(r.get("key")) not in dupes]
     order = {"needs_you": 0, "auto": 1, "gave_up": 2, "off": 3}
 
     def sort_key(r):
@@ -813,8 +837,9 @@ def summary() -> dict[str, Any]:
     folded = _fold(rows)
     counts = {"needs_human": 0, "auto": 0, "gave_up": 0, "skipped": 0, "hidden": 0, "minor": 0}
     open_steps: set[str] = set()
+    dupes = _same_hold_dupes(list(folded.values()))
     for r in folded.values():
-        if r.get("resolved_at"):
+        if r.get("resolved_at") or str(r.get("key")) in dupes:
             continue
         if is_minor(r):
             counts["minor"] += 1  # 1011：轻微的不进任何计数，也不让那一步算「有问题」

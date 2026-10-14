@@ -203,6 +203,16 @@ def plan(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
         # 1011：夜里撞的验证码先不叫她——冷却后自查归 night_captcha（夜跑 / 后台补评论里），自愈轮绝不开页、不清熔断
         return _wait(next_nightly(now), "夜里弹了验证（不是掉登录）：冷却后自己再看一眼，没事就自动恢复；"
                                         "连着两晚都还在才叫你。想现在处理就在设置里点「打开验证」")
+    if sub == "XHS_RATE_LIMITED":
+        # 1015：小红书限频冷却——读取组件到点自己放行一次自探、成功自动解除；自愈轮绝不开页、不清熔断
+        until = None
+        try:
+            from . import accounts
+            until = accounts.rate_limit_until(accounts._hold_file())
+        except Exception:  # noqa: BLE001 - 读不到就按登记时刻 + 2 小时说
+            until = None
+        until = until or (_parse(row.get("ts")) or now) + timedelta(hours=2)
+        return _wait(until, "小红书说访问太频繁（限频，不是封号）：冷却到点自己再试一次，成功就自动恢复，不用处理")
     if sub == "STEP_ARGS":
         return _manual("程序和夜跑脚本版本对不上：更新程序或夜跑脚本后自动恢复")
     if sub == "NOTE_GONE":
