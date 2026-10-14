@@ -278,9 +278,11 @@ def test_full_run_classifies_by_content_facets_proposals_and_caches(vault, fake)
     # 10-11 她：树只来自 索引.md——AI 不再往树里建子类；「菜谱」下面是细分标签（多选：空气炸锅烤鸡 = 空气炸锅 + 鸡肉）
     assert not any(n.get("virtual") for n in data["nodes"]) and "美食/菜谱/空气炸锅菜" not in R
     facets = {f["name"]: f for f in R["美食/菜谱"]["facets"]}
-    assert facets["空气炸锅"]["count"] == 6 and facets["鸡肉"]["items"] == ["xhs-0002", "xhs-0016"]
+    # 1015：只有 2 篇的「鸡肉」收进末尾的「其他」
+    assert facets["空气炸锅"]["count"] == 6 and "鸡肉" not in facets and facets["其他"]["other"]
+    assert {"xhs-0002", "xhs-0016"} <= set(facets["其他"]["items"])
     assert "菜谱" not in facets                                   # 和节点同名的不在这一行（帖子身上还有）
-    assert "xhs-0016" in facets["空气炸锅"]["items"] and "xhs-0016" in facets["鸡肉"]["items"]
+    assert "xhs-0016" in facets["空气炸锅"]["items"] and "xhs-0016" in facets["其他"]["items"]
     assert fake.calls.count("tags") == 1                          # 19 篇一批：一次就打完（只看标题 + 标签 + 概要）
     assert data["item_tags"]["xhs-0016"] == ["空气炸锅", "鸡肉"]   # 标签属于帖子
     # 「游戏/游戏」没写 `...`：空洞骑士 6 篇 → 建议新增（写清放在哪）

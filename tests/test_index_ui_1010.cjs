@@ -73,6 +73,12 @@ function setup({ answers = {}, confirm = true, settings = {}, layoutReady = null
     release(); await tick();
     assert.equal(S.notices.length, shown, '同一批写法提示不重复弹');
   }
+  // 1015：第 4 级并进第 3 级（level=info）是她要的写法，不弹「有 N 处写法要看一眼」
+  {
+    const S = setup({ answers: { 'index build': { ok: true, message: '索引已更新', warnings: [{ line: 40, level: 'info', text: '第 40 行是第 4 级' }] } } });
+    S.fire('modify', 'LB/索引.md'); await S.flush(); await tick();
+    assert.ok(!S.notices.some(n => /写法要看一眼/.test(n.msg)), 'info 不弹');
+  }
   // 起草 / 用这版
   {
     const S = setup({ answers: { 'index draft': { ok: true, message: 'AI 起草了一版：7 个大类' }, 'index use-draft': { ok: true, message: '已换成草稿那版' } } });
@@ -149,9 +155,16 @@ function setup({ answers = {}, confirm = true, settings = {}, layoutReady = null
       'index classify --progress': opts => { opts.onLine('{"type":"progress","done":25,"total":616,"text":"按内容归类 25/616"}'); opts.onLine('乱码'); return { code: 0, json: { ok: true, message: '按内容归好了' } }; },
       'index accept --id bad': { ok: false, code: 'PERMANENT.STEP_ARGS', message: '这条建议已经不在了' },
       'index dismiss --id boom': new Error('Python 崩了'),
-      'index facet --path 美食/菜谱 --op add --name 牛排 --item a': { ok: true, message: '已加上细分标签「牛排」', undo: 'u2' } } });
+      'index facet --path 美食/菜谱 --op add --name 牛排 --item a': { ok: true, message: '已加上细分标签「牛排」', undo: 'u2' },
+      'index edit --op move --path 美食/菜谱 --to 游戏 --before 塞尔达': { ok: true, message: '已挪', undo: 'e1' },
+      'index edit --op rename --path 美食 --name 吃的': { ok: true, message: '已改名', path: '吃的' },
+      'index edit --op undo --path e1': { ok: true, message: '已撤销' } } });
+    // 1015 大纲树：改名 / 挪 / 合并 / 撤销 → index edit（参数照拼，空的不带）
+    assert.equal((await S.plugin.indexEdit('move', '美食/菜谱', { to: '游戏', before: '塞尔达' })).undo, 'e1');
+    assert.equal((await S.plugin.indexEdit('rename', '美食', { name: '吃的' })).path, '吃的');
+    assert.equal((await S.plugin.indexEdit('undo', 'e1')).message, '已撤销');
     assert.equal((await S.plugin.indexFacet(['a'], '美食/菜谱', 'add', '牛排')).undo, 'u2');
-    for (const m of ['indexAssign', 'indexAccept', 'indexDismiss', 'indexEmpty', 'indexClassify', 'indexFacet']) assert.equal(typeof S.plugin[m], 'function', m);
+    for (const m of ['indexAssign', 'indexAccept', 'indexDismiss', 'indexEmpty', 'indexClassify', 'indexFacet', 'indexEdit']) assert.equal(typeof S.plugin[m], 'function', m);
     assert.deepEqual(await S.plugin.indexAssign(['a', 'b'], 'move', '美食/菜谱'), { ok: true, message: '2 篇已移到「菜谱」', undo: 'u1' });
     assert.equal((await S.plugin.indexAccept('p1')).path, '美食/健康餐');
     assert.equal((await S.plugin.indexEmpty('空', 'remove')).message, '已删');

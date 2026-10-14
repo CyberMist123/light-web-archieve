@@ -26,6 +26,8 @@ BATCH = 40
 MAX_PER_POST = 6
 NODE_TOP = 12
 NODE_MIN = 2
+FACET_SHOW_MIN = 3     # 1015：细分至少几篇才单列；更少的收进「其他」
+OTHER_NAME = "其他"
 VOCAB_HINT = 300          # 给模型看的已有标签（篇数多的）——尽量复用，同义的别另起
 NAME_MAX_CJK = 8
 NAME_MAX_ASCII = 16
@@ -418,11 +420,22 @@ def node_facets(parsed, result, d: dict[str, Any]) -> dict[str, list[dict[str, A
             for t in tags_of.get(iid, []):
                 if key(t) not in banned:
                     members.setdefault(t, []).append(iid)
-        rows = [{"name": t, "count": len(v), "items": sorted(v, key=lambda i: order.get(i, 1 << 30))}
-                for t, v in members.items() if len(v) >= NODE_MIN]
-        rows.sort(key=lambda r: (-r["count"], r["name"]))
+        srt = lambda v: sorted(v, key=lambda i: order.get(i, 1 << 30))  # noqa: E731
+        big = [{"name": t, "count": len(v), "items": srt(v)} for t, v in members.items() if len(v) >= FACET_SHOW_MIN]
+        big.sort(key=lambda r: (-r["count"], r["name"]))
+        if big:
+            # 1015 她：只有 1–2 篇的细分（大厂法务2 / 米哈游2…）一个个列出来反人类 → 收进末尾一个「其他」（多选照旧能用）
+            rows = big[:NODE_TOP]
+            shown = {r["name"] for r in rows}
+            rest = {i for t, v in members.items() if t not in shown for i in v}
+            if rest:
+                rows.append({"name": OTHER_NAME, "count": len(rest), "items": srt(rest), "other": True})
+        else:
+            rows = [{"name": t, "count": len(v), "items": srt(v)} for t, v in members.items() if len(v) >= NODE_MIN]
+            rows.sort(key=lambda r: (-r["count"], r["name"]))
+            rows = rows[:NODE_TOP]
         if rows:
-            out[n.path] = rows[:NODE_TOP]
+            out[n.path] = rows
     return out
 
 

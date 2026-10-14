@@ -190,7 +190,8 @@ const calls = async (S, name) => (await S.calls()).filter(c => c[0] === name);
       await card.locator('.lbc-reclass').click(); await S.settle();
       const menu = await page.evaluate(() => [...document.querySelectorAll('.menu .menu-item-title, .lbc-menu .lbc-menu-item')].map(e => e.textContent));
       assert.deepEqual(menu.slice(0, 3), ['移到…（只放这一类）', '也放进…', '从「家常菜」拿掉'], `${theme}：归类菜单 ${menu}`);
-      assert.ok(menu.includes('标签：红烧') && menu.includes('加一个标签…'), `${theme}：归类菜单里能加 / 去掉这篇的标签 ${menu}`);
+      // 1015 她：标签逐条列出太长 → 收进「标签 ▸」二级（测试外壳没有 setSubmenu：平铺在「标签」下面、前面空一格）
+      assert.ok(menu.includes('标签') && menu.includes('　红烧') && menu.includes('　加一个标签…') && !menu.some(t => t.startsWith('标签：')), `${theme}：归类菜单里标签收进二级 ${menu}`);
       await page.evaluate(() => [...document.querySelectorAll('.menu .menu-item, .lbc-menu .lbc-menu-item')].find(e => e.textContent.includes('移到')).click()); await S.settle();
       const pick = await page.evaluate(() => ({ rows: [...document.querySelectorAll('.lbi-pick-row')].map(b => b.textContent), virt: [...document.querySelectorAll('.lbi-pick-row')].some(b => b.dataset.path === '做饭/空气炸锅'),
         sbw: getComputedStyle(document.querySelector('.lbi-pick')).scrollbarWidth }));
