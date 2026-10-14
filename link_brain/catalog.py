@@ -489,6 +489,8 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                 "cats": _cats(tags, big_cats),
                 "kind": meta.get("kind", "image"),
                 "date": archived.strftime("%Y-%m-%d") if archived else "",
+                # 1015 第二批：发帖日期（她说「2024 年存的」多半指那年的帖子；date 是入库日期）
+                "published": str(note.get("published_at") or "")[:10],
                 "ts": archived.isoformat() if archived else "",
                 "comments": comment_count,
                 "last_comment": last_comment,

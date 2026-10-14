@@ -166,6 +166,9 @@ def strip_meta(question: str, filters: dict[str, Any], *, keep_empty: bool = Fal
         q = q.replace(filters["author"], " ")
     q = re.sub(r"(?:20\d\d\s*年(?:\d{1,2}\s*月)?|去年|今年|上个月|最近\s*\S{1,3}(?:天|周|个月))(?:存|收藏|保存)?的?", " ", q)
     q = re.sub(r"(?:^|\s)/[^\s/]{1,20}", " ", q)
+    if filters.get("kind"):
+        q = re.sub(r"视频|vlog|录屏|pdf|PDF|附件|文件|文档|电子书|\d+\s*页(?:的)?", " ", q)
+    q = re.sub(r"^(?:有个|有一个|有篇)|^教|的$", " ", q.strip())
     q = re.sub(r"(?:发|写|拍|做)过(?:哪些|什么|的)?|有哪些|都有啥|有什么", " ", q)
     q = _SPACE.sub(" ", q).strip()
     if keep_empty and not re.search(r"[\w一-鿿]", q):
@@ -183,9 +186,12 @@ def apply_filters(items, filters: dict[str, Any] | None):
             out, used = got, used + ["author"]
     since, until = filters.get("since"), filters.get("until")
     if since or until:
-        got = [it for it in out if it.get("date") and (not since or it["date"] >= since) and (not until or it["date"] <= until)]
-        if got:
-            out, used = got, used + ["time"]
+        # 两种口径：默认按发帖日期（published），一篇都没有再按入库日期（date）；用的哪种记进 used（time:published / time:archived）
+        for key, tag in (("published", "time:published"), ("date", "time:archived")):
+            got = [it for it in out if it.get(key) and (not since or it[key] >= since) and (not until or it[key] <= until)]
+            if got:
+                out, used = got, used + [tag]
+                break
     kinds = [k for k in filters.get("kind") or [] if k in KINDS]
     if kinds:
         got = [it for it in out if any(item_has_kind(it, k) for k in kinds)]
@@ -317,6 +323,52 @@ def merge_filters(rule: dict[str, Any] | None, model: dict[str, Any] | None) -> 
     return out
 
 
+_PY_INDEX: dict[str, Any] = {"key": None}
+
+
+def homophone_fix(word: str, items) -> str | None:
+    """同音错字纠正（语音输入「鱼路」→「鱼露」）：word 在库里一处都没有时，按读音逐字换同音字，
+    取库里真出现过的写法——和原词同字越多越优先，同分取出现次数多的。只认 2–4 个汉字；没把握返回 None。"""
+    if not re.fullmatch(r"[一-鿿]{2,4}", word or "") or not items:
+        return None
+    from .retrieval import _CORPUS_CACHE, fields, norm
+    from . import retrieval
+    if retrieval._CORPUS_CACHE[0] is not items:
+        retrieval._CORPUS_CACHE = (items, "\n".join(" ".join(norm(v) for v in fields(it).values()) for it in items))
+    hay = retrieval._CORPUS_CACHE[1]
+    if word in hay:
+        return None
+    if _PY_INDEX["key"] is not items:
+        from .catalog import pinyin_chars
+        by_py: dict[str, list[str]] = {}
+        for ch, py in pinyin_chars(items).items():
+            by_py.setdefault(py, []).append(ch)
+        _PY_INDEX.update(key=items, by_py=by_py, char_py=None)
+    from pypinyin import lazy_pinyin
+    by_py = _PY_INDEX["by_py"]
+    options = [[c] + [x for x in by_py.get(lazy_pinyin(c)[0], []) if x != c] for c in word]
+    if any(len(o) > 80 for o in options):
+        options = [o[:80] for o in options]
+    best = None
+    # 先只换一个字（最常见的错法），没有再换两个
+    for changes in (1, 2):
+        for i in range(len(word)):
+            for a in options[i][1:]:
+                cands = []
+                if changes == 1:
+                    cands = [word[:i] + a + word[i + 1:]]
+                else:
+                    for j in range(i + 1, len(word)):
+                        cands += [word[:i] + a + word[i + 1:j] + b + word[j + 1:] for b in options[j][1:]]
+                for cand in cands:
+                    n = hay.count(cand)
+                    if n and (best is None or n > best[1]):
+                        best = (cand, n)
+        if best:
+            return best[0]
+    return None
+
+
 def understand(question: str, items=None, *, s1: dict[str, Any] | None = None, skills=None) -> dict[str, Any]:
     """S0 + S1 合起来的理解（检索 / 档位 / 作答都看这一份）。s1 = parse_s1 的结果（没有就纯规则）。"""
     s1 = s1 or {}
@@ -329,7 +381,20 @@ def understand(question: str, items=None, *, s1: dict[str, Any] | None = None, s
     # 模型给的 core 也再过一遍规则（它常把「那个 / 叫啥」「某某发过哪些」留在里面）
     core = strip_meta(s1.get("core") or question, filters, keep_empty=True)
     core = strip_shell(core) if core else ""
+    corrected = None
+    if items and core:
+        try:
+            fixed = []
+            for w in core.split():
+                f = homophone_fix(w, items)
+                fixed.append(f or w)
+                if f:
+                    corrected = (corrected or []) + [f"{w}→{f}"]
+            core = " ".join(fixed)
+        except Exception:  # noqa: BLE001 - 纠错只是兜底
+            pass
     out = {"goal": goal, "goal_source": "model" if s1.get("goal") else "rule", "core": core[:40],
+           **({"corrected": corrected} if corrected else {}),
            "stripped": stripped, "filters": filters,
            "skill": rule.get("skill"), "skill_source": "explicit" if rule.get("skill") else None}
     if s1.get("depth"):

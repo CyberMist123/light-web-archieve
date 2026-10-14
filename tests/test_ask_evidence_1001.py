@@ -77,7 +77,7 @@ def test_selector_bad_format_fails_open_to_plain_retrieval(monkeypatch, selector
             return {"status": "ok", "text": selector_reply}
         return {"status": "ok", "text": "整理如下[来源1]"}
     monkeypatch.setattr(ask, "call_text", model)
-    r = ask.answer("推荐相关项目")
+    r = ask.answer("推荐相关项目", mode="direct")   # 1015 起盘点多默认出目录；这里测直接答那条路上的挑材料
     assert r["status"] == "ok" and r["selection_failed"] is True
     # 第 10 批：篇数按字数预算（8000 字 → 11 篇），筛选失败照检索顺序；其余候选在 related
     assert len(r["sources"]) == ask.primary_count(8000, 8, 12) == 11 and len(calls) == 2
@@ -89,7 +89,7 @@ def test_selector_http_error_also_fails_open(monkeypatch):
     monkeypatch.setattr(ask.ai_config, "load", lambda: ask.ai_config._deep_merge(ask.ai_config.DEFAULTS, {}))
     replies = iter([{"status": "failed", "error": "timeout"}, {"status": "ok", "text": "答[来源1]"}])
     monkeypatch.setattr(ask, "call_text", lambda p, t, s: next(replies))
-    r = ask.answer("推荐相关项目")
+    r = ask.answer("推荐相关项目", mode="direct")   # 1015 起盘点多默认出目录；这里测直接答那条路上的挑材料
     assert r["status"] == "ok" and r.get("selection_failed") is True
 
 
@@ -99,6 +99,6 @@ def test_selector_chatty_json_is_parsed_leniently(monkeypatch):
     replies = iter([{"status": "ok", "text": '好的：\n```json\n{"selected":[2]}\n```\n以上'},
                     {"status": "ok", "text": "答[来源1]"}])
     monkeypatch.setattr(ask, "call_text", lambda p, t, s: next(replies))
-    r = ask.answer("推荐相关项目")
+    r = ask.answer("推荐相关项目", mode="direct")   # 1015 起盘点多默认出目录；这里测直接答那条路上的挑材料
     assert r["status"] == "ok" and "selection_failed" not in r
     assert r["candidates"] > 8 and len(r["sources"]) >= 1

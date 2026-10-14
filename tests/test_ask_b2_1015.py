@@ -414,7 +414,8 @@ def test_mcp_search_filters_hits_and_skills(monkeypatch):
 
 def test_find_direct_lists_also_mentioned_one_line_each(monkeypatch, tmp_path):
     main = _it("xhs-main", "越南菜上瘾", "灵魂小酱汁：鱼露 糖 温水 1:1:1", tags=["自制鱼露酱汁"])
-    others = [_it(f"xhs-o{i}", f"别的菜{i}", "正文没提", fields={"comments": f"评论里说放了鱼露{i}勺"}) for i in range(3)]
+    others = [_it(f"xhs-o{i}", f"别的菜{i}", "正文没提", fields={"transcript": f"视频里说放了鱼露{i}勺"}) for i in range(3)]
+    others.append(_it("xhs-pass", "路人提到", "正文没提", fields={"comments": "脑补鱼露"}))   # 评论区路人一提：不列
     items = [main] + others + [_it(f"xhs-z{i}", f"无关{i}", "完全不相干") for i in range(30)]
     monkeypatch.setattr(ask, "load_items", lambda: items)
     monkeypatch.setattr(retrieval, "semantic_hits", lambda *a, **k: None)
@@ -429,8 +430,8 @@ def test_find_direct_lists_also_mentioned_one_line_each(monkeypatch, tmp_path):
     assert res["mode"] == "direct" and res["understanding"]["goal"] == "find" and res["understanding"]["core"] == "鱼露"
     assert res["sources"][0]["id"] == "xhs-main"
     also = [s for s in res["sources"] if s["tier"] == "also"]
-    assert {s["id"] for s in also} == {"xhs-o0", "xhs-o1", "xhs-o2"} and all(s["hit"]["type"] == "comments" for s in also)
-    assert "（也提到，只列一行）出现在评论区" in seen[-1][1] and "这是找回" in seen[-1][0]
+    assert {s["id"] for s in also} == {"xhs-o0", "xhs-o1", "xhs-o2"} and all(s["hit"]["type"] == "transcript" for s in also)
+    assert "（也提到，只列一行）出现在视频文字稿" in seen[-1][1] and "这是找回" in seen[-1][0]
 
 
 def test_cli_skills_subcommand(capsys):
@@ -461,3 +462,49 @@ def test_hidden_skills_are_listed_but_not_routed(monkeypatch):
     assert next(s for s in ok if s["id"] == "recipe")["hidden"] is True
     assert "recipe" not in [m["id"] for m in skills.routing_menu(ok)]
     assert skills.choose({"skill": "recipe"}, ok)["id"] == "general"
+
+
+# ---------------------------------------------------------------- 1015 第二轮迭代
+
+def test_homophone_fix_prefers_shared_chars():
+    items = [_it("a", "越南米粉", "鱼露 糖 温水"), _it("b", "名人语录", "语录 语录 语录")]
+    assert ask_intent.homophone_fix("鱼路", items) == "鱼露"
+    assert ask_intent.homophone_fix("鱼露", items) is None          # 库里有就不动
+    u = ask_intent.understand("鱼路是哪篇", items, s1={"core": "鱼路"})
+    assert u["core"] == "鱼露" and u["corrected"] == ["鱼路→鱼露"]
+
+
+def test_time_filter_prefers_published_then_archived():
+    items = [{"id": "a", "published": "2024-02-26", "date": "2026-01-01"}, {"id": "b", "published": "", "date": "2025-03-01"}]
+    got, used = ask_intent.apply_filters(items, {"since": "2024-01-01", "until": "2024-12-31"})
+    assert [it["id"] for it in got] == ["a"] and used == ["time:published"]
+    got, used = ask_intent.apply_filters(items, {"since": "2025-01-01", "until": "2025-12-31"})
+    assert [it["id"] for it in got] == ["b"] and used == ["time:archived"]
+
+
+def test_also_mentioned_skips_passerby_comments(monkeypatch):
+    vault = storage.vault_root()
+    agent = _obj(vault, "eee", [{"comment_id": "c1", "author": {"user_id": "u9", "nickname": "路人"}, "text": "脑补鱼露"},
+                                {"comment_id": "c2", "author": {"user_id": "u0", "nickname": "原帖作者"}, "text": "可以加点鱼露"}])
+    passer = {"id": "p", "agent_md": agent, "search_fields": {"body": "蟹黄拌面", "comments": "脑补鱼露"}}
+    owner = {"id": "o", "agent_md": agent, "search_fields": {"body": "海鲜", "comments": "可以加点鱼露"}}
+    video = {"id": "v", "search_fields": {"body": "春卷", "transcript": "鱼露1勺"}}
+    assert ask.substantive_hit(passer, ["鱼露"], ["鱼露"]) is None
+    assert ask.substantive_hit(owner, ["鱼露"], ["鱼露"])["speaker"] == "作者本人回复"
+    assert ask.substantive_hit(video, ["鱼露"], ["鱼露"])["type"] == "transcript"
+
+
+def test_core_first_reranks_non_survey():
+    items = [_it("a", "鱼片", "蒜香鱼片"), _it("b", "鱼片2", "鱼片先抓淀粉")] + [_it(f"z{i}", "z", "无关") for i in range(20)]
+    u = {"goal": "find", "core": "鱼片 淀粉"}
+    assert [it["id"] for it in ask.core_first(items[:2], u, items)] == ["b", "a"]
+    assert [it["id"] for it in ask.core_first(items[:2], {**u, "goal": "survey"}, items)] == ["a", "b"]
+
+
+def test_absent_core_answers_without_model(lib):
+    items, calls = lib
+    # 「猫砂」库里没有，但「鱼露」那几篇沾「牌子」之外的词也会被召回：靠 core 第一个词全库为零直接答没有
+    items.append(_it("xhs-brand", "好牌子", "这个牌子的鱼露好"))
+    res = ask.answer("猫砂 鱼露牌子")
+    assert res["model_called"] is False and calls == [] and res["markdown"].startswith("收藏里没找到「猫砂」")
+    assert "可补" in res["markdown"] and res["mode_reason"] == "absent"

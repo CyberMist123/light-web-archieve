@@ -1214,6 +1214,9 @@ def core_words(understood, items):
     for chunk in re.findall(r"[A-Za-z0-9][A-Za-z0-9.+-]*|[一-鿿]+", core):
         parts = jieba.lcut(chunk) if re.match(r"[一-鿿]", chunk) else [chunk.lower()]
         words += [w for w in parts if w and w not in _STOP and not set(w) <= _FUNC_CHARS]
+    # 只留原词路也认的词：「推荐 / 相关 / 整理」这类指令词 query_terms 会剔掉，这里同样不当核心
+    allowed = set(query_terms(core))
+    words = [w for w in words if w in allowed or w.lower() in allowed]
     limit = max(2, len(items) * EXPAND_GENERIC)
     out = []
     for i, w in enumerate(dict.fromkeys(words)):
@@ -1222,6 +1225,8 @@ def core_words(understood, items):
             return None   # 她要找的那个东西（core 第一个词）库里根本没有   # 她要找的东西库里根本没有：别让剩下的泛词（「牌子」）凑出一串「真命中」
         if 0 < anywhere < limit:
             out.append(w)
+    if any(len(w) >= 2 for w in out):
+        out = [w for w in out if len(w) >= 2]   # 有多字词时单字（「粉」）太宽，不当核心
     return out
 
 
@@ -1338,6 +1343,61 @@ def search_hits(item, terms, sem=None, limit=3, chars=240):
     return out
 
 
+_SUBSTANTIVE = ("title", "tags", "body", "ocr", "transcript", "screen", "attachments", "notes", "highlights")
+
+
+def substantive_hit(item, words, terms):
+    """「也提到」只收实质出现：核心词在正文 / 图片文字 / 视频文字稿 / 画面文字 / 附件 / 她的批注划线里，或作者本人在评论区回复里说的。
+    评论区路人随口一提（「脑补鱼露」）不算——返回 None，不列（1015 F01）。返回这一处的 hit_point。"""
+    from .retrieval import fields, has, norm, variants
+    if not words:
+        return None
+    fs = fields(item)
+    for key in _SUBSTANTIVE:
+        text = norm(fs.get(key) or "")
+        if text and all(any(has(text, v) for v in variants(w)) for w in words):
+            sub = {**item, "search_fields": {key: fs.get(key) or ""}, "title": "", "tags": [], "summary": ""}
+            if key in ("title", "tags"):
+                return hit_point(item, terms)
+            hp = hit_point(sub, list(words) + list(terms))
+            return hp
+    text = str(fs.get("comments") or "")
+    if text and all(any(has(norm(text), v) for v in variants(w)) for w in words):
+        for line in text.split("\n"):
+            if all(any(has(norm(line), v) for v in variants(w)) for w in words):
+                try:
+                    located = locate_excerpts(item, [{"field": "comments", "text": line}])[0]
+                except Exception:  # noqa: BLE001
+                    continue
+                if "作者本人回复" in (located.get("speakers") or []):
+                    return {"type": "comments", "label": HIT_TYPES["comments"], "text": " ".join(line.split())[:80],
+                            "loc": "、".join((located.get("comment_labels") or [])[:2]), "speaker": "作者本人回复"}
+    return None
+
+
+def core_first(pool, understood, items):
+    """核心词全中的篇排前（稳定，不改各自内部顺序）：深读只读第 1 篇时，不让「标题沾边、正文没有她要的那步」的篇顶到第一（1015 F06）。
+    盘点不重排（要的是全貌）；核心词库里没有 / 没有核心词 = 原样。"""
+    if (understood or {}).get("goal") == "survey":
+        return pool
+    words = core_words(understood, items)
+    if not words:
+        return pool
+    # 按中了几个核心词排（稳定排序）：「鱼片 先抓 淀粉」里「先抓」是口语，要求全中会一篇都对不上
+    from .retrieval import fields, has, norm, variants
+
+    def covered(it):
+        if it.get("source_kind") == "saved":
+            return len(words)
+        fs = [norm(v) for v in fields(it).values()]
+        return sum(any(has(t, v) for v in variants(w) for t in fs) for w in words)
+    scores = {it["id"]: covered(it) for it in pool[:POOL_MAX]}
+    if not any(scores.values()):
+        return pool
+    head = sorted(pool[:POOL_MAX], key=lambda it: -scores[it["id"]])
+    return head + pool[POOL_MAX:]
+
+
 def toc_entries(strong, terms, limit=TOC_MAX):
     from .ask_intent import item_kinds
     out = []
@@ -1411,6 +1471,14 @@ def _relation_rules(understood):
         out += "\n偏好（满足的排前）：" + "、".join(cons["prefer"]) + "。"
     if u.get("negation"):
         out += "\n她明确不要：" + "、".join(u["negation"]) + "。"
+    if u.get("core") and u.get("goal") in ("find", "ask") and not u.get("followup"):
+        out += ("\n和她要找的东西对不上的来源不要提、不要引用编号、不要另起一节解释它们为什么不相关；"
+                "真一篇都对不上才开头说「收藏里没找到」，不拿别的东西的配方 / 数字凑。")
+    if u.get("corrected"):
+        out += "\n她的问句有同音错字，已按「" + "、".join(c.split("→")[1] for c in u["corrected"]) + "」找：回答第一行注明「按『…』找的」。"
+    if any(str(x).startswith("time:") for x in u.get("filters_applied") or []):
+        basis = "发帖时间" if "time:published" in u["filters_applied"] else "收藏（入库）时间"
+        out += f"\n这些材料已按{basis}筛过（{(u.get('filters') or {}).get('since', '')} 起）：回答第一行注明「按{basis}筛的」。"
     if u.get("goal") == "find":
         out += ("\n这是找回：第一行就给最可能是她要的那一篇（标题 · 作者 · 日期），一两句说要找的东西在这篇里怎么出现（数字照原文）；"
                 "其他也提到的篇每篇一行写清出现在哪（正文 / 评论区·昵称 / 图N / 视频文字稿 / 视频画面文字 / 附件）。不写百科背景。")
@@ -1462,15 +1530,19 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
         from .ask_intent import apply_filters
         scope_items, used_filters = apply_filters(items, understood.get("filters"))
         if used_filters:
+            understood["filters_applied"] = list(used_filters)
             cache_hit = None  # 带过滤条件的问法不沿用旧答案
             _phase("按条件筛选：" + "、".join({"author": f"作者 {understood['filters'].get('author')}",
-                                              "time": "收藏时间", "kind": "类型"}[u] for u in used_filters)
+                                              "time:published": "发帖时间", "time:archived": "入库时间", "kind": "类型"}[u]
+                                             for u in used_filters)
                    + f"（{len(scope_items)} 条）")
         found = recall(question, scope_items, settings, history, probe=probe, core=understood.get("core"))
         matches, prior_terms, terms, sem, expansion = (found["matches"], found["prior_terms"], found["terms"],
                                                         found["sem"], found["expansion"])
         intent = found.get("intent")
         found_mode = found.get("mode") or "standalone"
+        if found_mode == "followup":
+            understood["followup"] = True
         # R1：候选集全量记录——首屏窗口之外的篇按同一顺序留着（页面「继续看」等 Owner 定，先只在结果里带上 id）
         candidates_all = found.get("candidates") or matches
         beyond = [it["id"] for it in candidates_all[len(found["matches"]):] if it["id"] not in excluded]
@@ -1499,6 +1571,11 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     top_k = max(1, int(limits.get('topK', 8)))
     pool = matches[:POOL_MAX] if not pinned else matches
     # 「我保存的」不占收藏笔记的名额、也不触发单篇深读：按笔记算篇数，排在前面的保存条目另加位置
+    if not pinned and found_mode == "standalone":   # 追问时 core 是「需要哪些调料」，按它重排会把上一问的那篇挤走
+        try:
+            pool = core_first(pool, understood, items)
+        except Exception:  # noqa: BLE001
+            pass
     notes_pool = [it for it in pool if it.get("source_kind") != "saved"]
     n, deep = prompt_count(question, notes_pool, cap, top_k, pinned=pinned or bool(pins), intent=intent)
     if expand_of:
@@ -1509,7 +1586,7 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     mode_info: dict[str, Any] = {}
     mode = "direct"
     # 追问（「需要哪些调料？」）接着上一答，不出目录
-    if not pinned and not pins and found_mode == "standalone":
+    if not pinned and not pins and found_mode in ("standalone", "switch"):
         try:
             mode, mode_info = decide_mode(understood, notes_pool, items, deep=deep, expansion_terms=expansion["terms"],
                                           used_filters=used_filters, force=force_mode)
@@ -1541,6 +1618,19 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
                 **({"intent_model": intent} if intent else {}),
                 "expansion": {"terms": expansion["terms"], "status": expansion.get("status")}}
     strong_n = mode_info.get("strong")
+    if (not pinned and not pins and found_mode == "standalone" and understood.get("core")
+            and core_words(understood, items) is None
+            and not any(it.get("source_kind") == "saved" for it in pool)   # 「我保存的」里有就不算没有
+            and re.match(r"[一-鿿]", str(understood.get("core")))):   # 英文 / 外文词可能靠语义跨语言接住（sleep → 做梦），不判没有
+        # 她要找的那个东西（core 第一个词）全库一处都没有：不调作答模型硬凑沾边的帖，直接说没有 + 一行可补（零 token）
+        miss = str(understood.get("core")).split()[0]
+        hint_line = suggest_line(understood)
+        _turn_record(turn_id, question, "direct", [], understood, skill_id)
+        related_none = [related_card(it, i + 1, terms) for i, it in enumerate(pool[:10])]
+        return {"kind": "answer", "mode": "direct", "markdown": f"收藏里没找到「{miss}」。" + ("\n\n" + hint_line if hint_line else ""),
+                "turn_id": turn_id, "source_ids": [], "sources": [], "related": related_none, "matches": len(matches),
+                "materials": 0, "model_called": False, "suggest": hint_line, "coverage_note": "收藏里没有这个词",
+                "understanding": _public_understanding(understood, used_filters), "skill": skill_id, "mode_reason": "absent"}
     if pins:
         n = max(n, min(len(pins), len(pool)))
         cap = max(cap, len(pins) * (frag + 240))
@@ -1601,11 +1691,18 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
                         # 1015：这一条用到了哪几类来源（正文 / 评论区 / 图片文字 / 视频文字稿 …），前端标来源类型
                         "hit_types": list(dict.fromkeys(x["field"] for x in snippets if x.get("field"))), "date": it.get("date") or ""})
     if (understood or {}).get("goal") == "find" and not pinned and mode_info.get("strong_items"):
+        also_words = core_words(understood, items) or []
         # 找回（她 1015 验收：鱼露）：主答之外「也提到 X 的」每篇一行——只给出现位置和那一句原文，不展开、不另花大段预算
         also_terms = list(dict.fromkeys((core_words(understood, items) or []) + terms + expansion["terms"]))
         shown = {s["id"] for s in sources}
-        for it in [x for x in mode_info["strong_items"] if x["id"] not in shown][:ALSO_MAX]:
-            hp = hit_point(it, also_terms)
+        also_list = []
+        for it in [x for x in mode_info["strong_items"] if x["id"] not in shown]:
+            hp = substantive_hit(it, also_words, also_terms)
+            if hp:
+                also_list.append((it, hp))
+            if len(also_list) >= ALSO_MAX:
+                break
+        for it, hp in also_list:
             n_cite = len(sources) + 1
             where = hp["label"] + (f" {hp['loc']}" if hp.get("loc") else "") + (f"（{hp['speaker']}）" if hp.get("speaker") else "")
             author = str(it.get("author") or "").strip()

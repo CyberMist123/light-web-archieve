@@ -449,7 +449,7 @@ def test_ask_selection_failure_is_recorded_as_skipped(monkeypatch, pushes):
     monkeypatch.setattr(ask.ai_config, "load", lambda: ask.ai_config._deep_merge(ask.ai_config.DEFAULTS, {}))
     replies = iter([{"status": "failed", "error": "timeout"}, {"status": "ok", "text": "答[来源1]"}])
     monkeypatch.setattr(ask, "call_text", lambda p, t, s: next(replies))
-    r = ask.answer("推荐相关项目")
+    r = ask.answer("推荐相关项目", mode="direct")   # 1015 起盘点多默认出目录；这里测直接答那条路上的挑材料
     assert r["status"] == "ok" and r["selection_failed"] is True
     row = problems.load()[0]
     assert (row["step"], row["code"], row["action"], row["group"]) == ("ask", "SKIPPED.FALLBACK", "skipped", "off")
