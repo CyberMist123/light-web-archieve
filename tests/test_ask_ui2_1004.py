@@ -105,7 +105,9 @@ def test_saved_report_joins_but_notes_still_come(monkeypatch, tmp_path):
     _setup(monkeypatch, tmp_path, entries)
     r = ask.answer("交通路线")
     ids = [s["id"] for s in r["sources"]]
-    assert ids[0] == "saved:r1" and {"t0", "t1", "t2", "t3"} <= set(ids)
+    # 1015 第三批 R1：收藏笔记照样进来源（篇数由选篇规则定，直接答最多 SELECT_MAX 篇），「我保存的」排最前不占名额
+    notes = [i for i in ids if not i.startswith("saved:")]
+    assert ids[0] == "saved:r1" and notes and set(notes) <= {"t0", "t1", "t2", "t3"}
 
 
 def test_saved_respects_exclusion_and_pin(monkeypatch, tmp_path):

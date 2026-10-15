@@ -60,3 +60,12 @@ def get(turn_id: Any) -> dict[str, Any] | None:
         return None
     row = _read().get(turn_id)
     return row if isinstance(row, dict) else None
+
+
+def latest_for(question: Any) -> dict[str, Any] | None:
+    """按提问原文找最近一轮（1015 第三批 R1：追问继承上一答的主来源；聊天页的 history 只有 role / content，不带 turn_id）。"""
+    q = " ".join(str(question or "").split())[:1000]
+    if not q:
+        return None
+    rows = [r for r in _read().values() if isinstance(r, dict) and " ".join(str(r.get("q") or "").split()) == q]
+    return max(rows, key=lambda r: str(r.get("ts") or "")) if rows else None

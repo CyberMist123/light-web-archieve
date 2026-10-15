@@ -285,7 +285,7 @@ _EXPAND_INSTRUCTION = (
     "context（只在给了上一轮提问时判断，没给就填 new）：new = 换了新话题，只按这一问找；followup = 接着上一轮问"
     "（如「第二个详细说说」「需要哪些调料」，这一问自己没有新的查找对象）；switch = 沿用上一轮的条件、只换查找对象（如「那东京的呢」）。"
     "scope：single = 问收藏里具体的某一篇（某个配方的完整做法、「某某帖讲了什么」）；few = 点名两三篇；"
-    "many = 盘点、推荐、找资料、泛泛地问某个话题，要看多篇。拿不准就填 many。"
+    "many = 盘点、推荐、找资料、泛泛地问某个话题，要看多篇。scope 只是建议，拿不准就省略 scope。"
     "output：links = 只要把相关笔记的链接列出来；github = 只要 GitHub 仓库地址清单；其余一律 answer。"
     # 1015 第二批 S1（ask_intent.parse_s1 只认合法值；缺字段 = 没给，退回规则层）
     "同一个 JSON 顶层再给这些字段（没有就省略）："
@@ -299,8 +299,12 @@ _EXPAND_INSTRUCTION = (
     "filters：{\"author\": 她点名的作者昵称, \"since\": \"YYYY-MM-DD\", \"until\": \"YYYY-MM-DD\", \"kind\": [video|attachment|pdf|image]}，"
     "只在她明说「某某发的 / 某年存的 / 视频里 / 那个 PDF」时给。facets：复合问题拆成的子对象（2–3 个，单对象省略）。"
     "skills：从给出的技能列表里选 0–2 个 id（没有合适的就省略）。共现不等于因果；扩词宁缺毋滥。"
+    # 1015 第三批 R1：独立问句（LangChain history-aware retriever 的做法，搭在同一次调用里）
+    "standalone_query：把这一问改写成不依赖上一轮也能看懂的完整问句（≤40 字）：补全省略的对象 / 条件，纠正同音错字，去掉口语壳；"
+    "switch 时沿用上一轮的话题、换成这一问的条件（上一轮「东京好吃的」+ 这一问「那大阪的呢」→「大阪好吃的」，不要保留被换掉的「东京」）；"
+    "followup 时补上上一轮的对象（「番茄炒蛋怎么做」+「要放糖吗」→「番茄炒蛋要放糖吗」）。"
 )
-_EXPAND_CACHE_VERSION = "v3"  # 1015：加了 S1 结构化理解（goal/core/filters/skills…）；旧缓存没有这些字段，同一问题重算一次
+_EXPAND_CACHE_VERSION = "v4"  # 1015 第三批 R1：加 standalone_query；scope 降为建议值
 _INTENT_VALUES = {"context": {"new", "followup", "switch"}, "scope": {"single", "few", "many"},
                   "output": {"answer", "links", "github"}}
 _EXPAND_MEM: dict[str, dict[str, Any]] = {}
@@ -390,7 +394,7 @@ def _parse_intent(text: str, has_previous: bool = False) -> dict[str, str] | Non
     return out or None
 
 
-_S1_KEYS = ("goal", "depth", "core", "entities", "relations", "constraints", "negation", "filters", "facets", "skills")
+_S1_KEYS = ("goal", "depth", "core", "standalone_query", "entities", "relations", "constraints", "negation", "filters", "facets", "skills")
 
 
 def _raw_s1(text: str) -> dict[str, Any] | None:
@@ -404,7 +408,7 @@ def _raw_s1(text: str) -> dict[str, Any] | None:
         return None
     intent = obj.get("intent") if isinstance(obj.get("intent"), dict) else {}
     out = {k: obj[k] for k in _S1_KEYS if k in obj}
-    for k in ("goal", "depth"):
+    for k in ("goal", "depth", "scope"):
         if k not in out and k in intent:
             out[k] = intent[k]
     raw = json.dumps(out, ensure_ascii=False)
@@ -768,7 +772,12 @@ def _meta_anchored(question, items, candidates):
     return [it for it in candidates if all(any(v in meta(it) for v in variants(w)) for w in words)]
 
 
-def qa_matches(question, items, terms, sem, history=None, extra=None, intent=None):
+def norm_q(text):
+    from .retrieval import norm
+    return re.sub(r"[\s，,。.?？!！]+", "", norm(text or ""))
+
+
+def qa_matches(question, items, terms, sem, history=None, extra=None, intent=None, standalone=None):
     """问答的候选排序：(matches, mode, prior_terms)。生产 _answer_qa 和评测 tests/tools/ask_eval.py 共用这一个函数。
 
     mode：standalone = 新话题，只按这一问检索（上文不掺进来）；followup = 追问，上文那一问的结果排前；
@@ -780,6 +789,9 @@ def qa_matches(question, items, terms, sem, history=None, extra=None, intent=Non
 
     intent（R1）：扩词那次小模型调用顺带给的意图；里面有 context（new / followup / switch）就按它定 mode，
     没有（没 key、模型没给、旧缓存）就走下面的启发式——启发式是 fallback，不删。
+
+    standalone（1015 第三批 R1）：S1 改写的独立问句。switch 时按它检索（沿用上一问的话题、换成这一问的条件——
+    「上海好吃的」→「那澳洲的呢」检索「澳洲好吃的」，不再把「上海」拼进来）；没有才退回「上一问 + 这一问」合并。
     """
     from .retrieval import rank_query
     history = [m for m in (history or [])[-8:] if m.get("role") in {"user", "assistant"}]
@@ -809,6 +821,13 @@ def qa_matches(question, items, terms, sem, history=None, extra=None, intent=Non
     if context == "switch" and not topic:
         context = "followup"  # 说是换对象，可这一问里没有库里找得到的新对象：按追问处理
     switch = context == "switch" if context else bool(topic and _SWITCH_RE.search(question.strip()) and len(question) <= 30)
+    if switch and standalone and norm_q(standalone) != norm_q(question):
+        from .retrieval import rank_query as _rq
+        sq_terms = query_terms(standalone)
+        combined = [{**it, "_fused_score": value} for value, it in _rq(items, standalone, list(dict.fromkeys(terms + sq_terms)),
+                                                                      sem=sem, extra=extra)]
+        seen = {it["id"] for it in combined}
+        return combined + [it for it in own if it["id"] not in seen], "switch", [t for t in sq_terms if t not in terms]
     if switch:
         words = [t for t, _, _ in topic]
         combined = [it for _, it in rank_query(items, anchor + " " + question, list(dict.fromkeys(terms + anchor_terms)), sem=sem)]
@@ -929,6 +948,176 @@ def prompt_count(question, pool, cap, top_k, pinned=False, intent=None):
     return count, False
 
 
+# --------------------------------------------------------------------------
+# 1015 第三批 R1：选篇（证据三段的第一段）。S1 的 scope / depth 只是建议值：送几篇由检索后的规则定——
+# 目的（goal）+ 显式锚点（标题点名 / 追问继承的上一答主来源）+ 候选相关性（融合分 / rerank 分相对第 1 名、核心词覆盖）。
+# 以前非深读一律 cap//700 ≈ 11 篇、每篇 ~580 字（诊断报告 §5-1/6：F24/F04/F08 被 10 篇噪音摊薄）。
+# --------------------------------------------------------------------------
+SELECT_MAX = {"find": 3, "ask": 3, "survey": 5}   # 直接答时最多深读几篇（survey 出目录时不走这里）
+SELECT_RATIO = {"find": .5, "ask": .5, "survey": .35}  # 第 2 篇起：分数 ≥ 第 1 名的这个比例才算「同样相关」
+RERANK_TOP = 30
+SEM_TIE = 0.02   # 语义分和第 1 篇差这么多以内算「打平」（scope 不是 single 时放宽一倍）
+
+
+def _rel_score(item, scores=None):
+    if scores and item.get("id") in scores:
+        return float(scores[item["id"]])
+    return float(item.get("_fused_score") or 0)
+
+
+def _core_cover(item, words):
+    from .retrieval import fields, has, norm, variants
+    if not words:
+        return 0
+    fs = [norm(v) for v in fields(item).values()]
+    return sum(any(has(t, v) for v in variants(w) for t in fs) for w in words)
+
+
+def select_primary(question, pool, understood, items, *, scores=None, inherited=None, lex=None, sem=None):
+    """(篇数, 理由)。pool 已按最终顺序排好（core_first / rerank 之后）；inherited = 追问继承的上一答主来源（已排在 pool 前面）。
+    相关性：有 rerank 分用 rerank 分（≥ 第 1 名 × SELECT_RATIO）；没有就看原词 BM25 分（同比例）或语义分（与第 1 名差 ≤ SEM_TIE）
+    任一够近——RRF 融合分名次一样时差距很小（1/61 vs 1/62），拿它比断层没有分辨力（F07 BM25 2229 vs 342）。
+    另要求核心词覆盖不少于第 1 篇。"""
+    if not pool:
+        return 0, "empty"
+    if inherited:
+        return max(1, min(len(inherited), SELECT_MAX["ask"], len(pool))), "inherited"
+    understood = understood or {}
+    goal = understood.get("goal") if understood.get("goal") in SELECT_MAX else "ask"
+    k_max = min(SELECT_MAX[goal], len(pool))
+    named = [it for it in pool[:k_max] if _title_named(question, it, pool)]
+    if named and pool[0] in named:
+        n = 1
+        for it in pool[1:k_max]:
+            if it not in named:
+                break
+            n += 1
+        return n, "named"
+    words = core_words(understood, items) or []
+    first = pool[0]
+    first_cover = _core_cover(first, words)
+    scope = understood.get("scope")
+    ratio = SELECT_RATIO[goal]
+    if scope == "single":
+        ratio = max(ratio, .85)   # 建议值：模型说单篇时只在几乎打平时多带一篇（F05 两篇都对）
+    lex, sem = lex or {}, sem or {}
+
+    def sem_of(it):
+        return float((sem.get(it.get("id")) or {}).get("score") or 0)
+
+    def close(it):
+        if scores:
+            top = _rel_score(first, scores)
+            return top <= 0 or _rel_score(it, scores) >= top * ratio
+        top_lex = float(lex.get(first.get("id")) or 0)
+        if top_lex > 0 and float(lex.get(it.get("id")) or 0) >= top_lex * ratio:
+            return True
+        s0, s1 = sem_of(first), sem_of(it)
+        return s0 > 0 and s1 > 0 and s1 >= s0 - SEM_TIE * (2 if scope != "single" else 1)
+    n = 1
+    for it in pool[1:k_max]:
+        if not close(it) or _core_cover(it, words) < first_cover:
+            break
+        n += 1
+    return n, f"relevance:{goal}"
+
+
+LEAD_LEX_RATIO = 1.5   # 原词 BM25 断层：候选前几篇里有一篇原词分 ≥ 现第 1 名的 1.5 倍
+LEAD_SEM_SLACK = 0.05  # 且它的语义分不比现第 1 名低这么多以上 → 它当主来源
+LEAD_SCAN = 5
+
+
+def lead_by_dominance(pool, lex=None, sem=None):
+    """主来源校正（选篇第一步）：RRF 只看名次，原词路断层（F21 666 vs 376、F14 232 vs 115）在融合分里几乎看不出来，
+    扩词路 / 语义路的小优势就能把断层第 1 挤到第 2。前 LEAD_SCAN 篇里原词分最高的那篇若断层领先现第 1 名、语义上又不明显更差，
+    提到最前（其余顺序不动）。没有 lex 分 = 原样。"""
+    lex, sem = lex or {}, sem or {}
+    if len(pool) < 2 or not lex or pool[0].get("source_kind") == "saved":
+        return pool
+    head = [it for it in pool[:LEAD_SCAN] if it.get("source_kind") != "saved"]
+    best = max(head, key=lambda it: float(lex.get(it.get("id")) or 0))
+    if best is pool[0]:
+        return pool
+    l0, lb = float(lex.get(pool[0].get("id")) or 0), float(lex.get(best.get("id")) or 0)
+    s0 = float((sem.get(pool[0].get("id")) or {}).get("score") or 0)
+    sb = float((sem.get(best.get("id")) or {}).get("score") or 0)
+    if lb >= max(l0 * LEAD_LEX_RATIO, 1e-9) and (not s0 or (sb and sb >= s0 - LEAD_SEM_SLACK)):
+        return [best] + [it for it in pool if it is not best]
+    return pool
+
+
+RERANK_FUSE_K = 10   # R2 A/B（13 题）：纯替换 nDCG@5 0.836→0.801，「现序名次 × rerank 名次」RRF(k=10) 0.875、无一变差
+
+
+def rerank_pool(question, pool, settings, trace=None):
+    """R2 rerank 调用点（link_brain/rerank.py）：设置 rerank.enabled 为真且模块存在时，对前 RERANK_TOP 篇精排，
+    再和现序按名次融合（RRF k=RERANK_FUSE_K）——不直接替换。返回 (新顺序, None)：选篇相关性仍按原词 / 语义分判。
+    模块不在 / 关着 / 抛异常 = 原 RRF 顺序（fail-open，trace 里记一笔）。追问时调用方把上一问拼进 question。"""
+    if not isinstance(settings, dict) or not pool:
+        return pool, None
+    cfg = settings.get("rerank") or (settings.get("retrieval") or {}).get("rerank")
+    enabled = cfg.get("enabled") if isinstance(cfg, dict) else bool(cfg)
+    if not enabled:
+        return pool, None
+    try:
+        from . import rerank as _rr
+    except ImportError:
+        return pool, None
+    head = list(pool[:RERANK_TOP])
+    try:
+        sub = {} if isinstance(trace, dict) else None
+        try:
+            res = _rr.rerank(question, head, settings, sub)
+        except TypeError:
+            res = _rr.rerank(question, head)
+        rr_rank = {}
+        for n, r in enumerate(res or []):
+            if isinstance(r, dict) and r.get("rerank_score") is not None and r.get("id") is not None:
+                rr_rank.setdefault(r["id"], n)
+        if not rr_rank:
+            raise ValueError("rerank 没返回可用分数")
+        def fused(i):
+            it = head[i]
+            score = 1 / (RERANK_FUSE_K + i + 1)
+            if it.get("id") in rr_rank:
+                score += 1 / (RERANK_FUSE_K + rr_rank[it["id"]] + 1)
+            return -score
+        order = sorted(range(len(head)), key=lambda i: (fused(i), i))
+        if isinstance(trace, dict):
+            trace["rerank"] = "fused"
+        return [head[i] for i in order] + list(pool[RERANK_TOP:]), None
+    except Exception as exc:  # noqa: BLE001 - 超时 / 503 / 格式不对 = 回 RRF
+        if isinstance(trace, dict):
+            trace["rerank"] = f"fallback:{type(exc).__name__}"
+        return pool, None
+
+
+def inherited_sources(history, items, by_id=None):
+    """追问继承上一答的主来源：先查轮次登记（ask-turns.json，按上一问原文找最近一轮的 primary_ids / ids）；
+    查不到（登记过期 / 评测 / 别的入口）就按上一问的原词重排一次，取第 1 名 + 分数不低于它一半的（≤3）。返回 item 列表。"""
+    asked = [str(m.get("content") or "") for m in (history or []) if m.get("role") == "user" and str(m.get("content") or "").strip()]
+    if not asked:
+        return []
+    prev = asked[-1]
+    by_id = by_id or {it.get("id"): it for it in items}
+    try:
+        from . import ask_turns
+        row = ask_turns.latest_for(prev) if hasattr(ask_turns, "latest_for") else None
+    except Exception:  # noqa: BLE001
+        row = None
+    if row and row.get("mode") != "toc":
+        ids = row.get("primary_ids") or (row.get("ids") or [])[:1]
+        got = [by_id[i] for i in ids if i in by_id][:SELECT_MAX["ask"]]
+        if got:
+            return got
+    from .retrieval import rank
+    ranked = rank(items, query_terms(prev))
+    if not ranked:
+        return []
+    top = ranked[0][0]
+    return [it for v, it in ranked[:SELECT_MAX["ask"]] if v >= top * .5]
+
+
 def related_card(item, rank_no, terms=()):
     """「其他相关」那一档的来源卡（R2）：摘录 = 该篇真实命中的一段原文（单字段、≤120 字、纯词法，不调语义）。
     以前用 summary[:120] 冒充命中依据；一个词都没中就留空，不再拿概要顶。任何异常也留空（fail-open）。"""
@@ -940,7 +1129,8 @@ def related_card(item, rank_no, terms=()):
     return {**_card(item, snippet["text"]), "excerpt_field": snippet["field"], "tier": "related", "rank": rank_no}
 
 
-def recall(question, items, settings, history=None, *, allow_expand_call=True, trace=False, llm=None, sem=None, probe=None, core=None):
+def recall(question, items, settings, history=None, *, allow_expand_call=True, trace=False, llm=None, sem=None, probe=None, core=None,
+           standalone=None):
     """问答的候选集（R1：宽召回核心 recall_core.candidates，lb_retrieve / 远程 search 用同一个）。
 
     返回 dict(matches=首屏窗口 ≤ POOL_MAX, candidates=全量候选（窗口在前）, mode, prior_terms, terms, sem, expansion, intent, …)。
@@ -956,7 +1146,7 @@ def recall(question, items, settings, history=None, *, allow_expand_call=True, t
         if sem is not None:
             kwargs["sem"] = sem
     return recall_core.candidates(question, items, settings=settings, history=history,
-                                  allow_expand_call=allow_expand_call, trace=trace, core=core, **kwargs)
+                                  allow_expand_call=allow_expand_call, trace=trace, core=core, standalone=standalone, **kwargs)
 
 
 # 候选池常量在宽召回核心里（这里留名字给旧调用方）；不再有「不够就按融合顺序补满」的 POOL_MIN
@@ -1192,6 +1382,18 @@ def _skills_list():
         return []
 
 
+SEM_CLEAR = 0.62   # 语义余弦 ≥ 这个才算「明确语义证据」（1015 真库 32 题：库里没有的两题 top1 0.51 / 0.54，金标 top1 0.52–0.84）
+
+
+def semantic_clear(sem, pool=()):
+    """核心词零命中时的复核（F28 规则只在没有明确语义证据时生效）：候选窗口里有语义分 ≥ SEM_CLEAR 的篇。任何异常 = 没有。"""
+    try:
+        ids = {it.get("id") for it in pool or ()}
+        return any(float((v or {}).get("score") or 0) >= SEM_CLEAR for k, v in (sem or {}).items() if not ids or k in ids)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def understand_question(question, items, llm_out=None, skills_list=None):
     """S0 规则 + S1 模型 → 这一问的理解（goal / core / filters / skill / relations …），见 ask_intent。任何异常 = 纯规则。"""
     from . import ask_intent
@@ -1249,11 +1451,14 @@ def strong_hits(pool, understood, items, expansion_terms=(), used_filters=()):
     from .retrieval import fields, has, norm
     # 只认核心词：扩出的词太宽（1015 真库评测：「猫砂哪个牌子好」库里 0 篇也被扩词凑成目录），不参与判档
     expand = []
+    # 1015 第三批 R1：盘点题核心词 ≥3 个时允许缺一个（「澳洲做越南菜要买啥」切出「菜要」这种碎片，要求全中会一篇都不剩）
+    loose = ((understood or {}).get("goal") == "survey" and len(words) >= 3
+             and ((understood or {}).get("goal_source") == "rule-list" or len((understood or {}).get("facets") or []) >= 2))
     out = []
     for it in pool:
         if it.get("source_kind") == "saved":
             continue
-        if _has_all(it, words) or (expand and any(has(norm(v), t) for t in expand for k, v in fields(it).items()
+        if _has_all(it, words) or (loose and _core_cover(it, words) >= len(words) - 1) or (expand and any(has(norm(v), t) for t in expand for k, v in fields(it).items()
                                                   if k not in ("author", "cats"))):
             out.append(it)
     return out
@@ -1268,12 +1473,15 @@ def decide_mode(understood, pool, items, *, deep=False, expansion_terms=(), used
     words = core_words(understood, items) or []
     main = [it for it in strong if words and _has_all(it, words, _META_FIELDS)]
     info = {"goal": goal, "strong": len(strong), "main": len(main), "strong_items": strong}
+    # 1015 第三批 R1：输出形态和「读几篇」解耦——盘点够多就出目录，不因选篇时点名 / 深读退成直接答（F23）
+    if goal == "survey" and len(strong) >= TOC_MIN_SURVEY:
+        return "toc", {**info, "reason": "survey"}
     if deep:
         return "direct", {**info, "reason": "deep"}
     if (understood or {}).get("depth") == "precise" and goal != "survey":
         return "direct", {**info, "reason": "precise"}
     if goal == "survey":
-        return ("toc" if len(strong) >= TOC_MIN_SURVEY else "direct"), {**info, "reason": "survey"}
+        return "direct", {**info, "reason": "survey"}
     if goal == "find":
         if 1 <= len(main) <= TOC_FIND_MAIN:
             return "direct", {**info, "reason": "find-main"}
@@ -1437,10 +1645,11 @@ def _new_turn_id():
     return ask_turns.new_id()
 
 
-def _turn_record(turn_id, question, mode, ids, understood, skill_id, expanded_from=None):
+def _turn_record(turn_id, question, mode, ids, understood, skill_id, expanded_from=None, primary_ids=None):
     try:
         from . import ask_turns
         ask_turns.record(turn_id, {"q": question[:1000], "mode": mode, "ids": list(ids)[:200],
+                                   **({"primary_ids": list(primary_ids)[:5]} if primary_ids else {}),
                                    "understanding": {k: understood.get(k) for k in ("goal", "core", "filters", "depth", "relations",
                                                                                    "constraints", "negation") if understood and understood.get(k)},
                                    "skill": skill_id, **({"expanded_from": expanded_from} if expanded_from else {})})
@@ -1538,7 +1747,8 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
                                               "time:published": "发帖时间", "time:archived": "入库时间", "kind": "类型"}[u]
                                              for u in used_filters)
                    + f"（{len(scope_items)} 条）")
-        found = recall(question, scope_items, settings, history, probe=probe, core=understood.get("core"))
+        found = recall(question, scope_items, settings, history, probe=probe, core=understood.get("core"),
+                       standalone=understood.get("standalone_query"))
         matches, prior_terms, terms, sem, expansion = (found["matches"], found["prior_terms"], found["terms"],
                                                         found["sem"], found["expansion"])
         intent = found.get("intent")
@@ -1578,8 +1788,41 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
             pool = core_first(pool, understood, items)
         except Exception:  # noqa: BLE001
             pass
+    # 1015 第三批 R1：rerank 调用点（R2 模块；关着 / 不在 / 失败 = RRF 原顺序）
+    select_trace: dict[str, Any] = {}
+    rr_scores = None
+    if not pinned and not pins:
+        rr_query = question
+        if found_mode in ("followup", "switch"):
+            prev_q = [str(m.get("content") or "") for m in history if m.get("role") == "user"]
+            rr_query = ((prev_q[-1] + " ") if prev_q else "") + question   # R2：追问只用本句精排会把上一问的主角排到 20 名外
+        pool, rr_scores = rerank_pool(rr_query, pool, settings, select_trace)
+        if rr_scores is None and understood.get("goal") != "survey":
+            try:
+                pool = lead_by_dominance(pool, found.get("lex_scores"), sem)
+            except Exception:  # noqa: BLE001
+                pass
+    inherited = []
+    if not pinned and not pins and found_mode == "followup":
+        # 追问继承上一答的主来源，先在它里面找（F08「需要哪些调料？」不再摊给 11 篇同类鱼片帖）
+        try:
+            inherited = [it for it in inherited_sources(history, items, by_id) if it["id"] not in excluded]
+        except Exception:  # noqa: BLE001
+            inherited = []
+        if inherited:
+            held = {it["id"] for it in inherited}
+            pool = inherited + [it for it in pool if it["id"] not in held]
     notes_pool = [it for it in pool if it.get("source_kind") != "saved"]
-    n, deep = prompt_count(question, notes_pool, cap, top_k, pinned=pinned or bool(pins), intent=intent)
+    select_reason = ""
+    if pinned or pins:
+        n, deep = prompt_count(question, notes_pool, cap, top_k, pinned=True, intent=intent)
+    else:
+        try:
+            n, select_reason = select_primary(question, notes_pool, understood, items, scores=rr_scores, inherited=inherited,
+                                              lex=found.get("lex_scores") if not pinned else None, sem=sem)
+        except Exception:  # noqa: BLE001 - 规则出错退回旧的篇数
+            n, select_reason = prompt_count(question, notes_pool, cap, top_k, intent=intent)[0], "fallback"
+        deep = select_reason in ("named", "inherited")
     if expand_of:
         # 展开目录里的几条：每条给足预算（≤3 条按深读），只用这几条
         n, deep = len(pool), len(notes_pool) <= 3
@@ -1622,6 +1865,7 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     strong_n = mode_info.get("strong")
     if (not pinned and not pins and found_mode == "standalone" and understood.get("core")
             and core_words(understood, items) is None
+            and not semantic_clear(sem, pool)   # R1：核心词零命中、但语义上有明确证据（换了说法 / 外文）时不误杀
             and not any(it.get("source_kind") == "saved" for it in pool)   # 「我保存的」里有就不算没有
             and re.match(r"[一-鿿]", str(understood.get("core")))):   # 英文 / 外文词可能靠语义跨语言接住（sleep → 做梦），不判没有
         # 她要找的那个东西（core 第一个词）全库一处都没有：不调作答模型硬凑沾边的帖，直接说没有 + 一行可补（零 token）
@@ -1643,7 +1887,7 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     if _cancelled(): return _stopped()
     # A6：问答 AI 没配好——不挑材料（白跑还会登记 SKIPPED.FALLBACK）、不发「挑选材料 / 生成回答」，本地证据照常组成来源列给她
     missing_ai = _text_ai_missing(settings)
-    if not missing_ai and not pinned and not deep and selection_wanted(question, pool, n):
+    if not missing_ai and not pinned and not deep and n >= 2 and selection_wanted(question, pool, n):   # R1：选篇只剩 1 篇（断层明显）就不再让小模型挑
         _phase(f"挑选材料：从 {min(len(pool), 40)} 条候选里挑最合适的排前面")
         try:
             selected, _count = _select_sources(question, pool, terms, settings, n, sem)
@@ -1675,9 +1919,22 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     primary, related = order[:n], order[n:]
     blocks, sources, overflow = [], [], []
     per = evidence_budget(cap, frag, len(primary), deep)
+    ev_terms = terms + prior_terms + expansion["terms"]
+    packed = {}
+    if not pinned and not pins:
+        # 1015 第三批 R1：证据第二、三段——各字段内定位命中段扩窗 + 全局 cap 字装箱（evidence_pack）。失败 = 旧的每篇平分
+        try:
+            from . import evidence_pack
+            packed = evidence_pack.pack(primary, ev_terms, sem, cap=cap, core=core_words(understood, items) or [],
+                                        question=question)
+        except Exception:  # noqa: BLE001
+            packed = {}
     for it in primary:
-        snippets = locate_excerpts(it, _with_comment_budget(it, terms + prior_terms + expansion["terms"], per, sem,
-                                                            window_chars=1000, max_parts=8 if deep else 4, deep=deep))
+        if packed.get(it["id"]):
+            snippets = locate_excerpts(it, packed[it["id"]])
+        else:
+            snippets = locate_excerpts(it, _with_comment_budget(it, ev_terms, per, sem,
+                                                                window_chars=1000, max_parts=8 if deep else 4, deep=deep))
         if it["id"] in pins:
             # 她手动加入的：至少拿到一篇常规片段的预算（不因主要依据多被摊薄）
             snippets = locate_excerpts(it, evidence(it, terms + prior_terms + expansion["terms"], max(per, frag), sem,
@@ -1788,14 +2045,16 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     hint_line = suggest_line(understood) if strong_n == 0 and not pinned and understood.get("goal") in ("find", "ask") else ""
     if hint_line:
         markdown += "\n\n" + hint_line
-    _turn_record(turn_id, question, "direct", [s["id"] for s in sources], understood, skill_id, expand_of)
+    _turn_record(turn_id, question, "direct", [s["id"] for s in sources], understood, skill_id, expand_of,
+                 primary_ids=[s["id"] for s in sources if s.get("tier") == "primary"])
     result={"kind": "answer", "markdown": markdown, "mode": "direct", "turn_id": turn_id,
             "coverage_note": f"用了 {len(sources)} 条材料" + (f"，另有 {len(related_cards)} 条在「其他相关」" if related_cards else ""),
             "source_ids": [s["id"] for s in sources], "understanding": _public_understanding(understood, used_filters),
             "skill": skill_id, **({"suggest": hint_line} if hint_line else {}), **({"expanded_from": expand_of} if expand_of else {}),
             **({"mode_reason": mode_info.get("reason")} if mode_info.get("reason") else {}), "sources": sources, "related": related_cards, "matches": len(matches),
             "materials": len(sources), "candidates": candidate_count, "truncated": res.get('truncated',False), "model_called": True,
-            "candidate_set": {"total": total, "shown": candidate_count, "more": beyond}, "deep_read": deep,
+            "candidate_set": {"total": total, "shown": candidate_count, "more": beyond}, "deep_read": deep or (bool(select_reason) and select_reason != "fallback"),
+            "selection": {"n": len(primary), "reason": select_reason, **select_trace},
             **({"intent_model": intent} if intent else {}),
             "usage": res.get("usage"), "expansion": {"terms": expansion["terms"], "status": expansion.get("status")}}
     if hint:result["answer_cache"]={"asked_at":cache_hit["ts"],"question":cache_hit["question"],"match":cache_hit.get("match")}

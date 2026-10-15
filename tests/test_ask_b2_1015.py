@@ -117,7 +117,7 @@ def test_llm_expansion_carries_s1_and_skill_menu(monkeypatch, tmp_path):
     ask._EXPAND_MEM.clear()
     again = ask.llm_expansions("我有个鱼露 忘了哪儿了")   # 文件缓存里带着 s1
     assert again["status"] == "cached" and again["s1"]["core"] == "鱼露" and len(seen) == 1
-    assert "goal" in ask._EXPAND_INSTRUCTION and ask._EXPAND_CACHE_VERSION == "v3"
+    assert "goal" in ask._EXPAND_INSTRUCTION and ask._EXPAND_CACHE_VERSION == "v4"
 
 
 # ---------------------------------------------------------------- 「那个」不误判追问

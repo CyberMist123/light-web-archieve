@@ -30,7 +30,8 @@ _SHELL = re.compile(
     r"(?:那个|那篇|这个|这篇|那条|那家)|"
     r"忘了?(?:在)?(?:哪儿|哪里|哪)?(?:了)?|想不起来?(?:了)?|找不到了?|"
     r"帮我找(?:一下|找)?|帮我|找一下|在哪(?:儿|里)?|收藏里(?:的)?|我的收藏(?:里)?|"
-    r"是哪篇|是哪个|叫(?:啥|什么)(?:来着|名字)?|来着|一下")
+    r"是哪篇|是哪个|叫(?:啥|什么)(?:来着|名字)?|来着|一下|"
+    r"(?:的(?:帖子|笔记)|帖子)(?=$|[\s，,。？?])")
 _SPACE = re.compile(r"\s+")
 
 
@@ -55,9 +56,13 @@ _SURVEY_RE = re.compile(r"有哪些|有什么(?!区别|不同)|推荐|盘点|汇
                         r"哪些|几种|各种|攻略合集|大全")
 
 
+# 要一张清单的问法（买 / 备 / 带什么）：规则认出就算盘点，比模型的 goal 可靠（F23「澳洲做越南菜要买啥 在哪买」模型给 ask）
+_LIST_RE = re.compile(r"(?:要|该|得)?(?:买|备|准备|带)(?:些)?(?:啥|什么|哪些)(?:东西|材料|食材)?")
+
+
 def heuristic_goal(question: str) -> str:
     q = str(question or "")
-    if _SURVEY_RE.search(q):
+    if _SURVEY_RE.search(q) or _LIST_RE.search(q):
         return "survey"
     if _FIND_RE.search(q):
         return "find"
@@ -257,10 +262,14 @@ def parse_s1(obj: Any, question: str, *, authors=None, skill_ids=None) -> dict[s
         return {}
     out: dict[str, Any] = {}
     intent = obj.get("intent") if isinstance(obj.get("intent"), dict) else {}
-    for key, allowed in (("goal", GOALS), ("depth", DEPTHS)):
+    for key, allowed in (("goal", GOALS), ("depth", DEPTHS), ("scope", ("single", "few", "many"))):
         v = obj.get(key, intent.get(key))
         if isinstance(v, str) and v.strip().lower() in allowed:
             out[key] = v.strip().lower()
+    # 1015 第三批 R1：独立问句（追问补全省略、纠正错字）。只给语义路和 switch 换条件用，原句照样走词法
+    sq = _short(obj.get("standalone_query"), 60)
+    if sq and _overlap(sq, question) >= .3:
+        out["standalone_query"] = sq
     core = _short(obj.get("core"), 16)
     # 同音错字（鱼路 → 鱼露）也算：字面重合过半；完全对不上原问题的 core 是模型漂移，丢
     if core and _overlap(core, question) >= .5:
@@ -376,6 +385,9 @@ def understand(question: str, items=None, *, s1: dict[str, Any] | None = None, s
     filters = merge_filters(rule, s1.get("filters"))
     stripped = strip_shell(question)
     goal = s1.get("goal") or heuristic_goal(question)
+    list_rule = goal in ("ask", "survey") and bool(_LIST_RE.search(question or ""))
+    if list_rule:
+        goal = "survey"   # 1015 第三批 R1：显式规则路由（「要买啥 / 准备什么」= 要一张清单），模型说 ask 也按盘点
     if filters.get("author") and _SURVEY_RE.search(question or ""):
         goal = "survey"
     # 模型给的 core 也再过一遍规则（它常把「那个 / 叫啥」「某某发过哪些」留在里面）
@@ -393,12 +405,16 @@ def understand(question: str, items=None, *, s1: dict[str, Any] | None = None, s
             core = " ".join(fixed)
         except Exception:  # noqa: BLE001 - 纠错只是兜底
             pass
-    out = {"goal": goal, "goal_source": "model" if s1.get("goal") else "rule", "core": core[:40],
+    out = {"goal": goal, "goal_source": "rule-list" if list_rule else "model" if s1.get("goal") else "rule", "core": core[:40],
            **({"corrected": corrected} if corrected else {}),
            "stripped": stripped, "filters": filters,
            "skill": rule.get("skill"), "skill_source": "explicit" if rule.get("skill") else None}
     if s1.get("depth"):
         out["depth"] = s1["depth"]
+    if s1.get("standalone_query"):
+        out["standalone_query"] = s1["standalone_query"]
+    if s1.get("scope"):
+        out["scope"] = s1["scope"]   # 建议值（R1）：只作参考，深读几篇由检索后规则定（ask.select_primary）
     for key in ("entities", "relations", "constraints", "negation", "facets"):
         if s1.get(key):
             out[key] = s1[key]

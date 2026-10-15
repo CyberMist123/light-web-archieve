@@ -115,11 +115,13 @@ def feedback_terms(items, fused, own_terms, skip=(), *, docs=FEEDBACK_DOCS):
 
 
 def candidates(question, items, *, settings=None, history=None, semantic=True, expand=True, allow_expand_call=True,
-               llm=None, sem=_UNSET, keyword=True, feedback=True, trace=False, core=None) -> dict[str, Any]:
+               llm=None, sem=_UNSET, keyword=True, feedback=True, trace=False, core=None, standalone=None) -> dict[str, Any]:
     """一个问题 → 全量候选集。返回 dict：
     matches = 首屏窗口（≤ POOL_MAX，页面主要依据 + 其他相关从这里切）；candidates = 全量（窗口在前，窗口外的按融合顺序跟后面，
     最后是只有关键词筛选命中的篇）；mode / prior_terms / terms / sem / expansion / intent / feedback；routes = 各路完整名单；
-    trace=True 时另给 stages（R0 六层记录）。llm / sem 传了就直接用（问收藏开头已经并行起好了，见 Probe）。"""
+    trace=True 时另给 stages（R0 六层记录）。llm / sem 传了就直接用（问收藏开头已经并行起好了，见 Probe）。
+    standalone（1015 第三批 R1）：S1 改写的独立问句。原句照走词法；追问 / 换条件时语义路改 embed 独立问句（省略不再直接进向量），
+    switch 时按它换条件检索（qa_matches）。embed 失败 = 用原句那份（fail-open）。"""
     from . import ask, retrieval
     terms = ask.query_terms(question)
     if core and str(core).strip() and str(core).strip() != str(question).strip():
@@ -132,6 +134,20 @@ def candidates(question, items, *, settings=None, history=None, semantic=True, e
         sem = probe.sem() if sem is _UNSET else sem
     if not semantic:
         sem = None
+    if standalone is None:
+        standalone = (llm.get("s1") or {}).get("standalone_query") if isinstance(llm, dict) and isinstance(llm.get("s1"), dict) else None
+    standalone = " ".join(str(standalone or "").split())[:60]
+    from .retrieval import norm as _norm
+    sem_source = "question"
+    ctx = ((llm.get("intent") or {}).get("context") if isinstance(llm, dict) and isinstance(llm.get("intent"), dict) else None)
+    # 只在追问 / 换条件时换：独立新问题的改写会把原话里的专名 / 错字写法（「西尼」）抹掉，真库 32 题两题因此掉了第 1 名
+    if standalone and ctx in ("followup", "switch") and _norm(standalone) != _norm(question) and semantic and sem is not None:
+        try:
+            alt = _semantic(standalone)
+        except Exception:  # noqa: BLE001 - 换不了就用原句那份
+            alt = None
+        if alt:
+            sem, sem_source = alt, "standalone"
     expansion = ask.expand_query(question, terms, items, llm=llm)
     intent = llm.get("intent") if isinstance(llm.get("intent"), dict) else None
     s1 = llm.get("s1") if isinstance(llm.get("s1"), dict) else {}
@@ -145,7 +161,8 @@ def candidates(question, items, *, settings=None, history=None, semantic=True, e
     expanded_sem_ids = retrieval.sem_order(sem_expanded)
     if expanded_sem_ids:
         extra.append((ask.EXPAND_WEIGHT, expanded_sem_ids[:ask.EXPAND_ROUTE_DEPTH]))
-    matches, mode, prior_terms = ask.qa_matches(question, items, terms, sem, history, extra=extra, intent=intent)
+    matches, mode, prior_terms = ask.qa_matches(question, items, terms, sem, history, extra=extra, intent=intent,
+                                                standalone=standalone or None)
     lexical_hits = retrieval.rank(items, terms)
     lexical = [it["id"] for _, it in lexical_hits]
     semantic_ids = retrieval.sem_order(sem)
@@ -205,8 +222,9 @@ def candidates(question, items, *, settings=None, history=None, semantic=True, e
             have.add(item_id)
     result = {"matches": window, "candidates": ranked, "mode": mode, "prior_terms": prior_terms, "terms": terms,
               "sem": ask._merge_sem(sem, sem_expanded), "expansion": expansion, "intent": intent, "feedback": fb_terms,
-              "routes": routes, "out_of_scope": out_of_scope,
-              "scores": {it["id"]: float(it.get("_fused_score") or 0) for it in matches}}
+              "routes": routes, "out_of_scope": out_of_scope, "standalone": standalone or None, "sem_source": sem_source,
+              "scores": {it["id"]: float(it.get("_fused_score") or 0) for it in matches},
+              "lex_scores": {it["id"]: round(float(value), 4) for value, it in lexical_hits[:POOL_MAX * 2]}}
     for value, it in lexical_hits:  # 没有融合分（纯词法）时用 BM25 分
         result["scores"][it["id"]] = result["scores"].get(it["id"]) or round(value, 4)
     if trace:

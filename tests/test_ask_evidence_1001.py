@@ -79,9 +79,9 @@ def test_selector_bad_format_fails_open_to_plain_retrieval(monkeypatch, selector
     monkeypatch.setattr(ask, "call_text", model)
     r = ask.answer("推荐相关项目", mode="direct")   # 1015 起盘点多默认出目录；这里测直接答那条路上的挑材料
     assert r["status"] == "ok" and r["selection_failed"] is True
-    # 第 10 批：篇数按字数预算（8000 字 → 11 篇），筛选失败照检索顺序；其余候选在 related
-    assert len(r["sources"]) == ask.primary_count(8000, 8, 12) == 11 and len(calls) == 2
-    assert len(r["related"]) == 1
+    # 1015 第三批 R1：篇数按选篇规则（「推荐」= 盘点，直接答最多 SELECT_MAX["survey"] 篇），筛选失败照检索顺序；其余候选在 related
+    assert len(r["sources"]) == ask.SELECT_MAX["survey"] and len(calls) == 2
+    assert len(r["related"]) == 12 - ask.SELECT_MAX["survey"]
 
 
 def test_selector_http_error_also_fails_open(monkeypatch):

@@ -179,7 +179,8 @@ def test_answer_returns_whole_pool_in_two_tiers(monkeypatch):
     r = ask.answer("日本")
     assert r["status"] == "ok"
     primary, related = [s["id"] for s in r["sources"]], [s["id"] for s in r["related"]]
-    assert len(primary) == ask.primary_count(1400, 8, len(primary) + len(related))
+    # 1015 第三批 R1：送几篇由检索后规则定（goal + 锚点 + 相关性），直接答最多 SELECT_MAX 篇，不再按字数预算摊 11 篇
+    assert 1 <= len(primary) <= ask.SELECT_MAX["ask"]
     assert {"au-1", "au-2", "syd-1", "syd-2", "mel-1"} <= set(primary + related)
     assert not set(primary) & set(related)
     assert all(s["citation"] == n for n, s in enumerate(r["sources"], 1))

@@ -66,12 +66,12 @@ def _qa(monkeypatch, question, history, selected):
 
 
 def test_selection_empty_keeps_titled_hits(monkeypatch):
-    """挑材料挑空，但前几条标题标签就写着「三体」：排到前面交给作答模型核对，不直接答「没有」。"""
+    """换话题后「三体相关」：三篇标题就写着三体、同样相关，全部当主要依据送去（1015 第三批 R1：篇数按相关性定，
+    候选不比要送的多时不再调小模型挑材料），不直接答「没有」。"""
     r, calls = _qa(monkeypatch, "三体相关", ["广州好吃的", "东京好吃的"], [])
-    assert any("收藏资料筛选器" in p for p, _ in calls)
-    assert r.get("selection_kept") is True
+    assert not any("收藏资料筛选器" in p for p, _ in calls)
     ids = [s["id"] for s in r["sources"]]
-    assert len(ids) == 2 and set(ids) <= {"dmbj-1", "dmbj-2", "dmbj-3"}
+    assert set(ids) == {"dmbj-1", "dmbj-2", "dmbj-3"}
 
 
 def test_selection_empty_no_longer_drops_candidates(monkeypatch):
@@ -89,4 +89,5 @@ def test_selection_only_reorders(monkeypatch):
     r, calls = _qa(monkeypatch, "三体相关", [], [3])
     ids = [s["id"] for s in r["sources"]] + [s["id"] for s in r["related"]]
     assert len(ids) == len(set(ids)) and len(ids) >= 3
-    assert "筛选认为最符合" in calls[-1][1]
+    # 挑材料只在候选比要送的篇数多时才调（test_ask_evidence_1001 的 12 篇那组覆盖调用那条路）
+    assert r["selection"]["n"] == 3
