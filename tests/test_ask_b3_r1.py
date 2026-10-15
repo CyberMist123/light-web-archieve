@@ -76,6 +76,8 @@ def test_rerank_hook_fuses_not_replaces(monkeypatch):
     fake.rerank = lambda q, docs, settings=None, trace=None: [{**docs[2], "rerank_score": .9}, {**docs[1], "rerank_score": .5},
                                                                {**docs[0], "rerank_score": .1}]
     monkeypatch.setitem(sys.modules, "link_brain.rerank", fake)
+    import link_brain
+    monkeypatch.setattr(link_brain, "rerank", fake, raising=False)
     trace = {}
     order, scores = ask.rerank_pool("q", pool, {"rerank": {"enabled": True}}, trace)
     # 现序 a b c × 精排 c b a，RRF(k=10)：a、c 同分（现序在前的先）、b 两边都第 2 垫底——不是直接换成 c b a
