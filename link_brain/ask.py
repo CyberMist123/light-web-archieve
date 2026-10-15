@@ -119,7 +119,36 @@ def _with_live_notes(items):
     return result
 
 
+def _load_stopwords():
+    """assets/stopwords-zh.txt（自编精简表，思路参考 goto456/stopwords，见文件头）。读不了 = 空表（fail-open，仍有 _STOP）。"""
+    try:
+        text = (Path(__file__).parent / "assets" / "stopwords-zh.txt").read_text(encoding="utf-8")
+    except OSError:
+        return frozenset()
+    return frozenset(w for line in text.splitlines() if not line.lstrip().startswith("#") for w in line.split())
+
+
+STOPWORDS = _load_stopwords()
+# 指令 / 格式词：问的是「怎么答」不是「找什么」
+_INSTRUCTION_WORDS = {'整理','做法','推荐','有哪些','收藏','归档','库里','原文','怎么回事','需要','想要','内容','告诉','里面','相关','能不能','帮我','方法','看看',
+                      '现有','重要细节','推荐理由','材料缺口','一级标题','二级标题','大小标题','标题','报告','按适合程度筛选','适合程度','筛选','写清','根据','觉得','还有','值得','现在','平时','改善','家里','晚上','只','你','按','想','做','住',
+                      '好吧','几个','一些'}
+PHRASE_MAX = 8   # 相邻实词连起来的短语（「酸萝卜老鸭汤」）最长几个字；整句不再整个当词（「澳洲超市辣椒酱评论区有人说哪里」）
+
+
+def _is_noise_char(ch, ignored):
+    return ch in _FUNC_CHARS or ch in ignored
+
+
 def query_terms(question: str) -> list[str]:
+    """查询切词（1015 第三批 R3 改）：jieba 精确模式为主。
+
+    - 停用词 / 口语碎片（assets/stopwords-zh.txt + _STOP + 指令词）不当检索词：「啥 / 放 / 说 / 有人 / 要买」；
+    - jieba 新词发现（HMM）粘出来的两字碎片（「菜要」「粉要」「年存」）里有虚字 / 口语字的拆开再筛；
+    - 三字以上的词再带上搜索模式的子词（「辣椒酱」→ 辣椒），词典里没有的长词（「科科科酱」）带 2-gram；
+    - 相邻实词连成的短语（≤ PHRASE_MAX 字）照留，2-gram 不再跨词乱切（「洲好」「市辣」「菜要」没了）；
+    - 单字：虚字 / 口语字去掉，其余（「粉」「汤」「醋」）照留——稀有单字是她要找的东西；泛不泛交给 retrieval 的动态 DF。
+    """
     import jieba
     import logging
     from .retrieval import norm
@@ -127,9 +156,68 @@ def query_terms(question: str) -> list[str]:
     # 1015 第二批：先剥口语壳（「我有个 X 忘了哪儿了 帮我找一下」→ X），壳词「忘 / 找 / 那个」不再进原词路
     from .ask_intent import strip_shell
     question = strip_shell(question)
-    ignored = _STOP | {'整理','做法','推荐','有哪些','收藏','归档','库里','原文','怎么回事','需要','想要','内容','告诉','里面','相关','能不能','帮我','方法','看看',
-                      '现有','重要细节','推荐理由','材料缺口','一级标题','二级标题','大小标题','标题','报告','按适合程度筛选','适合程度','筛选','写清','根据','觉得','还有','值得','现在','平时','改善','家里','晚上','只','你','按','想','做','住',
-                      '好吧','几个','一些'}
+    ignored = _STOP | _INSTRUCTION_WORDS | STOPWORDS
+    text = norm(question)
+    for stop in sorted(_STOP | _INSTRUCTION_WORDS, key=len, reverse=True):
+        if len(stop) > 2:
+            text = text.replace(stop, ' ')
+    terms = []
+    for chunk in re.findall(r'[a-z0-9]+(?:[_.-][a-z0-9]+)*|[一-鿿]+', text):
+        if not re.fullmatch(r'[一-鿿]+', chunk):
+            if chunk not in ignored:
+                terms.append(chunk)
+            continue
+        words = []
+        for w in jieba.lcut(chunk):
+            # HMM 粘出来的生词里带虚字 / 口语字（「菜要」「粉要」「我列」「年存」）：拆成单字再筛
+            if len(w) == 2 and not jieba.dt.FREQ.get(w) and any(_is_noise_char(ch, ignored) for ch in w):
+                words.extend(w)
+            else:
+                words.append(w)
+        run = []
+
+        def flush():
+            if len(run) >= 2:
+                phrase = "".join(run)
+                if len(phrase) <= PHRASE_MAX:
+                    terms.append(phrase)
+                # 连着的单字（jieba 认不出的词被切成一个个字：「蒜 / 香」「遛 / 娃」）再各自连一份
+                single = []
+                for w in run + [""]:
+                    if len(w) == 1:
+                        single.append(w)
+                        continue
+                    if len(single) >= 2 and "".join(single) != phrase:
+                        terms.append("".join(single))
+                    single = []
+            run.clear()
+        for w in words:
+            if w in ignored or set(w) <= _FUNC_CHARS:
+                flush()
+                continue
+            run.append(w)
+            terms.append(w)
+            if len(w) >= 3:
+                subs = [s for s in jieba.cut_for_search(w) if len(s) >= 2 and s != w]
+                if subs:
+                    terms.extend(subs)
+                elif not jieba.dt.FREQ.get(w):
+                    # 词典里没有的长词（人名 / 新造词）：2-gram 兜着（「记忆层」→「忆层」）
+                    terms.extend(w[i:i + 2] for i in range(len(w) - 1))
+        flush()
+    return list(dict.fromkeys(t for t in terms if t.strip() and t not in ignored and t not in _FUNC_CHARS))
+
+
+def query_terms_legacy(question: str) -> list[str]:
+    """R3 以前的切词（搜索模式 + 整句块 + 2-gram）。只给问答缓存比「两问像不像」用：缓存的词法阈值是按这套词标定的，
+    answers.json 里存的也是这套词——换切词会让新旧问题互比失真（「AI 会做梦吗 / AI 做梦的记忆」0.5 → 0.67 误命中）。检索别用它。"""
+    import jieba
+    import logging
+    from .retrieval import norm
+    jieba.setLogLevel(logging.ERROR)
+    from .ask_intent import strip_shell
+    question = strip_shell(question)
+    ignored = _STOP | _INSTRUCTION_WORDS
     text = norm(question)
     for stop in sorted(ignored, key=len, reverse=True):
         if len(stop) > 1:
@@ -137,11 +225,10 @@ def query_terms(question: str) -> list[str]:
     terms = []
     for chunk in re.findall(r'[a-z0-9]+(?:[_.-][a-z0-9]+)*|[一-鿿]+', text):
         words = list(jieba.cut_for_search(chunk))
-        if all(w in ignored for w in words):continue
+        if all(w in ignored for w in words):
+            continue
         candidates = words + ([chunk] if len(chunk) <= 16 else [])
         if re.fullmatch(r'[一-鿿]+', chunk):
-            # 2-gram 兜 jieba 切不开的词（「记忆层」→「忆层」）；跨词的虚字片段（「的低」「那东」「宜的」）只会在
-            # 超长附件里到处撞上，把不相干的大文档顶进前几（10-03 复盘），不要
             candidates += [g for g in (chunk[i:i+2] for i in range(len(chunk)-1)) if not set(g) & _FUNC_CHARS]
         terms.extend(w for w in candidates if w not in ignored and w.strip() and w not in _FUNC_CHARS)
     return list(dict.fromkeys(terms))
@@ -501,6 +588,25 @@ def llm_expansions(question: str, *, allow_call: bool = True, wait: float = EXPA
     return {"terms": [], "status": "failed", "model": cfg.get("model"), "error": (box.get("res") or {}).get("error")}
 
 
+def _phrase_terms(base):
+    """base 里能由其余两个以上 base 词拼成的词（query_terms 的相邻实词短语）。"""
+    words = set(base)
+    out = set()
+    for t in base:
+        if len(t) < 3:
+            continue
+        others = words - {t}
+        ok = [True] + [False] * len(t)
+        for i in range(len(t)):
+            if ok[i]:
+                for w in others:
+                    if t.startswith(w, i):
+                        ok[i + len(w)] = True
+        if ok[len(t)]:
+            out.add(t)
+    return out
+
+
 def expand_query(question: str, base: list[str], items: list[dict[str, Any]], *, llm: dict[str, Any] | None = None) -> dict[str, Any]:
     """小模型扩出的检索词，去掉原词 / 原词的同义词 / 库里没有的 / 太泛的（全库四成以上都有）。
 
@@ -513,7 +619,10 @@ def expand_query(question: str, base: list[str], items: list[dict[str, Any]], *,
         # 中文词组带空格（「东京 美食」）拆开；英文词组（auto dream）整个留着
         parts = [raw] if re.fullmatch(r"[a-z0-9 .+&'-]+", raw) else [p for p in re.split(r"\s+", raw) if p]
         model_terms.extend(p for p in parts if 2 <= len(p) <= 16)  # 单字到处都中，不要
-    own = {v for t in base for v in variants(t)}
+    # R3：原词里「相邻实词连成的短语」（「自助火锅」「凉拌米粉」）不算原词——模型也给出它时照样单开一路，
+    # 和改前一样（改前整句才算原词，模型给的短语总能单开一路；F11 / F31 金标靠这一路排第 1）
+    phrases = _phrase_terms(base)
+    own = {v for t in base if t not in phrases for v in variants(t)}
     ignored = _STOP | {"推荐", "教程", "攻略", "分享", "ai", "人工智能", "收藏", "相关"}
     limit = max(2, len(items) * EXPAND_GENERIC)
     out = []
@@ -966,7 +1075,8 @@ def _rel_score(item, scores=None):
 
 
 def _core_cover(item, words):
-    from .retrieval import fields, has, norm, variants
+    from .places import expand_variants as variants   # R3：核心词「澳洲」也认只写了悉尼 / 墨尔本的篇
+    from .retrieval import fields, has, norm
     if not words:
         return 0
     fs = [norm(v) for v in fields(item).values()]
@@ -1435,7 +1545,8 @@ def core_words(understood, items):
 
 
 def _has_all(item, words, keys=None):
-    from .retrieval import fields, has, norm, variants
+    from .places import expand_variants as variants
+    from .retrieval import fields, has, norm
     fs = {k: norm(v) for k, v in fields(item).items() if keys is None or k in keys}
     return all(any(has(text, v) for v in variants(w) for text in fs.values()) for w in words)
 
@@ -1594,7 +1705,8 @@ def core_first(pool, understood, items):
     if not words:
         return pool
     # 按中了几个核心词排（稳定排序）：「鱼片 先抓 淀粉」里「先抓」是口语，要求全中会一篇都对不上
-    from .retrieval import fields, has, norm, variants
+    from .places import expand_variants as variants
+    from .retrieval import fields, has, norm
 
     def covered(it):
         if it.get("source_kind") == "saved":
@@ -1797,7 +1909,7 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
             prev_q = [str(m.get("content") or "") for m in history if m.get("role") == "user"]
             rr_query = ((prev_q[-1] + " ") if prev_q else "") + question   # R2：追问只用本句精排会把上一问的主角排到 20 名外
         pool, rr_scores = rerank_pool(rr_query, pool, settings, select_trace)
-        if rr_scores is None and understood.get("goal") != "survey":
+        if rr_scores is None:   # R3：盘点题也校正（F11「便宜的自助火锅」原词 667 vs 170 断层，扩词路把它挤到第 2）
             try:
                 pool = lead_by_dominance(pool, found.get("lex_scores"), sem)
             except Exception:  # noqa: BLE001

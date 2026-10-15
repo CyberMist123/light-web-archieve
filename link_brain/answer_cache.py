@@ -178,7 +178,12 @@ def lookup(question: str, terms, entries: list[dict] | None = None, qvec=None):
                     if method is None:
                         continue  # 有可比向量就以向量为准，不再用词法兜底
             if method is None:
-                value, shared = term_overlap(terms, entry.get("terms"))
+                # R3：两边都按问题原文用同一套旧切词重算（检索切词改了，存的 terms 新旧混着；阈值按旧切词标定）
+                if question and entry.get("question"):
+                    from .ask import query_terms_legacy
+                    value, shared = term_overlap(query_terms_legacy(question), query_terms_legacy(entry["question"]))
+                else:
+                    value, shared = term_overlap(terms, entry.get("terms"))
                 if value < TERM_THRESHOLD or shared < TERM_MIN_SHARED:
                     continue
                 method = "terms"

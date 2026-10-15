@@ -1,0 +1,32 @@
+{
+  "_note": "问收藏查询侧地名层级（1015 第三批 R3）：查询里出现上级地名（国家 / 省州）时，下级地名也能召回并加分；不硬过滤、不改索引。names = 这个地方自己的叫法（含英文、旗帜 emoji）；children = 下级地名的叫法（城市、州、常见区名）。",
+  "places": [
+    {"names": ["澳洲", "澳大利亚", "australia", "🇦🇺", "澳区"],
+     "children": ["悉尼", "sydney", "墨尔本", "melbourne", "布里斯班", "brisbane", "阿德莱德", "adelaide", "珀斯", "perth",
+                  "堪培拉", "canberra", "黄金海岸", "gold coast", "霍巴特", "hobart", "达尔文", "凯恩斯",
+                  "新州", "新南威尔士", "nsw", "维州", "维多利亚州", "昆州", "昆士兰", "queensland", "南澳", "西澳", "塔州", "塔斯马尼亚", "tasmania",
+                  "chatswood", "burwood", "hurstville", "parramatta", "strathfield", "eastwood", "rhodes", "kingsford", "ultimo", "haymarket",
+                  "box hill", "glen waverley", "clayton", "carlton", "sunnybank", "unsw", "usyd", "unimelb", "monash"]},
+    {"names": ["日本", "japan", "🇯🇵"],
+     "children": ["东京", "tokyo", "大阪", "osaka", "京都", "kyoto", "奈良", "北海道", "札幌", "冲绳", "福冈", "名古屋", "横滨", "神户",
+                  "新宿", "涩谷", "银座", "池袋", "浅草", "心斋桥", "难波"]},
+    {"names": ["韩国", "korea", "🇰🇷"], "children": ["首尔", "seoul", "釜山", "济州", "明洞", "弘大", "江南区"]},
+    {"names": ["泰国", "thailand", "🇹🇭"], "children": ["曼谷", "bangkok", "清迈", "普吉", "芭提雅"]},
+    {"names": ["越南", "vietnam", "🇻🇳"], "children": ["河内", "胡志明", "岘港", "芽庄", "西贡"]},
+    {"names": ["新加坡", "singapore", "🇸🇬"], "children": ["牛车水", "乌节路", "圣淘沙"]},
+    {"names": ["马来西亚", "malaysia", "🇲🇾"], "children": ["吉隆坡", "槟城", "马六甲", "新山", "沙巴"]},
+    {"names": ["美国", "usa", "🇺🇸"], "children": ["纽约", "new york", "洛杉矶", "旧金山", "西雅图", "波士顿", "芝加哥", "加州", "湾区"]},
+    {"names": ["英国", "uk", "🇬🇧"], "children": ["伦敦", "london", "曼彻斯特", "爱丁堡", "伯明翰"]},
+    {"names": ["加拿大", "canada", "🇨🇦"], "children": ["多伦多", "温哥华", "蒙特利尔"]},
+    {"names": ["新西兰", "new zealand", "🇳🇿"], "children": ["奥克兰", "惠灵顿", "皇后镇", "基督城"]},
+    {"names": ["广东"], "children": ["广州", "深圳", "汕头", "潮汕", "潮州", "佛山", "东莞", "珠海", "顺德"]},
+    {"names": ["四川"], "children": ["成都", "乐山", "自贡"]},
+    {"names": ["江西"], "children": ["南昌", "赣州", "景德镇", "上饶", "铅山", "九江"]},
+    {"names": ["云南"], "children": ["昆明", "大理", "丽江", "西双版纳"]},
+    {"names": ["浙江"], "children": ["杭州", "宁波", "温州", "绍兴"]},
+    {"names": ["江苏"], "children": ["南京", "苏州", "无锡", "扬州"]},
+    {"names": ["福建"], "children": ["福州", "厦门", "泉州"]},
+    {"names": ["湖南"], "children": ["长沙", "常德", "湘西"]},
+    {"names": ["广西"], "children": ["南宁", "桂林", "柳州"]}
+  ]
+}

@@ -53,9 +53,19 @@ def test_expanded_terms_pull_in_items_the_query_never_mentions(monkeypatch, no_s
 
 
 def test_without_expansion_pool_is_lexical_only(monkeypatch, no_semantic):
+    from link_brain import places
     monkeypatch.setattr(ask, "llm_expansions", lambda q, **k: {"terms": [], "status": "no-model"})
+    monkeypatch.setattr(places, "_TABLE", [])   # 地名层级表关掉：只剩原词路
     ids = [it["id"] for it in ask.recall("日本", ITEMS, _settings())["matches"]]
     assert "syd-1" not in ids
+
+
+def test_without_expansion_place_table_still_reaches_cities(monkeypatch, no_semantic):
+    """R3：没扩词时，地名层级表（日本 → 东京 / 大阪）也能把只写了城市名的篇带进候选，原词命中照样排前。"""
+    monkeypatch.setattr(ask, "llm_expansions", lambda q, **k: {"terms": [], "status": "no-model"})
+    ids = [it["id"] for it in ask.recall("日本", ITEMS, _settings())["matches"]]
+    assert {"syd-1", "syd-2", "mel-1"} <= set(ids)
+    assert max(ids.index("au-1"), ids.index("au-2")) < min(ids.index(i) for i in ("syd-1", "syd-2", "mel-1"))
 
 
 def test_generic_expansion_terms_are_dropped(monkeypatch, no_semantic):

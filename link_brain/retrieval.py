@@ -207,6 +207,8 @@ STAR_BOOST = 1.15  # ★ 只做小幅加成：目录页 catalog-search.js 和 ra
 # 把它拆成单字参与匹配（「面点」→「面」「点」），但降权：BM25 里一个字的命中最多抵整词命中的一半、不算覆盖加成；
 # 关键词筛选里算「可能相关」（kind subword），排在原词命中之后。目录页 catalog-search.js 同一规则（subwordParts / SUBWORD_*）。
 GENERIC_DF = 0.4  # 全库四成以上的篇都有的词算泛（同 ask.EXPAND_GENERIC、recall_core.GENERIC_DF）
+COMMON_DF = 0.6     # 全库六成以上的篇都有：查询侧动态 DF 抑制（R3）
+COMMON_WEIGHT = 0.3
 SUBWORD_MAX_HITS = 2
 SUBWORD_MAX_TERMS = 3      # 只给短查询（「面点」这种一两个词的）：长句子别的词已经够召回，拆字只会添噪声
 SUBWORD_WEIGHT = 0.3       # BM25：一个字的得分 × 这个数
@@ -375,6 +377,10 @@ def _rank(items, terms, subword=True):
     # 31 题 capped recall@20 0.867 → 0.878，池覆盖持平。只有泛词的问题（就问「AI」）照旧逐字段累加。
     if generic and any(df and term not in generic for term, df in dfs.items()):
         raw.update({term: _bm25(documents, averages, term, best_field=True) for term in generic})
+    # 动态 DF 抑制（1015 第三批 R3）：全库 ≥ COMMON_DF 的篇都有的词（「区」「老」「机」这类碎字），和不泛的词一起问时
+    # 只给 COMMON_WEIGHT 的分、不算覆盖——它中不中几乎不区分篇，不该靠它把只沾它的篇抬上来。只有它的问题照旧。
+    common = {term for term, df in dfs.items() if df >= len(items) * COMMON_DF}
+    damp = bool(common) and any(df and term not in common for term, df in dfs.items())
     for term in terms:
         counts = raw[term]
         df = dfs[term]
@@ -388,8 +394,12 @@ def _rank(items, terms, subword=True):
         if not df:
             continue
         idf = math.log(1 + (len(items)-df+.5)/(df+.5))
+        weak = damp and term in common
         for i, tf in enumerate(counts):
             if tf:
+                if weak:
+                    totals[i] += COMMON_WEIGHT * idf * tf
+                    continue
                 covered[i] += 1
                 totals[i] += idf * tf
     # 子词回退（R1）：整个查询只找回 ≤ SUBWORD_MAX_HITS 篇时，稀有的中文复合词拆单字再找一遍，降权、不算覆盖，

@@ -122,7 +122,7 @@ def candidates(question, items, *, settings=None, history=None, semantic=True, e
     trace=True 时另给 stages（R0 六层记录）。llm / sem 传了就直接用（问收藏开头已经并行起好了，见 Probe）。
     standalone（1015 第三批 R1）：S1 改写的独立问句。原句照走词法；追问 / 换条件时语义路改 embed 独立问句（省略不再直接进向量），
     switch 时按它换条件检索（qa_matches）。embed 失败 = 用原句那份（fail-open）。"""
-    from . import ask, retrieval
+    from . import ask, places, retrieval
     terms = ask.query_terms(question)
     if core and str(core).strip() and str(core).strip() != str(question).strip():
         # 1015 S1：去口语壳 / 纠错后的检索核心（「鱼路」→「鱼露」）排在原词前面，原问题剥壳后的词照留（并集，不替换）
@@ -161,8 +161,22 @@ def candidates(question, items, *, settings=None, history=None, semantic=True, e
     expanded_sem_ids = retrieval.sem_order(sem_expanded)
     if expanded_sem_ids:
         extra.append((ask.EXPAND_WEIGHT, expanded_sem_ids[:ask.EXPAND_ROUTE_DEPTH]))
+    # 1015 第三批 R3 地名层级：问「澳洲 / 🇦🇺」时下级地名（悉尼 / 墨尔本 / Chatswood / 新州…）单开一路，只写了城市名的帖也进候选；
+    # switch 时按独立问句认地名（「那澳洲的呢」）。融合权重同扩词路，不硬过滤
+    place_rows = places.query_places(" ".join([question, standalone or ""]))
+    place_ids = places.route(items, place_rows) if place_rows else []
+    if place_ids:
+        extra.append((ask.EXPAND_WEIGHT, place_ids[:places.ROUTE_DEPTH], "place"))
     matches, mode, prior_terms = ask.qa_matches(question, items, terms, sem, history, extra=extra, intent=intent,
                                                 standalone=standalone or None)
+    if place_rows:
+        try:
+            # 上一问的话题词（switch 时的「广州」）不当 facet；只认独立问句里真有的
+            sq = _norm(standalone or "")
+            facet_terms = list(dict.fromkeys(terms + [t for t in prior_terms or [] if sq and _norm(t) in sq]))
+            matches = places.boost(matches, facet_terms, items, rows=place_rows)
+        except Exception:  # noqa: BLE001 - 地名加分只是重排，出错 = 原序
+            pass
     lexical_hits = retrieval.rank(items, terms)
     lexical = [it["id"] for _, it in lexical_hits]
     semantic_ids = retrieval.sem_order(sem)
@@ -213,7 +227,7 @@ def candidates(question, items, *, settings=None, history=None, semantic=True, e
                 shown.add(it["id"])
     ranked = window + [it for it in matches if it["id"] not in shown]
     routes = {"lexical": lexical, "semantic": semantic_ids, "expansion": expand_full,
-              "expanded_semantic": expanded_sem_ids, "feedback": fb_full, "keyword": keyword_ids}
+              "expanded_semantic": expanded_sem_ids, "feedback": fb_full, "keyword": keyword_ids, "place": place_ids}
     # 融合只看各路前几名的那些路（扩词 / 反馈词更深的名次、只有关键词筛选命中的篇）：不进排序，但一篇不丢，按路的顺序接在最后
     have = {it["id"] for it in ranked}
     for item_id in _route_order(routes):
@@ -287,6 +301,7 @@ def _route_order(routes):
     for ids in (routes.get("feedback") or {}).values():
         yield from ids
     yield from routes.get("keyword") or []
+    yield from routes.get("place") or []
 
 
 def route_ids(routes) -> set:
