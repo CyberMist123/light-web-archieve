@@ -1,5 +1,7 @@
 # Current State
 
+- 2026-10-15（分支 wt/b2-misc，**未部署**）识图 HTTP 400 根因 = 百炼内容审核（`data_inspection_failed`）拦的是附带的 OCR 文字，图本身能过：新码 `PERMANENT.CONTENT_FILTERED`，拦文字时去掉 OCR 只发图重试一次；catalog-data 拆出 `catalog-search-index.json`（真库 15.7MB→1.8MB），目录首开不读、第一次搜索懒加载；装 playwright 后 18 个页面测试全过（ui_pages_qa 修 4 处过时），`test_catalog_live_c5` 偶发挂定位为 warmSearch 和挂钟赛跑，改确定性队列。部署后跑一次 catalog 才生成索引文件。
+
 - 2026-10-15（分支 wt/feedback1015 + 读取组件 reader-8 fb1015-ratelimit，**未部署**）她「点开等你处理无事发生」：10-12 起 5 次 ACCOUNT_RISK 证据全是 `/website-login/error?error_code=300013`（访问频繁）、触发接口全是展开楼中楼 `comment/sub/page`——限频不是风控。读取组件认出 300013 记 `XHS_RATE_LIMITED` 限频冷却（2/4/6 小时，到点放行下一个请求当自探、成功自动清，第 4 次才升级 ACCOUNT_RISK 要人），楼中楼只展开前 10 楼、每次点展开前歇 4–9 秒；Python 侧冷却中一页不开但 TRANSIENT 不推、记 login 一把 key，`captcha-recover` 等冷却到点后放夜跑接着跑，自愈轮绝不开页。问题面板：同一次熔断（起因那条 + RISK_HOLD）只显示 / 计数一条；「现在修」时别的行也没了就整体重画（不再「等你处理 · 0」下挂卡片）。ERRORS 新增 XHS_RATE_LIMITED 一行。
 
 - 2026-10-11（分支 wt/bugs1011b，待部署）她截图的三件事：①打开笔记先露原始 Markdown——归档笔记在 `WorkspaceLeaf.openFile` 就以阅读视图打开 + CSS 不靠 cssclasses 先藏属性块 / 去 lb-topbar 框 / 没挂类前先遮（最多 1.2 秒）；②三个数一份口径（`fav_counts`：收藏名单 1246 / 已入库 610 / 还差 636，进度条和同步记录同一句「收藏已入库 A/T」，目录页「筛出 n 篇（共 N）」）；③同步记录照真来源说（命令行 / 夜跑 / 定时）、被停那趟「被中断 · 已收 N 篇」（老的 14:57 那趟按入库时间补回 43 篇）、白天跑好了的夜跑报错标「✓ 后来好了」不红。ERRORS 第 19 条；验收记录 tests/acceptance/20261011-bugs1011b.md（Obsidian 里待她看）。
