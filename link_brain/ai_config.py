@@ -104,6 +104,11 @@ DEFAULTS: dict[str, Any] = {
              "commentFloors": 10, "dailyNewLimit": 50, "perRunLimit": 0, "commentFillGap": 45},
     # 1015 设置页「技能」：hidden = 不让问收藏自动选用的技能 id（技能本身在收藏库 _skills/<id>/SKILL.md）。
     "skills": {"hidden": []},
+    # 1015 第三批 R2：精排（rerank，link_brain/rerank.py）。默认关；开了由问收藏在 RRF 候选前 topN 篇上调一次。
+    # model 默认千问 qwen3-rerank（gte-rerank 已停服；gte-rerank-v2 也能调）。endpoint 留空 = 跟归档摘要 / 文本 AI 的千问接口
+    # 同一主机换成 /api/v1/services/rerank/text-rerank/text-rerank；key 没单填就借归档摘要那套。
+    # 失败（超时 / 503 / 返回不完整）抛 RerankError，由调用方回退 RRF 原序。
+    "rerank": {"enabled": False, "model": "qwen3-rerank", "endpoint": "", "topN": 30, "timeoutSec": 8},
 }
 
 
