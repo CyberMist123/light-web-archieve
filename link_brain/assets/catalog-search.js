@@ -47,7 +47,7 @@ function subwordHit(fs, parts) {
   }
   return total ? {score: total, field: best.field, variant: best.part} : null;
 }
-const searchCache = new WeakMap();
+let searchCache = new WeakMap();
 function searchFields(it) {
   let fs = searchCache.get(it);
   if (!fs) {
@@ -84,7 +84,7 @@ function hasTerm(text, v) { return !!v && text.includes(v) && termIndex(text, v)
 // 一两个字母的英文词算低置信度命中（kind 'ocrbits'，进「可能相关」），不和原词命中混排。与 retrieval.match 同规则。
 const isShortLatin = v => /^[a-z0-9]{1,2}$/.test(v) && !/^[0-9]+$/.test(v);
 // 条目的拼音音节：catalog.py 写成空格分隔的整音节（标点处是「/」断开）。旧数据是连写的一长串，整音节匹配自然不中（fail-closed）。
-const syllableCache = new WeakMap();
+let syllableCache = new WeakMap();
 function itemSyllables(it) {
   let s = syllableCache.get(it);
   if (!s) { s = normalize(it.pinyin).split(/\s+/).filter(Boolean); syllableCache.set(it, s); }
@@ -114,6 +114,55 @@ function pinyinMatch(sylls, units) {
     return false;
   };
   for (let i = 0; i < sylls.length; i++) if (go(0, i, 0)) return true;
+  return false;
+}
+// ── 1015 检索索引懒加载：search_fields / pinyin 拆在 _archive/catalog-search-index.json（catalog.py SEARCH_NAME），
+// 目录首开只读 1–2MB 的 catalog-data；第一次真搜索（rankItems / resolveQuery 带词）才读这份，读完按 id 并回 items、
+// 清掉各缓存，再走页面登记的 update（LB.keep 的 update = refresh：拿缓存里同一份数据、dataRev+1、重排重画）。
+// 读的过程中这次搜索先按标题 / 标签 / 概要 / 作者出结果（不白等）。旧数据（items 里自带 search_fields）不读。
+// 解析好的索引挂插件对象上（和 catalogCache 一样三张页共用），按文件 mtime:size 认版本。
+const SEARCH_INDEX_PATH = '_archive/catalog-search-index.json';
+const searchIndexState = {loading: null, failedAt: 0, index: null, version: null};
+function searchIndexMissing(list) { return Array.isArray(list) && list.some(it => it && typeof it === 'object' && it.search_fields === undefined && it.search_text === undefined); }
+function mergeSearchIndex(list, index) {
+  if (!index || !Array.isArray(list)) return 0;
+  let n = 0;
+  for (const it of list) {
+    if (!it || typeof it !== 'object' || it.search_fields !== undefined) continue;
+    const e = index[it.id];
+    if (!e) continue;
+    if (e.search_fields) it.search_fields = e.search_fields;
+    if (e.pinyin != null) it.pinyin = e.pinyin;
+    n++;
+  }
+  if (n) { searchCache = new WeakMap(); syllableCache = new WeakMap(); corpusCache = new WeakMap(); }
+  return n;
+}
+function searchIndexLib() { try { return typeof LB !== 'undefined' && LB && LB.data ? LB : null; } catch { return null; } }
+// 返回 true = 现在就齐了（不用等）；false = 已在后台读，读完会让页面重算
+function ensureSearchIndex(list, lib = searchIndexLib()) {
+  if (!searchIndexMissing(list)) return true;
+  if (!lib) return false;
+  const p = lib.provider && lib.provider();
+  const cached = (p && p.searchIndexCache && p.searchIndexCache.root === lib.root) ? p.searchIndexCache : searchIndexState.index && searchIndexState;
+  const cur = lib.data.versionSync ? lib.data.versionSync(SEARCH_INDEX_PATH) : null;
+  if (cached && cached.index && (!cur || cached.version === cur)) { mergeSearchIndex(list, cached.index); return true; }
+  if (searchIndexState.loading || Date.now() - searchIndexState.failedAt < 30000) return false;
+  searchIndexState.loading = (async () => {
+    try {
+      const v = await lib.data.version(SEARCH_INDEX_PATH);
+      if (!v) throw new Error('没有检索索引（旧目录数据）');
+      const raw = await app.vault.adapter.read(lib.path(SEARCH_INDEX_PATH));
+      const index = (JSON.parse(raw) || {}).items || {};
+      searchIndexState.index = index; searchIndexState.version = v;
+      if (p) p.searchIndexCache = {root: lib.root, version: v, index};
+      if (lib.t) lib.t('search-index');
+      mergeSearchIndex(list, index);
+      const view = lib.container && lib.container.__lbView;
+      if (view && typeof view.update === 'function') await view.update(view.version);
+    } catch (e) { searchIndexState.failedAt = Date.now(); try { console.debug('[lb] 检索索引没读到', e); } catch {} }
+    finally { searchIndexState.loading = null; }
+  })();
   return false;
 }
 // 一篇对一个查询的命中明细：{score, fuzzy, hits:[{term, kind, field, variant}]}；不中返回 null。
@@ -163,6 +212,7 @@ function matchItem(it, query, chars = {}, aliases = [], opts = {}) {
 function score(it, query, chars = {}, aliases = []) { const m = matchItem(it, query, chars, aliases); return m ? m.score : 0; }
 // 排序：精确命中在前（exact），模糊命中单独一组（possible）。组内按 分数 × 星标加成，同分星标在前，再同分保持原顺序（新→旧）。
 function rankItems(list, query, chars = {}, aliases = []) {
+  if (normalize(query) && !normalize(query).startsWith('#')) ensureSearchIndex(list);
   const exact = [], possible = [];
   list.forEach((it, index) => {
     const m = matchItem(it, query, chars, aliases);
@@ -203,7 +253,7 @@ function rankItems(list, query, chars = {}, aliases = []) {
 }
 
 // 整串短语库里一处都没有时拆成库里有的词：「悉尼咖啡」→「悉尼 咖啡」、「AI做梦」→「ai 做梦」，和拆开输入找回同一批（不调 AI、不需词典）。
-const corpusCache = new WeakMap();
+let corpusCache = new WeakMap();
 function corpusText(list) {
   let text = corpusCache.get(list);
   if (text == null) { text = list.map(it => Object.values(searchFields(it)).join(' ')).join('\n'); corpusCache.set(list, text); }
@@ -234,6 +284,7 @@ function splitPhrase(term, list) {
 function resolveQuery(raw, list, chars = {}, aliases = []) {
   raw = String(raw || '').trim().replace(/^\//, '');
   if (!raw || raw.startsWith('#')) return raw;
+  ensureSearchIndex(list);
   const split = text => normalize(text).split(/\s+/).filter(Boolean).map(t => splitPhrase(t, list)).join(' ');
   const any = q => list.some(it => matchItem(it, q, chars, aliases));
   const first = split(raw);

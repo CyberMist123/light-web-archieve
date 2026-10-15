@@ -901,7 +901,10 @@ def catalog_items(vault: Path | None = None) -> tuple[list[dict[str, Any]], str]
     if not isinstance(raw, dict):
         return [], ""
     items = raw.get("items") if isinstance(raw.get("items"), list) else []
-    return [it for it in items if isinstance(it, dict)], str(raw.get("built_at") or "")
+    items = [it for it in items if isinstance(it, dict)]
+    from .catalog import merge_search_index
+    merge_search_index(items, vault)  # 1015：检索全文拆在 catalog-search-index.json（概要空时 item_sig 用正文，签名不能变）
+    return items, str(raw.get("built_at") or "")
 
 
 def node_rows(parsed: Parsed, result: Result, *, virtual_ids: dict[int, str] | None = None,

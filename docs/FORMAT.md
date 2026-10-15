@@ -781,6 +781,7 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
   问答结果多 `related`（候选池里没送进模型的其余篇，`tier: "related"`）、`sources[].tier = "primary"`、`expansion`；
   请求可带 `source_ids`（只用这些来源重答）。扩词缓存 `_archive/query-expand-cache.json`（问题 → 词，最多 500 条）。
 - `catalog-data.json.items[].search_fields` 分为 `body/comments/ocr/attachments`，均保留原文；
+- 1015：`search_fields` 和 `pinyin` 不再写在 `catalog-data.json` 里，拆到 `_archive/catalog-search-index.json` = `{built_at, items: {<id>: {search_fields, pinyin}}}`（catalog-data 顶层 `search_index` 指向它）。目录页首开不读，第一次带词搜索才读（catalog-search.js `ensureSearchIndex`）；Python 读方经 `catalog.merge_search_index` 并回（`ask.load_items`、`indextree.catalog_items` 已接）。items 自带 `search_fields` 的旧数据照旧能用。
   `summary` 为模型摘要，检索权重低，不伪装成原文。`agent_md` 是 vault 相对路径。
 - 2026-10-15 第二批：`search_fields` 再分出三路（空的不写）——`comment_ocr` = 评论区图片的文字（资产名 `comment-<id>-<n>.*`，
   不再混在 `ocr` 里）；`screen` = 视频画面文字（以前拼在 `transcript` 尾巴上，`transcript` 现在只有口播稿）；

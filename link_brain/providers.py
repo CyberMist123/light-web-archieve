@@ -320,6 +320,8 @@ def skipped_for(cap: str, settings: dict[str, Any] | None = None) -> dict[str, A
 
 _QUOTA_HINTS = ("arrearage", "insufficient_quota", "insufficient balance", "insufficient_balance", "quota",
                 "欠费", "余额不足", "billing", "payment required")
+# 1015：百炼等接口的内容审核拦截是 HTTP 400 + data_inspection_failed，不是模型名 / 地址写错
+_FILTER_HINTS = ("data_inspection_failed", "inappropriate content", "content_filter", "content_policy_violation")
 
 
 def http_code(status: int, body: str = "") -> str:
@@ -330,6 +332,8 @@ def http_code(status: int, body: str = "") -> str:
         return "NEEDS_HUMAN.QUOTA_EXCEEDED"
     if status == 429:
         return "TRANSIENT.HTTP_429"
+    if 400 <= status < 500 and any(h in low for h in _FILTER_HINTS):
+        return "PERMANENT.CONTENT_FILTERED"
     if status in (401, 403):
         return "NEEDS_HUMAN.AUTH_FAILED"
     if status >= 500:
@@ -343,14 +347,19 @@ def http_error_text(status: int, code: str) -> str:
         "NEEDS_HUMAN.AUTH_FAILED": f"接口拒绝了 key（HTTP {status}）：到设置里检查或换一个",
         "NEEDS_HUMAN.QUOTA_EXCEEDED": f"接口提示欠费或额度用完（HTTP {status}）",
         "TRANSIENT.HTTP_5XX": f"接口暂时出错（HTTP {status}），稍后自动再试",
+        "PERMANENT.CONTENT_FILTERED": f"接口的内容审核拦下了这张图（HTTP {status}），不是设置问题",
     }.get(code, f"接口不接受这次请求（HTTP {status}）：检查模型名和接口地址")
 
 
 def http_failure(status: int, body: str = "") -> dict[str, Any]:
     code = http_code(status, body)
+    extra: dict[str, Any] = {}
+    if code == "PERMANENT.CONTENT_FILTERED":  # 审核拦的是附带文字（如 OCR）还是图本身：调用方据此决定去掉文字重试
+        extra["filtered_input"] = "text" if "input text" in (body or "").lower() else "unknown"
     # api_error：接口那一侧的故障（限流 / 鉴权 / 欠费 / 服务挂了），不是「这次请求本身有问题」
     return result("failed", code=code, error=http_error_text(status, code),
-                  api_error=code != "PERMANENT.MODEL_OUTPUT_INVALID", http_status=status)
+                  api_error=code not in ("PERMANENT.MODEL_OUTPUT_INVALID", "PERMANENT.CONTENT_FILTERED"),
+                  http_status=status, **extra)
 
 
 def network_failure(exc: Exception) -> dict[str, Any]:

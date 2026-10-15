@@ -110,7 +110,7 @@ def test_refined_text_reaches_catalog_retrieval_and_chunks(tmp_path, monkeypatch
     ]})
     _, _, data_path = catalog.build()
     data = json.loads(data_path.read_text(encoding="utf-8"))
-    item = data["items"][0]
+    item = catalog.merge_search_index(data["items"])[0]   # 1015：检索字段在 catalog-search-index.json
     ocr = item["search_fields"]["ocr"]
     assert "九点开门" in ocr and "营业 时间" in ocr
     assert "第一层粗表" not in ocr          # 精细识图成功的图，不再留第一层

@@ -73,6 +73,8 @@ def load_items() -> list[dict[str, Any]]:
         return collect(storage.vault_root())
     items = data.get("items") if isinstance(data, dict) else None
     items = items if isinstance(items, list) else []
+    from .catalog import merge_search_index
+    merge_search_index(items)  # 1015：检索全文拆在 catalog-search-index.json，并回来
     _ITEM_CACHE.update(stamp=stamp, items=items)
     return _with_live_notes(items)
 

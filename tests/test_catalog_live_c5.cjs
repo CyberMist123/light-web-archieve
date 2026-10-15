@@ -46,13 +46,16 @@ const { tick, item, openCatalog, asset } = require('./_fake_l1.cjs');
   // warmSearch：空闲分片算好每篇的 searchFields（之后第一次搜不再现算）
   const W = new Function(asset('catalog-search.js') + ';return {warmSearch, searchCache, corpusCache}')();
   const list = Array.from({ length: 95 }, (_, i) => ({ title: '第' + i, search_fields: { body: 'x' + i } }));
-  const w = W.warmSearch(list, { chunk: 40, idle: f => setTimeout(f, 0) });
+  // 1015 定位偶发：以前用 setTimeout 当空闲回调再 await tick(20) 赌三片在 20ms 内跑完，全量并发高负载下事件循环一卡就输（36 次挂 6 次）。
+  // 改成手动排空的空闲队列：分片次数、顺序都确定，不再和挂钟赛跑。
+  const queue = [], idle = f => queue.push(f), drain = () => { let n = 0; while (queue.length) { queue.shift()(); n++; } return n; };
+  const w = W.warmSearch(list, { chunk: 40, idle });
   assert.equal(w.done, false);
-  for (let i = 0; i < 100 && !w.done; i++) await tick(10);  // 分片走 setTimeout，机器忙时 20ms 不够（偶发红）
+  assert.equal(drain(), 3, '95 篇按 40 一片分三片');
   assert.ok(w.done && list.every(it => W.searchCache.has(it)), '全部预热');
   assert.ok(W.corpusCache.has(list), '最后算一次 corpusText');
   const list2 = [{ title: 'y' }, { title: 'z' }];
-  const w2 = W.warmSearch(list2, { chunk: 1, idle: f => setTimeout(f, 0) }); w2.cancel(); await tick(10);
+  const w2 = W.warmSearch(list2, { chunk: 1, idle }); w2.cancel(); drain();
   assert.ok(!W.searchCache.has(list2[1]), 'cancel 之后停');
   console.log('PASS C5 live search: debounce then search without Enter, IME composition waits / compositionend searches, Enter immediate, 5 inputs → 1 rank, same text no rerun, clear restores, pending input re-run on return; warmSearch chunks + corpus + cancel');
 })().catch(e => { console.error(e); process.exit(1); });
