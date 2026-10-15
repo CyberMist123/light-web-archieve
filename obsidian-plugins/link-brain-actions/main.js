@@ -196,6 +196,8 @@ const DEFAULT_SETTINGS = {
   sync: { autoAfterLogin: true, downloadImages: true, downloadVideo: true, commentFloors: 10, dailyNewLimit: 50, perRunLimit: 0, commentFillGap: 45 },
   // 1015 设置页「技能」：hidden = 不让问收藏自动选用的技能（_skills 下的文件夹名）
   skills: { hidden: [] },
+  // 1015 R2：精排（rerank），默认关；和 link_brain/ai_config.py 对齐（暂无设置页入口）
+  rerank: { enabled: false, model: "qwen3-rerank", endpoint: "", topN: 30, timeoutSec: 8 },
   // 第 5 批 B2：后端命令（仓库模式下不用它）；收藏存放位置 = 本库里的子文件夹（空 = 库根）；首次引导做过没有
   backend: { command: BACKEND_DEFAULT },
   collectionFolder: "",
