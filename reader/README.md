@@ -50,6 +50,7 @@ go build -o relatedfile.exe ./cmd/relatedfile   # 附件探测用的游客浏览
   楼中楼单独限速（1015：10-12 起的「熔断」全是展开楼中楼 `comment/sub/page` 被回 300013「访问频繁」）：只展开前 10 楼的回复（其余楼进 `replies_partial`，`reason=expand_cap`，不算 partial；续读 `expand_floors` 不受限），每次点「展开回复」前歇 4–9 秒（偶尔再多 5–10 秒）。
   - 状态里 `subCommentHasMore` 会陈旧地停在 true：楼里没有「展开」按钮且已加载 ≥ 楼上显示数，就算展开到底（计入 `floors_expanded`）；缺口为 0 的楼不进 `replies_partial`。
   - 续读 `expand_floors`（MCP 参数，或 REST `comment_config.expand_floors` / 顶层 `expand_floors`；一级评论 `comment_id` 列表）：只展开这些楼的回复（自动展开，不受 `limit` 限制），其它楼不点也不列；一级评论滚到这些楼都出来（或到底 / 预算尽）。`partial`、`replies_partial`、`replies_missing`、`floors_expanded` 只按这些楼算；页面上没找到的 id 列在 `comment_load.floors_not_found`（滚到底仍没有不算 partial）。不传 = 原行为。
+  - 断点续展 `expand_resume`（1017，配合 `expand_floors`；每项 `comment_id:cursor:have`）：网页版每次打开，楼中楼都只带第 1 条，从头点要把存过的再点一遍，一小时额度永远够不着几百条以后的回复。带了它，点这楼之前先把页面状态里这楼的 `subCommentCursor` 改成 `cursor`（已存的最后一条回复 id；站点「展开回复」就拿它请求 `comment/sub/page`），点一下就接着往后拉；读数按 `have` 补偿，缺口照算，`comment_load.resumed` = 续上的楼数。游标写不进去就从头展开。展开过的楼 `hasMore` 认站点写的 `hasMore`（首屏的 `subCommentHasMore` 会陈旧地停在 true）。
 - `POST /api/v1/attachments/download`：在有界面的浏览器里点笔记附件页的「下载」（无界面时该下载请求会挂住）。
 - 网页版限制的笔记（1011：收藏里有、浏览器里打开要「验证一下」，详情页上没有这篇）：先照旧过风控检查和错误容器；都不是、
   页面状态里又没有这篇时——页面上有登录框 → `NOT_LOGGED_IN`（写熔断）；落在登录类页面 → 不判（原样报错）；其余 → `NOTE_RESTRICTED`：
