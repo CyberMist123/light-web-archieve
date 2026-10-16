@@ -457,6 +457,7 @@ def fetch_detail(
     expand_floors: list[str] | None = None,
     expand_resume: list[str] | None = None,
     click_more_replies: bool = True,
+    floors_resume: str | None = None,
 ) -> dict[str, Any]:
     """调 `get_feed_detail`，返回**原始**响应（原样落 `mcp_raw.json`）。
 
@@ -477,6 +478,8 @@ def fetch_detail(
             "reply_limit": reply_limit,
             "scroll_speed": "normal",
         }
+        if floors_resume:
+            arguments["floors_resume"] = floors_resume  # 1017：读取组件 >= reader-11 才认，老组件忽略即从第 1 楼滚起
         if comment_budget_s:
             arguments["comment_budget_s"] = int(comment_budget_s)  # 读取组件：评论在预算前 30 秒收手并如实报 comment_load
         if expand_floors:

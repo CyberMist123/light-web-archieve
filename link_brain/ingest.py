@@ -289,7 +289,7 @@ FILL_GAP_HOURS = 20    # 1009 起改成 comment_fill.FILL_GAP_MIN（45 分钟）
 
 def _detail_kwargs(comment_floors: int | str | None, expand_floors: list[str] | None = None,
                    budget_s: int | None = None, expand_resume: list[str] | None = None,
-                   fill: bool = False) -> dict[str, Any]:
+                   fill: bool = False, floors_resume: str | None = None) -> dict[str, Any]:
     """评论楼层：10（默认，秒回）/ 20 / 50（滚评论区并展开楼中楼，限楼数）/ "all"（手动全量）。
     expand_floors（1008 续读）：只展开这些楼，给足预算。budget_s（1009 续读）：这次给读取组件的评论预算。"""
     if expand_floors:
@@ -314,17 +314,20 @@ def _detail_kwargs(comment_floors: int | str | None, expand_floors: list[str] | 
         # 1017：续读里「多读几楼」这一趟只翻一级评论、不点楼中楼——不带游标的展开会把存过的回复从第 1 条再点一遍、白耗额度；
         # 新楼的楼中楼下一趟按缺口带游标续展（expand）
         out["click_more_replies"] = False
+        if floors_resume:
+            out["floors_resume"] = floors_resume  # 1017 一级评论续翻（comment_fill.floors_resume_point）
     return out
 
 
 def _fetch_with_retry(parsed: dict[str, Any], *, log, comment_floors=None, budget_left=None, expand_floors=None,
-                      fill_budget_s=None, progress=None, expand_resume=None) -> Any:
+                      fill_budget_s=None, progress=None, expand_resume=None, floors_resume=None) -> Any:
     """抓详情；服务没起来时隔一会儿重试（最多 SERVICE_RETRIES 次）。
 
     budget_left（1001）：返回「这一批还剩几秒」的函数。剩下的不够再等一轮 + 再抓一次的最坏耗时，就不重试了，
     直接把 ServiceDownError 抛给调用方——夜跑的同步步骤有外层限时，别在预算尽头又挂一个 10 分钟的请求被整棵杀。
     """
-    kwargs = _detail_kwargs(comment_floors, expand_floors, fill_budget_s, expand_resume, fill=fill_budget_s is not None)
+    kwargs = _detail_kwargs(comment_floors, expand_floors, fill_budget_s, expand_resume, fill=fill_budget_s is not None,
+                            floors_resume=floors_resume)
     from . import accounts
     for attempt in range(1, SERVICE_RETRIES + 1):
         accounts.pace("打开笔记")  # 1001：跨进程开页间隔（与附件、补看、读收藏共用一个时刻戳）
@@ -346,9 +349,11 @@ def _fetch_with_retry(parsed: dict[str, Any], *, log, comment_floors=None, budge
     raise AssertionError("unreachable")
 
 
-def _merge_fill(source: dict[str, Any], old: dict[str, Any], expanded: set[str], captured_at: str, log) -> dict[str, Any]:
-    """续读（1009）：正文 / 图片 / 附件沿用上一版（这次只为评论开页），评论和上一版并集合并，comment_load 重算缺口。"""
-    keep_order = bool(expanded)
+def _merge_fill(source: dict[str, Any], old: dict[str, Any], expanded: set[str], captured_at: str, log,
+                *, keep_order: bool = False) -> dict[str, Any]:
+    """续读（1009）：正文 / 图片 / 附件沿用上一版（这次只为评论开页），评论和上一版并集合并，comment_load 重算缺口。
+    keep_order（1017 一级评论续翻）：这次只有首屏 + 接着翻的楼，保持老顺序、新楼接在后面。"""
+    keep_order = keep_order or bool(expanded)
     merged = xhs.merge_comments(old.get("comments") or [], source.get("comments") or [], expanded,
                                 keep_old_order=keep_order)
     new_cl = source["capture"].get("comment_load")
@@ -485,6 +490,7 @@ def ingest_url(
     fill_budget_s: int | None = None,
     progress=None,
     expand_resume: list[str] | None = None,
+    floors_resume: str | None = None,
 ) -> dict[str, Any]:
     """抓一条链接并落一份不可变 RAW。返回摘要 dict（含 exit_code）。
 
@@ -565,12 +571,13 @@ def ingest_url(
             progress("read", f"打开这篇，把评论一楼一楼展开读下来（热门笔记要几分钟到十几分钟，最多 {cap} 分钟）")
         raw = _fetch_with_retry(parsed, log=log, comment_floors=comment_floors, budget_left=budget_left,
                                 expand_floors=expand_floors, fill_budget_s=fill_budget_s if fill else None, progress=progress,
-                                expand_resume=expand_resume)
+                                expand_resume=expand_resume, floors_resume=floors_resume)
         problems.resolve("ingest", None)  # 抓到了 = 读取服务好着：之前「服务没起来 / 超时」那几条步骤级问题算解决
 
         if fill:
             return _finish_fill(raw, parsed, conn, existing, old_meta, old_source, old_manifest, old_web,
-                                set(expand_floors or []), origin=origin, actor=actor, ingest_kind=ingest_kind,
+                                set(expand_floors or []), keep_order=bool(floors_resume), origin=origin, actor=actor,
+                                ingest_kind=ingest_kind,
                                 note=note, created_at=created_at, log=log, progress=progress)
 
         # 附件元数据只有笔记网页版有（MCP 不返回），游客可见；失败不阻断
@@ -730,14 +737,15 @@ def ingest_url(
 
 
 def _finish_fill(raw: Any, parsed: dict[str, Any], conn, existing, old_meta: dict[str, Any], old_source: dict[str, Any],
-                 old_manifest: dict[str, Any] | None, old_web: Any, expanded: set[str], *, origin: str, actor: str,
+                 old_manifest: dict[str, Any] | None, old_web: Any, expanded: set[str], *, keep_order: bool = False,
+                 origin: str, actor: str,
                  ingest_kind: str, note: str | None, created_at: str, log, progress=None) -> dict[str, Any]:
     """评论续读的落盘（ingest_url fill=True 的后半截）：并集合并 → 没多拿到就不出新版本 → 有就写新版本（图 / 视频引用旧文件）。"""
     captured_at = now_iso()
     if progress:
         progress("merge", "评论读回来了：和存下的合并")
     fresh = xhs.normalize(raw, parsed, captured_at=captured_at, web_probe=None)
-    source = _merge_fill(fresh, old_source, expanded, captured_at, log)
+    source = _merge_fill(fresh, old_source, expanded, captured_at, log, keep_order=keep_order)
     not_found = list(((raw.get("data") or {}).get("comment_load") or {}).get("floors_not_found") or []) \
         if isinstance(raw, dict) else []
     object_dir = storage.object_dir(xhs.SOURCE, parsed["note_id"])
