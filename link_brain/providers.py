@@ -116,7 +116,14 @@ def read_key_file(path: str, field: str = "apiKey") -> tuple[dict[str, str] | No
 POOL_ENV = {"gemini": "LWA_GEMINI_KEYS"}
 POOL_FILE_FIELD = {"gemini": "gemini_keys_file"}
 POOL_DEAD_CODES = ("NEEDS_HUMAN.AUTH_FAILED", "NEEDS_HUMAN.QUOTA_EXCEEDED", "TRANSIENT.HTTP_429")
-_POOL_DEAD: dict[str, dict[str, str]] = {}  # 池名 → {key: 哪天用坏的}
+_POOL_DEAD: dict[str, dict[str, float]] = {}  # 池名 → {key: 到几点（time.time()）之前别用}
+# 429 分两种：每分钟限额（歇一分钟就好，POOL_COOL_S）和每天限额（body 里带 PerDay，今天别用了）。key 被拒 / 欠费 = 今天别用。
+POOL_COOL_S = 65.0
+
+
+def is_daily_limit(body: str) -> bool:
+    low = (body or "").lower().replace(" ", "")
+    return "perday" in low or "daily" in low
 
 
 def pool_keys(name: str) -> list[str]:
@@ -137,18 +144,34 @@ def pool_keys(name: str) -> list[str]:
     return out
 
 
-def _today() -> str:
-    from datetime import date
-    return date.today().isoformat()
+def _end_of_day() -> float:
+    import time
+    from datetime import datetime, timedelta
+    now = datetime.now()
+    nxt = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    return time.time() + (nxt - now).total_seconds()
 
 
 def pool_alive(name: str) -> list[str]:
-    dead = {k for k, day in _POOL_DEAD.get(name, {}).items() if day == _today()}
+    import time
+    now = time.time()
+    dead = {k for k, until in _POOL_DEAD.get(name, {}).items() if until > now}
     return [k for k in pool_keys(name) if k not in dead]
 
 
-def pool_mark_dead(name: str, key: str) -> None:
-    _POOL_DEAD.setdefault(name, {})[key] = _today()
+def pool_next_free(name: str) -> float | None:
+    """key 全在歇的时候，最早哪一把几秒后能用（今天用坏的不算）；没有 = None。"""
+    import time
+    now = time.time()
+    waits = [u - now for u in _POOL_DEAD.get(name, {}).values() if now < u <= now + POOL_COOL_S + 1]
+    return min(waits) if waits else None
+
+
+def pool_mark_dead(name: str, key: str, code: str = "", daily: bool = True) -> None:
+    """记一把 key 用坏：每分钟限额（429 且不是每天限额）歇 POOL_COOL_S 秒，其他（被拒 / 欠费 / 每天限额）今天别用。"""
+    import time
+    cool = code == "TRANSIENT.HTTP_429" and not daily
+    _POOL_DEAD.setdefault(name, {})[key] = time.time() + POOL_COOL_S if cool else _end_of_day()
 
 
 def call_with_pool(cfg: dict[str, Any] | None, call):
@@ -169,7 +192,7 @@ def call_with_pool(cfg: dict[str, Any] | None, call):
             if isinstance(got, dict):
                 got.setdefault("pool_key_index", allk.index(key) + 1)
             return got
-        pool_mark_dead(name, key)
+        pool_mark_dead(name, key, str(got.get("code") or ""), bool(got.get("daily_limit")))
     return got
 
 
@@ -432,6 +455,8 @@ def http_error_text(status: int, code: str) -> str:
 def http_failure(status: int, body: str = "") -> dict[str, Any]:
     code = http_code(status, body)
     extra: dict[str, Any] = {}
+    if code == "TRANSIENT.HTTP_429" and is_daily_limit(body):
+        extra["daily_limit"] = True  # 1016：每天限额满了（key 池今天别再用这把），区别于每分钟限额
     if code == "PERMANENT.CONTENT_FILTERED":  # 审核拦的是附带文字（如 OCR）还是图本身：调用方据此决定去掉文字重试
         extra["filtered_input"] = "text" if "input text" in (body or "").lower() else "unknown"
     # api_error：接口那一侧的故障（限流 / 鉴权 / 欠费 / 服务挂了），不是「这次请求本身有问题」

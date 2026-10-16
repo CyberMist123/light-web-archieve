@@ -32,7 +32,7 @@ def test_call_with_pool_rotates_on_dead_key_codes():
         if cfg["apiKey"] == "k1":
             return providers.result("failed", code="NEEDS_HUMAN.AUTH_FAILED")
         if cfg["apiKey"] == "k2":
-            return providers.result("failed", code="TRANSIENT.HTTP_429")
+            return providers.result("failed", code="TRANSIENT.HTTP_429", daily_limit=True)
         return providers.result("ok", "好")
 
     got = providers.call_with_pool({"keyPool": "gemini"}, call)
@@ -115,3 +115,47 @@ def test_summary_fallbacks_order(monkeypatch):
                         lambda p, s: {"endpoint": "https://deepseek/chat", "model": "ds", "apiKey": "dk"})
     out = llm.summary_fallbacks(primary, {"summaryAI": {"fallback": {"endpoint": "https://dashscope/chat", "model": "q"}}})
     assert [c["model"] for c in out] == ["q", "ds"], "她定：Gemini 不行先换百炼，再换文本 AI"
+
+
+def test_per_minute_429_only_cools_down(monkeypatch):
+    import time
+    now = [1000.0]
+    monkeypatch.setattr(time, "time", lambda: now[0])
+    providers.pool_mark_dead("gemini", "k1", "TRANSIENT.HTTP_429", daily=False)
+    providers.pool_mark_dead("gemini", "k2", "NEEDS_HUMAN.AUTH_FAILED")
+    assert providers.pool_alive("gemini") == ["k3"]
+    assert 0 < providers.pool_next_free("gemini") <= providers.POOL_COOL_S
+    now[0] += providers.POOL_COOL_S + 1
+    assert providers.pool_alive("gemini") == ["k1", "k3"], "每分钟限额歇一分钟就回来；被拒的今天不回来"
+
+
+def test_daily_limit_detection():
+    body = '{"error":{"code":429,"details":[{"quotaId":"GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}}'
+    assert providers.is_daily_limit(body) and not providers.is_daily_limit('{"quotaId":"PerMinute"}')
+    assert providers.http_failure(429, body)["daily_limit"] is True
+
+
+def test_bulk_embed_waits_for_cooling_keys(monkeypatch):
+    monkeypatch.setattr(providers, "resolve", lambda cap, settings=None: {"keyPool": "gemini", "endpoint": "https://e"})
+    slept = []
+
+    def fake_sleep(sec):
+        slept.append(sec)
+        providers._POOL_DEAD.clear()
+
+    monkeypatch.setattr(semantic, "_sleep", fake_sleep)
+    calls = []
+
+    def once(texts, cfg, timeout, endpoint, key):
+        calls.append(key)
+        if len(calls) <= 3:
+            raise semantic.EmbedHTTPError(429, "rate per minute")
+        return [[1.0]]
+
+    monkeypatch.setattr(semantic, "_post_embeddings_once", once)
+    assert semantic._embed_with_pool(["a"], {"model": "m"}, 30, wait=True) == [[1.0]]
+    assert slept and calls[-1] == "k1"
+    providers._POOL_DEAD.clear()
+    calls.clear()
+    with pytest.raises(semantic.EmbedHTTPError):
+        semantic._embed_with_pool(["a"], {"model": "m"}, 5)  # 查询不等：直接退词法

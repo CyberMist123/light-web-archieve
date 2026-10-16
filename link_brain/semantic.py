@@ -204,12 +204,18 @@ def embed_error_code(exc: Exception) -> str:
     return "TRANSIENT.NETWORK"
 
 
+_BULK = {"wait": False}  # run_embed 批量建索引时打开：key 都在歇（每分钟限额）就等一会儿；查询时关着，直接退词法
+
+
 def _post_embeddings(texts: list[str], cfg: dict, timeout: float) -> list[list[float]]:
     """一次 HTTP 批量取向量；失败抛异常，由调用方决定告警或退词法。"""
-    return _embed_with_pool(texts, cfg, timeout)
+    return _embed_with_pool(texts, cfg, timeout, wait=_BULK["wait"])
 
 
-def _embed_with_pool(texts: list[str], cfg: dict, timeout: float) -> list[list[float]]:
+POOL_WAIT_MAX_S = 600.0  # 批量建索引时，key 全在歇（每分钟限额）最多累计等这么久
+
+
+def _embed_with_pool(texts: list[str], cfg: dict, timeout: float, wait: bool = False) -> list[list[float]]:
     """1016：embedAI 带 keyPool（如 Gemini ×4）时，key 被拒 / 限额（401 / 403 / 429）就换下一把，全用坏才抛。"""
     from . import providers
     try:
@@ -222,15 +228,22 @@ def _embed_with_pool(texts: list[str], cfg: dict, timeout: float) -> list[list[f
         return _post_embeddings_once(texts, cfg, timeout, endpoint, key)
     endpoint = cfg.get("endpoint") or emb.get("endpoint") or ""
     last: Exception = RuntimeError("no-api-key")
-    for key in providers.pool_alive(pool):
-        try:
-            return _post_embeddings_once(texts, cfg, timeout, endpoint, key)
-        except EmbedHTTPError as exc:
-            if providers.http_code(exc.status, exc.body) not in providers.POOL_DEAD_CODES:
-                raise
-            providers.pool_mark_dead(pool, key)
-            last = exc
-    raise last
+    waited = 0.0
+    while True:
+        for key in providers.pool_alive(pool):
+            try:
+                return _post_embeddings_once(texts, cfg, timeout, endpoint, key)
+            except EmbedHTTPError as exc:
+                code = providers.http_code(exc.status, exc.body)
+                if code not in providers.POOL_DEAD_CODES:
+                    raise
+                providers.pool_mark_dead(pool, key, code, providers.is_daily_limit(exc.body))
+                last = exc
+        free = providers.pool_next_free(pool)
+        if not wait or free is None or waited + free > POOL_WAIT_MAX_S:
+            raise last
+        _sleep(free + 1)
+        waited += free + 1
 
 
 def _post_embeddings_once(texts: list[str], cfg: dict, timeout: float, endpoint: str, key: str) -> list[list[float]]:
@@ -270,6 +283,7 @@ def run_embed(re_embed: bool = False, batch_size: int = 10) -> dict:
     if not items:
         return {"status": "failed", "error": "catalog-data.json 里没有 items，先跑 catalog"}
     conn = connect()
+    _BULK["wait"] = True
     try:
         info = sync_chunks(conn, items, cfg["model"])
         if re_embed:
@@ -309,6 +323,7 @@ def run_embed(re_embed: bool = False, batch_size: int = 10) -> dict:
             embedded += len(batch)
         done = conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
     finally:
+        _BULK["wait"] = False
         conn.close()
     _MATRIX_CACHE.update(stamp=None, data=None)
     result = {"status": "ok" if not failed else "failed", "model": cfg["model"], "retried": retried,
