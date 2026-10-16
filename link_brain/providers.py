@@ -122,8 +122,9 @@ POOL_COOL_S = 65.0
 
 
 def is_daily_limit(body: str) -> bool:
-    low = (body or "").lower().replace(" ", "")
-    return "perday" in low or "daily" in low
+    # 只认 Google 配额 id 里的 PerDay（如 EmbedContentRequestsPerDayPerUserPerProjectPerModel-FreeTier）；
+    # 每分钟限额的 body 里也可能出现 daily 字样（文档链接），不能据此把 key 当成今天用完
+    return "perday" in (body or "").lower().replace(" ", "")
 
 
 def pool_keys(name: str) -> list[str]:
