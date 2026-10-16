@@ -438,6 +438,7 @@ link_brain:
   描述不硬截，安全上限 400 字且只在句末（。！？；）截、超出「…（略）」；每图 OCR ≤ 600 字（按整行截，超出「…（略）」），
   全节 ≤ 3000 字，超出后的图只留小标题和「（略，超出图片字数上限）」。按图校对的文字 / 表格 / 流程图要点每图 ≤ 800 字（按整行截）；
   精细识别（refined）结果不截。只有识别没把握（`visual.shaky` / 识图失败 / 图片识别失败）的图单独写原图路径。
+  （1017）识图存疑的图（判据见第 7c 节，与 vision.json 的 `doubt_reason` 同一个函数）在这张图最后写**一句**：`识图存疑（<原因>），文字仅供参考，以原图为准。原图：<路径>`（识别失败的那张前面已写原因，只写 `原图：<路径>`）；评论图写在那张评论图的行下面。这一句不计入图片节 3000 字上限，图片被「略」掉时也照写。
   图号与资产的对应不变（问答证据身份「图3」读 vision.json，不读这里）。
 - `视频文字稿`：连着重复的英文词 / 短语合并（we we → we）；和正文重复的句子去掉；超过 3000 字按句切成 ≤ 400 字的段落（空行分开）。
 - `视频画面文字`：去乱码行，和已留下的行 ratio ≥ 85 的去掉，和正文 / 文字稿 partial_ratio ≥ 90 的去掉；≤ 1500 字，
@@ -551,6 +552,35 @@ _archive/xiaohongshu/<note_id>/
 一律当作 Owner 手写，rerender 原样保留。
 
 ---
+
+## 7c. `derived/vision.json`（图片 OCR / 识图，对象级，可变）
+
+```jsonc
+{"schema_version": 1, "version": 1, "upgraded_v": 3,
+ "images": [{"asset": "raw/v0001/assets/image-003.webp", "status": "ok",           // 本地 OCR 这一张成没成
+             "ocr": "…", "ocr_v": 2, "lines": [{"text": "…", "box": [x0, y0, x1, y1], "score": 0.93}],
+             "layout": "text",                                                       // 本地版面判断 / 第一层判的类型
+             "visual": {"kind": "text|table|diagram|picture|title", "status": "ok", "text": "…", "v": 3,
+                        "shaky": "", "model": "…"},                                  // 第一层识图
+             "refine": {"status": "pending|done|failed", "reason": "…", "tries": 3, "at": "…",
+                        "error": "出现复读", "fallback": "layer1", "tried": "m / 换参数（温度 0.6） / 换模型 x"},
+             "refined": {"kind": "text", "status": "ok", "text": "…", "model": "…"},  // 第二层精细识别（成功才有）
+             "doubt": true, "doubt_reason": "疑似手写，精细识别没过"}]}             // 1017：识图存疑
+```
+
+- **`doubt` / `doubt_reason`（1017 新增，只加字段、向后兼容）**：这张图的识图 / OCR 文字靠不住时才有（`doubt: true` + 一句短原因，多个原因用「，」连）；
+  靠得住时两个字段都不写。写入时机：`build_vision`（第一层 / OCR 跑完）和 `refine_object`（每张精细识别后）。
+  没有这两个字段的旧文件，机读版按同一判据现算（`agentmd.doubt_reasons`），读的一方别把「没有字段」当成「靠得住」以外的意思。
+- **判据**（`link_brain/agentmd.py` 的常量，有回归用例）：
+  - `识别失败`：本地 OCR 这张没成（`status != ok`）。
+  - `精细识别没过`：`refine.status == "failed"`——换参数 / 换模型 / 分段都不合格退回第一层（`fallback: "layer1"`），或请求被拒累计 3 次。
+  - 第一层自己的毛病：`visual.shaky`（输出被截断 / 出现复读 / 输出过长）原样写；第一层失败写 `识图没成功`。
+  - `OCR 大半没认准`：参与计算的有效字（字母数字汉字假名谚文）≥ `DOUBT_MIN_CHARS`=20，且其中 ≥ `DOUBT_RATIO`=50% 出自信心
+    < `DOUBT_LOW_SCORE`=0.65 的行。`junk_line` 判掉、但认得很有把握的装饰行（二进制串、键盘单字、表盘数字）不参与；没有逐行信心的旧 OCR 不判。
+  - `疑似手写`：同上，但第一层识图文字里说了「手写」时门槛放宽到 `DOUBT_RATIO_HANDWRITE`=30%。
+  - `多处看不清`：显示给 AI 的识图文字（精细识别成功就看它，否则第一层）里 `[看不清]` / `[无法辨认]` ≥ `DOUBT_UNREADABLE`=3 处。
+  - 精细识别成功（`refined.status == "ok"`）的只按最后一条判（强模型看过原图）；标题图（`visual.kind == "title"`）不判。
+- 识图存疑**不是故障**：不进 `problems.jsonl`、不上目录卡片角标（1017 作者裁决；接口那一侧的故障照旧走 `ai_health`）。
 
 ## 8. SQLite（`vault/_archive/index.db`）
 

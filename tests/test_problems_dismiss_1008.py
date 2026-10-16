@@ -13,7 +13,7 @@ import pytest
 from link_brain import alert as alert_mod, cli, problems, repair, report, storage
 
 TZ = timezone(timedelta(hours=10))
-REFINE = "PERMANENT.MODEL_OUTPUT_INVALID"
+REFINE = "PERMANENT.PDF_ENCRYPTED"  # 1017：精细识图放弃不再登记，「已放弃」样例换成附件转不出
 
 
 def at(day, hour=4):
@@ -27,8 +27,8 @@ def quiet_alerts(monkeypatch):
     return sent
 
 
-def _gave_up(item="xhs-aaa", reason="image-006.webp：出现复读"):
-    return problems.report("vision.refine", REFINE, reason, item_id=item, title="合成标题")
+def _gave_up(item="xhs-aaa", reason="a.pdf：有打开密码"):
+    return problems.report("attachments.convert", REFINE, reason, item_id=item, title="合成标题")
 
 
 def _one(key):
@@ -71,7 +71,7 @@ def test_dismiss_survives_same_cause_recurrence():
 def test_dismiss_reappears_after_resolve_then_recur():
     row = _gave_up()
     problems.dismiss(key=row["key"])
-    problems.resolve("vision.refine", "xhs-aaa", REFINE)
+    problems.resolve("attachments.convert", "xhs-aaa", REFINE)
     _gave_up()
     r = _one(row["key"])
     assert r["hidden"] is False and not r.get("dismissed_at")
@@ -138,7 +138,7 @@ def test_repair_all_skips_failed_permanent_but_single_still_runs():
     called = []
     run = lambda argv, t: called.append(argv) or (1, "还是复读", False)  # noqa: E731
     repair.run(execute=run)  # 第一次：「全部修一遍」照样试一次
-    assert called == [["vision", "--refine-mark", "xhs-aaa", "--retry-failed", "--now"]]
+    assert called == [["pdf2md", "xhs-aaa", "--force"]]
     repair.run(execute=run)  # 当场修过没好：不再进「全部修一遍」（不再花钱）
     assert len(called) == 1
     repair.run(key=row["key"], execute=run)  # 点名单条照样跑
@@ -156,7 +156,7 @@ def test_repair_all_skips_hidden_rows():
 def test_describe_permanent_repeated_failure_suggests_hide():
     _gave_up()
     _gave_up()
-    r = next(x for x in problems.load() if x["step"] == "vision.refine")
+    r = next(x for x in problems.load() if x["step"] == "attachments.convert")
     assert "已失败 2 次" in r["status_text"] and "隐藏" in r["status_text"]
     assert r["dismissable"] is True
 

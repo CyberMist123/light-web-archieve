@@ -252,6 +252,10 @@ def plan(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
     if step in ("enrich.summary", "vision.layer1"):
         return _run("enrich", auto=transient) if item else _run("enrich_pending", auto=transient)
     if step == "vision.refine":
+        if item and sub == "MODEL_OUTPUT_INVALID":
+            # 1017 作者裁决：精细识别没过、退回第一层不是故障——不再登记；旧行在面板读取 / 补跑时自动收成已解决
+            # （vision.retire_refine_problems），机读版里那张图标「识图存疑…以原图为准」
+            return _manual("不是故障：这张图的识图已在机读版标「识图存疑」，以原图为准；这条下次打开面板自动消")
         return _run("refine_item", auto=False) if item else _run("refine_run", auto=transient)
     if step == "videos.transcribe":
         if not item:

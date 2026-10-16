@@ -96,7 +96,7 @@ def export_redacted() -> str                                # §3「复制报错
 **迁移点**（每条：原状态文件照写 + `report/resolve`）
 - 附件转 md：`attachments.mark_conversion:374-395`（failed → `PERMANENT.PDF_ENCRYPTED|PDF_DAMAGED` 或 `TRANSIENT.*`；`note is None` → resolve）；`pdftext.py:111-118,171-172,193-200` 给出区分码，不再只给一句 note；`pdftext.py:273-277` 的「同 sha 永不重试」只对 PERMANENT 成立，TRANSIENT 按 `next_at` 退避。
 - 视频：`videos._failed:110-118`（`TRANSIENT`，`retry_after` 即 `next_at`）、`:139-141 no_speech`、`:174 no_audio` → `PERMANENT`；`transcribe` ok → resolve。
-- 识图第二层：`vision.refine_object:318-322`（api_error → `TRANSIENT`，401/403 → `NEEDS_HUMAN.AUTH_FAILED`）、`:334-336 failed` → `PERMANENT.MODEL_OUTPUT_INVALID`；`run_refine:376-378` 收手 → `TRANSIENT.SERVICE_BUSY` 一条（step 级，item_id=None）。
+- 识图第二层：`vision.refine_object:318-322`（api_error → `TRANSIENT`，401/403 → `NEEDS_HUMAN.AUTH_FAILED`）、~~`:334-336 failed` → `PERMANENT.MODEL_OUTPUT_INVALID`~~（1017 作者裁决：精细识图因输出不合格放弃不是故障，不再 report，改记 vision.json `doubt` 并在机读版标「识图存疑」；旧行由 `vision.retire_refine_problems` 按「已解决」收掉，见 ERRORS 第 6 条）；`run_refine:376-378` 收手 → `TRANSIENT.SERVICE_BUSY` 一条（step 级，item_id=None）。
 - 概要：`llm.extract:402-419`（failed → 调用失败归 TRANSIENT，schema 两次不过归 PERMANENT.MODEL_OUTPUT_INVALID）；`enrich.enrich_one:222-227` gave_up → 不再 alert（`enrich.py:285-287` 删），改 report `action=gave_up`。
 - 同步：`sync_state.record:94-147`、`account_problem:165-177`、`account_ok:180-188` 各加一行 report/resolve；`favorites.py:125,229,251,261,344,520`、`ingest.py:388,531`、`catch.py:139`、`attachments.py:206,245,877,903,1055,1095,1102` 共 17 处 `alert_mod.alert` 全部换成 `problems.report`。
 - 问答：`ask.py:339 selection_failed` → `report('ask', 'SKIPPED.FALLBACK', …, action='skipped')`，结果里保留该键。

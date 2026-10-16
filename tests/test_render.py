@@ -302,7 +302,7 @@ def test_agent_md_image_origin_is_vault_relative(tmp_path, monkeypatch):
     assert "原图在 `_archive/xiaohongshu/t/raw/v0001/assets/`" in text
     assert "细节以原图为准" not in text
     assert text.count("_archive/xiaohongshu/t/raw/v0001/assets/image-") == 1
-    assert "识别没把握（输出被截断），原图：_archive/xiaohongshu/t/raw/v0001/assets/image-002.webp" in text
+    assert "识图存疑（输出被截断），文字仅供参考，以原图为准。原图：_archive/xiaohongshu/t/raw/v0001/assets/image-002.webp" in text
 
 
 def test_render_no_vision_does_not_call_vision(tmp_path, monkeypatch):

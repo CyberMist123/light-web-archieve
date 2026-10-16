@@ -425,6 +425,10 @@ def _dispatch(args) -> int:
 
     if args.command == 'problems':
         from . import problems
+        if getattr(args, "problems_cmd", None) in ("list", "repair"):
+            # 1017：精细识图放弃不再算故障——面板读取 / 自愈轮之前把以前登记的那些行收成已解决（幂等）
+            from . import vision
+            vision.retire_refine_problems()
         return problems.run(args)
     if args.command == 'remote':
         from .remote import cli as remote_cli

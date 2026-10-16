@@ -51,7 +51,8 @@
 - **根因**：模型偶尔复读（同一段输出几十遍）或截断，结果过不了格式检查；以前同一张图每晚只试一次、跨 3 晚才放弃，当晚不换参数也不换模型。
   **1008 补一种根因：我们自己的判据误判**——「有一行超过 600 字就截掉、看到截断标记就报复读」，论文页的长段落、聊天截图里的长气泡没有一个字重复，也被判「出现复读」→ PERMANENT，换模型重跑多少次都一样、每次都花钱（见第 11 条）。
 - **修法 / 自愈**（同一次运行里）：原样 → **换参数**（温度调到 0.6，跳出复读循环）→ **换另一个已配置的模型**（设置里的精细识别模型 / 第一层识图模型，去重）→ 都不合格才当场放弃这张，笔记继续用第一层结果，并在问题里写明「试过 … 都不合格，已退回第一层识图结果」。接口故障（限流 / 断网）不算次数，留待补。「现在修」只重标放弃了的那几张（`vision --refine-mark <id> --retry-failed --now`）。
-- **回归用例**：`tests/test_self_heal_1004.py::test_refine_ladder_heals_with_new_params`、`tests/test_self_heal_1004.py::test_refine_ladder_switches_model_then_falls_back_to_layer1`、`tests/test_self_heal_1004.py::test_refine_retry_failed_only_remarks_failed_images`、`tests/test_vision_refine.py::test_refine_object_gives_up_after_three_tries`。
+- **1017 作者裁决（识图存疑不是故障）**：阶梯走完还不合格（含手写字、乱码这类模型怎么都认不准的图）、或请求被拒累计 3 次而退回第一层的，**不再登记 `PERMANENT.MODEL_OUTPUT_INVALID`、不进问题面板、卡片不出「AI 结果不可用」**；改成 vision.json 这张图记 `doubt` / `doubt_reason`，机读版 agent.md 在这张图下写一句「识图存疑（原因），文字仅供参考，以原图为准。原图：…」。同一判据也标第一层 OCR 大半没认准（低信心字 ≥ 50%，识图说是手写时 ≥ 30%）、识图文字里 ≥3 处 [看不清] 的图（判据和阈值见 FORMAT.md 第 7c 节）。以前登过的这类行在打开问题面板（`problems list` / `problems repair`）或下次补跑（`vision --refine` / 这篇的 `refine_object`）时按「已解决」口径追加 resolved 行；1008 的一次性补登记（第 11 条）同时作废。接口那一侧（key / 限流 / 断网）照旧不计次数、归 `ai.refine`。`repair.plan` 对还没来得及收掉的旧行只给 `manual`「不是故障…下次打开面板自动消」，不再花钱重跑。
+- **回归用例**：`tests/test_self_heal_1004.py::test_refine_ladder_heals_with_new_params`、`tests/test_self_heal_1004.py::test_refine_ladder_switches_model_then_falls_back_to_layer1`、`tests/test_self_heal_1004.py::test_refine_retry_failed_only_remarks_failed_images`、`tests/test_vision_refine.py::test_refine_object_gives_up_after_three_tries`、`tests/test_vision_doubt_1017.py::test_ladder_gave_up_marks_doubt_not_problem`、`tests/test_vision_doubt_1017.py::test_request_refused_three_times_marks_doubt_not_problem`、`tests/test_vision_doubt_1017.py::test_api_failure_still_not_counted_and_not_doubt`、`tests/test_vision_doubt_1017.py::test_agent_md_one_line_per_doubtful_image`、`tests/test_vision_doubt_1017.py::test_old_rows_resolved_on_panel_read`、`tests/test_vision_doubt_1017.py::test_repair_plan_says_not_a_fault`、`tests/test_vision_doubt_1017.py::test_ocr_ratio_threshold_is_half`。
 
 ### 7. 同一件事报两条，原因还重复一遍（10-04）
 - **用户看到**：问题列表里「夜跑：sync-favorites 步骤出错」和「收藏同步：收藏数异常」两条；原因那句是「收藏只读回 540 条…；收藏只读回 540 条…」。
@@ -82,7 +83,8 @@
 - **用户看到**：两篇的精细识图一直「AI 结果不可用」，点「现在修」、换模型都一样；另一张卡片上有灰标，问题面板里却没有这一条。
 - **根因**：①`visual.tidy_output` 把超过 600 字的行一律截断、`shaky_reason` 看到截断标记就报「出现复读」（第一层识图同样误判，误判后自动排进精细识图）；②`vision.refine_object` 一张图成功就把整篇的问题消掉，同一篇别的图还 failed 时出孤儿灰标、下一张失败计数从头算；③当时问题面板还没接上这类报错。
 - **修法**：只收真复读（同一段 ≥12 字连着 ≥4 次，或一行里不重复的 20 字片段不到一半；分隔线 / 省略号不算），单行超过 4000 字才硬截断并另报「输出过长」；「出现复读」只在真收掉复读时报；整篇跑完、没有任何一张还 failed 才解决这篇的问题。卡片有标、面板没有的精细识图失败做成一次性迁移（问题面板打开时补登记一次，ts 用 vision.json 的 refine.at）。**不 bump VISUAL_VERSION**（会让全库第一层重跑）。
-- **回归用例**：`tests/test_vision_refine.py::test_long_paragraph_is_not_repetition`、`tests/test_vision_refine.py::test_true_repetition_still_flagged`、`tests/test_vision_refine.py::test_separator_line_is_not_repetition`、`tests/test_vision_refine.py::test_refine_ladder_passes_long_paragraph`、`tests/test_vision_refine.py::test_one_image_ok_does_not_resolve_item_while_another_failed`、`tests/test_card_problems_1008.py::test_orphan_refine_backfilled_once_with_refine_time`。
+- **回归用例**：`tests/test_vision_refine.py::test_long_paragraph_is_not_repetition`、`tests/test_vision_refine.py::test_true_repetition_still_flagged`、`tests/test_vision_refine.py::test_separator_line_is_not_repetition`、`tests/test_vision_refine.py::test_refine_ladder_passes_long_paragraph`、`tests/test_vision_refine.py::test_refine_run_retires_old_gave_up_row_1017`、`tests/test_card_problems_1008.py::test_orphan_refine_not_backfilled_after_1017`、`tests/test_card_problems_1008.py::test_refine_gave_up_gets_no_card_badge_1017`。
+  （1017 起②③作废：精细识图放弃不再是问题，不按篇登记、不上卡片；旧行跑过 / 面板打开就收掉，一次性补登记也不再做，见第 6 条。）
 
 ### 12. 已放弃的问题删不掉，顶部灰色数字一直挂着；「全部修一遍」拿它们反复花钱（10-08）
 - **用户看到**：问题面板「已放弃」两条永远在，顶部灰色数字不归零；卡片上 5 个橙色「AI key 失效」其实 key 早好了；10-08 04:38 又有一轮「全部修一遍」付费重跑了那两张图。
@@ -221,7 +223,7 @@
 | `TRANSIENT.STEP_CRASHED`（vision.layer1 / enrich.summary） | 步骤中途出错退出 | 识图 / 概要代码意外异常（正文已入档） | 不阻断入档，照样渲染笔记 | ✔ 重跑这篇 | 同左 |
 | `PERMANENT.CONTENT_FILTERED`（vision.layer1 / vision.refine） | 识图被接口审核拦下 | 百炼等接口内容审核回 HTTP 400 `data_inspection_failed`（1015 查明：拦的多是附带的 OCR 文字，如政治 / 成人词，图本身能过） | 拦的是文字 → 去掉 OCR 文字只发图再问一次；图本身也被拦 → 记这一条，OCR 文字照常可搜 | — | 不是设置问题，不用改模型名 / 地址；想要识图可换不带审核的模型 |
 | `PERMANENT.MODEL_OUTPUT_INVALID`（enrich.summary） | AI 结果不可用 | 概要两次都不是合法 JSON | 第二次把「只回 JSON」说死 → 换文本 AI 模型 | — | 「现在修」= 重跑这篇 |
-| `PERMANENT.MODEL_OUTPUT_INVALID`（vision.refine） | AI 结果不可用 | 精细识别真复读 / 截断 / 流程图格式坏（1008 起长段落不再误判，见第 11 条） | 原样 → 换参数 → 换模型 → 退回第一层结果 | — | 「再试一次」= 放弃了的图重新精细识别；修过没好的不进「全部修一遍」；可「隐藏」 |
+| （1017 撤掉）`PERMANENT.MODEL_OUTPUT_INVALID`（vision.refine） | 不再出现：机读版那张图写「识图存疑（…），文字仅供参考，以原图为准」 | 精细识别真复读 / 截断 / 流程图格式坏 / 手写乱码认不准（1008 起长段落不再误判，见第 11 条） | 原样 → 换参数 → 换模型 → 分段 / 截到复读前 → 退回第一层结果并在 vision.json 记 `doubt` | — 旧行面板打开 / 补跑时自动收成已解决 | 不用处理；`repair.plan` 给 `manual`「不是故障」；想再试可在笔记上手动点「精细识别」；见第 6 条 |
 | `TRANSIENT.SERVICE_BUSY` / `HTTP_*` / `NETWORK`（vision.refine 步骤级） | 接口连着不通 | 免费 key 限额、兜底模型也不通 | 429 换 key、503 歇一会儿同 key 再试、全不行退回设置里的模型 | ✔ 补跑 10 张 | 同左 |
 | `TRANSIENT.*`（videos.transcribe） | 服务正忙 / 步骤超时 | 转写服务没起、抽音轨超时 | 转写服务没起：当场拉起（CapsWriter）再转 | ✔ 拉起后重转这条 | 同左；不行到设置里测试语音识别 |
 | `PERMANENT.NO_SPEECH` / `NO_AUDIO` | 视频里没人说话 / 没有音轨（画面上也没认出字幕） | 纯音乐 / 没音轨，且没有画面字幕 | 没人声也抽画面字幕；读出字幕就不登记 | — | 不用处理；「现在修」= 重读一次画面字幕 |

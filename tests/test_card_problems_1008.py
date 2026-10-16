@@ -1,5 +1,5 @@
 """1008（L6·B2）：目录卡片问题角标——减去她隐藏的、过期的接口码不再标（1009 起连灰色「待补」也不上卡片）、原帖打不开出标；
-卡片有标、面板没有的精细识图失败一次性补登记（ts 用 refine.at，只做一次）。全部本地文件。"""
+卡片有标、面板没有的精细识图失败一次性补登记（1017 起作废，精细识图放弃不算故障）。全部本地文件。"""
 from __future__ import annotations
 
 from link_brain import ai_health, catalog, cli, problems, storage
@@ -19,13 +19,21 @@ def _codes(obj, *, vision=None, extracted=None):
 
 def test_item_problems_skips_dismissed_pairs():
     obj = _obj()
-    vision = {"images": [{"asset": "a/image-006.webp", "refine": {"status": "failed", "error": "复读"}}]}
-    assert _codes(obj, vision=vision) == ["PERMANENT.MODEL_OUTPUT_INVALID"]
-    row = problems.report("vision.refine", "PERMANENT.MODEL_OUTPUT_INVALID", "x", item_id=f"xhs-{obj.name}")
+    storage.write_json(obj / "attachments.json", {"files": [{"name": "a.pdf", "sha256": "s1",
+                       "conversion_failed": {"sha256": "s1", "code": "PERMANENT.PDF_ENCRYPTED", "note": "有密码"}}]})
+    assert _codes(obj) == ["PERMANENT.PDF_ENCRYPTED"]
+    row = problems.report("attachments.convert", "PERMANENT.PDF_ENCRYPTED", "x", item_id=f"xhs-{obj.name}")
     problems.dismiss(key=row["key"])
-    assert _codes(obj, vision=vision) == []
+    assert _codes(obj) == []
     problems.undismiss(row["key"])
-    assert _codes(obj, vision=vision) == ["PERMANENT.MODEL_OUTPUT_INVALID"]
+    assert _codes(obj) == ["PERMANENT.PDF_ENCRYPTED"]
+
+
+def test_refine_gave_up_gets_no_card_badge_1017():
+    """1017 作者裁决：精细识别没过、退回第一层不是故障——卡片不出「AI 结果不可用」（机读版里标识图存疑）。"""
+    obj = _obj()
+    vision = {"images": [{"asset": "a/image-006.webp", "refine": {"status": "failed", "error": "复读"}}]}
+    assert _codes(obj, vision=vision) == []
 
 
 def test_item_problems_drops_stale_api_codes_when_ai_health_clear():
@@ -50,17 +58,16 @@ def test_gone_note_gets_card_badge_only():
     assert problems.load() == []
 
 
-def test_orphan_refine_backfilled_once_with_refine_time(capsys):
+def test_orphan_refine_not_backfilled_after_1017(capsys):
+    """1008 的一次性补登记（卡片有标、面板没有的精细识图失败）1017 起作废：精细识图放弃不是故障，新库第一次打开面板也不补登记。"""
     obj = _obj()
     storage.write_json(obj / "derived" / "vision.json", {"images": [
         {"asset": "raw/v0001/assets/image-003.webp",
          "refine": {"status": "failed", "error": "出现复读", "at": "2026-10-02T05:28:00+11:00"}}]})
     assert cli.main(["problems", "list"]) == 0
-    rows = [r for r in problems.load() if r["step"] == "vision.refine"]
-    assert len(rows) == 1 and rows[0]["ts"].startswith("2026-10-02T05:28") and rows[0]["item_id"] == f"xhs-{obj.name}"
-    problems.resolve("vision.refine", f"xhs-{obj.name}")
+    assert [r for r in problems.load() if r["step"] == "vision.refine"] == []
     assert cli.main(["problems", "list"]) == 0
-    assert [r for r in problems.load() if r["step"] == "vision.refine"] == [], "只做一次，不会解决后又补回来"
+    assert [r for r in problems.load() if r["step"] == "vision.refine"] == []
     capsys.readouterr()
 
 
@@ -84,4 +91,5 @@ def test_light_mode_shows_no_ai_badges():
     storage.write_json(p, {"setup": {"selected": ["core", "reader", "dataview", "ocr", "ai_text", "ai_vision"], "aiSynced": True}})
     catalog._CTX.update(key=None)
     got = _codes(obj, vision=vision, extracted=extracted)
-    assert "PERMANENT.MODEL_OUTPUT_INVALID" in got and "TRANSIENT.RETRY_EXHAUSTED" in got
+    assert "TRANSIENT.RETRY_EXHAUSTED" in got
+    assert "PERMANENT.MODEL_OUTPUT_INVALID" not in got, "1017：精细识别没过不出标（机读版标识图存疑）"
