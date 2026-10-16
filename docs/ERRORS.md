@@ -204,6 +204,12 @@
 - **修法 / 自愈**：`restricted.archive_complete`：正文在、设置楼数内楼中楼缺 ≤2、楼数不缺、附件不缺 → 确认了也不登记（`mark`），已有的那条由 `quiet_unconfirmed` 收掉；读不清一律当不齐（照常登记）。`reconcile_account` 在 logged_in 不知道时看用号日志（`actionlog`）：那条之后号用成功过、最近一次用号没被拦 → 算好着。
 - **回归用例**：`tests/test_panel_1017.py::test_confirmed_restricted_but_archive_complete_is_not_listed`、`tests/test_panel_1017.py::test_quiet_unconfirmed_also_retires_confirmed_but_complete`、`tests/test_panel_1017.py::test_archive_complete_is_false_when_unreadable`、`tests/test_panel_1017.py::test_reconcile_with_unknown_login_uses_action_log`、`tests/test_panel_1017.py::test_reconcile_unknown_login_but_last_use_was_blocked`。
 
+### 23. 「网页版打不开」的帖子其实是原帖不见了（10-17 第四轮，她核实）
+- **用户看到**：确认打不开的几篇还在问她要不要「打开验证」。
+- **根因**：她在 App 里核实——这些帖子是真的不见了（删了 / 仅作者可见）。读取号当时能开（9 月入库正文齐），之后原帖没了；没有任何人能做的动作。对照全库：61 篇非收藏、靠链接入的帖子，原帖在时入库的正文 / 图 / 评论都齐（来源是不是收藏、是不是 momo 分享都不影响）。
+- **修法**：`restricted.mark` 不再登记问题（疑似、确认都不进面板），`quiet_unconfirmed` 收掉面板里所有 `NOTE_RESTRICTED`；确认了（两天都打不开）后台不再开它；卡片换成安静的 `NOTE_GONE` 角标「原帖打不开了，本地存档还在」；笔记页那行改成如实一句 `restricted.GONE_TEXT`，不再给「打开验证」。疑似的照旧隔天再开，开得了就清。
+- **回归用例**：`tests/test_panel_1017.py::test_note_page_says_original_gone_without_verify_button`、`tests/test_panel_1017.py::test_restricted_confirmed_on_second_day`、`tests/test_restricted_1011.py::test_fill_restricted_not_found_is_one_quiet_item_and_is_skipped`。
+
 ## 二、故障码对照（用户看到 → 常见根因 → 自愈动作）
 
 「同次」= 那一步自己那次运行里的换策略重试；「自愈轮」= 夜跑收尾自动再修（✔ 自动 / — 不自动）；「现在修」= 面板按钮跑的动作。

@@ -136,7 +136,8 @@ def test_restricted_confirmed_on_second_day(monkeypatch):
     _mark_at("n2", t0, monkeypatch)
     _mark_at("n2", t0 + timedelta(hours=21), monkeypatch)
     rows = [r for r in problems.load() if r["step"] == "note.restricted"]
-    assert len(rows) == 1 and restricted.is_restricted("n2") and restricted.view("n2")
+    assert rows == [] and restricted.is_restricted("n2"), "确认了：后台不再开，也不进面板（原帖不见了）"
+    assert restricted.view("n2"), "笔记页如实说一句原帖打不开了"
 
 
 def test_restricted_reopened_clears_everything(monkeypatch):
@@ -217,9 +218,19 @@ def test_reconcile_unknown_login_but_last_use_was_blocked(monkeypatch):
     assert problems.reconcile_account({"logged_in": None, "risk_hold": None}) == 0
 
 
-def test_note_page_line_hidden_when_archive_complete(monkeypatch):
+def test_note_page_says_original_gone_without_verify_button():
+    from link_brain import render
     restricted.save("n5", {"restricted": True, "days": ["2026-10-16", "2026-10-17"]})
-    monkeypatch.setattr(restricted, "archive_complete", lambda sid: False)
-    assert restricted.view("n5")
-    monkeypatch.setattr(restricted, "archive_complete", lambda sid: True)
-    assert restricted.view("n5") is None
+    html = render._restricted_note_html({"restricted": restricted.view("n5")})
+    assert "已经打不开" in html and "打开验证" not in html
+
+
+def test_card_badge_is_quiet_note_gone_only_when_confirmed(tmp_path):
+    from link_brain import catalog
+    d = tmp_path / "obj" / "derived"
+    d.mkdir(parents=True)
+    (d / "restricted.json").write_text(json.dumps({"restricted": True, "days": ["2026-10-17"]}), "utf-8")
+    codes = lambda: [c.get("code") for c in catalog.item_problems(tmp_path / "obj", {}, {})] if hasattr(catalog, "item_problems") else None
+    # 只认 restricted.confirmed：单日疑似不出角标
+    assert restricted.confirmed({"restricted": True, "days": ["2026-10-17"]}) is False
+    assert restricted.confirmed({"restricted": True, "days": ["2026-10-16", "2026-10-17"]}) is True

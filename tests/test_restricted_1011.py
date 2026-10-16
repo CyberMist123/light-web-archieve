@@ -148,8 +148,7 @@ def test_fill_restricted_not_found_is_one_quiet_item_and_is_skipped(env, monkeyp
     st = restricted.load(NOTE_ID)
     assert st["restricted"] is True and st["search"]["result"] == "not_found"
     rows = _rows()
-    assert len(rows) == 1 and rows[0]["code"] == restricted.CODE and rows[0]["item_id"] == ITEM
-    assert rows[0]["group"] == "gave_up" and "打开验证" in rows[0]["reason"] and pushed == [], "安静：不推送"
+    assert rows == [] and pushed == []  # 1017 她：原帖是真的不见了——网页版打不开不进问题面板
     # 不算评论「没进展」，也不报 COMMENTS_INCOMPLETE
     cf = comment_fill.load_state("xiaohongshu", NOTE_ID)
     assert not cf.get("no_progress") and not cf.get("stuck")
@@ -162,19 +161,16 @@ def test_fill_restricted_not_found_is_one_quiet_item_and_is_skipped(env, monkeyp
     # 第二次（同一天，又被手动点了一次「再试一次」）：照试一次，但今天不再搜；问题还是一条、次数不刷
     out2 = comment_fill.fill_one(ITEM, manual=True)
     assert out2["restricted"] is True and len(searched) == 1, "每篇每天最多搜一次"
-    assert len(_rows()) == 1 and _rows()[0]["count"] == 1
+    assert _rows() == []  # 1017 她：原帖是真的不见了——网页版打不开不进问题面板
     # 后台（非手动）直接跳过、不开页
     n = len(calls)
     assert comment_fill.fill_one(ITEM)["restricted"] is True and len(calls) == n
-    # 笔记页：评论区顶上一行 + 「打开验证」；卡片角标
+    # 笔记页：评论区顶上一行如实说原帖打不开了（1017 不再给「打开验证」）；卡片角标
     md = _md()
-    assert restricted.TEXT in md and "lb-act-note-verify" in md
+    assert restricted.GONE_TEXT in md and "lb-act-note-verify" not in md
     items = catalog.collect(storage.vault_root())
     probs = next(it for it in items if it["id"] == ITEM)["problems"]
-    assert [p["code"] for p in probs if p["code"] == restricted.CODE] == [restricted.CODE]
-    # 自愈轮不替她开页：manual，写清下一步
-    p = repair.plan(rows[0])
-    assert p["kind"] == "manual" and "打开验证" in p["next"]
+    assert [p["code"] for p in probs if p["code"] == "PERMANENT.NOTE_GONE"] == ["PERMANENT.NOTE_GONE"], "1017：安静的「原帖打不开了」角标"
 
 
 def test_fill_pending_run_does_not_loop_on_restricted(env, monkeypatch, capsys):
@@ -219,7 +215,7 @@ def test_legacy_given_up_fill_is_released_once_then_classified(env, monkeypatch,
     args = SimpleNamespace(until_done=False, budget_min=0, limit=0, verbose=False, wait_lock_min=0.01, then_background=False)
     assert comment_fill.run(args, sleep=lambda s: None) == 0
     capsys.readouterr()
-    assert len(calls) == 1 and restricted.is_restricted(NOTE_ID) and len(_rows()) == 1
+    assert len(calls) == 1 and restricted.is_restricted(NOTE_ID) and _rows() == []  # 1017 她：原帖是真的不见了——网页版打不开不进问题面板
     # 别的原因放弃的不动
     comment_fill.save_state("xiaohongshu", NOTE_ID, {"stuck": True, "stuck_floors": 10, "stuck_reason": "这楼当时没展开"})
     assert restricted.release_legacy_fill_stuck() == []
@@ -242,7 +238,7 @@ def test_search_hitting_account_trouble_stops_like_before(env, monkeypatch):
 
 def test_normal_open_clears_a_stale_mark(env, monkeypatch):
     restricted.mark(NOTE_ID, item_id=ITEM, title="t", via="comments.fill")
-    assert len(_rows()) == 1
+    assert restricted.is_restricted(NOTE_ID)
     monkeypatch.setattr(xhs, "fetch_detail", lambda *a, **k: _raw([_floor("c1", 5, 5)]))
     comment_fill.fill_one(ITEM, manual=True)
     assert not restricted.is_restricted(NOTE_ID) and _rows() == []
@@ -293,7 +289,7 @@ def test_attachment_restricted_no_triple_retry_and_skipped_after(env, monkeypatc
     assert fetches == ["FAKE_TOKEN_FOR_TESTS", "FRESH"], "不进 3 次循环：旧口令一次 + 新口令一次"
     assert [r["status"] for r in out["results"]] == ["restricted"]
     assert env.sleeps == [123.0]
-    assert restricted.is_restricted(NOTE_ID) and len(_rows()) == 1
+    assert restricted.is_restricted(NOTE_ID) and _rows() == []  # 1017 她：原帖是真的不见了——网页版打不开不进问题面板
     assert _rows("attachments.download") == [], "不报「附件没下好」"
     state = storage.read_json(storage.object_dir("xiaohongshu", NOTE_ID) / "attachment-state.json")
     assert not state.get("download_backoff") and not state.get("errors"), "不进跨夜退避、卡片上不出「附件没下好」"
@@ -385,7 +381,7 @@ def test_note_verify_not_passed_keeps_mark(env, monkeypatch, capsys):
     assert out["ok"] is False and out["code"] == "NOTE_RESTRICTED" and "再点一次" in out["message"]
     assert restricted.is_restricted(NOTE_ID)
     assert restricted.load(NOTE_ID)["verify"]["result"] == "note_not_seen"
-    assert [r.get("verify_result") for r in _rows()] == ["note_not_seen"]
+    assert _rows() == []  # 1017 她：原帖是真的不见了——网页版打不开不进问题面板
 
 
 def test_note_verify_defers_to_account_hold_and_old_reader(env, monkeypatch, capsys):

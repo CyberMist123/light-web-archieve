@@ -402,8 +402,9 @@ def _restricted_note_html(view: dict[str, Any] | None) -> str:
     r = (view or {}).get("restricted") if isinstance(view, dict) else None
     if not r:
         return ""
-    text = f"{r.get('text') or '这篇在小红书网页版要验证才能看'}：评论 / 附件先停在这里，点「打开验证」过一下，过完自动补抓"
-    return f'<div class="lb-comments-note lb-restricted-note">{_safe(text)}' + NOTE_VERIFY_ACT + "</div>"
+    # 1017 她：「这些帖子是真的不见了」——不再让她去点验证，只如实说一句
+    from .restricted import GONE_TEXT
+    return f'<div class="lb-comments-note lb-restricted-note">{_safe(GONE_TEXT)}</div>'
 
 
 def _comments_note_html(capture: dict[str, Any] | None, comments: list[dict[str, Any]],

@@ -32,6 +32,7 @@ SOURCE = "xiaohongshu"
 STEP = "note.restricted"
 CODE = "PERMANENT.NOTE_RESTRICTED"
 TEXT = "这篇在小红书网页版要验证才能看"
+GONE_TEXT = "原帖在小红书上已经打不开了（多半删了或仅作者可见），下面是存档时存下的内容"
 STATE_NAME = "restricted.json"
 REST_ENV = "LWA_FETCH_REST"       # 搜到新口令后歇多久再开（和补评论篇间同一个变量；本机 cmd 里是 180,420）
 REST_DEFAULT = "60,180"
@@ -200,15 +201,8 @@ def mark(source_id: str, *, item_id: str | None = None, title: str | None = None
         save(sid, st)
     except OSError as exc:
         print(f"[restricted] 状态没写上：{exc}", file=sys.stderr)
-    try:
-        from . import problems
-        if not confirmed(st) or archive_complete(sid):
-            pass  # 1017：疑似的不登记（等隔天再开一次）；存档已经齐了的也不叫她
-        elif not was or not problems.is_open(STEP, item_id, CODE):
-            problems.report(STEP, "PERMANENT.NOTE_RESTRICTED", reason_text(st), item_id=item_id, title=title or st.get("title"),
-                            action="gave_up")
-    except Exception as exc:  # noqa: BLE001 - 登记失败不影响别的
-        print(f"[restricted] 问题记录没写上：{exc}", file=sys.stderr)
+    # 1017 她：「这些帖子是真的不见了」——读取号隔天还打不开的，原帖多半已删 / 仅作者可见，她也做不了什么：
+    # 不进问题面板（卡片上一个安静的「原帖打不开了，存档还在」、笔记页一行说明），确认后后台也不再开它
     return st
 
 
@@ -240,7 +234,7 @@ def clear(source_id: str, *, item_id: str | None = None, why: str = "", token: s
 def view(source_id: str) -> dict[str, Any] | None:
     """笔记页评论区顶上那一行要的：{text, since, item_id}；没标着返回 None。"""
     st = load(source_id)
-    if not confirmed(st) or archive_complete(source_id):  # 1017：存档已齐的笔记页也不出「要验证」
+    if not confirmed(st):  # 1017：疑似的不出；确认了的笔记页只说「原帖打不开了，下面是存档」
         return None
     return {"text": TEXT, "since": st.get("since"), "item_id": f"xhs-{_sid(source_id)}",
             "searched": (st.get("search") or {}).get("result") or ""}
@@ -335,15 +329,14 @@ LEGACY_HINT = "not found in noteDetailMap"   # 1011 以前读取组件对这类�
 
 
 def quiet_unconfirmed() -> list[str]:
-    """1017 迁移（幂等、零开页）：问题面板里还开着、但只撞见过一天的「网页版要验证」——收掉，等后台隔天再开一次。"""
+    """1017 迁移（幂等、零开页）：问题面板里还开着的「网页版要验证」一律收掉（她：原帖是真的不见了，网页版打不开不进面板）。"""
     from . import problems
     out = []
     for r in problems.load():
         if r.get("step") != STEP or r.get("resolved_at") or not r.get("item_id"):
             continue
-        if not confirmed(load(r["item_id"])) or archive_complete(r["item_id"]):
-            problems.resolve(STEP, r["item_id"])
-            out.append(r["item_id"])
+        problems.resolve(STEP, r["item_id"])  # 1017：网页版打不开一律不进面板（见 mark）
+        out.append(r["item_id"])
     return out
 
 
