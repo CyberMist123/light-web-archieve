@@ -511,11 +511,28 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
 
 
 # ── dataviewjs 页面（样式自注入，不依赖 CSS snippet；读 catalog-data.json 渲染） ──
-# 页面脚本独立保存，生成时嵌入笔记，Dataview 无需另读脚本。
 _ASSETS = Path(__file__).parent / "assets"
 # 第 2 批：三张页和批注块共用的前导（CONVENTIONS §5：仓根 / 插件 / 页面状态 / 数据版本与缓存 / 旧 DOM 复用 / 计时），内联在最前面
 _PAGE_LIB = (_ASSETS / "lb-page-lib.js").read_text(encoding="utf-8")
-_DATAVIEWJS = "```dataviewjs\n" + _PAGE_LIB + "\n" + (_ASSETS / "catalog-search.js").read_text(encoding="utf-8") + '\n' + (_ASSETS / "catalog-view.js").read_text(encoding="utf-8") + "\n```"
+# 目录页 / 已收藏页的整段脚本（前导 + 搜索 + 页面，约 210KB）
+_CATALOG_SCRIPT = _PAGE_LIB + "\n" + (_ASSETS / "catalog-search.js").read_text(encoding="utf-8") + "\n" + (_ASSETS / "catalog-view.js").read_text(encoding="utf-8") + "\n"
+_STARRED_SCRIPT = _CATALOG_SCRIPT.replace("const simplePage = false;", "const simplePage = true;").replace("const starredPage = false;", "const starredPage = true;")
+# 1017 目录页首开：以前这 210KB 直接烤进 md 的 dataviewjs 块——每次打开，Obsidian 要把它当 Markdown 解析（阅读视图一遍、
+# 同一标签页里藏着的编辑视图一遍，编辑视图还按 JavaScript 逐行着色 3400 行），Dataview 再在自己的模块作用域里 direct eval
+# 两遍（阅读视图 + 藏着的编辑视图），页面代码里每个全局名字都走动态作用域查找（同一段代码比普通函数慢约四成）。
+# 现在 md 里只放一小段引导：脚本存 _archive/catalog-page.js / starred-page.js（和批注块的 _archive/annotate-view.js 同一个做法，
+# 手机同步过去照样能用）；引导按 Obsidian 文件索引里的 mtime:size 认版本，编译好的函数挂在 globalThis 上（同一版本只编译一次）。
+CATALOG_SCRIPT_NAME = "catalog-page.js"
+STARRED_SCRIPT_NAME = "starred-page.js"
+_BOOTSTRAP = (_ASSETS / "page-bootstrap.js").read_text(encoding="utf-8")
+
+
+def _page_bootstrap(script_name: str) -> str:
+    """md 里那一小段 dataviewjs（assets/page-bootstrap.js）：找仓根 → 读（或复用编译好的）_archive/<script_name> → 照原样跑。"""
+    return "```dataviewjs\n" + _BOOTSTRAP.replace("__LB_SCRIPT__", script_name).rstrip("\n") + "\n```"
+
+
+_DATAVIEWJS = _page_bootstrap(CATALOG_SCRIPT_NAME)
 # 收藏搜索页 = 极简对话版（chat-view.js），跟浏览目录页分开（Owner 2026-09-17）。
 _CHATJS = "```dataviewjs\n" + _PAGE_LIB + "\n" + (_ASSETS / "catalog-search.js").read_text(encoding="utf-8") + '\n' + (_ASSETS / "chat-view.js").read_text(encoding="utf-8") + "\n```"
 _PAGE_HEADER = "---\ncssclasses: [lb-catalog]\n---\n\n"
@@ -532,7 +549,7 @@ def library_pages(vault):
             if "cssclasses: [lb-chatpage]" in text[:150]:
                 role = "chat"
             elif "cssclasses: [lb-catalog]" in text[:150]:
-                role = "starred" if "const starredPage = true;" in text else "catalog"
+                role = "starred" if ("const starredPage = true;" in text or STARRED_SCRIPT_NAME in text) else "catalog"
             elif "_archive/trash-data.json" in text:
                 role = "trash"  # 第 3 批以前的回收站页没有页头标记
         if role:
@@ -661,12 +678,14 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
     )
 
     catalog_path = vault / pages["catalog"]
+    # 先写脚本再写页：页面载入时脚本已经是新的
+    storage.atomic_write_text(vault / "_archive" / CATALOG_SCRIPT_NAME, _CATALOG_SCRIPT)
+    storage.atomic_write_text(vault / "_archive" / STARRED_SCRIPT_NAME, _STARRED_SCRIPT)
     storage.atomic_write_text(catalog_path, _PAGE_HEADER.replace("---\n", "---\nlb-page: catalog\n", 1) + _DATAVIEWJS + "\n")
 
     storage.atomic_write_text(vault / pages["chat"], _CHAT_HEADER.replace("---\n", "---\nlb-page: chat\n", 1) + _CHATJS + "\n")
 
-    starred_js = _DATAVIEWJS.replace("const simplePage = false;", "const simplePage = true;").replace("const starredPage = false;", "const starredPage = true;")
-    storage.atomic_write_text(vault / pages["starred"], _PAGE_HEADER.replace("---\n", "---\nlb-page: starred\n", 1) + starred_js + "\n")
+    storage.atomic_write_text(vault / pages["starred"], _PAGE_HEADER.replace("---\n", "---\nlb-page: starred\n", 1) + _page_bootstrap(STARRED_SCRIPT_NAME) + "\n")
 
     # 部署笔记底部批注块用的共享脚本（每篇笔记的 bootstrap 会 adapter.read 它）；前面拼上共享前导。
     # 每篇笔记里烤死的 bootstrap（render._annotate_block）不动：改它要重渲全部笔记，它只负责找仓根、载入这份脚本。

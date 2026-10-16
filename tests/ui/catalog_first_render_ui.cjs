@@ -16,6 +16,8 @@ const shell = require('../_obsidian_shell.cjs');
   const layoutMs = async (page, S) => {
     await browser.startTracing(page, { categories: ['devtools.timeline'] });
     await S.run(); await S.settle();
+    await page.waitForFunction(() => !document.querySelector('.lbc-grid[data-lbc-filling]'));   // 1017：首开 700 张是分片补的，量到补完
+    await S.settle();
     const ev = JSON.parse((await browser.stopTracing()).toString()).traceEvents;
     return ev.filter(e => e.ph === 'X' && e.name === 'Layout').reduce((a, e) => a + e.dur / 1000, 0);
   };

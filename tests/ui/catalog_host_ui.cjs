@@ -103,6 +103,7 @@ const shell = require('../_obsidian_shell.cjs');
     {
       const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
       const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', data: shell.makeCatalogData({ n: 350, starredEvery: 0 }) });
+      await page.waitForFunction(() => !document.querySelector('.lbc-grid[data-lbc-filling]'));   // 1017：首开 350 张是分片补的，等补完再数
       const row = await page.evaluate(() => {
         const cols = [...document.querySelectorAll('.lbc-grid-inner > .lbc-col')];
         const firsts = cols.map(c => c.querySelector('.lbc-card'));

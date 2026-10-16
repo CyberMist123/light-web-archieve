@@ -66,7 +66,9 @@ def test_build_emits_data_and_page(tmp_path, monkeypatch):
 
     page = catalog_path.read_text(encoding="utf-8")
     assert "```dataviewjs" in page
-    assert "catalog-data.json" in page
+    # 1017：页面脚本在 _archive/catalog-page.js（md 里只是载入它的引导）
+    assert "_archive/catalog-page.js" in page
+    assert "catalog-data.json" in (tmp_path / "_archive" / "catalog-page.js").read_text(encoding="utf-8")
 
 
 def test_tags_fall_back_to_extracted_when_no_frontmatter(tmp_path, monkeypatch):
