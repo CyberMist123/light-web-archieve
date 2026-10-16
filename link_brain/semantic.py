@@ -213,9 +213,13 @@ def _post_embeddings(texts: list[str], cfg: dict, timeout: float) -> list[list[f
     if _HTTP is None:  # 常驻问答进程里复用连接：省掉每问一次 TLS 握手（实测 ~2s → ~0.5s）
         _HTTP = httpx.Client()
     resp = _HTTP.post(endpoint, headers=headers, json=body, timeout=timeout)
+    from . import usage as ledger
     if resp.status_code >= 400:
+        ledger.record("embedAI", {"endpoint": endpoint, "model": cfg.get("model")}, None, ok=False)
         raise EmbedHTTPError(resp.status_code, resp.text[:500])
-    data = resp.json().get("data") or []
+    doc = resp.json()
+    ledger.record("embedAI", {"endpoint": endpoint, "model": cfg.get("model")}, doc.get("usage"))
+    data = doc.get("data") or []
     if len(data) != len(texts):
         raise RuntimeError("embeddings 返回数量不符")
     ordered = sorted(data, key=lambda d: d.get("index", 0))

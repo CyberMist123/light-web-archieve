@@ -86,9 +86,11 @@ def _understand(entry: dict[str, Any], path: Path, cfg: dict[str, Any] | None, s
     # 第一层（0927 起每张图都走；0928 分两层）：便宜模型带着 OCR 判类型、按图纠错、标打码
     old = entry.get("visual") or {}
     if cfg and (old.get("status") != "ok" or old.get("v") != visual.VISUAL_VERSION):
-        got = visual.understand(path, entry["lines"], cfg)
-        if _should_switch(got):
-            got = _understand_backup(path, entry["lines"], cfg, got, item_id)
+        from . import usage
+        with usage.tag("vision", item=item_id):
+            got = visual.understand(path, entry["lines"], cfg)
+            if _should_switch(got):
+                got = _understand_backup(path, entry["lines"], cfg, got, item_id)
         if got.get("status") == "ok" or old.get("status") != "ok":
             entry["visual"] = {k: v for k, v in got.items() if k not in ("usage", "truncated", "api_error", "switched_from")}
         if got.get("status") == "ok":
@@ -479,6 +481,13 @@ def refine_tiles(img: Path, lines, kind: str, cfg, router=None) -> dict[str, Any
 def refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budget: int = 0,
                   verbose: bool = True, tally: dict[str, Any] | None = None) -> dict[str, Any]:
     """补跑这篇里 refine: pending 的图（一次一张、跑完歇一会）。成功写 refined 并重生成机读版。"""
+    from . import usage
+    with usage.tag("refine", item=_item_id(source_key, source_id) or source_id):
+        return _refine_object(source_key, source_id, cfg, budget=budget, verbose=verbose, tally=tally)
+
+
+def _refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budget: int = 0,
+                   verbose: bool = True, tally: dict[str, Any] | None = None) -> dict[str, Any]:
     import random
     import time
     from datetime import datetime

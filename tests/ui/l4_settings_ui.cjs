@@ -13,7 +13,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path');
 const shell = require('../_obsidian_shell.cjs');
 const root = 'obsidian-plugins/link-brain-actions';
-const sources = Object.fromEntries(['main', 'home-ui', 'remote-ui', 'schedule-ui', 'onboarding-ui', 'index-ui', 'skills-ui'].map(name =>
+const sources = Object.fromEntries(['main', 'home-ui', 'remote-ui', 'schedule-ui', 'onboarding-ui', 'index-ui', 'skills-ui', 'usage-ui'].map(name =>
   [name + '.js', fs.readFileSync(path.join(root, name + '.js'), 'utf8')]));
 const TABS = ['通用', '模型与提供商', '技能'];
 // 新手主界面（不算「连接其他 AI」里的高级折叠）上不该看到的词（她 1010 点名的术语；要留的旁边有人话解释）
@@ -68,6 +68,23 @@ async function open(browser, theme, { failRemote = false } = {}) {
       if (sub.startsWith('remote status')) { if (failRemote) throw new Error('ConnectError: 远程访问服务的状态命令崩了（合成）'); return { ok: true, state: 'running', message: '运行中（127.0.0.1:18071）', auth: { passphrase_set: true, passphrase_copyable: true, clients: [{ id: 'c1', name: 'claude.ai', connected_at: '2026-10-09T21:30:00' }], personal: [] }, recent: [] }; }
       if (sub.startsWith('sync-schedule')) return { task: 'LinkBrainNightly', freq: 'daily', time: '04:00', enabled: true, summary: '每天 04:00', rules: [{ kind: 'daily', times: ['04:00'] }] };
       if (sub.startsWith('selftest')) return { ok: true, detail: '合成测试正常' };
+      // 1016 用量与余额（合成数）
+      if (sub.startsWith('usage')) {
+        const f = o => ({ calls: 1, failed: 0, items: 0, in: 0, out: 0, sec: 0, cost: 0, unpriced: 0, ...o });
+        const links = { deepseek: { name: 'DeepSeek', console: 'https://platform.deepseek.com/', recharge: 'https://platform.deepseek.com/top_up', usage: 'https://platform.deepseek.com/usage' },
+          aliyun: { name: '通义千问', console: 'https://bailian.console.aliyun.com/cn-beijing/', recharge: 'https://usercenter2.aliyun.com/finance/fund-management/recharge', usage: 'https://bailian.console.aliyun.com/cn-beijing/costing-balance/usage-statistics' } };
+        const features = { vision: f({ calls: 412, failed: 3, items: 38, in: 865000, out: 61000, cost: 0.86 }), refine: f({ calls: 6, items: 4, in: 18000, out: 9000, cost: 0.54 }),
+          summary: f({ calls: 40, items: 40, in: 98000, out: 21000, cost: 0.36 }), ask: f({ calls: 23, in: 412000, out: 31000, cost: 1.02 }), expand: f({ calls: 23, in: 9800, out: 2100, cost: 0.03 }),
+          embed: f({ calls: 31, in: 52000, cost: 0.0065 }), rerank: f({ calls: 23, in: 61000, cost: 0.0305 }) };
+        const total = f({ calls: 558, failed: 3, in: 1515800, out: 124100, cost: 2.85 });
+        const out = { ok: true, links, keys: { aliyun: { code: 'NEEDS_HUMAN.AUTH_FAILED', caps: ['visionAI', 'summaryAI'] } },
+          summary: { as_of: '2026-10-03', features: { vision: '识图', refine: '精细识图', summary: '概要', ask: '问收藏', expand: '扩词', embed: '向量（embedding）', asr: '语音转写', rerank: '精排（rerank）', other: '索引 / wiki 整理' },
+            windows: { today: { total, features, providers: {} }, '7d': { total, features, providers: {} }, '30d': { total, features, providers: {} } },
+            month: { deepseek: f({ calls: 46, cost: 1.05 }), aliyun: f({ calls: 512, cost: 1.80 }) } } };
+        if (sub.includes('--balance')) out.balances = { deepseek: { ok: true, available: true, balances: [{ currency: 'CNY', total: '105.38', granted: '4.40', topped_up: '100.97' }] },
+          aliyun: { ok: false, unsupported: true, message: '百炼没有用 API key 能查的余额接口：点「充值」在阿里云费用中心看' } };
+        return out;
+      }
       return { ok: true };
     };
     const Plugin = require('main.js');
@@ -98,6 +115,7 @@ async function open(browser, theme, { failRemote = false } = {}) {
     plugin.indexUI = require('index-ui.js')(window.obsidian, plugin); plugin.indexUI.attach();   // 10-10 索引树：设置里「目录分类」那一节的按钮调它挂的方法
     plugin.taskStatusEl = document.querySelector('.status-bar').createDiv({ cls: 'status-bar-item l4-task' });
     plugin.onboardingUI = () => require('onboarding-ui.js')(window.obsidian, plugin);
+    plugin.usageUI = () => require('usage-ui.js')(window.obsidian, plugin);
     plugin.remoteUI = require('remote-ui.js')(window.obsidian, plugin);
     const tab = new Plugin.Tab(app, plugin);
     tab.containerEl = document.querySelector('.vertical-tab-content');
@@ -206,7 +224,7 @@ const clickTab = async (page, label) => { await page.locator('.lb-tabs .lb-tab',
       await page.waitForFunction(() => document.querySelectorAll('.lb-feat').length >= 4 && document.querySelector('.lb-key-row'));
       p = await readPane(page);
       assert.equal(p.tab, 'providers');
-      assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('.lb-subtabs .lb-subtab')].map(b => b.textContent)), ['AI 功能', '问收藏模型', '识图 · 认字 · 语音', '提示词']);
+      assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('.lb-subtabs .lb-subtab')].map(b => b.textContent)), ['AI 功能', '问收藏模型', '识图 · 认字 · 语音', '提示词', '用量与余额']);
       assert.match(p.text, /要不要 AI：不填也能用；填了多出 问收藏、自动概要、识图。/);
       const prices = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('.lb-feat')].map(r => [r.getAttribute('data-id'), r.querySelector('.lb-price')?.textContent || ''])));
       assert.equal(prices.ocr, '免费（本机跑）'); assert.equal(prices.asr, '免费（本机跑）');
@@ -245,6 +263,18 @@ const clickTab = async (page, label) => { await page.locator('.lb-tabs .lb-tab',
       await clickSub(page, '提示词');
       p = await readPane(page);
       assert.deepEqual(p.rows, ['写概要的提示词', '问收藏的提示词']);
+      // 1016 用量与余额：每家一行（余额 / 本月 / 密钥状态 + 三个跳转），各功能明细表不横向溢出
+      await clickSub(page, '用量与余额');
+      await page.waitForFunction(() => /105\.38/.test(document.querySelector('.lb-usage-provider[data-provider="deepseek"]')?.textContent || ''));
+      const u = await page.evaluate(() => ({ btns: [...document.querySelectorAll('.lb-usage-provider[data-provider="deepseek"] button')].map(b => b.textContent),
+        rows: document.querySelectorAll('.lb-usage-grid tr').length, cta: document.querySelectorAll('.lb-tab-pane .mod-cta').length,
+        warn: document.querySelector('.lb-usage-provider[data-provider="aliyun"] .lb-usage-key')?.textContent || '',
+        overflow: (t => t.scrollWidth - t.clientWidth)(document.querySelector('.lb-usage-table')) }));
+      assert.deepEqual(u.btns, ['控制台', '充值', '看用量']);
+      assert.equal(u.rows, 9, '表头 + 7 个功能 + 合计');
+      assert.ok(u.warn.includes('密钥被拒'), u.warn);
+      assert.ok(u.cta <= 1 && u.overflow <= 1, JSON.stringify(u));
+      await page.screenshot({ path: path.join(shell.QA_DIR, `S1016-settings-usage-${theme}.png`), fullPage: true });
 
       // ④ 技能：说明行 + 刷新 / ＋ · 列表 · 隐藏列表输入框
       await clickTab(page, '技能');

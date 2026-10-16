@@ -1178,7 +1178,7 @@ def run(args) -> int:
         # 修不好的已经逐条写回问题记录（试过什么、为什么没好、下一步）：不算「这一步出错」，免得夜跑再多登记一条
         return 0 if result.get("ran", True) else 1
     if cmd == "list":
-        from . import ai_health
+        from . import ai_health, usage
         ai_health.migrate_legacy_rows()  # 1008：老记录里按篇登的 key 失效 / 欠费收成每个接口一条（幂等，没有就 0 开销）
         migrate_orphan_refine()  # 1008：卡片上有标、面板里没有的精细识图失败补登记一次（做过就不再做）
         try:
@@ -1187,7 +1187,8 @@ def run(args) -> int:
         except Exception as exc:  # noqa: BLE001 - 迁移失败不挡面板
             print(f"[problems] 网页版要验证改记没做成：{type(exc).__name__}: {exc}", file=sys.stderr)
         dump_json({"ok": True, "code": "", "message": "", "summary": summary(),
-                   "problems": load(args.limit, include_resolved=args.all, include_minor=args.all)})
+                   "problems": usage.decorate_problem_rows(
+                       load(args.limit, include_resolved=args.all, include_minor=args.all))})
         return 0
     if cmd == "report":
         if not _valid_step(args.step):

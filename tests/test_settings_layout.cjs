@@ -133,6 +133,7 @@ function makePlugin(saved, files = {}) {
   p.scheduleUI = () => require(PLUGIN_DIR + 'schedule-ui.js')(OBS, p);
   p.remoteUI = require(PLUGIN_DIR + 'remote-ui.js')(OBS, p);
   p.skillsUI = () => require(PLUGIN_DIR + 'skills-ui.js')(OBS, p);
+  p.usageUI = () => require(PLUGIN_DIR + 'usage-ui.js')(OBS, p);
   return { p, saves, files, calls };
 }
 function openPage(p, tabId = null, sub = null) {
@@ -246,7 +247,7 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
       assert.ok(ctas(root).length <= 1, `「${label} → ${subLabel}」最多一个主按钮：${ctas(root)}`);
     }
   }
-  assert.deepEqual(Array.from(Plugin.__SUBTABS.providers, x => x[1]), ['AI 功能', '问收藏模型', '识图 · 认字 · 语音', '提示词']);
+  assert.deepEqual(Array.from(Plugin.__SUBTABS.providers, x => x[1]), ['AI 功能', '问收藏模型', '识图 · 认字 · 语音', '提示词', '用量与余额']);
   tab.hide();
 
   // —— 2. AI 那一栏：开关改 setup.selected（依赖联动）+ 对上实际起作用的设置；子选项；AI 打开原地出接口那几格 + 价钱 ——
@@ -615,5 +616,5 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     t.hide();
   }
 
-  console.log('PASS settings page (1015 claudian): tabs 通用 · 模型与提供商(4 sub-tabs) · 技能 in cards (one drawn at a time, remembered per session, old open-page names mapped), ≤1 primary per tab, AI toggles drive setup.selected + runtime with deps and sub-options only under an enabled parent, prices + key guide, nothing lost vs pre-1009 inventory (renamed / merged) and no duplicates, one-line descriptions, failed saves revert, sync / fill / problem rows live-watched + unhooked on redraw / tab switch / hide');
+  console.log('PASS settings page (1015 claudian): tabs 通用 · 模型与提供商(5 sub-tabs) · 技能 in cards (one drawn at a time, remembered per session, old open-page names mapped), ≤1 primary per tab, AI toggles drive setup.selected + runtime with deps and sub-options only under an enabled parent, prices + key guide, nothing lost vs pre-1009 inventory (renamed / merged) and no duplicates, one-line descriptions, failed saves revert, sync / fill / problem rows live-watched + unhooked on redraw / tab switch / hide');
 })().catch(e => { console.error(e); process.exitCode = 1; });

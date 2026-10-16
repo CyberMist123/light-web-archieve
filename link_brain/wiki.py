@@ -217,9 +217,10 @@ def _map_input(batch: list[dict[str, Any]], offset: int) -> tuple[str, dict[str,
 
 def _call(instruction: str, text: str, cfg: dict[str, Any], max_tokens: int) -> dict[str, Any]:
     # 结构化 JSON 输出不让模型先「思考」（10-10 起草实测：千问思考 1.6 万 token、2 分多钟后 JSON 还不完整）
-    from . import text_stream
-    return text_stream.call(instruction, text, {**cfg, "maxTokens": max_tokens, "noThinking": True,
-                                               "timeoutSec": max(float(cfg.get("timeoutSec") or 0), 300.0)})
+    from . import text_stream, usage
+    with usage.tag("other"):  # 1016：记在「索引 / wiki 整理」名下
+        return text_stream.call(instruction, text, {**cfg, "maxTokens": max_tokens, "noThinking": True,
+                                                   "timeoutSec": max(float(cfg.get("timeoutSec") or 0), 300.0)})
 
 
 def _clean(value: Any, limit: int) -> str:
