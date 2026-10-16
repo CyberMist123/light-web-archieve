@@ -174,3 +174,44 @@ def test_dismiss_fold_key_hides_every_member():
         problems.report("comments.fill", "PERMANENT.COMMENTS_INCOMPLETE", "楼中楼还缺 5 条", item_id=f"xhs-{i}")
     out = problems.dismiss("fold|PERMANENT.COMMENTS_INCOMPLETE")
     assert out["ok"] and len(out["dismissed"]) == 2
+
+
+# ---- 1017 第三轮（她：我自己的号能看、验证窗口里看不到；只剩一条了）
+
+def test_confirmed_restricted_but_archive_complete_is_not_listed(monkeypatch):
+    t0 = datetime(2026, 10, 16, 20, 0).astimezone()
+    monkeypatch.setattr(restricted, "archive_complete", lambda sid: True)
+    _mark_at("n4", t0, monkeypatch)
+    _mark_at("n4", t0 + timedelta(days=1), monkeypatch)
+    assert [r for r in problems.load() if r["step"] == "note.restricted"] == [], "正文都在、只缺几条回复：不叫她"
+
+
+def test_quiet_unconfirmed_also_retires_confirmed_but_complete(monkeypatch):
+    problems.report("note.restricted", "PERMANENT.NOTE_RESTRICTED", "要验证", item_id="xhs-done")
+    restricted.save("done", {"restricted": True, "days": ["2026-10-16", "2026-10-17"]})
+    monkeypatch.setattr(restricted, "archive_complete", lambda sid: True)
+    assert restricted.quiet_unconfirmed() == ["xhs-done"]
+
+
+def test_archive_complete_is_false_when_unreadable():
+    assert restricted.archive_complete("no-such-note") is False, "读不清就照常登记"
+
+
+def test_reconcile_with_unknown_login_uses_action_log(monkeypatch):
+    from link_brain import actionlog
+    problems.report("login", "TRANSIENT.XHS_RATE_LIMITED", "限频")
+    session = {"logged_in": None, "risk_hold": None, "state": "idle", "verifying": False}
+    assert problems.reconcile_account(session) == 0, "没有用号记录：不知道就不动"
+    later = (datetime.now().astimezone() + timedelta(minutes=5)).isoformat(timespec="seconds")
+    monkeypatch.setattr(actionlog, "read", lambda since=None, limit=None: [{"ts": later, "action": "comments", "ok": True}])
+    assert problems.reconcile_account(session) == 1, "之后号用成功过：算好着"
+
+
+def test_reconcile_unknown_login_but_last_use_was_blocked(monkeypatch):
+    from link_brain import actionlog
+    problems.report("login", "TRANSIENT.XHS_RATE_LIMITED", "限频")
+    t = datetime.now().astimezone()
+    rows = [{"ts": (t + timedelta(minutes=1)).isoformat(), "ok": True},
+            {"ts": (t + timedelta(minutes=2)).isoformat(), "ok": False, "code": "XHS_RATE_LIMITED"}]
+    monkeypatch.setattr(actionlog, "read", lambda since=None, limit=None: rows)
+    assert problems.reconcile_account({"logged_in": None, "risk_hold": None}) == 0

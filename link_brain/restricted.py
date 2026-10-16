@@ -100,6 +100,28 @@ def confirmed(st: dict[str, Any]) -> bool:
     return len(_days(st)) >= CONFIRM_DAYS or bool(v.get("result") and v.get("result") != "note_ok")
 
 
+# 1017（她：我自己的号点原文链接看得到，验证窗口里看不到）：验证窗口和原文链接用的是同一个打开口令，差别在号——
+# 读取号看不到、她的号看得到，点验证也救不回来。正文早就存好了的话，缺的只是几条回复：不该叫她。
+# 存档已经齐（正文在、设置楼数内楼中楼缺 ≤ COMPLETE_GAP 条、楼数没缺、附件没缺）→ 确认了也不登记，已有的那条收掉。
+COMPLETE_GAP = 2
+
+
+def archive_complete(source_id: str) -> bool:
+    """这篇在库里该有的都有了。读不清（没 RAW、算不出来）一律 False——照常登记，宁可多叫一次。"""
+    sid = _sid(source_id)
+    try:
+        from . import comment_fill
+        from .attachments import inventory
+        meta, source = comment_fill.current_source(SOURCE, sid)
+        sc = comment_fill.scope(source, comment_fill.floor_target(), comment_fill.load_state(SOURCE, sid))
+        if int(sc.get("missing") or 0) > COMPLETE_GAP or sc.get("more_floors"):
+            return False
+        report = inventory(storage.object_dir(SOURCE, sid), meta)
+        return not report.get("missing")
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def is_restricted(source_id: str) -> bool:
     """后台续读 / 附件要不要跳过这篇：确认了的跳过；疑似的过 RECHECK_HOURS 放行再试一次（号不好时读取组件根本不开页）。"""
     st = load(source_id)
@@ -180,8 +202,8 @@ def mark(source_id: str, *, item_id: str | None = None, title: str | None = None
         print(f"[restricted] 状态没写上：{exc}", file=sys.stderr)
     try:
         from . import problems
-        if not confirmed(st):
-            pass  # 1017：疑似的不登记（等隔天再开一次）
+        if not confirmed(st) or archive_complete(sid):
+            pass  # 1017：疑似的不登记（等隔天再开一次）；存档已经齐了的也不叫她
         elif not was or not problems.is_open(STEP, item_id, CODE):
             problems.report(STEP, "PERMANENT.NOTE_RESTRICTED", reason_text(st), item_id=item_id, title=title or st.get("title"),
                             action="gave_up")
@@ -319,7 +341,7 @@ def quiet_unconfirmed() -> list[str]:
     for r in problems.load():
         if r.get("step") != STEP or r.get("resolved_at") or not r.get("item_id"):
             continue
-        if not confirmed(load(r["item_id"])):
+        if not confirmed(load(r["item_id"])) or archive_complete(r["item_id"]):
             problems.resolve(STEP, r["item_id"])
             out.append(r["item_id"])
     return out

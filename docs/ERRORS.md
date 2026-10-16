@@ -198,6 +198,12 @@
 - **修法 / 自愈**：`restricted.mark` 撞见一次只算疑似（记 `days`）：不登记问题、笔记页不出那行、当天后台跳过、`RECHECK_HOURS`（20 小时）后放行再开一次；`CONFIRM_DAYS`（2）个不同日子都打不开、或她点过「打开验证」没过，才确认、登记。打开了就 `clear`，什么都不留。旧的单日行由 `restricted.quiet_unconfirmed()`（`problems list/summary` 先跑，幂等零开页）收掉。网页版要验证归「拉取没拿全」（不是号的事）。面板把同一种一篇一条的毛病（`FOLD_CODES`：评论没补全、网页版打不开）≥2 篇并成一条「N 篇…」（`problems.fold_rows`，key `fold|<码>`，展开每篇带「查看」/「打开验证」），计数也只算一条；某篇 resolve 就从里面撤掉，全撤完整条消失；隐藏这条 = 隐藏每一篇。
 - **回归用例**：`tests/test_panel_1017.py::test_restricted_first_hit_is_only_suspected_quiet_and_retried_next_day`、`tests/test_panel_1017.py::test_restricted_confirmed_on_second_day`、`tests/test_panel_1017.py::test_restricted_reopened_clears_everything`、`tests/test_panel_1017.py::test_quiet_unconfirmed_retires_old_single_day_rows`、`tests/test_panel_1017.py::test_fold_comments_into_one_row_and_unfold_when_fixed`、`tests/test_panel_1017.py::test_dismiss_fold_key_hides_every_member`。
 
+### 22. 最后一条「网页版要验证」：她自己的号点原文链接看得到，验证窗口里看不到；限频那条在后台没撤（10-17 第三轮）
+- **用户看到**：面板只剩一篇「网页版打不开」，点「打开验证」窗口里一直看不到；她 Mac 上用自己的号点原文链接能看。
+- **根因**：验证窗口和原文链接用的是同一个打开口令（RAW 里的 xsec_token），差别在号——读取号看不到、她的号看得到，过验证救不回来。而这篇正文、附件早就存好，只差 1 条楼中楼。另：读取服务重启后 /login/session 的 logged_in 是 None（还没查过），`reconcile_account` 不知道号好不好，就没撤 10-15 那条限频（不进面板，但还开着）。
+- **修法 / 自愈**：`restricted.archive_complete`：正文在、设置楼数内楼中楼缺 ≤2、楼数不缺、附件不缺 → 确认了也不登记（`mark`），已有的那条由 `quiet_unconfirmed` 收掉；读不清一律当不齐（照常登记）。`reconcile_account` 在 logged_in 不知道时看用号日志（`actionlog`）：那条之后号用成功过、最近一次用号没被拦 → 算好着。
+- **回归用例**：`tests/test_panel_1017.py::test_confirmed_restricted_but_archive_complete_is_not_listed`、`tests/test_panel_1017.py::test_quiet_unconfirmed_also_retires_confirmed_but_complete`、`tests/test_panel_1017.py::test_archive_complete_is_false_when_unreadable`、`tests/test_panel_1017.py::test_reconcile_with_unknown_login_uses_action_log`、`tests/test_panel_1017.py::test_reconcile_unknown_login_but_last_use_was_blocked`。
+
 ## 二、故障码对照（用户看到 → 常见根因 → 自愈动作）
 
 「同次」= 那一步自己那次运行里的换策略重试；「自愈轮」= 夜跑收尾自动再修（✔ 自动 / — 不自动）；「现在修」= 面板按钮跑的动作。

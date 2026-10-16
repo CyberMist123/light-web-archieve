@@ -818,12 +818,18 @@ def reconcile_account(session: dict[str, Any] | None = None) -> int:
         from . import accounts, sync_state
         if session is None:
             session = accounts.api("GET", "/api/v1/login/session", timeout=3)
-        if not isinstance(session, dict) or session.get("logged_in") is not True:
+        if not isinstance(session, dict):
             return 0
         if session.get("verifying") or session.get("state") == "waiting" or accounts.hold_from_session(session):
             return 0
-        before = sum(1 for r in _fold(_read_rows()).values() if r.get("step") == "login" and not r.get("resolved_at"))
+        open_login = [r for r in _fold(_read_rows()).values() if r.get("step") == "login" and not r.get("resolved_at")]
+        before = len(open_login)
         if not before:
+            return 0
+        if session.get("logged_in") is False:
+            return 0
+        if session.get("logged_in") is None and not _used_fine_since(max(str(r.get("ts") or "") for r in open_login)):
+            # 读取服务重启后还没查过登录（logged_in 不知道）：看用号日志——这之后号用成功过、最近一次也没被拦，就算好着
             return 0
         sync_state.account_ok()
         after = sum(1 for r in _fold(_read_rows()).values() if r.get("step") == "login" and not r.get("resolved_at"))
@@ -831,6 +837,20 @@ def reconcile_account(session: dict[str, Any] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001 - 对不上就照旧显示，不挡面板
         print(f"[problems] 账号状态没对上（{type(exc).__name__}: {exc}）", file=sys.stderr)
         return 0
+
+
+def _used_fine_since(ts: str) -> bool:
+    """1017：用号行为日志里，ts 之后有成功的用号，且最近一次用号不是被拦（风控 / 限频 / 验证 / 掉登录）。"""
+    try:
+        from . import actionlog
+        since = datetime.fromisoformat(ts)
+        rows = [r for r in actionlog.read(since=since) if actionlog._ts(r) and actionlog._ts(r) > since]
+    except Exception:  # noqa: BLE001
+        return False
+    if not rows:
+        return False
+    rows.sort(key=lambda r: actionlog._ts(r))
+    return any(r.get("ok") for r in rows) and not actionlog.is_risk(rows[-1])
 
 
 # 1015：同一次熔断只显示一条——起因（验证 / 安全跳转 / 掉登录 / 限频）那条还开着时，之后各步撞见「熔断中」登记的
