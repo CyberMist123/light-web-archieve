@@ -261,7 +261,8 @@ def last_open(source: dict[str, Any], state: dict[str, Any]) -> datetime | None:
 STUCK_RETRY_DAYS = (3, 7, 14)
 
 # 1016：这些停因说明这次根本没真去点（楼中楼闸关着 / 预算 / 限频 / 风控停下），不算「续读没多拿到」。
-NOT_A_REAL_TRY = {"sub_paused", "not_reached", "budget", "throttled", "risk", "cancelled"}
+# 1017：not_expanded = 这楼这次没点（楼中楼闸关在它滚出来之前，没来得及标 sub_paused），也不算
+NOT_A_REAL_TRY = {"sub_paused", "not_reached", "budget", "throttled", "risk", "cancelled", "not_expanded"}
 
 
 def stuck_retry_due(state: dict[str, Any], now: datetime | None = None) -> bool:

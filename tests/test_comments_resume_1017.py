@@ -77,3 +77,14 @@ def test_cli_only_flag_parses():
         return
     a = parser.parse_args(["comments", "--fill-pending", "--until-done", "--only", "xhs-a,xhs-b", "--only", "c", "--floors", "50"])
     assert a.only == ["xhs-a,xhs-b", "c"] and a.floors == "50"
+
+
+def test_merge_takes_current_site_count_after_deletes():
+    # 原站删了回复：显示 3 → 1。存档留着删掉的那两条，但缺口按现在的 1 算（不再永远缺 2 条）
+    old = [{"comment_id": "f1", "sub_comment_count": 3, "sub_comments": [_reply(1, 1), _reply(2, 2), _reply(3, 3)]}]
+    new = [{"comment_id": "f1", "sub_comment_count": 1, "sub_comments": [_reply(1, 1)]}]
+    out = xhs.merge_comments(old, new, {"f1"})
+    assert out[0]["sub_comment_count"] == 1 and len(out[0]["sub_comments"]) == 3 and out[0]["sub_comments_complete"]
+    gone = [{"comment_id": "f1", "sub_comment_count": 3, "sub_comments": [_reply(1, 1)]}]
+    out = xhs.merge_comments(gone, [{"comment_id": "f1", "sub_comment_count": 0, "sub_comments": []}], {"f1"})
+    assert cf.scope({"comments": out}, 10)["gaps"] == []
