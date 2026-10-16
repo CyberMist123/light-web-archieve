@@ -704,12 +704,13 @@ class SyncSettingsModal extends Modal {
 // 1015 她：设置页照 claudian 插件改版——顶部三个页签（通用 / 模型与提供商 / 技能）→ 每组一张圆角卡片（标题 + 分隔线）→ 每行左标题灰说明、右控件。
 // 「模型与提供商」下面再分子页签。旧落点名照认：问题面板「打开设置」带 'ai'、命令带 'overview' / 'features'、「去扫码 / 验证」带 'status'、远程带 'remote'。
 const SETTING_TABS = [['general', '通用'], ['providers', '模型与提供商'], ['skills', '技能']];
-const SETTING_SUBTABS = { providers: [['features', 'AI 功能'], ['chat', '问收藏模型'], ['media', '识图 · 认字 · 语音'], ['prompts', '提示词']] };
+// 1016：加「用量与余额」（usage-ui.js）：各功能花了多少、余额、各家控制台 / 充值跳转
+const SETTING_SUBTABS = { providers: [['features', 'AI 功能'], ['chat', '问收藏模型'], ['media', '识图 · 认字 · 语音'], ['prompts', '提示词'], ['usage', '用量与余额']] };
 // 旧名 → [页签, 子页签, 滚到哪张卡片]
 const TAB_ALIAS = { general: ['general'], overview: ['general', null, 'status'], status: ['general', null, 'status'], start: ['general'], features: ['general'],
   home: ['general'], run: ['general'], sync: ['general', null, 'schedule'], content: ['general', null, 'collect'], schedule: ['general', null, 'schedule'],
   connect: ['general', null, 'connect'], remote: ['general', null, 'connect'], advanced: ['general', null, 'developer'], developer: ['general', null, 'developer'],
-  providers: ['providers'], ai: ['providers', 'features'], models: ['providers', 'chat'], skills: ['skills'] };
+  providers: ['providers'], ai: ['providers', 'features'], models: ['providers', 'chat'], usage: ['providers', 'usage'], skills: ['skills'] };
 
 class LinkBrainActions extends Plugin {
   async onload() {
@@ -1287,6 +1288,7 @@ class LinkBrainActions extends Plugin {
     return box;
   }
   // 设置页顶部（状态 + 功能 + 一键装好 / 跑完 + 首次零配置）整块在 home-ui.js
+  usageUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'usage-ui.js'))(obsidian, this); }
   skillsUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'skills-ui.js'))(obsidian, this); }
   homeUI() { return this._homeUI || (this._homeUI = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'home-ui.js'))(obsidian, this)); }
   async copyText(text) {
@@ -2773,7 +2775,15 @@ class LinkBrainSettingTab extends PluginSettingTab {
       b.onclick = () => this.showSub('providers', id);
     }
     const pane = c.createDiv({ cls: 'lb-subpane', attr: { 'data-sub': sub } });
-    ({ features: () => this.renderAIFeatures(pane), chat: () => this.renderChatModels(pane), media: () => this.renderMediaAI(pane), prompts: () => this.renderPrompts(pane) })[sub]();
+    ({ features: () => this.renderAIFeatures(pane), chat: () => this.renderChatModels(pane), media: () => this.renderMediaAI(pane), prompts: () => this.renderPrompts(pane),
+      usage: () => this.renderUsage(pane) })[sub]();
+  }
+
+  // 用量与余额（整块在 usage-ui.js）
+  renderUsage(c) {
+    let ui = null;
+    try { ui = this.plugin.usageUI(); } catch (e) { this.plugin.failBox?.(c, '用量与余额', e, () => this.display()); return; }
+    this.safe(c, '用量与余额', () => this.stops.push(ui.render(c, this)));
   }
 
   // AI 功能：要不要 AI · 每个功能一个开关和价钱 · 去哪弄密钥 · 打开了的那几项的接口 / 密钥 / 模型（整块在 home-ui.js）

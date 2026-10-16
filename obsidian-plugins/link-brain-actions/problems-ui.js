@@ -75,6 +75,10 @@ module.exports = function (obsidian, plugin) {
     if (!it || !it.note) throw new Error('库里找不到这一篇（可能已经删了）');
     await plugin.app.workspace.openLinkText(plugin.lbPath(it.note), '', false);
   }
+  function openExternal(url) {
+    try { require('electron').shell.openExternal(url); return; } catch {}
+    window.open(url);
+  }
   function openAISettings() {
     // X8：直达 AI 分页（openSetupPage 认分页名）；老插件没有它就退回打开插件设置
     if (typeof plugin.openSetupPage === 'function') return plugin.openSetupPage('ai');
@@ -94,6 +98,10 @@ module.exports = function (obsidian, plugin) {
       out.push(['没看到验证，恢复', () => plugin.restoreHold(), 'lb-problem-restore']);
     if (ACCOUNT_PANEL.has(sub)) out.push(['账号与同步…', () => plugin.openAccountStatus()]);
     if (AI_SETTINGS.has(sub)) out.push(['打开设置', openAISettings]);
+    // 1016：key 失效 / 欠费的那条带这家的「控制台」「充值」（后端 usage.decorate_problem_rows 给的网址），点了在浏览器打开
+    const links = AI_SETTINGS.has(sub) && r.links;
+    if (links && /^https:\/\//.test(links.console || '')) out.push([`${links.provider || ''}控制台`, () => openExternal(links.console), 'lb-problem-ext']);
+    if (links && /^https:\/\//.test(links.recharge || '')) out.push(['充值', () => openExternal(links.recharge), 'lb-problem-ext']);
     return out;
   }
 
@@ -359,7 +367,7 @@ module.exports = function (obsidian, plugin) {
       }
       if (!isHidden(x)) for (const [text, fn, cls] of fixesFor(x)) {
         n++;
-        const b = btns.createEl('button', { cls: 'lb-problem-fix mod-cta' + (cls ? ' ' + cls : ''), text });
+        const b = btns.createEl('button', { cls: 'lb-problem-fix' + (cls === 'lb-problem-ext' ? '' : ' mod-cta') + (cls ? ' ' + cls : ''), text });
         b.onclick = async () => {
           b.disabled = true;
           try { await fn(); } catch (e) { say(e.message, 10000); }

@@ -469,3 +469,21 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-skill-tag { margin-left: 8px; padding: 0 6px; border-radius: 8px; font-size: var(--font-ui-smaller); font-weight: 400; color: var(--text-muted); background: var(--background-secondary); }
 .lb-settings .lb-skill-hidden-input { width: 220px; }
 .lb-settings .lb-card .extra-setting-button svg.svg-icon { width: var(--icon-size, 18px); height: var(--icon-size, 18px); }
+
+/* 1016 设置页「用量与余额」（usage-ui.js） */
+.lb-settings .lb-usage-provider .setting-item-description > div { margin-top: 2px; }
+.lb-settings .lb-usage-balance { color: var(--text-normal); font-weight: 500; }
+.lb-settings .lb-usage-balance.is-warn, .lb-settings .lb-usage-key.is-warn { color: var(--text-error); }
+.lb-settings .lb-usage-windows { display: flex; gap: 2px; margin-left: auto; }
+.lb-settings .lb-card-head:has(.lb-usage-windows) { display: flex; align-items: center; gap: 8px; }
+.lb-settings .lb-usage-win { background: transparent; box-shadow: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+  padding: 2px 8px; height: auto; color: var(--text-muted); font-size: var(--font-ui-small); cursor: pointer; }
+.lb-settings .lb-usage-win.is-active { color: var(--text-normal); border-bottom-color: var(--lbs-accent); font-weight: 600; }
+.lb-settings .lb-usage-table { overflow-x: auto; margin-top: 8px; }
+.lb-settings .lb-usage-grid { width: 100%; border-collapse: collapse; font-size: var(--font-ui-small); font-variant-numeric: tabular-nums; }
+.lb-settings .lb-usage-grid th, .lb-settings .lb-usage-grid td { padding: 6px 8px; text-align: right; white-space: nowrap;
+  border-bottom: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border)); }
+.lb-settings .lb-usage-grid th:first-child, .lb-settings .lb-usage-grid td:first-child { text-align: left; }
+.lb-settings .lb-usage-grid th { color: var(--text-muted); font-weight: 500; }
+.lb-settings .lb-usage-total td { font-weight: 600; border-bottom: 0; }
+.lb-problem-fix.lb-problem-ext { background: transparent; box-shadow: none; color: var(--text-accent); }
