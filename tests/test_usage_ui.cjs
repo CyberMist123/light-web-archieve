@@ -66,7 +66,7 @@ async function settingsPane() {
   assert.ok(ds.textContent.includes('余额 ¥105.38（充值 100.97 + 赠送 4.40）'), ds.textContent);
   assert.ok(ds.textContent.includes('本月 ¥0.0123 · 3 次调用'));
   assert.ok(qw.textContent.includes('这家查不了'), '千问不编余额');
-  assert.ok(qw.textContent.includes('密钥被拒（401 / 403）：识图、概要停着'), qw.textContent);
+  assert.ok(qw.textContent.includes('key 用不了（可能欠费、过期或没开通）：影响识图、概要'), qw.textContent);   // 1016 她：别吓人
   assert.ok(qw.textContent.includes('1 次的模型不在价格表里'));
   const btn = (row, t) => row.querySelectorAll('button').find(b => b.textContent === t);
   assert.deepEqual(ds.querySelectorAll('button').map(b => b.textContent), ['控制台', '充值', '看用量']);

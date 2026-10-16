@@ -1936,6 +1936,13 @@ function seriesCuts() {
       if (rest.length >= 2) seriesCut.set(it.id, '…' + rest);
     });
   }
+  // 1016（待办 #9）：同一作者、标题一字不差的不同帖（系列重发，不是重复收藏）：标题后面带上发布日期，好分清是哪一篇
+  const same = new Map();
+  for (const it of items) { const k = (it.author || it.source || '') + '\u0000' + String(it.title || ''); if (!it.title) continue; if (!same.has(k)) same.set(k, []); same.get(k).push(it); }
+  for (const list of same.values()) {
+    if (list.length < 2) continue;
+    for (const it of list) { const d = String(it.published || it.date || '').slice(0, 10); if (d) seriesCut.set(it.id, `${it.title} · ${d}`); }
+  }
   return seriesCut;
 }
 const cardTitle = it => seriesCuts().get(it.id) || it.title || '未命名';

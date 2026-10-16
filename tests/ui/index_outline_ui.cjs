@@ -47,6 +47,9 @@ const row = (page, path) => page.locator(`.lbi-panel .lbi-row[data-path="${path}
   const data = shell.makeCatalogData({ n: 80, starredEvery: 7 });
   // 系列帖：同一作者三篇共用长前缀
   for (const [k, ep] of [[1, '第 1 集 开场'], [2, '第 2 集 选角'], [3, '第 3 集 结局']]) Object.assign(data.items[k], { title: `【悉尼法学院申请全流程记录】${ep}`, author: '同一个作者' });
+  // 1016（待办 #9）：同作者、标题一字不差的两篇（系列重发）：标题后面带发布日期
+  Object.assign(data.items[4], { title: '巨巨巨…巨好吃，求你们去做！！', author: '阿欣的小食光', published: '2024-02-11' });
+  Object.assign(data.items[5], { title: '巨巨巨…巨好吃，求你们去做！！', author: '阿欣的小食光', published: '2024-03-16' });
   const idx = makeIdx(data.items);
   try {
     for (const theme of ['light', 'dark']) {
@@ -68,7 +71,10 @@ const row = (page, path) => page.locator(`.lbi-panel .lbi-row[data-path="${path}
       assert.ok(st.op === '1' && /rgba\(0, 0, 0, 0\)|transparent/.test(st.bg), `${theme}：已收藏常驻小黄星（透明底）${JSON.stringify(st)}`);
       // ⑤ 系列帖标题
       const series = await page.evaluate(() => [...document.querySelectorAll('.lbc-ctitle.is-series')].map(e => [e.textContent, e.title]));
-      assert.ok(series.length === 3 && series.every(([t, full]) => t.startsWith('…第') && full.startsWith('【悉尼法学院')), `${theme}：系列帖露后半截 + 悬停全名 ${JSON.stringify(series)}`);
+      const law = series.filter(([, full]) => full.startsWith('【悉尼法学院'));
+      assert.ok(law.length === 3 && law.every(([t]) => t.startsWith('…第')), `${theme}：系列帖露后半截 + 悬停全名 ${JSON.stringify(series)}`);
+      const twins = series.filter(([, full]) => full.startsWith('巨巨巨')).map(([t]) => t).sort();
+      assert.deepEqual(twins, ['巨巨巨…巨好吃，求你们去做！！ · 2024-02-11', '巨巨巨…巨好吃，求你们去做！！ · 2024-03-16'], `${theme}：同名两篇带日期分清`);
       // ④ 多选：Esc 提示在最左；选中只一圈框
       await card.locator('.lbc-check').click(); await S.settle(120);
       const bar = await page.evaluate(() => { const b = document.querySelector('.lbc-selbar'); return [...b.children].filter(e => !e.hidden).map(e => e.className.split(' ')[0]); });

@@ -134,6 +134,7 @@ function makePlugin(saved, files = {}) {
   p.remoteUI = require(PLUGIN_DIR + 'remote-ui.js')(OBS, p);
   p.skillsUI = () => require(PLUGIN_DIR + 'skills-ui.js')(OBS, p);
   p.usageUI = () => require(PLUGIN_DIR + 'usage-ui.js')(OBS, p);
+  p.settingsPages = () => require(PLUGIN_DIR + 'settings-pages.js')(OBS, p);
   return { p, saves, files, calls };
 }
 function openPage(p, tabId = null, sub = null) {
@@ -200,11 +201,12 @@ const RENAMED = {
   '电脑需求 收藏问答：文本模型（': '电脑需求 问收藏：文本模型（现', '电脑需求 图片文字：本地 OC': '电脑需求 图片里的字：本地 O',
   '电脑需求 视频：语音转写走上面': '电脑需求 视频：语音转文字默认', '电脑需求 语音输入：CapsW': '电脑需求 说话打字：CapsW', '〔远程阅读〕': '〔连接其他 AI〕',
   '测试语音识别': '测试语音转文字（本机跑，不花钱）',
+  '登录后自动同步': '登录后马上同步', '下载图片': '存图片', '下载视频': '存视频',   // 1016 改说法
 };
 // 合并的：本机 AI 的复制命令只留一处（第二个 Codex 合进「其他 AI 软件」的设置片段）；「评论 · 手动拉取」合进「每篇评论抓几楼」
 const MERGED = { Codex: 1, '每篇评论抓几楼': 1 };
 // 这些设置只许出现一次（别处有重复的一律删掉只留一处）
-const ONCE = ['〔账号卡片〕', '收藏同步', '每天最多新收几篇', '下载图片', '下载视频', '每篇评论抓几楼', '识图', '按住 CapsLock 说话打字', 'Claude Code', '测一下本机的连接程序（MCP）',
+const ONCE = ['〔账号卡片〕', '收藏同步', '每天最多新收几篇', '存图片', '存视频', '每篇评论抓几楼', '识图', '按住 CapsLock 说话打字', 'Claude Code', '测一下本机的连接程序（MCP）',
   '视频转文字改用在线接口', '写概要用的模型', '评论补齐', '收藏放在哪', '后端命令', '自动同步', '认图片里的字', '问收藏 · 自动概要 · 打标签'];
 // 动态状态行（说明是现读的状态，不算「每项说明一行」的说明文字）
 const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '问题', '这台电脑', '文本 AI', 'Codex', 'Sonnet', '远程访问', '口令', '连接地址', 'Claude Code', 'Claude Desktop', '你的网址', '远程访问的运行情况']);
@@ -215,39 +217,28 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
   let env = makePlugin({}, { '_archive/problems-summary.json': JSON.stringify(sum) });
   let tab = openPage(env.p); let root = tab.containerEl;
   await settle();
-  assert.deepEqual(root.querySelectorAll('.lb-tabs .lb-tab').map(b => b.textContent), ['通用', '模型与提供商', '技能']);
-  assert.deepEqual(root.querySelectorAll('.lb-tab.is-active').map(b => b.textContent), ['通用']);
+  // 1016 她：四个页签；概览只放账号、收藏、全部记录（需要你留意的没有就不出现）；不套框
+  assert.deepEqual(root.querySelectorAll('.lb-tabs .lb-tab').map(b => b.textContent), ['概览', '同步', 'AI', '更多']);
+  assert.deepEqual(root.querySelectorAll('.lb-tab.is-active').map(b => b.textContent), ['概览']);
   assert.equal(root.querySelectorAll('.lb-tab-pane').length, 1, '一次只画一栏');
-  assert.ok(!root.querySelector('.lb-setup') && !root.querySelector('.lb-steps'), '没有分步向导');
-  // 1015：每组一张卡片，标题加粗 + 分隔线（卡片头）
-  assert.deepEqual(pane(root).querySelectorAll('.lb-card > .lb-card-head > .lb-card-title').map(t => t.textContent),
-    ['状态', '收藏', '定时同步', '目录与批注', '附件手动下载', '连接其他 AI', '开发者']);
-  assert.ok(pane(root).querySelectorAll('.setting-item').every(r => r.closest ? r.closest('.lb-card') : true), '设置行都在卡片里');
-  assert.deepEqual(rowsOf(cardOf(root, 'status')).filter(r => visible(r, root)).map(idOf), ['〔账号卡片〕', '收藏同步', '评论补齐', '问题', '这台电脑']);
-  assert.deepEqual(rowsOf(cardOf(root, 'schedule')).map(idOf), ['自动同步', '每次同步最多收几篇', '每天最多新收几篇', '每篇评论抓几楼', '补评论节奏'],
-    '定时同步：同步篇数、补评论都在这一张卡片里（她 1015）');
+  assert.ok(!root.querySelector('.lb-subtabs'), '没有子页签了');
+  assert.ok(!pane(root).querySelector('.lb-guide'), '库里已经有收藏：不出四步指引');
+  assert.deepEqual(visibleRows(root), ['〔账号卡片〕', '收藏同步', '全部记录'], '概览只放账号、收藏、全部记录');
   const statusRow = n => rowsOf(root).find(r => nameOf(r) === n);
-  assert.match(statusRow('评论补齐').querySelector('.setting-item-description').textContent, /12 篇的评论还没补齐（共缺 340 条回复）/);
-  assert.match(statusRow('问题').querySelector('.setting-item-description').textContent, /⚠ 1 件要你处理/);
-  assert.deepEqual(statusRow('收藏同步').querySelectorAll('button').map(b => b.textContent), ['立即同步', '改时间'], '概览：收藏同步只有两个次要链接（定时在「收藏与同步」）');
+  assert.deepEqual(statusRow('收藏同步').querySelectorAll('button').map(b => b.textContent), ['立即同步', '改时间']);
   assert.ok(statusRow('收藏同步').querySelectorAll('button').every(b => b.classList.contains('lb-link') && !b.classList.contains('mod-cta')), '都是次要的链接样子');
-  assert.match(statusRow('这台电脑').querySelector('.setting-item-description').textContent, /^✓ 程序 · ✓ 读取组件 · ✓ Dataview · ✓ 认字/);
-  assert.deepEqual(ctas(root), ['一键装好 / 跑完'], '概览唯一的主按钮');
-  // 切到别的栏：概览那一栏的监听注销、只画新的那一栏
   for (const [id, label] of Plugin.__TABS) {
     root.querySelectorAll('.lb-tabs .lb-tab').find(b => b.textContent === label).onclick();
     await settle();
     assert.equal(pane(root).getAttribute('data-tab'), id);
     assert.ok(ctas(root).length <= 1, `「${label}」最多一个主按钮：${ctas(root)}`);
-    for (const [sub, subLabel] of Plugin.__SUBTABS[id] || []) {
-      pane(root).querySelectorAll('.lb-subtabs .lb-subtab').find(b => b.textContent === subLabel).onclick();
-      await settle();
-      assert.equal(pane(root).querySelector('.lb-subpane').getAttribute('data-sub'), sub);
-      assert.deepEqual(pane(root).querySelectorAll('.lb-subtab.is-active').map(b => b.textContent), [subLabel]);
-      assert.ok(ctas(root).length <= 1, `「${label} → ${subLabel}」最多一个主按钮：${ctas(root)}`);
-    }
   }
-  assert.deepEqual(Array.from(Plugin.__SUBTABS.providers, x => x[1]), ['AI 功能', '问收藏模型', '识图 · 认字 · 语音', '提示词', '用量与余额']);
+  // 「同步」：明面上三项，其余在折叠里
+  root.querySelectorAll('.lb-tabs .lb-tab').find(b => b.textContent === '同步').onclick(); await settle();
+  assert.deepEqual(visibleRows(root), ['自动同步', '存视频', '每篇评论抓几楼'], '同步页明面上只有三项');
+  openFolds(root);
+  for (const n of ['收藏放在哪', '存图片', '登录后马上同步', '每次同步最多收几篇', '每天最多新收几篇', '补评论节奏'])
+    assert.ok(visibleRows(root).includes(n), '折叠里缺「' + n + '」');
   tab.hide();
 
   // —— 2. AI 那一栏：开关改 setup.selected（依赖联动）+ 对上实际起作用的设置；子选项；AI 打开原地出接口那几格 + 价钱 ——
@@ -310,17 +301,16 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
   // —— 3. 停在哪一栏记在插件对象上（本次会话），不写 data.json；「打开设置」旧落点名照认 ——
   const savesBefore = env.saves.length;
   tab = openPage(env.p); root = tab.containerEl; await settle();
-  assert.equal(pane(root).getAttribute('data-tab'), 'providers', '重开设置页停在上次那一栏');
-  assert.equal(pane(root).querySelector('.lb-subpane').getAttribute('data-sub'), 'features', '旧名 ai → 模型与提供商 → AI 功能');
+  assert.equal(pane(root).getAttribute('data-tab'), 'ai', '重开设置页停在上次那一栏');
   assert.equal(env.saves.length, savesBefore, '切栏不写 data.json');
   assert.ok(!JSON.stringify(env.p.settings).includes('"tab"'), '状态不进 settings');
   env.p.app.setting = { activeTab: null, open() {}, openTabById() {} };
   env.p.openPluginSettings = () => {};
-  for (const [from, to, focus] of [['ai', 'providers', null], ['features', 'general', null], ['overview', 'general', 'status'], ['status', 'general', 'status'],
-    ['remote', 'general', 'connect'], ['sync', 'general', 'schedule'], ['advanced', 'general', 'developer'], ['skills', 'skills', null], ['nope', 'general', null]]) {
+  for (const [from, to, focus] of [['ai', 'ai', null], ['features', 'overview', null], ['overview', 'overview', null], ['status', 'overview', 'status'],
+    ['remote', 'more', 'connect'], ['sync', 'sync', null], ['schedule', 'sync', 'schedule'], ['advanced', 'more', 'developer'], ['skills', 'more', 'skills'],
+    ['usage', 'ai', 'ai-usage'], ['nope', 'overview', null]]) {
     env.p.openSetupPage(from); assert.equal(env.p.settingsView.tab, to, from + ' → ' + to); assert.equal(env.p.settingsView.focus, focus, from + ' 的落点');
   }
-  env.p.openSetupPage('ai'); assert.equal(env.p.settingsView.sub.providers, 'features', '问题面板「打开设置」→ AI 功能');
   env.p.openSetupPage('status'); assert.equal(env.p.settingsView.focus, 'status', '「去扫码 / 验证」→ 通用的状态卡片');
   tab.hide();
 
@@ -378,23 +368,19 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     const handlers = []; let offs = 0;
     e.p.app.vault.on = (ev, cb2) => { const ref = { ev, cb: cb2, live: true }; handlers.push(ref); return ref; };
     e.p.app.vault.offref = ref => { ref.live = false; offs++; };
-    const t = openPage(e.p, 'general'); await settle();
+    const t = openPage(e.p, 'overview'); await settle();
     const desc = () => rowsOf(t.containerEl).find(x => nameOf(x) === '收藏同步').querySelector('.setting-item-description').textContent;
     assert.match(desc(), /^收藏同步完成/);
     const live = () => handlers.filter(h => h.live).length;
-    assert.equal(live(), 4, '同步那一行 2 个 + 补评论 / 问题那两行 2 个');
+    assert.equal(live(), 2, '同步那一行 2 个（1016：补评论自己跑，不再占概览一行）');
     e.files['_archive/sync-status.json'] = JSON.stringify({ state: 'running', message: '正在同步收藏：《a》查附件 / 下附件中', updated_at: new Date().toISOString(), done: 3, total: 10 });
     handlers.filter(h => h.live && h.ev === 'modify').forEach(h => h.cb({ path: '_archive/sync-status.json' }));
     await new Promise(r => setTimeout(r, 350)); await settle();
     assert.equal(desc(), '正在同步收藏：《a》查附件 / 下附件中 · 已完成 3/10 篇 · 剩 7 篇 · 自动同步：没开');
-    e.files['_archive/comments-fill-status.json'] = JSON.stringify({ state: 'running', message: '正在补评论 · 已补齐 5/12 篇', updated_at: new Date().toISOString() });
-    handlers.filter(h => h.live && h.ev === 'modify').forEach(h => h.cb({ path: '_archive/comments-fill-status.json' }));
-    await new Promise(r => setTimeout(r, 350)); await settle();
-    assert.equal(rowsOf(t.containerEl).find(x => nameOf(x) === '评论补齐').querySelector('.setting-item-description').textContent, '正在补评论 · 已补齐 5/12 篇');
     t.display(); await settle();
-    assert.equal(offs, 4); assert.equal(live(), 4, '重画整页：旧监听注销，新的接上');
-    t.showTab('providers'); await settle();
-    assert.equal(offs, 8, '切到别的栏：通用（状态卡片）的监听注销'); assert.equal(live(), 0);
+    assert.equal(offs, 2); assert.equal(live(), 2, '重画整页：旧监听注销，新的接上');
+    t.showTab('more'); await settle();
+    assert.equal(offs, 4, '切到别的栏：概览的监听注销'); assert.equal(live(), 0);
     t.hide();
   }
 
@@ -418,7 +404,7 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     assert.equal(e.p.settings.sync.commentFloors, 10); assert.equal(sel.value, '10');
     assert.ok(notices.some(n => String(n).includes('没保存上，已改回原来的楼数')));
     // 自动同步：编辑器就在这一栏（目录页「同步记录」里的弹窗是同一个组件）
-    assert.ok(cardOf(t.containerEl, 'schedule').querySelector('.lb-sched'), '定时编辑器在「通用 → 定时同步」卡片里');
+    assert.ok(t.containerEl.querySelector('.lb-sched-host .lb-sched'), '定时编辑器在「同步 → 什么时候同步」');
     t.hide();
   }
 
@@ -489,7 +475,7 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     Object.assign(e5.p, { openIndexFile: () => hits.push('open'), indexDraft: async () => { hits.push('draft'); }, openIndexSuggestions: () => hits.push('suggest'),
       indexRebuild: () => hits.push('rebuild'), indexUI: { indexRel: () => e5.p.settings.indexFile || '索引.md' }, run: async args => hits.push('run ' + args.slice(2).join(' ')),
       busyButton: () => () => {} });
-    const t5 = openPage(e5.p, 'sync'); await settle();
+    const t5 = openPage(e5.p, 'more'); await settle();
     const fold = t5.containerEl.querySelector('.lb-cats-fold');
     assert.ok(fold && !fold.open, '目录分类默认收起');
     assert.equal(fold.querySelector('summary').textContent, '目录分类（索引）');
@@ -510,7 +496,7 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     t5.hide();
     // index-ui.js 没加载上：点了只说一句，不炸
     const e6 = makePlugin({});
-    const t6 = openPage(e6.p, 'sync'); await settle();
+    const t6 = openPage(e6.p, 'more'); await settle();
     const before = notices.length;
     await rowsOf(t6.containerEl.querySelector('.lb-cats-fold')).find(r => nameOf(r) === '编辑索引').querySelectorAll('button')[0].onclick();
     assert.match(String(notices.slice(before).at(-1)), /索引功能没加载上/);
@@ -522,7 +508,7 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     assert.deepEqual([Plugin.perRunLimitOf(''), Plugin.perRunLimitOf(null), Plugin.perRunLimitOf('-1'), Plugin.perRunLimitOf('x'), Plugin.perRunLimitOf('7')], [0, 0, 0, 0, 7]);
     assert.deepEqual([Plugin.fillGapOf(90), Plugin.fillGapOf('180'), Plugin.fillGapOf(10), Plugin.fillGapOf(undefined)], [90, 180, 45, 45], '补评论只能比 45 分钟慢');
     const e = makePlugin({}); const t = openPage(e.p, 'sync'); await settle();
-    const card = cardOf(t.containerEl, 'schedule');
+    const card = t.containerEl;   // 1016：同步页不再分卡片，这两项在「更多同步选项」折叠里
     const per = rowsOf(card).find(r => nameOf(r) === '每次同步最多收几篇').querySelector('input');
     assert.equal(per.value, '0');
     per.value = '20'; await per.oninput(); assert.equal(e.p.settings.sync.perRunLimit, 20);
@@ -541,7 +527,7 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
 
   // —— 13. 1015 模型与提供商 → 问收藏模型：勾选列表（不勾 = 不进问收藏页下拉，至少留一个；当前选中的被取消就换一个）——
   {
-    const e = makePlugin({}); const t = openPage(e.p, 'providers', 'chat'); await settle();
+    const e = makePlugin({}); const t = openPage(e.p, 'ai'); await settle();
     const rows = () => rowsOf(cardOf(t.containerEl, 'models')).filter(r => r.classList.contains('lb-model-row'));
     assert.deepEqual(rows().map(nameOf), ['文本 AI', 'Codex', 'Sonnet']);
     assert.ok(rows().every(r => r.querySelector('.lb-model-check').checked), '默认都勾着');

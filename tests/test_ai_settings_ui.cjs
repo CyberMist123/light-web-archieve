@@ -63,11 +63,12 @@ function render(saved) {
   // 「AI」那一栏：home-ui 打开了的两项会原地画接口那几格（这里替身直接画两块）
   plugin.homeUI = () => ({ renderStatus: () => () => {}, renderRun: () => () => {}, renderAI: (c, tab) => { tab.sectionTextAI(c, { heading: false }); tab.sectionVisionAI(c); return () => {}; } });
   plugin.remoteUI = { renderConnect: () => () => {} };
+  plugin.settingsPages = () => require(require('path').resolve('obsidian-plugins/link-brain-actions/settings-pages.js'))(context.require('obsidian'), plugin);   // 1016 四个页签
   const tab = new Plugin.__SettingTab({}, plugin);
   // 1015：「AI」→「模型与提供商 → AI 功能」；原「高级」里的 AI 细项 →「识图 · 认字 · 语音」「问收藏模型」「提示词」三个子页签
   plugin.settingsView = { tab: 'ai' }; tab.display();
   let text = tab.containerEl.allText() + '\n';
-  for (const sub of ['media', 'chat', 'prompts']) { plugin.settingsView.sub.providers = sub; tab.display(); text += tab.containerEl.allText() + '\n'; }
+  // 1016：AI 一页画全（接口那几块在页底「详细设置」折叠里），不再分子页签
   return { tab, plugin, calls, text };
 }
 const ALL_ON = { setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'asr', 'ai_text', 'ai_vision'], aiSynced: true } };

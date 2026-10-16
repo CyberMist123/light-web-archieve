@@ -1,4 +1,6 @@
 'use strict';
+// 1016 设置页重做（她：懒得动、不想看的不放；要确认的、要知道的才放；不套框）：四个页签 概览 / 同步 / AI / 更多 + 第一次的四步指引。
+// 下面头注释是 1015 版的；检查项已按 1016 改（见文件后半）。
 // 1015 设置页（她：照 claudian 插件改版）在真 Chromium + Obsidian 外壳（settings-modal）里，亮 / 暗 / 第三方主题：
 //   ① 顶部下划线页签：通用 / 模型与提供商 / 技能；一次只画一栏；每栏最多一个主按钮（mod-cta）
 //   ② 通用：每组一张圆角卡片（标题加粗 + 分隔线）—— 状态（账号 · 收藏同步 · 评论补齐 · 问题 · 这台电脑 +「一键装好 / 跑完」）· 收藏 ·
@@ -13,17 +15,17 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path');
 const shell = require('../_obsidian_shell.cjs');
 const root = 'obsidian-plugins/link-brain-actions';
-const sources = Object.fromEntries(['main', 'home-ui', 'remote-ui', 'schedule-ui', 'onboarding-ui', 'index-ui', 'skills-ui', 'usage-ui'].map(name =>
+const sources = Object.fromEntries(['main', 'home-ui', 'remote-ui', 'schedule-ui', 'onboarding-ui', 'index-ui', 'skills-ui', 'usage-ui', 'settings-pages'].map(name =>
   [name + '.js', fs.readFileSync(path.join(root, name + '.js'), 'utf8')]));
-const TABS = ['通用', '模型与提供商', '技能'];
+const TABS = ['概览', '同步', 'AI', '更多'];
 // 新手主界面（不算「连接其他 AI」里的高级折叠）上不该看到的词（她 1010 点名的术语；要留的旁边有人话解释）
 const JARGON = ['OAuth', 'Bearer', 'Authorization', 'launchd', 'systemd', '标准输入', '标准输出', '扩检索词', '归档摘要模型', '认领', '令牌', '没画上', '读不到状态：', '读不到功能清单：'];
 
-async function open(browser, theme, { failRemote = false } = {}) {
+async function open(browser, theme, { failRemote = false, guide = false } = {}) {
   const page = await browser.newPage({ viewport: { width: 1300, height: 1400 } });
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await shell.settings(page, { theme, contentWidth: 800 });
-  await page.evaluate(([sources, failRemote]) => {
+  await page.evaluate(([sources, failRemote, guide]) => {
     const modules = {};
     const require = name => {
       if (name === 'obsidian') return window.obsidian;
@@ -94,12 +96,17 @@ async function open(browser, theme, { failRemote = false } = {}) {
       '_skills/travel/SKILL.md': '---\nname: travel\ndescription: >\n  旅游攻略：路线、时段、预算、坑\n---\n',
       '_archive/comments-fill-status.json': JSON.stringify({ state: 'running', message: '正在补评论 · 已补齐 7/197 篇 · 还缺 5800 条回复', updated_at: new Date().toISOString() }),
       '_archive/problems-summary.json': JSON.stringify({ needs_human: 0, auto: 1, gave_up: 0, sync: { state: 'ready', last_success: new Date().toISOString(), new: 40, deferred: 600 } }) };
+    if (!guide) files['_archive/catalog-data.json'] = '{"items":[]}';   // 库里有收藏：不出四步指引
     const app = { workspace: { trigger() {}, getActiveFile: () => null },
       vault: { adapter: { getBasePath: () => '/synthetic-vault', exists: async f => f in files || (f === '_skills' && window.l4skills.length > 0), read: async f => { if (!(f in files)) throw new Error('ENOENT'); return files[f]; },
         list: async dir => ({ folders: window.l4skills.map(id => dir + '/' + id), files: [] }) }, getAllLoadedFiles: () => [] },
       metadataCache: { getFileCache: () => ({}) } };
     const plugin = new Plugin(app, { id: 'link-brain-actions', dir: '' });
+    const BL = 'https://ws-x.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions', G = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
     plugin.settings = Plugin.merge({ textAI: { mode: 'http', endpoint: 'https://api.deepseek.com/chat/completions', model: 'sample-text' },
+      summaryAI: { mode: 'http', endpoint: G, model: 'gemini-3.5-flash', keyPool: 'gemini', fallback: { endpoint: BL, model: 'qwen3.7-flash' } },
+      visionAI: { mode: 'http', endpoint: G, model: 'gemini-3.5-flash', keyPool: 'gemini', refine: { endpoint: BL, model: 'qwen3.8-max' } },
+      embedAI: { mode: 'http', endpoint: BL.replace('/chat/completions', '/embeddings'), model: 'qwen3.7-text-embedding-flash' },
       setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'ai_text'], aiSynced: true }, connect: { clients: ['claude-code', 'claude-ai', 'chatgpt'] },
       voice: { capsLock: false }, asrAI: { mode: 'off' } });
     plugin.settings.remote = { enabled: true, domain: '', port: 18071, folders: ['@xhs', 'D:/笔记/读书'] };
@@ -116,190 +123,131 @@ async function open(browser, theme, { failRemote = false } = {}) {
     plugin.taskStatusEl = document.querySelector('.status-bar').createDiv({ cls: 'status-bar-item l4-task' });
     plugin.onboardingUI = () => require('onboarding-ui.js')(window.obsidian, plugin);
     plugin.usageUI = () => require('usage-ui.js')(window.obsidian, plugin);
+    plugin.openProblems = () => { window.l4problems = (window.l4problems || 0) + 1; };
     plugin.remoteUI = require('remote-ui.js')(window.obsidian, plugin);
     const tab = new Plugin.Tab(app, plugin);
     tab.containerEl = document.querySelector('.vertical-tab-content');
     plugin.settingTab = tab;
     window.l4 = { plugin, tab, Plugin };
     tab.display();
-  }, [sources, failRemote]);
+  }, [sources, failRemote, guide]);
   return { page, errors };
 }
 
-// 当前那一栏的读数
+// 当前那一栏的读数（收起的折叠里的行不算「看得见」）
 const readPane = page => page.evaluate(JARGON => {
   const pane = document.querySelector('.lb-tab-pane');
-  const vis = el => { for (let n = el; n && n !== pane; n = n.parentElement) { if (n.tagName === 'DETAILS' && !n.open && el !== n.querySelector('summary') && !n.querySelector('summary').contains(el)) return false; if (n.hidden) return false; } return true; };
+  const vis = el => { for (let n = el; n && n !== pane; n = n.parentElement) { if (n.tagName === 'DETAILS' && !n.open && !n.querySelector('summary').contains(el)) return false; if (n.hidden) return false; } return true; };
   const rows = [...pane.querySelectorAll('.setting-item')].filter(vis).map(r => (r.querySelector('.setting-item-name')?.textContent || '').replace(/\?$/, '').trim());
-  // 「连接其他 AI」最下面的「高级」折叠（访问令牌就在那里）整块不算新手主界面
   const textOf = node => { if (node.nodeType === 3) return node.textContent; if (node.nodeType !== 1) return ''; if (node.classList.contains('lb-connect-adv')) return '';
     if (node.tagName === 'DETAILS' && !node.open) return node.querySelector('summary')?.textContent || ''; return [...node.childNodes].map(textOf).join(' '); };
   const text = textOf(pane);
+  // 框套框：设置区里四边都有实线边框、又有圆角的大块（输入框 / 按钮 / 开关 / 下拉 / 表格不算）
+  const boxes = [...pane.querySelectorAll('div, details, section')].filter(e => { const cs = getComputedStyle(e);
+    return ['Top', 'Bottom', 'Left', 'Right'].every(s => cs['border' + s + 'Style'] === 'solid' && parseFloat(cs['border' + s + 'Width']) > 0) && parseFloat(cs.borderTopLeftRadius) >= 6
+      && !e.closest('.checkbox-container, .dropdown, button, input, textarea, .lb-usage-grid, .lb-guide-dot') && e.getBoundingClientRect().height > 40; }).map(e => e.className);
   return { tab: pane.getAttribute('data-tab'), rows, cta: pane.querySelectorAll('button.mod-cta').length, ctaText: [...pane.querySelectorAll('button.mod-cta')].map(b => b.textContent),
-    jargon: JARGON.filter(w => text.includes(w)), text,
+    jargon: JARGON.filter(w => text.includes(w)), text, boxes,
     tabs: [...document.querySelectorAll('.lb-tabs .lb-tab')].map(b => b.textContent), active: [...document.querySelectorAll('.lb-tabs .lb-tab.is-active')].map(b => b.textContent) };
 }, JARGON);
-const clickTab = async (page, label) => { await page.locator('.lb-tabs .lb-tab', { hasText: label }).first().click(); await page.waitForTimeout(150); };
+const clickTab = async (page, label) => { await page.locator('.lb-tabs .lb-tab', { hasText: label }).first().click(); await page.waitForTimeout(200); };
+const shot = (page, name) => page.screenshot({ path: path.join(shell.QA_DIR, name), fullPage: true });
 
 (async () => {
   shell.requirePlaywright();
   const browser = await shell.launch();
   const summary = {};
-  const tap = (page, sel) => page.evaluate(s => document.querySelector(s).click(), sel);   // 外壳 CSS 子集里开关 0×0：直接在元素上点
-  const clickSub = async (page, label) => { await page.locator('.lb-subtabs .lb-subtab', { hasText: label }).first().click(); await page.waitForTimeout(150); };
-  // 卡片样子（她 1015：照 claudian）：圆角、有边框、标题加粗 + 下面一条分隔线
-  const cardLook = page => page.evaluate(() => [...document.querySelectorAll('.lb-tab-pane .lb-card')].map(c => {
-    const cs = getComputedStyle(c), head = c.querySelector('.lb-card-head'), title = c.querySelector('.lb-card-title');
-    return { title: title.textContent, radius: parseFloat(cs.borderTopLeftRadius), border: cs.borderTopStyle, weight: Number(getComputedStyle(title).fontWeight),
-      sep: getComputedStyle(head).borderBottomStyle, overflow: c.scrollWidth - c.clientWidth };
-  }));
   try {
     for (const theme of ['light', 'dark', 'orange']) {
       const { page, errors } = await open(browser, theme);
-      // ① 三个页签，默认通用
-      await page.waitForFunction(() => document.querySelector('.lb-run-go') && /已补齐 7\/197/.test(document.querySelector('.lb-fill-row')?.textContent || '')
-        && document.querySelector('.lb-sched-row') && !document.querySelector('.lb-sched-rows.is-loading') && /● 开着/.test(document.querySelector('.lb-remote-svc')?.textContent || ''));
+      // ① 概览：账号 · 收藏 · 全部记录；没有需要留意的事就不出那一块
+      await page.waitForFunction(() => document.querySelector('.lb-tab-pane[data-tab="overview"]') && [...document.querySelectorAll('.setting-item-name')].some(e => e.textContent === '全部记录'));
       let p = await readPane(page);
-      assert.deepEqual(p.tabs, TABS); assert.deepEqual(p.active, ['通用']);
-      assert.equal(p.tab, 'general');
-      // 下划线页签：选中那个有下划线
-      const tabLine = await page.evaluate(() => { const a = document.querySelector('.lb-tabs .lb-tab.is-active'), o = document.querySelector('.lb-tabs .lb-tab:not(.is-active)');
-        return { active: getComputedStyle(a).borderBottomStyle + ' ' + parseFloat(getComputedStyle(a).borderBottomWidth), other: getComputedStyle(o).borderBottomColor, activeColor: getComputedStyle(a).borderBottomColor }; });
-      assert.equal(tabLine.active, 'solid 2'); assert.notEqual(tabLine.activeColor, tabLine.other, theme + '：选中的页签下划线有颜色');
-      // ② 通用：每组一张卡片
-      const looks = await cardLook(page);
-      assert.deepEqual(looks.map(l => l.title), ['状态', '收藏', '定时同步', '目录与批注', '附件手动下载', '连接其他 AI', '开发者']);
-      for (const l of looks) {
-        assert.ok(l.radius >= 8 && l.border === 'solid' && l.weight >= 600 && l.sep === 'solid', theme + '：卡片样子 ' + JSON.stringify(l));
-        assert.ok(l.overflow <= 1, theme + '：卡片里不出横向滚动 ' + JSON.stringify(l));
-      }
-      for (const n of ['小红书 · momo · ✓ 已登录', '收藏同步', '评论补齐', '问题', '这台电脑', '收藏放在哪', '自动同步', '每次同步最多收几篇', '每天最多新收几篇',
-        '下载图片', '下载视频', '每篇评论抓几楼', '补评论节奏', '登录后自动同步', '批注署名', '留言对象', '下载文件夹', '后端命令', '检查这台电脑'])
-        assert.ok(p.rows.includes(n), `${theme} 通用缺「${n}」：${p.rows}`);
-      assert.deepEqual(p.ctaText, ['一键装好 / 跑完'], theme + '：通用唯一的主按钮（「保存定时」在这里是次要的）');
-      const schedRows = await page.evaluate(() => [...document.querySelectorAll('.lb-card[data-section="schedule"] .setting-item-name')].map(e => e.textContent.replace(/\?$/, '')));
-      assert.deepEqual(schedRows, ['自动同步', '每次同步最多收几篇', '每天最多新收几篇', '每篇评论抓几楼', '补评论节奏'], '同步篇数、补评论都在「定时同步」卡片');
-      assert.ok(!p.rows.some(r => /评论 · (自动|手动)拉取/.test(r)), '「自动拉取」「手动拉取」合成了一项');
-      assert.match(p.text, /打开那篇，在右上角 ⋮ 菜单里点「抓全部评论」/, '手动的差别一行小字');
-      assert.equal(await page.evaluate(() => document.querySelector('.lb-cats-fold').open), false, '目录分类默认收起');
-      // 10-10 索引树：目录分类 = 编辑索引 / AI 起草 / 未归类建议 / 重新整理目录（次要链接，放得下）+ 索引文件路径；文本框退场
-      await page.evaluate(() => { const d = document.querySelector('.lb-cats-fold'); d.open = true; window.l4seen = []; const rp = l4.plugin.runPy;
-        l4.plugin.runPy = async (a, o) => { window.l4seen.push(a.slice(2).join(' ')); return rp(a, o); }; window.l4rp = rp; });
-      await page.locator('.lb-cats-actions button', { hasText: 'AI 起草' }).click();
-      await page.waitForFunction(() => window.l4seen.includes('index draft') && !document.querySelector('.lb-cats-actions button.is-busy'));
-      const cats = await page.evaluate(() => {
-        const det = document.querySelector('.lb-cats-fold'), card = det.closest('.lb-card').getBoundingClientRect();
-        const row = det.querySelector('.lb-cats-actions'), btns = [...row.querySelectorAll('button')];
-        const out = { names: btns.map(b => b.textContent), cta: btns.filter(b => b.classList.contains('mod-cta')).length, textarea: !!det.querySelector('textarea'),
-          inside: btns.every(b => { const r = b.getBoundingClientRect(); return r.width > 0 && r.left >= card.left - 1 && r.right <= card.right + 1; }),
-          overflow: row.scrollWidth - row.clientWidth, placeholder: det.querySelector('input')?.getAttribute('placeholder'), seen: window.l4seen.slice() };
-        l4.plugin.runPy = window.l4rp; det.open = false;
-        return out;
-      });
-      assert.deepEqual(cats.names, ['打开 索引.md', 'AI 起草', '未归类建议', '重新整理目录'], theme + '：目录分类那一行的链接');
-      assert.equal(cats.cta, 0, '目录分类里没有主按钮'); assert.equal(cats.textarea, false, '「名称: 关键词」文本框退场');
-      assert.ok(cats.inside && cats.overflow <= 1, theme + '：目录分类的链接放得下（不出横向滚动）' + JSON.stringify(cats));
-      assert.equal(cats.placeholder, '索引.md'); assert.deepEqual(cats.seen, ['index draft'], '点「AI 起草」跑的是 index draft');
-      // 连接其他 AI（通用里的一张卡片）
-      for (const n of ['Claude Code', '远程访问', '你的网址', '连接地址', '口令', '小红书收藏库', '再开放一个文件夹']) assert.ok(p.rows.includes(n), `${theme} 连接缺「${n}」：${p.rows}`);
-      const near = await page.evaluate(() => { const d = document.querySelector('.lb-remote-domain'); const n = d.nextElementSibling; return { next: n && n.tagName + '.' + n.className, open: n && n.open }; });
-      assert.equal(near.next, 'DETAILS.lb-remote-nodomain', '「还没有网址？」紧挨着网址那一格');
-      assert.equal(near.open, true, '没填网址：两条路默认展开');
-      assert.match(p.text, /Cloudflare/); assert.match(p.text, /Tailscale/);
-      assert.ok(!/OAuth/.test(p.text), '界面上没有 OAuth');
-      assert.equal(await page.evaluate(() => document.querySelector('.lb-connect-adv').open), false, '高级折叠默认收起');
-      const addr = await page.evaluate(() => { const r = [...document.querySelectorAll('.setting-item')].find(x => x.querySelector('.setting-item-name')?.textContent === '连接地址'); return { disabled: r.querySelector('button').disabled, desc: r.querySelector('.setting-item-description').textContent }; });
-      assert.ok(addr.disabled && /先填上面的网址/.test(addr.desc), '复制按钮不能点时旁边一句为什么');
-      assert.deepEqual(p.jargon, [], theme + '：通用没有术语 / 原始报错');
-      summary[theme] = { 通用: p.rows };
-      await page.evaluate(() => { document.querySelector('.vertical-tab-content').scrollTop = 0; });
-      await page.screenshot({ path: path.join(shell.QA_DIR, `S1015-settings-general-${theme}.png`), fullPage: true });
-      await page.locator('.lb-connect-adv > summary').click(); await page.waitForTimeout(200);
-      const advRows = await page.evaluate(() => [...document.querySelectorAll('.lb-connect-adv .setting-item-name')].map(e => e.textContent.replace(/\?$/, '')));
-      for (const n of ['远程访问的运行情况', '端口', '访问令牌（给不支持口令的软件）', '全部断开']) assert.ok(advRows.includes(n), '高级折叠缺「' + n + '」' + advRows);
-      assert.ok(await page.locator('.lb-connect-adv button', { hasText: '测一下本机的连接程序（MCP）' }).count(), '测本机连接程序在这里');
-
-      // ③ 模型与提供商：子页签
-      await clickTab(page, '模型与提供商');
-      await page.waitForFunction(() => document.querySelectorAll('.lb-feat').length >= 4 && document.querySelector('.lb-key-row'));
+      assert.deepEqual(p.tabs, TABS); assert.deepEqual(p.active, ['概览']);
+      assert.ok(!(await page.locator('.lb-subtabs').count()), '没有子页签');
+      assert.ok(!(await page.locator('.lb-guide').count()), '库里有收藏：不出指引');
+      for (const n of ['小红书 · momo · ✓ 已登录', '收藏同步', '全部记录']) assert.ok(p.rows.includes(n), `${theme} 概览缺「${n}」：${p.rows}`);
+      assert.ok(p.rows.length <= 4, `${theme} 概览别塞太多：${p.rows}`);
+      assert.equal(p.cta, 0, '概览没有主按钮');
+      assert.deepEqual(p.boxes, [], theme + '：概览不套框');
+      assert.deepEqual(p.jargon, [], theme + '：概览没有术语');
+      summary[theme] = { 概览: p.rows };
+      await shot(page, `S1016-settings-overview-${theme}.png`);
+      // ② 同步：三项 + 折叠
+      await clickTab(page, '同步');
+      await page.waitForFunction(() => document.querySelector('.lb-sched-row') && !document.querySelector('.lb-sched-rows.is-loading'));
       p = await readPane(page);
-      assert.equal(p.tab, 'providers');
-      assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('.lb-subtabs .lb-subtab')].map(b => b.textContent)), ['AI 功能', '问收藏模型', '识图 · 认字 · 语音', '提示词', '用量与余额']);
-      assert.match(p.text, /要不要 AI：不填也能用；填了多出 问收藏、自动概要、识图。/);
-      const prices = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('.lb-feat')].map(r => [r.getAttribute('data-id'), r.querySelector('.lb-price')?.textContent || ''])));
-      assert.equal(prices.ocr, '免费（本机跑）'); assert.equal(prices.asr, '免费（本机跑）');
-      assert.equal(prices.ai_text, '概要和打标签 约 ¥0.80 / 100 篇 · 问收藏 约 ¥0.004 / 次');
-      assert.equal(prices.ai_vision, '按用量', '估不出价的写「按用量」');
-      assert.ok(!('capslock' in prices), '子选项（CapsLock 说话）只在「视频说话转文字」打开后出现');
-      for (const n of ['接口地址', '密钥（API Key）', '模型名']) assert.ok(p.rows.includes(n), `${theme} AI 缺「${n}」`);
-      assert.ok(p.rows.some(r => /^DeepSeek（概要和打标签、问收藏）$/.test(r)), '去哪弄密钥：按服务商合一行 ' + p.rows);
-      assert.equal(p.cta, 0, theme + '：AI 功能没有主按钮（测试是次要的）');
-      assert.deepEqual(p.jargon, []);
-      await tap(page, '.lb-feat[data-id="asr"] .checkbox-container'); await page.waitForTimeout(150);
-      assert.ok(await page.locator('.lb-feat[data-id="capslock"]').count(), '父开关打开后，子选项出现');
-      summary[theme]['AI 功能'] = (await readPane(page)).rows;
-      await page.screenshot({ path: path.join(shell.QA_DIR, `S1015-settings-providers-${theme}.png`), fullPage: true });
-      // 开关存失败：拨回原值 + 提示一句；外壳开关照 1.14.4 会因 setValue 再触发 onChange——不能来回弹
-      await page.evaluate(() => { window.saveFails = 1; });
-      await tap(page, '.lb-feat[data-id="capslock"] .checkbox-container'); await page.waitForTimeout(200);
-      const rev = await page.evaluate(() => ({ on: document.querySelector('.lb-feat[data-id="capslock"] .checkbox-container').classList.contains('is-enabled'),
-        sel: window.l4.plugin.settings.setup.selected.includes('capslock'), notices: [...document.querySelectorAll('.notice')].map(n => n.textContent) }));
-      assert.equal(rev.on, false, '存失败：开关拨回关'); assert.equal(rev.sel, false, '设置也还原了');
-      assert.ok(rev.notices.some(t => t.includes('没保存上，开关已拨回原来的位置')), rev.notices.join(' | '));
-      // 问收藏模型：勾选列表（勾选框在行的最左边）
-      await clickSub(page, '问收藏模型');
+      assert.equal(p.tab, 'sync');
+      assert.deepEqual(p.rows, ['自动同步', '存视频', '每篇评论抓几楼'], theme + '：同步页明面上三项');
+      assert.match(p.text, /更多同步选项/);
+      assert.deepEqual(p.boxes, [], theme + '：同步不套框');
+      summary[theme]['同步'] = p.rows;
+      await shot(page, `S1016-settings-sync-${theme}.png`);
+      await page.locator('[data-section="sync-more"] > summary').click(); await page.waitForTimeout(150);
       p = await readPane(page);
-      const models = await page.evaluate(() => [...document.querySelectorAll('.lb-model-row')].map(r => { const cb = r.querySelector('.lb-model-check'), nm = r.querySelector('.setting-item-name');
-        return { name: nm.textContent, checked: cb.checked, left: cb.getBoundingClientRect().right <= nm.getBoundingClientRect().left + 1 }; }));
-      assert.deepEqual(models.map(m => m.name), ['文本 AI', 'Codex', 'Sonnet']);
-      assert.ok(models.every(m => m.checked && m.left), theme + '：勾选框在左边、默认勾着 ' + JSON.stringify(models));
-      for (const n of ['输入框里的提示字', '提问时先想几个同义词一起搜', '问收藏 / 概要改用本机命令行', '回答最长多少（max_tokens）', '最多参考几篇（topK）']) assert.ok(p.rows.includes(n), `${theme} 问收藏模型缺「${n}」`);
+      for (const n of ['收藏放在哪', '存图片', '登录后马上同步', '每次同步最多收几篇', '每天最多新收几篇', '补评论节奏']) assert.ok(p.rows.includes(n), `${theme} 同步折叠缺「${n}」`);
+      // ③ AI：每家一行写它管哪些功能；花了多少；详细设置在折叠里
+      await clickTab(page, 'AI');
+      await page.waitForFunction(() => document.querySelectorAll('.lb-provider-row').length >= 3 && /105\.38/.test(document.querySelector('.lb-usage-provider[data-provider="deepseek"]')?.textContent || ''));
+      assert.equal(await page.evaluate(() => document.querySelector('[data-section="ai-usage"]').open), false, '花费明细默认收起');
+      p = await readPane(page);
+      assert.equal(p.tab, 'ai');
+      const prov = await page.evaluate(() => [...document.querySelectorAll('.lb-provider-row')].map(r => [r.querySelector('.setting-item-name').textContent,
+        r.querySelector('.setting-item-description').textContent, [...r.querySelectorAll('button')].map(b => b.textContent).join('/')]));
+      assert.deepEqual(prov.map(x => x[0]), ['Gemini（几把 key 轮流用）', 'DeepSeek', '阿里云百炼']);
+      assert.equal(prov[0][1], '概要 · 识图'); assert.equal(prov[1][1], '问收藏'); assert.equal(prov[2][1], '语义搜索　备用：概要 · 精细识图');
+      assert.equal(prov[0][2], '控制台/拿 key'); assert.equal(prov[1][2], '控制台/充值/拿 key');
+      assert.match(p.text, /详细设置/);
+      assert.equal(await page.evaluate(() => document.querySelector('[data-section="ai-more"]').open), false, '详细设置默认收起');
       assert.ok(p.cta <= 1);
-      await page.screenshot({ path: path.join(shell.QA_DIR, `S1015-settings-models-${theme}.png`), fullPage: true });
-      await clickSub(page, '识图 · 认字 · 语音');
+      assert.deepEqual(p.jargon, [], theme + '：AI 页明面上没有术语');
+      summary[theme].AI = p.rows;
+      await shot(page, `S1016-settings-ai-${theme}.png`);
+      // ④ 更多
+      await clickTab(page, '更多');
+      await page.waitForFunction(() => /● 开着/.test(document.querySelector('.lb-remote-svc')?.textContent || ''));
       p = await readPane(page);
-      for (const n of ['写概要用的模型', '认视频画面里的字', '认字精度']) assert.ok(p.rows.includes(n), `${theme} 识图 · 认字 · 语音缺「${n}」：${p.rows}`);
-      summary[theme]['识图 · 认字 · 语音'] = p.rows;
-      await clickSub(page, '提示词');
+      for (const n of ['批注署名', '留言对象']) assert.ok(p.rows.includes(n), `${theme} 更多明面上缺「${n}」`);
+      assert.ok(!p.rows.includes('远程访问'), '接其他 AI 默认收着');
+      assert.deepEqual(p.boxes, [], theme + '：更多不套框');
+      await shot(page, `S1016-settings-more-${theme}.png`);
+      await page.locator('[data-section="connect"] > summary').click(); await page.waitForTimeout(150);
       p = await readPane(page);
-      assert.deepEqual(p.rows, ['写概要的提示词', '问收藏的提示词']);
-      // 1016 用量与余额：每家一行（余额 / 本月 / 密钥状态 + 三个跳转），各功能明细表不横向溢出
-      await clickSub(page, '用量与余额');
-      await page.waitForFunction(() => /105\.38/.test(document.querySelector('.lb-usage-provider[data-provider="deepseek"]')?.textContent || ''));
-      const u = await page.evaluate(() => ({ btns: [...document.querySelectorAll('.lb-usage-provider[data-provider="deepseek"] button')].map(b => b.textContent),
-        rows: document.querySelectorAll('.lb-usage-grid tr').length, cta: document.querySelectorAll('.lb-tab-pane .mod-cta').length,
-        warn: document.querySelector('.lb-usage-provider[data-provider="aliyun"] .lb-usage-key')?.textContent || '',
-        overflow: (t => t.scrollWidth - t.clientWidth)(document.querySelector('.lb-usage-table')) }));
-      assert.deepEqual(u.btns, ['控制台', '充值', '看用量']);
-      assert.equal(u.rows, 9, '表头 + 7 个功能 + 合计');
-      assert.ok(u.warn.includes('密钥被拒'), u.warn);
-      assert.ok(u.cta <= 1 && u.overflow <= 1, JSON.stringify(u));
-      await page.screenshot({ path: path.join(shell.QA_DIR, `S1016-settings-usage-${theme}.png`), fullPage: true });
-
-      // ④ 技能：说明行 + 刷新 / ＋ · 列表 · 隐藏列表输入框
-      await clickTab(page, '技能');
-      await page.waitForFunction(() => document.querySelectorAll('.lb-skill-row').length === 2);
-      p = await readPane(page);
-      assert.equal(p.tab, 'skills');
-      const sk = await page.evaluate(() => ({ lead: [...document.querySelectorAll('.lb-skill-lead .extra-setting-button')].map(b => b.getAttribute('aria-label')),
-        rows: [...document.querySelectorAll('.lb-skill-row')].map(r => r.querySelector('.setting-item-name').textContent + '｜' + r.querySelector('.setting-item-description').textContent),
-        hiddenInput: !!document.querySelector('.lb-skill-hidden-input') }));
-      assert.deepEqual(sk.lead, ['刷新', '从本地文件夹导入（只拷文字文件，不执行）']);
-      assert.deepEqual(sk.rows, ['recipe｜菜谱：列菜名、主料、难度；展开给用量和步骤', 'travel｜旅游攻略：路线、时段、预算、坑']);
-      assert.ok(sk.hiddenInput, '隐藏列表输入框');
-      assert.equal(p.cta, 0);
-      await page.screenshot({ path: path.join(shell.QA_DIR, `S1015-settings-skills-${theme}.png`), fullPage: true });
-      // 空状态
-      await page.evaluate(() => { window.l4skills.length = 0; document.querySelector('.lb-skill-lead .extra-setting-button').click(); });
-      await page.waitForFunction(() => document.querySelector('.lb-skill-empty'));
-      assert.match(await page.locator('.lb-skill-empty').textContent(), /还没有技能。点右上角 ＋ 从本地文件夹导入/);
-      if (theme === 'light') await page.screenshot({ path: path.join(shell.QA_DIR, `S1015-settings-skills-empty-${theme}.png`), fullPage: true });
+      for (const n of ['Claude Code', '远程访问', '批注署名', '留言对象']) assert.ok(p.rows.includes(n), `${theme} 更多缺「${n}」：${p.rows}`);
+      assert.match(p.text, /技能/); assert.match(p.text, /高级/);
+      assert.ok(!/OAuth/.test(p.text), '界面上没有 OAuth');
+      summary[theme]['更多'] = p.rows;
+      await shot(page, `S1016-settings-more-open-${theme}.png`);
       assert.deepEqual(errors, []);
       await page.close();
     }
-    // ⑧ 读不到的块：一句人话 + 重试，原始报错折在「详情」里
+    // ⑤ 库里还没收藏：四步指引
+    {
+      const { page, errors } = await open(browser, 'light', { guide: true });
+      await page.waitForFunction(() => document.querySelector('.lb-guide'));
+      const g = () => page.evaluate(() => ({ title: document.querySelector('.lb-guide-title').textContent,
+        steps: [...document.querySelectorAll('.lb-guide-step')].map(s => s.className.replace('lb-guide-step', '').trim() + ':' + s.textContent) }));
+      let st = await g();
+      assert.equal(st.title, '收藏放在哪个文件夹？');
+      assert.deepEqual(st.steps, ['is-on:1放在哪', ':2登录小红书', ':3AI 帮忙', ':4开始同步']);
+      await shot(page, 'S1016-settings-guide-1-light.png');
+      await page.locator('.lb-guide-nav button', { hasText: '下一步' }).click(); await page.waitForTimeout(150);
+      await page.locator('.lb-guide-nav button', { hasText: '下一步' }).click(); await page.waitForTimeout(150);
+      st = await g();
+      assert.equal(st.title, '要不要 AI 帮你整理？');
+      assert.deepEqual(st.steps, ['is-done:✓放在哪', 'is-done:✓登录小红书', 'is-on:3AI 帮忙', ':4开始同步']);
+      const choices = await page.evaluate(() => [...document.querySelectorAll('.lb-guide-choice .setting-item-name')].map(e => e.textContent));
+      assert.deepEqual(choices, ['用免费的 Gemini', '用付费的（DeepSeek / 阿里云）', '先不用'], '一次最多三个选项');
+      await shot(page, 'S1016-settings-guide-3-light.png');
+      await page.locator('.lb-guide-nav button', { hasText: '跳过指引' }).click(); await page.waitForTimeout(200);
+      assert.equal(await page.evaluate(() => window.l4.plugin.settings.onboarding.guideDone), true, '跳过 = 走完，不再出');
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    // 读不到的块：一句人话 + 重试，原始报错折在「详情」里
     {
       const { page, errors } = await open(browser, 'light', { failRemote: true });
+      await clickTab(page, '更多');
       await page.waitForFunction(() => document.querySelector('.lb-remote-svc .lb-fail'));
       const fb = await page.evaluate(() => { const f = document.querySelector('.lb-remote-svc .lb-fail'); const d = f.querySelector('details'); return { line: f.querySelector('.lb-fail-line').textContent, open: d.open, raw: d.textContent }; });
       assert.match(fb.line, /这一块暂时读不到，点重试/);
@@ -310,6 +258,6 @@ const clickTab = async (page, label) => { await page.locator('.lb-tabs .lb-tab',
     }
   } finally { await browser.close(); }
   fs.mkdirSync(shell.QA_DIR, { recursive: true });
-  fs.writeFileSync(path.join(shell.QA_DIR, 'S1015-settings-rows.json'), JSON.stringify(summary, null, 2));
-  console.log('PASS 1015 settings (claudian layout, real Chromium, light / dark / third-party): underline tabs 通用 · 模型与提供商 · 技能, rounded bordered cards with bold title + separator, ≤1 primary per tab, sync count + comment pace in 定时同步, provider sub-tabs with model checklist (box on the left), skills list + refresh / ＋ + empty state + hidden input, no jargon / raw errors on newbie pages, failed save reverts the toggle, unreadable block → retry + folded details. Screenshots: ' + shell.QA_DIR);
+  fs.writeFileSync(path.join(shell.QA_DIR, 'S1016-settings-rows.json'), JSON.stringify(summary, null, 2));
+  console.log('PASS 1016 settings (real Chromium, light / dark / third-party): tabs 概览 · 同步 · AI · 更多; overview = account + collection + records; sync = 3 rows + fold; AI = one row per provider with its features + usage + folded details; no nested boxes; no jargon; first-run 4-step guide; unreadable block -> retry + folded details. Screenshots: ' + shell.QA_DIR);
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -7,7 +7,8 @@ module.exports = function (obsidian, plugin) {
   const WINDOWS = [['today', '今天'], ['7d', '近 7 天'], ['30d', '近 30 天']];
   const ORDER = ['deepseek', 'aliyun'];
   const CAP_TEXT = { textAI: '问收藏', summaryAI: '概要', visionAI: '识图', 'visionAI.refine': '精细识图', embedAI: '向量' };
-  const KEY_TEXT = { AUTH_FAILED: '密钥被拒（401 / 403）', QUOTA_EXCEEDED: '欠费或额度用完' };
+  // 1016 她：别吓人——说「用不了」和可能的原因，不说「被拒」
+  const KEY_TEXT = { AUTH_FAILED: 'key 用不了（可能欠费、过期或没开通）', QUOTA_EXCEEDED: '额度用完了' };
 
   const yuan = v => (v == null || !Number.isFinite(+v) ? '—' : '¥' + (+v < 0.1 && +v > 0 ? (+v).toFixed(4).replace(/0+$/, '') : (+v).toFixed(2)));
   const num = v => { const n = +v || 0; return n >= 10000 ? (n / 10000).toFixed(n >= 1e6 ? 0 : 1) + ' 万' : String(n); };
@@ -58,7 +59,7 @@ module.exports = function (obsidian, plugin) {
         desc.createDiv({ cls: 'lb-usage-month', text: m ? `本月 ${yuan(m.cost)} · ${m.calls} 次调用${m.unpriced ? `（${m.unpriced} 次的模型不在价格表里，没算钱）` : ''}` : '本月没用过' });
         if (k) {
           const sub = String(k.code || '').split('.').pop();
-          desc.createDiv({ cls: 'lb-usage-key is-warn', text: `${KEY_TEXT[sub] || k.code}：${(k.caps || []).map(c => CAP_TEXT[c] || c).join('、')}停着，去控制台换密钥或充值` });
+          desc.createDiv({ cls: 'lb-usage-key is-warn', text: `${KEY_TEXT[sub] || k.code}：影响${(k.caps || []).map(c => CAP_TEXT[c] || c).join('、')}；配了备用的会自动改用备用` });
         }
         for (const [label, key] of [['控制台', 'console'], ['充值', 'recharge'], ['看用量', 'usage']]) {
           if (!l[key]) continue;

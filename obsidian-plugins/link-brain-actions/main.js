@@ -240,6 +240,9 @@ function mergeSettings(saved) {
     else if (typeof saved[key] === "object") Object.assign(out[key], saved[key]);
     else out[key] = saved[key];
   }
+  // 1016：设置页没有默认值的键（如 embedAI：向量走哪家，后端认、插件不改）原样带上，AI 页才看得见；
+  // 不往默认值里加空的 embedAI——那样没配过的人存一次就多出个空 embedAI，后端会当成「手动配过」。保存只写本窗口改过的键，这些原样的不会被写回。
+  if (saved && typeof saved === 'object') for (const key of Object.keys(saved)) if (!(key in out)) out[key] = JSON.parse(JSON.stringify(saved[key]));
   return out;
 }
 
@@ -703,14 +706,16 @@ class SyncSettingsModal extends Modal {
 
 // 1015 她：设置页照 claudian 插件改版——顶部三个页签（通用 / 模型与提供商 / 技能）→ 每组一张圆角卡片（标题 + 分隔线）→ 每行左标题灰说明、右控件。
 // 「模型与提供商」下面再分子页签。旧落点名照认：问题面板「打开设置」带 'ai'、命令带 'overview' / 'features'、「去扫码 / 验证」带 'status'、远程带 'remote'。
-const SETTING_TABS = [['general', '通用'], ['providers', '模型与提供商'], ['skills', '技能']];
-// 1016：加「用量与余额」（usage-ui.js）：各功能花了多少、余额、各家控制台 / 充值跳转
-const SETTING_SUBTABS = { providers: [['features', 'AI 功能'], ['chat', '问收藏模型'], ['media', '识图 · 认字 · 语音'], ['prompts', '提示词'], ['usage', '用量与余额']] };
-// 旧名 → [页签, 子页签, 滚到哪张卡片]
-const TAB_ALIAS = { general: ['general'], overview: ['general', null, 'status'], status: ['general', null, 'status'], start: ['general'], features: ['general'],
-  home: ['general'], run: ['general'], sync: ['general', null, 'schedule'], content: ['general', null, 'collect'], schedule: ['general', null, 'schedule'],
-  connect: ['general', null, 'connect'], remote: ['general', null, 'connect'], advanced: ['general', null, 'developer'], developer: ['general', null, 'developer'],
-  providers: ['providers'], ai: ['providers', 'features'], models: ['providers', 'chat'], usage: ['providers', 'usage'], skills: ['skills'] };
+// 1016 她：再改——四个页签 概览 · 同步 · AI · 更多（settings-pages.js）。原则：懒得动、不想看的不放；要确认的、要知道的才放，小白看得懂。
+// 每页小标题 + 平铺的行，不套框；细项收进页底折叠。没有子页签了（SETTING_SUBTABS 留空对象，老代码照认）。
+const SETTING_TABS = [['overview', '概览'], ['sync', '同步'], ['ai', 'AI'], ['more', '更多']];
+const SETTING_SUBTABS = {};
+// 旧名 → [页签, 子页签, 滚到哪一段]（问题面板「打开设置」带 'ai'、命令带 'overview'、「去扫码 / 验证」带 'status'、远程带 'remote'…）
+const TAB_ALIAS = { overview: ['overview'], general: ['overview'], status: ['overview', null, 'status'], start: ['overview'], home: ['overview'], run: ['overview'],
+  sync: ['sync'], content: ['sync', null, 'collect'], schedule: ['sync', null, 'schedule'],
+  features: ['overview'], ai: ['ai'], providers: ['ai'], models: ['ai', null, 'ai-more'], usage: ['ai', null, 'ai-usage'],
+  more: ['more'], connect: ['more', null, 'connect'], remote: ['more', null, 'connect'], skills: ['more', null, 'skills'],
+  advanced: ['more', null, 'developer'], developer: ['more', null, 'developer'] };
 
 class LinkBrainActions extends Plugin {
   async onload() {
@@ -909,7 +914,7 @@ class LinkBrainActions extends Plugin {
   openAISettingsMenu(evt) {
     const menu=new obsidian.Menu();
     // 10-03：「模型与提示词」并进「设置」（直达插件设置页）
-    menu.addItem(i=>i.setTitle('设置').setIcon('settings-2').onClick(()=>this.openSetupPage('ai')));
+    menu.addItem(i=>i.setTitle('设置').setIcon('settings-2').onClick(()=>this.openSetupPage('overview')));
     menu.addItem(i=>i.setTitle('导出资料').setIcon('folder-open').onClick(()=>this.openExportFolder()));
     menu.showAtMouseEvent(evt);
   }
@@ -1264,7 +1269,7 @@ class LinkBrainActions extends Plugin {
   // 设置页已经停在本插件时 Obsidian 不会重画，这里补一次。
   openSetupPage(section = null) {
     const view = this.settingsView || (this.settingsView = {});
-    const [tab, sub, focus] = TAB_ALIAS[section] || ['general'];
+    const [tab, sub, focus] = TAB_ALIAS[section] || ['overview'];
     view.tab = tab;
     if (sub) view.sub = { ...(view.sub || {}), [tab]: sub };
     view.focus = focus || null;   // 「去扫码 / 验证」：通用 → 状态卡片（账号那一行）
@@ -1288,6 +1293,7 @@ class LinkBrainActions extends Plugin {
     return box;
   }
   // 设置页顶部（状态 + 功能 + 一键装好 / 跑完 + 首次零配置）整块在 home-ui.js
+  settingsPages() { return this._settingsPages || (this._settingsPages = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'settings-pages.js'))(obsidian, this)); }
   usageUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'usage-ui.js'))(obsidian, this); }
   skillsUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'skills-ui.js'))(obsidian, this); }
   homeUI() { return this._homeUI || (this._homeUI = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'home-ui.js'))(obsidian, this)); }
@@ -2585,10 +2591,10 @@ class LinkBrainSettingTab extends PluginSettingTab {
 
   // 当前停在哪一栏 / 哪个子页签、各能力测试结果：记在插件对象上（本次 Obsidian 会话内保持），不写 data.json
   view() {
-    const v = this.plugin.settingsView || (this.plugin.settingsView = { tab: 'general' });
+    const v = this.plugin.settingsView || (this.plugin.settingsView = { tab: 'overview' });
     v.sub ||= {};
     if (!SETTING_TABS.some(t => t[0] === v.tab)) {   // 旧名（'ai' / 'sync' / 'advanced'…）照认
-      const [tab, sub, focus] = TAB_ALIAS[v.tab] || ['general'];
+      const [tab, sub, focus] = TAB_ALIAS[v.tab] || ['overview'];
       v.tab = tab; if (sub) v.sub[tab] = sub; if (focus && !v.focus) v.focus = focus;
     }
     for (const [tab, subs] of Object.entries(SETTING_SUBTABS)) if (!subs.some(x => x[0] === v.sub[tab])) v.sub[tab] = subs[0][0];
@@ -2597,7 +2603,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
   // 切页签：旧名照认（'sync' → 通用的定时同步卡片…）；focus = 滚到哪张卡片
   showTab(id, focus = null) {
     const v = this.view();
-    const [tab, sub, f] = TAB_ALIAS[id] || ['general'];
+    const [tab, sub, f] = TAB_ALIAS[id] || ['overview'];
     v.tab = tab; if (sub) v.sub[tab] = sub;
     v.focus = focus || f || null;
     if (!focus && !f) v.focus = null;
@@ -2658,8 +2664,13 @@ class LinkBrainSettingTab extends PluginSettingTab {
       b.onclick = () => this.showTab(id);
     }
     const pane = c.createDiv({ cls: 'lb-tab-pane lb-tab-' + view.tab, attr: { role: 'tabpanel', 'data-tab': view.tab } });
-    const draw = { general: () => this.renderGeneralTab(pane), providers: () => this.renderProvidersTab(pane), skills: () => this.renderSkillsTab(pane) }[view.tab];
+    let pages = null;
+    try { pages = this.plugin.settingsPages(); } catch (e) { console.error('[lb] 设置页没加载上', e); this.plugin.failBox?.(pane, '', e, () => this.display()); return; }
+    const draw = { overview: () => pages.renderOverview(pane, this), sync: () => pages.renderSync(pane, this), ai: () => pages.renderAI(pane, this),
+      more: () => pages.renderMore(pane, this) }[view.tab];
     try { draw(); } catch (e) { console.error('[lb] 设置页这一栏没画上', e); this.plugin.failBox?.(pane, '', e, () => this.display()); }
+    // 第一次用（库里还没有收藏、没走完指引）：概览换成四步指引
+    if (view.tab === 'overview') pages.needsGuide().then(yes => { if (yes && pane.isConnected !== false) { pane.empty(); pages.renderGuide(pane, this); } }).catch(console.error);
     // 「打开设置」带了落点（「去扫码 / 验证」→ 状态卡片…）：滚过去
     const focus = view.focus; view.focus = null;
     const target = focus && pane.querySelector(`[data-section="${focus}"]`);

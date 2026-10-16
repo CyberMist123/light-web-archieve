@@ -25,7 +25,7 @@
       "recharge": "https://usercenter2.aliyun.com/finance/fund-management/recharge",
       "balance_note": "百炼没有拿 API key 能查的余额接口（阿里云 BSS QueryAccountBalance 要 AccessKey，不收）", "checked": "2026-10-16"},
     "OpenAI": {"endpoint": "https://api.openai.com/v1/chat/completions", "asr_endpoint": "https://api.openai.com/v1/audio/transcriptions", "key_url": "https://platform.openai.com/api-keys"},
-    "Google Gemini": {"endpoint": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", "key_url": "https://aistudio.google.com/apikey"}
+    "Google Gemini": {"endpoint": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", "key_url": "https://aistudio.google.com/apikey", "id": "google", "console": "https://aistudio.google.com/", "usage": "https://aistudio.google.com/usage", "checked": "2026-10-16"}
   },
   "models": {
     "deepseek-flash": {

@@ -438,18 +438,50 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-tabs .lb-tab { padding: 8px 14px; font-size: var(--font-ui-medium); border-bottom-width: 2px; }
 .lb-settings .lb-tabs .lb-tab.is-active { color: var(--lbs-accent); border-bottom-color: var(--lbs-accent); }
 .lb-settings .lb-tabs .lb-tab:hover { background: transparent; }
-.lb-settings .lb-tab-pane { display: flex; flex-direction: column; gap: 14px; background: var(--lbs-page-bg); padding: 14px; border-radius: 14px; }
-.lb-settings .lb-card { background: var(--lbs-card-bg); border: 1px solid var(--background-modifier-border); border-radius: 12px;
-  padding: 4px 16px 6px; box-shadow: 0 1px 2px rgba(0, 0, 0, .04); }
-.lb-settings .lb-card-head { display: flex; align-items: center; gap: 8px; padding: 12px 0 10px; border-bottom: 1px solid var(--background-modifier-border); }
-.lb-settings .lb-card-title { flex: 1; font-weight: 700; font-size: var(--font-ui-medium); color: var(--text-normal); }
-.lb-settings .lb-card-desc { margin: 10px 0 2px; color: var(--text-muted); font-size: var(--font-ui-small); }
-.lb-settings .lb-card .setting-item { padding: 12px 0; border-top: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border)); }
-.lb-settings .lb-card-body > .setting-item:first-child, .lb-settings .lb-card-desc + .setting-item { border-top: 0; }
-.lb-settings .lb-card .setting-item-name { font-weight: 500; }
-.lb-settings .lb-card .setting-item-description { color: var(--text-muted); }
-.lb-settings .lb-card .checkbox-container.is-enabled { background-color: var(--lbs-accent); }
-.lb-settings .lb-card details.lb-fold { margin: 8px 0; }
+/* 1016 她：不要框套框——页签下面直接是一行行设置；分组只用一行小标题 + 细线。原来的「卡片」（tab.card，别的模块还在用）一并压平。 */
+.lb-settings .lb-tab-pane { display: flex; flex-direction: column; gap: 0; max-width: 760px; }
+.lb-settings .lb-card { background: transparent; border: 0; border-radius: 0; padding: 0; box-shadow: none; margin: 0; }
+.lb-settings .lb-card-head { padding: 22px 0 4px; border-bottom: 0; }
+.lb-settings .lb-card-title, .lb-settings .lb-sec-h { font-weight: 600; font-size: var(--font-ui-smaller); color: var(--text-muted); letter-spacing: .04em; }
+.lb-settings .lb-sec-h { padding: 22px 0 4px; }
+.lb-settings .lb-tab-pane > .lb-sec-h:first-child, .lb-settings .lb-attn:empty + .lb-sec-h { padding-top: 6px; }
+.lb-settings .lb-card-desc { margin: 2px 0 4px; color: var(--text-muted); font-size: var(--font-ui-small); }
+.lb-settings .setting-item { padding: 10px 0; border-top: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border)); }
+.lb-settings .lb-sec-h + .setting-item, .lb-settings .lb-card-head + .lb-card-body > .setting-item:first-child,
+.lb-settings .lb-card-desc + .setting-item, .lb-settings .lb-fold-body > .setting-item:first-child { border-top: 0; }
+.lb-settings .setting-item-name { font-weight: 500; }
+.lb-settings .setting-item-description { color: var(--text-muted); }
+.lb-settings .checkbox-container.is-enabled { background-color: var(--lbs-accent); }
+.lb-settings .lb-feat-cap { border-left: 0; padding: 0; }
+.lb-settings .lb-run, .lb-settings .lb-remote-group { border: 0; background: transparent; padding: 0; border-radius: 0; }
+.lb-settings .lb-home-status { border: 0; padding: 0; }
+.lb-settings .lb-connect-web, .lb-settings .lb-remote-intro { border-left: 0; padding-left: 0; background: transparent; }
+/* 页底折叠：一行灰字，点开才有细项 */
+.lb-settings details.lb-fold { margin: 18px 0 0; border-top: 1px solid var(--background-modifier-border); }
+.lb-settings details.lb-fold > summary { cursor: pointer; padding: 12px 0; color: var(--text-muted); font-size: var(--font-ui-small); list-style: none; }
+.lb-settings details.lb-fold > summary::before { content: '▸'; display: inline-block; width: 1.2em; transition: transform .15s; }
+.lb-settings details.lb-fold[open] > summary::before { transform: rotate(90deg); }
+.lb-settings .lb-fold-body { padding-left: 1.2em; }
+/* 需要你留意：左边一条小色点，不加框 */
+.lb-settings .lb-attn-row .setting-item-name::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--color-orange, #d98a2b); margin-right: 8px; vertical-align: middle; }
+.lb-settings .lb-provider-row .setting-item-description { overflow-wrap: anywhere; }
+/* 第一次的四步指引（照 MAA 设置指引：左边一次一件事，右边步骤线） */
+.lb-settings .lb-guide { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 28px; padding: 8px 0; }
+@media (max-width: 640px) { .lb-settings .lb-guide { grid-template-columns: 1fr; } .lb-settings .lb-guide-steps { order: -1; } }
+.lb-settings .lb-guide-title { font-size: var(--font-ui-large); font-weight: 600; margin: 4px 0 2px; }
+.lb-settings .lb-guide-hint { color: var(--text-muted); font-size: var(--font-ui-small); margin: 0 0 8px; }
+.lb-settings .lb-guide-nav { display: flex; gap: 10px; align-items: center; margin-top: 18px; }
+.lb-settings .lb-guide-nav .mod-cta { margin-left: auto; }
+.lb-settings .lb-guide-steps { display: flex; flex-direction: column; }
+.lb-settings .lb-guide-step { display: flex; align-items: center; gap: 10px; color: var(--text-faint); font-size: var(--font-ui-small); }
+.lb-settings .lb-guide-dot { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--background-modifier-border); display: grid; place-items: center; font-weight: 600; flex: none; }
+.lb-settings .lb-guide-step.is-done { color: var(--text-muted); }
+.lb-settings .lb-guide-step.is-done .lb-guide-dot { border-color: var(--lb-ok, var(--color-green)); color: var(--lb-ok, var(--color-green)); }
+.lb-settings .lb-guide-step.is-on { color: var(--lbs-accent); font-weight: 600; }
+.lb-settings .lb-guide-step.is-on .lb-guide-dot { border-color: var(--lbs-accent); }
+.lb-settings .lb-guide-line { width: 2px; height: 18px; margin-left: 12px; background: var(--background-modifier-border); }
+.lb-settings .lb-guide-line.is-done { background: var(--lb-ok, var(--color-green)); }
 /* 子页签（模型与提供商）：小一号的下划线页签 */
 .lb-settings .lb-subtabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--background-modifier-border); margin: -4px 0 2px; }
 .lb-settings .lb-subtabs .lb-subtab { background: transparent; box-shadow: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
