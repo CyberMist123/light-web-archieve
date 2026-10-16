@@ -190,12 +190,36 @@ def resume_points(source: dict[str, Any], targets: list[str]) -> list[str]:
     return out
 
 
+FLOORS_RESUME_MIN = 30  # 存下不到这么多楼就从头滚（一趟就能滚完，没必要续）
+
+
+def floors_resume_point(source: dict[str, Any], state: dict[str, Any] | None = None) -> str | None:
+    """一级评论接着翻的断点 "最后一楼游标:已存楼数"（1017）：热门帖一趟 8 分钟只滚得到 ~500 楼，每次从第 1 楼滚起永远到不了底。
+    原帖已经读到底、存的楼太少、上次续翻没多拿到（resume_floors_stale）就不续。"""
+    cap = source.get("capture") or {}
+    cursor = str(cap.get("comments_cursor") or "")
+    n = len(source.get("comments") or [])
+    if not cursor or n < FLOORS_RESUME_MIN or (cap.get("comment_load") or {}).get("has_more") is False:
+        return None
+    if (state or {}).get("resume_floors_stale"):
+        return None
+    return f"{cursor}:{n}"
+
+
 def sub_quota(now: datetime | None = None) -> tuple[int, datetime | None]:
     """楼中楼这一小时还能点几次 + 最早哪一刻空出一次（读读取组件落盘的 sub-expand.json，只读；读不到按满额）。"""
     try:
         per_hour = max(1, int(os.environ.get("XHS_SUB_PER_HOUR") or SUB_PER_HOUR))
     except ValueError:
         per_hour = SUB_PER_HOUR
+    try:
+        # 1017：调高的额度在 profile 目录 sub-per-hour.json（读取组件撞熔断会自己删掉、退回默认），与读取组件同一份
+        from . import accounts
+        v = int(json.loads((accounts.profile_dir() / "sub-per-hour.json").read_text(encoding="utf-8")).get("per_hour") or 0)
+        if v > 0:
+            per_hour = min(v, 120)
+    except Exception:  # noqa: BLE001 - 没有这个文件 = 默认额度
+        pass
     try:
         from . import accounts
         data = json.loads((accounts.profile_dir() / "sub-expand.json").read_text(encoding="utf-8"))
@@ -399,11 +423,12 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
 
     # 1017 断点续展：上次带游标续了却一条没多拿到（游标那条被删了之类），这次从头展开一次
     resume = resume_points(source, targets) if mode == "expand" and not state.get("resume_stale") else []
+    top_resume = floors_resume_point(source, state) if mode == "floors" else None
 
     def attempt(url: str) -> dict[str, Any]:
         return ingest_mod.ingest_url(url, refresh=True, comment_floors=floors, verbose=verbose,
                                      expand_floors=targets if mode == "expand" else None, fill=True,
-                                     fill_budget_s=budget_s, expand_resume=resume or None)
+                                     fill_budget_s=budget_s, expand_resume=resume or None, floors_resume=top_resume)
 
     old_token = (source.get("note") or {}).get("xsec_token") or ""
     try:
@@ -432,8 +457,12 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
             state["gone_floors"] = sorted(set(str(x) for x in state.get("gone_floors") or []) | not_found)
     sc2 = scope(source2, floors, state)
     progressed = sc2["missing"] < before_missing or sc2["stored"] > before_floors or bool(summary.get("floors_not_found"))
-    if mode == "floors" and sc2["stored"] <= before_floors:
+    if mode == "floors" and top_resume and sc2["stored"] <= before_floors:
+        state["resume_floors_stale"] = True  # 1017：续翻没多拿到（游标那楼被删之类）：下次从第 1 楼滚一次再定
+    elif mode == "floors" and sc2["stored"] <= before_floors:
         state["floors_done"] = floors  # 按楼数重读过一次、楼没变多：原帖就这么多楼，这个楼数下不再重读
+    elif mode == "floors":
+        state.pop("resume_floors_stale", None)
         progressed = progressed or sc2["missing"] < before_missing
     state["attempts"] = _int(state.get("attempts")) + 1
     state["last_at"] = now
@@ -459,6 +488,7 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
     state.pop("last_error", None)
     hist = list(state.get("history") or [])[-7:]
     hist.append({"at": now, "mode": mode, "before": before_missing, "after": sc2["missing"], "resumed": len(resume),
+                 "floors_resumed_from": int(top_resume.rsplit(":", 1)[1]) if top_resume else 0,
                  "floors_before": before_floors, "floors_after": sc2["stored"],
                  "stop": str(cl2.get("stop_reason") or "")})
     state["history"] = hist

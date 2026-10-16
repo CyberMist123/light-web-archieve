@@ -88,3 +88,35 @@ def test_merge_takes_current_site_count_after_deletes():
     gone = [{"comment_id": "f1", "sub_comment_count": 3, "sub_comments": [_reply(1, 1)]}]
     out = xhs.merge_comments(gone, [{"comment_id": "f1", "sub_comment_count": 0, "sub_comments": []}], {"f1"})
     assert cf.scope({"comments": out}, 10)["gaps"] == []
+
+
+def test_floors_resume_point():
+    src = {"comments": [{"comment_id": f"c{i}"} for i in range(520)],
+           "capture": {"comments_cursor": "c519", "comment_load": {"has_more": True}}}
+    assert cf.floors_resume_point(src) == "c519:520"
+    assert cf.floors_resume_point(src, {"resume_floors_stale": True}) is None
+    assert cf.floors_resume_point({**src, "comments": src["comments"][:10]}) is None  # 楼少：从头滚
+    done = {**src, "capture": {"comments_cursor": "c519", "comment_load": {"has_more": False}}}
+    assert cf.floors_resume_point(done) is None
+    from link_brain import ingest
+    assert ingest._detail_kwargs(2000, None, 480, fill=True, floors_resume="c519:520")["floors_resume"] == "c519:520"
+
+
+def test_merge_keep_old_order_appends_new_floors():
+    old = [{"comment_id": f"c{i}", "sub_comments": []} for i in range(5)]
+    new = [{"comment_id": "c0", "sub_comments": []}, {"comment_id": "c1", "sub_comments": []},
+           {"comment_id": "c5", "sub_comments": []}, {"comment_id": "c6", "sub_comments": []}]
+    out = xhs.merge_comments(old, new, set(), keep_old_order=True)
+    assert [c["comment_id"] for c in out] == [f"c{i}" for i in range(7)]
+
+
+def test_sub_quota_reads_raised_limit_file(tmp_path, monkeypatch):
+    from link_brain import accounts
+    monkeypatch.setattr(accounts, "profile_dir", lambda: tmp_path)
+    monkeypatch.delenv("XHS_SUB_PER_HOUR", raising=False)
+    now = datetime(2026, 10, 17, 12, 0, tzinfo=TZ)
+    clicks = [(now - timedelta(minutes=30)).isoformat()] * 40
+    (tmp_path / "sub-expand.json").write_text(json.dumps({"clicks": clicks}), encoding="utf-8")
+    assert cf.sub_quota(now)[0] == 0
+    (tmp_path / "sub-per-hour.json").write_text(json.dumps({"per_hour": 60}), encoding="utf-8")
+    assert cf.sub_quota(now)[0] == 20
