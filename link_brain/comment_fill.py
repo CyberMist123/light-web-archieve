@@ -26,6 +26,8 @@ import subprocess
 import sys
 import time
 from datetime import datetime, timedelta
+
+from . import actionlog
 from pathlib import Path
 from typing import Any, Callable
 
@@ -35,6 +37,9 @@ FLOOR_MIN = 10
 FLOOR_ALL = 2000            # 「全部」= 读取组件一次最多列这么多楼
 FILL_BUDGET_S = 480         # 续读一次给读取组件的评论预算（秒）；请求超时比它多 90 秒。插件「立即同步」等号最多 10 分钟，一篇得在这之内放手
 FILL_GAP_MIN = 45           # 同一篇两次开页至少隔这么久（0926 实测：同一篇 20 分钟开 5 次会被软限流，评论返回空）；1015 起设置里可调慢（见 fill_gap_min）
+# 1016：连续补评论跑满 WORK_MIN 分钟强制歇 REST_MIN 分钟（10-10 连跑 2.5 小时撞过滑块）
+WORK_MIN = int(os.environ.get("LWA_WORK_MIN") or 60)
+REST_MIN = int(os.environ.get("LWA_REST_MIN") or 30)
 NO_PROGRESS_LIMIT = 3       # 连着这么多次续读都没多拿到 → 不再自动续，进问题面板（照实说原因）
 SETTLED_REASONS = ("count_mismatch",)   # 读取组件说「展开到底了，原站显示的数比能看到的多（删除 / 折叠）」：读多少次都一样，不算缺口
 STATE_NAME = "comments-fill.json"
@@ -204,9 +209,27 @@ def last_open(source: dict[str, Any], state: dict[str, Any]) -> datetime | None:
     return max(stamps) if stamps else None
 
 
+# 1016（她：已放弃的不要放弃）：补不上的不再永久停，按 3 / 7 / 14 天慢慢再试一次（之后每 14 天一次）。
+STUCK_RETRY_DAYS = (3, 7, 14)
+
+# 1016：这些停因说明这次根本没真去点（楼中楼闸关着 / 预算 / 限频 / 风控停下），不算「续读没多拿到」。
+NOT_A_REAL_TRY = {"sub_paused", "not_reached", "budget", "throttled", "risk", "cancelled"}
+
+
+def stuck_retry_due(state: dict[str, Any], now: datetime | None = None) -> bool:
+    """补不上的那篇到没到下一次慢速重试的时候。"""
+    at = _parse(state.get("stuck_at"))
+    if at is None:
+        return False  # 不知道哪天停的：按刚停算（不至于每轮都开）
+    rounds = _int(state.get("stuck_rounds"))
+    days = STUCK_RETRY_DAYS[min(rounds, len(STUCK_RETRY_DAYS) - 1)]
+    return (now or _now()) - at >= timedelta(days=days)
+
+
 def is_stuck(state: dict[str, Any], floors: int) -> bool:
-    """连着几次补不上、已进问题面板：同一个楼数下不再自动续（楼数调大了照样再试）。"""
-    return bool(state.get("stuck")) and _int(state.get("stuck_floors") or floors) >= floors
+    """连着几次补不上、已进问题面板：同一个楼数下先不自动续，到了慢速重试的日子（stuck_retry_due）再试一次。"""
+    return (bool(state.get("stuck")) and _int(state.get("stuck_floors") or floors) >= floors
+            and not stuck_retry_due(state))
 
 
 # --------------------------------------------------------------------------
@@ -364,7 +387,17 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
     state["last_at"] = now
     state["last_mode"] = mode
     state["last_missing"] = sc2["missing"]
-    state["no_progress"] = 0 if progressed else _int(state.get("no_progress")) + 1
+    gap_reasons = {str(g.get("reason") or "") for g in sc2["gaps"]}
+    real_try = not (gap_reasons and gap_reasons <= NOT_A_REAL_TRY) and str(cl2.get("stop_reason") or "") not in NOT_A_REAL_TRY
+    if progressed:
+        state["no_progress"] = 0
+    elif real_try:
+        state["no_progress"] = _int(state.get("no_progress")) + 1
+    else:
+        state["no_progress"] = _int(state.get("no_progress"))  # 这次没真去点（闸关着 / 预算）：不加也不清
+    if state.get("stuck") and progressed:
+        for k in ("stuck", "stuck_floors", "stuck_at", "stuck_reason", "stuck_rounds"):
+            state.pop(k, None)
     state.pop("last_error", None)
     hist = list(state.get("history") or [])[-7:]
     hist.append({"at": now, "mode": mode, "before": before_missing, "after": sc2["missing"],
@@ -377,11 +410,14 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
     elif state["no_progress"] >= NO_PROGRESS_LIMIT:
         main = max(sc2["gaps"], key=lambda g: g["missing"])["reason"] if sc2["gaps"] else str(cl2.get("stop_reason") or "")
         why = reason_text(main)
-        state.update(stuck=True, stuck_floors=floors, stuck_at=now, stuck_reason=why)
+        rounds = _int(state.get("stuck_rounds")) + (1 if state.get("stuck") else 0)
+        state.update(stuck=True, stuck_floors=floors, stuck_at=now, stuck_reason=why, stuck_rounds=rounds)
         save_state(source_key, source_id, state)
+        days = STUCK_RETRY_DAYS[min(rounds, len(STUCK_RETRY_DAYS) - 1)]
         problems.report(STEP, CODE_INCOMPLETE,
-                        f"{floors_label(floors)}的楼中楼还缺 {sc2['missing']} 条：{why}；连着 {state['no_progress']} 次续读都没多拿到，先不自动读了",
-                        item_id=item_id, title=title, action="gave_up", missing=sc2["missing"])
+                        f"{floors_label(floors)}的楼中楼还缺 {sc2['missing']} 条：{why}；连着 {state['no_progress']} 次续读都没多拿到，"
+                        f"{days} 天后自动再试（不放弃）",
+                        item_id=item_id, title=title, action="retry_later", missing=sc2["missing"])
     else:
         save_state(source_key, source_id, state)
     try:
@@ -655,6 +691,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
             status.update()
 
     try:
+        work_since: list[float] = []  # 1016：这一段连续干活从几时起（跑满 WORK_MIN 分钟强制歇 REST_MIN 分钟）
         while True:
             floors = floor_target()
             sv = survey(floors)
@@ -718,6 +755,23 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
                 nap(WAIT_HUMAN_S if code in accounts.NEEDS_HUMAN_CODES else WAIT_BUSY_S, state="waiting", current=None,
                     wait_code=code, message=status.text("补评论暂停") + " · " + why)
                 continue
+            rp_why, rp_until = actionlog.repeat_pause("comments")
+            if rp_why:  # 1016：同一种行为（读评论 / 楼中楼）反复被拦：这类先停，别越撞越重
+                if not until_done:
+                    stop_msg, deferred = rp_why, len(ready)
+                    break
+                left = (rp_until - _now()).total_seconds() if rp_until else WAIT_BUSY_S
+                nap(max(60.0, min(1800.0, left)), state="waiting", current=None, wait_code="REPEAT_PAUSE",
+                    message=status.text("补评论暂停") + " · " + rp_why)
+                continue
+            if until_done:
+                if not work_since:
+                    work_since.append(time.monotonic())
+                elif time.monotonic() - work_since[0] >= WORK_MIN * 60:
+                    work_since.clear()
+                    nap(REST_MIN * 60, state="waiting", current=None, wait_code="REST",
+                        message=status.text("补评论歇一会") + f" · 连着补了 {WORK_MIN} 分钟，像人一样歇 {REST_MIN} 分钟")
+                    continue
             waited_s = 0
             item_id = entry["item_id"]
             status.update(state="running", current={"item_id": item_id, "title": entry["title"][:60]}, wait_code="",

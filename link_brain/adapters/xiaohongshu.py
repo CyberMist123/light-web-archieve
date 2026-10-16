@@ -362,6 +362,29 @@ def flatten_exc(exc: BaseException) -> str:
 
 def call_tool(tool: str, arguments: dict[str, Any], *, endpoint: str | None = None,
               timeout: float = 300) -> Any:
+    """同步调一个 MCP 工具，并记一行用号行为日志（1016，actionlog）。见 _call_tool。"""
+    import time as _time
+    from .. import actionlog
+    t0 = _time.monotonic()
+    item = str(arguments.get("feed_id") or "")
+    try:
+        out = _call_tool(tool, arguments, endpoint=endpoint, timeout=timeout)
+    except Exception as exc:
+        actionlog.record(actionlog.action_for_tool(tool, arguments), ok=False, item=item,
+                         code=str(getattr(exc, "code", "") or ""), detail=str(exc), secs=_time.monotonic() - t0)
+        raise
+    extra = {}
+    if isinstance(out, dict):
+        data = out.get("data") if isinstance(out.get("data"), dict) else {}
+        cl = out.get("comment_load") or data.get("comment_load")
+        if isinstance(cl, dict):
+            extra = {"sub_clicks": cl.get("clicks"), "stop": cl.get("stop_reason"), "missing": cl.get("replies_missing")}
+    actionlog.record(actionlog.action_for_tool(tool, arguments), ok=True, item=item, secs=_time.monotonic() - t0, **extra)
+    return out
+
+
+def _call_tool(tool: str, arguments: dict[str, Any], *, endpoint: str | None = None,
+               timeout: float = 300) -> Any:
     """同步调一个 MCP 工具；连不上/服务内部错一律升级成 `ServiceDownError`。
 
     默认地址的服务没起时先在本机拉起再调（只拉一次，不循环重试）。
@@ -819,9 +842,11 @@ REPLY_GAP_CN = {
     "cap": "回复太多，这次先到这", "no_growth": "点了展开但没加载出来", "click_failed": "展开按钮点不动",
     "no_button": "页面说还有回复但没有展开按钮", "not_expanded": "这楼没要求展开", "count_mismatch": "原站显示的条数比能看到的多（删除 / 折叠）",
     "risk": "撞到风控先停", "throttled": "被限频先停", "stuck": "评论区滚不动",
+    "sub_paused": "楼中楼这会儿暂停（每小时额度 / 限频后放慢），下次接着读",
 }
 # 这些原因下次还能接着读（续读 comments --fill）；count_mismatch / no_button / not_expanded 读多少次都一样，不续
-RESUMABLE_GAPS = ("not_reached", "budget", "cancelled", "cap", "no_growth", "click_failed", "throttled", "stuck", "risk")
+RESUMABLE_GAPS = ("not_reached", "budget", "cancelled", "cap", "no_growth", "click_failed", "throttled", "stuck", "risk",
+                  "sub_paused")
 
 
 def compact_comment_load(raw: Any) -> dict[str, Any] | None:

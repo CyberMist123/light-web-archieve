@@ -222,6 +222,24 @@ def _account_guard() -> None:
 
 
 def api(method: str, route: str, *, timeout: float = 45, body: dict | None = None) -> dict:
+    """调读取服务的 HTTP 接口；碰号的那几类（actionlog.action_for_route 认得的）记一行用号行为日志（1016）。"""
+    from . import actionlog
+    action = actionlog.action_for_route(route)
+    if not action:
+        return _api(method, route, timeout=timeout, body=body)
+    t0 = time.monotonic()
+    item = str((body or {}).get('feed_id') or (body or {}).get('note_id') or '')
+    try:
+        out = _api(method, route, timeout=timeout, body=body)
+    except ReaderError as exc:
+        actionlog.record(action, ok=False, item=item, code=exc.code, detail=f'{exc} {getattr(exc, "detail", "")}',
+                         secs=time.monotonic() - t0)
+        raise
+    actionlog.record(action, ok=True, item=item, secs=time.monotonic() - t0)
+    return out
+
+
+def _api(method: str, route: str, *, timeout: float = 45, body: dict | None = None) -> dict:
     _account_guard()
     opens_page = route.split('?', 1)[0] in PAGE_ROUTES
     try:
