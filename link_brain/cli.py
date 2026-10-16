@@ -35,6 +35,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--verbose", "-v", action="store_true", help="打印网络/MCP 调用等细节")
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
+    p = sub.add_parser('watch', help='实时进度黑框：号状态、正在抓什么、最近每次用号的结果（只读本机文件，不碰号）')
+    p.add_argument('--interval', type=float, default=2, help='几秒刷新一次（默认 2）')
+    p.add_argument('--once', action='store_true', help='只打印一屏就退出')
+
+    p = sub.add_parser('crawl', help='交替抓取：抓新收藏 → 补评论 → 补以前的收藏 → 补评论 …（像人一样间歇，跑满 1 小时歇半小时）')
+    p.add_argument('--hours', type=float, default=0, help='最多跑几小时（0 = 一直跑，Ctrl+C 停）')
+    p.add_argument('--fav-min', type=int, default=20, help='每块抓收藏最多几分钟（默认 20）')
+    p.add_argument('--comments-min', type=int, default=25, help='每块补评论最多几分钟（默认 25）')
+
     p = sub.add_parser('doctor', help='检查运行状态与首次设置（不修改配置）')
     p.add_argument('--json', action='store_true')
     p.add_argument('--obsidian-dir', help='实际 Obsidian 配置目录（插件自动传入）')
@@ -399,6 +408,14 @@ def _account_lock(args, owner: str, on_wait=None):
 
 
 def _dispatch(args) -> int:
+    if args.command == 'watch':
+        from . import watch
+        return watch.run(args)
+
+    if args.command == 'crawl':
+        from . import crawl
+        return crawl.run(args)
+
     if args.command == 'mcp':
         from . import mcp_server
         return mcp_server.main()
