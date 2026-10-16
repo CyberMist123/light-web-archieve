@@ -304,6 +304,32 @@ def extracted_data(doc: dict[str, Any] | None) -> dict[str, Any] | None:
 STRICT_JSON_SUFFIX = "\n\n（上一次的输出没法按 JSON 解析：这次只输出一个 JSON 对象，不要代码块、不要任何其它文字。）"
 
 
+def summary_fallbacks(primary: dict[str, Any], settings: dict[str, Any]) -> list[dict[str, Any]]:
+    """1016：概要的备用（按顺序）：summaryAI.fallback（如百炼，她定：Gemini key 报错先换百炼）→ 文本 AI（DeepSeek）。
+    拿不到 key 的、和主模型同一家同一把 key 的不算。"""
+    from . import providers
+    out: list[dict[str, Any]] = []
+    fb = (settings.get("summaryAI") or {}).get("fallback")
+    if isinstance(fb, dict) and fb.get("endpoint"):
+        try:
+            cfg, _ = providers.finalize("summaryAI", {"mode": "http", **fb})
+        except Exception:  # noqa: BLE001
+            cfg = None
+        if cfg and cfg.get("apiKey"):
+            out.append(cfg)
+    alt = alternate_summary_config(primary, settings)
+    if alt is not None:
+        out.append(alt)
+    sig = lambda c: (c.get("endpoint"), c.get("model"), c.get("apiKey"))  # noqa: E731
+    seen = {sig(primary)}
+    uniq = []
+    for c in out:
+        if sig(c) not in seen:
+            seen.add(sig(c))
+            uniq.append(c)
+    return uniq
+
+
 def alternate_summary_config(primary: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any] | None:
     """概要的「另一个已配置的模型」：设置里的文本 AI（问答用的那个），和归档摘要模型不是同一个时才算。没有就 None。"""
     from . import providers
@@ -385,26 +411,26 @@ def _extract(source_key: str, source_id: str, *, force: bool = False, verbose: b
     # 10-04 当场自愈：第一次 + 失败重试 1 次（上次是格式不对就把「只回 JSON」说得更死）；
     # 还不行、又不是 key / 欠费 / 没配这类重试没用的，换另一个已配置的文本模型再试一次（alternate_summary_config）
     plan = [(model_cfg, False), (model_cfg, True)]
-    alt_cfg = alternate_summary_config(model_cfg, settings)
-    if alt_cfg is not None:
-        plan.append((alt_cfg, True))
+    alts = summary_fallbacks(model_cfg, settings)
+    alt_cfg = alts[0] if alts else None
+    plan.extend((c, True) for c in alts)
     used_cfg = model_cfg
     primary_fail: dict[str, Any] | None = None
     for attempt, (cfg_now, strict) in enumerate(plan):
         if attempt == 1 and primary_fail is not None:
             continue  # 主模型 key 失效 / 欠费：同一个再试没用，直接去备用（1016）
-        if attempt == 2 and (data or (code.startswith(("NEEDS_HUMAN.", "SKIPPED.")) and primary_fail is None)):
+        if attempt >= 2 and (data or (code.startswith(("NEEDS_HUMAN.", "SKIPPED.")) and primary_fail is None)):
             break
         attempts = attempt + 1
         used_cfg = cfg_now
         if verbose:
             print(f"[llm] {meta['item_id']} 第 {attempts} 次调用", file=sys.stderr)
         ask = instruction + (STRICT_JSON_SUFFIX if strict and code == "PERMANENT.MODEL_OUTPUT_INVALID" else "")
-        result = call_model(ask, input_text, cfg_now)
+        result = providers.call_with_pool(cfg_now, lambda c: call_model(ask, input_text, c))
         if result.get("status") != "ok":
             error = result.get("error") or "模型调用失败"
             code = result.get("code") or "TRANSIENT.SERVICE_BUSY"
-            if attempt == 0 and alt_cfg is not None and code in ("NEEDS_HUMAN.AUTH_FAILED", "NEEDS_HUMAN.QUOTA_EXCEEDED"):
+            if attempt != 1 and alt_cfg is not None and attempt + 1 < len(plan) and                     code in ("NEEDS_HUMAN.AUTH_FAILED", "NEEDS_HUMAN.QUOTA_EXCEEDED", "TRANSIENT.HTTP_429"):
                 # 1016：主提供商 403 / 欠费 → 换设置里另一个已配置的文本模型（如 DeepSeek），问题面板照实写「已换用 X」
                 primary_fail = {**result, "code": code}
                 continue

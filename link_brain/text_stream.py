@@ -240,7 +240,10 @@ def http_call(instruction, text, cfg, on_delta=None):
             body['reasoning_effort'] = 'low'
     if cfg.get('responseFormat'):
         body['response_format'] = cfg['responseFormat']
-    if cfg.get('noThinking') and not body['model'].startswith('deepseek'):
+    if 'generativelanguage.googleapis.com' in str(cfg.get('endpoint') or ''):
+        # 1016：Gemini 的 OpenAI 兼容接口用 reasoning_effort 关思考（不认千问的 enable_thinking）；概要 / 扩词都不需要想
+        body['reasoning_effort'] = 'low' if cfg.get('thinking') or 'pro' in body['model'] else 'none'
+    elif cfg.get('noThinking') and not body['model'].startswith('deepseek'):
         # 第 10 批扩词：千问 3 系列默认先「思考」，一次扩词 20–40 秒；关掉思考（DashScope 兼容接口的 enable_thinking）
         body['enable_thinking'] = False
     try:

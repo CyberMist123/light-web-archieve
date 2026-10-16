@@ -42,9 +42,14 @@ def load_config() -> dict:
         cfg = llm.load_config().get("embedding") or {}
     except (OSError, ValueError):
         cfg = {}
-    return {"model": cfg.get("model") or "text-embedding-v4",
+    try:  # 1016：设置（data.json 的 embedAI）里写了模型 / 维度就以它为准（如换成 Gemini），否则用 llm-config.yaml
+        from . import providers
+        own = providers.raw_config("embedAI")
+    except Exception:  # noqa: BLE001
+        own = {}
+    return {"model": own.get("model") or cfg.get("model") or "text-embedding-v4",
             "endpoint": (cfg.get("endpoint") or "").strip(),
-            "dimensions": cfg.get("dimensions"),
+            "dimensions": own.get("dimensions") or cfg.get("dimensions"),
             "query_timeout_sec": float(cfg.get("query_timeout_sec") or 5)}
 
 
@@ -201,8 +206,35 @@ def embed_error_code(exc: Exception) -> str:
 
 def _post_embeddings(texts: list[str], cfg: dict, timeout: float) -> list[list[float]]:
     """一次 HTTP 批量取向量；失败抛异常，由调用方决定告警或退词法。"""
+    return _embed_with_pool(texts, cfg, timeout)
+
+
+def _embed_with_pool(texts: list[str], cfg: dict, timeout: float) -> list[list[float]]:
+    """1016：embedAI 带 keyPool（如 Gemini ×4）时，key 被拒 / 限额（401 / 403 / 429）就换下一把，全用坏才抛。"""
+    from . import providers
+    try:
+        emb = providers.resolve("embedAI") or {}
+    except Exception:  # noqa: BLE001
+        emb = {}
+    pool = str(emb.get("keyPool") or "")
+    if not pool:
+        endpoint, key = _endpoint_and_key(cfg)
+        return _post_embeddings_once(texts, cfg, timeout, endpoint, key)
+    endpoint = cfg.get("endpoint") or emb.get("endpoint") or ""
+    last: Exception = RuntimeError("no-api-key")
+    for key in providers.pool_alive(pool):
+        try:
+            return _post_embeddings_once(texts, cfg, timeout, endpoint, key)
+        except EmbedHTTPError as exc:
+            if providers.http_code(exc.status, exc.body) not in providers.POOL_DEAD_CODES:
+                raise
+            providers.pool_mark_dead(pool, key)
+            last = exc
+    raise last
+
+
+def _post_embeddings_once(texts: list[str], cfg: dict, timeout: float, endpoint: str, key: str) -> list[list[float]]:
     import httpx
-    endpoint, key = _endpoint_and_key(cfg)
     if not key:
         raise RuntimeError("no-api-key")
     body = {"model": cfg["model"], "input": texts}

@@ -70,7 +70,13 @@ def raw_config(cap: str, settings: dict[str, Any] | None = None) -> dict[str, An
     if cap == "visionAI.refine":
         vis = {**_defaults("visionAI"), **(s.get("visionAI") or {})}
         cfg = dict(vis)
-        cfg["model"] = vis.get("refineModel") or vis.get("model") or ""
+        own = vis.get("refine") if isinstance(vis.get("refine"), dict) else None
+        if own:  # 1016：第二层单独配接口 / key（如第一层 Gemini 轮 key、第二层兜底百炼 max）
+            cfg = {**cfg, **own}
+            if "keyPool" not in own:
+                cfg.pop("keyPool", None)
+        cfg.pop("refine", None)
+        cfg["model"] = (own or {}).get("model") or vis.get("refineModel") or vis.get("model") or ""
         cfg["timeoutSec"] = vis.get("refineTimeoutSec") or vis.get("timeoutSec")
         return cfg
     cfg = {**_defaults(cap), **(s.get(cap) or {})}
@@ -100,9 +106,81 @@ def read_key_file(path: str, field: str = "apiKey") -> tuple[dict[str, str] | No
     return {r[0].strip(): r[1].strip() for r in csv.reader(io.StringIO(text)) if len(r) >= 2}, ""
 
 
+# --------------------------------------------------------------------------
+# 1016 key 轮流用（keyPool）：一家给了好几把 key（她的 Gemini 免费 key ×4），设置里写 `"keyPool": "gemini"`。
+# 每次取第一把今天还没用坏的；撞 401 / 403 / 429 / 欠费 → 这把记作今天用坏、换下一把；全坏了才算这一家失败（走备用）。
+# key 来源：环境变量 LWA_GEMINI_KEYS（夜跑从密码库注入，逗号分隔）→ ~/.link-brain/config.json 的 gemini_keys_file
+# （一行一把，只本用户可读）。key 只在内存里，不落盘、不进日志。
+# --------------------------------------------------------------------------
+
+POOL_ENV = {"gemini": "LWA_GEMINI_KEYS"}
+POOL_FILE_FIELD = {"gemini": "gemini_keys_file"}
+POOL_DEAD_CODES = ("NEEDS_HUMAN.AUTH_FAILED", "NEEDS_HUMAN.QUOTA_EXCEEDED", "TRANSIENT.HTTP_429")
+_POOL_DEAD: dict[str, dict[str, str]] = {}  # 池名 → {key: 哪天用坏的}
+
+
+def pool_keys(name: str) -> list[str]:
+    """一个 key 池里所有的 key（按顺序、去重）。拿不到 = []。"""
+    raw = os.environ.get(POOL_ENV.get(name, ""), "")
+    if not raw.strip():
+        try:
+            from . import storage
+            path = (storage.user_config() or {}).get(POOL_FILE_FIELD.get(name, ""))
+            raw = Path(str(path)).expanduser().read_text("utf-8-sig") if path else ""
+        except OSError:
+            raw = ""
+    out: list[str] = []
+    for k in raw.replace(",", "\n").splitlines():
+        k = k.strip()
+        if k and k not in out:
+            out.append(k)
+    return out
+
+
+def _today() -> str:
+    from datetime import date
+    return date.today().isoformat()
+
+
+def pool_alive(name: str) -> list[str]:
+    dead = {k for k, day in _POOL_DEAD.get(name, {}).items() if day == _today()}
+    return [k for k in pool_keys(name) if k not in dead]
+
+
+def pool_mark_dead(name: str, key: str) -> None:
+    _POOL_DEAD.setdefault(name, {})[key] = _today()
+
+
+def call_with_pool(cfg: dict[str, Any] | None, call):
+    """用 cfg 调一次 call(cfg) → 结果 dict；cfg 带 keyPool 时，结果码是 key 用坏类就换下一把再调，直到成功或 key 用光。
+    不带 keyPool 原样调一次。结果里 pool_key_index 记第几把（从 1 起，给日志用，不带 key 本身）。"""
+    if not cfg or not cfg.get("keyPool"):
+        return call(cfg)
+    name = str(cfg["keyPool"])
+    keys = pool_alive(name)
+    if not keys:
+        return result("failed", code="NEEDS_HUMAN.AUTH_FAILED", api_error=True,
+                      error=f"{name} 的 key 今天都用不了了（或一把都没配）")
+    allk = pool_keys(name)
+    got: dict[str, Any] = {}
+    for key in keys:
+        got = call({**cfg, "apiKey": key})
+        if not isinstance(got, dict) or str(got.get("code") or "") not in POOL_DEAD_CODES:
+            if isinstance(got, dict):
+                got.setdefault("pool_key_index", allk.index(key) + 1)
+            return got
+        pool_mark_dead(name, key)
+    return got
+
+
 def resolve_key(cfg: dict[str, Any]) -> tuple[str, str]:
-    """(key, 出错原因)。顺序：apiKey → keyFile/keyField → 环境变量 apiKeyEnv。"""
+    """(key, 出错原因)。顺序：apiKey → keyPool（第一把今天没用坏的）→ keyFile/keyField → 环境变量 apiKeyEnv。"""
     key = str(cfg.get("apiKey") or "").strip()
+    if not key and cfg.get("keyPool"):
+        alive = pool_alive(str(cfg["keyPool"]))
+        if alive:
+            return alive[0], ""
+        return "", f"{cfg['keyPool']} 的 key 一把都拿不到（或今天都用坏了）"
     if key:
         return key, ""
     err = ""

@@ -73,7 +73,7 @@ def _understand(entry: dict[str, Any], path: Path, cfg: dict[str, Any] | None, s
     0926 Owner：小红书「几乎没字但有字」的图基本是标题图（大字一句话 + 纯色底），
     直接转写成「标题：…」，不调模型、不描述底色——只有小红书这么设计，别的站照旧描述。
     """
-    from . import visual
+    from . import providers, visual
     if entry.get("status") != "ok" or "lines" not in entry:
         return entry
     entry["layout"] = visual.classify(entry["lines"])
@@ -88,7 +88,7 @@ def _understand(entry: dict[str, Any], path: Path, cfg: dict[str, Any] | None, s
     if cfg and (old.get("status") != "ok" or old.get("v") != visual.VISUAL_VERSION):
         from . import usage
         with usage.tag("vision", item=item_id):
-            got = visual.understand(path, entry["lines"], cfg)
+            got = providers.call_with_pool(cfg, lambda c: visual.understand(path, entry["lines"], c))
             if _should_switch(got):
                 got = _understand_backup(path, entry["lines"], cfg, got, item_id)
         if got.get("status") == "ok" or old.get("status") != "ok":
@@ -104,7 +104,7 @@ def _understand(entry: dict[str, Any], path: Path, cfg: dict[str, Any] | None, s
 
 # 1016：第一层主接口 403 / 欠费 / 内容审核拦下时，换一个有视觉能力的备用：免费 key（Gemini）→ 设置 models 里标了
 # "vision": true 的条目 → 精细识别模型（接口或 key 和主接口不同才算：同一把坏 key 再试没用）。
-SWITCH_CODES = ("NEEDS_HUMAN.AUTH_FAILED", "NEEDS_HUMAN.QUOTA_EXCEEDED", "PERMANENT.CONTENT_FILTERED")
+SWITCH_CODES = ("NEEDS_HUMAN.AUTH_FAILED", "NEEDS_HUMAN.QUOTA_EXCEEDED", "PERMANENT.CONTENT_FILTERED", "TRANSIENT.HTTP_429")
 
 
 def _should_switch(got: dict[str, Any]) -> bool:
@@ -120,7 +120,8 @@ def vision_backups(primary: dict[str, Any] | None) -> list[dict[str, Any]]:
     """第一层识图的备用（按顺序），去掉和主接口同一接口同一把 key 的。key 只在内存里。"""
     from . import ai_config, providers
     out: list[dict[str, Any]] = []
-    keys = [k.strip() for k in os.environ.get(_refine_keys_env(), "").split(",") if k.strip()]
+    p0 = primary or {}
+    keys = [] if p0.get("keyPool") == "gemini" else providers.pool_alive("gemini") or         [k.strip() for k in os.environ.get(_refine_keys_env(), "").split(",") if k.strip()]
     for i, key in enumerate(keys):
         out.append({"endpoint": GEMINI_ENDPOINT, "apiKey": key, "model": GEMINI_MODEL,
                     "label": f"Google {GEMINI_MODEL}（免费 key {i + 1}）"})
@@ -152,7 +153,7 @@ def vision_backups(primary: dict[str, Any] | None) -> list[dict[str, Any]]:
 
 def _understand_backup(path: Path, lines, primary: dict[str, Any], first: dict[str, Any],
                        item_id: str | None) -> dict[str, Any]:
-    from . import visual
+    from . import providers, visual
     for alt in vision_backups(primary):
         got = visual.understand(path, lines, alt)
         if got.get("status") == "ok":
@@ -175,7 +176,7 @@ API_STREAK_STOP = 3  # 连着几张都是接口故障就今晚收手
 
 def refine_reason(entry: dict[str, Any]) -> str:
     """第一层跑完后，这张图值不值得交给强模型补跑（0928 Owner 定的三条里的前两条；第三条是手动点名）。"""
-    from . import visual
+    from . import providers, visual
     v = entry.get("visual") or {}
     lines = entry.get("lines") or []
     chars = sum(len(l.get("text") or "") for l in lines)
@@ -225,7 +226,7 @@ def build_vision(source_key: str, source_id: str, *, verbose: bool = False, upgr
         existing = {item['asset']: item for item in storage.read_json(vision_path).get('images', []) if item.get('asset')}
     manifest = storage.read_json(raw_dir / 'manifest.json')
     assets = [m['file'] for m in manifest.get('media', []) if m.get('file') and Path(m['file']).suffix.lower() in IMAGE_SUFFIXES]
-    from . import visual
+    from . import providers, visual
     cfg = visual.vision_config()
     item_id = _item_id(source_key, source_id)
     images = []
@@ -323,7 +324,8 @@ class RefineRouter:
     """第二层走哪个模型：免费 key 轮换 → 设置里的强模型兜底。一晚上共用一个实例，记住哪些 key 今天用完了。"""
 
     def __init__(self, fallback: dict[str, Any] | None):
-        self.keys = [k.strip() for k in os.environ.get(_refine_keys_env(), "").split(",") if k.strip()]
+        from . import providers
+        self.keys = providers.pool_alive("gemini") or             [k.strip() for k in os.environ.get(_refine_keys_env(), "").split(",") if k.strip()]
         self.dead: set[int] = set()
         self.fallback = fallback
         self.used: dict[str, int] = {}
@@ -369,7 +371,7 @@ def _same_model(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:
 
 def alternate_models(used: dict[str, Any] | None) -> list[dict[str, Any]]:
     """「另一个已配置的模型」：设置里的精细识别模型、第一层识图模型，去掉刚用过的、去重。"""
-    from . import visual
+    from . import providers, visual
     out: list[dict[str, Any]] = []
     for get in (strong_config, visual.vision_config):
         try:
@@ -385,7 +387,7 @@ def refine_with_fallbacks(img: Path, lines, kind: str, cfg) -> tuple[dict[str, A
     """一张图的精细识别 + 当场自愈梯子。返回 (最后结果, 试过的做法)。
     ① 原样 ② 结果不合格 → 同一路换参数（温度 RETRY_TEMPERATURE）③ 还不合格 → 依次换别的已配置模型。
     接口故障 / 要人处理 / 没配：立即返回（交给调用方按原规则处理），不在这里白烧钱。"""
-    from . import visual
+    from . import providers, visual
     router = cfg if isinstance(cfg, RefineRouter) else None
     got = router.refine(img, lines, kind) if router else visual.refine(img, lines, kind, cfg)
     used = router.last_cfg if router else cfg
@@ -434,7 +436,7 @@ TILE_MAX = 4
 
 def salvage_repeat(text: str) -> str:
     """复读结果截到第一处复读标记为止（被复读的那段保留一次）。剩下太少 / 是流程图（截了就坏）→ 空串。"""
-    from . import visual
+    from . import providers, visual
     if not text or "```mermaid" in text or visual.REPEAT_MARK not in text:
         return ""
     cut = text.split(visual.REPEAT_MARK, 1)[0].rstrip()
@@ -446,7 +448,7 @@ def salvage_repeat(text: str) -> str:
 def refine_tiles(img: Path, lines, kind: str, cfg, router=None) -> dict[str, Any] | None:
     """把图切成上下 N 段（有重叠）分别精细识别、按顺序拼起来。流程图 / 太矮的图不切（结构会断）→ None。"""
     import tempfile
-    from . import visual
+    from . import providers, visual
     if kind == "diagram" or (not cfg and router is None):
         return None
     try:
