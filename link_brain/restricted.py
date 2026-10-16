@@ -240,7 +240,7 @@ def clear(source_id: str, *, item_id: str | None = None, why: str = "", token: s
 def view(source_id: str) -> dict[str, Any] | None:
     """笔记页评论区顶上那一行要的：{text, since, item_id}；没标着返回 None。"""
     st = load(source_id)
-    if not confirmed(st):
+    if not confirmed(st) or archive_complete(source_id):  # 1017：存档已齐的笔记页也不出「要验证」
         return None
     return {"text": TEXT, "since": st.get("since"), "item_id": f"xhs-{_sid(source_id)}",
             "searched": (st.get("search") or {}).get("result") or ""}

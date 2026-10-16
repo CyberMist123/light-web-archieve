@@ -215,3 +215,11 @@ def test_reconcile_unknown_login_but_last_use_was_blocked(monkeypatch):
             {"ts": (t + timedelta(minutes=2)).isoformat(), "ok": False, "code": "XHS_RATE_LIMITED"}]
     monkeypatch.setattr(actionlog, "read", lambda since=None, limit=None: rows)
     assert problems.reconcile_account({"logged_in": None, "risk_hold": None}) == 0
+
+
+def test_note_page_line_hidden_when_archive_complete(monkeypatch):
+    restricted.save("n5", {"restricted": True, "days": ["2026-10-16", "2026-10-17"]})
+    monkeypatch.setattr(restricted, "archive_complete", lambda sid: False)
+    assert restricted.view("n5")
+    monkeypatch.setattr(restricted, "archive_complete", lambda sid: True)
+    assert restricted.view("n5") is None
