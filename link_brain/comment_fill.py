@@ -213,6 +213,14 @@ def sub_quota(now: datetime | None = None) -> tuple[int, datetime | None]:
     except ValueError:
         per_hour = SUB_PER_HOUR
     try:
+        # 1017：调高的额度在 profile 目录 sub-per-hour.json（读取组件撞熔断会自己删掉、退回默认），与读取组件同一份
+        from . import accounts
+        v = int(json.loads((accounts.profile_dir() / "sub-per-hour.json").read_text(encoding="utf-8")).get("per_hour") or 0)
+        if v > 0:
+            per_hour = min(v, 120)
+    except Exception:  # noqa: BLE001 - 没有这个文件 = 默认额度
+        pass
+    try:
         from . import accounts
         data = json.loads((accounts.profile_dir() / "sub-expand.json").read_text(encoding="utf-8"))
         clicks = sorted(t for t in (_parse(x) for x in data.get("clicks") or []) if t)

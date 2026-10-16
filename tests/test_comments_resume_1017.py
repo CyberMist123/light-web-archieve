@@ -108,3 +108,15 @@ def test_merge_keep_old_order_appends_new_floors():
            {"comment_id": "c5", "sub_comments": []}, {"comment_id": "c6", "sub_comments": []}]
     out = xhs.merge_comments(old, new, set(), keep_old_order=True)
     assert [c["comment_id"] for c in out] == [f"c{i}" for i in range(7)]
+
+
+def test_sub_quota_reads_raised_limit_file(tmp_path, monkeypatch):
+    from link_brain import accounts
+    monkeypatch.setattr(accounts, "profile_dir", lambda: tmp_path)
+    monkeypatch.delenv("XHS_SUB_PER_HOUR", raising=False)
+    now = datetime(2026, 10, 17, 12, 0, tzinfo=TZ)
+    clicks = [(now - timedelta(minutes=30)).isoformat()] * 40
+    (tmp_path / "sub-expand.json").write_text(json.dumps({"clicks": clicks}), encoding="utf-8")
+    assert cf.sub_quota(now)[0] == 0
+    (tmp_path / "sub-per-hour.json").write_text(json.dumps({"per_hour": 60}), encoding="utf-8")
+    assert cf.sub_quota(now)[0] == 20
