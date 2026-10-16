@@ -455,6 +455,7 @@ def fetch_detail(
     timeout: float = 600,
     comment_budget_s: int | None = None,
     expand_floors: list[str] | None = None,
+    expand_resume: list[str] | None = None,
 ) -> dict[str, Any]:
     """调 `get_feed_detail`，返回**原始**响应（原样落 `mcp_raw.json`）。
 
@@ -480,6 +481,9 @@ def fetch_detail(
         if expand_floors:
             # 1008 续读：只展开这些楼（上次预算用完没读全的），其它楼不点；读取组件 ≥ r03 才认，老组件忽略即退回整读
             arguments["expand_floors"] = list(expand_floors)
+            if expand_resume:
+                # 1017 断点续展："comment_id:cursor:have"——读取组件 ≥ reader-10 才认，老组件忽略即从头展开
+                arguments["expand_resume"] = list(expand_resume)
     else:
         # 默认：前 10 楼 + 楼中楼，不滚全评论区。
         arguments = {
@@ -892,15 +896,26 @@ def _reply_key(s: dict[str, Any]) -> str:
 
 
 def _union_replies(prev: list[dict[str, Any]], cur: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """楼中楼并集：以这次读到的顺序为准，旧版有、这次没有的（删了 / 折叠了 / 这次没展开到）接在后面——归档不丢。"""
-    seen = set()
-    out = []
-    for s in list(cur) + list(prev):
-        k = _reply_key(s)
-        if k in seen:
+    """楼中楼并集，归档不丢：旧版有、这次没有的（删了 / 折叠了 / 这次没展开到）留着。
+    顺序（1017 起）：以旧版为底，这次新冒出来的插到「这次响应里它后面第一条旧版已有的」前面，后面没有旧的就接在末尾——
+    断点续展时这次只有「首条 + 接着拉的」，新的接在旧的末尾，不会把存过的一百多条挤到后面；从头读时和这次读到的顺序一致。"""
+    out = list(prev)
+    pos = {_reply_key(s): i for i, s in enumerate(out)}
+    if len(pos) != len(out):  # 旧版自己有重复：去重后再合
+        out, pos = [], {}
+        for s in prev:
+            if _reply_key(s) not in pos:
+                pos[_reply_key(s)] = len(out)
+                out.append(s)
+    keys = [_reply_key(s) for s in cur]
+    for j, s in enumerate(cur):
+        k = keys[j]
+        if k in pos:
+            out[pos[k]] = s  # 同一条以这次的为准（点赞数等会变）
             continue
-        seen.add(k)
-        out.append(s)
+        nxt = next((pos[x] for x in keys[j + 1:] if x in pos), None)
+        out.insert(len(out) if nxt is None else nxt, s)
+        pos = {_reply_key(x): i for i, x in enumerate(out)}
     return out
 
 

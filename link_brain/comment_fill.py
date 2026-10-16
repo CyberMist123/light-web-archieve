@@ -161,6 +161,54 @@ def plan_fill(sc: dict[str, Any]) -> tuple[str | None, list[str]]:
 
 
 # --------------------------------------------------------------------------
+# 1017 断点续展 + 楼中楼额度
+# --------------------------------------------------------------------------
+# 网页版每次打开，楼中楼都只带第 1 条；以前每次续读都从头点，一小时 30 次额度（约 300 条）永远够不着之后的回复
+# （「缺 53 → 53」「缺 213 → 213」原地打转）。现在把每楼存下的最后一条回复当游标交给读取组件，它点之前把页面里
+# 这楼的游标改过去，站点就从那里接着往后拉（读取组件 reader-10 起认 expand_resume，老组件忽略即从头展开）。
+
+SUB_PER_HOUR = 30  # 读取组件楼中楼闸：每小时最多点几次「展开回复」（XHS_SUB_PER_HOUR，同 reader 的默认）
+
+
+def _reply_time(s: dict[str, Any]) -> datetime | None:
+    return _parse(s.get("created_at"))
+
+
+def resume_points(source: dict[str, Any], targets: list[str]) -> list[str]:
+    """要续的楼各自从哪接着展开："comment_id:最后一条回复 id:已存条数"。游标取发得最晚的那条
+    （站点按时间正序给回复；首屏那条置顶回复可能排在最前、时间却晚，不能拿列表最后一个硬算）。存不到 2 条的不续（从头点就行）。"""
+    want = set(str(t) for t in targets)
+    out = []
+    for c in source.get("comments") or []:
+        cid = str(c.get("comment_id") or "")
+        subs = [s for s in c.get("sub_comments") or [] if s.get("comment_id")]
+        if cid not in want or len(subs) < 2:
+            continue
+        stamped = [(t, i, s) for i, s in enumerate(subs) if (t := _reply_time(s))]
+        last = max(stamped, key=lambda x: (x[0], x[1]))[2] if stamped else subs[-1]
+        out.append(f"{cid}:{last['comment_id']}:{len(subs)}")
+    return out
+
+
+def sub_quota(now: datetime | None = None) -> tuple[int, datetime | None]:
+    """楼中楼这一小时还能点几次 + 最早哪一刻空出一次（读读取组件落盘的 sub-expand.json，只读；读不到按满额）。"""
+    try:
+        per_hour = max(1, int(os.environ.get("XHS_SUB_PER_HOUR") or SUB_PER_HOUR))
+    except ValueError:
+        per_hour = SUB_PER_HOUR
+    try:
+        from . import accounts
+        data = json.loads((accounts.profile_dir() / "sub-expand.json").read_text(encoding="utf-8"))
+        clicks = sorted(t for t in (_parse(x) for x in data.get("clicks") or []) if t)
+    except Exception:  # noqa: BLE001 - 文件没有 / 坏了：按满额（真闸在读取组件里）
+        return per_hour, None
+    now = now or _now()
+    recent = [t for t in clicks if now - t < timedelta(hours=1)]
+    left = max(0, per_hour - len(recent))
+    return left, (recent[0] + timedelta(hours=1) if recent and not left else None)
+
+
+# --------------------------------------------------------------------------
 # 每篇的续读状态（derived/comments-fill.json）
 # --------------------------------------------------------------------------
 
@@ -348,10 +396,13 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
         # 1011：网页版要验证才能看的，等她点「打开验证」，后台不再自动开页
         return {**base, "filled": False, "missing_after": sc["missing"], "restricted": True, "reason": restricted.TEXT}
 
+    # 1017 断点续展：上次带游标续了却一条没多拿到（游标那条被删了之类），这次从头展开一次
+    resume = resume_points(source, targets) if mode == "expand" and not state.get("resume_stale") else []
+
     def attempt(url: str) -> dict[str, Any]:
         return ingest_mod.ingest_url(url, refresh=True, comment_floors=floors, verbose=verbose,
                                      expand_floors=targets if mode == "expand" else None, fill=True,
-                                     fill_budget_s=budget_s)
+                                     fill_budget_s=budget_s, expand_resume=resume or None)
 
     old_token = (source.get("note") or {}).get("xsec_token") or ""
     try:
@@ -389,6 +440,12 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
     state["last_missing"] = sc2["missing"]
     gap_reasons = {str(g.get("reason") or "") for g in sc2["gaps"]}
     real_try = not (gap_reasons and gap_reasons <= NOT_A_REAL_TRY) and str(cl2.get("stop_reason") or "") not in NOT_A_REAL_TRY
+    if resume and progressed:
+        state.pop("resume_stale", None)
+    elif resume and real_try:
+        state["resume_stale"] = True
+    elif not resume:
+        state.pop("resume_stale", None)
     if progressed:
         state["no_progress"] = 0
     elif real_try:
@@ -400,7 +457,7 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
             state.pop(k, None)
     state.pop("last_error", None)
     hist = list(state.get("history") or [])[-7:]
-    hist.append({"at": now, "mode": mode, "before": before_missing, "after": sc2["missing"],
+    hist.append({"at": now, "mode": mode, "before": before_missing, "after": sc2["missing"], "resumed": len(resume),
                  "floors_before": before_floors, "floors_after": sc2["stored"],
                  "stop": str(cl2.get("stop_reason") or "")})
     state["history"] = hist
@@ -718,6 +775,22 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
                     continue
                 break
             entry = ready[0]
+            left_q, free_at = sub_quota()
+            if left_q <= 0:
+                # 1017：楼中楼这一小时的额度用完了——只展开楼中楼的篇（expand）开了也是白开（sub_paused），先等额度；
+                # 要多读楼的（floors）照常
+                floors_first = [e for e in ready if e["mode"] == "floors"]
+                if floors_first:
+                    entry = floors_first[0]
+                elif until_done:
+                    wait = max(60.0, min(1800.0, ((free_at or _now()) - _now()).total_seconds() + 30))
+                    nap(wait, state="waiting", current=None, wait_code="SUB_QUOTA",
+                        message=status.text("补评论歇一会") + f" · 楼中楼这一小时的额度用完了，"
+                        f"{(free_at or _now() + timedelta(seconds=wait)):%H:%M} 接着补")
+                    continue
+                else:
+                    stop_msg, deferred = "楼中楼这一小时的额度用完了，下次接着补", len(ready)
+                    break
             if deadline is not None and deadline - time.monotonic() < FILL_BUDGET_S + 150:
                 deferred = len(ready)
                 break

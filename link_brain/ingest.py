@@ -288,13 +288,16 @@ FILL_GAP_HOURS = 20    # 1009 起改成 comment_fill.FILL_GAP_MIN（45 分钟）
 
 
 def _detail_kwargs(comment_floors: int | str | None, expand_floors: list[str] | None = None,
-                   budget_s: int | None = None) -> dict[str, Any]:
+                   budget_s: int | None = None, expand_resume: list[str] | None = None) -> dict[str, Any]:
     """评论楼层：10（默认，秒回）/ 20 / 50（滚评论区并展开楼中楼，限楼数）/ "all"（手动全量）。
     expand_floors（1008 续读）：只展开这些楼，给足预算。budget_s（1009 续读）：这次给读取组件的评论预算。"""
     if expand_floors:
         budget = int(budget_s or FILL_BUDGET_S)
-        return {"full_comments": True, "comment_limit": 10, "timeout": budget + 90,
-                "comment_budget_s": budget, "expand_floors": list(expand_floors)}
+        out = {"full_comments": True, "comment_limit": 10, "timeout": budget + 90,
+               "comment_budget_s": budget, "expand_floors": list(expand_floors)}
+        if expand_resume:
+            out["expand_resume"] = list(expand_resume)  # 1017 断点续展（comment_fill.resume_points）
+        return out
     if comment_floors is None:
         from .ai_config import sync_options
         comment_floors = sync_options()["commentFloors"]
@@ -310,13 +313,13 @@ def _detail_kwargs(comment_floors: int | str | None, expand_floors: list[str] | 
 
 
 def _fetch_with_retry(parsed: dict[str, Any], *, log, comment_floors=None, budget_left=None, expand_floors=None,
-                      fill_budget_s=None, progress=None) -> Any:
+                      fill_budget_s=None, progress=None, expand_resume=None) -> Any:
     """抓详情；服务没起来时隔一会儿重试（最多 SERVICE_RETRIES 次）。
 
     budget_left（1001）：返回「这一批还剩几秒」的函数。剩下的不够再等一轮 + 再抓一次的最坏耗时，就不重试了，
     直接把 ServiceDownError 抛给调用方——夜跑的同步步骤有外层限时，别在预算尽头又挂一个 10 分钟的请求被整棵杀。
     """
-    kwargs = _detail_kwargs(comment_floors, expand_floors, fill_budget_s)
+    kwargs = _detail_kwargs(comment_floors, expand_floors, fill_budget_s, expand_resume)
     from . import accounts
     for attempt in range(1, SERVICE_RETRIES + 1):
         accounts.pace("打开笔记")  # 1001：跨进程开页间隔（与附件、补看、读收藏共用一个时刻戳）
@@ -476,6 +479,7 @@ def ingest_url(
     fill: bool = False,
     fill_budget_s: int | None = None,
     progress=None,
+    expand_resume: list[str] | None = None,
 ) -> dict[str, Any]:
     """抓一条链接并落一份不可变 RAW。返回摘要 dict（含 exit_code）。
 
@@ -555,7 +559,8 @@ def ingest_url(
             cap = int(kw.get("timeout") or 600) // 60
             progress("read", f"打开这篇，把评论一楼一楼展开读下来（热门笔记要几分钟到十几分钟，最多 {cap} 分钟）")
         raw = _fetch_with_retry(parsed, log=log, comment_floors=comment_floors, budget_left=budget_left,
-                                expand_floors=expand_floors, fill_budget_s=fill_budget_s if fill else None, progress=progress)
+                                expand_floors=expand_floors, fill_budget_s=fill_budget_s if fill else None, progress=progress,
+                                expand_resume=expand_resume)
         problems.resolve("ingest", None)  # 抓到了 = 读取服务好着：之前「服务没起来 / 超时」那几条步骤级问题算解决
 
         if fill:
