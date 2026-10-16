@@ -922,7 +922,8 @@ def _union_replies(prev: list[dict[str, Any]], cur: list[dict[str, Any]]) -> lis
 
 def merge_comments(old: list[dict[str, Any]], new: list[dict[str, Any]], expanded: set[str],
                    *, keep_old_order: bool = False) -> list[dict[str, Any]]:
-    """续读合并（1009 起一律并集，「调小不删已抓的」）：每楼的楼中楼 = 新旧并集，原站显示数取较大的。
+    """续读合并（1009 起一律并集，「调小不删已抓的」）：每楼的楼中楼 = 新旧并集；原站显示数以这次页面上的为准
+    （1017：以前取较大的——回复被删以后原站显示 3→1，存档却一直记 3，缺口永远补不上、续读次次白跑）。
     一级评论默认以新响应的顺序为准，老版本有、新响应没滚到的楼接在后面（删除的评论留着：归档不丢）；
     keep_old_order=True（只展开几楼的续读，新响应里只有那几楼）：保持老顺序，新冒出来的楼接在后面。"""
     by_id_old = {str(c.get("comment_id") or ""): c for c in old}
@@ -932,7 +933,7 @@ def merge_comments(old: list[dict[str, Any]], new: list[dict[str, Any]], expande
         if not prev:
             return c
         subs = _union_replies(prev.get("sub_comments") or [], c.get("sub_comments") or [])
-        count = max(int(c.get("sub_comment_count") or 0), int(prev.get("sub_comment_count") or 0))
+        count = int(c.get("sub_comment_count") or 0)  # 这次页面上原站显示的条数（删了的回复照旧留在存档里）
         return {**c, "sub_comments": subs, "sub_comment_count": count, "sub_comments_complete": len(subs) >= count}
 
     out = []
