@@ -1030,7 +1030,7 @@ index 74c4654..0195322 100644
 +
 +replace github.com/xpzouying/headless_browser => ./third_party/headless_browser
 diff --git a/handlers_api.go b/handlers_api.go
-index abed0f7..5245f75 100644
+index abed0f7..1a5503e 100644
 --- a/handlers_api.go
 +++ b/handlers_api.go
 @@ -3,6 +3,7 @@ package main
@@ -1091,7 +1091,7 @@ index abed0f7..5245f75 100644
  		return
  	}
  
-@@ -176,12 +172,18 @@ func (s *AppServer) getFeedDetailHandler(c *gin.Context) {
+@@ -176,12 +172,19 @@ func (s *AppServer) getFeedDetailHandler(c *gin.Context) {
  	var result *FeedDetailResponse
  	var err error
  
@@ -1107,10 +1107,11 @@ index abed0f7..5245f75 100644
 +			RequestBudget:       time.Duration(req.CommentConfig.BudgetS) * time.Second,
 +			MaxRepliesPerFloor:  req.CommentConfig.MaxRepliesPerFloor,
 +			ExpandFloors:        append(append([]string{}, req.CommentConfig.ExpandFloors...), req.ExpandFloors...),
++			ExpandResume:        req.CommentConfig.ExpandResume,
  		}
  		result, err = s.xiaohongshuService.GetFeedDetailWithConfig(c.Request.Context(), req.FeedID, req.XsecToken, req.LoadAllComments, config)
  	} else {
-@@ -189,8 +191,7 @@ func (s *AppServer) getFeedDetailHandler(c *gin.Context) {
+@@ -189,8 +192,7 @@ func (s *AppServer) getFeedDetailHandler(c *gin.Context) {
  	}
  
  	if err != nil {
@@ -1120,7 +1121,7 @@ index abed0f7..5245f75 100644
  		return
  	}
  
-@@ -208,8 +209,7 @@ func (s *AppServer) userProfileHandler(c *gin.Context) {
+@@ -208,8 +210,7 @@ func (s *AppServer) userProfileHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.UserProfile(c.Request.Context(), req.UserID, req.XsecToken, req.Tab)
  	if err != nil {
@@ -1130,7 +1131,7 @@ index abed0f7..5245f75 100644
  		return
  	}
  
-@@ -228,8 +228,7 @@ func (s *AppServer) postCommentHandler(c *gin.Context) {
+@@ -228,8 +229,7 @@ func (s *AppServer) postCommentHandler(c *gin.Context) {
  	// 发表评论
  	result, err := s.xiaohongshuService.PostCommentToFeed(c.Request.Context(), req.FeedID, req.XsecToken, req.Content)
  	if err != nil {
@@ -1140,7 +1141,7 @@ index abed0f7..5245f75 100644
  		return
  	}
  
-@@ -247,8 +246,7 @@ func (s *AppServer) replyCommentHandler(c *gin.Context) {
+@@ -247,8 +247,7 @@ func (s *AppServer) replyCommentHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.ReplyCommentToFeed(c.Request.Context(), req.FeedID, req.XsecToken, req.CommentID, req.UserID, req.Content)
  	if err != nil {
@@ -1150,7 +1151,7 @@ index abed0f7..5245f75 100644
  		return
  	}
  
-@@ -272,8 +270,7 @@ func (s *AppServer) likeFeedHandler(c *gin.Context) {
+@@ -272,8 +271,7 @@ func (s *AppServer) likeFeedHandler(c *gin.Context) {
  		result, err = s.xiaohongshuService.LikeFeed(c.Request.Context(), req.FeedID, req.XsecToken)
  	}
  	if err != nil {
@@ -1160,7 +1161,7 @@ index abed0f7..5245f75 100644
  		return
  	}
  
-@@ -297,8 +294,7 @@ func (s *AppServer) favoriteFeedHandler(c *gin.Context) {
+@@ -297,8 +295,7 @@ func (s *AppServer) favoriteFeedHandler(c *gin.Context) {
  		result, err = s.xiaohongshuService.FavoriteFeed(c.Request.Context(), req.FeedID, req.XsecToken)
  	}
  	if err != nil {
@@ -1170,7 +1171,7 @@ index abed0f7..5245f75 100644
  		return
  	}
  
-@@ -321,8 +317,7 @@ func (s *AppServer) myProfileHandler(c *gin.Context) {
+@@ -321,8 +318,7 @@ func (s *AppServer) myProfileHandler(c *gin.Context) {
  	// 获取当前登录用户信息
  	result, err := s.xiaohongshuService.GetMyProfile(c.Request.Context(), c.Query("tab"))
  	if err != nil {
@@ -1180,7 +1181,7 @@ index abed0f7..5245f75 100644
  		return
  	}
  
-@@ -333,8 +328,7 @@ func (s *AppServer) myProfileHandler(c *gin.Context) {
+@@ -333,8 +329,7 @@ func (s *AppServer) myProfileHandler(c *gin.Context) {
  func (s *AppServer) getUnreadCountHandler(c *gin.Context) {
  	result, err := s.xiaohongshuService.GetUnreadCount(c.Request.Context())
  	if err != nil {
@@ -1190,7 +1191,7 @@ index abed0f7..5245f75 100644
  		return
  	}
  
-@@ -360,8 +354,7 @@ func (s *AppServer) listNotificationsHandler(c *gin.Context) {
+@@ -360,8 +355,7 @@ func (s *AppServer) listNotificationsHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.ListNotifications(c.Request.Context(), req.Tab, req.Limit)
  	if err != nil {
@@ -1200,7 +1201,7 @@ index abed0f7..5245f75 100644
  		return
  	}
  
-@@ -379,8 +372,7 @@ func (s *AppServer) replyNotificationHandler(c *gin.Context) {
+@@ -379,8 +373,7 @@ func (s *AppServer) replyNotificationHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.ReplyNotification(c.Request.Context(), req.CommentID, req.Content)
  	if err != nil {
@@ -1210,7 +1211,7 @@ index abed0f7..5245f75 100644
  		return
  	}
  
-@@ -398,8 +390,7 @@ func (s *AppServer) likeNotificationHandler(c *gin.Context) {
+@@ -398,8 +391,7 @@ func (s *AppServer) likeNotificationHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.LikeNotification(c.Request.Context(), req.CommentID, req.Unlike)
  	if err != nil {
@@ -2435,10 +2436,10 @@ index c100268..a7b7099 100644
  	xiaohongshuService := NewXiaohongshuService()
  
 diff --git a/mcp_handlers.go b/mcp_handlers.go
-index 20a6879..d07183f 100644
+index 20a6879..21bf2dd 100644
 --- a/mcp_handlers.go
 +++ b/mcp_handlers.go
-@@ -429,6 +429,39 @@ func (s *AppServer) handleGetFeedDetail(ctx context.Context, args map[string]any
+@@ -429,6 +429,43 @@ func (s *AppServer) handleGetFeedDetail(ctx context.Context, args map[string]any
  		config.ScrollSpeed = raw
  	}
  
@@ -2474,11 +2475,15 @@ index 20a6879..d07183f 100644
 +	if raw, ok := args["expand_floors"]; ok {
 +		config.ExpandFloors = parseStringList(raw)
 +	}
++	// 1017：断点续展（"comment_id:cursor:have" 数组）
++	if raw, ok := args["expand_resume"]; ok {
++		config.ExpandResume = parseStringList(raw)
++	}
 +
  	logrus.Infof("MCP: 获取Feed详情 - Feed ID: %s, loadAllComments=%v, config=%+v", feedID, loadAll, config)
  
  	result, err := s.xiaohongshuService.GetFeedDetailWithConfig(ctx, feedID, xsecToken, loadAll, config)
-@@ -834,3 +867,23 @@ func (s *AppServer) handleLikeNotification(ctx context.Context, commentID string
+@@ -834,3 +871,23 @@ func (s *AppServer) handleLikeNotification(ctx context.Context, commentID string
  
  	return marshalMCPResult(result, "点赞")
  }
@@ -2537,10 +2542,10 @@ index 0000000..1fedba4
 +	assert.Equal(t, []string{"nested"}, req.CommentConfig.ExpandFloors)
 +}
 diff --git a/mcp_server.go b/mcp_server.go
-index a8137ee..f38f7de 100644
+index a8137ee..d2b02a1 100644
 --- a/mcp_server.go
 +++ b/mcp_server.go
-@@ -55,13 +55,16 @@ type FilterOption struct {
+@@ -55,13 +55,17 @@ type FilterOption struct {
  
  // FeedDetailArgs 获取Feed详情的参数
  type FeedDetailArgs struct {
@@ -2560,11 +2565,12 @@ index a8137ee..f38f7de 100644
 +	ScrollSpeed      string   `json:"scroll_speed,omitempty" jsonschema:"【仅当load_all_comments为true时生效】滚动速度slow慢速、normal正常、fast快速"`
 +	RepliesPerFloor  int      `json:"max_replies_per_floor,omitempty" jsonschema:"【仅当click_more_replies为true时生效】每楼回复上限：展开到这么多条就不再点这楼；默认0表示不限（全部展开）"`
 +	ExpandFloors     []string `json:"expand_floors,omitempty" jsonschema:"【仅当load_all_comments为true时生效】续读：只展开这些一级评论comment_id的楼（自动展开回复，不受limit限制，一级评论滚到它们都出来为止），其它楼不点；找不到的id在comment_load.floors_not_found里报；partial/replies_partial/replies_missing/floors_expanded只按这些楼算。默认空表示按limit"`
++	ExpandResume     []string `json:"expand_resume,omitempty" jsonschema:"【配合expand_floors】断点续展：每项 comment_id:cursor:have——这楼从已存的最后一条回复id(cursor)接着展开、已存have条，不再从第1条重点"`
 +	CommentBudgetS   int      `json:"comment_budget_s,omitempty" jsonschema:"【仅当load_all_comments为true时生效】本次请求的时间预算（秒，从请求进来算），评论在预算前30秒收手并在 comment_load 里如实报读到几楼；默认540，范围60-900"`
  }
  
  // UserProfileArgs 获取用户主页的参数
-@@ -137,6 +140,8 @@ func InitMCPServer(appServer *AppServer) *mcp.Server {
+@@ -137,6 +141,8 @@ func InitMCPServer(appServer *AppServer) *mcp.Server {
  
  	// 注册所有工具
  	registerTools(server, appServer)
@@ -2573,7 +2579,7 @@ index a8137ee..f38f7de 100644
  
  	logrus.Info("MCP Server initialized with official SDK")
  
-@@ -305,23 +310,27 @@ func registerTools(server *mcp.Server, appServer *AppServer) {
+@@ -305,23 +311,30 @@ func registerTools(server *mcp.Server, appServer *AppServer) {
  			if args.LoadAllComments {
  				argsMap["click_more_replies"] = args.ClickMoreReplies
  
@@ -2605,6 +2611,9 @@ index a8137ee..f38f7de 100644
 +				}
 +				if len(args.ExpandFloors) > 0 {
 +					argsMap["expand_floors"] = args.ExpandFloors
++				}
++				if len(args.ExpandResume) > 0 {
++					argsMap["expand_resume"] = args.ExpandResume
 +				}
  			}
  
@@ -5867,7 +5876,7 @@ index 26b7bf4..d73675e 100644
  		api.GET("/login/qrcode", appServer.getLoginQrcodeHandler)
  		api.DELETE("/login/cookies", appServer.deleteCookiesHandler)
 diff --git a/service.go b/service.go
-index f40bb5d..48a1282 100644
+index f40bb5d..3550763 100644
 --- a/service.go
 +++ b/service.go
 @@ -5,11 +5,11 @@ import (
@@ -5883,7 +5892,7 @@ index f40bb5d..48a1282 100644
  	"github.com/xpzouying/xiaohongshu-mcp/browser"
  	"github.com/xpzouying/xiaohongshu-mcp/configs"
  	"github.com/xpzouying/xiaohongshu-mcp/cookies"
-@@ -21,11 +21,13 @@ import (
+@@ -21,11 +21,15 @@ import (
  // XiaohongshuService 小红书业务服务
  type XiaohongshuService struct {
  	logins loginSessions
@@ -5894,11 +5903,13 @@ index f40bb5d..48a1282 100644
  // NewXiaohongshuService 创建小红书服务实例
  func NewXiaohongshuService() *XiaohongshuService {
 -	return &XiaohongshuService{}
-+	return &XiaohongshuService{hold: loadHoldStore(holdPath())}
++	s := &XiaohongshuService{hold: loadHoldStore(holdPath())}
++	s.installSubGate(filepath.Dir(holdPath()))
++	return s
  }
  
  // PublishRequest 发布请求
-@@ -105,7 +107,10 @@ func (s *XiaohongshuService) DeleteCookies(ctx context.Context) error {
+@@ -105,7 +109,10 @@ func (s *XiaohongshuService) DeleteCookies(ctx context.Context) error {
  
  // CheckLoginStatus 检查登录状态
  func (s *XiaohongshuService) CheckLoginStatus(ctx context.Context) (*LoginStatusResponse, error) {
@@ -5910,7 +5921,7 @@ index f40bb5d..48a1282 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -115,8 +120,14 @@ func (s *XiaohongshuService) CheckLoginStatus(ctx context.Context) (*LoginStatus
+@@ -115,8 +122,14 @@ func (s *XiaohongshuService) CheckLoginStatus(ctx context.Context) (*LoginStatus
  
  	isLoggedIn, err := loginAction.CheckLoginStatus(ctx)
  	if err != nil {
@@ -5925,7 +5936,7 @@ index f40bb5d..48a1282 100644
  
  	response := &LoginStatusResponse{
  		IsLoggedIn: isLoggedIn,
-@@ -136,9 +147,16 @@ func (s *XiaohongshuService) CheckLoginStatus(ctx context.Context) (*LoginStatus
+@@ -136,9 +149,16 @@ func (s *XiaohongshuService) CheckLoginStatus(ctx context.Context) (*LoginStatus
  }
  
  // GetLoginQrcode 获取登录的扫码二维码
@@ -5943,7 +5954,7 @@ index f40bb5d..48a1282 100644
  
  	deferFunc := func() {
  		_ = page.Close()
-@@ -147,29 +165,37 @@ func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeRe
+@@ -147,29 +167,37 @@ func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeRe
  
  	loginAction := xiaohongshu.NewLogin(page)
  
@@ -5996,7 +6007,7 @@ index f40bb5d..48a1282 100644
  	}, nil
  }
  
-@@ -182,6 +208,7 @@ func (s *XiaohongshuService) waitScanInBackground(
+@@ -182,6 +210,7 @@ func (s *XiaohongshuService) waitScanInBackground(
  ) {
  	ctxTimeout, cancel := context.WithTimeout(context.Background(), timeout)
  	seq := s.logins.start(cancel)
@@ -6004,7 +6015,7 @@ index f40bb5d..48a1282 100644
  	logrus.Infof("等待扫码登录，会话 #%d，超时 %s", seq, timeout)
  
  	go func() {
-@@ -190,15 +217,25 @@ func (s *XiaohongshuService) waitScanInBackground(
+@@ -190,15 +219,25 @@ func (s *XiaohongshuService) waitScanInBackground(
  		defer s.logins.finish(seq)
  
  		if loginAction.WaitForLogin(ctxTimeout) {
@@ -6034,7 +6045,7 @@ index f40bb5d..48a1282 100644
  		logrus.Infof("登录会话 #%d 结束，未检测到扫码（超时或已被新的二维码取代）", seq)
  	}()
  }
-@@ -274,7 +311,10 @@ func (s *XiaohongshuService) processImages(images []string) ([]string, error) {
+@@ -274,7 +313,10 @@ func (s *XiaohongshuService) processImages(images []string) ([]string, error) {
  
  // publishContent 执行内容发布
  func (s *XiaohongshuService) publishContent(ctx context.Context, content xiaohongshu.PublishImageContent) error {
@@ -6046,7 +6057,7 @@ index f40bb5d..48a1282 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -353,7 +393,10 @@ func (s *XiaohongshuService) PublishVideo(ctx context.Context, req *PublishVideo
+@@ -353,7 +395,10 @@ func (s *XiaohongshuService) PublishVideo(ctx context.Context, req *PublishVideo
  
  // publishVideo 执行视频发布
  func (s *XiaohongshuService) publishVideo(ctx context.Context, content xiaohongshu.PublishVideoContent) error {
@@ -6058,7 +6069,7 @@ index f40bb5d..48a1282 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -369,7 +412,10 @@ func (s *XiaohongshuService) publishVideo(ctx context.Context, content xiaohongs
+@@ -369,7 +414,10 @@ func (s *XiaohongshuService) publishVideo(ctx context.Context, content xiaohongs
  
  // ListFeeds 获取Feeds列表
  func (s *XiaohongshuService) ListFeeds(ctx context.Context) (*FeedsListResponse, error) {
@@ -6070,7 +6081,7 @@ index f40bb5d..48a1282 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -392,7 +438,10 @@ func (s *XiaohongshuService) ListFeeds(ctx context.Context) (*FeedsListResponse,
+@@ -392,7 +440,10 @@ func (s *XiaohongshuService) ListFeeds(ctx context.Context) (*FeedsListResponse,
  }
  
  func (s *XiaohongshuService) SearchFeeds(ctx context.Context, keyword string, filters ...xiaohongshu.FilterOption) (*FeedsListResponse, error) {
@@ -6082,7 +6093,7 @@ index f40bb5d..48a1282 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -401,6 +450,11 @@ func (s *XiaohongshuService) SearchFeeds(ctx context.Context, keyword string, fi
+@@ -401,6 +452,11 @@ func (s *XiaohongshuService) SearchFeeds(ctx context.Context, keyword string, fi
  	action := xiaohongshu.NewSearchAction(page)
  
  	feeds, err := action.Search(ctx, keyword, filters...)
@@ -6094,7 +6105,7 @@ index f40bb5d..48a1282 100644
  	if err != nil {
  		return nil, err
  	}
-@@ -420,7 +474,14 @@ func (s *XiaohongshuService) GetFeedDetail(ctx context.Context, feedID, xsecToke
+@@ -420,7 +476,14 @@ func (s *XiaohongshuService) GetFeedDetail(ctx context.Context, feedID, xsecToke
  
  // GetFeedDetailWithConfig 使用配置获取Feed详情
  func (s *XiaohongshuService) GetFeedDetailWithConfig(ctx context.Context, feedID, xsecToken string, loadAllComments bool, config xiaohongshu.CommentLoadConfig) (*FeedDetailResponse, error) {
@@ -6110,7 +6121,7 @@ index f40bb5d..48a1282 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -428,8 +489,13 @@ func (s *XiaohongshuService) GetFeedDetailWithConfig(ctx context.Context, feedID
+@@ -428,8 +491,13 @@ func (s *XiaohongshuService) GetFeedDetailWithConfig(ctx context.Context, feedID
  
  	action := xiaohongshu.NewFeedDetailAction(page)
  
@@ -6125,7 +6136,7 @@ index f40bb5d..48a1282 100644
  		return nil, err
  	}
  
-@@ -441,6 +507,16 @@ func (s *XiaohongshuService) GetFeedDetailWithConfig(ctx context.Context, feedID
+@@ -441,6 +509,16 @@ func (s *XiaohongshuService) GetFeedDetailWithConfig(ctx context.Context, feedID
  	return response, nil
  }
  
@@ -6142,7 +6153,7 @@ index f40bb5d..48a1282 100644
  // UserProfile 获取用户信息
  func (s *XiaohongshuService) UserProfile(ctx context.Context, userID, xsecToken, tab string) (*UserProfileResponse, error) {
  	parsed, err := xiaohongshu.ParseProfileTab(tab)
-@@ -448,7 +524,10 @@ func (s *XiaohongshuService) UserProfile(ctx context.Context, userID, xsecToken,
+@@ -448,7 +526,10 @@ func (s *XiaohongshuService) UserProfile(ctx context.Context, userID, xsecToken,
  		return nil, err
  	}
  
@@ -6154,7 +6165,7 @@ index f40bb5d..48a1282 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -472,7 +551,10 @@ func (s *XiaohongshuService) UserProfile(ctx context.Context, userID, xsecToken,
+@@ -472,7 +553,10 @@ func (s *XiaohongshuService) UserProfile(ctx context.Context, userID, xsecToken,
  
  // PostCommentToFeed 发表评论到Feed
  func (s *XiaohongshuService) PostCommentToFeed(ctx context.Context, feedID, xsecToken, content string) (*PostCommentResponse, error) {
@@ -6166,7 +6177,7 @@ index f40bb5d..48a1282 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -489,7 +571,10 @@ func (s *XiaohongshuService) PostCommentToFeed(ctx context.Context, feedID, xsec
+@@ -489,7 +573,10 @@ func (s *XiaohongshuService) PostCommentToFeed(ctx context.Context, feedID, xsec
  
  // LikeFeed 点赞笔记
  func (s *XiaohongshuService) LikeFeed(ctx context.Context, feedID, xsecToken string) (*ActionResult, error) {
@@ -6178,7 +6189,7 @@ index f40bb5d..48a1282 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -504,7 +589,10 @@ func (s *XiaohongshuService) LikeFeed(ctx context.Context, feedID, xsecToken str
+@@ -504,7 +591,10 @@ func (s *XiaohongshuService) LikeFeed(ctx context.Context, feedID, xsecToken str
  
  // UnlikeFeed 取消点赞笔记
  func (s *XiaohongshuService) UnlikeFeed(ctx context.Context, feedID, xsecToken string) (*ActionResult, error) {
@@ -6190,7 +6201,7 @@ index f40bb5d..48a1282 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -519,7 +607,10 @@ func (s *XiaohongshuService) UnlikeFeed(ctx context.Context, feedID, xsecToken s
+@@ -519,7 +609,10 @@ func (s *XiaohongshuService) UnlikeFeed(ctx context.Context, feedID, xsecToken s
  
  // FavoriteFeed 收藏笔记
  func (s *XiaohongshuService) FavoriteFeed(ctx context.Context, feedID, xsecToken string) (*ActionResult, error) {
@@ -6202,7 +6213,7 @@ index f40bb5d..48a1282 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -534,7 +625,10 @@ func (s *XiaohongshuService) FavoriteFeed(ctx context.Context, feedID, xsecToken
+@@ -534,7 +627,10 @@ func (s *XiaohongshuService) FavoriteFeed(ctx context.Context, feedID, xsecToken
  
  // UnfavoriteFeed 取消收藏笔记
  func (s *XiaohongshuService) UnfavoriteFeed(ctx context.Context, feedID, xsecToken string) (*ActionResult, error) {
@@ -6214,7 +6225,7 @@ index f40bb5d..48a1282 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -549,7 +643,10 @@ func (s *XiaohongshuService) UnfavoriteFeed(ctx context.Context, feedID, xsecTok
+@@ -549,7 +645,10 @@ func (s *XiaohongshuService) UnfavoriteFeed(ctx context.Context, feedID, xsecTok
  
  // ReplyCommentToFeed 回复指定评论
  func (s *XiaohongshuService) ReplyCommentToFeed(ctx context.Context, feedID, xsecToken, commentID, userID, content string) (*ReplyCommentResponse, error) {
@@ -6226,7 +6237,7 @@ index f40bb5d..48a1282 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -572,7 +669,10 @@ func (s *XiaohongshuService) ReplyCommentToFeed(ctx context.Context, feedID, xse
+@@ -572,7 +671,10 @@ func (s *XiaohongshuService) ReplyCommentToFeed(ctx context.Context, feedID, xse
  
  // GetUnreadCount 获取通知未读数
  func (s *XiaohongshuService) GetUnreadCount(ctx context.Context) (*xiaohongshu.NotificationCount, error) {
@@ -6238,7 +6249,7 @@ index f40bb5d..48a1282 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -588,7 +688,10 @@ func (s *XiaohongshuService) ListNotifications(ctx context.Context, tab string,
+@@ -588,7 +690,10 @@ func (s *XiaohongshuService) ListNotifications(ctx context.Context, tab string,
  		return nil, err
  	}
  
@@ -6250,7 +6261,7 @@ index f40bb5d..48a1282 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -599,7 +702,10 @@ func (s *XiaohongshuService) ListNotifications(ctx context.Context, tab string,
+@@ -599,7 +704,10 @@ func (s *XiaohongshuService) ListNotifications(ctx context.Context, tab string,
  
  // LikeNotification 给通知里的评论点赞或取消点赞
  func (s *XiaohongshuService) LikeNotification(ctx context.Context, commentID string, unlike bool) (*xiaohongshu.NotificationLikeResult, error) {
@@ -6262,7 +6273,7 @@ index f40bb5d..48a1282 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -610,7 +716,10 @@ func (s *XiaohongshuService) LikeNotification(ctx context.Context, commentID str
+@@ -610,7 +718,10 @@ func (s *XiaohongshuService) LikeNotification(ctx context.Context, commentID str
  
  // ReplyNotification 在通知页就地回复评论
  func (s *XiaohongshuService) ReplyNotification(ctx context.Context, commentID, content string) (*xiaohongshu.NotificationReplyResult, error) {
@@ -6274,7 +6285,7 @@ index f40bb5d..48a1282 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -619,13 +728,31 @@ func (s *XiaohongshuService) ReplyNotification(ctx context.Context, commentID, c
+@@ -619,13 +730,31 @@ func (s *XiaohongshuService) ReplyNotification(ctx context.Context, commentID, c
  	return xiaohongshu.NewNotificationAction(page).Reply(ctx, commentID, content)
  }
  
@@ -6307,7 +6318,7 @@ index f40bb5d..48a1282 100644
  func saveCookies(page *rod.Page) error {
  	cks, err := page.Browser().GetCookies()
  	if err != nil {
-@@ -641,17 +768,6 @@ func saveCookies(page *rod.Page) error {
+@@ -641,17 +770,6 @@ func saveCookies(page *rod.Page) error {
  	return cookieLoader.SaveCookies(data)
  }
  
@@ -6325,7 +6336,7 @@ index f40bb5d..48a1282 100644
  // GetMyProfile 获取当前登录用户的个人信息
  func (s *XiaohongshuService) GetMyProfile(ctx context.Context, tab string) (*UserProfileResponse, error) {
  	parsed, err := xiaohongshu.ParseProfileTab(tab)
-@@ -661,13 +777,39 @@ func (s *XiaohongshuService) GetMyProfile(ctx context.Context, tab string) (*Use
+@@ -661,13 +779,39 @@ func (s *XiaohongshuService) GetMyProfile(ctx context.Context, tab string) (*Use
  
  	var result *xiaohongshu.UserProfileResponse
  
@@ -6370,6 +6381,169 @@ index f40bb5d..48a1282 100644
  		return nil, err
  	}
  
+diff --git a/sub_budget.go b/sub_budget.go
+new file mode 100644
+index 0000000..fafbbcb
+--- /dev/null
++++ b/sub_budget.go
+@@ -0,0 +1,118 @@
++package main
++
++// 1016 楼中楼闸：10-12 以来 7 次跳安全页全是展开楼中楼（comment/sub/page）触发的——6 次 300013 访问频繁，
++// 第 7 次（10-15 13:46，限频冷却 2 小时一到点自探又点楼中楼）升成 300011 账号异常、真要重新登录。
++// 同一种行为反复撞，小红书会升级处罚，所以楼中楼单独管：
++//   - 每小时最多点 subPerHour 次「展开回复」（滑动一小时窗口，落盘，重启不清零）；
++//   - 24 小时内被限频过（rate-limit-strikes.json）：楼中楼暂停 24 小时 × 次数，期间只读正文 / 一级评论；
++//   - 熔断（含限频冷却中 / 到点自探中）：楼中楼一律不点——自探只用最轻的请求。
++// 闸关着时没展开的楼标 sub_paused（算 partial），Python 端下次续读把它们补全，不算放弃。
++
++import (
++	"encoding/json"
++	"fmt"
++	"os"
++	"path/filepath"
++	"strconv"
++	"sync"
++	"time"
++
++	"github.com/sirupsen/logrus"
++	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
++)
++
++// subPerHour 每小时最多点几次「展开回复」（XHS_SUB_PER_HOUR 可调，最少 1）。
++var subPerHour = envInt("XHS_SUB_PER_HOUR", 30)
++
++// subPauseAfterStrike 每次限频之后楼中楼暂停多久（乘以 24 小时内的限频次数）。
++var subPauseAfterStrike = 24 * time.Hour
++
++func envInt(name string, def int) int {
++	if v, err := strconv.Atoi(os.Getenv(name)); err == nil && v > 0 {
++		return v
++	}
++	return def
++}
++
++type subBudget struct {
++	mu     sync.Mutex
++	path   string
++	Clicks []string `json:"clicks"` // 最近一小时每次点击的时刻（RFC3339）
++}
++
++func (b *subBudget) load() {
++	data, err := os.ReadFile(b.path)
++	if err == nil {
++		_ = json.Unmarshal(data, b)
++	}
++}
++
++func (b *subBudget) recent(now time.Time) []string {
++	out := b.Clicks[:0:0]
++	for _, c := range b.Clicks {
++		if t, err := time.Parse(time.RFC3339, c); err == nil && now.Sub(t) < time.Hour {
++			out = append(out, c)
++		}
++	}
++	return out
++}
++
++func (b *subBudget) note(now time.Time) {
++	b.mu.Lock()
++	defer b.mu.Unlock()
++	b.Clicks = append(b.recent(now), now.Format(time.RFC3339))
++	if err := writeFileAtomic(b.path, b); err != nil {
++		logrus.Warnf("楼中楼计数写盘失败：%v", err)
++	}
++}
++
++func (b *subBudget) used(now time.Time) int {
++	b.mu.Lock()
++	defer b.mu.Unlock()
++	return len(b.recent(now))
++}
++
++// subGateWhy 现在能不能点「展开回复」：返回 "" 放行，否则是原因（纯逻辑，测试直接调）。
++func subGateWhy(hold *riskHold, strikes int, lastStrike time.Time, used int, now time.Time) string {
++	if hold != nil {
++		return fmt.Sprintf("读取服务在熔断 / 冷却中（%s），楼中楼不点", hold.Code)
++	}
++	if strikes > 0 && !lastStrike.IsZero() {
++		if until := lastStrike.Add(time.Duration(strikes) * subPauseAfterStrike); now.Before(until) {
++			return fmt.Sprintf("24 小时内被限频 %d 次，楼中楼暂停到 %s", strikes, until.Format("01-02 15:04"))
++		}
++	}
++	if used >= subPerHour {
++		return fmt.Sprintf("这一小时已经展开 %d 次楼中楼（上限 %d），留到下次", used, subPerHour)
++	}
++	return ""
++}
++
++// lastStrike 读 rate-limit-strikes.json 的次数与最后一次时刻（24 小时窗口外按 0）。
++func (h *holdStore) lastStrike(now time.Time) (int, time.Time) {
++	data, err := os.ReadFile(h.strikesPath())
++	if err != nil {
++		return 0, time.Time{}
++	}
++	var r rateStrikes
++	if json.Unmarshal(data, &r) != nil {
++		return 0, time.Time{}
++	}
++	last, err := time.Parse(time.RFC3339, r.Last)
++	if err != nil || now.Sub(last) > rateLimitStrikeWindow {
++		return 0, time.Time{}
++	}
++	return r.Strikes, last
++}
++
++// installSubGate 把闸接进 xiaohongshu 包（NewXiaohongshuService 里调）。
++func (s *XiaohongshuService) installSubGate(dir string) *subBudget {
++	b := &subBudget{path: filepath.Join(dir, "sub-expand.json")}
++	b.load()
++	xiaohongshu.SetSubGate(func() string {
++		now := holdNow()
++		n, last := s.hold.lastStrike(now)
++		return subGateWhy(s.hold.get(), n, last, b.used(now), now)
++	}, func() { b.note(holdNow()) })
++	return b
++}
+diff --git a/sub_budget_1016_test.go b/sub_budget_1016_test.go
+new file mode 100644
+index 0000000..9ff8a4b
+--- /dev/null
++++ b/sub_budget_1016_test.go
+@@ -0,0 +1,33 @@
++package main
++
++import (
++	"path/filepath"
++	"testing"
++	"time"
++
++	"github.com/stretchr/testify/assert"
++	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
++)
++
++func TestSubGateWhy(t *testing.T) {
++	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
++	assert.Equal(t, "", subGateWhy(nil, 0, time.Time{}, 0, now))
++	assert.Contains(t, subGateWhy(&riskHold{Code: xiaohongshu.RiskRateLimited}, 0, time.Time{}, 0, now), "熔断")
++	assert.Contains(t, subGateWhy(nil, 1, now.Add(-23*time.Hour), 0, now), "暂停到")
++	assert.Equal(t, "", subGateWhy(nil, 1, now.Add(-25*time.Hour), 0, now), "一次限频暂停 24 小时")
++	assert.Contains(t, subGateWhy(nil, 2, now.Add(-25*time.Hour), 0, now), "暂停到", "两次限频暂停 48 小时")
++	assert.Contains(t, subGateWhy(nil, 0, time.Time{}, subPerHour, now), "上限")
++}
++
++func TestSubBudgetPersistsSlidingHour(t *testing.T) {
++	dir := t.TempDir()
++	b := &subBudget{path: filepath.Join(dir, "sub-expand.json")}
++	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
++	b.note(now.Add(-61 * time.Minute))
++	b.note(now.Add(-10 * time.Minute))
++	b.note(now)
++	assert.Equal(t, 2, b.used(now))
++	c := &subBudget{path: b.path}
++	c.load()
++	assert.Equal(t, 2, c.used(now), "重启后照算")
++}
 diff --git a/third_party/headless_browser/LICENSE b/third_party/headless_browser/LICENSE
 new file mode 100644
 index 0000000..a8ab902
@@ -6792,10 +6966,10 @@ index 0000000..e22e7cb
 +	return page
 +}
 diff --git a/types.go b/types.go
-index c86d1ba..c25dec1 100644
+index c86d1ba..0369176 100644
 --- a/types.go
 +++ b/types.go
-@@ -38,10 +38,16 @@ type MCPContent struct {
+@@ -38,10 +38,18 @@ type MCPContent struct {
  type CommentLoadConfig struct {
  	// 是否点击"更多回复"按钮
  	ClickMoreReplies bool `json:"click_more_replies,omitempty"`
@@ -6811,10 +6985,12 @@ index c86d1ba..c25dec1 100644
 +	MaxRepliesPerFloor int `json:"max_replies_per_floor,omitempty"`
 +	// 续读：只展开这些一级评论 comment_id 的楼（滚到它们都出来为止），其它楼不点；空 = 按楼层上限
 +	ExpandFloors []string `json:"expand_floors,omitempty"`
++	// 1017 断点续展："comment_id:cursor:have"
++	ExpandResume []string `json:"expand_resume,omitempty"`
  	// 滚动速度等级: slow(慢速), normal(正常), fast(快速)
  	ScrollSpeed string `json:"scroll_speed,omitempty"`
  }
-@@ -52,6 +58,8 @@ type FeedDetailRequest struct {
+@@ -52,6 +60,8 @@ type FeedDetailRequest struct {
  	XsecToken       string             `json:"xsec_token" binding:"required"`
  	LoadAllComments bool               `json:"load_all_comments,omitempty"`
  	CommentConfig   *CommentLoadConfig `json:"comment_config,omitempty"`
@@ -6825,10 +7001,10 @@ index c86d1ba..c25dec1 100644
  type SearchFeedsRequest struct {
 diff --git a/xiaohongshu/comment_floors.go b/xiaohongshu/comment_floors.go
 new file mode 100644
-index 0000000..60435af
+index 0000000..a16d27d
 --- /dev/null
 +++ b/xiaohongshu/comment_floors.go
-@@ -0,0 +1,1013 @@
+@@ -0,0 +1,1130 @@
 +package xiaohongshu
 +
 +// 评论楼层加载（1004d）：一次请求、一个预算里「滚评论区加载楼层 + 把楼层上限内每楼的回复展开到底」。
@@ -6861,6 +7037,8 @@ index 0000000..60435af
 +// 判停核心 loadFloors 是纯逻辑（读数 / 点击 / 诊断 / 滚动 / 风控全部注入），单测用桩驱动；真实页面接线在 floorOpsFor。
 +
 +import (
++	"strconv"
++	"os"
 +	"context"
 +	"encoding/json"
 +	"fmt"
@@ -6897,7 +7075,25 @@ index 0000000..60435af
 +	ReplyGapExpandCap     = "expand_cap"     // 1015：楼序超过「展开楼数上限」，这楼的回复不展开（不算 partial）
 +	ReplyGapNotExpanded   = "not_expanded"   // 调用方没要求展开回复（click_more_replies=false；expand_floors 外的楼不列出）
 +	ReplyGapCountMismatch = "count_mismatch" // 按钮没了、页面也不说还有，但条数比楼上显示的少（多半是删除 / 折叠的回复）
++	ReplyGapPaused        = "sub_paused"     // 1016：楼中楼闸关着（每小时额度用完 / 限频后暂停期），这楼留给下次续读（算 partial，不算放弃）
 +)
++
++// SubExpandGate 1016：每次点「展开回复」前问一次，返回 "" = 放行，否则是不放行的原因（服务层注入：每小时额度、限频后暂停）。
++var SubExpandGate func() string
++
++// subFloors 1016：默认展开前几楼的楼中楼（XHS_SUB_FLOORS 可调，如 20；不合法按 defaultExpandFloorLimit）。
++func subFloors() int {
++	if n, err := strconv.Atoi(os.Getenv("XHS_SUB_FLOORS")); err == nil && n > 0 {
++		return n
++	}
++	return defaultExpandFloorLimit
++}
++
++// SetSubGate 服务层注入楼中楼闸（main 包调）。
++func SetSubGate(gate func() string, note func()) { SubExpandGate, SubExpandNote = gate, note }
++
++// SubExpandNote 1016：每点下去一次「展开回复」记一笔（服务层注入，计每小时额度）。
++var SubExpandNote func()
 +
 +// ReplyGap 楼层上限内某一楼的回复没拿全。
 +type ReplyGap struct {
@@ -6926,6 +7122,7 @@ index 0000000..60435af
 +	FloorsNotFound []string   `json:"floors_not_found,omitempty"` // expand_floors 里页面上没找到的 comment_id（只在传了 expand_floors 且有没找到的时出现）
 +	Reason         string     `json:"stop_reason"`
 +	Clicks         int        `json:"clicks"`          // 点下去的次数（含没涨的）
++	Resumed        int        `json:"resumed"`         // 1017：从存下的游标接着展开的楼数
 +	ClickFails     int        `json:"click_fails"`     // 点不动的次数
 +	DOMClicks      int        `json:"dom_clicks"`      // 拟人点击失败、退回 DOM click 的次数
 +	ThrottlePauses int        `json:"throttle_pauses"` // 疑似限频歇了几次
@@ -6987,11 +7184,44 @@ index 0000000..60435af
 +	// ExpandGap：每次点「展开回复」之前先歇这么久（nil = 不歇），和翻一级评论的节奏分开、明显更慢。
 +	ExpandFloorLimit int
 +	ExpandGap        func() time.Duration
++	// 1016：ExpandAllow 点之前问一次（"" = 放行）；ExpandNote 点下去记一笔。nil = 不管。
++	ExpandAllow func() string
++	ExpandNote  func()
++	// 1017 断点续展：comment_id → 上次存到哪（游标 = 存下的最后一条回复 id、已存条数）。页面每次打开楼中楼都从第 1 条起，
++	// 不续的话每次都得把存过的重新点一遍——一小时 30 次额度（约 300 条）永远够不着 300 条以后。点这楼之前先把页面状态里
++	// 这楼的 subCommentCursor 改成存下的游标（站点「展开回复」就拿它请求 comment/sub/page），点一下就接着往后拉。
++	Resume map[string]ReplyResume
++}
++
++// ReplyResume 一楼的续展断点：Cursor 存下的最后一条回复 id；Have 已存条数（读数按它补偿，缺口照算）。
++type ReplyResume struct {
++	Cursor string
++	Have   int
++}
++
++// ParseReplyResume 解析 "comment_id:cursor:have" 列表（MCP 扁平传参），坏的项跳过。
++func ParseReplyResume(items []string) map[string]ReplyResume {
++	out := map[string]ReplyResume{}
++	for _, it := range items {
++		parts := strings.Split(strings.TrimSpace(it), ":")
++		if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
++			continue
++		}
++		r := ReplyResume{Cursor: parts[1]}
++		if len(parts) > 2 {
++			if n, err := strconv.Atoi(parts[2]); err == nil && n > 0 {
++				r.Have = n
++			}
++		}
++		out[parts[0]] = r
++	}
++	return out
 +}
 +
 +type floorOps struct {
 +	probe    func() floorSnapshot
 +	expand   func(f floorInfo) clickResult // 点这楼的「展开」按钮
++	seed     func(f floorInfo, cursor string) bool // 1017：把这楼的续展游标写进页面状态（可为 nil）
 +	diagnose func(f floorInfo) string      // 点了没反应时读一次按钮 / 楼的状态（可为 nil）
 +	scroll   func(level int)               // 往下滚加载更多楼，level 越高滚得越狠
 +	risk     func() *RiskError
@@ -7043,7 +7273,8 @@ index 0000000..60435af
 +		GrowWait: 6 * time.Second, Poll: 500 * time.Millisecond,
 +		ThrottleStreak: 4, ThrottlePause: throttlePause, MaxThrottlePauses: 2,
 +		ScrollSettle: commentFloorSettle, ProbeFailLimit: 10, RiskEvery: commentRiskEvery, Tick: commentTick,
-+		ExpandFloorLimit: defaultExpandFloorLimit, ExpandGap: expandGap,
++		ExpandFloorLimit: subFloors(), ExpandGap: expandGap,
++		ExpandAllow: SubExpandGate, ExpandNote: SubExpandNote,
 +	}
 +}
 +
@@ -7127,6 +7358,19 @@ index 0000000..60435af
 +		cfg.ThrottlePause = throttlePause
 +	}
 +	res := CommentLoadResult{FloorLimit: cfg.FloorLimit, ReplyCap: cfg.ReplyCap, BudgetSeconds: cfg.Budget.Round(time.Second).Seconds()}
++	// 1017 断点续展：续上的楼，页面里只有「第 1 条 + 这次新拉的」，读数补上已存的条数（offset），缺口 / 分档 / 判完照旧算。
++	seeded, offset := map[string]bool{}, map[string]int{}
++	if rawProbe := ops.probe; len(cfg.Resume) > 0 && rawProbe != nil {
++		ops.probe = func() floorSnapshot {
++			s := rawProbe()
++			for i := range s.Floors {
++				if d := offset[floorKey(s.Floors[i])]; d > 0 {
++					s.Floors[i].Loaded += d
++				}
++			}
++			return s
++		}
++	}
 +	var last floorSnapshot
 +	st := map[string]*floorState{}
 +	get := func(k string) *floorState {
@@ -7276,6 +7520,18 @@ index 0000000..60435af
 +					fs.gaveUp = ReplyGapCap
 +					logrus.Warnf("评论第 %d 楼：点了 %d 次（上限）还没展开完（%d/%d），先放下", f.Index+1, fs.clicks, f.Loaded, f.Shown)
 +				default:
++					if cfg.ExpandAllow != nil {
++						if why := cfg.ExpandAllow(); why != "" { // 1016：楼中楼闸关着：剩下要展开的楼全部留给续读，接着只读一级评论
++							for _, g := range s.Floors {
++								if gs := get(floorKey(g)); wantFloor(cfg, g) && !floorDone(g) && !floorBeyondExpandCap(cfg, g) && gs.gaveUp == "" {
++									gs.gaveUp, gs.detail = ReplyGapPaused, why
++								}
++							}
++							cfg.Expand = false
++							logrus.Warnf("楼中楼暂停：%s（没展开的楼留给下次续读）", why)
++							continue
++						}
++					}
 +					if cfg.ExpandGap != nil && res.Clicks > 0 { // 1015：楼中楼单独放慢（第一次点不歇，之后每次都歇）
 +						if !sleep(cfg.ExpandGap()) {
 +							continue
@@ -7283,6 +7539,17 @@ index 0000000..60435af
 +					}
 +					if r := ops.risk(); r != nil { // 点「展开回复」之前必查
 +						return riskStop(&res, start, last, cfg, st, r)
++					}
++					if rs, ok := cfg.Resume[floorKey(f)]; ok && !seeded[floorKey(f)] {
++						seeded[floorKey(f)] = true
++						if rs.Have > f.Loaded && ops.seed != nil && ops.seed(f, rs.Cursor) {
++							offset[floorKey(f)] = rs.Have - f.Loaded
++							f.Loaded = rs.Have
++							res.Resumed++
++							logrus.Infof("评论第 %d 楼：从第 %d 条接着展开（游标 %s，共 %d）", f.Index+1, rs.Have, rs.Cursor, f.Shown)
++						} else if rs.Have > f.Loaded {
++							logrus.Warnf("评论第 %d 楼：续展游标没写进页面，从头展开", f.Index+1)
++						}
 +					}
 +					out := ops.expand(f)
 +					if out.DOM {
@@ -7296,6 +7563,9 @@ index 0000000..60435af
 +					}
 +					fs.clicks++
 +					res.Clicks++
++					if cfg.ExpandNote != nil {
++						cfg.ExpandNote()
++					}
 +					if waitChange(f) {
 +						fs.fails, fs.notBefore, fs.detail = 0, time.Time{}, ""
 +						lastSuccess, streak, pausesNoGain = time.Now(), nil, 0
@@ -7556,8 +7826,10 @@ index 0000000..60435af
 +        if (want && !want.has(String(c.id || ""))) continue;
 +        const subs = w(c.subComments) || [];
 +        const sc = parseInt(String(c.subCommentCount ?? ""), 10);
++        // 1017：站点「展开回复」拉完写的是 c.hasMore / c.expended，subCommentHasMore 只是首屏值（会陈旧地停在 true）
++        const hm = c.expended === true && typeof c.hasMore === "boolean" ? c.hasMore : c.subCommentHasMore;
 +        push(i, String(c.id || ""), isNaN(sc) ? -1 : sc, subs.length || 0,
-+          typeof c.subCommentHasMore === "boolean" ? (c.subCommentHasMore ? 1 : 0) : -1, rootOf(String(c.id || ""), i));
++          typeof hm === "boolean" ? (hm ? 1 : 0) : -1, rootOf(String(c.id || ""), i));
 +      }
 +    } else {
 +      out.loaded = parents.length;
@@ -7576,6 +7848,21 @@ index 0000000..60435af
 +    out.ok = true;
 +  } catch (e) {}
 +  return out;
++}`
++
++// floorSeedJS 1017：把这楼的续展游标写进页面状态（站点 fetchSubComments 读 list[i].subCommentCursor 去请求下一页）。
++// 只在这楼还没被展开过（expended 不为 true）时写；写成功返回 true。
++const floorSeedJS = `(feedID, id, cursor) => {
++  const w = x => x?.value ?? x?._value ?? x?._rawValue ?? x;
++  try {
++    const m = w(window.__INITIAL_STATE__?.note?.noteDetailMap) || {};
++    const d = w(m[feedID]) || w(Object.values(m)[0]) || {};
++    const list = w(w(d.comments)?.list) || [];
++    const c = list.map(w).find(x => String(x?.id || "") === String(id));
++    if (!c || c.expended === true) return false;
++    c.subCommentCursor = String(cursor);
++    return c.subCommentCursor === String(cursor);
++  } catch (e) { return false; }
 +}`
 +
 +// floorDiagJS 点不动 / 点了没反应时读一次这楼的状态（只读）：按钮文本、位置、是否在视口、中心点被谁遮挡、
@@ -7673,6 +7960,7 @@ index 0000000..60435af
 +	// expand_floors 非空即要求展开（续读），不必另传 click_more_replies
 +	cfg := defaultFloorLoadCfg(config.MaxCommentItems, config.ClickMoreReplies || len(config.ExpandFloors) > 0, budget, config.MaxRepliesPerFloor)
 +	cfg.ExpandFloors = config.ExpandFloors
++	cfg.Resume = ParseReplyResume(config.ExpandResume)
 +	logrus.Infof("评论加载开始：楼层上限 %d，展开回复=%v，只展开 %d 楼（0=按上限），每楼回复上限 %d（0=不限），预算 %s，分档 %d 条",
 +		cfg.FloorLimit, cfg.Expand, len(cfg.ExpandFloors), cfg.ReplyCap, budget.Round(time.Second), cfg.RoundStep)
 +
@@ -7720,6 +8008,11 @@ index 0000000..60435af
 +		},
 +		expand: func(fl floorInfo) clickResult {
 +			return clickFloorButton(ctx, page, fl, preClick)
++		},
++		seed: func(fl floorInfo, cursor string) bool {
++			ok := false
++			_ = rod.Try(func() { ok = f.page.Timeout(5*time.Second).MustEval(floorSeedJS, feedID, fl.ID, cursor).Bool() })
++			return ok
 +		},
 +		diagnose: func(fl floorInfo) string {
 +			raw := ""
@@ -7844,10 +8137,10 @@ index 0000000..60435af
 +}
 diff --git a/xiaohongshu/comment_floors_1015_test.go b/xiaohongshu/comment_floors_1015_test.go
 new file mode 100644
-index 0000000..fd68498
+index 0000000..1d88a3b
 --- /dev/null
 +++ b/xiaohongshu/comment_floors_1015_test.go
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,101 @@
 +package xiaohongshu
 +
 +import (
@@ -7910,6 +8203,44 @@ index 0000000..fd68498
 +	cfg.ExpandFloorLimit = 3
 +	cfg.ExpandFloors = []string{"x"}
 +	assert.False(t, floorBeyondExpandCap(cfg, floorInfo{Index: 20, ID: "x"}))
++}
++
++// 1017 断点续展：页面每次打开楼中楼都从第 1 条起；带了续展游标就先写游标、读数补上已存条数，只点剩下的。
++func TestResumeSeedsCursorAndOnlyClicksRemainder(t *testing.T) {
++	fc := newFake(2, &fakeFloor{id: "a", shown: 214, loaded: 1, perClick: 10}, &fakeFloor{id: "b", shown: 9, loaded: 1, perClick: 10})
++	fc.canScroll = false
++	cfg := fastFloorCfg(2, time.Minute)
++	cfg.ExpandFloors = []string{"a"}
++	cfg.Resume = ParseReplyResume([]string{"a:6ac3e437:161", "bad", ":x:3"})
++	ops := fc.ops(2)
++	var seededWith string
++	ops.seed = func(f floorInfo, cursor string) bool {
++		seededWith = cursor
++		fc.floors[0].reach = 1 + 214 - 161 // 页面：首屏 1 条 + 游标之后剩下的 53 条
++		return true
++	}
++	res, r := loadFloors(context.Background(), cfg, ops)
++	assert.Nil(t, r)
++	assert.Equal(t, "6ac3e437", seededWith)
++	assert.Equal(t, 1, res.Resumed)
++	// 已存 161：还缺 53 → 点 6 次（每次 10 条），不是从 1 条起点 22 次
++	assert.Equal(t, 6, fc.clicks["a"])
++	assert.Equal(t, 0, fc.clicks["b"], "不在 expand_floors 的楼不点")
++	assert.Empty(t, res.RepliesPartial)
++}
++
++func TestResumeSeedFailFallsBackToScratch(t *testing.T) {
++	fc := newFake(1, &fakeFloor{id: "a", shown: 30, loaded: 1, perClick: 10})
++	fc.canScroll = false
++	cfg := fastFloorCfg(1, time.Minute)
++	cfg.ExpandFloors = []string{"a"}
++	cfg.Resume = map[string]ReplyResume{"a": {Cursor: "c", Have: 20}}
++	ops := fc.ops(1)
++	ops.seed = func(floorInfo, string) bool { return false }
++	res, r := loadFloors(context.Background(), cfg, ops)
++	assert.Nil(t, r)
++	assert.Equal(t, 0, res.Resumed)
++	assert.Equal(t, 3, fc.clicks["a"], "游标没写进去：照旧从头点")
 +}
 diff --git a/xiaohongshu/comment_floors_localbrowser_test.go b/xiaohongshu/comment_floors_localbrowser_test.go
 new file mode 100644
@@ -8164,10 +8495,10 @@ index 0000000..2c40f59
 +}
 diff --git a/xiaohongshu/comment_floors_test.go b/xiaohongshu/comment_floors_test.go
 new file mode 100644
-index 0000000..887b4eb
+index 0000000..3a84698
 --- /dev/null
 +++ b/xiaohongshu/comment_floors_test.go
-@@ -0,0 +1,424 @@
+@@ -0,0 +1,431 @@
 +package xiaohongshu
 +
 +import (
@@ -8190,6 +8521,7 @@ index 0000000..887b4eb
 +	hasMore  int  // 覆盖 hasMore（0 = 按 loaded<shown 算）
 +	failNext int  // 接下来这么多次点击「点不动」
 +	failAll  bool // 一直点不动
++	reach    int  // 1017：>0 = 页面这次最多能拉到这么多条（续展后 = 1 + 剩下的），hasMore / 点击按它算
 +}
 +
 +// fakeComments 假评论区：floors 是全部楼，visible 是已加载楼数，scroll 一次多加载 pageSize 楼（canScroll=false 时滚不动）。
@@ -8220,8 +8552,11 @@ index 0000000..887b4eb
 +	for i := 0; i < fc.visible && i < limit; i++ {
 +		f := fc.floors[i]
 +		hm := 0
-+		if f.loaded < f.shown {
++		if lim := f.shown; f.loaded < lim || (f.reach > 0 && f.loaded < f.reach) {
 +			hm = 1
++			if f.reach > 0 && f.loaded >= f.reach {
++				hm = 0
++			}
 +		}
 +		if f.hasMore != 0 {
 +			hm = f.hasMore
@@ -8246,6 +8581,9 @@ index 0000000..887b4eb
 +			f.loaded += f.perClick
 +			if f.loaded > f.shown {
 +				f.loaded = f.shown
++			}
++			if f.reach > 0 && f.loaded > f.reach {
++				f.loaded = f.reach
 +			}
 +			return clickResult{OK: true}
 +		}
@@ -10145,7 +10483,7 @@ index 0000000..dd9a784
 +	assert.Equal(t, FavStopEnd, res.Reason)
 +}
 diff --git a/xiaohongshu/feed_detail.go b/xiaohongshu/feed_detail.go
-index 2cfde9f..599741d 100644
+index 2cfde9f..d8380be 100644
 --- a/xiaohongshu/feed_detail.go
 +++ b/xiaohongshu/feed_detail.go
 @@ -3,10 +3,10 @@ package xiaohongshu
@@ -10179,7 +10517,7 @@ index 2cfde9f..599741d 100644
  	maxSearchScrolls  = 25               // 最多下滚轮数
  	maxExpandRounds   = 5                // 最多连续展开而不下滚的轮数
  	maxSearchDuration = 90 * time.Second // 单次查找的墙钟上限
-@@ -37,17 +31,37 @@ const (
+@@ -37,17 +31,39 @@ const (
  // ========== 数据结构 ==========
  
  type CommentLoadConfig struct {
@@ -10196,6 +10534,8 @@ index 2cfde9f..599741d 100644
 +	// ExpandFloors 续读（r03）：非空 = 只展开这些一级评论 comment_id 的楼，一级评论滚到它们都出来为止；
 +	// 其它楼不点、不计入 partial。空 = 按楼层上限（现行为）。
 +	ExpandFloors []string
++	// ExpandResume 1017 断点续展："comment_id:cursor:have"——这楼从存下的最后一条回复（cursor）接着展开，已存 have 条。
++	ExpandResume []string
 +	ScrollSpeed  string
 +	// RequestBudget 一次请求的时间预算（从 RequestStart 起算，含排队拿锁、开浏览器、导航）：
 +	// 评论在「RequestStart + RequestBudget − requestTailReserve」收手。0 = defaultCommentRequestBudget。
@@ -10221,7 +10561,7 @@ index 2cfde9f..599741d 100644
  )
  
  func DefaultCommentLoadConfig() CommentLoadConfig {
-@@ -56,6 +70,7 @@ func DefaultCommentLoadConfig() CommentLoadConfig {
+@@ -56,6 +72,7 @@ func DefaultCommentLoadConfig() CommentLoadConfig {
  		MaxRepliesThreshold: defaultMaxRepliesThreshold,
  		MaxCommentItems:     defaultMaxCommentItems,
  		ScrollSpeed:         defaultScrollSpeed,
@@ -10229,7 +10569,7 @@ index 2cfde9f..599741d 100644
  	}
  }
  
-@@ -72,17 +87,46 @@ func (c CommentLoadConfig) normalize() CommentLoadConfig {
+@@ -72,17 +89,46 @@ func (c CommentLoadConfig) normalize() CommentLoadConfig {
  	if c.MaxCommentItems <= 0 {
  		c.MaxCommentItems = defaultMaxCommentItems
  	}
@@ -10276,7 +10616,7 @@ index 2cfde9f..599741d 100644
  }
  
  func NewFeedDetailAction(page *rod.Page) *FeedDetailAction {
-@@ -97,19 +141,24 @@ func (f *FeedDetailAction) GetFeedDetail(ctx context.Context, feedID, xsecToken
+@@ -97,19 +143,24 @@ func (f *FeedDetailAction) GetFeedDetail(ctx context.Context, feedID, xsecToken
  
  func (f *FeedDetailAction) GetFeedDetailWithConfig(ctx context.Context, feedID, xsecToken string, loadAllComments bool, config CommentLoadConfig) (*FeedDetailResponse, error) {
  	config = config.normalize()
@@ -10304,7 +10644,7 @@ index 2cfde9f..599741d 100644
  			return nil
  		},
  		retry.Attempts(3),
-@@ -125,293 +174,107 @@ func (f *FeedDetailAction) GetFeedDetailWithConfig(ctx context.Context, feedID,
+@@ -125,293 +176,107 @@ func (f *FeedDetailAction) GetFeedDetailWithConfig(ctx context.Context, feedID,
  	}
  	humanize.Delay(ctx, humanize.AfterNavigate)
  
@@ -10665,7 +11005,7 @@ index 2cfde9f..599741d 100644
  // expandNearbyReplies 展开视口附近的「展开 N 条回复」，返回本轮点开的个数。
  // 限定在视口附近，避免 ScrollIntoView 把页面拽回顶部、与向下滚动互相抵消。
  func expandNearbyReplies(ctx context.Context, page *rod.Page) int {
-@@ -464,8 +327,11 @@ func isSafeExpandButton(el *rod.Element, text string) bool {
+@@ -464,8 +329,11 @@ func isSafeExpandButton(el *rod.Element, text string) bool {
  	return true
  }
  
@@ -10679,7 +11019,7 @@ index 2cfde9f..599741d 100644
  
  func isExpandRepliesButton(text string) bool {
  	return expandRepliesTextRegex.MatchString(strings.TrimSpace(text))
-@@ -509,21 +375,6 @@ func isElementClickable(el *rod.Element) bool {
+@@ -509,21 +377,6 @@ func isElementClickable(el *rod.Element) bool {
  	return err == nil && len(box.Quads) > 0
  }
  
@@ -10701,7 +11041,7 @@ index 2cfde9f..599741d 100644
  func clickElementWithHumanBehavior(ctx context.Context, page *rod.Page, el *rod.Element, text string) bool {
  	var clickSuccess bool
  
-@@ -803,49 +654,6 @@ func getCommentCount(page *rod.Page) int {
+@@ -803,49 +656,6 @@ func getCommentCount(page *rod.Page) int {
  	return result
  }
  
@@ -10751,7 +11091,7 @@ index 2cfde9f..599741d 100644
  func checkEndContainer(page *rod.Page) bool {
  	var result bool
  
-@@ -922,6 +730,11 @@ func checkPageAccessible(page *rod.Page) error {
+@@ -922,6 +732,11 @@ func checkPageAccessible(page *rod.Page) error {
  		"因违规无法查看",
  	}
  
@@ -10763,7 +11103,7 @@ index 2cfde9f..599741d 100644
  	for _, kw := range keywords {
  		if strings.Contains(text, kw) {
  			logrus.Warnf("笔记不可访问: %s", kw)
-@@ -991,7 +804,7 @@ func (f *FeedDetailAction) extractFeedDetail(page *rod.Page, feedID string) (*Fe
+@@ -991,7 +806,7 @@ func (f *FeedDetailAction) extractFeedDetail(page *rod.Page, feedID string) (*Fe
  
  	noteDetail, exists := noteDetailMap[feedID]
  	if !exists {
@@ -10772,7 +11112,7 @@ index 2cfde9f..599741d 100644
  	}
  
  	return &FeedDetailResponse{
-@@ -1001,5 +814,29 @@ func (f *FeedDetailAction) extractFeedDetail(page *rod.Page, feedID string) (*Fe
+@@ -1001,5 +816,29 @@ func (f *FeedDetailAction) extractFeedDetail(page *rod.Page, feedID string) (*Fe
  }
  
  func makeFeedDetailURL(feedID, xsecToken string) string {
@@ -11800,10 +12140,10 @@ index 0000000..509012f
 +}
 diff --git a/xiaohongshu/risk.go b/xiaohongshu/risk.go
 new file mode 100644
-index 0000000..9586a43
+index 0000000..9496097
 --- /dev/null
 +++ b/xiaohongshu/risk.go
-@@ -0,0 +1,419 @@
+@@ -0,0 +1,531 @@
 +package xiaohongshu
 +
 +import (
@@ -11850,6 +12190,13 @@ index 0000000..9586a43
 +	Why string
 +	// Evidence 这次命中时落的证据目录（RiskPage 落的；没落成为空）。
 +	Evidence string
++	// 1016 分级：安全跳转页查询串里的 error_code（300011 账号异常 / 300013 访问频繁 / 其他）与 rejectUrl（被拒的接口，
++	// 如 edith…/api/sns/web/v2/comment/sub/page = 展开楼中楼）。Unconfirmed = 码不认识，要回首页看一眼登录态再定级；
++	// LoginProbe = 回首页读到的登录态（user / guest / … / 空 = 没探）。
++	ErrorCode   string
++	RejectAPI   string
++	Unconfirmed bool
++	LoginProbe  string
 +}
 +
 +func (e *RiskError) Error() string { return "[" + e.Code + "] " + e.Detail }
@@ -11998,16 +12345,47 @@ index 0000000..9586a43
 +// rateLimitedErrorCodes 安全跳转页 error_code 里算「限频」的（300013 = 访问频繁，请稍后再试）。
 +var rateLimitedErrorCodes = map[string]bool{"300013": true}
 +
-+// RateLimitedErrorCode /website-login/error 的查询串里是不是限频码；是就返回那个码。
-+func RateLimitedErrorCode(path, search string) string {
++// accountRiskErrorCodes 1016：算「真风控」的码（300011 = 账号异常，请稍后重试；10-15 那次她点进去确实要重新登录）。
++var accountRiskErrorCodes = map[string]bool{"300011": true}
++
++// loginErrorQuery 取 /website-login/error 查询串里的 error_code 与 rejectUrl；不是这个路径返回空。
++func loginErrorQuery(path, search string) (code, reject string) {
 +	if !strings.HasPrefix(strings.ToLower(path), "/website-login/error") {
-+		return ""
++		return "", ""
 +	}
 +	q, err := url.ParseQuery(strings.TrimPrefix(search, "?"))
 +	if err != nil && q == nil {
-+		return ""
++		return "", ""
 +	}
-+	if c := strings.TrimSpace(q.Get("error_code")); rateLimitedErrorCodes[c] {
++	return strings.TrimSpace(q.Get("error_code")), strings.TrimSpace(q.Get("rejectUrl"))
++}
++
++// RejectKind 被拒接口归类（进行为日志 / 证据）：sub_comments（展开楼中楼）· comments · feed · fav · user · 其他取路径末段。
++func RejectKind(reject string) string {
++	r := strings.ToLower(reject)
++	switch {
++	case r == "":
++		return ""
++	case strings.Contains(r, "comment/sub/page"):
++		return "sub_comments"
++	case strings.Contains(r, "comment/page"):
++		return "comments"
++	case strings.Contains(r, "/feed"):
++		return "feed"
++	case strings.Contains(r, "collect") || strings.Contains(r, "fav"):
++		return "fav"
++	case strings.Contains(r, "/user/"):
++		return "user"
++	}
++	if i := strings.LastIndex(r, "/"); i >= 0 && i+1 < len(r) {
++		return r[i+1:]
++	}
++	return r
++}
++
++// RateLimitedErrorCode /website-login/error 的查询串里是不是限频码；是就返回那个码。
++func RateLimitedErrorCode(path, search string) string {
++	if c, _ := loginErrorQuery(path, search); rateLimitedErrorCodes[c] {
 +		return c
 +	}
 +	return ""
@@ -12016,19 +12394,87 @@ index 0000000..9586a43
 +// ClassifyRisk 按页面路径和验证浮层判风控（纯函数）。
 +func ClassifyRisk(path string, captcha bool) *RiskError { return ClassifyRiskQuery(path, "", captcha) }
 +
-+// ClassifyRiskQuery 同 ClassifyRisk，另看查询串：/website-login/error?error_code=300013 → XHS_RATE_LIMITED（1015）。
++// ClassifyRiskQuery 同 ClassifyRisk，另看查询串（1016 分级）：
++//   - /website-login/error?error_code=300013 → XHS_RATE_LIMITED（限频冷却，L1）；
++//   - error_code=300011 → ACCOUNT_RISK（账号异常，L3，要人）；
++//   - 其他 /website-login/*（码不认识或没有码）→ ACCOUNT_RISK + Unconfirmed：调用方回首页看登录态再定级（ResolveUnconfirmed）；
++//   - 看得见的验证 → CAPTCHA_REQUIRED（L2）。
 +func ClassifyRiskQuery(path, search string, captcha bool) *RiskError {
 +	p := strings.ToLower(path)
-+	if c := RateLimitedErrorCode(path, search); c != "" {
-+		return &RiskError{Code: RiskRateLimited, Detail: "小红书说访问太频繁（" + path + " error_code=" + c + "，限频不是封号），已停止操作、自动冷却"}
++	code, reject := loginErrorQuery(path, search)
++	tag := ""
++	if code != "" {
++		tag = " error_code=" + code
 +	}
-+	if strings.HasPrefix(p, "/website-login") {
-+		return &RiskError{Code: RiskAccount, Detail: "小红书把页面跳到了 " + path + "（登录异常/安全跳转），已停止操作"}
++	if k := RejectKind(reject); k != "" {
++		tag += " 触发接口=" + k
++	}
++	switch {
++	case rateLimitedErrorCodes[code]:
++		return &RiskError{Code: RiskRateLimited, ErrorCode: code, RejectAPI: reject,
++			Detail: "小红书说访问太频繁（" + path + tag + "，限频不是封号），已停止操作、自动冷却"}
++	case accountRiskErrorCodes[code]:
++		return &RiskError{Code: RiskAccount, ErrorCode: code, RejectAPI: reject,
++			Detail: "小红书说账号异常（" + path + tag + "，要重新登录），已停止操作"}
++	case strings.HasPrefix(p, "/website-login"):
++		return &RiskError{Code: RiskAccount, ErrorCode: code, RejectAPI: reject, Unconfirmed: true,
++			Detail: "小红书把页面跳到了 " + path + "（登录异常/安全跳转" + tag + "），已停止操作"}
 +	}
 +	if captcha || strings.Contains(p, "/captcha") {
 +		return &RiskError{Code: RiskCaptcha, Detail: "小红书要求安全验证（拼图滑块），已停止操作"}
 +	}
 +	return nil
++}
++
++// ResolveUnconfirmed 1016：码不认识的安全跳转，按回首页读到的登录态定级（纯函数）：
++//   - user（仍登录、首页干净）→ 降为 XHS_RATE_LIMITED（按限频冷却，不要人）；
++//   - guest / guestflag → NOT_LOGGED_IN（真掉了，要扫码）；
++//   - 其他（读不到 / 首页也被跳 / 有验证）→ 保持 ACCOUNT_RISK（宁可停）。
++func ResolveUnconfirmed(r *RiskError, login string, homeRisk *RiskError) *RiskError {
++	if r == nil || !r.Unconfirmed {
++		return r
++	}
++	out := *r
++	out.Unconfirmed = false
++	out.LoginProbe = login
++	switch {
++	case homeRisk != nil:
++		out.Detail += "；回首页也被拦（" + homeRisk.Code + "），按真风控处理"
++	case login == "user":
++		out.Code = RiskRateLimited
++		out.Detail += "；回首页看仍是登录状态，按限频冷却处理（不用扫码）"
++	case login == "guest" || login == "guestflag":
++		out.Code = RiskNotLoggedIn
++		out.Detail += "；回首页看已经是游客，要重新扫码"
++	default:
++		out.Detail += "；回首页读不到登录态（" + login + "），按真风控处理"
++	}
++	return &out
++}
++
++// homeProbeURL 定级用的首页（普通人回首页的动作，不碰评论 / 收藏接口）。
++const homeProbeURL = "https://www.xiaohongshu.com/explore"
++
++// HomeProbeWait 回首页后等多久再读（测试里改小）。
++var HomeProbeWait = 3 * time.Second
++
++// probeHome 在出事的同一页回首页，读登录态与风控（不落证据、不复读）。
++func probeHome(page *rod.Page) (string, *RiskError) {
++	err := rod.Try(func() {
++		pp := page.Context(context.Background()).Timeout(30 * time.Second)
++		pp.MustNavigate(homeProbeURL).MustWaitLoad()
++	})
++	if err != nil {
++		logrus.Warnf("定级：回首页失败：%v", err)
++		return "", nil
++	}
++	time.Sleep(HomeProbeWait)
++	p, err := readRiskProbe(page)
++	var home *RiskError
++	if err == nil {
++		home = ClassifyRiskQuery(p.Path, p.Search, p.Captcha)
++	}
++	return PageLoginState(page), home
 +}
 +
 +// riskProbe 一次读数。
@@ -12116,6 +12562,12 @@ index 0000000..9586a43
 +	if r := ClassifyRiskQuery(p1.Path, p1.Search, false); r != nil {
 +		r.Why = "path"
 +		logrus.Warnf("风控页: %s（path=%s why=path）", r.Error(), p1.Path)
++		if r.Unconfirmed {
++			login, home := probeHome(page)
++			r = ResolveUnconfirmed(r, login, home)
++			r.Why = "path+home:" + login
++			logrus.Warnf("定级：码不认识的安全跳转 → %s（回首页登录态 %q）", r.Code, login)
++		}
 +		return r
 +	}
 +	if !p1.seen() {
@@ -12222,6 +12674,101 @@ index 0000000..9586a43
 +		return &RiskError{Code: RiskCaptcha, Detail: fmt.Sprintf("笔记页要求安全验证：%s", string(t))}
 +	}
 +	return nil
++}
+diff --git a/xiaohongshu/risk_grade_1016_test.go b/xiaohongshu/risk_grade_1016_test.go
+new file mode 100644
+index 0000000..756c532
+--- /dev/null
++++ b/xiaohongshu/risk_grade_1016_test.go
+@@ -0,0 +1,89 @@
++package xiaohongshu
++
++import (
++	"context"
++	"testing"
++	"time"
++
++	"github.com/stretchr/testify/assert"
++)
++
++// 1016 分级：按 risk-evidence 里真实出现过的跳转回放。
++func TestClassifyGradesByErrorCode(t *testing.T) {
++	sub := "rejectUrl=edith.xiaohongshu.com/api/sns/web/v2/comment/sub/page"
++	r := ClassifyRiskQuery("/website-login/error", "?error_code=300013&"+sub, false)
++	assert.Equal(t, RiskRateLimited, r.Code)
++	assert.Equal(t, "300013", r.ErrorCode)
++	assert.Contains(t, r.Detail, "触发接口=sub_comments")
++	assert.False(t, r.Unconfirmed)
++
++	r = ClassifyRiskQuery("/website-login/error", "?error_code=300011&"+sub, false)
++	assert.Equal(t, RiskAccount, r.Code)
++	assert.Equal(t, "300011", r.ErrorCode)
++	assert.False(t, r.Unconfirmed, "300011 账号异常直接算真风控")
++
++	r = ClassifyRiskQuery("/website-login/error", "?error_code=399999", false)
++	assert.Equal(t, RiskAccount, r.Code)
++	assert.True(t, r.Unconfirmed, "不认识的码要回首页定级")
++
++	r = ClassifyRiskQuery("/website-login/captcha", "", false)
++	assert.True(t, r.Unconfirmed)
++
++	assert.Equal(t, RiskCaptcha, ClassifyRiskQuery("/user/profile/x", "", true).Code)
++	assert.Nil(t, ClassifyRiskQuery("/explore", "", false), "停在 /explore 不是号的事（单篇限制另判）")
++}
++
++func TestResolveUnconfirmed(t *testing.T) {
++	base := func() *RiskError { return ClassifyRiskQuery("/website-login/error", "?error_code=1", false) }
++	assert.Equal(t, RiskRateLimited, ResolveUnconfirmed(base(), "user", nil).Code)
++	assert.Equal(t, RiskNotLoggedIn, ResolveUnconfirmed(base(), "guest", nil).Code)
++	assert.Equal(t, RiskAccount, ResolveUnconfirmed(base(), "", nil).Code)
++	home := &RiskError{Code: RiskCaptcha}
++	assert.Equal(t, RiskAccount, ResolveUnconfirmed(base(), "user", home).Code, "首页也被拦：宁可停")
++	known := ClassifyRiskQuery("/website-login/error", "?error_code=300011", false)
++	assert.Same(t, known, ResolveUnconfirmed(known, "user", nil), "认识的码不改")
++}
++
++func TestRejectKind(t *testing.T) {
++	assert.Equal(t, "sub_comments", RejectKind("edith.xiaohongshu.com/api/sns/web/v2/comment/sub/page"))
++	assert.Equal(t, "comments", RejectKind("edith.xiaohongshu.com/api/sns/web/v2/comment/page"))
++	assert.Equal(t, "", RejectKind(""))
++}
++
++// 楼中楼闸关着：剩下的楼标 sub_paused（算 partial，留给续读），不再点。
++func TestSubGateClosedLeavesFloorsForResume(t *testing.T) {
++	fc := newFake(4, floors(4, func(i int) *fakeFloor { return &fakeFloor{id: id(i), shown: 6, perClick: 3} })...)
++	fc.canScroll = false
++	cfg := fastFloorCfg(4, time.Minute)
++	allowed := 2
++	notes := 0
++	cfg.ExpandAllow = func() string {
++		if notes >= allowed {
++			return "这一小时额度用完"
++		}
++		return ""
++	}
++	cfg.ExpandNote = func() { notes++ }
++	res, r := loadFloors(context.Background(), cfg, fc.ops(4))
++	assert.Nil(t, r)
++	assert.Equal(t, 2, notes, "额度 2 次，点满就停")
++	assert.True(t, res.Partial, "没展开完的楼算 partial，下次续读")
++	paused := 0
++	for _, g := range res.RepliesPartial {
++		if g.Reason == ReplyGapPaused {
++			paused++
++			assert.Equal(t, "这一小时额度用完", g.Detail)
++		}
++	}
++	assert.GreaterOrEqual(t, paused, 2, "额度用完后没展开到底的楼都留给续读")
++	for _, g := range res.RepliesPartial {
++		assert.NotEqual(t, ReplyGapNotReached, g.Reason, "闸关着的楼要标 sub_paused，不能混成 not_reached")
++	}
++}
++
++func TestSubFloorsEnv(t *testing.T) {
++	t.Setenv("XHS_SUB_FLOORS", "20")
++	assert.Equal(t, 20, subFloors())
++	t.Setenv("XHS_SUB_FLOORS", "x")
++	assert.Equal(t, defaultExpandFloorLimit, subFloors())
 +}
 diff --git a/xiaohongshu/risk_localbrowser_test.go b/xiaohongshu/risk_localbrowser_test.go
 new file mode 100644
