@@ -192,6 +192,12 @@
 - **修法 / 自愈**：号的事只认读取服务 `/login/session`：`problems list` / `problems summary` 先 `problems.reconcile_account()`——已登录、没熔断（限频到点算没熔断）、没在扫码 / 验证 → `sync_state.account_ok()`，login 下所有号的行一并已解决（account_ok 也补上限频 / 夜里验证）；服务不在或查不清不动（fail-open，不拉起、不开页）。限频冷却是自己会好的号状态（`QUIET_CODES`）：不进面板和计数，只在复制报错里；原因只写限频那句。面板改按「是什么事」分区（`problems.category`：登录验证 / AI 接口 / 拉取没拿全 / 其他 / 未开启），每行自己的状态和按钮不变；分区标题旁「全部隐藏（N）」= `problems dismiss --category <区>`。缺标题的行从目录数据补。
 - **回归用例**：`tests/test_panel_1017.py::test_reconcile_clears_stale_rate_limit_and_login_rows_when_account_is_fine`、`tests/test_panel_1017.py::test_reconcile_leaves_rows_when_account_is_not_clearly_fine`、`tests/test_panel_1017.py::test_reconcile_is_fail_open_when_reader_is_down`、`tests/test_panel_1017.py::test_rate_limit_cooling_until_passed_counts_as_fine`、`tests/test_panel_1017.py::test_account_ok_also_resolves_rate_limit_and_night_captcha`、`tests/test_panel_1017.py::test_rate_limit_is_quiet_and_reason_has_no_rescan_wording`、`tests/test_panel_1017.py::test_category`、`tests/test_panel_1017.py::test_load_rows_carry_category_and_dismiss_by_category`、`tests/test_panel_1017.py::test_missing_title_filled_from_catalog`。
 
+### 21. 号好着，面板却挂 10 篇「网页版要验证」；评论没补全一篇一条（10-17 第二轮）
+- **用户看到**：「登录验证」区 10 条要验证，和「号是好的」自相矛盾；评论没补全 3 条各占一行；修好的毛病要等很久才消失。
+- **根因**：「页面停在 /explore」在号被软限频时也是这样（这 10 篇正好记在 10-15 早上限频前后、和 10-16 熔断解除那会儿从旧报错迁移来的），一次分不出是这篇被限制还是号当时不行，却直接当「这篇要你验证」登记；面板按篇列。
+- **修法 / 自愈**：`restricted.mark` 撞见一次只算疑似（记 `days`）：不登记问题、笔记页不出那行、当天后台跳过、`RECHECK_HOURS`（20 小时）后放行再开一次；`CONFIRM_DAYS`（2）个不同日子都打不开、或她点过「打开验证」没过，才确认、登记。打开了就 `clear`，什么都不留。旧的单日行由 `restricted.quiet_unconfirmed()`（`problems list/summary` 先跑，幂等零开页）收掉。网页版要验证归「拉取没拿全」（不是号的事）。面板把同一种一篇一条的毛病（`FOLD_CODES`：评论没补全、网页版打不开）≥2 篇并成一条「N 篇…」（`problems.fold_rows`，key `fold|<码>`，展开每篇带「查看」/「打开验证」），计数也只算一条；某篇 resolve 就从里面撤掉，全撤完整条消失；隐藏这条 = 隐藏每一篇。
+- **回归用例**：`tests/test_panel_1017.py::test_restricted_first_hit_is_only_suspected_quiet_and_retried_next_day`、`tests/test_panel_1017.py::test_restricted_confirmed_on_second_day`、`tests/test_panel_1017.py::test_restricted_reopened_clears_everything`、`tests/test_panel_1017.py::test_quiet_unconfirmed_retires_old_single_day_rows`、`tests/test_panel_1017.py::test_fold_comments_into_one_row_and_unfold_when_fixed`、`tests/test_panel_1017.py::test_dismiss_fold_key_hides_every_member`。
+
 ## 二、故障码对照（用户看到 → 常见根因 → 自愈动作）
 
 「同次」= 那一步自己那次运行里的换策略重试；「自愈轮」= 夜跑收尾自动再修（✔ 自动 / — 不自动）；「现在修」= 面板按钮跑的动作。

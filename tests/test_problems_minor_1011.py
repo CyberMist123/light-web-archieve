@@ -41,9 +41,10 @@ def test_minor_comment_gap_not_listed_or_counted_but_exported(capsys):
     assert not problems.is_minor(many) and not problems.is_minor(err)
     out = _list(capsys)
     keys = {r["key"] for r in out["problems"]}
-    assert keys == {many["key"], err["key"]}, "只缺 ≤2 条的不进面板；缺 7 条 / 续读报错的照常列"
+    assert keys == {problems.FOLD_PREFIX + "PERMANENT.COMMENTS_INCOMPLETE"}, "1017：两篇并成一条"
+    assert {i["key"] for i in out["problems"][0]["items"]} == {many["key"], err["key"]}, "只缺 ≤2 条的不进面板；缺 7 条 / 续读报错的照常列"
     s = out["summary"]
-    assert s["gave_up"] == 2 and s["minor"] == 2 and s["hidden"] == 0
+    assert s["gave_up"] == 1 and s["minor"] == 2 and s["hidden"] == 0, "1017：并成一条，计数也只算一条"
     assert problems.summary()["last_runs"]["comments.fill"]["ok"] is False  # 还有真问题开着
     # --all（诊断用）照样带回来，并标 minor
     all_rows = {r["key"]: r for r in _list(capsys, "--all")["problems"]}

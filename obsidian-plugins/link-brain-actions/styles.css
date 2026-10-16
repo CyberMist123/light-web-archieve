@@ -113,6 +113,10 @@ body{--lb-warn:var(--text-warning,var(--color-orange));--lb-warn-bg:var(--backgr
 .lb-problem-label { color: var(--text-muted); }
 .lb-problems-group.is-needs_you .lb-problem-label { color: var(--lb-warn); }
 .lb-problem-why { font-size: 12px; color: var(--text-faint); margin-top: 2px; overflow-wrap: anywhere; }
+.lb-problem-items { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.lb-problem-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.lb-problem-item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-problem-item button { padding: 2px 10px; font-size: 12px; }
 .lb-problem-btns { display: flex; gap: 8px; margin-top: 6px; }
 .lb-problem-repair-note { font-size: 12px; color: var(--text-muted); margin-top: 2px; overflow-wrap: anywhere; }
 .lb-problem-repair.is-running, .lb-problems-repair-all.is-running { opacity: .75; cursor: progress; }

@@ -21,6 +21,8 @@
 // 1017（她：原因清楚的毛病挂在「已放弃」里看着闹心）：分区改按「是什么事」——登录验证 / AI 接口 / 拉取没拿全 / 其他 / 未开启
 //   （Python 给每行 category）；「等你处理 / 自动处理 / 已放弃」只留在每行自己的状态和按钮上。分区里有能隐藏的，标题旁「全部隐藏（N）」
 //   只隐藏这一区的（problems dismiss --category）。限频冷却这类自己会好的号状态 Python 已标 minor，不画。
+// 1017（她：多条合并一条就行）：Python 把同一种「一篇一条」的毛病并成一行（folded，items = 每一篇），这里在那行下面列每篇
+//   （标题 +「查看」，网页版打不开的再加「打开验证」）；某篇修好 Python 就不再给它，全修好整行消失。
 'use strict';
 module.exports = function (obsidian, plugin) {
   const { Modal, Notice } = obsidian;
@@ -60,7 +62,7 @@ module.exports = function (obsidian, plugin) {
   }
   // 一行的签名：这些都没变 = 这一行看起来不变（C20：后台重读回来不必重画）
   const signature = r => [r.key, r.code, r.category, r.action, r.status_text, r.repair_state, r.repair_note, r.count, r.hidden, r.hidden_repeats,
-    r.verify_result, r.evidence_id, r.repairing].map(v => v == null ? '' : String(v)).join('|');
+    r.verify_result, r.evidence_id, r.repairing, (r.items || []).map(i => i.key).join(',')].map(v => v == null ? '' : String(v)).join('|');
   const listSignature = rows => (rows || []).map(signature).join('\n');
   const say = (msg, ms = 8000) => { try { new Notice(msg, ms); } catch {} };
   // 用户看得到的行：没解决、也不是轻微的（Python 的 problems list 已经滤过，这里再守一道，老后端 / 缓存也不漏）
@@ -343,6 +345,24 @@ module.exports = function (obsidian, plugin) {
       if (isHidden(x) && Number(x.hidden_repeats) > 0) line.createSpan({ cls: 'lb-problem-hidden-repeats', text: `隐藏后又出现 ${x.hidden_repeats} 次` });
       const why = x.hover || x.reason;
       if (why) row.createDiv({ cls: 'lb-problem-why', text: why });
+      if (Array.isArray(x.items) && x.items.length) {
+        const list = row.createDiv({ cls: 'lb-problem-items' });
+        for (const it of x.items) {
+          const li = list.createDiv({ cls: 'lb-problem-item' });
+          li.createSpan({ cls: 'lb-problem-item-title', text: it.title || it.item_id || '' });
+          const look = li.createEl('button', { cls: 'lb-problem-open', text: '查看' });
+          look.onclick = async () => { try { await openItem(it.item_id); this.close(); } catch (e) { say('打不开这一篇：' + e.message); } };
+          if (subOf(x.code) === 'NOTE_RESTRICTED' && typeof plugin.openNoteVerify === 'function') {
+            const v = li.createEl('button', { cls: 'lb-problem-fix mod-cta', text: '打开验证' });
+            v.onclick = async () => {
+              v.disabled = true;
+              try { await plugin.openNoteVerify(it.item_id); } catch (e) { say(e.message, 10000); }
+              finally { v.disabled = false; }
+              if (this.alive()) await this.reloadKeepScroll();
+            };
+          }
+        }
+      }
       // 当场修过没好：试过什么、为什么没好、下一步（Python 写好的一句）
       if (x.repair_note && x.repair_state === 'failed') row.createDiv({ cls: 'lb-problem-repair-note', text: x.repair_note });
       const btns = row.createDiv({ cls: 'lb-problem-btns' });

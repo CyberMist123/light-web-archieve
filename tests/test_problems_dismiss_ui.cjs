@@ -263,8 +263,34 @@ async function staleRowsTest() {
   console.log('PASS problems 1015: repair while other rows vanished repaints (no stale card under 等你处理 · 0)');
 }
 
+// 1017（她：多条合并一条）：Python 并好的一行（items）在面板里列每一篇：标题 +「查看」，网页版打不开的多「打开验证」
+async function foldedRowTest() {
+  const dom = makeDom(), notices = [];
+  const obsidian = fakeObsidian(dom, notices);
+  delete require.cache[require.resolve(path.join(ROOT, PLUGIN_DIR, 'problems-ui.js'))];
+  const factory = require(path.join(ROOT, PLUGIN_DIR, 'problems-ui.js'));
+  const items = [{ key: 'note.restricted|xhs-a|NOTE_RESTRICTED', item_id: 'xhs-a', title: '合成 A' }, { key: 'note.restricted|xhs-b|NOTE_RESTRICTED', item_id: 'xhs-b', title: '合成 B' }];
+  let rows = [row({ key: 'fold|PERMANENT.NOTE_RESTRICTED', step: 'note.restricted', category: 'fetch', code: 'PERMANENT.NOTE_RESTRICTED', action: 'gave_up', label: '网页版要验证', title: '2 篇网页版打不开', hover: '点那篇的打开验证', group: 'gave_up', folded: true, items, dismissable: true })];
+  const state = { replies: { list: () => ({ ok: true, summary: {}, problems: rows }) } };
+  const { plugin } = makePlugin(state);
+  const verified = [];
+  plugin.openNoteVerify = async id => { verified.push(id); rows = []; };
+  const ui = factory(obsidian, plugin);
+  const m = ui.open(); await m.opened;
+  const c = m.contentEl;
+  assert.deepEqual(c.querySelectorAll('.lb-problems-group h3').map(h => h.textContent), ['拉取没拿全 · 1'], '并成一条，计一条');
+  const lines = c.querySelectorAll('.lb-problem-item');
+  assert.equal(lines.length, 2);
+  assert.deepEqual(lines[0].querySelectorAll('button').map(b => b.textContent), ['查看', '打开验证']);
+  await lines[1].querySelectorAll('button').find(b => b.textContent === '打开验证').onclick();
+  assert.deepEqual(verified, ['xhs-b']);
+  assert.equal(c.querySelectorAll('.lb-problem').length, 0, '修好了：重读后整条消失');
+  console.log('PASS problems 1017: folded row lists each note with 查看 / 打开验证; fixed → gone');
+}
+
 (async () => {
   await panelTests();
   await staleRowsTest();
+  await foldedRowTest();
   await pluginTests();
 })().catch(e => { console.error(e); process.exitCode = 1; });

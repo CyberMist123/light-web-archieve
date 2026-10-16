@@ -76,7 +76,7 @@ def test_rate_limit_is_quiet_and_reason_has_no_rescan_wording(monkeypatch):
 
 @pytest.mark.parametrize("step,code,want", [
     ("login", "NEEDS_HUMAN.NOT_LOGGED_IN", "account"),
-    ("note.restricted", "PERMANENT.NOTE_RESTRICTED", "account"),
+    ("note.restricted", "PERMANENT.NOTE_RESTRICTED", "fetch"),
     ("ai.summary", "NEEDS_HUMAN.AUTH_FAILED", "api"),
     ("vision.refine", "PERMANENT.MODEL_OUTPUT_INVALID", "api"),
     ("comments.fill", "PERMANENT.COMMENTS_INCOMPLETE", "fetch"),
@@ -93,7 +93,7 @@ def test_load_rows_carry_category_and_dismiss_by_category():
     problems.report("note.restricted", "PERMANENT.NOTE_RESTRICTED", "要验证", item_id="xhs-a")
     problems.report("attachments.convert", "PERMANENT.PDF_ENCRYPTED", "有密码", item_id="xhs-b")
     cats = {r["item_id"]: r["category"] for r in problems.load()}
-    assert cats == {"xhs-a": "account", "xhs-b": "other"}
+    assert cats == {"xhs-a": "fetch", "xhs-b": "other"}
     out = problems.dismiss(category_name="other")
     assert out["ok"] and len(out["dismissed"]) == 1
     hidden = {r["item_id"]: r["hidden"] for r in problems.load()}
@@ -107,3 +107,70 @@ def test_missing_title_filled_from_catalog():
         json.dumps({"items": [{"id": "xhs-t", "title": "合成标题"}]}, ensure_ascii=False), "utf-8")
     problems.report("note.restricted", "PERMANENT.NOTE_RESTRICTED", "要验证", item_id="xhs-t")
     assert problems.load()[0]["title"] == "合成标题"
+
+
+# ---- 1017 第二轮（她：「要验证」和号只看一个状态冲突；评论没补全多条合并一条；修好就消失）
+
+from datetime import datetime, timedelta
+
+from link_brain import restricted
+
+
+def _mark_at(sid, when, monkeypatch):
+    monkeypatch.setattr(restricted, "_now", lambda: when)
+    return restricted.mark(sid, item_id=f"xhs-{sid}", title="t", via="comments.fill", detail="[NOTE_RESTRICTED]")
+
+
+def test_restricted_first_hit_is_only_suspected_quiet_and_retried_next_day(monkeypatch):
+    t0 = datetime(2026, 10, 16, 20, 0).astimezone()
+    _mark_at("n1", t0, monkeypatch)
+    assert [r for r in problems.load() if r["step"] == "note.restricted"] == [], "撞见一次：不登记"
+    assert restricted.view("n1") is None, "笔记页也不出「要验证」那行"
+    assert restricted.is_restricted("n1") is True, "当天后台先不再开"
+    monkeypatch.setattr(restricted, "_now", lambda: t0 + timedelta(hours=21))
+    assert restricted.is_restricted("n1") is False, "隔天放行再开一次"
+
+
+def test_restricted_confirmed_on_second_day(monkeypatch):
+    t0 = datetime(2026, 10, 16, 20, 0).astimezone()
+    _mark_at("n2", t0, monkeypatch)
+    _mark_at("n2", t0 + timedelta(hours=21), monkeypatch)
+    rows = [r for r in problems.load() if r["step"] == "note.restricted"]
+    assert len(rows) == 1 and restricted.is_restricted("n2") and restricted.view("n2")
+
+
+def test_restricted_reopened_clears_everything(monkeypatch):
+    t0 = datetime(2026, 10, 16, 20, 0).astimezone()
+    _mark_at("n3", t0, monkeypatch)
+    _mark_at("n3", t0 + timedelta(days=1), monkeypatch)
+    assert restricted.clear("n3", item_id="xhs-n3", why="续读打开了")
+    assert [r for r in problems.load() if r["step"] == "note.restricted"] == []
+
+
+def test_quiet_unconfirmed_retires_old_single_day_rows():
+    problems.report("note.restricted", "PERMANENT.NOTE_RESTRICTED", "要验证", item_id="xhs-old")
+    restricted.save("old", {"restricted": True, "since": "2026-10-16T19:43:10+11:00", "last_at": "2026-10-16T19:43:10+11:00"})
+    assert restricted.quiet_unconfirmed() == ["xhs-old"]
+    assert [r for r in problems.load() if r["step"] == "note.restricted"] == []
+
+
+def test_fold_comments_into_one_row_and_unfold_when_fixed():
+    for i in ("a", "b", "c"):
+        problems.report("comments.fill", "PERMANENT.COMMENTS_INCOMPLETE", "楼中楼还缺 5 条", item_id=f"xhs-{i}", title=f"标题{i}")
+    rows = problems.fold_rows(problems.load(include_minor=False))
+    assert len(rows) == 1 and rows[0]["key"] == "fold|PERMANENT.COMMENTS_INCOMPLETE"
+    assert rows[0]["title"].startswith("3 篇") and len(rows[0]["items"]) == 3 and rows[0]["category"] == "fetch"
+    assert problems.summary()["gave_up"] == 1
+    problems.resolve("comments.fill", "xhs-a")
+    problems.resolve("comments.fill", "xhs-b")
+    rows = problems.fold_rows(problems.load(include_minor=False))
+    assert [r["item_id"] for r in rows] == ["xhs-c"], "只剩一篇就照原样一条"
+    problems.resolve("comments.fill", "xhs-c")
+    assert problems.fold_rows(problems.load(include_minor=False)) == [], "都修好：整条消失"
+
+
+def test_dismiss_fold_key_hides_every_member():
+    for i in ("a", "b"):
+        problems.report("comments.fill", "PERMANENT.COMMENTS_INCOMPLETE", "楼中楼还缺 5 条", item_id=f"xhs-{i}")
+    out = problems.dismiss("fold|PERMANENT.COMMENTS_INCOMPLETE")
+    assert out["ok"] and len(out["dismissed"]) == 2

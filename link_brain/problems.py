@@ -219,7 +219,8 @@ GROUP_OF_CLASS = {"NEEDS_HUMAN": "needs_you", "TRANSIENT": "auto", "PERMANENT": 
 # 1017（她）：面板按「是什么事」分类，不再按「系统放没放弃」分组——原因清楚的毛病挂在「已放弃」里看着闹心。
 # group（等你处理 / 自动处理 / 已放弃 / 未开启）照旧留在行上，只管按钮和计数；面板分区看 category。
 CATEGORIES = (("account", "登录验证"), ("api", "AI 接口"), ("fetch", "拉取没拿全"), ("other", "其他"), ("off", "未开启"))
-_ACCOUNT_SUBS = {*ACCOUNT_CODES, "NIGHT_CAPTCHA", "XHS_RATE_LIMITED", "NOTE_RESTRICTED", "SYNC_STUCK"}
+# 1017：网页版要验证是「这一篇」的事，不是号的事——归拉取，登录验证区只留号本身
+_ACCOUNT_SUBS = {*ACCOUNT_CODES, "NIGHT_CAPTCHA", "XHS_RATE_LIMITED", "SYNC_STUCK"}
 _API_SUBS = {"AUTH_FAILED", "QUOTA_EXCEEDED", "HTTP_429", "HTTP_5XX", "NETWORK", "SECRET_TIMEOUT",
              "MODEL_OUTPUT_INVALID", "CONTENT_FILTERED"}
 _API_STEPS = {"enrich.summary", "vision.layer1", "vision.refine", "embed", "ask"}
@@ -240,7 +241,7 @@ def category(row: dict[str, Any]) -> str:
         return "account"
     if step.startswith("ai.") or sub in _API_SUBS or step in _API_STEPS:
         return "api"
-    if step in _FETCH_STEPS or sub == "NOTE_GONE":
+    if step in _FETCH_STEPS or step == "note.restricted" or sub in ("NOTE_GONE", "NOTE_RESTRICTED"):
         return "fetch"
     return "other"
 SUMMARY_KEY = {"NEEDS_HUMAN": "needs_human", "TRANSIENT": "auto", "PERMANENT": "gave_up", "SKIPPED": "skipped"}
@@ -909,6 +910,43 @@ def _catalog_titles(ids: set[str]) -> dict[str, str]:
     return out
 
 
+# 1017（她：评论没补全多条合并一条就行）：同一种「一篇一条」的毛病，面板里 ≥2 篇就并成一条「N 篇…」，展开是每一篇
+# （各自的查看 / 打开验证）；某一篇修好（resolve）就从这条里撤掉，全撤完整条消失。诊断导出照旧一篇一行。
+FOLD_CODES = {
+    "PERMANENT.COMMENTS_INCOMPLETE": ("篇评论没补全", "楼中楼还没读全，后台在接着读；读全的那篇会自己从这里消失"),
+    "PERMANENT.NOTE_RESTRICTED": ("篇网页版打不开", "隔天重开还是打不开（号是好的，只是这几篇）：点那篇的「打开验证」，"
+                                                "在弹出的窗口里过一下验证、看到笔记后关窗；过了会自动补抓"),
+}
+FOLD_PREFIX = "fold|"
+
+
+def fold_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """面板用：FOLD_CODES 里同一个码、没解决没隐藏的 ≥2 篇并成一行（key = fold|<码>），位置放在其中最新那篇处。"""
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        if r.get("code") in FOLD_CODES and not r.get("resolved_at") and not r.get("hidden") and r.get("item_id"):
+            groups.setdefault(r["code"], []).append(r)
+    out, done = [], set()
+    for r in rows:
+        code = r.get("code")
+        members = groups.get(code) or []
+        if len(members) < 2 or r not in members:
+            out.append(r)
+            continue
+        if code in done:
+            continue
+        done.add(code)
+        tail, hover = FOLD_CODES[code]
+        out.append({**members[0], "key": FOLD_PREFIX + code, "item_id": None, "title": f"{len(members)} {tail}",
+                    "hover": hover, "reason": hover, "count": len(members), "folded": True,
+                    "ts": max(str(m.get("ts") or "") for m in members),
+                    "dismissable": all(m.get("dismissable") for m in members), "repairable": False,
+                    "status_text": "", "repair_note": None, "repair_state": None, "evidence_id": None,
+                    "items": [{"key": m["key"], "item_id": m["item_id"], "title": m.get("title") or m["item_id"],
+                               "reason": m.get("reason") or ""} for m in members]})
+    return out
+
+
 def _neg_ts(ts) -> float:
     try:
         return -datetime.fromisoformat(str(ts)).timestamp()
@@ -928,6 +966,7 @@ def summary() -> dict[str, Any]:
     counts = {"needs_human": 0, "auto": 0, "gave_up": 0, "skipped": 0, "hidden": 0, "minor": 0}
     open_steps: set[str] = set()
     dupes = _same_hold_dupes(list(folded.values()))
+    folded_seen: dict[str, int] = {}
     for r in folded.values():
         if r.get("resolved_at") or str(r.get("key")) in dupes:
             continue
@@ -939,6 +978,11 @@ def summary() -> dict[str, Any]:
             continue
         if r.get("step"):
             open_steps.add(r["step"])
+        if r.get("code") in FOLD_CODES and r.get("item_id"):
+            folded_seen.setdefault(r["code"], 0)
+            folded_seen[r["code"]] += 1
+            if folded_seen[r["code"]] > 1:
+                continue  # 1017：面板里并成一条，计数也只算一条
         try:
             counts[SUMMARY_KEY[classify(r.get("code", ""))]] += 1
         except BadCode:
@@ -1069,6 +1113,11 @@ def dismiss(key: str | None = None, group: str | None = None, *, category_name: 
         if group != "gave_up":
             return {"ok": False, "code": "BAD_GROUP", "message": "只能整组隐藏「已放弃」", "dismissed": []}
         targets = [r for r in folded.values() if _dismissable(r) and not is_hidden(r) and not is_minor(r)]
+    elif str(key or "").startswith(FOLD_PREFIX):
+        # 1017：并起来的那条 = 隐藏它下面每一篇
+        code = str(key)[len(FOLD_PREFIX):]
+        targets = [r for r in folded.values() if r.get("code") == code and r.get("item_id") and _dismissable(r)
+                   and not is_hidden(r) and not is_minor(r)]
     else:
         r = folded.get(str(key or ""))
         if r is None or r.get("resolved_at"):
@@ -1273,6 +1322,11 @@ def run(args) -> int:
     if cmd == "list":
         from . import ai_health, usage
         reconcile_account()  # 1017：账号那几行先和读取服务的实时状态对齐（号好着就撤掉旧的掉登录 / 限频）
+        try:
+            from . import restricted as _restricted
+            _restricted.quiet_unconfirmed()  # 1017：只撞见过一天的「网页版要验证」收掉，等隔天再开一次
+        except Exception as exc:  # noqa: BLE001
+            print(f"[problems] 疑似要验证的没收成：{type(exc).__name__}: {exc}", file=sys.stderr)
         ai_health.migrate_legacy_rows()  # 1008：老记录里按篇登的 key 失效 / 欠费收成每个接口一条（幂等，没有就 0 开销）
         migrate_orphan_refine()  # 1008：卡片上有标、面板里没有的精细识图失败补登记一次（做过就不再做）
         try:
@@ -1282,7 +1336,8 @@ def run(args) -> int:
             print(f"[problems] 网页版要验证改记没做成：{type(exc).__name__}: {exc}", file=sys.stderr)
         dump_json({"ok": True, "code": "", "message": "", "summary": summary(),
                    "problems": usage.decorate_problem_rows(
-                       load(args.limit, include_resolved=args.all, include_minor=args.all))})
+                       (lambda rows: rows if args.all else fold_rows(rows))(
+                           load(args.limit, include_resolved=args.all, include_minor=args.all)))})
         return 0
     if cmd == "report":
         if not _valid_step(args.step):
@@ -1332,6 +1387,11 @@ def run(args) -> int:
         from . import sync_state
         sync_state.current()  # 进程已死的 running → 落盘成 INTERRUPTED（并登记一条），顺带刷新 summary
         reconcile_account()   # 1017：顶部计数也只认号的实时状态
+        try:
+            from . import restricted as _restricted
+            _restricted.quiet_unconfirmed()
+        except Exception:  # noqa: BLE001
+            pass
         write_summary()
         try:
             data = storage.read_json(summary_path())

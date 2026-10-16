@@ -12,6 +12,13 @@ CFG = {"endpoint": "https://primary.invalid/v1/chat/completions", "model": "qwen
 LINES = [{"text": "一行字", "score": 0.9, "box": [0, 0, 10, 10]}]
 
 
+
+@pytest.fixture(autouse=True)
+def _confirm_on_first_hit(monkeypatch):
+    """1017 起撞见一次只算疑似、隔天再撞才确认；这里测的是「已确认」那条路，按一次即确认跑。"""
+    from link_brain import restricted as _r
+    monkeypatch.setattr(_r, "CONFIRM_DAYS", 1)
+
 def _resp(url, status=200, text=None, content=None):
     req = httpx.Request("POST", url)
     if status != 200:

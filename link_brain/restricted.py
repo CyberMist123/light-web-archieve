@@ -78,8 +78,44 @@ def save(source_id: str, state: dict[str, Any]) -> None:
     storage.write_json(path, state)
 
 
+# 1017（她：号好着却挂着 10 篇「要验证」，和「号只看一个状态」冲突）：「页面停在 /explore」在号被软限频时也是这样，
+# 一次分不出是这篇被限制还是号当时不行。所以撞见一次只算「疑似」：不进问题面板、不出笔记页那行，过 RECHECK_HOURS
+# 让后台续读再开一次；在 CONFIRM_DAYS 个不同日子都打不开才算确认（这才要她点「打开验证」）。打开了就 clear，什么都不留。
+CONFIRM_DAYS = 2
+RECHECK_HOURS = 20
+
+
+def _days(st: dict[str, Any]) -> list[str]:
+    days = [str(d) for d in (st.get("days") or []) if d]
+    if not days:  # 1017 前的老标记只有 since / last_at
+        days = sorted({str(st.get(k) or "")[:10] for k in ("since", "last_at") if st.get(k)})
+    return days
+
+
+def confirmed(st: dict[str, Any]) -> bool:
+    """标着、且在不同的日子撞见过 CONFIRM_DAYS 次（或她已经点过「打开验证」没过）。"""
+    if not st.get("restricted"):
+        return False
+    v = st.get("verify") or {}
+    return len(_days(st)) >= CONFIRM_DAYS or bool(v.get("result") and v.get("result") != "note_ok")
+
+
 def is_restricted(source_id: str) -> bool:
-    return bool(load(source_id).get("restricted"))
+    """后台续读 / 附件要不要跳过这篇：确认了的跳过；疑似的过 RECHECK_HOURS 放行再试一次（号不好时读取组件根本不开页）。"""
+    st = load(source_id)
+    if not st.get("restricted"):
+        return False
+    if confirmed(st):
+        return True
+    last = _parse_iso(st.get("last_at"))
+    return last is None or (_now() - last).total_seconds() < RECHECK_HOURS * 3600
+
+
+def _parse_iso(v) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(v))
+    except (TypeError, ValueError):
+        return None
 
 
 def best_token(source_id: str, fallback: str | None = None) -> str:
@@ -128,8 +164,10 @@ def mark(source_id: str, *, item_id: str | None = None, title: str | None = None
     st = load(sid)
     was = bool(st.get("restricted"))
     now = _iso()
+    days = _days(st) if was else []
     st.update(restricted=True, last_at=now, count=int(st.get("count") or 0) + 1,
-              via=sorted({*(st.get("via") or []), *([via] if via else [])}), detail=str(detail or "")[:200])
+              via=sorted({*(st.get("via") or []), *([via] if via else [])}), detail=str(detail or "")[:200],
+              days=sorted({*days, now[:10]})[-7:])
     if not was:
         st["since"] = now
         st.pop("cleared_at", None)
@@ -142,7 +180,9 @@ def mark(source_id: str, *, item_id: str | None = None, title: str | None = None
         print(f"[restricted] 状态没写上：{exc}", file=sys.stderr)
     try:
         from . import problems
-        if not was or not problems.is_open(STEP, item_id, CODE):
+        if not confirmed(st):
+            pass  # 1017：疑似的不登记（等隔天再开一次）
+        elif not was or not problems.is_open(STEP, item_id, CODE):
             problems.report(STEP, "PERMANENT.NOTE_RESTRICTED", reason_text(st), item_id=item_id, title=title or st.get("title"),
                             action="gave_up")
     except Exception as exc:  # noqa: BLE001 - 登记失败不影响别的
@@ -178,7 +218,7 @@ def clear(source_id: str, *, item_id: str | None = None, why: str = "", token: s
 def view(source_id: str) -> dict[str, Any] | None:
     """笔记页评论区顶上那一行要的：{text, since, item_id}；没标着返回 None。"""
     st = load(source_id)
-    if not st.get("restricted"):
+    if not confirmed(st):
         return None
     return {"text": TEXT, "since": st.get("since"), "item_id": f"xhs-{_sid(source_id)}",
             "searched": (st.get("search") or {}).get("result") or ""}
@@ -270,6 +310,19 @@ def retry_with_fresh_token(source_id: str, *, title: str | None, old_token: str 
 
 
 LEGACY_HINT = "not found in noteDetailMap"   # 1011 以前读取组件对这类笔记的报错（当普通失败记进了续读状态）
+
+
+def quiet_unconfirmed() -> list[str]:
+    """1017 迁移（幂等、零开页）：问题面板里还开着、但只撞见过一天的「网页版要验证」——收掉，等后台隔天再开一次。"""
+    from . import problems
+    out = []
+    for r in problems.load():
+        if r.get("step") != STEP or r.get("resolved_at") or not r.get("item_id"):
+            continue
+        if not confirmed(load(r["item_id"])):
+            problems.resolve(STEP, r["item_id"])
+            out.append(r["item_id"])
+    return out
 
 
 def release_legacy_fill_stuck() -> list[str]:

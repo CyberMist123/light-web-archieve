@@ -29,6 +29,13 @@ GO_TEXT = ("获取Feed详情失败: [NOTE_RESTRICTED] 详情页没渲染出这�
            "，页面停在 /explore/" + NOTE_ID + "）：网页版限制了这篇，要人工打开看一眼")
 
 
+
+@pytest.fixture(autouse=True)
+def _confirm_on_first_hit(monkeypatch):
+    """1017 起撞见一次只算疑似、隔天再撞才确认；这里测的是「已确认」那条路，按一次即确认跑。"""
+    from link_brain import restricted as _r
+    monkeypatch.setattr(_r, "CONFIRM_DAYS", 1)
+
 def _floor(cid: str, shown: int, have: int) -> dict:
     return {"id": cid, "content": f"楼 {cid}", "userInfo": {"userId": "u1", "nickname": "某人"},
             "subCommentCount": str(shown),
