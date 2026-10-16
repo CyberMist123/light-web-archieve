@@ -305,6 +305,44 @@ def release_legacy_fill_stuck() -> list[str]:
     return out
 
 
+MARKER = "[NOTE_RESTRICTED]"  # 读取组件的报错标记（adapters.xiaohongshu.RESTRICTED_MARKER）
+
+
+def reclassify_fill_failures() -> list[str]:
+    """一次性（幂等）的本地迁移，零开页（1016）：续读报错里明明是 `[NOTE_RESTRICTED]`（页面停在 /explore），
+    却被当普通失败连记 3 次、登成了 COMMENTS_INCOMPLETE（1011 前起的后台进程还在跑旧代码时写的）。
+    这里改记成「网页版要验证」（note.restricted，一篇一条，同篇已有就并进那条），续读的「已放弃」解开、那条标已解决。"""
+    from . import comment_fill, problems
+    out: list[str] = []
+    base = storage.archive_root() / SOURCE
+    for path in base.glob(f"*/derived/{comment_fill.STATE_NAME}"):
+        sid = path.parents[1].name
+        try:
+            st = storage.read_json(path)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(st, dict):
+            continue
+        text = f"{st.get('stuck_reason') or ''} {st.get('last_error') or ''}"
+        item_id = f"xhs-{sid}"
+        if MARKER not in text or st.get("restricted_moved"):
+            continue
+        mark(sid, item_id=item_id, via="comments.fill", detail=(st.get("last_error") or st.get("stuck_reason") or "")[:200])
+        for k in ("stuck", "stuck_floors", "stuck_at", "stuck_reason"):
+            st.pop(k, None)
+        st["no_progress"] = 0
+        st["restricted_moved"] = _iso()
+        try:
+            comment_fill.save_state(SOURCE, sid, st)
+        except OSError:
+            continue
+        problems.resolve(comment_fill.STEP, item_id, comment_fill.CODE_INCOMPLETE)
+        out.append(item_id)
+    if out:
+        print(f"[restricted] {len(out)} 篇评论续读的「补不上」其实是网页版要验证，已改记到 note.restricted", file=sys.stderr)
+    return out
+
+
 # --------------------------------------------------------------------------
 # 她点「打开验证」之后
 # --------------------------------------------------------------------------

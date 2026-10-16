@@ -138,7 +138,7 @@ def test_enrich_api_failure_is_one_row_no_fails_and_batch_stops(env, configured,
     _run(capsys)
     monkeypatch.setattr(llm_mod, "call_model", _fail_call())
     monkeypatch.setenv("LINK_BRAIN_RENDER_INPROC", "1")
-    assert cli.main(["enrich", "--pending"]) == 1
+    assert cli.main(["enrich", "--pending"]) == 3  # 1016：全是接口那一侧 → 原因已登记（退 3），夜跑不另报步骤出错
     out = json.loads(capsys.readouterr().out)
     # 连着 2 篇撞接口就收手，剩下的留着
     assert len(out["failed"]) == enrich.API_STREAK_STOP and out["deferred"] == 5 - enrich.API_STREAK_STOP

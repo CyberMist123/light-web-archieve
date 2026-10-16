@@ -159,12 +159,19 @@ def reason_text(cap: str, entry: dict[str, Any]) -> str:
     tail = f"影响 {n} 篇" if n else ""
     if entry.get("estimate"):
         tail += f"，补齐{entry['estimate']}"
-    bits = [where, entry.get("detail") or "", f"原因：{cause}", f"处理：{fix}", tail]
+    switched = ""
+    if entry.get("switched_to"):
+        # 1016：主接口坏着、备用补上了——照实写换成了谁、补了几次；主接口这条仍要人处理
+        switched = f"已换用 {entry['switched_to']}（补上 {int(entry.get('switched_count') or 0)} 次）"
+    bits = [where, entry.get("detail") or "", switched, f"原因：{cause}", f"处理：{fix}", tail]
     return "；".join(b for b in bits if b)
 
 
-def record(cap: str, result: dict[str, Any], *, item_id: str | None = None, cfg: dict[str, Any] | None = None) -> None:
-    """接口故障归并登记：更新 ai-health.json，并把 step=ai.<能力> 那一条问题（同码）覆盖成最新一句。永不抛异常。"""
+def record(cap: str, result: dict[str, Any], *, item_id: str | None = None, cfg: dict[str, Any] | None = None,
+           switched_to: str = "") -> None:
+    """接口故障归并登记：更新 ai-health.json，并把 step=ai.<能力> 那一条问题（同码）覆盖成最新一句。永不抛异常。
+
+    switched_to：主接口这次失败、但已换用备用补上了（1016）——不算「影响的篇」，原因里写「已换用 X」。"""
     try:
         from . import problems, providers
         step = STEP_OF_CAP.get(cap)
@@ -179,6 +186,12 @@ def record(cap: str, result: dict[str, Any], *, item_id: str | None = None, cfg:
                 problems.resolve(step, None, entry["code"])
             entry = {"code": code, "since": _now(), "items": []}
         items = list(entry.get("items") or [])
+        if switched_to:
+            entry["switched_to"] = switched_to
+            entry["switched_count"] = int(entry.get("switched_count") or 0) + 1
+            if item_id in items:
+                items.remove(item_id)
+            item_id = None
         if item_id and item_id not in items:
             items.append(item_id)
         entry.update({
@@ -219,7 +232,7 @@ def status() -> dict[str, Any]:
     out = {}
     for cap, e in _load().items():
         out[cap] = {**{k: e.get(k) for k in ("code", "since", "last_at", "count", "provider", "model", "key_hint",
-                                                 "estimate", "detail", "http_status")}, "items": len(e.get("items") or [])}
+                                                 "estimate", "detail", "http_status", "switched_to")}, "items": len(e.get("items") or [])}
     return out
 
 

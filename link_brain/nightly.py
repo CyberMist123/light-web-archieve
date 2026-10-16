@@ -66,11 +66,12 @@ KILL_EXCLUDE = (*procs.READER_IMAGE_PREFIXES, "xiaohongshu-mcp", "xiaohongshu-lo
 EXIT_OK, EXIT_ERROR, EXIT_MISSING, EXIT_NEEDS_HUMAN, EXIT_BUSY = 0, 1, 2, 5, 6
 # 子命令退出 3 = 没做完，但原因已登记在它自己那一步（sync.favorites / embed）：夜跑不重试、不另登记 nightly.<步骤>
 STEP_EXIT_REGISTERED = 3
-REGISTERED_STEP = {"sync-favorites": "sync.favorites", "embed": "embed"}
+REGISTERED_STEP = {"sync-favorites": "sync.favorites", "embed": "embed", "enrich-pending": "ai.summary"}
 REPAIR_MAX_MIN = 30
 
 SYNC_STEP = "sync-favorites"
 REFINE_STEP = "vision --refine"
+VISION_KEY_STEPS = ("enrich --pending", "vision --upgrade")  # 也注入免费识图 key（第一层识图的备用）
 AUDIT_STEP = "attachments --audit"
 TAIL_STEP = "attachments --recheck --logged-in-tail"
 KEYS_STEP = "gemini-keys"  # 取免费 key 单独记一步：精细识图没 key 照样成功，别把「取 key 失败」顺手标成已解决
@@ -573,8 +574,19 @@ class Nightly:
                 self.log("[同步] 不是风控的失败（exit 1），但今晚剩的时间不够再试一次")
         return r
 
+    def _vision_keys(self) -> tuple[str, list[str]]:
+        """免费识图 key 一晚只取一次（取 key 的命令可能要解密码库）。"""
+        if getattr(self, "_keys_cache", None) is None:
+            self._keys_cache = self.refine_keys()
+        return self._keys_cache
+
+    def _vision_step(self, step: Step) -> StepResult:
+        # 1016：概要 / 第一层识图也能在主接口 403 / 欠费 / 审核拦下时换用免费 key（vision.vision_backups）
+        name, keys = self._vision_keys()
+        return self.run_step(step, env_extra={name: ",".join(keys)} if keys else None)
+
     def _refine(self, step: Step) -> StepResult:
-        name, keys = self.refine_keys()
+        name, keys = self._vision_keys()
         self.log(f"[识图补跑] 免费 key 可用 {len(keys)} 个")
         r = self.run_step(step, env_extra={name: ",".join(keys)} if keys else None)
         summary = _last_json(r.stdout)
@@ -657,6 +669,8 @@ class Nightly:
                     self._sync_with_retry(step)
                 elif step.name == REFINE_STEP:
                     self._refine(step)
+                elif step.name in VISION_KEY_STEPS:
+                    self._vision_step(step)
                 elif step.name == AUDIT_STEP:
                     _, missing = self._audit(step)
                     if missing and exit_code == EXIT_OK:

@@ -63,6 +63,7 @@
 - **用户看到**：手动同步一次，问题列表「等你处理」里 254 条识图 + 42 条概要，每条都是「接口拒绝了 key（HTTP 403）」；看不出是哪把 key、为什么、要花多少补回来。
 - **根因**：概要 / 识图按篇登记问题（`enrich.summary|<篇>`、`vision.layer1|<篇>`），接口那一侧出事（key 无效 / 欠费 / 断网 / 限流）时每篇一条；而且这类失败还给这篇记失败次数，3 次就「连着没补成」退避几天——明明不是这篇的错。
 - **修法 / 自愈**（1008 Owner：一个原因一条）：接口那一侧的码（`AUTH_FAILED / QUOTA_EXCEEDED / NETWORK / HTTP_429 / HTTP_5XX / SERVICE_BUSY`）不再按篇记，归并到 `ai.summary / ai.vision / ai.refine / ai.embed` 一条（`link_brain/ai_health.py`）：原因写清**哪个接口、哪个模型、key 从哪来（尾号）、HTTP 多少、是 key 无效还是欠费还是断网、怎么办、影响了几篇、补齐这些篇约多少 token / 多少钱**（按库里实际平均量 × 官方单价，和「开始」页的估价同一套）。受影响的篇只记在 `_archive/ai-health.json`，本身留在待补、不记失败次数；同一批里连着 2 篇撞接口就收手（别逐篇白试）；接口再成功一次这条就消。换好 key 后点这条的「现在修」= 补跑。老记录里按篇登的那几百条在下次打开面板时自动折成一条。
+  1016：主提供商 403 / 欠费时换备用——概要换设置里的文本 AI（如 DeepSeek），第一层识图（含被内容审核拦下）依次换免费 key（Gemini）→ `models` 里标 `"vision": true` 的条目 → 精细识别模型（同一接口同一把 key 的不算）；补上了这条仍留着、原因里写「已换用 X（补上 N 次）」，不算影响的篇。`enrich --pending` 没补成的全是接口故障时退 3（原因已登记），夜跑不另报步骤出错。
 - **回归用例**：`tests/test_ai_health_1008.py::test_record_folds_many_items_into_one_row_with_cause_key_and_estimate`、`tests/test_ai_health_1008.py::test_enrich_api_failure_is_one_row_no_fails_and_batch_stops`、`tests/test_ai_health_1008.py::test_legacy_per_item_rows_fold_into_one`、`tests/test_ai_health_1008.py::test_item_own_failure_still_counts`。
 
 ### 9. 选了轻量版还在报「AI 概要失败」（10-08）
@@ -154,6 +155,7 @@
   问题面板那一行也有「打开验证」：开读取服务的笔记验证窗口到这一篇，她过完验证关窗——看到过这篇就清掉标记、记下窗口里的新口令、
   续读计数清零、附件退避清掉、拉起后台补评论（同一篇照旧隔 45 分钟再开），附件今晚 4 点补；没看到就照实说「再点一次」。
   号本身在熔断中时先走原来的熔断验证。以前因这句报错连着 3 次放弃了的续读（COMMENTS_INCOMPLETE），后台补评论开跑时本地解开一次（零开页），按新办法再试一次。
+  1016：续读报错文本里带 `[NOTE_RESTRICTED]`、却以普通 AdapterError 走到「没进展」的（1011 部署前起的后台进程写的 6 条），`note_failure` 改记 note.restricted；老行在 `problems list` / 补评论开跑时零开页改记并与同篇合并（`restricted.reclassify_fill_failures`）。
 - **回归用例**：`tests/test_restricted_1011.py::test_reader_text_is_note_restricted_not_account_trouble`、`tests/test_restricted_1011.py::test_fill_restricted_searches_once_then_opens_with_fresh_token`、`tests/test_restricted_1011.py::test_fill_restricted_not_found_is_one_quiet_item_and_is_skipped`、`tests/test_restricted_1011.py::test_fill_pending_run_does_not_loop_on_restricted`、`tests/test_restricted_1011.py::test_legacy_given_up_fill_is_released_once_then_classified`、`tests/test_restricted_1011.py::test_search_hitting_account_trouble_stops_like_before`、`tests/test_restricted_1011.py::test_attachment_restricted_no_triple_retry_and_skipped_after`、`tests/test_restricted_1011.py::test_note_verify_passed_requeues_capture`、`tests/test_restricted_1011.py::test_note_verify_not_passed_keeps_mark`、`tests/test_note_restricted_1011.cjs`；读取组件 `note_verify_test.go`、`xiaohongshu/note_restricted_test.go`、`xiaohongshu/note_restricted_localbrowser_test.go`。
 
 ### 18. 隔一晚凌晨 4 点推一次「需要验证」，她打开窗口什么都没有（10-06 / 10-08 / 10-10 / 10-11）

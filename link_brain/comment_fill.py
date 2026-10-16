@@ -450,6 +450,12 @@ def note_failure(item_id: str, error: str) -> None:
         conn.close()
     if not row:
         return
+    from . import restricted
+    if restricted.MARKER in str(error):
+        # 1016：报错里是 [NOTE_RESTRICTED]（只是这篇网页版要验证）却以普通 AdapterError 到这儿：照「网页版要验证」记，
+        # 不算没进展、不报 COMMENTS_INCOMPLETE（和 fill_one 里 NoteRestrictedError 那条路一致）
+        restricted.mark(row["source_id"], item_id=item_id, via="comments.fill", detail=str(error)[:200])
+        return
     state = load_state(row["source"], row["source_id"])
     now = _now().isoformat(timespec="seconds")
     state["attempts"] = _int(state.get("attempts")) + 1
@@ -667,6 +673,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
         # 1011：以前因「页面上没有这篇」放弃了的续读解开一次（本地，零开页），让新办法认它、给它搜一次新口令
         from . import restricted
         restricted.release_legacy_fill_stuck()
+        restricted.reclassify_fill_failures()
     except Exception as exc:  # noqa: BLE001 - 迁移没成不挡补评论
         print(f"[comments] 旧的「已放弃」没解开：{type(exc).__name__}: {exc}", file=sys.stderr)
     floors = floor_target()

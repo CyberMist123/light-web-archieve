@@ -383,8 +383,11 @@ def extract(source_key: str, source_id: str, *, force: bool = False, verbose: bo
     if alt_cfg is not None:
         plan.append((alt_cfg, True))
     used_cfg = model_cfg
+    primary_fail: dict[str, Any] | None = None
     for attempt, (cfg_now, strict) in enumerate(plan):
-        if attempt == 2 and (data or code.startswith(("NEEDS_HUMAN.", "SKIPPED."))):
+        if attempt == 1 and primary_fail is not None:
+            continue  # 主模型 key 失效 / 欠费：同一个再试没用，直接去备用（1016）
+        if attempt == 2 and (data or (code.startswith(("NEEDS_HUMAN.", "SKIPPED.")) and primary_fail is None)):
             break
         attempts = attempt + 1
         used_cfg = cfg_now
@@ -395,6 +398,10 @@ def extract(source_key: str, source_id: str, *, force: bool = False, verbose: bo
         if result.get("status") != "ok":
             error = result.get("error") or "模型调用失败"
             code = result.get("code") or "TRANSIENT.SERVICE_BUSY"
+            if attempt == 0 and alt_cfg is not None and code in ("NEEDS_HUMAN.AUTH_FAILED", "NEEDS_HUMAN.QUOTA_EXCEEDED"):
+                # 1016：主提供商 403 / 欠费 → 换设置里另一个已配置的文本模型（如 DeepSeek），问题面板照实写「已换用 X」
+                primary_fail = {**result, "code": code}
+                continue
             if result.get("status") == "skipped" or code.startswith(("NEEDS_HUMAN.", "SKIPPED.")):
                 break  # 重试也没用：key 失效 / 欠费 / 没配
             continue
@@ -442,17 +449,25 @@ def extract(source_key: str, source_id: str, *, force: bool = False, verbose: bo
         "data": data,
     }
     from . import ai_health
-    api_side = not data and ai_health.is_api_failure({"code": code, "api_error": bool(result.get("api_error"))})
+    api_side = not data and (primary_fail is not None
+                             or ai_health.is_api_failure({"code": code, "api_error": bool(result.get("api_error"))}))
     if api_side:
         doc["api_error"] = True  # 接口那一侧的事，不是这篇的：enrich 不给这篇记失败次数（见 enrich._child）
     storage.write_json(extracted_path(source_key, source_id), doc)
     if data:
         problems.resolve("enrich.summary", item_id)
         problems.resolve("enrich.summary", None, "SKIPPED.NOT_CONFIGURED")
-        ai_health.clear("summaryAI")
+        if primary_fail is not None and used_cfg is not model_cfg:
+            label = f"{ai_health.provider_name(used_cfg)} {used_cfg.get('model') or used_cfg.get('command') or ''}".strip()
+            if verbose:
+                print(f"[llm] {item_id} 主概要模型 {primary_fail.get('code')}，已换用 {label}", file=sys.stderr)
+            ai_health.record("summaryAI", primary_fail, cfg=model_cfg, switched_to=label)
+        else:
+            ai_health.clear("summaryAI")
     elif api_side:
         # 1008 Owner：key 失效 / 欠费 / 断网一个原因一条，归并到 ai.summary，不按篇刷屏
-        ai_health.record("summaryAI", {**result, "code": code}, item_id=item_id, cfg=used_cfg)
+        ai_health.record("summaryAI", primary_fail or {**result, "code": code}, item_id=item_id,
+                         cfg=model_cfg if primary_fail else used_cfg)
     else:
         problems.report("enrich.summary", code, error or "概要没生成", item_id=item_id, title=title)
     return doc
