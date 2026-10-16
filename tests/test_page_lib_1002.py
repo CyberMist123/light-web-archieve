@@ -37,15 +37,23 @@ def test_build_inlines_page_lib_everywhere(tmp_path, monkeypatch):
     catalog_path, _, _ = catalog.build()
     lib = (ASSETS / "lb-page-lib.js").read_text(encoding="utf-8")
     pages = catalog.library_pages(tmp_path)
+    # 1017：目录页 / 已收藏页的脚本存 _archive/catalog-page.js / starred-page.js，md 里只有载入它的一小段引导
+    scripts = {"catalog": tmp_path / "_archive" / catalog.CATALOG_SCRIPT_NAME, "starred": tmp_path / "_archive" / catalog.STARRED_SCRIPT_NAME}
     for role in ("catalog", "chat", "starred"):
-        text = (tmp_path / pages[role]).read_text(encoding="utf-8")
+        page = (tmp_path / pages[role]).read_text(encoding="utf-8")
+        text = scripts[role].read_text(encoding="utf-8") if role in scripts else page
         assert text.count("function lbPageLib(") == 1, role
         assert text.index("function lbPageLib(") < text.rindex("const LB = lbPageLib("), role
-    assert "const starredPage = true;" in (tmp_path / pages["starred"]).read_text(encoding="utf-8")
+        if role in scripts:
+            assert "function lbPageLib(" not in page and f"_archive/{scripts[role].name}" in page, role
+            assert len(page.encode("utf-8")) < 4096, (role, len(page.encode("utf-8")))
+    assert "const starredPage = true;" in scripts["starred"].read_text(encoding="utf-8")
+    assert "const starredPage = false;" in scripts["catalog"].read_text(encoding="utf-8")
     annot = (tmp_path / "_archive" / "annotate-view.js").read_text(encoding="utf-8")
     assert annot.startswith(lib)
     assert "lbPageLib(dv, app, 'annotate')" in annot
     assert "```" not in lib, "前导里不能有三个反引号（会截断 dataviewjs 代码块）"
+    assert "```" not in (ASSETS / "page-bootstrap.js").read_text(encoding="utf-8"), "引导里不能有三个反引号"
 
 
 def test_cover_size_from_manifest(tmp_path, monkeypatch):

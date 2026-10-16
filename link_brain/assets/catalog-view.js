@@ -520,7 +520,8 @@ function paintSyncProg() {
   return view;
 }
 cleanups.push(() => { clearInterval(progTimer); progTimer = null; progPeriod = 0; });
-const fmtTime = v => { const d = new Date(v); return Number.isFinite(d.getTime()) ? d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '—'; };
+// 「10/16 22:42」：和 toLocaleString('zh-CN', 2-digit 月日时分, 24 小时) 同样的字，但不碰 Intl——首开第一次调 Intl 要初始化区域数据（约 13ms）
+const fmtTime = v => { const d = new Date(v); if (!Number.isFinite(d.getTime())) return '—'; const p = n => String(n).padStart(2, '0'); return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 const fmtFull = v => { const d = new Date(v); if (!Number.isFinite(d.getTime())) return '—'; const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 
 let syncState = null, probSummary = null, aliveChecked = false;
@@ -1950,6 +1951,23 @@ function cardSig(it, fuzzy, low) {
   return JSON.stringify([it.title, cardTitle(it), it.cover, it.cover_w, it.cover_h, it.kind, it.attachment, it.attachment_reason, it.author, it.source, it.likes, it.note, it.problems || null, fuzzy, low || '']);
 }
 const STAR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l2.55 5.17 5.7.83-4.13 4.02.98 5.68L12 16.62l-5.1 2.68.98-5.68L3.75 9.6l5.7-.83z"/></svg>';
+const CHECK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12.5l4 4 8-9"/></svg>';
+const VIDEO_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="m16 10 5-3v10l-5-3z"/></svg>';
+const FILE_SVG = '<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+// 1017 首开：每张卡 3–4 次 innerHTML 解析 SVG，884 张卡 ParseHTML 约 94ms——同一段 SVG 只解析一次，之后 cloneNode（DOM 和原来一样）。
+// 没有 cloneNode 的环境（node 假 DOM）照旧 innerHTML。
+const svgTpl = new Map();
+function putSvg(el, html, { prepend = false } = {}) {
+  let t = svgTpl.get(html);
+  if (t === undefined) {
+    t = null;
+    try { const box = document.createElement('div'); box.innerHTML = html; const f = box.firstElementChild; if (f && typeof f.cloneNode === 'function' && f.tagName && f.tagName.toLowerCase() === 'svg') t = f; } catch {}
+    svgTpl.set(html, t);
+  }
+  if (!t) { if (prepend) { const tmp = document.createElement('span'); tmp.innerHTML = html; el.prepend(...tmp.childNodes); } else el.innerHTML = html; return; }
+  const node = t.cloneNode(true);
+  if (prepend) el.prepend(node); else el.appendChild(node);
+}
 function paintCardState(card, it) {
   if (!card || !it) return;
   const on = selected.has(it.id);
@@ -1998,12 +2016,12 @@ function buildCard(it, fuzzy, low) {
   } else card.createEl('div', { cls: 'lbc-nocover', text: it.kind === 'video' ? '▷' : '▤' });
   // 附件角标：待补=有文件未下载（警示色），downloaded=有文件已下（灰）
   const badges = card.createEl('div', { cls: 'lbc-badges' });
-  if (it.kind === 'video') { const v = badges.createEl('span', { cls: 'lbc-attach lbc-video' }); v.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="m16 10 5-3v10l-5-3z"/></svg>'; }
+  if (it.kind === 'video') { const v = badges.createEl('span', { cls: 'lbc-attach lbc-video' }); putSvg(v, VIDEO_SVG); }
   if (it.attachment === '待补') badges.createEl('div', { cls: 'lbc-attach lbc-attach-todo', text: '待补' });
   else if (it.attachment === '线索') badges.createEl('div', { cls: 'lbc-attach lbc-attach-hint', text: '疑似附件', attr: { title: it.attachment_reason || '正文提到附件，但没找到文件' } });
   else if (it.attachment === 'downloaded') badges.createEl('div', { cls: 'lbc-attach', text: '文件' });
   const badge = badges.querySelector('.lbc-attach:not(.lbc-video)');
-  if (badge) { try { const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); icon.setAttribute('viewBox', '0 0 24 24'); icon.innerHTML = '<path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>'; badge.prepend(icon); } catch {} }
+  if (badge) { try { putSvg(badge, FILE_SVG, { prepend: true }); } catch {} }
   // 第 4 批：这篇的问题标（灰；要你处理的用醒目色），悬停看原因；同一个标签只出一个，和上面附件标同名的不重复出；「未开启」不上卡片
   const shownLabels = new Set(Array.from(badges.querySelectorAll('.lbc-attach'), b => b.textContent)); const probs = new Map();
   for (const p of Array.isArray(it.problems) ? it.problems : []) {
@@ -2015,11 +2033,11 @@ function buildCard(it, fuzzy, low) {
   if (!mobile) {
     // 10-04：悬停就出现的选中圈——点它直接勾选（不用先进多选）；勾了任何一篇就是多选态，全取消就退出
     const check = card.createEl('button', { cls: 'lbc-check' }); check.type = 'button'; check.setAttribute('aria-pressed', 'false');
-    check.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12.5l4 4 8-9"/></svg>';
+    putSvg(check, CHECK_SVG);
     check.createEl('span', { cls: 'lb-visually-hidden', text: '选中' });
     check.onclick = e => { e?.preventDefault?.(); e?.stopPropagation?.(); toggleSelect(cur().id); };
     const star = card.createEl('button', { cls: 'lbc-star' }); star.type = 'button';
-    star.innerHTML = STAR_SVG;
+    putSvg(star, STAR_SVG);
     star.createEl('span', { cls: 'lb-visually-hidden', text: '收藏' });
     star.onclick = e => { e?.preventDefault?.(); e?.stopPropagation?.(); const x = cur(); if (x._starBusy) return; starMany([x], { single: true }); };
     // 10-11「归类…」：只在索引视图里、悬停才出现（CSS 管显隐）——移到… / 也放进… / 从这里拿掉
@@ -2032,7 +2050,7 @@ function buildCard(it, fuzzy, low) {
     };
   } else {
     // 手机：只给已收藏的篇显示一个不可点的 ★（C12）
-    const st = card.createEl('span', { cls: 'lbc-star is-on is-static' }); st.innerHTML = STAR_SVG;
+    const st = card.createEl('span', { cls: 'lbc-star is-on is-static' }); putSvg(st, STAR_SVG);
   }
   const body = card.createEl('div', { cls: 'lbc-body' });
   const ct = body.createEl('div', { cls: 'lbc-ctitle', text: cardTitle(it) });
@@ -2105,7 +2123,30 @@ function clearSelection() {
 
 // ── 排版（C9：按行瀑布流；只在结果集或列数变化时重摆） ──
 let laidKey = null, laidN = 0;
-function layoutInto(box, rows, n) {
+// 1017 首开即出：一次要新建很多张卡（真库首开 884 张：建卡 + 解析 + 排版约 200ms，期间一帧不出）时，
+// 只同步建「看得见的这一屏多一点」（滚动位置 + 1.25 屏；返回目录要恢复的位置也算在内），下面的卡等第一帧画出来以后分片补上
+// （每片 ≤8ms，补到原来的位置：瀑布流分配和占位高照旧按全部结果算，补完和一次建完一模一样）。
+// 要新建的卡不多（< FILL_MIN，含平常的搜索 / 筛选 / 数据刷新——卡片按 id 复用）就照旧一次建完。
+const FILL_MIN = 200, FILL_SLICE_MS = 8;
+let fillJob = null, restoreTarget = 0;
+function cancelFill() {
+  if (!fillJob) return;
+  fillJob.stop = true; fillJob = null;
+  try { grid.removeAttribute('data-lbc-filling'); } catch {}
+}
+cleanups.push(cancelFill);
+function fillBudget() {
+  const sc = LB.scroller();
+  const vh = Number(sc?.clientHeight) || (typeof innerHeight === 'number' ? innerHeight : 0) || 900;
+  return Math.max(Number(sc?.scrollTop) || 0, restoreTarget || 0) + vh * 1.25;
+}
+// 估算每一行（卡）的顶边：和 layoutInto 同一份分配 + 估算高（不读真实高度）
+function planTops(plan, heights, g, offset = 0) {
+  const tops = new Array(heights.length).fill(0);
+  for (const idxs of plan) { let y = offset; for (const i of idxs) { tops[i] = y; y += (Number(heights[i]) || 0) + g; } }
+  return tops;
+}
+function layoutInto(box, rows, n, { limit = rows.length, deferred = null } = {}) {
   // 10-11：不再 box.empty() 再整批挂回（她：按 AI 建议刷新目录会闪一下）——列复用、卡片只在位置不对时挪，多余的摘掉
   const W = gridWidth(), g = narrow() ? 14 : 24;
   const colW = n > 1 && W > 0 ? (W - g * (n - 1)) / n : (W || 230);
@@ -2116,13 +2157,56 @@ function layoutInto(box, rows, n) {
   const cols = [...box.children];
   while (cols.length < plan.length) cols.push(box.createEl('div', { cls: 'lbc-col' }));
   while (cols.length > plan.length) cols.pop().remove();
+  // 1015 首开卡：.lbc-card 是 content-visibility:auto（屏外的卡不排版），占位高 = 上面的估算高（画过一次后 auto 记住真高）
+  const cardAt = i => { const c = getCard(rows[i]); const h = Math.round(heights[i]); if (h > 0 && c.__lbH !== h) { c.__lbH = h; c.style.containIntrinsicSize = `auto ${h}px`; } return c; };
   plan.forEach((idxs, ci) => {
     const col = cols[ci];
-    // 1015 首开卡：.lbc-card 是 content-visibility:auto（屏外的卡不排版），占位高 = 上面的估算高（画过一次后 auto 记住真高）
-    const want = idxs.map(i => { const c = getCard(rows[i]); const h = Math.round(heights[i]); if (h > 0 && c.__lbH !== h) { c.__lbH = h; c.style.containIntrinsicSize = `auto ${h}px`; } return c; });
+    // limit 之后的卡（分配上一定排在每列的尾巴）留给 deferred 分片补
+    const want = idxs.filter(i => i < limit).map(cardAt);
     want.forEach((card, k) => { if (col.children[k] !== card) col.insertBefore(card, col.children[k] || null); });
     while (col.children.length > want.length) col.lastElementChild.remove();
   });
+  if (limit < rows.length && deferred) {
+    const colOf = new Array(rows.length);
+    plan.forEach((idxs, ci) => { for (const i of idxs) colOf[i] = ci; });
+    for (let i = limit; i < rows.length; i++) deferred.push(() => { const c = cardAt(i); if (c.parentNode !== cols[colOf[i]] || c.nextSibling) cols[colOf[i]].appendChild(c); });
+  }
+}
+// 首开 / 大批新卡：先算各块能同步建几张（按估算顶边 ≤ 预算），要分片的新卡够多才分片
+function fillLimits(blocks, n) {
+  const W = gridWidth(), g = narrow() ? 14 : 24;
+  const colW = n > 1 && W > 0 ? (W - g * (n - 1)) / n : (W || 230);
+  const budget = fillBudget();
+  let offset = 0, fresh = 0;
+  const limits = blocks.map(rows => {
+    const heights = rows.map(r => lbcCardHeight(r.it, colW, { low: r.low }));
+    const { cols: plan, heights: sums } = lbcAssign(heights, n);
+    const tops = planTops(plan, heights, g, offset);
+    offset += Math.max(0, ...sums.map((h, ci) => h + g * plan[ci].length)) + 60;
+    let k = rows.length;
+    for (let i = 0; i < rows.length; i++) if (tops[i] > budget) { k = i; break; }
+    for (let i = k; i < rows.length; i++) if (!cardCache.has(rows[i].it.id)) fresh++;
+    return k;
+  });
+  return fresh >= FILL_MIN ? limits : blocks.map(rows => rows.length);
+}
+function runFill(tasks) {
+  const job = fillJob = { stop: false, i: 0 };
+  grid.setAttribute('data-lbc-filling', String(tasks.length));
+  const clock = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+  const step = () => {
+    if (job.stop || fillJob !== job) return;
+    const t0 = clock();
+    while (job.i < tasks.length && clock() - t0 < FILL_SLICE_MS) { try { tasks[job.i](); } catch {} job.i++; }
+    if (job.i < tasks.length) { setTimeout(step, 0); return; }
+    fillJob = null;
+    try { grid.removeAttribute('data-lbc-filling'); } catch {}
+    if (cardTagsShown || (indexView && idx)) paintCardFacets();
+    LB.mark('cards-filled');
+  };
+  // 第一帧（顶栏 + 头几屏卡片）先画出来，再开始补
+  const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (f => setTimeout(f, 16));
+  raf(() => setTimeout(step, 0));
 }
 function layoutGrid() {
   const r = rankRows();
@@ -2141,6 +2225,7 @@ function layoutGrid() {
   }
 }
 function layoutBody(r, n) {
+  cancelFill();
   const shown = r.exact.length + r.possible.length;
   const simpleEmpty = simplePage && !starredPage && !committed && !activeCat && !activeTopic && !todayOnly && !todoOnly;
   if (simpleEmpty || !shown) {
@@ -2179,8 +2264,11 @@ function layoutBody(r, n) {
   }
   for (const el of [...grid.children]) if (!want.includes(el)) el.remove();
   want.forEach((el, k) => { if (grid.children[k] !== el) grid.insertBefore(el, grid.children[k] || null); });
-  layoutInto(exactBox, r.exact, n);
-  if (r.possible.length) layoutInto(want[want.length - 1], r.possible, n);
+  const [limE, limP] = fillLimits([r.exact, r.possible], n);
+  const deferred = [];
+  layoutInto(exactBox, r.exact, n, { limit: limE, deferred });
+  if (r.possible.length) layoutInto(want[want.length - 1], r.possible, n, { limit: limP, deferred });
+  if (deferred.length) runFill(deferred);
 }
 async function askInChat(q) {
   const p = provider(); if (p) p.pendingArchiveQuestion = q;
@@ -2383,10 +2471,12 @@ LB.listen('esc', document, 'keydown', e => {
 // ── 首屏 ──
 cols = savedCols(); applyCols();
 await refreshProblems();
+restoreTarget = savedScroll;   // 1017：要恢复的滚动位置附近的卡同步建好（restoreScroll 一次到位）
 const restoredWithPending = takePendingQuery();
 // 上次离开时防抖还没触发（输入框里的字和上次搜的不一样）：恢复后补跑一次
 if (!restoredWithPending && saved.ts && typeof saved.input === 'string' && saved.input.trim() !== lastRaw) commitSearch();
 renderCatBar(); render();
+if (restoredWithPending || !(savedScroll > 0)) restoreTarget = 0;   // 要恢复滚动的：滚到位之前（含首帧的列数重摆）都按那个位置留卡，见下面 restoreScroll
 pageReady = true;
 if (idxPending) reloadIndex();
 paintStickyTop();
@@ -2427,6 +2517,6 @@ LB.keep(wrap, { version: await LB.data.version(), update: () => { syncPerf(); re
 } });
 if (provider()?.focusCatalogSearch) { provider().focusCatalogSearch = false; search.focus(); }
 else LB.restoreFocus(search, 'search');
-if (savedScroll > 0 && !restoredWithPending) Promise.resolve(LB.restoreScroll(savedScroll)).then(() => paintToTop(LB.scroller()?.scrollTop || 0)).catch(() => {});   // 滚到位时记一笔 scroll-restored@
+if (savedScroll > 0 && !restoredWithPending) Promise.resolve(LB.restoreScroll(savedScroll)).then(() => paintToTop(LB.scroller()?.scrollTop || 0)).catch(() => {}).finally(() => { restoreTarget = 0; });   // 滚到位时记一笔 scroll-restored@
 LB.t('restore');
 LB.t('total');
