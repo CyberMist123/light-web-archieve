@@ -34,6 +34,7 @@ ITEM_TIMEOUT_SECONDS = int(os.environ.get("LWA_ENRICH_TIMEOUT", str(20 * 60)))
 IMAGE_SUFFIXES = {".webp", ".jpg", ".jpeg", ".png", ".gif", ".avif", ".heic", ".bmp"}
 EXIT_OK = 0
 EXIT_ERROR = 1
+EXIT_REGISTERED = 3  # 失败原因已登记在别的问题条目里（和 embed 同一约定，nightly.STEP_EXIT_REGISTERED）
 _CHILD_INCOMPLETE = 3  # 子进程跑完了但还缺东西（概要失败 / 有图没识出来）
 _CHILD_API_FAILURE = 4  # 1008：还缺，但缺的原因是接口那一侧（key / 欠费 / 断网 / 限流）——不是这篇的错，不记失败次数
 API_STREAK_STOP = 2     # 同一批里连着几篇都撞接口故障就收手：一个原因一条，别逐篇白等、白烧重试
@@ -413,4 +414,7 @@ def _run_locked(args, deadline) -> int:
             print(f"[enrich] 连着 {MAX_FAILS} 次没补成、隔几天再自动试：{len(gave_up)} 篇"
                   "（要马上重跑：python -m link_brain enrich --item <item_id>）", file=sys.stderr)
     dump_json({"candidates": len(targets), **out})
+    if out["failed"] and all(f.get("api_error") for f in out["failed"]):
+        # 1016：没补成的全是接口那一侧（403 / 欠费 / 断网）：原因已归并登记在 ai.<能力> 那一条，夜跑只记汇总、不另报「步骤出错」
+        return EXIT_REGISTERED
     return EXIT_ERROR if out["failed"] else EXIT_OK

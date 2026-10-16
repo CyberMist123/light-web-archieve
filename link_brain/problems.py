@@ -1181,6 +1181,11 @@ def run(args) -> int:
         from . import ai_health
         ai_health.migrate_legacy_rows()  # 1008：老记录里按篇登的 key 失效 / 欠费收成每个接口一条（幂等，没有就 0 开销）
         migrate_orphan_refine()  # 1008：卡片上有标、面板里没有的精细识图失败补登记一次（做过就不再做）
+        try:
+            from . import restricted
+            restricted.reclassify_fill_failures()  # 1016：续读报 [NOTE_RESTRICTED] 却记成 COMMENTS_INCOMPLETE 的改记（幂等、零开页）
+        except Exception as exc:  # noqa: BLE001 - 迁移失败不挡面板
+            print(f"[problems] 网页版要验证改记没做成：{type(exc).__name__}: {exc}", file=sys.stderr)
         dump_json({"ok": True, "code": "", "message": "", "summary": summary(),
                    "problems": load(args.limit, include_resolved=args.all, include_minor=args.all)})
         return 0

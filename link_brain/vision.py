@@ -53,9 +53,15 @@ def _layer1_problem(got: dict[str, Any], source_key: str, item_id: str | None, c
     from . import ai_health, problems
     if got.get("status") == "ok":
         problems.resolve("vision.layer1", item_id)
-        ai_health.clear("visionAI")
+        first = got.get("switched_from") or {}
+        if not first:
+            ai_health.clear("visionAI")
+        elif ai_health.is_api_failure(first):
+            # 1016：主接口还是坏的、这张是备用补上的：接口那一条留着，但照实写「已换用 X」
+            ai_health.record("visionAI", first, cfg=cfg, switched_to=got.get("switched_to") or "")
     elif ai_health.is_api_failure(got):
         ai_health.record("visionAI", got, item_id=item_id, cfg=cfg)
+        problems.resolve("vision.layer1", item_id, "PERMANENT.MODEL_OUTPUT_INVALID")  # 1016：旧的 400 那条别一直挂着
     elif got.get("code"):
         problems.report("vision.layer1", got["code"], got.get("error") or "识图失败", item_id=item_id)
 
@@ -81,8 +87,10 @@ def _understand(entry: dict[str, Any], path: Path, cfg: dict[str, Any] | None, s
     old = entry.get("visual") or {}
     if cfg and (old.get("status") != "ok" or old.get("v") != visual.VISUAL_VERSION):
         got = visual.understand(path, entry["lines"], cfg)
+        if _should_switch(got):
+            got = _understand_backup(path, entry["lines"], cfg, got, item_id)
         if got.get("status") == "ok" or old.get("status") != "ok":
-            entry["visual"] = {k: v for k, v in got.items() if k not in ("usage", "truncated", "api_error")}
+            entry["visual"] = {k: v for k, v in got.items() if k not in ("usage", "truncated", "api_error", "switched_from")}
         if got.get("status") == "ok":
             entry["layout"] = got["kind"]
             mark_refine(entry, refine_reason(entry))
@@ -90,6 +98,68 @@ def _understand(entry: dict[str, Any], path: Path, cfg: dict[str, Any] | None, s
     elif old.get("status") == "ok" and old.get("v") == visual.VISUAL_VERSION:
         entry["layout"] = old["kind"]  # 已是新版结果：类型以模型判的为准，别被本地版面判断盖掉
     return entry
+
+
+# 1016：第一层主接口 403 / 欠费 / 内容审核拦下时，换一个有视觉能力的备用：免费 key（Gemini）→ 设置 models 里标了
+# "vision": true 的条目 → 精细识别模型（接口或 key 和主接口不同才算：同一把坏 key 再试没用）。
+SWITCH_CODES = ("NEEDS_HUMAN.AUTH_FAILED", "NEEDS_HUMAN.QUOTA_EXCEEDED", "PERMANENT.CONTENT_FILTERED")
+
+
+def _should_switch(got: dict[str, Any]) -> bool:
+    return got.get("status") != "ok" and str(got.get("code") or "") in SWITCH_CODES
+
+
+def backup_label(cfg: dict[str, Any]) -> str:
+    from . import ai_health
+    return str(cfg.get("label") or f"{ai_health.provider_name(cfg)} {cfg.get('model') or ''}").strip()
+
+
+def vision_backups(primary: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """第一层识图的备用（按顺序），去掉和主接口同一接口同一把 key 的。key 只在内存里。"""
+    from . import ai_config, providers
+    out: list[dict[str, Any]] = []
+    keys = [k.strip() for k in os.environ.get(_refine_keys_env(), "").split(",") if k.strip()]
+    for i, key in enumerate(keys):
+        out.append({"endpoint": GEMINI_ENDPOINT, "apiKey": key, "model": GEMINI_MODEL,
+                    "label": f"Google {GEMINI_MODEL}（免费 key {i + 1}）"})
+    try:
+        settings = ai_config.load()
+    except Exception:  # noqa: BLE001
+        settings = {}
+    for m in settings.get("models") or []:
+        if not isinstance(m, dict) or not m.get("vision") or m.get("mode", "http") != "http" or not m.get("model"):
+            continue
+        try:
+            cfg, _ = providers.finalize("visionAI", {**m, "mode": "http"})
+        except Exception:  # noqa: BLE001
+            cfg = None
+        if cfg and cfg.get("apiKey"):
+            out.append({**cfg, "label": f"{m.get('name') or ''} {m['model']}".strip()})
+    try:
+        strong = strong_config()
+    except Exception:  # noqa: BLE001
+        strong = None
+    if strong and strong.get("model"):
+        out.append(strong)
+    p = primary or {}
+
+    def same_key(c):
+        return c.get("endpoint") == p.get("endpoint") and (c.get("apiKey") or "") == (p.get("apiKey") or "")
+    return [c for c in out if not same_key(c)]
+
+
+def _understand_backup(path: Path, lines, primary: dict[str, Any], first: dict[str, Any],
+                       item_id: str | None) -> dict[str, Any]:
+    from . import visual
+    for alt in vision_backups(primary):
+        got = visual.understand(path, lines, alt)
+        if got.get("status") == "ok":
+            why = "被内容审核拦下" if first.get("code") == "PERMANENT.CONTENT_FILTERED" else \
+                f"{first.get('code')}（HTTP {first.get('http_status') or '-'}）"
+            print(f"[vision] {item_id or ''} {path.name}：主识图接口{why}，已换用 {backup_label(alt)}", file=sys.stderr)
+            return {**got, "switched_to": backup_label(alt),
+                    "switched_from": {k: first.get(k) for k in ("code", "error", "http_status", "api_error")}}
+    return first
 
 
 REFINE_MIN_CHARS = int(os.environ.get("LWA_REFINE_MIN_CHARS", "300"))
@@ -339,7 +409,71 @@ def refine_with_fallbacks(img: Path, lines, kind: str, cfg) -> tuple[dict[str, A
             got = nxt
     if got.get("status") != "ok" and got.get("text") is None:
         got = {**got, "error": first_error or got.get("error")}
+    if "复读" in str(got.get("error") or "") + str(first_error or ""):
+        # 1016：复读别整图退回——先把图切成上下几段分别精细识别再拼；还不行就截到复读前、保留有效的那一段
+        tiles = refine_tiles(img, lines, kind, used, router)
+        if tiles is not None:
+            cost += float(tiles.get("cost_yuan") or 0.0)
+            tried.append(f"分 {tiles.get('tiles')} 段重识")
+            if tiles.get("status") == "ok":
+                return {**tiles, "cost_yuan": cost}, tried
+        kept = salvage_repeat(got.get("text") or "")
+        if kept:
+            tried.append("截到复读前")
+            return {**got, "status": "ok", "text": kept, "partial": True, "code": "", "error": None,
+                    "cost_yuan": cost}, tried
     return {**got, "cost_yuan": cost, "ladder_exhausted": True, "api_error": False}, tried
+
+
+SALVAGE_MIN_CHARS = 80   # 截到复读前至少还剩这么多字才算「有效部分」
+SALVAGE_NOTE = "（后面出现复读，已截掉；完整文字见本地 OCR）"
+TILE_MAX = 4
+
+
+def salvage_repeat(text: str) -> str:
+    """复读结果截到第一处复读标记为止（被复读的那段保留一次）。剩下太少 / 是流程图（截了就坏）→ 空串。"""
+    from . import visual
+    if not text or "```mermaid" in text or visual.REPEAT_MARK not in text:
+        return ""
+    cut = text.split(visual.REPEAT_MARK, 1)[0].rstrip()
+    if len("".join(cut.split())) < SALVAGE_MIN_CHARS:
+        return ""
+    return cut + "\n" + SALVAGE_NOTE
+
+
+def refine_tiles(img: Path, lines, kind: str, cfg, router=None) -> dict[str, Any] | None:
+    """把图切成上下 N 段（有重叠）分别精细识别、按顺序拼起来。流程图 / 太矮的图不切（结构会断）→ None。"""
+    import tempfile
+    from . import visual
+    if kind == "diagram" or (not cfg and router is None):
+        return None
+    try:
+        from PIL import Image
+        with Image.open(img) as im:
+            im = im.convert("RGB")
+            w, h = im.size
+            if h < 400:
+                return None
+            n = max(2, min(TILE_MAX, round(h / max(w * 0.6, 1))))
+            step, pad = h / n, int(h / n * 0.06)
+            parts, cost = [], 0.0
+            with tempfile.TemporaryDirectory() as tmp:
+                for i in range(n):
+                    y0, y1 = max(0, int(i * step) - pad), min(h, int((i + 1) * step) + pad)
+                    tp = Path(tmp) / f"tile{i}.png"
+                    im.crop((0, y0, w, y1)).save(tp)
+                    seg = [l for l in (lines or []) if y0 <= (l["box"][1] + l["box"][3]) / 2 <= y1]
+                    part = router.refine(tp, seg, "text") if router else visual.refine(tp, seg, "text", cfg)
+                    cost += float(part.get("cost_yuan") or 0.0)
+                    if part.get("status") != "ok":
+                        return {**part, "tiles": n, "cost_yuan": cost}
+                    parts.append(str(part.get("text") or "").strip())
+    except Exception as exc:  # noqa: BLE001 - 切不了就走截断
+        print(f"[refine] 分段重识没做成（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        return None
+    model = ((router.last_cfg if router else cfg) or {}).get("model")
+    return {"status": "ok", "kind": "text", "text": "\n\n".join(t for t in parts if t),
+            "model": f"{model}（分 {n} 段）", "tiles": n, "cost_yuan": cost, "code": "", "error": None}
 
 
 def refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budget: int = 0,
@@ -358,6 +492,8 @@ def refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budge
     healed_any = False
     for entry in doc.get("images", []):
         ref = entry.get("refine") or {}
+        if repeat_retry_due(ref):
+            ref.update({"status": "pending", "repeat_retry": 1})
         if ref.get("status") != "pending":
             continue
         if budget and tally["runs"] >= budget:
@@ -386,7 +522,9 @@ def refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budge
             ref.pop("error", None)
             ref.pop("fallback", None)
             if len(tried) > 1:
-                ref["healed"] = "；".join(tried[1:])  # 当场换参数 / 换模型才成的：留个底
+                ref["healed"] = "；".join(tried[1:])
+            if got.get("partial"):
+                ref["partial"] = True  # 截到复读前：只保留了有效的前一段  # 当场换参数 / 换模型才成的：留个底
             tally["done"] += 1
             tally["api_streak"] = 0
             healed_any = True  # 1008：整篇跑完再判要不要消这篇的「AI 结果不可用」（见循环后）
@@ -433,6 +571,11 @@ def refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budge
     return tally
 
 
+def repeat_retry_due(ref: dict[str, Any]) -> bool:
+    """1016 以前因「出现复读」整图退回第一层的：给一次分段重识 / 截断保留的机会（只一次）。"""
+    return ref.get("status") == "failed" and "复读" in str(ref.get("error") or "") and not ref.get("repeat_retry")
+
+
 def pending_refines() -> list[tuple[str, str, int]]:
     rows = []
     for vpath in sorted((storage.vault_root() / "_archive").glob("*/*/derived/vision.json")):
@@ -440,7 +583,8 @@ def pending_refines() -> list[tuple[str, str, int]]:
             doc = storage.read_json(vpath)
         except (OSError, ValueError):
             continue
-        n = sum(1 for e in doc.get("images", []) if (e.get("refine") or {}).get("status") == "pending")
+        n = sum(1 for e in doc.get("images", []) if (e.get("refine") or {}).get("status") == "pending"
+                or repeat_retry_due(e.get("refine") or {}))
         if n:
             rows.append((vpath.parents[2].name, vpath.parents[1].name, n))
     return rows
