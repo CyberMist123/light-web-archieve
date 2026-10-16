@@ -733,7 +733,18 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
         restricted.reclassify_fill_failures()
     except Exception as exc:  # noqa: BLE001 - 迁移没成不挡补评论
         print(f"[comments] 旧的「已放弃」没解开：{type(exc).__name__}: {exc}", file=sys.stderr)
-    floors = floor_target()
+    # 1017 她：「对特定帖子能跑完楼层」——--only 只补这几篇、按 --floors 的楼数（不改全局设置），stuck 的也照补
+    only = [x if x.startswith("xhs-") else f"xhs-{x}" for x in
+            (s.strip() for s in ",".join(getattr(args, "only", None) or []).split(",")) if x]
+    only_floors = None
+    if only:
+        fl = str(getattr(args, "floors", "") or "")
+        only_floors = FLOOR_ALL if fl == "all" else floor_target(fl or 50)
+
+    def target_floors() -> int:
+        return only_floors or floor_target()
+
+    floors = target_floors()
     status = Status(floors, background=until_done)
     done: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
@@ -757,8 +768,14 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
     try:
         work_since: list[float] = []  # 1016：这一段连续干活从几时起（跑满 WORK_MIN 分钟强制歇 REST_MIN 分钟）
         while True:
-            floors = floor_target()
+            floors = target_floors()
             sv = survey(floors)
+            if only:
+                pick = lambda xs: [e for e in xs if e["item_id"] in only]  # noqa: E731
+                sv = {**sv, "ready": pick(sv["ready"]) + pick(sv["stuck"]), "cooling": pick(sv["cooling"]),
+                      "stuck": [], "restricted": pick(sv["restricted"])}
+                sv["missing"] = sum(e["missing"] for e in sv["ready"] + sv["cooling"])
+                sv["pending"] = len(sv["ready"]) + len(sv["cooling"])
             status.counts(sv)
             ready = sv["ready"]
             if not until_done:
@@ -860,7 +877,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
             lock_wait = 300.0 if until_done else float(getattr(args, "wait_lock_min", 2) or 2) * 60
             try:
                 with accounts.account_session("comments-fill", wait_s=lock_wait, polite=until_done):
-                    out = fill_one(item_id, floors=floors, verbose=verbose)
+                    out = fill_one(item_id, floors=floors, verbose=verbose, manual=bool(only))
             except accounts.AccountBusyError as exc:
                 attempts_this_run[item_id] -= 1
                 holder = str((exc.holder or {}).get("owner") or "")

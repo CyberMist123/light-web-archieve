@@ -61,3 +61,19 @@ def test_detail_kwargs_passes_resume_only_with_expand():
     kw = ingest._detail_kwargs(10, ["f1"], 300, ["f1:r1:20"])
     assert kw["expand_resume"] == ["f1:r1:20"] and kw["expand_floors"] == ["f1"]
     assert "expand_resume" not in ingest._detail_kwargs(10, ["f1"], 300)
+
+
+def test_fill_floors_pass_does_not_click_replies():
+    from link_brain import ingest
+    assert ingest._detail_kwargs(50, None, 300, fill=True)["click_more_replies"] is False
+    assert "click_more_replies" not in ingest._detail_kwargs(50, None, None)  # 正常入档照旧展开
+    assert "click_more_replies" not in ingest._detail_kwargs(10, ["f1"], 300, ["f1:r1:2"], fill=True)
+
+
+def test_cli_only_flag_parses():
+    from link_brain import cli
+    parser = cli.build_parser() if hasattr(cli, "build_parser") else None
+    if parser is None:
+        return
+    a = parser.parse_args(["comments", "--fill-pending", "--until-done", "--only", "xhs-a,xhs-b", "--only", "c", "--floors", "50"])
+    assert a.only == ["xhs-a,xhs-b", "c"] and a.floors == "50"

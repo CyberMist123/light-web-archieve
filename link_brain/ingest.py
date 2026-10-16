@@ -288,7 +288,8 @@ FILL_GAP_HOURS = 20    # 1009 起改成 comment_fill.FILL_GAP_MIN（45 分钟）
 
 
 def _detail_kwargs(comment_floors: int | str | None, expand_floors: list[str] | None = None,
-                   budget_s: int | None = None, expand_resume: list[str] | None = None) -> dict[str, Any]:
+                   budget_s: int | None = None, expand_resume: list[str] | None = None,
+                   fill: bool = False) -> dict[str, Any]:
     """评论楼层：10（默认，秒回）/ 20 / 50（滚评论区并展开楼中楼，限楼数）/ "all"（手动全量）。
     expand_floors（1008 续读）：只展开这些楼，给足预算。budget_s（1009 续读）：这次给读取组件的评论预算。"""
     if expand_floors:
@@ -309,6 +310,10 @@ def _detail_kwargs(comment_floors: int | str | None, expand_floors: list[str] | 
         out = {"full_comments": True, "comment_limit": floors, "timeout": 600}
     if budget_s:
         out.update(comment_budget_s=int(budget_s), timeout=min(out["timeout"], int(budget_s) + 90))
+    if fill:
+        # 1017：续读里「多读几楼」这一趟只翻一级评论、不点楼中楼——不带游标的展开会把存过的回复从第 1 条再点一遍、白耗额度；
+        # 新楼的楼中楼下一趟按缺口带游标续展（expand）
+        out["click_more_replies"] = False
     return out
 
 
@@ -319,7 +324,7 @@ def _fetch_with_retry(parsed: dict[str, Any], *, log, comment_floors=None, budge
     budget_left（1001）：返回「这一批还剩几秒」的函数。剩下的不够再等一轮 + 再抓一次的最坏耗时，就不重试了，
     直接把 ServiceDownError 抛给调用方——夜跑的同步步骤有外层限时，别在预算尽头又挂一个 10 分钟的请求被整棵杀。
     """
-    kwargs = _detail_kwargs(comment_floors, expand_floors, fill_budget_s, expand_resume)
+    kwargs = _detail_kwargs(comment_floors, expand_floors, fill_budget_s, expand_resume, fill=fill_budget_s is not None)
     from . import accounts
     for attempt in range(1, SERVICE_RETRIES + 1):
         accounts.pace("打开笔记")  # 1001：跨进程开页间隔（与附件、补看、读收藏共用一个时刻戳）

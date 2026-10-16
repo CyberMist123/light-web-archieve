@@ -456,6 +456,7 @@ def fetch_detail(
     comment_budget_s: int | None = None,
     expand_floors: list[str] | None = None,
     expand_resume: list[str] | None = None,
+    click_more_replies: bool = True,
 ) -> dict[str, Any]:
     """调 `get_feed_detail`，返回**原始**响应（原样落 `mcp_raw.json`）。
 
@@ -472,7 +473,7 @@ def fetch_detail(
             "xsec_token": xsec_token,
             "load_all_comments": True,
             "limit": comment_limit,
-            "click_more_replies": True,
+            "click_more_replies": bool(click_more_replies),
             "reply_limit": reply_limit,
             "scroll_speed": "normal",
         }

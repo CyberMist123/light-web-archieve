@@ -88,6 +88,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--fill-pending", dest="fill_pending", action="store_true",
                    help="给库里评论还有缺口的篇各续读一次（按设置里的楼数现算缺口，缺得少的在前；每篇自己拿账号锁）")
     p.add_argument("--limit", type=int, default=0, help="配合 --fill-pending：最多续几篇（0=不限）")
+    p.add_argument("--only", action="append", default=None, metavar="ITEM_ID[,…]",
+                   help="配合 --fill-pending：只补这几篇（按 --floors 的楼数，不改设置），配 --until-done 补到没有缺口为止")
     p.add_argument("--budget-min", dest="budget_min", type=float, default=0, help="配合 --fill-pending：最多跑几分钟")
     p.add_argument("--until-done", dest="until_done", action="store_true",
                    help="配合 --fill-pending：后台一直补到全库没有缺口（撞验证 / 掉登录就停下等，处理好自动接着；夜跑时让路）")
