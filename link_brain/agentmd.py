@@ -178,16 +178,85 @@ def _structured_label(image: dict[str, Any]) -> tuple[str, list[str]] | None:
     return None
 
 
-def shaky(image: dict[str, Any]) -> str:
-    """识图结果没把握的原因；有把握返回空串。"""
+# 1017 识图存疑（作者裁决：识不准不是故障、不进问题面板，改在机读版上标一句，让读的 AI 知道以原图为准）
+DOUBT_LOW_SCORE = 0.65        # OCR 一行的信心低于它 = 这行没认准
+DOUBT_RATIO = 0.5             # 留下来的字里 ≥ 一半出自没认准的行 → 「OCR 大半没认准」
+DOUBT_RATIO_HANDWRITE = 0.3   # 识图自己说图上是手写字时放宽到 30%
+DOUBT_MIN_CHARS = 30          # 有效字少于这么多不判（一句配文的表情包、几个字的图片不标）
+DOUBT_UNREADABLE = 3          # 识图文字里 [看不清] / [无法辨认] ≥ 这么多处、
+DOUBT_UNREADABLE_PER = 80     # 且平均每 80 个有效字至少一处 → 「多处看不清」（长截图里零星几处不标，文字里本来就带着标记）
+_UNREADABLE = re.compile(r"\[(?:看不清|无法辨认)\]")
+
+
+def ocr_garble(image: dict[str, Any]) -> tuple[float, int]:
+    """OCR 没认准的比例（按有效字算）和参与计算的有效字数。
+
+    在 junk_line 的基础上扩展：junk_line 判掉的装饰行（二进制串、键盘单字、表盘数字）只要认得很有把握就不算，
+    它们机读版里本来就不出现；信心低于 DOUBT_LOW_SCORE 的行（不管是不是 junk）算「没认准」。没有逐行信心的旧结果返回 (0, 0)。"""
+    rows = [x for x in image.get("lines") or [] if isinstance(x, dict) and str(x.get("text") or "").strip()]
+    if not rows or not all(isinstance(x.get("score"), (int, float)) for x in rows):
+        return 0.0, 0
+    total = bad = 0
+    for x in rows:
+        text = str(x["text"])
+        n = len(_EFFECTIVE.findall(text))
+        low = float(x["score"]) < DOUBT_LOW_SCORE
+        if junk_line(text) and not low:
+            continue
+        total += n
+        bad += n if low else 0
+    return (bad / total if total else 0.0), total
+
+
+def _many_unreadable(text: str) -> bool:
+    marks = len(_UNREADABLE.findall(text))
+    return marks >= DOUBT_UNREADABLE and marks * DOUBT_UNREADABLE_PER >= len(_EFFECTIVE.findall(text))
+
+
+def doubt_reasons(image: dict[str, Any]) -> list[str]:
+    """这张图的识图 / OCR 文字靠不住的原因（短语，按重要程度排）；靠得住返回空列表。纯函数，vision.json 的 doubt 字段也由它算。
+
+    来源：识别失败 · 精细识别阶梯全部不合格退回第一层（refine failed）· 第一层输出有毛病（visual.shaky）/ 第一层失败 ·
+    识图文字里 [看不清] 又多又密（_many_unreadable） · OCR 大半没认准（ocr_garble ≥ DOUBT_RATIO；识图说是手写时 ≥ DOUBT_RATIO_HANDWRITE，原因写「疑似手写」）。
+    精细识别成功的只看它自己的 [看不清]（强模型看过原图，OCR 的毛病不再算）；标题图不判。"""
     if image.get("status") != "ok":
-        return "识别失败"
+        return ["识别失败"]
     visual = image.get("visual") or {}
+    refined = image.get("refined") or {}
+    if visual.get("kind") == "title":
+        return []
+    if refined.get("status") == "ok":
+        return ["多处看不清"] if _many_unreadable(str(refined.get("text") or "")) else []
+    out: list[str] = []
+    ratio, chars = ocr_garble(image)
+    text = str(visual.get("text") or "")
+    handwrite = "手写" in text
+    if chars >= DOUBT_MIN_CHARS and ratio >= (DOUBT_RATIO_HANDWRITE if handwrite else DOUBT_RATIO):
+        out.append("疑似手写" if handwrite else "OCR 大半没认准")
+    if (image.get("refine") or {}).get("status") == "failed":
+        out.append("精细识别没过")
     if visual.get("shaky"):
-        return str(visual["shaky"])
-    if visual and visual.get("status") not in (None, "", "ok", "skipped"):
-        return "识图没成功"
-    return ""
+        out.append(str(visual["shaky"]))
+    elif visual and visual.get("status") not in (None, "", "ok", "skipped"):
+        out.append("识图没成功")
+    if visual.get("status") == "ok" and _many_unreadable(text):
+        out.append("多处看不清")
+    return out
+
+
+def shaky(image: dict[str, Any]) -> str:
+    """识图结果没把握的原因（doubt_reasons 拼成一句）；有把握返回空串。"""
+    return "，".join(doubt_reasons(image))
+
+
+def doubt_note(image: dict[str, Any], path: str) -> str:
+    """机读版里存疑图的一句提示（一图一句；识别失败的那张前面已写原因，这里只给原图）。"""
+    why = shaky(image)
+    if not why:
+        return ""
+    if image.get("status") != "ok":
+        return f"原图：{path}"
+    return f"识图存疑（{why}），文字仅供参考，以原图为准。原图：{path}"
 
 
 def _safe(value: Any) -> str:
@@ -220,10 +289,11 @@ def image_entries(images: list[dict[str, Any]], origin: Callable[[str], str]) ->
         asset = str(image.get("asset") or "")
         no = image_no(asset)
         head = f"### 第{no}张（图{no} · {asset_name(asset)}）" if no is not None else f"### {asset_name(asset)}"
-        why = shaky(image)
-        tail = [f"识别没把握（{why}），原图：{origin(asset)}"] if why else []
+        note = doubt_note(image, origin(asset))
+        tail = [note] if note else []
         if image.get("status") != "ok":
-            entries.append({"head": head, "lines": [head, "", f"（识别失败：{image.get('error')}）"] + tail, "fixed": True})
+            entries.append({"head": head, "lines": [head, "", f"（识别失败：{image.get('error')}）"] + tail, "fixed": True,
+                            "tail": tail})
             continue
         structured = _structured_label(image)
         if structured:
@@ -237,7 +307,8 @@ def image_entries(images: list[dict[str, Any]], origin: Callable[[str], str]) ->
             out = [head, "", f"{label}：", ""] + [_no_heading(r) for r in body]
             if fixed and (image.get("refined") or {}).get("kind") == "diagram":
                 out += [""] + [r[2:] for r in _diagram_raw(image, "")]
-            entries.append({"head": head, "lines": out + ([""] + tail if tail else []), "fixed": fixed})
+            entries.append({"head": head, "lines": out + ([""] + tail if tail else []), "fixed": fixed,
+                            "tail": tail})
             continue
         text_lines = [x for x in lines if not x or norm(x) not in mark_keys]
         while text_lines and not text_lines[0]:
@@ -312,10 +383,11 @@ def image_section(images: list[dict[str, Any]], origin: Callable[[str], str], to
     used = 0
     for entry in entries:
         rows = render_entry(entry)
-        size = sum(len(r.strip()) for r in rows[1:])
+        tail_size = sum(len(r) for r in entry.get("tail") or [])  # 1017：存疑那一句不占图片字数限额（截了也照写）
+        size = sum(len(r.strip()) for r in rows[1:]) - tail_size
         if used + size > total and "lines" not in entry:
             rows = [entry["head"], "", "（略，超出图片字数上限）"] + ([""] + entry["tail"] if entry["tail"] else [])
-            size = sum(len(r) for r in rows[1:])
+            size = sum(len(r) for r in rows[1:]) - tail_size
         out += [""] + rows
         used += size
     return out

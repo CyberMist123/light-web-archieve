@@ -195,7 +195,7 @@ def _row(step, code, item=None, ts=NOW):
     ("vision.layer1", "TRANSIENT.HTTP_5XX", "xhs-a", "run", "enrich", True),
     ("enrich.summary", "PERMANENT.MODEL_OUTPUT_INVALID", "xhs-a", "run", "enrich", False),
     ("enrich.summary", "TRANSIENT.RETRY_EXHAUSTED", "xhs-a", "run", "enrich", True),
-    ("vision.refine", "PERMANENT.MODEL_OUTPUT_INVALID", "xhs-a", "run", "refine_item", False),
+    ("vision.refine", "PERMANENT.MODEL_OUTPUT_INVALID", "xhs-a", "manual", None, False),  # 1017：不是故障，旧行自动消
     ("vision.refine", "TRANSIENT.SERVICE_BUSY", None, "run", "refine_run", True),
     ("attachments.convert", "TRANSIENT.SERVICE_BUSY", "xhs-a", "run", "convert", True),
     ("attachments.convert", "PERMANENT.PDF_ENCRYPTED", "xhs-a", "run", "convert", False),
@@ -365,8 +365,10 @@ def test_refine_ladder_switches_model_then_falls_back_to_layer1(tmp_path, monkey
     ref = storage.read_json(vpath)["images"][0]["refine"]
     assert seen == ["m", "m", "强"], "原样 → 换参数 → 换模型（去重）"
     assert ref["status"] == "failed" and ref["fallback"] == "layer1", "同一次运行里放弃，退回第一层，不留到明晚"
-    [row] = _open("vision.refine")
-    assert row["code"] == "PERMANENT.MODEL_OUTPUT_INVALID" and "退回第一层" in row["reason"]
+    # 1017 作者裁决：不是故障——不进问题面板，vision.json 记存疑（机读版据此标「识图存疑」）
+    assert _open("vision.refine") == []
+    img = storage.read_json(vpath)["images"][0]
+    assert img["doubt"] is True and "精细识别没过" in img["doubt_reason"]
 
 
 def test_refine_retry_failed_only_remarks_failed_images(tmp_path, monkeypatch):

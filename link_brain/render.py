@@ -1444,12 +1444,12 @@ def render_agent_md(
             got = agentmd.comment_image_text(image)
             m = re.search(r"-(\d+)\.\w+$", asset)
             name = f"评论图{int(m.group(1))} {agentmd.asset_name(asset)}" if m else agentmd.asset_name(asset)
-            why = agentmd.shaky(image)
+            note = agentmd.doubt_note(image, origin(asset))
             if got:
                 with_text.add(label)
                 rows.append(f"{indent}  - {name}：{got}")
-            if why and (got or image.get("status") != "ok"):
-                rows.append(f"{indent}  - {name} 识别没把握（{why}），原图：{origin(asset)}")
+            if note and (got or image.get("status") != "ok"):
+                rows.append(f"{indent}  - {name} " + (note if got else "识别没成，" + note))
         comment_rows[label] = rows
 
     cl = (source.get("capture") or {}).get("comment_load") or {}

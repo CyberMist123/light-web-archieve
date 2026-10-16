@@ -275,7 +275,7 @@ def item_problems(obj_dir: Path, report: dict[str, Any], vision: dict[str, Any],
 
     [{code, label, hover, group, action}]，每个码一条（同一篇几张图 / 几份附件同码只列一次，原因取第一条）。
     来源：attachments.json 的 conversion_failed · attachment-state.json 的下载错误 · transcript.json ·
-    vision.json（第一层识图接口故障 / 第二层精细识别放弃）· extracted.json（概要失败）· enrich-state.json（连着失败暂时放弃）。
+    vision.json（第一层识图接口故障；1017 起第二层精细识别放弃不再出标）· extracted.json（概要失败）· enrich-state.json（连着失败暂时放弃）。
     SKIPPED（没配置 / 关了）不算问题，不列。
 
     1008：她在问题面板隐藏了的 (item_id, 细分码) 不出标；接口那一侧的码（key 失效 / 欠费 / 断网 / 限流 / 5xx / 服务忙）
@@ -327,9 +327,7 @@ def item_problems(obj_dir: Path, report: dict[str, Any], vision: dict[str, Any],
         visual = im.get("visual") or {}
         if visual.get("status") not in (None, "ok") and visual.get("code"):
             add(visual["code"], visual.get("error") or "识图失败", cap=_API_CAP["vision"])
-        ref = im.get("refine") or {}
-        if ref.get("status") == "failed":
-            add("PERMANENT.MODEL_OUTPUT_INVALID", f"精细识别：{ref.get('error') or '结果不合格'}", cap=_API_CAP["vision"])
+        # 1017 作者裁决：精细识别没过、退回第一层的不是故障——不上卡片角标、不进问题面板，机读版里标「识图存疑」
     state = _load_json(obj_dir / "enrich-state.json") or {}
     from .enrich import MAX_FAILS
     if isinstance(state, dict) and int(state.get("fails") or 0) >= MAX_FAILS:

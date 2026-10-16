@@ -389,8 +389,8 @@ def test_item_problems_from_object_files(tmp_path, monkeypatch):
     it, _ = _item("v1")
     codes = {p["code"]: p for p in it["problems"]}
     # 10-04 她定：「视频里没人说话」（no_speech）不上卡片，问题面板里有就够了
-    assert set(codes) == {"NEEDS_HUMAN.AUTH_FAILED", "PERMANENT.MODEL_OUTPUT_INVALID",
-                          "TRANSIENT.HTTP_5XX", "TRANSIENT.DOWNLOAD_FAILED"}
+    # 1017：b.webp 精细识别没过、退回第一层不再出「AI 结果不可用」（机读版标识图存疑）
+    assert set(codes) == {"NEEDS_HUMAN.AUTH_FAILED", "TRANSIENT.HTTP_5XX", "TRANSIENT.DOWNLOAD_FAILED"}
     assert all(set(p) == {"code", "label", "hover", "group", "action"} for p in it["problems"])
     assert codes["NEEDS_HUMAN.AUTH_FAILED"]["group"] == "needs_you"
     assert codes["TRANSIENT.DOWNLOAD_FAILED"]["hover"].startswith("附件下载超时")

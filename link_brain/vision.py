@@ -203,6 +203,52 @@ def mark_refine(entry: dict[str, Any], reason: str, *, manual: bool = False) -> 
     return True
 
 
+def stamp_doubt(entry: dict[str, Any]) -> dict[str, Any]:
+    """1017：识图 / OCR 文字靠不住的图记 `doubt: true` + `doubt_reason`（判据 agentmd.doubt_reasons，机读版据此写一句
+    「识图存疑…以原图为准」）；靠得住的把这两个字段拿掉。识不准不是故障：不进问题记录。"""
+    from . import agentmd
+    why = agentmd.shaky(entry)
+    if why:
+        entry["doubt"] = True
+        entry["doubt_reason"] = why
+    else:
+        entry.pop("doubt", None)
+        entry.pop("doubt_reason", None)
+    return entry
+
+
+REFINE_GAVE_UP = "PERMANENT.MODEL_OUTPUT_INVALID"
+
+
+def retire_refine_problems(item_id: str | None = None) -> int:
+    """1017 作者裁决：精细识图因模型输出不合格放弃 ≠ 故障，改在机读版标「识图存疑」。以前登记的
+    `vision.refine|<篇>|MODEL_OUTPUT_INVALID` 一律按 CONVENTIONS §2「已解决」口径追加 resolved 行（problems.resolve）；
+    item_id=None = 全库扫一遍（幂等，没有就 0 开销）。顺带把 1008 那次「卡片有标、面板没有」的一次性补登记记成做过——
+    它补登记的正是这类，不然新库第一次打开面板会再补回来。永不抛异常。"""
+    from . import problems
+    try:
+        if item_id:
+            return problems.resolve("vision.refine", item_id, REFINE_GAVE_UP)
+        done = 0
+        for row in problems.load(100000, include_resolved=False, include_minor=True):
+            if row.get("step") == "vision.refine" and row.get("item_id") and row.get("code") == REFINE_GAVE_UP:
+                done += problems.resolve("vision.refine", row["item_id"], REFINE_GAVE_UP)
+        mark = storage.archive_root() / problems.MIGRATIONS_NAME
+        try:
+            seen = storage.read_json(mark)
+        except (OSError, ValueError):
+            seen = {}
+        seen = seen if isinstance(seen, dict) else {}
+        if not seen.get("orphan_refine_1008"):
+            from datetime import datetime
+            storage.write_json(mark, {**seen, "orphan_refine_1008": datetime.now().astimezone().isoformat(timespec="seconds"),
+                                      "orphan_refine_1008_note": "1017 作废：精细识图放弃不进问题面板"})
+        return done
+    except Exception as exc:  # noqa: BLE001 - 收旧行失败最多是面板里多挂一条
+        print(f"[vision] 收旧的精细识图放弃行没做成（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        return 0
+
+
 def build_vision(source_key: str, source_id: str, *, verbose: bool = False, upgrade: bool = False) -> dict[str, Any]:
     """对当前版本 `raw/vNNNN/assets/` 下每张图跑 OCR，落 `derived/vision.json`。
 
@@ -239,11 +285,12 @@ def build_vision(source_key: str, source_id: str, *, verbose: bool = False, upgr
             # upgrade：旧结果没有位置框（CMX 时代）就用本地 OCR 重跑一次，补上表格/图片识别
             if upgrade and cached.get("ocr_v") != 2 and visual.available():  # 0927：旧 OCR 没切块，重认一遍
                 cached = {'asset': asset_rel, **visual.local_ocr(path)}
-            images.append(_understand(cached, path, cfg, source_key, item_id) if upgrade or "lines" in cached else cached)
+            images.append(stamp_doubt(_understand(cached, path, cfg, source_key, item_id)
+                                      if upgrade or "lines" in cached else cached))
             continue
         result = run_ocr(path)
         result.pop("text", None)
-        images.append(_understand({'asset': asset_rel, **result}, path, cfg, source_key, item_id))
+        images.append(stamp_doubt(_understand({'asset': asset_rel, **result}, path, cfg, source_key, item_id)))
 
     doc = {
         "schema_version": 1,
@@ -500,7 +547,7 @@ def _refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budg
         return tally
     doc = storage.read_json(vpath)
     changed = False
-    healed_any = False
+    ran = False
     for entry in doc.get("images", []):
         ref = entry.get("refine") or {}
         if repeat_retry_due(ref):
@@ -514,6 +561,7 @@ def _refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budg
         if tally["runs"]:
             time.sleep(random.uniform(*REFINE_GAP_SECONDS))
         tally["runs"] += 1
+        ran = True
         kind = (entry.get("visual") or {}).get("kind") or entry.get("layout") or "text"
         img = storage.object_dir(source_key, source_id) / entry["asset"]
         got, tried = refine_with_fallbacks(img, entry.get("lines"), kind, cfg)
@@ -538,45 +586,37 @@ def _refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budg
                 ref["partial"] = True  # 截到复读前：只保留了有效的前一段  # 当场换参数 / 换模型才成的：留个底
             tally["done"] += 1
             tally["api_streak"] = 0
-            healed_any = True  # 1008：整篇跑完再判要不要消这篇的「AI 结果不可用」（见循环后）
         elif got.get("ladder_exhausted"):
             # 换参数、换模型都试过了还不合格：当场放弃这张，笔记里继续用第一层的结果（写明）
             ref["tries"] = ref.get("tries", 0) + len(tried)
             ref["status"] = "failed"
             ref["fallback"] = "layer1"
             ref["error"] = got.get("error")
+            ref["tried"] = " / ".join(tried)
             tally["api_streak"] = 0
             tally["failed"] += 1
-            from . import problems
-            problems.report("vision.refine", "PERMANENT.MODEL_OUTPUT_INVALID",
-                            f"{entry['asset'].split('/')[-1]}：{got.get('error') or '精细识别结果不合格'}；"
-                            f"试过 {' / '.join(tried)} 都不合格，已退回第一层识图结果",
-                            item_id=_item_id(source_key, source_id))
+            # 1017 作者裁决：这不是故障、不进问题面板——机读版给这张图标「识图存疑…以原图为准」（stamp_doubt）
         else:
             ref["tries"] = ref.get("tries", 0) + 1
             tally["api_streak"] = 0
             ref["error"] = got.get("error")
             if ref["tries"] >= REFINE_TRIES:
                 ref["status"] = "failed"  # 不再每晚重跑；手动点名可以再来
-                tally["failed"] += 1
-                from . import problems
-                problems.report("vision.refine", "PERMANENT.MODEL_OUTPUT_INVALID",
-                                f"{entry['asset'].split('/')[-1]}：{got.get('error') or '精细识别结果不合格'}",
-                                item_id=_item_id(source_key, source_id))
+                ref["fallback"] = "layer1"
+                tally["failed"] += 1  # 1017：同上，不进问题面板，机读版标存疑
             else:
                 tally["retry"] += 1
         entry["refine"] = ref
+        stamp_doubt(entry)
         changed = changed or not got.get("api_error") or got.get("status") == "ok"
         if verbose:
             print(f"[refine] {source_id} {entry['asset'].split('/')[-1]}：{ref['status']}"
                   f"（{ref.get('reason')}；{got.get('model')} ¥{got.get('cost_yuan') or 0:.4f}"
                   + (f"；{ref.get('error')}" if ref.get("error") else "") + "）", file=sys.stderr)
         storage.write_json(vpath, doc)  # 每张写一次：中途被打断也不丢已补好的
-    if healed_any and not any((e.get("refine") or {}).get("status") == "failed" for e in doc.get("images", [])):
-        # 1008（B2-D）：问题按篇登记，一张图成功不能把整篇消掉——同一篇别的图还挂着 failed 时留着（不然出孤儿灰标、
-        # 下一张失败又从头计数）；这篇没有任何一张还是 failed 才算好了
-        from . import problems
-        problems.resolve("vision.refine", _item_id(source_key, source_id), "PERMANENT.MODEL_OUTPUT_INVALID")
+    if ran:
+        # 1017：放弃不再登记；这篇以前登过的「AI 结果不可用」（1008 起按篇一条）跑过就收掉
+        retire_refine_problems(_item_id(source_key, source_id))
     if changed:
         render_mod.render_object(source_key, source_id)
     return tally
@@ -604,6 +644,7 @@ def pending_refines() -> list[tuple[str, str, int]]:
 def run_refine(args) -> int:
     """`vision --refine`：每晚 4 点那一轮调；只跑打了标的图，日志记本晚补了几张、还剩几张、花了多少钱。"""
     from .read import dump_json
+    retire_refine_problems()  # 1017：以前登记的精细识图放弃行收掉（幂等）
     fallback = strong_config()
     cfg = RefineRouter(fallback)
     if not cfg.keys and not fallback:
@@ -680,7 +721,7 @@ def run_refine_mark(args) -> int:
             out.update(refined=tally["done"], failed=tally["failed"], cost_yuan=round(tally["cost_yuan"], 4))
             out['message'] = f'精细识别完成：{tally["done"]} 张'
             if tally['failed']:
-                out['message'] += f'，{tally["failed"]} 张没认出来（见问题列表）'
+                out['message'] += f'，{tally["failed"]} 张没认准（机读版里已标「识图存疑」，以原图为准）'
         else:
             out.update(code='SKIPPED.NOT_CONFIGURED', message=f'已记下 {marked} 张图；精细识别模型没配，配好后夜里补跑')
     dump_json(out)

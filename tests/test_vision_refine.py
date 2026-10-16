@@ -155,12 +155,14 @@ def test_refine_ladder_passes_long_paragraph(tmp_path, monkeypatch):
     assert got["status"] == "ok", got.get("error")
 
 
-def test_one_image_ok_does_not_resolve_item_while_another_failed(tmp_path, monkeypatch):
+def test_refine_run_retires_old_gave_up_row_1017(tmp_path, monkeypatch):
+    """1017 作者裁决：精细识图放弃不是故障。以前登记的「AI 结果不可用」这篇一跑就按「已解决」口径收掉
+    （同一篇别的图还 failed 也收——它不再是问题，改成机读版里标存疑）。"""
     from link_brain import problems
     ok_e, bad_e = _entry(), _entry()
     bad_e["asset"] = "raw/v0001/assets/image-006.webp"
     vision.mark_refine(ok_e, "x")
-    bad_e["refine"] = {"status": "failed", "tries": 3, "reason": "x"}
+    bad_e["refine"] = {"status": "failed", "tries": 3, "reason": "x", "error": "出现复读"}
     _setup(tmp_path, monkeypatch, ok_e)
     vpath = storage.derived_dir("xiaohongshu", "abc") / "vision.json"
     doc = storage.read_json(vpath)
@@ -170,13 +172,9 @@ def test_one_image_ok_does_not_resolve_item_while_another_failed(tmp_path, monke
     problems.report("vision.refine", "PERMANENT.MODEL_OUTPUT_INVALID", "image-006.webp：坏", item_id=item)
     monkeypatch.setattr(visual, "refine", lambda *a, **k: {"status": "ok", "kind": "diagram", "text": "图", "model": "m"})
     vision.refine_object("xiaohongshu", "abc", {"model": "m"})
-    assert problems.is_open("vision.refine", item, "PERMANENT.MODEL_OUTPUT_INVALID"), "另一张还 failed：问题留着"
-    # 那张也好了 → 整篇才消
-    doc = storage.read_json(vpath)
-    doc["images"][1]["refine"]["status"] = "pending"
-    storage.write_json(vpath, doc)
-    vision.refine_object("xiaohongshu", "abc", {"model": "m"})
     assert not problems.is_open("vision.refine", item, "PERMANENT.MODEL_OUTPUT_INVALID")
+    rows = [r for r in problems.load(100, include_resolved=True) if r["step"] == "vision.refine"]
+    assert len(rows) == 1 and rows[0]["resolved_at"], "照 CONVENTIONS §2 追加 resolved 行，不删旧行"
 
 
 def test_quote_mermaid_nodes_fixes_unquoted_labels_1009():
