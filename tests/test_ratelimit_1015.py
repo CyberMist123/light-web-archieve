@@ -104,7 +104,9 @@ def test_report_blocked_rate_limited_is_transient_on_login_and_not_pushed(pushes
     assert rows[0]["step"] == "login" and rows[0]["code"] == "TRANSIENT.XHS_RATE_LIMITED"
     assert rows[0]["group"] == "auto" and rows[0]["label"] == "小红书限频冷却中"
     s = problems.summary()
-    assert s["needs_human"] == 0 and s["auto"] == 1
+    # 1017：限频冷却自己会好、不用人管——不进顶部计数、不进面板列表（只在复制报错里）
+    assert s["needs_human"] == 0 and s["auto"] == 0 and s["minor"] == 1
+    assert problems.load(include_minor=False) == []
     assert pushes == []
 
 

@@ -18,10 +18,14 @@
 //   X8「打开设置」直达 AI 分页（plugin.openSetupPage('ai')）。
 // 1011（她：自愈的就不要显示报错）：已解决 / 轻微的（Python 标 minor：评论楼中楼只缺 ≤2 条）不进列表、不进组计数——只在「复制报错」里。
 //   「现在修」修好的那一行先就地标「✓ 已修好」（点完那一刻不跳），停 RESOLVED_LINGER_MS 后从列表里拿掉（组空了连组标题一起拿掉）。
+// 1017（她：原因清楚的毛病挂在「已放弃」里看着闹心）：分区改按「是什么事」——登录验证 / AI 接口 / 拉取没拿全 / 其他 / 未开启
+//   （Python 给每行 category）；「等你处理 / 自动处理 / 已放弃」只留在每行自己的状态和按钮上。分区里有能隐藏的，标题旁「全部隐藏（N）」
+//   只隐藏这一区的（problems dismiss --category）。限频冷却这类自己会好的号状态 Python 已标 minor，不画。
 'use strict';
 module.exports = function (obsidian, plugin) {
   const { Modal, Notice } = obsidian;
   const GROUPS = [['needs_you', '等你处理'], ['auto', '正在自动处理'], ['gave_up', '已放弃'], ['off', '未开启']];
+  const CATEGORIES = [['account', '登录验证'], ['api', 'AI 接口'], ['fetch', '拉取没拿全'], ['other', '其他'], ['off', '未开启']];
   const GROUP_OF_CLASS = { NEEDS_HUMAN: 'needs_you', TRANSIENT: 'auto', PERMANENT: 'gave_up', SKIPPED: 'off' };
   // 系统已经做了什么（problems.ACTIONS 词表）
   // 10-04：不再说「下晚再试」——非风控的问题都能当场修；要等的（限频 / 网页那侧拦了）由 Python 的 status_text 写清等到几点
@@ -38,6 +42,9 @@ module.exports = function (obsidian, plugin) {
 
   const subOf = code => { const s = String(code || ''); const i = s.indexOf('.'); return i >= 0 ? s.slice(i + 1) : s; };
   const groupOf = r => (r && GROUPS.some(([g]) => g === r.group) ? r.group : GROUP_OF_CLASS[String(r?.code || '').split('.')[0]] || 'auto');
+  // 老后端没有 category：未开启照旧、号的事算登录验证，其余归「其他」
+  const categoryOf = r => (r && CATEGORIES.some(([c]) => c === r.category) ? r.category
+    : groupOf(r) === 'off' ? 'off' : String(r?.step || '') === 'login' ? 'account' : 'other');
   const isHidden = r => !!(r && r.hidden);
   function shortTime(v) {
     const t = Date.parse(v || '');
@@ -52,7 +59,7 @@ module.exports = function (obsidian, plugin) {
     return at ? `${base}（${at}）` : base;
   }
   // 一行的签名：这些都没变 = 这一行看起来不变（C20：后台重读回来不必重画）
-  const signature = r => [r.key, r.code, r.action, r.status_text, r.repair_state, r.repair_note, r.count, r.hidden, r.hidden_repeats,
+  const signature = r => [r.key, r.code, r.category, r.action, r.status_text, r.repair_state, r.repair_note, r.count, r.hidden, r.hidden_repeats,
     r.verify_result, r.evidence_id, r.repairing].map(v => v == null ? '' : String(v)).join('|');
   const listSignature = rows => (rows || []).map(signature).join('\n');
   const say = (msg, ms = 8000) => { try { new Notice(msg, ms); } catch {} };
@@ -212,7 +219,8 @@ module.exports = function (obsidian, plugin) {
       const fresh = openRows(j);
       const old = this.findRow(key);
       const now = fresh.find(x => x.key === key);
-      const moved = now && old && (isHidden(now) !== old.hasClass?.('is-hidden') || groupOf(now) !== old.dataset?.group);
+      const moved = now && old && (isHidden(now) !== old.hasClass?.('is-hidden') || groupOf(now) !== old.dataset?.group
+        || categoryOf(now) !== old.dataset?.category);
       // 1015：别的行也变了（同一次熔断解除时 ACCOUNT_RISK / RISK_HOLD 一起没了，或新冒出来一条）——只换 key 那行会留下
       // 已经不存在的卡片、组标题却数成「等你处理 · 0」。这时整体重画。
       const keyOf = el => el.getAttribute?.('data-key') ?? el.dataset?.key;
@@ -252,9 +260,9 @@ module.exports = function (obsidian, plugin) {
     }
     findRow(key) { return Array.from(this.body.querySelectorAll('.lb-problem')).find(r => (r.getAttribute?.('data-key') ?? r.dataset?.key) === key) || null; }
     updateCounts() {
-      for (const [g, name] of GROUPS) {
+      for (const [g, name] of CATEGORIES) {
         const h = this.body.querySelector(`.lb-problems-group.is-${g} h3`);
-        if (h) h.textContent = `${name} · ${this.rows.filter(x => !isHidden(x) && groupOf(x) === g).length}`;
+        if (h) h.textContent = `${name} · ${this.rows.filter(x => !isHidden(x) && categoryOf(x) === g).length}`;
       }
       const hs = this.body.querySelector('.lb-problems-hidden-toggle');
       if (hs) hs.textContent = `已隐藏 · ${this.rows.filter(isHidden).length}`;
@@ -276,16 +284,16 @@ module.exports = function (obsidian, plugin) {
       const shown = rows.filter(x => !isHidden(x)), hidden = rows.filter(isHidden);
       if (!shown.length && !hidden.length) { body.createEl('p', { cls: 'lb-problems-status lb-problems-empty', text: '没有问题' }); return; }
       if (!shown.length) body.createEl('p', { cls: 'lb-problems-status lb-problems-empty', text: '没有问题' });
-      for (const [g, name] of GROUPS) {
-        const list = shown.filter(x => groupOf(x) === g);
+      for (const [g, name] of CATEGORIES) {
+        const list = shown.filter(x => categoryOf(x) === g);
         if (!list.length) continue;
         const sec = body.createDiv({ cls: 'lb-problems-group is-' + g });
         const h = sec.createDiv({ cls: 'lb-problems-group-head' });
         h.createEl('h3', { text: `${name} · ${list.length}` });
         const can = list.filter(x => x.dismissable);
-        if (g === 'gave_up' && can.length) {
+        if (can.length) {
           const all = h.createEl('button', { cls: 'lb-problems-hide-all', text: `全部隐藏（${can.length}）` });
-          all.onclick = () => this.dismiss(all, null);
+          all.onclick = () => this.dismiss(all, null, g);
         }
         for (const x of list) this.row(sec, x);
       }
@@ -300,11 +308,11 @@ module.exports = function (obsidian, plugin) {
         show(this.hiddenOpen);
       }
     }
-    // 隐藏一条（key）/ 整组已放弃（key=null）：可恢复，不弹确认框；结束如实提示、重画（保住滚动）
-    async dismiss(button, key) {
+    // 隐藏一条（key）/ 一个分区里能隐藏的（key=null，category）：可恢复，不弹确认框；结束如实提示、重画（保住滚动）
+    async dismiss(button, key, category) {
       button.disabled = true;
       try {
-        const args = ['-m', 'link_brain', 'problems', 'dismiss', ...(key ? ['--key', key] : ['--group', 'gave_up'])];
+        const args = ['-m', 'link_brain', 'problems', 'dismiss', ...(key ? ['--key', key] : category ? ['--category', category] : ['--group', 'gave_up'])];
         const r = await plugin.runPy(args, { label: '隐藏问题', fallback: '隐藏没有返回结果', timeoutMs: 60000 });
         const j = r.json;
         say(j && j.message ? j.message : '隐藏没有返回结果', j && j.ok === false ? 10000 : 6000);
@@ -323,8 +331,8 @@ module.exports = function (obsidian, plugin) {
     }
     row(sec, x) {
       const row = sec.createDiv({ cls: 'lb-problem' + (isHidden(x) ? ' is-hidden' : '') });
-      try { row.setAttribute('data-key', x.key || ''); row.setAttribute('data-group', groupOf(x)); } catch {}
-      if (row.dataset) { row.dataset.key = x.key || ''; row.dataset.group = groupOf(x); }
+      try { row.setAttribute('data-key', x.key || ''); row.setAttribute('data-group', groupOf(x)); row.setAttribute('data-category', categoryOf(x)); } catch {}
+      if (row.dataset) { row.dataset.key = x.key || ''; row.dataset.group = groupOf(x); row.dataset.category = categoryOf(x); }
       const line = row.createDiv({ cls: 'lb-problem-line' });
       line.createSpan({ cls: 'lb-problem-time', text: shortTime(x.ts) });
       line.createSpan({ cls: 'lb-problem-title', text: x.title || x.step_label || x.step || '' });
@@ -390,6 +398,6 @@ module.exports = function (obsidian, plugin) {
     ProblemsModal,
     open() { const m = new ProblemsModal(); m.open(); return m; },
     copyReport,
-    _internals: { groupOf, actionText, fixesFor, shortTime, signature, visibleRow, timing },
+    _internals: { groupOf, categoryOf, actionText, fixesFor, shortTime, signature, visibleRow, timing },
   };
 };

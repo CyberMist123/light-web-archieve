@@ -184,6 +184,12 @@
 
 ---
 
+### 20. 冷却早过了还挂着「小红书限频冷却中 · 等到 10-15 13:44」；账号好着、面板却还有号的旧问题；原因清楚的毛病挂在「已放弃」里（10-17）
+- **用户看到**：读取服务已登录、没熔断，面板「正在自动处理」里还挂着限频冷却一条，等到的时刻早过了，原因里还写着「请…重新扫码」；14 条「已放弃」里有一半要她点「打开验证」、两条写着「7 天后自动再试（不放弃）」；7 条网页版要验证的标题位只剩「网页版要验证 网页版要验证」。
+- **根因**：①号的状态有好几份（读取服务熔断对象、sync-status.json、问题记录 login 行），登录检查通过（account_ok）只撤掉登录 / 验证 / 风控，漏了 `XHS_RATE_LIMITED` / `NIGHT_CAPTCHA`；读取组件到点自探成功自己清熔断，Python 侧没人去撤那一行；冷却清掉后读不到截止时刻，`repair.plan` 退回「登记时刻 + 2 小时」，就成了过期日期。②补评论撞限频时调用方的原因是掉登录的话术。③面板按类（等你处理 / 自动处理 / 已放弃）分组，`PERMANENT` 一律进「已放弃」，不管它是要她点一下还是还在重试。④登记网页版要验证时没带标题。
+- **修法 / 自愈**：号的事只认读取服务 `/login/session`：`problems list` / `problems summary` 先 `problems.reconcile_account()`——已登录、没熔断（限频到点算没熔断）、没在扫码 / 验证 → `sync_state.account_ok()`，login 下所有号的行一并已解决（account_ok 也补上限频 / 夜里验证）；服务不在或查不清不动（fail-open，不拉起、不开页）。限频冷却是自己会好的号状态（`QUIET_CODES`）：不进面板和计数，只在复制报错里；原因只写限频那句。面板改按「是什么事」分区（`problems.category`：登录验证 / AI 接口 / 拉取没拿全 / 其他 / 未开启），每行自己的状态和按钮不变；分区标题旁「全部隐藏（N）」= `problems dismiss --category <区>`。缺标题的行从目录数据补。
+- **回归用例**：`tests/test_panel_1017.py::test_reconcile_clears_stale_rate_limit_and_login_rows_when_account_is_fine`、`tests/test_panel_1017.py::test_reconcile_leaves_rows_when_account_is_not_clearly_fine`、`tests/test_panel_1017.py::test_reconcile_is_fail_open_when_reader_is_down`、`tests/test_panel_1017.py::test_rate_limit_cooling_until_passed_counts_as_fine`、`tests/test_panel_1017.py::test_account_ok_also_resolves_rate_limit_and_night_captcha`、`tests/test_panel_1017.py::test_rate_limit_is_quiet_and_reason_has_no_rescan_wording`、`tests/test_panel_1017.py::test_category`、`tests/test_panel_1017.py::test_load_rows_carry_category_and_dismiss_by_category`、`tests/test_panel_1017.py::test_missing_title_filled_from_catalog`。
+
 ## 二、故障码对照（用户看到 → 常见根因 → 自愈动作）
 
 「同次」= 那一步自己那次运行里的换策略重试；「自愈轮」= 夜跑收尾自动再修（✔ 自动 / — 不自动）；「现在修」= 面板按钮跑的动作。

@@ -166,11 +166,11 @@ function fakeObsidian(dom, notices) {
 const LIST = {
   ok: true, code: '', message: '', summary: { needs_human: 2, auto: 1, gave_up: 1, skipped: 1 },
   problems: [
-    { ts: '2026-10-02T04:01:00+10:00', key: 'login||NOT_LOGGED_IN', step: 'login', item_id: null, title: null, code: 'NEEDS_HUMAN.NOT_LOGGED_IN', reason: '读取号掉登录', action: 'needs_human', count: 1, resolved_at: null, label: '需要登录', hover: '小红书掉登录', group: 'needs_you' },
-    { ts: '2026-10-02T04:02:00+10:00', key: 'sync.favorites||CAPTCHA_REQUIRED', step: 'sync.favorites', item_id: null, title: null, code: 'NEEDS_HUMAN.CAPTCHA_REQUIRED', reason: '', action: 'needs_human', count: 1, resolved_at: null, label: '需要验证', hover: '要安全验证', group: 'needs_you' },
-    { ts: '2026-10-02T04:03:00+10:00', key: 'attachments.convert|a|NETWORK', step: 'attachments.convert', item_id: 'a', title: '悉尼咖啡地图', code: 'TRANSIENT.NETWORK', reason: 'OCR 服务连不上', action: 'retry_later', next_at: '2026-10-03T04:00:00+10:00', count: 3, resolved_at: null, label: '网络不通', hover: 'OCR 服务连不上（10-03 04:00 再试）', group: 'auto' },
-    { ts: '2026-10-02T04:04:00+10:00', key: 'attachments.convert|a|PDF_ENCRYPTED', step: 'attachments.convert', item_id: 'a', title: '悉尼咖啡地图', code: 'PERMANENT.PDF_ENCRYPTED', reason: 'PDF 有打开密码', action: 'gave_up', count: 1, resolved_at: null, label: '全文没转出来', hover: 'PDF 有打开密码，字节已保存', group: 'gave_up' },
-    { ts: '2026-10-02T04:05:00+10:00', key: 'enrich.summary||NOT_CONFIGURED', step: 'enrich.summary', item_id: null, title: null, code: 'SKIPPED.NOT_CONFIGURED', reason: '没配摘要模型', action: 'skipped', count: 4, resolved_at: null, label: '未配置', hover: '没配摘要模型', group: 'off' },
+    { ts: '2026-10-02T04:01:00+10:00', key: 'login||NOT_LOGGED_IN', category: 'account', step: 'login', item_id: null, title: null, code: 'NEEDS_HUMAN.NOT_LOGGED_IN', reason: '读取号掉登录', action: 'needs_human', count: 1, resolved_at: null, label: '需要登录', hover: '小红书掉登录', group: 'needs_you' },
+    { ts: '2026-10-02T04:02:00+10:00', key: 'sync.favorites||CAPTCHA_REQUIRED', category: 'account', step: 'sync.favorites', item_id: null, title: null, code: 'NEEDS_HUMAN.CAPTCHA_REQUIRED', reason: '', action: 'needs_human', count: 1, resolved_at: null, label: '需要验证', hover: '要安全验证', group: 'needs_you' },
+    { ts: '2026-10-02T04:03:00+10:00', key: 'attachments.convert|a|NETWORK', category: 'api', step: 'attachments.convert', item_id: 'a', title: '悉尼咖啡地图', code: 'TRANSIENT.NETWORK', reason: 'OCR 服务连不上', action: 'retry_later', next_at: '2026-10-03T04:00:00+10:00', count: 3, resolved_at: null, label: '网络不通', hover: 'OCR 服务连不上（10-03 04:00 再试）', group: 'auto' },
+    { ts: '2026-10-02T04:04:00+10:00', key: 'attachments.convert|a|PDF_ENCRYPTED', category: 'other', step: 'attachments.convert', item_id: 'a', title: '悉尼咖啡地图', code: 'PERMANENT.PDF_ENCRYPTED', reason: 'PDF 有打开密码', action: 'gave_up', count: 1, resolved_at: null, label: '全文没转出来', hover: 'PDF 有打开密码，字节已保存', group: 'gave_up' },
+    { ts: '2026-10-02T04:05:00+10:00', key: 'enrich.summary||NOT_CONFIGURED', category: 'off', step: 'enrich.summary', item_id: null, title: null, code: 'SKIPPED.NOT_CONFIGURED', reason: '没配摘要模型', action: 'skipped', count: 4, resolved_at: null, label: '未配置', hover: '没配摘要模型', group: 'off' },
     { ts: '2026-10-01T04:05:00+10:00', key: 'x', step: 'embed', code: 'TRANSIENT.NETWORK', action: 'retry_later', count: 1, resolved_at: '2026-10-02T01:00:00+10:00', label: '网络不通', group: 'auto' },
   ],
 };
@@ -206,7 +206,7 @@ async function modalTests() {
   const c = m.contentEl;
   assert.deepEqual(calls[0], ['problems', 'list']);
   const groups = c.querySelectorAll('.lb-problems-group');
-  assert.deepEqual(groups.map(g => g.querySelector('h3').textContent), ['等你处理 · 2', '正在自动处理 · 1', '已放弃 · 1', '未开启 · 1'], '分组顺序固定；已解决的不列');
+  assert.deepEqual(groups.map(g => g.querySelector('h3').textContent), ['登录验证 · 2', 'AI 接口 · 1', '其他 · 1', '未开启 · 1'], '1017 按是什么事分区、顺序固定；已解决的不列');
   const rows = c.querySelectorAll('.lb-problem');
   const text = r => r.querySelector('.lb-problem-line').textContent;
   assert.match(text(rows[0]), /^10-02 \d\d:\d\dlogin需要登录等你处理$/, '没有标题时用 step：' + text(rows[0]));

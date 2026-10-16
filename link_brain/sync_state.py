@@ -339,7 +339,9 @@ def account_ok():
     """登录恢复了：只清掉『账号类』的「!」，别的失败原样留着。"""
     previous = load()
     # 问题记录：登录检查通过 = 掉登录 / 要验证 / 风控跳页这几件事都好了（登错号要等下次同步认号才算好）
-    resolved = sum(_resolve('login', c) for c in (*ACCOUNT_CODES, 'ACCOUNT_BLOCKED', 'NOT_INSTALLED'))
+    # 1017：限频冷却、夜里弹的验证也是号的事——号好着（已登录、没熔断）它们就都过去了，以前漏了，冷却那条一直挂着
+    resolved = sum(_resolve('login', c) for c in (*ACCOUNT_CODES, 'ACCOUNT_BLOCKED', 'NOT_INSTALLED',
+                                                   'XHS_RATE_LIMITED', 'NIGHT_CAPTCHA'))
     if previous.get('state') == 'blocked' and previous.get('code') in ACCOUNT_CODES:
         status = {**previous, 'state': 'ready', 'message': '已重新登录，下次同步照常进行', 'code': '', 'detail': '',
                   'updated_at': datetime.now().astimezone().isoformat()}

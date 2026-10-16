@@ -215,6 +215,34 @@ EXTERNAL_CODES = (
 )
 
 GROUP_OF_CLASS = {"NEEDS_HUMAN": "needs_you", "TRANSIENT": "auto", "PERMANENT": "gave_up", "SKIPPED": "off"}
+
+# 1017（她）：面板按「是什么事」分类，不再按「系统放没放弃」分组——原因清楚的毛病挂在「已放弃」里看着闹心。
+# group（等你处理 / 自动处理 / 已放弃 / 未开启）照旧留在行上，只管按钮和计数；面板分区看 category。
+CATEGORIES = (("account", "登录验证"), ("api", "AI 接口"), ("fetch", "拉取没拿全"), ("other", "其他"), ("off", "未开启"))
+_ACCOUNT_SUBS = {*ACCOUNT_CODES, "NIGHT_CAPTCHA", "XHS_RATE_LIMITED", "NOTE_RESTRICTED", "SYNC_STUCK"}
+_API_SUBS = {"AUTH_FAILED", "QUOTA_EXCEEDED", "HTTP_429", "HTTP_5XX", "NETWORK", "SECRET_TIMEOUT",
+             "MODEL_OUTPUT_INVALID", "CONTENT_FILTERED"}
+_API_STEPS = {"enrich.summary", "vision.layer1", "vision.refine", "embed", "ask"}
+_FETCH_STEPS = {"sync.favorites", "ingest", "attachments.download", "attachments.recheck", "comments.fill"}
+
+
+def category(row: dict[str, Any]) -> str:
+    """account（登录验证：号、要她点一下验证的那篇）· api（AI 接口：key / 余额 / 限流 / 模型输出）·
+    fetch（拉取没拿全：收藏、正文、评论、附件）· other · off（未开启）。"""
+    step = str(row.get("step") or "")
+    try:
+        cls, sub = normalize(row.get("code") or "").split(".", 1)
+    except BadCode:
+        cls, sub = "", ""
+    if cls == "SKIPPED":
+        return "off"
+    if step == "login" or sub in _ACCOUNT_SUBS:
+        return "account"
+    if step.startswith("ai.") or sub in _API_SUBS or step in _API_STEPS:
+        return "api"
+    if step in _FETCH_STEPS or sub == "NOTE_GONE":
+        return "fetch"
+    return "other"
 SUMMARY_KEY = {"NEEDS_HUMAN": "needs_human", "TRANSIENT": "auto", "PERMANENT": "gave_up", "SKIPPED": "skipped"}
 
 
@@ -429,10 +457,19 @@ def missing_count(row: dict[str, Any]) -> int | None:
     return int(m.group(1)) if m else None
 
 
+# 1017（她：限频冷却已经自动处理了还挂着，荒谬；只有掉登录才需要显示）：自己会好、不用人管的号状态不进面板和计数，
+# 只在「复制报错」里。号真出事（掉登录 / 验证 / 风控 / 第 4 次限频升级）是别的码，照列。
+QUIET_CODES = ("TRANSIENT.XHS_RATE_LIMITED",)
+
+
 def is_minor(row: dict[str, Any]) -> bool:
-    """没解决、但轻微到不该打扰她的（见 MINOR_CODES）：问题列表 / 计数 / 「全部修一遍」都不算，诊断导出照留。"""
+    """没解决、但轻微到不该打扰她的（见 MINOR_CODES / QUIET_CODES）：问题列表 / 计数 / 「全部修一遍」都不算，诊断导出照留。"""
+    if row.get("resolved_at"):
+        return False
+    if str(row.get("code") or "") in QUIET_CODES:
+        return True
     limit = MINOR_CODES.get(str(row.get("code") or ""))
-    if limit is None or row.get("resolved_at"):
+    if limit is None:
         return False
     n = missing_count(row)
     return n is not None and 0 < n <= limit
@@ -679,6 +716,12 @@ def report_blocked(step: str, code: str | None, reason: str, *, service: bool = 
         sub = full.split(".", 1)[1]
         if sub == "XHS_RATE_LIMITED":
             # 1015：限频冷却是号的事、不是某一步的事：不管哪一步撞见都记在 login 一把 key 上（TRANSIENT，不推）
+            # 1017：调用方的原因常套着「读取账号需要处理：请…重新扫码」（掉登录的话术），对限频是错的——原因只用限频那句
+            try:
+                from . import accounts
+                reason = accounts.rate_limit_text(accounts._hold_file())
+            except Exception:  # noqa: BLE001
+                reason = "小红书说访问太频繁（限频，不是封号），已自动冷却，到点自己再试，不用处理"
             return report("login", full, reason, title=title)
         if sub in ACCOUNT_CODES and full.startswith("NEEDS_HUMAN."):
             # 1011：没人看着（夜跑 / 后台补评论）时撞的验证码先不叫她：登记 TRANSIENT.NIGHT_CAPTCHA，冷却后自查（night_captcha）
@@ -765,6 +808,30 @@ def resolve(step: str, item_id: str | None = None, code: str | None = None, *, _
         return 0
 
 
+def reconcile_account(session: dict[str, Any] | None = None) -> int:
+    """1017（她：账号是否正常只看一个状态）：号的事只认读取服务的 /login/session（不拉起服务、不开页、不拿锁）。
+    已登录、没熔断（限频冷却到点算没熔断）、没在扫码 / 验证 → 走 sync_state.account_ok()：login 下掉登录 / 验证 /
+    风控 / 限频 / 夜里验证那几条一并已解决，同步状态里的账号「!」也撤。查不清（服务没起、超时）一律不动（fail-open）。
+    返回解决了几条。永不抛异常。"""
+    try:
+        from . import accounts, sync_state
+        if session is None:
+            session = accounts.api("GET", "/api/v1/login/session", timeout=3)
+        if not isinstance(session, dict) or session.get("logged_in") is not True:
+            return 0
+        if session.get("verifying") or session.get("state") == "waiting" or accounts.hold_from_session(session):
+            return 0
+        before = sum(1 for r in _fold(_read_rows()).values() if r.get("step") == "login" and not r.get("resolved_at"))
+        if not before:
+            return 0
+        sync_state.account_ok()
+        after = sum(1 for r in _fold(_read_rows()).values() if r.get("step") == "login" and not r.get("resolved_at"))
+        return before - after
+    except Exception as exc:  # noqa: BLE001 - 对不上就照旧显示，不挡面板
+        print(f"[problems] 账号状态没对上（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        return 0
+
+
 # 1015：同一次熔断只显示一条——起因（验证 / 安全跳转 / 掉登录 / 限频）那条还开着时，之后各步撞见「熔断中」登记的
 # RISK_HOLD 是同一件事（她截图里两条一起挂着），面板和计数都只留起因那条。
 HOLD_CAUSE_CODES = ("CAPTCHA_REQUIRED", "ACCOUNT_RISK", "NOT_LOGGED_IN", "ACCOUNT_BLOCKED", "XHS_RATE_LIMITED", "NIGHT_CAPTCHA")
@@ -787,11 +854,11 @@ def load(limit: int = MAX_KEYS, *, include_resolved: bool = False, include_minor
     folded = list(_fold(_read_rows()).values())
     if not include_resolved:
         folded = [r for r in folded if not r.get("resolved_at")]
-    if not include_minor:
-        folded = [r for r in folded if not is_minor(r)]
     dupes = _same_hold_dupes(folded)
     if dupes:
         folded = [r for r in folded if str(r.get("key")) not in dupes]
+    if not include_minor:
+        folded = [r for r in folded if not is_minor(r)]
     order = {"needs_you": 0, "auto": 1, "gave_up": 2, "off": 3}
 
     def sort_key(r):
@@ -802,8 +869,11 @@ def load(limit: int = MAX_KEYS, *, include_resolved: bool = False, include_minor
         return (1 if r.get("resolved_at") else 0, order[group], _neg_ts(r.get("ts")))
 
     folded.sort(key=sort_key)
+    titles = _catalog_titles({str(r["item_id"]) for r in folded[:limit] if r.get("item_id") and not r.get("title")})
     out = []
     for r in folded[:limit]:
+        if not r.get("title") and titles.get(str(r.get("item_id") or "")):
+            r = {**r, "title": titles[str(r["item_id"])]}
         try:
             entry = lookup(r["code"])
         except (BadCode, KeyError):
@@ -813,13 +883,29 @@ def load(limit: int = MAX_KEYS, *, include_resolved: bool = False, include_minor
                     "step_label": step_label(r.get("step")),
                     # 1008：她手动隐藏的（面板放进默认收起的「已隐藏」区，可恢复）
                     "hidden": is_hidden(r), "hidden_repeats": int(r.get("hidden_repeats") or 0),
-                    "dismissable": _dismissable(r), "minor": is_minor(r)})
+                    "dismissable": _dismissable(r), "minor": is_minor(r), "category": category(r)})
         if not r.get("resolved_at"):
             try:  # 面板要的「现在修」/ 状态一句话（repair.describe）；算不出来不影响列表
                 from . import repair
                 out[-1].update(repair.describe(r))
             except Exception as exc:  # noqa: BLE001
                 print(f"[problems] 修复说明算不出来（{type(exc).__name__}: {exc}）", file=sys.stderr)
+    return out
+
+
+def _catalog_titles(ids: set[str]) -> dict[str, str]:
+    """1017：登记时没带标题的那几篇（面板上标题位只剩「网页版要验证 网页版要验证」）——从目录数据补上。读不到就不补。"""
+    if not ids:
+        return {}
+    try:
+        data = json.loads((storage.archive_root() / "catalog-data.json").read_text("utf-8"))
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for it in (data.get("items") or []) if isinstance(data, dict) else []:
+        iid = isinstance(it, dict) and (it.get("id") or it.get("item_id"))
+        if iid in ids and it.get("title"):
+            out[iid] = str(it["title"])[:TITLE_MAX]
     return out
 
 
@@ -966,14 +1052,20 @@ def _refuse_reason(r: dict[str, Any]) -> str:
     return "这条不是「已放弃」的问题，不能隐藏"
 
 
-def dismiss(key: str | None = None, group: str | None = None, *, _now_fn=None) -> dict[str, Any]:
-    """隐藏一条（key）或整组已放弃（group="gave_up"）。只接受没解决的 PERMANENT。
+def dismiss(key: str | None = None, group: str | None = None, *, category_name: str | None = None,
+            _now_fn=None) -> dict[str, Any]:
+    """隐藏一条（key）、整组已放弃（group="gave_up"）或面板一个分区里能隐藏的（category_name，1017）。只接受没解决的 PERMANENT。
     返回 {ok, code, message, dismissed:[key]}（CONVENTIONS §1 的形状）。"""
     try:
         folded = _fold(_read_rows())
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "code": "READ_FAILED", "message": f"问题记录读不出来：{exc}", "dismissed": []}
-    if group:
+    if category_name:
+        if category_name not in dict(CATEGORIES):
+            return {"ok": False, "code": "BAD_GROUP", "message": "没有这个分区", "dismissed": []}
+        targets = [r for r in folded.values() if _dismissable(r) and not is_hidden(r) and not is_minor(r)
+                   and category(r) == category_name]
+    elif group:
         if group != "gave_up":
             return {"ok": False, "code": "BAD_GROUP", "message": "只能整组隐藏「已放弃」", "dismissed": []}
         targets = [r for r in folded.values() if _dismissable(r) and not is_hidden(r) and not is_minor(r)]
@@ -1148,6 +1240,7 @@ def add_parser(sub) -> None:
     pd_one = pd.add_mutually_exclusive_group(required=True)
     pd_one.add_argument("--key", help="只隐藏这一条")
     pd_one.add_argument("--group", choices=("gave_up",), help="整组隐藏「已放弃」")
+    pd_one.add_argument("--category", choices=tuple(c for c, _ in CATEGORIES), help="隐藏面板这个分区里能隐藏的（1017）")
     pu = psub.add_parser("undismiss", help="恢复显示一条隐藏的问题，输出 JSON")
     pu.add_argument("--key", required=True)
     psub.add_parser("summary", help="核一次同步进程还在不在（被打断就如实改成 INTERRUPTED）、刷新 problems-summary.json，输出它")
@@ -1179,6 +1272,7 @@ def run(args) -> int:
         return 0 if result.get("ran", True) else 1
     if cmd == "list":
         from . import ai_health, usage
+        reconcile_account()  # 1017：账号那几行先和读取服务的实时状态对齐（号好着就撤掉旧的掉登录 / 限频）
         ai_health.migrate_legacy_rows()  # 1008：老记录里按篇登的 key 失效 / 欠费收成每个接口一条（幂等，没有就 0 开销）
         migrate_orphan_refine()  # 1008：卡片上有标、面板里没有的精细识图失败补登记一次（做过就不再做）
         try:
@@ -1225,7 +1319,7 @@ def run(args) -> int:
         dump_json({"ok": True, "code": "", "message": f"已解决 {n} 条" if n else "没有要解决的", "resolved": n})
         return 0
     if cmd == "dismiss":
-        result = dismiss(key=args.key, group=args.group)
+        result = dismiss(key=args.key, group=args.group, category_name=getattr(args, "category", None))
         dump_json(result)
         if result.get("dismissed"):
             write_summary()
@@ -1237,6 +1331,7 @@ def run(args) -> int:
     if cmd == "summary":
         from . import sync_state
         sync_state.current()  # 进程已死的 running → 落盘成 INTERRUPTED（并登记一条），顺带刷新 summary
+        reconcile_account()   # 1017：顶部计数也只认号的实时状态
         write_summary()
         try:
             data = storage.read_json(summary_path())

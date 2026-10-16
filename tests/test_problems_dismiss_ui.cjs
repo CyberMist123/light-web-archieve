@@ -28,17 +28,17 @@ function fakeObsidian(dom, notices) {
 
 const row = (o) => ({ ts: '2026-10-08T04:01:00+11:00', resolved_at: null, count: 1, ...o });
 const ROWS = () => [
-  row({ key: 'login||CAPTCHA_REQUIRED', step: 'login', code: 'NEEDS_HUMAN.CAPTCHA_REQUIRED', action: 'needs_human', label: '需要验证', hover: '要验证', group: 'needs_you',
+  row({ key: 'login||CAPTCHA_REQUIRED', category: 'account', step: 'login', code: 'NEEDS_HUMAN.CAPTCHA_REQUIRED', action: 'needs_human', label: '需要验证', hover: '要验证', group: 'needs_you',
         verify_result: 'no_captcha_seen', evidence_id: '20261008-051957' }),
-  row({ key: 'ai.summary||AUTH_FAILED', step: 'ai.summary', code: 'NEEDS_HUMAN.AUTH_FAILED', action: 'needs_human', label: 'AI key 失效', hover: 'key 坏了', group: 'needs_you', repairable: true, repair_minutes: 10 }),
-  row({ key: 'attachments.recheck|xhs-p|PROBE_FAILED', step: 'attachments.recheck', item_id: 'xhs-p', code: 'TRANSIENT.PROBE_FAILED', action: 'retry_later', label: '附件没查清', hover: '没查清', group: 'auto', repairable: false, status_text: '排在游客补查第 3 篇（不用你的号），预计 10-09 轮到' }),
-  row({ key: 'embed||NETWORK', step: 'embed', code: 'TRANSIENT.NETWORK', action: 'retry_later', label: '网络不通', hover: '连不上', group: 'auto', repairable: true, repair_minutes: 4, status_text: '待修复' }),
-  row({ key: 'vision.refine|xhs-a|MODEL_OUTPUT_INVALID', step: 'vision.refine', item_id: 'xhs-a', title: '合成笔记 A', code: 'PERMANENT.MODEL_OUTPUT_INVALID', action: 'gave_up', label: 'AI 结果不可用', hover: '复读', group: 'gave_up', repairable: true, repair_minutes: 4, dismissable: true, count: 2, status_text: '同样的原因已失败 2 次' }),
-  row({ key: 'vision.refine|xhs-b|MODEL_OUTPUT_INVALID', step: 'vision.refine', item_id: 'xhs-b', title: '合成笔记 B', code: 'PERMANENT.MODEL_OUTPUT_INVALID', action: 'gave_up', label: 'AI 结果不可用', hover: '复读', group: 'gave_up', repairable: true, repair_minutes: 4, dismissable: true }),
-  row({ key: 'vision.refine|xhs-c|MODEL_OUTPUT_INVALID', step: 'vision.refine', item_id: 'xhs-c', title: '合成笔记 C', code: 'PERMANENT.MODEL_OUTPUT_INVALID', action: 'gave_up', label: 'AI 结果不可用', hover: '复读', group: 'gave_up', dismissable: true, hidden: true, hidden_repeats: 2 }),
+  row({ key: 'ai.summary||AUTH_FAILED', category: 'api', step: 'ai.summary', code: 'NEEDS_HUMAN.AUTH_FAILED', action: 'needs_human', label: 'AI key 失效', hover: 'key 坏了', group: 'needs_you', repairable: true, repair_minutes: 10 }),
+  row({ key: 'attachments.recheck|xhs-p|PROBE_FAILED', category: 'fetch', step: 'attachments.recheck', item_id: 'xhs-p', code: 'TRANSIENT.PROBE_FAILED', action: 'retry_later', label: '附件没查清', hover: '没查清', group: 'auto', repairable: false, status_text: '排在游客补查第 3 篇（不用你的号），预计 10-09 轮到' }),
+  row({ key: 'embed||NETWORK', category: 'api', step: 'embed', code: 'TRANSIENT.NETWORK', action: 'retry_later', label: '网络不通', hover: '连不上', group: 'auto', repairable: true, repair_minutes: 4, status_text: '待修复' }),
+  row({ key: 'vision.refine|xhs-a|MODEL_OUTPUT_INVALID', category: 'api', step: 'vision.refine', item_id: 'xhs-a', title: '合成笔记 A', code: 'PERMANENT.MODEL_OUTPUT_INVALID', action: 'gave_up', label: 'AI 结果不可用', hover: '复读', group: 'gave_up', repairable: true, repair_minutes: 4, dismissable: true, count: 2, status_text: '同样的原因已失败 2 次' }),
+  row({ key: 'vision.refine|xhs-b|MODEL_OUTPUT_INVALID', category: 'api', step: 'vision.refine', item_id: 'xhs-b', title: '合成笔记 B', code: 'PERMANENT.MODEL_OUTPUT_INVALID', action: 'gave_up', label: 'AI 结果不可用', hover: '复读', group: 'gave_up', repairable: true, repair_minutes: 4, dismissable: true }),
+  row({ key: 'vision.refine|xhs-c|MODEL_OUTPUT_INVALID', category: 'api', step: 'vision.refine', item_id: 'xhs-c', title: '合成笔记 C', code: 'PERMANENT.MODEL_OUTPUT_INVALID', action: 'gave_up', label: 'AI 结果不可用', hover: '复读', group: 'gave_up', dismissable: true, hidden: true, hidden_repeats: 2 }),
   // 1011：这两条不该出现在面板上（老后端 / --all 也可能带回来）
-  row({ key: 'comments.fill|xhs-m|COMMENTS_INCOMPLETE', step: 'comments.fill', item_id: 'xhs-m', title: '合成笔记 M', code: 'PERMANENT.COMMENTS_INCOMPLETE', action: 'gave_up', label: '评论没补全', hover: '楼中楼还缺 1 条', group: 'gave_up', dismissable: true, minor: true }),
-  row({ key: 'videos.transcribe|xhs-r|NO_SPEECH', step: 'videos.transcribe', item_id: 'xhs-r', title: '合成笔记 R', code: 'PERMANENT.NO_SPEECH', action: 'gave_up', label: '没人声', hover: '', group: 'gave_up', resolved_at: '2026-10-08T05:00:00+11:00' }),
+  row({ key: 'comments.fill|xhs-m|COMMENTS_INCOMPLETE', category: 'fetch', step: 'comments.fill', item_id: 'xhs-m', title: '合成笔记 M', code: 'PERMANENT.COMMENTS_INCOMPLETE', action: 'gave_up', label: '评论没补全', hover: '楼中楼还缺 1 条', group: 'gave_up', dismissable: true, minor: true }),
+  row({ key: 'videos.transcribe|xhs-r|NO_SPEECH', category: 'other', step: 'videos.transcribe', item_id: 'xhs-r', title: '合成笔记 R', code: 'PERMANENT.NO_SPEECH', action: 'gave_up', label: '没人声', hover: '', group: 'gave_up', resolved_at: '2026-10-08T05:00:00+11:00' }),
 ];
 
 function makePlugin(state) {
@@ -83,7 +83,8 @@ async function panelTests() {
   const rowOf = key => c.querySelectorAll('.lb-problem').find(r => r.getAttribute('data-key') === key);
   // 分组 + 按钮
   const heads = c.querySelectorAll('.lb-problems-group h3').map(h => h.textContent);
-  assert.deepEqual(heads, ['等你处理 · 2', '正在自动处理 · 2', '已放弃 · 2'], '隐藏的不计入分组；已解决 / 轻微的不计也不列');
+  assert.deepEqual(heads, ['登录验证 · 1', 'AI 接口 · 4', '拉取没拿全 · 1'], '1017 按是什么事分区；隐藏的不计入分区；已解决 / 轻微的不计也不列');
+  assert.ok(!heads.some(h => h.startsWith('已放弃')), '1017：不再有「已放弃」分区');
   assert.equal(rowOf('comments.fill|xhs-m|COMMENTS_INCOMPLETE'), undefined, '轻微的（楼中楼只缺 1 条）不列');
   assert.equal(rowOf('videos.transcribe|xhs-r|NO_SPEECH'), undefined, '已解决的不列');
   assert.deepEqual(btns(rowOf('login||CAPTCHA_REQUIRED')), ['打开验证', '没看到验证，恢复', '查看截图'], '关窗后熔断还在：多一个恢复；有证据：查看截图');
@@ -112,7 +113,7 @@ async function panelTests() {
   const all = c.querySelector('.lb-problems-hide-all');
   assert.equal(all.textContent, '全部隐藏（2）');
   await all.onclick();
-  assert.deepEqual(calls.filter(a => a[1] === 'dismiss').at(-1), ['problems', 'dismiss', '--group', 'gave_up']);
+  assert.deepEqual(calls.filter(a => a[1] === 'dismiss').at(-1), ['problems', 'dismiss', '--category', 'api'], '1017：只隐藏这一区能隐藏的');
   assert.ok(notices.at(-1).includes('可在列表最下面「已隐藏」里恢复'));
   await rowOf('vision.refine|xhs-b|MODEL_OUTPUT_INVALID').querySelector('.lb-problem-dismiss').onclick();
   assert.deepEqual(calls.filter(a => a[1] === 'dismiss').at(-1), ['problems', 'dismiss', '--key', 'vision.refine|xhs-b|MODEL_OUTPUT_INVALID']);
@@ -128,13 +129,13 @@ async function panelTests() {
   assert.equal(after.length, before.length, '行数不变（修好的不删，免得跳动）');
   assert.ok(target.hasClass('is-resolved') && target.textContent.includes('✓ 已修好') && !target.querySelector('.lb-problem-btns'));
   assert.equal(rowOf('ai.summary||AUTH_FAILED'), keep, '别的行还是同一个元素');
-  assert.equal(c.querySelectorAll('.lb-problems-group h3')[1].textContent, '正在自动处理 · 1', '组标题计数跟着改');
+  assert.equal(c.querySelectorAll('.lb-problems-group h3')[1].textContent, 'AI 接口 · 3', '组标题计数跟着改');
   // 1011：「✓ 已修好」停一会儿后整行拿掉（已解决的不留在列表里），别的行照旧是同一个元素
   await tick(80);
   assert.equal(rowOf('embed||NETWORK'), undefined, '修好的那一行停一会儿后拿掉');
   assert.equal(c.querySelectorAll('.lb-problem').length, before.length - 1);
   assert.equal(rowOf('ai.summary||AUTH_FAILED'), keep);
-  assert.equal(c.querySelectorAll('.lb-problems-group h3')[1].textContent, '正在自动处理 · 1');
+  assert.equal(c.querySelectorAll('.lb-problems-group h3')[1].textContent, 'AI 接口 · 3');
   // 第二次打开：第一帧就按缓存画好，标「正在刷新…」，没有「正在读取」
   let release; state.gate = new Promise(r => { release = r; });
   const m2 = ui.open();
@@ -255,10 +256,10 @@ async function staleRowsTest() {
   const m = ui.open(); await m.opened;
   const c = m.contentEl;
   const rowOf = key => c.querySelectorAll('.lb-problem').find(r => r.getAttribute('data-key') === key);
-  assert.deepEqual(c.querySelectorAll('.lb-problems-group h3').map(h => h.textContent), ['等你处理 · 1', '正在自动处理 · 2']);
+  assert.deepEqual(c.querySelectorAll('.lb-problems-group h3').map(h => h.textContent), ['登录验证 · 1', '其他 · 2'], '老后端没有 category：号的事算登录验证，其余归其他');
   await rowOf('embed||NETWORK').querySelector('.lb-problem-repair').onclick();
   assert.equal(rowOf('login||ACCOUNT_RISK'), undefined, '已经解决的别的行不留卡片');
-  assert.deepEqual(c.querySelectorAll('.lb-problems-group h3').map(h => h.textContent), ['正在自动处理 · 1'], '空组不出现（不会有「等你处理 · 0」）');
+  assert.deepEqual(c.querySelectorAll('.lb-problems-group h3').map(h => h.textContent), ['其他 · 1'], '空组不出现（不会有「登录验证 · 0」）');
   console.log('PASS problems 1015: repair while other rows vanished repaints (no stale card under 等你处理 · 0)');
 }
 
