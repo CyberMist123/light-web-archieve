@@ -139,10 +139,14 @@ def rerank(query: str, docs: list[dict[str, Any]], settings: dict[str, Any] | No
     except (TypeError, ValueError):
         timeout = 8.0
     start = time.perf_counter()
+    from . import usage as ledger
+    url = endpoint(settings)
     try:
-        data = _post(endpoint(settings), key, payload, timeout)
+        data = _post(url, key, payload, timeout)
     except RerankError as exc:
         info["error"] = str(exc)
+        if "HTTP" in str(exc):
+            ledger.record("rerank", {"endpoint": url, "model": model}, None, ok=False)
         raise
     finally:
         info["seconds"] = round(time.perf_counter() - start, 3)
@@ -153,6 +157,7 @@ def rerank(query: str, docs: list[dict[str, Any]], settings: dict[str, Any] | No
         raise
     order = sorted(range(len(head)), key=lambda i: (-scores[i], i))
     usage = data.get("usage") if isinstance(data, dict) else None
+    ledger.record("rerank", {"endpoint": url, "model": model}, usage if isinstance(usage, dict) else None)
     info.update(status="ok", tokens=(usage or {}).get("total_tokens") if isinstance(usage, dict) else None)
     return [{**head[i], "rerank_score": scores[i]} for i in order] + [{**it, "rerank_score": None} for it in tail]
 

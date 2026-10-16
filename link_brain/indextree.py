@@ -1973,6 +1973,7 @@ def ai_tree(units_: list[dict[str, Any]], total: int, tagger=None) -> tuple[list
     """调文本 AI 起草：模型只负责「把小组分成几个大类、起名字」，标签由程序从小组里算（只会是库里真有的标签）。
     第一级不到 4 个就带着原因再请它改一次。不可用 / 失败 → (None, 原因)。"""
     from . import llm, text_stream
+    from . import usage as ledger
     cfg, why = text_ai()
     if cfg is None:
         return None, {"code": "SKIPPED.NOT_CONFIGURED", "error": why}
@@ -1984,7 +1985,8 @@ def ai_tree(units_: list[dict[str, Any]], total: int, tagger=None) -> tuple[list
     note = ""
     spec: list[dict[str, Any]] = []
     for _attempt in range(2):
-        res = text_stream.call(_DRAFT_INSTRUCTION + note, text, cfg)
+        with ledger.tag("other"):  # 1016：记在「索引 / wiki 整理」名下
+            res = text_stream.call(_DRAFT_INSTRUCTION + note, text, cfg)
         meta["calls"] += 1
         got = res.get("usage") if isinstance(res.get("usage"), dict) else {}
         for k2, v in got.items():
@@ -2278,6 +2280,7 @@ def _local_candidates(parsed: Parsed, items: list[dict[str, Any]], matcher: Matc
 
 def _ai_candidates(parsed: Parsed, items: list[dict[str, Any]], matcher: Matcher, res: Result) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     from . import llm, text_stream
+    from . import usage as ledger
     cfg, why = text_ai()
     if cfg is None:
         return [], {"code": "SKIPPED.NOT_CONFIGURED", "error": why}
@@ -2291,7 +2294,8 @@ def _ai_candidates(parsed: Parsed, items: list[dict[str, Any]], matcher: Matcher
         rows.append(f"- {str(it.get('title') or '')[:40]} | " + ", ".join(str(t) for t in (it.get("tags") or [])[:8]))
     text = "【索引树】\n" + "\n".join(outline[:300]) + f"\n\n【未归类笔记】共 {len(res.unclassified)} 篇\n" + "\n".join(rows)
     cfg = {**cfg, "maxTokens": 2500, "timeoutSec": max(float(cfg.get("timeoutSec") or 0), 180.0)}
-    r = text_stream.call(_SUGGEST_INSTRUCTION, text, cfg)
+    with ledger.tag("other"):
+        r = text_stream.call(_SUGGEST_INSTRUCTION, text, cfg)
     meta = {"model": cfg.get("model") or "", "usage": r.get("usage")}
     if r.get("status") != "ok":
         return [], {**meta, "code": r.get("code") or "TRANSIENT.SERVICE_BUSY", "error": r.get("error") or "模型没回"}

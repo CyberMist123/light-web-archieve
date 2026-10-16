@@ -225,8 +225,11 @@ def _http(pcm: bytes, segments: list[tuple[int, int]], cfg: dict[str, Any]) -> d
                                   files={"file": ("audio.wav", body, "audio/wav")})
         except httpx.HTTPError as exc:
             return providers.network_failure(exc)
+        from . import usage as ledger
         if response.status_code >= 400:
+            ledger.record("asrAI", cfg, None, ok=False)
             return providers.http_failure(response.status_code, response.text[:2000])
+        ledger.record("asrAI", {**cfg, "model": cfg.get("model") or "whisper-1"}, None, seconds=(b - a) / RATE)
         try:
             texts.append(str(response.json().get("text") or ""))
         except (ValueError, AttributeError):

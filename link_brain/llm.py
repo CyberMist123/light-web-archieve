@@ -318,6 +318,12 @@ def alternate_summary_config(primary: dict[str, Any], settings: dict[str, Any]) 
 
 
 def extract(source_key: str, source_id: str, *, force: bool = False, verbose: bool = False) -> dict[str, Any]:
+    from . import usage  # 1016：这篇的概要调用记在「概要」名下、按篇计数
+    with usage.tag("summary", item=source_id):
+        return _extract(source_key, source_id, force=force, verbose=verbose)
+
+
+def _extract(source_key: str, source_id: str, *, force: bool = False, verbose: bool = False) -> dict[str, Any]:
     """跑一次小模型派生，写 `derived/extracted.json` 并返回它。
 
     `force=False` 且已有 `status=ok` 的结果时直接返回，不重复花钱。

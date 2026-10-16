@@ -279,7 +279,9 @@ def detect_intent(question: str) -> str:
 
 def call_text(instruction, input_text, settings):
     from .text_stream import call
-    return call(instruction, input_text, settings.get('textAI') or {}, _ON_DELTA.get())
+    from . import usage
+    with usage.tag('ask'):
+        return call(instruction, input_text, settings.get('textAI') or {}, _ON_DELTA.get())
 
 
 _REAL_CALL_TEXT = call_text
@@ -560,7 +562,9 @@ def llm_expansions(question: str, *, allow_call: bool = True, wait: float = EXPA
 
     def work():
         try:
-            res = call(_EXPAND_INSTRUCTION, text_in, call_cfg, None, cap=cap)
+            from . import usage
+            with usage.tag("expand"):
+                res = call(_EXPAND_INSTRUCTION, text_in, call_cfg, None, cap=cap)
         except Exception as exc:  # noqa: BLE001
             res = {"status": "failed", "error": type(exc).__name__}
         box["res"] = res

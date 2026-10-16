@@ -258,7 +258,9 @@ def _call(instruction: str, text: str, cfg: dict[str, Any], max_tokens: int) -> 
     from . import text_stream
     run_cfg = {**cfg, "maxTokens": max_tokens, "noThinking": True, "thinking": False,
                "timeoutSec": max(float(cfg.get("timeoutSec") or 0), 180.0)}
-    return text_stream.call(instruction, text, run_cfg, cap=str(cfg.get("cap") or "textAI"))
+    from . import usage
+    with usage.tag("other"):  # 1016：索引整理的调用记在「索引 / wiki 整理」名下
+        return text_stream.call(instruction, text, run_cfg, cap=str(cfg.get("cap") or "textAI"))
 
 
 def _payload(raw: str) -> dict[str, Any]:

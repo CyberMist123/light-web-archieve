@@ -1140,3 +1140,16 @@ CLI（`read.outcome` 形状；退出码 0 成功 / 1 失败 / 2 参数不对或�
 **原地更新**（她：按 AI 建议刷新目录会闪一下）：`index-data.json` 内容没变（同一次改动的第二个通知）什么都不做；选中这一类的篇目和已选细分标签没变 →
 结果集的键不变，网格不重摆；变了 → 列复用、卡片只在位置不对时挪（不再整批摘下再挂回）；树的形状没变只改数字（行元素不换、左栏滚动不动），
 形状变了重画也还原左栏滚动；上面一行按内容变了才重画。
+
+## 2026-10-16 用量账本 `vault/_archive/usage/YYYY-MM.jsonl`
+
+append-only，一次模型接口调用一行（`link_brain/usage.py`，CONVENTIONS §4.9）。不存金额、key、提问或回答内容。
+
+```json
+{"ts": "2026-10-16T15:02:11+11:00", "f": "ask", "p": "deepseek", "m": "deepseek-flash", "in": 5210, "out": 380, "ok": true, "item": "可选：这篇的 id", "sec": "可选：语音秒数"}
+```
+
+- `f` 功能：vision 识图 · refine 精细识图 · summary 概要 · ask 问收藏 · expand 扩词 · embed 向量 · asr 语音转写 · rerank 精排 · other 索引 / wiki 整理。
+- `p` 提供商：deepseek / aliyun / openai / google / cli（本机命令行，不花钱）/ 其他接口的域名。
+- `link_brain usage [--balance]` 输出汇总（today / 7d / 30d × 功能 / 提供商，本月按提供商，近 30 天每日）、`links`（各家控制台网址）、`keys`（ai-health 里还开着的 key 失效 / 欠费），带 `--balance` 再加 `balances`。
+

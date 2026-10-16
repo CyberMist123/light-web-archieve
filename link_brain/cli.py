@@ -278,6 +278,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("kind", choices=["text", "summary", "vision", "ocr", "asr", "mcp"],
                    help="测哪个能力：text 问答 / summary 归档摘要 / vision 识图 / ocr 本地 OCR / asr 语音识别 / mcp")
 
+    p = sub.add_parser("usage", help="设置页「用量与余额」：按功能 / 提供商汇总 token 和花费，可带余额")
+    p.add_argument("--balance", action="store_true", help="顺带查余额（DeepSeek 有接口；千问只给跳转）")
+
     p = sub.add_parser("clean", help="清洗分享文案里的小红书链接（跟随短链、只留 xsec_token/source），输出 JSON")
     p.add_argument("text", help="一整段分享文案或链接")
 
@@ -631,6 +634,11 @@ def _dispatch(args) -> int:
         from . import ask as ask_mod
 
         return ask_mod.run_selftest(args)
+
+    if args.command == "usage":
+        from . import usage as usage_mod
+
+        return usage_mod.run(args)
 
     if args.command == "clean":
         from .adapters import xiaohongshu as xhs

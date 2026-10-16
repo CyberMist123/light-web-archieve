@@ -189,8 +189,13 @@ def cli_call(instruction, text, cfg, on_delta=None):
     return providers.result('ok', out)
 
 
-def call(instruction, text, cfg, on_delta=None, *, cap='textAI'):
-    """按 cfg.mode 分流：cli → 本机命令行；http → OpenAI 兼容流式接口；off / 没配好 → skipped。"""
+def call(instruction, text, cfg, on_delta=None, *, cap='textAI', feature=None):
+    """按 cfg.mode 分流：cli → 本机命令行；http → OpenAI 兼容流式接口；off / 没配好 → skipped。
+    1016：每次真调了接口 / 命令行都记一笔用量（usage.record）；feature 标这次算哪个功能，不给就按 cap 推。"""
+    if feature:
+        from . import usage
+        with usage.tag(feature):
+            return call(instruction, text, cfg, on_delta, cap=cap)
     cfg = dict(cfg or {})
     resolved, why = providers.finalize(cap, cfg)
     if resolved is None:
@@ -198,9 +203,14 @@ def call(instruction, text, cfg, on_delta=None, *, cap='textAI'):
     cancel = CANCEL.get()
     if cancel is not None and cancel.is_set():
         return cancelled_result()
+    from . import usage
     if resolved.get('mode') == 'cli':
-        return cli_call(instruction, text, resolved, on_delta)
-    return http_call(instruction, text, resolved, on_delta)
+        res = cli_call(instruction, text, resolved, on_delta)
+    else:
+        res = http_call(instruction, text, resolved, on_delta)
+    if res.get('status') != 'skipped' and (res.get('status') == 'ok' or res.get('api_error') or res.get('usage')):
+        usage.record(cap, resolved, res.get('usage'), ok=res.get('status') == 'ok')
+    return res
 
 
 def http_call(instruction, text, cfg, on_delta=None):
@@ -221,7 +231,9 @@ def http_call(instruction, text, cfg, on_delta=None):
         headers['Authorization'] = 'Bearer ' + str(cfg['apiKey']).strip()
     body = {'model': cfg['model'],
             'messages': [{'role': 'system', 'content': instruction}, {'role': 'user', 'content': text}],
-            'max_tokens': int(cfg.get('maxTokens') or 1200), 'stream': True, 'temperature': .3}
+            'max_tokens': int(cfg.get('maxTokens') or 1200), 'stream': True, 'temperature': .3,
+            # 1016：流式默认不回 usage；要它在最后一块里带上 token 数（DeepSeek / 百炼 / OpenAI 都认）
+            'stream_options': {'include_usage': True}}
     if body['model'].startswith('deepseek'):
         body['thinking'] = {'type': 'enabled' if cfg.get('thinking') else 'disabled'}
         if cfg.get('thinking'):

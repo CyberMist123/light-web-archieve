@@ -298,9 +298,11 @@ def vision_config() -> dict[str, Any] | None:
 def understand(path: Path, lines: list[dict[str, Any]] | None, cfg: dict[str, Any], *,
                timeout: float | None = None) -> dict[str, Any]:
     """0927：带着本地 OCR 一起问识图模型——判类型（表格/流程图/截图文字/图片）并按图纠错、标打码。"""
+    from . import usage
     ocr = "\n".join(l["text"] for l in (lines or []))[:6000] or "（没认出文字）"
-    out = _chat_filtered_retry(path, LAYER1_PROMPT, ocr, cfg, max_tokens=3000,
-                               timeout=timeout or float(cfg.get("timeoutSec") or 150))
+    with usage.tag("vision"):
+        out = _chat_filtered_retry(path, LAYER1_PROMPT, ocr, cfg, max_tokens=3000,
+                                   timeout=timeout or float(cfg.get("timeoutSec") or 150))
     if out.get("status") != "ok":
         return {"kind": "unknown", **out}
     text = out["text"]
@@ -320,8 +322,10 @@ def refine(path: Path, lines: list[dict[str, Any]] | None, kind: str, cfg: dict[
     """第二层：强模型精细识别一张图。流程图要能通过 mermaid_problem() 的检查，否则算失败。"""
     ocr = "\n".join(l["text"] for l in (lines or []))[:6000] or "（没认出文字）"
     label = {"diagram": "流程图", "table": "表格"}.get(kind, "截图文字")
-    out = _chat_filtered_retry(path, REFINE_PROMPT.replace("{kind}", label), ocr, cfg,
-                               max_tokens=8000, timeout=timeout or float(cfg.get("timeoutSec") or 240))
+    from . import usage
+    with usage.tag("refine"):
+        out = _chat_filtered_retry(path, REFINE_PROMPT.replace("{kind}", label), ocr, cfg,
+                                   max_tokens=8000, timeout=timeout or float(cfg.get("timeoutSec") or 240))
     if out.get("status") != "ok":
         return out
     tidy = tidy_output(out["text"])
@@ -536,12 +540,15 @@ def _chat(path: Path, prompt: str, cfg: dict[str, Any], *, max_tokens: int, time
             continue
         except httpx.HTTPError as exc:
             return providers.network_failure(exc)
+        from . import usage as ledger
         if response.status_code >= 400:
+            ledger.record("visionAI", cfg, None, ok=False)
             return providers.http_failure(response.status_code, response.text[:2000])
         try:
             doc = response.json()
             usage = doc.get("usage") or {}
             tin, tout = int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0)
+            ledger.record("visionAI", cfg, usage)
             return providers.result("ok", doc["choices"][0]["message"]["content"].strip(),
                                     usage=usage or None, finish=doc["choices"][0].get("finish_reason"),
                                     tokens=[tin, tout], cost_yuan=round(cost_yuan(cfg["model"], tin, tout), 5))

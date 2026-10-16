@@ -14,8 +14,16 @@
     "google": "https://ai.google.dev/gemini-api/docs/pricing"
   },
   "providers": {
-    "DeepSeek": {"endpoint": "https://api.deepseek.com/chat/completions", "key_url": "https://platform.deepseek.com/api_keys"},
-    "通义千问": {"endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", "key_url": "https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key"},
+    "DeepSeek": {"endpoint": "https://api.deepseek.com/chat/completions", "key_url": "https://platform.deepseek.com/api_keys",
+      "id": "deepseek", "console": "https://platform.deepseek.com/", "usage": "https://platform.deepseek.com/usage",
+      "billing": "https://platform.deepseek.com/transactions", "recharge": "https://platform.deepseek.com/top_up",
+      "balance_api": "https://api.deepseek.com/user/balance", "checked": "2026-10-16"},
+    "通义千问": {"endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", "key_url": "https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key",
+      "id": "aliyun", "console": "https://bailian.console.aliyun.com/cn-beijing/",
+      "usage": "https://bailian.console.aliyun.com/cn-beijing/costing-balance/usage-statistics",
+      "billing": "https://bailian.console.aliyun.com/cn-beijing/costing-balance/overview",
+      "recharge": "https://usercenter2.aliyun.com/finance/fund-management/recharge",
+      "balance_note": "百炼没有拿 API key 能查的余额接口（阿里云 BSS QueryAccountBalance 要 AccessKey，不收）", "checked": "2026-10-16"},
     "OpenAI": {"endpoint": "https://api.openai.com/v1/chat/completions", "asr_endpoint": "https://api.openai.com/v1/audio/transcriptions", "key_url": "https://platform.openai.com/api-keys"},
     "Google Gemini": {"endpoint": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", "key_url": "https://aistudio.google.com/apikey"}
   },
@@ -52,6 +60,21 @@
       "input": 12.0, "output": 36.0,
       "note": "华北 2（北京），0<Token≤1M。识图第二层（精细识别）用。",
       "source": "aliyun", "checked": "2026-10-03"
+    },
+    "qwen3.7-text-embedding-flash": {
+      "provider": "通义千问", "kind": ["embedding"], "currency": "CNY", "unit": "per_million_tokens",
+      "input": 0.125, "output": 0.0,
+      "note": "华北 2（北京）。向量只收输入；批量调用半价。", "source": "aliyun", "checked": "2026-10-16"
+    },
+    "text-embedding-v4": {
+      "provider": "通义千问", "kind": ["embedding"], "currency": "CNY", "unit": "per_million_tokens",
+      "input": 0.5, "output": 0.0,
+      "note": "华北 2（北京）。向量只收输入；批量调用半价。", "source": "aliyun", "checked": "2026-10-16"
+    },
+    "qwen3-rerank": {
+      "provider": "通义千问", "kind": ["rerank"], "currency": "CNY", "unit": "per_million_tokens",
+      "input": 0.5, "output": 0.0,
+      "note": "华北 2（北京）。精排只收输入。", "source": "aliyun", "checked": "2026-10-16"
     },
     "qwen3-vl-flash": {
       "provider": "通义千问", "kind": ["vision"], "currency": "CNY", "unit": "per_million_tokens",

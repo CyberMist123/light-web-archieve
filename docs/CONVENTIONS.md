@@ -172,6 +172,7 @@ STATE_REGISTRY = {  # code 前缀 → 显示；写进 catalog-data.json 的 "sta
 6. 执行器返回统一形状；HTTP 执行器把状态码翻成故障码（429→`TRANSIENT.HTTP_429`，401/403→`NEEDS_HUMAN.AUTH_FAILED`，5xx→`TRANSIENT.HTTP_5XX`，402/欠费文案→`NEEDS_HUMAN.QUOTA_EXCEEDED`，4xx 其他→`PERMANENT.MODEL_OUTPUT_INVALID`）。
 7. **测试按钮测的就是实际执行器**：`selftest <cap>` 对每个能力调 `resolve(cap)` + 与生产同一个函数（问答按下拉选中的 `with_model`；概要按 `summaryAI`；识图按 `visual.understand`；OCR 按 `vision.run_ocr`；语音按 `voice.transcribe` 跑随包 1 秒样例）。设置页每个能力块下只有一个「测试」按钮。
 8. `assets/llm-config.yaml` 只留 prompts/limits/pricing/embedding；模型名、endpoint 不再从它回落。
+9. （1016）**用量记账只在执行器里**：每个打外部模型接口的执行器（`text_stream.call`、`visual._chat`、`semantic._post_embeddings`、`rerank.rerank`、`asr._http`）调一次接口就 `usage.record(cap, cfg, usage)` 一次（成功、或接口那侧失败都记；没配 / 跳过不记）。算哪个功能由调用方 `with usage.tag("<功能>", item=…)` 标，不标按 cap 推；功能词表 `usage.FEATURES`。账本不存金额、不存 key、不存内容，金额汇总时按 `pricing.json` 现价折算。新加一个打接口的执行器必须同时加记账点。
 
 **形状**
 ```python
