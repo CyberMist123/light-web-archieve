@@ -154,3 +154,11 @@ def test_floors_cursor_only_moves_deeper():
     assert cf.deepest_cursor(cs, None, "zz", "c3") == "c3"
     src = {"comments": cs, "capture": {"comments_cursor": "c12", "comment_load": {"has_more": True}}}
     assert cf.floors_resume_point(src, {"floors_cursor": "c99"}) == "c99:100"  # 续展冲掉的浅游标不用
+
+
+def test_floors_end_is_remembered_against_later_has_more():
+    # 续展回写 has_more=true 也不再判「还有楼」：floors_done 记住了翻到底
+    src = {"comments": [{"comment_id": f"c{i}", "sub_comment_count": 0, "sub_comments": []} for i in range(40)],
+           "capture": {"comment_load": {"has_more": True}}}
+    assert cf.scope(src, cf.FLOOR_ALL, {})["more_floors"] is True
+    assert cf.scope(src, cf.FLOOR_ALL, {"floors_done": cf.FLOOR_ALL})["more_floors"] is False

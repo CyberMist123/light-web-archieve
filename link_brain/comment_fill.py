@@ -514,7 +514,11 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
     sc2 = scope(source2, floors, state)
     progressed = (sc2["missing"] < before_missing or sc2["stored"] > before_floors
                   or (mode == "expand" and bool(set(state.get("gone_floors") or []) - gone_before)))
-    if mode == "floors" and top_resume and sc2["stored"] <= before_floors:
+    if mode == "floors" and (str(cl2.get("stop_reason") or "") == "end" or cl2.get("has_more") is False):
+        # 1017：一级评论真翻到底了——记下来，这个楼数下不再翻（之后的续展只读一页、会把 has_more 写回 true）
+        state["floors_done"] = floors
+        state.pop("resume_floors_stale", None)
+    elif mode == "floors" and top_resume and sc2["stored"] <= before_floors:
         state["resume_floors_stale"] = True  # 1017：续翻没多拿到（游标那楼被删之类）：下次从第 1 楼滚一次再定
     elif mode == "floors" and sc2["stored"] <= before_floors:
         state["floors_done"] = floors  # 按楼数重读过一次、楼没变多：原帖就这么多楼，这个楼数下不再重读
