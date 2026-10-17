@@ -26,6 +26,11 @@ CITE_RE = re.compile(r"\[来源\s*(\d+)\]")
 ABSENCE_RE = re.compile(r"(?:原文|材料|收藏|来源|帖子|帖里)?(?:里|中)?没(?:有)?(?:找到|提到|提及|披露|写|给出|说明|看到|收录|相关|这方面|出现)"
                         r"|未(?:披露|提及|找到|给出|说明|出现)|不在(?:收藏|材料|来源)|(?:收藏|材料|原文)里没有")
 _FUNC = set("的了和与及或在是把被让给对从到为也都就还又着过于之中里")
+# 「写没写」「有没有」「能不能」这类正反问不是缺席断言；「如果没有 / 没有的话 / 要是没」是条件句
+_NOT_ABSENCE_RE = re.compile(r"(写|有|给|说|提|用|放)没\1|没有的话|如果没|要是没|若没|没有就|没了就")
+# 缺席断言里的「属性词」：说的是这个属性没给，不是没提这个东西
+ATTR_WORDS = ("克数", "用量", "分量", "数字", "数值", "参数", "规则", "细则", "日期", "时间", "条件", "步骤", "尺寸", "价格", "地址", "名字",
+              "定义", "原因", "答复", "回复", "出处", "链接", "数额", "比例", "温度", "时长", "具体做法", "具体", "多少")
 COMMON_FREQ = 800   # jieba 词频 ≥ 这个的二字词当常用词（缺席回查不拿它当「她问的那件事」的证据）
 # 「关键数字」是回答风格规则里的正常用词（配方类第一行要写关键数字），不算泄漏；下面这些才是只会出现在提示词里的措辞
 LEAK_PATTERNS = ("机制、触发条件", "触发条件、步骤", "按机制", "本轮输出", "输出预算", "回答组织", "候选材料",
@@ -199,14 +204,20 @@ def run(markdown: str, sources: list[dict[str, Any]], *, items_by_id: dict[str, 
                 return True
             return sum(1 for _l, t in pool if word in t) / len(pool) <= 0.5
         for s, _sec, _skip in sents:
-            if not ABSENCE_RE.search(s):
+            if not ABSENCE_RE.search(s) or _NOT_ABSENCE_RE.search(s):
                 continue
             claims += 1
             toks = {w for w in _tokens(ABSENCE_RE.sub("", CITE_RE.sub("", s))) if specific(w)}
             if len(toks) < 2:
                 continue
+            # 「没写意面的具体克数」：说的是「属性没给」，不是「没提这个东西」——来源里有「意面」不算冲突，得连「克数」（或数字）一起在
+            attrs = [a for a in ATTR_WORDS if a in s]
             for label, t in pool:
                 hits = [w for w in toks if w in t]
+                if attrs and not (any(a in t for a in attrs) or re.search(r"\d", t)):
+                    continue
+                if attrs:
+                    hits = hits + [a for a in attrs if a in t and a not in hits]
                 if len(hits) >= THRESHOLDS["absence_hits"] and len(hits) / len(toks) >= 0.4 and together(t, hits):
                     conflicts.append({"text": s[:100], "where": label, "words": hits[:6],
                                       "tier": "cited" if label.startswith("来源") else "related"})

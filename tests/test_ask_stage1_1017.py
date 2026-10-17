@@ -114,3 +114,18 @@ def test_select_count_rules():
 
 def recall_count_ok(got, want):
     return got == want
+
+
+def test_absence_attribute_claims_need_the_attribute_in_source():
+    # 来源里有「意面」「西红柿」但没有克数 → 「没写具体克数」不是假缺口
+    src = [_src(1, "鸡排意面", "煎鸡排配西红柿意面，番茄切块，意面提前煮好。")]
+    c = answer_check.run("帖里没写意面和西红柿的具体克数[来源1]。", src)
+    assert c["absence"]["claims"] == 1 and not c["absence"]["conflicts"]
+    src2 = [_src(1, "鸡排意面", "意面 200 克，西红柿两个切块；克数按人头加。")]
+    c2 = answer_check.run("帖里没写意面和西红柿的具体克数[来源1]。", src2)
+    assert c2["absence"]["conflicts"]
+
+
+def test_absence_skips_yes_no_questions_and_conditionals():
+    c = answer_check.run("签合同时先看里面写没写职业病危害[来源1]。如果没有味醂可以用料酒代替。", SOURCES)
+    assert c["absence"]["claims"] == 0
