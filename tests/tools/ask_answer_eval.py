@@ -226,17 +226,54 @@ def rejudge_r1(path, cases_path):
     return data["summary"]
 
 
+def rescore(path, cases_path):
+    """按存下的回答 + 来源摘录重跑自检（answer_check）并重判 R9–R12 和 pass；不调模型。只对带 sources 的结果有效。"""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from link_brain import answer_check
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    raw = json.loads(Path(cases_path).read_text(encoding="utf-8"))
+    cases = {c["id"]: c for c in (raw.get("cases") if isinstance(raw, dict) else raw)}
+    for row in data["rows"]:
+        if not row.get("sources") and row.get("mode") != "toc":
+            continue
+        srcs = [{**s, "excerpt": ""} for s in row.get("sources") or []]
+        checks = answer_check.run(row.get("markdown") or "", srcs, related=row.get("related") or [], mode=row.get("mode") or "direct")
+        row["checks_rescored"] = checks
+        fake = {"mode": row["mode"], "markdown": row.get("markdown") or "", "checks": checks, "selection": {"reason": (row.get("self_check") or {}).get("selection")},
+                "toc": [{"id": i} for i in row["cited"]] if row["mode"] == "toc" else None,
+                "sources": [{"id": i, "citation": n} for n, i in enumerate(row["cited"], 1)]}
+        if row["mode"] != "toc":
+            fake["markdown"] = " ".join(f"[来源{n}]" for n in range(1, len(row["cited"]) + 1)) + " " + fake["markdown"]
+        v = judge(cases.get(row["id"]) or {}, fake)
+        for k in ("R9", "R10", "R11", "R12"):
+            row["checks"][k] = v["checks"][k]
+        row["self_check"] = v["self_check"]
+        row["pass"] = all(row["checks"].values())
+    scored = [r for r in data["rows"] if r.get("tier") != "any"]
+    data["summary"]["passed"] = sum(r["pass"] for r in scored)
+    data["summary"]["pass_rate"] = round(data["summary"]["passed"] / max(1, len(scored)), 3)
+    data["summary"]["by_rule"] = {k: sum(r["checks"].get(k, False) for r in scored) for k in ("R1", "R2", "R3", "R4", "R5", "R6", "R8", "R9", "R10", "R11", "R12")}
+    Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    return data["summary"]
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--cases", required=True)
-    ap.add_argument("--vault", required=True)
+    ap.add_argument("--vault", required=False)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--rescore", action="store_true", help="不跑模型：按 --out 里存的回答和来源重跑自检、重判 R9–R12")
     ap.add_argument("--code")
     ap.add_argument("--only")
     ap.add_argument("--model", default="")
     ap.add_argument("--label", default="")
     ap.add_argument("--fresh-catalog", action="store_true", help="内存里按这份代码重收目录（不写盘）")
     args = ap.parse_args(argv)
+    if args.rescore:
+        print(json.dumps(rescore(args.out, args.cases), ensure_ascii=False, indent=1))
+        return 0
+    if not args.vault:
+        ap.error("要 --vault")
     cases = json.loads(Path(args.cases).read_text(encoding="utf-8"))
     if isinstance(cases, dict):   # 1017 题集顶层是 {version, built_at, cases}
         cases = cases.get("cases") or []
@@ -271,7 +308,13 @@ def main(argv=None) -> int:
         rows.append({"id": case.get("id"), "question": case["question"], "tier": case.get("tier"), "status": res.get("status"),
                      "seconds": took, "tokens": tokens, **verdict,
                      "understanding": res.get("understanding"), "mode_reason": res.get("mode_reason"),
-                     "markdown": (res.get("markdown") or "")[:3000]})
+                     "markdown": (res.get("markdown") or "")[:6000],
+                     # 1017：存来源摘录 / 其他相关 / 自检结果，改了自检规则能用 --rescore 离线重判 R9–R12，不重跑模型
+                     "sources": [{"id": s.get("id"), "citation": s.get("citation"), "title": s.get("title"), "author": s.get("author"),
+                                  "excerpts": [{"field": e.get("field"), "text": str(e.get("text") or "")[:1500]} for e in (s.get("excerpts") or [])]}
+                                 for s in (res.get("sources") or [])],
+                     "related": [{"id": r.get("id"), "title": r.get("title"), "excerpt": str(r.get("excerpt") or "")[:600]} for r in (res.get("related") or [])[:30]],
+                     "checks": res.get("checks")})
         mark = "过" if verdict["pass"] else "×"
         fails = ",".join(k for k, v in verdict["checks"].items() if not v)
         print(f"{case.get('id'):>4} {mark} {verdict['mode']:<6} {took:>5}s {tokens['prompt']:>6}+{tokens['completion']:<5} {fails:<14} {case['question'][:24]}",

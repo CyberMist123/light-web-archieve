@@ -27,8 +27,9 @@ ABSENCE_RE = re.compile(r"(?:原文|材料|收藏|来源|帖子|帖里)?(?:里|�
                         r"|未(?:披露|提及|找到|给出|说明|出现)|不在(?:收藏|材料|来源)|(?:收藏|材料|原文)里没有")
 _FUNC = set("的了和与及或在是把被让给对从到为也都就还又着过于之中里")
 COMMON_FREQ = 800   # jieba 词频 ≥ 这个的二字词当常用词（缺席回查不拿它当「她问的那件事」的证据）
-LEAK_PATTERNS = ("机制、触发条件", "触发条件、步骤", "关键数字", "按机制", "本轮输出", "输出预算", "回答组织", "候选材料",
-                 "【原始材料", "原始材料结束", "称呼规则", "输出上限为", "个中文字内")
+# 「关键数字」是回答风格规则里的正常用词（配方类第一行要写关键数字），不算泄漏；下面这些才是只会出现在提示词里的措辞
+LEAK_PATTERNS = ("机制、触发条件", "触发条件、步骤", "按机制", "本轮输出", "输出预算", "回答组织", "候选材料",
+                 "【原始材料", "原始材料结束", "称呼规则", "输出上限为", "个中文字内", "按上面的")
 SKIP_SECTION_RE = re.compile(r"^#{1,6}\s*(?:缺口|推断|收藏之外|延伸|补充说明|说明)")
 _NAME_CHARS = r"[^\s，,。；;：:「」“”‘’'\"（）()\[\]、—\-]"
 # 只认写得明确的点名：「作者：X」「作者「X」」「评论者“X”」「作者 X 说」；「作者提醒……」这种后面直接接动词的不算人名
@@ -164,6 +165,25 @@ def run(markdown: str, sources: list[dict[str, Any]], *, items_by_id: dict[str, 
             pool.append((f"其他相关《{r.get('title') or ''}》", source_text(r, items_by_id.get(rid))))
         conflicts, claims = [], 0
 
+        def together(text, words, window=400):
+            # 命中词要在同一段里（≥2 个词落在 window 字内）：几十万字的长文（274 页 PDF）里零散各出现一次不算「它在这篇里」
+            spots = []
+            for w in words:
+                p = text.find(w)
+                while p >= 0 and len(spots) < 40:
+                    spots.append((p, w))
+                    p = text.find(w, p + 1)
+            spots.sort()
+            for i, (p, w) in enumerate(spots):
+                seen = {w}
+                for q, w2 in spots[i + 1:]:
+                    if q - p > window:
+                        break
+                    seen.add(w2)
+                if len(seen) >= THRESHOLDS["absence_hits"]:
+                    return True
+            return False
+
         def specific(word):
             # 常用词（「日期」「价格」「确认」）在哪篇长文里都能撞上，说明不了「她问的那件事在这篇里」：
             # 只认 jieba 词典里不常见的词（词频低）或 ≥3 字的专名；再去掉候选池里一半以上的篇都有的词
@@ -187,8 +207,9 @@ def run(markdown: str, sources: list[dict[str, Any]], *, items_by_id: dict[str, 
                 continue
             for label, t in pool:
                 hits = [w for w in toks if w in t]
-                if len(hits) >= THRESHOLDS["absence_hits"] and len(hits) / len(toks) >= 0.4:
-                    conflicts.append({"text": s[:100], "where": label, "words": hits[:6]})
+                if len(hits) >= THRESHOLDS["absence_hits"] and len(hits) / len(toks) >= 0.4 and together(t, hits):
+                    conflicts.append({"text": s[:100], "where": label, "words": hits[:6],
+                                      "tier": "cited" if label.startswith("来源") else "related"})
                     break
         checks["absence"] = {"claims": claims, "conflicts": conflicts[:8]}
     except Exception as exc:  # noqa: BLE001
@@ -202,8 +223,9 @@ def run(markdown: str, sources: list[dict[str, Any]], *, items_by_id: dict[str, 
             seen_in_sentence = set()
             for rx in NAME_PATTERNS:
                 for m in rx.finditer(s):
-                    name = m.group(1).strip("「」")
-                    if name.startswith(_NAME_SKIP) or name in seen_in_sentence:
+                    name = m.group(1).strip("「」*_ ")
+                    if (not name or name.startswith(_NAME_SKIP) or name in seen_in_sentence
+                            or re.search(r"认为|表示|建议|提到|说|回复|指出|补充|称", name)):
                         continue
                     seen_in_sentence.add(name)
                     named += 1
@@ -248,7 +270,8 @@ def warnings(checks: dict[str, Any]) -> list[str]:
     if a.get("unaligned"):
         out.append(f"{len(a['unaligned'])} 句引用没对上来源原文（如「{a['unaligned'][0]['text'][:40]}…」）")
     b = checks.get("absence") or {}
-    for c in (b.get("conflicts") or [])[:2]:
+    # 只把「引用来源里其实有」的说出来（这是真假缺口）；「其他相关」里有的只记在 checks 里（候选没送读是选篇的事，不是编）
+    for c in [x for x in (b.get("conflicts") or []) if x.get("tier") == "cited"][:2]:
         out.append(f"说「没有」但 {c['where']} 里出现了：{'、'.join(c['words'][:4])}")
     sp = checks.get("speaker") or {}
     if sp.get("unknown"):
