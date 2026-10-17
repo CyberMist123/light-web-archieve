@@ -215,7 +215,8 @@ def floors_resume_point(source: dict[str, Any], state: dict[str, Any] | None = N
     """一级评论接着翻的断点 "最后一楼游标:已存楼数"（1017）：热门帖一趟 8 分钟只滚得到 ~500 楼，每次从第 1 楼滚起永远到不了底。
     原帖已经读到底、存的楼太少、上次续翻没多拿到（resume_floors_stale）就不续。"""
     cap = source.get("capture") or {}
-    cursor = str(cap.get("comments_cursor") or "")
+    # 1017：游标以续读状态里记的「读到最深的那个」为准——每次开页的 capture 游标会被只读前几十楼的续展冲掉
+    cursor = str((state or {}).get("floors_cursor") or cap.get("comments_cursor") or "")
     n = len(source.get("comments") or [])
     if not cursor or n < FLOORS_RESUME_MIN or (cap.get("comment_load") or {}).get("has_more") is False:
         return None
@@ -242,6 +243,13 @@ def forget_unproven_gone() -> int:
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text(str(n), encoding="utf-8")
     return n
+
+
+def deepest_cursor(comments: list[dict[str, Any]], *cursors: Any) -> str:
+    """几个一级评论游标里，在存档楼序里最靠后的那个（游标 = 那一页最后一楼的 id；认不出的排最前）。"""
+    pos = {str(c.get("comment_id") or ""): i for i, c in enumerate(comments)}
+    cands = [str(c) for c in cursors if c]
+    return max(cands, key=lambda c: pos.get(c, -1)) if cands else ""
 
 
 def sub_quota(now: datetime | None = None) -> tuple[int, datetime | None]:
@@ -491,6 +499,11 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
     meta2, source2 = current_source(source_key, source_id)
     now = _now().isoformat(timespec="seconds")
     cl2 = (source2.get("capture") or {}).get("comment_load") or {}
+    deep = deepest_cursor(source2.get("comments") or [], state.get("floors_cursor"),
+                          (source.get("capture") or {}).get("comments_cursor"),
+                          (source2.get("capture") or {}).get("comments_cursor"))
+    if deep:
+        state["floors_cursor"] = deep
     if mode == "expand":
         not_found = set(str(x) for x in (summary.get("floors_not_found") or []))
         # 1017：只有一级评论真滚到底（stop=end / has_more=false）还找不到，才算这楼删了；预算到点没滚到不算

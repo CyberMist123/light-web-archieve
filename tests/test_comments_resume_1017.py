@@ -146,3 +146,11 @@ def test_plan_fill_expand_window_and_resume_point():
 
 def test_floor_all_is_unbounded():
     assert cf.floor_target("all") >= 100_000
+
+
+def test_floors_cursor_only_moves_deeper():
+    cs = [{"comment_id": f"c{i}"} for i in range(100)]
+    assert cf.deepest_cursor(cs, "c99", "c12", "c48") == "c99"
+    assert cf.deepest_cursor(cs, None, "zz", "c3") == "c3"
+    src = {"comments": cs, "capture": {"comments_cursor": "c12", "comment_load": {"has_more": True}}}
+    assert cf.floors_resume_point(src, {"floors_cursor": "c99"}) == "c99:100"  # 续展冲掉的浅游标不用
