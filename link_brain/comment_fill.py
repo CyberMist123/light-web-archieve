@@ -34,7 +34,7 @@ from typing import Any, Callable
 from . import storage
 
 FLOOR_MIN = 10
-FLOOR_ALL = 2000            # 「全部」= 读取组件一次最多列这么多楼
+FLOOR_ALL = 100_000         # 「全部」= 不设楼数上限（1017：以前 2000，8636 条评论的帖只读到 2007 楼就当读完了）
 FILL_BUDGET_S = 480         # 续读一次给读取组件的评论预算（秒）；请求超时比它多 90 秒。插件「立即同步」等号最多 10 分钟，一篇得在这之内放手
 FILL_GAP_MIN = 45           # 同一篇两次开页至少隔这么久（0926 实测：同一篇 20 分钟开 5 次会被软限流，评论返回空）；1015 起设置里可调慢（见 fill_gap_min）
 # 1016：连续补评论跑满 WORK_MIN 分钟强制歇 REST_MIN 分钟（10-10 连跑 2.5 小时撞过滑块）
@@ -151,13 +151,31 @@ def scope(source: dict[str, Any], floors: int, state: dict[str, Any] | None = No
             "missing": sum(g["missing"] for g in gaps), "more_floors": bool(more)}
 
 
+# 1017：续展一趟只管这么宽的一段楼（读取组件从这段的前一楼接着翻，几秒就到；不然从第 1 楼往下找，8 分钟只到 ~500 楼）
+EXPAND_WINDOW = 150
+
+
 def plan_fill(sc: dict[str, Any]) -> tuple[str | None, list[str]]:
-    """这一篇这次怎么续：('floors', []) 按楼数重读 / ('expand', [comment_id…]) 只展开缺口楼 / (None, []) 不用续。"""
+    """这一篇这次怎么续：('floors', []) 按楼数重读 / ('expand', [comment_id…]) 只展开缺口楼 / (None, []) 不用续。
+    expand 一趟只取从最前一个缺口楼起 EXPAND_WINDOW 楼内的缺口（expand_window 给出从哪楼接着翻）。"""
     if sc["more_floors"]:
         return "floors", []
     if sc["gaps"]:
-        return "expand", [g["comment_id"] for g in sorted(sc["gaps"], key=lambda g: -g["missing"])]
+        first = min(g["floor"] for g in sc["gaps"])
+        window = [g for g in sc["gaps"] if g["floor"] < first + EXPAND_WINDOW]
+        return "expand", [g["comment_id"] for g in sorted(window, key=lambda g: -g["missing"])]
     return None, []
+
+
+def expand_window_resume(source: dict[str, Any], targets: list[str]) -> str | None:
+    """续展深处的楼（1017）：从目标里最靠前那楼的前一楼接着翻一级评论（"前一楼 id:楼序"），目标楼在前 FLOORS_RESUME_MIN 楼内就不跳。"""
+    want = set(str(t) for t in targets)
+    comments = source.get("comments") or []
+    idx = next((i for i, c in enumerate(comments) if str(c.get("comment_id") or "") in want), None)
+    if idx is None or idx < FLOORS_RESUME_MIN:
+        return None
+    prev = str(comments[idx - 1].get("comment_id") or "")
+    return f"{prev}:{idx}" if prev else None
 
 
 # --------------------------------------------------------------------------
@@ -204,6 +222,26 @@ def floors_resume_point(source: dict[str, Any], state: dict[str, Any] | None = N
     if (state or {}).get("resume_floors_stale"):
         return None
     return f"{cursor}:{n}"
+
+
+GONE_MIGRATION = "gone-floors-1017"
+
+
+def forget_unproven_gone() -> int:
+    """1017 一次性：以前「没滚到就记成删了」的 gone_floors 全部作废（没法分辨哪些是真删的；真删的下次滚到底会重新认出来）。"""
+    marker = storage.link_brain_home() / f"migrated-{GONE_MIGRATION}"
+    if marker.exists():
+        return 0
+    n = 0
+    for source_key, source_id in _objects():
+        state = load_state(source_key, source_id)
+        if state.get("gone_floors"):
+            state.pop("gone_floors", None)
+            save_state(source_key, source_id, state)
+            n += 1
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(str(n), encoding="utf-8")
+    return n
 
 
 def sub_quota(now: datetime | None = None) -> tuple[int, datetime | None]:
@@ -423,7 +461,9 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
 
     # 1017 断点续展：上次带游标续了却一条没多拿到（游标那条被删了之类），这次从头展开一次
     resume = resume_points(source, targets) if mode == "expand" and not state.get("resume_stale") else []
-    top_resume = floors_resume_point(source, state) if mode == "floors" else None
+    top_resume = floors_resume_point(source, state) if mode == "floors" else (
+        expand_window_resume(source, targets) if mode == "expand" else None)
+    gone_before = set(state.get("gone_floors") or [])
 
     def attempt(url: str) -> dict[str, Any]:
         return ingest_mod.ingest_url(url, refresh=True, comment_floors=floors, verbose=verbose,
@@ -453,10 +493,14 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
     cl2 = (source2.get("capture") or {}).get("comment_load") or {}
     if mode == "expand":
         not_found = set(str(x) for x in (summary.get("floors_not_found") or []))
-        if not_found:
+        # 1017：只有一级评论真滚到底（stop=end / has_more=false）还找不到，才算这楼删了；预算到点没滚到不算
+        # （以前没滚到就记成删了：一篇热门帖 448 楼被当成删掉，1937 条缺口被悄悄划掉）
+        reached_end = str(cl2.get("stop_reason") or "") == "end" or cl2.get("has_more") is False
+        if not_found and reached_end:
             state["gone_floors"] = sorted(set(str(x) for x in state.get("gone_floors") or []) | not_found)
     sc2 = scope(source2, floors, state)
-    progressed = sc2["missing"] < before_missing or sc2["stored"] > before_floors or bool(summary.get("floors_not_found"))
+    progressed = (sc2["missing"] < before_missing or sc2["stored"] > before_floors
+                  or (mode == "expand" and bool(set(state.get("gone_floors") or []) - gone_before)))
     if mode == "floors" and top_resume and sc2["stored"] <= before_floors:
         state["resume_floors_stale"] = True  # 1017：续翻没多拿到（游标那楼被删之类）：下次从第 1 楼滚一次再定
     elif mode == "floors" and sc2["stored"] <= before_floors:
@@ -762,6 +806,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
         from . import restricted
         restricted.release_legacy_fill_stuck()
         restricted.reclassify_fill_failures()
+        forget_unproven_gone()
     except Exception as exc:  # noqa: BLE001 - 迁移没成不挡补评论
         print(f"[comments] 旧的「已放弃」没解开：{type(exc).__name__}: {exc}", file=sys.stderr)
     # 1017 她：「对特定帖子能跑完楼层」——--only 只补这几篇、按 --floors 的楼数（不改全局设置），stuck 的也照补

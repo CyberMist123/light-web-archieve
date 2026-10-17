@@ -298,12 +298,14 @@ def _detail_kwargs(comment_floors: int | str | None, expand_floors: list[str] | 
                "comment_budget_s": budget, "expand_floors": list(expand_floors)}
         if expand_resume:
             out["expand_resume"] = list(expand_resume)  # 1017 断点续展（comment_fill.resume_points）
+        if floors_resume:
+            out["floors_resume"] = floors_resume  # 1017 续展深处的楼：从目标前一楼接着翻（comment_fill.expand_window_resume）
         return out
     if comment_floors is None:
         from .ai_config import sync_options
         comment_floors = sync_options()["commentFloors"]
     if comment_floors == "all":
-        out = {"full_comments": True, "comment_limit": 2000, "timeout": 1500}
+        out = {"full_comments": True, "comment_limit": 100_000, "timeout": 1500}  # 1017：「全部」不设楼数上限
     else:
         # 0929 Owner：10 楼也要展开楼中楼（load_all_comments=false 只给首屏，不点「展开回复」）
         floors = max(int(comment_floors), 10)

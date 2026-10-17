@@ -120,3 +120,29 @@ def test_sub_quota_reads_raised_limit_file(tmp_path, monkeypatch):
     assert cf.sub_quota(now)[0] == 0
     (tmp_path / "sub-per-hour.json").write_text(json.dumps({"per_hour": 60}), encoding="utf-8")
     assert cf.sub_quota(now)[0] == 20
+
+
+def _gap_source(n_floors, gap_floors):
+    cs = []
+    for i in range(n_floors):
+        c = {"comment_id": f"f{i}", "sub_comment_count": 1, "sub_comments": [_reply(i * 10, 0)]}
+        if i in gap_floors:
+            c["sub_comment_count"] = 5
+        cs.append(c)
+    return {"comments": cs, "capture": {"comment_load": {"has_more": False}}}
+
+
+def test_plan_fill_expand_window_and_resume_point():
+    src = _gap_source(900, {600, 610, 790, 899})
+    sc = cf.scope(src, cf.FLOOR_ALL)
+    mode, targets = cf.plan_fill(sc)
+    assert mode == "expand" and set(targets) == {"f600", "f610"}  # 只取最前缺口起 150 楼内的
+    assert cf.expand_window_resume(src, targets) == "f599:600"  # 从目标前一楼接着翻
+    assert cf.expand_window_resume(src, ["f5"]) is None  # 前 30 楼内不跳
+    from link_brain import ingest
+    kw = ingest._detail_kwargs(10, targets, 480, ["f600:r:1"], fill=True, floors_resume="f599:600")
+    assert kw["floors_resume"] == "f599:600" and kw["expand_floors"] == targets
+
+
+def test_floor_all_is_unbounded():
+    assert cf.floor_target("all") >= 100_000
