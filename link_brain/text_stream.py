@@ -27,7 +27,8 @@ def cancelled_result(text=None):
 # 1001（审计 C-1）：命令行模型吃的是陌生人写的收藏原文和评论，本机 claude / codex 的全局设置又是全权限
 # （bypassPermissions / danger-full-access）。这里强制收权，data.json 里存着的旧命令也一并兜住。
 CLAUDE_DENIED_TOOLS = ('Bash', 'PowerShell', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'WebFetch', 'WebSearch')
-_UNSAFE_FLAGS = ('--dangerously-skip-permissions', '--dangerously-bypass-approvals-and-sandbox', '--full-auto', '--yolo')
+_UNSAFE_FLAGS = ('--dangerously-skip-permissions', '--dangerously-bypass-approvals-and-sandbox', '--full-auto', '--yolo',
+                 '--auto')   # --auto = opencode 自动放行所有权限
 
 
 def _prog(token: str) -> str:
@@ -79,7 +80,27 @@ def harden_command(cmd):
     elif prog == 'codex':
         at = next((i + 1 for i, t in enumerate(cmd) if t.strip('"\'') == 'exec'), 1)
         cmd = _set_flag(cmd, ('-s', '--sandbox'), 'read-only', at)
+    elif prog == 'opencode':
+        # 1017：opencode run 没有「不要工具」的命令行开关，权限靠环境变量 OPENCODE_PERMISSION（见 cli_env）；
+        # 这里只保证不加载外部插件（--pure）、不自动放行权限（--auto 已在 _UNSAFE_FLAGS 里剔掉）
+        if not any(t.strip('"\'') == '--pure' for t in cmd):
+            cmd.append('--pure')
     return cmd
+
+
+# opencode 的工具权限（1017）：会动本机 / 出网的一律拒。只读类（read / list / glob / grep）不能拒——
+# 它的免费层把「没有只读工具」的调用判成「不在 OpenCode 里用」直接拒答（本机实测）；cwd 已是空临时目录，读不到仓库和收藏。
+OPENCODE_DENY = ('edit', 'write', 'patch', 'bash', 'webfetch', 'websearch', 'task')
+
+
+def cli_env(cmd):
+    """按命令行模型补环境变量：opencode → OPENCODE_PERMISSION 拒掉会动本机 / 出网的工具（已设的不覆盖）。其余原样。"""
+    import json
+    import os
+    env = dict(os.environ)
+    if cmd and _prog(cmd[0]) == 'opencode' and not env.get('OPENCODE_PERMISSION'):
+        env['OPENCODE_PERMISSION'] = json.dumps({tool: 'deny' for tool in OPENCODE_DENY})
+    return env
 
 
 CLI_TIMEOUT_DEFAULT = 180  # 秒；cfg['timeoutSec'] 覆盖（CONVENTIONS §6.6）
@@ -137,12 +158,17 @@ def cli_call(instruction, text, cfg, on_delta=None):
     if not cmd:
         return providers.skipped('textAI', '命令行模型没有填命令')
     cmd = harden_command(list(cmd))
+    # 1017：npm 装的命令行工具（opencode / claude）在 Windows 上是 .cmd 垫片，Popen 不走 PATHEXT 会「找不到命令」；按 PATH 解一次
+    import shutil
+    resolved_exe = shutil.which(cmd[0])
+    if resolved_exe:
+        cmd[0] = resolved_exe
     import tempfile
     # 空目录里跑：别让 codex/claude 去翻仓库文件；stderr 进临时文件——它进度日志很多，管道读不及会把进程堵死
     err_file = tempfile.TemporaryFile(mode='w+', encoding='utf-8', errors='replace')
     try:
         proc = subprocess.Popen(cmd, cwd=tempfile.gettempdir(), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err_file,
-                                text=True, encoding='utf-8', errors='replace',
+                                text=True, encoding='utf-8', errors='replace', env=cli_env(cmd),
                                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     except OSError as exc:
         err_file.close()

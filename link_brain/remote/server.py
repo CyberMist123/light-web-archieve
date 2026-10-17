@@ -54,7 +54,8 @@ APPROVE_FAIL_MAX = 5
 APPROVE_LOCK_S = 15 * 60
 REGISTER_PER_HOUR = 20
 TOKEN_PER_HOUR = 300
-ASK_PER_HOUR = 30          # 问收藏会花模型钱：每个令牌每小时最多几次
+# 问收藏会花模型钱：每个令牌每小时最多几次。环境变量 LWA_ASK_PER_HOUR 可改（0 = 不限，作者 1017 实验期放开用；默认 30）
+ASK_PER_HOUR = int(os.environ.get("LWA_ASK_PER_HOUR", "").strip() or 30)
 RATE_PER_MIN = 120          # 每个令牌每分钟最多多少次 /mcp 请求
 BAD_TOKEN_PER_MIN = 60      # 带了坏令牌的请求（全局）
 SCOPE = "read"
@@ -79,6 +80,8 @@ class Window:
         self.events: dict[str, deque] = {}
 
     def hit(self, key: str, now: float | None = None) -> bool:
+        if self.limit <= 0:   # 0 = 不限（LWA_ASK_PER_HOUR=0）
+            return True
         now = time.monotonic() if now is None else now
         q = self.events.setdefault(key, deque())
         while q and now - q[0] > self.seconds:
