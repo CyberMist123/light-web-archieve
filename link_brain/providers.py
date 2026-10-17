@@ -117,6 +117,7 @@ POOL_ENV = {"gemini": "LWA_GEMINI_KEYS"}
 POOL_FILE_FIELD = {"gemini": "gemini_keys_file"}
 POOL_DEAD_CODES = ("NEEDS_HUMAN.AUTH_FAILED", "NEEDS_HUMAN.QUOTA_EXCEEDED", "TRANSIENT.HTTP_429")
 _POOL_DEAD: dict[str, dict[str, float]] = {}  # 池名 → {key: 到几点（time.time()）之前别用}
+_POOL_WHY: dict[str, dict[str, str]] = {}  # 池名 → {key: 为什么歇着（结果码）}——key 全歇了时照实报是额度用完还是 key 坏
 # 429 分两种：每分钟限额（歇一分钟就好，POOL_COOL_S）和每天限额（body 里带 PerDay，今天别用了）。key 被拒 / 欠费 = 今天别用。
 POOL_COOL_S = 65.0
 
@@ -173,6 +174,28 @@ def pool_mark_dead(name: str, key: str, code: str = "", daily: bool = True) -> N
     import time
     cool = code == "TRANSIENT.HTTP_429" and not daily
     _POOL_DEAD.setdefault(name, {})[key] = time.time() + POOL_COOL_S if cool else _end_of_day()
+    _POOL_WHY.setdefault(name, {})[key] = code + ("" if code != "TRANSIENT.HTTP_429" else "/min" if cool else "/day")
+
+
+def pool_exhausted(name: str) -> dict[str, Any]:
+    """池里一把能用的都没有时的结果。1018：免费 key 只是今天额度用完（429）≠ key 坏了——
+    以前一律报 AUTH_FAILED，概览就挂「key 用不了，去换一把」，其实明天自己就好、备用也在顶着。"""
+    allk = pool_keys(name)
+    if not allk:
+        return result("failed", code="NEEDS_HUMAN.AUTH_FAILED", api_error=True, error=f"{name} 一把 key 都没配")
+    import time
+    dead = {k for k, until in (_POOL_DEAD.get(name) or {}).items() if until > time.time()}
+    why = [(_POOL_WHY.get(name) or {}).get(k, "") if k in dead else "" for k in allk]
+    if all(w.startswith("TRANSIENT.HTTP_429") for w in why):
+        if all(w.endswith("/day") for w in why):
+            return result("failed", code="TRANSIENT.HTTP_429", api_error=True, daily_limit=True,
+                          error=f"{name} 的 {len(allk)} 把免费 key 今天额度都用完了，明天自动恢复")
+        return result("failed", code="TRANSIENT.HTTP_429", api_error=True,
+                      error=f"{name} 的 key 都在限流（请求太密），歇一分钟就好")
+    code = "NEEDS_HUMAN.QUOTA_EXCEEDED" if "NEEDS_HUMAN.QUOTA_EXCEEDED" in why else "NEEDS_HUMAN.AUTH_FAILED"
+    bad = sum(1 for w in why if w.startswith("NEEDS_HUMAN."))
+    return result("failed", code=code, api_error=True,
+                  error=f"{name} 的 {len(allk)} 把 key 今天都用不了（{bad} 把被拒或欠费，其余额度用完）")
 
 
 def call_with_pool(cfg: dict[str, Any] | None, call):
@@ -183,8 +206,7 @@ def call_with_pool(cfg: dict[str, Any] | None, call):
     name = str(cfg["keyPool"])
     keys = pool_alive(name)
     if not keys:
-        return result("failed", code="NEEDS_HUMAN.AUTH_FAILED", api_error=True,
-                      error=f"{name} 的 key 今天都用不了了（或一把都没配）")
+        return pool_exhausted(name)
     allk = pool_keys(name)
     got: dict[str, Any] = {}
     for key in keys:

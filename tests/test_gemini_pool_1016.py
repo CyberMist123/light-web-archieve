@@ -60,7 +60,7 @@ def test_call_with_pool_all_dead():
                                    lambda c: providers.result("failed", code="NEEDS_HUMAN.QUOTA_EXCEEDED"))
     assert got["status"] == "failed" and got["code"] == "NEEDS_HUMAN.QUOTA_EXCEEDED"
     got = providers.call_with_pool({"keyPool": "gemini"}, lambda c: providers.result("ok"))
-    assert got["code"] == "NEEDS_HUMAN.AUTH_FAILED", "全用坏了：直接报，交给备用"
+    assert got["code"] == "NEEDS_HUMAN.QUOTA_EXCEEDED", "全用坏了：照实报（1018 起按 key 歇着的原因报），交给备用"
 
 
 def test_no_pool_calls_once():

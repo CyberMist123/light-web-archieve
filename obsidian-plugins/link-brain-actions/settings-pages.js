@@ -84,12 +84,18 @@ module.exports = function (obsidian, plugin) {
   function attentionText(p) {
     const code = String(p.code || ''), sub = code.split('.').pop(), step = String(p.step || '');
     if (step.startsWith('ai.') || ['AUTH_FAILED', 'QUOTA_EXCEEDED'].includes(sub)) {
+      // 1018：只认「坏的是谁」那一段——原因里「已换用 通义千问 …」是顶上的备用，以前被当成坏的那家，概览就冤枉了百炼
       const reason = String(p.reason || '');
-      const m = reason.match(/^([^（(；;]+?)（([^，,）)]+)/);
-      const who = (reason.includes('通义') || reason.includes('千问') || reason.includes('百炼')) ? '阿里云百炼'
-        : reason.includes('DeepSeek') ? 'DeepSeek' : reason.includes('Gemini') || reason.includes('Google') ? 'Gemini' : (m ? m[2] : 'AI');
-      const what = step === 'ai.vision' ? '识图' : step === 'ai.summary' ? '概要' : step === 'ai.embed' ? '语义搜索' : '';
-      return { title: `${who}的 key 用不了`, desc: `可能欠费、过期或没开通服务${what ? `；影响${what}` : ''}。配了备用的会自动改用备用。`,
+      const head = reason.split('已换用')[0];
+      const backup = (reason.match(/已换用 ([^（；;]+)/) || [])[1] || '';
+      const m = head.match(/^([^（(；;]+?)（([^，,）)]+)/);
+      const named = String(p.links?.provider || '');
+      const pick = t => /Gemini|Google/.test(t) ? 'Gemini' : /DeepSeek/.test(t) ? 'DeepSeek' : /通义|千问|百炼/.test(t) ? '阿里云百炼' : '';
+      const who = pick(named) || pick(head) || (m ? m[2] : 'AI');
+      const what = step === 'ai.vision' ? '识图' : step === 'ai.summary' ? '概要' : step === 'ai.embed' ? '语义搜索' : step === 'ai.refine' ? '精细识图' : '';
+      const desc = backup ? `可能欠费、过期或没开通服务。${what || '这项'}没停：已自动改用 ${backup.trim()} 顶上。`
+        : `可能欠费、过期或没开通服务${what ? `；影响${what}` : ''}。配了备用的会自动改用备用。`;
+      return { title: `${who}的 key 用不了`, desc,
         provider: who === '阿里云百炼' ? 'aliyun' : who === 'DeepSeek' ? 'deepseek' : who === 'Gemini' ? 'google' : '' };
     }
     if (sub === 'NOTE_RESTRICTED') return { title: `有一篇要在网页上验证一下才能看`, desc: p.title ? `《${String(p.title).slice(0, 24)}》` : '', restricted: p.item_id };

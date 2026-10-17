@@ -40,6 +40,12 @@ const P = require(path.resolve('obsidian-plugins/link-brain-actions/settings-pag
   assert.match(t.desc, /可能欠费、过期或没开通服务；影响识图/);
   assert.equal(t.provider, 'aliyun');
   for (const w of ['异常', '风控', '要你处理', '必须']) assert.ok(!(t.title + t.desc).includes(w), '措辞里不该有「' + w + '」');
+  // 1018：原因里「已换用 通义千问 …」是顶上的备用，坏的是前面那家（Gemini）——别冤枉百炼
+  const gm = P.attentionText({ code: 'NEEDS_HUMAN.AUTH_FAILED', step: 'ai.vision',
+    reason: '识图接口（Google gemini-3.5-flash，没有 key）；gemini 的 key 今天都用不了了；已换用 通义千问 qwen3.8-max（补上 7 次）；原因：…' });
+  assert.equal(gm.title, 'Gemini的 key 用不了');
+  assert.equal(gm.provider, 'google');
+  assert.match(gm.desc, /识图没停：已自动改用 通义千问 qwen3\.8-max 顶上/);
   const r = P.attentionText({ code: 'PERMANENT.NOTE_RESTRICTED', item_id: 'xhs-1', title: '一篇笔记' });
   assert.match(r.title, /要在网页上验证一下才能看/); assert.equal(r.restricted, 'xhs-1');
 

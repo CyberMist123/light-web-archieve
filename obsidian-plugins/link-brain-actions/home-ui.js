@@ -413,9 +413,10 @@ module.exports = function homeUI(obsidian, plugin) {
   };
   const RUNTIME_KEYS = ['setup', 'ocr', 'asrAI', 'textAI', 'visionAI', 'voice'];
   const snapRuntime = () => JSON.parse(JSON.stringify(Object.fromEntries(RUNTIME_KEYS.map(k => [k, plugin.settings[k]]))));
+  // 1018：几把 key 轮流用（keyPool，key 在别处的文件里）也算填好了——以前识图走 Gemini 池时一直挂「还要填密钥」
   const aiReady = id => {
     const cfg = plugin.settings[AI_CAP[id]] || {};
-    return cfg.mode === 'cli' ? !!cfg.command : cfg.mode === 'http' ? !!(cfg.endpoint && cfg.model && (cfg.apiKey || cfg.keyFile || cfg.apiKeyEnv)) : false;
+    return cfg.mode === 'cli' ? !!cfg.command : cfg.mode === 'http' ? !!(cfg.endpoint && cfg.model && (cfg.apiKey || cfg.keyFile || cfg.apiKeyEnv || cfg.keyPool)) : false;
   };
   const openUrl = url => { try { if (typeof window !== 'undefined' && window.open) window.open(url); } catch (e) { console.error('[lb] 网页没打开', e); } };
 
