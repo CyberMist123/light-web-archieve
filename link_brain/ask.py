@@ -1484,6 +1484,10 @@ TOC_MIN_SURVEY = 5     # 盘点 / 推荐 / 某人发过哪些
 TOC_FIND_SCATTER = 4   # 找回：没有明显主角篇、却散在 ≥ 这么多篇里
 TOC_FIND_MAIN = 3      # 找回：主角篇（标题 / 标签 / 概要里就是它）1–3 篇 = 直接答
 TOC_MAX = 20           # 目录最多列几条（其余留在 related / candidate_set 里）
+# 1017 阶段 1：她明说要清单 / 目录才出目录（「列一下 / 列给我 / 清单 / 目录 / 盘点一下」）；「有哪些」「建议」「比较」要的是回答
+_BROWSE_RE = re.compile(r"列(?:出|一下|给我|个|一列|一列)|清单|目录|盘点一下|都列")
+SELECT_HARD_MAX = 8    # 1017 阶段 1：模型判定选篇的送读上限（按 token 预算，不再是 3/5 的硬数）
+JUDGE_CAP_CHARS = 2600 # 模型判定选篇时每篇至少给这么多字的证据预算（cap 不够就抬）
 ALSO_MAX = 6           # 找回直接答时「也提到 X 的」最多附几篇
 _META_FIELDS = ("title", "tags", "summary")
 
@@ -1589,7 +1593,9 @@ def decide_mode(understood, pool, items, *, deep=False, expansion_terms=(), used
     main = [it for it in strong if words and _has_all(it, words, _META_FIELDS)]
     info = {"goal": goal, "strong": len(strong), "main": len(main), "strong_items": strong}
     # 1015 第三批 R1：输出形态和「读几篇」解耦——盘点够多就出目录，不因选篇时点名 / 深读退成直接答（F23）
-    if goal == "survey" and len(strong) >= TOC_MIN_SURVEY:
+    # 1017 阶段 1（作者定的回答契约）：目录是导航产物不是回答——只有她明说要清单 / 目录（_BROWSE_RE）才出目录；
+    # 「建议我做什么菜」「比较一下」「分组总结」这类要判断、要综合的盘点题一律直接答（1016/1017 实测 8 轮里 4 轮 toc 零提炼）
+    if goal == "survey" and len(strong) >= TOC_MIN_SURVEY and _BROWSE_RE.search(str((understood or {}).get("core") or "")):
         return "toc", {**info, "reason": "survey"}
     if deep:
         return "direct", {**info, "reason": "deep"}
@@ -1939,6 +1945,26 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
         except Exception:  # noqa: BLE001 - 规则出错退回旧的篇数
             n, select_reason = prompt_count(question, notes_pool, cap, top_k, intent=intent)[0], "fallback"
         deep = select_reason in ("named", "inherited")
+    # 1017 阶段 1（S3）：送几篇不再由 3/5 硬上限 + 相对分数门槛定——让作答模型看候选（标题 / 概要 / 命中段）逐篇判
+    # deep_read / tentative / reject（recall_table.judge_select，和召回表评测同一个函数），deep_read 的全部送读（≤ SELECT_HARD_MAX）、
+    # 排前面；模型没配 / 失败 / 一篇都没判 = 退回上面的规则（fail-open）。基线实测：金标 94% 在首屏窗口、只有 37% 被规则送读。
+    judged = None
+    if (not pinned and not pins and not expand_of and found_mode in ("standalone", "switch")
+            and (settings.get("retrieval") or {}).get("judgeSelect", True) is not False):
+        try:
+            from . import recall_table
+            _phase(f"判断材料：让模型看 {min(len(notes_pool), recall_table.JUDGE_CAP)} 篇候选")
+            judged = recall_table.judge_select(question, notes_pool, understood, items, settings,
+                                               terms=terms + expansion["terms"], sem=sem)
+        except Exception:  # noqa: BLE001 - 判定只是替换选篇规则，坏了就按规则来
+            judged = None
+    if judged and judged.get("n"):
+        held = {it["id"] for it in judged["pool"]}
+        pool = judged["pool"] + [it for it in pool if it["id"] not in held]
+        notes_pool = [it for it in pool if it.get("source_kind") != "saved"]
+        n, select_reason, deep = judged["n"], f"judge:{judged['deep']}/{judged['judged']}", False
+        select_trace["judge"] = {k: judged[k] for k in ("deep", "tentative", "reject", "judged")}
+        cap = max(cap, min(n, SELECT_HARD_MAX) * JUDGE_CAP_CHARS)   # 多送几篇就多给证据预算，不把每篇摊薄
     if expand_of:
         # 展开目录里的几条：每条给足预算（≤3 条按深读），只用这几条
         n, deep = len(pool), len(notes_pool) <= 3
@@ -2003,7 +2029,7 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     if _cancelled(): return _stopped()
     # A6：问答 AI 没配好——不挑材料（白跑还会登记 SKIPPED.FALLBACK）、不发「挑选材料 / 生成回答」，本地证据照常组成来源列给她
     missing_ai = _text_ai_missing(settings)
-    if not missing_ai and not pinned and not deep and n >= 2 and selection_wanted(question, pool, n):   # R1：选篇只剩 1 篇（断层明显）就不再让小模型挑
+    if not missing_ai and not pinned and not deep and n >= 2 and judged is None and selection_wanted(question, pool, n):   # R1：选篇只剩 1 篇（断层明显）就不再让小模型挑；1017：模型已逐篇判过的不再重挑
         _phase(f"挑选材料：从 {min(len(pool), 40)} 条候选里挑最合适的排前面")
         try:
             selected, _count = _select_sources(question, pool, terms, settings, n, sem)
@@ -2161,6 +2187,16 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     hint_line = suggest_line(understood) if strong_n == 0 and not pinned and understood.get("goal") in ("find", "ask") else ""
     if hint_line:
         markdown += "\n\n" + hint_line
+    # 1017 阶段 1：回答自检（引用对齐 / 缺席回查 / 说话人 / 模板泄漏 / 水字数），纯规则、不调模型；要紧的挂在回答末尾给她看
+    checks = None
+    try:
+        from . import answer_check
+        checks = answer_check.run(markdown, sources, items_by_id=by_id, related=related_cards, mode="direct",
+                                  evidence_chars=sum(len(b) for b in blocks))
+        if (settings.get("retrieval") or {}).get("selfCheck", True) is not False:
+            markdown += answer_check.footnote(checks)
+    except Exception:  # noqa: BLE001 - 自检坏了不影响作答
+        checks = None
     _turn_record(turn_id, question, "direct", [s["id"] for s in sources], understood, skill_id, expand_of,
                  primary_ids=[s["id"] for s in sources if s.get("tier") == "primary"])
     result={"kind": "answer", "markdown": markdown, "mode": "direct", "turn_id": turn_id,
@@ -2170,7 +2206,7 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
             **({"mode_reason": mode_info.get("reason")} if mode_info.get("reason") else {}), "sources": sources, "related": related_cards, "matches": len(matches),
             "materials": len(sources), "candidates": candidate_count, "truncated": res.get('truncated',False), "model_called": True,
             "candidate_set": {"total": total, "shown": candidate_count, "more": beyond}, "deep_read": deep or (bool(select_reason) and select_reason != "fallback"),
-            "selection": {"n": len(primary), "reason": select_reason, **select_trace},
+            "selection": {"n": len(primary), "reason": select_reason, **select_trace}, "checks": checks,
             **({"intent_model": intent} if intent else {}),
             "usage": res.get("usage"), "expansion": {"terms": expansion["terms"], "status": expansion.get("status")}}
     if hint:result["answer_cache"]={"asked_at":cache_hit["ts"],"question":cache_hit["question"],"match":cache_hit.get("match")}

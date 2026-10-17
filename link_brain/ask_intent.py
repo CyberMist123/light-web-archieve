@@ -119,14 +119,35 @@ def library_authors(items) -> set[str]:
     return {str(it.get("author") or "").strip() for it in items or [] if len(str(it.get("author") or "").strip()) >= 2}
 
 
+_AUTHOR_CUE = r"\s*(?:发|写|做|拍|说过|的那|的帖|的笔记|的视频|的文章|老师|博主|大大|的收藏)"
+_AUTHOR_PRE = r"(?:作者|博主|up主|UP主|账号|那个|叫)\s*$"
+COMMON_WORD_FREQ = 300   # jieba 词频 ≥ 这个的昵称当常用词（「随便」「苹果派」），必须带称呼线索才当作者
+
+
+def _is_common_word(name: str) -> bool:
+    try:
+        import jieba
+        jieba.initialize()
+        return int(jieba.dt.FREQ.get(name, 0)) >= COMMON_WORD_FREQ
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _author_filter(q: str, authors: set[str]) -> str | None:
+    """问句里点名的库内作者。1017 修（阶段 0 核对 H03：「随便说律所加班多」把昵称「随便」当成作者硬过滤到只剩 1 篇）：
+    昵称同时是常用词、或只有 2 字时，必须带称呼线索（前面「作者 / 博主 /@」或后面「发 / 写 / 的那篇 / 老师」）才算；
+    「说」不再算线索（「随便说」「XX 说得对」都是口语）。≥3 字且不是常用词的照旧直接认。"""
     m = re.search(r"@([^\s，,。:：]{2,24})", q)
     if m and m.group(1) in authors:
         return m.group(1)
-    # 问句里出现的库内昵称，取最长的（「科科科酱发过哪些」）；太泛的短昵称（2 字）要后面跟「发 / 写 / 的那篇」才算
     hits = sorted((a for a in authors if a in q), key=len, reverse=True)
     for a in hits:
-        if len(a) >= 3 or re.search(re.escape(a) + r"\s*(?:发|写|做|拍|说|的那)", q):
+        cue = re.search(re.escape(a) + _AUTHOR_CUE, q) or re.search(_AUTHOR_PRE, q[:q.find(a)])
+        if cue:
+            return a
+        # 没有称呼线索：≥3 字、不是常用词、且昵称后面是句尾 / 标点 / 空格 /「的」（「苹果派怎么做」里的「苹果派」紧接「怎么」，是食物不是人）
+        boundary = re.search(re.escape(a) + r"(?=$|[\s，,。？?！!：:、]|的)", q)
+        if len(a) >= 3 and not _is_common_word(a) and boundary:
             return a
     return None
 

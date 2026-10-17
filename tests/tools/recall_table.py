@@ -47,7 +47,9 @@ def run_case(case, settings, items, *, judge=True):
     start = time.perf_counter()
     result = recall_table.gather(case["question"], items, settings, _history(case))
     if judge:
-        recall_table.judge(result, settings)
+        recall_table.apply_judge(result, settings)   # 和生产 judge_select 同一套判定；production 改成模型选篇的结果
+    result.pop("sem", None)
+    result.pop("understood", None)
     result["seconds"] = round(time.perf_counter() - start, 1)
     rows = result["rows"]
     by_id = {r["id"]: r for r in rows}

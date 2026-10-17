@@ -186,9 +186,23 @@ def judge(case, result):
     else:
         checks["R6"] = mode == tier
     checks["R8"] = mode == "toc" or tier == "none" or bool(re.search(r"来源\s*\d+", md))
+    # 1017 阶段 1：回答自检（link_brain/answer_check，生产每答都跑、挂在 result["checks"]）——
+    # R9 引用对齐 ≥ 0.7 · R10 没有「说没有但来源 / 其他相关里有」· R11 没漏提示词措辞 · R12 点名的说话人都在来源里
+    ac = result.get("checks") or {}
+    if mode == "toc" or not ac:
+        checks["R9"] = checks["R10"] = checks["R11"] = checks["R12"] = True
+    else:
+        rate = (ac.get("alignment") or {}).get("rate")
+        checks["R9"] = rate is None or rate >= 0.7
+        checks["R10"] = not (ac.get("absence") or {}).get("conflicts")
+        checks["R11"] = not (ac.get("leak") or {}).get("found")
+        checks["R12"] = not (ac.get("speaker") or {}).get("unknown")
     return {"pass": all(checks.values()), "checks": checks, "mode": mode, "cited": ids[:12],
             "must_have_ratio": (sum(have) / len(have)) if have else 1.0,
-            "bad_titles": bad_titles, "bad_ids": bad_ids, "bad_text": bad_text, "chars": len(md)}
+            "bad_titles": bad_titles, "bad_ids": bad_ids, "bad_text": bad_text, "chars": len(md),
+            "self_check": {"warnings": ac.get("warnings"), "alignment": (ac.get("alignment") or {}).get("rate"),
+                           "absence_conflicts": len((ac.get("absence") or {}).get("conflicts") or []),
+                           "selection": (result.get("selection") or {}).get("reason")}}
 
 
 def rejudge_r1(path, cases_path):
@@ -224,6 +238,8 @@ def main(argv=None) -> int:
     ap.add_argument("--fresh-catalog", action="store_true", help="内存里按这份代码重收目录（不写盘）")
     args = ap.parse_args(argv)
     cases = json.loads(Path(args.cases).read_text(encoding="utf-8"))
+    if isinstance(cases, dict):   # 1017 题集顶层是 {version, built_at, cases}
+        cases = cases.get("cases") or []
     if args.only:
         want = set(args.only.split(","))
         cases = [c for c in cases if c.get("id") in want]
@@ -264,7 +280,7 @@ def main(argv=None) -> int:
     summary = {"label": args.label, "code": str(code_dir), "cases": len(rows), "scored": len(scored),
                "passed": sum(r["pass"] for r in scored),
                "pass_rate": round(sum(r["pass"] for r in scored) / max(1, len(scored)), 3),
-               "by_rule": {k: sum(r["checks"].get(k, False) for r in scored) for k in ("R1", "R2", "R3", "R4", "R5", "R6", "R8")},
+               "by_rule": {k: sum(r["checks"].get(k, False) for r in scored) for k in ("R1", "R2", "R3", "R4", "R5", "R6", "R8", "R9", "R10", "R11", "R12")},
                "tokens": {"prompt": usage["prompt"], "completion": usage["completion"], "calls": usage["calls"],
                           "calls_without_usage": usage["unknown_calls"]},
                "blocked_writes": blocked, "f01": next((r["pass"] for r in rows if r["id"] == "F01"), None)}

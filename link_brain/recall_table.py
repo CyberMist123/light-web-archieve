@@ -21,10 +21,11 @@ HIT_CHARS = 200     # 每处命中给模型 / 表格看的原文长度
 JUDGE_INSTRUCTION = (
     "你在帮一个人从她自己的收藏库里挑材料。下面是她的问题、系统对问题的理解，以及按相关度排好的候选篇（每篇：标题、作者、"
     "类型、概要、命中的原文片段和出自哪个字段）。请逐篇判断这篇对回答这个问题有没有用：\n"
-    "- deep_read：正面相关，值得整篇读；\n"
-    "- tentative：可能有用但只沾边（比如只有一处顺带提到）；\n"
+    "- deep_read：这篇的内容能直接用来回答（她问做法就是做法、问推荐它就是一个可推荐的候选、问比较它就是比较的一方），值得整篇读；\n"
+    "- tentative：可能有用但只沾边（比如只有一处顺带提到、或只是同类但不对题）；\n"
     "- reject：无关，或只是评论区偶然出现了同一个词，或是什么都沾一点的长文目录。\n"
-    "原则：宁缺勿凑，没有理由就不要 deep_read；一篇也不相关就全部 reject。理由一句话、说清依据（引用命中片段里的具体内容）。\n"
+    "原则：按内容判，不按「是不是唯一答案」判——推荐 / 盘点 / 比较类问题通常有多篇 deep_read；找回某一篇的问题只有最像的那一两篇 deep_read。"
+    "不要为了凑数把无关的标成 deep_read；一篇也不相关就全部 reject。理由一句话、说清依据（引用命中片段里的具体内容）。\n"
     "只输出候选行，每篇一行，格式严格为：编号|判定|理由。不要输出别的。"
 )
 
@@ -76,10 +77,31 @@ def gather(question: str, items: list[dict[str, Any]], settings: dict[str, Any],
     terms_all = list(dict.fromkeys(core + list(found["terms"]) + list(found["expansion"]["terms"])))
     routes = found.get("routes") or {}
     strong_ids = {it.get("id") for it in (info.get("strong_items") or [])}
+    rows = rows_for(notes_pool, terms_all, found.get("sem"), routes=routes, scores=found.get("scores") or {})
+    for row in rows:
+        row["production"] = "primary" if row["rank"] <= n else "related"   # 规则选篇的结果；judge_select 之后按模型判定改写
+        row["rule_production"] = row["production"]
+        row["strong"] = row["id"] in strong_ids
+    return {
+        "question": question,
+        "understanding": ask._public_understanding(understood, used_filters),
+        "core_words": core, "terms": list(found["terms"]), "expansion": list(found["expansion"]["terms"]),
+        "terms_all": terms_all, "sem": found.get("sem"), "understood": understood,
+        "found_mode": found_mode, "filters_used": list(used_filters),
+        "candidates_total": len(found.get("candidates") or []), "window": len(found["matches"]),
+        "production": {"mode": mode, "mode_reason": info.get("reason"), "primary_n": n, "rule_n": n,
+                       "select_reason": select_reason, "strong": info.get("strong")},
+        "rows": rows,
+    }
+
+
+def rows_for(pool, terms_all, sem, *, routes=None, scores=None) -> list[dict[str, Any]]:
+    """候选 → 表行（给模型看、给人看都是这一份）。"""
+    from . import ask
     rows = []
-    for rank, it in enumerate(notes_pool, 1):
+    for rank, it in enumerate(pool, 1):
         try:
-            hits = ask.search_hits(it, terms_all, found.get("sem"), limit=2, chars=HIT_CHARS)
+            hits = ask.search_hits(it, terms_all, sem, limit=2, chars=HIT_CHARS)
         except Exception:  # noqa: BLE001 - 命中段只是给人看的
             hits = []
         if not hits:   # search_hits 要反查对象目录挂楼号 / 图号，对象文件不在（合成库 / 评测副本）时退回纯词法摘录
@@ -95,21 +117,69 @@ def gather(question: str, items: list[dict[str, Any]], settings: dict[str, Any],
             "rank": rank, "id": it.get("id"), "title": it.get("title") or "未命名", "author": it.get("author") or "",
             "kind": it.get("kind") or "", "date": it.get("date") or "",
             "summary": " ".join(str(it.get("summary") or "").split()),
-            "hits": hits, "routes": _route_tags(routes, it.get("id")),
-            "score": (found.get("scores") or {}).get(it.get("id")),
-            "production": "primary" if rank <= n else "related",
-            "strong": it.get("id") in strong_ids,
+            "hits": hits, "routes": _route_tags(routes or {}, it.get("id")),
+            "score": (scores or {}).get(it.get("id")),
         })
-    return {
-        "question": question,
-        "understanding": ask._public_understanding(understood, used_filters),
-        "core_words": core, "terms": list(found["terms"]), "expansion": list(found["expansion"]["terms"]),
-        "found_mode": found_mode, "filters_used": list(used_filters),
-        "candidates_total": len(found.get("candidates") or []), "window": len(found["matches"]),
-        "production": {"mode": mode, "mode_reason": info.get("reason"), "primary_n": n, "select_reason": select_reason,
-                       "strong": info.get("strong")},
-        "rows": rows,
-    }
+    return rows
+
+
+def judge_select(question, pool, understood, items, settings, *, terms=(), sem=None, cap: int = JUDGE_CAP) -> dict[str, Any] | None:
+    """生产选篇（1017 阶段 1 S3）：让作答模型看候选逐篇判，deep_read 的排前、全部送读（≤ ask.SELECT_HARD_MAX）。
+    返回 {pool: 重排后的候选, n, deep, tentative, reject, judged, verdicts: {id: (判定, 理由)}}；模型没配 / 失败 / 一篇没判 = None（退回规则）。"""
+    from . import ask
+    if not pool:
+        return None
+    core = list(ask.core_words(understood, items) or [])
+    terms_all = list(dict.fromkeys(core + list(terms or ())))
+    rows = rows_for(pool, terms_all, sem)
+    result = {"question": question, "understanding": ask._public_understanding(understood, []), "core_words": core, "rows": rows}
+    info = judge(result, settings, cap)
+    if info.get("status") != "ok" or not info.get("judged"):
+        return None
+    verdicts = {r["id"]: (r.get("verdict") or "", r.get("reason") or "") for r in rows}
+    deep = [r["id"] for r in rows if r.get("verdict") == "deep_read"]
+    tent = [r["id"] for r in rows if r.get("verdict") == "tentative"]
+    rej = [r["id"] for r in rows if r.get("verdict") == "reject"]
+    by_id = {it["id"]: it for it in pool}
+    taken = set(deep) | set(tent)
+    ordered = [by_id[i] for i in deep] + [by_id[i] for i in tent] + [it for it in pool if it["id"] not in taken]
+    n = select_count(len(deep), len(tent))
+    return {"pool": ordered, "n": n, "deep": len(deep), "tentative": len(tent), "reject": len(rej),
+            "judged": info.get("judged", 0), "verdicts": verdicts, "rows": rows}
+
+
+def select_count(deep: int, tentative: int) -> int:
+    """送读几篇：deep_read 全送（≤ SELECT_HARD_MAX）；deep 不到 2 篇时补最多 2 篇 tentative（作答模型自己核对），
+    一篇 deep 都没有但有沾边的就送沾边的前 2 篇；全是 reject = 0（调用方退回规则 / 说没有）。"""
+    from . import ask
+    if deep >= 2:
+        return min(deep, ask.SELECT_HARD_MAX)
+    return min(deep + min(tentative, 2), ask.SELECT_HARD_MAX)
+
+
+def apply_judge(result: dict[str, Any], settings: dict[str, Any], cap: int = JUDGE_CAP) -> dict[str, Any]:
+    """召回表评测用：对 gather() 的结果跑 judge_select（和生产同一个函数），把判定、模型选篇写回 rows / production。"""
+    from . import ask
+    rows = result["rows"]
+    by_rank = {r["rank"]: r for r in rows}
+    pool = [{"id": r["id"], "title": r["title"], "author": r["author"], "kind": r["kind"], "summary": r["summary"],
+             "_row": r} for r in rows]
+    # judge_select 要原条目算命中段；这里 rows 已经带 hits，直接复用：构造最小条目并用已有 hits
+    sub = {"question": result["question"], "understanding": result.get("understanding") or {},
+           "core_words": result.get("core_words") or [], "rows": rows[:cap]}
+    info = judge(sub, settings, cap)
+    result["judge"] = info
+    if info.get("status") != "ok" or not info.get("judged"):
+        return info
+    deep = [r for r in rows if r.get("verdict") == "deep_read"]
+    tent = [r for r in rows if r.get("verdict") == "tentative"]
+    n = select_count(len(deep), len(tent))
+    chosen = {r["id"] for r in (deep + tent)[:n]}
+    for r in rows:
+        r["production"] = "primary" if r["id"] in chosen else "related"
+    result["production"]["primary_n"] = n
+    result["production"]["select_reason"] = f"judge:{len(deep)}/{info.get('judged')}"
+    return info
 
 
 def _route_tags(routes: dict[str, Any], item_id) -> list[str]:
