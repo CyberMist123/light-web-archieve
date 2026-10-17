@@ -314,7 +314,7 @@ def main(argv=None) -> int:
                                   "excerpts": [{"field": e.get("field"), "text": str(e.get("text") or "")[:1500]} for e in (s.get("excerpts") or [])]}
                                  for s in (res.get("sources") or [])],
                      "related": [{"id": r.get("id"), "title": r.get("title"), "excerpt": str(r.get("excerpt") or "")[:600]} for r in (res.get("related") or [])[:30]],
-                     "checks": res.get("checks")})
+                     "answer_checks": res.get("checks")})   # 键名别和 verdict 里的规则判分 checks 撞
         mark = "过" if verdict["pass"] else "×"
         fails = ",".join(k for k, v in verdict["checks"].items() if not v)
         print(f"{case.get('id'):>4} {mark} {verdict['mode']:<6} {took:>5}s {tokens['prompt']:>6}+{tokens['completion']:<5} {fails:<14} {case['question'][:24]}",
