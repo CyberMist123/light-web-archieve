@@ -1615,7 +1615,10 @@ async function submit(raw, opts = {}) {
         .map(t => ({ role: t.role === 'assistant' ? 'assistant' : 'user', content: t.content })).slice(0, -1);
     // 会话级约束显式传给后端：没排除 / 没保留时请求和以前一模一样
     const constraints = { ...(session.excluded.length ? { excludeIds: [...session.excluded] } : {}), ...(session.pinned.length ? { pinIds: [...session.pinned] } : {}) };
-    const r = await p.answerArchive({ question: backendQ, model: modelPick.hidden ? '' : modelPick.value, history, ...(pinned ? { sourceIds: pinned } : {}), ...constraints, tag: 'chat',
+    // 1018 v2.1 §5：接着这段问时带上一答的 turn_id / 会话线 id（后端按它继承来源、解析「第 N 篇」）；新话题 / 展开不带
+    const prevAnswer = (ex || fresh || newThread) ? null : [...session.turns].reverse().find(t => t.role === 'assistant' && !t.failed && typeof t.turnId === 'string' && t.turnId && t.id !== answerId);
+    const link = prevAnswer ? { parentTurnId: prevAnswer.turnId, ...(prevAnswer.threadId ? { threadId: prevAnswer.threadId } : {}) } : {};
+    const r = await p.answerArchive({ question: backendQ, model: modelPick.hidden ? '' : modelPick.value, history, ...(pinned ? { sourceIds: pinned } : {}), ...constraints, ...link, tag: 'chat',
       ...(ex ? { turnId: ex.turnId, expandIds: [...ex.ids] } : {}),
       onPhase: showPhase,
       onDelta: delta => {
@@ -1674,6 +1677,7 @@ function answerShape(r) {
   const out = {};
   if (!r || typeof r !== 'object') return out;
   if (typeof r.turn_id === 'string' && r.turn_id) out.turnId = r.turn_id;
+  if (typeof r.thread_id === 'string' && r.thread_id) out.threadId = r.thread_id;   // 1018 会话线：下一问带回去
   if (Array.isArray(r.source_ids)) out.sourceIds = idList(r.source_ids);
   const toc = normToc(r.toc), m = r.mode === 'toc' || r.mode === 'direct' ? r.mode : '';
   if (toc.length && m !== 'direct') {

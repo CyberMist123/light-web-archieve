@@ -93,7 +93,7 @@ def test_qa_answers_with_model_and_sources(monkeypatch):
     assert r["status"] == "ok" and r["kind"] == "answer"
     assert r["model_called"] and r["sources"]
     assert "dream" in seen[0][1]
-    assert "不虚构" in seen[0][0]
+    assert any("你是读过她这些收藏的人" in p for p, _ in seen)   # 1018 v2.1：作答提示词换成 answer_prompt.CORE_RULES
     assert r["sources"][0]["note"]
 
 
@@ -102,7 +102,7 @@ def test_followup_keeps_subject_without_using_answer_as_evidence(monkeypatch):
     monkeypatch.setattr(ask, "call_text", lambda prompt, text, settings: (seen.append(text) or {"status": "ok", "text": "材料没有写明。"}))
     r = ask.answer("怎么操作？", [{"role": "user", "content": "菜谱"}, {"role": "assistant", "content": "虚构柠檬"}])
     assert r["sources"][0]["id"] == "b"
-    assert "虚构柠檬" not in seen[0].split("【原始材料】")[1]
+    assert "虚构柠檬" not in seen[0].split("【证据】")[1]
 
 
 def test_model_failure_is_not_presented_as_success(monkeypatch):

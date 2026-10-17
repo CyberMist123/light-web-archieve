@@ -313,7 +313,7 @@ def test_answer_makes_exactly_one_expand_call_and_uses_its_intent(monkeypatch, f
     calls = _answer_env(monkeypatch, items)
     fake_expand.reply = '{"terms": ["黑胡椒"], "intent": {"scope": "single", "output": "answer"}}'
     r = ask.answer("那个黑椒意面的完整做法")
-    assert r["status"] == "ok" and len(fake_expand) == 1 and len(calls) == 1
+    assert r["status"] == "ok" and len(fake_expand) == 1 and len([c for c in calls if "【证据】" in c]) == 1
     assert r["intent_source"] == "model" and r["intent_model"]["scope"] == "single"
     assert r["deep_read"] is True and [s["id"] for s in r["sources"]] == ["gold"]
     assert r["candidate_set"]["total"] >= 3 and isinstance(r["candidate_set"]["more"], list)
@@ -336,7 +336,7 @@ def test_no_key_lexical_path_is_unchanged(monkeypatch):
     r = ask.answer("东京好吃的")
     assert r["status"] == "ok" and r["intent"] == "qa" and r["intent_source"] == "heuristic"
     assert r["expansion"]["status"] == "no-model" and "intent_model" not in r
-    assert {s["id"] for s in r["sources"]} == {"a", "b"} and len(calls) == 1
+    assert {s["id"] for s in r["sources"]} == {"a", "b"} and len([c for c in calls if "【证据】" in c]) == 1
     assert ask.answer("提取所有 github 仓库地址")["intent"] == "github"
     hist = r["history"]
     follow = ask.answer("第二个详细说说", hist)

@@ -113,7 +113,7 @@ def test_local_paths_are_absolute(vault):
 def test_ask_passes_through(vault, monkeypatch):
     from link_brain import ask
     seen = []
-    monkeypatch.setattr(ask, "answer", lambda q: seen.append(q) or {"status": "ok", "answer": "答"})
+    monkeypatch.setattr(ask, "answer", lambda q, **kw: seen.append(q) or {"status": "ok", "answer": "答"})
     assert mt.ask(ctx(vault), {"question": "鱼片怎么腌"})["answer"] == "答" and seen == ["鱼片怎么腌"]
     with pytest.raises(Denied):
         mt.ask(ctx(vault, folders=("其他资料",)), {"question": "x"})

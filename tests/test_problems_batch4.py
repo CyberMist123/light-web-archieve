@@ -446,7 +446,7 @@ ITEMS = [{"id": str(i), "title": f"项目 {i}", "tags": [], "summary": "", "note
 
 def test_ask_selection_failure_is_recorded_as_skipped(monkeypatch, pushes):
     monkeypatch.setattr(ask, "load_items", lambda: [dict(x) for x in ITEMS])
-    monkeypatch.setattr(ask.ai_config, "load", lambda: ask.ai_config._deep_merge(ask.ai_config.DEFAULTS, {}))
+    monkeypatch.setattr(ask.ai_config, "load", lambda: ask.ai_config._deep_merge(ask.ai_config.DEFAULTS, {"retrieval": {"judgeSelect": False}}))   # 测的是小模型挑材料那条老路
     replies = iter([{"status": "failed", "error": "timeout"}, {"status": "ok", "text": "答[来源1]"}])
     monkeypatch.setattr(ask, "call_text", lambda p, t, s: next(replies))
     r = ask.answer("推荐相关项目", mode="direct")   # 1015 起盘点多默认出目录；这里测直接答那条路上的挑材料

@@ -125,39 +125,34 @@ def test_miss_records_entry_and_prompt_unchanged(model):
     assert "vec" not in e   # 没语义层就不存向量
 
 
-def test_hit_injects_previous_question_and_new_material(model):
+def test_hit_is_recorded_but_not_injected(model):
+    """1018 v2.1（GPT33 A4）：命中只记在结果里（cached / answer_cache），不再把「上次回答开头…结论可沿用」注进提示词、
+    不再在回答开头挂「以前问过类似问题」——那一行会把旧的错答锚死，评测时还混进非独立样本。"""
     _seed("2026-09-10T12:00:00+08:00", item_ids=["a"])
     deltas = []
     r = ask.answer(Q_NEW, on_delta=deltas.append)
     ids = [s["id"] for s in r["sources"]]
     assert set(ids) == {"a", "c"}
-    cit_c = next(s["citation"] for s in r["sources"] if s["id"] == "c")
-    assert r["markdown"].splitlines()[0] == "> 以前问过类似问题（2026-09-10），本次结合 1 条新材料"
-    assert r["markdown"].split("\n\n", 1)[1].startswith("结论：")
-    assert deltas[0].startswith("> 以前问过类似问题（2026-09-10）")
+    assert r["cached"] is True and r["answer_cache"]["question"] == Q_OLD and r["answer_cache"]["match"]["method"] == "terms"
+    assert r["markdown"].startswith("结论：") and "以前问过" not in r["markdown"]
+    assert not deltas   # 不再先流出一行「> 以前问过类似问题」（打桩的模型本身不流式）
     ctx = model[0]
-    assert "【以前问过类似问题——仅供对照，不是事实来源】" in ctx
-    assert f"上次问题（2026-09-10）：{Q_OLD}" in ctx
-    assert "当时用的收藏：《AI 会做梦吗》" in ctx          # 用当前标题，不用存档旧标题
-    assert f"此后新增的相关收藏（已在下方原始材料中）：《梦的记忆整理》[来源{cit_c}]" in ctx
-    assert "上次回答开头：上次的结论。" in ctx
-    assert ctx.index("【以前问过类似问题") < ctx.index("【原始材料】")
-    assert r["answer_cache"]["question"] == Q_OLD
+    for banned in ("以前问过类似问题", "上次回答开头", "结论可沿用", "当时用的收藏"):
+        assert banned not in ctx
     # 本次也追加记录（第二条），可供下次命中
     assert [e["question"] for e in ac.load()] == [Q_OLD, Q_NEW]
 
 
-def test_hit_without_new_material_says_conclusion_reused(model):
+def test_hit_without_new_material_is_still_just_recorded(model):
     _seed("2026-09-20T00:00:00+08:00", item_ids=["a", "c"])
     r = ask.answer(Q_NEW)
-    assert r["markdown"].splitlines()[0] == "> 以前问过类似问题（2026-09-20），此后没有新增相关收藏，结论沿用"
-    assert "此后新增的相关收藏：无" in model[0]
+    assert r["cached"] is True and not r["markdown"].startswith(">") and "结论沿用" not in model[0]
 
 
-def test_removed_item_falls_back_to_stored_title(model):
+def test_removed_item_does_not_break_hit(model):
     _seed("2026-09-20T00:00:00+08:00", item_ids=["gone"])
-    ask.answer(Q_NEW)
-    assert "当时用的收藏：《旧标题》" in model[0]
+    r = ask.answer(Q_NEW)
+    assert r["status"] == "ok" and r["cached"] is True and "旧标题" not in model[0]
 
 
 @pytest.mark.parametrize("content", ["{坏json", "[]", '{"entries": "x"}', '{"entries": [{"question": 1}, {"ts": "x"}]}', ""])
@@ -176,7 +171,8 @@ def test_corrupt_prompt_equals_empty_index_prompt(monkeypatch, model):
     ask.answer(Q_OTHER)                      # 空索引 → 基线
     ac.index_path().write_text("{坏", encoding="utf-8")
     ask.answer(Q_OTHER)                      # 坏索引
-    assert model[0] == model[1]
+    answers = [m for m in model if m.startswith("【她的原话】")]   # 第一次调用是判定选篇，作答那次才比
+    assert len(answers) == 2 and answers[0] == answers[1]
     assert ac.index_path().with_name("answers.json.corrupt").read_text(encoding="utf-8") == "{坏"
 
 
@@ -210,7 +206,7 @@ def test_semantic_vector_is_stored_and_used(monkeypatch, model):
     raw = json.loads(ac.index_path().read_text(encoding="utf-8"))["entries"][0]["vec"]
     assert isinstance(raw["b64"], str)       # 紧凑存储，不是千维 float 列表
     r = ask.answer("梦境是怎么来的")           # 词毫无重叠，只能靠向量命中
-    assert r["markdown"].startswith("> 以前问过类似问题") and r["answer_cache"]["match"]["method"] == "semantic"
+    assert r["cached"] is True and r["answer_cache"]["match"]["method"] == "semantic" and not r["markdown"].startswith(">")
 
 
 def test_question_vector_none_without_semantic_db(tmp_path, monkeypatch):

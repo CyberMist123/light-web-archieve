@@ -117,7 +117,7 @@ def test_llm_expansion_carries_s1_and_skill_menu(monkeypatch, tmp_path):
     ask._EXPAND_MEM.clear()
     again = ask.llm_expansions("我有个鱼露 忘了哪儿了")   # 文件缓存里带着 s1
     assert again["status"] == "cached" and again["s1"]["core"] == "鱼露" and len(seen) == 1
-    assert "goal" in ask._EXPAND_INSTRUCTION and ask._EXPAND_CACHE_VERSION == "v4"
+    assert "goal" in ask._EXPAND_INSTRUCTION and "note" in ask._EXPAND_INSTRUCTION and ask._EXPAND_CACHE_VERSION == "v5"
 
 
 # ---------------------------------------------------------------- 「那个」不误判追问
@@ -175,15 +175,18 @@ def test_mode_ask_is_direct_survey_many_is_toc():
     items = _pool(10) + [_it(f"z{i}", f"z{i}", "无关") for i in range(30)]
     assert ask.decide_mode({"goal": "ask", "core": "鱼露"}, _pool(4), items)[0] == "direct"
     assert ask.decide_mode({"goal": "ask", "core": "鱼露"}, _pool(10), items)[0] == "direct"   # 问事实一律直接答
-    assert ask.decide_mode({"goal": "survey", "core": "鱼露"}, _pool(5), items)[0] == "toc"
+    # 1017 阶段 1：目录只给明说要清单的（core 含「列一下 / 清单 / 目录」）；泛泛的盘点题直接答
+    assert ask.decide_mode({"goal": "survey", "core": "鱼露"}, _pool(5), items)[0] == "direct"
+    assert ask.decide_mode({"goal": "survey", "core": "列一下 鱼露"}, _pool(5), items)[0] == "toc"
     assert ask.decide_mode({"goal": "survey", "core": "鱼露"}, _pool(5), items, force="direct")[0] == "direct"
 
 
 def test_mode_author_only_survey_counts_filtered_pool():
     pool = [_it(f"k{i}", f"帖{i}", "依恋", author="科科科酱") for i in range(5)]
     items = pool + [_it(f"z{i}", f"z{i}", "无关") for i in range(20)]
-    u = {"goal": "survey", "core": "", "filters": {"author": "科科科酱"}}
+    u = {"goal": "survey", "core": "列一下", "filters": {"author": "科科科酱"}}   # 1017 起要明说「列一下」才出目录
     assert ask.decide_mode(u, pool, items, used_filters=["author"])[0] == "toc"
+    assert ask.decide_mode({**u, "core": ""}, pool, items, used_filters=["author"])[0] == "direct"
 
 
 # ---------------------------------------------------------------- answer()：目录 / 直接答 / 展开
@@ -206,7 +209,7 @@ def lib(monkeypatch, tmp_path):
 
 def test_many_hits_gives_toc_without_model_call(lib):
     items, calls = lib
-    res = ask.answer("鱼露有哪些用法")
+    res = ask.answer("鱼露有哪些用法 给我清单")   # 1017 起：明说要清单才出目录
     assert res["status"] == "ok" and res["mode"] == "toc" and res["model_called"] is False and calls == []
     assert res["toc_total"] == 9 and len(res["toc"]) == 9
     e = res["toc"][0]
@@ -219,12 +222,12 @@ def test_many_hits_gives_toc_without_model_call(lib):
 
 def test_expand_by_turn_id_uses_that_turn_not_last_answer(lib):
     items, calls = lib
-    toc = ask.answer("鱼露有哪些用法")
+    toc = ask.answer("鱼露有哪些用法 给我清单")
     pick = toc["source_ids"][2:4]
     res = ask.answer("（前端随便带的字）", expand={"turn_id": toc["turn_id"], "ids": pick + ["xhs-z1"]})
     assert res["status"] == "ok" and res["mode"] == "direct" and res["expanded_from"] == toc["turn_id"]
     assert [s["id"] for s in res["sources"]] == pick           # 不在那一答里的 id 被丢掉
-    assert "鱼露有哪些用法" in calls[-1][1] and "点了「展开」" in calls[-1][1]
+    assert "鱼露有哪些用法 给我清单" in calls[-1][1] and "点了「展开」" in calls[-1][1]
     assert res["turn_id"] != toc["turn_id"]
     all_res = ask.answer("", expand={"turn_id": toc["turn_id"], "all": True})
     assert len(all_res["sources"]) == 9
@@ -431,7 +434,7 @@ def test_find_direct_lists_also_mentioned_one_line_each(monkeypatch, tmp_path):
     assert res["sources"][0]["id"] == "xhs-main"
     also = [s for s in res["sources"] if s["tier"] == "also"]
     assert {s["id"] for s in also} == {"xhs-o0", "xhs-o1", "xhs-o2"} and all(s["hit"]["type"] == "transcript" for s in also)
-    assert "（也提到，只列一行）出现在视频文字稿" in seen[-1][1] and "这是找回" in seen[-1][0]
+    assert "（也提到，只列一行）出现在视频文字稿" in seen[-1][1] and "【本题模板：找回】" in seen[-1][0]
 
 
 def test_cli_skills_subcommand(capsys):
@@ -447,7 +450,7 @@ def test_core_missing_from_library_means_no_strong_hits():
 
 
 def test_chat_contract_fields_and_flat_expand_ids(lib):
-    toc = ask.answer("鱼露有哪些用法")
+    toc = ask.answer("鱼露有哪些用法 给我清单")
     e = toc["toc"][0]
     assert e["source_type"] == e["hit"]["type"] and e["kind"] == e["kinds"][0] and "line" in e
     assert toc["coverage_note"].startswith("共检到 9 篇") and toc["suggest"] == ""

@@ -291,12 +291,75 @@ def search(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
 
 # ---------------------------------------------------------------- ask
 
+NO_PARENT_TEXT = "找不到上一轮，告诉我是哪篇？（追问时带上一轮返回的 thread_id，或在 context 里给 previous_question / source_ids）"
+_LOCAL_PATH_KEYS = ("agent_md", "markdown_path", "delivery", "history")
+
+
 def ask(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
-    from . import ask as ask_mod
+    """问收藏（1018 v2.1 §5：有会话状态）。
+    thread_id：上一轮返回的 turn.thread_id，追问带它最准；context:{previous_question, source_ids}：存不了状态的客户端带这个。
+    都没带时只在问句是追问（第 N 篇 / 刚才 / 其他 / 那 X 呢）才取**同一凭据** 15 分钟内的最后一轮，回答第一行写明接的是哪一问；
+    绑不到又是指代型 → 不检索，直接问她是哪篇。指代解析（第 N 篇 → 单篇；其他 → 排除上一轮；那 X 呢 → 换对象）见 ask_followup。"""
+    from . import ask as ask_mod, ask_followup
     if not ctx.policy.xhs:
         raise Denied("NOT_OPEN", "收藏库没有开放给你")
     question = _str(args, "question", required=True, limit=2000)
-    return ask_mod.answer(question)
+    thread_id = _str(args, "thread_id", limit=64) or None
+    context = args.get("context") if isinstance(args.get("context"), dict) else None
+    parent, how = ask_followup.bind_parent(question, thread_id=thread_id, who=ctx.who)
+    if parent is None and context:
+        parent, how = ask_followup.parent_from_context(context, _items()), "context"
+    lead = ""
+    if parent is None:
+        if ask_followup.is_deictic(question) and not thread_id:
+            return {"status": "ok", "kind": "answer", "mode": "direct", "markdown": NO_PARENT_TEXT, "sources": [], "related": [],
+                    "model_called": False, "needs_context": True, **({"thread_id": thread_id} if thread_id else {})}
+        return _remote_shape(ctx, ask_mod.answer(question, thread_id=thread_id, who=ctx.who))
+    plan = ask_followup.resolve(question, parent)
+    if how == "fallback":
+        lead = f"（接着上一问「{str(parent.get('q') or '')[:40]}」）"
+    if plan.get("note") and plan["kind"] in ("expand", "object"):
+        lead = (lead + " " if lead else "") + plan["note"]
+    history = [{"role": "user", "content": str(parent.get("q") or "")}, {"role": "assistant", "content": str(parent.get("head") or "（上一答略）")}]
+    kwargs: dict[str, Any] = {"history": history, "who": ctx.who, "thread_id": thread_id or parent.get("thread_id"),
+                              "parent_turn_id": parent.get("turn_id")}
+    if plan["kind"] in ("single", "object"):
+        kwargs["source_ids"] = plan["source_ids"]
+    elif plan["kind"] == "expand":
+        kwargs["exclude_ids"] = plan.get("exclude_ids") or []
+        kwargs["avoid"] = plan.get("avoid") or []
+    elif plan["kind"] == "missing":
+        return {"status": "ok", "kind": "answer", "mode": "direct", "markdown": plan["note"] + "。要看哪一篇？", "sources": [], "related": [],
+                "model_called": False, "needs_context": True, "thread_id": kwargs["thread_id"]}
+    result = ask_mod.answer(plan.get("question") or question, **kwargs)
+    if lead and result.get("status", "ok") == "ok" and result.get("markdown"):
+        result["markdown"] = lead + "\n\n" + result["markdown"]
+    result["followup"] = {"bound": how, "kind": plan["kind"], "parent_turn_id": parent.get("turn_id"),
+                          **({"question": plan.get("question")} if plan.get("question") and plan.get("question") != question else {})}
+    return _remote_shape(ctx, result)
+
+
+def _remote_shape(ctx: Ctx, result: dict[str, Any]) -> dict[str, Any]:
+    """远程渠道（ctx.local=False）：剥本机绝对路径（agent_md / markdown_path / 附件文件路径 / delivery / history），
+    `![[rel|360]]` 换回「（图：来源N 图M）」+ images 列表（客户端用 image 工具取）。本机 stdio 原样。"""
+    if ctx.local or not isinstance(result, dict):
+        return result
+    from . import ask as ask_mod
+    out = {k: v for k, v in result.items() if k not in _LOCAL_PATH_KEYS}
+    if out.get("markdown"):
+        out["markdown"] = ask_mod.remote_images(out["markdown"], out.get("images"))
+    for key in ("sources", "related"):
+        rows = []
+        for src in out.get(key) or []:
+            if not isinstance(src, dict):
+                continue
+            row = {k: v for k, v in src.items() if k not in ("agent_md", "markdown_path", "attachments")}
+            atts = [{"name": Path(str(a.get("file") or "")).name} for a in (src.get("attachments") or []) if isinstance(a, dict) and a.get("file")]
+            if atts:
+                row["attachments"] = atts
+            rows.append(row)
+        out[key] = rows
+    return out
 
 
 # ---------------------------------------------------------------- read
@@ -879,10 +942,17 @@ TOOLS: list[dict[str, Any]] = [
          "offset": {"type": "integer", "minimum": 0, "default": 0, "description": "从第几条开始（续取用上一页的 next_offset）"}}},
      "annotations": _ann(False)},
     {"name": "ask",
-     "description": ("问收藏：先检索，再调用已配置的文本模型写一段带出处的回答。**每次都会花模型钱**；"
-                     "只想找资料、自己组织答案时用 search + read，不要用它。"),
+     "description": ("问收藏：先检索，再调用已配置的文本模型写一段「判断＋来源导读」的回答（结尾 ## 来源导读 每篇一行说看哪里）。**每次都会花模型钱**；"
+                     "只想找资料、自己组织答案时用 search + read，不要用它。"
+                     "**追问时带上一轮返回的 turn.thread_id**（「只看刚才第一篇」「那其他旅游呢」这类问法没有它就接不上）；"
+                     "存不了状态就在 context 里给 previous_question 和上一轮的 source_ids。结果里 turn.ordered_sources 是「第 N 篇」的编号依据，"
+                     "images 是回答里放的图（用 image 工具按 asset 取）。"),
      "inputSchema": {"type": "object", "additionalProperties": False, "properties": {
-         "question": {"type": "string", "minLength": 1, "maxLength": 2000, "description": "自然语言问题"}},
+         "question": {"type": "string", "minLength": 1, "maxLength": 2000, "description": "自然语言问题"},
+         "thread_id": {"type": "string", "maxLength": 64, "description": "上一轮返回的 turn.thread_id；追问带它"},
+         "context": {"type": "object", "additionalProperties": False, "description": "没法保存 thread_id 时：上一轮的问题和来源 id",
+                     "properties": {"previous_question": {"type": "string", "maxLength": 2000},
+                                    "source_ids": {"type": "array", "items": {"type": "string"}, "maxItems": 40}}}},
          "required": ["question"]},
      "annotations": _ann(True, open_world=True)},
     {"name": "read",

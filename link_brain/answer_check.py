@@ -7,7 +7,12 @@
   leak       模板泄漏：提示词里的措辞（「机制、触发条件」「本轮输出」…）漏进了回答
   padding    水字数：回答长度远超喂给模型的证据量；或直接答一个引用都没有
   uncited    无引用句比例：陈述句里没带 [来源N] 的占比（「缺口 / 推断 / 收藏之外」段不算）
-评测（tests/tools/ask_answer_eval.py R9–R12）和生产在线自检用同一份代码；阈值集中在 THRESHOLDS。
+1018 v2.1（设计 §7，作者口径「判断＋导读，不要防御性假设」）四项纯规则：
+  defense    防御句：「未披露 / 没提到 / 需自行核实 / 仅供参考 / 缺口 / 有关 / 无关」命中数 ÷ 句数；她问到具体属性（价格 / 时间 / 第几页…）时允许 1 句；「缺口」标题数
+  copy       搬运度：答案里落在 ≥12 字逐字匹配证据片段的字数占比（「」引号内、「材料：」用量行不算）；≤25%，howto ≤45%
+  per_source 逐篇流水账：连续 ≥3 段各自只引一篇且互不相同，或二级标题 = 帖子标题
+  guide      来源导读：正文引用过的每篇都有一行（覆盖）；导读里的 图N / cN 在那篇里真实存在（定位有效）；贡献句不是空话
+评测（tests/tools/ask_answer_eval.py R9–R16）和生产在线自检用同一份代码；阈值集中在 THRESHOLDS。
 回答和来源都是不可信文本：这里只做字符串比对，不执行任何内容。
 """
 from __future__ import annotations
@@ -21,7 +26,18 @@ THRESHOLDS = {
     "absence_hits": 2,       # 「没有 X」的 X 的内容词在别处出现 ≥ 这么多个算冲突
     "padding_factor": 2.0,   # 回答字数 > 证据字数 × 这个 + 300 算水
     "uncited_ratio": 0.6,    # 陈述句无引用占比超过它提醒
+    "copy_ratio": 0.25,      # 搬运度上限；howto 放宽到 copy_ratio_howto
+    "copy_ratio_howto": 0.45,
+    "copy_ngram": 12,        # 多少字逐字相同算搬运
+    "per_source_run": 3,     # 连续几段各引一篇不同来源算流水账
 }
+# 防御句（设计 §7-3 正则表 + 作者口径「不写有关 / 无关」）
+DEFENSE_RE = re.compile(r"未披露|没(?:有)?提(?:到|及)|帖里没|原文没|未提供|无法(?:给出|确认|判断)|未(?:经)?验证|自行核实|出行前核实|需(?:要)?核实|仅供参考|"
+                        r"以原帖为准|原帖描述|可能过时|缺口|无关|不相关|不太相关|有参考价值|值得一看|详见原文|未能找到相关|没有相关(?:信息|内容|材料)")
+GAP_HEAD_RE = re.compile(r"^#{1,6}\s*(?:缺口|信息缺口|缺失|未覆盖|不足)", re.M)
+# 她问到的具体属性：这些词在问题里时，允许 1 句「收藏里没写 X」
+ASK_ATTR_RE = re.compile(r"价格|票价|多少钱|几点|营业|开到|地址|在哪|第几页|用量|克数|几分钟|多久|能不能带|可以带|有没有(?:停车|wifi|插座)|联系方式|电话")
+GUIDE_EMPTY = ("相关内容", "有参考价值", "值得一看", "详见原文", "可以参考", "相关信息", "有一定参考")
 CITE_RE = re.compile(r"\[来源\s*(\d+)\]")
 ABSENCE_RE = re.compile(r"(?:原文|材料|收藏|来源|帖子|帖里)?(?:里|中)?没(?:有)?(?:找到|提到|提及|披露|写|给出|说明|看到|收录|相关|这方面|出现)"
                         r"|未(?:披露|提及|找到|给出|说明|出现)|不在(?:收藏|材料|来源)|(?:收藏|材料|原文)里没有")
@@ -88,8 +104,9 @@ def sentences(markdown: str):
     out, section, skip = [], "", False
     for raw in str(markdown or "").splitlines():
         line = raw.strip()
-        if not line or line.startswith("```") or line.startswith("![[") or line.startswith("![") or re.match(r"^\|?[-\s|]+\|?$", line):
-            continue
+        if (not line or line.startswith("```") or line.startswith("![[") or line.startswith("![") or line.startswith(">")
+                or re.match(r"^\|?[-\s|]+\|?$", line)):
+            continue   # 引用块（> …）是系统挂的提示 / 脚注，不是模型的断言
         if line.startswith("#"):
             section, skip = line, bool(SKIP_SECTION_RE.match(line))
             continue
@@ -122,8 +139,8 @@ def source_text(source: dict[str, Any], item: dict[str, Any] | None = None) -> s
 
 
 def run(markdown: str, sources: list[dict[str, Any]], *, items_by_id: dict[str, Any] | None = None, related=None,
-        mode: str = "direct", evidence_chars: int | None = None, must_not_text=()) -> dict[str, Any]:
-    """主入口。任何一步出错只影响那一项（记 error），不抛。"""
+        mode: str = "direct", evidence_chars: int | None = None, must_not_text=(), question: str = "", task: str = "") -> dict[str, Any]:
+    """主入口。任何一步出错只影响那一项（记 error），不抛。question / task（1018）：防御句的「允许 1 句」和搬运度阈值按它们判。"""
     checks: dict[str, Any] = {}
     sents = sentences(markdown)
     by_n = {}
@@ -265,6 +282,26 @@ def run(markdown: str, sources: list[dict[str, Any]], *, items_by_id: dict[str, 
                              "ratio": round(len(unc) / len(decl), 3) if decl else None}
     except Exception as exc:  # noqa: BLE001
         checks["uncited"] = {"error": type(exc).__name__}
+    # 8 防御句（1018）
+    try:
+        checks["defense"] = defense_check(markdown, sents, question)
+    except Exception as exc:  # noqa: BLE001
+        checks["defense"] = {"error": type(exc).__name__}
+    # 9 搬运度（1018）
+    try:
+        checks["copy"] = copy_check(markdown, sources, task)
+    except Exception as exc:  # noqa: BLE001
+        checks["copy"] = {"error": type(exc).__name__}
+    # 10 逐篇流水账（1018）
+    try:
+        checks["per_source"] = per_source_check(markdown, by_n)
+    except Exception as exc:  # noqa: BLE001
+        checks["per_source"] = {"error": type(exc).__name__}
+    # 11 来源导读（1018）
+    try:
+        checks["guide"] = guide_check(markdown, by_n, items_by_id)
+    except Exception as exc:  # noqa: BLE001
+        checks["guide"] = {"error": type(exc).__name__}
     # 7 题集给的禁词（评测用）
     bad_text = [rx for rx in must_not_text or () if re.search(rx, markdown or "")]
     if must_not_text:
@@ -296,7 +333,162 @@ def warnings(checks: dict[str, Any]) -> list[str]:
         out.append(f"回答 {p['answer_chars']} 字远超证据 {p['evidence_chars']} 字，可能有水分")
     if (checks.get("must_not_text") or {}).get("hit"):
         out.append("出现了题目禁止的内容")
+    d = checks.get("defense") or {}
+    if d.get("over"):
+        out.append(f"{d['hits']} 句防御性措辞（如「{d['examples'][0][:30]}…」）" if d.get("examples") else f"{d['hits']} 句防御性措辞")
+    g = checks.get("guide") or {}
+    if g.get("bad_locations"):
+        out.append("导读里的定位在那篇里找不到：" + "、".join(g["bad_locations"][:3]))
     return out
+
+
+# --------------------------------------------------------------------------
+# 1018 v2.1 新增四项
+# --------------------------------------------------------------------------
+
+def _body_only(markdown: str) -> str:
+    from .answer_prompt import split_guide
+    return split_guide(markdown)[0]
+
+
+def defense_check(markdown: str, sents=None, question: str = "") -> dict[str, Any]:
+    """防御句命中数 ÷ 句数；问题里有具体属性词时允许 1 句；「缺口」标题数。"""
+    body = _body_only(markdown)
+    sents = sentences(body) if sents is None else [x for x in sents if x[0] in body]
+    hits = [s for s, _sec, _skip in sents if DEFENSE_RE.search(s)]
+    allowed = 1 if ASK_ATTR_RE.search(str(question or "")) else 0
+    gap_heads = len(GAP_HEAD_RE.findall(body))
+    return {"hits": len(hits), "sentences": len(sents), "ratio": round(len(hits) / len(sents), 3) if sents else 0.0,
+            "allowed": allowed, "gap_headings": gap_heads, "over": len(hits) > allowed or gap_heads > 0,
+            "examples": [h[:80] for h in hits[:4]]}
+
+
+_QUOTE_RE = re.compile(r"「[^」]{0,60}」|“[^”]{0,60}”|\"[^\"]{0,60}\"")
+
+
+def copy_check(markdown: str, sources: list[dict[str, Any]], task: str = "") -> dict[str, Any]:
+    """搬运度：答案（去引号内、去「材料：」行、去导读）里被 ≥N 字逐字匹配证据片段覆盖的字数占比。证据 = 喂给模型的摘录（excerpts）。"""
+    n = THRESHOLDS["copy_ngram"]
+    body = _body_only(markdown)
+    lines = [ln for ln in body.splitlines() if not re.match(r"^\s*(?:材料|食材|用料)\s*[:：]", ln) and not ln.strip().startswith("![[")]
+    text = _QUOTE_RE.sub("", "\n".join(lines))
+    text = re.sub(r"\[来源\s*\d+\]|\s+|[|*#>-]", "", text)
+    ev = []
+    for s in sources or []:
+        for e in s.get("excerpts") or []:
+            if isinstance(e, dict) and e.get("text"):
+                ev.append(re.sub(r"\s+|[|*#>-]", "", str(e["text"])))
+        if s.get("excerpt") and not s.get("excerpts"):
+            ev.append(re.sub(r"\s+", "", str(s["excerpt"])))
+    grams = set()
+    for t in ev:
+        for i in range(0, max(0, len(t) - n + 1)):
+            grams.add(t[i:i + n])
+    covered = [False] * len(text)
+    if grams:
+        for i in range(0, max(0, len(text) - n + 1)):
+            if text[i:i + n] in grams:
+                for j in range(i, i + n):
+                    covered[j] = True
+    total = len(text)
+    ratio = round(sum(covered) / total, 3) if total else 0.0
+    limit = THRESHOLDS["copy_ratio_howto"] if task == "howto" else THRESHOLDS["copy_ratio"]
+    return {"ratio": ratio, "chars": total, "copied": sum(covered), "limit": limit, "over": bool(total) and ratio > limit,
+            "evidence_chars": sum(map(len, ev))}
+
+
+def per_source_check(markdown: str, by_n: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    """逐篇流水账：连续 ≥3 段各只引一篇、且互不相同；或 ## 小标题等于某篇帖子标题。"""
+    body = _body_only(markdown)
+    paras = [p.strip() for p in re.split(r"\n\s*\n", body) if p.strip()]
+    runs, best, cur = 0, 0, []
+    for para in paras:
+        if para.startswith("#") or para.startswith("|"):
+            cur = []
+            continue
+        ns = set(int(x) for x in CITE_RE.findall(para))
+        if len(ns) == 1 and (not cur or ns != cur[-1]):
+            cur.append(ns)
+        else:
+            cur = [ns] if len(ns) == 1 else []
+        best = max(best, len(cur))
+    titles = {_norm(s.get("title") or "") for s in by_n.values() if s.get("title")}
+    title_heads = []
+    for m in re.finditer(r"^#{2,4}\s*(.+?)\s*$", body, re.M):
+        head = _norm(CITE_RE.sub("", m.group(1)).strip("《》*「」 "))
+        if head and head in titles:
+            title_heads.append(m.group(1)[:40])
+    return {"max_run": best, "title_headings": title_heads, "flagged": best >= THRESHOLDS["per_source_run"] or bool(title_heads)}
+
+
+def _item_locations(item: dict[str, Any] | None, source: dict[str, Any] | None) -> tuple[set[int] | None, set[str] | None]:
+    """那篇真实存在的图号集合和评论楼号集合；读不到 = None（不判）。"""
+    images, labels = None, None
+    agent = (item or {}).get("agent_md") or (source or {}).get("agent_md")
+    try:
+        import json
+        from pathlib import Path
+        from . import storage
+        path = Path(agent) if agent and Path(str(agent)).is_absolute() else (storage.vault_root() / agent if agent else None)
+        if path and path.with_name("vision.json").exists():
+            vision = json.loads(path.with_name("vision.json").read_text(encoding="utf-8"))
+            images = set()
+            for image in vision.get("images") or []:
+                m = re.search(r"image-(\d+)\.", str(image.get("asset") or ""))
+                if m:
+                    images.add(int(m.group(1)))
+    except Exception:  # noqa: BLE001
+        images = None
+    try:
+        if item is not None:
+            from .ask import _comment_records
+            labels = {str(label) for label, _c in _comment_records(item)}
+    except Exception:  # noqa: BLE001
+        labels = None
+    if labels is None:
+        # 退一步：来源摘录里出现过的楼号
+        found = set()
+        for e in (source or {}).get("excerpts") or []:
+            for lab in (e.get("comment_labels") or []) if isinstance(e, dict) else []:
+                found.add(str(lab))
+        labels = found or None
+    return images, labels
+
+
+def guide_check(markdown: str, by_n: dict[int, dict[str, Any]], items_by_id: dict[str, Any] | None = None) -> dict[str, Any]:
+    """来源导读：覆盖（正文引用过的每篇都有一行）、定位有效（图N / cN 在那篇里真有）、具体度（贡献句不是空话）。"""
+    from .answer_prompt import body_citations, parse_guide
+    guide = parse_guide(markdown)
+    cited = [n for n in body_citations(markdown) if n in by_n]
+    listed = {g["n"] for g in guide}
+    missing = [n for n in cited if n not in listed]
+    extra = [g["n"] for g in guide if g["n"] not in by_n]
+    bad_locs, checked, empty = [], 0, []
+    items_by_id = items_by_id or {}
+    for g in guide:
+        src = by_n.get(g["n"])
+        if not src:
+            continue
+        if any(w in g["text"] for w in GUIDE_EMPTY):
+            empty.append(g["n"])
+        imgs = [int(x) for x in re.findall(r"图\s*(\d+)", g["text"])]
+        for a, b in re.findall(r"图\s*(\d+)\s*[–\-~至到]\s*(\d+)", g["text"]):
+            imgs += list(range(int(a), int(b) + 1))
+        cids = re.findall(r"\bc(\d+(?:\.\d+)?)", g["text"])
+        if not imgs and not cids:
+            continue
+        images, labels = _item_locations(items_by_id.get(src.get("id")), src)
+        for i in imgs:
+            checked += 1
+            if images is not None and i not in images:
+                bad_locs.append(f"来源{g['n']} 图{i}")
+        for c in cids:
+            checked += 1
+            if labels is not None and f"c{c}" not in labels:
+                bad_locs.append(f"来源{g['n']} c{c}")
+    return {"present": bool(guide), "lines": len(guide), "cited": len(cited), "missing": missing, "extra": extra,
+            "coverage": round((len(cited) - len(missing)) / len(cited), 3) if cited else None,
+            "locations_checked": checked, "bad_locations": bad_locs, "empty_phrases": empty}
 
 
 def footnote(checks: dict[str, Any]) -> str:

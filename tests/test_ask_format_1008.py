@@ -7,16 +7,15 @@ from link_brain import ask, storage
 from test_ask_ui2_1004 import _setup
 
 
-def test_prompt_carries_format_rules_and_drops_excerpt_section_request(monkeypatch, tmp_path):
+def test_prompt_carries_task_template_and_image_placeholder_rule(monkeypatch, tmp_path):
+    # 1018 v2.1：按任务只拼一个模板（「怎么走」= 做法），放图仍走 [看图：来源N 图M] 占位；不再要「原文摘录」、不再逐段标引用
     seen = _setup(monkeypatch, tmp_path)
     ask.answer("机场到市区怎么走")
     prompt, material = seen[-1]
-    assert "配方 / 流程 / 操作类" in prompt and "知识 / 学术 / 概念类" in prompt
-    assert "只有一条来源时，在每个小节标题末尾标一次[来源N]" in prompt
-    assert "不要单开「原文摘录」节" in prompt
-    assert "[看图：来源N 图M]" in prompt
-    assert "重点项附1至3段短原文摘录" not in material and "逐段标[来源N]" not in material
-    assert "按上面的「回答组织」规则选一种结构" in material
+    assert "【本题模板：做法】" in prompt and "【本题模板：综合研究】" not in prompt
+    assert "[看图：来源N 图M]" in prompt and "## 来源导读" in prompt
+    assert "重点项附1至3段短原文摘录" not in material and "逐段标[来源N]" not in material and "原文摘录" not in prompt
+    assert "先写 <想法>…</想法>，再按【本题模板】作答" in material
 
 
 def test_excerpt_tag_carries_image_and_comment_identity():

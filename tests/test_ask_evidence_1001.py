@@ -68,7 +68,7 @@ ITEMS = [{"id": str(i), "title": f"项目 {i}", "tags": [], "summary": "", "note
 @pytest.mark.parametrize("selector_reply", ["好的，我挑了这些：第1和第3个", "", "[1, 2]"])
 def test_selector_bad_format_fails_open_to_plain_retrieval(monkeypatch, selector_reply):
     monkeypatch.setattr(ask, "load_items", lambda: [dict(x) for x in ITEMS])
-    monkeypatch.setattr(ask.ai_config, "load", lambda: ask.ai_config._deep_merge(ask.ai_config.DEFAULTS, {}))
+    monkeypatch.setattr(ask.ai_config, "load", lambda: ask.ai_config._deep_merge(ask.ai_config.DEFAULTS, {"retrieval": {"judgeSelect": False}}))   # 1017 起默认先走模型判定选篇；这里测的是小模型挑材料那条老路
     calls = []
 
     def model(prompt, text, settings):
@@ -86,7 +86,7 @@ def test_selector_bad_format_fails_open_to_plain_retrieval(monkeypatch, selector
 
 def test_selector_http_error_also_fails_open(monkeypatch):
     monkeypatch.setattr(ask, "load_items", lambda: [dict(x) for x in ITEMS])
-    monkeypatch.setattr(ask.ai_config, "load", lambda: ask.ai_config._deep_merge(ask.ai_config.DEFAULTS, {}))
+    monkeypatch.setattr(ask.ai_config, "load", lambda: ask.ai_config._deep_merge(ask.ai_config.DEFAULTS, {"retrieval": {"judgeSelect": False}}))   # 1017 起默认先走模型判定选篇；这里测的是小模型挑材料那条老路
     replies = iter([{"status": "failed", "error": "timeout"}, {"status": "ok", "text": "答[来源1]"}])
     monkeypatch.setattr(ask, "call_text", lambda p, t, s: next(replies))
     r = ask.answer("推荐相关项目", mode="direct")   # 1015 起盘点多默认出目录；这里测直接答那条路上的挑材料
@@ -95,7 +95,7 @@ def test_selector_http_error_also_fails_open(monkeypatch):
 
 def test_selector_chatty_json_is_parsed_leniently(monkeypatch):
     monkeypatch.setattr(ask, "load_items", lambda: [dict(x) for x in ITEMS])
-    monkeypatch.setattr(ask.ai_config, "load", lambda: ask.ai_config._deep_merge(ask.ai_config.DEFAULTS, {}))
+    monkeypatch.setattr(ask.ai_config, "load", lambda: ask.ai_config._deep_merge(ask.ai_config.DEFAULTS, {"retrieval": {"judgeSelect": False}}))   # 1017 起默认先走模型判定选篇；这里测的是小模型挑材料那条老路
     replies = iter([{"status": "ok", "text": '好的：\n```json\n{"selected":[2]}\n```\n以上'},
                     {"status": "ok", "text": "答[来源1]"}])
     monkeypatch.setattr(ask, "call_text", lambda p, t, s: next(replies))

@@ -34,7 +34,8 @@ def test_prompt_forbids_generic_author_said_and_material_carries_nickname(monkey
     seen = _setup(monkeypatch, tmp_path)
     ask.answer("交通路线")
     prompt, material = seen[-1]
-    assert "不要写「作者说」「作者称」" in prompt and "作者：<材料里给的昵称>" in prompt
+    # 1018 v2.1：称呼规则并进 answer_prompt.CORE_RULES 第 6 条（评论者的话不能安到作者头上；只在身份要紧时点名）
+    assert "评论者的话不能安到作者头上" in prompt and "评论区·某某" in prompt
     assert "作者：旅人0" in material
     assert "作者原话" not in material and "区分作者说法" not in material
     # 没昵称的那篇不写「作者：」行，也不写「未提供昵称」

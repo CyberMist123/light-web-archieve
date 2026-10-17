@@ -35,8 +35,8 @@ def test_context_finds_late_ocr_and_respects_cap(monkeypatch):
     seen = []
     monkeypatch.setattr(ask, "call_text", lambda p, t, s: (seen.append(t) or {"status": "ok", "text": "鸡肉 200 克。[来源1]"}))
     assert ask.answer("chicken")["sources"][0]["id"] == "x"
-    context = seen[0].split("【原始材料】")[1]
-    assert "200 克" in context and len(context) <= 601
+    context = seen[-1].split("【证据】")[1].split("【证据结束】")[0]   # 1018：作答调用是最后一次（前面是判定选篇）
+    assert "200 克" in context and len(context) <= 640
 
 
 def test_channel_delivery_defaults_to_body_and_only_sends_real_cited_files(tmp_path):

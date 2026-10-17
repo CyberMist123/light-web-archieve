@@ -195,7 +195,7 @@ def test_answer_returns_whole_pool_in_two_tiers(monkeypatch):
     assert not set(primary) & set(related)
     assert all(s["citation"] == n for n, s in enumerate(r["sources"], 1))
     assert r["expansion"]["terms"] == ["东京", "大阪"]
-    assert len(calls) == 1
+    assert len([c for c in calls if "【证据】" in c]) == 1   # 1017 起另有一次判定选篇调用
 
 
 def test_primary_count_follows_budget():

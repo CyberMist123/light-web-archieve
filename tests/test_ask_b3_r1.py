@@ -140,7 +140,7 @@ def test_list_question_routes_to_survey_and_shell_strips_post_word():
 def test_survey_toc_not_overridden_by_deep(monkeypatch):
     pool = [_it(str(i), "越南菜 食材") for i in range(6)]
     monkeypatch.setattr(ask, "core_words", lambda u, items: ["越南菜"])
-    mode, info = ask.decide_mode({"goal": "survey", "core": "越南菜"}, pool, pool, deep=True)
+    mode, info = ask.decide_mode({"goal": "survey", "core": "列一下 越南菜"}, pool, pool, deep=True)   # 1017 起要明说「列一下」
     assert mode == "toc" and info["reason"] == "survey"
 
 

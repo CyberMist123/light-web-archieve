@@ -28,7 +28,7 @@ _SHELL = re.compile(
     r"我(?:好像|记得|记着)?有(?:个|一个|篇|一篇)|我记得|好像|似乎|应该是|"
     r"(?:我)?之前(?:存|收藏|保存|看|刷)(?:过|到)?的?|我(?:存|收藏|保存)(?:过|了)?的?|"
     r"(?:那个|那篇|这个|这篇|那条|那家)|"
-    r"忘了?(?:在)?(?:哪儿|哪里|哪)?(?:了)?|想不起来?(?:了)?|找不到了?|"
+    r"忘(?:了|记)(?:在)?(?:哪儿|哪里|哪)?(?:了)?|想不起来?(?:了)?|找不到了?|"
     r"帮我找(?:一下|找)?|帮我|找一下|在哪(?:儿|里)?|收藏里(?:的)?|我的收藏(?:里)?|"
     r"是哪篇|是哪个|叫(?:啥|什么)(?:来着|名字)?|来着|一下|"
     r"(?:的(?:帖子|笔记)|帖子)(?=$|[\s，,。？?])")
@@ -249,6 +249,10 @@ def item_kinds(item) -> list[str]:
 
 GOALS = {"find", "ask", "survey"}
 DEPTHS = {"precise", "detailed"}
+# 1018 v2.1 理解层最小字段：task（作答模板按它挑）、note（研究笔记）、clues（找回题她亲口说的辨识细节）
+TASKS = {"find", "howto", "synthesize", "survey", "inspire", "adapt", "evaluate", "browse", "absence", "portrait"}
+NOTE_MAX = 300
+CLUE_MAX = 4
 
 
 def _short(value, limit=16) -> str:
@@ -283,10 +287,17 @@ def parse_s1(obj: Any, question: str, *, authors=None, skill_ids=None) -> dict[s
         return {}
     out: dict[str, Any] = {}
     intent = obj.get("intent") if isinstance(obj.get("intent"), dict) else {}
-    for key, allowed in (("goal", GOALS), ("depth", DEPTHS), ("scope", ("single", "few", "many"))):
+    for key, allowed in (("goal", GOALS), ("depth", DEPTHS), ("scope", ("single", "few", "many")), ("task", TASKS)):
         v = obj.get(key, intent.get(key))
         if isinstance(v, str) and v.strip().lower() in allowed:
             out[key] = v.strip().lower()
+    # 1018 v2.1：研究笔记（给证据判定和作答看，绝不进 embedding）和找回线索；都是不可信文本，只限长、只认字符串
+    note = " ".join(str(obj.get("note") or "").split()) if isinstance(obj.get("note"), str) else ""
+    if len(note) >= 10:
+        out["note"] = note[:NOTE_MAX]
+    clues = _str_list(obj.get("clues"), CLUE_MAX, 40)
+    if clues:
+        out["clues"] = clues
     # 1015 第三批 R1：独立问句（追问补全省略、纠正错字）。只给语义路和 switch 换条件用，原句照样走词法
     sq = _short(obj.get("standalone_query"), 60)
     if sq and _overlap(sq, question) >= .3:
@@ -436,9 +447,15 @@ def understand(question: str, items=None, *, s1: dict[str, Any] | None = None, s
         out["standalone_query"] = s1["standalone_query"]
     if s1.get("scope"):
         out["scope"] = s1["scope"]   # 建议值（R1）：只作参考，深读几篇由检索后规则定（ask.select_primary）
-    for key in ("entities", "relations", "constraints", "negation", "facets"):
+    for key in ("entities", "relations", "constraints", "negation", "facets", "note", "clues"):
         if s1.get(key):
             out[key] = s1[key]
+    # task：S1 给了就用；没给由 goal + 问法映射（answer_prompt.task_for），作答模板按它挑
+    try:
+        from .answer_prompt import task_for
+        out["task"] = task_for({**out, "task": s1.get("task")}, question)
+    except Exception:  # noqa: BLE001
+        out["task"] = s1.get("task") if s1.get("task") in TASKS else {"find": "find", "survey": "survey"}.get(goal, "synthesize")
     if not out["skill"] and s1.get("skills"):
         out["skill"], out["skill_source"] = s1["skills"][0], "model"
     return out

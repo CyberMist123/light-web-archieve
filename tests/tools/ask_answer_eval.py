@@ -25,7 +25,9 @@ storage 的原子写一旦指向收藏库就拒绝（记进结果的 blocked_wri
   R5 必含要点   must_have 每条正则都中（命中比例记进结果；全中才算过）
   R6 档位       mode 与 tier 一致（改前没有 mode 字段 = direct）；none 档 = 回答说没找到、且不引用 expected 以外的硬凑帖
   R8 出处       direct 档回答里至少一个 [来源N]
-题过 = R1 R2 R3 R4 R5 R6 R8 全过（tier=any 的题只记录不计分）。
+  R9–R12 自检   引用对齐 / 无假缺口 / 无模板泄漏 / 说话人（1017 阶段 1，读 result["checks"]）
+  R13–R16 v2.1  防御句（允许的那 1 句除外、无「缺口」标题）/ 搬运度 ≤25%（howto ≤45%）/ 无逐篇流水账 / 来源导读覆盖 100% 且定位有效（1018）
+题过 pass_core = R1–R8 全过（BENCH 主口径）；pass = R1–R16 全过。tier=any 的题只记录不计分。结果每题标 cached（撞到答案缓存）。
 """
 from __future__ import annotations
 
@@ -38,6 +40,8 @@ import tempfile
 import time
 from pathlib import Path
 
+CORE_RULES = ("R1", "R2", "R3", "R4", "R5", "R6", "R8")
+ALL_RULES = CORE_RULES + ("R9", "R10", "R11", "R12", "R13", "R14", "R15", "R16")
 NONE_RE = re.compile(r"没(?:有)?找到|没有(?:找到|相关|这方面|收藏)|未找到|收藏里没有|库里没有|没搜到|没有.{0,6}(?:相关|提到)")
 
 
@@ -197,12 +201,37 @@ def judge(case, result):
         checks["R10"] = not (ac.get("absence") or {}).get("conflicts")
         checks["R11"] = not (ac.get("leak") or {}).get("found")
         checks["R12"] = not (ac.get("speaker") or {}).get("unknown")
-    return {"pass": all(checks.values()), "checks": checks, "mode": mode, "cited": ids[:12],
+    # 1018 v2.1：防御句 / 搬运度 / 流水账 / 导读（answer_check 新增四项；旧结果没有这些键 = 按过算，和 R9–R12 的口径一样）
+    if mode == "toc" or not ac or "defense" not in ac:
+        checks["R13"] = checks["R14"] = checks["R15"] = checks["R16"] = True
+    else:
+        checks["R13"] = not (ac.get("defense") or {}).get("over", False)
+        checks["R14"] = not (ac.get("copy") or {}).get("over", False)
+        checks["R15"] = not (ac.get("per_source") or {}).get("flagged", False)
+        g = ac.get("guide") or {}
+        checks["R16"] = (bool(g.get("present")) and not g.get("missing") and not g.get("bad_locations")) if g.get("cited") else True
+    core = all(checks[k] for k in CORE_RULES if k in checks)
+    return {"pass": all(checks.values()), "pass_core": core, "checks": checks, "mode": mode, "cited": ids[:12],
             "must_have_ratio": (sum(have) / len(have)) if have else 1.0,
             "bad_titles": bad_titles, "bad_ids": bad_ids, "bad_text": bad_text, "chars": len(md),
             "self_check": {"warnings": ac.get("warnings"), "alignment": (ac.get("alignment") or {}).get("rate"),
                            "absence_conflicts": len((ac.get("absence") or {}).get("conflicts") or []),
-                           "selection": (result.get("selection") or {}).get("reason")}}
+                           "defense": (ac.get("defense") or {}).get("hits"), "copy": (ac.get("copy") or {}).get("ratio"),
+                           "per_source_run": (ac.get("per_source") or {}).get("max_run"),
+                           "guide": {k: (ac.get("guide") or {}).get(k) for k in ("present", "lines", "cited", "missing", "bad_locations")},
+                           "selection": (result.get("selection") or {}).get("reason")},
+            "task": result.get("task"), "cached": bool(result.get("cached")), "thought": (result.get("thought") or "")[:600],
+            "first_para": first_paragraph(md)}
+
+
+def first_paragraph(md):
+    """正文第一段（跳过缓存提示 / 图 / 空行），给人看「第一段是不是判断句」。"""
+    for para in re.split(r"\n\s*\n", md or ""):
+        t = para.strip()
+        if not t or t.startswith(">") or t.startswith("![[") or t.startswith("#"):
+            continue
+        return t[:300]
+    return ""
 
 
 def rejudge_r1(path, cases_path):
@@ -218,12 +247,18 @@ def rejudge_r1(path, cases_path):
             fake["markdown"] = " ".join(f"[来源{n}]" for n in range(1, len(row["cited"]) + 1)) + " " + fake["markdown"]
         row["checks"]["R1"] = judge(case, fake)["checks"]["R1"]
         row["pass"] = all(row["checks"].values())
+        row["pass_core"] = all(row["checks"].get(k, True) for k in CORE_RULES)
     scored = [r for r in data["rows"] if r.get("tier") != "any"]
-    data["summary"]["passed"] = sum(r["pass"] for r in scored)
-    data["summary"]["pass_rate"] = round(data["summary"]["passed"] / max(1, len(scored)), 3)
-    data["summary"]["by_rule"]["R1"] = sum(r["checks"]["R1"] for r in scored)
+    data["summary"].update(_totals(scored))
     Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     return data["summary"]
+
+
+def _totals(scored):
+    return {"passed": sum(r["pass"] for r in scored), "pass_rate": round(sum(r["pass"] for r in scored) / max(1, len(scored)), 3),
+            "passed_core": sum(1 for r in scored if r.get("pass_core", r["pass"])),
+            "by_rule": {k: sum(r["checks"].get(k, False) for r in scored) for k in ALL_RULES},
+            "cached": sum(1 for r in scored if r.get("cached"))}
 
 
 def rescore(path, cases_path):
@@ -237,7 +272,8 @@ def rescore(path, cases_path):
         if not row.get("sources") and row.get("mode") != "toc":
             continue
         srcs = [{**s, "excerpt": ""} for s in row.get("sources") or []]
-        checks = answer_check.run(row.get("markdown") or "", srcs, related=row.get("related") or [], mode=row.get("mode") or "direct")
+        checks = answer_check.run(row.get("markdown") or "", srcs, related=row.get("related") or [], mode=row.get("mode") or "direct",
+                                  question=row.get("question") or "", task=row.get("task") or "")
         row["checks_rescored"] = checks
         fake = {"mode": row["mode"], "markdown": row.get("markdown") or "", "checks": checks, "selection": {"reason": (row.get("self_check") or {}).get("selection")},
                 "toc": [{"id": i} for i in row["cited"]] if row["mode"] == "toc" else None,
@@ -245,14 +281,13 @@ def rescore(path, cases_path):
         if row["mode"] != "toc":
             fake["markdown"] = " ".join(f"[来源{n}]" for n in range(1, len(row["cited"]) + 1)) + " " + fake["markdown"]
         v = judge(cases.get(row["id"]) or {}, fake)
-        for k in ("R9", "R10", "R11", "R12"):
+        for k in ("R9", "R10", "R11", "R12", "R13", "R14", "R15", "R16"):
             row["checks"][k] = v["checks"][k]
         row["self_check"] = v["self_check"]
         row["pass"] = all(row["checks"].values())
+        row["pass_core"] = all(row["checks"].get(k, True) for k in CORE_RULES)
     scored = [r for r in data["rows"] if r.get("tier") != "any"]
-    data["summary"]["passed"] = sum(r["pass"] for r in scored)
-    data["summary"]["pass_rate"] = round(data["summary"]["passed"] / max(1, len(scored)), 3)
-    data["summary"]["by_rule"] = {k: sum(r["checks"].get(k, False) for r in scored) for k in ("R1", "R2", "R3", "R4", "R5", "R6", "R8", "R9", "R10", "R11", "R12")}
+    data["summary"].update(_totals(scored))
     Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     return data["summary"]
 
@@ -308,22 +343,19 @@ def main(argv=None) -> int:
         rows.append({"id": case.get("id"), "question": case["question"], "tier": case.get("tier"), "status": res.get("status"),
                      "seconds": took, "tokens": tokens, **verdict,
                      "understanding": res.get("understanding"), "mode_reason": res.get("mode_reason"),
-                     "markdown": (res.get("markdown") or "")[:6000],
+                     "markdown": (res.get("markdown") or "")[:8000],
                      # 1017：存来源摘录 / 其他相关 / 自检结果，改了自检规则能用 --rescore 离线重判 R9–R12，不重跑模型
                      "sources": [{"id": s.get("id"), "citation": s.get("citation"), "title": s.get("title"), "author": s.get("author"),
                                   "excerpts": [{"field": e.get("field"), "text": str(e.get("text") or "")[:1500]} for e in (s.get("excerpts") or [])]}
                                  for s in (res.get("sources") or [])],
                      "related": [{"id": r.get("id"), "title": r.get("title"), "excerpt": str(r.get("excerpt") or "")[:600]} for r in (res.get("related") or [])[:30]],
                      "answer_checks": res.get("checks")})   # 键名别和 verdict 里的规则判分 checks 撞
-        mark = "过" if verdict["pass"] else "×"
+        mark = "过" if verdict["pass"] else ("核" if verdict.get("pass_core") else "×")
         fails = ",".join(k for k, v in verdict["checks"].items() if not v)
         print(f"{case.get('id'):>4} {mark} {verdict['mode']:<6} {took:>5}s {tokens['prompt']:>6}+{tokens['completion']:<5} {fails:<14} {case['question'][:24]}",
               flush=True)
     scored = [r for r in rows if r.get("tier") != "any"]
-    summary = {"label": args.label, "code": str(code_dir), "cases": len(rows), "scored": len(scored),
-               "passed": sum(r["pass"] for r in scored),
-               "pass_rate": round(sum(r["pass"] for r in scored) / max(1, len(scored)), 3),
-               "by_rule": {k: sum(r["checks"].get(k, False) for r in scored) for k in ("R1", "R2", "R3", "R4", "R5", "R6", "R8", "R9", "R10", "R11", "R12")},
+    summary = {"label": args.label, "code": str(code_dir), "cases": len(rows), "scored": len(scored), **_totals(scored),
                "tokens": {"prompt": usage["prompt"], "completion": usage["completion"], "calls": usage["calls"],
                           "calls_without_usage": usage["unknown_calls"]},
                "blocked_writes": blocked, "f01": next((r["pass"] for r in rows if r["id"] == "F01"), None)}

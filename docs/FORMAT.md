@@ -883,6 +883,47 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
 - 档位规则（她 1015 拍板「多 → 目录；适中 / 要精准 → 直接答」）：深读或 `depth=precise` → direct；`survey` 真命中 ≥5 → toc；
   `find` 主角篇（标题 / 标签 / 概要就是它）1–3 篇 → direct，否则散在 ≥4 篇 → toc；`ask` 真命中 ≥8 → toc。
   留来源重答（`source_ids`）、手动保留（`pin_ids`）、展开都不出目录。
+  1017 阶段 1 改口径：`survey` 只在她明说要清单 / 目录（核心词里有「列出 / 清单 / 目录 / 盘点一下」）时才出目录，其余盘点题直接答。
+
+### 问收藏响应 v2.1：判断＋导读、会话状态（2026-10-18）
+
+请求新增（都可省略；`ask --request-stdin`、`serve`、`ask.answer(...)`、MCP `ask` 一样）：
+
+```jsonc
+{"question": "只看刚才第一篇，它怎么说的",
+ "thread_id": "th10180930ab12cd",    // 上一轮返回的 turn.thread_id：追问带它，后端按这条线最近一轮继承来源 / 解析「第 N 篇」
+ "parent_turn_id": "t1018093012ab12cd"}   // 本地页面：上一答的 turn_id（比 thread_id 更准；两个都没有 = 新话题）
+```
+
+- 本地页面（chat-view）每个助手轮记 `turnId` / `threadId`，接着这段问时把上一答的两个 id 带上；新话题 / 展开 / 重试不带。
+  后端**不再按问题原文**在全局登记表里找上一轮（同一句话问两次会串，本地远程共用一张表）。
+- MCP `ask` 另收 `context: {previous_question, source_ids}`（存不了状态的客户端）。都没带时，只有问句是追问（第 N 篇 / 刚才 / 其他 / 那 X 呢）
+  才取**同一凭据** 15 分钟内的最后一轮，回答第一行写「（接着上一问「…」）」；绑不到又是指代型 → 不检索，回「找不到上一轮，告诉我是哪篇？」
+  （`needs_context: true`）。指代解析（`ask_followup.resolve`）：第 N 篇 → 只用 `ordered_sources[N-1]`（`source_ids` 单篇模式）；
+  第 N 个（地方 / 方案）→ `objects[N-1]` 对应的来源；其他 / 别的 → 排除上一轮的来源 id 和对象、去掉最窄限定（「中国旅行推荐」→「旅游推荐」）；
+  那 X 呢 → 照常检索（switch）。响应另带 `followup: {bound: parent|thread|fallback|context, kind, parent_turn_id, question?}`。
+
+响应新增（`mode=direct`）：
+
+```jsonc
+{"turn": {"turn_id": "t…", "thread_id": "th…", "parent_turn_id": null,
+          "ordered_sources": [{"n": 1, "id": "xhs-…", "title": "…", "role": "A|S|M"}],   // 顺序 = 来源导读的顺序 =「第 N 篇」的编号依据
+          "objects": [{"name": "Lucie Dream", "ns": [1]}],                          // 答案里出现的对象（表格第一列 / 加粗条目），按出现顺序
+          "scope": {"topic": "…", "task": "synthesize", "must": [], "must_not": [], "excluded_ids": [], "pinned_ids": []}},
+ "thread_id": "th…", "task": "find|howto|synthesize|survey|inspire|adapt|evaluate|browse|absence|portrait",
+ "thought": "1 核心判断：…",            // 模型先写给自己看的 <想法> 块（不在 markdown 里；流式时也不显示；模型没写就没有这个键）
+ "images": [{"n": 1, "image_no": 3, "asset": "_archive/…/image-003.webp"}],   // 回答里放的图（本地 markdown 里是 ![[…|360]]）
+ "cached": false,                       // 撞到答案缓存（只记录，不再把上次结论注进提示词、不再挂「以前问过」那一行）
+ "understanding": {"task": "…", "note": "研究笔记 100–200 字", "clues": ["她记得的线索"], "...": "旧字段照旧"},
+ "checks": {"defense": {"hits": 0, "allowed": 0, "over": false}, "copy": {"ratio": 0.12, "limit": 0.25, "over": false},
+            "per_source": {"max_run": 1, "flagged": false}, "guide": {"present": true, "lines": 4, "cited": 4, "missing": [], "bad_locations": []},
+            "...": "1017 的 alignment / absence / speaker / leak / padding / uncited 照旧"}}
+```
+
+- `sources[]` 新增 `guide`：回答末尾「## 来源导读」里这篇那一行（`[来源N]《标题》— 贡献。必看 / 选看：看哪里`），界面可挂在来源卡下面。
+- 远程 MCP（`ctx.local=False`）：结果剥本机绝对路径（`agent_md` / `markdown_path` / 附件只留文件名 / 不带 `delivery` / `history`），
+  `![[…|360]]` 换成「（图：来源N 图M）」，图按 `images[].asset` 用 `image` 工具取。
+- 轮次登记 `_archive/ask-turns.json` 每轮多记 `thread_id / parent_turn_id / who / ordered_sources / objects / scope / head`（回答开头 ≤300 字）。
 
 ### 技能（`link_brain/_skills/<id>/SKILL.md` 内置；`<vault>/_skills/<id>/SKILL.md` 用户，同 id 覆盖内置）
 
