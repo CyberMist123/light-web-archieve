@@ -162,3 +162,18 @@ def test_floors_end_is_remembered_against_later_has_more():
            "capture": {"comment_load": {"has_more": True}}}
     assert cf.scope(src, cf.FLOOR_ALL, {})["more_floors"] is True
     assert cf.scope(src, cf.FLOOR_ALL, {"floors_done": cf.FLOOR_ALL})["more_floors"] is False
+
+
+def test_nightly_step_and_local_steps_do_not_block(tmp_path):
+    log = tmp_path / "fav-sync.log"
+    log.write_text("2026-10-18 08:00:00  === sync-favorites 开始（限时 150 分钟）===\n"
+                   "2026-10-18 10:25:01  === sync-favorites 结束 exit=0（134.3 分钟）===\n"
+                   "2026-10-18 10:25:38  === enrich --pending 开始（限时 60 分钟）===\n", encoding="utf-8")
+    assert cf.nightly_step([log]) == "enrich --pending"
+    running = [{"state": "Running"}]
+    assert cf.nightly_busy(rows=running, step="enrich --pending") == ""
+    assert cf.nightly_busy(rows=running, step="sync-favorites") != ""
+    assert cf.nightly_busy(rows=running, step="") != ""  # 认不出：照旧让路
+    log.write_text(log.read_text(encoding="utf-8") + "2026-10-18 11:25:38  === enrich --pending 结束 exit=0 ===\n",
+                   encoding="utf-8")
+    assert cf.nightly_step([log]) == ""

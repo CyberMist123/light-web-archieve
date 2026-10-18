@@ -734,12 +734,48 @@ def task_rows(force: bool = False) -> list[dict[str, Any]]:
     return rows
 
 
-def nightly_busy(now: datetime | None = None, rows: list[dict[str, Any]] | None = None) -> str:
-    """夜跑在跑 / 快开始了 → 一句原因；否则 ''。"""
+# 1018：夜跑里不碰号的步骤（只在本机算）。夜跑停在这些步骤上时补评论不用让路——以前整个夜跑任务没结束就一直等，
+# 收藏同步 10:25 做完、后面识图 / 概要 / 向量 / 目录跑到 11:32，补评论白等 67 分钟。认不出的步骤照旧让路（宁可多等）。
+LOCAL_NIGHTLY_STEPS = ("enrich", "vision", "videos", "embed", "problems", "catalog", "attachments --audit", "report",
+                       "tidy", "backup")
+
+
+def nightly_step(log_paths: list[Path] | None = None) -> str:
+    """夜跑日志里正在跑的那一步（最后一个「=== X 开始」且后面还没有它的「结束」）；读不出来返回 ''。"""
+    import re
+    if log_paths is None:
+        from . import accounts, nightly
+        log_paths = [Path(nightly.default_log_path()), accounts.tool_dir() / "fav-sync.log"]
+    best: tuple[float, str] = (0.0, "")
+    for p in log_paths:
+        try:
+            mtime = p.stat().st_mtime
+            with open(p, "rb") as fh:
+                fh.seek(max(0, p.stat().st_size - 64_000))
+                tail = fh.read().decode("utf-8", "replace")
+        except OSError:
+            continue
+        cur = ""
+        for line in tail.splitlines():
+            m = re.search(r"=== (.+?) (开始|结束)", line)
+            if not m:
+                continue
+            cur = m.group(1).strip() if m.group(2) == "开始" else ("" if m.group(1).strip() == cur else cur)
+        if mtime > best[0]:
+            best = (mtime, cur)
+    return best[1]
+
+
+def nightly_busy(now: datetime | None = None, rows: list[dict[str, Any]] | None = None,
+                 step: str | None = None) -> str:
+    """夜跑在跑（且正在碰号的那几步）/ 快开始了 → 一句原因；否则 ''。"""
     now = now or _now()
     rows = task_rows() if rows is None else rows
     for r in rows:
         if str(r.get("state") or "") == "Running":
+            cur = nightly_step() if step is None else step
+            if cur and cur.startswith(LOCAL_NIGHTLY_STEPS):
+                continue  # 这一步只在本机算、不用号：不用让
             return "夜跑在跑，号让给它，做完接着补"
     for r in rows:
         nxt = _parse(r.get("next")) if r.get("next") else None
@@ -860,6 +896,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
 
     try:
         work_since: list[float] = []  # 1016：这一段连续干活从几时起（跑满 WORK_MIN 分钟强制歇 REST_MIN 分钟）
+        last_work_end = [0.0]  # 1018：上一篇做完的时刻——中间让路 / 等额度歇够了 REST_MIN，就算歇过了，别再强制歇
         while True:
             floors = target_floors()
             sv = survey(floors)
@@ -955,6 +992,8 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
                     message=status.text("补评论暂停") + " · " + rp_why)
                 continue
             if until_done:
+                if work_since and last_work_end[0] and time.monotonic() - last_work_end[0] >= REST_MIN * 60:
+                    work_since.clear()  # 1018：让路 / 等额度已经歇了这么久：以前照算「连着干活」，一结束又强制歇 30 分钟
                 if not work_since:
                     work_since.append(time.monotonic())
                 elif time.monotonic() - work_since[0] >= WORK_MIN * 60:
@@ -1000,6 +1039,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
                 note_failure(item_id, errtext(exc))
                 failed.append({"item_id": item_id, "error": str(exc)[:200]})
                 continue
+            last_work_end[0] = time.monotonic()
             done.append({"item_id": item_id, "filled": out.get("filled"), "missing_after": out.get("missing_after"),
                          "done": out.get("done"), "stuck": out.get("stuck"), "restricted": bool(out.get("restricted"))})
             print(f"[comments] {datetime.now():%H:%M:%S} {item_id}《{entry['title'][:30]}》{out.get('mode')}："
