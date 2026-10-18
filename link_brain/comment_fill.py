@@ -252,20 +252,43 @@ def deepest_cursor(comments: list[dict[str, Any]], *cursors: Any) -> str:
     return max(cands, key=lambda c: pos.get(c, -1)) if cands else ""
 
 
-def sub_quota(now: datetime | None = None) -> tuple[int, datetime | None]:
-    """楼中楼这一小时还能点几次 + 最早哪一刻空出一次（读读取组件落盘的 sub-expand.json，只读；读不到按满额）。"""
+REPLIES_PER_CLICK = 5  # 站点每点一次「展开回复」大约给几条（num=10，实测多半 5 条）
+
+
+def fill_plan(source: dict[str, Any], state: dict[str, Any] | None = None, floors: int | None = None) -> dict[str, Any]:
+    """1018 她：一级评论拉完之后，把要展开的楼列成计划——哪些楼、各缺多少、预计点几次、要多久。读全了的楼不在里面（不碰）。"""
+    floors = floors or FLOOR_ALL
+    sc = scope(source, floors, state or {})
+    comments = (source.get("comments") or [])[:floors]
+    gaps = sorted(sc["gaps"], key=lambda g: g["floor"])
+    clicks = sum(-(-g["missing"] // REPLIES_PER_CLICK) for g in gaps)
+    per_hour = _per_hour()
+    return {"floors": len(comments), "floors_more": sc["more_floors"],
+            "complete": len(comments) - len(gaps) - len(sc["settled"]), "settled": len(sc["settled"]),
+            "need_expand": len(gaps), "missing": sc["missing"], "clicks": clicks,
+            "hours": round(clicks / per_hour, 1), "per_hour": per_hour,
+            "next": [{"floor": g["floor"], "missing": g["missing"], "shown": g["shown"]} for g in gaps[:10]]}
+
+
+def _per_hour() -> int:
+    """楼中楼每小时额度（和 sub_quota 同一套来源）。"""
     try:
         per_hour = max(1, int(os.environ.get("XHS_SUB_PER_HOUR") or SUB_PER_HOUR))
     except ValueError:
         per_hour = SUB_PER_HOUR
     try:
-        # 1017：调高的额度在 profile 目录 sub-per-hour.json（读取组件撞熔断会自己删掉、退回默认），与读取组件同一份
         from . import accounts
         v = int(json.loads((accounts.profile_dir() / "sub-per-hour.json").read_text(encoding="utf-8")).get("per_hour") or 0)
         if v > 0:
             per_hour = min(v, 120)
-    except Exception:  # noqa: BLE001 - 没有这个文件 = 默认额度
+    except Exception:  # noqa: BLE001
         pass
+    return per_hour
+
+
+def sub_quota(now: datetime | None = None) -> tuple[int, datetime | None]:
+    """楼中楼这一小时还能点几次 + 最早哪一刻空出一次（读读取组件落盘的 sub-expand.json，只读；读不到按满额）。"""
+    per_hour = _per_hour()
     try:
         from . import accounts
         data = json.loads((accounts.profile_dir() / "sub-expand.json").read_text(encoding="utf-8"))
@@ -372,13 +395,27 @@ def current_source(source_key: str, source_id: str) -> tuple[dict[str, Any], dic
     return meta, source
 
 
-def survey(floors: int | None = None, now: datetime | None = None) -> dict[str, Any]:
+# 1018 她：指定帖子（--only）的开页节奏「20 分钟最多 2 次」——上一趟结束隔 ONLY_GAP_MIN 分钟再开，且 20 分钟内已开过 2 次就等
+ONLY_GAP_MIN = 10
+ONLY_WINDOW_MIN, ONLY_MAX_OPENS = 20, 2
+
+
+def opens_within(state: dict[str, Any], minutes: int, now: datetime | None = None) -> list[datetime]:
+    """这一篇最近 minutes 分钟内开过页的时刻（按续读历史，从早到晚）。"""
+    now = now or _now()
+    ats = [t for t in (_parse(h.get("at")) for h in state.get("history") or []) if t]
+    return sorted(t for t in ats if now - t < timedelta(minutes=minutes))
+
+
+def survey(floors: int | None = None, now: datetime | None = None, gap_min: int | None = None,
+           window: tuple[int, int] | None = None) -> dict[str, Any]:
     """全库还有哪些篇要续：ready（现在就能续，缺得少的在前）/ cooling（同一篇 45 分钟内刚开过）/ stuck（进了问题面板）/
-    restricted（1011：网页版要验证才能看，等她点「打开验证」，不再自动开页）。"""
+    restricted（1011：网页版要验证才能看，等她点「打开验证」，不再自动开页）。
+    gap_min / window（1018，--only 用）：同一篇隔几分钟再开、(分钟, 最多几次) 窗口内开页次数上限。"""
     from . import restricted as restricted_mod
     floors = floors or floor_target()
     now = now or _now()
-    gap = fill_gap_min()
+    gap = gap_min or fill_gap_min()
     ready, cooling, stuck, restricted = [], [], [], []
     missing = 0
     for source_key, source_id in _objects():
@@ -405,8 +442,12 @@ def survey(floors: int | None = None, now: datetime | None = None) -> dict[str, 
             continue
         missing += sc["missing"]
         last = last_open(source, state)
+        recent = opens_within(state, window[0], now) if window else []
         if last and now - last < timedelta(minutes=gap):
             entry["eligible_at"] = (last + timedelta(minutes=gap)).isoformat(timespec="seconds")
+            cooling.append(entry)
+        elif window and len(recent) >= window[1]:
+            entry["eligible_at"] = (recent[-window[1]] + timedelta(minutes=window[0])).isoformat(timespec="seconds")
             cooling.append(entry)
         else:
             ready.append(entry)
@@ -899,7 +940,8 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
         last_work_end = [0.0]  # 1018：上一篇做完的时刻——中间让路 / 等额度歇够了 REST_MIN，就算歇过了，别再强制歇
         while True:
             floors = target_floors()
-            sv = survey(floors)
+            sv = survey(floors, gap_min=ONLY_GAP_MIN if only else None,
+                        window=(ONLY_WINDOW_MIN, ONLY_MAX_OPENS) if only else None)
             if only:
                 pick = lambda xs: [e for e in xs if e["item_id"] in only]  # noqa: E731
                 sv = {**sv, "ready": pick(sv["ready"]) + pick(sv["stuck"]), "cooling": pick(sv["cooling"]),
@@ -918,7 +960,8 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
                     first = _parse(sv["cooling"][0]["eligible_at"]) or _now()
                     wait = max(30.0, min(900.0, (first - _now()).total_seconds() + 5))
                     nap(wait, state="waiting", current=None, wait_code="COOLING",
-                        message=status.text("补评论") + f" · 同一篇隔 {fill_gap_min()} 分钟再开，{first:%H:%M} 接着补")
+                        message=status.text("补评论") + (f" · 同一篇 20 分钟最多开 2 次，{first:%H:%M} 接着补" if only else
+                                                       f" · 同一篇隔 {fill_gap_min()} 分钟再开，{first:%H:%M} 接着补"))
                     continue
                 break
             entry = ready[0]

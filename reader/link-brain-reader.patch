@@ -7068,10 +7068,10 @@ index c86d1ba..0369176 100644
  type SearchFeedsRequest struct {
 diff --git a/xiaohongshu/comment_floors.go b/xiaohongshu/comment_floors.go
 new file mode 100644
-index 0000000..b1bde30
+index 0000000..ab1209a
 --- /dev/null
 +++ b/xiaohongshu/comment_floors.go
-@@ -0,0 +1,1182 @@
+@@ -0,0 +1,1186 @@
 +package xiaohongshu
 +
 +// 评论楼层加载（1004d）：一次请求、一个预算里「滚评论区加载楼层 + 把楼层上限内每楼的回复展开到底」。
@@ -8066,6 +8066,10 @@ index 0000000..b1bde30
 +	// expand_floors 非空即要求展开（续读），不必另传 click_more_replies
 +	cfg := defaultFloorLoadCfg(config.MaxCommentItems, config.ClickMoreReplies || len(config.ExpandFloors) > 0, budget, config.MaxRepliesPerFloor)
 +	cfg.ExpandFloors = config.ExpandFloors
++	if len(cfg.ExpandFloors) > 0 {
++		// 1018 她：续展按楼序一楼补完再下一楼（不轮流各补 30 条）——补到哪，哪里就是完整的
++		cfg.RoundStep = 0
++	}
 +	cfg.Resume = ParseReplyResume(config.ExpandResume)
 +	if fr := ParseReplyResume([]string{"top:" + config.FloorsResume}); fr["top"].Cursor != "" {
 +		cfg.FloorResume = fr["top"]
@@ -8256,10 +8260,10 @@ index 0000000..b1bde30
 +}
 diff --git a/xiaohongshu/comment_floors_1015_test.go b/xiaohongshu/comment_floors_1015_test.go
 new file mode 100644
-index 0000000..43e9edc
+index 0000000..be488cb
 --- /dev/null
 +++ b/xiaohongshu/comment_floors_1015_test.go
-@@ -0,0 +1,129 @@
+@@ -0,0 +1,148 @@
 +package xiaohongshu
 +
 +import (
@@ -8388,6 +8392,25 @@ index 0000000..43e9edc
 +	assert.Nil(t, r)
 +	assert.Equal(t, CommentStopSubPaused, res.Reason)
 +	assert.Equal(t, 0, fc.scrolls, "闸关了不再往下滚")
++}
++
++
++// 1018：RoundStep=0（续展）时按楼序一楼点完再点下一楼。
++func TestSequentialExpandFinishesFloorBeforeNext(t *testing.T) {
++	fc := newFake(3, &fakeFloor{id: "a", shown: 30, loaded: 1, perClick: 5}, &fakeFloor{id: "b", shown: 30, loaded: 1, perClick: 5},
++		&fakeFloor{id: "c", shown: 30, loaded: 1, perClick: 5})
++	fc.canScroll = false
++	cfg := fastFloorCfg(3, time.Minute)
++	cfg.RoundStep = 0
++	_, r := loadFloors(context.Background(), cfg, fc.ops(3))
++	assert.Nil(t, r)
++	firstB := -1
++	for i, k := range fc.order {
++		if k == "b" && firstB < 0 {
++			firstB = i
++		}
++	}
++	assert.Equal(t, 6, firstB, "a 点满 6 次（1→30）之后才轮到 b")
 +}
 diff --git a/xiaohongshu/comment_floors_localbrowser_test.go b/xiaohongshu/comment_floors_localbrowser_test.go
 new file mode 100644

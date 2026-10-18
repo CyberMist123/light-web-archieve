@@ -177,3 +177,20 @@ def test_nightly_step_and_local_steps_do_not_block(tmp_path):
     log.write_text(log.read_text(encoding="utf-8") + "2026-10-18 11:25:38  === enrich --pending 结束 exit=0 ===\n",
                    encoding="utf-8")
     assert cf.nightly_step([log]) == ""
+
+
+def test_only_mode_opens_at_most_twice_per_20min():
+    now = datetime(2026, 10, 18, 14, 0, tzinfo=TZ)
+    st = {"history": [{"at": (now - timedelta(minutes=19)).isoformat()}, {"at": (now - timedelta(minutes=11)).isoformat()}]}
+    assert len(cf.opens_within(st, 20, now)) == 2
+    st1 = {"history": [{"at": (now - timedelta(minutes=19)).isoformat()}]}
+    assert len(cf.opens_within(st1, 20, now)) == 1
+
+
+def test_fill_plan_lists_only_incomplete_floors(tmp_path, monkeypatch):
+    from link_brain import accounts
+    monkeypatch.setattr(accounts, "profile_dir", lambda: tmp_path)
+    src = _gap_source(10, {2, 7})
+    plan = cf.fill_plan(src, {})
+    assert plan["need_expand"] == 2 and plan["complete"] == 8 and plan["missing"] == 8
+    assert plan["clicks"] == 2 and [x["floor"] for x in plan["next"]] == [3, 8]
