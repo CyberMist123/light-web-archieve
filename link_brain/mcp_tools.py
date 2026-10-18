@@ -261,7 +261,7 @@ def _row_summary(it: dict[str, Any], limit: int) -> str:
     if it.get("summary"):
         return _one_sentence(it["summary"], limit)
     body = (it.get("search_fields") or {}).get("body") if isinstance(it.get("search_fields"), dict) else None
-    s = " ".join(str(body or "").split())
+    s = " ".join(re.sub(r"#[^#\n]{1,30}?\[话题\]#", " ", str(body or "")).split())   # 正文里的话题串已在 tags 里，不占概要
     return s[:limit] + ("…" if len(s) > limit else "")
 
 

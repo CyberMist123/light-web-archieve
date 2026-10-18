@@ -32,6 +32,9 @@ def _ctx(monkeypatch):
          "published": "2026-10-18", "kind": "image", "summary": "麻酱加蒜泥。后面不要。", "tags": ["火锅"],
          "url": "https://www.xiaohongshu.com/explore/bbb", "agent_md": _obj(vault, "bbb"), "note": None,
          "search_fields": {"body": "火锅"}},
+        {"id": "xhs-ccc", "title": "雨天", "author": "丙", "date": "2026-09-01", "ts": "2026-09-01T09:00:00+11:00",
+         "kind": "image", "summary": "", "tags": ["享受生活"], "url": None, "agent_md": _obj(vault, "ccc"), "note": None,
+         "search_fields": {"body": "拍着拍着就下雨了！#享受生活[话题]# #一起淋雨[话题]#"}},
     ]
     monkeypatch.setattr(ask, "load_items", lambda: items)
     monkeypatch.setattr(mt, "_items", lambda: items)
@@ -43,7 +46,8 @@ def _ctx(monkeypatch):
 def test_browse_without_query_lists_newest_first_with_tags_and_url(monkeypatch):
     mt, c = _ctx(monkeypatch)
     res = mt.search(c, {"detail": "brief", "limit": 50})
-    assert [r["id"] for r in res["results"]] == ["aaa", "bbb"] and res["found"] == 2
+    assert [r["id"] for r in res["results"]] == ["aaa", "bbb", "ccc"] and res["found"] == 3
+    assert res["results"][2]["summary"] == "拍着拍着就下雨了！"   # 话题串不进概要
     a = res["results"][0]
     assert a["tags"] == ["独立游戏", "播客推荐", "女性主义"] and a["source_url"].endswith("/aaa") and "hits" not in a
     assert a["summary"].startswith("女性独立游戏设计师") and len(a["summary"]) <= 121   # 没概要 → 正文开头，≤120 字
@@ -66,7 +70,7 @@ def test_cli_browse_lines_and_offset(monkeypatch, capsys):
     assert mt.run_browse(ns) == 0
     out = capsys.readouterr().out.splitlines()
     assert out[0].startswith("aaa｜2026-10-18｜向女性游戏玩家推荐一个播客｜#独立游戏 #播客推荐 #女性主义｜女性独立游戏设计师")
-    assert out[-1] == "共 2 篇，下一页 --offset 1"
+    assert out[-1] == "共 2 篇，下一页 --offset 1"   # since 10-01 筛掉 09-01 那篇
     ns.tag, ns.since = "露营", None
     assert mt.run_browse(ns) == 0 and "相近" in capsys.readouterr().out
 
