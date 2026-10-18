@@ -1164,6 +1164,33 @@ def call(ctx: Ctx, name: str, args: dict[str, Any]) -> dict[str, Any]:
     return handler(ctx, args)
 
 
+def run_browse(args) -> int:
+    """命令行 `browse`（1018，给 TG 端 lwa --list）：和 MCP search 同一个函数，detail=brief。
+    一行一篇：id｜入库日期｜标题｜#标签｜概要；末行说一共几篇、下一页从哪开始。"""
+    call = {"query": args.query or "", "detail": "brief", "limit": args.limit, "offset": args.offset}
+    for key, flag in (("added_on", "date"), ("added_since", "since"), ("added_until", "until"), ("tag", "tag")):
+        if getattr(args, flag, None):
+            call[key] = getattr(args, flag)
+    try:
+        res = search(Ctx(policy=local_policy(), local=True, who="命令行"), call)
+    except Denied as exc:
+        print(f"{exc.code}: {exc.message}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(res, ensure_ascii=False))
+        return 0
+    for r in res["results"]:
+        if "id" not in r:
+            continue
+        tags = " ".join("#" + t for t in (r.get("tags") or [])[:5])
+        print("｜".join(x for x in (r["id"], r.get("date") or "", r.get("title") or "", tags, r.get("summary") or "") if x))
+    if res.get("note"):
+        print(res["note"])
+    nxt = res.get("next_offset")
+    print(f"共 {res['found']} 篇" + (f"，下一页 --offset {nxt}" if nxt is not None else ""))
+    return 0
+
+
 def local_policy() -> Policy:
     """本机 stdio 的白名单：和远程同一份设置（data.json 的 remote.folders）；设置读不到就只开收藏库。"""
     from .remote import config as cfg_mod

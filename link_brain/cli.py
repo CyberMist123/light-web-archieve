@@ -146,6 +146,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=20)
     p.add_argument("--json", action="store_true", help="机器可读版（给主模型）")
 
+    p = sub.add_parser("browse", help="翻收藏目录：按入库日期 / 标签筛，新→旧（和 MCP search 同一套，不调模型）")
+    p.add_argument("query", nargs="?", default="", help="可选关键词；不给 = 只按过滤条件列")
+    p.add_argument("--date", help="某天入库的（YYYY-MM-DD）")
+    p.add_argument("--since", help="入库日期从（YYYY-MM-DD）")
+    p.add_argument("--until", help="入库日期到（YYYY-MM-DD）")
+    p.add_argument("--tag", help="按标签（整词优先、无则包含）")
+    p.add_argument("--limit", type=int, default=30)
+    p.add_argument("--offset", type=int, default=0)
+    p.add_argument("--json", action="store_true", help="机器可读版")
+
     p = sub.add_parser("reindex", help="从已有 raw/ 回填 index.db（不重抓、不联网）")
 
     p = sub.add_parser("render", help="拼可见 md + derived/agent.md（先跑 vision，纯程序拼模板）")
@@ -547,6 +557,11 @@ def _dispatch(args) -> int:
         from . import read as read_mod
 
         return read_mod.run_search(args)
+
+    if args.command == "browse":
+        from . import mcp_tools
+
+        return mcp_tools.run_browse(args)
 
     if args.command == "reindex":
         from . import index as index_mod

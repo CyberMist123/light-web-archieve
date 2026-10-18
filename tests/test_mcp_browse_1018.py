@@ -59,6 +59,18 @@ def test_added_on_is_archive_day_not_publish_day_and_strict(monkeypatch):
     assert empty["found"] == 0 and empty["results"] == [] and "入库" in empty["note"]   # 筛空不退回全库
 
 
+def test_cli_browse_lines_and_offset(monkeypatch, capsys):
+    import argparse
+    mt, _ = _ctx(monkeypatch)
+    ns = argparse.Namespace(query="", date=None, since="2026-10-01", until=None, tag=None, limit=1, offset=0, json=False)
+    assert mt.run_browse(ns) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0].startswith("aaa｜2026-10-18｜向女性游戏玩家推荐一个播客｜#独立游戏 #播客推荐 #女性主义｜女性独立游戏设计师")
+    assert out[-1] == "共 2 篇，下一页 --offset 1"
+    ns.tag, ns.since = "露营", None
+    assert mt.run_browse(ns) == 0 and "相近" in capsys.readouterr().out
+
+
 def test_tag_filter_exact_then_contains_and_suggests(monkeypatch):
     mt, c = _ctx(monkeypatch)
     assert [r["id"] for r in mt.search(c, {"tag": "#女性主义"})["results"]] == ["aaa"]   # hashtag 也算，# 不计
