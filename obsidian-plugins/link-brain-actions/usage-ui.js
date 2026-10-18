@@ -92,7 +92,7 @@ module.exports = function (obsidian, plugin) {
         const tot = w.total || {}, tr = t.createEl('tr', { cls: 'lb-usage-total' });
         for (const v of ['合计', '', String(tot.calls || 0), num(tot.in), num(tot.out), yuan(tot.cost)]) tr.createEl('td', { text: v });
       }
-      foot.setText(`金额是按价格表（${(data.summary || {}).as_of || '—'} 核对）现价折算的估算，以控制台账单为准；DeepSeek 按调用时刻分高峰 / 空闲价；「—」= 价格表里没有这个模型。本机命令行模型不花钱，算调用次数不算钱。`);
+      foot.setText(`金额是按价格表（${(data.summary || {}).as_of || '—'} 核对）现价折算的估算，以控制台账单为准；DeepSeek 按调用时刻分高峰 / 空闲价；「—」= 价格表里没有这个模型。本机命令行模型不花钱，算调用次数不算钱。「今天」从这台电脑的 0 点算；阿里云 / DeepSeek 的账单按北京时间分天、还要晚几个小时才出，对不上时看「近 7 天」。连上的 Claude / ChatGPT 搜收藏、问收藏花的也都记在这里。`);
     }
 
     function paint() { if (!alive || !data) return; paintProviders(); paintSwitch(); paintTable(); }

@@ -143,12 +143,42 @@ def vision_backups(primary: dict[str, Any] | None) -> list[dict[str, Any]]:
     except Exception:  # noqa: BLE001
         strong = None
     if strong and strong.get("model"):
+        twin = cheap_twin(strong, str((settings.get("visionAI") or {}).get("backupModel") or ""))
+        if twin:
+            out.append(twin)
         out.append(strong)
     p = primary or {}
 
     def same_key(c):
         return c.get("endpoint") == p.get("endpoint") and (c.get("apiKey") or "") == (p.get("apiKey") or "")
     return [c for c in out if not same_key(c)]
+
+
+def cheap_twin(strong: dict[str, Any], model: str = "") -> dict[str, Any] | None:
+    """1018：免费 key 用完后，第一层的备用别直接上精细识别模型——qwen3.8-max 比 qwen3.8-flash 贵 15 倍，
+    1017 一晚 418 张图走了 max ≈ ¥12.5。先用同一接口、同一把 key 的同代便宜看图模型顶（qwen3.8-max → qwen3.8-flash，
+    即 1016 以前第一层一直在用的那个）；它也不行再轮到强模型。设置 visionAI.backupModel 可指定；找不到 = None。"""
+    from .setup import estimate
+    try:
+        pricing = estimate.load_pricing()
+    except (OSError, ValueError):
+        return None
+    hit = estimate._price(pricing, str(strong.get("model") or ""))
+    if model:
+        return None if hit and hit[0] == model else {**strong, "model": model}
+    if not hit:
+        return None
+    name, info = hit
+    family = name.rsplit("-", 1)[0] + "-"
+    best = None
+    for other, m in (pricing.get("models") or {}).items():
+        if other == name or not other.startswith(family) or "vision" not in (m.get("kind") or []):
+            continue
+        if m.get("provider") != info.get("provider") or float(m.get("input") or 0) >= float(info.get("input") or 0):
+            continue
+        if best is None or float(m.get("input") or 0) > float(best[1].get("input") or 0):
+            best = (other, m)
+    return {**strong, "model": best[0]} if best else None
 
 
 def _understand_backup(path: Path, lines, primary: dict[str, Any], first: dict[str, Any],
