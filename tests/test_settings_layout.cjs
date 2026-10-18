@@ -276,7 +276,12 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
   assert.deepEqual(mcp.querySelectorAll('.lb-app').map(r => r.getAttribute('data-app')), ['claude-code', 'claude-desktop', 'codex', 'opencode', 'other']);
   assert.match(mcp.querySelector('.lb-app[data-app="opencode"]').textContent, /复制设置/, '写法不确定的只给复制设置');
   assert.match(mcp.querySelector('.lb-note').textContent, /Pi、Grok Build、DeepSeek Harness 没装/);
-  assert.deepEqual(mcp.querySelectorAll('details.lb-row-fold').map(d => d.getAttribute('data-section')), ['mcp-folders', 'remote']);
+  assert.deepEqual(mcp.querySelectorAll('details.lb-row-fold').map(d => d.getAttribute('data-section')), ['mcp-folders', 'web-howto', 'remote']);
+  // 网页端：点开就是步骤（照 ChatGPT 现在的界面：插件 → 浏览目录 → 添加 → 添加自定义 MCP 服务器），也能一键复制
+  const how = mcp.querySelector('details[data-section="web-howto"]');
+  how.open = true; how.fire('toggle');
+  assert.match(how.textContent, /添加自定义 MCP 服务器/); assert.match(how.textContent, /创建为插件/);
+  assert.ok(how.querySelector('summary button').textContent === '复制接入说明');
   tab.hide();
 
   // —— 2. 识别与问答的开关：本机项改 setup.selected（依赖联动）+ 实际起作用的设置；子项；存失败拨回；按意思搜 / 概要是各自的 mode ——

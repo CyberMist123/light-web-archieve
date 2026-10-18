@@ -229,6 +229,9 @@ const rowsIn = (page, sel) => page.evaluate(sel => [...document.querySelectorAll
       // ③ 每天最多花：改了立刻存
       await page.locator('[data-section="s-ai"] input.lb-num').fill('5'); await page.locator('[data-section="s-ai"] input.lb-num').dispatchEvent('change'); await page.waitForTimeout(100);
       assert.equal(await page.evaluate(() => window.l4.plugin.settings.budget.dailyYuan), 5);
+      // ④a 网页端怎么接：点开是步骤 + 一键复制
+      await page.locator('details[data-section="web-howto"] > summary .lb-rf-name').click(); await page.waitForTimeout(150);
+      await page.locator('.lb-card[data-section="s-mcp"]').screenshot({ path: path.join(shell.QA_DIR, `S1018v6-web-howto-${theme}.png`) });
       // ④ 网页端那一行点开：远程访问那几格
       await page.locator('details[data-section="remote"] > summary').click();
       await page.waitForFunction(() => /● 开着/.test(document.querySelector('.lb-remote-svc')?.textContent || ''));

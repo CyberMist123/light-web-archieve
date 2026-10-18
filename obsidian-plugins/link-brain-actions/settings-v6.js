@@ -401,24 +401,51 @@ module.exports = function (obsidian, plugin) {
   }
 
   // 网页端（ChatGPT、claude.ai、手机）：一键复制接入说明——连接地址 + 两家各几步 + 口令在哪（口令本身不进剪贴板）
-  function webGuideText() {
+  // 网页端接入步骤（1018 她照 ChatGPT 现在的界面核过：设置 → 插件 → 浏览目录 → 右上角「添加」→「添加自定义 MCP 服务器」）。
+  // 设置页里展开就能照着做，也能一键复制（口令本身不进剪贴板，授权页上再输）
+  function webSteps() {
     const r = plugin.settings.remote || {};
     const url = r.domain ? r.domain.replace(/\/+$/, '') + '/mcp' : '';
+    return {
+      url,
+      chatgpt: ['打开 ChatGPT 设置 → 左边「插件」→ 右上角「浏览目录」',
+        '右上角「添加」→「添加自定义 MCP 服务器」',
+        '名称随便填（比如 LWA）；连接选「服务器 URL」，粘上面的连接地址；身份验证选 OAuth',
+        '勾上「我已了解，并希望继续」→「创建为插件」',
+        '会跳到 LWA 的授权页：输入口令（在下面「域名、口令、已连上的」里复制），点「允许连接」就连上了'],
+      claude: ['打开 claude.ai 设置 → Connectors →「Add custom connector」',
+        '名字随便填，URL 粘上面的连接地址 →「Add」',
+        '点「Connect」跳到 LWA 的授权页：输入口令，点「允许连接」'],
+    };
+  }
+  function webGuideText() {
+    const w = webSteps();
+    const list = a => a.map((x, k) => `${k + 1}. ${x}`).join('\n');
     return ['LWA 收藏库（MCP，只读：能搜、能读、能看图，不能改也不能删）',
-      '连接地址：' + (url || '还没填域名——先在 LWA 设置「知识库接入 AI → 网页端」里填你的域名'),
-      '',
-      'ChatGPT：设置 → Apps & Connectors → Advanced settings 打开 Developer mode → Create，名字填 LWA，URL 粘上面的连接地址，认证选 OAuth。',
-      'claude.ai（网页 / 手机 App）：设置 → Connectors → Add custom connector，名字填 LWA，URL 粘上面的连接地址。',
-      '第一次连接会打开 LWA 的授权页：输入 LWA 设置里的口令，点「允许连接」就好。',
+      '连接地址：' + (w.url || '还没填域名——先在 LWA 设置「知识库接入 AI → 网页端」里填你的域名'),
+      '', 'ChatGPT：', list(w.chatgpt), '', 'claude.ai（网页 / 手机 App）：', list(w.claude), '',
       '用的时候说「在我的收藏里搜……」。'].join('\n');
   }
   function webRow(body, tab, { guide = false } = {}) {
-    const r = plugin.settings.remote || {};
-    const row = new Setting(body).setName('ChatGPT、claude.ai 网页版和手机')
-      .setDesc(r.domain ? '复制接入说明，照着在网页版里加一个连接器' : guide ? '要先有域名：走完后在设置「知识库接入 AI」里填，再复制接入说明' : '先在下面填好域名，再复制接入说明');
-    row.settingEl.addClass('lb-web-row');
-    tab.link(row, '复制接入说明', () => plugin.copyText(webGuideText()), '复制连接地址和接入步骤（不含口令）');
-    return row;
+    const w = webSteps();
+    const d = body.createEl('details', { cls: 'lb-row-fold lb-web-row', attr: { 'data-section': 'web-howto' } });
+    const sm = d.createEl('summary');
+    sm.createDiv({ cls: 'lb-rf-name', text: 'ChatGPT、claude.ai 网页版和手机' });
+    sm.createDiv({ cls: 'lb-rf-desc', text: w.url ? '点开看怎么接；也能一键复制步骤' : guide ? '要先有域名：走完后在设置「知识库接入 AI」里填' : '先在下面填好域名' });
+    const copy = sm.createEl('button', { cls: 'lb-link lb-rf-act', text: '复制接入说明' });
+    copy.setAttribute('aria-label', '复制连接地址和接入步骤（不含口令）');
+    copy.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); plugin.copyText(webGuideText()); };
+    const inner = d.createDiv({ cls: 'lb-web-howto' });
+    const addr = inner.createDiv({ cls: 'lb-web-addr' });
+    addr.createSpan({ cls: 'lb-web-label', text: '连接地址' });
+    addr.createEl('code', { text: w.url || '还没填域名' });
+    if (w.url) { const b = addr.createEl('button', { cls: 'lb-link', text: '复制' }); b.onclick = () => plugin.copyText(w.url); }
+    for (const [name, steps] of [['ChatGPT', w.chatgpt], ['claude.ai（网页 / 手机 App）', w.claude]]) {
+      inner.createDiv({ cls: 'lb-web-label', text: name });
+      const ol = inner.createEl('ol');
+      for (const s of steps) ol.createEl('li', { text: s });
+    }
+    return d;
   }
 
   function renderConnectCard(c, tab) {

@@ -679,3 +679,12 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v6 [data-section="s-more"] details.lb-row-fold > summary { padding-top: var(--size-4-2, 8px); padding-bottom: var(--size-4-2, 8px); }
 .lb-settings .lb-v6 [data-section="s-more"] .lb-more-row { padding: var(--size-4-2, 8px) 0; }
 .lb-settings .lb-v6 [data-section="s-more"] .lb-more-row .setting-item-name { font-weight: var(--font-medium, 500); }
+
+/* 1018 晚：网页端怎么接——点开看步骤（照 ChatGPT 现在的界面），右边一键复制 */
+.lb-settings .lb-v6 details.lb-web-row > summary .lb-rf-act { position: absolute; right: 24px; top: 50%; transform: translateY(-50%); }
+.lb-settings .lb-v6 .lb-web-howto { font-size: var(--font-ui-smaller); color: var(--text-muted); }
+.lb-settings .lb-v6 .lb-web-howto ol { margin: 4px 0 10px; padding-left: 1.4em; }
+.lb-settings .lb-v6 .lb-web-howto li { margin: 2px 0; }
+.lb-settings .lb-v6 .lb-web-label { color: var(--text-normal); font-weight: var(--font-medium, 500); margin-top: 6px; }
+.lb-settings .lb-v6 .lb-web-addr { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.lb-settings .lb-v6 .lb-web-addr code { font-size: var(--font-ui-smaller); }
