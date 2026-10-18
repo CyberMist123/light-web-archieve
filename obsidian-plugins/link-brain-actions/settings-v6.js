@@ -235,10 +235,22 @@ module.exports = function (obsidian, plugin) {
       if (h) safe(tab, body, name, () => h.featureToggle(row, id, () => { if (id === 'asr') redraw(); }));
       return row;
     };
-    feat('识图转文字', '图片和视频画面里的字都能被搜到', 'ocr', '免费 · 本机');
-    feat('语音转文字', '视频里说的话转成文字稿', 'asr', '免费 · 本机');
-    if (h && h.isOn('asr')) feat('按住 CapsLock 说话', '在任何软件里按住 CapsLock 说话，松开出字', 'capslock', '免费 · 本机').settingEl.addClass('lb-sub');
+    // 1018 晚她：一屏放得下——本机三项只写名字；要 key 的三项一句说明 + 右边「约 ¥x / 100 篇 · 哪家」
+    feat('识图', '', 'ocr', '免费 · 本机');
+    feat('语音', '', 'asr', '免费 · 本机');
+    if (h && h.isOn('asr')) feat('按 CapsLock 转文字', '', 'capslock', '免费 · 本机');
     group(body, guide ? '需要 API key · 可跳过' : '用 API key');
+    // 价钱：setup estimate（按库里平均每篇的量 × 官方单价；配了模型按配的、没配按推荐）
+    const priceMeta = {};
+    const SHORT = { DeepSeek: 'DeepSeek', '通义千问': '千问', 'Google Gemini': 'Gemini', OpenAI: 'OpenAI' };
+    const paintPrices = est => {
+      for (const it of ((est && est.data && est.data.items) || [])) {
+        const el = priceMeta[it.id];
+        if (!el || it.yuan == null) continue;
+        const y = +it.yuan;
+        el.setText(`约 ¥${y >= 1 ? y.toFixed(2) : y >= 0.01 ? y.toFixed(2) : y.toFixed(3)} / 100 篇 · ${SHORT[it.provider] || it.provider || ''}`);
+      }
+    };
     // 按意思搜 / 概要：各自的开关是这一项的 mode（off ↔ 原来的）；打开时顺手把「问收藏 · 概要 · 打标」那一组勾上（后台门禁看它）
     const capToggle = (name, desc, cap, onMode) => {
       const row = new Setting(body).setName(name).setDesc(desc);
@@ -263,9 +275,12 @@ module.exports = function (obsidian, plugin) {
       });
       return row;
     };
-    capToggle('按意思搜 · 打标签', '搜「便宜的火锅」也能找到「人均 50 的锅子」', 'embedAI', 'http');
-    capToggle('概要', '每篇自动写一段概要，列表里一眼看懂', 'summaryAI', 'inherit');
-    if (h) feat('看懂图片', '读懂截图、流程图、表格的意思，而不只是认字', 'ai_vision', '');
+    priceMeta.embed = meta(capToggle('按意思搜', 'embedding 向量：搜「便宜的火锅」也能找到「人均 50 的锅子」', 'embedAI', 'http'), '');
+    priceMeta.summary = meta(capToggle('概要', '当篇摘要、关联网址，方便后续搜索', 'summaryAI', 'inherit'), '');
+    if (h) priceMeta.vision = meta(feat('AI 识图', 'OCR、表格、流程图更精准，还有图片描述', 'ai_vision', ''), '');
+    // 价钱那一格要在开关左边
+    for (const el of Object.values(priceMeta)) el.parentElement?.prepend?.(el);
+    if (h) { const est = h.state().estimate; if (est && est.data) paintPrices(est); else h.loadEstimate().then(paintPrices).catch(() => {}); }
     // AI 服务：用的是哪几家（图标）+ 添加 key
     const svc = body.createDiv({ cls: 'lb-svc', attr: { 'data-section': 'ai-keys' } });
     const paintSvc = u => {
@@ -385,6 +400,27 @@ module.exports = function (obsidian, plugin) {
     loadApps().then(paint).catch(e => { if (alive) { list.empty(); plugin.failBox?.(list, '本机 AI 应用', e, () => { loadApps(true); tab.display(); }); } });
   }
 
+  // 网页端（ChatGPT、claude.ai、手机）：一键复制接入说明——连接地址 + 两家各几步 + 口令在哪（口令本身不进剪贴板）
+  function webGuideText() {
+    const r = plugin.settings.remote || {};
+    const url = r.domain ? r.domain.replace(/\/+$/, '') + '/mcp' : '';
+    return ['LWA 收藏库（MCP，只读：能搜、能读、能看图，不能改也不能删）',
+      '连接地址：' + (url || '还没填域名——先在 LWA 设置「知识库接入 AI → 网页端」里填你的域名'),
+      '',
+      'ChatGPT：设置 → Apps & Connectors → Advanced settings 打开 Developer mode → Create，名字填 LWA，URL 粘上面的连接地址，认证选 OAuth。',
+      'claude.ai（网页 / 手机 App）：设置 → Connectors → Add custom connector，名字填 LWA，URL 粘上面的连接地址。',
+      '第一次连接会打开 LWA 的授权页：输入 LWA 设置里的口令，点「允许连接」就好。',
+      '用的时候说「在我的收藏里搜……」。'].join('\n');
+  }
+  function webRow(body, tab, { guide = false } = {}) {
+    const r = plugin.settings.remote || {};
+    const row = new Setting(body).setName('ChatGPT、claude.ai 网页版和手机')
+      .setDesc(r.domain ? '复制接入说明，照着在网页版里加一个连接器' : guide ? '要先有域名：走完后在设置「知识库接入 AI」里填，再复制接入说明' : '先在下面填好域名，再复制接入说明');
+    row.settingEl.addClass('lb-web-row');
+    tab.link(row, '复制接入说明', () => plugin.copyText(webGuideText()), '复制连接地址和接入步骤（不含口令）');
+    return row;
+  }
+
   function renderConnectCard(c, tab) {
     const body = tab.card(c, '知识库接入 AI', 's-mcp', { desc: '接入后，在这些应用里能搜索和阅读你的收藏。只读，不会修改或删除，随时可以断开。' });
     body.head.createSpan({ cls: 'lb-card-hint', text: '只读' });
@@ -402,11 +438,12 @@ module.exports = function (obsidian, plugin) {
       if (!scope.open || scopeDrawn) return; scopeDrawn = true;
       safe(tab, scope, '开放的文件夹', () => tab.stops.push(plugin.remoteUI?.renderConnect(scope.createDiv(), () => tab.display(), tab, { part: 'folders' })));
     });
-    group(body, '网页端');
+    group(body, '网页端 · 要你自己的域名');
+    webRow(body, tab);
     const web = body.createEl('details', { cls: 'lb-row-fold', attr: { 'data-section': 'remote' } });
     const ws = web.createEl('summary');
-    ws.createDiv({ cls: 'lb-rf-name', text: 'ChatGPT、claude.ai 网页版和手机' });
-    ws.createDiv({ cls: 'lb-rf-desc', text: r.enabled ? '开着' + (r.domain ? ' · ' + r.domain : '') : '要你自己的域名；本地应用不需要' });
+    ws.createDiv({ cls: 'lb-rf-name', text: '域名、口令、已连上的' });
+    ws.createDiv({ cls: 'lb-rf-desc', text: r.enabled ? '远程访问开着' + (r.domain ? ' · ' + r.domain : '') : '远程访问没开' });
     let webDrawn = false;
     const fillWeb = () => {
       if (!web.open || webDrawn) return; webDrawn = true;
@@ -425,7 +462,7 @@ module.exports = function (obsidian, plugin) {
       const d = body.createEl('details', { cls: 'lb-row-fold', attr: { 'data-section': section } });
       const sm = d.createEl('summary');
       sm.createDiv({ cls: 'lb-rf-name', text: name });
-      if (desc) sm.createDiv({ cls: 'lb-rf-desc', text: desc });
+      if (desc) sm.setAttribute('title', desc);   // 1018 晚她：更多这里线太多、字太多——只留名字，说明放悬停
       const inner = d.createDiv({ cls: 'lb-rf-body' });
       let drawn = false;
       d.addEventListener('toggle', () => { if (!d.open || drawn) return; drawn = true; safe(tab, inner, name, () => draw(inner)); });
@@ -462,7 +499,8 @@ module.exports = function (obsidian, plugin) {
       if (h) { tab.stops.push(h.renderStatus(b, tab, { machineOnly: true })); tab.stops.push(h.renderRun(b, tab)); }
       tab.renderDeveloperCard(b);
     });
-    const again = new Setting(body).setName('重新走一遍首次设置').setDesc('设置都留着，只是再走一遍');
+    const again = new Setting(body).setName('重新走一遍首次设置');
+    again.settingEl.addClass('lb-more-row');
     tab.link(again, '开始', async () => { s.onboarding = { ...(s.onboarding || {}), force: true, guideDone: false, step: 0 }; await tab.save(); tab.display(); try { tab.containerEl.scrollTop = 0; } catch {} }, '回到首次设置');
   }
 
@@ -524,8 +562,7 @@ module.exports = function (obsidian, plugin) {
         const next = n.createEl('button', { cls: 'mod-cta', text: last ? '完成' : '下一步' });
         next.onclick = () => (last ? finish() : go(step + 1));
         if (step > 1) n.createEl('button', { text: '上一步' }).onclick = () => go(step - 1);
-        if (step === 3) { const sk = n.createEl('button', { cls: 'lb-link lb-push', text: '跳过 AI 部分' }); sk.onclick = () => go(step + 1); }
-        const out = n.createEl('button', { cls: 'lb-link' + (step === 3 ? '' : ' lb-push'), text: '以后再说' });
+        const out = n.createEl('button', { cls: 'lb-link lb-push', text: '以后再说' });
         out.onclick = () => finish(false);   // 以后再说：只记走完，不替她开跑
       };
       const id = step ? STEPS[step - 1][0] : 'welcome';
@@ -552,12 +589,12 @@ module.exports = function (obsidian, plugin) {
         title('识别与问答', '本机两项免费，其余需要 key');
         aiRows(body, tab, { guide: true });
       } else {
-        title('接入其他 AI', '只读 · 可跳过');
-        body.createEl('p', { cls: 'lb-guide-hint', text: '接入后，在这些应用里能搜索和阅读你的收藏。只读，不会修改或删除，随时可以断开。' });
-        group(body, '本地应用');
+        title('接入其他 AI（MCP）', '只读 · 可跳过');
+        body.createEl('p', { cls: 'lb-guide-hint', text: '通过 MCP 把收藏库接给这些应用：在里面就能搜索、阅读你的收藏。只读，不会修改或删除，随时可以断开。' });
+        group(body, '本地应用 · 不用域名');
         appRows(body, tab, { guide: true });
-        group(body, '网页端');
-        body.createDiv({ cls: 'setting-item-description', text: 'ChatGPT、claude.ai 网页版和手机要你自己的域名，之后在设置「知识库接入 AI」里配。' });
+        group(body, '网页端 · 要你自己的域名');
+        webRow(body, tab, { guide: true });
       }
       nav();
     };

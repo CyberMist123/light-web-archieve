@@ -29,12 +29,12 @@
   },
   "models": {
     "deepseek-flash": {
-      "api_model": "deepseek-v4-flash",
+      "api_model": "deepseek-flash",
       "provider": "DeepSeek", "kind": ["text"], "currency": "CNY", "unit": "per_million_tokens",
       "input": 2.0, "output": 8.0, "input_cache_hit": 0.04,
       "input_offpeak": 1.0, "output_offpeak": 4.0, "input_cache_hit_offpeak": 0.02,
       "aliases": ["deepseek-v4-flash"],
-      "note": "高峰价 = 北京时间周一至周五 9:00-12:00、14:00-18:00；其余时段（含周末、法定节假日）半价。旧名 deepseek-v4-flash 仍可调用，由 DeepSeek-V4.1-Flash 提供服务、按 Flash 价计费。",
+      "note": "高峰价 = 北京时间周一至周五 9:00-12:00、14:00-18:00；其余时段（含周末、法定节假日）半价。1018：接口 /models 列的正式名是 deepseek-flash（DeepSeek-V4.1-Flash）；旧名 deepseek-v4-flash 仍可调用、同一个模型。",
       "source": "deepseek", "checked": "2026-10-03"
     },
     "deepseek-v4-pro": {
@@ -135,7 +135,8 @@
     "summary": "deepseek-flash",
     "vision": "qwen3.8-flash",
     "video": "gpt-4o-mini-transcribe",
-    "ask": "deepseek-flash"
+    "ask": "deepseek-flash",
+    "embed": "qwen3.7-text-embedding-flash"
   },
   "alternatives": {
     "summary": ["qwen3.7-flash", "gpt-6-luna", "gemini-3.5-flash-lite"],

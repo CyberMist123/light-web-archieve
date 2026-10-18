@@ -147,6 +147,17 @@ module.exports = function homeUI(obsidian, plugin) {
     return withDeps([...ids], comps());
   };
   const errText = e => (e && e.message) || String(e || '');
+  // 1018 她：识图「还没配」——关掉「识图转文字」会顺带关掉依赖它的识图，再打开认字却不补回来，识图就悄悄停了。
+  // 现在：关掉一项时记下顺带关掉的（setup.dropped[这一项]），再打开这一项就把它们一起开回来。
+  function nextSelection(cur, id, v, cs) {
+    const s = setup();
+    if (!s.dropped || typeof s.dropped !== 'object') s.dropped = {};
+    if (v) { const back = Array.isArray(s.dropped[id]) ? s.dropped[id] : []; delete s.dropped[id]; return withDeps([...(cur || []), id, ...back], cs); }
+    const after = withoutDependents(cur, id, cs);
+    const lost = (cur || []).filter(x => x !== id && !after.includes(x));
+    if (lost.length) s.dropped[id] = lost; else delete s.dropped[id];
+    return after;
+  }
 
   async function loadPlan(force = false) {
     const st = S();
@@ -461,7 +472,7 @@ module.exports = function homeUI(obsidian, plugin) {
         else help(tab, row, '要一个 AI 服务商的密钥（API Key）；按用量计费，钱付给服务商，不经过本插件。');
         row.addToggle(t => bindToggle(t, sel.has(id), async v => {
           const snap = snapRuntime();
-          setup().selected = toggleSelection(effective(), id, v, cs);
+          setup().selected = nextSelection(effective(), id, v, cs);
           try { await applyRuntime(new Set(setup().selected)); await plugin.saveSettings(); }
           catch (e) { for (const k of RUNTIME_KEYS) plugin.settings[k] = snap[k]; throw e; }
           finally { paintAll(); }
@@ -583,7 +594,7 @@ module.exports = function homeUI(obsidian, plugin) {
       const cs = comps();
       if (!cs.some(x => x.id === id)) throw new Error('功能清单里没有「' + id + '」');
       const snap = snapRuntime();
-      setup().selected = toggleSelection(effective(), id, v, cs);
+      setup().selected = nextSelection(effective(), id, v, cs);
       try { await applyRuntime(new Set(setup().selected)); await plugin.saveSettings(); }
       catch (e) { for (const k of RUNTIME_KEYS) plugin.settings[k] = snap[k]; throw e; }
       finally { repaint(); if (after) after(); }
@@ -599,7 +610,7 @@ module.exports = function homeUI(obsidian, plugin) {
     if (!cs.some(x => x.id === id)) throw new Error('功能清单里没有「' + id + '」');
     if (new Set(effective()).has(id) === !!v) return;
     const snap = snapRuntime();
-    setup().selected = toggleSelection(effective(), id, v, cs);
+    setup().selected = nextSelection(effective(), id, v, cs);
     try { await applyRuntime(new Set(setup().selected)); await plugin.saveSettings(); }
     catch (e) { for (const k of RUNTIME_KEYS) plugin.settings[k] = snap[k]; throw e; }
     finally { repaint(); }

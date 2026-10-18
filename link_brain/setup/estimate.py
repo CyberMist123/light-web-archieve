@@ -161,7 +161,7 @@ def _configured_models() -> dict[str, str]:
         from .. import ai_config, providers
         s = ai_config.load()
         out = {}
-        for item, cap in (("summary", "summaryAI"), ("vision", "visionAI"), ("ask", "textAI"), ("video", "asrAI")):
+        for item, cap in (("summary", "summaryAI"), ("vision", "visionAI"), ("ask", "textAI"), ("video", "asrAI"), ("embed", "embedAI")):
             cfg = providers.resolve(cap, ai_config.with_model(s) if cap == "textAI" else s)
             if cfg and cfg.get("mode") == "http" and cfg.get("model"):
                 out[item] = str(cfg["model"])
@@ -205,6 +205,9 @@ def estimate(posts: int = 100) -> dict[str, Any]:
         v_in, v_out = typ["vision_in"], typ["vision_out"]
         v_how = (f"平均每篇 {basis['avg_images']} 张图，约 {v_calls} 次识图（标题图不调模型），每次输入 {v_in} / 输出 {v_out} token"
                  "（典型值，按千问 qwen3.8-flash 实测）")
+    # 1018：按意思搜（向量）——每篇正文 + 评论 + 图里的字切块后算向量，只收输入；图里的字按正文的三成粗算
+    e_in = int(llm.estimate_tokens("中" * int(basis["avg_chars"] + basis["avg_comment_chars"])) * 1.3)
+    e_how = f"每篇正文 + 评论约 {basis['avg_chars'] + basis['avg_comment_chars']} 字，加图里的字约三成，折约 {e_in} token；向量只收输入"
     basis.update(summary_tokens_in=s_in, summary_tokens_out=s_out, vision_calls=v_calls, vision_tokens_in=v_in,
                  vision_tokens_out=v_out)
     settings = ai_config.load()
@@ -233,6 +236,9 @@ def estimate(posts: int = 100) -> dict[str, Any]:
         if item == "vision":
             per = token_cost(pricing, info, v_in, v_out)
             return None if per is None else per * v_calls * posts
+        if item == "embed":
+            per = token_cost(pricing, info, e_in, 0)
+            return None if per is None else per * posts
         if item == "video":
             per = audio_cost(pricing, info, float(basis["avg_video_min"] or 0))
             return None if per is None else per * posts
@@ -242,20 +248,20 @@ def estimate(posts: int = 100) -> dict[str, Any]:
         return "；按高峰价算，北京时间工作日 9-12 点、14-18 点以外半价" if "input_offpeak" in info else ""
 
     names = {"summary": "概要 + 打标", "vision": "识图", "video": "视频转写（用 API 时；本地 CapsWriter 免费）",
-             "ask": "问答（每问一次）"}
-    hows = {"summary": s_how, "vision": v_how,
+             "ask": "问答（每问一次）", "embed": "按意思搜（向量）"}
+    hows = {"summary": s_how, "vision": v_how, "embed": e_how,
             "video": f"平均每篇视频 {basis['avg_video_min']} 分钟（没视频的篇算 0）× 每分钟单价",
             "ask": f"一次带检索摘录约 {ctx_chars} 字 + 提示词 ≈ {a_in} token 输入，输出按 maxTokens 一半 ≈ {a_out} token"}
     def connection(item, key, info):
         provider = (pricing.get('providers') or {}).get(info.get('provider'), {})
         # 1010：key_url = 这家「新建密钥」的官方页面（设置页「去哪弄密钥」直接给链接）
         return {'api_model': info.get('api_model') or next(iter(info.get('aliases') or []), key),
-                'endpoint': provider.get('asr_endpoint' if item == 'video' else 'endpoint', ''),
+                'endpoint': provider.get('asr_endpoint' if item == 'video' else 'embed_endpoint' if item == 'embed' else 'endpoint', ''),
                 'key_url': provider.get('key_url', ''),
                 'openai_compatible': info.get('openai_compatible')}
 
     items = []
-    for item in ("summary", "vision", "video", "ask"):
+    for item in ("summary", "vision", "video", "ask", "embed"):
         key, info, mine = pick(item)
         yuan = cost_of(item, key, info) if info else None
         alt_rows = []

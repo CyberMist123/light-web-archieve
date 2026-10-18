@@ -672,3 +672,10 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-key-paste { width: 100%; margin: 6px 0 10px; }
 .lb-prov-links { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; }
 .lb-modal-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
+/* 1018 晚她：识别与问答一屏放得下（行矮一点）；更多只留名字、不要分隔线 */
+.lb-settings .lb-v6 [data-section="s-ai"] .setting-item { padding: var(--size-4-2, 8px) 0; }
+.lb-settings .lb-v6 [data-section="s-ai"] .lb-grp { padding-top: var(--size-4-3, 12px); }
+.lb-settings .lb-v6 [data-section="s-more"] details.lb-row-fold, .lb-settings .lb-v6 [data-section="s-more"] .setting-item { border-top: 0; }
+.lb-settings .lb-v6 [data-section="s-more"] details.lb-row-fold > summary { padding-top: var(--size-4-2, 8px); padding-bottom: var(--size-4-2, 8px); }
+.lb-settings .lb-v6 [data-section="s-more"] .lb-more-row { padding: var(--size-4-2, 8px) 0; }
+.lb-settings .lb-v6 [data-section="s-more"] .lb-more-row .setting-item-name { font-weight: var(--font-medium, 500); }

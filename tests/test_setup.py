@@ -523,7 +523,7 @@ def test_estimate_from_library(capsys):
     assert b["vision_tokens_in"] == 2000 and b["vision_tokens_out"] == 200
     assert b["summary_tokens_in"] == 2000 and b["summary_tokens_out"] == 500
     items = {i["id"]: i for i in out["items"]}
-    assert set(items) == {"summary", "vision", "video", "ask"}
+    assert set(items) == {"summary", "vision", "video", "ask", "embed"}   # 1018：加了按意思搜（向量）
     for i in out["items"]:
         assert set(i) >= {"id", "name", "provider", "model", "yuan", "per", "how"}
     # 概要：100 篇 ×（2000×1 + 500×2）/ 1e6 = 0.3 元

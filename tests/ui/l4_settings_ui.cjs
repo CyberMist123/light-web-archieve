@@ -205,7 +205,7 @@ const rowsIn = (page, sel) => page.evaluate(sel => [...document.querySelectorAll
       assert.match(fix, /通义千问 key 用不了.*去充值 ↗.*换一个 key/);
       assert.match(await page.evaluate(() => document.querySelector('[data-section="s-status"]').textContent), /已接入 Claude Code/);
       const ai = await rowsIn(page, '[data-section="s-ai"]');
-      assert.deepEqual(ai, ['识图转文字', '语音转文字', '按意思搜 · 打标签', '概要', '看懂图片', '问收藏用的模型', '每天最多花'], theme + ' 识别与问答：' + ai);
+      assert.deepEqual(ai, ['识图', '语音', '按意思搜', '概要', 'AI 识图', '问收藏用的模型', '每天最多花'], theme + ' 识别与问答：' + ai);
       const chips = await page.evaluate(() => [...document.querySelectorAll('[data-section="s-ai"] .lb-pv')].map(x => x.getAttribute('data-provider') || x.textContent));
       assert.deepEqual(chips, ['google', 'deepseek', 'aliyun', '＋ 添加 key']);
       const apps = await page.evaluate(() => [...document.querySelectorAll('.lb-app')].map(r => r.getAttribute('data-app') + ':' + r.querySelector('.setting-item-description').textContent));
@@ -222,7 +222,7 @@ const rowsIn = (page, sel) => page.evaluate(sel => [...document.querySelectorAll
       assert.deepEqual(rowBoxes, [], theme + '：行不再自带底色 / 圆角 / 边框');
       summary[theme] = { cards: await cards(page), 状态: status, 识别与问答: ai, 接入: apps };
       await shot(page, `S1018v6-settings-${theme}.png`);
-      for (const sec of ['s-ai', 's-mcp']) await page.locator(`.lb-card[data-section="${sec}"]`).screenshot({ path: path.join(shell.QA_DIR, `S1018v6-card-${sec}-${theme}.png`) });
+      for (const sec of ['s-ai', 's-mcp', 's-more']) await page.locator(`.lb-card[data-section="${sec}"]`).screenshot({ path: path.join(shell.QA_DIR, `S1018v6-card-${sec}-${theme}.png`) });
       // ② 接入 Codex：开关 → connect add codex → 「已接入」
       await page.evaluate(() => document.querySelector('.lb-app[data-app="codex"] .checkbox-container').click()); await page.waitForTimeout(200);   // 外壳的开关没有尺寸：走 DOM 点
       assert.equal(await page.evaluate(() => document.querySelector('.lb-app[data-app="codex"] .setting-item-description').textContent), '已接入');
@@ -260,7 +260,7 @@ const rowsIn = (page, sel) => page.evaluate(sel => [...document.querySelectorAll
         await shot(page, `S1018v6-guide-${k}-light.png`);
         if (k < 4) { await page.locator('.lb-guide-nav button', { hasText: '下一步' }).click(); await page.waitForTimeout(200); }
       }
-      assert.deepEqual(seen, ['登录小红书', '同步', '识别与问答', '接入其他 AI']);
+      assert.deepEqual(seen, ['登录小红书', '同步', '识别与问答', '接入其他 AI（MCP）']);
       await page.locator('.lb-guide-nav button', { hasText: '完成' }).click();
       await page.waitForFunction(() => document.querySelector('.lb-card[data-section="s-status"]'));
       assert.equal(await page.evaluate(() => window.l4.plugin.settings.onboarding.guideDone), true);

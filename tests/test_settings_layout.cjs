@@ -219,10 +219,10 @@ const RENAMED = {
   '评论 · 自动拉取': '每篇评论抓几楼', '评论 · 手动拉取': '每篇评论抓几楼',     // 1010：合成一项，手动的差别是一行小字
   '每天最多新抓': '每天最多新收几篇', '文本 AI': '问收藏 / 概要改用本机命令行', 'API Key': '密钥（API Key）', '模型': '模型名',
   '测试文本 AI': '测试（发一句话，几乎不花钱）', '归档摘要模型（默认同文本 AI）': '写概要用的模型', '测试归档摘要': '测试概要模型（发一段短文，几乎不花钱）',
-  '识图接口': '看懂图片', '精细识别模型': '精细识图模型', '测试识图': '测试识图（发一张小图，几乎不花钱）', '视频画面文字': '认视频画面里的字',
-  '语音识别': '视频转文字改用在线接口', '端口': '本机语音识别的端口', 'CapsLock 语音输入': '按住 CapsLock 说话', 'CapsWriter 目录': 'CapsWriter 装在哪',
+  '识图接口': 'AI 识图', '精细识别模型': '精细识图模型', '测试识图': '测试识图（发一张小图，几乎不花钱）', '视频画面文字': '认视频画面里的字',
+  '语音识别': '视频转文字改用在线接口', '端口': '本机语音识别的端口', 'CapsLock 语音输入': '按 CapsLock 转文字', 'CapsWriter 目录': 'CapsWriter 装在哪',
   '输入框提示文字': '输入框里的提示字', DeepSeek: '文本 AI', '添加模型': '加一个模型', '其他客户端（JSON 配置）': '其他应用', '测试 MCP': '测一下本机的连接程序（MCP）',
-  '批注昵称': '批注署名', '检查本机环境': '检查这台电脑', '文字识别（OCR）': '识图转文字', '识别精度': '认字精度', '模型目录（可选）': '认字模型放在哪（可选）',
+  '批注昵称': '批注署名', '检查本机环境': '检查这台电脑', '文字识别（OCR）': '识图', '识别精度': '认字精度', '模型目录（可选）': '认字模型放在哪（可选）',
   '测试 OCR': '测试认字（本机跑，不花钱）', '摘要提示词（归档时抽取）': '写概要的提示词', '问答提示词（/问AI）': '问收藏的提示词',
   '回答输出上限（max_tokens）': '回答最长多少（max_tokens）', '发给模型的总字符上限': '最多给模型看多少字', '每篇片段字符上限': '每篇最多摘多少字',
   '送模型的片段篇数（topK）': '最多参考几篇（topK）', '先用小模型扩检索词': '提问时先想几个同义词一起搜', '载入当前分类+清空（用内置）+重建目录': '编辑索引',   // 10-10 索引树：分类文本框换成「编辑索引 / AI 起草 / 未归类建议 / 重新整理目录」
@@ -235,8 +235,8 @@ const RENAMED = {
 // 合并的：本机 AI 的复制命令只留一处（第二个 Codex 合进「其他 AI 软件」的设置片段）；「评论 · 手动拉取」合进「每篇评论抓几楼」
 const MERGED = { Codex: 1, '每篇评论抓几楼': 1 };
 // 这些设置只许出现一次（别处有重复的一律删掉只留一处）
-const ONCE = ['〔账号卡片〕', '收藏同步', '每天最多新收几篇', '存图片', '保存视频', '每篇评论抓几楼', '看懂图片', '按住 CapsLock 说话', 'Claude Code', '测一下本机的连接程序（MCP）',
-  '视频转文字改用在线接口', '写概要用的模型', '评论补齐', '收藏放在哪', '后端命令', '自动同步时间', '识图转文字', '语音转文字', '概要', '按意思搜 · 打标签', '每天最多花', '问收藏用的模型'];
+const ONCE = ['〔账号卡片〕', '收藏同步', '每天最多新收几篇', '存图片', '保存视频', '每篇评论抓几楼', 'AI 识图', '按 CapsLock 转文字', 'Claude Code', '测一下本机的连接程序（MCP）',
+  '视频转文字改用在线接口', '写概要用的模型', '评论补齐', '收藏放在哪', '后端命令', '自动同步时间', '识图', '语音', '概要', '按意思搜', '每天最多花', '问收藏用的模型'];
 // 动态状态行（说明是现读的状态，不算「每项说明一行」的说明文字）
 const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '问题', '这台电脑', '文本 AI', 'Codex', 'Sonnet', '远程访问', '口令', '连接地址', 'Claude Code', 'Claude Desktop', '你的网址', '远程访问的运行情况']);
 
@@ -268,7 +268,7 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
   assert.deepEqual(rowsOf(cardOf(root, 's-xhs')).map(idOf).filter(n => n !== ''), ['自动同步时间', '每天最多新收几篇', '每篇评论抓几楼', '保存视频']);
   // 识别与问答：本机两项（语音转文字没开 → CapsLock 子项不出）+ 用 key 的三项 + 问收藏模型 + 每天最多花
   const ai = cardOf(root, 's-ai');
-  assert.deepEqual(rowsOf(ai).map(idOf), ['识图转文字', '语音转文字', '按意思搜 · 打标签', '概要', '看懂图片', '问收藏用的模型', '每天最多花']);
+  assert.deepEqual(rowsOf(ai).map(idOf), ['识图', '语音', '按意思搜', '概要', 'AI 识图', '问收藏用的模型', '每天最多花']);
   assert.deepEqual(ai.querySelectorAll('.lb-pv').map(x => x.getAttribute('data-provider') || x.textContent), ['deepseek', 'aliyun', '＋ 添加 key']);
   assert.ok(ai.querySelector('.lb-pv[data-provider="aliyun"]').classList.contains('is-warn'), '欠费那家标黄');
   // 知识库接入 AI：本机装了的（照 Claudian 认）· 没装的一句 · 范围 · 网页端
@@ -316,6 +316,18 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
   capCb('embedAI').checked = false; await capCb('embedAI').onchange(); await settle();
   assert.equal(env.p.settings.embedAI.mode, 'off');
   tab.hide();
+
+  // —— 1018 她「识图还没配」：关掉识图转文字顺带关掉识图，再打开认字要把识图一起开回来 ——
+  {
+    const e5 = makePlugin({ onboarding: { guideDone: true }, setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'ai_text', 'ai_vision'], aiSynced: true } });
+    const t5 = openPage(e5.p, 'ai'); await settle();
+    const cb = () => t5.containerEl.querySelector('.lb-feat[data-id="ocr"] .checkbox-container');
+    cb().checked = false; await cb().onchange(); await settle();
+    assert.ok(!e5.p.settings.setup.selected.includes('ai_vision'), '关认字：依赖它的识图跟着关');
+    cb().checked = true; await cb().onchange(); await settle();
+    assert.ok(e5.p.settings.setup.selected.includes('ai_vision'), '再开认字：识图一起开回来');
+    t5.hide();
+  }
 
   // —— 粘一把 key：认出是哪家，只往空着的格子里填；已经填好的地址和密钥引用一个不动 ——
   {
@@ -377,7 +389,7 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
       const next = r4.querySelectorAll('.lb-guide-nav button').find(b => b.textContent === '下一步');
       if (next) { await next.onclick(); await settle(); }
     }
-    assert.deepEqual(titles, ['登录小红书', '同步', '识别与问答', '接入其他 AI']);
+    assert.deepEqual(titles, ['登录小红书', '同步', '识别与问答', '接入其他 AI（MCP）']);
     assert.deepEqual(r4.querySelectorAll('.lb-guide-step').map(s => s.textContent.replace(/[\d✓]/g, '')), ['登录小红书', '同步', '识别与问答', '接入其他 AI']);
     t4.hide();
   }
