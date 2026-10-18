@@ -329,7 +329,7 @@ def search(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
     if not total and filters.get("album"):
         names = _album_names()
         out["note"] = (f"没有在「{filters['album']}」专辑里的篇；她的专辑：" + "、".join(names[:30])) if names \
-            else "专辑还没同步过（夜跑的 albums sync 会读）"
+            else "专辑还没同步过（albums sync 还没跑过）"
     elif not total and filters.get("tag"):
         out["note"] = f"没有带「{filters['tag']}」标签的篇；库里相近 / 常用的标签：" + "、".join(_tag_suggestions(filters["tag"]))
     elif not total and filters.get("added_since"):

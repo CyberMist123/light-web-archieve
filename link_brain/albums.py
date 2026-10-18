@@ -235,7 +235,7 @@ def run(args) -> int:
                                          | {"in_library": len(b.get("notes") or [])} for b in boards]}, ensure_ascii=False))
             return 0
         if not boards:
-            print("还没读过专辑（夜跑的 albums sync 会读）")
+            print("还没同步过专辑（albums sync 还没跑过）")
             return 0
         for b in boards:
             seen = "没看过" if not b.get("checked_at") else f"读到 {len(b.get('notes') or [])} 篇"
