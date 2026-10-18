@@ -75,6 +75,28 @@ def test_cli_browse_lines_and_offset(monkeypatch, capsys):
     assert mt.run_browse(ns) == 0 and "相近" in capsys.readouterr().out
 
 
+def test_cli_item_part_and_image(monkeypatch, capsys):
+    import argparse
+    mt, _ = _ctx(monkeypatch)
+    vault = storage.vault_root()
+    obj = vault / "_archive" / "xiaohongshu" / "aaa"
+    (obj / "derived" / "agent.md").write_text("# 播客\n\n## 概要\n一句话\n\n## 图片 OCR\n图1 文字\n\n## 评论\nc1\n", encoding="utf-8")
+    assets = obj / "raw" / "v0001" / "assets"
+    assets.mkdir(parents=True)
+    (assets / "image-001.webp").write_bytes(b"x")
+    (obj / "raw" / "v0001" / "manifest.json").write_text(
+        json.dumps({"media": [{"file": "raw/v0001/assets/image-001.webp", "role": "note_image"}]}), encoding="utf-8")
+    ns = argparse.Namespace(target="aaa", part="OCR", image=None, offset=0, max_chars=30000, json=False)
+    assert mt.run_item(ns) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("向女性游戏玩家推荐一个播客｜aaa｜段：概要、图片 OCR、评论｜图 1 张") and "图1 文字" in out and "c1" not in out
+    ns.part, ns.image = None, 1
+    assert mt.run_item(ns) == 0
+    assert capsys.readouterr().out.strip() == str(assets / "image-001.webp")
+    ns.image = 5
+    assert mt.run_item(ns) == 2 and "只有 1 张" in capsys.readouterr().err
+
+
 def test_tag_filter_exact_then_contains_and_suggests(monkeypatch):
     mt, c = _ctx(monkeypatch)
     assert [r["id"] for r in mt.search(c, {"tag": "#女性主义"})["results"]] == ["aaa"]   # hashtag 也算，# 不计

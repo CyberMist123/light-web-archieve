@@ -156,6 +156,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--offset", type=int, default=0)
     p.add_argument("--json", action="store_true", help="机器可读版")
 
+    p = sub.add_parser("item", help="读一篇的机读版（可只取一段）或拿第 N 张原图的路径（和 MCP read 同一套）")
+    p.add_argument("target", help="item_id（带不带 xhs- 都行）或原文链接")
+    p.add_argument("--part", help="只取这一段：概要 / 重要细节 / 原文 / 图片 OCR / 评论 / 附件全文 …（包含匹配）")
+    p.add_argument("--image", type=int, help="第 N 张图（正文图在前、评论图在后，和 agent.md 里的「图N」一致）：打印绝对路径")
+    p.add_argument("--offset", type=int, default=0, help="长文续读：从第几个字符开始")
+    p.add_argument("--max-chars", dest="max_chars", type=int, default=30000)
+    p.add_argument("--json", action="store_true")
+
     p = sub.add_parser("reindex", help="从已有 raw/ 回填 index.db（不重抓、不联网）")
 
     p = sub.add_parser("render", help="拼可见 md + derived/agent.md（先跑 vision，纯程序拼模板）")
@@ -562,6 +570,11 @@ def _dispatch(args) -> int:
         from . import mcp_tools
 
         return mcp_tools.run_browse(args)
+
+    if args.command == "item":
+        from . import mcp_tools
+
+        return mcp_tools.run_item(args)
 
     if args.command == "reindex":
         from . import index as index_mod

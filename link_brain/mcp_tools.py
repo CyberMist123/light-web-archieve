@@ -1191,6 +1191,41 @@ def run_browse(args) -> int:
     return 0
 
 
+def run_item(args) -> int:
+    """命令行 `item`（1019，给 TG 端 lwa --full --part / --image）：和 MCP read 同一个函数。
+    --image N：只打印第 N 张图的绝对路径（一行）；否则打印一行头（标题 · 有哪些段）+ 正文，长文末行给续读 offset。"""
+    ctx = Ctx(policy=local_policy(), local=True, who="命令行")
+    call: dict[str, Any] = {"id": args.target, "offset": args.offset, "max_chars": args.max_chars}
+    if args.part and not args.image:
+        call["part"] = args.part
+    try:
+        res = read(ctx, call)
+    except Denied as exc:
+        print(f"{exc.code}: {exc.message}", file=sys.stderr)
+        return 2
+    if args.image:
+        imgs = res.get("images") or []
+        hit = next((im for im in imgs if im.get("n") == args.image), None)
+        if not hit:
+            print(f"NOT_FOUND: 这篇只有 {len(imgs)} 张图（图号 1–{len(imgs)}）" if imgs else "NOT_FOUND: 这篇没有存下来的图", file=sys.stderr)
+            return 2
+        path = str(ctx.policy.root.joinpath(*hit["path"].split("/")))
+        if args.json:
+            print(json.dumps({**hit, "abs_path": path, "total": len(imgs)}, ensure_ascii=False))
+        else:
+            print(path)
+        return 0
+    if args.json:
+        print(json.dumps(res, ensure_ascii=False))
+        return 0
+    n_img = len(res.get("images") or [])
+    print(f"{res['title']}｜{res['id']}｜段：{'、'.join(res['parts'])}" + (f"｜图 {n_img} 张" if n_img else ""))
+    print(res["text"].strip())
+    if res.get("next_offset") is not None:
+        print(f"（还没完：共 {res['total_chars']} 字，续读 --offset {res['next_offset']}）")
+    return 0
+
+
 def local_policy() -> Policy:
     """本机 stdio 的白名单：和远程同一份设置（data.json 的 remote.folders）；设置读不到就只开收藏库。"""
     from .remote import config as cfg_mod
