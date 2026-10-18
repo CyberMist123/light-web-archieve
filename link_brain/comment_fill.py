@@ -940,8 +940,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
         last_work_end = [0.0]  # 1018：上一篇做完的时刻——中间让路 / 等额度歇够了 REST_MIN，就算歇过了，别再强制歇
         while True:
             floors = target_floors()
-            sv = survey(floors, gap_min=ONLY_GAP_MIN if only else None,
-                        window=(ONLY_WINDOW_MIN, ONLY_MAX_OPENS) if only else None)
+            sv = survey(floors, gap_min=ONLY_GAP_MIN, window=(ONLY_WINDOW_MIN, ONLY_MAX_OPENS)) if only else survey(floors)
             if only:
                 pick = lambda xs: [e for e in xs if e["item_id"] in only]  # noqa: E731
                 sv = {**sv, "ready": pick(sv["ready"]) + pick(sv["stuck"]), "cooling": pick(sv["cooling"]),
