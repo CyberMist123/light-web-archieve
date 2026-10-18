@@ -528,6 +528,10 @@ def _chat(path: Path, prompt: str, cfg: dict[str, Any], *, max_tokens: int, time
     from . import providers
     if cfg.get("keyError") and not cfg.get("apiKey"):
         return providers.result("failed", code="NEEDS_HUMAN.AUTH_FAILED", error=cfg["keyError"], api_error=True)
+    from . import budget
+    stop = budget.blocked(cfg)  # 1018：今天花到上限了，后台识图不再调要钱的模型
+    if stop:
+        return stop
     headers = {"Content-Type": "application/json"}
     if cfg.get("apiKey"):
         headers["Authorization"] = "Bearer " + cfg["apiKey"].strip()

@@ -708,13 +708,14 @@ class SyncSettingsModal extends Modal {
 // 「模型与提供商」下面再分子页签。旧落点名照认：问题面板「打开设置」带 'ai'、命令带 'overview' / 'features'、「去扫码 / 验证」带 'status'、远程带 'remote'。
 // 1016 她：再改——四个页签 概览 · 同步 · AI · 更多（settings-pages.js）。原则：懒得动、不想看的不放；要确认的、要知道的才放，小白看得懂。
 // 每页小标题 + 平铺的行，不套框；细项收进页底折叠。没有子页签了（SETTING_SUBTABS 留空对象，老代码照认）。
-const SETTING_TABS = [['overview', '概览'], ['sync', '同步'], ['ai', 'AI'], ['more', '更多']];
+// 1018 她：「接其他 AI」从「更多」的折叠里升成独立页签
+const SETTING_TABS = [['overview', '概览'], ['sync', '同步'], ['ai', 'AI'], ['connect', '接其他 AI'], ['more', '更多']];
 const SETTING_SUBTABS = {};
 // 旧名 → [页签, 子页签, 滚到哪一段]（问题面板「打开设置」带 'ai'、命令带 'overview'、「去扫码 / 验证」带 'status'、远程带 'remote'…）
 const TAB_ALIAS = { overview: ['overview'], general: ['overview'], status: ['overview', null, 'status'], start: ['overview'], home: ['overview'], run: ['overview'],
   sync: ['sync'], content: ['sync', null, 'collect'], schedule: ['sync', null, 'schedule'],
   features: ['overview'], ai: ['ai'], providers: ['ai'], models: ['ai', null, 'ai-more'], usage: ['ai', null, 'ai-usage'],
-  more: ['more'], connect: ['more', null, 'connect'], remote: ['more', null, 'connect'], skills: ['more', null, 'skills'],
+  more: ['more'], connect: ['connect'], remote: ['connect'], skills: ['more', null, 'skills'],
   advanced: ['more', null, 'developer'], developer: ['more', null, 'developer'] };
 
 class LinkBrainActions extends Plugin {
@@ -2566,7 +2567,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
     const draw = () => {
       const c = modal.contentEl; c.empty();
       new Setting(c).setName('名字').setDesc('显示在问收藏页输入框右边的下拉里。').addText(t => t.setValue(m.name || '').onChange(v => m.name = v.trim()));
-      new Setting(c).setName('用什么').addDropdown(d => d.addOption('inherit', '和「AI 功能」里填的一样').addOption('http', '另一个接口').addOption('cli', '本机命令行（Codex / Claude Code）').setValue(m.mode || 'http').onChange(v => { m.mode = v; draw(); }));
+      new Setting(c).setName('用什么').addDropdown(d => d.addOption('inherit', '和「问收藏」那一项填的一样').addOption('http', '另一个接口').addOption('cli', '本机命令行（Codex / Claude Code）').setValue(m.mode || 'http').onChange(v => { m.mode = v; draw(); }));
       if (m.mode === 'cli') {
         const row = new Setting(c).setName('命令').setDesc('本机已经登录好的命令行。')
           .addText(t => { t.inputEl.style.width = '100%'; t.setValue(m.command || '').onChange(v => m.command = v.trim()); });
@@ -2669,7 +2670,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
     let pages = null;
     try { pages = this.plugin.settingsPages(); } catch (e) { console.error('[lb] 设置页没加载上', e); this.plugin.failBox?.(pane, '', e, () => this.display()); return; }
     const draw = { overview: () => pages.renderOverview(pane, this), sync: () => pages.renderSync(pane, this), ai: () => pages.renderAI(pane, this),
-      more: () => pages.renderMore(pane, this) }[view.tab];
+      connect: () => pages.renderConnect(pane, this), more: () => pages.renderMore(pane, this) }[view.tab];
     try { draw(); } catch (e) { console.error('[lb] 设置页这一栏没画上', e); this.plugin.failBox?.(pane, '', e, () => this.display()); }
     // 第一次用（库里还没有收藏、没走完指引）：概览换成四步指引
     if (view.tab === 'overview') pages.needsGuide().then(yes => { if (yes && pane.isConnected !== false) { pane.empty(); pages.renderGuide(pane, this); } }).catch(console.error);
@@ -2817,7 +2818,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
     this.help({ nameEl: list.head.querySelector('.lb-card-title') }, '「接口」= 填地址、模型名和密钥（DeepSeek、通义、OpenAI 等）；「本机命令行」= 用本机已登录的 Codex / Claude Code，不要密钥，但每问约 20 秒（接口一般 5–10 秒）。');
     (s.models || []).forEach((m, i) => {
       const state = modelState(s, m.name);
-      const row = new Setting(list).setName(m.name || '没起名').setDesc(m.mode === 'cli' ? '本机命令行：' + (m.command || '') : `接口：${state.host || '和「AI 功能」里填的一样'} · ${state.model || '没填模型名'} · ${m.model ? '自己填的模型' : '模型跟着「AI 功能」'} · 密钥：${({ own: '自己的', 'inherit-key': '跟着「AI 功能」', file: '文件', 'inherit-file': '跟着「AI 功能」', env: '环境变量', none: '没填', 'n/a': '—' })[state.key] || state.key}${state.fallback ? ' · 没填密钥，先用「AI 功能」里的' : ''}`);
+      const row = new Setting(list).setName(m.name || '没起名').setDesc(m.mode === 'cli' ? '本机命令行：' + (m.command || '') : `接口：${state.host || '和「问收藏」那一项填的一样'} · ${state.model || '没填模型名'} · ${m.model ? '自己填的模型' : '模型跟着「问收藏」那一项'} · 密钥：${({ own: '自己的', 'inherit-key': '跟着「问收藏」那一项', file: '文件', 'inherit-file': '跟着「问收藏」那一项', env: '环境变量', none: '没填', 'n/a': '—' })[state.key] || state.key}${state.fallback ? ' · 没填密钥，先用「问收藏」那一项的' : ''}`);
       row.settingEl.addClass('lb-model-row');
       // 勾选：在不在问收藏页的下拉里（不勾 = hidden，设置还在）
       const check = row.settingEl.createEl('input', { cls: 'lb-model-check', prepend: true, attr: { type: 'checkbox', 'aria-label': `「${m.name}」出现在问收藏页的下拉里` } });
@@ -2864,42 +2865,55 @@ class LinkBrainSettingTab extends PluginSettingTab {
     numRow('最多参考几篇（topK）', () => s.retrieval.topK, v => s.retrieval.topK = v, 8, '一次最多拿几篇收藏给模型看。');
   }
 
-  // 识图 · 认字 · 语音：一般用不到的 AI 细项（每项只在这里）
-  renderMediaAI(c) {
+  // 识图 · 认字 · 语音：一般用不到的 AI 细项。1018 拆成四块，AI 页功能表每一行展开时各画自己那块；这里照旧按顺序全画（老落点照认）
+  mediaSel() {
     const s = this.plugin.settings;
-    const sel = new Set(Array.isArray(s.setup?.selected) ? s.setup.selected : ['core', 'reader', 'dataview', 'ocr']);
-    const textOn = sel.has('ai_text'), visionOn = sel.has('ai_vision'), ocrOn = s.ocr?.mode !== 'off', asrLocal = s.asrAI?.mode === 'capswriter';
-    if (textOn) {
-      const box = this.card(c, '写概要', 'summary');
-      this.capBlock(box, 'summaryAI', b => {
-        this.modeSetting(b, '写概要用的模型', '默认和问收藏用同一个；想省钱可以单独换。', s.summaryAI,
-          [['inherit', '和问收藏一样'], ['http', '另配一个接口'], ['off', '不写概要']], { help: '归档时给每篇写概要、打标签用它。没配好时跳过，归档照常完成，配好后夜里自动补上。' });
-        if (s.summaryAI.mode === 'inherit') this.textField(b, '只换模型名', '空着 = 和问收藏用同一个模型；填了只换模型名，接口和密钥照旧。',
-          s.textAI.model || '', () => s.summaryAI.model, v => s.summaryAI.model = v);
-        if (s.summaryAI.mode === 'http') this.httpFields(b, s.summaryAI, { modelHint: 'qwen3.7-flash / gpt-4o-mini' });
-        if (s.summaryAI.mode !== 'off') this.addTestButton(b, '测试概要模型（发一段短文，几乎不花钱）', ['-m', 'link_brain', 'selftest', 'summary']);
-      });
-    }
-    if (visionOn && s.visionAI.mode === 'http') {
-      const box = this.card(c, '识图', 'vision');
-      this.textField(box, '精细识图模型', '只用来重看少数要紧的图（流程图、大表格）；空着 = 和识图同一个。', 'qwen3.8-max',
-        () => s.visionAI.refineModel, v => s.visionAI.refineModel = v, false, { help: '挑出来的图（流程图 / 表格且字多、第一遍结果靠不住、或你手动点「精细识别」）每晚一张一张补，流程图出完整 Mermaid。' });
-    }
-    if (ocrOn) {
-      const box = this.card(c, '认字（OCR）', 'ocr');
-      this.toggleRow(box, '认视频画面里的字', '字幕、文字卡也收进笔记和搜索；只占本机 CPU，不花钱。', () => s.visionAI.videoScreenText !== false, v => { s.visionAI.videoScreenText = v; },
-        { help: '每 2 秒抽一帧认字，最长只看前 3 分钟（30 秒的视频约 7 秒）。' });
-      new Setting(box).setName('认字精度').setDesc('「标准」认得准；电脑配置很低就选「轻量」。')
-        .addDropdown(d => d.addOption('medium', '标准（默认）').addOption('small', '轻量')
-          .setValue(s.ocr.modelTier || 'medium').onChange(async v => {
-            const prev = s.ocr.modelTier || 'medium'; s.ocr.modelTier = v;
-            try { await this.plugin.saveSettings(); } catch (e) { s.ocr.modelTier = prev; d.setValue(prev); this.plugin.notify('没保存上，已改回原来的：' + e.message, { kind: 'error' }); }
-          }))
-        .then(r => this.help(r, '标准比轻量多占约 180 MB 内存、慢约 3 倍，8 GB 内存的电脑够用；第一次用会自动下载模型。'));
-      this.textField(box, '认字模型放在哪（可选）', '空着 = 自动下载。已经下好 PP-OCRv6 模型的，填它所在的文件夹。', '空着就行',
-        () => s.ocr.modelDir, v => s.ocr.modelDir = v);
-      this.addTestButton(box, '测试认字（本机跑，不花钱）', ['-m', 'link_brain', 'selftest', 'ocr']);
-    }
+    return new Set(Array.isArray(s.setup?.selected) ? s.setup.selected : ['core', 'reader', 'dataview', 'ocr']);
+  }
+  renderMediaAI(c) {
+    const s = this.plugin.settings, sel = this.mediaSel();
+    if (sel.has('ai_text')) this.renderSummaryAI(c);
+    if (sel.has('ai_vision') && s.visionAI.mode === 'http') this.renderRefineAI(c);
+    if (s.ocr?.mode !== 'off') this.renderOcrAI(c);
+    this.renderVoiceAI(c);
+  }
+  renderSummaryAI(c) {
+    const s = this.plugin.settings;
+    const box = this.card(c, '写概要', 'summary');
+    this.capBlock(box, 'summaryAI', b => {
+      this.modeSetting(b, '写概要用的模型', '默认和问收藏用同一个；想省钱可以单独换。', s.summaryAI,
+        [['inherit', '和问收藏一样'], ['http', '另配一个接口'], ['off', '不写概要']], { help: '归档时给每篇写概要、打标签用它。没配好时跳过，归档照常完成，配好后夜里自动补上。' });
+      if (s.summaryAI.mode === 'inherit') this.textField(b, '只换模型名', '空着 = 和问收藏用同一个模型；填了只换模型名，接口和密钥照旧。',
+        s.textAI.model || '', () => s.summaryAI.model, v => s.summaryAI.model = v);
+      if (s.summaryAI.mode === 'http') this.httpFields(b, s.summaryAI, { modelHint: 'qwen3.7-flash / gpt-4o-mini' });
+      if (s.summaryAI.mode !== 'off') this.addTestButton(b, '测试概要模型（发一段短文，几乎不花钱）', ['-m', 'link_brain', 'selftest', 'summary']);
+    });
+  }
+  renderRefineAI(c) {
+    const s = this.plugin.settings;
+    const box = this.card(c, '识图', 'vision');
+    this.textField(box, '精细识图模型', '只用来重看少数要紧的图（流程图、大表格）；空着 = 和识图同一个。', 'qwen3.8-max',
+      () => s.visionAI.refineModel, v => s.visionAI.refineModel = v, false, { help: '挑出来的图（流程图 / 表格且字多、第一遍结果靠不住、或你手动点「精细识别」）每晚一张一张补，流程图出完整 Mermaid。' });
+  }
+  renderOcrAI(c) {
+    const s = this.plugin.settings;
+    const box = this.card(c, '认字（OCR）', 'ocr');
+    this.toggleRow(box, '认视频画面里的字', '字幕、文字卡也收进笔记和搜索；只占本机 CPU，不花钱。', () => s.visionAI.videoScreenText !== false, v => { s.visionAI.videoScreenText = v; },
+      { help: '每 2 秒抽一帧认字，最长只看前 3 分钟（30 秒的视频约 7 秒）。' });
+    new Setting(box).setName('认字精度').setDesc('「标准」认得准；电脑配置很低就选「轻量」。')
+      .addDropdown(d => d.addOption('medium', '标准（默认）').addOption('small', '轻量')
+        .setValue(s.ocr.modelTier || 'medium').onChange(async v => {
+          const prev = s.ocr.modelTier || 'medium'; s.ocr.modelTier = v;
+          try { await this.plugin.saveSettings(); } catch (e) { s.ocr.modelTier = prev; d.setValue(prev); this.plugin.notify('没保存上，已改回原来的：' + e.message, { kind: 'error' }); }
+        }))
+      .then(r => this.help(r, '标准比轻量多占约 180 MB 内存、慢约 3 倍，8 GB 内存的电脑够用；第一次用会自动下载模型。'));
+    this.textField(box, '认字模型放在哪（可选）', '空着 = 自动下载。已经下好 PP-OCRv6 模型的，填它所在的文件夹。', '空着就行',
+      () => s.ocr.modelDir, v => s.ocr.modelDir = v);
+    this.addTestButton(box, '测试认字（本机跑，不花钱）', ['-m', 'link_brain', 'selftest', 'ocr']);
+  }
+  renderVoiceAI(c) {
+    const s = this.plugin.settings, sel = this.mediaSel();
+    const asrLocal = s.asrAI?.mode === 'capswriter';
     const voice = this.card(c, '语音', 'voice');
     if (asrLocal || sel.has('asr')) {
       this.textField(voice, '本机语音识别的端口', '空着 = 读 CapsWriter 自己的设置（出厂是 6016）。', '6016', () => String(s.asrAI.port || ''), v => s.asrAI.port = v);
@@ -3151,7 +3165,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
       this.plugin.aiAutoNotified ||= new Set();
       if (!this.plugin.aiAutoNotified.has(gate.component)) {
         this.plugin.aiAutoNotified.add(gate.component);
-        this.plugin.notify(`已在「AI 功能」里打开「${cap === 'visionAI' ? '识图' : '问收藏 · 自动概要 · 打标签'}」（接口和密钥填齐了）`);
+        this.plugin.notify(`已打开「${cap === 'visionAI' ? '识图' : '问收藏 · 自动概要 · 打标签'}」（接口和密钥填齐了）`);
       }
     }
   }
@@ -3182,7 +3196,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
   drawTextAI(c, { heading = true } = {}) {
     const s = this.plugin.settings;
     if (heading) c.createEl('h4', { text: '问收藏 · 概要 · 打标签 用哪个 AI' });
-    if (s.textAI.mode === 'cli') c.createEl('p', { cls: 'setting-item-description lb-cli-note', text: '现在用的是本机命令行（Codex / Claude Code），不要密钥；在「问收藏模型」子页签里改。' });
+    if (s.textAI.mode === 'cli') c.createEl('p', { cls: 'setting-item-description lb-cli-note', text: '现在用的是本机命令行（Codex / Claude Code），不要密钥；在下面「问收藏页的模型」里改。' });
     else this.httpFields(c, s.textAI, { modelHint: 'deepseek-v4-flash', modelDesc: '服务商文档里的模型名，比如 deepseek-v4-flash。' });
     const now = c.createDiv({ cls: 'lb-model-now' });
     this.paintModelNow = () => {

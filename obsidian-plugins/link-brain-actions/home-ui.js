@@ -225,7 +225,7 @@ module.exports = function homeUI(obsidian, plugin) {
     if (!fresh) { await save(); return 'existing-library'; }   // 老库（作者本机）：只记一笔，选择不动
     if (!Array.isArray(s.selected)) s.selected = [...LIGHT];
     await save();
-    plugin.notify('Link Brain 装好了：正在按轻量版（不要任何 key）自动装好并同步，进度在底部状态栏和设置页「通用」。', { ms: 12000,
+    plugin.notify('Link Brain 装好了：正在按轻量版（不要任何 key）自动装好并同步，进度在底部状态栏和设置页「概览」。', { ms: 12000,
       actions: [{ label: '打开设置', run: () => plugin.openSetupPage?.() }] });
     runAll().catch(e => console.error('[lb] 首次自动跑没跑完', e));
     return 'started';
@@ -408,7 +408,7 @@ module.exports = function homeUI(obsidian, plugin) {
       let ok = !caps;
       try { ok = await plugin.setCapsVoice(caps); } catch { ok = false; }
       s.voice.capsLock = caps && !!ok;
-      if (caps && !ok) plugin.notify('按住 CapsLock 说话要先装好语音识别：到「通用」点「一键装好 / 跑完」', { kind: 'warn' });
+      if (caps && !ok) plugin.notify('按住 CapsLock 说话要先装好语音识别：到「更多 → 高级」点「一键装好 / 跑完」', { kind: 'warn' });
     }
   };
   const RUNTIME_KEYS = ['setup', 'ocr', 'asrAI', 'textAI', 'visionAI', 'voice'];
@@ -452,7 +452,7 @@ module.exports = function homeUI(obsidian, plugin) {
         const status = (st.run && st.run.installed && st.run.installed[id]) || comp.status;
         let state = '';
         if (sel.has(id) && comp.needs_key) state = aiReady(id) ? '✓ 填好了' : '⚠ 还要填密钥（在下面）';
-        else if (sel.has(id) && status && status !== 'ready') state = '⚠ ' + (STATUS_TEXT[status] || status) + '：到「通用」点一键装好';
+        else if (sel.has(id) && status && status !== 'ready') state = '⚠ ' + (STATUS_TEXT[status] || status) + '：到「更多 → 高级」点一键装好';
         row.setDesc([f.desc || comp.desc || '', state].filter(Boolean).join(' · '));
         if (!comp.needs_key) help(tab, row, `占磁盘约 ${fmtMB(comp.disk_mb)}、内存约 ${fmtMB(comp.ram_mb)}；装在这台电脑上，不联网、不收费。`);
         else help(tab, row, '要一个 AI 服务商的密钥（API Key）；按用量计费，钱付给服务商，不经过本插件。');
@@ -541,7 +541,7 @@ module.exports = function homeUI(obsidian, plugin) {
       const ids = new Set(effective());
       if (!S().plan || (!ids.has('ai_text') && !ids.has('ai_vision'))) return;
       // 1009 她：开了 AI，以前没补的后台静默补（今晚夜跑；想现在补就点一键），卡片上不标「待补」
-      foot.createEl('p', { cls: 'setting-item-description lb-ai-silent', text: '以前没补的识图 / 概要会在后台慢慢补上（今晚夜跑；想现在补就去「通用」点一键装好 / 跑完），卡片上不标「待补」。' });
+      foot.createEl('p', { cls: 'setting-item-description lb-ai-silent', text: '以前没补的识图 / 概要会在后台慢慢补上（今晚夜跑；想现在补就去「更多 → 高级」点一键装好 / 跑完），卡片上不标「待补」。' });
       const row = new Setting(foot).setName('只用免费的功能').setDesc('关掉问收藏、概要和识图，只留本机跑的那几样。');
       row.settingEl.addClass('lb-light-row');
       linkButton(row, '全部关掉（密钥留着）', async () => {
@@ -564,7 +564,32 @@ module.exports = function homeUI(obsidian, plugin) {
     return () => { alive = false; painters.delete(paintLight); };
   }
 
-  return { renderStatus, renderRun, renderAI, runAll, stopRun, firstRun, loadPlan, loadEstimate, state: S, bindToggle,
+  // 1018 AI 页重排：功能表每一行自己的开关（和上面 renderAI 列表里的开关同一套：依赖一起开、关掉把依赖它的也关、实际起作用的设置跟着对上）
+  // 功能清单还没读回时 effective() 是空的（会画成「关」）：先读清单，再悄悄把开关拨到实际值——不触发保存
+  function featureToggle(row, id, after) {
+    const on = () => new Set(effective()).has(id);
+    let quiet = false;
+    row.addToggle(t => {
+      if (!S().plan) loadPlan().then(() => {
+        const want = on();
+        if (t.getValue() !== want) { quiet = true; try { t.setValue(want); } finally { quiet = false; } }
+      }).catch(e => console.error('[lb] 功能清单没读到', e));
+      return bindToggle(t, on(), async v => {
+      if (quiet) return;
+      if (!S().plan) await loadPlan();
+      const cs = comps();
+      if (!cs.some(x => x.id === id)) throw new Error('功能清单里没有「' + id + '」');
+      const snap = snapRuntime();
+      setup().selected = toggleSelection(effective(), id, v, cs);
+      try { await applyRuntime(new Set(setup().selected)); await plugin.saveSettings(); }
+      catch (e) { for (const k of RUNTIME_KEYS) plugin.settings[k] = snap[k]; throw e; }
+      finally { repaint(); if (after) after(); }
+      });
+    });
+    return on;
+  }
+
+  return { renderStatus, renderRun, renderAI, featureToggle, runAll, stopRun, firstRun, loadPlan, loadEstimate, state: S, bindToggle,
     _internals: { repaint, withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine } };
 };
 module.exports._internals = { withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine, LIGHT, FEATURE_TEXT, AI_ORDER };

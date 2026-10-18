@@ -163,50 +163,225 @@ module.exports = function (obsidian, plugin) {
     tab.fieldFillPace(more);
   }
 
-  // ———————————————————— AI：API / 命令行，每家一行写它管哪些功能 ————————————————————
-  function renderAI(c, tab) {
-    const s = plugin.settings;
-    heading(c, 'API', 'ai-api');
-    const rows = providerRows(s);
-    if (!rows.length) new Setting(c).setName('还没接 AI').setDesc('不接也能存、能按关键词搜。想要概要、识图、按意思找，在下面「详细设置」里填一家的 key。');
-    for (const r of rows) {
-      const name = PROVIDER_NAME[r.id] || r.id;
-      const row = new Setting(c).setName(name + (r.pool ? '（几把 key 轮流用）' : ''));
-      row.settingEl.addClass('lb-provider-row'); row.settingEl.setAttribute('data-provider', r.id);
-      const parts = [];
-      if (r.main.length) parts.push(r.main.join(' · '));
-      if (r.backup.length) parts.push('备用：' + r.backup.join(' · '));
-      row.setDesc(parts.join('　'));
-      const l = LINKS[r.id] || {};
-      if (l.console) tab.link(row, '控制台', () => openUrl(l.console), `在浏览器打开 ${name} 的控制台`);
-      if (l.recharge) tab.link(row, '充值', () => openUrl(l.recharge), `在浏览器打开 ${name} 的充值页`);
-      if (l.key) tab.link(row, '拿 key', () => openUrl(l.key), `在浏览器打开 ${name} 拿 key 的页面`);
-    }
-    const cli = (s.models || []).filter(m => m.mode === 'cli');
-    if (cli.length) {
-      heading(c, '命令行', 'ai-cli');
-      for (const m of cli) {
-        const active = s.activeModel === m.name;
-        const row = new Setting(c).setName(m.name || '命令行').setDesc((active ? '问收藏正在用 · ' : '问收藏可选 · ') + '用本机已登录的账号，不要 key，每问约 20 秒');
-        if (!active) tab.link(row, '设为问收藏', async () => { s.activeModel = m.name; await tab.save(); plugin.app.workspace.trigger?.('link-brain:models-changed'); tab.redraw(); }, '问收藏改用它');
-      }
-    }
-    // 花费明细（各家余额、本月、各功能表）收起来：要看再点开，平时不占地方
-    const usage = fold(c, '花了多少：各家余额、这个月花费、各功能明细', 'ai-usage');
-    safe(tab, usage, '用量', () => tab.renderUsage(usage.createDiv({ cls: 'lb-usage-host' })));
-    const more = fold(c, '详细设置：接口地址、key、模型名、认字、语音、提示词', 'ai-more');
-    safe(tab, more, 'AI 功能', () => tab.renderAIFeatures(more));
-    safe(tab, more, '问收藏模型', () => tab.renderChatModels(more));
-    safe(tab, more, '识图 · 认字 · 语音', () => tab.renderMediaAI(more));
-    safe(tab, more, '提示词', () => tab.renderPrompts(more));
+  // ———————————————————— AI（1018 重排）：花费 · 每个功能用谁 · 钥匙串 ————————————————————
+  // 她：设置太乱——同一套「接口 / key / 模型」出现三遍，备用走了最贵的模型也看不出来。现在：
+  //   顶上三格：今天花了多少（北京时间，和账单同一天）· 本月 · 每天上限（超了后台补跑只用免费的，她自己问收藏不受限）；
+  //   功能表：一个功能一行，主用 → 备用从左往右顶，写现在谁在干活、大概多少钱；点一行展开这一项的细项（原「详细设置」拆到各行里）；
+  //   钥匙串：按服务商列，key 从哪来、余额、本月、管哪些功能、控制台 / 充值 / 拿 key。
+  // 数据一次读回：`link_brain usage`（summary · links · keys · features · budget），余额另一次（要联网）。
+  const ROUTE_TOGGLE = { ask: ['ai_text', '问收藏、概要、语义搜索一起开关'], vision: ['ai_vision', '识图、精细识图一起开关'],
+    ocr: ['ocr', ''], asr: ['asr', ''], capslock: ['capslock', ''] };
+  const STATE_CLS = { ok: 'is-ok', backup: 'is-warn', budget: 'is-warn', waiting: 'is-warn', down: 'is-bad', off: 'is-off' };
+  const STATE_SHORT = { ok: '正常', backup: '用备用', budget: '到上限', waiting: '暂时不通', down: '停了', off: '关着' };
+  const fmtYuan = v => (v == null || !Number.isFinite(+v) ? '—' : '¥' + (+v >= 10 ? (+v).toFixed(1) : (+v).toFixed(2)));
+
+  function localRoutes(s) {
+    const sel = new Set(Array.isArray(s.setup?.selected) ? s.setup.selected : ['core', 'reader', 'dataview', 'ocr']);
+    const st = on => (on ? ['ok', '正常'] : ['off', '关着']);
+    const ocrOn = s.ocr?.mode !== 'off', asrOn = sel.has('asr') || ['capswriter', 'http'].includes(s.asrAI?.mode);
+    const http = s.asrAI?.mode === 'http';
+    const row = (id, name, on, label, price) => { const [state, text] = st(on); return { id, name, on, state, state_text: text, chain: [{ label, price, free: price === '免费' }] }; };
+    return [
+      row('ocr', '认图片里的字', ocrOn, '本机 OCR', '免费'),
+      row('asr', '视频说话转文字', asrOn, http ? `在线接口 ${s.asrAI.model || 'whisper-1'}` : '本机 CapsWriter', http ? '按用量' : '免费'),
+      row('capslock', '按住 CapsLock 说话', !!s.voice?.capsLock, '本机 CapsWriter', '免费'),
+    ];
   }
 
-  // ———————————————————— 更多：接其他 AI · 目录与批注 · 技能 · 附件 · 高级 ————————————————————
+  // 现在是谁在干活：用备用时是状态里点名的那个，否则是第一个
+  function workingIndex(f) {
+    if (f.state !== 'backup') return 0;
+    const t = String(f.state_text || '');
+    const i = (f.chain || []).findIndex((c, k) => k > 0 && ((c.model && t.includes(c.model)) || t.includes(c.label)));
+    return i > 0 ? i : 0;
+  }
+
+  function paintSpend(box, data, tab) {
+    box.empty();
+    const s = plugin.settings;
+    const b = data.budget || {}, month = (data.summary || {}).month || {};
+    const monthTotal = Object.values(month).reduce((a, m) => a + (+(m && m.cost) || 0), 0);
+    const cell = (label, value) => {
+      const d = box.createDiv({ cls: 'lb-spend-cell' });
+      d.createDiv({ cls: 'lb-spend-label', text: label });
+      return [d, d.createDiv({ cls: 'lb-spend-value', text: value })];
+    };
+    const [today] = cell('今天（北京时间）', fmtYuan(b.spent_today));
+    if (b.over) today.addClass('is-warn');
+    cell('本月', fmtYuan(monthTotal));
+    const [capCell, capVal] = cell('每天上限', '');
+    const saved = s.budget && s.budget.dailyYuan !== undefined && s.budget.dailyYuan !== '' ? +s.budget.dailyYuan : null;
+    const cur = saved != null && Number.isFinite(saved) ? saved : +(b.daily_yuan ?? 3);
+    capVal.createSpan({ text: '¥' });
+    const input = capVal.createEl('input', { cls: 'lb-spend-input', attr: { type: 'number', min: '0', step: '1', 'aria-label': '每天花费上限（元，0 = 不限）' } });
+    input.value = String(cur);
+    const unit = capVal.createSpan({ cls: 'lb-spend-unit', text: cur > 0 ? '' : '不限' });
+    input.addEventListener('change', async () => {
+      const n = Math.max(0, Math.round(+input.value * 100) / 100);
+      if (!Number.isFinite(n)) { input.value = String(cur); return; }
+      const prev = s.budget ? { ...s.budget } : undefined;
+      s.budget = { ...(s.budget || {}), dailyYuan: n };
+      try {
+        await plugin.saveSettings();
+        unit.setText(n > 0 ? '' : '不限');
+        plugin.notify(n > 0 ? `每天上限改成 ¥${n}：超了后台补跑只用免费的` : '每天上限关了：后台补跑不限花费');
+      } catch (e) { s.budget = prev; input.value = String(cur); plugin.notify('没保存上，已改回原来的：' + e.message, { kind: 'error' }); }
+    });
+    tab.help?.({ nameEl: capCell.querySelector('.lb-spend-label') }, '今天（北京时间）花到这个数，夜里补识图、补概要就只用免费的（Gemini 免费 key、本机），明天接着补；你自己问收藏、连上的 Claude / ChatGPT 不受限。0 = 不限。');
+    if (b.over) box.createDiv({ cls: 'lb-spend-note', text: '今天到上限了：后台补跑先只用免费的，北京时间明天 0 点恢复。想今天补完就把上限调高。' });
+  }
+
+  function paintRoutes(box, data, tab, redraw) {
+    box.empty();
+    const s = plugin.settings, home = plugin.homeUI ? plugin.homeUI() : null;
+    if (data.routes_error) box.createDiv({ cls: 'setting-item-description', text: '各功能的配置没读全：' + data.routes_error });
+    const feats = [...(data.features || []), ...localRoutes(s)];
+    for (const f of feats) {
+      const d = box.createEl('details', { cls: 'lb-route ' + (STATE_CLS[f.state] || ''), attr: { 'data-feature': f.id, 'data-state': f.state } });
+      const head = d.createEl('summary', { cls: 'lb-route-head' });
+      head.createSpan({ cls: 'lb-route-name', text: f.name });
+      const chain = head.createSpan({ cls: 'lb-route-chain' });
+      const w = workingIndex(f);
+      (f.chain || []).forEach((c, i) => {
+        if (i) chain.createSpan({ cls: 'lb-route-arrow', text: '→' });
+        const el = chain.createSpan({ cls: 'lb-route-step' + (i === w && f.on ? ' is-working' : '') + (c.free ? ' is-free' : ''), text: c.label });
+        el.setAttribute('title', [c.price, c.key ? 'key：' + c.key : ''].filter(Boolean).join(' · '));
+      });
+      if (!(f.chain || []).length) chain.createSpan({ cls: 'lb-route-step', text: '还没配' });
+      if (f.id === 'ask' && (f.choices || []).length > 1) chain.createSpan({ cls: 'lb-route-more', text: `· 问收藏页能换 ${f.choices.length} 个` });
+      const cur = (f.chain || [])[w];
+      head.createSpan({ cls: 'lb-route-price', text: f.on && cur ? (cur.price || '') : '' });
+      const pill = head.createSpan({ cls: 'lb-route-state', text: STATE_SHORT[f.state] || f.state });
+      pill.setAttribute('title', f.state_text || '');
+      const body = d.createDiv({ cls: 'lb-route-body' });
+      let drawn = false;
+      d.addEventListener('toggle', () => {
+        if (!d.open || drawn) return;
+        drawn = true;
+        if (!['ok', 'off'].includes(f.state) && f.state_text) body.createDiv({ cls: 'lb-route-why', text: f.state_text });
+        const tg = ROUTE_TOGGLE[f.id];
+        if (tg && home && home.featureToggle) {
+          const row = new Setting(body).setName('打开这项').setDesc(tg[1]);
+          safe(tab, body, '开关', () => home.featureToggle(row, tg[0], () => redraw()));
+        }
+        const draw = {
+          ask: () => { tab.sectionTextAI?.(body, { heading: false }); tab.renderChatModels(body); },
+          summary: () => tab.renderSummaryAI(body),
+          vision: () => tab.sectionVisionAI?.(body),
+          refine: () => tab.renderRefineAI(body),
+          embed: () => body.createEl('p', { cls: 'setting-item-description', text: '把问题和收藏变成向量、按意思找；跟着这家的 key 走，一般不用动。每次搜索几乎不花钱。' }),
+          ocr: () => tab.renderOcrAI(body),
+          asr: () => tab.renderVoiceAI(body),
+          capslock: () => body.createEl('p', { cls: 'setting-item-description', text: '在任何软件里按住 CapsLock 说话、松开就出字；用本机的语音识别，不联网、不花钱。' }),
+        }[f.id];
+        if (draw) safe(tab, body, f.name, draw);
+      });
+    }
+  }
+
+  function balanceText(b) {
+    const parts = (b.balances || []).map(x => `${x.currency === 'USD' ? '$' : '¥'}${x.total}`);
+    return '余额 ' + (parts.join(' · ') || '0') + (b.available === false ? '（不够调用了）' : '');
+  }
+
+  function paintKeyring(box, data, tab) {
+    box.empty();
+    const links = data.links || {}, month = (data.summary || {}).month || {}, keys = data.keys || {}, bal = data.balances || null;
+    const by = new Map();
+    for (const f of data.features || []) (f.chain || []).forEach((c, i) => {
+      if (!c.provider || c.provider === 'cli') return;
+      const r = by.get(c.provider) || { id: c.provider, uses: [], key: '' };
+      const label = f.name.replace(' · 打标签', '') + (i ? '（备用）' : '');
+      if (f.on && !r.uses.includes(label)) r.uses.push(label);
+      if (!r.key && c.key) r.key = c.key;
+      by.set(c.provider, r);
+    });
+    const order = ['google', 'deepseek', 'aliyun', 'openai'];
+    const rows = [...by.values()].sort((a, b) => ((order.indexOf(a.id) + 1) || 99) - ((order.indexOf(b.id) + 1) || 99));
+    if (!rows.length) { box.createEl('p', { cls: 'setting-item-description', text: '还没接要 key 的 AI。不接也能存、能按关键词搜；想要概要、识图、按意思找，点上面任一行展开去填。' }); return; }
+    for (const r of rows) {
+      const l = { ...(LINKS[r.id] || {}), ...(links[r.id] || {}) };
+      const name = PROVIDER_NAME[r.id] || l.name || r.id;
+      const row = new Setting(box).setName(name);
+      row.settingEl.addClass('lb-key-ring-row'); row.settingEl.setAttribute('data-provider', r.id);
+      const desc = row.descEl;
+      desc.createDiv({ text: '管：' + (r.uses.join(' · ') || '现在没有功能在用') });
+      desc.createDiv({ cls: 'lb-key-src', text: 'key：' + (r.key || '没填') });
+      const m = month[r.id], b = bal && bal[r.id];
+      const money = [];
+      if (b && b.ok) money.push(balanceText(b));
+      else if (b && b.unsupported) money.push('余额要去控制台看');
+      if (m) money.push(`本月 ${fmtYuan(m.cost)} · ${m.calls} 次`);
+      else if (r.id === 'google') money.push('免费额度，不花钱');
+      if (money.length) desc.createDiv({ text: money.join(' · ') });
+      const k = keys[r.id];
+      if (k) desc.createDiv({ cls: 'lb-key-warn', text: (String(k.code || '').endsWith('QUOTA_EXCEEDED') ? '额度用完了' : 'key 用不了（可能欠费、过期或没开通）') + '：配了备用的会自动改用备用' });
+      for (const [text, url] of [['控制台', l.console], ['充值', l.recharge], ['拿 key', l.key || l.key_url]])
+        if (url) tab.link(row, text, () => openUrl(url), `在浏览器打开 ${name} 的${text}页`);
+    }
+  }
+
+  function renderAI(c, tab) {
+    const s = plugin.settings;
+    let alive = true, data = null;
+    const spend = c.createDiv({ cls: 'lb-spend', attr: { 'data-section': 'ai-spend' } });
+    heading(c, '每个功能用谁', 'ai-routes');
+    c.createEl('p', { cls: 'lb-sec-desc', text: '从左往右顶：前面的不行（额度用完、key 用不了、到了上限）才轮到后面的。点一行改它用哪个、调细项。' });
+    const routes = c.createDiv({ cls: 'lb-routes' });
+    heading(c, '钥匙串', 'ai-api');
+    c.createEl('p', { cls: 'lb-sec-desc', text: '按服务商列：key 从哪来、花了多少、管哪些功能。key 在上面每一项展开里改。' });
+    const ring = c.createDiv({ cls: 'lb-keyring' });
+    const usageBody = fold(c, '花了多少：各功能明细（今天 / 7 天 / 30 天）', 'ai-usage');
+    const promptBody = fold(c, '提示词（一般不用改）', 'ai-prompts');
+    safe(tab, promptBody, '提示词', () => tab.renderPrompts(promptBody));
+    const free = new Setting(c).setName('只用免费的功能').setDesc('关掉问收藏、概要和识图，只留本机跑的那几样；key 留着，随时打开。');
+    free.settingEl.addClass('lb-light-row');
+    tab.link(free, '全部关掉', async () => {
+      if (!await plugin.confirm({ title: '关掉全部 AI？', body: '问收藏、自动概要和识图都会停；填好的密钥不删，随时打开就能接着用。', ok: '全部关掉', danger: true })) return;
+      const prev = s.setup ? JSON.parse(JSON.stringify(s.setup)) : undefined;
+      const sel = new Set(Array.isArray(s.setup?.selected) ? s.setup.selected : []);
+      sel.delete('ai_text'); sel.delete('ai_vision');
+      s.setup = { ...(s.setup || {}), selected: [...sel] };
+      try { await plugin.saveSettings(); } catch (e) { s.setup = prev; plugin.notify('没保存上，原来的选择没动：' + e.message, { kind: 'error' }); }
+      load();
+    }, '换成轻量版：不要任何密钥');
+
+    let usageDrawn = false;
+    const usageFold = usageBody.parentElement;
+    usageFold?.addEventListener?.('toggle', () => {
+      if (usageDrawn || !usageFold.open) return;
+      usageDrawn = true;
+      safe(tab, usageBody, '用量', () => tab.stops.push(plugin.usageUI().render(usageBody.createDiv({ cls: 'lb-usage-host' }), tab, { tableOnly: true, data })));
+    });
+    async function load() {
+      spend.empty(); routes.empty(); ring.empty();
+      routes.createEl('p', { cls: 'setting-item-description lb-loading', text: '正在读每个功能用谁、花了多少…' });
+      try {
+        const r = await plugin.runPy(['-m', 'link_brain', 'usage'], { label: '读 AI 用量', timeoutMs: 45000, fallback: '没读出来' });
+        if (!alive) return;
+        if (!r.json || r.json.ok === false) throw new Error((r.json && r.json.message) || '没读出来');
+        data = r.json;
+        paintSpend(spend, data, tab); paintRoutes(routes, data, tab, load); paintKeyring(ring, data, tab);
+      } catch (e) { if (alive) { routes.empty(); plugin.failBox?.(routes, 'AI 用量', e, () => load()); } return; }
+      try {
+        const r = await plugin.runPy(['-m', 'link_brain', 'usage', '--balance'], { label: '查余额', timeoutMs: 30000, fallback: '余额没查到' });
+        if (!alive || !r.json || r.json.ok === false) return;
+        data = { ...data, balances: r.json.balances || {}, keys: r.json.keys || data.keys };
+        paintKeyring(ring, data, tab);
+      } catch (e) { console.error('[lb] 余额没查到', e); }
+    }
+    load();
+    tab.stops.push(() => { alive = false; });
+  }
+
+  // ———————————————————— 接其他 AI（1018 从「更多」里的折叠升成独立页签）————————————————————
+  function renderConnect(c, tab) {
+    safe(tab, c, '连接其他 AI', () => tab.stops.push(plugin.remoteUI?.renderConnect(c, () => tab.display(), tab)));
+  }
+
+  // ———————————————————— 更多：目录与批注 · 技能 · 附件 · 高级 ————————————————————
   function renderMore(c, tab) {
     const s = plugin.settings;
-    // 接其他 AI 内容多（一键接上、远程访问、教程、开放哪些文件夹），收成一行，用到再点开
-    const conn = fold(c, '接其他 AI：让 Claude、ChatGPT 读你的收藏', 'connect');
-    safe(tab, conn, '连接其他 AI', () => tab.stops.push(plugin.remoteUI?.renderConnect(conn, () => tab.display(), tab)));
     heading(c, '目录与批注', 'catalog');
     new Setting(c).setName('批注署名').setDesc('你写的批注署这个名字；空着不署名。')
       .addText(t => t.setPlaceholder('我').setValue(s.nickname || '').onChange(async v => { s.nickname = v.trim(); await tab.save(); }));
@@ -293,5 +468,5 @@ module.exports = function (obsidian, plugin) {
     paint();
   }
 
-  return { renderOverview, renderSync, renderAI, renderMore, renderGuide, needsGuide, providerRows, featureUses, attentionText, providerOf };
+  return { renderOverview, renderSync, renderAI, renderConnect, renderMore, renderGuide, needsGuide, providerRows, featureUses, attentionText, providerOf };
 };

@@ -336,6 +336,11 @@ def decorate_problem_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def run(args) -> int:
     from .read import dump_json, outcome
     payload: dict[str, Any] = {"summary": summary(), "links": provider_links(), "keys": key_status()}
+    try:  # 1018：AI 页「每个功能用谁」+ 每天上限，和用量一次读回来（少开一次后台）
+        from . import ai_routes
+        payload.update(ai_routes.routes())
+    except Exception as exc:  # noqa: BLE001
+        payload["routes_error"] = f"{type(exc).__name__}: {exc}"
     if getattr(args, "balance", False):
         payload["balances"] = balances()
     dump_json(outcome(payload, ok=True, message="已读取用量"))

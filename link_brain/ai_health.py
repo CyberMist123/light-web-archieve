@@ -33,7 +33,7 @@ STEP_LABELS = {"ai.summary": "AI 概要 / 打标接口", "ai.vision": "识图接
 ESTIMATE_ITEM = {"summaryAI": "summary", "visionAI": "vision", "visionAI.refine": "vision"}
 # 接口那一侧的故障码：归并、不按篇记
 API_CODES = ("NEEDS_HUMAN.AUTH_FAILED", "NEEDS_HUMAN.QUOTA_EXCEEDED", "TRANSIENT.NETWORK", "TRANSIENT.HTTP_429",
-             "TRANSIENT.HTTP_5XX", "TRANSIENT.SERVICE_BUSY", "TRANSIENT.SECRET_TIMEOUT")
+             "TRANSIENT.HTTP_5XX", "TRANSIENT.SERVICE_BUSY", "TRANSIENT.SECRET_TIMEOUT", "TRANSIENT.BUDGET")
 MAX_ITEMS_KEPT = 2000
 
 # 码 → （是什么原因，怎么办）
@@ -45,6 +45,7 @@ CAUSE = {
     "TRANSIENT.HTTP_5XX": ("接口那一侧暂时出错", "不用处理，下次夜跑自动补"),
     "TRANSIENT.SERVICE_BUSY": ("接口那一侧正忙或回包坏了", "不用处理，下次夜跑自动补"),
     "TRANSIENT.SECRET_TIMEOUT": ("从密码库取 key 超时", "看一眼密码库有没有锁住；好了会自动补"),
+    "TRANSIENT.BUDGET": ("今天花到了你设的每天上限", "不用处理，明天接着补；想今天补完就到设置 AI 页调高上限"),
 }
 
 

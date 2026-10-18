@@ -27,10 +27,12 @@ module.exports = function (obsidian, plugin) {
     return '余额 ' + (parts.join(' · ') || '0') + (b.available === false ? ' · 不够调用了' : '');
   }
 
-  function render(host, tab) {
-    let alive = true, data = null, win = 'today';
-    const top = tab.card(host, '余额与控制台', 'usage-providers', { desc: '每家一行：余额、这个月花了多少，点按钮直接打开它的网页（要在网页里登录）。' });
-    const topBody = top.createDiv({ cls: 'lb-usage-providers' });
+  // opts.tableOnly（1018 AI 页重排）：只画「各功能用了多少」那张表——余额 / 控制台已经在 AI 页的「钥匙串」里；opts.data = AI 页已读回的数据，不再读一遍
+  function render(host, tab, opts = {}) {
+    let alive = true, data = opts.data || null, win = 'today';
+    const tableOnly = !!opts.tableOnly;
+    const top = tableOnly ? null : tab.card(host, '余额与控制台', 'usage-providers', { desc: '每家一行：余额、这个月花了多少，点按钮直接打开它的网页（要在网页里登录）。' });
+    const topBody = top ? top.createDiv({ cls: 'lb-usage-providers' }) : host.createDiv({ cls: 'lb-usage-providers is-hidden' });
     const feat = tab.card(host, '各功能用了多少', 'usage-features');
     const switcher = feat.head.createDiv({ cls: 'lb-usage-windows', attr: { role: 'tablist' } });
     const table = feat.createDiv({ cls: 'lb-usage-table' });
@@ -48,6 +50,7 @@ module.exports = function (obsidian, plugin) {
 
     function paintProviders() {
       topBody.empty();
+      if (tableOnly) return;
       const links = data.links || {}, month = (data.summary || {}).month || {}, keys = data.keys || {}, bal = data.balances || {};
       const ids = [...ORDER.filter(k => links[k]), ...Object.keys(month).filter(k => !links[k] && k !== 'cli')];
       for (const id of ids) {
@@ -115,7 +118,7 @@ module.exports = function (obsidian, plugin) {
       } catch (e) { if (alive) { data = { ...data, balances: { deepseek: { ok: false, message: e.message } } }; paintProviders(); } }
     }
 
-    load();
+    if (data) paint(); else load();
     return () => { alive = false; };
   }
 

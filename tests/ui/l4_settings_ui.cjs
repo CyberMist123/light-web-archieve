@@ -17,13 +17,14 @@ const shell = require('../_obsidian_shell.cjs');
 const root = 'obsidian-plugins/link-brain-actions';
 const sources = Object.fromEntries(['main', 'home-ui', 'remote-ui', 'schedule-ui', 'onboarding-ui', 'index-ui', 'skills-ui', 'usage-ui', 'settings-pages'].map(name =>
   [name + '.js', fs.readFileSync(path.join(root, name + '.js'), 'utf8')]));
-const TABS = ['概览', '同步', 'AI', '更多'];
+const TABS = ['概览', '同步', 'AI', '接其他 AI', '更多'];   // 1018：接其他 AI 升成独立页签
 // 新手主界面（不算「连接其他 AI」里的高级折叠）上不该看到的词（她 1010 点名的术语；要留的旁边有人话解释）
 const JARGON = ['OAuth', 'Bearer', 'Authorization', 'launchd', 'systemd', '标准输入', '标准输出', '扩检索词', '归档摘要模型', '认领', '令牌', '没画上', '读不到状态：', '读不到功能清单：'];
 
 async function open(browser, theme, { failRemote = false, guide = false } = {}) {
   const page = await browser.newPage({ viewport: { width: 1300, height: 1400 } });
   const errors = []; page.on('pageerror', error => errors.push(error.message));
+  page.on('console', m => { if (m.type() === 'error') console.log('[console]', m.text()); });
   await shell.settings(page, { theme, contentWidth: 800 });
   await page.evaluate(([sources, failRemote, guide]) => {
     const modules = {};
@@ -83,6 +84,18 @@ async function open(browser, theme, { failRemote = false, guide = false } = {}) 
           summary: { as_of: '2026-10-03', features: { vision: '识图', refine: '精细识图', summary: '概要', ask: '问收藏', expand: '扩词', embed: '向量（embedding）', asr: '语音转写', rerank: '精排（rerank）', other: '索引 / wiki 整理' },
             windows: { today: { total, features, providers: {} }, '7d': { total, features, providers: {} }, '30d': { total, features, providers: {} } },
             month: { deepseek: f({ calls: 46, cost: 1.05 }), aliyun: f({ calls: 512, cost: 1.80 }) } } };
+        // 1018 AI 页重排：每个功能用谁（主用 → 备用）+ 每天上限
+        const G = (label, extra = {}) => ({ label, provider: 'google', model: 'gemini-3.5-flash', free: true, price: '免费', key: '3 把轮流用', ...extra });
+        const Q = (model, price) => ({ label: '通义千问 ' + model, provider: 'aliyun', model, free: false, price, key: '密钥文件 keys.csv 里的「apiKey」' });
+        const D = price => ({ label: 'DeepSeek deepseek-v4-flash', provider: 'deepseek', model: 'deepseek-v4-flash', free: false, price, key: '密钥文件 keys.csv 里的「ds」' });
+        out.budget = { daily_yuan: 3, spent_today: 0.83, day: '2026-10-18', over: false };
+        out.features = [
+          { id: 'ask', name: '问收藏', cap: 'textAI', on: true, chain: [D('约 ¥0.02/次')], state: 'ok', state_text: '正常', choices: ['DeepSeek', 'Codex', 'Sonnet'], active: 'DeepSeek' },
+          { id: 'summary', name: '概要 · 打标签', cap: 'summaryAI', on: true, chain: [G('Google gemini-3.5-flash'), Q('qwen3.7-flash', '约 ¥0.16/百篇'), D('约 ¥1.63/百篇')], state: 'ok', state_text: '正常' },
+          { id: 'vision', name: '识图', cap: 'visionAI', on: true, chain: [G('Google gemini-3.5-flash'), Q('qwen3.8-flash', '约 ¥0.20/百张'), Q('qwen3.8-max', '约 ¥2.91/百张')],
+            state: 'backup', state_text: '主用的暂时不行，通义千问 qwen3.8-flash 顶着' },
+          { id: 'refine', name: '精细识图', cap: 'visionAI.refine', on: true, chain: [G('Gemini 免费（3 把 key）'), Q('qwen3.8-max', '约 ¥6.07/百张')], state: 'ok', state_text: '正常' },
+          { id: 'embed', name: '语义搜索', cap: 'embedAI', on: true, chain: [Q('qwen3.7-text-embedding-flash', '约 ¥0.02/百次')], state: 'ok', state_text: '正常' }];
         if (sub.includes('--balance')) out.balances = { deepseek: { ok: true, available: true, balances: [{ currency: 'CNY', total: '105.38', granted: '4.40', topped_up: '100.97' }] },
           aliyun: { ok: false, unsupported: true, message: '百炼没有用 API key 能查的余额接口：点「充值」在阿里云费用中心看' } };
         return out;
@@ -186,38 +199,72 @@ const shot = (page, name) => page.screenshot({ path: path.join(shell.QA_DIR, nam
       await page.locator('[data-section="sync-more"] > summary').click(); await page.waitForTimeout(150);
       p = await readPane(page);
       for (const n of ['收藏放在哪', '存图片', '登录后马上同步', '每次同步最多收几篇', '每天最多新收几篇', '补评论节奏']) assert.ok(p.rows.includes(n), `${theme} 同步折叠缺「${n}」`);
-      // ③ AI：每家一行写它管哪些功能；花了多少；详细设置在折叠里
+      // ③ AI（1018 重排）：花费三格 · 每个功能用谁（主用 → 备用，用备用的那行标出来）· 钥匙串；细项在每行展开里
       await clickTab(page, 'AI');
-      await page.waitForFunction(() => document.querySelectorAll('.lb-provider-row').length >= 3 && /105\.38/.test(document.querySelector('.lb-usage-provider[data-provider="deepseek"]')?.textContent || ''));
+      await page.waitForFunction(() => document.querySelectorAll('.lb-route').length >= 8 && /105\.38/.test(document.querySelector('.lb-key-ring-row[data-provider="deepseek"]')?.textContent || ''));
       assert.equal(await page.evaluate(() => document.querySelector('[data-section="ai-usage"]').open), false, '花费明细默认收起');
       p = await readPane(page);
       assert.equal(p.tab, 'ai');
-      const prov = await page.evaluate(() => [...document.querySelectorAll('.lb-provider-row')].map(r => [r.querySelector('.setting-item-name').textContent,
+      const spend = await page.evaluate(() => [...document.querySelectorAll('.lb-spend-cell')].map(c => c.querySelector('.lb-spend-label').textContent.replace(/\?$/, '') + '=' + (c.querySelector('input')?.value ?? c.querySelector('.lb-spend-value').textContent)));
+      assert.deepEqual(spend, ['今天（北京时间）=¥0.83', '本月=¥2.85', '每天上限=3']);
+      const routes = await page.evaluate(() => [...document.querySelectorAll('.lb-route')].map(r => [r.getAttribute('data-feature'), r.querySelector('.lb-route-name').textContent,
+        r.querySelector('.lb-route-step.is-working')?.textContent || '', r.querySelector('.lb-route-state').textContent]));
+      assert.deepEqual(routes.map(r => r[0]), ['ask', 'summary', 'vision', 'refine', 'embed', 'ocr', 'asr', 'capslock']);
+      assert.deepEqual(routes[2], ['vision', '识图', '通义千问 qwen3.8-flash', '用备用'], '识图在用备用：干活的是 flash、不是最贵的 max');
+      assert.equal(routes[0][2], 'DeepSeek deepseek-v4-flash'); assert.equal(routes[6][3], '关着');
+      assert.match(await page.evaluate(() => document.querySelector('.lb-route[data-feature="vision"] .lb-route-price').textContent), /0\.20/);
+      const ring = await page.evaluate(() => [...document.querySelectorAll('.lb-key-ring-row')].map(r => [r.querySelector('.setting-item-name').textContent,
         r.querySelector('.setting-item-description').textContent, [...r.querySelectorAll('button')].map(b => b.textContent).join('/')]));
-      assert.deepEqual(prov.map(x => x[0]), ['Gemini（几把 key 轮流用）', 'DeepSeek', '阿里云百炼']);
-      assert.equal(prov[0][1], '概要 · 识图'); assert.equal(prov[1][1], '问收藏'); assert.equal(prov[2][1], '语义搜索　备用：概要 · 精细识图');
-      assert.equal(prov[0][2], '控制台/拿 key'); assert.equal(prov[1][2], '控制台/充值/拿 key');
-      assert.match(p.text, /详细设置/);
-      assert.equal(await page.evaluate(() => document.querySelector('[data-section="ai-more"]').open), false, '详细设置默认收起');
+      assert.deepEqual(ring.map(x => x[0]), ['Gemini', 'DeepSeek', '阿里云百炼']);
+      assert.match(ring[0][1], /管：概要 · 识图 · 精细识图/); assert.match(ring[0][1], /免费额度/);
+      assert.match(ring[1][1], /余额 ¥105\.38/); assert.match(ring[1][1], /本月 ¥1\.05/);
+      assert.match(ring[2][1], /概要（备用）/); assert.match(ring[2][1], /key 用不了/);
+      assert.equal(ring[1][2], '控制台/充值/拿 key');
+      assert.ok(!/详细设置/.test(p.text), '没有「详细设置」大折叠了：细项拆进每一行');
       assert.ok(p.cta <= 1);
+      assert.deepEqual(p.boxes, [], theme + '：AI 页不套框');
       assert.deepEqual(p.jargon, [], theme + '：AI 页明面上没有术语');
-      summary[theme].AI = p.rows;
-      await shot(page, `S1016-settings-ai-${theme}.png`);
-      // ④ 更多
-      await clickTab(page, '更多');
+      summary[theme].AI = routes.map(r => r[1] + '：' + r[2] + ' · ' + r[3]);
+      await shot(page, `S1018-settings-ai-${theme}.png`);
+      // 点开「识图」：开关 + 识图的接口 / 模型 / 测试；点开「问收藏」：模型列表
+      await page.locator('.lb-route[data-feature="vision"] > summary').click(); await page.waitForTimeout(200);
+      p = await readPane(page);
+      for (const n of ['打开这项', '接口地址', '模型名']) assert.ok(p.rows.includes(n), `${theme} 识图展开缺「${n}」：${p.rows}`);
+      assert.ok(await page.locator('.lb-route[data-feature="vision"] .lb-route-body .checkbox-container').count(), '展开后「打开这项」有开关：' + await page.evaluate(() => document.querySelector('.lb-route[data-feature="vision"] .lb-route-body .setting-item')?.outerHTML));
+      assert.match(p.text, /qwen3\.8-flash 顶着/);
+      await page.locator('.lb-route[data-feature="ask"] > summary').click(); await page.waitForTimeout(200);
+      p = await readPane(page);
+      for (const n of ['输入框里的提示字', '回答最长多少（max_tokens）']) assert.ok(p.rows.includes(n), `${theme} 问收藏展开缺「${n}」：${p.rows}`);
+      assert.ok(await page.locator('.lb-route[data-feature="ask"] .lb-route-body .checkbox-container').count(), '问收藏展开也有开关：' + await page.evaluate(() => document.querySelector('.lb-route[data-feature="ask"] .lb-route-body .setting-item')?.outerHTML));
+      assert.equal(await page.evaluate(() => document.querySelector('.lb-route[data-feature="ask"] .lb-route-body .checkbox-container').classList.contains('is-enabled')), true, '问收藏开着：开关显示开');
+      assert.equal(await page.evaluate(() => document.querySelector('.lb-route[data-feature="vision"] .lb-route-body .checkbox-container').classList.contains('is-enabled')), false, '识图没选：开关显示关');
+      await shot(page, `S1018-settings-ai-open-${theme}.png`);
+      // 每天上限：改了立刻存
+      await page.locator('.lb-spend-input').fill('5'); await page.locator('.lb-spend-input').dispatchEvent('change'); await page.waitForTimeout(100);
+      assert.equal(await page.evaluate(() => window.l4.plugin.settings.budget.dailyYuan), 5);
+      // 花费明细展开：只有各功能表，余额那块不重复
+      await page.locator('[data-section="ai-usage"] > summary').click(); await page.waitForTimeout(200);
+      assert.ok(await page.locator('.lb-usage-grid').count(), '明细表');
+      assert.equal(await page.locator('[data-section="usage-providers"]').count(), 0, '余额只在钥匙串里出现一次');
+      // ③b 接其他 AI：独立页签
+      await clickTab(page, '接其他 AI');
       await page.waitForFunction(() => /● 开着/.test(document.querySelector('.lb-remote-svc')?.textContent || ''));
       p = await readPane(page);
-      for (const n of ['批注署名', '留言对象']) assert.ok(p.rows.includes(n), `${theme} 更多明面上缺「${n}」`);
-      assert.ok(!p.rows.includes('远程访问'), '接其他 AI 默认收着');
-      assert.deepEqual(p.boxes, [], theme + '：更多不套框');
-      await shot(page, `S1016-settings-more-${theme}.png`);
-      await page.locator('[data-section="connect"] > summary').click(); await page.waitForTimeout(150);
-      p = await readPane(page);
-      for (const n of ['Claude Code', '远程访问', '批注署名', '留言对象']) assert.ok(p.rows.includes(n), `${theme} 更多缺「${n}」：${p.rows}`);
-      assert.match(p.text, /技能/); assert.match(p.text, /高级/);
+      assert.equal(p.tab, 'connect');
+      for (const n of ['Claude Code', '远程访问']) assert.ok(p.rows.includes(n), `${theme} 接其他 AI 缺「${n}」：${p.rows}`);
       assert.ok(!/OAuth/.test(p.text), '界面上没有 OAuth');
+      summary[theme]['接其他 AI'] = p.rows;
+      await shot(page, `S1018-settings-connect-${theme}.png`);
+      // ④ 更多：目录与批注 · 技能 · 附件 · 高级（接其他 AI 不在这了）
+      await clickTab(page, '更多');
+      await page.waitForTimeout(150);
+      p = await readPane(page);
+      for (const n of ['批注署名', '留言对象']) assert.ok(p.rows.includes(n), `${theme} 更多明面上缺「${n}」`);
+      assert.ok(!p.rows.includes('远程访问') && !/接其他 AI：/.test(p.text), '接其他 AI 已搬去自己的页签');
+      assert.match(p.text, /技能/); assert.match(p.text, /高级/);
+      assert.deepEqual(p.boxes, [], theme + '：更多不套框');
       summary[theme]['更多'] = p.rows;
-      await shot(page, `S1016-settings-more-open-${theme}.png`);
+      await shot(page, `S1018-settings-more-${theme}.png`);
       assert.deepEqual(errors, []);
       await page.close();
     }
@@ -247,7 +294,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(shell.QA_DIR, nam
     // 读不到的块：一句人话 + 重试，原始报错折在「详情」里
     {
       const { page, errors } = await open(browser, 'light', { failRemote: true });
-      await clickTab(page, '更多');
+      await clickTab(page, '接其他 AI');
       await page.waitForFunction(() => document.querySelector('.lb-remote-svc .lb-fail'));
       const fb = await page.evaluate(() => { const f = document.querySelector('.lb-remote-svc .lb-fail'); const d = f.querySelector('details'); return { line: f.querySelector('.lb-fail-line').textContent, open: d.open, raw: d.textContent }; });
       assert.match(fb.line, /这一块暂时读不到，点重试/);
@@ -259,5 +306,5 @@ const shot = (page, name) => page.screenshot({ path: path.join(shell.QA_DIR, nam
   } finally { await browser.close(); }
   fs.mkdirSync(shell.QA_DIR, { recursive: true });
   fs.writeFileSync(path.join(shell.QA_DIR, 'S1016-settings-rows.json'), JSON.stringify(summary, null, 2));
-  console.log('PASS 1016 settings (real Chromium, light / dark / third-party): tabs 概览 · 同步 · AI · 更多; overview = account + collection + records; sync = 3 rows + fold; AI = one row per provider with its features + usage + folded details; no nested boxes; no jargon; first-run 4-step guide; unreadable block -> retry + folded details. Screenshots: ' + shell.QA_DIR);
+  console.log('PASS 1018 settings (real Chromium, light / dark / third-party): tabs 概览 · 同步 · AI · 更多; overview = account + collection + records; sync = 3 rows + fold; AI = one row per provider with its features + usage + folded details; no nested boxes; no jargon; first-run 4-step guide; unreadable block -> retry + folded details. Screenshots: ' + shell.QA_DIR);
 })().catch(error => { console.error(error); process.exitCode = 1; });

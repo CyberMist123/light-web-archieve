@@ -229,7 +229,10 @@ def call(instruction, text, cfg, on_delta=None, *, cap='textAI', feature=None):
     cancel = CANCEL.get()
     if cancel is not None and cancel.is_set():
         return cancelled_result()
-    from . import usage
+    from . import budget, usage
+    stop = budget.blocked(resolved)  # 1018：今天花到上限了，后台概要 / 整理不再调要钱的模型（问收藏不拦）
+    if stop:
+        return stop
     if resolved.get('mode') == 'cli':
         res = cli_call(instruction, text, resolved, on_delta)
     else:

@@ -104,7 +104,8 @@ def _understand(entry: dict[str, Any], path: Path, cfg: dict[str, Any] | None, s
 
 # 1016：第一层主接口 403 / 欠费 / 内容审核拦下时，换一个有视觉能力的备用：免费 key（Gemini）→ 设置 models 里标了
 # "vision": true 的条目 → 精细识别模型（接口或 key 和主接口不同才算：同一把坏 key 再试没用）。
-SWITCH_CODES = ("NEEDS_HUMAN.AUTH_FAILED", "NEEDS_HUMAN.QUOTA_EXCEEDED", "PERMANENT.CONTENT_FILTERED", "TRANSIENT.HTTP_429")
+SWITCH_CODES = ("NEEDS_HUMAN.AUTH_FAILED", "NEEDS_HUMAN.QUOTA_EXCEEDED", "PERMANENT.CONTENT_FILTERED", "TRANSIENT.HTTP_429",
+                "TRANSIENT.BUDGET")  # 1018：要钱的主模型被每天上限拦下，也试一下免费的备用
 
 
 def _should_switch(got: dict[str, Any]) -> bool:
