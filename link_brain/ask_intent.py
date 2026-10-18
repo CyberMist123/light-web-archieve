@@ -226,6 +226,37 @@ def apply_filters(items, filters: dict[str, Any] | None):
     return out, used
 
 
+def _norm_tag(s: Any) -> str:
+    return str(s or "").strip().lstrip("#＃").strip().casefold()
+
+
+def item_tag_list(item) -> list[str]:
+    """一篇的标签：词表标签 tags 在前，原帖话题 hashtags 补后（去重保序）。"""
+    out: list[str] = []
+    for key in ("tags", "hashtags"):
+        for t in item.get(key) or []:
+            t = str(t or "").strip().lstrip("#＃").strip()
+            if t and t not in out:
+                out.append(t)
+    return out
+
+
+def apply_strict_filters(items, filters: dict[str, Any] | None):
+    """MCP 目录浏览用的硬过滤（1018）：入库日期 added_since / added_until（catalog 的 date = 首次入库那天）、tag。
+    和 apply_filters 不同，筛空就是空——浏览目录的人要知道「这天没进东西」，不能悄悄退回全库。
+    tag：先按整词（大小写、# 不计）对 tags + hashtags，一篇都没有再按包含。"""
+    filters = filters or {}
+    out = list(items or [])
+    since, until = filters.get("added_since"), filters.get("added_until")
+    if since or until:
+        out = [it for it in out if it.get("date") and (not since or it["date"] >= since) and (not until or it["date"] <= until)]
+    tag = _norm_tag(filters.get("tag"))
+    if tag:
+        exact = [it for it in out if any(_norm_tag(t) == tag for t in item_tag_list(it))]
+        out = exact or [it for it in out if any(tag in _norm_tag(t) for t in item_tag_list(it))]
+    return out
+
+
 def item_has_kind(item, kind: str) -> bool:
     files = item.get("attachment_files") or []
     if kind == "video":

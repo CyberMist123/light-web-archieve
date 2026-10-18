@@ -80,6 +80,8 @@ def test_search_compact_and_history(vault):
     hits = row.pop("hits")
     assert hits[0] == {"type": "body", "label": "正文", "text": "蒜香鱼片：鱼片先腌十分钟。"}
     assert {h["type"] for h in hits} <= {"body", "attachments"}
+    assert isinstance(row.pop("tags"), list) and "source_url" in row   # 1018 轻目录：每行带标签和原帖链接
+    row.pop("source_url")
     assert row == {"id": "abc12345", "title": "蒜香鱼片怎么做", "summary": "蒜香鱼片的做法",
                    "date": "2026-09-01", "agent_md": AGENT}
     mt.search(c, {"query": "番茄"})
@@ -89,8 +91,8 @@ def test_search_compact_and_history(vault):
     assert text.count(f"## {today}") == 1
     lines = [l for l in text.splitlines() if l.startswith("- ")]
     assert len(lines) == 2 and "蒜香鱼片 · 测试 · 命中 1：蒜香鱼片怎么做" in lines[0]
-    with pytest.raises(Denied):
-        mt.search(c, {"query": "  "})
+    browse = mt.search(c, {"query": "  "})          # 1018：空查询 = 按入库时间翻目录，不再报错
+    assert browse["found"] >= 1 and "浏览全部" in mt.history_path().read_text("utf-8")
 
 
 def test_history_new_day_gets_new_section_and_tail(vault):

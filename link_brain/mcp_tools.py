@@ -52,7 +52,9 @@ HISTORY_TOP = 3            # 搜索历史每条记前几个命中标题
 HISTORY_TAIL_DEFAULT = 60
 HISTORY_TAIL_MAX = 500
 SEARCH_DEFAULT = 15        # 1015 第二批：十几个合适来源都列一行防漏（E 节）
-SEARCH_MAX = 40
+SEARCH_MAX = 50            # 1018：brief 一页 30–50 篇当目录翻
+BRIEF_SUMMARY_CHARS = 120  # 目录行概要上限（她 / Fable 定 80–120 字）
+ROW_TAGS = 8
 SEARCH_HITS = 3            # 每篇最多几段命中原文
 SEARCH_HIT_CHARS = 240
 READ_DEFAULT = 30000
@@ -223,12 +225,18 @@ def _search_filters(args: dict[str, Any]) -> dict[str, Any]:
     author = _str(args, "author", limit=40)
     if author:
         out["author"] = author
-    for key in ("since", "until"):
+    for key in ("since", "until", "added_on", "added_since", "added_until"):
         v = _str(args, key, limit=10)
         if v:
             if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
                 raise Denied("INVALID_ARGUMENT", f"{key} 要是 YYYY-MM-DD")
             out[key] = v
+    day = out.pop("added_on", None)
+    if day:
+        out["added_since"] = out["added_until"] = day
+    tag = _str(args, "tag", limit=40)
+    if tag:
+        out["tag"] = tag
     kinds = _str_list(args.get("kinds"), "kinds")
     bad = [k for k in kinds if k not in KINDS]
     if bad:
@@ -248,11 +256,30 @@ def _hits_for(cand: dict[str, Any]) -> list[dict[str, Any]]:
         return []
 
 
+def _row_summary(it: dict[str, Any], limit: int) -> str:
+    """目录行的概要：有概要用概要；没有（还没跑 enrich）退回正文开头，不为目录现调模型。"""
+    if it.get("summary"):
+        return _one_sentence(it["summary"], limit)
+    body = (it.get("search_fields") or {}).get("body") if isinstance(it.get("search_fields"), dict) else None
+    s = " ".join(str(body or "").split())
+    return s[:limit] + ("…" if len(s) > limit else "")
+
+
+def _tag_suggestions(tag: str, limit: int = 12) -> list[str]:
+    """tag 一篇都没筛到：给几个库里真有的、长得像的标签（都不像就给最常用的）。"""
+    from collections import Counter
+    from .ask_intent import item_tag_list, _norm_tag
+    counts = Counter(t for it in _items() for t in item_tag_list(it))
+    key = _norm_tag(tag)
+    near = [t for t, _ in counts.most_common() if key and (key in _norm_tag(t) or _norm_tag(t) in key)]
+    return (near or [t for t, _ in counts.most_common()])[:limit]
+
+
 def search(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
     from .remote import tools as rtools
-    from .ask_intent import item_kinds
+    from .ask_intent import item_kinds, item_tag_list
     filters = _search_filters(args)
-    query = _str(args, "query", required=not filters)
+    query = _str(args, "query")
     limit = _int(args.get("limit"), SEARCH_DEFAULT, 1, SEARCH_MAX)
     offset = _int(args.get("offset"), 0, 0, 10 ** 6)
     detail = _str(args, "detail", limit=10) or "hits"
@@ -271,8 +298,9 @@ def search(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
             it = cand["item"]
             agent = it.get("agent_md") if isinstance(it.get("agent_md"), str) and pol.allowed_file(it["agent_md"]) else None
             row = {"id": _short_id(it.get("id")), "title": it.get("title") or "", "author": it.get("author") or "",
-                   "summary": _one_sentence(it.get("summary")), "date": it.get("date") or "",
-                   "kinds": item_kinds(it), "score": round(float(cand.get("score") or 0), 4), "agent_md": _abs(ctx, agent)}
+                   "summary": _row_summary(it, BRIEF_SUMMARY_CHARS if detail == "brief" else 80), "date": it.get("date") or "",
+                   "tags": item_tag_list(it)[:ROW_TAGS], "kinds": item_kinds(it), "source_url": it.get("url") or None,
+                   "score": round(float(cand.get("score") or 0), 4), "agent_md": _abs(ctx, agent)}
             if detail == "hits":
                 row["hits"] = _hits_for(cand)
             rows.append(row)
@@ -282,11 +310,17 @@ def search(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
         pos += 1
     if offset == 0:
         try:
-            record_search(query or ("过滤：" + json.dumps(filters, ensure_ascii=False)), [r["title"] for r in rows], total, ctx.who)
+            label = query or (("过滤：" + json.dumps(filters, ensure_ascii=False)) if filters else "浏览全部")
+            record_search(label, [r["title"] for r in rows], total, ctx.who)
         except Exception as exc:  # noqa: BLE001 - 历史只是记录，写不上不影响搜索
             print(f"[mcp] 搜索历史没写上：{type(exc).__name__}: {exc}", file=sys.stderr)
-    return {"found": total, "offset": offset, "next_offset": pos if pos < total else None, "results": rows,
-            **({"filters": filters} if filters else {})}
+    out = {"found": total, "offset": offset, "next_offset": pos if pos < total else None, "results": rows,
+           **({"filters": filters} if filters else {})}
+    if not total and filters.get("tag"):
+        out["note"] = f"没有带「{filters['tag']}」标签的篇；库里相近 / 常用的标签：" + "、".join(_tag_suggestions(filters["tag"]))
+    elif not total and filters.get("added_since"):
+        out["note"] = "这段入库日期里没有新进库的篇（入库日期 = 第一次归档那天）"
+    return out
 
 
 # ---------------------------------------------------------------- ask
@@ -926,18 +960,26 @@ TOOLS: list[dict[str, Any]] = [
                      "hits（命中的原文段，每段标来源类型 type：body 正文 / ocr 图片文字 / comment_ocr 评论区图片 / comments 评论区（带 speaker 说话人）/ "
                      "transcript 视频文字稿 / screen 视频画面文字 / attachments 附件 / notes 她的批注 / highlights 她划的重点；"
                      "loc = 图N / 楼号 cN，图可以用 read 的 images 路径交给 image 看原图）· agent_md。"
-                     "可按 author / since / until / kinds 过滤（只给过滤不给 query = 按收藏时间新→旧列出）。"
-                     "默认一页 15 条，十几个来源都列一行防漏；found = 一共几条，next_offset 不为 null 时带 offset 续取。"
-                     "要看全文用 read(id)。每次搜索会记进搜索历史。"),
+                     "每条还带 tags（标签）和 source_url（原帖链接）。"
+                     "**当目录翻**：不给 query、detail='brief'、limit 30–50 = 按入库时间新→旧一页页翻（不加载正文，概要 ≤120 字，"
+                     "没概要的用正文开头）；先自己扫一圈挑感兴趣的再 read(id)，别只靠检索替你筛。"
+                     "过滤：added_on（某天入库）/ added_since / added_until（入库日期段）/ tag（按标签）——这几个筛空就是空；"
+                     "author / since / until（发帖日期，一篇都没有时退回入库日期）/ kinds 筛空时那一维不算。"
+                     "默认一页 15 条；found = 一共几条，next_offset 不为 null 时带 offset 续取。"
+                     "要看全文用 read(id)（别去 files 读 Web/Xiaohongshu 下给人看的页面）。每次搜索会记进搜索历史。"),
      "inputSchema": {"type": "object", "additionalProperties": False, "properties": {
-         "query": {"type": "string", "maxLength": 500, "description": "要找什么：关键词或一句话（有过滤条件时可以不给）"},
+         "query": {"type": "string", "maxLength": 500, "description": "要找什么：关键词或一句话（不给 = 按入库时间新→旧翻目录）"},
          "author": {"type": "string", "description": "只要这个作者（小红书昵称，原样）"},
-         "since": {"type": "string", "description": "收藏日期从（YYYY-MM-DD）"},
-         "until": {"type": "string", "description": "收藏日期到（YYYY-MM-DD）"},
+         "added_on": {"type": "string", "description": "只要这一天入库的（YYYY-MM-DD）；「今天 / 昨天进了什么」用这个"},
+         "added_since": {"type": "string", "description": "入库日期从（YYYY-MM-DD）"},
+         "added_until": {"type": "string", "description": "入库日期到（YYYY-MM-DD）"},
+         "tag": {"type": "string", "maxLength": 40, "description": "只要带这个标签的（整词优先，没有再按包含；筛空会给相近标签）"},
+         "since": {"type": "string", "description": "发帖日期从（YYYY-MM-DD；一篇都没有时退回入库日期）"},
+         "until": {"type": "string", "description": "发帖日期到（YYYY-MM-DD）"},
          "kinds": {"type": "array", "items": {"type": "string", "enum": ["video", "attachment", "pdf", "image"]},
                    "description": "只要这些类型：video 视频 / attachment 带附件 / pdf 带 PDF 附件 / image 图文"},
          "detail": {"type": "string", "enum": ["hits", "brief"], "default": "hits",
-                    "description": "hits = 每条带最多 3 段命中原文（默认）；brief = 只要标题和概要"},
+                    "description": "hits = 每条带最多 3 段命中原文（默认）；brief = 只要标题、概要、标签（翻目录用这个）"},
          "limit": {"type": "integer", "minimum": 1, "maximum": SEARCH_MAX, "default": SEARCH_DEFAULT, "description": "这一页最多几条"},
          "offset": {"type": "integer", "minimum": 0, "default": 0, "description": "从第几条开始（续取用上一页的 next_offset）"}}},
      "annotations": _ann(False)},
@@ -976,7 +1018,8 @@ TOOLS: list[dict[str, Any]] = [
      "annotations": _ann(True)},
     {"name": "files",
      "description": ("浏览开放给你的本地文件夹（Obsidian 库里设置开放的文件夹 + 收藏库）：path 留空列出开放的根；"
-                     "给文件夹就列里面（分页）；给 .md / .txt 文件就读全文（分页）。只读；越界、隐藏目录、程序内部文件一律拒。"),
+                     "给文件夹就列里面（分页）；给 .md / .txt 文件就读全文（分页）。只读；越界、隐藏目录、程序内部文件一律拒。"
+                     "小红书收藏不要从这里翻（Web/Xiaohongshu 下是给人看的页面，夹着 HTML）：目录用 search(detail='brief')，全文用 read(id)。"),
      "inputSchema": {"type": "object", "additionalProperties": False, "properties": {
          "path": {"type": "string", "description": "vault 内相对路径（/ 分隔，照列表给出的原样写）；留空 = 列根"},
          "offset": {"type": "integer", "minimum": 0, "default": 0, "description": "分页起点（文件夹按项、文件按字符）"},

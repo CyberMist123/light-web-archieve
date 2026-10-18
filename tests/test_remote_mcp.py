@@ -185,7 +185,8 @@ def test_oauth_full_flow_with_sdk_client_then_three_tools(remote):
             err, found = await remote_probe.call(s, "search", {"query": "蒜香鱼片"})
             assert not err and found["found"] == 1
             hit = found["results"][0]
-            hit = {k: v for k, v in hit.items() if k not in ("author", "hits", "kinds", "score")}   # 1015 第二批新增字段
+            assert "tags" in hit and "source_url" in hit   # 1018 轻目录
+            hit = {k: v for k, v in hit.items() if k not in ("author", "hits", "kinds", "score", "tags", "source_url")}   # 1015 第二批新增字段
             assert hit == {"id": "abc12345", "title": "蒜香鱼片怎么做", "summary": "蒜香鱼片的做法", "date": "2026-09-01",
                            "agent_md": AGENT}
             err, art = await remote_probe.call(s, "read", {"id": "xhs-abc12345", "part": "附件"})

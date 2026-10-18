@@ -360,11 +360,14 @@ def _library_candidates(policy: Policy, query: str, filters: dict[str, Any] | No
     筛空的那一维不算）。query 为空、只给过滤条件时 = 按收藏时间新→旧列出筛出来的篇。"""
     from .. import recall_core
     from ..ask import load_items
-    from ..ask_intent import apply_filters
+    from ..ask_intent import apply_filters, apply_strict_filters
     items = load_items()
     if not items:
         return []
     if filters:
+        items = apply_strict_filters(items, filters)   # 1018：入库日期 / 标签，筛空就是空
+        if not items:
+            return []
         items, _ = apply_filters(items, filters)
     if not str(query or "").strip():
         rows = sorted(items, key=lambda it: str(it.get("ts") or it.get("date") or ""), reverse=True)
