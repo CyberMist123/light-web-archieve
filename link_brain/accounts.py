@@ -194,7 +194,7 @@ def reader_env() -> dict:
 
 # 会让读取服务用号开页的接口：请求回来（成功失败都算）时把开页时刻戳挪到「这页看完」（见 pace_done）
 PAGE_ROUTES = ('/api/v1/favorites', '/api/v1/attachments/download', '/api/v1/notes/related-file',
-               '/api/v1/login/status', '/api/v1/notes/search-token')
+               '/api/v1/login/status', '/api/v1/notes/search-token', '/api/v1/boards', '/api/v1/boards/notes')
 
 
 GUARD_FILE = 'account-guard.json'

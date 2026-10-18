@@ -404,6 +404,11 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     big_cats = effective_big_cats()
     base = vault / "_archive" / source
+    try:   # 1019 专辑：她在小红书里给收藏分的组（albums sync 读来的），和标签分开
+        from . import albums as albums_mod
+        album_map = albums_mod.note_albums() if source == "xiaohongshu" else {}
+    except Exception:  # noqa: BLE001 - 读不到就当没有专辑
+        album_map = {}
     if not base.is_dir():
         return items
     for obj_dir in sorted(base.iterdir()):
@@ -486,6 +491,7 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                 # 整音节、空格分隔（标点处「/」断开）：搜索只认整音节，见 retrieval.pinyin_match / catalog-search.js
                 "pinyin": pinyin_text(str(meta.get('title') or ''), summary, *tags),
                 "tags": tags,
+                "albums": album_map.get(source_id, []),
                 # 批次 D · N9：原帖话题（正文里显示的那一串 #）；目录「#x」筛选看 tags ∪ hashtags（她改过的 tags 可能删掉了某个）
                 "hashtags": [str(t).strip().lstrip('#') for t in (note.get('hashtags') or []) if str(t).strip().lstrip('#')][:30],
                 "cats": _cats(tags, big_cats),

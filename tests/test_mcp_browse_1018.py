@@ -66,7 +66,7 @@ def test_added_on_is_archive_day_not_publish_day_and_strict(monkeypatch):
 def test_cli_browse_lines_and_offset(monkeypatch, capsys):
     import argparse
     mt, _ = _ctx(monkeypatch)
-    ns = argparse.Namespace(query="", date=None, since="2026-10-01", until=None, tag=None, limit=1, offset=0, json=False)
+    ns = argparse.Namespace(query="", date=None, since="2026-10-01", until=None, tag=None, album=None, limit=1, offset=0, json=False)
     assert mt.run_browse(ns) == 0
     out = capsys.readouterr().out.splitlines()
     assert out[0].startswith("aaa｜2026-10-18｜向女性游戏玩家推荐一个播客｜#独立游戏 #播客推荐 #女性主义｜女性独立游戏设计师")
@@ -95,6 +95,19 @@ def test_cli_item_part_and_image(monkeypatch, capsys):
     assert capsys.readouterr().out.strip() == str(assets / "image-001.webp")
     ns.image = 5
     assert mt.run_item(ns) == 2 and "只有 1 张" in capsys.readouterr().err
+
+
+def test_album_filter_row_and_note(monkeypatch, capsys):
+    import argparse
+    mt, c = _ctx(monkeypatch)
+    mt._items()[1]["albums"] = ["吃"]
+    res = mt.search(c, {"album": "吃", "detail": "brief"})
+    assert [r["id"] for r in res["results"]] == ["bbb"] and res["results"][0]["albums"] == ["吃"]
+    assert "albums" not in mt.search(c, {"tag": "播客"})["results"][0]        # 没专辑不给这个键
+    miss = mt.search(c, {"album": "旅行"})
+    assert miss["found"] == 0 and "吃" in miss["note"]
+    ns = argparse.Namespace(query="", date=None, since=None, until=None, tag=None, album="吃", limit=5, offset=0, json=False)
+    assert mt.run_browse(ns) == 0 and "｜〔吃〕｜" in capsys.readouterr().out
 
 
 def test_tag_filter_exact_then_contains_and_suggests(monkeypatch):

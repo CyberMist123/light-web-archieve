@@ -152,9 +152,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--since", help="入库日期从（YYYY-MM-DD）")
     p.add_argument("--until", help="入库日期到（YYYY-MM-DD）")
     p.add_argument("--tag", help="按标签（整词优先、无则包含）")
+    p.add_argument("--album", help="按她的小红书专辑（整名优先、无则包含）")
     p.add_argument("--limit", type=int, default=30)
     p.add_argument("--offset", type=int, default=0)
     p.add_argument("--json", action="store_true", help="机器可读版")
+
+    p = sub.add_parser("albums", help="小红书专辑：sync 读专辑列表和每个专辑里的笔记（碰号，夜跑一步）；list 看本地记下的专辑")
+    p.add_argument("action", choices=["sync", "list"])
+    p.add_argument("--max", type=int, default=6, help="sync：这次最多开几个专辑")
+    p.add_argument("--budget-min", dest="budget_min", type=float, default=25, help="sync：最多花几分钟")
+    p.add_argument("--no-list", dest="no_list", action="store_true", help="sync：不读专辑列表，只看已知专辑")
+    p.add_argument("--json", action="store_true")
 
     p = sub.add_parser("item", help="读一篇的机读版（可只取一段）或拿第 N 张原图的路径（和 MCP read 同一套）")
     p.add_argument("target", help="item_id（带不带 xhs- 都行）或原文链接")
@@ -570,6 +578,11 @@ def _dispatch(args) -> int:
         from . import mcp_tools
 
         return mcp_tools.run_browse(args)
+
+    if args.command == "albums":
+        from . import albums as albums_mod
+
+        return albums_mod.run(args)
 
     if args.command == "item":
         from . import mcp_tools

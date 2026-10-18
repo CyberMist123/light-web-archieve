@@ -237,6 +237,9 @@ def _search_filters(args: dict[str, Any]) -> dict[str, Any]:
     tag = _str(args, "tag", limit=40)
     if tag:
         out["tag"] = tag
+    album = _str(args, "album", limit=60)
+    if album:
+        out["album"] = album
     kinds = _str_list(args.get("kinds"), "kinds")
     bad = [k for k in kinds if k not in KINDS]
     if bad:
@@ -275,6 +278,12 @@ def _tag_suggestions(tag: str, limit: int = 12) -> list[str]:
     return (near or [t for t, _ in counts.most_common()])[:limit]
 
 
+def _album_names() -> list[str]:
+    """库里出现过的专辑名，篇数多的在前。"""
+    from collections import Counter
+    return [n for n, _ in Counter(a for it in _items() for a in it.get("albums") or []).most_common()]
+
+
 def search(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
     from .remote import tools as rtools
     from .ask_intent import item_kinds, item_tag_list
@@ -299,7 +308,8 @@ def search(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
             agent = it.get("agent_md") if isinstance(it.get("agent_md"), str) and pol.allowed_file(it["agent_md"]) else None
             row = {"id": _short_id(it.get("id")), "title": it.get("title") or "", "author": it.get("author") or "",
                    "summary": _row_summary(it, BRIEF_SUMMARY_CHARS if detail == "brief" else 80), "date": it.get("date") or "",
-                   "tags": item_tag_list(it)[:ROW_TAGS], "kinds": item_kinds(it), "source_url": it.get("url") or None,
+                   "tags": item_tag_list(it)[:ROW_TAGS], **({"albums": it["albums"]} if it.get("albums") else {}),
+                   "kinds": item_kinds(it), "source_url": it.get("url") or None,
                    "score": round(float(cand.get("score") or 0), 4), "agent_md": _abs(ctx, agent)}
             if detail == "hits":
                 row["hits"] = _hits_for(cand)
@@ -316,7 +326,11 @@ def search(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
             print(f"[mcp] 搜索历史没写上：{type(exc).__name__}: {exc}", file=sys.stderr)
     out = {"found": total, "offset": offset, "next_offset": pos if pos < total else None, "results": rows,
            **({"filters": filters} if filters else {})}
-    if not total and filters.get("tag"):
+    if not total and filters.get("album"):
+        names = _album_names()
+        out["note"] = (f"没有在「{filters['album']}」专辑里的篇；她的专辑：" + "、".join(names[:30])) if names \
+            else "专辑还没同步过（夜跑的 albums sync 会读）"
+    elif not total and filters.get("tag"):
         out["note"] = f"没有带「{filters['tag']}」标签的篇；库里相近 / 常用的标签：" + "、".join(_tag_suggestions(filters["tag"]))
     elif not total and filters.get("added_since"):
         out["note"] = "这段入库日期里没有新进库的篇（入库日期 = 第一次归档那天）"
@@ -960,10 +974,10 @@ TOOLS: list[dict[str, Any]] = [
                      "hits（命中的原文段，每段标来源类型 type：body 正文 / ocr 图片文字 / comment_ocr 评论区图片 / comments 评论区（带 speaker 说话人）/ "
                      "transcript 视频文字稿 / screen 视频画面文字 / attachments 附件 / notes 她的批注 / highlights 她划的重点；"
                      "loc = 图N / 楼号 cN，图可以用 read 的 images 路径交给 image 看原图）· agent_md。"
-                     "每条还带 tags（标签）和 source_url（原帖链接）。"
+                     "每条还带 tags（标签）、albums（她在小红书里放进的专辑，有才给）和 source_url（原帖链接）。"
                      "**当目录翻**：不给 query、detail='brief'、limit 30–50 = 按入库时间新→旧一页页翻（不加载正文，概要 ≤120 字，"
                      "没概要的用正文开头）；先自己扫一圈挑感兴趣的再 read(id)，别只靠检索替你筛。"
-                     "过滤：added_on（某天入库）/ added_since / added_until（入库日期段）/ tag（按标签）——这几个筛空就是空；"
+                     "过滤：added_on（某天入库）/ added_since / added_until（入库日期段）/ tag（按标签）/ album（按她的专辑）——这几个筛空就是空；"
                      "author / since / until（发帖日期，一篇都没有时退回入库日期）/ kinds 筛空时那一维不算。"
                      "默认一页 15 条；found = 一共几条，next_offset 不为 null 时带 offset 续取。"
                      "要看全文用 read(id)（别去 files 读 Web/Xiaohongshu 下给人看的页面）。每次搜索会记进搜索历史。"),
@@ -974,6 +988,7 @@ TOOLS: list[dict[str, Any]] = [
          "added_since": {"type": "string", "description": "入库日期从（YYYY-MM-DD）"},
          "added_until": {"type": "string", "description": "入库日期到（YYYY-MM-DD）"},
          "tag": {"type": "string", "maxLength": 40, "description": "只要带这个标签的（整词优先，没有再按包含；筛空会给相近标签）"},
+         "album": {"type": "string", "maxLength": 60, "description": "只要她放进这个小红书专辑的（专辑是她自己分的组，和标签不同；筛空会列出她有哪些专辑）"},
          "since": {"type": "string", "description": "发帖日期从（YYYY-MM-DD；一篇都没有时退回入库日期）"},
          "until": {"type": "string", "description": "发帖日期到（YYYY-MM-DD）"},
          "kinds": {"type": "array", "items": {"type": "string", "enum": ["video", "attachment", "pdf", "image"]},
@@ -1168,7 +1183,8 @@ def run_browse(args) -> int:
     """命令行 `browse`（1018，给 TG 端 lwa --list）：和 MCP search 同一个函数，detail=brief。
     一行一篇：id｜入库日期｜标题｜#标签｜概要；末行说一共几篇、下一页从哪开始。"""
     call = {"query": args.query or "", "detail": "brief", "limit": args.limit, "offset": args.offset}
-    for key, flag in (("added_on", "date"), ("added_since", "since"), ("added_until", "until"), ("tag", "tag")):
+    for key, flag in (("added_on", "date"), ("added_since", "since"), ("added_until", "until"), ("tag", "tag"),
+                      ("album", "album")):
         if getattr(args, flag, None):
             call[key] = getattr(args, flag)
     try:
@@ -1183,7 +1199,8 @@ def run_browse(args) -> int:
         if "id" not in r:
             continue
         tags = " ".join("#" + t for t in (r.get("tags") or [])[:5])
-        print("｜".join(x for x in (r["id"], r.get("date") or "", r.get("title") or "", tags, r.get("summary") or "") if x))
+        albums = " ".join("〔" + a + "〕" for a in r.get("albums") or [])
+        print("｜".join(x for x in (r["id"], r.get("date") or "", r.get("title") or "", albums, tags, r.get("summary") or "") if x))
     if res.get("note"):
         print(res["note"])
     nxt = res.get("next_offset")

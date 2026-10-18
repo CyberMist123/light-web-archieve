@@ -174,4 +174,5 @@ def action_for_route(route: str) -> str:
     r = route.split("?", 1)[0]
     return {"/api/v1/favorites": "favorites", "/api/v1/attachments/download": "attachments",
             "/api/v1/notes/related-file": "attachments", "/api/v1/login/status": "login_check",
-            "/api/v1/notes/search-token": "search_token", "/api/v1/risk/probe": "probe"}.get(r, "")
+            "/api/v1/notes/search-token": "search_token", "/api/v1/risk/probe": "probe",
+            "/api/v1/boards": "boards", "/api/v1/boards/notes": "board_notes"}.get(r, "")

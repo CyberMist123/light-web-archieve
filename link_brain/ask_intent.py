@@ -242,7 +242,7 @@ def item_tag_list(item) -> list[str]:
 
 
 def apply_strict_filters(items, filters: dict[str, Any] | None):
-    """MCP 目录浏览用的硬过滤（1018）：入库日期 added_since / added_until（catalog 的 date = 首次入库那天）、tag。
+    """MCP 目录浏览用的硬过滤（1018）：入库日期 added_since / added_until（catalog 的 date = 首次入库那天）、tag、album（1019）。
     和 apply_filters 不同，筛空就是空——浏览目录的人要知道「这天没进东西」，不能悄悄退回全库。
     tag：先按整词（大小写、# 不计）对 tags + hashtags，一篇都没有再按包含。"""
     filters = filters or {}
@@ -250,6 +250,11 @@ def apply_strict_filters(items, filters: dict[str, Any] | None):
     since, until = filters.get("added_since"), filters.get("added_until")
     if since or until:
         out = [it for it in out if it.get("date") and (not since or it["date"] >= since) and (not until or it["date"] <= until)]
+    album = _norm_tag(filters.get("album"))
+    if album:   # 1019 专辑名：整名优先，没有再按包含
+        names = lambda it: [_norm_tag(a) for a in it.get("albums") or []]  # noqa: E731
+        exact = [it for it in out if album in names(it)]
+        out = exact or [it for it in out if any(album in a for a in names(it))]
     tag = _norm_tag(filters.get("tag"))
     if tag:
         exact = [it for it in out if any(_norm_tag(t) == tag for t in item_tag_list(it))]
