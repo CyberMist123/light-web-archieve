@@ -567,78 +567,103 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
   .lb-settings .lb-route-price { display: none; }
 }
 
-/* ——— 1018 设置页 v6（一页翻完：状态 · 小红书 · 识别与问答 · 知识库接入 AI · 更多；首次设置）———
-   照她批的设计稿：灰底上白卡片，卡片标题 + 右侧小字，每行「名称 + 一句说明 + 右侧控件」。颜色全用 Obsidian 变量，亮 / 暗主题都跟着走。 */
-.lb-settings .lb-v6 { gap: 14px; max-width: 720px; background: var(--background-secondary); padding: 14px; border-radius: 14px; }
-.lb-settings .lb-v6 .lb-card { background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 12px; padding: 0 18px 4px; }
-.lb-settings .lb-v6 .lb-card-head { display: flex; align-items: center; gap: 10px; padding: 14px 0 10px; border-bottom: 1px solid var(--background-modifier-border); }
-.lb-settings .lb-v6 .lb-card-title { flex: 1; font-size: var(--font-ui-medium); font-weight: 700; color: var(--text-normal); letter-spacing: 0; }
+/* ——— 1018 设置页 v6（一页五张卡 + 首次设置）———
+   1018 晚她：「框框套框框太丑、不突出重点，要像 Claudian 那样舒服」→ 照 Claudian 的设置样式（src/style/settings/groups.css、
+   cli-installation.css，MIT）：卡片 = 透明底 + 一圈细边 + 标题行下一条线；里面的行一律去掉 Obsidian 1.14 给每行加的底色 / 圆角 / 边框，
+   只留行间细线；名字小一号、说明更小更淡。颜色全用 Obsidian 变量，亮 / 暗主题都跟着走。 */
+.lb-settings .lb-v6 { gap: 0; max-width: 760px; background: transparent; padding: 0; }
+.lb-settings .lb-v6 .lb-card { margin: 0 0 var(--size-4-5, 20px); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-l, 12px);
+  background: transparent; padding: 0; box-shadow: none; overflow: hidden; }
+.lb-settings .lb-v6 .lb-card-head { display: flex; align-items: center; gap: 10px; margin: 0; padding: var(--size-4-4, 16px);
+  border: 0; border-bottom: 1px solid var(--background-modifier-border); border-radius: 0; background: transparent; }
+.lb-settings .lb-v6 .lb-card-title { flex: 1; font-size: var(--font-ui-medium); font-weight: var(--font-semibold, 600); color: var(--text-normal); letter-spacing: 0; }
 .lb-settings .lb-v6 .lb-card-hint { color: var(--text-faint); font-size: var(--font-ui-smaller); }
-.lb-settings .lb-v6 .lb-card-desc { margin: 10px 0 2px; }
-.lb-settings .lb-v6 .lb-card .setting-item { padding: 12px 0; border-top: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border)); }
-.lb-settings .lb-v6 .lb-card-body > .setting-item:first-child, .lb-settings .lb-v6 .lb-grp + .setting-item, .lb-settings .lb-v6 .lb-grp + .lb-apps > .setting-item:first-child { border-top: 0; }
-.lb-settings .lb-v6 .setting-item-name { font-weight: 500; }
-.lb-settings .lb-v6 .lb-grp { font-size: var(--font-ui-smaller); color: var(--text-faint); padding: 14px 0 2px; border-top: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border)); }
-.lb-settings .lb-v6 .lb-card-body > .lb-grp:first-child { border-top: 0; }
+.lb-settings .lb-v6 .lb-card-body { padding: var(--size-4-2, 8px) var(--size-4-4, 16px); min-width: 0; }
+.lb-settings .lb-v6 .lb-card-desc { margin: var(--size-4-2, 8px) 0; color: var(--text-muted); font-size: var(--font-ui-smaller); }
+/* 行：去掉 1.14 给每行的「小盒子」，只留行间一条细线 */
+.lb-settings .lb-v6 .setting-item, .lb-settings .lb-v6 .setting-item:not(.setting-item-heading) {
+  margin: 0; padding: var(--size-4-3, 12px) 0; border: 0; border-radius: 0; background: transparent; box-shadow: none;
+  border-top: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border)); }
+.lb-settings .lb-v6 .setting-item::before, .lb-settings .lb-v6 .setting-item::after { content: none; }
+.lb-settings .lb-v6 .setting-item:hover { background: transparent; }
+.lb-settings .lb-v6 .lb-card-body > .setting-item:first-child, .lb-settings .lb-v6 .lb-card-body > :first-child .setting-item:first-child,
+.lb-settings .lb-v6 .lb-grp + .setting-item, .lb-settings .lb-v6 .lb-grp + .lb-apps > .setting-item:first-child,
+.lb-settings .lb-v6 .lb-ai-rows > .setting-item:first-child, .lb-settings .lb-v6 .lb-accounts > .setting-item:first-child { border-top: 0; }
+.lb-settings .lb-v6 .lb-accounts, .lb-settings .lb-v6 .lb-acct-row { margin: 0; padding-left: 0; padding-right: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.lb-settings .lb-v6 .setting-item-name { font-size: var(--font-ui-small); font-weight: var(--font-medium, 500); color: var(--text-normal); }
+.lb-settings .lb-v6 .setting-item-description { margin-top: var(--size-4-1, 4px); font-size: var(--font-ui-smaller); line-height: 1.5; color: var(--text-muted); }
+.lb-settings .lb-v6 .lb-grp { font-size: var(--font-ui-smaller); color: var(--text-faint); padding: var(--size-4-4, 16px) 0 var(--size-4-1, 4px);
+  border-top: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border)); }
+.lb-settings .lb-v6 .lb-card-body > .lb-grp:first-child { border-top: 0; padding-top: var(--size-4-2, 8px); }
 .lb-settings .lb-v6 .lb-meta { color: var(--text-faint); font-size: var(--font-ui-smaller); white-space: nowrap; margin-right: 6px; }
 .lb-settings .lb-v6 .lb-meta-after { margin: 0 0 0 6px; }
 .lb-settings .lb-v6 .lb-sub .setting-item-name { padding-left: 1.2em; }
-.lb-settings .lb-v6 .lb-note { color: var(--text-faint); font-size: var(--font-ui-smaller); padding: 6px 0 10px; }
+.lb-settings .lb-v6 .lb-note { color: var(--text-faint); font-size: var(--font-ui-smaller); padding: var(--size-4-2, 8px) 0; }
 .lb-settings .lb-v6 input.lb-num { width: 6em; text-align: right; }
-/* 图标（占位：字母 + 各家主色） */
-.lb-settings .lb-logo { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; flex: none;
-  background: var(--lb-logo, #888); color: #fff; font-size: 12px; font-weight: 700; line-height: 1; vertical-align: middle; }
-.lb-settings .lb-logo.is-s { width: 18px; height: 18px; border-radius: 5px; font-size: 10.5px; }
-.lb-settings .lb-v6 .lb-app .setting-item-name { display: flex; align-items: center; gap: 10px; }
-/* 状态卡：灯 · 立即同步 · 黄灯那一句 */
-.lb-settings .lb-lamp { width: 10px; height: 10px; border-radius: 50%; flex: none; order: -1; background: var(--color-green); box-shadow: 0 0 0 4px rgba(var(--color-green-rgb), .15); }
-.lb-settings .lb-lamp.is-busy { background: var(--color-blue); box-shadow: 0 0 0 4px rgba(var(--color-blue-rgb), .15); animation: lb-lamp-pulse 1.4s infinite; }
-.lb-settings .lb-lamp.is-warn { background: var(--color-orange); box-shadow: 0 0 0 4px rgba(var(--color-orange-rgb), .18); }
+/* 状态卡：灯 + 标题 + 立即同步；黄灯那一句是唯一带底色的东西（要她看的才突出） */
+.lb-settings .lb-lamp { width: 9px; height: 9px; border-radius: 50%; flex: none; order: -1; background: var(--color-green); box-shadow: 0 0 0 3px rgba(var(--color-green-rgb), .15); }
+.lb-settings .lb-lamp.is-busy { background: var(--color-blue); box-shadow: 0 0 0 3px rgba(var(--color-blue-rgb), .15); animation: lb-lamp-pulse 1.4s infinite; }
+.lb-settings .lb-lamp.is-warn { background: var(--color-orange); box-shadow: 0 0 0 3px rgba(var(--color-orange-rgb), .18); }
 @keyframes lb-lamp-pulse { 50% { opacity: .4; } }
 @media (prefers-reduced-motion: reduce) { .lb-settings .lb-lamp.is-busy { animation: none; } }
 .lb-settings .lb-v6 .lb-fix:empty { display: none; }
-.lb-settings .lb-v6 .lb-fix-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 10px 0 0; padding: 8px 12px; border-radius: 8px;
+.lb-settings .lb-v6 .lb-fix-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: var(--size-4-2, 8px) 0; padding: 8px 12px; border-radius: var(--radius-m, 8px);
   background: rgba(var(--color-orange-rgb), .1); color: var(--text-normal); font-size: var(--font-ui-small); }
-/* AI 服务的服务商小片 */
-.lb-settings .lb-v6 .lb-svc { padding: 12px 0; border-top: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border)); }
+.lb-settings .lb-v6 .lb-jump .extra-setting-button { color: var(--text-faint); }
+/* AI 服务的服务商小片：细边、无底色 */
+.lb-settings .lb-v6 .lb-svc { padding: var(--size-4-3, 12px) 0; border-top: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border)); }
 .lb-settings .lb-v6 .lb-svc .setting-item-description { margin-top: 8px; }
 .lb-settings .lb-v6 .lb-prov { display: flex; flex-wrap: wrap; gap: 8px; }
-.lb-settings .lb-v6 .lb-pv { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px 4px 6px; border: 1px solid var(--background-modifier-border);
-  border-radius: 8px; font-size: var(--font-ui-small); background: var(--background-primary); height: auto; box-shadow: none; }
-.lb-settings .lb-v6 .lb-pv-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-green); }
+.lb-settings .lb-v6 .lb-pv { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid var(--background-modifier-border);
+  border-radius: 999px; font-size: var(--font-ui-smaller); background: transparent; height: auto; box-shadow: none; color: var(--text-normal); }
+.lb-settings .lb-v6 .lb-pv .lb-icon { flex: none; }
+.lb-settings .lb-v6 .lb-pv-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-green); }
 .lb-settings .lb-v6 .lb-pv.is-warn .lb-pv-dot { background: var(--color-orange); }
-.lb-settings .lb-v6 button.lb-pv.is-add { border-style: dashed; color: var(--lbs-accent); cursor: pointer; padding: 4px 12px; }
-/* 一行点开在原地展开（知识库接入 AI 的范围 / 网页端；更多里每一项） */
+.lb-settings .lb-v6 button.lb-pv.is-add { border-style: dashed; color: var(--text-accent); cursor: pointer; }
+/* 本机 AI 应用：照 Claudian 的 cli-installation——40px 图标位、右下角状态点、名字 + 等宽版本号、一句、开关 */
+.lb-settings .lb-v6 .lb-app { gap: 14px; }
+.lb-settings .lb-v6 .lb-app-icon { position: relative; display: flex; flex: 0 0 40px; height: 40px; align-items: center; justify-content: center; color: var(--text-normal); }
+.lb-settings .lb-v6 .lb-app-dot { position: absolute; right: 2px; bottom: 2px; width: 10px; height: 10px; border: 2px solid var(--background-primary); border-radius: 50%; background: var(--color-green); }
+.lb-settings .lb-v6 .lb-app[data-app="other"] .lb-app-dot { display: none; }
+.lb-settings .lb-v6 .lb-app .setting-item-name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-weight: var(--font-semibold, 600); }
+.lb-settings .lb-v6 .lb-app-ver { color: var(--text-muted); font-family: var(--font-monospace); font-size: var(--font-ui-smaller); font-weight: normal; }
+.theme-light .lb-icon-variant--dark, .theme-dark .lb-icon-variant--light { display: none; }
+/* 一行点开在原地展开（范围 / 网页端；更多里每一项）：展开的内容只缩进，不加底色、不加框 */
 .lb-settings .lb-v6 details.lb-row-fold { border-top: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border)); }
-.lb-settings .lb-v6 .lb-grp + details.lb-row-fold { border-top: 0; }
-.lb-settings .lb-v6 details.lb-row-fold > summary { list-style: none; cursor: pointer; padding: 12px 22px 12px 0; position: relative; }
+.lb-settings .lb-v6 .lb-card-body > details.lb-row-fold:first-child, .lb-settings .lb-v6 .lb-grp + details.lb-row-fold { border-top: 0; }
+.lb-settings .lb-v6 details.lb-row-fold > summary { list-style: none; cursor: pointer; padding: var(--size-4-3, 12px) 22px var(--size-4-3, 12px) 0; position: relative; }
 .lb-settings .lb-v6 details.lb-row-fold > summary::-webkit-details-marker { display: none; }
 .lb-settings .lb-v6 details.lb-row-fold > summary::after { content: "\203A"; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); color: var(--text-faint); font-size: 18px; transition: transform .15s; }
 .lb-settings .lb-v6 details.lb-row-fold[open] > summary::after { transform: translateY(-50%) rotate(90deg); }
-.lb-settings .lb-v6 .lb-rf-name { font-weight: 500; color: var(--text-normal); }
-.lb-settings .lb-v6 .lb-rf-desc { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-top: 2px; }
-.lb-settings .lb-v6 details.lb-row-fold > :not(summary) { background: var(--background-secondary); border-radius: 8px; padding: 2px 14px; margin: 0 0 12px; }
-/* 首次设置：左边一张卡，右边步骤线（照她截图：字在左、圈在右） */
-.lb-settings .lb-v6 .lb-guide { grid-template-columns: minmax(0, 1fr) 150px; gap: 14px; padding: 0; align-items: start; }
-.lb-settings .lb-v6 .lb-guide-card { padding-bottom: 16px; }
-.lb-settings .lb-v6 .lb-guide-steps { background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 12px; padding: 16px 14px; }
+.lb-settings .lb-v6 .lb-rf-name { font-size: var(--font-ui-small); font-weight: var(--font-medium, 500); color: var(--text-normal); }
+.lb-settings .lb-v6 .lb-rf-desc { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-top: var(--size-4-1, 4px); }
+.lb-settings .lb-v6 details.lb-row-fold > :not(summary) { padding: 0 0 var(--size-4-3, 12px) var(--size-4-4, 16px); border-left: 2px solid var(--background-modifier-border); margin: 0 0 var(--size-4-3, 12px); }
+/* 展开里旧的那几块（每项功能用哪个模型…）也不再自带框 */
+.lb-settings .lb-v6 details.lb-row-fold .lb-card { border: 0; margin: 0; border-radius: 0; overflow: visible; }
+.lb-settings .lb-v6 details.lb-row-fold .lb-card-head { padding: var(--size-4-3, 12px) 0 var(--size-4-1, 4px); border-bottom: 0; }
+.lb-settings .lb-v6 details.lb-row-fold .lb-card-body { padding: 0; }
+/* 首次设置：左边一张卡，右边步骤线（字在左、圈在右） */
+.lb-settings .lb-v6 .lb-guide { grid-template-columns: minmax(0, 1fr) 150px; gap: 16px; padding: 0; align-items: start; }
+.lb-settings .lb-v6 .lb-guide-card { margin: 0; }
+.lb-settings .lb-v6 .lb-guide-card .lb-guide-nav { padding: 0 var(--size-4-4, 16px) var(--size-4-4, 16px); }
+.lb-settings .lb-v6 .lb-guide-steps { border: 1px solid var(--background-modifier-border); border-radius: var(--radius-l, 12px); padding: 16px 14px; }
 .lb-settings .lb-v6 .lb-guide-steps.is-hidden { visibility: hidden; }
-.lb-settings .lb-v6 .lb-guide-step { justify-content: flex-end; cursor: pointer; text-align: right; }
+.lb-settings .lb-v6 .lb-guide-step { justify-content: flex-end; cursor: pointer; text-align: right; font-size: var(--font-ui-small); }
 .lb-settings .lb-v6 .lb-guide-dot { width: 22px; height: 22px; border-width: 1.5px; font-size: 11.5px; }
-.lb-settings .lb-v6 .lb-guide-step.is-done .lb-guide-dot { background: var(--lbs-accent); border-color: var(--lbs-accent); color: #fff; }
+.lb-settings .lb-v6 .lb-guide-step.is-done .lb-guide-dot { background: var(--interactive-accent); border-color: var(--interactive-accent); color: var(--text-on-accent, #fff); }
 .lb-settings .lb-v6 .lb-guide-step.is-on { color: var(--text-normal); }
+.lb-settings .lb-v6 .lb-guide-step.is-on .lb-guide-dot { border-color: var(--interactive-accent); color: var(--interactive-accent); }
 .lb-settings .lb-v6 .lb-guide-line { margin: 3px 10px 3px auto; height: 24px; width: 1.5px; }
-.lb-settings .lb-v6 .lb-guide-line.is-done { background: var(--lbs-accent); }
-.lb-settings .lb-v6 .lb-guide-hint { margin: 12px 0 4px; }
+.lb-settings .lb-v6 .lb-guide-line.is-done { background: var(--interactive-accent); }
+.lb-settings .lb-v6 .lb-guide-hint { margin: var(--size-4-2, 8px) 0; font-size: var(--font-ui-smaller); color: var(--text-muted); }
 .lb-settings .lb-v6 .lb-guide-nav .mod-cta { margin-left: 0; order: -1; }
 .lb-settings .lb-v6 .lb-guide-nav .lb-push { margin-left: auto; }
-.lb-settings .lb-v6 button.lb-big { display: block; width: 100%; height: auto; text-align: left; white-space: normal; padding: 14px 16px; margin-top: 12px;
-  border: 1px solid var(--background-modifier-border); border-radius: 10px; background: var(--background-primary); box-shadow: none; cursor: pointer; }
-.lb-settings .lb-v6 button.lb-big.is-pri { border-color: var(--lbs-accent); background: rgba(var(--interactive-accent-rgb, 124, 92, 255), .08); }
-.lb-settings .lb-v6 .lb-big-name { font-weight: 600; font-size: var(--font-ui-medium); color: var(--text-normal); }
-.lb-settings .lb-v6 .lb-big-desc { color: var(--text-muted); font-size: var(--font-ui-small); margin-top: 2px; }
+.lb-settings .lb-v6 button.lb-big { display: block; width: 100%; height: auto; text-align: left; white-space: normal; padding: 14px 16px; margin: 12px 0 0;
+  border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m, 8px); background: transparent; box-shadow: none; cursor: pointer; }
+.lb-settings .lb-v6 button.lb-big.is-pri { border-color: var(--interactive-accent); }
+.lb-settings .lb-v6 .lb-big-name { font-weight: var(--font-semibold, 600); font-size: var(--font-ui-small); color: var(--text-normal); }
+.lb-settings .lb-v6 .lb-big-desc { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-top: 2px; }
 @media (max-width: 640px) {
-  .lb-settings .lb-v6 { padding: 10px; }
   .lb-settings .lb-v6 .lb-guide { grid-template-columns: 1fr; }
   .lb-settings .lb-v6 .lb-guide-steps { order: -1; display: flex; flex-flow: row wrap; gap: 6px 14px; }
   .lb-settings .lb-v6 .lb-guide-line { display: none; }

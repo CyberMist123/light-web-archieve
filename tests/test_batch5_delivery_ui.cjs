@@ -73,7 +73,7 @@ const context = { module: { exports: {} }, process, setTimeout, clearTimeout, co
   window: { confirm: () => true },
   // 插件按「库根 + manifest.dir」require 自己的几个文件；临时库里没拷插件，指回仓库里的源文件
   require: n => n === 'obsidian' ? obsidianStub : n === 'child_process' ? { spawn: fakeSpawn }
-    : /[\\/](onboarding-ui|media-nav|remote-ui|home-ui|schedule-ui|settings-pages|settings-v6|usage-ui|skills-ui)\.js$/.test(n) ? require(path.join(ROOT, PLUGIN_DIR, path.basename(n))) : require(n) };
+    : /[\\/](onboarding-ui|media-nav|remote-ui|home-ui|schedule-ui|settings-pages|settings-v6|provider-icons|usage-ui|skills-ui)\.js$/.test(n) ? require(path.join(ROOT, PLUGIN_DIR, path.basename(n))) : require(n) };
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(path.join(ROOT, PLUGIN_DIR, 'main.js'), 'utf8') + '\nmodule.exports.__SettingTab = LinkBrainSettingTab; module.exports.__merge = mergeSettings;', context);
 const Plugin = context.module.exports;

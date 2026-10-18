@@ -22,7 +22,7 @@ PLUGIN_FILES = ('main.js', 'manifest.json', 'library-ui.js', 'remote-ui.js', 'pr
                 'note-actions.js', 'note-tools.js', 'image-actions.js', 'player-ui.js',  # 批次 D：onload 的四个挂载点
                 'index-ui.js',  # 10-10 索引树（保存 索引.md 重算 / 起草 / 未归类建议 / wiki）
                 'skills-ui.js',  # 1015 设置页「技能」页签（列 _skills、导入只拷文字文件）
-                'settings-pages.js', 'settings-v6.js')  # 1016 设置页排版；1018 v6 一页五张卡 + 首次设置
+                'settings-pages.js', 'settings-v6.js', 'provider-icons.js')  # 1016 设置页排版；1018 v6 一页五张卡 + 首次设置；图标取自 Claudian（MIT）
 
 
 def dataview_ready(obs: Path) -> bool:

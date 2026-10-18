@@ -15,7 +15,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path');
 const shell = require('../_obsidian_shell.cjs');
 const root = 'obsidian-plugins/link-brain-actions';
-const sources = Object.fromEntries(['main', 'home-ui', 'remote-ui', 'schedule-ui', 'onboarding-ui', 'index-ui', 'skills-ui', 'usage-ui', 'settings-pages', 'settings-v6'].map(name =>
+const sources = Object.fromEntries(['main', 'home-ui', 'remote-ui', 'schedule-ui', 'onboarding-ui', 'index-ui', 'skills-ui', 'usage-ui', 'settings-pages', 'settings-v6', 'provider-icons'].map(name =>
   [name + '.js', fs.readFileSync(path.join(root, name + '.js'), 'utf8')]));
 const TABS = ['概览', '同步', 'AI', '接其他 AI', '更多'];   // 1018：接其他 AI 升成独立页签
 // 新手主界面（不算「连接其他 AI」里的高级折叠）上不该看到的词（她 1010 点名的术语；要留的旁边有人话解释）
@@ -26,6 +26,8 @@ async function open(browser, theme, { failRemote = false, guide = false } = {}) 
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   page.on('console', m => { if (m.type() === 'error') console.log('[console]', m.text()); });
   await shell.settings(page, { theme, contentWidth: 800 });
+  // 可选：加载本机 Obsidian 自带的 app.css（从安装包里取出来的那份，不进仓库），看真主题样式下有没有框套框
+  if (process.env.LWA_OBSIDIAN_CSS && fs.existsSync(process.env.LWA_OBSIDIAN_CSS)) await page.addStyleTag({ path: process.env.LWA_OBSIDIAN_CSS });
   await page.evaluate(([sources, failRemote, guide]) => {
     const modules = {};
     const require = name => {
@@ -207,16 +209,20 @@ const rowsIn = (page, sel) => page.evaluate(sel => [...document.querySelectorAll
       const chips = await page.evaluate(() => [...document.querySelectorAll('[data-section="s-ai"] .lb-pv')].map(x => x.getAttribute('data-provider') || x.textContent));
       assert.deepEqual(chips, ['google', 'deepseek', 'aliyun', '＋ 添加 key']);
       const apps = await page.evaluate(() => [...document.querySelectorAll('.lb-app')].map(r => r.getAttribute('data-app') + ':' + r.querySelector('.setting-item-description').textContent));
-      assert.deepEqual(apps, ['claude-code:已接入', 'codex:已安装 · 0.146.0', 'opencode:已安装 · 1.19.3 · 复制设置，粘进它的 MCP 设置', 'other:Cursor 等支持 MCP 的软件：复制设置，粘进它的 MCP 设置']);
+      assert.deepEqual(apps, ['claude-code:已接入', 'codex:自动检测', 'opencode:自动检测 · 复制设置，粘进它的 MCP 设置', 'other:Cursor 等支持 MCP 的软件：复制设置，粘进它的 MCP 设置']);
+      assert.equal(await page.locator('.lb-app[data-app="codex"] .lb-app-icon svg').count(), 1, 'Codex 用 Claudian 的图标');
+      assert.equal(await page.evaluate(() => document.querySelector('.lb-app[data-app="codex"] .lb-app-ver').textContent), 'v0.146.0');
       const text = await page.evaluate(() => document.querySelector('.lb-tab-pane').innerText);
       assert.deepEqual(JARGON.filter(w => text.includes(w)), [], theme + '：明面上没有术语');
       assert.ok(await page.locator('.lb-tab-pane button.mod-cta').count() <= 1, '最多一个主按钮');
       assert.deepEqual(await nestedBoxes(page), [], theme + '：卡片里不再套框');
-      // 卡片和页面底色分得开（跟着主题变量走）
-      const bg = await page.evaluate(() => [getComputedStyle(document.querySelector('.lb-v6')).backgroundColor, getComputedStyle(document.querySelector('.lb-v6 > .lb-card')).backgroundColor]);
-      assert.notEqual(bg[0], bg[1], theme + '：卡片和底色分得开');
+      // 1018 晚她：照 Claudian——卡片透明底 + 一圈细边，卡里的行不再各自带底色 / 边框
+      const rowBoxes = await page.evaluate(() => [...document.querySelectorAll('.lb-v6 .lb-card .setting-item')].filter(r => { const cs = getComputedStyle(r);
+        return cs.backgroundColor !== 'rgba(0, 0, 0, 0)' || parseFloat(cs.borderTopLeftRadius) > 0 || cs.borderLeftStyle === 'solid'; }).map(r => r.querySelector('.setting-item-name')?.textContent));
+      assert.deepEqual(rowBoxes, [], theme + '：行不再自带底色 / 圆角 / 边框');
       summary[theme] = { cards: await cards(page), 状态: status, 识别与问答: ai, 接入: apps };
       await shot(page, `S1018v6-settings-${theme}.png`);
+      for (const sec of ['s-ai', 's-mcp']) await page.locator(`.lb-card[data-section="${sec}"]`).screenshot({ path: path.join(shell.QA_DIR, `S1018v6-card-${sec}-${theme}.png`) });
       // ② 接入 Codex：开关 → connect add codex → 「已接入」
       await page.evaluate(() => document.querySelector('.lb-app[data-app="codex"] .checkbox-container').click()); await page.waitForTimeout(200);   // 外壳的开关没有尺寸：走 DOM 点
       assert.equal(await page.evaluate(() => document.querySelector('.lb-app[data-app="codex"] .setting-item-description').textContent), '已接入');

@@ -1299,6 +1299,7 @@ class LinkBrainActions extends Plugin {
   }
   // 设置页顶部（状态 + 功能 + 一键装好 / 跑完 + 首次零配置）整块在 home-ui.js
   settingsV6() { return this._settingsV6 || (this._settingsV6 = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'settings-v6.js'))(obsidian, this)); }
+  providerIcons() { return this._providerIcons || (this._providerIcons = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'provider-icons.js'))); }
   settingsPages() { return this._settingsPages || (this._settingsPages = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'settings-pages.js'))(obsidian, this)); }
   usageUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'usage-ui.js'))(obsidian, this); }
   skillsUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'skills-ui.js'))(obsidian, this); }

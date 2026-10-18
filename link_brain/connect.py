@@ -317,34 +317,81 @@ APPS = (
 
 
 def _extra_bin_dirs() -> list[Path]:
-    """PATH 之外常见的命令行安装目录（Obsidian 从开始菜单启动时 PATH 常常不全）。目录清单参照 Claudian 的找法。"""
+    """PATH 之外常见的命令行安装目录（Obsidian 从开始菜单启动时 PATH 常常不全）。
+    清单逐条照 Claudian src/core/process/env.ts 的 getExtraBinaryPaths（MIT，github.com/YishenTu/claudian），
+    外加 Codex 独立安装包的目录（~/.codex/packages/standalone/current/bin）。"""
     home = Path.home()
-    out: list[Path] = [home / ".local" / "bin", home / ".bun" / "bin", home / ".volta" / "bin", home / ".npm-global" / "bin",
-                       home / ".codex" / "packages" / "standalone" / "current" / "bin", home / ".opencode" / "bin",
-                       home / ".cargo" / "bin"]
-    for env in ("NVM_BIN", "VOLTA_HOME", "PNPM_HOME"):
-        v = os.environ.get(env)
-        if v:
-            out.append(Path(v) / "bin" if env == "VOLTA_HOME" else Path(v))
-    prefix = os.environ.get("npm_config_prefix")
-    if prefix:
-        out.append(Path(prefix) if os.name == "nt" else Path(prefix) / "bin")
+    env = os.environ.get
+    out: list[Path] = []
     if os.name == "nt":
-        appdata = os.environ.get("APPDATA") or str(home / "AppData" / "Roaming")
-        local = os.environ.get("LOCALAPPDATA") or str(home / "AppData" / "Local")
-        out += [Path(appdata) / "npm", Path(local) / "mise" / "shims", Path(local) / "pnpm"]
+        appdata, local = env("APPDATA"), env("LOCALAPPDATA")
+        pf, pf86, pd = env("ProgramFiles") or r"C:\Program Files", env("ProgramFiles(x86)") or r"C:\Program Files (x86)", env("ProgramData") or r"C:\ProgramData"
+        if appdata:
+            out.append(Path(appdata) / "npm")
+        if local:
+            out += [Path(local) / "Programs" / "nodejs", Path(local) / "Programs" / "node"]
+        out += [Path(pf) / "nodejs", Path(pf86) / "nodejs"]
+        if env("NVM_SYMLINK"):
+            out.append(Path(env("NVM_SYMLINK")))
+        out.append(Path(env("NVM_HOME")) if env("NVM_HOME") else Path(appdata or home) / "nvm")
+        out.append(Path(env("VOLTA_HOME")) / "bin" if env("VOLTA_HOME") else home / ".volta" / "bin")
+        out += [Path(r) / "aliases" / "default" for r in (env("FNM_DIR"), appdata and str(Path(appdata) / "fnm"), local and str(Path(local) / "fnm")) if r]
+        out.append(Path(env("ChocolateyInstall")) / "bin" if env("ChocolateyInstall") else Path(pd) / "chocolatey" / "bin")
+        scoop = Path(env("SCOOP")) if env("SCOOP") else home / "scoop"
+        out += [scoop / "shims", scoop / "apps" / "nodejs" / "current" / "bin", scoop / "apps" / "nodejs" / "current"]
+        out.append(Path(pf) / "Docker" / "Docker" / "resources" / "bin")
+        out += [home / "bin", home / ".local" / "bin", home / ".bun" / "bin", home / ".opencode" / "bin"]
+        if local:
+            out.append(Path(local) / "mise" / "shims")
     else:
-        out += [home / ".local" / "share" / "mise" / "shims", Path("/opt/homebrew/bin"), Path("/usr/local/bin")]
+        out += [Path("/usr/local/bin"), Path("/opt/homebrew/bin"), Path("/usr/bin"), Path("/bin")]
+        if env("VOLTA_HOME"):
+            out.append(Path(env("VOLTA_HOME")) / "bin")
+        asdf = env("ASDF_DATA_DIR") or env("ASDF_DIR")
+        if asdf:
+            out += [Path(asdf) / "shims", Path(asdf) / "bin"]
+        out += [home / "bin", home / ".local" / "bin", home / ".bun" / "bin", home / ".opencode" / "bin", home / ".docker" / "bin",
+                home / ".npm-global" / "bin", home / ".volta" / "bin", home / ".asdf" / "shims", home / ".asdf" / "bin",
+                home / ".local" / "share" / "mise" / "shims"]
+        if env("NVM_BIN"):
+            out.append(Path(env("NVM_BIN")))
+    if env("npm_config_prefix"):
+        out.append(Path(env("npm_config_prefix")) if os.name == "nt" else Path(env("npm_config_prefix")) / "bin")
+    out.append(home / ".codex" / "packages" / "standalone" / "current" / "bin")
     return out
 
 
-def find_binary(name: str) -> str | None:
+# Claudian 的服务商 id（它设置里 providerConfigs 的键）← 这边的应用 id
+CLAUDIAN_ID = {"claude-code": "claude", "codex": "codex", "opencode": "opencode", "pi": "pi", "grok": "grok", "deepseek": "deepseek"}
+
+
+def claudian_paths() -> dict[str, str]:
+    """Claudian 里手填过的命令路径（<库>/.claudian/claudian-settings.json 的 providerConfigs.<id>.cliPathsByHost / cliPath）：
+    两边认同一个程序。只读这几格，文件不在 / 读不懂就当没填。"""
+    try:
+        data = _read_json(storage.vault_root() / ".claudian" / "claudian-settings.json") or {}
+    except Exception:  # noqa: BLE001 — 没有库 / 读不了都当没填
+        return {}
+    out: dict[str, str] = {}
+    for aid, cid in CLAUDIAN_ID.items():
+        cfg = (data.get("providerConfigs") or {}).get(cid) or {}
+        cands = [*((cfg.get("cliPathsByHost") or {}).values() if isinstance(cfg.get("cliPathsByHost"), dict) else []), cfg.get("cliPath")]
+        hit = next((str(c).strip().strip('"') for c in cands if c and Path(str(c).strip().strip('"')).is_file()), "")
+        if hit:
+            out[aid] = hit
+    return out
+
+
+def find_binary(name: str, app_id: str = "") -> str | None:
     if not name:
         return None
     if name == "claude":
         forced = os.environ.get(ENV_CLAUDE_EXE)
         if forced:
             return forced if Path(forced).exists() else None
+    picked = claudian_paths().get(app_id or {v: k for k, v in CLAUDIAN_ID.items()}.get(name, name) or "")
+    if picked:
+        return picked
     found = shutil.which(name)
     if found:
         return found
@@ -369,10 +416,12 @@ def _version(exe: str) -> str:
 
 
 def apps() -> list[dict[str, Any]]:
-    """[{id, name, installed, version, oneclick, connected}]——只列这台电脑上装了的，顺序固定。"""
+    """[{id, name, installed, version, oneclick, connected, path, via}]——只列这台电脑上装了的，顺序固定。
+    via = "claudian"（用的是 Claudian 里手填的路径）或 "auto"（自动检测）。"""
     from concurrent.futures import ThreadPoolExecutor
     desk = claude_desktop_config()
-    found = {aid: (find_binary(binary) if binary else None) for aid, _, binary, _ in APPS}
+    found = {aid: (find_binary(binary, aid) if binary else None) for aid, _, binary, _ in APPS}
+    via = claudian_paths()
     probes = {
         "claude-code": lambda: bool(_claude_code_has()),
         "claude-desktop": lambda: NAME in (((_read_json(desk) or {}).get("mcpServers")) or {}),
@@ -386,7 +435,8 @@ def apps() -> list[dict[str, Any]]:
             installed = _desktop_installed(desk) if aid == "claude-desktop" else bool(found[aid])
             if not installed:
                 continue
-            out.append({"id": aid, "name": name, "installed": True, "oneclick": oneclick,
+            out.append({"id": aid, "name": name, "installed": True, "oneclick": oneclick, "path": found.get(aid) or "",
+                        "via": "claudian" if aid in via else "auto",
                         "version": versions[aid].result() if aid in versions else "",
                         "connected": bool(connected[aid].result()) if aid in connected else False})
     return out

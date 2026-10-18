@@ -18,16 +18,10 @@ module.exports = function (obsidian, plugin) {
   };
   const fmtYuan = v => (v == null || !Number.isFinite(+v) ? '—' : '¥' + (+v >= 10 ? (+v).toFixed(1) : (+v).toFixed(2)));
 
-  // —— 图标（占位：字母 + 各家主色；以后换官方图标只改这里）——
-  const APP_LOGO = { 'claude-code': ['✳', '#d97757'], 'claude-desktop': ['C', '#c96442'], codex: ['⌘', '#111111'], opencode: ['O', '#2b2b2b'],
-    pi: ['π', '#4a4a4a'], grok: ['G', '#000000'], deepseek: ['D', '#4d6bfe'] };
-  const PROV = { google: ['G', '#4285f4', 'Gemini'], deepseek: ['D', '#4d6bfe', 'DeepSeek'], aliyun: ['Q', '#615ced', '通义千问'], openai: ['◎', '#111111', 'OpenAI'] };
-  function logo(parent, spec, small = false) {
-    const [ch, color] = spec || ['•', '#888'];
-    const el = parent.createSpan({ cls: 'lb-logo' + (small ? ' is-s' : ''), text: ch });
-    el.style?.setProperty?.('--lb-logo', color);
-    return el;
-  }
+  // —— 图标：Claudian 的官方 SVG（provider-icons.js，MIT）；Gemini、千问 Claudian 里没有 → 不画图标，只写名字 ——
+  const PROV = { google: 'Gemini', deepseek: 'DeepSeek', aliyun: '通义千问', openai: 'OpenAI' };
+  const icons = (() => { try { return plugin.providerIcons ? plugin.providerIcons() : null; } catch (e) { console.error('[lb] 图标没加载上', e); return null; } })();
+  const iconInto = (parent, id, size) => (icons ? icons.icon(parent, id, size) : null);
   const group = (parent, text) => parent.createDiv({ cls: 'lb-grp', text });
   const meta = (row, text) => row.controlEl.createSpan({ cls: 'lb-meta', text });
   // 点一行跳到下面那张卡
@@ -82,7 +76,7 @@ module.exports = function (obsidian, plugin) {
     for (const [id, k] of Object.entries(keys)) {
       if (!PROV[id]) continue;
       const quota = String(k.code || '').endsWith('QUOTA_EXCEEDED');
-      out.push({ id, name: PROV[id][2], quota, text: `${PROV[id][2]} ${quota ? '额度用完或余额不足' : 'key 用不了'}` });
+      out.push({ id, name: PROV[id], quota, text: `${PROV[id]} ${quota ? '额度用完或余额不足' : 'key 用不了'}` });
     }
     return out;
   }
@@ -137,7 +131,7 @@ module.exports = function (obsidian, plugin) {
     for (const id of ['google', 'deepseek', 'aliyun', 'openai']) {
       const l = (pages.LINKS || {})[id];
       if (!l || !l.key) continue;
-      const a = links.createEl('button', { cls: 'lb-link', text: PROV[id][2] + (id === 'google' ? '（有免费额度）' : '') });
+      const a = links.createEl('button', { cls: 'lb-link', text: PROV[id] + (id === 'google' ? '（有免费额度）' : '') });
       a.onclick = () => openUrl(l.key);
     }
     const row = c.createDiv({ cls: 'lb-modal-actions' });
@@ -175,7 +169,7 @@ module.exports = function (obsidian, plugin) {
       const local = [];
       if (h && h.isOn('ocr')) local.push('识图转文字');
       if (h && h.isOn('asr')) local.push('语音转文字');
-      const ai = uses.map(id => PROV[id][2]);
+      const ai = uses.map(id => PROV[id]);
       return [local.length ? '本机 ' + local.join('、') : '', ai.length ? 'AI 用 ' + ai.join('、') : '没配 AI（只用免费的本机功能）'].filter(Boolean).join(' · ');
     };
 
@@ -280,7 +274,7 @@ module.exports = function (obsidian, plugin) {
       const bad = new Set(keyTrouble(u).map(k => k.id));
       for (const id of providersInUse(u)) {
         const chip = chips.createSpan({ cls: 'lb-pv' + (bad.has(id) ? ' is-warn' : ''), attr: { 'data-provider': id } });
-        logo(chip, PROV[id], true); chip.createSpan({ text: PROV[id][2] + (id === 'google' ? ' · 免费额度' : '') });
+        iconInto(chip, id, 14); chip.createSpan({ text: PROV[id] + (id === 'google' ? ' · 免费额度' : '') });
         chip.createSpan({ cls: 'lb-pv-dot' });
       }
       const add = chips.createEl('button', { cls: 'lb-pv is-add', text: '＋ 添加 key' });
@@ -339,13 +333,20 @@ module.exports = function (obsidian, plugin) {
       const apps = j.apps || [];
       if (!apps.length) list.createDiv({ cls: 'setting-item-description', text: '这台电脑上还没有能接入的 AI 应用（Claude Code、Codex、Claude 桌面版等）。装好后会出现在这里。' });
       for (const a of apps) {
+        // 照 Claudian 设置页「Claude Code v2.1.302 · 自动检测」那一行：图标（右下角绿点 = 找到了）· 名字 + 版本 · 一句 · 右边开关
         const row = new Setting(list).setName(a.name);
         row.settingEl.addClass('lb-app'); row.settingEl.setAttribute?.('data-app', a.id);
-        logo(row.nameEl, APP_LOGO[a.id]).addClass('lb-logo-lead');
-        row.nameEl.prepend?.(row.nameEl.lastChild);
-        const v = a.version ? ' · ' + a.version : '';
+        const iconBox = row.settingEl.ownerDocument.createElement('div');
+        iconBox.className = 'lb-app-icon';
+        iconInto(iconBox, a.id, 26);
+        const dot = row.settingEl.ownerDocument.createElement('span');
+        dot.className = 'lb-app-dot';
+        iconBox.appendChild(dot);
+        row.settingEl.insertBefore(iconBox, row.settingEl.firstChild);
+        if (a.version) row.nameEl.createSpan({ cls: 'lb-app-ver', text: 'v' + a.version });
+        const how = a.via === 'claudian' ? '用 Claudian 里设的路径' : '自动检测';
         if (a.oneclick) {
-          row.setDesc(a.connected ? '已接入' : '已安装' + v);
+          row.setDesc(a.connected ? '已接入' : how);
           row.addToggle(t => {
             let busy = false;
             t.setValue(!!a.connected).onChange(async on => {
@@ -356,7 +357,7 @@ module.exports = function (obsidian, plugin) {
               catch (e) { res = { ok: false, message: e.message }; }
               if (res.ok) {
                 a.connected = on;
-                row.setDesc(on ? '已接入' : '已安装' + v);
+                row.setDesc(on ? '已接入' : how);
                 plugin.notify(res.message || (on ? '已接入' : '已断开'), { kind: 'ok', ms: 8000 });
               } else {
                 try { t.setValue(!on); } catch {}
@@ -368,7 +369,7 @@ module.exports = function (obsidian, plugin) {
             });
           });
         } else {
-          row.setDesc('已安装' + v + ' · 复制设置，粘进它的 MCP 设置');
+          row.setDesc(how + ' · 复制设置，粘进它的 MCP 设置');
           tab.link(row, '复制设置', () => plugin.copyText(j.json || ''), '复制 MCP 设置（JSON）');
         }
       }
@@ -395,7 +396,7 @@ module.exports = function (obsidian, plugin) {
     const scope = body.createEl('details', { cls: 'lb-row-fold', attr: { 'data-section': 'mcp-folders' } });
     const sum = scope.createEl('summary');
     sum.createDiv({ cls: 'lb-rf-name', text: '可以读取的范围' });
-    sum.createDiv({ cls: 'lb-rf-desc', text: folders.length ? folders.map(f => f.split(/[\\/]/).pop() || f).join(' · ') : '小红书收藏库' });
+    sum.createDiv({ cls: 'lb-rf-desc', text: folders.length ? folders.map(f => (f === '@xhs' ? '小红书收藏库' : f.split(/[\\/]/).pop() || f)).join(' · ') : '小红书收藏库' });
     let scopeDrawn = false;
     scope.addEventListener('toggle', () => {
       if (!scope.open || scopeDrawn) return; scopeDrawn = true;
@@ -573,5 +574,5 @@ module.exports = function (obsidian, plugin) {
     tab.toggleRow(body, '保存视频', '关掉只存封面和链接，省硬盘', () => so.downloadVideo, v => { so.downloadVideo = v; });
   }
 
-  return { renderPage, renderGuide, needsGuide, renderStatus, renderXhs, renderAICard, renderConnectCard, renderMoreCard, addKey, keyModal, STEPS, PROV, APP_LOGO };
+  return { renderPage, renderGuide, needsGuide, renderStatus, renderXhs, renderAICard, renderConnectCard, renderMoreCard, addKey, keyModal, STEPS, PROV };
 };

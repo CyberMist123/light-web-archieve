@@ -156,6 +156,7 @@ function makePlugin(saved, files = {}) {
   p.usageUI = () => require(PLUGIN_DIR + 'usage-ui.js')(OBS, p);
   p.settingsPages = () => p._pages || (p._pages = require(PLUGIN_DIR + 'settings-pages.js')(OBS, p));
   p.settingsV6 = () => p._v6 || (p._v6 = require(PLUGIN_DIR + 'settings-v6.js')(OBS, p));
+  p.providerIcons = () => require(PLUGIN_DIR + 'provider-icons.js');
   p.syncNow = async () => {};
   p.copyText = async () => {};
   return { p, saves, files, calls };
@@ -185,7 +186,7 @@ function visible(el, root) {
   return true;
 }
 const rowsOf = root => root.querySelectorAll('.setting-item');
-const nameOf = row => { const n = row.querySelector('.setting-item-name'); if (!n) return ''; return [...n.childNodes].filter(c => !(c.classList && (c.classList.contains('lb-help') || c.classList.contains('lb-price') || c.classList.contains('lb-logo')))).map(c => c.textContent).join('').trim(); };
+const nameOf = row => { const n = row.querySelector('.setting-item-name'); if (!n) return ''; return [...n.childNodes].filter(c => !(c.classList && (c.classList.contains('lb-help') || c.classList.contains('lb-price') || c.classList.contains('lb-logo') || c.classList.contains('lb-app-ver')))).map(c => c.textContent).join('').trim(); };
 const idOf = row => nameOf(row) || row.querySelectorAll('button').map(b => b.textContent.trim()).join('+') || (row.classList.contains('lb-acct-row') ? '〔账号卡片〕' : '');
 const pane = root => root.querySelector('.lb-tab-pane');
 const visibleRows = (root) => rowsOf(pane(root)).filter(r => visible(r, root)).map(idOf);

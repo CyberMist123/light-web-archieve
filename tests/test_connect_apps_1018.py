@@ -19,6 +19,7 @@ def fake_bins(tmp_path, monkeypatch):
     bindir.mkdir()
     monkeypatch.setenv("PATH", str(bindir))
     monkeypatch.setattr(connect, "_extra_bin_dirs", lambda: [tmp_path / "extra"])
+    monkeypatch.setattr(connect, "claudian_paths", lambda: {})
     monkeypatch.setenv(connect.ENV_DESKTOP, str(tmp_path / "nodesk" / "Claude" / "claude_desktop_config.json"))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cc"))
     monkeypatch.delenv(connect.ENV_CLAUDE_EXE, raising=False)
@@ -41,7 +42,8 @@ def test_apps_lists_only_installed_in_fixed_order(fake_bins, monkeypatch):
     got = connect.apps()
     assert [a["id"] for a in got] == ["codex", "opencode"]
     codex, opencode = got
-    assert codex == {"id": "codex", "name": "Codex", "installed": True, "oneclick": True, "version": "1.2.3", "connected": True}
+    assert {k: codex[k] for k in ("id", "name", "installed", "oneclick", "version", "connected", "via")} ==         {"id": "codex", "name": "Codex", "installed": True, "oneclick": True, "version": "1.2.3", "connected": True, "via": "auto"}
+    assert codex["path"].endswith(("codex", "codex.cmd"))
     assert opencode["oneclick"] is False and opencode["connected"] is False
 
 
@@ -84,3 +86,21 @@ def test_codex_add_runs_codex_mcp_add_with_env_and_remove(fake_bins, monkeypatch
 def test_codex_missing_gives_copyable_command(fake_bins):
     res = connect.add_codex()
     assert res["ok"] is False and res["manual"] and res["command"].startswith("codex mcp add lwa ")
+
+
+def test_claudian_configured_path_wins(tmp_path, monkeypatch):
+    """Claudian 里手填过的命令路径优先（两边认同一个程序）；路径不存在就当没填。"""
+    vault = tmp_path / "vault"
+    (vault / ".claudian").mkdir(parents=True)
+    exe = tmp_path / "custom" / "codex.exe"
+    exe.parent.mkdir()
+    exe.write_text("", "utf-8")
+    (vault / ".claudian" / "claudian-settings.json").write_text(json.dumps({"providerConfigs": {
+        "codex": {"cliPath": "", "cliPathsByHost": {"host-a": str(exe)}},
+        "opencode": {"cliPath": str(tmp_path / "nope.exe")}}}), "utf-8")
+    monkeypatch.setenv("LINK_BRAIN_VAULT", str(vault))
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    monkeypatch.setattr(connect, "_extra_bin_dirs", lambda: [])
+    assert connect.claudian_paths() == {"codex": str(exe)}
+    assert connect.find_binary("codex", "codex") == str(exe)
+    assert connect.find_binary("opencode", "opencode") is None
