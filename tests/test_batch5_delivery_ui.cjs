@@ -46,7 +46,7 @@ class FakeSetting {
     cb(t); return this;
   }
   addTextArea(cb) { return this.addText(cb, 'textarea'); }
-  addToggle(cb) { const el = this.controlEl.createEl('div'); const t = { setValue() { return t; }, onChange() { return t; } }; cb(t); return this; }
+  addToggle(cb) { const el = this.controlEl.createEl('div'); const t = { setValue() { return t; }, getValue() { return false; }, onChange() { return t; } }; cb(t); return this; }
   addDropdown(cb) { const el = this.controlEl.createEl('select'); const d = { addOption() { return d; }, setValue() { return d; }, onChange() { return d; } }; cb(d); return this; }
   then(cb) { cb(this); return this; }
 }
@@ -73,7 +73,7 @@ const context = { module: { exports: {} }, process, setTimeout, clearTimeout, co
   window: { confirm: () => true },
   // 插件按「库根 + manifest.dir」require 自己的几个文件；临时库里没拷插件，指回仓库里的源文件
   require: n => n === 'obsidian' ? obsidianStub : n === 'child_process' ? { spawn: fakeSpawn }
-    : /[\\/](onboarding-ui|media-nav|remote-ui|home-ui|schedule-ui|settings-pages|usage-ui|skills-ui)\.js$/.test(n) ? require(path.join(ROOT, PLUGIN_DIR, path.basename(n))) : require(n) };
+    : /[\\/](onboarding-ui|media-nav|remote-ui|home-ui|schedule-ui|settings-pages|settings-v6|usage-ui|skills-ui)\.js$/.test(n) ? require(path.join(ROOT, PLUGIN_DIR, path.basename(n))) : require(n) };
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(path.join(ROOT, PLUGIN_DIR, 'main.js'), 'utf8') + '\nmodule.exports.__SettingTab = LinkBrainSettingTab; module.exports.__merge = mergeSettings;', context);
 const Plugin = context.module.exports;
@@ -181,16 +181,19 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   hint.querySelector('button').click(); await flush();
   assert.equal(context.clipboard, 'uv tool install link-brain');
   // 1016 起「这台电脑」（一键装好 / 检查这台电脑）在「更多 → 高级」折叠里；后端找不到时那一栏照样画得出来，页顶提示照样在
-  env.p.settingsView = { tab: 'more' }; tab.display();
+  // 1018 v6：一页五张卡，「更多」里每一项点开才画（假 DOM 设 open 不发 toggle，这里补发）
+  env.p.settings.onboarding = { ...(env.p.settings.onboarding || {}), guideDone: true };
+  const openAll = () => { for (const d of tab.containerEl.querySelectorAll('details')) { d.open = true; d.fire('toggle'); } };
+  env.p.settingsView = { tab: 'more' }; tab.display(); openAll();
   await flush(); await flush();
   assert.ok(/没找到后端程序/.test(tab.containerEl.querySelector('.lb-setup-hint')?.textContent || ''), '「更多」页顶也有缺后端提示');
   assert.ok(tab.containerEl.querySelectorAll('.setting-item-name').some(e => /检查这台电脑/.test(e.textContent)), '「更多 → 高级」里有「检查这台电脑」');
   // 1010 分栏：「高级 → 开发者」里有后端命令一行，「收藏与同步」里有收藏放在哪一行（只此一处）；提示在每一栏顶上都有
   const rowNamesOf = () => tab.containerEl.querySelectorAll('.setting-item-name').map(e => e.textContent.replace(/\?$/, ''));
-  env.p.settingsView = { tab: 'advanced' }; tab.display();
+  env.p.settingsView = { tab: 'advanced' }; tab.display(); openAll();
   assert.ok(tab.containerEl.querySelector('.lb-setup-hint'), '提示在页顶');
   assert.ok(rowNamesOf().includes('后端命令'));
-  env.p.settingsView.tab = 'sync'; tab.display();
+  env.p.settingsView.tab = 'sync'; tab.display(); openAll();
   assert.ok(tab.containerEl.querySelector('.lb-setup-hint'), '换一栏，提示照样在页顶');
   assert.equal(rowNamesOf().filter(n => n === '收藏放在哪').length, 1, '收藏放在哪只在「收藏与同步」一处');
   tab.hide(); env.p.settingsView = null;

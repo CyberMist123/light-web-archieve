@@ -1,3 +1,4 @@
+// 1018 她批 v6：不分页签、一页五张卡 + 首次设置（settings-v6.js）；下面 1010 / 1015 的规矩照守，页签那几条改成「落点」。
 // 设置页（1010 她：「原本的设置分栏还是需要的」——恢复分栏，按「什么都不懂的新用户」重写；1015 她：照 claudian 改成 通用 / 模型与提供商 / 技能 三个页签 + 圆角卡片）。
 // 守住 1009 的两条：每个设置只出现在一处；装上自动跑轻量版、一键装好 / 跑完（docs/SETUP-CONTRACT.md 10-10 修订）。
 // 断言：
@@ -58,7 +59,7 @@ class FakeSetting {
   addToggle(cb) {
     const el = this.controlEl.createEl('div', { cls: 'checkbox-container' });
     let change = null;
-    const t = { toggleEl: el, setValue(v) { const was = !!el.checked; el.checked = !!v; if (change && was !== !!v) change(!!v); return t; }, setDisabled() { return t; }, onChange(f) { change = f; el.onchange = () => f(el.checked); return t; } };
+    const t = { toggleEl: el, getValue() { return !!el.checked; }, setValue(v) { const was = !!el.checked; el.checked = !!v; if (change && was !== !!v) change(!!v); return t; }, setDisabled() { return t; }, onChange(f) { change = f; el.onchange = () => f(el.checked); return t; } };
     cb(t); return this;
   }
   addDropdown(cb) {
@@ -93,14 +94,30 @@ const PLAN = { ok: true, components: [
   { id: 'ai_text', name: 'AI 问答 · 概要 · 打标（要 API key）', needs_key: true, status: 'needs_key', depends: ['core'] },
   { id: 'ai_vision', name: '识图（要 API key）', needs_key: true, status: 'needs_key', depends: ['ocr'] },
   { id: 'remote', name: '远程阅读（MCP，高级，要自备域名）', later: true, status: 'ready', depends: ['core'] }],
-  presets: { light: ['core', 'reader', 'dataview', 'ocr'] }, totals_basis: '估计值' };
+  presets: { light: ['core', 'reader', 'dataview', 'ocr'], recommended: ['core', 'reader', 'dataview', 'ocr', 'asr', 'capslock', 'ai_text'] }, totals_basis: '估计值' };
 const REPLIES = {
   'setup plan': PLAN,
   'setup estimate': { ok: true, items: [{ id: 'summary', name: '概要 + 打标', provider: 'DeepSeek', model: 'x', yuan: 0.8, per: '100 篇', endpoint: 'https://api.deepseek.com/chat/completions', key_url: 'https://platform.deepseek.com/api_keys' },
     { id: 'ask', name: '问答（每问一次）', provider: 'DeepSeek', model: 'x', yuan: 0.004, per: '次' }], prices: { as_of: '2026-10-03' } },
   'comments --fill-status': { ok: true, pending: 12, ready: 12, cooling: 0, stuck: 0, missing: 340, running: false, message: '12 篇的评论还没补齐' },
   'connect status': { ok: true, clients: { 'claude-code': { installed: true, connected: false, command: 'claude mcp add lwa -s user -- python -m link_brain mcp' },
-    'claude-desktop': { installed: true, connected: true } }, json: '{"mcpServers":{}}' },
+    'claude-desktop': { installed: true, connected: true } }, json: '{"mcpServers":{}}',
+    apps: [{ id: 'claude-code', name: 'Claude Code', installed: true, oneclick: true, version: '2.1.3', connected: false },
+      { id: 'claude-desktop', name: 'Claude 桌面版', installed: true, oneclick: true, version: '', connected: true },
+      { id: 'codex', name: 'Codex', installed: true, oneclick: true, version: '0.146.0', connected: false },
+      { id: 'opencode', name: 'OpenCode', installed: true, oneclick: false, version: '1.19.3', connected: false }],
+    not_installed: ['Pi', 'Grok Build', 'DeepSeek Harness'] },
+  'usage': { ok: true, budget: { daily_yuan: 3, spent_today: 0.83, over: false }, summary: { month: { deepseek: { cost: 12.5, calls: 300 }, aliyun: { cost: 8.06, calls: 90 } } },
+    keys: { aliyun: { code: 'NEEDS_HUMAN.QUOTA_EXCEEDED' } }, links: { aliyun: { recharge: 'https://usercenter2.aliyun.com/finance/fund-management/recharge' } },
+    features: [
+      { id: 'ask', name: '问收藏', cap: 'textAI', on: true, state: 'ok', chain: [{ label: 'DeepSeek', provider: 'deepseek', price: '约 ¥0.004 / 次' }] },
+      { id: 'summary', name: '概要 · 打标签', cap: 'summaryAI', on: true, state: 'ok', chain: [{ label: 'DeepSeek', provider: 'deepseek' }] },
+      { id: 'vision', name: '识图', cap: 'visionAI', on: true, state: 'backup', state_text: '已换用 通义千问', chain: [{ label: '通义千问', provider: 'aliyun' }] },
+      { id: 'refine', name: '精细识图', cap: 'visionAI.refine', on: true, state: 'ok', chain: [{ label: '通义千问', provider: 'aliyun' }] },
+      { id: 'embed', name: '按意思搜', cap: 'embedAI', on: true, state: 'ok', chain: [{ label: '通义千问', provider: 'aliyun' }] }] },
+  'keys detect': { ok: true, provider: 'aliyun', name: '通义千问', message: '认出是 通义千问', fills: {
+    textAI: { endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'qwen3.7-flash' },
+    visionAI: { endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'qwen3.8-flash' } } },
   'remote status': { ok: true, state: 'running', message: '运行中（127.0.0.1:18071）', auth: { passphrase_set: true, passphrase_copyable: true, clients: [], personal: [] }, recent: [] },
   'sync-schedule': { task: null, freq: 'none', enabled: false, installable: true },
 };
@@ -118,7 +135,10 @@ function makePlugin(saved, files = {}) {
     getAllLoadedFiles: () => [] }, workspace: { getActiveFile: () => null } };
   p.manifest = { dir: '.obsidian/plugins/link-brain-actions' };
   p.lbRoot = '';
+  const fresh = saved && saved.__fresh;
+  if (saved) delete saved.__fresh;
   p.settings = Plugin.__merge(saved);
+  if (!fresh && !(saved && saved.onboarding)) p.settings.onboarding = { ...(p.settings.onboarding || {}), guideDone: true };   // 1018 v6：老用例都当已经走完首次设置
   if (saved && saved.remote) p.settings.remote = saved.remote;
   p.loadData = async () => JSON.parse(JSON.stringify(p.settings));
   p.saveFails = 0;
@@ -127,14 +147,17 @@ function makePlugin(saved, files = {}) {
   p.renderAccounts = c => { c.createDiv({ cls: 'lb-accounts' }).createDiv({ cls: 'setting-item lb-acct-row' }); };
   p.capsWriterDir = () => null;
   p.setCapsVoice = async () => true;
-  p.runPy = async args => { calls.push(args); return { code: 0, json: reply(args), err: '' }; };
+  p.runPy = async (args, opts = {}) => { calls.push(args); return { code: 0, json: reply(args), err: '' }; };
   p.onboardingUI = () => p._onb || (p._onb = require(PLUGIN_DIR + 'onboarding-ui.js')(OBS, p));
   p.homeUI = () => p._home || (p._home = require(PLUGIN_DIR + 'home-ui.js')(OBS, p));
   p.scheduleUI = () => require(PLUGIN_DIR + 'schedule-ui.js')(OBS, p);
   p.remoteUI = require(PLUGIN_DIR + 'remote-ui.js')(OBS, p);
   p.skillsUI = () => require(PLUGIN_DIR + 'skills-ui.js')(OBS, p);
   p.usageUI = () => require(PLUGIN_DIR + 'usage-ui.js')(OBS, p);
-  p.settingsPages = () => require(PLUGIN_DIR + 'settings-pages.js')(OBS, p);
+  p.settingsPages = () => p._pages || (p._pages = require(PLUGIN_DIR + 'settings-pages.js')(OBS, p));
+  p.settingsV6 = () => p._v6 || (p._v6 = require(PLUGIN_DIR + 'settings-v6.js')(OBS, p));
+  p.syncNow = async () => {};
+  p.copyText = async () => {};
   return { p, saves, files, calls };
 }
 function openPage(p, tabId = null, sub = null) {
@@ -143,10 +166,14 @@ function openPage(p, tabId = null, sub = null) {
   const tab = new Plugin.__SettingTab({}, p); p.settingTab = tab; tab.display(); return tab;
 }
 // 每个页签 × 子页签（1015：模型与提供商下面有子页签）
-const PAGES = () => Plugin.__TABS.flatMap(([id]) => (Plugin.__SUBTABS[id] || [[null]]).map(([sub]) => [id, sub]));
+// 1018 v6：一页（旧的页签名只是落点）
+const PAGES = () => [[null, null]];
 const cardOf = (root, section) => root.querySelector(`.lb-card[data-section="${section}"]`);
 const flush = () => new Promise(r => setTimeout(r, 0));
 const settle = async (n = 8) => { for (let i = 0; i < n; i++) await flush(); };
+// 1018 v6：「更多」里每一项是一行折叠，点开才画
+// 假 DOM 设 open 不会自己发 toggle（浏览器会）：这里补发；里面画过一次就不再画
+const openRow = async (root, section) => { const d = root.querySelector(`details[data-section="${section}"]`); if (d) { d.open = true; d.fire('toggle'); } await settle(); };
 
 // 一个元素此刻用户看不看得见：祖先里有收起的 details（不在 summary 里）或 is-collapsed / hidden
 function visible(el, root) {
@@ -158,13 +185,14 @@ function visible(el, root) {
   return true;
 }
 const rowsOf = root => root.querySelectorAll('.setting-item');
-const nameOf = row => { const n = row.querySelector('.setting-item-name'); if (!n) return ''; return [...n.childNodes].filter(c => !(c.classList && (c.classList.contains('lb-help') || c.classList.contains('lb-price')))).map(c => c.textContent).join('').trim(); };
+const nameOf = row => { const n = row.querySelector('.setting-item-name'); if (!n) return ''; return [...n.childNodes].filter(c => !(c.classList && (c.classList.contains('lb-help') || c.classList.contains('lb-price') || c.classList.contains('lb-logo')))).map(c => c.textContent).join('').trim(); };
 const idOf = row => nameOf(row) || row.querySelectorAll('button').map(b => b.textContent.trim()).join('+') || (row.classList.contains('lb-acct-row') ? '〔账号卡片〕' : '');
 const pane = root => root.querySelector('.lb-tab-pane');
 const visibleRows = (root) => rowsOf(pane(root)).filter(r => visible(r, root)).map(idOf);
 const ctas = root => pane(root).querySelectorAll('button').filter(b => b.classList.contains('mod-cta')).map(b => b.textContent);
 const descText = row => { const d = row.querySelector('.setting-item-description'); if (!d) return ''; return [...d.childNodes].filter(c => c.nodeType === 3).map(c => c.textContent).join('').trim(); };
-const openFolds = root => { for (const d of root.querySelectorAll('details')) if (!d.open) { d.open = true; d.fire('toggle'); } };
+// 展开里面再有折叠的（更多 → 每项功能用哪个模型 → 每一项）：一层层展开到没有收着的
+const openFolds = root => { for (let k = 0; k < 4; k++) { const shut = root.querySelectorAll('details').filter(d => !d.open); if (!shut.length) break; for (const d of shut) { d.open = true; d.fire('toggle'); } } };
 // 一栏的清单（行 + 电脑需求那几行 + 连接其他 AI 一整块）
 function inventoryOf(root) {
   const items = rowsOf(root).map(idOf).filter(Boolean);
@@ -190,10 +218,10 @@ const RENAMED = {
   '评论 · 自动拉取': '每篇评论抓几楼', '评论 · 手动拉取': '每篇评论抓几楼',     // 1010：合成一项，手动的差别是一行小字
   '每天最多新抓': '每天最多新收几篇', '文本 AI': '问收藏 / 概要改用本机命令行', 'API Key': '密钥（API Key）', '模型': '模型名',
   '测试文本 AI': '测试（发一句话，几乎不花钱）', '归档摘要模型（默认同文本 AI）': '写概要用的模型', '测试归档摘要': '测试概要模型（发一段短文，几乎不花钱）',
-  '识图接口': '识图', '精细识别模型': '精细识图模型', '测试识图': '测试识图（发一张小图，几乎不花钱）', '视频画面文字': '认视频画面里的字',
-  '语音识别': '视频转文字改用在线接口', '端口': '本机语音识别的端口', 'CapsLock 语音输入': '按住 CapsLock 说话打字', 'CapsWriter 目录': 'CapsWriter 装在哪',
-  '输入框提示文字': '输入框里的提示字', DeepSeek: '文本 AI', '添加模型': '加一个模型', '其他客户端（JSON 配置）': '其他 AI 软件', '测试 MCP': '测一下本机的连接程序（MCP）',
-  '批注昵称': '批注署名', '检查本机环境': '检查这台电脑', '文字识别（OCR）': '认图片里的字', '识别精度': '认字精度', '模型目录（可选）': '认字模型放在哪（可选）',
+  '识图接口': '看懂图片', '精细识别模型': '精细识图模型', '测试识图': '测试识图（发一张小图，几乎不花钱）', '视频画面文字': '认视频画面里的字',
+  '语音识别': '视频转文字改用在线接口', '端口': '本机语音识别的端口', 'CapsLock 语音输入': '按住 CapsLock 说话', 'CapsWriter 目录': 'CapsWriter 装在哪',
+  '输入框提示文字': '输入框里的提示字', DeepSeek: '文本 AI', '添加模型': '加一个模型', '其他客户端（JSON 配置）': '其他应用', '测试 MCP': '测一下本机的连接程序（MCP）',
+  '批注昵称': '批注署名', '检查本机环境': '检查这台电脑', '文字识别（OCR）': '识图转文字', '识别精度': '认字精度', '模型目录（可选）': '认字模型放在哪（可选）',
   '测试 OCR': '测试认字（本机跑，不花钱）', '摘要提示词（归档时抽取）': '写概要的提示词', '问答提示词（/问AI）': '问收藏的提示词',
   '回答输出上限（max_tokens）': '回答最长多少（max_tokens）', '发给模型的总字符上限': '最多给模型看多少字', '每篇片段字符上限': '每篇最多摘多少字',
   '送模型的片段篇数（topK）': '最多参考几篇（topK）', '先用小模型扩检索词': '提问时先想几个同义词一起搜', '载入当前分类+清空（用内置）+重建目录': '编辑索引',   // 10-10 索引树：分类文本框换成「编辑索引 / AI 起草 / 未归类建议 / 重新整理目录」
@@ -201,54 +229,62 @@ const RENAMED = {
   '电脑需求 收藏问答：文本模型（': '电脑需求 问收藏：文本模型（现', '电脑需求 图片文字：本地 OC': '电脑需求 图片里的字：本地 O',
   '电脑需求 视频：语音转写走上面': '电脑需求 视频：语音转文字默认', '电脑需求 语音输入：CapsW': '电脑需求 说话打字：CapsW', '〔远程阅读〕': '〔连接其他 AI〕',
   '测试语音识别': '测试语音转文字（本机跑，不花钱）',
-  '登录后自动同步': '登录后马上同步', '下载图片': '存图片', '下载视频': '存视频',   // 1016 改说法
+  '登录后自动同步': '登录后马上同步', '下载图片': '存图片', '下载视频': '保存视频',   // 1016 改说法；1018 v6 叫「保存视频」
 };
 // 合并的：本机 AI 的复制命令只留一处（第二个 Codex 合进「其他 AI 软件」的设置片段）；「评论 · 手动拉取」合进「每篇评论抓几楼」
 const MERGED = { Codex: 1, '每篇评论抓几楼': 1 };
 // 这些设置只许出现一次（别处有重复的一律删掉只留一处）
-const ONCE = ['〔账号卡片〕', '收藏同步', '每天最多新收几篇', '存图片', '存视频', '每篇评论抓几楼', '识图', '按住 CapsLock 说话打字', 'Claude Code', '测一下本机的连接程序（MCP）',
-  '视频转文字改用在线接口', '写概要用的模型', '评论补齐', '收藏放在哪', '后端命令', '自动同步', '认图片里的字', '问收藏 · 自动概要 · 打标签'];
+const ONCE = ['〔账号卡片〕', '收藏同步', '每天最多新收几篇', '存图片', '保存视频', '每篇评论抓几楼', '看懂图片', '按住 CapsLock 说话', 'Claude Code', '测一下本机的连接程序（MCP）',
+  '视频转文字改用在线接口', '写概要用的模型', '评论补齐', '收藏放在哪', '后端命令', '自动同步时间', '识图转文字', '语音转文字', '概要', '按意思搜 · 打标签', '每天最多花', '问收藏用的模型'];
 // 动态状态行（说明是现读的状态，不算「每项说明一行」的说明文字）
 const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '问题', '这台电脑', '文本 AI', 'Codex', 'Sonnet', '远程访问', '口令', '连接地址', 'Claude Code', 'Claude Desktop', '你的网址', '远程访问的运行情况']);
 
 (async () => {
-  // —— 1. 五栏，默认概览；一次只画一栏；每栏最多一个主按钮 ——
+  // —— 1. 1018 v6：不分页签，一页五张卡（状态 · 小红书 · 识别与问答 · 知识库接入 AI · 更多）；库里已有收藏就不出首次设置；最多一个主按钮 ——
   const sum = { updated_at: '2026-10-02T04:20:00', needs_human: 1, auto: 2, gave_up: 0, sync: { state: 'ready', message: '收藏同步完成', last_success: '2026-10-02T04:12:00', new: 3, deferred: 0, updated_at: '2026-10-02T04:20:00' } };
-  let env = makePlugin({}, { '_archive/problems-summary.json': JSON.stringify(sum) });
+  let env = makePlugin({ onboarding: { guideDone: true } }, { '_archive/problems-summary.json': JSON.stringify(sum), '_archive/catalog-data.json': '{"items":[]}' });
   let tab = openPage(env.p); let root = tab.containerEl;
   await settle();
-  // 1016 她：四个页签；概览只放账号、收藏、全部记录（需要你留意的没有就不出现）；不套框
-  assert.deepEqual(root.querySelectorAll('.lb-tabs .lb-tab').map(b => b.textContent), ['概览', '同步', 'AI', '更多']);
-  assert.deepEqual(root.querySelectorAll('.lb-tab.is-active').map(b => b.textContent), ['概览']);
-  assert.equal(root.querySelectorAll('.lb-tab-pane').length, 1, '一次只画一栏');
-  assert.ok(!root.querySelector('.lb-subtabs'), '没有子页签了');
-  assert.ok(!pane(root).querySelector('.lb-guide'), '库里已经有收藏：不出四步指引');
-  assert.deepEqual(visibleRows(root), ['〔账号卡片〕', '收藏同步', '全部记录'], '概览只放账号、收藏、全部记录');
+  assert.ok(!root.querySelector('.lb-tabs'), '没有页签了');
+  assert.equal(root.querySelectorAll('.lb-tab-pane').length, 1);
+  assert.deepEqual(pane(root).querySelectorAll('.lb-card').map(c => c.getAttribute('data-section')), ['s-status', 's-xhs', 's-ai', 's-mcp', 's-more']);
+  assert.deepEqual(pane(root).querySelectorAll('.lb-card-title').map(c => c.textContent), ['状态', '小红书', '识别与问答', '知识库接入 AI', '更多']);
+  assert.ok(!pane(root).querySelector('.lb-guide'), '库里已经有收藏：不出首次设置');
+  const st = cardOf(root, 's-status');
+  assert.ok(st.querySelector('.lb-lamp'), '状态卡有信号灯');
+  assert.deepEqual(rowsOf(st).map(idOf), ['〔账号卡片〕', '收藏同步', 'API 费用', '识别', '读取']);
   const statusRow = n => rowsOf(root).find(r => nameOf(r) === n);
   assert.deepEqual(statusRow('收藏同步').querySelectorAll('button').map(b => b.textContent), ['立即同步', '改时间']);
-  assert.ok(statusRow('收藏同步').querySelectorAll('button').every(b => b.classList.contains('lb-link') && !b.classList.contains('mod-cta')), '都是次要的链接样子');
-  for (const [id, label] of Plugin.__TABS) {
-    root.querySelectorAll('.lb-tabs .lb-tab').find(b => b.textContent === label).onclick();
-    await settle();
-    assert.equal(pane(root).getAttribute('data-tab'), id);
-    assert.ok(ctas(root).length <= 1, `「${label}」最多一个主按钮：${ctas(root)}`);
-  }
-  // 「同步」：明面上三项，其余在折叠里
-  root.querySelectorAll('.lb-tabs .lb-tab').find(b => b.textContent === '同步').onclick(); await settle();
-  assert.deepEqual(visibleRows(root), ['自动同步', '存视频', '每篇评论抓几楼'], '同步页明面上只有三项');
-  openFolds(root);
-  for (const n of ['收藏放在哪', '存图片', '登录后马上同步', '每次同步最多收几篇', '每天最多新收几篇', '补评论节奏'])
-    assert.ok(visibleRows(root).includes(n), '折叠里缺「' + n + '」');
+  assert.match(descText(statusRow('API 费用')), /今天 ¥0\.83 · 本月 ¥20\.6 · 每天上限 ¥3/);
+  assert.match(descText(statusRow('读取')), /已接入 Claude 桌面版/);
+  assert.ok(ctas(root).length <= 1, '最多一个主按钮：' + ctas(root));
+  // 黄灯只有两种在这里修：key 欠费 / 失效 → 一句 + 去充值 + 换一个 key
+  const fix = st.querySelector('.lb-fix-line');
+  assert.ok(fix && /通义千问 额度用完或余额不足/.test(fix.textContent), '欠费那一句');
+  assert.deepEqual(fix.querySelectorAll('button').map(b => b.textContent), ['去充值 ↗', '换一个 key']);
+  assert.ok(st.querySelector('.lb-lamp.is-warn'), 'key 出问题：黄灯');
+  // 小红书卡：自动同步时间 · 每天最多新收 · 评论 · 保存视频
+  assert.deepEqual(rowsOf(cardOf(root, 's-xhs')).map(idOf).filter(n => n !== ''), ['自动同步时间', '每天最多新收几篇', '每篇评论抓几楼', '保存视频']);
+  // 识别与问答：本机两项（语音转文字没开 → CapsLock 子项不出）+ 用 key 的三项 + 问收藏模型 + 每天最多花
+  const ai = cardOf(root, 's-ai');
+  assert.deepEqual(rowsOf(ai).map(idOf), ['识图转文字', '语音转文字', '按意思搜 · 打标签', '概要', '看懂图片', '问收藏用的模型', '每天最多花']);
+  assert.deepEqual(ai.querySelectorAll('.lb-pv').map(x => x.getAttribute('data-provider') || x.textContent), ['deepseek', 'aliyun', '＋ 添加 key']);
+  assert.ok(ai.querySelector('.lb-pv[data-provider="aliyun"]').classList.contains('is-warn'), '欠费那家标黄');
+  // 知识库接入 AI：本机装了的（照 Claudian 认）· 没装的一句 · 范围 · 网页端
+  const mcp = cardOf(root, 's-mcp');
+  assert.deepEqual(mcp.querySelectorAll('.lb-app').map(r => r.getAttribute('data-app')), ['claude-code', 'claude-desktop', 'codex', 'opencode', 'other']);
+  assert.match(mcp.querySelector('.lb-app[data-app="opencode"]').textContent, /复制设置/, '写法不确定的只给复制设置');
+  assert.match(mcp.querySelector('.lb-note').textContent, /Pi、Grok Build、DeepSeek Harness 没装/);
+  assert.deepEqual(mcp.querySelectorAll('details.lb-row-fold').map(d => d.getAttribute('data-section')), ['mcp-folders', 'remote']);
   tab.hide();
 
-  // —— 2. AI 那一栏：开关改 setup.selected（依赖联动）+ 对上实际起作用的设置；子选项；AI 打开原地出接口那几格 + 价钱 ——
-  env = makePlugin({});
+  // —— 2. 识别与问答的开关：本机项改 setup.selected（依赖联动）+ 实际起作用的设置；子项；存失败拨回；按意思搜 / 概要是各自的 mode ——
+  env = makePlugin({ onboarding: { guideDone: true } });
   tab = openPage(env.p, 'ai'); root = tab.containerEl; await settle();
   const feat = id => root.querySelector(`.lb-feat[data-id="${id}"]`);
   const flip = async (id, on) => { const cb = feat(id).querySelector('.checkbox-container'); cb.checked = on; await cb.onchange(); await settle(); };
-  assert.ok(!feat('capslock'), '视频说话转文字没开：「按住 CapsLock 说话」这个子选项不出');
-  assert.equal(feat('ocr').querySelector('.lb-price').textContent, '免费（本机跑）');
-  assert.match(root.querySelector('.lb-ai-lead').textContent, /要不要 AI：不填也能用；填了多出 问收藏、自动概要、识图。/);
+  assert.ok(!feat('capslock'), '语音转文字没开：「按住 CapsLock 说话」这个子选项不出');
+  assert.equal(feat('ocr').querySelector('.lb-meta').textContent, '免费 · 本机');
   await flip('asr', true);
   assert.ok(feat('capslock'), '父开关打开后，子选项出现');
   await flip('capslock', true);
@@ -258,22 +294,8 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
   assert.deepEqual(Array.from(env.p.settings.setup.selected), ['core', 'reader', 'dataview', 'ocr'], '取消语音识别 → CapsLock 跟着取消');
   assert.equal(env.p.settings.asrAI.mode, 'off');
   assert.ok(!feat('capslock'));
-  await flip('ai_text', true);
-  const capBox = root.querySelector('.lb-feat-cap[data-cap="textAI"]');
-  assert.ok(capBox, '问收藏打开 → 原地出接口那几格');
-  for (const n of ['接口地址', '密钥（API Key）', '模型名', '测试（发一句话，几乎不花钱）']) assert.ok(rowsOf(capBox).some(r => idOf(r) === n), '缺「' + n + '」');
-  assert.equal(feat('ai_text').querySelector('.lb-price').textContent, '概要和打标签 约 ¥0.80 / 100 篇 · 问收藏 约 ¥0.004 / 次');
-  assert.ok(rowsOf(root).some(r => nameOf(r) === 'DeepSeek（概要和打标签、问收藏）'), '去哪弄密钥、大概多少钱');
-  // 别处触发的重画（一键装好 / 跑完每来一个进度事件就重画一次）不重建接口那几格：正在打的字和焦点不丢
-  const typing = capBox.querySelector('input');
-  typing.value = 'https://api.example.com/打到一半';
-  env.p.homeUI()._internals.repaint(); await settle();
-  assert.ok(root.querySelector('.lb-feat-cap[data-cap="textAI"]') === capBox && capBox.querySelector('input') === typing, '进度重画把接口那几格重建了（正在打的字会丢）');
-  assert.equal(typing.value, 'https://api.example.com/打到一半');
   await flip('ocr', false);
   assert.equal(env.p.settings.ocr.mode, 'off', 'OCR 开关就是 OCR 的唯一开关');
-  assert.ok(!env.p.settings.setup.selected.includes('ai_vision'), '取消 OCR → 依赖它的识图跟着取消');
-  // 10. 开关存失败：拨回原值 + 一句（假开关照 1.14.4：setValue 会再触发 onChange——不来回弹）
   notices.length = 0; env.p.saveFails = 1;
   const before = JSON.stringify(env.p.settings.setup.selected);
   await flip('ocr', true);
@@ -281,38 +303,83 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
   assert.equal(env.p.settings.ocr.mode, 'off', '存失败：OCR 方式还原');
   assert.equal(feat('ocr').querySelector('.checkbox-container').checked, false, '开关拨回关');
   assert.ok(notices.some(n => String(n).includes('没保存上，开关已拨回原来的位置')), notices.join('|'));
-  assert.equal(env.p.saveFails, 0, '只存了一次（没来回弹）');
+  // 概要：关 = summaryAI.mode off（记住原来的），开 = 还原 + 勾上「问收藏 · 概要 · 打标」
+  const capCb = cap => root.querySelector(`.lb-feat[data-cap="${cap}"] .checkbox-container`);
+  env.p.settings.summaryAI = { mode: 'http', endpoint: 'https://x/v1/chat/completions', apiKey: 'k' };
+  capCb('summaryAI').checked = false; await capCb('summaryAI').onchange(); await settle();
+  assert.equal(env.p.settings.summaryAI.mode, 'off'); assert.equal(env.p.settings.summaryAI.prevMode, 'http');
+  assert.equal(env.p.settings.summaryAI.apiKey, 'k', '关掉不动 key');
+  capCb('summaryAI').checked = true; await capCb('summaryAI').onchange(); await settle();
+  assert.equal(env.p.settings.summaryAI.mode, 'http'); assert.ok(!('prevMode' in env.p.settings.summaryAI));
+  assert.ok(env.p.settings.setup.selected.includes('ai_text'), '打开概要 → 勾上问收藏那一组（后台门禁看它）');
+  capCb('embedAI').checked = false; await capCb('embedAI').onchange(); await settle();
+  assert.equal(env.p.settings.embedAI.mode, 'off');
   tab.hide();
 
-  // 「填上它的地址和模型」：现在用本机命令行（不花钱）→ 先确认（换成接口要按用量付费），不点「换」就不动（1010 审查）
+  // —— 粘一把 key：认出是哪家，只往空着的格子里填；已经填好的地址和密钥引用一个不动 ——
   {
-    const e2 = makePlugin({ textAI: { mode: 'cli', command: 'codex exec' }, setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'ai_text'], aiSynced: true } });
-    const asked = []; e2.p.confirm = async o => { asked.push(o); return false; };
-    const t2 = openPage(e2.p, 'ai'); await settle();
-    const fillBtn = t2.containerEl.querySelectorAll('button').find(b => /^填上它的地址和模型/.test(b.textContent));
-    assert.ok(fillBtn, '有「填上它的地址和模型」');
-    await fillBtn.onclick(); await settle();
-    assert.equal(asked.length, 1, '本机命令行换成接口要先确认');
-    assert.match(asked[0].body, /本机命令行（不花钱）.*按用量付费/);
-    assert.equal(e2.p.settings.textAI.mode, 'cli', '没点「换」：还是本机命令行');
-    t2.hide();
+    const e2 = makePlugin({ onboarding: { guideDone: true }, textAI: { mode: 'http', endpoint: 'https://api.deepseek.com/chat/completions', model: 'deepseek-v4-flash', keyFile: 'k.csv' },
+      visionAI: { mode: 'http', endpoint: '', model: '' } });
+    const v6 = e2.p.settingsV6();
+    const got = await v6.addKey('sk-aliyun-fake');
+    assert.equal(got.provider, 'aliyun');
+    const sent = e2.calls.find(a => a.join(' ').includes('keys detect'));
+    assert.ok(sent && !sent.join(' ').includes('sk-aliyun-fake'), 'key 不进命令行参数（走标准输入）');
+    assert.equal(e2.p.settings.textAI.endpoint, 'https://api.deepseek.com/chat/completions', '已经填好的地址不动');
+    assert.equal(e2.p.settings.textAI.keyFile, 'k.csv'); assert.ok(!e2.p.settings.textAI.apiKey, '已有密钥引用：不塞新 key');
+    assert.equal(e2.p.settings.visionAI.endpoint, 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', '空着的识图填上');
+    assert.equal(e2.p.settings.visionAI.model, 'qwen3.8-flash'); assert.equal(e2.p.settings.visionAI.apiKey, 'sk-aliyun-fake');
+    assert.ok(e2.p.settings.setup.selected.includes('ai_vision'), '填上识图 → 识图打开');
   }
 
-  // —— 3. 停在哪一栏记在插件对象上（本次会话），不写 data.json；「打开设置」旧落点名照认 ——
-  const savesBefore = env.saves.length;
-  tab = openPage(env.p); root = tab.containerEl; await settle();
-  assert.equal(pane(root).getAttribute('data-tab'), 'ai', '重开设置页停在上次那一栏');
-  assert.equal(env.saves.length, savesBefore, '切栏不写 data.json');
-  assert.ok(!JSON.stringify(env.p.settings).includes('"tab"'), '状态不进 settings');
+  // —— 3. 旧落点名照认（问题面板「打开设置」带 'ai'、「去扫码 / 验证」带 'status'、远程带 'remote'）：滚到对应那张卡 / 展开那一行 ——
   env.p.app.setting = { activeTab: null, open() {}, openTabById() {} };
   env.p.openPluginSettings = () => {};
-  for (const [from, to, focus] of [['ai', 'ai', null], ['features', 'overview', null], ['overview', 'overview', null], ['status', 'overview', 'status'],
-    ['remote', 'more', 'connect'], ['sync', 'sync', null], ['schedule', 'sync', 'schedule'], ['advanced', 'more', 'developer'], ['skills', 'more', 'skills'],
-    ['usage', 'ai', 'ai-usage'], ['nope', 'overview', null]]) {
+  for (const [from, to, focus] of [['ai', 'ai', null], ['status', 'overview', 'status'], ['remote', 'connect', 'remote'], ['schedule', 'sync', 'schedule'],
+    ['advanced', 'more', 'developer'], ['skills', 'more', 'skills'], ['usage', 'ai', 'ai-usage'], ['nope', 'overview', null]]) {
     env.p.openSetupPage(from); assert.equal(env.p.settingsView.tab, to, from + ' → ' + to); assert.equal(env.p.settingsView.focus, focus, from + ' 的落点');
   }
-  env.p.openSetupPage('status'); assert.equal(env.p.settingsView.focus, 'status', '「去扫码 / 验证」→ 通用的状态卡片');
+  env.p.openSetupPage('remote');
+  tab = openPage(env.p); root = tab.containerEl; await settle(); await new Promise(r => setTimeout(r, 80)); await settle();
+  assert.ok(root.querySelector('details[data-section="remote"]').open, '「远程」落点：网页端那一行展开');
+  assert.ok(root.querySelector('details[data-section="remote"] .lb-remote-svc'), '展开后是远程访问那几格');
   tab.hide();
+  env.p.openSetupPage('skills');
+  tab = openPage(env.p); root = tab.containerEl; await settle(); await new Promise(r => setTimeout(r, 80)); await settle();
+  assert.ok(root.querySelector('details[data-section="skills"]').open, '「技能」落点：更多里那一行展开');
+  tab.hide();
+
+  // —— 首次设置：欢迎页两个大按钮；一键 = 扫码 → 完成（换成推荐那一组、开始跑）；自定义 = 四步 ——
+  {
+    const e3 = makePlugin({ __fresh: true });
+    let ran = 0; e3.p.homeUI().runAll = async () => { ran++; return { ok: true }; };
+    const t3 = openPage(e3.p); const r3 = t3.containerEl; await settle();
+    assert.ok(pane(r3).querySelector('.lb-guide'), '库里还没有收藏：首次设置');
+    assert.deepEqual(r3.querySelectorAll('.lb-big-name').map(x => x.textContent), ['推荐设置，一键开始', '自定义']);
+    r3.querySelectorAll('button.lb-big')[0].onclick(); await settle();
+    assert.equal(r3.querySelector('.lb-card-title').textContent, '登录小红书');
+    assert.ok(r3.querySelector('.lb-acct-row'), '登录那一步就是账号卡片（扫码）');
+    const done = r3.querySelectorAll('.lb-guide-nav button').find(b => b.textContent === '完成');
+    assert.ok(done, '一键：扫完码就是「完成」');
+    await done.onclick(); await settle();
+    assert.equal(e3.p.settings.onboarding.guideDone, true);
+    assert.deepEqual(Array.from(e3.p.settings.setup.selected), ['core', 'reader', 'dataview', 'ocr', 'asr', 'capslock'], '推荐那一组（没 key 的 AI 先不勾）');
+    assert.equal(ran, 1, '完成后开始一口气跑');
+    assert.ok(!pane(r3).querySelector('.lb-guide') && cardOf(r3, 's-status'), '走完变成状态页');
+    t3.hide();
+    const e4 = makePlugin({ __fresh: true });
+    const t4 = openPage(e4.p); const r4 = t4.containerEl; await settle();
+    r4.querySelectorAll('button.lb-big')[1].onclick(); await settle();
+    const titles = [];
+    for (let i = 0; i < 4; i++) {
+      titles.push(r4.querySelector('.lb-card-title').textContent);
+      const next = r4.querySelectorAll('.lb-guide-nav button').find(b => b.textContent === '下一步');
+      if (next) { await next.onclick(); await settle(); }
+    }
+    assert.deepEqual(titles, ['登录小红书', '同步', '识别与问答', '接入其他 AI']);
+    assert.deepEqual(r4.querySelectorAll('.lb-guide-step').map(s => s.textContent.replace(/[\d✓]/g, '')), ['登录小红书', '同步', '识别与问答', '接入其他 AI']);
+    t4.hide();
+  }
 
   // —— 4. 五栏全打开（AI 全开、五个软件都勾、折叠都展开）后一项不少、单例只剩一处 ——
   for (const [k, cfg] of Object.entries(CONFIGS)) {
@@ -320,7 +387,7 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
       connect: { clients: ['claude-code', 'claude-desktop', 'claude-ai', 'chatgpt', 'other'] } });
     const all = [];
     for (const [id, sub] of PAGES()) {
-      const t = openPage(p, id, sub); await settle(); openFolds(t.containerEl); await settle();
+      const t = openPage(p, id, sub); await settle(); for (let k = 0; k < 4; k++) { openFolds(t.containerEl); await settle(); }
       all.push(...inventoryOf(t.containerEl));
       t.hide();
     }
@@ -340,7 +407,7 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     if (k === 'defaults') {
       const long = [];
       for (const [id, sub] of PAGES()) {
-        const t = openPage(p, id, sub); await settle(); openFolds(t.containerEl); await settle();
+        const t = openPage(p, id, sub); await settle(); for (let k = 0; k < 4; k++) { openFolds(t.containerEl); await settle(); }
         for (const r of rowsOf(t.containerEl)) { const n = idOf(r), d = descText(r); if (!DYNAMIC.has(n) && d.length > 60) long.push(`${n}：${d.length} 字`); }
         t.hide();
       }
@@ -380,8 +447,9 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     t.display(); await settle();
     assert.equal(offs, 2); assert.equal(live(), 2, '重画整页：旧监听注销，新的接上');
     t.showTab('more'); await settle();
-    assert.equal(offs, 4, '切到别的栏：概览的监听注销'); assert.equal(live(), 0);
+    assert.equal(offs, 4, '跳到别的落点（1018 v6 一页）：整页重画，旧监听注销'); assert.equal(live(), 2);
     t.hide();
+    assert.equal(live(), 0, '关设置页：全部注销');
   }
 
   // —— 7. 每天最多新收几篇（收藏与同步）——默认 50，清空回 50，0 = 不限；每篇评论抓几楼的说明 + 手动那一行小字 ——
@@ -456,16 +524,13 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     for (const sv of e3.saves) assert.equal(JSON.stringify(AI.map(k => sv[k])), orig, '写进 data.json 的 AI 设置被改了');
     assert.ok(e3.saves.length > 0, '这一路确实存过（首次加载 / 拨开关）');
     assert.equal(offered, 0, '已经填好地址的，不该再给「填上它的地址和模型」');
-    // 只有空着的才给填：填地址和模型，原来的密钥引用（环境变量名）一个不删
+    // 1018 v6：「填上它的地址和模型」换成「添加 key」（粘贴 → 认出是哪家 → 只往空着的格子里填）。同一条规矩：原来的密钥引用（环境变量名）一个不删、不另塞 key
     const e4 = makePlugin({ textAI: { mode: 'http', endpoint: '', model: '', apiKeyEnv: 'MY_LLM_KEY' }, setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'ai_text'], aiSynced: true } });
-    const t4 = openPage(e4.p, 'ai'); await settle();
-    const fill = t4.containerEl.querySelectorAll('button').find(b => /^填上它的地址和模型/.test(b.textContent));
-    assert.ok(fill, '地址空着：给「填上它的地址和模型」');
-    await fill.onclick(); await settle();
-    assert.equal(e4.p.settings.textAI.endpoint, 'https://api.deepseek.com/chat/completions');
-    assert.equal(e4.p.settings.textAI.model, 'x');
+    await e4.p.settingsV6().addKey('sk-whatever');
+    assert.equal(e4.p.settings.textAI.endpoint, 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions');
+    assert.equal(e4.p.settings.textAI.model, 'qwen3.7-flash');
     assert.equal(e4.p.settings.textAI.apiKeyEnv, 'MY_LLM_KEY', '填推荐值把原来的密钥引用删了');
-    t4.hide();
+    assert.ok(!e4.p.settings.textAI.apiKey, '已经有密钥引用：不另塞 key');
   }
 
   // —— 11. 10-10 索引树：「分类」文本框换成 编辑索引 / AI 起草 / 未归类建议 / 重新整理目录（都是次要链接），索引文件路径存进 indexFile ——
@@ -475,7 +540,7 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     Object.assign(e5.p, { openIndexFile: () => hits.push('open'), indexDraft: async () => { hits.push('draft'); }, openIndexSuggestions: () => hits.push('suggest'),
       indexRebuild: () => hits.push('rebuild'), indexUI: { indexRel: () => e5.p.settings.indexFile || '索引.md' }, run: async args => hits.push('run ' + args.slice(2).join(' ')),
       busyButton: () => () => {} });
-    const t5 = openPage(e5.p, 'more'); await settle();
+    const t5 = openPage(e5.p, 'more'); await settle(); await openRow(t5.containerEl, 'skills');
     const fold = t5.containerEl.querySelector('.lb-cats-fold');
     assert.ok(fold && !fold.open, '目录分类默认收起');
     assert.equal(fold.querySelector('summary').textContent, '目录分类（索引）');
@@ -496,7 +561,7 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     t5.hide();
     // index-ui.js 没加载上：点了只说一句，不炸
     const e6 = makePlugin({});
-    const t6 = openPage(e6.p, 'more'); await settle();
+    const t6 = openPage(e6.p, 'more'); await settle(); await openRow(t6.containerEl, 'skills');
     const before = notices.length;
     await rowsOf(t6.containerEl.querySelector('.lb-cats-fold')).find(r => nameOf(r) === '编辑索引').querySelectorAll('button')[0].onclick();
     assert.match(String(notices.slice(before).at(-1)), /索引功能没加载上/);
@@ -507,8 +572,8 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
   {
     assert.deepEqual([Plugin.perRunLimitOf(''), Plugin.perRunLimitOf(null), Plugin.perRunLimitOf('-1'), Plugin.perRunLimitOf('x'), Plugin.perRunLimitOf('7')], [0, 0, 0, 0, 7]);
     assert.deepEqual([Plugin.fillGapOf(90), Plugin.fillGapOf('180'), Plugin.fillGapOf(10), Plugin.fillGapOf(undefined)], [90, 180, 45, 45], '补评论只能比 45 分钟慢');
-    const e = makePlugin({}); const t = openPage(e.p, 'sync'); await settle();
-    const card = t.containerEl;   // 1016：同步页不再分卡片，这两项在「更多同步选项」折叠里
+    const e = makePlugin({}); const t = openPage(e.p, 'sync'); await settle(); await openRow(t.containerEl, 'sync-more');
+    const card = t.containerEl;   // 1018 v6：这两项在「更多 → 同步细项」里
     const per = rowsOf(card).find(r => nameOf(r) === '每次同步最多收几篇').querySelector('input');
     assert.equal(per.value, '0');
     per.value = '20'; await per.oninput(); assert.equal(e.p.settings.sync.perRunLimit, 20);
@@ -528,6 +593,8 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
   // —— 13. 1015 模型与提供商 → 问收藏模型：勾选列表（不勾 = 不进问收藏页下拉，至少留一个；当前选中的被取消就换一个）——
   {
     const e = makePlugin({}); const t = openPage(e.p, 'ai'); await settle();
+    await openRow(t.containerEl, 'ai-more'); await settle(); await openRow(t.containerEl.querySelector('details[data-section="ai-more"]').parentNode, 'ai-more');
+    { const d = t.containerEl.querySelector('details.lb-route[data-feature="ask"]'); d.open = true; d.fire('toggle'); await settle(); }   // 1018 v6：更多 → 每项功能用哪个模型 → 问收藏
     const rows = () => rowsOf(cardOf(t.containerEl, 'models')).filter(r => r.classList.contains('lb-model-row'));
     assert.deepEqual(rows().map(nameOf), ['文本 AI', 'Codex', 'Sonnet']);
     assert.ok(rows().every(r => r.querySelector('.lb-model-check').checked), '默认都勾着');
@@ -554,7 +621,7 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     const e = makePlugin({}, files);
     const ad = e.p.app.vault.adapter;
     ad.list = async dir => ({ folders: Object.keys(files).filter(f => f.startsWith(dir + '/') && f.endsWith('/SKILL.md')).map(f => f.slice(0, -'/SKILL.md'.length)), files: [] });
-    let t = openPage(e.p, 'skills'); await settle();
+    let t = openPage(e.p, 'skills'); await settle(); await new Promise(r => setTimeout(r, 80)); await openRow(t.containerEl, 'skills');   // 1018 v6：落点「技能」→ 更多里那一行展开
     const skillCard = () => cardOf(t.containerEl, 'skills');
     const lead = rowsOf(skillCard()).find(r => nameOf(r) === '问收藏时按问题自动选用');
     assert.ok(lead, '说明行');
@@ -575,7 +642,7 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     hid.value = 'recipe， travel recipe'; await hid.oninput();
     assert.deepEqual(Array.from(e.p.settings.skills.hidden), ['recipe', 'travel']);
     assert.deepEqual(Array.from(e.saves.at(-1).skills.hidden), ['recipe', 'travel']);
-    t.hide(); t = openPage(e.p, 'skills'); await settle();
+    t.hide(); t = openPage(e.p, 'skills'); await settle(); await openRow(t.containerEl, 'skills');
     assert.ok(skillRows().find(r => r.getAttribute('data-skill') === 'recipe').classList.contains('is-hidden-skill'));
     // ＋导入：只拷文字文件（脚本 / 程序 / 隐藏文件不拷），已有同名的先问
     const writes = [];
@@ -602,5 +669,5 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     t.hide();
   }
 
-  console.log('PASS settings page (1015 claudian): tabs 通用 · 模型与提供商(5 sub-tabs) · 技能 in cards (one drawn at a time, remembered per session, old open-page names mapped), ≤1 primary per tab, AI toggles drive setup.selected + runtime with deps and sub-options only under an enabled parent, prices + key guide, nothing lost vs pre-1009 inventory (renamed / merged) and no duplicates, one-line descriptions, failed saves revert, sync / fill / problem rows live-watched + unhooked on redraw / tab switch / hide');
+  console.log('PASS settings page v6 (1018): one page of five cards (状态 · 小红书 · 识别与问答 · 知识库接入 AI · 更多), first-run guide (一键 / 自定义四步) turning into the status page, key trouble = one line + recharge / change key, local toggles drive setup.selected with deps + sub-options, summary / embed toggles keep their mode, paste-a-key fills blanks only, installed AI apps listed, old open-page names land on the right card / row, nothing lost vs pre-1009 inventory and no duplicates, one-line descriptions, failed saves revert, sync rows live-watched + unhooked');
 })().catch(e => { console.error(e); process.exitCode = 1; });

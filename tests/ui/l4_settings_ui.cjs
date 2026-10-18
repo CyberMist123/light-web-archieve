@@ -15,7 +15,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path');
 const shell = require('../_obsidian_shell.cjs');
 const root = 'obsidian-plugins/link-brain-actions';
-const sources = Object.fromEntries(['main', 'home-ui', 'remote-ui', 'schedule-ui', 'onboarding-ui', 'index-ui', 'skills-ui', 'usage-ui', 'settings-pages'].map(name =>
+const sources = Object.fromEntries(['main', 'home-ui', 'remote-ui', 'schedule-ui', 'onboarding-ui', 'index-ui', 'skills-ui', 'usage-ui', 'settings-pages', 'settings-v6'].map(name =>
   [name + '.js', fs.readFileSync(path.join(root, name + '.js'), 'utf8')]));
 const TABS = ['概览', '同步', 'AI', '接其他 AI', '更多'];   // 1018：接其他 AI 升成独立页签
 // 新手主界面（不算「连接其他 AI」里的高级折叠）上不该看到的词（她 1010 点名的术语；要留的旁边有人话解释）
@@ -67,7 +67,11 @@ async function open(browser, theme, { failRemote = false, guide = false } = {}) 
       if (sub.startsWith('setup plan')) return PLAN;
       if (sub.startsWith('setup estimate')) return EST;
       if (sub.startsWith('comments --fill-status')) return { ok: true, pending: 190, missing: 5800, stuck: 0, running: true };
-      if (sub.startsWith('connect status')) return { ok: true, clients: { 'claude-code': { installed: true, connected: false, command: 'claude mcp add lwa -s user -- python -m link_brain mcp' }, 'claude-desktop': { installed: false, connected: false } }, json: '{}' };
+      if (sub.startsWith('connect status')) return { ok: true, clients: { 'claude-code': { installed: true, connected: false, command: 'claude mcp add lwa -s user -- python -m link_brain mcp' }, 'claude-desktop': { installed: false, connected: false } }, json: '{}',
+        apps: [{ id: 'claude-code', name: 'Claude Code', installed: true, oneclick: true, version: '2.1.302', connected: true },
+          { id: 'codex', name: 'Codex', installed: true, oneclick: true, version: '0.146.0', connected: false },
+          { id: 'opencode', name: 'OpenCode', installed: true, oneclick: false, version: '1.19.3', connected: false }], not_installed: ['Pi', 'Grok Build', 'DeepSeek Harness'] };
+      if (sub.startsWith('connect add') || sub.startsWith('connect remove')) return { ok: true, changed: true, message: '已接到 Codex' };
       if (sub.startsWith('remote status')) { if (failRemote) throw new Error('ConnectError: 远程访问服务的状态命令崩了（合成）'); return { ok: true, state: 'running', message: '运行中（127.0.0.1:18071）', auth: { passphrase_set: true, passphrase_copyable: true, clients: [{ id: 'c1', name: 'claude.ai', connected_at: '2026-10-09T21:30:00' }], personal: [] }, recent: [] }; }
       if (sub.startsWith('sync-schedule')) return { task: 'LinkBrainNightly', freq: 'daily', time: '04:00', enabled: true, summary: '每天 04:00', rules: [{ kind: 'daily', times: ['04:00'] }] };
       if (sub.startsWith('selftest')) return { ok: true, detail: '合成测试正常' };
@@ -123,6 +127,7 @@ async function open(browser, theme, { failRemote = false, guide = false } = {}) 
       setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'ai_text'], aiSynced: true }, connect: { clients: ['claude-code', 'claude-ai', 'chatgpt'] },
       voice: { capsLock: false }, asrAI: { mode: 'off' } });
     plugin.settings.remote = { enabled: true, domain: '', port: 18071, folders: ['@xhs', 'D:/笔记/读书'] };
+    if (!guide) plugin.settings.onboarding = { guideDone: true };
     plugin.lbPath = x => x; plugin.manifest = { id: 'link-brain-actions', dir: '' };
     plugin.loadData = async () => JSON.parse(JSON.stringify(plugin.settings));
     window.saveFails = 0;
@@ -142,6 +147,8 @@ async function open(browser, theme, { failRemote = false, guide = false } = {}) 
     tab.containerEl = document.querySelector('.vertical-tab-content');
     plugin.settingTab = tab;
     window.l4 = { plugin, tab, Plugin };
+    window.l4runs = 0;
+    plugin.homeUI().runAll = async () => { window.l4runs++; return { ok: true }; };   // 首次设置「完成」后一口气跑：替身
     tab.display();
   }, [sources, failRemote, guide]);
   return { page, errors };
@@ -166,6 +173,17 @@ const readPane = page => page.evaluate(JARGON => {
 const clickTab = async (page, label) => { await page.locator('.lb-tabs .lb-tab', { hasText: label }).first().click(); await page.waitForTimeout(200); };
 const shot = (page, name) => page.screenshot({ path: path.join(shell.QA_DIR, name), fullPage: true });
 
+// 1018 v6：边框套边框（卡片里再有一圈实线边框的大块）不许有；卡片本身是她批的样子
+const nestedBoxes = page => page.evaluate(() => {
+  const pane = document.querySelector('.lb-tab-pane');
+  const boxed = e => { const cs = getComputedStyle(e); return ['Top', 'Bottom', 'Left', 'Right'].every(s => cs['border' + s + 'Style'] === 'solid' && parseFloat(cs['border' + s + 'Width']) > 0)
+    && parseFloat(cs.borderTopLeftRadius) >= 6 && !e.closest('.checkbox-container, .dropdown, button, input, textarea, .lb-usage-grid, .lb-guide-dot, .lb-pv') && e.getBoundingClientRect().height > 40; };
+  const boxes = [...pane.querySelectorAll('div, details, section')].filter(boxed);
+  return boxes.filter(b => boxes.some(o => o !== b && o.contains(b))).map(e => e.className);
+});
+const cards = page => page.evaluate(() => [...document.querySelectorAll('.lb-v6 > .lb-card')].map(c => c.getAttribute('data-section') + ':' + c.querySelector('.lb-card-title').textContent));
+const rowsIn = (page, sel) => page.evaluate(sel => [...document.querySelectorAll(sel + ' .setting-item')].map(r => (r.querySelector('.setting-item-name')?.textContent || '').replace(/\?$/, '').trim()), sel);
+
 (async () => {
   shell.requirePlaywright();
   const browser = await shell.launch();
@@ -173,128 +191,81 @@ const shot = (page, name) => page.screenshot({ path: path.join(shell.QA_DIR, nam
   try {
     for (const theme of ['light', 'dark', 'orange']) {
       const { page, errors } = await open(browser, theme);
-      // ① 概览：账号 · 收藏 · 全部记录；没有需要留意的事就不出那一块
-      await page.waitForFunction(() => document.querySelector('.lb-tab-pane[data-tab="overview"]') && [...document.querySelectorAll('.setting-item-name')].some(e => e.textContent === '全部记录'));
-      let p = await readPane(page);
-      assert.deepEqual(p.tabs, TABS); assert.deepEqual(p.active, ['概览']);
-      assert.ok(!(await page.locator('.lb-subtabs').count()), '没有子页签');
-      assert.ok(!(await page.locator('.lb-guide').count()), '库里有收藏：不出指引');
-      for (const n of ['小红书 · momo · ✓ 已登录', '收藏同步', '全部记录']) assert.ok(p.rows.includes(n), `${theme} 概览缺「${n}」：${p.rows}`);
-      assert.ok(p.rows.length <= 4, `${theme} 概览别塞太多：${p.rows}`);
-      assert.equal(p.cta, 0, '概览没有主按钮');
-      assert.deepEqual(p.boxes, [], theme + '：概览不套框');
-      assert.deepEqual(p.jargon, [], theme + '：概览没有术语');
-      summary[theme] = { 概览: p.rows };
-      await shot(page, `S1016-settings-overview-${theme}.png`);
-      // ② 同步：三项 + 折叠
-      await clickTab(page, '同步');
-      await page.waitForFunction(() => document.querySelector('.lb-sched-row') && !document.querySelector('.lb-sched-rows.is-loading'));
-      p = await readPane(page);
-      assert.equal(p.tab, 'sync');
-      assert.deepEqual(p.rows, ['自动同步', '存视频', '每篇评论抓几楼'], theme + '：同步页明面上三项');
-      assert.match(p.text, /更多同步选项/);
-      assert.deepEqual(p.boxes, [], theme + '：同步不套框');
-      summary[theme]['同步'] = p.rows;
-      await shot(page, `S1016-settings-sync-${theme}.png`);
-      await page.locator('[data-section="sync-more"] > summary').click(); await page.waitForTimeout(150);
-      p = await readPane(page);
-      for (const n of ['收藏放在哪', '存图片', '登录后马上同步', '每次同步最多收几篇', '每天最多新收几篇', '补评论节奏']) assert.ok(p.rows.includes(n), `${theme} 同步折叠缺「${n}」`);
-      // ③ AI（1018 重排）：花费三格 · 每个功能用谁（主用 → 备用，用备用的那行标出来）· 钥匙串；细项在每行展开里
-      await clickTab(page, 'AI');
-      await page.waitForFunction(() => document.querySelectorAll('.lb-route').length >= 8 && /105\.38/.test(document.querySelector('.lb-key-ring-row[data-provider="deepseek"]')?.textContent || ''));
-      assert.equal(await page.evaluate(() => document.querySelector('[data-section="ai-usage"]').open), false, '花费明细默认收起');
-      p = await readPane(page);
-      assert.equal(p.tab, 'ai');
-      const spend = await page.evaluate(() => [...document.querySelectorAll('.lb-spend-cell')].map(c => c.querySelector('.lb-spend-label').textContent.replace(/\?$/, '') + '=' + (c.querySelector('input')?.value ?? c.querySelector('.lb-spend-value').textContent)));
-      assert.deepEqual(spend, ['今天（北京时间）=¥0.83', '本月=¥2.85', '每天上限=3']);
-      const routes = await page.evaluate(() => [...document.querySelectorAll('.lb-route')].map(r => [r.getAttribute('data-feature'), r.querySelector('.lb-route-name').textContent,
-        r.querySelector('.lb-route-step.is-working')?.textContent || '', r.querySelector('.lb-route-state').textContent]));
-      assert.deepEqual(routes.map(r => r[0]), ['ask', 'summary', 'vision', 'refine', 'embed', 'ocr', 'asr', 'capslock']);
-      assert.deepEqual(routes[2], ['vision', '识图', '通义千问 qwen3.8-flash', '用备用'], '识图在用备用：干活的是 flash、不是最贵的 max');
-      assert.equal(routes[0][2], 'DeepSeek deepseek-v4-flash'); assert.equal(routes[6][3], '关着');
-      assert.match(await page.evaluate(() => document.querySelector('.lb-route[data-feature="vision"] .lb-route-price').textContent), /0\.20/);
-      const ring = await page.evaluate(() => [...document.querySelectorAll('.lb-key-ring-row')].map(r => [r.querySelector('.setting-item-name').textContent,
-        r.querySelector('.setting-item-description').textContent, [...r.querySelectorAll('button')].map(b => b.textContent).join('/')]));
-      assert.deepEqual(ring.map(x => x[0]), ['Gemini', 'DeepSeek', '阿里云百炼']);
-      assert.match(ring[0][1], /管：概要 · 识图 · 精细识图/); assert.match(ring[0][1], /免费额度/);
-      assert.match(ring[1][1], /余额 ¥105\.38/); assert.match(ring[1][1], /本月 ¥1\.05/);
-      assert.match(ring[2][1], /概要（备用）/); assert.match(ring[2][1], /key 用不了/);
-      assert.equal(ring[1][2], '控制台/充值/拿 key');
-      assert.ok(!/详细设置/.test(p.text), '没有「详细设置」大折叠了：细项拆进每一行');
-      assert.ok(p.cta <= 1);
-      assert.deepEqual(p.boxes, [], theme + '：AI 页不套框');
-      assert.deepEqual(p.jargon, [], theme + '：AI 页明面上没有术语');
-      summary[theme].AI = routes.map(r => r[1] + '：' + r[2] + ' · ' + r[3]);
-      await shot(page, `S1018-settings-ai-${theme}.png`);
-      // 点开「识图」：开关 + 识图的接口 / 模型 / 测试；点开「问收藏」：模型列表
-      await page.locator('.lb-route[data-feature="vision"] > summary').click(); await page.waitForTimeout(200);
-      p = await readPane(page);
-      for (const n of ['打开这项', '接口地址', '模型名']) assert.ok(p.rows.includes(n), `${theme} 识图展开缺「${n}」：${p.rows}`);
-      assert.ok(await page.locator('.lb-route[data-feature="vision"] .lb-route-body .checkbox-container').count(), '展开后「打开这项」有开关：' + await page.evaluate(() => document.querySelector('.lb-route[data-feature="vision"] .lb-route-body .setting-item')?.outerHTML));
-      assert.match(p.text, /qwen3\.8-flash 顶着/);
-      await page.locator('.lb-route[data-feature="ask"] > summary').click(); await page.waitForTimeout(200);
-      p = await readPane(page);
-      for (const n of ['输入框里的提示字', '回答最长多少（max_tokens）']) assert.ok(p.rows.includes(n), `${theme} 问收藏展开缺「${n}」：${p.rows}`);
-      assert.ok(await page.locator('.lb-route[data-feature="ask"] .lb-route-body .checkbox-container').count(), '问收藏展开也有开关：' + await page.evaluate(() => document.querySelector('.lb-route[data-feature="ask"] .lb-route-body .setting-item')?.outerHTML));
-      assert.equal(await page.evaluate(() => document.querySelector('.lb-route[data-feature="ask"] .lb-route-body .checkbox-container').classList.contains('is-enabled')), true, '问收藏开着：开关显示开');
-      assert.equal(await page.evaluate(() => document.querySelector('.lb-route[data-feature="vision"] .lb-route-body .checkbox-container').classList.contains('is-enabled')), false, '识图没选：开关显示关');
-      await shot(page, `S1018-settings-ai-open-${theme}.png`);
-      // 每天上限：改了立刻存
-      await page.locator('.lb-spend-input').fill('5'); await page.locator('.lb-spend-input').dispatchEvent('change'); await page.waitForTimeout(100);
+      // ① 一页五张卡；状态卡读回用量后：灯黄（百炼 key 用不了）+ 一句 + 去充值 / 换一个 key
+      await page.waitForFunction(() => /今天 ¥0\.83/.test(document.querySelector('[data-section="s-status"]')?.textContent || '') && document.querySelectorAll('.lb-app').length >= 3);
+      await page.waitForTimeout(300);
+      assert.equal(await page.locator('.lb-tabs').count(), 0, '没有页签');
+      assert.deepEqual(await cards(page), ['s-status:状态', 's-xhs:小红书', 's-ai:识别与问答', 's-mcp:知识库接入 AI', 's-more:更多']);
+      const status = await rowsIn(page, '[data-section="s-status"]');
+      assert.deepEqual(status, ['小红书 · momo · ✓ 已登录', '收藏同步', 'API 费用', '识别', '读取']);
+      assert.ok(await page.locator('[data-section="s-status"] .lb-lamp.is-warn').count(), theme + '：key 用不了 → 黄灯');
+      const fix = await page.evaluate(() => document.querySelector('.lb-fix-line')?.textContent || '');
+      assert.match(fix, /通义千问 key 用不了.*去充值 ↗.*换一个 key/);
+      assert.match(await page.evaluate(() => document.querySelector('[data-section="s-status"]').textContent), /已接入 Claude Code/);
+      const ai = await rowsIn(page, '[data-section="s-ai"]');
+      assert.deepEqual(ai, ['识图转文字', '语音转文字', '按意思搜 · 打标签', '概要', '看懂图片', '问收藏用的模型', '每天最多花'], theme + ' 识别与问答：' + ai);
+      const chips = await page.evaluate(() => [...document.querySelectorAll('[data-section="s-ai"] .lb-pv')].map(x => x.getAttribute('data-provider') || x.textContent));
+      assert.deepEqual(chips, ['google', 'deepseek', 'aliyun', '＋ 添加 key']);
+      const apps = await page.evaluate(() => [...document.querySelectorAll('.lb-app')].map(r => r.getAttribute('data-app') + ':' + r.querySelector('.setting-item-description').textContent));
+      assert.deepEqual(apps, ['claude-code:已接入', 'codex:已安装 · 0.146.0', 'opencode:已安装 · 1.19.3 · 复制设置，粘进它的 MCP 设置', 'other:Cursor 等支持 MCP 的软件：复制设置，粘进它的 MCP 设置']);
+      const text = await page.evaluate(() => document.querySelector('.lb-tab-pane').innerText);
+      assert.deepEqual(JARGON.filter(w => text.includes(w)), [], theme + '：明面上没有术语');
+      assert.ok(await page.locator('.lb-tab-pane button.mod-cta').count() <= 1, '最多一个主按钮');
+      assert.deepEqual(await nestedBoxes(page), [], theme + '：卡片里不再套框');
+      // 卡片和页面底色分得开（跟着主题变量走）
+      const bg = await page.evaluate(() => [getComputedStyle(document.querySelector('.lb-v6')).backgroundColor, getComputedStyle(document.querySelector('.lb-v6 > .lb-card')).backgroundColor]);
+      assert.notEqual(bg[0], bg[1], theme + '：卡片和底色分得开');
+      summary[theme] = { cards: await cards(page), 状态: status, 识别与问答: ai, 接入: apps };
+      await shot(page, `S1018v6-settings-${theme}.png`);
+      // ② 接入 Codex：开关 → connect add codex → 「已接入」
+      await page.evaluate(() => document.querySelector('.lb-app[data-app="codex"] .checkbox-container').click()); await page.waitForTimeout(200);   // 外壳的开关没有尺寸：走 DOM 点
+      assert.equal(await page.evaluate(() => document.querySelector('.lb-app[data-app="codex"] .setting-item-description').textContent), '已接入');
+      // ③ 每天最多花：改了立刻存
+      await page.locator('[data-section="s-ai"] input.lb-num').fill('5'); await page.locator('[data-section="s-ai"] input.lb-num').dispatchEvent('change'); await page.waitForTimeout(100);
       assert.equal(await page.evaluate(() => window.l4.plugin.settings.budget.dailyYuan), 5);
-      // 花费明细展开：只有各功能表，余额那块不重复
-      await page.locator('[data-section="ai-usage"] > summary').click(); await page.waitForTimeout(200);
-      assert.ok(await page.locator('.lb-usage-grid').count(), '明细表');
-      assert.equal(await page.locator('[data-section="usage-providers"]').count(), 0, '余额只在钥匙串里出现一次');
-      // ③b 接其他 AI：独立页签
-      await clickTab(page, '接其他 AI');
+      // ④ 网页端那一行点开：远程访问那几格
+      await page.locator('details[data-section="remote"] > summary').click();
       await page.waitForFunction(() => /● 开着/.test(document.querySelector('.lb-remote-svc')?.textContent || ''));
-      p = await readPane(page);
-      assert.equal(p.tab, 'connect');
-      for (const n of ['Claude Code', '远程访问']) assert.ok(p.rows.includes(n), `${theme} 接其他 AI 缺「${n}」：${p.rows}`);
-      assert.ok(!/OAuth/.test(p.text), '界面上没有 OAuth');
-      summary[theme]['接其他 AI'] = p.rows;
-      await shot(page, `S1018-settings-connect-${theme}.png`);
-      // ④ 更多：目录与批注 · 技能 · 附件 · 高级（接其他 AI 不在这了）
-      await clickTab(page, '更多');
-      await page.waitForTimeout(150);
-      p = await readPane(page);
-      for (const n of ['批注署名', '留言对象']) assert.ok(p.rows.includes(n), `${theme} 更多明面上缺「${n}」`);
-      assert.ok(!p.rows.includes('远程访问') && !/接其他 AI：/.test(p.text), '接其他 AI 已搬去自己的页签');
-      assert.match(p.text, /技能/); assert.match(p.text, /高级/);
-      assert.deepEqual(p.boxes, [], theme + '：更多不套框');
-      summary[theme]['更多'] = p.rows;
-      await shot(page, `S1018-settings-more-${theme}.png`);
+      assert.ok(!/OAuth/.test(await page.evaluate(() => document.querySelector('details[data-section="remote"]').innerText)), '界面上没有 OAuth');
+      // ⑤ 更多 → 每项功能用哪个模型：每一项（主用 → 备用）还在，点开识图有接口 / 模型
+      await page.locator('details[data-section="ai-more"] > summary').click();
+      await page.waitForFunction(() => document.querySelectorAll('.lb-route').length >= 8);
+      await page.locator('.lb-route[data-feature="vision"] > summary').click(); await page.waitForTimeout(200);
+      const visionRows = await rowsIn(page, '.lb-route[data-feature="vision"]');
+      for (const n of ['接口地址', '模型名']) assert.ok(visionRows.includes(n), `${theme} 识图展开缺「${n}」：${visionRows}`);
+      await shot(page, `S1018v6-settings-open-${theme}.png`);
       assert.deepEqual(errors, []);
       await page.close();
     }
-    // ⑤ 库里还没收藏：四步指引
+    // ⑥ 库里还没收藏：首次设置（欢迎页 → 自定义四步 → 完成变状态页）
     {
       const { page, errors } = await open(browser, 'light', { guide: true });
-      await page.waitForFunction(() => document.querySelector('.lb-guide'));
-      const g = () => page.evaluate(() => ({ title: document.querySelector('.lb-guide-title').textContent,
+      await page.waitForFunction(() => document.querySelector('.lb-guide .lb-big'));
+      assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('.lb-big-name')].map(e => e.textContent)), ['推荐设置，一键开始', '自定义']);
+      await shot(page, 'S1018v6-guide-0-light.png');
+      await page.locator('button.lb-big', { hasText: '自定义' }).click(); await page.waitForTimeout(150);
+      const g = () => page.evaluate(() => ({ title: document.querySelector('.lb-guide .lb-card-title').textContent,
         steps: [...document.querySelectorAll('.lb-guide-step')].map(s => s.className.replace('lb-guide-step', '').trim() + ':' + s.textContent) }));
-      let st = await g();
-      assert.equal(st.title, '收藏放在哪个文件夹？');
-      assert.deepEqual(st.steps, ['is-on:1放在哪', ':2登录小红书', ':3AI 帮忙', ':4开始同步']);
-      await shot(page, 'S1016-settings-guide-1-light.png');
-      await page.locator('.lb-guide-nav button', { hasText: '下一步' }).click(); await page.waitForTimeout(150);
-      await page.locator('.lb-guide-nav button', { hasText: '下一步' }).click(); await page.waitForTimeout(150);
-      st = await g();
-      assert.equal(st.title, '要不要 AI 帮你整理？');
-      assert.deepEqual(st.steps, ['is-done:✓放在哪', 'is-done:✓登录小红书', 'is-on:3AI 帮忙', ':4开始同步']);
-      const choices = await page.evaluate(() => [...document.querySelectorAll('.lb-guide-choice .setting-item-name')].map(e => e.textContent));
-      assert.deepEqual(choices, ['用免费的 Gemini', '用付费的（DeepSeek / 阿里云）', '先不用'], '一次最多三个选项');
-      await shot(page, 'S1016-settings-guide-3-light.png');
-      await page.locator('.lb-guide-nav button', { hasText: '跳过指引' }).click(); await page.waitForTimeout(200);
-      assert.equal(await page.evaluate(() => window.l4.plugin.settings.onboarding.guideDone), true, '跳过 = 走完，不再出');
+      const seen = [];
+      for (let k = 1; k <= 4; k++) {
+        await page.waitForTimeout(250);
+        const st = await g(); seen.push(st.title);
+        if (k === 3) assert.deepEqual(st.steps, ['is-done:登录小红书✓', 'is-done:同步✓', 'is-on:识别与问答3', ':接入其他 AI4']);
+        await shot(page, `S1018v6-guide-${k}-light.png`);
+        if (k < 4) { await page.locator('.lb-guide-nav button', { hasText: '下一步' }).click(); await page.waitForTimeout(200); }
+      }
+      assert.deepEqual(seen, ['登录小红书', '同步', '识别与问答', '接入其他 AI']);
+      await page.locator('.lb-guide-nav button', { hasText: '完成' }).click();
+      await page.waitForFunction(() => document.querySelector('.lb-card[data-section="s-status"]'));
+      assert.equal(await page.evaluate(() => window.l4.plugin.settings.onboarding.guideDone), true);
+      assert.equal(await page.evaluate(() => window.l4runs), 1, '完成后开始一口气跑');
       assert.deepEqual(errors, []);
       await page.close();
     }
     // 读不到的块：一句人话 + 重试，原始报错折在「详情」里
     {
       const { page, errors } = await open(browser, 'light', { failRemote: true });
-      await clickTab(page, '接其他 AI');
+      await page.locator('details[data-section="remote"] > summary').click();
       await page.waitForFunction(() => document.querySelector('.lb-remote-svc .lb-fail'));
       const fb = await page.evaluate(() => { const f = document.querySelector('.lb-remote-svc .lb-fail'); const d = f.querySelector('details'); return { line: f.querySelector('.lb-fail-line').textContent, open: d.open, raw: d.textContent }; });
       assert.match(fb.line, /这一块暂时读不到，点重试/);
@@ -305,6 +276,6 @@ const shot = (page, name) => page.screenshot({ path: path.join(shell.QA_DIR, nam
     }
   } finally { await browser.close(); }
   fs.mkdirSync(shell.QA_DIR, { recursive: true });
-  fs.writeFileSync(path.join(shell.QA_DIR, 'S1016-settings-rows.json'), JSON.stringify(summary, null, 2));
-  console.log('PASS 1018 settings (real Chromium, light / dark / third-party): tabs 概览 · 同步 · AI · 更多; overview = account + collection + records; sync = 3 rows + fold; AI = one row per provider with its features + usage + folded details; no nested boxes; no jargon; first-run 4-step guide; unreadable block -> retry + folded details. Screenshots: ' + shell.QA_DIR);
+  fs.writeFileSync(path.join(shell.QA_DIR, 'S1018v6-settings-rows.json'), JSON.stringify(summary, null, 2));
+  console.log('PASS 1018 settings v6 (real Chromium, light / dark / third-party): one page of five cards; status card lamp + key trouble line; recognition rows; installed AI apps + one-click Codex; budget saves; web row folds out remote access; per-feature models under 更多; no box-in-box; no jargon; first-run welcome + 4 steps -> status page; unreadable block -> retry + folded details. Screenshots: ' + shell.QA_DIR);
 })().catch(error => { console.error(error); process.exitCode = 1; });

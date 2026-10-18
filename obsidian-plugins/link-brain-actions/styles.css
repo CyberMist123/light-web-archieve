@@ -566,3 +566,84 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
   .lb-settings .lb-route-chain { grid-column: 1 / -1; grid-row: 2; }
   .lb-settings .lb-route-price { display: none; }
 }
+
+/* ——— 1018 设置页 v6（一页翻完：状态 · 小红书 · 识别与问答 · 知识库接入 AI · 更多；首次设置）———
+   照她批的设计稿：灰底上白卡片，卡片标题 + 右侧小字，每行「名称 + 一句说明 + 右侧控件」。颜色全用 Obsidian 变量，亮 / 暗主题都跟着走。 */
+.lb-settings .lb-v6 { gap: 14px; max-width: 720px; background: var(--background-secondary); padding: 14px; border-radius: 14px; }
+.lb-settings .lb-v6 .lb-card { background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 12px; padding: 0 18px 4px; }
+.lb-settings .lb-v6 .lb-card-head { display: flex; align-items: center; gap: 10px; padding: 14px 0 10px; border-bottom: 1px solid var(--background-modifier-border); }
+.lb-settings .lb-v6 .lb-card-title { flex: 1; font-size: var(--font-ui-medium); font-weight: 700; color: var(--text-normal); letter-spacing: 0; }
+.lb-settings .lb-v6 .lb-card-hint { color: var(--text-faint); font-size: var(--font-ui-smaller); }
+.lb-settings .lb-v6 .lb-card-desc { margin: 10px 0 2px; }
+.lb-settings .lb-v6 .lb-card .setting-item { padding: 12px 0; border-top: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border)); }
+.lb-settings .lb-v6 .lb-card-body > .setting-item:first-child, .lb-settings .lb-v6 .lb-grp + .setting-item, .lb-settings .lb-v6 .lb-grp + .lb-apps > .setting-item:first-child { border-top: 0; }
+.lb-settings .lb-v6 .setting-item-name { font-weight: 500; }
+.lb-settings .lb-v6 .lb-grp { font-size: var(--font-ui-smaller); color: var(--text-faint); padding: 14px 0 2px; border-top: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border)); }
+.lb-settings .lb-v6 .lb-card-body > .lb-grp:first-child { border-top: 0; }
+.lb-settings .lb-v6 .lb-meta { color: var(--text-faint); font-size: var(--font-ui-smaller); white-space: nowrap; margin-right: 6px; }
+.lb-settings .lb-v6 .lb-meta-after { margin: 0 0 0 6px; }
+.lb-settings .lb-v6 .lb-sub .setting-item-name { padding-left: 1.2em; }
+.lb-settings .lb-v6 .lb-note { color: var(--text-faint); font-size: var(--font-ui-smaller); padding: 6px 0 10px; }
+.lb-settings .lb-v6 input.lb-num { width: 6em; text-align: right; }
+/* 图标（占位：字母 + 各家主色） */
+.lb-settings .lb-logo { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; flex: none;
+  background: var(--lb-logo, #888); color: #fff; font-size: 12px; font-weight: 700; line-height: 1; vertical-align: middle; }
+.lb-settings .lb-logo.is-s { width: 18px; height: 18px; border-radius: 5px; font-size: 10.5px; }
+.lb-settings .lb-v6 .lb-app .setting-item-name { display: flex; align-items: center; gap: 10px; }
+/* 状态卡：灯 · 立即同步 · 黄灯那一句 */
+.lb-settings .lb-lamp { width: 10px; height: 10px; border-radius: 50%; flex: none; order: -1; background: var(--color-green); box-shadow: 0 0 0 4px rgba(var(--color-green-rgb), .15); }
+.lb-settings .lb-lamp.is-busy { background: var(--color-blue); box-shadow: 0 0 0 4px rgba(var(--color-blue-rgb), .15); animation: lb-lamp-pulse 1.4s infinite; }
+.lb-settings .lb-lamp.is-warn { background: var(--color-orange); box-shadow: 0 0 0 4px rgba(var(--color-orange-rgb), .18); }
+@keyframes lb-lamp-pulse { 50% { opacity: .4; } }
+@media (prefers-reduced-motion: reduce) { .lb-settings .lb-lamp.is-busy { animation: none; } }
+.lb-settings .lb-v6 .lb-fix:empty { display: none; }
+.lb-settings .lb-v6 .lb-fix-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 10px 0 0; padding: 8px 12px; border-radius: 8px;
+  background: rgba(var(--color-orange-rgb), .1); color: var(--text-normal); font-size: var(--font-ui-small); }
+/* AI 服务的服务商小片 */
+.lb-settings .lb-v6 .lb-svc { padding: 12px 0; border-top: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border)); }
+.lb-settings .lb-v6 .lb-svc .setting-item-description { margin-top: 8px; }
+.lb-settings .lb-v6 .lb-prov { display: flex; flex-wrap: wrap; gap: 8px; }
+.lb-settings .lb-v6 .lb-pv { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px 4px 6px; border: 1px solid var(--background-modifier-border);
+  border-radius: 8px; font-size: var(--font-ui-small); background: var(--background-primary); height: auto; box-shadow: none; }
+.lb-settings .lb-v6 .lb-pv-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-green); }
+.lb-settings .lb-v6 .lb-pv.is-warn .lb-pv-dot { background: var(--color-orange); }
+.lb-settings .lb-v6 button.lb-pv.is-add { border-style: dashed; color: var(--lbs-accent); cursor: pointer; padding: 4px 12px; }
+/* 一行点开在原地展开（知识库接入 AI 的范围 / 网页端；更多里每一项） */
+.lb-settings .lb-v6 details.lb-row-fold { border-top: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border)); }
+.lb-settings .lb-v6 .lb-grp + details.lb-row-fold { border-top: 0; }
+.lb-settings .lb-v6 details.lb-row-fold > summary { list-style: none; cursor: pointer; padding: 12px 22px 12px 0; position: relative; }
+.lb-settings .lb-v6 details.lb-row-fold > summary::-webkit-details-marker { display: none; }
+.lb-settings .lb-v6 details.lb-row-fold > summary::after { content: "\203A"; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); color: var(--text-faint); font-size: 18px; transition: transform .15s; }
+.lb-settings .lb-v6 details.lb-row-fold[open] > summary::after { transform: translateY(-50%) rotate(90deg); }
+.lb-settings .lb-v6 .lb-rf-name { font-weight: 500; color: var(--text-normal); }
+.lb-settings .lb-v6 .lb-rf-desc { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-top: 2px; }
+.lb-settings .lb-v6 details.lb-row-fold > :not(summary) { background: var(--background-secondary); border-radius: 8px; padding: 2px 14px; margin: 0 0 12px; }
+/* 首次设置：左边一张卡，右边步骤线（照她截图：字在左、圈在右） */
+.lb-settings .lb-v6 .lb-guide { grid-template-columns: minmax(0, 1fr) 150px; gap: 14px; padding: 0; align-items: start; }
+.lb-settings .lb-v6 .lb-guide-card { padding-bottom: 16px; }
+.lb-settings .lb-v6 .lb-guide-steps { background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 12px; padding: 16px 14px; }
+.lb-settings .lb-v6 .lb-guide-steps.is-hidden { visibility: hidden; }
+.lb-settings .lb-v6 .lb-guide-step { justify-content: flex-end; cursor: pointer; text-align: right; }
+.lb-settings .lb-v6 .lb-guide-dot { width: 22px; height: 22px; border-width: 1.5px; font-size: 11.5px; }
+.lb-settings .lb-v6 .lb-guide-step.is-done .lb-guide-dot { background: var(--lbs-accent); border-color: var(--lbs-accent); color: #fff; }
+.lb-settings .lb-v6 .lb-guide-step.is-on { color: var(--text-normal); }
+.lb-settings .lb-v6 .lb-guide-line { margin: 3px 10px 3px auto; height: 24px; width: 1.5px; }
+.lb-settings .lb-v6 .lb-guide-line.is-done { background: var(--lbs-accent); }
+.lb-settings .lb-v6 .lb-guide-hint { margin: 12px 0 4px; }
+.lb-settings .lb-v6 .lb-guide-nav .mod-cta { margin-left: 0; order: -1; }
+.lb-settings .lb-v6 .lb-guide-nav .lb-push { margin-left: auto; }
+.lb-settings .lb-v6 button.lb-big { display: block; width: 100%; height: auto; text-align: left; white-space: normal; padding: 14px 16px; margin-top: 12px;
+  border: 1px solid var(--background-modifier-border); border-radius: 10px; background: var(--background-primary); box-shadow: none; cursor: pointer; }
+.lb-settings .lb-v6 button.lb-big.is-pri { border-color: var(--lbs-accent); background: rgba(var(--interactive-accent-rgb, 124, 92, 255), .08); }
+.lb-settings .lb-v6 .lb-big-name { font-weight: 600; font-size: var(--font-ui-medium); color: var(--text-normal); }
+.lb-settings .lb-v6 .lb-big-desc { color: var(--text-muted); font-size: var(--font-ui-small); margin-top: 2px; }
+@media (max-width: 640px) {
+  .lb-settings .lb-v6 { padding: 10px; }
+  .lb-settings .lb-v6 .lb-guide { grid-template-columns: 1fr; }
+  .lb-settings .lb-v6 .lb-guide-steps { order: -1; display: flex; flex-flow: row wrap; gap: 6px 14px; }
+  .lb-settings .lb-v6 .lb-guide-line { display: none; }
+}
+/* 添加 key 的小窗 */
+.lb-key-paste { width: 100%; margin: 6px 0 10px; }
+.lb-prov-links { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; }
+.lb-modal-actions { display: flex; justify-content: flex-end; margin-top: 14px; }

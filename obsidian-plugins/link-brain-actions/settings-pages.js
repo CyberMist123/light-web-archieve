@@ -321,7 +321,7 @@ module.exports = function (obsidian, plugin) {
     }
   }
 
-  function renderAI(c, tab) {
+  function renderAI(c, tab, { noPrompts = false } = {}) {
     const s = plugin.settings;
     let alive = true, data = null;
     const spend = c.createDiv({ cls: 'lb-spend', attr: { 'data-section': 'ai-spend' } });
@@ -332,8 +332,10 @@ module.exports = function (obsidian, plugin) {
     c.createEl('p', { cls: 'lb-sec-desc', text: '按服务商列：key 从哪来、花了多少、管哪些功能。key 在上面每一项展开里改。' });
     const ring = c.createDiv({ cls: 'lb-keyring' });
     const usageBody = fold(c, '花了多少：各功能明细（今天 / 7 天 / 30 天）', 'ai-usage');
-    const promptBody = fold(c, '提示词（一般不用改）', 'ai-prompts');
-    safe(tab, promptBody, '提示词', () => tab.renderPrompts(promptBody));
+    if (!noPrompts) {
+      const promptBody = fold(c, '提示词（一般不用改）', 'ai-prompts');
+      safe(tab, promptBody, '提示词', () => tab.renderPrompts(promptBody));
+    }
     const free = new Setting(c).setName('只用免费的功能').setDesc('关掉问收藏、概要和识图，只留本机跑的那几样；key 留着，随时打开。');
     free.settingEl.addClass('lb-light-row');
     tab.link(free, '全部关掉', async () => {
@@ -468,5 +470,5 @@ module.exports = function (obsidian, plugin) {
     paint();
   }
 
-  return { renderOverview, renderSync, renderAI, renderConnect, renderMore, renderGuide, needsGuide, providerRows, featureUses, attentionText, providerOf };
+  return { renderOverview, renderSync, renderAI, renderConnect, renderMore, renderGuide, needsGuide, providerRows, featureUses, attentionText, providerOf, LINKS };
 };

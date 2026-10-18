@@ -711,11 +711,15 @@ class SyncSettingsModal extends Modal {
 // 1018 她：「接其他 AI」从「更多」的折叠里升成独立页签
 const SETTING_TABS = [['overview', '概览'], ['sync', '同步'], ['ai', 'AI'], ['connect', '接其他 AI'], ['more', '更多']];
 const SETTING_SUBTABS = {};
+// 1018 v6：旧页签名 / 落点名 → 一页里的哪一段（data-section）
+const V6_SECTION = { overview: 's-status', status: 's-status', sync: 's-xhs', schedule: 's-xhs', collect: 'sync-more', 'collect-status': 's-status',
+  ai: 's-ai', 'ai-routes': 'ai-more', 'ai-more': 'ai-more', 'ai-usage': 'ai-more', 'ai-spend': 's-ai', 'ai-api': 's-ai', 'ai-prompts': 'ai-prompts',
+  connect: 's-mcp', more: 's-more', skills: 'skills', developer: 'developer', catalog: 'catalog', attach: 'attach', 'sync-more': 'sync-more', remote: 'remote' };
 // 旧名 → [页签, 子页签, 滚到哪一段]（问题面板「打开设置」带 'ai'、命令带 'overview'、「去扫码 / 验证」带 'status'、远程带 'remote'…）
 const TAB_ALIAS = { overview: ['overview'], general: ['overview'], status: ['overview', null, 'status'], start: ['overview'], home: ['overview'], run: ['overview'],
   sync: ['sync'], content: ['sync', null, 'collect'], schedule: ['sync', null, 'schedule'],
   features: ['overview'], ai: ['ai'], providers: ['ai'], models: ['ai', null, 'ai-more'], usage: ['ai', null, 'ai-usage'],
-  more: ['more'], connect: ['connect'], remote: ['connect'], skills: ['more', null, 'skills'],
+  more: ['more'], connect: ['connect'], remote: ['connect', null, 'remote'], skills: ['more', null, 'skills'],
   advanced: ['more', null, 'developer'], developer: ['more', null, 'developer'] };
 
 class LinkBrainActions extends Plugin {
@@ -1294,6 +1298,7 @@ class LinkBrainActions extends Plugin {
     return box;
   }
   // 设置页顶部（状态 + 功能 + 一键装好 / 跑完 + 首次零配置）整块在 home-ui.js
+  settingsV6() { return this._settingsV6 || (this._settingsV6 = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'settings-v6.js'))(obsidian, this)); }
   settingsPages() { return this._settingsPages || (this._settingsPages = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'settings-pages.js'))(obsidian, this)); }
   usageUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'usage-ui.js'))(obsidian, this); }
   skillsUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'skills-ui.js'))(obsidian, this); }
@@ -2660,24 +2665,29 @@ class LinkBrainSettingTab extends PluginSettingTab {
     // 缺后端程序 / 缺 Dataview / 旧图片导航插件还开着 → 最上面各一块提示（都正常时什么也不加），哪一栏都看得到
     this.hintsEl = c.createDiv({ cls: 'lb-setup-hints' });
     this.plugin.renderSetupHints?.(this.hintsEl);
-    const bar = c.createDiv({ cls: 'lb-tabs', attr: { role: 'tablist' } });
-    for (const [id, label] of SETTING_TABS) {
-      const b = bar.createEl('button', { cls: 'lb-tab' + (id === view.tab ? ' is-active' : ''), text: label,
-        attr: { type: 'button', role: 'tab', 'aria-selected': String(id === view.tab), 'data-tab': id } });
-      b.onclick = () => this.showTab(id);
-    }
-    const pane = c.createDiv({ cls: 'lb-tab-pane lb-tab-' + view.tab, attr: { role: 'tabpanel', 'data-tab': view.tab } });
-    let pages = null;
-    try { pages = this.plugin.settingsPages(); } catch (e) { console.error('[lb] 设置页没加载上', e); this.plugin.failBox?.(pane, '', e, () => this.display()); return; }
-    const draw = { overview: () => pages.renderOverview(pane, this), sync: () => pages.renderSync(pane, this), ai: () => pages.renderAI(pane, this),
-      connect: () => pages.renderConnect(pane, this), more: () => pages.renderMore(pane, this) }[view.tab];
-    try { draw(); } catch (e) { console.error('[lb] 设置页这一栏没画上', e); this.plugin.failBox?.(pane, '', e, () => this.display()); }
-    // 第一次用（库里还没有收藏、没走完指引）：概览换成四步指引
-    if (view.tab === 'overview') pages.needsGuide().then(yes => { if (yes && pane.isConnected !== false) { pane.empty(); pages.renderGuide(pane, this); } }).catch(console.error);
-    // 「打开设置」带了落点（「去扫码 / 验证」→ 状态卡片…）：滚过去
-    const focus = view.focus; view.focus = null;
-    const target = focus && pane.querySelector(`[data-section="${focus}"]`);
-    if (target && typeof target.scrollIntoView === 'function') setTimeout(() => { try { target.scrollIntoView({ block: 'start' }); } catch {} }, 50);
+    // 1018 她批 v6：不分页签，一页翻完（状态 · 小红书 · 识别与问答 · 知识库接入 AI · 更多）；第一次用换成首次设置（settings-v6.js）。
+    // 旧的落点名（'ai' / 'sync' / 'remote' / 'status'…）照认：换成滚到哪一张卡 / 展开哪一行
+    const pane = c.createDiv({ cls: 'lb-tab-pane lb-v6', attr: { 'data-tab': 'v6' } });
+    let v6 = null;
+    try { v6 = this.plugin.settingsV6(); } catch (e) { console.error('[lb] 设置页没加载上', e); this.plugin.failBox?.(pane, '', e, () => this.display()); return; }
+    const focus = V6_SECTION[view.focus] || view.focus || V6_SECTION[view.tab] || null;
+    view.focus = null;
+    if (focus === 'remote') view.openRemote = true;
+    const drawPage = () => { try { v6.renderPage(pane, this); } catch (e) { console.error('[lb] 设置页没画上', e); this.plugin.failBox?.(pane, '', e, () => this.display()); } };
+    const ob = this.plugin.settings.onboarding || {};
+    if (ob.force) { v6.renderGuide(pane, this); return; }
+    drawPage();
+    if (!ob.guideDone) v6.needsGuide().then(yes => { if (yes && pane.parentNode) { this.disposeStops(); pane.empty(); v6.renderGuide(pane, this); } }).catch(console.error);
+    // 「打开设置」带了落点：滚过去；落点在「更多」里的折叠行就顺手展开
+    const target = focus && focus !== 's-status' && pane.querySelector(`[data-section="${focus}"]`);
+    if (target) setTimeout(() => {
+      try { if (target.tagName === 'DETAILS' && !target.open) target.open = true; } catch {}   // 浏览器自己会发 toggle，里面那一块就画出来
+      try { target.scrollIntoView({ block: 'start' }); } catch {}
+    }, 50);
+  }
+  disposeStops() {
+    for (const stop of this.stops || []) { try { stop && stop(); } catch (e) { console.error('[lb] 设置页注销没做完', e); } }
+    this.stops = [];
   }
   hide() {
     for (const stop of this.stops || []) { try { stop && stop(); } catch {} }

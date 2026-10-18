@@ -66,7 +66,9 @@ function render(saved) {
   plugin.settingsPages = () => require(require('path').resolve('obsidian-plugins/link-brain-actions/settings-pages.js'))(context.require('obsidian'), plugin);   // 1016 四个页签
   const tab = new Plugin.__SettingTab({}, plugin);
   // 1015：「AI」→「模型与提供商 → AI 功能」；原「高级」里的 AI 细项 →「识图 · 认字 · 语音」「问收藏模型」「提示词」三个子页签
-  plugin.settingsView = { tab: 'ai' }; tab.display();
+  // 1018 v6：这几块在「更多 → 每项功能用哪个模型」每一项展开里（问收藏 / 识图 / 概要 / 认字 / 语音）；展开时画的就是这几个方法，这里直接画
+  plugin.settingsView = { tab: 'ai' }; tab.stops = [];
+  tab.renderAIFeatures(tab.containerEl); tab.renderSummaryAI(tab.containerEl); tab.renderOcrAI(tab.containerEl); tab.renderVoiceAI(tab.containerEl);
   let text = tab.containerEl.allText() + '\n';
   // 1016：AI 一页画全（接口那几块在页底「详细设置」折叠里），不再分子页签
   return { tab, plugin, calls, text };
@@ -111,10 +113,7 @@ const ALL_ON = { setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'asr',
   const capsDir = byName('CapsWriter 装在哪');
   assert.ok(capsDir && !/\\AI\\/.test(capsDir.texts[0].placeholder));
 
-  // —— 子选项只在父开关打开后出现：没开 OCR / 语音 / AI 时，「高级」里对应的细项和测试都不出 ——
-  ({ text } = render({ setup: { selected: ['core', 'reader', 'dataview'], aiSynced: true }, ocr: { mode: 'off' }, asrAI: { mode: 'off' } }));
-  for (const n of ['写概要用的模型', '认字精度', '认视频画面里的字', '本机语音识别的端口', '精细识图模型']) assert.ok(!byName(n), `父开关没开，不该出「${n}」`);
-  assert.ok(!settings.flatMap(r => r.buttons).some(b => /^测试(认字|语音|概要)/.test(b.label)), '对应的测试也不出');
+  // （1018 起这些细项只在用户点开「更多 → 每项功能用哪个模型」里那一项时才画，不再按父开关藏；开关本身在「识别与问答」卡上，见 test_settings_layout）
 
   // —— 旧配置（作者以前那种 mode=media）：如实说一句；改了那一格才存成新格式 ——
   ({ text, plugin } = render({ ...ALL_ON, textAI: { mode: 'http', endpoint: 'https://api.deepseek.com/chat/completions', model: '', keyFile: 'x.csv', keyField: 'ds' },
@@ -124,5 +123,5 @@ const ALL_ON = { setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'asr',
   const visionModel = settings.filter(r => r.name === '模型名')[1];
   await visionModel.texts[0].cb('qwen3.8-flash');
   assert.equal(plugin.settings.visionAI.mode, 'http', '改了识图那一格 → 存成新格式');
-  console.log('PASS AI settings (1010 tabs): one test button per capability → selftest <cap> (consequence in the label); no mode dropdowns for the newbie, summary model select without media; skipped shows 还没打开; sub-options hidden until the parent is on; legacy media told once, converted on edit');
+  console.log('PASS AI settings (capability blocks under 更多 → 每项功能用哪个模型): one test button per capability → selftest <cap> (consequence in the label); no mode dropdowns for the newbie, summary model select without media; skipped shows 还没打开; legacy media told once, converted on edit');
 })().catch(e => { console.error(e); process.exitCode = 1; });

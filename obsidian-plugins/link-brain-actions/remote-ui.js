@@ -327,7 +327,8 @@ module.exports = function remoteUI(obsidian, plugin) {
     async beforeSave() { if (!fresh) await syncFromDisk(); },
 
     // —— 设置页「连接其他 AI」一整栏（1010 她：远程访问的东西都在这一栏；「还没有网址？」紧挨着网址那一格）——
-    renderConnect(container, redrawAll, tab = null) {
+    // part（1018 设置页 v6）：'all' 整栏（旧）；'web' 只画网页端（远程访问 · 网址 · 口令 · 已连上的 · 高级）；'folders' 只画「开放给 AI 的文件夹」
+    renderConnect(container, redrawAll, tab = null, { part = 'all' } = {}) {
       if (!plugin.settings.remote) plugin.settings.remote = normalizeRemote(null);
       const box = container.createDiv({ cls: 'lb-connect' });
       // 读到状态 / 改了设置时只重画 main 这一块：最下面的「高级」折叠建一次就不动（里面的端口、令牌备注不被冲掉，也不再多起一遍 remote status）
@@ -349,10 +350,11 @@ module.exports = function remoteUI(obsidian, plugin) {
         const box = main;
         const r = s();
         const url = r.domain ? r.domain + '/mcp' : '';
-        box.createEl('p', { cls: 'lb-tab-intro', text: '让 Claude、ChatGPT 这些 AI 读你的收藏：能搜、能读、能看图，不能改也不能删。' });
-        const chips = box.createDiv({ cls: 'lb-connect-chips' });
-        const picked = new Set(chosenClients(plugin.settings));
-        for (const [id, name] of CLIENTS) {
+        if (part === 'folders') { drawFolders(box, r); return; }
+        if (part === 'all') box.createEl('p', { cls: 'lb-tab-intro', text: '让 Claude、ChatGPT 这些 AI 读你的收藏：能搜、能读、能看图，不能改也不能删。' });
+        const chips = part === 'all' ? box.createDiv({ cls: 'lb-connect-chips' }) : null;
+        const picked = new Set(part === 'web' ? CLIENTS.filter(c => c[2] === 'web').map(c => c[0]) : chosenClients(plugin.settings));
+        for (const [id, name] of chips ? CLIENTS : []) {
           const lab = chips.createEl('label', { cls: 'lb-connect-chip' + (picked.has(id) ? ' is-on' : ''), attr: { 'data-client': id } });
           const cb = lab.createEl('input', { type: 'checkbox' }); cb.type = 'checkbox'; cb.checked = picked.has(id);
           lab.createSpan({ text: name });
@@ -368,8 +370,8 @@ module.exports = function remoteUI(obsidian, plugin) {
         }
         if (!picked.size) box.createEl('p', { cls: 'setting-item-description', text: '上面勾一个，这里就出它的那一步。' });
 
-        // 本机的：一键写配置 / 撤销
-        for (const [id, name] of CLIENTS.filter(c => c[2] === 'local' && picked.has(c[0]))) {
+        // 本机的：一键写配置 / 撤销（v6 设置页的本地应用另有一块，web 部分不画）
+        for (const [id, name] of part === 'web' ? [] : CLIENTS.filter(c => c[2] === 'local' && picked.has(c[0]))) {
           const row = new Setting(box).setName(name);
           row.settingEl.addClass('lb-connect-client'); row.settingEl.setAttribute?.('data-client', id);
           const st = local && local.clients ? local.clients[id] : null;
@@ -499,9 +501,14 @@ module.exports = function remoteUI(obsidian, plugin) {
           }
           for (const w of (status && status.warnings) || []) web.createDiv({ cls: 'setting-item-description lb-remote-warn', text: '⚠ ' + w });
         }
+        if (part === 'all') {
+          box.createEl('h4', { text: '开放给 AI 的文件夹' });
+          drawFolders(box, r);
+        }
+      };
 
-        // 权限：开放哪些文件夹（对所有连上的 AI 都一样）
-        box.createEl('h4', { text: '开放给 AI 的文件夹' });
+      // 权限：开放哪些文件夹（对所有连上的 AI 都一样）
+      const drawFolders = (box, r) => {
         box.createEl('p', { cls: 'setting-item-description', text: '连上的 AI 能搜、能读这些文件夹里的笔记（含子文件夹）；改完几秒内生效。' });
         const have = new Set(r.folders);
         const xhsRow = new Setting(box).setName(XHS_LABEL).setDesc('可见笔记，加上每篇的机读版、附件全文、批注（推荐开）。');
@@ -542,14 +549,16 @@ module.exports = function remoteUI(obsidian, plugin) {
       };
 
       // 高级（默认收起）：端口 · 访问令牌（给不支持口令的软件）· 撤销全部 · 访问记录 · 测一下本机的连接程序。
-      // 建一次，排在 main 后面；main 重画不碰它（它自己的按钮只重画它自己）
-      const adv = box.createEl('details', { cls: 'lb-fold lb-connect-adv' });
+      // 建一次，排在 main 后面；main 重画不碰它（它自己的按钮只重画它自己）。只画文件夹时不要
+      const adv = part === 'folders' ? null : box.createEl('details', { cls: 'lb-fold lb-connect-adv' });
+      if (adv) {
       adv.open = !!advOpen;
       adv.createEl('summary', { text: '高级：端口、访问令牌、访问记录' });
       let advDrawn = false;
       const fillAdv = () => { if (advDrawn || !adv.open) return; advDrawn = true; renderAdvancedInto(adv.createDiv({ cls: 'lb-connect-adv-body' }), tab); };
       adv.addEventListener?.('toggle', () => { advOpen = adv.open; fillAdv(); });
       fillAdv();
+      }
 
       const loadStatus = async () => {
         try { const { json } = await run(['status', ...settingsArgs()], { timeoutMs: 30000, fallback: '读不到状态' }); status = json || { unreadable: true, error: '后台没有返回' }; }
@@ -559,7 +568,8 @@ module.exports = function remoteUI(obsidian, plugin) {
         try { const { json } = await plugin.runPy(['-m', 'link_brain', 'connect', 'status'], { label: '连接 AI', timeoutMs: 60000 }); local = json || { clients: {}, unreadable: true, error: '后台没有返回' }; }
         catch (e) { local = { clients: {}, unreadable: true, error: e.message }; }
       };
-      syncFromDisk().then(() => { if (!alive) return; draw(); Promise.all([loadStatus(), loadLocal()]).then(() => redraw()); }, () => draw());
+      syncFromDisk().then(() => { if (!alive) return; draw(); if (part === 'folders') return;
+        Promise.all([loadStatus(), part === 'web' ? null : loadLocal()]).then(() => redraw()); }, () => draw());
       return () => { alive = false; };
     },
 

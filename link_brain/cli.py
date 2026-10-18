@@ -339,6 +339,8 @@ def build_parser() -> argparse.ArgumentParser:
     pickfolder.add_parser(sub)
     from . import connect as connect_mod
     connect_mod.add_parser(sub)
+    from . import keyprobe as keyprobe_mod
+    keyprobe_mod.add_parser(sub)
 
     from . import nightly as nightly_mod, reader_install, report as report_mod
     nightly_mod.add_parser(sub)
@@ -441,6 +443,9 @@ def _dispatch(args) -> int:
     if args.command == 'connect':
         from . import connect as connect_mod
         return connect_mod.run(args)
+    if args.command == 'keys':
+        from . import keyprobe as keyprobe_mod
+        return keyprobe_mod.run(args)
     if args.command == 'nightly':
         from . import nightly
         return nightly.run(args)

@@ -11,8 +11,10 @@
 
 CLI（CONVENTIONS §1 形状）：
   python -m link_brain connect status                       每个本机客户端：找没找到、接没接上（只读文件，不改东西）
-  python -m link_brain connect add <claude-code|claude-desktop>
-  python -m link_brain connect remove <claude-code|claude-desktop>
+  python -m link_brain connect add <claude-code|claude-desktop|codex>
+  python -m link_brain connect remove <claude-code|claude-desktop|codex>
+- Codex：`codex mcp add lwa --env … -- <python> -m link_brain mcp`（配置由 codex 自己写进 ~/.codex/config.toml）；撤销 = `codex mcp remove lwa`。
+- status 另给 apps：照 Claudian 的找法列本机装了的 AI 应用（Claude Code / Codex / OpenCode / Pi / Grok Build / DeepSeek Harness / Claude 桌面版）。
 """
 
 from __future__ import annotations
@@ -29,8 +31,8 @@ from typing import Any
 from . import storage
 
 NAME = "lwa"
-CLIENTS = ("claude-code", "claude-desktop")
-CLIENT_CN = {"claude-code": "Claude Code", "claude-desktop": "Claude Desktop"}
+CLIENTS = ("claude-code", "claude-desktop", "codex")
+CLIENT_CN = {"claude-code": "Claude Code", "claude-desktop": "Claude Desktop", "codex": "Codex"}
 ENV_DESKTOP = "LWA_CLAUDE_DESKTOP_CONFIG"
 ENV_CLAUDE_EXE = "LWA_CLAUDE_EXE"
 
@@ -75,13 +77,7 @@ def claude_exe() -> str | None:
     forced = os.environ.get(ENV_CLAUDE_EXE)
     if forced:
         return forced if Path(forced).exists() else None
-    found = shutil.which("claude")
-    if found:
-        return found
-    for cand in (Path.home() / ".local" / "bin" / "claude.exe", Path.home() / ".local" / "bin" / "claude"):
-        if cand.exists():
-            return str(cand)
-    return None
+    return find_binary("claude")
 
 
 class BadConfig(ValueError):
@@ -236,6 +232,167 @@ def remove_claude_desktop() -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------
+# Codex：`codex mcp add / remove / get`（配置在 ~/.codex/config.toml，由 codex 自己写；我们不碰那份文件）
+# --------------------------------------------------------------------------
+
+
+def codex_exe() -> str | None:
+    return find_binary("codex")
+
+
+def _run_codex(args: list[str], timeout: float = 60) -> tuple[int, str]:
+    exe = codex_exe()
+    if not exe:
+        return 127, "没找到 codex 命令（Codex 没装，或不在常见安装位置）"
+    try:
+        p = subprocess.run([exe, *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=timeout, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except subprocess.TimeoutExpired:
+        return 124, f"codex {' '.join(args[:2])} 超过 {timeout:.0f} 秒没回来"
+    except OSError as exc:
+        return 126, f"codex 起不来：{exc}"
+    return p.returncode, ((p.stdout or "") + "\n" + (p.stderr or "")).strip()
+
+
+def _codex_has() -> bool:
+    if not codex_exe():
+        return False
+    rc, _ = _run_codex(["mcp", "get", NAME, "--json"], timeout=20)
+    return rc == 0
+
+
+def _codex_command_text(spec: dict[str, Any]) -> str:
+    def q(s: str) -> str:
+        return f'"{s}"' if any(ch.isspace() for ch in s) else s
+    envs = " ".join(f"--env {k}={q(v)}" for k, v in spec["env"].items())
+    return f"codex mcp add {NAME} {envs} -- {q(spec['command'])} " + " ".join(spec["args"])
+
+
+def add_codex() -> dict[str, Any]:
+    spec = server_spec()
+    cmd_text = _codex_command_text(spec)
+    if not codex_exe():
+        return {"ok": False, "client": "codex", "changed": False, "code": "", "manual": True, "command": cmd_text,
+                "message": "没找到 codex 命令：装好 Codex 后再点，或把下面这条命令复制到终端运行"}
+    if _codex_has():
+        return {"ok": True, "client": "codex", "changed": False, "message": "Codex 已经接上了", "command": cmd_text}
+    args = ["mcp", "add", NAME]
+    for k, v in spec["env"].items():
+        args += ["--env", f"{k}={v}"]
+    args += ["--", spec["command"], *spec["args"]]
+    rc, out = _run_codex(args)
+    if rc != 0 or not _codex_has():
+        return {"ok": False, "client": "codex", "changed": False, "code": "", "command": cmd_text,
+                "message": f"没接上：{(out.splitlines() or ['codex 没说原因'])[-1][:200]}"}
+    return {"ok": True, "client": "codex", "changed": True, "command": cmd_text,
+            "message": "已接到 Codex：新开一个 Codex 会话后工具名以 lwa 开头"}
+
+
+def remove_codex() -> dict[str, Any]:
+    if not _codex_has():
+        return {"ok": True, "client": "codex", "changed": False, "message": "Codex 里本来就没有 lwa"}
+    rc, out = _run_codex(["mcp", "remove", NAME])
+    if rc != 0 or _codex_has():
+        return {"ok": False, "client": "codex", "changed": False, "code": "",
+                "message": f"没撤掉：{(out.splitlines() or ['codex 没说原因'])[-1][:200]}"}
+    return {"ok": True, "client": "codex", "changed": True, "message": "已从 Codex 撤掉 lwa"}
+
+
+# --------------------------------------------------------------------------
+# 本机装了哪些 AI 应用（1018 她：照 Claudian 认本机 CLI——它支持 Claude Code / Codex / OpenCode / Pi / Grok Build /
+# DeepSeek Harness，按 PATH + 各家常见安装目录找）。只看「装没装、什么版本」，不读它们的对话、不改别的东西。
+# 一键接入只给配置写法确定的：Claude Code、Claude 桌面版、Codex；其余如实写「复制设置自己加」。
+# --------------------------------------------------------------------------
+
+# id, 显示名, 命令名, 一键接入（True）还是只能复制设置（False）
+APPS = (
+    ("claude-code", "Claude Code", "claude", True),
+    ("claude-desktop", "Claude 桌面版", "", True),
+    ("codex", "Codex", "codex", True),
+    ("opencode", "OpenCode", "opencode", False),
+    ("pi", "Pi", "pi", False),
+    ("grok", "Grok Build", "grok", False),
+    ("deepseek", "DeepSeek Harness", "dsh", False),
+)
+
+
+def _extra_bin_dirs() -> list[Path]:
+    """PATH 之外常见的命令行安装目录（Obsidian 从开始菜单启动时 PATH 常常不全）。目录清单参照 Claudian 的找法。"""
+    home = Path.home()
+    out: list[Path] = [home / ".local" / "bin", home / ".bun" / "bin", home / ".volta" / "bin", home / ".npm-global" / "bin",
+                       home / ".codex" / "packages" / "standalone" / "current" / "bin", home / ".opencode" / "bin",
+                       home / ".cargo" / "bin"]
+    for env in ("NVM_BIN", "VOLTA_HOME", "PNPM_HOME"):
+        v = os.environ.get(env)
+        if v:
+            out.append(Path(v) / "bin" if env == "VOLTA_HOME" else Path(v))
+    prefix = os.environ.get("npm_config_prefix")
+    if prefix:
+        out.append(Path(prefix) if os.name == "nt" else Path(prefix) / "bin")
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA") or str(home / "AppData" / "Roaming")
+        local = os.environ.get("LOCALAPPDATA") or str(home / "AppData" / "Local")
+        out += [Path(appdata) / "npm", Path(local) / "mise" / "shims", Path(local) / "pnpm"]
+    else:
+        out += [home / ".local" / "share" / "mise" / "shims", Path("/opt/homebrew/bin"), Path("/usr/local/bin")]
+    return out
+
+
+def find_binary(name: str) -> str | None:
+    if not name:
+        return None
+    if name == "claude":
+        forced = os.environ.get(ENV_CLAUDE_EXE)
+        if forced:
+            return forced if Path(forced).exists() else None
+    found = shutil.which(name)
+    if found:
+        return found
+    exts = [".exe", ".cmd", ".bat", ""] if os.name == "nt" else [""]
+    for d in _extra_bin_dirs():
+        for ext in exts:
+            cand = d / (name + ext)
+            if cand.is_file():
+                return str(cand)
+    return None
+
+
+def _version(exe: str) -> str:
+    try:
+        p = subprocess.run([exe, "--version"], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=8, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    import re
+    m = re.search(r"\d+\.\d+(?:\.\d+)?", (p.stdout or "") + " " + (p.stderr or ""))
+    return m.group(0) if m else ""
+
+
+def apps() -> list[dict[str, Any]]:
+    """[{id, name, installed, version, oneclick, connected}]——只列这台电脑上装了的，顺序固定。"""
+    from concurrent.futures import ThreadPoolExecutor
+    desk = claude_desktop_config()
+    found = {aid: (find_binary(binary) if binary else None) for aid, _, binary, _ in APPS}
+    probes = {
+        "claude-code": lambda: bool(_claude_code_has()),
+        "claude-desktop": lambda: NAME in (((_read_json(desk) or {}).get("mcpServers")) or {}),
+        "codex": _codex_has,
+    }
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        versions = {aid: pool.submit(_version, exe) for aid, exe in found.items() if exe}
+        connected = {aid: pool.submit(fn) for aid, fn in probes.items()}
+        out = []
+        for aid, name, binary, oneclick in APPS:
+            installed = _desktop_installed(desk) if aid == "claude-desktop" else bool(found[aid])
+            if not installed:
+                continue
+            out.append({"id": aid, "name": name, "installed": True, "oneclick": oneclick,
+                        "version": versions[aid].result() if aid in versions else "",
+                        "connected": bool(connected[aid].result()) if aid in connected else False})
+    return out
+
+
+# --------------------------------------------------------------------------
 # 状态 / CLI
 # --------------------------------------------------------------------------
 
@@ -250,13 +407,15 @@ def status() -> dict[str, Any]:
                            "connected": NAME in (((_read_json(desk) or {}).get("mcpServers")) or {})},
     }
     spec = server_spec()
-    return {"ok": True, "code": "", "message": "", "name": NAME, "clients": clients, "server": spec,
+    missing = [name for aid, name, binary, _ in APPS if binary and aid != "claude-code" and not find_binary(binary)]
+    return {"ok": True, "code": "", "message": "", "name": NAME, "clients": clients, "server": spec, "apps": apps(),
+            "not_installed": missing,
             "json": json.dumps({"mcpServers": {NAME: spec}}, ensure_ascii=False, indent=2),
             "config_paths": {"claude-code": str(cc), "claude-desktop": str(desk)}}
 
 
 def add_parser(sub) -> None:
-    p = sub.add_parser("connect", help="连接 AI：把收藏库接给本机的 Claude Code / Claude Desktop（写前备份、可撤销）")
+    p = sub.add_parser("connect", help="连接 AI：把收藏库接给本机的 Claude Code / Claude Desktop / Codex（写前备份、可撤销）")
     csub = p.add_subparsers(dest="connect_command", metavar="<status|add|remove>")
     csub.add_parser("status", help="各本机客户端接没接上（只读）")
     for name in ("add", "remove"):
@@ -271,7 +430,8 @@ def run(args) -> int:
         dump_json(status())
         return 0
     fn = {("add", "claude-code"): add_claude_code, ("remove", "claude-code"): remove_claude_code,
-          ("add", "claude-desktop"): add_claude_desktop, ("remove", "claude-desktop"): remove_claude_desktop}[(cmd, args.client)]
+          ("add", "claude-desktop"): add_claude_desktop, ("remove", "claude-desktop"): remove_claude_desktop,
+          ("add", "codex"): add_codex, ("remove", "codex"): remove_codex}[(cmd, args.client)]
     try:
         out = fn()
     except OSError as exc:

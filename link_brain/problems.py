@@ -137,6 +137,8 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     # —— 自动重试 ——
     "TRANSIENT.HTTP_5XX": dict(where="list", label="接口暂时出错", hover="{reason}（{next_at} 再试）", group="auto"),
     "TRANSIENT.HTTP_429": dict(where="list", label="接口限流", hover="{reason}（{next_at} 再试）", group="auto"),
+    # 1018 每天花费上限：今天花到了，后台补跑先只用免费的（明天 0 点恢复）；不打扰
+    "TRANSIENT.BUDGET": dict(where="none", label="今天到花费上限了", hover="{reason}（北京时间明天 0 点恢复）", group="auto"),
     "TRANSIENT.NETWORK": dict(where="list", label="网络不通", hover="{reason}（{next_at} 再试）", group="auto"),
     "TRANSIENT.SERVICE_BUSY": dict(where="list", label="服务正忙", hover="{reason}（{next_at} 再试）", group="auto"),
     "TRANSIENT.STEP_TIMEOUT": dict(where="list", label="步骤超时", hover="{reason}", group="auto"),
@@ -192,6 +194,9 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "SKIPPED.FALLBACK": dict(where="none", label="已退回普通方式", hover="{reason}", group="off"),
     "SKIPPED.LEGACY_CONFIG": dict(where="none", label="旧设置已自动换算", hover="{reason}", group="off"),
     "SKIPPED.SKILL": dict(where="none", label="技能文件读不了，已跳过", hover="{reason}（问答退回通用写法）", group="off"),
+    # 1018 设置页「添加 key」：粘的不像 key / 是 Anthropic 那种不通用的——只在小窗里说一句，不进面板
+    "SKIPPED.BAD_INPUT": dict(where="none", label="粘的不像一把 key", hover="{reason}", group="off"),
+    "SKIPPED.UNSUPPORTED": dict(where="none", label="这家的 key 用不了", hover="{reason}", group="off"),
     "SKIPPED.*": dict(where="none", label="未开启", hover="{reason}", group="off"),
 }
 

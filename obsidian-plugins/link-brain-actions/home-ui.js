@@ -268,12 +268,15 @@ module.exports = function homeUI(obsidian, plugin) {
   }
 
   // —— 画：概览 · 状态（账号 · 收藏同步 · 评论补齐 · 问题 · 这台电脑）——
-  function renderStatus(c, tab) {
-    const box = c.createDiv({ cls: 'lb-home-status', attr: { 'data-section': 'status' } });
+  // machineOnly（1018 设置页 v6「更多 → 这台电脑」）：账号和收藏同步已经在最上面的状态卡里，这里只画评论补齐 · 问题 · 这台电脑
+  function renderStatus(c, tab, { machineOnly = false } = {}) {
+    const box = c.createDiv({ cls: 'lb-home-status', attr: { 'data-section': machineOnly ? 'machine' : 'status' } });
     const stops = [];
-    try { plugin.renderAccounts(box); } catch (e) { failBox(box, '小红书账号', e, () => tab?.display?.()); }
-    try { stops.push(plugin.renderSyncRow(box, { compact: true, onSchedule: () => tab?.showTab?.('schedule') })); }
-    catch (e) { console.error('[lb] 同步那一行没画上', e); failBox(box, '收藏同步', e, () => tab?.display?.()); }
+    if (!machineOnly) {
+      try { plugin.renderAccounts(box); } catch (e) { failBox(box, '小红书账号', e, () => tab?.display?.()); }
+      try { stops.push(plugin.renderSyncRow(box, { compact: true, onSchedule: () => tab?.showTab?.('schedule') })); }
+      catch (e) { console.error('[lb] 同步那一行没画上', e); failBox(box, '收藏同步', e, () => tab?.display?.()); }
+    }
     const fill = new Setting(box).setName('评论补齐').setDesc('读取中…');
     fill.settingEl.addClass('lb-fill-row');
     let fillBtn = null;
@@ -589,7 +592,32 @@ module.exports = function homeUI(obsidian, plugin) {
     return on;
   }
 
-  return { renderStatus, renderRun, renderAI, featureToggle, runAll, stopRun, firstRun, loadPlan, loadEstimate, state: S, bindToggle,
+  // 1018 设置页 v6：不经开关直接开 / 关一项（粘了 key 自动打开对应功能、「一键推荐」）；规则同 featureToggle（依赖一起开、关掉把依赖它的也关）
+  async function setFeature(id, v) {
+    if (!S().plan) await loadPlan();
+    const cs = comps();
+    if (!cs.some(x => x.id === id)) throw new Error('功能清单里没有「' + id + '」');
+    if (new Set(effective()).has(id) === !!v) return;
+    const snap = snapRuntime();
+    setup().selected = toggleSelection(effective(), id, v, cs);
+    try { await applyRuntime(new Set(setup().selected)); await plugin.saveSettings(); }
+    catch (e) { for (const k of RUNTIME_KEYS) plugin.settings[k] = snap[k]; throw e; }
+    finally { repaint(); }
+  }
+  // 「一键推荐」：一次换成推荐那一组（没有能用的 key 就先不勾要 key 的）
+  async function applyPreset(name = 'recommended') {
+    if (!S().plan) await loadPlan();
+    const cs = comps();
+    const want = ((S().plan && S().plan.presets && S().plan.presets[name]) || LIGHT).filter(id => !AI_CAP[id] || aiReady(id));
+    const snap = snapRuntime();
+    setup().selected = withDeps(want, cs);
+    try { await applyRuntime(new Set(setup().selected)); await plugin.saveSettings(); }
+    catch (e) { for (const k of RUNTIME_KEYS) plugin.settings[k] = snap[k]; throw e; }
+    finally { repaint(); }
+  }
+  const isOn = id => new Set(effective()).has(id);
+
+  return { renderStatus, renderRun, renderAI, featureToggle, setFeature, applyPreset, isOn, aiReady, runAll, stopRun, firstRun, loadPlan, loadEstimate, state: S, bindToggle,
     _internals: { repaint, withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine } };
 };
 module.exports._internals = { withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine, LIGHT, FEATURE_TEXT, AI_ORDER };

@@ -340,7 +340,8 @@ def run(args) -> int:
         from . import ai_routes
         payload.update(ai_routes.routes())
     except Exception as exc:  # noqa: BLE001
-        payload["routes_error"] = f"{type(exc).__name__}: {exc}"
+        from .errtext import errtext
+        payload["routes_error"] = errtext(exc)
     if getattr(args, "balance", False):
         payload["balances"] = balances()
     dump_json(outcome(payload, ok=True, message="已读取用量"))
