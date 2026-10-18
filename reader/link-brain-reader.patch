@@ -7068,10 +7068,10 @@ index c86d1ba..0369176 100644
  type SearchFeedsRequest struct {
 diff --git a/xiaohongshu/comment_floors.go b/xiaohongshu/comment_floors.go
 new file mode 100644
-index 0000000..9b1ab24
+index 0000000..b1bde30
 --- /dev/null
 +++ b/xiaohongshu/comment_floors.go
-@@ -0,0 +1,1177 @@
+@@ -0,0 +1,1182 @@
 +package xiaohongshu
 +
 +// 评论楼层加载（1004d）：一次请求、一个预算里「滚评论区加载楼层 + 把楼层上限内每楼的回复展开到底」。
@@ -7126,6 +7126,7 @@ index 0000000..9b1ab24
 +	CommentStopStuck       = "stuck"        // 页面说还有楼，但换了几种滚法都滚不出来：partial
 +	CommentStopBudget      = "budget"       // 预算用完：partial
 +	CommentStopCancelled   = "cancelled"    // 请求被取消 / 超时：partial
++	CommentStopSubPaused   = "sub_paused"   // 1018：续展（expand_floors）中楼中楼闸关了——这趟只为展开而来，立刻收手：partial
 +	CommentStopProbeFailed = "probe_failed" // 连续读不出页面状态：partial
 +	CommentStopThrottled   = "throttled"    // 连续多楼点不动，歇过两次仍不行（疑似限频）：partial
 +	CommentStopRisk        = "risk"         // 撞风控：立即停（整篇按风控失败）
@@ -7614,6 +7615,10 @@ index 0000000..9b1ab24
 +							}
 +							cfg.Expand = false
 +							logrus.Warnf("楼中楼暂停：%s（没展开的楼留给下次续读）", why)
++							if len(cfg.ExpandFloors) > 0 {
++								// 1018：续展这趟只为展开而来，闸关了就收手——以前接着往下滚找目标楼，把剩下的预算全花在翻一级评论上
++								return finish(CommentStopSubPaused)
++							}
 +							continue
 +						}
 +					}
@@ -8251,10 +8256,10 @@ index 0000000..9b1ab24
 +}
 diff --git a/xiaohongshu/comment_floors_1015_test.go b/xiaohongshu/comment_floors_1015_test.go
 new file mode 100644
-index 0000000..3aa64e9
+index 0000000..43e9edc
 --- /dev/null
 +++ b/xiaohongshu/comment_floors_1015_test.go
-@@ -0,0 +1,115 @@
+@@ -0,0 +1,129 @@
 +package xiaohongshu
 +
 +import (
@@ -8369,6 +8374,20 @@ index 0000000..3aa64e9
 +	assert.Nil(t, r)
 +	assert.Equal(t, 520, res.FloorsResumedFrom)
 +	assert.Equal(t, 520-10+40, res.FloorsLoaded, "读数 = 已存 + 这次新翻出来的")
++}
++
++
++// 1018：续展中楼中楼闸关了：立刻收手，不再滚一级评论找目标楼。
++func TestTargetedExpandStopsWhenGateCloses(t *testing.T) {
++	fc := newFake(5, floors(40, func(i int) *fakeFloor { return &fakeFloor{id: id(i), shown: 30, loaded: 1, perClick: 5} })...)
++	cfg := fastFloorCfg(10, time.Minute)
++	cfg.ExpandFloors = []string{id(0), id(30)}
++	n := 0
++	cfg.ExpandAllow = func() string { n++; if n > 2 { return "额度用完" }; return "" }
++	res, r := loadFloors(context.Background(), cfg, fc.ops(10))
++	assert.Nil(t, r)
++	assert.Equal(t, CommentStopSubPaused, res.Reason)
++	assert.Equal(t, 0, fc.scrolls, "闸关了不再往下滚")
 +}
 diff --git a/xiaohongshu/comment_floors_localbrowser_test.go b/xiaohongshu/comment_floors_localbrowser_test.go
 new file mode 100644
