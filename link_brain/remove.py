@@ -201,7 +201,11 @@ def run(args) -> int:
         # 前面几条可能已经进了回收站：不管后面怎样都重建目录，页面才和磁盘一致
         try:
             from . import catalog
-            catalog.build()
+            done = [r.get('item_id') for r in outcome.get('results') or [] if r.get('status') == 'deleted']
+            if args.command == 'delete' and outcome.get('ok') and catalog.drop_items(done):
+                publish_trash()  # 1019：删除只摘目录数据里这几篇 + 刷回收站，不整份重建（快十几秒）
+            else:
+                catalog.build()
         except Exception as exc:  # noqa: BLE001
             outcome['catalog_error'] = (str(exc) or type(exc).__name__)[:200]
             print('目录没重建上：' + outcome['catalog_error'], file=sys.stderr)

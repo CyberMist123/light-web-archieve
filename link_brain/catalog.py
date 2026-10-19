@@ -771,6 +771,28 @@ def patch_items(updates: dict[str, dict[str, Any]], vault: Path | None = None, *
         return 0
 
 
+def drop_items(item_ids: list[str], vault: Path | None = None, *, wait_s: float = 5) -> bool:
+    """删除后把这几篇就地摘出 catalog-data.json，不整份重建（1019 她：删 5 篇要好几秒——整份重建冷跑十几秒）。
+    和 build / patch_items 抢同一把锁；拿不到、文件不在或读坏了返回 False，调用方退回整份重建。"""
+    vault = vault or storage.vault_root()
+    data_path = vault / "_archive" / DATA_NAME
+    gone = {str(i) for i in item_ids if i}
+    if not gone or not data_path.exists():
+        return False
+    try:
+        with storage.file_lock("catalog-build", wait_s=wait_s, owner="catalog.drop_items"):
+            data = json.loads(data_path.read_text(encoding="utf-8"))
+            items = data.get("items")
+            if not isinstance(items, list):
+                return False
+            data["items"] = [it for it in items if str(it.get("id")) not in gone]
+            data["count"] = len(data["items"])
+            storage.atomic_write_text(data_path, json.dumps(data, ensure_ascii=False, indent=1))
+        return True
+    except (storage.LockBusy, OSError, ValueError):
+        return False
+
+
 def dump_cats_text() -> str:
     """把当前生效的大类导成「名称: 关键词1, 关键词2」逐行文本，给设置页那个可编辑文本框预填。"""
     return "\n".join(f"{name}: {', '.join(kws)}" for name, kws in effective_big_cats())

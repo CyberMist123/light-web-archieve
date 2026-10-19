@@ -204,6 +204,11 @@ def record(cap: str, result: dict[str, Any], *, item_id: str | None = None, cfg:
         entry["estimate"] = catchup_estimate(cap, len(items))
         data[cap] = entry
         _save(data)
+        if switched_to and not items and not code.startswith("NEEDS_HUMAN."):
+            # 1019 她：Gemini 免费 key 限流 / 今天额度用完、备用当场补上 = 自然轮换，不是故障——
+            # 只记进 ai-health.json（诊断里看得到），面板不挂；以前挂着的同码那条收掉
+            problems.resolve(step, None, code)
+            return
         problems.report(step, code, reason_text(cap, entry))
     except Exception as exc:  # noqa: BLE001
         print(f"[ai_health] 归并登记失败（{type(exc).__name__}: {exc}）", file=sys.stderr)

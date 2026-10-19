@@ -341,7 +341,8 @@ def _check(cap: str, cfg: dict[str, Any], settings: dict[str, Any] | None = None
         out["keySource"] = key_source(cfg)
         out.pop("keyFile", None)
         out.pop("keyField", None)
-        if cfg.get("requireKey") and not key:
+        if cfg.get("requireKey") and not key and not (cfg.get("keyPool") and pool_keys(str(cfg["keyPool"]))):
+            # 1019：key 池配了、只是今天都用光 ≠ 没配：照样给出配置，call_with_pool 回 pool_exhausted，调用方换备用
             return None, f"{label}没有可用的 key" + (f"（{err}）" if err else "")
         if err and not key:
             out["keyError"] = err

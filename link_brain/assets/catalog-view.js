@@ -990,7 +990,7 @@ function setSelbarVisible(on) {
   if (indexView && idx) paintIndexSticky();     // 吸顶区变高 / 变矮：左边的树跟着挪
   if (!sc) return;
   if (a) {
-    const fix = () => { if (!a.isConnected) return; const d = a.getBoundingClientRect().top - y0; if (Math.abs(d) >= 0.5) sc.scrollTop = Math.max(0, sc.scrollTop + d); };
+    const fix = () => { if (!a.isConnected) return; const d = a.getBoundingClientRect().top - (y0 + (top.offsetHeight || 0) - h0); /* 1019 她：吸顶区变高，卡片跟着往下让，不被盖住 */ if (Math.abs(d) >= 0.5) sc.scrollTop = Math.max(0, sc.scrollTop + d); };
     fix(); requestAnimationFrame(fix);
   } else {
     const d = (top.offsetHeight || 0) - h0;
@@ -1642,13 +1642,10 @@ LB.listen('ctrl-down', keyTarget, 'keydown', e => { if ((e.key === 'Control' || 
 LB.listen('ctrl-up', keyTarget, 'keyup', e => { if (e.key === 'Control' || e.key === 'Meta') wheelDetach(); }, { passive: true });
 LB.listen('ctrl-blur', keyTarget, 'blur', () => wheelDetach(), { passive: true });
 
-// ── 删除收藏（C3）：页内确认 → 移到回收站 → 只摘后端确认删掉的 ──
+// ── 删除收藏（C3）：直接移到回收站（1019 她：不弹确认） → 只摘后端确认删掉的 ──
 let deleting = false;
 async function confirmDelete(list) {
   if (!list.length || deleting) return;
-  const names = list.slice(0, 4).map(x => '《' + (x.title || x.id) + '》').join('、') + (list.length > 4 ? '…' : '');
-  const ok = await LB.confirm({ title: `删除 ${list.length} 篇？`, body: names + '\n移到回收站，以后不再同步；可以在回收站恢复。', ok: '删除', danger: true });
-  if (!ok || deleting) return;
   const p = await want('deleteItems'); if (!p) return;
   deleting = true;
   const restoreBar = setSelbarBusy('');

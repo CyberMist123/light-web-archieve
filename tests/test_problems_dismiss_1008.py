@@ -194,9 +194,9 @@ def test_captcha_pushes_again_on_new_incident(quiet_alerts):
     problems.report("login", "CAPTCHA_REQUIRED", "05:19 又撞了一次", _now_fn=lambda: datetime(2026, 10, 8, 5, 19, tzinfo=TZ))
     assert len(quiet_alerts) == 2, "面板没刷掉之前又撞一次新的：当时就通知"
     problems.report("login", "RISK_HOLD", "熔断中", _now_fn=at(8, 6))
-    assert len(quiet_alerts) == 3  # RISK_HOLD 是另一个码，原规则：没推过就推一次
+    assert len(quiet_alerts) == 2  # 1019 她：验证那条推过了，熔断中是同一件事，不再推
     problems.report("login", "RISK_HOLD", "熔断中", _now_fn=at(8, 7))
-    assert len(quiet_alerts) == 3, "熔断中不算新出事"
+    assert len(quiet_alerts) == 2, "熔断中不算新出事"
 
 
 def test_delete_note_resolves_its_problems_via_remove(tmp_path, monkeypatch):

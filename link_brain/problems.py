@@ -474,6 +474,8 @@ def is_minor(row: dict[str, Any]) -> bool:
         return False
     if str(row.get("code") or "") in QUIET_CODES:
         return True
+    if row.get("step") == "sync.favorites" and row.get("code") == "TRANSIENT.INTERRUPTED":
+        return True  # 1019 她：关 Obsidian 打断一次同步，下次自己接着来，不占面板
     limit = MINOR_CODES.get(str(row.get("code") or ""))
     if limit is None:
         return False
@@ -641,6 +643,8 @@ def report(step: str, code: str, reason: str, *, item_id: str | None = None, tit
     if (not push and cls == "NEEDS_HUMAN" and sub in INCIDENT_CODES
             and not _already_pushed(folded, step, full, within=now - timedelta(minutes=INCIDENT_REPUSH_MIN))):
         push = True  # 1008（她：撞验证「当时就通知」）：上一次推过之后又撞了一次新的，照样当场推
+    if push and sub == "RISK_HOLD" and _hold_cause_open([r for r in folded.values() if r.get("notified")]):
+        push = False  # 1019 她：掉登录 / 验证那条已经推过，「熔断中」是同一件事，不再推第二条
     if push and sub in DELAYED_PUSH and len(days) < DELAYED_PUSH_DAYS:
         push = False  # key 失效 / 欠费：产品规则「连续几晚没修好」才推；先进列表（橙色计数照样有）
     if push:
@@ -863,12 +867,18 @@ def _used_fine_since(ts: str) -> bool:
 HOLD_CAUSE_CODES = ("CAPTCHA_REQUIRED", "ACCOUNT_RISK", "NOT_LOGGED_IN", "ACCOUNT_BLOCKED", "XHS_RATE_LIMITED", "NIGHT_CAPTCHA")
 
 
+def _hold_cause_open(rows: list[dict[str, Any]]) -> bool:
+    """起因（验证 / 安全跳转 / 掉登录 / 限频）那条还开着、没隐藏。"""
+    return any(not r.get("resolved_at") and not is_hidden(r) and r.get("step") in ("login", "comments.fill")
+               and str(r.get("code") or "").rsplit(".", 1)[-1] in HOLD_CAUSE_CODES for r in rows)
+
+
 def _same_hold_dupes(rows: list[dict[str, Any]]) -> set[str]:
     """没解决、没隐藏的行里，被起因那条代表了的 RISK_HOLD 行的 key。"""
     def sub(r):
         return str(r.get("code") or "").rsplit(".", 1)[-1]
     live = [r for r in rows if not r.get("resolved_at") and not is_hidden(r)]
-    if not any(sub(r) in HOLD_CAUSE_CODES and r.get("step") in ("login", "comments.fill") for r in live):
+    if not _hold_cause_open(live):
         return set()
     return {str(r.get("key")) for r in live if sub(r) == "RISK_HOLD"}
 
