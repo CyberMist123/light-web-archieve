@@ -71,3 +71,21 @@ def test_unseen_links_checks_bare_domains_in_board_rows():
     out = ask.unseen_links(md, ev)
     assert "· github.com/CyberSealNull/CcCompanion ——" in out and "· minimal.gallery ——" in out
     assert "**Pin** · 看原帖 ——" in out
+
+
+def test_report_mode_reads_tentative_sources_too(monkeypatch):
+    """1020 她：报告版比普通回答薄（只读了 3 篇）。报告模式把判定「沾边」的篇也送读（上限同 SELECT_HARD_MAX），普通回答不变。"""
+    items = [{"id": str(i), "title": f"播客清单 {i}", "tags": [], "summary": "", "note": f"{i}.md", "url": "",
+              "search_fields": {"body": f"推荐播客 {i}：节目甲、节目乙。"}} for i in range(8)]
+    monkeypatch.setattr(ask, "load_items", lambda: [dict(x) for x in items])
+    monkeypatch.setattr(ask.ai_config, "load", lambda: ask.ai_config._deep_merge(ask.ai_config.DEFAULTS, {}))
+
+    def model(prompt, text, settings):
+        if "deep_read" in prompt:
+            return {"status": "ok", "text": "\n".join(["1|deep_read|正题"] + [f"{k}|tentative|沾边" for k in range(2, 6)])}
+        return {"status": "ok", "text": "# 清单\n## 类\n- **节目甲** —— 帖里：a[来源1]"}
+    monkeypatch.setattr(ask, "call_text", model)
+    normal = ask.answer("推荐播客", mode="direct")
+    report = ask.answer("/报告 推荐播客")
+    assert len([s for s in normal["sources"] if s.get("tier") != "also"]) == 3   # deep 1 + 沾边 2（原规则）
+    assert len([s for s in report["sources"] if s.get("tier") != "also"]) == 5   # deep 1 + 沾边 4

@@ -576,29 +576,32 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbboard-head{border-bottom:1.5px solid var(--text-normal);padding-bottom:10px;}
 .lbboard-title{font-family:var(--font-text);font-size:1.45em;font-weight:700;line-height:1.25;letter-spacing:.01em;}
 .lbboard-lead{margin-top:6px;font-size:13px;line-height:1.65;color:var(--text-muted);}
-.lbboard-nav{display:flex;flex-wrap:wrap;gap:2px 16px;margin-top:-10px;}
-.lbchat button.lbboard-navbtn{font:inherit;font-size:12.5px;height:auto;padding:2px 0;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-muted);cursor:pointer;}
-.lbchat button.lbboard-navbtn:hover{color:var(--interactive-accent);}
 .lbboard-cat{display:flex;align-items:baseline;gap:8px;font-size:13px;font-weight:600;letter-spacing:.04em;color:var(--text-normal);padding-bottom:6px;border-bottom:1px solid var(--background-modifier-border);}
 .lbboard-n{font-size:11px;font-weight:400;color:var(--text-faint);font-variant-numeric:tabular-nums;}
 .lbboard-desc{margin:6px 0 2px;font-size:12.5px;line-height:1.6;color:var(--text-muted);}
 .lbboard-top{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:14px 16px;margin-top:10px;}
 .lbboard-topcard{display:flex;flex-direction:column;gap:5px;min-width:0;}
-.lbchat .lbboard-topcard button.lbboard-cover{width:100%;height:auto;aspect-ratio:3/4;}
+.lbboard-topcard .lbboard-cover{width:100%;height:auto;aspect-ratio:3/4;}
 .lbboard-topcard .lbboard-name{font-size:13.5px;}
 .lbboard-topwhy{font-size:12px;line-height:1.55;color:var(--text-muted);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
 .lbboard-row{display:flex;gap:14px;align-items:flex-start;padding:12px 0;border-bottom:1px solid color-mix(in srgb,var(--background-modifier-border) 60%,transparent);}
 .lbboard-row:last-child{border-bottom:0;}
-.lbchat button.lbboard-cover{flex:none;width:84px;height:112px;padding:0!important;margin:0;border:0!important;border-radius:6px!important;overflow:hidden;background:var(--background-modifier-hover)!important;box-shadow:none!important;cursor:pointer;display:flex;align-items:center;justify-content:center;}
-.lbchat button.lbboard-cover:disabled{cursor:default;}
-.lbchat button.lbboard-cover img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .2s;}
-.lbchat button.lbboard-cover:hover:not(:disabled) img{transform:scale(1.03);}
-.lbchat button.lbboard-cover.is-empty span{font-size:11px;color:var(--text-faint);padding:0 6px;text-align:center;line-height:1.4;}
+.lbboard-cover{flex:none;width:84px;height:112px;border-radius:6px;overflow:hidden;background:var(--background-modifier-hover);display:flex;align-items:center;justify-content:center;}
+.lbboard-cover img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .2s;}
+.lbboard-cover.is-empty span{font-size:11px;color:var(--text-faint);padding:0 6px;text-align:center;line-height:1.4;}
+.lbboard .is-link{cursor:pointer;border-radius:8px;transition:background .12s;}
+.lbboard .is-link:hover{background:var(--background-modifier-hover);}
+.lbboard .is-link:hover .lbboard-cover img{transform:scale(1.03);}
+.lbboard .is-link:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:2px;}
+.lbboard-row.is-link{margin:0 -8px;padding-left:8px;padding-right:8px;}
+.lbboard-topcard.is-link{padding:6px;margin:-6px;}
+.lbchat-toc-board{display:flex;flex-direction:column;align-items:flex-start;gap:1px;margin:2px 0 4px 14px;}
+.lbchat button.lbchat-toc-h.lbchat-toc-cat{color:var(--text-muted);margin-top:3px;}
+.lbchat button.lbchat-toc-h.lbchat-toc-sub{padding-left:14px!important;color:var(--text-faint);font-size:11px!important;}
 .lbboard-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:4px;}
 .lbboard-line{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;}
 .lbboard-name{font-weight:600;font-size:14.5px;line-height:1.4;color:var(--text-normal);}
 .lbboard-url{font-family:var(--font-monospace);font-size:11.5px;color:var(--interactive-accent);word-break:break-all;}
-.lbboard-url.is-none{font-family:inherit;color:var(--text-faint);}
 .lbboard-text{font-size:13px;line-height:1.65;color:var(--text-normal);}
 .lbboard-text.is-why{color:var(--text-normal);}
 .lbboard-lab{display:inline-block;margin-right:6px;font-size:10.5px;letter-spacing:.06em;color:var(--text-faint);}
@@ -607,7 +610,7 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat button.lbboard-srclink{font:inherit;font-size:11.5px;height:auto;padding:0;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-muted);cursor:pointer;}
 .lbchat button.lbboard-srclink:hover{color:var(--interactive-accent);}
 .lbboard-rest{margin-top:4px;}
-@media (max-width:520px){.lbchat .lbboard-row button.lbboard-cover{width:64px;height:86px;}.lbboard-top{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media (max-width:520px){.lbboard-row .lbboard-cover{width:64px;height:86px;}.lbboard-top{grid-template-columns:repeat(2,minmax(0,1fr));}}
 `);
 
 const host = LB.mountHost('lbchat-host');
@@ -1896,6 +1899,22 @@ function fillToc(box, onPick) {
           const hb = row.createEl('button', { cls: 'lbchat-toc-h lbchat-toc-item', text: `${it.n} ${it.title}`.slice(0, 14), attr: { title: it.title } }); hb.type = 'button';
           hb.onclick = () => { const li = [...ael.querySelectorAll('.lbchat-tocard-item')].find(x => x.dataset.id === it.id); jumpTo(li || ael, { flash: true }); onPick?.(); };
         }
+        // 1020 报告版：分类 → 条目两级进目录（她：分类导航做成浮动板），点了跳到那一类 / 那一条
+        if (ael && !g.a.failed && ael.querySelector('.lbboard')) {
+          const bx = grp.createEl('div', { cls: 'lbchat-toc-board' });   // 单独一块竖排（回答那一行是横排的）
+          const top = ael.querySelector('.lbboard-topsec');
+          if (top) { const hb = bx.createEl('button', { cls: 'lbchat-toc-h lbchat-toc-cat', text: '先看这几个' }); hb.type = 'button'; hb.onclick = () => { jumpTo(top, { flash: true }); onPick?.(); }; }
+          for (const sec of ael.querySelectorAll('.lbboard-sec')) {
+            const name = sec.querySelector('.lbboard-cat')?.firstChild?.textContent || '';
+            const hb = bx.createEl('button', { cls: 'lbchat-toc-h lbchat-toc-cat', text: name.slice(0, 14), attr: { title: name } }); hb.type = 'button';
+            hb.onclick = () => { jumpTo(sec, { flash: true }); onPick?.(); };
+            for (const r of [...sec.querySelectorAll('.lbboard-row')].slice(0, 24)) {
+              const n = r.querySelector('.lbboard-name')?.textContent || '';
+              const ib = bx.createEl('button', { cls: 'lbchat-toc-h lbchat-toc-sub', text: n.slice(0, 14), attr: { title: n } }); ib.type = 'button';
+              ib.onclick = () => { jumpTo(r, { flash: true }); onPick?.(); };
+            }
+          }
+        }
         if (ael && !g.a.failed) for (const h of [...ael.querySelectorAll('.lbchat-md h1, .lbchat-md h2, .lbchat-md h3')].slice(0, 6)) {
           const hb = row.createEl('button', { cls: 'lbchat-toc-h', text: String(h.textContent || '').trim().slice(0, 12), attr: { title: h.textContent || '' } }); hb.type = 'button';
           hb.onclick = () => { jumpTo(h, { flash: true }); onPick?.(); };
@@ -1920,7 +1939,7 @@ function fillToc(box, onPick) {
 function tocWorth() {
   const asks = session.turns.filter(t => t.role === 'user').length;
   if (asks >= TOC_MIN_QUESTIONS) return true;
-  return session.turns.some(t => t.role === 'assistant' && !t.failed && ((t.answerMode === 'toc' && (t.toc || []).length) || (views.get(t.id)?.el?.querySelectorAll('.lbchat-md h1, .lbchat-md h2, .lbchat-md h3').length || 0) >= 2));
+  return session.turns.some(t => t.role === 'assistant' && !t.failed && ((t.answerMode === 'toc' && (t.toc || []).length) || (views.get(t.id)?.el?.querySelectorAll('.lbchat-md h1, .lbchat-md h2, .lbchat-md h3, .lbboard-sec').length || 0) >= 2));
 }
 function paintToc() {
   const n = session.turns.filter(t => t.role === 'user').length;
@@ -2366,58 +2385,67 @@ async function renderBoard(el, t, board) {
   const srcOf = n => (t.sources || []).find(s => Number(s.citation) === Number(n));
   const byName = new Map(); for (const g of board.groups) for (const it of g.items) if (!byName.has(it.name)) byName.set(it.name, it);
   const wrap = el.createDiv({ cls: 'lbboard' });
-  const cover = (box, it, label) => {
-    const src = it.cites.map(srcOf).find(Boolean);
+  // 1020 她：整张卡（图 + 字）点了都打开原帖，和点来源一样；网址 / 出处链接自己处理、不冒泡
+  const clickable = (card, src) => {
+    if (!src) return;
+    card.addClass('is-link'); card.setAttribute('role', 'button'); card.tabIndex = 0;
+    card.setAttribute('title', '打开原帖：' + (src.title || ''));
+    card.onclick = e => { if (e?.target?.closest?.('a,button.lbboard-srclink')) return; openNote(src); };
+    card.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault?.(); openNote(src); } };
+  };
+  // avoid = 已经用过的封面（「先看这几个」一排里同一篇别连着出好几张）：换这一条引用的下一篇，都用过了再重复
+  const cover = (box, it, label, avoid) => {
+    const list = it.cites.map(srcOf).filter(Boolean);
+    const src = (avoid && list.find(s => s.cover && !avoid.has(s.id))) || list[0];
+    if (avoid && src) avoid.add(src.id);
     const url = boardCover(src);
-    const b = box.createEl('button', { cls: 'lbboard-cover' + (url ? '' : ' is-empty'), attr: { type: 'button', title: src ? '打开原帖：' + (src.title || '') : '这一条没标出处' } });
-    if (url) { const img = b.createEl('img', { attr: { src: url, alt: '', loading: 'lazy' } }); img.onerror = () => { img.remove(); b.addClass('is-empty'); b.createSpan({ text: label }); }; }
-    else b.createSpan({ text: label });
-    if (src) b.onclick = () => openNote(src); else b.disabled = true;
+    const c = box.createDiv({ cls: 'lbboard-cover' + (url ? '' : ' is-empty') });
+    if (url) { const img = c.createEl('img', { attr: { src: url, alt: '', loading: 'lazy' } }); img.onerror = () => { img.remove(); c.addClass('is-empty'); c.createSpan({ text: label }); }; }
+    else c.createSpan({ text: label });
+    return src;
   };
   const sources = (box, it) => {
     const list = [...new Set(it.cites)].map(srcOf).filter(Boolean);
     if (!list.length) return;
     const p = box.createDiv({ cls: 'lbboard-src' }); p.createSpan({ text: '出自 ' });
-    list.forEach((s, i) => { if (i) p.appendText('、'); const a = p.createEl('button', { cls: 'lbboard-srclink', text: '《' + (s.title || '原帖') + '》', attr: { type: 'button' } }); a.onclick = () => openNote(s); });
+    list.forEach((s, i) => { if (i) p.appendText('、'); const a = p.createEl('button', { cls: 'lbboard-srclink', text: '《' + (s.title || '原帖') + '》', attr: { type: 'button' } }); a.onclick = e => { e?.stopPropagation?.(); openNote(s); }; });
   };
   if (board.title || board.lead) {
     const head = wrap.createDiv({ cls: 'lbboard-head' });
     if (board.title) head.createDiv({ cls: 'lbboard-title', text: board.title });
     if (board.lead) head.createDiv({ cls: 'lbboard-lead', text: board.lead });
   }
-  const groups = board.groups;
-  if (groups.length >= 3) {
-    const nav = wrap.createDiv({ cls: 'lbboard-nav' });
-    groups.forEach((g, i) => { const b = nav.createEl('button', { cls: 'lbboard-navbtn', text: g.name, attr: { type: 'button' } }); b.onclick = () => wrap.querySelector(`[data-cat="${i}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }); });
-  }
+  // 分类导航不放正文里了：进左边「目录」（浮动板），见 fillToc
   if (board.top.length) {
     const sec = wrap.createDiv({ cls: 'lbboard-topsec' });
     sec.createDiv({ cls: 'lbboard-cat', text: '先看这几个' });
     const grid = sec.createDiv({ cls: 'lbboard-top' });
+    const used = new Set();
     for (const raw of board.top.slice(0, 8)) {
       const it = raw.cites.length ? raw : { ...raw, cites: (byName.get(raw.name) || {}).cites || [] };
       const card = grid.createDiv({ cls: 'lbboard-topcard' });
-      cover(card, it, it.name.slice(0, 4));
+      const src = cover(card, it, it.name.slice(0, 4), used);
       card.createDiv({ cls: 'lbboard-name', text: it.name });
       const why = raw.why || raw.praise; if (why) card.createDiv({ cls: 'lbboard-topwhy', text: why });
+      clickable(card, src);
     }
   }
-  groups.forEach((g, i) => {
+  board.groups.forEach((g, i) => {
     const sec = wrap.createDiv({ cls: 'lbboard-sec', attr: { 'data-cat': String(i) } });
     const h = sec.createDiv({ cls: 'lbboard-cat' }); h.appendText(g.name); h.createSpan({ cls: 'lbboard-n', text: String(g.items.length) });
     if (g.desc) sec.createDiv({ cls: 'lbboard-desc', text: g.desc.replace(BOARD_CITE(), '') });
-    for (const it of g.items) {
-      const row = sec.createDiv({ cls: 'lbboard-row' });
-      cover(row, it, g.name.slice(0, 4));
+    g.items.forEach((it, j) => {
+      const row = sec.createDiv({ cls: 'lbboard-row', attr: { 'data-item': `${i}-${j}` } });
+      const src = cover(row, it, g.name.slice(0, 4));
       const main = row.createDiv({ cls: 'lbboard-main' });
       const line = main.createDiv({ cls: 'lbboard-line' });
       line.createSpan({ cls: 'lbboard-name', text: it.name });
       if (it.url) line.createEl('a', { cls: 'lbboard-url', text: it.url.replace(/^https?:\/\//, '').replace(/\/$/, ''), attr: { href: it.url, target: '_blank', rel: 'noopener' } });
-      else line.createSpan({ cls: 'lbboard-url is-none', text: '无链接 · 看原帖' });
       if (it.praise) { const p = main.createDiv({ cls: 'lbboard-text' }); p.createSpan({ cls: 'lbboard-lab', text: '帖里' }); p.appendText(it.praise); }
       if (it.why) { const p = main.createDiv({ cls: 'lbboard-text is-why' }); p.createSpan({ cls: 'lbboard-lab', text: '借鉴' }); p.appendText(it.why); }
       sources(main, it);
-    }
+      clickable(row, src);
+    });
   });
   const rest = board.rest.join('\n').trim();
   if (!rest) return () => {};
@@ -2425,35 +2453,45 @@ async function renderBoard(el, t, board) {
   const d = await renderScoped(rest, tail); bindSources(tail, t.sources || []);
   return d;
 }
-// 「存成笔记」：陈列版写成库里「报告/」下的一篇 Markdown（封面嵌图、出处双链），手机 Obsidian 也能看
+// 「存成笔记」：陈列版写成库里「报告/」下的一篇 Markdown，手机 Obsidian 也能看。
+// 1020 改：出处帖封面只在开头「出处」排一次（以前每条都嵌，同一篇的封面连出七八张）；每条 = 三级标题 + 网址 / 帖里 / 借鉴 / 出自双链；
+// 引用号 [来源N] 一律换成那篇的双链（来源导读也是），大纲里「分类 → 条目」两级
 function safeName(s) { return String(s || '').replace(/[\\/:*?"<>|#^[\]\n\r]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || '问收藏报告'; }
 function boardNoteMd(t, board) {
   const srcOf = n => (t.sources || []).find(s => Number(s.citation) === Number(n));
   const link = s => `[[${lbPath(String(s.note || '').replace(/\.md$/, ''))}|《${String(s.title || '原帖').replace(/[|\]]/g, ' ')}》]]`;
   const from = it => [...new Set(it.cites)].map(srcOf).filter(s => s && s.note).map(link).join('、');
-  const out = ['---', 'lb-report: board', `question: ${JSON.stringify(t.q || '')}`, `asked: ${JSON.stringify(t.askedAt || new Date().toISOString())}`, '---', '',
-    `# ${board.title || t.q || '问收藏报告'}`, ''];
-  if (board.lead) out.push(`> ${board.lead}`, '');
+  const cites = text => String(text || '').replace(BOARD_CITE(), (m, n) => { const s = srcOf(n); return s && s.note ? link(s) : ''; });
+  const used = [];
+  for (const it of [...board.top, ...board.groups.flatMap(g => g.items)]) for (const n of it.cites) { const s = srcOf(n); if (s && !used.includes(s)) used.push(s); }
+  const out = ['---', 'lb-report: board', `question: ${JSON.stringify(t.q || '')}`, `asked: ${JSON.stringify(t.askedAt || new Date().toISOString())}`,
+    `sources: ${used.length}`, 'tags: [lb-report]', '---', '', `# ${board.title || t.q || '问收藏报告'}`, ''];
+  if (board.lead) out.push(`> ${cites(board.lead)}`, '');
+  if (used.length) {
+    out.push('## 出处', '');
+    const covers = used.filter(s => s.cover).map(s => `![[${lbPath(String(s.cover).replace(/^\/+/, ''))}|110]]`);
+    if (covers.length) out.push(covers.join(' '), '');
+    used.forEach((s, i) => out.push(`${i + 1}. ${link(s)}`));
+    out.push('');
+  }
   if (board.top.length) {
     out.push('## 先看这几个', '');
-    for (const it of board.top) out.push(`- **${it.name}** —— ${it.why || it.praise}` + (from(it) ? `（出自 ${from(it)}）` : ''));
+    for (const it of board.top) out.push(`- **${it.name}** —— ${it.why || it.praise}`);
     out.push('');
   }
   for (const g of board.groups) {
     out.push(`## ${g.name}`, '');
-    if (g.desc) out.push(g.desc.replace(BOARD_CITE(), ''), '');
+    if (g.desc) out.push(cites(g.desc), '');
     for (const it of g.items) {
-      const s = it.cites.map(srcOf).find(x => x && x.cover);
       out.push(`### ${it.name}`, '');
-      if (s) out.push(`![[${lbPath(String(s.cover).replace(/^\/+/, ''))}|160]]`, '');
-      out.push(`- 网址：${it.url || '无链接，看原帖'}`);
+      if (it.url) out.push(`- 网址：[${it.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}](${it.url})`);
       if (it.praise) out.push(`- 帖里：${it.praise}`);
       if (it.why) out.push(`- 借鉴：${it.why}`);
       if (from(it)) out.push(`- 出自：${from(it)}`);
       out.push('');
     }
   }
-  const rest = board.rest.join('\n').replace(BOARD_CITE(), '').trim();
+  const rest = cites(board.rest.join('\n')).trim();
   if (rest) out.push(rest, '');
   return out.join('\n');
 }

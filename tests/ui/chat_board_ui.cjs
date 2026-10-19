@@ -82,11 +82,15 @@ const ask = async (page, S, text, wait = 150) => { await page.click('.lbchat-sea
     assert.equal(await page.locator('.lbboard-topcard').count(), 3);
     assert.equal(await page.locator('.lbboard-sec').count(), 3, '三个类别（可补不算类别）');
     assert.equal(await page.locator('.lbboard-row').count(), 6);
-    assert.equal(await page.locator('.lbboard-navbtn').count(), 3, '三类以上有类别导航');
+    // 1020 她：分类导航不在正文里，进左边目录（浮动板）：先看这几个 + 三类，类下面是条目
+    assert.equal(await page.locator('.lbboard-navbtn').count(), 0);
+    assert.deepEqual(await page.locator('.lbchat-toc .lbchat-toc-cat').allTextContents(), ['先看这几个', '多 agent 框架', '群聊界面', '记忆与会话']);
+    assert.equal(await page.locator('.lbchat-toc .lbchat-toc-sub').count(), 6);
     // 网址：有的给链接，「看原帖」的写无链接
     assert.equal(await page.locator('.lbboard-row a.lbboard-url').count(), 3);
     assert.equal(await page.locator('.lbboard-row', { hasText: '鼠鼠施工队' }).locator('a.lbboard-url').getAttribute('href'), 'https://github.com/example/shushu', '裸域名补成 https 链接');
-    assert.equal(await page.locator('.lbboard-url.is-none').count(), 3);
+    assert.equal(await page.locator('.lbboard-url.is-none').count(), 0, '没网址就不写「无链接 · 看原帖」');
+    assert.equal(await page.locator('.lbboard', { hasText: '无链接' }).count(), 0);
     // 帖里 / 借鉴分开
     const first = page.locator('.lbboard-sec').first().locator('.lbboard-row').first();
     assert.match(await first.locator('.lbboard-text').first().textContent(), /^帖里不做万能 agent/);
@@ -108,6 +112,15 @@ const ask = async (page, S, text, wait = 150) => { await page.click('.lbchat-sea
     assert.deepEqual(await page.evaluate(() => window.lb.opened), ['Web/Xiaohongshu/p1.md']);
     await page.locator('.lbboard-topcard').nth(1).locator('.lbboard-cover').click(); await S.settle(40);
     assert.equal(await page.evaluate(() => window.lb.opened[1]), 'Web/Xiaohongshu/p2.md', '先看这几个的封面也能点开原帖');
+    // 整张卡都能点：点文字也开原帖（和点来源一样）；点「出自」里的链接只开那一篇、不重复开
+    await page.locator('.lbboard-row', { hasText: '多 agent 调度台' }).locator('.lbboard-text').first().click(); await S.settle(40);
+    assert.equal(await page.evaluate(() => window.lb.opened.at(-1)), 'Web/Xiaohongshu/p4.md');
+    const nOpen = await page.evaluate(() => window.lb.opened.length);
+    await page.locator('.lbboard-row', { hasText: '多 agent 调度台' }).locator('.lbboard-srclink').nth(1).click(); await S.settle(40);
+    assert.deepEqual(await page.evaluate(n => window.lb.opened.slice(n), nOpen), ['Web/Xiaohongshu/p1.md']);
+    // 先看这几个：同一篇的封面不连着出两张（Raven 和调度台都出自 p1 时换下一篇）
+    // 目录里点条目跳到那一条
+    await page.locator('.lbchat-toc .lbchat-toc-sub', { hasText: '群聊 session 管理' }).click(); await S.settle(60);
     // 「存成笔记」：报告/ 下一篇 md，带封面嵌图、出处双链、网址
     await page.locator('.lbchat-savenote').click(); await S.settle(80);
     const note = await page.evaluate(() => { const k = Object.keys(window.__files || {}).find(x => /报告\//.test(x)); return k ? [k, window.__files[k]] : null; })
@@ -115,9 +128,12 @@ const ask = async (page, S, text, wait = 150) => { await page.click('.lbchat-sea
     const written = note || await page.evaluate(async () => { const ad = window.app.vault.adapter; const p = '报告/多 agent 群聊项目陈列.md'; return (await ad.exists(p)) ? [p, await ad.read(p)] : null; });
     assert.ok(written, '存成笔记写出了文件');
     assert.match(written[1], /^---\nlb-report: board/);
-    assert.match(written[1], /!\[\[_archive\/xiaohongshu\/p1\/raw\/v0001\/assets\/cover-001\.webp\|160\]\]/);
+    assert.match(written[1], /## 出处\n\n!\[\[_archive\/xiaohongshu\/p1\/raw\/v0001\/assets\/cover-001\.webp\|110\]\]/);
+    assert.equal((written[1].match(/cover-001\.webp/g) || []).length, 5, '封面只在「出处」排一次（6 篇里 1 篇没封面）');
+    assert.ok(!/\[来源\d+\]/.test(written[1]), '引用号都换成了双链');
     assert.match(written[1], /\[\[Web\/Xiaohongshu\/p1\|《来源帖 p1》\]\]/);
-    assert.match(written[1], /- 网址：https:\/\/github\.com\/example\/raven/);
+    assert.match(written[1], /- 网址：\[github\.com\/example\/raven\]\(https:\/\/github\.com\/example\/raven\)/);
+    assert.ok(!written[1].includes('无链接'));
     assert.match(written[1], /- 借鉴：角色表照抄一份/);
     assert.ok((await page.evaluate(() => window.opened)).some(a => /报告\//.test(String(a[0]))), '存完打开那篇笔记');
     // 输入框上方一行：「追问 · 新对话」+ 清空上下文，不再有「改为……」

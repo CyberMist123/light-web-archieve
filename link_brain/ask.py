@@ -2118,6 +2118,9 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
         pool = judged["pool"] + [it for it in pool if it["id"] not in held]
         notes_pool = [it for it in pool if it.get("source_kind") != "saved"]
         n, select_reason, deep = judged["n"], f"judge:{judged['deep']}/{judged['judged']}", False
+        if _LAYOUT_REQ.get() == "board":
+            # 1020 她：报告版比普通回答薄——报告要盘全，判「沾边」的篇也送读（同一个上限）
+            n = max(n, min(judged["deep"] + judged["tentative"], SELECT_HARD_MAX))
         select_trace["judge"] = {k: judged[k] for k in ("deep", "tentative", "reject", "judged")}
         cap = max(cap, min(n, SELECT_HARD_MAX) * JUDGE_CAP_CHARS)   # 多送几篇就多给证据预算，不把每篇摊薄
     n += _saved_lead(pool, n)
