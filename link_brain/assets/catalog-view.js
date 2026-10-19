@@ -578,8 +578,10 @@ function paintProblems() {
   if (!s && st.state === 'blocked') need = 1;   // 还没有 problems-summary.json（老库第一次）：同步卡在要人处理时照样亮
   probBtn.empty();
   if (need) probBtn.createEl('span', { cls: 'lbc-prob-n lbc-prob-need', text: String(need) });
-  if (auto + gaveUp) probBtn.createEl('span', { cls: 'lbc-prob-n lbc-prob-other', text: String(auto + gaveUp) });
-  probBtn.hidden = !need && !(auto + gaveUp);
+  // 1019 她：自动处理中的（会自己重试、3 天不好自动升级成要你处理）不亮数字；只数要你处理 + 已放弃
+  void auto;
+  if (gaveUp) probBtn.createEl('span', { cls: 'lbc-prob-n lbc-prob-other', text: String(gaveUp) });
+  probBtn.hidden = !need && !gaveUp;
   const lines = [];
   if (st.state === 'blocked' || st.state === 'failed') { const why = st.detail || st.message || ''; const head_ = st.label || regEntry(st.code)?.label || ''; if (head_ || why) lines.push(head_ && why ? head_ + '：' + why : head_ || why); }
   const counts = [need && `要你处理 ${need}`, auto && `正在自动处理 ${auto}`, gaveUp && `已放弃 ${gaveUp}`].filter(Boolean);

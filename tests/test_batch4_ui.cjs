@@ -69,7 +69,7 @@ async function catalogEntryTests() {
   const entry = q('.lbc-problems');
   assert.equal(entry.hidden, false);
   assert.equal(entry.querySelector('.lbc-prob-need').textContent, '2', '要你处理 = 橙色数字');
-  assert.equal(entry.querySelector('.lbc-prob-other').textContent, '4', '其余 = 自动处理中 + 已放弃（未开启 7 不计）');
+  assert.equal(entry.querySelector('.lbc-prob-other').textContent, '1', '1019：灰色只数已放弃（自动处理中 3、未开启 7 不计）');
   assert.ok(entry.title.startsWith('需要登录：读取号掉登录'), '悬停第一行 = 登记表标签 + 原因：' + entry.title);
   assert.ok(entry.title.includes('要你处理 2 · 正在自动处理 3 · 已放弃 1'), entry.title);
   assert.equal(q('.lbc-syncing').hidden, true);
@@ -95,7 +95,7 @@ async function catalogEntryTests() {
   // ── 文件变了：只重画入口，不重建整页、不重读 catalog-data ──
   const wrap = q('.lbc-wrap'), firstCard = card('a');
   V.resetCounts();
-  V.set(SUMMARY, JSON.stringify({ updated_at: '2026-10-02T05:00:00+10:00', needs_human: 0, auto: 1, gave_up: 0, skipped: 0,
+  V.set(SUMMARY, JSON.stringify({ updated_at: '2026-10-02T05:00:00+10:00', needs_human: 0, auto: 1, gave_up: 1, skipped: 0,
     sync: { state: 'ready', updated_at: '2026-10-02T05:00:00+10:00', last_success: '2026-10-02T05:00:00+10:00' } }));
   fire('modify', SUMMARY); await tick(10);
   assert.equal(q('.lbc-wrap'), wrap, '整页没重建');
@@ -149,7 +149,7 @@ async function catalogEntryTests() {
     p2.running = null; await B.rerun(); fire2('modify', SYNC); await tick(10);
     assert.equal(checks, 1);
     assert.equal(B.section.querySelector('.lbc-syncing').hidden, true, '核完重读 summary：不再显示同步中');
-    assert.equal(B.section.querySelector('.lbc-prob-other').textContent, '1');
+    assert.equal(B.section.querySelector('.lbc-prob-other'), null, '1019：被打断属自动处理中，不亮数字');
   }
   console.log('PASS file watch: summary / sync-status change repaints entry only (no rebuild, no catalog reread); running shown; INTERRUPTED from summary wins; hidden at 0');
 }

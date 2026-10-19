@@ -106,7 +106,7 @@ async function a1Writes() {
   const ed = D.q('.lbchat-editor'); ed.value = '改过的答案';
   await ed.onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} }); await tick(20);
   assert.equal(D.md.stats.disposes, before + 1, '只换掉的那一轮 dispose 一次');
-  D.A.component.unload();
+  D.A.component.unload(); globalThis.__lbPark?.chat?.drop?.();   // 1019：卸载先暂存；丢弃暂存时才真拆
   assert.equal(D.md.stats.live, 0, '卸载时剩下的全部 dispose');
   console.log('PASS chat L2 A1 (e)(f)(h)(i): plugin write chain serial (last write = unpinned), write failure rolls back to disk + 没保存上…, old sessions get ids, replaced turn disposed once and the rest on unload');
 }

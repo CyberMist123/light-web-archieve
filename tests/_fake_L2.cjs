@@ -50,6 +50,8 @@ function makePlugin(over = {}) {
 const LEGACY_PREFS = { follow: 'sources', keepThread: true };
 async function openChat({ turns = [], session = null, plugin = null, files = {}, prefs = LEGACY_PREFS, folder = '', params = {}, active = true, app = null, dom = null, V = null, noPlugin = false, isMobile = false, run = true } = {}) {
   const P = plugin || makePlugin();
+  // 1019 暂存整页（park）：每页一个假 app，挂回别页暂存会串 app——新开一页先丢掉暂存（真 Obsidian 只有一个 app）
+  if (!app && globalThis.__lbPark) { for (const k of Object.keys(globalThis.__lbPark)) { try { globalThis.__lbPark[k].drop(); } catch {} } globalThis.__lbPark = {}; }
   const pre = folder ? folder + '/' : '';
   if (!V) V = makeVault({ [pre + DATA]: JSON.stringify({ built_at: '2026-10-08T10:00:00+10:00', items: [] }),
     [pre + SESSION]: JSON.stringify(session || { turns }), [pre + ARCHIVE]: '{"entries":[]}', ...(prefs ? { [pre + '_archive/chat-prefs.json']: JSON.stringify(prefs) } : {}), ...files });

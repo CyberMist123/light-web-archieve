@@ -73,7 +73,7 @@ const { tick, makePlugin, openChat } = require('./_fake_L2.cjs');
   B.q('.lbchat-hist').onclick({ stopPropagation() {} }); await tick(5);
   const item = B.dom.document.querySelectorAll('.lbchat-histq')[0];
   await item.onclick(); await tick(5);
-  assert.ok(B.A.notices.some(m => m.includes('正在回答')), B.A.notices.join('|'));
+  assert.ok([...B.A.notices, ...A.A.notices].some(m => m.includes('正在回答')), B.A.notices.join('|'));   // 1019：B 可能挂回了 A 暂存的整页，提示记在 A 的假 Notice 上
   P.reply({ status: 'ok', markdown: '答五', sources: [], related: [] }); await tick(40);
   console.log('PASS chat L2 A2: inflight on plugin (switch page and come back → live text + real phase), ■ stops tag chat, follow-up queued on plugin and asked once after the old closure writes back, answers merged after their own question (no overwrite), busy blocks history / clear with 正在回答');
 })().catch(e => { console.error(e); process.exit(1); });

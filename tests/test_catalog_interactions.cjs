@@ -157,7 +157,7 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
   const failed=await runCatalogPage({...base,state_registry:reg},{syncState:{state:'blocked',account:'xhs',code:'NOT_LOGGED_IN',updated_at:'2026-10-02T04:00:00+10:00'},summary:{updated_at:'2026-10-02T04:01:00+10:00',needs_human:1,auto:2,gave_up:1,skipped:5},onAccountOpen:()=>opened++});
   const entry=failed.root.querySelector('.lbc-problems');
   assert.equal(entry.hidden,false);
-  assert.equal(entry.querySelector('.lbc-prob-need').textContent,'1');assert.equal(entry.querySelector('.lbc-prob-other').textContent,'3','自动处理中 + 已放弃，未开启不计数');
+  assert.equal(entry.querySelector('.lbc-prob-need').textContent,'1');assert.equal(entry.querySelector('.lbc-prob-other').textContent,'1','1019：只数已放弃；自动处理中、未开启不计数');
   assert.ok(entry.title.startsWith('需要登录'),entry.title);
   await entry.onclick();assert.equal(opened,1,'问题入口走插件 openProblems');
   const captcha=await runCatalogPage({...base,state_registry:reg},{syncState:{state:'blocked',account:'xhs',code:'CAPTCHA_REQUIRED'}});

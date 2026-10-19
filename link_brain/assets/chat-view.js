@@ -37,6 +37,8 @@ const adoptTurns = (mem, disk) => {
 };
 
 let data = {};
+// 1019：事件订阅随页面暂存 / 拆（切走暂存时不被组件卸载强行摘掉）
+function lbEvent(ref) { LB.onUnload(() => { try { app.workspace.offref(ref); } catch {} }); return ref; }
 try { data = await LB.data.load(); } catch {}
 let items = data.items || [];
 
@@ -561,7 +563,7 @@ const wrap = host.createEl('div', { cls: 'lbchat' });
 // and pane offsets otherwise push the composer below the visible area).
 const fitPane = () => { const viewport = root.closest('.workspace-leaf-content') || (pane && ['auto', 'scroll', 'hidden'].includes(getComputedStyle(pane).overflowY) ? pane : null); const bottom = Math.min(window.innerHeight, viewport?.getBoundingClientRect().bottom || window.innerHeight); wrap.style.height = Math.max(240, bottom - wrap.getBoundingClientRect().top - 16) + 'px'; };
 const resizeObserver = new ResizeObserver(fitPane); resizeObserver.observe(pane || document.documentElement);
-if (dv.component?.register) dv.component.register(() => resizeObserver.disconnect());
+LB.onUnload(() => resizeObserver.disconnect());
 requestAnimationFrame(fitPane);
 const head = wrap.createEl('div', { cls: 'lbchat-head' });
 const titleBlock = head.createEl('div', { cls: 'lbchat-titleblock' });
@@ -723,7 +725,7 @@ function keepPlace() {
   if (Math.abs(bodyEl.scrollTop - lastTop) > 2) bodyEl.scrollTop = lastTop;
 }
 function settle() { keepPlace(); try { requestAnimationFrame(keepPlace); } catch {} }
-try { const ro = new ResizeObserver(() => { if (reset() || stick) keepPlace(); }); ro.observe(bodyEl); dv.component?.register?.(() => ro.disconnect()); } catch {}
+try { const ro = new ResizeObserver(() => { if (reset() || stick) keepPlace(); }); ro.observe(bodyEl); LB.onUnload(() => ro.disconnect()); } catch {}
 // A8：往上翻时浮一个「↓ 最新」；不在底部时有新内容（出字 / 新回答）带小点
 function paintFloaters() {
   const show = lane === 'chat' && !stick && session.turns.length > 0;
@@ -816,7 +818,7 @@ const disposeArchive = () => { for (const d of archiveDisposers.splice(0)) { try
 let liveView = null;   // {key, el, md, tail, dispose, head}
 const disposeLive = () => { if (!liveView) return; try { liveView.dispose?.(); } catch {} liveView = null; };
 function disposeAll() { for (const v of views.values()) disposeView(v); views.clear(); disposeArchive(); disposeLive(); }
-dv.component?.register?.(() => disposeAll());
+LB.onUnload(() => disposeAll());
 // 页内状态（不写盘）：展开过的来源 / 命中 / 我保存的（openState）、多选（picks）、本页内划掉的来源（struck）
 const openState = new Set();
 const picks = new Map();
@@ -1879,7 +1881,7 @@ function closeTocPanel() {
   try { doc.removeEventListener('click', tocPanel._lbOutside); } catch {}
   tocPanel.remove(); tocPanel = null;
 }
-dv.component?.register?.(() => closeTocPanel());
+LB.onUnload(() => closeTocPanel());
 // 宽窗（bodywrap ≥ 850 + 2×196）才有左栏
 try {
   const tro = new ResizeObserver(entries => {
@@ -1889,7 +1891,7 @@ try {
     bodyWrap.classList.toggle('is-tight', tight);
     if (wide !== tocWide) { tocWide = wide; bodyWrap.classList.toggle('is-wide', wide); paintToc(); }
   });
-  tro.observe(bodyWrap); dv.component?.register?.(() => tro.disconnect());
+  tro.observe(bodyWrap); LB.onUnload(() => tro.disconnect());
 } catch {}
 // 当前位置：视口顶边以上最后一个问题那一组 is-here；左栏只改自己的 scrollTop（不用 scrollIntoView，免得带着外层一起滚）
 let hereQueued = false;
@@ -1989,9 +1991,9 @@ LB.t('restore');
 paintSourceBar();
 if (app.workspace.on && dv.component?.registerEvent) {
   // 用户自己关了右侧窗格：那一行跟着收起
-  dv.component.registerEvent(app.workspace.on('layout-change', () => { paintSourceBar(); settle(); }));
+  lbEvent(app.workspace.on('layout-change', () => { paintSourceBar(); settle(); }));
   // 别的问收藏页写了会话（答完 / 改了来源 / 清空）：重读再画（强制全量重建），然后看排队
-  dv.component.registerEvent(app.workspace.on('link-brain:chat-session', from => {
+  lbEvent(app.workspace.on('link-brain:chat-session', from => {
     paintSend();
     if (from === pageId || busy) return;
     app.vault.adapter.read(SESSION_PATH).then(async raw => {
@@ -2008,7 +2010,7 @@ if (app.workspace.on && dv.component?.registerEvent) {
     app.vault.adapter.read(HISTORY_INDEX).then(raw => { hist = histOf(JSON.parse(raw)) || hist; }).catch(() => {});
   }));
   // 别的问收藏页正在出字 / 换阶段（A2）：接着画半截
-  dv.component.registerEvent(app.workspace.on('link-brain:chat-live', from => {
+  lbEvent(app.workspace.on('link-brain:chat-live', from => {
     if (from === pageId || lane !== 'chat') return;
     const f = inflight(); if (!f) return;
     paintSend();
@@ -2017,16 +2019,16 @@ if (app.workspace.on && dv.component?.registerEvent) {
     paintPhase();
     if (stick) follow(); else markUnseen();
   }));
-  dv.component.registerEvent(app.workspace.on('link-brain:chat-queue', from => { if (from !== pageId) drawQueue(); }));
+  lbEvent(app.workspace.on('link-brain:chat-queue', from => { if (from !== pageId) drawQueue(); }));
   // A17：设置改了（模型增删改名、输入框提示文字）——rAF 合并后重填下拉、提示、配置提示
   let settingsQueued = false;
-  dv.component.registerEvent(app.workspace.on('link-brain:settings', () => {
+  lbEvent(app.workspace.on('link-brain:settings', () => {
     if (settingsQueued) return; settingsQueued = true;
     requestAnimationFrame(() => { settingsQueued = false; fillModels(); paintFollow(); paintCfgHint(); });
   }));
 }
 // 登记这一版 DOM（连 host 一起，§5.9）：catalog-data 变了只换数据、改篇数，不重建对话
-LB.keep(wrap, { version: await LB.data.version(), update: async () => {
+LB.keep(wrap, { park: true, version: await LB.data.version(), update: async () => {
   try { data = await LB.data.load(); items = data.items || []; paintSub(); } catch {}
 }, onReuse: () => { paintSourceBar(); paintSend(); fillModels(); settle(); } });
 LB.t('total');
@@ -2036,7 +2038,7 @@ try {
   let mmdQueued = false;
   const mmo = new MutationObserver(() => { if (mmdQueued) return; mmdQueued = true; requestAnimationFrame(() => { mmdQueued = false; enhanceMermaid(bodyEl); }); });
   mmo.observe(bodyEl, { childList: true, subtree: true });
-  dv.component?.register?.(() => mmo.disconnect());
+  LB.onUnload(() => mmo.disconnect());
 } catch {}
 // ── A16 键盘与焦点 ──
 // 进页 / 清空 / 恢复后光标在输入框（只在本页是活动标签页时，不抢别处的焦点）；整页重建 3 秒内把焦点和选区还回去
@@ -2083,7 +2085,7 @@ function takePending(fromEvent) {
   submit(q);
 }
 LB.container && LB.container.__lbView && (LB.container.__lbView.onReuse = (prev => () => { try { prev && prev(); } finally { takePending(); } })(LB.container.__lbView.onReuse));
-if (app.workspace.on && dv.component?.registerEvent) dv.component.registerEvent(app.workspace.on('link-brain:ask-pending', () => takePending(true)));
+if (app.workspace.on && dv.component?.registerEvent) lbEvent(app.workspace.on('link-brain:ask-pending', () => takePending(true)));
 takePending();
 drainQueue();
 
