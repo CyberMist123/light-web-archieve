@@ -976,11 +976,11 @@ def primary_count(cap, top_k, pool_size):
     return max(0, min(pool_size, max(top_k, min(20, cap // 700))))
 
 
-def evidence_budget(cap, frag, count, deep=False):
-    """每篇证据的字数预算（R0 抽出）。deep（R2 单篇 / 少数篇深读）= 总预算平分给收窄后的那 1–3 篇。"""
+def evidence_budget(cap, frag, count, deep=False, *, per_max=4000):
+    """每篇证据的字数预算（R0 抽出）。deep（R2 单篇 / 少数篇深读）= 总预算平分给收窄后的那 1–3 篇。per_max：每篇上限（报告放宽）。"""
     if deep:
         return cap // max(1, count)
-    return max(200, min(max(frag, cap // max(1, count) - 150), 4000, cap // max(1, count) - 20))
+    return max(200, min(max(frag, cap // max(1, count) - 150), per_max, cap // max(1, count) - 20))
 
 
 # 深读只给「指向具体一篇」的问法；带盘点 / 列举口气的问题（要多篇来源）不收窄
@@ -1424,10 +1424,85 @@ def embed_images(markdown, sources):
     return _SEE_IMG.sub(_sub, markdown or "")
 
 
+_BOARD_IMG = re.compile(r"[ \t]*\[看图[：:]\s*来源\s*(\d+)\s*[，,、 ]*((?:评论\s*c[\d.]+\s*的)?图\s*\d+)\]")
+
+
+def board_images(markdown, sources):
+    """报告（陈列版）：`[看图：来源N 图M]` / `[看图：来源N 评论c3的图1]` → 同一行里的 `![[路径|配图]]`（页面当这一条的配图）。
+    正文图按 vision.json 找文件（同 embed_images）；评论区的图按这篇证据片段里 images ↔ assets 的对应找。对不上的删掉（模型输出不可信）。"""
+    by_cite = {}
+    for src in sources or []:
+        try:
+            by_cite[int(src.get("citation") or 0)] = src
+        except (TypeError, ValueError):
+            continue
+
+    def comment_asset(src, label):
+        want = re.sub(r"\s+", "", label)
+        for part in src.get("excerpts") or []:
+            for name, asset in zip(part.get("images") or [], part.get("assets") or []):
+                if re.sub(r"\s+", "", str(name)) == want and asset:
+                    agent = src.get("agent_md")
+                    if not agent:
+                        return None
+                    path = Path(agent).parent.parent / str(asset)
+                    try:
+                        return path.resolve().relative_to(storage.vault_root().resolve()).as_posix() if path.is_file() else None
+                    except ValueError:
+                        return None
+        return None
+
+    def _sub(m):
+        src = by_cite.get(int(m.group(1)))
+        if not src:
+            return ""
+        label = m.group(2)
+        if label.startswith("评论"):
+            rel = comment_asset(src, label)
+        else:
+            rel = _image_asset(src, int(re.sub(r"\D", "", label)))
+        return f" ![[{rel}|配图]]" if rel else ""
+
+    return _BOARD_IMG.sub(_sub, markdown or "")
+
+
 # 1015 第二批：证据 / 目录 / MCP 命中段统一的「来源类型」名（结果标来源类型；她看得懂的叫法）
 HIT_TYPES = {"body": "正文", "ocr": "图片文字", "comment_ocr": "评论区图片", "comments": "评论区", "transcript": "视频文字稿",
              "screen": "视频画面文字", "attachments": "附件", "notes": "我的批注", "highlights": "我划的重点",
              "title": "标题", "tags": "标签", "summary": "概要", "author": "作者", "saved": "我保存的"}
+
+
+_IMG_SECTION = re.compile(r"^### 第(\d+)张（图\d+\s*·\s*([^）\s]+)）\s*$", re.M)
+
+
+def split_ocr_by_image(item, snippets):
+    """报告（陈列版）用：「图片文字」片段跨好几张图时（标签「图1、图2…」），模型分不清某个对象在第几张、配不上图（1020 播客那题 0 张）。
+    按这篇 agent.md「### 第N张（图N · 文件）」各张的识别文字拆成一张一段、各标各的图号；字数按原片段的预算分（每张至少 200）。读不到 = 原样。"""
+    if not any(x.get("field") == "ocr" and len(x.get("images") or []) > 1 for x in snippets or []):
+        return snippets
+    try:
+        md = (storage.vault_root() / item["agent_md"]).read_text(encoding="utf-8")
+    except (OSError, KeyError, TypeError):
+        return snippets
+    per_image = {}
+    marks = list(_IMG_SECTION.finditer(md))
+    for i, m in enumerate(marks):
+        end = marks[i + 1].start() if i + 1 < len(marks) else len(md)
+        body = md[m.end():end].split("\n## ", 1)[0].strip()
+        per_image[f"图{m.group(1)}"] = (body, m.group(2))
+    out = []
+    for x in snippets:
+        imgs = [str(i) for i in x.get("images") or []]
+        if x.get("field") != "ocr" or len(imgs) <= 1 or not all(i in per_image for i in imgs):
+            out.append(x)
+            continue
+        each = max(200, int(len(x.get("text") or "") * 1.2) // len(imgs))
+        assets = list(x.get("assets") or [])
+        for k, label in enumerate(imgs):
+            body, fname = per_image[label]
+            asset = assets[k] if k < len(assets) else f"raw/v0001/assets/{fname}"
+            out.append({**x, "images": [label], "assets": [asset], "text": " ".join(body.split())[:each]})
+    return out
 
 
 def _excerpt_tag(x):
@@ -1467,6 +1542,10 @@ def _speaker_map(item):
 
 
 COMMENT_SHARE = 0.25   # 评论区（含评论区图片）在一篇证据预算里预留的份额（F：8000 字评论挤不进）
+BOARD_COMMENT_SHARE = 0.5   # 报告（陈列版）：评论区占一半——盘点类的对象大量在评论区
+BOARD_PER_POST = 5000       # 报告：每篇证据至少给这么多字（普通回答按判定 2600 / 篇）
+BOARD_MIN_POSTS = 3         # 报告：总预算至少按这么多篇算
+BOARD_MAX_TOKENS = 8000     # 报告：输出上限（她设置里填得更高就用更高的）
 
 
 def _comment_hit(item, terms):
@@ -1487,17 +1566,21 @@ def _with_comment_budget(item, terms, per, sem, *, window_chars=1000, max_parts=
     keys = _comment_hit(item, terms)
     if not keys:
         return evidence(item, terms, per, sem, window_chars=window_chars, max_parts=max_parts, deep=deep)
-    main = evidence(item, terms, max(200, int(per * (1 - COMMENT_SHARE))), sem, window_chars=window_chars,
+    # 1020 她：报告版问游戏，推荐都在评论区（和评论区的图）里，以前评论只给一段 ≤400 字的窗口 → 漏一大片。报告模式评论区占一半、多取几段
+    board = _LAYOUT_REQ.get() == "board"
+    share = BOARD_COMMENT_SHARE if board else COMMENT_SHARE
+    main = evidence(item, terms, max(200, int(per * (1 - share))), sem, window_chars=window_chars,
                     max_parts=max_parts, deep=deep)
     have = {p["field"] for p in main}
-    budget = max(150, int(per * COMMENT_SHARE) // len(keys))
+    budget = max(150, int(per * share) // len(keys))
+    cwin, cparts = (min(budget, 1500), 3) if board else (400, 1)
     fs = item.get("search_fields") or {}
     extra = []
     for key in keys:
         if key in have:
             continue
         try:
-            extra += _field_evidence(item, key, str(fs.get(key) or ""), terms, budget, sem, 400, 1)[:1]
+            extra += _field_evidence(item, key, str(fs.get(key) or ""), terms, budget, sem, cwin, cparts)[:cparts]
         except Exception:  # noqa: BLE001
             pass
     return main + extra
@@ -2166,7 +2249,11 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
         order = [it for it in order if it["id"] in held] + [it for it in order if it["id"] not in held]
     primary, related = order[:n], order[n:]
     blocks, sources, overflow = [], [], []
-    per = evidence_budget(cap, frag, len(primary), deep)
+    if _LAYOUT_REQ.get() == "board":
+        cap = max(cap, min(max(len(primary), BOARD_MIN_POSTS), SELECT_HARD_MAX) * BOARD_PER_POST)
+        per = evidence_budget(cap, frag, len(primary), deep, per_max=BOARD_PER_POST + 1000)
+    else:
+        per = evidence_budget(cap, frag, len(primary), deep)
     ev_terms = terms + prior_terms + expansion["terms"]
     packed = {}
     if not pinned and not pins:
@@ -2187,6 +2274,8 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
             # 她手动加入的：至少拿到一篇常规片段的预算（不因主要依据多被摊薄）
             snippets = locate_excerpts(it, evidence(it, terms + prior_terms + expansion["terms"], max(per, frag), sem,
                                                     window_chars=1000, max_parts=4))
+        if _LAYOUT_REQ.get() == "board":
+            snippets = split_ocr_by_image(it, snippets)   # 1020：报告要按图配图，一段跨几张图的识别文字拆成一张一段
         # 1018 v2.1 §1.4：主证据附图目录（图号＋识图描述前 20 字），模型照目录挑图、不放只有标题字的封面
         catalog = answer_prompt.image_catalog(str(storage.vault_root() / it["agent_md"]) if it.get("agent_md") else None)
         block = (source_header(len(sources) + 1, it) + (catalog + "\n" if catalog else "")
@@ -2251,6 +2340,9 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     custom = (settings.get("prompts") or {}).get("answer", "")
     style = custom if custom and '"results"' not in custom and not ai_config.is_default_answer_prompt(custom) else ""
     prompt = answer_prompt.system_prompt(task, extra=extra, style=style)
+    if _LAYOUT_REQ.get() == "board":
+        # 1020：通用规矩「全篇 ≤3 张」和陈列版「每个对象配图」打架，模型听了前者（播客那题 0 张图）——陈列版改写这一句
+        prompt = prompt.replace("全篇 ≤3 张", "陈列版每个对象各配各的图（不受 3 张限制，用陈列格式里的写法）")
     dialog = "\n".join(f"{m['role']}: {str(m.get('content', ''))[:1500]}" for m in history)
     # 答案缓存（Lot D）只留查询记录（result.cached / answer_cache），不再把「上次回答开头…结论可沿用」注进提示词（GPT33 A4：会把旧错答锚死）
     if _cancelled(): return _stopped()
@@ -2265,7 +2357,7 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     layout = "board" if _LAYOUT_REQ.get() == "board" else None   # 1020：只有页面开关选了报告才出陈列版
     out_cap = answer_prompt.max_tokens(task, configured)
     if layout == "board":
-        out_cap = max(out_cap, answer_prompt.MAX_TOKENS["survey"])   # 陈列版每个对象一行带「帖里 / 借鉴」，按盘点给上限
+        out_cap = max(out_cap, BOARD_MAX_TOKENS)   # 1020：报告要盘全（标准答案 4–11k 字），4000 写不下就只能删
     call_settings = {**settings, "textAI": {**(settings.get("textAI") or {}), "maxTokens": out_cap}}
     # 流式：想法块缓住不给她看（闭合后才放后面的字；没写标签 / 没闭合 = 全显示）
     gate = answer_prompt.ThoughtGate(_ON_DELTA.get()) if _ON_DELTA.get() else None
@@ -2293,6 +2385,8 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     thought, visible = answer_prompt.split_thought(res["text"])
     from .mdsafe import neutralize  # 1001 C-2：回答引用了别人的原文，落盘/渲染前打断 Dataview 可执行形态
     image_list = image_refs(visible, sources)
+    if layout == "board":
+        visible = board_images(visible, sources)   # 1020：每条的配图（正文图 / 评论区的图）留在那一行里，页面拿它当配图
     markdown = neutralize(embed_images(visible, sources))  # 1008：模型写的 [看图：来源N 图M] 换成真图，对不上的删掉
     if layout == "board":
         markdown = unseen_links(markdown, "\n".join(blocks))   # 陈列版的网址只认材料里逐字出现的

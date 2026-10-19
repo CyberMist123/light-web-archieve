@@ -343,6 +343,8 @@ def main(argv=None) -> int:
         rows.append({"id": case.get("id"), "question": case["question"], "tier": case.get("tier"), "status": res.get("status"),
                      "seconds": took, "tokens": tokens, **verdict,
                      "understanding": res.get("understanding"), "mode_reason": res.get("mode_reason"),
+                     # 送给模型的全部来源（不只引用到的）：写参考答案 / 对比漏了什么用
+                     "sources_all": [{k: s.get(k) for k in ("citation", "id", "title", "agent_md", "note")} for s in res.get("sources") or []],
                      "markdown": (res.get("markdown") or "")[:8000],
                      # 1017：存来源摘录 / 其他相关 / 自检结果，改了自检规则能用 --rescore 离线重判 R9–R12，不重跑模型
                      "sources": [{"id": s.get("id"), "citation": s.get("citation"), "title": s.get("title"), "author": s.get("author"),

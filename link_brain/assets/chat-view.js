@@ -2378,7 +2378,9 @@ function BOARD_URL() { return /https?:\/\/[^\s<>()（）\[\]【】「」"'，。
 function BOARD_CITE() { return /\[来源(\d+)\]/g; }
 function boardItem(name, rest) {
   const cites = [...String(rest).matchAll(BOARD_CITE())].map(m => Number(m[1]));
-  let text = String(rest).replace(BOARD_CITE(), '').trim();
+  // 1020：这一条自带的配图（正文图 / 评论区的图），后端换成了同一行里的 ![[路径|配图]]；页面拿它当配图，比帖子封面准
+  const img = (String(rest).match(/!\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/) || [])[1] || '';
+  let text = String(rest).replace(/!\[\[[^\]]*\]\]/g, '').replace(BOARD_CITE(), '').trim();
   const cut = text.search(/——|—/);
   const head = cut >= 0 ? text.slice(0, cut) : text;
   let body = cut >= 0 ? text.slice(cut).replace(/^[—]+\s*/, '') : '';
@@ -2391,7 +2393,7 @@ function boardItem(name, rest) {
   const praise = (body.match(/帖里[:：]\s*([\s\S]*?)(?=[；;]?\s*借鉴[:：]|$)/) || [])[1] || '';
   const why = (body.match(/借鉴[:：]\s*([\s\S]*)$/) || [])[1] || '';
   const clean = s => String(s || '').replace(/[；;。\s]+$/, '').trim();
-  return { name: clean(name.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')), url, cites,
+  return { name: clean(name.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')), url, cites, img,
     praise: clean(praise || (why ? '' : body)), why: clean(why) };
 }
 function parseBoard(md) {
@@ -2420,6 +2422,7 @@ function parseBoard(md) {
   return out;
 }
 function boardCount(b) { return b ? b.groups.reduce((n, g) => n + g.items.length, 0) : 0; }
+function boardImgUrl(path) { try { return app.vault.adapter.getResourcePath(lbPath(String(path).replace(/^\/+/, ''))); } catch { return ''; } }
 function boardCover(src) {
   const c = src && src.cover;
   if (!c) return '';
@@ -2427,7 +2430,7 @@ function boardCover(src) {
 }
 // 1020 她：只有名字 / 一句「同上，评论区点名」的条目——不单独占一张大卡，同一篇连着的合成一行
 function BOARD_NOISE() { return /^(?:(?:同上|同前|同样|同一串[^，。；]*|评论区(?:也|里)?(?:点名|提到|有人推)|只有名字)[，。；、\s]*)+$/; }   // 函数声明：页面开头恢复历史时就会用到（const 有 TDZ）
-function boardThin(it) { const p = String(it.praise || '').trim(); return !it.url && !it.why && (p.length <= 24 || BOARD_NOISE().test(p)); }
+function boardThin(it) { const p = String(it.praise || '').trim(); return !it.img && !it.url && !it.why && (p.length <= 24 || BOARD_NOISE().test(p)); }
 function boardNote(it) { const p = String(it.praise || '').trim(); return BOARD_NOISE().test(p) ? '' : p; }
 // ── 1020 她：点「帖里」那段字 → 右侧打开原帖、跳到那一处并标出原句。
 // 匹配（1020 第二版；第一版只认名字 / 引号原话，真报告 15/35 条对不上）：「帖里 / 借鉴 / 名字」切成两字片段，在原帖每段正文、每条评论、
@@ -2545,8 +2548,9 @@ async function renderBoard(el, t, board) {
     node.addClass('lbboard-jump'); node.setAttribute('title', '跳到原帖里这一处');
     node.onclick = e => { e?.stopPropagation?.(); boardLocate(src, it); };
   };
-  const cover = (box, src, label, ghost = false) => {
-    const url = ghost ? '' : boardCover(src);
+  const cover = (box, src, label, ghost = false, own = '') => {
+    if (own) ghost = false;   // 自带配图的条目总是显示自己的图
+    const url = ghost ? '' : own ? boardImgUrl(own) : boardCover(src);
     const c = box.createDiv({ cls: 'lbboard-cover' + (ghost ? ' is-ghost' : url ? '' : ' is-empty') });
     if (ghost) return;
     if (url) { const img = c.createEl('img', { attr: { src: url, alt: '', loading: 'lazy' } }); img.onerror = () => { img.remove(); c.addClass('is-empty'); c.createSpan({ text: label }); }; }
@@ -2579,7 +2583,8 @@ async function renderBoard(el, t, board) {
     }
     for (const c of cards) {
       const card = grid.createDiv({ cls: 'lbboard-topcard' + (c.items.length > 1 ? ' is-multi' : '') });
-      cover(card, c.src, c.items[0].it.name.slice(0, 4));
+      const own = c.items.map(x => x.it.img || (byName.get(x.it.name) || {}).img).find(Boolean) || '';
+      cover(card, c.src, c.items[0].it.name.slice(0, 4), false, own);
       const body = card.createDiv({ cls: 'lbboard-topbody' });
       for (const { it, why } of c.items) {
         const one = body.createDiv({ cls: 'lbboard-topitem' });
@@ -2618,7 +2623,7 @@ async function renderBoard(el, t, board) {
         continue;
       }
       const row = sec.createDiv({ cls: 'lbboard-row', attr: { 'data-item': `${i}-${j}` } });
-      cover(row, src, g.name.slice(0, 4), same);
+      cover(row, src, g.name.slice(0, 4), same, it.img);
       const main = row.createDiv({ cls: 'lbboard-main' });
       const line = main.createDiv({ cls: 'lbboard-line' });
       line.createSpan({ cls: 'lbboard-name', text: it.name });
@@ -2667,6 +2672,7 @@ function boardNoteMd(t, board) {
     const thin = g.items.filter(boardThin);
     for (const it of g.items.filter(x => !boardThin(x))) {
       out.push(`### ${it.name}`, '');
+      if (it.img) out.push(`![[${lbPath(String(it.img).replace(/^\/+/, ''))}|200]]`, '');
       if (it.url) out.push(`- 网址：[${it.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}](${it.url})`);
       if (it.praise) out.push(`- 帖里：${it.praise}`);
       if (it.why) out.push(`- 借鉴：${it.why}`);

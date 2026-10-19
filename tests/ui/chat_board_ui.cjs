@@ -10,6 +10,7 @@ const cover = (id, i) => `_archive/xiaohongshu/${id}/raw/v0001/assets/cover-001.
 const svg = c => 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400"><rect width="300" height="400" fill="${c}"/><rect x="30" y="40" width="240" height="150" rx="10" fill="#ffffff66"/><rect x="30" y="220" width="180" height="16" rx="8" fill="#ffffff88"/><rect x="30" y="250" width="140" height="16" rx="8" fill="#ffffff66"/></svg>`);
 const IDS = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'];
 const RESOURCES = Object.fromEntries(IDS.map((id, i) => [cover(id, i), svg(COLORS[i])]));
+RESOURCES['_archive/xiaohongshu/p6/raw/v0001/assets/comment-c3-001.webp'] = svg('#e0a0c0');   // 评论区的图（自带配图）
 
 const BOARD_MD = `# 多 agent 群聊项目陈列
 > 给自己搭多 AI 群聊挑参考：6 篇里抽出 6 个能直接看的项目
@@ -28,7 +29,7 @@ const BOARD_MD = `# 多 agent 群聊项目陈列
 - **四个 AI 的群** —— 帖里：只有截图，没给项目；借鉴：群公告当共享记忆的思路[来源5]
 ## 记忆与会话
 - **群聊 session 管理** · 看原帖 —— 帖里：每个 AI 一份 session，群消息按需分发；借鉴：分发规则[来源6]
-- **群公告记忆** · 看原帖 —— 帖里：拿群公告当共享记忆，作者说「省掉一半 token」；借鉴：公告模板[来源6]
+- **群公告记忆** · 看原帖 —— 帖里：拿群公告当共享记忆，作者说「省掉一半 token」；借鉴：公告模板 ![[_archive/xiaohongshu/p6/raw/v0001/assets/comment-c3-001.webp|配图]][来源6]
 ## 评论区还提到
 - **无聊斋** —— 帖里：评论区回答纯好笑时第一个被推[来源6]
 - **正经叭叭** —— 帖里：同上，评论区点名[来源6]
@@ -109,8 +110,11 @@ const ask = async (page, S, text, wait = 150) => { await page.click('.lbchat-sea
     const thin = page.locator('.lbboard-row.is-thin');
     assert.deepEqual(await thin.locator('.lbboard-name').allTextContents(), ['无聊斋', '正经叭叭', '朋嗑儿']);
     assert.ok(!(await thin.textContent()).includes('同上'), '「同上，评论区点名」不再显示');
-    // 连着出自同一篇：后一条不重复封面（留同宽空位）
-    assert.ok(await page.locator('.lbboard-row', { hasText: '群公告记忆' }).locator('.lbboard-cover').evaluate(e => e.classList.contains('is-ghost')));
+    // 自带配图（评论区的图）的条目：用自己的图，不被「连着同一篇不重复封面」藏掉；配图标记不出现在文字里
+    const own = page.locator('.lbboard-row', { hasText: '群公告记忆' });
+    assert.ok(!(await own.locator('.lbboard-cover').evaluate(e => e.classList.contains('is-ghost'))));
+    assert.ok((await own.locator('.lbboard-cover img').getAttribute('src')).includes(encodeURIComponent('#e0a0c0').slice(0, 6)) || (await own.locator('.lbboard-cover img').getAttribute('src')).includes('e0a0c0'));
+    assert.ok(!(await own.textContent()).includes('配图'));
     // 1020 她：分类导航不在正文里，进左边目录（浮动板）：先看这几个 + 三类，类下面是条目
     assert.equal(await page.locator('.lbboard-navbtn').count(), 0);
     assert.deepEqual(await page.locator('.lbchat-toc .lbchat-toc-cat').allTextContents(), ['先看这几个', '多 agent 框架', '群聊界面', '记忆与会话', '评论区还提到']);
@@ -176,6 +180,7 @@ const ask = async (page, S, text, wait = 150) => { await page.click('.lbchat-sea
     assert.ok(!written[1].includes('无链接'));
     assert.ok(written[1].includes('**无聊斋**（评论区回答纯好笑时第一个被推） · **正经叭叭** · **朋嗑儿**'), '只点名的并成一行');
     assert.ok(!written[1].includes('同上'));
+    assert.ok(written[1].includes('![[_archive/xiaohongshu/p6/raw/v0001/assets/comment-c3-001.webp|200]]'), '笔记里自带配图的条目嵌那张图');
     assert.match(written[1], /- 借鉴：角色表照抄一份/);
     assert.ok((await page.evaluate(() => window.opened)).some(a => /报告\//.test(String(a[0]))), '存完打开那篇笔记');
     // 输入框上方一行：「追问 · 新对话」+ 清空上下文，不再有「改为……」

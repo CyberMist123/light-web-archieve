@@ -89,3 +89,44 @@ def test_report_mode_reads_tentative_sources_too(monkeypatch):
     report = ask.answer("/报告 推荐播客")
     assert len([s for s in normal["sources"] if s.get("tier") != "also"]) == 3   # deep 1 + 沾边 2（原规则）
     assert len([s for s in report["sources"] if s.get("tier") != "also"]) == 5   # deep 1 + 沾边 4
+
+
+def test_board_images_map_post_and_comment_images(tmp_path):
+    """1020 她：问游戏的报告没把评论区的图放进去。报告里 [看图：来源N 评论cX的图N] / [看图：来源N 图M] → 同一行里的 ![[路径|配图]]
+    （不换行，否则会把陈列那一行切断）；评论区的图按证据片段 images ↔ assets 对应找文件，对不上的删掉。"""
+    from link_brain import storage
+    obj = storage.vault_root() / "_archive" / "xiaohongshu" / "abc"
+    (obj / "raw" / "v0001" / "assets").mkdir(parents=True)
+    (obj / "derived").mkdir(parents=True)
+    (obj / "raw" / "v0001" / "assets" / "comment-c9-001.webp").write_bytes(b"x")
+    (obj / "raw" / "v0001" / "assets" / "image-002.webp").write_bytes(b"x")
+    (obj / "derived" / "vision.json").write_text('{"images": [{"asset": "raw/v0001/assets/image-002.webp"}]}', encoding="utf-8")
+    src = {"citation": 1, "id": "xhs-abc", "agent_md": str(obj / "derived" / "agent.md"),
+           "excerpts": [{"field": "comment_ocr", "images": ["评论c3的图1"], "assets": ["raw/v0001/assets/comment-c9-001.webp"]}]}
+    md = ("- **欧卡2** —— 帖里：评论区晒了截图 [看图：来源1 评论c3的图1][来源1]\n"
+          "- **光遇** —— 帖里：正文第二张图 [看图：来源1 图2][来源1]\n"
+          "- **编的** —— 帖里：不存在的图 [看图：来源1 评论c8的图4][来源1]")
+    out = ask.board_images(md, [src])
+    lines = out.splitlines()
+    assert len(lines) == 3, "不换行"
+    assert "![[_archive/xiaohongshu/abc/raw/v0001/assets/comment-c9-001.webp|配图]]" in lines[0]
+    assert "![[_archive/xiaohongshu/abc/raw/v0001/assets/image-002.webp|配图]]" in lines[1]
+    assert "看图" not in lines[2] and "![[" not in lines[2], "对不上材料的图删掉"
+
+
+def test_split_ocr_by_image_labels_each_picture():
+    """1020：报告要按图配图——一段跨几张图的「图片文字」片段，按 agent.md 每张图的识别文字拆成一张一段、各标各的图号。"""
+    from link_brain import storage
+    obj = storage.vault_root() / "_archive" / "xiaohongshu" / "pod"
+    (obj / "derived").mkdir(parents=True)
+    (obj / "derived" / "agent.md").write_text(
+        "# 播客\n\n## 图片 OCR\n\n### 第1张（图1 · image-001.webp）\n\n封面字\n\n"
+        "### 第2张（图2 · image-002.webp）\n\n剧谈社：艺术硬核解读\n纵横四海：拆书\n\n## 评论\n\n- [c1] 甲：好\n", encoding="utf-8")
+    item = {"agent_md": "_archive/xiaohongshu/pod/derived/agent.md"}
+    snippets = [{"field": "body", "text": "正文"},
+                {"field": "ocr", "images": ["图1", "图2"], "assets": ["raw/v0001/assets/image-001.webp", "raw/v0001/assets/image-002.webp"], "text": "封面字 剧谈社 纵横四海" * 20}]
+    out = ask.split_ocr_by_image(item, snippets)
+    assert [x.get("images") for x in out] == [None, ["图1"], ["图2"]]
+    assert out[2]["assets"] == ["raw/v0001/assets/image-002.webp"]
+    assert "剧谈社" in out[2]["text"] and "纵横四海" in out[2]["text"] and "评论" not in out[2]["text"]
+    assert ask.split_ocr_by_image({"agent_md": "nope/agent.md"}, snippets) == snippets   # 读不到 = 原样

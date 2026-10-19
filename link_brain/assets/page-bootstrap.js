@@ -16,4 +16,5 @@ try {
     if (lbVer) lbCodeCache[lbScript] = { ver: lbVer, fn: lbRun };
   }
 } catch (e) { lbRun = null; dv.paragraph("页面脚本没读到（" + (e?.message || e) + "）：在电脑上点右上「…」→ 刷新目录"); }
-if (lbRun) await lbRun(dv);
+// 1020：脚本版本交给页面——页面复用旧 DOM（切走再回来 / 暂存整页）前先比它，代码换了就重建（以前部署后要重启 Obsidian 才是新版）
+if (lbRun) { try { dv.__lbCodeVer = lbVer; } catch {} await lbRun(dv); }

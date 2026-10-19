@@ -270,7 +270,7 @@ function lbPageLib(dv, app, role) {
     if (!container) return;
     parkOpt = !!opts.park;
     container.__lbView = { role, el, host: opts.host || hostEl, version: opts.version ?? null, versionOf: opts.versionOf || DATA, update: opts.update, onReuse: opts.onReuse, onAdopt: opts.onAdopt,
-      updating: null, lastError: null, rebind };
+      updating: null, lastError: null, rebind, codeVer: dv && dv.__lbCodeVer || '', drop: runUnload };
   }
   // 页面自己刚写过版本文件（批注保存）：把登记的版本跟上，免得下次重跑当成「别处改了」再读一遍
   async function rekeep() {
@@ -297,10 +297,21 @@ function lbPageLib(dv, app, role) {
   // 就接着再做一轮（最多 3 轮），不把新版本丢给「下一次 Dataview 重跑」（catalog-data 变了本身不触发重跑）。
   // 锁 30 秒兜底：update 卡死（永不 resolve）时，之后的重跑照样能更新。
   const UPDATE_LOCK_MS = 30000;
+  // 1020：页面脚本换了版本（部署后）→ 旧页面是旧代码画的，不复用：拆掉（卸载钩子摘 host、监听、定时器），让新代码重画
+  const codeVer = dv && dv.__lbCodeVer || '';
+  function staleCode(v) { return !!(codeVer && v && v.codeVer !== codeVer); }
   async function reuseDom() {
     if (await deferIfHidden()) return true;
     let view = container && container.__lbView;
     const parked = G.__lbPark && G.__lbPark[role];
+    if (parked && staleCode(parked.view)) { delete G.__lbPark[role]; try { parked.drop(); } catch {} try { parked.view.host?.remove(); } catch {} t('drop(stale code)'); }
+    if (view && view.role === role && staleCode(view)) {
+      container.__lbView = null;
+      try { view.drop?.(); } catch {}
+      try { view.host?.remove(); } catch {}
+      t('rebuild(stale code)');
+      return false;
+    }
     if (!view && parked && parked.doc === doc && container && typeof container.after === 'function') {
       // 1019：上次切走时暂存的整页 → 挂到这个新视图后面（不重建 1000+ 张卡）
       delete G.__lbPark[role];
