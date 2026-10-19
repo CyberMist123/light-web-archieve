@@ -62,12 +62,12 @@ const { DATA, tick, item, catalogData, openCatalog, ev, asset } = require('./_fa
     await C.run();
     assert.equal(C.section.querySelectorAll('.lb-page-host').length, 1, '只剩一个 host');
     assert.ok(!stale.isConnected);
-    // ⑥ 整页重建（section 重画 / CM 重建 widget）：3 秒内把焦点和选区还给新的搜索框
+    // ⑥ 新容器（section 重画 / 切走再回来）：1019 起挂回暂存的整页：3 秒内把焦点和选区还给新的搜索框
     const s3 = C.section.querySelector('.lbc-search');
     s3.focus(); s3.value = 'kafe'; s3.setSelectionRange(2, 3); s3.fire('input', {}); s3.fire('keyup', {});
     await C.recreate(); await tick(5);
     const s4 = C.section.querySelector('.lbc-search');
-    assert.notEqual(s4, s3, '新容器整页重建');
+    assert.equal(s4, s3, '1019：新容器挂回暂存的整页（不重建）');
     assert.equal(C.section.querySelectorAll('.lb-page-host').length, 1);
     assert.equal(dom3.document.activeElement, s4, '新搜索框拿到焦点');
     assert.equal(s4.value, 'kafe', '字还在（页面状态）');

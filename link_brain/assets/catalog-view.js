@@ -435,7 +435,7 @@ let indexView = false;                    // 10-10「索引」视图开着（网
 const foldOverride = new Map();           // 索引图里手动展开 / 收起过的节点：路径 → true 展开 / false 收起（默认：第二级以下收起）
 // 10-04 导入时间（catalog-data 的 ts = 首次入库时间）：排序 ''=默认 / 'recent'=最近导入；范围 ''=全部 / today / 7d / 30d / custom
 let timeSort = '', timeRange = '', timeFrom = '', timeTo = '';
-let activeTopic = '', topicBar = null;
+let activeTopic = '', topicBar = null, activeAlbum = '';   // 1019 专辑：她在小红书里分的组（目录项 albums 字段），和标签 / 主题分开
 let selectMode = false; const selected = new Set();
 let exportImages = true;
 let dataRev = 0;            // C2：只有拿到新数据 / 删除成功 / 有搜索词时标签变了才 +1
@@ -444,7 +444,9 @@ let leaving = false;        // 点开一篇（同一窗格）之后这一页就�
 
 // 卸载清理（C4）：ResizeObserver、预热、打字防抖、Ctrl 滚轮
 const cleanups = [];
-try { dv.component?.register?.(() => { for (const f of cleanups.splice(0)) { try { f(); } catch {} } }); } catch {}
+// 事件订阅也随页面一起暂存 / 拆（不挂 dv.component.registerEvent：组件卸载时会被强行摘掉）
+function lbEvent(emitter, ref) { LB.onUnload(() => { try { emitter.offref(ref); } catch {} }); return ref; }
+LB.onUnload(() => { for (const f of cleanups.splice(0)) { try { f(); } catch {} } });   // 1019：走 LB.onUnload，切走暂存时不拆
 
 // 数据变了（同步进来新的、删了、挂了附件）：不重建整页，只换数据再画卡片（卡片按 id 复用）
 // strict：读失败就抛（reuseDom 的 update 失败不推进版本，下次重跑重试；F4）
@@ -633,8 +635,8 @@ if (app.vault.on && dv.component?.registerEvent) {
     else if (file?.path === idxDataPath) { clearTimeout(idxTimer); idxTimer = setTimeout(() => reloadIndex(), 300); }
   };
   cleanups.push(() => { clearTimeout(freshTimer); clearTimeout(idxTimer); });
-  dv.component.registerEvent(app.vault.on('modify', onFile));
-  dv.component.registerEvent(app.vault.on('create', onFile));
+  lbEvent(app.vault, app.vault.on('modify', onFile));
+  lbEvent(app.vault, app.vault.on('create', onFile));
 }
 
 const search = head.createEl('input', { cls: 'lbc-search' });
@@ -654,8 +656,8 @@ if (importButton) importButton.onclick = async e => {
 };
 // 大类筛选条（小红书式 tab）：单选，一次一个；「全部」或再点当前项清空。
 const catBar = top.createEl('div', { cls: 'lbc-cats' });
-function anyFilter() { return !!(activeCat || todayOnly || todoOnly || mediaFilter || (starOnly && !starredPage) || activeTopic || timeRange || timeSort); }
-function clearFilters({ keepStar = starredPage } = {}) { activeCat = ''; todayOnly = false; todoOnly = false; mediaFilter = ''; activeTopic = ''; timeRange = ''; timeSort = ''; timeFrom = ''; timeTo = ''; starOnly = keepStar; indexView = false; }
+function anyFilter() { return !!(activeAlbum || activeCat || todayOnly || todoOnly || mediaFilter || (starOnly && !starredPage) || activeTopic || timeRange || timeSort); }
+function clearFilters({ keepStar = starredPage } = {}) { activeCat = ''; todayOnly = false; todoOnly = false; mediaFilter = ''; activeTopic = ''; activeAlbum = ''; timeRange = ''; timeSort = ''; timeFrom = ''; timeTo = ''; starOnly = keepStar; indexView = false; }
 // C19：重建前记下横向位置和焦点所在的 tab，重建后还原；只有用户点 tab 引起的重建才把选中项滚进视野
 function renderCatBar({ reveal = false } = {}) {
   const left = catBar.scrollLeft || 0;
@@ -766,10 +768,18 @@ function barWheel(bar) {
 }
 barWheel(catBar);
 { let q = false; catBar.addEventListener('scroll', () => { if (q) return; q = true; requestAnimationFrame(() => { q = false; paintCatFade(); }); }, { passive: true }); }
+// 专辑：有几篇（按目录项 albums 汇总，多的在前）；没同步过专辑就是空的，按钮不出现
+function albumCounts() {
+  const m = new Map();
+  for (const it of items) for (const a of Array.isArray(it.albums) ? it.albums : []) if (typeof a === 'string' && a) m.set(a, (m.get(a) || 0) + 1);
+  return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh'));
+}
 function renderTopicBar() {
   const names = Array.isArray(data.topics) ? data.topics.filter(n => typeof n === 'string' && n) : [];
   if (!names.includes(activeTopic)) activeTopic = '';
-  if (!names.length) { if (topicBar) { topicBar.remove(); topicBar = null; } return; }
+  const albums = albumCounts();
+  if (!albums.some(([n]) => n === activeAlbum)) activeAlbum = '';
+  if (!names.length && !albums.length) { if (topicBar) { topicBar.remove(); topicBar = null; } return; }
   if (!topicBar) { topicBar = top.createEl('div', { cls: 'lbc-topics' }); top.insertBefore(topicBar, (subBar || catBar).nextSibling); barWheel(topicBar); }
   topicBar.empty();
   for (const name of names) {
@@ -779,6 +789,17 @@ function renderTopicBar() {
     chip.createEl('span', { cls: 'lbc-topic-star', text: '★' }); chip.append(name);
     chip.setAttribute('aria-pressed', String(activeTopic === name));
     chip.onclick = () => { indexView = false; activeTopic = (activeTopic === name ? '' : name); renderCatBar(); render(); scrollToResults(); };
+  }
+  if (albums.length) {
+    // 1019 她：目录页已经很挤——专辑不另起一排页签，收进这一颗「专辑 ▾」，点开选
+    const chip = topicBar.createEl('button', { cls: 'lbc-topic lbc-album' + (activeAlbum ? ' is-active' : ''), text: activeAlbum ? `专辑：${activeAlbum} ▾` : '专辑 ▾' });
+    chip.type = 'button';
+    chip.setAttribute('aria-pressed', String(!!activeAlbum));
+    const pick = name => { indexView = false; activeAlbum = name; renderCatBar(); render(); scrollToResults(); };
+    chip.onclick = e => popMenu([
+      ...(activeAlbum ? [{ title: '全部专辑（取消筛选）', onClick: () => pick('') }, { separator: true }] : []),
+      ...albums.map(([n, c]) => ({ title: `${n}（${c}）`, checked: n === activeAlbum, onClick: () => pick(n === activeAlbum ? '' : n) })),
+    ], e, chip);
   }
 }
 // ── 10-04 导入时间：筛选 + 排序 ──
@@ -915,7 +936,8 @@ if (saved.ts) {
   if (knownCat(saved.cat)) activeCat = saved.cat;
   indexView = !!saved.iview && !!idx;
   for (const pair of Array.isArray(saved.fold) ? saved.fold : []) if (Array.isArray(pair) && typeof pair[0] === 'string') foldOverride.set(pair[0], !!pair[1]);
-  if (typeof saved.topic === 'string') activeTopic = saved.topic;   // renderTopicBar 会把已不存在的主题清掉
+  if (typeof saved.topic === 'string') activeTopic = saved.topic;
+  if (typeof saved.album === 'string') activeAlbum = saved.album;   // renderTopicBar 会把已不存在的主题清掉
   todayOnly = !!saved.today; todoOnly = !!saved.todo;
   if (['video', 'attachment'].includes(saved.media)) mediaFilter = saved.media;
   if (!starredPage) starOnly = !!saved.star;
@@ -932,7 +954,7 @@ if (saved.ts) {
 }
 let scrollTop = savedScroll;
 function saveState() {
-  LB.state.save({ q: committed, raw: lastRaw, input: search.value, cat: activeCat, topic: activeTopic, today: todayOnly, todo: todoOnly, media: mediaFilter, star: starOnly,
+  LB.state.save({ q: committed, raw: lastRaw, input: search.value, cat: activeCat, topic: activeTopic, album: activeAlbum, today: todayOnly, todo: todoOnly, media: mediaFilter, star: starOnly,
     selectMode, select: [...selected], scrollTop, cols, timeSort, timeRange, timeFrom, timeTo, exportImages,
     iview: indexView, fold: [...foldOverride].slice(-200) });
 }
@@ -1866,7 +1888,7 @@ function saveSelectionDialog(list) {
 
 // ── 排名（C2：结果集只在 key 变了才重算；点星 / 勾选不重排） ──
 let lastRanked = { key: null, exact: [], possible: [], q: '' };
-function rankKey() { return JSON.stringify([committed, activeCat, activeTopic, todayOnly, todoOnly, mediaFilter, starOnly || starredPage, timeSort, timeRange, timeFrom, timeTo, dataRev, idx ? selSig() : idxRev]); }
+function rankKey() { return JSON.stringify([committed, activeCat, activeTopic, activeAlbum, todayOnly, todoOnly, mediaFilter, starOnly || starredPage, timeSort, timeRange, timeFrom, timeTo, dataRev, idx ? selSig() : idxRev]); }
 function rankRows() {
   const key = rankKey();
   if (lastRanked.key === key) return lastRanked;
@@ -1875,7 +1897,7 @@ function rankRows() {
   const today = ymd(new Date());
   const filtered = items.filter(it => (!(starredPage || starOnly) || it.starred) && (!mediaFilter || (mediaFilter === 'video' ? it.kind === 'video' : it.attachment && it.attachment !== 'none'))
     && (!todayOnly || it.date === today) && (!todoOnly || it.attachment === '待补') && inCat(it)
-    && (!activeTopic || (it.topics || []).includes(activeTopic)) && inTimeRange(it));
+    && (!activeTopic || (it.topics || []).includes(activeTopic)) && (!activeAlbum || (it.albums || []).includes(activeAlbum)) && inTimeRange(it));
   // 第 1 批 1002：先看分数、星标只 ×1.15；拼音 / 错字 / 漏字这类模糊命中单独放「可能相关」，规则见 catalog-search.js rankItems
   const ranked = rankItems(filtered, q, data.pinyin_chars, data.aliases || []);
   let exact = ranked.exact, possible = ranked.possible;
@@ -1887,12 +1909,12 @@ function rankRows() {
 }
 // 当前的筛选拼成一句（C8 空状态用）
 function filterLabel() {
-  return [activeCat && catLabel(activeCat), activeTopic && '★' + activeTopic, todayOnly && '今日新增', todoOnly && '待补附件', mediaFilter === 'video' && '视频', mediaFilter === 'attachment' && '附件',
+  return [activeCat && catLabel(activeCat), activeTopic && '★' + activeTopic, activeAlbum && '专辑：' + activeAlbum, todayOnly && '今日新增', todoOnly && '待补附件', mediaFilter === 'video' && '视频', mediaFilter === 'attachment' && '附件',
     starOnly && !starredPage && '已收藏', timeRange && timeLabel().split(' · ')[0]].filter(Boolean).join(' · ');
 }
 function paintSub() {
   const r = lastRanked.key ? lastRanked : null;
-  const filtered = !!(committed || todayOnly || todoOnly || starredPage || starOnly || mediaFilter || activeTopic || activeCat || timeRange);
+  const filtered = !!(committed || todayOnly || todoOnly || starredPage || starOnly || mediaFilter || activeTopic || activeAlbum || activeCat || timeRange);
   // 1011 她问「43 / 659 是什么」：43 = 当前筛选 / 搜索命中几篇，659 = 目录里一共几篇（库里所有对象：收藏同步进来的 + 分享 / 导入单篇的，
   // 含后来取消收藏的；回收站里的不算）。和同步进度的「收藏已入库 A/T」不是一个数，悬停写明
   countEl.setText(filtered && r ? `筛出 ${r.exact.length} 篇（共 ${items.length}）` : `${items.length} 篇`);
@@ -2229,7 +2251,7 @@ function layoutGrid() {
 function layoutBody(r, n) {
   cancelFill();
   const shown = r.exact.length + r.possible.length;
-  const simpleEmpty = simplePage && !starredPage && !committed && !activeCat && !activeTopic && !todayOnly && !todoOnly;
+  const simpleEmpty = simplePage && !starredPage && !committed && !activeCat && !activeTopic && !activeAlbum && !todayOnly && !todoOnly;
   if (simpleEmpty || !shown) {
     grid.empty();
     if (committed && !committed.startsWith('#') && !mobile && shown) {
@@ -2420,12 +2442,12 @@ async function checkFresh() {
   } finally { checking = false; paintSub(); }
 }
 if (app.workspace?.on && dv.component?.registerEvent) {
-  dv.component.registerEvent(app.workspace.on('active-leaf-change', () => { if (stale && LB.activeLeafHas(wrap)) checkFresh(); }));
+  lbEvent(app.workspace, app.workspace.on('active-leaf-change', () => { if (stale && LB.activeLeafHas(wrap)) checkFresh(); }));
   // 星标以 catalog-data 为准 + link-brain:star 事件（§5.6）：只换这张卡的 ★，不重排（C2）
-  dv.component.registerEvent(app.workspace.on('link-brain:star', (id, on) => { const it = items.find(x => x.id === id); if (it && !it._starBusy && !!it.starred !== !!on) { it.starred = !!on; paintCard(id); paintSelbar(); } }));
+  lbEvent(app.workspace, app.workspace.on('link-brain:star', (id, on) => { const it = items.find(x => x.id === id); if (it && !it._starBusy && !!it.starred !== !!on) { it.starred = !!on; paintCard(id); paintSelbar(); } }));
   // 10-03：「…→改标题 / 每行几列」改完就地换（不重建卡片）
-  dv.component.registerEvent(app.workspace.on('link-brain:catalog-prefs', () => { titleLabel.setText(titleOf()); const c = savedCols(); if (c !== cols) { cols = c; applyCols(); relayoutIfNeeded(); } }));
-  dv.component.registerEvent(app.workspace.on('link-brain:catalog-query', () => { if (takePendingQuery()) saveState(); }));
+  lbEvent(app.workspace, app.workspace.on('link-brain:catalog-prefs', () => { titleLabel.setText(titleOf()); const c = savedCols(); if (c !== cols) { cols = c; applyCols(); relayoutIfNeeded(); } }));
+  lbEvent(app.workspace, app.workspace.on('link-brain:catalog-query', () => { if (takePendingQuery()) saveState(); }));
 }
 { const winTarget = typeof window !== 'undefined' && window && typeof window.addEventListener === 'function' ? window : null;
   if (winTarget) LB.listen('focus-fresh', winTarget, 'focus', () => checkFresh()); }
@@ -2507,7 +2529,7 @@ function onFindKey(e) {
 }
 LB.listen('find-key', keyTarget, 'keydown', onFindKey, { capture: true });
 // 登记这一版 DOM：Dataview 下次重跑时版本没变就原样挂回；变了走 refresh（只换数据、卡片复用；失败不推进版本）
-LB.keep(wrap, { version: await LB.data.version(), update: () => { syncPerf(); return refresh({ strict: true }); }, onReuse: () => {
+LB.keep(wrap, { park: true, onAdopt: () => { LB.restoreFocus(search, 'search'); if (scrollTop > 0) LB.restoreScroll(scrollTop); }, version: await LB.data.version(), update: () => { syncPerf(); return refresh({ strict: true }); }, onReuse: () => {
   syncPerf();
   if (refreshTags() && committed) dataRev++;
   takePendingQuery();

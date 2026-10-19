@@ -91,7 +91,7 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
   const cards=()=>root.querySelectorAll('.lbc-card').map(c=>c.querySelector('.lbc-ctitle').textContent);
   const chips=()=>root.querySelectorAll('.lbc-topic');
   const cat=label=>root.querySelectorAll('.lbc-cat').find(b=>b.textContent===label);
-  return {root,cards,chips,cat};
+  return {root,cards,chips,cat,dom};
 }
 (async()=>{
   const base={built_at:new Date().toISOString(),pinyin_chars:{},aliases:[],cats_order:['记忆','吃的'],cats:[],items:[
@@ -132,6 +132,22 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
   assert.deepEqual(page.cards(),['长期记忆方案','睡前记忆整理']);
   // 全页不设 aria-label
   assert.equal(page.root.querySelector('.lbc-wrap').all().filter(e=>('aria-label' in e.attrs||'title' in e.attrs)&&!e.classList.contains('lbc-updated')&&!e.classList.contains('lbc-totop')).length,0,'卡片 / 筛选条不设 aria-label、title（「更新」的 title 是她要的悬停全句）');
+  // 1019 专辑：没同步过专辑不出按钮；有专辑出一颗「专辑 ▾」，菜单选一个就筛、再选取消
+  {
+    const alb={...base,items:base.items.map(it=>({...it,albums:it.id==='b'?['做饭']:it.id==='c'?['做饭','睡前']:[]}))};
+    const pg=await runCatalogPage(alb);
+    const btn=()=>pg.root.querySelector('.lbc-album');
+    assert.ok(btn(),'有专辑才出按钮');assert.equal(btn().textContent,'专辑 ▾');
+    btn().onclick({preventDefault(){},stopPropagation(){}});
+    const item=t=>pg.dom.document.body.querySelectorAll('.lbc-menu-item').find(e=>e.textContent===t);
+    assert.ok(item('做饭（2）')&&item('睡前（1）'),'按篇数多的在前，带篇数');
+    item('做饭（2）').onclick({preventDefault(){},stopPropagation(){}});
+    assert.deepEqual(pg.cards(),['快手菜','睡前记忆整理']);
+    assert.equal(btn().textContent,'专辑：做饭 ▾');assert.ok(btn().classList.contains('is-active'));
+    pg.cat('全部').onclick();
+    assert.equal(pg.cards().length,3);assert.equal(btn().textContent,'专辑 ▾');
+    const none=await runCatalogPage(base);assert.equal(none.root.querySelector('.lbc-album'),null);
+  }
   // 主题名不认识的旧 activeTopic / 坏数据不炸
   const bad=await runCatalogPage({...base,topics:[null,'',42]});
   assert.equal(bad.root.querySelectorAll('.lbc-topics').length,0);

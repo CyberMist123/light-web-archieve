@@ -30,6 +30,8 @@ body{--lb-warn:var(--text-warning,var(--color-orange));--lb-warn-bg:var(--backgr
 // 页面样式的 id（CONVENTIONS §5.11）：lb-shared 必须排在它们前面（页面窄屏覆盖共用规则靠「后写的赢」）
 const LB_PAGE_STYLE_IDS = ['lbc-style', 'lbchat-style', 'lb-trash-style', 'lba-annot-style'];
 function lbPageLib(dv, app, role) {
+  // 1019 跨视图复用（park）：切走时页面整块摘下暂存在 G.__lbPark[role]，回来挂到新视图的容器后面；
+  // 所以 dv / container 可换（rebind），所有「卸载时做」一律走 onUnload，由这里决定是暂存还是真拆。
   const G = typeof globalThis !== 'undefined' ? globalThis : {};
   // 计时 / 帧先用词法名字（Dataview 里就是全局；单测经 dataviewBlock({params}) 注入 tests/_clock.cjs 的假时钟），没有再退回 globalThis
   const perfObj = (typeof performance !== 'undefined' && performance && typeof performance.now === 'function') ? performance
@@ -39,7 +41,7 @@ function lbPageLib(dv, app, role) {
     || (typeof G.requestAnimationFrame === 'function' && (f => G.requestAnimationFrame(f))) || (f => setTimeout(f, 16));
   const started = clock();
   let last = started;
-  const container = dv && dv.container;
+  let container = dv && dv.container;
   // Dataview 页里 document / window / Notice 都是全局（脚本在主窗口里 eval）；页面开在弹出窗口里时容器在弹出窗口的 document 里——
   // 建元素、挂样式、兜底确认框都按容器所在的 document / window 来（node 单测 tests/_fakedom.cjs 把它们当参数传进来）
   const gdoc = (typeof document !== 'undefined' && document) || G.document || null;
@@ -187,6 +189,35 @@ function lbPageLib(dv, app, role) {
   // Dataview 重跑只清 container.innerHTML（0.5.68：main.js:19056），碰不到它的兄弟，输入框不失焦、输入法不断。
   // 卸载（Obsidian 重画这一段 / 关页）时 component.register 摘掉 host。批注块不用它（它要挪到左栏图片下面）。
   let hostEl = null;
+  const unloadFns = [];
+  let parkOpt = false;
+  function hookUnload() {
+    try {
+      dv.component?.register?.(() => {
+        const view = container && container.__lbView;
+        const host = view && view.host;
+        if (parkOpt && view && host) {
+          // 暂存：摘下不拆（监听、定时器都留着；全局快捷键靠 activeLeafHas 自己判看不看得见）
+          const prev = G.__lbPark && G.__lbPark[role];
+          if (prev && prev.view !== view) { try { prev.drop(); } catch {} }
+          (G.__lbPark = G.__lbPark || {})[role] = { view, doc, drop: runUnload, at: Date.now() };
+          try { host.remove(); } catch {}
+          return;
+        }
+        runUnload();
+      });
+    } catch {}
+  }
+  function runUnload() { for (const f of unloadFns.splice(0)) { try { f(); } catch {} } }
+  function onUnload(fn) { unloadFns.push(fn); }
+  hookUnload();
+  // 挂回新视图：换成新视图的 dv / container，重挂卸载钩子和滚动监听
+  const scrollFns = [];
+  function rebind(newDv) {
+    dv = newDv; container = newDv && newDv.container;
+    hookUnload();
+    for (const fn of scrollFns) bindScroll(fn);
+  }
   function mountHost(cls = '') {
     if (hostEl) return hostEl;   // 同一次运行里再调：还是这一个（不把刚建好、已经画了内容的 host 当残留删掉）
     if (!container || typeof container.after !== 'function' || !doc) return container;
@@ -200,7 +231,7 @@ function lbPageLib(dv, app, role) {
     host.className = 'lb-page-host' + (cls ? ' ' + cls : '');
     host.dataset.lbRole = role;
     container.after(host);
-    try { dv.component?.register?.(() => host.remove()); } catch {}
+    onUnload(() => host.remove());
     hostEl = host;
     return host;
   }
@@ -210,8 +241,9 @@ function lbPageLib(dv, app, role) {
   // 用了 mountHost 的页面会连 host 一起登记，重跑时把 host 挂回 container 后面、el 挂回 host（el 就是 host 本身也行）
   function keep(el, opts = {}) {
     if (!container) return;
-    container.__lbView = { role, el, host: opts.host || hostEl, version: opts.version ?? null, versionOf: opts.versionOf || DATA, update: opts.update, onReuse: opts.onReuse,
-      updating: null, lastError: null };
+    parkOpt = !!opts.park;
+    container.__lbView = { role, el, host: opts.host || hostEl, version: opts.version ?? null, versionOf: opts.versionOf || DATA, update: opts.update, onReuse: opts.onReuse, onAdopt: opts.onAdopt,
+      updating: null, lastError: null, rebind };
   }
   // 页面自己刚写过版本文件（批注保存）：把登记的版本跟上，免得下次重跑当成「别处改了」再读一遍
   async function rekeep() {
@@ -228,7 +260,7 @@ function lbPageLib(dv, app, role) {
     if (typeof G.ResizeObserver !== 'function' || typeof dv.component?.render !== 'function') return false;
     const ro = new G.ResizeObserver(() => { if (container.isShown()) { ro.disconnect(); dv.component.render(); } });
     ro.observe(editor);
-    try { dv.component.register?.(() => ro.disconnect()); } catch {}
+    try { dv.component.register?.(() => ro.disconnect()); } catch {}   // 只属于这一次运行（没画），不进 onUnload
     t('deferred(hidden editor)');
     return true;
   }
@@ -240,7 +272,19 @@ function lbPageLib(dv, app, role) {
   const UPDATE_LOCK_MS = 30000;
   async function reuseDom() {
     if (await deferIfHidden()) return true;
-    const view = container && container.__lbView;
+    let view = container && container.__lbView;
+    const parked = G.__lbPark && G.__lbPark[role];
+    if (!view && parked && parked.doc === doc && container && typeof container.after === 'function') {
+      // 1019：上次切走时暂存的整页 → 挂到这个新视图后面（不重建 1000+ 张卡）
+      delete G.__lbPark[role];
+      view = parked.view;
+      container.__lbView = view;
+      for (let n = container.nextElementSibling; n && n.classList?.contains('lb-page-host') && n.dataset?.lbRole === role;) { const next = n.nextElementSibling; n.remove(); n = next; }
+      container.after(view.host);
+      try { view.rebind?.(dv); } catch {}
+      view.adopted = true;
+      t('adopt');
+    }
     if (!view || view.role !== role || !view.el) return false;
     if (view.host) {
       // 挂在 host 上的页：host 被摘了（少见）就挂回 container 后面；el 始终在 host 里
@@ -278,6 +322,7 @@ function lbPageLib(dv, app, role) {
       if (v && !view.version) view.version = v;
       try { view.onReuse?.(); } catch {}
     }
+    if (view.adopted) { view.adopted = false; try { view.onAdopt?.(); } catch {} }
     t('total');
     return true;
   }
@@ -291,7 +336,7 @@ function lbPageLib(dv, app, role) {
     if (prev) { try { prev.target.removeEventListener(prev.type, prev.fn, prev.opts); } catch {} }
     target.addEventListener(type, fn, opts);
     reg[k] = { target, type, fn, opts };
-    try { dv.component?.register?.(() => { if (reg[k]?.fn === fn) { target.removeEventListener(type, fn, opts); delete reg[k]; } }); } catch {}
+    onUnload(() => { if (reg[k]?.fn === fn) { target.removeEventListener(type, fn, opts); delete reg[k]; } });
   }
 
   // ── 滚动：阅读视图里滚的是整个 .markdown-preview-view；记住位置，回来时等内容长够了再滚回去 ──
@@ -332,7 +377,8 @@ function lbPageLib(dv, app, role) {
       step();
     });
   }
-  function onScroll(fn) {
+  function onScroll(fn) { scrollFns.push(fn); bindScroll(fn); }
+  function bindScroll(fn) {
     const el = scroller();
     if (!el) return;
     let queued = false;
@@ -529,7 +575,7 @@ function lbPageLib(dv, app, role) {
     } catch { return false; }
   }
 
-  return { root, path, provider, ensure, state, data, keep, rekeep, reuseDom, listen, scroller, restoreScroll, onScroll, t, mark, role, container,
+  return { root, path, provider, ensure, state, data, keep, rekeep, reuseDom, listen, onUnload, scroller, restoreScroll, onScroll, t, mark, role, get container() { return container; },
     // 批次 D 地基
     mountHost, style, dataUpdatedAt, mobile, MOBILE_ONLY_TEXT, mobileNote, need, openPage,
     say, progress, undoNotice, confirm, busy, showMenu, menuOpen, trackFocus, restoreFocus, activeLeafHas };
