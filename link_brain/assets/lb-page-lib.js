@@ -52,6 +52,15 @@ function lbPageLib(dv, app, role) {
   const perf = (G.__lbPerf = G.__lbPerf || {});
   const marks = [];
   perf[role] = { at: Date.now(), marks };
+  if (!G.__lbPerfHook) {
+    G.__lbPerfHook = true;
+    try { app?.workspace?.on?.('active-leaf-change', () => { G.__lbLeafAt = clock(); }); } catch {}
+    try {
+      G.__lbLongTasks = [];
+      const po = new G.PerformanceObserver(list => { for (const e of list.getEntries()) { G.__lbLongTasks.push({ start: e.startTime, dur: e.duration }); if (G.__lbLongTasks.length > 200) G.__lbLongTasks.shift(); } });
+      po.observe({ type: 'longtask', buffered: false });
+    } catch {}
+  }
   // 计时：每一段记「距上一个点」的毫秒数；total 记从开跑到现在
   function t(label) {
     const now = clock();
@@ -59,7 +68,25 @@ function lbPageLib(dv, app, role) {
     if (label !== 'total') last = now;
     marks.push([label, ms]);
     try { console.debug(`[lb] ${role} ${label} ${ms}ms`); } catch {}
+    if (label === 'total') perfLog();
     return ms;
+  }
+  // 1019 切页卡顿实测：每次画完（total）1.5 秒后往 _archive/perf-log.jsonl 追加一行——
+  // 从切页（active-leaf-change）到脚本开跑、各段、总计，外加这段时间里的长任务（>50ms 卡住主线程，含 Obsidian 自己渲染）
+  function perfLog() {
+    try {
+      const leafAt = G.__lbLeafAt || 0;
+      setTimeout(() => {
+        try {
+          const now = clock();
+          const lt = (G.__lbLongTasks || []).filter(x => x.start >= (leafAt || started) - 50 && x.start <= now);
+          const line = JSON.stringify({ at: new Date().toISOString(), role, leaf_to_start: leafAt ? Math.round(started - leafAt) : null,
+            marks, long_tasks: lt.length, long_ms: Math.round(lt.reduce((a, x) => a + x.dur, 0)), long_max: Math.round(Math.max(0, ...lt.map(x => x.dur))) });
+          const ad = app?.vault?.adapter, f = path('_archive/perf-log.jsonl');
+          const NL = String.fromCharCode(10); if (ad?.append) ad.append(f, line + NL).catch?.(() => ad.write?.(f, line + NL));
+        } catch {}
+      }, 1500);
+    } catch {}
   }
   // 绝对时刻（距开跑）：给「封面出来了」这种异步终点用
   function mark(label) {
