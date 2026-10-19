@@ -333,7 +333,15 @@ catch {
   }
   return;
 }
-let items = data.items || [];
+// 1020 来源（她定）：src='' 是她自己的收藏；她在 TG 发给 Fable 的「聊天分享」、Fable 自己收的「fable」、CC / GPT 按项目收的（项目名）
+// 各是一个来源（catalog.py 的 src，规则在 provenance.py）。目录默认只看她自己的收藏，「来源 ▾」切；已收藏页不分来源。
+// items = 当前来源下的那些（下面所有计数 / 排名 / 专辑都按它算），allItems = 全部
+let allItems = data.items || [];
+let activeSrc = '';   // ''=我的收藏 / '*'=全部 / 其它=那个来源
+const srcOf = it => (typeof it.src === 'string' ? it.src : '');
+let items = [];
+function applySrc() { items = starredPage || activeSrc === '*' ? allItems : allItems.filter(it => srcOf(it) === activeSrc); }
+applySrc();
 // 笔记当前的标签（后台插件增删标签不必重建目录）：读 Obsidian 的元数据缓存，不走 dv.page 逐篇序列化
 function tagsOf(it) {
   if (!it.note) return null;
@@ -454,7 +462,7 @@ async function refresh({ strict = false } = {}) {
   let v = null, next;
   try { v = await LB.data.version(); next = await LB.data.load(); }
   catch (e) { if (strict) throw e; return false; }
-  data = next; items = data.items || [];
+  data = next; allItems = data.items || []; applySrc();
   await loadIndex();
   if (activeCat && !knownCat(activeCat)) activeCat = '';
   refreshTags(); dataRev++; stale = false;
@@ -776,12 +784,20 @@ function albumCounts() {
   for (const it of items) for (const a of Array.isArray(it.albums) ? it.albums : []) if (typeof a === 'string' && a) m.set(a, (m.get(a) || 0) + 1);
   return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh'));
 }
+// 来源：不是她自己收藏的那几组各有几篇（多的在前）；全是她自己的就没有这颗按钮
+function srcCounts() {
+  const m = new Map();
+  for (const it of allItems) { const s = srcOf(it); if (s) m.set(s, (m.get(s) || 0) + 1); }
+  return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh'));
+}
 function renderTopicBar() {
   const names = Array.isArray(data.topics) ? data.topics.filter(n => typeof n === 'string' && n) : [];
   if (!names.includes(activeTopic)) activeTopic = '';
+  const srcs = starredPage ? [] : srcCounts();
+  if (activeSrc && activeSrc !== '*' && !srcs.some(([n]) => n === activeSrc)) { activeSrc = ''; applySrc(); }
   const albums = albumCounts();
   if (!albums.some(([n]) => n === activeAlbum)) activeAlbum = '';
-  if (!names.length && !albums.length) { if (topicBar) { topicBar.remove(); topicBar = null; } return; }
+  if (!names.length && !albums.length && !srcs.length) { if (topicBar) { topicBar.remove(); topicBar = null; } return; }
   if (!topicBar) { topicBar = top.createEl('div', { cls: 'lbc-topics' }); top.insertBefore(topicBar, (subBar || catBar).nextSibling); barWheel(topicBar); }
   topicBar.empty();
   for (const name of names) {
@@ -801,6 +817,21 @@ function renderTopicBar() {
     chip.onclick = e => popMenu([
       ...(activeAlbum ? [{ title: '全部专辑（取消筛选）', onClick: () => pick('') }, { separator: true }] : []),
       ...albums.map(([n, c]) => ({ title: `${n}（${c}）`, checked: n === activeAlbum, onClick: () => pick(n === activeAlbum ? '' : n) })),
+    ], e, chip);
+  }
+  if (srcs.length) {
+    // 1020：和「专辑 ▾」同一个样子；默认「我的收藏」不算筛选（不高亮），切到别的来源才高亮
+    const mine = allItems.length - srcs.reduce((n, [, c]) => n + c, 0);
+    const label = activeSrc === '' ? '我的收藏' : activeSrc === '*' ? '全部来源' : activeSrc;
+    const chip = topicBar.createEl('button', { cls: 'lbc-topic lbc-album lbc-src' + (activeSrc ? ' is-active' : ''), text: `${label} ▾` });
+    chip.type = 'button';
+    chip.setAttribute('aria-pressed', String(!!activeSrc));
+    const pick = s => { indexView = false; activeSrc = s; applySrc(); dataRev++; renderCatBar(); render(); scrollToResults(); };
+    chip.onclick = e => popMenu([
+      { title: `我的收藏（${mine}）`, checked: activeSrc === '', onClick: () => pick('') },
+      { title: `全部（${allItems.length}）`, checked: activeSrc === '*', onClick: () => pick('*') },
+      { separator: true },
+      ...srcs.map(([n, c]) => ({ title: `${n}（${c}）`, checked: n === activeSrc, onClick: () => pick(n) })),
     ], e, chip);
   }
 }
@@ -940,6 +971,7 @@ if (saved.ts) {
   for (const pair of Array.isArray(saved.fold) ? saved.fold : []) if (Array.isArray(pair) && typeof pair[0] === 'string') foldOverride.set(pair[0], !!pair[1]);
   if (typeof saved.topic === 'string') activeTopic = saved.topic;
   if (typeof saved.album === 'string') activeAlbum = saved.album;   // renderTopicBar 会把已不存在的主题清掉
+  if (typeof saved.src === 'string') { activeSrc = saved.src; applySrc(); }   // 已不存在的来源同样由 renderTopicBar 清掉
   todayOnly = !!saved.today; todoOnly = !!saved.todo;
   if (['video', 'attachment'].includes(saved.media)) mediaFilter = saved.media;
   if (!starredPage) starOnly = !!saved.star;
@@ -956,7 +988,7 @@ if (saved.ts) {
 }
 let scrollTop = savedScroll;
 function saveState() {
-  LB.state.save({ q: committed, raw: lastRaw, input: search.value, cat: activeCat, topic: activeTopic, album: activeAlbum, today: todayOnly, todo: todoOnly, media: mediaFilter, star: starOnly,
+  LB.state.save({ q: committed, raw: lastRaw, input: search.value, cat: activeCat, topic: activeTopic, album: activeAlbum, src: activeSrc, today: todayOnly, todo: todoOnly, media: mediaFilter, star: starOnly,
     selectMode, select: [...selected], scrollTop, cols, timeSort, timeRange, timeFrom, timeTo, exportImages,
     iview: indexView, fold: [...foldOverride].slice(-200) });
 }
@@ -1682,6 +1714,7 @@ async function confirmDelete(list) {
     const results = r?.results || [];
     const gone = new Set(results.filter(x => x.status === 'deleted' || x.status === 'ok').map(x => x.item_id));
     for (let i = items.length - 1; i >= 0; i--) if (gone.has(items[i].id)) items.splice(i, 1);
+    for (let i = allItems.length - 1; i >= 0; i--) if (gone.has(allItems[i].id)) allItems.splice(i, 1);   // 1020：items 可能只是一个来源的子集
     for (const id of gone) { selected.delete(id); const c = cardCache.get(id); c?.el?.remove(); cardCache.delete(id); }
     for (const c of cards) c.classList.remove('is-deleting');
     const left = list.filter(x => !gone.has(x.id));
@@ -1890,7 +1923,7 @@ function saveSelectionDialog(list) {
 
 // ── 排名（C2：结果集只在 key 变了才重算；点星 / 勾选不重排） ──
 let lastRanked = { key: null, exact: [], possible: [], q: '' };
-function rankKey() { return JSON.stringify([committed, activeCat, activeTopic, activeAlbum, todayOnly, todoOnly, mediaFilter, starOnly || starredPage, timeSort, timeRange, timeFrom, timeTo, dataRev, idx ? selSig() : idxRev]); }
+function rankKey() { return JSON.stringify([committed, activeCat, activeTopic, activeAlbum, activeSrc, todayOnly, todoOnly, mediaFilter, starOnly || starredPage, timeSort, timeRange, timeFrom, timeTo, dataRev, idx ? selSig() : idxRev]); }
 function rankRows() {
   const key = rankKey();
   if (lastRanked.key === key) return lastRanked;

@@ -112,7 +112,7 @@ def _needs_fetch(parsed: dict[str, Any]) -> bool:
 
 def _catch_one(
     url: str, *, message: str, origin: str, actor: str, verbose: bool, lock: _LazyLock | None = None,
-    refresh: bool = False,
+    refresh: bool = False, project: str = "",
 ) -> dict[str, Any]:
     """抓取阶段的一条链接。返回条目 dict；新抓的带内部键 `_source_id`（之后补识图用）。"""
     from . import enrich as enrich_mod, render as render_mod
@@ -155,6 +155,9 @@ def _catch_one(
     status = "new" if fresh else "hit"
     source_key, source_id = xhs.SOURCE, summary["note_id"]
 
+    if fresh and project:
+        _set_project(source_key, source_id, project)
+
     render_error = None
     try:
         if fresh:
@@ -174,6 +177,19 @@ def _catch_one(
 
     return {"item_id": summary.get("item_id"), "status": status, "url": url, "_source_id": source_id,
             "_render_error": render_error, "_blocked_code": blocked_code}
+
+
+def _set_project(source_key: str, source_id: str, project: str) -> None:
+    """1020：AI 为哪个项目收的，记进 meta.project（目录「来源」按它分组，见 provenance.py）。只在新收的篇上记。"""
+    from .provenance import clean_project
+
+    name = clean_project(project)
+    meta_path = storage.object_dir(source_key, source_id) / "meta.json"
+    if not name or not meta_path.exists():
+        return
+    meta = storage.read_json(meta_path)
+    meta["project"] = name
+    storage.write_json(meta_path, meta)
 
 
 def _finish(entry: dict[str, Any], enriched: dict[str, Any] | None) -> dict[str, Any]:
@@ -205,6 +221,7 @@ def catch_message(
     *,
     origin: str = "cli",
     actor: str = "human",
+    project: str = "",
     verbose: bool = False,
     extract: bool = False,
     refresh: bool = False,
@@ -219,7 +236,7 @@ def catch_message(
         lock = _LazyLock(stack, "catch", wait_lock_s)
         for url in find_xhs_urls(message):
             entry = _catch_one(url, message=message, origin=origin, actor=actor, verbose=verbose,
-                               lock=lock, refresh=refresh)
+                               lock=lock, refresh=refresh, project=project)
             item_id = entry.get("item_id")
             if item_id:
                 if item_id in seen:
@@ -269,6 +286,7 @@ def run(args) -> int:
             args.message,
             origin=args.origin,
             actor=args.actor,
+            project=getattr(args, "project", "") or "",
             verbose=getattr(args, "verbose", False),
             extract=getattr(args, "extract", False),
             refresh=getattr(args, "refresh", False),

@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 
 PROG = "python -m link_brain"
@@ -118,6 +119,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--wait-lock-min", dest="wait_lock_min", type=float, default=2,
                    help="号被别的任务占着时最多等几分钟（默认 2），等不到退出码 6")
 
+    p = sub.add_parser("relabel", help="改「谁收的」（meta + 索引）：比如 AI 调研收的帖被记成了她分享的；改完跑 catalog")
+    p.add_argument("items", nargs="+", help="笔记 id（xhs- 前缀可省）")
+    p.add_argument("--actor", help="human 或 ai:<name>")
+    p.add_argument("--origin", choices=ORIGINS)
+    p.add_argument("--project", help="项目名（空串 = 清掉）")
+
     p = sub.add_parser(
         "catch",
         help="给主模型用：吃一整条消息，自己找小红书链接归档，只打一个 JSON",
@@ -125,6 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("message", help="原始消息全文（整条会当作留言 cmt1 存进可见笔记）")
     p.add_argument("--origin", choices=ORIGINS, default="cli", help="从哪个端进来的")
     p.add_argument("--actor", default="human", help="human 或 ai:<name>")
+    p.add_argument("--project", default="", help="AI 为哪个项目收的（目录里按它分组，比如 graph / ai群聊）；只记在新收的篇上")
     p.add_argument(
         "--extract",
         action="store_true",
@@ -558,6 +566,13 @@ def _dispatch(args) -> int:
         from . import enrich as enrich_mod
 
         return enrich_mod.run(args)
+
+    if args.command == "relabel":
+        from . import provenance
+
+        rows = provenance.relabel(args.items, actor=args.actor, origin=args.origin, project=args.project)
+        print(json.dumps({"items": rows}, ensure_ascii=False))
+        return 0 if all(r["status"] == "ok" for r in rows) else 1
 
     if args.command == "catch":
         from . import catch as catch_mod

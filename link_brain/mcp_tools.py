@@ -309,6 +309,7 @@ def search(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
             row = {"id": _short_id(it.get("id")), "title": it.get("title") or "", "author": it.get("author") or "",
                    "summary": _row_summary(it, BRIEF_SUMMARY_CHARS if detail == "brief" else 80), "date": it.get("date") or "",
                    "tags": item_tag_list(it)[:ROW_TAGS], **({"albums": it["albums"]} if it.get("albums") else {}),
+                   **({"src": it["src"]} if it.get("src") else {}),
                    "kinds": item_kinds(it), "source_url": it.get("url") or None,
                    "score": round(float(cand.get("score") or 0), 4), "agent_md": _abs(ctx, agent)}
             if detail == "hits":
@@ -1215,7 +1216,8 @@ def run_browse(args) -> int:
             continue
         tags = " ".join("#" + t for t in (r.get("tags") or [])[:5])
         albums = " ".join("〔" + a + "〕" for a in r.get("albums") or [])
-        print("｜".join(x for x in (r["id"], r.get("date") or "", r.get("title") or "", albums, tags, r.get("summary") or "") if x))
+        src = f"〈{r['src']}〉" if r.get("src") else ""   # 1020：不是她自己收藏的标谁收的
+        print("｜".join(x for x in (r["id"], r.get("date") or "", r.get("title") or "", src, albums, tags, r.get("summary") or "") if x))
     if res.get("note"):
         print(res["note"])
     nxt = res.get("next_offset")
