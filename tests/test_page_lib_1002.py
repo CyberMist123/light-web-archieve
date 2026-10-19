@@ -38,7 +38,8 @@ def test_build_inlines_page_lib_everywhere(tmp_path, monkeypatch):
     lib = (ASSETS / "lb-page-lib.js").read_text(encoding="utf-8")
     pages = catalog.library_pages(tmp_path)
     # 1017：目录页 / 已收藏页的脚本存 _archive/catalog-page.js / starred-page.js，md 里只有载入它的一小段引导
-    scripts = {"catalog": tmp_path / "_archive" / catalog.CATALOG_SCRIPT_NAME, "starred": tmp_path / "_archive" / catalog.STARRED_SCRIPT_NAME}
+    scripts = {"catalog": tmp_path / "_archive" / catalog.CATALOG_SCRIPT_NAME, "starred": tmp_path / "_archive" / catalog.STARRED_SCRIPT_NAME,
+               "chat": tmp_path / "_archive" / catalog.CHAT_SCRIPT_NAME}  # 1019：问收藏页也走引导
     for role in ("catalog", "chat", "starred"):
         page = (tmp_path / pages[role]).read_text(encoding="utf-8")
         text = scripts[role].read_text(encoding="utf-8") if role in scripts else page

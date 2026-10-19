@@ -222,7 +222,7 @@ LB.style('lbchat-style', `
 .lbchat-clear[hidden]{display:none;}
 .lbchat-body{min-height:40px;}
 .lbchat-empty{color:var(--text-faint);font-size:14px;line-height:1.9;padding:8px 0;}
-.lbchat-turn{margin:0 0 26px;line-height:1.8;font-size:15px;overflow-wrap:anywhere;}
+.lbchat-turn{margin:0 0 26px;line-height:1.8;font-size:15px;overflow-wrap:anywhere;content-visibility:auto;contain-intrinsic-size:auto 320px;}
 .lbchat-user{color:var(--text-normal);font-weight:500;}
 .lbchat-user .lbchat-qmark{color:var(--text-faint);margin-right:8px;}
 .lbchat-answer{line-height:1.8;}

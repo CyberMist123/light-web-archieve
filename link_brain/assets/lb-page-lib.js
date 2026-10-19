@@ -347,9 +347,9 @@ function lbPageLib(dv, app, role) {
       t('update');
     } else {
       if (v && !view.version) view.version = v;
-      try { view.onReuse?.(); } catch {}
+      try { view.onReuse?.(); } catch {} t('onReuse');
     }
-    if (view.adopted) { view.adopted = false; try { view.onAdopt?.(); } catch {} }
+    if (view.adopted) { view.adopted = false; try { view.onAdopt?.(); } catch {} t('onAdopt'); }
     t('total');
     return true;
   }

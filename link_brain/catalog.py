@@ -540,7 +540,10 @@ def _page_bootstrap(script_name: str) -> str:
 
 _DATAVIEWJS = _page_bootstrap(CATALOG_SCRIPT_NAME)
 # 收藏搜索页 = 极简对话版（chat-view.js），跟浏览目录页分开（Owner 2026-09-17）。
-_CHATJS = "```dataviewjs\n" + _PAGE_LIB + "\n" + (_ASSETS / "catalog-search.js").read_text(encoding="utf-8") + '\n' + (_ASSETS / "chat-view.js").read_text(encoding="utf-8") + "\n```"
+# 1019：问收藏页也走引导（以前 247KB 烤在 md 里，每次切过去 Obsidian 先解析约 290ms 才开跑——perf-log 实测）
+CHAT_SCRIPT_NAME = "chat-page.js"
+_CHAT_SCRIPT = _PAGE_LIB + "\n" + (_ASSETS / "catalog-search.js").read_text(encoding="utf-8") + "\n" + (_ASSETS / "chat-view.js").read_text(encoding="utf-8") + "\n"
+_CHATJS = _page_bootstrap(CHAT_SCRIPT_NAME)
 _PAGE_HEADER = "---\ncssclasses: [lb-catalog]\n---\n\n"
 _CHAT_HEADER = "---\ncssclasses: [lb-chatpage]\n---\n\n"
 
@@ -687,6 +690,7 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
     # 先写脚本再写页：页面载入时脚本已经是新的
     storage.atomic_write_text(vault / "_archive" / CATALOG_SCRIPT_NAME, _CATALOG_SCRIPT)
     storage.atomic_write_text(vault / "_archive" / STARRED_SCRIPT_NAME, _STARRED_SCRIPT)
+    storage.atomic_write_text(vault / "_archive" / CHAT_SCRIPT_NAME, _CHAT_SCRIPT)
     storage.atomic_write_text(catalog_path, _PAGE_HEADER.replace("---\n", "---\nlb-page: catalog\n", 1) + _DATAVIEWJS + "\n")
 
     storage.atomic_write_text(vault / pages["chat"], _CHAT_HEADER.replace("---\n", "---\nlb-page: chat\n", 1) + _CHATJS + "\n")
