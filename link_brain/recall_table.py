@@ -235,7 +235,12 @@ def judge(result: dict[str, Any], settings: dict[str, Any], cap: int = JUDGE_CAP
     if not rows:
         result["judge"] = {"status": "skipped", "judged": 0, "error": "没有候选"}
         return result["judge"]
-    res = ask.call_text(JUDGE_INSTRUCTION, judge_text(result, cap), settings) or {}
+    # 1020 她：回答前冒出一堆「1|deep_read|…」——判定是内部一步，别把它的输出流到回答区（同 _select_sources）
+    token = ask._ON_DELTA.set(None)
+    try:
+        res = ask.call_text(JUDGE_INSTRUCTION, judge_text(result, cap), settings) or {}
+    finally:
+        ask._ON_DELTA.reset(token)
     status = res.get("status") or "failed"
     verdicts = parse_verdicts(res.get("text") or "") if status == "ok" else {}
     for row in rows:

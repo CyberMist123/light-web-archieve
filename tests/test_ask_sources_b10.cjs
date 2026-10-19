@@ -35,7 +35,7 @@ const DATA = '_archive/catalog-data.json';
   // 两档：主要依据（送进模型的，带 [来源N]）在前，其他相关在后
   assert.equal(boxes().length, 2);
   assert.ok(boxes()[0].textContent.includes('主要依据 · 2') && boxes()[0].textContent.includes('[来源1] 主要a'));
-  assert.ok(boxes()[1].classList.contains('lbchat-src-more') && boxes()[1].textContent.includes('其他相关 · 3'));
+  assert.ok(boxes()[1].classList.contains('lbchat-src-more') && boxes()[1].textContent.includes('可能相关 · 3'));
   // 删掉主要依据里的 a 和其他相关里的 d
   const del = (box, title) => { const links = box.querySelectorAll('a'); const i = links.findIndex(a => a.textContent.includes(title)); return box.querySelectorAll('.lbchat-src-del')[i]; };
   await del(boxes()[0], '主要a').onclick(); await tick(5);
@@ -44,7 +44,7 @@ const DATA = '_archive/catalog-data.json';
   const rowIn = (box, title) => box.querySelectorAll('.lbchat-srcrow').find(r => r.querySelector('a').textContent.includes(title));
   assert.ok(rowIn(boxes()[0], '主要a').classList.contains('is-removed') && boxes()[0].textContent.includes('主要依据 · 1'));
   assert.deepEqual(rowIn(boxes()[0], '主要a').querySelectorAll('button').map(b => b.textContent), ['恢复']);
-  assert.ok(boxes()[1].textContent.includes('其他相关 · 2') && rowIn(boxes()[1], '相关d').classList.contains('is-removed'));
+  assert.ok(boxes()[1].textContent.includes('可能相关 · 2') && rowIn(boxes()[1], '相关d').classList.contains('is-removed'));
   const saved = JSON.parse(V.get('_archive/chat-session.json'));
   assert.deepEqual(saved.turns[1].removed, ['a', 'd'], '删除记在这一轮里，跟会话一起存');
   // 按剩下的重新回答：只交留下的来源（主要依据在前、其他相关按原顺序），问题不变

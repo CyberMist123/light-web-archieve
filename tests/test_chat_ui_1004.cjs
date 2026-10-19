@@ -39,13 +39,14 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   const saved = () => JSON.parse(V.get(SESSION));
 
   await open();
-  // ① 标题旁的「+」去掉了（标题里也没有「清空」）；没对话时那行小字和「清空」都不出；输入框左边的 + 还在、还是导入菜单
+  // ① 标题旁的「+」去掉了（标题里也没有「清空」）；没对话时那行小字和「清空」都不出；1020 起输入框左边的 + 也去掉了（导入在浏览收藏页），模型下拉旁是「回答 · 报告」
   assert.equal(all('.lbchat-plus').length, 0);
   assert.equal(one('.lbchat-titlerow').querySelectorAll('button').length, 0);
   assert.equal(all('.lbchat-clearall').length, 0);
-  const clear = { get disabled() { return one('.lbchat-followbar .lbchat-clearall').disabled; } };
-  one('.lbchat-cplus').onclick({});
-  assert.deepEqual(menus, ['plus']);
+  const clear = { get disabled() { return one('.lbchat-clearbox .lbchat-clearall').disabled; } };
+  assert.equal(all('.lbchat-cplus').length, 0);
+  assert.deepEqual(all('.lbchat-answermode .lbchat-seg-opt').map(b => b.textContent), ['回答', '报告']);
+  assert.deepEqual(menus, []);
   // ④ ③ 样式：dataviewjs 外框隐形（阅读 + 实时预览、悬停编辑按钮），对话区不画滚动条
   const css = (DOM.document.getElementById('lbchat-style') || one('style')).textContent;   // 10-04 晚：样式挪进 document.head
   assert.ok(css.includes('.lb-chatpage,.lb-catalog,.lb-trashpage') && css.includes('.cm-embed-block:has(.block-language-dataviewjs)') && css.includes('.edit-block-button{display:none!important;}'));
@@ -57,11 +58,13 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   assert.equal(asks.length, 1);
   assert.equal(asks[0].sourceIds, undefined);
   assert.equal(clear.disabled, false);
-  // 答完：输入框上面出现「在当前 3 条来源里追问 · 改为重新搜」
+  // 答完：输入框上面一行「追问 · 新对话」（这里偏好是追问）+ 右边「清空上下文」
   const bar = one('.lbchat-followbar');
+  const seg = label => all('.lbchat-followmode .lbchat-seg-opt').find(b => b.textContent === label);
   assert.equal(bar.hidden, false);
-  assert.ok(bar.textContent.includes('在当前 3 条来源里追问') && bar.textContent.includes('改为重新搜'));
-  assert.equal(bar.querySelector('.lbchat-clearall').textContent, '清空', '「清空」在来源那行小字旁边');
+  assert.ok(seg('追问').classList.contains('is-on') && !seg('新对话').classList.contains('is-on'));
+  assert.ok(!bar.textContent.includes('改为'), '不再写「改为……」');
+  assert.equal(one('.lbchat-clearbox .lbchat-clearall').textContent, '清空上下文');
   assert.equal(one('.lbchat-search').placeholder, '在当前来源里继续追问…');
 
   // ⑥ 来源入口：收起时 summary 后面有提示小字；每行 标题 + 保留 + × 在同一行里
@@ -89,20 +92,23 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   assert.equal(turns[2].sources, 2);
   assert.ok(A.section.textContent.includes('在当前 2 条来源里追问'));
 
-  // 改为重新搜：下一问重新检索（不带 sourceIds，带会话的排除 / 保留），状态存进会话文件
-  await one('.lbchat-follow-switch').onclick(); await tick(5);
+  // 点「新对话」：下一问重新检索（不带 sourceIds），开一段新对话（这段进历史），状态存进会话文件
+  const before1020 = saved().id;
+  await seg('新对话').onclick(); await tick(5);
   assert.equal(saved().follow, 'search');
-  assert.ok(one('.lbchat-followbar').textContent.includes('下一问重新搜收藏') && one('.lbchat-followbar').textContent.includes('改为在当前'));
+  assert.ok(seg('新对话').classList.contains('is-on'));
   assert.equal(one('.lbchat-search').placeholder, '继续追问…');
   await ask('换个城市呢');
   assert.equal(asks[2].sourceIds, undefined);
-  assert.deepEqual(Array.from(asks[2].pinIds), ['b']);
-  assert.equal(saved().turns[4].mode, 'ask');
+  assert.notEqual(saved().id, before1020, '新对话 = 开新一段');
+  assert.ok(V.get('_archive/chat-history/' + before1020 + '.json'), '上一段进了历史');
+  assert.equal(saved().turns[0].mode, 'ask');
 
-  // 刷新页面：开关状态还在；改回当前来源
+  // 刷新页面：新开的这段按偏好默认（追问）；点回「追问」照样存
   await open();
-  assert.ok(one('.lbchat-follow-switch').textContent.startsWith('改为在当前'));
-  await one('.lbchat-follow-switch').onclick(); await tick(5);
+  await seg('新对话').onclick(); await tick(5);
+  assert.ok(seg('新对话').classList.contains('is-on'));
+  await seg('追问').onclick(); await tick(5);
   assert.equal(saved().follow, 'sources');
 
   // 停掉的回答不算「上一轮」：绑到之前那条没失败的
@@ -138,5 +144,5 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   await ask('再说说');
   assert.ok(Array.isArray(asks.at(-1).sourceIds));
 
-  console.log('PASS chat 1004: title + removed, 清空 beside the source line above the composer (no confirm, new conversation, old one kept in history, resets follow), composer + unchanged, follow-up bound to kept sources by default (pinned first, removed dropped, stopped answers skipped), 改为重新搜 persisted, fresh after clear / catalog jump, source rows show 保留 / × with hint, scrollbar + block frame CSS');
+  console.log('PASS chat 1004: title + removed, 清空 beside the source line above the composer (no confirm, new conversation, old one kept in history, resets follow), composer + removed (回答 · 报告 beside the model), 追问 · 新对话 switch, follow-up bound to kept sources by default (pinned first, removed dropped, stopped answers skipped), 新对话 persisted, fresh after clear / catalog jump, source rows show 保留 / × with hint, scrollbar + block frame CSS');
 })().catch(e => { console.error(e); process.exit(1); });

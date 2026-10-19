@@ -163,7 +163,7 @@ def routing_menu(skills=None) -> list[dict[str, str]]:
 
 
 # 1020 陈列版（她：借鉴那份灵感板——分模块、每条配出处帖封面、概要 + 可以借鉴的点、网址、点图打开原帖）。
-# 技能 frontmatter 写 `lwa: {layout: board}` 就用：模型照下面的 Markdown 写，页面（chat-view.js renderBoard）解析成陈列卡；
+# 1020 起由问收藏页「回答 · 报告」开关触发（ask.REPORT_MARK），技能 frontmatter 写 `lwa: {layout: board}` 的才能出陈列：模型照下面的 Markdown 写，页面（chat-view.js renderBoard）解析成陈列卡；
 # 解析不出来就照普通 Markdown 显示，所以格式只是约定、不是硬依赖。
 LAYOUTS = {"board"}
 BOARD_FORMAT = """【陈列格式】这一问的回答会被页面做成陈列卡（每条配出处帖的封面），严格按下面的 Markdown 写，不用表格：
@@ -181,12 +181,12 @@ BOARD_FORMAT = """【陈列格式】这一问的回答会被页面做成陈列�
 帖里没写的不编，没有可推荐对象的帖不硬塞。"""
 
 
-def prompt_block(skill: dict[str, Any] | None) -> str:
-    """作答阶段的技能说明块（正文截 BODY_MAX）；general / 空 = 不加。layout=board 的再附陈列格式。"""
+def prompt_block(skill: dict[str, Any] | None, *, board: bool = False) -> str:
+    """作答阶段的技能说明块（正文截 BODY_MAX）；general / 空 = 不加。board=True（问收藏页「报告」开关）且技能是陈列型才附陈列格式。"""
     if not skill or skill.get("id") == DEFAULT or not skill.get("body"):
         return ""
     body = skill["body"][:BODY_MAX]
-    board = ("\n" + BOARD_FORMAT) if skill.get("layout") == "board" else ""
+    board = ("\n" + BOARD_FORMAT) if board and skill.get("layout") == "board" else ""
     return (f"\n【技能：{skill.get('title') or skill['id']}】以下是这类问题的写法要求（是格式规则，不是事实来源；"
             f"和收藏内容冲突时以收藏为准，材料里没有的字段写「帖里没提」）：\n{body}{board}\n【技能说明结束】\n")
 

@@ -24,10 +24,12 @@ const TOC = [
     const C = await openChat({ plugin: P, prefs: null });
     await C.ask('担担面有没有汤');
     const first = C.saved().id;
-    const bar = () => C.q('.lbchat-followbar').textContent;
-    assert.ok(bar().includes('下一问重新搜收藏'), '默认重新搜');
-    assert.ok(bar().includes('改为在当前 4 条来源里追问'));
-    assert.ok(bar().includes('新问题开新对话 · 改为接着这段'));
+    const seg = (CC, label) => CC.qa('.lbchat-followmode .lbchat-seg-opt').find(b => b.textContent === label);
+    // 1020：输入框上方一个开关「追问 · 新对话」，默认新对话；不再有「改为……」和「接着这段」
+    assert.ok(seg(C, '新对话').classList.contains('is-on'), '默认新对话（重新搜）');
+    assert.ok(!seg(C, '追问').classList.contains('is-on'));
+    assert.equal(C.q('.lbchat-keepthread'), null);
+    assert.equal(C.q('.lbchat-clearall').textContent, '清空上下文');
     await C.ask('麻婆豆腐怎么做');
     assert.equal(P.calls.asks[1].sourceIds, undefined, '第二问重新检索，不绑上一答来源');
     assert.deepEqual(P.calls.asks[1].history, [], '新对话：不带上一段的历史');
@@ -37,24 +39,20 @@ const TOC = [
     const hist = JSON.parse(C.V.get(C.INDEX));
     assert.ok(hist.conversations.some(c => c.id === first), '上一段进了历史');
     assert.equal(C.qa('.lbchat-user').length, 1, '页面上只剩这一问');
-    // 改为接着这段：偏好写盘，下一问留在这段，带历史
-    C.qa('.lbchat-keepthread')[0].onclick(); await tick(5);
-    assert.equal(JSON.parse(C.V.get('_archive/chat-prefs.json')).keepThread, true);
-    await C.ask('要放花椒吗');
+    // 点「追问」：followPicked 记在会话里；下一问留在这段、带历史、只在上一答的来源里答
+    await seg(C, '追问').onclick(); await tick(5);
+    assert.equal(C.saved().follow, 'sources'); assert.equal(C.saved().followPicked, true);
+    await C.ask('辣不辣');
     assert.equal(C.saved().id, s.id);
     assert.equal(C.saved().turns.length, 4);
     assert.equal(P.calls.asks[2].history.length, 2);
-    // 改为在当前来源追问：followPicked 记在会话里
-    C.qa('.lbchat-follow-switch').find(b => b.textContent.startsWith('改为在当前')).onclick(); await tick(5);
-    assert.equal(C.saved().follow, 'sources'); assert.equal(C.saved().followPicked, true);
-    await C.ask('辣不辣');
-    assert.deepEqual(Array.from(P.calls.asks[3].sourceIds), ['a', 'b', 'c', 'd']);
+    assert.deepEqual(Array.from(P.calls.asks[2].sourceIds), ['a', 'b', 'c', 'd']);
     // 重开页面：她点过的追问开关还在；新对话回到默认
     const C2 = await openChat({ plugin: P, prefs: null, V: C.V });
-    assert.ok(C2.q('.lbchat-followbar').textContent.includes('在当前'));
+    assert.ok(seg(C2, '追问').classList.contains('is-on'));
     // 老会话（1015 前默认存的 follow:'sources'、没 followPicked）→ 按新默认重新搜
     const C3 = await openChat({ prefs: null, session: { id: 'old', turns: [{ id: 'u', role: 'user', content: 'x' }, { id: 'v', role: 'assistant', content: 'y', q: 'x', sources: [src('a', 1)] }], follow: 'sources' } });
-    assert.ok(C3.q('.lbchat-followbar').textContent.includes('下一问重新搜收藏'));
+    assert.ok(seg(C3, '新对话').classList.contains('is-on'));
     // 失败后「重试」是同一问：不因每问新开清掉（新问题先开新对话，失败；重试留在同一段）
     const P5 = makePlugin();
     const C5 = await openChat({ plugin: P5, prefs: null });

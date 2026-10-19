@@ -67,7 +67,16 @@ const ask = async (page, S, text, wait = 150) => { await page.click('.lbchat-sea
   const shots = [];
   try {
     let { page, S } = await openChat(browser);
+    // 1020：输入框里模型下拉旁边「回答 · 报告」，默认回答；没有 +
+    assert.equal(await page.locator('.lbchat-cplus').count(), 0);
+    const modeOpt = label => page.locator('.lbchat-answermode .lbchat-seg-opt', { hasText: label });
+    assert.ok(await modeOpt('回答').evaluate(e => e.classList.contains('is-on')));
+    await modeOpt('报告').click(); await S.settle(20);
+    assert.ok(await modeOpt('报告').evaluate(e => e.classList.contains('is-on')));
     await ask(page, S, '多agent群聊 帮我整理成 wiki');
+    assert.equal(await page.evaluate(() => window.lb.asks[0]), '/报告 多agent群聊 帮我整理成 wiki', '报告档：问题前加 /报告 发给后端');
+    assert.equal(await page.locator('.lbchat-user .lbchat-qmark', { hasText: '报告' }).count(), 1, '她那一问标「报告」');
+    assert.equal(await page.locator('.lbchat-user').first().evaluate(e => e.textContent.includes('/报告')), false, '气泡里不显示标记');
     assert.equal(await page.locator('.lbboard').count(), 1, '陈列版渲染出来');
     assert.equal(await page.locator('.lbboard-title').textContent(), '多 agent 群聊项目陈列');
     assert.equal(await page.locator('.lbboard-topcard').count(), 3);
@@ -111,8 +120,16 @@ const ask = async (page, S, text, wait = 150) => { await page.click('.lbchat-sea
     assert.match(written[1], /- 网址：https:\/\/github\.com\/example\/raven/);
     assert.match(written[1], /- 借鉴：角色表照抄一份/);
     assert.ok((await page.evaluate(() => window.opened)).some(a => /报告\//.test(String(a[0]))), '存完打开那篇笔记');
-    // 格式对不上（只有一句话）→ 照普通 Markdown
+    // 输入框上方一行：「追问 · 新对话」+ 清空上下文，不再有「改为……」
+    assert.deepEqual(await page.locator('.lbchat-followmode .lbchat-seg-opt').allTextContents(), ['追问', '新对话']);
+    assert.equal(await page.locator('.lbchat-clearbox .lbchat-clearall').textContent(), '清空上下文');
+    assert.equal(await page.locator('.lbchat-followbar', { hasText: '改为' }).count(), 0);
+    await page.evaluate(() => { const b = document.querySelector('.lbchat-body'); if (b) b.scrollTop = b.scrollHeight; }); await S.settle(30);
+    shots.push(await S.screenshot('board-composer'));
+    // 切回「回答」：不带标记；格式对不上（只有一句话）→ 照普通 Markdown
+    await modeOpt('回答').click(); await S.settle(20);
     await ask(page, S, '普通的一问');
+    assert.equal(await page.evaluate(() => window.lb.asks.at(-1)), '普通的一问');
     const last = page.locator('.lbchat-answer').last();
     assert.equal(await last.locator('.lbboard').count(), 0, '第二答不是陈列格式，照普通 Markdown');
     assert.match(await last.locator('.lbchat-md').textContent(), /没法分类陈列/);

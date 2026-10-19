@@ -19,7 +19,8 @@ const SESSION = '_archive/chat-session.json';
     { role: 'assistant', content: '没有汤 [来源1]', q: '担担面有没有汤', askedAt: '2026-10-04T10:00:00+10:00',
       sources: [src('a', 1, withId), src('b', 2)], related: [rel('c', 3), rel('d', 4)] }];
   const V = makeVault({ /* 1015 前的默认（追问绑来源、接着这段问），新默认见 test_chat_b2_1015 */ '_archive/chat-prefs.json': '{"follow":"sources","keepThread":true}',  [DATA]: JSON.stringify({ built_at: '2026-10-04T10:00:00+10:00', items: [] }),
-    [SESSION]: JSON.stringify({ turns }), '_archive/chat-archive.json': '{"entries":[]}' });
+    // 1020 起「新对话」会开新的一段；这里要验「同一段里重新搜带上排除 / 保留」，只有隐私模式（不自动开新段）还走这条路
+    [SESSION]: JSON.stringify({ turns, private: true }), '_archive/chat-archive.json': '{"entries":[]}' });
   const asks = [], bundles = [];
   const plugin = {
     settings: { models: [] },
@@ -51,12 +52,12 @@ const SESSION = '_archive/chat-session.json';
   assert.equal(asks.length, 1);
   assert.deepEqual(Object.keys(asks[0]).filter(k => /Ids$/.test(k)), ['sourceIds']);
   assert.deepEqual(Array.from(asks[0].sourceIds), ['a', 'b', 'c', 'd']);
-  // 下面验 R2 的「重新检索」那条路：点「改为重新搜」，状态跟会话一起存
-  const sw = () => all('.lbchat-follow-switch')[0];
-  assert.equal(sw().textContent, '改为重新搜');
-  await sw().onclick(); await tick(5);
+  // 下面验 R2 的「重新检索」那条路：开关点「新对话」（1020 起「追问 · 新对话」两个词并排），状态跟会话一起存
+  const seg = label => all('.lbchat-followmode .lbchat-seg-opt').find(b => b.textContent === label);
+  assert.ok(seg('追问').classList.contains('is-on'));
+  await seg('新对话').onclick(); await tick(5);
   assert.equal(JSON.parse(V.get(SESSION)).follow, 'search');
-  assert.ok(sw().textContent.startsWith('改为在当前'));
+  assert.ok(seg('新对话').classList.contains('is-on'));
 
   // ③ 证据身份：来源行悬停看得到楼号 / 图序号
   const linkA = turnEls()[0].querySelectorAll('a').find(a => a.textContent.includes('主要a'));
@@ -73,7 +74,7 @@ const SESSION = '_archive/chat-session.json';
   assert.ok(md.includes('> 提问原话：担担面有没有汤'));
   assert.ok(md.includes('### [来源1] 主要a\n') && md.includes('### [来源2] 主要b（送进了模型，回答没引用）'));
   assert.ok(md.includes('**评论 c3、c3.1**') && md.includes('**图片文字（识别结果） 图2**'));
-  assert.ok(md.includes('## 其他相关（保留着、没送进模型）') && md.includes('- 相关c · 本地正文：Web/c.md') && md.includes('  > 相关c的命中摘录') && md.includes('- 相关d'));
+  assert.ok(md.includes('## 可能相关（保留着、没送进模型）') && md.includes('- 相关c · 本地正文：Web/c.md') && md.includes('  > 相关c的命中摘录') && md.includes('- 相关d'));
   assert.equal(bundles[0][3].question, '担担面有没有汤');
 
   // ② 保留 b（主要依据），删掉 c（其他相关）
@@ -100,8 +101,8 @@ const SESSION = '_archive/chat-session.json';
   A = await open();
   saved = JSON.parse(V.get(SESSION));
   assert.deepEqual(saved.pinned, ['b']);
-  assert.equal(saved.follow, 'search', '「改为重新搜」刷新后还在');
-  assert.ok(sw().textContent.startsWith('改为在当前'));
+  assert.equal(saved.follow, 'search', '「新对话」刷新后还在');
+  assert.ok(seg('新对话').classList.contains('is-on'));
   assert.equal(rowButton(turnEls()[0], '主要b', '.lbchat-src-pin').textContent, '已保留');
 
   // 重答（第一轮删过 c）：交留下的来源（保留的排最前），排除照样带上；10-04 ②：保留的也作为 pinIds 带上（后端排最前、要求逐条用到）

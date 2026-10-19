@@ -867,7 +867,8 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
                    "filters": {"author": "…", "since": "YYYY-MM-DD", "until": "…", "kind": ["video"]},
                    "filters_applied": ["author"], "relations": [...], "constraints": {...}, "skill": "recipe", "skill_source": "explicit|model"},
  "skill": "recipe",                  // 这一答用的技能 id（general = 通用）
- "layout": "board",                  // 1020 可选：技能 frontmatter `lwa.layout: board`（wiki / board / travel）时出现。markdown 照
+ "layout": "board",                  // 1020 可选：问题以 `/报告` 开头（问收藏页「回答 · 报告」开关选了报告，ask.REPORT_MARK；
+                                     //   标记去掉后再检索 / 作答，直接答不出目录；技能不是陈列型的换 wiki）时出现。markdown 照
                                      //   skills.BOARD_FORMAT 写（# 报告名 / > 一句 / ## 先看这几个 / ## 类别 / - **名字** · 网址 —— 帖里：…；借鉴：…[来源N]），
                                      //   网址只留材料里逐字出现的（ask.unseen_links，其余换「看原帖」）；问收藏页解析成陈列卡，解析不出 2 条就照普通 Markdown
  "suggest": "可补：在小红书搜「寿司醋」…",  // 库里没真命中时才有（她 1015 拍板：只给一行建议，不自动搜）

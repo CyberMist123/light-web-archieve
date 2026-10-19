@@ -1,9 +1,9 @@
 ---
 name: research
-description: 调研 / 对比 / 深度报告：多个对象按同一组维度比较（选型、方案对比、几家店 / 几款工具 / 几个项目的异同和取舍）
+description: 调研 / 对比：多个对象按同一组维度比较（选型、方案对比、几家店 / 几款工具 / 几个项目的异同和取舍）
 lwa:
   title: 调研对比
-  aliases: [调研, 对比, 深度报告, 研究, 选型]
+  aliases: [调研, 对比, 研究, 选型]
   domains: [tech, study, work, other]
   depth_default: detailed
 ---

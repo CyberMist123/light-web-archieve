@@ -120,3 +120,21 @@ def test_judge_rejected_sources_stay_out_of_related(monkeypatch):
     r = ask.answer("推荐相关项目", mode="direct")
     assert r["status"] == "ok" and len(r["sources"]) == 2
     assert len(r["related"]) == 1, [x["title"] for x in r["related"]]   # 只剩「沾边」那篇；判无关的 9 篇不列
+
+
+def test_judge_output_is_not_streamed_to_the_page(monkeypatch):
+    """1020 她：回答前冒出一堆「1|deep_read|…」——判定选篇的输出不许流到回答区，作答那次照常流。"""
+    monkeypatch.setattr(ask, "load_items", lambda: [dict(x) for x in ITEMS])
+    monkeypatch.setattr(ask.ai_config, "load", lambda: ask.ai_config._deep_merge(ask.ai_config.DEFAULTS, {}))
+    streams = []
+
+    def model(prompt, text, settings):
+        streams.append(ask._ON_DELTA.get() is not None)
+        if len(streams) == 1:
+            return {"status": "ok", "text": "1|deep_read|正题\n2|deep_read|正题"}
+        return {"status": "ok", "text": "整理如下[来源1]"}
+    monkeypatch.setattr(ask, "call_text", model)
+    r = ask.answer("推荐相关项目", mode="direct", on_delta=lambda d: None)
+    assert r["status"] == "ok"
+    assert streams[0] is False, "判定那次不带流式回调"
+    assert streams[-1] is True, "作答那次照常流"

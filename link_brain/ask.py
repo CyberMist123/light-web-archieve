@@ -13,6 +13,8 @@ from contextvars import ContextVar
 _ON_DELTA = ContextVar("on_delta", default=None)
 # 第 3 批：进度只报后端真走到的阶段（CONVENTIONS §1.6），由 serve.py 转成 {"type":"phase"} 事件
 _ON_PHASE = ContextVar("on_phase", default=None)
+# 1020 问收藏页「回答 · 报告」开关：选了报告，页面在问题前加 REPORT_MARK 发来；这一问出陈列版（skills.BOARD_FORMAT）
+_LAYOUT_REQ = ContextVar("layout_req", default=None)
 
 
 def _phase(text):
@@ -40,6 +42,8 @@ from typing import Any
 
 from . import ai_config, answer_cache, llm, storage
 from .read import EXIT_ERROR, EXIT_OK, dump_json
+
+REPORT_MARK = re.compile(r"^\s*/报告\s*")   # 见 _LAYOUT_REQ
 
 GITHUB_RE = re.compile(r"https?://github\.com/[^\s)]+", re.I)
 _URL_RE = re.compile(r"https?://[^\s)]+", re.I)
@@ -1931,6 +1935,9 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
         skill = skills_mod.choose(understood, skills_list)
     except Exception:  # noqa: BLE001
         skill = None
+    if _LAYOUT_REQ.get() == "board" and not (isinstance(skill, dict) and skill.get("layout") == "board"):
+        # 报告开关：选到的技能不是陈列型（通用 / 菜谱 / 调研对比）就按 wiki 汇总的写法出
+        skill = next((s for s in skills_list if s.get("id") == "wiki"), skill)
     if pinned:
         # 第 10 批「按剩下的重新回答」：只用页面上留下的来源（她删掉的不要），不重新检索、不挑材料、不撞答案缓存
         from .retrieval import semantic_hits
@@ -2063,7 +2070,7 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
                      extra={**turn_extra, "ordered_sources": ordered_toc, "objects": [], "scope": scope})
         _phase(f"出目录：{len(strong)} 篇相关，先列 {len(entries)} 篇")
         from .mdsafe import neutralize
-        coverage = f"共检到 {len(strong)} 篇相关" + (f"，目录先列 {len(entries)} 篇，其余在「其他相关」" if len(strong) > len(entries) else "")
+        coverage = f"共检到 {len(strong)} 篇相关" + (f"，目录先列 {len(entries)} 篇，其余在「可能相关」" if len(strong) > len(entries) else "")
         return {"kind": "answer", "mode": "toc", "markdown": neutralize(markdown), "toc": entries, "toc_total": len(strong),
                 "coverage_note": coverage, "suggest": "",
                 "turn_id": turn_id, "source_ids": [e["id"] for e in entries], "sources": toc_sources, "related": related_toc,
@@ -2221,7 +2228,7 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     extra = ""
     try:
         from . import skills as _sk
-        extra += _sk.prompt_block(skill) + _relation_rules(understood)
+        extra += _sk.prompt_block(skill, board=_LAYOUT_REQ.get() == "board") + _relation_rules(understood)
     except Exception:  # noqa: BLE001 - 技能 / 关系规则只是加成
         pass
     lead = ""
@@ -2252,7 +2259,7 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     user_text = answer_prompt.user_message(question, note=answer_prompt.research_note(understood, question),
                                            today=answer_prompt.today_line(), blocks=blocks, dialog=dialog, avoid=avoid, lead=lead)
     configured = (settings.get("textAI") or {}).get("maxTokens")
-    layout = (skill or {}).get("layout") if isinstance(skill, dict) else None
+    layout = "board" if _LAYOUT_REQ.get() == "board" else None   # 1020：只有页面开关选了报告才出陈列版
     out_cap = answer_prompt.max_tokens(task, configured)
     if layout == "board":
         out_cap = max(out_cap, answer_prompt.MAX_TOKENS["survey"])   # 陈列版每个对象一行带「帖里 / 借鉴」，按盘点给上限
@@ -2321,7 +2328,7 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     result={"kind": "answer", "markdown": markdown, "mode": "direct", "turn_id": turn_id, "thread_id": thread_id,
             "turn": _turn_payload(turn_id, thread_id, parent, ordered, objects, scope), "task": task,
             "ordered_sources": ordered, "objects": objects, **({"thought": thought} if thought else {}), "images": image_list,
-            "coverage_note": f"用了 {len(sources)} 条材料" + (f"，另有 {len(related_cards)} 条在「其他相关」" if related_cards else ""),
+            "coverage_note": f"用了 {len(sources)} 条材料" + (f"，另有 {len(related_cards)} 条在「可能相关」" if related_cards else ""),
             "source_ids": [x["id"] for x in sources], "understanding": _public_understanding(understood, used_filters),
             "skill": skill_id, **({"layout": layout} if layout else {}), **({"suggest": hint_line} if hint_line else {}), **({"expanded_from": expand_of} if expand_of else {}),
             **({"mode_reason": mode_info.get("reason")} if mode_info.get("reason") else {}), "sources": sources, "related": related_cards, "matches": len(matches),
@@ -2382,12 +2389,18 @@ def answer(question: str, history=None, include=None, on_delta=None, model: str 
     thread_id / parent_turn_id（1018 v2.1 §5）：这一问接哪条会话线 / 哪一轮（登记在 ask_turns）；追问继承上一答按它查，不再按问题原文找。
     who：哪个凭据问的（远程 MCP 兜底绑定只认同一凭据）。avoid：上一轮已经讲过的对象名（「其他」类追问不再提）。
     接口约定见 docs/FORMAT.md「问收藏响应：档位 / 目录 / 展开」。"""
+    report = isinstance(question, str) and bool(REPORT_MARK.match(question))
+    if report:   # 1020「回答 · 报告」开关选了报告：去掉标记，这一问出陈列版、直接答（不出目录）
+        question = REPORT_MARK.sub("", question)
+        mode = mode or "direct"
     token = _ON_DELTA.set(on_delta)
     ptoken = _ON_PHASE.set(on_phase)
+    ltoken = _LAYOUT_REQ.set("board" if report else None)
     try:
         return _answer(question, history, include, model, source_ids, exclude_ids, pin_ids, expand, mode,
                        thread_id=thread_id, parent_turn_id=parent_turn_id, who=who, avoid=avoid)
     finally:
+        _LAYOUT_REQ.reset(ltoken)
         _ON_PHASE.reset(ptoken)
         _ON_DELTA.reset(token)
 
