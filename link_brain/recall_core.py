@@ -195,14 +195,22 @@ def candidates(question, items, *, settings=None, history=None, semantic=True, e
     heads = set(lexical[:POOL_HEADS["lexical"]]) | set(semantic_ids[:POOL_HEADS["semantic"]])
     for route in extra:
         heads |= set(list(dict.fromkeys(route[1]))[:POOL_HEADS["expand"]])
-    if mode != "standalone":
-        heads |= {it["id"] for it in matches[:POOL_HEADS["followup"]]}
-    # 首屏窗口 = 「各路保底名次内」的篇先占位，空位再按融合顺序补「有具体证据」的篇，最多 POOL_MAX（见 _window）：具体证据 = 语义 / 扩词路检出过，或中了一个
-    # 不泛的原词（全库不到 GENERIC_DF 的篇有）。以前不够 80 篇就按融合顺序硬补满，「ai」这种全库七成都沾的词把只沾它的尾巴
-    # 混进来；现在只沾泛词的尾巴不补（3 篇相关就是 3 篇），它们留在候选集里不丢。
-    specific = (None if WINDOW_FILL_GENERIC else
-                _specific_ids(items, list(dict.fromkeys(terms + list(prior_terms or []))), matches, heads, sem, extra))
-    window = _window(matches, heads, specific)
+    followup_heads = {it["id"] for it in matches[:POOL_HEADS["followup"]]} if mode != "standalone" else set()
+    heads |= followup_heads
+    sem_all = ask._merge_sem(sem, sem_expanded)
+    if WINDOW_GATE:
+        # 1020 她：「可能相关」不管相关不相关都凑满 80。各路保底名次只是名次、不看分：语义分挤在 0.40–0.65 一个窄带里，
+        # 前 40 名总有几十篇不沾边的；词法前 40 名里只沾一个碎词（「cp」「坏」）的也算。现在只收有证据的篇（见 _evident），
+        # 追问继承上一问的篇照留；没证据的留在候选集里不丢。
+        evident = _evident(matches, lexical_hits, sem_all, semantic_ids, expand_full, place_ids,
+                           coverage=_coverage_fn(items, list(dict.fromkeys(terms + list(prior_terms or []))))) | followup_heads
+        window = _window(matches, heads & evident, evident)
+    else:
+        # 回退：R1 口径（保底名次全进，空位补「语义 / 扩词路检出过或中了不泛原词」的篇）
+        specific = (None if WINDOW_FILL_GENERIC else
+                    _specific_ids(items, list(dict.fromkeys(terms + list(prior_terms or []))), matches, heads, sem, extra))
+        evident = None
+        window = _window(matches, heads, specific)
     shown = {it["id"] for it in window}
     # 二轮扩词（一轮为限）：只补首屏窗口的空位、不改第一轮的排序——反馈词是从结果里猜的，不许压过原问题
     fb_terms, fb_full = [], {}
@@ -219,8 +227,14 @@ def candidates(question, items, *, settings=None, history=None, semantic=True, e
         # 只提「第一轮已经检出、但排在各路保底名次之外」的长尾篇（原问题也沾上了，又和前几篇共享话题词）；
         # 只沾反馈词的篇不进首屏，只记进候选集
         first_round = {it["id"] for it in matches}
+        if evident is not None:
+            # 门槛口径下反馈词只是「佐证」：原问题也得沾上一点（词法相对分 ≥ lex_weak），且最多补 FEEDBACK_ADD_MAX 篇，不再拿它凑数
+            top_lex = max((v for v, _ in lexical_hits), default=0) or 1
+            touched = {it["id"] for v, it in lexical_hits if v / top_lex >= GATE["lex_weak"]}
+            first_round &= touched
+        room = POOL_MAX if evident is None else min(POOL_MAX, len(window) + FEEDBACK_ADD_MAX)
         for _, it in retrieval.fuse(fb_routes, items):
-            if len(window) >= POOL_MAX:
+            if len(window) >= room:
                 break
             if it["id"] not in shown and it["id"] in first_round:
                 window.append(by_id.get(it["id"], it))
@@ -235,7 +249,7 @@ def candidates(question, items, *, settings=None, history=None, semantic=True, e
             ranked.append(by_id[item_id])
             have.add(item_id)
     result = {"matches": window, "candidates": ranked, "mode": mode, "prior_terms": prior_terms, "terms": terms,
-              "sem": ask._merge_sem(sem, sem_expanded), "expansion": expansion, "intent": intent, "feedback": fb_terms,
+              "sem": sem_all, "expansion": expansion, "intent": intent, "feedback": fb_terms,
               "routes": routes, "out_of_scope": out_of_scope, "standalone": standalone or None, "sem_source": sem_source,
               "scores": {it["id"]: float(it.get("_fused_score") or 0) for it in matches},
               "lex_scores": {it["id"]: round(float(value), 4) for value, it in lexical_hits[:POOL_MAX * 2]}}
@@ -247,6 +261,19 @@ def candidates(question, items, *, settings=None, history=None, semantic=True, e
 
 
 GENERIC_DF = 0.4  # 全库四成以上的篇都有的词算泛（同 ask.EXPAND_GENERIC）
+# 首屏证据门槛（1020，WINDOW_GATE=True）：一篇进首屏要有下面任一条证据，否则只留在候选集里。
+# 阈值在真库 53 题回归集（44 题带金标）+ 她 12 个真实提问上离线扫过：金标进首屏 0.951 → 0.939（掉的两篇原排 38 / 59 名），
+# 首屏中位数 80 → 17。
+#   lex_rel       原词 BM25 分 ≥ 第一名的这个比例（只沾一个碎词 / 单字的长尾分很低）；而且要么覆盖查询词 idf 权重的
+#                 lex_cover 以上，要么 BM25 ≥ 第一名的 lex_strong（「中国旅行推荐」里只在标题沾「中国」的篇 BM25 不低，靠覆盖率拦）
+#   expand_depth  某个扩词一路的前几名（扩词是小模型按问题给的说法，整词匹配，不拆单字）
+#   sem_gap       语义分离第一名不超过这么多，且 ≥ sem_abs；只有语义一路沾上的要更近（sem_only_gap / sem_only_abs）
+#   sem_top_n     语义前几名不论分数都进（库里没有原词的说法靠它接住）
+#   agree_gap     原词沾上一点（≥ lex_weak）+ 语义离第一名不超过这么多 = 两路都弱但互相印证
+GATE = {"lex_rel": .25, "lex_cover": .4, "lex_strong": .5, "lex_weak": .05, "expand_depth": 20, "sem_abs": .45, "sem_gap": .06,
+        "sem_only_abs": .55, "sem_only_gap": .04, "sem_top_n": 3, "agree_gap": .08}
+FEEDBACK_ADD_MAX = 10  # 门槛口径下二轮反馈词最多往首屏补几篇
+WINDOW_GATE = True     # 回退开关：False = 回到 R1 的保底名次口径
 # 回退开关：True = 回到 R1 以前「首屏不够 80 篇就按融合顺序补满」（只沾泛词的尾巴也补）。真库带语义复测后再定，见 R1 报告
 WINDOW_FILL_GENERIC = False
 
@@ -266,6 +293,62 @@ def _window(matches, heads, specific):
         if it["id"] not in keep and (specific is None or it["id"] in specific):
             keep.add(it["id"])
     return [it for it in matches if it["id"] in keep]
+
+
+def _coverage_fn(items, terms):
+    """id → 这篇覆盖了查询词 idf 权重的几成（0–1）。只认原词和同义词（同 term_stats），不算拼音、错字。"""
+    import math
+    from .retrieval import _documents, has, term_stats, variants
+    terms = [t for t in terms if str(t).strip()]
+    if len(terms) <= 1:
+        return lambda item_id: 1.0
+    documents, _ = _documents(items)
+    doc_of = {it.get("id"): doc for it, doc in zip(items, documents)}
+    n = len(items)
+    idf = {t: math.log((n + 1) / (term_stats(items, t)[0] + .5)) for t in terms}
+    total = sum(idf.values()) or 1
+    groups = {t: variants(t) for t in terms}
+
+    def cover(item_id):
+        doc = doc_of.get(item_id) or {}
+        return sum(idf[t] for t, vs in groups.items() if any(has(text, v) for v in vs for text in doc.values())) / total
+    return cover
+
+
+def _evident(matches, lexical_hits, sem_scores, sem_ids, expand_full, place_ids, gate=None, coverage=None):
+    """融合顺序里哪些篇有「进首屏」的证据（规则见 GATE）。纯本地、不调模型。coverage = _coverage_fn 的结果（None = 不看覆盖率）。"""
+    g = {**GATE, **(gate or {})}
+    top_lex = max((v for v, _ in lexical_hits), default=0) or 1
+    lex_rel = {it["id"]: v / top_lex for v, it in lexical_hits}
+    scores = {k: float((v or {}).get("score") or 0) for k, v in (sem_scores or {}).items()}
+    sem_top = max(scores.values(), default=0)
+    sem_rank = {i: n for n, i in enumerate(sem_ids or [], 1)}
+    expand_near, expand_any = set(), set()
+    for ids in (expand_full or {}).values():
+        expand_near |= set(ids[:g["expand_depth"]])
+        expand_any |= set(ids)
+    places = set(place_ids or [])
+    out = set()
+    for it in matches:
+        i = it["id"]
+        lr = lex_rel.get(i)
+        lex_ok = (lr is not None and lr >= g["lex_rel"]
+                  and (coverage is None or lr >= g["lex_strong"] or coverage(i) >= g["lex_cover"]))
+        if lex_ok or i in expand_near or i in places:
+            out.add(i)
+            continue
+        if sem_rank.get(i, 10 ** 9) <= g["sem_top_n"]:
+            out.add(i)
+            continue
+        s = scores.get(i)
+        if s is None:
+            continue
+        if lr is not None or i in expand_any:
+            if s >= max(g["sem_abs"], sem_top - g["sem_gap"]) or (lr is not None and lr >= g["lex_weak"] and s >= sem_top - g["agree_gap"]):
+                out.add(i)
+        elif s >= max(g["sem_only_abs"], sem_top - g["sem_only_gap"]):
+            out.add(i)
+    return out
 
 
 def _specific_ids(items, terms, matches, heads, sem, extra):

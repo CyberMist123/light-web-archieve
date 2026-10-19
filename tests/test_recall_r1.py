@@ -36,13 +36,13 @@ def test_candidate_set_records_everything_and_window_has_no_padding(lexical_only
     items = _filler(130, "回避") + _filler(40, "", start=200) + [_item("gold", "回避型依恋怎么改", "回避 吵架")]
     found = recall_core.candidates("回避", items, trace=True)
     ids = [it["id"] for it in found["candidates"]]
-    # 131 篇都中了「回避」：首屏窗口只取各路保底前 40（不补满到 80），其余 91 篇按同一顺序留在候选集里
-    assert len(found["matches"]) == recall_core.POOL_HEADS["lexical"]
+    # 131 篇都同样中了「回避」（都有证据）：首屏取到上限 POOL_MAX，其余 51 篇按同一顺序留在候选集里
+    assert len(found["matches"]) == recall_core.POOL_MAX
     assert len(ids) == 131 and len(set(ids)) == 131
-    assert ids[:40] == [it["id"] for it in found["matches"]]
+    assert ids[:recall_core.POOL_MAX] == [it["id"] for it in found["matches"]]
     assert not any(i.startswith("fill-2") for i in ids), "一路都没中的篇不许混进来凑数"
     st = found["stages"]
-    assert st["lost"] == [] and st["beyond_window"] == 91
+    assert st["lost"] == [] and st["beyond_window"] == 131 - recall_core.POOL_MAX
     assert recall_core.route_ids(found["routes"]) <= set(ids)
 
 
@@ -62,8 +62,9 @@ def test_semantic_route_is_continued_past_top_items(monkeypatch):
     monkeypatch.setattr(ask, "llm_expansions", lambda q, **k: {"terms": [], "status": "no-model"})
     found = recall_core.candidates("换个说法问的问题", items, trace=True)
     assert len(found["routes"]["semantic"]) == 55          # 语义路续取到相对下限以上的全部
-    # 续取到的语义长尾都在相对下限以上 = 有具体证据，按融合顺序进首屏（不超过 POOL_MAX）
-    assert len(found["matches"]) == 55 and [it["id"] for it in found["matches"]][:3] == ["s0", "s1", "s2"]
+    # 1020 门槛：只有语义一路沾上的篇，要离第一名 ≤ sem_only_gap（或在语义前 sem_top_n 名）才进首屏；续取的长尾全留在候选集
+    near = [f"s{k}" for k in range(55) if 1 - k / 100 >= 1 - recall_core.GATE["sem_only_gap"] - 1e-9]
+    assert [it["id"] for it in found["matches"]] == near and len(near) < 55
     assert {f"s{k}" for k in range(55)} == {it["id"] for it in found["candidates"]}
     # 续取那份和前一份对不上（不包含它）就不用，退回前一份
     monkeypatch.setattr(retrieval, "semantic_deep", lambda q: {"zzz": {"score": 1, "chunks": []}})
@@ -361,7 +362,7 @@ def test_out_of_scope_semantic_ids_are_recorded_not_lost(monkeypatch):
 
 
 def test_window_keeps_route_heads_before_semantic_tail(monkeypatch):
-    """首屏窗口先保各路保底名次（这里是扩词一路的前几名），语义续取的长尾只补空位——不许把保底篇挤出 80。"""
+    """扩词一路的前几名不许被语义续取的长尾挤出首屏；1020 起语义长尾只有贴近第一名的才进，不再凑满 80。"""
     sem_items = [_item(f"s{k:03d}", f"笔记{k}", "无关正文") for k in range(120)]
     exp_items = [_item(f"e{k}", f"依恋小记{k}", "依恋") for k in range(10)]
     items = sem_items + exp_items + _filler(30)
@@ -372,9 +373,10 @@ def test_window_keeps_route_heads_before_semantic_tail(monkeypatch):
     monkeypatch.setattr(ask, "llm_expansions", lambda q, **k: {"terms": ["依恋"], "status": "cached"})
     found = recall_core.candidates("怎么才能不忘事", items, trace=True)
     window = [it["id"] for it in found["matches"]]
-    assert len(window) == recall_core.POOL_MAX
+    assert len(window) < recall_core.POOL_MAX
     assert {f"e{k}" for k in range(10)} <= set(window), "扩词路保底的篇被语义长尾挤出了首屏"
-    assert {f"s{k:03d}" for k in range(40)} <= set(window)
+    near = {f"s{k:03d}" for k in range(120) if 1 - k / 1000 >= 1 - recall_core.GATE["sem_only_gap"] - 1e-9}
+    assert {i for i in window if i.startswith("s")} == near
     # 窗口外的语义长尾一篇不丢，按顺序接在候选集后面
     assert {f"s{k:03d}" for k in range(120)} <= {it["id"] for it in found["candidates"]}
     assert found["stages"]["lost"] == []
@@ -449,3 +451,36 @@ def test_four_entries_agree_with_semantic_and_expansion_on(four_entry, monkeypat
         got += [r["item_id"] for r in res["results"]]
         offset = res["next_offset"]
     assert got == core
+
+
+# ── 7. 1020 首屏证据门槛：「可能相关」不再凑满 80 ──
+
+def test_window_is_not_padded_by_flat_semantic_band(monkeypatch):
+    """她 1019 的「房千cp」：真相关 1 篇（语义 0.62 + 原词全中），其余 70 多篇语义分挤在 0.41–0.50、原词只沾单字。
+    以前语义前 40 名 + 语义检出全算证据 → 首屏凑满 80；现在只进有证据的。"""
+    gold = _item("gold", "【房千房】我不是在吃醋", "房千 cp 甜文")
+    noise = [_item(f"n{k:02d}", f"随手记{k}", "千字长文" if k < 10 else "无关正文") for k in range(90)]
+    items = [gold] + noise
+    sem = {"gold": {"score": .62, "chunks": []}}
+    sem.update({f"n{k:02d}": {"score": .50 - k / 1000, "chunks": []} for k in range(90)})
+    monkeypatch.setattr(retrieval, "semantic_hits", lambda q: sem)
+    monkeypatch.setattr(retrieval, "semantic_deep", lambda q: sem)
+    monkeypatch.setattr(ask, "llm_expansions", lambda q, **k: {"terms": [], "status": "no-model"})
+    found = recall_core.candidates("房千cp", items, trace=True)
+    window = [it["id"] for it in found["matches"]]
+    assert window[0] == "gold"
+    assert len(window) <= 1 + recall_core.GATE["sem_top_n"], window   # 语义前几名照留，其余窄带不进
+    assert len(found["candidates"]) == 91 and found["stages"]["lost"] == []   # 没证据的留在候选集里不丢
+
+
+def test_window_gate_can_be_switched_off(monkeypatch):
+    """回退开关：WINDOW_GATE=False 回到 R1 的保底名次口径（语义前 40 名全进）。"""
+    items = [_item(f"s{k}", f"笔记{k}", "无关正文") for k in range(60)]
+    sem = {f"s{k}": {"score": .6 - k / 200, "chunks": []} for k in range(60)}
+    monkeypatch.setattr(retrieval, "semantic_hits", lambda q: sem)
+    monkeypatch.setattr(retrieval, "semantic_deep", lambda q: sem)
+    monkeypatch.setattr(ask, "llm_expansions", lambda q, **k: {"terms": [], "status": "no-model"})
+    on = len(recall_core.candidates("换个说法", items)["matches"])
+    monkeypatch.setattr(recall_core, "WINDOW_GATE", False)
+    off = len(recall_core.candidates("换个说法", items)["matches"])
+    assert on < 40 <= off
