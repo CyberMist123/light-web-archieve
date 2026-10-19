@@ -219,3 +219,36 @@ def test_same_name_file_already_in_library_is_not_downloaded(tmp_path, monkeypat
     monkeypatch.setattr(att_mod, "fetch_bytes", _boom)
     att_mod.download_for_object(source, source_id)
     assert DOC_ID in att_mod.load_downloaded(source, source_id)
+
+
+def test_service_down_is_not_retried(tmp_path, monkeypatch):
+    """1020：读取服务超时 / 卡住时同一趟别再重试（1019 三次 × 240 秒干等，服务早卡死了）；记退避，下次再下。"""
+    setup_env(tmp_path, monkeypatch)
+    cli.main(["ingest", "https://example.invalid/share"])
+    _, source, source_id = _ids()
+    calls = []
+
+    def _fetch(*, doc_id, note_id, xsec_token, file_name, staging_dir, verbose=False):
+        calls.append(doc_id)
+        raise att_mod.AttachmentServiceDown("读取服务响应超时", "TIMEOUT")
+
+    monkeypatch.setattr(att_mod, "fetch_bytes", _fetch)
+    out = att_mod.download_for_object(source, source_id)
+    assert len(calls) == 1
+    assert [r["status"] for r in out["results"]] != ["downloaded"]
+
+
+def test_fetch_bytes_maps_service_codes(tmp_path, monkeypatch):
+    from link_brain import accounts
+
+    monkeypatch.setattr(accounts, "ensure_reader", lambda *a, **k: None)
+    for code in att_mod.SERVICE_DOWN_CODES:
+        def _api(*a, _code=code, **k):
+            raise accounts.ReaderError(_code, "x")
+        monkeypatch.setattr(accounts, "api", _api)
+        try:
+            att_mod.fetch_bytes(doc_id=DOC_ID, note_id=NOTE_ID, xsec_token="t", file_name="f.pdf", staging_dir=tmp_path / "s")
+        except att_mod.AttachmentServiceDown as exc:
+            assert exc.code == code
+        else:
+            raise AssertionError(f"{code} 应该是 AttachmentServiceDown")

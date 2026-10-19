@@ -55,6 +55,19 @@ class AttachmentRestricted(AttachmentError):
     记一条「网页版要验证」等她点「打开验证」（link_brain/restricted.py）。"""
 
 
+class AttachmentServiceDown(AttachmentError):
+    """1020：读取服务那侧的失败（超时 / 断了 / 忙 / 浏览器卡住）——不是这份附件的问题，同一趟里重试只会再等一轮超时
+    （1019 一份附件 3 次 × 240 秒干等，读取服务其实早卡死，最后被看门狗杀）。不重试，按退避等下次。"""
+
+    def __init__(self, message: str, code: str):
+        super().__init__(message)
+        self.code = code
+
+
+# 1020：见 AttachmentServiceDown。BROWSER_STUCK = 读取服务 reader-17 起，下载那趟开页卡住 / 3 分钟总时限到了
+SERVICE_DOWN_CODES = ("TIMEOUT", "DISCONNECTED", "BUSY", "BROWSER_STUCK")
+
+
 class AttachmentDeferred(Exception):
     """这一批的时间预算不够再开一个附件页了（1001）：不算失败，留给下一次（今晚 4 点 / 明晚）。"""
 
@@ -134,6 +147,8 @@ def fetch_bytes(
             raise AttachmentNeedsHuman(text, exc.code) from exc
         if exc.code == "NOTE_RESTRICTED":
             raise AttachmentRestricted(reason) from exc
+        if exc.code in SERVICE_DOWN_CODES:
+            raise AttachmentServiceDown(text, exc.code) from exc
         raise AttachmentError(text) from exc
     path = Path(data["path"])
     if not path.is_file() or path.stat().st_size == 0:
@@ -234,6 +249,8 @@ def acquire(source_key: str, source_id: str, *, doc_id: str, name: str, xsec_tok
             return load_downloaded(source_key, source_id).get(record["doc_id"], record)
         except (AttachmentNeedsHuman, AttachmentRestricted, AttachmentDeferred):
             raise
+        except AttachmentServiceDown as exc:
+            raise AttachmentServiceDown(f"读取服务这次没响应（{exc.code}），不再重试，下次接着下：{exc}", exc.code) from exc
         except (AttachmentError, OSError, StopIteration, KeyError, ValueError) as exc:
             last_error = errtext(exc)
         finally:
@@ -1317,7 +1334,8 @@ TAIL_LIMIT = 5                # 她 1008：号正常的晚上收尾段每晚 ≤
 STATUS_NAME = "attachments-recheck-status.json"
 FAV_TOKENS_NAME = "fav-tokens.json"
 FRESH_TOKEN_DAYS = 7
-SERVICE_CODES = ("TIMEOUT", "BUSY", "DISCONNECTED", "RATE_LIMITED", "VERIFY_WINDOW_OPEN", "LOGIN_IN_PROGRESS")
+SERVICE_CODES = ("TIMEOUT", "BUSY", "DISCONNECTED", "RATE_LIMITED", "VERIFY_WINDOW_OPEN", "LOGIN_IN_PROGRESS",
+                 "BROWSER_STUCK")
 
 
 def _parse_dt(value, default):
