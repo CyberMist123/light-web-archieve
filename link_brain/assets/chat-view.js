@@ -627,6 +627,21 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbboard-topcard.is-multi .lbboard-topbody{flex:1 1 auto;}
 .lbboard-topitem + .lbboard-topitem{margin-top:6px;padding-top:6px;border-top:1px dashed var(--background-modifier-border);}
 @media (max-width:520px){.lbboard-row .lbboard-cover{width:64px;height:86px;}.lbboard-top{grid-template-columns:repeat(2,minmax(0,1fr));}}
+/* ── 1020 输入框照 Codex：灰色窄条（追问 · 新对话 / 收起来源 · 清空上下文）连在白色输入卡顶上；输入卡里上面输入、下面一排工具 ── */
+.lbchat .lbchat-composer{flex-direction:column;align-items:stretch;gap:2px;padding:12px 12px 10px 16px;border-radius:22px;position:relative;z-index:1;box-shadow:0 4px 18px #00000012;margin-top:0;}
+.lbchat .lbchat-search{flex:none;width:100%;height:44px;min-height:44px;padding:6px 2px!important;font-size:14.5px;}
+.lbchat-cbar{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.lbchat-cbar-left,.lbchat-cbar-right{display:flex;align-items:center;gap:8px;min-width:0;}
+.lbchat .lbchat-cbar .lbchat-modebox{margin:0;}
+.lbchat .lbchat-cbar .lbchat-model{max-width:150px;font-size:13px;color:var(--text-muted);}
+.lbchat .lbchat-cbar button.lbchat-send{width:34px;height:34px;}
+.lbchat-ctlrow{width:calc(100% - 28px);max-width:822px;margin:14px auto -14px;padding:8px 18px 22px;border-radius:16px 16px 0 0;background:var(--background-secondary);border:1px solid var(--background-modifier-border);border-bottom:0;font-size:12.5px;}
+.lbchat-ctlrow:not(:has(> :not([hidden]))){display:none;}
+.lbchat-ctlrow + .lbchat-composer{margin-top:0;}
+.lbchat-tocfab{position:absolute;left:0;top:14px;z-index:6;writing-mode:vertical-rl;letter-spacing:.2em;padding:12px 5px!important;height:auto!important;font-size:12px!important;border-radius:0 10px 10px 0!important;border:1px solid var(--background-modifier-border)!important;border-left:0!important;background:var(--background-secondary)!important;color:var(--text-muted)!important;box-shadow:none!important;cursor:pointer;}
+.lbchat-tocfab:hover{color:var(--text-normal)!important;}
+.lbchat-tocfab[hidden]{display:none!important;}
+.lbchat-tocpanel.is-side{max-height:70vh;}
 `);
 
 const host = LB.mountHost('lbchat-host');
@@ -710,6 +725,10 @@ const stopAnswer = () => { const p = provider(); if (!p?.stopArchiveAnswer) retu
 stop.onclick = () => stopAnswer();
 function paintSend() { stop.hidden = !isBusy(); stop.disabled = false; paintClear(); }
 const send = composer.createEl('button', { cls: 'lbchat-send', attr: { title: '发送（回答中会排队）' } }); send.type = 'submit';
+// 1020 她：照 Codex / CC 的输入框排——输入区独占一行，工具排在下面一行
+const cbar = composer.createDiv({ cls: 'lbchat-cbar' });
+cbar.createDiv({ cls: 'lbchat-cbar-left' }).append(modeBox);
+cbar.createDiv({ cls: 'lbchat-cbar-right' }).append(modelPick, mic, stop, send);
 send.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
 if (readOnly) composer.hidden = true;
 // 回答进行中照常能打字：再发就进队列（像 Codex 追加提问），可点 × 取消，上一条答完自动接着问。
@@ -777,6 +796,10 @@ async function setPrivate(on) {
 
 // F5 / A8：对话区外包一层 bodywrap；目录左栏和右下浮钮绝对定位在它里面
 const bodyWrap = wrap.createEl('div', { cls: 'lbchat-bodywrap' });
+// 1020 她：「toc 没看到」——窄窗时目录只剩页头右上角一个小「目录」。对话区左边贴一个竖排浮签，点了弹出目录浮动板
+const tocFab = bodyWrap.createEl('button', { cls: 'lbchat-tocfab', text: '目录', attr: { title: '目录：问题 / 分类 / 条目，点了跳过去', 'aria-label': '目录' } });
+tocFab.type = 'button'; tocFab.hidden = true;
+tocFab.onclick = e => { e?.stopPropagation?.(); toggleTocPanel(tocFab); };
 const bodyEl = bodyWrap.createEl('div', { cls: 'lbchat-body' });
 const tocEl = bodyWrap.createEl('nav', { cls: 'lbchat-toc', attr: { 'aria-label': '问题目录' } }); tocEl.hidden = true;
 const floaters = bodyWrap.createEl('div', { cls: 'lbchat-floaters' });
@@ -1963,6 +1986,7 @@ function paintToc() {
   const side = show && tocWide && !tocCollapsed;
   tocEl.hidden = !side;
   tocBtn.hidden = !(show && !side);
+  tocFab.hidden = tocBtn.hidden;
   tocBtn.setText(n >= 2 ? `目录 · ${n} 问` : '目录');
   if (!show) closeTocPanel();
   if (side) {
@@ -1986,8 +2010,12 @@ function toggleTocPanel(anchor = tocBtn) {
   const headRow = tocPanel.createEl('div', { cls: 'lbchat-tochead' }); headRow.createEl('span', { text: '目录' });
   if (tocWide && tocCollapsed) { const unfold = headRow.createEl('button', { cls: 'lbchat-toc-fold', text: '固定在左边', attr: { title: '宽窗时把目录放回对话左边' } }); unfold.type = 'button'; unfold.onclick = () => { tocCollapsed = false; LB.state.patch({ toc: 'open' }); closeTocPanel(); paintToc(); }; }
   fillToc(tocPanel.createEl('div', { cls: 'lbchat-toclist' }), closeTocPanel);
-  try { const r = anchor.getBoundingClientRect(); tocPanel.style.top = (r.bottom + 6) + 'px'; tocPanel.style.left = Math.max(8, Math.min(r.right - 300, (window.innerWidth || 1200) - 308)) + 'px'; } catch {}
-  const outside = ev => { if (!tocPanel || tocPanel.contains(ev.target) || ev.target === tocBtn || tocBtn.contains(ev.target)) return; closeTocPanel(); };
+  try {
+    const r = anchor.getBoundingClientRect();
+    if (anchor === tocFab) { tocPanel.addClass('is-side'); tocPanel.style.top = Math.max(8, r.top) + 'px'; tocPanel.style.left = (r.right + 6) + 'px'; }   // 浮签旁边展开
+    else { tocPanel.style.top = (r.bottom + 6) + 'px'; tocPanel.style.left = Math.max(8, Math.min(r.right - 300, (window.innerWidth || 1200) - 308)) + 'px'; }
+  } catch {}
+  const outside = ev => { if (!tocPanel || tocPanel.contains(ev.target) || [tocBtn, tocFab].some(b => ev.target === b || b.contains(ev.target))) return; closeTocPanel(); };
   tocPanel._lbOutside = outside;
   setTimeout(() => { if (tocPanel && tocPanel._lbOutside === outside) doc.addEventListener('click', outside); }, 0);
 }
@@ -2401,53 +2429,102 @@ function boardCover(src) {
 function BOARD_NOISE() { return /^(?:(?:同上|同前|同样|同一串[^，。；]*|评论区(?:也|里)?(?:点名|提到|有人推)|只有名字)[，。；、\s]*)+$/; }   // 函数声明：页面开头恢复历史时就会用到（const 有 TDZ）
 function boardThin(it) { const p = String(it.praise || '').trim(); return !it.url && !it.why && (p.length <= 24 || BOARD_NOISE().test(p)); }
 function boardNote(it) { const p = String(it.praise || '').trim(); return BOARD_NOISE().test(p) ? '' : p; }
-// ── 1020 她：点「帖里」那段字 → 右侧打开原帖并跳到那一处（正文 / 评论区滚过去高亮；图片切到第几张）。
-// 不改插件：原帖开好后在右侧那页里找。依据 = 「帖里 / 借鉴」里的引号原话、名字、期数和数字；找不到就只是打开原帖（不弹栏，0926 她不要「上一处 / 下一处」）
-function boardKeys(it) {
-  const text = [it.praise, it.why].join(' ');
-  const quotes = [...text.matchAll(/[「“"]([^」”"]{3,40})[」”"]/g)].map(m => m[1]);
-  const nums = [...text.matchAll(/(?:EP|Vol\.?|第)\s*\d+\s*[期集]?|\d+(?:\.\d+)?\s*(?:万|小时|分钟|期|集|播放|订阅)/gi)].map(m => m[0]);
-  const names = String(it.name || '').split(/[、,，/｜|]/).map(s => s.replace(/[《》]/g, '').trim()).filter(s => s.length >= 2);
-  return [...quotes.map(k => [k, 3]), ...names.map(k => [k, 2]), ...nums.map(k => [k, 1])];
-}
+// ── 1020 她：点「帖里」那段字 → 右侧打开原帖、跳到那一处并标出原句。
+// 匹配（1020 第二版；第一版只认名字 / 引号原话，真报告 15/35 条对不上）：「帖里 / 借鉴 / 名字」切成两字片段，在原帖每段正文、每条评论、
+// 每张图的识别文字（agent.md「### 第N张（…· image-00N.webp）」）里按 idf 加权算覆盖率（各段都有的「群聊」这种不算数），
+// 名字或引号原话原样出现再加分；离线拿她两份真报告测 35/35。图片切轮播到第 N 张描框；正文 / 评论只把重合最多的那一句标出来。
+// 滚动只滚原帖自己的滚动区（scrollIntoView 会把 Obsidian 整个工作区一起卷上去——1020 输入框悬空的根因）。
 function boardCompact(s) { return String(s || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase(); }
-function boardScore(text, keys) { const t = boardCompact(text); let n = 0; for (const [k, w] of keys) if (k && t.includes(boardCompact(k))) n += w; return n; }
+function boardGrams(s) {
+  const out = new Set();
+  for (const m of boardCompact(s).matchAll(/[a-z0-9]{2,}|[一-鿿]+/g)) {
+    const w = m[0];
+    if (/^[a-z0-9]/.test(w)) out.add(w); else for (let i = 0; i < w.length - 1; i++) out.add(w.slice(i, i + 2));
+  }
+  return out;
+}
+function boardMatcher(it, texts) {
+  const q = [...boardGrams([it.name, it.praise, it.why].join(' '))];
+  const gs = texts.map(t => boardGrams(t));
+  const n = gs.length;
+  const w = new Map(q.map(g => [g, Math.log((n + 1) / (gs.filter(G => G.has(g)).length + 0.5))]));
+  const tot = [...w.values()].reduce((a, b) => a + b, 0) || 1;
+  const names = String(it.name || '').replace(/[《》]/g, '').split(/[、,，/｜|]/).map(boardCompact).filter(x => x.length >= 2);
+  const quotes = [...[it.praise, it.why].join(' ').matchAll(/[「“"]([^」”"]{3,40})[」”"]/g)].map(m => boardCompact(m[1]));
+  const weigh = G => q.reduce((a, g) => a + (G.has(g) ? w.get(g) : 0), 0);
+  return {
+    score(i) {
+      const c = boardCompact(texts[i]);
+      return weigh(gs[i]) / tot + 0.25 * names.some(x => c.includes(x)) + 0.25 * quotes.some(x => c.includes(x));
+    },
+    sentence: text => weigh(boardGrams(text)),
+  };
+}
+function boardScrollWithin(el, box) {
+  for (let up = el.parentElement; up && up !== box.parentElement; up = up.parentElement) {
+    const st = getComputedStyle(up);
+    if (!/(auto|scroll)/.test(st.overflowY) || up.scrollHeight <= up.clientHeight + 1) continue;
+    const top = up.scrollTop + el.getBoundingClientRect().top - up.getBoundingClientRect().top - up.clientHeight / 3;
+    up.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  }
+}
+// 把元素里重合最多的那一句包进 <span class="lb-evidence-hit">（跨 <br> / 行内节点也行），过几秒拆掉
+function boardMarkSentence(el, m) {
+  const nodes = []; const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let all = '';
+  while (tw.nextNode()) { nodes.push([tw.currentNode, all.length]); all += tw.currentNode.nodeValue; }
+  let best = null;
+  for (const seg of all.matchAll(/[^。！？!?；;\n]+[。！？!?；;]?/g)) {
+    if (!boardCompact(seg[0])) continue;
+    const s = m.sentence(seg[0]);
+    if (!best || s > best.s) best = { s, a: seg.index, b: seg.index + seg[0].length };
+  }
+  if (!best || all.length < 40) { el.classList.add('lb-evidence-hit'); setTimeout(() => el.classList.remove('lb-evidence-hit'), 4500); return el; }
+  const marks = [];
+  for (const [node, off] of nodes) {
+    const a = Math.max(best.a, off), b = Math.min(best.b, off + node.nodeValue.length);
+    if (a >= b) continue;
+    const r = document.createRange(); r.setStart(node, a - off); r.setEnd(node, b - off);
+    const mk = document.createElement('span'); mk.className = 'lb-evidence-hit lb-locate-mark';   // 不用 <mark>：那是「划重点」的元素，会被当成她划过的
+    try { r.surroundContents(mk); marks.push(mk); } catch {}
+  }
+  setTimeout(() => { for (const mk of marks) { const p = mk.parentNode; if (!p) continue; while (mk.firstChild) p.insertBefore(mk.firstChild, mk); p.removeChild(mk); p.normalize?.(); } }, 6000);
+  return marks[0] || el;
+}
 async function boardLocate(src, it) {
   const p = provider();
   await openNote(src);
-  const leaf = p?.archiveLeaves?.(root)?.reader;
-  const box = leaf?.view?.containerEl;
+  const box = p?.archiveLeaves?.(root)?.reader?.view?.containerEl;
   if (!box) return false;
   for (let i = 0; i < 25 && !box.querySelector('.lb-note, .lb-body'); i++) await new Promise(r => setTimeout(r, 80));
-  const keys = boardKeys(it);
-  let best = null;
-  for (const el of box.querySelectorAll('.lb-body p, .lb-comment-text')) {
-    const s = boardScore(el.textContent, keys);
-    if (s > 0 && (!best || s > best.s)) best = { el, s };
-  }
-  // 图片：那篇 agent.md 里「### 第N张（图N · image-00N.webp）」下面的识别文字
+  const cands = [...box.querySelectorAll('.lb-body p, .lb-comment-text')].map(el => ({ el, text: el.textContent || '' }));
   try {
     const id = String(src.id || '').replace(/^xhs-/, '');
     const md = id ? await app.vault.adapter.read(lbPath(`_archive/xiaohongshu/${id}/derived/agent.md`)) : '';
-    const blocks = md.split(/\n(?=### 第\d+张（)/);
-    for (const b of blocks) {
+    const imgs = [...box.querySelectorAll('.lb-slide img')];
+    for (const b of md.split(/\n(?=### 第\d+张（)/)) {
       const m = /^### 第(\d+)张（[^·）]*·\s*([^）\s]+)）/.exec(b);
       if (!m) continue;
-      const s = boardScore(b.split(/\n## /)[0], keys);
-      if (s > 0 && (!best || s > best.s)) {
-        const img = [...box.querySelectorAll('.lb-slide img')].find(x => decodeURIComponent(x.getAttribute('src') || '').split('?')[0].endsWith('/' + m[2]));
-        if (img) best = { el: img, s, slide: Number(m[1]) };
-      }
+      const img = imgs.find(x => decodeURIComponent(x.getAttribute('src') || '').split('?')[0].endsWith('/' + m[2]));
+      if (img) cands.push({ el: img, text: b.split(/\n## /)[0], img: true });
     }
   } catch {}
-  if (!best) return false;
-  const el = best.el;
-  let up = el.parentElement; while (up && up !== box) { if (up.tagName === 'DETAILS') up.open = true; up = up.parentElement; }
-  const carousel = el.closest('.lb-carousel'), scroller = el.closest('.lb-scroll');
-  if (carousel) { const slide = el.closest('.lb-slide'); carousel.scrollTo({ left: slide.offsetLeft - carousel.querySelector('.lb-slide').offsetLeft, behavior: 'smooth' }); }
-  if (scroller && !carousel) scroller.scrollTo({ top: scroller.scrollTop + el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - scroller.clientHeight / 3, behavior: 'smooth' });
-  else (carousel || el).scrollIntoView({ behavior: 'smooth', block: 'center' });
-  el.classList.add('lb-evidence-hit'); setTimeout(() => el.classList.remove('lb-evidence-hit'), 4500);
+  if (!cands.length) return false;
+  const m = boardMatcher(it, cands.map(c => c.text));
+  let best = null;
+  cands.forEach((c, i) => { const s = m.score(i); if (!best || s > best.s) best = { ...c, s }; });
+  if (!best || best.s < 0.18) return false;
+  let up = best.el.parentElement; while (up && up !== box) { if (up.tagName === 'DETAILS') up.open = true; up = up.parentElement; }
+  const carousel = best.el.closest('.lb-carousel');
+  if (carousel) {
+    const slide = best.el.closest('.lb-slide');
+    carousel.scrollTo({ left: slide.offsetLeft - carousel.querySelector('.lb-slide').offsetLeft, behavior: 'smooth' });
+    boardScrollWithin(carousel, box);
+    best.el.classList.add('lb-evidence-hit'); setTimeout(() => best.el.classList.remove('lb-evidence-hit'), 4500);
+    return true;
+  }
+  const target = boardMarkSentence(best.el, m);
+  boardScrollWithin(target, box);
   return true;
 }
 async function renderBoard(el, t, board) {

@@ -50,7 +50,7 @@ const pluginBody = (p, app, W, BOARD_MD, IDS) => {
     const id = note.replace(/^.*\//, '').replace(/\.md$/, '');
     const slide = n => `<figure class="lb-slide" style="flex:none;width:200px;margin:0"><img src="app://x/_archive/xiaohongshu/${id}/raw/v0001/assets/image-00${n}.webp?7" style="width:200px;height:120px"></figure>`;
     box.innerHTML = `<div class="lb-note"><div class="lb-carousel" style="display:flex;overflow-x:auto;width:200px">${slide(1)}${slide(2)}</div>`
-      + `<div class="lb-body"><p>开头的铺垫话，和哪一条都不沾。</p><p>拿群公告当共享记忆，作者实测能省掉一半 token。</p></div>`
+      + `<div class="lb-body"><p>开头的铺垫话，和哪一条都不沾。</p><p>第一句先说背景，讲作者为什么想做这个项目。拿群公告当共享记忆，作者实测能省掉一半 token。最后一句讲别的事情，是和这条无关的收尾。</p></div>`
       + `<details><summary>评论</summary><div class="lb-comment-text">纯好笑的话无聊斋第一，正经叭叭也行</div></details></div>`;
     lb.reader = { view: { containerEl: box } };
     return Promise.resolve();
@@ -150,7 +150,10 @@ const ask = async (page, S, text, wait = 150) => { await page.click('.lbchat-sea
     // 点「帖里」那段字 → 打开原帖并跳到那一处：正文段落（引号原话）、收起的评论（名字，自动展开）、图片（agent.md 里第 2 张的识别文字有名字 → 第 2 张）
     const hit = () => page.evaluate(() => { const e = document.querySelector('#fake-reader .lb-evidence-hit'); return e ? (e.tagName === 'IMG' ? 'img:' + e.getAttribute('src').replace(/^.*\//, '').replace(/\?.*$/, '') : e.textContent.slice(0, 12)) : null; });
     await page.locator('.lbboard-row', { hasText: '群公告记忆' }).locator('.lbboard-text').first().click(); await S.settle(250);
-    assert.equal(await hit(), '拿群公告当共享记忆，作者');
+    assert.equal(await hit(), '拿群公告当共享记忆，作者', '长段落只标那一句');
+    assert.equal(await page.evaluate(() => document.querySelector('#fake-reader .lb-locate-mark')?.textContent), '拿群公告当共享记忆，作者实测能省掉一半 token。');
+    assert.equal(await page.evaluate(() => document.querySelector('#fake-reader mark')), null, '临时标记不用 <mark>（那是划重点的）');
+    assert.deepEqual(await page.evaluate(() => [document.documentElement.scrollTop, document.body.scrollTop, (document.querySelector('.workspace') || {}).scrollTop || 0]), [0, 0, 0], '跳转不卷动外层（输入框悬空的根因）');
     await page.locator('.lbboard-row.is-thin .lbboard-chip', { hasText: '无聊斋' }).click(); await S.settle(250);
     assert.equal(await hit(), '纯好笑的话无聊斋第一，正');
     assert.equal(await page.evaluate(() => document.querySelector('#fake-reader details').open), true, '收起的评论自动展开');
@@ -195,6 +198,17 @@ const ask = async (page, S, text, wait = 150) => { await page.click('.lbchat-sea
     await ask(page, S, '多agent群聊 帮我整理成 wiki');
     await page.evaluate(() => document.querySelector('.lbboard').scrollIntoView({ block: 'start' })); await S.settle(30);
     shots.push(await S.screenshot('board-dark'));
+    await page.close();
+
+    // 窄窗（右侧开着原帖时问收藏这一栏 < 1080）：对话区左边贴「目录」浮签，点了在旁边弹出目录浮动板
+    ({ page, S } = await openChat(browser, { width: 900, height: 900 }));
+    await ask(page, S, '多agent群聊 帮我整理成 wiki');
+    assert.equal(await page.locator('.lbchat-toc').isVisible().catch(() => false), false);
+    assert.ok(await page.locator('.lbchat-tocfab').isVisible(), '窄窗有目录浮签');
+    await page.locator('.lbchat-tocfab').click(); await S.settle(40);
+    assert.ok(await page.locator('.lbchat-tocpanel.is-side').isVisible());
+    assert.ok((await page.locator('.lbchat-tocpanel .lbchat-toc-cat').count()) >= 4);
+    shots.push(await S.screenshot('board-narrow-toc'));
     await page.close();
 
     ({ page, S } = await openChat(browser, { width: 420, height: 900 }));
