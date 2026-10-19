@@ -555,6 +555,43 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat .lbchat-mmd button.lbchat-mmd-btn:hover{color:var(--text-normal);}
 .lbchat-mmd.is-full{position:fixed;inset:24px;z-index:9998;max-height:none;background:var(--background-primary);border:1px solid var(--background-modifier-border);box-shadow:0 12px 40px rgba(0,0,0,.28);}
 .lbchat-mmd.is-full .lbchat-mmd-stage svg{max-width:none;}
+/* ── 1020 陈列版（技能 layout: board）：一份陈列目录。细线分隔、不套框不加阴影；左封面右文字，窄屏封面缩小 ── */
+.lbboard{display:flex;flex-direction:column;gap:22px;margin:2px 0 6px;}
+.lbboard-head{border-bottom:1.5px solid var(--text-normal);padding-bottom:10px;}
+.lbboard-title{font-family:var(--font-text);font-size:1.45em;font-weight:700;line-height:1.25;letter-spacing:.01em;}
+.lbboard-lead{margin-top:6px;font-size:13px;line-height:1.65;color:var(--text-muted);}
+.lbboard-nav{display:flex;flex-wrap:wrap;gap:2px 16px;margin-top:-10px;}
+.lbchat button.lbboard-navbtn{font:inherit;font-size:12.5px;height:auto;padding:2px 0;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-muted);cursor:pointer;}
+.lbchat button.lbboard-navbtn:hover{color:var(--interactive-accent);}
+.lbboard-cat{display:flex;align-items:baseline;gap:8px;font-size:13px;font-weight:600;letter-spacing:.04em;color:var(--text-normal);padding-bottom:6px;border-bottom:1px solid var(--background-modifier-border);}
+.lbboard-n{font-size:11px;font-weight:400;color:var(--text-faint);font-variant-numeric:tabular-nums;}
+.lbboard-desc{margin:6px 0 2px;font-size:12.5px;line-height:1.6;color:var(--text-muted);}
+.lbboard-top{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:14px 16px;margin-top:10px;}
+.lbboard-topcard{display:flex;flex-direction:column;gap:5px;min-width:0;}
+.lbchat .lbboard-topcard button.lbboard-cover{width:100%;height:auto;aspect-ratio:3/4;}
+.lbboard-topcard .lbboard-name{font-size:13.5px;}
+.lbboard-topwhy{font-size:12px;line-height:1.55;color:var(--text-muted);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
+.lbboard-row{display:flex;gap:14px;align-items:flex-start;padding:12px 0;border-bottom:1px solid color-mix(in srgb,var(--background-modifier-border) 60%,transparent);}
+.lbboard-row:last-child{border-bottom:0;}
+.lbchat button.lbboard-cover{flex:none;width:84px;height:112px;padding:0!important;margin:0;border:0!important;border-radius:6px!important;overflow:hidden;background:var(--background-modifier-hover)!important;box-shadow:none!important;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.lbchat button.lbboard-cover:disabled{cursor:default;}
+.lbchat button.lbboard-cover img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .2s;}
+.lbchat button.lbboard-cover:hover:not(:disabled) img{transform:scale(1.03);}
+.lbchat button.lbboard-cover.is-empty span{font-size:11px;color:var(--text-faint);padding:0 6px;text-align:center;line-height:1.4;}
+.lbboard-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:4px;}
+.lbboard-line{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;}
+.lbboard-name{font-weight:600;font-size:14.5px;line-height:1.4;color:var(--text-normal);}
+.lbboard-url{font-family:var(--font-monospace);font-size:11.5px;color:var(--interactive-accent);word-break:break-all;}
+.lbboard-url.is-none{font-family:inherit;color:var(--text-faint);}
+.lbboard-text{font-size:13px;line-height:1.65;color:var(--text-normal);}
+.lbboard-text.is-why{color:var(--text-normal);}
+.lbboard-lab{display:inline-block;margin-right:6px;font-size:10.5px;letter-spacing:.06em;color:var(--text-faint);}
+.lbboard-text.is-why .lbboard-lab{color:var(--interactive-accent);}
+.lbboard-src{font-size:11.5px;color:var(--text-faint);line-height:1.6;}
+.lbchat button.lbboard-srclink{font:inherit;font-size:11.5px;height:auto;padding:0;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-muted);cursor:pointer;}
+.lbchat button.lbboard-srclink:hover{color:var(--interactive-accent);}
+.lbboard-rest{margin-top:4px;}
+@media (max-width:520px){.lbchat .lbboard-row button.lbboard-cover{width:64px;height:86px;}.lbboard-top{grid-template-columns:repeat(2,minmax(0,1fr));}}
 `);
 
 const host = LB.mountHost('lbchat-host');
@@ -808,7 +845,7 @@ async function renderScoped(md, el) {
 // 每轮 DOM 缓存（A1）：key = 轮次 id → {el, sig, dispose}。sig 只取影响正文 / 气泡的字段；来源、按钮在 paintExtras 里原地重建
 const views = new Map();
 const sigOf = t => JSON.stringify(t.role === 'user' ? ['u', t.content, t.mode, t.sources, t.scopeTitle]
-  : t.role === 'assistant' ? ['a', t.content, !!t.failed, !!t.stopped, t.error?.kind || '', t.error?.code || '', t.mode || '', t.answerMode || '', (t.toc || []).length]
+  : t.role === 'assistant' ? ['a', t.content, !!t.failed, !!t.stopped, t.error?.kind || '', t.error?.code || '', t.mode || '', t.answerMode || '', (t.toc || []).length, t.layout || '']
     : [t.role, (t.results || []).length]);
 function disposeView(v) { try { v?.dispose?.(); } catch {} }
 // 强制全量重建（恢复历史 / 清空 / 重读别页写的会话）：兜住 sig 漏掉的字段
@@ -855,7 +892,11 @@ async function buildTurn(t) {
   const md = el.createEl('div', { cls: 'lbchat-md' });
   let dispose = () => {};
   if (t.failed && t.error) md.createEl('div', { cls: 'lbchat-fail', text: t.content });   // A5：失败轮正文就一句人话
-  else { dispose = await renderScoped(t.content, md); bindSources(md, t.sources || []); enhanceMermaid(md); }
+  else {
+    const board = t.layout === 'board' ? parseBoard(t.content) : null;
+    if (boardCount(board) >= 2) { md.addClass('is-board'); dispose = await renderBoard(md, t, board); }
+    else { dispose = await renderScoped(t.content, md); bindSources(md, t.sources || []); enhanceMermaid(md); }
+  }
   el._lbToc = el.createEl('div', { cls: 'lbchat-tocard-box' });
   el._lbSrc = el.createEl('div', { cls: 'lbchat-srcbox' });
   el._lbActs = el.createEl('div', { cls: 'lbchat-actions' });
@@ -1039,6 +1080,15 @@ function drawActions(acts, el, t) {
       try { await provider().exportArchiveBundle(currentSources.map(s => s.id), bundleImages.checked, answerExportMd({ ...t, sources: currentSources, related: keptRelated, dropped }), { question: t.q || '当前问答', askedAt: t.askedAt || 'unknown', copy: copyMode }); }
       catch (e) { failed = true; notice('导出没成：' + errText(e)); exportBtn.setText('导出失败'); setTimeout(() => { exportBtn.setText(label); }, 3000); }
       finally { exportBtn.disabled = false; if (!failed) exportBtn.setText(label); }
+    };
+  }
+  if (t.layout === 'board' && boardCount(parseBoard(t.content)) >= 2) {
+    const note = mk('存成笔记', 'lbchat-savenote', 'savenote', '把这份陈列存进库里「报告」文件夹（封面、出处链接都带上，手机 Obsidian 也能看）');
+    note.onclick = async () => {
+      note.disabled = true;
+      try { const path = await saveBoardNote(t); if (path) { notice('已存成笔记：' + path.replace(/^.*?报告\//, '报告/'), 3000); try { await app.workspace.openLinkText(path, '', true); } catch {} } }
+      catch (e) { notice('没存成：' + errText(e)); }
+      finally { note.disabled = false; }
     };
   }
   // 1015：「展开」绑这一答自己（turn + 留下的主要依据 id），不再对「上一答」发固定话术；目录型回答在目录卡里逐条 / 全部展开
@@ -1681,6 +1731,7 @@ function answerShape(r) {
   if (typeof r.turn_id === 'string' && r.turn_id) out.turnId = r.turn_id;
   if (typeof r.thread_id === 'string' && r.thread_id) out.threadId = r.thread_id;   // 1018 会话线：下一问带回去
   if (Array.isArray(r.source_ids)) out.sourceIds = idList(r.source_ids);
+  if (r.layout === 'board') out.layout = 'board';   // 1020 陈列版（技能 layout: board）
   const toc = normToc(r.toc), m = r.mode === 'toc' || r.mode === 'direct' ? r.mode : '';
   if (toc.length && m !== 'direct') {
     out.answerMode = 'toc'; out.toc = toc;
@@ -2224,6 +2275,169 @@ function toggleHistory(anchor) {
   setTimeout(() => doc.addEventListener('click', outside), 0);
 }
 // [来源N] → 胶囊（打开来源，右侧）；pending（流式时）= 不可点的同款胶囊。胶囊带 data-cite（F5「↑ 引用处」用）
+// ── 1020 陈列版（技能 layout: board，她：借鉴那份灵感板）──
+// 回答照技能的陈列格式写（skills.BOARD_FORMAT）：# 报告名 / > 一句 / ## 先看这几个 / ## 类别 / - **名字** · 网址 —— 帖里：…；借鉴：…[来源N]。
+// 这里解析成分模块的陈列：每条左边是出处帖封面（点了右侧打开原帖），右边名字 + 网址 + 帖里 / 借鉴 + 出处。
+// 解析不出 2 条以上就照普通 Markdown 显示（格式只是约定）；不认识的段落（可补、自检提示…）照 Markdown 接在陈列下面。
+// 都写成函数声明：页面开头恢复历史时 buildTurn 就会用到，const 在这里还没初始化（TDZ）
+function BOARD_ITEM() { return /^\s*[-*]\s+\*\*(.+?)\*\*\s*(.*)$/; }
+function BOARD_URL() { return /https?:\/\/[^\s<>()（）\[\]【】「」"'，。；、]+/; }
+function BOARD_CITE() { return /\[来源(\d+)\]/g; }
+function boardItem(name, rest) {
+  const cites = [...String(rest).matchAll(BOARD_CITE())].map(m => Number(m[1]));
+  let text = String(rest).replace(BOARD_CITE(), '').trim();
+  const cut = text.search(/——|—/);
+  const head = cut >= 0 ? text.slice(0, cut) : text;
+  let body = cut >= 0 ? text.slice(cut).replace(/^[—]+\s*/, '') : '';
+  const urlHit = head.match(BOARD_URL());
+  // 模型常写不带 http 的裸域名（github.com/x/y）：「· 网址 ——」那一格像域名就补成 https（后端 unseen_links 已核过帖里有）
+  const bare = head.replace(/^[·\s]+/, '').trim();
+  const url = urlHit ? urlHit[0].replace(/[.,;:!?)/]+$/, '')
+    : /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/\S*)?$/i.test(bare) ? 'https://' + bare.replace(/[.,;:!?)/]+$/, '') : '';
+  if (cut < 0 && !url) body = head.replace(/^[·\s]+/, '');
+  const praise = (body.match(/帖里[:：]\s*([\s\S]*?)(?=[；;]?\s*借鉴[:：]|$)/) || [])[1] || '';
+  const why = (body.match(/借鉴[:：]\s*([\s\S]*)$/) || [])[1] || '';
+  const clean = s => String(s || '').replace(/[；;。\s]+$/, '').trim();
+  return { name: clean(name.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')), url, cites,
+    praise: clean(praise || (why ? '' : body)), why: clean(why) };
+}
+function parseBoard(md) {
+  const out = { title: '', lead: '', top: [], groups: [], rest: [] };
+  let cur = null, fence = false, seenSection = false;
+  const flush = () => {
+    if (!cur) return;
+    if (cur.items.length) { if (cur.isTop) out.top.push(...cur.items); else out.groups.push(cur); out.rest.push(...cur.tail); }
+    else out.rest.push('## ' + cur.name, ...(cur.desc ? [cur.desc] : []), ...cur.tail);
+    cur = null;
+  };
+  for (const raw of String(md || '').split('\n')) {
+    const line = raw.replace(/\s+$/, '');
+    if (/^\s*```/.test(line)) fence = !fence;
+    if (fence || /^\s*```/.test(line)) { (cur ? cur.tail : out.rest).push(raw); continue; }
+    let m;
+    if (!seenSection && !out.title && (m = /^#\s+(.+)$/.exec(line))) { out.title = m[1].trim(); continue; }
+    if (!seenSection && !out.lead && (m = /^>\s?(.+)$/.exec(line))) { out.lead = m[1].trim(); continue; }
+    if ((m = /^#{2,3}\s+(.+)$/.exec(line))) { flush(); seenSection = true; cur = { name: m[1].trim(), desc: '', items: [], tail: [], isTop: /先看/.test(m[1]) }; continue; }
+    if (!cur) { out.rest.push(raw); continue; }
+    if ((m = BOARD_ITEM().exec(line))) { cur.items.push(boardItem(m[1], m[2])); continue; }
+    if (line.trim() && !cur.items.length && !cur.desc && !/^[>!|<-]/.test(line.trim())) { cur.desc = line.trim(); continue; }
+    cur.tail.push(raw);
+  }
+  flush();
+  return out;
+}
+function boardCount(b) { return b ? b.groups.reduce((n, g) => n + g.items.length, 0) : 0; }
+function boardCover(src) {
+  const c = src && src.cover;
+  if (!c) return '';
+  try { return app.vault.adapter.getResourcePath(lbPath(String(c).replace(/^\/+/, ''))); } catch { return ''; }
+}
+async function renderBoard(el, t, board) {
+  const srcOf = n => (t.sources || []).find(s => Number(s.citation) === Number(n));
+  const byName = new Map(); for (const g of board.groups) for (const it of g.items) if (!byName.has(it.name)) byName.set(it.name, it);
+  const wrap = el.createDiv({ cls: 'lbboard' });
+  const cover = (box, it, label) => {
+    const src = it.cites.map(srcOf).find(Boolean);
+    const url = boardCover(src);
+    const b = box.createEl('button', { cls: 'lbboard-cover' + (url ? '' : ' is-empty'), attr: { type: 'button', title: src ? '打开原帖：' + (src.title || '') : '这一条没标出处' } });
+    if (url) { const img = b.createEl('img', { attr: { src: url, alt: '', loading: 'lazy' } }); img.onerror = () => { img.remove(); b.addClass('is-empty'); b.createSpan({ text: label }); }; }
+    else b.createSpan({ text: label });
+    if (src) b.onclick = () => openNote(src); else b.disabled = true;
+  };
+  const sources = (box, it) => {
+    const list = [...new Set(it.cites)].map(srcOf).filter(Boolean);
+    if (!list.length) return;
+    const p = box.createDiv({ cls: 'lbboard-src' }); p.createSpan({ text: '出自 ' });
+    list.forEach((s, i) => { if (i) p.appendText('、'); const a = p.createEl('button', { cls: 'lbboard-srclink', text: '《' + (s.title || '原帖') + '》', attr: { type: 'button' } }); a.onclick = () => openNote(s); });
+  };
+  if (board.title || board.lead) {
+    const head = wrap.createDiv({ cls: 'lbboard-head' });
+    if (board.title) head.createDiv({ cls: 'lbboard-title', text: board.title });
+    if (board.lead) head.createDiv({ cls: 'lbboard-lead', text: board.lead });
+  }
+  const groups = board.groups;
+  if (groups.length >= 3) {
+    const nav = wrap.createDiv({ cls: 'lbboard-nav' });
+    groups.forEach((g, i) => { const b = nav.createEl('button', { cls: 'lbboard-navbtn', text: g.name, attr: { type: 'button' } }); b.onclick = () => wrap.querySelector(`[data-cat="${i}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }); });
+  }
+  if (board.top.length) {
+    const sec = wrap.createDiv({ cls: 'lbboard-topsec' });
+    sec.createDiv({ cls: 'lbboard-cat', text: '先看这几个' });
+    const grid = sec.createDiv({ cls: 'lbboard-top' });
+    for (const raw of board.top.slice(0, 8)) {
+      const it = raw.cites.length ? raw : { ...raw, cites: (byName.get(raw.name) || {}).cites || [] };
+      const card = grid.createDiv({ cls: 'lbboard-topcard' });
+      cover(card, it, it.name.slice(0, 4));
+      card.createDiv({ cls: 'lbboard-name', text: it.name });
+      const why = raw.why || raw.praise; if (why) card.createDiv({ cls: 'lbboard-topwhy', text: why });
+    }
+  }
+  groups.forEach((g, i) => {
+    const sec = wrap.createDiv({ cls: 'lbboard-sec', attr: { 'data-cat': String(i) } });
+    const h = sec.createDiv({ cls: 'lbboard-cat' }); h.appendText(g.name); h.createSpan({ cls: 'lbboard-n', text: String(g.items.length) });
+    if (g.desc) sec.createDiv({ cls: 'lbboard-desc', text: g.desc.replace(BOARD_CITE(), '') });
+    for (const it of g.items) {
+      const row = sec.createDiv({ cls: 'lbboard-row' });
+      cover(row, it, g.name.slice(0, 4));
+      const main = row.createDiv({ cls: 'lbboard-main' });
+      const line = main.createDiv({ cls: 'lbboard-line' });
+      line.createSpan({ cls: 'lbboard-name', text: it.name });
+      if (it.url) line.createEl('a', { cls: 'lbboard-url', text: it.url.replace(/^https?:\/\//, '').replace(/\/$/, ''), attr: { href: it.url, target: '_blank', rel: 'noopener' } });
+      else line.createSpan({ cls: 'lbboard-url is-none', text: '无链接 · 看原帖' });
+      if (it.praise) { const p = main.createDiv({ cls: 'lbboard-text' }); p.createSpan({ cls: 'lbboard-lab', text: '帖里' }); p.appendText(it.praise); }
+      if (it.why) { const p = main.createDiv({ cls: 'lbboard-text is-why' }); p.createSpan({ cls: 'lbboard-lab', text: '借鉴' }); p.appendText(it.why); }
+      sources(main, it);
+    }
+  });
+  const rest = board.rest.join('\n').trim();
+  if (!rest) return () => {};
+  const tail = el.createDiv({ cls: 'lbboard-rest' });
+  const d = await renderScoped(rest, tail); bindSources(tail, t.sources || []);
+  return d;
+}
+// 「存成笔记」：陈列版写成库里「报告/」下的一篇 Markdown（封面嵌图、出处双链），手机 Obsidian 也能看
+function safeName(s) { return String(s || '').replace(/[\\/:*?"<>|#^[\]\n\r]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || '问收藏报告'; }
+function boardNoteMd(t, board) {
+  const srcOf = n => (t.sources || []).find(s => Number(s.citation) === Number(n));
+  const link = s => `[[${lbPath(String(s.note || '').replace(/\.md$/, ''))}|《${String(s.title || '原帖').replace(/[|\]]/g, ' ')}》]]`;
+  const from = it => [...new Set(it.cites)].map(srcOf).filter(s => s && s.note).map(link).join('、');
+  const out = ['---', 'lb-report: board', `question: ${JSON.stringify(t.q || '')}`, `asked: ${JSON.stringify(t.askedAt || new Date().toISOString())}`, '---', '',
+    `# ${board.title || t.q || '问收藏报告'}`, ''];
+  if (board.lead) out.push(`> ${board.lead}`, '');
+  if (board.top.length) {
+    out.push('## 先看这几个', '');
+    for (const it of board.top) out.push(`- **${it.name}** —— ${it.why || it.praise}` + (from(it) ? `（出自 ${from(it)}）` : ''));
+    out.push('');
+  }
+  for (const g of board.groups) {
+    out.push(`## ${g.name}`, '');
+    if (g.desc) out.push(g.desc.replace(BOARD_CITE(), ''), '');
+    for (const it of g.items) {
+      const s = it.cites.map(srcOf).find(x => x && x.cover);
+      out.push(`### ${it.name}`, '');
+      if (s) out.push(`![[${lbPath(String(s.cover).replace(/^\/+/, ''))}|160]]`, '');
+      out.push(`- 网址：${it.url || '无链接，看原帖'}`);
+      if (it.praise) out.push(`- 帖里：${it.praise}`);
+      if (it.why) out.push(`- 借鉴：${it.why}`);
+      if (from(it)) out.push(`- 出自：${from(it)}`);
+      out.push('');
+    }
+  }
+  const rest = board.rest.join('\n').replace(BOARD_CITE(), '').trim();
+  if (rest) out.push(rest, '');
+  return out.join('\n');
+}
+async function saveBoardNote(t) {
+  const board = parseBoard(t.content);
+  if (boardCount(board) < 2) { notice('这一答不是陈列格式，没法存成报告笔记'); return null; }
+  const dir = lbPath('报告');
+  try { if (!(await app.vault.adapter.exists(dir))) await app.vault.adapter.mkdir(dir); } catch {}
+  const base = safeName(board.title || t.q);
+  let path = `${dir}/${base}.md`;
+  for (let k = 2; k < 50 && (await app.vault.adapter.exists(path)); k++) path = `${dir}/${base} ${k}.md`;
+  await app.vault.adapter.write(path, boardNoteMd(t, board));
+  return path;
+}
 function bindSources(el, sources, { pending = false } = {}) {
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
   for (const node of nodes) {

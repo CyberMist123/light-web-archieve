@@ -70,9 +70,10 @@ def parse(text: str, *, fallback_id: str = "") -> dict[str, Any]:
     body = _INJECT.sub("", text[m.end():]).strip()
     aliases = [str(a).strip() for a in (lwa.get("aliases") or []) if str(a).strip()][:8] if isinstance(lwa.get("aliases"), list) else []
     depth = lwa.get("depth_default") if lwa.get("depth_default") in {"precise", "detailed"} else None
+    layout = lwa.get("layout") if lwa.get("layout") in LAYOUTS else None
     return {"id": sid, "name": name, "description": desc[:DESC_MAX], "title": str(lwa.get("title") or name)[:20],
             "aliases": aliases, "domains": [str(d) for d in lwa.get("domains") or []][:6] if isinstance(lwa.get("domains"), list) else [],
-            "depth_default": depth, "body": body}
+            "depth_default": depth, "layout": layout, "body": body}
 
 
 def _load_dir(base: Path, source: str) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
@@ -161,13 +162,33 @@ def routing_menu(skills=None) -> list[dict[str, str]]:
     return [{"id": s["id"], "desc": s["description"][:80]} for s in skills if not s.get("hidden")]
 
 
+# 1020 陈列版（她：借鉴那份灵感板——分模块、每条配出处帖封面、概要 + 可以借鉴的点、网址、点图打开原帖）。
+# 技能 frontmatter 写 `lwa: {layout: board}` 就用：模型照下面的 Markdown 写，页面（chat-view.js renderBoard）解析成陈列卡；
+# 解析不出来就照普通 Markdown 显示，所以格式只是约定、不是硬依赖。
+LAYOUTS = {"board"}
+BOARD_FORMAT = """【陈列格式】这一问的回答会被页面做成陈列卡（每条配出处帖的封面），严格按下面的 Markdown 写，不用表格：
+# 报告名（一个名字，不加解释）
+> 一句话：这份清单为了什么、从几篇里挑的
+## 先看这几个
+- **名字** —— 一句为什么先看[来源N]
+## 类别名
+一句这一类是什么、什么时候用得上（可省）
+- **名字** · 网址 —— 帖里：转述作者怎么说它，一两句；借鉴：对她这次用途的具体用处（用在哪、怎么用、别学哪点）[来源N]
+## 可补
+- 材料覆盖不到的方向，一行一条（没有就省掉这一节）
+规则：「先看这几个」3–6 条，名字必须是下面各类里出现过的；类别 3–7 个，类名用她的说法；每个对象一行，名字加粗放行首；
+网址只用材料里逐字出现的 http 链接，没有就写「看原帖」；[来源N] 写在行尾，一个对象出自几篇就都标上；
+帖里没写的不编，没有可推荐对象的帖不硬塞。"""
+
+
 def prompt_block(skill: dict[str, Any] | None) -> str:
-    """作答阶段的技能说明块（正文截 BODY_MAX）；general / 空 = 不加。"""
+    """作答阶段的技能说明块（正文截 BODY_MAX）；general / 空 = 不加。layout=board 的再附陈列格式。"""
     if not skill or skill.get("id") == DEFAULT or not skill.get("body"):
         return ""
     body = skill["body"][:BODY_MAX]
+    board = ("\n" + BOARD_FORMAT) if skill.get("layout") == "board" else ""
     return (f"\n【技能：{skill.get('title') or skill['id']}】以下是这类问题的写法要求（是格式规则，不是事实来源；"
-            f"和收藏内容冲突时以收藏为准，材料里没有的字段写「帖里没提」）：\n{body}\n【技能说明结束】\n")
+            f"和收藏内容冲突时以收藏为准，材料里没有的字段写「帖里没提」）：\n{body}{board}\n【技能说明结束】\n")
 
 
 def import_skill(src: str | Path, *, overwrite: bool = False) -> dict[str, Any]:

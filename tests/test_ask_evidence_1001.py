@@ -102,3 +102,21 @@ def test_selector_chatty_json_is_parsed_leniently(monkeypatch):
     r = ask.answer("推荐相关项目", mode="direct")   # 1015 起盘点多默认出目录；这里测直接答那条路上的挑材料
     assert r["status"] == "ok" and "selection_failed" not in r
     assert r["candidates"] > 8 and len(r["sources"]) >= 1
+
+
+def test_judge_rejected_sources_stay_out_of_related(monkeypatch):
+    """1020：判定模型逐篇判「无关」的篇不再列进「其他相关」（以前照样塞进去凑数）。"""
+    monkeypatch.setattr(ask, "load_items", lambda: [dict(x) for x in ITEMS])
+    monkeypatch.setattr(ask.ai_config, "load", lambda: ask.ai_config._deep_merge(ask.ai_config.DEFAULTS, {}))
+    calls = []
+
+    def model(prompt, text, settings):
+        calls.append(text)
+        if len(calls) == 1:   # 判定选篇：前两篇正题、第 3 篇沾边，其余无关
+            rows = ["1|deep_read|正题", "2|deep_read|正题", "3|tentative|沾边"] + [f"{k}|reject|无关" for k in range(4, 13)]
+            return {"status": "ok", "text": "\n".join(rows)}
+        return {"status": "ok", "text": "整理如下[来源1]"}
+    monkeypatch.setattr(ask, "call_text", model)
+    r = ask.answer("推荐相关项目", mode="direct")
+    assert r["status"] == "ok" and len(r["sources"]) == 2
+    assert len(r["related"]) == 1, [x["title"] for x in r["related"]]   # 只剩「沾边」那篇；判无关的 9 篇不列

@@ -1238,6 +1238,31 @@ def inherited_sources(history, items, by_id=None, parent=None):
     return [it for v, it in ranked[:SELECT_MAX["ask"]] if v >= top * .5]
 
 
+_LINK_RE = re.compile(r"https?://[^\s<>()（）\[\]【】「」\"'，。；、]+")
+
+
+def unseen_links(markdown, evidence):
+    """回答里的 http 链接，材料（送给模型的证据全文）里没逐字出现的换成「看原帖」——模型凭记忆补的官网不当帖内给出。
+    比对时去掉末尾标点和斜杠；Markdown 链接 [字](url) 整个换掉。"""
+    ev = str(evidence or "")
+
+    def seen(url):
+        u = url.rstrip(".,;:!?)/")
+        return bool(u) and (u in ev or u.split("://", 1)[-1] in ev)
+
+    def md_link(m):
+        return m.group(0) if seen(m.group(2)) else f"{m.group(1)}（看原帖）"
+    out = re.sub(r"\[([^\]]{1,80})\]\((https?://[^)\s]+)\)", md_link, str(markdown or ""))
+    out = _LINK_RE.sub(lambda m: m.group(0) if seen(m.group(0)) else "看原帖", out)
+    # 陈列行「**名字** · 网址 ——」那一格常写不带 http 的裸域名（github.com/x/y、pinterest.com）：同样只认材料里有的（不分大小写）
+    low = ev.lower()
+
+    def bare(m):
+        u = m.group(2).rstrip(".,;:!?)/")
+        return m.group(0) if u.lower() in low else m.group(1) + "看原帖"
+    return re.sub(r"(\*\*[^*\n]{1,60}\*\*\s*·\s*)((?!https?://)[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+(?:/[^\s—]*)?)", bare, out)
+
+
 def related_card(item, rank_no, terms=()):
     """「其他相关」那一档的来源卡（R2）：摘录 = 该篇真实命中的一段原文（单字段、≤120 字、纯词法，不调语义）。
     以前用 summary[:120] 冒充命中依据；一个词都没中就留空，不再拿概要顶。任何异常也留空（fail-open）。"""
@@ -2187,8 +2212,10 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
                             "excerpts": [{"field": hp["type"], "text": hp.get("text") or ""}],
                             "hit_types": [hp["type"]], "date": it.get("date") or ""})
     sent = {s["id"] for s in sources}
+    # 1020：判定模型逐篇看过、判「无关」的不再列进「其他相关」（以前照样塞进去凑数）；仍在候选集里，MCP 翻页拿得到
+    rejected = {i for i, (v, _) in ((judged or {}).get("verdicts") or {}).items() if v == "reject"}
     related_cards = [related_card(it, len(sources) + i + 1, terms + prior_terms + expansion["terms"])
-                     for i, it in enumerate([it for it in overflow + related if it["id"] not in sent])]
+                     for i, it in enumerate([it for it in overflow + related if it["id"] not in sent and it["id"] not in rejected])]
     # ---- 1018 v2.1 作答层（设计 §4）：CORE_RULES + 只拼本题那一个模板 + 来源导读格式；撤掉「约 N 字」「缺口」「相关材料都要照顾到」
     task = answer_prompt.task_for(understood, question)
     extra = ""
@@ -2225,7 +2252,11 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     user_text = answer_prompt.user_message(question, note=answer_prompt.research_note(understood, question),
                                            today=answer_prompt.today_line(), blocks=blocks, dialog=dialog, avoid=avoid, lead=lead)
     configured = (settings.get("textAI") or {}).get("maxTokens")
-    call_settings = {**settings, "textAI": {**(settings.get("textAI") or {}), "maxTokens": answer_prompt.max_tokens(task, configured)}}
+    layout = (skill or {}).get("layout") if isinstance(skill, dict) else None
+    out_cap = answer_prompt.max_tokens(task, configured)
+    if layout == "board":
+        out_cap = max(out_cap, answer_prompt.MAX_TOKENS["survey"])   # 陈列版每个对象一行带「帖里 / 借鉴」，按盘点给上限
+    call_settings = {**settings, "textAI": {**(settings.get("textAI") or {}), "maxTokens": out_cap}}
     # 流式：想法块缓住不给她看（闭合后才放后面的字；没写标签 / 没闭合 = 全显示）
     gate = answer_prompt.ThoughtGate(_ON_DELTA.get()) if _ON_DELTA.get() else None
     token = _ON_DELTA.set(gate) if gate else None
@@ -2253,6 +2284,8 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     from .mdsafe import neutralize  # 1001 C-2：回答引用了别人的原文，落盘/渲染前打断 Dataview 可执行形态
     image_list = image_refs(visible, sources)
     markdown = neutralize(embed_images(visible, sources))  # 1008：模型写的 [看图：来源N 图M] 换成真图，对不上的删掉
+    if layout == "board":
+        markdown = unseen_links(markdown, "\n".join(blocks))   # 陈列版的网址只认材料里逐字出现的
     if res.get('truncated'):markdown+='\n\n> 回答达到输出上限，尚未完成。可缩小问题范围，或在设置中提高回答输出上限后重试。'
     markdown += uncited_pins_note(markdown, [x for x in sources if x["id"] in set(pins)])
     # 来源导读 → sources[].guide；顺序 = 导读顺序 = ordered_sources（下一轮「第 N 篇」按它数）
@@ -2290,7 +2323,7 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
             "ordered_sources": ordered, "objects": objects, **({"thought": thought} if thought else {}), "images": image_list,
             "coverage_note": f"用了 {len(sources)} 条材料" + (f"，另有 {len(related_cards)} 条在「其他相关」" if related_cards else ""),
             "source_ids": [x["id"] for x in sources], "understanding": _public_understanding(understood, used_filters),
-            "skill": skill_id, **({"suggest": hint_line} if hint_line else {}), **({"expanded_from": expand_of} if expand_of else {}),
+            "skill": skill_id, **({"layout": layout} if layout else {}), **({"suggest": hint_line} if hint_line else {}), **({"expanded_from": expand_of} if expand_of else {}),
             **({"mode_reason": mode_info.get("reason")} if mode_info.get("reason") else {}), "sources": sources, "related": related_cards, "matches": len(matches),
             "materials": len(sources), "candidates": candidate_count, "truncated": res.get('truncated',False), "model_called": True,
             "candidate_set": {"total": total, "shown": candidate_count, "more": beyond}, "deep_read": deep or (bool(select_reason) and select_reason != "fallback"),
