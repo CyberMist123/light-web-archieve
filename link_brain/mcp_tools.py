@@ -731,6 +731,7 @@ def _selection_rows(sel: dict[str, Any], ctx: Ctx, by_id: dict[str, dict[str, An
         agent, atts = rtools._archive_paths(it)
         note = it.get("note") if isinstance(it.get("note"), str) else None
         out.append({"id": _short_id(it.get("id")), "title": it.get("title") or "",
+                    "added_at": (sel.get("added") or {}).get(i) or sel.get("created_at"),
                     "agent_md": _abs(ctx, agent if agent and ctx.policy.allowed_file(agent) else None),
                     "note": _abs(ctx, note if note and ctx.policy.allowed_file(note) else None),
                     "source_url": it.get("url")})
@@ -738,7 +739,8 @@ def _selection_rows(sel: dict[str, Any], ctx: Ctx, by_id: dict[str, dict[str, An
 
 
 def _sel_summary(r: dict[str, Any]) -> dict[str, Any]:
-    return {"no": r["no"], "name": r["name"], "count": len(r["ids"]), "created_at": r["created_at"]}
+    return {"no": r["no"], "name": r["name"], "count": len(r["ids"]), "created_at": r["created_at"],
+            "updated_at": r.get("updated_at") or r["created_at"]}
 
 
 def selections(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
@@ -793,10 +795,23 @@ def selections(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
                 while name in taken:
                     no += 1
                     name = f"暗号{no}"
-            if any(r.get("name") == name for r in raw_rows) and not overwrite:
-                raise Denied("EXISTS", f"已经有暗号「{name}」了；要覆盖就带 overwrite=true，或换个名字")
             now = datetime.now(timezone.utc)
-            row = {"name": name, "ids": ids, "created_at": now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"}
+            stamp = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+            prev = next((r for r in raw_rows if r.get("name") == name), None)
+            if prev and not overwrite:
+                # 1019 她：同名合并（abc + bd = abcd），不覆盖；overwrite=true 才整组替换
+                old_ids = [str(i) for i in prev.get("ids") or []]
+                added = dict(prev.get("added") or {})
+                for i in old_ids:
+                    added.setdefault(i, prev.get("created_at") or stamp)
+                for i in ids:
+                    if i not in old_ids:
+                        old_ids.append(i)
+                        added[i] = stamp
+                row = {"name": name, "ids": old_ids, "added": added, "created_at": prev.get("created_at") or stamp,
+                       "updated_at": stamp}
+            else:
+                row = {"name": name, "ids": ids, "added": {i: stamp for i in ids}, "created_at": stamp}
             doc["selections"] = [row] + [r for r in raw_rows if r.get("name") != name]
             _write_json(path, doc)
         saved = next(r for r in numbered_selections() if r["name"] == name)

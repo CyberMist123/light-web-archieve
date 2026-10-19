@@ -1817,11 +1817,16 @@ async function readSelections() {
   try { const doc = JSON.parse(await app.vault.adapter.read(lbPath(SELECTIONS))); return Array.isArray(doc?.selections) ? doc.selections.filter(r => r && typeof r.name === 'string') : []; }
   catch { return []; }
 }
-// 存一组：同名先确认再覆盖；写盘成功才提示（§1.5），失败对话框留着、字还在
+// 存一组：同名就合并（1019 她：abc 存过再存 bd = abcd，不覆盖、不弹窗）；每篇记加入时间（added），给 AI 看；写盘成功才提示（§1.5）
 async function storeSelection(name, list) {
   const rows = await readSelections();
-  if (rows.some(r => r.name === name) && !(await LB.confirm({ title: `覆盖选集「${name}」？`, body: '已经有叫这个名字的选集，覆盖它吗？', ok: '覆盖' }))) return false;
-  const row = { name, ids: list.map(x => x.id), created_at: new Date().toISOString() };
+  const now = new Date().toISOString();
+  const old = rows.find(r => r.name === name);
+  const ids = [...(old?.ids || [])];
+  const added = { ...(old?.added || {}) };
+  for (const x of list) { if (!ids.includes(x.id)) { ids.push(x.id); added[x.id] = now; } }
+  for (const id of ids) if (!added[id]) added[id] = old?.created_at || now;
+  const row = { name, ids, added, created_at: old?.created_at || now, updated_at: now };
   await app.vault.adapter.write(lbPath(SELECTIONS), JSON.stringify({ selections: [row, ...rows.filter(r => r.name !== name)] }, null, 1));
   return true;
 }

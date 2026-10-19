@@ -110,11 +110,17 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
   dlg().querySelector('input').value = '  我的 图谱 '; await saveBtn().onclick(); await tick(5);
   doc = JSON.parse(V.get(SEL));
   assert.deepEqual(doc.selections.map(s => s.name), ['我的 图谱', 'graph' + mmdd], '新的在前');
-  A.window.confirm = () => false;
+  // 1019 她：同名合并（不弹确认、不覆盖），新加的篇记加入时间
+  A.window.confirm = () => { throw new Error('同名不该再弹确认'); };
+  for (const id of ['d20']) card(id).querySelector('.lbc-check').onclick(ev);
   $$('.lbc-selbar button').find(b => b.textContent === '给 AI（存成选集）').onclick();
   dlg().querySelector('input').value = '我的 图谱'; await saveBtn().onclick(); await tick(5);
-  assert.equal(JSON.parse(V.get(SEL)).selections.length, 2);
-  assert.ok(dlg(), '没确认覆盖：对话框还在');
+  doc = JSON.parse(V.get(SEL));
+  assert.equal(doc.selections.length, 2);
+  assert.ok(doc.selections[0].ids.includes('d20') && doc.selections[0].ids.includes('old'), '合并成并集');
+  assert.ok(doc.selections[0].added.d20);
+  for (const id of ['d20']) card(id).querySelector('.lbc-check').onclick(ev);
+  $$('.lbc-selbar button').find(b => b.textContent === '给 AI（存成选集）').onclick();
   // 空名字不存；写盘失败：对话框留着、说清原因
   dlg().querySelector('input').value = ' '; await saveBtn().onclick(); await tick(5);
   assert.ok(dlg().querySelector('.lbc-dialog-err').textContent.includes('起个名字'));

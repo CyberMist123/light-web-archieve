@@ -236,11 +236,12 @@ def test_selections_save_list_get(vault):
     c = ctx(vault)
     _seed_selections(vault, 2)
     saved = mt.selections(c, {"action": "save", "ids": ["abc12345", "https://www.xiaohongshu.com/explore/bbb22222"]})
-    assert saved["saved"] == {"no": 3, "name": "暗号3", "count": 2, "created_at": saved["saved"]["created_at"]}
+    assert saved["saved"] == {"no": 3, "name": "暗号3", "count": 2, "created_at": saved["saved"]["created_at"],
+                              "updated_at": saved["saved"]["created_at"]}
     named = mt.selections(c, {"action": "save", "ids": ["ccc33333"], "name": "老帖子"})["saved"]
     assert named["no"] == 4
-    with pytest.raises(Denied):
-        mt.selections(c, {"action": "save", "ids": ["ccc33333"], "name": "老帖子"})
+    merged = mt.selections(c, {"action": "save", "ids": ["ccc33333", "abc12345"], "name": "老帖子"})["saved"]
+    assert merged["count"] == 2, "1019 她：同名合并，不报 EXISTS"
     mt.selections(c, {"action": "save", "ids": ["abc12345"], "name": "老帖子", "overwrite": True})
     with pytest.raises(Denied):
         mt.selections(c, {"action": "save", "ids": ["nope0000"]})
@@ -248,6 +249,7 @@ def test_selections_save_list_get(vault):
     assert [s["name"] for s in listed["selections"]][:2] == ["老帖子", "暗号3"] and listed["count"] == 4
     got = mt.selections(c, {"action": "get", "ref": "最新"})["selections"]
     assert got[0]["name"] == "老帖子" and got[0]["items"][0]["agent_md"] == AGENT
+    assert got[0]["items"][0]["added_at"]                            # 给 AI 看每篇存的时间
     multi = mt.selections(c, {"action": "get", "ref": "13"})["selections"]   # 没有 13 号 → 1、3
     assert [g["no"] for g in multi] == [1, 3]
     assert [i["title"] for i in multi[1]["items"]] == ["蒜香鱼片怎么做", "番茄炒蛋"]

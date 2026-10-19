@@ -25,7 +25,7 @@ def path(vault: Path | None = None) -> Path:
 
 
 def load(vault: Path | None = None) -> list[dict[str, Any]]:
-    """[{name, ids, created_at}]，新的在前；格式不对的条目丢掉。"""
+    """[{name, ids, created_at, updated_at, added{id: 加入时间}}]，新的在前；格式不对的条目丢掉。"""
     try:
         doc = json.loads(path(vault).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -38,8 +38,10 @@ def load(vault: Path | None = None) -> list[dict[str, Any]]:
         name = str(row.get("name") or "").strip()
         ids = [i for i in (row.get("ids") or []) if isinstance(i, str) and i] if isinstance(row.get("ids"), list) else []
         if name and ids:
-            out.append({"name": name, "ids": list(dict.fromkeys(ids)), "created_at": str(row.get("created_at") or "")})
-    out.sort(key=lambda r: r["created_at"], reverse=True)
+            added = row.get("added") if isinstance(row.get("added"), dict) else {}
+            out.append({"name": name, "ids": list(dict.fromkeys(ids)), "created_at": str(row.get("created_at") or ""),
+                        "updated_at": str(row.get("updated_at") or row.get("created_at") or ""), "added": added})
+    out.sort(key=lambda r: r["updated_at"], reverse=True)  # 1019：合并进来的也算「最新」
     return out
 
 
