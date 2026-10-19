@@ -58,6 +58,7 @@ style.textContent = `
 .lba-annot-list{display:flex;flex-direction:column;gap:18px;margin-bottom:16px;}
 .lba-annot-item{padding:0 44px 0 0;font-size:14px;line-height:1.75;color:var(--text-normal);white-space:pre-wrap;word-break:break-word;position:relative;}
 .lba-annot-item .lba-ts{display:block;font-size:11px;color:var(--text-faint);margin-bottom:3px;}
+.lba-annot-item.is-reply{margin-left:14px;padding-left:8px;border-left:2px solid var(--interactive-accent);}
 .lba-annot-item .lba-fable-tag{font-size:10px;color:var(--interactive-accent);font-weight:600;margin-left:6px;}
 .lba-edited{font-size:10px;color:var(--text-faint);margin-left:6px;}
 .lba-annot-text{display:inline;}
@@ -366,11 +367,24 @@ function renderUndo() {
   };
   btn.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); btn.onclick(e); } };
 }
+// 1020：AI 的回复（reply_to 指着她那条）排在被回那条正下方；被回那条删了就按时间留在原处
+function displayOrder() {
+  const all = data.annotations;
+  const ids = new Set(all.map(a => a.id).filter(Boolean));
+  const replies = new Map();
+  for (const a of all) if (a.reply_to && ids.has(a.reply_to)) { if (!replies.has(a.reply_to)) replies.set(a.reply_to, []); replies.get(a.reply_to).push(a); }
+  const out = [];
+  for (const a of all) {
+    if (a.reply_to && ids.has(a.reply_to)) continue;
+    out.push(a);
+    for (const r of replies.get(a.id) || []) out.push(r);
+  }
+  return out;
+}
 function renderList() {
   list.empty();
-  for (let i = 0; i < data.annotations.length; i++) {
-    const a = data.annotations[i];
-    const el = list.createEl('div', { cls: 'lba-annot-item' + (a.to_fable ? ' is-fable' : '') });
+  for (const a of displayOrder()) {
+    const el = list.createEl('div', { cls: 'lba-annot-item' + (a.to_fable ? ' is-fable' : '') + (a.reply_to ? ' is-reply' : '') });
     const who = a.author || (a.to_fable ? '' : nickname());
     const ts = el.createEl('span', { cls: 'lba-ts', text: (who ? who + ' · ' : '') + fmtTs(a.ts) });
     if (a.to_fable) ts.createEl('span', { cls: 'lba-fable-tag', text: mention() ? '给 ' + mention() : '留言' });

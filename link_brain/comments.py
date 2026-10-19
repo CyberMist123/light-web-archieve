@@ -301,3 +301,43 @@ def _resolve_target(target: str) -> str:
     if not item_id:
         raise SystemExit(f"找不到对象：{target}")
     return item_id
+
+
+def prune_actor(actor: str = "system", *, vault: Path | None = None, dry_run: bool = False) -> dict[str, Any]:
+    """1020：删掉某个角色留的留言（默认 system——lwa 以前每收一篇就在正文留言层留一句「收好了」戳 Fable，
+    没人看、还占着她的笔记）。只动留言层；她手写的 / Fable 回的不碰。对象级 comments.jsonl 追加一条 prune 记录。"""
+    vault = vault or storage.vault_root()
+    touched, removed = [], 0
+    for meta_path in sorted(storage.archive_root().glob("*/*/meta.json")):
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        path = _visible_path(meta, vault)
+        if path is None:
+            continue
+        text = path.read_text(encoding="utf-8")
+        start, end = text.find(render_mod.COMMENTS_START), text.find(render_mod.COMMENTS_END)
+        if start == -1 or end == -1:
+            continue
+        inner = text[start + len(render_mod.COMMENTS_START):end].strip("\n")
+        lines = inner.split("\n") if inner else []
+        gone = [c for c in parse_block(inner) if c.actor == actor]
+        if not gone:
+            continue
+        drop: set[int] = set()
+        for c in gone:
+            drop.add(c.line)
+            if c.meta_line >= 0:
+                drop.add(c.meta_line)
+            if c.line > 0 and lines[c.line - 1].strip() == "> [!link-brain-comment]":
+                drop.add(c.line - 1)
+        kept = [ln for i, ln in enumerate(lines) if i not in drop]
+        removed += len(gone)
+        touched.append(meta.get("item_id"))
+        if dry_run:
+            continue
+        _replace_block(path, "\n".join([render_mod.COMMENTS_START, *kept, render_mod.COMMENTS_END]))
+        _jsonl_append(meta_path.parent, {"op": "prune", "actor": actor, "ids": [c.comment_id for c in gone],
+                                         "at": datetime.now().astimezone().isoformat()})
+    return {"ok": True, "actor": actor, "notes": len(touched), "removed": removed, "dry_run": dry_run}

@@ -119,6 +119,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--wait-lock-min", dest="wait_lock_min", type=float, default=2,
                    help="号被别的任务占着时最多等几分钟（默认 2），等不到退出码 6")
 
+    p = sub.add_parser("prune-comments", help="删掉某个角色留在正文留言层的留言（默认 system 的「收好了」戳）")
+    p.add_argument("--actor", default="system")
+    p.add_argument("--dry-run", dest="dry_run", action="store_true")
+
     p = sub.add_parser("relabel", help="改「谁收的」（meta + 索引）：比如 AI 调研收的帖被记成了她分享的；改完跑 catalog")
     p.add_argument("items", nargs="+", help="笔记 id（xhs- 前缀可省）")
     p.add_argument("--actor", help="human 或 ai:<name>")
@@ -235,6 +239,13 @@ def build_parser() -> argparse.ArgumentParser:
     pn.add_argument("text", help="批注文字")
     pn = nsub.add_parser("list", help="列出这篇的批注和收藏态")
     pn.add_argument("target", help="item_id 或裸 source_id")
+    pn = nsub.add_parser("notify", help="没送过的 @ 批注交给通知命令（notify-cmd.txt），同一条只送一次")
+    pn.add_argument("--dry-run", dest="dry_run", action="store_true", help="只列出来，不送")
+    pn = nsub.add_parser("reply", help="AI 回一条批注（显示在被回那条下面）")
+    pn.add_argument("target", help="item_id 或裸 source_id")
+    pn.add_argument("annot_id", help="被回的那条批注的 id")
+    pn.add_argument("text", help="回复文字")
+    pn.add_argument("--as", dest="as_actor", default="fable", help="谁回的（默认 fable）")
 
     p = sub.add_parser("pdf2md", help="把已下载的 PDF 附件转成 Markdown（文字层坏了自动退回逐页 OCR）")
     p.add_argument("target", nargs="?", default=None, help="item_id；配合 --all 时可省略")
@@ -567,6 +578,12 @@ def _dispatch(args) -> int:
 
         return enrich_mod.run(args)
 
+    if args.command == "prune-comments":
+        from . import comments as comments_mod
+
+        print(json.dumps(comments_mod.prune_actor(args.actor, dry_run=args.dry_run), ensure_ascii=False))
+        return 0
+
     if args.command == "relabel":
         from . import provenance
 
@@ -621,6 +638,10 @@ def _dispatch(args) -> int:
         return attachments_mod.run(args)
 
     if args.command == "note":
+        if getattr(args, "note_command", None) in ("notify", "reply"):
+            from . import mention as mention_mod
+
+            return mention_mod.run(args)
         from . import note as note_mod
 
         return note_mod.run(args)
