@@ -17,7 +17,7 @@
 4. 一晚只自查一次（这边按「夜跑日」记，读取服务按熔断记）：同一晚第二次撞验证，安静停到明晚。
 
 掉登录、安全跳转（ACCOUNT_RISK）、登错号这些一律照旧：当场停、当场推、要人处理。
-白天她自己点的同步撞了验证也照旧当场推（她在看着）。人工的 `risk/clear`（`login --clear-hold --by-owner`）语义不变；
+（1019 起白天撞的验证也走这套：先冷却自查，连着两晚自查都还在才叫她。）人工的 `risk/clear`（`login --clear-hold --by-owner`）语义不变；
 这里自动解除走的是另一条有审计的路（读取服务 /risk/probe 自己判、自己解，原因写进熔断日志和问题记录）。
 
 状态：`~/.link-brain/night-captcha.json`（`LINK_BRAIN_HOME` 可改）= {"nights": {"YYYY-MM-DD": {...}}}，只留最近 14 晚。
@@ -133,10 +133,9 @@ def _hold_code() -> str:
 
 
 def defer(code: str | None) -> bool:
-    """这次撞的事要不要先不叫她：没人看着，且是验证码（或熔断起因是验证码的 RISK_HOLD）。"""
+    """这次撞的事要不要先不叫她：验证码（或熔断起因是验证码的 RISK_HOLD）。
+    1019 她：非她本人不可的才叫她——白天撞的验证也一样先冷却自查（以前只在没人看着时；10-19 21:15 白天推了，22:00 自查无验证）。"""
     sub = str(code or "").rsplit(".", 1)[-1]
-    if not unattended():
-        return False
     if sub == CAPTCHA:
         return True
     return sub == "RISK_HOLD" and _hold_code() == CAPTCHA

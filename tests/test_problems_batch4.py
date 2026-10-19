@@ -40,7 +40,7 @@ def _codes(step=None):
 
 @pytest.mark.parametrize("code,service,step,full", [
     ("NOT_LOGGED_IN", False, "login", "NEEDS_HUMAN.NOT_LOGGED_IN"),
-    ("CAPTCHA_REQUIRED", False, "login", "NEEDS_HUMAN.CAPTCHA_REQUIRED"),
+    ("CAPTCHA_REQUIRED", False, "login", "TRANSIENT.NIGHT_CAPTCHA"),  # 1019：先冷却自查
     ("ACCOUNT_RISK", False, "login", "NEEDS_HUMAN.ACCOUNT_RISK"),
     ("RISK_HOLD", False, "login", "NEEDS_HUMAN.RISK_HOLD"),
     ("NOT_INSTALLED", False, "login", "NEEDS_HUMAN.NOT_INSTALLED"),
@@ -151,7 +151,7 @@ def _blocked(code, account="xhs"):
 def test_record_blocked_by_account_is_needs_human_on_login(pushes):
     sync_state.record("finished", payload=_blocked("CAPTCHA_REQUIRED"))
     sync_state.record("finished", payload=_blocked("CAPTCHA_REQUIRED"))  # 第二晚还是：不重推
-    assert _codes() == [("login", "NEEDS_HUMAN.CAPTCHA_REQUIRED")] and len(pushes) == 1
+    assert _codes() == [("login", "TRANSIENT.NIGHT_CAPTCHA")] and len(pushes) == 0  # 1019：先冷却自查，不叫她
     assert json.loads(sync_state.path().read_text("utf-8"))["state"] == "blocked"  # sync-status.json 照写
 
 

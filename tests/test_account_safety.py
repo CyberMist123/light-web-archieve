@@ -178,7 +178,7 @@ def test_sync_stops_at_first_risk_page_through_real_mcp_path(tmp_path, monkeypat
     assert calls == [ids[0]]  # 撞验证就停：后面两篇一页都没开
     assert out["items"][-1]["status"] == "blocked" and out["items"][-1]["code"] == "CAPTCHA_REQUIRED"
     assert sync_state.load()["state"] == "blocked"
-    assert reader.calls.count("/api/v1/favorites") == 1 and alerts
+    assert reader.calls.count("/api/v1/favorites") == 1 and not alerts  # 1019：验证先冷却自查，不当场推
 
 
 # --------------------------------------------------------------------------

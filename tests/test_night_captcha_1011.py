@@ -89,11 +89,11 @@ def test_night_captcha_is_listed_not_pushed(night, pushes):
     assert plan["kind"] == "wait", "自愈轮绝不开页、不清熔断"
 
 
-def test_attended_captcha_still_pushed_with_plain_words(pushes):
+def test_daytime_captcha_also_deferred(pushes):
+    """1019 她：非她本人不可的才叫她——白天撞的验证也先冷却自查。"""
     problems.report_blocked("sync.favorites", "CAPTCHA_REQUIRED", "她自己点的同步撞了验证")
-    assert len(pushes) == 1
-    title, body, _ = pushes[0]
-    assert title == "小红书弹了验证（不是掉登录）" and "不是掉登录" in body
+    assert pushes == []
+    assert _rows()[0]["code"] == "TRANSIENT.NIGHT_CAPTCHA"
 
 
 def test_night_login_expired_and_risk_jump_still_pushed(night, pushes):

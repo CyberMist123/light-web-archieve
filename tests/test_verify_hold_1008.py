@@ -153,7 +153,7 @@ def test_evidence_never_leaves_the_machine(clean, monkeypatch):
     (clean / "profile").mkdir()
     (clean / "profile" / "risk-hold.json").write_text(json.dumps(HOLD), "utf-8")
     monkeypatch.setattr("link_brain.alert._alert", lambda *a, **k: True)
-    row = problems.report_blocked("sync.favorites", "CAPTCHA_REQUIRED", f"读收藏撞验证（证据 {EV}）")
+    row = problems.report_blocked("sync.favorites", "ACCOUNT_RISK", f"读收藏撞安全跳转（证据 {EV}）")
     assert row["evidence_id"] == "20261008-051957"
     text = problems.export_redacted()
     assert "risk-evidence" not in text and "<本机证据目录>" in text
