@@ -17,6 +17,7 @@ const BOARD_MD = `# 多 agent 群聊项目陈列
 - **Raven** —— 角色分工最清楚，先看它怎么拆调研 / 写码 / 设计[来源1]
 - **群聊式工作台** —— 界面最接近你想要的「一个群里多个 AI」[来源2]
 - **鼠鼠施工队** —— 开源、能直接跑[来源3]
+- **Raven 角色表** —— 同一篇里给的角色表，可以直接抄[来源1]
 ## 多 agent 框架
 做底座时看：怎么拆角色、谁来调度
 - **Raven** · https://github.com/example/raven —— 帖里：不做万能 agent，把调研、写码、设计拆给不同角色，连续跑几天；借鉴：角色表照抄一份，调度层别学它的硬编码顺序[来源1]
@@ -27,6 +28,11 @@ const BOARD_MD = `# 多 agent 群聊项目陈列
 - **四个 AI 的群** —— 帖里：只有截图，没给项目；借鉴：群公告当共享记忆的思路[来源5]
 ## 记忆与会话
 - **群聊 session 管理** · 看原帖 —— 帖里：每个 AI 一份 session，群消息按需分发；借鉴：分发规则[来源6]
+- **群公告记忆** · 看原帖 —— 帖里：拿群公告当共享记忆，作者说「省掉一半 token」；借鉴：公告模板[来源6]
+## 评论区还提到
+- **无聊斋** —— 帖里：评论区回答纯好笑时第一个被推[来源6]
+- **正经叭叭** —— 帖里：同上，评论区点名[来源6]
+- **朋嗑儿** —— 帖里：同上，评论区点名[来源6]
 ## 可补
 - 收藏里没有讲「多 AI 怎么防互相刷屏」的，可补：搜小红书「多agent 限流」`;
 
@@ -36,7 +42,20 @@ const pluginBody = (p, app, W, BOARD_MD, IDS) => {
   p.settings = { models: [{ name: 'DeepSeek' }], activeModel: 'DeepSeek', hiddenCats: [] };
   p.renderMarkdownScoped = async (md, el) => { const h = await W.__miniMd.render(md, el); return { dispose() { h.dispose(); } }; };
   p.archiveSourceState = () => ({ reader: false, compare: false });
-  p.openArchiveSource = note => { lb.opened.push(note); return Promise.resolve(); };
+  // 假的右侧原帖：图片轮播两张 + 正文两段 + 收起的评论（点「帖里」跳转在这里面找）
+  p.openArchiveSource = note => {
+    lb.opened.push(note);
+    let box = document.getElementById('fake-reader');
+    if (!box) { box = document.createElement('div'); box.id = 'fake-reader'; document.body.append(box); }
+    const id = note.replace(/^.*\//, '').replace(/\.md$/, '');
+    const slide = n => `<figure class="lb-slide" style="flex:none;width:200px;margin:0"><img src="app://x/_archive/xiaohongshu/${id}/raw/v0001/assets/image-00${n}.webp?7" style="width:200px;height:120px"></figure>`;
+    box.innerHTML = `<div class="lb-note"><div class="lb-carousel" style="display:flex;overflow-x:auto;width:200px">${slide(1)}${slide(2)}</div>`
+      + `<div class="lb-body"><p>开头的铺垫话，和哪一条都不沾。</p><p>拿群公告当共享记忆，作者实测能省掉一半 token。</p></div>`
+      + `<details><summary>评论</summary><div class="lb-comment-text">纯好笑的话无聊斋第一，正经叭叭也行</div></details></div>`;
+    lb.reader = { view: { containerEl: box } };
+    return Promise.resolve();
+  };
+  p.archiveLeaves = () => ({ reader: lb.reader || null });
   p.openSetupPage = () => {};
   p.modelState = () => ({ usable: true });
   p.warmAnswerWorker = () => false;
@@ -55,7 +74,9 @@ async function openChat(browser, { width = 1280, height = 1000, theme = 'light' 
   const page = await browser.newPage({ viewport: { width, height } });
   const S = await shell.page(page, { host: 'page-reading', kind: 'chat', theme, plugin: {}, resources: RESOURCES,
     pluginInit: `(p, app, W) => (${pluginBody})(p, app, W, ${JSON.stringify(BOARD_MD)}, ${JSON.stringify(IDS)})`,
-    data: { built_at: '2026-10-20T10:00:00+10:00', items: [] }, files: { '_archive/chat-session.json': '{"turns":[]}', '_archive/chat-archive.json': '{"entries":[]}' } });
+    data: { built_at: '2026-10-20T10:00:00+10:00', items: [] }, files: { '_archive/chat-session.json': '{"turns":[]}', '_archive/chat-archive.json': '{"entries":[]}',
+      '_archive/xiaohongshu/p3/derived/agent.md': ['# 鼠鼠', '## 图片 OCR', '### 第1张（图1 · image-001.webp）', '封面字',
+        '### 第2张（图2 · image-002.webp）', '鼠鼠施工队 开源 角色模板', '## 评论', ''].join(String.fromCharCode(10, 10)) } });
   await S.settle(60);
   return { page, S };
 }
@@ -79,13 +100,21 @@ const ask = async (page, S, text, wait = 150) => { await page.click('.lbchat-sea
     assert.equal(await page.locator('.lbchat-user').first().evaluate(e => e.textContent.includes('/报告')), false, '气泡里不显示标记');
     assert.equal(await page.locator('.lbboard').count(), 1, '陈列版渲染出来');
     assert.equal(await page.locator('.lbboard-title').textContent(), '多 agent 群聊项目陈列');
+    // 1020 她：先看这几个里同一篇的合成一张卡（Raven 和 Raven 角色表都出自 p1）
     assert.equal(await page.locator('.lbboard-topcard').count(), 3);
-    assert.equal(await page.locator('.lbboard-sec').count(), 3, '三个类别（可补不算类别）');
-    assert.equal(await page.locator('.lbboard-row').count(), 6);
+    assert.deepEqual(await page.locator('.lbboard-topcard.is-multi .lbboard-name').allTextContents(), ['Raven', 'Raven 角色表']);
+    assert.equal(await page.locator('.lbboard-topcard.is-multi .lbboard-cover').count(), 1);
+    assert.equal(await page.locator('.lbboard-sec').count(), 4, '四个类别（可补不算类别）');
+    assert.equal(await page.locator('.lbboard-row').count(), 8, '评论区只点名的三条合成一行');
+    const thin = page.locator('.lbboard-row.is-thin');
+    assert.deepEqual(await thin.locator('.lbboard-name').allTextContents(), ['无聊斋', '正经叭叭', '朋嗑儿']);
+    assert.ok(!(await thin.textContent()).includes('同上'), '「同上，评论区点名」不再显示');
+    // 连着出自同一篇：后一条不重复封面（留同宽空位）
+    assert.ok(await page.locator('.lbboard-row', { hasText: '群公告记忆' }).locator('.lbboard-cover').evaluate(e => e.classList.contains('is-ghost')));
     // 1020 她：分类导航不在正文里，进左边目录（浮动板）：先看这几个 + 三类，类下面是条目
     assert.equal(await page.locator('.lbboard-navbtn').count(), 0);
-    assert.deepEqual(await page.locator('.lbchat-toc .lbchat-toc-cat').allTextContents(), ['先看这几个', '多 agent 框架', '群聊界面', '记忆与会话']);
-    assert.equal(await page.locator('.lbchat-toc .lbchat-toc-sub').count(), 6);
+    assert.deepEqual(await page.locator('.lbchat-toc .lbchat-toc-cat').allTextContents(), ['先看这几个', '多 agent 框架', '群聊界面', '记忆与会话', '评论区还提到']);
+    assert.equal(await page.locator('.lbchat-toc .lbchat-toc-sub').count(), 10, '合成一行的名字在目录里也逐个列');
     // 网址：有的给链接，「看原帖」的写无链接
     assert.equal(await page.locator('.lbboard-row a.lbboard-url').count(), 3);
     assert.equal(await page.locator('.lbboard-row', { hasText: '鼠鼠施工队' }).locator('a.lbboard-url').getAttribute('href'), 'https://github.com/example/shushu', '裸域名补成 https 链接');
@@ -118,7 +147,15 @@ const ask = async (page, S, text, wait = 150) => { await page.click('.lbchat-sea
     const nOpen = await page.evaluate(() => window.lb.opened.length);
     await page.locator('.lbboard-row', { hasText: '多 agent 调度台' }).locator('.lbboard-srclink').nth(1).click(); await S.settle(40);
     assert.deepEqual(await page.evaluate(n => window.lb.opened.slice(n), nOpen), ['Web/Xiaohongshu/p1.md']);
-    // 先看这几个：同一篇的封面不连着出两张（Raven 和调度台都出自 p1 时换下一篇）
+    // 点「帖里」那段字 → 打开原帖并跳到那一处：正文段落（引号原话）、收起的评论（名字，自动展开）、图片（agent.md 里第 2 张的识别文字有名字 → 第 2 张）
+    const hit = () => page.evaluate(() => { const e = document.querySelector('#fake-reader .lb-evidence-hit'); return e ? (e.tagName === 'IMG' ? 'img:' + e.getAttribute('src').replace(/^.*\//, '').replace(/\?.*$/, '') : e.textContent.slice(0, 12)) : null; });
+    await page.locator('.lbboard-row', { hasText: '群公告记忆' }).locator('.lbboard-text').first().click(); await S.settle(250);
+    assert.equal(await hit(), '拿群公告当共享记忆，作者');
+    await page.locator('.lbboard-row.is-thin .lbboard-chip', { hasText: '无聊斋' }).click(); await S.settle(250);
+    assert.equal(await hit(), '纯好笑的话无聊斋第一，正');
+    assert.equal(await page.evaluate(() => document.querySelector('#fake-reader details').open), true, '收起的评论自动展开');
+    await page.locator('.lbboard-row', { hasText: '鼠鼠施工队' }).locator('.lbboard-text').first().click(); await S.settle(250);
+    assert.equal(await hit(), 'img:image-002.webp', '图片切到第 2 张');
     // 目录里点条目跳到那一条
     await page.locator('.lbchat-toc .lbchat-toc-sub', { hasText: '群聊 session 管理' }).click(); await S.settle(60);
     // 「存成笔记」：报告/ 下一篇 md，带封面嵌图、出处双链、网址
@@ -134,6 +171,8 @@ const ask = async (page, S, text, wait = 150) => { await page.click('.lbchat-sea
     assert.match(written[1], /\[\[Web\/Xiaohongshu\/p1\|《来源帖 p1》\]\]/);
     assert.match(written[1], /- 网址：\[github\.com\/example\/raven\]\(https:\/\/github\.com\/example\/raven\)/);
     assert.ok(!written[1].includes('无链接'));
+    assert.ok(written[1].includes('**无聊斋**（评论区回答纯好笑时第一个被推） · **正经叭叭** · **朋嗑儿**'), '只点名的并成一行');
+    assert.ok(!written[1].includes('同上'));
     assert.match(written[1], /- 借鉴：角色表照抄一份/);
     assert.ok((await page.evaluate(() => window.opened)).some(a => /报告\//.test(String(a[0]))), '存完打开那篇笔记');
     // 输入框上方一行：「追问 · 新对话」+ 清空上下文，不再有「改为……」

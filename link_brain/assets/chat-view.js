@@ -610,6 +610,22 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat button.lbboard-srclink{font:inherit;font-size:11.5px;height:auto;padding:0;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-muted);cursor:pointer;}
 .lbchat button.lbboard-srclink:hover{color:var(--interactive-accent);}
 .lbboard-rest{margin-top:4px;}
+.lbboard-cover.is-ghost{height:1px;background:transparent;visibility:hidden;}
+.lbboard-row.is-thin{padding-top:8px;padding-bottom:8px;align-items:center;}
+.lbboard-row.is-thin .lbboard-cover:not(.is-ghost){width:56px;height:74px;}
+.lbboard-row.is-thin .lbboard-cover.is-ghost{width:56px;}
+.lbboard-chips{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;line-height:1.6;}
+.lbboard-chip{display:inline-flex;align-items:baseline;gap:6px;}
+.lbboard-chip .lbboard-name{font-size:14px;}
+.lbboard-chipnote{font-size:12px;color:var(--text-muted);}
+.lbboard-chipsep{color:var(--text-faint);}
+.lbboard-jump{cursor:pointer;border-radius:4px;}
+.lbboard-jump:hover{text-decoration:underline;text-decoration-color:var(--text-faint);text-underline-offset:3px;}
+.lbboard-topbody{display:flex;flex-direction:column;gap:5px;min-width:0;}
+.lbboard-topcard.is-multi{grid-column:span 2;flex-direction:row;align-items:flex-start;gap:12px;}
+.lbboard .lbboard-topcard.is-multi .lbboard-cover{width:calc(50% - 8px);flex:none;}
+.lbboard-topcard.is-multi .lbboard-topbody{flex:1 1 auto;}
+.lbboard-topitem + .lbboard-topitem{margin-top:6px;padding-top:6px;border-top:1px dashed var(--background-modifier-border);}
 @media (max-width:520px){.lbboard-row .lbboard-cover{width:64px;height:86px;}.lbboard-top{grid-template-columns:repeat(2,minmax(0,1fr));}}
 `);
 
@@ -1908,8 +1924,8 @@ function fillToc(box, onPick) {
             const name = sec.querySelector('.lbboard-cat')?.firstChild?.textContent || '';
             const hb = bx.createEl('button', { cls: 'lbchat-toc-h lbchat-toc-cat', text: name.slice(0, 14), attr: { title: name } }); hb.type = 'button';
             hb.onclick = () => { jumpTo(sec, { flash: true }); onPick?.(); };
-            for (const r of [...sec.querySelectorAll('.lbboard-row')].slice(0, 24)) {
-              const n = r.querySelector('.lbboard-name')?.textContent || '';
+            for (const nm of [...sec.querySelectorAll('.lbboard-row .lbboard-name')].slice(0, 30)) {
+              const n = nm.textContent || '', r = nm.closest('.lbboard-row');
               const ib = bx.createEl('button', { cls: 'lbchat-toc-h lbchat-toc-sub', text: n.slice(0, 14), attr: { title: n } }); ib.type = 'button';
               ib.onclick = () => { jumpTo(r, { flash: true }); onPick?.(); };
             }
@@ -2381,28 +2397,83 @@ function boardCover(src) {
   if (!c) return '';
   try { return app.vault.adapter.getResourcePath(lbPath(String(c).replace(/^\/+/, ''))); } catch { return ''; }
 }
+// 1020 她：只有名字 / 一句「同上，评论区点名」的条目——不单独占一张大卡，同一篇连着的合成一行
+function BOARD_NOISE() { return /^(?:(?:同上|同前|同样|同一串[^，。；]*|评论区(?:也|里)?(?:点名|提到|有人推)|只有名字)[，。；、\s]*)+$/; }   // 函数声明：页面开头恢复历史时就会用到（const 有 TDZ）
+function boardThin(it) { const p = String(it.praise || '').trim(); return !it.url && !it.why && (p.length <= 24 || BOARD_NOISE().test(p)); }
+function boardNote(it) { const p = String(it.praise || '').trim(); return BOARD_NOISE().test(p) ? '' : p; }
+// ── 1020 她：点「帖里」那段字 → 右侧打开原帖并跳到那一处（正文 / 评论区滚过去高亮；图片切到第几张）。
+// 不改插件：原帖开好后在右侧那页里找。依据 = 「帖里 / 借鉴」里的引号原话、名字、期数和数字；找不到就只是打开原帖（不弹栏，0926 她不要「上一处 / 下一处」）
+function boardKeys(it) {
+  const text = [it.praise, it.why].join(' ');
+  const quotes = [...text.matchAll(/[「“"]([^」”"]{3,40})[」”"]/g)].map(m => m[1]);
+  const nums = [...text.matchAll(/(?:EP|Vol\.?|第)\s*\d+\s*[期集]?|\d+(?:\.\d+)?\s*(?:万|小时|分钟|期|集|播放|订阅)/gi)].map(m => m[0]);
+  const names = String(it.name || '').split(/[、,，/｜|]/).map(s => s.replace(/[《》]/g, '').trim()).filter(s => s.length >= 2);
+  return [...quotes.map(k => [k, 3]), ...names.map(k => [k, 2]), ...nums.map(k => [k, 1])];
+}
+function boardCompact(s) { return String(s || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase(); }
+function boardScore(text, keys) { const t = boardCompact(text); let n = 0; for (const [k, w] of keys) if (k && t.includes(boardCompact(k))) n += w; return n; }
+async function boardLocate(src, it) {
+  const p = provider();
+  await openNote(src);
+  const leaf = p?.archiveLeaves?.(root)?.reader;
+  const box = leaf?.view?.containerEl;
+  if (!box) return false;
+  for (let i = 0; i < 25 && !box.querySelector('.lb-note, .lb-body'); i++) await new Promise(r => setTimeout(r, 80));
+  const keys = boardKeys(it);
+  let best = null;
+  for (const el of box.querySelectorAll('.lb-body p, .lb-comment-text')) {
+    const s = boardScore(el.textContent, keys);
+    if (s > 0 && (!best || s > best.s)) best = { el, s };
+  }
+  // 图片：那篇 agent.md 里「### 第N张（图N · image-00N.webp）」下面的识别文字
+  try {
+    const id = String(src.id || '').replace(/^xhs-/, '');
+    const md = id ? await app.vault.adapter.read(lbPath(`_archive/xiaohongshu/${id}/derived/agent.md`)) : '';
+    const blocks = md.split(/\n(?=### 第\d+张（)/);
+    for (const b of blocks) {
+      const m = /^### 第(\d+)张（[^·）]*·\s*([^）\s]+)）/.exec(b);
+      if (!m) continue;
+      const s = boardScore(b.split(/\n## /)[0], keys);
+      if (s > 0 && (!best || s > best.s)) {
+        const img = [...box.querySelectorAll('.lb-slide img')].find(x => decodeURIComponent(x.getAttribute('src') || '').split('?')[0].endsWith('/' + m[2]));
+        if (img) best = { el: img, s, slide: Number(m[1]) };
+      }
+    }
+  } catch {}
+  if (!best) return false;
+  const el = best.el;
+  let up = el.parentElement; while (up && up !== box) { if (up.tagName === 'DETAILS') up.open = true; up = up.parentElement; }
+  const carousel = el.closest('.lb-carousel'), scroller = el.closest('.lb-scroll');
+  if (carousel) { const slide = el.closest('.lb-slide'); carousel.scrollTo({ left: slide.offsetLeft - carousel.querySelector('.lb-slide').offsetLeft, behavior: 'smooth' }); }
+  if (scroller && !carousel) scroller.scrollTo({ top: scroller.scrollTop + el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - scroller.clientHeight / 3, behavior: 'smooth' });
+  else (carousel || el).scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.add('lb-evidence-hit'); setTimeout(() => el.classList.remove('lb-evidence-hit'), 4500);
+  return true;
+}
 async function renderBoard(el, t, board) {
   const srcOf = n => (t.sources || []).find(s => Number(s.citation) === Number(n));
+  const firstSrc = it => it.cites.map(srcOf).find(Boolean) || null;
   const byName = new Map(); for (const g of board.groups) for (const it of g.items) if (!byName.has(it.name)) byName.set(it.name, it);
   const wrap = el.createDiv({ cls: 'lbboard' });
-  // 1020 她：整张卡（图 + 字）点了都打开原帖，和点来源一样；网址 / 出处链接自己处理、不冒泡
+  // 整张卡（图 + 字）点了打开原帖；点「帖里」那段字跳到原帖里那一处；网址 / 出处链接自己处理、不冒泡
   const clickable = (card, src) => {
     if (!src) return;
     card.addClass('is-link'); card.setAttribute('role', 'button'); card.tabIndex = 0;
     card.setAttribute('title', '打开原帖：' + (src.title || ''));
-    card.onclick = e => { if (e?.target?.closest?.('a,button.lbboard-srclink')) return; openNote(src); };
+    card.onclick = e => { if (e?.target?.closest?.('a,button,.lbboard-jump')) return; openNote(src); };
     card.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault?.(); openNote(src); } };
   };
-  // avoid = 已经用过的封面（「先看这几个」一排里同一篇别连着出好几张）：换这一条引用的下一篇，都用过了再重复
-  const cover = (box, it, label, avoid) => {
-    const list = it.cites.map(srcOf).filter(Boolean);
-    const src = (avoid && list.find(s => s.cover && !avoid.has(s.id))) || list[0];
-    if (avoid && src) avoid.add(src.id);
-    const url = boardCover(src);
-    const c = box.createDiv({ cls: 'lbboard-cover' + (url ? '' : ' is-empty') });
+  const jump = (node, src, it) => {
+    if (!src) return;
+    node.addClass('lbboard-jump'); node.setAttribute('title', '跳到原帖里这一处');
+    node.onclick = e => { e?.stopPropagation?.(); boardLocate(src, it); };
+  };
+  const cover = (box, src, label, ghost = false) => {
+    const url = ghost ? '' : boardCover(src);
+    const c = box.createDiv({ cls: 'lbboard-cover' + (ghost ? ' is-ghost' : url ? '' : ' is-empty') });
+    if (ghost) return;
     if (url) { const img = c.createEl('img', { attr: { src: url, alt: '', loading: 'lazy' } }); img.onerror = () => { img.remove(); c.addClass('is-empty'); c.createSpan({ text: label }); }; }
     else c.createSpan({ text: label });
-    return src;
   };
   const sources = (box, it) => {
     const list = [...new Set(it.cites)].map(srcOf).filter(Boolean);
@@ -2415,37 +2486,71 @@ async function renderBoard(el, t, board) {
     if (board.title) head.createDiv({ cls: 'lbboard-title', text: board.title });
     if (board.lead) head.createDiv({ cls: 'lbboard-lead', text: board.lead });
   }
-  // 分类导航不放正文里了：进左边「目录」（浮动板），见 fillToc
+  // 先看这几个：出自同一篇的合成一张卡（她 1020：封面一样的别重复放）——封面出一次，下面列名字和各自一句
   if (board.top.length) {
     const sec = wrap.createDiv({ cls: 'lbboard-topsec' });
     sec.createDiv({ cls: 'lbboard-cat', text: '先看这几个' });
     const grid = sec.createDiv({ cls: 'lbboard-top' });
-    const used = new Set();
+    const cards = [];
     for (const raw of board.top.slice(0, 8)) {
       const it = raw.cites.length ? raw : { ...raw, cites: (byName.get(raw.name) || {}).cites || [] };
-      const card = grid.createDiv({ cls: 'lbboard-topcard' });
-      const src = cover(card, it, it.name.slice(0, 4), used);
-      card.createDiv({ cls: 'lbboard-name', text: it.name });
-      const why = raw.why || raw.praise; if (why) card.createDiv({ cls: 'lbboard-topwhy', text: why });
-      clickable(card, src);
+      const src = firstSrc(it);
+      const key = src ? src.id : 'none:' + it.name;
+      let card = cards.find(c => c.key === key);
+      if (!card) { card = { key, src, items: [] }; cards.push(card); }
+      card.items.push({ it, why: raw.why || raw.praise });
+    }
+    for (const c of cards) {
+      const card = grid.createDiv({ cls: 'lbboard-topcard' + (c.items.length > 1 ? ' is-multi' : '') });
+      cover(card, c.src, c.items[0].it.name.slice(0, 4));
+      const body = card.createDiv({ cls: 'lbboard-topbody' });
+      for (const { it, why } of c.items) {
+        const one = body.createDiv({ cls: 'lbboard-topitem' });
+        one.createDiv({ cls: 'lbboard-name', text: it.name });
+        if (why) one.createDiv({ cls: 'lbboard-topwhy', text: why });
+      }
+      clickable(card, c.src);
     }
   }
   board.groups.forEach((g, i) => {
     const sec = wrap.createDiv({ cls: 'lbboard-sec', attr: { 'data-cat': String(i) } });
     const h = sec.createDiv({ cls: 'lbboard-cat' }); h.appendText(g.name); h.createSpan({ cls: 'lbboard-n', text: String(g.items.length) });
     if (g.desc) sec.createDiv({ cls: 'lbboard-desc', text: g.desc.replace(BOARD_CITE(), '') });
-    g.items.forEach((it, j) => {
+    // 连着几条出自同一篇：封面只在第一条出，后面留同宽空位对齐；只有名字的薄条目连着的合成一行
+    let prev = null;
+    for (let j = 0; j < g.items.length; j++) {
+      const it = g.items[j], src = firstSrc(it);
+      const same = !!src && prev === src.id;
+      prev = src ? src.id : null;
+      if (boardThin(it)) {
+        const run = [it];
+        while (j + 1 < g.items.length && boardThin(g.items[j + 1]) && (firstSrc(g.items[j + 1])?.id || null) === (src?.id || null)) run.push(g.items[++j]);
+        const row = sec.createDiv({ cls: 'lbboard-row is-thin', attr: { 'data-item': `${i}-${j}` } });
+        cover(row, src, g.name.slice(0, 4), same);
+        const main = row.createDiv({ cls: 'lbboard-main' });
+        const list = main.createDiv({ cls: 'lbboard-chips' });
+        run.forEach((x, k) => {
+          if (k) list.createSpan({ cls: 'lbboard-chipsep', text: '·' });
+          const chip = list.createSpan({ cls: 'lbboard-chip' });
+          chip.createSpan({ cls: 'lbboard-name', text: x.name });
+          const note = boardNote(x); if (note) chip.createSpan({ cls: 'lbboard-chipnote', text: note });
+          jump(chip, firstSrc(x) || src, x);
+        });
+        sources(main, { cites: [...new Set(run.flatMap(x => x.cites))] });
+        clickable(row, src);
+        continue;
+      }
       const row = sec.createDiv({ cls: 'lbboard-row', attr: { 'data-item': `${i}-${j}` } });
-      const src = cover(row, it, g.name.slice(0, 4));
+      cover(row, src, g.name.slice(0, 4), same);
       const main = row.createDiv({ cls: 'lbboard-main' });
       const line = main.createDiv({ cls: 'lbboard-line' });
       line.createSpan({ cls: 'lbboard-name', text: it.name });
       if (it.url) line.createEl('a', { cls: 'lbboard-url', text: it.url.replace(/^https?:\/\//, '').replace(/\/$/, ''), attr: { href: it.url, target: '_blank', rel: 'noopener' } });
-      if (it.praise) { const p = main.createDiv({ cls: 'lbboard-text' }); p.createSpan({ cls: 'lbboard-lab', text: '帖里' }); p.appendText(it.praise); }
-      if (it.why) { const p = main.createDiv({ cls: 'lbboard-text is-why' }); p.createSpan({ cls: 'lbboard-lab', text: '借鉴' }); p.appendText(it.why); }
+      if (it.praise) { const p = main.createDiv({ cls: 'lbboard-text' }); p.createSpan({ cls: 'lbboard-lab', text: '帖里' }); p.appendText(it.praise); jump(p, src, it); }
+      if (it.why) { const p = main.createDiv({ cls: 'lbboard-text is-why' }); p.createSpan({ cls: 'lbboard-lab', text: '借鉴' }); p.appendText(it.why); jump(p, src, it); }
       sources(main, it);
       clickable(row, src);
-    });
+    }
   });
   const rest = board.rest.join('\n').trim();
   if (!rest) return () => {};
@@ -2454,7 +2559,7 @@ async function renderBoard(el, t, board) {
   return d;
 }
 // 「存成笔记」：陈列版写成库里「报告/」下的一篇 Markdown，手机 Obsidian 也能看。
-// 1020 改：出处帖封面只在开头「出处」排一次（以前每条都嵌，同一篇的封面连出七八张）；每条 = 三级标题 + 网址 / 帖里 / 借鉴 / 出自双链；
+// 封面只在开头「出处」排一次；每条 = 三级标题 + 网址 / 帖里 / 借鉴 / 出自双链；只有名字的条目并成一行列在那一类最后；
 // 引用号 [来源N] 一律换成那篇的双链（来源导读也是），大纲里「分类 → 条目」两级
 function safeName(s) { return String(s || '').replace(/[\\/:*?"<>|#^[\]\n\r]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || '问收藏报告'; }
 function boardNoteMd(t, board) {
@@ -2482,13 +2587,18 @@ function boardNoteMd(t, board) {
   for (const g of board.groups) {
     out.push(`## ${g.name}`, '');
     if (g.desc) out.push(cites(g.desc), '');
-    for (const it of g.items) {
+    const thin = g.items.filter(boardThin);
+    for (const it of g.items.filter(x => !boardThin(x))) {
       out.push(`### ${it.name}`, '');
       if (it.url) out.push(`- 网址：[${it.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}](${it.url})`);
       if (it.praise) out.push(`- 帖里：${it.praise}`);
       if (it.why) out.push(`- 借鉴：${it.why}`);
       if (from(it)) out.push(`- 出自：${from(it)}`);
       out.push('');
+    }
+    if (thin.length) {
+      out.push((thin.length < g.items.length ? '还提到：' : '') + thin.map(it => `**${it.name}**` + (boardNote(it) ? `（${boardNote(it)}）` : '')).join(' · ')
+        + (from({ cites: [...new Set(thin.flatMap(x => x.cites))] }) ? ` —— 出自 ${from({ cites: [...new Set(thin.flatMap(x => x.cites))] })}` : ''), '');
     }
   }
   const rest = cites(board.rest.join('\n')).trim();
