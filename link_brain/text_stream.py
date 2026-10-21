@@ -26,7 +26,10 @@ def cancelled_result(text=None):
 
 # 1001（审计 C-1）：命令行模型吃的是陌生人写的收藏原文和评论，本机 claude / codex 的全局设置又是全权限
 # （bypassPermissions / danger-full-access）。这里强制收权，data.json 里存着的旧命令也一并兜住。
-CLAUDE_DENIED_TOOLS = ('Bash', 'PowerShell', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'WebFetch', 'WebSearch')
+CLAUDE_DENIED_TOOLS = ('Bash', 'PowerShell', 'Write', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch')
+# 1021：新版 claude 遇到不认识的工具名直接拒跑（Permission deny rule "MultiEdit" matches no known tool）——
+# 已下线的工具名从旧命令里剔掉
+CLAUDE_GONE_TOOLS = ('MultiEdit',)
 _UNSAFE_FLAGS = ('--dangerously-skip-permissions', '--dangerously-bypass-approvals-and-sandbox', '--full-auto', '--yolo',
                  '--auto')   # --auto = opencode 自动放行所有权限
 
@@ -70,8 +73,8 @@ def harden_command(cmd):
             if bare in ('--disallowedTools', '--disallowed-tools') and i + 1 < len(cmd):
                 have = {t for t in cmd[i + 1].strip('"\'').replace(',', ' ').split() if t}
                 missing = [t for t in CLAUDE_DENIED_TOOLS if t not in have]
-                if missing:
-                    cmd[i + 1] = ','.join([*sorted(have), *missing])
+                if missing or have & set(CLAUDE_GONE_TOOLS):
+                    cmd[i + 1] = ','.join([*sorted(have - set(CLAUDE_GONE_TOOLS)), *missing])
                 break
         else:
             cmd += ['--disallowedTools', ','.join(CLAUDE_DENIED_TOOLS)]

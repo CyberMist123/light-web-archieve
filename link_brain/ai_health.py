@@ -204,7 +204,9 @@ def record(cap: str, result: dict[str, Any], *, item_id: str | None = None, cfg:
         entry["estimate"] = catchup_estimate(cap, len(items))
         data[cap] = entry
         _save(data)
-        if switched_to and not items and not code.startswith("NEEDS_HUMAN."):
+        if (switched_to and not items and not code.startswith("NEEDS_HUMAN.")) or result.get("daily_limit"):
+            # 1021 她：免费 key 当天薅完是正常的——不管备用补没补上、有没有篇在等，都不进问题面板 / 同步记录；
+            # 篇留在待补，明天额度回来或下次备用补上自然补齐
             # 1019 她：Gemini 免费 key 限流 / 今天额度用完、备用当场补上 = 自然轮换，不是故障——
             # 只记进 ai-health.json（诊断里看得到），面板不挂；以前挂着的同码那条收掉
             problems.resolve(step, None, code)

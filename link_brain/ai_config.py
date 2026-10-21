@@ -107,7 +107,7 @@ DEFAULTS: dict[str, Any] = {
         # 1001（审计 C-1）：收权——不继承本机全局的 bypassPermissions，禁掉会动本机的工具，不加载任何 MCP。
         # text_stream.harden_command 对她 data.json 里存着的旧命令也会补上这些参数。
         {"name": "Sonnet", "mode": "cli", "command": "claude -p --model sonnet --permission-mode default "
-                                                    "--disallowedTools Bash,PowerShell,Write,Edit,MultiEdit,NotebookEdit,WebFetch,WebSearch "
+                                                    "--disallowedTools Bash,PowerShell,Write,Edit,NotebookEdit,WebFetch,WebSearch "
                                                     "--strict-mcp-config"},
     ],
     "activeModel": "文本 AI", "chatPlaceholder": "问点什么呢？",

@@ -84,3 +84,13 @@ def test_delete_drops_from_catalog_data_without_rebuild(tmp_path, monkeypatch):
 def test_interrupted_sync_is_minor():
     problems.report("sync.favorites", "TRANSIENT.INTERRUPTED", "上次同步中途被打断")
     assert [r for r in problems.load(include_minor=False) if not r.get("resolved_at")] == []
+
+
+def test_daily_quota_used_up_is_silent_even_with_waiting_posts(configured):
+    """1021 她：免费 key 今天薅完是正常的，同步记录 / 问题面板都别报（篇留着明天补）。"""
+    cfg = providers.resolve("summaryAI")
+    ai_health.record("summaryAI", {"status": "failed", "code": "TRANSIENT.HTTP_429", "api_error": True,
+                                   "daily_limit": True, "error": "3 把免费 key 今天额度都用完了"},
+                     item_id="xhs-" + "1" * 24, cfg=cfg)
+    assert _open("ai.summary") == []
+    assert ai_health.affected("summaryAI") == ["xhs-" + "1" * 24]

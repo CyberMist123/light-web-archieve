@@ -86,3 +86,10 @@ def test_rate_window_zero_means_unlimited():
     assert all(w.hit("k") for _ in range(100))
     w2 = rserver.Window(2, 3600)
     assert w2.hit("k") and w2.hit("k") and not w2.hit("k")
+
+
+def test_claude_gone_tool_names_are_dropped():
+    """1021：新版 claude 遇到已下线的工具名（MultiEdit）直接拒跑，旧命令里的要剔掉、其余照禁。"""
+    cmd = text_stream.harden_command(["claude", "-p", "--disallowedTools", "Bash,Write,Edit,MultiEdit"])
+    tools = cmd[cmd.index("--disallowedTools") + 1].split(",")
+    assert "MultiEdit" not in tools and {"Bash", "Write", "Edit", "WebFetch"} <= set(tools)
