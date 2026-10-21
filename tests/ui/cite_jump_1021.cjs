@@ -56,6 +56,12 @@ const HTML = `<style>
       // ④ 图片：按文件名切到第 2 张
       r.image = await go({ field: 'ocr', text: '小贴士', images: ['图2'], assets: ['raw/v0001/assets/image-002.webp'] });
       r.carouselLeft = root.querySelector('.lb-carousel').scrollLeft;
+      // ④b 视频帖：封面 slide 隐藏，落到 <video poster=封面> 上
+      const vc = document.createElement('div'); vc.className = 'lb-carousel'; vc.id = 'vc'; vc.innerHTML = '<figure class="lb-slide"><video poster="../../_archive/xiaohongshu/v/raw/v0001/assets/cover-001.webp" width="300" height="100"></video></figure><figure class="lb-slide" style="display:none"><img src="../../_archive/xiaohongshu/v/raw/v0001/assets/cover-001.webp"></figure>';
+      root.querySelector('.lb-note').prepend(vc);
+      r.video = await go({ field: 'ocr', text: '封面字', images: ['图1'], assets: ['raw/v0001/assets/cover-001.webp'] });
+      r.videoTag = (root.querySelector('.lb-media-hit') || {}).tagName;
+      vc.remove();
       // ⑤ 文字稿：details 打开
       r.transcript = await go({ field: 'transcript', text: '全程大火，颜色变深就出锅', paras: [1] });
       r.transcriptOpen = root.querySelector('.lb-transcript').open;
@@ -74,6 +80,7 @@ const HTML = `<style>
     assert.ok(out.stale.ok && out.stale.hit.includes('大火快煎'), '② 锚点对不上退回原文找');
     assert.ok(out.comment.ok && out.comment.hit.includes('鸡肉要少腌') && out.commentOpen, '③ 评论楼中楼直达并展开');
     assert.ok(out.image.ok && out.image.hit.endsWith('image-002.webp') && out.carouselLeft > 0, '④ 图片切到第 2 张');
+    assert.ok(out.video.ok && out.videoTag === 'VIDEO', '④b 视频帖封面落到 video 上：' + JSON.stringify([out.video, out.videoTag]));
     assert.ok(out.transcript.ok && out.transcriptOpen && out.transcript.hit.includes('全程大火'), '⑤ 文字稿打开并定位');
     for (const k of ['anchor', 'stale', 'comment', 'image', 'transcript', 'missing']) { assert.equal(out[k].outer, 0, k + '：外层滚动区没被卷动'); assert.equal(out[k].bars, 0, k + '：不出工具条'); }
     assert.ok(out.transcript.scroll > 0 && out.image.scroll > 0, '原帖自己的滚动区滚到了那一段：' + JSON.stringify([out.transcript.scroll, out.image.scroll]));

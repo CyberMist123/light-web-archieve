@@ -170,8 +170,11 @@ function passageTargetIn(box, part) {
   const verify = el => { const text = passageCompact(el.textContent); if (!quote || !text) return false; if (quote.length < 24) return quote.length >= 6 && (text.includes(quote) || quote.includes(text)); if (text.length < 12) return quote.includes(text); return quote.includes(text) || run(text, quote, 24) || run(quote, text, 24); };
   if (part.field === 'ocr' || part.field === 'comment_ocr') {
     const assets = (part.assets || []).map(x => String(x).replace(/\\/g, '/')); const names = assets.map(a => a.split('/').pop());
-    const img = [...box.querySelectorAll('.lb-slide img, img.lb-comment-image')].find(img => { const src = decodeURIComponent(img.getAttribute('src') || '').replace(/\\/g, '/').split('?')[0]; const name = src.split('/').pop(); return assets.some(a => src.endsWith('/' + a) || src === a) || names.some(n => n && name === n); });
-    return { el: img || null, how: img ? 'asset' : 'none' };
+    // 1022 她：视频帖封面的识别文字——封面图那张 slide 在视频帖里是 display:none（CSS 563），要落到 <video poster=封面> 上；同名多处时挑看得见的
+    const same = u => { const src = decodeURIComponent(u || '').replace(/\\/g, '/').split('?')[0]; const name = src.split('/').pop(); return assets.some(a => src.endsWith('/' + a) || src === a) || names.some(n => n && name === n); };
+    const all = [...box.querySelectorAll('.lb-slide img, .lb-slide video[poster], img.lb-comment-image')].filter(m => same(m.getAttribute('src')) || same(m.getAttribute('poster')));
+    const visible = all.find(m => m.getClientRects().length > 0);
+    return { el: visible || all[0] || null, how: visible ? 'asset' : all[0] ? 'asset-hidden' : 'none' };
   }
   const anchors = [];
   if (part.field === 'comments') { for (const l of part.comment_labels || []) { const el = box.querySelector(`article.lb-comment[data-cid="${String(l).replace(/[^\w.]/g, '')}"] .lb-comment-text`); if (el) anchors.push(el); } }
@@ -222,8 +225,10 @@ async function locateInReader(src, part) {
   if (!el) return done(false, 'not-found');
   let up = el.parentElement; while (up && up !== box) { if (up.tagName === 'DETAILS') up.open = true; up = up.parentElement; }
   const carousel = el.closest('.lb-carousel');
-  if (carousel) { const slide = el.closest('.lb-slide'); const first = carousel.querySelector('.lb-slide'); if (slide) carousel.scrollTo({ left: slide.offsetLeft - (first ? first.offsetLeft : 0), behavior: 'smooth' }); boardScrollWithin(carousel, box); el.classList.add('lb-evidence-hit'); setTimeout(() => el.classList.remove('lb-evidence-hit'), 6000); return done(true, 'image'); }
-  if (el.tagName === 'IMG') { boardScrollWithin(el, box); el.classList.add('lb-evidence-hit'); setTimeout(() => el.classList.remove('lb-evidence-hit'), 6000); return done(true, 'image'); }
+  const flashMedia = m => { m.classList.add('lb-evidence-hit', 'lb-media-hit'); setTimeout(() => m.classList.remove('lb-evidence-hit', 'lb-media-hit'), 6000); };
+  const mediaLog = m => { log.inView = m.getClientRects().length > 0 && (() => { const r = m.getBoundingClientRect(), b = box.getBoundingClientRect(); return r.bottom > b.top && r.top < b.bottom; })(); };
+  if (carousel) { const slide = el.closest('.lb-slide'); const first = carousel.querySelector('.lb-slide'); if (slide) carousel.scrollLeft = slide.offsetLeft - (first ? first.offsetLeft : 0); boardScrollWithin(carousel, box); flashMedia(el); mediaLog(el); return done(true, 'image'); }
+  if (el.tagName === 'IMG' || el.tagName === 'VIDEO') { boardScrollWithin(el, box); flashMedia(el); mediaLog(el); return done(true, 'image'); }
   const target = markPassageIn(el, part.text);
   boardScrollWithin(target, box);
   log.scrolled = [...(function* () { for (let u = target.parentElement; u && u !== box.parentElement; u = u.parentElement) if (boardScrollable(u)) yield (u.className || u.tagName).toString().slice(0, 40) + '@' + Math.round(u.scrollTop); })()];
@@ -455,6 +460,9 @@ LB.style('lbchat-style', `
 /* [来源N] 小胶囊：不抢眼，悬停才显链接色 */
 .lbchat button.lbchat-cite{display:inline-block!important;font:inherit!important;font-size:11px!important;line-height:1.55!important;vertical-align:1px;margin:0 2px;padding:0 6px!important;height:auto;border:0!important;box-shadow:none!important;border-radius:999px!important;background:var(--background-modifier-hover)!important;color:var(--text-muted)!important;cursor:pointer;white-space:nowrap;}
 .lbchat button.lbchat-cite:hover{color:var(--link-color)!important;background:var(--background-secondary)!important;}
+/* 1022 点引用落到图 / 视频上：描一圈会被轮播裁掉，改成外发光脉冲，看得见 */
+.lb-source-reader .lb-media-hit,.xhs-note .lb-media-hit{outline:none!important;box-shadow:0 0 0 4px var(--interactive-accent),0 0 18px 4px var(--interactive-accent)!important;animation:lbmediahit 1s ease-in-out 4;}
+@keyframes lbmediahit{0%,100%{box-shadow:0 0 0 4px var(--interactive-accent),0 0 18px 4px var(--interactive-accent)}50%{box-shadow:0 0 0 1px var(--interactive-accent),0 0 4px 1px var(--interactive-accent)}}
 /* 1021 悬停引用 → 原文小卡 */
 .lbchat-citepop{position:fixed;z-index:9999;width:min(360px,calc(100vw - 16px));padding:8px 11px;border-radius:10px;background:var(--background-primary);border:1px solid var(--background-modifier-border);box-shadow:0 8px 28px rgba(0,0,0,.18);font-size:12px;line-height:1.55;color:var(--text-normal);pointer-events:none;}
 .lbchat-citepop .t{font-weight:600;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
