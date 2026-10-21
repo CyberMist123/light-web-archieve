@@ -197,7 +197,7 @@ def resolve(question: str, parent: dict[str, Any] | None) -> dict[str, Any]:
 # 答案里的对象
 # --------------------------------------------------------------------------
 
-_CITE = re.compile(r"\[来源\s*(\d+)\]")
+_CITE = re.compile(r"\[来源\s*(\d+)(?:\s*[·· ]?\s*段\s*\d+)?\]")   # 1021：[来源N 段M] 同 [来源N]
 _BOLD_ITEM = re.compile(r"^\s*(?:[-*•]|\d+[.、)])\s*\*\*([^*]{1,24}?)\*\*")
 _BOLD_HEAD = re.compile(r"^\s*#{2,4}\s*\**([^*#\[]{1,24}?)\**\s*(?:\[来源\s*\d+\])*\s*$")
 OBJECTS_MAX = 20

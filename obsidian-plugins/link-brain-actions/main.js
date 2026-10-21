@@ -2030,8 +2030,77 @@ class LinkBrainActions extends Plugin {
     if(target.lbEvidenceRequest!==request)return;
     target.view.containerEl.classList.add('lb-source-reader');
     ws.setActiveLeaf(owner,{focus:false});
-    // 0926 Owner：原文就正常打开，不再做「原文 1/3 上一处/下一处」匹配跳转。
+    // 0926 Owner：不要「原文 1/3 上一处/下一处」工具条。1021 她：但点引用要跳到正文那一处——只跳页面挑好的第一段证据，
+    // 不出条、只滚原帖自己的滚动区（不碰工作区），原句亮 6 秒。找不到就只打开原帖（fail-open）。
     target.view.containerEl.querySelector?.('.lb-evidence-bar')?.remove();
+    if(Array.isArray(evidence)&&evidence.length){try{await this.locateOnePassage(target,evidence[0],request);}catch{}}
+  }
+
+  // ── 1021 点引用 → 原帖那一处 ──
+  // 先按锚点直达（渲染起带 <p data-p=段序号> / <article data-cid=楼号>，后端证据段带 paras / comment_labels / assets），
+  // 锚点对不上原文（旧渲染、库重建过）再按逐字原文找（evidenceTargets）。图片 = 按文件名找那张图。
+  passageTarget(container, part) {
+    const compact=s=>String(s||'').normalize('NFKC').replace(/\s+/g,'').toLowerCase();
+    const quote=compact(part.text);
+    const run=(a,b,w)=>{for(let i=0;i+w<=a.length;i++)if(b.includes(a.slice(i,i+w)))return true;return false;};
+    // 对得上 = 段落整段在证据里、或 24 字连续原文互相包含；证据本身不到 24 字（短句引用）就要求整句出现在段落里（≥6 字，免得撞同词）
+    const verify=el=>{const text=compact(el.textContent);if(!quote||!text)return false;if(quote.length<24)return quote.length>=6&&(text.includes(quote)||quote.includes(text));if(text.length<12)return quote.includes(text);return quote.includes(text)||run(text,quote,24)||run(quote,text,24);};
+    if(part.field==='ocr'||part.field==='comment_ocr'){
+      const assets=(part.assets||[]).map(x=>String(x).replace(/\\/g,'/'));const names=assets.map(a=>a.split('/').pop());
+      return [...container.querySelectorAll('.lb-slide img, img.lb-comment-image')].find(img=>{
+        const src=decodeURIComponent(img.getAttribute('src')||'').replace(/\\/g,'/').split('?')[0];const name=src.split('/').pop();
+        return assets.some(a=>src.endsWith('/'+a)||src===a)||names.some(n=>n&&name===n);
+      })||null;
+    }
+    const anchors=[];
+    if(part.field==='comments'){for(const l of part.comment_labels||[]){const el=container.querySelector(`article.lb-comment[data-cid="${String(l).replace(/[^\w.]/g,'')}"] .lb-comment-text`);if(el)anchors.push(el);}}
+    else if(['body','transcript','screen'].includes(part.field)){
+      const scope=part.field==='body'?'.lb-body':'.lb-transcript .lb-body';
+      for(const i of part.paras||[])for(const el of container.querySelectorAll(`${scope} p[data-p="${Number(i)}"]`)){if(part.field==='body'&&el.closest('.lb-transcript'))continue;anchors.push(el);}
+    }
+    const ok=anchors.find(verify);if(ok)return ok;
+    if(anchors.length&&!quote)return anchors[0];
+    // 退回逐字找（旧渲染没锚点 / 库重建过段序号对不上）：同 evidenceTargets 的范围，但短句也认
+    const selectors={body:'.lb-body p',comments:'.lb-comment-text',transcript:'.lb-transcript .lb-body p',screen:'.lb-transcript .lb-body p'};
+    if(!selectors[part.field])return null;
+    return [...container.querySelectorAll(selectors[part.field])].filter(el=>!(part.field==='body'&&el.closest('.lb-transcript'))).find(verify)||null;
+  }
+  scrollWithinNote(el, box) {   // 只滚原帖自己的滚动区（.lb-scroll / 轮播 / 阅读视图），绝不 scrollIntoView（会把工作区一起卷上去）
+    for(let up=el.parentElement;up&&up!==box.parentElement;up=up.parentElement){
+      const st=getComputedStyle(up);if(!/(auto|scroll)/.test(st.overflowY)||up.scrollHeight<=up.clientHeight+1)continue;
+      const top=up.scrollTop+el.getBoundingClientRect().top-up.getBoundingClientRect().top-up.clientHeight/3;
+      up.scrollTo({top:Math.max(0,top),behavior:'smooth'});
+    }
+  }
+  flashPassage(el, ms=6000) { el.classList.add('lb-evidence-hit'); setTimeout(()=>el.classList.remove('lb-evidence-hit'),ms); }
+  // 段落里重合最多的那一句包进临时 span（不用 <mark>：那是她划的重点），6 秒拆掉；整段很短或找不到句就整段亮
+  markPassageSentence(el, quote) {
+    const compact=s=>String(s||'').normalize('NFKC').replace(/\s+/g,'').toLowerCase();
+    const q=compact(quote);const nodes=[];const tw=document.createTreeWalker(el,NodeFilter.SHOW_TEXT);let all='';
+    while(tw.nextNode()){nodes.push([tw.currentNode,all.length]);all+=tw.currentNode.nodeValue;}
+    const score=s=>{const c=compact(s);let n=0;for(let i=0;i+6<=c.length;i++)if(q.includes(c.slice(i,i+6)))n++;return n;};
+    let best=null;
+    for(const seg of all.matchAll(/[^。！？!?；;\n]+[。！？!?；;]?/g)){if(!compact(seg[0]))continue;const s=score(seg[0]);if(s>0&&(!best||s>best.s))best={s,a:seg.index,b:seg.index+seg[0].length};}
+    if(!best||compact(all).length<40){this.flashPassage(el);return el;}
+    const marks=[];
+    for(const [node,off] of nodes){const a=Math.max(best.a,off),b=Math.min(best.b,off+node.nodeValue.length);if(a>=b)continue;
+      const r=document.createRange();r.setStart(node,a-off);r.setEnd(node,b-off);const mk=document.createElement('span');mk.className='lb-evidence-hit lb-locate-mark';
+      try{r.surroundContents(mk);marks.push(mk);}catch{}}
+    if(!marks.length){this.flashPassage(el);return el;}
+    setTimeout(()=>{for(const mk of marks){const p=mk.parentNode;if(!p)continue;while(mk.firstChild)p.insertBefore(mk.firstChild,mk);p.removeChild(mk);p.normalize?.();}},6000);
+    return marks[0];
+  }
+  async locateOnePassage(leaf, part, request) {
+    const container=leaf.view.containerEl;
+    for(let i=0;i<25;i++){if(leaf.lbEvidenceRequest!==request)return false;if(container.querySelector('.lb-note, .lb-body'))break;await new Promise(r=>setTimeout(r,80));}
+    if(leaf.lbEvidenceRequest!==request)return false;
+    container.querySelectorAll('.lb-evidence-hit').forEach(el=>el.classList.remove('lb-evidence-hit'));
+    const el=this.passageTarget(container,part);if(!el)return false;
+    let up=el.parentElement;while(up&&up!==container){if(up.tagName==='DETAILS')up.open=true;up=up.parentElement;}
+    const carousel=el.closest('.lb-carousel');
+    if(carousel){const slide=el.closest('.lb-slide');const first=carousel.querySelector('.lb-slide');if(slide)carousel.scrollTo({left:slide.offsetLeft-(first?first.offsetLeft:0),behavior:'smooth'});this.scrollWithinNote(carousel,container);this.flashPassage(el);return true;}
+    if(el.tagName==='IMG'){this.scrollWithinNote(el,container);this.flashPassage(el);return true;}
+    const target=this.markPassageSentence(el,part.text);this.scrollWithinNote(target,container);return true;
   }
 
   evidenceTargets(container, part) {
@@ -2043,7 +2112,7 @@ class LinkBrainActions extends Plugin {
         return assets.some(asset=>src.endsWith('/'+asset)||src===asset);
       });
     }
-    const selectors={body:'.lb-body p',comments:'.lb-comment-text',transcript:'.lb-transcript .lb-body p'};
+    const selectors={body:'.lb-body p',comments:'.lb-comment-text',transcript:'.lb-transcript .lb-body p',screen:'.lb-transcript .lb-body p'};
     if(!selectors[part.field])return [];
     const quote=compact(part.text);
     return [...container.querySelectorAll(selectors[part.field])].filter(el=>{

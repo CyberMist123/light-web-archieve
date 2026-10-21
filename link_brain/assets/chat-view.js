@@ -138,11 +138,15 @@ async function archiveChange(mutate) {
 }
 // 来源阅读（第 2 批）：引用编号、来源标题会打开来源，一律放进右侧同一个来源窗格（复用）。
 // A12：「我保存的」来源在原地展开，不切整页；A11：没插件时走 openLinkText
-function openNote(source, compare = false, context = '', fromCite = null) {
+// 1021 她：点引用要跳到正文那一处——seg（模型写的 [来源N 段k]）直接指定证据段；没段号就按点击那句的上下文挑最像的一段。
+// 挑好的排第一，插件 openArchiveSource 只跳第一段（不出工具条、只滚原帖自己的滚动区）
+function openNote(source, compare = false, context = '', fromCite = null, seg = null) {
   const src = typeof source === 'string' ? { note: source } : source;
   if (src?.source_kind === 'saved') { openSavedInline(src, fromCite); return; }
-  const chunks = (src?.excerpts || []).filter(p => p.field === 'body' || p.field === 'comments');
-  if (context) { const normalized = context.replace(/\s/g, '').toLowerCase(); const score = p => { const text = String(p.text).replace(/\s/g, '').toLowerCase(); let n = 0; for (let i = 0; i < normalized.length - 3; i++) if (text.includes(normalized.slice(i, i + 4))) n++; return n; }; chunks.sort((a, b) => score(b) - score(a)); }
+  const all = (src?.excerpts || []).filter(p => p && p.text);
+  const picked = seg ? all.find(p => Number(p.seg) === Number(seg)) : null;
+  let chunks = picked ? [picked, ...all.filter(p => p !== picked)] : all.slice();
+  if (!picked && context) { const normalized = context.replace(/\s/g, '').toLowerCase(); const score = p => { const text = String(p.text).replace(/\s/g, '').toLowerCase(); let n = 0; for (let i = 0; i < normalized.length - 3; i++) if (text.includes(normalized.slice(i, i + 4))) n++; return n; }; chunks.sort((a, b) => score(b) - score(a)); }
   if (!src?.note) return;
   userAt = 0; dragging = false;   // 点来源这一下不是在滚（之前滚到一半的不算）
   const p = provider();
@@ -377,6 +381,11 @@ LB.style('lbchat-style', `
 /* [来源N] 小胶囊：不抢眼，悬停才显链接色 */
 .lbchat button.lbchat-cite{display:inline-block!important;font:inherit!important;font-size:11px!important;line-height:1.55!important;vertical-align:1px;margin:0 2px;padding:0 6px!important;height:auto;border:0!important;box-shadow:none!important;border-radius:999px!important;background:var(--background-modifier-hover)!important;color:var(--text-muted)!important;cursor:pointer;white-space:nowrap;}
 .lbchat button.lbchat-cite:hover{color:var(--link-color)!important;background:var(--background-secondary)!important;}
+/* 1021 悬停引用 → 原文小卡 */
+.lbchat-citepop{position:fixed;z-index:9999;width:min(360px,calc(100vw - 16px));padding:8px 11px;border-radius:10px;background:var(--background-primary);border:1px solid var(--background-modifier-border);box-shadow:0 8px 28px rgba(0,0,0,.18);font-size:12px;line-height:1.55;color:var(--text-normal);pointer-events:none;}
+.lbchat-citepop .t{font-weight:600;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lbchat-citepop .w{color:var(--text-faint);font-size:11px;margin-bottom:3px;}
+.lbchat-citepop .q{color:var(--text-muted);display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-line;}
 .lbchat .lbchat-actions{gap:18px;margin-top:12px;align-items:center;flex-wrap:wrap;}
 /* ⑥ 来源：收起时「主要依据 · N」后面一行浅色小字告诉她能在里面保留 / 删除；展开后每行 保留 / × 是同样醒目的小按钮 */
 .lbchat .lbchat-src{margin-top:14px;font-size:12.5px;}
@@ -1138,7 +1147,7 @@ function drawActions(acts, el, t) {
   for (const [label, copyMode] of [['导出资料包', false], ['复制文件包', true]]) {
     const exportBtn = exportOptions.createEl('button', { cls: 'lbchat-act', text: label });
     exportBtn.onclick = async () => {
-      const used = new Set([...t.content.matchAll(/\[来源(\d+)\]/g)].map(m => Number(m[1])));
+      const used = new Set([...t.content.matchAll(/\[来源(\d+)(?:\s*[·· ]?\s*段(\d+))?\]/g)].map(m => Number(m[1])));
       const gone = new Set(t.removed || []);
       const currentSources = (t.sources || []).filter(s => !gone.has(srcKey(s))).map(s => ({ ...s, cited: used.has(Number(s.citation)) }));
       const keptRelated = (t.related || []).filter(s => !gone.has(srcKey(s)));
@@ -2375,7 +2384,7 @@ function toggleHistory(anchor) {
 // 都写成函数声明：页面开头恢复历史时 buildTurn 就会用到，const 在这里还没初始化（TDZ）
 function BOARD_ITEM() { return /^\s*[-*]\s+\*\*(.+?)\*\*\s*(.*)$/; }
 function BOARD_URL() { return /https?:\/\/[^\s<>()（）\[\]【】「」"'，。；、]+/; }
-function BOARD_CITE() { return /\[来源(\d+)\]/g; }
+function BOARD_CITE() { return /\[来源(\d+)(?:\s*[·· ]?\s*段(\d+))?\]/g; }   // 1021：[来源N 段M] 也认
 function boardItem(name, rest) {
   const cites = [...String(rest).matchAll(BOARD_CITE())].map(m => Number(m[1]));
   // 1020：这一条自带的配图（正文图 / 评论区的图），后端换成了同一行里的 ![[路径|配图]]；页面拿它当配图，比帖子封面准
@@ -2699,17 +2708,64 @@ async function saveBoardNote(t) {
   await app.vault.adapter.write(path, boardNoteMd(t, board));
   return path;
 }
+// 1021 悬停引用胶囊 → 小卡：来源标题 · 这一段在哪（段k · 正文 / 图N / 评论 cN）· 原文前几行。只读、不开右栏；移开 / 点击就收。
+function citePop() {   // 函数声明 + 懒建：页面开头恢复历史时 bindSources 就会用到（const 在这里还没初始化，TDZ）
+  if (citePop._i) return citePop._i;
+  let box = null, timer = 0;
+  const KIND = { body: '正文', comments: '评论区', ocr: '图片文字', comment_ocr: '评论区图片', transcript: '视频文字稿', screen: '视频画面文字', attachments: '附件', notes: '批注', highlights: '重点' };
+  const hide = () => { clearTimeout(timer); timer = 0; if (box) { box.remove(); box = null; } };
+  const pick = (src, seg, context) => {
+    const all = (src?.excerpts || []).filter(p => p && p.text);
+    if (seg) { const p = all.find(x => Number(x.seg) === Number(seg)); if (p) return p; }
+    if (!context || !all.length) return all[0] || null;
+    const normalized = String(context).replace(/\s/g, '').toLowerCase();
+    const score = p => { const text = String(p.text).replace(/\s/g, '').toLowerCase(); let n = 0; for (let i = 0; i < normalized.length - 3; i++) if (text.includes(normalized.slice(i, i + 4))) n++; return n; };
+    return all.slice().sort((a, b) => score(b) - score(a))[0] || null;
+  };
+  const where = p => {
+    if (!p) return '';
+    const ids = (p.images || p.comment_labels || p.comments || []).slice(0, 3).join('、');
+    return (p.seg ? `段${p.seg} · ` : '') + (KIND[p.field] || p.field || '') + (ids ? ' ' + ids : '') + (p.speakers?.length ? ' · ' + p.speakers.slice(0, 2).join('、') : '');
+  };
+  const show = (btn, src, seg, context) => {
+    hide();
+    const p = pick(src, seg, context);
+    box = document.createElement('div'); box.className = 'lbchat-citepop';
+    const t = document.createElement('div'); t.className = 't'; t.textContent = src?.title || '未命名'; box.append(t);
+    const w = document.createElement('div'); w.className = 'w'; w.textContent = p ? where(p) : '原文在右侧打开'; box.append(w);
+    if (p) { const q = document.createElement('div'); q.className = 'q'; q.textContent = String(p.text).trim().slice(0, 240); box.append(q); }
+    document.body.append(box);
+    const r = btn.getBoundingClientRect(), bw = box.offsetWidth || 320, bh = box.offsetHeight || 80;
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - bw - 8));
+    const top = r.bottom + 6 + bh > window.innerHeight ? Math.max(8, r.top - bh - 6) : r.bottom + 6;
+    box.style.left = left + 'px'; box.style.top = top + 'px';
+  };
+  const bind = (btn, src, seg, context) => {
+    btn.addEventListener('mouseenter', () => { clearTimeout(timer); timer = setTimeout(() => show(btn, src, seg, context), 320); });
+    btn.addEventListener('mouseleave', hide);
+    btn.addEventListener('focus', () => show(btn, src, seg, context));
+    btn.addEventListener('blur', hide);
+  };
+  return (citePop._i = { bind, hide });
+}
 function bindSources(el, sources, { pending = false } = {}) {
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
   for (const node of nodes) {
     if (node.parentElement?.closest('a,code,pre,button')) continue;
-    const matches = [...node.textContent.matchAll(/\[来源(\d+)\]/g)]; if (!matches.length) continue;
+    const matches = [...node.textContent.matchAll(/\[来源(\d+)(?:\s*[·· ]?\s*段(\d+))?\]/g)]; if (!matches.length) continue;
     const frag = document.createDocumentFragment(); let last = 0;
     for (const m of matches) {
       frag.append(document.createTextNode(node.textContent.slice(last, m.index)));
       const src = pending ? null : sources.find(x => Number(x.citation) === Number(m[1]));
-      if (pending) { const s = document.createElement('span'); s.className = 'lbchat-cite is-pending'; s.textContent = m[0]; s.dataset.cite = m[1]; frag.append(s); }
-      else if (src) { const b = document.createElement('button'); b.className = 'lbchat-cite'; b.textContent = m[0]; b.dataset.cite = m[1]; b.setAttribute('title', '打开来源（右侧）'); b.onclick = e => { e?.stopPropagation?.(); openNote(src, false, b.closest('p,li')?.textContent || '', b); }; frag.append(b); }
+      const label = `[来源${m[1]}]`, seg = m[2] ? Number(m[2]) : 0;   // 1021：段号不显示在胶囊上（噪音），记在 data-seg；点了直达那一段
+      if (pending) { const s = document.createElement('span'); s.className = 'lbchat-cite is-pending'; s.textContent = label; s.dataset.cite = m[1]; frag.append(s); }
+      else if (src) {
+        const b = document.createElement('button'); b.className = 'lbchat-cite'; b.textContent = label; b.dataset.cite = m[1]; if (seg) b.dataset.seg = String(seg);
+        b.setAttribute('title', seg ? `打开原帖，跳到引用的第 ${seg} 段（右侧）` : '打开原帖，跳到引用的那一处（右侧）');
+        b.onclick = e => { e?.stopPropagation?.(); citePop().hide(); openNote(src, false, b.closest('p,li')?.textContent || '', b, seg); };
+        citePop().bind(b, src, seg, b.closest('p,li')?.textContent || '');
+        frag.append(b);
+      }
       else frag.append(document.createTextNode(m[0]));
       last = m.index + m[0].length;
     }
