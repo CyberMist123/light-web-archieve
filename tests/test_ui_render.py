@@ -91,7 +91,7 @@ def test_human_view_is_xhs_layout_without_debug_sections():
     # 正文现在是 HTML <p>（在 .lb-body 里）——Owner 2026-09-15 改：要真·左右两栏、图片作者固定、
     # 正文评论右栏可滑，正文必须进真容器，Markdown 会被空行闭合。
     assert "lb-post-body" not in text
-    assert "第一段正文。" in text and "<p>第一段正文。</p>" in text
+    assert "第一段正文。" in text and '<p data-p="0">第一段正文。</p>' in text   # 1021：段落带 data-p 锚点
     # 左右两栏容器：左 .lb-side（图+作者）、右 .lb-main（正文+评论），一个连续 HTML 块
     assert 'class="lb-side"' in text and 'class="lb-main"' in text and 'class="lb-body"' in text
     # 图片和作者都在左栏、正文在右栏（顺序上 lb-side 在 lb-body 之前）

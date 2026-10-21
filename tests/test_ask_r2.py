@@ -1,3 +1,4 @@
+import re
 import time
 
 import pytest
@@ -95,5 +96,5 @@ def test_production_deep_prompt_reads_all_fields(monkeypatch):
     assert result['status'] == 'ok'
     # 1015 第二批：片段标签改成来源类型名（ask.HIT_TYPES）
     for field in item['search_fields']:
-        assert f'[{ask.HIT_TYPES[field]}' in seen[-1]
+        assert re.search(r'\[段\d+ · ' + re.escape(ask.HIT_TYPES[field]), seen[-1]), field   # 1021：每段带段号 [段k · 正文]
     assert len(result['sources']) == 1

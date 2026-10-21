@@ -307,8 +307,10 @@ def _comment_html(
     gap_reasons: dict[str, str] | None = None,
     floor_limit: int | None = None,
     scoped: bool = False,
+    label: str = "",
 ) -> str:
-    """Human comment row: author + text only; no date/location/overall count."""
+    """Human comment row: author + text only; no date/location/overall count.
+    label = 楼号（c3 / c3.1，同机读版 agent.md / llm.comment_labels），写成 data-cid 给问收藏「点引用跳到这条评论」用。"""
     author = (comment.get("author") or {}).get("nickname") or "匿名"
     text = _safe(comment.get("text") or "")
     target = comment.get("target_nickname")
@@ -339,8 +341,9 @@ def _comment_html(
         actions = f'<div class="lb-comment-actions">♡ {_safe(likes)}</div>'
 
     cls = "lb-comment lb-reply" if nested else "lb-comment"
+    cid = f' data-cid="{_safe(label)}"' if label else ""
     parts = [
-        f'<article class="{cls}">',
+        f'<article class="{cls}"{cid}>',
         f'<div class="lb-comment-author">{_safe(author)}</div>',
         f'<div class="lb-comment-text">{text}</div>{media}{actions}',
     ]
@@ -349,7 +352,8 @@ def _comment_html(
         subs = comment.get("sub_comments") or []
         if subs:
             parts.append('<div class="lb-replies">')
-            parts.extend(_comment_html(s, object_rel, manifest, nested=True) for s in subs)
+            parts.extend(_comment_html(s, object_rel, manifest, nested=True, label=f"{label}.{j}" if label else "")
+                         for j, s in enumerate(subs, start=1))
             try:
                 declared = int(comment.get("sub_comment_count") or 0)
             except (TypeError, ValueError):
@@ -710,17 +714,28 @@ def _body_html(text: str) -> str:
     """正文渲染成 HTML 段落（Owner 2026-09-15：要真·左右两栏、图片作者固定、正文评论右栏可滑，
     就必须把这几块关进真容器；正文一旦是 Markdown，Obsidian 遇空行闭合 HTML 块，容器就散了。
     所以正文改回 HTML `<p>`。代价：原生 `==高亮==` 失效（改走 `<mark>`）；全文搜索不受影响。"""
-    text = TOPIC_TOKEN_RE.sub("", text or "")
-    text = re.sub(r"[ \t]+\n", "\n", text)
-    text = re.sub(r"\n{3,}", "\n\n", text).strip()
-    if not text:
-        return '<div class="lb-body"><p>（无正文）</p></div>'
     paras = []
-    for para in re.split(r"\n\s*\n", text):
-        lines = [_safe(ln) for ln in para.split("\n") if ln.strip()]
+    for i, (a, b) in enumerate(body_paragraph_spans(text)):
+        lines = [_safe(ln) for ln in TOPIC_TOKEN_RE.sub("", text[a:b]).split("\n") if ln.strip()]
         if lines:
-            paras.append("<p>" + "<br>".join(lines) + "</p>")
+            # data-p = 段序号（和 ask.locate_excerpts 按同一个 body_paragraph_spans 算），问收藏点引用按它直达这一段
+            paras.append(f'<p data-p="{i}">' + "<br>".join(lines) + "</p>")
+    if not paras:
+        return '<div class="lb-body"><p>（无正文）</p></div>'
     return '<div class="lb-body">' + "".join(paras) + "</div>"
+
+
+def body_paragraph_spans(text: str) -> list[tuple[int, int]]:
+    """正文按空行分段后每段在**原文**里的 [start, end)（原文 = source.json 的 body，也是 catalog search_fields.body，
+    证据段的 offset 就落在这个坐标上）。只保留去掉话题标签后还有字的段；序号 = 渲染出的 <p data-p> 序号。"""
+    text = text or ""
+    out = []
+    for m in re.finditer(r"[^\n]*\S[^\n]*(?:\n[^\n]*\S[^\n]*)*", text):   # 连续的非空白行 = 一段
+        chunk = m.group(0)
+        if not TOPIC_TOKEN_RE.sub("", chunk).strip():
+            continue
+        out.append((m.start(), m.end()))
+    return out
 
 
 HIGHLIGHT_RE = re.compile(r"==([^=\n]{1,300})==")
@@ -933,7 +948,7 @@ def _comments_html(
         floor_limit = int(view.get("floors") or 10)
     if comments:
         parts.extend(_comment_html(c, object_rel, manifest, gap_reasons=gap_reasons, floor_limit=floor_limit,
-                                   scoped=view is not None) for c in comments)
+                                   scoped=view is not None, label=f"c{i}") for i, c in enumerate(comments, start=1))
     else:
         # 批次 D · N14：原帖有评论、这次没存下来 ≠ 暂无评论
         n = (note.get("engagement") or {}).get("comment_count")

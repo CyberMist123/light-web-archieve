@@ -595,6 +595,9 @@ body.lb-actions-on .xhs-note .lb-scroll mark { cursor: pointer; }
 .lb-evidence-bar{position:sticky;top:0;z-index:8;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;background:var(--background-primary);border-bottom:1px solid var(--background-modifier-border);font-size:12px;}
 .lb-evidence-bar details{max-width:100%;}.lb-evidence-bar blockquote{max-height:180px;overflow:auto;white-space:pre-wrap;}
 .lb-evidence-hit{outline:2px solid var(--interactive-accent)!important;outline-offset:3px;background:var(--text-highlight-bg)!important;border-radius:4px;}
+/* 1022 落到图 / 视频上：描圈会被轮播裁掉，改外发光脉冲 */
+.lb-media-hit{outline:none!important;box-shadow:0 0 0 4px var(--interactive-accent),0 0 18px 4px var(--interactive-accent)!important;animation:lbmediahit 1s ease-in-out 4;}
+@keyframes lbmediahit{0%,100%{box-shadow:0 0 0 4px var(--interactive-accent),0 0 18px 4px var(--interactive-accent)}50%{box-shadow:0 0 0 1px var(--interactive-accent),0 0 4px 1px var(--interactive-accent)}}
 
 /* Hide only this library's internal data from the everyday file tree. */
 .nav-folder:has(> .nav-folder-title[data-path="_archive"]),

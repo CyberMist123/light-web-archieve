@@ -814,8 +814,22 @@ def locate_excerpts(item, snippets):
                     hit["speakers"] = list(dict.fromkeys(speakers[l] for l in labels if speakers.get(l)))
             except Exception:  # noqa: BLE001
                 pass
+        elif part["field"] in ("body", "transcript", "screen") and part.get("offset") is not None:
+            try:
+                hit["paras"] = _paras_of(str(fields.get(part["field"]) or ""), int(part["offset"]), len(str(part.get("text") or "")))
+            except Exception:  # noqa: BLE001
+                pass
+        hit["seg"] = len(result) + 1   # 段号：送给模型的 [段k · 正文]，模型写 [来源N 段k]，前端按它直达这一段（1021）
         result.append(hit)
     return result
+
+
+def _paras_of(field_text, offset, length):
+    """证据段 [offset, offset+length) 盖住了原文的哪几段（段序号同 render.body_paragraph_spans = <p data-p>）。
+    offset 对不上（库重建前后有出入）= []，前端退回按原文找。"""
+    from .render import body_paragraph_spans
+    end = offset + max(1, length)
+    return [i for i, (a, b) in enumerate(body_paragraph_spans(field_text)) if a < end and offset < b]
 
 
 def _comment_records(item):
@@ -1342,6 +1356,8 @@ FORMAT_RULES = (
     "放图：材料里标了「图N」的片段对某一步或某个论点有帮助（成品图、步骤图、表格、流程图）时，在那一行下面单独写一行占位 [看图：来源N 图M]，"
     "整篇最多 3 处，只能用材料里出现过的图号；没有合适的图就不写。"
 )
+# 1021：[来源N] 与 [来源N 段M]（段号引用，精确对照）都算引用了来源 N；段号可选，findall 只回来源号
+CITE_ANY = re.compile(r"\[来源\s*(\d+)(?:\s*[·· ]?\s*段\s*\d+)?\]")
 _SEE_IMG = re.compile(r"[ \t]*\[看图[：:]\s*来源\s*(\d+)\s*[，,、 ]*图\s*(\d+)\]")
 MAX_EMBEDS = 3
 
@@ -1505,12 +1521,15 @@ def split_ocr_by_image(item, snippets):
     return out
 
 
-def _excerpt_tag(x):
+def _excerpt_tag(x, seg=None):
     """送给模型的片段标签：[图片文字 图2、图3] / [评论区 c5 · 评论者：小王（不是作者）] / [正文]——带身份和说话人，
-    模型才能写「看图」占位、楼号，评论区的话不会安到作者头上（1015 F：澳洲辣椒酱张冠李戴）。"""
+    模型才能写「看图」占位、楼号，评论区的话不会安到作者头上（1015 F：澳洲辣椒酱张冠李戴）。
+    seg 给了就带段号 [段3 · 正文]：模型引用时写 [来源N 段3]，她点引用直达这一段（1021 精确对照）。"""
     ids = x.get("images") or x.get("comment_labels") or x.get("comments") or []
     ids = [str(i) for i in ids if i][:4]
     label = HIT_TYPES.get(x.get("field"), x.get("field") or "")
+    if seg:
+        label = f"段{int(seg)} · {label}"
     who = ""
     speakers = [s for s in x.get("speakers") or [] if s][:3]
     if speakers:
@@ -1594,7 +1613,7 @@ def pinned_note(citations):
 
 def uncited_pins_note(markdown, pinned_sources):
     """手动加入的来源回答里没引用到的，在末尾如实列出来（编号可点开），不让它悄悄消失。"""
-    used = {int(n) for n in re.findall(r"\[来源(\d+)\]", markdown or "")}
+    used = {int(n) for n in CITE_ANY.findall(markdown or "")}
     missing = [s for s in pinned_sources if s.get("citation") not in used]
     if not missing:
         return ""
@@ -2279,7 +2298,7 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
         # 1018 v2.1 §1.4：主证据附图目录（图号＋识图描述前 20 字），模型照目录挑图、不放只有标题字的封面
         catalog = answer_prompt.image_catalog(str(storage.vault_root() / it["agent_md"]) if it.get("agent_md") else None)
         block = (source_header(len(sources) + 1, it) + (catalog + "\n" if catalog else "")
-                 + "\n".join(f"{_excerpt_tag(x)} {x['text']}" for x in snippets))
+                 + "\n".join(f"{_excerpt_tag(x, x.get('seg'))} {x['text']}" for x in snippets))
         remaining = cap - sum(len(x) for x in blocks)
         if remaining < 100:
             overflow.append(it)  # 字数预算用完了：这篇挪到「其他相关」最前面
@@ -2454,7 +2473,7 @@ def delivery_payload(result: dict[str, Any], include=None) -> dict[str, Any]:
     body = re.sub(r"\[来源\d+\]", "", result.get("markdown") or "").strip()
     payload: dict[str, Any] = {"body": body}
     sources = result.get("sources") or []
-    used = {int(n) for n in re.findall(r"\[来源(\d+)\]", result.get("markdown") or "")}
+    used = {int(n) for n in CITE_ANY.findall(result.get("markdown") or "")}
     selected = [s for s in sources if s.get("citation") in used] if used else sources
     if "links" in include:
         payload["links"] = [{"title": s["title"], "url": s["url"], "source_id": s["id"],

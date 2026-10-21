@@ -121,12 +121,13 @@ def test_evidence_identity_comment_floor_and_image_number(tmp_path, monkeypatch)
     assert parts[1]["comment_labels"] == ["c1"]
     assert parts[2]["images"] == ["评论c1的图1"] and parts[2]["assets"] == ["comment-aa11-1.webp"]
     assert parts[3]["images"] == ["图1"]
-    assert parts[4] == {"field": "body", "text": "正文"}
+    assert parts[4] == {"field": "body", "text": "正文", "seg": 5}   # 1021：每段带段号（[来源N 段k] 精确对照）
     assert [p["text"] for p in parts] == ["有汤的\n那是燃面吧", "不加汤就完美了", "小贴士：牛肉逆纹切条", "封面标题文字", "正文"]
 
 
 def test_evidence_identity_fail_open_without_object(tmp_path, monkeypatch):
     monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
     parts = [{"field": "comments", "text": "x"}, {"field": "ocr", "text": "y"}]
-    assert ask.locate_excerpts({"id": "nope", "agent_md": "_archive/a/b/derived/agent.md"}, parts) == parts
-    assert ask.locate_excerpts({"id": "nope"}, parts) == parts
+    strip = lambda ps: [{k: v for k, v in p.items() if k != "seg"} for p in ps]   # 1021：段号总是带上，身份照旧不挂
+    assert strip(ask.locate_excerpts({"id": "nope", "agent_md": "_archive/a/b/derived/agent.md"}, parts)) == parts
+    assert strip(ask.locate_excerpts({"id": "nope"}, parts)) == parts
