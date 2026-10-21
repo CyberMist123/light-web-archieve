@@ -222,6 +222,30 @@ def summary(*, now: datetime | None = None) -> dict[str, Any]:
     return out
 
 
+def month_summary(*, now: datetime | None = None) -> dict[str, Any] | None:
+    """目录页边栏「Token 费用 · 本月」（1022 Collection+ 第 4 段 A）：本月账本按 pricing.json 现价折成人民币。
+    返回 {month, cost_cny, by_feature: {功能中文: 元}, calls, unpriced, as_of}；本月一行账都没有返回 None（页面显示「—」，不显示 0 误导）。"""
+    from .setup import estimate
+    now = now or _now()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    rows = [r for r in load(now.day + 1, now=now) if r["_ts"] >= month_start]
+    if not rows:
+        return None
+    pricing = estimate.load_pricing()
+    total, by_feat, unpriced = 0.0, {}, 0
+    for r in rows:
+        c = cost_of(r, pricing)
+        if c is None:
+            unpriced += 1
+            continue
+        total += c
+        f = r.get("f") or "other"
+        by_feat[f] = by_feat.get(f, 0.0) + c
+    ordered = sorted(by_feat.items(), key=lambda kv: list(FEATURES).index(kv[0]) if kv[0] in FEATURES else 99)
+    return {"month": f"{now:%Y-%m}", "cost_cny": round(total, 2), "calls": len(rows), "unpriced": unpriced,
+            "by_feature": {FEATURES.get(f, f): round(v, 2) for f, v in ordered}, "as_of": pricing.get("as_of")}
+
+
 # --------------------------------------------------------------------------
 # 提供商：跳转 + 余额
 # --------------------------------------------------------------------------

@@ -688,6 +688,15 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
         topic_list, member = [], {}
     for it in items:
         it["topics"] = member.get(str(it.get("id")), [])
+    # 1022 Collection+ 第 4 段 A：边栏「Token 费用 · 本月」= 账本 _archive/usage/YYYY-MM.jsonl 按现价折算；
+    # fail-open：账本缺 / 价格表坏 = None，页面显示「—」。
+    try:
+        from . import usage as usage_mod
+        usage_month = usage_mod.month_summary(now=now)
+    except Exception as exc:  # noqa: BLE001
+        import sys
+        print(f"[catalog] 本月用量没算出来（{type(exc).__name__}: {exc}），边栏费用显示「—」", file=sys.stderr)
+        usage_month = None
     slim_items, search_index = split_search(items)
     # 先写检索索引再写目录数据：页面看到新目录时索引已经是新的（按 id 并，差一拍也只是少几篇的全文）
     storage.atomic_write_text(
@@ -706,6 +715,7 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
                 # 10-10：cats_order / items[].cats 来自索引树时带上它（页面的二级小标签、索引图读 _archive/index-data.json）
                 "index": index_info,
                 "topics": [t["name"] for t in topic_list],
+                "usage_month": usage_month,
                 "aliases": ALIASES,
                 "items": slim_items,
                 "search_index": SEARCH_NAME,

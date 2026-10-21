@@ -3173,7 +3173,12 @@ function paintSync() {
   row('今日新增', `${nToday} 篇`);
   const c = row('Token 费用 · 本月', cost || '—', 'is-tot');
   if (!cost) { c.classList.add('is-none'); c.title = '还没有用量记录'; }
-  else c.title = '本月调用 AI 的估算费用（人民币）';
+  else {
+    const um = data?.usage_month || {}, bf = um.by_feature || {};
+    const lines = Object.keys(bf).map(k => `${k} ¥${Number(bf[k]).toFixed(2)}`);
+    const extra = um.unpriced ? `（${um.unpriced} 次没有价格表，没算进去）` : '';
+    c.title = [`${um.month || '本月'} 调用 AI 的估算费用（人民币，按价格表 ${um.as_of || ''} 现价）${extra}`, ...lines].join('\n');
+  }
 }
 async function openSyncSettings(btn) {
   const p = await want('openSetupPage'); if (!p) return;

@@ -138,3 +138,26 @@ def test_build_publishes_fonts_once(tmp_path, monkeypatch):
     page_js = (tmp_path / "_archive" / "catalog-page.js").read_text(encoding="utf-8")
     assert "_archive/fonts/Cinzel-latin-variable.woff2" in page_js
     assert "fonts.googleapis" not in page_js
+
+
+def test_build_writes_usage_month(tmp_path, monkeypatch):
+    """1022 Collection+ 第 4 段 A：目录重建把本月账本折成人民币写进 catalog-data.usage_month；没账 = None（页面「—」）。"""
+    import json
+    from datetime import datetime, timedelta, timezone
+    from link_brain import usage
+    monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
+    _make_object(tmp_path, "a1", title="记忆系统分享", tags=["AI"], summary="", stem="记忆系统分享")
+    _, _, data_path = catalog.build()
+    assert json.loads(data_path.read_text(encoding="utf-8"))["usage_month"] is None
+    now = datetime.now().astimezone()
+    bj = timezone(timedelta(hours=8))
+    peak = now.astimezone(bj).replace(hour=10, minute=0)    # DeepSeek 高峰价，和 test_usage 同口径
+    with usage.tag("ask"):
+        usage.record("textAI", {"endpoint": "https://api.deepseek.com/x", "model": "deepseek-flash"},
+                     {"prompt_tokens": 1_000_000, "completion_tokens": 0}, now=peak)
+    usage.record("embedAI", {"endpoint": "https://dashscope.aliyuncs.com/x", "model": "no-such-model"},
+                 {"prompt_tokens": 10, "total_tokens": 10}, now=peak)
+    _, _, data_path = catalog.build()
+    um = json.loads(data_path.read_text(encoding="utf-8"))["usage_month"]
+    assert um["month"] == f"{now:%Y-%m}" and um["calls"] == 2 and um["unpriced"] == 1
+    assert um["cost_cny"] > 0 and um["by_feature"] == {"问收藏": um["cost_cny"]}
