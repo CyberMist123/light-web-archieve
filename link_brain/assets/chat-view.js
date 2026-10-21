@@ -154,10 +154,80 @@ function openNote(source, compare = false, context = '', fromCite = null, seg = 
     try { return Promise.resolve(app.workspace.openLinkText(lbPath(src.note), '', false)).catch(e => notice('打不开来源：' + errText(e))); }
     catch (e) { notice('打不开来源：' + errText(e)); return; }
   }
-  // 1022 她：部署后插件还是旧 main.js（没重载）→ 右栏只开笔记不跳。插件缺 locateOnePassage 就让 LB.ensure 关开一次插件拿新代码；
-  // 关不了（正在跑别的 / 手机）就照旧用手头这个插件打开，不报错
-  const ready = typeof p.locateOnePassage === 'function' ? Promise.resolve(p) : Promise.resolve().then(() => LB.ensure('locateOnePassage')).catch(() => provider() || p);
-  return ready.then(pp => pp.openArchiveSource(src.note, root, compare, chunks)).then(() => { paintSourceBar(); settle(); watchReaderVideos(src.note); }).catch(e => notice('打不开来源：' + errText(e)));
+  // 1022 她：真机点引用没跳——插件没重载还是旧 main.js（关开插件也不保险）。改成页面自己定位：页面脚本每次重开都是新的，
+  // 插件只负责把笔记开到右栏（证据传空，免得新插件也跳一次）。定位结果写 _archive/locate-last.json（排障用，fail-open）
+  return Promise.resolve().then(() => p.openArchiveSource(src.note, root, compare, [])).then(() => { paintSourceBar(); settle(); watchReaderVideos(src.note); })
+    .then(() => chunks.length ? locateInReader(src, chunks[0]) : null)
+    .catch(e => notice('打不开来源：' + errText(e)));
+}
+// ── 1022 点引用 → 右栏原帖那一处（页面侧实现；和插件 locateOnePassage 同一套规则）──
+// 先按锚点直达（render 1021 起：<p data-p=段序号> / <article data-cid=楼号>；证据段带 paras / comment_labels / assets），
+// 锚点对不上原文（旧渲染）再逐字找；图片按文件名切轮播。只滚原帖自己的滚动区（boardScrollWithin），原句包临时 span 亮 6 秒。
+function passageCompact(s) { return String(s || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase(); }
+function passageTargetIn(box, part) {
+  const quote = passageCompact(part.text);
+  const run = (a, b, w) => { for (let i = 0; i + w <= a.length; i++) if (b.includes(a.slice(i, i + w))) return true; return false; };
+  const verify = el => { const text = passageCompact(el.textContent); if (!quote || !text) return false; if (quote.length < 24) return quote.length >= 6 && (text.includes(quote) || quote.includes(text)); if (text.length < 12) return quote.includes(text); return quote.includes(text) || run(text, quote, 24) || run(quote, text, 24); };
+  if (part.field === 'ocr' || part.field === 'comment_ocr') {
+    const assets = (part.assets || []).map(x => String(x).replace(/\\/g, '/')); const names = assets.map(a => a.split('/').pop());
+    const img = [...box.querySelectorAll('.lb-slide img, img.lb-comment-image')].find(img => { const src = decodeURIComponent(img.getAttribute('src') || '').replace(/\\/g, '/').split('?')[0]; const name = src.split('/').pop(); return assets.some(a => src.endsWith('/' + a) || src === a) || names.some(n => n && name === n); });
+    return { el: img || null, how: img ? 'asset' : 'none' };
+  }
+  const anchors = [];
+  if (part.field === 'comments') { for (const l of part.comment_labels || []) { const el = box.querySelector(`article.lb-comment[data-cid="${String(l).replace(/[^\w.]/g, '')}"] .lb-comment-text`); if (el) anchors.push(el); } }
+  else if (['body', 'transcript', 'screen'].includes(part.field)) {
+    const scope = part.field === 'body' ? '.lb-body' : '.lb-transcript .lb-body';
+    for (const i of part.paras || []) for (const el of box.querySelectorAll(`${scope} p[data-p="${Number(i)}"]`)) { if (part.field === 'body' && el.closest('.lb-transcript')) continue; anchors.push(el); }
+  }
+  const ok = anchors.find(verify); if (ok) return { el: ok, how: 'anchor', anchors: anchors.length };
+  if (anchors.length && !quote) return { el: anchors[0], how: 'anchor-noquote', anchors: anchors.length };
+  const selectors = { body: '.lb-body p', comments: '.lb-comment-text', transcript: '.lb-transcript .lb-body p', screen: '.lb-transcript .lb-body p' };
+  if (!selectors[part.field]) return { el: null, how: 'nofield', anchors: anchors.length };
+  const el = [...box.querySelectorAll(selectors[part.field])].filter(el => !(part.field === 'body' && el.closest('.lb-transcript'))).find(verify) || null;
+  return { el, how: el ? 'text' : 'none', anchors: anchors.length };
+}
+function markPassageIn(el, quote) {
+  const q = passageCompact(quote); const nodes = []; const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let all = '';
+  while (tw.nextNode()) { nodes.push([tw.currentNode, all.length]); all += tw.currentNode.nodeValue; }
+  const score = s => { const c = passageCompact(s); let n = 0; for (let i = 0; i + 6 <= c.length; i++) if (q.includes(c.slice(i, i + 6))) n++; return n; };
+  let best = null;
+  for (const seg of all.matchAll(/[^。！？!?；;\n]+[。！？!?；;]?/g)) { if (!passageCompact(seg[0])) continue; const s = score(seg[0]); if (s > 0 && (!best || s > best.s)) best = { s, a: seg.index, b: seg.index + seg[0].length }; }
+  const flash = () => { el.classList.add('lb-evidence-hit'); setTimeout(() => el.classList.remove('lb-evidence-hit'), 6000); return el; };
+  if (!best || passageCompact(all).length < 40) return flash();
+  const marks = [];
+  for (const [node, off] of nodes) { const a = Math.max(best.a, off), b = Math.min(best.b, off + node.nodeValue.length); if (a >= b) continue; const r = document.createRange(); r.setStart(node, a - off); r.setEnd(node, b - off); const mk = document.createElement('span'); mk.className = 'lb-evidence-hit lb-locate-mark'; try { r.surroundContents(mk); marks.push(mk); } catch {} }
+  if (!marks.length) return flash();
+  setTimeout(() => { for (const mk of marks) { const p = mk.parentNode; if (!p) continue; while (mk.firstChild) p.insertBefore(mk.firstChild, mk); p.removeChild(mk); p.normalize?.(); } }, 6000);
+  return marks[0];
+}
+async function locateInReader(src, part) {
+  const log = { at: new Date().toISOString(), note: src?.note, field: part?.field, seg: part?.seg, labels: part?.comment_labels || part?.paras || part?.assets || null, text: String(part?.text || '').slice(0, 60) };
+  const done = async (ok, why) => {
+    Object.assign(log, { ok, why });
+    try { await app.vault.adapter.write(lbPath('_archive/locate-last.json'), JSON.stringify(log, null, 1)); } catch {}
+    if (!ok) notice(why === 'no-reader' ? '右栏没打开原帖，跳不过去' : why === 'not-rendered' ? '原帖还没画完，再点一次引用' : '原帖里没找到引用的那一段，只打开了原帖', 4000);
+    return ok;
+  };
+  const p = provider();
+  let box = null;
+  for (let i = 0; i < 20 && !box; i++) { try { box = p?.archiveLeaves?.(root)?.reader?.view?.containerEl || null; } catch {} if (!box) await new Promise(r => setTimeout(r, 100)); }
+  if (!box) return done(false, 'no-reader');
+  // 大帖（几百楼评论）Obsidian 要画好几秒：最多等 12 秒
+  let i = 0; for (; i < 120 && !box.querySelector('.lb-note, .lb-body'); i++) await new Promise(r => setTimeout(r, 100));
+  log.waitMs = i * 100; log.comments = box.querySelectorAll('article.lb-comment').length; log.paras = box.querySelectorAll('.lb-body p[data-p]').length;
+  if (!box.querySelector('.lb-note, .lb-body')) return done(false, 'not-rendered');
+  box.querySelectorAll('.lb-evidence-hit').forEach(el => el.classList.remove('lb-evidence-hit'));
+  const { el, how, anchors } = passageTargetIn(box, part);
+  log.how = how; log.anchors = anchors;
+  if (!el) return done(false, 'not-found');
+  let up = el.parentElement; while (up && up !== box) { if (up.tagName === 'DETAILS') up.open = true; up = up.parentElement; }
+  const carousel = el.closest('.lb-carousel');
+  if (carousel) { const slide = el.closest('.lb-slide'); const first = carousel.querySelector('.lb-slide'); if (slide) carousel.scrollTo({ left: slide.offsetLeft - (first ? first.offsetLeft : 0), behavior: 'smooth' }); boardScrollWithin(carousel, box); el.classList.add('lb-evidence-hit'); setTimeout(() => el.classList.remove('lb-evidence-hit'), 6000); return done(true, 'image'); }
+  if (el.tagName === 'IMG') { boardScrollWithin(el, box); el.classList.add('lb-evidence-hit'); setTimeout(() => el.classList.remove('lb-evidence-hit'), 6000); return done(true, 'image'); }
+  const target = markPassageIn(el, part.text);
+  boardScrollWithin(target, box);
+  log.scrolled = [...(function* () { for (let u = target.parentElement; u && u !== box.parentElement; u = u.parentElement) { const st = getComputedStyle(u); if (/(auto|scroll)/.test(st.overflowY) && u.scrollHeight > u.clientHeight + 1) yield (u.className || u.tagName).toString().slice(0, 40); } })()];
+  return done(true, how);
 }
 // 1015 右栏来源里的视频没首图（审计 F：问收藏这边没调 fixVideos）。和笔记页 annotate-view 的 fixVideos 同一个修法：
 // Obsidian 阅读视图只改写 <video src>、不改 poster → 把 poster 按笔记所在目录解析成能加载的地址，按封面比例定框，点了再加载视频。

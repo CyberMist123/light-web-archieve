@@ -90,7 +90,11 @@ const HTML = `<style>
       p.settings = { models: [{ name: 'DeepSeek' }], activeModel: 'DeepSeek', hiddenCats: [] };
       p.renderMarkdownInto = async (md, el) => { for (const para of md.split(/\n\n+/)) { const e = document.createElement('p'); e.textContent = para; el.append(e); } };
       p.archiveSourceState = () => ({ reader: false, compare: false });
-      p.openArchiveSource = async (note, host, compare, evidence) => { W.lb.opened.push({ note, first: evidence && evidence[0] }); };
+      p.openArchiveSource = async (note, host, compare, evidence) => { W.lb.opened.push({ note, n: (evidence || []).length });
+        // 假右栏：插件开笔记后页面自己去里面定位
+        let r = document.querySelector('#fake-reader'); if (!r) { r = document.createElement('div'); r.id = 'fake-reader'; r.style.cssText = 'position:fixed;right:0;top:0;width:320px;height:600px;overflow:auto'; r.innerHTML = '<div class="markdown-preview-view"><div class="lb-note"><div class="lb-carousel" style="display:flex;overflow-x:auto;width:300px"><figure class="lb-slide" style="flex:0 0 300px"><img src="../../_archive/xiaohongshu/a/raw/v0001/assets/image-001.webp" width="300" height="100"></figure><figure class="lb-slide" style="flex:0 0 300px"><img src="../../_archive/xiaohongshu/a/raw/v0001/assets/image-002.webp" width="300" height="100"></figure></div><div class="lb-body"><p data-p="0">开头一段讲背景。</p></div></div></div>'; document.body.append(r); }
+        W.lb.reader = r; };
+      p.archiveLeaves = () => ({ reader: W.lb.reader ? { view: { containerEl: W.lb.reader } } : null });
       p.modelState = () => ({ usable: true }); p.warmAnswerWorker = () => false;
     };
     const S = await shell.page(chat, { host: 'page-reading', kind: 'chat', theme: 'light', plugin: {}, pluginInit, data: { built_at: '2026-10-08T10:00:00+10:00', items: [] },
@@ -106,7 +110,10 @@ const HTML = `<style>
     assert.equal(await chat.locator('.lbchat-citepop').count(), 0, '移开就收');
     await cite.click(); await S.settle(100);
     const opened = await chat.evaluate(() => window.lb.opened);
-    assert.equal(opened.length, 1); assert.equal(opened[0].note, 'Web/a.md'); assert.equal(opened[0].first.seg, 2);
+    assert.equal(opened.length, 1); assert.equal(opened[0].note, 'Web/a.md'); assert.equal(opened[0].n, 0, '插件不再收证据段');
+    await S.settle(900);
+    const jumped = await chat.evaluate(() => { const r = document.querySelector('#fake-reader'); const hit = r.querySelector('.lb-evidence-hit'); return { src: hit ? hit.getAttribute('src') : null, left: r.querySelector('.lb-carousel').scrollLeft }; });
+    assert.ok(jumped.src && jumped.src.endsWith('image-002.webp') && jumped.left > 0, '页面自己把右栏轮播切到第 2 张并描框：' + JSON.stringify(jumped));
     assert.equal(await chat.locator('.lbchat-citepop').count(), 0, '点了小卡也收');
     console.log('PASS cite hover (1021): popover shows title / 段2 · 图片文字 图2 / excerpt, hides on leave, click hands seg-2 evidence to plugin');
   } finally { await browser.close(); }
