@@ -2067,9 +2067,10 @@ class LinkBrainActions extends Plugin {
   }
   scrollWithinNote(el, box) {   // 只滚原帖自己的滚动区（.lb-scroll / 轮播 / 阅读视图），绝不 scrollIntoView（会把工作区一起卷上去）
     for(let up=el.parentElement;up&&up!==box.parentElement;up=up.parentElement){
-      const st=getComputedStyle(up);if(!/(auto|scroll)/.test(st.overflowY)||up.scrollHeight<=up.clientHeight+1)continue;
+      // 1022：阅读视图被锁视口时是 overflow:hidden（lb-pane-locked），脚本照样能滚——只要不是 visible 且内容比容器高；瞬时滚，外层才读到准坐标
+      const st=getComputedStyle(up);if(st.overflowY==='visible'||up.scrollHeight<=up.clientHeight+1)continue;
       const top=up.scrollTop+el.getBoundingClientRect().top-up.getBoundingClientRect().top-up.clientHeight/3;
-      up.scrollTo({top:Math.max(0,top),behavior:'smooth'});
+      up.scrollTop=Math.max(0,top);
     }
   }
   flashPassage(el, ms=6000) { el.classList.add('lb-evidence-hit'); setTimeout(()=>el.classList.remove('lb-evidence-hit'),ms); }

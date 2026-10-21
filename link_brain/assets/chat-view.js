@@ -226,7 +226,8 @@ async function locateInReader(src, part) {
   if (el.tagName === 'IMG') { boardScrollWithin(el, box); el.classList.add('lb-evidence-hit'); setTimeout(() => el.classList.remove('lb-evidence-hit'), 6000); return done(true, 'image'); }
   const target = markPassageIn(el, part.text);
   boardScrollWithin(target, box);
-  log.scrolled = [...(function* () { for (let u = target.parentElement; u && u !== box.parentElement; u = u.parentElement) { const st = getComputedStyle(u); if (/(auto|scroll)/.test(st.overflowY) && u.scrollHeight > u.clientHeight + 1) yield (u.className || u.tagName).toString().slice(0, 40); } })()];
+  log.scrolled = [...(function* () { for (let u = target.parentElement; u && u !== box.parentElement; u = u.parentElement) if (boardScrollable(u)) yield (u.className || u.tagName).toString().slice(0, 40) + '@' + Math.round(u.scrollTop); })()];
+  log.inView = (() => { const r = target.getBoundingClientRect(), b = box.getBoundingClientRect(); return r.top >= b.top && r.bottom <= b.bottom; })();
   return done(true, how);
 }
 // 1015 右栏来源里的视频没首图（审计 F：问收藏这边没调 fixVideos）。和笔记页 annotate-view 的 fixVideos 同一个修法：
@@ -2545,12 +2546,14 @@ function boardMatcher(it, texts) {
     sentence: text => weigh(boardGrams(text)),
   };
 }
+// 1022 她：真机没滚——右栏原帖的滚动容器是 Obsidian 阅读视图，插件锁外层视口时给它 overflow:hidden（lb-pane-locked），
+// 只认 auto/scroll 就把它跳过了。hidden 的容器脚本照样能滚：只要内容比容器高就算；从里到外瞬时滚（平滑滚是异步的，外层会读到旧坐标）
+function boardScrollable(up) { const st = getComputedStyle(up); return st.overflowY !== 'visible' && up.scrollHeight > up.clientHeight + 1; }
 function boardScrollWithin(el, box) {
   for (let up = el.parentElement; up && up !== box.parentElement; up = up.parentElement) {
-    const st = getComputedStyle(up);
-    if (!/(auto|scroll)/.test(st.overflowY) || up.scrollHeight <= up.clientHeight + 1) continue;
+    if (!boardScrollable(up)) continue;
     const top = up.scrollTop + el.getBoundingClientRect().top - up.getBoundingClientRect().top - up.clientHeight / 3;
-    up.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    up.scrollTop = Math.max(0, top);
   }
 }
 // 把元素里重合最多的那一句包进 <span class="lb-evidence-hit">（跨 <br> / 行内节点也行），过几秒拆掉

@@ -16,7 +16,7 @@ const METHODS = ['evidenceTargets', 'passageTarget', 'scrollWithinNote', 'flashP
 const methods = Object.fromEntries(METHODS.map(n => [n, proto[n].toString()]));
 
 const HTML = `<style>
-#outer{height:400px;overflow:auto}#reader{height:2000px}.lb-scroll{height:300px;overflow:auto}.lb-carousel{display:flex;overflow-x:auto;width:300px}.lb-slide{flex:0 0 300px}
+#outer{height:400px;overflow:auto}#reader{height:2000px}.lb-scroll{height:300px;overflow:hidden}.lb-carousel{display:flex;overflow-x:auto;width:300px}.lb-slide{flex:0 0 300px}
 .lb-evidence-hit{outline:2px solid blue}
 </style>
 <div id="outer"><div style="height:600px">上面占位</div><div id="reader"><div class="markdown-preview-view"><div class="lb-note">
@@ -92,7 +92,7 @@ const HTML = `<style>
       p.archiveSourceState = () => ({ reader: false, compare: false });
       p.openArchiveSource = async (note, host, compare, evidence) => { W.lb.opened.push({ note, n: (evidence || []).length });
         // 假右栏：插件开笔记后页面自己去里面定位
-        let r = document.querySelector('#fake-reader'); if (!r) { r = document.createElement('div'); r.id = 'fake-reader'; r.style.cssText = 'position:fixed;right:0;top:0;width:320px;height:600px;overflow:auto'; r.innerHTML = '<div class="markdown-preview-view"><div class="lb-note"><div class="lb-carousel" style="display:flex;overflow-x:auto;width:300px"><figure class="lb-slide" style="flex:0 0 300px"><img src="../../_archive/xiaohongshu/a/raw/v0001/assets/image-001.webp" width="300" height="100"></figure><figure class="lb-slide" style="flex:0 0 300px"><img src="../../_archive/xiaohongshu/a/raw/v0001/assets/image-002.webp" width="300" height="100"></figure></div><div class="lb-body"><p data-p="0">开头一段讲背景。</p></div></div></div>'; document.body.append(r); }
+        let r = document.querySelector('#fake-reader'); if (!r) { r = document.createElement('div'); r.id = 'fake-reader'; r.style.cssText = 'position:fixed;right:0;top:0;width:320px;height:600px;overflow:hidden'; r.innerHTML = '<div class="markdown-preview-view"><div class="lb-note"><div class="lb-carousel" style="display:flex;overflow-x:auto;width:300px"><figure class="lb-slide" style="flex:0 0 300px"><img src="../../_archive/xiaohongshu/a/raw/v0001/assets/image-001.webp" width="300" height="100"></figure><figure class="lb-slide" style="flex:0 0 300px"><img src="../../_archive/xiaohongshu/a/raw/v0001/assets/image-002.webp" width="300" height="100"></figure></div><div class="lb-body"><p data-p="0">开头一段讲背景。</p></div></div></div>'; document.body.append(r); }
         W.lb.reader = r; };
       p.archiveLeaves = () => ({ reader: W.lb.reader ? { view: { containerEl: W.lb.reader } } : null });
       p.modelState = () => ({ usable: true }); p.warmAnswerWorker = () => false;
