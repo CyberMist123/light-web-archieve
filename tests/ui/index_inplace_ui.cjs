@@ -43,7 +43,7 @@ function makeIndex(items, { dropFromHome = 0, aiCount = null, proposals = 2 } = 
     const files = { '索引.md': '- 做饭\n', '_archive/index-data.json': JSON.stringify(makeIndex(data.items)) };
     const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', theme: 'light', data, files,
       plugin: { methods: { indexAccept: { result: { ok: true, message: '已写进' } }, indexRebuild: { result: null } } } });
-    await page.evaluate(() => [...document.querySelectorAll('.lbc-cats .lbc-cat')].find(b => b.textContent === '索引').click()); await S.settle();
+    await page.evaluate(() => [...document.querySelectorAll('.lbc-cats .lbc-cat, .lbc-vseg .lbc-view')].find(b => b.textContent === '索引').click()); await S.settle();
     await page.evaluate(() => [...document.querySelectorAll('.lbi-row')].find(r => r.dataset.path === '做饭').querySelector('.lbi-label').click()); await S.settle();
     await page.evaluate(() => [...document.querySelectorAll('.lbi-row')].find(r => r.dataset.path === '做饭/家常菜').querySelector('.lbi-label').click()); await S.settle();
     await S.scrollTo(260); await S.settle();

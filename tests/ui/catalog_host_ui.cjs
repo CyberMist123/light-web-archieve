@@ -39,18 +39,19 @@ const shell = require('../_obsidian_shell.cjs');
         const dock = await page.evaluate(() => { const d = document.querySelector('.lbc-totop-dock'); const b = d.querySelector('.lbc-totop').getBoundingClientRect(); return { on: d.classList.contains('is-on'), bottom: b.bottom, vh: innerHeight }; });
         assert.ok(dock.on, `${tag}：滚过 600 出现回顶钮`);
         assert.ok(dock.bottom <= dock.vh - 18 && dock.bottom >= dock.vh - 80, `${tag}：回顶钮钉在视口底部附近 ${JSON.stringify(dock)}`);
-        // ③ 多选栏在顶栏里；1500 处首次勾选，鼠标下那张卡不动
+        // ③ 多选栏在顶栏里；1500 处首次勾选，鼠标下那张卡相对吸顶区底边不动（a8bbfc4 / 1019 她：吸顶区变高时卡片跟着往下让、不被多选栏盖住——
+        //    原来断言「绝对位置不动」，那一版起卡片会正好下移一个多选栏的高度，这条一直红着；1021 改成量离吸顶区底边的距离）
         const pick = await page.evaluate(() => {
           const top = document.querySelector('.lbc-top').getBoundingClientRect().bottom;
           const card = [...document.querySelectorAll('.lbc-card')].find(c => c.getBoundingClientRect().top > top + 40);
           card.dataset.probe = '1';
-          return card.getBoundingClientRect().top;
+          return card.getBoundingClientRect().top - top;
         });
         await page.hover('.lbc-card[data-probe="1"]');
         await page.click('.lbc-card[data-probe="1"] .lbc-check');
         await S.settle();
-        const after = await page.evaluate(() => document.querySelector('.lbc-card[data-probe="1"]').getBoundingClientRect().top);
-        assert.ok(Math.abs(after - pick) <= 1, `${tag}：滚到 1500 时首次勾选，那张卡 Δy=${after - pick}`);
+        const after = await page.evaluate(() => document.querySelector('.lbc-card[data-probe="1"]').getBoundingClientRect().top - document.querySelector('.lbc-top').getBoundingClientRect().bottom);
+        assert.ok(Math.abs(after - pick) <= 1, `${tag}：滚到 1500 时首次勾选，那张卡离吸顶区底边 Δy=${after - pick}`);
         const sel = await page.evaluate(() => { const s = document.querySelector('.lbc-selbar'), t = document.querySelector('.lbc-top'); const a = s.getBoundingClientRect(), b = t.getBoundingClientRect(); return { visible: !s.hidden && a.height > 0, inside: a.top >= b.top - 0.5 && a.bottom <= b.bottom + 0.5 && s.parentElement === t }; });
         assert.ok(sel.visible && sel.inside, `${tag}：多选栏在顶栏里 ${JSON.stringify(sel)}`);
         const c1b = await S.probeSticky({ target: '.lbc-top', by: 300 });
@@ -68,10 +69,12 @@ const shell = require('../_obsidian_shell.cjs');
       await page.evaluate(() => { const c = document.querySelectorAll('.lbc-col')[1].querySelector('.lbc-card'); c.dataset.probe = '1'; });
       await page.hover('.lbc-card[data-probe="1"]');
       assert.equal(await S.scrollTop(), 0, '还在顶上');
-      const before = await page.evaluate(() => document.querySelector('.lbc-card[data-probe="1"]').getBoundingClientRect().top);
+      // 同上（1019）：量卡片离吸顶区底边的距离——多选栏出来，卡片跟着往下让、不被盖住，也不额外错位
+      const gapNow = () => page.evaluate(() => document.querySelector('.lbc-card[data-probe="1"]').getBoundingClientRect().top - document.querySelector('.lbc-top').getBoundingClientRect().bottom);
+      const before = await gapNow();
       await page.click('.lbc-card[data-probe="1"] .lbc-check'); await S.settle();
-      const after = await page.evaluate(() => document.querySelector('.lbc-card[data-probe="1"]').getBoundingClientRect().top);
-      assert.ok(Math.abs(after - before) <= 1, `滚动 0 首次勾选 Δy=${after - before}`);
+      const after = await gapNow();
+      assert.ok(Math.abs(after - before) <= 1, `滚动 0 首次勾选，离吸顶区底边 Δy=${after - before}`);
       await S.screenshot('catalog-select-first');
       // ⑦ C2：点 ☆ 卡片原地不动
       await page.keyboard.press('Escape'); await S.settle();

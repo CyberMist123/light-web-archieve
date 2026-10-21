@@ -31,53 +31,114 @@ const CSS = `
 .lb-catalog :is(.el-pre:has(.block-language-dataviewjs),pre:has(.block-language-dataviewjs),.block-language-dataviewjs,.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs),
 .lb-catalog :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs):hover{border:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;border-radius:0!important;}
 .lb-catalog :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-lang-dataviewjs) .edit-block-button{display:none!important;}
-.lbc-wrap{width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;display:block;padding:22px 24px 30px;overflow:visible;font-family:"Noto Sans SC","Segoe UI","Microsoft YaHei UI",sans-serif;}
+/* 1021 Collection+ 改版（设计交接包 DESIGN-SPEC §0–3、5、9）：界面只有黑白——文字、选中、细线都用正文色 / 边框色，不用 --interactive-accent；
+   颜色只出现在封面里。令牌映射 Obsidian 变量，深浅色自动跟随。标题 / 数字字体随包（_archive/fonts，@font-face 见 fontFaceCss），离线可用 */
+.lbc-wrap{--c-bg:var(--background-primary);--c-ink:var(--text-normal);--c-muted:var(--text-muted);--c-faint:var(--text-faint);--c-line:var(--background-modifier-border);--c-soft:var(--background-secondary);
+--f-display:"LB Cinzel","Cinzel","Trajan Pro","Times New Roman",serif;--f-serif:"Noto Serif SC","Source Han Serif SC","Source Han Serif CN","Songti SC","STSong","SimSun",serif;
+--f-latin:"LB Cormorant","Cormorant Garamond",Georgia,"Noto Serif SC","Songti SC","SimSun",serif;--f-sans:"Noto Sans SC","Segoe UI","Microsoft YaHei UI",sans-serif;
+--r-card:12px;--ctl-h:34px;--shadow-print:5px 5px 0 var(--text-normal);
+width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;display:block;padding:22px 24px 30px;overflow:visible;font-family:var(--f-sans);}
 .lbc-wrap button{font-family:inherit;}
-.lbc-top{position:sticky;top:0;background:var(--background-primary);z-index:2;}
-.lbc-head{display:grid;grid-template-columns:1fr auto;align-items:center;text-align:left;gap:18px 20px;margin:0 0 12px;}
-.lbc-titleblock{display:flex;flex-direction:column;align-items:center;gap:10px;grid-column:1;grid-row:1;width:max-content;max-width:100%;}
-.lbc-titlerow{display:flex;align-items:center;justify-content:center;gap:10px;}
-.lbc-title{font-family:Georgia,'Playfair Display','Times New Roman',serif;font-style:italic;font-size:32px;font-weight:700;letter-spacing:.01em;line-height:1.05;color:var(--text-normal);}
-.lbc-wrap .lbc-title button.lbc-import{font:inherit!important;color:var(--text-normal)!important;transition:color .12s;width:auto!important;height:auto!important;padding:0 0 0 .12em!important;margin:0!important;border:0!important;background:transparent!important;box-shadow:none!important;border-radius:0!important;display:inline!important;vertical-align:baseline;line-height:inherit!important;cursor:pointer;}
-.lbc-wrap .lbc-title button.lbc-import:hover{color:var(--interactive-accent)!important;}
+.lbc-wrap button:focus-visible,.lbc-wrap input:focus-visible{outline:2px solid var(--c-ink)!important;outline-offset:3px;}
+.lbc-top{position:sticky;top:0;background:var(--background-primary);z-index:2;display:flow-root;}
+/* 页头：雕刻斜体大标题居中，篇数 / 更新时间在标题右侧、和标题底部对齐；「管理」细线胶囊钉在右上角 */
+.lbc-head{position:relative;display:block;margin:0;padding:4px 0 0;container-type:inline-size;}
+.lbc-titleblock{display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-end;gap:4px 22px;padding:0 104px;min-width:0;}
+.lbc-titlerow{display:flex;align-items:flex-end;justify-content:center;min-width:0;max-width:100%;}
+.lbc-title{font:900 clamp(30px,6.5cqi,96px)/1.02 var(--f-display);font-style:normal;letter-spacing:.012em;text-transform:uppercase;transform:skewX(-13deg);display:inline-flex;align-items:baseline;white-space:nowrap;color:var(--c-ink);}
+.lbc-engr{position:relative;display:inline-block;}
+.lbc-engr::after{content:attr(data-text);position:absolute;left:0;top:0;color:transparent;-webkit-text-stroke:.016em var(--c-bg);transform:translateX(-.05em);pointer-events:none;}
+.lbc-wrap .lbc-title button.lbc-import{font:inherit!important;color:var(--c-ink)!important;width:auto!important;height:auto!important;padding:0!important;margin:0 0 0 .02em!important;border:0!important;background:transparent!important;box-shadow:none!important;border-radius:0!important;display:inline-block!important;vertical-align:baseline;line-height:inherit!important;cursor:pointer;transition:transform .45s cubic-bezier(.2,.8,.2,1);}
+.lbc-wrap .lbc-title button.lbc-import:hover{transform:rotate(90deg);}
 .lbc-wrap .lbc-title button.lbc-import[aria-busy="true"]{opacity:.5;cursor:progress;}
-.lbc-tools{grid-column:2;grid-row:1;justify-self:end;display:flex;align-items:center;gap:10px;}
-.lbc-subline{display:flex;gap:7px;align-items:center;justify-content:center;flex-wrap:wrap;}
-.lbc-sub{font-size:10px;color:var(--text-faint);letter-spacing:.06em;white-space:nowrap;}
-.lbc-sub-sep{font-size:10px;color:var(--text-faint);user-select:none;}
-.lbc-wrap button.lbc-sub-link{font:inherit;font-size:10px;letter-spacing:.06em;color:var(--text-faint);background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important;height:auto!important;min-height:0;cursor:pointer;border-radius:3px;}
-.lbc-wrap button.lbc-sub-link:hover{text-decoration:underline;text-underline-offset:2px;color:var(--text-muted);}
-.lbc-wrap button.lbc-sub-link:focus-visible{outline:2px solid var(--interactive-accent)!important;outline-offset:2px;}
-.lbc-stale{font-size:10px;color:var(--lb-warn);}
-.lbc-wrap button.lbc-problems{display:inline-flex;align-items:center;gap:3px;min-height:0;height:auto!important;padding:0!important;border:0!important;box-shadow:none!important;background:transparent!important;cursor:pointer;flex:0 0 auto;}
+.lbc-tools{position:absolute;top:0;right:0;z-index:1;display:flex;align-items:center;gap:8px;}
+.lbc-wrap .lbc-tools button.lb-manage{width:auto!important;height:var(--ctl-h)!important;padding:0 14px!important;border:1px solid var(--c-ink)!important;border-radius:999px!important;background:var(--c-bg)!important;color:var(--c-ink)!important;box-shadow:none!important;font:500 13.5px/1 var(--f-sans)!important;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;transition:background .15s,color .15s;}
+.lbc-wrap .lbc-tools button.lb-manage:hover{background:var(--c-ink)!important;color:var(--c-bg)!important;}
+.lbc-wrap .lbc-tools button.lb-manage svg{width:14px;height:14px;flex:none;}
+.lbc-subline{display:flex;gap:2px 8px;align-items:baseline;justify-content:flex-start;flex-wrap:wrap;min-width:0;padding-bottom:14px;font:italic 16px/1.3 var(--f-latin);color:var(--c-muted);letter-spacing:.02em;font-variant-numeric:lining-nums tabular-nums;}
+.lbc-sub{font:inherit;color:var(--c-muted);white-space:nowrap;}
+.lbc-count b{font-weight:600;color:var(--c-ink);}
+.lbc-sub-sep{font:inherit;color:var(--c-faint);user-select:none;}
+.lbc-wrap button.lbc-sub-link{font:inherit;letter-spacing:inherit;color:var(--c-muted);background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important;height:auto!important;min-height:0;cursor:pointer;border-radius:3px;}
+.lbc-wrap button.lbc-sub-link:hover{text-decoration:underline;text-underline-offset:3px;color:var(--c-ink);}
+/* 问题 / 同步中 / 数据较旧 / 可能相关：照旧跟在后面，统一成小号文字 */
+.lbc-wrap button.lbc-possible-link,.lbc-wrap button.lbc-syncing,.lbc-stale{font:12px/1.3 var(--f-sans);font-style:normal;letter-spacing:0;}
+.lbc-stale{color:var(--lb-warn);}
+.lbc-wrap button.lbc-problems{display:inline-flex;align-items:center;gap:3px;min-height:0;height:auto!important;padding:0!important;border:0!important;box-shadow:none!important;background:transparent!important;cursor:pointer;flex:0 0 auto;align-self:center;}
 .lbc-problems[hidden],.lbc-syncing[hidden],.lbc-possible-link[hidden],.lbc-sub-sep[hidden],.lbc-stale[hidden]{display:none!important;}
-.lbc-prob-n{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;box-sizing:border-box;border-radius:8px;font-size:10.5px;font-weight:700;font-family:sans-serif;line-height:16px;}
+.lbc-prob-n{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;box-sizing:border-box;border-radius:8px;font-size:10.5px;font-style:normal;font-weight:700;font-family:sans-serif;line-height:16px;}
 .lbc-prob-need{background:var(--lb-warn);color:var(--text-on-accent,#fff);}
 .lbc-prob-other{background:var(--background-modifier-border);color:var(--text-muted);font-weight:600;}
-.lbc-search{grid-column:1/-1;grid-row:3;justify-self:start;width:100%!important;min-width:0;max-width:none!important;text-align:left;height:40px!important;padding:0 15px!important;border:1px solid var(--background-modifier-border)!important;border-radius:8px!important;background:var(--background-secondary)!important;box-shadow:none!important;font:inherit;font-size:14px;}
-.lbc-search:focus{border-color:var(--interactive-accent)!important;outline:none;}
-.lbc-wrap .lb-page-nav{grid-column:1;grid-row:2;justify-self:start;padding:0;background:transparent;}
+.lbc-titleblock>.lbc-syncprog,.lbc-titleblock>.lbc-mobile-note{flex:1 0 100%;}
 .lbc-mobile-note{font-size:12px;line-height:1.5;color:var(--text-muted);margin:0;text-align:center;}
-.lbc-cats{display:flex;align-items:center;gap:20px;flex-wrap:nowrap;overflow-x:auto;margin:0;padding:0 0 12px;font-size:13px;font-family:inherit;scrollbar-width:thin;}
-.lbc-cats.has-more-right{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 32px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 32px),transparent);}
-.lbc-cats.has-more-left{-webkit-mask-image:linear-gradient(to right,transparent,#000 32px);mask-image:linear-gradient(to right,transparent,#000 32px);}
-.lbc-cats.has-more-left.has-more-right{-webkit-mask-image:linear-gradient(to right,transparent,#000 32px,#000 calc(100% - 32px),transparent);mask-image:linear-gradient(to right,transparent,#000 32px,#000 calc(100% - 32px),transparent);}
-.lbc-cats button.lbc-cat{flex:none;cursor:pointer;color:var(--text-muted);border:0!important;border-bottom:2px solid transparent!important;background:transparent!important;box-shadow:none!important;padding:8px 0;border-radius:0;height:auto;font-size:13px;font-weight:400;transition:color .12s;}
-.lbc-cats button.lbc-cat:hover{color:var(--text-normal);}
-.lbc-cats button.lbc-cat.is-active{color:var(--text-normal);border-bottom-color:var(--text-normal)!important;font-weight:500;}
-/* 星标主题 chip（Lot E）：cats 栏下一排，只在有主题时出现 */
-.lbc-topics{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;margin:0;padding:0 0 12px;font-family:inherit;}
-.lbc-topics button.lbc-topic{flex:none;height:auto;padding:3px 11px;border:1px solid var(--background-modifier-border)!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--text-muted);font-size:12px;font-weight:400;line-height:1.6;cursor:pointer;transition:color .12s,border-color .12s;}
-.lbc-topics button.lbc-topic:hover{color:var(--text-normal);}
-.lbc-topics button.lbc-topic.is-active{color:var(--text-normal);border-color:var(--text-normal)!important;font-weight:500;}
-.lbc-topic-star{color:var(--lb-star);margin-right:4px;}
-/* 10-10 索引树：选中一个大类时下面一行它的二级小标签（带篇数）；更深一级（索引图里点的）多一个带 ✕ 的小尾巴 */
-.lbc-subcats{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;margin:0;padding:0 0 12px;font-family:inherit;scrollbar-width:thin;}
-.lbc-subcats button.lbc-subcat{flex:none;display:inline-flex;align-items:baseline;gap:5px;height:auto;padding:3px 11px;border:1px solid var(--background-modifier-border)!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--text-muted);font-size:12px;font-weight:400;line-height:1.6;cursor:pointer;transition:color .12s,border-color .12s;}
-.lbc-subcats button.lbc-subcat:hover{color:var(--text-normal);}
-.lbc-subcats button.lbc-subcat.is-active{color:var(--text-normal);border-color:var(--text-normal)!important;font-weight:500;}
-.lbc-subcat-n{font-size:10.5px;color:var(--text-faint);font-variant-numeric:tabular-nums;}
+/* 分类行：只放「全部 + 一级分类 + 未归类」；衬线、居中、可换行（不要横向滚动条），选中 2.5px 下划线 */
+.lbc-cats{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px 34px;overflow:visible;margin:12px 0 0;padding:0 0 2px;font:18px/1.4 var(--f-serif);}
+.lbc-cats button.lbc-cat{flex:none;position:relative;cursor:pointer;color:var(--c-muted);border:0!important;background:transparent!important;box-shadow:none!important;padding:4px 0 8px!important;border-radius:0!important;height:auto!important;font:inherit;font-weight:400;transition:color .2s;}
+.lbc-cats button.lbc-cat:hover{color:var(--c-ink);}
+.lbc-cats button.lbc-cat.is-active{color:var(--c-ink);font-weight:600;}
+.lbc-cats button.lbc-cat.is-active::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2.5px;background:var(--c-ink);}
+/* 10-10 索引树：选中一个大类时下面一行它的二级小标签（带篇数），细线胶囊小字；更深一级（索引图里点的）多一个带 ✕ 的小尾巴 */
+.lbc-subcats{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px;overflow:visible;margin:8px 0 0;padding:0;font-family:var(--f-serif);}
+.lbc-subcats button.lbc-subcat{flex:none;display:inline-flex;align-items:baseline;gap:5px;height:auto!important;padding:3px 12px!important;border:1px solid var(--c-line)!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);font:13px/1.6 var(--f-serif);cursor:pointer;transition:color .12s,border-color .12s;}
+.lbc-subcats button.lbc-subcat:hover{color:var(--c-ink);border-color:var(--c-ink)!important;}
+.lbc-subcats button.lbc-subcat.is-active{color:var(--c-ink);border-color:var(--c-ink)!important;font-weight:600;}
+.lbc-subcat-n{font:italic 12.5px var(--f-latin);color:var(--c-muted);font-variant-numeric:lining-nums tabular-nums;font-weight:400;}
 .lbc-subcats button.lbc-subcat.is-deep{border-style:dashed!important;}
+/* 控制行：左边边栏钮 + 范围单选标签 + 前两个星标主题（+ 来源 / 专辑），右边同高 34px 的排序胶囊 · 视图切换 · 搜索胶囊 · 问收藏胶囊 */
+.lbc-ctl{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 24px;margin:14px 0 0;padding:0 0 12px;}
+.lbc-ctl-l,.lbc-ctl-r{display:flex;align-items:center;flex-wrap:wrap;min-width:0;}
+.lbc-ctl-l{gap:2px 22px;}
+.lbc-ctl-r{gap:10px;margin-left:auto;}
+.lbc-scope{display:contents;}
+.lbc-wrap .lbc-ctl button.lbc-cat,.lbc-wrap .lbc-ctl button.lbc-pick{position:relative;flex:none;height:var(--ctl-h)!important;display:inline-flex;align-items:center;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);font:15.5px/1 var(--f-serif);font-weight:400;cursor:pointer;white-space:nowrap;transition:color .15s;}
+.lbc-wrap .lbc-ctl button.lbc-cat:hover,.lbc-wrap .lbc-ctl button.lbc-pick:hover{color:var(--c-ink);}
+.lbc-wrap .lbc-ctl button.lbc-cat.is-active,.lbc-wrap .lbc-ctl button.lbc-pick.is-active{color:var(--c-ink);font-weight:600;}
+.lbc-wrap .lbc-ctl button.lbc-cat.is-active::before{content:"";position:absolute;left:0;right:0;bottom:2px;height:2px;background:var(--c-ink);}
+.lbc-wrap .lbc-ctl button.lbc-cat[data-n]::after{content:attr(data-n);font:italic 13px/1 var(--f-latin);font-variant-numeric:lining-nums;margin-left:5px;color:var(--c-muted);font-weight:400;}
+.lbc-wrap .lbc-ctl .lbc-topic-star{font-size:11px;margin-right:3px;color:inherit;}
+.lbc-wrap .lbc-ctl button.lbc-topic-new-tab{color:var(--c-faint);}
+.lbc-wrap .lbc-ctl button.lbc-sidetoggle{width:var(--ctl-h)!important;height:var(--ctl-h)!important;padding:0!important;margin-right:-8px;border:0!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);display:inline-grid;place-items:center;cursor:pointer;border-radius:999px!important;}
+.lbc-wrap .lbc-ctl button.lbc-sidetoggle:hover{color:var(--c-ink);}
+.lbc-wrap .lbc-ctl button.lbc-sidetoggle svg{width:15px;height:15px;}
+.lbc-side-col{fill:currentColor;}
+.lbc-wrap.is-side-collapsed .lbc-side-col{fill:none;}
+.lbc-wrap .lbc-ctl button.lbc-pill{height:var(--ctl-h)!important;box-sizing:border-box;display:inline-flex;align-items:center;gap:6px;padding:0 14px!important;border:1px solid var(--c-line)!important;border-radius:999px!important;background:var(--c-bg)!important;box-shadow:none!important;color:var(--c-ink);font:13.5px/1 var(--f-sans);font-weight:400;cursor:pointer;white-space:nowrap;transition:border-color .15s;}
+.lbc-wrap .lbc-ctl button.lbc-pill:hover,.lbc-wrap .lbc-ctl button.lbc-pill.is-active{border-color:var(--c-ink)!important;}
+.lbc-wrap .lbc-ctl button.lbc-time::after{content:"↓";font:15px/1 var(--f-latin);}
+.lbc-vseg[hidden]{display:none!important;}
+.lbc-vseg{display:inline-flex;align-items:center;height:var(--ctl-h);box-sizing:border-box;padding:3px;gap:2px;}
+.lbc-wrap .lbc-vseg button.lbc-view{height:26px!important;padding:0 12px!important;border:0!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);font:13.5px/1 var(--f-sans);cursor:pointer;white-space:nowrap;}
+.lbc-wrap .lbc-vseg button.lbc-view:hover{color:var(--c-ink);}
+.lbc-wrap .lbc-vseg button.lbc-view.is-on{background:var(--c-ink)!important;color:var(--c-bg);}
+.lbc-searchbox{height:var(--ctl-h);box-sizing:border-box;display:inline-flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--c-line);border-radius:999px;background:var(--c-bg);color:var(--c-muted);transition:border-color .15s;cursor:text;}
+.lbc-searchbox:hover,.lbc-searchbox:focus-within{border-color:var(--c-ink);}
+.lbc-searchbox svg{width:14px;height:14px;flex:none;}
+.lbc-wrap input.lbc-search{width:min(210px,44vw)!important;min-width:0;height:32px!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;color:var(--c-ink);font:14px/1.4 var(--f-sans);outline:none;}
+.lbc-wrap input.lbc-search:focus,.lbc-wrap input.lbc-search:focus-visible{outline:none!important;box-shadow:none!important;}
+.lbc-wrap input.lbc-search::placeholder{color:var(--c-muted);}
+/* 星标主题行：只在选中某个主题时出现在控制行下面，左对齐（全部主题 / 各主题胶囊 / + 新主题）；胶囊悬停出 ×，点两次删 */
+.lbc-topics{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:0;padding:0 0 12px 56px;}
+.lbc-topics-lab{font:700 10.5px/1 var(--f-display);letter-spacing:.24em;margin-right:6px;color:var(--c-ink);}
+.lbc-wrap .lbc-topics button.lbc-topic,.lbc-wrap .lbc-topics button.lbc-topic-all,.lbc-wrap .lbc-topics button.lbc-topic-add{display:inline-flex;align-items:center;gap:6px;height:auto!important;padding:5px 13px!important;border:1px solid var(--c-line)!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);font:14px/1.3 var(--f-serif);cursor:pointer;transition:color .15s,border-color .15s,background .15s;}
+.lbc-wrap .lbc-topics button.lbc-topic:hover,.lbc-wrap .lbc-topics button.lbc-topic-all:hover,.lbc-wrap .lbc-topics button.lbc-topic-add:hover{border-color:var(--c-ink)!important;color:var(--c-ink);}
+.lbc-wrap .lbc-topics button.is-active{background:var(--c-ink)!important;border-color:var(--c-ink)!important;color:var(--c-bg);}
+.lbc-wrap .lbc-topics button[data-n]::after{content:attr(data-n);font:italic 13px/1 var(--f-latin);font-variant-numeric:lining-nums;}
+.lbc-wrap .lbc-topics button.lbc-topic-add{border-style:dashed!important;}
+.lbc-topic-star{color:inherit;margin-right:2px;}
+.lbc-topic-wrap{position:relative;display:inline-flex;}
+.lbc-wrap .lbc-topics button.lbc-topic-del{position:absolute;top:-7px;right:-7px;z-index:1;width:18px;height:18px!important;min-width:18px;padding:0!important;border-radius:999px!important;border:1px solid var(--c-ink)!important;background:var(--c-bg)!important;box-shadow:none!important;color:var(--c-ink);font:11px/1 var(--f-sans);display:none;place-items:center;cursor:pointer;white-space:nowrap;}
+.lbc-topic-wrap:hover button.lbc-topic-del,.lbc-wrap .lbc-topics button.lbc-topic-del:focus-visible,.lbc-wrap .lbc-topics button.lbc-topic-del.is-armed{display:grid;}
+.lbc-wrap .lbc-topics button.lbc-topic-del.is-armed{width:auto;padding:0 7px!important;background:var(--c-ink)!important;color:var(--c-bg);}
+@media(hover:none){.lbc-wrap .lbc-topics button.lbc-topic-del{display:grid;}}
+.lbc-wrap .lbc-topics input.lbc-topic-new{width:132px;height:auto!important;padding:4px 0!important;border:0!important;border-bottom:1px solid var(--c-ink)!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;color:var(--c-ink);font:14px/1.3 var(--f-serif);outline:none;}
+/* 边栏位（第 3 段做内容）：收藏墙外面一层，左边一列放边栏、右边收藏墙；边栏没内容 / 收起 / 窄屏时整块就是收藏墙 */
+.lbc-board{display:block;}
+.lbc-board-main{min-width:0;}
+.lbc-side[hidden]{display:none!important;}
+.lbc-board.has-side{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,8fr);column-gap:40px;align-items:start;}
+.lbc-wrap.is-side-collapsed .lbc-board.has-side{display:block;}
+.lbc-wrap.is-side-collapsed .lbc-side{display:none!important;}
+@media(max-width:760px){.lbc-board.has-side{display:block;}.lbc-board.has-side>.lbc-side{display:none!important;}}
 /* 10-11「索引」视图：左边可折叠的树（带篇数），右边就是卡片网格（点哪个节点右边就是哪些）；窄了（<700px 或手机）树叠在上面。
    她的口味：不要灰框、不要看得见的滚动条——选中用正文色 + 左侧细线，空分类变淡，按钮都是字链 */
 .lbi-bar{display:flex;flex-direction:column;gap:8px;margin:6px 5px 14px;}
@@ -153,7 +214,7 @@ const CSS = `
 .lbc-wrap button.lbi-facet-clear{border-style:dashed!important;}
 .lbc-ftags{font-size:11px;line-height:1.5;color:var(--text-faint);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 /* 卡片上「归类…」：只在索引视图里、鼠标停在卡上才出现（和选中圈 / ☆ 同款圆角小钮，排在它们左边） */
-.lbc-wrap button.lbc-reclass{position:absolute;top:8px;right:40px;z-index:1;height:26px;box-sizing:border-box;padding:0 10px!important;border-radius:999px!important;border:1.5px solid #fff!important;background:rgba(0,0,0,.28)!important;box-shadow:0 1px 4px #0003!important;color:#fff;font-size:12px;line-height:1;display:none;align-items:center;cursor:pointer;}
+.lbc-wrap button.lbc-reclass{position:absolute;top:12px;right:48px;z-index:1;height:26px;box-sizing:border-box;padding:0 10px!important;border-radius:999px!important;border:1.5px solid #fff!important;background:rgba(0,0,0,.28)!important;box-shadow:0 1px 4px #0003!important;color:#fff;font-size:12px;line-height:1;display:none;align-items:center;cursor:pointer;}
 .lbc-wrap.is-indexview .lbc-card:hover button.lbc-reclass,.lbc-wrap.is-indexview .lbc-card:focus-within button.lbc-reclass{display:inline-flex;}
 .lbc-wrap button.lbc-reclass:hover{background:rgba(0,0,0,.45)!important;}
 @media(hover:none){.lbc-wrap.is-indexview button.lbc-reclass{display:inline-flex;}}
@@ -181,7 +242,7 @@ const CSS = `
 .lbc-menu-group{padding:6px 14px 2px;font-size:11.5px;color:var(--text-faint);}
 .lbc-menu-item.is-sub{padding-left:24px;}
 .lbc-menu .lbc-menu-head{padding:6px 14px 2px;font-size:11px;color:var(--text-faint);}
-.lbc-menu .lbc-menu-item.is-on{color:var(--interactive-accent);font-weight:500;}
+.lbc-menu .lbc-menu-item.is-on{color:var(--text-normal);font-weight:600;}
 .lbc-menu .lbc-menu-sep{height:1px;margin:4px 6px;background:var(--background-modifier-border);}
 .lbc-menu .lbc-range{display:flex;align-items:center;gap:6px;padding:4px 10px 8px;font-size:12px;color:var(--text-muted);}
 .lbc-menu .lbc-range[hidden]{display:none!important;}
@@ -198,8 +259,8 @@ const CSS = `
 .lbc-time-menu .lbc-seg-btn{border-radius:6px;color:var(--text-muted);}
 .lbc-time-menu .lbc-seg-btn:hover{background:var(--background-primary);color:var(--text-normal);}
 .lbc-time-menu .lbc-chip{border-radius:13px;border:1px solid var(--background-modifier-border);color:var(--text-normal);}
-.lbc-time-menu .lbc-menu-item.is-on,.lbc-time-menu .lbc-menu-item.is-on:hover{background:var(--interactive-accent);border-color:var(--interactive-accent);color:var(--text-on-accent);font-weight:600;}
-.lbc-time-menu .lbc-menu-item:focus-visible{box-shadow:0 0 0 2px var(--background-modifier-border-focus,var(--interactive-accent));}
+.lbc-time-menu .lbc-menu-item.is-on,.lbc-time-menu .lbc-menu-item.is-on:hover{background:var(--text-normal);border-color:var(--text-normal);color:var(--background-primary);font-weight:600;}
+.lbc-time-menu .lbc-menu-item:focus-visible{box-shadow:0 0 0 2px var(--text-normal);}
 .lbc-time-menu .lbc-range{padding:4px 0 2px calc(2.6em + 10px);flex-wrap:nowrap;}
 .lbc-time-menu .lbc-range input{flex:1 1 8.6em;width:8.6em;min-width:0;}
 .lbc-time-menu .lbc-range button{flex:0 0 auto;}
@@ -209,19 +270,36 @@ const CSS = `
 .lbc-masonry{display:flex;align-items:flex-start;gap:0 var(--lbc-gap,24px);}
 .lbc-masonry>.lbc-col{flex:1 1 0;min-width:0;display:flex;flex-direction:column;}
 .lbc-card{display:block;width:100%;margin:0 0 26px;cursor:pointer;position:relative;content-visibility:auto;overflow-clip-margin:28px;}
-.lbc-cover{display:block;width:100%;height:auto;max-height:360px;object-fit:cover;object-position:top;border:0;border-radius:12px;transition:transform .16s,box-shadow .16s;pointer-events:none;}
-.lbc-card:hover .lbc-cover{transform:translateY(-2px);box-shadow:0 6px 18px #00000012;}
-.lbc-card:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:5px;border-radius:12px;}
-.lbc-card.is-selected .lbc-cover,.lbc-card.is-selected .lbc-nocover{outline:0;box-shadow:0 0 0 3px var(--interactive-accent)!important;filter:brightness(.94);}
-/* 1015 她：选中的紫框和卡片框叠在一起不舒服——选中只要贴着封面的一圈（不留缝、跟着圆角），选中的卡不再叠键盘焦点框 */
+.lbc-cover{display:block;width:100%;height:auto;max-height:360px;object-fit:cover;object-position:top;border:0;border-radius:var(--r-card);transition:transform .25s cubic-bezier(.2,.8,.2,1),box-shadow .25s;pointer-events:none;}
+/* 1021 悬停：整张封面向左上错 3px，露出不模糊的实心错版投影（全页唯一的投影）；角标 / 圈跟着封面走 */
+.lbc-card:hover :is(.lbc-cover,.lbc-nocover){transform:translate(-3px,-3px);box-shadow:var(--shadow-print);}
+.lbc-wrap .lbc-card :is(.lbc-badges,.lbc-check,.lbc-star:not(.is-static),.lbc-reclass){transition:opacity .15s,background .12s,translate .25s cubic-bezier(.2,.8,.2,1);}
+.lbc-wrap .lbc-card:hover :is(.lbc-badges,.lbc-check,.lbc-star:not(.is-static),.lbc-reclass){translate:-3px -3px;}
+.lbc-card:focus-visible{outline:2px solid var(--c-ink);outline-offset:5px;border-radius:var(--r-card);}
+.lbc-card.is-selected .lbc-cover,.lbc-card.is-selected .lbc-nocover{outline:0;box-shadow:0 0 0 3px var(--c-ink)!important;filter:brightness(.94);}
+/* 1015 她：选中的框和卡片框叠在一起不舒服——选中只要贴着封面的一圈（不留缝、跟着圆角），选中的卡不再叠键盘焦点框 */
 .lbc-card.is-selected:focus-visible{outline:0;}
-.lbc-card.is-selected:hover .lbc-cover{transform:none;}
-.lbc-nocover{aspect-ratio:4/3;border-radius:12px;background:var(--background-secondary);display:grid;place-items:center;color:var(--text-muted);font-size:30px;}
-.lbc-body{padding:12px 2px 0;}
-.lbc-ctitle{font-size:14px;line-height:1.6;font-weight:500;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
-.lbc-cmeta{display:flex;justify-content:space-between;gap:10px;color:var(--text-muted);font-size:11px;margin-top:8px;font-weight:300;}
+.lbc-card.is-selected :is(.lbc-cover,.lbc-nocover){transition:none;}
+.lbc-card.is-selected:hover :is(.lbc-cover,.lbc-nocover){transform:none;}
+.lbc-wrap .lbc-card.is-selected:hover :is(.lbc-badges,.lbc-check,.lbc-star:not(.is-static),.lbc-reclass){translate:none;}
+/* 没有封面图：柔和文字封面（按分类取一个浅色底，文字固定深色——深色主题下也是浅底深字）；4:3 和原来一样（卡片高度估算不变） */
+.lbc-nocover{aspect-ratio:4/3;box-sizing:border-box;border-radius:var(--r-card);background:var(--lbc-tile,#f2e5b8);color:#141414;display:flex;flex-direction:column;justify-content:space-between;padding:8% 9% 7%;overflow:hidden;container-type:inline-size;transition:transform .25s cubic-bezier(.2,.8,.2,1),box-shadow .25s;}
+.lbc-nocover.has-badges{padding-top:calc(8% + 26px);}
+.lbc-card:has(>.lbc-nocover) .lbc-badges .lbc-video{display:none;}
+.lbc-tile-cat{font:600 clamp(10px,4.4cqi,12px)/1.3 var(--f-sans);letter-spacing:.12em;opacity:.62;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lbc-tile-title{margin:auto 0 5%;font:800 clamp(15px,7.6cqi,26px)/1.3 var(--f-sans);letter-spacing:.01em;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;}
+.lbc-tile-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;min-height:1.6em;font:italic 500 clamp(12px,5.4cqi,15px)/1 var(--f-latin);font-variant-numeric:lining-nums;opacity:.75;}
+.lbc-tile-ty{font:600 clamp(9px,4cqi,11px)/1 var(--f-sans);font-style:normal;letter-spacing:.1em;border:1px solid currentColor;border-radius:999px;padding:.35em .7em;white-space:nowrap;}
+.lbc-body{padding:13px 2px 0;}
+.lbc-ctitle{font:600 15.5px/1.6 var(--f-serif);color:var(--c-ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+/* 卡片属于某个星标主题：标题下一排细线小胶囊（最多 2 个） */
+.lbc-ctopics{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0 0;overflow:hidden;max-height:40px;}
+.lbc-ctopics span{font-size:11.5px;line-height:18px;border:1px solid var(--c-ink);border-radius:999px;padding:0 7px;color:var(--c-ink);white-space:nowrap;}
+.lbc-cmeta{display:flex;justify-content:space-between;align-items:center;gap:10px;color:var(--c-muted);font-size:13px;line-height:20px;margin-top:8px;font-weight:400;}
 .lbc-cmeta span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.lbc-likes{flex-shrink:0;transition:opacity .12s;}.lbc-card:hover .lbc-likes,.lbc-card:focus-within .lbc-likes{opacity:0;}
+.lbc-cmeta .lbc-au{display:flex;align-items:center;gap:7px;min-width:0;}
+.lbc-cmeta .lbc-av{flex:none;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:var(--lbc-av,#e2e9c9);color:#141414;font:700 10.5px/1 var(--f-sans);overflow:hidden;}
+.lbc-likes{flex-shrink:0;font-variant-numeric:tabular-nums;}
 .lbc-lowhit{font-size:12px;line-height:1.55;color:var(--text-faint);margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;}
 .lbc-empty{padding:40px;color:var(--text-muted);}
 .lbc-empty-text{margin:0 0 12px;}
@@ -232,31 +310,29 @@ const CSS = `
 .lbc-possible-note{font-size:11px;color:var(--text-faint);}
 .lbc-ask-tip{cursor:pointer;margin:0 5px 12px;}
 .lbc-card.is-possible .lbc-cover{opacity:.85;}
-/* 角标：待补 / 要你处理用共享的警示色（C18，深色主题下不再是米白贴纸） */
-.lbc-wrap .lbc-badges{position:absolute;top:8px;left:8px;display:flex;gap:5px;align-items:center;}
-.lbc-wrap .lbc-attach{position:static;display:inline-flex;align-items:center;gap:4px;line-height:16px;padding:3px 6px;height:22px;box-sizing:border-box;font-size:11px;border-radius:6px;background:var(--background-primary);color:var(--text-muted);border:1px solid var(--background-modifier-border);pointer-events:none;}
+/* 角标（视频 / 待补 / 疑似附件 / 文件 / 问题）：封面左上角的小号细线胶囊；待补 / 要你处理照旧用共享的警示色（C18） */
+.lbc-wrap .lbc-badges{position:absolute;top:10px;left:10px;display:flex;gap:5px;align-items:center;}
+.lbc-wrap .lbc-attach{position:static;display:inline-flex;align-items:center;gap:4px;line-height:16px;padding:0 8px;height:22px;box-sizing:border-box;font-size:11px;border-radius:999px;background:var(--c-bg);color:var(--c-ink);border:1px solid var(--c-ink);pointer-events:none;}
+.lbc-wrap .lbc-attach.lbc-video{padding:0 6px;}
 .lbc-wrap .lbc-attach-todo,.lbc-wrap .lbc-badges .lbc-prob.is-need{color:var(--lb-warn);background:var(--lb-warn-bg);border-color:var(--lb-warn-border);}
-.lbc-wrap .lbc-attach-hint{color:var(--text-muted);background:var(--background-secondary);border-color:var(--background-modifier-border);}
-.lbc-wrap .lbc-badges .lbc-prob{pointer-events:auto;cursor:help;color:var(--text-muted);background:var(--background-secondary);border-color:var(--background-modifier-border);}
+.lbc-wrap .lbc-attach-hint{color:var(--c-muted);border-color:var(--c-line);}
+.lbc-wrap .lbc-badges .lbc-prob{pointer-events:auto;cursor:help;color:var(--c-muted);border-color:var(--c-line);}
 .lbc-wrap .lbc-badges svg{display:block;width:14px;height:14px;flex:none;stroke:currentColor;stroke-width:1.6;fill:none;}
-/* ☆（1008 18:50 她定，覆盖早上的「常显」）：没收藏的平时不显示，鼠标停在卡上才出现（和选中圈一样）；已收藏的常显。
-   样子和选中圈同款：同尺寸、同顶距、同描边 / 阴影，两颗圈左右并排、上下对齐；已收藏 = 星色实心 + 白星（对应选中圈的 accent 实心 + 白勾）。加 .lbc-wrap 前缀（X14c） */
-.lbc-wrap .lbc-star{position:absolute;top:8px;right:8px;z-index:1;box-sizing:border-box;width:26px;height:26px;padding:0!important;border-radius:50%!important;border:1.5px solid #fff!important;background:rgba(0,0,0,.28)!important;box-shadow:0 1px 4px #0003!important;color:#fff;display:grid;place-items:center;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .15s,background .12s;}
-.lbc-wrap .lbc-star svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round;}
+/* ☆ / 选中圈（1021 设计稿）：同款 30px 圆，白底黑字细线；没收藏的平时不显示、悬停才出现（1008 她定），已收藏 = 黑底白星并常显 */
+.lbc-wrap .lbc-star{position:absolute;top:10px;right:10px;z-index:1;box-sizing:border-box;width:30px;height:30px;padding:0!important;border-radius:50%!important;border:1px solid var(--c-ink)!important;background:var(--c-bg)!important;box-shadow:none!important;color:var(--c-ink);display:grid;place-items:center;cursor:pointer;opacity:0;pointer-events:none;}
+.lbc-wrap .lbc-star svg{width:14px;height:14px;fill:currentColor;stroke:none;}
 .lbc-wrap .lbc-card:hover .lbc-star,.lbc-wrap .lbc-card:focus-within .lbc-star,.lbc-wrap.is-selecting .lbc-star{opacity:1;pointer-events:auto;}
-.lbc-wrap .lbc-star:hover{background:rgba(0,0,0,.45)!important;}
-/* 1015 她（D 节）：已收藏的常驻一颗小黄星（不要实心黄底圆）；收藏那一下星变黄、弹一下 */
-.lbc-wrap .lbc-star.is-on{background:transparent!important;border-color:transparent!important;box-shadow:none!important;color:var(--lb-star);opacity:1;pointer-events:auto;}
-.lbc-wrap .lbc-star.is-on svg{width:19px;height:19px;fill:currentColor;stroke:#fff;stroke-width:1.4;filter:drop-shadow(0 1px 2px rgba(0,0,0,.35));}
-.lbc-wrap .lbc-star.is-on:hover{background:rgba(0,0,0,.28)!important;}
+.lbc-wrap .lbc-star:hover{background:var(--c-soft)!important;}
+.lbc-wrap .lbc-star.is-on{background:var(--c-ink)!important;border-color:var(--c-bg)!important;color:var(--c-bg);opacity:1;pointer-events:auto;}
+.lbc-wrap .lbc-star.is-on:hover{background:var(--c-ink)!important;}
 .lbc-wrap .lbc-star.is-pop svg{animation:lbc-starpop .5s cubic-bezier(.3,1.6,.5,1);}
 @keyframes lbc-starpop{0%{transform:scale(.6) rotate(-20deg);}60%{transform:scale(1.35) rotate(8deg);}100%{transform:scale(1) rotate(0);}}
-.lbc-wrap .lbc-star.is-static{right:8px;cursor:default;}
+.lbc-wrap .lbc-star.is-static{right:10px;cursor:default;}
 .lbc-wrap .lbc-card.is-starring .lbc-star{animation:lbc-pulse .8s ease-in-out infinite;cursor:progress;}
 @keyframes lbc-pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.15);}}
 .lbc-wrap .lbc-card.is-deleting{opacity:.45;pointer-events:none;}
-.lbc-card.is-droptarget::after,.lbc-card.is-busy::after{position:absolute;inset:0;display:grid;place-items:center;border-radius:12px;font-size:13px;color:var(--text-normal);background:color-mix(in srgb,var(--background-primary) 70%,transparent);z-index:3;pointer-events:none;}
-.lbc-card.is-droptarget::after{content:"松手挂到这篇";outline:2px dashed var(--interactive-accent);outline-offset:-2px;}
+.lbc-card.is-droptarget::after,.lbc-card.is-busy::after{position:absolute;inset:0;display:grid;place-items:center;border-radius:var(--r-card);font-size:13px;color:var(--text-normal);background:color-mix(in srgb,var(--background-primary) 70%,transparent);z-index:3;pointer-events:none;}
+.lbc-card.is-droptarget::after{content:"松手挂到这篇";outline:2px dashed var(--c-ink);outline-offset:-2px;}
 .lbc-card.is-busy::after{content:attr(data-busy);cursor:progress;}
 .lbc-flash{position:absolute;left:50%;top:40%;transform:translate(-50%,-50%);z-index:4;padding:4px 10px;border-radius:8px;background:var(--background-primary);color:var(--lb-ok);font-size:12px;box-shadow:0 2px 8px #0002;pointer-events:none;}
 .lbc-tagform{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
@@ -266,25 +342,39 @@ const CSS = `
 .lbc-card-more{position:absolute;right:0;bottom:-4px;width:28px;height:28px;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;color:var(--text-muted);font-size:20px;opacity:0;}
 .lbc-card:hover .lbc-card-more,.lbc-card:focus-within .lbc-card-more{opacity:1;}
 /* 10-04 悬停卡片就出现的选中圈（不用先进「多选模式」）；有选中时每张卡都显示圈 */
-.lbc-wrap button.lbc-check{position:absolute;top:8px;left:8px;z-index:1;width:26px;height:26px;padding:0!important;border-radius:50%!important;border:1.5px solid #fff!important;background:rgba(0,0,0,.28)!important;box-shadow:0 1px 4px #0003!important;color:transparent;display:grid;place-items:center;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .15s,background .12s;}
+.lbc-wrap button.lbc-check{position:absolute;top:10px;left:10px;z-index:1;box-sizing:border-box;width:30px;height:30px;padding:0!important;border-radius:50%!important;border:1px solid var(--c-ink)!important;background:var(--c-bg)!important;box-shadow:none!important;color:transparent;display:grid;place-items:center;cursor:pointer;opacity:0;pointer-events:none;}
 .lbc-wrap button.lbc-check svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round;}
 .lbc-card:hover button.lbc-check,.lbc-card:focus-within button.lbc-check,.lbc-wrap.is-selecting button.lbc-check{opacity:1;pointer-events:auto;}
-.lbc-wrap button.lbc-check:hover{background:rgba(0,0,0,.45)!important;}
-.lbc-wrap button.lbc-check.is-on{background:var(--interactive-accent)!important;border-color:var(--interactive-accent)!important;color:#fff;opacity:1;pointer-events:auto;}
-@media(hover:none){.lbc-wrap button.lbc-check{opacity:1;pointer-events:auto;}.lbc-card-more{opacity:1;}.lbc-cmeta{padding-right:30px;}.lbc-card:hover .lbc-likes{opacity:1;}}
+.lbc-wrap button.lbc-check:hover{background:var(--c-soft)!important;color:var(--c-muted);}
+.lbc-wrap button.lbc-check.is-on{background:var(--c-ink)!important;border-color:var(--c-bg)!important;color:var(--c-bg);opacity:1;pointer-events:auto;}
+@media(hover:none){.lbc-wrap button.lbc-check{opacity:1;pointer-events:auto;}.lbc-card-more{opacity:1;}}
+/* 1021「列表」视图：简单表格（标题 / 分类 / 作者 / 导入时间 / ♡），和瀑布流共用筛选、搜索结果；点行打开笔记 */
+.lbc-list{padding:10px 5px 30px;overflow-x:auto;}
+.lbc-list[hidden]{display:none!important;}
+.lbc-ltable{width:100%;border-collapse:collapse;font-size:14px;min-width:560px;}
+.lbc-ltable th{font:600 12px/1.2 var(--f-serif);letter-spacing:.14em;text-align:left;padding:0 12px 10px 0;border-bottom:1px solid var(--c-ink);color:var(--c-ink);white-space:nowrap;}
+.lbc-ltable th.lbc-lt-likes,.lbc-ltable td.lbc-lt-likes{text-align:right;padding-right:4px;}
+.lbc-ltable td{padding:12px 12px 12px 0;border-bottom:1px solid var(--c-line);vertical-align:baseline;color:var(--c-ink);}
+.lbc-ltable tbody tr.lbc-lrow{cursor:pointer;}
+.lbc-ltable tbody tr.lbc-lrow:hover td,.lbc-ltable tbody tr.lbc-lrow.is-selected td{background:var(--c-soft);}
+.lbc-ltable tbody tr.lbc-lrow:focus-visible{outline:2px solid var(--c-ink);outline-offset:-2px;}
+.lbc-ltable td.lbc-lt-title{font:15px/1.45 var(--f-serif);}
+.lbc-ltable td.lbc-lt-title .lbc-lt-star{margin-right:6px;font-size:12px;}
+.lbc-ltable td.lbc-lt-cat,.lbc-ltable td.lbc-lt-au{color:var(--c-muted);font-size:13px;white-space:nowrap;max-width:14em;overflow:hidden;text-overflow:ellipsis;}
+.lbc-ltable td.lbc-lt-date,.lbc-ltable td.lbc-lt-likes{font:italic 15px var(--f-latin);color:var(--c-muted);font-variant-numeric:lining-nums tabular-nums;white-space:nowrap;}
+.lbc-ltable tr.lbc-lt-sep td{padding-top:24px;font-size:12.5px;color:var(--c-muted);cursor:default;}
 /* 星标页（.lbc-simple）：单列列表 */
 .lbc-simple .lbc-grid{max-width:820px;margin:0 auto;}
 .lbc-simple .lbc-card{display:block;margin:0;padding:18px 72px 18px 0;border-bottom:1px solid var(--background-modifier-border);}
 .lbc-simple .lbc-cover,.lbc-simple .lbc-nocover{display:none;}
 .lbc-simple .lbc-body{padding:0;}
 .lbc-simple .lbc-cmeta{justify-content:flex-start;margin-top:4px;}
-.lbc-simple .lbc-head{max-width:820px;margin:0 0 24px;}
-.lbc-simple .lbc-cats{max-width:820px;margin:0 auto;}
+.lbc-simple .lbc-head{max-width:820px;margin:0 auto 12px;}
+.lbc-simple .lbc-cats,.lbc-simple .lbc-ctl,.lbc-simple .lbc-topics{max-width:820px;margin-left:auto;margin-right:auto;}
 .lbc-wrap.lbc-simple .lbc-badges{position:static;float:right;margin:2px 0 0 12px;}
-.lbc-wrap.lbc-simple .lbc-star{top:18px;right:0;border-color:var(--background-modifier-border)!important;background:var(--background-primary)!important;color:var(--text-muted);}
-.lbc-wrap.lbc-simple .lbc-star.is-on{background:var(--lb-star)!important;border-color:var(--lb-star)!important;color:#fff;}
-.lbc-simple button.lbc-check{top:18px;left:auto;right:34px;border-color:var(--background-modifier-border)!important;background:var(--background-primary)!important;}
-.lbc-simple button.lbc-check.is-on{background:var(--interactive-accent)!important;}
+.lbc-wrap.lbc-simple .lbc-card:hover :is(.lbc-badges,.lbc-check,.lbc-star){translate:none;}
+.lbc-wrap.lbc-simple .lbc-star{top:18px;right:0;}
+.lbc-simple button.lbc-check{top:18px;left:auto;right:38px;}
 /* 10-04 存成选集的小对话框 */
 .lbc-dialog-back{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.28);display:grid;place-items:center;}
 .lbc-dialog{width:min(440px,calc(100vw - 32px));box-sizing:border-box;background:var(--background-primary);color:var(--text-normal);border:1px solid var(--background-modifier-border);border-radius:12px;box-shadow:0 10px 32px rgba(0,0,0,.25);padding:18px 18px 14px;font-size:13px;}
@@ -303,9 +393,21 @@ const CSS = `
 .lbc-wrap button.lbc-totop svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
 .lbc-totop-dock.is-on button.lbc-totop{opacity:.82;pointer-events:auto;}
 .lbc-totop-dock.is-on button.lbc-totop:hover{opacity:1;color:var(--text-normal);border-color:var(--text-faint)!important;}
-@media(max-width:700px){.lbc-wrap{padding:12px 6px 0;}.lbc-head{gap:12px;}.lbc-title{font-size:28px;}.lbc-cats{gap:18px;}.lbc-ctitle{font-size:14px;}.lbc-card-more{opacity:1;}.lbc-selbar button{padding:6px 10px;}}
+/* 窄屏 / 手机（§9）：分类行和控制行换行；控制行右组换到下一行、搜索框撑满；「管理」退到标题上面一行 */
+@media(max-width:700px){.lbc-wrap{padding:12px 6px 0;}.lbc-head{display:flex;flex-direction:column;}.lbc-titleblock{padding:0;gap:2px 14px;}.lbc-tools{position:static;order:-1;align-self:flex-end;margin:0 0 8px;}
+.lbc-cats{gap:4px 22px;font-size:16.5px;margin-top:8px;}.lbc-ctl{gap:6px 16px;margin-top:10px;}.lbc-ctl-l{gap:0 16px;}.lbc-ctl-r{margin-left:0;width:100%;}
+.lbc-ctl-r .lbc-searchbox{flex:1 1 180px;}.lbc-wrap .lbc-ctl-r input.lbc-search{width:100%!important;}.lbc-topics{padding-left:0;}
+.lbc-ctitle{font-size:14.5px;}.lbc-card-more{opacity:1;}.lbc-selbar button{padding:6px 10px;}}
 `;
-LB.style('lbc-style', CSS);
+// 1021：标题 / 数字字体随包发（catalog.py 重建时拷进 _archive/fonts/），@font-face 的地址运行时拼（vault 可能挂在别的库子目录里，过 lbPath；
+// 不连 Google Fonts，离线照样显示；文件不在时浏览器退回系统衬线字体）
+const FONT_FILES = { cinzel: '_archive/fonts/Cinzel-latin-variable.woff2', cormorant: '_archive/fonts/CormorantGaramond-Italic-latin-variable.woff2' };
+function fontFaceCss() {
+  const url = rel => { try { return String(app.vault.adapter.getResourcePath?.(lbPath(rel)) || ''); } catch { return ''; } };
+  const face = (family, rel, weight, style) => { const u = url(rel); return u ? `@font-face{font-family:"${family}";src:url("${u.replace(/"/g, '%22')}") format("woff2");font-weight:${weight};font-style:${style};font-display:swap;}\n` : ''; };
+  return face('LB Cinzel', FONT_FILES.cinzel, '400 900', 'normal') + face('LB Cormorant', FONT_FILES.cormorant, '300 700', 'italic');
+}
+LB.style('lbc-style', fontFaceCss() + CSS);
 
 // ── 挂载点（C4）：dv.container 后面的兄弟 host；Dataview 重跑只清 container，碰不到页面 ──
 const mount = LB.mountHost('lbc-host');
@@ -500,10 +602,13 @@ const titleRow = titleBlock.createEl('div', { cls: 'lbc-titlerow' });
 // 10-03：大标题可改（「…→改标题」，存插件设置 catalogTitle；空 = Collections）
 const titleOf = () => String(LB.provider()?.settings?.catalogTitle || '').trim() || 'Collections';
 const titleText = titleRow.createEl('span', { cls: 'lbc-title' });
-const titleLabel = titleText.createEl('span', { cls: 'lbc-title-text', text: titleOf() });
+// 1021 雕刻斜体大标题：字上再叠一层同样的字（data-text → ::after，描边用底色、往左错一点）= 一道刻线；改标题时 data-text 跟着换（setTitle）
+const titleLabel = titleText.createEl('span', { cls: 'lbc-title-text lbc-engr', text: titleOf() });
+titleLabel.dataset.text = titleOf();
+function setTitle() { const t = titleOf(); if (titleLabel.textContent !== t) titleLabel.setText(t); if (titleLabel.dataset.text !== t) titleLabel.dataset.text = t; }
 const tools = head.createEl('div', { cls: 'lbc-tools' });
-const importButton = mobile ? null : titleText.createEl('button', { cls: 'lbc-import', text: '+' });
-if (mobile) titleBlock.createEl('div', { cls: 'lb-mobile-note lbc-mobile-note', text: LB.MOBILE_ONLY_TEXT });
+const importButton = mobile ? null : titleText.createEl('button', { cls: 'lbc-import lbc-engr', text: '+' });
+if (importButton) importButton.dataset.text = '+';
 // F4：标题下那一行拆成三块——计数（只是字）· 可能相关（跳到那一组）· 更新（打开同步记录）
 const subLine = titleBlock.createEl('div', { cls: 'lbc-subline' });
 const countEl = subLine.createEl('span', { cls: 'lbc-sub lbc-count' });
@@ -520,6 +625,7 @@ const syncing = subLine.createEl('button', { cls: 'lbc-sub lbc-sub-link lbc-sync
 // 数和文案由插件 syncProgressView / renderSyncProgress 出（状态栏同一份，样式在插件 styles.css）；刚同步完 10 分钟内一行「同步完了」。
 // 插件不在（手机）就不出，退回上面那个「· 同步中」。
 const syncProg = titleBlock.createEl('div', { cls: 'lb-syncprog lbc-syncprog' }); syncProg.hidden = true;
+if (mobile) titleBlock.createEl('div', { cls: 'lb-mobile-note lbc-mobile-note', text: LB.MOBILE_ONLY_TEXT });
 let progTimer = null, progPeriod = 0;
 function paintSyncProg() {
   const p = provider();
@@ -649,12 +755,10 @@ if (app.vault.on && dv.component?.registerEvent) {
   lbEvent(app.vault, app.vault.on('create', onFile));
 }
 
-const search = head.createEl('input', { cls: 'lbc-search' });
-search.type = 'search'; search.placeholder = '搜索收藏 · #标签';
-const pageNav = head.createEl('nav', { cls: 'lb-page-nav' });
-const browse = pageNav.createEl('button', { text: '浏览收藏', cls: 'is-current' }); browse.setAttribute('aria-current', 'page'); browse.onclick = () => LB.openPage('catalog');
-const ask = pageNav.createEl('button', { text: '问收藏' }); ask.onclick = () => LB.openPage('chat');
-const manage = mobile ? null : tools.createEl('button', { cls: 'lb-manage', text: '…' });
+// 1021 右上角「管理」细线胶囊（原来的 …：openManageMenu 不变）
+const MANAGE_SVG = '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="1" width="5" height="5" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="8" y="1" width="5" height="5" fill="currentColor"/><rect x="1" y="8" width="12" height="5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
+const manage = mobile ? null : tools.createEl('button', { cls: 'lb-manage lbc-manage' });
+if (manage) { manage.type = 'button'; manage.innerHTML = MANAGE_SVG; manage.createEl('span', { text: '管理' }); }
 if (manage) manage.onclick = async e => { const p = await want('openManageMenu'); p?.openManageMenu(e, { categories: () => editCategories() }); };
 if (importButton) importButton.type = 'button';
 if (importButton) importButton.onclick = async e => {
@@ -664,9 +768,30 @@ if (importButton) importButton.onclick = async e => {
   catch (err) { LB.say('菜单没打开：' + (err?.message || err), { kind: 'error' }); }
   finally { importButton.disabled = false; importButton.removeAttribute?.('aria-busy'); }
 };
-// 大类筛选条（小红书式 tab）：单选，一次一个；「全部」或再点当前项清空。
+// 大类筛选条 = 分类行（1021：只放「全部 + 一级分类 + 未归类」；范围筛选挪到下面的控制行）
 const catBar = top.createEl('div', { cls: 'lbc-cats' });
-function anyFilter() { return !!(activeAlbum || activeCat || todayOnly || todoOnly || mediaFilter || (starOnly && !starredPage) || activeTopic || timeRange || timeSort); }
+// 控制行（1021）：左 = 边栏钮 + 范围单选标签 + 前两个星标主题（+ 来源 / 专辑）；右 = 排序胶囊 · 瀑布流 / 列表 / 索引 · 搜索胶囊 · 问收藏胶囊。
+// 「浏览收藏」去掉（就在这页）；「问收藏 →」挪到搜索框右边
+const ctl = top.createEl('div', { cls: 'lbc-ctl' });
+const ctlL = ctl.createEl('div', { cls: 'lbc-ctl-l' });
+const ctlR = ctl.createEl('div', { cls: 'lbc-ctl-r' });
+const SIDE_SVG = '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="1.5" width="12" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><rect class="lbc-side-col" x="1.7" y="2.2" width="3.6" height="9.6" stroke="currentColor" stroke-width="1"/></svg>';
+const sideBtn = mobile ? null : ctlL.createEl('button', { cls: 'lbc-sidetoggle' });
+if (sideBtn) {
+  sideBtn.type = 'button'; sideBtn.innerHTML = SIDE_SVG;
+  sideBtn.createEl('span', { cls: 'lb-visually-hidden', text: '收起 / 展开边栏' });   // 不设 aria-label / title：Obsidian 会渲染成悬浮框（她不要）
+  sideBtn.onclick = () => setSideOpen(!sideOpen);
+}
+const scopeBox = ctlL.createEl('div', { cls: 'lbc-scope' });
+const timeTab = ctlR.createEl('button', { cls: 'lbc-time lbc-pill' }); timeTab.type = 'button';
+timeTab.onclick = e => { e?.stopPropagation?.(); openTimeMenu(timeTab); };
+const vseg = ctlR.createEl('div', { cls: 'lbc-vseg' }); vseg.setAttribute('role', 'group');
+const SEARCH_SVG = '<svg viewBox="0 0 14 14" aria-hidden="true"><circle cx="6" cy="6" r="4.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M9.4 9.4 13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+const searchBox = ctlR.createEl('label', { cls: 'lbc-searchbox' }); searchBox.innerHTML = SEARCH_SVG;
+const search = searchBox.createEl('input', { cls: 'lbc-search' });
+search.type = 'search'; search.placeholder = '搜索收藏 · #标签';
+const ask = ctlR.createEl('button', { cls: 'lbc-askbtn lbc-pill', text: '问收藏 →' }); ask.type = 'button';
+ask.onclick = () => LB.openPage('chat');
 function clearFilters({ keepStar = starredPage } = {}) { activeCat = ''; todayOnly = false; todoOnly = false; mediaFilter = ''; activeTopic = ''; activeAlbum = ''; timeRange = ''; timeSort = ''; timeFrom = ''; timeTo = ''; starOnly = keepStar; indexView = false; }
 // C19：重建前记下横向位置和焦点所在的 tab，重建后还原；只有用户点 tab 引起的重建才把选中项滚进视野
 function renderCatBar({ reveal = false } = {}) {
@@ -681,24 +806,8 @@ function renderCatBar({ reveal = false } = {}) {
     return s;
   };
   const tabClick = fn => () => { indexView = false; fn(); renderCatBar({ reveal: true }); render(); scrollToResults(); };
-  mk('全部', !anyFilter() && !starredPage && !indexView, () => {
-    if (starredPage) { LB.openPage('catalog'); return; }
-    if (anyFilter() || indexView) tabClick(() => clearFilters())();
-  });
-  // 10-10「索引」：横向分叉树看分布，点一个节点 = 筛到那些笔记
-  if (idx) {
-    const t = mk('索引', indexView, () => { indexView = !indexView; renderCatBar({ reveal: true }); render(); scrollToResults(); });
-    t.classList.add('lbc-index-tab');
-  }
-  mk('今日新增', todayOnly, tabClick(() => { todayOnly = !todayOnly; if (todayOnly) todoOnly = false; }));
-  // 10-04：导入时间（排序 + 范围）收在这一个小入口里，点开是小菜单
-  const timeTab = mk(timeLabel(), !!(timeRange || timeSort), e => { e?.stopPropagation?.(); openTimeMenu(timeTab); }); timeTab.classList.add('lbc-time');
-  // X17：「已收藏」就地筛选（星标页上点它回目录）
-  mk('已收藏', starredPage || starOnly, () => { if (starredPage) { LB.openPage('catalog'); return; } tabClick(() => { starOnly = !starOnly; })(); });
-  mk('视频', mediaFilter === 'video', tabClick(() => { mediaFilter = mediaFilter === 'video' ? '' : 'video'; }));
-  mk('附件', mediaFilter === 'attachment', tabClick(() => { mediaFilter = mediaFilter === 'attachment' ? '' : 'attachment'; }));
-  const todo = items.filter(x => x.attachment === '待补').length;
-  if (todo) mk(`待补附件 ${todo}`, todoOnly, tabClick(() => { todoOnly = !todoOnly; if (todoOnly) todayOnly = false; }));
+  // 1021：「全部」= 不分类（范围 / 时间 / 搜索各管各的：范围在控制行「全部」，时间在排序胶囊里）；索引视图里点它回到瀑布流 / 列表
+  mk('全部', !activeCat && !indexView, () => { if (activeCat || indexView) tabClick(() => { activeCat = ''; activeFacets = []; })(); });
   const hiddenCats = provider()?.settings?.hiddenCats || [];
   if (idx) {
     // 第一级节点（有篇数的）= 分类 tab；选中它或它下面任何一级都算选中这一类；点已选中的那一类 = 回到全部
@@ -725,7 +834,152 @@ function renderCatBar({ reveal = false } = {}) {
   if (reveal) { try { catBar.querySelector('.lbc-cat.is-active')?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' }); } catch {} }
   paintCatFade();
   renderSubBar();
+  renderScope();
+  paintTime();
+  paintViewSeg();
   renderTopicBar();
+}
+// ── 1021 范围：单选（她：原来几个开关能叠加，容易点了好几个然后懵了）。内部仍是 todayOnly / starOnly / mediaFilter / todoOnly / activeTopic，
+//    但同一时间只让一个生效：点一个清掉其他；再点当前项回到「全部」。'topic:*' = 全部主题（属于任何一个星标主题的）
+function scopeOf() {
+  if (starOnly && !starredPage) return 'star';
+  if (todayOnly) return 'today';
+  if (todoOnly) return 'todo';
+  if (mediaFilter) return mediaFilter;
+  if (activeTopic) return 'topic:' + activeTopic;
+  return '';
+}
+function setScope(key) {
+  todayOnly = false; todoOnly = false; mediaFilter = ''; activeTopic = '';
+  if (!starredPage) starOnly = false;
+  if (key === 'today') todayOnly = true;
+  else if (key === 'todo') todoOnly = true;
+  else if (key === 'video' || key === 'attachment') mediaFilter = key;
+  else if (key === 'star') { if (!starredPage) starOnly = true; }
+  else if (typeof key === 'string' && key.startsWith('topic:')) activeTopic = key.slice(6);
+}
+function pickScope(key) {
+  setScope(scopeOf() === key ? '' : key);
+  topicAdding = false; topicArmed = '';
+  renderCatBar(); render(); scrollToResults();
+}
+const topicNames = () => (Array.isArray(data.topics) ? data.topics.filter(n => typeof n === 'string' && n) : []);
+const canEditTopics = () => !mobile && !!provider();
+function renderScope() {
+  // 先把已经不存在的主题 / 来源 / 专辑清掉（换数据后）——计数按清完的来源算
+  const names = topicNames();
+  if (activeTopic && (activeTopic === '*' ? !names.length : !names.includes(activeTopic))) activeTopic = '';
+  const srcs = starredPage ? [] : srcCounts();
+  if (activeSrc && activeSrc !== '*' && !srcs.some(([n]) => n === activeSrc)) { activeSrc = ''; applySrc(); }
+  const albums = albumCounts();
+  if (!albums.some(([n]) => n === activeAlbum)) activeAlbum = '';
+  const ae = document.activeElement;
+  const focusedKey = ae && scopeBox.contains(ae) ? (ae.dataset?.scope ?? null) : null;
+  scopeBox.empty();
+  const today = ymd(new Date());
+  let nToday = 0, nStar = 0, nVideo = 0, nAtt = 0, nTodo = 0; const topicN = new Map();
+  for (const it of items) {
+    if (it.date === today) nToday++;
+    if (it.starred) nStar++;
+    if (it.kind === 'video') nVideo++;
+    if (it.attachment && it.attachment !== 'none') nAtt++;
+    if (it.attachment === '待补') nTodo++;
+    for (const t of Array.isArray(it.topics) ? it.topics : []) topicN.set(t, (topicN.get(t) || 0) + 1);
+  }
+  const cur = scopeOf();
+  // 篇数放 data-n（CSS ::after 画成斜体小数字）：按钮的字还是「视频」「已收藏」，读屏 / 测试按名字找得到
+  const mk = (key, label, n, on, click = null) => {
+    const b = scopeBox.createEl('button', { cls: 'lbc-cat lbc-scope-tab' + (on ? ' is-active' : ''), text: label });
+    b.type = 'button'; b.dataset.scope = key; b.setAttribute('aria-pressed', String(on));
+    if (n != null) b.dataset.n = String(n);
+    b.onclick = click || (() => pickScope(key));
+    return b;
+  };
+  mk('', '全部', items.length, !starredPage && cur === '', starredPage ? () => LB.openPage('catalog') : null);
+  mk('today', '今日新增', nToday, cur === 'today');
+  // X17：「已收藏」就地筛选（星标页上它是当前页，点它回目录）
+  mk('star', '已收藏', nStar, starredPage ? cur === '' : cur === 'star', starredPage ? () => LB.openPage('catalog') : null);
+  mk('video', '视频', nVideo, cur === 'video');
+  mk('attachment', '附件', nAtt, cur === 'attachment');
+  if (nTodo) mk('todo', '待补附件', nTodo, cur === 'todo');
+  // 前两个星标主题（topics.json 的顺序）；选中任何一个主题时控制行下面出主题行（全部主题 / 其余主题 / + 新主题）
+  for (const name of names.slice(0, 2)) {
+    const b = mk('topic:' + name, '', topicN.get(name) || 0, cur === 'topic:' + name);
+    b.classList.add('lbc-thq');
+    b.createEl('span', { cls: 'lbc-topic-star', text: '★' }); b.append(name);
+  }
+  // 还没有任何主题：留一个入口建第一个（要插件；手机上不出）
+  if (!names.length && canEditTopics() && !starredPage) {
+    const b = scopeBox.createEl('button', { cls: 'lbc-pick lbc-topic-new-tab', text: '+ 星标主题' }); b.type = 'button'; b.dataset.scope = 'topic-new';
+    b.onclick = () => { topicAdding = true; topicFocusNew = true; renderTopicBar(); };
+  }
+  if (srcs.length) {
+    // 1020 来源：默认「我的收藏」不算筛选（不高亮），切到别的来源才高亮
+    const mine = allItems.length - srcs.reduce((n, [, c]) => n + c, 0);
+    const label = activeSrc === '' ? '我的收藏' : activeSrc === '*' ? '全部来源' : activeSrc;
+    const chip = scopeBox.createEl('button', { cls: 'lbc-pick lbc-album lbc-src' + (activeSrc ? ' is-active' : ''), text: `${label} ▾` });
+    chip.type = 'button'; chip.dataset.scope = 'src';
+    chip.setAttribute('aria-pressed', String(!!activeSrc));
+    const pick = s_ => { indexView = false; activeSrc = s_; applySrc(); dataRev++; renderCatBar(); render(); scrollToResults(); };
+    chip.onclick = e => popMenu([
+      { title: `我的收藏（${mine}）`, checked: activeSrc === '', onClick: () => pick('') },
+      { title: `全部（${allItems.length}）`, checked: activeSrc === '*', onClick: () => pick('*') },
+      { separator: true },
+      ...srcs.map(([n, c]) => ({ title: `${n}（${c}）`, checked: n === activeSrc, onClick: () => pick(n) })),
+    ], e, chip);
+  }
+  if (albums.length) {
+    // 1019 她：专辑收进这一颗「专辑 ▾」，点开选
+    const chip = scopeBox.createEl('button', { cls: 'lbc-pick lbc-album' + (activeAlbum ? ' is-active' : ''), text: activeAlbum ? `专辑：${activeAlbum} ▾` : '专辑 ▾' });
+    chip.type = 'button'; chip.dataset.scope = 'album';
+    chip.setAttribute('aria-pressed', String(!!activeAlbum));
+    const pick = name => { indexView = false; activeAlbum = name; renderCatBar(); render(); scrollToResults(); };
+    chip.onclick = e => popMenu([
+      ...(activeAlbum ? [{ title: '全部专辑（取消筛选）', onClick: () => pick('') }, { separator: true }] : []),
+      ...albums.map(([n, c]) => ({ title: `${n}（${c}）`, checked: n === activeAlbum, onClick: () => pick(n === activeAlbum ? '' : n) })),
+    ], e, chip);
+  }
+  if (focusedKey != null) { const again = [...scopeBox.querySelectorAll('button')].find(b => b.dataset?.scope === focusedKey); try { again?.focus({ preventScroll: true }); } catch { again?.focus?.(); } }
+}
+// 排序胶囊：文字跟当前状态（默认「最新在前」；有搜索词时默认是按相关度；选了范围就是「近 7 天」等），点开仍是原来的时间菜单
+function paintTime() {
+  const t = timeLabel();
+  if (timeTab.textContent !== t) timeTab.setText(t);
+  const on = !!(timeRange || timeSort);
+  timeTab.classList.toggle('is-active', on); timeTab.setAttribute('aria-pressed', String(on));
+}
+// ── 1021 视图：瀑布流 / 列表（新）/ 索引（功能不变，只换入口）；选择存 LB.state ──
+let viewMode = 'grid';
+function paintViewSeg() {
+  const want = [['grid', simplePage ? '列表' : '瀑布流'], ...(simplePage ? [] : [['list', '列表']]), ...(idx ? [['index', '索引']] : [])];
+  const sig = want.map(w => w[0]).join(',');
+  if (vseg.dataset.sig !== sig) {
+    vseg.empty();
+    for (const [k, label] of want) {
+      const b = vseg.createEl('button', { cls: 'lbc-view' + (k === 'index' ? ' lbc-index-tab' : ''), text: label });
+      b.type = 'button'; b.dataset.view = k; b.onclick = () => pickView(k);
+    }
+    vseg.dataset.sig = sig;
+    vseg.hidden = want.length < 2;   // 星标页没有索引数据时只剩一项：不出这个开关
+  }
+  const cur = indexView && idx ? 'index' : (viewMode === 'list' && !simplePage ? 'list' : 'grid');
+  for (const b of vseg.querySelectorAll('.lbc-view')) { const on = b.dataset.view === cur; b.classList.toggle('is-on', on); b.setAttribute('aria-pressed', String(on)); }
+}
+function pickView(k) {
+  if (k === 'index') indexView = !indexView;   // 10-10「索引」：横向分叉树看分布，点一个节点 = 筛到那些笔记；再点回到原来的视图
+  else { viewMode = k === 'list' ? 'list' : 'grid'; indexView = false; }
+  renderCatBar({ reveal: true }); render(); scrollToResults();
+}
+// ── 1021 边栏位（第 3 段做内容）：开 / 收状态存 LB.state；这里只换 class 和按钮图标（开 = 左栏实心，收 = 空心） ──
+// 第 3 段接口：往 side（.lbc-side）里画模块，有内容时 side.hidden = false + board.classList.add('has-side')；
+// 开 / 收由 setSideOpen 管（.lbc-wrap.is-side-collapsed），收起 / 窄屏时 CSS 自动让收藏墙铺满（列数按宽度 lbcColumns 自己变）。
+let sideOpen = true;
+function setSideOpen(on) {
+  sideOpen = !!on;
+  wrap.classList.toggle('is-side-collapsed', !sideOpen);
+  if (sideBtn) sideBtn.setAttribute('aria-pressed', String(sideOpen));
+  saveState();
+  relayoutIfNeeded();
 }
 // 10-10 二级小标签：选中的大类下面的子节点（带篇数）；点一个 = 筛到它，再点 = 回到这一大类；索引图里点到更深一级时多一个带 ✕ 的尾巴
 let subBar = null;
@@ -790,50 +1044,123 @@ function srcCounts() {
   for (const it of allItems) { const s = srcOf(it); if (s) m.set(s, (m.get(s) || 0) + 1); }
   return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh'));
 }
+// 星标主题行（1021）：只在选中某个主题（或正在建第一个）时出现在控制行下面：STARRED · 全部主题 · 各主题胶囊 · + 新主题。
+// 建 / 删走插件 run(['-m','link_brain','topic','add'|'remove', 名])（后端顺手重建目录），完了重读目录；结果如实提示（CONVENTIONS §1）。
+// 没有插件（手机 / 没启用）就只能筛、不出建 / 删入口。
+let topicAdding = false, topicFocusNew = false, topicArmed = '', topicArmTimer = null, topicBusy = false;
+cleanups.push(() => clearTimeout(topicArmTimer));
 function renderTopicBar() {
-  const names = Array.isArray(data.topics) ? data.topics.filter(n => typeof n === 'string' && n) : [];
-  if (!names.includes(activeTopic)) activeTopic = '';
-  const srcs = starredPage ? [] : srcCounts();
-  if (activeSrc && activeSrc !== '*' && !srcs.some(([n]) => n === activeSrc)) { activeSrc = ''; applySrc(); }
-  const albums = albumCounts();
-  if (!albums.some(([n]) => n === activeAlbum)) activeAlbum = '';
-  if (!names.length && !albums.length && !srcs.length) { if (topicBar) { topicBar.remove(); topicBar = null; } return; }
-  if (!topicBar) { topicBar = top.createEl('div', { cls: 'lbc-topics' }); top.insertBefore(topicBar, (subBar || catBar).nextSibling); barWheel(topicBar); }
+  const names = topicNames();
+  const can = canEditTopics();
+  if (topicAdding && !can) topicAdding = false;
+  if (!activeTopic && !topicAdding) { if (topicBar) { topicBar.remove(); topicBar = null; } return; }
+  if (!topicBar) { topicBar = top.createEl('div', { cls: 'lbc-topics' }); top.insertBefore(topicBar, ctl.nextSibling); }
+  const ae = document.activeElement;
+  const typing = ae && topicBar.contains(ae) && ae.classList?.contains('lbc-topic-new');
+  const draft = typing ? ae.value : (topicBar.querySelector?.('input.lbc-topic-new')?.value || '');
   topicBar.empty();
+  topicBar.createEl('span', { cls: 'lbc-topics-lab', text: 'STARRED' });
+  const counts = new Map(); let nAny = 0;
+  for (const it of items) { const ts = Array.isArray(it.topics) ? it.topics.filter(t => names.includes(t)) : []; if (ts.length) nAny++; for (const t of ts) counts.set(t, (counts.get(t) || 0) + 1); }
+  if (names.length) {
+    const all = topicBar.createEl('button', { cls: 'lbc-topic-all' + (activeTopic === '*' ? ' is-active' : ''), text: '全部主题' });
+    all.type = 'button'; all.dataset.n = String(nAny); all.setAttribute('aria-pressed', String(activeTopic === '*'));
+    all.onclick = () => pickScope('topic:*');
+  }
   for (const name of names) {
-    // 不设 aria-label / title：Obsidian 会渲染成悬浮框（她不要）。
-    const chip = topicBar.createEl('button', { cls: 'lbc-topic' + (activeTopic === name ? ' is-active' : '') });
-    chip.type = 'button';
+    const w = topicBar.createEl('span', { cls: 'lbc-topic-wrap' });
+    const chip = w.createEl('button', { cls: 'lbc-topic' + (activeTopic === name ? ' is-active' : '') });
+    chip.type = 'button'; chip.dataset.n = String(counts.get(name) || 0);
     chip.createEl('span', { cls: 'lbc-topic-star', text: '★' }); chip.append(name);
     chip.setAttribute('aria-pressed', String(activeTopic === name));
-    chip.onclick = () => { indexView = false; activeTopic = (activeTopic === name ? '' : name); renderCatBar(); render(); scrollToResults(); };
+    chip.onclick = () => pickScope('topic:' + name);
+    if (can) {
+      // 悬停出 ×；点一下变「再点删除」（4 秒内再点才删），免得手滑
+      const armed = topicArmed === name;
+      const del = w.createEl('button', { cls: 'lbc-topic-del' + (armed ? ' is-armed' : ''), text: armed ? '再点删除' : '×' });
+      del.type = 'button';
+      if (!armed) del.createEl('span', { cls: 'lb-visually-hidden', text: `删除主题「${name}」` });
+      del.onclick = e => { e?.preventDefault?.(); e?.stopPropagation?.(); armOrRemoveTopic(name, del); };
+    }
   }
-  if (albums.length) {
-    // 1019 她：目录页已经很挤——专辑不另起一排页签，收进这一颗「专辑 ▾」，点开选
-    const chip = topicBar.createEl('button', { cls: 'lbc-topic lbc-album' + (activeAlbum ? ' is-active' : ''), text: activeAlbum ? `专辑：${activeAlbum} ▾` : '专辑 ▾' });
-    chip.type = 'button';
-    chip.setAttribute('aria-pressed', String(!!activeAlbum));
-    const pick = name => { indexView = false; activeAlbum = name; renderCatBar(); render(); scrollToResults(); };
-    chip.onclick = e => popMenu([
-      ...(activeAlbum ? [{ title: '全部专辑（取消筛选）', onClick: () => pick('') }, { separator: true }] : []),
-      ...albums.map(([n, c]) => ({ title: `${n}（${c}）`, checked: n === activeAlbum, onClick: () => pick(n === activeAlbum ? '' : n) })),
-    ], e, chip);
+  if (can) {
+    if (topicAdding) {
+      const input = topicBar.createEl('input', { cls: 'lbc-topic-new' });
+      input.type = 'text'; input.placeholder = '主题名，回车建'; input.value = draft;
+      input.addEventListener('keydown', e => {
+        if (e.isComposing || e.keyCode === 229) return;
+        if (e.key === 'Enter') { e.preventDefault(); addTopic(input.value, input); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation?.(); topicAdding = false; renderTopicBar(); }
+      });
+      if (typing || topicFocusNew) { topicFocusNew = false; try { input.focus({ preventScroll: true }); } catch { input.focus?.(); } }
+    } else {
+      const add = topicBar.createEl('button', { cls: 'lbc-topic-add', text: '+ 新主题' }); add.type = 'button';
+      add.onclick = () => { topicAdding = true; topicFocusNew = true; renderTopicBar(); };
+    }
   }
-  if (srcs.length) {
-    // 1020：和「专辑 ▾」同一个样子；默认「我的收藏」不算筛选（不高亮），切到别的来源才高亮
-    const mine = allItems.length - srcs.reduce((n, [, c]) => n + c, 0);
-    const label = activeSrc === '' ? '我的收藏' : activeSrc === '*' ? '全部来源' : activeSrc;
-    const chip = topicBar.createEl('button', { cls: 'lbc-topic lbc-album lbc-src' + (activeSrc ? ' is-active' : ''), text: `${label} ▾` });
-    chip.type = 'button';
-    chip.setAttribute('aria-pressed', String(!!activeSrc));
-    const pick = s => { indexView = false; activeSrc = s; applySrc(); dataRev++; renderCatBar(); render(); scrollToResults(); };
-    chip.onclick = e => popMenu([
-      { title: `我的收藏（${mine}）`, checked: activeSrc === '', onClick: () => pick('') },
-      { title: `全部（${allItems.length}）`, checked: activeSrc === '*', onClick: () => pick('*') },
-      { separator: true },
-      ...srcs.map(([n, c]) => ({ title: `${n}（${c}）`, checked: n === activeSrc, onClick: () => pick(n) })),
-    ], e, chip);
+}
+function armOrRemoveTopic(name, btn) {
+  clearTimeout(topicArmTimer);
+  if (topicArmed !== name) {
+    topicArmed = name; renderTopicBar();
+    topicArmTimer = setTimeout(() => { topicArmed = ''; renderTopicBar(); }, 4000);
+    return;
   }
+  topicArmed = '';
+  removeTopic(name, btn);
+}
+const tailLine = s_ => String(s_ || '').trim().split('\n').map(l => l.trim()).filter(Boolean).pop()?.slice(0, 200) || '';
+// 跑一条 topic 子命令：返回后端 JSON（status ok / exists），其余一律如实说原因并返回 null
+async function runTopic(args, label) {
+  if (topicBusy) { LB.say('上一个主题操作还没做完，完成后再点', { kind: 'warn' }); return null; }
+  const p = await want('run'); if (!p) return null;
+  topicBusy = true;
+  let r = null, err = null;
+  try { r = await p.run(['-m', 'link_brain', 'topic', ...args], label, false, { quiet: true }); }
+  catch (e) { err = e; }
+  finally { topicBusy = false; }
+  if (err) { LB.say(`${label}没做成：${err?.message || err}`, { kind: 'error' }); return null; }
+  const j = r && r.json && typeof r.json === 'object' ? r.json : null;
+  if (r?.code === 6) { LB.say(j?.message || (typeof p.busyText === 'function' ? p.busyText() : '正在执行其他任务，完成后再点'), { kind: 'warn' }); return null; }
+  if (!j || (j.status !== 'ok' && j.status !== 'exists')) {
+    const why = j?.error || j?.message || tailLine(r?.out) || (r?.code != null ? `退出码 ${r.code}` : '后台没返回结果');
+    LB.say(`${label}没做成：${why}`, { kind: 'error' });
+    return null;
+  }
+  return j;
+}
+async function addTopic(raw, input) {
+  const name = String(raw || '').trim().replace(/\s+/g, ' ');
+  if (!name) { topicAdding = false; renderTopicBar(); return; }
+  if (topicNames().includes(name)) { topicAdding = false; setScope('topic:' + name); renderCatBar(); render(); LB.say(`已有主题「${name}」`); return; }
+  // 建主题会请问答模型配关键词（没配就用名字本身）、再重建目录：可能要十几秒——输入框锁住、显示进行中，失败字还在
+  if (input) input.disabled = true;
+  const prog = LB.progress(`正在建主题「${name}」（配关键词、重建目录）…`);
+  let j = null;
+  try { j = await runTopic(['add', name], '建主题'); }
+  finally { prog.hide(); if (input) input.disabled = false; }
+  if (!j) { try { input?.focus?.({ preventScroll: true }); } catch {} return; }
+  topicAdding = false;
+  await refresh();
+  const nm = j.topic?.name || name;
+  if (topicNames().includes(nm)) setScope('topic:' + nm);
+  renderCatBar(); render(); scrollToResults();
+  const n = Number(j.topic?.count);
+  if (j.catalog === 'failed') LB.say(`主题「${nm}」建好了，但目录没重建上：${j.catalog_error || '原因没报出来'}（点「管理」→ 刷新目录再看）`, { kind: 'warn' });
+  else if (j.status === 'exists') LB.say(`已有主题「${nm}」`);
+  else LB.say(`已建主题「${nm}」` + (Number.isFinite(n) ? `：${n} 篇` : ''), { kind: 'ok' });
+}
+async function removeTopic(name, btn) {
+  const done = btn?.isConnected ? LB.busy(btn, '正在删…') : () => {};
+  let j = null;
+  try { j = await runTopic(['remove', name], '删主题'); }
+  finally { done(); }
+  if (!j) { renderTopicBar(); return; }
+  if (activeTopic === name) activeTopic = '';
+  await refresh();
+  renderCatBar(); render();
+  if (j.catalog === 'failed') LB.say(`主题「${name}」删了，但目录没重建上：${j.catalog_error || '原因没报出来'}（点「管理」→ 刷新目录再看）`, { kind: 'warn' });
+  else LB.say(`已删主题「${name}」`, { kind: 'ok' });
 }
 // ── 10-04 导入时间：筛选 + 排序 ──
 const TIME_RANGES = { today: '今天', ['7d']: '近 7 天', ['30d']: '近 30 天' };
@@ -841,7 +1168,8 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
 function importedAt(it) { const t = Date.parse(it.ts || it.date || ''); return Number.isFinite(t) ? t : 0; }
 function timeLabel() {
   const range = timeRange === 'custom' ? `${(timeFrom || '…').slice(5)}~${(timeTo || '…').slice(5)}` : TIME_RANGES[timeRange] || '';
-  return [range, timeSort === 'recent' ? '最近导入' : ''].filter(Boolean).join(' · ') || '导入时间';
+  // 1021 排序胶囊：默认 = 数据顺序（导入新→旧），有搜索词时默认是按相关度
+  return [range, timeSort === 'recent' ? '最近导入' : ''].filter(Boolean).join(' · ') || (committed ? '按相关度' : '最新在前');
 }
 function inTimeRange(it) {
   if (!timeRange) return true;
@@ -985,12 +1313,17 @@ if (saved.ts) {
   }
   savedScroll = Number(saved.scrollTop) || 0;
   if (saved.exportImages === false) exportImages = false;
+  if (saved.view === 'list' && !simplePage) viewMode = 'list';
+  if (saved.side === false) sideOpen = false;
 }
+setScope(scopeOf());   // 1021 范围单选：旧版本存下的叠加状态只留一个（顺序同 scopeOf）
+if (!sideOpen) wrap.classList.add('is-side-collapsed');
+if (sideBtn) sideBtn.setAttribute('aria-pressed', String(sideOpen));
 let scrollTop = savedScroll;
 function saveState() {
   LB.state.save({ q: committed, raw: lastRaw, input: search.value, cat: activeCat, topic: activeTopic, album: activeAlbum, src: activeSrc, today: todayOnly, todo: todoOnly, media: mediaFilter, star: starOnly,
     selectMode, select: [...selected], scrollTop, cols, timeSort, timeRange, timeFrom, timeTo, exportImages,
-    iview: indexView, fold: [...foldOverride].slice(-200) });
+    iview: indexView, fold: [...foldOverride].slice(-200), view: viewMode, side: sideOpen });
 }
 
 // ── 多选栏（C1 放进吸顶区、C15 常用的留在栏上） ──
@@ -1066,8 +1399,12 @@ function setSelbarBusy(text) {
 // ── 10-11「索引」视图：左边可折叠的树（带篇数），右边就是卡片网格（同一套卡片，点哪个节点右边就是哪些）；
 //    上面一行：篇数 · 「未归类 N 篇」· 按内容归类的状态 · 「建议新增」chips；右边网格上面一行说清选中的是什么、能做什么。
 // 起草 / 用这版 / 建议 / 改归属 / 生成 wiki 要插件（跑 Python）；打开 索引.md / 草稿 / wiki 页不要插件（手机上也能看）。
-const ibar = wrap.createEl('div', { cls: 'lbi-bar' }); ibar.hidden = true;
-const split = wrap.createEl('div', { cls: 'lbi-split' });
+// 1021：收藏墙外面套一层 .lbc-board——左边一列 .lbc-side 留给第 3 段的边栏（现在空着、hidden），右边 .lbc-board-main 是原来的索引条 + 网格
+const board = wrap.createEl('div', { cls: 'lbc-board' });
+const side = board.createEl('aside', { cls: 'lbc-side' }); side.hidden = true;
+const boardMain = board.createEl('div', { cls: 'lbc-board-main' });
+const ibar = boardMain.createEl('div', { cls: 'lbi-bar' }); ibar.hidden = true;
+const split = boardMain.createEl('div', { cls: 'lbi-split' });
 const ipanel = split.createEl('div', { cls: 'lbi-panel' }); ipanel.hidden = true;
 const imain = split.createEl('div', { cls: 'lbi-main' });
 const ihead = imain.createEl('div', { cls: 'lbi-head' }); ihead.hidden = true;
@@ -1640,6 +1977,7 @@ function askName(title) {
 
 // ── 网格 ──
 const grid = imain.createEl('div', { cls: 'lbc-grid' });
+const listBox = imain.createEl('div', { cls: 'lbc-list' }); listBox.hidden = true;   // 1021「列表」视图
 // 10-03（她定）：Ctrl + 加号 / 减号、Ctrl + 鼠标滚轮调瀑布流列数，最少 2 列、最多 6 列（加号 / 往上滚 = 卡片变大、列变少）。
 // 列数记在插件设置 catalogColumns（目录页和星标页同一个）；插件不在就记在页面状态。0 = 没调过，按页面宽度自动。
 const COLS_MIN = 2, COLS_MAX = 6;
@@ -1768,7 +2106,7 @@ function openTagEditor(card, it) {
   return form;
 }
 // ── 右键菜单（插件的 obsidian.Menu；插件不在时自制，键盘可操作，C17） ──
-function openCardMenu(e, card, it) {
+function openCardMenu(e, card, it, { row = false } = {}) {
   const r = card.getBoundingClientRect();
   const kb = !e || (!e.clientX && !e.clientY);
   const pos = kb ? { x: r.left + 16, y: r.top + 16 } : { x: e.clientX, y: e.clientY };
@@ -1789,7 +2127,7 @@ function openCardMenu(e, card, it) {
   } else {
     list = [
       { title: it.starred ? '取消收藏' : '收藏', onClick: () => starMany([it], { single: true }) },
-      { title: '编辑标签', onClick: () => openTagEditor(card, it) },
+      row ? null : { title: '编辑标签', onClick: () => openTagEditor(card, it) },
       ...reclassItems([it]),
       it.attachment !== 'none' ? { title: '下载 / 挂本地文件', onClick: () => attachmentPanel([it]) } : null,
       typeof provider()?.refineImages === 'function' ? { title: '精细识别图片', onClick: () => provider().refineImages(it.item_id || it.id) } : null,
@@ -1932,7 +2270,7 @@ function rankRows() {
   const today = ymd(new Date());
   const filtered = items.filter(it => (!(starredPage || starOnly) || it.starred) && (!mediaFilter || (mediaFilter === 'video' ? it.kind === 'video' : it.attachment && it.attachment !== 'none'))
     && (!todayOnly || it.date === today) && (!todoOnly || it.attachment === '待补') && inCat(it)
-    && (!activeTopic || (it.topics || []).includes(activeTopic)) && (!activeAlbum || (it.albums || []).includes(activeAlbum)) && inTimeRange(it));
+    && (!activeTopic || (activeTopic === '*' ? (it.topics || []).length > 0 : (it.topics || []).includes(activeTopic))) && (!activeAlbum || (it.albums || []).includes(activeAlbum)) && inTimeRange(it));
   // 第 1 批 1002：先看分数、星标只 ×1.15；拼音 / 错字 / 漏字这类模糊命中单独放「可能相关」，规则见 catalog-search.js rankItems
   const ranked = rankItems(filtered, q, data.pinyin_chars, data.aliases || []);
   let exact = ranked.exact, possible = ranked.possible;
@@ -1944,7 +2282,7 @@ function rankRows() {
 }
 // 当前的筛选拼成一句（C8 空状态用）
 function filterLabel() {
-  return [activeCat && catLabel(activeCat), activeTopic && '★' + activeTopic, activeAlbum && '专辑：' + activeAlbum, todayOnly && '今日新增', todoOnly && '待补附件', mediaFilter === 'video' && '视频', mediaFilter === 'attachment' && '附件',
+  return [activeCat && catLabel(activeCat), activeTopic && (activeTopic === '*' ? '★全部主题' : '★' + activeTopic), activeAlbum && '专辑：' + activeAlbum, todayOnly && '今日新增', todoOnly && '待补附件', mediaFilter === 'video' && '视频', mediaFilter === 'attachment' && '附件',
     starOnly && !starredPage && '已收藏', timeRange && timeLabel().split(' · ')[0]].filter(Boolean).join(' · ');
 }
 function paintSub() {
@@ -1952,7 +2290,12 @@ function paintSub() {
   const filtered = !!(committed || todayOnly || todoOnly || starredPage || starOnly || mediaFilter || activeTopic || activeAlbum || activeCat || timeRange);
   // 1011 她问「43 / 659 是什么」：43 = 当前筛选 / 搜索命中几篇，659 = 目录里一共几篇（库里所有对象：收藏同步进来的 + 分享 / 导入单篇的，
   // 含后来取消收藏的；回收站里的不算）。和同步进度的「收藏已入库 A/T」不是一个数，悬停写明
-  countEl.setText(filtered && r ? `筛出 ${r.exact.length} 篇（共 ${items.length}）` : `${items.length} 篇`);
+  const countText = filtered && r ? `筛出 ${r.exact.length} 篇（共 ${items.length}）` : `${items.length} 篇`;
+  if (countEl.textContent !== countText) {
+    countEl.empty();
+    if (filtered && r) { countEl.append('筛出 '); countEl.createEl('b', { text: String(r.exact.length) }); countEl.append(` 篇（共 ${items.length}）`); }
+    else { countEl.createEl('b', { text: String(items.length) }); countEl.append(' 篇'); }
+  }
   countEl.title = (filtered && r ? `当前筛选${filterLabel() ? '（' + filterLabel() + '）' : ''}命中 ${r.exact.length} 篇；` : '')
     + `目录里一共 ${items.length} 篇：收藏同步进来的 + 分享 / 导入单篇的（含后来取消收藏的，回收站里的不算）。收藏夹同步到哪了（收藏已入库几篇 / 还差几篇）点右边「更新」看同步记录`;
   const nPossible = r && !grid.hidden ? r.possible.length : 0;
@@ -2007,8 +2350,40 @@ function seriesCuts() {
 }
 const cardTitle = it => seriesCuts().get(it.id) || it.title || '未命名';
 function cardSig(it, fuzzy, low) {
-  return JSON.stringify([it.title, cardTitle(it), it.cover, it.cover_w, it.cover_h, it.kind, it.attachment, it.attachment_reason, it.author, it.source, it.likes, it.note, it.problems || null, fuzzy, low || '']);
+  return JSON.stringify([it.title, cardTitle(it), it.cover, it.cover_w, it.cover_h, it.kind, it.attachment, it.attachment_reason, it.author, it.source, it.likes, it.note, it.problems || null, fuzzy, low || '',
+    it.cover ? '' : [catNameOf(it), it.date], cardTopics(it)]);
 }
+// 1021 卡片外观：无封面 = 柔和文字封面（按分类取一个浅色底：7 个同明度浅色、分类序号取模）；作者首字头像（底色按作者名散列）
+const TILE_COLORS = ['#f2d7d0', '#f2e5b8', '#d5e6d6', '#d3e1ef', '#e0d9f0', '#f1dcc6', '#e2e9c9'];
+const hashStr = v => { let h = 0; for (const ch of String(v || '')) h = (h * 31 + ch.codePointAt(0)) | 0; return Math.abs(h); };
+function catNameOf(it) {
+  const c = Array.isArray(it.cats) ? it.cats.find(x => typeof x === 'string' && x) : '';
+  if (!c) return UNC_LABEL;
+  const root = c.split('/')[0];
+  return (idx && idxByPath.get(root)?.name) || root;
+}
+function tileColor(it) {
+  const name = catNameOf(it);
+  const order = idx ? (idx.roots || []).map(p => idxByPath.get(p)?.name || p) : (data.cats_order || []);
+  const i = order.indexOf(name);
+  return TILE_COLORS[(i >= 0 ? i : hashStr(name)) % TILE_COLORS.length];
+}
+// 「10/21」；不是今年的带上年份
+function shortDay(v) {
+  const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return '';
+  const md = `${Number(m[2])}/${Number(m[3])}`;
+  return Number(m[1]) === new Date().getFullYear() ? md : `${m[1]}/${md}`;
+}
+function tileType(it) {
+  if (it.kind === 'video') return '▶ 视频';
+  if (!it.attachment || it.attachment === 'none') return '';
+  const files = Array.isArray(it.attachment_files) ? it.attachment_files : [];
+  const f = files[0], name = typeof f === 'string' ? f : (f && (f.name || f.file || f.path)) || '';
+  const ext = /\.([a-z0-9]{1,5})$/i.exec(String(name))?.[1]?.toUpperCase() || '';
+  return ext ? ext + (files.length > 1 ? ` · ${files.length} 个` : '') : '附件';
+}
+const cardTopics = it => (Array.isArray(it.topics) ? it.topics.filter(t => typeof t === 'string' && t).slice(0, 2) : []);
+const fmtLikes = v => (v == null ? '' : '♡ ' + (Number(v) >= 10000 ? (Number(v) / 10000).toFixed(1) + '万' : v));
 const STAR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l2.55 5.17 5.7.83-4.13 4.02.98 5.68L12 16.62l-5.1 2.68.98-5.68L3.75 9.6l5.7-.83z"/></svg>';
 const CHECK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12.5l4 4 8-9"/></svg>';
 const VIDEO_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="m16 10 5-3v10l-5-3z"/></svg>';
@@ -2072,7 +2447,16 @@ function buildCard(it, fuzzy, low) {
     if (it.cover_w && it.cover_h) { img.setAttribute('width', String(it.cover_w)); img.setAttribute('height', String(it.cover_h)); }
     if (!firstCover) { firstCover = img; img.addEventListener?.('load', () => LB.mark('cover'), { once: true }); }
     img.src = app.vault.adapter.getResourcePath(lbPath(it.cover));
-  } else card.createEl('div', { cls: 'lbc-nocover', text: it.kind === 'video' ? '▷' : '▤' });
+  } else {
+    // 1021 柔和文字封面：左上分类小字、左下粗体标题、底部日期；视频 / 附件右下角一个小标签。文字固定深色（深色主题下也是浅底深字）
+    const tile = card.createEl('div', { cls: 'lbc-nocover' });
+    tile.style.setProperty('--lbc-tile', tileColor(it));
+    tile.createEl('div', { cls: 'lbc-tile-cat', text: catNameOf(it) });
+    tile.createEl('div', { cls: 'lbc-tile-title', text: cardTitle(it) });
+    const foot = tile.createEl('div', { cls: 'lbc-tile-foot' });
+    foot.createEl('span', { cls: 'lbc-tile-date', text: shortDay(it.date || it.ts) });
+    const ty = tileType(it); if (ty) foot.createEl('span', { cls: 'lbc-tile-ty', text: ty });
+  }
   // 附件角标：待补=有文件未下载（警示色），downloaded=有文件已下（灰）
   const badges = card.createEl('div', { cls: 'lbc-badges' });
   if (it.kind === 'video') { const v = badges.createEl('span', { cls: 'lbc-attach lbc-video' }); putSvg(v, VIDEO_SVG); }
@@ -2089,6 +2473,8 @@ function buildCard(it, fuzzy, low) {
     const why = p.hover || p.reason; if (why && !g.hover.includes(why)) g.hover.push(why); probs.set(p.label, g);
   }
   for (const [label, g] of probs) { const b = badges.createEl('span', { cls: 'lbc-attach lbc-prob' + (g.need ? ' is-need' : ''), text: label }); if (g.hover.length) b.title = g.hover.join('\n'); }
+  // 1021 无封面卡：类型已经写在文字封面右下角（▶ 视频），左上的视频角标藏起来（CSS）；还有别的角标时文字封面让出顶上一行
+  if (!it.cover && badges.querySelector('.lbc-attach:not(.lbc-video)')) card.querySelector('.lbc-nocover')?.classList.add('has-badges');
   if (!mobile) {
     // 10-04：悬停就出现的选中圈——点它直接勾选（不用先进多选）；勾了任何一篇就是多选态，全取消就退出
     const check = card.createEl('button', { cls: 'lbc-check' }); check.type = 'button'; check.setAttribute('aria-pressed', 'false');
@@ -2116,7 +2502,14 @@ function buildCard(it, fuzzy, low) {
   if (ct.textContent !== (it.title || '未命名')) { ct.title = it.title; ct.classList.add('is-series'); }   // 露后半截的：悬停看全名
   if (low) body.createEl('div', { cls: 'lbc-lowhit', text: low });
   const ftags = body.createEl('div', { cls: 'lbc-ftags' }); ftags.hidden = true;   // 10-11 索引视图里：这篇在选中这一类的细分标签
-  const meta = body.createEl('div', { cls: 'lbc-cmeta' }); meta.createEl('span', { text: it.author || it.source || '收藏' }); meta.createEl('span', { cls: 'lbc-likes', text: it.likes == null ? '' : '♡ ' + (Number(it.likes) >= 10000 ? (Number(it.likes) / 10000).toFixed(1) + '万' : it.likes) });
+  const tops = cardTopics(it);
+  if (tops.length) { const tp = body.createEl('div', { cls: 'lbc-ctopics' }); for (const t of tops) tp.createEl('span', { text: '★ ' + t }); }
+  const meta = body.createEl('div', { cls: 'lbc-cmeta' });
+  const who = it.author || it.source || '收藏';
+  const au = meta.createEl('div', { cls: 'lbc-au' });
+  const av = au.createEl('span', { cls: 'lbc-av', text: [...String(who)][0] || '·' }); av.style.setProperty('--lbc-av', TILE_COLORS[hashStr(who) % TILE_COLORS.length]);
+  au.createEl('span', { cls: 'lbc-au-name', text: who });
+  meta.createEl('span', { cls: 'lbc-likes', text: fmtLikes(it.likes) });
   if (!mobile) {
     // C3 拖文件：进入有文件的拖拽 → 虚线框「松手挂到这篇」；松手后 busy 到 attachFile 返回
     let depth = 0;
@@ -2140,13 +2533,7 @@ function buildCard(it, fuzzy, low) {
     };
   }
   // 多选模式：点击=勾选/取消；平时=打开笔记（同一窗格，§5.4；按住 Ctrl 照 Obsidian 习惯开新标签；中键也开新标签，C17）
-  const open = (e, forceNew = false) => {
-    if (selectMode && !forceNew) { toggleSelect(cur().id); return; }
-    const x = cur(); if (!x.note) return;
-    const newTab = forceNew || !!(e && (e.ctrlKey || e.metaKey));
-    saveState(); if (!newTab) leaving = true;
-    app.workspace.openLinkText(lbPath(x.note), '', newTab);
-  };
+  const open = (e, forceNew = false) => openItem(cur(), e, forceNew);
   card.onclick = e => open(e);
   card.onkeydown = e => { if (e.target === card && e.key === 'Enter') { e.preventDefault(); open(e); } };
   card.onauxclick = e => { if (e.button === 1) { e.preventDefault(); open(e, true); } };
@@ -2156,8 +2543,58 @@ function buildCard(it, fuzzy, low) {
   return card;
 }
 
+// 多选模式：点击=勾选/取消；平时=打开笔记（同一窗格，§5.4；按住 Ctrl 照 Obsidian 习惯开新标签；中键也开新标签，C17）
+function openItem(x, e, forceNew = false) {
+  if (!x) return;
+  if (selectMode && !forceNew) { toggleSelect(x.id); return; }
+  if (!x.note) return;
+  const newTab = forceNew || !!(e && (e.ctrlKey || e.metaKey));
+  saveState(); if (!newTab) leaving = true;
+  app.workspace.openLinkText(lbPath(x.note), '', newTab);
+}
+
+// ── 1021「列表」视图：简单表格（标题、分类、作者、导入时间、♡），和瀑布流用同一份筛选 / 搜索结果；点行打开笔记，右键同卡片菜单 ──
+let listKey = null;
+function renderList(r) {
+  if (listKey === r.key && listBox.firstChild) { paintListSel(); return; }
+  listKey = r.key;
+  perfCounts.list = (perfCounts.list || 0) + 1;
+  listBox.empty();
+  const table = listBox.createEl('table', { cls: 'lbc-ltable' });
+  const hr = table.createEl('thead').createEl('tr');
+  for (const [cls, t] of [['lbc-lt-title', '标题'], ['lbc-lt-cat', '分类'], ['lbc-lt-au', '作者'], ['lbc-lt-date', '导入时间'], ['lbc-lt-likes', '♡']]) hr.createEl('th', { cls, text: t });
+  const tb = table.createEl('tbody');
+  const row = ({ it }) => {
+    const tr = tb.createEl('tr', { cls: 'lbc-lrow' + (selected.has(it.id) ? ' is-selected' : '') });
+    tr.tabIndex = 0; tr._lbItem = it; tr.dataset.id = it.id;
+    const td = tr.createEl('td', { cls: 'lbc-lt-title' });
+    if (it.starred) td.createEl('span', { cls: 'lbc-lt-star', text: '★' });
+    td.append(cardTitle(it));
+    tr.createEl('td', { cls: 'lbc-lt-cat', text: catNameOf(it) });
+    tr.createEl('td', { cls: 'lbc-lt-au', text: it.author || it.source || '收藏' });
+    tr.createEl('td', { cls: 'lbc-lt-date', text: shortDay(it.date || it.ts) });
+    tr.createEl('td', { cls: 'lbc-lt-likes', text: it.likes == null ? '' : fmtLikes(it.likes).replace(/^♡ /, '') });
+    tr.onclick = e => openItem(tr._lbItem, e);
+    tr.onkeydown = e => { if (e.target === tr && e.key === 'Enter') { e.preventDefault(); openItem(tr._lbItem, e); } };
+    tr.onauxclick = e => { if (e.button === 1) { e.preventDefault(); openItem(tr._lbItem, e, true); } };
+    tr.onmousedown = e => { if (e.button === 1) e.preventDefault(); };
+    if (!mobile) tr.oncontextmenu = e => { e.preventDefault(); openCardMenu(e, tr, tr._lbItem, { row: true }); };
+  };
+  for (const rw of r.exact) row(rw);
+  if (r.possible.length) {
+    const sep = tb.createEl('tr', { cls: 'lbc-lt-sep' });
+    sep.createEl('td', { text: `可能相关 · ${r.possible.length} 篇（拼音相近、错一个字、漏字，不是原词命中）`, attr: { colspan: '5' } });
+    for (const rw of r.possible) row(rw);
+  }
+}
+function paintListSel() {
+  if (listBox.hidden) return;
+  for (const tr of listBox.querySelectorAll('tr.lbc-lrow')) tr.classList.toggle('is-selected', selected.has(tr.dataset.id));
+}
+
 // ── 多选（C10：只改这张卡的 class；进 / 出多选时补滚动，下面的卡不动） ──
 function paintSelectMode() {
+  paintListSel();
   wrap.classList.toggle('is-selecting', selectMode && selected.size > 0);
   setSelbarVisible(selectMode && selected.size > 0);
   paintSelbar();
@@ -2368,21 +2805,28 @@ function render() {
   ibar.hidden = !showIndex; ipanel.hidden = !showIndex;
   split.classList.toggle('is-on', showIndex);
   split.classList.toggle('is-narrow', showIndex && panelNarrow());
-  grid.hidden = false;
   if (activeFacets.length && (!showIndex || facetNode !== activeCat)) activeFacets = [];
   facetNode = activeCat;
   if (showIndex) { renderIndexBar(); renderIndexPanel(); renderIndexHead(); paintIndexSticky(); }
   else ihead.hidden = true;
   renderIndexFacets();
   const r = rankRows();
-  const n = colCount();
-  if (r.key !== laidKey || n !== laidN) layoutGrid();
+  // 1021「列表」：有结果时网格藏起来、画表格；没结果照旧在网格里出空状态（清除筛选 / 去问收藏）
+  const listMode = viewMode === 'list' && !showIndex && !simplePage && (r.exact.length + r.possible.length) > 0;
+  wrap.classList.toggle('is-listview', listMode);
+  grid.hidden = listMode; listBox.hidden = !listMode;
+  if (listMode) { cancelFill(); renderList(r); }
+  else {
+    if (listBox.firstChild) { listBox.empty(); listKey = null; }
+    const n = colCount();
+    if (r.key !== laidKey || n !== laidN) layoutGrid();
+  }
   paintCardFacets();
   paintSub();
   paintSelectMode();
   saveState();
 }
-function relayoutIfNeeded() { if (colCount() !== laidN) withAnchor(() => layoutGrid()); }
+function relayoutIfNeeded() { if (!grid.hidden && colCount() !== laidN) withAnchor(() => layoutGrid()); }
 // 数据刷新 / 删除 / 列数变化时：记下顶栏下第一张卡的位置，重摆后修正 scrollTop，视野不跳（C9）
 function withAnchor(fn) {
   const sc = LB.scroller();
@@ -2397,12 +2841,12 @@ function withAnchor(fn) {
 // C6：换搜索词 / 切大类后回到结果开头（只有已经滚过结果开头时才动）
 function scrollToResults() {
   const sc = LB.scroller(); if (!sc) return;
-  const target = grid.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - top.offsetHeight - 8;
+  const target = (grid.hidden ? listBox : grid).getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - stuckHeight() - 8;
   if (sc.scrollTop > target + 4) sc.scrollTop = Math.max(0, target);
 }
 function scrollToPossible() {
   const sc = LB.scroller(); const h = grid.querySelector('.lbc-possible-head'); if (!sc || !h) return;
-  const target = Math.max(0, h.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - top.offsetHeight - 8);
+  const target = Math.max(0, h.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - stuckHeight() - 8);
   try { sc.scrollTo({ top: target, behavior: 'smooth' }); } catch { sc.scrollTop = target; }
   if (typeof sc.scrollTo !== 'function') sc.scrollTop = target;
   h.tabIndex = -1; try { h.focus({ preventScroll: true }); } catch {}
@@ -2481,18 +2925,23 @@ if (app.workspace?.on && dv.component?.registerEvent) {
   // 星标以 catalog-data 为准 + link-brain:star 事件（§5.6）：只换这张卡的 ★，不重排（C2）
   lbEvent(app.workspace, app.workspace.on('link-brain:star', (id, on) => { const it = items.find(x => x.id === id); if (it && !it._starBusy && !!it.starred !== !!on) { it.starred = !!on; paintCard(id); paintSelbar(); } }));
   // 10-03：「…→改标题 / 每行几列」改完就地换（不重建卡片）
-  lbEvent(app.workspace, app.workspace.on('link-brain:catalog-prefs', () => { titleLabel.setText(titleOf()); const c = savedCols(); if (c !== cols) { cols = c; applyCols(); relayoutIfNeeded(); } }));
+  lbEvent(app.workspace, app.workspace.on('link-brain:catalog-prefs', () => { setTitle(); const c = savedCols(); if (c !== cols) { cols = c; applyCols(); relayoutIfNeeded(); } }));
   lbEvent(app.workspace, app.workspace.on('link-brain:catalog-query', () => { if (takePendingQuery()) saveState(); }));
 }
 { const winTarget = typeof window !== 'undefined' && window && typeof window.addEventListener === 'function' ? window : null;
   if (winTarget) LB.listen('focus-fresh', winTarget, 'focus', () => checkFresh()); }
 
 // ── 吸顶的 top（主审裁决 1）：取滚动容器上内边距的负值，sticky 贴住滚动容器顶边，上方不留缝（主 / 副 split 里内边距不同，不写死） ──
+// 1021 窄屏（≤700px）：新页头 + 分类行 + 控制行加起来半屏多高，整块吸住就没地方看卡了——吸顶 top 再往上让出「搜索框以上」那一截
+// （sticky 的负 top：吸住时只露搜索那一行 + 主题行 + 多选栏，往回滚整块照常出来）。宽屏照旧整块吸住（设计稿：只有收藏墙在动）。
+let stickyHide = 0;
+const stuckHeight = () => Math.max(0, (top.offsetHeight || 0) - stickyHide);
 function paintStickyTop() {
   const sc = LB.scroller(); if (!sc) return;
   let pad = 0;
   try { const cs = (typeof getComputedStyle === 'function') ? getComputedStyle(sc) : null; pad = parseFloat(cs?.paddingTop) || 0; } catch {}
-  const v = pad ? `${-pad}px` : '0px';
+  stickyHide = narrow() ? Math.max(0, Math.round(Number(searchBox.offsetTop) || 0) - 8) : 0;
+  const v = pad + stickyHide ? `${-(pad + stickyHide)}px` : '0px';
   if (top.style.top !== v) top.style.top = v;
   if (indexView && idx) paintIndexSticky();
 }
@@ -2508,7 +2957,7 @@ if (typeof ResizeObserver === 'function') {
       pending = false;
       // 10-11 索引视图：页面变窄 / 变宽时树在左边还是叠在上面跟着换（换了网格宽度会变，下一次再按列数重摆）
       if (indexView && idx && split.classList.contains('is-narrow') !== panelNarrow()) { render(); return; }
-      if (colCount() !== laidN) withAnchor(() => layoutGrid());
+      if (!grid.hidden && colCount() !== laidN) withAnchor(() => layoutGrid());
     });
   });
   ro.observe(grid);
@@ -2569,7 +3018,7 @@ LB.keep(wrap, { park: true, onAdopt: () => { LB.restoreFocus(search, 'search'); 
   if (refreshTags() && committed) dataRev++;
   takePendingQuery();
   const c = savedCols(); if (c !== cols && (c || LB.provider()?.settings)) { cols = c; applyCols(); }
-  if (titleLabel.textContent !== titleOf()) titleLabel.setText(titleOf());
+  setTitle();
   render();
   paintStickyTop();
   if (stale) checkFresh();

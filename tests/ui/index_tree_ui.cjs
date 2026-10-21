@@ -84,10 +84,10 @@ async function open(browser, { width = 1280, height = 900, theme = 'light', idx,
   const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', theme, data, files, plugin: PLUGIN, mobile });
   return { page, S };
 }
-const tabs = page => page.evaluate(() => [...document.querySelectorAll('.lbc-cats .lbc-cat')].map(b => ({ text: b.textContent, on: b.classList.contains('is-active') })));
+const tabs = page => page.evaluate(() => [...document.querySelectorAll('.lbc-cats .lbc-cat, .lbc-vseg .lbc-view')].map(b => ({ text: b.textContent, on: b.classList.contains('is-active') || b.classList.contains('is-on') })));
 const chips = page => page.evaluate(() => [...document.querySelectorAll('.lbc-subcats .lbc-subcat')].map(b => ({ text: b.textContent, on: b.classList.contains('is-active'), path: b.dataset.path })));
 const cardTitles = page => page.evaluate(() => [...document.querySelectorAll('.lbc-grid .lbc-card .lbc-ctitle')].map(e => e.textContent));
-const clickTab = async (page, text) => { await page.evaluate(t => [...document.querySelectorAll('.lbc-cats .lbc-cat')].find(b => b.textContent === t).click(), text); };
+const clickTab = async (page, text) => { await page.evaluate(t => [...document.querySelectorAll('.lbc-cats .lbc-cat, .lbc-vseg .lbc-view')].find(b => b.textContent === t).click(), text); };
 const treeRows = page => page.evaluate(() => [...document.querySelectorAll('.lbi-panel .lbi-row')].map(r => ({ path: r.dataset.path, text: r.querySelector('.lbi-label').textContent,
   cls: r.className, acts: [...r.querySelectorAll('.lbi-acts button')].map(b => b.textContent) })));
 const clickRow = async (page, path) => { await page.evaluate(p => [...document.querySelectorAll('.lbi-row')].find(n => n.dataset.path === p).querySelector('.lbi-label').click(), path); };
@@ -105,8 +105,10 @@ const calls = async (S, name) => (await S.calls()).filter(c => c[0] === name);
       const { page, S } = await open(browser, { theme, idx, data });
       // ① 顶部分类
       const names = (await tabs(page)).map(t => t.text);
-      for (const fixed of ['全部', '索引', '今日新增', '已收藏', '视频', '附件']) assert.ok(names.includes(fixed), `${theme}：固定入口「${fixed}」还在 ${names}`);
-      assert.deepEqual(names.slice(names.indexOf('附件') + 1), ['做饭', 'AI', '旅行', '悉尼', '学习', '家居', '未归类'], `${theme}：分类 = 索引第一级（0 篇的不出）+ 未归类`);
+      // 1021：分类行只放「全部 + 分类」；范围（今日新增 / 已收藏 / 视频 / 附件）在控制行，「索引」是视图切换的第三项
+      const fixedNames = await page.evaluate(() => [...document.querySelectorAll('.lbc-ctl .lbc-scope-tab, .lbc-vseg .lbc-view')].map(b => b.textContent));
+      for (const fixed of ['全部', '今日新增', '已收藏', '视频', '附件', '索引']) assert.ok(fixedNames.includes(fixed), `${theme}：固定入口「${fixed}」还在 ${fixedNames}`);
+      assert.deepEqual(names.slice(0, names.indexOf('瀑布流')), ['全部', '做饭', 'AI', '旅行', '悉尼', '学习', '家居', '未归类'], `${theme}：分类 = 全部 + 索引第一级（0 篇的不出）+ 未归类`);
       // ② 大类 → 二级小标签
       await clickTab(page, '做饭'); await S.settle();
       assert.equal((await cardTitles(page)).length, count('做饭'), `${theme}：点「做饭」只剩这一类`);

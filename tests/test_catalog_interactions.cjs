@@ -99,34 +99,45 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
     {id:'b',title:'快手菜',tags:['菜谱'],cats:['吃的'],topics:[],summary:'',search_text:'',attachment:'none'},
     {id:'c',title:'睡前记忆整理',tags:['睡眠'],cats:['记忆'],topics:['AI 记忆层','睡眠'],summary:'',search_text:'',attachment:'none'},
   ]};
-  // 无主题（旧数据没有 topics 键 / 新数据 topics:[]）：整行不建，卡片照旧
+  // 无主题（旧数据没有 topics 键 / 新数据 topics:[]）：主题行不建、控制行里没有主题快捷标签，卡片照旧
   for(const data of [{...base,items:base.items.map(({topics,...it})=>it)},{...base,topics:[]}]){
     const page=await runCatalogPage(data);
     assert.equal(page.root.querySelectorAll('.lbc-topics').length,0);
-    assert.deepEqual(page.root.querySelector('.lbc-top').children.map(c=>c.className),['lbc-head','lbc-cats','lbc-selbar'],'C1：多选栏在吸顶区里（最后一个子节点）');
+    assert.equal(page.root.querySelectorAll('.lbc-thq').length,0);
+    assert.deepEqual(page.root.querySelector('.lbc-top').children.map(c=>c.className),['lbc-head','lbc-cats','lbc-ctl','lbc-selbar'],'C1：多选栏在吸顶区里（最后一个子节点）；1021 分类行 / 控制行分开');
     assert.equal(page.cards().length,3);
   }
-  // 有主题：chip 出现、★ 前缀、点击过滤、再点取消
+  // 有主题（1021）：控制行里前两个主题是快捷标签（★ 名，篇数在 data-n）；选中一个主题时控制行下面才出主题行（全部主题 / 各主题 / + 新主题）
   const page=await runCatalogPage({...base,topics:['AI 记忆层','睡眠']});
-  assert.deepEqual(page.root.querySelector('.lbc-top').children.map(c=>c.className),['lbc-head','lbc-cats','lbc-topics','lbc-selbar']);
+  const quick=()=>page.root.querySelectorAll('.lbc-thq');
+  const scopeAll=()=>page.root.querySelectorAll('.lbc-scope-tab').find(b=>b.dataset.scope==='');
+  assert.deepEqual(quick().map(c=>[c.textContent,c.dataset.n]),[['★AI 记忆层','2'],['★睡眠','1']]);
+  assert.equal(page.root.querySelectorAll('.lbc-topics').length,0,'没选主题时不出主题行');
+  quick()[0].onclick();
+  assert.deepEqual(page.root.querySelector('.lbc-top').children.map(c=>c.className),['lbc-head','lbc-cats','lbc-ctl','lbc-topics','lbc-selbar']);
   assert.deepEqual(page.chips().map(c=>c.textContent),['★AI 记忆层','★睡眠']);
   assert.equal(page.chips()[0].querySelector('.lbc-topic-star').textContent,'★');
-  page.chips()[0].onclick();
   assert.deepEqual(page.cards(),['长期记忆方案','睡前记忆整理']);
   assert.ok(page.chips()[0].classList.contains('is-active'));assert.equal(page.chips()[0].getAttribute('aria-pressed'),'true');
-  assert.ok(!page.cat('全部').classList.contains('is-active'));
+  assert.ok(quick()[0].classList.contains('is-active'));
+  assert.ok(!scopeAll().classList.contains('is-active'));
   assert.equal(page.root.querySelector('.lbc-count').textContent,'筛出 2 篇（共 3）');
   page.chips()[0].onclick();
-  assert.equal(page.cards().length,3);assert.ok(page.cat('全部').classList.contains('is-active'));
+  assert.equal(page.cards().length,3);assert.ok(scopeAll().classList.contains('is-active'));
+  assert.equal(page.root.querySelectorAll('.lbc-topics').length,0,'再点当前主题 = 回到全部，主题行收起');
   // 单选：切到「睡眠」只剩 c
-  page.chips()[0].onclick();page.chips()[1].onclick();
+  quick()[0].onclick();page.chips()[1].onclick();
   assert.deepEqual(page.cards(),['睡前记忆整理']);
   assert.ok(!page.chips()[0].classList.contains('is-active')&&page.chips()[1].classList.contains('is-active'));
-  // 「全部」清掉主题
-  page.cat('全部').onclick();
-  assert.equal(page.cards().length,3);assert.ok(page.chips().every(c=>!c.classList.contains('is-active')));
+  // 「全部主题」= 属于任何一个主题的
+  page.root.querySelector('.lbc-topic-all').onclick();
+  assert.deepEqual(page.cards(),['长期记忆方案','睡前记忆整理']);
+  assert.equal(page.root.querySelector('.lbc-topic-all').dataset.n,'2');
+  // 范围「全部」清掉主题
+  scopeAll().onclick();
+  assert.equal(page.cards().length,3);assert.equal(page.root.querySelectorAll('.lbc-topics').length,0);
   // 与大类叠加：吃的 ∩ AI 记忆层 = 空；记忆 ∩ AI 记忆层 = a,c
-  page.cat('吃的').onclick();page.chips()[0].onclick();
+  page.cat('吃的').onclick();quick()[0].onclick();
   assert.equal(page.cards().length,0);
   page.cat('记忆').onclick();
   assert.deepEqual(page.cards(),['长期记忆方案','睡前记忆整理']);
@@ -144,7 +155,10 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
     item('做饭（2）').onclick({preventDefault(){},stopPropagation(){}});
     assert.deepEqual(pg.cards(),['快手菜','睡前记忆整理']);
     assert.equal(btn().textContent,'专辑：做饭 ▾');assert.ok(btn().classList.contains('is-active'));
+    // 1021：分类「全部」只管分类；专辑在自己的菜单里取消
     pg.cat('全部').onclick();
+    assert.equal(pg.cards().length,2,'分类「全部」不动专辑');
+    btn().onclick({preventDefault(){},stopPropagation(){}});item('全部专辑（取消筛选）').onclick({preventDefault(){},stopPropagation(){}});
     assert.equal(pg.cards().length,3);assert.equal(btn().textContent,'专辑 ▾');
     const none=await runCatalogPage(base);assert.equal(none.root.querySelector('.lbc-album'),null);
   }

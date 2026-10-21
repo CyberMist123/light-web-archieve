@@ -68,7 +68,8 @@ const row = (page, path) => page.locator(`.lbi-panel .lbi-row[data-path="${path}
       assert.equal(await card.evaluate(c => getComputedStyle(c.querySelector('.lbc-star')).opacity), '1', `${theme}：悬停出⭐`);
       const starred = page.locator('.lbc-grid .lbc-card:has(.lbc-star.is-on)').first();
       const st = await starred.evaluate(c => { const s = getComputedStyle(c.querySelector('.lbc-star')); return { op: s.opacity, bg: s.backgroundColor }; });
-      assert.ok(st.op === '1' && /rgba\(0, 0, 0, 0\)|transparent/.test(st.bg), `${theme}：已收藏常驻小黄星（透明底）${JSON.stringify(st)}`);
+      // 1021 设计稿：已收藏 = 实心圆（浅色主题黑底白星、深色主题反过来）并常显（原来是透明底小黄星）
+      assert.ok(st.op === '1' && !/rgba\(0, 0, 0, 0\)|transparent/.test(st.bg), `${theme}：已收藏常驻实心圆星 ${JSON.stringify(st)}`);
       // ⑤ 系列帖标题
       const series = await page.evaluate(() => [...document.querySelectorAll('.lbc-ctitle.is-series')].map(e => [e.textContent, e.title]));
       const law = series.filter(([, full]) => full.startsWith('【悉尼法学院'));
@@ -84,7 +85,7 @@ const row = (page, path) => page.locator(`.lbi-panel .lbi-row[data-path="${path}
       await S.screenshot(`outline-cards-select-${theme}`);
       await page.keyboard.press('Escape'); await S.settle(80);
       // ① 大纲树
-      await page.evaluate(() => [...document.querySelectorAll('.lbc-cats .lbc-cat')].find(b => b.textContent === '索引').click()); await S.settle();
+      await page.evaluate(() => [...document.querySelectorAll('.lbc-cats .lbc-cat, .lbc-vseg .lbc-view')].find(b => b.textContent === '索引').click()); await S.settle();
       for (const p of ['美食', '美食/菜谱']) { await page.evaluate(p => [...document.querySelectorAll('.lbi-row')].find(r => r.dataset.path === p).querySelector('.lbi-label').click(), p); await S.settle(); }
       assert.ok(!(await page.evaluate(() => document.querySelector('.lbi-bar').textContent)).includes('写法要看一眼'), `${theme}：info 级不出 ⚠`);
       const facets = await page.evaluate(() => [...document.querySelectorAll('.lbi-facet')].map(b => b.dataset.name));

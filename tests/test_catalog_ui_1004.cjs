@@ -143,7 +143,7 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
   await open();
   assert.deepEqual(ids(), ['old', 'd3', 'today', 'd20'], '默认 = 数据顺序');
   const timeTab = () => $('.lbc-time');
-  assert.equal(timeTab().textContent, '导入时间');
+  assert.equal(timeTab().textContent, '最新在前', '1021 排序胶囊：默认写当前状态');
   timeTab().onclick(ev); pick('最近导入').onclick(ev);
   assert.deepEqual(ids(), ['today', 'd3', 'd20', 'old']);
   assert.equal(timeTab().textContent, '最近导入');
@@ -186,10 +186,14 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
   $('.lbc-search').value = '图'; $('.lbc-search').fire('keydown', { key: 'Enter', isComposing: false, preventDefault() {} });
   assert.deepEqual(ids(), ['d3']);
   $('.lbc-search').value = ''; $('.lbc-search').fire('input');
-  // 「全部」把时间筛选和排序一并清掉
+  // 1021：分类行的「全部」只管分类；时间范围 / 排序在排序胶囊的菜单里清（全部 + 默认）
   $$('.lbc-cat').find(b => b.textContent === '全部').onclick();
+  assert.deepEqual(ids(), ['d3', 'd20'], '分类「全部」不动时间筛选');
+  timeTab().onclick(ev); pick('全部').onclick(ev);
+  timeTab().onclick(ev); pick('默认').onclick(ev);
   assert.deepEqual(ids(), ['old', 'd3', 'today', 'd20']);
-  assert.equal(timeTab().textContent, '导入时间');
+  assert.equal(timeTab().textContent, '最新在前');
+  assert.ok(!timeTab().classList.contains('is-active'));
 
   console.log('PASS catalog 1004: hover check selects without entering multi-select first, right-click 导出 exports immediately (remembered 附带原图), 给 AI saves a named selection (default 主题+MMDD, rename, overwrite confirm, write failure honest), import-time sort / today / 7d / 30d / custom range, 全部 resets');
 })().catch(e => { console.error(e); process.exit(1); });

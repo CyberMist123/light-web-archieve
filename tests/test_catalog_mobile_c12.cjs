@@ -8,13 +8,14 @@ const { tick, item, openCatalog, ev } = require('./_fake_l1.cjs');
   const log = Array.from({ length: 7 }, (_, i) => JSON.stringify({ run_id: 'r' + i, trigger: i % 2 ? 'nightly' : 'manual', started_at: `2026-10-0${i + 1}T04:0${i}:00+10:00`, finished_at: i === 6 ? null : `2026-10-0${i + 1}T05:00:00+10:00`, new: i, error: false })).join('\n') + '\n';
   const P = await openCatalog({ items, isMobile: true, files: { '_archive/sync-log.jsonl': log, '收藏搜索.md': '---\nlb-page: chat\n---\n' }, frontmatter: { '收藏搜索.md': { 'lb-page': 'chat' } } });
   const { A, dom } = P;
-  for (const sel of ['.lbc-import', '.lb-manage', '.lbc-check', '.lbc-selbar']) assert.equal(P.$(sel), null, '手机上不建 ' + sel);
+  for (const sel of ['.lbc-import', '.lb-manage', '.lbc-check', '.lbc-selbar', '.lbc-sidetoggle']) assert.equal(P.$(sel), null, '手机上不建 ' + sel);   // 1021：没有边栏，也就没有边栏钮
   assert.equal(P.$$('button.lbc-star').length, 0, '没有可点的星');
   assert.equal(P.card('a').querySelector('.lbc-star').classList.contains('is-static'), true, '已收藏的显示一个不可点的 ★');
   assert.equal(P.card('b').querySelector('.lbc-star').hidden, true, '没收藏的不显示');
   assert.equal(P.$('.lbc-mobile-note').textContent, '手机上只能看：导入、同步、问 AI、收藏要在电脑上用');
-  // 跳页：按 frontmatter 找到问收藏页，openLinkText
-  P.$$('.lb-page-nav button').find(b => b.textContent === '问收藏').onclick(); await tick(5);
+  // 跳页：按 frontmatter 找到问收藏页，openLinkText（1021：「浏览收藏 / 问收藏」导航换成搜索框右边的「问收藏 →」胶囊）
+  assert.equal(P.$('.lb-page-nav'), null, '1021：不再有「浏览收藏」导航');
+  P.$('.lbc-askbtn').onclick(); await tick(5);
   assert.equal(P.app.workspace.opened.at(-1)[0], '收藏搜索.md');
   // 「更新」：读 sync-log.jsonl 最后 5 行，浮层；点外面关
   await P.$('.lbc-updated').onclick(ev()); await tick(5);
