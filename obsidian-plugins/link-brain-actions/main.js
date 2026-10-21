@@ -188,6 +188,8 @@ const DEFAULT_SETTINGS = {
   // 10-03：目录页 / 星标页瀑布流列数（Ctrl + 加减号 / Ctrl + 滚轮 / 「…→每行几列」调，2–6；0 = 按页面宽度自动）
   catalogColumns: 0,
   catalogTitle: "",   // 目录页大标题（空 = Collections）
+  // 1022 目录页编排（Collection+ 第 5 段）：{side: [{id, hidden}]} = 边栏模块顺序 / 隐藏；null = 默认（最近导入 · 同步与用量 · 概览）。只桌面用
+  catalogLayout: null,
   downloads: {folder: path.join(require("os").homedir(), "Downloads"), waitMinutes: 5},
   nickname: "",   // 批注署名（留空 = 不署名）
   annotateMention: "",   // 批注留言对象：填名字后「@名字」开头的批注标成留言给它（10-03：默认不启用）

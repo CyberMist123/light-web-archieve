@@ -162,6 +162,39 @@ width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;disp
 .lbc-mod.is-folded .lbc-chev::before{transform:translateX(-2px) rotate(-45deg);}
 .lbc-wrap .lbc-lab button.lbc-gear{flex:none;width:22px!important;height:22px!important;padding:0!important;margin:0 -4px!important;border:0!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);display:grid;place-items:center;cursor:pointer;border-radius:999px!important;transition:color .15s,transform .4s;}
 .lbc-wrap .lbc-lab button.lbc-gear:hover{color:var(--c-ink);transform:rotate(60deg);}
+/* 1022 第 5 段编排：右上角「编排」胶囊 → 边栏每块头上出黑色操作条（⠿ 拖 / ↑ ↓ / 隐藏），边栏顶部出托盘（+ 隐藏的模块 / 恢复默认 / 完成） */
+.lbc-wrap .lbc-tools button.lb-arrange{width:auto!important;height:var(--ctl-h)!important;padding:0 14px!important;border:1px solid var(--c-ink)!important;border-radius:999px!important;background:var(--c-bg)!important;color:var(--c-ink)!important;box-shadow:none!important;display:inline-flex;align-items:center;gap:7px;font:500 13px/1 var(--f-sans)!important;cursor:pointer;white-space:nowrap;}
+.lbc-wrap .lbc-tools button.lb-arrange:hover,.lbc-wrap.is-arranging .lbc-tools button.lb-arrange{background:var(--c-ink)!important;color:var(--c-bg)!important;}
+.lbc-wrap .lbc-tools button.lb-arrange svg{width:14px;height:14px;flex:none;}
+.lbc-wrap.is-indexview .lbc-tools button.lb-arrange,.lbc-wrap.is-side-narrow .lbc-tools button.lb-arrange{display:none!important;}
+.lbc-mod-bar,.lbc-arrange-tray{display:none;}
+.lbc-wrap.is-arranging .lbc-side{padding-left:12px;padding-right:12px;-webkit-mask-image:none;mask-image:none;}
+.lbc-wrap.is-arranging .lbc-mod{position:relative;margin-top:56px;outline:1.5px dashed var(--c-faint);outline-offset:10px;border-radius:2px;}
+.lbc-wrap.is-arranging .lbc-mod:hover{outline-color:var(--c-ink);}
+.lbc-wrap.is-arranging .lbc-mod .lbc-lab,.lbc-wrap.is-arranging .lbc-mod .lbc-fold-sum,.lbc-wrap.is-arranging .lbc-mod .lbc-mod-body{pointer-events:none;user-select:none;}
+.lbc-wrap.is-arranging .lbc-mod-bar{display:flex;position:absolute;z-index:3;top:-40px;left:-10px;max-width:calc(100% + 20px);align-items:center;gap:2px;height:28px;padding:0 4px;box-sizing:border-box;background:var(--c-ink);color:var(--c-bg);border-radius:999px;font:12px/1 var(--f-sans);white-space:nowrap;}
+.lbc-mod-bar .lbc-mb-h{cursor:grab;width:26px;height:22px;display:grid;place-items:center;border-radius:999px;touch-action:none;flex:none;}
+.lbc-mod-bar .lbc-mb-h:active{cursor:grabbing;}
+.lbc-mod-bar .lbc-mb-h svg{width:10px;height:14px;}
+.lbc-mod-bar .lbc-mb-nm{padding:0 8px 0 2px;font-weight:500;}
+.lbc-mod-bar .lbc-mb-sep{width:1px;height:12px;background:currentColor;opacity:.3;margin:0 3px;flex:none;}
+.lbc-wrap .lbc-mod-bar button{width:auto!important;min-width:24px;height:22px!important;padding:0 7px!important;margin:0!important;border:0!important;border-radius:999px!important;background:transparent!important;color:inherit!important;box-shadow:none!important;font:inherit!important;cursor:pointer;}
+.lbc-wrap .lbc-mod-bar button:hover:not(:disabled){background:var(--c-bg)!important;color:var(--c-ink)!important;}
+.lbc-wrap .lbc-mod-bar button:disabled{opacity:.3;cursor:default;}
+.lbc-mod.is-dragging{opacity:.3;}
+.lbc-mod.is-drop-before::before,.lbc-mod.is-drop-after::after{content:"";position:absolute;z-index:4;left:-10px;right:-10px;height:4px;border-radius:3px;background:var(--c-ink);}
+.lbc-mod.is-drop-before::before{top:-50px;}
+.lbc-mod.is-drop-after::after{bottom:-15px;}
+.lbc-wrap.is-arranging .lbc-arrange-tray{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0 14px;border-bottom:1px solid var(--c-ink);}
+.lbc-arrange-tray .lbc-at-k{font:700 11px/1 var(--f-display);letter-spacing:.26em;color:var(--c-ink);margin-right:auto;}
+.lbc-arrange-tray .lbc-at-hint{order:9;flex:1 1 100%;font-size:12px;line-height:1.6;color:var(--c-muted);}
+.lbc-wrap .lbc-arrange-tray button{width:auto!important;height:28px!important;padding:0 12px!important;margin:0!important;border:1px solid var(--c-ink)!important;border-radius:999px!important;background:var(--c-bg)!important;color:var(--c-ink)!important;box-shadow:none!important;font:13px/1 var(--f-sans)!important;cursor:pointer;white-space:nowrap;}
+.lbc-wrap .lbc-arrange-tray button:hover{background:var(--c-ink)!important;color:var(--c-bg)!important;}
+.lbc-wrap .lbc-arrange-tray button.is-dash{border-style:dashed!important;color:var(--c-muted)!important;}
+.lbc-wrap .lbc-arrange-tray button.is-dash:hover{color:var(--c-bg)!important;}
+.lbc-wrap .lbc-arrange-tray button.is-solid{background:var(--c-ink)!important;color:var(--c-bg)!important;}
+.lbc-wrap.is-side-empty:not(.is-arranging) .lbc-board.has-side{display:block;}
+.lbc-wrap.is-side-empty:not(.is-arranging) .lbc-side,.lbc-wrap.is-side-empty:not(.is-arranging) .lbc-ctl button.lbc-sidetoggle{display:none!important;}
 .lbc-wrap .lbc-lab button.lbc-gear svg{width:15px;height:15px;}
 .lbc-fold-sum{font:14px/1.5 var(--f-serif);color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:-4px;cursor:pointer;}
 .lbc-fold-sum:hover{color:var(--c-ink);}
@@ -834,6 +867,15 @@ const MANAGE_SVG = '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="1
 const manage = mobile ? null : tools.createEl('button', { cls: 'lb-manage lbc-manage' });
 if (manage) { manage.type = 'button'; manage.innerHTML = MANAGE_SVG; manage.createEl('span', { text: '管理' }); }
 if (manage) manage.onclick = async e => { const p = await want('openManageMenu'); p?.openManageMenu(e, { categories: () => editCategories() }); };
+// 1022 第 5 段「编排」胶囊（只桌面目录页：手机 / 星标页没有边栏）：点了进编排，再点或「完成」/ Esc 退出
+const GRIP_SVG = '<svg viewBox="0 0 10 14" aria-hidden="true"><g fill="currentColor"><circle cx="2.5" cy="2.5" r="1.4"/><circle cx="7.5" cy="2.5" r="1.4"/><circle cx="2.5" cy="7" r="1.4"/><circle cx="7.5" cy="7" r="1.4"/><circle cx="2.5" cy="11.5" r="1.4"/><circle cx="7.5" cy="11.5" r="1.4"/></g></svg>';
+const arrangeBtn = mobile || simplePage ? null : tools.createEl('button', { cls: 'lb-arrange lbc-arrange' });
+if (arrangeBtn) {
+  arrangeBtn.type = 'button'; arrangeBtn.innerHTML = GRIP_SVG; arrangeBtn.createEl('span', { text: '编排' });
+  arrangeBtn.setAttribute('aria-pressed', 'false');
+  if (manage) tools.insertBefore(arrangeBtn, manage);
+  arrangeBtn.onclick = () => setArranging(!arranging);
+}
 if (importButton) importButton.type = 'button';
 if (importButton) importButton.onclick = async e => {
   e.preventDefault(); e.stopPropagation();
@@ -3005,7 +3047,7 @@ if (app.workspace?.on && dv.component?.registerEvent) {
   // 星标以 catalog-data 为准 + link-brain:star 事件（§5.6）：只换这张卡的 ★，不重排（C2）
   lbEvent(app.workspace, app.workspace.on('link-brain:star', (id, on) => { const it = items.find(x => x.id === id); if (it && !it._starBusy && !!it.starred !== !!on) { it.starred = !!on; paintCard(id); paintSelbar(); } }));
   // 10-03：「…→改标题 / 每行几列」改完就地换（不重建卡片）
-  lbEvent(app.workspace, app.workspace.on('link-brain:catalog-prefs', () => { setTitle(); const c = savedCols(); if (c !== cols) { cols = c; applyCols(); relayoutIfNeeded(); } }));
+  lbEvent(app.workspace, app.workspace.on('link-brain:catalog-prefs', () => { setTitle(); const c = savedCols(); if (c !== cols) { cols = c; applyCols(); relayoutIfNeeded(); } reloadSideLayout(); }));
   lbEvent(app.workspace, app.workspace.on('link-brain:catalog-query', () => { if (takePendingQuery()) saveState(); }));
 }
 { const winTarget = typeof window !== 'undefined' && window && typeof window.addEventListener === 'function' ? window : null;
@@ -3034,6 +3076,15 @@ function cnyText() {
 }
 function sideModule(key, en, zh, { gear = null } = {}) {
   const sec = side.createEl('section', { cls: 'lbc-mod lbc-mod-' + key }); sec.dataset.mod = key;
+  // 1022 编排操作条（只在 .is-arranging 时显示）：⠿ 按住拖 / ↑ ↓ / 隐藏
+  const bar = sec.createEl('div', { cls: 'lbc-mod-bar' });
+  const grip = bar.createEl('span', { cls: 'lbc-mb-h' }); grip.innerHTML = GRIP_SVG;
+  grip.addEventListener('pointerdown', () => { if (arranging) sec.draggable = true; });
+  bar.createEl('span', { cls: 'lbc-mb-nm', text: zh }); bar.createEl('span', { cls: 'lbc-mb-sep' });
+  const mbBtn = (text, fn, extra) => { const b = bar.createEl('button', { text }); b.type = 'button'; if (extra) b.dataset.act = extra; b.onclick = e => { e?.stopPropagation?.(); fn(); }; return b; };
+  const up = mbBtn('↑', () => nudgeMod(key, -1), 'up'), dn = mbBtn('↓', () => nudgeMod(key, 1), 'down');
+  bar.createEl('span', { cls: 'lbc-mb-sep' });
+  mbBtn('隐藏', () => setModHidden(key, true), 'hide');
   const lab = sec.createEl('div', { cls: 'lbc-lab' }); lab.setAttribute('role', 'button'); lab.tabIndex = 0;
   lab.createEl('span', { cls: 'lbc-lab-en', text: en }); lab.createEl('small', { text: zh });
   lab.createEl('span', { cls: 'lbc-lab-line' });
@@ -3048,7 +3099,7 @@ function sideModule(key, en, zh, { gear = null } = {}) {
   const toggle = () => { sideFold[key] = !sideFold[key]; paintFold(key); saveState(); if (!sideFold[key]) paintMod(key); sideFadeSoon(); };
   const onKey = e => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault?.(); toggle(); } };
   lab.onclick = toggle; sum.onclick = toggle; lab.onkeydown = onKey; sum.onkeydown = onKey;
-  return { key, sec, lab, sum, body, sig: null };
+  return { key, sec, lab, sum, body, sig: null, up, dn };
 }
 function paintFold(key) {
   const m = mods[key]; if (!m) return; const f = !!sideFold[key];
@@ -3230,12 +3281,136 @@ function sideFade() {
 let fadeRaf = 0;
 function sideFadeSoon() { if (fadeRaf) return; const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : f => setTimeout(f, 16); fadeRaf = raf(() => { fadeRaf = 0; sideFade(); }) || 1; }
 const mods = {};
+const arrangeTray = SIDE_ON ? side.createEl('div', { cls: 'lbc-arrange-tray' }) : null;
+
+// ── 1022 第 5 段编排（设计稿第 8 节，她定：模块可拖动排序、隐藏，布局存插件设置 catalogLayout，只桌面生效）──
+// 编排的是边栏三块（页头 / 分类 / 控制行是一整块吸顶，拆开会破坏吸顶与「返回后滚动位置还在」，不动）。
+// catalogLayout = {side: [{id, hidden}]}；缺的模块补在后面、不认识的丢掉；全隐藏 = 边栏整列让开（.is-side-empty），收藏墙铺满。
+// 没插件：这次照样能排，提示一句「插件没开，下次打开会恢复默认」。改完 400ms 存一次，并广播 link-brain:catalog-prefs，别的目录页就地换。
+const SIDE_IDS = ['recent', 'sync', 'overview'];
+const SIDE_NAMES = { recent: '最近导入', sync: '同步与用量', overview: '概览' };
+let arranging = false;
+function readSideLayout() {
+  const raw = provider()?.settings?.catalogLayout?.side;
+  const out = [], seen = new Set();
+  if (Array.isArray(raw)) for (const m of raw) {
+    const id = typeof m === 'string' ? m : m?.id;
+    if (SIDE_IDS.includes(id) && !seen.has(id)) { seen.add(id); out.push({ id, hidden: !!(m && typeof m === 'object' && m.hidden) }); }
+  }
+  for (const id of SIDE_IDS) if (!seen.has(id)) out.push({ id, hidden: false });
+  return out;
+}
+let sideLayout = readSideLayout();
+let layoutWarned = false;
+function saveSideLayout({ reset = false } = {}) {
+  const p = provider();
+  if (!p?.settings) { if (!layoutWarned) { layoutWarned = true; LB.say('插件没开：这次的编排有效，下次打开目录会恢复默认', { kind: 'warn' }); } return; }
+  p.settings.catalogLayout = reset ? null : { ...(p.settings.catalogLayout && typeof p.settings.catalogLayout === 'object' ? p.settings.catalogLayout : {}), side: sideLayout.map(m => ({ id: m.id, hidden: !!m.hidden })) };
+  clearTimeout(p.__lbLayoutSave);
+  p.__lbLayoutSave = setTimeout(async () => {
+    try { await p.saveSettings?.(); try { app.workspace.trigger('link-brain:catalog-prefs', { layout: true }); } catch {} }
+    catch (e) { LB.say('布局没存上：' + (e?.message || e) + '（这次照样有效）', { kind: 'error' }); }
+  }, 400);
+}
+function sideVisible() { return sideLayout.filter(m => !m.hidden); }
+function applySideLayout() {
+  if (!SIDE_ON) return;
+  for (const m of sideLayout) { const mm = mods[m.id]; if (!mm) continue; side.appendChild(mm.sec); mm.sec.hidden = !!m.hidden; }
+  const vis = sideVisible();
+  vis.forEach((m, i) => { const mm = mods[m.id]; if (!mm) return; mm.up.disabled = i === 0; mm.dn.disabled = i === vis.length - 1; });
+  const wasEmpty = wrap.classList.contains('is-side-empty');
+  wrap.classList.toggle('is-side-empty', !vis.length);
+  paintTray();
+  if (wasEmpty !== !vis.length && !arranging) relayoutIfNeeded();
+  sideFadeSoon();
+}
+function reloadSideLayout() {
+  if (!SIDE_ON) return;
+  const next = readSideLayout();
+  if (JSON.stringify(next) === JSON.stringify(sideLayout)) return;
+  sideLayout = next; applySideLayout();
+}
+function paintTray() {
+  if (!arrangeTray) return;
+  arrangeTray.empty();
+  arrangeTray.createEl('span', { cls: 'lbc-at-k', text: 'ARRANGE' });
+  for (const m of sideLayout.filter(x => x.hidden)) {
+    const b = arrangeTray.createEl('button', { cls: 'is-dash', text: '+ ' + SIDE_NAMES[m.id] }); b.type = 'button'; b.dataset.show = m.id;
+    b.onclick = () => setModHidden(m.id, false);
+  }
+  const reset = arrangeTray.createEl('button', { text: '恢复默认' }); reset.type = 'button'; reset.dataset.act = 'reset';
+  reset.onclick = () => { sideLayout = SIDE_IDS.map(id => ({ id, hidden: false })); applySideLayout(); saveSideLayout({ reset: true }); LB.say('边栏已恢复默认布局', { kind: 'ok' }); };
+  const done = arrangeTray.createEl('button', { cls: 'is-solid', text: '完成' }); done.type = 'button'; done.dataset.act = 'done';
+  done.onclick = () => setArranging(false);
+  arrangeTray.createEl('div', { cls: 'lbc-at-hint', text: '按住 ⠿ 上下拖，或点 ↑ ↓ 换位置；隐藏的模块在这里点「+」加回来。只在电脑上生效。' });
+}
+function nudgeMod(key, d) {
+  const vis = sideVisible(); const i = vis.findIndex(m => m.id === key), j = i + d;
+  if (i < 0 || j < 0 || j >= vis.length) return;
+  const a = sideLayout.indexOf(vis[i]), b = sideLayout.indexOf(vis[j]);
+  [sideLayout[a], sideLayout[b]] = [sideLayout[b], sideLayout[a]];
+  applySideLayout(); saveSideLayout();
+}
+function moveModTo(key, target, after) {
+  if (key === target) return;
+  const from = sideLayout.findIndex(m => m.id === key); if (from < 0) return;
+  const [it] = sideLayout.splice(from, 1);
+  const at = sideLayout.findIndex(m => m.id === target);
+  sideLayout.splice(at < 0 ? sideLayout.length : at + (after ? 1 : 0), 0, it);
+  applySideLayout(); saveSideLayout();
+}
+function setModHidden(key, hidden) {
+  const m = sideLayout.find(x => x.id === key); if (!m || m.hidden === !!hidden) return;
+  m.hidden = !!hidden;
+  applySideLayout(); saveSideLayout();
+  if (!hidden) { sideFold[key] = false; paintFold(key); paintMod(key); saveState(); }
+  else if (!arranging) LB.say(`已隐藏「${SIDE_NAMES[key]}」：点右上角「编排」可以加回来`, { kind: 'ok' });
+}
+function onArrangeKey(e) { if (arranging && e.key === 'Escape') { e.preventDefault?.(); setArranging(false); } }
+function setArranging(on) {
+  if (!SIDE_ON || arranging === !!on) return;
+  arranging = !!on;
+  if (arranging && !sideOpen) setSideOpen(true);
+  wrap.classList.toggle('is-arranging', arranging);
+  if (arrangeBtn) arrangeBtn.setAttribute('aria-pressed', String(arranging));
+  if (typeof document !== 'undefined') { if (arranging) document.addEventListener('keydown', onArrangeKey, true); else document.removeEventListener('keydown', onArrangeKey, true); }
+  if (!arranging) endModDrag();
+  paintTray();
+  if (wrap.classList.contains('is-side-empty')) relayoutIfNeeded();   // 全隐藏时进出编排，边栏这一列出来 / 让开
+  sideFadeSoon();
+}
+cleanups.push(() => { try { document.removeEventListener('keydown', onArrangeKey, true); } catch {} });
+// 拖动：只认 ⠿ 按下后的那一块（pointerdown 才设 draggable），落点按目标块上下半区放前 / 放后
+let dragKey = null, dropAt = null;
+function clearDrop() { for (const k of Object.keys(mods)) mods[k].sec.classList.remove('is-drop-before', 'is-drop-after'); }
+function endModDrag() { clearDrop(); for (const k of Object.keys(mods)) { mods[k].sec.classList.remove('is-dragging'); mods[k].sec.draggable = false; } dragKey = null; dropAt = null; }
 function paintMod(key) { if (key === 'recent') paintRecent(); else if (key === 'sync') paintSync(); else if (key === 'overview') paintOverview(); }
 if (SIDE_ON) {
   mods.recent = sideModule('recent', 'RECENT', '最近导入');
   mods.sync = sideModule('sync', 'SYNC', '同步与用量', { gear: openSyncSettings });
   mods.overview = sideModule('overview', 'OVERVIEW', '概览');
   for (const k of Object.keys(mods)) paintFold(k);
+
+  // 1022 编排：托盘在边栏最上面（只 .is-arranging 时显示）；拖动换位置
+  side.addEventListener('dragstart', e => {
+    const sec = e.target?.closest?.('.lbc-mod');
+    if (!arranging || !sec || !sec.draggable) { e.preventDefault?.(); return; }
+    dragKey = sec.dataset.mod; sec.classList.add('is-dragging');
+    try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragKey); } catch {}
+  });
+  side.addEventListener('dragover', e => {
+    if (!dragKey) return;
+    const sec = e.target?.closest?.('.lbc-mod'); clearDrop();
+    if (!sec || sec.hidden || sec.dataset.mod === dragKey) { dropAt = null; return; }
+    e.preventDefault?.();
+    const r = sec.getBoundingClientRect(); const after = e.clientY > r.top + r.height / 2;
+    sec.classList.add(after ? 'is-drop-after' : 'is-drop-before'); dropAt = { key: sec.dataset.mod, after };
+  });
+  side.addEventListener('drop', e => { if (!dragKey) return; e.preventDefault?.(); const d = dropAt, k = dragKey; endModDrag(); if (d) moveModTo(k, d.key, d.after); });
+  side.addEventListener('dragend', () => endModDrag());
+  const onUp = () => { if (!dragKey) for (const k of Object.keys(mods)) mods[k].sec.draggable = false; };
+  if (typeof document !== 'undefined') { document.addEventListener('pointerup', onUp); cleanups.push(() => document.removeEventListener('pointerup', onUp)); }
+  applySideLayout();
   side.addEventListener('scroll', () => sideFade(), { passive: true });
   const visible = () => sideOpen && !wrap.classList.contains('is-side-narrow') && !wrap.classList.contains('is-indexview') && !(typeof document !== 'undefined' && document.hidden);
   // 半分钟走一次倒计时 / 「今天」的界线（只重画 SYNC / RECENT 那几个字；签名没变就不动 DOM）
