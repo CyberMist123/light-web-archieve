@@ -118,3 +118,23 @@ def test_build_built_at_advances(tmp_path, monkeypatch):
     catalog.build()
     b = json.loads(data_path.read_text(encoding="utf-8"))["built_at"]
     assert b > a
+
+
+def test_build_publishes_fonts_once(tmp_path, monkeypatch):
+    """1021 目录页改版：标题 / 数字字体随包发，重建目录时拷进 _archive/fonts/（离线可用）；内容没变不重写。"""
+    monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
+    _make_object(tmp_path, "a1", title="记忆系统分享", tags=["AI"], summary="", stem="记忆系统分享")
+    catalog.build()
+    fonts = tmp_path / "_archive" / "fonts"
+    names = sorted(p.name for p in fonts.iterdir())
+    assert "Cinzel-latin-variable.woff2" in names
+    assert "CormorantGaramond-Italic-latin-variable.woff2" in names
+    assert "OFL-Cinzel.txt" in names and "OFL-CormorantGaramond.txt" in names   # OFL 要求许可证随字体走
+    src = catalog._FONTS / "Cinzel-latin-variable.woff2"
+    assert (fonts / "Cinzel-latin-variable.woff2").read_bytes() == src.read_bytes()
+    # 第二次重建：内容一样 → 一个都不写
+    assert catalog.publish_fonts(tmp_path) == []
+    # 页面脚本里用资源路径拼字体（不连 Google Fonts）
+    page_js = (tmp_path / "_archive" / "catalog-page.js").read_text(encoding="utf-8")
+    assert "_archive/fonts/Cinzel-latin-variable.woff2" in page_js
+    assert "fonts.googleapis" not in page_js

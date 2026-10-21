@@ -534,6 +534,35 @@ _STARRED_SCRIPT = _CATALOG_SCRIPT.replace("const simplePage = false;", "const si
 CATALOG_SCRIPT_NAME = "catalog-page.js"
 STARRED_SCRIPT_NAME = "starred-page.js"
 _BOOTSTRAP = (_ASSETS / "page-bootstrap.js").read_text(encoding="utf-8")
+# 1021 目录页改版：标题 / 数字字体（Cinzel、Cormorant Garamond Italic 拉丁子集 + OFL 许可证）随包发，重建目录时拷到
+# _archive/fonts/（和页面脚本同一个产物目录，手机同步过去照样能显示）；页面用 getResourcePath 拼 @font-face，离线可用、不连 Google Fonts。
+_FONTS = _ASSETS / "fonts"
+FONTS_DIR = "fonts"
+
+
+def publish_fonts(vault: Path) -> list[str]:
+    """把 assets/fonts/ 拷进 _archive/fonts/（内容一样就不写，免得每次重建都让同步盘搬一遍）。返回这次写了的文件名。
+
+    字体只是外观：拷失败不影响目录重建（页面退回系统衬线字体）。"""
+    written: list[str] = []
+    dest = vault / "_archive" / FONTS_DIR
+    for src in sorted(_FONTS.glob("*")) if _FONTS.is_dir() else []:
+        if not src.is_file() or src.suffix.lower() not in (".woff2", ".txt"):
+            continue
+        try:
+            blob = src.read_bytes()
+            out = dest / src.name
+            try:
+                if out.read_bytes() == blob:
+                    continue
+            except OSError:
+                pass
+            dest.mkdir(parents=True, exist_ok=True)
+            storage.atomic_write_bytes(out, blob)
+            written.append(src.name)
+        except OSError:
+            continue
+    return written
 
 
 def _page_bootstrap(script_name: str) -> str:
@@ -694,6 +723,7 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
     storage.atomic_write_text(vault / "_archive" / CATALOG_SCRIPT_NAME, _CATALOG_SCRIPT)
     storage.atomic_write_text(vault / "_archive" / STARRED_SCRIPT_NAME, _STARRED_SCRIPT)
     storage.atomic_write_text(vault / "_archive" / CHAT_SCRIPT_NAME, _CHAT_SCRIPT)
+    publish_fonts(vault)
     storage.atomic_write_text(catalog_path, _PAGE_HEADER.replace("---\n", "---\nlb-page: catalog\n", 1) + _DATAVIEWJS + "\n")
 
     storage.atomic_write_text(vault / pages["chat"], _CHAT_HEADER.replace("---\n", "---\nlb-page: chat\n", 1) + _CHATJS + "\n")
