@@ -320,7 +320,9 @@ def test_waiting_task_announces_itself_while_lock_is_held(tmp_path, monkeypatch)
     assert not list(lock.path.parent.glob(lock.path.name + ".want-*"))  # 放弃后撤掉标记
 
 
-def test_nightly_busy_running_and_lead_time():
+def test_nightly_busy_running_and_lead_time(monkeypatch):
+    # 1021：nightly_step() 默认读本机真实夜跑日志——夜跑正好停在只在本机算的那一步时这条会红（和代码无关）；测试里钉成「读不出来」
+    monkeypatch.setattr(comment_fill, "nightly_step", lambda *a, **k: "")
     now = datetime(2026, 10, 10, 3, 50).astimezone()
     assert comment_fill.nightly_busy(now, [{"name": "T", "state": "Running", "next": ""}])
     assert "04:00" in comment_fill.nightly_busy(now, [{"name": "T", "state": "Ready", "next": "2026-10-10T04:00:00"}])
