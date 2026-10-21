@@ -19,7 +19,7 @@ const HTML = `<style>
 #outer{height:400px;overflow:auto}#reader{height:2000px}.lb-scroll{height:300px;overflow:hidden}.lb-carousel{display:flex;overflow-x:auto;width:300px}.lb-slide{flex:0 0 300px}
 .lb-evidence-hit{outline:2px solid blue}
 </style>
-<div id="outer"><div style="height:600px">上面占位</div><div id="reader"><div class="markdown-preview-view"><div class="lb-note">
+<div id="outer"><div style="height:600px">上面占位</div><div id="reader"><div class="markdown-source-view" style="display:none"><div class="lb-note"><div class="lb-body"><p data-p="1">中间这段讲做法：牛肉先逆纹切条，用黑胡椒和一点点生抽腌十分钟。然后下锅大火快煎，不要翻太多次。</p></div><section class="lb-detail"><div class="lb-comments"><article class="lb-comment" data-cid="c2"><div class="lb-replies"><details><summary>展开</summary><article class="lb-comment lb-reply" data-cid="c2.1"><div class="lb-comment-text">作者回复：可以，但鸡肉要少腌一会儿，不然口感会柴。</div></article></details></div></article></div></section></div></div><div class="markdown-preview-view"><div class="lb-note">
 <div class="lb-carousel"><figure class="lb-slide"><img src="../../_archive/xiaohongshu/x/raw/v0001/assets/image-001.webp" width="300" height="100"></figure><figure class="lb-slide"><img src="../../_archive/xiaohongshu/x/raw/v0001/assets/image-002.webp" width="300" height="100"></figure></div>
 <div class="lb-scroll">
 <div class="lb-body"><p data-p="0">开头一段讲背景，和做法没有关系，只是铺垫的话。</p><p data-p="1">中间这段讲做法：牛肉先逆纹切条，用黑胡椒和一点点生抽腌十分钟。然后下锅大火快煎，不要翻太多次。</p><p data-p="2">结尾一段感谢大家收看，记得点赞收藏。</p></div>
@@ -45,20 +45,22 @@ const HTML = `<style>
       const leaf = { view: { containerEl: root } };
       const go = async part => { const request = leaf.lbEvidenceRequest = {}; const ok = await plugin.locateOnePassage(leaf, part, request); await new Promise(r => setTimeout(r, 450)); /* 等平滑滚动停下 */ const hit = root.querySelector('.lb-evidence-hit'); return { ok, hit: hit ? hit.textContent || hit.getAttribute('src') : '', mark: !!root.querySelector('.lb-locate-mark'), outer: outer.scrollTop, scroll: scroll.scrollTop, bars: root.querySelectorAll('.lb-evidence-bar').length }; };
       const r = {};
-      // ① 锚点直达 + 原句高亮（段 1 里只亮「先逆纹切条…」那一句）
+      const inPreview = () => { const h = root.querySelector('.lb-evidence-hit'); return !!(h && h.closest('.markdown-preview-view')); };
+      // ① 锚点直达 + 原句高亮（段 1 里只亮「先逆纹切条…」那一句）；隐藏的编辑视图里有同一段，必须落到阅读视图那份
       r.anchor = await go({ field: 'body', text: '牛肉先逆纹切条，用黑胡椒和一点点生抽腌十分钟。', offset: 20, paras: [1] });
       r.anchorMarkOnlySentence = r.anchor.hit.includes('逆纹切条') && !r.anchor.hit.includes('结尾');
+      r.anchorInPreview = inPreview();
       // ② 锚点指错段（旧渲染）→ 退回逐字找，仍落在段 1
       r.stale = await go({ field: 'body', text: '然后下锅大火快煎，不要翻太多次。', paras: [0] });
       // ③ 评论楼中楼：data-cid 直达，折叠自动展开
       r.comment = await go({ field: 'comments', text: '可以，但鸡肉要少腌一会儿', comment_labels: ['c2.1'] });
-      r.commentOpen = root.querySelector('.lb-replies details').open;
+      r.commentOpen = root.querySelector('.markdown-preview-view .lb-replies details').open; r.commentInPreview = inPreview();
       // ④ 图片：按文件名切到第 2 张
       r.image = await go({ field: 'ocr', text: '小贴士', images: ['图2'], assets: ['raw/v0001/assets/image-002.webp'] });
       r.carouselLeft = root.querySelector('.lb-carousel').scrollLeft;
       // ④b 视频帖：封面 slide 隐藏，落到 <video poster=封面> 上
       const vc = document.createElement('div'); vc.className = 'lb-carousel'; vc.id = 'vc'; vc.innerHTML = '<figure class="lb-slide"><video poster="../../_archive/xiaohongshu/v/raw/v0001/assets/cover-001.webp" width="300" height="100"></video></figure><figure class="lb-slide" style="display:none"><img src="../../_archive/xiaohongshu/v/raw/v0001/assets/cover-001.webp"></figure>';
-      root.querySelector('.lb-note').prepend(vc);
+      root.querySelector('.markdown-preview-view .lb-note').prepend(vc);
       r.video = await go({ field: 'ocr', text: '封面字', images: ['图1'], assets: ['raw/v0001/assets/cover-001.webp'] });
       r.videoTag = (root.querySelector('.lb-media-hit') || {}).tagName;
       vc.remove();
@@ -76,7 +78,8 @@ const HTML = `<style>
       return r;
     }, methods);
     console.log(JSON.stringify(out));
-    assert.ok(out.anchor.ok && out.anchor.mark && out.anchorMarkOnlySentence, '① 锚点直达、只亮那一句');
+    assert.ok(out.anchor.ok && out.anchor.mark && out.anchorMarkOnlySentence && out.anchorInPreview, '① 锚点直达、只亮那一句、落在可见的阅读视图');
+    assert.ok(out.commentInPreview, '③ 评论落在可见的阅读视图，不是隐藏的编辑视图');
     assert.ok(out.stale.ok && out.stale.hit.includes('大火快煎'), '② 锚点对不上退回原文找');
     assert.ok(out.comment.ok && out.comment.hit.includes('鸡肉要少腌') && out.commentOpen, '③ 评论楼中楼直达并展开');
     assert.ok(out.image.ok && out.image.hit.endsWith('image-002.webp') && out.carouselLeft > 0, '④ 图片切到第 2 张');

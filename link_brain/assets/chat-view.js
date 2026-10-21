@@ -164,29 +164,33 @@ function openNote(source, compare = false, context = '', fromCite = null, seg = 
 // 先按锚点直达（render 1021 起：<p data-p=段序号> / <article data-cid=楼号>；证据段带 paras / comment_labels / assets），
 // 锚点对不上原文（旧渲染）再逐字找；图片按文件名切轮播。只滚原帖自己的滚动区（boardScrollWithin），原句包临时 span 亮 6 秒。
 function passageCompact(s) { return String(s || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase(); }
+// 1022 她：locate-last 里 comments 是楼数的两倍——Obsidian 把隐藏的编辑视图和阅读视图都留在 DOM 里，querySelector 先拿到隐藏那份，
+// 滚不到也看不见。只认没被 display:none 祖先藏起来的元素（折叠的 <details> 里的照常算，开 details 后能看见）
+function passageHidden(el, box) { for (let u = el; u && u !== box.parentElement; u = u.parentElement) { if (u.nodeType === 1 && getComputedStyle(u).display === 'none') return true; } return false; }
 function passageTargetIn(box, part) {
   const quote = passageCompact(part.text);
+  const shown = els => [...els].filter(el => !passageHidden(el, box));
   const run = (a, b, w) => { for (let i = 0; i + w <= a.length; i++) if (b.includes(a.slice(i, i + w))) return true; return false; };
   const verify = el => { const text = passageCompact(el.textContent); if (!quote || !text) return false; if (quote.length < 24) return quote.length >= 6 && (text.includes(quote) || quote.includes(text)); if (text.length < 12) return quote.includes(text); return quote.includes(text) || run(text, quote, 24) || run(quote, text, 24); };
   if (part.field === 'ocr' || part.field === 'comment_ocr') {
     const assets = (part.assets || []).map(x => String(x).replace(/\\/g, '/')); const names = assets.map(a => a.split('/').pop());
     // 1022 她：视频帖封面的识别文字——封面图那张 slide 在视频帖里是 display:none（CSS 563），要落到 <video poster=封面> 上；同名多处时挑看得见的
     const same = u => { const src = decodeURIComponent(u || '').replace(/\\/g, '/').split('?')[0]; const name = src.split('/').pop(); return assets.some(a => src.endsWith('/' + a) || src === a) || names.some(n => n && name === n); };
-    const all = [...box.querySelectorAll('.lb-slide img, .lb-slide video[poster], img.lb-comment-image')].filter(m => same(m.getAttribute('src')) || same(m.getAttribute('poster')));
+    const all = shown(box.querySelectorAll('.lb-slide img, .lb-slide video[poster], img.lb-comment-image')).filter(m => same(m.getAttribute('src')) || same(m.getAttribute('poster')));
     const visible = all.find(m => m.getClientRects().length > 0);
     return { el: visible || all[0] || null, how: visible ? 'asset' : all[0] ? 'asset-hidden' : 'none' };
   }
   const anchors = [];
-  if (part.field === 'comments') { for (const l of part.comment_labels || []) { const el = box.querySelector(`article.lb-comment[data-cid="${String(l).replace(/[^\w.]/g, '')}"] .lb-comment-text`); if (el) anchors.push(el); } }
+  if (part.field === 'comments') { for (const l of part.comment_labels || []) for (const el of shown(box.querySelectorAll(`article.lb-comment[data-cid="${String(l).replace(/[^\w.]/g, '')}"] .lb-comment-text`))) anchors.push(el); }
   else if (['body', 'transcript', 'screen'].includes(part.field)) {
     const scope = part.field === 'body' ? '.lb-body' : '.lb-transcript .lb-body';
-    for (const i of part.paras || []) for (const el of box.querySelectorAll(`${scope} p[data-p="${Number(i)}"]`)) { if (part.field === 'body' && el.closest('.lb-transcript')) continue; anchors.push(el); }
+    for (const i of part.paras || []) for (const el of shown(box.querySelectorAll(`${scope} p[data-p="${Number(i)}"]`))) { if (part.field === 'body' && el.closest('.lb-transcript')) continue; anchors.push(el); }
   }
   const ok = anchors.find(verify); if (ok) return { el: ok, how: 'anchor', anchors: anchors.length };
   if (anchors.length && !quote) return { el: anchors[0], how: 'anchor-noquote', anchors: anchors.length };
   const selectors = { body: '.lb-body p', comments: '.lb-comment-text', transcript: '.lb-transcript .lb-body p', screen: '.lb-transcript .lb-body p' };
   if (!selectors[part.field]) return { el: null, how: 'nofield', anchors: anchors.length };
-  const el = [...box.querySelectorAll(selectors[part.field])].filter(el => !(part.field === 'body' && el.closest('.lb-transcript'))).find(verify) || null;
+  const el = shown(box.querySelectorAll(selectors[part.field])).filter(el => !(part.field === 'body' && el.closest('.lb-transcript'))).find(verify) || null;
   return { el, how: el ? 'text' : 'none', anchors: anchors.length };
 }
 function markPassageIn(el, quote) {
@@ -221,7 +225,8 @@ async function locateInReader(src, part) {
   if (!box.querySelector('.lb-note, .lb-body')) return done(false, 'not-rendered');
   box.querySelectorAll('.lb-evidence-hit').forEach(el => el.classList.remove('lb-evidence-hit'));
   const { el, how, anchors } = passageTargetIn(box, part);
-  log.how = how; log.anchors = anchors;
+  log.how = how; log.anchors = anchors; log.views = [...box.querySelectorAll('.markdown-preview-view, .markdown-source-view')].map(v => v.className.split(' ').slice(0, 2).join('.') + (getComputedStyle(v).display === 'none' ? '(hidden)' : ''));
+  if (el) log.in = (el.closest('.markdown-preview-view, .markdown-source-view') || {}).className?.split(' ')[0];
   if (!el) return done(false, 'not-found');
   let up = el.parentElement; while (up && up !== box) { if (up.tagName === 'DETAILS') up.open = true; up = up.parentElement; }
   const carousel = el.closest('.lb-carousel');

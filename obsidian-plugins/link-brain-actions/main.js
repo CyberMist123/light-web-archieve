@@ -2040,6 +2040,9 @@ class LinkBrainActions extends Plugin {
   // 先按锚点直达（渲染起带 <p data-p=段序号> / <article data-cid=楼号>，后端证据段带 paras / comment_labels / assets），
   // 锚点对不上原文（旧渲染、库重建过）再按逐字原文找（evidenceTargets）。图片 = 按文件名找那张图。
   passageTarget(container, part) {
+    // 1022：Obsidian 把隐藏的编辑视图和阅读视图都留在 DOM 里，只认没被 display:none 祖先藏起来的（折叠 details 里的照常）
+    const hidden=el=>{for(let u=el;u&&u!==container.parentElement;u=u.parentElement){if(u.nodeType===1&&getComputedStyle(u).display==='none')return true;}return false;};
+    const shown=els=>[...els].filter(el=>!hidden(el));
     const compact=s=>String(s||'').normalize('NFKC').replace(/\s+/g,'').toLowerCase();
     const quote=compact(part.text);
     const run=(a,b,w)=>{for(let i=0;i+w<=a.length;i++)if(b.includes(a.slice(i,i+w)))return true;return false;};
@@ -2049,21 +2052,21 @@ class LinkBrainActions extends Plugin {
       const assets=(part.assets||[]).map(x=>String(x).replace(/\\/g,'/'));const names=assets.map(a=>a.split('/').pop());
       // 1022：视频帖封面 slide 是 display:none，要落到 <video poster=封面>；同名多处挑看得见的
       const same=u=>{const src=decodeURIComponent(u||'').replace(/\\/g,'/').split('?')[0];const name=src.split('/').pop();return assets.some(a=>src.endsWith('/'+a)||src===a)||names.some(n=>n&&name===n);};
-      const all=[...container.querySelectorAll('.lb-slide img, .lb-slide video[poster], img.lb-comment-image')].filter(m=>same(m.getAttribute('src'))||same(m.getAttribute('poster')));
+      const all=shown(container.querySelectorAll('.lb-slide img, .lb-slide video[poster], img.lb-comment-image')).filter(m=>same(m.getAttribute('src'))||same(m.getAttribute('poster')));
       return all.find(m=>m.getClientRects().length>0)||all[0]||null;
     }
     const anchors=[];
-    if(part.field==='comments'){for(const l of part.comment_labels||[]){const el=container.querySelector(`article.lb-comment[data-cid="${String(l).replace(/[^\w.]/g,'')}"] .lb-comment-text`);if(el)anchors.push(el);}}
+    if(part.field==='comments'){for(const l of part.comment_labels||[])for(const el of shown(container.querySelectorAll(`article.lb-comment[data-cid="${String(l).replace(/[^\w.]/g,'')}"] .lb-comment-text`)))anchors.push(el);}
     else if(['body','transcript','screen'].includes(part.field)){
       const scope=part.field==='body'?'.lb-body':'.lb-transcript .lb-body';
-      for(const i of part.paras||[])for(const el of container.querySelectorAll(`${scope} p[data-p="${Number(i)}"]`)){if(part.field==='body'&&el.closest('.lb-transcript'))continue;anchors.push(el);}
+      for(const i of part.paras||[])for(const el of shown(container.querySelectorAll(`${scope} p[data-p="${Number(i)}"]`))){if(part.field==='body'&&el.closest('.lb-transcript'))continue;anchors.push(el);}
     }
     const ok=anchors.find(verify);if(ok)return ok;
     if(anchors.length&&!quote)return anchors[0];
     // 退回逐字找（旧渲染没锚点 / 库重建过段序号对不上）：同 evidenceTargets 的范围，但短句也认
     const selectors={body:'.lb-body p',comments:'.lb-comment-text',transcript:'.lb-transcript .lb-body p',screen:'.lb-transcript .lb-body p'};
     if(!selectors[part.field])return null;
-    return [...container.querySelectorAll(selectors[part.field])].filter(el=>!(part.field==='body'&&el.closest('.lb-transcript'))).find(verify)||null;
+    return shown(container.querySelectorAll(selectors[part.field])).filter(el=>!(part.field==='body'&&el.closest('.lb-transcript'))).find(verify)||null;
   }
   scrollWithinNote(el, box) {   // 只滚原帖自己的滚动区（.lb-scroll / 轮播 / 阅读视图），绝不 scrollIntoView（会把工作区一起卷上去）
     for(let up=el.parentElement;up&&up!==box.parentElement;up=up.parentElement){
