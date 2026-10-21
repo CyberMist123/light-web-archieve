@@ -210,7 +210,7 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
     const P = await openCatalog({ data: dataOf(base()), plugin: { settings: { hiddenCats: [] } } });
     const board = P.$('.lbc-board');
     assert.ok(board && board.querySelector('.lbc-side') && board.querySelector('.lbc-board-main .lbc-grid'), '收藏墙外面一层：左边边栏位、右边网格');
-    assert.equal(P.$('.lbc-side').hidden, true, '第 3 段之前边栏不渲染');
+    assert.equal(P.$('.lbc-side').hidden, false, '第 3 段：边栏出来了（内容见 test_catalog_plus_side_1021）'); assert.ok(board.classList.contains('has-side'));
     const btn = P.$('.lbc-sidetoggle');
     assert.equal(btn.getAttribute('aria-pressed'), 'true');
     assert.equal(btn.getAttribute('aria-label'), null, '不设 aria-label（Obsidian 会出悬浮框）');

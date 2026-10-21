@@ -139,6 +139,77 @@ width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;disp
 .lbc-wrap.is-side-collapsed .lbc-board.has-side{display:block;}
 .lbc-wrap.is-side-collapsed .lbc-side{display:none!important;}
 @media(max-width:760px){.lbc-board.has-side{display:block;}.lbc-board.has-side>.lbc-side{display:none!important;}}
+/* 1021 第 3 段 · 左侧边栏（DESIGN-SPEC §4、§7）：吸在页头下面（top / max-height 由 paintStickyTop 量好写到 .lbc-wrap 上），内容超高自己滚，
+   不显示滚动条；没到底时底部 56px 渐隐（.is-more），到底去掉。只有收藏墙随页面滚。窄于 760（按页面宽，.is-side-narrow）或手机不出 */
+.lbc-side{position:sticky;top:var(--lbc-side-top,0px);overflow-anchor:none;max-height:calc(var(--lbc-pane-h,100vh) - var(--lbc-top-h,0px) - 16px);overflow-x:hidden;overflow-y:auto;scrollbar-width:none;min-width:0;box-sizing:border-box;padding:6px 0 24px;}
+.lbc-side::-webkit-scrollbar{display:none;}
+.lbc-side.is-more{-webkit-mask-image:linear-gradient(#000 calc(100% - 56px),transparent);mask-image:linear-gradient(#000 calc(100% - 56px),transparent);}
+.lbc-wrap.is-side-narrow .lbc-board.has-side{display:block;}
+.lbc-wrap.is-side-narrow .lbc-side{display:none!important;}
+.lbc-wrap.is-side-narrow .lbc-ctl button.lbc-sidetoggle{display:none!important;}
+/* 「索引」视图自己左边有树（这次不动它）：边栏和边栏钮都让开，版式照旧 */
+.lbc-wrap.is-indexview .lbc-board.has-side{display:block;}
+.lbc-wrap.is-indexview .lbc-side,.lbc-wrap.is-indexview .lbc-ctl button.lbc-sidetoggle{display:none!important;}
+@media(max-width:760px){.lbc-wrap .lbc-ctl button.lbc-sidetoggle{display:none!important;}}
+.lbc-mod{margin:0 0 26px;}
+.lbc-mod[hidden],.lbc-mod-body[hidden],.lbc-fold-sum[hidden],.lbc-sy-alert[hidden],.lbc-sy-note[hidden]{display:none!important;}
+.lbc-lab{display:flex;align-items:center;gap:14px;padding:4px 0 14px;cursor:pointer;user-select:none;color:var(--c-ink);}
+.lbc-lab-en{font:700 11px/1 var(--f-display);letter-spacing:.26em;flex:none;}
+.lbc-lab small{font:12px/1 var(--f-serif);letter-spacing:.1em;color:var(--c-muted);flex:none;}
+.lbc-lab-line{flex:1;height:1px;background:var(--c-ink);min-width:12px;}
+.lbc-chev{flex:none;width:14px;height:14px;display:grid;place-items:center;}
+.lbc-chev::before{content:"";width:6px;height:6px;border-right:1.5px solid var(--c-ink);border-bottom:1.5px solid var(--c-ink);transform:translateY(-2px) rotate(45deg);transition:transform .25s;}
+.lbc-mod.is-folded .lbc-chev::before{transform:translateX(-2px) rotate(-45deg);}
+.lbc-wrap .lbc-lab button.lbc-gear{flex:none;width:22px!important;height:22px!important;padding:0!important;margin:0 -4px!important;border:0!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);display:grid;place-items:center;cursor:pointer;border-radius:999px!important;transition:color .15s,transform .4s;}
+.lbc-wrap .lbc-lab button.lbc-gear:hover{color:var(--c-ink);transform:rotate(60deg);}
+.lbc-wrap .lbc-lab button.lbc-gear svg{width:15px;height:15px;}
+.lbc-fold-sum{font:14px/1.5 var(--f-serif);color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:-4px;cursor:pointer;}
+.lbc-fold-sum:hover{color:var(--c-ink);}
+.lbc-fold-sum i{font:italic 15px/1 var(--f-latin);font-variant-numeric:lining-nums tabular-nums;color:var(--c-ink);}
+.lbc-rec{list-style:none;margin:0;padding:0;}
+.lbc-rec li{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:14px;align-items:baseline;padding:11px 0;border-top:1px solid var(--c-line);cursor:pointer;margin:0;}
+.lbc-rec li:last-child{border-bottom:1px solid var(--c-line);}
+.lbc-rec li:hover .lbc-rec-t{text-decoration:underline;text-underline-offset:3px;}
+.lbc-rec time{font:italic 15px/1.2 var(--f-latin);color:var(--c-muted);font-variant-numeric:lining-nums tabular-nums;white-space:nowrap;}
+.lbc-rec-t{font:15px/1.45 var(--f-serif);color:var(--c-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lbc-rec-c{font-size:12px;color:var(--c-muted);white-space:nowrap;}
+.lbc-rec-empty{font:14px/1.5 var(--f-serif);color:var(--c-muted);padding:6px 0;}
+.lbc-sy-top{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;}
+.lbc-sy-k{font-size:12px;color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lbc-sy-big{font:500 30px/1.1 var(--f-latin);color:var(--c-ink);font-variant-numeric:lining-nums tabular-nums;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lbc-sy-big i{font-style:italic;}
+.lbc-sy-bar{height:3px;background:var(--c-line);margin:16px 0 6px;border-radius:3px;overflow:hidden;}
+.lbc-sy-bar i{display:block;height:100%;width:0;background:var(--c-ink);transition:width .4s;}
+.lbc-sy-bar.is-unknown i{width:30%!important;opacity:.5;}
+.lbc-sy-cap{display:flex;justify-content:space-between;gap:12px;font:italic 13px/1.4 var(--f-latin);color:var(--c-muted);margin-bottom:10px;font-variant-numeric:lining-nums tabular-nums;}
+.lbc-sy-cap span:last-child{text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lbc-sy-freq{font-size:12px;color:var(--c-muted);margin:-4px 0 10px;line-height:1.5;}
+.lbc-wrap button.lbc-sy-alert{display:block;width:100%;text-align:left;height:auto!important;margin:0 0 10px;padding:8px 10px!important;border:1px solid var(--c-ink)!important;border-radius:10px!important;background:transparent!important;box-shadow:none!important;color:var(--c-ink);font:13px/1.5 var(--f-sans);cursor:pointer;white-space:normal;}
+.lbc-wrap button.lbc-sy-alert:hover{background:var(--c-soft)!important;}
+.lbc-sy-alert b{font-weight:600;}
+.lbc-sy-note{font-size:12px;line-height:1.6;color:var(--c-muted);margin:0 0 10px;}
+.lbc-sy-row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:10px 0;border-top:1px solid var(--c-line);font-size:13.5px;}
+.lbc-sy-row>span{color:var(--c-muted);}
+.lbc-sy-row b{font:600 17px/1.2 var(--f-latin);color:var(--c-ink);font-variant-numeric:lining-nums tabular-nums;white-space:nowrap;}
+.lbc-sy-row.is-tot{border-top:1px solid var(--c-ink);}
+.lbc-sy-row.is-tot b{font-size:24px;}
+.lbc-sy-row.is-tot b.is-none{color:var(--c-muted);font-weight:400;}
+.lbc-figs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px 20px;}
+.lbc-fig-n{font:500 48px/.95 var(--f-latin);color:var(--c-ink);font-variant-numeric:lining-nums tabular-nums;white-space:nowrap;}
+.lbc-fig-l{font-size:12.5px;color:var(--c-muted);margin-top:8px;}
+.lbc-bars{display:grid;grid-template-columns:repeat(14,minmax(0,1fr));gap:6px;align-items:end;height:104px;margin-top:26px;}
+.lbc-bar{display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;gap:5px;min-width:0;}
+.lbc-bar span{font:12px/1 var(--f-latin);color:var(--c-muted);font-variant-numeric:lining-nums tabular-nums;visibility:hidden;}
+.lbc-bar i{display:block;width:3px;background:var(--c-ink);border-radius:2px 2px 0 0;min-height:1px;}
+.lbc-bar.is-zero i{background:var(--c-line);}
+.lbc-bar.is-today i{width:7px;}
+.lbc-bar.is-today span{visibility:visible;color:var(--c-ink);font-weight:600;}
+.lbc-bar:hover span{visibility:visible;}
+.lbc-days{display:grid;grid-template-columns:repeat(14,minmax(0,1fr));gap:6px;border-top:1px solid var(--c-ink);padding-top:6px;font:12px/1.2 var(--f-latin);color:var(--c-muted);text-align:center;font-variant-numeric:lining-nums tabular-nums;}
+.lbc-days span{white-space:nowrap;min-width:0;}
+.lbc-days span:nth-child(odd):not(:last-child){visibility:hidden;}
+.lbc-side{container-type:inline-size;}
+@container (max-width:340px){.lbc-figs{grid-template-columns:repeat(2,minmax(0,1fr));}.lbc-sy-big{font-size:24px;}}
 /* 10-11「索引」视图：左边可折叠的树（带篇数），右边就是卡片网格（点哪个节点右边就是哪些）；窄了（<700px 或手机）树叠在上面。
    她的口味：不要灰框、不要看得见的滚动条——选中用正文色 + 左侧细线，空分类变淡，按钮都是字链 */
 .lbi-bar{display:flex;flex-direction:column;gap:8px;margin:6px 5px 14px;}
@@ -572,6 +643,7 @@ async function refresh({ strict = false } = {}) {
   renderCatBar();
   withAnchor(() => render());
   paintProblems();
+  sideApi?.paintData();
   const view = root.__lbView;
   if (view && v) view.version = v;   // 已经是新数据了：下一次 Dataview 重跑别再更新一遍
   return true;
@@ -706,12 +778,14 @@ function paintProblems() {
   const pv = paintSyncProg();
   if (pv?.running && !syncing.hidden) { syncing.textContent = '· 同步中'; syncing.title = pv.tip + '\n点开看同步记录'; }
   paintSub();
+  sideApi?.paintSync();
 }
-probBtn.onclick = async () => {
+async function openProblemsPanel() {
   if (mobile) { LB.say('问题列表要在电脑上看'); return; }
   const p = await want('openProblems'); if (!p) return;
   try { await p.openProblems(); } catch (e) { LB.say(e?.message || String(e), { kind: 'error' }); }
-};
+}
+probBtn.onclick = () => openProblemsPanel();
 // 「更新」/「同步中」：电脑上打开同步记录；手机上读 sync-log.jsonl 最后 5 行，弹个小浮层（C12）
 async function openUpdated(e) {
   if (!mobile) {
@@ -776,7 +850,7 @@ const ctl = top.createEl('div', { cls: 'lbc-ctl' });
 const ctlL = ctl.createEl('div', { cls: 'lbc-ctl-l' });
 const ctlR = ctl.createEl('div', { cls: 'lbc-ctl-r' });
 const SIDE_SVG = '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="1.5" width="12" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><rect class="lbc-side-col" x="1.7" y="2.2" width="3.6" height="9.6" stroke="currentColor" stroke-width="1"/></svg>';
-const sideBtn = mobile ? null : ctlL.createEl('button', { cls: 'lbc-sidetoggle' });
+const sideBtn = mobile || simplePage ? null : ctlL.createEl('button', { cls: 'lbc-sidetoggle' });   // 星标页 / 手机没有边栏，也就没有这颗钮
 if (sideBtn) {
   sideBtn.type = 'button'; sideBtn.innerHTML = SIDE_SVG;
   sideBtn.createEl('span', { cls: 'lb-visually-hidden', text: '收起 / 展开边栏' });   // 不设 aria-label / title：Obsidian 会渲染成悬浮框（她不要）
@@ -970,16 +1044,19 @@ function pickView(k) {
   else { viewMode = k === 'list' ? 'list' : 'grid'; indexView = false; }
   renderCatBar({ reveal: true }); render(); scrollToResults();
 }
-// ── 1021 边栏位（第 3 段做内容）：开 / 收状态存 LB.state；这里只换 class 和按钮图标（开 = 左栏实心，收 = 空心） ──
-// 第 3 段接口：往 side（.lbc-side）里画模块，有内容时 side.hidden = false + board.classList.add('has-side')；
-// 开 / 收由 setSideOpen 管（.lbc-wrap.is-side-collapsed），收起 / 窄屏时 CSS 自动让收藏墙铺满（列数按宽度 lbcColumns 自己变）。
+// ── 1021 边栏：开 / 收状态存 LB.state；这里只换 class 和按钮图标（开 = 左栏实心，收 = 空心） ──
+// 边栏内容（第 3 段：RECENT / SYNC / OVERVIEW）在下面「左侧边栏」一节画；开 / 收由 setSideOpen 管（.lbc-wrap.is-side-collapsed），
+// 收起 / 窄屏时 CSS 让收藏墙铺满（列数按宽度 lbcColumns 自己变）。各模块折叠状态 sideFold 也存 LB.state（OVERVIEW 默认折叠）
 let sideOpen = true;
+const sideFold = { recent: false, sync: false, overview: true };
+let sideApi = null;   // 边栏画好后才有：{ paintSync(), paintData(), paintAll(), fade() }；同步状态 / 数据变了只重画边栏里那一块
 function setSideOpen(on) {
   sideOpen = !!on;
   wrap.classList.toggle('is-side-collapsed', !sideOpen);
   if (sideBtn) sideBtn.setAttribute('aria-pressed', String(sideOpen));
   saveState();
   relayoutIfNeeded();
+  if (sideOpen) sideApi?.paintAll();
 }
 // 10-10 二级小标签：选中的大类下面的子节点（带篇数）；点一个 = 筛到它，再点 = 回到这一大类；索引图里点到更深一级时多一个带 ✕ 的尾巴
 let subBar = null;
@@ -1315,6 +1392,7 @@ if (saved.ts) {
   if (saved.exportImages === false) exportImages = false;
   if (saved.view === 'list' && !simplePage) viewMode = 'list';
   if (saved.side === false) sideOpen = false;
+  if (saved.sideFold && typeof saved.sideFold === 'object') for (const k of Object.keys(sideFold)) if (typeof saved.sideFold[k] === 'boolean') sideFold[k] = saved.sideFold[k];
 }
 setScope(scopeOf());   // 1021 范围单选：旧版本存下的叠加状态只留一个（顺序同 scopeOf）
 if (!sideOpen) wrap.classList.add('is-side-collapsed');
@@ -1323,7 +1401,7 @@ let scrollTop = savedScroll;
 function saveState() {
   LB.state.save({ q: committed, raw: lastRaw, input: search.value, cat: activeCat, topic: activeTopic, album: activeAlbum, src: activeSrc, today: todayOnly, todo: todoOnly, media: mediaFilter, star: starOnly,
     selectMode, select: [...selected], scrollTop, cols, timeSort, timeRange, timeFrom, timeTo, exportImages,
-    iview: indexView, fold: [...foldOverride].slice(-200), view: viewMode, side: sideOpen });
+    iview: indexView, fold: [...foldOverride].slice(-200), view: viewMode, side: sideOpen, sideFold: { ...sideFold } });
 }
 
 // ── 多选栏（C1 放进吸顶区、C15 常用的留在栏上） ──
@@ -1399,9 +1477,11 @@ function setSelbarBusy(text) {
 // ── 10-11「索引」视图：左边可折叠的树（带篇数），右边就是卡片网格（同一套卡片，点哪个节点右边就是哪些）；
 //    上面一行：篇数 · 「未归类 N 篇」· 按内容归类的状态 · 「建议新增」chips；右边网格上面一行说清选中的是什么、能做什么。
 // 起草 / 用这版 / 建议 / 改归属 / 生成 wiki 要插件（跑 Python）；打开 索引.md / 草稿 / wiki 页不要插件（手机上也能看）。
-// 1021：收藏墙外面套一层 .lbc-board——左边一列 .lbc-side 留给第 3 段的边栏（现在空着、hidden），右边 .lbc-board-main 是原来的索引条 + 网格
-const board = wrap.createEl('div', { cls: 'lbc-board' });
-const side = board.createEl('aside', { cls: 'lbc-side' }); side.hidden = true;
+// 1021：收藏墙外面套一层 .lbc-board——左边一列 .lbc-side 是边栏（第 3 段；手机 / 星标页不出），右边 .lbc-board-main 是原来的索引条 + 网格。
+// 边栏一开始就占位（has-side），第一次排瀑布流时列数就按留出边栏后的宽度算，不会先排满再挤
+const SIDE_ON = !mobile && !simplePage;
+const board = wrap.createEl('div', { cls: 'lbc-board' + (SIDE_ON ? ' has-side' : '') });
+const side = board.createEl('aside', { cls: 'lbc-side' }); side.hidden = !SIDE_ON;
 const boardMain = board.createEl('div', { cls: 'lbc-board-main' });
 const ibar = boardMain.createEl('div', { cls: 'lbi-bar' }); ibar.hidden = true;
 const split = boardMain.createEl('div', { cls: 'lbi-split' });
@@ -2931,6 +3011,243 @@ if (app.workspace?.on && dv.component?.registerEvent) {
 { const winTarget = typeof window !== 'undefined' && window && typeof window.addEventListener === 'function' ? window : null;
   if (winTarget) LB.listen('focus-fresh', winTarget, 'focus', () => checkFresh()); }
 
+// ── 1021 第 3 段 · 左侧边栏（DESIGN-SPEC §4）：RECENT 最近导入 · SYNC 同步与用量 · OVERVIEW 概览 ──
+// 每块点小标题行折叠成一行摘要、点摘要展开（sideFold 存 LB.state）。数据：RECENT / OVERVIEW 从 items 算；SYNC 读 refreshProblems 拿到的
+// syncState（sync-status.json / problems-summary.json 较新的那份）+ 插件 getSyncSchedule()（60 秒缓存；没插件就「—」加一句说明）。
+// 同步状态变了（文件监听 → refreshProblems → paintProblems）只重画 SYNC 那一块；数据变了（refresh）只重画 RECENT / OVERVIEW。不碰收藏墙、不动输入框。
+const GEAR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+const pad2 = n => String(n).padStart(2, '0');
+const hmOf = t => { const d = new Date(t); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+const mdOf = t => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()}`; };
+const sameDay = (a, b) => ymd(new Date(a)) === ymd(new Date(b));
+// 那一篇是哪天进的库：date（和「今日新增」同一口径）→ 没有就用 ts 的本地日期
+function dayOf(it) { if (typeof it.date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(it.date)) return it.date.slice(0, 10); const t = importedAt(it); return t ? ymd(new Date(t)) : ''; }
+// 「还有 5 小时 30 分」
+function leftText(ms) {
+  if (!(ms > 0)) return '马上开始';
+  const m = Math.max(1, Math.round(ms / 60000)), h = Math.floor(m / 60), r = m % 60;
+  return h ? `还有 ${h} 小时${r ? ` ${r} 分` : ''}` : `还有 ${r} 分`;
+}
+function cnyText() {
+  const v = data?.usage_month?.cost_cny;
+  return v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) ? `约 ¥${Number(v).toFixed(2)}` : '';
+}
+function sideModule(key, en, zh, { gear = null } = {}) {
+  const sec = side.createEl('section', { cls: 'lbc-mod lbc-mod-' + key }); sec.dataset.mod = key;
+  const lab = sec.createEl('div', { cls: 'lbc-lab' }); lab.setAttribute('role', 'button'); lab.tabIndex = 0;
+  lab.createEl('span', { cls: 'lbc-lab-en', text: en }); lab.createEl('small', { text: zh });
+  lab.createEl('span', { cls: 'lbc-lab-line' });
+  if (gear) {
+    const g = lab.createEl('button', { cls: 'lbc-gear' }); g.type = 'button'; g.innerHTML = GEAR_SVG;
+    g.createEl('span', { cls: 'lb-visually-hidden', text: '同步设置' });
+    g.onclick = e => { e?.stopPropagation?.(); gear(g); };
+  }
+  lab.createEl('span', { cls: 'lbc-chev' });
+  const sum = sec.createEl('div', { cls: 'lbc-fold-sum' }); sum.setAttribute('role', 'button'); sum.tabIndex = 0;
+  const body = sec.createEl('div', { cls: 'lbc-mod-body' });
+  const toggle = () => { sideFold[key] = !sideFold[key]; paintFold(key); saveState(); if (!sideFold[key]) paintMod(key); sideFadeSoon(); };
+  const onKey = e => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault?.(); toggle(); } };
+  lab.onclick = toggle; sum.onclick = toggle; lab.onkeydown = onKey; sum.onkeydown = onKey;
+  return { key, sec, lab, sum, body, sig: null };
+}
+function paintFold(key) {
+  const m = mods[key]; if (!m) return; const f = !!sideFold[key];
+  m.sec.classList.toggle('is-folded', f); m.body.hidden = f; m.sum.hidden = !f;
+  m.lab.setAttribute('aria-expanded', String(!f));
+}
+// 摘要：<i> 里的数字 / 时间用 Cormorant 斜体
+function setSum(m, parts) {
+  const sig = JSON.stringify(parts); if (m.sumSig === sig) return; m.sumSig = sig;
+  m.sum.empty();
+  for (const p of parts) { if (Array.isArray(p)) m.sum.createEl('i', { text: p[0] }); else m.sum.append(p); }
+}
+
+// 边栏里点一篇：多选模式下也是打开（不是勾选）；同一窗格，Ctrl / 中键开新标签（§5.4）
+function openFromSide(it, e, forceNew = false) {
+  if (!it?.note) return;
+  const newTab = forceNew || !!(e && (e.ctrlKey || e.metaKey));
+  saveState(); if (!newTab) leaving = true;
+  app.workspace.openLinkText(lbPath(it.note), '', newTab);
+}
+// RECENT：最新 6 篇（按入库时间 ts）；今天显示 HH:MM，否则 M/D；点行打开笔记（同一窗格，Ctrl 开新标签）
+function paintRecent() {
+  const m = mods.recent; const now = Date.now();
+  const list = items.filter(it => importedAt(it) > 0).sort((a, b) => importedAt(b) - importedAt(a)).slice(0, 6);
+  const when = it => { const t = importedAt(it); return sameDay(t, now) ? hmOf(t) : mdOf(t); };
+  setSum(m, list.length ? ['最新 ', [when(list[0])], ' · ' + String(list[0].title || '（无标题）')] : ['还没有收藏']);
+  if (sideFold.recent) return;
+  const sig = ymd(new Date(now)) + '|' + list.map(it => [it.id, importedAt(it), it.title, catNameOf(it)].join('\u0001')).join('\u0002');
+  if (m.sig === sig) return; m.sig = sig;
+  m.body.empty();
+  if (!list.length) { m.body.createEl('div', { cls: 'lbc-rec-empty', text: '还没有收藏' }); return; }
+  const ul = m.body.createEl('ul', { cls: 'lbc-rec' });
+  for (const it of list) {
+    const li = ul.createEl('li'); li.tabIndex = 0; li.setAttribute('role', 'button'); li.dataset.id = it.id;
+    li.createEl('time', { text: when(it) });
+    li.createEl('span', { cls: 'lbc-rec-t', text: String(it.title || '（无标题）') });
+    li.createEl('span', { cls: 'lbc-rec-c', text: catNameOf(it) });
+    li.onclick = e => openFromSide(it, e);
+    li.onauxclick = e => { if (e.button === 1) { e.preventDefault?.(); openFromSide(it, e, true); } };
+    li.onkeydown = e => { if (e.key === 'Enter') openFromSide(it, e); };
+  }
+}
+
+// SYNC：上次 / 下次（大号 Cormorant）+ 频率 + 从上次到下次的时间进度；同步中 = 真实进度；失败 / 阻塞 = 原因（点开问题列表）
+let schedule = null, scheduleErr = '', scheduleAt = 0, scheduleBusy = false;
+async function loadSchedule({ force = false } = {}) {
+  const p = provider();
+  if (!p || typeof p.getSyncSchedule !== 'function' || scheduleBusy) return;
+  if (!force && scheduleAt && Date.now() - scheduleAt < 60000) return;
+  scheduleBusy = true;
+  try { schedule = await p.getSyncSchedule(); scheduleErr = schedule?.error ? String(schedule.error) : ''; }
+  catch (e) { scheduleErr = e?.message || String(e); }
+  finally { scheduleBusy = false; scheduleAt = Date.now(); }
+  paintSync();
+}
+function syncRunText(st) {
+  const d = numOf(st, 'done'), t = numOf(st, 'total');
+  if (d != null && t) return { text: `同步中 ${d}/${t}`, pct: Math.min(1, d / t) };
+  const lv = st.live && typeof st.live === 'object' ? st.live : {};
+  const a = numOf(lv, 'archived'), ft = numOf(lv, 'favorites_total');
+  if (a != null && ft) return { text: `同步中 ${a}/${ft}`, pct: Math.min(1, a / ft) };
+  const m = String(st.progress || '').match(/(\d+)\s*\/\s*(\d+)/);
+  if (m && Number(m[2])) return { text: `同步中 ${m[1]}/${m[2]}`, pct: Math.min(1, Number(m[1]) / Number(m[2])) };
+  return { text: '同步中', pct: null };
+}
+function paintSync() {
+  const m = mods.sync; if (!m) return;
+  const now = Date.now(), st = syncState || {}, p = provider();
+  const last = Math.max(tsOf(st.last_success), tsOf(probSummary?.last_success), tsOf(probSummary?.sync?.last_success));
+  const next = schedule && schedule.enabled !== false ? tsOf(schedule.next_run) : 0;
+  if (next && next < now - 60000 && Date.now() - scheduleAt > 60000) loadSchedule({ force: true });   // 下次那一刻过了：再问一次计划任务
+  const running = st.state === 'running', stopped = st.state === 'blocked' || st.state === 'failed';
+  const run = running ? syncRunText(st) : null;
+  const cost = cnyText();
+  const nToday = (() => { const d = ymd(new Date(now)); let n = 0; for (const it of items) if (dayOf(it) === d) n++; return n; })();
+  const bigWhen = t => t ? [sameDay(t, now) ? '今天' : mdOf(t), hmOf(t)] : null;
+  const why = stopped ? [st.label || regEntry(st.code)?.label || (st.state === 'blocked' ? '同步停下了，要你处理' : '上次同步没成功'), st.detail || st.message || ''].filter(Boolean) : [];
+  // 摘要：下次 今天 21:04 · 本月 约 ¥3.72
+  const nx = bigWhen(next);
+  setSum(m, [
+    ...(running ? [run.text] : stopped ? ['同步停了'] : nx ? ['下次 ', [nx.join(' ')]] : ['下次 —']),
+    ' · 本月 ', [cost || '—'],
+  ]);
+  if (sideFold.sync) return;
+  const freq = schedule ? String(schedule.summary || '').replace(/\s*·\s*下次 .*$/, '') : '';
+  const note = !p ? (mobile ? LB.MOBILE_ONLY_TEXT : '插件没开：下次同步、定时设置看不到（收藏照常可以浏览）')
+    : scheduleErr ? '读不到同步计划：' + scheduleErr : '';
+  const sig = JSON.stringify([Math.floor(now / 30000), last, next, freq, note, running && run, why, nToday, cost, !!schedule, scheduleBusy]);
+  if (m.sig === sig) return; m.sig = sig;
+  const b = m.body; b.empty();
+  if (stopped) {
+    const a = b.createEl('button', { cls: 'lbc-sy-alert' }); a.type = 'button';
+    a.createEl('b', { text: why[0] }); if (why[1]) a.append('：' + why[1]);
+    a.append(' · 点开看问题列表');
+    a.onclick = () => openProblemsPanel();
+  }
+  const topRow = b.createEl('div', { cls: 'lbc-sy-top' });
+  // v = [前半, 斜体后半] / 字符串 / null（—）
+  const cell = (k, v, cls = '') => { const c = topRow.createEl('div', { cls }); c.createEl('div', { cls: 'lbc-sy-k', text: k }); const big = c.createEl('div', { cls: 'lbc-sy-big' }); if (Array.isArray(v)) { big.append(v[0] + ' '); big.createEl('i', { text: v[1] }); } else big.setText(v || '—'); return big; };
+  cell('上次同步', bigWhen(last));
+  if (running) cell('同步中', run.text.replace('同步中', '').trim() || '…', 'lbc-sy-now');
+  else cell('下次同步', nx);
+  m.sec.dataset.state = running ? 'running' : stopped ? 'stopped' : 'idle';
+  const bar = b.createEl('div', { cls: 'lbc-sy-bar' }); const fill = bar.createEl('i');
+  const cap = b.createEl('div', { cls: 'lbc-sy-cap' });
+  if (running) {
+    const pv = p && typeof p.syncProgressView === 'function' ? p.syncProgressView(st) : null;
+    if (run.pct == null) bar.classList.add('is-unknown'); else fill.style.width = (Math.round(run.pct * 1000) / 10) + '%';
+    cap.createEl('span', { text: run.pct == null ? '同步中' : Math.round(run.pct * 100) + '%' });
+    cap.createEl('span', { text: pv?.running ? (pv.eta || pv.phase || pv.today || '') : String(st.progress || st.message || '') });
+  } else if (last && next && next > last) {
+    const pct = Math.max(0, Math.min(1, (now - last) / (next - last)));
+    fill.style.width = (Math.round(pct * 1000) / 10) + '%';
+    cap.createEl('span', { text: Math.round(pct * 100) + '%' }); cap.createEl('span', { text: leftText(next - now) });
+  } else {
+    cap.createEl('span', { text: '' });
+    cap.createEl('span', { text: !p ? '' : !schedule && !scheduleErr ? '正在读同步计划…' : next ? leftText(next - now) : '没有下次' });
+  }
+  if (freq && !running) b.createEl('div', { cls: 'lbc-sy-freq', text: freq });
+  if (note) b.createEl('p', { cls: 'lbc-sy-note', text: note });
+  const row = (k, v, cls = '') => { const r = b.createEl('div', { cls: 'lbc-sy-row' + (cls ? ' ' + cls : '') }); r.createEl('span', { text: k }); return r.createEl('b', { text: v }); };
+  row('今日新增', `${nToday} 篇`);
+  const c = row('Token 费用 · 本月', cost || '—', 'is-tot');
+  if (!cost) { c.classList.add('is-none'); c.title = '还没有用量记录'; }
+  else c.title = '本月调用 AI 的估算费用（人民币）';
+}
+async function openSyncSettings(btn) {
+  const p = await want('openSetupPage'); if (!p) return;
+  try { p.openSetupPage('schedule'); } catch (e) { LB.say('设置没打开：' + (e?.message || e), { kind: 'error' }); }
+  void btn;
+}
+
+// OVERVIEW：全部 / 近 7 天 / 已收藏 / 在用分类（48px 大数字）+ 近 14 天每日导入（黑细柱，今天加粗标数）
+function paintOverview() {
+  const m = mods.overview; const now = new Date();
+  const days = []; for (let k = 13; k >= 0; k--) { const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - k); days.push({ key: ymd(d), d, n: 0 }); }
+  const byDay = new Map(days.map(x => [x.key, x]));
+  const week = new Set(days.slice(-7).map(x => x.key));
+  let nWeek = 0, nStar = 0; const cats = new Set();
+  for (const it of items) {
+    const dk = dayOf(it); const slot = byDay.get(dk); if (slot) slot.n++;
+    if (week.has(dk)) nWeek++;
+    if (it.starred) nStar++;
+    cats.add(catNameOf(it));
+  }
+  cats.delete(UNC_LABEL);
+  setSum(m, [[String(items.length)], ' 篇 · 近 7 天 ', ['+' + nWeek], ' · ★ ', [String(nStar)]]);
+  if (sideFold.overview) return;
+  const sig = JSON.stringify([items.length, nWeek, nStar, cats.size, days.map(x => x.key + ':' + x.n)]);
+  if (m.sig === sig) return; m.sig = sig;
+  const b = m.body; b.empty();
+  const figs = b.createEl('div', { cls: 'lbc-figs' });
+  for (const [n, l] of [[items.length, '全部收藏'], [nWeek, '近 7 天新增'], [nStar, '已收藏'], [cats.size, '在用分类']]) {
+    const f = figs.createEl('div', { cls: 'lbc-fig' }); f.createEl('div', { cls: 'lbc-fig-n', text: String(n) }); f.createEl('div', { cls: 'lbc-fig-l', text: l });
+  }
+  const max = Math.max(1, ...days.map(x => x.n));
+  const bars = b.createEl('div', { cls: 'lbc-bars' });
+  days.forEach((x, i) => {
+    const c = bars.createEl('div', { cls: 'lbc-bar' + (x.n ? '' : ' is-zero') + (i === 13 ? ' is-today' : '') });
+    c.title = `${mdOf(x.d)}：${x.n} 篇`;
+    c.createEl('span', { text: String(x.n) });
+    c.createEl('i').style.height = (x.n ? Math.max(4, Math.round(x.n / max * 72)) : 1) + 'px';
+  });
+  const dl = b.createEl('div', { cls: 'lbc-days' });
+  days.forEach((x, i) => dl.createEl('span', { text: i === 13 ? '今' : mdOf(x.d) }));
+}
+
+// 底部渐隐：边栏内容没到底才加（到底 / 不超高就去掉）
+function sideFade() {
+  if (!SIDE_ON) return;
+  const more = (Number(side.scrollHeight) || 0) - (Number(side.scrollTop) || 0) - (Number(side.clientHeight) || 0) > 2;
+  side.classList.toggle('is-more', more);
+}
+let fadeRaf = 0;
+function sideFadeSoon() { if (fadeRaf) return; const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : f => setTimeout(f, 16); fadeRaf = raf(() => { fadeRaf = 0; sideFade(); }) || 1; }
+const mods = {};
+function paintMod(key) { if (key === 'recent') paintRecent(); else if (key === 'sync') paintSync(); else if (key === 'overview') paintOverview(); }
+if (SIDE_ON) {
+  mods.recent = sideModule('recent', 'RECENT', '最近导入');
+  mods.sync = sideModule('sync', 'SYNC', '同步与用量', { gear: openSyncSettings });
+  mods.overview = sideModule('overview', 'OVERVIEW', '概览');
+  for (const k of Object.keys(mods)) paintFold(k);
+  side.addEventListener('scroll', () => sideFade(), { passive: true });
+  const visible = () => sideOpen && !wrap.classList.contains('is-side-narrow') && !wrap.classList.contains('is-indexview') && !(typeof document !== 'undefined' && document.hidden);
+  // 半分钟走一次倒计时 / 「今天」的界线（只重画 SYNC / RECENT 那几个字；签名没变就不动 DOM）
+  const sideTimer = setInterval(() => { if (!visible()) return; paintSync(); paintRecent(); }, 30000);
+  sideTimer?.unref?.();   // 单测（node）里别让这个钟拖住进程；浏览器里是数字，没有 unref
+  cleanups.push(() => clearInterval(sideTimer));
+  // 首开不拖慢封面（RELEASE-BAR §2）：边栏内容等第一帧画出来之后再填（live 之前的重画请求都是空操作，live 那一下整块画一次）
+  let live = false;
+  sideApi = {
+    paintSync: () => { if (!live) return; paintSync(); sideFadeSoon(); },
+    paintData: () => { if (!live) return; paintRecent(); paintOverview(); paintSync(); sideFadeSoon(); },
+    paintAll: () => { if (!live) return; paintRecent(); paintSync(); paintOverview(); sideFadeSoon(); },
+    start: () => { if (live) return; live = true; sideApi.paintAll(); },
+    fade: sideFade,
+  };
+}
+
 // ── 吸顶的 top（主审裁决 1）：取滚动容器上内边距的负值，sticky 贴住滚动容器顶边，上方不留缝（主 / 副 split 里内边距不同，不写死） ──
 // 1021 窄屏（≤700px）：新页头 + 分类行 + 控制行加起来半屏多高，整块吸住就没地方看卡了——吸顶 top 再往上让出「搜索框以上」那一截
 // （sticky 的负 top：吸住时只露搜索那一行 + 主题行 + 多选栏，往回滚整块照常出来）。宽屏照旧整块吸住（设计稿：只有收藏墙在动）。
@@ -2944,6 +3261,21 @@ function paintStickyTop() {
   const v = pad + stickyHide ? `${-(pad + stickyHide)}px` : '0px';
   if (top.style.top !== v) top.style.top = v;
   if (indexView && idx) paintIndexSticky();
+  paintSideSticky(sc, pad);
+}
+// 1021 第 3 段：边栏吸在页头下面——--lbc-top-h = 吸住时页头露出来的高度，--lbc-side-top = 边栏的 sticky top（和 .lbc-top 同一个参照：
+// 页头 top 是 -(pad + stickyHide)，边栏就贴在它底下），--lbc-pane-h = 滚动容器可视高度（边栏 max-height 用）。窄于 760（按页面宽）不出边栏
+function paintSideSticky(sc, pad) {
+  if (!SIDE_ON) return;
+  const ww = Number(wrap.clientWidth) || 0;
+  wrap.classList.toggle('is-side-narrow', ww > 0 && ww < 760);
+  const topH = Math.max(0, Math.round((Number(top.offsetHeight) || 0) - stickyHide));
+  const set = (k, v) => { if (wrap.style.getPropertyValue(k) !== v) wrap.style.setProperty(k, v); };
+  set('--lbc-top-h', topH + 'px');
+  set('--lbc-side-top', (topH - Math.round(pad)) + 'px');
+  const ph = Math.round(Number(sc?.clientHeight) || 0);
+  if (ph > 0) set('--lbc-pane-h', ph + 'px');
+  sideApi?.fade();
 }
 // ── ResizeObserver（C9）：宽度变了导致列数变了才重摆（下一帧、带锚点）；顺手重算吸顶 top ──
 if (typeof ResizeObserver === 'function') {
@@ -2962,6 +3294,8 @@ if (typeof ResizeObserver === 'function') {
   });
   ro.observe(grid);
   ro.observe(wrap);
+  // 1021 边栏吸顶：页头高度（多选栏 / 主题行出来收起）、滚动容器高度变了都要重算 --lbc-top-h / --lbc-pane-h；边栏内容高度变了重算渐隐
+  if (SIDE_ON) { ro.observe(top); const sc = LB.scroller(); if (sc) ro.observe(sc); ro.observe(side); }
   cleanups.push(() => ro.disconnect());
 }
 
@@ -2984,6 +3318,8 @@ const restoredWithPending = takePendingQuery();
 // 上次离开时防抖还没触发（输入框里的字和上次搜的不一样）：恢复后补跑一次
 if (!restoredWithPending && saved.ts && typeof saved.input === 'string' && saved.input.trim() !== lastRaw) commitSearch();
 renderCatBar(); render();
+// 1021 边栏：第一帧之后才填内容；同步计划异步读（插件 60 秒缓存），读到了只重画 SYNC 那一块
+if (sideApi) requestAnimationFrame(() => { sideApi.start(); loadSchedule(); });
 if (restoredWithPending || !(savedScroll > 0)) restoreTarget = 0;   // 要恢复滚动的：滚到位之前（含首帧的列数重摆）都按那个位置留卡，见下面 restoreScroll
 pageReady = true;
 if (idxPending) reloadIndex();
@@ -3021,6 +3357,7 @@ LB.keep(wrap, { park: true, onAdopt: () => { LB.restoreFocus(search, 'search'); 
   setTitle();
   render();
   paintStickyTop();
+  sideApi?.start(); sideApi?.paintAll(); loadSchedule();
   if (stale) checkFresh();
 } });
 if (provider()?.focusCatalogSearch) { provider().focusCatalogSearch = false; search.focus(); }

@@ -32,7 +32,7 @@ async function catalogTests() {
   await A.run();
   const q = s => A.section.querySelector(s);
   assert.equal(q('.lbc-syncinfo'), null, '「上次同步 · 本次新收 · 还剩」那行删了');
-  assert.ok(!/上次同步/.test(A.section.textContent), '页面上不再出现「上次同步」');
+  assert.ok(!/上次同步/.test(q('.lbc-top').textContent), '标题区不再出现「上次同步」');   // 1021 第 3 段：「上次同步」只在左侧边栏 SYNC 里（设计稿）
   // 批次 D · F4：标题下那行拆成三块——计数只是字；「更新 …」是按钮（悬停说目录数据生成时刻），点了开同步记录
   assert.equal(q('.lbc-count').textContent, '2 篇');
   assert.equal(q('.lbc-count').onclick, undefined); assert.equal(q('.lbc-count').getAttribute('role'), null);

@@ -25,6 +25,8 @@ const shell = require('../_obsidian_shell.cjs');
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', data, run: false });
     if (extraCss) await page.addStyleTag({ content: extraCss });
+    // 1021 第 3 段起左边有边栏：这里量的是卡片的 content-visibility，按「边栏收起」开（收藏墙同宽、版式和改版前一样，第二张卡还在第一屏里）
+    await page.evaluate(() => { (window.__lbState = window.__lbState || {})['lb:catalog'] = JSON.stringify({ ts: Date.now(), side: false }); });
     return { page, S, ms: await layoutMs(page, S) };
   };
   try {

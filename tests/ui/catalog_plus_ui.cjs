@@ -118,8 +118,9 @@ function fixture() {
       assert.equal(await page.evaluate(() => getComputedStyle(document.querySelectorAll('.lbc-topic-del')[1]).display), 'grid', '悬停胶囊出 ×');
       shots.push(await S.screenshot('catalog-plus-topics'));
       await page.click('.lbc-view[data-view="list"]'); await S.settle();
-      const list = await page.evaluate(() => ({ grid: document.querySelector('.lbc-grid').hidden, rows: document.querySelectorAll('.lbc-ltable tr.lbc-lrow').length, w: document.querySelector('.lbc-ltable').getBoundingClientRect().width }));
-      assert.ok(list.grid && list.rows > 0 && list.w > 900, `列表视图 ${JSON.stringify(list)}`);
+      const list = await page.evaluate(() => ({ grid: document.querySelector('.lbc-grid').hidden, rows: document.querySelectorAll('.lbc-ltable tr.lbc-lrow').length, w: document.querySelector('.lbc-ltable').getBoundingClientRect().width, main: document.querySelector('.lbc-board-main').getBoundingClientRect().width }));
+      // 1021 第 3 段：左边有边栏，列表铺满右边收藏墙那一栏（8/12）
+      assert.ok(list.grid && list.rows > 0 && list.w > 700 && list.w >= list.main - 12, `列表视图 ${JSON.stringify(list)}`);
       shots.push(await S.screenshot('catalog-plus-list'));
       await page.click('.lbc-ltable tr.lbc-lrow >> nth=0'); await S.settle();
       assert.equal((await page.evaluate(() => window.opened.at(-1)))[2], false, '点行在同一窗格打开');

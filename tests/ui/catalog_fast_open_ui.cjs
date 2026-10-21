@@ -25,7 +25,10 @@ const filling = page => page.evaluate(() => !!document.querySelector('.lbc-grid[
 const waitFilled = async (page, ms = 1500) => { const t0 = Date.now(); while (await filling(page)) { if (Date.now() - t0 > ms) throw new Error(`补卡 ${ms}ms 还没补完`); await page.waitForTimeout(10); } return Date.now() - t0; };
 const columns = page => page.evaluate(() => [...document.querySelectorAll('.lbc-grid-inner:not(.lbc-grid-possible) > .lbc-col')].map(c => [...c.children].map(k => k._lbItem?.id || '?')));
 
-async function openTimed(browser, { rev = null, data, code = null, files = {}, preState = null, trace = false } = {}) {
+// 1021 第 3 段起目录页左边有边栏（收藏墙变窄、列数变少）：和改前（没有边栏）逐列对比时，新版本按「边栏收起」开（side:false），
+// 收藏墙同宽才比得了；边栏开着的首开另有一条（⑦）
+async function openTimed(browser, { rev = null, data, code = null, files = {}, preState = null, trace = false, side = false } = {}) {
+  if (!rev && !code && !side) preState = { ts: Date.now(), side: false, ...(preState || {}) };
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const S = await shell.page(page, { host: 'page-reading', kind: code ? null : 'catalog', code, rev, data, files, run: false });
   // 外壳是 about:blank，没有 sessionStorage：lb-page-lib 退回内存（globalThis.__lbState）
@@ -53,7 +56,7 @@ async function openTimed(browser, { rev = null, data, code = null, files = {}, p
     // 预热一次（字体 / 编译缓存），两边条件一样
     { const w = await openTimed(browser, { data }); await w.page.close(); const w0 = await openTimed(browser, { rev: BASE, data }); await w0.page.close(); }
     // ① ② 首开 + 补完后的列
-    const msNew = [], msOld = [];
+    const msNew = [], msOld = []; let sideMs = 0;
     let fresh = null, base = null;
     for (let k = 0; k < 3; k++) {
       const a = await openTimed(browser, { data, trace: k === 0 });
@@ -79,6 +82,18 @@ async function openTimed(browser, { rev = null, data, code = null, files = {}, p
     assert.deepEqual(await fresh.S.pageErrors(), []);
     await fresh.page.close(); await base.page.close();
 
+    // ⑦ 1021 边栏开着首开：脚本照样 ≤ 300ms、第一屏铺满；边栏内容第一帧之后才填（不占首开）
+    {
+      const ms = [];
+      let a = null;
+      for (let k = 0; k < 3; k++) { const x = await openTimed(browser, { data, side: true }); ms.push(x.ms); if (k === 0) a = x; else await x.page.close(); }
+      assert.ok(med(ms) <= 300, `边栏开着首开 ${med(ms).toFixed(0)}ms ≤ 300ms`);
+      assert.ok(a.filling && Math.min(...a.colsBottom) >= a.vh, `边栏开着第一屏铺满 ${a.colsBottom.map(Math.round)}`);
+      await a.S.settle(60);
+      assert.equal(await a.page.evaluate(() => document.querySelectorAll('.lbc-side .lbc-rec li').length), 6, '第一帧之后边栏填上了');
+      sideMs = med(ms);
+      await a.page.close();
+    }
     // ③ 补卡途中 Dataview 重跑
     {
       const a = await openTimed(browser, { data });
@@ -143,6 +158,6 @@ async function openTimed(browser, { rev = null, data, code = null, files = {}, p
       assert.match(msg, /页面脚本没读到.*刷新目录/, '脚本文件不在：说清怎么办，不白屏');
       await page.close();
     }
-    console.log(`PASS catalog fast open: ${N} cards, script ${med(msNew).toFixed(0)}ms vs ${med(msOld).toFixed(0)}ms before (${BASE}), first screen filled then rest filled in ${fillMs}ms with identical columns, rerun / search / scroll restore during fill ok, bootstrap compiles once per version`);
+    console.log(`PASS catalog fast open: ${N} cards, script ${med(msNew).toFixed(0)}ms vs ${med(msOld).toFixed(0)}ms before (${BASE}), first screen filled then rest filled in ${fillMs}ms with identical columns (side collapsed), side open ${sideMs.toFixed(0)}ms, rerun / search / scroll restore during fill ok, bootstrap compiles once per version`);
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });

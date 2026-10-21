@@ -57,7 +57,7 @@ const row = (page, path) => page.locator(`.lbi-panel .lbi-row[data-path="${path}
       const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', theme, data, plugin: PLUGIN,
         files: { '索引.md': '\t美食\n', '_archive/index-data.json': JSON.stringify(idx) } });
       // ③ 角标
-      const card = page.locator('.lbc-grid .lbc-card').nth(4);
+      const card = page.locator('.lbc-grid .lbc-card:not(:has(.lbc-star.is-on))').nth(3);   // 1021 边栏开着列数变了，按卡片顺序数会数到已收藏的那张（常显星）：只在没收藏的里挑
       const pos = await card.evaluate(c => {
         const r = c.getBoundingClientRect(), ck = c.querySelector('.lbc-check').getBoundingClientRect(), st = c.querySelector('.lbc-star').getBoundingClientRect();
         return { checkLeft: ck.left - r.left, starRight: r.right - st.right, op: getComputedStyle(c.querySelector('.lbc-star')).opacity, ckop: getComputedStyle(c.querySelector('.lbc-check')).opacity };

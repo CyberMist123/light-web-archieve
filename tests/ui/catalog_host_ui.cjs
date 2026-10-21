@@ -47,8 +47,11 @@ const shell = require('../_obsidian_shell.cjs');
           card.dataset.probe = '1';
           return card.getBoundingClientRect().top - top;
         });
-        await page.hover('.lbc-card[data-probe="1"]');
-        await page.click('.lbc-card[data-probe="1"] .lbc-check');
+        // 1021：鼠标直接移过去点（不用 page.hover / click：卡比视口剩下的地方高时它们会先把卡滚进视野，量到的就不是勾选本身）
+        const cb = await page.evaluate(() => { const r = document.querySelector('.lbc-card[data-probe="1"]').getBoundingClientRect(); return [r.left + r.width / 2, Math.min(r.top + 60, innerHeight - 10)]; });
+        await page.mouse.move(cb[0], cb[1]); await S.settle(60);
+        const ck = await page.evaluate(() => { const r = document.querySelector('.lbc-card[data-probe="1"] .lbc-check').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+        await page.mouse.click(ck[0], ck[1]);
         await S.settle();
         const after = await page.evaluate(() => document.querySelector('.lbc-card[data-probe="1"]').getBoundingClientRect().top - document.querySelector('.lbc-top').getBoundingClientRect().bottom);
         assert.ok(Math.abs(after - pick) <= 1, `${tag}：滚到 1500 时首次勾选，那张卡离吸顶区底边 Δy=${after - pick}`);
@@ -78,7 +81,7 @@ const shell = require('../_obsidian_shell.cjs');
       await S.screenshot('catalog-select-first');
       // ⑦ C2：点 ☆ 卡片原地不动
       await page.keyboard.press('Escape'); await S.settle();
-      await page.evaluate(() => { const c = document.querySelectorAll('.lbc-col')[2].querySelector('.lbc-card'); c.dataset.star = '1'; });
+      await page.evaluate(() => { const cols = document.querySelectorAll('.lbc-col'); const c = cols[Math.min(2, cols.length - 1)].querySelector('.lbc-card'); c.dataset.star = '1';   /* 1021 边栏开着 1280 宽只有两列 */ });
       await page.hover('.lbc-card[data-star="1"]');
       const was = await page.evaluate(() => document.querySelector('.lbc-card[data-star="1"] .lbc-star').classList.contains('is-on'));
       const r0 = await page.evaluate(() => JSON.stringify(document.querySelector('.lbc-card[data-star="1"]').getBoundingClientRect()));
@@ -105,7 +108,10 @@ const shell = require('../_obsidian_shell.cjs');
     // ⑥ C9：第一排是排名前 N 篇；窄了列数变、卡片不重建
     {
       const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-      const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', data: shell.makeCatalogData({ n: 350, starredEvery: 0 }) });
+      const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', data: shell.makeCatalogData({ n: 350, starredEvery: 0 }), run: false });
+      // 1021：这一条量的是瀑布流分列（1280 宽至少 3 列），按「边栏收起」开（边栏开着时收藏墙只占 8/12）
+      await page.evaluate(() => { (window.__lbState = window.__lbState || {})['lb:catalog'] = JSON.stringify({ ts: Date.now(), side: false }); });
+      await S.run(); await S.settle();
       await page.waitForFunction(() => !document.querySelector('.lbc-grid[data-lbc-filling]'));   // 1017：首开 350 张是分片补的，等补完再数
       const row = await page.evaluate(() => {
         const cols = [...document.querySelectorAll('.lbc-grid-inner > .lbc-col')];
