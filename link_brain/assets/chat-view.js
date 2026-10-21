@@ -154,7 +154,10 @@ function openNote(source, compare = false, context = '', fromCite = null, seg = 
     try { return Promise.resolve(app.workspace.openLinkText(lbPath(src.note), '', false)).catch(e => notice('打不开来源：' + errText(e))); }
     catch (e) { notice('打不开来源：' + errText(e)); return; }
   }
-  return Promise.resolve().then(() => p.openArchiveSource(src.note, root, compare, chunks)).then(() => { paintSourceBar(); settle(); watchReaderVideos(src.note); }).catch(e => notice('打不开来源：' + errText(e)));
+  // 1022 她：部署后插件还是旧 main.js（没重载）→ 右栏只开笔记不跳。插件缺 locateOnePassage 就让 LB.ensure 关开一次插件拿新代码；
+  // 关不了（正在跑别的 / 手机）就照旧用手头这个插件打开，不报错
+  const ready = typeof p.locateOnePassage === 'function' ? Promise.resolve(p) : Promise.resolve().then(() => LB.ensure('locateOnePassage')).catch(() => provider() || p);
+  return ready.then(pp => pp.openArchiveSource(src.note, root, compare, chunks)).then(() => { paintSourceBar(); settle(); watchReaderVideos(src.note); }).catch(e => notice('打不开来源：' + errText(e)));
 }
 // 1015 右栏来源里的视频没首图（审计 F：问收藏这边没调 fixVideos）。和笔记页 annotate-view 的 fixVideos 同一个修法：
 // Obsidian 阅读视图只改写 <video src>、不改 poster → 把 poster 按笔记所在目录解析成能加载的地址，按封面比例定框，点了再加载视频。
