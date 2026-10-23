@@ -239,7 +239,7 @@ function mergeSettings(saved) {
   for (const key of Object.keys(out)) {
     if (!saved || saved[key] == null) continue;
     if (Array.isArray(out[key])) out[key] = saved[key];              // 数组整体替换
-    else if (typeof saved[key] === "object") Object.assign(out[key], saved[key]);
+    else if (out[key] !== null && typeof out[key] === "object" && typeof saved[key] === "object") Object.assign(out[key], saved[key]);
     else out[key] = saved[key];
   }
   // 1016：设置页没有默认值的键（如 embedAI：向量走哪家，后端认、插件不改）原样带上，AI 页才看得见；

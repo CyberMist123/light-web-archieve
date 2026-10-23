@@ -1,5 +1,7 @@
 # Current State
 
+- 2026-10-23 插件启动修复：保存过目录编排的 catalogLayout 对象替换默认 null，避免 mergeSettings 在加载设置时抛错。回归覆盖已编排、默认布局和普通对象设置合并；部署后验证 Obsidian 实际启用状态。
+
 - 2026-10-22 **已部署** main d23cbbb（分支已并入并删除）目录页 Collection+ 第 5 段**编排**（她定：模块可拖动排序、隐藏，布局存插件设置，只桌面生效）：右上角「编排」胶囊（管理左边）→ 边栏三块（最近导入 / 同步与用量 / 概览）头上出黑色操作条（⠿ 按住拖 · ↑ ↓ · 隐藏），边栏顶部出托盘（+ 隐藏的模块 · 恢复默认 · 完成），Esc 退出；编排时模块本身点不动。布局 = 插件设置 `catalogLayout {side:[{id,hidden}]}`（null = 默认），400ms 存一次并广播 catalog-prefs；全隐藏 = 边栏整列让开、墙铺满。**只编排边栏**：页头 / 分类 / 控制行是一整块吸顶，拆开会破坏吸顶与返回滚动位置；原型的叠放 / 调宽 / 列数不做。手机 / 星标页没有编排；没插件照样能排、提示下次恢复默认。`tests/ui/catalog_arrange_ui.cjs`（真拖放）。
 - 2026-10-22 05:20 **已部署** main 0e96620（分支 ui/catalog-collection-plus）目录页 Collection+ 第 4 段 Token 费用，她选 A：**1016 已有账本**（`usage.py`，`_archive/usage/YYYY-MM.jsonl` + pricing.json 折算）所以不新建 usage-ledger.jsonl——加 `usage.month_summary()`（本月按功能折人民币，没账返回 None），`catalog.build` 写进 catalog-data `usage_month {month, cost_cny, by_feature, calls, unpriced, as_of}`（fail-open），边栏 SYNC「Token 费用 · 本月」显示「约 ¥x.xx」、悬停按功能明细，没账「—」；`tests/test_catalog.py::test_build_writes_usage_month`。第 5 段编排未做（待她定）。
 - 2026-10-22 01:51 **已部署** main b19be7e：目录页 Collection+ 第 1–3 段（上面两条 ui/catalog-collection-plus 的内容）ff 进 main 并重建目录（字体落 _archive/fonts）。待她在 Obsidian 真机看：字体 / 范围单选 / 列表视图 / 主题增删 / 边栏折叠收起 / 吸顶 / 齿轮落设置。第 4 段 Token 费用（A 记账本 / B 估算）与第 5 段编排待她定。
