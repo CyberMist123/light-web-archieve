@@ -297,7 +297,7 @@
 
 | 批 | 层 | 内容 | 必加测试 | 状态 |
 |---|---|---|---|---|
-| 0 | 全部 | 守卫测试 `test_single_source.py/.cjs`（现存重复列白名单，新增即红）；`docs/TEST-MAP.md` 功能→测试对照、标出缺口；FORMAT.md 补 favorited_by / albums / counts | 守卫本身；白名单数 = 本文档列出的重复数 | 待做 |
+| 0 | 全部 | 守卫测试 `tests/test_single_source.py`（Python 和 JS 一起扫；现存重复列 known 白名单，新增即红，迁走没删白名单也红）；`docs/TEST-MAP.md` 功能→测试对照、标出缺口；FORMAT.md 补 favorited_by / albums / counts | 守卫本身；白名单数 = 本文档列出的重复数 | ✅ 1023（counts 规格随第 1 批写） |
 | 1 | ⑤ 派生 | `mark_dirty` + `ensure_fresh`（同步含中断、catch、restore、relabel、albums）；build 幂等（内容没变不写页面 md / 脚本，版本不含 built_at）；重建合并；catalog-data `counts`，两页篇数读它 | 中断同步后新帖进目录；catch 后 dirty；同输入连跑两次 build 不改任何文件 mtime；两页「全部」数相等 | 待做 |
 | 2 | 横切配置 | AI 配置表（API / CLI 平级，功能声明可用类型；概要可选 OpenCode）；`pricing.py` 统一价格、免费只认显式标记（CLI / Gemini 免费池）；预算默认只在后端；密钥只经 providers；后端把表给设置页 | 四处钱数相等；未知模型 = 未计价且预算拦；CLI 行记模型名且显示免费；夜跑与 providers 拿到同一组 key | 待做 |
 | 3 | ③ 规则 | `is_favorite` / `collected_by`：TG → Fable；ingest_kind 不再覆盖；accounts 按 user_id；fav-list / fav-tokens / albums 带账号键；迁移脚本先 dry-run | 换号同步不清别的号的专辑；重抓不丢收藏；迁移幂等；TG 帖来源 = Fable | 待做 |

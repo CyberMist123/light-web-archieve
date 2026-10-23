@@ -96,7 +96,8 @@ D:\LIGHT WEB ARCHIEVE\vault\
 | `attachments_status` | `"none"` / `"metadata_only"` / `"downloaded"` / `"unavailable"` | 由 `attachments[].status` 取最好的一个汇总而来；见 `source.json` 那节 |
 | `origin` | `tg` / `cmx` / `cc` / `cli` | 从哪个端进来的 |
 | `actor` | `human` / `ai:<name>` | 谁把它丢进来的 |
-| `ingest_kind` | `shared` / `favorite` | 主动分享还是收藏同步 |
+| `ingest_kind` | `shared` / `favorite` | **第一次**怎么进来的（主动分享 / 收藏同步）；历史字段，不用来判断「现在是不是收藏」（见 `favorited_by`；ARCH-AUDIT 第 3 批起不再被重抓覆盖） |
+| `favorited_by` | `[{nickname, user_id, first_seen}]` / 缺省 | 0926 起：被哪些号收藏过（收藏同步 `favorites.tag_account` 写，重建 meta 时保留）。**「是不是我的收藏」以它为准**；1023 她定：多个号的收藏、网页导入都算我的收藏，TG 发来的算 Fable（`provenance.collected_by`） |
 | `visible_note_pinned` | `true` / 缺省 | 1001：`visible_note` 指的文件找不到时，按 frontmatter 的 `link_brain.item_id` 在可见目录（含子目录）找回她改过名 / 挪过位置的那份并沿用；此后重渲染不按标题挪回去 |
 
 可见 md 的身份只认 frontmatter 里的 `link_brain.item_id`（YAML 写坏了退回正则找这一行）。
@@ -1229,3 +1230,8 @@ append-only，一次模型接口调用一行（`link_brain/usage.py`，CONVENTIO
 - `p` 提供商：deepseek / aliyun / openai / google / cli（本机命令行，不花钱）/ 其他接口的域名。
 - `link_brain usage [--balance]` 输出汇总（today / 7d / 30d × 功能 / 提供商，本月按提供商，近 30 天每日）、`links`（各家控制台网址）、`keys`（ai-health 里还开着的 key 失效 / 欠费），带 `--balance` 再加 `balances`。
 
+
+## 2026-10-23 收藏专辑 `vault/_archive/albums.json`（补规格，ARCH-AUDIT §3）
+
+`{"schema": 1, "boards": {"<专辑 id>": {"name", "notes": ["<note_id>"], ...}}}`，由专辑同步（`albums.merge_list`）写，`catalog.build` 经 `albums.note_albums()` 拼进每条的 `albums`。meta.json / frontmatter 不存专辑。
+已知问题：没有账号键（换号同步会清掉另一个号的专辑）；文件不存在时全部专辑为空且不报错。第 3 批改 schema 2：`{"schema": 2, "accounts": {"<user_id>": {"boards": {...}, "synced_at"}}}`。
