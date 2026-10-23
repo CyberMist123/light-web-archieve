@@ -73,10 +73,11 @@ async function open({ files, plugin, isMobile = false } = {}) {
   assert.equal(pb.textContent, '彻底删除'); assert.equal(pb.disabled, false);
   assert.ok(A.notices.at(-1).includes('没删掉：EBUSY'), A.notices.at(-1));
   pb.onclick(); await tick(5); pending.res({ results: [{ item_id: 'xhs-b', status: 'purged' }] }); await tick(5);
-  assert.equal(A.qa('.lbt-row')[0].querySelector('.lbt-meta').textContent, '文件已彻底删除');
-  assert.equal(A.qa('.lbt-row')[0].querySelectorAll('button').length, 0);
+  // 1023：彻底删除的那行从列表里拿走，收进右上角「记录」小图标（点开可选中重新导入）
+  assert.equal(A.qa('.lbt-row').length, 0);
+  assert.ok(A.q('.lbt-tools button.lbt-rec-btn').textContent.endsWith('1'));
   assert.ok(A.notices.at(-1).startsWith('已彻底删除 1 篇'));
-  assert.equal(A.q('.lbt-tools button'), null, '没有文件了：「清空回收站」收起');
+  assert.equal(A.q('.lbt-tools button.lbt-danger'), null, '没有文件了：「清空回收站」收起');
   assert.equal(A.alerts.length, 0, '全程不用 window.alert');
 
   // 空列表：「回收站是空的」，没有清空按钮

@@ -118,6 +118,18 @@ def purge_item(conn, item_id: str) -> dict:
     return {'item_id': item_id, 'status': 'purged'}
 
 
+def forget_item(conn, item_id: str) -> dict:
+    """1023：已彻底删除的记录「重新导入」前先去掉屏蔽记录；文件还在的（能恢复的）不走这里，要用恢复。"""
+    row = conn.execute('SELECT * FROM tombstones WHERE item_id = ?', (item_id,)).fetchone()
+    if not row:
+        return {'item_id': item_id, 'status': 'missing'}
+    if _trash_path(row['trash_dir']).exists():
+        return {'item_id': item_id, 'status': 'failed', 'code': '', 'error': '文件还在回收站里，请用「恢复」'}
+    conn.execute('DELETE FROM tombstones WHERE item_id = ?', (item_id,))
+    conn.commit()
+    return {'item_id': item_id, 'status': 'forgotten', 'url': row['canonical_url']}
+
+
 def publish_trash(vault=None):
     vault = vault or storage.vault_root()
     conn = index_mod.connect(vault / '_archive/index.db')
@@ -191,10 +203,11 @@ def run(args) -> int:
                 ids = args.item_ids
                 if args.action == 'empty':
                     ids = [r['item_id'] for r in conn.execute('SELECT item_id FROM tombstones')]
-                action = restore_item if args.action == 'restore' else purge_item
-                ok_status = 'restored' if args.action == 'restore' else 'purged'
-                outcome = _summary({'results': [_one(action, conn, i) for i in ids]},
-                                   '恢复' if args.action == 'restore' else '彻底删除', ok_status)
+                action, ok_status, verb = {
+                    'restore': (restore_item, 'restored', '恢复'),
+                    'forget': (forget_item, 'forgotten', '解除屏蔽'),
+                }.get(args.action, (purge_item, 'purged', '彻底删除'))
+                outcome = _summary({'results': [_one(action, conn, i) for i in ids]}, verb, ok_status)
             finally:
                 conn.close()
     finally:

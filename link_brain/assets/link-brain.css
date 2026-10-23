@@ -699,3 +699,10 @@ body.lb-actions-on .xhs-note .lb-tags .lb-tag:hover { text-decoration: underline
 @keyframes lb-unveil { from { visibility: hidden; } to { visibility: visible; } }
 .markdown-preview-view:not(.xhs-note):has(> .markdown-preview-sizer > div > .lb-note[data-lb-item]) > .markdown-preview-sizer,
 .markdown-source-view:not(.xhs-note):has(.lb-note[data-lb-item]) .cm-sizer { animation: lb-unveil 0.01s linear 1.2s both; }
+
+/* 1023：图上角标「n / N」+ 图钉太重（深灰胶囊 + 白圆），改成同一套浅色半透明小胶囊，高度对齐、字号 12px 和正文辅助字一致 */
+.xhs-note .lb-counter{top:10px;right:44px;height:26px;padding:0 10px;display:flex;align-items:center;box-sizing:border-box;font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.02em;color:rgb(0 0 0 / .72);background:rgb(255 255 255 / .72);backdrop-filter:blur(6px);box-shadow:none;}
+.xhs-note .lb-media-pin{top:10px;right:10px;width:26px;height:26px;padding:5px;background:rgb(255 255 255 / .72);backdrop-filter:blur(6px);box-shadow:none;color:rgb(0 0 0 / .55);}
+.xhs-note .lb-media-pin svg{width:16px;height:16px;}
+.xhs-note .lb-media-pin[aria-pressed=true]{color:rgb(0 0 0 / .85);}
+.theme-dark .xhs-note .lb-counter,.theme-dark .xhs-note .lb-media-pin{background:rgb(0 0 0 / .42);color:rgb(255 255 255 / .85);}

@@ -343,8 +343,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("delete", help="移动收藏到回收站，并屏蔽后续同步")
     p.add_argument("item_ids", nargs="+", help="一个或多个 item_id")
 
-    p = sub.add_parser('trash', help='恢复、彻底删除或清空回收站')
-    p.add_argument('action', choices=['restore', 'purge', 'empty'])
+    p = sub.add_parser('trash', help='恢复、彻底删除、清空回收站，或解除已删记录的屏蔽（重新导入用）')
+    p.add_argument('action', choices=['restore', 'purge', 'empty', 'forget'])
     p.add_argument('item_ids', nargs='*')
 
     p = sub.add_parser("tidy-comments", help="去掉旧笔记里纯链接的自动 cmt1 留言")

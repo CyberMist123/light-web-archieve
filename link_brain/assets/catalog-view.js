@@ -116,6 +116,11 @@ width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;disp
 .lbc-wrap input.lbc-search{width:min(210px,44vw)!important;min-width:0;height:32px!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;color:var(--c-ink);font:14px/1.4 var(--f-sans);outline:none;}
 .lbc-wrap input.lbc-search:focus,.lbc-wrap input.lbc-search:focus-visible{outline:none!important;box-shadow:none!important;}
 .lbc-wrap input.lbc-search::placeholder{color:var(--c-muted);}
+/* 1023 搜索框清空 ×：有字才出；原生 search 的叉藏掉，免得两个 */
+.lbc-wrap input.lbc-search::-webkit-search-cancel-button{display:none;}
+.lbc-wrap button.lbc-search-x{flex:none;width:20px!important;height:20px!important;padding:0!important;margin:0 0 0 2px;border:0!important;border-radius:50%!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);display:grid;place-items:center;cursor:pointer;font:15px/1 var(--f-sans);}
+.lbc-wrap button.lbc-search-x:hover{color:var(--c-ink);background:var(--c-soft)!important;}
+.lbc-wrap button.lbc-search-x[hidden]{display:none!important;}
 /* 星标主题行：只在选中某个主题时出现在控制行下面，左对齐（全部主题 / 各主题胶囊 / + 新主题）；胶囊悬停出 ×，点两次删 */
 .lbc-topics{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:0;padding:0 0 12px 56px;}
 .lbc-topics-lab{font:700 10.5px/1 var(--f-display);letter-spacing:.24em;margin-right:6px;color:var(--c-ink);}
@@ -200,16 +205,16 @@ width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;disp
 .lbc-fold-sum:hover{color:var(--c-ink);}
 .lbc-fold-sum i{font:italic 15px/1 var(--f-latin);font-variant-numeric:lining-nums tabular-nums;color:var(--c-ink);}
 .lbc-rec{list-style:none;margin:0;padding:0;}
-.lbc-rec li{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:14px;align-items:baseline;padding:11px 0;border-top:1px solid var(--c-line);cursor:pointer;margin:0;}
-.lbc-rec li:last-child{border-bottom:1px solid var(--c-line);}
+/* 1023：RECENT 行和 SYNC 行（.lbc-sy-row）同一套——无衬线 13.5px、10px 行距、只有上分隔线 */
+.lbc-rec li{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:12px;align-items:baseline;padding:10px 0;border-top:1px solid var(--c-line);cursor:pointer;margin:0;font-size:13.5px;}
 .lbc-rec li:hover .lbc-rec-t{text-decoration:underline;text-underline-offset:3px;}
-.lbc-rec time{font:italic 15px/1.2 var(--f-latin);color:var(--c-muted);font-variant-numeric:lining-nums tabular-nums;white-space:nowrap;}
-.lbc-rec-t{font:15px/1.45 var(--f-serif);color:var(--c-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lbc-rec time{font:italic 13.5px/1.2 var(--f-latin);color:var(--c-muted);font-variant-numeric:lining-nums tabular-nums;white-space:nowrap;}
+.lbc-rec-t{font:13.5px/1.45 var(--f-sans);color:var(--c-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .lbc-rec-c{font-size:12px;color:var(--c-muted);white-space:nowrap;}
 .lbc-rec-empty{font:14px/1.5 var(--f-serif);color:var(--c-muted);padding:6px 0;}
 .lbc-sy-top{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;}
 .lbc-sy-k{font-size:12px;color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.lbc-sy-big{font:500 30px/1.1 var(--f-latin);color:var(--c-ink);font-variant-numeric:lining-nums tabular-nums;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lbc-sy-big{font:500 clamp(20px,8cqi,30px)/1.1 var(--f-latin);color:var(--c-ink);font-variant-numeric:lining-nums tabular-nums;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .lbc-sy-big i{font-style:italic;}
 .lbc-sy-bar{height:3px;background:var(--c-line);margin:16px 0 6px;border-radius:3px;overflow:hidden;}
 .lbc-sy-bar i{display:block;height:100%;width:0;background:var(--c-ink);transition:width .4s;}
@@ -228,7 +233,8 @@ width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;disp
 .lbc-sy-row.is-tot b{font-size:24px;}
 .lbc-sy-row.is-tot b.is-none{color:var(--c-muted);font-weight:400;}
 .lbc-figs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px 20px;}
-.lbc-fig-n{font:500 48px/.95 var(--f-latin);color:var(--c-ink);font-variant-numeric:lining-nums tabular-nums;white-space:nowrap;}
+/* 1023：大数跟边栏宽走（4 位数也塞得进 1/4 列），兜底不溢出到隔壁 */
+.lbc-fig-n{font:500 clamp(20px,calc(10cqi - 6px),48px)/.95 var(--f-latin);color:var(--c-ink);font-variant-numeric:lining-nums tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:clip;min-width:0;}
 .lbc-fig-l{font-size:12.5px;color:var(--c-muted);margin-top:8px;}
 .lbc-bars{display:grid;grid-template-columns:repeat(14,minmax(0,1fr));gap:6px;align-items:end;height:104px;margin-top:26px;}
 .lbc-bar{display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;gap:5px;min-width:0;}
@@ -242,7 +248,7 @@ width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;disp
 .lbc-days span{white-space:nowrap;min-width:0;}
 .lbc-days span:nth-child(odd):not(:last-child){visibility:hidden;}
 .lbc-side{container-type:inline-size;}
-@container (max-width:340px){.lbc-figs{grid-template-columns:repeat(2,minmax(0,1fr));}.lbc-sy-big{font-size:24px;}}
+@container (max-width:340px){.lbc-figs{grid-template-columns:repeat(2,minmax(0,1fr));}.lbc-fig-n{font-size:clamp(20px,calc(20cqi - 10px),48px);}}
 /* 10-11「索引」视图：左边可折叠的树（带篇数），右边就是卡片网格（点哪个节点右边就是哪些）；窄了（<700px 或手机）树叠在上面。
    她的口味：不要灰框、不要看得见的滚动条——选中用正文色 + 左侧细线，空分类变淡，按钮都是字链 */
 .lbi-bar{display:flex;flex-direction:column;gap:8px;margin:6px 5px 14px;}
@@ -454,6 +460,11 @@ width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;disp
 @media(hover:none){.lbc-wrap button.lbc-check{opacity:1;pointer-events:auto;}.lbc-card-more{opacity:1;}}
 /* 1021「列表」视图：简单表格（标题 / 分类 / 作者 / 导入时间 / ♡），和瀑布流共用筛选、搜索结果；点行打开笔记 */
 .lbc-list{padding:10px 5px 30px;overflow-x:auto;}
+/* 1023「Wiki」占位：以后放长期研究 / 可合并的主题，索引也会并进来；现在只是空页 */
+.lbc-wiki{padding:64px 5px 80px;text-align:center;color:var(--c-muted);}
+.lbc-wiki[hidden]{display:none!important;}
+.lbc-wiki h3{font:italic 500 34px/1.1 var(--f-latin);color:var(--c-ink);margin:0 0 14px;}
+.lbc-wiki p{font:14px/1.7 var(--f-serif);margin:0;}
 .lbc-list[hidden]{display:none!important;}
 .lbc-ltable{width:100%;border-collapse:collapse;font-size:14px;min-width:560px;}
 .lbc-ltable th{font:600 12px/1.2 var(--f-serif);letter-spacing:.14em;text-align:left;padding:0 12px 10px 0;border-bottom:1px solid var(--c-ink);color:var(--c-ink);white-space:nowrap;}
@@ -906,6 +917,11 @@ const SEARCH_SVG = '<svg viewBox="0 0 14 14" aria-hidden="true"><circle cx="6" c
 const searchBox = ctlR.createEl('label', { cls: 'lbc-searchbox' }); searchBox.innerHTML = SEARCH_SVG;
 const search = searchBox.createEl('input', { cls: 'lbc-search' });
 search.type = 'search'; search.placeholder = '搜索收藏 · #标签';
+const searchX = searchBox.createEl('button', { cls: 'lbc-search-x', text: '×' }); searchX.type = 'button'; searchX.hidden = true;
+const paintSearchX = () => { searchX.hidden = !search.value; };
+searchX.onmousedown = e => e.preventDefault();
+searchX.onclick = e => { e.preventDefault(); e.stopPropagation(); search.value = ''; search.dispatchEvent(new Event('input', { bubbles: true })); paintSearchX(); search.focus(); };
+search.addEventListener('input', paintSearchX);
 const ask = ctlR.createEl('button', { cls: 'lbc-askbtn lbc-pill', text: '问收藏 →' }); ask.type = 'button';
 ask.onclick = () => LB.openPage('chat');
 function clearFilters({ keepStar = starredPage } = {}) { activeCat = ''; todayOnly = false; todoOnly = false; mediaFilter = ''; activeTopic = ''; activeAlbum = ''; timeRange = ''; timeSort = ''; timeFrom = ''; timeTo = ''; starOnly = keepStar; indexView = false; }
@@ -1067,7 +1083,8 @@ function paintTime() {
 // ── 1021 视图：瀑布流 / 列表（新）/ 索引（功能不变，只换入口）；选择存 LB.state ──
 let viewMode = 'grid';
 function paintViewSeg() {
-  const want = [['grid', simplePage ? '列表' : '瀑布流'], ...(simplePage ? [] : [['list', '列表']]), ...(idx ? [['index', '索引']] : [])];
+  // 1023 她拍板：只留瀑布流 + Wiki（空页，以后和索引统一）；列表 / 索引入口藏起来，代码不删
+  const want = [['grid', simplePage ? '列表' : '瀑布流'], ...(simplePage ? [] : [['wiki', 'Wiki']])];
   const sig = want.map(w => w[0]).join(',');
   if (vseg.dataset.sig !== sig) {
     vseg.empty();
@@ -1078,12 +1095,12 @@ function paintViewSeg() {
     vseg.dataset.sig = sig;
     vseg.hidden = want.length < 2;   // 星标页没有索引数据时只剩一项：不出这个开关
   }
-  const cur = indexView && idx ? 'index' : (viewMode === 'list' && !simplePage ? 'list' : 'grid');
+  const cur = viewMode === 'wiki' && !simplePage ? 'wiki' : 'grid';
   for (const b of vseg.querySelectorAll('.lbc-view')) { const on = b.dataset.view === cur; b.classList.toggle('is-on', on); b.setAttribute('aria-pressed', String(on)); }
 }
 function pickView(k) {
   if (k === 'index') indexView = !indexView;   // 10-10「索引」：横向分叉树看分布，点一个节点 = 筛到那些笔记；再点回到原来的视图
-  else { viewMode = k === 'list' ? 'list' : 'grid'; indexView = false; }
+  else { viewMode = k === 'list' || k === 'wiki' ? k : 'grid'; indexView = false; }
   renderCatBar({ reveal: true }); render(); scrollToResults();
 }
 // ── 1021 边栏：开 / 收状态存 LB.state；这里只换 class 和按钮图标（开 = 左栏实心，收 = 空心） ──
@@ -1414,7 +1431,7 @@ if (saved.ts) {
   committed = typeof saved.q === 'string' ? saved.q : '';
   lastRaw = typeof saved.raw === 'string' ? saved.raw : (typeof saved.input === 'string' && saved.input === saved.q ? saved.input.trim() : '');
   if (knownCat(saved.cat)) activeCat = saved.cat;
-  indexView = !!saved.iview && !!idx;
+  indexView = false;   // 1023 索引入口藏了：不再从上次状态恢复
   for (const pair of Array.isArray(saved.fold) ? saved.fold : []) if (Array.isArray(pair) && typeof pair[0] === 'string') foldOverride.set(pair[0], !!pair[1]);
   if (typeof saved.topic === 'string') activeTopic = saved.topic;
   if (typeof saved.album === 'string') activeAlbum = saved.album;   // renderTopicBar 会把已不存在的主题清掉
@@ -1432,7 +1449,7 @@ if (saved.ts) {
   }
   savedScroll = Number(saved.scrollTop) || 0;
   if (saved.exportImages === false) exportImages = false;
-  if (saved.view === 'list' && !simplePage) viewMode = 'list';
+  if (saved.view === 'wiki' && !simplePage) viewMode = 'wiki';
   if (saved.side === false) sideOpen = false;
   if (saved.sideFold && typeof saved.sideFold === 'object') for (const k of Object.keys(sideFold)) if (typeof saved.sideFold[k] === 'boolean') sideFold[k] = saved.sideFold[k];
 }
@@ -2099,7 +2116,9 @@ function askName(title) {
 
 // ── 网格 ──
 const grid = imain.createEl('div', { cls: 'lbc-grid' });
-const listBox = imain.createEl('div', { cls: 'lbc-list' }); listBox.hidden = true;   // 1021「列表」视图
+const listBox = imain.createEl('div', { cls: 'lbc-list' }); listBox.hidden = true;   // 1021「列表」视图（1023 起入口藏了，代码留着）
+const wikiBox = imain.createEl('div', { cls: 'lbc-wiki' }); wikiBox.hidden = true;   // 1023「Wiki」占位页
+wikiBox.createEl('h3', { text: 'Wiki' }); wikiBox.createEl('p', { text: '这里以后放长期研究和可以合并的主题；索引也会并进来。' });
 // 10-03（她定）：Ctrl + 加号 / 减号、Ctrl + 鼠标滚轮调瀑布流列数，最少 2 列、最多 6 列（加号 / 往上滚 = 卡片变大、列变少）。
 // 列数记在插件设置 catalogColumns（目录页和星标页同一个）；插件不在就记在页面状态。0 = 没调过，按页面宽度自动。
 const COLS_MIN = 2, COLS_MAX = 6;
@@ -2935,9 +2954,11 @@ function render() {
   const r = rankRows();
   // 1021「列表」：有结果时网格藏起来、画表格；没结果照旧在网格里出空状态（清除筛选 / 去问收藏）
   const listMode = viewMode === 'list' && !showIndex && !simplePage && (r.exact.length + r.possible.length) > 0;
+  const wikiMode = viewMode === 'wiki' && !showIndex && !simplePage;
   wrap.classList.toggle('is-listview', listMode);
-  grid.hidden = listMode; listBox.hidden = !listMode;
-  if (listMode) { cancelFill(); renderList(r); }
+  grid.hidden = listMode || wikiMode; listBox.hidden = !listMode; wikiBox.hidden = !wikiMode;
+  if (wikiMode) cancelFill();
+  else if (listMode) { cancelFill(); renderList(r); }
   else {
     if (listBox.firstChild) { listBox.empty(); listKey = null; }
     const n = colCount();
@@ -3008,6 +3029,7 @@ search.addEventListener('keydown', e => {
 });
 cleanups.push(() => clearTimeout(typingTimer));
 search.value = typeof saved.input === 'string' ? saved.input : committed;
+paintSearchX();
 LB.trackFocus(search, 'search');
 // 首次搜索预热（C5）：首屏画完后空闲时分片算 searchFields；refresh 换了 items 就重启；卸载时停
 let warm = null;
@@ -3021,7 +3043,7 @@ function takePendingQuery() {
   if (!q) return false;
   p.pendingCatalogQuery = '';
   clearFilters();
-  search.value = q;
+  search.value = q; paintSearchX();
   commitSearch();
   renderCatBar();
   scrollToResults();

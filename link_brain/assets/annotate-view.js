@@ -54,7 +54,9 @@ style.textContent = `
 .lba-mark-flash{outline:2px solid var(--interactive-accent);outline-offset:2px;}
 .lba-star:hover{opacity:.85;}
 .lba-star-hint{font-size:11px;color:var(--text-muted);}
-.lba-save-hint{margin-left:auto;font-size:11px;color:var(--text-faint);transition:opacity .2s;}
+.lba-save-hint{margin-left:auto;font-size:12px;color:var(--text-muted);transition:opacity .2s;}
+/* 1023 她：打完字就要看得到「存上了」——打字时「保存中…」，停手存好后「✓ 已自动保存」常亮（不再 1.4 秒就淡掉） */
+.lba-save-hint.is-ok{color:var(--text-muted);}.lba-save-hint.is-busy{color:var(--text-faint);}
 .lba-annot-list{display:flex;flex-direction:column;gap:18px;margin-bottom:16px;}
 .lba-annot-item{padding:0 44px 0 0;font-size:14px;line-height:1.75;color:var(--text-normal);white-space:pre-wrap;word-break:break-word;position:relative;}
 .lba-annot-item .lba-ts{display:block;font-size:11px;color:var(--text-faint);margin-bottom:3px;}
@@ -263,7 +265,10 @@ async function persist() {
   adopt(doc);
   if (JSON.stringify(data.annotations) !== before && !list.querySelector('.lba-edit-input')) renderList();
 }
-function flash(msg) { saveHint.setText(msg); saveHint.style.opacity = '1'; clearTimeout(flash._t); flash._t = setTimeout(() => { saveHint.style.opacity = '0'; }, 1400); }
+// 1023：自动保存的状态常亮在标题行右边；flash 用于一次性提示（别的动作），会淡掉
+function saving() { clearTimeout(flash._t); saveHint.removeClass?.('is-ok'); saveHint.addClass?.('is-busy'); saveHint.setText('保存中…'); saveHint.style.opacity = '1'; }
+function saved() { clearTimeout(flash._t); saveHint.removeClass?.('is-busy'); saveHint.addClass?.('is-ok'); saveHint.setText('✓ 已自动保存'); saveHint.style.opacity = '1'; }
+function flash(msg) { saveHint.removeClass?.('is-busy'); saveHint.removeClass?.('is-ok'); saveHint.setText(msg); saveHint.style.opacity = '1'; clearTimeout(flash._t); flash._t = setTimeout(() => { saveHint.style.opacity = '0'; }, 1400); }
 function fmtTs(ts) {
   try { const d = new Date(ts); return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; }
   catch { return ts || ''; }
@@ -434,17 +439,18 @@ let draftTimer;
 ta.oninput = () => {
   fitHeight(ta);
   clearTimeout(draftTimer);
+  saving();
   draftTimer = setTimeout(async () => {
     data.draft = ta.value;
-    try { await persist(); flash('草稿已存'); } catch (err) { flash('草稿没存上：' + (err.message || err)); }
-  }, 500);
+    try { await persist(); saved(); } catch (err) { flash('没存上：' + (err.message || err)); }
+  }, 350);
 };
 // 只存草稿（不落条目）：批注框被后台摘下 / 挪走时用
 async function saveDraftNow() {
   clearTimeout(draftTimer);
   if (locked || ta.disabled || ta.value === data.draft) return;
   data.draft = ta.value;
-  try { await persist(); flash('草稿已存'); } catch (err) { flash('草稿没存上：' + (err.message || err)); }
+  try { await persist(); saved(); } catch (err) { flash('没存上：' + (err.message || err)); }
 }
 // 落成一条批注：失焦或 Ctrl/Cmd+Enter；空白就只清草稿
 async function commit() {

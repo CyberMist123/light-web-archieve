@@ -751,7 +751,10 @@ requestAnimationFrame(fitPane);
 const head = wrap.createEl('div', { cls: 'lbchat-head' });
 const titleBlock = head.createEl('div', { cls: 'lbchat-titleblock' });
 const titleRow = titleBlock.createEl('div', { cls: 'lbchat-titlerow' });
-titleRow.createEl('span', { cls: 'lbchat-title', text: 'Collections' });
+// 1023：标题和目录页同一个来源（插件设置 catalogTitle，空 = Collections）；目录页「管理 → 改标题」广播 catalog-prefs 时就地换
+const chatTitleOf = () => String(LB.provider()?.settings?.catalogTitle || '').trim() || 'Collections';
+const chatTitle = titleRow.createEl('span', { cls: 'lbchat-title', text: chatTitleOf() });
+lbEvent(app.workspace.on('link-brain:catalog-prefs', () => { const t = chatTitleOf(); if (chatTitle.textContent !== t) chatTitle.setText(t); }));
 const tools = head.createEl('div', { cls: 'lbchat-tools' });
 let clearBtn = null;
 const paintClear = () => { if (clearBtn) clearBtn.disabled = isBusy() || !session.turns.length; };

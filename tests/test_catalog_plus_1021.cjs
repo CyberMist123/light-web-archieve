@@ -93,39 +93,19 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
     assert.deepEqual([state().today, state().media, state().star], [false, '', true]);
   }
 
-  // ── ③ 列表视图 ──
+  // ── ③ 视图开关（1023 她拍板：只留瀑布流 + Wiki 空页；列表 / 索引入口藏起来）──
   {
     const P = await openCatalog({ data: dataOf(base()), plugin: { settings: { hiddenCats: [] } } });
     const views = () => P.$$('.lbc-vseg .lbc-view').map(b => [b.textContent, b.classList.contains('is-on')]);
-    assert.deepEqual(views(), [['瀑布流', true], ['列表', false]], '没有索引数据就没有「索引」');
-    const gridOrder = P.ids();
-    P.$('.lbc-view[data-view="list"]').onclick();
-    assert.deepEqual(views(), [['瀑布流', false], ['列表', true]]);
-    assert.equal(P.$('.lbc-grid').hidden, true); assert.equal(P.$('.lbc-list').hidden, false);
-    assert.deepEqual(P.$$('.lbc-ltable th').map(t => t.textContent), ['标题', '分类', '作者', '导入时间', '♡']);
-    const rows = () => P.$$('.lbc-ltable tr.lbc-lrow').map(r => r.dataset.id);
-    assert.deepEqual(rows(), gridOrder, '同一份结果、同一个顺序');
-    const ra = P.$$('.lbc-ltable tr.lbc-lrow').find(r => r.dataset.id === 'a');
-    const cells = ra.querySelectorAll('td').map(td => td.textContent);
-    assert.deepEqual([cells[0], cells[1], cells[2], cells[4]], ['★悉尼咖啡地图', '城市', '咖啡小馆', '1.2万']);
-    assert.equal(cells[3], `${Number(today.slice(5, 7))}/${Number(today.slice(8))}`, '导入时间 M/D（今年的不带年份）');
-    assert.equal(state().view, 'list', '视图选择存 LB.state');
-    // 和筛选 / 搜索共用
-    P.cat('吃的').onclick(); assert.deepEqual(rows().sort(), ['b', 'd']);
-    P.enter('牛腩'); assert.deepEqual(rows(), ['d']);
-    // 点行 = 打开笔记（同一窗格）
-    P.$$('.lbc-ltable tr.lbc-lrow')[0].onclick(ev());
-    assert.deepEqual(P.app.workspace.opened.at(-1), ['Web/d.md', '', false]);
-    // 没结果：网格照旧出空状态（清除筛选）
-    P.enter('没有这个词');
-    assert.equal(P.$('.lbc-list').hidden, true); assert.equal(P.$('.lbc-grid').hidden, false);
-    assert.ok(P.$('.lbc-empty'), '空状态还在');
-    P.enter('');
-    // 返回后还是列表
+    assert.deepEqual(views(), [['瀑布流', true], ['Wiki', false]], '没有列表 / 索引入口');
+    P.$('.lbc-view[data-view="wiki"]').onclick();
+    assert.deepEqual(views(), [['瀑布流', false], ['Wiki', true]]);
+    assert.equal(P.$('.lbc-grid').hidden, true); assert.equal(P.$('.lbc-wiki').hidden, false);
+    assert.equal(state().view, 'wiki', '视图选择存 LB.state');
     const Q = await openCatalog({ data: dataOf(base()), plugin: { settings: { hiddenCats: [] } }, keepState: true });
-    assert.equal(Q.$('.lbc-list').hidden, false); assert.ok(Q.$('.lbc-view[data-view="list"]').classList.contains('is-on'));
+    assert.equal(Q.$('.lbc-wiki').hidden, false, '返回后还是 Wiki');
     Q.$('.lbc-view[data-view="grid"]').onclick();
-    assert.equal(Q.$('.lbc-list').hidden, true); assert.equal(Q.$('.lbc-grid').hidden, false); assert.equal(Q.cards().length, 2);
+    assert.equal(Q.$('.lbc-wiki').hidden, true); assert.equal(Q.$('.lbc-grid').hidden, false); assert.equal(Q.cards().length, 4);
     assert.equal(state().view, 'grid');
   }
 
