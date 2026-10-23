@@ -1,6 +1,7 @@
 """回收站：恢复归档和批注；彻底删除仍保留同步屏蔽记录。"""
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -140,14 +141,15 @@ def publish_trash(vault=None):
     for item in items:
         item['restorable'] = (vault / item['trash_dir'] / 'restore.json').exists()
         item['has_files'] = (vault / item['trash_dir']).exists()
-    storage.write_json(vault / '_archive/trash-data.json', {'items': items})
+    from .catalog import _write_if_changed  # 1023：内容没变不写，不让 Dataview 重画
+    _write_if_changed(vault / '_archive/trash-data.json', json.dumps({'items': items}, ensure_ascii=False, indent=2) + '\n')
     script = (Path(__file__).parent / 'assets/trash-view.js').read_text(encoding='utf-8')
     # 第 3 批：页头带 lb-page: trash，她改了名也按标记找回那一份重写（不再按固定名另冒一份「回收站.md」）
     # 批次 D · C16：和目录页同一套前导（lb-page-lib 内联在前面：host、样式挂 head、提示 / 确认 / busy、手机只读）；
     # 标题和说明挪进页面脚本里画（cssclasses 让外框隐形规则只作用在这一页）
     from .catalog import _PAGE_LIB, library_pages
     page = library_pages(vault)['trash']
-    storage.atomic_write_text(vault / page, '---\nlb-page: trash\ncssclasses: [lb-trashpage]\n---\n\n```dataviewjs\n' + _PAGE_LIB + '\n' + script + '\n```\n')
+    _write_if_changed(vault / page, '---\nlb-page: trash\ncssclasses: [lb-trashpage]\n---\n\n```dataviewjs\n' + _PAGE_LIB + '\n' + script + '\n```\n')
 
 
 def _one(action, conn, item_id: str) -> dict[str, Any]:

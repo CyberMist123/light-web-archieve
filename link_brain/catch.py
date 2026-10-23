@@ -22,6 +22,7 @@ from __future__ import annotations
 from .errtext import errtext
 
 import contextlib
+import os
 import sys
 from typing import Any
 from urllib.parse import urlsplit
@@ -305,6 +306,10 @@ def run(args) -> int:
             code = EXIT_ERROR
         else:
             code = EXIT_OK
+    # 1023：单篇导入（TG / MCP / CLI）后目录跟上；插件批量导入设 LINK_BRAIN_DEFER_CATALOG，等它最后统一重建
+    if not os.environ.get("LINK_BRAIN_DEFER_CATALOG"):
+        from .catalog import ensure_fresh
+        ensure_fresh(wait_s=60)
     items = payload.get('items') or []
     item = next((item for item in items if item.get('error')), items[0] if items else {})
     status = item.get('status')

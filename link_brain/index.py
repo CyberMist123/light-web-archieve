@@ -160,6 +160,8 @@ def upsert_object(conn: sqlite3.Connection, meta: dict[str, Any], source_doc: di
         ),
     )
     conn.commit()
+    from .catalog import mark_dirty  # 1023：入库改了目录的输入（ARCH-AUDIT 第 1 批）
+    mark_dirty("入库")
 
 
 def add_source_version(

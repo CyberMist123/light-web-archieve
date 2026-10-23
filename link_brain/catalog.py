@@ -39,6 +39,9 @@ DATA_NAME = "catalog-data.json"
 SEARCH_NAME = "catalog-search-index.json"
 SEARCH_KEYS = ("search_fields", "pinyin")
 STATE_NAME = "catalog-state.json"
+# 1023 ARCH-AUDIT 第 1 批：目录的输入（meta / 标签 / 专辑 / 回收站…）变了就记一笔「待重建」，
+# 统一由 ensure_fresh 重建；build 写完且期间没人再记，才清掉。文件在 = 目录数据落后于库。
+DIRTY_NAME = "catalog-dirty.json"
 
 SUMMARY_CHARS = 90
 
@@ -647,10 +650,99 @@ def _state_registry() -> dict[str, dict[str, str]]:
     return problems.registry_for_js()
 
 
+def _counts(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """篇数唯一口径（ARCH-AUDIT §7）：all = 目录里全部（回收站的已经不在 items 里）；mine = 来源为「我的收藏」（src 空）；
+    by_src = 其它来源各几篇（聊天分享 / Fable / 项目名…）。"""
+    by_src: dict[str, int] = {}
+    for it in items:
+        src = it.get("src") if isinstance(it.get("src"), str) else ""
+        if src:
+            by_src[src] = by_src.get(src, 0) + 1
+    return {"all": len(items), "mine": len(items) - sum(by_src.values()), "by_src": by_src}
+
+
+def _write_if_changed(path: Path, text: str) -> bool:
+    """内容一样就不写（1023：每次重建都重写页面 md → Obsidian 当文件改了 → Dataview 整页重画 = 刷屏）。"""
+    try:
+        if path.read_text(encoding="utf-8") == text:
+            return False
+    except OSError:
+        pass
+    storage.atomic_write_text(path, text)
+    return True
+
+
+def _same_content(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """两份 catalog-data 除了生成时间以外是不是一样（built_at、index.generated_at 每次都变，不算内容）。"""
+    def strip(d: dict[str, Any]) -> dict[str, Any]:
+        d = dict(d)
+        d.pop("built_at", None)
+        if isinstance(d.get("index"), dict):
+            d["index"] = {k: v for k, v in d["index"].items() if k != "generated_at"}
+        return d
+    return strip(a) == strip(b)
+
+
+def mark_dirty(reason: str, vault: Path | None = None) -> None:
+    """目录的输入变了：记一笔待重建（fail-open，记不上只是等下一次重建）。"""
+    try:
+        path = (vault or storage.vault_root()) / "_archive" / DIRTY_NAME
+        try:
+            old = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            old = {}
+        reasons = [r for r in (old.get("reasons") or []) if r != reason][-19:] + [reason]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        storage.atomic_write_text(path, json.dumps({
+            "since": old.get("since") or datetime.now().astimezone().isoformat(),
+            "seq": int(old.get("seq") or 0) + 1, "reasons": reasons}, ensure_ascii=False))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def dirty_state(vault: Path | None = None) -> dict[str, Any] | None:
+    try:
+        return json.loads(((vault or storage.vault_root()) / "_archive" / DIRTY_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def ensure_fresh(vault: Path | None = None, *, wait_s: float = 0) -> str:
+    """有待重建就重建。返回 "clean"（本来就新）/ "built" / "busy"（别人正在建，记号留着等它或下一次）/ "failed"。"""
+    vault = vault or storage.vault_root()
+    if dirty_state(vault) is None:
+        return "clean"
+    try:
+        with storage.file_lock("catalog-build", wait_s=wait_s, owner="catalog.ensure_fresh"):
+            if dirty_state(vault) is None:     # 等锁期间别人建完了
+                return "clean"
+            build(vault)
+        return "built"
+    except storage.LockBusy:
+        return "busy"
+    except Exception as exc:  # noqa: BLE001 - 目录重建失败不挡调用方（同步 / 导入已经成功了）
+        import sys
+        print(f"[catalog] 待重建没建成（{type(exc).__name__}: {exc}），下次再试", file=sys.stderr)
+        return "failed"
+
+
+def _clear_dirty(vault: Path, seen: dict[str, Any] | None) -> None:
+    """build 开始时看到的那份记号没被更新过才删（建的过程中又有新改动 → 留着，下一次再建）。"""
+    if seen is None:
+        return
+    path = vault / "_archive" / DIRTY_NAME
+    try:
+        if json.loads(path.read_text(encoding="utf-8")).get("seq") == seen.get("seq"):
+            path.unlink()
+    except (OSError, ValueError):
+        pass
+
+
 @storage.locked("catalog-build", wait_s=120)  # CONVENTIONS §6.4：remove / attachments / topics / 插件都会调
 def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Path, int, Path]:
     vault = vault or storage.vault_root()
     now = datetime.now().astimezone()
+    dirty_seen = dirty_state(vault)
     items = collect(vault, source)
     pages = library_pages(vault)
 
@@ -698,59 +790,66 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
         print(f"[catalog] 本月用量没算出来（{type(exc).__name__}: {exc}），边栏费用显示「—」", file=sys.stderr)
         usage_month = None
     slim_items, search_index = split_search(items)
-    # 先写检索索引再写目录数据：页面看到新目录时索引已经是新的（按 id 并，差一拍也只是少几篇的全文）
-    storage.atomic_write_text(
-        vault / "_archive" / SEARCH_NAME,
-        json.dumps({"built_at": now.isoformat(), "items": search_index}, ensure_ascii=False, separators=(",", ":")),
-    )
-    storage.atomic_write_text(
-        data_path,
-        json.dumps(
-            {
-                "built_at": now.isoformat(),
-                "pages": pages,
-                "count": len(items),
-                "cats_order": cats_order,
-                "cats": [{"name": name, "keywords": list(kws)} for name, kws in effective_big_cats()],
-                # 10-10：cats_order / items[].cats 来自索引树时带上它（页面的二级小标签、索引图读 _archive/index-data.json）
-                "index": index_info,
-                "topics": [t["name"] for t in topic_list],
-                "usage_month": usage_month,
-                "aliases": ALIASES,
-                "items": slim_items,
-                "search_index": SEARCH_NAME,
-                "pinyin_chars": pinyin_chars(items),
-                # 第 4 批：状态文案唯一源（CONVENTIONS §3.1），页面只从这里取 label / hover，不自己写
-                "state_registry": _state_registry(),
-            },
-            ensure_ascii=False,
-            indent=1,
-        ),
-    )
+    payload = {
+        "built_at": now.isoformat(),
+        "pages": pages,
+        "count": len(items),
+        # 1023：篇数唯一口径——两张页显示篇数都读这里（以前目录页按「我的收藏」过滤后数、问收藏页数全部）
+        "counts": _counts(items),
+        "cats_order": cats_order,
+        "cats": [{"name": name, "keywords": list(kws)} for name, kws in effective_big_cats()],
+        # 10-10：cats_order / items[].cats 来自索引树时带上它（页面的二级小标签、索引图读 _archive/index-data.json）
+        "index": index_info,
+        "topics": [t["name"] for t in topic_list],
+        "usage_month": usage_month,
+        "aliases": ALIASES,
+        "items": slim_items,
+        "search_index": SEARCH_NAME,
+        "pinyin_chars": pinyin_chars(items),
+        # 第 4 批：状态文案唯一源（CONVENTIONS §3.1），页面只从这里取 label / hover，不自己写
+        "state_registry": _state_registry(),
+    }
+    try:
+        old_payload = json.loads(data_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        old_payload = None
+    # 1023：内容没变就不动 catalog-data（它的 mtime 就是页面的版本号，一变页面就整面更新）；
+    # 「核对过」的时间记在 catalog-state.checked_at，页面判「数据较旧」时一起看。
+    changed = not (isinstance(old_payload, dict) and _same_content(old_payload, payload)
+                   and (vault / "_archive" / SEARCH_NAME).exists())
+    if changed:
+        # 先写检索索引再写目录数据：页面看到新目录时索引已经是新的（按 id 并，差一拍也只是少几篇的全文）
+        storage.atomic_write_text(
+            vault / "_archive" / SEARCH_NAME,
+            json.dumps({"built_at": now.isoformat(), "items": search_index}, ensure_ascii=False, separators=(",", ":")),
+        )
+        storage.atomic_write_text(data_path, json.dumps(payload, ensure_ascii=False, indent=1))
 
     catalog_path = vault / pages["catalog"]
     # 先写脚本再写页：页面载入时脚本已经是新的
-    storage.atomic_write_text(vault / "_archive" / CATALOG_SCRIPT_NAME, _CATALOG_SCRIPT)
-    storage.atomic_write_text(vault / "_archive" / STARRED_SCRIPT_NAME, _STARRED_SCRIPT)
-    storage.atomic_write_text(vault / "_archive" / CHAT_SCRIPT_NAME, _CHAT_SCRIPT)
+    _write_if_changed(vault / "_archive" / CATALOG_SCRIPT_NAME, _CATALOG_SCRIPT)
+    _write_if_changed(vault / "_archive" / STARRED_SCRIPT_NAME, _STARRED_SCRIPT)
+    _write_if_changed(vault / "_archive" / CHAT_SCRIPT_NAME, _CHAT_SCRIPT)
     publish_fonts(vault)
-    storage.atomic_write_text(catalog_path, _PAGE_HEADER.replace("---\n", "---\nlb-page: catalog\n", 1) + _DATAVIEWJS + "\n")
+    _write_if_changed(catalog_path, _PAGE_HEADER.replace("---\n", "---\nlb-page: catalog\n", 1) + _DATAVIEWJS + "\n")
 
-    storage.atomic_write_text(vault / pages["chat"], _CHAT_HEADER.replace("---\n", "---\nlb-page: chat\n", 1) + _CHATJS + "\n")
+    _write_if_changed(vault / pages["chat"], _CHAT_HEADER.replace("---\n", "---\nlb-page: chat\n", 1) + _CHATJS + "\n")
 
-    storage.atomic_write_text(vault / pages["starred"], _PAGE_HEADER.replace("---\n", "---\nlb-page: starred\n", 1) + _page_bootstrap(STARRED_SCRIPT_NAME) + "\n")
+    _write_if_changed(vault / pages["starred"], _PAGE_HEADER.replace("---\n", "---\nlb-page: starred\n", 1) + _page_bootstrap(STARRED_SCRIPT_NAME) + "\n")
 
     # 部署笔记底部批注块用的共享脚本（每篇笔记的 bootstrap 会 adapter.read 它）；前面拼上共享前导。
     # 每篇笔记里烤死的 bootstrap（render._annotate_block）不动：改它要重渲全部笔记，它只负责找仓根、载入这份脚本。
-    storage.atomic_write_text(
+    _write_if_changed(
         vault / "_archive" / "annotate-view.js",
         _PAGE_LIB + "\n" + (_ASSETS / "annotate-view.js").read_text(encoding="utf-8"),
     )
 
     storage.atomic_write_text(
         vault / "_archive" / STATE_NAME,
-        json.dumps({"last_built": now.isoformat()}, ensure_ascii=False, indent=1),
+        json.dumps({"last_built": (now.isoformat() if changed else (old_payload or {}).get("built_at") or now.isoformat()),
+                    "checked_at": now.isoformat()}, ensure_ascii=False, indent=1),
     )
+    _clear_dirty(vault, dirty_seen)
     from .remove import publish_trash
     publish_trash(vault)
     if index_info and index_info.get("migrated"):
@@ -851,6 +950,13 @@ def run(args) -> int:
         from .read import dump_json
 
         dump_json({"text": dump_cats_text(), 'ok': True, 'code': '', 'message': '已载入当前分类'})
+        return 0
+    if getattr(args, "if_dirty", False):
+        # 1023：插件启动 / 打开目录页时调：没有待重建就秒回，不碰任何文件
+        from .read import dump_json
+        state = ensure_fresh(wait_s=0)
+        dump_json({"ok": state != "failed", "code": "", "state": state,
+                   "message": {"clean": "目录已是最新", "built": "目录已跟上", "busy": "目录正在别处重建"}.get(state, "目录没重建成")})
         return 0
     path, total, data_path = build()
     import sys

@@ -756,7 +756,7 @@ cleanups.push(() => { clearInterval(progTimer); progTimer = null; progPeriod = 0
 const fmtTime = v => { const d = new Date(v); if (!Number.isFinite(d.getTime())) return '—'; const p = n => String(n).padStart(2, '0'); return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 const fmtFull = v => { const d = new Date(v); if (!Number.isFinite(d.getTime())) return '—'; const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 
-let syncState = null, probSummary = null, aliveChecked = false;
+let syncState = null, probSummary = null, aliveChecked = false, catalogCheckedAt = null;
 function regEntry(code) {
   const reg = data.state_registry || {}; code = String(code || ''); if (!code) return null;
   if (reg[code]) return reg[code];
@@ -786,7 +786,10 @@ async function reloadIndex() {
 }
 async function refreshProblems() {
   const [raw, sum] = await Promise.all([readArchiveJson('_archive/sync-status.json'), readArchiveJson('_archive/problems-summary.json')]);
-  probSummary = sum; syncState = mergeSync(raw, sum); paintProblems();
+  probSummary = sum; syncState = mergeSync(raw, sum);
+  // 1023：内容没变的重建不改 catalog-data（不刷屏），「核对过」的时间在 catalog-state.checked_at——判「数据较旧」时一起算
+  try { catalogCheckedAt = (await readArchiveJson('_archive/catalog-state.json'))?.checked_at || null; } catch {}
+  paintProblems();
   // 显示「同步中」但插件这头没在跑任务：请 Python 核一次（进程已死就落盘 INTERRUPTED），每次打开页面最多一次
   const p = provider();
   if (syncState?.state === 'running' && !aliveChecked && p && !p.running && typeof p.refreshProblemSummary === 'function') {
@@ -2431,11 +2434,14 @@ function paintSub() {
   const filtered = !!(committed || todayOnly || todoOnly || starredPage || starOnly || mediaFilter || activeTopic || activeAlbum || activeCat || timeRange);
   // 1011 她问「43 / 659 是什么」：43 = 当前筛选 / 搜索命中几篇，659 = 目录里一共几篇（库里所有对象：收藏同步进来的 + 分享 / 导入单篇的，
   // 含后来取消收藏的；回收站里的不算）。和同步进度的「收藏已入库 A/T」不是一个数，悬停写明
-  const countText = filtered && r ? `筛出 ${r.exact.length} 篇（共 ${items.length}）` : `${items.length} 篇`;
+  // 1023：默认只看「我的收藏」时，旁边带上全部几篇（问收藏页显示的是全部，两边对得上；ARCH-AUDIT §7）
+  const allNote = !starredPage && allItems.length !== items.length ? ` · 全部 ${allItems.length}` : '';
+  const countText = (filtered && r ? `筛出 ${r.exact.length} 篇（共 ${items.length}）` : `${items.length} 篇`) + allNote;
   if (countEl.textContent !== countText) {
     countEl.empty();
     if (filtered && r) { countEl.append('筛出 '); countEl.createEl('b', { text: String(r.exact.length) }); countEl.append(` 篇（共 ${items.length}）`); }
     else { countEl.createEl('b', { text: String(items.length) }); countEl.append(' 篇'); }
+    if (allNote) countEl.append(allNote);
   }
   countEl.title = (filtered && r ? `当前筛选${filterLabel() ? '（' + filterLabel() + '）' : ''}命中 ${r.exact.length} 篇；` : '')
     + `目录里一共 ${items.length} 篇：收藏同步进来的 + 分享 / 导入单篇的（含后来取消收藏的，回收站里的不算）。收藏夹同步到哪了（收藏已入库几篇 / 还差几篇）点右边「更新」看同步记录`;
@@ -2447,7 +2453,7 @@ function paintSub() {
   updatedBtn.title = `目录数据生成于 ${built ? fmtFull(built) : '—'}（同步或刷新目录后更新）· 点开看同步记录`;
   // F4 跨设备兜底：同步记录显示已经更新过，这台设备上的 catalog-data 还是旧的（同步盘没跟上）
   const last = Math.max(tsOf(syncState?.last_success), tsOf(probSummary?.last_success), tsOf(probSummary?.sync?.last_success));
-  const behind = !!built && last > 0 && last - tsOf(built) > 10 * 60000 && !stale;
+  const behind = !!built && last > 0 && last - Math.max(tsOf(built), tsOf(catalogCheckedAt)) > 10 * 60000 && !stale;
   staleEl.hidden = !behind;
   if (behind) staleEl.title = `同步记录显示 ${fmtTime(last)} 已更新，本机目录数据还是 ${fmtTime(built)} 的：等同步盘把 _archive/catalog-data.json 同步过来，或在电脑上刷新目录`;
 }
