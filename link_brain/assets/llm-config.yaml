@@ -1,13 +1,7 @@
 # 小模型派生（Lot 4）和向量索引的可配置项。
-# CONVENTIONS §4.8：这里只留提示词裁剪上限、价格快照、embedding；模型名和接口地址只认插件设置（data.json），
+# CONVENTIONS §4.8：这里只留提示词裁剪上限、embedding；模型名和接口地址只认插件设置（data.json），
 # 不再从这里回落。概要用哪个模型 = 设置里的「归档摘要模型」（默认和文本 AI 相同）。
-
-# 价格快照（USD / 1M token），按模型名查；查不到的模型费用记 0（只影响 extracted.json 里的估算）。
-# qwen3.7-flash：2026-09-04 取自 Qwen 官方 model-pricing 页。换模型时把它的价格也加进来。
-pricing:
-  qwen3.7-flash:
-    input_usd_per_1m: 0.028
-    output_usd_per_1m: 0.110
+# 价格不在这里：只有 link_brain/pricing.json（+ 用户覆盖），由 link_brain/pricing.py 算（ARCH-AUDIT 第 2 批）。
 
 # 输入裁剪上限：喂给模型的只有正文 + OCR + 评论，绝不塞 mcp_raw.json
 limits:

@@ -571,7 +571,11 @@ def test_pricing_table_sane():
         assert m["source"] in data["sources"], key
         assert m["checked"] and m["currency"] in ("CNY", "USD") and m["unit"]
         if m["unit"] == "per_million_tokens":
-            assert isinstance(m["input"], (int, float)) and isinstance(m["output"], (int, float)), key
+            # 1023：官方价查不到的写 null（= 未计价、预算按要钱的拦），note 里要说明
+            for side in ("input", "output"):
+                assert m[side] is None or isinstance(m[side], (int, float)), key
+            if m["input"] is None or m["output"] is None:
+                assert "未计价" in m["note"], key
         else:
             assert m["price"] is None or isinstance(m["price"], (int, float)), key
     for item, model in data["recommended"].items():

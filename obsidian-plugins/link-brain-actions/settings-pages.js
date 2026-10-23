@@ -27,7 +27,7 @@ module.exports = function (obsidian, plugin) {
   }
   function safe(tab, c, what, fn) { return tab.safe ? tab.safe(c, what, fn) : fn(); }
 
-  // —— 提供商：从接口地址认是哪家（和 Python usage.provider_of 同一套）——
+  // —— 提供商：哪家管哪些功能由后端认（ai_routes 每一格带 provider，pricing.provider_of 一处），这里只放名字和跳转兜底 ——
   const PROVIDER_NAME = { google: 'Gemini', aliyun: '阿里云百炼', deepseek: 'DeepSeek', openai: 'OpenAI' };
   const LINKS = {
     google: { key: 'https://aistudio.google.com/apikey', console: 'https://aistudio.google.com/', usage: 'https://aistudio.google.com/usage' },
@@ -36,48 +36,6 @@ module.exports = function (obsidian, plugin) {
     deepseek: { key: 'https://platform.deepseek.com/api_keys', console: 'https://platform.deepseek.com/', recharge: 'https://platform.deepseek.com/top_up' },
     openai: { key: 'https://platform.openai.com/api-keys' },
   };
-  function providerOf(endpoint, model) {
-    const e = String(endpoint || '').toLowerCase(), m = String(model || '').toLowerCase();
-    if (e.includes('deepseek') || (!e && m.startsWith('deepseek'))) return 'deepseek';
-    if (e.includes('aliyuncs') || e.includes('dashscope') || (!e && m.startsWith('qwen'))) return 'aliyun';
-    if (e.includes('openai.com')) return 'openai';
-    if (e.includes('googleapis')) return 'google';
-    if (!e) return '';
-    return e.split('://').pop().split('/')[0];
-  }
-  // 每个功能现在用谁：[{id, label, cap, fallback?}]，按功能列；off / cli 的不算 API
-  function featureUses(s) {
-    const out = [];
-    const add = (label, cfg, extra = {}) => {
-      if (!cfg || cfg.mode === 'off' || cfg.mode === 'cli' || cfg.mode === 'capswriter') return;
-      const id = providerOf(cfg.endpoint, cfg.model);
-      if (id) out.push({ id, label, pool: cfg.keyPool || '', ...extra });
-    };
-    const text = s.textAI || {};
-    add('问收藏', text);
-    const sum = s.summaryAI || {};
-    if (sum.mode === 'inherit' || !sum.mode) add('概要', { ...text, model: sum.model || text.model }); else add('概要', sum);
-    if (sum.fallback) add('概要', sum.fallback, { backup: true });
-    const vis = s.visionAI || {};
-    add('识图', vis);
-    if (vis.refine) add('精细识图', vis.refine, { backup: true });
-    const emb = s.embedAI || (vis.mode === 'http' && !vis.keyPool ? { ...vis, endpoint: String(vis.endpoint || '').replace(/\/chat\/completions$/, '/embeddings') } : null);
-    add('语义搜索', emb);
-    if ((s.asrAI || {}).mode === 'http') add('视频转文字', s.asrAI);
-    return out;
-  }
-  function providerRows(s) {
-    const by = new Map();
-    for (const u of featureUses(s)) {
-      const row = by.get(u.id) || { id: u.id, main: [], backup: [], pool: '' };
-      (u.backup ? row.backup : row.main).push(u.label);
-      if (u.pool) row.pool = u.pool;
-      by.set(u.id, row);
-    }
-    const order = ['google', 'deepseek', 'aliyun', 'openai'];
-    return [...by.values()].sort((a, b) => ((order.indexOf(a.id) + 1) || 99) - ((order.indexOf(b.id) + 1) || 99))
-      .map(r => ({ ...r, main: [...new Set(r.main)], backup: [...new Set(r.backup.filter(x => !r.main.includes(x)))] }));
-  }
 
   // —— 「需要你留意」：只列真要人动手的；措辞说发生了什么、有没有影响、点哪里（她：别吓人、别 bossy）——
   const ACCOUNT_STEPS = new Set(['login', 'sync.favorites']);
@@ -210,12 +168,13 @@ module.exports = function (obsidian, plugin) {
     if (b.over) today.addClass('is-warn');
     cell('本月', fmtYuan(monthTotal));
     const [capCell, capVal] = cell('每天上限', '');
+    // 默认上限只在后端（budget.DEFAULT_YUAN）：没存过就显示后端给的 daily_yuan
     const saved = s.budget && s.budget.dailyYuan !== undefined && s.budget.dailyYuan !== '' ? +s.budget.dailyYuan : null;
-    const cur = saved != null && Number.isFinite(saved) ? saved : +(b.daily_yuan ?? 3);
+    const cur = saved != null && Number.isFinite(saved) ? saved : Number.isFinite(+b.daily_yuan) ? +b.daily_yuan : '';
     capVal.createSpan({ text: '¥' });
     const input = capVal.createEl('input', { cls: 'lb-spend-input', attr: { type: 'number', min: '0', step: '1', 'aria-label': '每天花费上限（元，0 = 不限）' } });
     input.value = String(cur);
-    const unit = capVal.createSpan({ cls: 'lb-spend-unit', text: cur > 0 ? '' : '不限' });
+    const unit = capVal.createSpan({ cls: 'lb-spend-unit', text: cur === '' || cur > 0 ? '' : '不限' });
     input.addEventListener('change', async () => {
       const n = Math.max(0, Math.round(+input.value * 100) / 100);
       if (!Number.isFinite(n)) { input.value = String(cur); return; }
@@ -470,5 +429,5 @@ module.exports = function (obsidian, plugin) {
     paint();
   }
 
-  return { renderOverview, renderSync, renderAI, renderConnect, renderMore, renderGuide, needsGuide, providerRows, featureUses, attentionText, providerOf, LINKS };
+  return { renderOverview, renderSync, renderAI, renderConnect, renderMore, renderGuide, needsGuide, attentionText, LINKS };
 };

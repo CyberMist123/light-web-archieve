@@ -10,12 +10,12 @@
 | 单篇导入（catch / MCP / CLI）、从快照恢复、改来源、专辑同步后目录更新 | 无 | 1 |
 | 内容没变时重建不改任何页面文件（不刷屏） | 无 | 1 |
 | 目录页和问收藏页的「全部」篇数相等 | 无 | 1 |
-| 同一条用量，账本 / 预算 / 夜跑花费 / 设置页显示的钱一致；未知模型 = 未计价 | 无 | 2 |
-| 概要切 CLI（OpenCode）能跑、记账显示免费 | 无 | 2 |
-| 夜跑和 providers 拿到同一组 Gemini key | 无 | 2 |
+| 同一条用量，账本 / 预算 / 夜跑花费 / 设置页显示的钱一致；未知模型 = 未计价 | ✅ `test_pricing_1023.py`（1023） | 2 |
+| 概要切 CLI（OpenCode）能跑、记账显示免费 | ✅ `test_pricing_1023.py` + `test_ai_settings_ui.cjs`（1023） | 2 |
+| 夜跑和 providers 拿到同一组 Gemini key | ✅ `test_pricing_1023.py`（1023） | 2 |
 | TG 发来的帖来源 = Fable；多号收藏、网页导入 = 我的收藏 | `test_provenance_1020.py` 测的是旧规则（聊天分享） | 3 |
 | 换号同步不清掉另一个号的专辑；重抓不丢收藏标记 | 无 | 3 |
-| 关掉视频下载时不下视频、原帖链接保留 | 只有设置页 UI 用例 | 2 |
+| 关掉视频下载时不下视频、原帖链接保留 | 只有设置页 UI 用例（第 2 批没做：这次范围是价格 / 免费 / 预算 / 密钥 / CLI） | 2 |
 | 旅行等内置 skill 的回答质量 | 只在问答用例里顺带出现，未验收 | 并行（找 skill） |
 | 页面标题 / 文案只从一处来 | 守卫 `test_single_source.py` | 4 |
 
@@ -87,6 +87,7 @@
 | `link_brain/places.py` | 2 | test_ask_b3_r3.py, test_recall_b10.py |
 | `link_brain/playlist.py` | 4 | media_controls_ui.cjs, test_media_nav_1008.cjs, test_player_ui_1009.cjs, test_playlist_1009.py |
 | `link_brain/posttags.py` | 2 | test_indexai_1011.py, test_indexedit_1015.py |
+| `link_brain/pricing.py` | 1 | test_pricing_1023.py（1023 新建：价格 / 免费 / 提供商唯一来源） |
 | `link_brain/problems.py` | 47 | l4_settings_ui.cjs, test_accounts.py, test_ai_health_1008.py, test_ask_b2_1015.py … |
 | `link_brain/procs.py` | 4 | test_batch5_delivery.py, test_cli_call_timeout.py, test_note_print_1009.py, test_procs.py |
 | `link_brain/provenance.py` | 2 | test_provenance_1020.py, test_single_source.py |

@@ -168,13 +168,15 @@ STATE_REGISTRY = {  # code 前缀 → 显示；写进 catalog-data.json 的 "sta
 **规则**
 1. 配置唯一源仍是插件 `data.json`（`ai_config.load`）。每个能力一个键：`textAI`（问答）· `summaryAI`（新，归档概要/打标，默认继承 textAI）· `visionAI`（第一层）· `visionAI.refine`（第二层）· `ocr` · `asrAI` · `docConvert`（本地，只有 `enabled`）。
 2. `mode` 词表：`http`（OpenAI 兼容）· `cli`（本机命令行，仅 textAI）· `local`（进程内，ocr/docConvert）· `capswriter`（websocket，仅 asrAI）· `off`。**`media` 模式删除**。
-3. key 来源顺序：`cfg.apiKey` → `cfg.keyFile/keyField`（已有）→ `os.environ[cfg.apiKeyEnv]` → 没有。**代码里不得出现任何默认目录、默认用户路径、默认 key 文件名**；用 `.githooks/private-patterns.local.txt` 里的模式 grep `link_brain/` 和插件源，命中数必须为 0（隐私闸只拦提交，这条拦默认值）。
+3. key 来源顺序：`cfg.apiKey` → `cfg.keyPool`（池里第一把今天没用坏的）→ `cfg.keyFile/keyField`（已有）→ `os.environ[cfg.apiKeyEnv]` → 没有。**取值只在 `providers.resolve_key()` / `providers.pool_keys()`**；key 池从哪来（环境变量 → 取 key 的命令 → key 文件）只在 `providers.pool_load()`，夜跑也调它（ARCH-AUDIT 第 2 批，守卫 `tests/test_single_source.py`「Gemini 密钥来源」）。**代码里不得出现任何默认目录、默认用户路径、默认 key 文件名**；用 `.githooks/private-patterns.local.txt` 里的模式 grep `link_brain/` 和插件源，命中数必须为 0（隐私闸只拦提交，这条拦默认值）。
 4. 「没配置 = 跳过」：`resolve(cap)` 返回 `None` 时调用方记 `SKIPPED.NOT_CONFIGURED`，返回 `{"status":"skipped"}`，不算失败、不退非 0。
 5. 超时全部在配置里有默认值（`ai_config.DEFAULTS[cap]["timeoutSec"]`），执行器不许写死数字。
 6. 执行器返回统一形状；HTTP 执行器把状态码翻成故障码（429→`TRANSIENT.HTTP_429`，401/403→`NEEDS_HUMAN.AUTH_FAILED`，5xx→`TRANSIENT.HTTP_5XX`，402/欠费文案→`NEEDS_HUMAN.QUOTA_EXCEEDED`，4xx 其他→`PERMANENT.MODEL_OUTPUT_INVALID`）。
 7. **测试按钮测的就是实际执行器**：`selftest <cap>` 对每个能力调 `resolve(cap)` + 与生产同一个函数（问答按下拉选中的 `with_model`；概要按 `summaryAI`；识图按 `visual.understand`；OCR 按 `vision.run_ocr`；语音按 `voice.transcribe` 跑随包 1 秒样例）。设置页每个能力块下只有一个「测试」按钮。
-8. `assets/llm-config.yaml` 只留 prompts/limits/pricing/embedding；模型名、endpoint 不再从它回落。
+8. `assets/llm-config.yaml` 只留 prompts/limits/embedding；模型名、endpoint、价格不再从它回落。
 9. （1016）**用量记账只在执行器里**：每个打外部模型接口的执行器（`text_stream.call`、`visual._chat`、`semantic._post_embeddings`、`rerank.rerank`、`asr._http`）调一次接口就 `usage.record(cap, cfg, usage)` 一次（成功、或接口那侧失败都记；没配 / 跳过不记）。算哪个功能由调用方 `with usage.tag("<功能>", item=…)` 标，不标按 cap 推；功能词表 `usage.FEATURES`。账本不存金额、不存 key、不存内容，金额汇总时按 `pricing.json` 现价折算。新加一个打接口的执行器必须同时加记账点。
+10. （1023，ARCH-AUDIT 第 2 批）**价格只在 `link_brain/pricing.py`**：算钱（`cost_of` 账本一行 / `call_cost` 刚调完的一次）、判免费（`is_free`）、判要不要拦（`is_paid`）、猜提供商（`provider_of`）一律调它，价格表 = 包内 `pricing.json` + 用户覆盖（`pricing.table()`）。「查不到价」只有一种结果 `None` = 未计价（界面写「—，未计价」），预算按**要钱**的拦；「免费」只认显式标记：mode=cli、keyPool=gemini（免费 key 池）、执行器给免费 key 的配置标 `free: true`、价格表模型行 `"free": true`。前端不写价格、预算默认值和供应商猜测，读 `link_brain usage` 给的 `budget.daily_yuan` / 每格 `provider`。
+11. （1023）**接口和本机命令行平级**：每项功能能选哪几种做法、有哪些命令行（`ai_config.CLI_PRESETS`）由后端 `ai_config.ai_table()` 给（`link_brain usage --table`，完整 `usage` 也带 `ai_table`）；插件里命令行条目只存 `preset`，命令本身只在 `CLI_PRESETS`，`providers` 解析时补上。
 
 **形状**
 ```python

@@ -11,8 +11,9 @@ from link_brain import ai_config, ai_health, budget, providers, usage, visual
 BJ = timezone(timedelta(hours=8))
 PAID = {"endpoint": "https://ws.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
         "model": "qwen3.8-max", "apiKey": "k-123456789"}
+# 1023：免费只认显式标记——Gemini 免费 key 池（keyPool: gemini）才算免费；同一个模型用付费 key = 要钱
 FREE = {"endpoint": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        "model": "gemini-3.5-flash", "apiKey": "g-123456789"}
+        "model": "gemini-3.5-flash", "apiKey": "g-123456789", "keyPool": "gemini"}
 
 
 @pytest.fixture(autouse=True)
@@ -37,6 +38,8 @@ def test_cap_default_and_off():
 
 def test_paid_vs_free():
     assert budget.is_paid(PAID) and not budget.is_paid(FREE) and not budget.is_paid({"mode": "cli", "model": "qwen3.8-max"})
+    assert budget.is_paid({k: v for k, v in FREE.items() if k != "keyPool"}), "没标免费的 Gemini key：按要钱的算"
+    assert budget.is_paid({"model": "没听过的模型-x1"}), "价格表里查不到 = 未计价，预算按要钱的拦"
 
 
 def test_background_paid_call_blocked_after_cap():

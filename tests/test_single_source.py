@@ -21,8 +21,15 @@ RULES = {
     "价格表": (
         PY_GLOBS,
         r"^\s*PRICES\s*=|[\"']pricing\.json[\"']|^pricing:",
-        {"link_brain/setup/estimate.py"},
-        {"link_brain/visual.py", "link_brain/keyprobe.py", "link_brain/assets/llm-config.yaml"},
+        {"link_brain/pricing.py"},
+        set(),
+        2,
+    ),
+    "价格读法": (
+        PY_GLOBS,
+        r"estimate\.(_price|load_pricing|token_cost|audio_cost)\(|refineKeysEnv[\"']?\)",
+        {"link_brain/providers.py"},
+        set(),
         2,
     ),
     "收藏判断": (
@@ -43,7 +50,7 @@ RULES = {
         PY_GLOBS,
         r"LWA_GEMINI_KEYS|gemini_keys_(file|cmd)",
         {"link_brain/providers.py", "link_brain/storage.py"},
-        {"link_brain/nightly.py", "link_brain/vision.py", "link_brain/ai_config.py"},
+        set(),
         2,
     ),
     "写死的模型名": (
@@ -52,7 +59,7 @@ RULES = {
         r"|text-embedding-[\w.-]+|whisper-1)[\"']",
         {"link_brain/ai_config.py"},
         {"link_brain/asr.py", "link_brain/keyprobe.py", "link_brain/rerank.py", "link_brain/semantic.py",
-         "link_brain/setup/capswriter.py", "link_brain/vision.py", "link_brain/visual.py"},
+         "link_brain/setup/capswriter.py", "link_brain/vision.py"},
         2,
     ),
     "页面标题兜底 Collections": (
@@ -74,15 +81,14 @@ RULES = {
         JS_GLOBS,
         r"function providerOf|providerOf\s*=",
         set(),
-        {"obsidian-plugins/link-brain-actions/settings-pages.js"},
+        set(),
         2,
     ),
     "前端预算默认值": (
         JS_GLOBS,
         r"(dailyYuan|daily_yuan)[^\n]*\?\?\s*3\b",
         set(),
-        {"obsidian-plugins/link-brain-actions/settings-pages.js",
-         "obsidian-plugins/link-brain-actions/settings-v6.js"},
+        set(),
         2,
     ),
     "默认回答提示词": (
@@ -96,7 +102,7 @@ RULES = {
         JS_GLOBS,
         r"claude -p --model",
         set(),
-        {"obsidian-plugins/link-brain-actions/main.js"},
+        set(),
         2,
     ),
 }

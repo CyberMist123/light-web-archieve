@@ -425,7 +425,6 @@ def test_audit_missing_gives_exit2(job_factory):
 
 def test_refine_keys_from_config_cmd_only_for_that_step(job_factory, monkeypatch, tmp_path):
     monkeypatch.delenv("LWA_GEMINI_KEYS", raising=False)
-    monkeypatch.setattr(nightly.Nightly, "_keys_env_name", lambda self: "LWA_GEMINI_KEYS")
     cfg = storage.user_config_path()
     cfg.parent.mkdir(parents=True, exist_ok=True)
     keycmd = f'"{PY}" -c "print(\'k-one,k-two\')"'
@@ -442,7 +441,6 @@ def test_refine_keys_from_config_cmd_only_for_that_step(job_factory, monkeypatch
 
 def test_refine_keys_cmd_timeout_registers_and_runs_anyway(job_factory, monkeypatch):
     monkeypatch.delenv("LWA_GEMINI_KEYS", raising=False)
-    monkeypatch.setattr(nightly.Nightly, "_keys_env_name", lambda self: "LWA_GEMINI_KEYS")
     monkeypatch.setenv("LWA_GEMINI_KEYS_CMD", f'"{PY}" -c "import time; time.sleep(30)"')
     job = job_factory([Step(nightly.REFINE_STEP, [], 1, argv=_py("print('refine ran')"), reserve_min=0)],
                       secret_timeout_sec=1)

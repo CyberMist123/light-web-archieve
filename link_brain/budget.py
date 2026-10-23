@@ -5,7 +5,8 @@
   所有功能都算进去（含问收藏）。
 - **只拦后台补跑**：识图、精细识图、概要、索引 / wiki 整理（usage.tag 的 vision / refine / summary / other）。
   她自己问收藏、扩词、搜索用的向量、远程 Claude / ChatGPT 的调用一律不拦——到了上限也照常答。
-- 只拦要钱的模型：价格表里没有的（Gemini 免费 key）和本机命令行照常跑。
+- 只拦要钱的模型（`pricing.is_paid`）：显式免费的（本机命令行、Gemini 免费 key 池）照常跑；**价格表里查不到的当要钱**（宁可多拦）。
+- 默认上限只在这里（DEFAULT_YUAN）；设置页显示 `status()` 给的 daily_yuan，不自己写默认值。
 - 拦下 = 返回 TRANSIENT.BUDGET（api_error=True）：按接口故障归并，不按篇记失败、篇留待补，明天（或调高上限后）自然补上。
 - 账本读一次缓存 60 秒，夜里一张张识图不每张都扫一遍账本。
 """
@@ -40,8 +41,8 @@ def daily_cap(settings: dict[str, Any] | None = None) -> float:
 
 
 def bj_day(now: datetime | None = None) -> str:
-    from .usage import _bj
-    return (now or datetime.now().astimezone()).astimezone(_bj()).strftime("%Y-%m-%d")
+    from .pricing import bj
+    return (now or datetime.now().astimezone()).astimezone(bj()).strftime("%Y-%m-%d")
 
 
 def spent_today(*, now: datetime | None = None, fresh: bool = False) -> float:
@@ -49,30 +50,20 @@ def spent_today(*, now: datetime | None = None, fresh: bool = False) -> float:
     day = bj_day(now)
     if not fresh and _cache["day"] == day and time.time() - _cache["at"] < CACHE_S:
         return float(_cache["spent"])
-    from . import usage
-    from .setup import estimate
-    pricing = estimate.load_pricing()
+    from . import pricing, usage
+    table = pricing.table()
     total = 0.0
     for r in usage.load(2, now=now):
-        if r["_ts"].astimezone(usage._bj()).strftime("%Y-%m-%d") != day:
+        if r["_ts"].astimezone(pricing.bj()).strftime("%Y-%m-%d") != day:
             continue
-        c = usage.cost_of(r, pricing)
-        total += c or 0.0
+        total += pricing.cost_of(r, table) or 0.0   # 未计价的这里只能按 0 加（不知道多少），拦不拦由 is_paid 决定
     _cache.update(at=time.time(), day=day, spent=total)
     return total
 
 
 def is_paid(cfg: dict[str, Any] | None) -> bool:
-    """这个模型要不要钱：本机命令行不要；价格表里没有的（Gemini 免费 key 等）当不要钱。"""
-    cfg = cfg or {}
-    if cfg.get("mode") == "cli":
-        return False
-    from .setup import estimate
-    hit = estimate._price(estimate.load_pricing(), str(cfg.get("model") or ""))
-    if not hit:
-        return False
-    info = hit[1]
-    return any(float(info.get(k) or 0) > 0 for k in ("input", "output", "price", "price_per_million"))
+    from . import pricing
+    return pricing.is_paid(cfg)
 
 
 def blocked(cfg: dict[str, Any] | None) -> dict[str, Any] | None:

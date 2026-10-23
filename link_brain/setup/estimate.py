@@ -12,12 +12,13 @@
 """
 from __future__ import annotations
 
-import copy
 import json
 from pathlib import Path
 from typing import Any
 
-PRICING_PATH = Path(__file__).resolve().parent.parent / "pricing.json"
+from .. import pricing as _pricing
+
+PRICING_PATH = _pricing.PRICING_PATH
 MAX_SAMPLE = 3000
 
 # 开发时一个 361 篇真实收藏库（2026-10-03）的平均，库空时用
@@ -28,25 +29,8 @@ SUMMARY_OUT_DEFAULT = 500
 
 
 def load_pricing() -> dict[str, Any]:
-    data = json.loads(PRICING_PATH.read_text(encoding="utf-8"))
-    try:
-        from .. import storage
-        user = storage.link_brain_home() / "pricing.json"
-        if user.is_file():
-            over = json.loads(user.read_text(encoding="utf-8-sig"))
-            if isinstance(over, dict):
-                data = _merge(data, over)
-                data["user_override"] = str(user)
-    except (OSError, ValueError):
-        pass
-    return data
-
-
-def _merge(base: dict, over: dict) -> dict:
-    out = copy.deepcopy(base)
-    for k, v in over.items():
-        out[k] = _merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
-    return out
+    """价格表：见 link_brain/pricing.py（唯一来源），这里只是旧名字。"""
+    return _pricing.table()
 
 
 # --------------------------------------------------------------------------
@@ -123,36 +107,11 @@ def library_stats() -> dict[str, Any]:
 # --------------------------------------------------------------------------
 
 def _price(pricing: dict[str, Any], model: str) -> tuple[str, dict[str, Any]] | None:
-    models = pricing.get("models") or {}
-    if model in models:
-        return model, models[model]
-    for key, info in models.items():
-        if model in (info.get("aliases") or []):
-            return key, info
-    return None
+    return _pricing.price_of(model, pricing)
 
 
-def _cny(pricing: dict[str, Any], info: dict[str, Any], value: float | None) -> float | None:
-    if value is None:
-        return None
-    if info.get("currency") == "USD":
-        rate = (pricing.get("usd_cny") or {}).get("rate")
-        return None if not rate else value * float(rate)
-    return value
-
-
-def token_cost(pricing: dict, info: dict, tin: float, tout: float) -> float | None:
-    pin, pout = _cny(pricing, info, info.get("input")), _cny(pricing, info, info.get("output"))
-    if pin is None or pout is None:
-        return None
-    return (tin * pin + tout * pout) / 1_000_000
-
-
-def audio_cost(pricing: dict, info: dict, minutes: float) -> float | None:
-    price = _cny(pricing, info, info.get("price"))
-    if price is None:
-        return None
-    return price * minutes * (60 if info.get("unit") == "per_second" else 1)
+token_cost = _pricing.token_cost
+audio_cost = _pricing.audio_cost
 
 
 def _configured_models() -> dict[str, str]:

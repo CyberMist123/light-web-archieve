@@ -3,8 +3,8 @@
 只读：按生产同一套解析（providers.resolve / vision.vision_backups / llm.summary_fallbacks / 精细识图的免费 key → 强模型），
 所以表上写的顺序就是夜里真走的顺序。输出里不带 key 本身，只带 key 从哪来（key_source）。
 
-价钱：按近 30 天账本里这个功能每次调用的平均 token × 这个模型的现价（pricing.json）；账本里没有就按库里平均量（setup.estimate）。
-价格表里没有的（Gemini 免费 key）记「免费」，本机命令行记「本机」。
+价钱：按近 30 天账本里这个功能每次调用的平均 token × 这个模型的现价（pricing.py）；账本里没有就按库里平均量（setup.estimate）。
+免费只认显式标记（pricing.is_free：本机命令行、Gemini 免费 key 池）；价格表里查不到的写「—，未计价」，预算按要钱的拦。
 """
 from __future__ import annotations
 
@@ -42,25 +42,28 @@ def _fallback_tokens(feature: str) -> tuple[float, float] | None:
     return None
 
 
-def _entry(cfg: dict[str, Any], label: str, pricing: dict[str, Any], tokens: tuple[float, float] | None,
+def _entry(cfg: dict[str, Any], label: str, table: dict[str, Any], tokens: tuple[float, float] | None,
            per: int, unit: str) -> dict[str, Any]:
-    from . import ai_health, providers
-    from .setup import estimate
+    from . import ai_health, pricing, providers, usage
     model = str(cfg.get("model") or "")
     out: dict[str, Any] = {"label": label, "model": model}
     if cfg.get("mode") == "cli":
-        out.update(provider="cli", free=True, price="本机", key="本机已登录的账号")
+        out.update(provider="cli", model=model or usage.cli_model(cfg.get("command")), free=True, price="免费（本机）",
+                   key="本机已登录的账号")
         return out
     name = ai_health.provider_name(cfg)
-    out["provider"] = PROVIDER_ID.get(name, name)
+    out["provider"] = PROVIDER_ID.get(name) or pricing.provider_of(cfg.get("endpoint"), model)
     out["key"] = (f"{len(providers.pool_keys(str(cfg['keyPool'])))} 把轮流用" if cfg.get("keyPool")
                   else cfg.get("keySource") or providers.key_source(cfg))
-    hit = estimate._price(pricing, model)
-    if not hit:
+    if pricing.is_free(cfg, table):
         out.update(free=True, price="免费")
         return out
-    cost = estimate.token_cost(pricing, hit[1], *tokens) if tokens else None
     out["free"] = False
+    hit = pricing.price_of(model, table)
+    if not hit:
+        out.update(unpriced=True, price="—，未计价")
+        return out
+    cost = pricing.token_cost(table, hit[1], *tokens) if tokens else None
     if cost is None:
         out["price"] = "按用量"
     else:
@@ -74,6 +77,9 @@ def _label(cfg: dict[str, Any]) -> str:
     from . import ai_health
     if cfg.get("label"):
         return str(cfg["label"])
+    if cfg.get("mode") == "cli":
+        from . import usage
+        return f"本机 {usage.cli_model(cfg.get('command'))}"
     return f"{ai_health.provider_name(cfg)} {cfg.get('model') or ''}".strip()
 
 
@@ -108,7 +114,7 @@ def _chains(settings: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     chains["vision"] = ([vis] + vision.vision_backups(vis)) if vis else []
     strong = vision.strong_config()
     router = vision.RefineRouter(strong)
-    pool = [{"endpoint": vision.GEMINI_ENDPOINT, "model": vision.GEMINI_MODEL, "apiKey": k,
+    pool = [{"endpoint": vision.GEMINI_ENDPOINT, "model": vision.GEMINI_MODEL, "apiKey": k, "free": True,
              "label": f"Google {vision.GEMINI_MODEL}（免费 key {i + 1}）"} for i, k in enumerate(router.keys)]
     chains["refine"] = (pool + [strong]) if (vis and (pool or strong)) else []
     emb = providers.resolve("embedAI", settings)
@@ -135,10 +141,9 @@ def _state(health: dict[str, Any], cap: str, on: bool, budget_over: bool, chain:
 
 
 def routes(settings: dict[str, Any] | None = None) -> dict[str, Any]:
-    from . import ai_config, ai_health, budget, usage
-    from .setup import estimate
+    from . import ai_config, ai_health, budget, pricing, usage
     settings = settings if settings is not None else ai_config.load()
-    pricing = estimate.load_pricing()
+    table = pricing.table()
     rows = usage.load(30)
     health = ai_health.status()
     bud = budget.status(settings)
@@ -152,7 +157,7 @@ def routes(settings: dict[str, Any] | None = None) -> dict[str, Any]:
     out = []
     for fid, name, cap, feat, per, unit in FEATURES:
         tokens = _avg_tokens(rows, feat) or _fallback_tokens(feat)
-        chain = _collapse_pool([_entry(c, _label(c), pricing, tokens, per, unit) for c in chains.get(fid) or [] if c])
+        chain = _collapse_pool([_entry(c, _label(c), table, tokens, per, unit) for c in chains.get(fid) or [] if c])
         on = sel is None or on_of[fid] in sel
         state, text = _state(health, cap, on, bud["over"], chain)
         out.append({"id": fid, "name": name, "cap": cap, "on": on, "chain": chain, "state": state, "state_text": text})

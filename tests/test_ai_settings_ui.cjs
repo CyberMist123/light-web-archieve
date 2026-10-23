@@ -82,10 +82,11 @@ const ALL_ON = { setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'asr',
   // 「AI」那一栏没有方式下拉了（开关在功能清单上，命令行在「高级 → 开发者」）；接口 · 密钥 · 模型名
   for (const n of ['接口地址', '密钥（API Key）', '模型名']) assert.ok(byName(n), `缺「${n}」`);
   assert.ok(!settings.some(r => r.name === '文本 AI' && r.dropdown) && !byName('识图接口') && !byName('语音识别'), '没有方式下拉了');   // 1015：「文本 AI」只剩问收藏模型勾选列表里那一行
-  // 「高级」：写概要用的模型（和问收藏一样 / 另配一个接口 / 不写概要）
+  // 「高级」：写概要用的模型（和问收藏一样 / 另配一个接口 / 本机命令行 / 不写概要）——1023 接口和命令行平级
   const sum = byName('写概要用的模型');
   assert.ok(sum && sum.dropdown);
-  assert.deepEqual(sum.dropdown.options.map(o => o[0]), ['inherit', 'http', 'off']);
+  assert.deepEqual(sum.dropdown.options.map(o => o[0]), ['inherit', 'http', 'cli', 'off']);
+  assert.ok(!byName('用哪个命令行'), '没选命令行时不出命令行下拉');
   assert.equal(sum.dropdown.value, 'inherit');
   assert.ok(!sum.dropdown.options.some(o => o[0] === 'media'), '不该再有 media');
   assert.ok(byName('视频转文字改用在线接口').toggle, '在线转写是一个开关');
@@ -114,6 +115,22 @@ const ALL_ON = { setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'asr',
   assert.ok(capsDir && !/\\AI\\/.test(capsDir.texts[0].placeholder));
 
   // （1018 起这些细项只在用户点开「更多 → 每项功能用哪个模型」里那一项时才画，不再按父开关藏；开关本身在「识别与问答」卡上，见 test_settings_layout）
+
+  // —— 1023：概要选「本机命令行」→ 下拉列后端 AI 配置表里的命令行（含 OpenCode），选中只存 preset ——
+  let tab;
+  ({ plugin, calls, tab } = render({ ...ALL_ON, summaryAI: { mode: 'cli', preset: 'claude' } }));
+  plugin.reply = { ok: true, ai_table: { caps: {}, cli: [{ id: 'codex', name: 'Codex', preset: 'codex', command: 'codex exec -' },
+    { id: 'claude', name: 'Claude Code', preset: 'claude', command: 'claude -p' }, { id: 'opencode', name: 'OpenCode', preset: 'opencode', command: 'opencode run --pure' }] } };
+  plugin.aiTableCache = null;
+  tab.renderSummaryAI(tab.containerEl);   // 表到了再画一遍（render 时还没给替身回包）
+  await new Promise(r => setTimeout(r, 0)); await new Promise(r => setTimeout(r, 0));
+  const pickRow = [...settings].reverse().find(r => r.name === '用哪个命令行' && r.dropdown);
+  assert.ok(pickRow, '概要选了命令行：出命令行下拉');
+  assert.ok(calls.some(a => a.join(' ').includes('usage --table')), '命令行列表从后端表读');
+  assert.deepEqual(pickRow.dropdown.options.map(o => o[0]), ['', 'codex', 'claude', 'opencode']);
+  assert.equal(pickRow.dropdown.value, 'claude');
+  await pickRow.dropdown.onChangeCb('opencode');
+  assert.deepEqual([plugin.settings.summaryAI.preset, plugin.settings.summaryAI.command], ['opencode', undefined], '选中只存 preset，命令在后端');
 
   // —— 旧配置（作者以前那种 mode=media）：如实说一句；改了那一格才存成新格式 ——
   ({ text, plugin } = render({ ...ALL_ON, textAI: { mode: 'http', endpoint: 'https://api.deepseek.com/chat/completions', model: '', keyFile: 'x.csv', keyField: 'ds' },
