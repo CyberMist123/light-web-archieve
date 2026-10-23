@@ -291,6 +291,20 @@
 
 顺序理由：第 1 批修的是她每天看到的错数；第 2 批纯后端、风险低、修钱数；第 3 批依赖第 2 批的 `pricing.py`/`provider_of`；第 4 批改数据格式、要迁移和拍板，放后；第 5 批只动 UI，可和 2/3 并行。
 
+## 10. 1023 她拍板后的执行表（取代 §9 的批次顺序）
+
+规则：多个号的收藏、网页导入 = 我的收藏；TG 发来的网址 = Fable。不做「按单篇选择存不存视频」。按 GPT 架构图的分层立约定，不一次大搬家；每批一个 PR、她审过再合。
+
+| 批 | 层 | 内容 | 必加测试 | 状态 |
+|---|---|---|---|---|
+| 0 | 全部 | 守卫测试 `test_single_source.py/.cjs`（现存重复列白名单，新增即红）；`docs/TEST-MAP.md` 功能→测试对照、标出缺口；FORMAT.md 补 favorited_by / albums / counts | 守卫本身；白名单数 = 本文档列出的重复数 | 待做 |
+| 1 | ⑤ 派生 | `mark_dirty` + `ensure_fresh`（同步含中断、catch、restore、relabel、albums）；build 幂等（内容没变不写页面 md / 脚本，版本不含 built_at）；重建合并；catalog-data `counts`，两页篇数读它 | 中断同步后新帖进目录；catch 后 dirty；同输入连跑两次 build 不改任何文件 mtime；两页「全部」数相等 | 待做 |
+| 2 | 横切配置 | AI 配置表（API / CLI 平级，功能声明可用类型；概要可选 OpenCode）；`pricing.py` 统一价格、免费只认显式标记（CLI / Gemini 免费池）；预算默认只在后端；密钥只经 providers；后端把表给设置页 | 四处钱数相等；未知模型 = 未计价且预算拦；CLI 行记模型名且显示免费；夜跑与 providers 拿到同一组 key | 待做 |
+| 3 | ③ 规则 | `is_favorite` / `collected_by`：TG → Fable；ingest_kind 不再覆盖；accounts 按 user_id；fav-list / fav-tokens / albums 带账号键；迁移脚本先 dry-run | 换号同步不清别的号的专辑；重抓不丢收藏；迁移幂等；TG 帖来源 = Fable | 待做 |
+| 4 | ① 界面 | 标题 / 文案 / 问题分组 / 默认值从后端表读；§8 违规文案改正；`test_terms_x5.cjs` 必过 | `'Collections'` 只 1 处；JS 不含规则表 | 待做 |
+
+可并行、不等上表：GitHub 找 skill（尤其旅行，注意许可证、内容当不可信）；纯样式待办。要等：B 站 / 网页入口等第 1、3 批；手机 / 网页 PWA 等第 2 批。
+
 ## 附：本次没核实 / 待确认
 - `vision.py:428` 的「（免费 key N）」标签是否进了账本 `m` 字段（会让 Gemini 永远查不到价）。
 - BUGS #9 里「cli 空模型名 321 次未计价」：`usage.cost_of` 对 `p="cli"` 返回 0，未计价的那 321 条可能是没标 `p=cli` 的行，需看真账本。
