@@ -44,6 +44,7 @@ width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;disp
 /* 页头：雕刻斜体大标题居中，篇数 / 更新时间在标题右侧、和标题底部对齐；「管理」细线胶囊钉在右上角 */
 .lbc-head{position:relative;display:block;margin:0;padding:4px 0 0;container-type:inline-size;}
 .lbc-titleblock{display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-end;gap:4px 22px;padding:0 104px;min-width:0;}
+@container(max-width:1050px){.lbc-titleblock{padding-left:0;}}
 .lbc-titlerow{display:flex;align-items:flex-end;justify-content:center;min-width:0;max-width:100%;}
 .lbc-title{font:900 clamp(30px,6.5cqi,96px)/1.02 var(--f-display);font-style:normal;letter-spacing:.012em;text-transform:uppercase;transform:skewX(-13deg);display:inline-flex;align-items:baseline;white-space:nowrap;color:var(--c-ink);}
 .lbc-engr{position:relative;display:inline-block;}
@@ -72,7 +73,7 @@ width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;disp
 .lbc-titleblock>.lbc-syncprog,.lbc-titleblock>.lbc-mobile-note{flex:1 0 100%;}
 .lbc-mobile-note{font-size:12px;line-height:1.5;color:var(--text-muted);margin:0;text-align:center;}
 /* 分类行：只放「全部 + 一级分类 + 未归类」；衬线、居中、可换行（不要横向滚动条），选中 2.5px 下划线 */
-.lbc-cats{display:flex;align-items:center;justify-content:safe center;flex-wrap:nowrap;gap:6px clamp(6px,1vw,20px);overflow-x:auto;scrollbar-width:none;margin:12px 0 0;padding:0 0 2px;font:18px/1.4 var(--f-serif);}
+.lbc-cats{display:flex;align-items:center;justify-content:space-between;flex-wrap:nowrap;gap:6px;overflow-x:auto;scrollbar-width:none;margin:12px 0 0;padding:0 0 2px;font:18px/1.4 var(--f-serif);}
 .lbc-cats::-webkit-scrollbar{display:none;}
 .lbc-cats button.lbc-cat{flex:none;position:relative;cursor:pointer;color:var(--c-muted);border:0!important;background:transparent!important;box-shadow:none!important;padding:4px 0 8px!important;border-radius:0!important;height:auto!important;font:inherit;font-weight:400;transition:color .2s;}
 .lbc-cats button.lbc-cat:hover{color:var(--c-ink);}
