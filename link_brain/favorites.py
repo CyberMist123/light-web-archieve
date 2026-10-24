@@ -822,7 +822,11 @@ def tag_account(note_id: str, account: dict[str, str], *, seen_at: str | None = 
     try:
         # 1024：只改 favorited_by，单篇锁里重读再写
         storage.update_json(path, add, lock_name=storage.obj_lock_name(f"xhs-{note_id}"))
-    except (OSError, ValueError, storage.LockBusy):
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError, storage.LockBusy) as exc:
+        # 1024 返修（复审 meta 低）：这篇被 render / 重抓占着超过 60 秒等情况——这次漏记收藏账号，照实打一行
+        print(f"[收藏账号] xhs-{note_id} 这次没记上（{errtext(exc)}），下次同步再记", file=sys.stderr)
         return False
     if not added:
         return False

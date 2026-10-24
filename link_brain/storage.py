@@ -133,10 +133,21 @@ _IN_PLACE_SUFFIXES = {".md", ".js", ".css"}
 _IN_PLACE_ARCHIVE_FILES = {"catalog-data.json", "trash-data.json", "problems-summary.json"}
 
 
+def _is_index_file(p: Path) -> bool:
+    """她手写的 `索引.md`（库根默认名，或设置 indexFile 指的那份）：真相文件，不是能重生成的页面。"""
+    if p.name == "索引.md":
+        return True
+    try:
+        from .indextree import index_path
+        return p.resolve() == index_path().resolve()
+    except Exception:  # noqa: BLE001 - 设置读不动：只按默认名挡
+        return False
+
+
 def in_place_fallback_ok(path: Path) -> bool:
     p = Path(path)
     if p.suffix.lower() in _IN_PLACE_SUFFIXES:
-        return True
+        return not (p.suffix.lower() == ".md" and _is_index_file(p))  # 1024 返修：索引.md 不走原地覆写（复审 meta 中2）
     if "derived" in p.parent.parts:
         return True
     return p.parent.name == ARCHIVE_DIRNAME and p.name in _IN_PLACE_ARCHIVE_FILES
@@ -507,7 +518,15 @@ class FileLock:
         st = self.state()
         deadline = time.monotonic() + max(0.0, float(wait_s or 0))
         mutex = st["mutex"]
-        got = mutex.acquire(timeout=float(wait_s)) if wait_s and wait_s > 0 else mutex.acquire(blocking=False)
+        told = False
+        got = mutex.acquire(blocking=False)
+        if not got and wait_s and wait_s > 0:
+            # 同进程别的线程拿着：先告诉调用方「在等」（插件据此显示在等号），再排队等（1024 返修，复审 meta 低）
+            if on_wait:
+                on_wait({"pid": os.getpid(), "owner": st.get("owner") or "本进程的另一个任务",
+                         "started": st.get("started", "")}, float(wait_s))
+                told = True
+            got = mutex.acquire(timeout=max(0.0, deadline - time.monotonic()))
         if not got:
             raise LockBusy(self.name, {"pid": os.getpid(), "owner": st.get("owner") or "本进程的另一个任务",
                                        "started": st.get("started", "")})
@@ -523,7 +542,7 @@ class FileLock:
                     with _HELD_GUARD:
                         st["count"] -= 1
                 return
-            yield from self._hold_file(st, owner, deadline, on_wait, polite)
+            yield from self._hold_file(st, owner, deadline, None if told else on_wait, polite)
         finally:
             mutex.release()
 

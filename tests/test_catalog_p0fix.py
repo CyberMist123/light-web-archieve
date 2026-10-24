@@ -33,6 +33,8 @@ def test_enum_failure_registers_own_step_and_next_night_resolves(tmp_path, monke
 
 import json  # noqa: E402
 
+import pytest  # noqa: E402
+
 from link_brain import catalog, topics  # noqa: E402
 from test_catalog_offline_p0 import _items, _with_semantic_db, embed_calls, vault  # noqa: E402,F401 - fixture
 
@@ -64,3 +66,25 @@ def test_build_clears_topics_pending_when_memberships_fail(vault, embed_calls, m
     catalog.build()
     data = json.loads((vault / "_archive" / catalog.DATA_NAME).read_text("utf-8"))
     assert data["topics_vectors_pending"] == []
+
+
+def test_catch_up_draft_failure_keeps_mark_and_says_so(vault, monkeypatch):
+    """catalog 低5（测试缺口）：起草失败 → 待起草标记保留（下一晚再试）、ok=False，码照实带出。"""
+    from link_brain import indexai, indextree
+    catalog.build()
+    indextree._save_state(vault, auto_draft_pending=True)
+    monkeypatch.setattr(indextree, "should_auto_draft", lambda v, n: True)
+    monkeypatch.setattr(indextree, "draft", lambda v=None, **kw: {"ok": False, "code": "TRANSIENT.SERVICE_BUSY", "message": "接口忙"})
+    monkeypatch.setattr(indextree, "classify_gate", lambda data: "skip")
+    monkeypatch.setattr(indexai, "run", lambda *a, **k: pytest.fail("闸门说不跑就不跑"))
+    r = indextree.catch_up(vault)
+    assert not r["ok"] and r["code"] == "TRANSIENT.SERVICE_BUSY"
+    assert indextree._state(vault).get("auto_draft_pending"), "起草没成，标记要留着下一晚再试"
+
+
+def test_cli_index_catch_up_failure_exits_nonzero(vault, monkeypatch):
+    """catalog 低5：走真的 `index catch-up` 子命令，出错时退出码非 0（夜跑据此登记）。"""
+    from link_brain import cli, indextree
+    monkeypatch.setattr(indextree, "catch_up", lambda v=None: {"ok": False, "code": "TRANSIENT.SERVICE_BUSY",
+                                                                "message": "接口忙", "topics": {}, "draft": {}, "classify": {}})
+    assert cli.main(["index", "catch-up"]) != 0
