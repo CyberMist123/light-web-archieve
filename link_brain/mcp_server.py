@@ -46,6 +46,15 @@ def _log(*parts: Any) -> None:
     print(*parts, file=sys.stderr, flush=True)
 
 
+def _report_crash(what: str, exc: BaseException) -> None:
+    """工具 / 协议层漏出来的异常登记进问题记录（step=mcp）；登记失败只打 stderr，绝不拖垮常驻进程。"""
+    try:
+        from . import problems
+        problems.report("mcp", "TRANSIENT.STEP_CRASHED", f"{what} 出错：{errtext(exc)}")
+    except Exception as rexc:  # noqa: BLE001
+        _log(f"[mcp_server] 问题记录没写上：{errtext(rexc)}")
+
+
 def _write(payload: dict[str, Any]) -> None:
     """stdout 只发协议 JSON；按 UTF-8 字节直写，绕开 Windows 控制台 GBK 编码坑
     （做法照 `read.dump_json`：小红书标题里到处是 emoji，`print()` 在 GBK 控制台会崩）。
@@ -96,11 +105,13 @@ def _handle_tools_call(request_id: Any, params: dict[str, Any]) -> None:
             {"status": "error", "error": d.code, "message": d.message}, ensure_ascii=False)}], "isError": True})
         return
     except Exception as exc:  # 任何业务异常都不许崩进程，包成 tool result isError
-        _log(f"[mcp_server] tool {name} raised: {exc}")
+        _log(f"[mcp_server] tool {name} raised: {errtext(exc)}")
         _log(traceback.format_exc())
+        _report_crash(f"工具 {name}", exc)
         _result(request_id, {
             "content": [{"type": "text", "text": json.dumps(
-                {"status": "error", "error": errtext(exc)}, ensure_ascii=False)}],
+                {"status": "error", "error": errtext(exc), "message": f"{name} 出错了：{errtext(exc)}（已记进问题记录）"},
+                ensure_ascii=False)}],
             "isError": True,
         })
         return
@@ -141,9 +152,10 @@ def _dispatch(message: dict[str, Any]) -> None:
     try:
         handler(request_id, params)
     except Exception as exc:
-        _log(f"[mcp_server] dispatch {method} failed: {exc}")
+        _log(f"[mcp_server] dispatch {method} failed: {errtext(exc)}")
         _log(traceback.format_exc())
-        _error(request_id, -32603, f"内部错误：{type(exc).__name__}")
+        _report_crash(str(method), exc)
+        _error(request_id, -32603, f"内部错误：{errtext(exc)}")
 
 
 def run(stdin=None, stdout=None) -> int:

@@ -13,6 +13,7 @@ import sys
 import threading
 import traceback
 from . import ask, text_stream
+from .errtext import errtext
 
 
 def _warm():
@@ -109,7 +110,12 @@ def run(args):
         except Exception as exc:
             # A5：原因写给页面（类型 + 前 200 字），堆栈进 stderr（插件留尾巴）；stdout 仍只发协议行
             traceback.print_exc(file=sys.stderr)
-            reason = str(exc)[:200]
+            reason = errtext(exc)[:200]
+            try:  # 1024：崩溃登记进问题记录（step=ask）；登记失败不影响回给页面
+                from . import problems
+                problems.report('ask', 'TRANSIENT.STEP_CRASHED', f'问收藏出错：{reason}')
+            except Exception as rexc:  # noqa: BLE001
+                print(f'[serve] 问题记录没写上：{errtext(rexc)}', file=sys.stderr)
             emit({'id': request.get('id'), 'type': 'result', 'result': {
                 'status': 'error', 'error_kind': 'crash', 'error': reason,
-                'markdown': '问答出错了：' + type(exc).__name__ + ('：' + reason if reason else '')}})
+                'markdown': '问答出错了：' + reason}})

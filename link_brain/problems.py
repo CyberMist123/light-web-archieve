@@ -67,7 +67,9 @@ STEPS = ("sync.favorites", "ingest", "attachments.download", "attachments.conver
          # 1009：评论补齐（设置楼数内的楼中楼连着几次补不上）
          "comments.fill",
          # 1011：这篇在小红书网页版要验证才能看（只是这一篇，不是号出事；link_brain/restricted.py）
-         "note.restricted")
+         "note.restricted",
+         # 1024：本机 MCP 服务（mcp_server）里工具 / 协议层漏出来的异常
+         "mcp")
 STEP_PREFIXES = ("nightly.", "cli.")  # cli.<子命令>：命令行兜底登记的未知崩溃（cli.main）
 # 推送标题 / 问题列表里给人看的步骤名（夜跑步骤 nightly.<名> 显示「夜跑：<名>」）
 # 注记行（annotate）能改的字段：自愈动作的状态（running / failed / waiting）、一句「试过什么、为什么没好、下一步」、
@@ -91,7 +93,7 @@ STEP_LABELS = {
     "login": "小红书账号", "config": "设置", "remote": "远程阅读",
     "ai.summary": "AI 概要 / 打标接口", "ai.vision": "识图接口", "ai.refine": "精细识图接口", "ai.embed": "向量索引接口",
     "ai.ask": "问答接口", "render.check": "笔记页检查", "comments.fill": "评论补齐",
-    "note.restricted": "网页版要验证",
+    "note.restricted": "网页版要验证", "mcp": "MCP 工具",
 }
 
 # 现有裸码 → 类（§2.2：复用现有码、不改拼写）
@@ -664,7 +666,7 @@ def page_summary() -> dict[str, Any]:
         from . import sync_state
         out["sync"] = sync_state.page_state()
     except Exception as exc:  # noqa: BLE001 - 同步段读不动不影响计数
-        print(f"[problems] 同步状态读不出来（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] 同步状态读不出来（{errtext(exc)}）", file=sys.stderr)
         out["sync"] = None
     return out
 
@@ -675,7 +677,7 @@ def _write_summary_locked() -> bool:
         storage.write_json(summary_path(), page_summary())
         return True
     except Exception as exc:  # noqa: BLE001
-        print(f"[problems] problems-summary.json 没写上（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] problems-summary.json 没写上（{errtext(exc)}）", file=sys.stderr)
         return False
 
 
@@ -687,7 +689,7 @@ def write_summary(wait_s: float = 5) -> bool:
     except storage.LockBusy:
         return _write_summary_locked()
     except Exception as exc:  # noqa: BLE001
-        print(f"[problems] problems-summary.json 没写上（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] problems-summary.json 没写上（{errtext(exc)}）", file=sys.stderr)
         return False
 
 
@@ -714,7 +716,7 @@ def _push(row: dict[str, Any]) -> None:
             body = reason if reason.startswith(body) else f"{body}\n详情：{reason}"
         alert_mod._alert("problem", title, body, code=row["code"], step=step, item_id=row.get("item_id"))
     except Exception as exc:  # noqa: BLE001
-        print(f"[problems] 推送失败（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] 推送失败（{errtext(exc)}）", file=sys.stderr)
 
 
 def _consecutive_days(days: list[str], n: int, today: date) -> bool:
@@ -873,7 +875,7 @@ def report_blocked(step: str, code: str | None, reason: str, *, service: bool = 
             return report("login", full, reason, title=title, evidence_id=eid)
         return report(step, full, reason, item_id=item_id, title=title)
     except Exception as exc:  # noqa: BLE001 - 登记失败不能把归档带走
-        print(f"[problems] 登记失败（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] 登记失败（{errtext(exc)}）", file=sys.stderr)
         return None
 
 
@@ -906,7 +908,7 @@ def annotate(row: dict[str, Any], **fields: Any) -> bool:
         _append([note])
         return True
     except Exception as exc:  # noqa: BLE001
-        print(f"[problems] 修复注记没写上（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] 修复注记没写上（{errtext(exc)}）", file=sys.stderr)
         return False
 
 
@@ -939,7 +941,7 @@ def resolve(step: str, item_id: str | None = None, code: str | None = None, *, _
                   "resolved_at": now, "count": 0} for r in targets])
         return len(targets)
     except Exception as exc:  # noqa: BLE001
-        print(f"[problems] 标记已解决失败（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] 标记已解决失败（{errtext(exc)}）", file=sys.stderr)
         return 0
 
 
@@ -969,7 +971,7 @@ def reconcile_account(session: dict[str, Any] | None = None) -> int:
         after = sum(1 for r in _fold(_read_rows()).values() if r.get("step") == "login" and not r.get("resolved_at"))
         return before - after
     except Exception as exc:  # noqa: BLE001 - 对不上就照旧显示，不挡面板
-        print(f"[problems] 账号状态没对上（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] 账号状态没对上（{errtext(exc)}）", file=sys.stderr)
         return 0
 
 
@@ -1050,7 +1052,7 @@ def load(limit: int = MAX_KEYS, *, include_resolved: bool = False, include_minor
                 from . import repair
                 out[-1].update(repair.describe(r))
             except Exception as exc:  # noqa: BLE001
-                print(f"[problems] 修复说明算不出来（{type(exc).__name__}: {exc}）", file=sys.stderr)
+                print(f"[problems] 修复说明算不出来（{errtext(exc)}）", file=sys.stderr)
     return out
 
 
@@ -1228,7 +1230,7 @@ def migrate_orphan_refine() -> int:
         storage.write_json(mark, {**done, "orphan_refine_1008": _now().isoformat(timespec="seconds")})
         return len(rows)
     except Exception as exc:  # noqa: BLE001
-        print(f"[problems] 一次性补登记没做成（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] 一次性补登记没做成（{errtext(exc)}）", file=sys.stderr)
         return 0
 
 
@@ -1341,7 +1343,7 @@ def resolve_item(item_id: str, *, _now_fn=None) -> int:
                   "resolved_at": now, "count": 0, "why": "note_removed"} for r in targets])
         return len(targets)
     except Exception as exc:  # noqa: BLE001
-        print(f"[problems] 删笔记时撤问题没成（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] 删笔记时撤问题没成（{errtext(exc)}）", file=sys.stderr)
         return 0
 
 
@@ -1486,14 +1488,14 @@ def run(args) -> int:
             from . import restricted as _restricted
             _restricted.quiet_unconfirmed()  # 1017：只撞见过一天的「网页版要验证」收掉，等隔天再开一次
         except Exception as exc:  # noqa: BLE001
-            print(f"[problems] 疑似要验证的没收成：{type(exc).__name__}: {exc}", file=sys.stderr)
+            print(f"[problems] 疑似要验证的没收成：{errtext(exc)}", file=sys.stderr)
         ai_health.migrate_legacy_rows()  # 1008：老记录里按篇登的 key 失效 / 欠费收成每个接口一条（幂等，没有就 0 开销）
         migrate_orphan_refine()  # 1008：卡片上有标、面板里没有的精细识图失败补登记一次（做过就不再做）
         try:
             from . import restricted
             restricted.reclassify_fill_failures()  # 1016：续读报 [NOTE_RESTRICTED] 却记成 COMMENTS_INCOMPLETE 的改记（幂等、零开页）
         except Exception as exc:  # noqa: BLE001 - 迁移失败不挡面板
-            print(f"[problems] 网页版要验证改记没做成：{type(exc).__name__}: {exc}", file=sys.stderr)
+            print(f"[problems] 网页版要验证改记没做成：{errtext(exc)}", file=sys.stderr)
         dump_json({"ok": True, "code": "", "message": "", "summary": summary(),
                    "problems": usage.decorate_problem_rows(
                        (lambda rows: rows if args.all else fold_rows(rows))(
