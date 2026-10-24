@@ -68,7 +68,7 @@ STEPS = ("sync.favorites", "ingest", "attachments.download", "attachments.conver
          "comments.fill",
          # 1011：这篇在小红书网页版要验证才能看（只是这一篇，不是号出事；link_brain/restricted.py）
          "note.restricted")
-STEP_PREFIXES = ("nightly.",)
+STEP_PREFIXES = ("nightly.", "cli.")  # cli.<子命令>：命令行兜底登记的未知崩溃（cli.main）
 # 推送标题 / 问题列表里给人看的步骤名（夜跑步骤 nightly.<名> 显示「夜跑：<名>」）
 # 注记行（annotate）能改的字段：自愈动作的状态（running / failed / waiting）、一句「试过什么、为什么没好、下一步」、
 # 什么时候修的、预计几分钟
@@ -325,6 +325,8 @@ def step_label(step: str | None) -> str:
     step = str(step or "")
     if step.startswith("nightly."):
         return f"夜跑：{step[len('nightly.'):]}"
+    if step.startswith("cli."):
+        return f"命令：{step[len('cli.'):]}"
     return STEP_LABELS.get(step, step)
 
 
