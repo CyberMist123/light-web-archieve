@@ -33,6 +33,7 @@ from datetime import datetime, timedelta
 from typing import Any, Callable
 
 from . import storage
+from .errtext import errtext
 
 ENV_UNATTENDED = "LINK_BRAIN_UNATTENDED"
 ENV_COOLDOWN = "LWA_CAPTCHA_COOLDOWN_MIN"
@@ -114,8 +115,35 @@ def _update_night(key: str, **fields: Any) -> dict[str, Any]:
             storage.write_json(state_path(), data)
             return night
     except Exception as exc:  # noqa: BLE001
-        print(f"[验证自查] 状态没写上（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[验证自查] 状态没写上（{errtext(exc)}）", file=sys.stderr)
         return dict(fields)
+
+
+def _claim_probe(key: str, now: datetime) -> str | None:
+    """自查之前先在锁里写下「今晚正在查」（probing_at）。返回 None = 写上了，可以查；
+    "already" = 今晚已经查过 / 别人正在查；其他字符串 = 状态读不出来或写不进去的原因——这时不查（宁可今晚不查，不能一晚查两次）。"""
+    try:
+        with storage.file_lock("night-captcha", wait_s=10, owner="night-captcha"):
+            p = state_path()
+            data = storage.read_json(p) if p.exists() else {"nights": {}}
+            if not isinstance(data, dict) or not isinstance(data.get("nights"), dict):
+                return "状态文件格式不对"
+            one = dict(data["nights"].get(key) or {})
+            if one.get("probe_at") or one.get("probing_at"):
+                return "already"
+            one["probing_at"] = now.isoformat(timespec="seconds")
+            data["nights"][key] = one
+            keep = sorted(data["nights"])[-NIGHTS_KEPT:]
+            data["nights"] = {k: data["nights"][k] for k in keep}
+            storage.write_json(p, data)
+            return None
+    except Exception as exc:  # noqa: BLE001
+        return errtext(exc)
+
+
+def _unclaim(key: str) -> None:
+    """这次其实没查成（号被占 / 读取服务说没查）：撤掉「正在查」，今晚还能再试。撤不掉 = 今晚不再查（安全的一边）。"""
+    _update_night(key, probing_at=None)
 
 
 def night(key: str | None = None) -> dict[str, Any]:
@@ -156,7 +184,7 @@ def report_deferred(reason: str) -> dict[str, Any] | None:
     try:
         return problems.report(STEP, "TRANSIENT.NIGHT_CAPTCHA", text)
     except Exception as exc:  # noqa: BLE001
-        print(f"[验证自查] 问题记录没写上（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[验证自查] 问题记录没写上（{errtext(exc)}）", file=sys.stderr)
         return None
 
 
@@ -230,7 +258,7 @@ def recover(*, cooldown: float | None = None, wait: bool = False, max_wait_min: 
         return _rate_limit_wait(hold, wait=wait, max_wait_min=max_wait_min, sleep=sleep, now_fn=now_fn)
     if code != CAPTCHA:
         return _out("not_captcha", EXIT_STOP, f"暂停的起因是 {code}，不是验证码：照旧等人处理", hold_code=code)
-    if night(key).get("probe_at"):
+    if night(key).get("probe_at") or night(key).get("probing_at"):
         out = _mark_unrecovered(key, "同一晚又撞了一次验证（今晚已经自查过）", now=now_fn())
         return _out("already_tried", EXIT_STOP, "今晚已经自查过一次了，先停到明晚", **out)
 
@@ -254,11 +282,17 @@ def recover(*, cooldown: float | None = None, wait: bool = False, max_wait_min: 
             return _out("no_hold" if not hold else "not_captcha", EXIT_STOP, "冷却期间暂停已经被处理了，不用自查")
 
     waited = (now_fn() - since).total_seconds() / 60
+    claim = _claim_probe(key, now_fn())
+    if claim == "already":
+        return _out("already_tried", EXIT_STOP, "今晚已经自查过 / 正在自查，先停到明晚")
+    if claim:
+        return _out("error", EXIT_ERROR, f"「今晚正在自查」的记号写不进去，这次不自查（免得一晚查两次）：{claim}")
     try:
         with accounts.account_session("captcha-recover", wait_s=lock_wait_s):
             data = accounts.api("POST", "/api/v1/risk/probe", timeout=PROBE_TIMEOUT_S,
                                 body={"cooldown_s": int(cool * 60), "reason": "night-captcha recover"})
     except accounts.AccountBusyError as exc:
+        _unclaim(key)
         return _out("busy", EXIT_BUSY, f"号正被别的任务占着，这次没自查：{exc}")
     except accounts.ReaderError as exc:
         if str(exc.code).startswith("HTTP_404"):
@@ -269,10 +303,13 @@ def recover(*, cooldown: float | None = None, wait: bool = False, max_wait_min: 
     result = str((data or {}).get("result") or "")
     now = now_fn()
     if result in ("busy", "window_failed"):
+        _unclaim(key)
         return _out("busy", EXIT_BUSY, "读取服务的浏览器正被别的操作占着，这次没自查")
     if result == "cooling":
+        _unclaim(key)
         return _out("cooling", EXIT_STOP, "读取服务说还在冷却，先不查", retry_after_s=(data or {}).get("retry_after_s"))
     if result in ("no_hold", "not_captcha"):
+        _unclaim(key)
         return _out(result, EXIT_STOP, "暂停已经不在 / 不是验证码类，不用自查")
     _update_night(key, probe_at=now.isoformat(timespec="seconds"), probe_result=result)
     if result == "cleared":

@@ -30,15 +30,22 @@ import os
 import platform
 import re
 import sys
+import threading
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from . import storage
+from .errtext import errtext
 
 FILE_NAME = "problems.jsonl"
 SUMMARY_NAME = "problems-summary.json"
 MAX_KEYS = 500
+# 压实留余量：超过 MAX_KEYS + COMPACT_SLACK 行才压回 MAX_KEYS（压完正好 MAX_KEYS 行时，不至于每登记一次就整份重写）
+COMPACT_SLACK = 100
+LOCK_WAIT_S = 5
+PENDING_DIR = "problems.pending"
 REASON_MAX = 320  # 1008：AI 接口归并那一条要写清 哪个 key / 原因 / 处理 / 影响几篇 / 花费，放宽
 TITLE_MAX = 120
 STUCK_DAYS = 3
@@ -60,8 +67,10 @@ STEPS = ("sync.favorites", "ingest", "attachments.download", "attachments.conver
          # 1009：评论补齐（设置楼数内的楼中楼连着几次补不上）
          "comments.fill",
          # 1011：这篇在小红书网页版要验证才能看（只是这一篇，不是号出事；link_brain/restricted.py）
-         "note.restricted")
-STEP_PREFIXES = ("nightly.",)
+         "note.restricted",
+         # 1024：本机 MCP 服务（mcp_server）里工具 / 协议层漏出来的异常
+         "mcp")
+STEP_PREFIXES = ("nightly.", "cli.")  # cli.<子命令>：命令行兜底登记的未知崩溃（cli.main）
 # 推送标题 / 问题列表里给人看的步骤名（夜跑步骤 nightly.<名> 显示「夜跑：<名>」）
 # 注记行（annotate）能改的字段：自愈动作的状态（running / failed / waiting）、一句「试过什么、为什么没好、下一步」、
 # 什么时候修的、预计几分钟
@@ -84,7 +93,7 @@ STEP_LABELS = {
     "login": "小红书账号", "config": "设置", "remote": "远程阅读",
     "ai.summary": "AI 概要 / 打标接口", "ai.vision": "识图接口", "ai.refine": "精细识图接口", "ai.embed": "向量索引接口",
     "ai.ask": "问答接口", "render.check": "笔记页检查", "comments.fill": "评论补齐",
-    "note.restricted": "网页版要验证",
+    "note.restricted": "网页版要验证", "mcp": "MCP 工具",
 }
 
 # 现有裸码 → 类（§2.2：复用现有码、不改拼写）
@@ -318,6 +327,8 @@ def step_label(step: str | None) -> str:
     step = str(step or "")
     if step.startswith("nightly."):
         return f"夜跑：{step[len('nightly.'):]}"
+    if step.startswith("cli."):
+        return f"命令：{step[len('cli.'):]}"
     return STEP_LABELS.get(step, step)
 
 
@@ -375,11 +386,19 @@ def make_key(step: str, item_id: str | None, code: str) -> str:
     return f"{step}|{item_id or ''}|{subcode(code)}"
 
 
-def _read_rows() -> list[dict[str, Any]]:
+def pending_dir() -> Path:
+    """等不到 problems 锁时的旁路：每次一个小文件（原子写，名字不撞），拿到锁的人并回 problems.jsonl。"""
+    return storage.archive_root() / PENDING_DIR
+
+
+def _pending_files() -> list[Path]:
     try:
-        text = path().read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
+        return sorted(pending_dir().glob("*.jsonl"))
+    except OSError:
         return []
+
+
+def _parse_rows(text: str) -> list[dict[str, Any]]:
     rows = []
     for line in text.splitlines():
         line = line.strip()
@@ -392,6 +411,42 @@ def _read_rows() -> list[dict[str, Any]]:
         if isinstance(row, dict) and row.get("key"):
             rows.append(row)
     return rows
+
+
+def _read_file(p: Path, strict: bool) -> str:
+    """没有文件 = 空；读不出来（被占 / 坏编码）strict 时抛，否则当空。"""
+    try:
+        return p.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
+    except (OSError, UnicodeError):
+        if strict:
+            raise
+        return ""
+
+
+def _row_time(row: dict[str, Any]) -> float | None:
+    times = [t.timestamp() for t in (_parse_ts(row.get("ts")), _parse_ts(row.get("resolved_at"))) if t]
+    return max(times) if times else None
+
+
+def _ordered(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """旁路里的行并回来时按时间插回去（稳定排序；没时间的行跟着前一行），折叠顺序才对。"""
+    keyed, last = [], float("-inf")
+    for i, r in enumerate(rows):
+        t = _row_time(r)
+        last = last if t is None else t
+        keyed.append((last, i, r))
+    return [r for _, _, r in sorted(keyed, key=lambda x: (x[0], x[1]))]
+
+
+def _read_rows(*, strict: bool = False) -> list[dict[str, Any]]:
+    """problems.jsonl + 还没并回的旁路行。strict=True 时读不出来就抛（report 据此不推送），否则读不出来当空。"""
+    extra: list[dict[str, Any]] = []
+    for f in _pending_files():  # 先读旁路再读主文件：中间正好被并回，最多重一遍，不会漏
+        extra += _parse_rows(_read_file(f, strict))
+    rows = _parse_rows(_read_file(path(), strict))
+    return _ordered(rows + extra) if extra else rows
 
 
 def _fold(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -483,36 +538,101 @@ def is_minor(row: dict[str, Any]) -> bool:
     return n is not None and 0 < n <= limit
 
 
-def _append(rows: list[dict[str, Any]]) -> None:
-    """追加行（每行 ≤ 4 KB）；超过 MAX_KEYS 行就压实。锁拿不到也照写（只追加，丢不了别人的行；压实留给下一次）。"""
+def _dump(rows: list[dict[str, Any]]) -> str:
+    return "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
+
+
+def _append_text(p: Path, blob: str) -> None:
+    """追加；文件不以换行结尾（上次写到半截）先补一个，免得新行粘在半行后面一起坏掉。"""
+    with p.open("a+b") as fh:
+        if fh.seek(0, os.SEEK_END) > 0:
+            fh.seek(-1, os.SEEK_END)
+            if fh.read(1) != b"\n":
+                blob = "\n" + blob
+        fh.write(blob.encode("utf-8"))
+
+
+def _write_pending(blob: str) -> None:
+    d = pending_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    storage.atomic_write_text(d / f"{time.time_ns()}-{os.getpid()}-{threading.get_ident()}.jsonl", blob)
+
+
+def _merge_pending_locked() -> int:
+    """（已拿 problems 锁）把旁路行按时间并回 problems.jsonl，删掉旁路文件。返回并回几行。"""
+    files = _pending_files()
+    if not files:
+        return 0
+    extra: list[dict[str, Any]] = []
+    done: list[Path] = []
+    for f in files:
+        try:
+            extra += _parse_rows(f.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            continue
+        except (OSError, UnicodeError) as exc:
+            print(f"[problems] 旁路记录这次没并回（{errtext(exc)}），下次再并：{f.name}", file=sys.stderr)
+            continue
+        done.append(f)
+    if extra:
+        storage.atomic_write_text(path(), _dump(_ordered(_parse_rows(_read_file(path(), True)) + extra)))
+    for f in done:
+        try:
+            f.unlink()
+        except OSError as exc:
+            print(f"[problems] 旁路文件删不掉（{errtext(exc)}）：{f.name}", file=sys.stderr)
+    return len(extra)
+
+
+def _append(rows) -> None:
+    """追加行（每行 ≤ 4 KB），超过 MAX_KEYS + COMPACT_SLACK 行就压回 MAX_KEYS。
+
+    rows 是行列表，或 build(folded, readable) -> 行列表：后者在锁里读、判断、追加（report 用：两个进程不会同时判「没推过」）。
+    锁等不到就写旁路文件（problems.pending/），拿到锁的人并回——不在锁外碰 problems.jsonl，免得被别人的压实冲掉。"""
     p = path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    blob = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
+    got = False
     try:
-        with storage.file_lock("problems", wait_s=5):
-            with p.open("a", encoding="utf-8") as fh:
-                fh.write(blob)
-            _compact_locked()
+        with storage.file_lock("problems", wait_s=LOCK_WAIT_S):
+            got = True
+            _merge_pending_locked()
+            if callable(rows):
+                rows = rows(*_read_folded())
+            _append_text(p, _dump(rows))
+            _compact_locked(MAX_KEYS + COMPACT_SLACK)
             _write_summary_locked()
     except storage.LockBusy:
-        with p.open("a", encoding="utf-8") as fh:
-            fh.write(blob)
-        _write_summary_locked()  # 原子写：和锁里那份抢也只是谁新谁留，丢不了 problems.jsonl 的行
+        if got:
+            raise
+        if callable(rows):
+            rows = rows(*_read_folded())  # 锁外读：只用来判推送，最坏多推一次
+        _write_pending(_dump(rows))
+        _write_summary_locked()  # 原子写：和锁里那份抢也只是谁新谁留
 
 
-def _compact_locked() -> bool:
+def _read_folded() -> tuple[dict[str, dict[str, Any]], bool]:
+    """(折叠结果, 读没读出来)。读不出来 = ({}, False)：调用方据此不推送。"""
+    try:
+        return _fold(_read_rows(strict=True)), True
+    except Exception as exc:  # noqa: BLE001
+        print(f"[problems] 问题记录读不出来（{errtext(exc)}），这次不推送", file=sys.stderr)
+        return {}, False
+
+
+def _compact_locked(threshold: int | None = None) -> bool:
     rows = _read_rows()
-    if len(rows) <= MAX_KEYS:
+    if len(rows) <= (MAX_KEYS if threshold is None else threshold):
         return False
     folded = _fold(rows)
     keep = sorted(folded.values(), key=lambda r: str(r.get("ts") or ""))[-MAX_KEYS:]
-    storage.atomic_write_text(path(), "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in keep))
+    storage.atomic_write_text(path(), _dump(keep))
     return True
 
 
 def compact() -> bool:
-    """压实为最近 MAX_KEYS 个 key（每个 key 一行折叠结果）。在 problems 锁里做。"""
+    """压实为最近 MAX_KEYS 个 key（每个 key 一行折叠结果）。在 problems 锁里做（先并回旁路）。"""
     with storage.file_lock("problems", wait_s=30):
+        _merge_pending_locked()
         done = _compact_locked()
         _write_summary_locked()
         return done
@@ -546,7 +666,7 @@ def page_summary() -> dict[str, Any]:
         from . import sync_state
         out["sync"] = sync_state.page_state()
     except Exception as exc:  # noqa: BLE001 - 同步段读不动不影响计数
-        print(f"[problems] 同步状态读不出来（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] 同步状态读不出来（{errtext(exc)}）", file=sys.stderr)
         out["sync"] = None
     return out
 
@@ -557,7 +677,7 @@ def _write_summary_locked() -> bool:
         storage.write_json(summary_path(), page_summary())
         return True
     except Exception as exc:  # noqa: BLE001
-        print(f"[problems] problems-summary.json 没写上（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] problems-summary.json 没写上（{errtext(exc)}）", file=sys.stderr)
         return False
 
 
@@ -569,7 +689,7 @@ def write_summary(wait_s: float = 5) -> bool:
     except storage.LockBusy:
         return _write_summary_locked()
     except Exception as exc:  # noqa: BLE001
-        print(f"[problems] problems-summary.json 没写上（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] problems-summary.json 没写上（{errtext(exc)}）", file=sys.stderr)
         return False
 
 
@@ -596,7 +716,7 @@ def _push(row: dict[str, Any]) -> None:
             body = reason if reason.startswith(body) else f"{body}\n详情：{reason}"
         alert_mod._alert("problem", title, body, code=row["code"], step=step, item_id=row.get("item_id"))
     except Exception as exc:  # noqa: BLE001
-        print(f"[problems] 推送失败（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] 推送失败（{errtext(exc)}）", file=sys.stderr)
 
 
 def _consecutive_days(days: list[str], n: int, today: date) -> bool:
@@ -631,43 +751,50 @@ def report(step: str, code: str, reason: str, *, item_id: str | None = None, tit
     if evidence_id:
         # 出事证据目录的名字（~/.link-brain/risk-evidence/<名字>），不是路径：本机绝对路径不进问题记录（面板「查看截图」自己拼）
         row["evidence_id"] = str(evidence_id)[:40]
-    try:
-        folded = _fold(_read_rows())
-    except Exception:  # noqa: BLE001
-        folded = {}
     sub = full.split(".", 1)[1]
     today = now.date().isoformat()
-    # 同一步骤 + 同一细分码、还没解决的各篇合起来，出现过哪几个日历日（一件事 = 一个原因，不按篇算）
-    days = sorted({*_open_days(folded, step, sub), today})
-    push = cls == "NEEDS_HUMAN" and not _already_pushed(folded, step, full)
-    if (not push and cls == "NEEDS_HUMAN" and sub in INCIDENT_CODES
-            and not _already_pushed(folded, step, full, within=now - timedelta(minutes=INCIDENT_REPUSH_MIN))):
-        push = True  # 1008（她：撞验证「当时就通知」）：上一次推过之后又撞了一次新的，照样当场推
-    if push and sub == "RISK_HOLD" and _hold_cause_open([r for r in folded.values() if r.get("notified")]):
-        push = False  # 1019 她：掉登录 / 验证那条已经推过，「熔断中」是同一件事，不再推第二条
-    if push and sub in DELAYED_PUSH and len(days) < DELAYED_PUSH_DAYS:
-        push = False  # key 失效 / 欠费：产品规则「连续几晚没修好」才推；先进列表（橙色计数照样有）
-    if push:
-        row["notified"] = True
-    out_rows = [row]
-    stuck = None
-    if cls == "TRANSIENT" and _consecutive_days(days, STUCK_DAYS, now.date()):
-        # 升级按「步骤」记一条（item_id=None）：50 篇附件同一个原因卡 3 天 = 一件事，顶部橙色只 +1
-        stuck_key = make_key(step, None, "NEEDS_HUMAN.STUCK")
-        stuck_prev = folded.get(stuck_key)
-        if not (stuck_prev and not stuck_prev.get("resolved_at")):
-            stuck_push = not _already_pushed(folded, step, "NEEDS_HUMAN.STUCK")
-            stuck = {**row, "key": stuck_key, "item_id": None, "title": None, "code": "NEEDS_HUMAN.STUCK",
-                     "action": "needs_human",
-                     "reason": f"连续 {STUCK_DAYS} 天自动重试都没成功（{sub}）：{row['reason']}"[:REASON_MAX],
-                     "next_at": None, "notified": stuck_push}
-            out_rows.append(stuck)
+    decided: dict[str, Any] = {}
+
+    def build(folded: dict[str, dict[str, Any]], readable: bool) -> list[dict[str, Any]]:
+        """读和判断在 problems 锁里（_append 调）；记录读不出来就不推送（行照写，notified=False，下次再判）。"""
+        # 同一步骤 + 同一细分码、还没解决的各篇合起来，出现过哪几个日历日（一件事 = 一个原因，不按篇算）
+        days = sorted({*_open_days(folded, step, sub), today})
+        push = readable and cls == "NEEDS_HUMAN" and not _already_pushed(folded, step, full)
+        if (readable and not push and cls == "NEEDS_HUMAN" and sub in INCIDENT_CODES
+                and not _already_pushed(folded, step, full, within=now - timedelta(minutes=INCIDENT_REPUSH_MIN))):
+            push = True  # 1008（她：撞验证「当时就通知」）：上一次推过之后又撞了一次新的，照样当场推
+        if push and sub == "RISK_HOLD" and _hold_cause_open([r for r in folded.values() if r.get("notified")]):
+            push = False  # 1019 她：掉登录 / 验证那条已经推过，「熔断中」是同一件事，不再推第二条
+        if push and sub in DELAYED_PUSH and len(days) < DELAYED_PUSH_DAYS:
+            push = False  # key 失效 / 欠费：产品规则「连续几晚没修好」才推；先进列表（橙色计数照样有）
+        row.pop("notified", None)
+        if push:
+            row["notified"] = True
+        out_rows = [row]
+        stuck = None
+        if cls == "TRANSIENT" and _consecutive_days(days, STUCK_DAYS, now.date()):
+            # 升级按「步骤」记一条（item_id=None）：50 篇附件同一个原因卡 3 天 = 一件事，顶部橙色只 +1
+            stuck_key = make_key(step, None, "NEEDS_HUMAN.STUCK")
+            stuck_prev = folded.get(stuck_key)
+            if not (stuck_prev and not stuck_prev.get("resolved_at")):
+                stuck_push = readable and not _already_pushed(folded, step, "NEEDS_HUMAN.STUCK")
+                stuck = {**row, "key": stuck_key, "item_id": None, "title": None, "code": "NEEDS_HUMAN.STUCK",
+                         "action": "needs_human",
+                         "reason": f"连续 {STUCK_DAYS} 天自动重试都没成功（{sub}）：{row['reason']}"[:REASON_MAX],
+                         "next_at": None, "notified": stuck_push}
+                out_rows.append(stuck)
+        decided.update(push=push, stuck=stuck)
+        return out_rows
+
     try:
-        _append(out_rows)
+        _append(build)
         row["written"] = True
     except OSError as exc:
-        print(f"[problems] 问题记录写不进去（{exc}）", file=sys.stderr)
+        print(f"[problems] 问题记录写不进去（{errtext(exc)}）", file=sys.stderr)
         row["written"] = False
+    if not decided:
+        build(*_read_folded())  # 写盘前就失败了：照样判一次推送（要人处理的事不能因为磁盘丢）
+    push, stuck = decided["push"], decided["stuck"]
     if push:
         _push(row)
     if stuck and stuck.get("notified"):
@@ -748,7 +875,7 @@ def report_blocked(step: str, code: str | None, reason: str, *, service: bool = 
             return report("login", full, reason, title=title, evidence_id=eid)
         return report(step, full, reason, item_id=item_id, title=title)
     except Exception as exc:  # noqa: BLE001 - 登记失败不能把归档带走
-        print(f"[problems] 登记失败（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] 登记失败（{errtext(exc)}）", file=sys.stderr)
         return None
 
 
@@ -781,7 +908,7 @@ def annotate(row: dict[str, Any], **fields: Any) -> bool:
         _append([note])
         return True
     except Exception as exc:  # noqa: BLE001
-        print(f"[problems] 修复注记没写上（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] 修复注记没写上（{errtext(exc)}）", file=sys.stderr)
         return False
 
 
@@ -814,7 +941,7 @@ def resolve(step: str, item_id: str | None = None, code: str | None = None, *, _
                   "resolved_at": now, "count": 0} for r in targets])
         return len(targets)
     except Exception as exc:  # noqa: BLE001
-        print(f"[problems] 标记已解决失败（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] 标记已解决失败（{errtext(exc)}）", file=sys.stderr)
         return 0
 
 
@@ -844,7 +971,7 @@ def reconcile_account(session: dict[str, Any] | None = None) -> int:
         after = sum(1 for r in _fold(_read_rows()).values() if r.get("step") == "login" and not r.get("resolved_at"))
         return before - after
     except Exception as exc:  # noqa: BLE001 - 对不上就照旧显示，不挡面板
-        print(f"[problems] 账号状态没对上（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] 账号状态没对上（{errtext(exc)}）", file=sys.stderr)
         return 0
 
 
@@ -925,7 +1052,7 @@ def load(limit: int = MAX_KEYS, *, include_resolved: bool = False, include_minor
                 from . import repair
                 out[-1].update(repair.describe(r))
             except Exception as exc:  # noqa: BLE001
-                print(f"[problems] 修复说明算不出来（{type(exc).__name__}: {exc}）", file=sys.stderr)
+                print(f"[problems] 修复说明算不出来（{errtext(exc)}）", file=sys.stderr)
     return out
 
 
@@ -1103,7 +1230,7 @@ def migrate_orphan_refine() -> int:
         storage.write_json(mark, {**done, "orphan_refine_1008": _now().isoformat(timespec="seconds")})
         return len(rows)
     except Exception as exc:  # noqa: BLE001
-        print(f"[problems] 一次性补登记没做成（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] 一次性补登记没做成（{errtext(exc)}）", file=sys.stderr)
         return 0
 
 
@@ -1216,7 +1343,7 @@ def resolve_item(item_id: str, *, _now_fn=None) -> int:
                   "resolved_at": now, "count": 0, "why": "note_removed"} for r in targets])
         return len(targets)
     except Exception as exc:  # noqa: BLE001
-        print(f"[problems] 删笔记时撤问题没成（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[problems] 删笔记时撤问题没成（{errtext(exc)}）", file=sys.stderr)
         return 0
 
 
@@ -1361,14 +1488,14 @@ def run(args) -> int:
             from . import restricted as _restricted
             _restricted.quiet_unconfirmed()  # 1017：只撞见过一天的「网页版要验证」收掉，等隔天再开一次
         except Exception as exc:  # noqa: BLE001
-            print(f"[problems] 疑似要验证的没收成：{type(exc).__name__}: {exc}", file=sys.stderr)
+            print(f"[problems] 疑似要验证的没收成：{errtext(exc)}", file=sys.stderr)
         ai_health.migrate_legacy_rows()  # 1008：老记录里按篇登的 key 失效 / 欠费收成每个接口一条（幂等，没有就 0 开销）
         migrate_orphan_refine()  # 1008：卡片上有标、面板里没有的精细识图失败补登记一次（做过就不再做）
         try:
             from . import restricted
             restricted.reclassify_fill_failures()  # 1016：续读报 [NOTE_RESTRICTED] 却记成 COMMENTS_INCOMPLETE 的改记（幂等、零开页）
         except Exception as exc:  # noqa: BLE001 - 迁移失败不挡面板
-            print(f"[problems] 网页版要验证改记没做成：{type(exc).__name__}: {exc}", file=sys.stderr)
+            print(f"[problems] 网页版要验证改记没做成：{errtext(exc)}", file=sys.stderr)
         dump_json({"ok": True, "code": "", "message": "", "summary": summary(),
                    "problems": usage.decorate_problem_rows(
                        (lambda rows: rows if args.all else fold_rows(rows))(

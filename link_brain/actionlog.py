@@ -98,8 +98,14 @@ def record(action: str, *, ok: bool, item: str = "", code: str = "", detail: str
                 os.replace(p, p.with_name(FILE + ".1"))
         except FileNotFoundError:
             pass
-        with p.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        line = json.dumps(row, ensure_ascii=False) + "\n"
+        with p.open("a+b") as f:
+            # 上次写到行尾前被打断：先补个换行，别让新行粘在半行后面一起坏掉
+            if f.seek(0, os.SEEK_END) > 0:
+                f.seek(-1, os.SEEK_END)
+                if f.read(1) != b"\n":
+                    line = "\n" + line
+            f.write(line.encode("utf-8"))
         return row
     except Exception:  # noqa: BLE001 - 日志写不进去不影响主流程
         return None
