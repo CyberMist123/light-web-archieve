@@ -82,3 +82,47 @@ def test_delete_also_drops_finished_pending_from_catalog(tmp_path, monkeypatch, 
     got = json.loads(data.read_text("utf-8"))
     assert [i["id"] for i in got["items"]] == ["c"], "修前：b 续删完了却还留在目录里"
     assert built == []
+
+
+# ---------------------------------------------------------------------------
+# 3. 两个进程同时首次连接旧库：迁移不撞「duplicate column name: state」
+# ---------------------------------------------------------------------------
+
+
+def test_concurrent_first_connect_on_legacy_db(vault, monkeypatch):
+    import sqlite3
+    from test_tomb_p0_1024 import _legacy_db
+    _legacy_db(vault)
+    db = vault / "_archive" / "index.db"
+    real_connect = sqlite3.connect
+    raced = []
+
+    def racing_connect(*a, **k):
+        conn = real_connect(*a, **k)
+
+        def trace(sql):
+            # 本连接看过「没有 state 列」、正要加列：另一个进程抢在这一刻把迁移做完
+            if raced or "ADD COLUMN state" not in sql:
+                return
+            raced.append(1)
+            other = real_connect(str(db), timeout=0)
+            try:
+                index_mod._migrate(other)
+            except sqlite3.OperationalError as exc:  # 修后：本连接已占着写锁，另一个只能等
+                assert "locked" in str(exc)
+            finally:
+                other.close()
+        conn.set_trace_callback(trace)
+        return conn
+
+    monkeypatch.setattr(index_mod.sqlite3, "connect", racing_connect)
+    conn = index_mod.connect(db)  # 修前：sqlite3.OperationalError: duplicate column name: state
+    conn.close()
+    assert raced
+    monkeypatch.setattr(index_mod.sqlite3, "connect", real_connect)
+    conn = index_mod.connect(db)
+    try:
+        assert "state" in {r[1] for r in conn.execute("PRAGMA table_info(tombstones)")}
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == index_mod._DB_VERSION
+    finally:
+        conn.close()

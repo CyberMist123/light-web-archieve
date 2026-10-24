@@ -101,15 +101,28 @@ def connect(db_path: Path | None = None) -> sqlite3.Connection:
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    """旧库原地升级，幂等：tombstones 补 state 列；relations 去重一次（user_version 记住做过）。"""
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(tombstones)")}
-    if "state" not in cols:
-        conn.execute("ALTER TABLE tombstones ADD COLUMN state TEXT NOT NULL DEFAULT 'done'")
+    """旧库原地升级，幂等：tombstones 补 state 列；relations 去重一次（user_version 记住做过）。
+
+    先不加锁看一眼，平时不碰写锁；要升级就 BEGIN IMMEDIATE 后重看一遍再改、一次提交——
+    两个进程同时首次连旧库，都看到「没有 state 列」，后加的那个会撞 duplicate column（Codex 1025）。"""
+    def todo() -> tuple[bool, bool]:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(tombstones)")}
+        return "state" not in cols, conn.execute("PRAGMA user_version").fetchone()[0] < _DB_VERSION
+
+    if not any(todo()):
+        return
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        add_state, dedupe = todo()
+        if add_state:
+            conn.execute("ALTER TABLE tombstones ADD COLUMN state TEXT NOT NULL DEFAULT 'done'")
+        if dedupe:
+            conn.execute(f"DELETE FROM relations WHERE id NOT IN (SELECT MIN(id) FROM relations GROUP BY {_RELATION_KEY})")
+            conn.execute(f"PRAGMA user_version = {_DB_VERSION}")
         conn.commit()
-    if conn.execute("PRAGMA user_version").fetchone()[0] < _DB_VERSION:
-        conn.execute(f"DELETE FROM relations WHERE id NOT IN (SELECT MIN(id) FROM relations GROUP BY {_RELATION_KEY})")
-        conn.execute(f"PRAGMA user_version = {_DB_VERSION}")
-        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
 
 
 # ---------------------------------------------------------------------------
