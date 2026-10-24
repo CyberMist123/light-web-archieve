@@ -412,11 +412,13 @@ def _reader_check(timeout: float) -> tuple[int, str, bool]:
 
 
 def _risk_hold() -> bool:
+    """号现在是不是在风控暂停里。查不出来按「在」算（安全闸门失败即关）：碰号的修复宁可这轮不跑。"""
     try:
         from . import accounts
         return bool(accounts.risk_hold())
-    except Exception:  # noqa: BLE001
-        return False
+    except Exception as exc:  # noqa: BLE001
+        print(f"[repair] 查不到风控状态（{errtext(exc)}），按风控中处理：碰号的修复这轮不跑", file=sys.stderr)
+        return True
 
 
 def _tail(text: str) -> str:
