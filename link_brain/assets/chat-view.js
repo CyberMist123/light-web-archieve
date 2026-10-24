@@ -763,8 +763,9 @@ const sub = titleBlock.createEl('div', { cls: 'lbchat-sub' });
 function paintSub() {
   const at = LB.dataUpdatedAt(data);
   const d = at ? new Date(at) : null;
-  if (!d || isNaN(d)) { sub.setText(`${items.length} 篇`); return; }
-  sub.setText(`${items.length} 篇 · 更新 ${d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}`);
+  // 1023：问收藏搜的是全部（含聊天分享 / Fable 收的），写明「全部」，和目录页「N 篇 · 全部 M」对得上
+  if (!d || isNaN(d)) { sub.setText(`全部 ${items.length} 篇`); return; }
+  sub.setText(`全部 ${items.length} 篇 · 更新 ${d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}`);
 }
 paintSub();
 const pageNav = head.createEl('nav', { cls: 'lb-page-nav' });

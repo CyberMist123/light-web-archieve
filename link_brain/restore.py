@@ -446,6 +446,10 @@ def run(args) -> int:
         out = {"ok": False, "code": exc.code or "", "message": str(exc), "item_id": args.target,
                "path": args.path, "snapshot": None, "kept": {}, "issues_before": [], "results": []}
         code = exc.exit_code
+    if code == 0 and not args.scan and not args.list and not getattr(args, "dry_run", False):
+        from .catalog import ensure_fresh, mark_dirty  # 1023：恢复的是可见 md（标题 / 标签进目录）
+        mark_dirty("恢复快照")
+        ensure_fresh(wait_s=30)
     out.setdefault("results", [])
     _log(out.get("message") or ("完成" if code == 0 else "失败"))
     dump_json(out)

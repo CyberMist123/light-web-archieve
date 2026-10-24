@@ -109,15 +109,19 @@ def test_collect_carries_hashtags(tmp_path, monkeypatch):
 
 
 def test_build_built_at_advances(tmp_path, monkeypatch):
-    """F4：每次 build 都重写 built_at（页面「更新」显示它）。"""
+    """F4 + 1023：内容变了 built_at 前进；内容没变不重写 catalog-data（不刷屏），核对时间记在 catalog-state.checked_at。"""
     import time
     monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
     _, _, data_path = catalog.build()
     a = json.loads(data_path.read_text(encoding="utf-8"))["built_at"]
     time.sleep(1.1)
     catalog.build()
-    b = json.loads(data_path.read_text(encoding="utf-8"))["built_at"]
-    assert b > a
+    assert json.loads(data_path.read_text(encoding="utf-8"))["built_at"] == a
+    state = json.loads((tmp_path / "_archive" / catalog.STATE_NAME).read_text(encoding="utf-8"))
+    assert state["checked_at"] > a
+    _make_object(tmp_path, "b1", title="新来的", tags=[], summary="", stem="新来的")
+    catalog.build()
+    assert json.loads(data_path.read_text(encoding="utf-8"))["built_at"] > a
 
 
 def test_build_publishes_fonts_once(tmp_path, monkeypatch):

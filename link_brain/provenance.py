@@ -34,7 +34,7 @@ def clean_project(value: Any) -> str:
 def relabel(refs: list[str], *, actor: str | None = None, origin: str | None = None,
             project: str | None = None) -> list[dict[str, Any]]:
     """改「谁收的」（1020：19 号 CC 调研顺手收的帖被 lwa 记成了她在 TG 分享的）。改 meta + 索引 relations 里对应那行；
-    之后跑 catalog 才进目录。project="" 表示清掉项目名。"""
+    改完自动重建目录（1023）。project="" 表示清掉项目名。"""
     from . import index as index_mod, storage
     from .adapters import xiaohongshu as xhs
 
@@ -66,4 +66,8 @@ def relabel(refs: list[str], *, actor: str | None = None, origin: str | None = N
         conn.commit()
     finally:
         conn.close()
+    if any(o.get("status") == "ok" for o in out):
+        from .catalog import ensure_fresh, mark_dirty  # 1023：改完直接进目录，不用再手动跑 catalog
+        mark_dirty("改来源")
+        ensure_fresh(wait_s=30)
     return out

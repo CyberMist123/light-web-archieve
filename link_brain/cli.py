@@ -287,6 +287,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("catalog", help="重写 vault 里的收藏目录页（纯程序拼，不联网）")
     p.add_argument("--print-cats", action="store_true", help="只打印当前生效的大类（设置页载入用），不重建")
+    p.add_argument("--if-dirty", action="store_true", help="只在有待重建（_archive/catalog-dirty.json）时重建")
 
     # 10-10 索引树（库根 索引.md → _archive/index-data.json）与节点 wiki
     from . import indextree, wiki as wiki_mod

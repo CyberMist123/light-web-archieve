@@ -770,6 +770,8 @@ class LinkBrainActions extends Plugin {
     if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => { this.onboardTimer = setTimeout(() => this.startupChecks().catch(e => console.error('[lb] 启动检查没做完', e)), 1500); });
     // 1009：打开 Obsidian 一分半后看一眼评论有没有没补齐的，有就后台接着补（单实例；号要人处理时它自己停下等）
     if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => { this.fillTimer = setTimeout(() => this.ensureCommentFill('startup'), 90000); });
+    // 1023 ARCH-AUDIT 第 1 批：上次同步被打断 / 别处导入过，目录还没跟上 → 打开 Obsidian 20 秒后补建一次（没有待重建就秒回、不碰文件；不占「正在跑」）
+    if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => { this.freshTimer = setTimeout(() => this.spawnPy(['-m', 'link_brain', 'catalog', '--if-dirty']).catch(() => {}), 20000); });
     // 1009：没有分步引导了——首次打开按轻量版自动装好并跑一次（home-ui firstRun），设置页顶部就是功能开关；命令 id 不变
     this.addCommand({ id: 'open-onboarding', name: '打开设置（概览 · 一键装好 / 跑完）', callback: () => this.openSetupPage('overview') });
     this.settingTab = new LinkBrainSettingTab(this.app, this);
@@ -1897,7 +1899,7 @@ class LinkBrainActions extends Plugin {
   // 问收藏页她开始打字时预热（同一页 60 秒内只调一次）：没有 worker、也不在卸载时才起；返回是否新起了
   warmAnswerWorker() { if(this.answerWorker||this.unloading)return false; try{this.ensureAnswerWorker();return true;}catch(e){console.error('[lb] 预热问答进程没成',e);return false;} }
   stopArchiveAnswer(tag) { let n=0; for(const [id,p] of [...(this.answerPending?.entries()||[])]) { if(tag!=null&&p.tag!==tag)continue; if(this.cancelAnswer(id)) n++; } return n; }
-  onunload(){this.unloading=true;if(this.syncTick)clearInterval(this.syncTick);clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);clearTimeout(this.fillTimer);this.catalogCache=null;
+  onunload(){this.unloading=true;if(this.syncTick)clearInterval(this.syncTick);clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);clearTimeout(this.fillTimer);clearTimeout(this.freshTimer);this.catalogCache=null;
     for(const k of ['noteActions','noteTools','imageActions','playerUI','indexUI']){try{this[k]?.detach?.();}catch(e){console.error('[lb] '+k+' 卸载出错',e);}}   // 批次 D 地基：四个挂载点 + 10-10 索引树
     const worker=this.answerWorker;if(worker)this.killTree(worker.pid).catch(()=>{}).finally(()=>{try{worker.kill();}catch{}});}
   // 返回 payload；status='cancelled' = 用户点了停止（markdown 是已生成的半截），不当失败抛。
@@ -2338,7 +2340,7 @@ class LinkBrainActions extends Plugin {
       progress(0,urls.length);
       for(const [i,url] of urls.entries()){
         report(`正在导入 ${i+1}/${urls.length}`);
-        const res=await this.run(['-m','link_brain','catch',url,'--origin','cli','--actor','human'],'导入网址',false,{quiet:true});
+        const res=await this.run(['-m','link_brain','catch',url,'--origin','cli','--actor','human'],'导入网址',false,{quiet:true,env:{LINK_BRAIN_DEFER_CATALOG:'1'}});
         let item;
         try{item=JSON.parse(res.stdout || '{}').items?.[0];}catch{}
         if(item?.status==='trashed'){
