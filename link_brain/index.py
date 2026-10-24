@@ -249,12 +249,24 @@ def _comment_key(c: dict[str, Any]) -> dict[str, Any]:
         "created_at": c.get("created_at"),
         "images": _images_key(c.get("images")),
         "audio": [audio.get("audio_id"), audio.get("asr_text")] if audio else None,
+        "replies": c.get("sub_comment_count"),  # 原站显示的回复数：涨了没展开就是新缺口，要存下来续读才排得上
         "subs": [_comment_key(s) for s in c.get("sub_comments") or [] if isinstance(s, dict)],
     }
 
 
+def _resume_key(capture: dict[str, Any]) -> dict[str, Any]:
+    """决定「还要不要续读」的那几项：读没读到底、评论齐没齐、哪几楼有缺口、缺口是不是读多少次都一样。
+    停的具体原因（时间用完 / 额度 / 限频…）、耗时、游标、续读次数每次都可能不同，不算。"""
+    from .comment_fill import SETTLED_REASONS
+    cl = capture.get("comment_load") if isinstance(capture.get("comment_load"), dict) else {}
+    gaps = sorted([str(g.get("comment_id")), str(g.get("reason") or "") in SETTLED_REASONS]
+                  for g in cl.get("gaps") or [] if isinstance(g, dict) and g.get("comment_id"))
+    return {"has_more": cl.get("has_more"), "complete": capture.get("comments_complete"), "gaps": gaps}
+
+
 def content_fingerprint(source: dict[str, Any]) -> dict[str, Any]:
     """判「内容变没变」只看内容：标题、正文、作者、发布时间、图 / 视频清单、附件、评论（文字 / 图 / 语音 / 楼中楼）。
+    外加续读状态（各楼原站回复数、读没读到底、缺口）：额度不够没展开的新缺口不存下来，后台就不会补（Codex 1025）。
 
     1024 起不再算进来的（会自然变、不代表内容变了）：xsec_token、输入网址、抓取时间、评论加载耗时 / 游标、
     网页探测结果、点赞收藏数、头像、IP 属地、附件下载状态、CDN 签名段。
@@ -273,6 +285,7 @@ def content_fingerprint(source: dict[str, Any]) -> dict[str, Any]:
         "video": [_media_key(video.get("video_url")), video.get("duration_sec")] if video else None,
         "attachments": [[a.get("doc_id"), a.get("name")] for a in note.get("attachments") or [] if isinstance(a, dict)],
         "comments": [_comment_key(c) for c in source.get("comments") or [] if isinstance(c, dict)],
+        "resume": _resume_key(source.get("capture") or {}),
     }
 
 
