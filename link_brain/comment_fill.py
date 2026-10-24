@@ -854,8 +854,8 @@ def spawn_worker() -> dict[str, Any]:
     st = read_status()
     if st.get("state") in ("running", "waiting", "paused"):
         return {"ok": True, "started": False, "already": True, "pid": st.get("pid"), "message": "后台补评论已经在跑"}
-    from . import procs
-    argv = [sys.executable, "-m", "link_brain", "comments", "--fill-pending", "--until-done"]
+    from . import deps, procs
+    argv = [deps.python_exe(), "-m", "link_brain", "comments", "--fill-pending", "--until-done"]   # P0 1024：和插件同一个解释器
     env = dict(os.environ)
     env[storage.ENV_VAULT] = str(storage.vault_root())
     env["PYTHONIOENCODING"] = "utf-8"
