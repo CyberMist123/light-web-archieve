@@ -46,13 +46,30 @@ def _log(*parts: Any) -> None:
     print(*parts, file=sys.stderr, flush=True)
 
 
+# 这个进程里还有没有可能挂着没解决的崩溃：起来时不知道（上个进程可能留了），崩一次置 True，成功解决一次置 False
+_CRASH_OPEN: dict[str, bool] = {"open": True}
+
+
 def _report_crash(what: str, exc: BaseException) -> None:
     """工具 / 协议层漏出来的异常登记进问题记录（step=mcp）；登记失败只打 stderr，绝不拖垮常驻进程。"""
+    _CRASH_OPEN["open"] = True
     try:
         from . import problems
         problems.report("mcp", "TRANSIENT.STEP_CRASHED", f"{what} 出错：{errtext(exc)}")
     except Exception as rexc:  # noqa: BLE001
         _log(f"[mcp_server] 问题记录没写上：{errtext(rexc)}")
+
+
+def _resolve_crash() -> None:
+    """工具调用跑通了：之前登记的崩溃标已解决（每次崩溃后只解决一次，不是每次调用都读问题记录）。"""
+    if not _CRASH_OPEN["open"]:
+        return
+    _CRASH_OPEN["open"] = False
+    try:
+        from . import problems
+        problems.resolve("mcp", None, "TRANSIENT.STEP_CRASHED")
+    except Exception as rexc:  # noqa: BLE001
+        _log(f"[mcp_server] 问题记录没解决上：{errtext(rexc)}")
 
 
 def _write(payload: dict[str, Any]) -> None:
@@ -115,6 +132,7 @@ def _handle_tools_call(request_id: Any, params: dict[str, Any]) -> None:
             "isError": True,
         })
         return
+    _resolve_crash()
     images = payload.pop("_images", None) if isinstance(payload, dict) else None
     content = [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]
     import base64

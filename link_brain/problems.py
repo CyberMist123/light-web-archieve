@@ -253,6 +253,8 @@ def category(row: dict[str, Any]) -> str:
         return "off"
     if step == "login" or sub in _ACCOUNT_SUBS:
         return "account"
+    if sub == "STEP_CRASHED":
+        return "other"  # 代码自己崩了（mcp / 问答 / 命令兜底），哪一步崩的都不是 AI 接口或拉取的问题
     if step.startswith("ai.") or sub in _API_SUBS or step in _API_STEPS:
         return "api"
     if step in _FETCH_STEPS or step == "note.restricted" or sub in ("NOTE_GONE", "NOTE_RESTRICTED"):

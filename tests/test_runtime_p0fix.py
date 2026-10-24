@@ -66,3 +66,69 @@ def test_sync_status_lock_not_held_while_waiting_for_problems_lock(monkeypatch, 
         release.set()
         worker.join(30)
         holder.join(5)
+
+
+# ---------------------------------------------------------------- runtime#6：mcp / 问答崩溃，下次成功自动解决；不归「AI 接口」
+
+
+def test_mcp_crash_resolved_by_next_success(monkeypatch, capsys):
+    from link_brain import mcp_server, mcp_tools
+    monkeypatch.setattr(mcp_server, "_ctx", lambda: None)
+    monkeypatch.setattr(mcp_tools, "call", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("索引坏了")))
+    msg = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search", "arguments": {}}}
+    mcp_server._dispatch(msg)
+    assert [r for r in problems.load() if r["step"] == "mcp"]
+    monkeypatch.setattr(mcp_tools, "call", lambda *a, **k: {"status": "ok"})
+    mcp_server._dispatch({**msg, "id": 2})
+    assert not [r for r in problems.load() if r["step"] == "mcp"], "修前：崩溃登记后永远挂着，3 天后升级推送"
+
+
+def test_ask_crash_resolved_by_next_success_and_not_api_category(monkeypatch):
+    import io
+    import sys
+    from types import SimpleNamespace
+    from link_brain import serve
+    from test_batch3_feedback import _Stdin
+
+    calls = []
+
+    def answer(*a, **k):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("代码 bug")
+        return {"status": "ok", "markdown": "答"}
+
+    monkeypatch.setattr(serve.ask, "answer", answer)
+    monkeypatch.setattr(serve, "_warm", lambda: None)
+    stdin, out = _Stdin(), io.StringIO()
+    monkeypatch.setattr(sys, "stdin", stdin)
+    monkeypatch.setattr(sys, "stdout", out)
+    worker = threading.Thread(target=serve.run, args=(SimpleNamespace(),), daemon=True)
+    worker.start()
+    stdin.put({"id": "1", "question": "随便"})
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and out.getvalue().count('"type": "result"') < 1:
+        time.sleep(0.05)
+    [row] = [r for r in problems.load() if r["code"] == "TRANSIENT.STEP_CRASHED"]
+    assert problems.category(row) != "api", "代码崩溃不是 AI 接口的问题"
+    stdin.put({"id": "2", "question": "再问"})
+    while time.monotonic() < deadline and out.getvalue().count('"type": "result"') < 2:
+        time.sleep(0.05)
+    stdin.put(None)
+    worker.join(5)
+    assert not [r for r in problems.load() if r["code"] == "TRANSIENT.STEP_CRASHED"]
+
+
+def test_catalog_problem_context_sees_rows_only_in_pending(monkeypatch):
+    """runtime#7：她点的「隐藏」等不到锁写进了旁路，目录卡片不用等并回就该看到。"""
+    import json as _json
+    from link_brain import catalog
+    row = {"ts": "2026-10-01T04:00:00+10:00", "key": "ocr|xhs-p|OCR_EMPTY", "step": "ocr", "item_id": "xhs-p",
+           "code": "PERMANENT.OCR_EMPTY", "reason": "x", "count": 1, "resolved_at": None}
+    problems.path().parent.mkdir(parents=True, exist_ok=True)
+    problems.path().write_text(_json.dumps(row) + "\n", "utf-8")
+    assert ("xhs-p", "OCR_EMPTY") not in catalog._problem_context()["hidden"]
+    problems.pending_dir().mkdir(parents=True, exist_ok=True)
+    (problems.pending_dir() / "1-1-1.jsonl").write_text(
+        _json.dumps({"ts": "2026-10-01T05:00:00+10:00", "key": row["key"], "dismiss": True}) + "\n", "utf-8")
+    assert ("xhs-p", "OCR_EMPTY") in catalog._problem_context()["hidden"], "修前：按主文件 mtime 缓存，旁路的隐藏看不到"

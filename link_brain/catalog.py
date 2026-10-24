@@ -257,7 +257,8 @@ def _ai_off() -> set[str]:
 def _problem_context() -> dict[str, Any]:
     """{hidden: {(item_id, 细分码)}, ai_open: {能力名}, api_codes: set, ai_off: {能力名}}。读不动就当没有（fail-open：照旧出标）。"""
     from . import ai_config, ai_health, problems
-    key = (str(storage.archive_root()), _mtime(problems.path()), _mtime(storage.archive_root() / ai_health.FILE_NAME),
+    key = (str(storage.archive_root()), _mtime(problems.path()), _mtime(problems.pending_dir()),  # 旁路的行（等不到锁时写的）也算
+           _mtime(storage.archive_root() / ai_health.FILE_NAME),
            _mtime(ai_config.data_json_path()))
     if _CTX["key"] != key:
         try:

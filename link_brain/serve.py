@@ -74,6 +74,7 @@ def run(args):
 
     def emit(value):
         print(json.dumps(value, ensure_ascii=False), flush=True)
+    crash_open = True  # 起来时不知道上个进程有没有留下没解决的崩溃
     while True:
         try:
             line = incoming.get(timeout=600)
@@ -107,10 +108,19 @@ def run(args):
                 with lock:
                     state.update(id=None, cancel=None)
             emit({'id': request_id, 'type': 'result', 'result': result})
+            if crash_open:
+                # 问答跑通了：之前登记的崩溃标已解决（崩一次后只解决一次，不是每问都读问题记录）
+                crash_open = False
+                try:
+                    from . import problems
+                    problems.resolve('ask', None, 'TRANSIENT.STEP_CRASHED')
+                except Exception as rexc:  # noqa: BLE001
+                    print(f'[serve] 问题记录没解决上：{errtext(rexc)}', file=sys.stderr)
         except Exception as exc:
             # A5：原因写给页面（类型 + 前 200 字），堆栈进 stderr（插件留尾巴）；stdout 仍只发协议行
             traceback.print_exc(file=sys.stderr)
             reason = errtext(exc)[:200]
+            crash_open = True
             try:  # 1024：崩溃登记进问题记录（step=ask）；登记失败不影响回给页面
                 from . import problems
                 problems.report('ask', 'TRANSIENT.STEP_CRASHED', f'问收藏出错：{reason}')
