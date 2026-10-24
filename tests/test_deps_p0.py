@@ -1,6 +1,6 @@
 """P0 1024（BUGS-1024 根因）：缺依赖说人话 + 解释器只认一处。
 
-- jieba 缺失（sys.modules 置 None 模拟）：切词各处统一抛 deps.MissingDependency（NEEDS_HUMAN.NOT_INSTALLED + 人话），
+- jieba 缺失（sys.modules 置 None 模拟）：切词各处统一抛 deps.MissingDependency（NEEDS_HUMAN.MISSING_DEPENDENCY + 人话），
   不再有的崩成裸 ModuleNotFoundError、有的悄悄退化；MCP search / ask 返回的错误里带码和人话。
 - 计划任务 / 后台补评论注册的命令行用 deps.python_exe()：插件 data.json 的 pythonPath > 程序目录 .venv > 当前解释器，绝对路径。
 - doctor 缺依赖时照样跑完，列出缺什么。
@@ -25,9 +25,9 @@ def no_jieba(monkeypatch):
 def _assert_missing(exc_info, name="jieba"):
     exc = exc_info.value
     assert isinstance(exc, deps.MissingDependency)
-    assert exc.code == "NEEDS_HUMAN.NOT_INSTALLED"
+    assert exc.code == "NEEDS_HUMAN.MISSING_DEPENDENCY"
     assert f"缺依赖 {name}" in exc.message and ".venv" in exc.message and f"pip install {name}" in exc.message
-    assert "NEEDS_HUMAN.NOT_INSTALLED" in str(exc)
+    assert "NEEDS_HUMAN.MISSING_DEPENDENCY" in str(exc)
 
 
 # ------------------------------------------------------------------ deps.require
@@ -37,7 +37,7 @@ def test_require_returns_module_and_raises_coded_error(monkeypatch):
     monkeypatch.setitem(sys.modules, "no_such_pkg_p0", None)
     with pytest.raises(deps.MissingDependency) as ei:
         deps.require("no_such_pkg_p0", "测试")
-    assert ei.value.code == "NEEDS_HUMAN.NOT_INSTALLED" and "测试" in ei.value.message
+    assert ei.value.code == "NEEDS_HUMAN.MISSING_DEPENDENCY" and "测试" in ei.value.message
 
 
 # ------------------------------------------------------------------ jieba 各处一致明确报错
@@ -101,7 +101,7 @@ def test_mcp_search_and_ask_report_not_installed(monkeypatch, no_jieba, name, ar
     result, payload = _call_tool(monkeypatch, name, arguments)
     assert result["isError"] is True
     text = json.dumps(payload, ensure_ascii=False)
-    assert "NOT_INSTALLED" in text and "缺依赖 jieba" in text
+    assert "MISSING_DEPENDENCY" in text and "缺依赖 jieba" in text
     assert "ModuleNotFoundError" not in text and "ImportError" not in text
 
 

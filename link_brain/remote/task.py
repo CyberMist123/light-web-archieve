@@ -182,7 +182,11 @@ def _resolved() -> None:
 
 
 def register(vault: str, state_dir: str, settings: str | None = None, *, repo: str | None = None) -> dict[str, Any]:
-    from .. import storage
+    from .. import deps, storage
+    try:
+        deps.python_exe(vault=vault)  # 设置里的 Python 路径找不到：如实失败，不把坏路径写进计划任务
+    except deps.PythonNotFound as exc:
+        return {"ok": False, "code": "", "message": f"没注册计划任务：{exc}"}
     if not supported():
         return {"ok": False, "code": "SKIPPED.NOT_CONFIGURED", "message": "这台电脑不是 Windows：请手动启动（命令见下）",
                 "command": manual_command(vault, state_dir, settings)}

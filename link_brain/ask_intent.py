@@ -125,7 +125,7 @@ COMMON_WORD_FREQ = 300   # jieba 词频 ≥ 这个的昵称当常用词（「随
 
 
 def _is_common_word(name: str) -> bool:
-    # P0 1024：缺 jieba 明确报 NOT_INSTALLED，不再悄悄当「不是常用词」
+    # P0 1024：缺 jieba 明确报 MISSING_DEPENDENCY，不再悄悄当「不是常用词」
     from .deps import require
     jieba = require("jieba", "问答 / 搜索切词")
     jieba.initialize()

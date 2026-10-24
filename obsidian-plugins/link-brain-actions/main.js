@@ -109,12 +109,17 @@ function whichCommand(cmd, { env = (typeof process !== "undefined" ? process.env
 // 没配 = 程序目录下有 .venv 就用它（Windows .venv\Scripts\python.exe，其他 .venv/bin/python），否则 python。后端 link_brain/deps.py python_exe() 同一套规则。
 function pickPython({ root = null, configured = "", platform = (typeof process !== "undefined" ? process.platform : ""), exists = p => { try { return fs.statSync(p).isFile(); } catch { return false; } } } = {}) {
   const own = String(configured || "").trim().replace(/^"(.*)"$/, "$1").trim();
-  if (own) return own;
+  // 1024 返修：相对路径（含 / 或 \）按程序目录解析，和后端 deps.python_exe 一致；裸命令名交给 PATH
+  if (own) return (root && /[\\/]/.test(own) && !path.isAbsolute(own)) ? path.resolve(root, own) : own;
   if (root) {
     const venv = platform === "win32" ? path.join(root, ".venv", "Scripts", "python.exe") : path.join(root, ".venv", "bin", "python");
     if (exists(venv)) return venv;
   }
   return PY;
+}
+// 设置页「Python 路径」那一行的说明：配的文件不存在就照实标出来（裸命令名不按文件查）
+function pythonDesc(exe, exists = p => { try { return fs.statSync(p).isFile(); } catch { return false; } }) {
+  return `当前：${exe}` + (/[\\/]/.test(String(exe)) && !exists(exe) ? '（找不到这个文件）' : '');
 }
 function pyCommand(exe) { return `${/\s/.test(exe) ? `"${exe}"` : exe} -m link_brain`; }
 // 选后端：candidates = 可能的仓库根（收藏库上一级、插件目录上两级），第一个带 link_brain 包的 → 仓库模式；
@@ -3101,16 +3106,16 @@ class LinkBrainSettingTab extends PluginSettingTab {
         }));
     this.link(backendRow, '复制安装命令', () => this.plugin.copyText(BACKEND_INSTALL), '把「' + BACKEND_INSTALL + '」复制到剪贴板，到终端里运行');
     // P0 1024：仓库模式用哪个 Python；插件起进程、MCP 命令、计划任务注册都用它
-    const pyRow = new Setting(c).setName('Python 路径').setDesc(backend.mode === 'repo' ? `当前：${backend.exe}` : '仓库模式才用。');
+    const pyRow = new Setting(c).setName('Python 路径').setDesc(backend.mode === 'repo' ? pythonDesc(backend.exe) : '仓库模式才用。');
     this.help(pyRow, '空 = 程序目录下的 .venv（没有再用系统 python）。缺依赖时填装好依赖的那个 python.exe 的完整路径。');
-    pyRow.addText(t => t.setPlaceholder('.venv\\Scripts\\python.exe').setValue(s.pythonPath || '')
+    pyRow.addText(t => t.setPlaceholder('D:\\程序目录\\.venv\\Scripts\\python.exe').setValue(s.pythonPath || '')
       .onChange(v => {
         s.pythonPath = v.trim();
         clearTimeout(this.pythonTimer);
         this.pythonTimer = setTimeout(async () => {
           await this.save(); await this.plugin.locateCollection();
           const now = this.plugin.currentBackend();
-          pyRow.setDesc(now.mode === 'repo' ? `当前：${now.exe}` : '仓库模式才用。');
+          pyRow.setDesc(now.mode === 'repo' ? pythonDesc(now.exe) : '仓库模式才用。');
           backendRow.setDesc(backendDesc(now));
         }, 300);
       }));
@@ -3377,7 +3382,7 @@ Object.assign(module.exports, { perRunLimitOf, fillGapOf, FILL_PACE, SETTING_TAB
 module.exports.scheduleStatusText = scheduleStatusText;
 module.exports.syncStateHead = syncStateHead;   // 给 node 单测（第 5 批 4.4）
 // 第 5 批 B2（单插件交付）：给 node 单测
-Object.assign(module.exports, { splitCommand, whichCommand, pickPython, pickBackend, backendArgv, backendMissingText, pickSyncTask, dataviewState,
+Object.assign(module.exports, { splitCommand, whichCommand, pickPython, pythonDesc, pickBackend, backendArgv, backendMissingText, pickSyncTask, dataviewState,
   BACKEND_DEFAULT, BACKEND_INSTALL, NIGHTLY_TASK, LEGACY_SYNC_TASK });
 Object.assign(module.exports, { effectiveTextAI, modelState, endpointHost, normalizeEndpoint, aiGate, resultMessage, scheduleShort });
 module.exports.lastRiskNote = lastRiskNote;   // 1008（L6）：给 node 单测（设置页「立即同步」旁的验证说明）

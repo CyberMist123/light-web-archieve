@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from . import ai_config, answer_cache, llm, storage
+from .deps import MissingDependency
 from .read import EXIT_ERROR, EXIT_OK, dump_json
 
 REPORT_MARK = re.compile(r"^\s*/报告\s*")   # 见 _LAYOUT_REQ
@@ -156,7 +157,7 @@ def query_terms(question: str) -> list[str]:
     import logging
     from .deps import require
     from .retrieval import norm
-    jieba = require("jieba", "问答 / 搜索切词")   # P0 1024：缺了明确报 NOT_INSTALLED，不裸崩
+    jieba = require("jieba", "问答 / 搜索切词")   # P0 1024：缺了明确报 MISSING_DEPENDENCY，不裸崩
     jieba.setLogLevel(logging.ERROR)
     # 1015 第二批：先剥口语壳（「我有个 X 忘了哪儿了 帮我找一下」→ X），壳词「忘 / 找 / 那个」不再进原词路
     from .ask_intent import strip_shell
@@ -1696,10 +1697,14 @@ def understand_question(question, items, llm_out=None, skills_list=None):
     try:
         s1 = ask_intent.parse_s1((llm_out or {}).get("s1") or {}, question, authors=ask_intent.library_authors(items),
                                  skill_ids=[s["id"] for s in skills_list])
+    except MissingDependency:
+        raise  # 1024 返修：缺依赖明确报，不悄悄退化
     except Exception:  # noqa: BLE001
         s1 = {}
     try:
         return ask_intent.understand(question, items, s1=s1, skills=skills_list)
+    except MissingDependency:
+        raise
     except Exception:  # noqa: BLE001
         return {"goal": "ask", "core": question, "filters": {}, "skill": None}
 
@@ -2438,6 +2443,8 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
                                   evidence_chars=sum(len(b) for b in blocks), question=question, task=task)
         if (settings.get("retrieval") or {}).get("selfCheck", True) is not False:
             markdown += answer_check.footnote(checks)
+    except MissingDependency:
+        raise  # 1024 返修：缺 jieba 明确报，不悄悄把整段自检脚注吞掉
     except Exception:  # noqa: BLE001 - 自检坏了不影响作答
         checks = None
     head = next((ln.strip() for ln in markdown.splitlines() if ln.strip() and not ln.strip().startswith(("![[", ">"))), "")[:300]
@@ -2654,6 +2661,8 @@ def run(args) -> int:
             result = answer(getattr(args, "question", "") or "", history, getattr(args, "include", None))
     except (ValueError, TypeError) as exc:
         result = {"status": "error", "markdown": f"问答请求无效：{exc}"}
+    except MissingDependency as exc:  # 1024 返修：缺依赖照样给结果 JSON（码 + 人话），不打 traceback
+        result = {"status": "error", "code": exc.code, "error_kind": "missing_dependency", "markdown": exc.message}
     dump_json(result)
     return EXIT_OK if result.get("status") == "ok" else EXIT_ERROR
 

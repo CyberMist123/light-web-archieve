@@ -597,8 +597,12 @@ def install_nightly(at: str | None = None, vault: str | None = None, *, platform
     if not vault_path.is_dir():
         return {"ok": False, "code": "", "task": name, "message": f"收藏库不存在：{vault_path}（先选好收藏库位置）"}
     platform = platform or sys.platform
+    from . import deps
+    try:
+        deps.python_exe(vault=vault_path)  # 设置里的 Python 路径找不到：如实失败，不把坏路径写进计划任务
+    except deps.PythonNotFound as exc:
+        return {"ok": False, "code": "", "task": name, "message": f"没注册计划任务：{exc}"}
     if platform != "win32":
-        from . import deps
         py = deps.python_exe(vault=vault_path)
         return {"ok": False, "code": "SKIPPED.NOT_CONFIGURED", "task": name, "time": f"{hh:02d}:{mm:02d}",
                 "message": "这台电脑不是 Windows：没有自动注册，请把下面的 cron 行（Linux）或 launchd 配置（macOS）加进系统定时任务",

@@ -64,20 +64,24 @@ def python_checks() -> dict:
     """当前解释器 + 关键依赖能不能导入；scheduled = 计划任务注册时会写的解释器（deps.python_exe）。"""
     rows = [dict(name=name, module=module, purpose=purpose, ok=_importable(module, load))
             for name, module, purpose, load in KEY_DEPS]
+    scheduled_error = ''
     try:
         scheduled = deps.python_exe()
-    except OSError:
-        scheduled = ''
+    except OSError as exc:  # PythonNotFound：设置里的 Python 路径找不到，照实说
+        scheduled, scheduled_error = '', str(exc)
     return {'executable': sys.executable, 'version': platform.python_version(), 'scheduled': scheduled,
-            'deps': rows, 'missing': [r['name'] for r in rows if not r['ok']]}
+            'scheduled_error': scheduled_error, 'deps': rows, 'missing': [r['name'] for r in rows if not r['ok']]}
 
 
 def _python_row(row, info: dict) -> dict:
     missing = info['missing']
     message = f"{info['executable']}（Python {info['version']}）" + (f"；缺 {'、'.join(missing)}" if missing else '；依赖齐')
     step = (f"请用项目 .venv 启动（设置 → 开发者 → Python 路径），或 pip install {' '.join(missing)}" if missing else '')
-    detail = f"计划任务会用：{info['scheduled']}" if info.get('scheduled') else ''
-    return row('python', 'Python 与依赖', 'error' if missing else 'ready', message, step, detail)
+    detail = f"计划任务会用：{info['scheduled']}" if info.get('scheduled') else (info.get('scheduled_error') or '')
+    bad = bool(missing or info.get('scheduled_error'))
+    if info.get('scheduled_error') and not step:
+        step = '设置 → 开发者 → Python 路径改对，或清空改用程序目录的 .venv'
+    return row('python', 'Python 与依赖', 'error' if bad else 'ready', message, step, detail)
 
 
 def _plain_row(key: str, label: str, state: str, message: str, next_step: str = '', detail: str = '',

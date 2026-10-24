@@ -57,6 +57,15 @@ function makePlugin(base, saved = {}) {
   let b = Plugin.pickBackend({ candidates: ['/repo'], isRepo, which: () => null, python: 'D:/py311/python.exe' });
   assert.equal(b.mode, 'repo'); assert.equal(b.exe, 'D:/py311/python.exe'); assert.match(b.command, /py311.*-m link_brain/);
 
+  // 1024 返修（复审 python 中1）：相对路径按程序目录解析（不按 Obsidian 的当前目录）；设置页标出找不到的路径
+  assert.equal(Plugin.pickPython({ root: '/repo', configured: '.venv/Scripts/python.exe', platform: 'win32', exists: () => false }),
+    path.resolve('/repo', '.venv/Scripts/python.exe'), '相对路径按程序目录解析');
+  assert.equal(Plugin.pickPython({ root: '/repo', configured: 'python3', platform: 'linux', exists: () => false }), 'python3', '裸命令名照旧交给 PATH');
+  assert.equal(typeof Plugin.pythonDesc, 'function', '要导出 pythonDesc 给单测');
+  assert.equal(Plugin.pythonDesc('D:/nope/python.exe', () => false), '当前：D:/nope/python.exe（找不到这个文件）');
+  assert.equal(Plugin.pythonDesc('D:/py/python.exe', () => true), '当前：D:/py/python.exe');
+  assert.equal(Plugin.pythonDesc('python', () => false), '当前：python', '裸命令名不按文件查');
+
   // ── 2. 旧设置没有 pythonPath ──
   assert.equal(Plugin.__merge({}).pythonPath, '', '默认空 = 按默认找');
 

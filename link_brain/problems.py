@@ -133,6 +133,8 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "NEEDS_HUMAN.ACCOUNT_RISK": dict(where="top+card", label="账号风控", hover="小红书把读取号跳到了登录/安全页：同步已全部暂停，点目录页顶部的问题入口处理", group="needs_you"),
     "NEEDS_HUMAN.RISK_HOLD": dict(where="top+card", label="风控暂停中", hover="风控暂停中：所有用号的同步都停了，点目录页顶部的问题入口处理，处理完自动恢复", group="needs_you"),
     "NEEDS_HUMAN.NOT_INSTALLED": dict(where="top+card", label="未安装读取组件", hover="按 README「读取组件」安装后刷新", group="needs_you"),
+    # 1024 返修：缺第三方包（deps.MissingDependency）。不是账号的事，不进 ACCOUNT_CODES，留在撞见的那一步
+    "NEEDS_HUMAN.MISSING_DEPENDENCY": dict(where="top+card", label="缺 Python 依赖", hover="{reason}", group="needs_you"),
     "NEEDS_HUMAN.WRONG_ACCOUNT": dict(where="top+card", label="登错号", hover="登录的不是收藏所在的号：换号重新扫码", group="needs_you"),
     "TRANSIENT.FAVORITES_SUSPICIOUS": dict(where="list", label="收藏只读到一截", hover="{reason}", group="auto"),
     # 1008：原因由 ai_health 写全（哪个接口 / 哪把 key / 为什么 / 怎么办 / 影响几篇 / 补齐花费），hover 直接显示它

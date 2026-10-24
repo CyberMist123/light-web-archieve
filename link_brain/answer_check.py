@@ -75,7 +75,7 @@ def _tokens(text: str) -> set[str]:
     out = set()
     for chunk in re.findall(r"[A-Za-z0-9][A-Za-z0-9.+\-]{1,}|[一-鿿]{2,}", text or ""):
         if re.match(r"[一-鿿]", chunk):
-            # P0 1024：缺 jieba 明确报 NOT_INSTALLED（以前悄悄退成单字，回查结果变了也没人知道）
+            # P0 1024：缺 jieba 明确报 MISSING_DEPENDENCY（以前悄悄退成单字，回查结果变了也没人知道）
             cut = require("jieba", "问答 / 搜索切词").lcut(chunk)
             parts = [w for w in cut if len(w) >= 2]
             # jieba 切成单字的那一串（「味玉汁」「味醂」这种词典里没有的名词）按二字片段补上，不然专名永远对不上
