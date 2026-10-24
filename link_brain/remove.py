@@ -264,7 +264,11 @@ def delete_items(item_ids: list[str]) -> dict[str, Any]:
 
 
 def _report_unfinished(outcome: dict, leftover: list[dict]) -> dict:
-    """以前半路崩掉的删除这次顺带做完；还没做完的照实说（它们一直被屏蔽着，不会被同步拉回来）。"""
+    """以前半路崩掉的删除这次顺带做完；还没做完的照实说（它们一直被屏蔽着，不会被同步拉回来）。
+    顺带做完的放进 finished：目录快速更新要连它们一起摘（Codex 1025）。"""
+    finished = [r for r in leftover if r['status'] == 'deleted']
+    if finished:
+        outcome['finished'] = finished
     bad = [r for r in leftover if r['status'] != 'deleted']
     if bad:
         outcome['unfinished'] = bad
@@ -296,7 +300,8 @@ def run(args) -> int:
         # 前面几条可能已经进了回收站：不管后面怎样都重建目录，页面才和磁盘一致
         try:
             from . import catalog
-            done = [r.get('item_id') for r in outcome.get('results') or [] if r.get('status') == 'deleted']
+            done = [r.get('item_id') for r in (outcome.get('results') or []) + (outcome.get('finished') or [])
+                    if r.get('status') == 'deleted']
             if args.command == 'delete' and outcome.get('ok') and catalog.drop_items(done):
                 publish_trash()  # 1019：删除只摘目录数据里这几篇 + 刷回收站，不整份重建（快十几秒）
             else:

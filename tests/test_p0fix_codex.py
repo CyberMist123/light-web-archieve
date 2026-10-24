@@ -54,3 +54,31 @@ def test_refresh_saves_new_reply_gap(vault, monkeypatch):
     assert (obj / "raw" / "v0002").exists(), "修前：判重说没变化，新缺口没存"
     source = json.loads((obj / "raw" / "v0002" / "source.json").read_text(encoding="utf-8"))
     assert comment_fill.scope(source, 50)["missing"] == 5
+
+
+# ---------------------------------------------------------------------------
+# 2. 删 A 时顺带续删完的旧 pending B，也要从目录里摘掉
+# ---------------------------------------------------------------------------
+
+
+def test_delete_also_drops_finished_pending_from_catalog(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+    from link_brain import catalog, remove, storage
+    monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
+    conn = index_mod.connect()
+    conn.execute("INSERT INTO tombstones (source, source_id, item_id, deleted_at, trash_dir, state) "
+                 "VALUES ('xiaohongshu', 'b', 'b', '2026-10-24T00:00:00+00:00', '_trash/b', 'pending')")
+    conn.commit()
+    conn.close()
+    data = tmp_path / "_archive" / catalog.DATA_NAME
+    data.write_text(json.dumps({"count": 3, "items": [{"id": "a"}, {"id": "b"}, {"id": "c"}]}), "utf-8")
+    monkeypatch.setattr(remove, "delete_item", lambda conn, i: {"item_id": i, "status": "deleted"})
+    monkeypatch.setattr(remove, "publish_trash", lambda *a, **k: None)
+    built = []
+    monkeypatch.setattr(catalog, "build", lambda *a, **k: built.append(1))
+    assert remove.run(SimpleNamespace(command="delete", item_ids=["a"])) == 0
+    out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert [r["item_id"] for r in out["finished"]] == ["b"]
+    got = json.loads(data.read_text("utf-8"))
+    assert [i["id"] for i in got["items"]] == ["c"], "修前：b 续删完了却还留在目录里"
+    assert built == []
