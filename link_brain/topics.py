@@ -273,7 +273,8 @@ def _semantic_scores(topics: list[dict[str, Any]], *, live: bool = True, pending
             else:
                 vec = cache.get(_topic_text(t))
                 qvec = np.asarray(vec, dtype=np.float32) if vec else None
-                if qvec is None:
+                if qvec is None or matrix.shape[1] != qvec.shape[0]:
+                    # 缓存里没有，或 semantic.db 换了维度、旧向量对不上：只这个主题退关键词、记待更新（夜里重取）
                     if pending is not None:
                         pending.append(t["name"])
                     continue
@@ -300,11 +301,12 @@ def refresh_vectors(vault: Path | None = None) -> dict[str, Any]:
     layer = _semantic_layer()
     if layer is None or not topic_list:
         return {"ok": True, "fetched": 0, "failed": [], "skipped": "没有语义索引或没有主题"}
-    semantic, cfg, _ = layer
+    semantic, cfg, (matrix, _rows) = layer
     with storage.file_lock("topic-vectors", wait_s=30, owner="topics.refresh_vectors"):
         cache = _load_vectors(cfg, vault)
         keep = {_topic_text(t) for t in topic_list}
-        vectors = {k: v for k, v in cache.items() if k in keep}
+        # 维度和 semantic.db 对不上的旧向量当缺失重取（模型名没变、维度变了时缓存 key 认不出来）
+        vectors = {k: v for k, v in cache.items() if k in keep and len(v) == matrix.shape[1]}
         fetched, failed = 0, []
         for t in topic_list:
             text = _topic_text(t)

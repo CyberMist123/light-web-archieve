@@ -635,7 +635,8 @@ class Nightly:
         if running and running.get("unverified"):
             why = f"列不出进程（{running['unverified']}），没法确认 sync-status 里的 pid {running['pid']} 还在不在同步"
             self.log(f"[夜跑] {why}：按在跑处理，今晚不起")
-            self.register("run", "TRANSIENT.STEP_CRASHED", f"{why}，今晚夜跑没起；下一晚再看。")
+            # 单独一个 step（不是 nightly.run）：夜跑本身没出错，下一晚正常起来就自动消（复审 catalog#1）
+            self.register("sync-check", "TRANSIENT.STEP_CRASHED", f"{why}，今晚夜跑没起；下一晚再看。")
             return self._result(EXIT_OK, "列不出进程，按收藏同步在跑处理，今晚夜跑没起", ran=False)
         if running:
             self.log(f"[夜跑] 收藏同步正在跑（pid {running['pid']}，插件或上一趟），今晚不再起，也不碰它的浏览器")
@@ -651,6 +652,7 @@ class Nightly:
         unfinished = self.unfinished_last_night()
         self._rotate()
         self.log(START_MARK)
+        self.resolve("sync-check")  # 进程表列得出来、夜跑起来了：之前「列不出进程，今晚没起」那条已经好了
         self.log(f"[夜跑] 收藏库：{self.vault}；总预算 {self.budget_min:g} 分钟")
         try:
             from . import synclog

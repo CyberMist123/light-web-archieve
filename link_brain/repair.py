@@ -272,6 +272,8 @@ def plan(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
         return _run("comments_fill_item", auto=False) if item else _run("comments_fill", auto=transient)
     if step == "nightly.gemini-keys" or sub == "SECRET_TIMEOUT":
         return _manual("精细识图今晚已退回设置里的模型；检查密码库能不能解锁")
+    if step == "nightly.sync-check":
+        return _wait(next_nightly(now), "列不出进程、没法确认同步在不在跑，那晚夜跑没起；下一晚正常起来就自动消")
     if step == "nightly.run":
         if sub == "INTERRUPTED":
             return _wait(next_nightly(now), "记的是上一晚夜跑被打断；今晚夜跑走完就自动消")

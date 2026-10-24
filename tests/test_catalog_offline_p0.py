@@ -236,7 +236,7 @@ def test_nightly_enum_failure_skips_night_and_says_so(tmp_path, monkeypatch):
     assert out["ran"] is False
     log = (tmp_path / "n.log").read_text("utf-8")
     assert "should not run" not in log and "列不出进程" in log
-    assert [r["step"] for r in problems.load(include_resolved=False)] == ["nightly.run"]
+    assert [r["step"] for r in problems.load(include_resolved=False)] == ["nightly.sync-check"]  # 1024 返修：单独一个 step
 
 
 def test_catalog_module_does_not_import_llm():

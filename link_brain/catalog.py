@@ -791,6 +791,7 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
                                          pending=topics_pending, vault=vault) if topic_list else {}
     except Exception:  # noqa: BLE001
         topic_list, member = [], {}
+        topics_pending.clear()  # 主题整个没算出来：不留半截的「待更新」，和 topics: [] 对得上
     if topics_pending:
         import sys
         print(f"[catalog] 主题向量待更新（这次按关键词算）：{'、'.join(topics_pending)}——夜跑 index catch-up 会补", file=sys.stderr)
