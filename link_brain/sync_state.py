@@ -28,7 +28,9 @@ def _alive(pid, created=None) -> bool:
         return True  # 旧状态文件没记创建时间：只能信 pid
     from . import procs
     now = procs.created_of(int(pid))
-    return now is not None and abs(now - float(created)) < 1
+    if now is None:
+        return True  # 拿不到创建时间（拒绝访问 / 快照失败）：查不清 = 当活着
+    return abs(now - float(created)) < 1
 
 
 def _status_alive(status) -> bool:
@@ -200,8 +202,22 @@ def _update_baseline(status, payload):
     status['suspect_favorites'] = {'count': total, 'nights': nights}
 
 
-@storage.locked(LOCK, wait_s=LOCK_WAIT_S)
 def record(state, *, payload=None, message='', account=None, code=''):
+    """写这次同步的状态。锁只包 sync-status.json 的读改写；登记问题、刷新摘要在锁外（它们要等 problems 锁，
+    拿着 sync-status 锁去等会把别的进程卡到 LockBusy——复审 runtime#4）。"""
+    with storage.file_lock(LOCK, wait_s=LOCK_WAIT_S, owner='link_brain.sync_state.record'):
+        status, conclude = _record_locked(state, payload=payload, message=message, account=account, code=code)
+    if conclude:
+        try:
+            _record_problems(status)
+        except Exception as exc:  # noqa: BLE001 - 状态已写上；问题记录登记不上不能让同步收尾崩掉
+            print(f'[sync_state] 问题记录没写上（{errtext(exc)}）', file=sys.stderr)
+        _refresh_summary()
+    return status
+
+
+def _record_locked(state, *, payload=None, message='', account=None, code=''):
+    """（已拿 sync-status 锁）读改写状态文件。返回 (状态, 要不要登记结论 + 刷新摘要)。"""
     previous = load()
     finished = state == 'finished'
     now = datetime.now().astimezone().isoformat()
@@ -228,13 +244,13 @@ def record(state, *, payload=None, message='', account=None, code=''):
                                                    'favorites', 'synced', 'updated_at')}
                 status = {**keep, **{k: previous.get(k) for k in _CARRY if k in previous}}
                 storage.write_json(path(), status)
-                return status
+                return status, False
             status = {'state': 'ready', 'message': '刚刚同步过，本次跳过（每 10 分钟最多读一次收藏，稍后再试）',
                       'account': None, 'updated_at': now, 'last_success': before.get('last_success'),
                       'favorites': before.get('favorites'), 'synced': before.get('synced'), 'code': code, 'detail': ''}
             status.update({k: previous[k] for k in _CARRY if k in previous})
             storage.write_json(path(), status)
-            return status
+            return status, False
         if state in ('ready', 'failed') and payload.get('suspicious'):
             # 只读到一截 / 0 条 / 比上次少一半以上：照常处理读到的，但不能算「同步完成」。
             # 10-04：同一件事只登记一条（sync.favorites），原因一句话不重复；另有几篇没抓到的附在后面
@@ -278,9 +294,7 @@ def record(state, *, payload=None, message='', account=None, code=''):
         elif isinstance(previous.get('before'), dict):
             status['before'] = previous['before']
     storage.write_json(path(), status)
-    _record_problems(status)
-    _refresh_summary()
-    return status
+    return status, True
 
 
 def _record_problems(status):
@@ -331,19 +345,20 @@ def account_message(code):
     return shown['hover']
 
 
-@storage.locked(LOCK, wait_s=LOCK_WAIT_S)
 def account_problem(code, detail=''):
     """任何环节（同步 / 附件下载 / 附件补查 / 登录检查）撞见掉登录或安全验证，都记到目录页顶部的问题入口上（第 4 批：「!」并进了问题入口）。
 
     0927：以前只有同步收藏会写这里，下载附件时掉登录只发手机提醒、目录页照样显示正常。
     """
-    previous = load()
-    if previous.get('state') == 'blocked' and previous.get('code') == code:
-        return previous
     message = account_message(code)
-    status = {**previous, 'state': 'blocked', 'message': message, 'account': 'xhs', 'code': code,
-              'detail': str(detail)[:300], 'updated_at': datetime.now().astimezone().isoformat()}
-    storage.write_json(path(), status)
+    # 锁只包读改写；登记问题 / 刷新摘要在锁外（复审 runtime#4）
+    with storage.file_lock(LOCK, wait_s=LOCK_WAIT_S, owner='link_brain.sync_state.account_problem'):
+        previous = load()
+        if previous.get('state') == 'blocked' and previous.get('code') == code:
+            return previous
+        status = {**previous, 'state': 'blocked', 'message': message, 'account': 'xhs', 'code': code,
+                  'detail': str(detail)[:300], 'updated_at': datetime.now().astimezone().isoformat()}
+        storage.write_json(path(), status)
     try:
         from . import problems
         problems.report_blocked('login', code, f'{message}（{str(detail)[:150]}）' if detail else message)
@@ -353,18 +368,21 @@ def account_problem(code, detail=''):
     return status
 
 
-@storage.locked(LOCK, wait_s=LOCK_WAIT_S)
 def account_ok():
     """登录恢复了：只清掉『账号类』的「!」，别的失败原样留着。"""
-    previous = load()
     # 问题记录：登录检查通过 = 掉登录 / 要验证 / 风控跳页这几件事都好了（登错号要等下次同步认号才算好）
     # 1017：限频冷却、夜里弹的验证也是号的事——号好着（已登录、没熔断）它们就都过去了，以前漏了，冷却那条一直挂着
     resolved = sum(_resolve('login', c) for c in (*ACCOUNT_CODES, 'ACCOUNT_BLOCKED', 'NOT_INSTALLED',
                                                    'XHS_RATE_LIMITED', 'NIGHT_CAPTCHA'))
-    if previous.get('state') == 'blocked' and previous.get('code') in ACCOUNT_CODES:
-        status = {**previous, 'state': 'ready', 'message': '已重新登录，下次同步照常进行', 'code': '', 'detail': '',
-                  'updated_at': datetime.now().astimezone().isoformat()}
-        storage.write_json(path(), status)
+    # 上面在锁外解决问题（要等 problems 锁）；sync-status 锁只包读改写（复审 runtime#4）
+    with storage.file_lock(LOCK, wait_s=LOCK_WAIT_S, owner='link_brain.sync_state.account_ok'):
+        previous = load()
+        status = None
+        if previous.get('state') == 'blocked' and previous.get('code') in ACCOUNT_CODES:
+            status = {**previous, 'state': 'ready', 'message': '已重新登录，下次同步照常进行', 'code': '', 'detail': '',
+                      'updated_at': datetime.now().astimezone().isoformat()}
+            storage.write_json(path(), status)
+    if status is not None:
         _refresh_summary()
         return status
     if resolved:
