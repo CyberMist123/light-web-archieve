@@ -123,7 +123,10 @@ def test_render_produces_single_visible_md_and_vision_json(tmp_path, monkeypatch
     assert len(md_files) == 1, f"应只有 1 个可见 md，实际: {md_files}"
 
     vision_path = storage.derived_dir(source, source_id) / "vision.json"
+    assert not vision_path.exists()  # 1024：手动导入不现场识图，识图交给 enrich
+    render_mod.render_item(source, source_id, vision=True)
     assert vision_path.exists()
+    assert len(list(visible_dir.glob("*.md"))) == 1
     vision_doc = storage.read_json(vision_path)
     for image in vision_doc["images"]:
         assert "ocr" in image
@@ -315,4 +318,4 @@ def test_render_no_vision_does_not_call_vision(tmp_path, monkeypatch):
     assert cli.main(["render", "--all", "--no-vision"]) == 0
     assert calls == []
     assert cli.main(["render", item_id]) == 0
-    assert len(calls) == 1
+    assert calls == []  # 1024：render 默认也不识图（显式 --vision 才跑，见 test_p0_meta_1024）

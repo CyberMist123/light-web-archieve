@@ -808,20 +808,27 @@ def tag_account(note_id: str, account: dict[str, str], *, seen_at: str | None = 
     if not key:
         return False
     path = storage.object_dir(xhs.SOURCE, note_id) / "meta.json"
-    try:
-        meta = storage.read_json(path)
+    added = []
+
+    def add(meta):
         tags = [a for a in (meta.get("favorited_by") or []) if isinstance(a, dict)]
         if any((a.get("user_id") or a.get("nickname")) == key for a in tags):
-            return False
+            return
         tags.append({"nickname": account.get("nickname", ""), "user_id": account.get("user_id", ""),
                      "first_seen": seen_at or datetime.now().astimezone().isoformat(timespec="seconds")})
         meta["favorited_by"] = tags
-        storage.write_json(path, meta)
-        from .catalog import mark_dirty  # 1023：收藏账号决定「来源」（ARCH-AUDIT 第 1 批）
-        mark_dirty("收藏账号")
-        return True
-    except (OSError, ValueError):
+        added.append(True)
+
+    try:
+        # 1024：只改 favorited_by，单篇锁里重读再写
+        storage.update_json(path, add, lock_name=storage.obj_lock_name(f"xhs-{note_id}"))
+    except (OSError, ValueError, storage.LockBusy):
         return False
+    if not added:
+        return False
+    from .catalog import mark_dirty  # 1023：收藏账号决定「来源」（ARCH-AUDIT 第 1 批）
+    mark_dirty("收藏账号")
+    return True
 
 
 class _Quota:

@@ -67,8 +67,9 @@ def backfill(row):
     storage.write_json(dest/'source.json',source)
     storage.write_json(dest/'manifest.json',manifest)
     shutil.copyfile(old/'mcp_raw.json',dest/'mcp_raw.json')
-    meta['current_version'] = version
-    storage.write_json(obj/'meta.json',meta)
+    # 1024：只改版本这两个键，单篇锁里重读再写（下载期间别的入口写进 meta 的键不被旧副本盖掉）
+    meta = storage.update_json(obj/'meta.json', lambda m: m.update(current_version=version,
+        versions=storage.existing_versions(row['source'],row['source_id'])), lock_name=storage.obj_lock_name(row['item_id']))
     conn=index.connect()
     try:
         index.upsert_object(conn,meta,source)

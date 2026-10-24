@@ -1657,7 +1657,9 @@ def render_object(
         title = re.sub(r'\s+', ' ', str(fallback)).strip()[:30] or '视频收藏'
         meta['title'] = title
         source_doc['note']['title'] = title
-        storage.write_json(meta_path, meta)
+        # 1024：只补 title 这一个键，锁里重读再写（别拿开头读的旧副本整份写回）
+        storage.update_json(meta_path, lambda m: None if m.get('title') else m.update(title=title),
+                            lock_name=storage.obj_lock_name(meta['item_id']))
         conn = index_mod.connect()
         conn.execute('UPDATE objects SET title=? WHERE item_id=?', (title, meta['item_id']))
         conn.commit(); conn.close()
@@ -1753,9 +1755,12 @@ def render_object(
     )
 
     rel_visible = str(visible_path.relative_to(storage.vault_root())).replace("\\", "/")
-    if meta.get("visible_note") != rel_visible:
-        meta["visible_note"] = rel_visible
-        storage.write_json(meta_path, meta)
+    meta["visible_note"] = rel_visible
+    owned = {"visible_note": rel_visible}
+    if meta.get("visible_note_pinned"):
+        owned["visible_note_pinned"] = True
+    # 1024：render 只管可见笔记的位置这两个键；锁里重读再改，渲染期间别的入口写进来的键不被旧副本盖掉
+    storage.update_json(meta_path, lambda m: m.update(owned), lock_name=storage.obj_lock_name(meta["item_id"]))
 
     if verbose:
         print(f"[render] {meta['item_id']} -> {rel_visible}")
@@ -1782,7 +1787,9 @@ def render_item(
     re_extract: bool = False,
     vision: bool = True,
 ) -> dict[str, Any]:
-    # vision=False：只用已有的识图结果重写笔记，不调识图模型（部署时批量更新笔记格式用，不花钱、不联网）
+    # vision=False：只用已有的识图结果重写笔记，不调识图模型（不花钱、不联网）。
+    # 1024：`render` 命令和手动导入都传 False；这里的默认 True 只留给 enrich._child（夜跑识图靠它），
+    # 等 enrich 显式传 vision=True 后再把默认改成 False。
     if vision:
         try:
             vision_mod.build_vision(source_key, source_id, verbose=verbose)
@@ -1827,7 +1834,8 @@ def run(args) -> int:
                 verbose=getattr(args, "verbose", False),
                 llm=getattr(args, "extract", False) or getattr(args, "re_extract", False),
                 re_extract=getattr(args, "re_extract", False),
-                vision=not getattr(args, "no_vision", False),
+                # 1024：默认不识图（不花钱、不联网）；显式 --vision 才跑。识图平时由 enrich 补
+                vision=bool(getattr(args, "vision", False)),
             )
         except FileNotFoundError as exc:
             print(f"跳过 {source_key}/{source_id}: {exc}", file=sys.stderr)
