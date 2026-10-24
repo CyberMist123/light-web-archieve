@@ -7,6 +7,7 @@ import json
 
 from link_brain import cli, comment_fill, index as index_mod
 from link_brain.adapters import xiaohongshu as xhs
+from test_problems_p0_runtime import at, pushes  # noqa: F401 - fixture
 from test_tomb_p0_1024 import (ITEM_ID, NOTE_ID, _fixture, _ingested, _normalize, _parsed,  # noqa: F401
                                vault)
 
@@ -126,3 +127,58 @@ def test_concurrent_first_connect_on_legacy_db(vault, monkeypatch):
         assert conn.execute("PRAGMA user_version").fetchone()[0] == index_mod._DB_VERSION
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# 4. 问题记录旁路：并回后删不掉不重复累加；同一秒内先报错后解决，并回后仍是已解决
+# ---------------------------------------------------------------------------
+
+
+def _problems_lock_busy_once(monkeypatch):
+    from link_brain import storage
+    real = storage.file_lock
+    used = []
+
+    def lock(name, *a, **k):
+        if name == "problems" and not used:
+            used.append(1)
+            raise storage.LockBusy(name)
+        return real(name, *a, **k)
+    monkeypatch.setattr(storage, "file_lock", lock)
+
+
+def test_pending_merged_but_undeletable_is_not_counted_twice(monkeypatch, pushes):
+    from pathlib import Path
+    from link_brain import problems
+    _problems_lock_busy_once(monkeypatch)
+    problems.report("embed", "TRANSIENT.NETWORK", "断网", item_id="xhs-a")
+    assert len(list(problems.pending_dir().glob("*.jsonl"))) == 1
+    real_unlink = Path.unlink
+    monkeypatch.setattr(Path, "unlink", lambda self, *a, **k: (_ for _ in ()).throw(PermissionError("被占用"))
+                        if self.parent.name == problems.PENDING_DIR else real_unlink(self, *a, **k))
+    problems.compact()                                                   # 并回了，旁路删不掉
+    problems.report("embed", "TRANSIENT.NETWORK", "断网", item_id="xhs-b")  # 下一个拿到锁的又并一次
+    problems.compact()
+    main = problems.path().read_text("utf-8")
+    assert main.count("\"item_id\": \"xhs-a\"") == 1, "修前：删不掉的旁路每次都被重复并回"
+    assert problems._fold(problems._read_rows())["embed|xhs-a|NETWORK"]["count"] == 1
+    monkeypatch.setattr(Path, "unlink", real_unlink)
+    problems.compact()
+    assert not list(problems.pending_dir().glob("*.jsonl"))
+    assert problems.path().read_text("utf-8").count("\"item_id\": \"xhs-a\"") == 1
+
+
+def test_same_second_report_then_resolve_stays_resolved(monkeypatch, pushes):
+    from link_brain import problems
+    same = at(1)
+    _problems_lock_busy_once(monkeypatch)
+    problems.report("embed", "TRANSIENT.NETWORK", "断网", item_id="xhs-a", _now_fn=same)  # 等不到锁 → 旁路
+    real_merge = problems._merge_pending_locked
+    monkeypatch.setattr(problems, "_merge_pending_locked",
+                        lambda: (_ for _ in ()).throw(PermissionError("主文件被占")))  # 这次没并回，旁路留着
+    assert problems.resolve("embed", "xhs-a", _now_fn=same) == 1                        # 同一秒解决 → 主文件
+    monkeypatch.setattr(problems, "_merge_pending_locked", real_merge)
+    assert problems._fold(problems._read_rows())["embed|xhs-a|NETWORK"]["resolved_at"], "修前：旧报错排到解决后面"
+    problems.compact()
+    assert not list(problems.pending_dir().glob("*.jsonl"))
+    assert problems._fold(problems._read_rows())["embed|xhs-a|NETWORK"]["resolved_at"]

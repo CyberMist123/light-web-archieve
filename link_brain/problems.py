@@ -25,6 +25,7 @@ NEEDS_HUMAN（只报一次）· SKIPPED（未配置 / 已关闭 / 预算到了�
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import platform
@@ -419,22 +420,54 @@ def _row_time(row: dict[str, Any]) -> float | None:
     return max(times) if times else None
 
 
+_eid_seq = itertools.count()
+
+
+def _stamped(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """每行一个事件 id：写入时刻（纳秒）-pid-线程-序号。旁路并回按它去重、同一秒内按它排先后（Codex 1025）。
+    进 _append 的都是新事件，一律给新 id（从别的行复制出来的也不沿用）。"""
+    base = f"{time.time_ns()}-{os.getpid()}-{threading.get_ident()}"
+    return [{**r, "eid": f"{base}-{next(_eid_seq)}"} for r in rows]
+
+
+def _eid_ns(row: dict[str, Any]) -> int:
+    try:
+        return int(str(row.get("eid") or "").split("-", 1)[0])
+    except ValueError:
+        return 0  # 1025 之前的行没有事件 id：同一秒内排在有 id 的前面
+
+
 def _ordered(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """旁路里的行并回来时按时间插回去（稳定排序；没时间的行跟着前一行），折叠顺序才对。"""
+    """旁路里的行并回来时按时间插回去（稳定排序；没时间的行跟着前一行），折叠顺序才对。
+    时间只到秒：同一秒内按事件 id 里的写入时刻排，不然旧报错会排到同一秒的解决行后面、把问题重新打开。"""
     keyed, last = [], float("-inf")
     for i, r in enumerate(rows):
         t = _row_time(r)
         last = last if t is None else t
-        keyed.append((last, i, r))
-    return [r for _, _, r in sorted(keyed, key=lambda x: (x[0], x[1]))]
+        keyed.append((last, _eid_ns(r), i, r))
+    return [r for *_, r in sorted(keyed, key=lambda x: x[:3])]
+
+
+def _new_rows(known: list[dict[str, Any]], extra: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """extra 里 known 和自己前面都没出现过的行（按事件 id）：旁路并回后删不掉，下次别再并一遍、算两次。"""
+    seen = {r["eid"] for r in known if r.get("eid")}
+    out = []
+    for r in extra:
+        if r.get("eid"):
+            if r["eid"] in seen:
+                continue
+            seen.add(r["eid"])
+        out.append(r)
+    return out
 
 
 def _read_rows(*, strict: bool = False) -> list[dict[str, Any]]:
     """problems.jsonl + 还没并回的旁路行。strict=True 时读不出来就抛（report 据此不推送），否则读不出来当空。"""
     extra: list[dict[str, Any]] = []
-    for f in _pending_files():  # 先读旁路再读主文件：中间正好被并回，最多重一遍，不会漏
+    for f in _pending_files():  # 先读旁路再读主文件：中间正好被并回，最多重一遍（按事件 id 去掉），不会漏
         extra += _read_file(f, strict)
     rows = _read_file(path(), strict)
+    extra = _new_rows(rows, extra)
     return _ordered(rows + extra) if extra else rows
 
 
@@ -563,8 +596,10 @@ def _merge_pending_locked() -> int:
             print(f"[problems] 旁路记录这次没并回（{errtext(exc)}），下次再并：{f.name}", file=sys.stderr)
             continue
         done.append(f)
+    main = _read_file(path(), True)
+    extra = _new_rows(main, extra)
     if extra:
-        storage.atomic_write_text(path(), _dump(_ordered(_read_file(path(), True) + extra)))
+        storage.atomic_write_text(path(), _dump(_ordered(main + extra)))
     for f in done:
         try:
             f.unlink()
@@ -590,7 +625,7 @@ def _append(rows) -> None:
                 print(f"[problems] 旁路记录这次没并回（{errtext(exc)}），下次再并", file=sys.stderr)
             if callable(rows):
                 rows = rows(*_read_folded())
-            blob = _dump(rows)
+            blob = _dump(_stamped(rows))
             try:
                 _append_text(p, blob)
             except OSError as exc:
@@ -608,7 +643,7 @@ def _append(rows) -> None:
             raise
         if callable(rows):
             rows = rows(*_read_folded())  # 锁外读：只用来判推送，最坏多推一次
-        _write_pending(_dump(rows))
+        _write_pending(_dump(_stamped(rows)))
         _write_summary_locked()  # 原子写：和锁里那份抢也只是谁新谁留
 
 
@@ -622,6 +657,9 @@ def _read_folded() -> tuple[dict[str, dict[str, Any]], bool]:
 
 
 def _compact_locked(threshold: int | None = None) -> bool:
+    if _pending_files():
+        # 还有旁路没删掉（被占 / 刚有人写进来）：压实会丢掉各行的事件 id，之后再并回就分不出哪些并过了。等删掉再压
+        return False
     rows = _read_rows()
     if len(rows) <= (MAX_KEYS if threshold is None else threshold):
         return False
