@@ -45,6 +45,8 @@ def load() -> dict[str, Any]:
 
 def save(data: dict[str, Any]) -> None:
     storage.write_json(path(), data)
+    from .catalog import mark_dirty  # 1023：专辑进目录（ARCH-AUDIT 第 1 批）
+    mark_dirty("专辑")
 
 
 def _now() -> datetime:

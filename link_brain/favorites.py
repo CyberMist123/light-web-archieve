@@ -817,6 +817,8 @@ def tag_account(note_id: str, account: dict[str, str], *, seen_at: str | None = 
                      "first_seen": seen_at or datetime.now().astimezone().isoformat(timespec="seconds")})
         meta["favorited_by"] = tags
         storage.write_json(path, meta)
+        from .catalog import mark_dirty  # 1023：收藏账号决定「来源」（ARCH-AUDIT 第 1 批）
+        mark_dirty("收藏账号")
         return True
     except (OSError, ValueError):
         return False
@@ -1025,7 +1027,12 @@ def _run(args) -> tuple[int, dict[str, Any]]:
 
 def run(args) -> int:
     with contextlib.redirect_stdout(sys.stderr):  # stdout 只留最后那一个 JSON
-        code, payload = _run(args)
+        try:
+            code, payload = _run(args)
+        finally:
+            # 1023：同步完成、失败、中途抛错都让目录跟上（以前只有夜跑 / 手动刷新才重建 → 「今日新增」筛不到）
+            from .catalog import ensure_fresh
+            ensure_fresh(wait_s=60)
     items = payload.get('items') or []
     new = len(payload.get('fetched_new') or [])
     blocked = [item for item in items if item.get('status') == 'blocked']
