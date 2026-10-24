@@ -153,9 +153,10 @@ def query_terms(question: str) -> list[str]:
     - 相邻实词连成的短语（≤ PHRASE_MAX 字）照留，2-gram 不再跨词乱切（「洲好」「市辣」「菜要」没了）；
     - 单字：虚字 / 口语字去掉，其余（「粉」「汤」「醋」）照留——稀有单字是她要找的东西；泛不泛交给 retrieval 的动态 DF。
     """
-    import jieba
     import logging
+    from .deps import require
     from .retrieval import norm
+    jieba = require("jieba", "问答 / 搜索切词")   # P0 1024：缺了明确报 NOT_INSTALLED，不裸崩
     jieba.setLogLevel(logging.ERROR)
     # 1015 第二批：先剥口语壳（「我有个 X 忘了哪儿了 帮我找一下」→ X），壳词「忘 / 找 / 那个」不再进原词路
     from .ask_intent import strip_shell
@@ -215,9 +216,10 @@ def query_terms(question: str) -> list[str]:
 def query_terms_legacy(question: str) -> list[str]:
     """R3 以前的切词（搜索模式 + 整句块 + 2-gram）。只给问答缓存比「两问像不像」用：缓存的词法阈值是按这套词标定的，
     answers.json 里存的也是这套词——换切词会让新旧问题互比失真（「AI 会做梦吗 / AI 做梦的记忆」0.5 → 0.67 误命中）。检索别用它。"""
-    import jieba
     import logging
+    from .deps import require
     from .retrieval import norm
+    jieba = require("jieba", "问答 / 搜索切词")
     jieba.setLogLevel(logging.ERROR)
     from .ask_intent import strip_shell
     question = strip_shell(question)
@@ -1704,8 +1706,9 @@ def understand_question(question, items, llm_out=None, skills_list=None):
 
 def core_words(understood, items):
     """档位判断用的核心词：core 用 jieba 切（不要 2-gram 碎片），去掉全库四成以上都有的泛词。"""
-    import jieba
+    from .deps import require
     from .retrieval import term_stats
+    jieba = require("jieba", "问答 / 搜索切词")
     core = str((understood or {}).get("core") or "")
     words = []
     for chunk in re.findall(r"[A-Za-z0-9][A-Za-z0-9.+-]*|[一-鿿]+", core):
