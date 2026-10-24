@@ -4,31 +4,36 @@ import sys
 from datetime import datetime
 
 from . import storage
+from .errtext import errtext
 
 
 def path():
     return storage.archive_root() / 'sync-status.json'
 
 
-def _alive(pid) -> bool:
-    """只查不杀。Windows 上 os.kill(pid, 0) 会真的结束进程，不能用。"""
+# sync-status.json 的读改写都在这把锁里（同步进程、插件、夜跑、登录检查都会写它）
+LOCK = 'sync-status'
+LOCK_WAIT_S = 30
+
+
+def _alive(pid, created=None) -> bool:
+    """只查不杀，判活只认 storage.pid_state（查不清 = 当活着，不把别人的进程当死）。
+
+    created = 写 running 时记下的进程创建时间：给了就再核一次，pid 被别的进程复用了算死。"""
     if not pid:
         return False
-    if os.name == 'nt':
-        import ctypes
-        k32 = ctypes.windll.kernel32
-        h = k32.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
-        if not h:
-            return False
-        code = ctypes.c_ulong()
-        ok = k32.GetExitCodeProcess(h, ctypes.byref(code))
-        k32.CloseHandle(h)
-        return bool(ok) and code.value == 259  # STILL_ACTIVE
-    try:
-        os.kill(int(pid), 0)
-        return True
-    except OSError:
+    if storage.pid_state(pid) == 'dead':
         return False
+    if created is None:
+        return True  # 旧状态文件没记创建时间：只能信 pid
+    from . import procs
+    now = procs.created_of(int(pid))
+    return now is not None and abs(now - float(created)) < 1
+
+
+def _status_alive(status) -> bool:
+    created = status.get('pid_created')
+    return _alive(status.get('pid')) if created is None else _alive(status.get('pid'), created)
 
 
 INTERRUPTED_MESSAGE = '上次同步中途被打断（Obsidian 关闭或进程被结束），已抓的都在；再点一次同步会接着来'
@@ -54,7 +59,7 @@ def load():
     第 4 批：「pid 还活着」只在 Python 这一份判（CONVENTIONS §3 迁移点），页面不再自己 process.kill(pid, 0)；
     页面拿到的是 problems-summary.json 的 sync 段（page_state），或调 `problems summary` 让 current() 落盘。"""
     status = _read_raw()
-    if status.get('state') == 'running' and status.get('pid') and not _alive(status['pid']):
+    if status.get('state') == 'running' and status.get('pid') and not _status_alive(status):
         status = _interrupted(status)
     return status
 
@@ -62,14 +67,15 @@ def load():
 def current():
     """和 load() 一样，但发现「running + 进程已死」时把 INTERRUPTED 落盘进 sync-status.json（页面不用自判）、
     登记一条 TRANSIENT.INTERRUPTED（下次同步成功自动解决），并刷新 problems-summary.json。永不抛异常。"""
-    raw = _read_raw()
-    if not (raw.get('state') == 'running' and raw.get('pid') and not _alive(raw['pid'])):
-        return load()
-    status = {**_interrupted(raw), 'updated_at': datetime.now().astimezone().isoformat()}
     try:
-        storage.write_json(path(), status)
-    except OSError:
-        return status
+        with storage.file_lock(LOCK, wait_s=LOCK_WAIT_S):
+            raw = _read_raw()
+            if not (raw.get('state') == 'running' and raw.get('pid') and not _status_alive(raw)):
+                return load()
+            status = {**_interrupted(raw), 'updated_at': datetime.now().astimezone().isoformat()}
+            storage.write_json(path(), status)
+    except (storage.LockBusy, OSError):
+        return load()
     _problem('sync.favorites', 'INTERRUPTED', status['message'] + (f"（停在：{status['detail']}）" if status.get('detail') else ''))
     _refresh_summary()
     return status
@@ -104,7 +110,7 @@ def _problem(step, code, reason, **kw):
         from . import problems
         return problems.report(step, code, reason, **kw)
     except Exception as exc:  # noqa: BLE001
-        print(f'[sync_state] 问题记录没写上（{type(exc).__name__}: {exc}）', file=sys.stderr)
+        print(f'[sync_state] 问题记录没写上（{errtext(exc)}）', file=sys.stderr)
         return None
 
 
@@ -137,21 +143,24 @@ def progress(text, done=None, total=None, live=None):
     try:
         with progress_log().open('a', encoding='utf-8') as f:
             f.write(f"{now:%Y-%m-%d %H:%M:%S}  {text}\n")
-        status = storage.read_json(path())
-        if status.get('state') == 'running':
+        with storage.file_lock(LOCK, wait_s=5):  # 进度只是一句话：等不到锁这次就不写，别拖慢同步
+            status = storage.read_json(path())
+            if status.get('state') != 'running':
+                return
             counts = {key: value for key, value in {'done': done, 'total': total}.items() if value is not None}
             if live is not None:
                 counts['live'] = {**live, 'at': now.isoformat()}
             storage.write_json(path(), {**status, **counts, 'message': f'正在同步收藏：{text}', 'progress': text,
                                         'updated_at': now.isoformat()})
-            _refresh_summary()
-    except (OSError, ValueError):
+        _refresh_summary()
+    except (OSError, ValueError, storage.LockBusy):
         pass
 
 
+@storage.locked(LOCK, wait_s=LOCK_WAIT_S)
 def stopped_by_user():
     status = _read_raw()
-    if status.get('state') != 'running' or _alive(status.get('pid')):
+    if status.get('state') != 'running' or _status_alive(status):
         return False
     storage.write_json(path(), {**status, 'state': 'failed', 'code': '', 'message': '已手动停止，已入库的不受影响',
                                 'updated_at': datetime.now().astimezone().isoformat()})
@@ -191,6 +200,7 @@ def _update_baseline(status, payload):
     status['suspect_favorites'] = {'count': total, 'nights': nights}
 
 
+@storage.locked(LOCK, wait_s=LOCK_WAIT_S)
 def record(state, *, payload=None, message='', account=None, code=''):
     previous = load()
     finished = state == 'finished'
@@ -250,6 +260,13 @@ def record(state, *, payload=None, message='', account=None, code=''):
         status['deferred'] = int(payload.get('deferred') or 0)
     if state == 'running':
         status['pid'] = os.getpid()
+        try:  # 记下创建时间：之后判活时 pid 被别的进程复用了也认得出
+            from . import procs
+            created = procs.created_of(os.getpid())
+            if created is not None:
+                status['pid_created'] = created
+        except Exception:  # noqa: BLE001
+            pass
         # 1011：谁起的这一趟（命令行 / 夜跑 / 定时 / 插件「立即同步」），插件「这里停不了」那句照实说
         try:
             from . import synclog
@@ -314,6 +331,7 @@ def account_message(code):
     return shown['hover']
 
 
+@storage.locked(LOCK, wait_s=LOCK_WAIT_S)
 def account_problem(code, detail=''):
     """任何环节（同步 / 附件下载 / 附件补查 / 登录检查）撞见掉登录或安全验证，都记到目录页顶部的问题入口上（第 4 批：「!」并进了问题入口）。
 
@@ -335,6 +353,7 @@ def account_problem(code, detail=''):
     return status
 
 
+@storage.locked(LOCK, wait_s=LOCK_WAIT_S)
 def account_ok():
     """登录恢复了：只清掉『账号类』的「!」，别的失败原样留着。"""
     previous = load()
