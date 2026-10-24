@@ -1,7 +1,7 @@
 """粘一把 key，认出是哪家（1018 她：设置页「AI 服务」只要粘贴，别让人选服务商、填地址）。
 
 做法：按前缀先猜（AIza… = Google），其余拿这把 key 去各家的 `/models` 列表接口问一下（只读、不花钱），
-哪家认它就是哪家。认出后按 pricing.json 的推荐 / 备选模型，给出这家能顶的几项功能该填的接口和模型
+哪家认它就是哪家。认出后按价格表（pricing.table，含用户覆盖）的推荐 / 备选模型，给出这家能顶的几项功能该填的接口和模型
 （fills：{能力键: {endpoint, model}}）——**只给建议，不写设置**：插件拿到后只往空着的那几格里填（规矩同
 home-ui「填上它的地址和模型」：已经填好的地址、密钥引用一个不动）。
 
@@ -13,10 +13,8 @@ CLI：
 
 from __future__ import annotations
 
-import json
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import Any
 
 PROVIDERS = {
@@ -33,7 +31,8 @@ EMBED = {"aliyun": {"endpoint": "https://dashscope.aliyuncs.com/compatible-mode/
 
 
 def _pricing() -> dict[str, Any]:
-    return json.loads((Path(__file__).with_name("pricing.json")).read_text("utf-8"))
+    from . import pricing
+    return pricing.table()   # 含用户覆盖（~/.link-brain/pricing.json）
 
 
 def guess(key: str) -> list[str]:

@@ -122,9 +122,9 @@ def vision_backups(primary: dict[str, Any] | None) -> list[dict[str, Any]]:
     from . import ai_config, providers
     out: list[dict[str, Any]] = []
     p0 = primary or {}
-    keys = [] if p0.get("keyPool") == "gemini" else providers.pool_alive("gemini") or         [k.strip() for k in os.environ.get(_refine_keys_env(), "").split(",") if k.strip()]
+    keys = [] if p0.get("keyPool") == "gemini" else providers.pool_alive("gemini")
     for i, key in enumerate(keys):
-        out.append({"endpoint": GEMINI_ENDPOINT, "apiKey": key, "model": GEMINI_MODEL,
+        out.append({"endpoint": GEMINI_ENDPOINT, "apiKey": key, "model": GEMINI_MODEL, "free": True,
                     "label": f"Google {GEMINI_MODEL}（免费 key {i + 1}）"})
     try:
         settings = ai_config.load()
@@ -159,12 +159,12 @@ def cheap_twin(strong: dict[str, Any], model: str = "") -> dict[str, Any] | None
     """1018：免费 key 用完后，第一层的备用别直接上精细识别模型——qwen3.8-max 比 qwen3.8-flash 贵 15 倍，
     1017 一晚 418 张图走了 max ≈ ¥12.5。先用同一接口、同一把 key 的同代便宜看图模型顶（qwen3.8-max → qwen3.8-flash，
     即 1016 以前第一层一直在用的那个）；它也不行再轮到强模型。设置 visionAI.backupModel 可指定；找不到 = None。"""
-    from .setup import estimate
+    from . import pricing as price_table
     try:
-        pricing = estimate.load_pricing()
+        pricing = price_table.table()
     except (OSError, ValueError):
         return None
-    hit = estimate._price(pricing, str(strong.get("model") or ""))
+    hit = price_table.price_of(str(strong.get("model") or ""), pricing)
     if model:
         return None if hit and hit[0] == model else {**strong, "model": model}
     if not hit:
@@ -387,15 +387,10 @@ def strong_config() -> dict[str, Any] | None:
 
 # 0928 Owner：第二层优先用 Google AI Studio 的免费 key（gemini flash 实测架构图 17/17，和 qwen3.8-max 一样准）。
 # 免费档常 429（限额）/ 503（过载）：429 换下一个 key，503 歇一会儿同 key 再试一次；key 全用不了就退回设置里的强模型。
-# key 只从环境变量来（变量名 = 设置 visionAI.refineKeysEnv，默认 LWA_GEMINI_KEYS，逗号分隔），由调用方临时注入，不落盘、不进仓库。
+# key 只经 providers.pool_alive("gemini")（来源和顺序见 providers.pool_load），不落盘、不进仓库。免费 key 池的配置标 free: true（pricing.is_free）。
 GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 GEMINI_MODEL = os.environ.get("LWA_GEMINI_MODEL", "gemini-3.5-flash")
 _KEY_DEAD_CODES = ("TRANSIENT.HTTP_429", "TRANSIENT.HTTP_5XX", "NEEDS_HUMAN.AUTH_FAILED", "NEEDS_HUMAN.QUOTA_EXCEEDED")
-
-
-def _refine_keys_env() -> str:
-    from . import ai_config
-    return str((ai_config.load().get("visionAI") or {}).get("refineKeysEnv") or "LWA_GEMINI_KEYS")
 
 
 class RefineRouter:
@@ -403,7 +398,7 @@ class RefineRouter:
 
     def __init__(self, fallback: dict[str, Any] | None):
         from . import providers
-        self.keys = providers.pool_alive("gemini") or             [k.strip() for k in os.environ.get(_refine_keys_env(), "").split(",") if k.strip()]
+        self.keys = providers.pool_alive("gemini")
         self.dead: set[int] = set()
         self.fallback = fallback
         self.used: dict[str, int] = {}
@@ -417,7 +412,7 @@ class RefineRouter:
         for i, key in enumerate(self.keys):
             if i in self.dead:
                 continue
-            cfg = {"endpoint": GEMINI_ENDPOINT, "apiKey": key, "model": GEMINI_MODEL, **extra}
+            cfg = {"endpoint": GEMINI_ENDPOINT, "apiKey": key, "model": GEMINI_MODEL, "free": True, **extra}
             self.last_cfg = cfg
             got = visual.refine(path, lines, kind, cfg)
             if got.get("http_status") == 503:  # 过载：歇一会儿再试一次
@@ -597,6 +592,8 @@ def _refine_object(source_key: str, source_id: str, cfg: dict[str, Any], *, budg
         img = storage.object_dir(source_key, source_id) / entry["asset"]
         got, tried = refine_with_fallbacks(img, entry.get("lines"), kind, cfg)
         tally["cost_yuan"] += got.get("cost_yuan") or 0.0
+        if got.get("unpriced"):
+            tally["unpriced"] = tally.get("unpriced", 0) + 1   # 价格表里查不到：夜跑报告写「N 次未计价」，不算成 0 元
         ref["at"] = datetime.now().astimezone().isoformat(timespec="seconds")
         if got.get("status") != "ok" and got.get("api_error"):
             # 1001（审计 vision-4）：接口故障不计次数，留在 pending 明晚再来；连着 3 张都这样就今晚收手
@@ -706,7 +703,7 @@ def run_refine(args) -> int:
     left = sum(n for _, _, n in pending_refines())
     dump_json({"models": cfg.used, "refined": tally["done"], "failed": tally["failed"], "will_retry": tally["retry"],
                "api_errors": tally.get("api_errors", 0),
-               "pending_left": left, "cost_yuan": round(tally["cost_yuan"], 4)})
+               "pending_left": left, "cost_yuan": round(tally["cost_yuan"], 4), "unpriced": tally.get("unpriced", 0)})
     return 0
 
 

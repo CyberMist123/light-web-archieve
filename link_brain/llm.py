@@ -66,18 +66,10 @@ JSON 结构（键必须齐全，没有内容就给空数组 / 空字符串）：
 # --------------------------------------------------------------------------
 
 def load_config() -> dict[str, Any]:
-    """llm-config.yaml：只有提示词裁剪上限 limits、价格快照 pricing、向量索引 embedding（§4.8）。模型名不从这里取。"""
+    """llm-config.yaml：只有提示词裁剪上限 limits、向量索引 embedding（§4.8）。模型名、价格都不从这里取。"""
     cfg = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
-    cfg.setdefault("pricing", {})
     cfg.setdefault("limits", {})
     return cfg
-
-
-def price_of(cfg: dict[str, Any], model: str) -> tuple[float, float]:
-    """(输入, 输出) USD / 1M token：pricing 按模型名查，查不到记 0（只影响费用估算，不影响调用）。"""
-    row = (cfg.get("pricing") or {}).get(model)
-    row = row if isinstance(row, dict) else {}
-    return float(row.get("input_usd_per_1m") or 0.0), float(row.get("output_usd_per_1m") or 0.0)
 
 
 def load_tag_vocab() -> dict[str, str]:
@@ -339,7 +331,7 @@ def alternate_summary_config(primary: dict[str, Any], settings: dict[str, Any]) 
         return None
     if not alt:
         return None
-    sig = lambda c: (c.get("mode"), c.get("endpoint"), c.get("model"), str(c.get("command") or ""))  # noqa: E731
+    sig = lambda c: (c.get("mode"), c.get("endpoint"), c.get("model"), str(c.get("command") or c.get("preset") or ""))  # noqa: E731
     return None if sig(alt) == sig(primary) else alt
 
 
@@ -455,11 +447,13 @@ def _extract(source_key: str, source_id: str, *, force: bool = False, verbose: b
             code = "PERMANENT.MODEL_OUTPUT_INVALID"
             data = None
 
-    model = str(used_cfg.get("model") or used_cfg.get("command") or "")
-    pin, pout = price_of(cfg, model)
+    from . import usage
+    model = str(used_cfg.get("model") or (usage.cli_model(used_cfg.get("command") or used_cfg.get("preset"))
+                                           if used_cfg.get("mode") == "cli" else ""))
     tin = int((usage_real or {}).get("prompt_tokens") or 0) or input_tokens
     tout = int((usage_real or {}).get("completion_tokens") or 0) or output_tokens
-    cost = (tin * pin + tout * pout) / 1_000_000
+    from . import pricing
+    cost = pricing.call_cost(used_cfg, tin, tout)  # 和账本同一套；查不到价 = None（未计价）
 
     doc = {
         "schema_version": 1,
@@ -473,7 +467,7 @@ def _extract(source_key: str, source_id: str, *, force: bool = False, verbose: b
         "usage": {
             "input_tokens_est": tin,
             "output_tokens_est": tout,
-            "cost_usd_est": round(cost, 8),
+            "cost_yuan_est": None if cost is None else round(cost, 8),
             "note": "接口回传的 usage" if usage_real else "接口没回传 usage，token 数为字符估算",
         },
         "code": code,

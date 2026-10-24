@@ -9,29 +9,9 @@ const plugin = { settings: {}, app: { vault: { adapter: { exists: async () => tr
 const P = require(path.resolve('obsidian-plugins/link-brain-actions/settings-pages.js'))(OBS, plugin);
 
 (async () => {
-  // —— AI 页：她 1016 的配置（问收藏 DeepSeek；概要 / 识图 Gemini 轮 key，备用百炼；向量百炼）——
-  const BL = 'https://ws-x.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions';
-  const G = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-  const hers = {
-    textAI: { mode: 'http', endpoint: 'https://api.deepseek.com/chat/completions', model: 'deepseek-v4-flash' },
-    summaryAI: { mode: 'http', endpoint: G, model: 'gemini-3.5-flash', keyPool: 'gemini', fallback: { endpoint: BL, model: 'qwen3.7-flash' } },
-    visionAI: { mode: 'http', endpoint: G, model: 'gemini-3.5-flash', keyPool: 'gemini', refine: { endpoint: BL, model: 'qwen3.8-max' } },
-    embedAI: { mode: 'http', endpoint: BL.replace('/chat/completions', '/embeddings'), model: 'qwen3.7-text-embedding-flash' },
-    asrAI: { mode: 'capswriter' },
-    models: [{ name: 'Codex', mode: 'cli' }],
-  };
-  const rows = P.providerRows(hers);
-  assert.deepEqual(rows.map(r => r.id), ['google', 'deepseek', 'aliyun'], 'Gemini 在前（主力），本机的不出现');
-  const g = rows.find(r => r.id === 'google'), a = rows.find(r => r.id === 'aliyun'), d = rows.find(r => r.id === 'deepseek');
-  assert.deepEqual(g.main, ['概要', '识图']); assert.equal(g.pool, 'gemini', '几把 key 轮流用');
-  assert.deepEqual(d.main, ['问收藏']);
-  assert.deepEqual(a.main, ['语义搜索']); assert.deepEqual(a.backup, ['概要', '精细识图'], '备用另列');
-  // 概要继承问收藏（默认）：算在问收藏那一家
-  const inh = P.providerRows({ textAI: { mode: 'http', endpoint: 'https://api.deepseek.com/chat/completions' }, summaryAI: { mode: 'inherit' } });
-  assert.deepEqual(inh.map(r => [r.id, r.main]), [['deepseek', ['问收藏', '概要']]]);
-  // 全关 / 全命令行：没有 API 行
-  assert.deepEqual(P.providerRows({ textAI: { mode: 'cli' }, summaryAI: { mode: 'off' }, visionAI: { mode: 'off' } }), []);
-  assert.equal(P.providerOf('', 'qwen3.7-flash'), 'aliyun');
+  // —— 1023（ARCH-AUDIT 第 2 批）：哪家管哪些功能由后端 ai_routes 给（每一格带 provider），JS 不再自己按接口地址猜 ——
+  assert.equal(P.providerOf, undefined, 'providerOf 删了：读后端给的 provider');
+  assert.equal(P.providerRows, undefined);
 
   // —— 需要你留意：不吓人、不 bossy；说发生了什么、有没有影响 ——
   const t = P.attentionText({ code: 'NEEDS_HUMAN.AUTH_FAILED', step: 'ai.vision',

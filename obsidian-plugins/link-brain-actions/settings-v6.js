@@ -60,14 +60,14 @@ module.exports = function (obsidian, plugin) {
       return r.json;
     });
   };
-  // 哪几家在用（按设置里配的接口认）+ 哪家的 key 出了问题
+  // 哪几家在用（后端 ai_routes 每一格给的 provider；没读到用量时不猜）+ 哪家的 key 出了问题
   function providersInUse(usage) {
+    if (!usage) return null;
     const by = new Map();
     for (const f of (usage && usage.features) || []) for (const c of f.chain || []) {
       if (!c.provider || c.provider === 'cli' || !PROV[c.provider]) continue;
       by.set(c.provider, true);
     }
-    if (!usage) for (const u of pages.featureUses(plugin.settings)) if (PROV[u.id]) by.set(u.id, true);
     return ['google', 'deepseek', 'aliyun', 'openai'].filter(id => by.has(id));
   }
   function keyTrouble(usage) {
@@ -169,8 +169,9 @@ module.exports = function (obsidian, plugin) {
       const local = [];
       if (h && h.isOn('ocr')) local.push('识图转文字');
       if (h && h.isOn('asr')) local.push('语音转文字');
-      const ai = uses.map(id => PROV[id]);
-      return [local.length ? '本机 ' + local.join('、') : '', ai.length ? 'AI 用 ' + ai.join('、') : '没配 AI（只用免费的本机功能）'].filter(Boolean).join(' · ');
+      const ai = (uses || []).map(id => PROV[id]);
+      const aiText = uses == null ? 'AI 用哪家还没读到' : ai.length ? 'AI 用 ' + ai.join('、') : '没配 AI（只用免费的本机功能）';
+      return [local.length ? '本机 ' + local.join('、') : '', aiText].filter(Boolean).join(' · ');
     };
 
     const paintLamp = async () => {
@@ -189,8 +190,10 @@ module.exports = function (obsidian, plugin) {
     loadUsage().then(u => {
       if (!alive) return;
       const b = u.budget || {}, month = Object.values((u.summary || {}).month || {}).reduce((a, m) => a + (+(m && m.cost) || 0), 0);
-      const cap = plugin.settings.budget && plugin.settings.budget.dailyYuan !== undefined ? +plugin.settings.budget.dailyYuan : +(b.daily_yuan ?? 3);
-      cost.setDesc(`今天 ${fmtYuan(b.spent_today)} · 本月 ${fmtYuan(month)} · 每天上限 ${cap > 0 ? '¥' + cap : '不限'}` + (b.over ? ' · 今天到上限了，后台先只跑免费的' : ''));
+      // 默认上限只在后端（budget.DEFAULT_YUAN）：status 给的 daily_yuan 已经是「存过的值或默认」
+      const cap = plugin.settings.budget && plugin.settings.budget.dailyYuan !== undefined && plugin.settings.budget.dailyYuan !== '' ? +plugin.settings.budget.dailyYuan : +b.daily_yuan;
+      const capText = !Number.isFinite(cap) ? '—' : cap > 0 ? '¥' + cap : '不限';
+      cost.setDesc(`今天 ${fmtYuan(b.spent_today)} · 本月 ${fmtYuan(month)} · 每天上限 ${capText}` + (b.over ? ' · 今天到上限了，后台先只跑免费的' : ''));
       const uses = providersInUse(u);
       rec.setDesc(recLine(uses));
       const bad = keyTrouble(u);
@@ -287,14 +290,15 @@ module.exports = function (obsidian, plugin) {
       svc.empty();
       const chips = svc.createDiv({ cls: 'lb-prov' });
       const bad = new Set(keyTrouble(u).map(k => k.id));
-      for (const id of providersInUse(u)) {
+      const inUse = providersInUse(u) || [];
+      for (const id of inUse) {
         const chip = chips.createSpan({ cls: 'lb-pv' + (bad.has(id) ? ' is-warn' : ''), attr: { 'data-provider': id } });
         iconInto(chip, id, 14); chip.createSpan({ text: PROV[id] + (id === 'google' ? ' · 免费额度' : '') });
         chip.createSpan({ cls: 'lb-pv-dot' });
       }
       const add = chips.createEl('button', { cls: 'lb-pv is-add', text: '＋ 添加 key' });
       add.onclick = () => keyModal(() => tab.display());
-      if (!providersInUse(u).length) svc.createDiv({ cls: 'setting-item-description', text: '粘一把 key 就能用上面三项；没有的话 Gemini 有免费额度。' });
+      if (u && !inUse.length) svc.createDiv({ cls: 'setting-item-description', text: '粘一把 key 就能用上面三项；没有的话 Gemini 有免费额度。' });
     };
     paintSvc(null);
     loadUsage().then(u => { cache.usageLast = u; paintSvc(u); }).catch(() => {});
@@ -320,17 +324,22 @@ module.exports = function (obsidian, plugin) {
     }
     // 每天最多花（只拦后台补跑，问收藏不受限）
     const cap = new Setting(body).setName('每天最多花').setDesc('到了上限，后台只跑免费的；问收藏不受限');
-    const saved = s.budget && s.budget.dailyYuan !== undefined && s.budget.dailyYuan !== '' ? +s.budget.dailyYuan : 3;
+    // 默认上限只在后端（budget.DEFAULT_YUAN）：没存过就等后端 status 的 daily_yuan 填进来，前端不写默认数
+    let saved = s.budget && s.budget.dailyYuan !== undefined && s.budget.dailyYuan !== '' ? +s.budget.dailyYuan : NaN;
     cap.addText(t => {
       t.inputEl.type = 'number'; t.inputEl.min = '0'; t.inputEl.addClass?.('lb-num');
-      t.setValue(String(Number.isFinite(saved) ? saved : 3));
+      t.setValue(Number.isFinite(saved) ? String(saved) : '');
+      if (!Number.isFinite(saved)) loadUsage().then(u => {
+        const d = +((u && u.budget) || {}).daily_yuan;
+        if (Number.isFinite(d) && !Number.isFinite(saved) && !t.inputEl.value) { saved = d; t.setValue(String(d)); }
+      }).catch(() => {});
       t.inputEl.addEventListener('change', async () => {
         const n = Math.max(0, Math.round(+t.inputEl.value * 100) / 100);
-        if (!Number.isFinite(n)) { t.setValue(String(saved)); return; }
+        if (!Number.isFinite(n)) { t.setValue(Number.isFinite(saved) ? String(saved) : ''); return; }
         const prev = s.budget ? { ...s.budget } : undefined;
         s.budget = { ...(s.budget || {}), dailyYuan: n };
-        try { await plugin.saveSettings(); delete cache.usage; }
-        catch (e) { s.budget = prev; t.setValue(String(saved)); plugin.notify('没保存上，已改回原来的：' + e.message, { kind: 'error' }); }
+        try { await plugin.saveSettings(); saved = n; delete cache.usage; }
+        catch (e) { s.budget = prev; t.setValue(Number.isFinite(saved) ? String(saved) : ''); plugin.notify('没保存上，已改回原来的：' + e.message, { kind: 'error' }); }
       });
     });
     meta(cap, '元 / 天，0 = 不限').addClass('lb-meta-after');

@@ -15,9 +15,8 @@
   以前的问题标已解决。报警不直调：推不推由 problems 判（NEEDS_HUMAN 推一次、TRANSIENT 连续 3 天升级）。
 - 收藏同步退出 1（不是风控 / 掉登录，例如机器卡导致登录检查超时）：等 25 分钟再试一次（读收藏有 10 分钟限频）；
   5 / 6 / 超时 / 参数不认不重试；剩的时间不够也不试。
-- 精细识图（vision --refine）的免费 key：只从环境变量（变量名 = 设置 visionAI.refineKeysEnv，默认 LWA_GEMINI_KEYS）、
-  或 `~/.link-brain/config.json` 的 `gemini_keys_cmd`（一条命令，标准输出就是 key，逗号 / 换行分隔；限时 60 秒，
-  输出不进日志）/ `gemini_keys_file`（key 文件）拿；只注入这一步的子进程环境。都没有就照跑（退回设置里的识图模型）。
+- 精细识图（vision --refine）的免费 key：一晚取一次，来源和顺序只在 `providers.pool_load("gemini")`（环境变量 → 取 key 的命令 →
+  key 文件；命令限时，输出不进日志）；只注入识图两步的子进程环境。都没有就照跑（退回设置里的识图模型）。
 - 收藏同步退出 3（只读到一截 / 条数可疑，10-04 F1）：读到的已入档、原因已登记在 sync.favorites，
   **今晚不再重读列表**，也不另登记「sync-favorites 出错」（同一件事只报一条）；embed 退出 3 同理（原因登记在 embed）。
 - 收尾前跑一轮「自愈轮」（repair.run，10-04 当场自愈）：本次新登记、还没解决的非风控问题各跑一遍修复动作，
@@ -493,59 +492,19 @@ class Nightly:
             idle = (time.time() - updated) / 60
         return {"pid": pid, "idle_min": idle}
 
-    # ------------------------------------------------------------ 免费 key（只注入精细识图那一步）
-    def _keys_env_name(self) -> str:
-        try:
-            from . import vision
-            return vision._refine_keys_env()
-        except Exception:  # noqa: BLE001
-            return "LWA_GEMINI_KEYS"
-
+    # ------------------------------------------------------------ 免费 key（只注入识图那两步）
     def refine_keys(self) -> tuple[str, list[str]]:
-        """(变量名, key 列表)。环境变量已有就用它；否则 config.json 的 gemini_keys_cmd → gemini_keys_file。key 不进日志。"""
-        name = self._keys_env_name()
-        have = [k.strip() for k in os.environ.get(name, "").split(",") if k.strip()]
-        if have:
-            return name, have
-        cfg = storage.user_config()
-        cmd = os.environ.get("LWA_GEMINI_KEYS_CMD") or cfg.get("gemini_keys_cmd")
-        path = os.environ.get("LWA_GEMINI_KEYS_FILE") or cfg.get("gemini_keys_file")
-        text = ""
-        if isinstance(cmd, str) and cmd.strip():
-            text = self._run_secret_cmd(cmd.strip())
-        elif isinstance(path, str) and path.strip():
-            try:
-                text = Path(os.path.expandvars(path.strip())).expanduser().read_text("utf-8-sig")
-            except OSError as exc:
-                self.log(f"[识图补跑] key 文件读不了（{type(exc).__name__}），这晚没 key 照跑")
-        keys = [k.strip() for k in re.split(r"[,\r\n]+", text or "") if k.strip() and not k.strip().startswith("#")]
-        return name, keys
-
-    def _run_secret_cmd(self, cmd: str) -> str:
-        """跑取 key 的命令：输出一律不进日志；限时，超时整棵结束（放过读取服务）并登记 SECRET_TIMEOUT。"""
-        flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-        try:
-            p = subprocess.Popen(cmd, shell=True, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                 stderr=subprocess.DEVNULL, creationflags=flags)
-        except OSError as exc:
-            why = f"起不来：{type(exc).__name__}"
-            self.log(f"[识图补跑] 取免费 key 的命令{why}；这晚没 key 照跑")
-            self.register(KEYS_STEP, "TRANSIENT.SECRET_TIMEOUT", f"取免费 key 失败（{why}）")
-            return ""
-        try:
-            out, _ = p.communicate(timeout=self.secret_timeout_sec)
-        except subprocess.TimeoutExpired:
-            self._kill(p, "取免费 key")
-            why = f"{self.secret_timeout_sec:.0f} 秒没回来，已停"
-            self.log(f"[识图补跑] 取免费 key 的命令{why}；这晚没 key 照跑")
-            self.register(KEYS_STEP, "TRANSIENT.SECRET_TIMEOUT", f"取免费 key 失败（{why}，密码库卡住了？）")
-            return ""
-        if p.returncode != 0:
-            self.log(f"[识图补跑] 取免费 key 的命令退出 {p.returncode}；这晚没 key 照跑")
-            self.register(KEYS_STEP, "TRANSIENT.SECRET_TIMEOUT", f"取免费 key 失败（命令退出 {p.returncode}）")
-            return ""
-        self.resolve(KEYS_STEP)
-        return (out or b"").decode("utf-8", "replace")
+        """(变量名, key 列表)：和 providers.pool_keys("gemini") 同一个来源同一个顺序（providers.pool_load）。
+        取 key 的命令失败 / key 文件读不了 → 记一条 KEYS_STEP 问题、这晚没 key 照跑；命令成功 → 那条标已解决。key 不进日志。"""
+        from . import providers
+        got = providers.pool_load("gemini", timeout=self.secret_timeout_sec, kill_exclude=kill_exclude())
+        if got["error"]:
+            self.log(f"[识图补跑] {got['error']}；这晚没 key 照跑")
+            if got["source"] == "cmd":
+                self.register(KEYS_STEP, "TRANSIENT.SECRET_TIMEOUT", f"取免费 key 失败（{got['error']}）")
+        elif got["source"] == "cmd":
+            self.resolve(KEYS_STEP)
+        return got["env"], list(got["keys"])
 
     # ------------------------------------------------------------ 特殊步骤
     def _sync_with_retry(self, step: Step) -> StepResult:
@@ -593,7 +552,9 @@ class Nightly:
         if isinstance(summary, dict):
             models = "，".join(f"{k}×{v}" for k, v in (summary.get("models") or {}).items())
             self.log(f"[识图补跑] 本晚补好 {summary.get('refined')} 张，放弃 {summary.get('failed')} 张，"
-                     f"还剩 {summary.get('pending_left')} 张待补，花费 ¥{summary.get('cost_yuan')}（{models}）")
+                     f"还剩 {summary.get('pending_left')} 张待补，花费 ¥{summary.get('cost_yuan')}"
+                     + (f"（另 {summary['unpriced']} 次的模型不在价格表里，未计价）" if summary.get("unpriced") else "")
+                     + f"（{models}）")
         return r
 
     def _audit(self, step: Step) -> tuple[StepResult, bool]:

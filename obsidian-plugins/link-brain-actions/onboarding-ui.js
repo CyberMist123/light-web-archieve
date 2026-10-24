@@ -31,7 +31,7 @@ module.exports = function (obsidian, plugin) {
 
   function aiConfigured(s) {
     const t = (s && s.textAI) || {};
-    if (t.mode === 'cli') return !!t.command;
+    if (t.mode === 'cli') return !!(t.command || t.preset);
     if (t.mode === 'http') return !!(t.endpoint && (t.apiKey || t.keyFile));
     return false;
   }

@@ -1,5 +1,5 @@
 {
-  "_doc": "「开始」页 ⑤ AI 的价格表（第 7 批）。只放各家官方定价页上的公开单价；查不到的写 null，不编。用户可在 ~/.link-brain/pricing.json 写同样结构覆盖（按键深合并）。单位：per_million_tokens = 每百万 token；per_second / per_minute = 每秒 / 每分钟音频。currency 是这家官方标价的币种，USD 按 usd_cny 换算成人民币。",
+  "_doc": "「开始」页 ⑤ AI 的价格表（第 7 批）。只放各家官方定价页上的公开单价；查不到的写 null，不编。用户可在 ~/.link-brain/pricing.json 写同样结构覆盖（按键深合并）。读法只在 link_brain/pricing.py；「免费」只认显式标记（模型行写 \"free\": true，或本机命令行 / Gemini 免费 key 池），查不到价 = 未计价、预算按要钱的拦。单位：per_million_tokens = 每百万 token；per_second / per_minute = 每秒 / 每分钟音频。currency 是这家官方标价的币种，USD 按 usd_cny 换算成人民币。",
   "as_of": "2026-10-03",
   "usd_cny": {
     "rate": 6.7411,
@@ -82,6 +82,18 @@
       "note": "华北 2（北京），单次输入 ≤32K token 档。",
       "source": "aliyun", "checked": "2026-10-03"
     },
+    "qwen3-vl-plus": {
+      "provider": "通义千问", "kind": ["vision"], "currency": "CNY", "unit": "per_million_tokens",
+      "input": 1.0, "output": 10.0,
+      "note": "华北 2（北京），单次输入 ≤32K token 档。1023 从 visual.py 原 PRICES 挪来（那份 2026-09-28 取自百炼价格页）。",
+      "source": "aliyun", "checked": "2026-09-28"
+    },
+    "qwen3.7-plus": {
+      "provider": "通义千问", "kind": ["text", "vision"], "currency": "CNY", "unit": "per_million_tokens",
+      "input": 1.6, "output": 6.4,
+      "note": "华北 2（北京），单次输入 ≤32K token 档。1023 从 visual.py 原 PRICES 挪来（那份 2026-09-28 取自百炼价格页）。",
+      "source": "aliyun", "checked": "2026-09-28"
+    },
     "gpt-6-luna": {
       "provider": "OpenAI", "kind": ["text", "vision"], "currency": "USD", "unit": "per_million_tokens",
       "input": 0.10, "output": 0.50, "input_cache_hit": 0.01,
@@ -101,6 +113,18 @@
       "provider": "Google Gemini", "kind": ["text", "vision"], "currency": "USD", "unit": "per_million_tokens",
       "input": 0.75, "output": 3.75,
       "note": "付费档，此价到 2026-12-31；2027-01-01 起输入 1.50、输出 7.50。", "source": "google", "checked": "2026-10-03"
+    },
+    "gemini-3.5-flash": {
+      "provider": "Google Gemini", "kind": ["text", "vision"], "currency": "USD", "unit": "per_million_tokens",
+      "input": null, "output": null,
+      "note": "运行时识图 / 概要用的模型。走免费 key 池（keyPool: gemini）的调用按免费记、不计费；付费 key 的官方单价 1023 没核到（官方价格页打不开），写 null = 未计价、预算按要钱的拦。",
+      "source": "google", "checked": "2026-10-23"
+    },
+    "gemini-embedding-2": {
+      "provider": "Google Gemini", "kind": ["embedding"], "currency": "USD", "unit": "per_million_tokens",
+      "input": null, "output": 0.0,
+      "note": "向量。免费 key 池的调用按免费记；付费档官方单价 1023 没核到，写 null = 未计价。",
+      "source": "google", "checked": "2026-10-23"
     },
     "gpt-4o-mini-transcribe": {
       "provider": "OpenAI", "kind": ["asr"], "currency": "USD", "unit": "per_minute",

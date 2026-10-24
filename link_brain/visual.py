@@ -68,19 +68,6 @@ REFINE_PROMPT = """这张图已被初步判为「{kind}」。请精细识别，�
 {ocr}
 >>>"""
 
-# 元 / 百万 token（输入, 输出），2026-09-28 取自百炼官方模型价格页（北京地域，≤32K 档）
-PRICES = {
-    "qwen3-vl-flash": (0.15, 1.5), "qwen3-vl-plus": (1.0, 10.0),
-    "qwen3.7-flash": (0.2, 0.8), "qwen3.8-flash": (0.8, 2.7),
-    "qwen3.7-plus": (1.6, 6.4), "qwen3.8-max": (12.0, 36.0),
-}
-
-
-def cost_yuan(model: str, tin: int, tout: int) -> float:
-    pin, pout = PRICES.get(model, (0.0, 0.0))
-    return (tin * pin + tout * pout) / 1_000_000
-
-
 OCR_TIERS = ("tiny", "small", "medium")
 _ENGINE_KEY = None
 
@@ -313,7 +300,8 @@ def understand(path: Path, lines: list[dict[str, Any]] | None, cfg: dict[str, An
         kind, rest = "text", text
     tidy = tidy_output(rest)
     return {"kind": kind, "status": "ok", "text": tidy, "model": cfg["model"], "v": VISUAL_VERSION,
-            "tokens": out.get("tokens"), "cost_yuan": out.get("cost_yuan"), "code": "", "error": None,
+            "tokens": out.get("tokens"), "cost_yuan": out.get("cost_yuan"), "unpriced": out.get("unpriced"),
+            "code": "", "error": None,
             "shaky": shaky_reason(rest, tidy, out.get("finish"))}
 
 
@@ -335,7 +323,7 @@ def refine(path: Path, lines: list[dict[str, Any]] | None, kind: str, cfg: dict[
     problem = shaky_reason(out["text"], tidy, out.get("finish")) or (mermaid_problem(tidy) if got == "diagram" else "") \
         or (table_problem(tidy) if got == "table" else "")
     base = {"kind": got, "text": tidy, "model": cfg["model"], "tokens": out.get("tokens"),
-            "cost_yuan": out.get("cost_yuan")}
+            "cost_yuan": out.get("cost_yuan"), "unpriced": out.get("unpriced")}
     if problem:
         return {**base, "status": "failed", "error": problem, "code": "PERMANENT.MODEL_OUTPUT_INVALID"}
     return {**base, "status": "ok", "code": "", "error": None}
@@ -553,9 +541,12 @@ def _chat(path: Path, prompt: str, cfg: dict[str, Any], *, max_tokens: int, time
             usage = doc.get("usage") or {}
             tin, tout = int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0)
             ledger.record("visionAI", cfg, usage)
+            from . import pricing
+            cost = pricing.call_cost(cfg, tin, tout)  # 和账本同一套算法；查不到价 = None（未计价），不当 0
             return providers.result("ok", doc["choices"][0]["message"]["content"].strip(),
                                     usage=usage or None, finish=doc["choices"][0].get("finish_reason"),
-                                    tokens=[tin, tout], cost_yuan=round(cost_yuan(cfg["model"], tin, tout), 5))
+                                    tokens=[tin, tout], cost_yuan=None if cost is None else round(cost, 5),
+                                    unpriced=cost is None)
         except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
             return providers.result("failed", code="TRANSIENT.HTTP_5XX", api_error=True,
                                     error=f"识图接口回包坏了：{type(exc).__name__}")

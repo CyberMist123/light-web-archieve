@@ -49,8 +49,10 @@ function modelState(settings, name = settings.activeModel) {
     : cfg.keyFile ? (!inherited && entry.keyFile ? 'file' : 'inherit-file') : cfg.apiKeyEnv ? 'env' : 'none';
   return { name, mode: cfg.mode, fallback: !!chosen.modelFallback, reason: chosen.modelFallback?.reason || '',
     host: endpointHost(cfg.endpoint || ''), model: cfg.model || '', key,
-    usable: !aiGate(settings, 'textAI').gated && (cfg.mode === 'cli' ? !!cfg.command : cfg.mode === 'http' && !!cfg.endpoint && !!cfg.model && (!cfg.requireKey || key !== 'none')) };
+    usable: !aiGate(settings, 'textAI').gated && (cfg.mode === 'cli' ? hasCli(cfg) : cfg.mode === 'http' && !!cfg.endpoint && !!cfg.model && (!cfg.requireKey || key !== 'none')) };
 }
+// 命令行那一格配好了没：自己写的命令，或选了后端表里的某个命令行（preset）
+function hasCli(cfg) { return !!(cfg && (cfg.command || cfg.preset)); }
 function aiGate(settings, cap) {
   const component = ({ textAI: 'ai_text', summaryAI: 'ai_text', embedAI: 'ai_text', visionAI: 'ai_vision' })[cap];
   const setup = settings.setup || {}, selected = setup.selected;
@@ -168,11 +170,12 @@ const DEFAULT_SETTINGS = {
   asrAI: { mode: "capswriter", port: "", model: "whisper-1", endpoint: "", apiKey: "" },
   // 语音输入（0926）：capsLock=用 CapsWriter 客户端，任何程序里按住 CapsLock 说话；capsWriterDir 空=自动找。
   voice: { capsLock: true, capsWriterDir: "" },
-  // 问答页模型下拉（0926）：http=接口；cli=本机命令行（codex / claude 用自己的登录，不需要 key）。和 ai_config.py 对齐。
+  // 问答页模型下拉（0926）：http=接口；cli=本机命令行（codex / claude 用自己的登录，不需要 key）。
+  // 1023：命令行条目只存 preset（用哪个命令行），命令本身只在 link_brain/ai_config.py 的 CLI_PRESETS，后端按 preset 补上。
   models: [
     { name: "文本 AI", mode: "inherit" },
-    { name: "Codex", mode: "cli", command: "codex exec --skip-git-repo-check -s read-only -c model_reasoning_effort=low -" },
-    { name: "Sonnet", mode: "cli", command: "claude -p --model sonnet" },
+    { name: "Codex", mode: "cli", preset: "codex" },
+    { name: "Sonnet", mode: "cli", preset: "claude" },
   ],
   activeModel: "文本 AI",
   chatPlaceholder: "问点什么呢？",
@@ -896,7 +899,7 @@ class LinkBrainActions extends Plugin {
   syncSetupSelectionWithAI() {
     const su = this.settings.setup;
     if (!su || !Array.isArray(su.selected) || su.aiSynced) return false;
-    const on = (c) => c && (c.mode === 'cli' ? !!c.command : c.mode === 'http' ? !!(c.endpoint && (c.apiKey || c.keyFile || c.apiKeyEnv)) : false);
+    const on = (c) => c && (c.mode === 'cli' ? hasCli(c) : c.mode === 'http' ? !!(c.endpoint && (c.apiKey || c.keyFile || c.apiKeyEnv)) : false);
     const want = [];
     if (on(this.settings.textAI) || on(this.settings.summaryAI)) want.push('ai_text');
     if (on(this.settings.visionAI)) want.push('ai_vision');
@@ -2655,7 +2658,8 @@ class LinkBrainSettingTab extends PluginSettingTab {
       if (m.mode === 'cli') {
         const row = new Setting(c).setName('命令').setDesc('本机已经登录好的命令行。')
           .addText(t => { t.inputEl.style.width = '100%'; t.setValue(m.command || '').onChange(v => m.command = v.trim()); });
-        this.help(row, '问题从标准输入送进去、回答从标准输出读回来。例：codex exec --skip-git-repo-check -s read-only -  /  claude -p --model sonnet');
+        this.help(row, '问题从标准输入送进去、回答从标准输出读回来。例：codex exec --skip-git-repo-check -s read-only -  /  claude -p  /  opencode run');
+        if (!m.command && m.preset) row.setDesc('本机已经登录好的命令行。现在用内置的「' + m.preset + '」，填了就改用这里写的。');
       } else if (m.mode === 'http') {
         new Setting(c).setName('接口地址').addText(t => t.setPlaceholder('https://api.example.com/v1/chat/completions').setValue(m.endpoint || '').onChange(v => m.endpoint = v.trim()));
         new Setting(c).setName('模型名').addText(t => t.setPlaceholder('deepseek-chat').setValue(m.model || '').onChange(v => m.model = v.trim()));
@@ -2907,7 +2911,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
     this.help({ nameEl: list.head.querySelector('.lb-card-title') }, '「接口」= 填地址、模型名和密钥（DeepSeek、通义、OpenAI 等）；「本机命令行」= 用本机已登录的 Codex / Claude Code，不要密钥，但每问约 20 秒（接口一般 5–10 秒）。');
     (s.models || []).forEach((m, i) => {
       const state = modelState(s, m.name);
-      const row = new Setting(list).setName(m.name || '没起名').setDesc(m.mode === 'cli' ? '本机命令行：' + (m.command || '') : `接口：${state.host || '和「问收藏」那一项填的一样'} · ${state.model || '没填模型名'} · ${m.model ? '自己填的模型' : '模型跟着「问收藏」那一项'} · 密钥：${({ own: '自己的', 'inherit-key': '跟着「问收藏」那一项', file: '文件', 'inherit-file': '跟着「问收藏」那一项', env: '环境变量', none: '没填', 'n/a': '—' })[state.key] || state.key}${state.fallback ? ' · 没填密钥，先用「问收藏」那一项的' : ''}`);
+      const row = new Setting(list).setName(m.name || '没起名').setDesc(m.mode === 'cli' ? '本机命令行：' + (m.command || (m.preset ? '内置 ' + m.preset : '')) : `接口：${state.host || '和「问收藏」那一项填的一样'} · ${state.model || '没填模型名'} · ${m.model ? '自己填的模型' : '模型跟着「问收藏」那一项'} · 密钥：${({ own: '自己的', 'inherit-key': '跟着「问收藏」那一项', file: '文件', 'inherit-file': '跟着「问收藏」那一项', env: '环境变量', none: '没填', 'n/a': '—' })[state.key] || state.key}${state.fallback ? ' · 没填密钥，先用「问收藏」那一项的' : ''}`);
       row.settingEl.addClass('lb-model-row');
       // 勾选：在不在问收藏页的下拉里（不勾 = hidden，设置还在）
       const check = row.settingEl.createEl('input', { cls: 'lb-model-check', prepend: true, attr: { type: 'checkbox', 'aria-label': `「${m.name}」出现在问收藏页的下拉里` } });
@@ -2970,8 +2974,11 @@ class LinkBrainSettingTab extends PluginSettingTab {
     const s = this.plugin.settings;
     const box = this.card(c, '写概要', 'summary');
     this.capBlock(box, 'summaryAI', b => {
+      // 1023：接口和本机命令行平级——能选哪几种、有哪些命令行，都读后端的 AI 配置表（usage --table）
       this.modeSetting(b, '写概要用的模型', '默认和问收藏用同一个；想省钱可以单独换。', s.summaryAI,
-        [['inherit', '和问收藏一样'], ['http', '另配一个接口'], ['off', '不写概要']], { help: '归档时给每篇写概要、打标签用它。没配好时跳过，归档照常完成，配好后夜里自动补上。' });
+        [['inherit', '和问收藏一样'], ['http', '另配一个接口'], ['cli', '本机命令行（不要 key、不花钱）'], ['off', '不写概要']],
+        { help: '归档时给每篇写概要、打标签用它。没配好时跳过，归档照常完成，配好后夜里自动补上。本机命令行（Codex / Claude Code / OpenCode）用它自己的登录，每篇慢一些。' });
+      if (s.summaryAI.mode === 'cli') this.cliPicker(b, s.summaryAI);
       if (s.summaryAI.mode === 'inherit') this.textField(b, '只换模型名', '空着 = 和问收藏用同一个模型；填了只换模型名，接口和密钥照旧。',
         s.textAI.model || '', () => s.summaryAI.model, v => s.summaryAI.model = v);
       if (s.summaryAI.mode === 'http') this.httpFields(b, s.summaryAI, { modelHint: 'qwen3.7-flash / gpt-4o-mini' });
@@ -3218,6 +3225,43 @@ class LinkBrainSettingTab extends PluginSettingTab {
   }
 
   // —— AI 设置的小积木：每个能力块下只有一个「测试」按钮，测的就是生产用的那个函数（第 1B 批）——
+  // 后端的 AI 配置表（usage --table：每项功能能选接口 / 本机命令行、有哪些命令行）；一个窗口读一次
+  loadAiTable() {
+    this.plugin.aiTableCache ||= this.plugin.runPy(['-m', 'link_brain', 'usage', '--table'], { label: '读 AI 配置表', timeoutMs: 30000, fallback: '没读出来', quiet: true })
+      .then(r => { if (!r || !r.json || r.json.ok === false || !r.json.ai_table) throw new Error((r && r.json && r.json.message) || '没读出来'); return r.json.ai_table; })
+      .catch(e => { this.plugin.aiTableCache = null; throw e; });
+    return this.plugin.aiTableCache;
+  }
+  // 本机命令行选哪个：后端表里的命令行（内置 Codex / Claude Code / OpenCode + 问收藏下拉里自己加的）；也能自己写命令
+  cliPicker(box, cfg) {
+    const host = box.createDiv({ cls: 'lb-cli-pick' });
+    const custom = this.textField(box, '　命令', '自己写命令（选了上面的就不用填）。', 'opencode run', () => cfg.command, v => { cfg.command = v; if (v) delete cfg.preset; });
+    const paint = (table, err) => {
+      host.empty();
+      const row = new Setting(host).setName('用哪个命令行').setDesc('本机已经登录好的；用它自己的账号，不要 key、不花钱。');
+      if (!table) { row.setDesc('命令行列表没读到（' + (err && err.message || '原因不明') + '），可以在下面自己写命令。'); return; }
+      const list = table.cli || [];
+      row.addDropdown(d => {
+        d.addOption('', '自己写命令');
+        for (const c of list) d.addOption(c.id, c.name);
+        const cur = cfg.preset ? list.find(c => c.preset === cfg.preset) : list.find(c => c.command && c.command === cfg.command);
+        d.setValue(cur ? cur.id : '');
+        d.onChange(async v => {
+          const prev = { preset: cfg.preset, command: cfg.command };
+          const pick = list.find(c => c.id === v);
+          if (pick && pick.preset) { cfg.preset = pick.preset; delete cfg.command; }
+          else if (pick) { cfg.command = pick.command; delete cfg.preset; }
+          else delete cfg.preset;
+          try { await this.plugin.saveSettings(); }
+          catch (e) { Object.assign(cfg, prev); this.plugin.notify('没保存上，已改回原来的：' + e.message, { kind: 'error' }); }
+          if (box.redraw) box.redraw(); else this.redraw();
+        });
+      });
+    };
+    host.createEl('p', { cls: 'setting-item-description lb-loading', text: '正在读本机命令行列表…' });
+    this.loadAiTable().then(t => paint(t), e => paint(null, e));
+    return custom;
+  }
   modeSetting(box, name, desc, cfg, options, { help = '' } = {}) {
     const row = new Setting(box).setName(name).setDesc(desc).addDropdown(d => {
       for (const [v, label] of options) d.addOption(v, label);
@@ -3248,7 +3292,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
     const settings = this.plugin.settings;
     for (const cap of ['textAI', 'summaryAI', 'visionAI']) {
       const cfg = settings[cap], gate = aiGate(settings, cap);
-      if (!gate.gated || !(cfg.mode === 'cli' && cfg.command || cfg.mode === 'http' && cfg.endpoint && (cfg.apiKey || cfg.keyFile || cfg.apiKeyEnv))) continue;
+      if (!gate.gated || !(cfg.mode === 'cli' && hasCli(cfg) || cfg.mode === 'http' && cfg.endpoint && (cfg.apiKey || cfg.keyFile || cfg.apiKeyEnv))) continue;
       settings.setup.selected.push(gate.component);
       if (gate.component === 'ai_vision' && !settings.setup.selected.includes('ocr')) settings.setup.selected.push('ocr');
       this.plugin.aiAutoNotified ||= new Set();
