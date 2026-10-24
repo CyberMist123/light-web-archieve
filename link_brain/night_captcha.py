@@ -184,7 +184,7 @@ def report_deferred(reason: str) -> dict[str, Any] | None:
     try:
         return problems.report(STEP, "TRANSIENT.NIGHT_CAPTCHA", text)
     except Exception as exc:  # noqa: BLE001
-        print(f"[验证自查] 问题记录没写上（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[验证自查] 问题记录没写上（{errtext(exc)}）", file=sys.stderr)
         return None
 
 
