@@ -180,35 +180,47 @@ def clear_tombstone(conn: sqlite3.Connection, row: Any, op: str, *, commit: bool
         conn.commit()
 
 
+def _tomb_plan(conn: sqlite3.Connection):
+    """(jsonl 每篇最后的状态, 缓存行, 要导出成 jsonl 的老屏蔽, 要改的缓存)。只读，不动任何东西。"""
+    final: dict[tuple[str, str], dict[str, Any] | None] = {}
+    for event in _read_events(tombstones_path(conn)):
+        key = (str(event["source"]), str(event["source_id"]))
+        final[key] = event if event.get("op") == "delete" else None
+    cached = {(r["source"], r["source_id"]): dict(r) for r in conn.execute("SELECT * FROM tombstones")}
+    exports = {key: row for key, row in cached.items() if key not in final}
+    final.update(exports)
+    changes = [(key, record) for key, record in final.items()
+               if (record is None and cached.get(key) is not None)
+               or (record is not None and (cached.get(key) is None or _tomb_row(cached[key]) != _tomb_row(record)))]
+    return final, cached, exports, changes
+
+
 def sync_tombstones(conn: sqlite3.Connection) -> None:
     """index.db 缓存对齐 jsonl。
 
     - jsonl 里没出现过、index.db 里有的屏蔽（1024 之前只存在 index.db）→ 导出成 jsonl，只导一次（导完就出现过了）；
     - 其余以 jsonl 每篇最后一行为准：屏蔽的补进 / 改正缓存，解除的从缓存删掉。
+    先不加锁看一眼；对不上才 BEGIN IMMEDIATE 重读一遍再改——别的进程「追加 jsonl → 写缓存 → 提交」做到一半时，
+    拿旧的 jsonl 去删它刚写的缓存行（复审 tomb#3）。平时对得上就不碰写锁。
     """
-    path = tombstones_path(conn)
-    events = _read_events(path)
-    final: dict[tuple[str, str], dict[str, Any] | None] = {}
-    for event in events:
-        key = (str(event["source"]), str(event["source_id"]))
-        final[key] = event if event.get("op") == "delete" else None
-    cached = {(r["source"], r["source_id"]): dict(r) for r in conn.execute("SELECT * FROM tombstones")}
-    for key, row in cached.items():
-        if key not in final:
+    *_, exports, changes = _tomb_plan(conn)
+    if not exports and not changes:
+        return
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
+    try:
+        _final, _cached, exports, changes = _tomb_plan(conn)
+        for row in exports.values():
             append_tombstone_event(conn, {"op": "delete", **{k: row.get(k) for k in TOMB_FIELDS}, "via": "migrate"})
-            final[key] = row
-    changed = False
-    for key, record in final.items():
-        have = cached.get(key)
-        if record is None:
-            if have is not None:
+        for key, record in changes:
+            if record is None:
                 conn.execute("DELETE FROM tombstones WHERE source = ? AND source_id = ?", key)
-                changed = True
-        elif have is None or _tomb_row(have) != _tomb_row(record):
-            _upsert_tomb_cache(conn, record)
-            changed = True
-    if changed:
+            else:
+                _upsert_tomb_cache(conn, record)
         conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
 
 
 def relpath_from_vault(path: Path) -> str:
@@ -386,8 +398,11 @@ def latest_source_sha256(conn: sqlite3.Connection, item_id: str) -> str | None:
     except (OSError, ValueError):
         return row["source_sha256"]
     if sha != row["source_sha256"]:
+        # 调用方事务做到一半时不替它提交（复审 tomb#5），交给它的下一次提交带上；自己开的就自己提交，不长时间占着写锁
+        mine = not conn.in_transaction
         conn.execute("UPDATE sources SET source_sha256 = ? WHERE id = ?", (sha, row["id"]))
-        conn.commit()
+        if mine:
+            conn.commit()
     return sha
 
 

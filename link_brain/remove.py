@@ -90,11 +90,18 @@ def delete_item(conn, item_id: str) -> dict[str, Any]:
     conn.execute('DELETE FROM objects WHERE item_id = ?', (item_id,))
     conn.execute("UPDATE tombstones SET state = 'done' WHERE item_id = ?", (item_id,))
     conn.commit()
-    index_mod.write_tombstone(conn, {**record, 'state': 'done'})
+    out = {'item_id': item_id, 'status': 'deleted', 'note': visible}
+    try:
+        index_mod.write_tombstone(conn, {**record, 'state': 'done'})
+    except OSError as exc:
+        # ④ 已提交：文件在回收站、objects 行已删，这篇确实删了；jsonl 最后一行还是 pending，下次 connect 对齐后续删补上 done
+        from .errtext import errtext
+        out['warning'] = f'收尾没记完（{errtext(exc)}），下次自动补'
+        print(f'[remove] {item_id} {out["warning"]}', file=sys.stderr)
     # 1008（L6·B2）：删掉这篇 = 它名下没解决的问题一并标已解决（问题面板唯一的「真删除」）；永不抛异常
     from . import problems
     problems.resolve_item(item_id)
-    return {'item_id': item_id, 'status': 'deleted', 'note': visible}
+    return out
 
 
 def _move_into_trash(vault: Path, obj: Path, trash: Path, files: list[dict]) -> None:
@@ -168,6 +175,11 @@ def purge_item(conn, item_id: str) -> dict:
     row = conn.execute('SELECT * FROM tombstones WHERE item_id = ?', (item_id,)).fetchone()
     if not row:
         return {'item_id': item_id, 'status': 'missing'}
+    if row['state'] == 'pending':
+        # 删到一半（对象目录还在 _archive）：先把删除做完再删回收站，不然对象留在原处，下次续删又冒回回收站（复审 tomb#2）。
+        # 还是挪不动就抛，如实报「没删掉」
+        delete_item(conn, item_id)
+        row = conn.execute('SELECT * FROM tombstones WHERE item_id = ?', (item_id,)).fetchone()
     trash = _trash_path(row['trash_dir'])
     if trash.exists():
         shutil.rmtree(trash)
