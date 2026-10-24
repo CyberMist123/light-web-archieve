@@ -107,11 +107,12 @@ def load(days: int = 31, *, now: datetime | None = None) -> list[dict[str, Any]]
     rows: list[dict[str, Any]] = []
     for name in sorted(months):
         p = _dir() / f"{name}.jsonl"
-        if not p.exists():
+        try:
+            lines, _bad = storage.read_jsonl(p)  # 半行（含截在汉字中间）跳过
+        except OSError:
             continue
-        for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+        for r in lines:
             try:
-                r = json.loads(line)
                 ts = datetime.fromisoformat(r["ts"])
             except (ValueError, KeyError, TypeError):
                 continue

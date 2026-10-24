@@ -100,18 +100,18 @@ def test_actionlog_append_after_half_line_keeps_both_rows():
 
 def test_report_does_not_push_when_record_unreadable(monkeypatch, pushes):
     problems.report("embed", "TRANSIENT.NETWORK", "断网", _now_fn=at(1))
-    real = Path.read_text
+    real = Path.read_bytes
 
     def flaky(self, *a, **k):
         if self.name == problems.FILE_NAME:
             raise PermissionError(13, "被占用")
         return real(self, *a, **k)
 
-    monkeypatch.setattr(Path, "read_text", flaky)
+    monkeypatch.setattr(Path, "read_bytes", flaky)  # 1024 返修：问题记录改成按字节逐行读（storage.read_jsonl）
     row = problems.report("login", "NEEDS_HUMAN.NOT_LOGGED_IN", "掉登录", _now_fn=at(1, 5))
     assert pushes == [], "读不出来就不知道推没推过：不推，下次读得出来再判"
     assert not row.get("notified")
-    monkeypatch.setattr(Path, "read_text", real)
+    monkeypatch.setattr(Path, "read_bytes", real)
     problems.report("login", "NEEDS_HUMAN.NOT_LOGGED_IN", "掉登录", _now_fn=at(1, 6))
     assert len(pushes) == 1, "读得出来之后照常推一次"
 

@@ -200,6 +200,32 @@ def read_json(path: Path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def read_jsonl(path: Path) -> tuple[list[dict], int]:
+    """读 append-only jsonl：(各行 dict, 跳过的坏行数)。没有文件 = ([], 0)；别的 OSError 照抛。
+
+    按字节读、逐行解码：写到一半崩了，行尾截在汉字中间，只丢那一行（和 JSON 坏行一样跳过并计数），
+    不拖累整份文件。空行不算坏行；不是 dict 的行算坏行。"""
+    try:
+        data = Path(path).read_bytes()
+    except FileNotFoundError:
+        return [], 0
+    rows: list[dict] = []
+    bad = 0
+    for raw in data.splitlines():
+        if not raw.strip():
+            continue
+        try:
+            row = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            bad += 1
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+        else:
+            bad += 1
+    return rows, bad
+
+
 def obj_lock_name(item_id: str) -> str:
     """单篇锁的名字：同一篇的 meta.json 读改写都在这把锁里（1024）。"""
     return f"obj-{item_id}"

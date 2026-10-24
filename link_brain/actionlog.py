@@ -21,6 +21,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable
 
+from . import storage
+
 FILE = "account-actions.jsonl"
 MAX_BYTES = 5 * 1024 * 1024
 
@@ -115,16 +117,12 @@ def read(*, since: datetime | None = None, limit: int | None = None) -> list[dic
     """读日志（旧在前）。limit = 只要最后几行。读不到返回 []。"""
     rows: list[dict[str, Any]] = []
     try:
-        lines = path().read_text(encoding="utf-8", errors="replace").splitlines()
+        lines, _bad = storage.read_jsonl(path())
     except OSError:
         return rows
     if limit:
         lines = lines[-max(limit * 4, limit):] if since else lines[-limit:]
-    for ln in lines:
-        try:
-            r = json.loads(ln)
-        except ValueError:
-            continue
+    for r in lines:
         if since is not None:
             t = _ts(r)
             if t is None or t < since:

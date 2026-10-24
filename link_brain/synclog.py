@@ -107,21 +107,10 @@ def default_trigger(now: datetime | None = None) -> str:
 
 def _read() -> list[dict[str, Any]]:
     try:
-        text = path().read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
+        rows, _bad = storage.read_jsonl(path())  # 半行 / 坏行（含截在汉字中间）跳过
+    except OSError:
         return []
-    out = []
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            row = json.loads(line)
-        except ValueError:
-            continue  # 半行 / 坏行跳过
-        if isinstance(row, dict) and row.get("run_id"):
-            out.append(row)
-    return out
+    return [r for r in rows if r.get("run_id")]
 
 
 def _write(rows: list[dict[str, Any]]) -> None:

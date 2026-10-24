@@ -398,31 +398,16 @@ def _pending_files() -> list[Path]:
         return []
 
 
-def _parse_rows(text: str) -> list[dict[str, Any]]:
-    rows = []
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            row = json.loads(line)
-        except ValueError:
-            continue  # 半行 / 坏行：跳过，不让一行坏掉整个列表
-        if isinstance(row, dict) and row.get("key"):
-            rows.append(row)
-    return rows
-
-
-def _read_file(p: Path, strict: bool) -> str:
-    """没有文件 = 空；读不出来（被占 / 坏编码）strict 时抛，否则当空。"""
+def _read_file(p: Path, strict: bool) -> list[dict[str, Any]]:
+    """读一份记录的行。没有文件 = 空；半行 / 坏行（含截在汉字中间）跳过，不让一行坏掉整份；
+    打不开（被占）strict 时抛，否则当空。"""
     try:
-        return p.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return ""
-    except (OSError, UnicodeError):
+        rows, _bad = storage.read_jsonl(p)
+    except OSError:
         if strict:
             raise
-        return ""
+        return []
+    return [r for r in rows if r.get("key")]
 
 
 def _row_time(row: dict[str, Any]) -> float | None:
@@ -444,8 +429,8 @@ def _read_rows(*, strict: bool = False) -> list[dict[str, Any]]:
     """problems.jsonl + 还没并回的旁路行。strict=True 时读不出来就抛（report 据此不推送），否则读不出来当空。"""
     extra: list[dict[str, Any]] = []
     for f in _pending_files():  # 先读旁路再读主文件：中间正好被并回，最多重一遍，不会漏
-        extra += _parse_rows(_read_file(f, strict))
-    rows = _parse_rows(_read_file(path(), strict))
+        extra += _read_file(f, strict)
+    rows = _read_file(path(), strict)
     return _ordered(rows + extra) if extra else rows
 
 
@@ -566,16 +551,16 @@ def _merge_pending_locked() -> int:
     extra: list[dict[str, Any]] = []
     done: list[Path] = []
     for f in files:
-        try:
-            extra += _parse_rows(f.read_text(encoding="utf-8"))
-        except FileNotFoundError:
+        if not f.exists():
             continue
-        except (OSError, UnicodeError) as exc:
+        try:
+            extra += _read_file(f, True)
+        except OSError as exc:
             print(f"[problems] 旁路记录这次没并回（{errtext(exc)}），下次再并：{f.name}", file=sys.stderr)
             continue
         done.append(f)
     if extra:
-        storage.atomic_write_text(path(), _dump(_ordered(_parse_rows(_read_file(path(), True)) + extra)))
+        storage.atomic_write_text(path(), _dump(_ordered(_read_file(path(), True) + extra)))
     for f in done:
         try:
             f.unlink()
@@ -595,11 +580,24 @@ def _append(rows) -> None:
     try:
         with storage.file_lock("problems", wait_s=LOCK_WAIT_S):
             got = True
-            _merge_pending_locked()
+            try:
+                _merge_pending_locked()
+            except Exception as exc:  # noqa: BLE001 - 主文件一时打不开：旁路留着下次并，这一行照样要记
+                print(f"[problems] 旁路记录这次没并回（{errtext(exc)}），下次再并", file=sys.stderr)
             if callable(rows):
                 rows = rows(*_read_folded())
-            _append_text(p, _dump(rows))
-            _compact_locked(MAX_KEYS + COMPACT_SLACK)
+            blob = _dump(rows)
+            try:
+                _append_text(p, blob)
+            except OSError as exc:
+                # 主文件这会儿写不了（杀毒 / 同步盘占着）：退到旁路，拿到锁的人并回，绝不丢这一行
+                print(f"[problems] 主文件写不上（{errtext(exc)}），先记进旁路", file=sys.stderr)
+                _write_pending(blob)
+            else:
+                try:
+                    _compact_locked(MAX_KEYS + COMPACT_SLACK)
+                except Exception as exc:  # noqa: BLE001 - 行已追加，压实下次再做
+                    print(f"[problems] 这次没压实（{errtext(exc)}）", file=sys.stderr)
             _write_summary_locked()
     except storage.LockBusy:
         if got:

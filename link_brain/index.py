@@ -130,17 +130,8 @@ def tombstones_path(conn: sqlite3.Connection) -> Path:
 
 
 def _read_events(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    events = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue  # 崩在半行：跳过，不影响别的行
-        if isinstance(event, dict) and event.get("source") and event.get("source_id"):
-            events.append(event)
-    return events
+    rows, _bad = storage.read_jsonl(path)  # 崩在半行（含截在汉字中间）：跳过那一行，不影响别的行
+    return [e for e in rows if e.get("source") and e.get("source_id")]
 
 
 def append_tombstone_event(conn: sqlite3.Connection, event: dict[str, Any]) -> None:
