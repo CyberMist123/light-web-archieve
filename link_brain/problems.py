@@ -660,7 +660,9 @@ def _compact_locked(threshold: int | None = None) -> bool:
     if _pending_files():
         # 还有旁路没删掉（被占 / 刚有人写进来）：压实会丢掉各行的事件 id，之后再并回就分不出哪些并过了。等删掉再压
         return False
-    rows = _read_rows()
+    # 只读主文件：检查完旁路到读之间别的进程可能刚写进旁路，那几行留给下次并回（带事件 id 去重），
+    # 不能这次折进主文件、旁路又留着——那样会重复累加（1025 Codex 复查：3 次报错算成 4）。
+    rows = _read_file(path(), False)
     if len(rows) <= (MAX_KEYS if threshold is None else threshold):
         return False
     folded = _fold(rows)
