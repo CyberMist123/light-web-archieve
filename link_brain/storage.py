@@ -127,6 +127,21 @@ def ensure_raw_dir(source: str, source_id: str, version: int) -> Path:
     return target
 
 
+# 原子写替换一直被拒时允许「原地覆写」的派生文件（能整份重生成的）：页面（md / 页面脚本 / 样式）、
+# 对象的 derived/ 下、_archive/ 根上的目录数据。其余（meta.json、notes.json、raw/、设置…）都是真相文件。
+_IN_PLACE_SUFFIXES = {".md", ".js", ".css"}
+_IN_PLACE_ARCHIVE_FILES = {"catalog-data.json", "trash-data.json", "problems-summary.json"}
+
+
+def in_place_fallback_ok(path: Path) -> bool:
+    p = Path(path)
+    if p.suffix.lower() in _IN_PLACE_SUFFIXES:
+        return True
+    if "derived" in p.parent.parts:
+        return True
+    return p.parent.name == ARCHIVE_DIRNAME and p.name in _IN_PLACE_ARCHIVE_FILES
+
+
 def atomic_write_bytes(path: Path, data: bytes) -> Path:
     """原子写（审计 io-11 / raw-1）：同目录临时文件 → fsync → os.replace。
 
@@ -150,8 +165,9 @@ def atomic_write_bytes(path: Path, data: bytes) -> Path:
                 if attempt == 5:
                     # 1011：Obsidian 渲染进程会长期开着某些 md（不带 FILE_SHARE_DELETE），替换永远被拒——
                     # 目录页因此从 10-10 13:59 起一直没更新、夜跑 catalog 天天崩。退而原地覆写（它允许共享写）；
-                    # 失去「不留半截」保证，但这些都是能整份重生成的派生文件。
-                    if not path.exists():
+                    # 失去「不留半截」保证，所以只给能整份重生成的派生文件（1024：meta.json / notes.json 这些
+                    # 真相文件写不上就抛错，由调用方如实报，不冒险留半截）。
+                    if not path.exists() or not in_place_fallback_ok(path):
                         raise
                     with open(path, "r+b") as out:
                         out.write(data)
@@ -182,6 +198,35 @@ def write_json(path: Path, payload) -> Path:
 
 def read_json(path: Path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def obj_lock_name(item_id: str) -> str:
+    """单篇锁的名字：同一篇的 meta.json 读改写都在这把锁里（1024）。"""
+    return f"obj-{item_id}"
+
+
+def update_json(path: Path, fn, *, lock_name: str, wait_s: float = 60, missing_ok: bool = False):
+    """读改写一个 JSON 文件（1024）：拿锁 → 重读 → fn 改 → 原子写。返回写后的内容。
+
+    fn(data) 原地改 data（也可以返回一个新 dict 代替）；**只改自己负责的键**，别拿手上的旧副本整份写回。
+    内容没变就不写。文件不存在：missing_ok=False 抛 FileNotFoundError；True 则从 {} 开始。
+    拿不到锁抛 LockBusy；写不上照原样抛（真相文件没有原地覆写退路）。"""
+    path = Path(path)
+    with file_lock(lock_name, wait_s=wait_s, owner=lock_name):
+        try:
+            data = read_json(path)
+        except FileNotFoundError:
+            if not missing_ok:
+                raise
+            data = {}
+        before = json.dumps(data, ensure_ascii=False, sort_keys=True)
+        result = fn(data)
+        if result is not None:
+            data = result
+        if path.exists() and json.dumps(data, ensure_ascii=False, sort_keys=True) == before:
+            return data
+        write_json(path, data)
+        return data
 
 
 # ---------------------------------------------------------------------------
@@ -266,8 +311,9 @@ class FileLock:
     # -- 进程内状态 --
     def state(self) -> dict:
         with _HELD_GUARD:
+            # 1024：mutex 是进程内的线程锁——重入只认「同一个线程」，别的线程在这里排队（远程服务多线程）
             return _HELD.setdefault(self.key, {"count": 0, "stop": None, "thread": None, "owner": "",
-                                               "started": "", "lost": False})
+                                               "started": "", "lost": False, "mutex": threading.RLock()})
 
     @property
     def lost(self) -> bool:
@@ -433,18 +479,30 @@ class FileLock:
         自己也不留标记——同步、夜跑、导入这些她在等结果的活优先。"""
         owner = owner or f"pid {os.getpid()}"
         st = self.state()
-        with _HELD_GUARD:
-            nested = bool(st["count"])
-            if nested:
-                st["count"] += 1
-        if nested:
-            try:
-                yield self
-            finally:
-                with _HELD_GUARD:
-                    st["count"] -= 1
-            return
         deadline = time.monotonic() + max(0.0, float(wait_s or 0))
+        mutex = st["mutex"]
+        got = mutex.acquire(timeout=float(wait_s)) if wait_s and wait_s > 0 else mutex.acquire(blocking=False)
+        if not got:
+            raise LockBusy(self.name, {"pid": os.getpid(), "owner": st.get("owner") or "本进程的另一个任务",
+                                       "started": st.get("started", "")})
+        try:
+            with _HELD_GUARD:
+                nested = bool(st["count"])
+                if nested:
+                    st["count"] += 1
+            if nested:
+                try:
+                    yield self
+                finally:
+                    with _HELD_GUARD:
+                        st["count"] -= 1
+                return
+            yield from self._hold_file(st, owner, deadline, on_wait, polite)
+        finally:
+            mutex.release()
+
+    def _hold_file(self, st: dict, owner: str, deadline: float, on_wait, polite: bool):
+        """本线程第一次拿：抢锁文件 + 起心跳（已在 mutex 里，同进程别的线程进不来）。"""
         told = False
         want: Path | None = None
         try:
