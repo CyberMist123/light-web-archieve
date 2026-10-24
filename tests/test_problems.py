@@ -223,6 +223,7 @@ def test_resolution_resets_the_day_streak(pushes):
 
 def test_compaction_keeps_latest_500_keys_and_their_state(monkeypatch, pushes):
     monkeypatch.setattr(problems, "MAX_KEYS", 20)
+    monkeypatch.setattr(problems, "COMPACT_SLACK", 1)  # 超过 21 行才压回 20
     for i in range(25):
         problems.report("attachments.convert", "PERMANENT.PDF_DAMAGED", f"坏 {i}", item_id=f"xhs-{i:03d}",
                         _now_fn=lambda i=i: datetime(2026, 10, 1, 0, i, tzinfo=TZ))
