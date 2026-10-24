@@ -169,7 +169,9 @@ def test_non_windows_gives_manual_command(capsys, monkeypatch):
     write_settings(vault, 18071, enabled=True)
     code, out = run_cli(capsys, ["remote", "enable"])
     assert code == 1 and out["code"] == "SKIPPED.NOT_CONFIGURED"
-    assert out["command"].startswith("python -m link_brain remote serve --vault")
+    # P0 1024：手动命令也写和计划任务同一个解释器的绝对路径（deps.python_exe），不再是裸 python
+    from link_brain import deps
+    assert out["command"].startswith(rtask._arg(deps.python_exe()) + " -m link_brain remote serve --vault")
 
 
 def test_status_shapes(capsys, fake_ps):

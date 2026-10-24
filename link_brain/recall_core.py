@@ -90,8 +90,9 @@ def previous_question(history):
 
 def feedback_terms(items, fused, own_terms, skip=(), *, docs=FEEDBACK_DOCS):
     """二轮扩词：第一轮真实召回的前几篇（不只第一名）标题 / 标签里，至少 FEEDBACK_AGREE 篇共有、库里不泛不孤的词。纯本地。"""
-    import jieba
+    from .deps import require
     from .ask import _FUNC_CHARS, _STOP
+    jieba = require("jieba", "问答 / 搜索切词")
     from .retrieval import norm, term_stats, variants
     own = {v for t in own_terms for v in variants(t)} | {norm(t) for t in skip}
     agree: dict[str, int] = {}

@@ -1,17 +1,28 @@
 """SQLite 索引（objects / sources / relations 三表）。表结构见 docs/FORMAT.md §8。
 
 去重只认 `(source, source_id)`；`ingest` 命中就直接返回已有对象，不联网不下载。
+
+1024（p0-tomb）：删除屏蔽的权威来源是 `vault/_archive/tombstones.jsonl`（只追加），
+index.db 的 tombstones 表只是缓存——每次 `connect` 都按 jsonl 对一遍，删掉 index.db 重建也不丢。
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from . import storage
+
+TOMBSTONES_JSONL = "tombstones.jsonl"
+TOMB_FIELDS = ("source", "source_id", "item_id", "title", "url", "cover", "deleted_at", "trash_dir", "state")
+# relations 去重口径：同一篇、同一来源 / 谁 / 怎么进来 / 附言算同一条（created_at 不算，留最早那条）
+_RELATION_KEY = "item_id, origin, actor, COALESCE(actor_id, ''), ingest_kind, COALESCE(note, '')"
+_DB_VERSION = 1  # PRAGMA user_version：1 = relations 已去过重
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tombstones (
@@ -80,20 +91,220 @@ def connect(db_path: Path | None = None) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
     conn.commit()
+    try:
+        _migrate(conn)
+        sync_tombstones(conn)
+    except BaseException:
+        conn.close()
+        raise
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """旧库原地升级，幂等：tombstones 补 state 列；relations 去重一次（user_version 记住做过）。
+
+    先不加锁看一眼，平时不碰写锁；要升级就 BEGIN IMMEDIATE 后重看一遍再改、一次提交——
+    两个进程同时首次连旧库，都看到「没有 state 列」，后加的那个会撞 duplicate column（Codex 1025）。"""
+    def todo() -> tuple[bool, bool]:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(tombstones)")}
+        return "state" not in cols, conn.execute("PRAGMA user_version").fetchone()[0] < _DB_VERSION
+
+    if not any(todo()):
+        return
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        add_state, dedupe = todo()
+        if add_state:
+            conn.execute("ALTER TABLE tombstones ADD COLUMN state TEXT NOT NULL DEFAULT 'done'")
+        if dedupe:
+            conn.execute(f"DELETE FROM relations WHERE id NOT IN (SELECT MIN(id) FROM relations GROUP BY {_RELATION_KEY})")
+            conn.execute(f"PRAGMA user_version = {_DB_VERSION}")
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+
+
+# ---------------------------------------------------------------------------
+# 删除屏蔽（tombstones.jsonl 为准，index.db 是缓存）。格式见 docs/FORMAT.md。
+# 一行一个事件：{"op":"delete","state":"pending|done",<TOMB_FIELDS>,"at"} 或 {"op":"forget|restore",source,source_id,item_id,"at"}
+# 同一 (source, source_id) 以最后一行为准；delete=屏蔽，forget / restore=解除屏蔽。
+# ---------------------------------------------------------------------------
+
+
+def _db_file(conn: sqlite3.Connection) -> Path | None:
+    row = next((r for r in conn.execute("PRAGMA database_list") if r[1] == "main"), None)
+    return Path(row[2]) if row and row[2] else None
+
+
+def tombstones_path(conn: sqlite3.Connection) -> Path:
+    db = _db_file(conn)
+    return (db.parent if db else storage.archive_root()) / TOMBSTONES_JSONL
+
+
+def _read_events(path: Path) -> list[dict[str, Any]]:
+    rows, _bad = storage.read_jsonl(path)  # 崩在半行（含截在汉字中间）：跳过那一行，不影响别的行
+    return [e for e in rows if e.get("source") and e.get("source_id")]
+
+
+def append_tombstone_event(conn: sqlite3.Connection, event: dict[str, Any]) -> None:
+    """追加一行并 fsync；上一行要是崩在半截没换行，先补个换行，新行不会粘上去。"""
+    path = tombstones_path(conn)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps({**event, "at": event.get("at") or datetime.now(timezone.utc).isoformat()},
+                      ensure_ascii=False) + "\n"
+    with path.open("a+b") as fh:
+        if fh.tell() > 0:
+            fh.seek(-1, os.SEEK_END)
+            if fh.read(1) != b"\n":
+                line = "\n" + line
+        fh.write(line.encode("utf-8"))
+        fh.flush()
+        os.fsync(fh.fileno())
+
+
+def _tomb_row(record: dict[str, Any]) -> tuple:
+    return tuple(record.get(k) or ("done" if k == "state" else "") for k in TOMB_FIELDS)
+
+
+def _upsert_tomb_cache(conn: sqlite3.Connection, record: dict[str, Any]) -> None:
+    # item_id 是主键、(source, source_id) 也唯一：两边都可能撞上旧行，先清再插
+    conn.execute("DELETE FROM tombstones WHERE source = ? AND source_id = ? AND item_id != ?",
+                 (record["source"], record["source_id"], record.get("item_id") or ""))
+    conn.execute(f"INSERT OR REPLACE INTO tombstones ({','.join(TOMB_FIELDS)}) VALUES ({','.join('?' * len(TOMB_FIELDS))})",
+                 _tomb_row(record))
+
+
+def write_tombstone(conn: sqlite3.Connection, record: dict[str, Any], *, commit: bool = True) -> None:
+    """屏蔽一篇：先追加 jsonl（权威），再写 index.db 缓存。record 带 TOMB_FIELDS；state 缺省 done。"""
+    record = {**record, "state": record.get("state") or "done"}
+    append_tombstone_event(conn, {"op": "delete", **{k: record.get(k) for k in TOMB_FIELDS}})
+    _upsert_tomb_cache(conn, record)
+    if commit:
+        conn.commit()
+
+
+def clear_tombstone(conn: sqlite3.Connection, row: Any, op: str, *, commit: bool = True) -> None:
+    """解除屏蔽（op = forget / restore）：先追加 jsonl，再删缓存行。"""
+    append_tombstone_event(conn, {"op": op, "source": row["source"], "source_id": row["source_id"],
+                                  "item_id": row["item_id"]})
+    conn.execute("DELETE FROM tombstones WHERE source = ? AND source_id = ?", (row["source"], row["source_id"]))
+    if commit:
+        conn.commit()
+
+
+def _tomb_plan(conn: sqlite3.Connection):
+    """(jsonl 每篇最后的状态, 缓存行, 要导出成 jsonl 的老屏蔽, 要改的缓存)。只读，不动任何东西。"""
+    final: dict[tuple[str, str], dict[str, Any] | None] = {}
+    for event in _read_events(tombstones_path(conn)):
+        key = (str(event["source"]), str(event["source_id"]))
+        final[key] = event if event.get("op") == "delete" else None
+    cached = {(r["source"], r["source_id"]): dict(r) for r in conn.execute("SELECT * FROM tombstones")}
+    exports = {key: row for key, row in cached.items() if key not in final}
+    final.update(exports)
+    changes = [(key, record) for key, record in final.items()
+               if (record is None and cached.get(key) is not None)
+               or (record is not None and (cached.get(key) is None or _tomb_row(cached[key]) != _tomb_row(record)))]
+    return final, cached, exports, changes
+
+
+def sync_tombstones(conn: sqlite3.Connection) -> None:
+    """index.db 缓存对齐 jsonl。
+
+    - jsonl 里没出现过、index.db 里有的屏蔽（1024 之前只存在 index.db）→ 导出成 jsonl，只导一次（导完就出现过了）；
+    - 其余以 jsonl 每篇最后一行为准：屏蔽的补进 / 改正缓存，解除的从缓存删掉。
+    先不加锁看一眼；对不上才 BEGIN IMMEDIATE 重读一遍再改——别的进程「追加 jsonl → 写缓存 → 提交」做到一半时，
+    拿旧的 jsonl 去删它刚写的缓存行（复审 tomb#3）。平时对得上就不碰写锁。
+    """
+    *_, exports, changes = _tomb_plan(conn)
+    if not exports and not changes:
+        return
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
+    try:
+        _final, _cached, exports, changes = _tomb_plan(conn)
+        for row in exports.values():
+            append_tombstone_event(conn, {"op": "delete", **{k: row.get(k) for k in TOMB_FIELDS}, "via": "migrate"})
+        for key, record in changes:
+            if record is None:
+                conn.execute("DELETE FROM tombstones WHERE source = ? AND source_id = ?", key)
+            else:
+                _upsert_tomb_cache(conn, record)
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
 
 
 def relpath_from_vault(path: Path) -> str:
     return str(Path(path).resolve().relative_to(storage.vault_root().resolve())).replace("\\", "/")
 
 
+def _media_key(url: Any) -> str:
+    """图 / 视频地址只取稳定的那段：去掉 ?query 和 !样式后缀，只留最后一段路径。
+    小红书 CDN 地址前面带时间戳 / 签名段，每次抓都不一样，整串比会把同一张图当成新图。"""
+    if not url:
+        return ""
+    tail = str(url).split("?", 1)[0].split("#", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+    return tail.split("!", 1)[0]
+
+
+def _images_key(images: Any) -> list[str]:
+    return [_media_key(i.get("url") or i.get("original_url")) for i in images or [] if isinstance(i, dict)]
+
+
+def _comment_key(c: dict[str, Any]) -> dict[str, Any]:
+    audio = c.get("audio") if isinstance(c.get("audio"), dict) else {}
+    return {
+        "id": c.get("comment_id"),
+        "author": (c.get("author") or {}).get("user_id"),
+        "text": c.get("text"),
+        "created_at": c.get("created_at"),
+        "images": _images_key(c.get("images")),
+        "audio": [audio.get("audio_id"), audio.get("asr_text")] if audio else None,
+        "replies": c.get("sub_comment_count"),  # 原站显示的回复数：涨了没展开就是新缺口，要存下来续读才排得上
+        "subs": [_comment_key(s) for s in c.get("sub_comments") or [] if isinstance(s, dict)],
+    }
+
+
+def _resume_key(capture: dict[str, Any]) -> dict[str, Any]:
+    """决定「还要不要续读」的那几项：读没读到底、评论齐没齐、哪几楼有缺口、缺口是不是读多少次都一样。
+    停的具体原因（时间用完 / 额度 / 限频…）、耗时、游标、续读次数每次都可能不同，不算。"""
+    from .comment_fill import SETTLED_REASONS
+    cl = capture.get("comment_load") if isinstance(capture.get("comment_load"), dict) else {}
+    gaps = sorted([str(g.get("comment_id")), str(g.get("reason") or "") in SETTLED_REASONS]
+                  for g in cl.get("gaps") or [] if isinstance(g, dict) and g.get("comment_id"))
+    return {"has_more": cl.get("has_more"), "complete": capture.get("comments_complete"), "gaps": gaps}
+
+
+def content_fingerprint(source: dict[str, Any]) -> dict[str, Any]:
+    """判「内容变没变」只看内容：标题、正文、作者、发布时间、图 / 视频清单、附件、评论（文字 / 图 / 语音 / 楼中楼）。
+    外加续读状态（各楼原站回复数、读没读到底、缺口）：额度不够没展开的新缺口不存下来，后台就不会补（Codex 1025）。
+
+    1024 起不再算进来的（会自然变、不代表内容变了）：xsec_token、输入网址、抓取时间、评论加载耗时 / 游标、
+    网页探测结果、点赞收藏数、头像、IP 属地、附件下载状态、CDN 签名段。
+    """
+    note = source.get("note") or {}
+    video = note.get("video") if isinstance(note.get("video"), dict) else None
+    return {
+        "source": source.get("source"),
+        "source_id": source.get("source_id"),
+        "kind": note.get("kind"),
+        "title": note.get("title"),
+        "body": note.get("body"),
+        "author": (note.get("author") or {}).get("user_id"),
+        "published_at": note.get("published_at"),
+        "images": _images_key(note.get("images")),
+        "video": [_media_key(video.get("video_url")), video.get("duration_sec")] if video else None,
+        "attachments": [[a.get("doc_id"), a.get("name")] for a in note.get("attachments") or [] if isinstance(a, dict)],
+        "comments": [_comment_key(c) for c in source.get("comments") or [] if isinstance(c, dict)],
+        "resume": _resume_key(source.get("capture") or {}),
+    }
+
+
 def normalized_source_sha256(source: dict[str, Any]) -> str:
-    """source.json 规范化后的 sha256：忽略 engagement 数字（点赞/收藏等会自然波动的字段）。"""
-    clone = json.loads(json.dumps(source))
-    note = clone.get("note") or {}
-    note.pop("engagement", None)
-    clone.get("capture", {}).pop("captured_at", None)
-    payload = json.dumps(clone, ensure_ascii=False, sort_keys=True)
+    """source.json 的内容指纹 sha256（口径见 content_fingerprint）。"""
+    payload = json.dumps(content_fingerprint(source), ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -197,12 +408,28 @@ def add_source_version(
 
 
 def latest_source_sha256(conn: sqlite3.Connection, item_id: str) -> str | None:
-    cur = conn.execute(
-        "SELECT source_sha256 FROM sources WHERE item_id = ? ORDER BY version DESC LIMIT 1",
+    """最新版本的内容指纹。
+
+    1024 换了口径：库里存的可能是旧口径（混了口令 / 耗时）的值，直接拿来比会让首次刷新多出一个版本。
+    所以这里按新口径从那一版的 source.json 重算；和库里存的不一样就顺手改掉。读不到文件才退回存的值。
+    """
+    row = conn.execute(
+        "SELECT id, raw_dir, source_sha256 FROM sources WHERE item_id = ? ORDER BY version DESC LIMIT 1",
         (item_id,),
-    )
-    row = cur.fetchone()
-    return row["source_sha256"] if row else None
+    ).fetchone()
+    if not row:
+        return None
+    try:
+        sha = normalized_source_sha256(storage.read_json(storage.vault_root() / row["raw_dir"] / "source.json"))
+    except (OSError, ValueError):
+        return row["source_sha256"]
+    if sha != row["source_sha256"]:
+        # 调用方事务做到一半时不替它提交（复审 tomb#5），交给它的下一次提交带上；自己开的就自己提交，不长时间占着写锁
+        mine = not conn.in_transaction
+        conn.execute("UPDATE sources SET source_sha256 = ? WHERE id = ?", (sha, row["id"]))
+        if mine:
+            conn.commit()
+    return sha
 
 
 def add_relation(
@@ -215,15 +442,21 @@ def add_relation(
     note: str | None,
     created_at: str,
     actor_id: str | None = None,
+    commit: bool = True,
 ) -> None:
+    # 1024：已经有同一条（同一篇 + 同一来源 / 谁 / 怎么进来 / 附言）就不再插——以前每次同步都多一行。
+    # 判断和插入在同一条语句里，别的进程同时写也不会插出两行。
     conn.execute(
-        """
+        f"""
         INSERT INTO relations (item_id, origin, actor, actor_id, ingest_kind, note, created_at)
-        VALUES (?,?,?,?,?,?,?)
+        SELECT ?,?,?,?,?,?,?
+        WHERE NOT EXISTS (SELECT 1 FROM relations WHERE ({_RELATION_KEY}) = (?,?,?,COALESCE(?, ''),?,COALESCE(?, '')))
         """,
-        (item_id, origin, actor, actor_id, ingest_kind, note, created_at),
+        (item_id, origin, actor, actor_id, ingest_kind, note, created_at,
+         item_id, origin, actor, actor_id, ingest_kind, note),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def set_attachments_status(conn: sqlite3.Connection, item_id: str, status: str) -> None:
@@ -259,6 +492,7 @@ def reindex_all(conn: sqlite3.Connection, *, verbose: bool = False) -> list[str]
     已存在的对象会被跳过（`INSERT OR IGNORE`），不会覆盖当前 relations 历史。
     返回本次回填的 item_id 列表。
     """
+    sync_tombstones(conn)  # 1024：屏蔽从 tombstones.jsonl 恢复（connect 已对过一遍，这里保险再对一次）
     root = storage.archive_root()
     reindexed: list[str] = []
     if not root.is_dir():

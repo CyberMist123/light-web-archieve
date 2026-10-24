@@ -157,18 +157,11 @@ def _log(vault: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def history(vault: Path | None = None, item: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
-    out = []
     try:
-        for line in history_path(vault).read_text(encoding="utf-8").splitlines():
-            try:
-                r = json.loads(line)
-            except ValueError:
-                continue
-            if isinstance(r, dict) and (item is None or r.get("item") == item):
-                out.append(r)
+        rows, _bad = storage.read_jsonl(history_path(vault))
     except OSError:
         return []
-    return out[-limit:]
+    return [r for r in rows if item is None or r.get("item") == item][-limit:]
 
 
 def _hid(item: str, ts: str, who: str, n: int) -> str:

@@ -125,12 +125,11 @@ COMMON_WORD_FREQ = 300   # jieba 词频 ≥ 这个的昵称当常用词（「随
 
 
 def _is_common_word(name: str) -> bool:
-    try:
-        import jieba
-        jieba.initialize()
-        return int(jieba.dt.FREQ.get(name, 0)) >= COMMON_WORD_FREQ
-    except Exception:  # noqa: BLE001
-        return False
+    # P0 1024：缺 jieba 明确报 MISSING_DEPENDENCY，不再悄悄当「不是常用词」
+    from .deps import require
+    jieba = require("jieba", "问答 / 搜索切词")
+    jieba.initialize()
+    return int(jieba.dt.FREQ.get(name, 0)) >= COMMON_WORD_FREQ
 
 
 def _author_filter(q: str, authors: set[str]) -> str | None:

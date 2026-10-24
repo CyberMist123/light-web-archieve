@@ -257,7 +257,8 @@ def _ai_off() -> set[str]:
 def _problem_context() -> dict[str, Any]:
     """{hidden: {(item_id, 细分码)}, ai_open: {能力名}, api_codes: set, ai_off: {能力名}}。读不动就当没有（fail-open：照旧出标）。"""
     from . import ai_config, ai_health, problems
-    key = (str(storage.archive_root()), _mtime(problems.path()), _mtime(storage.archive_root() / ai_health.FILE_NAME),
+    key = (str(storage.archive_root()), _mtime(problems.path()), _mtime(problems.pending_dir()),  # 旁路的行（等不到锁时写的）也算
+           _mtime(storage.archive_root() / ai_health.FILE_NAME),
            _mtime(ai_config.data_json_path()))
     if _CTX["key"] != key:
         try:
@@ -349,6 +350,15 @@ def item_problems(obj_dir: Path, report: dict[str, Any], vision: dict[str, Any],
         # 1017 她：「这些帖子是真的不见了」——隔天还打不开 = 原帖不在了：和 NOTE_GONE 同一个安静角标，不叫她去验证
         add("PERMANENT.NOTE_GONE", "原帖打不开了（多半删了或仅作者可见），本地存档还在")
     return list(out.values())
+
+
+def _flat_comments(comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """一级评论 + 它的楼中楼，按楼层顺序摊平（顺序同 llm.comment_labels；目录只要原文，不要给模型的短编号）。"""
+    out: list[dict[str, Any]] = []
+    for c in comments or []:
+        out.append(c)
+        out.extend(c.get("sub_comments") or [])
+    return out
 
 
 def _is_comment_image(image: dict[str, Any]) -> bool:
@@ -443,7 +453,6 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
             )
         ))
         from .attachments import inventory
-        from .llm import comment_labels
         report = inventory(obj_dir, meta)
         vision = _load_json(obj_dir / "derived" / "vision.json") or {}
         transcript = _load_json(obj_dir / "derived/transcript.json") or {}
@@ -456,7 +465,7 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
             "screen": str((transcript.get("screen") or {}).get("text") or ""),
             "body": str(note.get("body") or ""),
             # 评论只放原文进检索：评论者昵称不进（昵称「不是鱼露是鲈鱼」会被当成内容命中）；说话人由问收藏证据阶段另挂
-            "comments": "\n".join(str(c.get("text") or "") for _, c in comment_labels(source_doc.get("comments") or [])),
+            "comments": "\n".join(str(c.get("text") or "") for c in _flat_comments(source_doc.get("comments") or [])),
             # 图片文字 + 识图结果（表格 Markdown / 图片描述）一起进检索；精细识图（第二层 refined）成功就用它替代第一层
             "ocr": "\n".join(filter(None, (_image_search_text(im) for im in ok_images if not _is_comment_image(im)))),
             "comment_ocr": "\n".join(filter(None, (_image_search_text(im) for im in ok_images if _is_comment_image(im)))),
@@ -771,13 +780,21 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
         print(f"[catalog] 索引没算出来，顶部分类先照旧按关键词分：{type(exc).__name__}: {exc}", file=sys.stderr)
     # 星标主题（Lot E）：只是展示分组，写进 catalog-data 给目录页 chip 用，不进检索字段。
     # fail-open：topics.json 缺/坏或算隶属出错 = 没有主题，页面与没这功能时一致。
+    # p0-catalog：主题向量只读 _archive/topic-vectors.json（夜跑 index catch-up 补），build 不联网；
+    # 缓存里没有的主题这次按关键词算，名字记进 topics_vectors_pending（= 主题向量待更新）。
+    topics_pending: list[str] = []
     try:
         from . import topics as topics_mod
 
         topic_list = topics_mod.load(vault)
-        member = topics_mod.memberships(items, topic_list) if topic_list else {}
+        member = topics_mod.memberships(items, topic_list, live=False,
+                                         pending=topics_pending, vault=vault) if topic_list else {}
     except Exception:  # noqa: BLE001
         topic_list, member = [], {}
+        topics_pending.clear()  # 主题整个没算出来：不留半截的「待更新」，和 topics: [] 对得上
+    if topics_pending:
+        import sys
+        print(f"[catalog] 主题向量待更新（这次按关键词算）：{'、'.join(topics_pending)}——夜跑 index catch-up 会补", file=sys.stderr)
     for it in items:
         it["topics"] = member.get(str(it.get("id")), [])
     # 1022 Collection+ 第 4 段 A：边栏「Token 费用 · 本月」= 账本 _archive/usage/YYYY-MM.jsonl 按现价折算；
@@ -801,6 +818,7 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
         # 10-10：cats_order / items[].cats 来自索引树时带上它（页面的二级小标签、索引图读 _archive/index-data.json）
         "index": index_info,
         "topics": [t["name"] for t in topic_list],
+        "topics_vectors_pending": topics_pending,
         "usage_month": usage_month,
         "aliases": ALIASES,
         "items": slim_items,
@@ -853,19 +871,15 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
     from .remove import publish_trash
     publish_trash(vault)
     if index_info and index_info.get("migrated"):
-        # 第一次迁移出 索引.md：目录数据写好之后再（有文本 AI 时）后台起草一版草稿，免得草稿读到旧目录
+        # 第一次迁移出 索引.md：起草草稿要花钱，build 不做——只记一笔，交给夜跑 index catch-up（p0-catalog）
         try:
             from . import indextree
-            indextree.maybe_auto_draft(vault, len(items))
-        except Exception:  # noqa: BLE001
-            pass
-    if index_info:
-        # 10-11：新收的笔记 / 她新加的节点还没按内容归过 → 目录数据写好之后后台归一下（单实例、有花费上限）
-        try:
-            from . import indextree
-            indextree.maybe_classify(vault, indextree.load(vault, fresh=False))
-        except Exception:  # noqa: BLE001
-            pass
+            indextree.queue_auto_draft(vault)
+        except Exception as exc:  # noqa: BLE001
+            import sys
+            from .errtext import errtext
+            print(f"[catalog] 「待起草索引草稿」没记上：{errtext(exc)}", file=sys.stderr)
+    # 10-11 起 build 写完会后台拉起 AI 按内容归类；p0-catalog 起挪到夜跑 index catch-up（手动：index classify）
     try:  # 第 4 批：顺手核一次同步进程（running 但进程已死 → 落盘 INTERRUPTED，页面不再自己判 pid）
         from . import sync_state
         sync_state.current()
