@@ -18,11 +18,16 @@ class _Conn:
 
 
 def test_forget_purged_record(tmp_path, monkeypatch):
-    monkeypatch.setattr(remove, '_trash_path', lambda rel: tmp_path / 'gone')
-    conn = _Conn({'trash_dir': '_trash/x/1', 'canonical_url': 'https://example.com/a'})
+    # 1024：用真 index.db——以前的假行用了 canonical_url，可 tombstones 表的列叫 url，真库上 forget 每次都抛错
+    from link_brain import index as index_mod, storage
+    monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
+    conn = index_mod.connect()
+    index_mod.write_tombstone(conn, {'source': 'x', 'source_id': '1', 'item_id': 'x-1', 'url': 'https://example.com/a',
+                                     'deleted_at': '2026-10-01', 'trash_dir': '_trash/x/1'})
     r = remove.forget_item(conn, 'x-1')
     assert r == {'item_id': 'x-1', 'status': 'forgotten', 'url': 'https://example.com/a'}
-    assert conn.deleted and conn.committed
+    assert conn.execute('SELECT COUNT(*) FROM tombstones').fetchone()[0] == 0
+    conn.close()
 
 
 def test_forget_refuses_when_files_still_there(tmp_path, monkeypatch):
