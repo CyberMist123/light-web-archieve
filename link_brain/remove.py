@@ -21,69 +21,119 @@ def _trash_path(relative: str) -> Path:
 
 
 def delete_item(conn, item_id: str) -> dict[str, Any]:
+    """删一篇进回收站。顺序（1024 p0-tomb）：
+    ① 写 restore.json（续删时沿用上次那份，不重算——已挪走的文件不在原处了，重算会把它们从恢复清单里丢掉）
+    ② 写屏蔽 state=pending（先 tombstones.jsonl 再 index.db）——从这一刻起同步不会再把它拉回来
+    ③ 挪文件（已挪过的跳过）
+    ④ 删 objects 行 + 屏蔽标 done 一起提交，再往 jsonl 追加一行 done
+    半路崩了：屏蔽一直在（pending）；再删一次 / 恢复 / 下次跑 trash 命令时从断点接着做完（finish_pending）。
+    """
     row = index_mod.get_object(conn, item_id)
     if row is None:
+        tomb = conn.execute("SELECT * FROM tombstones WHERE item_id = ? AND state = 'pending'", (item_id,)).fetchone()
+        if tomb is not None:
+            # objects 行已经删掉（④ 提交过，或 index.db 重建过）：文件要是还在原处就收进回收站，再标完成
+            return _finish_without_row(conn, dict(tomb))
         return {'item_id': item_id, 'status': 'missing'}
     from .render import sanitize_title
     vault = storage.vault_root()
     obj = storage.object_dir(row['source'], row['source_id'])
-    meta = storage.read_json(obj / 'meta.json') if (obj / 'meta.json').exists() else {}
-    visible = meta.get('visible_note') or row['visible_note']
     relative = f"_trash/{row['source']}/{row['source_id']}"
     trash = _trash_path(relative)
     trash.mkdir(parents=True, exist_ok=True)
-    snapshot = {table: [dict(r) for r in conn.execute(
-        f'SELECT * FROM {table} WHERE item_id = ?', (item_id,))]
-        for table in ('objects', 'sources', 'relations')}
-    snapshot['objects'][0]['visible_note'] = visible
-    files = []
-    candidates = [vault / visible] if visible else []
-    # 1001（审计 render-8）：她改过名 / 挪过位置的、以前同步冒出来的重复份，按 frontmatter 的 item_id 一起收进回收站
-    from .render import find_visible_by_item_id
-    seen = {p.resolve() for p in candidates}
-    for extra in find_visible_by_item_id(item_id):
-        if extra.resolve() not in seen:
-            seen.add(extra.resolve())
-            candidates.append(extra)
-    # 旧版 ⭐ 会把可见笔记复制到 vault 根；副本机制已删，这里仍要清扫历史遗留副本
-    star = vault / f"{sanitize_title(meta.get('title') or row['title'] or '未命名收藏')}.md"
-    if star.exists():
-        text = star.read_text(encoding='utf-8')
-        if item_id in text or row['source_id'] in text:
-            candidates.append(star)
-    for n, file in enumerate(candidates):
-        if file.exists():
-            saved = f'notes/{n}-{file.name}'
-            (trash / 'notes').mkdir(exist_ok=True)
-            files.append({'original': file.relative_to(vault).as_posix(), 'saved': saved})
-    cover = ''
-    data = vault / '_archive/catalog-data.json'
-    if data.exists():
-        entry = next((x for x in storage.read_json(data).get('items', []) if x['id'] == item_id), {})
-        cover = entry.get('cover') or ''
-    original_prefix = obj.relative_to(vault).as_posix()
-    if cover.startswith(original_prefix + '/'):
-        cover = relative + '/object/' + cover[len(original_prefix) + 1:]
-    storage.write_json(trash / 'restore.json', {'tables': snapshot, 'files': files})
-    for file in files:
-        shutil.move(str(vault / file['original']), str(trash / file['saved']))
-    if obj.exists():
-        shutil.move(str(obj), str(trash / 'object'))
-    conn.execute('INSERT OR REPLACE INTO tombstones VALUES (?,?,?,?,?,?,?,?)', (
-        row['source'], row['source_id'], item_id, row['title'], row['canonical_url'],
-        cover, datetime.now(timezone.utc).isoformat(), relative))
+    pending = conn.execute("SELECT * FROM tombstones WHERE item_id = ? AND state = 'pending'", (item_id,)).fetchone()
+    if pending is not None and (trash / 'restore.json').exists():
+        saved_restore = storage.read_json(trash / 'restore.json')
+        files, visible = saved_restore['files'], saved_restore['tables']['objects'][0]['visible_note']
+        cover = pending['cover'] or ''
+    else:
+        meta = storage.read_json(obj / 'meta.json') if (obj / 'meta.json').exists() else {}
+        visible = meta.get('visible_note') or row['visible_note']
+        snapshot = {table: [dict(r) for r in conn.execute(
+            f'SELECT * FROM {table} WHERE item_id = ?', (item_id,))]
+            for table in ('objects', 'sources', 'relations')}
+        snapshot['objects'][0]['visible_note'] = visible
+        files = []
+        candidates = [vault / visible] if visible else []
+        # 1001（审计 render-8）：她改过名 / 挪过位置的、以前同步冒出来的重复份，按 frontmatter 的 item_id 一起收进回收站
+        from .render import find_visible_by_item_id
+        seen = {p.resolve() for p in candidates}
+        for extra in find_visible_by_item_id(item_id):
+            if extra.resolve() not in seen:
+                seen.add(extra.resolve())
+                candidates.append(extra)
+        # 旧版 ⭐ 会把可见笔记复制到 vault 根；副本机制已删，这里仍要清扫历史遗留副本
+        star = vault / f"{sanitize_title(meta.get('title') or row['title'] or '未命名收藏')}.md"
+        if star.exists():
+            text = star.read_text(encoding='utf-8')
+            if item_id in text or row['source_id'] in text:
+                candidates.append(star)
+        for n, file in enumerate(candidates):
+            if file.exists():
+                saved = f'notes/{n}-{file.name}'
+                files.append({'original': file.relative_to(vault).as_posix(), 'saved': saved})
+        cover = ''
+        data = vault / '_archive/catalog-data.json'
+        if data.exists():
+            entry = next((x for x in storage.read_json(data).get('items', []) if x['id'] == item_id), {})
+            cover = entry.get('cover') or ''
+        original_prefix = obj.relative_to(vault).as_posix()
+        if cover.startswith(original_prefix + '/'):
+            cover = relative + '/object/' + cover[len(original_prefix) + 1:]
+        storage.write_json(trash / 'restore.json', {'tables': snapshot, 'files': files})
+    record = {'source': row['source'], 'source_id': row['source_id'], 'item_id': item_id, 'title': row['title'],
+              'url': row['canonical_url'], 'cover': cover, 'trash_dir': relative,
+              'deleted_at': pending['deleted_at'] if pending is not None else datetime.now(timezone.utc).isoformat()}
+    if pending is None:
+        index_mod.write_tombstone(conn, {**record, 'state': 'pending'})
+    _move_into_trash(vault, obj, trash, files)
     conn.execute('DELETE FROM objects WHERE item_id = ?', (item_id,))
+    conn.execute("UPDATE tombstones SET state = 'done' WHERE item_id = ?", (item_id,))
     conn.commit()
+    index_mod.write_tombstone(conn, {**record, 'state': 'done'})
     # 1008（L6·B2）：删掉这篇 = 它名下没解决的问题一并标已解决（问题面板唯一的「真删除」）；永不抛异常
     from . import problems
     problems.resolve_item(item_id)
     return {'item_id': item_id, 'status': 'deleted', 'note': visible}
 
 
+def _move_into_trash(vault: Path, obj: Path, trash: Path, files: list[dict]) -> None:
+    """③：已经挪过的跳过（续删时用）。"""
+    for file in files:
+        src, dst = vault / file['original'], trash / file['saved']
+        if src.exists() and not dst.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(src), str(dst))
+    if obj.exists() and not (trash / 'object').exists():
+        shutil.move(str(obj), str(trash / 'object'))
+
+
+def _finish_without_row(conn, tomb: dict) -> dict[str, Any]:
+    """pending 屏蔽、objects 行已经没了：按 restore.json 把还留在原处的文件收进回收站，再标完成。"""
+    vault = storage.vault_root()
+    trash = _trash_path(tomb['trash_dir'])
+    saved = storage.read_json(trash / 'restore.json') if (trash / 'restore.json').exists() else {'files': []}
+    _move_into_trash(vault, storage.object_dir(tomb['source'], tomb['source_id']), trash, saved['files'])
+    index_mod.write_tombstone(conn, {**tomb, 'state': 'done'})
+    from . import problems
+    problems.resolve_item(tomb['item_id'])
+    return {'item_id': tomb['item_id'], 'status': 'deleted', 'note': None}
+
+
+def finish_pending(conn, skip=()) -> list[dict]:
+    """把上次半路崩掉的删除接着做完（幂等）；一条出错不影响别的，原因放进结果里。skip = 这次刚处理过的。"""
+    ids = [r['item_id'] for r in conn.execute("SELECT item_id FROM tombstones WHERE state = 'pending'")
+           if r['item_id'] not in skip]
+    return [_one(delete_item, conn, i) for i in ids]
+
+
 def restore_item(conn, item_id: str) -> dict:
     row = conn.execute('SELECT * FROM tombstones WHERE item_id = ?', (item_id,)).fetchone()
     if not row:
         return {'item_id': item_id, 'status': 'missing'}
+    if row['state'] == 'pending':
+        delete_item(conn, item_id)  # 删到一半崩了：先把删除做完，文件全在回收站里再整份挪回去
+        row = conn.execute('SELECT * FROM tombstones WHERE item_id = ?', (item_id,)).fetchone()
     trash = _trash_path(row['trash_dir'])
     if not (trash / 'restore.json').exists():
         return {'item_id': item_id, 'status': 'purged', 'error': '文件已彻底删除，无法恢复'}
@@ -102,8 +152,13 @@ def restore_item(conn, item_id: str) -> dict:
     for table in ('objects', 'sources', 'relations'):
         for record in snapshot['tables'][table]:
             record = {k: v for k, v in record.items() if k != 'id'}
+            if table == 'relations':
+                # 1024 之前的快照里可能带着重复行：走同一个去重插入，恢复回来不再变回多行
+                index_mod.add_relation(conn, **record, commit=False)
+                continue
             conn.execute(f"INSERT INTO {table} ({','.join(record)}) VALUES ({','.join('?' for _ in record)})", tuple(record.values()))
-    conn.execute('DELETE FROM tombstones WHERE item_id = ?', (item_id,))
+    # 解除屏蔽：jsonl 先记。崩在提交前 = 文件已回原处、索引没写上，跑一次 reindex 就补回来，不会被屏蔽卡住
+    index_mod.clear_tombstone(conn, row, 'restore', commit=False)
     conn.commit()
     shutil.rmtree(trash)
     return {'item_id': item_id, 'status': 'restored', 'visible_note': snapshot['tables']['objects'][0]['visible_note']}
@@ -126,9 +181,9 @@ def forget_item(conn, item_id: str) -> dict:
         return {'item_id': item_id, 'status': 'missing'}
     if _trash_path(row['trash_dir']).exists():
         return {'item_id': item_id, 'status': 'failed', 'code': '', 'error': '文件还在回收站里，请用「恢复」'}
-    conn.execute('DELETE FROM tombstones WHERE item_id = ?', (item_id,))
-    conn.commit()
-    return {'item_id': item_id, 'status': 'forgotten', 'url': row['canonical_url']}
+    index_mod.clear_tombstone(conn, row, 'forget')  # 1024：解除屏蔽也记进 tombstones.jsonl，重建 index.db 不会又屏蔽回去
+    # tombstones 表的列叫 url（以前读 canonical_url，真库上每次都抛 IndexError，重新导入一直失败）
+    return {'item_id': item_id, 'status': 'forgotten', 'url': row['url']}
 
 
 def publish_trash(vault=None):
@@ -189,9 +244,21 @@ def delete_items(item_ids: list[str]) -> dict[str, Any]:
     conn = index_mod.connect()
     try:
         results = [_one(delete_item, conn, i) for i in item_ids]
+        leftover = finish_pending(conn, skip=item_ids)
     finally:
         conn.close()
-    return _summary({'deleted': sum(r['status'] == 'deleted' for r in results), 'results': results}, '删', 'deleted')
+    outcome = _summary({'deleted': sum(r['status'] == 'deleted' for r in results), 'results': results}, '删', 'deleted')
+    return _report_unfinished(outcome, leftover)
+
+
+def _report_unfinished(outcome: dict, leftover: list[dict]) -> dict:
+    """以前半路崩掉的删除这次顺带做完；还没做完的照实说（它们一直被屏蔽着，不会被同步拉回来）。"""
+    bad = [r for r in leftover if r['status'] != 'deleted']
+    if bad:
+        outcome['unfinished'] = bad
+        outcome['message'] = outcome.get('message', '') + f'；另有 {len(bad)} 篇上次没删完，还在屏蔽中：{bad[0].get("error") or bad[0]["status"]}'
+        print('上次没删完：' + outcome['message'], file=sys.stderr)
+    return outcome
 
 
 def run(args) -> int:
@@ -210,6 +277,7 @@ def run(args) -> int:
                     'forget': (forget_item, 'forgotten', '解除屏蔽'),
                 }.get(args.action, (purge_item, 'purged', '彻底删除'))
                 outcome = _summary({'results': [_one(action, conn, i) for i in ids]}, verb, ok_status)
+                _report_unfinished(outcome, finish_pending(conn, skip=ids))
             finally:
                 conn.close()
     finally:
