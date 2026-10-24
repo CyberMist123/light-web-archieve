@@ -298,6 +298,10 @@ def merge_meta(old: dict[str, Any] | None, fetched: dict[str, Any]) -> dict[str,
         merged[key] = value
     if not merged.get("title") and (old or {}).get("title"):
         merged["title"] = old["title"]
+    # 重抓只拿到附件元数据（字节要登录才给、由夜跑补）不能把已经下好的附件降回 metadata_only：
+    # 字节还在对象目录里，降级会让卡片闪一下、夜跑白补一遍（1025 Fable / 复审 meta）。
+    if (old or {}).get("attachments_status") == "downloaded" and fetched.get("attachments_status") == "metadata_only":
+        merged["attachments_status"] = "downloaded"
     return merged
 
 
