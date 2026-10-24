@@ -170,7 +170,7 @@ def _child(source_key: str, source_id: str, llm: bool) -> int:
     """子进程里真正干活：识图（缺的才调）+ 渲染（llm=True 时补概要）。"""
     from . import render as render_mod
 
-    render_mod.render_item(source_key, source_id, verbose=False, llm=llm)
+    render_mod.render_item(source_key, source_id, verbose=False, llm=llm, vision=True)
     left = needs(source_key, source_id, llm=llm)
     if left:
         print(f"还缺：{'、'.join(left)}", file=sys.stderr)

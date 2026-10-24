@@ -1785,11 +1785,10 @@ def render_item(
     verbose: bool = False,
     llm: bool = False,
     re_extract: bool = False,
-    vision: bool = True,
+    vision: bool = False,
 ) -> dict[str, Any]:
-    # vision=False：只用已有的识图结果重写笔记，不调识图模型（不花钱、不联网）。
-    # 1024：`render` 命令和手动导入都传 False；这里的默认 True 只留给 enrich._child（夜跑识图靠它），
-    # 等 enrich 显式传 vision=True 后再把默认改成 False。
+    # vision=False（默认）：只用已有的识图结果重写笔记，不调识图模型（不花钱、不联网）。
+    # 要识图的调用方显式传 vision=True：enrich._child（夜跑补识图）、catch 主动保存（第二波再改成进 enrich 待办）、`render --vision`。
     if vision:
         try:
             vision_mod.build_vision(source_key, source_id, verbose=verbose)

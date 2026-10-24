@@ -74,7 +74,7 @@ def _ensure_rendered(
         return
     from . import render as render_mod
 
-    render_mod.render_item(source_key, source_id, verbose=False, llm=extract)
+    render_mod.render_item(source_key, source_id, verbose=False, llm=extract, vision=True)
 
 
 class _LazyLock:

@@ -27,7 +27,7 @@ BASELINE = {
     "export_bundle.py": 1,
     "favorites.py": 3,
     "indextree.py": 4,
-    "ingest.py": 5,
+    "ingest.py": 4,
     "mcp_tools.py": 2,
     "nightly.py": 13,
     "note.py": 2,
