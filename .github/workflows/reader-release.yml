@@ -1,0 +1,128 @@
+# 读取组件（link-brain-reader）预编译发布，开源前 P1（1025）。
+# 为什么：reader/ 里只有一个 Go 补丁，别人要装 Go 1.24 自己编译（RELEASE-BAR P8 不允许「手动编译」）。
+# 做什么：在干净 runner 上把上游 xiaohongshu-mcp 固定提交（reader/UPSTREAM）打上 reader/link-brain-reader.patch，
+#   go vet，交叉编译 Windows x64 的 link-brain-reader.exe + relatedfile.exe，连同两份许可证打成 zip，算 sha256，发成 GitHub Release。
+# 怎么用：打一个 `reader-v<版本>` 标签推上来（或在 Actions 页手动跑、填版本号）。发完把 Release 里的下载地址和 sha256
+#   填进 link_brain/reader_install.py 的 RELEASE_URL / RELEASE_SHA256（另一个小提交），插件引导的「下载读取组件」才能点。
+# 不做什么：不跑上游的 Go 测试（一部分要真浏览器）；不发 macOS / Linux（KNOWN_NAMES 已经认不带 .exe 的名字，以后要发只加一个 matrix 项）。
+name: reader-release
+
+on:
+  push:
+    tags: ["reader-v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号（如 0.2.0；产出标签 reader-v<版本>）"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: 编译读取组件（windows/amd64）并发 Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 版本号与上游基线
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ver="${{ github.event.inputs.version }}"
+          else
+            ver="${GITHUB_REF_NAME#reader-v}"
+          fi
+          [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || { echo "版本号不合法：$ver"; exit 1; }
+          read -r repo sha < <(grep -v '^#' reader/UPSTREAM | grep -v '^\s*$' | head -1)
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "reader/UPSTREAM 里的提交不是 40 位 sha：$sha"; exit 1; }
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "tag=reader-v$ver" >> "$GITHUB_OUTPUT"
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "asset=link-brain-reader-windows-amd64.zip" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: false
+
+      - name: 取上游固定提交并打补丁
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --quiet "${{ steps.meta.outputs.repo }}" upstream
+          git -C upstream checkout --quiet "${{ steps.meta.outputs.sha }}"
+          git -C upstream apply --check "$GITHUB_WORKSPACE/reader/link-brain-reader.patch"
+          git -C upstream apply "$GITHUB_WORKSPACE/reader/link-brain-reader.patch"
+
+      - name: go vet
+        working-directory: upstream
+        run: go vet ./...
+
+      - name: 交叉编译 Windows x64
+        working-directory: upstream
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          go build -trimpath -ldflags="-s -w" -o out/link-brain-reader.exe .
+          go build -trimpath -ldflags="-s -w" -o out/relatedfile.exe ./cmd/relatedfile
+          ls -la out
+
+      - name: 打包 + sha256
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="${{ steps.meta.outputs.asset }}"
+          mkdir -p dist/pkg
+          cp upstream/out/link-brain-reader.exe upstream/out/relatedfile.exe dist/pkg/
+          cp upstream/LICENSE dist/pkg/LICENSE-xiaohongshu-mcp.txt
+          cp upstream/third_party/headless_browser/LICENSE dist/pkg/LICENSE-headless_browser.txt
+          {
+            echo "link-brain-reader ${{ steps.meta.outputs.version }}（windows/amd64）"
+            echo "上游：${{ steps.meta.outputs.repo }} @ ${{ steps.meta.outputs.sha }}"
+            echo "补丁：light-web-archieve/reader/link-brain-reader.patch @ ${GITHUB_SHA}"
+            echo "许可证：上游与补丁 Apache-2.0；third_party/headless_browser MIT"
+            echo "安装：python -m link_brain reader install --url <本包地址> --sha256 <本包 sha256>"
+          } > dist/pkg/VERSION.txt
+          (cd dist/pkg && zip -q -X -r "../$asset" .)
+          (cd dist && sha256sum "$asset" | tee "$asset.sha256")
+
+      - name: Release 说明
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(cut -d' ' -f1 dist/${{ steps.meta.outputs.asset }}.sha256)"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ steps.meta.outputs.tag }}/${{ steps.meta.outputs.asset }}"
+          cat > dist/notes.md <<MD
+          读取组件 link-brain-reader ${{ steps.meta.outputs.version }}，Windows x64 预编译件（link-brain-reader.exe + relatedfile.exe）。
+
+          - 上游：${{ steps.meta.outputs.repo }} @ \`${{ steps.meta.outputs.sha }}\`，打的是本仓库 \`reader/link-brain-reader.patch\`（提交 \`${GITHUB_SHA}\`）
+          - sha256：\`$sha\`
+          - 许可证：上游与补丁 Apache-2.0；\`third_party/headless_browser\` MIT（包内附两份 LICENSE）
+
+          装法（任选）：
+          1. 插件首次引导里点「下载读取组件」（要先把下面两行填进程序）；
+          2. 命令行：\`python -m link_brain reader install --url $url --sha256 $sha\`
+          3. 手动：解压后把两个 exe 放进 \`%USERPROFILE%\\.link-brain\\bin\\\`。
+
+          发完要做的一件事：把 \`link_brain/reader_install.py\` 里的 \`RELEASE_URL\` 填成 \`$url\`、\`RELEASE_SHA256\` 填成 \`$sha\`。
+          MD
+          cat dist/notes.md
+
+      - name: 发 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: 读取组件 ${{ steps.meta.outputs.version }}（Windows x64）
+          body_path: dist/notes.md
+          files: |
+            dist/${{ steps.meta.outputs.asset }}
+            dist/${{ steps.meta.outputs.asset }}.sha256
+          fail_on_unmatched_files: true
