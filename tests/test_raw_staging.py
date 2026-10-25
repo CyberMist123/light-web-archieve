@@ -295,7 +295,7 @@ def test_delete_item_holds_object_lock_and_reports_busy(vault, monkeypatch):
         res = remove._one(remove.delete_item, conn, "xhs-nobody")
     finally:
         conn.close()
-    assert res["status"] == "failed" and "ingest" in res["error"]
+    assert res["status"] == "failed" and "别的任务" in res["error"]
 
 
 def test_raw_health_and_doctor_row(vault):
@@ -315,3 +315,31 @@ def test_raw_health_and_doctor_row(vault):
     shutil.rmtree(stale)
     rows = {r["id"]: r for r in doctor.diagnose(only="local")["checks"]}
     assert rows["raw"]["state"] == "ready"
+
+
+def test_backfill_holds_object_lock_and_reports_busy(vault, monkeypatch):
+    row = _ingest_one(monkeypatch)
+    names = []
+    real = storage.file_lock
+
+    def spy(name, wait_s=0, **kw):
+        names.append((name, wait_s))
+        return real(name, wait_s, **kw)
+
+    monkeypatch.setattr(storage, "file_lock", spy)
+    monkeypatch.setattr(xhs, "_video", lambda note: {})
+    assert videos.backfill(row)["status"] == "missing_url"
+    assert (storage.obj_lock_name(row["item_id"]), 30) in names
+    monkeypatch.setattr(storage, "file_lock", lambda name, wait_s=0, **kw: (_ for _ in ()).throw(storage.LockBusy(name, {"owner": "remove"})))
+    out = videos.backfill(row)
+    assert out["status"] == "busy" and "别的任务" in out["error"] and row["item_id"] not in out["error"]
+
+
+def test_delete_busy_reason_hides_lock_name(vault, monkeypatch):
+    monkeypatch.setattr(storage, "file_lock", lambda name, wait_s=0, **kw: (_ for _ in ()).throw(storage.LockBusy(name, {"owner": "obj-xhs-1"})))
+    conn = index_mod.connect()
+    try:
+        res = remove._one(remove.delete_item, conn, "xhs-nobody")
+    finally:
+        conn.close()
+    assert res["status"] == "failed" and "obj-" not in res["error"] and "别的任务" in res["error"]

@@ -130,14 +130,14 @@ def diagnose(*, obsidian_dir: str | None = None, only=None) -> dict:
     # 1025 第二波 PR④：RAW 目录健康——老代码崩在下载中留下的半截 vNNNN（没 manifest.json，不算版本、不动）、
     # 过期暂存目录（下次同一篇入库时自动清）。只报数，不改文件。
     try:
-        health = storage.raw_health() if vault.exists() else {}
+        health = storage.raw_health() if vault.exists() and (not only or only == 'local') else {}
     except OSError:
         health = {}
     half, stale = health.get('objects_with_incomplete_versions', 0), health.get('stale_staging_dirs', 0)
     rows.append(row('raw', 'RAW 版本', 'ready' if not (half or stale) else 'notice',
                              '版本目录完整' if not (half or stale) else
                              f'{half} 篇有写一半的旧版本目录，{stale} 个过期暂存目录',
-                             '' if not (half or stale) else '不影响使用：半截目录不算版本，重新抓一次就有完整版本；暂存目录下次入库自动清。',
+                             '' if not (half or stale) else '不影响使用：半截目录不算版本，重新抓一次那篇就有完整版本；过期暂存目录在下次给同一篇写版本时自动清。',
                              optional=True))
     if (not only or only in ('xhs', 'favorites', 'attachments')) and accounts is not None:
         rows.append(accounts.xhs_status(deep=only is not None))
@@ -171,7 +171,7 @@ def run(args) -> int:
                     sys.stdout.write(line)
         dump_json(result)
     else:
-        marks = {'ready': '✅', 'configured': '○', 'unconfigured': '○', 'unknown': '⚠', 'missing': '⚠'}
+        marks = {'ready': '✅', 'configured': '○', 'unconfigured': '○', 'unknown': '⚠', 'missing': '⚠', 'notice': '⚠'}
         lines = []
         for r in result['checks']:
             lines.append(f"{r['label']} {marks.get(r['state'], '❌')} {r['message']}")

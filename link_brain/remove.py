@@ -21,8 +21,8 @@ def _trash_path(relative: str) -> Path:
 
 
 def delete_item(conn, item_id: str) -> dict[str, Any]:
-    """删一篇进回收站（整段在这篇的单篇锁里：1025 第二波 PR④——删的时候别的入口正在给它写新 RAW 版本 / 改 meta 就等一等，
-    等不到（LockBusy）由 _one 报成这一条失败，原因给用户看）。顺序见 _delete_item。"""
+    """删一篇进回收站（整段在这篇的单篇锁里：1025 第二波 PR④——和同样整段拿锁的 videos backfill、以及所有改 meta 的
+    update_json 互斥；ingest 整段拿锁在 PR⑤。等不到（LockBusy）由 _one 报成这一条失败，原因给用户看）。顺序见 _delete_item。"""
     with storage.file_lock(storage.obj_lock_name(item_id), wait_s=30, owner="remove"):
         return _delete_item(conn, item_id)
 
@@ -238,6 +238,8 @@ def _one(action, conn, item_id: str) -> dict[str, Any]:
         reason = (str(exc) or type(exc).__name__)[:200]
         if isinstance(exc, PermissionError):
             reason = '文件被占用或没有权限：' + reason
+        elif isinstance(exc, storage.LockBusy):
+            reason = '这篇正在被别的任务写入，稍后再试'       # 锁名 / 持有者是内部 id，不给用户看
         # 用户自己点的操作：原因当场给她看，不进问题记录，故障码留空
         return {'item_id': item_id, 'status': 'failed', 'code': '', 'error': reason}
 

@@ -42,6 +42,16 @@ def download(video, raw, prefix, client=None):
 
 
 def backfill(row):
+    """给旧 RAW 补视频。整段在这篇的单篇锁里（1025 第二波 PR④）：读 meta → 下载 → 发布 → 改 meta 之间别的入口
+    （删除、续读）进不来，删除也就不会在下载中途把对象目录挪走再被这里建回来。拿不到锁 = 别人正写这篇，这次跳过如实报。"""
+    try:
+        with storage.file_lock(storage.obj_lock_name(row['item_id']), wait_s=30, owner='videos backfill'):
+            return _backfill(row)
+    except storage.LockBusy:
+        return {'item_id': row['item_id'], 'status': 'busy', 'bytes': 0, 'error': '这篇正被别的任务写入，下次再补'}
+
+
+def _backfill(row):
     obj = storage.object_dir(row['source'], row['source_id'])
     meta = storage.read_json(obj/'meta.json')
     old = storage.raw_dir(row['source'], row['source_id'], meta['current_version'])
