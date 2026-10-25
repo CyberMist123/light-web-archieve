@@ -1,0 +1,1067 @@
+"""小红书账号：一个号、一个读取服务、一个持久浏览器目录。
+
+读取服务（link-brain-reader，xiaohongshu-mcp 的扩展版）独占一个 Chromium profile，
+评论 / 私密收藏 / 附件都经它的 HTTP 接口、在同一进程里串行跑——同一个号不会再有
+第二个网页会话去顶掉它（2026-09-25 实测：一个号三项全通）。
+
+扫码的铁律：出码之后只轮询 `/login/session`（纯内存状态，不开浏览器）。
+旧流程轮询 `/login/status`，而它每查一次都会把正在扫的二维码页导航走。
+
+所有失败都落成 `ReaderError(code)`，`SOLUTIONS` 给出人话原因 + 下一步 + 界面按钮，
+调用方据此停车，而不是反复重试（重试会撞风控验证码，0925 真撞过）。
+
+1001 护号（审计 A-3/A-5/B-3/B-6）：
+- 风控熔断：读取服务撞到验证 / 登录异常页会写 `<profile>/risk-hold.json`，之后拒绝一切开页请求
+  （HTTP 423 · code=RISK_HOLD）。批量入口开工前先看 `risk_hold()`，有就直接停，不开页。
+- 跨进程账号锁 `~/.link-brain/account.lock`：同步收藏 / 附件 / catch / 登录检查同一时刻只有一个在用号。
+- 跨进程开页间隔 `pace()`：任何碰号的请求开页前，距上一次开页至少随机 20–40 秒（`last-open.txt`）。
+"""
+from __future__ import annotations
+
+import contextlib
+import html
+import json
+import os
+import random
+import shutil
+import subprocess
+import sys
+import time
+import webbrowser
+from datetime import datetime
+from pathlib import Path
+from urllib.parse import urlsplit
+
+import httpx
+
+from ... import storage
+
+DEFAULT_ENDPOINT = 'http://127.0.0.1:18061/mcp'
+READER_NAMES = ('link-brain-reader.exe', 'link-brain-reader')
+
+# 要人处理的码（读取服务的风险码 + 本地要装组件）：撞见就停车，绝不重试
+NEEDS_HUMAN_CODES = ('NOT_LOGGED_IN', 'CAPTCHA_REQUIRED', 'ACCOUNT_RISK', 'RISK_HOLD', 'NOT_INSTALLED')
+RISK_CODES = ('CAPTCHA_REQUIRED', 'ACCOUNT_RISK', 'RISK_HOLD')
+# 1015：小红书回 /website-login/error?error_code=300013（访问频繁）= 限频，不是封号 / 验证。读取组件（reader-8）把它记成
+# 限频冷却：熔断对象 code=XHS_RATE_LIMITED，带 until（冷却到几点）/ strikes（24 小时内第几次）/ probing（已到点，放行自探）。
+# 冷却中：照样一页不开，但不要人处理、不推送（TRANSIENT）；到点：当没有熔断（下一个用号请求就是自探，成功读取组件自己清）。
+# 连着 3 档冷却（2/4/6 小时）还限频，读取组件会把它升级成 ACCOUNT_RISK，那时才要人。
+# 码名不叫 RATE_LIMITED：那个已经是「收藏 10 分钟最多读一次」（刚同步过）。
+RATE_LIMIT_CODE = 'XHS_RATE_LIMITED'
+
+# code -> (状态, 一句话原因, 下一步, 界面按钮 action)
+SOLUTIONS = {
+    'NOT_LOGGED_IN': ('expired', '登录已失效', '点击「扫码登录」，用收藏所在的小红书账号扫码。', 'login'),
+    # 1008（B1 A3）：上次多半是读收藏时被拦的——只有在窗口里点一下「收藏」页签，还在生效的验证才会露出来
+    'CAPTCHA_REQUIRED': ('captcha', '小红书弹了验证（不是掉登录）',
+                         '点击「打开验证」，窗口打开后点一下「收藏」页签（上次是读收藏时被拦的）；出现滑块就拖完再关窗，'
+                         '没出现就直接关窗。不要反复重试。', 'verify'),
+    'ACCOUNT_RISK': ('expired', '小红书把读取号跳到了登录/安全页（风控）',
+                     '所有用号的同步都已暂停。点击「扫码登录」用收藏所在的号重新登录，登录成功会自动恢复；'
+                     '如果弹的是拼图验证就点「打开验证」手动完成。不要反复重试。', 'login'),
+    'RISK_HOLD': ('captcha', '风控暂停中：读取服务已停止用号开页',
+                  '上次撞到了安全验证或登录异常，之后所有会用号开页的操作都暂停了。点击「打开验证」或「扫码登录」处理完，'
+                  '暂停会自动解除；在那之前夜里的同步、附件补下都会跳过。', 'verify'),
+    'ACCOUNT_BUSY': ('busy', '正在同步收藏', '号正被另一个任务使用（同步收藏 / 附件 / 导入），它做完再试。', 'wait'),
+    'RATE_LIMITED': ('busy', '刚刚同步过', '为避免触发风控，收藏每 10 分钟最多读一次，请稍后再试。', 'wait'),
+    RATE_LIMIT_CODE: ('busy', '小红书说访问太频繁（限频，不是封号）',
+                      '已自动冷却，到点自己再试一次，成功就自动恢复，不用处理；连着几次冷却还这样才会叫你。', 'wait'),
+    'LOGIN_IN_PROGRESS': ('busy', '正在等待扫码', '先完成或关闭正在进行的扫码，再重试。', 'wait'),
+    'VERIFY_WINDOW_OPEN': ('busy', '验证窗口还开着', '完成验证后关掉那个小红书窗口，再重试。', 'wait'),
+    'DISCONNECTED': ('disconnected', '读取服务没有运行', '点击「重试」会自动启动；仍失败请查看详情里的日志路径。', 'retry'),
+    'NOT_INSTALLED': ('unconfigured', '未安装读取组件', '按 README「小红书读取组件」放置 link-brain-reader，然后刷新状态。', 'none'),
+    'NO_DOWNLOAD_BUTTON': ('error', '附件页没有下载按钮', '文件可能已被作者删除或关闭下载，可在网页手动下载后用「挂载本地文件」。', 'none'),
+    'DOWNLOAD_TIMEOUT': ('error', '附件下载超时', '稍后重试；多次失败请在网页手动下载后挂载。', 'retry'),
+    'TIMEOUT': ('unknown', '读取服务响应超时', '机器负载高时会发生：稍后点击「重试」。', 'retry'),
+    'BUSY': ('unknown', '读取服务正忙', '正在抓别的笔记，做完自然恢复；不是掉登录，不用扫码。', 'retry'),
+    # 1011：只是这一篇（网页版要验证才给看），不是号出事——不停整批、不写熔断（link_brain/restricted.py）
+    'NOTE_RESTRICTED': ('error', '这篇在小红书网页版要验证才能看',
+                        '在这篇的笔记页（或问题面板）点「打开验证」，在弹出的窗口里过一下验证、看到笔记后关窗；过了会自动补抓评论 / 附件。',
+                        'verify_note'),
+}
+
+
+class ReaderError(RuntimeError):
+    def __init__(self, code: str, message: str = '', detail: str = '', *, hold: dict | None = None):
+        self.code, self.detail, self.hold = code, detail, hold
+        super().__init__(message or SOLUTIONS.get(code, ('', code))[1])
+
+    @property
+    def needs_human(self) -> bool:
+        return self.code in NEEDS_HUMAN_CODES
+
+
+class AccountBusyError(RuntimeError):
+    """账号锁被别的任务占着（CLI 退出码 6）。`holder` = 锁文件内容（pid / owner / started / heartbeat）。"""
+
+    exit_code = 6
+
+    def __init__(self, holder: dict | None = None):
+        self.holder = holder or {}
+        owner = self.holder.get('owner') or '别的任务'
+        super().__init__(f'号正被「{owner}」使用（正在同步收藏或下附件），稍后再试')
+
+
+def home() -> Path:
+    return Path(os.environ.get('LINK_BRAIN_HOME', str(Path.home() / '.link-brain')))
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """先写临时文件再 os.replace：进程半路被杀也不会留下半截文件（CONVENTIONS §6.5：就是 storage.atomic_write_text）。"""
+    storage.atomic_write_text(path, text)
+
+
+def config() -> dict:
+    p = home() / 'accounts.json'
+    if not p.exists():
+        return {}
+    data = json.loads(p.read_text('utf-8'))
+    if not isinstance(data, dict):
+        raise ValueError('账号配置格式不正确：' + str(p))
+    return data
+
+
+def save(values: dict) -> None:
+    data = config()
+    data.update(values)
+    home().mkdir(parents=True, exist_ok=True)
+    _atomic_write_text(home() / 'accounts.json', json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def endpoint() -> str:
+    return os.environ.get('LINK_BRAIN_XHS_ENDPOINT') or config().get('endpoint') or DEFAULT_ENDPOINT
+
+
+def base_url() -> str:
+    return endpoint().removesuffix('/mcp')
+
+
+ENV_TOOL_DIR = 'LINK_BRAIN_XHS_TOOL_DIR'
+LEGACY_TOOL_DIRNAME = '.xiaohongshu-mcp'
+
+
+def bin_dir() -> Path:
+    """`reader install` 把读取组件放这里（`~/.link-brain/bin`）；找组件时第一个看这里。"""
+    return home() / 'bin'
+
+
+def tool_dir() -> Path:
+    """自己编译 / 旧版 xiaohongshu-mcp 习惯放组件的目录（第 5 批可配置）：
+    环境变量 LINK_BRAIN_XHS_TOOL_DIR → `~/.link-brain/config.json` 的 `xhs_tool_dir` → 默认 `~/.xiaohongshu-mcp`（老用户不受影响）。"""
+    explicit = os.environ.get(ENV_TOOL_DIR) or storage.user_config().get('xhs_tool_dir')
+    if isinstance(explicit, str) and explicit.strip():
+        return Path(os.path.expandvars(explicit.strip())).expanduser()
+    return Path.home() / LEGACY_TOOL_DIRNAME
+
+
+def tool_roots() -> tuple[Path, ...]:
+    """找组件 exe 的目录，按顺序：下载装好的 → 程序目录 tools/ → 组件目录。"""
+    return (bin_dir(), storage.repo_root() / 'tools', tool_dir())
+
+
+def executable(env: str, names: tuple[str, ...]) -> str | None:
+    explicit = os.environ.get(env)
+    if explicit:
+        return explicit if Path(explicit).is_file() else shutil.which(explicit)
+    for name in names:
+        for root in tool_roots():
+            if (root / name).is_file():
+                return str(root / name)
+        found = shutil.which(name)
+        if found:
+            return found
+    return None
+
+
+def reader_exe() -> str | None:
+    return executable('LINK_BRAIN_XHS_EXE', READER_NAMES)
+
+
+def profile_dir() -> Path:
+    """读取服务独占的浏览器目录；登录态住在这里（不导出 cookie）。"""
+    explicit = os.environ.get('XHS_PROFILE_DIR') or config().get('profile')
+    if explicit:
+        return Path(explicit)
+    legacy = tool_dir() / 'data' / 'xhs' / 'momo-profile'
+    return legacy if legacy.is_dir() else home() / 'xhs-profile'
+
+
+def reader_env() -> dict:
+    # 不钉域名：登录落在 xiaohongshu.com 还是 rednote.com 因号而异（0926 实测），
+    # 读取服务在登录成功时探明并记在 profile 的 site-host 里。要强制时才设 XHS_HOST。
+    return {**os.environ, 'XHS_PROFILE_DIR': str(profile_dir())}
+
+
+# 会让读取服务用号开页的接口：请求回来（成功失败都算）时把开页时刻戳挪到「这页看完」（见 pace_done）
+PAGE_ROUTES = ('/api/v1/favorites', '/api/v1/attachments/download', '/api/v1/notes/related-file',
+               '/api/v1/login/status', '/api/v1/notes/search-token', '/api/v1/boards', '/api/v1/boards/notes')
+
+
+GUARD_FILE = 'account-guard.json'
+
+
+def _account_guard() -> None:
+    """本机碰号闸（1008 事故后加）：home()/account-guard.json 列了 allowed_roots 时，只有从这些程序目录里跑的代码
+    能联系读取服务；开发副本、worktree、一次性脚本一律拒绝（不开页、不拉起服务）。没有这个文件就不设闸（开源用户默认）。
+    文件坏了按「拒绝」处理（宁可不碰号）。conftest 把 LINK_BRAIN_HOME 隔离到临时目录，测试不受影响。"""
+    p = home() / GUARD_FILE
+    if not p.exists():
+        return
+    try:
+        roots = json.loads(p.read_text('utf-8')).get('allowed_roots') or []
+    except Exception:  # noqa: BLE001
+        roots = []
+    here = storage.repo_root()  # PR③：搬进小红书包后 __file__ 深了一层，程序目录统一问 storage
+    for r in roots:
+        try:
+            here.relative_to(Path(r).resolve())
+            return
+        except (ValueError, OSError):
+            continue
+    raise ReaderError('DEV_COPY_BLOCKED', f'这份代码不在允许用号的程序目录里（{p} 的 allowed_roots），开发副本 / 测试脚本不许联系读取服务')
+
+
+def api(method: str, route: str, *, timeout: float = 45, body: dict | None = None) -> dict:
+    """调读取服务的 HTTP 接口；碰号的那几类（actionlog.action_for_route 认得的）记一行用号行为日志（1016）。"""
+    from ... import actionlog
+    action = actionlog.action_for_route(route)
+    if not action:
+        return _api(method, route, timeout=timeout, body=body)
+    t0 = time.monotonic()
+    item = str((body or {}).get('feed_id') or (body or {}).get('note_id') or '')
+    try:
+        out = _api(method, route, timeout=timeout, body=body)
+    except ReaderError as exc:
+        actionlog.record(action, ok=False, item=item, code=exc.code, detail=f'{exc} {getattr(exc, "detail", "")}',
+                         secs=time.monotonic() - t0)
+        raise
+    actionlog.record(action, ok=True, item=item, secs=time.monotonic() - t0)
+    return out
+
+
+def _api(method: str, route: str, *, timeout: float = 45, body: dict | None = None) -> dict:
+    _account_guard()
+    opens_page = route.split('?', 1)[0] in PAGE_ROUTES
+    try:
+        response = httpx.request(method, base_url() + route, json=body, timeout=timeout)
+    except httpx.TimeoutException as exc:
+        raise ReaderError('TIMEOUT', detail=str(exc)) from exc
+    except httpx.RequestError as exc:
+        # 1001（A-5）：连接被重置（10054 → ReadError / RemoteProtocolError）和连不上一样，都是「服务断了」。
+        # 以前只接 ConnectError，下载附件途中断线就一路崩到整晚补下 / 补查停掉。
+        raise ReaderError('DISCONNECTED', detail=f'{type(exc).__name__}: {exc}') from exc
+    finally:
+        if opens_page:
+            pace_done()
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    if response.status_code >= 400 or payload.get('success') is False:
+        code = payload.get('code') or ('RISK_HOLD' if response.status_code == 423 else f'HTTP_{response.status_code}')
+        detail = payload.get('details')
+        hold = payload.get('hold') if isinstance(payload.get('hold'), dict) else None
+        if code == 'RISK_HOLD' and hold and not detail:
+            detail = hold
+        if code == 'RISK_HOLD' and is_rate_limited(hold):
+            code = RATE_LIMIT_CODE  # 限频冷却中：不是要人处理的熔断
+        exc = ReaderError(code, payload.get('error') or payload.get('message') or '',
+                          json.dumps(detail, ensure_ascii=False) if isinstance(detail, (dict, list)) else str(detail or ''),
+                          hold=hold)
+        _note_account(exc.code, (f'{hold_text(hold)}：' if hold else '') + f'{route}: {exc}')
+        raise exc
+    return payload.get('data', payload)
+
+
+def _note_account(code: str, detail: str = '') -> None:
+    """掉登录 / 要验证：不管哪个环节撞见，都点亮目录页的「!」（0927）。写不进去不影响主流程。"""
+    try:
+        from ... import sync_state
+        if code in sync_state.ACCOUNT_CODES:
+            sync_state.account_problem(code, detail)
+        elif code == 'OK':
+            sync_state.account_ok()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def ensure_reader(*, wait: float = 40):
+    """服务没起就在本机拉起（脱离父进程，插件/同步退出后仍在）；远程地址不代管。"""
+    try:
+        return api('GET', '/api/v1/login/session', timeout=5)
+    except ReaderError as exc:
+        if exc.code != 'DISCONNECTED':
+            raise
+    target = urlsplit(endpoint())
+    if target.hostname not in ('localhost', '127.0.0.1'):
+        raise ReaderError('DISCONNECTED', '远程读取服务未连接，请由服务管理员启动。')
+    exe = reader_exe()
+    if not exe:
+        raise ReaderError('NOT_INSTALLED')
+    home().mkdir(parents=True, exist_ok=True)
+    log = home() / 'reader.log'
+    # 只监听本机：这个服务握着小红书登录，不能对局域网开放。
+    # CONVENTIONS §6.3（根治 0929）：经短命中转拉起，读取服务不是任何 Python 的子孙——
+    # 插件 / 夜跑超时杀 Python 进程树时够不着它和它的浏览器。参数、环境变量、工作目录与以前完全一样。
+    from ... import procs
+    procs.spawn_detached([exe, '-port', f'127.0.0.1:{target.port or 18061}'], cwd=home(), env=reader_env(),
+                         log_path=log)
+    deadline = time.monotonic() + wait  # 首次启动可能要下载内置浏览器
+    while time.monotonic() < deadline:
+        time.sleep(1)
+        try:
+            return api('GET', '/api/v1/login/session', timeout=3)
+        except ReaderError as exc:
+            if exc.code != 'DISCONNECTED':
+                raise
+    raise ReaderError('DISCONNECTED', '读取服务启动未完成', '日志：' + str(log))
+
+
+def restart_reader() -> None:
+    """服务卡死（常见于高负载下浏览器启动没回来、一直占着账号目录）时：结束服务和占着该目录的浏览器，再拉起。
+
+    0929：只杀真卡死的。服务只是正忙（正在抓一篇长评论）时，登录检查会排队超时；以前据此把服务连同
+    正在用账号目录的浏览器一起杀掉 → 正在跑的同步/补查全断（10054），新浏览器读到的是没落好盘的账号目录，
+    误判「游客」弹登录窗。现在先问一下服务本身还应不应答（毫秒级接口），应答就说明是忙不是死，不杀。
+
+    1001（A-3）：但「应答」不等于「没卡死」——关浏览器卡住时锁永远不放，session 照样秒回。
+    所以应答时再看它报的锁占了多久：超过 XHS_LOCK_MAX_S + 60 秒才算卡死，照旧重启；
+    没有锁 / 锁还在预算内 = 忙，不杀。session 不应答才按旧逻辑直接重启。
+    """
+    if os.name != 'nt' or urlsplit(endpoint()).hostname not in ('localhost', '127.0.0.1'):
+        return
+    try:
+        session = api('GET', '/api/v1/login/session', timeout=5)
+    except ReaderError:
+        session = None  # 不应答：真死了
+    if session is not None:
+        lock = session.get('lock') if isinstance(session.get('lock'), dict) else None
+        held = (lock or {}).get('held_s')
+        if not (isinstance(held, (int, float)) and held > lock_max_seconds() + 60):
+            raise ReaderError('BUSY', '读取服务正在处理别的任务（没有卡死），等它做完再试')
+        print(f'[reader] 读取服务的锁被「{lock.get("owner")}」占了 {held:.0f} 秒，判定卡死，重启', file=sys.stderr)
+    profile =str(profile_dir()).replace("'", "''")
+    names = ','.join(f"'{n}'" for n in READER_NAMES)
+    script = (f"Get-CimInstance Win32_Process | Where-Object {{ @({names}) -contains $_.Name -or "
+              f"($_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*{profile}*') }} | "
+              "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }")
+    subprocess.run(['powershell.exe', '-NoProfile', '-Command', script], capture_output=True, timeout=30,
+                   creationflags=subprocess.CREATE_NO_WINDOW)
+    time.sleep(1)
+    ensure_reader()
+
+
+def lock_max_seconds() -> float:
+    """读取服务单次占锁的上限（与服务端 XHS_LOCK_MAX_S 同一个变量，默认 900 秒）。"""
+    try:
+        return float(os.environ.get('XHS_LOCK_MAX_S') or 900)
+    except ValueError:
+        return 900.0
+
+
+# ---------------------------------------------------------------------------
+# 风控熔断（1001，B-3）：服务端写 <profile>/risk-hold.json；这里只读，解除只能靠登录 / 验证 / 人工清除
+# ---------------------------------------------------------------------------
+
+
+def is_rate_limited(hold: dict | None) -> bool:
+    """熔断对象是不是限频冷却（1015）。"""
+    return isinstance(hold, dict) and str(hold.get('code') or '') == RATE_LIMIT_CODE
+
+
+def rate_limit_until(hold: dict | None) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str((hold or {}).get('until'))).astimezone()
+    except (TypeError, ValueError):
+        return None
+
+
+def rate_limit_probing(hold: dict | None, now: datetime | None = None) -> bool:
+    """限频冷却已到点（读取组件放行请求当自探）：服务说 probing，或 until 已过 / 读不出。"""
+    if not is_rate_limited(hold):
+        return False
+    if hold.get('probing'):
+        return True
+    until = rate_limit_until(hold)
+    return until is None or (now or datetime.now().astimezone()) >= until
+
+
+def rate_limit_text(hold: dict | None) -> str:
+    """「小红书说访问太频繁，已冷却到 14:05（第 1 次），到点自己再试」。"""
+    until = rate_limit_until(hold)
+    n = int((hold or {}).get('strikes') or 0)
+    when = f'，已冷却到 {until:%H:%M}' if until else '，已自动冷却'
+    nth = f'（今天第 {n} 次）' if n > 1 else ''
+    return f'小红书说访问太频繁（限频，不是封号）{when}{nth}，到点自己再试，不用处理'
+
+
+def _active(hold: dict | None) -> dict | None:
+    """限频冷却到点了就当没有熔断（放行请求当自探）；其余原样。"""
+    if not isinstance(hold, dict) or not hold or rate_limit_probing(hold):
+        return None
+    return hold
+
+
+def _hold_file() -> dict | None:
+    path = profile_dir() / 'risk-hold.json'
+    try:
+        data = json.loads(path.read_text('utf-8'))
+    except (OSError, ValueError):
+        return None
+    return _active(data) if isinstance(data, dict) and data.get('code') else None
+
+
+def hold_from_session(session: dict | None) -> dict | None:
+    """session 带 risk_hold 字段就以它为准（服务是权威）；老版本服务没有这个字段就退回读文件。
+    1015：限频冷却已到点（probing）当没有熔断。"""
+    if isinstance(session, dict) and 'risk_hold' in session:
+        return _active(session.get('risk_hold'))
+    return _hold_file()
+
+
+def risk_hold() -> dict | None:
+    """现在是不是在熔断中。只问 /login/session（不拿锁、不开浏览器）；服务不在就直接读熔断文件。"""
+    try:
+        session = ensure_reader()
+    except ReaderError:
+        return _hold_file()
+    return hold_from_session(session)
+
+
+# ---- 1008（读取组件 d7）熔断对象 {code, since, detail, tab, want_tab, incident_page, evidence}：
+# evidence 是本机证据目录的绝对路径（~/.link-brain/risk-evidence/<YYYYMMDD-HHMMSS>，里面 shot.png / hit.html / meta.json，
+# 有私密收藏）——进问题记录 / 复制报错 / stdout / 通知之前一律剥掉，只留目录名 evidence_id，面板「查看截图」自己拼本机路径打开。
+HOLD_PUBLIC_KEYS = ('code', 'since', 'detail', 'tab', 'want_tab', 'incident_page', 'until', 'strikes')
+TAB_WHERE = {'fav': '读收藏时', 'collect': '读收藏时', 'note': '打开笔记时', 'notes': '打开主页时', 'like': '读点赞时'}
+
+
+def evidence_id(hold: dict | None) -> str:
+    """证据目录的名字（不是路径）；没有证据 = ''。"""
+    raw = str((hold or {}).get('evidence') or '').strip().rstrip('/\\')
+    if not raw:
+        return ''
+    name = raw.replace('\\', '/').rsplit('/', 1)[-1]
+    return name if name and name not in ('.', '..') else ''
+
+
+def public_hold(hold: dict | None) -> dict | None:
+    """给 stdout / 问题记录用的熔断对象：只留公开字段 + evidence_id。"""
+    if not isinstance(hold, dict):
+        return hold
+    out = {k: hold[k] for k in HOLD_PUBLIC_KEYS if k in hold}
+    eid = evidence_id(hold)
+    if eid:
+        out['evidence_id'] = eid
+    return out
+
+
+def hold_text(hold: dict | None) -> str:
+    """一句如实的话：「10-08 05:19 在读收藏时判到验证」。读不出时间就只说在哪。"""
+    if not isinstance(hold, dict) or not hold:
+        return ''
+    try:
+        when = datetime.fromisoformat(str(hold.get('since'))).astimezone().strftime('%m-%d %H:%M')
+    except (TypeError, ValueError):
+        when = ''
+    where = TAB_WHERE.get(str(hold.get('want_tab') or hold.get('tab') or ''), '用号开页时')
+    what = {'CAPTCHA_REQUIRED': '判到验证', 'ACCOUNT_RISK': '被跳到登录 / 安全页', 'NOT_LOGGED_IN': '发现掉登录',
+            RATE_LIMIT_CODE: '被小红书限频'}.get(
+        str(hold.get('code') or ''), '撞到风控')
+    return ' '.join(x for x in (when, f'在{where}{what}') if x)
+
+
+def hold_error(hold: dict) -> ReaderError:
+    if is_rate_limited(hold):
+        return ReaderError(RATE_LIMIT_CODE, detail=rate_limit_text(hold), hold=hold)
+    since = hold.get('since') or ''
+    detail = ' · '.join(str(x) for x in (hold.get('code'), since, hold.get('detail')) if x)
+    return ReaderError('RISK_HOLD', detail=detail, hold=hold)
+
+
+def check_risk_hold() -> None:
+    """批量入口开工前调：熔断中就抛 ReaderError('RISK_HOLD')，调用方停车（退出码 5），一页都不开。
+    1015：限频冷却中抛 ReaderError('XHS_RATE_LIMITED')（也是一页不开，但不要人处理）；冷却到点不抛（放行自探）。"""
+    hold = risk_hold()
+    if hold:
+        raise hold_error(hold)
+
+
+# ---------------------------------------------------------------------------
+# 跨进程账号锁（1001，B-6）：~/.link-brain/account.lock = {pid, owner, started, heartbeat}
+# ---------------------------------------------------------------------------
+
+LOCK_STALE_SECONDS = 10 * 60
+LOCK_HEARTBEAT_SECONDS = 60
+
+
+def lock_path() -> Path:
+    return home() / 'account.lock'
+
+
+def _now_iso() -> str:
+    return datetime.now().astimezone().isoformat(timespec='seconds')
+
+
+def _pid_state(pid) -> str:
+    """'alive' / 'dead' / 'unknown'（实现在 storage.pid_state；这里留个钩子，测试按模块属性替换）。"""
+    return storage.pid_state(pid)
+
+
+def _account_lock() -> 'storage.FileLock':
+    """账号锁 = storage.FileLock 的一个实例（CONVENTIONS §6.4）。参数每次现取，测试 monkeypatch 得到。"""
+    return storage.FileLock(lock_path(), name='账号', stale_s=LOCK_STALE_SECONDS,
+                            heartbeat_s=LOCK_HEARTBEAT_SECONDS, pid_state_fn=lambda pid: _pid_state(pid), poll_s=5.0)
+
+
+def lock_holder() -> dict | None:
+    """别的活进程正占着账号锁 → 锁内容；没人占 / 陈旧锁 → None。"""
+    return _account_lock().holder()
+
+
+def lock_lost() -> bool:
+    """本进程拿着的账号锁被别人当陈旧锁接管了（心跳发现的）。"""
+    return _account_lock().lost
+
+
+@contextlib.contextmanager
+def account_session(owner: str, wait_s: float = 0, *, polite: bool = False, on_wait=None):
+    """拿账号锁（同一进程可重入）。wait_s 内拿不到 → AccountBusyError（CLI 退出码 6）。
+    polite=True（1009 后台补评论）：有别的任务在等号就先让它（storage.FileLock.hold）。
+    on_wait(holder, 剩余秒)（1010）：第一次要等时额外回调一次（插件「抓全部评论」在笔记页说「在等号」用）。"""
+    def told(holder, left):
+        print(f'[lock] 号正被「{holder.get("owner") or "别的任务"}」使用，最多等 {left / 60:.0f} 分钟',
+              file=sys.stderr)
+        if on_wait is not None:
+            try:
+                on_wait(holder, left)
+            except Exception:  # noqa: BLE001 - 只是报进度，别让它挡住拿锁
+                pass
+
+    with contextlib.ExitStack() as stack:
+        try:
+            stack.enter_context(_account_lock().hold(owner, wait_s, on_wait=told, polite=polite))
+        except storage.LockBusy as exc:
+            raise AccountBusyError(exc.holder or None) from None
+        yield
+
+
+def lock_wanted() -> bool:
+    """有别的任务正在等账号锁（留了「我在等」标记）——后台补跑看到就先让。"""
+    try:
+        return bool(_account_lock().wanted_by_others())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+# ---------------------------------------------------------------------------
+# 跨进程开页间隔（1001，B-2）
+# ---------------------------------------------------------------------------
+
+
+def _gap_range(env: str, default: str) -> tuple[float, float]:
+    try:
+        lo, hi = (float(x) for x in (os.environ.get(env) or default).split(','))
+    except ValueError:
+        lo, hi = (float(x) for x in default.split(','))
+    return (min(lo, hi), max(lo, hi))
+
+
+def _pace_stamp() -> Path:
+    return home() / 'last-open.txt'
+
+
+def pace_done() -> None:
+    """碰号的请求回来了（成功失败都算）：时刻戳挪到「这一页看完」。
+
+    只在开页前打戳的话，一次长操作（读收藏滚 5 分钟、评论多的笔记）之后下一页会零间隔紧跟着开；
+    从上一页结束起算，才像人看完一页再去点下一页。"""
+    try:
+        _atomic_write_text(_pace_stamp(), str(time.time()))
+    except OSError:
+        pass
+
+
+def pace(what: str = '开页') -> float:
+    """碰号的请求开页前调：保证距上一次开页（任何进程，从上一页看完算起）至少随机 20–40 秒。返回实际等了几秒。
+
+    本进程拿着的账号锁被别人当陈旧锁接管了（笔记本睡过 10 分钟等）→ 抛 AccountBusyError，调用方停批，
+    别在没锁的情况下接着用号。"""
+    if lock_lost():
+        raise AccountBusyError(lock_holder())
+    lo, hi = _gap_range('LWA_OPEN_GAP', '20,40')
+    stamp = _pace_stamp()
+    try:
+        last = float(stamp.read_text('utf-8').strip())
+    except (OSError, ValueError):
+        last = 0.0
+    wait = min(random.uniform(lo, hi) - (time.time() - last), hi)
+    if wait > 0:
+        print(f'[pace] 像人一样歇 {wait:.0f} 秒再{what}', file=sys.stderr)
+        time.sleep(wait)
+    try:
+        _atomic_write_text(stamp, str(time.time()))
+    except OSError:
+        pass
+    return max(wait, 0.0)
+
+
+def row(key: str, label: str, state: str, message: str, next_step: str = '', detail: str = '',
+        optional=False, action: str = '', account: str = '') -> dict:
+    return dict(id=key, label=label, state=state, message=message, next_step=next_step, detail=detail,
+                optional=optional, action=action, account=account)
+
+
+def error_row(exc: Exception, key='xhs', label='小红书账号') -> dict:
+    if isinstance(exc, ReaderError) and exc.code == 'RISK_HOLD':
+        return hold_row(exc.hold or {'code': 'RISK_HOLD', 'detail': exc.detail}, key=key, label=label)
+    if isinstance(exc, ReaderError) and exc.code in SOLUTIONS:
+        state, message, step, action = SOLUTIONS[exc.code]
+        out = row(key, label, state, message, step, exc.detail or '', action=action)
+        out['code'] = exc.code
+        return out
+    if isinstance(exc, AccountBusyError):
+        state, message, step, action = SOLUTIONS['ACCOUNT_BUSY']
+        out = row(key, label, state, message, step, str(exc), action=action)
+        out['code'] = 'ACCOUNT_BUSY'
+        return out
+    return row(key, label, 'unknown', '暂时无法验证', '稍后点击「重试」；持续出现请展开详情。',
+               str(exc), action='retry')
+
+
+def hold_row(hold: dict, key='xhs', label='小红书账号') -> dict:
+    """熔断中的一行：按撞到的是什么决定按钮——掉登录 / 登录异常页 → 扫码；验证码 → 打开验证。
+    1015：限频冷却 → 「等一会儿」，不给扫码 / 验证按钮（她点开也无事发生）。"""
+    if is_rate_limited(hold):
+        state, message, step, action = SOLUTIONS[RATE_LIMIT_CODE]
+        out = row(key, label, state, message, rate_limit_text(hold), str(hold.get('detail') or ''), action=action)
+        out['code'] = RATE_LIMIT_CODE
+        out['risk_hold'] = public_hold(hold)
+        return out
+    state, message, step, _ = SOLUTIONS['RISK_HOLD']
+    cause = str(hold.get('code') or '')
+    action = 'login' if cause in ('NOT_LOGGED_IN', 'ACCOUNT_RISK') else 'verify'
+    if action == 'login':
+        state = 'expired'
+    since = str(hold.get('since') or '')
+    detail = ' · '.join(x for x in (cause, hold_text(hold) or since, str(hold.get('detail') or '')) if x)
+    if action == 'verify':
+        step = SOLUTIONS['CAPTCHA_REQUIRED'][2]
+    out = row(key, label, state, message, step, detail, action=action)
+    out['code'] = 'RISK_HOLD'
+    out['risk_hold'] = public_hold(hold)
+    return out
+
+
+# login --status --json 的 login_state（契约名 state，见 run_login 的说明）
+LOGIN_STATES = {'logged_in': 0, 'guest': 3, 'unknown': 4, 'risk_hold': 5}
+
+
+def idle_row() -> dict:
+    """浅查时读取服务没在运行 / 还不知道登录状态：如实说「还没确认」，不拉起服务、不开页（S4）。"""
+    out = row('xhs', '小红书账号', 'idle', '还没确认', '读取服务没在运行；点「检查」会启动它并确认登录', action='retry')
+    out['code'] = ''
+    return out
+
+
+def status_report(*, deep=True, launch=True) -> tuple[dict, str]:
+    """(界面那一行, login_state)。login_state ∈ logged_in / guest / unknown / risk_hold。
+
+    1001：熔断中不开浏览器；账号锁被别的任务占着（同步收藏在跑）、或读取服务正在干活时也不开浏览器，
+    直接报「查不清」——以前这时去排队，45 秒超时就被 20:00 的检查报成「掉登录了，去扫码」。
+    1008（S4）：launch=False（插件设置页的浅查）只问一次 /login/session，服务没起不拉起、还不知道登录状态不深查，
+    都回 idle（login_state=unknown，退出码 4）；只有「重新检查」才深查（会开页）。
+    """
+    if not launch:
+        try:
+            session = api('GET', '/api/v1/login/session', timeout=5)
+        except ReaderError as exc:
+            hold = _hold_file()
+            if hold:
+                return hold_row(hold), 'risk_hold'
+            if exc.code == 'DISCONNECTED':
+                return idle_row(), 'unknown'
+            return error_row(exc), 'unknown'
+        except Exception as exc:  # noqa: BLE001
+            return error_row(exc), 'unknown'
+        if not hold_from_session(session) and session.get('logged_in') is None \
+                and session.get('state') != 'waiting' and not session.get('verifying'):
+            return idle_row(), 'unknown'
+        deep = False
+        ensure = lambda: session  # noqa: E731
+    else:
+        ensure = ensure_reader
+    try:
+        session = ensure()
+    except ReaderError as exc:
+        hold = _hold_file()
+        if hold:
+            return hold_row(hold), 'risk_hold'
+        if exc.code in RISK_CODES:
+            return error_row(exc), 'risk_hold'
+        return error_row(exc), 'unknown'
+    except Exception as exc:  # noqa: BLE001 - 状态检查永不抛给界面
+        return error_row(exc), 'unknown'
+    try:
+        hold = hold_from_session(session)
+        if hold:
+            return hold_row(hold), 'risk_hold'
+        if session.get('state') == 'waiting':
+            return error_row(ReaderError('LOGIN_IN_PROGRESS')), 'unknown'
+        if session.get('verifying'):
+            return error_row(ReaderError('VERIFY_WINDOW_OPEN')), 'unknown'
+        name = config().get('nickname', '')
+        if not deep and session.get('logged_in') is not None:
+            ok = session['logged_in']
+        else:
+            holder = lock_holder()
+            if holder:
+                return error_row(AccountBusyError(holder)), 'unknown'
+            if isinstance(session.get('lock'), dict) and session['lock']:
+                return error_row(ReaderError('BUSY', detail=f"读取服务正在处理「{session['lock'].get('owner')}」")), 'unknown'
+            with account_session('login-status', wait_s=0):
+                try:
+                    data = api('GET', '/api/v1/login/status', timeout=45)
+                except ReaderError as exc:
+                    if exc.code != 'TIMEOUT':
+                        raise
+                    restart_reader()  # 真卡死才会重启（见 restart_reader）；只是忙会抛 BUSY
+                    data = api('GET', '/api/v1/login/status', timeout=60)
+            if data.get('login_pending'):
+                return error_row(ReaderError('LOGIN_IN_PROGRESS')), 'unknown'
+            ok = data.get('is_logged_in') is True
+            if ok and data.get('username'):
+                name = data['username']
+                save({'nickname': name, 'user_id': data.get('user_id', '')})
+        _note_account('OK' if ok else 'NOT_LOGGED_IN', '登录检查：未登录')
+        if ok:
+            return row('xhs', '小红书账号', 'ready', '已登录' + (f'：{name}' if name else ''), account=name), 'logged_in'
+        if config().get('nickname'):
+            return error_row(ReaderError('NOT_LOGGED_IN')), 'guest'
+        out = row('xhs', '小红书账号', 'not_logged_in', '未登录', '点击「扫码登录」，用收藏所在的账号扫码。',
+                  action='login')
+        out['code'] = 'NOT_LOGGED_IN'
+        return out, 'guest'
+    except ReaderError as exc:
+        if exc.code in RISK_CODES:
+            return error_row(exc), 'risk_hold'
+        if exc.code == 'NOT_LOGGED_IN':
+            return error_row(exc), 'guest'
+        return error_row(exc), 'unknown'
+    except Exception as exc:  # noqa: BLE001 - 状态检查永不抛给界面（锁被占 → AccountBusyError 也在这）
+        return error_row(exc), 'unknown'
+
+
+def xhs_status(*, deep=True) -> dict:
+    """一个账号一行。deep=False 只看服务内存状态（不开浏览器，毫秒级）。"""
+    return status_report(deep=deep)[0]
+
+
+def _login_page(message: str, image: str = '', *, done=False, ok=False) -> str:
+    color = '#1f9d55' if ok else ('#c0392b' if done else '#ff2442')
+    img = f'<img src="{html.escape(image, quote=True)}" alt="二维码">' if image and not done else ''
+    refresh = '' if done else '<meta http-equiv="refresh" content="2">'
+    return f'''<!doctype html><meta charset="utf-8">{refresh}<title>小红书登录</title>
+<style>body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#f6f6f7;
+font:15px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:#222}}
+.card{{background:#fff;border-radius:18px;padding:36px 40px;box-shadow:0 8px 30px rgba(0,0,0,.08);text-align:center;width:340px}}
+.logo{{display:inline-block;background:#ff2442;color:#fff;font-weight:700;border-radius:10px;padding:4px 12px;letter-spacing:1px}}
+img{{width:240px;height:240px;margin:22px 0 8px;image-rendering:pixelated}}
+.msg{{color:{color};font-weight:600;margin-top:14px}} .tip{{color:#888;font-size:13px}}</style>
+<div class="card"><span class="logo">小红书</span>{img}<div class="msg">{html.escape(message)}</div>
+<div class="tip">{'打开小红书 App → 左上角 ≡ → 扫一扫。扫码后在手机上确认登录。' if not done else '可以关闭此页面。'}</div></div>'''
+
+
+def _finish_login(s: dict) -> dict:
+    name = s.get('nickname') or ''
+    previous = config().get('user_id')
+    save({'nickname': name, 'user_id': s.get('user_id', '')})
+    switched = previous and s.get('user_id') and previous != s.get('user_id')
+    return row('xhs', '小红书账号', 'ready', '已登录' + (f'：{name}' if name else ''),
+               '已切换账号：收藏同步将读取这个号的收藏。' if switched else '', account=name)
+
+
+def _after_login(s: dict) -> dict:
+    """扫码成功：记下账号；但 state=success 不代表熔断已解（登录窗口一打开就是登录态时只解 NOT_LOGGED_IN，
+    验证码类熔断还在）——看 risk_hold，还在就如实说「已登录，但验证的暂停还在」，别让插件接着自动同步。"""
+    done = _finish_login(s)
+    hold = hold_from_session(s) if 'risk_hold' in s else None
+    if hold is None and 'risk_hold' not in s:
+        try:
+            hold = hold_from_session(api('GET', '/api/v1/login/session', timeout=10))
+        except Exception:  # noqa: BLE001 - 读不到就看本机熔断文件
+            hold = _hold_file()
+    if hold and str(hold.get('code') or '') != 'NOT_LOGGED_IN':
+        out = hold_row(hold)
+        out.update(message='已登录，但安全验证的暂停还在', account=done.get('account', ''))
+        return out
+    _note_account('OK')
+    return done
+
+
+def login(*, timeout=420) -> dict:  # 服务端最长：等锁 60 秒 + 扫码 300 秒，再留余量
+    """打开小红书官方登录窗口，人在官方页面扫码；这里只轮询服务内存态，窗口由服务关闭并落盘。"""
+    ensure_reader()
+    try:
+        api('POST', '/api/v1/login/window', timeout=20)
+    except ReaderError as exc:
+        if exc.code != 'TIMEOUT':
+            raise
+        restart_reader()
+        api('POST', '/api/v1/login/window', timeout=20)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        time.sleep(1.5)
+        s = api('GET', '/api/v1/login/session', timeout=10)
+        state = s.get('state')
+        if state == 'success':
+            return _after_login(s)
+        if state == 'cancelled':
+            return row('xhs', '小红书账号', 'not_logged_in', '已取消登录', '需要时再点「扫码登录」。', action='login')
+        if state == 'failed':
+            return row('xhs', '小红书账号', 'error', '登录没有完成', '点「扫码登录」再试一次。', action='login')
+        if state == 'timeout':
+            break
+    return row('xhs', '小红书账号', 'not_logged_in', '登录窗口已超时', '点「扫码登录」重新打开。', action='login')
+
+
+def logout() -> dict:
+    ensure_reader()
+    api('POST', '/api/v1/login/logout', timeout=90)
+    data = config()
+    for key in ('nickname', 'user_id', 'sync_account'):  # 主动换号/退出 = 下次同步认新号
+        data.pop(key, None)
+    home().mkdir(parents=True, exist_ok=True)
+    _atomic_write_text(home() / 'accounts.json', json.dumps(data, ensure_ascii=False, indent=2))
+    return row('xhs', '小红书账号', 'not_logged_in', '已退出登录', '点「扫码登录」登录新的账号。', action='login')
+
+
+def login_qr(*, timeout=270, open_browser=True) -> dict:
+    """远程扫码用（如把二维码发到手机）：出码成网页 → 只轮询内存状态 → 成功时服务已把登录态落盘。"""
+    ensure_reader()
+    qr = api('GET', '/api/v1/login/qrcode', timeout=90)
+    if qr.get('is_logged_in'):
+        return xhs_status()
+    image = qr.get('img', '')
+    if not image.startswith('data:image/'):
+        raise ReaderError('QR_FAILED', '读取服务没有返回二维码，请重试。')
+    home().mkdir(parents=True, exist_ok=True)
+    page = home() / 'login.html'
+    page.write_text(_login_page('等待扫码…', image), 'utf-8')
+    if open_browser and not webbrowser.open(page.as_uri()):
+        raise ReaderError('QR_FAILED', '无法打开扫码页面，请手动打开 ' + str(page))
+    deadline = time.monotonic() + timeout
+    result = None
+    try:
+        while time.monotonic() < deadline:
+            time.sleep(2)
+            s = api('GET', '/api/v1/login/session', timeout=10)
+            if s.get('state') == 'success':
+                result = _after_login(s)
+                page.write_text(_login_page(result['message'], done=True, ok=result['state'] == 'ready'), 'utf-8')
+                return result
+            if s.get('state') == 'timeout':
+                break
+        result = row('xhs', '小红书账号', 'not_logged_in', '二维码已过期',
+                     '点击「扫码登录」获取新的二维码。', action='login')
+        page.write_text(_login_page('二维码已过期，请回到 Obsidian 重新点「扫码登录」', done=True), 'utf-8')
+        return result
+    except Exception:
+        page.write_text(_login_page('登录中断，请回到 Obsidian 查看提示', done=True), 'utf-8')
+        raise
+
+
+VERIFY_WAIT_SECONDS = 13 * 60   # 读取服务验证窗口最长 12 分钟，再留 1 分钟
+VERIFY_POLL_SECONDS = 2.0
+# /login/session 的 verify_result（读取组件 d7）→ 关窗后给她的话。not_logged_in 优先于 no_captcha_seen（服务端已排好）。
+VERIFY_RESULT_TEXT = {
+    'no_captcha_seen': ('captcha', '窗口里没出现验证，暂停还在',
+                        '如果你确实没看到滑块：点「没看到验证，恢复」（你确认后才恢复）；或者先放着，今晚夜跑会跳过用号的步骤，不会伤号。'),
+    'not_logged_in': ('expired', '关窗前没看到已登录，暂停还在', '点「扫码登录」用收藏所在的号重新登录。'),
+    'still_risk': ('captcha', '关窗时页面上还有验证，暂停还在', '再点「打开验证」，把滑块拖完、看到页面正常再关窗。'),
+    'not_read': ('captcha', '验证窗口里没读到页面，暂停还在', '再点一次「打开验证」；还不行就先放着，今晚夜跑会跳过用号的步骤。'),
+    'window_failed': ('captcha', '验证窗口没打开成功，暂停还在', '稍后再点一次「打开验证」。'),
+}
+
+
+def _hold_cleared_row(message: str) -> dict:
+    """熔断已经没了：只看内存里的登录态（不开页）把面板刷绿——不裸调 account_ok()（没登录时会把掉登录也误清掉）。"""
+    out, _ = status_report(deep=False)
+    if out.get('state') == 'ready':
+        out['message'] = message
+        out['next_step'] = ''
+    return out
+
+
+def _note_verify(result: str) -> None:
+    """把验证窗口的结论记到问题记录那条（面板据此给「没看到验证，恢复」）。永不抛异常。"""
+    try:
+        from ... import problems
+        now = datetime.now().astimezone().isoformat(timespec='seconds')
+        for r in problems.load():
+            if r.get('step') == 'login' and str(r.get('code') or '').split('.')[-1] in RISK_CODES:
+                problems.annotate(r, verify_result=result, verify_at=now)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def open_verify(*, wait: bool = False) -> dict:
+    """「打开验证」（B1 A1/A2）：先只读看一眼熔断还在不在——不在就不开窗口，直接把面板刷掉（「已经好了」）；
+    在才开窗口。wait=True 时只轮询 /login/session（内存，不开页、不拿锁）等窗口关掉，再如实回报结论。"""
+    session = ensure_reader()
+    if not hold_from_session(session):
+        return _hold_cleared_row('暂停已经解除了，不用再验证')
+    opened = api('POST', '/api/v1/verify/window', timeout=20)
+    if isinstance(opened, dict) and opened.get('result') == 'no_hold':
+        return _hold_cleared_row('暂停已经解除了，不用再验证')
+    if not wait:
+        return row('xhs', '小红书账号', 'busy', '验证窗口已打开', SOLUTIONS['CAPTCHA_REQUIRED'][2], action='wait')
+    deadline = time.monotonic() + VERIFY_WAIT_SECONDS
+    s = session
+    while time.monotonic() < deadline:
+        time.sleep(VERIFY_POLL_SECONDS)
+        try:
+            s = api('GET', '/api/v1/login/session', timeout=10)
+        except ReaderError:
+            continue
+        if not s.get('verifying'):
+            break
+    hold = hold_from_session(s)
+    result = str(s.get('verify_result') or '')
+    if not hold:
+        _note_verify('cleared')
+        return _hold_cleared_row('验证完成，暂停已解除')
+    _note_verify(result or 'still_held')
+    state, message, step = VERIFY_RESULT_TEXT.get(result, ('captcha', '验证窗口关了，暂停还在', SOLUTIONS['CAPTCHA_REQUIRED'][2]))
+    out = hold_row(hold)
+    out.update(state=state, message=message, next_step=step, verify_result=result,
+               action='login' if result == 'not_logged_in' else 'verify')
+    return out
+
+
+def search_note_token(note_id: str, keyword: str) -> dict:
+    """1011：用标题搜一次（读取服务开一页搜索结果），按笔记 id 认出这篇、拿新的 xsec_token → {found, xsec_token, count}。
+    节奏（每篇每天一次、开页间隔、账号锁）由调用方管（restricted.find_fresh_token）。会开页：走 PAGE_ROUTES 的 pace_done。"""
+    ensure_reader()
+    return api('POST', '/api/v1/notes/search-token', timeout=150, body={'note_id': note_id, 'keyword': keyword})
+
+
+VERIFY_NOTE_RESULT_TEXT = {
+    # /login/session 的 verify_result（笔记验证窗口，读取组件 1011）→ (过了没, 给她的一句话)
+    'note_ok': (True, '过了，这篇能打开了'),
+    'note_not_seen': (False, '窗口里一直没看到这篇打开（还要验证，或没过完就关了）：可以再点一次「打开验证」'),
+    'still_risk': (False, '关窗时页面上还有验证：号的验证暂停已经打开，点问题入口「打开验证」把它过完'),
+    'not_logged_in': (False, '窗口里是没登录的样子：点「扫码登录」用收藏所在的号重新登录'),
+    'not_read': (False, '窗口里没读到页面：再点一次「打开验证」'),
+    'window_failed': (False, '验证窗口没打开成功（读取服务正忙）：稍后再点一次「打开验证」'),
+}
+
+
+def open_note_verify(note_id: str, token: str = '', *, wait: bool = True) -> dict:
+    """1011：「打开验证」（这一篇）：先只读看一眼有没有熔断——号本身要验证就先走原来的熔断验证（号的事更要紧）；
+    没有熔断就开笔记验证窗口（读取组件开有界面的浏览器到这篇），wait=True 时只轮询 /login/session（内存，不开页、不拿锁）
+    等窗口关掉，再按 verify_result / verify_note 如实回报。返回 {mode, result, ok, token, message}。"""
+    session = ensure_reader()
+    if hold_from_session(session):
+        out = open_verify(wait=wait)
+        return {'mode': 'hold', 'result': str(out.get('verify_result') or ''), 'ok': False, 'token': '',
+                'message': '号本身要先过验证：' + ' '.join(x for x in (out.get('message'), out.get('next_step')) if x),
+                'row': out}
+    opened = api('POST', '/api/v1/verify/window', timeout=20, body={'note_id': note_id, 'xsec_token': token or ''})
+    mode = str((opened or {}).get('mode') or '') if isinstance(opened, dict) else ''
+    if mode != 'note':
+        # 旧读取组件不认笔记验证窗口（没有熔断时只回 no_hold、不开窗）
+        return {'mode': mode or 'unsupported', 'result': str((opened or {}).get('result') or ''), 'ok': False, 'token': '',
+                'message': '读取组件还是旧版，开不了这一篇的验证窗口：更新读取组件后再点'}
+    if not wait:
+        return {'mode': 'note', 'result': 'opened', 'ok': False, 'token': '', 'message': '验证窗口已打开：过完验证、看到笔记后关掉窗口'}
+    deadline = time.monotonic() + VERIFY_WAIT_SECONDS
+    s = session
+    while time.monotonic() < deadline:
+        time.sleep(VERIFY_POLL_SECONDS)
+        try:
+            s = api('GET', '/api/v1/login/session', timeout=10)
+        except ReaderError:
+            continue
+        if not s.get('verifying'):
+            break
+    pace_done()  # 窗口开过这一篇：之后的开页间隔从这里算起
+    result = str(s.get('verify_result') or '')
+    note = s.get('verify_note') if isinstance(s.get('verify_note'), dict) else {}
+    if note and str(note.get('note_id') or '') != note_id:
+        result = 'not_read'  # 不是这一次的窗口（被别的窗口顶掉了）：不认
+    ok_flag, text = VERIFY_NOTE_RESULT_TEXT.get(result, (False, '验证窗口关了，这篇还没打开：可以再点一次「打开验证」'))
+    ok = bool(ok_flag and note.get('ok'))
+    hold = hold_from_session(s)
+    if hold:  # 关窗时页面上还要验证 / 是游客：读取组件已按风控写了熔断（号的事），目录页的「!」跟着亮
+        _note_account(str(hold.get('code') or 'RISK_HOLD'), f'{hold_text(hold)}：笔记验证窗口')
+    return {'mode': 'note', 'result': result, 'ok': ok, 'token': str(note.get('token') or '') if ok else '', 'message': text}
+
+
+def clear_hold(*, by_owner: bool) -> dict:
+    """「没看到验证，恢复」（B1 A5）：只有她亲手点、带 --by-owner 才发 POST /api/v1/risk/clear（一次）；
+    在问题记录留痕「她确认没看到验证」，再按内存登录态刷面板。绝不进「全部修一遍」或夜跑。"""
+    if not by_owner:
+        out = row('xhs', '小红书账号', 'error', '没有恢复', '只有你亲手确认（--by-owner）才会解除暂停。', action='none')
+        out['code'] = 'NOT_CONFIRMED'
+        return out
+    session = ensure_reader()
+    if not hold_from_session(session):
+        return _hold_cleared_row('暂停已经解除了，不用再恢复')
+    api('POST', '/api/v1/risk/clear', timeout=20)
+    try:
+        from ... import problems
+        now = datetime.now().astimezone()
+        for r in problems.load():
+            if r.get('step') == 'login' and str(r.get('code') or '').split('.')[-1] in (*RISK_CODES, 'ACCOUNT_BLOCKED'):
+                problems.annotate(r, verify_result='owner_cleared', verify_at=now.isoformat(timespec='seconds'),
+                                  repair_note=f'她确认没看到验证，{now:%m-%d %H:%M} 亲手恢复')
+    except Exception:  # noqa: BLE001
+        pass
+    return _hold_cleared_row('已恢复（你确认没看到验证）')
+
+
+def run_login(args) -> int:
+    """`login`。`--status` 的退出码（1001 契约）：0 已登录 · 3 游客 · 4 查不清（忙 / 超时 / 连不上 / 锁被占）· 5 熔断中。
+
+    `--status --json` 仍输出插件账号面板要的那一行（state=ready/expired/…，插件按它画按钮），
+    另加 `login_state`（logged_in / guest / unknown / risk_hold）、`code`、`detail`、`hold_cause` 给脚本用。
+    脚本（xhs-login-check.ps1）判 `login_state` 或退出码，**不要判 `state`**（那是插件的取值）。
+    """
+    from ...read import dump_json
+    if getattr(args, 'status', False) and not any(getattr(args, k, False) for k in ('verify', 'logout', 'qr', 'clear_hold')):
+        shallow = getattr(args, 'shallow', False)
+        result, login_state = status_report(deep=not shallow, launch=not shallow)
+        hold = result.get('risk_hold') if isinstance(result.get('risk_hold'), dict) else {}
+        result = {**result, 'login_state': login_state, 'code': result.get('code') or '',
+                  'detail': result.get('detail') or '',
+                  # 熔断的起因（NOT_LOGGED_IN / ACCOUNT_RISK / CAPTCHA_REQUIRED）：脚本据此选「掉登录去扫码」还是「要验证」
+                  'hold_cause': (str(hold.get('code') or '') or
+                                 (result.get('code') if result.get('code') != 'RISK_HOLD' else '') or '')
+                  if login_state == 'risk_hold' else ''}
+        if args.json:
+            dump_json(result)
+        else:
+            print(result['message'] + ('\n下一步：' + result['next_step'] if result['next_step'] else ''))
+        return LOGIN_STATES[login_state]
+    try:
+        if getattr(args, 'clear_hold', False):
+            result = clear_hold(by_owner=getattr(args, 'by_owner', False))
+        elif getattr(args, 'verify', False):
+            result = open_verify(wait=getattr(args, 'wait', False))
+        elif getattr(args, 'logout', False):
+            result = logout()
+        elif getattr(args, 'qr', False):
+            result = login_qr(timeout=args.timeout)
+        else:
+            result = xhs_status(deep=False) if not args.force else None
+            if result is None or result['state'] != 'ready':
+                result = login()
+    except Exception as exc:  # noqa: BLE001
+        result = error_row(exc)
+    if args.json:
+        dump_json(result)
+    else:
+        print(result['message'] + ('\n下一步：' + result['next_step'] if result['next_step'] else ''))
+    return 0 if result['state'] in ('ready', 'busy') or result['message'] == '已退出登录' else 1

@@ -3,7 +3,7 @@
 # 做什么：在干净 runner 上把上游 xiaohongshu-mcp 固定提交（reader/UPSTREAM）打上 reader/link-brain-reader.patch，
 #   go vet，交叉编译 Windows x64 的 link-brain-reader.exe + relatedfile.exe，连同两份许可证打成 zip，算 sha256，发成 GitHub Release。
 # 怎么用：打一个 `reader-v<版本>` 标签推上来（或在 Actions 页手动跑、填版本号）。发完把 Release 里的下载地址和 sha256
-#   填进 link_brain/reader_install.py 的 RELEASE_URL / RELEASE_SHA256（另一个小提交），插件引导的「下载读取组件」才能点。
+#   填进 link_brain/sources/xiaohongshu/reader_install.py 的 RELEASE_URL / RELEASE_SHA256（另一个小提交），插件引导的「下载读取组件」才能点。
 # 不做什么：不跑上游的 Go 测试（一部分要真浏览器）；不发 macOS / Linux（KNOWN_NAMES 已经认不带 .exe 的名字，以后要发只加一个 matrix 项）。
 name: reader-release
 
@@ -112,7 +112,7 @@ jobs:
           2. 命令行：\`python -m link_brain reader install --url $url --sha256 $sha\`
           3. 手动：解压后把两个 exe 放进 \`%USERPROFILE%\\.link-brain\\bin\\\`。
 
-          发完要做的一件事：把 \`link_brain/reader_install.py\` 里的 \`RELEASE_URL\` 填成 \`$url\`、\`RELEASE_SHA256\` 填成 \`$sha\`。
+          发完要做的一件事：把 \`link_brain/sources/xiaohongshu/reader_install.py\` 里的 \`RELEASE_URL\` 填成 \`$url\`、\`RELEASE_SHA256\` 填成 \`$sha\`。
           MD
           cat dist/notes.md
 
