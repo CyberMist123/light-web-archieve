@@ -24,10 +24,7 @@
   "link_brain/fav_counts.py": 1,
   "link_brain/favorites.py": 2
  },
- "手写原子写": {
-  "link_brain/crawl.py": 1,
-  "link_brain/remote/secret_box.py": 1
- },
+ "手写原子写": {},
  "手拼异常文字": {
   "link_brain/accounts.py": 1,
   "link_brain/adapters/xiaohongshu.py": 1,

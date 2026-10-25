@@ -25,7 +25,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from . import actionlog
+from . import actionlog, storage
 
 STATUS_FILE = "crawl-status.json"
 FAV_LIST_GAP_MIN = 35  # 读收藏列表：读取服务 10 分钟限一次，自律 ≥ 30 分钟（0925 连读 10 次弹过滑块）
@@ -54,9 +54,7 @@ def write_status(**fields: Any) -> None:
         except (OSError, ValueError):
             pass
         data.update(fields, updated_at=datetime.now().astimezone().isoformat(timespec="seconds"), pid=os.getpid())
-        tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-        os.replace(tmp, p)
+        storage.atomic_write_text(p, json.dumps(data, ensure_ascii=False, indent=1))
     except OSError:
         pass
 

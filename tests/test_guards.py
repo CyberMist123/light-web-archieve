@@ -114,7 +114,7 @@ RULES: dict[str, Rule] = {
         PY_ONLY, {"link_brain/alert.py", "link_brain/problems.py"}, "CONVENTIONS §2.6：报警只经 problems.report"),
     # ---- 原子写收口 storage（原 test_file_lock.test_no_hand_rolled_atomic_writes_left，扫全部而不只四个文件）----
     "手写原子写": _rule(
-        r"os\.replace\(tmp|mkstemp\(|\.tmp'\)",
+        r"os\.replace\(tmp|mkstemp\(|\.tmp[\"']\)|with_suffix\([\"']\.tmp[\"']\)|NamedTemporaryFile\(",
         PY_ONLY, {"link_brain/storage.py"}, "CONVENTIONS §6.5：写 .tmp 再 os.replace 用 storage.*"),
     # ---- 公开仓不带本机路径（原 test_hardening_1001.test_no_private_default_paths_in_public_modules，扫全部）----
     "本机私有路径": _rule(
@@ -251,6 +251,21 @@ def test_scanner_catches_direct_alert_calls_and_spares_problems(tmp_path):
         "link_brain/problems.py": "from . import alert as alert_mod\nalert_mod._alert('a')\n",
         "link_brain/alert.py": "def _alert(m): pass\n"})
     assert scan(RULES["绕过 problems 直接报警"], root) == {"link_brain/x.py": 4}
+
+
+def test_scanner_catches_hand_rolled_atomic_writes(tmp_path):
+    """「手写原子写」要认得 with_suffix(\".tmp\") / NamedTemporaryFile / os.replace(tmp，三种写法各计一次；
+    注释不算；storage.py 本身在 allowed 里不算。"""
+    code = ('import tempfile, os\n'
+            'def w(p, d):\n'
+            '    tmp = p.with_suffix(".tmp")\n'
+            '    f = tempfile.NamedTemporaryFile(dir=d)\n'
+            '    os.replace(tmp, p)\n'
+            '# os.replace(tmp, p)\n')
+    root = _fake_repo(tmp_path, {
+        "link_brain/x.py": code,
+        "link_brain/storage.py": code})
+    assert scan(RULES["手写原子写"], root) == {"link_brain/x.py": 3}
 
 
 def test_scanner_catches_single_source_copies_in_js_and_skips_comments(tmp_path):

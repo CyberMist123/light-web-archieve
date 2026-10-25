@@ -10,9 +10,10 @@
 from __future__ import annotations
 
 import base64
-import os
 import sys
 from pathlib import Path
+
+from .. import storage
 
 FILE_NAME = "passphrase.dpapi"
 _ENTROPY = b"link-brain-remote-passphrase"
@@ -70,9 +71,7 @@ def save(directory: Path, passphrase: str) -> bool:
         return False
     try:
         blob = base64.b64encode(protect(passphrase.encode("utf-8"))).decode("ascii")
-        tmp = p.with_suffix(".tmp")
-        tmp.write_text(blob, encoding="ascii")
-        os.replace(tmp, p)
+        storage.atomic_write_text(p, blob)
         return True
     except OSError:
         p.unlink(missing_ok=True)
