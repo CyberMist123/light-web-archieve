@@ -21,6 +21,13 @@ def _trash_path(relative: str) -> Path:
 
 
 def delete_item(conn, item_id: str) -> dict[str, Any]:
+    """删一篇进回收站（整段在这篇的单篇锁里：1025 第二波 PR④——删的时候别的入口正在给它写新 RAW 版本 / 改 meta 就等一等，
+    等不到（LockBusy）由 _one 报成这一条失败，原因给用户看）。顺序见 _delete_item。"""
+    with storage.file_lock(storage.obj_lock_name(item_id), wait_s=30, owner="remove"):
+        return _delete_item(conn, item_id)
+
+
+def _delete_item(conn, item_id: str) -> dict[str, Any]:
     """删一篇进回收站。顺序（1024 p0-tomb）：
     ① 写 restore.json（续删时沿用上次那份，不重算——已挪走的文件不在原处了，重算会把它们从恢复清单里丢掉）
     ② 写屏蔽 state=pending（先 tombstones.jsonl 再 index.db）——从这一刻起同步不会再把它拉回来
