@@ -150,16 +150,6 @@ def test_answer_cache_fails_open_when_lock_busy():
         assert time.monotonic() - t0 < 30
 
 
-def test_no_hand_rolled_atomic_writes_left():
-    """§6.5：四处自写的「写 .tmp 再 os.replace」收进 storage.*。"""
-    offenders = []
-    for name in ("enrich.py", "topics.py", "answer_cache.py", "accounts.py"):
-        text = (REPO / "link_brain" / name).read_text("utf-8")
-        if "os.replace(tmp" in text or "mkstemp(" in text or ".tmp')" in text:
-            offenders.append(name)
-    assert offenders == []
-
-
 def test_sync_quota_counts_across_writers():
     q1, q2 = favorites._Quota(), favorites._Quota()
     q1.add()

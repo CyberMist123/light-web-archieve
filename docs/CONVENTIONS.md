@@ -319,6 +319,8 @@ provider().killTree(pid)   // 同一排除规则
 7. （批次 D）页面测试一律放 `tests/ui/*.cjs`（run-node 自动发现，不再改 UI_FILES 列表）。没装 playwright 时 UI 层全部 SKIP，汇总最后一行写「UI 层没跑」——验收文件必须照写，不许当通过。worktree 里接共享 node_modules：`New-Item -ItemType Junction node_modules -Target <共享目录>\node_modules`（node_modules 在 .gitignore 里）。
 8. （批次 D）**红线规矩**：新写的几何 / 焦点类用例（吸顶、失焦、滚轮够不着这类）必须先在出问题那一版的资产上跑红（外壳的 `pageAssets(kind, {rev})` 用 `git show` 只读取旧版），把红的读数记进验收文件，再开工修；改完同一个用例转绿。
 
+9. （1025 第二波 PR⓪）**仓库守卫只有一处**：`tests/test_guards.py` + 一份基线 `tests/guards-baseline.json`。凡「扫源码找不该有的写法」（唯一数据来源、手拼异常文字、绕过 problems 报警、手写原子写、本机路径）都是那里的一条规则（正则 + 扫哪些文件 + allowed）；基线是规则 → 文件 → 命中数，**只许减**：新文件出现命中、命中变多、或已迁走但基线没改小，都红。迁走几处后跑 `python tests/test_guards.py --write` 重写基线，基线的 diff 随 PR 一起审。不要再新开一个带白名单的守卫文件。
+
 **迁移点**
 - 新建 `package.json`（`devDependencies: playwright` 可选）、`tests/run-node.cjs`；修 `test_accounts_ui.cjs:33`（mock `window.confirm`）、`test_catalog_interactions.cjs:63,162`（缺 `workspace.onLayoutReady`、旧文案）。
 - `scripts/smoke.py` 的 `check()` 输出格式对齐验收模板，`--offline` 作为 CI 可跑的一层。

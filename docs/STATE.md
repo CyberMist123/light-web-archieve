@@ -1,5 +1,7 @@
 # Current State
 
+- 2026-10-25（分支 claude/project-thread-s0uo97，第二波 PR⓪，只动测试和文档，**不改行为、不用部署**）守卫合一：五处源码扫描守卫（`test_single_source.py` 整个文件、`test_errtext.py` 的 BASELINE、`test_problems_alert_exit.py` 的扫描、`test_file_lock.py` 的手写原子写、`test_hardening_1001.py` 的本机路径）合成 `tests/test_guards.py` 一个文件 + `tests/guards-baseline.json` 一份基线（规则 → 文件 → 命中数，只许减；`python tests/test_guards.py --write` 重写）。顺手把「手写原子写」「本机路径」从只扫几个点名文件改成扫全部（新进基线：crawl.py、remote/secret_box.py 各 1 处 `os.replace(tmp`）。手拼异常文字 119 处与旧基线逐文件相等。CONVENTIONS §7 第 9 条、TEST-MAP、ARCH-AUDIT §10 同步改。
+
 - 2026-10-25（分支 claude/project-thread-m5vghd，**未部署**，PR 待审）开源前 P0 三件：① `pyproject` 把 `mcp` 封顶 `<2`（2.x 接口变了，适配器 / 远程服务直接抛错，干净机器上实测）；② 插件 ↔ 后端握手：`catalog-data.schema` + 页面 `LB.schemaIssue` 对不上就在标题下说「刷新目录 / 更新插件」，守卫 `test_build_writes_schema_and_page_lib_agrees`；③ CI `.github/workflows/test.yml`：pytest ubuntu + windows（机器时区钉到和测试样本一致的 Australia/Sydney）、node 单测、PR 隐私闸（文件类型 + 密钥特征，`privacy_gate.py --base`）。顺带让测试在别的时区 / 平台上能跑：conftest 钉 `TZ=Australia/Sydney`（测试样本的时间戳是 +10 / +11；第一版误钉东八区，CI 第一跑就红了两条同步记录用例），5 条 Windows 专属用例 skipif，pymupdf importorskip。**没动** README、`两栏布局-给GPT的需求与问题.md`（带本机路径，建议从公开仓拿掉，要她定）。 返修（Codex 审）：隐私闸的邮箱跳过改成只有 CI 入口 `--base … --skip-email` 才认，环境变量 `LWA_GATE_SKIP_EMAIL` 作废；目录页 / 问收藏页先查 `schema` 再读 `items`，格式号对不上就停（`LB.schemaBlocks`），不再边提示边解析；追问锁源测试改 `tmp_path`，去掉 Windows 专属 skip。
 
 - 2026-10-23 按最初截图继续还原：保留原字体和标题尺寸；较窄页头去掉左侧多余预留，让篇数 / 更新时间仍在标题右侧；分类 tag 单行铺开。当前 Obsidian 恢复 SYNC / RECENT / OVERVIEW 顺序及全部折叠、Wiki / 今日新增 / 搜索 111，已读回布局。自由编排及字体 / 段间距调整仍未部署。

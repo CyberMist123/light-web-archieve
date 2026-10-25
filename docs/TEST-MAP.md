@@ -17,7 +17,7 @@
 | 换号同步不清掉另一个号的专辑；重抓不丢收藏标记 | 无 | 3 |
 | 关掉视频下载时不下视频、原帖链接保留 | 只有设置页 UI 用例（第 2 批没做：这次范围是价格 / 免费 / 预算 / 密钥 / CLI） | 2 |
 | 旅行等内置 skill 的回答质量 | 只在问答用例里顺带出现，未验收 | 并行（找 skill） |
-| 页面标题 / 文案只从一处来 | 守卫 `test_single_source.py` | 4 |
+| 页面标题 / 文案只从一处来 | 守卫 `test_guards.py` | 4 |
 
 ## ② 模块 → 测试文件（碰到该模块的测试数 · 前几个）
 
@@ -63,7 +63,7 @@
 | `link_brain/errtext.py` | 1 | test_errtext.py |
 | `link_brain/evidence_pack.py` | 1 | test_ask_b3_r1.py |
 | `link_brain/export_bundle.py` | 3 | test_answer_cache.py, test_export_bundle.py, test_mdsafe.py |
-| `link_brain/fav_counts.py` | 3 | test_setup.py, test_single_source.py, test_sync_truth_1011.py |
+| `link_brain/fav_counts.py` | 3 | test_setup.py, test_guards.py, test_sync_truth_1011.py |
 | `link_brain/favorites.py` | 39 | test_account_safety.py, test_accounts.py, test_accounts_ui.cjs, test_attachments_recheck_1008.py … |
 | `link_brain/history.py` | 25 | test_answer_cache.py, test_ask_b2_1015.py, test_ask_eval.py, test_ask_v21_1018.py … |
 | `link_brain/index.py` | 71 | catalog_search_index_ui.cjs, index_inplace_ui.cjs, index_outline_ui.cjs, index_tree_ui.cjs … |
@@ -71,7 +71,7 @@
 | `link_brain/indexedit.py` | 1 | test_indexedit_1015.py |
 | `link_brain/indextree.py` | 5 | test_catalog_slim_1001.py, test_indexai_1011.py, test_indexedit_1015.py, test_indextree_1010.py … |
 | `link_brain/ingest.py` | 31 | test_alert.py, test_annotate_merge.cjs, test_annotations_1001.py, test_atomic_writes_1001.py … |
-| `link_brain/keyprobe.py` | 2 | test_keyprobe_1018.py, test_single_source.py |
+| `link_brain/keyprobe.py` | 2 | test_keyprobe_1018.py, test_guards.py |
 | `link_brain/llm.py` | 16 | test_ai_health_1008.py, test_catalog_search.cjs, test_cite_jump_1021.py, test_comments_fill_1008.py … |
 | `link_brain/mcp_server.py` | 2 | test_mcp_server.py, test_mcp_tools.py |
 | `link_brain/mcp_tools.py` | 6 | test_ask_b2_1015.py, test_ask_v21_1018.py, test_mcp_browse_1018.py, test_mcp_tools.py … |
@@ -90,7 +90,7 @@
 | `link_brain/pricing.py` | 1 | test_pricing_1023.py（1023 新建：价格 / 免费 / 提供商唯一来源） |
 | `link_brain/problems.py` | 47 | l4_settings_ui.cjs, test_accounts.py, test_ai_health_1008.py, test_ask_b2_1015.py … |
 | `link_brain/procs.py` | 4 | test_batch5_delivery.py, test_cli_call_timeout.py, test_note_print_1009.py, test_procs.py |
-| `link_brain/provenance.py` | 2 | test_provenance_1020.py, test_single_source.py |
+| `link_brain/provenance.py` | 2 | test_provenance_1020.py, test_guards.py |
 | `link_brain/providers.py` | 18 | l4_settings_ui.cjs, test_ai_health_1008.py, test_asr.py, test_console_1018.py … |
 | `link_brain/read.py` | 50 | catalog_search_index_ui.cjs, catalog_ui_smoke.cjs, chat_board_ui.cjs, chat_ui_rig.cjs … |
 | `link_brain/reader_install.py` | 1 | test_batch5_delivery.py |
@@ -129,7 +129,7 @@
 | `link_brain/storage.py` | 92 | test_ai_health_1008.py, test_alert.py, test_annotations_1001.py, test_answer_cache.py … |
 | `link_brain/sync_schedule.py` | 2 | test_batch5_delivery.py, test_sync_schedule.py |
 | `link_brain/sync_state.py` | 19 | test_account_safety.py, test_accounts.py, test_batch5_delivery.py, test_fav_incremental_1011.py … |
-| `link_brain/synclog.py` | 9 | test_batch9_synclog_ui.cjs, test_catalog_mobile_c12.cjs, test_comments_fill_1008.py, test_single_source.py … |
+| `link_brain/synclog.py` | 9 | test_batch9_synclog_ui.cjs, test_catalog_mobile_c12.cjs, test_comments_fill_1008.py, test_guards.py … |
 | `link_brain/text_stream.py` | 12 | test_ask_b2_1015.py, test_batch3_feedback.py, test_cli_call_timeout.py, test_hardening_1001.py … |
 | `link_brain/topics.py` | 20 | catalog_plus_ui.cjs, catalog_ui_smoke.cjs, test_batch3_ui.cjs, test_batch4_ui.cjs … |
 | `link_brain/usage.py` | 17 | l4_settings_ui.cjs, test_ask_b2_1015.py, test_batch5_delivery_ui.cjs, test_catalog.py … |
@@ -149,13 +149,13 @@
 | `obsidian-plugins/link-brain-actions/note-tools.js` | 4 | note_header_ui.cjs, test_note_tools_1009.cjs, test_plugin_foundation.cjs, test_synth_vault_tool.py |
 | `obsidian-plugins/link-brain-actions/onboarding-ui.js` | 4 | l4_settings_ui.cjs, test_batch5_delivery.py, test_batch5_delivery_ui.cjs, test_settings_layout.cjs |
 | `obsidian-plugins/link-brain-actions/player-ui.js` | 3 | test_player_ui_1009.cjs, test_plugin_foundation.cjs, test_synth_vault_tool.py |
-| `obsidian-plugins/link-brain-actions/problems-ui.js` | 5 | test_batch4_ui.cjs, test_note_restricted_1011.cjs, test_problems_dismiss_ui.cjs, test_single_source.py … |
+| `obsidian-plugins/link-brain-actions/problems-ui.js` | 5 | test_batch4_ui.cjs, test_note_restricted_1011.cjs, test_problems_dismiss_ui.cjs, test_guards.py … |
 | `obsidian-plugins/link-brain-actions/provider-icons.js` | 1 | test_settings_layout.cjs |
 | `obsidian-plugins/link-brain-actions/remote-ui.js` | 4 | l4_settings_ui.cjs, test_remote_cli.py, test_remote_ui.cjs, test_settings_layout.cjs |
 | `obsidian-plugins/link-brain-actions/report-ui.js` | 2 | test_batch9_synclog_ui.cjs, test_synclog_truth_1011.cjs |
 | `obsidian-plugins/link-brain-actions/schedule-ui.js` | 2 | test_batch9_synclog_ui.cjs, test_settings_layout.cjs |
-| `obsidian-plugins/link-brain-actions/settings-pages.js` | 4 | test_ai_settings_ui.cjs, test_settings_layout.cjs, test_settings_pages_1016.cjs, test_single_source.py |
-| `obsidian-plugins/link-brain-actions/settings-v6.js` | 2 | test_settings_layout.cjs, test_single_source.py |
+| `obsidian-plugins/link-brain-actions/settings-pages.js` | 4 | test_ai_settings_ui.cjs, test_settings_layout.cjs, test_settings_pages_1016.cjs, test_guards.py |
+| `obsidian-plugins/link-brain-actions/settings-v6.js` | 2 | test_settings_layout.cjs, test_guards.py |
 | `obsidian-plugins/link-brain-actions/skills-ui.js` | 2 | test_settings_layout.cjs, test_skills_ui_1015.cjs |
 | `obsidian-plugins/link-brain-actions/usage-ui.js` | 3 | l4_settings_ui.cjs, test_settings_layout.cjs, test_usage_ui.cjs |
 

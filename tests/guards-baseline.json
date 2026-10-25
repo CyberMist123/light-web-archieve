@@ -1,0 +1,90 @@
+{
+ "CLI 命令抄本": {},
+ "Gemini 密钥来源": {},
+ "_": "tests/test_guards.py 的基线：规则 → 文件 → 命中数。只许减；改动用 python tests/test_guards.py --write 重写。",
+ "价格表": {},
+ "价格读法": {},
+ "供应商猜测": {},
+ "写死的模型名": {
+  "link_brain/asr.py": 3,
+  "link_brain/keyprobe.py": 1,
+  "link_brain/rerank.py": 1,
+  "link_brain/semantic.py": 1,
+  "link_brain/setup/capswriter.py": 2,
+  "link_brain/vision.py": 1
+ },
+ "前端预算默认值": {},
+ "手写原子写": {
+  "link_brain/crawl.py": 1,
+  "link_brain/remote/secret_box.py": 1
+ },
+ "手拼异常文字": {
+  "link_brain/accounts.py": 1,
+  "link_brain/adapters/xiaohongshu.py": 1,
+  "link_brain/ai_health.py": 3,
+  "link_brain/alert.py": 1,
+  "link_brain/answer_check.py": 9,
+  "link_brain/ask.py": 4,
+  "link_brain/asr.py": 2,
+  "link_brain/attachments.py": 3,
+  "link_brain/catalog.py": 3,
+  "link_brain/catch.py": 3,
+  "link_brain/comment_fill.py": 5,
+  "link_brain/docconv.py": 3,
+  "link_brain/enrich.py": 1,
+  "link_brain/export_bundle.py": 1,
+  "link_brain/favorites.py": 3,
+  "link_brain/indextree.py": 4,
+  "link_brain/ingest.py": 4,
+  "link_brain/mcp_tools.py": 2,
+  "link_brain/nightly.py": 11,
+  "link_brain/note.py": 2,
+  "link_brain/pdftext.py": 1,
+  "link_brain/pickfolder.py": 1,
+  "link_brain/procs.py": 2,
+  "link_brain/providers.py": 2,
+  "link_brain/reader_install.py": 2,
+  "link_brain/recall_core.py": 1,
+  "link_brain/recall_table.py": 1,
+  "link_brain/remote/cli.py": 1,
+  "link_brain/remote/config.py": 1,
+  "link_brain/remote/server.py": 1,
+  "link_brain/remove.py": 2,
+  "link_brain/render.py": 2,
+  "link_brain/rerank.py": 1,
+  "link_brain/restore.py": 1,
+  "link_brain/screentext.py": 1,
+  "link_brain/semantic.py": 1,
+  "link_brain/setup/common.py": 2,
+  "link_brain/setup/components.py": 2,
+  "link_brain/setup/fetch.py": 4,
+  "link_brain/setup/pipeline.py": 1,
+  "link_brain/synclog.py": 10,
+  "link_brain/topics.py": 1,
+  "link_brain/usage.py": 2,
+  "link_brain/videos.py": 3,
+  "link_brain/vision.py": 3,
+  "link_brain/visual.py": 4
+ },
+ "收藏判断": {
+  "link_brain/catalog.py": 1,
+  "link_brain/fav_counts.py": 2,
+  "link_brain/synclog.py": 1
+ },
+ "本机私有路径": {},
+ "绕过 problems 直接报警": {},
+ "账号字段": {
+  "link_brain/favorites.py": 1
+ },
+ "问题分组表抄本": {
+  "obsidian-plugins/link-brain-actions/problems-ui.js": 1
+ },
+ "页面标题兜底 Collections": {
+  "link_brain/assets/catalog-view.js": 1,
+  "link_brain/assets/chat-view.js": 1,
+  "obsidian-plugins/link-brain-actions/main.js": 1
+ },
+ "默认回答提示词": {
+  "obsidian-plugins/link-brain-actions/main.js": 1
+ }
+}
