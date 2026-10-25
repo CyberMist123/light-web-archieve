@@ -128,6 +128,45 @@ def test_index_row_lost_is_reindexed_not_refetched(vault):
         conn.close()
     out = ingest.ingest_url("https://example.invalid/share")
     assert calls["fetch"] == 1 and out["adopted"] is True and storage.existing_versions(SRC, NOTE_ID) == [1]
+    assert out["hit"] is True, "meta 在 = 以前入过库，只是索引丢了：按已在库返回，别重排识图 / 覆盖项目"
+
+
+def test_adopt_repoints_meta_away_from_half_version(vault):
+    """meta 指着一个半截版本（老代码崩在下载中）且索引丢了：收编时把 current_version / versions 改回完整的那个。"""
+    tmp, calls = vault
+    ingest.ingest_url("https://example.invalid/share")
+    (_raw(tmp) / "v0002" / "assets").mkdir(parents=True)
+    meta_path = tmp / "_archive" / SRC / NOTE_ID / "meta.json"
+    storage.update_json(meta_path, lambda m: m.update(current_version=2, versions=[1, 2]), lock_name=storage.obj_lock_name(ITEM))
+    conn = index_mod.connect()
+    try:
+        conn.execute("DELETE FROM objects WHERE item_id = ?", (ITEM,))
+        conn.commit()
+    finally:
+        conn.close()
+    out = ingest.ingest_url("https://example.invalid/share")
+    assert calls["fetch"] == 1 and out["version"] == 1
+    assert _meta(tmp)["current_version"] == 1 and _meta(tmp)["versions"] == [1]
+
+
+def test_commit_discards_when_content_unchanged(vault):
+    """提交那一刻复查：和库里最新版本内容一样就不发布（并发重抓 / refresh 撞上别人刚写的同内容版本）。"""
+    tmp, _ = vault
+    ingest.ingest_url("https://example.invalid/share")
+    conn = index_mod.connect()
+    try:
+        sha = index_mod.latest_source_sha256(conn, ITEM)
+        source = storage.read_json(_raw(tmp) / "v0001" / "source.json")
+        with storage.stage_version(SRC, NOTE_ID) as stg:
+            with pytest.raises(ingest._Discarded) as e:
+                ingest._commit_version(conn, _parsed(), stg, {"version": None, "media": [], "images_complete": True},
+                                       source=source, sha=sha, captured_at="2026-10-25T00:00:00+11:00",
+                                       expect_existing=True, check_sha=True,
+                                       meta_kw=dict(origin="cli", actor="human", ingest_kind="shared", note=None),
+                                       log=lambda m: None)
+    finally:
+        conn.close()
+    assert e.value.reason == "unchanged" and storage.existing_versions(SRC, NOTE_ID) == [1] and not _staging_left(tmp)
 
 
 def test_deleted_during_fetch_is_not_published(vault):

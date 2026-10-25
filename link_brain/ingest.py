@@ -568,8 +568,12 @@ def _adopt(conn, parsed: dict[str, Any], probe, *, origin: str, actor: str, inge
     meta_path = storage.object_dir(xhs.SOURCE, sid) / "meta.json"
     with storage.file_lock(storage.obj_lock_name(item_id), wait_s=120, owner="ingest adopt"):
         meta = storage.read_json(meta_path) if meta_path.is_file() else None
-        versions = storage.existing_versions(xhs.SOURCE, sid)
+        versions = storage.existing_versions(xhs.SOURCE, sid)       # 调用方保证至少一个完整版本
         version = int(meta["current_version"]) if meta and int(meta.get("current_version") or 0) in versions else versions[-1]
+        if meta is not None and (int(meta.get("current_version") or 0) != version or meta.get("versions") != versions):
+            log(f"meta 指向的版本不完整 / 版本表过时：改指 {storage.version_name(version)}")
+            meta = storage.update_json(meta_path, lambda m: m.update(current_version=version, versions=versions),
+                                       lock_name=storage.obj_lock_name(item_id))
         raw_dir = storage.raw_dir(xhs.SOURCE, sid, version)
         source = storage.read_json(raw_dir / "source.json")
         manifest = storage.read_json(raw_dir / "manifest.json")
@@ -597,7 +601,8 @@ def _discarded_summary(conn, parsed: dict[str, Any], reason: str, source: dict[s
         return {"status": "trashed", "item_id": t["item_id"] if t else domain.item_id(xhs.SOURCE, sid), "note_id": sid,
                 "title": t["title"] if t else None, "exit_code": EXIT_OK}
     meta_path = storage.object_dir(xhs.SOURCE, sid) / "meta.json"
-    meta = _touch_checked(meta_path, domain.item_id(xhs.SOURCE, sid), now_iso()) if reason == "unchanged" \
+    meta = storage.update_json(meta_path, lambda m: m.update(last_checked_at=now_iso()),
+                               lock_name=storage.obj_lock_name(domain.item_id(xhs.SOURCE, sid))) if reason == "unchanged" \
         else storage.read_json(meta_path)
     return {"hit": reason == "raced", "refreshed_unchanged": reason == "unchanged", "item_id": meta["item_id"],
             "note_id": sid, "kind": meta.get("kind"),
@@ -657,14 +662,16 @@ def ingest_url(
             log('已删除，跳过')
             return {'status': 'trashed', 'item_id': tombstone['item_id'] if tombstone else domain.item_id(xhs.SOURCE, parsed['note_id']),
                     'note_id': parsed['note_id'], 'title': tombstone['title'] if tombstone else None, 'exit_code': EXIT_OK}
-        if lk.state is domain.Presence.ORPHAN or lk.needs_reindex:
+        if (lk.state is domain.Presence.ORPHAN or lk.needs_reindex) and probe.complete_versions:
             # 1025 第二波 PR⑤a：上次崩在发布之后 / 索引丢了 → 用磁盘上的完整版本补上，不联网重抓
             got = _adopt(conn, parsed, probe, origin=origin, actor=actor, ingest_kind=ingest_kind, note=note, log=log)
             index_mod.add_relation(conn, item_id=got["meta"]["item_id"], origin=origin, actor=actor,
                                    ingest_kind=ingest_kind, note=note, created_at=created_at)
             if not refresh and not fill:
                 src = got["source"]
-                return {"hit": False, "refreshed_unchanged": False, "adopted": True, "item_id": got["meta"]["item_id"],
+                # 孤儿版本（从没写成 meta）= 对她来说是新帖：按新帖渲染 / 排识图；meta 在只是索引丢了 = 以前入过库，按已在库
+                orphan = lk.state is domain.Presence.ORPHAN
+                return {"hit": not orphan, "refreshed_unchanged": False, "adopted": True, "item_id": got["meta"]["item_id"],
                         "note_id": parsed["note_id"], "kind": got["meta"]["kind"], "raw_dir": got["raw_dir"],
                         "version": got["version"], "manifest": got["manifest"], "failed": [],
                         "comments": len(src.get("comments") or []),
@@ -817,7 +824,14 @@ def ingest_url(
                     expect_existing=existing is not None, check_sha=existing is not None or refresh,
                     meta_kw=meta_kw, log=log)
             except _Discarded as d:
-                return _discarded_summary(conn, parsed, d.reason, source, log)
+                out = _discarded_summary(conn, parsed, d.reason, source, log)
+                if d.reason != "trashed":
+                    # 和原来「refresh 无变化」那支一样：这次来源的关联照记、索引的 last_checked_at 跟上
+                    if d.reason == "unchanged":
+                        index_mod.upsert_object(conn, storage.read_json(meta_path), source)
+                    index_mod.add_relation(conn, item_id=out["item_id"], origin=origin, actor=actor,
+                                           ingest_kind=ingest_kind, note=note, created_at=created_at)
+                return out
         raw_dir = storage.raw_dir(xhs.SOURCE, parsed["note_id"], version)
         index_mod.add_relation(
             conn,
@@ -1022,6 +1036,8 @@ def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = Fa
                 raise xhs.NoteRestrictedError(restricted.TEXT) from exc
         else:
             restricted.clear(sid, item_id=row["item_id"], why="手动抓评论打开了这篇")
+        if summary.get("status") == "trashed":
+            return summary                      # 1025 PR⑤a：抓的时候被删了，没发布，也不重渲染
         state = comment_fill.load_state(row["source"], row["source_id"])
         _, source2 = comment_fill.current_source(row["source"], row["source_id"])
         sc = comment_fill.scope(source2, comment_fill.floor_target(), state)
@@ -1030,6 +1046,8 @@ def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = Fa
             comment_fill._settle(row["source"], row["source_id"], state, row["item_id"], problems_mod)
     else:
         summary = ingest_url(url, refresh=True, comment_floors=floors, verbose=verbose, progress=progress)
+    if summary.get("status") == "trashed":
+        return summary
     if progress:
         progress("render", "写进笔记、刷新这一页")
     catch_mod._ensure_rendered(xhs.SOURCE, summary["note_id"], force=True, extract=False)
