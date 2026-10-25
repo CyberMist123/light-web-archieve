@@ -44,7 +44,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from . import storage
+from . import domain, storage
 from .remote.policy import XHS_ARCHIVE, Denied, Policy, MAX_READ_BYTES
 
 HISTORY_FILE = "search-history.md"
@@ -141,7 +141,7 @@ def _items() -> list[dict[str, Any]]:
 
 
 def _short_id(item_id: Any) -> str:
-    return str(item_id or "").removeprefix("xhs-")
+    return domain.short_id(item_id)
 
 
 _URL_ID = re.compile(r"/(?:explore|discovery/item|item)/([0-9A-Za-z]{8,64})")
@@ -728,7 +728,7 @@ def _selection_rows(sel: dict[str, Any], ctx: Ctx, by_id: dict[str, dict[str, An
     from .remote import tools as rtools
     out, missing = [], []
     for i in sel["ids"]:
-        it = by_id.get(i) or by_id.get("xhs-" + _short_id(i))
+        it = by_id.get(i) or by_id.get(domain.item_id("xiaohongshu", _short_id(i)))
         if not it:
             missing.append(_short_id(i))
             continue

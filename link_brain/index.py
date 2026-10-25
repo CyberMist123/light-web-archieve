@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import storage
+from . import domain, storage
 
 TOMBSTONES_JSONL = "tombstones.jsonl"
 TOMB_FIELDS = ("source", "source_id", "item_id", "title", "url", "cover", "deleted_at", "trash_dir", "state")
@@ -553,7 +553,7 @@ def reindex_all(conn: sqlite3.Connection, *, verbose: bool = False) -> list[str]
 
 def resolve_item_id(conn: sqlite3.Connection, target: str) -> str | None:
     """`read`/`search` 的 target 可以是 item_id 或 URL；这里统一解析成 item_id。"""
-    if target.startswith("xhs-") or "-" not in target and get_object(conn, target):
+    if domain.parse_item_id(target) or "-" not in target and get_object(conn, target):
         row = get_object(conn, target)
         if row:
             return row["item_id"]

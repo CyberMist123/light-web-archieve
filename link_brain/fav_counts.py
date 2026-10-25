@@ -21,6 +21,8 @@ import json
 import math
 from typing import Any, Iterable
 
+from . import domain
+
 SOURCE = "xiaohongshu"   # = adapters.xiaohongshu.SOURCE（不为一个常量去加载整个适配器）
 
 
@@ -66,7 +68,7 @@ def _objects() -> tuple[int, int]:
             meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if meta.get("favorited_by") or meta.get("ingest_kind") == "favorite":
+        if domain.is_favorite(meta):
             fav += 1
     return total, fav
 

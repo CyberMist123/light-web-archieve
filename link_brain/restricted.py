@@ -26,7 +26,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from . import storage
+from . import domain, storage
 
 SOURCE = "xiaohongshu"
 STEP = "note.restricted"
@@ -53,7 +53,7 @@ def _today() -> str:
 
 
 def _sid(item_or_source_id: str) -> str:
-    return str(item_or_source_id or "").removeprefix("xhs-")
+    return domain.short_id(item_or_source_id)
 
 
 # --------------------------------------------------------------------------
@@ -183,7 +183,7 @@ def mark(source_id: str, *, item_id: str | None = None, title: str | None = None
          detail: str = "") -> dict[str, Any]:
     """记成「网页版要验证」：对象级状态 + 问题面板一条（一篇一条；已经开着就不再登记，不刷次数）。永不抛异常。"""
     sid = _sid(source_id)
-    item_id = item_id or f"xhs-{sid}"
+    item_id = item_id or domain.item_id(SOURCE, sid)
     st = load(sid)
     was = bool(st.get("restricted"))
     now = _iso()
@@ -225,7 +225,7 @@ def clear(source_id: str, *, item_id: str | None = None, why: str = "", token: s
     if was:
         try:
             from . import problems
-            problems.resolve(STEP, item_id or f"xhs-{sid}")
+            problems.resolve(STEP, item_id or domain.item_id(SOURCE, sid))
         except Exception:  # noqa: BLE001
             pass
     return was
@@ -236,7 +236,7 @@ def view(source_id: str) -> dict[str, Any] | None:
     st = load(source_id)
     if not confirmed(st):  # 1017：疑似的不出；确认了的笔记页只说「原帖打不开了，下面是存档」
         return None
-    return {"text": TEXT, "since": st.get("since"), "item_id": f"xhs-{_sid(source_id)}",
+    return {"text": TEXT, "since": st.get("since"), "item_id": domain.item_id(SOURCE, _sid(source_id)),
             "searched": (st.get("search") or {}).get("result") or ""}
 
 
@@ -366,8 +366,8 @@ def release_legacy_fill_stuck() -> list[str]:
             comment_fill.save_state(SOURCE, sid, st)
         except OSError:
             continue
-        problems.resolve(comment_fill.STEP, f"xhs-{sid}")
-        out.append(f"xhs-{sid}")
+        problems.resolve(comment_fill.STEP, domain.item_id(SOURCE, sid))
+        out.append(domain.item_id(SOURCE, sid))
     if out:
         print(f"[restricted] {len(out)} 篇以前因「页面上没有这篇」放弃了的评论续读，按新办法再试一次", file=sys.stderr)
     return out
@@ -392,7 +392,7 @@ def reclassify_fill_failures() -> list[str]:
         if not isinstance(st, dict):
             continue
         text = f"{st.get('stuck_reason') or ''} {st.get('last_error') or ''}"
-        item_id = f"xhs-{sid}"
+        item_id = domain.item_id(SOURCE, sid)
         if MARKER not in text or st.get("restricted_moved"):
             continue
         mark(sid, item_id=item_id, via="comments.fill", detail=(st.get("last_error") or st.get("stuck_reason") or "")[:200])
@@ -450,7 +450,7 @@ def _requeue_attachments(source_id: str) -> None:
 def after_verify(source_id: str, outcome: dict[str, Any], *, spawn: Callable[[], dict[str, Any]] | None = None) -> dict[str, Any]:
     """笔记验证窗口关了之后：过了 → 清标记、记新口令、排回补抓（评论后台补、附件今晚补）；没过 → 记下结论（面板那句跟着改）。"""
     sid = _sid(source_id)
-    item_id = f"xhs-{sid}"
+    item_id = domain.item_id(SOURCE, sid)
     st = load(sid)
     st["verify"] = {"at": _iso(), "result": outcome.get("result"), "text": outcome.get("message")}
     if not outcome.get("ok"):

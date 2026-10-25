@@ -768,7 +768,7 @@ function paintSub() {
   // 1025 开源前 P0：目录数据格式和页面对不上（旧数据 / 旧插件）——和目录页同一句话
   const schemaWhy = LB.schemaIssue(data);
   const tail = schemaWhy ? ` · ${schemaWhy}` : '';
-  // 1023：问收藏搜的是全部（含聊天分享 / Fable 收的），写明「全部」，和目录页「N 篇 · 全部 M」对得上
+  // 1023：问收藏搜的是全部（含 Fable 收的、TG 发来的），写明「全部」，和目录页「N 篇 · 全部 M」对得上
   if (!d || isNaN(d)) { sub.setText(`全部 ${items.length} 篇${tail}`); return; }
   sub.setText(`全部 ${items.length} 篇 · 更新 ${d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}${tail}`);
 }

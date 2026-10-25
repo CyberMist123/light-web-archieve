@@ -13,7 +13,7 @@
 | 同一条用量，账本 / 预算 / 夜跑花费 / 设置页显示的钱一致；未知模型 = 未计价 | ✅ `test_pricing_1023.py`（1023） | 2 |
 | 概要切 CLI（OpenCode）能跑、记账显示免费 | ✅ `test_pricing_1023.py` + `test_ai_settings_ui.cjs`（1023） | 2 |
 | 夜跑和 providers 拿到同一组 Gemini key | ✅ `test_pricing_1023.py`（1023） | 2 |
-| TG 发来的帖来源 = Fable；多号收藏、网页导入 = 我的收藏 | `test_provenance_1020.py` 测的是旧规则（聊天分享） | 3 |
+| TG 发来的帖来源 = Fable；多号收藏、网页导入 = 我的收藏 | ✅ `test_domain.py`（1025 第二波 PR①：规则进 domain.py；`test_provenance_1020.py` 改成新口径） | 3（规则部分已做；user_id / 专辑键迁移待做） |
 | 换号同步不清掉另一个号的专辑；重抓不丢收藏标记 | 无 | 3 |
 | 关掉视频下载时不下视频、原帖链接保留 | 只有设置页 UI 用例（第 2 批没做：这次范围是价格 / 免费 / 预算 / 密钥 / CLI） | 2 |
 | 旅行等内置 skill 的回答质量 | 只在问答用例里顺带出现，未验收 | 并行（找 skill） |

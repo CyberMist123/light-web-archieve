@@ -1,34 +1,20 @@
 """谁收的（1020 她定）：目录默认只看她自己的收藏，别的按来源分组。
 
 - 她自己的收藏（收藏同步进来的 / 她在电脑上自己导入的）→ ""（主收藏）
-- 她在 TG 发给 Fable 的链接 → 「聊天分享」（不进主收藏的默认显示）
+- 她在 TG 发给 Fable 的链接 → 「fable」（1023 她定：TG 发来的算 Fable；1025 PR① 起不再单独叫「聊天分享」，`domain.via` 记 "tg"）
 - Fable 自己逛到收的 → 「fable」
 - CC / GPT 做项目收的 → 项目名（catch --project，比如 graph / ai群聊）；没给项目名就记 actor 名字
 后来她自己收藏了同一篇（meta.favorited_by 有值）→ 回到主收藏。
+规则本体 1025 挪进 `domain.py`（collected_by / clean_project / FABLE / via），这里留转发；`relabel` 有副作用，留在这里。
 """
 from __future__ import annotations
 
 from typing import Any
 
-CHAT_SHARE = "聊天分享"
+from . import domain
+from .domain import FABLE, clean_project, collected_by, via  # noqa: F401 - 旧 import 路径留着
 
-
-def collected_by(meta: dict[str, Any]) -> str:
-    if meta.get("favorited_by") or meta.get("ingest_kind") == "favorite":
-        return ""
-    actor = str(meta.get("actor") or "human")
-    if actor == "human":
-        return CHAT_SHARE if meta.get("origin") == "tg" else ""
-    project = str(meta.get("project") or "").strip()
-    if project:
-        return project
-    return actor.split(":", 1)[1].strip() if ":" in actor else actor
-
-
-def clean_project(value: Any) -> str:
-    """项目名进目录当分组名：去空白、限长，不许带路径分隔符。"""
-    text = " ".join(str(value or "").split())[:40]
-    return text.replace("/", "-").replace("\\", "-")
+CHAT_SHARE = "聊天分享"   # 旧分组名（1020–1025），只给认旧值的地方用；新代码别再产生它
 
 
 def relabel(refs: list[str], *, actor: str | None = None, origin: str | None = None,
@@ -42,28 +28,36 @@ def relabel(refs: list[str], *, actor: str | None = None, origin: str | None = N
     conn = index_mod.connect()
     try:
         for ref in refs:
-            source_id = str(ref).strip().removeprefix("xhs-")
-            meta_path = storage.object_dir(xhs.SOURCE, source_id) / "meta.json"
+            source, source_id = domain.parse_item_id(ref) or (xhs.SOURCE, str(ref).strip())
+            meta_path = storage.object_dir(source, source_id) / "meta.json"
             if not source_id or not meta_path.exists():
                 out.append({"item_id": ref, "status": "missing"})
                 continue
-            meta = storage.read_json(meta_path)
-            old = (meta.get("origin"), meta.get("actor"))
-            if actor:
-                meta["actor"] = actor
-            if origin:
-                meta["origin"] = origin
-            if project is not None:
-                name = clean_project(project)
-                if name:
-                    meta["project"] = name
-                else:
-                    meta.pop("project", None)
-            storage.write_json(meta_path, meta)
+            old: list[tuple[Any, Any]] = []
+
+            def change(meta):   # 1025：单篇锁里重读再写，只动 OWNER 的三个键（原来是锁外整份覆写）
+                old.append((meta.get("origin"), meta.get("actor")))
+                if actor:
+                    meta["actor"] = actor
+                if origin:
+                    meta["origin"] = origin
+                if project is not None:
+                    name = clean_project(project)
+                    if name:
+                        meta["project"] = name
+                    else:
+                        meta.pop("project", None)
+
+            try:
+                meta = storage.update_json(meta_path, change, lock_name=storage.obj_lock_name(domain.item_id(source, source_id)))
+            except storage.LockBusy as exc:   # 这一篇正被别人改：如实记 busy，别的篇照改
+                out.append({"item_id": domain.item_id(source, source_id), "status": "busy", "error": str(exc)})
+                continue
+            old_origin, old_actor = old[0]
             conn.execute("UPDATE relations SET origin = ?, actor = ? WHERE item_id = ? AND origin = ? AND actor = ?",
-                         (meta.get("origin"), meta.get("actor"), meta.get("item_id"), old[0], old[1]))
+                         (meta.get("origin"), meta.get("actor"), meta.get("item_id"), old_origin, old_actor))
+            conn.commit()   # 每篇一提交：后面一篇卡住，前面改好的 meta 和索引仍然对得上
             out.append({"item_id": meta.get("item_id"), "status": "ok", "src": collected_by(meta)})
-        conn.commit()
     finally:
         conn.close()
     if any(o.get("status") == "ok" for o in out):

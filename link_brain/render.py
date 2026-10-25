@@ -17,7 +17,7 @@ from typing import Any
 
 import yaml
 
-from . import index as index_mod, storage
+from . import domain, index as index_mod, storage
 from . import attachments as attachments_mod
 from . import llm as llm_mod
 from . import mdsafe
@@ -849,8 +849,8 @@ def set_highlights(item_id: str, phrases: list[str], *, remove: bool = False, co
     """
     from . import storage
 
-    src_id = item_id[4:] if item_id.startswith("xhs-") else item_id
-    meta_path = storage.object_dir("xiaohongshu", src_id) / "meta.json"
+    source, src_id = domain.parse_item_id(item_id) or ("xiaohongshu", item_id)
+    meta_path = storage.object_dir(source, src_id) / "meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     visible = storage.vault_root() / meta["visible_note"]
     text = visible.read_text(encoding="utf-8")

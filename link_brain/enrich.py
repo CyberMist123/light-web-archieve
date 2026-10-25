@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from . import storage
+from . import domain, storage
 
 SOURCE = "xiaohongshu"
 MAX_FAILS = 3
@@ -245,7 +245,7 @@ def run_limited(argv: list[str], timeout: float) -> tuple[int | None, str, bool]
 def enrich_one(source_key: str, source_id: str, *, llm: bool = True, timeout: float | None = None) -> dict[str, Any]:
     """补一篇。返回 {item_id, status: done|failed|deferred, error?}；并更新 enrich-state.json。"""
     cap = ITEM_TIMEOUT_SECONDS if timeout is None else max(1.0, min(timeout, ITEM_TIMEOUT_SECONDS))
-    item_id = f"xhs-{source_id}"
+    item_id = domain.item_id(SOURCE, source_id)
     state = load_state(source_key, source_id)
     error = ""
     timed_out = False
@@ -347,7 +347,7 @@ def enrich_items(targets: list[tuple[str, str]], *, llm: bool = True, deadline: 
             deferred += len(targets) - i
             break
         if verbose:
-            print(f"[enrich] {i + 1}/{len(targets)} xhs-{sid} 识图 / 概要中", file=sys.stderr)
+            print(f"[enrich] {i + 1}/{len(targets)} {domain.item_id(SOURCE, sid)} 识图 / 概要中", file=sys.stderr)
         out = enrich_one(key, sid, llm=llm, timeout=left)
         api_streak = api_streak + 1 if out.get("api_error") else 0
         if out["status"] == "done":
@@ -358,7 +358,7 @@ def enrich_items(targets: list[tuple[str, str]], *, llm: bool = True, deadline: 
         else:
             failed.append(out)
             if verbose:
-                print(f"[enrich] xhs-{sid} 没补成（第 {out['fails']} 次）：{out['error']}", file=sys.stderr)
+                print(f"[enrich] {domain.item_id(SOURCE, sid)} 没补成（第 {out['fails']} 次）：{out['error']}", file=sys.stderr)
     return {"done": done, "failed": failed, "deferred": deferred}
 
 
