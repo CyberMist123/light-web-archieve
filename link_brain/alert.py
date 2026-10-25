@@ -86,7 +86,7 @@ def _alert(kind: str, title: str, body: str, **extra: Any) -> bool:
 
     第 4 批（CONVENTIONS §2.6）：**模块私有**，仓内只有 problems._push 调它——推不推由 problems.report
     按故障类判定（NEEDS_HUMAN 推一次、TRANSIENT 连续 3 天升级 STUCK 推一次，其余只记不推）。
-    别的模块要报问题一律 problems.report；tests/test_problems_alert_exit.py 扫源码守住这条。"""
+    别的模块要报问题一律 problems.report；tests/test_guards.py 的「绕过 problems 直接报警」规则守住这条。"""
     payload = {"kind": kind, "title": title, "body": body, **extra}
     print(f"[alert] {kind}: {title} — {body}", file=sys.stderr)
     command = alert_command()
