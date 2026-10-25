@@ -59,3 +59,32 @@ def test_whitelisted_fixture_passes(tmp_path, monkeypatch):
     monkeypatch.setattr(gate, "ROOT", tmp_path)
     sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True, text=True).stdout.strip()
     assert gate.scan_commit(sha, []) == ["tests/fixtures/other.mp4: private file type"]
+
+
+# 邮箱放行是精确匹配：只有 noreply@anthropic.com 一个 anthropic 地址放行，其余仍拒。
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("email", [
+    "noreply@anthropic.com",
+    "12345+user@users.noreply.github.com",
+    "noreply@github.com",
+])
+def test_noreply_identities_allowed(email):
+    assert gate.NOREPLY.search(email)
+
+
+@pytest.mark.parametrize("email", [
+    "someone@anthropic.com",
+    "no-reply@anthropic.com",
+    "noreply@anthropic.com.evil.com",
+    "noreply@anthropic.co",
+    "noreply@anthropicXcom",
+    "evilnoreply@anthropic.com",
+    "x@evil.com/noreply@anthropic.com",
+    "noreply@sub.anthropic.com",
+    "noreply@anthropic.com ",
+    "me@gmail.com",
+])
+def test_other_identities_rejected(email):
+    assert not gate.NOREPLY.search(email)

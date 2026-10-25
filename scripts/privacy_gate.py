@@ -1,7 +1,7 @@
 """推送前隐私闸（.githooks/pre-push 调用；fail-closed：扫不了就不许推）。
 
 只查这次要推、远端还没有的提交，查三样：
-1. 作者/提交者邮箱必须是 GitHub noreply（个人邮箱一旦进公开历史就只能重写历史才能删）。
+1. 作者/提交者邮箱必须是 GitHub noreply（或 Claude Code 的 noreply@anthropic.com；个人邮箱一旦进公开历史就只能重写历史才能删）。
 2. 新增文件的类型：课表、录音、视频、cookie、密钥库、数据库这类私人文件一律不许进仓。
 3. 新增行和提交说明：通用密钥特征 + 本机私有特征清单。
 
@@ -21,7 +21,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PRIVATE_LIST = ROOT / ".githooks" / "private-patterns.local.txt"
 
-NOREPLY = re.compile(r"(@users\.noreply\.github\.com|^noreply@github\.com)$", re.I)
+# noreply@anthropic.com：Claude Code 云端会话固定的提交身份（不是个人邮箱），1023 作者同意放行
+NOREPLY = re.compile(r"(@users\.noreply\.github\.com|^noreply@github\.com|^noreply@anthropic\.com)$", re.I)
 BLOCKED_FILES = re.compile(
     r"(\.(ics|kdbx|pem|p12|pfx|key|m4a|mp3|wav|flac|mp4|mov|db|sqlite)$"
     r"|(^|/)cookies[^/]*\.json$|(^|/)\.env$)",

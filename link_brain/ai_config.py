@@ -76,6 +76,47 @@ def is_default_answer_prompt(custom: str) -> bool:
 
 # CONVENTIONS §4：每个能力一个键；mode 词表 http / cli / local / capswriter / off（`media` 已删，旧配置见 _migrate_legacy）。
 # 超时都在这里有默认值（timeoutSec），执行器不写死数字。模型名、接口地址不再从 llm-config.yaml 回落。
+# 本机命令行模型（0926 起；1023 和 API 平级、各功能都能选）：命令只在这里一份。用它们自己的登录、不要 key、不花钱
+# （pricing.is_free 认 mode=cli）。1001（审计 C-1）收权：claude 不继承本机全局的 bypassPermissions、禁掉会动本机的工具、
+# 不加载任何 MCP；codex 只读沙箱；opencode 不加载外部插件。text_stream.harden_command 对 data.json 里存着的旧命令也会补上。
+CLI_PRESETS: list[dict[str, str]] = [
+    {"id": "codex", "name": "Codex", "command": "codex exec --skip-git-repo-check -s read-only -c model_reasoning_effort=low -"},
+    {"id": "claude", "name": "Claude Code（Sonnet）",
+     "command": "claude -p --model sonnet --permission-mode default "
+                "--disallowedTools Bash,PowerShell,Write,Edit,NotebookEdit,WebFetch,WebSearch --strict-mcp-config"},
+    {"id": "opencode", "name": "OpenCode", "command": "opencode run --pure"},
+]
+
+
+def cli_preset(preset_id: str) -> dict[str, str] | None:
+    return next((dict(p) for p in CLI_PRESETS if p["id"] == preset_id), None)
+
+
+# 每项功能能选哪几种做法（1023：API 和本机命令行平级）。和 providers.MODES 同一张（MODES 还含 off），设置页只读这里给的表。
+TABLE_CAPS = ("textAI", "summaryAI", "visionAI", "visionAI.refine", "embedAI", "asrAI")
+
+
+def ai_table(settings: dict[str, Any] | None = None) -> dict[str, Any]:
+    """设置页要的 AI 配置表：{caps: {能力: {label, modes}}, cli: [{id, name, command, preset?}]}。
+    cli = 内置的几个命令行 + 她自己在问收藏下拉里加的命令行条目（同一条命令只列一次）。不带任何 key。"""
+    from . import providers
+    if settings is None:
+        try:
+            settings = load()
+        except Exception:  # noqa: BLE001
+            settings = copy.deepcopy(DEFAULTS)
+    caps = {cap: {"label": providers.LABEL.get(cap, cap), "modes": [m for m in providers.MODES.get(cap, ()) if m != "off"]}
+            for cap in TABLE_CAPS}
+    cli = [{**p, "preset": p["id"]} for p in CLI_PRESETS]
+    seen = {p["command"] for p in CLI_PRESETS}
+    for m in settings.get("models") or []:
+        if isinstance(m, dict) and m.get("mode") == "cli" and m.get("command") and m["command"] not in seen:
+            seen.add(m["command"])
+            cli.append({"id": "model:" + str(m.get("name") or ""), "name": str(m.get("name") or m["command"]),
+                        "command": str(m["command"])})
+    return {"caps": caps, "cli": cli}
+
+
 DEFAULTS: dict[str, Any] = {
     # 文本 AI（问答、主题扩词）：http=OpenAI 兼容 /chat/completions；cli=本机命令行；off=关。没填接口 = 未配置（跳过）。
     "textAI": {"mode": "http", "model": "", "endpoint": "", "apiKey": "", "maxTokens": 1200, "timeoutSec": 180},
@@ -84,10 +125,10 @@ DEFAULTS: dict[str, Any] = {
     # 本地 OCR：local=rapidocr 进程内（带位置框，免费）；off=关。
     "ocr": {"mode": "local", "timeoutSec": 120, "modelTier": "medium", "modelDir": ""},
     # 识图（第一层每张图、第二层只补跑挑出来的）：http=OpenAI 兼容带图接口；off=只保留 OCR。
-    # refineModel 留空 = 和第一层同一个模型；refineKeysEnv：第二层优先轮换的免费 key 所在环境变量（逗号分隔，可不设）。
+    # refineModel 留空 = 和第一层同一个模型；refineKeysEnv：免费 key 所在环境变量改名用（空 = providers 的默认名；key 怎么取只看 providers.pool_load）。
     # videoScreenText：视频抽帧本地 OCR 出「视频画面文字」；不花钱，吃 CPU（30s 视频约 7s）。
     "visionAI": {"mode": "http", "model": "", "refineModel": "", "endpoint": "", "apiKey": "", "videoScreenText": True,
-                 "timeoutSec": 150, "refineTimeoutSec": 240, "refineKeysEnv": "LWA_GEMINI_KEYS"},
+                 "timeoutSec": 150, "refineTimeoutSec": 240, "refineKeysEnv": ""},
     # 语音识别（视频转写 + 问 AI 的麦克风）：capswriter=本机 CapsWriter-Offline 服务端（websocket，免费离线）；
     # http=OpenAI 兼容 /audio/transcriptions；off=关。port 留空 = 读 CapsWriter 的 config_server.py，读不到用 6016。
     # segmentSec：长音频按静音点切段（每段不超过这么长）再拼。
@@ -101,14 +142,11 @@ DEFAULTS: dict[str, Any] = {
     # 语音输入：capsLock=CapsWriter 客户端全局监听 CapsLock（插件侧开关，Python 不用）
     "voice": {"capsLock": True, "capsWriterDir": ""},
     # 问答页的模型下拉（0926）：mode=http 走接口；mode=cli 走本机命令行（codex / claude 用自己的登录）。
+    # 1023（ARCH-AUDIT 第 2 批）：命令行条目只存 preset，命令本身只在 CLI_PRESETS（插件默认值同样只写 preset）。
     "models": [
         {"name": "文本 AI", "mode": "inherit"},
-        {"name": "Codex", "mode": "cli", "command": "codex exec --skip-git-repo-check -s read-only -c model_reasoning_effort=low -"},
-        # 1001（审计 C-1）：收权——不继承本机全局的 bypassPermissions，禁掉会动本机的工具，不加载任何 MCP。
-        # text_stream.harden_command 对她 data.json 里存着的旧命令也会补上这些参数。
-        {"name": "Sonnet", "mode": "cli", "command": "claude -p --model sonnet --permission-mode default "
-                                                    "--disallowedTools Bash,PowerShell,Write,Edit,NotebookEdit,WebFetch,WebSearch "
-                                                    "--strict-mcp-config"},
+        {"name": "Codex", "mode": "cli", "preset": "codex"},
+        {"name": "Sonnet", "mode": "cli", "preset": "claude"},
     ],
     "activeModel": "文本 AI", "chatPlaceholder": "问点什么呢？",
     "prompts": {"summary": "", "answer": DEFAULT_ANSWER_PROMPT},
@@ -151,6 +189,11 @@ def with_model(settings: dict[str, Any], name: str = '') -> dict[str, Any]:
         return settings
     keep = {k: v for k, v in entry.items() if k != 'name' and v not in (None, '')}
     base = dict(settings.get('textAI', {}))
+    if entry.get('mode') == 'cli':
+        # 1025 复审：下拉选的命令行条目只存 preset 时，不能带上 textAI 自己那条 command（providers._check 先看 command，
+        # 否则选「Codex」实际跑的是 textAI 填的命令行）。命令行条目用哪个命令只看自己。
+        base.pop('command', None)
+        base.pop('preset', None)
     # 1001（审计 C-3）：继承来的仓外密钥文件（keyFile/keyField）只属于 textAI 自己那个接口。
     # 条目自带 apiKey、或指向别的接口地址时，一律不带过去——否则 DeepSeek 的 key 会被当 Bearer 发给别家。
     # （条目地址和 textAI 一样、自己又没填 key 的，照旧用那份密钥文件：她的 DeepSeek 条目就是这样。）

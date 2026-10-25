@@ -109,12 +109,19 @@ def read_key_file(path: str, field: str = "apiKey") -> tuple[dict[str, str] | No
 # --------------------------------------------------------------------------
 # 1016 key 轮流用（keyPool）：一家给了好几把 key（她的 Gemini 免费 key ×4），设置里写 `"keyPool": "gemini"`。
 # 每次取第一把今天还没用坏的；撞 401 / 403 / 429 / 欠费 → 这把记作今天用坏、换下一把；全坏了才算这一家失败（走备用）。
-# key 来源：环境变量 LWA_GEMINI_KEYS（夜跑从密码库注入，逗号分隔）→ ~/.link-brain/config.json 的 gemini_keys_file
-# （一行一把，只本用户可读）。key 只在内存里，不落盘、不进日志。
+# key 来源（ARCH-AUDIT 第 2 批起只有这里一份，夜跑也调它）：
+#   ① 环境变量（名字 = 设置 visionAI.refineKeysEnv，空 = LWA_GEMINI_KEYS；夜跑取到后注入子进程的就是它）
+#   ② 取 key 的命令：环境变量 LWA_GEMINI_KEYS_CMD 或 ~/.link-brain/config.json 的 gemini_keys_cmd（标准输出就是 key；限时，
+#      超时整棵结束；输出不进日志；同一进程只跑一次）
+#   ③ key 文件：LWA_GEMINI_KEYS_FILE 或 config.json 的 gemini_keys_file（路径里的 %VAR% / $VAR 和 ~ 会展开）
+# 配了命令就只认命令（不再往下落到文件）。内容按逗号 / 换行分，# 开头的行是注释，去重保序。key 只在内存里，不落盘、不进日志。
 # --------------------------------------------------------------------------
 
 POOL_ENV = {"gemini": "LWA_GEMINI_KEYS"}
-POOL_FILE_FIELD = {"gemini": "gemini_keys_file"}
+POOL_CMD = {"gemini": ("LWA_GEMINI_KEYS_CMD", "gemini_keys_cmd")}
+POOL_FILE = {"gemini": ("LWA_GEMINI_KEYS_FILE", "gemini_keys_file")}
+POOL_CMD_TIMEOUT_S = 60.0
+_POOL_CMD_CACHE: dict[str, tuple[str, str]] = {}   # 命令 → (输出, 出错原因)。成功失败都记：取 key 的命令可能要解密码库、可能卡住，一个进程只跑一次（1025 复审：失败不缓存时，每次 resolve_key / 备用识图都会再跑一遍、再等一次超时）
 POOL_DEAD_CODES = ("NEEDS_HUMAN.AUTH_FAILED", "NEEDS_HUMAN.QUOTA_EXCEEDED", "TRANSIENT.HTTP_429")
 _POOL_DEAD: dict[str, dict[str, float]] = {}  # 池名 → {key: 到几点（time.time()）之前别用}
 _POOL_WHY: dict[str, dict[str, str]] = {}  # 池名 → {key: 为什么歇着（结果码）}——key 全歇了时照实报是额度用完还是 key 坏
@@ -128,22 +135,96 @@ def is_daily_limit(body: str) -> bool:
     return "perday" in (body or "").lower().replace(" ", "")
 
 
-def pool_keys(name: str) -> list[str]:
-    """一个 key 池里所有的 key（按顺序、去重）。拿不到 = []。"""
-    raw = os.environ.get(POOL_ENV.get(name, ""), "")
-    if not raw.strip():
-        try:
-            from . import storage
-            path = (storage.user_config() or {}).get(POOL_FILE_FIELD.get(name, ""))
-            raw = Path(str(path)).expanduser().read_text("utf-8-sig") if path else ""
-        except OSError:
-            raw = ""
+def pool_env_name(name: str) -> str:
+    """这个池的 key 放在哪个环境变量里。gemini 可由设置 visionAI.refineKeysEnv 改名（老配置），空 = 默认名。"""
+    default = POOL_ENV.get(name, "")
+    if name != "gemini":
+        return default
+    try:
+        from . import ai_config
+        return str((ai_config.load().get("visionAI") or {}).get("refineKeysEnv") or default)
+    except Exception:  # noqa: BLE001 - 设置读不动按默认名
+        return default
+
+
+def _split_keys(raw: str) -> list[str]:
     out: list[str] = []
-    for k in raw.replace(",", "\n").splitlines():
+    for k in (raw or "").replace(",", "\n").splitlines():
         k = k.strip()
-        if k and k not in out:
+        if k and not k.startswith("#") and k not in out:
             out.append(k)
     return out
+
+
+def _run_key_cmd(cmd: str, timeout: float, kill_exclude=None) -> tuple[str, str]:
+    """跑取 key 的命令 → (标准输出, 出错原因)。输出一律不打印；超时整棵结束（procs.kill_tree，放过读取服务）。"""
+    import subprocess
+    if cmd in _POOL_CMD_CACHE:
+        return _POOL_CMD_CACHE[cmd]
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+    try:
+        p = subprocess.Popen(cmd, shell=True, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, creationflags=flags)
+    except OSError as exc:
+        return _remember(cmd, "", f"起不来：{type(exc).__name__}")
+    try:
+        out, _ = p.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            from . import procs
+            procs.kill_tree(p.pid, **({"exclude": kill_exclude} if kill_exclude is not None else {}))
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            p.kill()
+        except OSError:
+            pass
+        return _remember(cmd, "", f"{timeout:.0f} 秒没回来，已停")
+    if p.returncode != 0:
+        return _remember(cmd, "", f"命令退出 {p.returncode}")
+    return _remember(cmd, (out or b"").decode("utf-8", "replace"), "")
+
+
+def _remember(cmd: str, text: str, err: str) -> tuple[str, str]:
+    _POOL_CMD_CACHE[cmd] = (text, err)
+    return text, err
+
+
+def pool_load(name: str, *, timeout: float | None = None, kill_exclude=None) -> dict[str, Any]:
+    """{keys, env, source: env|cmd|file|"", error}：一个 key 池的全部 key 和从哪来。error 只在取 key 的命令失败 /
+    key 文件读不了时有（一句话，不含 key）；调用方（夜跑）据此登记问题。"""
+    # 1025 Codex 审：先按设置定变量名（visionAI.refineKeysEnv 改过名就只认它），再读——默认名和自定义名同时设着时，
+    # 以前的写法会先拿默认名那一组，和 main 的夜跑（只读自定义名）不一样，可能用错 key 池
+    env_name = pool_env_name(name)
+    raw = os.environ.get(env_name, "") if env_name else ""
+    out: dict[str, Any] = {"keys": [], "env": env_name, "source": "", "error": ""}
+    if raw.strip():
+        out.update(keys=_split_keys(raw), source="env")
+        return out
+    try:
+        from . import storage
+        conf = storage.user_config() or {}
+    except Exception:  # noqa: BLE001
+        conf = {}
+    cmd_env, cmd_field = POOL_CMD.get(name, ("", ""))
+    file_env, file_field = POOL_FILE.get(name, ("", ""))
+    cmd = (os.environ.get(cmd_env) if cmd_env else "") or conf.get(cmd_field)
+    path = (os.environ.get(file_env) if file_env else "") or conf.get(file_field)
+    if isinstance(cmd, str) and cmd.strip():
+        text, err = _run_key_cmd(cmd.strip(), POOL_CMD_TIMEOUT_S if timeout is None else timeout, kill_exclude)
+        out.update(keys=_split_keys(text), source="cmd", error=err and f"取免费 key 的命令{err}")
+    elif isinstance(path, str) and path.strip():
+        try:
+            text = Path(os.path.expandvars(path.strip())).expanduser().read_text("utf-8-sig")
+            out.update(keys=_split_keys(text), source="file")
+        except OSError as exc:
+            out.update(source="file", error=f"key 文件读不了（{type(exc).__name__}）")
+    return out
+
+
+def pool_keys(name: str) -> list[str]:
+    """一个 key 池里所有的 key（按顺序、去重）。拿不到 = []。来源见 pool_load。"""
+    return list(pool_load(name)["keys"])
 
 
 def _end_of_day() -> float:
@@ -348,6 +429,11 @@ def _check(cap: str, cfg: dict[str, Any], settings: dict[str, Any] | None = None
             out["keyError"] = err
     elif mode == "cli":
         command = cfg.get("command")
+        if not command and cfg.get("preset"):
+            from . import ai_config
+            command = (ai_config.cli_preset(str(cfg["preset"])) or {}).get("command")
+            if command:
+                out["command"] = command   # 1023：插件只存 preset（哪个命令行），命令本身只在 ai_config.CLI_PRESETS
         if not command:
             return None, f"{label}没填命令行"
     elif mode == "capswriter":

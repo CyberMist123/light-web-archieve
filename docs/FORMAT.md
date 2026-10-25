@@ -517,7 +517,7 @@ _archive/xiaohongshu/<note_id>/
   "usage": {
     "input_tokens_est": 3979,
     "output_tokens_est": 593,
-    "cost_usd_est": 0.00017664,
+    "cost_yuan_est": 0.00127,
     "note": "接口回传的 usage"
   },
   "code": "",
@@ -542,7 +542,7 @@ _archive/xiaohongshu/<note_id>/
 |---|---|
 | `version` | 派生自哪个 RAW 版本；`current_version` 变了要重跑 |
 | `attempts` | 1 或 2（schema 校验失败只重试 1 次） |
-| `usage` | 接口回传了 usage 就用它，否则按字符估（`note` 写明是哪种）；价格按模型名查 `link_brain/assets/llm-config.yaml` 的 `pricing`，查不到记 0 |
+| `usage` | 接口回传了 usage 就用它，否则按字符估（`note` 写明是哪种）；`cost_yuan_est` = 元，和用量账本同一套算法（`link_brain/pricing.py`：本机命令行 / 免费 key 记 0，价格表里查不到记 `null` = 未计价）。1023 以前写的文件是 `cost_usd_est`（美元，查不到记 0），读的时候两个都可能遇到 |
 | `code` | 失败 / 跳过时的故障码（CONVENTIONS §2），成功为空 |
 | `data.tags` | 先按 `docs/tag-vocab.yaml` 归一，再洗成 Obsidian 合法 tag（只留字母数字 `_ - /`，空格转 `-`） |
 | `data.links_worth_opening[].url` | 只可能是 `http(s)://` 开头；模型给的其他东西（仓库名、`javascript:` 之类）一律降级进 `hint`，永不当链接渲染 |

@@ -84,8 +84,8 @@ def provider_name(cfg: dict[str, Any] | None) -> str:
     cfg = cfg or {}
     model = str(cfg.get("model") or "")
     try:
-        from .setup import estimate
-        hit = estimate._price(estimate.load_pricing(), model)
+        from . import pricing
+        hit = pricing.price_of(model)
         if hit and hit[1].get("provider"):
             return str(hit[1]["provider"])
     except Exception:  # noqa: BLE001

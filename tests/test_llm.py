@@ -183,7 +183,7 @@ def test_extract_writes_extracted_json_and_costs_are_recorded(tmp_path, monkeypa
     doc = llm_mod.extract(source, source_id)
     assert doc["status"] == "ok"
     assert doc["attempts"] == 1 and doc["first_try_ok"] is True
-    assert doc["usage"]["input_tokens_est"] > 0 and doc["usage"]["cost_usd_est"] >= 0
+    assert doc["usage"]["input_tokens_est"] > 0 and "cost_yuan_est" in doc["usage"]
     assert llm_mod.extracted_path(source, source_id).exists()
 
 

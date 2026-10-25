@@ -339,6 +339,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("usage", help="设置页「用量与余额」：按功能 / 提供商汇总 token 和花费，可带余额")
     p.add_argument("--balance", action="store_true", help="顺带查余额（DeepSeek 有接口；千问只给跳转）")
+    p.add_argument("--table", action="store_true", help="只给 AI 配置表（每项功能能选接口 / 本机命令行、有哪些命令行），不读账本")
 
     p = sub.add_parser("clean", help="清洗分享文案里的小红书链接（跟随短链、只留 xsec_token/source），输出 JSON")
     p.add_argument("text", help="一整段分享文案或链接")

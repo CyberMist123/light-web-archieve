@@ -5,8 +5,9 @@
 没标就按能力推（summaryAI → 概要、visionAI → 识图 …）。
 
 - 账本：`vault/_archive/usage/YYYY-MM.jsonl`，append-only，一行 < 1 KB（§6.5 允许 open('a')）。
-  一行 = {ts, f 功能, p 提供商, m 模型, in, out, sec 音频秒数, item, ok}；不记 key、不记内容。
-- 金额不入账，汇总时按 `pricing.json` 现价折算（DeepSeek 按调用时刻分高峰 / 空闲价）；价格表里没有的模型金额记 None（界面写「—」）。
+  一行 = {ts, f 功能, p 提供商, m 模型, in, out, sec 音频秒数, item, ok, free}；不记 key、不记内容。
+- 金额不入账，汇总时按价格表现价折算（`pricing.cost_of`，DeepSeek 按调用时刻分高峰 / 空闲价）；价格表里没有的模型金额记 None（界面写「—」）。
+  `free: true`（免费 key 池）和 `p: cli`（本机命令行）记 0 元；命令行的 `m` 记程序名 + 模型（`cli_model`）。
 - 余额：DeepSeek 有 `GET /user/balance`（用问答 / 概要里配的 DeepSeek key）；千问（百炼）没有拿 API key 能查的余额接口，只给控制台跳转。
 - 记账失败永不影响调用本身（吞异常、stderr 一句）。
 """
@@ -20,7 +21,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
 
-from . import storage
+from . import pricing, storage
 
 # 功能词表（顺序 = 设置页表格顺序）
 FEATURES = {
@@ -47,21 +48,7 @@ def tag(feature: str, *, item: str | None = None) -> Iterator[None]:
         _TAG.reset(token)
 
 
-def provider_of(endpoint: str = "", model: str = "") -> str:
-    """提供商键：deepseek / aliyun / openai / google / 其他时写接口域名；本机命令行 = cli。"""
-    e, m = str(endpoint or "").lower(), str(model or "").lower()
-    if "deepseek" in e or (not e and m.startswith("deepseek")):
-        return "deepseek"
-    if "aliyuncs" in e or "dashscope" in e or (not e and m.startswith("qwen")):
-        return "aliyun"
-    if "openai.com" in e:
-        return "openai"
-    if "googleapis" in e:
-        return "google"
-    if not e:
-        return "other"
-    host = e.split("://", 1)[-1].split("/", 1)[0]
-    return host or "other"
+provider_of = pricing.provider_of   # 唯一一份在 pricing.py；JS 不再猜，读 ai_routes 给的 provider
 
 
 def _dir() -> Path:
@@ -84,10 +71,14 @@ def record(cap: str, cfg: dict[str, Any] | None, usage: dict[str, Any] | None = 
                                                           or (u.get("total_tokens") if not u.get("completion_tokens") else 0) or 0)
         tout = tokens_out if tokens_out is not None else int(u.get("completion_tokens") or u.get("output_tokens") or 0)
         when = now or _now()
+        cli = cfg.get("mode") == "cli"
         row: dict[str, Any] = {"ts": when.isoformat(timespec="seconds"),
                                "f": feature or t.get("f") or FEATURE_OF_CAP.get(cap, "other"),
-                               "p": "cli" if cfg.get("mode") == "cli" else provider_of(cfg.get("endpoint"), cfg.get("model")),
-                               "m": str(cfg.get("model") or "")[:80], "in": int(tin), "out": int(tout), "ok": bool(ok)}
+                               "p": "cli" if cli else provider_of(cfg.get("endpoint"), cfg.get("model")),
+                               "m": str(model_name(cfg))[:80],
+                               "in": int(tin), "out": int(tout), "ok": bool(ok)}
+        if not cli and pricing.is_free(cfg):
+            row["free"] = True   # 免费 key 池等显式免费：按 0 元算（不在价格表里 ≠ 免费）
         if seconds:
             row["sec"] = round(float(seconds), 1)
         if t.get("item"):
@@ -128,35 +119,46 @@ def load(days: int = 31, *, now: datetime | None = None) -> list[dict[str, Any]]
 # 价钱
 # --------------------------------------------------------------------------
 
-def _offpeak(ts: datetime) -> bool:
-    """DeepSeek 空闲时段：北京时间周一至周五 9-12、14-18 之外（含周末）。法定节假日不认，按高峰算（宁多不少）。"""
-    bj = ts.astimezone(_bj())
-    if bj.weekday() >= 5:
-        return True
-    return not (9 <= bj.hour < 12 or 14 <= bj.hour < 18)
+_offpeak = pricing.offpeak
+_bj = pricing.bj
 
 
-def _bj():
-    from datetime import timezone
-    return timezone(timedelta(hours=8))
+def cost_of(row: dict[str, Any], pricing_table: dict[str, Any] | None = None) -> float | None:
+    """一行账本多少元；未计价 = None。规则在 pricing.cost_of。"""
+    return pricing.cost_of(row, pricing_table)
 
 
-def cost_of(row: dict[str, Any], pricing: dict[str, Any]) -> float | None:
-    from .setup import estimate
-    if row.get("p") == "cli":
-        return 0.0
-    hit = estimate._price(pricing, str(row.get("m") or ""))
-    if not hit:
-        return None
-    info = dict(hit[1])
-    if row.get("sec") and info.get("price") is not None:
-        return estimate.audio_cost(pricing, info, float(row["sec"]) / 60)
-    ts = row.get("_ts")
-    if ts is not None and info.get("input_offpeak") is not None and _offpeak(ts):
-        info["input"], info["output"] = info["input_offpeak"], info.get("output_offpeak", info.get("output"))
-    if info.get("input") is None and info.get("price_per_million") is not None:
-        info["input"], info["output"] = info["price_per_million"], 0
-    return estimate.token_cost(pricing, info, float(row.get("in") or 0), float(row.get("out") or 0))
+QUOTES = "\"'"
+
+
+def model_name(cfg: dict[str, Any] | None) -> str:
+    """记账 / 设置页 / 概要 extracted.json 用的模型名。命令行先从实际命令取（程序名 + --model），没有命令才看 model：
+    问收藏下拉选 Codex 时，with_model 叠出来的配置还带着 textAI 的 model（如 deepseek），不能把它记成命令行的名字（1025 Codex 审）。"""
+    cfg = cfg or {}
+    if cfg.get("mode") == "cli":
+        cmd = cfg.get("command") or cfg.get("preset")
+        return cli_model(cmd) if cmd else str(cfg.get("model") or "cli")
+    return str(cfg.get("model") or "")
+
+
+def cli_model(command: Any) -> str:
+    """命令行模型记账用的名字：程序名 + --model / -m 的值（如「claude sonnet」「opencode」）；空命令 = cli。"""
+    import shlex
+    try:
+        cmd = shlex.split(command, posix=False) if isinstance(command, str) else list(command or [])
+    except ValueError:
+        cmd = str(command or "").split()
+    if not cmd:
+        return "cli"
+    from .text_stream import _prog
+    name = _prog(cmd[0])
+    for i, tok in enumerate(cmd[1:], 1):
+        bare = tok.strip(QUOTES)
+        if bare in ("--model", "-m") and i + 1 < len(cmd):
+            return f"{name} {cmd[i + 1].strip(QUOTES)}"
+        if bare.startswith("--model="):
+            return f"{name} {bare.split('=', 1)[1]}"
+    return name
 
 
 def _blank() -> dict[str, Any]:
@@ -184,14 +186,13 @@ def _done(acc: dict[str, Any]) -> dict[str, Any]:
 
 def summary(*, now: datetime | None = None) -> dict[str, Any]:
     """{windows: {today|7d|30d: {total, features: {f: …}, providers: {p: …}}}, month: {p: cost}, daily: [{date, cost, calls}]}"""
-    from .setup import estimate
     now = now or _now()
-    pricing = estimate.load_pricing()
+    table = pricing.table()
     rows = load(max(WINDOWS.values()) + 1, now=now)
     start_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     month_start = start_today.replace(day=1)
     out: dict[str, Any] = {"windows": {}, "month": {}, "daily": []}
-    priced = [(r, cost_of(r, pricing)) for r in rows]
+    priced = [(r, cost_of(r, table)) for r in rows]
     for name, days in WINDOWS.items():
         since = start_today - timedelta(days=days - 1)
         total, feats, provs = _blank(), {}, {}
@@ -219,23 +220,22 @@ def summary(*, now: datetime | None = None) -> dict[str, Any]:
         d = by_day.get(key) or {"cost": 0.0, "calls": 0}
         out["daily"].append({"date": key, "cost": round(d["cost"], 4), "calls": d["calls"]})
     out["features"] = FEATURES
-    out["as_of"] = pricing.get("as_of")
+    out["as_of"] = table.get("as_of")
     return out
 
 
 def month_summary(*, now: datetime | None = None) -> dict[str, Any] | None:
     """目录页边栏「Token 费用 · 本月」（1022 Collection+ 第 4 段 A）：本月账本按 pricing.json 现价折成人民币。
     返回 {month, cost_cny, by_feature: {功能中文: 元}, calls, unpriced, as_of}；本月一行账都没有返回 None（页面显示「—」，不显示 0 误导）。"""
-    from .setup import estimate
     now = now or _now()
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     rows = [r for r in load(now.day + 1, now=now) if r["_ts"] >= month_start]
     if not rows:
         return None
-    pricing = estimate.load_pricing()
+    table = pricing.table()
     total, by_feat, unpriced = 0.0, {}, 0
     for r in rows:
-        c = cost_of(r, pricing)
+        c = cost_of(r, table)
         if c is None:
             unpriced += 1
             continue
@@ -244,20 +244,19 @@ def month_summary(*, now: datetime | None = None) -> dict[str, Any] | None:
         by_feat[f] = by_feat.get(f, 0.0) + c
     ordered = sorted(by_feat.items(), key=lambda kv: list(FEATURES).index(kv[0]) if kv[0] in FEATURES else 99)
     return {"month": f"{now:%Y-%m}", "cost_cny": round(total, 2), "calls": len(rows), "unpriced": unpriced,
-            "by_feature": {FEATURES.get(f, f): round(v, 2) for f, v in ordered}, "as_of": pricing.get("as_of")}
+            "by_feature": {FEATURES.get(f, f): round(v, 2) for f, v in ordered}, "as_of": table.get("as_of")}
 
 
 # --------------------------------------------------------------------------
 # 提供商：跳转 + 余额
 # --------------------------------------------------------------------------
 
-def provider_links(pricing: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
+def provider_links(table: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
     """pricing.json providers 里带 console 的那几家：{键: {name, console, usage, recharge, key_url, billing, balance_api}}。"""
-    if pricing is None:
-        from .setup import estimate
-        pricing = estimate.load_pricing()
+    if table is None:
+        table = pricing.table()
     out = {}
-    for name, info in (pricing.get("providers") or {}).items():
+    for name, info in (table.get("providers") or {}).items():
         key = info.get("id") or provider_of(info.get("endpoint"))
         if info.get("console"):
             out[key] = {"name": name, **{k: info.get(k) for k in ("console", "usage", "recharge", "key_url", "billing",
@@ -359,8 +358,13 @@ def decorate_problem_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def run(args) -> int:
+    from . import ai_config
     from .read import dump_json, outcome
-    payload: dict[str, Any] = {"summary": summary(), "links": provider_links(), "keys": key_status()}
+    if getattr(args, "table", False):
+        dump_json(outcome({"ai_table": ai_config.ai_table()}, ok=True, message="已读取 AI 配置表"))
+        return 0
+    payload: dict[str, Any] = {"summary": summary(), "links": provider_links(), "keys": key_status(),
+                               "ai_table": ai_config.ai_table()}
     try:  # 1018：AI 页「每个功能用谁」+ 每天上限，和用量一次读回来（少开一次后台）
         from . import ai_routes
         payload.update(ai_routes.routes())
