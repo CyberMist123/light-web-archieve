@@ -252,7 +252,7 @@ def test_browser_form_post_origin(remote):
 
 
 def test_pkce_required_and_code_single_use(remote):
-    with httpx.Client(follow_redirects=False) as c:
+    with httpx.Client(timeout=30, follow_redirects=False) as c:
         cid = c.post(remote.base + "/oauth/register", json={"redirect_uris": [remote_probe.CALLBACK]}).json()["client_id"]
         r = c.get(remote.base + "/oauth/authorize?" + urlencode({"response_type": "code", "client_id": cid,
                                                                   "redirect_uri": remote_probe.CALLBACK, "state": "s"}))
@@ -269,7 +269,7 @@ def test_register_rejects_unsafe_redirects(remote):
     for bad in (["http://evil.example/cb"], ["javascript:alert(1)"], ["https://a.example/cb#frag"], []):
         r = httpx.post(remote.base + "/oauth/register", json={"redirect_uris": bad})
         assert r.status_code == 400, bad
-    with httpx.Client(follow_redirects=False) as c:
+    with httpx.Client(timeout=30, follow_redirects=False) as c:
         cid = c.post(remote.base + "/oauth/register", json={"redirect_uris": ["https://ok.example/cb"]}).json()["client_id"]
         _, ch = _pkce()
         r = c.get(remote.base + "/oauth/authorize?" + urlencode({"response_type": "code", "client_id": cid,
