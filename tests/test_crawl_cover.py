@@ -94,7 +94,7 @@ def test_run_forces_rest_after_work_min(monkeypatch):
     monkeypatch.setattr(comment_fill, "WORK_MIN", 30)                  # 干活额度 1800 秒：一块 2000 秒就超
     monkeypatch.setattr(comment_fill, "REST_MIN", 1)
     blocks, sleeps = [], []
-    out = crawl.run(_args(hours=1), sleep=sleeps.append,
+    out = crawl.run(_args(hours=3.5), sleep=sleeps.append,
                     run_block=lambda cmd, b: blocks.append(b) or 0,
                     clock=_Clock(step=2000), busy=lambda: "")
     assert out == 0
