@@ -15,6 +15,7 @@ import os
 import subprocess
 import sys
 from typing import Any
+from .errtext import errtext
 
 DEFAULT_TITLE = "选一个文件夹"
 
@@ -73,7 +74,7 @@ def pick(title: str = DEFAULT_TITLE, initial: str | None = None, *, timeout: flo
         try:
             got = how(title, initial) if how else (_powershell(title, initial, timeout) if os.name == "nt" else None)
         except Exception as exc:  # noqa: BLE001 - 这一种弹不出来就换下一种
-            errors.append(f"{'tkinter' if how else 'PowerShell'}：{type(exc).__name__}: {exc}"[:160])
+            errors.append(f"{'tkinter' if how else 'PowerShell'}：{errtext(exc)}"[:160])
             continue
         if got is None:
             break

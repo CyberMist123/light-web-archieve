@@ -25,6 +25,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+from .errtext import errtext
 
 ENV_ALERT_CMD = "LINK_BRAIN_ALERT_CMD"
 
@@ -51,7 +52,7 @@ def _run(command: str, payload: dict[str, Any]) -> bool:
             timeout=150,
         )
     except Exception as exc:  # noqa: BLE001 - 报警自己挂了也只能记一句
-        print(f"[alert] 报警命令跑不起来（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[alert] 报警命令跑不起来（{errtext(exc)}）", file=sys.stderr)
         return False
     if proc.returncode != 0:
         print(f"[alert] 报警命令退出码 {proc.returncode}: {(proc.stderr or '').strip()[:300]}",

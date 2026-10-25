@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from . import storage
+from .errtext import errtext
 
 FILE_NAME = "ai-health.json"
 # 能力 → 归并后的步骤名（问题记录里 step=ai.<名>）
@@ -213,7 +214,7 @@ def record(cap: str, result: dict[str, Any], *, item_id: str | None = None, cfg:
             return
         problems.report(step, code, reason_text(cap, entry))
     except Exception as exc:  # noqa: BLE001
-        print(f"[ai_health] 归并登记失败（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[ai_health] 归并登记失败（{errtext(exc)}）", file=sys.stderr)
 
 
 def clear(cap: str) -> None:
@@ -228,7 +229,7 @@ def clear(cap: str) -> None:
         if step and (entry is not None or problems.is_open_step(step)):
             problems.resolve(step, None)
     except Exception as exc:  # noqa: BLE001
-        print(f"[ai_health] 清除失败（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[ai_health] 清除失败（{errtext(exc)}）", file=sys.stderr)
 
 
 def affected(cap: str) -> list[str]:
@@ -275,5 +276,5 @@ def migrate_legacy_rows() -> int:
                 n += 1
         return n
     except Exception as exc:  # noqa: BLE001
-        print(f"[ai_health] 旧记录迁移失败（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[ai_health] 旧记录迁移失败（{errtext(exc)}）", file=sys.stderr)
         return 0

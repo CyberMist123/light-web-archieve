@@ -317,7 +317,7 @@ def _synclog(source_key: str, source_id: str, item_id: str, before: list[str], l
             if kind in before:
                 synclog.note(kind, item_id, kind not in left, title=title, reason=error or "没补成")
     except Exception as exc:  # noqa: BLE001
-        print(f"[synclog] {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"[synclog] {errtext(exc)}", file=sys.stderr)
 
 
 def _title(source_key: str, source_id: str) -> str | None:

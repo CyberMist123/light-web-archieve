@@ -22,6 +22,7 @@ import time
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
+from .errtext import errtext
 
 # 映像名前缀（不区分大小写）：命中的进程和它的整棵子树都不杀
 READER_IMAGE_PREFIXES = ("link-brain-reader",)
@@ -193,7 +194,7 @@ def kill_tree(pid: int, exclude: Iterable[str] = READER_IMAGE_PREFIXES) -> list[
     try:
         targets = select_kill_pids(process_table(), pid, exclude)
     except Exception as exc:  # noqa: BLE001
-        print(f"[procs] 枚举进程失败（{type(exc).__name__}: {exc}），只结束 {pid} 本身", file=sys.stderr)
+        print(f"[procs] 枚举进程失败（{errtext(exc)}），只结束 {pid} 本身", file=sys.stderr)
         targets = [int(pid)]
     killed = [p for p in targets if _terminate(p)]
     return killed
@@ -258,7 +259,7 @@ def kill_leftovers(pid: int, born: float | None, known: dict[int, float | None],
     try:
         table = process_table()
     except Exception as exc:  # noqa: BLE001
-        print(f"[procs] 枚举进程失败（{type(exc).__name__}: {exc}），遗留子进程没法收", file=sys.stderr)
+        print(f"[procs] 枚举进程失败（{errtext(exc)}），遗留子进程没法收", file=sys.stderr)
         return []
     by_pid = {int(p["pid"]): p for p in table}
     roots: list[int] = []
