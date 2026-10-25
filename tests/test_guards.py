@@ -1,7 +1,7 @@
 """仓库守卫：所有「扫源码找不该有的写法」的规则都在这一个文件里，基线只有一份 `tests/guards-baseline.json`。
 
 1025 第二波 PR⓪，把原来散在五处的守卫合成一处（路线评审：「守卫在膨胀，合成一个文件 + 一份基线」）：
-- `test_single_source.py` 的 11 条唯一数据来源规则（ARCH-AUDIT 第 0 批，allowed / known 白名单）
+- `test_single_source.py` 的 12 条唯一数据来源规则（ARCH-AUDIT 第 0 批，allowed / known 白名单）
 - `test_errtext.py` 的手拼异常文字基线（每文件计数，只许减）
 - `test_problems_alert_exit.py` 的报警出口扫描（CONVENTIONS §2.6）
 - `test_file_lock.py` 的手写原子写扫描（CONVENTIONS §6.5）
@@ -12,10 +12,11 @@
 - 基线里没有的文件出现命中 → 红（新写了一份重复 / 新绕过了约定）
 - 某文件命中数比基线多 → 红
 - 某文件命中数比基线少 → 也红，提示把基线改小（不然以后能悄悄加回来）
-改到哪个文件顺手迁掉几处，然后 `python tests/test_guards.py --write` 重写基线（diff 会出现在 PR 里，审的人看得见）；
+改到哪个文件顺手迁掉几处，然后 `python tests/test_guards.py --write` 重写基线（默认只接受变少；真要把新命中写进基线加 `--allow-grow`，diff 会出现在 PR 里，审的人看得见）；
 `python tests/test_guards.py` 不带参数只打印现状和基线的差。
 
-整行注释（# / //）不扫；真不是违规的那一行行尾写规则的 ok 标记（如 `# errtext-ok`）。
+整行注释（# / //）不扫（旧的异常文字扫描连注释一起扫，这次有意改成不扫：注释拼不出用户看得到的文字；「本机私有路径」例外，注释里也不许有）；
+真不是违规的那一行，行里任何位置带规则的 ok 标记（如 `# errtext-ok`）就不计。
 以后新守卫（第二波的 import 契约、环数等）也加在这里：能写成「正则 + allowed」的加进 RULES，不能的写成本文件里的一个测试。
 """
 
@@ -45,10 +46,11 @@ class Rule:
     doc: str = ""
     ok_marker: str = ""          # 行尾带这个标记的行不计
     skip_comments: bool = True   # 整行注释不扫
+    flags: int = 0               # 正则开关（如 re.I）
     _rx: re.Pattern = field(init=False, repr=False, compare=False)
 
     def __post_init__(self):
-        object.__setattr__(self, "_rx", re.compile(self.pattern))
+        object.__setattr__(self, "_rx", re.compile(self.pattern, self.flags))
 
 
 def _rule(pattern, globs, allowed=(), doc="", **kw) -> Rule:
@@ -107,7 +109,7 @@ RULES: dict[str, Rule] = {
     # ---- 公开仓不带本机路径（原 test_hardening_1001.test_no_private_default_paths_in_public_modules，扫全部）----
     "本机私有路径": _rule(
         r"[A-Za-z]:[\\/]Users[\\/](?!<|%|\{)[^\\/\s]+[\\/]",
-        PY_GLOBS + JS_GLOBS, (), "AGENTS.md 第 5 条：不进本机用户路径", skip_comments=False),
+        PY_GLOBS + JS_GLOBS, (), "AGENTS.md 第 5 条：不进本机用户路径", skip_comments=False, flags=re.I),
 }
 
 
@@ -150,10 +152,22 @@ def load_baseline(path: Path = BASELINE_FILE) -> dict[str, dict[str, int]]:
     return {k: v for k, v in data.items() if not k.startswith("_")}
 
 
-def write_baseline(path: Path = BASELINE_FILE) -> None:
+def write_baseline(path: Path = BASELINE_FILE, allow_grow: bool = False) -> list[str]:
+    """重写基线。默认只接受变少；变多的规则原样留在基线里并返回提示（要接受加 allow_grow）。"""
+    now = current()
+    old = load_baseline(path) if path.exists() else {}
+    refused = []
+    if not allow_grow:
+        for name, files in now.items():
+            base = old.get(name, {})
+            grown = [m for m in diff(name, files, base) if "基线之外" in m or "变多" in m]
+            if grown and name in old:
+                refused += grown
+                now[name] = base
     data = {"_": "tests/test_guards.py 的基线：规则 → 文件 → 命中数。只许减；改动用 python tests/test_guards.py --write 重写。"}
-    data.update(current())
+    data.update(now)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True) + "\n", "utf-8")
+    return refused
 
 
 def diff(name: str, now: dict[str, int], base: dict[str, int]) -> list[str]:
@@ -240,9 +254,9 @@ def test_scanner_catches_single_source_copies_in_js_and_skips_comments(tmp_path)
 
 def test_scanner_catches_private_paths_even_in_comments(tmp_path):
     root = _fake_repo(tmp_path, {
-        "link_brain/a.py": "# 默认 C:\\Users\\someone\\x\np = 'C:/Users/<you>/ok'\n",
+        "link_brain/a.py": "# 默认 C:\\Users\\someone\\x\np = 'C:/Users/<you>/ok'\nq = 'c:/users/lower/case/'\n",
         "link_brain/assets/b.js": "const d = 'C:/Users/%USERNAME%/fine';\n"})
-    assert scan(RULES["本机私有路径"], root) == {"link_brain/a.py": 1}
+    assert scan(RULES["本机私有路径"], root) == {"link_brain/a.py": 2}
 
 
 def test_diff_reports_new_grown_and_shrunk():
@@ -251,10 +265,22 @@ def test_diff_reports_new_grown_and_shrunk():
     assert "new.py" in msgs[0] and "'a.py': (2, 1)" in msgs[1] and "gone.py" in msgs[2] and "b.py" in msgs[2]
 
 
+def test_write_baseline_refuses_growth_by_default(tmp_path, monkeypatch):
+    base = tmp_path / "b.json"
+    base.write_text(json.dumps({"手拼异常文字": {"link_brain/a.py": 1}}), "utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "current", lambda: {"手拼异常文字": {"link_brain/a.py": 2}})
+    refused = write_baseline(base)
+    assert refused and load_baseline(base)["手拼异常文字"] == {"link_brain/a.py": 1}
+    assert write_baseline(base, allow_grow=True) == [] and load_baseline(base)["手拼异常文字"] == {"link_brain/a.py": 2}
+
+
 if __name__ == "__main__":
     if "--write" in sys.argv[1:]:
-        write_baseline()
+        refused = write_baseline(allow_grow="--allow-grow" in sys.argv[1:])
         print(f"已重写 {BASELINE_FILE.relative_to(ROOT)}")
+        if refused:
+            print("这些变多的没写进去（确认是有意的再加 --allow-grow）：\n" + "\n".join(refused))
+            sys.exit(1)
     else:
         base = load_baseline() if BASELINE_FILE.exists() else {}
         out = [m for name, now in current().items() for m in diff(name, now, base.get(name, {}))]

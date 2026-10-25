@@ -240,7 +240,7 @@
 
 ## 9. 迁移计划
 
-原则：每批只动一类来源；先加「守卫测试」（列出现存重复，标为已知例外，**新增**重复即红），再迁移，迁完把例外清空。守卫统一放 `tests/test_guards.py`（1025 起；原 `tests/test_single_source.py` 并入，基线在 `tests/guards-baseline.json`） 和 `tests/test_single_source.cjs`，靠 grep/AST 扫源码。
+原则：每批只动一类来源；先加「守卫测试」（列出现存重复，标为已知例外，**新增**重复即红），再迁移，迁完把例外清空。守卫统一放 `tests/test_guards.py`（1025 起；原 `tests/test_single_source.py` 并入，基线在 `tests/guards-baseline.json`），靠 grep/AST 扫源码。
 
 ### 第 0 批：守卫 + 文档（不改行为）
 - 加 `tests/test_single_source.py`：
@@ -249,7 +249,7 @@
   - 收藏判断：`ingest_kind\s*==\s*["']favorite` 和 `favorited_by` 的读取只允许在 `provenance.py`。
   - 账号：`.get("nickname")` / `.get("sync_account")` / `.get("user_id")` 作用在 accounts 配置上的只允许在 `accounts.py`。
   - 密钥：`LWA_GEMINI_KEYS`、`gemini_keys_file`、`apiKeyEnv` 只允许在 `providers.py` / `storage.py`。
-- 加 `tests/test_single_source.cjs`：`'Collections'` 字面量只允许 1 处；`providerOf` / `errText` 规则表不得出现在 JS；`problems-ui.js` 不得定义 `GROUP_OF_CLASS`。
+- （JS 侧没有单开 `.cjs`，JS 规则和 Python 一起在 `tests/test_guards.py` 里扫）原计划：`'Collections'` 字面量只允许 1 处；`providerOf` / `errText` 规则表不得出现在 JS；`problems-ui.js` 不得定义 `GROUP_OF_CLASS`。
 - FORMAT.md 补 `favorited_by`、`albums.json`、`catalog-data.counts`（规格先行）。
 
 ### 第 1 批：派生重建 + 篇数（用户可见问题最大：BUGS #3、篇数不一致）
