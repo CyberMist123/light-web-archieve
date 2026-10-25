@@ -30,9 +30,9 @@ def test_relative_python_path_resolves_against_program_dir(tmp_path, monkeypatch
     exe.parent.mkdir(parents=True)
     exe.write_text("")
     monkeypatch.setattr(deps, "_repo_root", lambda: repo)
-    _plugin_data(_vault(), {"pythonPath": ".venv\Scripts\python.exe" if os.name == "nt" else ".venv/Scripts/python.exe"})
+    _plugin_data(_vault(), {"pythonPath": r".venv\Scripts\python.exe" if os.name == "nt" else ".venv/Scripts/python.exe"})
     monkeypatch.chdir(tmp_path)  # 当前目录不是程序目录（命令行从别处跑 sync-schedule）
-    assert Path(deps.python_exe()) == exe, "修前：按当前目录解析，写进计划任务的是 <当前目录>\.venv\…"
+    assert Path(deps.python_exe()) == exe, r"修前：按当前目录解析，写进计划任务的是 <当前目录>\.venv\…"
 
 
 def test_missing_configured_python_raises(tmp_path):
