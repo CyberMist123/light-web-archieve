@@ -324,7 +324,9 @@ def test_generic_error_mentioning_429_is_not_account_blocked(monkeypatch, capsys
 
 
 def test_gap_is_measured_from_the_end_of_a_long_page(env, monkeypatch, capsys):
-    monkeypatch.setenv("LWA_OPEN_GAP", "1,1")
+    # 间隔定 10 秒（sleep 被换成记录，不真等）：修前从开页算，应歇 10 - 1.5 ≈ 8.5 秒；修后从看完算，应歇将近 10 秒。
+    # 以前定 1 秒、断言 > 0.5：CI 机器慢半秒就红（10-25 #25 ubuntu）。现在留 1.5 秒余量，仍分得清修前修后
+    monkeypatch.setenv("LWA_OPEN_GAP", "10,10")
     slept = []
     monkeypatch.setattr(accounts.time, "sleep", slept.append)  # time.sleep 全局被换掉：读收藏那边用真 sleep
 
@@ -336,7 +338,7 @@ def test_gap_is_measured_from_the_end_of_a_long_page(env, monkeypatch, capsys):
     code, _ = _run(capsys)
     assert code == 0 and env.fetched == _ids(1)
     # 读收藏开页时刻已经过去 1.5 秒，但页是刚看完的：抓第 1 篇前照样要歇（以前这里是零间隔）
-    assert any(0.5 < s <= 1 for s in slept)
+    assert any(8.5 < s <= 10 for s in slept), slept
 
 
 # --------------------------------------------------------------------------
