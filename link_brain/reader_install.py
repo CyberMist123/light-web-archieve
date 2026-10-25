@@ -1,8 +1,9 @@
 """读取组件下载（第 5 批，Python 侧）：`python -m link_brain reader install --url <发布包> --sha256 <hex>`。
 
 读取组件 = link-brain-reader（读收藏 / 评论 / 附件的本机服务）+ relatedfile（游客浏览器探附件，可选）。
-以后由 GitHub Release 发预编译件，插件里「下载读取组件」调这条命令。发布地址还没定：留 RELEASE_URL /
-RELEASE_SHA256 两个常量（空 = 必须用参数给）。**没有 sha256 一律不装。**
+预编译件由 GitHub Release 发（`.github/workflows/reader-release.yml`，标签 `reader-v<版本>`），插件引导里「下载读取组件」
+调这条命令、不带参数 = 用下面内置的 RELEASE_URL / RELEASE_SHA256。内置地址和校验和**成对**用：只给了 --url 或只给了
+--sha256 的，另一半不拿内置的凑（不然换了地址还拿旧包的校验和去比，只会报校验和不对、说不清原因）。**没有 sha256 一律不装。**
 
 流程：下载到 `~/.link-brain/downloads/`（http(s) 或 file://）→ 校验 sha256 → 是 zip 就解压到临时目录
 （拒绝绝对路径 / `..` / 盘符，防 zip-slip），不是 zip 就当单个 exe → 逐个挪进 `~/.link-brain/bin/`
@@ -26,8 +27,9 @@ from typing import Any
 from urllib.parse import unquote, urlsplit
 from urllib.request import url2pathname
 
-RELEASE_URL = ""      # 发布后填：读取组件发布包的下载地址
-RELEASE_SHA256 = ""   # 发布后填：这个包的 sha256
+# 发新版读取组件：跑发布工作流 → 把 Release 说明里的地址和 sha256 填到这里（同一个提交改 CHANGELOG）
+RELEASE_URL = "https://github.com/CyberMist123/light-web-archieve/releases/download/reader-v0.2.0/link-brain-reader-windows-amd64.zip"
+RELEASE_SHA256 = "aa4f9d78a56d58a2a2ecc33ec65c9aaba9291faae1cfbd0eef11f68911ee2c28"
 KNOWN_NAMES = ("link-brain-reader.exe", "link-brain-reader", "relatedfile.exe", "relatedfile")
 DOWNLOAD_TIMEOUT_S = 600
 MAX_BYTES = 512 * 1024 * 1024
@@ -137,8 +139,10 @@ def unpack(pkg: Path, staging: Path, url: str) -> list[Path]:
 
 
 def install(url: str | None = None, sha256: str | None = None) -> dict[str, Any]:
-    url = (url or RELEASE_URL or "").strip()
-    want = (sha256 or RELEASE_SHA256 or "").strip().lower()
+    if url is None and sha256 is None:  # 都没给：用内置的一对；只给一半的不拿内置的凑
+        url, sha256 = RELEASE_URL, RELEASE_SHA256
+    url = (url or "").strip()
+    want = (sha256 or "").strip().lower()
     bin_dir = _bin_dir()
     base = {"installed": [], "bin_dir": str(bin_dir), "sha256": want}
     try:
