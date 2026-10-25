@@ -67,7 +67,17 @@ RULES: dict[str, Rule] = {
         PY_GLOBS, {"link_brain/providers.py"}, "ARCH-AUDIT 第 2 批"),
     "收藏判断": _rule(
         r"ingest_kind[\"']?\)?\s*==?\s*[\"']favorite|\.get\([\"']favorited_by[\"']\)",
-        PY_GLOBS, {"link_brain/provenance.py", "link_brain/favorites.py"}, "ARCH-AUDIT 第 3 批"),
+        # domain 是规则本体；favorites.tag_account 写 favorited_by（SYNC 归属）；synclog 问的是「哪趟同步带进来的」，读 ingest_kind 是对的
+        PY_GLOBS, {"link_brain/domain.py", "link_brain/favorites.py", "link_brain/synclog.py"}, "ARCH-AUDIT 第 3 批 / 第二波 PR①"),
+    # ---- 第二波 PR① 新加（设计稿 §5.4）----
+    "item_id 前缀": _rule(
+        r"[\"']xhs-|f[\"']xhs-\{|removeprefix\([\"']xhs-",
+        PY_GLOBS, {"link_brain/domain.py"},
+        "身份规则只在 domain.py（item_id / parse_item_id / short_id）。基线里剩的是目录名 / cssclass，不是 item_id"),
+    "在库 / 墓碑判断": _rule(
+        r"FROM tombstones",
+        PY_GLOBS, {"link_brain/index.py", "link_brain/remove.py", "link_brain/storage.py"},
+        "在库 / 已删判断走 domain.lookup(storage.probe_object(...))，第二波 PR④⑤ 清空"),
     "账号字段": _rule(
         r"config\(\)\.get\([\"'](sync_account|nickname|user_id)[\"']",
         PY_GLOBS, {"link_brain/accounts.py"}, "ARCH-AUDIT 第 3 批"),

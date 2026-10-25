@@ -33,7 +33,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from . import problems as problems_mod, storage
+from . import domain, problems as problems_mod, storage
 from .adapters import xiaohongshu as xhs
 
 EXIT_NEEDS_HUMAN = 5  # 登录态失效 / 安全验证，要人处理（和 ingest 同一套码）
@@ -239,7 +239,7 @@ def acquire(source_key: str, source_id: str, *, doc_id: str, name: str, xsec_tok
                 next_at = mark_conversion(source_key, source_id, record["doc_id"], bad[0]["note"],
                                           code="TRANSIENT.SERVICE_BUSY")
                 problems_mod.report("attachments.convert", "TRANSIENT.SERVICE_BUSY",
-                                    f"{record.get('file')}：{bad[0]['note']}"[:200], item_id=f"xhs-{source_id}",
+                                    f"{record.get('file')}：{bad[0]['note']}"[:200], item_id=domain.item_id(SOURCE, source_id),
                                     next_at=next_at)
             if bad:
                 # 第 4 批：不推送。转换失败已按码登记（加密 / 损坏 PERMANENT，卡片标「全文没转出来」；
@@ -270,7 +270,7 @@ def _restricted_fallback(source_id: str, *, doc_id: str, name: str, xsec_token: 
     except (OSError, ValueError):
         meta = {}
     title = meta.get("title") or ""
-    item_id = meta.get("item_id") or f"xhs-{source_id}"
+    item_id = meta.get("item_id") or domain.item_id(SOURCE, source_id)
     if restricted.search_due(restricted.load(source_id)):
         need = accounts._gap_range(restricted.REST_ENV, restricted.REST_DEFAULT)[1] + 150 + attempt_cost(1)
         if not _fits(budget_left, need):
@@ -888,7 +888,7 @@ def describe_problem(source_key: str, source_id: str, file_name: str | None, rea
         meta = storage.read_json(storage.object_dir(source_key, source_id) / "meta.json")
     except (OSError, ValueError):
         meta = {}
-    item_id = meta.get("item_id") or f"xhs-{source_id}"
+    item_id = meta.get("item_id") or domain.item_id(SOURCE, source_id)
     return (f"《{meta.get('title') or source_id}》{item_id} · {file_name or '附件'} · {reason.strip()[:160]}"
             f" → 重跑：python -m link_brain attachments {item_id}")
 
@@ -1255,7 +1255,7 @@ def recheck(*, limit: int = 0, verbose: bool = False, budget_left=None) -> dict[
             failed.append({"id": source_id, "line": describe_problem("xiaohongshu", source_id, None, probe.get("error") or ""),
                            "error": probe.get("error") or "", "title": meta.get("title")})
             continue
-        problems_mod.resolve("attachments.recheck", meta.get("item_id") or f"xhs-{source_id}")
+        problems_mod.resolve("attachments.recheck", meta.get("item_id") or domain.item_id(SOURCE, source_id))
         doc_id = str(rf.get("docId") or "")
         if not doc_id:
             continue
@@ -1293,7 +1293,7 @@ def recheck(*, limit: int = 0, verbose: bool = False, budget_left=None) -> dict[
     for f in failed:
         # 第 4 批：不推送。没查清的每篇登记 TRANSIENT（明晚接着查），连续 3 天都查不清才升级 STUCK 推一次
         problems_mod.report("attachments.recheck", "TRANSIENT.PROBE_FAILED", str(f.get("error") or f["line"])[:200],
-                            item_id=f"xhs-{f['id']}", title=f.get("title"))
+                            item_id=domain.item_id(SOURCE, f["id"]), title=f.get("title"))
     for f in failed:
         f.pop("error", None)
         f.pop("title", None)
@@ -1530,7 +1530,7 @@ def reconcile() -> dict[str, Any]:
                      stage="gone", gone_why="游客和登录号都打不开，登录号落到 /explore（本地对账）")
             out["gone"] += 1
             changed = True
-            problems_mod.resolve("attachments.recheck", meta.get("item_id") or f"xhs-{obj.name}")
+            problems_mod.resolve("attachments.recheck", meta.get("item_id") or domain.item_id(SOURCE, obj.name))
         if changed:
             storage.write_json(mark_path, m)
     return out
@@ -1624,7 +1624,7 @@ def recheck_status() -> dict[str, Any]:
 
 def recheck_eta(item_id: str) -> dict[str, Any]:
     """这一篇在补查队列里的真实位置（repair.describe 写状态句用）：{queue: guest|tail|none, pos, nights, when, skipped}。"""
-    sid = str(item_id or "").removeprefix("xhs-")
+    sid = domain.short_id(item_id)
     q = recheck_queues()
     st = _read_status()
     for name, lim in (("tail", TAIL_LIMIT), ("guest", guest_limit(q["unprobed"]))):
@@ -1709,7 +1709,7 @@ def recheck_guest(*, limit: int = 0, verbose: bool = False, budget_left=None) ->
             gone_back = {"gone": False, "gone_at": None} if _mark_of(obj).get("gone") else {}
             _write_mark(obj, checked_at=now, guest_at=now, ok=True, related_file=rf or None, error=None,
                         stage="guest", via=probe.get("via") or "httpx", **gone_back)
-            problems_mod.resolve("attachments.recheck", meta.get("item_id") or f"xhs-{obj.name}")
+            problems_mod.resolve("attachments.recheck", meta.get("item_id") or domain.item_id(SOURCE, obj.name))
             if rf.get("docId"):
                 _remember_probed(obj, meta, str(rf["docId"]), rf.get("name") or f"{rf['docId']}.bin", rf)
                 out["found"].append({"id": obj.name, "file": rf.get("name")})
@@ -1753,7 +1753,7 @@ def recheck_tail(*, limit: int = TAIL_LIMIT, verbose: bool = False, budget_left=
             meta = storage.read_json(obj / "meta.json")
         except (OSError, ValueError):
             continue
-        item_id = meta.get("item_id") or f"xhs-{obj.name}"
+        item_id = meta.get("item_id") or domain.item_id(SOURCE, obj.name)
         from . import restricted
         if restricted.is_restricted(obj.name):
             continue  # 1011：网页版要验证才能看的，等她点「打开验证」，碰号的补查不替她开页

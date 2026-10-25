@@ -1,4 +1,5 @@
-"""1020「谁收的」：目录默认只看她自己的收藏；聊天分享 / fable / 项目各自分组（provenance.py）。"""
+"""1020「谁收的」：目录默认只看她自己的收藏；fable / 项目各自分组（规则 1025 起在 domain.py，provenance.py 留 relabel）。
+1025 PR①：TG 发来的不再单独叫「聊天分享」，并进 fable（1023 她定）。"""
 
 from __future__ import annotations
 
@@ -6,7 +7,7 @@ import json
 
 from link_brain import catalog as catalog_mod, cli, index as index_mod, storage
 from link_brain.adapters import xiaohongshu as xhs
-from link_brain.provenance import CHAT_SHARE, collected_by
+from link_brain.provenance import FABLE, collected_by
 
 from test_catch import NOTE_ID, XHS_URL, load_fixture, only_json, setup_env
 
@@ -14,7 +15,7 @@ from test_catch import NOTE_ID, XHS_URL, load_fixture, only_json, setup_env
 def test_collected_by_rules():
     assert collected_by({"origin": "cli", "actor": "human", "ingest_kind": "favorite"}) == ""
     assert collected_by({"origin": "cli", "actor": "human", "ingest_kind": "shared"}) == ""   # 她自己在电脑上导入
-    assert collected_by({"origin": "tg", "actor": "human", "ingest_kind": "shared"}) == CHAT_SHARE
+    assert collected_by({"origin": "tg", "actor": "human", "ingest_kind": "shared"}) == FABLE   # 1025：TG 发来的 = Fable
     assert collected_by({"origin": "tg", "actor": "ai:fable"}) == "fable"
     assert collected_by({"origin": "cc", "actor": "ai:cc", "project": "ai群聊"}) == "ai群聊"
     assert collected_by({"origin": "cli", "actor": "ai:gpt"}) == "gpt"
@@ -43,7 +44,7 @@ def test_hit_does_not_relabel(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
     cli.main(["catch", XHS_URL, "--origin", "cc", "--actor", "ai:cc", "--project", "graph"])
     capsys.readouterr()
-    assert "project" not in _meta() and collected_by(_meta()) == CHAT_SHARE
+    assert "project" not in _meta() and collected_by(_meta()) == FABLE
 
 
 def test_relabel_updates_meta_and_index(tmp_path, monkeypatch, capsys):

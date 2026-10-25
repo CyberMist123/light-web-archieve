@@ -556,7 +556,7 @@ def chatter_report(vault: Path | None = None, *, samples: int = 20) -> dict[str,
     total = hit = posts = 0
     suspects: list[dict[str, Any]] = []
     n_suspect = 0
-    for meta_path in sorted((base / "xiaohongshu").glob("*/meta.json")):
+    for meta_path in sorted(p for src in domain.PREFIX for p in (base / src).glob("*/meta.json")):
         try:
             meta = _json.loads(meta_path.read_text(encoding="utf-8"))
             ver = int(meta.get("current_version") or 1)
@@ -576,7 +576,7 @@ def chatter_report(vault: Path | None = None, *, samples: int = 20) -> dict[str,
             if chatter_suspect(text):
                 n_suspect += 1
                 if len(suspects) < samples:
-                    suspects.append({"item": f"xhs-{meta_path.parent.name}", "floor": label, "text": text[:40]})
+                    suspects.append({"item": domain.item_id(meta_path.parent.parent.name, meta_path.parent.name), "floor": label, "text": text[:40]})
     pct = (hit / total * 100) if total else 0.0
     msg = (f"评论 {total} 条（{posts} 篇），判成水话略去 {hit} 条（{pct:.1f}%）；其中可能误伤 {n_suspect} 条"
            f"（带数字 / 英文 / 问句）") if total else "库里还没有评论"

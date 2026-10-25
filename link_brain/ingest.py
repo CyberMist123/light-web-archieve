@@ -18,7 +18,7 @@ from typing import Any
 
 import httpx
 
-from . import __version__, index as index_mod, problems, storage
+from . import __version__, domain, index as index_mod, problems, storage
 from .adapters import xiaohongshu as xhs
 
 EXIT_OK = 0
@@ -244,7 +244,7 @@ def _build_meta(
         attachments_status = "unavailable"
     return {
         "schema_version": 1,
-        "item_id": f"xhs-{parsed['note_id']}",
+        "item_id": domain.item_id(xhs.SOURCE, parsed["note_id"]),
         "source": xhs.SOURCE,
         "source_id": parsed["note_id"],
         "canonical_url": parsed["canonical_url"],
@@ -275,34 +275,8 @@ def _build_meta(
     }
 
 
-# 抓取能决定的 meta 字段（1024）：重抓 / 续读重建 meta 时以这次抓回来的为准；其余字段（她钉住的可见笔记、
-# 为哪个项目收的、收藏来自哪个号、第一次怎么进来的 origin / actor / ingest_kind、备注、首次归档时间…）一律保留旧值。
-FETCH_OWNED = (
-    "schema_version", "item_id", "source", "source_id", "canonical_url", "input_url", "kind", "title", "author",
-    "published_at", "last_checked_at", "current_version", "versions", "images_complete", "comments_complete",
-    "attachments_status", "tool_versions",
-)
-
-
-def merge_meta(old: dict[str, Any] | None, fetched: dict[str, Any]) -> dict[str, Any]:
-    """旧 meta + 这次抓取重建的 meta → 要写回的 meta。只判断、不碰文件（在 storage.update_json 的锁里调）。
-
-    FETCH_OWNED 里的键取抓回来的；抓回来没标题时沿用旧标题（render 给视频收藏起的兜底标题）。
-    其余键旧的有值就保留，旧的没有（或是 None）才用这次的（第一次入库 = 全收）。"""
-    merged = dict(fetched)
-    for key, value in (old or {}).items():
-        if key in FETCH_OWNED and key in fetched:
-            continue
-        if value is None and fetched.get(key) is not None:
-            continue
-        merged[key] = value
-    if not merged.get("title") and (old or {}).get("title"):
-        merged["title"] = old["title"]
-    # 重抓只拿到附件元数据（字节要登录才给、由夜跑补）不能把已经下好的附件降回 metadata_only：
-    # 字节还在对象目录里，降级会让卡片闪一下、夜跑白补一遍（1025 Fable / 复审 meta）。
-    if (old or {}).get("attachments_status") == "downloaded" and fetched.get("attachments_status") == "metadata_only":
-        merged["attachments_status"] = "downloaded"
-    return merged
+# 抓取能决定的 meta 字段 / 重抓合并规则（1024 车 1 写在这里，1025 第二波 PR① 挪进 domain.py；这里留同名转发）
+from .domain import FETCH_OWNED, merge_meta  # noqa: E402,F401
 
 
 def _write_meta(meta_path, fetched: dict[str, Any]) -> dict[str, Any]:
@@ -423,7 +397,7 @@ def _log_comment_load(source: dict[str, Any], log) -> None:
     floors = comment_fill.floor_target()
     sc = comment_fill.scope(source, floors)
     cl = (source.get("capture") or {}).get("comment_load") or {}
-    item_id = f"xhs-{source['source_id']}"
+    item_id = domain.item_id(xhs.SOURCE, source["source_id"])
     title = (source.get("note") or {}).get("title")
     try:
         from . import synclog
@@ -647,9 +621,9 @@ def ingest_url(
                 # MCP 还能抓就不中止：只缺附件元数据，夜里 attachments --recheck 会再补查——TRANSIENT，只记不推。
                 problems.report("ingest", "TRANSIENT.WEB_PROBE_BLOCKED",
                                 f"网页那侧被拦了，附件信息暂缺：{web_probe['error']}"[:200],
-                                item_id=f"xhs-{parsed['note_id']}")
+                                item_id=domain.item_id(xhs.SOURCE, parsed["note_id"]))
         else:
-            problems.resolve("ingest", f"xhs-{parsed['note_id']}", "TRANSIENT.WEB_PROBE_BLOCKED")
+            problems.resolve("ingest", domain.item_id(xhs.SOURCE, parsed["note_id"]), "TRANSIENT.WEB_PROBE_BLOCKED")
 
         captured_at = now_iso()
         source = xhs.normalize(raw, parsed, captured_at=captured_at, web_probe=web_probe)

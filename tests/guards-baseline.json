@@ -2,6 +2,11 @@
  "CLI 命令抄本": {},
  "Gemini 密钥来源": {},
  "_": "tests/test_guards.py 的基线：规则 → 文件 → 命中数。只许减；改动用 python tests/test_guards.py --write 重写。",
+ "item_id 前缀": {
+  "link_brain/accounts.py": 1,
+  "link_brain/adapters/xiaohongshu.py": 1,
+  "link_brain/restore.py": 1
+ },
  "价格表": {},
  "价格读法": {},
  "供应商猜测": {},
@@ -14,6 +19,12 @@
   "link_brain/vision.py": 1
  },
  "前端预算默认值": {},
+ "在库 / 墓碑判断": {
+  "link_brain/catch.py": 1,
+  "link_brain/fav_counts.py": 1,
+  "link_brain/favorites.py": 2,
+  "link_brain/ingest.py": 1
+ },
  "手写原子写": {
   "link_brain/crawl.py": 1,
   "link_brain/remote/secret_box.py": 1
@@ -67,9 +78,7 @@
   "link_brain/visual.py": 4
  },
  "收藏判断": {
-  "link_brain/catalog.py": 1,
-  "link_brain/fav_counts.py": 2,
-  "link_brain/synclog.py": 1
+  "link_brain/catalog.py": 1
  },
  "本机私有路径": {},
  "绕过 problems 直接报警": {},

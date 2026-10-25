@@ -37,7 +37,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from . import storage
+from . import domain, storage
 from .errtext import errtext
 
 FILE_NAME = "problems.jsonl"
@@ -1252,9 +1252,9 @@ def migrate_orphan_refine() -> int:
                 continue
             obj = vpath.parents[1]
             try:
-                item_id = storage.read_json(obj / "meta.json").get("item_id") or f"xhs-{obj.name}"
+                item_id = storage.read_json(obj / "meta.json").get("item_id") or domain.item_id(obj.parent.name, obj.name)
             except (OSError, ValueError):
-                item_id = f"xhs-{obj.name}"
+                item_id = domain.item_id(obj.parent.name, obj.name)
             code = "PERMANENT.MODEL_OUTPUT_INVALID"
             prev = folded.get(make_key("vision.refine", item_id, code))
             if prev and not prev.get("resolved_at"):

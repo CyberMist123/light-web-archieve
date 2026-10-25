@@ -27,7 +27,7 @@ import yaml
 from pypinyin import lazy_pinyin
 
 from . import storage
-from .provenance import collected_by
+from .domain import collected_by, via
 from .note import annotation_text
 from .ocrtext import clean_ocr
 from .retrieval import pinyin_text
@@ -523,8 +523,10 @@ def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
                 "attachment_reason": _attachment_reason(obj_dir, meta, badge),
                 # 第 4 批：卡片悬停的问题原因（label / hover 已从 problems 登记表取好；attachment_reason 照留）
                 "problems": item_problems(obj_dir, report, vision, transcript, extracted),
-                # 1020 谁收的：""=她自己的收藏；聊天分享 / fable / 项目名（provenance.py）。目录默认只看 ""
+                # 1020 谁收的：""=她自己的收藏；fable / 项目名（规则在 domain.py）。目录默认只看 ""
                 "src": collected_by(meta),
+                # 1025：TG 发给 Fable 的并进 fable 组，这里记一个 "tg" 还分得清（页面暂不用）
+                "via": via(meta),
                 # 收藏来自哪个号（0926）：同步时写进 meta.favorited_by，供按账号筛选
                 "accounts": [a.get("nickname") or a.get("user_id") for a in (meta.get("favorited_by") or [])
                              if isinstance(a, dict)],

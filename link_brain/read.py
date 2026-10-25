@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from . import index as index_mod, llm as llm_mod, storage
+from . import domain, index as index_mod, llm as llm_mod, storage
 from .adapters import xiaohongshu as xhs
 
 EXIT_OK = 0
@@ -63,11 +63,12 @@ def _one_line(text: str | None, limit: int = 120) -> str:
 
 def _resolve_source_id(conn, target: str) -> tuple[str, str] | None:
     """target 是 item_id（`xhs-<id>`）或 URL/短链/分享文本 → `(source, source_id)`。"""
-    if target.startswith("xhs-"):
+    parsed_id = domain.parse_item_id(target)
+    if parsed_id:
         row = index_mod.get_object(conn, target)
         if row:
             return row["source"], row["source_id"]
-        return xhs.SOURCE, target[len("xhs-") :]
+        return parsed_id
     try:
         parsed = xhs.parse_input(target)
         return xhs.SOURCE, parsed["note_id"]

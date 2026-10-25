@@ -97,8 +97,22 @@ D:\LIGHT WEB ARCHIEVE\vault\
 | `origin` | `tg` / `cmx` / `cc` / `cli` | 从哪个端进来的 |
 | `actor` | `human` / `ai:<name>` | 谁把它丢进来的 |
 | `ingest_kind` | `shared` / `favorite` | **第一次**怎么进来的（主动分享 / 收藏同步）；历史字段，不用来判断「现在是不是收藏」（见 `favorited_by`；ARCH-AUDIT 第 3 批起不再被重抓覆盖） |
-| `favorited_by` | `[{nickname, user_id, first_seen}]` / 缺省 | 0926 起：被哪些号收藏过（收藏同步 `favorites.tag_account` 写，重建 meta 时保留）。**「是不是我的收藏」以它为准**；1023 她定：多个号的收藏、网页导入都算我的收藏，TG 发来的算 Fable（`provenance.collected_by`） |
+| `favorited_by` | `[{nickname, user_id, first_seen}]` / 缺省 | 0926 起：被哪些号收藏过（收藏同步 `favorites.tag_account` 写，重建 meta 时保留）。**「是不是我的收藏」以它为准**；1023 她定：多个号的收藏、网页导入都算我的收藏，TG 发来的算 Fable（`domain.collected_by`；1025 PR① 起 TG 发来的并进 `fable` 组、不再单独叫「聊天分享」，`domain.via` 记 `tg`） |
+| `space` | 缺省（= `knowledge`） | 1025 预留：以后加影音库时对象所在的空间；不写就是知识库，读的时候用 `domain.space_of` |
 | `visible_note_pinned` | `true` / 缺省 | 1001：`visible_note` 指的文件找不到时，按 frontmatter 的 `link_brain.item_id` 在可见目录（含子目录）找回她改过名 / 挪过位置的那份并沿用；此后重渲染不按标题挪回去 |
+
+**字段归属（1025 第二波 PR①，`domain.FIELD_OWNER`，重抓 / 续读重建 meta 时按它合并，`domain.merge_meta`）：**
+
+| 归谁 | 键 | 重抓时 |
+|---|---|---|
+| FETCH 抓取 | `schema_version` `item_id` `source` `source_id` `canonical_url` `input_url` `kind` `title` `author` `published_at` `last_checked_at` `current_version` `versions` `images_complete` `comments_complete` `comment_load` `tool_versions` | 取新值（`title` 抓回来是空时沿用旧的） |
+| ENTRY 入口 | `first_archived_at` `origin` `actor` `ingest_kind` `note` `project` `space` | 保留旧值（第一次怎么进来的） |
+| RENDER 渲染 | `visible_note` | 保留 |
+| OWNER 她本人 | `visible_note_pinned`；`origin` / `actor` / `project` 被 `relabel` 改过之后 | 保留 |
+| SYNC 收藏同步 | `favorited_by` | 保留 |
+| ATTACH 附件 | `attachments_status` | 首次取抓取值；之后不许从 `downloaded` 降回 `metadata_only`，别的变化照抓到的走 |
+
+每个写 meta 的模块只许动自己那几个键，而且在单篇锁里读改写（`storage.update_json`）。
 
 可见 md 的身份只认 frontmatter 里的 `link_brain.item_id`（YAML 写坏了退回正则找这一行）。
 她手写的属性 YAML 写坏时：单行 `键: 值` 解析不了的值原样当字符串留下；再解析不了就整段 frontmatter 原样保留、

@@ -31,7 +31,7 @@ from . import actionlog
 from pathlib import Path
 from typing import Any, Callable
 
-from . import storage
+from . import domain, storage
 
 FLOOR_MIN = 10
 FLOOR_ALL = 100_000         # 「全部」= 不设楼数上限（1017：以前 2000，8636 条评论的帖只读到 2007 楼就当读完了）
@@ -430,7 +430,7 @@ def survey(floors: int | None = None, now: datetime | None = None, gap_min: int 
         mode, targets = plan_fill(sc)
         if mode is None:
             continue
-        entry = {"source": source_key, "source_id": source_id, "item_id": f"xhs-{source_id}",
+        entry = {"source": source_key, "source_id": source_id, "item_id": domain.item_id(source_key, source_id),
                  "title": (source.get("note") or {}).get("title") or meta.get("title") or "",
                  "mode": mode, "targets": targets, "missing": sc["missing"], "more_floors": sc["more_floors"],
                  "attempts": _int(state.get("attempts"))}
@@ -904,7 +904,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
     except Exception as exc:  # noqa: BLE001 - 迁移没成不挡补评论
         print(f"[comments] 旧的「已放弃」没解开：{type(exc).__name__}: {exc}", file=sys.stderr)
     # 1017 她：「对特定帖子能跑完楼层」——--only 只补这几篇、按 --floors 的楼数（不改全局设置），stuck 的也照补
-    only = [x if x.startswith("xhs-") else f"xhs-{x}" for x in
+    only = [x if domain.parse_item_id(x) else domain.item_id(xhs.SOURCE, x) for x in
             (s.strip() for s in ",".join(getattr(args, "only", None) or []).split(",")) if x]
     only_floors = None
     if only:

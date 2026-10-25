@@ -23,6 +23,7 @@ import re
 import time
 from typing import Any
 
+from .. import domain
 from .policy import XHS_ARCHIVE, XHS_VISIBLE, Denied, Policy, MAX_READ_BYTES, _is_reparse
 
 READ_DEFAULT = 20000
@@ -118,7 +119,7 @@ def _int(value: Any, default: int, lo: int, hi: int) -> int:
 def _item_titles() -> dict[str, str]:
     try:
         from ..ask import load_items
-        return {str(it.get("id", "")).removeprefix("xhs-"): str(it.get("title") or "") for it in load_items()}
+        return {domain.short_id(it.get("id", "")): str(it.get("title") or "") for it in load_items()}
     except Exception:  # noqa: BLE001
         return {}
 

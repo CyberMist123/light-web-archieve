@@ -49,7 +49,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Any
 
-from . import sync_state, synclog
+from . import domain, sync_state, synclog
 from . import ingest as ingest_mod, read as read_mod
 from .adapters import xiaohongshu as xhs
 from . import accounts
@@ -551,7 +551,7 @@ def _log_entry(entry: dict[str, Any], fav: dict[str, Any], in_library: bool, kno
                          reason=entry.get("error") or "")
         elif status == "error" and not in_library and not known_bad:
             nid = fav.get("note_id")
-            synclog.note("note", entry.get("item_id") or (f"xhs-{nid}" if nid else None), False,
+            synclog.note("note", entry.get("item_id") or (domain.item_id(xhs.SOURCE, nid) if nid else None), False,
                          title=fav.get("title") or entry.get("title"), reason=entry.get("error") or "没抓到",
                          url=entry.get("url") or fav.get("url"))
         elif status == "blocked":
@@ -804,7 +804,7 @@ _LAST_READ: dict[str, Any] = {}
 def tag_account(note_id: str, account: dict[str, str], *, seen_at: str | None = None) -> bool:
     """在对象 meta.json 的 favorited_by 里记下「这篇被哪个号收藏」（去重；失败不影响同步）。"""
     from . import storage
-    key = account.get("user_id") or account.get("nickname")
+    key = domain.account_key(account)
     if not key:
         return False
     path = storage.object_dir(xhs.SOURCE, note_id) / "meta.json"
@@ -812,7 +812,7 @@ def tag_account(note_id: str, account: dict[str, str], *, seen_at: str | None = 
 
     def add(meta):
         tags = [a for a in (meta.get("favorited_by") or []) if isinstance(a, dict)]
-        if any((a.get("user_id") or a.get("nickname")) == key for a in tags):
+        if any(domain.account_key(a) == key for a in tags):
             return
         tags.append({"nickname": account.get("nickname", ""), "user_id": account.get("user_id", ""),
                      "first_seen": seen_at or datetime.now().astimezone().isoformat(timespec="seconds")})
@@ -821,12 +821,12 @@ def tag_account(note_id: str, account: dict[str, str], *, seen_at: str | None = 
 
     try:
         # 1024：只改 favorited_by，单篇锁里重读再写
-        storage.update_json(path, add, lock_name=storage.obj_lock_name(f"xhs-{note_id}"))
+        storage.update_json(path, add, lock_name=storage.obj_lock_name(domain.item_id(xhs.SOURCE, note_id)))
     except FileNotFoundError:
         return False
     except (OSError, ValueError, storage.LockBusy) as exc:
         # 1024 返修（复审 meta 低）：这篇被 render / 重抓占着超过 60 秒等情况——这次漏记收藏账号，照实打一行
-        print(f"[收藏账号] xhs-{note_id} 这次没记上（{errtext(exc)}），下次同步再记", file=sys.stderr)
+        print(f"[收藏账号] {domain.item_id(xhs.SOURCE, note_id)} 这次没记上（{errtext(exc)}），下次同步再记", file=sys.stderr)
         return False
     if not added:
         return False
@@ -926,7 +926,7 @@ def _already_archived(fav: dict[str, Any]) -> bool:
     from . import index as index_mod
     conn = index_mod.connect()
     try:
-        if index_mod.get_object(conn, f"xhs-{fav.get('note_id')}") is not None:
+        if index_mod.get_object(conn, domain.item_id(xhs.SOURCE, fav.get("note_id"))) is not None:
             return True
         return conn.execute("SELECT 1 FROM tombstones WHERE source = ? AND source_id = ?",
                             (xhs.SOURCE, fav.get("note_id"))).fetchone() is not None
