@@ -189,6 +189,11 @@ def with_model(settings: dict[str, Any], name: str = '') -> dict[str, Any]:
         return settings
     keep = {k: v for k, v in entry.items() if k != 'name' and v not in (None, '')}
     base = dict(settings.get('textAI', {}))
+    if entry.get('mode') == 'cli':
+        # 1025 复审：下拉选的命令行条目只存 preset 时，不能带上 textAI 自己那条 command（providers._check 先看 command，
+        # 否则选「Codex」实际跑的是 textAI 填的命令行）。命令行条目用哪个命令只看自己。
+        base.pop('command', None)
+        base.pop('preset', None)
     # 1001（审计 C-3）：继承来的仓外密钥文件（keyFile/keyField）只属于 textAI 自己那个接口。
     # 条目自带 apiKey、或指向别的接口地址时，一律不带过去——否则 DeepSeek 的 key 会被当 Bearer 发给别家。
     # （条目地址和 textAI 一样、自己又没填 key 的，照旧用那份密钥文件：她的 DeepSeek 条目就是这样。）

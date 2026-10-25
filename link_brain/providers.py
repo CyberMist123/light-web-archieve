@@ -121,7 +121,7 @@ POOL_ENV = {"gemini": "LWA_GEMINI_KEYS"}
 POOL_CMD = {"gemini": ("LWA_GEMINI_KEYS_CMD", "gemini_keys_cmd")}
 POOL_FILE = {"gemini": ("LWA_GEMINI_KEYS_FILE", "gemini_keys_file")}
 POOL_CMD_TIMEOUT_S = 60.0
-_POOL_CMD_CACHE: dict[str, str] = {}   # 命令 → 输出（只缓存成功的；取 key 的命令可能要解密码库，一个进程只跑一次）
+_POOL_CMD_CACHE: dict[str, tuple[str, str]] = {}   # 命令 → (输出, 出错原因)。成功失败都记：取 key 的命令可能要解密码库、可能卡住，一个进程只跑一次（1025 复审：失败不缓存时，每次 resolve_key / 备用识图都会再跑一遍、再等一次超时）
 POOL_DEAD_CODES = ("NEEDS_HUMAN.AUTH_FAILED", "NEEDS_HUMAN.QUOTA_EXCEEDED", "TRANSIENT.HTTP_429")
 _POOL_DEAD: dict[str, dict[str, float]] = {}  # 池名 → {key: 到几点（time.time()）之前别用}
 _POOL_WHY: dict[str, dict[str, str]] = {}  # 池名 → {key: 为什么歇着（结果码）}——key 全歇了时照实报是额度用完还是 key 坏
@@ -160,13 +160,13 @@ def _run_key_cmd(cmd: str, timeout: float, kill_exclude=None) -> tuple[str, str]
     """跑取 key 的命令 → (标准输出, 出错原因)。输出一律不打印；超时整棵结束（procs.kill_tree，放过读取服务）。"""
     import subprocess
     if cmd in _POOL_CMD_CACHE:
-        return _POOL_CMD_CACHE[cmd], ""
+        return _POOL_CMD_CACHE[cmd]
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
     try:
         p = subprocess.Popen(cmd, shell=True, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                              stderr=subprocess.DEVNULL, creationflags=flags)
     except OSError as exc:
-        return "", f"起不来：{type(exc).__name__}"
+        return _remember(cmd, "", f"起不来：{type(exc).__name__}")
     try:
         out, _ = p.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -179,12 +179,15 @@ def _run_key_cmd(cmd: str, timeout: float, kill_exclude=None) -> tuple[str, str]
             p.kill()
         except OSError:
             pass
-        return "", f"{timeout:.0f} 秒没回来，已停"
+        return _remember(cmd, "", f"{timeout:.0f} 秒没回来，已停")
     if p.returncode != 0:
-        return "", f"命令退出 {p.returncode}"
-    text = (out or b"").decode("utf-8", "replace")
-    _POOL_CMD_CACHE[cmd] = text
-    return text, ""
+        return _remember(cmd, "", f"命令退出 {p.returncode}")
+    return _remember(cmd, (out or b"").decode("utf-8", "replace"), "")
+
+
+def _remember(cmd: str, text: str, err: str) -> tuple[str, str]:
+    _POOL_CMD_CACHE[cmd] = (text, err)
+    return text, err
 
 
 def pool_load(name: str, *, timeout: float | None = None, kill_exclude=None) -> dict[str, Any]:
