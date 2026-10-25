@@ -239,21 +239,21 @@ class Nightly:
                 synclog.error("nightly." + step_slug(step_name), reason, code)
                 synclog.flush()
             except Exception as exc:  # noqa: BLE001
-                self.log(f"[同步记录] 没写进去（{type(exc).__name__}: {exc}）")
+                self.log(f"[同步记录] 没写进去（{errtext(exc)}）")
         try:
             from . import problems
             row = problems.report("nightly." + step_slug(step_name), code, reason)
             if not row.get("written", True):
                 self.log(f"[问题记录] 没写进去：{reason}")
         except Exception as exc:  # noqa: BLE001
-            self.log(f"[问题记录] 没写进去（{type(exc).__name__}: {exc}）：{reason}")
+            self.log(f"[问题记录] 没写进去（{errtext(exc)}）：{reason}")
 
     def resolve(self, step_name: str) -> None:
         try:
             from . import problems
             problems.resolve("nightly." + step_slug(step_name))
         except Exception as exc:  # noqa: BLE001
-            self.log(f"[问题记录] 标已解决失败（{type(exc).__name__}: {exc}）：{step_name}")
+            self.log(f"[问题记录] 标已解决失败（{errtext(exc)}）：{step_name}")
 
     # ------------------------------------------------------------ 子进程
     def _env(self, extra: dict[str, str] | None = None) -> dict[str, str]:
@@ -277,7 +277,7 @@ class Nightly:
             attachments.write_recheck_status("tail", {"checked": 0, "skipped": f"号要处理（{why}）"[:120],
                                                       "stopped_reason": "skipped"})
         except Exception as exc:  # noqa: BLE001
-            self.log(f"[附件补查] 跳过没记进状态文件（{type(exc).__name__}: {exc}）")
+            self.log(f"[附件补查] 跳过没记进状态文件（{errtext(exc)}）")
 
     def minutes_left(self) -> float:
         return (self.deadline - self.clock()) / 60
@@ -377,7 +377,7 @@ class Nightly:
         try:
             killed = procs.kill_tree(p.pid, exclude=kill_exclude())
         except Exception as exc:  # noqa: BLE001
-            self.log(f"[{name}] 结束进程树出错（{type(exc).__name__}: {exc}），只结束这一步本身")
+            self.log(f"[{name}] 结束进程树出错（{errtext(exc)}），只结束这一步本身")
             killed = []
         try:
             p.kill()
@@ -620,7 +620,7 @@ class Nightly:
             # 夜跑自己是一次同步；外面给了编号（仓外脚本包着它）就用那个
             self.run_id = synclog.begin(own=True, run_id=os.environ.get(synclog.ENV_RUN) or None)
         except Exception as exc:  # noqa: BLE001
-            self.log(f"[同步记录] 没开上（{type(exc).__name__}: {exc}）")
+            self.log(f"[同步记录] 没开上（{errtext(exc)}）")
         if not unfinished:
             # 上一晚走完了：之前登记的「上一晚没走完」这件事已经好了（让它在面板上挂过一整天，下一晚开头才消）；
             # 走到这里也说明没有卡住的同步占着号了
@@ -629,7 +629,7 @@ class Nightly:
                 for code in ("TRANSIENT.INTERRUPTED", "NEEDS_HUMAN.SYNC_STUCK"):
                     problems.resolve("nightly.run", None, code)
             except Exception as exc:  # noqa: BLE001
-                self.log(f"[问题记录] 标已解决失败（{type(exc).__name__}: {exc}）")
+                self.log(f"[问题记录] 标已解决失败（{errtext(exc)}）")
         if unfinished:
             self.log(f"[夜跑] 上一晚没走完：{unfinished['start']}；日志停在「{unfinished['last']}」")
             self.register("run", "TRANSIENT.INTERRUPTED",
@@ -654,8 +654,8 @@ class Nightly:
                 else:
                     self.run_step(step)
         except Exception as exc:  # noqa: BLE001 - 夜跑自己出错也要写得出「夜跑结束」
-            self.register("run", "TRANSIENT.STEP_CRASHED", f"夜跑自己出错：{type(exc).__name__}: {exc}")
-            self.log(f"[夜跑] 出错：{type(exc).__name__}: {exc}")
+            self.register("run", "TRANSIENT.STEP_CRASHED", f"夜跑自己出错：{errtext(exc)}")
+            self.log(f"[夜跑] 出错：{errtext(exc)}")
         finally:
             self._repair_round(repair_since)
             if self.account_stop:
@@ -670,7 +670,7 @@ class Nightly:
                     from . import synclog
                     synclog.end(self.run_id, exit_code=exit_code)
                 except Exception as exc:  # noqa: BLE001
-                    self.log(f"[同步记录] 没收上尾（{type(exc).__name__}: {exc}）")
+                    self.log(f"[同步记录] 没收上尾（{errtext(exc)}）")
             self.log(END_MARK)
         message = {EXIT_OK: "夜跑完成", EXIT_MISSING: "夜跑完成，还有附件没下全",
                    EXIT_NEEDS_HUMAN: "号要人处理，今晚跳过了碰号的步骤",
@@ -702,7 +702,7 @@ class Nightly:
                 self.log(f"[自愈] 汇总里 {len(self.problems) - len(kept)} 条已当场修好")
             self.problems, self._problem_refs = kept, refs
         except Exception as exc:  # noqa: BLE001 - 自愈轮出错不能拖垮夜跑收尾
-            self.log(f"[自愈] 没跑完：{type(exc).__name__}: {exc}")
+            self.log(f"[自愈] 没跑完：{errtext(exc)}")
 
     def _result(self, exit_code: int, message: str, *, ran: bool) -> dict[str, Any]:
         return {"ok": exit_code in (EXIT_OK, EXIT_MISSING), "code": "", "message": message, "exit": exit_code,
