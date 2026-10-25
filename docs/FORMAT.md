@@ -47,13 +47,16 @@ D:\LIGHT WEB ARCHIEVE\vault\
 - **先暂存、再发布**（1025 第二波 PR④，`storage.stage_version` / `Staging.publish`）：新版本先写进 `raw/.staging-<时间>-<pid>-<随机>/`
   （点号开头，Obsidian 不显示，不占版本号），`manifest.json` 写好后一次 `rename` 成 `vNNNN`——所以 **一个 `vNNNN` 目录一出现就是完整的**。
   抓取 / 下载中崩了、判重决定不写、抓的时候被删：退出时暂存目录整个删掉，磁盘上不留版本；崩到连删都来不及的暂存目录
-  6 小时后视为过期，下次给同一篇写版本（进 `stage_version`）时清掉；doctor 的「RAW 版本」行报数。
+  6 小时后视为过期，下次给同一篇写版本（入库 / 补视频）时清掉；doctor 的「RAW 版本」行报数。
 - **只有带 `manifest.json` 的 `vNNNN` 才算版本**（`storage.existing_versions`）：老代码崩在下载中留下的半截 `vNNNN` 不进 `meta.versions`、
   重建索引不收、一个字节都不动，doctor 只报有几篇。**号码永不复用**：下一个号 = 所有 `vNNNN`（含半截）最大 + 1。
 - 提交点 = `meta.json` 改 `current_version`（发布之后、单篇锁里）。两个进程同时给同一篇发版本：后到的改名撞上已存在的目录就重新取号。
-- 目前走暂存发布的：`videos backfill`（整段在单篇锁里）；`ingest` 的两处仍是「先占号再往里写」、只在改 meta 时拿锁（第二波 PR⑤ 换成
-  暂存 + 整段拿锁，那之后过期暂存才会被入库顺手清掉）。删除一篇（`remove.delete_item`）整段在单篇锁里：和 backfill、和所有改 meta 的写入互斥，
+- 走暂存发布的：`videos backfill`（整段在单篇锁里）；`ingest`（新帖 / 重抓 / 评论续读，1025 第二波 PR⑤a）——抓取和下图在锁外、写进暂存，
+  **提交那一小段**（复查 → 发布 → 写 meta → 写索引）在单篇锁里：提交前复查到「抓的时候被删了」就不发布；当新帖抓的但别的入口刚存好
+  同一篇就不出第二个版本；和库里最新版本内容一样也不出。删除一篇（`remove.delete_item`）整段在单篇锁里，和这些提交互斥，
   等 30 秒等不到按这一条失败报给用户（「这篇正在被别的任务写入」）。
+- **收编**：磁盘上有完整版本、索引里没有（上次崩在发布之后、写 meta 之前；或 index.db 丢了行）→ 再入库这一篇时不联网，
+  直接用磁盘上最新的完整版本补 meta 和索引（返回 `adopted: true`，调用方按新帖渲染）。`ensure_raw_dir`（先占号再往里写）已无调用方。
 
 ---
 
@@ -784,7 +787,7 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
 `status=error` 的条目只有 `item_id`（可能是 `null`）/ `status` / `url` / `error` 四个键：
 
 ```json
-{"found": 1, "items": [{"item_id": null, "status": "error", "url": "https://xhslink.cn/o/xxxx", "error": "AdapterError: 短链解不出笔记 URL"}]}
+{"found": 1, "items": [{"item_id": null, "status": "error", "url": "https://xhslink.cn/o/xxxx", "error": "SourceError: 短链解不出笔记 URL"}]}
 ```
 
 退出码：全部成功 `0`；有任何一条 `status=error` 是 `1`；`blocked` 是 `5`；`busy` 是 `6`（JSON 照样打全）。

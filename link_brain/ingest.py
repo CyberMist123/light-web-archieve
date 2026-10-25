@@ -9,6 +9,7 @@ from .errtext import errtext
 
 import hashlib
 import io
+import copy
 import json
 import sys
 import time
@@ -18,7 +19,7 @@ from typing import Any
 
 import httpx
 
-from . import __version__, domain, index as index_mod, problems, storage
+from . import __version__, domain, index as index_mod, problems, sources, storage
 from .adapters import xiaohongshu as xhs
 
 EXIT_OK = 0
@@ -205,7 +206,8 @@ def download_media(source: dict[str, Any], raw_version_dir: Path, rel_prefix: st
     )
     return {
         "schema_version": 1,
-        "version": int(raw_version_dir.name[1:]),
+        # 暂存目录（.staging-…）还没有号：发布时 _retarget 填（1025 第二波 PR⑤a）
+        "version": int(raw_version_dir.name[1:]) if raw_version_dir.name[1:].isdigit() else None,
         "created_at": now_iso(),
         "images_declared": declared,
         "images_ok": ok,
@@ -350,7 +352,7 @@ def _fetch_with_retry(parsed: dict[str, Any], *, log, comment_floors=None, budge
         accounts.pace("打开笔记")  # 1001：跨进程开页间隔（与附件、补看、读收藏共用一个时刻戳）
         try:
             return xhs.fetch_detail(parsed["note_id"], parsed["xsec_token"], **kwargs)
-        except xhs.ServiceDownError as exc:
+        except sources.ServiceDown as exc:
             if attempt == SERVICE_RETRIES:
                 raise
             wait = SERVICE_BACKOFF[min(attempt - 1, len(SERVICE_BACKOFF) - 1)]
@@ -490,6 +492,127 @@ def _reuse_media(source: dict[str, Any], raw_dir: Path, rel_prefix: str, old_man
     return manifest
 
 
+# ---- 1025 第二波 PR⑤a：写新版本走暂存 + 单篇锁里提交；崩一半的孤儿版本收编 ----------------------------
+
+def _retarget(manifest: dict[str, Any], stg: "storage.Staging", version: int) -> dict[str, Any]:
+    """暂存里写的 manifest：文件路径前缀 raw/.staging-…/ 换成 raw/vNNNN/，填 version。引用旧版本的路径（续读复用）不动。
+    传进来的是副本（publish 撞号重取时会再调一次，用原件重算）。"""
+    old, new = f"raw/{stg.path.name}/", f"raw/{storage.version_name(version)}/"
+    for m in manifest.get("media") or []:
+        f = m.get("file")
+        if isinstance(f, str) and f.startswith(old):
+            m["file"] = new + f[len(old):]
+    manifest["version"] = version
+    return manifest
+
+
+class _Discarded(Exception):
+    """提交前在锁里复查发现不该发布（抓的时候被删 / 别的入口已经存好同一篇 / 内容没变）。reason 给调用方分流。"""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _commit_version(conn, parsed: dict[str, Any], stg: "storage.Staging", manifest0: dict[str, Any], *,
+                    source: dict[str, Any], sha: str, captured_at: str, expect_existing: bool, check_sha: bool,
+                    meta_kw: dict[str, Any], log) -> tuple[int, dict[str, Any], dict[str, Any]]:
+    """提交点：单篇锁里复查 → 发布暂存 → 写 meta → 写索引。返回 (version, manifest, meta)；不该发布抛 _Discarded。
+
+    锁只包住这一小段（抓取 / 下图最长二十多分钟都在锁外、写进只有自己看得见的暂存目录），所以删除 / 改标签不会被长抓取卡住。
+    - 抓的时候被删了（墓碑）→ 不发布（_Discarded("trashed")）。
+    - expect_existing=False（当新帖抓的）但现在已在库 → 别的入口刚存好同一篇，不再出第二个版本（"raced"）。
+    - check_sha → 和库里最新版本内容一样就不发布（"unchanged"；refresh 或并发重抓）。
+    """
+    sid = parsed["note_id"]
+    item_id = domain.item_id(xhs.SOURCE, sid)
+    with storage.file_lock(storage.obj_lock_name(item_id), wait_s=120, owner="ingest"):
+        probe = storage.probe_object(conn, xhs.SOURCE, sid)
+        lk = domain.lookup(probe)
+        if lk.state is domain.Presence.DELETED:
+            log("提交前复查：抓的时候被删了，不发布")
+            raise _Discarded("trashed")
+        if not expect_existing and lk.state is domain.Presence.IN_LIBRARY and not lk.needs_reindex:
+            log("提交前复查：别的入口刚存好这一篇，不再写第二个版本")
+            raise _Discarded("raced")
+        if check_sha and probe.in_index and index_mod.latest_source_sha256(conn, item_id) == sha:
+            log("提交前复查：和库里最新版本内容一样，不写新版本")
+            raise _Discarded("unchanged")
+        out: dict[str, Any] = {}
+
+        def finalize(v: int) -> dict[str, Any]:
+            out["manifest"] = _retarget(copy.deepcopy(manifest0), stg, v)
+            return out["manifest"]
+
+        version = stg.publish(finalize)
+        manifest = out["manifest"]
+        raw_dir = storage.raw_dir(xhs.SOURCE, sid, version)
+        log(f"RAW → {raw_dir}")
+        meta = _build_meta(parsed=parsed, source=source, manifest=manifest, version=version, captured_at=captured_at,
+                           first_archived=captured_at, **meta_kw)
+        # 抓取管不着的字段（project、visible_note_pinned、favorited_by、首次的 ingest_kind…）按当前 meta 保留（同一把锁，可重入）
+        meta = _write_meta(storage.object_dir(xhs.SOURCE, sid) / "meta.json", meta)
+        index_mod.upsert_object(conn, meta, source)
+        index_mod.add_source_version(conn, item_id=meta["item_id"], version=version, raw_dir=raw_dir,
+                                     captured_at=captured_at, adapter=xhs.ADAPTER_VERSION, input_url=parsed["input_url"],
+                                     input_kind=parsed["input_kind"], source_sha256=sha)
+    return version, manifest, meta
+
+
+def _adopt(conn, parsed: dict[str, Any], probe, *, origin: str, actor: str, ingest_kind: str, note: str | None,
+           log) -> dict[str, Any]:
+    """磁盘上已经有完整版本、但索引里没有（上次崩在「发布之后、写 meta / 索引之前」，或 index.db 重建丢了行）：
+    不联网，直接用磁盘上最新的完整版本补 meta / 索引。返回 {meta, source, manifest, version, raw_dir}。"""
+    sid = parsed["note_id"]
+    item_id = domain.item_id(xhs.SOURCE, sid)
+    meta_path = storage.object_dir(xhs.SOURCE, sid) / "meta.json"
+    with storage.file_lock(storage.obj_lock_name(item_id), wait_s=120, owner="ingest adopt"):
+        meta = storage.read_json(meta_path) if meta_path.is_file() else None
+        versions = storage.existing_versions(xhs.SOURCE, sid)       # 调用方保证至少一个完整版本
+        version = int(meta["current_version"]) if meta and int(meta.get("current_version") or 0) in versions else versions[-1]
+        if meta is not None and (int(meta.get("current_version") or 0) != version or meta.get("versions") != versions):
+            log(f"meta 指向的版本不完整 / 版本表过时：改指 {storage.version_name(version)}")
+            meta = storage.update_json(meta_path, lambda m: m.update(current_version=version, versions=versions),
+                                       lock_name=storage.obj_lock_name(item_id))
+        raw_dir = storage.raw_dir(xhs.SOURCE, sid, version)
+        source = storage.read_json(raw_dir / "source.json")
+        manifest = storage.read_json(raw_dir / "manifest.json")
+        if meta is None:
+            captured = (source.get("capture") or {}).get("captured_at") or now_iso()
+            log(f"收编孤儿版本 {storage.version_name(version)}（上次崩在写 meta 之前），不重抓")
+            meta = _write_meta(meta_path, _build_meta(parsed=parsed, source=source, manifest=manifest, version=version,
+                                                      captured_at=captured, origin=origin, actor=actor,
+                                                      ingest_kind=ingest_kind, note=note, first_archived=captured))
+        else:
+            log("meta 在、索引里没有：按磁盘补索引，不重抓")
+        index_mod.upsert_object(conn, meta, source)
+        index_mod.add_source_version(conn, item_id=item_id, version=version, raw_dir=raw_dir,
+                                     captured_at=(source.get("capture") or {}).get("captured_at") or meta["last_checked_at"],
+                                     adapter=xhs.ADAPTER_VERSION, input_url=parsed["input_url"],
+                                     input_kind=parsed["input_kind"], source_sha256=index_mod.normalized_source_sha256(source))
+    return {"meta": meta, "source": source, "manifest": manifest, "version": version, "raw_dir": raw_dir}
+
+
+def _discarded_summary(conn, parsed: dict[str, Any], reason: str, source: dict[str, Any], log) -> dict[str, Any]:
+    """_commit_version 决定不发布时给调用方的摘要：被删 → trashed；别人刚存好 / 内容没变 → 当「已在库」。"""
+    sid = parsed["note_id"]
+    if reason == "trashed":
+        t = index_mod.get_tombstone(conn, xhs.SOURCE, sid)
+        return {"status": "trashed", "item_id": t["item_id"] if t else domain.item_id(xhs.SOURCE, sid), "note_id": sid,
+                "title": t["title"] if t else None, "exit_code": EXIT_OK}
+    meta_path = storage.object_dir(xhs.SOURCE, sid) / "meta.json"
+    meta = storage.update_json(meta_path, lambda m: m.update(last_checked_at=now_iso()),
+                               lock_name=storage.obj_lock_name(domain.item_id(xhs.SOURCE, sid))) if reason == "unchanged" \
+        else storage.read_json(meta_path)
+    return {"hit": reason == "raced", "refreshed_unchanged": reason == "unchanged", "item_id": meta["item_id"],
+            "note_id": sid, "kind": meta.get("kind"),
+            "raw_dir": storage.raw_dir(xhs.SOURCE, sid, meta["current_version"]), "version": meta["current_version"],
+            "manifest": None, "failed": [], "comments": len(source.get("comments") or []),
+            "sub_comments": sum(len(c.get("sub_comments") or []) for c in source.get("comments") or []),
+            "comments_complete": meta.get("comments_complete"), "attachments_status": meta.get("attachments_status"),
+            "exit_code": EXIT_OK}
+
+
 def ingest_url(
     target: str,
     *,
@@ -532,12 +655,29 @@ def ingest_url(
     conn = index_mod.connect()
     created_at = now_iso()
     try:
-        tombstone = conn.execute('SELECT * FROM tombstones WHERE source = ? AND source_id = ?',
-                                 (xhs.SOURCE, parsed['note_id'])).fetchone()
-        if tombstone:
+        probe = storage.probe_object(conn, xhs.SOURCE, parsed["note_id"])
+        lk = domain.lookup(probe)
+        if lk.state is domain.Presence.DELETED:
+            tombstone = index_mod.get_tombstone(conn, xhs.SOURCE, parsed["note_id"])
             log('已删除，跳过')
-            return {'status': 'trashed', 'item_id': tombstone['item_id'],
-                    'note_id': parsed['note_id'], 'title': tombstone['title'], 'exit_code': EXIT_OK}
+            return {'status': 'trashed', 'item_id': tombstone['item_id'] if tombstone else domain.item_id(xhs.SOURCE, parsed['note_id']),
+                    'note_id': parsed['note_id'], 'title': tombstone['title'] if tombstone else None, 'exit_code': EXIT_OK}
+        if (lk.state is domain.Presence.ORPHAN or lk.needs_reindex) and probe.complete_versions:
+            # 1025 第二波 PR⑤a：上次崩在发布之后 / 索引丢了 → 用磁盘上的完整版本补上，不联网重抓
+            got = _adopt(conn, parsed, probe, origin=origin, actor=actor, ingest_kind=ingest_kind, note=note, log=log)
+            index_mod.add_relation(conn, item_id=got["meta"]["item_id"], origin=origin, actor=actor,
+                                   ingest_kind=ingest_kind, note=note, created_at=created_at)
+            if not refresh and not fill:
+                src = got["source"]
+                # 孤儿版本（从没写成 meta）= 对她来说是新帖：按新帖渲染 / 排识图；meta 在只是索引丢了 = 以前入过库，按已在库
+                orphan = lk.state is domain.Presence.ORPHAN
+                return {"hit": not orphan, "refreshed_unchanged": False, "adopted": True, "item_id": got["meta"]["item_id"],
+                        "note_id": parsed["note_id"], "kind": got["meta"]["kind"], "raw_dir": got["raw_dir"],
+                        "version": got["version"], "manifest": got["manifest"], "failed": [],
+                        "comments": len(src.get("comments") or []),
+                        "sub_comments": sum(len(c.get("sub_comments") or []) for c in src.get("comments") or []),
+                        "comments_complete": (src.get("capture") or {}).get("comments_complete"),
+                        "attachments_status": got["meta"].get("attachments_status"), "exit_code": EXIT_OK}
         existing = index_mod.find_object(conn, xhs.SOURCE, parsed["note_id"])
 
         if existing is not None and not refresh:
@@ -671,45 +811,28 @@ def ingest_url(
                 }
             log("refresh：规范化比对有变化，写新 RAW 版本")
 
-        version = storage.next_version(xhs.SOURCE, parsed["note_id"])
-        raw_dir = storage.ensure_raw_dir(xhs.SOURCE, parsed["note_id"], version)
-        rel_prefix = f"raw/{storage.version_name(version)}"
-        log(f"RAW → {raw_dir}")
-
-        storage.write_json(raw_dir / "mcp_raw.json", raw)
-        # 网页探测的原始结果单独存一份，方便以后回溯"当时页面上有没有附件"
-        storage.write_json(raw_dir / "web_raw.json", web_probe)
-        storage.write_json(raw_dir / "source.json", source)
-        manifest = download_media(source, raw_dir, rel_prefix, progress=progress)
-        storage.write_json(raw_dir / "manifest.json", manifest)
-
-        meta = _build_meta(
-            parsed=parsed,
-            source=source,
-            manifest=manifest,
-            version=version,
-            captured_at=captured_at,
-            origin=origin,
-            actor=actor,
-            ingest_kind=ingest_kind,
-            note=note,
-            first_archived=captured_at,
-        )
-        # 1024：抓取管不着的字段（project、visible_note_pinned、favorited_by、首次的 ingest_kind…）在锁里按当前 meta 保留
-        meta = _write_meta(meta_path, meta)
-
-        index_mod.upsert_object(conn, meta, source)
-        index_mod.add_source_version(
-            conn,
-            item_id=meta["item_id"],
-            version=version,
-            raw_dir=raw_dir,
-            captured_at=captured_at,
-            adapter=xhs.ADAPTER_VERSION,
-            input_url=parsed["input_url"],
-            input_kind=parsed["input_kind"],
-            source_sha256=new_sha,
-        )
+        meta_kw = dict(origin=origin, actor=actor, ingest_kind=ingest_kind, note=note)
+        with storage.stage_version(xhs.SOURCE, parsed["note_id"]) as stg:
+            storage.write_json(stg.path / "mcp_raw.json", raw)
+            # 网页探测的原始结果单独存一份，方便以后回溯"当时页面上有没有附件"
+            storage.write_json(stg.path / "web_raw.json", web_probe)
+            storage.write_json(stg.path / "source.json", source)
+            manifest0 = download_media(source, stg.path, f"raw/{stg.path.name}", progress=progress)
+            try:
+                version, manifest, meta = _commit_version(
+                    conn, parsed, stg, manifest0, source=source, sha=new_sha, captured_at=captured_at,
+                    expect_existing=existing is not None, check_sha=existing is not None or refresh,
+                    meta_kw=meta_kw, log=log)
+            except _Discarded as d:
+                out = _discarded_summary(conn, parsed, d.reason, source, log)
+                if d.reason != "trashed":
+                    # 和原来「refresh 无变化」那支一样：这次来源的关联照记、索引的 last_checked_at 跟上
+                    if d.reason == "unchanged":
+                        index_mod.upsert_object(conn, storage.read_json(meta_path), source)
+                    index_mod.add_relation(conn, item_id=out["item_id"], origin=origin, actor=actor,
+                                           ingest_kind=ingest_kind, note=note, created_at=created_at)
+                return out
+        raw_dir = storage.raw_dir(xhs.SOURCE, parsed["note_id"], version)
         index_mod.add_relation(
             conn,
             item_id=meta["item_id"],
@@ -767,25 +890,23 @@ def _finish_fill(raw: Any, parsed: dict[str, Any], conn, existing, old_meta: dic
         return {**base, "refreshed_unchanged": True, "version": meta["current_version"],
                 "raw_dir": storage.raw_dir(xhs.SOURCE, parsed["note_id"], meta["current_version"]), "manifest": None}
     _log_comment_load(source, log)
-    version = storage.next_version(xhs.SOURCE, parsed["note_id"])
-    raw_dir = storage.ensure_raw_dir(xhs.SOURCE, parsed["note_id"], version)
-    rel_prefix = f"raw/{storage.version_name(version)}"
-    log(f"续读 RAW → {raw_dir}")
-    storage.write_json(raw_dir / "mcp_raw.json", raw)
-    # 这次没探测附件：沿用上一版的网页探测结果（附件补查按它判断），并注明出处
-    storage.write_json(raw_dir / "web_raw.json", old_web if old_web is not None else
-                       {"ok": None, "error": "评论续读不探测附件（沿用上一版）"})
-    storage.write_json(raw_dir / "source.json", source)
-    manifest = _reuse_media(source, raw_dir, rel_prefix, old_manifest, object_dir, progress=progress)
-    storage.write_json(raw_dir / "manifest.json", manifest)
-    meta = _build_meta(parsed=parsed, source=source, manifest=manifest, version=version, captured_at=captured_at,
-                       origin=origin, actor=actor, ingest_kind=ingest_kind, note=note, first_archived=captured_at)
-    # 和完整重抓同一套保留规则（merge_meta）：抓取产生不了的字段在锁里按当前 meta 原样带上
-    meta = _write_meta(meta_path, meta)
-    index_mod.upsert_object(conn, meta, source)
-    index_mod.add_source_version(conn, item_id=meta["item_id"], version=version, raw_dir=raw_dir,
-                                 captured_at=captured_at, adapter=xhs.ADAPTER_VERSION, input_url=parsed["input_url"],
-                                 input_kind=parsed["input_kind"], source_sha256=index_mod.normalized_source_sha256(source))
+    with storage.stage_version(xhs.SOURCE, parsed["note_id"]) as stg:
+        log(f"续读暂存 → {stg.path.name}")
+        storage.write_json(stg.path / "mcp_raw.json", raw)
+        # 这次没探测附件：沿用上一版的网页探测结果（附件补查按它判断），并注明出处
+        storage.write_json(stg.path / "web_raw.json", old_web if old_web is not None else
+                           {"ok": None, "error": "评论续读不探测附件（沿用上一版）"})
+        storage.write_json(stg.path / "source.json", source)
+        manifest0 = _reuse_media(source, stg.path, f"raw/{stg.path.name}", old_manifest, object_dir, progress=progress)
+        try:
+            # 和完整重抓同一套保留规则（merge_meta）：抓取产生不了的字段在锁里按当前 meta 原样带上
+            version, manifest, meta = _commit_version(
+                conn, parsed, stg, manifest0, source=source, sha=index_mod.normalized_source_sha256(source),
+                captured_at=captured_at, expect_existing=True, check_sha=True,
+                meta_kw=dict(origin=origin, actor=actor, ingest_kind=ingest_kind, note=note), log=log)
+        except _Discarded as d:
+            return {**base, **_discarded_summary(conn, parsed, d.reason, source, log)}
+    raw_dir = storage.raw_dir(xhs.SOURCE, parsed["note_id"], version)
     failed = [m for m in manifest["media"] if m["download_status"] == "failed"]
     return {**base, "refreshed_unchanged": False, "version": version, "raw_dir": raw_dir, "manifest": manifest,
             "failed": failed, "exit_code": EXIT_MISSING_CONTENT if failed else EXIT_OK}
@@ -802,14 +923,14 @@ def run(args) -> int:
             verbose=getattr(args, "verbose", False),
             refresh=getattr(args, "refresh", False),
         )
-    except xhs.NeedsHumanError as exc:
+    except sources.NeedsHuman as exc:
         # 号出事 / 服务出事：单独一个退出码 + 登记问题（账号类 NEEDS_HUMAN 推一次；服务类 TRANSIENT 只记），
         # 别让批量脚本闷头把剩下的全刷成失败
         service = isinstance(exc, xhs.ServiceDownError)
         problems.report_blocked("ingest", getattr(exc, "code", "") or "", f"导入停了：{exc}", service=service)
         print(f"归档中止（{'服务' if service else '账号/风控'}）: {exc}", file=sys.stderr)
         return EXIT_NEEDS_HUMAN
-    except xhs.AdapterError as exc:
+    except sources.SourceError as exc:
         print(f"归档失败: {exc}", file=sys.stderr)
         return EXIT_ERROR
     except FileExistsError as exc:
@@ -901,7 +1022,7 @@ def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = Fa
         old_token = restricted.best_token(sid, note.get("xsec_token") or "")
         try:
             summary = attempt(old_token)
-        except xhs.NoteRestrictedError as exc:
+        except sources.ItemRestricted as exc:
             # 1011：这篇在网页版要验证才能看：今天没搜过就用标题搜一次新口令、歇一会儿再开一次；还不行就如实说、给「打开验证」
             opened, summary = restricted.retry_with_fresh_token(
                 sid, title=note.get("title"), old_token=old_token, attempt=attempt,
@@ -915,6 +1036,8 @@ def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = Fa
                 raise xhs.NoteRestrictedError(restricted.TEXT) from exc
         else:
             restricted.clear(sid, item_id=row["item_id"], why="手动抓评论打开了这篇")
+        if summary.get("status") == "trashed":
+            return summary                      # 1025 PR⑤a：抓的时候被删了，没发布，也不重渲染
         state = comment_fill.load_state(row["source"], row["source_id"])
         _, source2 = comment_fill.current_source(row["source"], row["source_id"])
         sc = comment_fill.scope(source2, comment_fill.floor_target(), state)
@@ -923,6 +1046,8 @@ def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = Fa
             comment_fill._settle(row["source"], row["source_id"], state, row["item_id"], problems_mod)
     else:
         summary = ingest_url(url, refresh=True, comment_floors=floors, verbose=verbose, progress=progress)
+    if summary.get("status") == "trashed":
+        return summary
     if progress:
         progress("render", "写进笔记、刷新这一页")
     catch_mod._ensure_rendered(xhs.SOURCE, summary["note_id"], force=True, extract=False)
@@ -1007,17 +1132,17 @@ def run_comments(args) -> int:
         fill = getattr(args, "fill", False)
         summary = fetch_comments(args.target, floors=floors, verbose=getattr(args, "verbose", False),
                                  fill=fill, progress=None if fill else progress_emitter(args))
-    except xhs.NeedsHumanError as exc:
+    except sources.NeedsHuman as exc:
         print(f"评论抓取中止（账号或服务要处理）: {exc}", file=sys.stderr)
         dump_json({'ok': False, 'code': 'NEEDS_HUMAN', 'message': f'评论没抓：{exc}'})
         return EXIT_NEEDS_HUMAN
-    except xhs.NoteRestrictedError as exc:
+    except sources.ItemRestricted as exc:
         # 1011：只是这一篇（网页版要验证才能看）：笔记页评论区顶上已经有「打开验证」
         print(f"评论没抓：{exc}", file=sys.stderr)
         dump_json({'ok': False, 'code': 'NOTE_RESTRICTED', 'item_id': args.target,
                    'message': '评论没抓：这篇在小红书网页版要验证才能看——点评论区顶上的「打开验证」过一下，过完自动补抓'})
         return EXIT_ERROR
-    except (xhs.AdapterError, FileNotFoundError) as exc:
+    except (sources.SourceError, FileNotFoundError) as exc:
         print(f"评论抓取失败: {exc}", file=sys.stderr)
         dump_json({'ok': False, 'code': '', 'message': f'评论没抓：{exc}'})
         return EXIT_ERROR
