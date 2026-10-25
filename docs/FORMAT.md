@@ -787,7 +787,7 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
 `status=error` 的条目只有 `item_id`（可能是 `null`）/ `status` / `url` / `error` 四个键：
 
 ```json
-{"found": 1, "items": [{"item_id": null, "status": "error", "url": "https://xhslink.cn/o/xxxx", "error": "AdapterError: 短链解不出笔记 URL"}]}
+{"found": 1, "items": [{"item_id": null, "status": "error", "url": "https://xhslink.cn/o/xxxx", "error": "SourceError: 短链解不出笔记 URL"}]}
 ```
 
 退出码：全部成功 `0`；有任何一条 `status=error` 是 `1`；`blocked` 是 `5`；`busy` 是 `6`（JSON 照样打全）。
