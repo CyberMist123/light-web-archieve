@@ -302,7 +302,7 @@ provider().killTree(pid)   // 同一排除规则
 **迁移点**
 - `main.js:340-355 spawnCapture`（`taskkill /T`）、`:618-630 interruptRunning`（`taskkill /T`）、`:668-705 ensureAnswerWorker/requestAnswer`（`worker.kill()`）、`:868-898 run` → `spawnPy` + `killTree`；`:900-906 log` 读整文件再写（无上限）→ `adapter.append` + 1 MB 轮转。
 - `text_stream.cli_call:99-112` 无超时 → 加 `communicate(timeout)` + `kill_tree`。
-- 自写原子写：`enrich._save_state:53-59`、`topics.save:117-123`、`answer_cache._save:77-86`、`accounts._atomic_write_text:95-104` → `storage.*`；`videos.download:29-31` 直接写目标文件 → 写 `.part` 再 replace。
+- 自写原子写：`enrich._save_state:53-59`、`topics.save:117-123`、`answer_cache._save:77-86`、`accounts._atomic_write_text:95-104` → `storage.*`（1025 核：enrich / topics / answer_cache / accounts 已改走 storage.*）；`videos.download:29-31` 直接写目标文件 → 写 `.part` 再 replace（1025 核：仍是直写，待办）。
 - `chat-view.js:30-31` `adapter.write` 直写 → `LB.writeJson`；`annotate-view.js:139` 同。
 
 ---

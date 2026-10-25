@@ -6,10 +6,10 @@
 
 | 行为 | 现在 | 补在哪批 |
 |---|---|---|
-| 同步中断后，新帖出现在目录 | 无用例（BUGS #3 根因） | 1 |
-| 单篇导入（catch / MCP / CLI）、从快照恢复、改来源、专辑同步后目录更新 | 无 | 1 |
-| 内容没变时重建不改任何页面文件（不刷屏） | 无 | 1 |
-| 目录页和问收藏页的「全部」篇数相等 | 无 | 1 |
+| 同步中断后，新帖出现在目录 | ✅ `test_catalog_fresh_1023.py::test_sync_run_refreshes_catalog_even_when_it_fails`（1023） | 1 |
+| 单篇导入（catch / MCP / CLI）、从快照恢复、改来源、专辑同步后目录更新 | 无（1025 核：`test_catalog_fresh_1023.py::test_catch_refreshes_unless_deferred` 只覆盖 catch 单篇这一段，其余没覆盖） | 1 |
+| 内容没变时重建不改任何页面文件（不刷屏） | ✅ `test_catalog_fresh_1023.py::test_rebuild_without_changes_touches_no_file`（1023） | 1 |
+| 目录页和问收藏页的「全部」篇数相等 | ✅ `test_catalog_fresh_1023.py::test_counts_single_source`（1023） | 1 |
 | 同一条用量，账本 / 预算 / 夜跑花费 / 设置页显示的钱一致；未知模型 = 未计价 | ✅ `test_pricing_1023.py`（1023） | 2 |
 | 概要切 CLI（OpenCode）能跑、记账显示免费 | ✅ `test_pricing_1023.py` + `test_ai_settings_ui.cjs`（1023） | 2 |
 | 夜跑和 providers 拿到同一组 Gemini key | ✅ `test_pricing_1023.py`（1023） | 2 |
