@@ -165,3 +165,22 @@ def test_build_writes_usage_month(tmp_path, monkeypatch):
     um = json.loads(data_path.read_text(encoding="utf-8"))["usage_month"]
     assert um["month"] == f"{now:%Y-%m}" and um["calls"] == 2 and um["unpriced"] == 1
     assert um["cost_cny"] > 0 and um["by_feature"] == {"问收藏": um["cost_cny"]}
+
+
+def test_build_writes_schema_and_page_lib_agrees(tmp_path, monkeypatch):
+    """1025 开源前 P0：catalog-data 顶层带 schema（插件 ↔ 后端握手），页面脚本里的 CATALOG_SCHEMA 必须和后端相等。
+    改了 catalog-data 字段让页面读不懂时两边一起 +1，这条守着不许只改一边。"""
+    import re
+    monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
+    _make_object(tmp_path, "a1", title="记忆系统分享", tags=["AI"], summary="", stem="记忆系统分享")
+    _, _, data_path = catalog.build()
+    assert json.loads(data_path.read_text(encoding="utf-8"))["schema"] == catalog.CATALOG_SCHEMA
+    lib = (Path(catalog.__file__).parent / "assets" / "lb-page-lib.js").read_text(encoding="utf-8")
+    m = re.search(r"const CATALOG_SCHEMA = (\d+);", lib)
+    assert m and int(m.group(1)) == catalog.CATALOG_SCHEMA
+    assets = Path(catalog.__file__).parent / "assets"
+    assert "schemaIssue" in lib and "schemaBlocks" in lib
+    # 两个页面都要「先查格式再读 items」：对不上就停，不是只挂一句提示（1025 Codex 审）
+    for page in ("catalog-view.js", "chat-view.js"):
+        assert "LB.schemaBlocks(" in (assets / page).read_text(encoding="utf-8"), page
+

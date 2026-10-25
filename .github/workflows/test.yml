@@ -1,0 +1,78 @@
+# 开源前 P0（1025）：每次 push / PR 在干净机器上跑一遍，和 CONVENTIONS §7 的本地跑法一致。
+# - Python：ubuntu + windows 两套；测试的时间断言按 Australia/Sydney 写（样本时间戳 +10 / +11），所以先把机器时区钉过去（Linux 用 TZ，Windows 用 tzutil）。
+# - Node：只跑 node 单测（tests/run-node.cjs --unit）；页面 UI 测试要 playwright + 真 vault 数据，CI 上不跑，和本地「没装 playwright 标 SKIP」一致。
+# - 隐私闸：PR 上用 scripts/privacy_gate.py 扫新提交的文件类型和密钥特征（本机私有清单和邮箱规则只在作者机器上生效）。
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    name: pytest (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      # 时区：Linux 用 TZ 环境变量；Windows 用 tzutil 改系统时区——**不能**在 Windows 上设 TZ，MSVC 运行库把 "Australia/Sydney"
+      # 这种名字解析成 +01:00（第一跑就是这样红的），conftest 里也只在有 tzset 的平台设 TZ
+      - name: 时区钉到和测试样本一致（Linux）
+        if: runner.os == 'Linux'
+        run: echo "TZ=Australia/Sydney" >> "$GITHUB_ENV"
+      - name: 时区钉到和测试样本一致（Windows）
+        if: runner.os == 'Windows'
+        run: tzutil /s "AUS Eastern Standard Time"
+      # ubuntu 24.04 的 AppArmor 默认不让非特权进程开 user namespace，Chrome 的沙箱起不来会一直挂着
+      #（test_e2e_real_pdf 真开浏览器出 PDF）。放开这一条内核开关只影响这台一次性 runner
+      - name: 放开 user namespace（Chrome 沙箱要它）
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: 安装（pyproject 的依赖 + dev）
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: pytest
+        run: python -m pytest -q
+
+  node:
+    name: node 单测
+    runs-on: ubuntu-latest
+    env:
+      TZ: Australia/Sydney
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: node 单测（不装 playwright：页面测试照本地规则 SKIP）
+        run: node tests/run-node.cjs --unit
+
+  privacy-gate:
+    name: 隐私闸（文件类型 + 密钥特征）
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 扫这个 PR 新增的提交
+        env:
+          LWA_GATE_NO_PRIVATE: "1"   # 本机私有特征清单不进仓库，CI 上没有
+          PYTHONIOENCODING: utf-8
+        # --skip-email 只有跟着 --base 才认（邮箱规则防的是作者个人邮箱，别人的 PR 不按它拦；本机 pre-push 没有这个开关）
+        run: python scripts/privacy_gate.py --base ${{ github.event.pull_request.base.sha }} --skip-email ${{ github.event.pull_request.head.sha }}

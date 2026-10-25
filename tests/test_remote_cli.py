@@ -114,6 +114,7 @@ def fake_ps(monkeypatch):
     return calls, replies
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="计划任务用 pythonw.exe，只有 Windows 有")
 def test_enable_registers_logon_task_with_watchdog(capsys, fake_ps):
     calls, _ = fake_ps
     vault = Path(os.environ["LINK_BRAIN_VAULT"])

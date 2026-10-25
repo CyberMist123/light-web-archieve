@@ -40,7 +40,9 @@ let data = {};
 // 1019：事件订阅随页面暂存 / 拆（切走暂存时不被组件卸载强行摘掉）
 function lbEvent(ref) { LB.onUnload(() => { try { app.workspace.offref(ref); } catch {} }); return ref; }
 try { data = await LB.data.load(); } catch {}
-let items = data.items || [];
+// 1025 开源前 P0：格式号对不上就不读 items（形状可能变了），页面照常起来，篇数那行说该做什么（paintSub）
+const itemsOf = d => (LB.schemaBlocks(d) ? [] : (d.items || []));
+let items = itemsOf(data);
 
 let session = { turns: [], draft: '' };
 let archive = { entries: [] };
@@ -763,9 +765,12 @@ const sub = titleBlock.createEl('div', { cls: 'lbchat-sub' });
 function paintSub() {
   const at = LB.dataUpdatedAt(data);
   const d = at ? new Date(at) : null;
+  // 1025 开源前 P0：目录数据格式和页面对不上（旧数据 / 旧插件）——和目录页同一句话
+  const schemaWhy = LB.schemaIssue(data);
+  const tail = schemaWhy ? ` · ${schemaWhy}` : '';
   // 1023：问收藏搜的是全部（含聊天分享 / Fable 收的），写明「全部」，和目录页「N 篇 · 全部 M」对得上
-  if (!d || isNaN(d)) { sub.setText(`全部 ${items.length} 篇`); return; }
-  sub.setText(`全部 ${items.length} 篇 · 更新 ${d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}`);
+  if (!d || isNaN(d)) { sub.setText(`全部 ${items.length} 篇${tail}`); return; }
+  sub.setText(`全部 ${items.length} 篇 · 更新 ${d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}${tail}`);
 }
 paintSub();
 const pageNav = head.createEl('nav', { cls: 'lb-page-nav' });
@@ -2273,7 +2278,7 @@ if (app.workspace.on && dv.component?.registerEvent) {
 }
 // 登记这一版 DOM（连 host 一起，§5.9）：catalog-data 变了只换数据、改篇数，不重建对话
 LB.keep(wrap, { park: true, version: await LB.data.version(), update: async () => {
-  try { data = await LB.data.load(); items = data.items || []; paintSub(); } catch {}
+  try { data = await LB.data.load(); items = itemsOf(data); paintSub(); } catch {}
 }, onReuse: () => { paintSourceBar(); paintSend(); fillModels(); settle(); } });
 LB.t('total');
 

@@ -93,13 +93,14 @@ def added_paths(sha):
     return [parts[i + 1] for i in range(0, len(parts) - 1, 2)]
 
 
-def scan_commit(sha, private):
+def scan_commit(sha, private, check_email=True):
     problems = []
-    who = git("show", "-s", "--format=%ae%n%ce", sha).split()
-    for email in who:
-        if not NOREPLY.search(email):
+    # 邮箱规则防的是作者个人邮箱进公开历史。只有 CI 入口（--base … --skip-email）才关得掉：pre-push 钩子不传这个开关，
+    # 环境变量也不认（1025 Codex 审：原来的 LWA_GATE_SKIP_EMAIL 在本机 shell 里设上同样生效，等于给闸留了个口子）
+    if check_email:
+        who = git("show", "-s", "--format=%ae%n%ce", sha).split()
+        if any(not NOREPLY.search(email) for email in who):
             problems.append("author/committer email is not a GitHub noreply address")
-            break
     message = git("show", "-s", "--format=%B", sha)
     problems += [f"commit message: {h}" for h in scan_text(message, private)]
     problems += [f"{path}: private file type" for path in added_paths(sha) if blocked_path(path)]
@@ -116,18 +117,27 @@ def scan_commit(sha, private):
 
 def main(argv):
     remote = "origin"
+    base = None  # CI：--base <sha> 只扫 base 之后的提交（PR 的头分支本身就在远端上，按「远端没有的」会扫出 0 个）
     if len(argv) >= 2 and argv[0] == "--remote":
         remote, argv = argv[1], argv[2:]
+    if len(argv) >= 2 and argv[0] == "--base":
+        base, argv = argv[1], argv[2:]
+    skip_email = False  # 只在带 --base 的 CI 入口上认（别人的 PR 不按作者邮箱拦）；本机 hook 走不到这里
+    if base and argv and argv[0] == "--skip-email":
+        skip_email, argv = True, argv[1:]
     tips = [a for a in argv if re.fullmatch(r"[0-9a-f]{40}", a)]
     if not tips:
         return 0
     try:
         private = load_private()
-        exclude = [f"--remotes={remote}"] if git("for-each-ref", f"refs/remotes/{remote}").strip() else []
-        commits = git("rev-list", *tips, "--not", *exclude).split() if exclude else git("rev-list", *tips).split()
+        if base:
+            commits = git("rev-list", *tips, f"^{base}").split()
+        else:
+            exclude = [f"--remotes={remote}"] if git("for-each-ref", f"refs/remotes/{remote}").strip() else []
+            commits = git("rev-list", *tips, "--not", *exclude).split() if exclude else git("rev-list", *tips).split()
         blocked = {}
         for sha in commits:
-            found = scan_commit(sha, private)
+            found = scan_commit(sha, private, check_email=not skip_email)
             if found:
                 blocked[sha] = found
     except Exception as exc:  # noqa: BLE001 - fail-closed：闸自己出错也不许推

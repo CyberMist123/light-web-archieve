@@ -535,13 +535,11 @@ async function want(method) {
   catch (e) { LB.say(e?.message || String(e), { kind: mobile ? 'info' : 'error' }); return null; }
 }
 
-let data;
-try { data = await LB.data.load(); }
-catch {
-  // C8：数据读不到——说清怎么办；电脑上给 [刷新目录]
+// 数据读不到 / 格式对不上：整页只放一句话 + 电脑上给 [刷新目录]（refresh=false 时不给按钮，比如数据比页面新该先更新插件）
+function stopPage(text, { refresh = true } = {}) {
   const box = wrap.createEl('div', { cls: 'lbc-empty lbc-nodata' });
-  box.createEl('p', { cls: 'lbc-empty-text', text: mobile ? '目录数据还没生成：在电脑上点右上「…」→ 刷新目录。' : '目录数据还没生成：点右上「…」→ 刷新目录' });
-  if (!mobile) {
+  box.createEl('p', { cls: 'lbc-empty-text', text });
+  if (!mobile && refresh) {
     const b = box.createEl('div', { cls: 'lbc-empty-actions' }).createEl('button', { text: '刷新目录', cls: 'mod-cta' }); b.type = 'button';
     b.onclick = async () => {
       const p = await want('refreshCatalog'); if (!p) return;
@@ -550,6 +548,17 @@ catch {
       catch (e) { done(); LB.say('目录没刷新上：' + (e?.message || e), { kind: 'error' }); }
     };
   }
+}
+let data;
+try { data = await LB.data.load(); }
+catch {
+  // C8：数据读不到——说清怎么办；电脑上给 [刷新目录]
+  stopPage(mobile ? '目录数据还没生成：在电脑上点右上「…」→ 刷新目录。' : '目录数据还没生成：点右上「…」→ 刷新目录');
+  return;
+}
+// 1025 开源前 P0：格式号对不上（旧数据 / 旧插件）就停在这儿，不按猜的形状读 items——先检查再解析，提示才来得及显示
+if (LB.schemaBlocks(data)) {
+  stopPage(LB.schemaIssue(data), { refresh: Number(data.schema) < LB.CATALOG_SCHEMA });
   return;
 }
 // 1020 来源（她定）：src='' 是她自己的收藏；她在 TG 发给 Fable 的「聊天分享」、Fable 自己收的「fable」、CC / GPT 按项目收的（项目名）
@@ -681,10 +690,12 @@ async function refresh({ strict = false } = {}) {
   let v = null, next;
   try { v = await LB.data.version(); next = await LB.data.load(); }
   catch (e) { if (strict) throw e; return false; }
+  // 新数据格式对不上：不换数据、不解析，页面留着上一版，标题下说该做什么
+  if (LB.schemaBlocks(next)) { paintSchema(next); return false; }
   data = next; allItems = data.items || []; applySrc();
   await loadIndex();
   if (activeCat && !knownCat(activeCat)) activeCat = '';
-  refreshTags(); dataRev++; stale = false;
+  refreshTags(); dataRev++; stale = false; paintSchema();
   startWarm();
   renderCatBar();
   withAnchor(() => render());
@@ -735,6 +746,10 @@ const possibleLink = subLine.createEl('button', { cls: 'lbc-sub lbc-sub-link lbc
 const sepUpdated = subLine.createEl('span', { cls: 'lbc-sub-sep', text: '·' });
 const updatedBtn = subLine.createEl('button', { cls: 'lbc-sub lbc-sub-link lbc-updated' }); updatedBtn.type = 'button';
 const staleEl = subLine.createEl('span', { cls: 'lbc-sub lbc-stale', text: '· 这台设备上的目录数据较旧' }); staleEl.hidden = true;
+// 1025 开源前 P0：目录数据的格式版本和页面对不上（旧数据 / 旧插件）——同一处、同一种字，说清该做什么
+const schemaEl = subLine.createEl('span', { cls: 'lbc-sub lbc-stale lbc-schema' }); schemaEl.hidden = true;
+function paintSchema(d = data) { const why = LB.schemaIssue(d); schemaEl.hidden = !why; if (why) { schemaEl.setText('· ' + why); schemaEl.title = why; } }
+paintSchema();
 // 第 4 批（CONVENTIONS §3.3）：顶部问题入口。数字来自 _archive/problems-summary.json；「要你处理」橙色，其余灰色，都为 0 不显示
 const probBtn = subLine.createEl('button', { cls: 'lbc-problems' }); probBtn.type = 'button'; probBtn.hidden = true;
 // C14：「· 同步中」带上阶段，悬停看全句，点开同步记录
