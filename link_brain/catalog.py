@@ -667,7 +667,7 @@ def _state_registry() -> dict[str, dict[str, str]]:
 
 def _counts(items: list[dict[str, Any]]) -> dict[str, Any]:
     """篇数唯一口径（ARCH-AUDIT §7）：all = 目录里全部（回收站的已经不在 items 里）；mine = 来源为「我的收藏」（src 空）；
-    by_src = 其它来源各几篇（聊天分享 / Fable / 项目名…）。"""
+    by_src = 其它来源各几篇（Fable / 项目名…；1025 起 TG 发来的并进 fable）。"""
     by_src: dict[str, int] = {}
     for it in items:
         src = it.get("src") if isinstance(it.get("src"), str) else ""

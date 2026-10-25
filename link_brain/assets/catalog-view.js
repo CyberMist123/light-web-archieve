@@ -561,8 +561,8 @@ if (LB.schemaBlocks(data)) {
   stopPage(LB.schemaIssue(data), { refresh: Number(data.schema) < LB.CATALOG_SCHEMA });
   return;
 }
-// 1020 来源（她定）：src='' 是她自己的收藏；她在 TG 发给 Fable 的「聊天分享」、Fable 自己收的「fable」、CC / GPT 按项目收的（项目名）
-// 各是一个来源（catalog.py 的 src，规则在 provenance.py）。目录默认只看她自己的收藏，「来源 ▾」切；已收藏页不分来源。
+// 1020 来源（她定）：src='' 是她自己的收藏；她在 TG 发给 Fable 的和 Fable 自己收的都是「fable」（1025 起不再单列「聊天分享」）、CC / GPT 按项目收的（项目名）
+// 各是一个来源（catalog.py 的 src，规则在 domain.py）。目录默认只看她自己的收藏，「来源 ▾」切；已收藏页不分来源。
 // items = 当前来源下的那些（下面所有计数 / 排名 / 专辑都按它算），allItems = 全部
 let allItems = data.items || [];
 let activeSrc = '';   // ''=我的收藏 / '*'=全部 / 其它=那个来源

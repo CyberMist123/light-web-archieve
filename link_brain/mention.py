@@ -82,6 +82,8 @@ def pending() -> list[dict[str, Any]]:
             meta = json.loads((path.parent / "meta.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             pass
+        if not meta.get("item_id") and path.parent.parent.name not in domain.PREFIX:
+            continue   # _archive 下不是来源目录的杂目录
         item_id = meta.get("item_id") or domain.item_id(path.parent.parent.name, source_id)
         for a in annots:
             if _key(item_id, a) in ledger:

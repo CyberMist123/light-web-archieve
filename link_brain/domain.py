@@ -41,8 +41,8 @@ def parse_item_id(text: Any) -> tuple[str, str] | None:
 def short_id(item_id_or_id: Any) -> str:
     """去掉任何已知前缀（给 MCP / 远程 / 页面显示用）；本来就没前缀的原样返回。"""
     s = str(item_id_or_id or "").strip()
-    parsed = parse_item_id(s)
-    return parsed[1] if parsed else s
+    prefix, sep, rest = s.partition("-")
+    return rest if sep and prefix in _SOURCE_OF else s   # "xhs-" → ""（和原来 removeprefix 一样）
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +163,7 @@ FIELD_OWNER: dict[str, Owner] = {
     **{k: Owner.FETCH for k in (
         "schema_version", "item_id", "source", "source_id", "canonical_url", "input_url", "kind", "title", "author",
         "published_at", "last_checked_at", "current_version", "versions", "images_complete", "comments_complete",
-        "comment_load", "tool_versions")},
+        "tool_versions")},   # comment_load 不在 meta 里（在 source.json 的 capture，续读经 xhs.merge_comment_load 合并）
     **{k: Owner.ENTRY for k in ("first_archived_at", "origin", "actor", "ingest_kind", "note", "project",
                                  "space")},   # space：预留（不写 = knowledge），以后加影音库不用迁移
     "visible_note": Owner.RENDER,

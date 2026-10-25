@@ -33,10 +33,10 @@ def relabel(refs: list[str], *, actor: str | None = None, origin: str | None = N
             if not source_id or not meta_path.exists():
                 out.append({"item_id": ref, "status": "missing"})
                 continue
-            old_meta = storage.read_json(meta_path)
-            old = (old_meta.get("origin"), old_meta.get("actor"))
+            old: list[tuple[Any, Any]] = []
 
             def change(meta):   # 1025：单篇锁里重读再写，只动 OWNER 的三个键（原来是锁外整份覆写）
+                old.append((meta.get("origin"), meta.get("actor")))
                 if actor:
                     meta["actor"] = actor
                 if origin:
@@ -48,12 +48,16 @@ def relabel(refs: list[str], *, actor: str | None = None, origin: str | None = N
                     else:
                         meta.pop("project", None)
 
-            meta = storage.update_json(meta_path, change, lock_name=storage.obj_lock_name(
-                old_meta.get("item_id") or domain.item_id(source, source_id)))
+            try:
+                meta = storage.update_json(meta_path, change, lock_name=storage.obj_lock_name(domain.item_id(source, source_id)))
+            except storage.LockBusy as exc:   # 这一篇正被别人改：如实记 busy，别的篇照改
+                out.append({"item_id": domain.item_id(source, source_id), "status": "busy", "error": str(exc)})
+                continue
+            old_origin, old_actor = old[0]
             conn.execute("UPDATE relations SET origin = ?, actor = ? WHERE item_id = ? AND origin = ? AND actor = ?",
-                         (meta.get("origin"), meta.get("actor"), meta.get("item_id"), old[0], old[1]))
+                         (meta.get("origin"), meta.get("actor"), meta.get("item_id"), old_origin, old_actor))
+            conn.commit()   # 每篇一提交：后面一篇卡住，前面改好的 meta 和索引仍然对得上
             out.append({"item_id": meta.get("item_id"), "status": "ok", "src": collected_by(meta)})
-        conn.commit()
     finally:
         conn.close()
     if any(o.get("status") == "ok" for o in out):

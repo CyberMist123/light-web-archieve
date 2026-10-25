@@ -40,6 +40,7 @@ def test_item_id_round_trip_and_short_id():
     assert domain.parse_item_id("xhs-a-b") == ("xiaohongshu", "a-b")   # id 里带横线只切第一刀
     assert domain.short_id("xhs-6512ab") == "6512ab" and domain.short_id("6512ab") == "6512ab"
     assert domain.short_id(" xhs-1 ") == "1"
+    assert domain.short_id("xhs-") == ""          # 和原来 removeprefix 的结果一样，别拼出 xhs-xhs-
 
 
 @pytest.mark.parametrize("text", ["", "xhs-", "bili-1", "6512ab", None, "https://x/y"])
@@ -137,6 +138,7 @@ def test_field_owner_table_is_consistent():
     assert domain.FIELD_OWNER["favorited_by"] is Owner.SYNC
     assert domain.FIELD_OWNER["ingest_kind"] is Owner.ENTRY     # 第一次怎么进来的，重抓不覆盖
     assert domain.FIELD_OWNER["space"] is Owner.ENTRY and domain.space_of({}) == "knowledge"
+    assert "comment_load" not in domain.FIELD_OWNER   # 不是 meta 字段（在 source.json.capture）
 
 
 def test_merge_meta_fetch_owned_fields_win_and_others_kept():

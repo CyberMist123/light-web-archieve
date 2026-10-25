@@ -92,7 +92,7 @@ D:\LIGHT WEB ARCHIEVE\vault\
 | `kind` | `image` / `video` / `text` | 视频型笔记只记 `video_url` + 封面，不下载视频 |
 | `images_complete` | `true` / `false` | 与 `manifest.json` 顶层同名字段一致；`false` 时 CLI 退出码 2 |
 | `comments_complete` | `"unknown"` / `true` / `false` | 抓不全无法证明时是 `"unknown"`，**不阻断** |
-| `comment_load` | 对象 / `null` | 读取组件（≥ 10-04）给的评论加载结论，压缩后：`stop_reason`、`floor_limit`、`floors_loaded`、`floors_expanded`、`has_more`、`replies_missing`、`gaps[]`（只留 `missing>0` 的楼：`floor / comment_id / shown / loaded / missing / reason`）、`seconds`；续读过的多 `fill_attempts`、`fill_last_at`、`floors_not_found[]`。老组件没有 → `null` |
+| `comment_load` | 对象 / `null` | **住在 `source.json` 的 `capture` 里，不是 meta 字段**（1025 核对；续读经 `xhs.merge_comment_load` 合并）。读取组件（≥ 10-04）给的评论加载结论，压缩后：`stop_reason`、`floor_limit`、`floors_loaded`、`floors_expanded`、`has_more`、`replies_missing`、`gaps[]`（只留 `missing>0` 的楼：`floor / comment_id / shown / loaded / missing / reason`）、`seconds`；续读过的多 `fill_attempts`、`fill_last_at`、`floors_not_found[]`。老组件没有 → `null` |
 | `attachments_status` | `"none"` / `"metadata_only"` / `"downloaded"` / `"unavailable"` | 由 `attachments[].status` 取最好的一个汇总而来；见 `source.json` 那节 |
 | `origin` | `tg` / `cmx` / `cc` / `cli` | 从哪个端进来的 |
 | `actor` | `human` / `ai:<name>` | 谁把它丢进来的 |
@@ -105,14 +105,14 @@ D:\LIGHT WEB ARCHIEVE\vault\
 
 | 归谁 | 键 | 重抓时 |
 |---|---|---|
-| FETCH 抓取 | `schema_version` `item_id` `source` `source_id` `canonical_url` `input_url` `kind` `title` `author` `published_at` `last_checked_at` `current_version` `versions` `images_complete` `comments_complete` `comment_load` `tool_versions` | 取新值（`title` 抓回来是空时沿用旧的） |
+| FETCH 抓取 | `schema_version` `item_id` `source` `source_id` `canonical_url` `input_url` `kind` `title` `author` `published_at` `last_checked_at` `current_version` `versions` `images_complete` `comments_complete` `tool_versions` | 取新值（`title` 抓回来是空时沿用旧的） |
 | ENTRY 入口 | `first_archived_at` `origin` `actor` `ingest_kind` `note` `project` `space` | 保留旧值（第一次怎么进来的） |
 | RENDER 渲染 | `visible_note` | 保留 |
-| OWNER 她本人 | `visible_note_pinned`；`origin` / `actor` / `project` 被 `relabel` 改过之后 | 保留 |
+| OWNER 她本人 | `visible_note_pinned`（`relabel` 改 `origin` / `actor` / `project` 时改的是 ENTRY 的键，重抓同样保留） | 保留 |
 | SYNC 收藏同步 | `favorited_by` | 保留 |
 | ATTACH 附件 | `attachments_status` | 首次取抓取值；之后不许从 `downloaded` 降回 `metadata_only`，别的变化照抓到的走 |
 
-每个写 meta 的模块只许动自己那几个键，而且在单篇锁里读改写（`storage.update_json`）。
+目标：每个写 meta 的模块只许动自己那几个键，并在单篇锁里读改写（`storage.update_json`）。1025 已改到：ingest 重建、`favorites.tag_account`、`relabel`、`catch._set_project`；render / attachments 仍是整份写，PR⑥ 收。
 
 可见 md 的身份只认 frontmatter 里的 `link_brain.item_id`（YAML 写坏了退回正则找这一行）。
 她手写的属性 YAML 写坏时：单行 `键: 值` 解析不了的值原样当字符串留下；再解析不了就整段 frontmatter 原样保留、

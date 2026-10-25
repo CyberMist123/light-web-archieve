@@ -182,15 +182,17 @@ def _catch_one(
 
 def _set_project(source_key: str, source_id: str, project: str) -> None:
     """1020：AI 为哪个项目收的，记进 meta.project（目录「来源」按它分组，见 provenance.py）。只在新收的篇上记。"""
-    from .provenance import clean_project
+    from . import domain
 
-    name = clean_project(project)
+    name = domain.clean_project(project)
     meta_path = storage.object_dir(source_key, source_id) / "meta.json"
     if not name or not meta_path.exists():
         return
-    meta = storage.read_json(meta_path)
-    meta["project"] = name
-    storage.write_json(meta_path, meta)
+
+    def change(meta):   # 1025 PR①：只动 project 这一个键，单篇锁里读改写（原来是锁外整份覆写）
+        meta["project"] = name
+
+    storage.update_json(meta_path, change, lock_name=storage.obj_lock_name(domain.item_id(source_key, source_id)))
 
 
 def _finish(entry: dict[str, Any], enriched: dict[str, Any] | None) -> dict[str, Any]:

@@ -1251,6 +1251,8 @@ def migrate_orphan_refine() -> int:
             if not failed:
                 continue
             obj = vpath.parents[1]
+            if obj.parent.name not in domain.PREFIX:   # _archive 下不是来源目录的杂目录，不算
+                continue
             try:
                 item_id = storage.read_json(obj / "meta.json").get("item_id") or domain.item_id(obj.parent.name, obj.name)
             except (OSError, ValueError):

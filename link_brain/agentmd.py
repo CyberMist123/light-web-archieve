@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 from typing import Any, Callable
 
+from . import domain
 from .ocrtext import clean_ocr
 
 # ---------------------------------------------------------------- 通用

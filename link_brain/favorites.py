@@ -808,6 +808,7 @@ def tag_account(note_id: str, account: dict[str, str], *, seen_at: str | None = 
     if not key:
         return False
     path = storage.object_dir(xhs.SOURCE, note_id) / "meta.json"
+    item_id = domain.item_id(xhs.SOURCE, note_id)
     added = []
 
     def add(meta):
@@ -821,12 +822,12 @@ def tag_account(note_id: str, account: dict[str, str], *, seen_at: str | None = 
 
     try:
         # 1024：只改 favorited_by，单篇锁里重读再写
-        storage.update_json(path, add, lock_name=storage.obj_lock_name(domain.item_id(xhs.SOURCE, note_id)))
+        storage.update_json(path, add, lock_name=storage.obj_lock_name(item_id))
     except FileNotFoundError:
         return False
     except (OSError, ValueError, storage.LockBusy) as exc:
         # 1024 返修（复审 meta 低）：这篇被 render / 重抓占着超过 60 秒等情况——这次漏记收藏账号，照实打一行
-        print(f"[收藏账号] {domain.item_id(xhs.SOURCE, note_id)} 这次没记上（{errtext(exc)}），下次同步再记", file=sys.stderr)
+        print(f"[收藏账号] {item_id} 这次没记上（{errtext(exc)}），下次同步再记", file=sys.stderr)
         return False
     if not added:
         return False
@@ -922,11 +923,14 @@ class _Failures:
 
 
 def _already_archived(fav: dict[str, Any]) -> bool:
-    """在库里（或在回收站里、已屏蔽同步）= 不用联网。"""
+    """在库里（或在回收站里、已屏蔽同步）= 不用联网。名单来自读取组件，没有 note_id 的条目当「不在库」交给后面报错。"""
     from . import index as index_mod
+    nid = fav.get("note_id")
+    if not nid:
+        return False
     conn = index_mod.connect()
     try:
-        if index_mod.get_object(conn, domain.item_id(xhs.SOURCE, fav.get("note_id"))) is not None:
+        if index_mod.get_object(conn, domain.item_id(xhs.SOURCE, nid)) is not None:
             return True
         return conn.execute("SELECT 1 FROM tombstones WHERE source = ? AND source_id = ?",
                             (xhs.SOURCE, fav.get("note_id"))).fetchone() is not None
