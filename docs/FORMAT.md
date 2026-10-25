@@ -1277,6 +1277,29 @@ append-only，一次模型接口调用一行（`link_brain/usage.py`，CONVENTIO
 - 页面读到对不上的数据不猜着画，在标题下那行（目录页「数据较旧」同一处，问收藏页篇数后面）说一句能照做的话：没有 `schema` =「旧版程序生成的：刷新目录」；比页面新 =「更新插件后再刷新目录」；比页面旧 =「刷新目录」。`LB.schemaIssue(data)` 返回这句或 null。
 - 依赖：`pyproject.toml` 把 `mcp` 封顶在 `<2`（2.x 删了 `streamablehttp_client` 和 `Server.list_tools`，小红书适配器和远程 MCP 服务直接抛错；作者 .venv 是 1.x 所以本机没感觉，新装的人第一次就撞）。
 
+### `catalog-data.json` 顶层字段全表（1025 补，核账自 20261025-zcode-核账-FORMAT.md）
+
+全部 16 个顶层键都在 `catalog.build` 的一次 payload 里写（`link_brain/catalog.py:816-836`），整份原子写、内容没变不动（`built_at` 不算内容）。行号是 1025 快照（main @ b3890b4）。
+
+| 键 | 类型 | 谁写 | 页面谁读 | 含义 |
+|---|---|---|---|---|
+| `schema` | int | `catalog.py:817`（`CATALOG_SCHEMA` :48） | `lb-page-lib.js` 同名常量握手（`LB.schemaIssue`），守卫 `test_build_writes_schema_and_page_lib_agrees` | 格式版本号，见上节 |
+| `built_at` | ISO 时间串 | `catalog.py:818` | `catalog-view.js:612-613`（和 `index.generated_at` 比新旧）、`lb-page-lib.js:213`（数据时间戳） | 这次重建的时间；内容没变时连它一起不变 |
+| `pages` | `{catalog, chat, starred, trash: md 文件名}` | `catalog.py:819`（`library_pages` :601-616，按页头 `lb-page:` 标记认） | 未发现 JS 读取点（1025 核；页面自己按 `lb-page` 头认自己的角色） | 四个页面文件的登记 |
+| `count` | int | `catalog.py:820` | 未发现 JS 直接读取（1025 核；篇数显示走 `counts`，见 §2026-10-23） | 条目数 = len(items) |
+| `counts` | `{all, mine, by_src: {来源: n}}` | `catalog.py:822`（`_counts` :668） | §2026-10-23 的篇数唯一口径（页头「N 篇 · 全部 M」）；结构由 `test_counts_single_source` 钉 | 全部 / 我的收藏 / 其它来源 |
+| `cats_order` | [分类名] | `catalog.py:823` | `catalog-view.js:635,979`（没有索引树时的一级分类顺序） | 一级分类顺序（§2026-10-10） |
+| `cats` | `[{name, keywords}]` | `catalog.py:824`（`effective_big_cats`） | 分类关键词的登记（页面 / 后端共用） | 大分类及关键词 |
+| `index` | `{file, generated_at, roots, unclassified, migrated} \| null` | `catalog.py:826` | `catalog-view.js:637,968-974,1145-1156`（索引图、未归类数） | 索引树摘要（§2026-10-10） |
+| `topics` | [主题名] | `catalog.py:827` | `catalog-view.js:1018`（`topicNames`） | 主题顺序表（`topics.py`，只做展示分组不进检索权重） |
+| `topics_vectors_pending` | [主题名] | `catalog.py:828`（:791-801 算出） | 未发现读取点（1025 核，？） | 主题向量还没建完的名单（整题没算出来时清空，不留半截） |
+| `usage_month` | `{month, cost_cny, by_feature: {功能: 元}, calls, unpriced, as_of} \| null` | `catalog.py:829`（`usage.month_summary`，`usage.py:227`；没算出 = None） | `catalog-view.js:3119,3273`（目录页边栏「Token 费用 · 本月」） | 本月用量按现价折人民币；None = 页面显示「—」 |
+| `aliases` | [[同义词…]]（数组的数组） | `catalog.py:830`（`retrieval.ALIASES`，`assets/search-aliases.json`） | `catalog-view.js:2436,3034` → `catalog-search.js:59`（`termVariants`） | 搜索同义词组（「音乐/音」这类） |
+| `items` | [卡片条目] | `catalog.py:831`（`slim_items`，检索字段拆去 search-index） | 所有页面 | 目录条目；`items[].cats` / `.topics` / `.albums` 等见 §2026-10-10、topics / albums 各节 |
+| `search_index` | 文件名（`catalog-search-index.json`） | `catalog.py:832` | 页面第一次带词搜索才读那个文件（`catalog-search.js ensureSearchIndex`）；Python 读方经 `catalog.merge_search_index` 并回 | 指向检索索引，契约在 §2026-09-16 |
+| `pinyin_chars` | {字: 拼音串} | `catalog.py:833`（`pinyin_chars(items)`） | `catalog-view.js:2436,3034` | 拼音匹配用的字表 |
+| `state_registry` | `{code 或 `类.*`: {where, label, hover, group}}` | `catalog.py:835`（`problems.registry_for_js`，`problems.py:328`） | `main.js:1381-1386`、`catalog-view.js:778` | 状态文案唯一源（CONVENTIONS §3.1）：JS 不写状态文案，只按 `where` 摆位置、`label` 显示、`hover` 悬停、`group` 分组计数 |
+
 ## 2026-10-24 Python 解释器 `pythonPath`（插件 data.json，P0 1024）
 
 - 唯一配置：插件 `data.json` 顶层 `pythonPath`（字符串，设置 → 开发者 → 「Python 路径」；去首尾空白和外层双引号）。空 / 没有这个键（旧设置）= 程序目录下 `.venv` 的 python（Windows `.venv\Scripts\python.exe`，其他 `.venv/bin/python`），没有再用 `python`（插件）/ 当前解释器（后端）。没有第二处配置（不进 `~/.link-brain/config.json`）。
