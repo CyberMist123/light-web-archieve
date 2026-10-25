@@ -186,11 +186,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("reindex", help="从已有 raw/ 回填 index.db（不重抓、不联网）")
 
-    p = sub.add_parser("render", help="拼可见 md + derived/agent.md（先跑 vision，纯程序拼模板）")
+    p = sub.add_parser("render", help="拼可见 md + derived/agent.md（纯程序拼模板；加 --vision 才先跑识图）")
     p.add_argument("target", nargs="?", default=None, help="item_id；配合 --all 时可省略")
     p.add_argument("--all", action="store_true", help="对索引里所有对象都渲染一遍")
+    p.add_argument("--vision", action="store_true",
+                   help="先跑识图（调识图模型，可能花钱）再写笔记；默认不识图，识图平时由 enrich 补")
     p.add_argument("--no-vision", dest="no_vision", action="store_true",
-                   help="只用已有识图结果重写笔记，不调识图模型（批量更新笔记格式用：不联网、不花钱）")
+                   help="（默认就是这样，保留兼容）只用已有识图结果重写笔记，不调识图模型")
     p.add_argument(
         "--extract",
         action="store_true",
@@ -440,6 +442,8 @@ def main(argv: list[str] | None = None) -> int:
     code = EXIT_ERROR
     try:
         code = _dispatch(args)
+        if code == EXIT_OK:
+            _resolve_crash(args.command)
         return code
     except accounts.AccountBusyError as exc:
         print(f"没跑：{exc}", file=sys.stderr)
@@ -449,10 +453,41 @@ def main(argv: list[str] | None = None) -> int:
         # 跨入口文件锁（目录重建等）等满了还拿不到：stderr 最后一行给人看的原因（CONVENTIONS §1.1）
         print(f"没跑完：{exc}", file=sys.stderr)
         return EXIT_ERROR
+    except Exception as exc:  # noqa: BLE001 - 最后一道兜底：子命令漏出来的未知异常
+        return _crashed(args.command, exc)
     finally:
         # 10-03 同步记录：这一步攒下的结果并进这次同步那行（sync-log.jsonl）；插件「立即同步」自己开的那次收尾
         if args.command != "synclog":
             synclog.finish_command(args.command, args, code)
+
+
+def _crashed(command: str, exc: Exception) -> int:
+    """子命令抛了没接住的异常：Traceback 进 stderr，登记一条 TRANSIENT.STEP_CRASHED（step=cli.<子命令>），
+    stdout 最后一行是 §1 的 outcome JSON，stderr 最后一行是给人看的原因，退出码 1（CONVENTIONS §1.1 / §1.2）。"""
+    import traceback
+
+    from . import problems, read
+    from .errtext import errtext
+    reason = errtext(exc)
+    traceback.print_exc(file=sys.stderr)
+    step = f"cli.{command}"
+    try:
+        problems.report(step if problems._valid_step(step) else "cli.unknown", "TRANSIENT.STEP_CRASHED",
+                        f"{command} 中途出错：{reason}")
+    except Exception as rexc:  # noqa: BLE001 - 登记失败也要把 JSON 吐出来
+        print(f"[cli] 问题记录没写上（{errtext(rexc)}）", file=sys.stderr)
+    read.dump_json(read.outcome({}, ok=False, code="TRANSIENT.STEP_CRASHED", message=f"{command} 中途出错：{reason}"))
+    print(f"没跑完：{reason}", file=sys.stderr)
+    return EXIT_ERROR
+
+
+def _resolve_crash(command: str) -> None:
+    """这个子命令这次跑通了：之前兜底登记的崩溃标已解决（没有就什么都不写）。"""
+    try:
+        from . import problems
+        problems.resolve(f"cli.{command}", None, "TRANSIENT.STEP_CRASHED")
+    except Exception:  # noqa: BLE001 - resolve 自己不抛；这里再兜一层，收尾不能把成功变失败
+        pass
 
 
 def _account_lock(args, owner: str, on_wait=None):
@@ -477,8 +512,12 @@ def _dispatch(args) -> int:
         from . import problems
         if getattr(args, "problems_cmd", None) in ("list", "repair"):
             # 1017：精细识图放弃不再算故障——面板读取 / 自愈轮之前把以前登记的那些行收成已解决（幂等）
-            from . import vision
-            vision.retire_refine_problems()
+            try:
+                from . import vision
+                vision.retire_refine_problems()
+            except Exception as exc:  # noqa: BLE001 - 收旧行是顺手的事，出错不能挡住面板
+                from .errtext import errtext
+                print(f"[problems] 收旧的精细识图行没做完（{errtext(exc)}），先照常列问题", file=sys.stderr)
         return problems.run(args)
     if args.command == 'remote':
         from .remote import cli as remote_cli

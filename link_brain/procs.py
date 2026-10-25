@@ -199,8 +199,38 @@ def kill_tree(pid: int, exclude: Iterable[str] = READER_IMAGE_PREFIXES) -> list[
     return killed
 
 
+def _win_created(pid: int) -> float | None:
+    """Windows：只对这一个 pid 调 GetProcessTimes（判活用，不整表枚举）。打不开 / 拿不到 = None。"""
+    import ctypes
+    from ctypes import wintypes
+
+    class FILETIME(ctypes.Structure):
+        _fields_ = [("lo", wintypes.DWORD), ("hi", wintypes.DWORD)]
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    k32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(FILETIME)] * 4
+    h = k32.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return None
+    try:
+        c, e, k, u = FILETIME(), FILETIME(), FILETIME(), FILETIME()
+        if not k32.GetProcessTimes(h, ctypes.byref(c), ctypes.byref(e), ctypes.byref(k), ctypes.byref(u)):
+            return None
+        return ((c.hi << 32) | c.lo) / 1e7 - 11644473600.0
+    finally:
+        k32.CloseHandle(h)
+
+
 def created_of(pid: int, table: Sequence[Proc] | None = None) -> float | None:
-    """pid 的创建时间（秒）；找不到 / 拿不到 = None。"""
+    """pid 的创建时间（秒）；找不到 / 拿不到 = None。没给 table 时 Windows 上只查这一个 pid。"""
+    if table is None and os.name == "nt":
+        try:
+            return _win_created(pid)
+        except Exception:  # noqa: BLE001
+            return None
     try:
         table = process_table() if table is None else table
     except Exception:  # noqa: BLE001

@@ -275,6 +275,47 @@ def _build_meta(
     }
 
 
+# 抓取能决定的 meta 字段（1024）：重抓 / 续读重建 meta 时以这次抓回来的为准；其余字段（她钉住的可见笔记、
+# 为哪个项目收的、收藏来自哪个号、第一次怎么进来的 origin / actor / ingest_kind、备注、首次归档时间…）一律保留旧值。
+FETCH_OWNED = (
+    "schema_version", "item_id", "source", "source_id", "canonical_url", "input_url", "kind", "title", "author",
+    "published_at", "last_checked_at", "current_version", "versions", "images_complete", "comments_complete",
+    "attachments_status", "tool_versions",
+)
+
+
+def merge_meta(old: dict[str, Any] | None, fetched: dict[str, Any]) -> dict[str, Any]:
+    """旧 meta + 这次抓取重建的 meta → 要写回的 meta。只判断、不碰文件（在 storage.update_json 的锁里调）。
+
+    FETCH_OWNED 里的键取抓回来的；抓回来没标题时沿用旧标题（render 给视频收藏起的兜底标题）。
+    其余键旧的有值就保留，旧的没有（或是 None）才用这次的（第一次入库 = 全收）。"""
+    merged = dict(fetched)
+    for key, value in (old or {}).items():
+        if key in FETCH_OWNED and key in fetched:
+            continue
+        if value is None and fetched.get(key) is not None:
+            continue
+        merged[key] = value
+    if not merged.get("title") and (old or {}).get("title"):
+        merged["title"] = old["title"]
+    # 重抓只拿到附件元数据（字节要登录才给、由夜跑补）不能把已经下好的附件降回 metadata_only：
+    # 字节还在对象目录里，降级会让卡片闪一下、夜跑白补一遍（1025 Fable / 复审 meta）。
+    if (old or {}).get("attachments_status") == "downloaded" and fetched.get("attachments_status") == "metadata_only":
+        merged["attachments_status"] = "downloaded"
+    return merged
+
+
+def _write_meta(meta_path, fetched: dict[str, Any]) -> dict[str, Any]:
+    """抓取重建的 meta 落盘：单篇锁里重读当前 meta 再合并（抓取最长 1500 秒，期间别的入口可能写过）。"""
+    return storage.update_json(meta_path, lambda old: merge_meta(old, fetched),
+                               lock_name=storage.obj_lock_name(fetched["item_id"]), missing_ok=True)
+
+
+def _touch_checked(meta_path, item_id: str, captured_at: str) -> dict[str, Any]:
+    return storage.update_json(meta_path, lambda m: m.update(last_checked_at=captured_at),
+                               lock_name=storage.obj_lock_name(item_id))
+
+
 # 18060 那个服务每次调用都新开一个 Chrome，本机内存紧的时候会偶发起不来
 # （`[launcher] Failed to get the debug url`，2026-09-04 半夜实测：只剩 0.9G 可用内存时高发）。
 # 这是**偶发**不是**死了**：先自己歇一会儿重试，全试完还不行才停车叫人。
@@ -627,9 +668,7 @@ def ingest_url(
             prior_sha = index_mod.latest_source_sha256(conn, existing["item_id"])
             if prior_sha is not None and prior_sha == new_sha:
                 log("refresh：规范化比对无变化，不写新 RAW 版本，只更新 last_checked_at")
-                meta = storage.read_json(meta_path)
-                meta["last_checked_at"] = captured_at
-                storage.write_json(meta_path, meta)
+                meta = _touch_checked(meta_path, existing["item_id"], captured_at)
                 index_mod.upsert_object(conn, meta, source)
                 index_mod.add_relation(
                     conn,
@@ -670,11 +709,6 @@ def ingest_url(
         manifest = download_media(source, raw_dir, rel_prefix, progress=progress)
         storage.write_json(raw_dir / "manifest.json", manifest)
 
-        first_archived = (
-            storage.read_json(meta_path).get("first_archived_at")
-            if meta_path.exists()
-            else captured_at
-        )
         meta = _build_meta(
             parsed=parsed,
             source=source,
@@ -685,15 +719,10 @@ def ingest_url(
             actor=actor,
             ingest_kind=ingest_kind,
             note=note,
-            first_archived=first_archived,
+            first_archived=captured_at,
         )
-        if meta_path.exists():
-            # 不由抓取产生、只能后加的字段：重建 meta 时原样带上（如收藏来自哪个号）
-            previous = storage.read_json(meta_path)
-            for key in ("favorited_by",):
-                if key in previous and key not in meta:
-                    meta[key] = previous[key]
-        storage.write_json(meta_path, meta)
+        # 1024：抓取管不着的字段（project、visible_note_pinned、favorited_by、首次的 ingest_kind…）在锁里按当前 meta 保留
+        meta = _write_meta(meta_path, meta)
 
         index_mod.upsert_object(conn, meta, source)
         index_mod.add_source_version(
@@ -760,9 +789,7 @@ def _finish_fill(raw: Any, parsed: dict[str, Any], conn, existing, old_meta: dic
             "exit_code": EXIT_OK}
     if xhs.comments_signature(source["comments"]) == xhs.comments_signature(old_source.get("comments") or []):
         log("续读：这次没多拿到评论，不写新 RAW 版本，只更新 last_checked_at")
-        meta = storage.read_json(meta_path)
-        meta["last_checked_at"] = captured_at
-        storage.write_json(meta_path, meta)
+        meta = _touch_checked(meta_path, old_meta["item_id"], captured_at)
         return {**base, "refreshed_unchanged": True, "version": meta["current_version"],
                 "raw_dir": storage.raw_dir(xhs.SOURCE, parsed["note_id"], meta["current_version"]), "manifest": None}
     _log_comment_load(source, log)
@@ -778,17 +805,9 @@ def _finish_fill(raw: Any, parsed: dict[str, Any], conn, existing, old_meta: dic
     manifest = _reuse_media(source, raw_dir, rel_prefix, old_manifest, object_dir, progress=progress)
     storage.write_json(raw_dir / "manifest.json", manifest)
     meta = _build_meta(parsed=parsed, source=source, manifest=manifest, version=version, captured_at=captured_at,
-                       origin=old_meta.get("origin") or origin, actor=old_meta.get("actor") or actor,
-                       ingest_kind=old_meta.get("ingest_kind") or ingest_kind, note=old_meta.get("note"),
-                       first_archived=old_meta.get("first_archived_at") or captured_at)
-    for key, value in old_meta.items():
-        # 抓取产生不了、只能后加的字段（收藏来自哪个号、她钉住的文件名、可见笔记路径…）原样带上
-        if key not in meta or key in ("visible_note", "visible_note_pinned", "favorited_by"):
-            meta[key] = value
-    meta["current_version"] = version
-    meta["versions"] = storage.existing_versions(xhs.SOURCE, parsed["note_id"])
-    meta["last_checked_at"] = captured_at
-    storage.write_json(meta_path, meta)
+                       origin=origin, actor=actor, ingest_kind=ingest_kind, note=note, first_archived=captured_at)
+    # 和完整重抓同一套保留规则（merge_meta）：抓取产生不了的字段在锁里按当前 meta 原样带上
+    meta = _write_meta(meta_path, meta)
     index_mod.upsert_object(conn, meta, source)
     index_mod.add_source_version(conn, item_id=meta["item_id"], version=version, raw_dir=raw_dir,
                                  captured_at=captured_at, adapter=xhs.ADAPTER_VERSION, input_url=parsed["input_url"],
@@ -836,15 +855,18 @@ def run(args) -> int:
         print(f"REFRESH（无变化）  {summary['item_id']}  {summary['raw_dir']}")
         return summary["exit_code"]
 
-    # ingest 落盘成功（含缺内容 gate 的情况）后自动 vision + render，不阻断 ingest 本身的退出码
+    # ingest 落盘成功（含缺内容 gate 的情况）后自动 render，不阻断 ingest 本身的退出码。
+    # 1024：不现场识图（花钱、慢）——这篇标成 enrich 待办，识图 / 概要由 enrich（夜跑 / 自愈轮）补
     if summary.get("item_id"):
+        source_key, source_id = xhs.SOURCE, summary["note_id"]
+        from . import enrich as enrich_mod
+        enrich_mod.mark_pending(source_key, source_id, reason="导入")
         try:
             from . import render as render_mod
 
-            source_key, source_id = xhs.SOURCE, summary["note_id"]
-            render_mod.render_item(source_key, source_id, verbose=getattr(args, "verbose", False))
+            render_mod.render_item(source_key, source_id, verbose=getattr(args, "verbose", False), vision=False)
         except Exception as exc:  # noqa: BLE001 - 渲染失败不应回退 ingest 的退出码
-            print(f"[ingest] vision/render 失败（不影响归档）: {type(exc).__name__}: {exc}", file=sys.stderr)
+            print(f"[ingest] render 失败（不影响归档）: {errtext(exc)}", file=sys.stderr)
 
     manifest = summary["manifest"]
     print(f"{summary['item_id']}  kind={summary['kind']}  {summary['raw_dir']}")

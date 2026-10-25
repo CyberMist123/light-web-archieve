@@ -520,13 +520,11 @@ def _hour_minute(at: str) -> tuple[int, int] | None:
     return hour, minute
 
 
-def nightly_python() -> str:
-    """计划任务用的解释器：当前 Python 旁边的 pythonw.exe（不弹黑窗）；没有才用当前的。"""
-    import sys
-    from pathlib import Path
-    exe = Path(sys.executable)
-    cand = exe.with_name("pythonw.exe")
-    return str(cand if cand.is_file() else exe)
+def nightly_python(vault: str | None = None) -> str:
+    """计划任务用的解释器（P0 1024）：插件「Python 路径」> 程序目录 .venv > 当前解释器（deps.python_exe），
+    绝对路径；旁边有 pythonw.exe 就用它（不弹黑窗）。不再沿用「注册那一刻碰巧是谁」。"""
+    from . import deps
+    return deps.python_exe(windowless=True, vault=vault)
 
 
 def nightly_args(vault: str) -> list[str]:
@@ -599,8 +597,13 @@ def install_nightly(at: str | None = None, vault: str | None = None, *, platform
     if not vault_path.is_dir():
         return {"ok": False, "code": "", "task": name, "message": f"收藏库不存在：{vault_path}（先选好收藏库位置）"}
     platform = platform or sys.platform
+    from . import deps
+    try:
+        deps.python_exe(vault=vault_path)  # 设置里的 Python 路径找不到：如实失败，不把坏路径写进计划任务
+    except deps.PythonNotFound as exc:
+        return {"ok": False, "code": "", "task": name, "message": f"没注册计划任务：{exc}"}
     if platform != "win32":
-        py = sys.executable
+        py = deps.python_exe(vault=vault_path)
         return {"ok": False, "code": "SKIPPED.NOT_CONFIGURED", "task": name, "time": f"{hh:02d}:{mm:02d}",
                 "message": "这台电脑不是 Windows：没有自动注册，请把下面的 cron 行（Linux）或 launchd 配置（macOS）加进系统定时任务",
                 "cron": nightly_cron_line(py, str(vault_path), hh, mm),
@@ -610,7 +613,7 @@ def install_nightly(at: str | None = None, vault: str | None = None, *, platform
         workdir.mkdir(parents=True, exist_ok=True)
     except OSError:
         pass
-    script = nightly_install_script(nightly_python(), nightly_args(str(vault_path)), str(workdir), hh, mm,
+    script = nightly_install_script(nightly_python(str(vault_path)), nightly_args(str(vault_path)), str(workdir), hh, mm,
                                     nightly.TASK_LIMIT_HOURS)
     ok, out = _ps(script)
     if not ok:

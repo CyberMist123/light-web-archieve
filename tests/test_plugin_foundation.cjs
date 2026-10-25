@@ -46,6 +46,13 @@ function makePlugin() {
 }
 
 (async () => {
+  // 已保存目录编排时，默认 null 必须由对象替换，不能 Object.assign(null, ...)。
+  const layout = { side: [{ id: 'recent', hidden: true }] };
+  const merged = Plugin.__merge({ catalogLayout: layout, sync: { dailyNewLimit: 17 } });
+  same(merged.catalogLayout, layout, '保存过目录编排的设置能加载');
+  assert.equal(Plugin.__merge({}).catalogLayout, null, '未编排保持默认布局');
+  assert.equal(merged.sync.dailyNewLimit, 17, '已有对象设置仍正常合并');
+  assert.equal(merged.sync.perRunLimit, Plugin.__merge({}).sync.perRunLimit, '对象设置保留其余默认值');
   // ── notify：默认时长、按钮、常驻 ──
   const { p, app, triggered } = makePlugin();
   let n = p.notify('已保存', { kind: 'ok' });

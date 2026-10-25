@@ -20,6 +20,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .deps import require
+
 THRESHOLDS = {
     "align_ratio": 0.5,      # 句子内容词 ≥ 这个比例出现在来源里算对齐
     "align_min_hits": 3,     # 或至少命中这么多个内容词
@@ -73,11 +75,8 @@ def _tokens(text: str) -> set[str]:
     out = set()
     for chunk in re.findall(r"[A-Za-z0-9][A-Za-z0-9.+\-]{1,}|[一-鿿]{2,}", text or ""):
         if re.match(r"[一-鿿]", chunk):
-            try:
-                import jieba
-                cut = jieba.lcut(chunk)
-            except Exception:  # noqa: BLE001
-                cut = list(chunk)
+            # P0 1024：缺 jieba 明确报 MISSING_DEPENDENCY（以前悄悄退成单字，回查结果变了也没人知道）
+            cut = require("jieba", "问答 / 搜索切词").lcut(chunk)
             parts = [w for w in cut if len(w) >= 2]
             # jieba 切成单字的那一串（「味玉汁」「味醂」这种词典里没有的名词）按二字片段补上，不然专名永远对不上
             run = ""
@@ -210,13 +209,10 @@ def run(markdown: str, sources: list[dict[str, Any]], *, items_by_id: dict[str, 
             # 常用词（「日期」「价格」「确认」）在哪篇长文里都能撞上，说明不了「她问的那件事在这篇里」：
             # 只认 jieba 词典里不常见的词（词频低）或 ≥3 字的专名；再去掉候选池里一半以上的篇都有的词
             if len(word) < 3:
-                try:
-                    import jieba
-                    jieba.initialize()
-                    if int(jieba.dt.FREQ.get(word, 0)) >= COMMON_FREQ:
-                        return False
-                except Exception:  # noqa: BLE001
-                    pass
+                jieba = require("jieba", "问答 / 搜索切词")
+                jieba.initialize()
+                if int(jieba.dt.FREQ.get(word, 0)) >= COMMON_FREQ:
+                    return False
             if len(pool) < 4:
                 return True
             return sum(1 for _l, t in pool if word in t) / len(pool) <= 0.5

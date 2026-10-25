@@ -1242,3 +1242,10 @@ append-only，一次模型接口调用一行（`link_brain/usage.py`，CONVENTIO
 - 谁调 `ensure_fresh`：收藏同步结束（成功 / 失败 / 抛错都调）、`catch` 结束（插件批量导入设 `LINK_BRAIN_DEFER_CATALOG=1`，最后统一建）、恢复快照、改来源；插件启动 20 秒后跑一次 `catalog --if-dirty`（被杀掉的同步靠这条补）；夜跑照旧整建。
 - 内容没变不写：`catalog-data.json` / 检索索引 / 页面 md / 页面脚本 / 回收站页，内容和盘上一样就不动（`built_at`、`index.generated_at` 不算内容）——以前每次重建都重写页面 md，Dataview 整页重画 = 刷屏。`catalog-state.json` 多一个 `checked_at`（最后一次核对的时间），页面判「数据较旧」时取 `max(built_at, checked_at)`。
 - `catalog-data.counts`：`{all, mine, by_src}`。all = 目录里全部（回收站不算），mine = 来源为「我的收藏」，by_src = 其它来源各几篇。目录页默认只看「我的收藏」，表头写「N 篇 · 全部 M」；问收藏页搜全部，写「全部 M 篇」。
+
+## 2026-10-24 Python 解释器 `pythonPath`（插件 data.json，P0 1024）
+
+- 唯一配置：插件 `data.json` 顶层 `pythonPath`（字符串，设置 → 开发者 → 「Python 路径」；去首尾空白和外层双引号）。空 / 没有这个键（旧设置）= 程序目录下 `.venv` 的 python（Windows `.venv\Scripts\python.exe`，其他 `.venv/bin/python`），没有再用 `python`（插件）/ 当前解释器（后端）。没有第二处配置（不进 `~/.link-brain/config.json`）。
+- 插件 `pickPython`：仓库模式所有起进程（runPy / spawnPy / 常驻问答）和 MCP 命令（`mcpArgv`，「测试 MCP」用；`connect add` 写给外部客户端的命令取跑它的那个解释器的 `sys.executable`）都用它。「后端命令」模式（`uv tool install link-brain`）不受它影响。
+- 后端 `link_brain/deps.py` `python_exe()`：同一套规则，返回绝对路径；计划任务 / 后台常驻（夜跑 LinkBrainNightly、远程阅读服务、后台补评论）注册时写它（有 `pythonw.exe` 用它），非 Windows 的 cron / launchd 行和远程服务的手动命令同样。改了设置要重新注册计划任务才生效（已注册的任务里写的是注册那一刻的绝对路径）。1024 返修：配的是相对路径（含 `/` 或 `\`）按**程序目录**解析，不按当前目录；配了但文件不存在 → `deps.PythonNotFound`，计划任务 / 远程服务注册如实失败（`ok:false`，不写坏路径），doctor 的 `python.scheduled_error` 写原因；插件 `pickPython` 同样按程序目录解析相对路径，设置页「当前：…」后面标「（找不到这个文件）」。
+- 缺第三方包：`deps.require(name, purpose)` 抛 `deps.MissingDependency`（`code = "NEEDS_HUMAN.MISSING_DEPENDENCY"`（1024 返修：原来的 NOT_INSTALLED 是「未安装读取组件」，账号类），`message` =「缺依赖 X（用途）：请用项目 .venv 启动，或 pip install X」，`str(exc)` 以码开头）。jieba 切词各处一律走它：缺了明确报错，不悄悄退化。`doctor --json` 多一个 `python: {executable, version, scheduled, deps[{name, module, purpose, ok}], missing[]}` 段和一行 `checks[id=python]`。

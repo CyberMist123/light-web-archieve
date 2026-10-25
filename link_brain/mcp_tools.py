@@ -130,11 +130,14 @@ def _write_json(path: Path, payload: Any) -> None:
 
 
 def _items() -> list[dict[str, Any]]:
+    """目录里的各篇。读不出来明说（CATALOG_UNREADABLE），不伪装成「没找到」。"""
     try:
         from .ask import load_items
         return [it for it in load_items() if isinstance(it, dict)]
-    except Exception:  # noqa: BLE001 - 目录数据坏 = 空库，不拖垮
-        return []
+    except Exception as exc:  # noqa: BLE001
+        from .errtext import errtext
+        raise Denied("CATALOG_UNREADABLE",
+                     f"目录数据读不出来（{errtext(exc)}）：在 Obsidian 里刷新一次目录，或命令行跑 catalog 后再试") from exc
 
 
 def _short_id(item_id: Any) -> str:

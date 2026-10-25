@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import os
 import sys
-from pathlib import Path
 from typing import Any
 
 from .. import sync_schedule
@@ -53,10 +52,10 @@ def _arg(text: str) -> str:
     return '"' + s.replace('"', '\\"') + '"'
 
 
-def pythonw() -> str:
-    exe = Path(sys.executable)
-    cand = exe.with_name("pythonw.exe")
-    return str(cand if cand.is_file() else exe)
+def pythonw(vault: str | None = None) -> str:
+    """P0 1024：和插件 / 夜跑同一个解释器（deps.python_exe），绝对路径，有 pythonw.exe 用它。"""
+    from .. import deps
+    return deps.python_exe(windowless=True, vault=vault)
 
 
 def serve_args(vault: str, state_dir: str, settings: str | None = None) -> list[str]:
@@ -67,7 +66,8 @@ def serve_args(vault: str, state_dir: str, settings: str | None = None) -> list[
 
 
 def manual_command(vault: str, state_dir: str, settings: str | None = None) -> str:
-    return " ".join(["python"] + [_arg(a) for a in serve_args(vault, state_dir, settings)])
+    from .. import deps
+    return " ".join([_arg(deps.python_exe(vault=vault))] + [_arg(a) for a in serve_args(vault, state_dir, settings)])
 
 
 def register_script(exe: str, args: list[str], workdir: str) -> str:
@@ -182,11 +182,15 @@ def _resolved() -> None:
 
 
 def register(vault: str, state_dir: str, settings: str | None = None, *, repo: str | None = None) -> dict[str, Any]:
-    from .. import storage
+    from .. import deps, storage
+    try:
+        deps.python_exe(vault=vault)  # 设置里的 Python 路径找不到：如实失败，不把坏路径写进计划任务
+    except deps.PythonNotFound as exc:
+        return {"ok": False, "code": "", "message": f"没注册计划任务：{exc}"}
     if not supported():
         return {"ok": False, "code": "SKIPPED.NOT_CONFIGURED", "message": "这台电脑不是 Windows：请手动启动（命令见下）",
                 "command": manual_command(vault, state_dir, settings)}
-    ok, out = _ps(register_script(pythonw(), serve_args(vault, state_dir, settings), repo or str(storage.repo_root())))
+    ok, out = _ps(register_script(pythonw(vault), serve_args(vault, state_dir, settings), repo or str(storage.repo_root())))
     if not ok:
         return {"ok": False, "code": _failed("没注册上计划任务：" + _denied_hint(out)[:300]), "message": "没注册上计划任务：" + _denied_hint(out)[:300],
                 "command": manual_command(vault, state_dir, settings)}

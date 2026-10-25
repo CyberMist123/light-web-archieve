@@ -7,6 +7,7 @@
 - 总预算（默认 405 分钟，计划任务执行时限 7 小时留 15 分钟收尾）：快到点时后面的步骤自动缩短 / 跳过，
   保证日志最后一定写得出「=== 夜跑结束 ===」。
 - 开头：收藏同步正在跑（sync-status.json state=running 且 pid 是个活着的 python、不是被复用的 pid）就记一行直接退出；
+  列不出进程（没法核 pid）也按在跑处理（失败即关），登记一条 TRANSIENT.STEP_CRASHED；
   它占着号又很久没进展（默认 180 分钟）→ 登记 NEEDS_HUMAN.SYNC_STUCK。上一晚日志没有「=== 夜跑结束 ===」
   （被系统强停 / 断电）→ 登记 TRANSIENT.INTERRUPTED。
 - 碰号的步骤退出 5（号要人处理：风控 / 掉登录 / 熔断）→ 之后所有碰号步骤一律跳过，只跑离线步骤；
@@ -22,6 +23,8 @@
   **今晚不再重读列表**，也不另登记「sync-favorites 出错」（同一件事只报一条）；embed 退出 3 同理（原因登记在 embed）。
 - 收尾前跑一轮「自愈轮」（repair.run，10-04 当场自愈）：本次新登记、还没解决的非风控问题各跑一遍修复动作，
   不过 06:50、最多 30 分钟；号要人处理时碰号的动作不跑。修好的从汇总里去掉。
+- 收尾 catalog 之前跑 `index catch-up`：补主题向量、起草草稿、AI 按内容归类（以前 catalog 构建时顺手后台拉起；
+  构建目录现在不联网、不花钱）。
 - 收尾：附件闸门（attachments --audit，不联网）还缺附件 → 退出 2。
 
 退出码：0 全部正常 · 1 有步骤出问题（都已登记）· 2 还缺附件 · 5 号要人处理（今晚跳过了碰号步骤）· 6 另一趟夜跑正在跑。
@@ -76,6 +79,7 @@ AUDIT_STEP = "attachments --audit"
 TAIL_STEP = "attachments --recheck --logged-in-tail"
 KEYS_STEP = "gemini-keys"  # 取免费 key 单独记一步：精细识图没 key 照样成功，别把「取 key 失败」顺手标成已解决
 EMBED_STEP = "embed"
+CATCH_UP_STEP = "index catch-up"
 RECOVER_STEP = "captcha-recover"
 SNAPSHOT_SYNC_STEP = "sync-favorites --from-snapshot"
 # 1011：撞验证后冷却自查——冷却最多等这么久（等的时候不开页）；自查恢复后至少还要剩这么多分钟才值得接着跑碰号步骤
@@ -126,7 +130,10 @@ def default_steps() -> list[Step]:
         Step("videos --transcribe", ["videos", "--all", "--transcribe"], 25),
         # 9) 语义索引：放在内容都更新完之后，向量才不落后一天
         Step("embed", ["embed"], 25, reserve_min=10),
-        # 10) 目录页再重写一次（带上今晚补好的角标）
+        # 9b) p0-catalog：以前 catalog 构建时顺手做的花钱 / 联网的事挪到这里——补主题向量、第一次建索引后起草草稿、
+        #     AI 按内容归类（单实例锁 + 自动花费上限照旧在 indexai.run 里）。就地跑，这一步的时限管得住；出错不挡后面
+        Step(CATCH_UP_STEP, ["index", "catch-up"], 30, reserve_min=10),
+        # 10) 目录页再重写一次（带上今晚补好的角标、主题、归类）
         Step("catalog（收尾）", ["catalog"], 10, reserve_min=3),
         # 11) 附件闸门：不联网，只数还缺几个
         Step(AUDIT_STEP, ["attachments", "--audit"], 5, reserve_min=0, quiet_stdout=True),
@@ -471,11 +478,12 @@ class Nightly:
             return None
         try:
             pid = int(st["pid"])
+        except (TypeError, ValueError):
+            return None
+        try:
             table = procs.process_table()
-        except (TypeError, ValueError, OSError):
-            return None
-        except Exception:  # noqa: BLE001 - 枚举进程失败：当没在跑（宁可多跑一趟，号锁会兜住）
-            return None
+        except Exception as exc:  # noqa: BLE001 - p0-catalog：列不出进程 = 当它在跑（失败即关：宁可少跑一晚，也不和同步抢号）
+            return {"pid": pid, "idle_min": None, "unverified": errtext(exc)}
         proc = next((p for p in table if int(p["pid"]) == pid), None)
         if not proc or not str(proc.get("name") or "").lower().startswith("python"):
             return None
@@ -624,6 +632,12 @@ class Nightly:
     # ------------------------------------------------------------ 主流程
     def run(self) -> dict[str, Any]:
         running = self.running_sync()
+        if running and running.get("unverified"):
+            why = f"列不出进程（{running['unverified']}），没法确认 sync-status 里的 pid {running['pid']} 还在不在同步"
+            self.log(f"[夜跑] {why}：按在跑处理，今晚不起")
+            # 单独一个 step（不是 nightly.run）：夜跑本身没出错，下一晚正常起来就自动消（复审 catalog#1）
+            self.register("sync-check", "TRANSIENT.STEP_CRASHED", f"{why}，今晚夜跑没起；下一晚再看。")
+            return self._result(EXIT_OK, "列不出进程，按收藏同步在跑处理，今晚夜跑没起", ran=False)
         if running:
             self.log(f"[夜跑] 收藏同步正在跑（pid {running['pid']}，插件或上一趟），今晚不再起，也不碰它的浏览器")
             idle = running.get("idle_min")
@@ -638,6 +652,7 @@ class Nightly:
         unfinished = self.unfinished_last_night()
         self._rotate()
         self.log(START_MARK)
+        self.resolve("sync-check")  # 进程表列得出来、夜跑起来了：之前「列不出进程，今晚没起」那条已经好了
         self.log(f"[夜跑] 收藏库：{self.vault}；总预算 {self.budget_min:g} 分钟")
         try:
             from . import synclog

@@ -435,8 +435,9 @@ def update_status(source_key, source_id):
     obj = storage.object_dir(source_key, source_id)
     meta = storage.read_json(obj / "meta.json")
     report = inventory(obj, meta)
-    meta["attachments_status"] = report["status"]
-    storage.write_json(obj / "meta.json", meta)
+    # 1024：只改 attachments_status，单篇锁里重读再写
+    storage.update_json(obj / "meta.json", lambda m: m.update(attachments_status=report["status"]),
+                        lock_name=storage.obj_lock_name(meta["item_id"]))
     return report
 
 

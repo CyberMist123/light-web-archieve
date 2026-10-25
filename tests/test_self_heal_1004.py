@@ -459,7 +459,7 @@ def test_render_survives_vision_crash(tmp_path, monkeypatch):
     monkeypatch.setattr(vision, "_item_id", lambda k, s: "xhs-n1")
     rendered = []
     monkeypatch.setattr(render, "render_object", lambda *a, **k: rendered.append(a) or {"ok": True})
-    assert render.render_item("xiaohongshu", "n1") == {"ok": True} and rendered
+    assert render.render_item("xiaohongshu", "n1", vision=True) == {"ok": True} and rendered
     [row] = _open("vision.layer1")
     assert row["code"] == "TRANSIENT.STEP_CRASHED" and "正文已入档" in row["reason"]
 

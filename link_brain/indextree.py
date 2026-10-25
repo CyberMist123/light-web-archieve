@@ -1118,15 +1118,21 @@ def _item_tags_safe(vault: Path | None) -> dict[str, list[str]]:
         return {}
 
 
-def maybe_classify(vault: Path, data: dict[str, Any]) -> str:
-    """有待按内容归类的（新笔记 / 新节点 / 要细分的 / 未归类要分组）、配了模型、没在跑、没超上限 → 后台拉起 `index classify --auto`。"""
+def classify_gate(data: dict[str, Any]) -> str:
+    """该不该自动按内容归类：''（该）/ 'skipped'（没配模型 / 没活 / 正在跑）/ 'over-budget'（估价超自动上限）。"""
     from . import indexai
     cls = data.get("classify") or {}
     if not cls.get("ai_ok") or not cls.get("work") or cls.get("running"):
         return "skipped"
     if cls.get("yuan") is not None and cls["yuan"] > indexai.AUTO_MAX_YUAN:
         return "over-budget"
-    return indexai.spawn(vault)
+    return ""
+
+
+def maybe_classify(vault: Path, data: dict[str, Any]) -> str:
+    """有待按内容归类的（新笔记 / 新节点 / 要细分的 / 未归类要分组）、配了模型、没在跑、没超上限 → 后台拉起 `index classify --auto`。"""
+    from . import indexai
+    return classify_gate(data) or indexai.spawn(vault)
 
 
 _BUILD_GUARD = threading.RLock()   # 远程 MCP 在线程里跑工具：同一进程里的几次重算排队（file_lock 只管跨进程）
@@ -1256,16 +1262,90 @@ def load(vault: Path | None = None, *, fresh: bool = True) -> dict[str, Any]:
         return public(build(vault, write=False, auto_draft=False, migrate=False, wiki_headers=False))
 
 
+def should_auto_draft(vault: Path, n_items: int) -> bool:
+    """有文本 AI、库不太小、还没有草稿。"""
+    if n_items < AUTO_DRAFT_MIN_ITEMS or draft_path(vault).exists():
+        return False
+    try:
+        return text_ai()[0] is not None
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def maybe_auto_draft(vault: Path, n_items: int) -> str:
     """第一次迁移后（有文本 AI、库不太小、还没有草稿）在后台起草一版；不让这次调用等它。"""
-    if n_items < AUTO_DRAFT_MIN_ITEMS or draft_path(vault).exists():
-        return "skipped"
+    return spawn_draft(vault) if should_auto_draft(vault, n_items) else "skipped"
+
+
+def queue_auto_draft(vault: Path) -> None:
+    """catalog.build 第一次迁移出 索引.md 时调：起草要花钱，build 不做，记一笔交给夜跑 catch_up（p0-catalog）。"""
+    _save_state(vault, auto_draft_pending=_now())
+
+
+def catch_up(vault: Path | None = None) -> dict[str, Any]:
+    """夜跑 `index catch-up`（catalog 之后、收尾 catalog 之前）：以前 catalog.build 顺手做的花钱 / 联网的事，在这里就地做完。
+
+    1) 主题向量：缓存里没有的主题取一次 embedding（topics.refresh_vectors）；
+    2) 第一次迁移后记下的「待起草」：够条件就起草一版草稿（draft auto，已有草稿不碰）；
+    3) 有待按内容归类的、配了模型、没超自动上限 → indexai.run(auto=True)（单实例锁 + 自动花费上限都在里面）。
+    就地跑、不另起后台进程：夜跑这一步的时限管得住它。任何一段出错只记进结果、接着做下一段；有一段没成 → ok=False。"""
+    from . import indexai, topics
+    from .errtext import errtext
+    vault = vault or storage.vault_root()
+    out: dict[str, Any] = {"ok": True, "code": "", "topics": {}, "draft": {}, "classify": {}}
+    notes: list[str] = []
+
+    def fail(part: str, code: str, why: str) -> None:
+        out["ok"] = False
+        out["code"] = out["code"] or code
+        notes.append(f"{part}没成：{why}")
+
     try:
-        if text_ai()[0] is None:
-            return "skipped"
-    except Exception:  # noqa: BLE001
-        return "skipped"
-    return spawn_draft(vault)
+        out["topics"] = topics.refresh_vectors(vault)
+        if out["topics"].get("failed"):
+            fail("主题向量", "TRANSIENT.SERVICE_BUSY", "、".join(out["topics"]["failed"]) + " 没取到向量")
+        elif out["topics"].get("fetched"):
+            notes.append(f"补了 {out['topics']['fetched']} 个主题向量")
+    except Exception as exc:  # noqa: BLE001
+        out["topics"] = {"error": errtext(exc)}
+        fail("主题向量", "TRANSIENT.STEP_CRASHED", errtext(exc))
+    try:
+        if _state(vault).get("auto_draft_pending"):
+            items, _ = catalog_items(vault)
+            if should_auto_draft(vault, len(items)):
+                r = draft(vault, auto=True)
+                out["draft"] = {"ok": bool(r.get("ok")), "message": r.get("message") or ""}
+                if not r.get("ok"):
+                    fail("起草索引草稿", r.get("code") or "TRANSIENT.STEP_CRASHED", r.get("message") or "")
+                else:
+                    notes.append("起草了一版索引草稿")
+            else:
+                out["draft"] = {"skipped": True}
+            if out["draft"].get("ok", True):
+                st = _state(vault)
+                st.pop("auto_draft_pending", None)
+                storage.write_json(state_path(vault), st)
+        else:
+            out["draft"] = {"skipped": True}
+    except Exception as exc:  # noqa: BLE001
+        out["draft"] = {"error": errtext(exc)}
+        fail("起草索引草稿", "TRANSIENT.STEP_CRASHED", errtext(exc))
+    try:
+        gate = classify_gate(load(vault, fresh=False))
+        if gate:
+            out["classify"] = {"skipped": gate}
+        else:
+            r = indexai.run(vault, auto=True)
+            out["classify"] = {k: r.get(k) for k in ("ok", "code", "message") if k in r}
+            if not r.get("ok") and not str(r.get("code") or "").startswith("SKIPPED."):
+                fail("按内容归类", r.get("code") or "TRANSIENT.STEP_CRASHED", r.get("message") or "")
+            elif r.get("message"):
+                notes.append(str(r["message"]))
+    except Exception as exc:  # noqa: BLE001
+        out["classify"] = {"error": errtext(exc)}
+        fail("按内容归类", "TRANSIENT.STEP_CRASHED", errtext(exc))
+    out["message"] = "；".join(notes) or "没有要补的"
+    return out
 
 
 def spawn_draft(vault: Path) -> str:
@@ -2461,6 +2541,7 @@ def add_parser(sub) -> None:
     pc.add_argument("--estimate", action="store_true", help="只估价，不调模型")
     pc.add_argument("--progress", action="store_true", help="stdout 一行一个进度事件（最后一行照旧是结果）")
     pc.add_argument("--max-yuan", dest="max_yuan", type=float, default=None, help="这次最多花多少（元）")
+    isub.add_parser("catch-up", help="夜跑用：补主题向量、第一次建索引后的草稿、按内容归类（以前 catalog 顺手后台拉起，现在只在这里做）")
     pas = isub.add_parser("assign", help="手动改一篇（几篇）的归属：move 只放这一类 / add 也放进 / remove 从这里拿掉 / reset 恢复自动 / undo")
     pas.add_argument("--item", dest="items", action="append", default=[])
     pas.add_argument("--op", required=True, choices=["move", "add", "remove", "reset", "undo"])
@@ -2552,6 +2633,8 @@ def run(args) -> int:
         elif cmd == "assign":
             from . import indexai
             r = indexai.assign(args.items, args.op, args.path)
+        elif cmd == "catch-up":
+            r = catch_up()
         elif cmd == "accept":
             r = accept_proposal(args.id)
         elif cmd == "empty":
@@ -2587,7 +2670,7 @@ def run(args) -> int:
             dump_json(outcome(_brief(data), ok=True, message=f"{len(data.get('roots') or [])} 个大类"))
             return 0
         if r is not None:
-            pass                              # 上面 classify / assign / accept / empty / dismiss / edit 已经做了
+            pass                              # 上面 classify / catch-up / assign / accept / empty / dismiss / edit 已经做了
         elif cmd == "draft":
             r = draft(use_ai=not getattr(args, "no_ai", False), auto=getattr(args, "auto", False))
         elif cmd == "use-draft":

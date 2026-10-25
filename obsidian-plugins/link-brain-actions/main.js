@@ -105,10 +105,30 @@ function whichCommand(cmd, { env = (typeof process !== "undefined" ? process.env
   for (const d of dirs) { const hit = tryAt(path.join(d, cmd)); if (hit) return hit; }
   return null;
 }
+// 仓库模式用哪个 Python（P0 1024：系统 python 可能是没装依赖的另一个版本）：设置「Python 路径」（data.json 的 pythonPath）配了用配的；
+// 没配 = 程序目录下有 .venv 就用它（Windows .venv\Scripts\python.exe，其他 .venv/bin/python），否则 python。后端 link_brain/deps.py python_exe() 同一套规则。
+function pickPython({ root = null, configured = "", platform = (typeof process !== "undefined" ? process.platform : ""), exists = p => { try { return fs.statSync(p).isFile(); } catch { return false; } } } = {}) {
+  const own = String(configured || "").trim().replace(/^"(.*)"$/, "$1").trim();
+  // 1024 返修：相对路径（含 / 或 \）按程序目录解析，和后端 deps.python_exe 一致；裸命令名交给 PATH
+  if (own) return (root && /[\\/]/.test(own) && !path.isAbsolute(own)) ? path.resolve(root, own) : own;
+  if (root) {
+    const venv = platform === "win32" ? path.join(root, ".venv", "Scripts", "python.exe") : path.join(root, ".venv", "bin", "python");
+    if (exists(venv)) return venv;
+  }
+  return PY;
+}
+// 设置页「Python 路径」那一行的说明：配的文件不存在就照实标出来（裸命令名不按文件查）
+function pythonDesc(exe, exists = p => { try { return fs.statSync(p).isFile(); } catch { return false; } }) {
+  return `当前：${exe}` + (/[\\/]/.test(String(exe)) && !exists(exe) ? '（找不到这个文件）' : '');
+}
+function pyCommand(exe) { return `${/\s/.test(exe) ? `"${exe}"` : exe} -m link_brain`; }
 // 选后端：candidates = 可能的仓库根（收藏库上一级、插件目录上两级），第一个带 link_brain 包的 → 仓库模式；
 // 否则按后端命令找程序；找不到 → missing（插件如实提示怎么装）。
-function pickBackend({ candidates = [], command = BACKEND_DEFAULT, isRepo, which = whichCommand } = {}) {
-  for (const root of candidates) if (root && isRepo(root)) return { mode: "repo", exe: PY, prefix: [], cwd: root, command: `${PY} -m link_brain` };
+function pickBackend({ candidates = [], command = BACKEND_DEFAULT, isRepo, which = whichCommand, python = null } = {}) {
+  for (const root of candidates) if (root && isRepo(root)) {
+    const exe = typeof python === "function" ? python(root) : (python || PY);
+    return { mode: "repo", exe, prefix: [], cwd: root, command: pyCommand(exe) };
+  }
   const parts = splitCommand(command || BACKEND_DEFAULT);
   const cmd = parts.length ? parts : [BACKEND_DEFAULT];
   const exe = which(cmd[0]);
@@ -202,6 +222,8 @@ const DEFAULT_SETTINGS = {
   rerank: { enabled: false, model: "qwen3-rerank", endpoint: "", topN: 30, timeoutSec: 8 },
   // 第 5 批 B2：后端命令（仓库模式下不用它）；收藏存放位置 = 本库里的子文件夹（空 = 库根）；首次引导做过没有
   backend: { command: BACKEND_DEFAULT },
+  // P0 1024：仓库模式的 Python 解释器（空 = 程序目录下 .venv，没有再用 python）；计划任务注册（link_brain/deps.py）读同一个键
+  pythonPath: "",
   collectionFolder: "",
   onboarding: { done: false },
   // 第 7 批「开始」页：selected = 勾的功能 id（null = 还没选过，用后端 plan 的「推荐」）；step = 向导停在第几步；
@@ -239,7 +261,7 @@ function mergeSettings(saved) {
   for (const key of Object.keys(out)) {
     if (!saved || saved[key] == null) continue;
     if (Array.isArray(out[key])) out[key] = saved[key];              // 数组整体替换
-    else if (typeof saved[key] === "object") Object.assign(out[key], saved[key]);
+    else if (out[key] !== null && typeof out[key] === "object" && typeof saved[key] === "object") Object.assign(out[key], saved[key]);
     else out[key] = saved[key];
   }
   // 1016：设置页没有默认值的键（如 embedAI：向量走哪家，后端认、插件不改）原样带上，AI 页才看得见；
@@ -1054,6 +1076,7 @@ class LinkBrainActions extends Plugin {
       candidates: [path.resolve(this.vaultDir, '..'), pluginDir && path.resolve(pluginDir, '..', '..')],
       command: this.settings?.backend?.command,
       isRepo: root => { try { return fs.statSync(path.join(root, 'link_brain', '__init__.py')).isFile(); } catch { return false; } },
+      python: root => pickPython({ root, configured: this.settings?.pythonPath }),
     });
     this.repoRoot = this.backend.mode === 'repo' ? this.backend.cwd : null;
     return this.backend;
@@ -1081,7 +1104,7 @@ class LinkBrainActions extends Plugin {
   // 后端命令找不到：抛 ENOENT 风格的错（spawnPy 接成 code=-1，runPy 给装法）。
   currentBackend() {
     if (this.backend) return this.backend;
-    if (this.repoRoot) return { mode: 'repo', exe: PY, prefix: [], cwd: this.repoRoot, command: `${PY} -m link_brain` };
+    if (this.repoRoot) { const exe = pickPython({ root: this.repoRoot, configured: this.settings?.pythonPath }); return { mode: 'repo', exe, prefix: [], cwd: this.repoRoot, command: pyCommand(exe) }; }
     return { mode: 'repo', exe: PY, prefix: [], cwd: undefined, command: `${PY} -m link_brain` };   // 没走过 onload（单测）：旧行为
   }
   pyEnv(extra = null) {
@@ -1264,7 +1287,7 @@ class LinkBrainActions extends Plugin {
   }
   mcpArgv() {
     const backend = this.currentBackend();
-    return backend.mode === 'repo' ? [PY, '-m', 'link_brain', 'mcp'] : [backend.exe, ...(backend.prefix || []), 'mcp'];
+    return backend.mode === 'repo' ? [backend.exe || PY, '-m', 'link_brain', 'mcp'] : [backend.exe, ...(backend.prefix || []), 'mcp'];
   }
   async testMcp() {
     const [exe, ...args] = this.mcpArgv();
@@ -3082,6 +3105,20 @@ class LinkBrainSettingTab extends PluginSettingTab {
           }, 300);
         }));
     this.link(backendRow, '复制安装命令', () => this.plugin.copyText(BACKEND_INSTALL), '把「' + BACKEND_INSTALL + '」复制到剪贴板，到终端里运行');
+    // P0 1024：仓库模式用哪个 Python；插件起进程、MCP 命令、计划任务注册都用它
+    const pyRow = new Setting(c).setName('Python 路径').setDesc(backend.mode === 'repo' ? pythonDesc(backend.exe) : '仓库模式才用。');
+    this.help(pyRow, '空 = 程序目录下的 .venv（没有再用系统 python）。缺依赖时填装好依赖的那个 python.exe 的完整路径。');
+    pyRow.addText(t => t.setPlaceholder('D:\\程序目录\\.venv\\Scripts\\python.exe').setValue(s.pythonPath || '')
+      .onChange(v => {
+        s.pythonPath = v.trim();
+        clearTimeout(this.pythonTimer);
+        this.pythonTimer = setTimeout(async () => {
+          await this.save(); await this.plugin.locateCollection();
+          const now = this.plugin.currentBackend();
+          pyRow.setDesc(now.mode === 'repo' ? pythonDesc(now.exe) : '仓库模式才用。');
+          backendRow.setDesc(backendDesc(now));
+        }, 300);
+      }));
     const envRow = new Setting(c).setName('检查这台电脑').setDesc('Python 程序、插件、Dataview、AI 设置齐不齐。');
     const envBox = c.createDiv({ cls: 'lb-env-box' });
     let envRequest = 0;
@@ -3345,7 +3382,7 @@ Object.assign(module.exports, { perRunLimitOf, fillGapOf, FILL_PACE, SETTING_TAB
 module.exports.scheduleStatusText = scheduleStatusText;
 module.exports.syncStateHead = syncStateHead;   // 给 node 单测（第 5 批 4.4）
 // 第 5 批 B2（单插件交付）：给 node 单测
-Object.assign(module.exports, { splitCommand, whichCommand, pickBackend, backendArgv, backendMissingText, pickSyncTask, dataviewState,
+Object.assign(module.exports, { splitCommand, whichCommand, pickPython, pythonDesc, pickBackend, backendArgv, backendMissingText, pickSyncTask, dataviewState,
   BACKEND_DEFAULT, BACKEND_INSTALL, NIGHTLY_TASK, LEGACY_SYNC_TASK });
 Object.assign(module.exports, { effectiveTextAI, modelState, endpointHost, normalizeEndpoint, aiGate, resultMessage, scheduleShort });
 module.exports.lastRiskNote = lastRiskNote;   // 1008（L6）：给 node 单测（设置页「立即同步」旁的验证说明）

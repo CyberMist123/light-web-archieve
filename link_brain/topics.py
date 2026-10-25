@@ -3,7 +3,8 @@
 - 存 `vault/_archive/topics.json`：`[{id, name, keywords, created}]`。读写 fail-open：缺/坏 = 没有主题。
 - `topic add "<名>"`：用问答同一条模型通路（插件设置 textAI / answer_model）扩 5-10 个关键词；
   模型不可用 → keywords=[名]。**模型输出当不可信数据**：只收合法的短关键词字符串、去重、上限 10。
-- 隶属在 catalog 重建时算（见 memberships：语义为主、标题标签整词兜底），名字写进 catalog-data 的
+- 隶属在 catalog 重建时算（见 memberships：语义为主、标题标签整词兜底；主题向量只读 topic-vectors.json 缓存，
+  缓存由夜跑 `index catch-up` 补，build 不联网），名字写进 catalog-data 的
   `items[].topics`，顶层 `topics` 是顺序表。主题只是展示分组，**不进检索权重**（不进 retrieval.fields）。
 - 不做表单：没有编辑关键词的 UI；增删改名都走 CLI（给 Fable / CC 代她跑）。
 """
@@ -214,21 +215,69 @@ def _topic_text(t: dict[str, Any]) -> str:
     return t["name"] + "：" + "、".join(t["keywords"])
 
 
-def _semantic_scores(topics: list[dict[str, Any]]) -> dict[str, dict[str, float]] | None:
-    """topic id → {item_id: 非评论 chunk 最高余弦}；语义层任何问题 → None（退词法）。"""
-    try:
-        from . import semantic
+VECTORS_NAME = "topic-vectors.json"   # p0-catalog：主题向量按「主题文本」缓存；build 只读它，夜跑 index catch-up 补
 
-        if not semantic.db_path().is_file():
+
+def vectors_path(vault: Path | None = None) -> Path:
+    return (vault or storage.vault_root()) / "_archive" / VECTORS_NAME
+
+
+def _vector_key(cfg: dict[str, Any]) -> str:
+    """缓存跟着 embedding 模型 + 维度走：换了模型旧向量整份作废。"""
+    return f"{cfg.get('model') or ''}|{cfg.get('dimensions') or ''}"
+
+
+def _load_vectors(cfg: dict[str, Any], vault: Path | None = None) -> dict[str, list[float]]:
+    """{主题文本: 向量}；文件缺 / 坏 / 模型对不上 = 空（fail-open：退关键词口径）。"""
+    try:
+        raw = json.loads(vectors_path(vault).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict) or raw.get("key") != _vector_key(cfg) or not isinstance(raw.get("vectors"), dict):
+        return {}
+    return {k: v for k, v in raw["vectors"].items() if isinstance(k, str) and isinstance(v, list) and v}
+
+
+def _semantic_layer():
+    """(semantic, cfg, (matrix, rows)) 或 None（没有 semantic.db / 没有向量 = 语义层不在）。只读本地文件，不联网。"""
+    from . import semantic
+
+    if not semantic.db_path().is_file():
+        return None
+    cfg = semantic.load_config()
+    data = semantic._load_matrix(cfg["model"])
+    if not data:
+        return None
+    return semantic, cfg, data
+
+
+def _semantic_scores(topics: list[dict[str, Any]], *, live: bool = True, pending: list[str] | None = None,
+                     vault: Path | None = None) -> dict[str, dict[str, float]] | None:
+    """topic id → {item_id: 非评论 chunk 最高余弦}；语义层任何问题 → None（退词法）。
+
+    live=True（默认，MCP 等交互入口的旧口径）：当场取查询向量（联网 embedding）。
+    live=False（catalog.build 用：不联网、不花钱）：只读 topic-vectors.json；缓存里没有这个主题的就跳过它
+    （它退回关键词口径），名字记进 pending。"""
+    try:
+        layer = _semantic_layer()
+        if layer is None:
             return None
-        cfg = semantic.load_config()
-        data = semantic._load_matrix(cfg["model"])
-        if not data:
-            return None
-        matrix, rows = data
+        semantic, cfg, (matrix, rows) = layer
+        import numpy as np
+
+        cache = {} if live else _load_vectors(cfg, vault)
         out: dict[str, dict[str, float]] = {}
         for t in topics:
-            qvec = semantic.query_vector(_topic_text(t))
+            if live:
+                qvec = semantic.query_vector(_topic_text(t))
+            else:
+                vec = cache.get(_topic_text(t))
+                qvec = np.asarray(vec, dtype=np.float32) if vec else None
+                if qvec is None or matrix.shape[1] != qvec.shape[0]:
+                    # 缓存里没有，或 semantic.db 换了维度、旧向量对不上：只这个主题退关键词、记待更新（夜里重取）
+                    if pending is not None:
+                        pending.append(t["name"])
+                    continue
             if qvec is None or matrix.shape[1] != qvec.shape[0]:
                 return None
             sims = matrix @ qvec
@@ -244,10 +293,44 @@ def _semantic_scores(topics: list[dict[str, Any]]) -> dict[str, dict[str, float]
         return None
 
 
+def refresh_vectors(vault: Path | None = None) -> dict[str, Any]:
+    """夜跑（index catch-up）用：给缓存里还没有向量的主题取一次向量（联网 embedding），写回 topic-vectors.json。
+    只留现有主题的；语义层不在就不取。返回 {ok, fetched, failed, skipped}。"""
+    vault = vault or storage.vault_root()
+    topic_list = load(vault)
+    layer = _semantic_layer()
+    if layer is None or not topic_list:
+        return {"ok": True, "fetched": 0, "failed": [], "skipped": "没有语义索引或没有主题"}
+    semantic, cfg, (matrix, _rows) = layer
+    with storage.file_lock("topic-vectors", wait_s=30, owner="topics.refresh_vectors"):
+        cache = _load_vectors(cfg, vault)
+        keep = {_topic_text(t) for t in topic_list}
+        # 维度和 semantic.db 对不上的旧向量当缺失重取（模型名没变、维度变了时缓存 key 认不出来）
+        vectors = {k: v for k, v in cache.items() if k in keep and len(v) == matrix.shape[1]}
+        fetched, failed = 0, []
+        for t in topic_list:
+            text = _topic_text(t)
+            if text in vectors:
+                continue
+            qvec = semantic.query_vector(text)
+            if qvec is None:
+                failed.append(t["name"])
+                continue
+            vectors[text] = [float(x) for x in qvec]
+            fetched += 1
+        if vectors != cache:
+            storage.atomic_write_text(vectors_path(vault), json.dumps(
+                {"key": _vector_key(cfg), "vectors": vectors}, ensure_ascii=False, separators=(",", ":")))
+    return {"ok": not failed, "fetched": fetched, "failed": failed, "skipped": ""}
+
+
 def memberships(items: list[dict[str, Any]], topics: list[dict[str, Any]],
-                semantic_scores: Any = "auto") -> dict[str, list[str]]:
-    """item_id → 命中的主题名（按主题顺序）。不改 items。semantic_scores 给测试注入。"""
-    sem = _semantic_scores(topics) if semantic_scores == "auto" else semantic_scores
+                semantic_scores: Any = "auto", pending: list[str] | None = None,
+                vault: Path | None = None, live: bool = True) -> dict[str, list[str]]:
+    """item_id → 命中的主题名（按主题顺序）。不改 items。semantic_scores 给测试注入。
+    live=False 只用缓存的主题向量（catalog.build）；pending 给了就把「语义层在、但缓存里没有向量」的主题名
+    追加进去（= 主题向量待更新，这些主题这次按关键词算）。"""
+    sem = _semantic_scores(topics, live=live, pending=pending, vault=vault) if semantic_scores == "auto" else semantic_scores
     cuts = {}
     for t in topics:
         scores = (sem or {}).get(t["id"])
