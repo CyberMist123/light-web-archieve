@@ -24,3 +24,5 @@ node_modules/
 
 # tests/tools/synth_vault.py 造合成测试库时的 LINK_BRAIN_HOME
 .lbhome-synth/
+
+.venv
