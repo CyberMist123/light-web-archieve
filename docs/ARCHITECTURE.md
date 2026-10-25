@@ -13,9 +13,9 @@
 | 层 | 在哪 | 做什么 | 不做什么 |
 |---|---|---|---|
 | **入口** | `obsidian-plugins/link-brain-actions/`（插件）· `link_brain/cli.py`（命令行）· `link_brain/mcp_server.py` + `remote/`（给别的 AI 用的 MCP）· `link_brain/nightly.py`（夜跑） | 收用户 / 定时器 / 外部 AI 的请求，交给用例层；把结果显示出来 | 不自己算真相：插件只显示后端给的状态（`catalog-data.schema` 对不上就提示，不猜着画） |
-| **用例** | `ingest.py`（链接 → 归档）· `favorites.py`（同步收藏）· `catalog.py`（目录页数据）· `ask.py` + `recall_*`（问收藏）· `remove.py` / `restore.py`（回收站）· `enrich.py` / `vision.py` / `videos.py` / `pdftext.py`（补处理） | 一个用户动作一个模块，按顺序调规则层和外部能力 | 不直接碰网络和模型，不自己写文件格式 |
-| **规则** | `domain.py`（身份 item_id / 在库判断 / 收藏口径 / meta 字段归属，1025 第二波 PR①）· `problems.py`（唯一问题记录与故障码）· `pricing.py`（价格）· `provenance.py`（谁收的，判断转发自 domain）· `fav_counts.py`（篇数口径）· `accounts.py`（一个号一个会话）· `errtext.py`（异常 → 人话） | 全仓只此一份的判断：怎么算钱、怎么算篇数、什么叫「我的收藏」、出错怎么分类 | 守卫测试（`tests/test_guards.py`，基线 `tests/guards-baseline.json`）保证别处不再抄一份 |
-| **外部能力** | `providers.py`（配置 → 执行器的唯一入口）· `text_stream.py` / `llm.py`（文本模型）· `asr.py` · `docconv.py` · `rerank.py` · `adapters/xiaohongshu.py`（读取服务的客户端） | 模型、OCR、语音、文档转换、小红书读取。每种能力一个接口，缺了就如实返回「没配 / 没装」 | 模型输出和网页内容一律当不可信数据（`mdsafe.py` 清洗） |
+| **用例** | `ingest.py`（链接 → 归档）· `sources/xiaohongshu/favorites.py`（同步收藏）· `catalog.py`（目录页数据）· `ask.py` + `recall_*`（问收藏）· `remove.py` / `restore.py`（回收站）· `enrich.py` / `vision.py` / `videos.py` / `pdftext.py`（补处理） | 一个用户动作一个模块，按顺序调规则层和外部能力 | 不直接碰网络和模型，不自己写文件格式 |
+| **规则** | `domain.py`（身份 item_id / 在库判断 / 收藏口径 / meta 字段归属，1025 第二波 PR①）· `problems.py`（唯一问题记录与故障码）· `pricing.py`（价格）· `provenance.py`（谁收的，判断转发自 domain）· `sources/xiaohongshu/fav_counts.py`（篇数口径）· `sources/xiaohongshu/accounts.py`（一个号一个会话）· `errtext.py`（异常 → 人话） | 全仓只此一份的判断：怎么算钱、怎么算篇数、什么叫「我的收藏」、出错怎么分类 | 守卫测试（`tests/test_guards.py`，基线 `tests/guards-baseline.json`）保证别处不再抄一份 |
+| **外部能力** | `providers.py`（配置 → 执行器的唯一入口）· `text_stream.py` / `llm.py`（文本模型）· `asr.py` · `docconv.py` · `rerank.py` · `sources/`（来源接口 + 注册表）· `sources/xiaohongshu/adapter.py`（读取服务的客户端） | 模型、OCR、语音、文档转换、小红书读取。每种能力一个接口，缺了就如实返回「没配 / 没装」 | 模型输出和网页内容一律当不可信数据（`mdsafe.py` 清洗） |
 | **数据** | `storage.py`（路径、原子写、文件锁）· `index.py`（SQLite 索引 + 删除屏蔽）· `synclog.py` / `usage.py` / `actionlog.py`（账本） | 真相文件只追加或原子重写；派生文件随时可以删掉重建 | 不在锁外改别人会压实的文件 |
 
 ## 进程模型

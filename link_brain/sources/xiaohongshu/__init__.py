@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlsplit
 
-from ...adapters import xiaohongshu as adapter
+from . import adapter
 from .. import Fetched, FetchOptions, MediaTask, Parsed
 
 name = adapter.SOURCE

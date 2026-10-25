@@ -24,14 +24,14 @@
 | 模块 | 测试数 | 例子 |
 |---|---|---|
 | `link_brain/__main__.py` | 0 |  |
-| `link_brain/accounts.py` | 28 | test_account_guard_1008.py, test_account_safety.py, test_accounts.py, test_albums_1019.py … |
+| `link_brain/sources/xiaohongshu/accounts.py` | 28 | test_account_guard_1008.py, test_account_safety.py, test_accounts.py, test_albums_1019.py … |
 | `link_brain/actionlog.py` | 2 | test_panel_1017.py, test_risk1016.py |
-| `link_brain/adapters/xiaohongshu.py` | 106 | catalog_plus_ui.cjs, chat_board_ui.cjs, chat_ui_rig.cjs, note_first_frame_ui.cjs … |
+| `link_brain/sources/xiaohongshu/adapter.py` | 106 | catalog_plus_ui.cjs, chat_board_ui.cjs, chat_ui_rig.cjs, note_first_frame_ui.cjs … |
 | `link_brain/agentmd.py` | 3 | test_agentmd_1008.py, test_chatter_report_1015.py, test_vision_doubt_1017.py |
 | `link_brain/ai_config.py` | 36 | test_ai_health_1008.py, test_answer_cache.py, test_ask.py, test_ask_b2_1015.py … |
 | `link_brain/ai_health.py` | 7 | test_ai_health_1008.py, test_card_problems_1008.py, test_console_1018.py, test_fix_1016.py … |
 | `link_brain/ai_routes.py` | 1 | test_console_1018.py |
-| `link_brain/albums.py` | 3 | test_albums_1019.py, test_catalog_interactions.cjs, test_mcp_browse_1018.py |
+| `link_brain/sources/xiaohongshu/albums.py` | 3 | test_albums_1019.py, test_catalog_interactions.cjs, test_mcp_browse_1018.py |
 | `link_brain/alert.py` | 27 | test_account_safety.py, test_accounts.py, test_alert.py, test_attachments_recheck_1008.py … |
 | `link_brain/answer_cache.py` | 6 | test_answer_cache.py, test_ask_b3_r3.py, test_ask_r2_session.py, test_ask_ui2_1004.py … |
 | `link_brain/answer_check.py` | 3 | test_ask_stage1_1017.py, test_ask_v21_1018.py, test_cite_jump_1021.py |
@@ -53,7 +53,7 @@
 | `link_brain/catalog.py` | 107 | catalog_after_note_ui.cjs, catalog_arrange_ui.cjs, catalog_fast_open_ui.cjs, catalog_first_render_ui.cjs … |
 | `link_brain/catch.py` | 114 | catalog_after_note_ui.cjs, catalog_arrange_ui.cjs, catalog_fast_open_ui.cjs, catalog_first_render_ui.cjs … |
 | `link_brain/cli.py` | 77 | test_account_safety.py, test_ai_health_1008.py, test_alert.py, test_annotations_1001.py … |
-| `link_brain/comment_fill.py` | 10 | test_comments_fill_1008.py, test_comments_fill_1009.py, test_comments_resume_1017.py, test_fix_1016.py … |
+| `link_brain/sources/xiaohongshu/comment_fill.py` | 10 | test_comments_fill_1008.py, test_comments_fill_1009.py, test_comments_resume_1017.py, test_fix_1016.py … |
 | `link_brain/comments.py` | 63 | chat_b2_ui.cjs, chat_ui_rig.cjs, evidence_ui.cjs, index_inplace_ui.cjs … |
 | `link_brain/connect.py` | 24 | l4_settings_ui.cjs, test_atomic_writes_1001.py, test_attachments.py, test_attachments_integrity_1001.py … |
 | `link_brain/crawl.py` | 1 | test_risk1016.py |
@@ -63,8 +63,8 @@
 | `link_brain/errtext.py` | 1 | test_errtext.py |
 | `link_brain/evidence_pack.py` | 1 | test_ask_b3_r1.py |
 | `link_brain/export_bundle.py` | 3 | test_answer_cache.py, test_export_bundle.py, test_mdsafe.py |
-| `link_brain/fav_counts.py` | 3 | test_setup.py, test_guards.py, test_sync_truth_1011.py |
-| `link_brain/favorites.py` | 39 | test_account_safety.py, test_accounts.py, test_accounts_ui.cjs, test_attachments_recheck_1008.py … |
+| `link_brain/sources/xiaohongshu/fav_counts.py` | 3 | test_setup.py, test_guards.py, test_sync_truth_1011.py |
+| `link_brain/sources/xiaohongshu/favorites.py` | 39 | test_account_safety.py, test_accounts.py, test_accounts_ui.cjs, test_attachments_recheck_1008.py … |
 | `link_brain/history.py` | 25 | test_answer_cache.py, test_ask_b2_1015.py, test_ask_eval.py, test_ask_v21_1018.py … |
 | `link_brain/index.py` | 71 | catalog_search_index_ui.cjs, index_inplace_ui.cjs, index_outline_ui.cjs, index_tree_ui.cjs … |
 | `link_brain/indexai.py` | 2 | test_indexai_1011.py, test_indexedit_1015.py |
@@ -77,7 +77,7 @@
 | `link_brain/mcp_tools.py` | 6 | test_ask_b2_1015.py, test_ask_v21_1018.py, test_mcp_browse_1018.py, test_mcp_tools.py … |
 | `link_brain/mdsafe.py` | 2 | test_mdsafe.cjs, test_mdsafe.py |
 | `link_brain/mention.py` | 2 | test_annot_reply_1020.cjs, test_mention_1020.py |
-| `link_brain/night_captcha.py` | 2 | test_night_captcha_1011.py, test_ratelimit_1015.py |
+| `link_brain/sources/xiaohongshu/night_captcha.py` | 2 | test_night_captcha_1011.py, test_ratelimit_1015.py |
 | `link_brain/nightly.py` | 18 | test_attachments_recheck_1008.py, test_batch5_delivery.py, test_batch9_synclog_ui.cjs, test_catalog_mobile_c12.cjs … |
 | `link_brain/note.py` | 126 | catalog_after_note_ui.cjs, catalog_plus_side_ui.cjs, catalog_ui_smoke.cjs, chat_b2_ui.cjs … |
 | `link_brain/note_print.py` | 2 | test_export_bundle.py, test_note_print_1009.py |
@@ -93,7 +93,7 @@
 | `link_brain/provenance.py` | 2 | test_provenance_1020.py, test_guards.py |
 | `link_brain/providers.py` | 18 | l4_settings_ui.cjs, test_ai_health_1008.py, test_asr.py, test_console_1018.py … |
 | `link_brain/read.py` | 50 | catalog_search_index_ui.cjs, catalog_ui_smoke.cjs, chat_board_ui.cjs, chat_ui_rig.cjs … |
-| `link_brain/reader_install.py` | 1 | test_batch5_delivery.py |
+| `link_brain/sources/xiaohongshu/reader_install.py` | 1 | test_batch5_delivery.py |
 | `link_brain/recall_core.py` | 2 | test_ask_b2_1015.py, test_recall_r1.py |
 | `link_brain/recall_table.py` | 2 | test_ask_stage1_1017.py, test_recall_table_1017.py |
 | `link_brain/remote/cli.py` | 77 | test_account_safety.py, test_ai_health_1008.py, test_alert.py, test_annotations_1001.py … |
@@ -110,7 +110,7 @@
 | `link_brain/report.py` | 41 | chat_board_ui.cjs, note_first_frame_ui.cjs, test_accounts.py, test_ai_health_1008.py … |
 | `link_brain/rerank.py` | 5 | l4_settings_ui.cjs, test_ask_b3_r1.py, test_catalog_order_c2.cjs, test_rerank_r2.py … |
 | `link_brain/restore.py` | 14 | catalog_fast_open_ui.cjs, test_catalog_pending_n9.cjs, test_chat_smooth_l2.cjs, test_chat_ui2_1004.cjs … |
-| `link_brain/restricted.py` | 7 | test_fix_1016.py, test_note_restricted_1011.cjs, test_panel_1017.py, test_problems_dismiss_ui.cjs … |
+| `link_brain/sources/xiaohongshu/restricted.py` | 7 | test_fix_1016.py, test_note_restricted_1011.cjs, test_panel_1017.py, test_problems_dismiss_ui.cjs … |
 | `link_brain/retrieval.py` | 24 | test_ask_b2_1015.py, test_ask_b3_r3.py, test_ask_board_1020.py, test_ask_eval.py … |
 | `link_brain/saved_sources.py` | 1 | test_ask_ui2_1004.py |
 | `link_brain/screentext.py` | 3 | test_agentmd_1008.py, test_videos_transcribe_1001.py, test_visual_voice.py |
