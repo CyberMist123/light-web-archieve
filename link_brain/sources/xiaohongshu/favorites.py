@@ -350,16 +350,10 @@ def suspicious_reason(total: int, last: int, read: dict[str, Any]) -> str:
     return ""
 
 
-def _render_local(source_key: str, source_id: str, *, only_if_missing: bool) -> None:
-    """本地渲染（不调模型、不识图）：只拼可见 md + agent.md。only_if_missing=True 时可见 md 在就什么都不做。"""
-    from ... import render as render_mod, storage
-
-    if only_if_missing:
-        meta_path = storage.object_dir(source_key, source_id) / "meta.json"
-        rel = storage.read_json(meta_path).get("visible_note") if meta_path.exists() else None
-        if rel and (storage.vault_root() / rel).exists():
-            return
-    render_mod.render_object(source_key, source_id, verbose=False, llm=False)
+def _render_local(source_key: str, source_id: str, *, fresh: bool) -> str | None:
+    """入库收尾（1025 第二波 PR⑤c 改走 ingest.after_commit）：新收的标识图 / 概要待办 + 本地渲染（不调模型、不识图）；
+    已在库的只在可见 md 丢了时补渲染（1001 A-2：别每次同步都把全库重写一遍）。返回渲染错误文字或 None。"""
+    return ingest_mod.after_commit(source_key, source_id, fresh=fresh, reason="新收藏")
 
 
 def _sync_one(fav: dict[str, Any], *, origin: str, actor: str, verbose: bool, budget_left=None) -> dict[str, Any]:
@@ -367,7 +361,6 @@ def _sync_one(fav: dict[str, Any], *, origin: str, actor: str, verbose: bool, bu
 
     budget_left：返回「这一批还剩几秒」的函数（没有预算时 None）。剩的不多就不顺手下附件、抓详情也不再重试。
     """
-    from ... import enrich as enrich_mod
 
     url = fav.get("url") or ""
     try:
@@ -404,15 +397,9 @@ def _sync_one(fav: dict[str, Any], *, origin: str, actor: str, verbose: bool, bu
     status = "hit" if summary.get("hit") else "new"
     source_key, source_id = xhs.SOURCE, summary["note_id"]
 
-    render_error = None
-    try:
-        if status == "new":
-            enrich_mod.mark_pending(source_key, source_id)
-            sync_state.progress(f"《{summary.get('title') or source_id}》已存好（识图和概要之后补）")
-        # 1001（A-2）：已在库的不再重渲染——以前每次同步都把全库重写一遍、还在主进程里不限时补识图
-        _render_local(source_key, source_id, only_if_missing=(status == "hit"))
-    except Exception as exc:  # noqa: BLE001 - 渲染失败不该吞掉已经落盘的归档
-        render_error = f"渲染失败: {type(exc).__name__}: {exc}"
+    if status == "new":
+        sync_state.progress(f"《{summary.get('title') or source_id}》已存好（识图和概要之后补）")
+    render_error = _render_local(source_key, source_id, fresh=(status == "new"))
 
     blocked_code = ""
     if status == "new":  # 0927：新收藏入库就下附件（一个一个、隔几分钟）；老的缺附件交给每晚 4 点

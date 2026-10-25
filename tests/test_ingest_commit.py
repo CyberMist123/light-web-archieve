@@ -105,8 +105,9 @@ def test_orphan_version_is_adopted_not_refetched(vault, monkeypatch):
     assert storage.existing_versions(SRC, NOTE_ID) == [1] and calls["fetch"] == 1
     monkeypatch.setattr(ingest, "_write_meta", real)
 
-    out = ingest.ingest_url("https://example.invalid/share")
+    out = ingest.ingest_url("https://example.invalid/share", project="旅行")
     assert calls["fetch"] == 1, "孤儿版本应该收编，不该再联网抓"
+    assert _meta(tmp)["project"] == domain.clean_project("旅行"), "收编的孤儿算新收：project 要记上（PR⑤c 复审）"
     assert out["adopted"] is True and out["hit"] is False and out["version"] == 1
     assert storage.version_dirs(SRC, NOTE_ID).keys() == {1}
     assert _meta(tmp)["current_version"] == 1 and _meta(tmp)["versions"] == [1]

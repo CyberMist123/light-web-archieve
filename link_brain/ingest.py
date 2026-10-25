@@ -246,10 +246,18 @@ def _build_meta(
 from .domain import FETCH_OWNED, merge_meta  # noqa: E402,F401
 
 
-def _write_meta(meta_path, fetched: dict[str, Any]) -> dict[str, Any]:
-    """抓取重建的 meta 落盘：单篇锁里重读当前 meta 再合并（抓取最长 1500 秒，期间别的入口可能写过）。"""
-    return storage.update_json(meta_path, lambda old: merge_meta(old, fetched),
-                               lock_name=storage.obj_lock_name(fetched["item_id"]), missing_ok=True)
+def _write_meta(meta_path, fetched: dict[str, Any], *, project: str | None = None) -> dict[str, Any]:
+    """抓取重建的 meta 落盘：单篇锁里重读当前 meta 再合并（抓取最长 1500 秒，期间别的入口可能写过）。
+    project（1020 AI 为哪个项目收的）：这次写了新版本才记，和 meta 同一次写进（1025 第二波 PR⑤c，原来 catch 入库后再单独改一次）。"""
+    name = domain.clean_project(project) if project else ""
+
+    def change(old):
+        merged = merge_meta(old, fetched)
+        if name:
+            merged["project"] = name
+        return merged
+
+    return storage.update_json(meta_path, change, lock_name=storage.obj_lock_name(fetched["item_id"]), missing_ok=True)
 
 
 def _touch_checked(meta_path, item_id: str, captured_at: str) -> dict[str, Any]:
@@ -328,10 +336,12 @@ def _commit_version(conn, parsed: dict[str, Any], stg: "storage.Staging", manife
         manifest = out["manifest"]
         raw_dir = storage.raw_dir(src.name, sid, version)
         log(f"RAW → {raw_dir}")
+        kw = dict(meta_kw)
+        project = kw.pop("project", None)
         meta = _build_meta(parsed=parsed, source=source, manifest=manifest, version=version, captured_at=captured_at,
-                           first_archived=captured_at, **meta_kw)
+                           first_archived=captured_at, **kw)
         # 抓取管不着的字段（project、visible_note_pinned、favorited_by、首次的 ingest_kind…）按当前 meta 保留（同一把锁，可重入）
-        meta = _write_meta(storage.object_dir(src.name, sid) / "meta.json", meta)
+        meta = _write_meta(storage.object_dir(src.name, sid) / "meta.json", meta, project=project)
         index_mod.upsert_object(conn, meta, source)
         index_mod.add_source_version(conn, item_id=meta["item_id"], version=version, raw_dir=raw_dir,
                                      captured_at=captured_at, adapter=src.version, input_url=parsed["input_url"],
@@ -340,7 +350,7 @@ def _commit_version(conn, parsed: dict[str, Any], stg: "storage.Staging", manife
 
 
 def _adopt(conn, parsed: dict[str, Any], probe, *, origin: str, actor: str, ingest_kind: str, note: str | None,
-           log) -> dict[str, Any]:
+           log, project: str | None = None) -> dict[str, Any]:
     """磁盘上已经有完整版本、但索引里没有（上次崩在「发布之后、写 meta / 索引之前」，或 index.db 重建丢了行）：
     不联网，直接用磁盘上最新的完整版本补 meta / 索引。返回 {meta, source, manifest, version, raw_dir}。"""
     src = sources.get(parsed["source"])
@@ -363,9 +373,10 @@ def _adopt(conn, parsed: dict[str, Any], probe, *, origin: str, actor: str, inge
             log(f"收编孤儿版本 {storage.version_name(version)}（上次崩在写 meta 之前），不重抓")
             meta = _write_meta(meta_path, _build_meta(parsed=parsed, source=source, manifest=manifest, version=version,
                                                       captured_at=captured, origin=origin, actor=actor,
-                                                      ingest_kind=ingest_kind, note=note, first_archived=captured))
+                                                      ingest_kind=ingest_kind, note=note, first_archived=captured),
+                               project=project)
         else:
-            log("meta 在、索引里没有：按磁盘补索引，不重抓")
+            log("meta 在、索引里没有：按磁盘补索引，不重抓")   # 以前入过库（hit）：不覆盖 project
         index_mod.upsert_object(conn, meta, source)
         index_mod.add_source_version(conn, item_id=item_id, version=version, raw_dir=raw_dir,
                                      captured_at=(source.get("capture") or {}).get("captured_at") or meta["last_checked_at"],
@@ -397,6 +408,23 @@ def _discarded_summary(conn, parsed: dict[str, Any], reason: str, source: dict[s
 def _comment_counts(source: dict[str, Any]) -> dict[str, int]:
     comments = source.get("comments") or []
     return {"comments": len(comments), "sub_comments": sum(len(c.get("sub_comments") or []) for c in comments)}
+
+
+def after_commit(source: str, source_id: str, *, fresh: bool, reason: str = "导入") -> str | None:
+    """⑨ 入库收尾（提交之后；1025 第二波 PR⑤c，取代 catch / 收藏同步各写各的那几份）：
+    新写了版本 → 标识图 / 概要待办（enrich 夜跑补，不现场花钱）+ 本地渲染（不调模型）；已在库的只在可见 md 丢了时补渲染。
+    失败不回退（都能从 meta + RAW 重算），返回给人看的一行错误，没出错返回 None。"""
+    from . import enrich as enrich_mod, render as render_mod
+    try:
+        if fresh:
+            enrich_mod.mark_pending(source, source_id, reason=reason)
+        meta_path = storage.object_dir(source, source_id) / "meta.json"
+        rel = storage.read_json(meta_path).get("visible_note") if meta_path.exists() else None
+        if fresh or not (rel and (storage.vault_root() / rel).exists()):
+            render_mod.render_object(source, source_id, verbose=False, llm=False)
+    except Exception as exc:  # noqa: BLE001 - 渲染失败不该吞掉已经落盘的归档
+        return f"渲染失败: {errtext(exc)}"
+    return None
 
 
 def recognize(target: str, parsed: dict[str, Any] | None = None):
@@ -434,6 +462,7 @@ def ingest_url(
     progress=None,
     expand_resume: list[str] | None = None,
     floors_resume: str | None = None,
+    project: str | None = None,
 ) -> dict[str, Any]:
     """抓一条链接并落一份不可变 RAW。返回摘要 dict（含 exit_code）。
 
@@ -471,7 +500,8 @@ def ingest_url(
                     'note_id': sid, 'title': tombstone['title'] if tombstone else None, 'exit_code': EXIT_OK}
         if (lk.state is domain.Presence.ORPHAN or lk.needs_reindex) and probe.complete_versions:
             # 1025 第二波 PR⑤a：上次崩在发布之后 / 索引丢了 → 用磁盘上的完整版本补上，不联网重抓
-            got = _adopt(conn, parsed, probe, origin=origin, actor=actor, ingest_kind=ingest_kind, note=note, log=log)
+            got = _adopt(conn, parsed, probe, origin=origin, actor=actor, ingest_kind=ingest_kind, note=note, log=log,
+                         project=project)
             index_mod.add_relation(conn, item_id=got["meta"]["item_id"], **rel)
             if not refresh and not fill:
                 doc = got["source"]
@@ -547,7 +577,7 @@ def ingest_url(
             log("refresh：规范化比对有变化，写新 RAW 版本")
 
         # ⑤ 暂存（RAW 全写进 raw/.staging-…/）⑥⑦ 锁里复查 + 发布 + 提交（_commit_version）⑧ 索引
-        meta_kw = dict(origin=origin, actor=actor, ingest_kind=ingest_kind, note=note)
+        meta_kw = dict(origin=origin, actor=actor, ingest_kind=ingest_kind, note=note, project=project)
         from .ai_config import sync_options
         with storage.stage_version(src.name, sid) as stg:
             for name, payload in fetched.raw_files.items():   # 来源的原样返回（小红书：mcp_raw.json + web_raw.json）

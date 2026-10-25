@@ -151,7 +151,6 @@ ignore_imports =
     link_brain.sources.xiaohongshu.comment_fill -> link_brain.nightly
     link_brain.sources.xiaohongshu.favorites -> link_brain.catalog
     link_brain.sources.xiaohongshu.favorites -> link_brain.enrich
-    link_brain.sources.xiaohongshu.favorites -> link_brain.render
 
 [importlinter:contract:interface-static-free]
 name = 接口包不静态 import 具体来源（注册表用字符串）
