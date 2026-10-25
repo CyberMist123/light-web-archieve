@@ -5,6 +5,8 @@
 - key = `step|item_id|细分码`（item_id 为空 = 步骤级问题），`load()` 按 key 折叠：最新一行为准、count 累加；
   「已解决」= 再追加一行同 key 带 resolved_at；之后同 key 再出现就是新的一轮（count 从头算）。
 - 超过 500 行时在锁里压实为最近 500 个 key（每个 key 一行折叠后的结果：count / days / notified 都保留）。
+- 等不到锁就写旁路 `problems.pending/<时间戳-pid-线程>.jsonl`，拿到锁的人并回主文件再删掉；每行带事件 id `eid`，
+  并回按它去重。并回了却删不掉的旁路（被占）放同名 `.merged` 标记：之后当不存在，能删时连标记一起删（格式见 FORMAT.md）。
 
 故障码 = `类.细分`，四类：TRANSIENT（自动退避重试）· PERMANENT（记原因、不再重试、不推送）·
 NEEDS_HUMAN（只报一次）· SKIPPED（未配置 / 已关闭 / 预算到了：进记录、不算失败、角标不计数）。
@@ -396,11 +398,44 @@ def pending_dir() -> Path:
     return storage.archive_root() / PENDING_DIR
 
 
+MERGED_SUFFIX = ".merged"
+
+
 def _pending_files() -> list[Path]:
+    """还没并回的旁路文件。旁边有同名 `.merged` 标记的已经并进主文件、只是删不掉（被占），不算（1025 P1）。"""
     try:
-        return sorted(pending_dir().glob("*.jsonl"))
+        return sorted(f for f in pending_dir().glob("*.jsonl") if not f.with_suffix(MERGED_SUFFIX).exists())
     except OSError:
         return []
+
+
+def _mark_merged(f: Path) -> bool:
+    """旁路并回了却删不掉：放一个同名 `.merged` 空标记，之后读 / 并回 / 压实都当它不存在；下次能删了连标记一起删。"""
+    try:
+        storage.atomic_write_text(f.with_suffix(MERGED_SUFFIX), "")
+        return True
+    except OSError as exc:
+        print(f"[problems] 旁路文件删不掉、标记也写不上（{errtext(exc)}）：{f.name}", file=sys.stderr)
+        return False
+
+
+def _sweep_merged_locked() -> None:
+    """（已拿 problems 锁）清理带 `.merged` 标记的旁路：文件删得掉了（或已经没了）就把文件和标记一起删；还删不掉就留着。"""
+    try:
+        marks = sorted(pending_dir().glob(f"*{MERGED_SUFFIX}"))
+    except OSError:
+        return
+    for mark in marks:
+        f = mark.with_suffix(".jsonl")
+        try:
+            if f.exists():
+                f.unlink()
+        except OSError:
+            continue  # 还被占着：标记留着，下次再试
+        try:
+            mark.unlink()
+        except OSError as exc:
+            print(f"[problems] 并回标记删不掉（{errtext(exc)}）：{mark.name}", file=sys.stderr)
 
 
 def _read_file(p: Path, strict: bool) -> list[dict[str, Any]]:
@@ -582,6 +617,7 @@ def _write_pending(blob: str) -> None:
 
 def _merge_pending_locked() -> int:
     """（已拿 problems 锁）把旁路行按时间并回 problems.jsonl，删掉旁路文件。返回并回几行。"""
+    _sweep_merged_locked()
     files = _pending_files()
     if not files:
         return 0
@@ -604,7 +640,9 @@ def _merge_pending_locked() -> int:
         try:
             f.unlink()
         except OSError as exc:
-            print(f"[problems] 旁路文件删不掉（{errtext(exc)}）：{f.name}", file=sys.stderr)
+            # 被占着（杀毒 / 同步盘）：行已经在主文件里了，放 `.merged` 标记，别让它既算「还没并回」又挡住压实
+            print(f"[problems] 旁路文件删不掉（{errtext(exc)}），已标记为并回：{f.name}", file=sys.stderr)
+            _mark_merged(f)
     return len(extra)
 
 
@@ -658,7 +696,8 @@ def _read_folded() -> tuple[dict[str, dict[str, Any]], bool]:
 
 def _compact_locked(threshold: int | None = None) -> bool:
     if _pending_files():
-        # 还有旁路没删掉（被占 / 刚有人写进来）：压实会丢掉各行的事件 id，之后再并回就分不出哪些并过了。等删掉再压
+        # 还有旁路没并回（刚有人写进来）：压实会丢掉各行的事件 id，之后再并回就分不出哪些并过了。等并回再压。
+        # 并回了只是删不掉的旁路带 `.merged` 标记，不在这个列表里，不会一直挡着压实（1025 P1）
         return False
     # 只读主文件：检查完旁路到读之间别的进程可能刚写进旁路，那几行留给下次并回（带事件 id 去重），
     # 不能这次折进主文件、旁路又留着——那样会重复累加（1025 Codex 复查：3 次报错算成 4）。
