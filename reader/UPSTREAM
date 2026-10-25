@@ -1,0 +1,2 @@
+# 读取组件的上游基线：仓库 提交。.github/workflows/reader-release.yml 读这里；reader/README.md 编译步骤里写的那个提交是给人看的抄本，改基线两处一起改。
+https://github.com/xpzouying/xiaohongshu-mcp c2fc4dde2c45f26f6f9de288b7423a2bdfa7af1c

@@ -168,7 +168,7 @@ STATE_REGISTRY = {  # code 前缀 → 显示；写进 catalog-data.json 的 "sta
 **规则**
 1. 配置唯一源仍是插件 `data.json`（`ai_config.load`）。每个能力一个键：`textAI`（问答）· `summaryAI`（新，归档概要/打标，默认继承 textAI）· `visionAI`（第一层）· `visionAI.refine`（第二层）· `ocr` · `asrAI` · `docConvert`（本地，只有 `enabled`）。
 2. `mode` 词表：`http`（OpenAI 兼容）· `cli`（本机命令行，仅 textAI）· `local`（进程内，ocr/docConvert）· `capswriter`（websocket，仅 asrAI）· `off`。**`media` 模式删除**。
-3. key 来源顺序：`cfg.apiKey` → `cfg.keyPool`（池里第一把今天没用坏的）→ `cfg.keyFile/keyField`（已有）→ `os.environ[cfg.apiKeyEnv]` → 没有。**取值只在 `providers.resolve_key()` / `providers.pool_keys()`**；key 池从哪来（环境变量 → 取 key 的命令 → key 文件）只在 `providers.pool_load()`，夜跑也调它（ARCH-AUDIT 第 2 批，守卫 `tests/test_single_source.py`「Gemini 密钥来源」）。**代码里不得出现任何默认目录、默认用户路径、默认 key 文件名**；用 `.githooks/private-patterns.local.txt` 里的模式 grep `link_brain/` 和插件源，命中数必须为 0（隐私闸只拦提交，这条拦默认值）。
+3. key 来源顺序：`cfg.apiKey` → `cfg.keyPool`（池里第一把今天没用坏的）→ `cfg.keyFile/keyField`（已有）→ `os.environ[cfg.apiKeyEnv]` → 没有。**取值只在 `providers.resolve_key()` / `providers.pool_keys()`**；key 池从哪来（环境变量 → 取 key 的命令 → key 文件）只在 `providers.pool_load()`，夜跑也调它（ARCH-AUDIT 第 2 批，守卫 `tests/test_guards.py`「Gemini 密钥来源」）。**代码里不得出现任何默认目录、默认用户路径、默认 key 文件名**；用 `.githooks/private-patterns.local.txt` 里的模式 grep `link_brain/` 和插件源，命中数必须为 0（隐私闸只拦提交，这条拦默认值）。
 4. 「没配置 = 跳过」：`resolve(cap)` 返回 `None` 时调用方记 `SKIPPED.NOT_CONFIGURED`，返回 `{"status":"skipped"}`，不算失败、不退非 0。
 5. 超时全部在配置里有默认值（`ai_config.DEFAULTS[cap]["timeoutSec"]`），执行器不许写死数字。
 6. 执行器返回统一形状；HTTP 执行器把状态码翻成故障码（429→`TRANSIENT.HTTP_429`，401/403→`NEEDS_HUMAN.AUTH_FAILED`，5xx→`TRANSIENT.HTTP_5XX`，402/欠费文案→`NEEDS_HUMAN.QUOTA_EXCEEDED`，4xx 其他→`PERMANENT.MODEL_OUTPUT_INVALID`）。

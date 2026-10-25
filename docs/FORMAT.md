@@ -1270,3 +1270,45 @@ append-only，一次模型接口调用一行（`link_brain/usage.py`，CONVENTIO
 - 插件 `pickPython`：仓库模式所有起进程（runPy / spawnPy / 常驻问答）和 MCP 命令（`mcpArgv`，「测试 MCP」用；`connect add` 写给外部客户端的命令取跑它的那个解释器的 `sys.executable`）都用它。「后端命令」模式（`uv tool install link-brain`）不受它影响。
 - 后端 `link_brain/deps.py` `python_exe()`：同一套规则，返回绝对路径；计划任务 / 后台常驻（夜跑 LinkBrainNightly、远程阅读服务、后台补评论）注册时写它（有 `pythonw.exe` 用它），非 Windows 的 cron / launchd 行和远程服务的手动命令同样。改了设置要重新注册计划任务才生效（已注册的任务里写的是注册那一刻的绝对路径）。1024 返修：配的是相对路径（含 `/` 或 `\`）按**程序目录**解析，不按当前目录；配了但文件不存在 → `deps.PythonNotFound`，计划任务 / 远程服务注册如实失败（`ok:false`，不写坏路径），doctor 的 `python.scheduled_error` 写原因；插件 `pickPython` 同样按程序目录解析相对路径，设置页「当前：…」后面标「（找不到这个文件）」。
 - 缺第三方包：`deps.require(name, purpose)` 抛 `deps.MissingDependency`（`code = "NEEDS_HUMAN.MISSING_DEPENDENCY"`（1024 返修：原来的 NOT_INSTALLED 是「未安装读取组件」，账号类），`message` =「缺依赖 X（用途）：请用项目 .venv 启动，或 pip install X」，`str(exc)` 以码开头）。jieba 切词各处一律走它：缺了明确报错，不悄悄退化。`doctor --json` 多一个 `python: {executable, version, scheduled, deps[{name, module, purpose, ok}], missing[]}` 段和一行 `checks[id=python]`。
+
+## 2026-10-25 删除屏蔽 `tombstones.jsonl`、问题记录旁路 `problems.pending/` 与事件 id `eid`（第一波 p0-tomb / p0-runtime，开源前 P1 补记）
+
+### `vault/_archive/tombstones.jsonl`（真相，只追加）
+
+删除屏蔽的**权威来源**：同步 / 导入看到这里屏蔽的 `(source, source_id)` 就不再拉回来。`index.db` 的 `tombstones` 表只是缓存，
+每次 `index.connect()` 按这份 jsonl 对一遍（`index.sync_tombstones`），删掉 index.db 重建也不丢。1024 之前只存在 index.db 的屏蔽，
+第一次对齐时导出成 jsonl（带 `"via": "migrate"`），只导一次。
+
+一行一个事件，同一 `(source, source_id)` 以最后一行为准；`op=delete` 屏蔽，`op=forget` / `op=restore` 解除屏蔽：
+
+```json
+{"op": "delete", "state": "pending", "source": "xiaohongshu", "source_id": "6512ab34cd7e9f0011223344", "item_id": "xhs-6512ab34cd7e9f0011223344", "title": "标题", "url": "https://www.xiaohongshu.com/explore/6512ab34cd7e9f0011223344", "cover": "image-001.webp", "deleted_at": "2026-10-24T10:03:12.481000+00:00", "trash_dir": "_trash/xiaohongshu/6512ab34cd7e9f0011223344", "at": "2026-10-24T10:03:12.481000+00:00"}
+```
+
+```json
+{"op": "restore", "source": "xiaohongshu", "source_id": "6512ab34cd7e9f0011223344", "item_id": "xhs-6512ab34cd7e9f0011223344", "at": "2026-10-25T02:10:00.000000+00:00"}
+```
+
+- `state`：`pending` = 删除进行中（已屏蔽、文件还没挪完；崩了下次 `finish_pending` 接着做），`done` = 删完。缺省 `done`。
+- `at` 是追加这一行的 UTC 时刻（写时补）；`deleted_at` 是开始删除的时刻（UTC），续删沿用第一次的。`trash_dir` 是回收站目录相对 vault 的路径（`_trash/<source>/<source_id>`）。
+- 行尾一律 `\n` 并 fsync；上一行崩在半截时先补换行。读的时候坏行跳过、不拖累整份（`storage.read_jsonl`）。
+- 旧代码读到多出来的字段会忽略；真正不能回滚的是 index.db 的 `tombstones.state` 列（1024 加列）。
+
+### `vault/_archive/problems.pending/`（问题记录的旁路）
+
+`problems.report()` 等不到 `problems` 文件锁（默认 5 秒）时**不碰** `problems.jsonl`，把要追加的行原子写成一个小文件
+`problems.pending/<time_ns>-<pid>-<thread>.jsonl`（名字不撞）。下一个拿到锁的进程把它们按时间并回主文件再删掉；读记录时先读旁路再读主文件，
+中间正好被并回最多重一遍，按事件 id 去掉。
+
+- 并回了却**删不掉**的旁路（杀毒 / 同步盘占着）：旁边放一个同名空标记 `<同名>.merged`。带标记的文件之后当不存在（不读、不再并、不挡压实），
+  能删了连标记一起删。标记也写不上就退回「还没并回」对待，压实多等一会，不比没有标记差。
+- 压实（超过 500 + 100 行时压回最近 500 个 key）只在**没有未并回的旁路**时做：折叠会丢掉各行的事件 id，之后再并回就分不出哪些并过了。
+
+### 事件 id `eid`（`problems.jsonl` 每行）
+
+每行多一个 `eid`：`<写入时刻 ns>-<pid>-<线程 id>-<序号>`，写入时打上（从别的行复制出来的也给新 id）。两个用处：旁路并回按它去重（删不掉的旁路不会算两次）；
+`ts` 只到秒，同一秒内按 `eid` 里的写入时刻排先后（旧报错不会排到同一秒的解决行后面、把问题重新打开）。1025 之前的行没有 `eid`：同一秒内排在有 id 的前面。
+
+```json
+{"ts": "2026-10-25T01:00:00+11:00", "key": "embed|xhs-a|NETWORK", "step": "embed", "item_id": "xhs-a", "code": "TRANSIENT.NETWORK", "reason": "断网", "action": "retry_later", "count": 1, "eid": "1761350400123456789-4242-140000-0"}
+```

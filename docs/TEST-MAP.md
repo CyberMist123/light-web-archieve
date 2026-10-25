@@ -88,7 +88,7 @@
 | `link_brain/playlist.py` | 4 | media_controls_ui.cjs, test_media_nav_1008.cjs, test_player_ui_1009.cjs, test_playlist_1009.py |
 | `link_brain/posttags.py` | 2 | test_indexai_1011.py, test_indexedit_1015.py |
 | `link_brain/pricing.py` | 1 | test_pricing_1023.py（1023 新建：价格 / 免费 / 提供商唯一来源） |
-| `link_brain/problems.py` | 47 | l4_settings_ui.cjs, test_accounts.py, test_ai_health_1008.py, test_ask_b2_1015.py … |
+| `link_brain/problems.py` | 48 | l4_settings_ui.cjs, test_accounts.py, test_ai_health_1008.py, test_ask_b2_1015.py, test_problems_merged_marker_1025.py … |
 | `link_brain/procs.py` | 4 | test_batch5_delivery.py, test_cli_call_timeout.py, test_note_print_1009.py, test_procs.py |
 | `link_brain/provenance.py` | 2 | test_provenance_1020.py, test_guards.py |
 | `link_brain/providers.py` | 18 | l4_settings_ui.cjs, test_ai_health_1008.py, test_asr.py, test_console_1018.py … |
