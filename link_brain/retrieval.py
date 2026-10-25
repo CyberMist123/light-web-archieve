@@ -489,11 +489,6 @@ def sem_order(sem):
     return [item_id for item_id, _ in sorted((sem or {}).items(), key=lambda kv: -kv[1]['score'])]
 
 
-def _rrf(lexical_hits, sem, items, k=60):
-    """词法 BM25 排名 × 语义 chunk 排名的 RRF 混排；语义可引入词法零分的 item。"""
-    return fuse([(1, [it['id'] for _, it in lexical_hits]), (1, sem_order(sem))], items, k)
-
-
 _ASK_SEM = object()
 
 
