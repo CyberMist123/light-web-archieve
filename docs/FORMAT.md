@@ -89,6 +89,8 @@ D:\LIGHT WEB ARCHIEVE\vault\
   "origin": "cli",
   "actor": "human",
   "ingest_kind": "shared",
+  "note": null,
+  "project": null,
   "tool_versions": {
     "link_brain": "0.1.0",
     "adapter": "xiaohongshu/1",
@@ -160,6 +162,7 @@ D:\LIGHT WEB ARCHIEVE\vault\
       "profile_url": "https://www.xiaohongshu.com/user/profile/5f00000000000000000000a0"
     },
     "published_at": "2026-08-19T20:11:00+08:00",
+    "ip_location": "上海",
     "engagement": {"liked": 1203, "collected": 880, "comment_count": 96, "shared": 41},
     "images": [
       {
@@ -224,12 +227,17 @@ D:\LIGHT WEB ARCHIEVE\vault\
     "mcp_endpoint": "http://127.0.0.1:18060/mcp",
     "mcp_tool": "get_feed_detail",
     "comments_complete": "unknown",
+    "comments_cursor": "651300aa000000000a01",
+    "web_probe": null,
     "notes": []
   }
 }
 ```
 
 规则：
+- `note.ip_location`：发帖时的 IP 属地（`adapters/xiaohongshu.py:1021`，`note.get("ipLocation")`）；网页版不给就是 null。
+- `capture.comments_cursor`：评论翻页游标（MCP 响应原样，`adapters/xiaohongshu.py:1041`），续读从它接着翻。
+- `capture.web_probe`：网页版附件探测的结论（`adapters/xiaohongshu.py:1043-1047`）：`null` = 没探测过；探测了 = `{"ok", "url", "error"}`。
 - `comments[]` 只放**一级评论**；楼中楼进 `comments[].sub_comments[]`，`floor` 一级=1、楼中楼=2（V1 小红书只有两层）。
 - `comments[].images[]` 与 `note.images[]` 字段同构（`url` / `width` / `height` 可为 null）。
 - `video` 非 null 时形如 `{"video_url": "...", "cover_url": "...", "duration_sec": 70, "downloaded": false}`。
@@ -308,7 +316,7 @@ D:\LIGHT WEB ARCHIEVE\vault\
 
 | 字段 | 说明 |
 |---|---|
-| `role` | `note_image` / `comment_image` / `video_cover` / `avatar` |
+| `role` | `note_image` / `comment_image` / `video_cover` / `video` / `comment_audio` / `avatar`。`video` = 视频本体（`videos.py:15`，一条，`download_status` ok / failed）；`comment_audio` = 语音评论（`ingest.py:112-115`，带 `comment_id`，没有 `requested_url / mime / width / height`）；`avatar` 当前代码不写（1025 核） |
 | `file` | 相对对象目录的路径；下载失败为 `null` |
 | `original_url` | `source.json` 里那条记录的 url（身份用） |
 | `requested_url` | 实际请求的那个 URL（可能去过 CDN 档位后缀） |
