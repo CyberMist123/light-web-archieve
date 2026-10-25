@@ -537,6 +537,9 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
             return {**base, "filled": False, "missing_after": sc["missing"], "restricted": True, "reason": restricted.TEXT}
     else:
         restricted.clear(source_id, item_id=item_id, why="评论续读打开了这篇")
+    if summary.get("status") == "trashed":
+        # 1025 第二波 PR⑤a：续读的时候她把这篇删了——没发布新版本，别再读状态 / 重渲染一篇已进回收站的
+        return {**base, "filled": False, "trashed": True, "missing_after": sc["missing"]}
     meta2, source2 = current_source(source_key, source_id)
     now = _now().isoformat(timespec="seconds")
     cl2 = (source2.get("capture") or {}).get("comment_load") or {}

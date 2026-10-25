@@ -175,6 +175,11 @@ def _upsert_tomb_cache(conn: sqlite3.Connection, record: dict[str, Any]) -> None
                  _tomb_row(record))
 
 
+def get_tombstone(conn: sqlite3.Connection, source: str, source_id: str) -> sqlite3.Row | None:
+    """这篇的屏蔽记录（index.db 缓存；权威在 tombstones.jsonl）。没有返回 None。"""
+    return conn.execute("SELECT * FROM tombstones WHERE source = ? AND source_id = ?", (source, source_id)).fetchone()
+
+
 def write_tombstone(conn: sqlite3.Connection, record: dict[str, Any], *, commit: bool = True) -> None:
     """屏蔽一篇：先追加 jsonl（权威），再写 index.db 缓存。record 带 TOMB_FIELDS；state 缺省 done。"""
     record = {**record, "state": record.get("state") or "done"}

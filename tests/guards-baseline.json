@@ -22,8 +22,7 @@
  "在库 / 墓碑判断": {
   "link_brain/catch.py": 1,
   "link_brain/fav_counts.py": 1,
-  "link_brain/favorites.py": 2,
-  "link_brain/ingest.py": 1
+  "link_brain/favorites.py": 2
  },
  "手写原子写": {
   "link_brain/crawl.py": 1,
