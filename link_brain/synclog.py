@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import storage
+from .errtext import errtext
 
 FILE_NAME = "sync-log.jsonl"
 MAX_RUNS = 200
@@ -178,7 +179,7 @@ def begin(trigger: str | None = None, *, run_id: str | None = None, own: bool = 
     try:
         _edit(go)
     except Exception as exc:  # noqa: BLE001
-        print(f"[synclog] 同步记录没开上：{type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"[synclog] 同步记录没开上：{errtext(exc)}", file=sys.stderr)
         return None
     _run.clear()
     _run.update(id=run_id, own=own)
@@ -203,7 +204,7 @@ def end(run_id: str | None = None, *, exit_code: int | None = None, auto_only: b
     try:
         return bool(_edit(go))
     except Exception as exc:  # noqa: BLE001
-        print(f"[synclog] 同步记录没收上尾：{type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"[synclog] 同步记录没收上尾：{errtext(exc)}", file=sys.stderr)
         return False
 
 
@@ -256,7 +257,7 @@ def fetch_started() -> None:
     try:
         _edit(go)
     except Exception as exc:  # noqa: BLE001
-        print(f"[synclog] 同步记录没记上抓取进程：{type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"[synclog] 同步记录没记上抓取进程：{errtext(exc)}", file=sys.stderr)
 
 
 def _fetch_done(exit_code: int | None) -> None:
@@ -271,7 +272,7 @@ def _fetch_done(exit_code: int | None) -> None:
     try:
         _edit(go)
     except Exception as exc:  # noqa: BLE001
-        print(f"[synclog] 同步记录没标上抓取收尾：{type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"[synclog] 同步记录没标上抓取收尾：{errtext(exc)}", file=sys.stderr)
 
 
 def flush_progress() -> None:
@@ -376,7 +377,7 @@ def flush(*, create: bool = False) -> str | None:
     try:
         rid = _edit(go)
     except Exception as exc:  # noqa: BLE001
-        print(f"[synclog] 同步记录没写上：{type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"[synclog] 同步记录没写上：{errtext(exc)}", file=sys.stderr)
         return None
     _pending.clear()
     _errors.clear()
@@ -399,7 +400,7 @@ def finish_command(command: str, args: Any = None, exit_code: int | None = None)
         elif command == "attachments" and getattr(args, "audit", False) and not os.environ.get(ENV_RUN):
             end(None, auto_only=True)
     except Exception as exc:  # noqa: BLE001
-        print(f"[synclog] {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"[synclog] {errtext(exc)}", file=sys.stderr)
 
 
 def reset() -> None:
@@ -439,11 +440,11 @@ def load(limit: int = 50) -> list[dict[str, Any]]:
     try:
         _recover_lost(out, raw)
     except Exception as exc:  # noqa: BLE001 - 补不回来就照原样显示
-        print(f"[synclog] 被中断那趟的篇数没补回来：{type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"[synclog] 被中断那趟的篇数没补回来：{errtext(exc)}", file=sys.stderr)
     try:
         _mark_healed(out)
     except Exception as exc:  # noqa: BLE001
-        print(f"[synclog] 报错后来好没好没核上：{type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"[synclog] 报错后来好没好没核上：{errtext(exc)}", file=sys.stderr)
     return out
 
 
@@ -569,7 +570,7 @@ def heal_after_success(command: str, args: Any = None) -> int:
             problems.write_summary()
         return n
     except Exception as exc:  # noqa: BLE001
-        print(f"[synclog] 夜跑那一步的报错没标成已好：{type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"[synclog] 夜跑那一步的报错没标成已好：{errtext(exc)}", file=sys.stderr)
         return 0
 
 
@@ -738,7 +739,7 @@ def retry(run_id: str, *, runner: Callable[[list[str], str, float], tuple[int | 
         final = _edit(go)
     except Exception as exc:  # noqa: BLE001
         final = None
-        notes.append(f"重试结果没写进同步记录：{type(exc).__name__}: {exc}")
+        notes.append(f"重试结果没写进同步记录：{errtext(exc)}")
     _pending.clear()
     final = final or fresh
     still = [it for it in final.get("items") or [] if not it.get("ok")]
