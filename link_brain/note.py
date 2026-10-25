@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from . import storage
+from .errtext import errtext
 
 EXIT_OK = 0
 
@@ -42,7 +43,7 @@ def load_notes(source: str, source_id: str) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        raise NotesCorrupt(f"批注文件读不了，没动它：{path}（{type(exc).__name__}: {exc}）") from exc
+        raise NotesCorrupt(f"批注文件读不了，没动它：{path}（{errtext(exc)}）") from exc
     if not isinstance(data, dict):
         raise NotesCorrupt(f"批注文件不是对象，没动它：{path}")
     data.setdefault("starred", False)

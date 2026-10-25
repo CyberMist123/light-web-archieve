@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import domain, storage
+from .errtext import errtext
 from .remote.policy import XHS_ARCHIVE, Denied, Policy, MAX_READ_BYTES
 
 HISTORY_FILE = "search-history.md"
@@ -258,7 +259,7 @@ def _hits_for(cand: dict[str, Any]) -> list[dict[str, Any]]:
         return [{k: (v[:SEARCH_HIT_CHARS] if k == "text" else v) for k, v in h.items()}
                 for h in ask_mod.search_hits(cand["item"], cand.get("terms") or [], cand.get("sem"), SEARCH_HITS, SEARCH_HIT_CHARS)]
     except Exception as exc:  # noqa: BLE001 - 命中段只是加成，取不到照样列这一篇
-        print(f"[mcp] 命中段没取到：{type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"[mcp] 命中段没取到：{errtext(exc)}", file=sys.stderr)
         return []
 
 
@@ -327,7 +328,7 @@ def search(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
             label = query or (("过滤：" + json.dumps(filters, ensure_ascii=False)) if filters else "浏览全部")
             record_search(label, [r["title"] for r in rows], total, ctx.who)
         except Exception as exc:  # noqa: BLE001 - 历史只是记录，写不上不影响搜索
-            print(f"[mcp] 搜索历史没写上：{type(exc).__name__}: {exc}", file=sys.stderr)
+            print(f"[mcp] 搜索历史没写上：{errtext(exc)}", file=sys.stderr)
     out = {"found": total, "offset": offset, "next_offset": pos if pos < total else None, "results": rows,
            **({"filters": filters} if filters else {})}
     if not total and filters.get("album"):

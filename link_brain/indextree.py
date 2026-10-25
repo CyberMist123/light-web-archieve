@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from . import storage
+from .errtext import errtext
 
 INDEX_DEFAULT = "索引.md"
 DATA_NAME = "index-data.json"
@@ -1100,7 +1101,7 @@ def _facets_safe(parsed: Parsed, items: list[dict[str, Any]], result: Result, ca
         from . import posttags
         return posttags.node_facets(parsed, result, posttags.load(vault))
     except Exception as exc:  # noqa: BLE001 - 细分标签坏了不挡索引
-        _log(f"[index] 细分标签没套上：{type(exc).__name__}: {exc}")
+        _log(f"[index] 细分标签没套上：{errtext(exc)}")
         return {}
 
 
@@ -1193,7 +1194,7 @@ def _build(vault: Path, items: list[dict[str, Any]] | None, catalog_built_at: st
     try:
         applied = indexai.apply(parsed, items, cache, ov)
     except Exception as exc:  # noqa: BLE001 - AI 缓存坏了：照纯规则算
-        _log(f"[index] AI 归类结果没套上：{type(exc).__name__}: {exc}")
+        _log(f"[index] AI 归类结果没套上：{errtext(exc)}")
         applied = {"ai": {}, "overrides": ov.get("items") or {}, "virtual": []}
     result = classify(parsed, items, matcher, ai=applied["ai"], overrides=applied["overrides"])
     warnings = list(parsed.warnings)
@@ -1227,7 +1228,7 @@ def _build(vault: Path, items: list[dict[str, Any]] | None, catalog_built_at: st
         from . import wiki as wiki_mod
         data["wiki"] = wiki_mod.status(data, vault, update_headers=write and wiki_headers)
     except Exception as exc:  # noqa: BLE001 - wiki 状态坏了不挡索引
-        _log(f"[index] wiki 状态没算出来：{type(exc).__name__}: {exc}")
+        _log(f"[index] wiki 状态没算出来：{errtext(exc)}")
         data["wiki"] = {}
     if write and not pending_migration:
         with storage.file_lock(LOCK, wait_s=30, owner="index.build"):
