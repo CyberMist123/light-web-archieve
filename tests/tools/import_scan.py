@@ -1,6 +1,6 @@
 """import 契约扫描（第二波 PR③）：不装 import-linter，用 AST 算 `.importlinter` 里每条契约的违规边。
 
-口径和 import-linter（grimp）一致的部分：每条 import 都算，含函数里的延迟 import；`importlib` 字符串导入不算；
+只查直接 import（对应 .importlinter 里每条契约的 allow_indirect_imports = True）。每条 import 都算，含函数里的延迟 import；`importlib` 字符串导入不算；
 `from X import y` 里 y 是子模块就记成到 X.y 的边。旧路径转发文件（`sys.modules` 别名）不进图，
 import 它们的边记到真身上（`link_brain.accounts` → `link_brain.sources.xiaohongshu.accounts`）。
 

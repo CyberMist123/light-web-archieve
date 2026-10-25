@@ -2,6 +2,7 @@
 ; 它用 tests/tools/import_scan.py 的 AST 扫描算违规，不需要装 import-linter。
 ; ignore_imports 是搬家后现有的违规（基线），只许删不许加：迁走一条就把那行删掉，不删也会红。
 ; 现状一览：python tests/tools/import_scan.py
+; 只查直接 import（allow_indirect_imports = True）：间接链路由各模块自己的契约兜。
 
 [importlinter]
 root_package = link_brain
@@ -10,12 +11,14 @@ include_external_packages = False
 [importlinter:contract:domain-pure]
 name = 规则只判断：domain 不 import 任何 link_brain 模块
 type = forbidden
+allow_indirect_imports = True
 source_modules = link_brain.domain
 forbidden_modules = link_brain
 
 [importlinter:contract:shared-not-xhs]
-name = 共享代码不 import 小红书（只走 link_brain.sources 接口）；入口层 cli / nightly / doctor / repair / report / setup / mcp_server / serve / remote 不在此列
+name = 共享代码不 import 小红书（只走 link_brain.sources 接口）；入口层 cli / __main__ / nightly / doctor / repair / report / watch / setup / mcp_server / serve / remote 不在此列
 type = forbidden
+allow_indirect_imports = True
 source_modules =
     link_brain.actionlog
     link_brain.agentmd
@@ -124,6 +127,7 @@ ignore_imports =
 [importlinter:contract:xhs-no-ai]
 name = 小红书包不碰目录构建 / AI / 渲染 / 入口
 type = forbidden
+allow_indirect_imports = True
 source_modules = link_brain.sources.xiaohongshu
 forbidden_modules =
     link_brain.catalog
@@ -153,5 +157,6 @@ ignore_imports =
 [importlinter:contract:interface-static-free]
 name = 接口包不静态 import 具体来源（注册表用字符串）
 type = forbidden
+allow_indirect_imports = True
 source_modules = link_brain.sources
 forbidden_modules = link_brain.sources.xiaohongshu
