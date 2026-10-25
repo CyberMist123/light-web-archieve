@@ -517,7 +517,6 @@ def ingest_url(
                                    ("floors_resume", floors_resume)) if v}
         fetched = src.fetch(parsed, sources.FetchOptions(refresh=refresh, comment_floors=comment_floors,
                                                          budget_left=budget_left, progress=progress, log=log, extra=extra))
-        problems.resolve("ingest", None)  # 抓到了 = 读取服务好着：之前「服务没起来 / 超时」那几条步骤级问题算解决
         captured_at = now_iso()
         doc = src.normalize(fetched, parsed, captured_at=captured_at)
         new_sha = src.fingerprint(doc)

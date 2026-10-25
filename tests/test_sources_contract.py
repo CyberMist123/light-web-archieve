@@ -69,6 +69,35 @@ def test_fetch_forwards_options(monkeypatch, raw):
     assert fetched.context["web_probe"] is probe
 
 
+def test_fetch_resolves_service_problems_before_web_probe(monkeypatch, raw):
+    """复审：抓到详情就算读取服务好了，要在网页探测（可能抛登录问题）之前清掉旧的步骤级问题，和搬家前一致。"""
+    from link_brain import problems
+    src = sources.get("xiaohongshu")
+    order = []
+    monkeypatch.setattr(xhs, "_fetch_with_retry", lambda p, **kw: raw)
+    monkeypatch.setattr(problems, "resolve", lambda step, code: order.append(("resolve", step, code)))
+
+    def blocked(p, log):
+        order.append(("probe",))
+        raise xhs.AccountBlockedError("读取账号需要处理")
+    monkeypatch.setattr(src, "_web_probe", blocked)
+    with pytest.raises(xhs.AccountBlockedError):
+        src.fetch(src.parse(URL), sources.FetchOptions(log=lambda m: None))
+    assert order == [("resolve", "ingest", None), ("probe",)]
+
+
+def test_fetch_expand_skips_merge_when_previous_version_missing(monkeypatch, raw):
+    """复审：meta 在但 current_version 目录不完整（待重建索引）→ 不合并上一版，照常存，别读不存在的 source.json 报错。"""
+    from link_brain import storage
+    src = sources.get("xiaohongshu")
+    parsed = src.parse(URL)
+    storage.write_json(storage.object_dir("xiaohongshu", parsed["note_id"]) / "meta.json", {"current_version": 3})
+    monkeypatch.setattr(xhs, "_fetch_with_retry", lambda p, **kw: raw)
+    monkeypatch.setattr(src, "_web_probe", lambda p, log: {"ok": True, "attachments": []})
+    fetched = src.fetch(parsed, sources.FetchOptions(log=lambda m: None, extra={"expand_floors": ["c0001"]}))
+    assert "previous_source" not in fetched.context and "expand_floors" not in fetched.context
+
+
 @pytest.mark.parametrize("old,new", [
     (xhs.AdapterError, sources.SourceError), (xhs.NeedsHumanError, sources.NeedsHuman),
     (xhs.AccountBlockedError, sources.AccountBlocked), (xhs.ServiceDownError, sources.ServiceDown),

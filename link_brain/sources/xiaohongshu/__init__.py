@@ -46,7 +46,7 @@ def fetch(parsed: Parsed, opts: FetchOptions) -> Fetched:
     opts.extra 认这几个小红书自己的键：expand_floors / expand_resume / floors_resume（评论续展，见 comment_fill）。
     raw_files = mcp_raw.json（读取服务原样返回）+ web_raw.json（网页探测原样结果）；context 带 web_probe 给 normalize，
     续展时带上一版 source 给 normalize 合并（只展开了指定的楼，其它楼的楼中楼沿用上一版）。"""
-    from ... import storage
+    from ... import problems, storage
 
     log, ex = opts.log, opts.extra
     expand_floors = ex.get("expand_floors")
@@ -58,14 +58,17 @@ def fetch(parsed: Parsed, opts: FetchOptions) -> Fetched:
     raw = adapter._fetch_with_retry(parsed, log=log, comment_floors=opts.comment_floors, budget_left=opts.budget_left,
                                     expand_floors=expand_floors, fill_budget_s=None, progress=opts.progress,
                                     expand_resume=ex.get("expand_resume"), floors_resume=ex.get("floors_resume"))
+    problems.resolve("ingest", None)  # 抓到了 = 读取服务好着：之前「服务没起来 / 超时」那几条步骤级问题算解决（要在网页探测之前）
     probe = _web_probe(parsed, log)
     context: dict[str, Any] = {"web_probe": probe, "log": log, "log_comment_load": True}
     meta_path = storage.object_dir(name, parsed["note_id"]) / "meta.json"
     if expand_floors and meta_path.is_file():
         prev_meta = storage.read_json(meta_path)
-        context["previous_source"] = storage.read_json(
-            storage.raw_dir(name, parsed["note_id"], prev_meta["current_version"]) / "source.json")
-        context["expand_floors"] = list(expand_floors)
+        ver = prev_meta.get("current_version")
+        prev_src = storage.raw_dir(name, parsed["note_id"], ver) / "source.json" if ver else None
+        if prev_src is not None and prev_src.is_file():  # 上一版不完整（待重建索引）就不合并，照常存
+            context["previous_source"] = storage.read_json(prev_src)
+            context["expand_floors"] = list(expand_floors)
     return Fetched(raw_files={"mcp_raw.json": raw, "web_raw.json": probe}, context=context)
 
 
