@@ -23,6 +23,8 @@ from typing import Any
 
 import httpx
 
+from .errtext import errtext
+
 _ENGINE = None
 
 TABLE_PROMPT = ("把图中的表格原样转成 Markdown 表格：保留表头和每个单元格，合并单元格按内容重复填写，"
@@ -129,7 +131,7 @@ def _engine():
 
 def _report_fallback(tier: str, exc: Exception) -> None:
     """medium 加载失败退回 small：照常认字，但在问题记录里留一条（列表灰色组，不推送）。"""
-    print(f"[ocr] PP-OCRv6 {tier} 加载失败，先用 small：{type(exc).__name__}: {exc}", file=__import__('sys').stderr)
+    print(f"[ocr] PP-OCRv6 {tier} 加载失败，先用 small：{errtext(exc)}", file=__import__('sys').stderr)
     try:
         from . import problems
         problems.report("ocr", "SKIPPED.FALLBACK", f"OCR {tier} 档模型没加载上（{type(exc).__name__}），先用轻量 small 档；"
@@ -151,7 +153,7 @@ def local_ocr(path: Path) -> dict[str, Any]:
     try:
         lines = _ocr_lines(path)
     except Exception as exc:  # noqa: BLE001 - 单张失败不阻断
-        return {"status": "failed", "ocr": None, "error": f"本地 OCR 失败: {type(exc).__name__}: {exc}"}
+        return {"status": "failed", "ocr": None, "error": f"本地 OCR 失败: {errtext(exc)}"}
     tiled = tiled_ocr(path, lines)
     if tiled:
         lines = tiled

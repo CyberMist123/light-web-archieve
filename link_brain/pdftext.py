@@ -84,7 +84,7 @@ def _synclog_convert(item_id: str, meta: dict[str, Any], ok: bool, reason: str =
         synclog.note("attachment", item_id, ok, title=meta.get("title"), note_path=meta.get("visible_note"),
                      reason=reason, code=code, retry=None if ok else ["pdf2md", item_id])
     except Exception as exc:  # noqa: BLE001
-        print(f"[synclog] {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"[synclog] {errtext(exc)}", file=sys.stderr)
 
 
 def convert_object_attachments(

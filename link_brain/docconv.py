@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from . import providers
+from .errtext import errtext
 
 DAMAGED_RANGES = ((0x2E80, 0x2EFF), (0x2F00, 0x2FDF), (0xFE30, 0xFE4F))
 DAMAGED_RATIO = 0.002  # 千分之二就够判：正常文本是 0
@@ -76,7 +77,7 @@ def open_pdf(path: Path):
             return None, _fail("PERMANENT.PDF_ENCRYPTED", "PDF 有打开密码，转不了（字节已保存）")
         return None, _fail("PERMANENT.PDF_DAMAGED", f"PDF 打不开（可能损坏）：{exc}")
     except Exception as exc:  # noqa: BLE001 - 读文件出任何意外都只算这一份
-        return None, _fail("PERMANENT.PDF_DAMAGED", f"PDF 打不开（可能损坏）：{type(exc).__name__}: {exc}")
+        return None, _fail("PERMANENT.PDF_DAMAGED", f"PDF 打不开（可能损坏）：{errtext(exc)}")
 
 
 def page_texts(doc) -> list[str]:
@@ -104,7 +105,7 @@ def ocr_page(doc, index: int, tmp_dir: Path, *, dpi: int = DEFAULT_DPI, ocr_cfg:
         doc[index].render(scale=dpi / 72).to_pil().save(png)
         return vision.run_ocr(png, ocr_cfg)
     except Exception as exc:  # noqa: BLE001 - 单页坏了只影响这一页
-        return {"status": "failed", "ocr": None, "error": f"这一页渲不出来：{type(exc).__name__}: {exc}"}
+        return {"status": "failed", "ocr": None, "error": f"这一页渲不出来：{errtext(exc)}"}
     finally:
         png.unlink(missing_ok=True)
 

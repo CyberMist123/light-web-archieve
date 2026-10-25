@@ -8,6 +8,10 @@ Link Brain 所有需要小红书登录的操作（读笔记与评论、私密收
 
 原项目以 Apache License 2.0 发布，版权归原作者所有；本补丁同样以 Apache License 2.0 提供。下面列出所有改动。
 
+## 预编译件（推荐）
+
+不想装 Go 的，直接用 GitHub Releases 里的 `reader-v*`（Windows x64）。插件首次引导点「安装读取组件」会自动下载并校验；也可以命令行 `python -m link_brain reader install`（不带参数 = 用程序内置的地址和 sha256）。下面的编译步骤只在你要改补丁时需要。
+
 ## 编译（Windows / macOS / Linux，需要 Go 1.24+ 与 Git）
 
 ```bash

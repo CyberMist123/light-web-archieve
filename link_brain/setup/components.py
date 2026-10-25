@@ -31,7 +31,7 @@ RAM_MEASURED = {
     "reader_idle": 20,
 }
 READER_BROWSER_EST = 300  # 估计：读收藏时开的无界面浏览器（Chromium 单标签页常见 250–400 MB），没实测
-READER_EXE_MB = 35        # 开发机自编译的 link-brain-reader.exe 20.9 MB + relatedfile.exe 14.2 MB（发布包还没有）
+READER_EXE_MB = 27        # 发布包 reader-v0.2.0 解出来的实量：link-brain-reader.exe 16.0 MB + relatedfile.exe 10.7 MB
 DATAVIEW_RELEASE = {"version": "0.5.70", "bytes": 2377634 + 357 + 2965,
                     "source": "https://api.github.com/repos/blacksmithgu/obsidian-dataview/releases/latest（2026-10-03）"}
 
@@ -246,7 +246,7 @@ def _reader() -> dict[str, Any]:
     files = [p for p in (st.get("reader"), st.get("relatedfile")) if p]
     size = sum(Path(p).stat().st_size for p in files if Path(p).is_file())
     disk = mb(size) if size else READER_EXE_MB
-    basis = (f"磁盘：{'已装的读取组件实量' if size else '开发机上自编译的 link-brain-reader + relatedfile 实量（发布包还没有）'}；"
+    basis = (f"磁盘：{'已装的读取组件实量' if size else '发布包里 link-brain-reader + relatedfile 的实量'}；"
              f"内存：读取服务空闲约 {RAM_MEASURED['reader_idle']} MB（实量），读收藏时另开无界面浏览器，按约 "
              f"{READER_BROWSER_EST} MB 估（没实测）")
     if st.get("reader"):
@@ -481,7 +481,7 @@ def _ocr_selftest(tier: str, model_dir: str) -> None:
         try:
             got = RapidOCR(params=params)(str(path))
         except Exception as exc:  # noqa: BLE001
-            raise SetupError("PERMANENT.BAD_PACKAGE", f"OCR 模型加载 / 识别失败：{type(exc).__name__}: {exc}") from exc
+            raise SetupError("PERMANENT.BAD_PACKAGE", f"OCR 模型加载 / 识别失败：{errtext(exc)}") from exc
     if not any("12345" in str(t) or "test" in str(t).lower() for t in (got.txts or ())):
         raise SetupError("PERMANENT.MODEL_OUTPUT_INVALID", f"OCR 能跑但测试图没认对：{list(got.txts or ())[:3]}")
 
@@ -536,7 +536,7 @@ def install(component: str, emit: Emit | None = None, *, asr_model: str = capswr
         ok, code, message = False, exc.code, exc.message
         extra.setdefault("manual", exc.code == "SKIPPED.NOT_CONFIGURED")
     except Exception as exc:  # noqa: BLE001
-        ok, code, message = False, "TRANSIENT.STEP_CRASHED", f"安装出错：{type(exc).__name__}: {exc}"
+        ok, code, message = False, "TRANSIENT.STEP_CRASHED", f"安装出错：{errtext(exc)}"
     return _final(component, ok, code, message, **extra)
 
 

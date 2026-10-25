@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from . import storage
+from .errtext import errtext
 
 IMAGE_SUFFIXES = {".webp", ".jpg", ".jpeg", ".png", ".gif", ".avif", ".heic", ".bmp"}
 
@@ -276,7 +277,7 @@ def retire_refine_problems(item_id: str | None = None) -> int:
                                       "orphan_refine_1008_note": "1017 作废：精细识图放弃不进问题面板"})
         return done
     except Exception as exc:  # noqa: BLE001 - 收旧行失败最多是面板里多挂一条
-        print(f"[vision] 收旧的精细识图放弃行没做成（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[vision] 收旧的精细识图放弃行没做成（{errtext(exc)}）", file=sys.stderr)
         return 0
 
 
@@ -369,7 +370,7 @@ def run_upgrade(args) -> int:
             from . import synclog
             synclog.note("vision", _item_id(row["source"], row["source_id"]), True)
         except Exception as exc:  # noqa: BLE001
-            print(f"[synclog] {type(exc).__name__}: {exc}", file=sys.stderr)
+            print(f"[synclog] {errtext(exc)}", file=sys.stderr)
     read_mod.dump_json({"objects": done, "tables": tables, "pictures": pictures})
     return 0
 
@@ -546,7 +547,7 @@ def refine_tiles(img: Path, lines, kind: str, cfg, router=None) -> dict[str, Any
                         return {**part, "tiles": n, "cost_yuan": cost}
                     parts.append(str(part.get("text") or "").strip())
     except Exception as exc:  # noqa: BLE001 - 切不了就走截断
-        print(f"[refine] 分段重识没做成（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[refine] 分段重识没做成（{errtext(exc)}）", file=sys.stderr)
         return None
     model = ((router.last_cfg if router else cfg) or {}).get("model")
     return {"status": "ok", "kind": "text", "text": "\n\n".join(t for t in parts if t),

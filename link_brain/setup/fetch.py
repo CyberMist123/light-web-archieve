@@ -18,6 +18,7 @@ from urllib.parse import unquote, urlsplit
 from urllib.request import url2pathname
 
 from .common import SetupError
+from ..errtext import errtext
 
 CHUNK = 1 << 20
 CONNECT_TIMEOUT_S = 20
@@ -99,9 +100,9 @@ def download(url: str, dest: Path, *, expected_size: int | None = None, on_progr
     except OSError as exc:
         if getattr(exc, "errno", None) == 28:  # ENOSPC
             raise SetupError("PERMANENT.DISK_FULL", "磁盘满了，下载停在半截（已下的部分留着，腾出空间后再装会接着下）") from exc
-        raise SetupError("TRANSIENT.NETWORK", f"下载中断：{type(exc).__name__}: {exc}（已下的部分留着，再装会接着下）") from exc
+        raise SetupError("TRANSIENT.NETWORK", f"下载中断：{errtext(exc)}（已下的部分留着，再装会接着下）") from exc
     except Exception as exc:  # noqa: BLE001 - httpx 各种网络错都归「下载失败」，.part 留着续
-        raise SetupError("TRANSIENT.NETWORK", f"下载中断：{type(exc).__name__}: {exc}（已下的部分留着，再装会接着下）") from exc
+        raise SetupError("TRANSIENT.NETWORK", f"下载中断：{errtext(exc)}（已下的部分留着，再装会接着下）") from exc
     return part
 
 
@@ -202,7 +203,7 @@ def unzip(pkg: Path, target: Path, *, strip: str = "", on_progress: Progress | N
             except (zipfile.BadZipFile, OSError, EOFError) as exc:
                 if getattr(exc, "errno", None) == 28:
                     raise SetupError("PERMANENT.DISK_FULL", "磁盘满了，解压没做完（已清掉半截）") from exc
-                raise SetupError("PERMANENT.BAD_PACKAGE", f"解压失败：{name}（{type(exc).__name__}: {exc}）") from exc
+                raise SetupError("PERMANENT.BAD_PACKAGE", f"解压失败：{name}（{errtext(exc)}）") from exc
             count += 1
             done += info.file_size
             if on_progress and (done - last >= REPORT_EVERY * 8 or done == total):
