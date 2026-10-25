@@ -44,6 +44,16 @@ D:\LIGHT WEB ARCHIEVE\vault\
 - **RAW 不可变**：一个版本目录写完（`manifest.json` 落盘）后就不再打开写。发现抓错/抓漏 → 写下一个版本。
 - 写新版本的唯一条件：重新抓取后的 `source.json` 与当前版本做规范化比对（忽略 `engagement` 里的数字、忽略字段顺序）后**有差异**。无差异只更新 `meta.json` 的 `last_checked_at`。
 - 旧版本永远保留，`meta.json.current_version` 指向最新一版。
+- **先暂存、再发布**（1025 第二波 PR④，`storage.stage_version` / `Staging.publish`）：新版本先写进 `raw/.staging-<时间>-<pid>-<随机>/`
+  （点号开头，Obsidian 不显示，不占版本号），`manifest.json` 写好后一次 `rename` 成 `vNNNN`——所以 **一个 `vNNNN` 目录一出现就是完整的**。
+  抓取 / 下载中崩了、判重决定不写、抓的时候被删：退出时暂存目录整个删掉，磁盘上不留版本；崩到连删都来不及的暂存目录
+  6 小时后视为过期，下次给同一篇写版本（进 `stage_version`）时清掉；doctor 的「RAW 版本」行报数。
+- **只有带 `manifest.json` 的 `vNNNN` 才算版本**（`storage.existing_versions`）：老代码崩在下载中留下的半截 `vNNNN` 不进 `meta.versions`、
+  重建索引不收、一个字节都不动，doctor 只报有几篇。**号码永不复用**：下一个号 = 所有 `vNNNN`（含半截）最大 + 1。
+- 提交点 = `meta.json` 改 `current_version`（发布之后、单篇锁里）。两个进程同时给同一篇发版本：后到的改名撞上已存在的目录就重新取号。
+- 目前走暂存发布的：`videos backfill`（整段在单篇锁里）；`ingest` 的两处仍是「先占号再往里写」、只在改 meta 时拿锁（第二波 PR⑤ 换成
+  暂存 + 整段拿锁，那之后过期暂存才会被入库顺手清掉）。删除一篇（`remove.delete_item`）整段在单篇锁里：和 backfill、和所有改 meta 的写入互斥，
+  等 30 秒等不到按这一条失败报给用户（「这篇正在被别的任务写入」）。
 
 ---
 

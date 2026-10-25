@@ -42,6 +42,16 @@ def download(video, raw, prefix, client=None):
 
 
 def backfill(row):
+    """给旧 RAW 补视频。整段在这篇的单篇锁里（1025 第二波 PR④）：读 meta → 下载 → 发布 → 改 meta 之间别的入口
+    （删除、续读）进不来，删除也就不会在下载中途把对象目录挪走再被这里建回来。拿不到锁 = 别人正写这篇，这次跳过如实报。"""
+    try:
+        with storage.file_lock(storage.obj_lock_name(row['item_id']), wait_s=30, owner='videos backfill'):
+            return _backfill(row)
+    except storage.LockBusy:
+        return {'item_id': row['item_id'], 'status': 'busy', 'bytes': 0, 'error': '这篇正被别的任务写入，下次再补'}
+
+
+def _backfill(row):
     obj = storage.object_dir(row['source'], row['source_id'])
     meta = storage.read_json(obj/'meta.json')
     old = storage.raw_dir(row['source'], row['source_id'], meta['current_version'])
@@ -55,18 +65,22 @@ def backfill(row):
     video = xhs._video(note) or source['note'].get('video') or {}
     if not video.get('video_url'):
         return {'item_id':row['item_id'], 'status':'missing_url', 'bytes':0}
-    version = max(storage.existing_versions(row['source'],row['source_id']))+1
-    dest = storage.raw_dir(row['source'],row['source_id'],version)
-    dest.mkdir(parents=True)
-    prefix = f'raw/v{version:04d}'
+    # 1025 第二波 PR④：下载写进暂存目录，manifest 写好再一次改名成 vNNNN——下载中崩了磁盘上不留半截版本。
     # 旧资产继续指向原版本；新版本只新增视频，旧 RAW 字节不动。
-    entry = download(video, dest, prefix)
-    source['note']['video'] = {**video,'downloaded':entry['download_status']=='ok'}
-    manifest['media'] = [m for m in manifest['media'] if m['role']!='video'] + [entry]
-    manifest['version'] = version
-    storage.write_json(dest/'source.json',source)
-    storage.write_json(dest/'manifest.json',manifest)
-    shutil.copyfile(old/'mcp_raw.json',dest/'mcp_raw.json')
+    with storage.stage_version(row['source'], row['source_id']) as stg:
+        entry = download(video, stg.path, 'raw/' + stg.path.name)
+        source['note']['video'] = {**video,'downloaded':entry['download_status']=='ok'}
+        shutil.copyfile(old/'mcp_raw.json',stg.path/'mcp_raw.json')
+
+        def finalize(v):
+            if entry.get('file'):
+                entry['file'] = f'raw/{storage.version_name(v)}/assets/video.mp4'
+            manifest['media'] = [m for m in manifest['media'] if m['role']!='video'] + [entry]
+            manifest['version'] = v
+            storage.write_json(stg.path/'source.json',source)
+            return manifest
+        version = stg.publish(finalize)
+    dest = storage.raw_dir(row['source'],row['source_id'],version)
     # 1024：只改版本这两个键，单篇锁里重读再写（下载期间别的入口写进 meta 的键不被旧副本盖掉）
     meta = storage.update_json(obj/'meta.json', lambda m: m.update(current_version=version,
         versions=storage.existing_versions(row['source'],row['source_id'])), lock_name=storage.obj_lock_name(row['item_id']))

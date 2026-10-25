@@ -6,9 +6,12 @@ RAW 不可变：`raw/v0001/` 一旦写完就不再打开写。任何修正写 `v
 from __future__ import annotations
 
 import contextlib
+import errno
 import functools
 import json
 import os
+import secrets
+import shutil
 import sys
 import tempfile
 import threading
@@ -102,29 +105,199 @@ def version_name(version: int) -> str:
     return f"v{version:04d}"
 
 
-def existing_versions(source: str, source_id: str) -> list[int]:
+STAGING_PREFIX = ".staging-"          # raw/.staging-<时间>-<pid>-<随机>/：写一半的 RAW，不是版本（点号开头，Obsidian 不显示）
+STAGING_STALE_S = 6 * 3600            # 超过这么久没发布的暂存目录当作上次崩了留下的，下次同一篇入库 / 自愈时清掉
+
+
+def version_dirs(source: str, source_id: str) -> dict[int, Path]:
+    """raw/ 下所有名字是 vNNNN 的目录（含老代码留下的半截），号 → 路径。"""
     base = object_dir(source, source_id) / "raw"
     if not base.is_dir():
-        return []
-    out = []
+        return {}
+    out: dict[int, Path] = {}
     for child in base.iterdir():
         if child.is_dir() and child.name.startswith("v") and child.name[1:].isdigit():
-            out.append(int(child.name[1:]))
-    return sorted(out)
+            out[int(child.name[1:])] = child
+    return out
+
+
+def is_complete_version(path: Path) -> bool:
+    """一个版本目录算「完整」= manifest.json 在（1025 第二波 PR④：它在改名发布前就写好了，所以 vNNNN 一出现就是完整的）。"""
+    return (path / "manifest.json").is_file()
+
+
+def existing_versions(source: str, source_id: str) -> list[int]:
+    """已有的**完整**版本号（升序）。1025 起只认带 manifest.json 的目录：老代码崩在下载中留下的半截 vNNNN 不算版本、
+    不进 meta.versions、重建索引时也不收（它们一个字节都不动，doctor 报个数）。"""
+    return sorted(v for v, p in version_dirs(source, source_id).items() if is_complete_version(p))
+
+
+def incomplete_versions(source: str, source_id: str) -> list[int]:
+    """老的半截版本目录（没有 manifest.json）。只报数，不动。"""
+    return sorted(v for v, p in version_dirs(source, source_id).items() if not is_complete_version(p))
 
 
 def next_version(source: str, source_id: str) -> int:
-    versions = existing_versions(source, source_id)
-    return (versions[-1] + 1) if versions else 1
+    """下一个版本号 = 所有 vNNNN 目录（含半截）里最大的 + 1：号码永不复用。"""
+    dirs = version_dirs(source, source_id)
+    return (max(dirs) + 1) if dirs else 1
 
 
 def ensure_raw_dir(source: str, source_id: str, version: int) -> Path:
-    """创建 raw/vNNNN/assets/ 并返回 raw 版本目录。已存在则拒绝（RAW 不可变）。"""
+    """创建 raw/vNNNN/assets/ 并返回 raw 版本目录。已存在则拒绝（RAW 不可变）。
+    （旧写法：先占号再往里写，崩了留半截。新代码用 stage_version + publish；ingest 的两处在第二波 PR⑤ 换。）"""
     target = raw_dir(source, source_id, version)
     if target.exists():
         raise FileExistsError(f"RAW 版本已存在，不可覆写: {target}")
     (target / "assets").mkdir(parents=True)
     return target
+
+
+class Staging:
+    """一次 RAW 写入的暂存目录（stage_version 给的）。往 `path` 里写全部文件，最后 `publish()` 一次改名成 vNNNN。"""
+
+    def __init__(self, source: str, source_id: str, path: Path):
+        self.source, self.source_id, self.path = source, source_id, path
+        self.version: int | None = None
+
+    @property
+    def published(self) -> bool:
+        return self.version is not None
+
+    def publish(self, finalize=None, *, retries: int = 6) -> int:
+        """发布：定版本号 → `finalize(version)`（返回 manifest 内容则由这里写成 manifest.json；返回 None 表示调用方已写好）
+        → 原子改名成 raw/vNNNN。返回版本号。
+
+        - 号 = 现有最大 vNNNN + 1（含半截，永不复用）；两个进程同时发布同一篇时后到的那个改名会撞上已存在的目录，
+          重新取号再试（finalize 会再调一次，拿到新号）。
+        - Windows 上目录被杀毒 / 同步软件短暂开着时 os.rename 会 PermissionError：稍等重试 `retries` 次，还不行就抛，
+          暂存留着等下次清，meta 不动 = 这次没入库，如实报失败。
+        - 改名前 manifest.json 必须在，不然抛 RuntimeError（防止又发出一个半截版本）。
+        """
+        if self.published:
+            raise RuntimeError(f"这份暂存已经发布成 {version_name(self.version)}")
+        if not self.path.is_dir():
+            raise FileNotFoundError(f"暂存目录不在了：{self.path}")
+        for attempt in range(max(1, retries) + 20):
+            version = next_version(self.source, self.source_id)
+            manifest = finalize(version) if finalize is not None else None
+            if manifest is not None:
+                write_json(self.path / "manifest.json", manifest)
+            if not is_complete_version(self.path):
+                raise RuntimeError("发布前 manifest.json 必须写好（RAW 版本一出现就得是完整的）")
+            target = raw_dir(self.source, self.source_id, version)
+            try:
+                os.rename(self.path, target)
+            except FileExistsError:
+                continue                         # 别人刚发了这个号：重新取号
+            except OSError as exc:
+                if exc.errno in (getattr(errno, "ENOTEMPTY", -1), errno.EEXIST):
+                    continue                     # POSIX 上目标目录已存在（非空）
+                if isinstance(exc, PermissionError) and attempt < retries:
+                    time.sleep(0.05 * (attempt + 1))
+                    continue
+                raise
+            self.version = version
+            return version
+        raise RuntimeError(f"发布 RAW 版本一直撞号 / 被占：{self.path}")
+
+
+def _staging_dirs(obj: Path) -> list[Path]:
+    base = obj / "raw"
+    try:
+        return sorted(p for p in base.iterdir() if p.is_dir() and p.name.startswith(STAGING_PREFIX))
+    except OSError:
+        return []
+
+
+def sweep_staging(obj: Path, *, older_than_s: float = STAGING_STALE_S, now: float | None = None) -> list[Path]:
+    """清掉这篇对象 raw/ 下过期（mtime 早于 older_than_s）的暂存目录。返回清掉的；清不掉的（被占）留着下次。"""
+    now = time.time() if now is None else now
+    removed: list[Path] = []
+    for p in _staging_dirs(obj):
+        try:
+            if now - p.stat().st_mtime < older_than_s:
+                continue
+            shutil.rmtree(p)
+            removed.append(p)
+        except OSError:
+            continue
+    return removed
+
+
+@contextlib.contextmanager
+def stage_version(source: str, source_id: str):
+    """新 RAW 版本的写法（1025 第二波 PR④）：
+
+        with storage.stage_version(src, sid) as stg:
+            ... 往 stg.path 里写 source.json / assets / ...
+            version = stg.publish(lambda v: manifest_for(v))   # 写 manifest.json → 改名成 vNNNN
+        meta = storage.update_json(...)                           # ★ 提交点在 with 外或内都行
+
+    退出 with 时没发布（抓取 / 下载中崩了、判重决定不写、抓的时候被删）→ 暂存目录整个删掉，磁盘上不留版本。
+    进来时顺手清掉这篇 6 小时前的过期暂存。暂存目录不占版本号。
+    """
+    obj = object_dir(source, source_id)
+    sweep_staging(obj)
+    (obj / "raw").mkdir(parents=True, exist_ok=True)
+    name = f"{STAGING_PREFIX}{datetime.now().strftime('%Y%m%dT%H%M%S')}-{os.getpid()}-{secrets.token_hex(3)}"
+    path = obj / "raw" / name
+    (path / "assets").mkdir(parents=True)
+    stg = Staging(source, source_id, path)
+    try:
+        yield stg
+    finally:
+        if not stg.published:
+            shutil.rmtree(path, ignore_errors=True)
+
+
+def probe_object(conn, source: str, source_id: str):
+    """把「在不在索引 / 有没有 meta / 有没有墓碑 / 有哪些完整版本」查成一个 domain.Probe，交给 domain.lookup 判断。
+    conn 是 index.connect() 给的；None 时只看磁盘（in_index / tombstoned 都当 False）。"""
+    from . import domain
+    in_index = tombstoned = False
+    if conn is not None:
+        try:
+            item_id = domain.item_id(source, source_id)
+        except ValueError:
+            item_id = ""
+        in_index = conn.execute("SELECT 1 FROM objects WHERE item_id = ?", (item_id,)).fetchone() is not None
+        tombstoned = conn.execute("SELECT 1 FROM tombstones WHERE source = ? AND source_id = ?",
+                                  (source, source_id)).fetchone() is not None
+    return domain.Probe(in_index=in_index, has_meta=(object_dir(source, source_id) / "meta.json").is_file(),
+                        tombstoned=tombstoned, complete_versions=tuple(existing_versions(source, source_id)))
+
+
+def raw_health(root: Path | None = None) -> dict[str, int]:
+    """全库扫一遍 raw/：几篇有老的半截版本、几个过期暂存目录（doctor 报数用；只读）。"""
+    root = root or archive_root()
+    half = stale = 0
+    now = time.time()
+    try:
+        source_dirs = [d for d in root.iterdir() if d.is_dir() and not d.name.startswith((".", "_"))]
+    except OSError:
+        return {"objects_with_incomplete_versions": 0, "stale_staging_dirs": 0}
+    for sd in source_dirs:
+        try:
+            objs = [o for o in sd.iterdir() if o.is_dir()]
+        except OSError:
+            continue
+        for obj in objs:
+            base = obj / "raw"
+            try:
+                children = list(base.iterdir())
+            except OSError:
+                continue
+            if any(c.is_dir() and c.name.startswith("v") and c.name[1:].isdigit() and not is_complete_version(c) for c in children):
+                half += 1
+            for c in children:
+                if c.is_dir() and c.name.startswith(STAGING_PREFIX):
+                    try:
+                        if now - c.stat().st_mtime >= STAGING_STALE_S:
+                            stale += 1
+                    except OSError:
+                        pass
+    return {"objects_with_incomplete_versions": half, "stale_staging_dirs": stale}
 
 
 # 原子写替换一直被拒时允许「原地覆写」的派生文件（能整份重生成的）：页面（md / 页面脚本 / 样式）、
