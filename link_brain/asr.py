@@ -22,6 +22,8 @@ import time
 import uuid
 import wave
 from pathlib import Path
+
+from .errtext import errtext
 from typing import Any
 
 from . import providers
@@ -130,7 +132,7 @@ def ensure_running(cfg: dict[str, Any] | None, *, wait_s: float = START_WAIT_S) 
             time.sleep(2.0)
         return False, f"拉起了转写服务（{how}），{int(wait_s)} 秒内端口 {host}:{port} 还没开"
     except Exception as exc:  # noqa: BLE001 - 拉不起来就如实说，转写照旧记「没开」
-        return False, f"拉起转写服务没成：{type(exc).__name__}: {exc}"[:200]
+        return False, f"拉起转写服务没成：{errtext(exc)}"[:200]
 
 
 def not_running(cfg: dict[str, Any]) -> dict[str, Any]:
