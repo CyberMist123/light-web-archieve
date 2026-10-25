@@ -34,6 +34,18 @@ jobs:
       - name: 时区钉到和测试样本一致（Windows）
         if: runner.os == 'Windows'
         run: tzutil /s "AUS Eastern Standard Time"
+      # ubuntu 24.04 的 AppArmor 默认不让非特权进程开 user namespace，Chrome 的沙箱起不来会一直挂着
+      #（test_e2e_real_pdf 真开浏览器出 PDF）。放开这一条内核开关只影响这台一次性 runner
+      - name: 放开 user namespace（Chrome 沙箱要它）
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: 无头 Chrome 打印冒烟（排查用，不影响结果）
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: |
+          echo '<html><body><h1>smoke</h1></body></html>' > /tmp/smoke.html
+          timeout 40 google-chrome --headless=new --incognito --disable-gpu --no-first-run --user-data-dir=/tmp/smoke-profile --print-to-pdf=/tmp/smoke.pdf file:///tmp/smoke.html; echo "rc=$?"
+          ls -la /tmp/smoke.pdf || true
       - name: 安装（pyproject 的依赖 + dev）
         run: |
           python -m pip install --upgrade pip
