@@ -120,6 +120,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
+          # 手动跑时标签还不存在、由 action 新建：钉在本次构建用的提交上，不然默认建到默认分支，标签源码和附件对不上（Codex 1025）
+          target_commitish: ${{ github.sha }}
           name: 读取组件 ${{ steps.meta.outputs.version }}（Windows x64）
           body_path: dist/notes.md
           files: |

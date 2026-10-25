@@ -498,11 +498,23 @@ def _new_rows(known: list[dict[str, Any]], extra: list[dict[str, Any]]) -> list[
 
 def _read_rows(*, strict: bool = False) -> list[dict[str, Any]]:
     """problems.jsonl + 还没并回的旁路行。strict=True 时读不出来就抛（report 据此不推送），否则读不出来当空。"""
-    extra: list[dict[str, Any]] = []
-    for f in _pending_files():  # 先读旁路再读主文件：中间正好被并回，最多重一遍（按事件 id 去掉），不会漏
-        extra += _read_file(f, strict)
-    rows = _read_file(path(), strict)
-    extra = _new_rows(rows, extra)
+    # 锁外读，和拿着锁的并回 / 压实赛跑（Codex 1025 #12）。规矩：读旁路 → 读主文件 → 再看一眼旁路清单，
+    # 清单没变才算读到了一致的一份；变了（有旁路被并回删掉 / 标 .merged，或新写进来）就整个重来，最多几轮。
+    # 为什么这样就对：并回是「先写主文件，再删 / 标记旁路」，压实在那之后。
+    # - 两眼之间消失的旁路：它的行已在主文件里，但我读的主文件可能是旧的（少它）或压实过的（丢了事件 id）→ 都不能直接用，重读；
+    # - 两眼都在的旁路：要么还没并回（主文件没有它，加上），要么并回了还没来得及删 / 标记（主文件有它、还没压实，按事件 id 去掉）。
+    cache: dict[Path, list[dict[str, Any]]] = {}
+    files: list[Path] = []
+    rows: list[dict[str, Any]] = []
+    for _ in range(4):
+        files = _pending_files()
+        for f in files:
+            if f not in cache:
+                cache[f] = _read_file(f, strict)
+        rows = _read_file(path(), strict)
+        if set(_pending_files()) == set(files):
+            break
+    extra = _new_rows(rows, [r for f in files for r in cache.get(f, [])])
     return _ordered(rows + extra) if extra else rows
 
 

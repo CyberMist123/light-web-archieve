@@ -23,7 +23,7 @@
 - **插件拉 Python**：插件只有一个起进程入口 `spawnPy`，每次调用 `python -m link_brain <子命令> --json`，**只认 stdout 最后一行 JSON**（`{ok, code, message, …}`）；stderr 最后一行是人话原因。长任务互斥（同一时刻一个），轻量调用并行。
 - **Python 拉读取服务**：所有要登录小红书的操作经本机 HTTP 服务 `link-brain-reader`（`reader/` 里的 Go 补丁版 xiaohongshu-mcp，默认端口 18061）。它**不是任何 Python 的子进程**（经短命中转拉起），所以杀 Python 进程树不会杀掉浏览器会话；一个号只有一个浏览器 profile，操作串行。
 - **夜跑**：`python -m link_brain nightly` 按步骤顺序起子进程（同步收藏 → 补附件 → 补评论 → 概要 / 打标 → 识图 → 转写 → 向量 → 目录），每步带时限，超时只杀这一步；碰号的步骤一旦撞风控 / 掉登录（退出码 5）后面碰号的全跳过。Windows 上由计划任务 `LinkBrainNightly` 触发，插件设置里开关。
-- **跨入口并发**：命令行、插件、夜跑、MCP 可能同时写同一份文件，靠 `storage.file_lock(name)` 文件锁；等不到锁的一律写旁路再并回，不丢记录。
+- **跨入口并发**：命令行、插件、夜跑、MCP 可能同时写同一份文件，靠 `storage.file_lock(name)` 文件锁，等不到就抛 `LockBusy`、由调用方如实报；只有问题记录这类账本等不到锁时写旁路再并回，不丢记录。
 - **退出码**：0 成功 / 部分完成 · 1 出错 · 2 缺内容 · 5 号要人处理 · 6 号被占用（`cli.py` 开头）。
 
 ## 真相文件 vs 派生文件
@@ -40,7 +40,7 @@ vault 里 `_archive/` 下的文件分两类。真相文件丢了就是丢了（�
 | 库根 `索引.md`（用户写的分类树）、`albums.json`、`topics.json`、`selections` | 用户 | `index-ai.json`、`index-suggestions.json` | `indexai` |
 | 可见笔记 `Web/Xiaohongshu/*.md` 的批注区 | 用户 | 可见笔记的正文区（标记对之间） | `render` |
 
-配置的唯一来源：插件 `data.json`（AI 接口、远程阅读、Python 路径）；账号与读取服务状态在 `~/.link-brain/`。两处都不进 vault。
+配置的唯一来源：插件 `data.json`（AI 接口、远程阅读、Python 路径），在 vault 的 `.obsidian/plugins/link-brain-actions/` 下；账号登录态与读取服务状态在 `~/.link-brain/`，不在 vault 里。
 
 ## 怎么改它
 
