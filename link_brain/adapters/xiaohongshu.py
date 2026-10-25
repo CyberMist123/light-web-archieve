@@ -65,35 +65,13 @@ HASHTAG_RE = re.compile(r"#([^#\[\]]{1,30})\[话题\]#")
 ATTACHMENT_HINT_RE = re.compile(r"[^\n。！？]{0,40}(?:附件|在文件|文件里|笔记文件)[^\n。！？]{0,40}")
 
 
-class AdapterError(RuntimeError):
-    """输入解析或抓取失败。"""
+from .. import sources
 
-
-class NeedsHumanError(AdapterError):
-    """要停车叫人的那一类失败（和"这篇笔记没了"必须分开）。
-
-    后者只是这一条抓不到，批量可以接着跑；这一类接着跑只会把剩下的全刷成失败。
-    """
-
-
-class AccountBlockedError(NeedsHumanError):
-    """**号出事了**：登录态失效 / 撞风控验证码 / 被限流。"""
-
-
-class NoteRestrictedError(AdapterError):
-    """1011：**只是这一篇**打不开——小红书网页版限制了它（她的浏览器里打开要「验证一下」），读取服务打开详情页、
-    页面上没有这篇（读取组件 `[NOTE_RESTRICTED]`）。不是号出事：不停整批、不写熔断；处理见 link_brain/restricted.py。"""
-
-    code = "NOTE_RESTRICTED"
-
-
-class ServiceDownError(NeedsHumanError):
-    """**服务出事了**：18060 没在听、MCP 内部错、它那个浏览器起不来。
-
-    2026-09-04 实际发生过：批量跑到第 19 条，MCP 回
-    「[launcher] Failed to get the debug url」，后面 7 条全 3 秒失败——
-    这种必须当场停车报警，不然就是 Owner 说的"不知不觉挂了"。
-    """
+AdapterError = sources.SourceError
+NeedsHumanError = sources.NeedsHuman
+AccountBlockedError = sources.AccountBlocked
+NoteRestrictedError = sources.ItemRestricted
+ServiceDownError = sources.ServiceDown
 
 
 # 号出事的迹象（MCP 报错文本 / 网页返回里出现这些词）。宁可多报一次，也别不知不觉挂着跑

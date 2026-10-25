@@ -27,7 +27,7 @@ import sys
 from typing import Any
 from urllib.parse import urlsplit
 
-from . import accounts, ingest as ingest_mod, problems, read as read_mod, storage
+from . import accounts, ingest as ingest_mod, problems, read as read_mod, sources, storage
 from .adapters import xiaohongshu as xhs
 
 EXIT_OK = 0
@@ -135,7 +135,7 @@ def _catch_one(
     except accounts.AccountBusyError as exc:
         return {"item_id": None, "status": "busy", "url": url, "error": f"{BUSY_MESSAGE}（{exc}）",
                 "code": "ACCOUNT_BUSY"}
-    except xhs.NeedsHumanError as exc:
+    except sources.NeedsHuman as exc:
         # 号出事 / 服务出事，不是这条链接的问题：登记问题 + 让上层停车，别把剩下的全刷成失败。
         # 账号类 NEEDS_HUMAN（记在 login，推一次）；读取服务没起来 / 超时 TRANSIENT（只记不推，下次再试）
         service = isinstance(exc, xhs.ServiceDownError)

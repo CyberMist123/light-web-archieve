@@ -201,6 +201,14 @@ R = {"status": "ok|failed|skipped", "text": str|None, "code": "<故障码或空>
 - `ask.selftest:426-461` 按能力枚举；`main.js:1095,1212,1175 addTestButton` 改调 `selftest <cap>`。
 - 两份默认值：`main.js:17-43 DEFAULT_SETTINGS` 与 `ai_config.DEFAULTS:52-86` 已经漂移（`dailyNewLimit` 200/50，Sonnet 命令不同，插件缺 `expandTerms` 说明）→ Python 生成 `assets/defaults.json`，两边都读它。
 
+### 来源接口
+
+共享层的来源接口和异常只从 `link_brain.sources` 导入：`SourceError / NeedsHuman / AccountBlocked / ServiceDown / ItemRestricted`、`Parsed / FetchOptions / Fetched / MediaTask / Source`。注册表存模块路径字符串，`get(name)` 用到才加载；`names()` 列来源，`detect(text)` 提取链接并去重保序。接口包不得 import 其他 `link_brain` 模块。
+
+具体来源实现 `matches / find_urls / parse / fetch / normalize / fingerprint / media_plan`，`parse` 在保留来源私有旧键的同时给出 `source / source_id`。来源私有能力经 `capabilities` 声明（`account / favorites_sync / comments_fill / attachments / albums`），由入口层直接调用，不加到通用接口里。
+
+第二波 PR② 先建立接口和异常别名；既有共享层的小红书解析、抓取和下载调用在后续 PR 中迁移。本 PR 的小红书 `fetch` 只转接现有重试函数，网页附件探测 / 登录号补看仍留在 ingest；`find_urls` 暂时保留与 catch 相同的实现，由契约测试核对。`media_plan` 只列计划，现有下载函数照旧。
+
 ---
 
 ## 5. 页面状态与重绘（Dataview 2.5 秒刷新前提下）

@@ -18,7 +18,7 @@ from typing import Any
 
 import httpx
 
-from . import __version__, domain, index as index_mod, problems, storage
+from . import __version__, domain, index as index_mod, problems, sources, storage
 from .adapters import xiaohongshu as xhs
 
 EXIT_OK = 0
@@ -350,7 +350,7 @@ def _fetch_with_retry(parsed: dict[str, Any], *, log, comment_floors=None, budge
         accounts.pace("打开笔记")  # 1001：跨进程开页间隔（与附件、补看、读收藏共用一个时刻戳）
         try:
             return xhs.fetch_detail(parsed["note_id"], parsed["xsec_token"], **kwargs)
-        except xhs.ServiceDownError as exc:
+        except sources.ServiceDown as exc:
             if attempt == SERVICE_RETRIES:
                 raise
             wait = SERVICE_BACKOFF[min(attempt - 1, len(SERVICE_BACKOFF) - 1)]
@@ -802,14 +802,14 @@ def run(args) -> int:
             verbose=getattr(args, "verbose", False),
             refresh=getattr(args, "refresh", False),
         )
-    except xhs.NeedsHumanError as exc:
+    except sources.NeedsHuman as exc:
         # 号出事 / 服务出事：单独一个退出码 + 登记问题（账号类 NEEDS_HUMAN 推一次；服务类 TRANSIENT 只记），
         # 别让批量脚本闷头把剩下的全刷成失败
         service = isinstance(exc, xhs.ServiceDownError)
         problems.report_blocked("ingest", getattr(exc, "code", "") or "", f"导入停了：{exc}", service=service)
         print(f"归档中止（{'服务' if service else '账号/风控'}）: {exc}", file=sys.stderr)
         return EXIT_NEEDS_HUMAN
-    except xhs.AdapterError as exc:
+    except sources.SourceError as exc:
         print(f"归档失败: {exc}", file=sys.stderr)
         return EXIT_ERROR
     except FileExistsError as exc:
@@ -901,7 +901,7 @@ def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = Fa
         old_token = restricted.best_token(sid, note.get("xsec_token") or "")
         try:
             summary = attempt(old_token)
-        except xhs.NoteRestrictedError as exc:
+        except sources.ItemRestricted as exc:
             # 1011：这篇在网页版要验证才能看：今天没搜过就用标题搜一次新口令、歇一会儿再开一次；还不行就如实说、给「打开验证」
             opened, summary = restricted.retry_with_fresh_token(
                 sid, title=note.get("title"), old_token=old_token, attempt=attempt,
@@ -1007,17 +1007,17 @@ def run_comments(args) -> int:
         fill = getattr(args, "fill", False)
         summary = fetch_comments(args.target, floors=floors, verbose=getattr(args, "verbose", False),
                                  fill=fill, progress=None if fill else progress_emitter(args))
-    except xhs.NeedsHumanError as exc:
+    except sources.NeedsHuman as exc:
         print(f"评论抓取中止（账号或服务要处理）: {exc}", file=sys.stderr)
         dump_json({'ok': False, 'code': 'NEEDS_HUMAN', 'message': f'评论没抓：{exc}'})
         return EXIT_NEEDS_HUMAN
-    except xhs.NoteRestrictedError as exc:
+    except sources.ItemRestricted as exc:
         # 1011：只是这一篇（网页版要验证才能看）：笔记页评论区顶上已经有「打开验证」
         print(f"评论没抓：{exc}", file=sys.stderr)
         dump_json({'ok': False, 'code': 'NOTE_RESTRICTED', 'item_id': args.target,
                    'message': '评论没抓：这篇在小红书网页版要验证才能看——点评论区顶上的「打开验证」过一下，过完自动补抓'})
         return EXIT_ERROR
-    except (xhs.AdapterError, FileNotFoundError) as exc:
+    except (sources.SourceError, FileNotFoundError) as exc:
         print(f"评论抓取失败: {exc}", file=sys.stderr)
         dump_json({'ok': False, 'code': '', 'message': f'评论没抓：{exc}'})
         return EXIT_ERROR
