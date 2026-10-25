@@ -1,5 +1,7 @@
 # Current State
 
+- 2026-10-25 读取组件第一个预编译件发布：Release `reader-v0.2.0`（Actions 手动跑发布工作流，标签建在 main fdf4a34），`reader_install.RELEASE_URL / RELEASE_SHA256` 回填，`setup` 的读取组件一行从「手动放 exe」变成「点安装下载并校验」；内置地址和校验和成对用（只给一半不凑）。云端用真实地址装过一次（5 个文件进 bin）、改一位校验和被拒。**未部署**；reader/README 的「预编译件」一段待她点头。
+
 - 2026-10-25（分支 zcode/t2-atomic-write，**未部署**，不改行为、不用部署）最后两处手写原子写迁走（CONVENTIONS §6.5 收尾）：`crawl.write_status`、`remote/secret_box.save` 的「写 `.tmp` 再 `os.replace`」各 3 行换成 `storage.atomic_write_text`（同目录临时文件 + fsync + 被占重试）；对外语义不变——write_status 照旧吞 OSError（写不进就算了），save 照旧失败删旧副本返回 False（`tests/test_atomic_write_leftovers.py` 先红后绿：迁移前 storage 抛 OSError 时两处都不走 storage，写失败用例红）。守卫「手写原子写」正则补上 `with_suffix(".tmp")` / `NamedTemporaryFile(` / 双引号 `.tmp"`（旧正则只认单引号），基线重写后该规则变 `{}`，其余规则未动；scan 自测加 `test_scanner_catches_hand_rolled_atomic_writes`。无新故障码。
 
 - 2026-10-25（分支 feat/sources-contract，未部署，草稿 PR 待审）第二波 PR②：建立 sources 来源接口 / 延迟注册表和小红书薄接层；五类异常改为同对象别名，catch / ingest 只改 except 接口；保留原解析、归一化与下载流程。来源契约覆盖旧函数对照和下载清单，停车入口实测 error → blocked。PR⑥ 等 PR⑤ 合并和补充细则后再做。验收见 tests/acceptance/20261025-wave2-pr2-sources.md。

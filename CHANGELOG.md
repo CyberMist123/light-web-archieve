@@ -5,6 +5,7 @@
 
 ## 未发布
 
+- 读取组件第一个预编译件发布：GitHub Release `reader-v0.2.0`（Windows x64）。程序里内置了它的地址和 sha256，首次引导的「读取组件」可以一键下载安装，不用再装 Go 自己编译。`reader install` 只给 `--url` 或只给 `--sha256` 时不再拿内置的另一半凑。
 - 开源前 P1：一页 `docs/ARCHITECTURE.md`；读取组件预编译发布工作流（`reader-v*` 标签 → GitHub Release，Windows x64 zip + sha256，上游基线钉在 `reader/UPSTREAM`）；
   问题记录旁路并回后删不掉时放 `.merged` 标记，不再卡住压实；`docs/FORMAT.md` 补 `tombstones.jsonl` / `problems.pending/` / `eid`；版本号统一为 0.2.0 并新增本文件。
 
