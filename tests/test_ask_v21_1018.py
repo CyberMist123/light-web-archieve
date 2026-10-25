@@ -2,6 +2,8 @@
 自检新指标（防御句 / 搬运度 / 流水账 / 导读）、MCP 会话状态（thread_id / 兜底绑定 / 指代解析）。全部合成数据，不调模型。"""
 from __future__ import annotations
 
+import sys
+
 import io
 import json
 from datetime import datetime, timedelta
@@ -325,6 +327,7 @@ def _ctx(tmp_path, local=False):
     return mt.Ctx(policy=Policy.build(tmp_path, ["@xhs"]), local=local, who="远程·GPT")
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="样本里是 Windows 路径 D:\\…，别的平台 Path 取不出文件名")
 def test_mcp_ask_with_thread_id_locks_first_source(monkeypatch, tmp_path):
     monkeypatch.setenv("LINK_BRAIN_ASK_TURNS", str(tmp_path / "t.json"))
     ask_turns.record("tA", {k: v for k, v in PARENT.items() if k != "turn_id"})

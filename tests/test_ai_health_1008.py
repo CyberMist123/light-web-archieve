@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import json
 from types import SimpleNamespace
 
@@ -80,6 +82,7 @@ def test_success_clears_row_and_list(configured):
     assert ai_health.affected("visionAI") == []
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="样本里是 Windows 路径 D:\\x\\keys.csv，别的平台 Path 取不出文件名")
 def test_key_hint_names_file_or_env_without_leaking(configured):
     assert providers.key_source({"keyFile": r"D:\x\keys.csv", "keyField": "qwen"}) == "密钥文件 keys.csv 里的「qwen」"
     assert providers.key_source({"apiKeyEnv": "LWA_KEY"}) == "环境变量 LWA_KEY"

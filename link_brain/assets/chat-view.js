@@ -763,9 +763,12 @@ const sub = titleBlock.createEl('div', { cls: 'lbchat-sub' });
 function paintSub() {
   const at = LB.dataUpdatedAt(data);
   const d = at ? new Date(at) : null;
+  // 1025 开源前 P0：目录数据格式和页面对不上（旧数据 / 旧插件）——和目录页同一句话
+  const schemaWhy = LB.schemaIssue(data);
+  const tail = schemaWhy ? ` · ${schemaWhy}` : '';
   // 1023：问收藏搜的是全部（含聊天分享 / Fable 收的），写明「全部」，和目录页「N 篇 · 全部 M」对得上
-  if (!d || isNaN(d)) { sub.setText(`全部 ${items.length} 篇`); return; }
-  sub.setText(`全部 ${items.length} 篇 · 更新 ${d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}`);
+  if (!d || isNaN(d)) { sub.setText(`全部 ${items.length} 篇${tail}`); return; }
+  sub.setText(`全部 ${items.length} 篇 · 更新 ${d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}${tail}`);
 }
 paintSub();
 const pageNav = head.createEl('nav', { cls: 'lb-page-nav' });

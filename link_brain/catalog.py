@@ -42,6 +42,10 @@ STATE_NAME = "catalog-state.json"
 # 1023 ARCH-AUDIT 第 1 批：目录的输入（meta / 标签 / 专辑 / 回收站…）变了就记一笔「待重建」，
 # 统一由 ensure_fresh 重建；build 写完且期间没人再记，才清掉。文件在 = 目录数据落后于库。
 DIRTY_NAME = "catalog-dirty.json"
+# 1025 开源前 P0：catalog-data 的格式版本号（插件 ↔ 后端握手）。页面脚本 lb-page-lib.js 里的 CATALOG_SCHEMA 必须和它相等
+# （tests/test_catalog.py::test_build_writes_schema_and_page_lib_agrees 守着）。字段改了页面读不懂时 +1：
+# 页面读到对不上的数据，说一句「重建目录 / 更新插件」而不是崩或者画错。
+CATALOG_SCHEMA = 1
 
 SUMMARY_CHARS = 90
 
@@ -808,6 +812,7 @@ def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Pa
         usage_month = None
     slim_items, search_index = split_search(items)
     payload = {
+        "schema": CATALOG_SCHEMA,
         "built_at": now.isoformat(),
         "pages": pages,
         "count": len(items),

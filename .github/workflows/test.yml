@@ -1,0 +1,69 @@
+# 开源前 P0（1025）：每次 push / PR 在干净机器上跑一遍，和 CONVENTIONS §7 的本地跑法一致。
+# - Python：ubuntu + windows 两套；测试的时间断言按东八区写，所以先把机器时区钉到东八区（Linux 用 TZ，Windows 用 tzutil）。
+# - Node：只跑 node 单测（tests/run-node.cjs --unit）；页面 UI 测试要 playwright + 真 vault 数据，CI 上不跑，和本地「没装 playwright 标 SKIP」一致。
+# - 隐私闸：PR 上用 scripts/privacy_gate.py 扫新提交的文件类型和密钥特征（本机私有清单和邮箱规则只在作者机器上生效）。
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    name: pytest (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      TZ: Asia/Shanghai
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Windows 时区钉到东八区
+        if: runner.os == 'Windows'
+        run: tzutil /s "China Standard Time"
+      - name: 安装（pyproject 的依赖 + dev）
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: pytest
+        run: python -m pytest -q
+
+  node:
+    name: node 单测
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Shanghai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: node 单测（不装 playwright：页面测试照本地规则 SKIP）
+        run: node tests/run-node.cjs --unit
+
+  privacy-gate:
+    name: 隐私闸（文件类型 + 密钥特征）
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 扫这个 PR 新增的提交
+        env:
+          LWA_GATE_NO_PRIVATE: "1"   # 本机私有特征清单不进仓库，CI 上没有
+          LWA_GATE_SKIP_EMAIL: "1"   # 邮箱规则防的是作者个人邮箱，别人的 PR 不按它拦
+          PYTHONIOENCODING: utf-8
+        run: python scripts/privacy_gate.py --base ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}

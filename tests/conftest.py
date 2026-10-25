@@ -16,6 +16,13 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
+import time
+
+# 测试里的时间断言按东八区写（作者机器）：别的时区的机器 / CI 上先把进程时区钉住，不然日期差一天、时刻差 8 小时。
+# Windows 没有 tzset，靠 CI 里 `tzutil /s "China Standard Time"`（见 .github/workflows/test.yml）。
+if not os.environ.get("TZ") and hasattr(time, "tzset"):
+    os.environ["TZ"] = "Asia/Shanghai"
+    time.tzset()
 
 import httpx
 import pytest

@@ -1243,6 +1243,13 @@ append-only，一次模型接口调用一行（`link_brain/usage.py`，CONVENTIO
 - 内容没变不写：`catalog-data.json` / 检索索引 / 页面 md / 页面脚本 / 回收站页，内容和盘上一样就不动（`built_at`、`index.generated_at` 不算内容）——以前每次重建都重写页面 md，Dataview 整页重画 = 刷屏。`catalog-state.json` 多一个 `checked_at`（最后一次核对的时间），页面判「数据较旧」时取 `max(built_at, checked_at)`。
 - `catalog-data.counts`：`{all, mine, by_src}`。all = 目录里全部（回收站不算），mine = 来源为「我的收藏」，by_src = 其它来源各几篇。目录页默认只看「我的收藏」，表头写「N 篇 · 全部 M」；问收藏页搜全部，写「全部 M 篇」。
 
+## 2026-10-25 `catalog-data.schema`（插件 ↔ 后端握手，开源前 P0）
+
+- `catalog-data.json` 顶层多一个整数 `schema`（`catalog.CATALOG_SCHEMA`，现在是 1）。页面脚本 `lb-page-lib.js` 里有同名常量，`tests/test_catalog.py::test_build_writes_schema_and_page_lib_agrees` 守着两边相等。
+- 口径：catalog-data 的**字段**改到页面读不懂时两边一起 +1；只加字段、页面照旧能画的不用动。
+- 页面读到对不上的数据不猜着画，在标题下那行（目录页「数据较旧」同一处，问收藏页篇数后面）说一句能照做的话：没有 `schema` =「旧版程序生成的：刷新目录」；比页面新 =「更新插件后再刷新目录」；比页面旧 =「刷新目录」。`LB.schemaIssue(data)` 返回这句或 null。
+- 依赖：`pyproject.toml` 把 `mcp` 封顶在 `<2`（2.x 删了 `streamablehttp_client` 和 `Server.list_tools`，小红书适配器和远程 MCP 服务直接抛错；作者 .venv 是 1.x 所以本机没感觉，新装的人第一次就撞）。
+
 ## 2026-10-24 Python 解释器 `pythonPath`（插件 data.json，P0 1024）
 
 - 唯一配置：插件 `data.json` 顶层 `pythonPath`（字符串，设置 → 开发者 → 「Python 路径」；去首尾空白和外层双引号）。空 / 没有这个键（旧设置）= 程序目录下 `.venv` 的 python（Windows `.venv\Scripts\python.exe`，其他 `.venv/bin/python`），没有再用 `python`（插件）/ 当前解释器（后端）。没有第二处配置（不进 `~/.link-brain/config.json`）。

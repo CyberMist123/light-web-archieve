@@ -97,6 +97,9 @@ def scan_commit(sha, private):
     problems = []
     who = git("show", "-s", "--format=%ae%n%ce", sha).split()
     for email in who:
+        # 邮箱规则防的是作者个人邮箱进公开历史；CI 上扫别人的 PR 时设 LWA_GATE_SKIP_EMAIL=1 只查文件类型和密钥特征
+        if os.environ.get("LWA_GATE_SKIP_EMAIL") == "1":
+            break
         if not NOREPLY.search(email):
             problems.append("author/committer email is not a GitHub noreply address")
             break
@@ -116,15 +119,21 @@ def scan_commit(sha, private):
 
 def main(argv):
     remote = "origin"
+    base = None  # CI：--base <sha> 只扫 base 之后的提交（PR 的头分支本身就在远端上，按「远端没有的」会扫出 0 个）
     if len(argv) >= 2 and argv[0] == "--remote":
         remote, argv = argv[1], argv[2:]
+    if len(argv) >= 2 and argv[0] == "--base":
+        base, argv = argv[1], argv[2:]
     tips = [a for a in argv if re.fullmatch(r"[0-9a-f]{40}", a)]
     if not tips:
         return 0
     try:
         private = load_private()
-        exclude = [f"--remotes={remote}"] if git("for-each-ref", f"refs/remotes/{remote}").strip() else []
-        commits = git("rev-list", *tips, "--not", *exclude).split() if exclude else git("rev-list", *tips).split()
+        if base:
+            commits = git("rev-list", *tips, f"^{base}").split()
+        else:
+            exclude = [f"--remotes={remote}"] if git("for-each-ref", f"refs/remotes/{remote}").strip() else []
+            commits = git("rev-list", *tips, "--not", *exclude).split() if exclude else git("rev-list", *tips).split()
         blocked = {}
         for sha in commits:
             found = scan_commit(sha, private)

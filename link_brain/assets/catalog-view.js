@@ -684,7 +684,7 @@ async function refresh({ strict = false } = {}) {
   data = next; allItems = data.items || []; applySrc();
   await loadIndex();
   if (activeCat && !knownCat(activeCat)) activeCat = '';
-  refreshTags(); dataRev++; stale = false;
+  refreshTags(); dataRev++; stale = false; paintSchema();
   startWarm();
   renderCatBar();
   withAnchor(() => render());
@@ -735,6 +735,10 @@ const possibleLink = subLine.createEl('button', { cls: 'lbc-sub lbc-sub-link lbc
 const sepUpdated = subLine.createEl('span', { cls: 'lbc-sub-sep', text: '·' });
 const updatedBtn = subLine.createEl('button', { cls: 'lbc-sub lbc-sub-link lbc-updated' }); updatedBtn.type = 'button';
 const staleEl = subLine.createEl('span', { cls: 'lbc-sub lbc-stale', text: '· 这台设备上的目录数据较旧' }); staleEl.hidden = true;
+// 1025 开源前 P0：目录数据的格式版本和页面对不上（旧数据 / 旧插件）——同一处、同一种字，说清该做什么
+const schemaEl = subLine.createEl('span', { cls: 'lbc-sub lbc-stale lbc-schema' }); schemaEl.hidden = true;
+function paintSchema() { const why = LB.schemaIssue(data); schemaEl.hidden = !why; if (why) { schemaEl.setText('· ' + why); schemaEl.title = why; } }
+paintSchema();
 // 第 4 批（CONVENTIONS §3.3）：顶部问题入口。数字来自 _archive/problems-summary.json；「要你处理」橙色，其余灰色，都为 0 不显示
 const probBtn = subLine.createEl('button', { cls: 'lbc-problems' }); probBtn.type = 'button'; probBtn.hidden = true;
 // C14：「· 同步中」带上阶段，悬停看全句，点开同步记录

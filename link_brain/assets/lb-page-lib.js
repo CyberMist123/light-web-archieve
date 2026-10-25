@@ -211,6 +211,17 @@ function lbPageLib(dv, app, role) {
   }
   // 目录数据的生成时刻（catalog.build 每次重写；patch_items 不改它）：目录页和问收藏页的「更新 …」都显示它（F4）
   const dataUpdatedAt = d => (d && typeof d === 'object' && d.built_at ? String(d.built_at) : null);
+  // 1025 开源前 P0：catalog-data 的格式版本（后端 catalog.CATALOG_SCHEMA 写进 data.schema）。对不上就给页面一句能照做的话，
+  // 不猜着画：没有 schema = 旧版程序生成的数据；比页面新 = 插件 / 页面旧了；比页面旧 = 目录数据旧了。对得上返回 null。
+  const CATALOG_SCHEMA = 1;
+  function schemaIssue(d) {
+    if (!d || typeof d !== 'object') return null;
+    const v = Number(d.schema);
+    if (!Number.isFinite(v)) return '目录数据是旧版程序生成的：请刷新目录（右上「…」→ 刷新目录）';
+    if (v > CATALOG_SCHEMA) return `目录数据（格式 ${v}）比这个页面（格式 ${CATALOG_SCHEMA}）新：请更新插件后再刷新目录`;
+    if (v < CATALOG_SCHEMA) return `目录数据（格式 ${v}）比这个页面（格式 ${CATALOG_SCHEMA}）旧：请刷新目录`;
+    return null;
+  }
 
   // ── 页面挂载点（§5.9，C4）：页面 DOM 挂在 dv.container 后面的兄弟节点 host 上 ──
   // Dataview 重跑只清 container.innerHTML（0.5.68：main.js:19056），碰不到它的兄弟，输入框不失焦、输入法不断。
@@ -615,6 +626,6 @@ function lbPageLib(dv, app, role) {
 
   return { root, path, provider, ensure, state, data, keep, rekeep, reuseDom, listen, onUnload, scroller, restoreScroll, onScroll, t, mark, role, get container() { return container; },
     // 批次 D 地基
-    mountHost, style, dataUpdatedAt, mobile, MOBILE_ONLY_TEXT, mobileNote, need, openPage,
+    mountHost, style, dataUpdatedAt, schemaIssue, CATALOG_SCHEMA, mobile, MOBILE_ONLY_TEXT, mobileNote, need, openPage,
     say, progress, undoNotice, confirm, busy, showMenu, menuOpen, trackFocus, restoreFocus, activeLeafHas };
 }

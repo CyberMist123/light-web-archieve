@@ -177,7 +177,7 @@ def test_same_name_different_file_does_not_overwrite_bytes(tmp_path, monkeypatch
     elsewhere = tmp_path / "x"
     elsewhere.mkdir()
     clash = elsewhere / "教程.pdf"
-    import pymupdf
+    pymupdf = pytest.importorskip("pymupdf")  # 只有这条用它造 PDF，不在 pyproject 依赖里
     doc = pymupdf.open()
     doc.new_page().insert_text((72, 72), "a different file with the same name")
     clash.write_bytes(doc.tobytes())

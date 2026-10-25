@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import sys
 import threading
 import time
@@ -87,6 +89,7 @@ print("答完", flush=True)
 """
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="遗留子进程的清理按 Windows 的进程树实现，别的平台会等子进程睡完")
 def test_cli_call_model_exits_but_child_holds_pipe_finishes_and_child_is_gone():
     deltas = []
     t0 = time.monotonic()
@@ -98,6 +101,7 @@ def test_cli_call_model_exits_but_child_holds_pipe_finishes_and_child_is_gone():
     assert procs.wait_gone(kid, timeout=10), "模型退出后留下的子进程要结束"
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="同上：Windows 进程树")
 def test_cli_call_stop_after_model_exited_still_kills_orphan(monkeypatch):
     monkeypatch.setattr(text_stream, "CLI_EXIT_GRACE", 30.0)  # 让「停止」先于退出收尾到达
     ev = threading.Event()
