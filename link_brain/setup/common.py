@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+from ..errtext import errtext
+
 Emit = Callable[[dict[str, Any]], None]
 
 
@@ -80,5 +82,5 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
     try:
         storage.write_json(path, _deep_merge(raw, patch))
     except OSError as exc:
-        return {"written": False, "path": str(path), "reason": f"插件设置写不进去：{type(exc).__name__}: {exc}"}
+        return {"written": False, "path": str(path), "reason": f"插件设置写不进去：{errtext(exc)}"}
     return {"written": True, "path": str(path), "reason": ""}

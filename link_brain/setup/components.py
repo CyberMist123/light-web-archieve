@@ -481,7 +481,7 @@ def _ocr_selftest(tier: str, model_dir: str) -> None:
         try:
             got = RapidOCR(params=params)(str(path))
         except Exception as exc:  # noqa: BLE001
-            raise SetupError("PERMANENT.BAD_PACKAGE", f"OCR 模型加载 / 识别失败：{type(exc).__name__}: {exc}") from exc
+            raise SetupError("PERMANENT.BAD_PACKAGE", f"OCR 模型加载 / 识别失败：{errtext(exc)}") from exc
     if not any("12345" in str(t) or "test" in str(t).lower() for t in (got.txts or ())):
         raise SetupError("PERMANENT.MODEL_OUTPUT_INVALID", f"OCR 能跑但测试图没认对：{list(got.txts or ())[:3]}")
 
@@ -536,7 +536,7 @@ def install(component: str, emit: Emit | None = None, *, asr_model: str = capswr
         ok, code, message = False, exc.code, exc.message
         extra.setdefault("manual", exc.code == "SKIPPED.NOT_CONFIGURED")
     except Exception as exc:  # noqa: BLE001
-        ok, code, message = False, "TRANSIENT.STEP_CRASHED", f"安装出错：{type(exc).__name__}: {exc}"
+        ok, code, message = False, "TRANSIENT.STEP_CRASHED", f"安装出错：{errtext(exc)}"
     return _final(component, ok, code, message, **extra)
 
 

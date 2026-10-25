@@ -21,6 +21,7 @@ import time
 from typing import Any, Callable
 
 from .common import Emit
+from ..errtext import errtext
 
 LIGHT = ["core", "reader", "dataview", "ocr"]
 STAGES = [
@@ -209,7 +210,7 @@ def run(emit: Emit, *, child=_child, account_check=None) -> dict[str, Any]:
             say("comments", "ok", ("后台在补" if st["pending"] else "评论都补齐了") +
                 (f"（{st['pending']} 篇、{st['missing']} 条回复）" if st["pending"] else "") if r.get("ok") else "没拉起来")
         except Exception as exc:  # noqa: BLE001
-            say("comments", "failed", f"后台补评论没拉起来：{type(exc).__name__}: {exc}"[:200])
+            say("comments", "failed", f"后台补评论没拉起来：{errtext(exc)}"[:200])
     failed = [s for s in stages if s["state"] == "failed"]
     if blocked_why:
         message = f"先处理小红书：{blocked_why}；处理好再点一次「一键装好 / 跑完」"
