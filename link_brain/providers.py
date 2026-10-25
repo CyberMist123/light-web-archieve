@@ -193,11 +193,10 @@ def _remember(cmd: str, text: str, err: str) -> tuple[str, str]:
 def pool_load(name: str, *, timeout: float | None = None, kill_exclude=None) -> dict[str, Any]:
     """{keys, env, source: env|cmd|file|"", error}：一个 key 池的全部 key 和从哪来。error 只在取 key 的命令失败 /
     key 文件读不了时有（一句话，不含 key）；调用方（夜跑）据此登记问题。"""
-    env_name = POOL_ENV.get(name, "")
+    # 1025 Codex 审：先按设置定变量名（visionAI.refineKeysEnv 改过名就只认它），再读——默认名和自定义名同时设着时，
+    # 以前的写法会先拿默认名那一组，和 main 的夜跑（只读自定义名）不一样，可能用错 key 池
+    env_name = pool_env_name(name)
     raw = os.environ.get(env_name, "") if env_name else ""
-    if not raw.strip():   # 默认名没有才去读设置里改过的名字（省得每次都读 data.json）
-        env_name = pool_env_name(name)
-        raw = os.environ.get(env_name, "") if env_name else ""
     out: dict[str, Any] = {"keys": [], "env": env_name, "source": "", "error": ""}
     if raw.strip():
         out.update(keys=_split_keys(raw), source="env")

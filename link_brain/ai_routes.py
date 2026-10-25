@@ -48,7 +48,7 @@ def _entry(cfg: dict[str, Any], label: str, table: dict[str, Any], tokens: tuple
     model = str(cfg.get("model") or "")
     out: dict[str, Any] = {"label": label, "model": model}
     if cfg.get("mode") == "cli":
-        out.update(provider="cli", model=model or usage.cli_model(cfg.get("command")), free=True, price="免费（本机）",
+        out.update(provider="cli", model=usage.model_name(cfg), free=True, price="免费（本机）",
                    key="本机已登录的账号")
         return out
     name = ai_health.provider_name(cfg)
@@ -79,7 +79,7 @@ def _label(cfg: dict[str, Any]) -> str:
         return str(cfg["label"])
     if cfg.get("mode") == "cli":
         from . import usage
-        return f"本机 {usage.cli_model(cfg.get('command'))}"
+        return f"本机 {usage.model_name(cfg)}"
     return f"{ai_health.provider_name(cfg)} {cfg.get('model') or ''}".strip()
 
 

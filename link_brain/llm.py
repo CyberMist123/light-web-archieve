@@ -448,8 +448,7 @@ def _extract(source_key: str, source_id: str, *, force: bool = False, verbose: b
             data = None
 
     from . import usage
-    model = str(used_cfg.get("model") or (usage.cli_model(used_cfg.get("command") or used_cfg.get("preset"))
-                                           if used_cfg.get("mode") == "cli" else ""))
+    model = usage.model_name(used_cfg)   # 命令行先按实际命令取名，不记继承来的接口模型名
     tin = int((usage_real or {}).get("prompt_tokens") or 0) or input_tokens
     tout = int((usage_real or {}).get("completion_tokens") or 0) or output_tokens
     from . import pricing

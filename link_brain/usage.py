@@ -75,7 +75,7 @@ def record(cap: str, cfg: dict[str, Any] | None, usage: dict[str, Any] | None = 
         row: dict[str, Any] = {"ts": when.isoformat(timespec="seconds"),
                                "f": feature or t.get("f") or FEATURE_OF_CAP.get(cap, "other"),
                                "p": "cli" if cli else provider_of(cfg.get("endpoint"), cfg.get("model")),
-                               "m": str(cfg.get("model") or (cli_model(cfg.get("command")) if cli else ""))[:80],
+                               "m": str(model_name(cfg))[:80],
                                "in": int(tin), "out": int(tout), "ok": bool(ok)}
         if not cli and pricing.is_free(cfg):
             row["free"] = True   # 免费 key 池等显式免费：按 0 元算（不在价格表里 ≠ 免费）
@@ -128,6 +128,16 @@ def cost_of(row: dict[str, Any], pricing_table: dict[str, Any] | None = None) ->
 
 
 QUOTES = "\"'"
+
+
+def model_name(cfg: dict[str, Any] | None) -> str:
+    """记账 / 设置页 / 概要 extracted.json 用的模型名。命令行先从实际命令取（程序名 + --model），没有命令才看 model：
+    问收藏下拉选 Codex 时，with_model 叠出来的配置还带着 textAI 的 model（如 deepseek），不能把它记成命令行的名字（1025 Codex 审）。"""
+    cfg = cfg or {}
+    if cfg.get("mode") == "cli":
+        cmd = cfg.get("command") or cfg.get("preset")
+        return cli_model(cmd) if cmd else str(cfg.get("model") or "cli")
+    return str(cfg.get("model") or "")
 
 
 def cli_model(command: Any) -> str:

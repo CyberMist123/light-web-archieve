@@ -225,6 +225,7 @@ def test_renamed_env_from_settings_is_used_by_both(monkeypatch, tmp_path):
     monkeypatch.setattr(ai_config, "load", lambda: {"visionAI": {"refineKeysEnv": "MY_GEMINI"}})
     monkeypatch.setattr(storage, "user_config", lambda: {})
     monkeypatch.setenv("MY_GEMINI", "m1,m2")
+    monkeypatch.setenv("LWA_GEMINI_KEYS", "wrong-pool")   # 1025 Codex 审：默认名同时设着也只认设置里改的名字
     assert providers.pool_keys("gemini") == ["m1", "m2"]
     assert _job(tmp_path).refine_keys() == ("MY_GEMINI", ["m1", "m2"])
 
@@ -263,3 +264,20 @@ def test_dropdown_cli_preset_not_overridden_by_text_ai_command():
                 "models": [{"name": "OC", "mode": "cli", "command": "opencode run -m x/y"}]}
     cfg = providers.finalize("textAI", ai_config.with_model(settings, "OC")["textAI"])[0]
     assert cfg and cfg["command"].startswith("opencode run -m x/y")
+
+
+def test_cli_entry_over_http_text_ai_is_logged_by_command_name(monkeypatch):
+    """文本 AI 配 deepseek、下拉选 Codex：账本 m、设置页那格、概要取名都按实际命令（codex），不记继承来的 deepseek（1025 Codex 审）。"""
+    from link_brain import text_stream
+    settings = {**ai_config.DEFAULTS, "textAI": {"mode": "http", "endpoint": "https://api.deepseek.com/chat/completions",
+                                                  "model": "deepseek-flash", "apiKey": "k-123456789"}}
+    cfg = ai_config.with_model(settings, "Codex")["textAI"]
+    assert cfg["mode"] == "cli" and cfg.get("model") == "deepseek-flash"      # 叠出来的配置确实还带着接口模型名
+    monkeypatch.setattr(text_stream, "cli_call", lambda *a, **k: {"status": "ok", "text": "好"})
+    assert text_stream.call("问", "正文", cfg, cap="textAI", feature="ask")["status"] == "ok"
+    row = usage.load(1)[-1]
+    assert row["p"] == "cli" and row["m"] == "codex"
+    resolved = providers.finalize("textAI", cfg)[0]
+    assert ai_routes._entry(resolved, "x", pricing.table(), None, 100, "篇")["model"] == "codex"
+    assert ai_routes._label(resolved) == "本机 codex"
+    assert usage.model_name({"mode": "http", "model": "deepseek-flash"}) == "deepseek-flash"
