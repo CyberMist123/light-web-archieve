@@ -18,10 +18,11 @@ import subprocess
 from pathlib import Path
 import time
 
-# 测试里的时间断言按东八区写（作者机器）：别的时区的机器 / CI 上先把进程时区钉住，不然日期差一天、时刻差 8 小时。
-# Windows 没有 tzset，靠 CI 里 `tzutil /s "China Standard Time"`（见 .github/workflows/test.yml）。
+# 测试里的时间断言按 Australia/Sydney 写（样本时间戳是 +10 / +11，夏令时切换在 10 月初）：别的时区的机器 / CI 上
+# 先把进程时区钉住，不然日期差一天、时刻差几小时。Windows 没有 tzset，靠 CI 里 `tzutil /s "AUS Eastern Standard Time"`
+#（见 .github/workflows/test.yml）。
 if not os.environ.get("TZ") and hasattr(time, "tzset"):
-    os.environ["TZ"] = "Asia/Shanghai"
+    os.environ["TZ"] = "Australia/Sydney"
     time.tzset()
 
 import httpx

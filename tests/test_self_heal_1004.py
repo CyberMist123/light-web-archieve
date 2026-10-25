@@ -218,7 +218,6 @@ def test_plan_table(step, code, item, kind, action, auto, monkeypatch):
     assert (p["kind"], p.get("action"), bool(p.get("auto"))) == (kind, action, auto)
 
 
-@pytest.mark.xfail(strict=False, reason="用例写的时间戳是 +10 时区，机器时区不是 +10 时「下一晚」会算到同一天：只在 +10 的机器上绿。待把用例改成机器本地时区")
 def test_partial_favorites_waits_until_next_nightly_with_reason():
     row = _row("sync.favorites", "TRANSIENT.FAVORITES_SUSPICIOUS", ts=datetime(2026, 10, 4, 4, 30, tzinfo=TZ))
     p = repair.plan(row, datetime(2026, 10, 4, 9, 0, tzinfo=TZ))

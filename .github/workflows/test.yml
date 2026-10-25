@@ -1,5 +1,5 @@
 # 开源前 P0（1025）：每次 push / PR 在干净机器上跑一遍，和 CONVENTIONS §7 的本地跑法一致。
-# - Python：ubuntu + windows 两套；测试的时间断言按东八区写，所以先把机器时区钉到东八区（Linux 用 TZ，Windows 用 tzutil）。
+# - Python：ubuntu + windows 两套；测试的时间断言按 Australia/Sydney 写（样本时间戳 +10 / +11），所以先把机器时区钉过去（Linux 用 TZ，Windows 用 tzutil）。
 # - Node：只跑 node 单测（tests/run-node.cjs --unit）；页面 UI 测试要 playwright + 真 vault 数据，CI 上不跑，和本地「没装 playwright 标 SKIP」一致。
 # - 隐私闸：PR 上用 scripts/privacy_gate.py 扫新提交的文件类型和密钥特征（本机私有清单和邮箱规则只在作者机器上生效）。
 name: test
@@ -18,7 +18,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     env:
-      TZ: Asia/Shanghai
       PYTHONIOENCODING: utf-8
       PYTHONUTF8: "1"
     steps:
@@ -27,9 +26,14 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Windows 时区钉到东八区
+      # 时区：Linux 用 TZ 环境变量；Windows 用 tzutil 改系统时区——**不能**在 Windows 上设 TZ，MSVC 运行库把 "Australia/Sydney"
+      # 这种名字解析成 +01:00（第一跑就是这样红的），conftest 里也只在有 tzset 的平台设 TZ
+      - name: 时区钉到和测试样本一致（Linux）
+        if: runner.os == 'Linux'
+        run: echo "TZ=Australia/Sydney" >> "$GITHUB_ENV"
+      - name: 时区钉到和测试样本一致（Windows）
         if: runner.os == 'Windows'
-        run: tzutil /s "China Standard Time"
+        run: tzutil /s "AUS Eastern Standard Time"
       - name: 安装（pyproject 的依赖 + dev）
         run: |
           python -m pip install --upgrade pip
@@ -41,7 +45,7 @@ jobs:
     name: node 单测
     runs-on: ubuntu-latest
     env:
-      TZ: Asia/Shanghai
+      TZ: Australia/Sydney
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

@@ -267,7 +267,9 @@ def _pdf_ok(path: Path) -> int:
 
 def print_pdf(browser: str, html_path: Path, out_pdf: Path, timeout: float = PRINT_TIMEOUT_S) -> bool:
     profile = html_path.parent / "profile"
-    args = [browser, "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
+    # 1025：Chrome 153 的无头模式带 --user-data-dir 打印会一直挂到超时（干净 Linux 上复现：不带 user-data-dir 1 秒出 PDF，
+    # 带就挂；加 --incognito 就好）。独立 profile 目录仍要（不碰她真浏览器的资料），只是这一次不落盘
+    args = [browser, "--headless=new", "--incognito", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
             "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync",
             f"--user-data-dir={profile}", "--no-pdf-header-footer", "--print-to-pdf-no-header",
             "--virtual-time-budget=15000", f"--print-to-pdf={out_pdf}", html_path.as_uri()]
