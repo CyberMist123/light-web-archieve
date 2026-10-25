@@ -2,7 +2,6 @@
 自检新指标（防御句 / 搬运度 / 流水账 / 导读）、MCP 会话状态（thread_id / 兜底绑定 / 指代解析）。全部合成数据，不调模型。"""
 from __future__ import annotations
 
-import sys
 
 import io
 import json
@@ -327,7 +326,6 @@ def _ctx(tmp_path, local=False):
     return mt.Ctx(policy=Policy.build(tmp_path, ["@xhs"]), local=local, who="远程·GPT")
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="样本里是 Windows 路径 D:\\…，别的平台 Path 取不出文件名")
 def test_mcp_ask_with_thread_id_locks_first_source(monkeypatch, tmp_path):
     monkeypatch.setenv("LINK_BRAIN_ASK_TURNS", str(tmp_path / "t.json"))
     ask_turns.record("tA", {k: v for k, v in PARENT.items() if k != "turn_id"})
@@ -335,7 +333,8 @@ def test_mcp_ask_with_thread_id_locks_first_source(monkeypatch, tmp_path):
 
     def fake(q, **kw):
         seen.update(kw, question=q)
-        return {"status": "ok", "markdown": "答[来源1]", "sources": [{"citation": 1, "id": "x1", "agent_md": "D:\\\\abs\\\\agent.md", "attachments": [{"file": "D:\\\\abs\\\\a.pdf"}]}],
+        # 样本路径用 tmp_path 拼（原来写死 D:\…，Linux 上 Path 取不出文件名，整条只能在 Windows 跑）
+        return {"status": "ok", "markdown": "答[来源1]", "sources": [{"citation": 1, "id": "x1", "agent_md": str(tmp_path / "abs" / "agent.md"), "attachments": [{"file": str(tmp_path / "abs" / "a.pdf")}]}],
                 "related": [], "turn_id": "tB", "thread_id": "thA", "images": [], "delivery": {}, "history": []}
     monkeypatch.setattr(ask, "answer", fake)
     r = mt.ask(_ctx(tmp_path), {"question": "只看刚才第一篇，它怎么说的", "thread_id": "thA"})

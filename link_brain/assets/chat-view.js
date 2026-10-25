@@ -40,7 +40,9 @@ let data = {};
 // 1019：事件订阅随页面暂存 / 拆（切走暂存时不被组件卸载强行摘掉）
 function lbEvent(ref) { LB.onUnload(() => { try { app.workspace.offref(ref); } catch {} }); return ref; }
 try { data = await LB.data.load(); } catch {}
-let items = data.items || [];
+// 1025 开源前 P0：格式号对不上就不读 items（形状可能变了），页面照常起来，篇数那行说该做什么（paintSub）
+const itemsOf = d => (LB.schemaBlocks(d) ? [] : (d.items || []));
+let items = itemsOf(data);
 
 let session = { turns: [], draft: '' };
 let archive = { entries: [] };
@@ -2276,7 +2278,7 @@ if (app.workspace.on && dv.component?.registerEvent) {
 }
 // 登记这一版 DOM（连 host 一起，§5.9）：catalog-data 变了只换数据、改篇数，不重建对话
 LB.keep(wrap, { park: true, version: await LB.data.version(), update: async () => {
-  try { data = await LB.data.load(); items = data.items || []; paintSub(); } catch {}
+  try { data = await LB.data.load(); items = itemsOf(data); paintSub(); } catch {}
 }, onReuse: () => { paintSourceBar(); paintSend(); fillModels(); settle(); } });
 LB.t('total');
 

@@ -178,5 +178,9 @@ def test_build_writes_schema_and_page_lib_agrees(tmp_path, monkeypatch):
     lib = (Path(catalog.__file__).parent / "assets" / "lb-page-lib.js").read_text(encoding="utf-8")
     m = re.search(r"const CATALOG_SCHEMA = (\d+);", lib)
     assert m and int(m.group(1)) == catalog.CATALOG_SCHEMA
-    assert "schemaIssue" in lib and "schemaIssue" in (Path(catalog.__file__).parent / "assets" / "catalog-view.js").read_text(encoding="utf-8")
+    assets = Path(catalog.__file__).parent / "assets"
+    assert "schemaIssue" in lib and "schemaBlocks" in lib
+    # 两个页面都要「先查格式再读 items」：对不上就停，不是只挂一句提示（1025 Codex 审）
+    for page in ("catalog-view.js", "chat-view.js"):
+        assert "LB.schemaBlocks(" in (assets / page).read_text(encoding="utf-8"), page
 

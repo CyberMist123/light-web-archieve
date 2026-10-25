@@ -73,6 +73,6 @@ jobs:
       - name: 扫这个 PR 新增的提交
         env:
           LWA_GATE_NO_PRIVATE: "1"   # 本机私有特征清单不进仓库，CI 上没有
-          LWA_GATE_SKIP_EMAIL: "1"   # 邮箱规则防的是作者个人邮箱，别人的 PR 不按它拦
           PYTHONIOENCODING: utf-8
-        run: python scripts/privacy_gate.py --base ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}
+        # --skip-email 只有跟着 --base 才认（邮箱规则防的是作者个人邮箱，别人的 PR 不按它拦；本机 pre-push 没有这个开关）
+        run: python scripts/privacy_gate.py --base ${{ github.event.pull_request.base.sha }} --skip-email ${{ github.event.pull_request.head.sha }}

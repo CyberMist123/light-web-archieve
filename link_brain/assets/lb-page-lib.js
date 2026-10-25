@@ -222,6 +222,9 @@ function lbPageLib(dv, app, role) {
     if (v < CATALOG_SCHEMA) return `目录数据（格式 ${v}）比这个页面（格式 ${CATALOG_SCHEMA}）旧：请刷新目录`;
     return null;
   }
+  // 格式号确实对不上（带 schema 且 ≠ 本页的）：字段形状可能变了，页面不许接着按老样子读 items（1025 Codex 审：
+  // 只挂提示不停手，items 换个形状会在提示画出来之前先抛错）。没有 schema 字段的老数据形状和格式 1 一样，只提示不拦。
+  function schemaBlocks(d) { const v = Number(d?.schema); return Number.isFinite(v) && v !== CATALOG_SCHEMA; }
 
   // ── 页面挂载点（§5.9，C4）：页面 DOM 挂在 dv.container 后面的兄弟节点 host 上 ──
   // Dataview 重跑只清 container.innerHTML（0.5.68：main.js:19056），碰不到它的兄弟，输入框不失焦、输入法不断。
@@ -626,6 +629,6 @@ function lbPageLib(dv, app, role) {
 
   return { root, path, provider, ensure, state, data, keep, rekeep, reuseDom, listen, onUnload, scroller, restoreScroll, onScroll, t, mark, role, get container() { return container; },
     // 批次 D 地基
-    mountHost, style, dataUpdatedAt, schemaIssue, CATALOG_SCHEMA, mobile, MOBILE_ONLY_TEXT, mobileNote, need, openPage,
+    mountHost, style, dataUpdatedAt, schemaIssue, schemaBlocks, CATALOG_SCHEMA, mobile, MOBILE_ONLY_TEXT, mobileNote, need, openPage,
     say, progress, undoNotice, confirm, busy, showMenu, menuOpen, trackFocus, restoreFocus, activeLeafHas };
 }
