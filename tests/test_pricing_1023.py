@@ -236,3 +236,30 @@ def test_key_cmd_runs_once_per_process(monkeypatch, tmp_path):
     for _ in range(3):
         assert providers.pool_keys("gemini") == ["k1"]
     assert marker.read_text() == "x"
+
+
+# ---------------------------------------------------------------- 1025 复审补的两条
+
+def test_key_cmd_failure_is_not_rerun_per_call(monkeypatch, tmp_path):
+    """取 key 的命令失败（退出非 0 / 超时 / 起不来）也只跑一次：否则 keyPool 的每次 resolve_key、每张备用识图都再跑、再等一次超时。"""
+    marker = tmp_path / "ran.txt"
+    cmd = f'"{PY}" -c "open(r\'{marker}\', \'a\').write(\'x\'); raise SystemExit(3)"'
+    monkeypatch.setattr(storage, "user_config", lambda: {"gemini_keys_cmd": cmd})
+    for _ in range(3):
+        got = providers.pool_load("gemini")
+        assert got["keys"] == [] and got["source"] == "cmd" and "退出 3" in got["error"]
+    assert marker.read_text() == "x"
+    assert providers.pool_alive("gemini") == [] and marker.read_text() == "x"
+
+
+def test_dropdown_cli_preset_not_overridden_by_text_ai_command():
+    """问收藏下拉选「Codex」（只存 preset）时，哪怕 textAI 自己是另一条命令行，跑的也得是 Codex 的命令。"""
+    settings = {**ai_config.DEFAULTS, "textAI": {"mode": "cli", "command": "opencode run --pure"},
+                "models": [{"name": "Codex", "mode": "cli", "preset": "codex"}]}
+    cfg = providers.finalize("textAI", ai_config.with_model(settings, "Codex")["textAI"])[0]
+    assert cfg and cfg["command"] == ai_config.cli_preset("codex")["command"]
+    # 反过来：条目自己写了命令，textAI 只存 preset，跑条目的命令
+    settings = {**ai_config.DEFAULTS, "textAI": {"mode": "cli", "preset": "claude"},
+                "models": [{"name": "OC", "mode": "cli", "command": "opencode run -m x/y"}]}
+    cfg = providers.finalize("textAI", ai_config.with_model(settings, "OC")["textAI"])[0]
+    assert cfg and cfg["command"].startswith("opencode run -m x/y")
