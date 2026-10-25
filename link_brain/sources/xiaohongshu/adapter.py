@@ -18,6 +18,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import urllib.parse
 from datetime import datetime, timezone
 from typing import Any
@@ -1048,3 +1049,81 @@ def normalize(
             "notes": [],
         },
     }
+
+
+# ---- 抓详情：重试 + 楼层参数（1025 第二波 PR⑤b 从 ingest.py 搬来，内容不变）----------------------------
+
+DOWNLOAD_HEADERS = {"User-Agent": MOBILE_UA, "Referer": "https://www.xiaohongshu.com/"}  # 下图 / 语音带的头（来源接口 media_plan 给每条任务）
+
+# 18060 那个服务每次调用都新开一个 Chrome，本机内存紧的时候会偶发起不来
+# （`[launcher] Failed to get the debug url`，2026-09-04 半夜实测：只剩 0.9G 可用内存时高发）。
+# 这是**偶发**不是**死了**：先自己歇一会儿重试，全试完还不行才停车叫人。
+SERVICE_RETRIES = 3
+SERVICE_BACKOFF = (20, 60)
+
+
+
+
+def _detail_kwargs(comment_floors: int | str | None, expand_floors: list[str] | None = None,
+                   budget_s: int | None = None, expand_resume: list[str] | None = None,
+                   fill: bool = False, floors_resume: str | None = None) -> dict[str, Any]:
+    """评论楼层：10（默认，秒回）/ 20 / 50（滚评论区并展开楼中楼，限楼数）/ "all"（手动全量）。
+    expand_floors（1008 续读）：只展开这些楼，给足预算。budget_s（1009 续读）：这次给读取组件的评论预算。"""
+    if expand_floors:
+        from .comment_fill import FILL_BUDGET_S
+        budget = int(budget_s or FILL_BUDGET_S)
+        out = {"full_comments": True, "comment_limit": 10, "timeout": budget + 90,
+               "comment_budget_s": budget, "expand_floors": list(expand_floors)}
+        if expand_resume:
+            out["expand_resume"] = list(expand_resume)  # 1017 断点续展（comment_fill.resume_points）
+        if floors_resume:
+            out["floors_resume"] = floors_resume  # 1017 续展深处的楼：从目标前一楼接着翻（comment_fill.expand_window_resume）
+        return out
+    if comment_floors is None:
+        from ...ai_config import sync_options
+        comment_floors = sync_options()["commentFloors"]
+    if comment_floors == "all":
+        out = {"full_comments": True, "comment_limit": 100_000, "timeout": 1500}  # 1017：「全部」不设楼数上限
+    else:
+        # 0929 Owner：10 楼也要展开楼中楼（load_all_comments=false 只给首屏，不点「展开回复」）
+        floors = max(int(comment_floors), 10)
+        out = {"full_comments": True, "comment_limit": floors, "timeout": 600}
+    if budget_s:
+        out.update(comment_budget_s=int(budget_s), timeout=min(out["timeout"], int(budget_s) + 90))
+    if fill:
+        # 1017：续读里「多读几楼」这一趟只翻一级评论、不点楼中楼——不带游标的展开会把存过的回复从第 1 条再点一遍、白耗额度；
+        # 新楼的楼中楼下一趟按缺口带游标续展（expand）
+        out["click_more_replies"] = False
+        if floors_resume:
+            out["floors_resume"] = floors_resume  # 1017 一级评论续翻（comment_fill.floors_resume_point）
+    return out
+
+
+def _fetch_with_retry(parsed: dict[str, Any], *, log, comment_floors=None, budget_left=None, expand_floors=None,
+                      fill_budget_s=None, progress=None, expand_resume=None, floors_resume=None) -> Any:
+    """抓详情；服务没起来时隔一会儿重试（最多 SERVICE_RETRIES 次）。
+
+    budget_left（1001）：返回「这一批还剩几秒」的函数。剩下的不够再等一轮 + 再抓一次的最坏耗时，就不重试了，
+    直接把 ServiceDownError 抛给调用方——夜跑的同步步骤有外层限时，别在预算尽头又挂一个 10 分钟的请求被整棵杀。
+    """
+    kwargs = _detail_kwargs(comment_floors, expand_floors, fill_budget_s, expand_resume, fill=fill_budget_s is not None,
+                            floors_resume=floors_resume)
+    from . import accounts
+    for attempt in range(1, SERVICE_RETRIES + 1):
+        accounts.pace("打开笔记")  # 1001：跨进程开页间隔（与附件、补看、读收藏共用一个时刻戳）
+        try:
+            return fetch_detail(parsed["note_id"], parsed["xsec_token"], **kwargs)
+        except ServiceDownError as exc:
+            if attempt == SERVICE_RETRIES:
+                raise
+            wait = SERVICE_BACKOFF[min(attempt - 1, len(SERVICE_BACKOFF) - 1)]
+            if budget_left is not None and budget_left() < wait + float(kwargs.get("timeout") or 600) + 60:
+                log(f"服务没起来（第 {attempt}/{SERVICE_RETRIES} 次），这一批的时间不够再试了")
+                raise
+            log(f"服务没起来（第 {attempt}/{SERVICE_RETRIES} 次）：{str(exc)[:120]}；{wait}s 后重试")
+            if progress:
+                progress("read", f"读取服务没起来，{wait} 秒后再试（第 {attempt}/{SERVICE_RETRIES} 次）")
+        finally:
+            accounts.pace_done()  # 开页间隔从这一页看完算起
+        time.sleep(wait)
+    raise AssertionError("unreachable")

@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ... import domain, storage
+from . import adapter as xhs
 
 FLOOR_MIN = 10
 FLOOR_ALL = 100_000         # 「全部」= 不设楼数上限（1017：以前 2000，8636 条评论的帖只读到 2007 楼就当读完了）
@@ -1159,3 +1160,201 @@ def status_payload() -> dict[str, Any]:
                     "cooling": len(sv["cooling"]), "stuck": len(sv["stuck"]),
                     "restricted": len(sv.get("restricted") or []), "missing": sv["missing"],
                     "running": running, "status": st}, ok=True, message=msg or "")
+
+
+# ---- 评论续读落盘（1025 第二波 PR⑤b 从 ingest.py 搬来，内容不变）--------------------------------------
+
+def _merge_fill(source: dict[str, Any], old: dict[str, Any], expanded: set[str], captured_at: str, log,
+                *, keep_order: bool = False) -> dict[str, Any]:
+    """续读（1009）：正文 / 图片 / 附件沿用上一版（这次只为评论开页），评论和上一版并集合并，comment_load 重算缺口。
+    keep_order（1017 一级评论续翻）：这次只有首屏 + 接着翻的楼，保持老顺序、新楼接在后面。"""
+    keep_order = keep_order or bool(expanded)
+    merged = xhs.merge_comments(old.get("comments") or [], source.get("comments") or [], expanded,
+                                keep_old_order=keep_order)
+    new_cl = source["capture"].get("comment_load")
+    if new_cl is not None:
+        new_cl = {**new_cl, "fill_last_at": captured_at}
+    cl = xhs.merge_comment_load((old.get("capture") or {}).get("comment_load"), new_cl,
+                                expanded or {str(c.get("comment_id") or "") for c in source.get("comments") or []}, merged)
+    before = sum(len(c.get("sub_comments") or []) for c in old.get("comments") or [])
+    after = sum(len(c.get("sub_comments") or []) for c in merged)
+    log(f"续读合并：一级 {len(old.get('comments') or [])} → {len(merged)} 楼，楼中楼 {before} → {after} 条")
+    capture = {**(old.get("capture") or {}), **source["capture"], "comment_load": cl}
+    if (old.get("capture") or {}).get("comments_complete") is True or (new_cl or {}).get("has_more") is False:
+        capture["comments_complete"] = True if (new_cl or {}).get("has_more") is not True else capture.get("comments_complete")
+    note = {**(old.get("note") or {})}
+    if (source.get("note") or {}).get("xsec_token"):
+        note["xsec_token"] = source["note"]["xsec_token"]
+    return {**old, "comments": merged, "note": note, "capture": capture}
+
+
+def _log_comment_load(source: dict[str, Any], log) -> None:
+    """评论读到哪一步、缺多少，进同步记录（1008 Owner：缺口要让人看到，不能悄悄少一截）。
+    1009：缺口按设置里的楼数现算（comment_fill.scope），读不完的后台自动接着读。"""
+    floors = floor_target()
+    sc = scope(source, floors)
+    cl = (source.get("capture") or {}).get("comment_load") or {}
+    item_id = domain.item_id(xhs.SOURCE, source["source_id"])
+    title = (source.get("note") or {}).get("title")
+    try:
+        from ... import synclog
+        if sc["missing"] > 0:
+            main = max(sc["gaps"], key=lambda g: g["missing"])["reason"]
+            why = reason_text(main)
+            synclog.note("comments", item_id, False, title=title,
+                         reason=f"{floors_label(floors)}的楼中楼还缺 {sc['missing']} 条（{why}），后台自动接着读",
+                         code="COMMENTS_PARTIAL", retry=["comments", item_id, "--fill"])
+            log(f"评论：楼中楼还缺 {sc['missing']} 条（{why}）")
+        elif int(cl.get("fill_attempts") or 0) > 0:
+            synclog.note("comments", item_id, True, title=title)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[synclog] {errtext(exc)}", file=sys.stderr)
+
+
+def _main_gap_reason(cl: dict[str, Any]) -> str:
+    gaps = cl.get("gaps") or []
+    if not gaps:
+        return str(cl.get("stop_reason") or "")
+    return max(gaps, key=lambda g: int(g.get("missing") or 0)).get("reason") or str(cl.get("stop_reason") or "")
+
+
+def _fillable(cl: dict[str, Any]) -> bool:
+    """（1008 旧口径，只看读取组件报的缺口；1009 起排程看 comment_fill.survey）这份 comment_load 里有没有能续的缺口。"""
+    if int(cl.get("replies_missing") or 0) <= 0:
+        return False
+    return any(g.get("reason") in xhs.RESUMABLE_GAPS and g.get("comment_id") for g in cl.get("gaps") or [])
+
+
+def fill_targets(cl: dict[str, Any]) -> list[str]:
+    """要续读的楼（comment_id），缺得多的在前。"""
+    gaps = [g for g in cl.get("gaps") or [] if g.get("reason") in xhs.RESUMABLE_GAPS and g.get("comment_id")]
+    gaps.sort(key=lambda g: -int(g.get("missing") or 0))
+    return [str(g["comment_id"]) for g in gaps]
+
+
+def _reuse_media(source: dict[str, Any], raw_dir: Path, rel_prefix: str, old_manifest: dict[str, Any] | None,
+                 object_dir: Path, *, progress=None) -> dict[str, Any]:
+    """续读写新版本时：上一版已经下好的图 / 视频 / 语音直接引用旧版本的文件（RAW 不可变，引用安全；识图按资产路径复用，
+    不会把整篇图重识一遍），只下这次新冒出来的评论图 / 语音。"""
+    old_media = [m for m in (old_manifest or {}).get("media") or [] if m.get("download_status") == "ok" and m.get("file")
+                 and (object_dir / m["file"]).is_file()]
+
+    def key(m: dict[str, Any]) -> tuple:
+        role = m.get("role")
+        if role in ("comment_image",):
+            return (role, str(m.get("comment_id") or ""), int(m.get("index") or 0))
+        if role == "comment_audio":
+            return (role, str(m.get("comment_id") or ""))
+        if role in ("note_image", "video_cover"):
+            return (role, int(m.get("index") or 0))
+        return (role,)
+
+    have = {key(m): m for m in old_media}
+    trimmed = json.loads(json.dumps(source))
+    reused: list[dict[str, Any]] = []
+    note = trimmed["note"]
+    keep_images = []
+    for image in note.get("images") or []:
+        role = "video_cover" if note.get("kind") == "video" else "note_image"
+        hit = have.get((role, int(image.get("index") or 0)))
+        if hit:
+            reused.append(dict(hit))
+        else:
+            keep_images.append(image)
+    note["images"] = keep_images
+    video_hit = next((m for m in old_media if m.get("role") == "video"), None)
+    if video_hit is not None and (note.get("video") or {}).get("video_url"):
+        reused.append(dict(video_hit))
+        note["video"] = {**note["video"], "video_url": None}
+    for c in trimmed.get("comments") or []:
+        for group in [c, *(c.get("sub_comments") or [])]:
+            cid = str(group.get("comment_id") or "")
+            imgs = group.get("images") or []
+            if imgs and all(have.get(("comment_image", cid, i)) for i in range(1, len(imgs) + 1)):
+                reused.extend(dict(have[("comment_image", cid, i)]) for i in range(1, len(imgs) + 1))
+                group["images"] = []
+            audio = group.get("audio")
+            if audio and have.get(("comment_audio", cid)):
+                reused.append(dict(have[("comment_audio", cid)]))
+                group["audio"] = None
+    from ... import ingest as ingest_mod  # 下载走 ingest 的通用下载（测试 monkeypatch 打在 ingest 上）
+    manifest = ingest_mod.download_media(trimmed, raw_dir, rel_prefix, progress=progress)
+    manifest["media"] = reused + manifest["media"]
+    counted = [m for m in manifest["media"] if m["role"] in ("note_image", "comment_image", "video_cover")]
+    manifest["images_declared"] = len(counted)
+    manifest["images_ok"] = sum(1 for m in counted if m["download_status"] == "ok")
+    manifest["images_complete"] = manifest["images_declared"] == manifest["images_ok"]
+    manifest["reused"] = len(reused)
+    return manifest
+
+
+def ingest_fill(parsed: dict[str, Any], conn, existing: dict[str, Any], *, log, progress=None, comment_floors=None,
+                budget_left=None, expand_floors: list[str] | None = None, fill_budget_s: int | None = None,
+                expand_resume: list[str] | None = None, floors_resume: str | None = None, origin: str, actor: str,
+                ingest_kind: str, note: str | None, created_at: str) -> dict[str, Any]:
+    """评论续读（ingest_url fill=True，要求已归档）：这次开页只为评论——不做附件网页探测、不碰登录号补看；
+    正文 / 图片沿用上一版，评论和上一版并集合并（调小楼数不删已抓的）；**没多拿到任何评论就不写新版本**；
+    写新版本时上一版下好的图 / 视频 / 语音直接引用旧文件（不重下、不重识图）。
+    1025 第二波 PR⑤b 从 ingest.ingest_url / _finish_fill 搬来（内容不变），经来源接口的 fill 调进来。"""
+    from ... import index as index_mod, ingest as ingest_mod, problems
+    sid = parsed["note_id"]
+    object_dir = storage.object_dir(xhs.SOURCE, sid)
+    old_meta = storage.read_json(object_dir / "meta.json")
+    old_dir = storage.raw_dir(xhs.SOURCE, sid, old_meta["current_version"])
+    old_source = storage.read_json(old_dir / "source.json")
+    old_manifest = storage.read_json(old_dir / "manifest.json") if (old_dir / "manifest.json").exists() else None
+    old_web = storage.read_json(old_dir / "web_raw.json") if (old_dir / "web_raw.json").exists() else None
+    if not parsed.get("xsec_token"):
+        parsed = {**parsed, "xsec_token": (old_source.get("note") or {}).get("xsec_token")}
+
+    log(f"MCP {xhs.MCP_TOOL} @ {xhs.MCP_ENDPOINT}")
+    if progress:
+        kw = xhs._detail_kwargs(comment_floors, expand_floors, fill_budget_s)
+        cap = int(kw.get("timeout") or 600) // 60
+        progress("read", f"打开这篇，把评论一楼一楼展开读下来（热门笔记要几分钟到十几分钟，最多 {cap} 分钟）")
+    raw = xhs._fetch_with_retry(parsed, log=log, comment_floors=comment_floors, budget_left=budget_left,
+                                expand_floors=expand_floors, fill_budget_s=fill_budget_s, progress=progress,
+                                expand_resume=expand_resume, floors_resume=floors_resume)
+    problems.resolve("ingest", None)  # 抓到了 = 读取服务好着：之前「服务没起来 / 超时」那几条步骤级问题算解决
+
+    expanded = set(expand_floors or [])
+    keep_order = bool(floors_resume)
+    captured_at = ingest_mod.now_iso()
+    if progress:
+        progress("merge", "评论读回来了：和存下的合并")
+    fresh = xhs.normalize(raw, parsed, captured_at=captured_at, web_probe=None)
+    source = _merge_fill(fresh, old_source, expanded, captured_at, log, keep_order=keep_order)
+    not_found = list(((raw.get("data") or {}).get("comment_load") or {}).get("floors_not_found") or [])         if isinstance(raw, dict) else []
+    meta_path = object_dir / "meta.json"
+    subs = sum(len(c.get("sub_comments") or []) for c in source["comments"])
+    base = {"hit": False, "item_id": old_meta["item_id"], "note_id": sid, "kind": old_meta.get("kind"),
+            "failed": [], "comments": len(source["comments"]), "sub_comments": subs,
+            "comments_complete": source["capture"].get("comments_complete"),
+            "attachments_status": old_meta.get("attachments_status"), "floors_not_found": not_found,
+            "exit_code": ingest_mod.EXIT_OK}
+    if xhs.comments_signature(source["comments"]) == xhs.comments_signature(old_source.get("comments") or []):
+        log("续读：这次没多拿到评论，不写新 RAW 版本，只更新 last_checked_at")
+        meta = ingest_mod._touch_checked(meta_path, old_meta["item_id"], captured_at)
+        return {**base, "refreshed_unchanged": True, "version": meta["current_version"],
+                "raw_dir": storage.raw_dir(xhs.SOURCE, sid, meta["current_version"]), "manifest": None}
+    _log_comment_load(source, log)
+    with storage.stage_version(xhs.SOURCE, sid) as stg:
+        log(f"续读暂存 → {stg.path.name}")
+        storage.write_json(stg.path / "mcp_raw.json", raw)
+        # 这次没探测附件：沿用上一版的网页探测结果（附件补查按它判断），并注明出处
+        storage.write_json(stg.path / "web_raw.json", old_web if old_web is not None else
+                           {"ok": None, "error": "评论续读不探测附件（沿用上一版）"})
+        storage.write_json(stg.path / "source.json", source)
+        manifest0 = _reuse_media(source, stg.path, f"raw/{stg.path.name}", old_manifest, object_dir, progress=progress)
+        try:
+            # 和完整重抓同一套保留规则（merge_meta）：抓取产生不了的字段在锁里按当前 meta 原样带上
+            version, manifest, meta = ingest_mod._commit_version(
+                conn, parsed, stg, manifest0, source=source, sha=index_mod.normalized_source_sha256(source),
+                captured_at=captured_at, expect_existing=True, check_sha=True,
+                meta_kw=dict(origin=origin, actor=actor, ingest_kind=ingest_kind, note=note), log=log)
+        except ingest_mod._Discarded as d:
+            return {**base, **ingest_mod._discarded_summary(conn, parsed, d.reason, source, log)}
+    raw_dir = storage.raw_dir(xhs.SOURCE, sid, version)
+    failed = [m for m in manifest["media"] if m["download_status"] == "failed"]
+    return {**base, "refreshed_unchanged": False, "version": version, "raw_dir": raw_dir, "manifest": manifest,
+            "failed": failed, "exit_code": ingest_mod.EXIT_MISSING_CONTENT if failed else ingest_mod.EXIT_OK}

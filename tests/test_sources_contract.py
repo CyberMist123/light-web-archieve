@@ -52,17 +52,21 @@ def test_parse_normalize_fingerprint_match_old_functions(raw):
 
 
 def test_fetch_forwards_options(monkeypatch, raw):
+    """PR⑤b：小红书 fetch 自己做重试抓取 + 网页探附件（从 ingest 搬来）；选项照转，原样返回进 raw_files。"""
     src = sources.get("xiaohongshu")
     parsed = src.parse(URL)
     calls = []
-    monkeypatch.setattr(ingest, "_fetch_with_retry", lambda p, **kw: calls.append((p, kw)) or raw)
+    probe = {"ok": True, "attachments": []}
+    monkeypatch.setattr(xhs, "_fetch_with_retry", lambda p, **kw: calls.append((p, kw)) or raw)
+    monkeypatch.setattr(src, "_web_probe", lambda p, log: probe)
     opts = sources.FetchOptions(comment_floors=20, budget_left=lambda: 120, progress=lambda *a: None,
                                 log=lambda m: None, extra={"expand_floors": ["c0001"]})
     fetched = src.fetch(parsed, opts)
     assert calls == [(parsed, dict(log=opts.log, comment_floors=20, budget_left=opts.budget_left,
-                                  progress=opts.progress, expand_floors=["c0001"]))]
-    assert fetched.raw_files == {"mcp_raw.json": raw}
-    assert fetched.context == {}
+                                  expand_floors=["c0001"], fill_budget_s=None, progress=opts.progress,
+                                  expand_resume=None, floors_resume=None))]
+    assert fetched.raw_files == {"mcp_raw.json": raw, "web_raw.json": probe}
+    assert fetched.context["web_probe"] is probe
 
 
 @pytest.mark.parametrize("old,new", [
@@ -111,7 +115,7 @@ def test_shared_code_catches_source_errors(monkeypatch):
 
     reports = []
     monkeypatch.setattr(xhs, "fetch_detail", unavailable)
-    monkeypatch.setattr(ingest, "SERVICE_RETRIES", 1)
+    monkeypatch.setattr(xhs, "SERVICE_RETRIES", 1)
     monkeypatch.setattr(catch.accounts, "pace", lambda *a, **kw: None)
     monkeypatch.setattr(catch.accounts, "pace_done", lambda: None)
     monkeypatch.setattr(catch.problems, "report_blocked", lambda *a, **kw: reports.append((a, kw)))

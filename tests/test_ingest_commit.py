@@ -24,7 +24,7 @@ def _fixture():
 
 
 def _parsed(text="https://example.invalid/share"):
-    return {"note_id": NOTE_ID, "xsec_token": "FAKE_TOKEN", "canonical_url": xhs.CANONICAL_FMT.format(note_id=NOTE_ID),
+    return {"source": SRC, "source_id": NOTE_ID, "note_id": NOTE_ID, "xsec_token": "FAKE_TOKEN", "canonical_url": xhs.CANONICAL_FMT.format(note_id=NOTE_ID),
             "input_url": text, "input_kind": "url", "resolved_url": text}
 
 
@@ -88,7 +88,7 @@ def test_retarget_only_touches_staging_paths(vault):
 
 def test_crash_mid_download_leaves_no_version(vault, monkeypatch):
     tmp, _ = vault
-    monkeypatch.setattr(ingest, "download_media", lambda *a, **k: (_ for _ in ()).throw(Boom("下到一半进程被杀")))
+    monkeypatch.setattr(ingest, "download_plan", lambda *a, **k: (_ for _ in ()).throw(Boom("下到一半进程被杀")))
     with pytest.raises(Boom):
         ingest.ingest_url("https://example.invalid/share")
     assert storage.version_dirs(SRC, NOTE_ID) == {} and not _staging_left(tmp)
