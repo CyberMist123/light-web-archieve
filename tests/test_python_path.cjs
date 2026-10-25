@@ -87,13 +87,15 @@ function makePlugin(base, saved = {}) {
   assert.equal(spawned[0].exe, realVenv, 'runPy 起的就是 .venv 的 python');
   assert.deepEqual([...p.mcpArgv()], [realVenv, '-m', 'link_brain', 'mcp'], '写给外部客户端的 MCP 命令同一个解释器');
 
-  p = makePlugin(repoVault, { pythonPath: 'D:/py311/python.exe' });
+  // 这一段走的是真 process.platform：样本得是本平台的绝对路径（D:/… 在 Linux 上算相对路径，会被按程序目录解析）
+  const absPy = process.platform === 'win32' ? 'D:/py311/python.exe' : '/opt/py311/bin/python3';
+  p = makePlugin(repoVault, { pythonPath: absPy });
   await p.locateCollection();
-  assert.equal(p.backend.exe, 'D:/py311/python.exe', '配了用配的');
-  assert.equal(p.mcpArgv()[0], 'D:/py311/python.exe');
+  assert.equal(p.backend.exe, absPy, '配了用配的');
+  assert.equal(p.mcpArgv()[0], absPy);
   spawned.length = 0;
   await p.spawnPy(['-m', 'link_brain', 'doctor']);
-  assert.equal(spawned[0].exe, 'D:/py311/python.exe');
+  assert.equal(spawned[0].exe, absPy);
 
   // 没走过 onload（单测 / 早期调用）：照旧 python
   const bare = makePlugin(repoVault);

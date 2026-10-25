@@ -112,7 +112,9 @@ function whichCommand(cmd, { env = (typeof process !== "undefined" ? process.env
 function pickPython({ root = null, configured = "", platform = (typeof process !== "undefined" ? process.platform : ""), exists = p => { try { return fs.statSync(p).isFile(); } catch { return false; } } } = {}) {
   const own = String(configured || "").trim().replace(/^"(.*)"$/, "$1").trim();
   // 1024 返修：相对路径（含 / 或 \）按程序目录解析，和后端 deps.python_exe 一致；裸命令名交给 PATH
-  if (own) return (root && /[\\/]/.test(own) && !path.isAbsolute(own)) ? path.resolve(root, own) : own;
+  // 「是不是绝对路径」按传进来的 platform 判（D:/… 在 POSIX 的 path 里不算绝对）：纯函数在别的平台上跑单测结果才一致
+  const isAbs = (platform === "win32" ? path.win32 : path.posix).isAbsolute(own);
+  if (own) return (root && /[\\/]/.test(own) && !isAbs) ? path.resolve(root, own) : own;
   if (root) {
     const venv = platform === "win32" ? path.join(root, ".venv", "Scripts", "python.exe") : path.join(root, ".venv", "bin", "python");
     if (exists(venv)) return venv;
