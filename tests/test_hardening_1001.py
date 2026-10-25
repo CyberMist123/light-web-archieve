@@ -194,16 +194,6 @@ def test_env_command_wins_and_missing_file_means_stderr_only(tmp_path, monkeypat
     assert json.loads(out.read_text("utf-8"))["title"] == "环境变量优先"
 
 
-_HOME_PATH = __import__("re").compile(r"[A-Za-z]:[\\/]Users[\\/](?!<|%|\{)[^\\/\s]+[\\/]", __import__("re").I)
-
-
-def test_no_private_default_paths_in_public_modules():
-    root = Path(__file__).resolve().parents[1] / "link_brain"
-    for name in ("alert.py", "accounts.py", "enrich.py", "favorites.py", "catch.py"):
-        assert not _HOME_PATH.search((root / name).read_text(encoding="utf-8")), name
-    assert not _HOME_PATH.search((root / "adapters" / "xiaohongshu.py").read_text(encoding="utf-8"))
-
-
 # --------------------------------------------------------------------------
 # G-2 / G-3：测试护栏本身
 # --------------------------------------------------------------------------

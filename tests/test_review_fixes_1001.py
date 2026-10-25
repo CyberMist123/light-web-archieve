@@ -432,5 +432,5 @@ def test_extract_enrich_runs_after_status_is_final_and_is_capped(env, monkeypatc
     env.favs = [_fav(i) for i in _ids(2)]
     code, out = _run(capsys, extract=True)
     assert code == 0 and seen["state"] == "ready" and "enrich" in out
-    # Windows 的 monotonic 粒度粗：deadline 和这里的 time.monotonic() 可能是同一个读数，相减出 1800.0000000000002（浮点），放 1 毫秒
-    assert 29 * 60 < seen["left"] <= 30 * 60 + 1e-3
+    # Windows 的 monotonic 粒度约 15 毫秒：deadline 和这里的读数可能是同一个刻度，浮点相减会多出 2e-13，给 1 秒余量（CI 上红过一次）
+    assert 29 * 60 < seen["left"] <= 30 * 60 + 1

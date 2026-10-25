@@ -240,7 +240,7 @@
 
 ## 9. 迁移计划
 
-原则：每批只动一类来源；先加「守卫测试」（列出现存重复，标为已知例外，**新增**重复即红），再迁移，迁完把例外清空。守卫统一放 `tests/test_single_source.py` 和 `tests/test_single_source.cjs`，靠 grep/AST 扫源码。
+原则：每批只动一类来源；先加「守卫测试」（列出现存重复，标为已知例外，**新增**重复即红），再迁移，迁完把例外清空。守卫统一放 `tests/test_guards.py`（1025 起；原 `tests/test_single_source.py` 并入，基线在 `tests/guards-baseline.json`），靠 grep/AST 扫源码。
 
 ### 第 0 批：守卫 + 文档（不改行为）
 - 加 `tests/test_single_source.py`：
@@ -249,7 +249,7 @@
   - 收藏判断：`ingest_kind\s*==\s*["']favorite` 和 `favorited_by` 的读取只允许在 `provenance.py`。
   - 账号：`.get("nickname")` / `.get("sync_account")` / `.get("user_id")` 作用在 accounts 配置上的只允许在 `accounts.py`。
   - 密钥：`LWA_GEMINI_KEYS`、`gemini_keys_file`、`apiKeyEnv` 只允许在 `providers.py` / `storage.py`。
-- 加 `tests/test_single_source.cjs`：`'Collections'` 字面量只允许 1 处；`providerOf` / `errText` 规则表不得出现在 JS；`problems-ui.js` 不得定义 `GROUP_OF_CLASS`。
+- （JS 侧没有单开 `.cjs`，JS 规则和 Python 一起在 `tests/test_guards.py` 里扫）原计划：`'Collections'` 字面量只允许 1 处；`providerOf` / `errText` 规则表不得出现在 JS；`problems-ui.js` 不得定义 `GROUP_OF_CLASS`。
 - FORMAT.md 补 `favorited_by`、`albums.json`、`catalog-data.counts`（规格先行）。
 
 ### 第 1 批：派生重建 + 篇数（用户可见问题最大：BUGS #3、篇数不一致）
@@ -297,7 +297,7 @@
 
 | 批 | 层 | 内容 | 必加测试 | 状态 |
 |---|---|---|---|---|
-| 0 | 全部 | 守卫测试 `tests/test_single_source.py`（Python 和 JS 一起扫；现存重复列 known 白名单，新增即红，迁走没删白名单也红）；`docs/TEST-MAP.md` 功能→测试对照、标出缺口；FORMAT.md 补 favorited_by / albums / counts | 守卫本身；白名单数 = 本文档列出的重复数 | ✅ 1023（counts 规格随第 1 批写） |
+| 0 | 全部 | 守卫测试 `tests/test_single_source.py`（1025 第二波 PR⓪ 并入 `tests/test_guards.py`，白名单变成 `tests/guards-baseline.json` 里的计数；Python 和 JS 一起扫；现存重复列 known 白名单，新增即红，迁走没删白名单也红）；`docs/TEST-MAP.md` 功能→测试对照、标出缺口；FORMAT.md 补 favorited_by / albums / counts | 守卫本身；白名单数 = 本文档列出的重复数 | ✅ 1023（counts 规格随第 1 批写） |
 | 1 | ⑤ 派生 | `mark_dirty` + `ensure_fresh`（同步含中断、catch、restore、relabel、albums）；build 幂等（内容没变不写页面 md / 脚本，版本不含 built_at）；重建合并；catalog-data `counts`，两页篇数读它 | 中断同步后新帖进目录；catch 后 dirty；同输入连跑两次 build 不改任何文件 mtime；两页「全部」数相等 | ✅ 1023 代码 + 单测；待她 Obsidian 真机看（见下）。index-data.json 仍每次重写（页面就地换分类、不重建卡片），留给后续 |
 | 2 | 横切配置 | AI 配置表（API / CLI 平级，功能声明可用类型；概要可选 OpenCode）；`pricing.py` 统一价格、免费只认显式标记（CLI / Gemini 免费池）；预算默认只在后端；密钥只经 providers；后端把表给设置页 | 四处钱数相等；未知模型 = 未计价且预算拦；CLI 行记模型名且显示免费；夜跑与 providers 拿到同一组 key | ✅ 1023 代码 + 单测（`tests/test_pricing_1023.py`）；守卫白名单「价格表」「Gemini 密钥来源」「供应商猜测」「前端预算默认值」「CLI 命令抄本」清空，「写死的模型名」去掉 visual.py，新增「价格读法」。待她 Obsidian 真机看（`tests/acceptance/20261023-arch-audit-b2.md`）。没做：用量按模型分组（BUGS #9 第一条）、`GEMINI_MODEL` 进 data.json（第 3 批）、Gemini 付费档官方单价（官方页没核到，表里写 null = 未计价） |
 | 3 | ③ 规则 | `is_favorite` / `collected_by`：TG → Fable；ingest_kind 不再覆盖；accounts 按 user_id；fav-list / fav-tokens / albums 带账号键；迁移脚本先 dry-run | 换号同步不清别的号的专辑；重抓不丢收藏；迁移幂等；TG 帖来源 = Fable | 待做 |
