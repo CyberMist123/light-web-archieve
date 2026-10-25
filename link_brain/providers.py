@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from .errtext import errtext
+
 CAPS = ("textAI", "summaryAI", "visionAI", "visionAI.refine", "ocr", "asrAI", "docConvert", "embedAI")
 MODES = {
     "textAI": ("http", "cli", "off"),
@@ -166,7 +168,7 @@ def _run_key_cmd(cmd: str, timeout: float, kill_exclude=None) -> tuple[str, str]
         p = subprocess.Popen(cmd, shell=True, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                              stderr=subprocess.DEVNULL, creationflags=flags)
     except OSError as exc:
-        return _remember(cmd, "", f"起不来：{type(exc).__name__}")
+        return _remember(cmd, "", f"起不来：{errtext(exc)}")
     try:
         out, _ = p.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -218,7 +220,7 @@ def pool_load(name: str, *, timeout: float | None = None, kill_exclude=None) -> 
             text = Path(os.path.expandvars(path.strip())).expanduser().read_text("utf-8-sig")
             out.update(keys=_split_keys(text), source="file")
         except OSError as exc:
-            out.update(source="file", error=f"key 文件读不了（{type(exc).__name__}）")
+            out.update(source="file", error=f"key 文件读不了（{errtext(exc)}）")
     return out
 
 

@@ -29,7 +29,7 @@ BASELINE = {
     "indextree.py": 4,
     "ingest.py": 4,
     "mcp_tools.py": 2,
-    "nightly.py": 13,
+    "nightly.py": 11,
     "note.py": 2,
     "pdftext.py": 1,
     "pickfolder.py": 1,
