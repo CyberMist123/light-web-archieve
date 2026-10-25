@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "link-brain"
-version = "0.1.0"
+version = "0.2.0"
 description = "light-web-archieve: 小红书链接归档基座（RAW 不可变 + Obsidian 可见笔记）"
 requires-python = ">=3.11"
 dependencies = [
