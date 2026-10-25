@@ -32,8 +32,8 @@ import time
 from datetime import datetime, timedelta
 from typing import Any, Callable
 
-from . import storage
-from .errtext import errtext
+from ... import storage
+from ...errtext import errtext
 
 ENV_UNATTENDED = "LINK_BRAIN_UNATTENDED"
 ENV_COOLDOWN = "LWA_CAPTCHA_COOLDOWN_MIN"
@@ -171,7 +171,7 @@ def defer(code: str | None) -> bool:
 
 def report_deferred(reason: str) -> dict[str, Any] | None:
     """撞上验证、先不叫她：登记一条 TRANSIENT（只在问题列表里），这一晚记一次出事。永不抛。"""
-    from . import problems
+    from ... import problems
     key = night_key()
     now = _now().isoformat(timespec="seconds")
     n = _update_night(key, incidents_add=1, last_at=now)
@@ -204,7 +204,7 @@ def _out(result: str, exit_code: int, message: str, **extra: Any) -> dict[str, A
 
 def _mark_unrecovered(key: str, why: str, *, now: datetime) -> dict[str, Any]:
     """今晚没恢复：记下；昨晚也没恢复 → 推一次 NEEDS_HUMAN（她要知道了）。返回 {escalated}。"""
-    from . import problems
+    from ... import problems
     _update_night(key, result="unrecovered", why=why[:160])
     prev_key = (datetime.fromisoformat(key) - timedelta(days=1)).date().isoformat()
     prev = load_state()["nights"].get(prev_key) or {}
@@ -224,7 +224,7 @@ def _mark_unrecovered(key: str, why: str, *, now: datetime) -> dict[str, Any]:
 
 
 def _mark_recovered(key: str, hold: dict[str, Any] | None, *, now: datetime, waited_min: float) -> None:
-    from . import problems, sync_state
+    from ... import problems, sync_state
     _update_night(key, result="recovered", recovered_at=now.isoformat(timespec="seconds"))
     since = _since(hold)
     when = f"{since:%H:%M} 弹的验证，" if since else ""
@@ -317,7 +317,7 @@ def recover(*, cooldown: float | None = None, wait: bool = False, max_wait_min: 
         print(f"[验证自查] {AUTO_CLEAR_REASON}", file=sys.stderr)
         return _out("cleared", EXIT_OK, f"{AUTO_CLEAR_REASON}：接着跑", waited_min=round(waited, 1))
     if result == "not_logged_in":
-        from . import problems
+        from ... import problems
         _update_night(key, result="not_logged_in")
         problems.report_blocked(STEP, "NOT_LOGGED_IN", "冷却后自查：读取号成了游客（掉登录），要扫码登录")
         return _out("not_logged_in", EXIT_STOP, "自查发现掉登录了：要扫码登录（已提醒）")
@@ -363,7 +363,7 @@ def add_parser(sub) -> None:
 
 def run(args) -> int:
     import contextlib
-    from .read import dump_json
+    from ...read import dump_json
     with contextlib.redirect_stdout(sys.stderr):
         out = recover(cooldown=getattr(args, "cooldown_min", None), wait=bool(getattr(args, "wait", False)),
                       max_wait_min=getattr(args, "max_wait_min", None))

@@ -26,9 +26,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from . import domain, storage
+from ... import domain, storage
+from .adapter import SOURCE
 
-SOURCE = "xiaohongshu"
 STEP = "note.restricted"
 CODE = "PERMANENT.NOTE_RESTRICTED"
 TEXT = "这篇在小红书网页版要验证才能看"
@@ -112,7 +112,7 @@ def archive_complete(source_id: str) -> bool:
     sid = _sid(source_id)
     try:
         from . import comment_fill
-        from .attachments import inventory
+        from ...attachments import inventory
         meta, source = comment_fill.current_source(SOURCE, sid)
         sc = comment_fill.scope(source, comment_fill.floor_target(), comment_fill.load_state(SOURCE, sid))
         if int(sc.get("missing") or 0) > COMPLETE_GAP or sc.get("more_floors"):
@@ -224,7 +224,7 @@ def clear(source_id: str, *, item_id: str | None = None, why: str = "", token: s
         print(f"[restricted] 状态没写上：{exc}", file=sys.stderr)
     if was:
         try:
-            from . import problems
+            from ... import problems
             problems.resolve(STEP, item_id or domain.item_id(SOURCE, sid))
         except Exception:  # noqa: BLE001
             pass
@@ -259,7 +259,7 @@ def find_fresh_token(source_id: str, title: str | None, old_token: str | None = 
     号要人处理（熔断 / 验证 / 掉登录）→ 抛 xhs.AccountBlockedError（带码），调用方照原来的规矩停车；
     其余没搜成（服务忙、页面里有看不见的验证组件、搜索页没出来、搜不到、搜到的口令和原来一样）→ None。"""
     from . import accounts
-    from .adapters import xiaohongshu as xhs
+    from . import adapter as xhs
     sid = _sid(source_id)
     st = load(sid)
     if not search_due(st):
@@ -330,7 +330,7 @@ LEGACY_HINT = "not found in noteDetailMap"   # 1011 以前读取组件对这类�
 
 def quiet_unconfirmed() -> list[str]:
     """1017 迁移（幂等、零开页）：问题面板里还开着的「网页版要验证」一律收掉（她：原帖是真的不见了，网页版打不开不进面板）。"""
-    from . import problems
+    from ... import problems
     out = []
     for r in problems.load():
         if r.get("step") != STEP or r.get("resolved_at") or not r.get("item_id"):
@@ -345,7 +345,8 @@ def release_legacy_fill_stuck() -> list[str]:
     「连着补不上」（COMMENTS_INCOMPLETE，已放弃），之后再也不会自动开它——新逻辑就永远轮不到认它、给它搜一次新口令。
     这里把这种「已放弃」解开（没进展清零、问题标已解决），让后台补评论按原来的节奏再试**一次**：新读取组件会认出 NOTE_RESTRICTED，
     走兜底（每天最多搜一次）、还不行就记成「网页版要验证」。只认续读状态里记着这句报错的，别的「已放弃」一概不动。返回解开了哪几篇。"""
-    from . import comment_fill, problems
+    from ... import problems
+    from . import comment_fill
     out: list[str] = []
     base = storage.archive_root() / SOURCE
     for path in base.glob(f"*/derived/{comment_fill.STATE_NAME}"):
@@ -380,7 +381,8 @@ def reclassify_fill_failures() -> list[str]:
     """一次性（幂等）的本地迁移，零开页（1016）：续读报错里明明是 `[NOTE_RESTRICTED]`（页面停在 /explore），
     却被当普通失败连记 3 次、登成了 COMMENTS_INCOMPLETE（1011 前起的后台进程还在跑旧代码时写的）。
     这里改记成「网页版要验证」（note.restricted，一篇一条，同篇已有就并进那条），续读的「已放弃」解开、那条标已解决。"""
-    from . import comment_fill, problems
+    from ... import problems
+    from . import comment_fill
     out: list[str] = []
     base = storage.archive_root() / SOURCE
     for path in base.glob(f"*/derived/{comment_fill.STATE_NAME}"):
@@ -418,7 +420,8 @@ def reclassify_fill_failures() -> list[str]:
 
 def _requeue_comments(source_id: str, item_id: str) -> None:
     """限制期间的续读失败不算这篇评论「读不全」：清掉没进展计数 / 已放弃，问题面板那条（若有）标已解决。"""
-    from . import comment_fill, problems
+    from ... import problems
+    from . import comment_fill
     st = comment_fill.load_state(SOURCE, source_id)
     if not st:
         return
@@ -457,7 +460,7 @@ def after_verify(source_id: str, outcome: dict[str, Any], *, spawn: Callable[[],
         save(sid, st)
         if st.get("restricted"):
             try:
-                from . import problems
+                from ... import problems
                 for r in problems.load():
                     if r.get("step") == STEP and r.get("item_id") == item_id:
                         problems.annotate(r, verify_result=str(outcome.get("result") or ""), verify_at=_iso())
@@ -481,7 +484,7 @@ def after_verify(source_id: str, outcome: dict[str, Any], *, spawn: Callable[[],
     except Exception as exc:  # noqa: BLE001
         errors.append(f"spawn: {exc}")
     try:
-        from . import catch as catch_mod
+        from ... import catch as catch_mod
         catch_mod._ensure_rendered(SOURCE, sid, force=True, extract=False)
     except Exception as exc:  # noqa: BLE001 - 笔记页那一行下次渲染会跟上
         errors.append(f"render: {exc}")
@@ -493,8 +496,9 @@ def after_verify(source_id: str, outcome: dict[str, Any], *, spawn: Callable[[],
 
 def run_verify(args) -> int:
     """`note-verify <item_id> [--wait]`：插件笔记页 / 问题面板的「打开验证」。stdout 最后一行 {ok, code, message, …}。"""
-    from . import accounts, index as index_mod
-    from .read import dump_json, outcome
+    from ... import index as index_mod
+    from . import accounts
+    from ...read import dump_json, outcome
     conn = index_mod.connect()
     try:
         row = index_mod.get_object(conn, args.target)

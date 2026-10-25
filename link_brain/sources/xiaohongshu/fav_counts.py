@@ -21,14 +21,14 @@ import json
 import math
 from typing import Any, Iterable
 
-from . import domain
+from ... import domain
 
-SOURCE = "xiaohongshu"   # = adapters.xiaohongshu.SOURCE（不为一个常量去加载整个适配器）
+from .adapter import SOURCE
 
 
 def library_ids() -> set[str]:
     """库里已有的（对象目录名 = note_id）+ 回收站里的 note_id。读不到就是空集。"""
-    from . import storage
+    from ... import storage
     ids: set[str] = set()
     try:
         root = storage.archive_root() / SOURCE
@@ -41,7 +41,7 @@ def library_ids() -> set[str]:
 
 
 def _tombstones() -> set[str]:
-    from . import index as index_mod
+    from ... import index as index_mod
     try:
         conn = index_mod.connect()
     except Exception:  # noqa: BLE001
@@ -56,13 +56,15 @@ def _tombstones() -> set[str]:
 
 def _objects() -> tuple[int, int]:
     """(库里对象数, 其中从收藏进来的)。"""
-    from . import storage
+    from ... import storage
     total = fav = 0
     try:
         dirs = [d for d in (storage.archive_root() / SOURCE).iterdir() if d.is_dir()]
     except OSError:
         return 0, 0
     for d in dirs:
+        if not (d / "meta.json").is_file():
+            continue   # PR③：没 meta 的是暂存 / 半截目录，不算「库里有几篇」
         total += 1
         try:
             meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
@@ -109,7 +111,7 @@ def counts(pool_ids: Iterable[str] | None = None, *, have: set[str] | None = Non
         out.update(favorites_total=total, archived=archived, remaining=max(0, total - archived), basis="list")
         return out
     try:
-        from . import sync_state
+        from ... import sync_state
         status = sync_state.load()
     except Exception:  # noqa: BLE001
         status = {}

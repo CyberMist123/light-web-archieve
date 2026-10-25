@@ -39,7 +39,7 @@
 """
 
 from __future__ import annotations
-from .errtext import errtext
+from ...errtext import errtext
 
 import contextlib
 import os
@@ -49,9 +49,9 @@ import time
 from datetime import datetime, timedelta
 from typing import Any
 
-from . import domain, sync_state, synclog
-from . import ingest as ingest_mod, read as read_mod
-from .adapters import xiaohongshu as xhs
+from ... import domain, sync_state, synclog
+from ... import ingest as ingest_mod, read as read_mod
+from . import adapter as xhs
 from . import accounts
 
 EXIT_OK = 0
@@ -104,13 +104,13 @@ def stop_after_known() -> int:
 
 
 def fav_list_path():
-    from . import storage
+    from ... import storage
     return storage.archive_root() / FAV_LIST_NAME
 
 
 def load_snapshot() -> dict[str, Any]:
     """全量名单 {full_at, at, items:[{note_id, xsec_token, url, title…}], full_next?}；没有 / 坏了 = {}。"""
-    from . import storage
+    from ... import storage
     try:
         data = storage.read_json(fav_list_path())
     except (OSError, ValueError):
@@ -119,7 +119,7 @@ def load_snapshot() -> dict[str, Any]:
 
 
 def _save_snapshot(data: dict[str, Any]) -> None:
-    from . import storage
+    from ... import storage
     try:
         storage.write_json(fav_list_path(), data)
     except OSError as exc:
@@ -160,7 +160,7 @@ def known_ids() -> set[str]:
     """读取服务判「读到已知处」用的已知 id：全量名单 + 已在库的 + 回收站里（屏蔽同步）的。"""
     ids = {str(x.get("note_id")) for x in load_snapshot().get("items") or [] if x.get("note_id")}
     try:
-        from . import index as index_mod
+        from ... import index as index_mod
         conn = index_mod.connect()
         try:
             ids.update(str(r[0]) for r in conn.execute("SELECT source_id FROM tombstones WHERE source = ?", (xhs.SOURCE,)))
@@ -169,7 +169,7 @@ def known_ids() -> set[str]:
     except Exception:  # noqa: BLE001 - 读不到回收站只是少几个已知 id
         pass
     try:
-        from . import storage
+        from ... import storage
         root = storage.archive_root() / xhs.SOURCE
         if root.is_dir():
             ids.update(p.name for p in root.iterdir() if p.is_dir())
@@ -278,7 +278,7 @@ def fetch_favorites(*, limit: int = 50, verbose: bool = False, mode: str = "full
         print(f"[sync-favorites] {data.get('nickname')} 收藏 {len(items)} 条", file=sys.stderr)
     # 读全时把「笔记 id → 最新口令」存到本地（零开页），附件补查 / 下载优先用它（批次 D · L6 P8）；
     # 1011 增量读只合并读到的那段（没读到的口令原样留着，各自按自己的时刻算新不新）
-    from . import attachments
+    from ... import attachments
     partial = bool(data.get("partial"))
     attachments.remember_fav_tokens(items, partial=partial, merge=incremental)
     # 1011 全量名单：读全才整份换；增量 / 一截只把读到的合进去
@@ -352,7 +352,7 @@ def suspicious_reason(total: int, last: int, read: dict[str, Any]) -> str:
 
 def _render_local(source_key: str, source_id: str, *, only_if_missing: bool) -> None:
     """本地渲染（不调模型、不识图）：只拼可见 md + agent.md。only_if_missing=True 时可见 md 在就什么都不做。"""
-    from . import render as render_mod, storage
+    from ... import render as render_mod, storage
 
     if only_if_missing:
         meta_path = storage.object_dir(source_key, source_id) / "meta.json"
@@ -367,7 +367,7 @@ def _sync_one(fav: dict[str, Any], *, origin: str, actor: str, verbose: bool, bu
 
     budget_left：返回「这一批还剩几秒」的函数（没有预算时 None）。剩的不多就不顺手下附件、抓详情也不再重试。
     """
-    from . import enrich as enrich_mod
+    from ... import enrich as enrich_mod
 
     url = fav.get("url") or ""
     try:
@@ -416,7 +416,7 @@ def _sync_one(fav: dict[str, Any], *, origin: str, actor: str, verbose: bool, bu
 
     blocked_code = ""
     if status == "new":  # 0927：新收藏入库就下附件（一个一个、隔几分钟）；老的缺附件交给每晚 4 点
-        from . import attachments as attachments_mod
+        from ... import attachments as attachments_mod
         if budget_left is not None and budget_left() < GRAB_RESERVE_SECONDS:
             # 1001：时间不多了，下附件（每个 1.5–4 分钟间隔、最长 4 分钟下载、最多 3 次）会拖过预算
             sync_state.progress(f"《{summary.get('title') or source_id}》时间不多了，附件留给 4 点补下")
@@ -605,7 +605,7 @@ def sync_favorites(
               + (f"（{why}）" if why else ""), file=sys.stderr)
     quota = _Quota()
     # 1015 设置页「定时同步 → 每次同步最多收几篇」：0 = 不限（只受每天上限管）
-    from .ai_config import per_run_limit, sync_options as _sync_opts
+    from ...ai_config import per_run_limit, sync_options as _sync_opts
     per_run = per_run_limit(_sync_opts().get("perRunLimit"))
     run_new = 0
     live = _Live(quota, deadline)
@@ -803,7 +803,7 @@ _LAST_READ: dict[str, Any] = {}
 
 def tag_account(note_id: str, account: dict[str, str], *, seen_at: str | None = None) -> bool:
     """在对象 meta.json 的 favorited_by 里记下「这篇被哪个号收藏」（去重；失败不影响同步）。"""
-    from . import storage
+    from ... import storage
     key = domain.account_key(account)
     if not key:
         return False
@@ -831,7 +831,7 @@ def tag_account(note_id: str, account: dict[str, str], *, seen_at: str | None = 
         return False
     if not added:
         return False
-    from .catalog import mark_dirty  # 1023：收藏账号决定「来源」（ARCH-AUDIT 第 1 批）
+    from ...catalog import mark_dirty  # 1023：收藏账号决定「来源」（ARCH-AUDIT 第 1 批）
     mark_dirty("收藏账号")
     return True
 
@@ -842,8 +842,8 @@ class _Quota:
 
     def __init__(self):
         from datetime import date
-        from .ai_config import sync_options
-        from . import storage
+        from ...ai_config import sync_options
+        from ... import storage
         # 第 5 批 4.1：sync_options 已规整——0 = 不限，空 / 乱填 = 默认 50（以前 `or 0` 让空值变成不限）
         self.limit = int(sync_options()["dailyNewLimit"])
         self.path = storage.archive_root() / "sync-quota.json"
@@ -858,7 +858,7 @@ class _Quota:
         return self.limit > 0 and self.count >= self.limit
 
     def add(self) -> None:
-        from . import storage
+        from ... import storage
         self.count += 1
         try:
             # CONVENTIONS §6.4：插件白天的同步和夜跑共用这一个计数，读改写在锁里（以文件里的数为准再 +1）
@@ -878,7 +878,7 @@ class _Failures:
     """抓失败过的收藏：`_archive/sync-failures.json` = {note_id: {count, last, error}}。"""
 
     def __init__(self):
-        from . import storage
+        from ... import storage
         self.path = storage.archive_root() / "sync-failures.json"
         try:
             data = storage.read_json(self.path)
@@ -913,7 +913,7 @@ class _Failures:
             self.dirty = True
 
     def save(self) -> None:
-        from . import storage
+        from ... import storage
         if not self.dirty:
             return
         try:
@@ -924,7 +924,7 @@ class _Failures:
 
 def _already_archived(fav: dict[str, Any]) -> bool:
     """在库里（或在回收站里、已屏蔽同步）= 不用联网。名单来自读取组件，没有 note_id 的条目当「不在库」交给后面报错。"""
-    from . import index as index_mod
+    from ... import index as index_mod
     nid = fav.get("note_id")
     if not nid:
         return False
@@ -969,7 +969,7 @@ def _exit_code(payload: dict[str, Any]) -> int:
 
 
 def _run(args) -> tuple[int, dict[str, Any]]:
-    from . import enrich as enrich_mod
+    from ... import enrich as enrich_mod
 
     budget = float(getattr(args, "budget_min", 0) or 0)
     deadline = _clock() + budget * 60 if budget > 0 else None
@@ -994,7 +994,7 @@ def _run(args) -> tuple[int, dict[str, Any]]:
         if not sync_state.running_elsewhere():
             sync_state.record("finished", payload=payload)  # 顺带登记 NEEDS_HUMAN.RISK_HOLD（login）
         else:
-            from . import problems
+            from ... import problems
             problems.report_blocked("sync.favorites", hcode, text)
         return _exit_code(payload), payload
 
@@ -1046,7 +1046,7 @@ def run(args) -> int:
             code, payload = _run(args)
         finally:
             # 1023：同步完成、失败、中途抛错都让目录跟上（以前只有夜跑 / 手动刷新才重建 → 「今日新增」筛不到）
-            from .catalog import ensure_fresh
+            from ...catalog import ensure_fresh
             ensure_fresh(wait_s=60)
     items = payload.get('items') or []
     new = len(payload.get('fetched_new') or [])

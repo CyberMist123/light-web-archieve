@@ -17,7 +17,7 @@
 """
 
 from __future__ import annotations
-from .errtext import errtext
+from ...errtext import errtext
 
 import json
 import os
@@ -27,11 +27,11 @@ import sys
 import time
 from datetime import datetime, timedelta
 
-from . import actionlog
+from ... import actionlog
 from pathlib import Path
 from typing import Any, Callable
 
-from . import domain, storage
+from ... import domain, storage
 
 FLOOR_MIN = 10
 FLOOR_ALL = 100_000         # 「全部」= 不设楼数上限（1017：以前 2000，8636 条评论的帖只读到 2007 楼就当读完了）
@@ -72,7 +72,7 @@ def floor_target(value: Any = None) -> int:
     """设置里的「评论楼层」→ 要补齐的楼数：10–50；「全部」= FLOOR_ALL。读不到设置按 10。"""
     if value is None:
         try:
-            from .ai_config import sync_options
+            from ...ai_config import sync_options
             value = sync_options().get("commentFloors", FLOOR_MIN)
         except Exception:  # noqa: BLE001 - 设置坏了也照常补（按默认 10 楼）
             value = FLOOR_MIN
@@ -87,7 +87,7 @@ def floor_target(value: Any = None) -> int:
 def fill_gap_min() -> int:
     """补评论节奏（1015 设置页「定时同步 → 补评论节奏」）：同一篇两次开页至少隔几分钟，只能比 FILL_GAP_MIN 慢。读不到设置按 FILL_GAP_MIN。"""
     try:
-        from .ai_config import sync_options
+        from ...ai_config import sync_options
         return max(FILL_GAP_MIN, int(sync_options().get("commentFillGap") or FILL_GAP_MIN))
     except Exception:  # noqa: BLE001 - 设置坏了按默认节奏
         return FILL_GAP_MIN
@@ -110,7 +110,7 @@ def _int(v: Any) -> int:
 
 
 def reason_text(reason: str) -> str:
-    from .adapters import xiaohongshu as xhs
+    from . import adapter as xhs
     return REASON_CN.get(reason) or xhs.REPLY_GAP_CN.get(reason) or "没读全"
 
 
@@ -380,7 +380,7 @@ def is_stuck(state: dict[str, Any], floors: int) -> bool:
 
 
 def _objects() -> list[tuple[str, str]]:
-    from . import index as index_mod
+    from ... import index as index_mod
     conn = index_mod.connect()
     try:
         rows = conn.execute("SELECT source, source_id FROM objects ORDER BY item_id").fetchall()
@@ -477,7 +477,7 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
     记续读状态，补齐了消问题、连着补不上进问题面板，最后重渲染可见页。碰号：调用方要拿着账号锁。
 
     manual=True（她点的「再试一次 / 现在抓全部评论」）：不看 45 分钟间隔、不看「已放弃」，照跑一次。"""
-    from . import catch as catch_mod, ingest as ingest_mod, index as index_mod, problems
+    from ... import catch as catch_mod, ingest as ingest_mod, index as index_mod, problems
     floors = floors or floor_target()
     conn = index_mod.connect()
     try:
@@ -503,7 +503,7 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
 
     before_missing, before_floors = sc["missing"], sc["stored"]
     from . import restricted
-    from .adapters import xiaohongshu as xhs
+    from . import adapter as xhs
     if not manual and restricted.is_restricted(source_id):
         # 1011：网页版要验证才能看的，等她点「打开验证」，后台不再自动开页
         return {**base, "filled": False, "missing_after": sc["missing"], "restricted": True, "reason": restricted.TEXT}
@@ -635,7 +635,7 @@ def _settle(source_key: str, source_id: str, state: dict[str, Any], item_id: str
 
 def note_failure(item_id: str, error: str) -> None:
     """这一篇这次没读成（不是号的事，比如这篇打不开）：算一次没进展，记一句原因。"""
-    from . import index as index_mod, problems
+    from ... import index as index_mod, problems
     conn = index_mod.connect()
     try:
         row = index_mod.get_object(conn, item_id)
@@ -753,7 +753,7 @@ _TASK_PS = (
 
 
 def _nightly_tasks() -> list[str]:
-    from . import sync_schedule
+    from ... import sync_schedule
     names = [sync_schedule.TASK, sync_schedule.nightly_task_name()]
     return list(dict.fromkeys(n for n in names if n))
 
@@ -788,7 +788,8 @@ def nightly_step(log_paths: list[Path] | None = None) -> str:
     """夜跑日志里正在跑的那一步（最后一个「=== X 开始」且后面还没有它的「结束」）；读不出来返回 ''。"""
     import re
     if log_paths is None:
-        from . import accounts, nightly
+        from ... import nightly
+        from . import accounts
         log_paths = [Path(nightly.default_log_path()), accounts.tool_dir() / "fav-sync.log"]
     best: tuple[float, str] = (0.0, "")
     for p in log_paths:
@@ -857,14 +858,14 @@ def spawn_worker() -> dict[str, Any]:
     st = read_status()
     if st.get("state") in ("running", "waiting", "paused"):
         return {"ok": True, "started": False, "already": True, "pid": st.get("pid"), "message": "后台补评论已经在跑"}
-    from . import deps, procs
+    from ... import deps, procs
     argv = [deps.python_exe(), "-m", "link_brain", "comments", "--fill-pending", "--until-done"]   # P0 1024：和插件同一个解释器
     env = dict(os.environ)
     env[storage.ENV_VAULT] = str(storage.vault_root())
     env["PYTHONIOENCODING"] = "utf-8"
     log = storage.link_brain_home() / "comments-fill.log"
     log.parent.mkdir(parents=True, exist_ok=True)
-    pid = procs.spawn_detached(argv, cwd=str(Path(__file__).resolve().parent.parent), env=env, log_path=log)
+    pid = procs.spawn_detached(argv, cwd=str(storage.repo_root()), env=env, log_path=log)
     return {"ok": True, "started": True, "pid": pid, "message": "后台开始补评论"}
 
 
@@ -881,8 +882,8 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
     后台（--until-done）：一直补到全库没有能续的缺口；撞验证 / 掉登录就停下等（只看内存状态，不开页），她处理好自动接着；
     夜跑在跑、或别的任务要用号就让路。单实例：已经有一个在跑就直接退出 0。"""
     from . import accounts
-    from .adapters import xiaohongshu as xhs
-    from .read import dump_json, outcome
+    from . import adapter as xhs
+    from ...read import dump_json, outcome
     from . import night_captcha
     until_done = bool(getattr(args, "until_done", False))
     if until_done:
@@ -1067,7 +1068,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
                     message=status.text("补评论暂停") + f" · 号正被「{holder or '别的任务'}」用着，等它做完")
                 continue
             except xhs.NeedsHumanError as exc:
-                from . import problems
+                from ... import problems
                 service = isinstance(exc, xhs.ServiceDownError)
                 problems.report_blocked(STEP, getattr(exc, "code", "") or "", f"补评论停了：{exc}", service=service)
                 if not until_done:
@@ -1139,7 +1140,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
 
 def _rebuild_catalog() -> None:
     try:
-        from . import catalog
+        from ... import catalog
         catalog.build()
     except Exception as exc:  # noqa: BLE001 - 目录下次重建会跟上
         print(f"[comments] 目录没重建上：{type(exc).__name__}: {exc}", file=sys.stderr)
@@ -1147,7 +1148,7 @@ def _rebuild_catalog() -> None:
 
 def status_payload() -> dict[str, Any]:
     """`comments --fill-status`：插件设置页 / 状态栏用。本地读，不碰号。"""
-    from .read import outcome
+    from ...read import outcome
     sv = survey()
     st = read_status()
     running = st.get("state") in ("running", "waiting", "paused")

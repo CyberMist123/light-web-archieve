@@ -34,7 +34,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from . import storage
+from ... import storage
 
 DEFAULT_ENDPOINT = 'http://127.0.0.1:18061/mcp'
 READER_NAMES = ('link-brain-reader.exe', 'link-brain-reader')
@@ -211,7 +211,7 @@ def _account_guard() -> None:
         roots = json.loads(p.read_text('utf-8')).get('allowed_roots') or []
     except Exception:  # noqa: BLE001
         roots = []
-    here = Path(__file__).resolve().parent.parent
+    here = storage.repo_root()  # PR③：搬进小红书包后 __file__ 深了一层，程序目录统一问 storage
     for r in roots:
         try:
             here.relative_to(Path(r).resolve())
@@ -223,7 +223,7 @@ def _account_guard() -> None:
 
 def api(method: str, route: str, *, timeout: float = 45, body: dict | None = None) -> dict:
     """调读取服务的 HTTP 接口；碰号的那几类（actionlog.action_for_route 认得的）记一行用号行为日志（1016）。"""
-    from . import actionlog
+    from ... import actionlog
     action = actionlog.action_for_route(route)
     if not action:
         return _api(method, route, timeout=timeout, body=body)
@@ -278,7 +278,7 @@ def _api(method: str, route: str, *, timeout: float = 45, body: dict | None = No
 def _note_account(code: str, detail: str = '') -> None:
     """掉登录 / 要验证：不管哪个环节撞见，都点亮目录页的「!」（0927）。写不进去不影响主流程。"""
     try:
-        from . import sync_state
+        from ... import sync_state
         if code in sync_state.ACCOUNT_CODES:
             sync_state.account_problem(code, detail)
         elif code == 'OK':
@@ -305,7 +305,7 @@ def ensure_reader(*, wait: float = 40):
     # 只监听本机：这个服务握着小红书登录，不能对局域网开放。
     # CONVENTIONS §6.3（根治 0929）：经短命中转拉起，读取服务不是任何 Python 的子孙——
     # 插件 / 夜跑超时杀 Python 进程树时够不着它和它的浏览器。参数、环境变量、工作目录与以前完全一样。
-    from . import procs
+    from ... import procs
     procs.spawn_detached([exe, '-port', f'127.0.0.1:{target.port or 18061}'], cwd=home(), env=reader_env(),
                          log_path=log)
     deadline = time.monotonic() + wait  # 首次启动可能要下载内置浏览器
@@ -897,7 +897,7 @@ def _hold_cleared_row(message: str) -> dict:
 def _note_verify(result: str) -> None:
     """把验证窗口的结论记到问题记录那条（面板据此给「没看到验证，恢复」）。永不抛异常。"""
     try:
-        from . import problems
+        from ... import problems
         now = datetime.now().astimezone().isoformat(timespec='seconds')
         for r in problems.load():
             if r.get('step') == 'login' and str(r.get('code') or '').split('.')[-1] in RISK_CODES:
@@ -1011,7 +1011,7 @@ def clear_hold(*, by_owner: bool) -> dict:
         return _hold_cleared_row('暂停已经解除了，不用再恢复')
     api('POST', '/api/v1/risk/clear', timeout=20)
     try:
-        from . import problems
+        from ... import problems
         now = datetime.now().astimezone()
         for r in problems.load():
             if r.get('step') == 'login' and str(r.get('code') or '').split('.')[-1] in (*RISK_CODES, 'ACCOUNT_BLOCKED'):
@@ -1029,7 +1029,7 @@ def run_login(args) -> int:
     另加 `login_state`（logged_in / guest / unknown / risk_hold）、`code`、`detail`、`hold_cause` 给脚本用。
     脚本（xhs-login-check.ps1）判 `login_state` 或退出码，**不要判 `state`**（那是插件的取值）。
     """
-    from .read import dump_json
+    from ...read import dump_json
     if getattr(args, 'status', False) and not any(getattr(args, k, False) for k in ('verify', 'logout', 'qr', 'clear_hold')):
         shallow = getattr(args, 'shallow', False)
         result, login_state = status_report(deep=not shallow, launch=not shallow)

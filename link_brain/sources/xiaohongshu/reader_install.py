@@ -41,7 +41,7 @@ class InstallError(Exception):
 
 
 def _home() -> Path:
-    from . import storage
+    from ... import storage
     return storage.link_brain_home()
 
 
@@ -188,7 +188,7 @@ def status() -> dict[str, Any]:
     from . import accounts
     reader = accounts.reader_exe()
     try:
-        from .adapters import xiaohongshu as xhs
+        from . import adapter as xhs
         related = xhs.relatedfile_exe()
     except Exception:  # noqa: BLE001
         related = None
@@ -209,7 +209,7 @@ def add_parser(sub) -> None:
 
 
 def run(args) -> int:
-    from .read import dump_json
+    from ...read import dump_json
     cmd = getattr(args, "reader_command", None)
     if cmd == "install":
         out = install(args.url, args.sha256)

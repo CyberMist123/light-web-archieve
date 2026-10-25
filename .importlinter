@@ -1,0 +1,157 @@
+; import 契约（第二波 PR③，设计稿 §5）。守卫是 tests/test_guards.py 里的 test_import_contract：
+; 它用 tests/tools/import_scan.py 的 AST 扫描算违规，不需要装 import-linter。
+; ignore_imports 是搬家后现有的违规（基线），只许删不许加：迁走一条就把那行删掉，不删也会红。
+; 现状一览：python tests/tools/import_scan.py
+
+[importlinter]
+root_package = link_brain
+include_external_packages = False
+
+[importlinter:contract:domain-pure]
+name = 规则只判断：domain 不 import 任何 link_brain 模块
+type = forbidden
+source_modules = link_brain.domain
+forbidden_modules = link_brain
+
+[importlinter:contract:shared-not-xhs]
+name = 共享代码不 import 小红书（只走 link_brain.sources 接口）；入口层 cli / nightly / doctor / repair / report / setup / mcp_server / serve / remote 不在此列
+type = forbidden
+source_modules =
+    link_brain.actionlog
+    link_brain.agentmd
+    link_brain.ai_config
+    link_brain.ai_health
+    link_brain.ai_routes
+    link_brain.alert
+    link_brain.answer_cache
+    link_brain.answer_check
+    link_brain.answer_prompt
+    link_brain.ask
+    link_brain.ask_followup
+    link_brain.ask_intent
+    link_brain.ask_turns
+    link_brain.asr
+    link_brain.attachments
+    link_brain.budget
+    link_brain.catalog
+    link_brain.catch
+    link_brain.comments
+    link_brain.connect
+    link_brain.crawl
+    link_brain.deps
+    link_brain.docconv
+    link_brain.domain
+    link_brain.enrich
+    link_brain.errtext
+    link_brain.evidence_pack
+    link_brain.export_bundle
+    link_brain.history
+    link_brain.index
+    link_brain.indexai
+    link_brain.indexedit
+    link_brain.indextree
+    link_brain.ingest
+    link_brain.keyprobe
+    link_brain.llm
+    link_brain.mcp_tools
+    link_brain.mdsafe
+    link_brain.mention
+    link_brain.note
+    link_brain.note_print
+    link_brain.ocrtext
+    link_brain.pdftext
+    link_brain.pickfolder
+    link_brain.places
+    link_brain.playlist
+    link_brain.posttags
+    link_brain.pricing
+    link_brain.problems
+    link_brain.procs
+    link_brain.provenance
+    link_brain.providers
+    link_brain.read
+    link_brain.recall_core
+    link_brain.recall_table
+    link_brain.remove
+    link_brain.render
+    link_brain.rerank
+    link_brain.restore
+    link_brain.retrieval
+    link_brain.saved_sources
+    link_brain.screentext
+    link_brain.selections
+    link_brain.semantic
+    link_brain.skills
+    link_brain.storage
+    link_brain.sync_schedule
+    link_brain.sync_state
+    link_brain.synclog
+    link_brain.text_stream
+    link_brain.topics
+    link_brain.usage
+    link_brain.videos
+    link_brain.vision
+    link_brain.visual
+    link_brain.voice
+    link_brain.wiki
+forbidden_modules = link_brain.sources.xiaohongshu
+ignore_imports =
+    link_brain.actionlog -> link_brain.sources.xiaohongshu.accounts
+    link_brain.attachments -> link_brain.sources.xiaohongshu.accounts
+    link_brain.attachments -> link_brain.sources.xiaohongshu.adapter
+    link_brain.attachments -> link_brain.sources.xiaohongshu.restricted
+    link_brain.catalog -> link_brain.sources.xiaohongshu.albums
+    link_brain.catalog -> link_brain.sources.xiaohongshu.restricted
+    link_brain.catch -> link_brain.sources.xiaohongshu.accounts
+    link_brain.catch -> link_brain.sources.xiaohongshu.adapter
+    link_brain.crawl -> link_brain.sources.xiaohongshu.accounts
+    link_brain.crawl -> link_brain.sources.xiaohongshu.comment_fill
+    link_brain.index -> link_brain.sources.xiaohongshu.comment_fill
+    link_brain.ingest -> link_brain.sources.xiaohongshu.accounts
+    link_brain.ingest -> link_brain.sources.xiaohongshu.adapter
+    link_brain.ingest -> link_brain.sources.xiaohongshu.comment_fill
+    link_brain.ingest -> link_brain.sources.xiaohongshu.restricted
+    link_brain.problems -> link_brain.sources.xiaohongshu.accounts
+    link_brain.problems -> link_brain.sources.xiaohongshu.night_captcha
+    link_brain.problems -> link_brain.sources.xiaohongshu.restricted
+    link_brain.provenance -> link_brain.sources.xiaohongshu.adapter
+    link_brain.read -> link_brain.sources.xiaohongshu.adapter
+    link_brain.render -> link_brain.sources.xiaohongshu.adapter
+    link_brain.render -> link_brain.sources.xiaohongshu.comment_fill
+    link_brain.render -> link_brain.sources.xiaohongshu.restricted
+    link_brain.videos -> link_brain.sources.xiaohongshu.adapter
+
+[importlinter:contract:xhs-no-ai]
+name = 小红书包不碰目录构建 / AI / 渲染 / 入口
+type = forbidden
+source_modules = link_brain.sources.xiaohongshu
+forbidden_modules =
+    link_brain.catalog
+    link_brain.render
+    link_brain.enrich
+    link_brain.nightly
+    link_brain.llm
+    link_brain.text_stream
+    link_brain.vision
+    link_brain.visual
+    link_brain.semantic
+    link_brain.indextree
+    link_brain.indexai
+    link_brain.topics
+    link_brain.ask
+    link_brain.providers
+    link_brain.mcp_tools
+    link_brain.cli
+ignore_imports =
+    link_brain.sources.xiaohongshu.albums -> link_brain.catalog
+    link_brain.sources.xiaohongshu.comment_fill -> link_brain.catalog
+    link_brain.sources.xiaohongshu.comment_fill -> link_brain.nightly
+    link_brain.sources.xiaohongshu.favorites -> link_brain.catalog
+    link_brain.sources.xiaohongshu.favorites -> link_brain.enrich
+    link_brain.sources.xiaohongshu.favorites -> link_brain.render
+
+[importlinter:contract:interface-static-free]
+name = 接口包不静态 import 具体来源（注册表用字符串）
+type = forbidden
+source_modules = link_brain.sources
+forbidden_modules = link_brain.sources.xiaohongshu

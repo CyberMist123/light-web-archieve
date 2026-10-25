@@ -6,7 +6,7 @@ import pytest
 
 from link_brain import accounts
 
-PKG_ROOT = Path(accounts.__file__).resolve().parent.parent
+PKG_ROOT = Path(__file__).resolve().parent.parent  # 仓库根；PR③ 后 accounts 深了一层，不能再按它的 __file__ 推
 
 
 @pytest.fixture

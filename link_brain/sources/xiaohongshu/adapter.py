@@ -9,7 +9,7 @@ MCP 返回结构、CDN 档位、楼中楼深度等实测结论见 `docs/POC-xiao
 """
 
 from __future__ import annotations
-from ..errtext import errtext
+from ...errtext import errtext
 
 import asyncio
 import json
@@ -27,7 +27,7 @@ import httpx
 SOURCE = "xiaohongshu"
 ADAPTER_VERSION = "xiaohongshu/1"
 def _default_endpoint() -> str:
-    from .. import accounts  # 读取服务地址统一由 accounts 决定（env > accounts.json > 默认 18061）
+    from . import accounts  # 读取服务地址统一由 accounts 决定（env > accounts.json > 默认 18061）
     return accounts.endpoint()
 
 
@@ -65,7 +65,7 @@ HASHTAG_RE = re.compile(r"#([^#\[\]]{1,30})\[话题\]#")
 ATTACHMENT_HINT_RE = re.compile(r"[^\n。！？]{0,40}(?:附件|在文件|文件里|笔记文件)[^\n。！？]{0,40}")
 
 
-from .. import sources
+from ... import sources
 
 AdapterError = sources.SourceError
 NeedsHumanError = sources.NeedsHuman
@@ -342,7 +342,7 @@ def call_tool(tool: str, arguments: dict[str, Any], *, endpoint: str | None = No
               timeout: float = 300) -> Any:
     """同步调一个 MCP 工具，并记一行用号行为日志（1016，actionlog）。见 _call_tool。"""
     import time as _time
-    from .. import actionlog
+    from ... import actionlog
     t0 = _time.monotonic()
     item = str(arguments.get("feed_id") or "")
     try:
@@ -368,7 +368,7 @@ def _call_tool(tool: str, arguments: dict[str, Any], *, endpoint: str | None = N
     默认地址的服务没起时先在本机拉起再调（只拉一次，不循环重试）。
     """
     if endpoint is None:
-        from .. import accounts
+        from . import accounts
         endpoint = accounts.endpoint()
         try:
             accounts.ensure_reader()
@@ -685,7 +685,7 @@ def relatedfile_exe() -> str:
     """relatedfile 的路径；哪里都没有时返回组件目录下的默认位置（报错信息里给人看）。"""
     if RELATEDFILE_EXE:
         return RELATEDFILE_EXE
-    from .. import accounts
+    from . import accounts
     for root in accounts.tool_roots():
         for name in RELATEDFILE_NAMES:
             if (root / name).is_file():

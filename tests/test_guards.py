@@ -68,7 +68,7 @@ RULES: dict[str, Rule] = {
     "收藏判断": _rule(
         r"ingest_kind[\"']?\)?\s*==?\s*[\"']favorite|\.get\([\"']favorited_by[\"']\)",
         # domain 是规则本体；favorites.tag_account 写 favorited_by（SYNC 归属）；synclog 问的是「哪趟同步带进来的」，读 ingest_kind 是对的
-        PY_GLOBS, {"link_brain/domain.py", "link_brain/favorites.py", "link_brain/synclog.py"}, "ARCH-AUDIT 第 3 批 / 第二波 PR①"),
+        PY_GLOBS, {"link_brain/domain.py", "link_brain/sources/xiaohongshu/favorites.py", "link_brain/synclog.py"}, "ARCH-AUDIT 第 3 批 / 第二波 PR①"),
     # ---- 第二波 PR① 新加（设计稿 §5.4）----
     "item_id 前缀": _rule(
         r"[\"']xhs-|f[\"']xhs-\{|removeprefix\([\"']xhs-",
@@ -80,7 +80,7 @@ RULES: dict[str, Rule] = {
         "在库 / 已删判断走 domain.lookup(storage.probe_object(...))，第二波 PR④⑤ 清空"),
     "账号字段": _rule(
         r"config\(\)\.get\([\"'](sync_account|nickname|user_id)[\"']",
-        PY_GLOBS, {"link_brain/accounts.py"}, "ARCH-AUDIT 第 3 批"),
+        PY_GLOBS, {"link_brain/sources/xiaohongshu/accounts.py"}, "ARCH-AUDIT 第 3 批"),
     "Gemini 密钥来源": _rule(
         r"LWA_GEMINI_KEYS|gemini_keys_(file|cmd)",
         PY_GLOBS, {"link_brain/providers.py", "link_brain/storage.py"}, "ARCH-AUDIT 第 2 批"),
@@ -282,6 +282,51 @@ def test_write_baseline_refuses_growth_by_default(tmp_path, monkeypatch):
     refused = write_baseline(base)
     assert refused and load_baseline(base)["手拼异常文字"] == {"link_brain/a.py": 1}
     assert write_baseline(base, allow_grow=True) == [] and load_baseline(base)["手拼异常文字"] == {"link_brain/a.py": 2}
+
+
+# ---- import 契约（第二波 PR③，设计稿 §5）：.importlinter 是基线，tests/tools/import_scan.py 是扫描 ----
+sys.path.insert(0, str(ROOT / "tests" / "tools"))
+import import_scan  # noqa: E402
+
+# 最大环的模块数（PR③ 搬家后 78）。只许减：拆掉一截就把数字改小。
+MAX_CYCLE = 78
+
+
+@pytest.fixture(scope="module")
+def import_graph():
+    return import_scan.edges()
+
+
+@pytest.mark.parametrize("key", list(import_scan.contracts()))
+def test_import_contract(key, import_graph):
+    c = import_scan.contracts()[key]
+    now = import_scan.violations(c, import_graph)
+    new = sorted(now - c["ignore"])
+    gone = sorted(c["ignore"] - now)
+    assert not new, f"「{c['name']}」新增违规（改走 link_brain.sources 接口，或确有理由再写进 .importlinter 的 ignore_imports）：\n" + \
+        "\n".join(f"    {a} -> {b}" for a, b in new)
+    assert not gone, f"「{c['name']}」这些已经迁走了，把 .importlinter 里对应的 ignore_imports 行删掉：\n" + \
+        "\n".join(f"    {a} -> {b}" for a, b in gone)
+
+
+def test_import_cycle_size(import_graph):
+    n = import_scan.largest_cycle(import_graph)
+    assert n <= MAX_CYCLE, f"最大 import 环从 {MAX_CYCLE} 个模块涨到 {n}：新加的 import 把更多模块卷进环里了"
+    assert n == MAX_CYCLE, f"最大 import 环缩到 {n} 个模块了，把 tests/test_guards.py 的 MAX_CYCLE 改成 {n}"
+
+
+def test_import_scan_contract_semantics():
+    g = {("link_brain.domain", "link_brain.storage"),
+         ("link_brain.sources", "link_brain.sources.xiaohongshu"),
+         ("link_brain.sources.xiaohongshu.accounts", "link_brain.sources.xiaohongshu.adapter"),
+         ("link_brain.ingest", "link_brain.sources.xiaohongshu.adapter")}
+    pure = {"source": ["link_brain.domain"], "forbidden": ["link_brain"]}
+    iface = {"source": ["link_brain.sources"], "forbidden": ["link_brain.sources.xiaohongshu"]}
+    shared = {"source": ["link_brain.ingest"], "forbidden": ["link_brain.sources.xiaohongshu"]}
+    assert import_scan.violations(pure, g) == {("link_brain.domain", "link_brain.storage")}
+    assert import_scan.violations(iface, g) == {("link_brain.sources", "link_brain.sources.xiaohongshu")}
+    assert import_scan.violations(shared, g) == {("link_brain.ingest", "link_brain.sources.xiaohongshu.adapter")}
+    assert import_scan.largest_cycle({("a", "b"), ("b", "c"), ("c", "a"), ("c", "d")}) == 3
 
 
 if __name__ == "__main__":

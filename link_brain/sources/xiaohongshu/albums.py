@@ -21,7 +21,8 @@ import time
 from datetime import datetime, timedelta
 from typing import Any
 
-from . import accounts, storage
+from ... import storage
+from . import accounts
 
 LIST_GAP_MIN = 30
 LIST_EVERY_H = 20
@@ -45,7 +46,7 @@ def load() -> dict[str, Any]:
 
 def save(data: dict[str, Any]) -> None:
     storage.write_json(path(), data)
-    from .catalog import mark_dirty  # 1023：专辑进目录（ARCH-AUDIT 第 1 批）
+    from ...catalog import mark_dirty  # 1023：专辑进目录（ARCH-AUDIT 第 1 批）
     mark_dirty("专辑")
 
 
@@ -108,7 +109,7 @@ def list_due(data: dict[str, Any], now: datetime) -> tuple[bool, str]:
     if last and now - last < timedelta(hours=LIST_EVERY_H) and not data.get("list_partial"):
         return False, "今天读过专辑列表了"
     try:
-        from . import actionlog
+        from ... import actionlog
         for row in reversed(actionlog.read(limit=200)):
             if row.get("action") in ("favorites", "boards"):
                 at = _parse(row.get("ts"))

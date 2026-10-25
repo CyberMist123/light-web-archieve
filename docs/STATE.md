@@ -1,5 +1,6 @@
 # Current State
 
+- 2026-10-25（分支 claude/project-thread-s0uo97-pr3，第二波 PR③，**未部署**）小红书 9 个文件整文件搬进 `link_brain/sources/xiaohongshu/`（adapter / accounts / favorites / fav_counts / comment_fill / restricted / albums / night_captcha / reader_install），旧路径留 `sys.modules` 别名转发；碰号闸和后台补评论 worker 的程序目录改问 `storage.repo_root()`；`fav_counts` 只数有 meta 的对象目录；新 `.importlinter` + `tests/tools/import_scan.py`，守卫在 `tests/test_guards.py`（共享 → 小红书 24 条、小红书 → AI / 目录 6 条进基线，最大环 78）。部署后待她看「检查账号」还是绿的。
 - 2026-10-25（分支 feat/sources-contract，未部署，草稿 PR 待审）第二波 PR②：建立 sources 来源接口 / 延迟注册表和小红书薄接层；五类异常改为同对象别名，catch / ingest 只改 except 接口；保留原解析、归一化与下载流程。来源契约覆盖旧函数对照和下载清单，停车入口实测 error → blocked。PR⑥ 等 PR⑤ 合并和补充细则后再做。验收见 tests/acceptance/20261025-wave2-pr2-sources.md。
 
 - 2026-10-25（分支 claude/project-thread-s0uo97-pr5，第二波 PR⑤a，**未部署**；基于 PR④ #16）ingest 写新版本改走暂存发布：抓取 / 下图在锁外写进 `raw/.staging-…`，提交那一小段（复查墓碑 / 是否已在库 / 内容是否没变 → `Staging.publish` → 写 meta → 写索引）在单篇锁里（`ingest._commit_version`）；评论续读同样。崩在「发布之后、写 meta 之前」留下的孤儿版本、或 index.db 丢了行，再入库时 `_adopt` 用磁盘上的完整版本补 meta / 索引，不联网（返回 `adopted: true`；孤儿版本按新帖、只是索引丢了按已在库）。在库判断改走 `storage.probe_object` + `domain.lookup`，墓碑查询收进 `index.get_tombstone`（守卫「在库 / 墓碑判断」ingest 清零）。`tests/test_ingest_commit.py` 10 条，其中 4 条修前红（下载中崩了留半截 / 孤儿版本被重抓成 v0002 / 抓的时候被删仍发布 / 并发出两个版本）。通用九步 + 搬进小红书包是 ⑤b，等 PR③。
