@@ -18,6 +18,7 @@ from typing import Any
 import yaml
 
 from . import history, problems, storage
+from .errtext import errtext
 from . import render as render_mod
 from .render import (COMMENTS_END, COMMENTS_START, CONTENT_END, CONTENT_START, FRONTMATTER_RE, MANAGED_FM_KEYS)
 
@@ -317,7 +318,7 @@ def restore(target: str | None = None, path: str | None = None, *, dry_run: bool
     try:
         render_mod.render_object(obj["source"], obj["source_id"], target=vis, existing_override=seed)
     except Exception as exc:  # noqa: BLE001 - 失败放回原样，如实说
-        return rollback(f"按存档重写没成功（{type(exc).__name__}: {exc}），已放回原样")
+        return rollback(f"按存档重写没成功（{errtext(exc)}），已放回原样")
     after = vis.read_text(encoding="utf-8") if vis.is_file() else ""
     left = diagnose(after)
     if left:

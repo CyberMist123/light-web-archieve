@@ -17,7 +17,7 @@ NEEDS_HUMAN（只报一次）· SKIPPED（未配置 / 已关闭 / 预算到了�
 - TRANSIENT：同 key 在连续 3 个日历日都出现 → 追加一条同 step + item_id 的 NEEDS_HUMAN.STUCK（卡片上看得到是哪篇），
   推送同样按「同一步骤」去重（50 篇一起卡住只推一次）；那一篇 / 那一步 resolve 时 STUCK 一起标已解决。
 - 账号类码（掉登录 / 验证 / 风控 / 熔断 / 登错号 / 没装组件）不管哪一步撞见，report_blocked 都记在 step=login。
-推送走 alert._alert（模块私有，仓内只有这里调；tests/test_problems_alert_exit.py 扫源码守住）。
+推送走 alert._alert（模块私有，仓内只有这里调；tests/test_guards.py 的「绕过 problems 直接报警」规则守住）。
 
 第 4 批：17 处报警已全部迁到这里；每次写成功后同锁刷新 `_archive/problems-summary.json`（页面顶部入口读它）。
 

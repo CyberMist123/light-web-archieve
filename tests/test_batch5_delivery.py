@@ -144,10 +144,32 @@ def test_reader_install_checksum_mismatch_installs_nothing(tmp_path):
     assert not (accounts.bin_dir() / "link-brain-reader.exe").exists()
 
 
-def test_reader_install_requires_sha_and_url(tmp_path):
+def test_reader_install_requires_sha_and_url(tmp_path, monkeypatch):
+    # 只给一半：不拿内置的另一半凑（内置地址是真的发布包，测试里也绝不能真去下载）
     assert reader_install.install(None, "a" * 64)["code"] == "SKIPPED.NOT_CONFIGURED"
     assert reader_install.install((tmp_path / "x.zip").as_uri(), None)["code"] == "SKIPPED.NOT_CONFIGURED"
     assert reader_install.install((tmp_path / "x.zip").as_uri(), "xyz")["code"] == "SKIPPED.NOT_CONFIGURED"
+    monkeypatch.setattr(reader_install, "RELEASE_URL", "")
+    monkeypatch.setattr(reader_install, "RELEASE_SHA256", "")
+    assert reader_install.install()["code"] == "SKIPPED.NOT_CONFIGURED", "内置的也是空的（测试版）"
+
+
+def test_reader_install_without_args_uses_builtin_pair(tmp_path, monkeypatch):
+    pkg = tmp_path / "link-brain-reader-windows-amd64.zip"
+    sha = _zip(pkg, {"link-brain-reader.exe": b"reader"})
+    monkeypatch.setattr(reader_install, "RELEASE_URL", pkg.as_uri())
+    monkeypatch.setattr(reader_install, "RELEASE_SHA256", sha)
+    assert reader_install.status()["release_configured"] is True
+    out = reader_install.install()
+    assert out["ok"] is True and out["sha256"] == sha, out
+
+
+def test_builtin_release_is_the_published_one():
+    """内置的一对要指向本仓库 Release 的 reader-v* 包、校验和 64 位十六进制（发新版时两行一起改）。"""
+    assert reader_install.RELEASE_URL.startswith(
+        "https://github.com/CyberMist123/light-web-archieve/releases/download/reader-v")
+    assert reader_install.RELEASE_URL.endswith("/link-brain-reader-windows-amd64.zip")
+    assert len(reader_install.RELEASE_SHA256) == 64 and all(c in "0123456789abcdef" for c in reader_install.RELEASE_SHA256)
 
 
 def test_reader_install_rejects_zip_slip_and_empty_package(tmp_path):

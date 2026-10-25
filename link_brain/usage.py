@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from . import pricing, storage
+from .errtext import errtext
 
 # 功能词表（顺序 = 设置页表格顺序）
 FEATURES = {
@@ -88,7 +89,7 @@ def record(cap: str, cfg: dict[str, Any] | None, usage: dict[str, Any] | None = 
         with (d / f"{when:%Y-%m}.jsonl").open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
     except Exception as exc:  # noqa: BLE001 - 记账永不影响调用
-        print(f"[usage] 没记上（{type(exc).__name__}: {exc}）", file=sys.stderr)
+        print(f"[usage] 没记上（{errtext(exc)}）", file=sys.stderr)
 
 
 def load(days: int = 31, *, now: datetime | None = None) -> list[dict[str, Any]]:

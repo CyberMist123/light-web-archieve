@@ -152,7 +152,7 @@ const txt = el => (el ? el.textContent : null);
     assert.equal(txt(sy.querySelector('.lbc-sy-now .lbc-sy-big')), '120/300');
     // 数据变了（refresh）：RECENT 跟着换，不整页重建
     const wrapBefore = P.$('.lbc-wrap');
-    P.V.set('_archive/catalog-data.json', JSON.stringify(catalogData([...base(), item('n1', '刚进来的', { ts: new Date().toISOString(), date: today })])));
+    P.V.set('_archive/catalog-data.json', JSON.stringify(catalogData([...base(), item('n1', '刚进来的', { ts: iso(new Date(Math.max(Date.now(), todayAt(0, 10).getTime()))), date: today })])));
     await P.A.rerun(); await tick(10);
     assert.equal(P.$('.lbc-wrap'), wrapBefore);
     assert.equal(P.$('.lbc-rec li').dataset.id, 'n1', 'RECENT 换成新数据');
