@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from link_brain import pickfolder
+from link_brain import read as _read  # noqa: F401 - pick() 里才 import；先载入，免得在下面把 os.name 换成 nt 时才第一次 import
 
 
 def test_ps_quote_escapes_single_quotes():
@@ -42,6 +43,7 @@ def test_pick_reports_cancel_as_ok(monkeypatch):
 
 
 def test_pick_falls_back_to_powershell_when_tk_dies(monkeypatch):
+    monkeypatch.setattr(pickfolder.os, "name", "nt")             # PowerShell 回退只在 Windows 走；Linux CI 上也要测到
     def boom(title, initial):
         raise RuntimeError("没有 tkinter")
     monkeypatch.setattr(pickfolder, "_tk", boom)
@@ -52,6 +54,7 @@ def test_pick_falls_back_to_powershell_when_tk_dies(monkeypatch):
 
 
 def test_pick_collects_both_errors_and_suggests_paste(monkeypatch):
+    monkeypatch.setattr(pickfolder.os, "name", "nt")             # PowerShell 回退只在 Windows 走；Linux CI 上也要测到
     def tk_boom(title, initial):
         raise RuntimeError("没有 tkinter")
     def ps_boom(title, initial, timeout):
