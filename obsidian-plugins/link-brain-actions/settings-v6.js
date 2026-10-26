@@ -1,41 +1,105 @@
-// settings-v6.js — 1018 她批的设置页 v6（设计稿 cyberlink\workdesk\20261018-lwa-settings-v6.html）。
-//   1026（录屏场景 08）按要做的事排：最上面「状态」（账户 · 同步 · API 费用 · 识别 · 读取；整行能点，落到能改的那个控件上、闪一下）→
-//   ① 收藏与同步 ② 内容、目录及管理 ③ 识别与问答 ④ 模型与费用 ⑤ 外部 AI 接入 ⑥ 高级 / 修复。
-//   常用的平铺；识别模型、提示词、调度节奏、令牌这些技术细项收进各组自己的「高级」折叠，不再一股脑扔进「更多」。
-//   第一次用：同一个位置换成首次设置——「推荐设置，一键开始」（扫码就完）或「自定义」四步（登录 · 同步 · 识别与问答 · 接入 AI），
-//   走完这里就变回上面的状态页。
-//   她的规矩：设置页只放用户要动的；报错只有两种在这里修（掉登录 → 原地扫码；key 欠费 / 失效 → 充值直达 / 换 key），其余在首页；
-//   每行「名称 + 一句说明 + 右侧控件」，不写大段字；不需要用户动的不露面（本机认字、语音转文字只是开关）。
-// 这里只排版和接线：每一行的读写、保存失败拨回仍用设置页（tab）、home-ui、remote-ui 上原有的方法。
+// settings-v6.js — 设置页（1027 第三版，设计稿 design-1027/prototype.html「设置」+ design.md §3；她批：六组一页滚完）。
+//   左边是锚点（窄了变成顶上一条横排），右边一组一组往下：
+//   ① 账号登录（每个平台一张账号卡：小红书 = 状态 + 换个账号 / 扫码 / 去验证 / 重试；B 站灰着「以后支持」）
+//   ② 收藏与同步（同步：收藏同步一行 + 同步开关 + 同步时间（唯一的编辑器，改了自动存）+ 每天新收；存哪些：图片 · 视频 · 评论楼数）
+//   ③ 目录与批注（目录的样子 → 去目录编排；批注署名。样式都在目录页「编排 → Aa 样式」，这里不放）
+//   ④ 高级功能（一项一行带图标：转 Markdown · 语音转文字 · 识图 · 问答模型 · 概要与标签 · 按意思搜；AI 控制台）
+//   ⑤ CLI 与外接 MCP（本机命令行；让其他 AI 读收藏：电脑端 / 网页端两张卡；开放收藏库）
+//   ⑥ 修复（当前状态 + 检查 / 全部修一遍；问题记录只有这一个入口）
+//   每组只放常用的，其余在组底「＋ 更多」（点开才画）；说明一律在 ⓘ 悬停里；改了就存，没有「保存」按钮，常规改动不弹窗。
+//   第一次用：同一个位置换成首次设置（推荐设置一键开始 / 自定义四步），四步里用的就是下面这些行（同一个值、同一个编辑器）。
+// 这里只排版和接线：每一行的读写、保存失败拨回仍用设置页（tab）、home-ui、remote-ui、schedule-ui、usage-ui 上原有的方法。
 'use strict';
 module.exports = function (obsidian, plugin) {
-  const { Setting, Modal } = obsidian;
+  const { Setting } = obsidian;
   const pages = plugin.settingsPages();
   const home = () => (plugin.homeUI ? plugin.homeUI() : null);
   const safe = (tab, c, what, fn) => (tab.safe ? tab.safe(c, what, fn) : fn());
+  const S = () => plugin.settings;
   const openUrl = url => {
     if (!/^https:\/\//.test(url || '')) return;
     try { require('electron').shell.openExternal(url); return; } catch {}
     try { window.open(url); } catch (e) { console.error('[lb] 网页没打开', e); }
   };
+  const errText = e => (e && e.message) || String(e || '');
   const SYNC_TIME = 'sync-time';   // 唯一的自动同步时间编辑器的落点（plugin.openSyncTime() / openSetupPage('sync-time' | 'schedule')）
-  const fmtYuan = v => (v == null || !Number.isFinite(+v) ? '—' : '¥' + (+v >= 10 ? (+v).toFixed(1) : (+v).toFixed(2)));
-
-  // —— 图标：Claudian 的官方 SVG（provider-icons.js，MIT）；Gemini、千问 Claudian 里没有 → 不画图标，只写名字 ——
+  const GROUPS = [['g-account', '01', '账号登录'], ['g-sync', '02', '收藏与同步'], ['g-catalog', '03', '目录与批注'],
+    ['g-advanced', '04', '高级功能'], ['g-connect', '05', 'CLI 与外接 MCP'], ['g-repair', '06', '修复']];
   const PROV = { google: 'Gemini', deepseek: 'DeepSeek', aliyun: '通义千问', openai: 'OpenAI' };
-  const icons = (() => { try { return plugin.providerIcons ? plugin.providerIcons() : null; } catch (e) { console.error('[lb] 图标没加载上', e); return null; } })();
-  const iconInto = (parent, id, size) => (icons ? icons.icon(parent, id, size) : null);
-  const group = (parent, text) => parent.createDiv({ cls: 'lb-grp', text });
-  const meta = (row, text) => row.controlEl.createSpan({ cls: 'lb-meta', text });
-  // 1026 她（录屏 23:23「很奇怪的跳转」、23:34「点了没有反应」）：状态行跳过去要落在**能改的那个控件**上，不是卡片顶；
-  // 整行都能点（以前只有右边那个小箭头能点，点字没反应）；落地后那一块闪一下、焦点放进第一个输入框，找不到就说一句。
-  // 落点在收着的折叠里：一层层打开（toggle 里懒画的那块就画出来），再滚。返回落到的元素（测试用）。
+  const CAP_NAME = { textAI: '问答', summaryAI: '概要', visionAI: '识图', 'visionAI.refine': '精细识图', embedAI: '按意思搜', asrAI: '语音转文字' };
+
+  // —— 图标：一套线条图标（24 格、1.5 粗、圆头），和名字成对出现；屏幕阅读器读名字 ——
+  const ICONS = {
+    doc: [['path', { d: 'M7 3h7l4 4v14H7z' }], ['path', { d: 'M14 3v4h4' }], ['path', { d: 'M10 12h5M10 16h5' }]],
+    audio: [['path', { d: 'M4 10v4M7.5 7v10M11 4v16M14.5 8v8M18 6v12M21 10v4' }]],
+    image: [['rect', { x: 3, y: 4.5, width: 18, height: 15, rx: 1.5 }], ['circle', { cx: 8.5, cy: 9.5, r: 1.5 }], ['path', { d: 'M3 17l5-5 4 4 3-3 6 6' }]],
+    chat: [['path', { d: 'M4 5h16v11H9.5L5 20v-4H4z' }], ['path', { d: 'M8 9h8M8 12.5h5' }]],
+    summary: [['path', { d: 'M4 6h16M4 10h12M4 14h16M4 18h9' }]],
+    search: [['circle', { cx: 10.5, cy: 10.5, r: 6 }], ['path', { d: 'M15 15l5.5 5.5' }]],
+  };
+  function iconEl(parent, id) {
+    const doc = parent.ownerDocument || document, NS = 'http://www.w3.org/2000/svg';
+    const wrap = parent.createSpan ? parent.createSpan({ cls: 'lb-feat-icon', attr: { 'aria-hidden': 'true', 'data-icon': id } }) : null;
+    if (!wrap) return null;
+    const svg = doc.createElementNS(NS, 'svg');
+    for (const [k, v] of Object.entries({ viewBox: '0 0 24 24', width: '18', height: '18', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })) svg.setAttribute(k, v);
+    for (const [tag, attrs] of ICONS[id] || []) { const n = doc.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v)); svg.appendChild(n); }
+    wrap.appendChild(svg);
+    return wrap;
+  }
+
+  // —— 小积木 ——
+  // 一行：名字（可带图标）+ ⓘ 悬停说明 + 右边控件；说明不占行（她：每行「名称 + 控件」，规则在 ⓘ 里）
+  function row(parent, tab, name, help = '', { icon = '', cls = '', section = '' } = {}) {
+    const r = new Setting(parent).setName(name);
+    if (icon) { const ic = iconEl(r.nameEl, icon); if (ic && r.nameEl.firstChild !== ic) r.nameEl.insertBefore(ic, r.nameEl.firstChild); r.settingEl.addClass('lb-feat'); }
+    if (cls) r.settingEl.addClass(cls);
+    if (section) r.settingEl.setAttribute?.('data-section', section);
+    if (help) tab.help(r, help);
+    return r;
+  }
+  const sub = (parent, text, section = '') => parent.createDiv({ cls: 'lb-subhead', text, attr: section ? { 'data-section': section } : {} });
+  // 下拉：改了立刻做 apply；没做成把下拉拨回去并说原因（和开关同一句式，CONVENTIONS §8）
+  function select(r, options, get, apply, { label = '' } = {}) {
+    let dd = null;
+    r.addDropdown(d => {
+      dd = d;
+      for (const [v, text] of options) d.addOption(v, text);
+      d.setValue(get());
+      if (label) d.selectEl?.setAttribute?.('aria-label', label);
+      d.onChange(async v => {
+        const before = get();
+        try { await apply(v); }
+        catch (e) { try { d.setValue(get() === v ? before : get()); } catch {} plugin.notify('没保存上，已改回原来的：' + errText(e), { kind: 'error' }); return; }
+        try { d.setValue(get()); } catch {}
+      });
+    });
+    return dd;
+  }
+
+  // 组底「＋ 更多」：点开才画；holds = 里面的落点（focusSection 找不到落点时先把它打开画出来）
+  function more(group, tab, section, draw, { holds = [] } = {}) {
+    const d = group.createEl('details', { cls: 'lb-more', attr: { 'data-section': section, 'data-holds': holds.join(' ') } });
+    d.createEl('summary', { text: '＋ 更多' });
+    const inner = d.createDiv({ cls: 'lb-more-body' });
+    let drawn = false;
+    d.lbDraw = () => { if (drawn) return; drawn = true; safe(tab, inner, '更多', () => draw(inner)); };
+    d.addEventListener('toggle', () => { if (d.open) d.lbDraw(); });
+    return d;
+  }
+
+  // 1026 她（录屏 23:23「很奇怪的跳转」、23:34「点了没有反应」）：跳过去要落在**能改的那个控件**上，不是组顶；
+  // 落点在收着的「更多」里：先打开、画出来，再滚；落地后那一块闪一下、焦点放进第一个输入框，找不到就说一句。返回落到的元素（测试用）。
   function focusSection(tab, section, { quiet = false } = {}) {
     const root = tab && tab.containerEl;
-    const el = root && root.querySelector(`[data-section="${section}"]`);
+    let el = root && root.querySelector(`[data-section="${section}"]`);
+    if (!el && root) {
+      const box = [...root.querySelectorAll('details.lb-more')].find(d => String(d.getAttribute('data-holds') || '').split(' ').includes(section));
+      if (box) { box.open = true; box.lbDraw && box.lbDraw(); el = root.querySelector(`[data-section="${section}"]`); }
+    }
     if (!el) { if (!quiet) plugin.notify('这一项还没画出来，稍等一下再点', { kind: 'warn' }); return null; }
     for (let n = el; n && n !== root; n = n.parentNode) {
-      if (n.tagName === 'DETAILS' && !n.open) { try { n.open = true; } catch {} }
+      if (n.tagName === 'DETAILS' && !n.open) { try { n.open = true; n.lbDraw && n.lbDraw(); } catch {} }
     }
     const land = () => {
       try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { try { el.scrollIntoView(); } catch {} }
@@ -46,21 +110,8 @@ module.exports = function (obsidian, plugin) {
     };
     land();
     setTimeout(() => { if (el.isConnected !== false) land(); }, 120);
-    if (el.lbReady && typeof el.lbReady.then === 'function') el.lbReady.then(() => land(), () => {});   // 编辑器读完现在的定时再落一次（输入框这时才在）   // 折叠刚打开、里面后画的块把位置顶下去：再对一次
+    if (el.lbReady && typeof el.lbReady.then === 'function') el.lbReady.then(() => land(), () => {});   // 编辑器读完现在的定时再落一次（输入框这时才在）
     return el;
-  }
-  const jump = (tab, section) => focusSection(tab, section);
-  function jumpRow(row, tab, section, tip = '去改') {
-    row.settingEl.addClass('lb-jump');
-    row.settingEl.setAttribute?.('data-jump', section);
-    row.settingEl.setAttribute?.('role', 'button');
-    row.settingEl.setAttribute?.('tabindex', '0');
-    row.settingEl.setAttribute?.('aria-label', `${row.nameEl.textContent || ''}：${tip}`);
-    const go = ev => { if (ev && ev.target && ev.target.closest?.('button, a, input, select, .lb-link, .extra-setting-button')) return; jump(tab, section); };
-    row.settingEl.onclick = go;
-    row.settingEl.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault?.(); jump(tab, section); } };
-    row.addExtraButton(b => b.setIcon('chevron-right').setTooltip(tip).onClick(() => jump(tab, section)));
-    return row;
   }
 
   // —— 共用数据：用量（今天 / 本月 / 上限 / 每家 key 的状态）和本机应用，一分钟内复用 ——
@@ -88,40 +139,48 @@ module.exports = function (obsidian, plugin) {
       return r.json;
     });
   };
-  // 哪几家在用（后端 ai_routes 每一格给的 provider；没读到用量时不猜）+ 哪家的 key 出了问题
-  function providersInUse(usage) {
-    if (!usage) return null;
-    const by = new Map();
-    for (const f of (usage && usage.features) || []) for (const c of f.chain || []) {
-      if (!c.provider || c.provider === 'cli' || !PROV[c.provider]) continue;
-      by.set(c.provider, true);
-    }
-    return ['google', 'deepseek', 'aliyun', 'openai'].filter(id => by.has(id));
-  }
+  // 哪家的 key 出了问题（后端 usage.keys：{服务商: {code, caps}}，caps = 哪几项在用这家时撞上的）
   function keyTrouble(usage) {
     const keys = (usage && usage.keys) || {};
     const out = [];
     for (const [id, k] of Object.entries(keys)) {
       if (!PROV[id]) continue;
       const quota = String(k.code || '').endsWith('QUOTA_EXCEEDED');
-      out.push({ id, name: PROV[id], quota, text: `${PROV[id]} ${quota ? '额度用完或余额不足' : 'key 用不了'}` });
+      const caps = Array.isArray(k.caps) ? k.caps : [];
+      out.push({ id, name: PROV[id], quota, caps, text: `${PROV[id]} ${quota ? '额度用完或余额不足' : 'key 用不了'}` + (caps.length ? `（${[...new Set(caps.map(c => CAP_NAME[c] || c))].join('、')}）` : '') });
     }
     return out;
   }
+  // 接口地址 → 哪家（和 link_brain/pricing.provider_of 同一规则）
+  function providerOf(endpoint) {
+    const e = String(endpoint || '').toLowerCase();
+    if (!e) return '';
+    if (e.includes('deepseek')) return 'deepseek';
+    if (e.includes('aliyuncs') || e.includes('dashscope')) return 'aliyun';
+    if (e.includes('openai.com')) return 'openai';
+    if (e.includes('googleapis')) return 'google';
+    return e.split('://').pop().split('/')[0];
+  }
 
-  // ———————————————————— 粘一把 key：认出是哪家，只往空着的格子里填 ————————————————————
+  // ———————————————————— 粘一把 key ————————————————————
+  // 唯一的 key 入口（④「更多 → 接口与密钥」，首次设置第 3 步也是它）：粘进来 → 后端认出是哪家（`keys detect`，key 走标准输入）→
+  //   这家的 key 正好用不了（usage.keys 点了名）→ 换掉：在用这家的那几格（主用 / 备用 / 精细识图那一层）填上新 key（apiKey 排最前，原来的
+  //   密钥文件 / 环境变量引用一个不删）；否则 → 只往空着的格子里填（已经填好的地址、别的密钥引用一个不动）。
   const blank = v => !String(v || '').trim();
   const hasKeyRef = cfg => !!(cfg && (cfg.apiKey || cfg.keyFile || cfg.apiKeyEnv || cfg.keyPool));
-  async function addKey(raw) {
+  async function detectKey(key) {
+    const r = await plugin.runPy(['-m', 'link_brain', 'keys', 'detect'], { input: key + '\n', label: '认 key', timeoutMs: 40000, okCodes: [0, 1], fallback: '没认出来' });
+    return r && r.json;
+  }
+  async function addKey(raw, { detected = null } = {}) {
     const key = String(raw || '').trim();
     if (!key) { plugin.notify('先粘贴一把 key'); return null; }
-    const r = await plugin.runPy(['-m', 'link_brain', 'keys', 'detect'], { input: key + '\n', label: '认 key', timeoutMs: 40000, okCodes: [0, 1], fallback: '没认出来' });
-    const j = r && r.json;
+    const j = detected || await detectKey(key);
     if (!j || !j.ok) { plugin.notify((j && j.message) || '没认出来', { kind: 'error' }); return null; }
-    const s = plugin.settings;
+    const s = S();
     const before = JSON.parse(JSON.stringify(Object.fromEntries(Object.keys(j.fills || {}).map(k => [k, s[k]]))));
     const filled = [];
-    const NAMES = { textAI: '问收藏', summaryAI: '概要', visionAI: '看懂图片', embedAI: '按意思搜' };
+    const NAMES = { textAI: '问收藏', summaryAI: '概要', visionAI: '识图', embedAI: '按意思搜' };
     for (const [cap, sugg] of Object.entries(j.fills || {})) {
       const cfg = s[cap] || (s[cap] = {});
       const sameEndpoint = String(cfg.endpoint || '').replace(/\/+$/, '') === sugg.endpoint;
@@ -138,481 +197,748 @@ module.exports = function (obsidian, plugin) {
       await plugin.saveSettings();
       const h = home();
       if (h && s.textAI && !blank(s.textAI.endpoint)) await h.setFeature('ai_text', true).catch(() => {});
-      if (h && s.visionAI && !blank(s.visionAI.endpoint) && filled.includes('看懂图片')) await h.setFeature('ai_vision', true).catch(() => {});
+      if (h && s.visionAI && !blank(s.visionAI.endpoint) && filled.includes('识图')) await h.setFeature('ai_vision', true).catch(() => {});
     } catch (e) {
       for (const k of Object.keys(j.fills || {})) { if (before[k] === undefined) delete s[k]; else s[k] = before[k]; }
-      plugin.notify('没保存上，原来的设置没动：' + ((e && e.message) || e), { kind: 'error' });
+      plugin.notify('没保存上，原来的设置没动：' + errText(e), { kind: 'error' });
       return null;
     }
     delete cache.usage;
     plugin.notify(`认出是 ${j.name}：已用在 ${filled.join('、')}（已经配好的没动）`, { kind: 'ok', ms: 8000 });
     return j;
   }
-  function keyModal(onDone) {
-    const m = new Modal(plugin.app);
-    m.titleEl.setText('添加 API key');
-    const c = m.contentEl;
-    c.createEl('p', { cls: 'setting-item-description', text: '粘贴进来，自动认出是哪家。只存在这台电脑的插件设置里。' });
-    const input = c.createEl('input', { cls: 'lb-key-paste', attr: { type: 'password', placeholder: '粘贴 API key', 'aria-label': 'API key' } });
-    const links = c.createDiv({ cls: 'lb-prov-links' });
-    links.createSpan({ cls: 'setting-item-description', text: '还没有？去申请：' });
+  // 哪几格在用这家：cap 自己、它的备用（fallback）、识图的第二层（refine）；概要「跟随问答」时就是问答那一格
+  function slotsFor(cap, provider) {
+    const s = S();
+    const root = String(cap).split('.')[0];
+    const cfg = s[root];
+    if (!cfg || typeof cfg !== 'object') return [];
+    const cands = [];
+    if (cap === 'visionAI.refine') cands.push(cfg.refine && typeof cfg.refine === 'object' ? cfg.refine : cfg);
+    else if (root === 'summaryAI' && (cfg.mode === 'inherit' || !cfg.mode)) cands.push(s.textAI);
+    else cands.push(cfg);
+    if (cfg.fallback && typeof cfg.fallback === 'object') cands.push(cfg.fallback);
+    if (root === 'visionAI' && cfg.refine && typeof cfg.refine === 'object' && cap === 'visionAI') cands.push(cfg.refine);
+    return cands.filter(x => x && providerOf(x.endpoint) === provider);
+  }
+  // 1027 修：以前状态卡上「换一个 key」只往空格子里填——key 坏了的那一格已经有密钥引用，换不掉。现在换的是在用这家、撞上问题的那几格。
+  async function replaceKey(provider, raw, caps) {
+    const key = String(raw || '').trim();
+    if (!key) { plugin.notify('先粘贴一把 key'); return null; }
+    const s = S();
+    const targets = [];
+    for (const cap of caps && caps.length ? caps : ['textAI', 'summaryAI', 'visionAI', 'visionAI.refine', 'embedAI']) for (const slot of slotsFor(cap, provider)) if (!targets.includes(slot)) targets.push(slot);
+    if (!targets.length) { plugin.notify(`认出是 ${PROV[provider] || provider}，但没找到哪一项在用它的接口：在下面选那一项，自己填 key`, { kind: 'warn', ms: 10000 }); return null; }
+    const snap = JSON.parse(JSON.stringify({ textAI: s.textAI, summaryAI: s.summaryAI, visionAI: s.visionAI, embedAI: s.embedAI }));
+    for (const slot of targets) slot.apiKey = key;   // apiKey 排在 keyPool / keyFile / 环境变量前面（providers.resolve_key）：不删原来的引用也能换掉
+    try { await plugin.saveSettings(); }
+    catch (e) { for (const [k, v] of Object.entries(snap)) { if (v === undefined) delete s[k]; else s[k] = v; } plugin.notify('没保存上，原来的 key 没动：' + errText(e), { kind: 'error' }); return null; }
+    delete cache.usage;
+    const used = [...new Set((caps || []).map(c => CAP_NAME[c] || c))];
+    plugin.notify(`已换上新的 ${PROV[provider] || provider} key${used.length ? '：用在 ' + used.join('、') : ''}（下一次调用就用它；原来的 key 文件 / 环境变量没删）`, { kind: 'ok', ms: 10000 });
+    return { provider, slots: targets.length };
+  }
+  async function pasteKey(raw) {
+    const key = String(raw || '').trim();
+    if (!key) { plugin.notify('先粘贴一把 key'); return null; }
+    const j = await detectKey(key);
+    if (!j || !j.ok) { plugin.notify((j && j.message) || '没认出来', { kind: 'error' }); return null; }
+    let usage = null;
+    try { usage = await loadUsage(); } catch {}
+    const bad = keyTrouble(usage).find(k => k.id === j.provider);
+    if (bad) return replaceKey(j.provider, key, bad.caps);
+    return addKey(key, { detected: j });
+  }
+  function keyBox(parent, tab, { onDone = null } = {}) {
+    const wrap = parent.createDiv({ cls: 'lb-key-paste-row', attr: { 'data-section': 'ai-key-paste' } });
+    const r = row(wrap, tab, '粘一把 key', '粘贴进来自动认出是哪家：这家的 key 用不了就换掉它，否则填进还空着的几项。只存在这台电脑的插件设置里。');
+    let input = null, btn = null;
+    r.addText(t => { input = t.inputEl; t.inputEl.type = 'password'; t.inputEl.addClass?.('lb-key-paste'); t.setPlaceholder('粘贴 API key'); t.inputEl.setAttribute?.('autocomplete', 'off'); t.inputEl.setAttribute?.('aria-label', 'API key'); });
+    r.addButton(b => { btn = b; b.setButtonText('认出并用上').onClick(async () => {
+      b.setDisabled(true); b.setButtonText('正在认…');
+      let res = null;
+      try { res = await pasteKey(input.value); } finally { b.setDisabled(false); b.setButtonText('认出并用上'); }
+      if (res) { input.value = ''; onDone && onDone(res); }
+    }); });
+    const links = wrap.createDiv({ cls: 'lb-prov-links setting-item-description' });
+    links.createSpan({ text: '还没有？去拿：' });
     for (const id of ['google', 'deepseek', 'aliyun', 'openai']) {
       const l = (pages.LINKS || {})[id];
       if (!l || !l.key) continue;
       const a = links.createEl('button', { cls: 'lb-link', text: PROV[id] + (id === 'google' ? '（有免费额度）' : '') });
       a.onclick = () => openUrl(l.key);
     }
-    const row = c.createDiv({ cls: 'lb-modal-actions' });
-    const ok = row.createEl('button', { cls: 'mod-cta', text: '认出并用上' });
-    ok.onclick = async () => {
-      ok.disabled = true; ok.setText('正在认…');
-      const j = await addKey(input.value);
-      ok.disabled = false; ok.setText('认出并用上');
-      if (j && j.ok) { m.close(); onDone && onDone(); }
-    };
-    m.open();
-    setTimeout(() => input.focus(), 30);
+    return { input: () => input, button: () => btn };
   }
 
-  // ———————————————————— 状态（v6 顶部；首次设置走完也就是它）————————————————————
-  function renderStatus(c, tab) {
-    const body = tab.card(c, '状态', 's-status');
-    const lamp = body.head.createSpan({ cls: 'lb-lamp is-ok', attr: { 'aria-label': '状态灯' } });
-    const sync = body.head.createEl('button', { cls: 'lb-sync-now', text: '立即同步' });
-    sync.onclick = async () => {
-      if (plugin.running) { plugin.notify(plugin.busyText(), { kind: 'warn' }); return; }
-      sync.disabled = true;
-      try { await plugin.syncNow(); } catch (e) { plugin.notify(e.message, { kind: 'error' }); } finally { sync.disabled = false; paintLamp(); }
-    };
-    const fix = body.createDiv({ cls: 'lb-fix' });   // 黄灯那一句：只有 key 欠费 / 失效（掉登录在账户那一行原地扫码）
-    safe(tab, body, '小红书账号', () => plugin.renderAccounts(body));
-    // 「改时间」直接落在自动同步时间那个编辑器上（和首页齿轮、首次设置、同步记录「改定时」是同一个，见 syncTimeEditor）
-    safe(tab, body, '同步', () => tab.stops.push(plugin.renderSyncRow(body, { compact: true, onSchedule: () => jump(tab, SYNC_TIME) })));
-    const cost = jumpRow(new Setting(body).setName('API 费用').setDesc('读取中…'), tab, 'ai-spend', '去看花费、改每天上限');
-    const rec = jumpRow(new Setting(body).setName('识别').setDesc('读取中…'), tab, 'ai-feats', '去开关识别功能');
-    const reads = jumpRow(new Setting(body).setName('读取').setDesc('读取中…'), tab, 'mcp-apps', '去接入其他 AI');
-    let alive = true, keyBad = false;
-    tab.stops.push(() => { alive = false; });
-    const h = home();
-    const recLine = uses => {
-      const local = [];
-      if (h && h.isOn('ocr')) local.push('识图转文字');
-      if (h && h.isOn('asr')) local.push('语音转文字');
-      const ai = (uses || []).map(id => PROV[id]);
-      const aiText = uses == null ? 'AI 用哪家还没读到' : ai.length ? 'AI 用 ' + ai.join('、') : '没配 AI（只用免费的本机功能）';
-      return [local.length ? '本机 ' + local.join('、') : '', aiText].filter(Boolean).join(' · ');
-    };
-
-    const paintLamp = async () => {
-      let state = 'ok', title = '正常';
-      try {
-        const { raw } = await plugin.readSyncFiles();
-        if (raw && raw.state === 'running') { state = 'busy'; title = '正在同步'; }
-      } catch {}
-      const acct = body.querySelector?.('.lb-acct-row .lb-acct-state');
-      const acctText = acct ? acct.textContent || '' : '';
-      if (keyBad || (acctText && !/已登录|进行中/.test(acctText))) { state = 'warn'; title = '要你处理一件事'; }
-      if (!alive) return;
-      lamp.className = 'lb-lamp is-' + state;
-      lamp.setAttribute('aria-label', title); lamp.setAttribute('title', title);
-    };
-    loadUsage().then(u => {
-      if (!alive) return;
-      const b = u.budget || {}, month = Object.values((u.summary || {}).month || {}).reduce((a, m) => a + (+(m && m.cost) || 0), 0);
-      // 默认上限只在后端（budget.DEFAULT_YUAN）：status 给的 daily_yuan 已经是「存过的值或默认」
-      const cap = plugin.settings.budget && plugin.settings.budget.dailyYuan !== undefined && plugin.settings.budget.dailyYuan !== '' ? +plugin.settings.budget.dailyYuan : +b.daily_yuan;
-      const capText = !Number.isFinite(cap) ? '—' : cap > 0 ? '¥' + cap : '不限';
-      const unpriced = Object.values((u.summary || {}).month || {}).reduce((a, m) => a + (+(m && m.unpriced) || 0), 0);
-      cost.setDesc(`今天 ${fmtYuan(b.spent_today)} · 本月 ${fmtYuan(month)}${unpriced ? `（另有 ${unpriced} 次未计价）` : ''} · 每天上限 ${capText}` + (b.over ? ' · 今天到上限了，后台先只跑免费的' : ''));
-      const uses = providersInUse(u);
-      rec.setDesc(recLine(uses));
-      const bad = keyTrouble(u);
-      keyBad = bad.length > 0;
-      fix.empty();
-      for (const k of bad.slice(0, 2)) {
-        const line = fix.createDiv({ cls: 'lb-fix-line' });
-        line.createSpan({ text: k.text });
-        const l = { ...((pages.LINKS || {})[k.id] || {}), ...((u.links || {})[k.id] || {}) };
-        if (l.recharge || l.console) { const a = line.createEl('button', { cls: 'lb-link', text: l.recharge ? '去充值 ↗' : '去控制台 ↗' }); a.onclick = () => openUrl(l.recharge || l.console); }
-        const ch = line.createEl('button', { cls: 'lb-link', text: '换一个 key' });
-        ch.onclick = () => keyModal(() => tab.display());
-      }
-      paintLamp();
-    }).catch(e => { if (alive) { cost.setDesc(''); plugin.failBox?.(cost.descEl, 'API 费用', e, () => { loadUsage(true); tab.display(); }); rec.setDesc(recLine(providersInUse(null))); } });
-    loadApps().then(j => {
-      if (!alive) return;
-      const on = (j.apps || []).filter(a => a.connected).map(a => a.name);
-      const web = plugin.settings.remote && plugin.settings.remote.enabled;
-      reads.setDesc(on.length || web ? '已接入 ' + [...on, web ? '网页端' : ''].filter(Boolean).join(' · ') : '还没接入别的 AI 应用');
-    }).catch(() => { if (alive) reads.setDesc('还没接入别的 AI 应用'); });
-    if (h && !h.state().plan) h.loadPlan().then(() => { if (alive) rec.setDesc(recLine(providersInUse(cache.usageLast || null))); }).catch(() => {});
-    paintLamp();
-    setTimeout(() => { if (alive) paintLamp(); }, 2500);   // 账户那一行读完再看一次灯
+  // ———————————————————— ① 账号登录 ————————————————————
+  function groupAccount(g, tab) {
+    const twin = g.createDiv({ cls: 'lb-twin' });
+    const xhs = twin.createDiv({ cls: 'lb-twin-card', attr: { 'data-platform': 'xhs', 'data-section': 'account-xhs' } });
+    const head = xhs.createDiv({ cls: 'lb-twin-head' });
+    head.createEl('strong', { text: '小红书' });
+    head.createSpan({ cls: 'lb-twin-note', text: '登哪个号就同步哪个号' });
+    safe(tab, xhs, '小红书账号', () => plugin.renderAccounts(xhs, { inCard: true }));
+    const bili = twin.createDiv({ cls: 'lb-twin-card is-soon', attr: { 'data-platform': 'bilibili' } });
+    const bh = bili.createDiv({ cls: 'lb-twin-head' });
+    bh.createEl('strong', { text: 'B 站' });
+    bh.createSpan({ cls: 'lb-twin-note', text: '以后支持' });
+    bili.createEl('p', { cls: 'setting-item-description', text: '接上以后，收藏也进同一个目录。' });
+    const off = bili.createEl('button', { text: '暂不可用' }); off.disabled = true;
   }
 
-  // ———————————————————— ① 收藏与同步 ————————————————————
-  // 常用的平铺（自动同步时间 · 每天多少篇 · 评论楼层 · 存视频 / 图片 · 同步记录）；调度节奏、放在哪这些技术细项收进本组「高级」
-  function renderXhs(c, tab) {
-    const so = plugin.settings.sync;
-    const body = tab.card(c, '收藏与同步', 's-xhs');
-    renderXhsInto(body, tab);
-    tab.toggleRow(body, '存图片', '关掉只存文字和图片地址', () => so.downloadImages, v => { so.downloadImages = v; });
-    const log = new Setting(body).setName('同步记录').setDesc('每次同步收了几篇、哪里没做成');
-    tab.link(log, '打开', () => plugin.openSyncLog?.(), '打开同步记录');
-    advFold(body, tab, '高级：放在哪、每次多少篇、补评论节奏', 'sync-more', b => {
+  // ———————————————————— ② 收藏与同步 ————————————————————
+  // 唯一的「自动同步时间」编辑器：设置页②、首次设置「同步」一步用的都是它（里面是 schedule-ui.js 那一个组件；值只在后端计划任务里，两边读写同一份）；
+  // 首页 / 同步记录「改定时」/ 账号弹窗「定时…」走 plugin.openSyncTime() → 打开设置页落到 data-section="sync-time"。
+  // 1027：上面一行「同步」开关（开 = 按下面的时间注册 / 恢复计划任务；关 = 关掉），下面「同步时间」改了自动存（没有「保存定时」）。
+  function syncTimeEditor(body, tab) {
+    const wrap = body.createDiv({ cls: 'lb-sync-time', attr: { 'data-section': SYNC_TIME } });
+    const sw = row(wrap, tab, '同步', '开着就按下面的时间自动收新收藏；电脑开着就行，不用开 Obsidian。', { cls: 'lb-sync-switch' });
+    const when = row(wrap, tab, '同步时间', '按这台电脑上的时间。几条可以一起用，比如每周一 08:00 + 每天 16:00；改了自动保存。', { cls: 'lb-sched-row' });
+    const host = wrap.createDiv({ cls: 'lb-sched-host' });
+    let ed = null, toggle = null, quiet = false;
+    const showTimes = on => { const hide = on === false; when.settingEl.toggleClass?.('is-hidden', hide); host.toggleClass?.('is-hidden', hide); };
+    sw.addToggle(t => {
+      toggle = t;
+      t.setValue(false).onChange(async v => {
+        if (quiet || !ed) return;
+        t.setDisabled?.(true);
+        const res = await ed.setEnabled(v);
+        t.setDisabled?.(false);
+        if (!res || !res.ok) { quiet = true; try { t.setValue(!v); } finally { quiet = false; } plugin.notify((v ? '没打开：' : '没关上：') + ((res && res.error) || '原因不明'), { kind: 'error' }); }
+      });
+    });
+    safe(tab, wrap, '自动同步', () => {
+      ed = plugin.scheduleUI().render(host, {
+        onState: on => { showTimes(on); if (toggle && on != null && toggle.getValue() !== on) { quiet = true; try { toggle.setValue(on); } finally { quiet = false; } } },
+      });
+      wrap.lbReady = ed.ready;
+      tab.stops.push(() => ed.destroy());
+    });
+    return ed;
+  }
+  function syncRows(body, tab) {
+    const so = S().sync;
+    const ed = syncTimeEditor(body, tab);
+    tab.fieldDailyLimit(body);
+    sub(body, '存哪些');
+    tab.toggleRow(body, '图片', '', () => so.downloadImages, v => { so.downloadImages = v; }, { help: '关掉只存文字和图片地址。' });
+    tab.toggleRow(body, '视频', '', () => so.downloadVideo, v => { so.downloadVideo = v; }, { help: '关掉只存封面和链接，省硬盘。' });
+    tab.fieldCommentFloors(body);
+    return ed;
+  }
+  function groupSync(g, tab) {
+    const s = S(), so = s.sync;
+    sub(g, '同步');
+    safe(tab, g, '收藏同步', () => tab.stops.push(plugin.renderSyncRow(g, { compact: true })));
+    syncRows(g, tab);
+    more(g, tab, 'sync-more', b => {
       tab.fieldCollectionFolder(b);
-      tab.toggleRow(b, '登录后马上同步', '第一次扫码登录成功后就开始', () => so.autoAfterLogin, v => { so.autoAfterLogin = v; });
-      tab.fieldPerRunLimit(b); tab.fieldFillPace(b);
+      tab.toggleRow(b, '登录后马上同步', '', () => so.autoAfterLogin, v => { so.autoAfterLogin = v; }, { help: '第一次扫码登录成功后就开始同步。' });
+      tab.fieldPerRunLimit(b);
+      tab.fieldFillPace(b);
+      const att = b.createDiv({ attr: { 'data-section': 'attach' } });
+      tab.fieldDownloadFolder(att);
+      tab.numberField(att, '等下载最多', '', { get: () => s.downloads.waitMinutes, set: v => s.downloads.waitMinutes = v, def: 5, unit: '分钟',
+        help: '你手动下载附件时，在下载文件夹里等文件出现多久。' }).then(r => r.controlEl.createSpan({ cls: 'lb-unit', text: '分钟' }));
+      tab.link(row(att, tab, '还没下到的附件', '自动下不来的附件，在这里一篇一篇手动补。'), '查看', async () => {
+        try {
+          const data = plugin.catalogCache?.data || JSON.parse(await plugin.app.vault.adapter.read(plugin.lbPath('_archive/catalog-data.json')));
+          plugin.openAttachments(data.items.filter(it => it.attachment === '待补'));
+        } catch (e) { plugin.notify('这一块暂时读不到：' + e.message, { kind: 'error' }); }
+      }, '列出还没下到附件的笔记');
+      tab.link(row(b, tab, '同步记录', '每次同步收了几篇、哪里没做成。'), '打开', () => plugin.openSyncLog?.(), '打开同步记录');
+    }, { holds: ['attach', 'collect'] });
+  }
+
+  // ———————————————————— ③ 目录与批注 ————————————————————
+  function groupCatalog(g, tab) {
+    const s = S();
+    const look = row(g, tab, '目录的样子', '布局、字体、字号都在目录页点「编排」改（编排里的「Aa 样式」）；这里不另放一套。', { section: 'catalog-look' });
+    tab.link(look, '去目录编排 ↗', () => plugin.openCatalogArrange?.(), '打开目录并进入编排');
+    look.controlEl.querySelector?.('button')?.removeClass?.('lb-link');
+    row(g, tab, '批注署名', '笔记底下你写的批注署这个名字；空着就不署名。', { section: 'annot' })
+      .addText(t => t.setPlaceholder('不署名').setValue(s.nickname || '').onChange(async v => { s.nickname = v.trim(); await tab.save(); }));
+    more(g, tab, 'catalog-more', b => {
+      row(b, tab, '留言对象', '批注开头写「@名字」，就算留给它的话（比如你的 AI 助手）；空着不启用。')
+        .addText(t => t.setPlaceholder('不启用').setValue(s.annotateMention || '').onChange(async v => { s.annotateMention = v.trim(); await tab.save(); }));
+      tab.fieldCategories(b);
+    }, { holds: ['catalog', 'index'] });
+  }
+
+  // ———————————————————— ④ 高级功能 ————————————————————
+  // 一项功能一个控件（她：别先开一层再进另一页改模式）；底下的双重门禁（setup.selected 和各能力的 mode）在这里一起对上：
+  //   语音转文字：关闭 / 本机（setup 'asr' + asrAI.mode=capswriter）/ 在线接口（asrAI.mode=http）；
+  //   识图：关闭（'ocr' 关，识图跟着关）/ 本机认字（'ocr' 开、'ai_vision' 关）/ 本机认字 + AI 识图（'ai_vision' 开）；
+  //   问答模型：问收藏页下拉里的同一个值（activeModel）；「关闭」= 'ai_text' 关（问答、概要、按意思搜是同一个开关，三行都如实显示关）；
+  //   概要与标签：关闭（summaryAI.mode=off）/ 跟随问答模型（inherit）/ 单独配置（http 或命令行，细项在「更多 → 接口与密钥」）；
+  //   按意思搜：embedAI.mode（没配过的关了再开 = 回到后端默认，不留一个空的 embedAI）。打开概要 / 按意思搜 / 选模型都顺手打开 'ai_text'。
+  const selectedOf = () => { const su = S().setup || {}; return Array.isArray(su.selected) ? su.selected : null; };
+  // 和后端 providers.gate 同一规则：选过（列表）+ 对齐过（aiSynced）+ 没勾 = 关
+  const gated = comp => { const su = S().setup || {}, sel = selectedOf(); return !!(sel && su.aiSynced && !sel.includes(comp)); };
+  const planOn = id => { const h = home(); if (h && h.state && h.state().plan) return h.isOn(id); const sel = selectedOf(); return sel ? sel.includes(id) : null; };
+  const asrValue = () => { const m = (S().asrAI || {}).mode; return m === 'http' ? 'http' : m === 'capswriter' || m === 'media' ? 'local' : 'off'; };
+  const visionValue = () => {
+    const ocrOn = planOn('ocr'); const ocr = ocrOn == null ? (S().ocr || {}).mode !== 'off' : ocrOn;
+    if (!ocr) return 'off';
+    return gated('ai_vision') || planOn('ai_vision') === false ? 'local' : 'ai';
+  };
+  const textOn = () => !gated('ai_text');
+  const askValue = () => (textOn() ? (S().activeModel || '') : 'off');
+  const summaryValue = () => { const m = (S().summaryAI || {}).mode; return !textOn() || m === 'off' ? 'off' : (!m || m === 'inherit') ? 'inherit' : 'custom'; };
+  const embedValue = () => textOn() && (!S().embedAI || S().embedAI.mode !== 'off');
+  const RUNTIME = ['setup', 'ocr', 'asrAI', 'textAI', 'summaryAI', 'visionAI', 'voice', 'embedAI', 'activeModel'];
+  async function apply(change) {
+    const s = S();
+    const snap = JSON.parse(JSON.stringify(Object.fromEntries(RUNTIME.map(k => [k, s[k]]))));
+    try { await change(); }
+    catch (e) { for (const k of RUNTIME) s[k] = snap[k]; throw e; }
+    delete cache.usage;
+    plugin.app.workspace?.trigger?.('link-brain:models-changed');
+  }
+  // 还没选过（setup.selected 不是列表）= 后端不拦（fail-open）：先按「现在实际在跑的」落成一份列表再改，免得「关闭」点了没反应
+  const materialize = () => {
+    const s = S();
+    s.setup = s.setup && typeof s.setup === 'object' ? s.setup : {};
+    if (Array.isArray(s.setup.selected)) return;
+    const on = ['core', 'reader', 'dataview'];
+    if ((s.ocr || {}).mode !== 'off') on.push('ocr');
+    if ((s.asrAI || {}).mode === 'capswriter') on.push('asr');
+    if (s.voice && s.voice.capsLock) on.push('capslock');
+    on.push('ai_text');
+    if (on.includes('ocr')) on.push('ai_vision');
+    s.setup.selected = on; s.setup.aiSynced = true;
+  };
+  const feature = async (id, on) => { const h = home(); if (!h) throw new Error('功能清单没加载上：重启一次 Obsidian 再试'); materialize(); await h.setFeature(id, on); };
+  const ensureText = async () => { if (gated('ai_text')) await feature('ai_text', true); };
+  async function setAsr(v) {
+    const s = S(); s.asrAI = s.asrAI || {};
+    await apply(async () => {
+      if (v === 'http') { s.asrAI.mode = 'http'; await plugin.saveSettings(); return; }
+      if (v === 'local') {
+        if (s.asrAI.mode !== 'capswriter') s.asrAI.mode = 'off';
+        await feature('asr', true);
+        if (s.asrAI.mode !== 'capswriter') { s.asrAI.mode = 'capswriter'; await plugin.saveSettings(); }
+        return;
+      }
+      if (planOn('asr')) await feature('asr', false);
+      if (s.asrAI.mode !== 'off') { s.asrAI.mode = 'off'; await plugin.saveSettings(); }
     });
   }
-  // 每组的「高级」：一行折叠，点开才画（技术细项：识别模型、提示词、调度节奏、令牌…）
-  function advFold(body, tab, name, section, draw, { desc = '' } = {}) {
-    const d = body.createEl('details', { cls: 'lb-row-fold lb-adv', attr: { 'data-section': section } });
-    const sm = d.createEl('summary');
-    sm.createDiv({ cls: 'lb-rf-name', text: name });
-    if (desc) sm.setAttribute('title', desc);
-    const inner = d.createDiv({ cls: 'lb-rf-body' });
-    let drawn = false;
-    d.addEventListener('toggle', () => { if (!d.open || drawn) return; drawn = true; safe(tab, inner, name, () => draw(inner)); });
-    return d;
+  async function setVision(v) {
+    await apply(async () => {
+      if (v === 'off') return feature('ocr', false);
+      if (v === 'local') { await feature('ocr', true); if (planOn('ai_vision')) await feature('ai_vision', false); return; }
+      await feature('ai_vision', true);
+    });
   }
-
-  // ———————————————————— 识别与问答（本机两项 + 用 key 的三项；设置页另有 AI 服务 · 问收藏模型 · 每天上限）————————————————————
-  function aiRows(body, tab, { guide = false, onChange = null } = {}) {
-    const s = plugin.settings, h = home();
-    const redraw = () => { body.empty?.(); aiRows(body, tab, { guide, onChange }); onChange && onChange(); };
-    // 功能清单还没读回时「开没开」都是关：读回来再画一遍（子项「按住 CapsLock 说话」要看语音转文字开没开）
-    if (h && !h.state().plan) h.loadPlan().then(() => { if (h.state().plan && body.parentNode) redraw(); }).catch(() => {});
-    const feat = (name, desc, id, tag) => {
-      const row = new Setting(body).setName(name).setDesc(desc);
-      row.settingEl.addClass('lb-feat'); row.settingEl.setAttribute?.('data-id', id);
-      if (tag) meta(row, tag);
-      if (h) safe(tab, body, name, () => h.featureToggle(row, id, () => { if (id === 'asr') redraw(); }));
-      return row;
-    };
-    // 1018 晚她：一屏放得下——本机三项只写名字；要 key 的三项一句说明 + 右边「约 ¥x / 100 篇 · 哪家」
-    feat('识图', '', 'ocr', '免费 · 本机');
-    feat('语音', '', 'asr', '免费 · 本机');
-    if (h && h.isOn('asr')) feat('按 CapsLock 转文字', '', 'capslock', '免费 · 本机');
-    group(body, guide ? '需要 API key · 可跳过' : '用 API key');
-    // 价钱：setup estimate（按库里平均每篇的量 × 官方单价；配了模型按配的、没配按推荐）
-    const priceMeta = {};
-    const SHORT = { DeepSeek: 'DeepSeek', '通义千问': '千问', 'Google Gemini': 'Gemini', OpenAI: 'OpenAI' };
-    const paintPrices = est => {
-      for (const it of ((est && est.data && est.data.items) || [])) {
-        const el = priceMeta[it.id];
-        if (!el || it.yuan == null) continue;
-        const y = +it.yuan;
-        el.setText(`约 ¥${y >= 1 ? y.toFixed(2) : y >= 0.01 ? y.toFixed(2) : y.toFixed(3)} / 100 篇 · ${SHORT[it.provider] || it.provider || ''}`);
-      }
-    };
-    // 按意思搜 / 概要：各自的开关是这一项的 mode（off ↔ 原来的）；打开时顺手把「问收藏 · 概要 · 打标」那一组勾上（后台门禁看它）
-    const capToggle = (name, desc, cap, onMode) => {
-      const row = new Setting(body).setName(name).setDesc(desc);
-      row.settingEl.addClass('lb-feat'); row.settingEl.setAttribute?.('data-cap', cap);
-      const cfg = () => s[cap] || (s[cap] = {});
-      row.addToggle(t => {
-        let reverting = false;
-        t.setValue(cfg().mode !== 'off' && (cap !== 'summaryAI' || !h || h.isOn('ai_text'))).onChange(async v => {
-          if (reverting) return;
-          const prev = JSON.parse(JSON.stringify(cfg()));
-          if (v) { cfg().mode = cfg().prevMode || onMode; delete cfg().prevMode; }
-          else { if (cfg().mode !== 'off') cfg().prevMode = cfg().mode; cfg().mode = 'off'; }
-          try {
-            await plugin.saveSettings();
-            if (v && h) await h.setFeature('ai_text', true);
-          } catch (e) {
-            s[cap] = prev; reverting = true; try { t.setValue(!v); } catch {} finally { reverting = false; }
-            plugin.notify('没保存上，开关已拨回原来的位置：' + ((e && e.message) || e), { kind: 'error' }); return;
-          }
-          delete cache.usage;
-        });
-      });
-      return row;
-    };
-    priceMeta.embed = meta(capToggle('按意思搜', 'embedding 向量：搜「便宜的火锅」也能找到「人均 50 的锅子」', 'embedAI', 'http'), '');
-    priceMeta.summary = meta(capToggle('概要', '当篇摘要、关联网址，方便后续搜索', 'summaryAI', 'inherit'), '');
-    if (h) priceMeta.vision = meta(feat('AI 识图', 'OCR、表格、流程图更精准，还有图片描述', 'ai_vision', ''), '');
-    // 价钱那一格要在开关左边
-    for (const el of Object.values(priceMeta)) el.parentElement?.prepend?.(el);
-    if (h) { const est = h.state().estimate; if (est && est.data) paintPrices(est); else h.loadEstimate().then(paintPrices).catch(() => {}); }
-    // AI 服务：用的是哪几家（图标）+ 添加 key
-    const svc = body.createDiv({ cls: 'lb-svc', attr: { 'data-section': 'ai-keys' } });
-    const paintSvc = u => {
-      svc.empty();
-      const chips = svc.createDiv({ cls: 'lb-prov' });
-      const bad = new Set(keyTrouble(u).map(k => k.id));
-      const inUse = providersInUse(u) || [];
-      for (const id of inUse) {
-        const chip = chips.createSpan({ cls: 'lb-pv' + (bad.has(id) ? ' is-warn' : ''), attr: { 'data-provider': id } });
-        iconInto(chip, id, 14); chip.createSpan({ text: PROV[id] + (id === 'google' ? ' · 免费额度' : '') });
-        chip.createSpan({ cls: 'lb-pv-dot' });
-      }
-      const add = chips.createEl('button', { cls: 'lb-pv is-add', text: '＋ 添加 key' });
-      add.onclick = () => keyModal(() => tab.display());
-      if (u && !inUse.length) svc.createDiv({ cls: 'setting-item-description', text: '粘一把 key 就能用上面三项；没有的话 Gemini 有免费额度。' });
-    };
-    paintSvc(null);
-    loadUsage().then(u => { cache.usageLast = u; paintSvc(u); }).catch(() => {});
+  async function setAsk(v) {
+    const s = S();
+    await apply(async () => {
+      if (v === 'off') return feature('ai_text', false);
+      s.activeModel = v;
+      await plugin.saveSettings();
+      await ensureText();
+    });
   }
-
-  // ———————————————————— ③ 识别与问答 ————————————————————
-  function renderAICard(c, tab) {
-    const s = plugin.settings;
-    const body = tab.card(c, '识别与问答', 's-ai');
-    const rows = body.createDiv({ cls: 'lb-ai-rows', attr: { 'data-section': 'ai-feats' } });
-    aiRows(rows, tab);
-    // 问收藏用的模型：问收藏页下拉里的那几个
-    const models = (s.models || []).map(m => m.name).filter(Boolean);
-    if (models.length) {
-      const row = new Setting(body).setName('问收藏用的模型').setDesc('回答质量主要看这一项');
-      row.settingEl.setAttribute?.('data-section', 'ask-model');
-      row.addDropdown(d => {
-        for (const n of models) d.addOption(n, n);
-        d.setValue(models.includes(s.activeModel) ? s.activeModel : models[0]).onChange(async v => {
-          const prev = s.activeModel; s.activeModel = v;
-          try { await plugin.saveSettings(); plugin.app.workspace.trigger?.('link-brain:models-changed'); }
-          catch (e) { s.activeModel = prev; d.setValue(prev); plugin.notify('没保存上：' + e.message, { kind: 'error' }); }
-        });
+  async function setSummary(v) {
+    const s = S(); const cfg = s.summaryAI || (s.summaryAI = {});
+    await apply(async () => {
+      if (v === 'off') { if (cfg.mode && cfg.mode !== 'off') cfg.prevMode = cfg.mode; cfg.mode = 'off'; await plugin.saveSettings(); return; }
+      if (v === 'inherit') { cfg.mode = 'inherit'; delete cfg.prevMode; }
+      else { cfg.mode = ['http', 'cli'].includes(cfg.prevMode) ? cfg.prevMode : ['http', 'cli'].includes(cfg.mode) ? cfg.mode : 'http'; delete cfg.prevMode; }
+      await plugin.saveSettings();
+      await ensureText();
+    });
+  }
+  async function setEmbed(on) {
+    const s = S();
+    await apply(async () => {
+      if (!on) {
+        if (!s.embedAI) s.embedAI = { mode: 'off', wasDefault: true };   // 原来没配过：记一下，再打开就回到后端默认
+        else { if (s.embedAI.mode && s.embedAI.mode !== 'off') s.embedAI.prevMode = s.embedAI.mode; s.embedAI.mode = 'off'; }
+        await plugin.saveSettings(); return;
+      }
+      if (s.embedAI && s.embedAI.wasDefault) s.embedAI = undefined;   // 存盘时 undefined 不写出去 = 回到「没配过」（后端照旧跟着问答那家走）
+      else if (s.embedAI) { s.embedAI.mode = s.embedAI.prevMode || (s.embedAI.mode === 'off' ? 'http' : s.embedAI.mode || 'http'); delete s.embedAI.prevMode; }
+      await plugin.saveSettings();
+      await ensureText();
+    });
+  }
+  // 功能那几行（④ 和首次设置第 3 步共用）；返回 repaint（功能清单读回来后把下拉对上实际值）
+  function featureRows(g, tab, { guide = false } = {}) {
+    const s = S();
+    const ctl = {};
+    if (!guide) row(g, tab, '转 Markdown', '附件里的 PDF、Word 自动转成文字存在本机，扫描件走本机认字；不用设置，不花钱。', { icon: 'doc', section: 'ai-docconv' })
+      .controlEl.createSpan({ cls: 'lb-feat-tag', text: 'PDF / Word · 本机免费 · 自动' });
+    const asr = row(g, tab, '语音转文字', '把视频里说的话转成文字，搜得到。本机免费；在线接口按用量付费（接口在「更多 → 接口与密钥」）。', { icon: 'audio', section: 'ai-asr' });
+    ctl.asr = select(asr, [['off', '关闭'], ['local', '本机 · 免费'], ['http', '在线接口']], asrValue, v => setAsr(v).then(() => repaint()), { label: '语音转文字' });
+    const vis = row(g, tab, '识图', '认出图片里的字（本机，免费）；选 AI 还会看懂表格、流程图并描述图片（要 key）。', { icon: 'image', section: 'ai-vision' });
+    ctl.vision = select(vis, [['off', '关闭'], ['local', '本机认字 · 免费'], ['ai', '本机认字 + AI 识图']], visionValue, v => setVision(v).then(() => repaint()), { label: '识图' });
+    const models = () => (s.models || []).filter(m => m && m.name && !m.hidden).map(m => [m.name, m.name]);
+    const ask = row(g, tab, '问答模型', '问收藏用哪个模型（和问收藏页输入框右边的下拉是同一个）。选「关闭」= 问答、概要、按意思搜都不用 AI。', { icon: 'chat', section: 'ask-model' });
+    ctl.ask = select(ask, [...models(), ['off', '关闭']], askValue, v => setAsk(v).then(() => repaint()), { label: '问答模型' });
+    const sum = row(g, tab, '概要与标签', '每篇自动写概要、打标签，不动你手改的。「单独配置」在「更多 → 接口与密钥 → 概要与标签」里选接口或命令行。', { icon: 'summary', section: 'ai-summary' });
+    ctl.summary = select(sum, [['off', '关闭'], ['inherit', '跟随问答模型'], ['custom', '单独配置']], summaryValue, v => setSummary(v).then(() => repaint()), { label: '概要与标签' });
+    const emb = row(g, tab, '按意思搜', '按意思找相近的收藏（搜「便宜的火锅」也能找到「人均 50 的锅子」）；关掉照样能按关键词搜。', { icon: 'search', section: 'ai-embed' });
+    emb.addToggle(t => {
+      ctl.embed = t;
+      let reverting = false;
+      t.setValue(embedValue()).onChange(async v => {
+        if (reverting || ctl.quiet) return;
+        try { await setEmbed(v); }
+        catch (e) { reverting = true; try { t.setValue(!v); } catch {} finally { reverting = false; } plugin.notify('没保存上，开关已拨回原来的位置：' + errText(e), { kind: 'error' }); return; }
+        repaint();
       });
+    });
+    // 选了要 key 的但还没配：那一行下面一句 + 去填（落到「接口与密钥」那一格）
+    const hint = (r, text, cap) => {
+      let el = r.descEl.querySelector?.('.lb-feat-need');
+      if (!text) { el?.remove?.(); return; }
+      if (!el) el = r.descEl.createDiv({ cls: 'lb-feat-need' });
+      el.empty?.(); el.createSpan({ text });
+      if (cap && !guide) { const b = el.createEl('button', { cls: 'lb-link', text: '去填' }); b.onclick = () => openApiFor(tab, cap); }
+    };
+    const ready = cap => { const c = s[cap] || {}; return c.mode === 'cli' ? !!(c.command || c.preset) : !!(c.endpoint && (c.apiKey || c.keyFile || c.apiKeyEnv || c.keyPool)); };
+    function paintHints() {
+      hint(vis, visionValue() === 'ai' && !ready('visionAI') ? '还没配识图用的接口和 key' : '', 'vision');
+      hint(asr, asrValue() === 'http' && !(s.asrAI && s.asrAI.endpoint) ? '还没填在线接口' : '', 'asr');
+      hint(sum, summaryValue() === 'custom' && !ready('summaryAI') ? '单独配置还没填好' : '', 'summary');
+      const m = (s.models || []).find(x => x.name === s.activeModel) || {};
+      hint(ask, askValue() !== 'off' && (!m.mode || m.mode === 'inherit') && !ready('textAI') ? '问答用的接口和 key 还没填' : '', 'ask');
     }
-    // 本组高级：提示词（每项功能用哪个模型、key、花费、每天上限在「模型与费用」）
-    advFold(body, tab, '高级：回答长度与提示词', 'ai-prompts', b => tab.renderPrompts(b));
+    function repaint() {
+      const set = (d, v) => { try { if (d && d.getValue() !== v) d.setValue(v); } catch {} };
+      set(ctl.asr, asrValue()); set(ctl.vision, visionValue()); set(ctl.ask, askValue()); set(ctl.summary, summaryValue());
+      if (ctl.embed && ctl.embed.getValue() !== embedValue()) { ctl.quiet = true; try { ctl.embed.setValue(embedValue()); } catch {} finally { ctl.quiet = false; } }
+      paintHints();
+    }
+    paintHints();
+    const h = home();
+    let alive = true; if (tab.stops) tab.stops.push(() => { alive = false; });
+    if (h && h.state && !h.state().plan) h.loadPlan().then(() => { if (alive) repaint(); }).catch(() => {});
+    return repaint;
+  }
+  function openApiFor(tab, cap) {
+    const v = tab.view ? tab.view() : {};
+    v.apiCap = cap;
+    const box = tab.containerEl?.querySelector?.('[data-section="ai-keys"]');
+    if (box && box.lbPick) box.lbPick(cap);
+    focusSection(tab, 'ai-keys');
+  }
+  // 「更多 → 接口与密钥」：先选哪一项，下面是这一项的接口 / 模型 / key / 测试（一次只看一项）；最上面「粘一把 key」
+  function apiConfig(b, tab, usageP) {
+    const s = S();
+    const box = b.createDiv({ cls: 'lb-api', attr: { 'data-section': 'ai-keys' } });
+    keyBox(box, tab, { onDone: () => draw() });
+    const CAPS = [['ask', '问答模型'], ['summary', '概要与标签'], ['vision', 'AI 识图'], ['refine', '精细识图'], ['asr', '语音转文字（在线）'], ['embed', '按意思搜']];
+    const v = tab.view ? tab.view() : {};
+    const pick = row(box, tab, '配置哪一项', '一次只看一项：它用哪个接口、模型、key，下面就能测。', { section: 'ai-keys-pick' });
+    let dd = null;
+    pick.addDropdown(d => { dd = d; for (const [id, n] of CAPS) d.addOption(id, n); d.setValue(v.apiCap || 'ask'); d.onChange(x => { v.apiCap = x; draw(); }); });
+    const route = box.createDiv({ cls: 'setting-item-description lb-api-route' });
+    const area = box.createDiv({ cls: 'lb-api-fields' });
+    box.lbPick = cap => { v.apiCap = cap; try { dd.setValue(cap); } catch {} draw(); };
+    const redraw = () => draw();
+    area.redraw = redraw;
+    function draw() {
+      const cap = v.apiCap || 'ask';
+      area.empty();
+      usageP.then(u => { route.setText(u ? (pages.routeText(u, cap === 'ask' ? 'ask' : cap) ? '现在：' + pages.routeText(u, cap === 'ask' ? 'ask' : cap) : '') : ''); }).catch(() => route.setText(''));
+      safe(tab, area, '接口与密钥', () => ({
+        ask: () => {
+          if (s.textAI.mode === 'cli') {
+            area.createEl('p', { cls: 'setting-item-description', text: '问收藏 · 概要现在用本机命令行（在「CLI 与外接 MCP → 本机命令行」里换）。' });
+            tab.textField(area, '自己写命令', '', 'codex exec --skip-git-repo-check -', () => s.textAI.command, x => { s.textAI.command = x; if (x) delete s.textAI.preset; },
+              false, { help: '问题从标准输入送进去、回答从标准输出读回来；选了「本机命令行」里的程序就不用填。' });
+          } else tab.httpFields(area, s.textAI, { modelHint: 'deepseek-v4-flash', modelDesc: '' });
+          tab.addTestButton(area, '测试（发一句话，几乎不花钱）', ['-m', 'link_brain', 'selftest', 'text']);
+          sub(area, '问收藏页能换的模型', 'models');
+          tab.renderChatModels(area);
+        },
+        summary: () => {
+          const m = s.summaryAI.mode || 'inherit';
+          if (m === 'off') { area.createEl('p', { cls: 'setting-item-description', text: '概要关着：在上面「概要与标签」里打开。' }); return; }
+          if (m === 'inherit') {
+            tab.textField(area, '只换模型名', '', s.textAI.model || '', () => s.summaryAI.model, x => s.summaryAI.model = x, false, { help: '空着 = 和问答用同一个模型；填了只换模型名，接口和 key 照旧。' });
+          } else {
+            tab.modeSetting(area, '单独配置用什么', '', s.summaryAI, [['http', '另配一个接口'], ['cli', '本机命令行（不要 key、不花钱）']],
+              { help: '本机命令行（Codex / Claude Code / OpenCode）用它自己的登录，每篇慢一些。' });
+            if (s.summaryAI.mode === 'cli') tab.cliPicker(area, s.summaryAI);
+            else tab.httpFields(area, s.summaryAI, { modelHint: 'qwen3.7-flash / gpt-4o-mini', modelDesc: '' });
+          }
+          tab.addTestButton(area, '测试概要模型（发一段短文，几乎不花钱）', ['-m', 'link_brain', 'selftest', 'summary']);
+        },
+        vision: () => {
+          tab.httpFields(area, s.visionAI, { modelHint: 'qwen3.8-flash', modelDesc: '' });
+          tab.addTestButton(area, '测试识图（发一张小图，几乎不花钱）', ['-m', 'link_brain', 'selftest', 'vision']);
+        },
+        refine: () => {
+          const own = s.visionAI.refine && typeof s.visionAI.refine === 'object';
+          if (own) {
+            area.createEl('p', { cls: 'setting-item-description', text: '精细识图（第二层）单独配了接口：' });
+            tab.httpFields(area, s.visionAI.refine, { modelHint: 'qwen3.8-max', modelDesc: '' });
+          } else area.createEl('p', { cls: 'setting-item-description', text: '精细识图和识图用同一个接口和 key；模型名在「识别细项 → 精细识图模型」里改。' });
+        },
+        asr: () => {
+          if (s.asrAI.mode !== 'http') { area.createEl('p', { cls: 'setting-item-description', text: '语音转文字现在不用在线接口：在上面「语音转文字」选「在线接口」才用这里。' }); return; }
+          tab.httpFields(area, s.asrAI, { modelHint: 'whisper-1', modelDesc: '', kind: 'asr' });
+          tab.addTestButton(area, '测试语音转文字（发 1 秒录音，几乎不花钱）', ['-m', 'link_brain', 'selftest', 'asr']);
+        },
+        embed: () => {
+          if (!s.embedAI || s.embedAI.wasDefault) {
+            area.createEl('p', { cls: 'setting-item-description', text: '按意思搜现在用默认：跟着问答 / 识图那家的千问 key 走，一般不用动。' });
+            tab.link(new Setting(area).setName('单独配一个接口'), '单独配置', async () => {
+              s.embedAI = { mode: embedValue() ? 'http' : 'off' };
+              try { await plugin.saveSettings(); } catch (e) { s.embedAI = undefined; plugin.notify('没保存上：' + errText(e), { kind: 'error' }); }
+              draw();
+            }, '给按意思搜单独填接口和 key');
+            return;
+          }
+          tab.httpFields(area, s.embedAI, { modelHint: 'text-embedding-v4', modelDesc: '', kind: 'embed' });
+        },
+      })[cap]());
+    }
+    draw();
+    return box;
+  }
+  function groupAdvanced(g, tab) {
+    const s = S();
+    featureRows(g, tab);
+    const usageP = loadUsage().catch(() => null);
+    // key 用不了 / 额度用完：一句 + 去充值 + 换 key（落到「更多 → 接口与密钥」那一格，粘新 key 就换掉坏的那几格）
+    const trouble = g.createDiv({ cls: 'lb-key-trouble', attr: { 'data-section': 'key-trouble' } });
+    usageP.then(u => {
+      for (const k of keyTrouble(u).slice(0, 3)) {
+        const line = trouble.createDiv({ cls: 'lb-fix-line' });
+        line.createSpan({ text: k.text });
+        const l = { ...((pages.LINKS || {})[k.id] || {}), ...(((u && u.links) || {})[k.id] || {}) };
+        if (l.recharge || l.console) { const a = line.createEl('button', { cls: 'lb-link', text: l.recharge ? '去充值 ↗' : '去控制台 ↗' }); a.onclick = () => openUrl(l.recharge || l.console); }
+        const ch = line.createEl('button', { cls: 'lb-link', text: '换 key' });
+        ch.onclick = () => focusSection(tab, 'ai-key-paste');
+      }
+    });
+    sub(g, 'AI 控制台', 'ai-console-head');
+    const v = tab.view ? tab.view() : {};
+    v.console ||= {};
+    safe(tab, g, 'AI 控制台', () => { const c = plugin.usageUI().renderConsole(g, tab, { load: force => loadUsage(!!force), view: v.console }); tab.stops.push(c.stop); });
+    more(g, tab, 'ai-more', b => {
+      sub(b, '接口与密钥');
+      apiConfig(b, tab, usageP);
+      sub(b, '服务商与余额', 'ai-providers');
+      const ring = b.createDiv({ cls: 'lb-keyring' });
+      ring.createEl('p', { cls: 'setting-item-description lb-loading', text: '正在读各家的情况…' });
+      usageP.then(async u => {
+        if (!u) { ring.empty(); plugin.failBox?.(ring, '服务商', new Error('用量没读出来'), () => { loadUsage(true); tab.display(); }); return; }
+        pages.renderKeyring(ring, u, tab);
+        try {   // 余额要联网（DeepSeek 一次请求），后到后只换这一块
+          const r = await plugin.runPy(['-m', 'link_brain', 'usage', '--balance'], { label: '查余额', timeoutMs: 30000, fallback: '余额没查到' });
+          if (r && r.json && r.json.ok !== false) pages.renderKeyring(ring, { ...u, balances: r.json.balances || {}, keys: r.json.keys || u.keys }, tab);
+        } catch (e) { console.error('[lb] 余额没查到', e); }
+      });
+      sub(b, '识别细项', 'ai-recog');
+      const pair = b.createDiv({ cls: 'lb-pair' });
+      recogRows(pair, tab);
+      sub(b, '问答细项', 'ai-ask');
+      const pair2 = b.createDiv({ cls: 'lb-pair' });
+      askRows(pair2, tab);
+      sub(b, '提示词', 'ai-prompts');
+      tab.renderPrompts(b);
+      sub(b, '问收藏的写法', 'skills');
+      tab.renderSkillsTab(b);
+    }, { holds: ['ai-keys', 'ai-key-paste', 'ai-keys-pick', 'ai-providers', 'ai-recog', 'ai-ask', 'ai-prompts', 'skills', 'skills-hidden', 'models', 'prompts'] });
+  }
+  // 识别细项（两列）：CapsLock 说话 · CapsWriter 在哪 · 本机语音的端口 · 视频画面里的字 · 本机认字精度 · 认字模型在哪 · 精细识图模型 · 测试
+  function recogRows(c, tab) {
+    const s = S(), h = home();
+    const caps = row(c, tab, '按 CapsLock 说话', '在任何软件里按住 CapsLock 说话、松开就出字；用本机的语音转文字，要先把「语音转文字」选成「本机」。', { section: 'ai-capslock' });
+    caps.settingEl.setAttribute?.('data-id', 'capslock');
+    if (h) safe(tab, c, '按 CapsLock 说话', () => h.featureToggle(caps, 'capslock'));
+    if (asrValue() !== 'local') { caps.settingEl.addClass('is-disabled'); caps.controlEl.querySelector?.('.checkbox-container')?.setAttribute?.('aria-disabled', 'true'); caps.settingEl.setAttribute?.('title', '先把「语音转文字」选成「本机」'); }
+    row(c, tab, 'CapsWriter 装在哪', '空着 = 自动找（含 start_client.exe 的文件夹）。')
+      .addText(t => t.setPlaceholder('例如 C:\\CapsWriter-Offline').setValue(s.voice.capsWriterDir || '').onChange(async v => { s.voice.capsWriterDir = v.trim(); await tab.save(); }));
+    tab.textField(c, '本机语音识别的端口', '', '6016', () => String(s.asrAI.port || ''), v => s.asrAI.port = v, false, { help: '空着 = 读 CapsWriter 自己的设置（出厂是 6016）。' });
+    tab.toggleRow(c, '认视频画面里的字', '', () => s.visionAI.videoScreenText !== false, v => { s.visionAI.videoScreenText = v; },
+      { help: '字幕、文字卡也收进笔记和搜索；每 2 秒抽一帧认字，最长看前 3 分钟，只占本机 CPU，不花钱。' });
+    const tier = row(c, tab, '本机认字精度', '「标准」认得准；电脑配置很低就选「轻量」。标准多占约 180 MB 内存、慢约 3 倍。');
+    select(tier, [['medium', '标准'], ['small', '轻量']], () => s.ocr.modelTier || 'medium', async v => {
+      const prev = s.ocr.modelTier; s.ocr.modelTier = v;
+      try { await plugin.saveSettings(); } catch (e) { s.ocr.modelTier = prev; throw e; }
+    }, { label: '本机认字精度' });
+    tab.textField(c, '认字模型放在哪', '', '空着就行', () => s.ocr.modelDir, v => s.ocr.modelDir = v, false, { help: '空着 = 自动下载。已经下好 PP-OCRv6 模型的，填它所在的文件夹。' });
+    // 精细识图模型：真正起作用的是 visionAI.refine.model（单独配了第二层时）→ 否则 refineModel → 否则和识图同一个；改的就是起作用的那一个
+    const own = () => s.visionAI.refine && typeof s.visionAI.refine === 'object';
+    tab.textField(c, '精细识图模型', '', s.visionAI.model || '跟随识图', () => (own() ? s.visionAI.refine.model : s.visionAI.refineModel), v => { if (own()) s.visionAI.refine.model = v; else s.visionAI.refineModel = v; },
+      false, { help: '只用来重看少数要紧的图（流程图、大表格、第一遍靠不住的）；空着 = 和识图同一个模型。' + (own() ? '（现在改的是单独配的第二层）' : '') });
+    tab.addTestButton(c, '测试认字（本机跑，不花钱）', ['-m', 'link_brain', 'selftest', 'ocr']);
+    tab.addTestButton(c, asrValue() === 'http' ? '测试语音转文字（发 1 秒录音，几乎不花钱）' : '测试语音转文字（本机跑，不花钱）', ['-m', 'link_brain', 'selftest', 'asr']);
+  }
+  // 问答细项（两列）：扩展同义词 · 回答长度上限 · 给模型看的字数 · 每篇摘录字数 · 参考篇数（都是发给模型的预算，不是收藏库的上限）
+  function askRows(c, tab) {
+    const s = S();
+    tab.toggleRow(c, '扩展同义词', '', () => s.retrieval.queryExpand !== false, v => { s.retrieval.queryExpand = v; },
+      { help: '提问时先想几个同义词、地名、角色一起搜；每问多一次很小的调用（用写概要的模型），和检索同时跑。' });
+    const n = (name, get, set, def, help, unit = '') => tab.numberField(c, name, '', { get, set, def, help }).then(r => { if (unit) r.controlEl.createSpan({ cls: 'lb-unit', text: unit }); });
+    n('回答长度上限', () => s.textAI.maxTokens, v => s.textAI.maxTokens = v, 1200, '模型一次最多写这么多 token（约等于字数）。', 'token');
+    n('给模型看的字数', () => s.retrieval.totalCharLimit, v => s.retrieval.totalCharLimit = v, 8000, '从收藏里摘出来、一起发给模型的字数上限。', '字');
+    n('每篇摘录字数', () => s.retrieval.fragChars, v => s.retrieval.fragChars = v, 800, '每篇收藏摘一段，这段最长多少字。', '字');
+    n('参考篇数', () => s.retrieval.topK, v => s.retrieval.topK = v, 8, '一次至少拿几篇收藏给模型看（字数够时会多拿几篇）。', '篇');
   }
 
-  // ———————————————————— ④ 模型与费用 ————————————————————
-  // 今天 / 本月 / 每天上限（唯一的上限输入框）→ 每个功能用谁（点开一行 = 这一项的模型细项）→ 钥匙串 →
-  // 花了多少（按服务商 / 按 API 或模型 / 按功能切换，人民币；免费的写「免费 / 未计费」；查不到价的列「未计价」；每次调用一行可追溯）
-  function renderCostCard(c, tab) {
-    const body = tab.card(c, '模型与费用', 's-cost');
-    body.head.createSpan({ cls: 'lb-card-hint', text: '人民币 · 按价格表估算' });
-    safe(tab, body, '模型与费用', () => pages.renderAI(body, tab, { noPrompts: true, inlineUsage: true, load: force => loadUsage(!!force) }));
+  // ———————————————————— ⑤ CLI 与外接 MCP ————————————————————
+  // 本机命令行 = LWA 用哪个 AI（textAI 走命令行时用哪个程序：Codex / Claude Code / OpenCode…，表从后端 usage --table 读）；
+  // 让其他 AI 读收藏 = 别的 AI 怎么读 LWA（电脑端一个开关接上 · 网页端要你自己的网址）。两件事分开写，不把命令行当成一条外接。
+  function cliRow(c, tab) {
+    const s = S();
+    const r = row(c, tab, '命令行程序', '用它自己的登录，不要 key，LWA 不替它算钱；选了就问收藏、写概要（跟随问答时）都用它，每问约 20 秒。选「不用」= 用接口。', { section: 'cli' });
+    const host = r.controlEl.createDiv({ cls: 'lb-cli-host' });
+    host.createSpan({ cls: 'setting-item-description lb-loading', text: '读取中…' });
+    const paint = (table, err) => {
+      host.empty();
+      if (!table) { plugin.failBox?.(host, '', err || new Error('命令行列表没读到'), () => { plugin.aiTableCache = null; tab.display(); }); return; }
+      const list = table.cli || [];
+      const sel = host.createEl('select', { cls: 'dropdown', attr: { 'aria-label': '命令行程序' } });
+      sel.createEl('option', { text: '不用（用接口）', attr: { value: '' } });
+      for (const x of list) sel.createEl('option', { text: x.name, attr: { value: x.id } });
+      const curId = () => { if (s.textAI.mode !== 'cli') return ''; const x = s.textAI.preset ? list.find(c => c.preset === s.textAI.preset) : list.find(c => c.command && c.command === s.textAI.command); return x ? x.id : (s.textAI.command ? '' : ''); };
+      sel.value = curId();
+      sel.onchange = async () => {
+        const prev = JSON.parse(JSON.stringify(s.textAI));
+        const pick = list.find(x => x.id === sel.value);
+        if (!pick) { s.textAI.mode = ['http'].includes(s.textAI.prevMode) ? s.textAI.prevMode : 'http'; delete s.textAI.prevMode; }
+        else {
+          if (s.textAI.mode !== 'cli') s.textAI.prevMode = s.textAI.mode;
+          s.textAI.mode = 'cli';
+          if (pick.preset) { s.textAI.preset = pick.preset; delete s.textAI.command; } else { s.textAI.command = pick.command; delete s.textAI.preset; }
+        }
+        try { await plugin.saveSettings(); }
+        catch (e) { s.textAI = prev; sel.value = curId(); plugin.notify('没保存上，已改回原来的：' + errText(e), { kind: 'error' }); return; }
+        delete cache.usage;
+        plugin.app.workspace?.trigger?.('link-brain:models-changed');
+      };
+    };
+    tab.loadAiTable().then(t => paint(t), e => paint(null, e));
   }
-
-  // ———————————————————— 知识库接入 AI ————————————————————
-  function appRows(body, tab, { guide = false } = {}) {
+  // 电脑端：照 Claudian 设置页「Claude Code v2.1.302 · 自动检测」那一行：图标（右下角点 = 找到了）· 名字 + 版本 · 一句 · 右边开关
+  function appRows(body, tab, { guide = false, onState = null } = {}) {
     const list = body.createDiv({ cls: 'lb-apps', attr: { 'data-section': 'mcp-apps' } });
     list.createDiv({ cls: 'setting-item-description lb-loading', text: '正在看这台电脑装了哪些 AI 应用…' });
     let alive = true;
     tab.stops.push(() => { alive = false; });
+    const icons = (() => { try { return plugin.providerIcons ? plugin.providerIcons() : null; } catch (e) { console.error('[lb] 图标没加载上', e); return null; } })();
     const paint = j => {
       if (!alive) return;
       list.empty();
       const apps = j.apps || [];
+      onState && onState(apps);
       if (!apps.length) list.createDiv({ cls: 'setting-item-description', text: '这台电脑上还没有能接入的 AI 应用（Claude Code、Codex、Claude 桌面版等）。装好后会出现在这里。' });
       for (const a of apps) {
-        // 照 Claudian 设置页「Claude Code v2.1.302 · 自动检测」那一行：图标（右下角绿点 = 找到了）· 名字 + 版本 · 一句 · 右边开关
-        const row = new Setting(list).setName(a.name);
-        row.settingEl.addClass('lb-app'); row.settingEl.setAttribute?.('data-app', a.id);
-        const iconBox = row.settingEl.ownerDocument.createElement('div');
+        const r = new Setting(list).setName(a.name);
+        r.settingEl.addClass('lb-app'); r.settingEl.setAttribute?.('data-app', a.id);
+        const iconBox = r.settingEl.ownerDocument.createElement('div');
         iconBox.className = 'lb-app-icon';
-        iconInto(iconBox, a.id, 26);
-        const dot = row.settingEl.ownerDocument.createElement('span');
+        if (icons) icons.icon(iconBox, a.id, 22);
+        const dot = r.settingEl.ownerDocument.createElement('span');
         dot.className = 'lb-app-dot';
         iconBox.appendChild(dot);
-        row.settingEl.insertBefore(iconBox, row.settingEl.firstChild);
-        if (a.version) row.nameEl.createSpan({ cls: 'lb-app-ver', text: 'v' + a.version });
+        r.settingEl.insertBefore(iconBox, r.settingEl.firstChild);
+        if (a.version) r.nameEl.createSpan({ cls: 'lb-app-ver', text: 'v' + a.version });
         const how = a.via === 'claudian' ? '用 Claudian 里设的路径' : '自动检测';
         if (a.oneclick) {
-          row.setDesc(a.connected ? '已接入' : how);
-          row.addToggle(t => {
+          r.setDesc(a.connected ? '已接入' : how);
+          r.addToggle(t => {
             let busy = false;
             t.setValue(!!a.connected).onChange(async on => {
               if (busy) return;
-              busy = true; row.setDesc(on ? '正在接入…' : '正在断开…');
+              busy = true; r.setDesc(on ? '正在接入…' : '正在断开…');
               let res = null;
-              try { const r = await plugin.runPy(['-m', 'link_brain', 'connect', on ? 'add' : 'remove', a.id], { label: '接入 AI', timeoutMs: 120000, okCodes: [0, 1] }); res = r.json || {}; }
+              try { const x = await plugin.runPy(['-m', 'link_brain', 'connect', on ? 'add' : 'remove', a.id], { label: '接入 AI', timeoutMs: 120000, okCodes: [0, 1] }); res = x.json || {}; }
               catch (e) { res = { ok: false, message: e.message }; }
               if (res.ok) {
                 a.connected = on;
-                row.setDesc(on ? '已接入' : how);
+                r.setDesc(on ? '已接入' : how);
                 plugin.notify(res.message || (on ? '已接入' : '已断开'), { kind: 'ok', ms: 8000 });
+                onState && onState(apps);
               } else {
-                try { t.setValue(!on); } catch {}
-                row.setDesc((res.message || '没做成') + (res.command ? '' : ''));
-                if (res.command) tab.link(row, '复制命令', () => plugin.copyText(res.command), '复制到终端自己运行');
+                busy = true; try { t.setValue(!on); } catch {} finally { busy = false; }
+                r.setDesc(res.message || '没做成');
+                if (res.command) tab.link(r, '复制命令', () => plugin.copyText(res.command), '复制到终端自己运行');
               }
               delete cache.apps;
               busy = false;
             });
           });
         } else {
-          row.setDesc(how + ' · 复制设置，粘进它的 MCP 设置');
-          tab.link(row, '复制设置', () => plugin.copyText(j.json || ''), '复制 MCP 设置（JSON）');
+          r.setDesc(how + ' · 复制设置，粘进它的 MCP 设置');
+          tab.link(r, '复制设置', () => plugin.copyText(j.json || ''), '复制 MCP 设置（JSON）');
         }
       }
       // 别的能接 MCP 的软件（Cursor 之类，上面认不出来的）：复制设置自己粘
       if (!guide) {
-        const other = new Setting(list).setName('其他应用').setDesc('Cursor 等支持 MCP 的软件：复制设置，粘进它的 MCP 设置');
+        const other = new Setting(list).setName('其他应用').setDesc('Cursor 等：复制设置，粘进它的 MCP 设置');
         other.settingEl.addClass('lb-app'); other.settingEl.setAttribute?.('data-app', 'other');
         tab.link(other, '复制设置', () => plugin.copyText(j.json || ''), '复制 MCP 设置（JSON）');
       }
       const miss = j.not_installed || [];
-      if (miss.length && !guide) list.createDiv({ cls: 'lb-note', text: miss.join('、') + ' 没装，装好后会出现在这里。' });
+      if (miss.length && !guide) list.createDiv({ cls: 'lb-note setting-item-description', text: miss.join('、') + ' 没装，装好后会出现在这里。' });
     };
     loadApps().then(paint).catch(e => { if (alive) { list.empty(); plugin.failBox?.(list, '本机 AI 应用', e, () => { loadApps(true); tab.display(); }); } });
   }
-
-  // 网页端（ChatGPT、claude.ai、手机）：一键复制接入说明——连接地址 + 两家各几步 + 口令在哪（口令本身不进剪贴板）
-  // 网页端接入步骤（1018 她照 ChatGPT 现在的界面核过：设置 → 插件 → 浏览目录 → 右上角「添加」→「添加自定义 MCP 服务器」）。
-  // 设置页里展开就能照着做，也能一键复制（口令本身不进剪贴板，授权页上再输）
-  function webSteps() {
-    const r = plugin.settings.remote || {};
-    const url = r.domain ? r.domain.replace(/\/+$/, '') + '/mcp' : '';
-    return {
-      url,
-      chatgpt: ['打开 ChatGPT 设置 → 左边「插件」→ 右上角「浏览目录」',
-        '右上角「添加」→「添加自定义 MCP 服务器」',
-        '名称随便填（比如 LWA）；连接选「服务器 URL」，粘上面的连接地址；身份验证选 OAuth',
-        '勾上「我已了解，并希望继续」→「创建为插件」',
-        '会跳到 LWA 的授权页：输入口令（在下面「域名、口令、已连上的」里复制），点「允许连接」就连上了'],
-      claude: ['打开 claude.ai 设置 → Connectors →「Add custom connector」',
-        '名字随便填，URL 粘上面的连接地址 →「Add」',
-        '点「Connect」跳到 LWA 的授权页：输入口令，点「允许连接」'],
-    };
-  }
-  function webGuideText() {
-    const w = webSteps();
-    const list = a => a.map((x, k) => `${k + 1}. ${x}`).join('\n');
-    return ['LWA 收藏库（MCP，只读：能搜、能读、能看图，不能改也不能删）',
-      '连接地址：' + (w.url || '还没填域名——先在 LWA 设置「外部 AI 接入 → 接入网页端」里填你的域名'),
-      '', 'ChatGPT：', list(w.chatgpt), '', 'claude.ai（网页 / 手机 App）：', list(w.claude), '',
-      '用的时候说「在我的收藏里搜……」。'].join('\n');
-  }
-  function webRow(body, tab, { guide = false } = {}) {
-    const w = webSteps();
-    const d = body.createEl('details', { cls: 'lb-row-fold lb-web-row', attr: { 'data-section': 'web-howto' } });
-    const sm = d.createEl('summary');
-    sm.createDiv({ cls: 'lb-rf-name', text: 'ChatGPT、claude.ai 网页版和手机' });
-    sm.createDiv({ cls: 'lb-rf-desc', text: w.url ? '点开看怎么接；也能一键复制步骤' : guide ? '要先有域名：走完后在设置「外部 AI 接入」里填' : '先在下面填好域名' });
-    const copy = sm.createEl('button', { cls: 'lb-link lb-rf-act', text: '复制接入说明' });
-    copy.setAttribute('aria-label', '复制连接地址和接入步骤（不含口令）');
-    copy.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); plugin.copyText(webGuideText()); };
-    const inner = d.createDiv({ cls: 'lb-web-howto' });
-    const addr = inner.createDiv({ cls: 'lb-web-addr' });
-    addr.createSpan({ cls: 'lb-web-label', text: '连接地址' });
-    addr.createEl('code', { text: w.url || '还没填域名' });
-    if (w.url) { const b = addr.createEl('button', { cls: 'lb-link', text: '复制' }); b.onclick = () => plugin.copyText(w.url); }
-    for (const [name, steps] of [['ChatGPT', w.chatgpt], ['claude.ai（网页 / 手机 App）', w.claude]]) {
-      inner.createDiv({ cls: 'lb-web-label', text: name });
-      const ol = inner.createEl('ol');
-      for (const s of steps) ol.createEl('li', { text: s });
-    }
-    return d;
+  function groupConnect(g, tab) {
+    sub(g, '本机命令行');
+    cliRow(g, tab);
+    sub(g, '让其他 AI 读收藏');
+    const twin = g.createDiv({ cls: 'lb-twin lb-mcp-twin' });
+    const pc = twin.createDiv({ cls: 'lb-twin-card', attr: { 'data-section': 'mcp-pc' } });
+    const ph = pc.createDiv({ cls: 'lb-twin-head' });
+    ph.createEl('strong', { text: '电脑端' });
+    const pcState = ph.createSpan({ cls: 'lb-twin-note lb-mcp-state', text: '读取中…' });
+    pc.createEl('p', { cls: 'setting-item-description', text: 'Claude Code / Codex / Claude 桌面版，一个开关接上。只读，随时能断开。' });
+    appRows(pc, tab, { onState: apps => { const n = apps.filter(a => a.connected).length; pcState.setText(n ? `● 已接入 ${n} 个` : '○ 还没接'); } });
+    const web = twin.createDiv({ cls: 'lb-twin-card', attr: { 'data-section': 'remote' } });
+    const wh = web.createDiv({ cls: 'lb-twin-head' });
+    wh.createEl('strong', { text: '网页端' });
+    web.createEl('p', { cls: 'setting-item-description', text: 'ChatGPT、claude.ai 网页版和手机 App，要你自己的网址。只读。' });
+    safe(tab, web, '网页端', () => tab.stops.push(plugin.remoteUI?.renderConnect(web, () => tab.display(), tab, { part: 'web', toggleHost: wh })));
+    const open = row(g, tab, '开放收藏库', 'AI 只能看，不能改也不能删：可见笔记，加上每篇的机读版、附件全文、批注。别的文件夹在「更多」里加。', { section: 'mcp-folders' });
+    safe(tab, g, '开放收藏库', () => plugin.remoteUI?.xhsToggle(open, tab));
+    more(g, tab, 'connect-more', b => {
+      sub(b, '还开放了哪些文件夹', 'mcp-folders-more');
+      safe(tab, b, '开放的文件夹', () => tab.stops.push(plugin.remoteUI?.renderConnect(b.createDiv(), () => tab.display(), tab, { part: 'folders', skipXhs: true })));
+      sub(b, '端口、访问令牌、访问记录', 'tokens');
+      safe(tab, b, '远程访问细项', () => plugin.remoteUI?.renderAdvanced(b.createDiv(), tab));
+    }, { holds: ['mcp-folders-more', 'tokens'] });
   }
 
-  // ———————————————————— ⑤ 外部 AI 接入 ————————————————————
-  // 1026 她（录屏 23:59「可以读取范围」）：按要做的事排——接入电脑端 · 接入网页端 · 可读取哪些库；接入说明、口令 / 访问令牌紧挨着各自那一段；
-  // 开没开在卡片标题右边一眼看得到（电脑端接了几个 · 网页端开没开）。
-  function mcpStateText(apps, r) {
-    const n = apps == null ? null : apps.filter(a => a.connected).length;
-    return ['只读', n == null ? '' : n ? `电脑端已接入 ${n} 个` : '电脑端没接', r.enabled ? '网页端开着' : '网页端没开'].filter(Boolean).join(' · ');
-  }
-  function renderConnectCard(c, tab) {
-    const body = tab.card(c, '外部 AI 接入', 's-mcp', { desc: '接入后，在这些应用里能搜索和阅读你的收藏。只读，不会修改或删除，随时可以断开。' });
-    const r = plugin.settings.remote || {};
-    const state = body.head.createSpan({ cls: 'lb-card-hint lb-mcp-state', text: mcpStateText(null, r) });
+  // ———————————————————— ⑥ 修复 ————————————————————
+  function groupRepair(g, tab) {
+    const s = S();
+    const st = row(g, tab, '当前状态', '哪里没做成、系统已经怎么处理的，按问题记录算；点「检查」再看一遍这台电脑缺什么。', { section: 'repair-state' });
+    st.setDesc('读取中…');
+    const out = g.createDiv({ cls: 'lb-check-box' });
     let alive = true;
     tab.stops.push(() => { alive = false; });
-    loadApps().then(j => { if (alive) state.setText(mcpStateText(j.apps || [], r)); }).catch(() => {});
-    group(body, '接入电脑端 · 不用域名');
-    appRows(body, tab);
-    group(body, '接入网页端 · ' + (r.enabled ? '远程访问开着' + (r.domain ? '（' + r.domain + '）' : '') : '要你自己的域名；远程访问没开'));
-    webRow(body, tab);
-    // 域名、口令、已连上的：紧挨着接入说明（授权页要输的口令就在这里复制；给不支持口令的软件的访问令牌在它里面的「高级」——1010 她：新手面上只讲口令）
-    const web = body.createEl('details', { cls: 'lb-row-fold', attr: { 'data-section': 'remote' } });
-    const ws = web.createEl('summary');
-    ws.createDiv({ cls: 'lb-rf-name', text: '域名、口令、已连上的' });
-    ws.createDiv({ cls: 'lb-rf-desc', text: r.enabled ? '远程访问开着' + (r.domain ? ' · ' + r.domain : '') + ' · 已连上的在里面' : '远程访问没开：在这里填域名、打开' });
-    let webDrawn = false;
-    const fillWeb = () => {
-      if (!web.open || webDrawn) return; webDrawn = true;
-      safe(tab, web, '网页端', () => tab.stops.push(plugin.remoteUI?.renderConnect(web.createDiv(), () => tab.display(), tab, { part: 'web' })));
+    const paint = async () => {
+      let sum = null;
+      try { ({ sum } = await plugin.readSyncFiles()); } catch {}
+      if (!alive) return;
+      const n = sum ? (+sum.needs_human || 0) : 0, auto = sum ? (+sum.auto || 0) + (+sum.gave_up || 0) : 0;
+      st.setDesc(!sum ? '还没有问题记录' : n ? `⚠ ${n} 件要你处理` + (auto ? ` · 另有 ${auto} 条在自动处理 / 已放弃` : '') : auto ? `没有要你处理的 · ${auto} 条在自动处理 / 已放弃` : '没有问题');
+      st.settingEl.toggleClass?.('is-warn', n > 0);
     };
-    web.addEventListener('toggle', fillWeb);
-    if (tab.view && tab.view().openRemote) { web.open = true; tab.view().openRemote = false; fillWeb(); }
-    // 可以读取的范围（对所有接入的 AI 都一样）：现在开放的库直接写在这一行上
-    group(body, '可读取哪些库 · 电脑端和网页端一样');
-    const folders = Array.isArray(r.folders) ? r.folders : [];
-    const scope = body.createEl('details', { cls: 'lb-row-fold', attr: { 'data-section': 'mcp-folders' } });
-    const sum = scope.createEl('summary');
-    sum.createDiv({ cls: 'lb-rf-name', text: '开放给 AI 的库' });
-    sum.createDiv({ cls: 'lb-rf-desc', text: (folders.length ? folders.map(f => (f === '@xhs' ? '小红书收藏库' : f.split(/[\\/]/).pop() || f)).join(' · ') : '小红书收藏库') + ' · 点开增减' });
-    let scopeDrawn = false;
-    scope.addEventListener('toggle', () => {
-      if (!scope.open || scopeDrawn) return; scopeDrawn = true;
-      safe(tab, scope, '开放的文件夹', () => tab.stops.push(plugin.remoteUI?.renderConnect(scope.createDiv(), () => tab.display(), tab, { part: 'folders' })));
-    });
-  }
-
-  // ———————————————————— ② 内容、目录及管理 ————————————————————
-  function renderContentCard(c, tab) {
-    const s = plugin.settings;
-    const body = tab.card(c, '内容、目录及管理', 's-content');
-    const ann = body.createDiv({ cls: 'lb-annot-rows', attr: { 'data-section': 'catalog' } });
-    new Setting(ann).setName('批注署名').setDesc('空着不署名')
-      .addText(t => t.setPlaceholder('我').setValue(s.nickname || '').onChange(async v => { s.nickname = v.trim(); await tab.save(); }));
-    new Setting(ann).setName('留言对象').setDesc('以「@名字」开头的批注标成留言给它；空着不启用')
-      .addText(t => t.setPlaceholder('不启用').setValue(s.annotateMention || '').onChange(async v => { s.annotateMention = v.trim(); await tab.save(); }));
-    advFold(body, tab, '目录与写法', 'skills', b => { tab.fieldCategories(b); tab.renderSkillsTab(b); }, { desc: '分类目录（索引）；问收藏按问题选的写法（Skill）' });
-    advFold(body, tab, '附件', 'attach', b => {
-      tab.fieldDownloadFolder(b);
-      tab.numberField(b, '等下载最多几分钟', '手动下载附件时，在下载文件夹里等文件出现多久',
-        { get: () => s.downloads.waitMinutes, set: v => s.downloads.waitMinutes = v, def: 5, unit: '分钟' });
-      tab.link(new Setting(b).setName('还没下到的附件'), '查看', async () => {
-        try {
-          const data = plugin.catalogCache?.data || JSON.parse(await plugin.app.vault.adapter.read(plugin.lbPath('_archive/catalog-data.json')));
-          plugin.openAttachments(data.items.filter(it => it.attachment === '待补'));
-        } catch (e) { plugin.notify('这一块暂时读不到：' + e.message, { kind: 'error' }); }
-      }, '列出还没下到附件的笔记');
-    }, { desc: '手动下载、还没下到的' });
-    if (typeof plugin.openLibraryPage === 'function') {
-      const trash = new Setting(body).setName('回收站').setDesc('删掉的收藏在这里，能恢复');
-      tab.link(trash, '打开', () => plugin.openLibraryPage('trash'), '打开回收站');
+    const check = tab.link(st, '检查', async () => {
+      const done = plugin.busyButton ? plugin.busyButton(check, '正在检查…') : () => {};
+      out.empty();
+      try {
+        await plugin.refreshProblemSummary?.();
+        await paint();
+        const data = await plugin.checkRuntime();
+        if (!alive) return;
+        for (const r of (data && data.checks) || []) {
+          const ok = ['ready', 'configured'].includes(r.state);
+          out.createDiv({ cls: 'lb-check-line' + (ok ? '' : ' is-warn'), text: (ok ? '✓ ' : '⚠ ') + r.label + '：' + r.message + (r.next_step && !ok ? ' — ' + r.next_step : '') });
+        }
+      } catch (e) { if (alive) plugin.failBox?.(out, '检查结果', e, () => check.click?.()); }
+      finally { done(); }
+    }, '只读：重新核一遍问题记录，看这台电脑缺什么，不改任何东西');
+    const fix = tab.link(st, '全部修一遍', async () => {
+      if (plugin.running) { plugin.notify(plugin.busyText(), { kind: 'warn' }); return; }
+      const done = plugin.busyButton ? plugin.busyButton(fix, '正在修 / 最多 15 分钟') : () => {};
+      try {
+        const r = await plugin.runPy(['-m', 'link_brain', 'problems', 'repair'], { label: '当场修复', fallback: '修复没有返回结果', timeoutMs: 17 * 60000 });
+        plugin.notify((r && r.json && r.json.message) || '修复没有返回结果', { ms: 12000 });
+      } catch (e) { plugin.notify('修复没跑完：' + errText(e), { kind: 'error' }); }
+      finally { done(); paint(); }
+    }, '能当场修的都修一遍（风控 / 验证类不碰）');
+    fix?.removeClass?.('lb-link');
+    const probs = row(g, tab, '问题记录', '每一条：发生了什么、系统做了什么、你要不要动手；能一条一条修、复制诊断。', { section: 'problems' });
+    tab.link(probs, '打开', () => plugin.openProblems?.(), '打开问题记录');
+    paint();
+    const vault = plugin.app.vault;
+    if (vault && typeof vault.on === 'function') {
+      const watched = plugin.lbPath('_archive/problems-summary.json');
+      let timer = null;
+      const ref = ['modify', 'create'].map(ev => vault.on(ev, f => { if (!alive || f?.path !== watched) return; clearTimeout(timer); timer = setTimeout(paint, 300); }));
+      tab.stops.push(() => { clearTimeout(timer); for (const r of ref) { try { vault.offref(r); } catch {} } });
     }
-  }
-
-  // ———————————————————— ⑥ 高级 / 修复 ————————————————————
-  function renderMoreCard(c, tab) {
-    const s = plugin.settings;
-    const body = tab.card(c, '高级 / 修复', 's-more');
-    body.head.createSpan({ cls: 'lb-card-hint', text: '不动也能用' });
-    if (typeof plugin.openProblems === 'function') {
-      const pr = new Setting(body).setName('问题与修复').setDesc('哪里没做成、系统已经怎么处理的；能一键修');
-      tab.link(pr, '打开', () => plugin.openProblems(), '打开问题列表');
-    }
-    advFold(body, tab, '这台电脑', 'developer', b => {
+    more(g, tab, 'repair-more', b => {
       const h = home();
-      if (h) { tab.stops.push(h.renderStatus(b, tab, { machineOnly: true })); tab.stops.push(h.renderRun(b, tab)); }
-      tab.renderDeveloperCard(b);
-    }, { desc: '组件装没装齐、一键装好 / 跑完、后端程序' });
-    const again = new Setting(body).setName('重新走一遍首次设置');
-    again.settingEl.addClass('lb-more-row');
-    tab.link(again, '开始', async () => { s.onboarding = { ...(s.onboarding || {}), force: true, guideDone: false, step: 0 }; await tab.save(); tab.display(); try { tab.containerEl.scrollTop = 0; } catch {} }, '回到首次设置');
+      sub(b, '这台电脑', 'machine');
+      if (h) { tab.stops.push(h.renderStatus(b, tab, { machineOnly: true, noProblems: true })); tab.stops.push(h.renderRun(b, tab)); }
+      sub(b, '后台程序', 'developer');
+      tab.renderBackendRows(b);
+      tab.link(row(b, tab, '目录显示不对', '重新整理一遍目录页（几秒到一分钟），不改任何收藏文件。', { section: 'rebuild' }), '重建目录',
+        async () => { await plugin.run(['-m', 'link_brain', 'catalog'], '重建目录'); }, '重新整理一遍目录页');
+      tab.link(row(b, tab, '诊断信息', '插件 / Python 版本、各步上次运行结果、最近 50 条问题；已经去掉密钥、账号和本机路径。', { section: 'diagnostic' }), '复制（已脱敏）',
+        () => plugin.problemsUI?.().copyReport(), '复制脱敏后的诊断信息，发给帮你看的人');
+      tab.link(row(b, tab, '重新走一遍首次设置', '再走一遍「登录 · 同步 · 识别与问答 · 接入其他 AI」；改的还是这一页上的同一份设置。'), '开始', async () => {
+        s.onboarding = { ...(s.onboarding || {}), force: true, guideDone: false, step: 0 };
+        await tab.save(); tab.display(); try { tab.containerEl.scrollTop = 0; } catch {}
+      }, '回到首次设置');
+    }, { holds: ['machine', 'developer', 'run', 'rebuild', 'diagnostic'] });
   }
 
-  // ———————————————————— 一页：状态 + 按要做的事排的六组 ————————————————————
-  // ① 收藏与同步 ② 内容、目录及管理 ③ 识别与问答 ④ 模型与费用 ⑤ 外部 AI 接入 ⑥ 高级 / 修复
+  // ———————————————————— 一页：左边锚点 + 六组 ————————————————————
   function renderPage(c, tab) {
-    renderStatus(c, tab);
-    renderXhs(c, tab);
-    renderContentCard(c, tab);
-    renderAICard(c, tab);
-    renderCostCard(c, tab);
-    renderConnectCard(c, tab);
-    renderMoreCard(c, tab);
+    c.addClass?.('is-v7');
+    const page = c.createDiv({ cls: 'lb-v7' });
+    const nav = page.createEl('nav', { cls: 'lb-anchors', attr: { 'aria-label': '设置分组' } });
+    const main = page.createDiv({ cls: 'lb-v7-main' });
+    const head = main.createDiv({ cls: 'lb-v7-head' });
+    head.createDiv({ cls: 'lb-eyebrow', text: 'PREFERENCES / 按你的习惯' });
+    head.createEl('h1', { text: '让收藏自己归位。' });
+    const lead = head.createEl('p', { cls: 'lb-v7-lead', text: '常用的留在眼前，其余都在「更多」。改动自动保存。' });
+    const saved = lead.createSpan({ cls: 'lb-saved', attr: { role: 'status' } });
+    const groups = {};
+    for (const [id, n, title] of GROUPS) {
+      const a = nav.createEl('a', { cls: 'lb-anchor', attr: { href: '#' + id, 'data-target': id } });
+      a.createEl('b', { text: n }); a.createSpan({ text: title });
+      a.onclick = ev => { ev?.preventDefault?.(); const el = groups[id].section; try { el.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch { try { el.scrollIntoView(); } catch {} } mark(id); };
+      const sec = main.createEl('section', { cls: 'lb-group', attr: { 'data-section': id, id } });
+      const h = sec.createDiv({ cls: 'lb-group-head' });
+      h.createSpan({ cls: 'lb-num', text: n }); h.createEl('h2', { text: title });
+      groups[id] = sec.createDiv({ cls: 'lb-group-body' });
+      groups[id].section = sec;
+    }
+    nav.createDiv({ cls: 'lb-anchor-foot', text: '所有页面共用一份设置。' });
+    const draw = { 'g-account': groupAccount, 'g-sync': groupSync, 'g-catalog': groupCatalog, 'g-advanced': groupAdvanced, 'g-connect': groupConnect, 'g-repair': groupRepair };
+    for (const [id] of GROUPS) safe(tab, groups[id], GROUPS.find(x => x[0] === id)[2], () => draw[id](groups[id], tab));
+    // 锚点跟着滚动高亮当前那一组（滚的是 Obsidian 设置窗口的内容区）
+    const mark = id => { for (const a of nav.querySelectorAll('.lb-anchor')) a.toggleClass?.('is-current', a.getAttribute('data-target') === id); };
+    mark('g-account');
+    const scroller = tab.containerEl;
+    let frame = 0;
+    const onScroll = () => {
+      if (frame) return;
+      frame = (typeof requestAnimationFrame === 'function' ? requestAnimationFrame : f => setTimeout(f, 16))(() => {
+        frame = 0;
+        const top = scroller.getBoundingClientRect ? scroller.getBoundingClientRect().top : 0;
+        let cur = GROUPS[0][0];
+        for (const [id] of GROUPS) { const r = groups[id].section.getBoundingClientRect?.(); if (r && r.top - top <= 120) cur = id; }
+        mark(cur);
+      });
+    };
+    scroller?.addEventListener?.('scroll', onScroll, { passive: true });
+    tab.stops.push(() => scroller?.removeEventListener?.('scroll', onScroll));
+    // 「已保存」只在真写进 data.json 之后出现（saveSettings 成功后广播 link-brain:settings）
+    const ws = plugin.app.workspace;
+    if (ws && typeof ws.on === 'function') {
+      const ref = ws.on('link-brain:settings', () => { const d = new Date(); saved.setText(` · 已保存 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`); });
+      tab.stops.push(() => { try { ws.offref(ref); } catch {} });
+    }
+    return page;
   }
 
   // ———————————————————— 首次设置 ————————————————————
   const STEPS = [['login', '登录小红书'], ['sync', '同步'], ['ai', '识别与问答'], ['connect', '接入其他 AI']];
   async function needsGuide() {
-    const ob = plugin.settings.onboarding || {};
+    const ob = S().onboarding || {};
     if (ob.force) return true;
     if (ob.guideDone) return false;
     try { return !(await plugin.app.vault.adapter.exists(plugin.lbPath('_archive/catalog-data.json'))); } catch { return false; }
   }
   function renderGuide(c, tab) {
-    const s = plugin.settings;
+    const s = S();
     s.onboarding = s.onboarding || {};
     let step = Math.min(Math.max(+s.onboarding.step || 0, 0), STEPS.length);   // 0 = 欢迎页，1..4 = 四步
     const quick = () => s.onboarding.mode === 'quick';
@@ -626,16 +952,17 @@ module.exports = function (obsidian, plugin) {
       await tab.save();
       tab.display();
       try { tab.containerEl.scrollTop = 0; } catch {}
-      // 装好打开的功能 + 同步 + 补处理一口气跑完（进度在状态页和底部状态栏）
+      // 装好打开的功能 + 同步 + 补处理一口气跑完（进度在设置页⑥和底部状态栏）
       if (run && h) h.runAll({ quiet: false }).catch(e => console.error('[lb] 首次跑没跑完', e));
     };
-    // 「同步」一步里的时间编辑器和设置页是同一个（syncTimeEditor）：改了没点「保存定时」就离开这一步 → 替她存上，存不上就留在这一步说原因
-    let syncEd = null;
+    // 「同步」一步里的时间编辑器和设置页是同一个（syncTimeEditor）：在这一步动过时间、还没生效就离开 → 替她按这个时间打开，存不上就留在这一步说原因
+    let syncEd = null, edits0 = null;
     const leaveSync = async () => {
       const ed = syncEd;
       if (!ed) return true;
-      if (ed.isDirty && ed.isDirty()) {
-        const res = await ed.saveNow();
+      const touched = ed.isDirty() || (edits0 != null && JSON.stringify(ed.rows) !== edits0);
+      if (touched) {
+        const res = await ed.saveNow({ force: ed.enabled() !== true });
         if (!res || !res.ok) { plugin.notify('自动同步时间没保存上，先看一下这一步：' + ((res && res.error) || '原因不明'), { kind: 'error' }); return false; }
       }
       try { ed.destroy(); } catch {}
@@ -687,47 +1014,24 @@ module.exports = function (obsidian, plugin) {
         safe(tab, body, '小红书账号', () => plugin.renderAccounts(body));
       } else if (id === 'sync') {
         title('同步', '不改就用推荐值');
-        syncEd = renderXhsInto(body, tab);
+        syncEd = syncRows(body, tab);
+        edits0 = null;
+        if (syncEd && syncEd.ready) syncEd.ready.then(() => { if (syncEd) edits0 = JSON.stringify(syncEd.rows); });
       } else if (id === 'ai') {
-        title('识别与问答', '本机两项免费，其余需要 key');
-        aiRows(body, tab, { guide: true });
+        title('识别与问答', '本机的免费，其余要 key');
+        featureRows(body, tab, { guide: true });
+        keyBox(body, tab, { onDone: () => paint() });
       } else {
         title('接入其他 AI（MCP）', '只读 · 可跳过');
         body.createEl('p', { cls: 'lb-guide-hint', text: '通过 MCP 把收藏库接给这些应用：在里面就能搜索、阅读你的收藏。只读，不会修改或删除，随时可以断开。' });
-        group(body, '接入电脑端 · 不用域名');
         appRows(body, tab, { guide: true });
-        group(body, '接入网页端 · 要你自己的域名');
-        webRow(body, tab, { guide: true });
+        body.createEl('p', { cls: 'setting-item-description', text: 'ChatGPT、claude.ai 网页版要你自己的网址：走完后在设置「CLI 与外接 MCP → 网页端」里打开。' });
       }
       nav();
     };
     paint();
   }
-  // ———————————————————— 唯一的「自动同步时间」编辑器 ————————————————————
-  // 设置页「收藏与同步」、首次设置「同步」一步用的都是它（里面是 schedule-ui.js 那一个组件；值只在后端计划任务里，两边读写同一份）；
-  // 首页齿轮 / 同步记录「改定时」/ 账号弹窗「定时…」走 plugin.openSyncTime() → 打开设置页落到 data-section="sync-time"。
-  function syncTimeEditor(body, tab) {
-    const wrap = body.createDiv({ cls: 'lb-sync-time', attr: { 'data-section': SYNC_TIME } });
-    const row = new Setting(wrap).setName('自动同步时间').setDesc('电脑开着就会同步，不用开 Obsidian');
-    row.settingEl.addClass('lb-sched-row');
-    let ed = null;
-    safe(tab, wrap, '自动同步', () => {
-      ed = plugin.scheduleUI().render(wrap.createDiv({ cls: 'lb-sched-host' }), { primary: false });
-      wrap.lbReady = ed.ready;
-      tab.stops.push(() => ed.destroy());
-    });
-    return ed;
-  }
-  // 「同步」那几行：设置页①和首次设置共用（不再套一层卡片）；返回时间编辑器
-  function renderXhsInto(body, tab) {
-    const so = plugin.settings.sync;
-    const ed = syncTimeEditor(body, tab);
-    tab.fieldDailyLimit(body);
-    tab.fieldCommentFloors(body);
-    tab.toggleRow(body, '保存视频', '关掉只存封面和链接，省硬盘', () => so.downloadVideo, v => { so.downloadVideo = v; });
-    return ed;
-  }
 
-  return { renderPage, renderGuide, needsGuide, renderStatus, renderXhs, renderContentCard, renderAICard, renderCostCard, renderConnectCard, renderMoreCard,
-    syncTimeEditor, focusSection, addKey, keyModal, STEPS, PROV, SYNC_TIME };
+  return { renderPage, renderGuide, needsGuide, syncTimeEditor, syncRows, featureRows, focusSection, addKey, replaceKey, pasteKey, keyTrouble, slotsFor, providerOf,
+    STEPS, PROV, SYNC_TIME, GROUPS, _values: { asrValue, visionValue, askValue, summaryValue, embedValue } };
 };

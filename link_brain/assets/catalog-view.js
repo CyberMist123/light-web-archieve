@@ -4009,11 +4009,25 @@ function onFindKey(e) {
   search.focus(); try { search.select?.(); } catch {}
 }
 LB.listen('find-key', keyTarget, 'keydown', onFindKey, { capture: true });
+// 1027 设置页③「目录的样子 → 去目录编排」：插件写 pendingCatalogArrange（时间戳）+ 发 link-brain:catalog-arrange，目录页读完即删、直接进编排
+function takePendingArrange() {
+  const p = provider();
+  if (!p || !p.pendingCatalogArrange) return false;
+  const at = p.pendingCatalogArrange;
+  p.pendingCatalogArrange = 0;
+  if (Date.now() - at > 60000) return false;
+  if (!SIDE_ON) { LB.say('这里没有编排：在电脑上打开目录页点右上角「编排」', { kind: 'warn' }); return false; }
+  setArranging(true);
+  return true;
+}
+takePendingArrange();
+if (app.workspace?.on && dv.component?.registerEvent) lbEvent(app.workspace, app.workspace.on('link-brain:catalog-arrange', () => takePendingArrange()));
 // 登记这一版 DOM：Dataview 下次重跑时版本没变就原样挂回；变了走 refresh（只换数据、卡片复用；失败不推进版本）
 LB.keep(wrap, { park: true, onAdopt: () => { LB.restoreFocus(search, 'search'); if (scrollTop > 0) LB.restoreScroll(scrollTop); }, version: await LB.data.version(), update: () => { syncPerf(); return refresh({ strict: true }); }, onReuse: () => {
   syncPerf();
   if (refreshTags() && committed) dataRev++;
   takePendingQuery();
+  takePendingArrange();
   const c = savedCols(); if (c !== cols && (c || LB.provider()?.settings)) { cols = c; applyCols(); }
   setTitle();
   render();

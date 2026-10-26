@@ -1,4 +1,5 @@
-// 1016 设置页四个页签（settings-pages.js）的纯逻辑：AI 页按「哪家管哪些功能」排、「需要你留意」的措辞、四步指引什么时候出。
+// settings-pages.js（1027 以后只剩服务商那几块积木）+ 首次设置什么时候出（settings-v6.js needsGuide）的纯逻辑。
+// 1027 删掉的：1016 四页签（概览 / 同步 / 更多 / 四步指引 / 「需要你留意」attentionText）——六组设置页里各有唯一的一处。
 'use strict';
 const assert = require('assert/strict');
 const path = require('path');
@@ -6,39 +7,40 @@ const path = require('path');
 class Setting { constructor() {} }
 const OBS = { Setting };
 const plugin = { settings: {}, app: { vault: { adapter: { exists: async () => true } } }, lbPath: p => p };
+plugin.settingsPages = () => P;
 const P = require(path.resolve('obsidian-plugins/link-brain-actions/settings-pages.js'))(OBS, plugin);
+const V = require(path.resolve('obsidian-plugins/link-brain-actions/settings-v6.js'))(OBS, plugin);
 
 (async () => {
   // —— 1023（ARCH-AUDIT 第 2 批）：哪家管哪些功能由后端 ai_routes 给（每一格带 provider），JS 不再自己按接口地址猜 ——
   assert.equal(P.providerOf, undefined, 'providerOf 删了：读后端给的 provider');
-  assert.equal(P.providerRows, undefined);
+  for (const gone of ['renderOverview', 'renderSync', 'renderConnect', 'renderMore', 'renderGuide', 'needsGuide', 'attentionText', 'renderAI']) assert.equal(P[gone], undefined, gone + ' 删了（死代码）');
+  assert.ok(/^https:\/\//.test(P.LINKS.deepseek.recharge) && /^https:\/\//.test(P.LINKS.google.key), '拿 key / 充值兜底网址');
+  // —— 「主用 → 备用」一句：在干活的那一格标出来，没开如实说 ——
+  const data = { features: [
+    { id: 'vision', name: '识图', on: true, state: 'backup', state_text: '主用的暂时不行，通义千问 qwen3.8-flash 顶着', chain: [{ label: 'Gemini' }, { label: '通义千问 qwen3.8-flash', model: 'qwen3.8-flash' }] },
+    { id: 'ask', name: '问收藏', on: false, state: 'off', chain: [{ label: 'DeepSeek' }] },
+    { id: 'embed', name: '按意思搜', on: true, state: 'ok', chain: [] }] };
+  assert.equal(P.routeText(data, 'vision'), 'Gemini → 【通义千问 qwen3.8-flash】 · 主用的暂时不行，通义千问 qwen3.8-flash 顶着');
+  assert.equal(P.routeText(data, 'ask'), '（关着）DeepSeek');
+  assert.equal(P.routeText(data, 'embed'), '还没配');
+  assert.equal(P.routeText(data, 'nope'), '');
 
-  // —— 需要你留意：不吓人、不 bossy；说发生了什么、有没有影响 ——
-  const t = P.attentionText({ code: 'NEEDS_HUMAN.AUTH_FAILED', step: 'ai.vision',
-    reason: '识图接口（通义千问 qwen3.8-flash，密钥文件 千问.csv）；接口拒绝了 key（HTTP 403）' });
-  assert.equal(t.title, '阿里云百炼的 key 用不了');
-  assert.match(t.desc, /可能欠费、过期或没开通服务；影响识图/);
-  assert.equal(t.provider, 'aliyun');
-  for (const w of ['异常', '风控', '要你处理', '必须']) assert.ok(!(t.title + t.desc).includes(w), '措辞里不该有「' + w + '」');
-  // 1018：原因里「已换用 通义千问 …」是顶上的备用，坏的是前面那家（Gemini）——别冤枉百炼
-  const gm = P.attentionText({ code: 'NEEDS_HUMAN.AUTH_FAILED', step: 'ai.vision',
-    reason: '识图接口（Google gemini-3.5-flash，没有 key）；gemini 的 key 今天都用不了了；已换用 通义千问 qwen3.8-max（补上 7 次）；原因：…' });
-  assert.equal(gm.title, 'Gemini的 key 用不了');
-  assert.equal(gm.provider, 'google');
-  assert.match(gm.desc, /识图没停：已自动改用 通义千问 qwen3\.8-max 顶上/);
-  const r = P.attentionText({ code: 'PERMANENT.NOTE_RESTRICTED', item_id: 'xhs-1', title: '一篇笔记' });
-  assert.match(r.title, /要在网页上验证一下才能看/); assert.equal(r.restricted, 'xhs-1');
-
-  // —— 四步指引：库里没收藏才自动出；走完（guideDone）不再出；「重走一遍」（force）一定出 ——
+  // —— 首次设置：库里没收藏才自动出；走完（guideDone）不再出；「重新走一遍」（force）一定出 ——
   plugin.settings = { onboarding: { done: true } };
   plugin.app.vault.adapter.exists = async () => false;
-  assert.equal(await P.needsGuide(), true, '新库：启动时自动跑过轻量版（done）也照样出指引');
+  assert.equal(await V.needsGuide(), true, '新库：启动时自动跑过轻量版（done）也照样出');
   plugin.app.vault.adapter.exists = async () => true;
-  assert.equal(await P.needsGuide(), false, '已经有收藏：不出');
+  assert.equal(await V.needsGuide(), false, '已经有收藏：不出');
   plugin.settings = { onboarding: { guideDone: true } };
   plugin.app.vault.adapter.exists = async () => false;
-  assert.equal(await P.needsGuide(), false, '走完了：不再出');
+  assert.equal(await V.needsGuide(), false, '走完了：不再出');
   plugin.settings = { onboarding: { guideDone: true, force: true } };
-  assert.equal(await P.needsGuide(), true, '重走一遍');
-  console.log('ok test_settings_pages_1016');
+  assert.equal(await V.needsGuide(), true, '重走一遍');
+  // —— key 出问题的那一句：点名哪家、影响哪项；接口地址认哪家和后端 pricing.provider_of 同一规则 ——
+  const kt = V.keyTrouble({ keys: { aliyun: { code: 'NEEDS_HUMAN.AUTH_FAILED', caps: ['visionAI.refine', 'summaryAI'] }, deepseek: { code: 'NEEDS_HUMAN.QUOTA_EXCEEDED', caps: [] } } });
+  assert.deepEqual(kt.map(k => k.text), ['通义千问 key 用不了（精细识图、概要）', 'DeepSeek 额度用完或余额不足']);
+  assert.deepEqual(['https://api.deepseek.com/v1', 'https://ws-x.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', 'https://dashscope.aliyuncs.com/x', 'https://generativelanguage.googleapis.com/v1beta/openai', 'https://api.openai.com/v1', 'http://127.0.0.1:8080/v1', '']
+    .map(V.providerOf), ['deepseek', 'aliyun', 'aliyun', 'google', 'openai', '127.0.0.1:8080', '']);
+  console.log('ok test_settings_pages_1016 (1027: settings-pages keeps LINKS / routeText / keyring; dead pages gone; needsGuide; keyTrouble; providerOf)');
 })().catch(e => { console.error(e); process.exit(1); });
