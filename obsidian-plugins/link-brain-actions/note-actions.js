@@ -5,7 +5,7 @@
 //   1011 评论区顶上「这篇在小红书网页版要验证才能看」的「打开验证」→ plugin.openNoteVerify(itemId)（开读取服务的验证窗口到这篇）
 //   N9  正文标签（原帖话题）点了 → plugin.pendingCatalogQuery='#标签' → 同一窗格开目录（Ctrl 开新标签）→ 'link-brain:catalog-query'
 //   N10 阅读视图选中正文 / 评论文字右键「划重点 / 取消重点」（只走 <mark>，先乐观包上、没写上的退回）
-//   N11 ⋯ 菜单 / 命令面板「问这篇」→ plugin.askAboutNote(file)（问收藏那边由 L2 接）
+//   N11「问这篇」1026 她：笔记右键 / 命令面板都不要这个入口了，已拿掉
 //   N17 没开 Dataview（或它的 JS 查询）时打开归档笔记也挂提示条（复用目录页那条）
 // 图片右键（F2）归 image-actions.js，这里遇到图片上的右键直接让开。
 'use strict';
@@ -64,19 +64,12 @@ class NoteActions {
     }
     const ws = this.app && this.app.workspace;
     if (ws && typeof ws.on === 'function' && typeof this.plugin.registerEvent === 'function') {
-      this.plugin.registerEvent(ws.on('file-menu', (menu, file) => this.onFileMenu(menu, file)));
       this.plugin.registerEvent(ws.on('file-open', (file) => { this.onFileOpen(file); if (this.plugin.commentFetch) this.paintFetch(); }));
       this.plugin.registerEvent(ws.on('css-change', () => this.keepStyleLast()));
       this.plugin.registerEvent(ws.on('link-brain:comment-fetch', () => this.paintFetch()));   // 1010：抓全部评论的进度
     }
     this.plugin.register?.(() => this.stopFetchTick());
     if (typeof this.plugin.addCommand === 'function') {
-      this.plugin.addCommand({ id: 'note-ask', name: '问这篇：在问收藏里只问这一篇', checkCallback: (checking) => {
-        const file = ws && typeof ws.getActiveFile === 'function' ? ws.getActiveFile() : null;
-        if (!this.itemIdOf(file)) return false;
-        if (!checking) this.ask(file);
-        return true;
-      } });
       this.plugin.addCommand({ id: 'note-highlight-selection', name: '划重点 / 取消重点（选中的文字）', checkCallback: (checking) => {
         const ctx = this.selectionContext();
         if (!ctx || (!ctx.phrases.length && !ctx.mark)) return false;
@@ -232,17 +225,6 @@ class NoteActions {
     try { await this.plugin.openLibraryPage('catalog', leaf || null); }
     catch (err) { console.error('[lb] 目录没打开', err); this.notify('目录没打开：' + ((err && err.message) || err)); return; }
     ws.trigger?.('link-brain:catalog-query');
-  }
-
-  // ── N11 ──
-  onFileMenu(menu, file) {
-    if (!menu || !this.itemIdOf(file)) return;
-    menu.addItem(i => i.setTitle('问这篇').setIcon('message-circle').onClick(() => this.ask(file)));
-  }
-  async ask(file) {
-    if (typeof this.plugin.askAboutNote !== 'function') { this.notify('「问这篇」要更新 Link Brain Actions 插件'); return false; }
-    try { return await this.plugin.askAboutNote(file); }
-    catch (err) { console.error('[lb] 问这篇没打开', err); this.notify('问收藏没打开：' + ((err && err.message) || err)); return false; }
   }
 
   // ── N17 ──

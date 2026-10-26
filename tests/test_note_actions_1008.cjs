@@ -112,22 +112,11 @@ const click = (D, target, extra = {}) => { const e = { type: 'click', target, pr
     click(S.D, S.tag); await tick(0);
     assert.equal(S.plugin.pendingCatalogQuery, '', '没有 lb-actions-on 不处理');
   }
-  // ── N11 ──
+  // ── N11 ── 1026 她：「问这篇」入口拿掉（笔记右键 / 命令面板都没有）
   {
     const S = setup(); S.inst.attach();
-    const items = []; const menu = { addItem(cb) { const it = { setTitle(t) { this.title = t; return this; }, setIcon(i) { this.icon = i; return this; }, onClick(f) { this.run = f; return this; } }; cb(it); items.push(it); return menu; } };
-    S.inst.onFileMenu(menu, S.other);
-    assert.equal(items.length, 0, '不是归档笔记不加');
-    S.inst.onFileMenu(menu, S.file);
-    assert.deepEqual([items[0].title, items[0].icon], ['问这篇', 'message-circle']);
-    await items[0].run();
-    assert.deepEqual(S.calls.at(-1), ['ask', S.file], '调 plugin.askAboutNote(file)');
-    S.ws.activeFile = S.other;
-    assert.equal(S.commands['note-ask'].checkCallback(true), false, '当前不是归档笔记：命令不可用');
-    S.ws.activeFile = S.file;
-    assert.equal(S.commands['note-ask'].checkCallback(true), true);
-    S.commands['note-ask'].checkCallback(false); await tick(0);
-    assert.deepEqual(S.calls.at(-1), ['ask', S.file]);
+    assert.equal(S.commands['note-ask'], undefined, '没有「问这篇」命令');
+    assert.equal(typeof S.inst.onFileMenu, 'undefined', '笔记右键不再加「问这篇」');
     assert.ok(S.commands['note-highlight-selection'], '划重点命令注册了');
   }
   // ── N17 ──
