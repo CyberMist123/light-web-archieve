@@ -1324,6 +1324,12 @@ class LinkBrainActions extends Plugin {
   }
   // 设置页顶部（状态 + 功能 + 一键装好 / 跑完 + 首次零配置）整块在 home-ui.js
   settingsV6() { return this._settingsV6 || (this._settingsV6 = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'settings-v6.js'))(obsidian, this)); }
+  // 1027 样式集：变量在 styles.css 顶部的 lb-tokens 块；她的「Aa 样式」（settings.catalogLayout.theme）换算在 lb-theme.js（和页面 LB.applyTheme 同一段代码）。
+  // applyTheme(theme?, el?)：theme 不传 = 读设置，null = 回默认；el 不传 = document.body（全局：设置页、各页面都跟着），传别的元素只改那一块（自动加 .lb-scope）。
+  lbTheme() { return this._lbTheme || (this._lbTheme = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'lb-theme.js'))); }
+  applyTheme(theme = this.settings?.catalogLayout?.theme, el = (typeof document !== 'undefined' ? document.body : null)) {
+    try { return this.lbTheme().lbApplyTheme(el, theme ?? null); } catch (e) { console.error('[lb] 样式没套上', e); return null; }
+  }
   providerIcons() { return this._providerIcons || (this._providerIcons = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'provider-icons.js'))); }
   settingsPages() { return this._settingsPages || (this._settingsPages = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'settings-pages.js'))(obsidian, this)); }
   usageUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'usage-ui.js'))(obsidian, this); }

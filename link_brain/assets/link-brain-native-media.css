@@ -27,7 +27,7 @@
   scroll-snap-type: x mandatory;
   scroll-behavior: smooth;
   scrollbar-width: none;
-  border-radius: var(--lb-radius);
+  border-radius: var(--lbn-radius);
   background: var(--background-secondary);
 }
 
@@ -64,7 +64,7 @@
   max-height: min(78vh, 860px);
   object-fit: contain;
   object-position: center;
-  border-radius: var(--lb-radius);
+  border-radius: var(--lbn-radius);
   margin: 0;
 }
 
