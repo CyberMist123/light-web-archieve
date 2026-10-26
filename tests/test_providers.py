@@ -366,3 +366,15 @@ def test_no_private_default_paths_in_code():
             text = f.read_text(encoding="utf-8", errors="replace")
             hits += [f"{f.name}: {p}" for p in patterns if re.search(p, text, re.I)]
     assert hits == []
+
+
+def test_inherit_summary_with_own_other_endpoint_keeps_its_endpoint():
+    """1026：summaryAI 写着「继承」却自带另一家接口（Gemini）时，不能把 gemini 模型名叠到文本 AI（DeepSeek）的接口上。"""
+    from link_brain import providers
+    s = {"textAI": {"mode": "http", "model": "deepseek-flash", "endpoint": "https://api.deepseek.com/chat/completions"},
+         "summaryAI": {"mode": "inherit", "model": "gemini-x", "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"}}
+    cfg = providers.raw_config("summaryAI", s)
+    assert cfg["mode"] == "http" and cfg["model"] == "gemini-x" and "googleapis" in cfg["endpoint"]
+    s["summaryAI"] = {"mode": "inherit", "model": "deepseek-pro", "endpoint": ""}
+    cfg = providers.raw_config("summaryAI", s)
+    assert cfg["endpoint"].startswith("https://api.deepseek.com") and cfg["model"] == "deepseek-pro" and cfg["inherited"]

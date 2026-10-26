@@ -62,6 +62,12 @@ def raw_config(cap: str, settings: dict[str, Any] | None = None) -> dict[str, An
         own = {**_defaults("summaryAI"), **(s.get("summaryAI") or {})}
         if (own.get("mode") or "inherit") == "inherit":
             text = {**_defaults("textAI"), **(s.get("textAI") or {})}
+            from .ai_config import endpoint_host
+            own_host = endpoint_host(str(own.get("endpoint") or ""))
+            if own_host and own_host != endpoint_host(str(text.get("endpoint") or "")):
+                # 1026：「继承」却自带另一家的接口（她的：Gemini 接口 + key 池）——整条按自己的接口走。
+                # 以前只把 model 叠到文本 AI 的接口上，gemini-3.5-flash 发给 DeepSeek → HTTP 400（概要 / 细分标签 / 归类都撞）
+                return {**own, "mode": "http"}
             cfg = {k: v for k, v in text.items()}
             for key in ("model", "maxTokens", "timeoutSec"):
                 if own.get(key) not in (None, ""):
