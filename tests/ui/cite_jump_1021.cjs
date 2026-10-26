@@ -111,7 +111,8 @@ const HTML = `<style>
       files: { '_archive/chat-session.json': JSON.stringify({ turns }), '_archive/chat-archive.json': '{"entries":[]}', '_archive/chat-prefs.json': '{"follow":"sources"}' } });
     await S.settle(80);
     const cite = chat.locator('button.lbchat-cite').first();
-    assert.equal(await cite.textContent(), '[来源1]');
+    assert.equal(await cite.textContent(), '1', '1026 起胶囊只显示来源号上标');
+    assert.equal(await cite.getAttribute('aria-label'), '来源1 第 2 段');
     await cite.hover(); await S.settle(500);
     const pop = await chat.evaluate(() => { const b = document.querySelector('.lbchat-citepop'); if (!b) return null; const r = b.getBoundingClientRect(); return { t: b.querySelector('.t').textContent, w: b.querySelector('.w').textContent, q: b.querySelector('.q').textContent, inView: r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight }; });
     assert.ok(pop && pop.t === '黑椒牛肉意面' && pop.w.includes('段2') && pop.w.includes('图片文字') && pop.w.includes('图2') && pop.q.includes('逆纹切条') && pop.inView, JSON.stringify(pop));

@@ -1519,9 +1519,12 @@ def split_ocr_by_image(item, snippets):
         assets = list(x.get("assets") or [])
         for k, label in enumerate(imgs):
             body, fname = per_image[label]
-            asset = assets[k] if k < len(assets) else f"raw/v0001/assets/{fname}"
+            # 1026：先按 agent.md 这张图的文件名认（不靠 assets 和图号同序），认不出再按位置
+            asset = next((a for a in assets if str(a).replace("\\", "/").split("/")[-1] == fname), None) \
+                or (assets[k] if k < len(assets) else f"raw/v0001/assets/{fname}")
             out.append({**x, "images": [label], "assets": [asset], "text": " ".join(body.split())[:each]})
-    return out
+    # 1026：拆出来的几张图原先都抄了同一个段号，模型写 [来源N 段k] 时前端永远落到第一张（封面）——拆完按顺序重编
+    return [{**x, "seg": i} if "seg" in x else x for i, x in enumerate(out, 1)]
 
 
 def _excerpt_tag(x, seg=None):

@@ -130,3 +130,9 @@ def test_split_ocr_by_image_labels_each_picture():
     assert out[2]["assets"] == ["raw/v0001/assets/image-002.webp"]
     assert "剧谈社" in out[2]["text"] and "纵横四海" in out[2]["text"] and "评论" not in out[2]["text"]
     assert ask.split_ocr_by_image({"agent_md": "nope/agent.md"}, snippets) == snippets   # 读不到 = 原样
+    # 1026：拆开的每张图各有自己的段号（原先都抄同一个，点 [来源N 段k] 永远跳封面）
+    seg_in = [{**snippets[0], "seg": 1}, {**snippets[1], "seg": 2}, {"field": "comments", "text": "评论", "seg": 3}]
+    assert [x["seg"] for x in ask.split_ocr_by_image(item, seg_in)] == [1, 2, 3, 4]
+    # assets 顺序和图号不一致时，按 agent.md 里这张图的文件名对上
+    flipped = [{**snippets[1], "assets": list(reversed(snippets[1]["assets"]))}]
+    assert [x["assets"] for x in ask.split_ocr_by_image(item, flipped)] == [["raw/v0001/assets/image-001.webp"], ["raw/v0001/assets/image-002.webp"]]

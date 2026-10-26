@@ -142,13 +142,40 @@ async function archiveChange(mutate) {
 // A12：「我保存的」来源在原地展开，不切整页；A11：没插件时走 openLinkText
 // 1021 她：点引用要跳到正文那一处——seg（模型写的 [来源N 段k]）直接指定证据段；没段号就按点击那句的上下文挑最像的一段。
 // 挑好的排第一，插件 openArchiveSource 只跳第一段（不出工具条、只滚原帖自己的滚动区）
+// 1026 她：点引用时灵时不灵。规则（NotebookLM 式：悬停看证据，点了去原帖那一处；对不上就只开原帖、说清楚，不乱跳）：
+// · 写了段号 [来源N 段k]：只认段 k。段号不存在 → 不定位；同号多段（拆图前的旧回答）用上下文消歧，消不了就不定位——
+//   指定了图3 绝不改跳图1。
+// · 没段号：只有一段证据就用它；多段时上下文和某一段明显最像（≥ CITE_MIN_SCORE 且不并列）才用，否则不定位（不再默认封面）。
+// 悬停卡片和点击共用这一份结果。返回 {parts, why}：parts 空时 why 是不定位的原因。
+const CITE_MIN_SCORE = 2;
+function rankExcerpts(src, segs, context) {
+  const all = (src?.excerpts || []).filter(p => p && p.text);
+  const want = [...new Set([].concat(segs || []).map(Number).filter(Boolean))];
+  const normalized = String(context || '').replace(/\s/g, '').toLowerCase();
+  const score = p => { const text = String(p.text).replace(/\s/g, '').toLowerCase(); let n = 0; for (let i = 0; i < normalized.length - 3; i++) if (text.includes(normalized.slice(i, i + 4))) n++; return n; };
+  const clear = list => { const s = list.map(p => ({ p, s: score(p) })).sort((a, b) => b.s - a.s); return s[0] && s[0].s >= CITE_MIN_SCORE && (!s[1] || s[0].s > s[1].s) ? s[0].p : null; };
+  if (want.length) {
+    const parts = []; let why = 'seg-missing';
+    for (const k of want) {
+      const same = all.filter(p => Number(p.seg) === k);
+      if (!same.length) continue;
+      const one = same.length === 1 ? same[0] : clear(same);
+      if (one) parts.push(one); else why = 'seg-ambiguous';
+    }
+    return { parts, why: parts.length ? '' : why };
+  }
+  if (all.length === 1) return { parts: all, why: '' };
+  const one = clear(all);
+  return { parts: one ? [one] : [], why: one ? '' : all.length ? 'no-match' : 'no-evidence' };
+}
+// 右栏阅读格（复用的那一个）；没有 = null
+function readerLeaf() { try { return provider()?.archiveLeaves?.(root)?.reader || null; } catch { return null; } }
+// 1026：连点 A→B→A 以最后一次为准——每次点击一个递增请求号，打开串行（同一个右栏），轮到时已被后一次取代就不打开；
+// 等待 / 定位 / 提示 / 日志都带着请求号，过期的一律不碰界面。
+let openGen = 0, openChain = Promise.resolve();
 function openNote(source, compare = false, context = '', fromCite = null, seg = null) {
   const src = typeof source === 'string' ? { note: source } : source;
   if (src?.source_kind === 'saved') { openSavedInline(src, fromCite); return; }
-  const all = (src?.excerpts || []).filter(p => p && p.text);
-  const picked = seg ? all.find(p => Number(p.seg) === Number(seg)) : null;
-  let chunks = picked ? [picked, ...all.filter(p => p !== picked)] : all.slice();
-  if (!picked && context) { const normalized = context.replace(/\s/g, '').toLowerCase(); const score = p => { const text = String(p.text).replace(/\s/g, '').toLowerCase(); let n = 0; for (let i = 0; i < normalized.length - 3; i++) if (text.includes(normalized.slice(i, i + 4))) n++; return n; }; chunks.sort((a, b) => score(b) - score(a)); }
   if (!src?.note) return;
   userAt = 0; dragging = false;   // 点来源这一下不是在滚（之前滚到一半的不算）
   const p = provider();
@@ -156,11 +183,24 @@ function openNote(source, compare = false, context = '', fromCite = null, seg = 
     try { return Promise.resolve(app.workspace.openLinkText(lbPath(src.note), '', false)).catch(e => notice('打不开来源：' + errText(e))); }
     catch (e) { notice('打不开来源：' + errText(e)); return; }
   }
+  // 来源标题 / 卡片 / 导读只打开帖子；回答里的具体引用才定位
+  const ranked = fromCite ? rankExcerpts(src, seg, context) : null;
+  const gen = ++openGen;
+  let before = null;
   // 1022 她：真机点引用没跳——插件没重载还是旧 main.js（关开插件也不保险）。改成页面自己定位：页面脚本每次重开都是新的，
   // 插件只负责把笔记开到右栏（证据传空，免得新插件也跳一次）。定位结果写 _archive/locate-last.json（排障用，fail-open）
-  return Promise.resolve().then(() => p.openArchiveSource(src.note, root, compare, [])).then(() => { paintSourceBar(); settle(); watchReaderVideos(src.note); })
-    .then(() => chunks.length ? locateInReader(src, chunks[0]) : null)
-    .catch(e => notice('打不开来源：' + errText(e)));
+  const run = openChain.then(async () => {
+    if (gen !== openGen) return false;
+    before = readerSnapshot(readerLeaf());   // 打开前右栏里看得见的旧内容：之后出现的才算这次画的
+    await p.openArchiveSource(src.note, root, compare, []);
+    return true;
+  });
+  openChain = run.catch(() => {});
+  return run.then(ok => {
+    if (!ok || gen !== openGen) return null;
+    paintSourceBar(); settle(); watchReaderVideos(src.note);
+    return ranked ? locateInReader(src, ranked, gen, before) : null;
+  }).catch(e => { if (gen === openGen) notice('打不开来源：' + errText(e)); });
 }
 // ── 1022 点引用 → 右栏原帖那一处（页面侧实现；和插件 locateOnePassage 同一套规则）──
 // 先按锚点直达（render 1021 起：<p data-p=段序号> / <article data-cid=楼号>；证据段带 paras / comment_labels / assets），
@@ -177,10 +217,19 @@ function passageTargetIn(box, part) {
   if (part.field === 'ocr' || part.field === 'comment_ocr') {
     const assets = (part.assets || []).map(x => String(x).replace(/\\/g, '/')); const names = assets.map(a => a.split('/').pop());
     // 1022 她：视频帖封面的识别文字——封面图那张 slide 在视频帖里是 display:none（CSS 563），要落到 <video poster=封面> 上；同名多处时挑看得见的
-    const same = u => { const src = decodeURIComponent(u || '').replace(/\\/g, '/').split('?')[0]; const name = src.split('/').pop(); return assets.some(a => src.endsWith('/' + a) || src === a) || names.some(n => n && name === n); };
-    const all = shown(box.querySelectorAll('.lb-slide img, .lb-slide video[poster], img.lb-comment-image')).filter(m => same(m.getAttribute('src')) || same(m.getAttribute('poster')));
+    const norm = u => { let x = String(u || ''); try { x = decodeURIComponent(x); } catch {} return x.replace(/\\/g, '/').split('?')[0]; };
+    const urls = m => [m.getAttribute('src'), m.getAttribute('poster')].filter(Boolean).map(norm);
+    const media = shown(box.querySelectorAll('.lb-slide img, .lb-slide video[poster], img.lb-comment-image'));
+    // 1026：先认完整相对路径（raw/v0001/assets/x.webp）；只有这篇里同名的只有一个文件时才退回按文件名认，同名多个就不猜
+    let all = media.filter(m => urls(m).some(u => assets.some(a => u === a || u.endsWith('/' + a)))), how = 'asset';
+    if (!all.length) {
+      const hit = m => urls(m).find(u => names.includes(u.split('/').pop()));
+      const byName = media.filter(hit);
+      if (new Set(byName.map(hit)).size > 1) return { el: null, how: 'asset-ambiguous' };
+      all = byName; how = 'asset-name';
+    }
     const visible = all.find(m => m.getClientRects().length > 0);
-    return { el: visible || all[0] || null, how: visible ? 'asset' : all[0] ? 'asset-hidden' : 'none' };
+    return { el: visible || all[0] || null, how: visible ? how : all[0] ? how + '-hidden' : 'none' };
   }
   const anchors = [];
   if (part.field === 'comments') { for (const l of part.comment_labels || []) for (const el of shown(box.querySelectorAll(`article.lb-comment[data-cid="${String(l).replace(/[^\w.]/g, '')}"] .lb-comment-text`))) anchors.push(el); }
@@ -209,27 +258,76 @@ function markPassageIn(el, quote) {
   setTimeout(() => { for (const mk of marks) { const p = mk.parentNode; if (!p) continue; while (mk.firstChild) p.insertBefore(mk.firstChild, mk); p.removeChild(mk); p.normalize?.(); } }, 6000);
   return marks[0];
 }
-async function locateInReader(src, part) {
-  const log = { at: new Date().toISOString(), note: src?.note, field: part?.field, seg: part?.seg, labels: part?.comment_labels || part?.paras || part?.assets || null, text: String(part?.text || '').slice(0, 60) };
+// 1026：右栏阅读格是复用的，换帖时上一篇的 .lb-note 还在——原先等「有 .lb-note」立刻成立（日志 waitMs 0），在上一篇里找、报没找到，
+// 再点一次才好。现在「这篇就绪」= 右栏打开的文件就是这篇 + 看得见的 .lb-note / .lb-body 是这次打开后才画出来的（不在打开前的快照里；
+// 同一篇再点一次不会重画，快照里就是它本身也算）+ 有 data-lb-item 时必须是这条来源（旧渲染没这个属性就靠前两条）。
+function readerNotes(box) { return [...box.querySelectorAll('.lb-note, .lb-body')].filter(el => !passageHidden(el, box)); }
+function readerSnapshot(leaf) {
+  const box = leaf?.view?.containerEl;
+  return { file: leaf?.view?.file?.path || '', els: new Set(box ? readerNotes(box) : []) };
+}
+function readerShowing(box, leaf, src, before) {
+  const want = lbPath(src.note), file = leaf?.view?.file?.path;
+  if (file && file !== want) return false;
+  const notes = readerNotes(box);
+  if (!notes.length) return false;
+  const fresh = !before || before.file === want ? notes : notes.filter(el => !before.els.has(el));
+  if (!fresh.length) return false;
+  const ids = fresh.map(el => el.getAttribute?.('data-lb-item')).filter(Boolean);
+  return !src?.id || !ids.length || ids.includes(String(src.id));
+}
+const LOCATE_WHY = {
+  'no-reader': '右栏没打开原帖，跳不过去',
+  'not-rendered': '原帖还没画完，再点一次引用',
+  'no-match': '这句没标出自原帖哪一处，只打开了原帖',
+  'no-evidence': '这条来源没有可对照的原文段，只打开了原帖',
+  'seg-missing': '引用的那一段对不上这篇原文，只打开了原帖',
+  'seg-ambiguous': '引用的段号对应好几处、分不出是哪一处，只打开了原帖',
+  'not-found': '未找到该处原文，只打开了原帖',
+};
+// 定位落到的元素是什么（日志里证明跳对了：图片 src / 评论楼号 / 段序号）
+function locateTargetDesc(el) {
+  if (!el) return null;
+  if (el.tagName === 'IMG' || el.tagName === 'VIDEO') return 'asset:' + String(el.getAttribute('src') || el.getAttribute('poster') || '').split('?')[0].split('/').slice(-4).join('/');
+  const c = el.closest?.('article.lb-comment'); if (c) return 'comment:' + c.getAttribute('data-cid');
+  const p = el.closest?.('p[data-p]'); if (p) return (p.closest('.lb-transcript') ? 'transcript:' : 'para:') + p.getAttribute('data-p');
+  return el.tagName;
+}
+async function locateInReader(src, ranked, gen, before) {
+  const parts = ranked.parts || [];
+  const first = parts[0];
+  const live = () => gen === openGen;   // 她已经点了下一条：这次的结果不碰界面、不写日志
+  const log = { at: new Date().toISOString(), request: gen, note: src?.note, item: src?.id || null, candidates: parts.length, field: first?.field, seg: first?.seg, labels: first?.comment_labels || first?.paras || first?.assets || null, text: String(first?.text || '').slice(0, 60) };
   const done = async (ok, why) => {
+    if (!live()) return false;
     Object.assign(log, { ok, why });
     try { await app.vault.adapter.write(lbPath('_archive/locate-last.json'), JSON.stringify(log, null, 1)); } catch {}
-    if (!ok) notice(why === 'no-reader' ? '右栏没打开原帖，跳不过去' : why === 'not-rendered' ? '原帖还没画完，再点一次引用' : '原帖里没找到引用的那一段，只打开了原帖', 4000);
+    if (!ok && live()) notice(LOCATE_WHY[why] || LOCATE_WHY['not-found'], 4000);
     return ok;
   };
-  const p = provider();
-  let box = null;
-  for (let i = 0; i < 20 && !box; i++) { try { box = p?.archiveLeaves?.(root)?.reader?.view?.containerEl || null; } catch {} if (!box) await new Promise(r => setTimeout(r, 100)); }
+  if (!parts.length) return done(false, ranked.why || 'no-match');
+  let box = null, leaf = null;
+  for (let i = 0; i < 20 && !box; i++) { leaf = readerLeaf(); box = leaf?.view?.containerEl || null; if (!box) { await new Promise(r => setTimeout(r, 100)); if (!live()) return false; } }
   if (!box) return done(false, 'no-reader');
   // 大帖（几百楼评论）Obsidian 要画好几秒：最多等 12 秒
-  let i = 0; for (; i < 120 && !box.querySelector('.lb-note, .lb-body'); i++) await new Promise(r => setTimeout(r, 100));
-  log.waitMs = i * 100; log.comments = box.querySelectorAll('article.lb-comment').length; log.paras = box.querySelectorAll('.lb-body p[data-p]').length;
-  if (!box.querySelector('.lb-note, .lb-body')) return done(false, 'not-rendered');
+  let i = 0; for (; i < 120 && !readerShowing(box, leaf, src, before); i++) { await new Promise(r => setTimeout(r, 100)); if (!live()) return false; }
+  log.waitMs = i * 100; log.file = leaf?.view?.file?.path || null; log.comments = box.querySelectorAll('article.lb-comment').length; log.paras = box.querySelectorAll('.lb-body p[data-p]').length;
+  if (!readerShowing(box, leaf, src, before)) return done(false, 'not-rendered');
+  log.shown = readerNotes(box).map(el => el.getAttribute?.('data-lb-item')).filter(Boolean)[0] || null;
   box.querySelectorAll('.lb-evidence-hit').forEach(el => el.classList.remove('lb-evidence-hit'));
-  const { el, how, anchors } = passageTargetIn(box, part);
+  // 候选只会是同一来源里被段号 / 上下文唯一选中的那几段（rankExcerpts），不会退到无关的段
+  let el = null, how = 'none', anchors = 0, part = first;
+  log.tried = [];
+  for (const cand of parts) {
+    const r = passageTargetIn(box, cand); log.tried.push(`${cand.field}:${cand.seg ?? ''}:${r.how}`);
+    if (r.el) { ({ el, how, anchors } = r); part = cand; break; }
+    anchors = r.anchors; how = r.how;
+  }
+  if (part !== first) Object.assign(log, { field: part.field, seg: part.seg, labels: part.comment_labels || part.paras || part.assets || null, text: String(part.text || '').slice(0, 60) });
   log.how = how; log.anchors = anchors; log.views = [...box.querySelectorAll('.markdown-preview-view, .markdown-source-view')].map(v => v.className.split(' ').slice(0, 2).join('.') + (getComputedStyle(v).display === 'none' ? '(hidden)' : ''));
-  if (el) log.in = (el.closest('.markdown-preview-view, .markdown-source-view') || {}).className?.split(' ')[0];
+  if (el) { log.in = (el.closest('.markdown-preview-view, .markdown-source-view') || {}).className?.split(' ')[0]; log.target = locateTargetDesc(el); }
   if (!el) return done(false, 'not-found');
+  if (!live()) return false;
   let up = el.parentElement; while (up && up !== box) { if (up.tagName === 'DETAILS') up.open = true; up = up.parentElement; }
   const carousel = el.closest('.lb-carousel');
   const flashMedia = m => { m.classList.add('lb-evidence-hit', 'lb-media-hit'); setTimeout(() => m.classList.remove('lb-evidence-hit', 'lb-media-hit'), 6000); };
@@ -464,8 +562,8 @@ LB.style('lbchat-style', `
 .lbchat .lbchat-answer pre code{padding:0;background:transparent;}
 .lbchat .lbchat-answer table{border-collapse:collapse;margin:.4em 0 .9em;font-size:.95em;}
 .lbchat .lbchat-answer th,.lbchat .lbchat-answer td{border:1px solid var(--background-modifier-border);padding:4px 9px;}
-/* [来源N] 小胶囊：不抢眼，悬停才显链接色 */
-.lbchat button.lbchat-cite{display:inline-block!important;font:inherit!important;font-size:11px!important;line-height:1.55!important;vertical-align:1px;margin:0 2px;padding:0 6px!important;height:auto;border:0!important;box-shadow:none!important;border-radius:999px!important;background:var(--background-modifier-hover)!important;color:var(--text-muted)!important;cursor:pointer;white-space:nowrap;}
+/* [来源N] → 小上标胶囊（只显示来源号，1026）：不抢眼，悬停才显链接色 */
+.lbchat button.lbchat-cite{display:inline-block!important;font:inherit!important;font-size:10px!important;line-height:1.45!important;vertical-align:super;min-width:1.5em;text-align:center;margin:0 1px;padding:0 4px!important;height:auto;border:0!important;box-shadow:none!important;border-radius:999px!important;background:var(--background-modifier-hover)!important;color:var(--text-muted)!important;cursor:pointer;white-space:nowrap;}
 .lbchat button.lbchat-cite:hover{color:var(--link-color)!important;background:var(--background-secondary)!important;}
 /* 1022 点引用落到图 / 视频上：描一圈会被轮播裁掉，改成外发光脉冲，看得见 */
 .lb-source-reader .lb-media-hit,.xhs-note .lb-media-hit{outline:none!important;box-shadow:0 0 0 4px var(--interactive-accent),0 0 18px 4px var(--interactive-accent)!important;animation:lbmediahit 1s ease-in-out 4;}
@@ -562,7 +660,7 @@ LB.style('lbchat-style', `
 .lbchat .lbchat-src-saved button.lbchat-act{margin-top:4px;}
 @keyframes lbchatflash{0%{background:color-mix(in srgb,var(--interactive-accent) 18%,transparent);}100%{background:transparent;}}
 .lbchat-flash{animation:lbchatflash 1.2s ease-out;}
-.lbchat .lbchat-cite.is-pending{display:inline-block;font-size:11px;line-height:1.55;vertical-align:1px;margin:0 2px;padding:0 6px;border-radius:999px;background:var(--background-modifier-hover);color:var(--text-faint);white-space:nowrap;cursor:default;}
+.lbchat .lbchat-cite.is-pending{display:inline-block;font-size:10px;line-height:1.45;vertical-align:super;min-width:1.5em;text-align:center;margin:0 1px;padding:0 4px;border-radius:999px;background:var(--background-modifier-hover);color:var(--text-faint);white-space:nowrap;cursor:default;}
 .lbchat-imgph{display:inline-block;font-size:11px;line-height:1.6;padding:0 8px;margin:0 2px;border-radius:999px;background:var(--background-modifier-hover);color:var(--text-faint);white-space:nowrap;}
 .lbchat-search::-webkit-scrollbar{display:none;width:0;height:0;}
 .lbchat .lbchat-composer.is-multi{align-items:flex-end;}
@@ -2812,14 +2910,8 @@ function citePop() {   // 函数声明 + 懒建：页面开头恢复历史时 bi
   let box = null, timer = 0;
   const KIND = { body: '正文', comments: '评论区', ocr: '图片文字', comment_ocr: '评论区图片', transcript: '视频文字稿', screen: '视频画面文字', attachments: '附件', notes: '批注', highlights: '重点' };
   const hide = () => { clearTimeout(timer); timer = 0; if (box) { box.remove(); box = null; } };
-  const pick = (src, seg, context) => {
-    const all = (src?.excerpts || []).filter(p => p && p.text);
-    if (seg) { const p = all.find(x => Number(x.seg) === Number(seg)); if (p) return p; }
-    if (!context || !all.length) return all[0] || null;
-    const normalized = String(context).replace(/\s/g, '').toLowerCase();
-    const score = p => { const text = String(p.text).replace(/\s/g, '').toLowerCase(); let n = 0; for (let i = 0; i < normalized.length - 3; i++) if (text.includes(normalized.slice(i, i + 4))) n++; return n; };
-    return all.slice().sort((a, b) => score(b) - score(a))[0] || null;
-  };
+  // 和点击同一份结果：卡片上显示的就是点了会跳的那段；对不上时说清楚点了只会打开原帖（悬停不碰右栏）
+  const NOPICK = { 'seg-missing': '引用的段对不上原文 · 点了只打开原帖', 'seg-ambiguous': '段号对应好几处 · 点了只打开原帖', 'no-match': '没标出自哪一处 · 点了只打开原帖' };
   const where = p => {
     if (!p) return '';
     const ids = (p.images || p.comment_labels || p.comments || []).slice(0, 3).join('、');
@@ -2827,10 +2919,10 @@ function citePop() {   // 函数声明 + 懒建：页面开头恢复历史时 bi
   };
   const show = (btn, src, seg, context) => {
     hide();
-    const p = pick(src, seg, context);
+    const ranked = rankExcerpts(src, seg, context), p = ranked.parts[0] || null;
     box = document.createElement('div'); box.className = 'lbchat-citepop';
     const t = document.createElement('div'); t.className = 't'; t.textContent = src?.title || '未命名'; box.append(t);
-    const w = document.createElement('div'); w.className = 'w'; w.textContent = p ? where(p) : '原文在右侧打开'; box.append(w);
+    const w = document.createElement('div'); w.className = 'w'; w.textContent = p ? where(p) : NOPICK[ranked.why] || '原文在右侧打开'; box.append(w);
     if (p) { const q = document.createElement('div'); q.className = 'q'; q.textContent = String(p.text).trim().slice(0, 240); box.append(q); }
     document.body.append(box);
     const r = btn.getBoundingClientRect(), bw = box.offsetWidth || 320, bh = box.offsetHeight || 80;
@@ -2846,6 +2938,25 @@ function citePop() {   // 函数声明 + 懒建：页面开头恢复历史时 bi
   };
   return (citePop._i = { bind, hide });
 }
+// 1026 她：「来源1」标得太多。同一段（段落 / 列表项 / 表格格 / 标题 / 引用块）里完全相同的 (来源, 段号) 只留最后一个；
+// 不同段号（图2 / 图3 / 评论 c5 是不同目标）各留各的，没段号的老引用按 (来源, 无段号) 算一种。拿掉的胶囊前面多出来的空白一起去掉。
+// 只动显示，不改回答原文（导出照旧）。
+function mergeCites(el) {
+  const groups = new Map();
+  for (const c of el.querySelectorAll('.lbchat-cite')) {
+    const blk = c.parentElement?.closest('p,li,td,th,h1,h2,h3,h4,h5,h6,blockquote') || el;
+    const key = c.dataset.cite + '|' + (c.dataset.seg || '');
+    if (!groups.has(blk)) groups.set(blk, new Map());
+    const same = groups.get(blk); if (!same.has(key)) same.set(key, []); same.get(key).push(c);
+  }
+  for (const same of groups.values()) for (const list of same.values()) {
+    for (const c of list.slice(0, -1)) {
+      const prev = c.previousSibling;
+      if (prev && prev.nodeType === 3) prev.textContent = String(prev.textContent || '').replace(/[ \t]+$/, '');
+      c.remove();
+    }
+  }
+}
 function bindSources(el, sources, { pending = false } = {}) {
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
   for (const node of nodes) {
@@ -2855,10 +2966,11 @@ function bindSources(el, sources, { pending = false } = {}) {
     for (const m of matches) {
       frag.append(document.createTextNode(node.textContent.slice(last, m.index)));
       const src = pending ? null : sources.find(x => Number(x.citation) === Number(m[1]));
-      const label = `[来源${m[1]}]`, seg = m[2] ? Number(m[2]) : 0;   // 1021：段号不显示在胶囊上（噪音），记在 data-seg；点了直达那一段
-      if (pending) { const s = document.createElement('span'); s.className = 'lbchat-cite is-pending'; s.textContent = label; s.dataset.cite = m[1]; frag.append(s); }
+      // 1021：段号不显示在胶囊上（噪音），记在 data-seg；点了直达那一段。1026：胶囊只显示来源号（小上标），读屏 / 悬停仍是「来源N」
+      const label = m[1], seg = m[2] ? Number(m[2]) : 0;
+      if (pending) { const s = document.createElement('span'); s.className = 'lbchat-cite is-pending'; s.textContent = label; s.dataset.cite = m[1]; if (seg) s.dataset.seg = String(seg); s.setAttribute('aria-label', '来源' + m[1]); frag.append(s); }
       else if (src) {
-        const b = document.createElement('button'); b.className = 'lbchat-cite'; b.textContent = label; b.dataset.cite = m[1]; if (seg) b.dataset.seg = String(seg);
+        const b = document.createElement('button'); b.className = 'lbchat-cite'; b.textContent = label; b.dataset.cite = m[1]; if (seg) b.dataset.seg = String(seg); b.setAttribute('aria-label', '来源' + m[1] + (seg ? ' 第 ' + seg + ' 段' : ''));
         b.setAttribute('title', seg ? `打开原帖，跳到引用的第 ${seg} 段（右侧）` : '打开原帖，跳到引用的那一处（右侧）');
         b.onclick = e => { e?.stopPropagation?.(); citePop().hide(); openNote(src, false, b.closest('p,li')?.textContent || '', b, seg); };
         citePop().bind(b, src, seg, b.closest('p,li')?.textContent || '');
@@ -2869,6 +2981,7 @@ function bindSources(el, sources, { pending = false } = {}) {
     }
     frag.append(document.createTextNode(node.textContent.slice(last))); node.replaceWith(frag);
   }
+  mergeCites(el);
   if (pending) return;
   for (const a of el.querySelectorAll('a')) { const href = a.getAttribute('data-href') || a.getAttribute('href'); const src = sources.find(x => href === x.url || href === x.note || href === x.note?.replace(/\.md$/, '')); if (src) a.onclick = e => { e?.preventDefault?.(); e?.stopPropagation?.(); openNote(src); }; }
 }
