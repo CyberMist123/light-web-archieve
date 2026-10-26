@@ -171,7 +171,12 @@ class NoteActions {
     if (!file) { this.notify('没找到这篇笔记'); return; }
     if (this.plugin.running) { this.notify(`正在${this.plugin.running}，完成后再点`); return; }
     // 多点一下确认：这会开页面、用号
-    this.notify('抓这篇的全部评论？热门笔记要几分钟到十几分钟；进度就显示在评论区顶上，完成后页面自动更新。', { ms: 12000, actions: [{ label: '开始抓', run: () => this.plugin.fetchAllComments(file) }] });
+    // 1026：抓过一遍还没齐的，按钮是「接着补抓」——后端只补没齐的（没翻到底从停下那页往后翻 / 只展开缺回复的楼），不整篇重来
+    const resume = /接着补抓/.test(String((el && el.textContent) || ''));
+    const ask = resume
+      ? '接着补抓这篇没齐的评论？只补缺的：没翻到最后一页就从停下那页往后翻，翻到了就只展开缺回复的楼；已存的不会重复。进度在评论区顶上。'
+      : '抓这篇的全部评论？热门笔记要几分钟到十几分钟；进度就显示在评论区顶上，完成后页面自动更新。';
+    this.notify(ask, { ms: 12000, actions: [{ label: resume ? '接着补' : '开始抓', run: () => this.plugin.fetchAllComments(file) }] });
   }
 
   // ── 1010：手动「抓全部评论」的进度（plugin.commentFetch，main.js fetchAllComments 写；事件 'link-brain:comment-fetch'）──

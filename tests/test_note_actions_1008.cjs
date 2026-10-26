@@ -89,6 +89,14 @@ const click = (D, target, extra = {}) => { const e = { type: 'click', target, pr
     const K = setup(); K.inst.attach();
     for (const fn of K.D.listeners.keydown || []) fn({ key: 'Enter', target: K.act, preventDefault() {} });
     assert.ok(K.notices.at(-1).msg.startsWith('抓这篇的全部评论？'));
+    // 1026：抓过一遍没齐的，按钮是「接着补抓」——确认语说清只补缺的、不重复
+    const C = setup(); C.inst.attach();
+    C.act.textContent = '接着补抓';
+    click(C.D, C.act);
+    const c = C.notices.at(-1);
+    assert.ok(c.msg.startsWith('接着补抓这篇没齐的评论？') && c.msg.includes('不会重复') && c.opts.actions[0].label === '接着补');
+    await c.opts.actions[0].run();
+    assert.deepEqual(C.calls, [['fetch', C.file]], '同一个入口：后端自己判断接着补');
   }
   // ── N9 ──
   {

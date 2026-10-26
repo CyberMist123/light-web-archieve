@@ -816,8 +816,9 @@ def _comment(raw: dict[str, Any], floor: int) -> dict[str, Any]:
         }
     if floor == 1:
         entry["sub_comment_count"] = declared
-        entry["sub_comments"] = [_comment(s, 2) for s in subs_raw]
-        entry["sub_comments_complete"] = len(subs_raw) >= declared
+        # 1026：分页接缝处读取组件可能把同一条回复给两遍——同一条只留一份（重复抓取不产生重复楼层 / 回复）
+        entry["sub_comments"] = _union_replies([], [_comment(s, 2) for s in subs_raw])
+        entry["sub_comments_complete"] = len(entry["sub_comments"]) >= declared
     else:
         entry["target_nickname"] = None
     return entry
@@ -902,38 +903,63 @@ def _union_replies(prev: list[dict[str, Any]], cur: list[dict[str, Any]]) -> lis
     return out
 
 
+def floor_key(c: dict[str, Any]) -> str:
+    """一级评论（楼）的身份：有 comment_id 就用它；没有就用 作者 + 时间 + 内容（和 _reply_key 同一套）。"""
+    return _reply_key(c)
+
+
+def _same_floor(c: dict[str, Any], prev: dict[str, Any] | None) -> dict[str, Any]:
+    """同一楼的两份合成一份：楼中楼并集（旧的不丢），原站显示数以 c（较新的那份）为准。"""
+    if not prev:
+        return c
+    subs = _union_replies(prev.get("sub_comments") or [], c.get("sub_comments") or [])
+    count = int(c.get("sub_comment_count") or 0)  # 这次页面上原站显示的条数（删了的回复照旧留在存档里）
+    return {**c, "sub_comments": subs, "sub_comment_count": count, "sub_comments_complete": len(subs) >= count}
+
+
+def dedupe_floors(floors: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """1026（她：抓全部评论有的不齐 / 怕重复）：同一楼在一份列表里出现两次（续翻的游标页和上一页重叠、读取组件重试）只留第一处，
+    后出现的那份并进去（楼中楼并集）。顺序按第一次出现。"""
+    out: list[dict[str, Any]] = []
+    pos: dict[str, int] = {}
+    for c in floors or []:
+        k = floor_key(c)
+        if k in pos:
+            out[pos[k]] = _same_floor(c, out[pos[k]])
+            continue
+        pos[k] = len(out)
+        out.append(c)
+    return out
+
+
 def merge_comments(old: list[dict[str, Any]], new: list[dict[str, Any]], expanded: set[str],
                    *, keep_old_order: bool = False) -> list[dict[str, Any]]:
     """续读合并（1009 起一律并集，「调小不删已抓的」）：每楼的楼中楼 = 新旧并集；原站显示数以这次页面上的为准
     （1017：以前取较大的——回复被删以后原站显示 3→1，存档却一直记 3，缺口永远补不上、续读次次白跑）。
     一级评论默认以新响应的顺序为准，老版本有、新响应没滚到的楼接在后面（删除的评论留着：归档不丢）；
     keep_old_order=True（只展开几楼的续读，新响应里只有那几楼）：保持老顺序，新冒出来的楼接在后面。"""
-    by_id_old = {str(c.get("comment_id") or ""): c for c in old}
-    by_id_new = {str(c.get("comment_id") or ""): c for c in new}
-
-    def merged(c: dict[str, Any], prev: dict[str, Any] | None) -> dict[str, Any]:
-        if not prev:
-            return c
-        subs = _union_replies(prev.get("sub_comments") or [], c.get("sub_comments") or [])
-        count = int(c.get("sub_comment_count") or 0)  # 这次页面上原站显示的条数（删了的回复照旧留在存档里）
-        return {**c, "sub_comments": subs, "sub_comment_count": count, "sub_comments_complete": len(subs) >= count}
+    # 1026：两边各自先去重（旧版里有重复、这次的响应里有重复都不往下带），按 floor_key 认同一楼（没 id 的楼也不会互相吞掉）
+    old, new = dedupe_floors(old), dedupe_floors(new)
+    by_id_old = {floor_key(c): c for c in old}
+    by_id_new = {floor_key(c): c for c in new}
+    merged = _same_floor
 
     out = []
     if keep_old_order:
         for c in old:
-            cid = str(c.get("comment_id") or "")
-            out.append(merged(by_id_new[cid], c) if cid in by_id_new else c)
+            k = floor_key(c)
+            out.append(merged(by_id_new[k], c) if k in by_id_new else c)
         for c in new:
-            if str(c.get("comment_id") or "") not in by_id_old:
+            if floor_key(c) not in by_id_old:
                 out.append(c)
     else:
         seen = set()
         for c in new:
-            cid = str(c.get("comment_id") or "")
-            seen.add(cid)
-            out.append(merged(c, by_id_old.get(cid)))
+            k = floor_key(c)
+            seen.add(k)
+            out.append(merged(c, by_id_old.get(k)))
         for c in old:
-            if str(c.get("comment_id") or "") not in seen:
+            if floor_key(c) not in seen:
                 out.append(c)
     for c in out:
         c["floor"] = 1  # 一级评论的层级字段（不是楼序）
@@ -994,7 +1020,7 @@ def normalize(
 
     comments_block = data.get("comments") or {}
     comment_list = comments_block.get("list") or []
-    comments = [_comment(c, 1) for c in comment_list]
+    comments = dedupe_floors([_comment(c, 1) for c in comment_list])
     # hasMore 是 MCP 明确给出的信号：False 就是真的抓完了，不必写 "unknown"
     has_more = comments_block.get("hasMore")
     comments_complete = "unknown" if has_more is None else (not has_more)

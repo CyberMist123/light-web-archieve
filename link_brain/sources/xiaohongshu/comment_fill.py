@@ -473,7 +473,7 @@ def _note_url(source_id: str, source: dict[str, Any], token: str | None = None) 
 
 
 def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, budget_s: int = FILL_BUDGET_S,
-             manual: bool = False) -> dict[str, Any]:
+             manual: bool = False, progress=None) -> dict[str, Any]:
     """续读一篇：按 plan_fill 选 expand / floors，抓完和旧的并集合并（新 RAW 版本只在真多拿到东西时才写），
     记续读状态，补齐了消问题、连着补不上进问题面板，最后重渲染可见页。碰号：调用方要拿着账号锁。
 
@@ -518,7 +518,8 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
     def attempt(url: str) -> dict[str, Any]:
         return ingest_mod.ingest_url(url, refresh=True, comment_floors=floors, verbose=verbose,
                                      expand_floors=targets if mode == "expand" else None, fill=True,
-                                     fill_budget_s=budget_s, expand_resume=resume or None, floors_resume=top_resume)
+                                     fill_budget_s=budget_s, expand_resume=resume or None, floors_resume=top_resume,
+                                     progress=progress)
 
     old_token = (source.get("note") or {}).get("xsec_token") or ""
     try:
@@ -553,15 +554,17 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
         not_found = set(str(x) for x in (summary.get("floors_not_found") or []))
         # 1017：只有一级评论真滚到底（stop=end / has_more=false）还找不到，才算这楼删了；预算到点没滚到不算
         # （以前没滚到就记成删了：一篇热门帖 448 楼被当成删掉，1937 条缺口被悄悄划掉）
-        reached_end = str(cl2.get("stop_reason") or "") == "end" or cl2.get("has_more") is False
-        if not_found and reached_end:
+        hit_end = str(cl2.get("stop_reason") or "") == "end" or cl2.get("has_more") is False
+        if not_found and hit_end:
             state["gone_floors"] = sorted(set(str(x) for x in state.get("gone_floors") or []) | not_found)
     sc2 = scope(source2, floors, state)
     progressed = (sc2["missing"] < before_missing or sc2["stored"] > before_floors
                   or (mode == "expand" and bool(set(state.get("gone_floors") or []) - gone_before)))
     if mode == "floors" and (str(cl2.get("stop_reason") or "") == "end" or cl2.get("has_more") is False):
         # 1017：一级评论真翻到底了——记下来，这个楼数下不再翻（之后的续展只读一页、会把 has_more 写回 true）
-        state["floors_done"] = floors
+        # 1026：翻到底 = 原帖就这么多楼，哪个楼数下都不用再翻（记 FLOOR_ALL，之后的浅续读也不会把「到底了」冲掉）
+        state["floors_done"] = FLOOR_ALL if cl2.get("has_more") is False or reached_end(source2.get("capture")) else floors
+        state.setdefault("end_at", now)
         state.pop("resume_floors_stale", None)
     elif mode == "floors" and top_resume and sc2["stored"] <= before_floors:
         state["resume_floors_stale"] = True  # 1017：续翻没多拿到（游标那楼被删之类）：下次从第 1 楼滚一次再定
@@ -675,9 +678,147 @@ def view_for_render(source: dict[str, Any], state: dict[str, Any] | None, floors
     if source.get("source_id"):
         from . import restricted
         restricted_view = restricted.view(source["source_id"])   # 1011：网页版要验证才能看（笔记页给「打开验证」）
+    # 1026：她手动「抓全部评论」过的这篇，评论区顶上照实写抓到哪了（已抓楼数 / 翻没翻到最后一页 / 还缺什么、为什么），能接着补抓
+    full = fetch_report(source, state) if state.get("full_at") else None
     return {**sc, "stuck": stuck, "attempts": _int(state.get("attempts")), "why": reason_text(main) if main else "",
             "gap_reasons": {g["comment_id"]: g["reason"] for g in sc["gaps"] + sc["settled"]},
-            "restricted": restricted_view}
+            "restricted": restricted_view, "full": full}
+
+
+# --------------------------------------------------------------------------
+# 1026 手动「抓全部评论」：抓到哪了、能不能接着补（她：「抓全部评论这里有 bug……有一些它会不齐」）
+# --------------------------------------------------------------------------
+# 根因（真库只读实查 10-26）：①一篇翻到底的（306 楼、has_more=false）之后被按设置楼数（10 楼）的续展冲掉——
+# comments_complete 退回 false、游标退回第 20 楼，页面又说没读全（全库 22 篇）；②抓完只说「评论已更新：N 条」，
+# 楼中楼因为每小时额度（sub_paused）停下的 19 楼缺 25 条没人告诉她；③再点一次是从第 1 楼整篇重抓，
+# 而不是接着补缺的那几楼 / 从停下的那一页往后翻。
+
+
+def reached_end(capture: dict[str, Any] | None) -> bool:
+    """这一版的一级评论翻到最后一页了吗（读取组件 / MCP 明说没有下一页）。"""
+    cap = capture or {}
+    cl = cap.get("comment_load") or {}
+    return cap.get("comments_complete") is True or cl.get("has_more") is False or str(cl.get("stop_reason") or "") == "end"
+
+
+def _declared_total(source: dict[str, Any]) -> int | None:
+    v = ((source.get("note") or {}).get("engagement") or {}).get("comment_count")
+    try:
+        return int(v) if v is not None and str(v).strip() != "" else None
+    except (TypeError, ValueError):
+        return None
+
+
+def fetch_report(source: dict[str, Any], state: dict[str, Any] | None = None) -> dict[str, Any]:
+    """全部楼层口径（不看设置里的楼数）的抓取结果：已抓楼数 / 回复数、原帖显示的总数（含回复，站点只给这个）、
+    翻没翻到最后一页（没到：停在哪、为什么、下次从第几楼接着翻）、哪几楼的楼中楼还缺、为什么、上次失败的原因，
+    以及还能不能接着补（resumable）。text 是给她看的一句话。"""
+    from . import adapter as xhs
+    state = state or {}
+    comments = source.get("comments") or []
+    cap = source.get("capture") or {}
+    cl = cap.get("comment_load") or {}
+    sc = scope(source, FLOOR_ALL, state)
+    floors = len(comments)
+    replies = sum(len(c.get("sub_comments") or []) for c in comments)
+    declared = _declared_total(source)
+    end = reached_end(cap) or _int(state.get("floors_done")) >= FLOOR_ALL
+    stop = str(cl.get("stop_reason") or "")
+    mode, _ = plan_fill(sc)
+    main = max(sc["gaps"], key=lambda g: g["missing"])["reason"] if sc["gaps"] else ""
+    settled_missing = sum(g["missing"] for g in sc["settled"])
+    error = str(state.get("last_error") or "")
+    if end:
+        paging, paging_why = "end", ""
+    else:
+        paging = "more"
+        paging_why = ("按楼数上限只读了前几楼" if stop == "floor_limit" else xhs.REPLY_GAP_CN.get(stop) or
+                      ("还没整篇抓过" if not stop else "这次停在这"))
+    bits = [f"已抓 {floors} 楼、{replies} 条回复" + (f"（原帖显示共 {declared} 条评论，含回复）" if declared is not None else "")]
+    if end:
+        bits.append("已翻到最后一页")
+    else:
+        bits.append(f"还没翻到最后一页（{paging_why}），接着补抓会从第 {floors + 1} 楼往后翻")
+    if sc["missing"]:
+        bits.append(f"{len(sc['gaps'])} 楼的楼中楼还缺 {sc['missing']} 条（{reason_text(main)}）")
+    if settled_missing:
+        bits.append(f"另有 {settled_missing} 条原站显示但看不到（删了或被折叠，抓多少次都一样）")
+    if error:
+        bits.append(f"上次没成：{error}")
+    complete = end and not sc["gaps"]
+    text = ("评论全部抓齐了：" if complete else "") + "，".join(bits)
+    return {"floors": floors, "replies": replies, "declared_total": declared, "stored_total": floors + replies,
+            "reached_end": end, "paging": paging, "paging_why": paging_why, "next_floor": None if end else floors + 1,
+            "missing": sc["missing"], "gap_floors": len(sc["gaps"]), "why": reason_text(main) if main else "",
+            "settled_missing": settled_missing, "error": error, "complete": complete,
+            "resumable": mode is not None, "resume_mode": mode, "text": text}
+
+
+def manual_plan(source: dict[str, Any], state: dict[str, Any] | None) -> str:
+    """她点「抓全部评论」这一下做什么：'resume'（整篇抓过、还有没齐的 → 接着补：没翻到底就从停下那页往后翻，翻到底了就只展开缺的楼）
+    / 'full'（没整篇抓过，或者全齐了想刷新 → 整篇读一遍，和存下的并集合并）。"""
+    state = state or {}
+    if not (state.get("full_at") or reached_end(source.get("capture")) or _int(state.get("floors_done")) >= FLOOR_ALL):
+        return "full"
+    mode, _ = plan_fill(scope(source, FLOOR_ALL, state))
+    return "resume" if mode else "full"
+
+
+def record_full(source_key: str, source_id: str, *, error: str = "") -> dict[str, Any]:
+    """手动抓完（或没成）记一笔：full_at / 这次的结果；翻到底了就记 floors_done=FLOOR_ALL（之后的浅续读不会再把它记回没读全）。"""
+    _, source = current_source(source_key, source_id)
+    state = load_state(source_key, source_id)
+    now = _now().isoformat(timespec="seconds")
+    state["full_at"] = now
+    if error:
+        state["last_error"] = str(error)[:200]
+    if reached_end(source.get("capture")):
+        state["floors_done"] = FLOOR_ALL
+        state.setdefault("end_at", now)
+    rep = fetch_report(source, state)
+    state["full"] = {k: rep[k] for k in ("floors", "replies", "declared_total", "reached_end", "missing", "gap_floors")}
+    save_state(source_key, source_id, state)
+    return rep
+
+
+END_MIGRATION = "reached-end-1026"
+
+
+def remember_reached_end(objects: list[tuple[str, str]] | None = None) -> int:
+    """1026 一次性（本地，不开页）：以前某一版翻到底、后来被浅的续读把「到底了」冲掉的篇，在续读状态里补记 floors_done=FLOOR_ALL。
+    只认「那一版的楼现在一楼不少都在」的（并集合并保证这一点，再核一遍）。"""
+    marker = storage.link_brain_home() / f"migrated-{END_MIGRATION}"
+    if objects is None and marker.exists():
+        return 0
+    n = 0
+    for source_key, source_id in (objects if objects is not None else _objects()):
+        if source_key != "xiaohongshu":
+            continue
+        try:
+            meta, source = current_source(source_key, source_id)
+        except (OSError, ValueError, KeyError):
+            continue
+        if reached_end(source.get("capture")):
+            continue
+        state = load_state(source_key, source_id)
+        if _int(state.get("floors_done")) >= FLOOR_ALL:
+            continue
+        have = {xhs.floor_key(c) for c in source.get("comments") or []}
+        for v in range(int(meta.get("current_version") or 1) - 1, 0, -1):
+            try:
+                old = storage.read_json(storage.raw_dir(source_key, source_id, v) / "source.json")
+            except (OSError, ValueError):
+                continue
+            if reached_end(old.get("capture")) and {xhs.floor_key(c) for c in old.get("comments") or []} <= have:
+                state["floors_done"] = FLOOR_ALL
+                state.setdefault("end_at", (old.get("capture") or {}).get("captured_at") or _now().isoformat(timespec="seconds"))
+                save_state(source_key, source_id, state)
+                n += 1
+                break
+    if objects is None:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(str(n), encoding="utf-8")
+    return n
 
 
 # --------------------------------------------------------------------------
@@ -906,6 +1047,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
         restricted.release_legacy_fill_stuck()
         restricted.reclassify_fill_failures()
         forget_unproven_gone()
+        remember_reached_end()
     except Exception as exc:  # noqa: BLE001 - 迁移没成不挡补评论
         print(f"[comments] 旧的「已放弃」没解开：{type(exc).__name__}: {exc}", file=sys.stderr)
     # 1017 她：「对特定帖子能跑完楼层」——--only 只补这几篇、按 --floors 的楼数（不改全局设置），stuck 的也照补
@@ -1165,7 +1307,7 @@ def status_payload() -> dict[str, Any]:
 # ---- 评论续读落盘（1025 第二波 PR⑤b 从 ingest.py 搬来，内容不变）--------------------------------------
 
 def _merge_fill(source: dict[str, Any], old: dict[str, Any], expanded: set[str], captured_at: str, log,
-                *, keep_order: bool = False) -> dict[str, Any]:
+                *, keep_order: bool = False, old_end: bool = False) -> dict[str, Any]:
     """续读（1009）：正文 / 图片 / 附件沿用上一版（这次只为评论开页），评论和上一版并集合并，comment_load 重算缺口。
     keep_order（1017 一级评论续翻）：这次只有首屏 + 接着翻的楼，保持老顺序、新楼接在后面。"""
     keep_order = keep_order or bool(expanded)
@@ -1179,9 +1321,22 @@ def _merge_fill(source: dict[str, Any], old: dict[str, Any], expanded: set[str],
     before = sum(len(c.get("sub_comments") or []) for c in old.get("comments") or [])
     after = sum(len(c.get("sub_comments") or []) for c in merged)
     log(f"续读合并：一级 {len(old.get('comments') or [])} → {len(merged)} 楼，楼中楼 {before} → {after} 条")
-    capture = {**(old.get("capture") or {}), **source["capture"], "comment_load": cl}
-    if (old.get("capture") or {}).get("comments_complete") is True or (new_cl or {}).get("has_more") is False:
+    old_cap = old.get("capture") or {}
+    capture = {**old_cap, **source["capture"], "comment_load": cl}
+    if old_cap.get("comments_complete") is True or (new_cl or {}).get("has_more") is False:
         capture["comments_complete"] = True if (new_cl or {}).get("has_more") is not True else capture.get("comments_complete")
+    # 1026（她：抓全部评论后「有一些它会不齐」）：上一版已经一页一页翻到底了，这次只是按楼数上限读前几楼 / 只展开几楼的续读——
+    # 这次的 has_more=true 只说明「楼数上限外还有」，不说明存档缺楼。以前直接拿这次的盖掉：翻到底的 306 楼被记回「没读全、还有下一页」，
+    # 游标退回第 20 楼（真库 22 篇这样）。现在翻到底的结论和最深的游标留着，这次读的样子另记在 last_read。
+    if (old_end or reached_end(old_cap)) and not reached_end(source["capture"]):
+        last = {k: (new_cl or {}).get(k) for k in ("floor_limit", "floors_loaded", "has_more", "stop_reason")}
+        cl = {**(cl or {}), "has_more": False, "stop_reason": "end", "last_read": last,
+              "floors_loaded": max(_int((cl or {}).get("floors_loaded")), len(merged))}
+        cl["partial"] = False
+        capture["comment_load"] = cl
+        capture["comments_complete"] = True
+    capture["comments_cursor"] = deepest_cursor(merged, old_cap.get("comments_cursor"),
+                                                source["capture"].get("comments_cursor")) or capture.get("comments_cursor")
     note = {**(old.get("note") or {})}
     if (source.get("note") or {}).get("xsec_token"):
         note["xsec_token"] = source["note"]["xsec_token"]
@@ -1323,7 +1478,9 @@ def ingest_fill(parsed: dict[str, Any], conn, existing: dict[str, Any], *, log, 
     if progress:
         progress("merge", "评论读回来了：和存下的合并")
     fresh = xhs.normalize(raw, parsed, captured_at=captured_at, web_probe=None)
-    source = _merge_fill(fresh, old_source, expanded, captured_at, log, keep_order=keep_order)
+    # 1026：续读状态里记着「这篇翻到底过」（老版本被浅的续读盖掉了的那 22 篇由 remember_reached_end 补记）也算
+    old_end = _int(load_state(xhs.SOURCE, sid).get("floors_done")) >= FLOOR_ALL
+    source = _merge_fill(fresh, old_source, expanded, captured_at, log, keep_order=keep_order, old_end=old_end)
     not_found = list(((raw.get("data") or {}).get("comment_load") or {}).get("floors_not_found") or [])         if isinstance(raw, dict) else []
     meta_path = object_dir / "meta.json"
     subs = sum(len(c.get("sub_comments") or []) for c in source["comments"])

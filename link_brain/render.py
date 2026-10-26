@@ -395,7 +395,11 @@ def _comments_note_html(capture: dict[str, Any] | None, comments: list[dict[str,
     text = sources.get(source_name or sources.names()[0]).comment_status_text(capture, comments, view)
     if not text:
         return ""
-    return f'<div class="lb-comments-note">{_safe(text)}' + FETCH_COMMENTS_ACT.format(label="现在抓全部评论") + "</div>"
+    # 1026：抓过全部评论的：还有没齐的 →「接着补抓」（从停下的地方接着，不整篇重来）；齐了 →「再抓一遍」（看有没有新评论）
+    full = (view or {}).get("full") if isinstance(view, dict) else None
+    label = ("接着补抓" if full.get("resumable") else "再抓一遍") if isinstance(full, dict) else "现在抓全部评论"
+    cls = ' lb-comments-full' + (' is-complete' if full.get("complete") else '') if isinstance(full, dict) else ''
+    return f'<div class="lb-comments-note{cls}">{_safe(text)}' + FETCH_COMMENTS_ACT.format(label=label) + "</div>"
 
 
 def split_layers(existing_text: str | None) -> tuple[str | None, str | None]:
