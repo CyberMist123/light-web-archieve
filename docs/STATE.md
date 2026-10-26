@@ -1,5 +1,7 @@
 # Current State
 
+- 2026-10-26（分支 worktree-agent-a36829a14c2552d08，录屏 06 场：媒体全屏 / 快照恢复 / 抓全部评论，**未部署**）① 媒体真全屏：media-nav 新 `fullscreen`（requestFullscreen，不支持退回 `.lb-fs-fallback` 铺满窗口），全屏整块而不是 <video>，笔记页视频「全屏」/ 双击、大图 ⛶ / F（Esc 先退全屏）、连播「⛶ 全屏」（切下一条不掉出全屏），退出把滚动位置放回；② 从快照找回：根因是「恢复前」快照就是那份坏页面（NOTE_BLOCK_SPLIT）被原样写回；新 `restore --from-snapshot`（坏的只取她写的、按存档重新排版，好的原样写回，先存快照可撤销），`--list` 每份带 summary / how；③ 抓全部评论：根因是翻到底的篇被浅续读冲回「没读全」、游标退回（真库 22 篇，`remember_reached_end` 一次性补记）；`fetch_report` 照实报已抓楼数 / 总数 / 翻没翻到底 / 缺口原因 / 失败原因，「接着补抓」从停下的地方接着，楼按 `floor_key` 去重。「问这篇」不在本批。待她：Obsidian 里看全屏、点一遍从快照找回、真号热门帖抓到最后一页。
+
 - 2026-10-26（第二波 PR⑥b，`codex/wave2-pr6b`，未部署）：小红书附件取件、探测、口令、节奏成本及账号包装搬入来源包；共享层保留本地记录、转换、挂载、问题登记、队列 / 对账 / 状态和命令骨架，经 `sources.get` 的可选 attachments 能力调取件，旧名转发。删除三条 import 豁免，最大环仍 77，守卫基线只减；旧测试仅迁 monkeypatch 目标和对应导入。未接 after_commit，入库后补抓时机不变。Windows 原生悉尼时区 pytest：main 2482 / 分支 2484 passed，各 2 skipped，退出 0；Node 两边 82 文件全过。显式 IANA TZ 在 Windows 上两边同 8 条时区失败，无新增。红线输出与测试清单见 `tests/acceptance/20261026-wave2-pr6b.md`；不开 PR、不合并。
 
 - 2026-10-26（直接推 main，作者新规：不开 PR、本地全量 + node 绿就推）：合入 Codex 的 PR⑥a（render / catalog / actionlog 走来源接口，原 #71）；账号面板关窗后熔断还在时给「没看到验证，恢复」按钮（原 #82）；Codex 复审 #46 查出的下载计划请求头问题——每条任务用自己的头，小红书只给图片带 UA / Referer、语音视频照旧不带。全量 2465 passed、node 82。
