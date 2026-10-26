@@ -6,7 +6,7 @@
 
 :root {
   --text-normal: #222; --text-muted: #6b6b72; --text-faint: #999; --background-primary: #fff;
-  --background-secondary: #f6f6f7; --link-color: #6b71c9; --interactive-accent: #6b71c9; --lb-gap: 6mm;
+  --background-secondary: #f6f6f7; --link-color: #6b71c9; --interactive-accent: #6b71c9; --lbn-gap: 6mm;
 }
 html, body { background: #fff; color: #222; margin: 0; }
 body { font-family: var(--lb-font, system-ui, "Microsoft YaHei", "PingFang SC", sans-serif); font-size: 10.5pt; line-height: 1.65; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -14,7 +14,7 @@ body { font-family: var(--lb-font, system-ui, "Microsoft YaHei", "PingFang SC", 
 .lb-print .lb-print-head { display: flex; justify-content: space-between; gap: 12px; color: #6b6b72; font-size: 8.5pt; margin: 0 0 4mm; }
 .lb-print .lb-print-head a { color: #6b71c9; text-decoration: none; word-break: break-all; }
 
-.lb-print .lb-note { display: flex; gap: var(--lb-gap); align-items: flex-start; height: auto !important; max-height: none !important; overflow: visible !important; }
+.lb-print .lb-note { display: flex; gap: var(--lbn-gap); align-items: flex-start; height: auto !important; max-height: none !important; overflow: visible !important; }
 .lb-print .lb-side { position: static !important; max-height: none !important; overflow: visible !important; flex: 0 0 44%; width: 44%; }
 .lb-print .lb-no-media .lb-main, .lb-print .lb-note.lb-no-media .lb-main { flex: 1 1 auto; width: 100%; }
 .lb-print .lb-carousel { display: block !important; overflow: visible !important; scroll-snap-type: none !important; }
