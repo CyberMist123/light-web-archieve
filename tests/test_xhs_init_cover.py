@@ -99,7 +99,7 @@ def test_media_plan_image_note_and_comments():
         ("comment_audio", None, "c1", "comment-c1-audio", "audio"),
         ("comment_image", 1, "c1s", "comment-c1s-001", "image"),    # 子评论同样展开
     ]
-    assert all(t["headers"] is ingest.DOWNLOAD_HEADERS for t in tasks)  # 头共用同一份
+    assert all(t.get("headers") is (ingest.DOWNLOAD_HEADERS if t["kind"] == "image" else None) for t in tasks)  # 只有图片带头（语音 / 视频历来不带）
     # 关掉 downloadImages 只影响笔记图；评论图 / 音频照拿
     roles = [t["role"] for t in x.media_plan(doc, {"downloadImages": False, "downloadVideo": False})]
     assert roles == ["comment_image", "comment_audio", "comment_image"]

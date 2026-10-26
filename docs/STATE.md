@@ -1,5 +1,6 @@
 # Current State
 
+- 2026-10-26（直接推 main，作者新规：不开 PR、本地全量 + node 绿就推）：合入 Codex 的 PR⑥a（render / catalog / actionlog 走来源接口，原 #71）；账号面板关窗后熔断还在时给「没看到验证，恢复」按钮（原 #82）；Codex 复审 #46 查出的下载计划请求头问题——每条任务用自己的头，小红书只给图片带 UA / Referer、语音视频照旧不带。全量 2465 passed、node 82。
 - 2026-10-26（第二波 PR⑥a，`codex/wave2-pr6a`，未部署）：render / catalog / actionlog 改经 sources 分派；小红书包承接评论缺口文字、链接清理、专辑、条目标记与动作路由，删除六条共享层 import 豁免；保留现有 Markdown、目录与日志文案。脱敏样本逐字对比及多来源替身测试见 `tests/test_shared_sources.py`；不涉及 attachments 搬家、入库或收藏同步。验证：Windows 原生悉尼时区 pytest 全量退出 0（2328 passed、2 个原有 skip），Node unit 82 文件全过；显式 IANA TZ 在 Windows Python 上的时区差异已在 PR 说明。
 
 - 2026-10-25（分支 claude/project-thread-s0uo97-pr5c，第二波 PR⑤c，**未部署**）入库收尾统一：新 `ingest.after_commit`（新写了版本 → 标识图 / 概要待办 + 本地渲染；已在库只在可见 md 丢了时补渲染；失败返回一行字不回退），catch 和收藏同步都改用它；`project` 作为 `ingest_url` 参数在提交那一次和 meta 一起写，删掉 catch 的 `_set_project`（原来入库后再单独改一次 meta）。import 契约：小红书 favorites → render 这条迁走。
