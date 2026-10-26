@@ -187,9 +187,9 @@ function makePlugin(base, { saved = {}, files = new Set(), manifestDir = '.obsid
   env.p.settingsView = { tab: 'more' }; tab.display(); openAll();
   await flush(); await flush();
   assert.ok(/没找到后端程序/.test(tab.containerEl.querySelector('.lb-setup-hint')?.textContent || ''), '「更多」页顶也有缺后端提示');
-  assert.ok(tab.containerEl.querySelectorAll('.setting-item-name').some(e => /检查这台电脑/.test(e.textContent)), '「更多 → 高级」里有「检查这台电脑」');
+  assert.ok(tab.containerEl.querySelectorAll('.setting-item-name').some(e => /当前状态/.test(e.textContent)) && tab.containerEl.querySelectorAll('.setting-item-name').some(e => /这台电脑/.test(e.textContent)), '1027：⑥修复里有「当前状态 → 检查」和「更多 → 这台电脑」');
   // 1010 分栏：「高级 → 开发者」里有后端命令一行，「收藏与同步」里有收藏放在哪一行（只此一处）；提示在每一栏顶上都有
-  const rowNamesOf = () => tab.containerEl.querySelectorAll('.setting-item-name').map(e => e.textContent.replace(/\?$/, ''));
+  const rowNamesOf = () => tab.containerEl.querySelectorAll('.setting-item-name').map(e => e.textContent.replace(/[?ⓘ]$/, ''));
   env.p.settingsView = { tab: 'advanced' }; tab.display(); openAll();
   assert.ok(tab.containerEl.querySelector('.lb-setup-hint'), '提示在页顶');
   assert.ok(rowNamesOf().includes('后端命令'));

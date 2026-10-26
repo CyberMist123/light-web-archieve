@@ -18,8 +18,7 @@ function lbVars(css) {
   return out;
 }
 
-// 1027：设置页那一段临时的共用样式令牌（只在设置页根上、等同事的全站令牌合进来就删）不算这两份共享颜色变量
-const styles = fs.readFileSync(path.join(ROOT, 'obsidian-plugins/link-brain-actions/styles.css'), 'utf8').replace(/\/\* lb-tokens-fallback:start \*\/[\s\S]*?\/\* lb-tokens-fallback:end \*\//g, '');
+const styles = fs.readFileSync(path.join(ROOT, 'obsidian-plugins/link-brain-actions/styles.css'), 'utf8');
 const lib = fs.readFileSync(path.join(ROOT, 'link_brain/assets/lb-page-lib.js'), 'utf8');
 const shared = (lib.match(/const LB_SHARED_CSS = `([\s\S]*?)`;/) || [])[1];
 assert.ok(shared, 'lb-page-lib.js 里有 LB_SHARED_CSS');

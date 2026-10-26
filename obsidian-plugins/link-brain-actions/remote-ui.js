@@ -519,7 +519,8 @@ module.exports = function remoteUI(obsidian, plugin) {
         try { const { json } = await run(['status', ...settingsArgs()], { timeoutMs: 30000, fallback: '读不到状态' }); status = json || { unreadable: true, error: '后台没有返回' }; }
         catch (e) { status = { unreadable: true, error: e.message }; }
       };
-      syncFromDisk().then(() => { if (!alive) return; draw(); if (part === 'folders') return;
+      // 卡片版（toggleHost）关着时不去读远程状态（打开开关那一下才读）：设置页打开少起一个后台
+      syncFromDisk().then(() => { if (!alive) return; draw(); if (part === 'folders' || (headToggle && !s().enabled)) return;
         loadStatus().then(() => redraw()); }, () => draw());
       return () => { alive = false; };
     },

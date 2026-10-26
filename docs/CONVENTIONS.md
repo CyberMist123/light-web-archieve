@@ -258,7 +258,7 @@ R = {"status": "ok|failed|skipped", "text": str|None, "code": "<故障码或空>
 | 事件 `link-brain:star` / `link-brain:catalog-prefs` | 插件 | 目录 / 批注块 | 已有 |
 | 事件 `link-brain:ask-pending` / `link-brain:chat-session` | 插件 / 问收藏页 | 问收藏页 | 已有 |
 
-- 目录线（L1）：`pendingCatalogQuery` + 事件 `link-brain:catalog-query`（笔记线写、目录读，读完即删）。
+- 目录线（L1）：`pendingCatalogQuery` + 事件 `link-brain:catalog-query`（笔记线写、目录读，读完即删）。1027 加 `pendingCatalogArrange`（时间戳）+ 事件 `link-brain:catalog-arrange`：设置页③「去目录编排」（`plugin.openCatalogArrange()`）写、目录页读完即删并进编排（超过 60 秒的不算）。
 - 问收藏线（L2）：
 
   | 字段 / 事件 | 谁写 | 谁读 | 说明 |
@@ -271,7 +271,7 @@ R = {"status": "ok|failed|skipped", "text": str|None, "code": "<故障码或空>
   | 事件 `link-brain:chat-session`(pageId) | 问收藏页每次写会话成功后 | 别的问收藏页 | 重读会话、强制全量重建，然后看排队；`from === 自己` 或自己在答时不理 |
   | 事件 `link-brain:chat-queue`(pageId) | 改了 `chatQueue` 的那一页 | 别的问收藏页 | 重画排队行 |
 - 笔记线（L3）：`body.lb-actions-on`（note-actions attach 时加、卸载时去）；写 `pendingCatalogQuery`（点正文标签）；调 `askAboutNote(file)`（⋯ 菜单 / 命令「问这篇」）；`mediaNav.openLightbox(images, index, {caption, onCaption, onClose})` → `{close()}`（没有图返回 null；问收藏回答里的图用）、`mediaNav.hoverControls(media, video)`、`mediaNav.noteState`（按 `data-lb-item` 记的钉住 / 第几张 / 正文滚动，插件卸载就清空）；视频「循环」读写 `settings.media.loop`，「连播…」调 `playerUI.openTagPicker({itemId})`。笔记页命令 id 用 `note-` 前缀（`note-ask`、`note-highlight-selection`）。
-- 设置线（L4）：`accountCache`、事件 `link-brain:task`、`onTask(cb)`。
+- 设置线（L4）：`accountCache`、事件 `link-brain:task`、`onTask(cb)`。1027 六组设置页：`v6Cache`（用量 / 本机应用一分钟内复用）、`settingsView.console`（AI 控制台展开 / 维度 / 时段）、`settingsView.apiCap`（「接口与密钥」选的哪一项）、`scheduleDraft`（同步时间格式不对 / 写失败时的草稿）——都只在本次 Obsidian 会话里，不写 data.json。
 - 功能线（L5）：`settings.media = {loop, playlistOrder}`（插件设置，后端不读）。
 - 索引树（1010）：`indexUI`（`index-ui.js`，onload 那排挂载点之一）；它在插件对象上挂页面调的 `indexDraft()` / `indexUseDraft()` / `openIndexSuggestions()` / `wikiBuild(path)` / `openIndexFile(line?)` / `indexRebuild()`（页面发现索引是用旧目录数据算的、或设置换了索引文件：走同一个防抖重算）；设置 `indexFile`（库根相对 .md，后端读同一个键，越界回默认 `索引.md`）。设置页那一节在 main.js `fieldCategories`（收藏与同步 →「目录分类（索引）」，原「名称: 关键词」文本框退场；`catalogCats` 只在第一次生成 索引.md 时迁移用），按钮只调上面这几个方法。打开 索引.md / 草稿 / wiki 页不经插件（页面自己 `getLeaf(false).openFile`，手机上也能开）；分类 / 未归类 / 草稿 / wiki 状态 / 「AI 能不能点」都只读 `index-data.json`（`text_ai`、`drafting`），页面不判。
   1011 加：`indexAssign(ids, op, path)`（op = move / add / remove / reset / undo）· `indexAccept(id)` · `indexDismiss(id)` · `indexEmpty(path, 'remove'|'keep')` · `indexClassify({onProgress})` · `indexFacet(ids, path, 'add'|'remove', name)`（细分标签）——
@@ -366,8 +366,9 @@ provider().killTree(pid)   // 同一排除规则
 | 失败回滚 | 没保存上，内容还在，可重试：<原因>（§1.5） | — |
 | 设置页开关存失败（1010） | 没保存上，开关已拨回原来的位置：<原因>（内存和开关都还原） | 开关停在新位置、只弹一句「没保存上」 |
 | 设置页读不到的一块（1010） | 这一块暂时读不到，点重试（原始报错折在「详情」里，`plugin.failBox`） | 「X 没画上：…」「读不到状态：…」直接露原始报错 |
-| 远程认证（新手界面，1010） | 口令（访问令牌只在「连接其他 AI → 高级」，给不支持口令的软件） | OAuth、Bearer、Authorization（主界面） |
-| 设置页分栏（1010） | 概览 · 收藏与同步 · AI · 连接其他 AI · 高级 | 「功能」「状态」一页、「连接 AI」 |
+| 远程认证（新手界面，1010；1027 位置更新） | 口令（访问令牌只在「CLI 与外接 MCP → 更多」，给不支持口令的软件） | OAuth、Bearer、Authorization（主界面） |
+| 设置页分组（1027，她定；取代 1010 的分栏） | 一页六组：账号登录 · 收藏与同步 · 目录与批注 · 高级功能 · CLI 与外接 MCP · 修复；组底「＋ 更多」；说明在 ⓘ 悬停里；改了就存（没有「保存」「保存定时」） | 页签 / 分栏、「状态」大卡、「模型与费用」「外部 AI 接入」「高级 / 修复」、「?」 |
+| 设置页④用词（1027） | 转 Markdown · 语音转文字 · 识图 · 问答模型 · 概要与标签 · 按意思搜；AI 控制台（今天 · 本月 · 每天最多花）；粘一把 key | 识别与问答、API 费用、钥匙串、添加 key 弹窗 |
 
 各页面里的字由各自所属的线改（目录 L1、问收藏 L2、批注 L3、插件与设置 L4）；`tests/test_terms_x5.cjs`（L4）全部合入后设为必过。
 

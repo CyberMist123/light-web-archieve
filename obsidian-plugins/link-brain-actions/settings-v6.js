@@ -151,17 +151,6 @@ module.exports = function (obsidian, plugin) {
     }
     return out;
   }
-  // 接口地址 → 哪家（和 link_brain/pricing.provider_of 同一规则）
-  function providerOf(endpoint) {
-    const e = String(endpoint || '').toLowerCase();
-    if (!e) return '';
-    if (e.includes('deepseek')) return 'deepseek';
-    if (e.includes('aliyuncs') || e.includes('dashscope')) return 'aliyun';
-    if (e.includes('openai.com')) return 'openai';
-    if (e.includes('googleapis')) return 'google';
-    return e.split('://').pop().split('/')[0];
-  }
-
   // ———————————————————— 粘一把 key ————————————————————
   // 唯一的 key 入口（④「更多 → 接口与密钥」，首次设置第 3 步也是它）：粘进来 → 后端认出是哪家（`keys detect`，key 走标准输入）→
   //   这家的 key 正好用不了（usage.keys 点了名）→ 换掉：在用这家的那几格（主用 / 备用 / 精细识图那一层）填上新 key（apiKey 排最前，原来的
@@ -207,29 +196,30 @@ module.exports = function (obsidian, plugin) {
     plugin.notify(`认出是 ${j.name}：已用在 ${filled.join('、')}（已经配好的没动）`, { kind: 'ok', ms: 8000 });
     return j;
   }
-  // 哪几格在用这家：cap 自己、它的备用（fallback）、识图的第二层（refine）；概要「跟随问答」时就是问答那一格
-  function slotsFor(cap, provider) {
+  // 哪几格在用这家：后端 `keys detect` 给的 slots（「summaryAI.fallback」「visionAI.refine」…，pricing.provider_of 一处认哪家，前端不猜）；
+  // 只换撞上问题的那几项（caps，来自 usage.keys）；概要「跟随问答」撞上了 = 问答那一格
+  function slotsFor(slots, caps) {
     const s = S();
-    const root = String(cap).split('.')[0];
-    const cfg = s[root];
-    if (!cfg || typeof cfg !== 'object') return [];
-    const cands = [];
-    if (cap === 'visionAI.refine') cands.push(cfg.refine && typeof cfg.refine === 'object' ? cfg.refine : cfg);
-    else if (root === 'summaryAI' && (cfg.mode === 'inherit' || !cfg.mode)) cands.push(s.textAI);
-    else cands.push(cfg);
-    if (cfg.fallback && typeof cfg.fallback === 'object') cands.push(cfg.fallback);
-    if (root === 'visionAI' && cfg.refine && typeof cfg.refine === 'object' && cap === 'visionAI') cands.push(cfg.refine);
-    return cands.filter(x => x && providerOf(x.endpoint) === provider);
+    const roots = new Set((caps || []).map(c => String(c).split('.')[0]));
+    if (roots.has('summaryAI') && s.summaryAI && (!s.summaryAI.mode || s.summaryAI.mode === 'inherit')) roots.add('textAI');
+    const pick = (slots || []).filter(p => !roots.size || roots.has(String(p).split('.')[0]));
+    const out = [];
+    for (const p of pick) {
+      const [root, sub] = String(p).split('.');
+      const cfg = s[root] && typeof s[root] === 'object' ? (sub ? s[root][sub] : s[root]) : null;
+      if (cfg && typeof cfg === 'object' && !out.includes(cfg)) out.push(cfg);
+    }
+    return out;
   }
   // 1027 修：以前状态卡上「换一个 key」只往空格子里填——key 坏了的那一格已经有密钥引用，换不掉。现在换的是在用这家、撞上问题的那几格。
-  async function replaceKey(provider, raw, caps) {
+  async function replaceKey(provider, raw, caps, slots) {
     const key = String(raw || '').trim();
     if (!key) { plugin.notify('先粘贴一把 key'); return null; }
     const s = S();
-    const targets = [];
-    for (const cap of caps && caps.length ? caps : ['textAI', 'summaryAI', 'visionAI', 'visionAI.refine', 'embedAI']) for (const slot of slotsFor(cap, provider)) if (!targets.includes(slot)) targets.push(slot);
+    if (!Array.isArray(slots)) { plugin.notify('后台程序是旧版，认不出哪几格在用这家：先更新后台程序，或在下面选那一项自己填 key', { kind: 'warn', ms: 10000 }); return null; }
+    const targets = slotsFor(slots, caps);
     if (!targets.length) { plugin.notify(`认出是 ${PROV[provider] || provider}，但没找到哪一项在用它的接口：在下面选那一项，自己填 key`, { kind: 'warn', ms: 10000 }); return null; }
-    const snap = JSON.parse(JSON.stringify({ textAI: s.textAI, summaryAI: s.summaryAI, visionAI: s.visionAI, embedAI: s.embedAI }));
+    const snap = JSON.parse(JSON.stringify({ textAI: s.textAI, summaryAI: s.summaryAI, visionAI: s.visionAI, embedAI: s.embedAI, asrAI: s.asrAI }));
     for (const slot of targets) slot.apiKey = key;   // apiKey 排在 keyPool / keyFile / 环境变量前面（providers.resolve_key）：不删原来的引用也能换掉
     try { await plugin.saveSettings(); }
     catch (e) { for (const [k, v] of Object.entries(snap)) { if (v === undefined) delete s[k]; else s[k] = v; } plugin.notify('没保存上，原来的 key 没动：' + errText(e), { kind: 'error' }); return null; }
@@ -246,7 +236,7 @@ module.exports = function (obsidian, plugin) {
     let usage = null;
     try { usage = await loadUsage(); } catch {}
     const bad = keyTrouble(usage).find(k => k.id === j.provider);
-    if (bad) return replaceKey(j.provider, key, bad.caps);
+    if (bad) return replaceKey(j.provider, key, bad.caps, j.slots);
     return addKey(key, { detected: j });
   }
   function keyBox(parent, tab, { onDone = null } = {}) {
@@ -530,6 +520,9 @@ module.exports = function (obsidian, plugin) {
   function apiConfig(b, tab, usageP) {
     const s = S();
     const box = b.createDiv({ cls: 'lb-api', attr: { 'data-section': 'ai-keys' } });
+    // 旧版「本机千问配置」（mode=media）：只如实说一句，不在界面里偷偷改写；改了对应那一格就存成新格式
+    if (['textAI', 'visionAI', 'asrAI', 'ocr'].some(k => s[k] && s[k].mode === 'media'))
+      box.createEl('p', { cls: 'setting-item-description lb-legacy-note', text: '你的设置里还有旧版「本机千问配置」：程序已经按等价的新设置在跑（识图、概要走千问兼容接口，语音走本机 CapsWriter，认字在本机）。改一下对应那一格就会存成新格式。' });
     keyBox(box, tab, { onDone: () => draw() });
     const CAPS = [['ask', '问答模型'], ['summary', '概要与标签'], ['vision', 'AI 识图'], ['refine', '精细识图'], ['asr', '语音转文字（在线）'], ['embed', '按意思搜']];
     const v = tab.view ? tab.view() : {};
@@ -881,11 +874,11 @@ module.exports = function (obsidian, plugin) {
   // ———————————————————— 一页：左边锚点 + 六组 ————————————————————
   function renderPage(c, tab) {
     c.addClass?.('is-v7');
-    const page = c.createDiv({ cls: 'lb-v7' });
+    const page = c.createDiv({ cls: 'lb-v7 lb-scope' });   // .lb-scope：样式集的字号 / 颜色变量在这一层按「Aa 样式」倍数重算
     const nav = page.createEl('nav', { cls: 'lb-anchors', attr: { 'aria-label': '设置分组' } });
     const main = page.createDiv({ cls: 'lb-v7-main' });
     const head = main.createDiv({ cls: 'lb-v7-head' });
-    head.createDiv({ cls: 'lb-eyebrow', text: 'PREFERENCES / 按你的习惯' });
+    head.createDiv({ cls: 'lb-eyebrow lb-kicker', text: 'PREFERENCES / 按你的习惯' });
     head.createEl('h1', { text: '让收藏自己归位。' });
     const lead = head.createEl('p', { cls: 'lb-v7-lead', text: '常用的留在眼前，其余都在「更多」。改动自动保存。' });
     const saved = lead.createSpan({ cls: 'lb-saved', attr: { role: 'status' } });
@@ -1032,6 +1025,6 @@ module.exports = function (obsidian, plugin) {
     paint();
   }
 
-  return { renderPage, renderGuide, needsGuide, syncTimeEditor, syncRows, featureRows, focusSection, addKey, replaceKey, pasteKey, keyTrouble, slotsFor, providerOf,
-    STEPS, PROV, SYNC_TIME, GROUPS, _values: { asrValue, visionValue, askValue, summaryValue, embedValue } };
+  return { renderPage, renderGuide, needsGuide, syncTimeEditor, syncRows, featureRows, focusSection, addKey, replaceKey, pasteKey, keyTrouble, slotsFor,
+    STEPS, PROV, SYNC_TIME, GROUPS, _values: { asrValue, visionValue, askValue, summaryValue, embedValue }, _parts: { apiConfig, recogRows, askRows } };
 };

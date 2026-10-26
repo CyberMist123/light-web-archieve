@@ -40,7 +40,11 @@ const V = require(path.resolve('obsidian-plugins/link-brain-actions/settings-v6.
   // —— key 出问题的那一句：点名哪家、影响哪项；接口地址认哪家和后端 pricing.provider_of 同一规则 ——
   const kt = V.keyTrouble({ keys: { aliyun: { code: 'NEEDS_HUMAN.AUTH_FAILED', caps: ['visionAI.refine', 'summaryAI'] }, deepseek: { code: 'NEEDS_HUMAN.QUOTA_EXCEEDED', caps: [] } } });
   assert.deepEqual(kt.map(k => k.text), ['通义千问 key 用不了（精细识图、概要）', 'DeepSeek 额度用完或余额不足']);
-  assert.deepEqual(['https://api.deepseek.com/v1', 'https://ws-x.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', 'https://dashscope.aliyuncs.com/x', 'https://generativelanguage.googleapis.com/v1beta/openai', 'https://api.openai.com/v1', 'http://127.0.0.1:8080/v1', '']
-    .map(V.providerOf), ['deepseek', 'aliyun', 'aliyun', 'google', 'openai', '127.0.0.1:8080', '']);
-  console.log('ok test_settings_pages_1016 (1027: settings-pages keeps LINKS / routeText / keyring; dead pages gone; needsGuide; keyTrouble; providerOf)');
+  // 哪几格在用这家：只认后端 keys detect 给的 slots（前端不按接口地址猜，test_guards「供应商猜测」守着）；只换撞上问题的那几项
+  assert.equal(V.providerOf, undefined);
+  plugin.settings = { textAI: { endpoint: 'x' }, summaryAI: { mode: 'inherit', fallback: { endpoint: 'y' } }, visionAI: { refine: { endpoint: 'z' } } };
+  const got = V.slotsFor(['textAI', 'summaryAI.fallback', 'visionAI.refine'], ['summaryAI']);
+  assert.deepEqual(got.map(x => x.endpoint), ['x', 'y'], '概要跟随问答撞上了：问答那一格 + 概要的备用；识图那格不动');
+  assert.deepEqual(V.slotsFor(['visionAI.refine'], []).map(x => x.endpoint), ['z'], '没说哪几项：这家的全换');
+  console.log('ok test_settings_pages_1016 (1027: settings-pages keeps LINKS / routeText / keyring; dead pages gone; needsGuide; keyTrouble; slotsFor from backend)');
 })().catch(e => { console.error(e); process.exit(1); });

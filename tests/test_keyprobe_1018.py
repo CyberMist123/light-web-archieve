@@ -40,3 +40,17 @@ def test_cli_reads_key_from_stdin(monkeypatch, capsys):
     assert cli.main(["keys", "detect"]) == 0
     out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert out["provider"] == "deepseek" and "sk-ds" not in json.dumps(out)
+
+
+def test_slots_for_names_every_slot_on_that_provider():
+    """1027 设置页「粘一把 key」换掉用不了的那家：哪几格指着这家（主用 / 备用 / 精细识图第二层），概要「跟随问答」那格不算。"""
+    from link_brain import keyprobe
+    BL = "https://ws-x.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions"
+    G = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    s = {"textAI": {"endpoint": "https://api.deepseek.com/chat/completions"},
+         "summaryAI": {"mode": "http", "endpoint": G, "fallback": {"endpoint": BL}},
+         "visionAI": {"endpoint": G, "refine": {"endpoint": BL, "model": "qwen3.8-max"}},
+         "embedAI": {"endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings"}}
+    assert keyprobe.slots_for("aliyun", s) == ["summaryAI.fallback", "visionAI.refine", "embedAI"]
+    assert keyprobe.slots_for("google", s) == ["summaryAI", "visionAI"]
+    assert keyprobe.slots_for("deepseek", {**s, "summaryAI": {"mode": "inherit", "endpoint": "https://api.deepseek.com/x"}}) == ["textAI"]

@@ -407,6 +407,9 @@ async function inventory(p) {
     const v6 = e.p.settingsV6();
     // 坏的是阿里云（识图第二层 + 概要的备用都在用它）
     REPLIES.usage = { ...USAGE, keys: { aliyun: { code: 'NEEDS_HUMAN.AUTH_FAILED', caps: ['visionAI', 'summaryAI'] } } };
+    // 后端 keys detect 认出阿里云 + 设置里指着阿里云的格子（keyprobe.slots_for，pricing.provider_of 一处认）
+    const DETECT = REPLIES['keys detect'];
+    REPLIES['keys detect'] = { ...DETECT, slots: ['summaryAI.fallback', 'visionAI.refine'] };
     e.p.v6Cache = {};
     // 修之前的路（只填空格子）：一格都换不掉——这就是她点「换一个 key」没反应的原因
     const was = JSON.stringify([e.p.settings.summaryAI, e.p.settings.visionAI]);
@@ -442,8 +445,12 @@ async function inventory(p) {
     // 存失败：一格都不改
     const e2 = makePlugin({ visionAI: { mode: 'http', endpoint: BL, model: 'qwen3.8-flash', keyFile: 'k.csv' } });
     e2.p.saveFails = 1;
-    await e2.p.settingsV6().replaceKey('aliyun', 'sk-x', ['visionAI']);
+    await e2.p.settingsV6().replaceKey('aliyun', 'sk-x', ['visionAI'], ['visionAI']);
     assert.ok(!e2.p.settings.visionAI.apiKey, '没保存上：原来的 key 没动');
+    notices.length = 0;
+    await e2.p.settingsV6().replaceKey('aliyun', 'sk-x', ['visionAI']);
+    assert.ok(!e2.p.settings.visionAI.apiKey && notices.some(n => /后台程序是旧版/.test(String(n))), '旧后端没给 slots：不猜，如实说');
+    REPLIES['keys detect'] = DETECT;
     REPLIES.usage = USAGE;
     // 只填空格子（没出问题的那家）：已经填好的地址和密钥引用一个不动
     const e3 = makePlugin({ textAI: { mode: 'http', endpoint: 'https://api.deepseek.com/chat/completions', model: 'deepseek-v4-flash', keyFile: 'k.csv' }, visionAI: { mode: 'http', endpoint: '', model: '' },
