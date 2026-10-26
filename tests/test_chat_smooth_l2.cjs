@@ -211,10 +211,10 @@ async function a5() {
   P.plugin.reply = () => err('x', { kind: 'api', code: 'TRANSIENT.HTTP_429' });
   await C.ask('追问一下');
   assert.equal(C.answers().at(-1).querySelector('.lbchat-fail').textContent, '接口限流了，过一会儿再试');
-  const bound = C.calls.asks.at(-1).sourceIds;
+  assert.equal(C.calls.asks.at(-1).mode, 'chat');   // 1026：追问 = 接着聊
   P.plugin.reply = req => ({ status: 'ok', markdown: 'ok', sources: [], related: [] });
   C.answers().at(-1).querySelector('.lbchat-retry').onclick(); await tick(30);
-  assert.deepEqual(Array.from(C.calls.asks.at(-1).sourceIds), Array.from(bound));
+  assert.equal(C.calls.asks.at(-1).mode, 'chat', '重试照样接着聊');
   // 改一下再问
   P.plugin.reply = () => err('x', { kind: 'timeout' });
   await C.ask('会超时的问题');

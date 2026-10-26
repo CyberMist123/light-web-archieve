@@ -1013,12 +1013,14 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat-modelpop-item.is-off .lbchat-modelpop-name{color:var(--text-muted);}
 .lbchat-modelpop-sub{margin-left:8px;font-size:11.5px;color:var(--text-faint);}
 .lbchat-modelpop-check{flex:none;width:16px;text-align:center;color:var(--text-normal);}
-/* 1026 她：提问气泡悬停出「编辑」，点了放回输入框重发 */
-.lbchat .lbchat-user{position:relative;}
-.lbchat .lbchat-user{padding-right:52px!important;}
-.lbchat button.lbchat-user-edit{position:absolute;right:10px;top:8px;opacity:0;transition:opacity .12s;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-faint);font-size:12px;height:auto;padding:2px 4px!important;cursor:pointer;white-space:nowrap;}
-.lbchat .lbchat-user:hover button.lbchat-user-edit,.lbchat button.lbchat-user-edit:focus-visible{opacity:1;}
-.lbchat button.lbchat-user-edit:hover{color:var(--text-normal);}
+/* 1026 她：提问气泡底下一排小图标（复制 / 重来 / 编辑），悬停才出现；气泡样式挪到里层，外层只管排版 */
+.lbchat .lbchat-user.is-wrapped{background:transparent!important;padding:0!important;border-radius:0!important;display:flex;flex-direction:column;align-items:flex-end;gap:2px;}
+.lbchat .lbchat-user.is-wrapped > .lbchat-ububble{background:var(--background-secondary);padding:9px 15px;border-radius:16px 16px 4px 16px;max-width:100%;box-sizing:border-box;}
+.lbchat-uacts{display:flex;gap:2px;opacity:0;transition:opacity .12s;}
+.lbchat .lbchat-user:hover .lbchat-uacts,.lbchat-uacts:focus-within{opacity:1;}
+.lbchat button.lbchat-uact{width:26px;height:24px;padding:0!important;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-faint);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border-radius:6px!important;}
+.lbchat button.lbchat-uact:hover{color:var(--text-normal);background:var(--background-modifier-hover)!important;}
+.lbchat-uact svg{width:15px;height:15px;display:block;}
 /* 1026 她：输入卡右边距——发送键别贴着卡片边 */
 .lbchat .lbchat-composer{padding-right:14px;}
 .lbchat .lbchat-cbar .lbchat-cbar-right{gap:6px;}
@@ -1329,6 +1331,7 @@ function autosize() {
   } catch {}
 }
 search.oninput = () => {
+  if (!search.value.trim()) editFrom = null;
   saveDraft(search.value); autosize();
   if (!readOnly && Date.now() - warmedAt > 60000) { warmedAt = Date.now(); try { provider()?.warmAnswerWorker?.(); } catch {} }
 };
@@ -1379,19 +1382,48 @@ const openState = new Set();
 const picks = new Map();
 const struck = new Set();
 
+const UACT_ICON = {
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>',
+  rewind: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/></svg>',
+};
+// 编辑中的那一问：下次发送前把对话退回到它之前（输入框清空就作罢）
+let editFrom = null;
+// 退回到某一问之前：这一问和它后面的都去掉（写盘），页面重画。正在回答时不动
+async function rewindTo(turnId) {
+  if (isBusy()) { notice('正在回答，等这一问答完再改', 2500); return false; }
+  const i = session.turns.findIndex(x => x.id === turnId);
+  if (i < 0) return false;
+  session.turns = session.turns.slice(0, i);
+  resetViews();
+  await keepSession();
+  await drawChat({ restore: 'bottom' });
+  return true;
+}
 async function buildTurn(t) {
   const key = t.id;
   if (t.role === 'user') {
-    const el = createDiv({ cls: 'lbchat-turn lbchat-user' }); el.dataset.key = key;
-    // 1026 她：问过的话能改了重发——点「编辑」把这句放回输入框（光标在末尾），改完照常发送
-    if (!readOnly) { const eb = el.createEl('button', { cls: 'lbchat-user-edit', text: '编辑', attr: { title: '放回输入框，改完重新发送' } }); eb.type = 'button'; eb.onclick = ev => { ev?.stopPropagation?.(); search.value = t.content || ''; search.dispatchEvent?.(new Event('input')); search.focus(); try { search.setSelectionRange(search.value.length, search.value.length); } catch {} }; }
-    if (t.mode === 'scope') el.createEl('span', { cls: 'lbchat-scopetag', text: `只问这一篇：《${t.scopeTitle || ''}》` });
-    if (t.mode === 'search') el.createEl('span', { cls: 'lbchat-qmark', text: '搜' });
-    if (t.report) el.createEl('span', { cls: 'lbchat-qmark', text: '报告' });
-    if (t.mode === 'reask') el.createEl('span', { cls: 'lbchat-qmark', text: `按留下的 ${t.sources || ''} 条来源重答` });
-    if (t.mode === 'follow') el.createEl('span', { cls: 'lbchat-qmark is-follow', text: '接着上面聊' });
-    if (t.mode === 'expand') el.createEl('span', { cls: 'lbchat-qmark is-follow', text: `展开 · ${t.sources || ''} 条来源` });
-    el.appendText(t.content);
+    // 1026 她：提问气泡里不放按钮——气泡包在这一轮里面，底下一排小图标（复制 / 重来 / 编辑），鼠标移上来才出现
+    const el = createDiv({ cls: 'lbchat-turn lbchat-user is-wrapped' }); el.dataset.key = key;
+    const bub = el.createDiv({ cls: 'lbchat-ububble' });
+    if (t.mode === 'scope') bub.createEl('span', { cls: 'lbchat-scopetag', text: `只问这一篇：《${t.scopeTitle || ''}》` });
+    if (t.mode === 'search') bub.createEl('span', { cls: 'lbchat-qmark', text: '搜' });
+    if (t.report) bub.createEl('span', { cls: 'lbchat-qmark', text: '报告' });
+    if (t.mode === 'reask') bub.createEl('span', { cls: 'lbchat-qmark', text: `按留下的 ${t.sources || ''} 条来源重答` });
+    if (t.mode === 'follow') bub.createEl('span', { cls: 'lbchat-qmark is-follow', text: '接着上面聊' });
+    if (t.mode === 'expand') bub.createEl('span', { cls: 'lbchat-qmark is-follow', text: `展开 · ${t.sources || ''} 条来源` });
+    bub.appendText(t.content);
+    if (!readOnly) {
+      const acts = el.createDiv({ cls: 'lbchat-uacts' });
+      const ib = (name, title, fn) => { const b = acts.createEl('button', { cls: 'lbchat-uact', attr: { title, 'aria-label': title } }); b.type = 'button'; b.innerHTML = UACT_ICON[name]; b.onclick = ev => { ev?.stopPropagation?.(); fn(); }; return b; };
+      ib('copy', '复制', async () => { try { await navigator.clipboard.writeText(t.content || ''); notice('已复制', 1200); } catch (e) { notice('没复制上：' + errText(e)); } });
+      ib('rewind', '重来：退回到这一问，重新问一遍', async () => { if (await rewindTo(t.id)) submit(t.content || '', { keep: true }); });
+      ib('edit', '编辑：放回输入框，改完发送会从这一问重来', () => {
+        if (isBusy()) { notice('正在回答，等这一问答完再改', 2500); return; }
+        editFrom = t.id; search.value = t.content || ''; autosize(); saveDraft(search.value); search.focus();
+        try { search.setSelectionRange(search.value.length, search.value.length); } catch {}
+      });
+    }
     return { el, sig: sigOf(t), dispose: () => {} };
   }
   if (t.role === 'search') {
@@ -2148,6 +2180,7 @@ async function submit(raw, opts = {}) {
   if (isBusy()) { enqueue(text, opts); return; }
   const p = provider(); if (!p) return;
   const q = text.replace(/^\//, '').trim(); if (!q) return;
+  if (editFrom && !opts.expand) { const from = editFrom; editFrom = null; if (session.turns.some(x => x.id === from) && !(await rewindTo(from))) return; }
   const askedAt = new Date().toISOString();
   const fresh = !!opts.fresh || nextFresh; nextFresh = false;
   // 1015「展开」：绑定那一答的 turn + 来源 id（opts.expand = {turnId, ids, q, label, of}），只在这些来源里展开，不再发固定话术给「上一答」

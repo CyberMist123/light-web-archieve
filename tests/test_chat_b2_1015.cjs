@@ -46,7 +46,8 @@ const TOC = [
     assert.equal(C.saved().id, s.id);
     assert.equal(C.saved().turns.length, 4);
     assert.equal(P.calls.asks[2].history.length, 2);
-    assert.deepEqual(Array.from(P.calls.asks[2].sourceIds), ['a', 'b', 'c', 'd']);
+    // 1026 她：追问 = 接着聊，不再带上一答的来源去重新检索
+    assert.equal(P.calls.asks[2].mode, 'chat'); assert.equal(P.calls.asks[2].sourceIds, undefined);
     // 重开页面：她点过的追问开关还在；新对话回到默认
     const C2 = await openChat({ plugin: P, prefs: null, V: C.V });
     assert.ok(seg(C2, '追问').classList.contains('is-on'));
@@ -129,14 +130,9 @@ const TOC = [
     items[2].querySelector('.lbchat-tocard-name').onclick(); await tick(5);
     assert.deepEqual(P.calls.opened, ['Web/c.md']);
     // ④ 1 问也有目录（回答是目录卡）：窄窗 → 页头按钮 + 左上「☰ 目录」；弹出层里有条目
-    const peek = C.q('.lbchat-tocbtn');
-    assert.equal(peek.hidden, false, '1 问（目录型回答）窄窗也有目录按钮');
-    assert.equal(peek.textContent, '目录');
-    peek.onclick({ stopPropagation() {} });
-    const panel = C.dom.document.querySelector('.lbchat-tocpanel');
-    assert.ok(panel, '点「☰ 目录」弹出');
-    assert.deepEqual(panel.querySelectorAll('.lbchat-toc-item').map(b => b.getAttribute('title')), ['辣味鱼片', '麻辣香锅', '水煮牛肉']);
-    peek.onclick({ stopPropagation() {} });
+    // 1026 floating-toc：1 问的目录型回答也出左边横线目录（不再有「目录」按钮 / 弹出层）
+    assert.equal(C.q('.lbchat-toc').hidden, false, '1 问（目录型回答）也有目录');
+    assert.equal(C.q('.lbchat-tocbtn').hidden, true);
     // 单条展开：turn_id + 这一条的 id
     items[0].querySelector('.lbchat-tocard-expand').onclick(); await tick(20);
     const req = P.calls.asks[1];
@@ -149,16 +145,10 @@ const TOC = [
     C.answers()[0].querySelector('.lbchat-tocard-all').onclick(); await tick(20);
     assert.deepEqual(Array.from(P.calls.asks[2].expandIds), ['a', 'b', 'c']);
     assert.equal(C.saved().turns.length, 6, '展开都接在这段里');
-    // 宽窗：左栏；收起后「☰ 目录」点了放回来
+    // 1026 floating-toc：宽窄窗都是左边横线目录，不再有收起 / 「☰ 目录」
     const wrapEl = C.q('.lbchat-bodywrap');
     wrapEl.clientWidth = 1150; C.A.resize.trigger(1150, 800); await tick(5);
-    assert.ok(wrapEl.classList.contains('is-wide') && wrapEl.classList.contains('is-tight'), '1080–1242 也有左栏，对话列让位');
-    assert.equal(C.q('.lbchat-toc').hidden, false);
-    C.q('.lbchat-toc-fold').onclick();
-    assert.equal(C.q('.lbchat-toc').hidden, true); assert.equal(C.q('.lbchat-tocbtn').hidden, false);
-    C.q('.lbchat-tocbtn').onclick({ stopPropagation() {} });
-    C.dom.document.querySelector('.lbchat-tocpanel .lbchat-toc-fold').onclick();   // 弹出层里「固定在左边」
-    assert.equal(C.q('.lbchat-toc').hidden, false, '收起可恢复');
+    assert.equal(C.q('.lbchat-toc').hidden, false); assert.ok(wrapEl.classList.contains('has-ftoc'));
   }
   // 兼容兜底：没给 toc / mode=direct / toc 是空的 → 照原样渲染，没有目录卡；groups 形状也认
   {

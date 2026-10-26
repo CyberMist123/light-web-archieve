@@ -65,7 +65,7 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   assert.ok(seg('追问').classList.contains('is-on') && !seg('新对话').classList.contains('is-on'));
   assert.ok(!bar.textContent.includes('改为'), '不再写「改为……」');
   assert.equal(one('.lbchat-clearbox .lbchat-clearall').textContent, '清空上下文');
-  assert.equal(one('.lbchat-search').placeholder, '在当前来源里继续追问…');
+  assert.equal(one('.lbchat-search').placeholder, '接着聊…');
 
   // ⑥ 来源入口：收起时 summary 后面有提示小字；每行 标题 + 保留 + × 在同一行里
   const box = () => all('.lbchat-src')[all('.lbchat-src').length - 2];
@@ -83,14 +83,15 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   // 追问：只在上一轮留下的来源里答（保留的 b 排前，删掉的 a 不要）；排除照样带上；10-04 ②：保留的 b 也作为 pinIds 带上
   reply = () => ({ status: 'ok', markdown: '只看留下的 [来源1]', sources: [src('b', 1)], related: [rel('c', 2)] });
   await ask('哪家最便宜');
-  assert.deepEqual(Array.from(asks[1].sourceIds), ['b', 'c']);
+  // 1026 她：追问 = 接着聊（mode=chat），不带来源 id 去重新检索；排除 / 保留照样带上
+  assert.equal(asks[1].mode, 'chat'); assert.equal(asks[1].sourceIds, undefined);
   assert.deepEqual(Array.from(asks[1].excludeIds), ['a']);
   assert.deepEqual(Array.from(asks[1].pinIds), ['b']);
   assert.equal(asks[1].history.length, 2, '追问照样带上一轮对话');
   let turns = saved().turns;
   assert.equal(turns[2].mode, 'follow');
-  assert.equal(turns[2].sources, 2);
-  assert.ok(A.section.textContent.includes('在当前 2 条来源里追问'));
+  assert.equal(turns[2].sources, undefined);
+  assert.ok(A.section.textContent.includes('接着上面聊'));
 
   // 点「新对话」：下一问重新检索（不带 sourceIds），开一段新对话（这段进历史），状态存进会话文件
   const before1020 = saved().id;
@@ -116,7 +117,7 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   await ask('停一下');
   reply = () => ({ status: 'ok', markdown: 'ok', sources: [src('b', 1)], related: [] });
   await ask('接着问');
-  assert.ok(!Array.from(asks[4].sourceIds).includes('z'));
+  assert.equal(asks[4].mode, 'chat'); assert.ok(!(asks[4].sourceIds || []).includes('z'));   // 1026：追问 = 接着聊，不带来源 id
 
   // ① ⑤ 「清空」（10-04 改）：不弹确认、不删记录——当前页面换成一段新对话（轮次、排除、保留清掉，开关回到默认）；清空后第一问照常检索
   A.window.confirm = () => { throw new Error('清空不该再弹确认'); };
@@ -140,9 +141,9 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   assert.equal(asks.length, before + 1);
   assert.equal(asks.at(-1).question, '悉尼咖啡');
   assert.equal(asks.at(-1).sourceIds, undefined);
-  // 之后手打的追问又按默认绑定
+  // 之后手打的追问按默认「接着聊」（1026：mode=chat，不重新检索）
   await ask('再说说');
-  assert.ok(Array.isArray(asks.at(-1).sourceIds));
+  assert.equal(asks.at(-1).mode, 'chat');
 
   console.log('PASS chat 1004: title + removed, 清空 beside the source line above the composer (no confirm, new conversation, old one kept in history, resets follow), composer + removed (回答 · 报告 beside the model), 追问 · 新对话 switch, follow-up bound to kept sources by default (pinned first, removed dropped, stopped answers skipped), 新对话 persisted, fresh after clear / catalog jump, source rows show 保留 / × with hint, scrollbar + block frame CSS');
 })().catch(e => { console.error(e); process.exit(1); });

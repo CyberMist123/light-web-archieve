@@ -18,6 +18,11 @@ _CLIENT = httpx.Client(timeout=httpx.Timeout(120, connect=15))
 # 第 3 批「停止」：调用方（serve.py 的问答 worker）把一个 threading.Event 放进这里；用户点停止 = set()。
 # cli_call 到点整棵杀命令行模型（procs.kill_tree，不碰读取服务）；http_call 关掉流。返回 status=cancelled。
 CANCEL: ContextVar = ContextVar('lb_text_cancel', default=None)
+# 1026 她：追问（接着聊）时让命令行模型能上网——只在问收藏「追问」里设 True（ask.chat_followup）。打开后：
+# claude 放开 WebSearch / WebFetch，codex 加 --search，opencode 放开 websearch / webfetch；Bash / 写文件 / 改文件照旧禁。
+# 其余调用（作答、概要、整理……）一律不开：那些提示词里塞着别人帖子的原文，能联网就多了一条被诱导外传的路。
+WEB_TOOLS: ContextVar = ContextVar('lb_text_web', default=False)
+WEB_TOOL_NAMES = ('WebFetch', 'WebSearch')
 
 
 def cancelled_result(text=None):
@@ -60,29 +65,37 @@ def _set_flag(cmd, names, value, insert_at):
     return cmd
 
 
-def harden_command(cmd):
-    """claude：--permission-mode default + 禁用会动本机的工具 + 不加载任何 MCP；codex：-s read-only。已有同类参数不重复加。"""
+def harden_command(cmd, web=None):
+    """claude：--permission-mode default + 禁用会动本机的工具 + 不加载任何 MCP；codex：-s read-only。已有同类参数不重复加。
+    web（默认读 WEB_TOOLS）：放开联网搜索 / 抓网页（只在追问里），其余禁令不变。"""
+    web = WEB_TOOLS.get() if web is None else bool(web)
     cmd = [t for t in cmd if t.strip('"\'') not in _UNSAFE_FLAGS]
     if not cmd:
         return cmd
     prog = _prog(cmd[0])
     if prog == 'claude':
+        denied = tuple(t for t in CLAUDE_DENIED_TOOLS if not (web and t in WEB_TOOL_NAMES))
         cmd = _set_flag(cmd, ('--permission-mode',), 'default', len(cmd))
         for i, tok in enumerate(cmd):
             bare = tok.strip('"\'')
             if bare in ('--disallowedTools', '--disallowed-tools') and i + 1 < len(cmd):
                 have = {t for t in cmd[i + 1].strip('"\'').replace(',', ' ').split() if t}
-                missing = [t for t in CLAUDE_DENIED_TOOLS if t not in have]
-                if missing or have & set(CLAUDE_GONE_TOOLS):
-                    cmd[i + 1] = ','.join([*sorted(have - set(CLAUDE_GONE_TOOLS)), *missing])
+                missing = [t for t in denied if t not in have]
+                drop = set(CLAUDE_GONE_TOOLS) | (set(WEB_TOOL_NAMES) if web else set())
+                if missing or have & drop:
+                    cmd[i + 1] = ','.join([*sorted(have - drop), *missing])
                 break
         else:
-            cmd += ['--disallowedTools', ','.join(CLAUDE_DENIED_TOOLS)]
+            cmd += ['--disallowedTools', ','.join(denied)]
+        if web and not any(t.strip('"\'') in ('--allowedTools', '--allowed-tools') for t in cmd):
+            cmd += ['--allowedTools', ','.join(WEB_TOOL_NAMES)]   # -p 不交互：要显式放行，否则问权限就当拒
         if not any(t.strip('"\'') == '--strict-mcp-config' for t in cmd):
             cmd.append('--strict-mcp-config')
     elif prog == 'codex':
         at = next((i + 1 for i, t in enumerate(cmd) if t.strip('"\'') == 'exec'), 1)
         cmd = _set_flag(cmd, ('-s', '--sandbox'), 'read-only', at)
+        if web and '--search' not in [t.strip('"\'') for t in cmd]:
+            cmd.insert(1, '--search')   # codex 的顶层参数（写在 exec 前面）：开原生 web_search；沙箱照旧只读
     elif prog == 'opencode':
         # 1017：opencode run 没有「不要工具」的命令行开关，权限靠环境变量 OPENCODE_PERMISSION（见 cli_env）；
         # 这里只保证不加载外部插件（--pure）、不自动放行权限（--auto 已在 _UNSAFE_FLAGS 里剔掉）
@@ -96,13 +109,16 @@ def harden_command(cmd):
 OPENCODE_DENY = ('edit', 'write', 'patch', 'bash', 'webfetch', 'websearch', 'task')
 
 
-def cli_env(cmd):
-    """按命令行模型补环境变量：opencode → OPENCODE_PERMISSION 拒掉会动本机 / 出网的工具（已设的不覆盖）。其余原样。"""
+def cli_env(cmd, web=None):
+    """按命令行模型补环境变量：opencode → OPENCODE_PERMISSION 拒掉会动本机 / 出网的工具（已设的不覆盖）。其余原样。
+    web（默认读 WEB_TOOLS）：追问里放开 websearch / webfetch。"""
     import json
     import os
+    web = WEB_TOOLS.get() if web is None else bool(web)
     env = dict(os.environ)
     if cmd and _prog(cmd[0]) == 'opencode' and not env.get('OPENCODE_PERMISSION'):
-        env['OPENCODE_PERMISSION'] = json.dumps({tool: 'deny' for tool in OPENCODE_DENY})
+        deny = [t for t in OPENCODE_DENY if not (web and t in ('webfetch', 'websearch'))]
+        env['OPENCODE_PERMISSION'] = json.dumps({tool: 'deny' for tool in deny})
     return env
 
 
