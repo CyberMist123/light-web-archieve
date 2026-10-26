@@ -879,7 +879,7 @@ class LinkBrainActions extends Plugin {
   // 写前合并：只把「这个窗口加载后真改过」的顶层键写进去，其余键取磁盘最新值——别处（命令行 / 网页 / 另一窗口）改的不会被内存旧值盖掉。
   // _diskSnap = 上次和磁盘对齐时每个顶层键的 JSON；内存值和它不同 = 本窗口改过。
   snapDisk(raw) { this._diskSnap = {}; for (const [k, v] of Object.entries(raw || {})) this._diskSnap[k] = JSON.stringify(v); }
-  // 1027 根因修复（她的目录标题自定义的标题10-17 → 10-26 之间从 data.json 里没了）：saveMerged 靠「内存值 ≠ 快照」认本窗口改过的键，
+  // 1027 根因修复（她自定义的目录标题 10-17 → 10-26 之间在 data.json 里成了空串）：saveMerged 靠「内存值 ≠ 快照」认本窗口改过的键，
   // 但两次保存（改标题、页面防抖存的列数 / 编排、设置页、remote beforeSave）以前不排队：后一次的 loadData 读在前一次写盘之前、
   // 比较却用前一次写完才更新的快照 → 刚改的标题被当成「没改过」，用读到的旧磁盘值 '' 覆盖内存和 data.json。外部重读（盯文件 /
   // Obsidian onExternalSettingsChange）插在保存的两个 await 之间也一样，还会把「改了、防抖还没存」的键冲回旧值。
