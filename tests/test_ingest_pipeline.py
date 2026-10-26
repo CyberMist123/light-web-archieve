@@ -149,3 +149,31 @@ def test_after_commit_marks_and_renders_only_when_needed(fake, monkeypatch):
     assert seen == [("render", False)]          # 可见 md 不在（假渲染没写）：已在库的也补一份
     monkeypatch.setattr(render, "render_object", lambda *a, **k: (_ for _ in ()).throw(OSError("盘满")))
     assert ingest.after_commit(NAME, SID, fresh=True).startswith("渲染失败: OSError")
+
+
+def test_download_plan_uses_each_tasks_own_headers(tmp_path, monkeypatch):
+    """10-26 复审（Codex）：整批共用第一条任务的头、视频丢头 → 图 / 语音 / 视频要各用各的；没给头的就不带。"""
+    from link_brain import videos
+    got = []
+    monkeypatch.setattr(ingest, "download_image", lambda url, dest, stem, client: got.append(("image", client.headers.get("x-k"))) or {
+        "file": None, "download_status": "failed", "error": "离线"})
+    monkeypatch.setattr(ingest, "_download_comment_audio", lambda a, cid, assets, rel, client: got.append(("audio", client.headers.get("x-k"))) or {
+        "role": "comment_audio", "download_status": "failed"})
+    monkeypatch.setattr(videos, "download", lambda payload, raw, prefix, client=None: got.append(("video", client.headers.get("x-k") if client else None)) or {
+        "role": "video", "download_status": "failed"})
+    plan = [dict(role="note_image", index=1, url="u1", stem="image-001", kind="image", headers={"X-K": "image"}),
+            dict(role="comment_audio", comment_id="c1", url="u2", stem="a", kind="audio", headers={"X-K": "audio"}),
+            dict(role="comment_image", index=1, comment_id="c1", url="u3", stem="b", kind="image"),
+            dict(role="video", index=1, url="u4", stem="video", kind="video", headers={"X-K": "video"}),
+            dict(role="video", index=1, url="u5", stem="video", kind="video")]
+    ingest.download_plan(plan, tmp_path / "v0001", "x")
+    assert got == [("image", "image"), ("audio", "audio"), ("image", None), ("video", "video"), ("video", None)]
+
+
+def test_xhs_plan_only_images_carry_headers():
+    """小红书：图片带 UA / Referer；语音、视频历来不带（PR⑤b 前就是这样），别因为通用下载改了口径。"""
+    src = sources.get("xiaohongshu")
+    doc = {"note": {"kind": "video", "images": [{"index": 1, "url": "i"}], "video": {"video_url": "v"}},
+           "comments": [{"comment_id": "c1", "audio": {"url": "a"}}]}
+    plan = src.media_plan(doc, {"downloadImages": True, "downloadVideo": True})
+    assert {t["kind"]: bool(t.get("headers")) for t in plan} == {"image": True, "audio": False, "video": False}

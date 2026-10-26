@@ -191,4 +191,4 @@ def test_media_plan_matches_downloads(monkeypatch, tmp_path, raw, kind, images, 
     def identity(entry, url_key):
         return entry["role"], entry.get("index"), entry.get("comment_id"), entry[url_key]
     assert {identity(t, "url") for t in tasks} == {identity(m, "original_url") for m in manifest["media"]}
-    assert all(t["headers"] == ingest.DOWNLOAD_HEADERS for t in tasks)
+    assert all(t.get("headers") == (ingest.DOWNLOAD_HEADERS if t["kind"] == "image" else None) for t in tasks)  # 语音 / 视频历来不带头
