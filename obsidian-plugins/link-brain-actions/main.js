@@ -1462,8 +1462,10 @@ class LinkBrainActions extends Plugin {
     const bar = row.descEl.createDiv({cls: 'lb-progress'});
     bar.createDiv({cls: 'lb-progress-fill'});
     const guide = row.descEl.createDiv({cls: 'lb-acct-guide'});
-    let primary, more, current = null;
+    let primary, restore, more, current = null;
     row.addButton(b => { primary = b; b.buttonEl.hide(); });
+    // 她截图（10-26）：验证窗口关了、熔断还在时，下一步说「点『没看到验证，恢复』」，账号面板上却没有这个按钮（只在问题面板有）
+    row.addButton(b => { restore = b; b.setButtonText('没看到验证，恢复'); b.buttonEl.hide(); });
     row.addExtraButton(b => { more = b; b.setIcon('more-horizontal').setTooltip('更多'); });
     // 每种状态：状态字 · 下一步一句话 · 主按钮。第 4 批：带故障码的几种（掉登录 / 验证 / 服务没起 / 未安装）状态字取 Python 登记表
     // （state_registry，按行里的 code），下一步取后端给的 next_step（accounts.SOLUTIONS）；这里只留没有故障码的状态字和按钮名。
@@ -1497,6 +1499,9 @@ class LinkBrainActions extends Plugin {
       if (running) bar.addClass('is-running'); else bar.removeClass('is-running');
       const btnText = r.state === 'error' && r.action === 'login' ? '登录' : button;
       if (btnText) { primary.setButtonText(btnText); primary.buttonEl.show(); primary.setDisabled(false); } else primary.buttonEl.hide();
+      // 和问题面板同一把尺子（problems-ui.js 的 VERIFY_STILL_HELD）：关窗后熔断还在才给
+      const held = r.state === 'captcha' && ['no_captcha_seen', 'still_risk', 'not_read', 'window_failed', 'still_held'].includes(String(r.verify_result || ''));
+      if (held && typeof this.restoreHold === 'function') { restore.buttonEl.show(); restore.setDisabled(false); } else restore.buttonEl.hide();
     };
     this.stateRegistry().then(reg => { registry = reg || {}; if (current && current.code) paint(current); }).catch(() => {});
     // S4：打开设置页不再开浏览器访问小红书——10 分钟内的缓存直接画；过期先画缓存、后台浅查；没缓存才「检查中」+ 浅查。
@@ -1526,6 +1531,11 @@ class LinkBrainActions extends Plugin {
         try { paint(await platform.verify(this)); } catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); }
       } else if (['expired', 'not_logged_in'].includes(current?.state) || act === 'login') await login();
       else await refresh(true);
+    });
+    restore.onClick(async () => {
+      restore.setDisabled(true);
+      try { const r = await this.restoreHold(); if (r) paint({...r, _at: Date.now()}); else restore.setDisabled(false); }
+      catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); }
     });
     more.onClick(() => {
       const menu = new obsidian.Menu();

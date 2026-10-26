@@ -215,6 +215,24 @@ async function pluginTests() {
   await p.restoreHold();
   assert.equal(JSON.stringify(calls.at(-1).args), JSON.stringify(['login', '--clear-hold', '--by-owner', '--json']));
   assert.ok(confirms[0].body.includes('「收藏」页签'));
+  // 10-26 她截图：账号面板写着「点『没看到验证，恢复』」却没有这个按钮——关窗后熔断还在时账号行也要给，已登录时不给
+  const restoreBtn = bx => [...bx.querySelectorAll('button')].find(b => b.textContent === '没看到验证，恢复');
+  const shown = b => !!b && b.isShown();
+  p.accountCache = { row: { state: 'captcha', verify_result: 'no_captcha_seen', message: '窗口里没出现验证，暂停还在', next_step: '如果你确实没看到滑块：点「没看到验证，恢复」' }, at: Date.now(), deep: false };
+  const box4 = dom.document.body.createDiv();
+  p.renderAccountRow(box4, { id: 'xhs', name: '小红书', status: (pl, deep) => pl.accountStatus({ deep }) });
+  await tick(5);
+  assert.ok(shown(restoreBtn(box4)), '熔断还在：账号行有「没看到验证，恢复」');
+  const n1 = calls.length;
+  restoreBtn(box4).click(); await tick(30);
+  assert.equal(JSON.stringify(calls.at(-1).args), JSON.stringify(['login', '--clear-hold', '--by-owner', '--json']), '点了走 restoreHold（先确认）');
+  assert.equal(calls.length, n1 + 1);
+  assert.ok(!shown(restoreBtn(box4)), '恢复后（已登录）按钮收起');
+  p.accountCache = { row: { state: 'captcha', verify_result: 'cleared' }, at: Date.now(), deep: false };
+  const box5 = dom.document.body.createDiv();
+  p.renderAccountRow(box5, { id: 'xhs', name: '小红书', status: (pl, deep) => pl.accountStatus({ deep }) });
+  await tick(5);
+  assert.ok(!shown(restoreBtn(box5)), '没有「关窗后熔断还在」的结论就不给');
   // 查看截图：只认目录名，拼本机路径打开
   await assert.rejects(p.openRiskEvidence('../x'), /目录名不对/);
   const evRoot = path.join(require('os').tmpdir(), 'lb-l6-ev-' + process.pid);
