@@ -88,7 +88,12 @@ async function open(browser, theme, { failRemote = false, guide = false } = {}) 
         const total = f({ calls: 558, failed: 3, in: 1515800, out: 124100, cost: 2.85 });
         const out = { ok: true, links, keys: { aliyun: { code: 'NEEDS_HUMAN.AUTH_FAILED', caps: ['visionAI', 'summaryAI'] } },
           summary: { as_of: '2026-10-03', features: { vision: '识图', refine: '精细识图', summary: '概要', ask: '问收藏', expand: '扩词', embed: '向量（embedding）', asr: '语音转写', rerank: '精排（rerank）', other: '索引 / wiki 整理' },
-            windows: { today: { total, features, providers: {} }, '7d': { total, features, providers: {} }, '30d': { total, features, providers: {} } },
+            windows: Object.fromEntries(['today', '7d', '30d'].map(w => [w, { total: { ...total, free: 40 }, features,
+              providers: { aliyun: f({ calls: 472, in: 1000000, out: 70000, cost: 1.42 }), deepseek: f({ calls: 46, in: 420000, out: 33000, cost: 1.05 }), google: f({ calls: 40, free: 40 }) },
+              models: { 'aliyun|qwen3.8-flash': f({ provider: 'aliyun', model: 'qwen3.8-flash', calls: 412, cost: 0.86 }), 'google|gemini-3.5-flash': f({ provider: 'google', model: 'gemini-3.5-flash', calls: 40, free: 40 }),
+                'google|gemini-embedding-2': f({ provider: 'google', model: 'gemini-embedding-2', calls: 5, unpriced: 5 }) },
+              unpriced_models: [{ provider: 'google', model: 'gemini-embedding-2', calls: 5 }] }])),
+            recent: [{ ts: new Date().toISOString(), f: 'vision', p: 'aliyun', m: 'qwen3.8-flash', in: 2100, out: 150, ok: true, item: 'xhs-synthetic-1', cost: 0.0021, status: 'paid' }], recent_limit: 200,
             month: { deepseek: f({ calls: 46, cost: 1.05 }), aliyun: f({ calls: 512, cost: 1.80 }) } } };
         // 1018 AI 页重排：每个功能用谁（主用 → 备用）+ 每天上限
         const G = (label, extra = {}) => ({ label, provider: 'google', model: 'gemini-3.5-flash', free: true, price: '免费', key: '3 把轮流用', ...extra });
@@ -197,7 +202,8 @@ const rowsIn = (page, sel) => page.evaluate(sel => [...document.querySelectorAll
       await page.waitForFunction(() => /今天 ¥0\.83/.test(document.querySelector('[data-section="s-status"]')?.textContent || '') && document.querySelectorAll('.lb-app').length >= 3);
       await page.waitForTimeout(300);
       assert.equal(await page.locator('.lb-tabs').count(), 0, '没有页签');
-      assert.deepEqual(await cards(page), ['s-status:状态', 's-xhs:小红书', 's-ai:识别与问答', 's-mcp:知识库接入 AI', 's-more:更多']);
+      // 1026（录屏场景 08）：按要做的事排六组
+      assert.deepEqual(await cards(page), ['s-status:状态', 's-xhs:收藏与同步', 's-content:内容、目录及管理', 's-ai:识别与问答', 's-cost:模型与费用', 's-mcp:外部 AI 接入', 's-more:高级 / 修复']);
       const status = await rowsIn(page, '[data-section="s-status"]');
       assert.deepEqual(status, ['小红书 · momo · ✓ 已登录', '收藏同步', 'API 费用', '识别', '读取']);
       assert.ok(await page.locator('[data-section="s-status"] .lb-lamp.is-warn').count(), theme + '：key 用不了 → 黄灯');
@@ -205,7 +211,7 @@ const rowsIn = (page, sel) => page.evaluate(sel => [...document.querySelectorAll
       assert.match(fix, /通义千问 key 用不了.*去充值 ↗.*换一个 key/);
       assert.match(await page.evaluate(() => document.querySelector('[data-section="s-status"]').textContent), /已接入 Claude Code/);
       const ai = await rowsIn(page, '[data-section="s-ai"]');
-      assert.deepEqual(ai, ['识图', '语音', '按意思搜', '概要', 'AI 识图', '问收藏用的模型', '每天最多花'], theme + ' 识别与问答：' + ai);
+      assert.deepEqual(ai, ['识图', '语音', '按意思搜', '概要', 'AI 识图', '问收藏用的模型'], theme + ' 识别与问答：' + ai);
       const chips = await page.evaluate(() => [...document.querySelectorAll('[data-section="s-ai"] .lb-pv')].map(x => x.getAttribute('data-provider') || x.textContent));
       assert.deepEqual(chips, ['google', 'deepseek', 'aliyun', '＋ 添加 key']);
       const apps = await page.evaluate(() => [...document.querySelectorAll('.lb-app')].map(r => r.getAttribute('data-app') + ':' + r.querySelector('.setting-item-description').textContent));
@@ -222,12 +228,35 @@ const rowsIn = (page, sel) => page.evaluate(sel => [...document.querySelectorAll
       assert.deepEqual(rowBoxes, [], theme + '：行不再自带底色 / 圆角 / 边框');
       summary[theme] = { cards: await cards(page), 状态: status, 识别与问答: ai, 接入: apps };
       await shot(page, `S1018v6-settings-${theme}.png`);
-      for (const sec of ['s-ai', 's-mcp', 's-more']) await page.locator(`.lb-card[data-section="${sec}"]`).screenshot({ path: path.join(shell.QA_DIR, `S1018v6-card-${sec}-${theme}.png`) });
+      for (const sec of ['s-xhs', 's-content', 's-ai', 's-cost', 's-mcp', 's-more']) await page.locator(`.lb-card[data-section="${sec}"]`).screenshot({ path: path.join(shell.QA_DIR, `S1018v6-card-${sec}-${theme}.png`) });
       // ② 接入 Codex：开关 → connect add codex → 「已接入」
       await page.evaluate(() => document.querySelector('.lb-app[data-app="codex"] .checkbox-container').click()); await page.waitForTimeout(200);   // 外壳的开关没有尺寸：走 DOM 点
       assert.equal(await page.evaluate(() => document.querySelector('.lb-app[data-app="codex"] .setting-item-description').textContent), '已接入');
-      // ③ 每天最多花：改了立刻存
-      await page.locator('[data-section="s-ai"] input.lb-num').fill('5'); await page.locator('[data-section="s-ai"] input.lb-num').dispatchEvent('change'); await page.waitForTimeout(100);
+      // 1026（录屏 23:23 / 23:34）：点状态行的字（不只是小箭头）→ 滚到能改的那一格、焦点落进去、闪一下
+      const inView = sel => page.evaluate(sel => { const el = document.querySelector(sel), box = document.querySelector('.vertical-tab-content');
+        const r = el.getBoundingClientRect(), b = box.getBoundingClientRect(); return r.top >= b.top - 1 && r.bottom <= b.bottom + 1; }, sel);
+      await page.evaluate(() => { document.querySelector('.vertical-tab-content').scrollTop = 0; });
+      await page.locator('[data-section="s-status"] .setting-item[data-jump="ai-spend"] .setting-item-name').click(); await page.waitForTimeout(900);
+      assert.ok(await inView('[data-section="ai-spend"] input.lb-spend-input'), theme + '：点「API 费用」→ 每天上限那一格在视野里');
+      assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('[data-section="ai-spend"] input.lb-spend-input')), true, theme + '：焦点落进每天上限');
+      assert.ok(await page.locator('[data-section="ai-spend"].lb-flash').count(), theme + '：落地那一块闪一下');
+      await page.evaluate(() => { document.querySelector('.vertical-tab-content').scrollTop = 0; });
+      await page.locator('[data-section="s-status"] .lb-sync-row button', { hasText: '改时间' }).click(); await page.waitForTimeout(900);
+      assert.ok(await inView('[data-section="sync-time"] .lb-sched-times'), theme + '：「改时间」→ 自动同步时间那一格在视野里（不是卡片顶）');
+      await page.evaluate(() => { document.querySelector('.vertical-tab-content').scrollTop = 0; });
+      await page.locator('[data-section="s-status"] .setting-item[data-jump="mcp-apps"] .setting-item-name').click(); await page.waitForTimeout(900);
+      assert.ok(await inView('[data-section="mcp-apps"] .lb-app'), theme + '：点「读取」→ 接入电脑端那几行');
+      // 花了多少：三种看法切换（人民币；免费的不算进 ¥；未计价的点名）
+      await page.locator('.lb-usage-dim', { hasText: '按 API 或模型' }).click(); await page.waitForTimeout(100);
+      const modelRows = await page.evaluate(() => [...document.querySelectorAll('.lb-usage-grid[data-dim="models"] tr')].map(tr => [...tr.children].map(td => td.textContent)));
+      assert.ok(modelRows.some(r => r[0] === 'gemini-3.5-flash · Gemini' && r.at(-1) === '免费 / 未计费'), theme + '：免费 key 写免费 / 未计费：' + JSON.stringify(modelRows));
+      assert.ok(modelRows.some(r => r[0] === 'gemini-embedding-2 · Gemini' && r.at(-1) === '未计价'));
+      assert.match(await page.evaluate(() => document.querySelector('.lb-usage-gaps').textContent), /未计价.*gemini-embedding-2/);
+      await page.locator('.lb-usage-dim', { hasText: '按服务商' }).click(); await page.waitForTimeout(100);
+      await page.locator('.lb-card[data-section="s-cost"]').screenshot({ path: path.join(shell.QA_DIR, `S1026-cost-providers-${theme}.png`) });
+      await page.locator('.lb-usage-dim', { hasText: '按功能' }).click(); await page.waitForTimeout(100);
+      // ③ 每天上限（只在「模型与费用」一处）：改了立刻存
+      await page.locator('[data-section="ai-spend"] input.lb-spend-input').fill('5'); await page.locator('[data-section="ai-spend"] input.lb-spend-input').dispatchEvent('change'); await page.waitForTimeout(100);
       assert.equal(await page.evaluate(() => window.l4.plugin.settings.budget.dailyYuan), 5);
       // ④a 网页端怎么接：点开是步骤 + 一键复制
       await page.locator('details[data-section="web-howto"] > summary .lb-rf-name').click(); await page.waitForTimeout(150);
@@ -236,9 +265,8 @@ const rowsIn = (page, sel) => page.evaluate(sel => [...document.querySelectorAll
       await page.locator('details[data-section="remote"] > summary').click();
       await page.waitForFunction(() => /● 开着/.test(document.querySelector('.lb-remote-svc')?.textContent || ''));
       assert.ok(!/OAuth/.test(await page.evaluate(() => document.querySelector('details[data-section="remote"]').innerText)), '界面上没有 OAuth');
-      // ⑤ 更多 → 每项功能用哪个模型：每一项（主用 → 备用）还在，点开识图有接口 / 模型
-      await page.locator('details[data-section="ai-more"] > summary').click();
-      await page.waitForFunction(() => document.querySelectorAll('.lb-route').length >= 8);
+      // ⑤ 模型与费用 → 每个功能用谁：每一项（主用 → 备用）平铺，点开识图有接口 / 模型
+      await page.waitForFunction(() => document.querySelectorAll('[data-section="s-cost"] .lb-route').length >= 8);
       await page.locator('.lb-route[data-feature="vision"] > summary').click(); await page.waitForTimeout(200);
       const visionRows = await rowsIn(page, '.lb-route[data-feature="vision"]');
       for (const n of ['接口地址', '模型名']) assert.ok(visionRows.includes(n), `${theme} 识图展开缺「${n}」：${visionRows}`);
@@ -286,5 +314,5 @@ const rowsIn = (page, sel) => page.evaluate(sel => [...document.querySelectorAll
   } finally { await browser.close(); }
   fs.mkdirSync(shell.QA_DIR, { recursive: true });
   fs.writeFileSync(path.join(shell.QA_DIR, 'S1018v6-settings-rows.json'), JSON.stringify(summary, null, 2));
-  console.log('PASS 1018 settings v6 (real Chromium, light / dark / third-party): one page of five cards; status card lamp + key trouble line; recognition rows; installed AI apps + one-click Codex; budget saves; web row folds out remote access; per-feature models under 更多; no box-in-box; no jargon; first-run welcome + 4 steps -> status page; unreadable block -> retry + folded details. Screenshots: ' + shell.QA_DIR);
+  console.log('PASS 1018 settings v6 (real Chromium, light / dark / third-party; 1026 regrouped into six task groups, status rows land on the editable control, cost views by provider / model / feature): one page of cards; status card lamp + key trouble line; recognition rows; installed AI apps + one-click Codex; budget saves; web row folds out remote access; per-feature models under 更多; no box-in-box; no jargon; first-run welcome + 4 steps -> status page; unreadable block -> retry + folded details. Screenshots: ' + shell.QA_DIR);
 })().catch(error => { console.error(error); process.exitCode = 1; });

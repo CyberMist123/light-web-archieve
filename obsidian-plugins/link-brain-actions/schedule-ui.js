@@ -1,5 +1,7 @@
 // schedule-ui.js — 10-03 她定：定时同步更灵活（一次性某月某日某时 / 每周几可多选 + 时刻 / 每天一天几次 / 每 1–6 小时后台同步）。
-// 设置页「同步与内容」的「定时…」弹窗和「开始」页 ④ 用的是这同一个组件：render(el, {onSaved}) → {refresh(), destroy()}。
+// 唯一的「自动同步时间」编辑器：设置页「收藏与同步」、首次设置「同步」一步都由 settings-v6.js 的 syncTimeEditor 包这一个组件；
+// 首页齿轮 / 同步记录「改定时」/ 账号弹窗「定时…」都走 plugin.openSyncTime() 跳到设置页里的它（1026 起不再有单独的定时弹窗）。
+// render(el, {onSaved}) → {ready, refresh(), isDirty(), saveNow(), destroy()}。
 // 规则形状（Python sync_schedule.normalize_rules 校验，这里只做格式上的初筛，不拼任何命令）：
 //   {kind:'daily', times:['04:00','16:00']} · {kind:'weekly', days:['Monday'], times:['08:00']}
 //   {kind:'once', at:'2026-10-03 17:00'} · {kind:'hourly', hours:4, from:'00:00'}
@@ -128,6 +130,7 @@ module.exports = function scheduleUI(obsidian, plugin) {
         del.onclick = () => { rows.splice(i, 1); paint(); };
       });
       warn.hidden = !rows.some(r => r.kind === 'hourly');
+      if (typeof paintDirty === 'function' && cur) paintDirty();
     }
     add.onclick = () => { rows.push({ kind: 'daily', times: ['04:00'] }); paint(); };
 
@@ -145,29 +148,48 @@ module.exports = function scheduleUI(obsidian, plugin) {
       list.classList.remove('is-loading');
       return cur;
     }
-    save.onclick = async () => {
+    // 1026：改了没保存要看得出来（首次设置「下一步」、设置页重画都会留着草稿，以前看着像已经生效）
+    const savedRules = () => { const r = rulesFromRows(rowsFromState(cur)); return r.error ? null : JSON.stringify(r.rules); };
+    function isDirty() {
+      if (!cur || cur.error) return false;
       const r = rulesFromRows(rows);
-      if (r.error) { msg.setText(r.error); say(r.error); return; }
-      save.disabled = true; off.disabled = true; msg.setText('正在保存…');
+      if (r.error) return true;
+      return JSON.stringify(r.rules) !== savedRules();   // 还没开定时时比的是编辑器里的推荐值（每天 04:00）：动过才算改了
+    }
+    function paintDirty() {
+      const d = isDirty();
+      box.classList.toggle('is-dirty', d);
+      if (d && !msg.getAttribute('data-dirty') && !/^正在/.test(msg.textContent || '')) { msg.setText('改了还没保存：点「保存定时」才生效'); msg.setAttribute('data-dirty', '1'); }
+      else if (!d && msg.getAttribute('data-dirty')) { msg.setText(''); msg.removeAttribute('data-dirty'); }
+    }
+    box.addEventListener?.('input', () => paintDirty());
+    box.addEventListener?.('change', () => paintDirty());
+    async function saveNow() {
+      const r = rulesFromRows(rows);
+      if (r.error) { msg.setText(r.error); say(r.error); return { ok: false, error: r.error }; }
+      save.disabled = true; off.disabled = true; msg.removeAttribute('data-dirty'); msg.setText('正在保存…');
       try {
         const res = await plugin.setSyncRules(r.rules);
-        if (res && res.ok) { msg.setText(res.detail || '已保存'); say(res.detail || '已保存定时同步'); await refresh(); onSaved && onSaved(res); }
-        else { const why = (res && (res.error || res.detail || res.message)) || '可能需要管理员权限'; msg.setText('没保存上：' + why); say('没保存上：' + why, 10000); }
-      } catch (e) { msg.setText('没保存上：' + (e.message || e)); say('没保存上：' + (e.message || e), 10000); }
+        if (res && res.ok) { plugin.scheduleDraft = null; msg.setText(res.detail || '已保存'); say(res.detail || '已保存定时同步'); await refresh(); onSaved && onSaved(res); return res; }
+        const why = (res && (res.error || res.detail || res.message)) || '可能需要管理员权限'; msg.setText('没保存上：' + why); say('没保存上：' + why, 10000);
+        return { ok: false, error: why };
+      } catch (e) { msg.setText('没保存上：' + (e.message || e)); say('没保存上：' + (e.message || e), 10000); return { ok: false, error: e.message || String(e) }; }
       finally { save.disabled = false; off.disabled = false; }
-    };
+    }
+    save.onclick = () => saveNow();
     off.onclick = async () => {
       save.disabled = true; off.disabled = true; msg.setText('正在关闭…');
       try {
         const res = await plugin.setSyncSchedule('off');
-        if (res && res.ok) { msg.setText('已关闭定时同步（触发器都留着，保存就恢复）'); await refresh(); onSaved && onSaved(res); }
+        if (res && res.ok) { plugin.scheduleDraft = null; msg.setText('已关闭定时同步（触发器都留着，保存就恢复）'); await refresh(); onSaved && onSaved(res); }
         else { const why = (res && (res.error || res.detail || res.message)) || '没关上'; msg.setText('没关上：' + why); }
       } catch (e) { msg.setText('没关上：' + (e.message || e)); }
       finally { save.disabled = false; off.disabled = false; }
     };
     paint();
     const ready = refresh(true);
-    return { el: box, ready, refresh, destroy() { alive = false; plugin.scheduleDraft = rows; }, get rows() { return rows; } };
+    // 草稿只在真改了没保存时留着（下次打开接着改）；没改就不留，下次照后端读到的画——设置页和首次设置看到的是同一份
+    return { el: box, ready, refresh, isDirty, saveNow, destroy() { alive = false; plugin.scheduleDraft = isDirty() ? rows : null; }, get rows() { return rows; } };
   }
 
   return { render, _internals: { rowsFromState, rulesFromRows, parseTimes, statusLine, HOURLY_WARN } };

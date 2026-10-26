@@ -1,5 +1,6 @@
 # Current State
 
+- 2026-10-26（分支 worktree-agent-a4a10d6a1cd8f04ad，录屏场景 07 / 08 设置部分，**未部署**）设置页按要做的事重排：状态 + ① 收藏与同步 ② 内容、目录及管理 ③ 识别与问答 ④ 模型与费用 ⑤ 外部 AI 接入 ⑥ 高级 / 修复，技术细项进各组「高级」折叠；状态行整行可点、落到可编辑控件并闪一下（`settings-v6.focusSection`）；自动同步时间只有一个编辑器 `syncTimeEditor`（落点 `data-section="sync-time"`，入口 `plugin.openSyncTime()`，`openSyncSettings` / `openSetupPage('schedule')` 都落到它，旧的定时弹窗删了），首次设置离开「同步」一步自动存未保存的改动；花费三种看法（`usage.summary` 加 models / free / unpriced_models / recent，`pricing.bill_of` 判 free / paid / unpriced），`ai_routes` 单价写 null 的记「未计价」；MCP 卡三段 + 开没开。pytest + node 全绿；Obsidian 待她看。
 - 2026-10-26（第二波 PR⑥b，`codex/wave2-pr6b`，未部署）：小红书附件取件、探测、口令、节奏成本及账号包装搬入来源包；共享层保留本地记录、转换、挂载、问题登记、队列 / 对账 / 状态和命令骨架，经 `sources.get` 的可选 attachments 能力调取件，旧名转发。删除三条 import 豁免，最大环仍 77，守卫基线只减；旧测试仅迁 monkeypatch 目标和对应导入。未接 after_commit，入库后补抓时机不变。Windows 原生悉尼时区 pytest：main 2482 / 分支 2484 passed，各 2 skipped，退出 0；Node 两边 82 文件全过。显式 IANA TZ 在 Windows 上两边同 8 条时区失败，无新增。红线输出与测试清单见 `tests/acceptance/20261026-wave2-pr6b.md`；不开 PR、不合并。
 
 - 2026-10-26（直接推 main，作者新规：不开 PR、本地全量 + node 绿就推）：合入 Codex 的 PR⑥a（render / catalog / actionlog 走来源接口，原 #71）；账号面板关窗后熔断还在时给「没看到验证，恢复」按钮（原 #82）；Codex 复审 #46 查出的下载计划请求头问题——每条任务用自己的头，小红书只给图片带 UA / Referer、语音视频照旧不带。全量 2465 passed、node 82。

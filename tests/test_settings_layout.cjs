@@ -1,3 +1,4 @@
+// 1026（录屏场景 08）：按要做的事排六组；状态行落到能改的控件；同步时间只有一个编辑器（设置页 · 首次设置 · plugin.openSyncTime()）。
 // 1018 她批 v6：不分页签、一页五张卡 + 首次设置（settings-v6.js）；下面 1010 / 1015 的规矩照守，页签那几条改成「落点」。
 // 设置页（1010 她：「原本的设置分栏还是需要的」——恢复分栏，按「什么都不懂的新用户」重写；1015 她：照 claudian 改成 通用 / 模型与提供商 / 技能 三个页签 + 圆角卡片）。
 // 守住 1009 的两条：每个设置只出现在一处；装上自动跑轻量版、一键装好 / 跑完（docs/SETUP-CONTRACT.md 10-10 修订）。
@@ -248,8 +249,9 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
   await settle();
   assert.ok(!root.querySelector('.lb-tabs'), '没有页签了');
   assert.equal(root.querySelectorAll('.lb-tab-pane').length, 1);
-  assert.deepEqual(pane(root).querySelectorAll('.lb-card').map(c => c.getAttribute('data-section')), ['s-status', 's-xhs', 's-ai', 's-mcp', 's-more']);
-  assert.deepEqual(pane(root).querySelectorAll('.lb-card-title').map(c => c.textContent), ['状态', '小红书', '识别与问答', '知识库接入 AI', '更多']);
+  // 1026（录屏场景 08）：按要做的事排——状态 + ① 收藏与同步 ② 内容、目录及管理 ③ 识别与问答 ④ 模型与费用 ⑤ 外部 AI 接入 ⑥ 高级 / 修复
+  assert.deepEqual(pane(root).querySelectorAll('.lb-card').map(c => c.getAttribute('data-section')), ['s-status', 's-xhs', 's-content', 's-ai', 's-cost', 's-mcp', 's-more']);
+  assert.deepEqual(pane(root).querySelectorAll('.lb-card-title').map(c => c.textContent), ['状态', '收藏与同步', '内容、目录及管理', '识别与问答', '模型与费用', '外部 AI 接入', '高级 / 修复']);
   assert.ok(!pane(root).querySelector('.lb-guide'), '库里已经有收藏：不出首次设置');
   const st = cardOf(root, 's-status');
   assert.ok(st.querySelector('.lb-lamp'), '状态卡有信号灯');
@@ -264,19 +266,36 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
   assert.ok(fix && /通义千问 额度用完或余额不足/.test(fix.textContent), '欠费那一句');
   assert.deepEqual(fix.querySelectorAll('button').map(b => b.textContent), ['去充值 ↗', '换一个 key']);
   assert.ok(st.querySelector('.lb-lamp.is-warn'), 'key 出问题：黄灯');
-  // 小红书卡：自动同步时间 · 每天最多新收 · 评论 · 保存视频
-  assert.deepEqual(rowsOf(cardOf(root, 's-xhs')).map(idOf).filter(n => n !== ''), ['自动同步时间', '每天最多新收几篇', '每篇评论抓几楼', '保存视频']);
-  // 识别与问答：本机两项（语音转文字没开 → CapsLock 子项不出）+ 用 key 的三项 + 问收藏模型 + 每天最多花
+  // 收藏与同步：常用的平铺（自动同步时间 · 每天最多新收 · 评论 · 保存视频 · 存图片 · 同步记录），技术细项在本组「高级」折叠里（点开才画）
+  const xhs = cardOf(root, 's-xhs');
+  assert.deepEqual(rowsOf(xhs).map(idOf).filter(n => n !== ''), ['自动同步时间', '每天最多新收几篇', '每篇评论抓几楼', '保存视频', '存图片', '同步记录']);
+  assert.ok(xhs.querySelector('[data-section="sync-time"] .lb-sched'), '唯一的自动同步时间编辑器在「收藏与同步」里，带落点 sync-time');
+  assert.deepEqual(xhs.querySelectorAll('details').map(d => d.getAttribute('data-section')), ['sync-more']);
+  // 内容、目录及管理：批注署名 · 留言对象平铺；目录与写法 · 附件 是折叠
+  const content = cardOf(root, 's-content');
+  assert.deepEqual(rowsOf(content).map(idOf).filter(n => n !== ''), ['批注署名', '留言对象', '回收站']);
+  assert.deepEqual(content.querySelectorAll('details').map(d => d.getAttribute('data-section')), ['skills', 'attach']);
+  // 识别与问答：本机两项（语音转文字没开 → CapsLock 子项不出）+ 用 key 的三项 + 问收藏模型；提示词在本组「高级」（每天上限只在「模型与费用」一处）
   const ai = cardOf(root, 's-ai');
-  assert.deepEqual(rowsOf(ai).map(idOf), ['识图', '语音', '按意思搜', '概要', 'AI 识图', '问收藏用的模型', '每天最多花']);
+  assert.deepEqual(rowsOf(ai).map(idOf), ['识图', '语音', '按意思搜', '概要', 'AI 识图', '问收藏用的模型']);
+  assert.deepEqual(ai.querySelectorAll('details').map(d => d.getAttribute('data-section')), ['ai-prompts']);
+  // 模型与费用：今天 / 本月 / 每天上限 → 每个功能用谁 → 钥匙串 → 花了多少（平铺，三种看法切换）
+  const cost = cardOf(root, 's-cost');
+  assert.ok(cost.querySelector('[data-section="ai-spend"] input.lb-spend-input'), '每天上限的输入框在「模型与费用」');
+  assert.equal(root.querySelectorAll('input.lb-spend-input').length, 1, '每天上限只有一个输入框');
+  assert.deepEqual(cost.querySelectorAll('.lb-sec-h').map(h => h.getAttribute('data-section')), ['ai-routes', 'ai-api', 'ai-usage']);
+  assert.deepEqual(cost.querySelectorAll('.lb-usage-dim').map(b => b.textContent), ['按服务商', '按 API 或模型', '按功能']);
   assert.deepEqual(ai.querySelectorAll('.lb-pv').map(x => x.getAttribute('data-provider') || x.textContent), ['deepseek', 'aliyun', '＋ 添加 key']);
   assert.ok(ai.querySelector('.lb-pv[data-provider="aliyun"]').classList.contains('is-warn'), '欠费那家标黄');
-  // 知识库接入 AI：本机装了的（照 Claudian 认）· 没装的一句 · 范围 · 网页端
+  // 外部 AI 接入：接入电脑端（照 Claudian 认）· 接入网页端（说明 + 域名 / 口令 / 令牌紧挨着）· 可读取哪些库；开没开在标题右边
   const mcp = cardOf(root, 's-mcp');
+  assert.deepEqual(mcp.querySelectorAll('.lb-grp').map(g => g.textContent.split(' · ')[0]), ['接入电脑端', '接入网页端', '可读取哪些库']);
+  assert.match(mcp.querySelector('.lb-mcp-state').textContent, /^只读 · 电脑端已接入 1 个 · 网页端没开$/);
   assert.deepEqual(mcp.querySelectorAll('.lb-app').map(r => r.getAttribute('data-app')), ['claude-code', 'claude-desktop', 'codex', 'opencode', 'other']);
   assert.match(mcp.querySelector('.lb-app[data-app="opencode"]').textContent, /复制设置/, '写法不确定的只给复制设置');
   assert.match(mcp.querySelector('.lb-note').textContent, /Pi、Grok Build、DeepSeek Harness 没装/);
-  assert.deepEqual(mcp.querySelectorAll('details.lb-row-fold').map(d => d.getAttribute('data-section')), ['mcp-folders', 'web-howto', 'remote']);
+  assert.deepEqual(mcp.querySelectorAll('details.lb-row-fold').map(d => d.getAttribute('data-section')), ['web-howto', 'remote', 'mcp-folders']);
+  assert.match(mcp.querySelector('details[data-section="mcp-folders"] summary').textContent, /小红书收藏库/, '开放的库直接写在那一行上');
   // 网页端：点开就是步骤（照 ChatGPT 现在的界面：插件 → 浏览目录 → 添加 → 添加自定义 MCP 服务器），也能一键复制
   const how = mcp.querySelector('details[data-section="web-howto"]');
   how.open = true; how.fire('toggle');
@@ -366,6 +385,88 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
   tab = openPage(env.p); root = tab.containerEl; await settle(); await new Promise(r => setTimeout(r, 80)); await settle();
   assert.ok(root.querySelector('details[data-section="skills"]').open, '「技能」落点：更多里那一行展开');
   tab.hide();
+
+  // —— 1026（录屏 23:23「很奇怪的跳转」、23:34「点了没有反应」）：状态行整行能点、落在能改的那个控件上、闪一下；找不到就说一句 ——
+  {
+    const e = makePlugin({ onboarding: { guideDone: true } }, { '_archive/catalog-data.json': '{"items":[]}' });
+    const t = openPage(e.p); const r = t.containerEl;
+    dom.document.body.appendChild(r);   // 连上文档：焦点才真的能落进去
+    await settle(); await new Promise(res => setTimeout(res, 80)); await settle();
+    const row = n => rowsOf(r).find(x => nameOf(x) === n);
+    for (const [name, sec, ctl] of [['API 费用', 'ai-spend', 'input.lb-spend-input'], ['识别', 'ai-feats', null], ['读取', 'mcp-apps', null]]) {
+      const el = row(name);
+      assert.equal(el.getAttribute('data-jump'), sec, name + ' 跳到哪');
+      assert.equal(el.getAttribute('role'), 'button', name + '：整行是可点的');
+      const target = r.querySelector(`[data-section="${sec}"]`);
+      assert.ok(target, name + ' 的落点画出来了');
+      const before = target._scrolledIntoView || 0;
+      el.onclick({ target: el.querySelector('.setting-item-name') });   // 点字（以前只有右边小箭头能点）
+      assert.ok((target._scrolledIntoView || 0) > before, name + '：点字也滚过去');
+      assert.ok(target.classList.contains('lb-flash'), name + '：落地那一块闪一下');
+      if (ctl) assert.equal(dom.document.activeElement, target.querySelector(ctl), name + '：焦点落进能改的那一格');
+      const n2 = target._scrolledIntoView;
+      el.querySelector('.extra-setting-button').onclick();
+      assert.ok(target._scrolledIntoView > n2, name + '：右边箭头照样能点');
+    }
+    // 「改时间」：落在唯一的自动同步时间编辑器上，不是卡片顶
+    const sched = r.querySelector('[data-section="sync-time"]');
+    const n0 = sched._scrolledIntoView || 0;
+    row('收藏同步').querySelectorAll('button').find(b => b.textContent === '改时间').onclick();
+    assert.ok(sched._scrolledIntoView > n0 && sched.classList.contains('lb-flash'), '改时间 → 自动同步时间编辑器');
+    assert.ok(!cardOf(r, 's-xhs')._scrolledIntoView, '不再落在卡片顶');
+    // 落点在收着的折叠里：一层层打开再滚
+    const v6 = e.p.settingsV6();
+    assert.ok(v6.focusSection(t, 'ai-prompts') && r.querySelector('details[data-section="ai-prompts"]').open, '折叠里的落点：打开它');
+    notices.length = 0;
+    assert.equal(v6.focusSection(t, 'no-such-thing'), null);
+    assert.ok(notices.some(n => /还没画出来/.test(String(n))), '找不到：说一句，不是没反应');
+    t.hide(); r.remove();
+  }
+
+  // —— 1026：同步时间只有一个编辑器。首页齿轮（openSetupPage('schedule')）、plugin.openSyncTime()、同步记录「改定时」（openSyncSettings）都落到它；
+  //    首次设置「同步」一步也是它：改了没点保存就「下一步」→ 替她存上；之后设置页里看到的是同一份值；没保存的草稿看得出来 ——
+  {
+    let cur = { freq: 'none', enabled: false, installable: true };
+    const saved = [];
+    const e = makePlugin({ __fresh: true });
+    e.p.getSyncSchedule = async () => JSON.parse(JSON.stringify(cur));
+    e.p.setSyncRules = async rules => { saved.push(rules); cur = { freq: 'daily', enabled: true, rules, summary: '每天 ' + rules[0].times.join('、') }; return { ok: true, detail: '已保存' }; };
+    e.p.app.setting = { activeTab: null, open() {}, openTabById() {} };
+    e.p.openPluginSettings = () => {};
+    for (const how of [() => e.p.openSyncTime(), () => e.p.openSetupPage('schedule'), () => e.p.openSyncSettings(), () => e.p.openSetupPage('sync-time')]) {
+      how(); assert.equal(e.p.settingsView.focus === 'sync-time' || e.p.settingsView.focus === 'schedule', true, '落点是同步时间');
+    }
+    // 还在首次设置：直接停在「同步」那一步（里面就是那个编辑器）
+    e.p.openSyncTime();
+    let t = openPage(e.p); let r = t.containerEl; await settle(); await new Promise(res => setTimeout(res, 80)); await settle();
+    assert.equal(r.querySelector('.lb-card-title').textContent, '同步', '首次设置里点「改定时」：停在同步那一步');
+    assert.ok(r.querySelector('.lb-guide [data-section="sync-time"] .lb-sched'), '首次设置里是同一个时间编辑器');
+    const times = () => r.querySelector('[data-section="sync-time"] input.lb-sched-times');
+    assert.equal(times().value, '04:00', '还没开定时：推荐值');
+    times().value = '06:30'; times().oninput(); r.querySelector('.lb-sched').fire('input');
+    assert.match(r.querySelector('.lb-sched-msg').textContent, /改了还没保存/, '没保存的草稿看得出来');
+    await r.querySelectorAll('.lb-guide-nav button').find(b => b.textContent === '下一步').onclick(); await settle();
+    assert.deepEqual(saved.at(-1), [{ kind: 'daily', times: ['06:30'] }], '「下一步」替她存上了');
+    assert.equal(r.querySelector('.lb-card-title').textContent, '识别与问答');
+    // 走完首次设置 → 设置页「收藏与同步」里是同一份值
+    e.p.homeUI().runAll = async () => ({ ok: true });
+    for (let k = 0; k < 2; k++) { const b = r.querySelectorAll('.lb-guide-nav button').find(x => x.textContent === '下一步' || x.textContent === '完成'); await b.onclick(); await settle(); }
+    assert.equal(e.p.settings.onboarding.guideDone, true);
+    t.hide();
+    t = openPage(e.p); r = t.containerEl; await settle(); await new Promise(res => setTimeout(res, 80)); await settle();
+    assert.ok(cardOf(r, 's-xhs').querySelector('[data-section="sync-time"]'), '设置页里同一个编辑器');
+    assert.equal(times().value, '06:30', '重进设置页：和首次设置里存的是同一份');
+    assert.match(r.querySelector('.lb-sched-status').textContent, /每天 06:30/);
+    // 设置页里改了没保存 → 关掉再开：草稿还在、并且标着没保存（不冒充已生效）；保存后草稿清掉
+    times().value = '07:00'; times().oninput(); r.querySelector('.lb-sched').fire('input');
+    t.hide(); t = openPage(e.p); r = t.containerEl; await settle(); await new Promise(res => setTimeout(res, 80)); await settle();
+    assert.equal(times().value, '07:00'); assert.match(r.querySelector('.lb-sched-msg').textContent, /改了还没保存/);
+    await r.querySelector('.lb-sched-save').onclick(); await settle();
+    assert.deepEqual(saved.at(-1), [{ kind: 'daily', times: ['07:00'] }]);
+    assert.ok(!/改了还没保存/.test(r.querySelector('.lb-sched-msg').textContent));
+    t.hide();
+    assert.equal(e.p.scheduleDraft, null, '存过了：不留草稿');
+  }
 
   // —— 首次设置：欢迎页两个大按钮；一键 = 扫码 → 完成（换成推荐那一组、开始跑）；自定义 = 四步 ——
   {
@@ -611,8 +712,7 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
   // —— 13. 1015 模型与提供商 → 问收藏模型：勾选列表（不勾 = 不进问收藏页下拉，至少留一个；当前选中的被取消就换一个）——
   {
     const e = makePlugin({}); const t = openPage(e.p, 'ai'); await settle();
-    await openRow(t.containerEl, 'ai-more'); await settle(); await openRow(t.containerEl.querySelector('details[data-section="ai-more"]').parentNode, 'ai-more');
-    { const d = t.containerEl.querySelector('details.lb-route[data-feature="ask"]'); d.open = true; d.fire('toggle'); await settle(); }   // 1018 v6：更多 → 每项功能用哪个模型 → 问收藏
+    { const d = t.containerEl.querySelector('details.lb-route[data-feature="ask"]'); d.open = true; d.fire('toggle'); await settle(); }   // 1026：模型与费用 → 每个功能用谁 → 问收藏
     const rows = () => rowsOf(cardOf(t.containerEl, 'models')).filter(r => r.classList.contains('lb-model-row'));
     assert.deepEqual(rows().map(nameOf), ['文本 AI', 'Codex', 'Sonnet']);
     assert.ok(rows().every(r => r.querySelector('.lb-model-check').checked), '默认都勾着');
@@ -687,5 +787,5 @@ const DYNAMIC = new Set(['〔账号卡片〕', '收藏同步', '评论补齐', '
     t.hide();
   }
 
-  console.log('PASS settings page v6 (1018): one page of five cards (状态 · 小红书 · 识别与问答 · 知识库接入 AI · 更多), first-run guide (一键 / 自定义四步) turning into the status page, key trouble = one line + recharge / change key, local toggles drive setup.selected with deps + sub-options, summary / embed toggles keep their mode, paste-a-key fills blanks only, installed AI apps listed, old open-page names land on the right card / row, nothing lost vs pre-1009 inventory and no duplicates, one-line descriptions, failed saves revert, sync rows live-watched + unhooked');
+  console.log('PASS settings page v6 (1018, 1026 regrouped): 状态 + six task groups (收藏与同步 · 内容、目录及管理 · 识别与问答 · 模型与费用 · 外部 AI 接入 · 高级 / 修复), status rows clickable and landing on the editable control with a flash, one sync-time editor shared by settings / first-run / openSyncTime (unsaved edits auto-saved on 下一步, same value after reopening, drafts flagged), first-run guide (一键 / 自定义四步) turning into the status page, key trouble = one line + recharge / change key, local toggles drive setup.selected with deps + sub-options, summary / embed toggles keep their mode, paste-a-key fills blanks only, installed AI apps listed, old open-page names land on the right card / row, nothing lost vs pre-1009 inventory and no duplicates, one-line descriptions, failed saves revert, sync rows live-watched + unhooked');
 })().catch(e => { console.error(e); process.exitCode = 1; });

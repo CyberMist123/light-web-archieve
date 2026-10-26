@@ -60,7 +60,7 @@ def _entry(cfg: dict[str, Any], label: str, table: dict[str, Any], tokens: tuple
         return out
     out["free"] = False
     hit = pricing.price_of(model, table)
-    if not hit:
+    if not hit or not pricing.is_priced(hit[1]):   # 表里有名字但单价写 null（如 gemini-3.5-flash 付费档）= 同样未计价，不写「按用量」
         out.update(unpriced=True, price="—，未计价")
         return out
     cost = pricing.token_cost(table, hit[1], *tokens) if tokens else None

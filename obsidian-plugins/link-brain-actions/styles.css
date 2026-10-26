@@ -610,6 +610,28 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v6 .lb-fix-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: var(--size-4-2, 8px) 0; padding: 8px 12px; border-radius: var(--radius-m, 8px);
   background: rgba(var(--color-orange-rgb), .1); color: var(--text-normal); font-size: var(--font-ui-small); }
 .lb-settings .lb-v6 .lb-jump .extra-setting-button { color: var(--text-faint); }
+/* 1026：状态行整行能点（以前只有小箭头能点）；跳到的那一块闪一下，告诉她「就是这里」 */
+.lb-settings .lb-v6 .lb-jump { cursor: pointer; }
+.lb-settings .lb-v6 .lb-jump:hover .setting-item-name, .lb-settings .lb-v6 .lb-jump:focus-visible .setting-item-name { color: var(--text-accent); }
+.lb-settings .lb-v6 .lb-jump:focus-visible { outline: 2px solid var(--background-modifier-border-focus); outline-offset: 2px; border-radius: var(--radius-s, 4px); }
+.lb-settings .lb-flash { animation: lb-flash 1.6s ease-out; border-radius: var(--radius-m, 8px); }
+@keyframes lb-flash { 0%, 30% { box-shadow: 0 0 0 3px rgba(var(--interactive-accent-rgb, 124, 58, 237), .45); background: rgba(var(--interactive-accent-rgb, 124, 58, 237), .08); } 100% { box-shadow: 0 0 0 3px transparent; background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .lb-settings .lb-flash { animation: none; box-shadow: 0 0 0 2px var(--interactive-accent); } }
+.lb-settings .lb-v6 .lb-sched.is-dirty .lb-sched-msg { color: var(--text-warning, var(--color-orange)); }
+.lb-settings .lb-v6 .lb-adv > summary .lb-rf-name { color: var(--text-muted); }
+/* 花了多少：怎么看（按服务商 / 按 API 或模型 / 按功能）+ 时间段 一行 */
+.lb-settings .lb-usage-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 4px; }
+.lb-settings .lb-usage-dims { display: flex; gap: 2px; }
+.lb-settings .lb-usage-dim { background: transparent; box-shadow: none; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-s, 4px);
+  padding: 2px 8px; height: auto; color: var(--text-muted); font-size: var(--font-ui-small); cursor: pointer; }
+.lb-settings .lb-usage-dim.is-active { color: var(--text-normal); border-color: var(--lbs-accent, var(--interactive-accent)); font-weight: 600; }
+.lb-settings .lb-usage-money.is-free { color: var(--text-success, var(--color-green)); }
+.lb-settings .lb-usage-money.is-unpriced { color: var(--text-muted); }
+.lb-settings .lb-usage-gaps:empty { display: none; }
+.lb-settings .lb-usage-gaps { margin: 8px 0; font-size: var(--font-ui-smaller); color: var(--text-muted); }
+.lb-settings .lb-usage-gaps ul { margin: 2px 0 0; padding-left: 1.2em; }
+.lb-settings .lb-usage-callgrid td:nth-child(2), .lb-settings .lb-usage-callgrid td:nth-child(3), .lb-settings .lb-usage-callgrid td:last-child { text-align: left; }
+.lb-settings .lb-spend-sub { font-size: var(--font-ui-smaller); color: var(--text-muted); margin-top: 2px; }
 /* AI 服务的服务商小片：细边、无底色 */
 .lb-settings .lb-v6 .lb-svc { padding: var(--size-4-3, 12px) 0; border-top: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border)); }
 .lb-settings .lb-v6 .lb-svc .setting-item-description { margin-top: 8px; }

@@ -99,9 +99,7 @@ def is_paid(cfg: dict[str, Any] | None, pricing: dict[str, Any] | None = None) -
     if not hit:
         return True
     info = hit[1]
-    priced = (info.get("input") is not None and info.get("output") is not None) \
-        or info.get("price") is not None or info.get("price_per_million") is not None
-    if not priced:
+    if not is_priced(info):
         return True   # 表里有这个模型但价格写的 null（查不到）：同样按要钱
     return any(float(info.get(k) or 0) > 0 for k in PRICE_KEYS)
 
@@ -120,6 +118,28 @@ def offpeak(ts: datetime) -> bool:
     if t.weekday() >= 5:
         return True
     return not (9 <= t.hour < 12 or 14 <= t.hour < 18)
+
+
+def is_priced(info: dict[str, Any] | None) -> bool:
+    """价格表这一行有没有能算钱的单价（token 两价齐、或音频单价、或向量单价）；写 null 的 = 查不到 = 未计价。"""
+    info = info or {}
+    return (info.get("input") is not None and info.get("output") is not None) \
+        or info.get("price") is not None or info.get("price_per_million") is not None \
+        or info.get("free") is True
+
+
+def bill_of(row: dict[str, Any], pricing: dict[str, Any] | None = None) -> tuple[float | None, str]:
+    """账本一行 → (元, 状态)。状态三种，设置页「花了多少」照它写：
+    free = 免费 / 未计费（本机命令行、Gemini 免费 key 池、价格表写了 free；她 1023 拍板：不算进 ¥）；
+    paid = 按价格表算出来的钱；unpriced = 价格表里查不到（元 = None，不编、不当 0）。"""
+    pricing = pricing if pricing is not None else table()
+    if row.get("p") == "cli" or row.get("free") is True:
+        return 0.0, "free"
+    hit = price_of(str(row.get("m") or ""), pricing)
+    if hit and hit[1].get("free") is True:
+        return 0.0, "free"
+    cost = cost_of(row, pricing)
+    return cost, ("unpriced" if cost is None else "paid")
 
 
 def cost_of(row: dict[str, Any], pricing: dict[str, Any] | None = None) -> float | None:

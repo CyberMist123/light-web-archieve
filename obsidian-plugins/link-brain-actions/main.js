@@ -717,21 +717,6 @@ class ColumnsModal extends Modal {
   onClose() { this.contentEl.empty(); }
 }
 
-class SyncSettingsModal extends Modal {
-  constructor(plugin) { super(plugin.app); this.plugin = plugin; }
-  // 10-03：定时更灵活（一次性 / 每周几多选 / 每天几次 / 每 1–6 小时）。和「开始」页 ④ 用同一个组件 schedule-ui.js。
-  onOpen() {
-    const el = this.contentEl; el.empty();
-    el.createEl("h2", { text: "同步收藏夹" });
-    new Setting(el).setName("立即同步").setDesc("现在补跑一次：拉新收藏 + 附件，几十分钟")
-      .addButton(b => b.setButtonText("立即同步").setCta().onClick(() => { this.plugin.syncNow(); this.close(); }));
-    el.createEl("h3", { text: "定时同步" });
-    el.createEl("p", { cls: "setting-item-description", text: "关着 Obsidian 也按时同步（电脑要开着）。可以几条一起用：比如每周一 08:00 + 每天 16:00。关闭 = 停用整个计划任务（触发器都不删，保存就恢复）。" });
-    try { this.editor = this.plugin.scheduleUI().render(el.createDiv()); }
-    catch (e) { el.createEl("p", { cls: "mod-warning", text: "定时设置没加载上：" + (e.message || e) }); }
-  }
-  onClose() { try { this.editor?.destroy(); } catch {} this.contentEl.empty(); }
-}
 
 // 1015 她：设置页照 claudian 插件改版——顶部三个页签（通用 / 模型与提供商 / 技能）→ 每组一张圆角卡片（标题 + 分隔线）→ 每行左标题灰说明、右控件。
 // 「模型与提供商」下面再分子页签。旧落点名照认：问题面板「打开设置」带 'ai'、命令带 'overview' / 'features'、「去扫码 / 验证」带 'status'、远程带 'remote'。
@@ -741,12 +726,14 @@ class SyncSettingsModal extends Modal {
 const SETTING_TABS = [['overview', '概览'], ['sync', '同步'], ['ai', 'AI'], ['connect', '接其他 AI'], ['more', '更多']];
 const SETTING_SUBTABS = {};
 // 1018 v6：旧页签名 / 落点名 → 一页里的哪一段（data-section）
-const V6_SECTION = { overview: 's-status', status: 's-status', sync: 's-xhs', schedule: 's-xhs', collect: 'sync-more', 'collect-status': 's-status',
-  ai: 's-ai', 'ai-routes': 'ai-more', 'ai-more': 'ai-more', 'ai-usage': 'ai-more', 'ai-spend': 's-ai', 'ai-api': 's-ai', 'ai-prompts': 'ai-prompts',
-  connect: 's-mcp', more: 's-more', skills: 'skills', developer: 'developer', catalog: 'catalog', attach: 'attach', 'sync-more': 'sync-more', remote: 'remote' };
+// 1026（录屏场景 08）：按要做的事排的六组；「同步时间」落在唯一的时间编辑器上（sync-time），不再落卡片顶
+const V6_SECTION = { overview: 's-status', status: 's-status', sync: 's-xhs', schedule: 'sync-time', 'sync-time': 'sync-time', collect: 'sync-more', 'collect-status': 's-status',
+  ai: 's-ai', 'ai-routes': 'ai-routes', 'ai-more': 'ai-routes', models: 'ai-routes', 'ai-usage': 'ai-usage', usage: 'ai-usage', 'ai-spend': 'ai-spend', 'ai-api': 'ai-api', 'ai-prompts': 'ai-prompts',
+  cost: 's-cost', content: 's-content', connect: 's-mcp', more: 's-more', skills: 'skills', developer: 'developer', advanced: 'developer', catalog: 'catalog', attach: 'attach',
+  'sync-more': 'sync-more', remote: 'remote', 'mcp-folders': 'mcp-folders' };
 // 旧名 → [页签, 子页签, 滚到哪一段]（问题面板「打开设置」带 'ai'、命令带 'overview'、「去扫码 / 验证」带 'status'、远程带 'remote'…）
 const TAB_ALIAS = { overview: ['overview'], general: ['overview'], status: ['overview', null, 'status'], start: ['overview'], home: ['overview'], run: ['overview'],
-  sync: ['sync'], content: ['sync', null, 'collect'], schedule: ['sync', null, 'schedule'],
+  sync: ['sync'], content: ['sync', null, 'collect'], schedule: ['sync', null, 'schedule'], 'sync-time': ['sync', null, 'sync-time'], cost: ['ai', null, 'cost'],
   features: ['overview'], ai: ['ai'], providers: ['ai'], models: ['ai', null, 'ai-more'], usage: ['ai', null, 'ai-usage'],
   more: ['more'], connect: ['connect'], remote: ['connect', null, 'remote'], skills: ['more', null, 'skills'],
   advanced: ['more', null, 'developer'], developer: ['more', null, 'developer'] };
@@ -934,7 +921,9 @@ class LinkBrainActions extends Plugin {
   }
 
   openImportModal() { new ImportModal(this).open(); }
-  openSyncSettings() { new SyncSettingsModal(this).open(); }
+  // 1026：同步时间只有一个编辑器（设置页「收藏与同步」里，首次设置「同步」一步也是它）。首页齿轮、同步记录「改定时」、账号弹窗「定时…」都走这里
+  openSyncTime() { return this.openSetupPage('sync-time'); }
+  openSyncSettings() { return this.openSyncTime(); }
   // 「+」下拉（10-03 她定）：导入网址 / 立即同步收藏 / 账号登录 / 换号（断了登录就近重连、换号都走账号面板的扫码 / 更换账号）。
   // 定时在「同步记录」窗口顶部的「改定时」和设置页里。
   openPlusMenu(evt) {
@@ -1424,7 +1413,7 @@ class LinkBrainActions extends Plugin {
     if (compact) {
       // 设置页「通用 → 状态」：这一栏的主按钮是「一键装好 / 跑完」，这里只留次要的两个字链接
       row.addButton(b => { b.setButtonText('立即同步').onClick(syncClick(b)); b.buttonEl?.addClass?.('lb-link'); b.buttonEl?.setAttribute?.('aria-label', '现在拉一次新收藏（几分钟到几十分钟，进度在底部状态栏）'); });
-      if (onSchedule) row.addButton(b => { b.setButtonText('改时间').onClick(() => onSchedule()); b.buttonEl?.addClass?.('lb-link'); b.buttonEl?.setAttribute?.('aria-label', '到「通用 → 定时同步」改自动同步的时间'); });
+      if (onSchedule) row.addButton(b => { b.setButtonText('改时间').onClick(() => onSchedule()); b.buttonEl?.addClass?.('lb-link'); b.buttonEl?.setAttribute?.('aria-label', '跳到「收藏与同步」里的自动同步时间（就是能改的那一格）'); });
     } else {
       row.addButton(b => b.setButtonText('定时…').onClick(() => this.openSyncSettings()));
       row.addButton(b => b.setButtonText('立即同步').setCta().onClick(syncClick(b)));
@@ -2792,16 +2781,14 @@ class LinkBrainSettingTab extends PluginSettingTab {
     view.focus = null;
     if (focus === 'remote') view.openRemote = true;
     const drawPage = () => { try { v6.renderPage(pane, this); } catch (e) { console.error('[lb] 设置页没画上', e); this.plugin.failBox?.(pane, '', e, () => this.display()); } };
-    const ob = this.plugin.settings.onboarding || {};
-    if (ob.force) { v6.renderGuide(pane, this); return; }
+    const ob = this.plugin.settings.onboarding || (this.plugin.settings.onboarding = {});
+    // 首次设置还在：要去「同步时间」的（首页齿轮 / 同步记录「改定时」）就停在首次设置的「同步」那一步——里面是同一个时间编辑器
+    const guideAt = () => { if (focus === 'sync-time') { ob.mode = ob.mode || 'custom'; ob.step = 2; } };
+    if (ob.force) { guideAt(); v6.renderGuide(pane, this); return; }
     drawPage();
-    if (!ob.guideDone) v6.needsGuide().then(yes => { if (yes && pane.parentNode) { this.disposeStops(); pane.empty(); v6.renderGuide(pane, this); } }).catch(console.error);
-    // 「打开设置」带了落点：滚过去；落点在「更多」里的折叠行就顺手展开
-    const target = focus && focus !== 's-status' && pane.querySelector(`[data-section="${focus}"]`);
-    if (target) setTimeout(() => {
-      try { if (target.tagName === 'DETAILS' && !target.open) target.open = true; } catch {}   // 浏览器自己会发 toggle，里面那一块就画出来
-      try { target.scrollIntoView({ block: 'start' }); } catch {}
-    }, 50);
+    if (!ob.guideDone) v6.needsGuide().then(yes => { if (yes && pane.parentNode) { this.disposeStops(); pane.empty(); guideAt(); v6.renderGuide(pane, this); } }).catch(console.error);
+    // 「打开设置」带了落点：滚到能改的那个控件上、闪一下（收着的折叠一层层打开，懒画的那块就画出来）
+    if (focus && focus !== 's-status') setTimeout(() => { if (pane.parentNode && pane.querySelector('.lb-card')) v6.focusSection(this, focus, { quiet: true }); }, 50);
   }
   disposeStops() {
     for (const stop of this.stops || []) { try { stop && stop(); } catch (e) { console.error('[lb] 设置页注销没做完', e); } }
