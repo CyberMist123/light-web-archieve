@@ -706,3 +706,15 @@ body.lb-actions-on .xhs-note .lb-tags .lb-tag:hover { text-decoration: underline
 .xhs-note .lb-media-pin svg{width:16px;height:16px;}
 .xhs-note .lb-media-pin[aria-pressed=true]{color:rgb(0 0 0 / .85);}
 .theme-dark .xhs-note .lb-counter,.theme-dark .xhs-note .lb-media-pin{background:rgb(0 0 0 / .42);color:rgb(255 255 255 / .85);}
+
+/* 1026 她「你看它不是全屏」：视频「全屏」= 整块（画面 + 倍速 / 循环 / 连播那一行）铺满屏幕（media-nav fullscreen；不支持时 .lb-fs-fallback 铺满窗口） */
+.xhs-note .lb-media.is-lb-fullscreen { background: #000; display: flex; flex-direction: column; justify-content: center; width: 100vw; height: 100vh; max-width: none; margin: 0; padding: 0; border-radius: 0; }
+.xhs-note .lb-media.is-lb-fullscreen .lb-carousel { flex: 1 1 auto; min-height: 0; height: auto !important; max-height: none !important; }
+.xhs-note .lb-media.is-lb-fullscreen .lb-slide { height: 100% !important; max-height: none !important; display: flex; align-items: center; justify-content: center; background: #000; }
+.xhs-note .lb-media.is-lb-fullscreen .lb-slide video, .xhs-note .lb-media.is-lb-fullscreen .lb-slide img { width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; object-fit: contain; border-radius: 0; }
+.xhs-note .lb-media.is-lb-fullscreen .lb-media-tools { position: static !important; opacity: 1 !important; margin: 0; padding: 6px 0; border-radius: 0; background: rgb(0 0 0 / .6); }
+.xhs-note .lb-media.is-lb-fullscreen .lb-media-tools button { color: #fff; }
+.xhs-note .lb-media.is-lb-fullscreen .lb-media-pin { display: none; }
+.xhs-note .lb-media-tools .lb-video-full { font-size: 13px !important; }
+.xhs-note .lb-media-tools .lb-video-full[aria-pressed="true"] { color: var(--text-normal); font-weight: 600; }
+.lb-fs-fallback { position: fixed !important; inset: 0 !important; z-index: var(--layer-modal, 50) !important; width: 100vw !important; height: 100vh !important; max-width: none !important; max-height: none !important; margin: 0 !important; }

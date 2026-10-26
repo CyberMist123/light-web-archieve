@@ -58,6 +58,73 @@ function isBlockedTarget(target) {
   return target instanceof Element && !!target.closest(BLOCKED_SELECTOR);
 }
 
+// 1026 她（录屏 13:22）：「你看它不是全屏。」——点图 / 视频要能真正铺满屏幕。用 Element.requestFullscreen（Obsidian / Electron 支持）；
+// 不支持或被拒时退回「铺满整个窗口」（.lb-fs-fallback）。全屏的是整块（视频 + 倍速 / 循环 / 连播那一行；连播页是画面 + 上一条 / 下一条），
+// 不是光秃秃的 <video>（原生全屏会把我们的控件全丢掉，所以视频的原生全屏键用 controlslist=nofullscreen 换成我们的）。
+// 进全屏前记下各级滚动容器（外加 keep 里给的，比如笔记右栏 .lb-scroll）的位置，退出时放回去：不丢阅读进度。
+const FS_CLS = 'is-lb-fullscreen', FS_FALLBACK = 'lb-fs-fallback';
+const fullscreen = {
+  docOf(el) { return (el && el.ownerDocument) || (typeof document !== 'undefined' ? document : null); },
+  active(el) {
+    if (!el) return false;
+    const d = fullscreen.docOf(el);
+    return !!((d && d.fullscreenElement === el) || (el.classList && el.classList.contains(FS_FALLBACK)));
+  },
+  scrollers(el, keep) {
+    const out = [], seen = new Set();
+    const add = p => { if (p && p.nodeType === 1 && !seen.has(p)) { seen.add(p); out.push([p, p.scrollTop || 0, p.scrollLeft || 0]); } };
+    for (let p = el && el.parentNode; p && p.nodeType === 1; p = p.parentNode) add(p);
+    for (const k of keep || []) add(k);
+    return out;
+  },
+  restore(list) {
+    for (const [p, t, l] of list || []) {
+      try { if ((p.scrollTop || 0) !== t) p.scrollTop = t; if ((p.scrollLeft || 0) !== l) p.scrollLeft = l; } catch {}
+    }
+  },
+  async enter(el, { onChange = null, keep = null } = {}) {
+    if (!el || el.__lbFs || fullscreen.active(el)) return false;
+    const d = fullscreen.docOf(el);
+    const win = (d && d.defaultView) || (typeof window !== 'undefined' ? window : null);
+    const st = { saved: fullscreen.scrollers(el, keep), native: false, onFsChange: null, onKey: null };
+    const say = on => { try { if (typeof onChange === 'function') onChange(on); } catch (err) { console.error('[lb] 全屏回调出错', err); } };
+    st.cleanup = () => {
+      if (el.__lbFs !== st) return;
+      el.__lbFs = null;
+      if (st.onFsChange && d) d.removeEventListener('fullscreenchange', st.onFsChange);
+      if (st.onKey && win) win.removeEventListener('keydown', st.onKey, true);
+      el.classList.remove(FS_CLS, FS_FALLBACK);
+      fullscreen.restore(st.saved);
+      raf(() => fullscreen.restore(st.saved));   // 布局回来之后再放一次（Obsidian 退出全屏会重排）
+      say(false);
+    };
+    el.__lbFs = st;
+    el.classList.add(FS_CLS);
+    if (d && typeof el.requestFullscreen === 'function') {
+      st.onFsChange = () => { if (d.fullscreenElement !== el) st.cleanup(); };
+      d.addEventListener('fullscreenchange', st.onFsChange);
+      try { await el.requestFullscreen({ navigationUI: 'hide' }); st.native = true; say(true); return true; }
+      catch (err) { d.removeEventListener('fullscreenchange', st.onFsChange); st.onFsChange = null; }
+    }
+    el.classList.add(FS_FALLBACK);
+    st.onKey = e => { if (e.key === 'Escape' || e.key === 'Esc') { e.preventDefault?.(); e.stopPropagation?.(); st.cleanup(); } };
+    if (win) win.addEventListener('keydown', st.onKey, true);
+    say(true);
+    return true;
+  },
+  async exit(el) {
+    const st = el && el.__lbFs;
+    if (!st) return false;
+    const d = fullscreen.docOf(el);
+    if (st.native && d && d.fullscreenElement === el && typeof d.exitFullscreen === 'function') {
+      try { await d.exitFullscreen(); } catch {}
+    }
+    st.cleanup();   // fullscreenchange 已经收拾过就是空操作
+    return true;
+  },
+  toggle(el, opts) { return fullscreen.active(el) || (el && el.__lbFs) ? fullscreen.exit(el) : fullscreen.enter(el, opts); },
+};
+
 // 这个元素在 dy 方向上还能不能自己滚（滚动容器 + 还没到头）
 function canScroll(el, dy) {
   if (!el || el.nodeType !== 1) return false;
@@ -232,6 +299,8 @@ class MediaNav {
       ".lb-lightbox .lb-lb-caption.is-link{cursor:pointer;text-decoration:underline;text-underline-offset:2px;}",
       ".lb-lightbox .lb-lb-caption:empty{display:none;}",
       ".lb-lightbox[data-single] .lb-lb-prev,.lb-lightbox[data-single] .lb-lb-next{display:none;}",
+      ".lb-lightbox .lb-lb-full{right:66px;top:18px;width:38px;height:38px;font-size:18px;}",
+      ".lb-lightbox.is-lb-fullscreen img{max-width:100vw;max-height:100vh;}",
     ].join("\n");
     document.head.appendChild(style);
     this.register(() => style.remove());
@@ -252,7 +321,7 @@ class MediaNav {
       e.preventDefault();
       e.stopPropagation();
       const lbNote = img.closest('.lb-note');
-      this.openLightbox(imgs, Math.max(0, imgs.indexOf(img)), { onClose: (last) => {
+      this.openLightbox(imgs, Math.max(0, imgs.indexOf(img)), { note: lbNote, onClose: (last) => {
         if (!carousel || !carousel.isConnected) return;
         const slides = getSlides(carousel), s = slides[last];
         if (s) carousel.scrollTo({ left: s.offsetLeft - slides[0].offsetLeft, behavior: "auto" });
@@ -279,11 +348,16 @@ class MediaNav {
     const prev = el.createEl("button", { cls: "lb-lb-prev", text: "‹" });
     const next = el.createEl("button", { cls: "lb-lb-next", text: "›" });
     const shut = el.createEl("button", { cls: "lb-lb-close", text: "✕" });
+    const full = el.createEl("button", { cls: "lb-lb-full", text: "⛶" });   // 1026：真全屏（铺满屏幕），再点 / Esc 退出
+    const lbNote = opts.note || null;
+    const keepScroll = lbNote && typeof lbNote.querySelectorAll === 'function' ? [...lbNote.querySelectorAll('.lb-scroll')] : [];
+    const toggleFull = () => fullscreen.toggle(el, { keep: keepScroll, onChange: on => { full.setAttribute("aria-pressed", String(on)); full.setAttribute("aria-label", on ? "退出全屏" : "全屏"); } });
     const count = el.createDiv({ cls: "lb-lb-count" });
     const cap = typeof opts.caption === 'function' ? el.createDiv({ cls: "lb-lb-caption" + (typeof opts.onCaption === 'function' ? " is-link" : "") }) : null;
     prev.setAttribute("aria-label", "上一张");
     next.setAttribute("aria-label", "下一张");
     shut.setAttribute("aria-label", "关闭");
+    full.setAttribute("aria-label", "全屏"); full.setAttribute("aria-pressed", "false"); full.setAttribute("title", "全屏（F）");
 
     const apply = () => {
       view.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
@@ -314,7 +388,8 @@ class MediaNav {
     const onKey = (e) => {
       if (menuOpen()) return;   // 右键菜单开着：Esc / 方向键归菜单
       const stop = () => { e.preventDefault(); e.stopPropagation(); };
-      if (e.key === "Escape" || e.key === "Esc" || e.keyCode === 27) { stop(); this.closeLightbox(); }
+      if (e.key === "Escape" || e.key === "Esc" || e.keyCode === 27) { stop(); if (fullscreen.active(el) || el.__lbFs) fullscreen.exit(el); else this.closeLightbox(); }
+      else if (e.key === "f" || e.key === "F") { stop(); toggleFull(); }
       else if (e.key === "ArrowLeft" || e.key === "ArrowRight") { stop(); show(idx + (e.key === "ArrowRight" ? 1 : -1)); }
       else if (e.key === "+" || e.key === "=") { stop(); zoomAt(1.25, innerWidth / 2, innerHeight / 2); }
       else if (e.key === "-") { stop(); zoomAt(0.8, innerWidth / 2, innerHeight / 2); }
@@ -357,6 +432,7 @@ class MediaNav {
     prev.addEventListener("click", (e) => { e.stopPropagation(); show(idx - 1); });
     next.addEventListener("click", (e) => { e.stopPropagation(); show(idx + 1); });
     shut.addEventListener("click", (e) => { e.stopPropagation(); this.closeLightbox(); });
+    full.addEventListener("click", (e) => { e.stopPropagation(); toggleFull(); });
     if (cap && typeof opts.onCaption === 'function') cap.addEventListener("click", (e) => { e.stopPropagation(); const i = idx; this.closeLightbox(); try { opts.onCaption(i); } catch (err) { console.error('[lb] 大图说明点击出错', err); } });
     el.addEventListener("wheel", onWheel, { passive: false });
     el.addEventListener("pointerdown", onDown);
@@ -366,6 +442,7 @@ class MediaNav {
     show(idx);
 
     const closer = () => {
+      if (el.__lbFs) fullscreen.exit(el);   // 关大图时在全屏里：先退出来（阅读位置照原样放回）
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
@@ -373,7 +450,7 @@ class MediaNav {
       if (typeof opts.onClose === 'function') { try { opts.onClose(idx); } catch (err) { console.error('[lb] 大图关闭回调出错', err); } }
     };
     this._lbClose = closer;
-    return { close: () => { if (this._lbClose === closer) this.closeLightbox(); }, get index() { return idx; }, el };
+    return { close: () => { if (this._lbClose === closer) this.closeLightbox(); }, get index() { return idx; }, el, toggleFullscreen: toggleFull };
   }
 
   // ── N15：每篇的状态（key = .lb-note 的 data-lb-item；没有就用所在 markdown leaf 的文件路径）──
@@ -511,6 +588,13 @@ class MediaNav {
     if(video){
       this.hoverControls(media,video);
       this.clickToggle(video);
+      // 1026：视频「全屏」= 整块（画面 + 倍速 / 循环 / 连播）铺满屏幕；原生全屏键（只全屏 <video>、控件全丢）换成这个，双击画面也是它
+      try{video.setAttribute('controlslist','nofullscreen');}catch{}
+      const keepScroll=[...note.querySelectorAll('.lb-scroll')];
+      let fsBtn=null;
+      const toggleFull=()=>fullscreen.toggle(media,{keep:keepScroll,onChange:on=>{if(fsBtn){fsBtn.setAttribute('aria-pressed',String(on));fsBtn.setText(on?'退出全屏':'全屏');}fit();}});
+      video.addEventListener('dblclick',e=>{if(e.button&&e.button!==0)return;e.preventDefault();e.stopPropagation?.();toggleFull();});
+      media.lbToggleFullscreen=toggleFull;
       const speed=bar.createEl('button',{cls:'lb-video-speed',text:'1×'});
       const setRate=value=>{video.playbackRate=Math.min(4,Math.max(.25,Math.round(value*20)/20));speed.setText(Number(video.playbackRate.toFixed(2))+'×');};
       let drag=null,moved=false;
@@ -535,6 +619,9 @@ class MediaNav {
         document.querySelectorAll('.xhs-note .lb-video-loop').forEach(b=>b.setAttribute('aria-pressed',String(on)));
         try{await this.plugin.saveSettings?.();}catch(e){console.error('[lb] 循环设置没存上',e);}
       };
+      fsBtn=bar.createEl('button',{cls:'lb-video-full',text:'全屏'});
+      fsBtn.setAttribute('aria-pressed','false');fsBtn.setAttribute('title','铺满屏幕（倍速 / 循环照样在）；再点或 Esc 退出');
+      fsBtn.onclick=e=>{if(e&&e.detail&&fsBtn.blur)fsBtn.blur();toggleFull();};
       const playlist=bar.createEl('button',{cls:'lb-video-playlist',text:'连播…'});
       playlist.setAttribute('title','按标签连播视频');
       playlist.onclick=e=>{
@@ -669,3 +756,4 @@ module.exports.MediaNav = MediaNav;
 module.exports.OLD_PLUGIN_ID = OLD_PLUGIN_ID;
 module.exports.getSlides = getSlides;
 module.exports.canScroll = canScroll;
+module.exports.fullscreen = fullscreen;
