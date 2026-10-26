@@ -111,11 +111,11 @@ const HTML = `<style>
       files: { '_archive/chat-session.json': JSON.stringify({ turns }), '_archive/chat-archive.json': '{"entries":[]}', '_archive/chat-prefs.json': '{"follow":"sources"}' } });
     await S.settle(80);
     const cite = chat.locator('button.lbchat-cite').first();
-    assert.equal(await cite.textContent(), '1', '1026 起胶囊只显示来源号上标');
-    assert.equal(await cite.getAttribute('aria-label'), '来源1 第 2 段');
+    assert.equal(await cite.textContent(), '1', '1026 起胶囊只显示出处序号');
+    assert.equal(await cite.getAttribute('aria-label'), '出处：黑椒牛肉意面');
     await cite.hover(); await S.settle(500);
     const pop = await chat.evaluate(() => { const b = document.querySelector('.lbchat-citepop'); if (!b) return null; const r = b.getBoundingClientRect(); return { t: b.querySelector('.t').textContent, w: b.querySelector('.w').textContent, q: b.querySelector('.q').textContent, inView: r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight }; });
-    assert.ok(pop && pop.t === '黑椒牛肉意面' && pop.w.includes('段2') && pop.w.includes('图片文字') && pop.w.includes('图2') && pop.q.includes('逆纹切条') && pop.inView, JSON.stringify(pop));
+    assert.ok(pop && pop.t === '黑椒牛肉意面' && pop.w === '图2' && pop.q.includes('逆纹切条') && pop.inView, JSON.stringify(pop));
     await S.screenshot('cite-hover-pop');
     await chat.mouse.move(5, 5); await S.settle(100);
     assert.equal(await chat.locator('.lbchat-citepop').count(), 0, '移开就收');

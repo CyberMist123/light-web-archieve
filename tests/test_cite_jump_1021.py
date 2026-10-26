@@ -74,6 +74,12 @@ def test_citation_regexes_accept_segment_numbers():
     assert ask_followup._CITE.findall("- **对象**[来源3 段2]") == ["3"]
     # 看图占位不受影响
     assert ask._SEE_IMG.search("[看图：来源2 图3]")
+    # 1026：模型也写 [来源N 图M] / [来源N 段k 图M]，都算引用了来源 N；看图占位不算引用
+    md2 = "甲 [来源1 段2 图1]。乙 [来源6 图5]。丙 [看图：来源3 图2]"
+    assert ask.CITE_ANY.findall(md2) == ["1", "6"]
+    assert answer_prompt.body_citations(md2) == [1, 6]
+    assert answer_check.CITE_RE.sub("", "事实[来源6 图5]。") == "事实。"
+    assert ask_followup._CITE.findall("- **对象**[来源3 段2 图4]") == ["3"]
 
 
 def test_prompt_rules_ask_for_segment_citations():

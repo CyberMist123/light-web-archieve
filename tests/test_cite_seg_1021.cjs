@@ -33,10 +33,9 @@ const DATA = '_archive/catalog-data.json';
   await A.run();
   const cites = A.section.querySelectorAll('button.lbchat-cite');
   assert.equal(cites.length, 3, '三处引用都成了胶囊');
-  assert.deepEqual(cites.map(b => b.textContent), ['1', '1', '1'], '胶囊上不显示段号（1026 起只显示来源号上标）');
-  assert.equal(cites[0].getAttribute('aria-label'), '来源1 第 2 段', '读屏仍念出来源和段号');
+  assert.deepEqual(cites.map(b => b.textContent), ['1', '2', '3'], '胶囊上不显示段号（1026 第二轮起按出处顺序编 1、2、3）');
+  assert.equal(cites[0].getAttribute('aria-label'), '出处：主要a', '读屏念出出处标题');
   assert.deepEqual(cites.map(b => b.dataset.seg || ''), ['2', '', '1']);
-  assert.ok(cites[0].getAttribute('title').includes('第 2 段'));
   // 点带段号的：插件只负责开笔记（证据传空），页面自己定位；假宿主没有右栏（archiveLeaves 缺）→ 定位日志记 no-reader，但挑的段是段 2（图片文字）
   const lastLog = () => JSON.parse(V.get('_archive/locate-last.json'));
   await cites[0].onclick({ stopPropagation() {} }); await tick(2300);

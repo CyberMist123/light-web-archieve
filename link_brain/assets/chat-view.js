@@ -142,18 +142,30 @@ async function archiveChange(mutate) {
 // A12：「我保存的」来源在原地展开，不切整页；A11：没插件时走 openLinkText
 // 1021 她：点引用要跳到正文那一处——seg（模型写的 [来源N 段k]）直接指定证据段；没段号就按点击那句的上下文挑最像的一段。
 // 挑好的排第一，插件 openArchiveSource 只跳第一段（不出工具条、只滚原帖自己的滚动区）
-// 1026 她：点引用时灵时不灵。规则（NotebookLM 式：悬停看证据，点了去原帖那一处；对不上就只开原帖、说清楚，不乱跳）：
+// 1026 她：点引用时灵时不灵。规则（NotebookLM 式：悬停看证据，点了去原帖那一处；对不上就只开原帖，不乱跳）：
 // · 写了段号 [来源N 段k]：只认段 k。段号不存在 → 不定位；同号多段（拆图前的旧回答）用上下文消歧，消不了就不定位——
 //   指定了图3 绝不改跳图1。
+// · 写了图号 [来源N 图M]（第二轮：模型常这么写），或引用前那句里只提到一个「图M」（来源导读「必看：图1」）：跳第 M 张图；
+//   证据里有这张图的识别文字就用它，没有也照样按图号去轮播里找。
 // · 没段号：只有一段证据就用它；多段时上下文和某一段明显最像（≥ CITE_MIN_SCORE 且不并列）才用，否则不定位（不再默认封面）。
-// 悬停卡片和点击共用这一份结果。返回 {parts, why}：parts 空时 why 是不定位的原因。
+// 悬停卡片和点击共用这一份结果。target = {seg, img}（旧调用传段号 / 段号数组也认）。返回 {parts, why}：parts 空时 why 是不定位的原因。
 const CITE_MIN_SCORE = 2;
-function rankExcerpts(src, segs, context) {
+function rankExcerpts(src, target, context) {
   const all = (src?.excerpts || []).filter(p => p && p.text);
-  const want = [...new Set([].concat(segs || []).map(Number).filter(Boolean))];
+  const t = target && typeof target === 'object' && !Array.isArray(target) ? target : { seg: target };
+  const want = [...new Set([].concat(t.seg || []).map(Number).filter(Boolean))];
   const normalized = String(context || '').replace(/\s/g, '').toLowerCase();
   const score = p => { const text = String(p.text).replace(/\s/g, '').toLowerCase(); let n = 0; for (let i = 0; i < normalized.length - 3; i++) if (text.includes(normalized.slice(i, i + 4))) n++; return n; };
   const clear = list => { const s = list.map(p => ({ p, s: score(p) })).sort((a, b) => b.s - a.s); return s[0] && s[0].s >= CITE_MIN_SCORE && (!s[1] || s[0].s > s[1].s) ? s[0].p : null; };
+  // 图号：明写的优先；没写段号也没写图号时，看引用前那句是不是只点了一张图（「看图」占位不算）
+  let img = Number(t.img) || 0;
+  if (!img && !want.length) { const named = [...new Set([...String(context || '').replace(/看图[：:][^\]]*\]/g, '').matchAll(/(?<![评论c\d])图\s*(\d+)/g)].map(m => Number(m[1])))]; if (named.length === 1) img = named[0]; }
+  if (img) {
+    const label = '图' + img;
+    const hit = all.filter(p => (p.images || []).includes(label));
+    const one = hit.find(p => !want.length || want.includes(Number(p.seg))) || hit[0];
+    return { parts: [one || { field: 'ocr', images: [label], assets: [], imageNo: img, text: '' }], why: '' };
+  }
   if (want.length) {
     const parts = []; let why = 'seg-missing';
     for (const k of want) {
@@ -199,7 +211,7 @@ function openNote(source, compare = false, context = '', fromCite = null, seg = 
   return run.then(ok => {
     if (!ok || gen !== openGen) return null;
     paintSourceBar(); settle(); watchReaderVideos(src.note);
-    return ranked ? locateInReader(src, ranked, gen, before) : null;
+    return ranked ? locateInReader(src, ranked, gen, before, context) : null;
   }).catch(e => { if (gen === openGen) notice('打不开来源：' + errText(e)); });
 }
 // ── 1022 点引用 → 右栏原帖那一处（页面侧实现；和插件 locateOnePassage 同一套规则）──
@@ -209,7 +221,17 @@ function passageCompact(s) { return String(s || '').normalize('NFKC').replace(/\
 // 1022 她：locate-last 里 comments 是楼数的两倍——Obsidian 把隐藏的编辑视图和阅读视图都留在 DOM 里，querySelector 先拿到隐藏那份，
 // 滚不到也看不见。只认没被 display:none 祖先藏起来的元素（折叠的 <details> 里的照常算，开 details 后能看见）
 function passageHidden(el, box) { for (let u = el; u && u !== box.parentElement; u = u.parentElement) { if (u.nodeType === 1 && getComputedStyle(u).display === 'none') return true; } return false; }
-function passageTargetIn(box, part) {
+// 1026 第二轮：一段证据常盖住原帖好几段（作者开场那句 + 下面的网站清单），几段都「对得上」时原先拿第一段——
+// 现在按「引用前那一句」（context）挑重合最多的那段；没有 context 或都不重合时照旧拿第一个。
+function bestByContext(els, context) {
+  const c = passageCompact(context);
+  if (els.length < 2 || c.length < 4) return els[0] || null;
+  const score = el => { const t = passageCompact(el.textContent); let n = 0; for (let i = 0; i + 4 <= c.length; i++) if (t.includes(c.slice(i, i + 4))) n++; return n; };
+  let best = els[0], bs = score(best);
+  for (const el of els.slice(1)) { const s = score(el); if (s > bs) { best = el; bs = s; } }
+  return best;
+}
+function passageTargetIn(box, part, context = '') {
   const quote = passageCompact(part.text);
   const shown = els => [...els].filter(el => !passageHidden(el, box));
   const run = (a, b, w) => { for (let i = 0; i + w <= a.length; i++) if (b.includes(a.slice(i, i + w))) return true; return false; };
@@ -228,6 +250,12 @@ function passageTargetIn(box, part) {
       if (new Set(byName.map(hit)).size > 1) return { el: null, how: 'asset-ambiguous' };
       all = byName; how = 'asset-name';
     }
+    // 只知道图号（[来源N 图M] / 「必看：图M」，证据里没有这张图的识别文字）：按文件名 image-00M.* 认，认不出按轮播第 M 张
+    if (!all.length && part.imageNo) {
+      const n = Number(part.imageNo), re = new RegExp('(^|/)image-0*' + n + '\\.[a-z0-9]+$', 'i');
+      all = media.filter(m => urls(m).some(u => re.test(u))); how = 'image-no';
+      if (!all.length) { const slides = shown(box.querySelectorAll('.lb-carousel .lb-slide')); const m = slides[n - 1]?.querySelector('img, video'); if (m) { all = [m]; how = 'image-nth'; } }
+    }
     const visible = all.find(m => m.getClientRects().length > 0);
     return { el: visible || all[0] || null, how: visible ? how : all[0] ? how + '-hidden' : 'none' };
   }
@@ -237,15 +265,17 @@ function passageTargetIn(box, part) {
     const scope = part.field === 'body' ? '.lb-body' : '.lb-transcript .lb-body';
     for (const i of part.paras || []) for (const el of shown(box.querySelectorAll(`${scope} p[data-p="${Number(i)}"]`))) { if (part.field === 'body' && el.closest('.lb-transcript')) continue; anchors.push(el); }
   }
-  const ok = anchors.find(verify); if (ok) return { el: ok, how: 'anchor', anchors: anchors.length };
+  const okAll = anchors.filter(verify); if (okAll.length) return { el: bestByContext(okAll, context), how: 'anchor', anchors: anchors.length };
   if (anchors.length && !quote) return { el: anchors[0], how: 'anchor-noquote', anchors: anchors.length };
   const selectors = { body: '.lb-body p', comments: '.lb-comment-text', transcript: '.lb-transcript .lb-body p', screen: '.lb-transcript .lb-body p' };
   if (!selectors[part.field]) return { el: null, how: 'nofield', anchors: anchors.length };
-  const el = shown(box.querySelectorAll(selectors[part.field])).filter(el => !(part.field === 'body' && el.closest('.lb-transcript'))).find(verify) || null;
+  const el = bestByContext(shown(box.querySelectorAll(selectors[part.field])).filter(el => !(part.field === 'body' && el.closest('.lb-transcript'))).filter(verify), context);
   return { el, how: el ? 'text' : 'none', anchors: anchors.length };
 }
-function markPassageIn(el, quote) {
-  const q = passageCompact(quote); const nodes = []; const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let all = '';
+// 1026：先按「引用前那一句」挑这段里最像的一句，挑不出再按证据原文
+function markScore(el, text) { const q = passageCompact(text), t = passageCompact(el.textContent); let n = 0; for (let i = 0; i + 6 <= q.length; i++) if (t.includes(q.slice(i, i + 6))) n++; return n; }
+function markPassageIn(el, quote, context = '') {
+  const q = passageCompact(passageCompact(context).length >= 6 && markScore(el, context) ? context : quote); const nodes = []; const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let all = '';
   while (tw.nextNode()) { nodes.push([tw.currentNode, all.length]); all += tw.currentNode.nodeValue; }
   const score = s => { const c = passageCompact(s); let n = 0; for (let i = 0; i + 6 <= c.length; i++) if (q.includes(c.slice(i, i + 6))) n++; return n; };
   let best = null;
@@ -276,14 +306,12 @@ function readerShowing(box, leaf, src, before) {
   const ids = fresh.map(el => el.getAttribute?.('data-lb-item')).filter(Boolean);
   return !src?.id || !ids.length || ids.includes(String(src.id));
 }
+// 1026 她（第二轮）：提示用大白话，不讲内部原因；这句对不上原文（多半是模型自己的概括）就不提示，原帖照样打开。
 const LOCATE_WHY = {
-  'no-reader': '右栏没打开原帖，跳不过去',
-  'not-rendered': '原帖还没画完，再点一次引用',
-  'no-match': '这句没标出自原帖哪一处，只打开了原帖',
-  'no-evidence': '这条来源没有可对照的原文段，只打开了原帖',
-  'seg-missing': '引用的那一段对不上这篇原文，只打开了原帖',
-  'seg-ambiguous': '引用的段号对应好几处、分不出是哪一处，只打开了原帖',
-  'not-found': '未找到该处原文，只打开了原帖',
+  'no-reader': '右栏没打开原帖',
+  'not-rendered': '原帖还没显示出来，稍后再点一次',
+  'not-found': '见原帖',
+  'attachment-missing': '附件没存到本地，见原帖',
 };
 // 定位落到的元素是什么（日志里证明跳对了：图片 src / 评论楼号 / 段序号）
 function locateTargetDesc(el) {
@@ -293,7 +321,43 @@ function locateTargetDesc(el) {
   const p = el.closest?.('p[data-p]'); if (p) return (p.closest('.lb-transcript') ? 'transcript:' : 'para:') + p.getAttribute('data-p');
   return el.tagName;
 }
-async function locateInReader(src, ranked, gen, before) {
+// 1026 她：引用落在附件里时，跳到附件那一页。附件文字版（derived/attachments/<id>.md）按「## 第 N 页」分页：
+// 找到证据原文在哪一页 → PDF 下载了就开 PDF#page=N，否则开文字版到「第 N 页」标题。开在右栏旁边的新标签页，不顶掉原帖。
+function vaultRel(abs) {
+  const base = String(app.vault.adapter?.basePath || app.vault.adapter?.getBasePath?.() || '').replace(/\\/g, '/').replace(/\/$/, '');
+  const a = String(abs || '').replace(/\\/g, '/');
+  return base && a.toLowerCase().startsWith(base.toLowerCase() + '/') ? a.slice(base.length + 1) : null;
+}
+async function openAttachmentAt(src, part) {
+  const atts = (src?.attachments || []).filter(a => a && (a.markdown || a.file));
+  if (!atts.length) return { opened: false };
+  const lines = String(part.text || '').split('\n').map(x => x.trim()).filter(x => x.length >= 8).sort((a, b) => b.length - a.length).slice(0, 4);
+  let pick = null, page = 0;
+  for (const att of atts) {
+    const rel = vaultRel(att.markdown); if (!rel) continue;
+    let md = ''; try { md = await app.vault.adapter.read(rel); } catch { continue; }
+    const at = lines.map(l => md.indexOf(l)).find(i => i >= 0);
+    if (at == null && atts.length > 1) continue;
+    pick = att;
+    if (at != null) { const heads = [...md.slice(0, at).matchAll(/^## 第\s*(\d+)\s*页/gm)]; page = heads.length ? Number(heads[heads.length - 1][1]) : 0; }
+    break;
+  }
+  pick = pick || atts[0];
+  const pdf = pick.downloaded !== false && /\.pdf$/i.test(pick.file || '') ? vaultRel(pick.file) : null;
+  const rel = pdf || vaultRel(pick.markdown);
+  const file = rel ? app.vault.getAbstractFileByPath(rel) : null;
+  if (!file) return { opened: false, attachment: pick.name || '' };
+  const subpath = page ? (pdf ? '#page=' + page : '#第 ' + page + ' 页') : '';
+  try {
+    const reader = readerLeaf(), parent = reader?.parent;
+    const leaf = parent && typeof app.workspace.createLeafInParent === 'function'
+      ? app.workspace.createLeafInParent(parent, Math.max(0, (parent.children || []).indexOf(reader) + 1))
+      : app.workspace.getLeaf('tab');
+    await leaf.openFile(file, { active: true, eState: subpath ? { subpath } : undefined });
+    return { opened: true, attachment: pick.name || '', page, target: 'attachment:' + rel + subpath };
+  } catch (e) { return { opened: false, attachment: pick.name || '', error: errText(e) }; }
+}
+async function locateInReader(src, ranked, gen, before, context = '') {
   const parts = ranked.parts || [];
   const first = parts[0];
   const live = () => gen === openGen;   // 她已经点了下一条：这次的结果不碰界面、不写日志
@@ -302,10 +366,19 @@ async function locateInReader(src, ranked, gen, before) {
     if (!live()) return false;
     Object.assign(log, { ok, why });
     try { await app.vault.adapter.write(lbPath('_archive/locate-last.json'), JSON.stringify(log, null, 1)); } catch {}
-    if (!ok && live()) notice(LOCATE_WHY[why] || LOCATE_WHY['not-found'], 4000);
+    try {   // 最近 30 次定位（排障用；locate-last 只留最后一次，她一轮点好几处时看不全）
+      const hp = lbPath('_archive/locate-history.json'); let hist = [];
+      try { hist = JSON.parse(await app.vault.adapter.read(hp)); } catch {}
+      hist = [...(Array.isArray(hist) ? hist : []), log].slice(-30);
+      await app.vault.adapter.write(hp, JSON.stringify(hist, null, 1));
+    } catch {}
+    if (!ok && live() && LOCATE_WHY[why]) notice(LOCATE_WHY[why], 3000);
     return ok;
   };
   if (!parts.length) return done(false, ranked.why || 'no-match');
+  log.context = String(context || '').slice(0, 60);
+  // 附件里的话：在右栏旁边新开一页打开到那一页（PDF 跳页；没下 PDF 就开附件文字版到那一页的标题）
+  if (first.field === 'attachments') { const r = await openAttachmentAt(src, first); Object.assign(log, r); return done(!!r.opened, r.opened ? 'attachment' : 'attachment-missing'); }
   let box = null, leaf = null;
   for (let i = 0; i < 20 && !box; i++) { leaf = readerLeaf(); box = leaf?.view?.containerEl || null; if (!box) { await new Promise(r => setTimeout(r, 100)); if (!live()) return false; } }
   if (!box) return done(false, 'no-reader');
@@ -319,7 +392,7 @@ async function locateInReader(src, ranked, gen, before) {
   let el = null, how = 'none', anchors = 0, part = first;
   log.tried = [];
   for (const cand of parts) {
-    const r = passageTargetIn(box, cand); log.tried.push(`${cand.field}:${cand.seg ?? ''}:${r.how}`);
+    const r = passageTargetIn(box, cand, context); log.tried.push(`${cand.field}:${cand.seg ?? ''}:${r.how}`);
     if (r.el) { ({ el, how, anchors } = r); part = cand; break; }
     anchors = r.anchors; how = r.how;
   }
@@ -334,7 +407,7 @@ async function locateInReader(src, ranked, gen, before) {
   const mediaLog = m => { log.inView = m.getClientRects().length > 0 && (() => { const r = m.getBoundingClientRect(), b = box.getBoundingClientRect(); return r.bottom > b.top && r.top < b.bottom; })(); };
   if (carousel) { const slide = el.closest('.lb-slide'); const first = carousel.querySelector('.lb-slide'); if (slide) carousel.scrollLeft = slide.offsetLeft - (first ? first.offsetLeft : 0); boardScrollWithin(carousel, box); flashMedia(el); mediaLog(el); return done(true, 'image'); }
   if (el.tagName === 'IMG' || el.tagName === 'VIDEO') { boardScrollWithin(el, box); flashMedia(el); mediaLog(el); return done(true, 'image'); }
-  const target = markPassageIn(el, part.text);
+  const target = markPassageIn(el, part.text, context);
   boardScrollWithin(target, box);
   log.scrolled = [...(function* () { for (let u = target.parentElement; u && u !== box.parentElement; u = u.parentElement) if (boardScrollable(u)) yield (u.className || u.tagName).toString().slice(0, 40) + '@' + Math.round(u.scrollTop); })()];
   log.inView = (() => { const r = target.getBoundingClientRect(), b = box.getBoundingClientRect(); return r.top >= b.top && r.bottom <= b.bottom; })();
@@ -562,11 +635,13 @@ LB.style('lbchat-style', `
 .lbchat .lbchat-answer pre code{padding:0;background:transparent;}
 .lbchat .lbchat-answer table{border-collapse:collapse;margin:.4em 0 .9em;font-size:.95em;}
 .lbchat .lbchat-answer th,.lbchat .lbchat-answer td{border:1px solid var(--background-modifier-border);padding:4px 9px;}
-/* [来源N] → 小上标胶囊（只显示来源号，1026）：不抢眼，悬停才显链接色 */
+/* [来源N] → 小上标胶囊（只显示出处序号 1、2、3，1026）：不抢眼，悬停才显链接色 */
 .lbchat button.lbchat-cite{display:inline-block!important;font:inherit!important;font-size:10px!important;line-height:1.45!important;vertical-align:super;min-width:1.5em;text-align:center;margin:0 1px;padding:0 4px!important;height:auto;border:0!important;box-shadow:none!important;border-radius:999px!important;background:var(--background-modifier-hover)!important;color:var(--text-muted)!important;cursor:pointer;white-space:nowrap;}
 .lbchat button.lbchat-cite:hover{color:var(--link-color)!important;background:var(--background-secondary)!important;}
 /* 1022 点引用落到图 / 视频上：描一圈会被轮播裁掉，改成外发光脉冲，看得见 */
-.lb-source-reader .lb-media-hit,.xhs-note .lb-media-hit{outline:none!important;box-shadow:0 0 0 4px var(--interactive-accent),0 0 18px 4px var(--interactive-accent)!important;animation:lbmediahit 1s ease-in-out 4;}
+/* 1026 她：命中处不要紫色框——文字只铺一层淡黄底（像荧光笔），图片一圈细细的暖色描边，6 秒后自己退掉 */
+.lb-source-reader .lb-evidence-hit,.xhs-note .lb-evidence-hit{outline:none!important;box-shadow:none!important;background:rgba(255,214,102,.38)!important;border-radius:3px;transition:background-color .6s;}
+.lb-source-reader .lb-media-hit,.xhs-note .lb-media-hit{outline:none!important;background:none!important;box-shadow:0 0 0 3px rgba(255,190,70,.75)!important;border-radius:6px;animation:none!important;}
 @keyframes lbmediahit{0%,100%{box-shadow:0 0 0 4px var(--interactive-accent),0 0 18px 4px var(--interactive-accent)}50%{box-shadow:0 0 0 1px var(--interactive-accent),0 0 4px 1px var(--interactive-accent)}}
 /* 1021 悬停引用 → 原文小卡 */
 .lbchat-citepop{position:fixed;z-index:9999;width:min(360px,calc(100vw - 16px));padding:8px 11px;border-radius:10px;background:var(--background-primary);border:1px solid var(--background-modifier-border);box-shadow:0 8px 28px rgba(0,0,0,.18);font-size:12px;line-height:1.55;color:var(--text-normal);pointer-events:none;}
@@ -651,6 +726,12 @@ LB.style('lbchat-style', `
 .lbchat-md > p:first-child{margin-top:0;}
 .lbchat-md > p:last-child{margin-bottom:0;}
 .lbchat .lbchat-md img{cursor:zoom-in;}
+/* 1026 她：回答里的图挪到它说明的那段旁边，靠右并排；标题 / 表格 / 来源块另起，不被图挤；窄了就回到上下排 */
+.lbchat .lbchat-md .lbchat-float-img{float:right;width:min(40%,280px);margin:2px 0 8px 16px;clear:right;}
+.lbchat .lbchat-md .lbchat-float-img img{width:100%!important;height:auto!important;max-width:100%;border-radius:8px;}
+.lbchat .lbchat-md h1,.lbchat .lbchat-md h2,.lbchat .lbchat-md h3,.lbchat .lbchat-md h4,.lbchat .lbchat-md table,.lbchat .lbchat-md hr,.lbchat .lbchat-md pre{clear:both;}
+.lbchat .lbchat-md::after{content:'';display:block;clear:both;}
+@media (max-width:640px){.lbchat .lbchat-md .lbchat-float-img{float:none;width:auto;max-width:360px;margin:6px 0;}}
 .lbchat-fail{color:var(--text-muted);}
 .lbchat-srcrow.is-removed > a{text-decoration:line-through;color:var(--text-faint);}
 .lbchat .lbchat-srcrow button.lbchat-src-back{font-size:11.5px;color:var(--text-faint);}
@@ -1341,7 +1422,7 @@ function drawActions(acts, el, t) {
   for (const [label, copyMode] of [['导出资料包', false], ['复制文件包', true]]) {
     const exportBtn = exportOptions.createEl('button', { cls: 'lbchat-act', text: label });
     exportBtn.onclick = async () => {
-      const used = new Set([...t.content.matchAll(/\[来源(\d+)(?:\s*[·· ]?\s*段(\d+))?\]/g)].map(m => Number(m[1])));
+      const used = new Set([...t.content.matchAll(CITE_IN_TEXT())].map(m => Number(m[1])));
       const gone = new Set(t.removed || []);
       const currentSources = (t.sources || []).filter(s => !gone.has(srcKey(s))).map(s => ({ ...s, cited: used.has(Number(s.citation)) }));
       const keptRelated = (t.related || []).filter(s => !gone.has(srcKey(s)));
@@ -2578,7 +2659,7 @@ function toggleHistory(anchor) {
 // 都写成函数声明：页面开头恢复历史时 buildTurn 就会用到，const 在这里还没初始化（TDZ）
 function BOARD_ITEM() { return /^\s*[-*]\s+\*\*(.+?)\*\*\s*(.*)$/; }
 function BOARD_URL() { return /https?:\/\/[^\s<>()（）\[\]【】「」"'，。；、]+/; }
-function BOARD_CITE() { return /\[来源(\d+)(?:\s*[·· ]?\s*段(\d+))?\]/g; }   // 1021：[来源N 段M] 也认
+function BOARD_CITE() { return CITE_IN_TEXT(); }   // 1021：[来源N 段M] 也认；1026：[来源N 图M] / [来源N 段k 图M] 也认
 function boardItem(name, rest) {
   const cites = [...String(rest).matchAll(BOARD_CITE())].map(m => Number(m[1]));
   // 1020：这一条自带的配图（正文图 / 评论区的图），后端换成了同一行里的 ![[路径|配图]]；页面拿它当配图，比帖子封面准
@@ -2904,76 +2985,108 @@ async function saveBoardNote(t) {
   await app.vault.adapter.write(path, boardNoteMd(t, board));
   return path;
 }
-// 1021 悬停引用胶囊 → 小卡：来源标题 · 这一段在哪（段k · 正文 / 图N / 评论 cN）· 原文前几行。只读、不开右栏；移开 / 点击就收。
+// 1021 悬停引用胶囊 → 小卡：来源标题 · 在原帖哪里（正文 / 图N / 评论 cN / 附件）· 原文前几行。只读、不开右栏；移开 / 点击就收。
+// 1026 她：卡片上不写「段k」这类内部说法；这句对不上原文（多半是模型自己的概括）就只写标题，不解释。
 function citePop() {   // 函数声明 + 懒建：页面开头恢复历史时 bindSources 就会用到（const 在这里还没初始化，TDZ）
   if (citePop._i) return citePop._i;
   let box = null, timer = 0;
-  const KIND = { body: '正文', comments: '评论区', ocr: '图片文字', comment_ocr: '评论区图片', transcript: '视频文字稿', screen: '视频画面文字', attachments: '附件', notes: '批注', highlights: '重点' };
+  const KIND = { body: '正文', comments: '评论', ocr: '图', comment_ocr: '评论区图片', transcript: '视频文字稿', screen: '视频画面文字', attachments: '附件', notes: '批注', highlights: '重点' };
   const hide = () => { clearTimeout(timer); timer = 0; if (box) { box.remove(); box = null; } };
-  // 和点击同一份结果：卡片上显示的就是点了会跳的那段；对不上时说清楚点了只会打开原帖（悬停不碰右栏）
-  const NOPICK = { 'seg-missing': '引用的段对不上原文 · 点了只打开原帖', 'seg-ambiguous': '段号对应好几处 · 点了只打开原帖', 'no-match': '没标出自哪一处 · 点了只打开原帖' };
   const where = p => {
     if (!p) return '';
-    const ids = (p.images || p.comment_labels || p.comments || []).slice(0, 3).join('、');
-    return (p.seg ? `段${p.seg} · ` : '') + (KIND[p.field] || p.field || '') + (ids ? ' ' + ids : '') + (p.speakers?.length ? ' · ' + p.speakers.slice(0, 2).join('、') : '');
+    if (p.field === 'ocr') return (p.images || []).slice(0, 3).join('、') || '图';
+    const ids = (p.comment_labels || p.comments || []).slice(0, 3).join('、');
+    return (KIND[p.field] || '原帖') + (ids ? ' ' + ids : '') + (p.speakers?.length ? ' · ' + p.speakers.slice(0, 2).join('、') : '');
   };
-  const show = (btn, src, seg, context) => {
+  const show = (btn, src, target, context) => {
     hide();
-    const ranked = rankExcerpts(src, seg, context), p = ranked.parts[0] || null;
+    const p = rankExcerpts(src, target, typeof context === 'function' ? context() : context).parts[0] || null;
     box = document.createElement('div'); box.className = 'lbchat-citepop';
     const t = document.createElement('div'); t.className = 't'; t.textContent = src?.title || '未命名'; box.append(t);
-    const w = document.createElement('div'); w.className = 'w'; w.textContent = p ? where(p) : NOPICK[ranked.why] || '原文在右侧打开'; box.append(w);
-    if (p) { const q = document.createElement('div'); q.className = 'q'; q.textContent = String(p.text).trim().slice(0, 240); box.append(q); }
+    if (p) {
+      const w = document.createElement('div'); w.className = 'w'; w.textContent = where(p); box.append(w);
+      if (p.text) { const q = document.createElement('div'); q.className = 'q'; q.textContent = String(p.text).trim().slice(0, 240); box.append(q); }
+    }
     document.body.append(box);
     const r = btn.getBoundingClientRect(), bw = box.offsetWidth || 320, bh = box.offsetHeight || 80;
     const left = Math.max(8, Math.min(r.left, window.innerWidth - bw - 8));
     const top = r.bottom + 6 + bh > window.innerHeight ? Math.max(8, r.top - bh - 6) : r.bottom + 6;
     box.style.left = left + 'px'; box.style.top = top + 'px';
   };
-  const bind = (btn, src, seg, context) => {
-    btn.addEventListener('mouseenter', () => { clearTimeout(timer); timer = setTimeout(() => show(btn, src, seg, context), 320); });
+  const bind = (btn, src, target, context) => {
+    btn.addEventListener('mouseenter', () => { clearTimeout(timer); timer = setTimeout(() => show(btn, src, target, context), 320); });
     btn.addEventListener('mouseleave', hide);
-    btn.addEventListener('focus', () => show(btn, src, seg, context));
+    btn.addEventListener('focus', () => show(btn, src, target, context));
     btn.addEventListener('blur', hide);
   };
   return (citePop._i = { bind, hide });
 }
-// 1026 她：「来源1」标得太多。同一段（段落 / 列表项 / 表格格 / 标题 / 引用块）里完全相同的 (来源, 段号) 只留最后一个；
-// 不同段号（图2 / 图3 / 评论 c5 是不同目标）各留各的，没段号的老引用按 (来源, 无段号) 算一种。拿掉的胶囊前面多出来的空白一起去掉。
-// 只动显示，不改回答原文（导出照旧）。
+// 1026 她（第二轮）：挑段只看「引用前面那一句」，不看整段——一段里讲了好几件事时，整段文字会把分数分给别的原文段（真机：
+// 列 6 个网站那句的引用跳到了作者开场那句）。取法：同一块（段落 / 列表项 / 表格格 / 标题）里，从上一个引用胶囊或上一个句末标点起，
+// 到这个胶囊为止；不到 6 个字（胶囊在句首，如「来源导读」那行）就用这一块整行。
+// 函数声明不怕 TDZ：页面开头恢复历史时 bindSources 就会用到，这里的 const 还没初始化
+function CITE_BLOCK() { return 'p,li,td,th,h1,h2,h3,h4,h5,h6,blockquote'; }
+function citeContext(btn) {
+  const blk = btn.closest(CITE_BLOCK()) || btn.parentElement;
+  if (!blk) return '';
+  let before = '', done = false;
+  const walk = n => {
+    for (const c of [...(n.childNodes || [])]) {
+      if (done) return;
+      if (c === btn) { done = true; return; }
+      if (c.nodeType === 3) before += c.textContent || '';
+      else if (c.classList?.contains('lbchat-cite')) before = '';
+      else walk(c);
+    }
+  };
+  walk(blk);
+  const cut = before.replace(/[。！？!?；;\n]\s*$/, '').split(/[。！？!?；;\n]/).pop() || '';
+  return cut.replace(/\s/g, '').length >= 6 ? cut : (blk.textContent || '');
+}
+// 1026 她：同一段里同一出处只留一个；编号按出处在这一答里第一次出现的顺序排 1、2、3……（像脚注），不再显示来源号——
+// 来源号相同、位置不同（图2 / 图3 / 评论）原先都显示「6」，挨在一起像重复。出处 = (来源, 段号, 图号)，没段号的老引用按 (来源) 算一种。
+// 同一出处再次出现沿用同一个号；紧挨着的同号只留一个。只动显示，不改回答原文（导出照旧）。
+function citeKey(c) { return c.dataset.cite + '|' + (c.dataset.seg || '') + '|' + (c.dataset.img || ''); }
 function mergeCites(el) {
   const groups = new Map();
   for (const c of el.querySelectorAll('.lbchat-cite')) {
-    const blk = c.parentElement?.closest('p,li,td,th,h1,h2,h3,h4,h5,h6,blockquote') || el;
-    const key = c.dataset.cite + '|' + (c.dataset.seg || '');
+    const blk = c.parentElement?.closest(CITE_BLOCK()) || el;
     if (!groups.has(blk)) groups.set(blk, new Map());
-    const same = groups.get(blk); if (!same.has(key)) same.set(key, []); same.get(key).push(c);
+    const same = groups.get(blk), key = citeKey(c); if (!same.has(key)) same.set(key, []); same.get(key).push(c);
   }
-  for (const same of groups.values()) for (const list of same.values()) {
-    for (const c of list.slice(0, -1)) {
-      const prev = c.previousSibling;
-      if (prev && prev.nodeType === 3) prev.textContent = String(prev.textContent || '').replace(/[ \t]+$/, '');
-      c.remove();
-    }
+  const drop = c => { const prev = c.previousSibling; if (prev && prev.nodeType === 3) prev.textContent = String(prev.textContent || '').replace(/[ \t]+$/, ''); c.remove(); };
+  for (const same of groups.values()) for (const list of same.values()) list.slice(1).forEach(drop);   // 留第一次出现的，编号才按阅读顺序 1、2、3
+  const nums = new Map();
+  for (const c of el.querySelectorAll('.lbchat-cite')) {
+    const key = citeKey(c); if (!nums.has(key)) nums.set(key, nums.size + 1);
+    c.textContent = String(nums.get(key)); c.dataset.n = String(nums.get(key));
+  }
+  for (const c of el.querySelectorAll('.lbchat-cite')) {
+    let n = c.nextSibling; while (n && n.nodeType === 3 && !String(n.textContent || '').trim()) n = n.nextSibling;
+    if (n && n.classList?.contains('lbchat-cite') && n.dataset.n === c.dataset.n) drop(n);
   }
 }
+// 模型写的引用：[来源N] / [来源N 段k] / [来源N 图M] / [来源N 段k 图M]（「·」也认）；[看图：来源N 图M] 是放图占位，不在这里
+function CITE_IN_TEXT() { return /\[来源\s*(\d+)(?:\s*[·· ]?\s*段\s*(\d+))?(?:\s*[·· ]?\s*图\s*(\d+))?\]/g; }
 function bindSources(el, sources, { pending = false } = {}) {
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
   for (const node of nodes) {
     if (node.parentElement?.closest('a,code,pre,button')) continue;
-    const matches = [...node.textContent.matchAll(/\[来源(\d+)(?:\s*[·· ]?\s*段(\d+))?\]/g)]; if (!matches.length) continue;
+    const matches = [...node.textContent.matchAll(CITE_IN_TEXT())]; if (!matches.length) continue;
     const frag = document.createDocumentFragment(); let last = 0;
     for (const m of matches) {
       frag.append(document.createTextNode(node.textContent.slice(last, m.index)));
       const src = pending ? null : sources.find(x => Number(x.citation) === Number(m[1]));
-      // 1021：段号不显示在胶囊上（噪音），记在 data-seg；点了直达那一段。1026：胶囊只显示来源号（小上标），读屏 / 悬停仍是「来源N」
-      const label = m[1], seg = m[2] ? Number(m[2]) : 0;
-      if (pending) { const s = document.createElement('span'); s.className = 'lbchat-cite is-pending'; s.textContent = label; s.dataset.cite = m[1]; if (seg) s.dataset.seg = String(seg); s.setAttribute('aria-label', '来源' + m[1]); frag.append(s); }
+      // 段号 / 图号不显示（噪音），记在 data-seg / data-img；胶囊上的数字由 mergeCites 按出处顺序编
+      const seg = m[2] ? Number(m[2]) : 0, img = m[3] ? Number(m[3]) : 0;
+      const tag = (c, title) => { c.dataset.cite = m[1]; if (seg) c.dataset.seg = String(seg); if (img) c.dataset.img = String(img); c.setAttribute('aria-label', '出处：' + (title || '来源' + m[1]) + (img ? ' 图' + img : '')); return c; };
+      if (pending) { const s = tag(document.createElement('span')); s.className = 'lbchat-cite is-pending'; s.textContent = m[1]; frag.append(s); }
       else if (src) {
-        const b = document.createElement('button'); b.className = 'lbchat-cite'; b.textContent = label; b.dataset.cite = m[1]; if (seg) b.dataset.seg = String(seg); b.setAttribute('aria-label', '来源' + m[1] + (seg ? ' 第 ' + seg + ' 段' : ''));
-        b.setAttribute('title', seg ? `打开原帖，跳到引用的第 ${seg} 段（右侧）` : '打开原帖，跳到引用的那一处（右侧）');
-        b.onclick = e => { e?.stopPropagation?.(); citePop().hide(); openNote(src, false, b.closest('p,li')?.textContent || '', b, seg); };
-        citePop().bind(b, src, seg, b.closest('p,li')?.textContent || '');
+        const b = tag(document.createElement('button'), src.title); b.className = 'lbchat-cite'; b.textContent = m[1];
+        b.setAttribute('title', '打开原帖，跳到这句的出处（右侧）');
+        const target = { seg, img };
+        b.onclick = e => { e?.stopPropagation?.(); citePop().hide(); openNote(src, false, citeContext(b), b, target); };
+        citePop().bind(b, src, target, () => citeContext(b));
         frag.append(b);
       }
       else frag.append(document.createTextNode(m[0]));
@@ -2984,4 +3097,21 @@ function bindSources(el, sources, { pending = false } = {}) {
   mergeCites(el);
   if (pending) return;
   for (const a of el.querySelectorAll('a')) { const href = a.getAttribute('data-href') || a.getAttribute('href'); const src = sources.find(x => href === x.url || href === x.note || href === x.note?.replace(/\.md$/, '')); if (src) a.onclick = e => { e?.preventDefault?.(); e?.stopPropagation?.(); openNote(src); }; }
+  floatAnswerImages(el);
+}
+// 1026 她：回答里的图（![[…|360]]）插在两段字中间太突兀——挪到它说明的那段旁边，靠右并排（文字绕排）；窄屏照旧上下排。
+// 图单独成一段 → 挪进前一段开头；图跟在一段字末尾 → 挪到这段开头。只挪 DOM，不改回答原文。
+function floatAnswerImages(el) {
+  for (const em of el.querySelectorAll('.internal-embed.image-embed, span.image-embed')) {
+    if (em.closest('.lbchat-float-img')) continue;
+    const blk = em.closest('p,li');
+    if (!blk || !el.contains(blk)) continue;
+    const alone = !String(blk.textContent || '').replace(/\s/g, '');
+    let host = blk;
+    if (alone) { const prev = blk.previousElementSibling; if (prev && /^(P|UL|OL)$/.test(prev.tagName)) host = prev.tagName === 'P' ? prev : (prev.querySelector('li') || prev); }
+    em.classList.add('lbchat-float-img');
+    const ref = [...host.childNodes].find(n => n !== em && !n.classList?.contains('lbchat-float-img')) || null;   // 同一段几张图保持原顺序
+    if (ref) host.insertBefore(em, ref); else host.append(em);
+    if (alone && host !== blk && !String(blk.textContent || '').replace(/\s/g, '') && !blk.querySelector('img,video')) blk.remove();
+  }
 }
