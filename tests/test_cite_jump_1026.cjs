@@ -84,7 +84,10 @@ const DATA = '_archive/catalog-data.json';
   };
   const DELAY = { 'Web/a.md': 150, 'Web/b.md': 400, 'Web/old.md': 300 };
   let pending = 0;
-  const leaf = { view: { containerEl: box, file: null } };
+  // 右栏这一组标签页：selectTab 记下切到前面的是哪页（附件开在同组时，原帖页会被挡住）
+  const group = { front: null, children: [], selectTab(l) { group.front = l; } };
+  const leaf = { id: 'reader', parent: group, view: { containerEl: box, file: null } };
+  group.children.push(leaf);
   const opened = [];
   const plugin = {
     settings: { models: [] },
@@ -101,6 +104,9 @@ const DATA = '_archive/catalog-data.json';
     async answerArchive() { return { status: 'ok', markdown: 'x', sources: [], related: [] }; },
   };
   const app = { vault: V.vault, workspace: makeWorkspace(), plugins: { plugins: { 'link-brain-actions': plugin }, enablePlugin: async () => {}, disablePlugin: async () => {} }, metadataCache: { getCache: () => null } };
+  let leafNo = 0;
+  app.workspace.createLeafInParent = (parent, i) => { const l = app.workspace.getLeaf('split'); l.id = 'att' + (++leafNo); l.parent = parent; parent.children.splice(i, 0, l); return l; };
+  app.workspace.getLeafById = id => [leaf, ...app.workspace.leaves].find(l => l.id === id && !l.detached) || null;
   const A = dataviewBlock({ dom, app, code: asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' + asset('chat-view.js') });
   await A.run();
 
@@ -209,6 +215,11 @@ const DATA = '_archive/catalog-data.json';
   log = lastLog();
   assert.equal(log.ok, true, JSON.stringify(log)); assert.equal(log.target, 'attachment:_archive/xhs/att/attachments/x.pdf#page=2');
   assert.equal(app.workspace.leaves.length, leavesBefore + 1, '新开了一页');
+  assert.equal(group.front?.id, 'att1', '附件页在原帖旁边、切到前面');
+  // 附件开着时再点正文引用：原帖页切回前面，不被附件挡住
+  await click(0, 0); await tick(300);
+  assert.equal(group.front, leaf, '原帖页切回前面');
+  assert.equal(lastLog().target, 'para:0');
   // 定位历史留最近几次（她一轮点好几处时排障用）
   assert.ok(JSON.parse(V.get('_archive/locate-history.json')).length >= 10);
 
@@ -227,6 +238,7 @@ const DATA = '_archive/catalog-data.json';
   assert.equal(lastLog().target, 'asset:raw/v0001/assets/image-001.webp', '「必看：图1」跳图1');
   await guide[3].onclick({ stopPropagation() {} }); await tick(300);
   assert.equal(lastLog().target, 'attachment:_archive/xhs/att/attachments/x.pdf#page=2', '「附件第2页」直接开到第 2 页');
+  assert.equal(leafNo, 1, '附件复用同一个标签页，不越开越多');
   const stamp0 = lastLog().at; await guide[0].onclick({ stopPropagation() {} }); await tick(300);
   assert.equal(lastLog().at, stamp0, '点标题只打开，不定位');
 

@@ -206,6 +206,7 @@ function openNote(source, compare = false, context = '', fromCite = null, seg = 
     if (gen !== openGen) return false;
     before = readerSnapshot(readerLeaf());   // 打开前右栏里看得见的旧内容：之后出现的才算这次画的
     await p.openArchiveSource(src.note, root, compare, []);
+    showReaderTab(p);
     return true;
   });
   openChain = run.catch(() => {});
@@ -322,6 +323,18 @@ function locateTargetDesc(el) {
   const p = el.closest?.('p[data-p]'); if (p) return (p.closest('.lb-transcript') ? 'transcript:' : 'para:') + p.getAttribute('data-p');
   return el.tagName;
 }
+// 1026 她：右栏同一组里还开着附件（或别的标签页）时，原帖那页被挡在后面——跳是跳了，她看不见。
+// 每次点引用开原帖后，把原帖那个标签页切到前面；焦点还给问收藏页（不抢输入框）。
+function showReaderTab(p) {
+  const r = readerLeaf(), g = r?.parent;
+  if (!r || !g) return;
+  try {
+    if (typeof g.selectTab === 'function') g.selectTab(r);
+    else if (typeof app.workspace.revealLeaf === 'function') app.workspace.revealLeaf(r);
+    const owner = p?.archiveLeaves?.(root)?.owner;
+    if (owner && typeof app.workspace.setActiveLeaf === 'function') app.workspace.setActiveLeaf(owner, { focus: false });
+  } catch {}
+}
 // 1026 她：引用落在附件里时，跳到附件那一页。附件文字版（derived/attachments/<id>.md）按「## 第 N 页」分页：
 // 找到证据原文在哪一页 → PDF 下载了就开 PDF#page=N，否则开文字版到「第 N 页」标题。开在右栏旁边的新标签页，不顶掉原帖。
 function vaultRel(abs) {
@@ -350,11 +363,15 @@ async function openAttachmentAt(src, part) {
   if (!file) return { opened: false, attachment: pick.name || '' };
   const subpath = page ? (pdf ? '#page=' + page : '#第 ' + page + ' 页') : '';
   try {
-    const reader = readerLeaf(), parent = reader?.parent;
-    const leaf = parent && typeof app.workspace.createLeafInParent === 'function'
+    // 附件只占一个标签页：上次开过、还在，就在它里面换文件 / 换页，不越开越多
+    const reader = readerLeaf(), parent = reader?.parent, prev = openAttachmentAt.leaf;
+    const alive = prev && (typeof app.workspace.getLeafById === 'function' ? !!app.workspace.getLeafById(prev.id) : !!prev.parent);
+    const leaf = alive ? prev : parent && typeof app.workspace.createLeafInParent === 'function'
       ? app.workspace.createLeafInParent(parent, Math.max(0, (parent.children || []).indexOf(reader) + 1))
       : app.workspace.getLeaf('tab');
+    openAttachmentAt.leaf = leaf;
     await leaf.openFile(file, { active: true, eState: subpath ? { subpath } : undefined });
+    try { leaf.parent?.selectTab?.(leaf); } catch {}
     return { opened: true, attachment: pick.name || '', page, target: 'attachment:' + rel + subpath };
   } catch (e) { return { opened: false, attachment: pick.name || '', error: errText(e) }; }
 }
