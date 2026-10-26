@@ -161,9 +161,6 @@ def apply_judge(result: dict[str, Any], settings: dict[str, Any], cap: int = JUD
     """召回表评测用：对 gather() 的结果跑 judge_select（和生产同一个函数），把判定、模型选篇写回 rows / production。"""
     from . import ask
     rows = result["rows"]
-    by_rank = {r["rank"]: r for r in rows}
-    pool = [{"id": r["id"], "title": r["title"], "author": r["author"], "kind": r["kind"], "summary": r["summary"],
-             "_row": r} for r in rows]
     # judge_select 要原条目算命中段；这里 rows 已经带 hits，直接复用：构造最小条目并用已有 hits
     sub = {"question": result["question"], "understanding": result.get("understanding") or {},
            "core_words": result.get("core_words") or [], "rows": rows[:cap]}
