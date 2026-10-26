@@ -851,8 +851,9 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat-bodywrap.is-tight > .lbchat-toc{left:4px;}
 .lbchat-toc-item{color:var(--text-muted);}
 /* 1026 floating-toc 复刻：平时一列短横线（层级越深越短、当前那条高亮），悬停 / 钉住展开成面板（工具条 + 带层级小标的列表） */
-.lbchat-bodywrap.has-ftoc.is-tight{padding-left:0;}
-.lbchat-toc.is-float{left:6px!important;top:12px;bottom:auto;width:34px;max-height:calc(100% - 40px);overflow:hidden;padding:8px 4px;border-radius:8px;border:1px solid transparent;z-index:6;font-family:var(--font-interface);font-size:var(--font-ui-medium,14px);line-height:1.45;color:var(--text-normal);transition:background-color .16s,box-shadow .16s;}
+/* 1026 她：目录要贴在侧边（同 floating-toc：页面最左边一条窄栏），不压在回答上——对话区左边常留一条 44px 的槽 */
+.lbchat-bodywrap.has-ftoc{padding-left:44px;box-sizing:border-box;}
+.lbchat-toc.is-float{left:-18px!important;top:12px;bottom:auto;width:34px;max-height:calc(100% - 40px);overflow:hidden;padding:8px 4px;border-radius:8px;border:1px solid transparent;z-index:6;font-family:var(--font-interface);font-size:var(--font-ui-medium,14px);line-height:1.45;color:var(--text-normal);transition:background-color .16s,box-shadow .16s;}
 /* 1026 她：展开时按内容宽（不截断，长标题换行），最宽 420；钉住时固定 300 宽、对话往右让 */
 .lbchat-toc.is-float:hover,.lbchat-toc.is-float:focus-within{width:max-content;min-width:220px;max-width:min(420px,46%);}
 .lbchat-toc.is-float.is-pin{width:300px;max-width:300px;}
@@ -879,11 +880,11 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat-ftoc-item.is-here > .lbchat-ftoc-chev{color:var(--interactive-accent);}
 /* 收起时：只剩横线 */
 .lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-bar,.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-search{display:none;}
-.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item{min-height:10px;height:10px;padding:0;position:relative;}
+.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item{min-height:16px;height:16px;padding:0;position:relative;}
 .lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item > *{display:none;}
-.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item::before{content:'';position:absolute;left:2px;top:4px;height:2px;width:22px;border-radius:2px;background:var(--text-faint);opacity:.6;}
-.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item[data-level="2"]::before{left:8px;width:16px;opacity:.45;}
-.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item[data-level="3"]::before{left:14px;width:10px;opacity:.35;}
+.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item::before{content:'';position:absolute;left:4px;top:7px;height:2px;width:26px;border-radius:1px;background:var(--text-muted);opacity:.55;}
+.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item[data-level="2"]::before{left:4px;width:22px;opacity:.45;}
+.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item[data-level="3"]::before{left:4px;width:18px;opacity:.38;}
 .lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item.is-here::before{background:var(--interactive-accent);opacity:1;}
 /* 「下一问」开关行：两个开关一行放不下就折行 */
 .lbchat-followbar{flex-wrap:wrap;row-gap:2px;}
