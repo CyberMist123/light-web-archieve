@@ -39,6 +39,8 @@ const mkPlugin = (more = {}) => {
   return { calls, settings: { hiddenCats: [] }, scheduleCalls: 0,
     async getSyncSchedule() { this.scheduleCalls++; return sched(); },
     openSetupPage(sec) { calls.push(['setup', sec]); },
+    async openSyncLog() { calls.push(['synclog']); },
+    async syncNow() { calls.push(['sync']); },
     async openProblems() { calls.push(['problems']); },
     ...more };
 };
@@ -94,10 +96,18 @@ const txt = el => (el ? el.textContent : null);
     const rowsSy = sy.querySelectorAll('.lbc-sy-row').map(r => [txt(r.querySelector('span')), txt(r.querySelector('b'))]);
     assert.deepEqual(rowsSy, [['今日新增', '3 篇'], ['Token 费用 · 本月', '约 ¥3.72']]);
     assert.match(txt(sy.querySelector('.lbc-fold-sum')), /^下次 (今天|\d+\/\d+) \d\d:\d\d · 本月 约 ¥3\.72$/);
-    // 齿轮：打开设置「收藏与同步」（插件 openSetupPage('schedule') → s-xhs 段），不折叠模块
-    sy.querySelector('.lbc-gear').onclick({ stopPropagation() {} });
+    // 1026：齿轮去掉；点「下次同步」= 打开设置里那一个同步时间编辑（openSetupPage('schedule')），点「上次同步」/「查看同步记录」= 同步记录，「立即同步」= syncNow，都不折叠模块
+    assert.equal(sy.querySelector('.lbc-gear'), null, '首页不再多一个设置齿轮');
+    sy.querySelector('.lbc-sy-next').onclick({ stopPropagation() {} });
     await tick(5);
     assert.deepEqual(plugin.calls.at(-1), ['setup', 'schedule']);
+    sy.querySelector('.lbc-sy-last').onclick({ stopPropagation() {} }); await tick(5);
+    assert.deepEqual(plugin.calls.at(-1), ['synclog']);
+    sy.querySelector('.lbc-sy-acts [data-act="log"]').onclick({ stopPropagation() {} }); await tick(5);
+    assert.deepEqual(plugin.calls.at(-1), ['synclog']);
+    sy.querySelector('.lbc-sy-acts [data-act="sync"]').onclick({ stopPropagation() {} }); await tick(5);
+    assert.deepEqual(plugin.calls.at(-1), ['sync']);
+    assert.deepEqual(sy.querySelectorAll('.lbc-sy-acts button').map(b => b.textContent), ['立即同步', '查看同步记录']);
     assert.equal(sy.classList.contains('is-folded'), false);
     // 折叠 SYNC：只剩摘要；返回后还是折叠
     sy.querySelector('.lbc-lab').onclick();

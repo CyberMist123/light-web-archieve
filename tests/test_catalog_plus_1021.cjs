@@ -44,7 +44,10 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
     // 分类行只放「全部 + 分类」
     assert.deepEqual(P.$$('.lbc-cats .lbc-cat').map(b => b.textContent), ['全部', '城市', '吃的']);
     assert.deepEqual(P.$$('.lbc-scope-tab').map(b => [b.textContent, b.dataset.n]),
-      [['全部', '4'], ['今日新增', '2'], ['已收藏', '2'], ['视频', '1'], ['附件', '1'], ['★咖啡', '2'], ['★做饭', '2']], '范围标签 + 前两个星标主题，篇数在 data-n');
+      [['全部', '4'], ['今日新增', '2'], ['已收藏', '2'], ['★咖啡', '2'], ['★做饭', '2']], '范围标签 + 前两个星标主题，篇数在 data-n');
+    // 1026：类型单独一组（图文 / 视频 / 附件），和范围叠加
+    assert.deepEqual(P.$$('.lbc-type-tab').map(b => [b.textContent, b.dataset.n]), [['图文', '3'], ['视频', '1'], ['附件', '1']]);
+    assert.ok(P.$('.lbc-tagpick'), 'Tag ▾'); assert.equal(P.$('.lbc-platpick'), null, '只有一个平台时不出平台选择');
     assert.equal(P.$('.lbc-time').textContent, '最新在前');
     // 字体：@font-face 用资源路径（过 lbPath），不连 Google Fonts
     const css = P.dom.document.head.querySelectorAll('style').find(s => s.getAttribute('id') === 'lbc-style').textContent;
@@ -71,11 +74,16 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
     const P = await openCatalog({ data: dataOf(base()), plugin: { settings: { hiddenCats: [] } } });
     P.cat('今日新增').onclick();
     assert.deepEqual(P.ids().sort(), ['a', 'd']); assert.deepEqual(activeScopes(P), ['today']);
+    // 1026：类型是另一维——今日新增 + 视频 叠加（今天没有视频 = 0 篇）；范围组里仍是单选
     P.cat('视频').onclick();
-    assert.deepEqual(P.ids(), ['b'], '点「视频」= 换成只看视频，不和今日新增叠加');
-    assert.deepEqual(activeScopes(P), ['video']);
-    assert.deepEqual([state().today, state().media, state().star], [false, 'video', false]);
-    P.cat('视频').onclick();
+    assert.deepEqual(P.ids(), [], '今日新增 ∩ 视频');
+    assert.deepEqual(activeScopes(P), ['today']);
+    assert.deepEqual([state().today, state().media, state().star], [true, 'video', false]);
+    P.cat('图文').onclick();
+    assert.deepEqual(P.ids().sort(), ['a', 'd'], '组内单选：换成图文');
+    P.cat('今日新增').onclick();
+    assert.deepEqual(P.ids().sort(), ['a', 'c', 'd'], '范围回全部，类型还在');
+    P.cat('图文').onclick();
     assert.equal(P.ids().length, 4, '再点当前项回全部'); assert.deepEqual(activeScopes(P), ['']);
     // 范围和分类各管各的：分类「全部」不清范围
     P.cat('已收藏').onclick(); P.cat('吃的').onclick();
@@ -90,7 +98,7 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
     globalThis.__lbState['lb:catalog'] = JSON.stringify({ ...state(), today: true, star: true, media: 'video' });
     const R = await openCatalog({ data: dataOf(base()), plugin: { settings: { hiddenCats: [] } }, keepState: true });
     assert.deepEqual(activeScopes(R), ['star']);
-    assert.deepEqual([state().today, state().media, state().star], [false, '', true]);
+    assert.deepEqual([state().today, state().media, state().star], [false, 'video', true], '类型单独一维，保留');
   }
 
   // ── ③ 视图开关（1023 她拍板：只留瀑布流 + Wiki 空页；列表 / 索引入口藏起来）──

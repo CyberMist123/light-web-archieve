@@ -50,7 +50,7 @@ const waitSave = async (page, n0) => { for (let i = 0; i < 40; i++) { if (await 
       assert.deepEqual(await order(page), ['recent', 'sync', 'overview']);
       await page.click('.lbc-tools .lb-arrange'); await S.settle(40);
       const on = await page.evaluate(() => ({ cls: document.querySelector('.lbc-wrap').classList.contains('is-arranging'), pressed: document.querySelector('.lb-arrange').getAttribute('aria-pressed'),
-        bars: [...document.querySelectorAll('.lbc-mod-bar')].map(b => getComputedStyle(b).display), tray: getComputedStyle(document.querySelector('.lbc-arrange-tray')).display,
+        bars: [...document.querySelectorAll('.lbc-side .lbc-mod-bar')].map(b => getComputedStyle(b).display), tray: getComputedStyle(document.querySelector('.lbc-arrange-tray')).display,
         labPE: getComputedStyle(document.querySelector('.lbc-mod .lbc-lab')).pointerEvents,
         upDisabled: document.querySelector('.lbc-mod-recent [data-act="up"]').disabled, downDisabled: document.querySelector('.lbc-mod-overview [data-act="down"]').disabled,
         midUp: document.querySelector('.lbc-mod-sync [data-act="up"]').disabled }));

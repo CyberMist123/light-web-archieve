@@ -85,7 +85,7 @@ const row = (page, path) => page.locator(`.lbi-panel .lbi-row[data-path="${path}
       await S.screenshot(`outline-cards-select-${theme}`);
       await page.keyboard.press('Escape'); await S.settle(80);
       // ① 大纲树
-      await page.evaluate(() => [...document.querySelectorAll('.lbc-cats .lbc-cat, .lbc-vseg .lbc-view')].find(b => b.textContent === '索引').click()); await S.settle();
+      await page.evaluate(() => (document.querySelector('.lbc-view[data-view="wiki"]').click(), document.querySelector('.lbc-wiki .lbc-index-open').click())); await S.settle();
       for (const p of ['美食', '美食/菜谱']) { await page.evaluate(p => [...document.querySelectorAll('.lbi-row')].find(r => r.dataset.path === p).querySelector('.lbi-label').click(), p); await S.settle(); }
       assert.ok(!(await page.evaluate(() => document.querySelector('.lbi-bar').textContent)).includes('写法要看一眼'), `${theme}：info 级不出 ⚠`);
       const facets = await page.evaluate(() => [...document.querySelectorAll('.lbi-facet')].map(b => b.dataset.name));

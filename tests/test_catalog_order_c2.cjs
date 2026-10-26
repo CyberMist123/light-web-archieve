@@ -46,10 +46,10 @@ const { tick, item, openCatalog, ev } = require('./_fake_l1.cjs');
   P.card('d').querySelector('.lbc-star').onclick(ev()); await tick(5);
   assert.ok(P.card('d'), '卡片留在原位');
   assert.ok(!P.card('d').querySelector('.lbc-star').classList.contains('is-on'));
-  // 1021 范围单选：点「视频」= 换成只看视频（不再和「已收藏」叠加）；再回「已收藏」时取消收藏的那篇才消失
+  // 1026 类型是单独一维：点「视频」和「已收藏」叠加（两个都亮）；再点视频取消——换了筛选，取消收藏的那篇才消失
   P.cat('视频').onclick();
-  assert.ok(P.cat('视频').classList.contains('is-active') && !starTab().classList.contains('is-active'), '单选：视频亮、已收藏灭');
-  starTab().onclick();
+  assert.ok(P.cat('视频').classList.contains('is-active') && starTab().classList.contains('is-active'), '叠加：视频亮、已收藏也亮');
+  P.cat('视频').onclick();
   assert.ok(!P.card('d'), '换筛选后消失');
   starTab().onclick();
   assert.equal(P.ids().length, 6, '再点一次恢复全部');
