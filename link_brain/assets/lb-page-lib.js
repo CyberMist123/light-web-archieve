@@ -11,22 +11,84 @@
 //   - 计时：console.debug('[lb] <页> <阶段> <ms>')（§5.8），最近一次也挂在 window.__lbPerf[role] 上方便验收时读。
 // 批次 D 地基（CONVENTIONS §5 / §1.7）：页面挂在 dv.container 后面的兄弟节点 host 上（mountHost）、样式挂 head（style + lb-shared）、
 // 提示 / 确认 / 菜单 / 忙碌态 / 手机只读 / 跳页 / 焦点兜底的共用助手。本文件合入后冻结，新共享接口走主审的地基补丁。
-// 共用样式（lbPageLib 初始化时注入 head 的 #lb-shared）：颜色变量和插件 styles.css 顶部那块同值（tests/test_css_vars_x13.cjs 锁住）。
+// 共用样式（lbPageLib 初始化时注入 head 的 #lb-shared）：开头的 lb-tokens 块是样式集（link_brain/assets/lb-tokens.css 的逐字副本，
+// python tools/sync_tokens.py 拷；插件 styles.css 顶部同一块；tests/test_tokens_1027.py、test_css_vars_x13.cjs 锁住），后面是共用规则。
 // 橙色只给状态字和细条；说明文字保持正文色，前面加「⚠」。
 const LB_SHARED_CSS = `
+/* lb-tokens:begin — LWA 样式集（1027）。唯一源：link_brain/assets/lb-tokens.css；改这里，再跑 python tools/sync_tokens.py
+   拷进 lb-page-lib.js 的 LB_SHARED_CSS（页面，手机上也有）、插件 styles.css（设置页）、link-brain.css / note.css（笔记页）。
+   tests/test_tokens_1027.py 锁住四份逐字相同。规则：新界面只用这里的名字（CONVENTIONS「样式集」），不再手写字体栈 / 字号 / 灰。
+   黑白为主：颜色全映射到 Obsidian 主题变量，深浅色都跟着走；橙 / 红只给状态。
+   她能改的五个（目录「Aa 样式」，存插件设置 catalogLayout.theme）：标题字体 / 正文字体 / 数字字体 / 字号倍数 / 卡片间距，
+   由 LB.applyTheme / plugin.applyTheme 写成页面根上的行内变量，只在 body 上给默认值。 */
 body{--lb-warn:var(--text-warning,var(--color-orange));--lb-warn-bg:var(--background-secondary);--lb-warn-border:var(--background-modifier-border);--lb-danger:var(--text-error);--lb-danger-bg:var(--background-secondary);--lb-ok:var(--text-success,var(--color-green));--lb-star:var(--color-yellow,#d9a21b);}
 @supports (color: color-mix(in srgb, red, blue)){body{--lb-warn-bg:color-mix(in srgb,var(--lb-warn) 14%,var(--background-primary));--lb-warn-border:color-mix(in srgb,var(--lb-warn) 35%,var(--background-modifier-border));--lb-danger-bg:color-mix(in srgb,var(--text-error) 12%,var(--background-primary));}}
-.lb-page-nav{display:flex;grid-column:2;grid-row:1;gap:2px;padding:4px;background:var(--background-secondary);border-radius:12px;justify-self:center;white-space:nowrap;}
-.lb-page-nav button{font:inherit;font-size:13px;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-muted);border-radius:9px;padding:9px 16px;height:auto;cursor:pointer;}
-.lb-page-nav button.is-current{background:var(--background-primary)!important;color:var(--text-normal);box-shadow:0 1px 4px #0000000c!important;font-weight:500;}
-.lb-manage{font-size:24px!important;font-weight:500;background:transparent!important;border:0!important;box-shadow:none!important;color:var(--text-muted);padding:0!important;width:40px;height:40px;border-radius:10px;cursor:pointer;font-family:Arial,sans-serif!important;line-height:1!important;display:grid;place-items:center;}
-.lb-manage:hover{background:var(--background-secondary)!important;color:var(--text-normal);}
+body{--lb-font-title-base:"LB Cinzel","Cinzel","Trajan Pro","Times New Roman",serif;--lb-font-serif:"Noto Serif SC","Source Han Serif SC","Source Han Serif CN","Songti SC","STSong","SimSun",serif;--lb-font-num-base:"LB Cormorant","Cormorant Garamond",Georgia,"Noto Serif SC","Songti SC","SimSun",serif;--lb-font-body-base:"Noto Sans SC","Segoe UI","Microsoft YaHei UI",sans-serif;--lb-font-title:var(--lb-font-title-base);--lb-font-num:var(--lb-font-num-base);--lb-font-body:var(--lb-font-body-base);--lb-scale:1;--lb-gap:24px;--lb-space-1:4px;--lb-space-2:8px;--lb-space-3:12px;--lb-space-4:16px;--lb-space-5:24px;--lb-space-6:32px;--lb-radius:8px;--lb-radius-pill:999px;--lb-ctl-h:34px;--lb-num-feat:lining-nums tabular-nums;}
+body,.lb-page-host,.lb-scope{--lb-ink:var(--text-normal);--lb-muted:var(--text-muted);--lb-faint:var(--text-faint);--lb-line:var(--background-modifier-border);--lb-surface:var(--background-primary);--lb-soft:var(--background-secondary);--lb-accent:var(--text-normal);--lb-fs-display:calc(clamp(30px,6.5cqi,96px) * var(--lb-scale,1));--lb-fs-h1:calc(18px * var(--lb-scale,1));--lb-fs-h2:calc(16px * var(--lb-scale,1));--lb-fs-body:calc(13.5px * var(--lb-scale,1));--lb-fs-small:calc(12px * var(--lb-scale,1));--lb-fs-micro:calc(11px * var(--lb-scale,1));--lb-fs-num-lg:calc(34px * var(--lb-scale,1));--lb-fs-num:calc(15px * var(--lb-scale,1));}
+.lb-btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--lb-space-2);height:var(--lb-ctl-h);padding:0 var(--lb-space-4);border:1px solid var(--lb-line);border-radius:var(--lb-radius);background:var(--lb-surface);color:var(--lb-ink);box-shadow:none;font:500 var(--lb-fs-body)/1 var(--lb-font-body);white-space:nowrap;cursor:pointer;transition:background-color .15s,color .15s,border-color .15s;}
+.lb-btn:hover{border-color:var(--lb-ink);}
+.lb-btn:disabled,.lb-btn[aria-disabled="true"]{opacity:.45;cursor:default;}
+.lb-btn.is-primary{background:var(--lb-accent);border-color:var(--lb-accent);color:var(--lb-surface);}
+.lb-btn-pill{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:var(--lb-ctl-h);padding:0 14px;border:1px solid var(--lb-ink);border-radius:var(--lb-radius-pill);background:var(--lb-surface);color:var(--lb-ink);box-shadow:none;font:500 var(--lb-fs-body)/1 var(--lb-font-body);white-space:nowrap;cursor:pointer;transition:background-color .2s,color .2s;}
+.lb-btn-pill:hover,.lb-btn-pill.is-on{background:var(--lb-ink);color:var(--lb-surface);}
+.lb-input{height:var(--lb-ctl-h);box-sizing:border-box;padding:0 var(--lb-space-3);border:1px solid var(--lb-line);border-radius:var(--lb-radius);background:var(--lb-surface);color:var(--lb-ink);box-shadow:none;font:var(--lb-fs-body)/1.4 var(--lb-font-body);}
+.lb-input:focus{outline:none;border-color:var(--lb-ink);box-shadow:none;}
+.lb-input::placeholder{color:var(--lb-faint);}
+.lb-label{font:500 var(--lb-fs-small)/1.4 var(--lb-font-body);color:var(--lb-muted);}
+.lb-num:not(input){font-family:var(--lb-font-num);font-style:italic;font-variant-numeric:var(--lb-num-feat);}
+.lb-kicker{font:700 var(--lb-fs-micro)/1 var(--lb-font-title);letter-spacing:.26em;text-transform:uppercase;color:var(--lb-muted);}
+/* lb-tokens:end */
+.lb-page-nav{display:flex;grid-column:2;grid-row:1;gap:2px;padding:4px;background:var(--lb-soft);border-radius:12px;justify-self:center;white-space:nowrap;}
+.lb-page-nav button{font:inherit;font-size:13px;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--lb-muted);border-radius:9px;padding:9px 16px;height:auto;cursor:pointer;}
+.lb-page-nav button.is-current{background:var(--lb-surface)!important;color:var(--lb-ink);box-shadow:0 1px 4px #0000000c!important;font-weight:500;}
+.lb-manage{font-size:24px!important;font-weight:500;background:transparent!important;border:0!important;box-shadow:none!important;color:var(--lb-muted);padding:0!important;width:40px;height:40px;border-radius:10px;cursor:pointer;font-family:Arial,sans-serif!important;line-height:1!important;display:grid;place-items:center;}
+.lb-manage:hover{background:var(--lb-soft)!important;color:var(--lb-ink);}
 .lb-page-host button:focus-visible,.lbc-wrap button:focus-visible,.lbchat button:focus-visible{outline:2px solid var(--interactive-accent)!important;outline-offset:3px;}
 .lb-visually-hidden{position:absolute!important;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;}
-.lb-mobile-note{font-size:12px;line-height:1.5;color:var(--text-muted);margin:0 0 10px;}
+.lb-mobile-note{font-size:var(--lb-fs-small);line-height:1.5;color:var(--lb-muted);margin:0 0 10px;}
 .is-busy{cursor:progress;}
-.lb-busy-veil{position:absolute;inset:0;z-index:3;display:grid;place-items:center;border-radius:inherit;background:var(--background-primary);opacity:.85;color:var(--text-muted);font-size:12px;cursor:progress;}
+.lb-busy-veil{position:absolute;inset:0;z-index:3;display:grid;place-items:center;border-radius:inherit;background:var(--lb-surface);opacity:.85;color:var(--lb-muted);font-size:var(--lb-fs-small);cursor:progress;}
 `;
+/* lb-theme:begin — 她的「Aa 样式」（插件设置 catalogLayout.theme = {titleFont, bodyFont, numberFont, scale, gap}）→ 行内 CSS 变量。
+   唯一源在 link_brain/assets/lb-page-lib.js，插件 lb-theme.js 是逐字副本（python tools/sync_tokens.py 拷，tests/test_tokens_1027.py 锁）。
+   lbThemeVars(theme) → {变量名: 值 | null}，null = 用默认（removeProperty）；lbApplyTheme(el, theme) 写到 el 的行内样式上，返回同一个对象。
+   字体：她给的名字（可逗号分隔几个）放在前面，后面接默认栈（--lb-font-*-base），没装的字照样退回默认；去掉引号 / 分号 / 括号等。
+   字号倍数 scale 限 0.5–2；卡片间距 gap 是像素数（或 's' / 'm' / 'l' = 24px 的 0.7 / 1 / 1.35 倍），限 0–96。
+   el 不是 body / html 时加 .lb-scope 类：字号 / 颜色变量在那一层按新倍数重算（CSS 变量里的 var() 在定义它的那层就算死了）。 */
+const LB_THEME_GENERIC = /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-serif|ui-sans-serif|ui-monospace|ui-rounded|math|emoji)$/i;
+const LB_GAP_STEPS = { s: 0.7, m: 1, l: 1.35 };
+function lbThemeFont(v, base) {
+  const parts = String(v == null ? '' : v).split(',').map(s => s.replace(/["'`\\;:{}()<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 64)).filter(Boolean).slice(0, 6);
+  if (!parts.length) return null;
+  return parts.map(p => (LB_THEME_GENERIC.test(p) ? p.toLowerCase() : '"' + p + '"')).join(',') + ',var(' + base + ')';
+}
+function lbThemeNum(v, lo, hi) {
+  const n = typeof v === 'number' ? v : (typeof v === 'string' && v.trim() !== '' ? Number(v.trim().replace(/px$/i, '')) : NaN);
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : null;
+}
+function lbThemeVars(theme) {
+  const t = theme && typeof theme === 'object' ? theme : {};
+  const scale = lbThemeNum(t.scale, 0.5, 2);
+  const gap = typeof t.gap === 'string' && LB_GAP_STEPS[t.gap] ? Math.round(24 * LB_GAP_STEPS[t.gap]) : lbThemeNum(t.gap, 0, 96);
+  return {
+    '--lb-font-title': lbThemeFont(t.titleFont, '--lb-font-title-base'),
+    '--lb-font-body': lbThemeFont(t.bodyFont, '--lb-font-body-base'),
+    '--lb-font-num': lbThemeFont(t.numberFont, '--lb-font-num-base'),
+    '--lb-scale': scale == null ? null : String(Math.round(scale * 1000) / 1000),
+    '--lb-gap': gap == null ? null : Math.round(gap) + 'px',
+  };
+}
+function lbApplyTheme(el, theme) {
+  const vars = lbThemeVars(theme);
+  if (!el || !el.style || typeof el.style.setProperty !== 'function') return vars;
+  for (const k of Object.keys(vars)) {
+    if (vars[k] == null) el.style.removeProperty(k); else el.style.setProperty(k, vars[k]);
+  }
+  const tag = String(el.tagName || '').toUpperCase();
+  if (tag !== 'BODY' && tag !== 'HTML' && el.classList) el.classList.add('lb-scope');
+  return vars;
+}
+/* lb-theme:end */
 // 页面样式的 id（CONVENTIONS §5.11）：lb-shared 必须排在它们前面（页面窄屏覆盖共用规则靠「后写的赢」）
 const LB_PAGE_STYLE_IDS = ['lbc-style', 'lbchat-style', 'lb-trash-style', 'lba-annot-style'];
 function lbPageLib(dv, app, role) {
@@ -638,9 +700,16 @@ function lbPageLib(dv, app, role) {
     return face('LB Cinzel', BRAND_FONTS.cinzel, '400 900', 'normal') + face('LB Cormorant', BRAND_FONTS.cormorant, '300 700', 'italic');
   }
   // 雕刻斜体大标题：字上再叠一层同样的字（data-text → ::after，描边用底色、往左错一点）= 一道刻线
-  const brandCss = (titleSel, engrSel) => `${titleSel}{font:900 clamp(30px,6.5cqi,96px)/1.02 ${BRAND_FONT_STACK};font-style:normal;letter-spacing:.012em;text-transform:uppercase;transform:skewX(-13deg);display:inline-flex;align-items:baseline;white-space:nowrap;color:var(--text-normal);}
+  const brandCss = (titleSel, engrSel) => `${titleSel}{font:900 var(--lb-fs-display)/1.02 var(--lb-font-title);font-style:normal;letter-spacing:.012em;text-transform:uppercase;transform:skewX(-13deg);display:inline-flex;align-items:baseline;white-space:nowrap;color:var(--lb-ink);}
 ${engrSel}{position:relative;display:inline-block;}
-${engrSel}::after{content:attr(data-text);position:absolute;left:0;top:0;color:transparent;-webkit-text-stroke:.016em var(--background-primary);transform:translateX(-.05em);pointer-events:none;}`;
+${engrSel}::after{content:attr(data-text);position:absolute;left:0;top:0;color:transparent;-webkit-text-stroke:.016em var(--lb-surface);transform:translateX(-.05em);pointer-events:none;}`;
+  // ── 1027 样式集：她的「Aa 样式」（catalogLayout.theme）写到页面根上。theme 不传 = 读插件设置（手机上没插件 = 默认）；
+  // el 不传 = 本页 host（mountHost 建的，复用旧 DOM 时取登记的那个），没有 host 退回容器。null / {} = 五个变量都回默认。返回写上的变量表。
+  function applyTheme(theme, el) {
+    if (theme === undefined) { try { theme = provider()?.settings?.catalogLayout?.theme || null; } catch { theme = null; } }
+    const target = el || (container && container.__lbView && container.__lbView.host) || hostEl || container;
+    return lbApplyTheme(target, theme);
+  }
   // 在 parent 里建标题：外层 titleCls，里面一个刻线字 engrCls；返回 {box, label, set}，改标题时调 set()
   function brandTitle(parent, titleCls, engrCls) {
     const box = parent.createEl('span', { cls: titleCls });
@@ -652,6 +721,8 @@ ${engrSel}::after{content:attr(data-text);position:absolute;left:0;top:0;color:t
 
   return { root, path, provider, ensure, state, data, keep, rekeep, reuseDom, listen, onUnload, scroller, restoreScroll, onScroll, t, mark, role, get container() { return container; },
     brandTitleText, brandFontCss, brandCss, brandTitle, BRAND_FONT_STACK,
+    // 1027 样式集（CONVENTIONS「样式集」）
+    applyTheme, themeVars: lbThemeVars, TOKENS_CSS: LB_SHARED_CSS.slice(0, LB_SHARED_CSS.indexOf('/* lb-tokens:end */') + 19).trim(),
     // 批次 D 地基
     mountHost, style, dataUpdatedAt, schemaIssue, schemaBlocks, CATALOG_SCHEMA, mobile, MOBILE_ONLY_TEXT, mobileNote, need, openPage,
     say, progress, undoNotice, confirm, busy, showMenu, menuOpen, trackFocus, restoreFocus, activeLeafHas };

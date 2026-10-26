@@ -1,0 +1,23 @@
+/* lb-tokens:begin — LWA 样式集（1027）。唯一源：link_brain/assets/lb-tokens.css；改这里，再跑 python tools/sync_tokens.py
+   拷进 lb-page-lib.js 的 LB_SHARED_CSS（页面，手机上也有）、插件 styles.css（设置页）、link-brain.css / note.css（笔记页）。
+   tests/test_tokens_1027.py 锁住四份逐字相同。规则：新界面只用这里的名字（CONVENTIONS「样式集」），不再手写字体栈 / 字号 / 灰。
+   黑白为主：颜色全映射到 Obsidian 主题变量，深浅色都跟着走；橙 / 红只给状态。
+   她能改的五个（目录「Aa 样式」，存插件设置 catalogLayout.theme）：标题字体 / 正文字体 / 数字字体 / 字号倍数 / 卡片间距，
+   由 LB.applyTheme / plugin.applyTheme 写成页面根上的行内变量，只在 body 上给默认值。 */
+body{--lb-warn:var(--text-warning,var(--color-orange));--lb-warn-bg:var(--background-secondary);--lb-warn-border:var(--background-modifier-border);--lb-danger:var(--text-error);--lb-danger-bg:var(--background-secondary);--lb-ok:var(--text-success,var(--color-green));--lb-star:var(--color-yellow,#d9a21b);}
+@supports (color: color-mix(in srgb, red, blue)){body{--lb-warn-bg:color-mix(in srgb,var(--lb-warn) 14%,var(--background-primary));--lb-warn-border:color-mix(in srgb,var(--lb-warn) 35%,var(--background-modifier-border));--lb-danger-bg:color-mix(in srgb,var(--text-error) 12%,var(--background-primary));}}
+body{--lb-font-title-base:"LB Cinzel","Cinzel","Trajan Pro","Times New Roman",serif;--lb-font-serif:"Noto Serif SC","Source Han Serif SC","Source Han Serif CN","Songti SC","STSong","SimSun",serif;--lb-font-num-base:"LB Cormorant","Cormorant Garamond",Georgia,"Noto Serif SC","Songti SC","SimSun",serif;--lb-font-body-base:"Noto Sans SC","Segoe UI","Microsoft YaHei UI",sans-serif;--lb-font-title:var(--lb-font-title-base);--lb-font-num:var(--lb-font-num-base);--lb-font-body:var(--lb-font-body-base);--lb-scale:1;--lb-gap:24px;--lb-space-1:4px;--lb-space-2:8px;--lb-space-3:12px;--lb-space-4:16px;--lb-space-5:24px;--lb-space-6:32px;--lb-radius:8px;--lb-radius-pill:999px;--lb-ctl-h:34px;--lb-num-feat:lining-nums tabular-nums;}
+body,.lb-page-host,.lb-scope{--lb-ink:var(--text-normal);--lb-muted:var(--text-muted);--lb-faint:var(--text-faint);--lb-line:var(--background-modifier-border);--lb-surface:var(--background-primary);--lb-soft:var(--background-secondary);--lb-accent:var(--text-normal);--lb-fs-display:calc(clamp(30px,6.5cqi,96px) * var(--lb-scale,1));--lb-fs-h1:calc(18px * var(--lb-scale,1));--lb-fs-h2:calc(16px * var(--lb-scale,1));--lb-fs-body:calc(13.5px * var(--lb-scale,1));--lb-fs-small:calc(12px * var(--lb-scale,1));--lb-fs-micro:calc(11px * var(--lb-scale,1));--lb-fs-num-lg:calc(34px * var(--lb-scale,1));--lb-fs-num:calc(15px * var(--lb-scale,1));}
+.lb-btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--lb-space-2);height:var(--lb-ctl-h);padding:0 var(--lb-space-4);border:1px solid var(--lb-line);border-radius:var(--lb-radius);background:var(--lb-surface);color:var(--lb-ink);box-shadow:none;font:500 var(--lb-fs-body)/1 var(--lb-font-body);white-space:nowrap;cursor:pointer;transition:background-color .15s,color .15s,border-color .15s;}
+.lb-btn:hover{border-color:var(--lb-ink);}
+.lb-btn:disabled,.lb-btn[aria-disabled="true"]{opacity:.45;cursor:default;}
+.lb-btn.is-primary{background:var(--lb-accent);border-color:var(--lb-accent);color:var(--lb-surface);}
+.lb-btn-pill{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:var(--lb-ctl-h);padding:0 14px;border:1px solid var(--lb-ink);border-radius:var(--lb-radius-pill);background:var(--lb-surface);color:var(--lb-ink);box-shadow:none;font:500 var(--lb-fs-body)/1 var(--lb-font-body);white-space:nowrap;cursor:pointer;transition:background-color .2s,color .2s;}
+.lb-btn-pill:hover,.lb-btn-pill.is-on{background:var(--lb-ink);color:var(--lb-surface);}
+.lb-input{height:var(--lb-ctl-h);box-sizing:border-box;padding:0 var(--lb-space-3);border:1px solid var(--lb-line);border-radius:var(--lb-radius);background:var(--lb-surface);color:var(--lb-ink);box-shadow:none;font:var(--lb-fs-body)/1.4 var(--lb-font-body);}
+.lb-input:focus{outline:none;border-color:var(--lb-ink);box-shadow:none;}
+.lb-input::placeholder{color:var(--lb-faint);}
+.lb-label{font:500 var(--lb-fs-small)/1.4 var(--lb-font-body);color:var(--lb-muted);}
+.lb-num:not(input){font-family:var(--lb-font-num);font-style:italic;font-variant-numeric:var(--lb-num-feat);}
+.lb-kicker{font:700 var(--lb-fs-micro)/1 var(--lb-font-title);letter-spacing:.26em;text-transform:uppercase;color:var(--lb-muted);}
+/* lb-tokens:end */
