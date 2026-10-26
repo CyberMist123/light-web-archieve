@@ -614,7 +614,16 @@ LB.style('lbchat-style', `
 .lbchat-titleblock{align-items:center;width:max-content;max-width:100%;}
 .lbchat-titlerow{align-items:center;gap:10px;}
 /* 0925：「+」放进标题里继承同一套字，与目录页一致 */.lbchat-title button.lbchat-plus{font:inherit!important;color:var(--text-normal)!important;transition:color .12s;width:auto!important;height:auto!important;padding:0 0 0 .12em!important;margin:0!important;border:0!important;background:transparent!important;box-shadow:none!important;border-radius:0!important;display:inline!important;vertical-align:baseline;line-height:inherit!important;cursor:pointer;}.lbchat-title button.lbchat-plus:hover{color:var(--interactive-accent)!important;}
-.lbchat-export summary{cursor:pointer;color:var(--text-muted);}.lbchat-export[open]{padding:6px;border-radius:8px;background:var(--background-secondary);}.lbchat-export label{font-size:12px;margin-right:8px;}
+.lbchat-export summary{cursor:pointer;color:var(--text-muted);}
+/* 1026 她：动作行只留 复制 / 导出 / 收藏；编辑、展开细节先不显示（功能代码还在）；「导出」和别的按钮同一个样子，不要三角 */
+.lbchat .lbchat-actions .lbchat-edit,.lbchat .lbchat-actions .lbchat-expand{display:none!important;}
+.lbchat .lbchat-actions .lbchat-export > summary{list-style:none;font-size:12px;color:var(--text-faint);line-height:inherit;}
+.lbchat .lbchat-actions .lbchat-export > summary::-webkit-details-marker{display:none;}
+.lbchat .lbchat-actions .lbchat-export > summary::marker{content:'';}
+.lbchat .lbchat-actions .lbchat-export > summary:hover{color:var(--interactive-accent);}
+/* 1026 她：问收藏右栏里，作者旁的「← 目录」没用（顶上那行已有），不显示；正文里的来源导读不显示（下面「主要依据」已列出） */
+.lb-source-reader .lb-back-catalog{display:none!important;}
+.lbchat .lbchat-md .lbchat-guide-hidden{display:none!important;}.lbchat-export[open]{padding:6px;border-radius:8px;background:var(--background-secondary);}.lbchat-export label{font-size:12px;margin-right:8px;}
 /* 10-04（她定）④ 整页外面那层 dataviewjs 代码块的框（边框 / 底色 / 圆角 / 悬停时的「编辑代码块」按钮）一律隐形：阅读视图 + 实时预览 */
 :is(.lb-chatpage,.lb-catalog,.lb-trashpage) :is(.el-pre:has(.block-language-dataviewjs),pre:has(.block-language-dataviewjs),.block-language-dataviewjs,.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs),
 :is(.lb-chatpage,.lb-catalog,.lb-trashpage) :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs):hover{border:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;border-radius:0!important;}
@@ -636,13 +645,13 @@ LB.style('lbchat-style', `
 .lbchat .lbchat-user{font-size:14px;line-height:1.7;padding:9px 15px;border-radius:16px 16px 4px 16px;color:var(--text-normal);}
 .lbchat .lbchat-answer{font-size:14.5px;line-height:1.85;color:var(--text-normal);}
 /* 1026 她：回答要像排好版的文档——小节标题比正文大、带一点暖色；列表每条之间留气口；「**关键词**——白话解释」的加粗词醒目 */
-.lbchat .lbchat-answer{--lb-ans-head:#8a4b2f;}
-.theme-dark .lbchat .lbchat-answer{--lb-ans-head:#e0a985;}
+.lbchat .lbchat-answer{--lb-ans-head:var(--text-normal);}
 .lbchat .lbchat-answer p{margin:0 0 .9em;}
 .lbchat .lbchat-answer h1,.lbchat .lbchat-answer h2,.lbchat .lbchat-answer h3,.lbchat .lbchat-answer h4,.lbchat .lbchat-answer h5,.lbchat .lbchat-answer h6{font-family:inherit;font-weight:650;line-height:1.45;color:var(--lb-ans-head);letter-spacing:0;border:0;padding:0;}
 .lbchat .lbchat-answer h1{font-size:1.3em;margin:1.4em 0 .55em;}
 .lbchat .lbchat-answer h2{font-size:1.22em;margin:1.4em 0 .5em;}
-.lbchat .lbchat-answer h3{font-size:1.1em;margin:1.25em 0 .45em;}
+.lbchat .lbchat-answer h3{font-size:1.1em;margin:1.3em 0 .5em;padding-left:10px;border-left:3px solid var(--background-modifier-border-hover,var(--background-modifier-border));}
+.lbchat .lbchat-answer h2{padding-bottom:.25em;border-bottom:1px solid var(--background-modifier-border);}
 .lbchat .lbchat-answer h4,.lbchat .lbchat-answer h5,.lbchat .lbchat-answer h6{font-size:1em;margin:1em 0 .35em;}
 .lbchat .lbchat-md > :first-child,.lbchat .lbchat-md > :first-child > :first-child{margin-top:0;}
 .lbchat .lbchat-answer ul,.lbchat .lbchat-answer ol{margin:.2em 0 1em;padding-left:1.45em;}
@@ -751,6 +760,9 @@ LB.style('lbchat-style', `
 /* 1026 她：带引用的段落点了打开原帖——鼠标是手形，悬停时底色轻轻变一下 */
 .lbchat .lbchat-md .lbchat-src-block{cursor:pointer;border-radius:4px;transition:background-color .15s;}
 .lbchat .lbchat-md .lbchat-src-block:hover{background:var(--background-modifier-hover);}
+.lbchat .lbchat-md tr.lbchat-src-block:hover > td{background:var(--background-modifier-hover);}
+.lbchat .lbchat-md tr.lbchat-src-block > td:first-child{text-decoration:underline dashed var(--text-faint);text-underline-offset:4px;}
+.lbchat .lbchat-md tr.lbchat-src-block:hover > td:first-child{text-decoration-color:var(--link-color);}
 /* 1026 她：来源导读里的标题 / 「必看：…」位置——下滑虚线链接，悬停变链接色 */
 .lbchat .lbchat-guide-link{cursor:pointer;border-bottom:1px dashed var(--text-faint);}
 .lbchat .lbchat-guide-link:hover,.lbchat .lbchat-guide-link:focus-visible{color:var(--link-color);border-bottom-color:var(--link-color);outline:none;}
@@ -838,6 +850,19 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat-bodywrap.is-tight{padding-left:188px;box-sizing:border-box;}
 .lbchat-bodywrap.is-tight > .lbchat-toc{left:4px;}
 .lbchat-toc-item{color:var(--text-muted);}
+/* 1026 floating-toc 样式：平时只是一列短横线，悬停展开成浮层列表 */
+.lbchat-bodywrap.has-ftoc.is-tight{padding-left:0;}
+.lbchat-toc.is-float{left:4px!important;top:16px;bottom:auto;width:30px;max-height:calc(100% - 40px);overflow:hidden;padding:10px 6px;border-radius:10px;border:1px solid transparent;z-index:6;transition:width .18s ease,background-color .18s,box-shadow .18s;}
+.lbchat-toc.is-float:hover,.lbchat-toc.is-float:focus-within{width:260px;overflow-y:auto;background:var(--background-primary);border-color:var(--background-modifier-border);box-shadow:0 8px 28px rgba(0,0,0,.14);}
+.lbchat-toc.is-float .lbchat-tocgrp{border-left:0;padding:3px 0;}
+.lbchat-toc.is-float:not(:hover):not(:focus-within) .lbchat-toc-row{display:block;padding:0;}
+.lbchat-toc.is-float:not(:hover):not(:focus-within) .lbchat-toc-board{margin:0;}
+.lbchat-toc.is-float:not(:hover):not(:focus-within) button{display:block;position:relative;width:100%;height:9px;min-height:0;padding:0!important;font-size:0!important;line-height:0!important;}
+.lbchat-toc.is-float:not(:hover):not(:focus-within) button::before{content:'';position:absolute;left:0;top:3px;height:2px;width:16px;border-radius:2px;background:var(--text-faint);opacity:.55;}
+.lbchat-toc.is-float:not(:hover):not(:focus-within) .lbchat-toc-h::before{left:5px;width:10px;opacity:.4;}
+.lbchat-toc.is-float:not(:hover):not(:focus-within) .lbchat-tocgrp.is-here .lbchat-toc-q::before{background:var(--text-normal);opacity:.9;width:18px;}
+.lbchat-toc.is-float:not(:hover):not(:focus-within) .lbchat-toc-a,.lbchat-toc.is-float:not(:hover):not(:focus-within) .lbchat-toc-s,.lbchat-toc.is-float:not(:hover):not(:focus-within) .lbchat-toc-tag,.lbchat-toc.is-float:not(:hover):not(:focus-within) .lbchat-dot,.lbchat-toc.is-float:not(:hover):not(:focus-within) .lbchat-toc-sub{display:none;}
+.lbchat-toc.is-float .lbchat-tocgrp.is-here{color:var(--text-normal);}
 /* 「下一问」开关行：两个开关一行放不下就折行 */
 .lbchat-followbar{flex-wrap:wrap;row-gap:2px;}
 /* 已保存：Enter 存、作者小框、× 在标题行 */
@@ -939,6 +964,17 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat-cbar-left,.lbchat-cbar-right{display:flex;align-items:center;gap:8px;min-width:0;}
 .lbchat .lbchat-cbar .lbchat-modebox{margin:0;}
 .lbchat .lbchat-cbar .lbchat-model{max-width:150px;font-size:13px;color:var(--text-muted);}
+/* 1026 她：「Sonnet」离发送键太远——下拉框按文字宽度收窄、靠右贴着按钮 */
+.lbchat .lbchat-cbar .lbchat-model{width:auto;field-sizing:content;text-align:right;padding:0 2px!important;margin-right:2px;}
+.lbchat .lbchat-cbar .lbchat-cbar-right{gap:6px;}
+/* 1026 她：顶上「LER&FABLE / 全部 N 篇 · 更新…」不要，下面整体上移；浏览收藏 / 问收藏 和右边工具同一行 */
+.lbchat .lbchat-titlerow{display:none;}
+.lbchat .lbchat-sub:not(.is-warn){display:none;}
+.lbchat .lbchat-titleblock:not(:has(.lbchat-sub.is-warn)){display:none;}
+.lbchat .lbchat-head{grid-template-columns:1fr auto;margin-bottom:10px;}
+.lbchat .lbchat-head .lb-page-nav{grid-column:1;grid-row:1;align-self:center;}
+.lbchat .lbchat-head .lbchat-tools{grid-column:2;grid-row:1;}
+.lbchat .lbchat-head .lbchat-titleblock{grid-column:1/-1;grid-row:2;}
 .lbchat .lbchat-cbar button.lbchat-send{width:34px;height:34px;}
 .lbchat-ctlrow{width:calc(100% - 28px);max-width:822px;margin:14px auto -14px;padding:8px 18px 22px;border-radius:16px 16px 0 0;background:var(--background-secondary);border:1px solid var(--background-modifier-border);border-bottom:0;font-size:12.5px;}
 .lbchat-ctlrow:not(:has(> :not([hidden]))){display:none;}
@@ -953,8 +989,12 @@ const host = LB.mountHost('lbchat-host');
 const wrap = host.createEl('div', { cls: 'lbchat' });
 // Size against the actual Obsidian pane, not the entire screen (tabs/toolbars
 // and pane offsets otherwise push the composer below the visible area).
-const fitPane = () => { const viewport = root.closest('.workspace-leaf-content') || (pane && ['auto', 'scroll', 'hidden'].includes(getComputedStyle(pane).overflowY) ? pane : null); const bottom = Math.min(window.innerHeight, viewport?.getBoundingClientRect().bottom || window.innerHeight); wrap.style.height = Math.max(240, bottom - wrap.getBoundingClientRect().top - 16) + 'px'; };
+// 1026 她：输入框没固定在页底、跟着乱动——外层阅读视图被滚动过（或页头高度变了）时高度没重算。现在：外层一滚就拉回顶、重算；
+// 页头尺寸变了也重算。问收藏页自己不该整页滚，滚的是里面的对话区。
+const outerScroller = root.closest('.markdown-preview-view, .cm-scroller');
+const fitPane = () => { if (outerScroller && outerScroller.scrollTop > 0) outerScroller.scrollTop = 0; const viewport = root.closest('.workspace-leaf-content') || (pane && ['auto', 'scroll', 'hidden'].includes(getComputedStyle(pane).overflowY) ? pane : null); const bottom = Math.min(window.innerHeight, viewport?.getBoundingClientRect().bottom || window.innerHeight); wrap.style.height = Math.max(240, bottom - wrap.getBoundingClientRect().top - 16) + 'px'; };
 const resizeObserver = new ResizeObserver(fitPane); resizeObserver.observe(pane || document.documentElement);
+if (outerScroller) { const onOuter = () => requestAnimationFrame(fitPane); outerScroller.addEventListener('scroll', onOuter, { passive: true }); LB.onUnload(() => outerScroller.removeEventListener('scroll', onOuter)); }
 LB.onUnload(() => resizeObserver.disconnect());
 requestAnimationFrame(fitPane);
 const head = wrap.createEl('div', { cls: 'lbchat-head' });
@@ -965,6 +1005,7 @@ const chatTitleOf = () => String(LB.provider()?.settings?.catalogTitle || '').tr
 const chatTitle = titleRow.createEl('span', { cls: 'lbchat-title', text: chatTitleOf() });
 lbEvent(app.workspace.on('link-brain:catalog-prefs', () => { const t = chatTitleOf(); if (chatTitle.textContent !== t) chatTitle.setText(t); }));
 const tools = head.createEl('div', { cls: 'lbchat-tools' });
+try { resizeObserver.observe(head); } catch {}
 let clearBtn = null;
 const paintClear = () => { if (clearBtn) clearBtn.disabled = isBusy() || !session.turns.length; };
 const sub = titleBlock.createEl('div', { cls: 'lbchat-sub' });
@@ -976,6 +1017,7 @@ function paintSub() {
   const schemaWhy = LB.schemaIssue(data);
   const tail = schemaWhy ? ` · ${schemaWhy}` : '';
   // 1023：问收藏搜的是全部（含 Fable 收的、TG 发来的），写明「全部」，和目录页「N 篇 · 全部 M」对得上
+  sub.classList.toggle('is-warn', !!schemaWhy);   // 1026：标题块平时不显示，只有数据格式对不上的提醒才露出来
   if (!d || isNaN(d)) { sub.setText(`全部 ${items.length} 篇${tail}`); return; }
   sub.setText(`全部 ${items.length} 篇 · 更新 ${d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}${tail}`);
 }
@@ -2295,18 +2337,17 @@ function tocWorth() {
 function paintToc() {
   const n = session.turns.filter(t => t.role === 'user').length;
   const show = lane === 'chat' && n > 0 && tocWorth();
-  const side = show && tocWide && !tocCollapsed;
+  // 1026 她：目录照 floating-toc 插件的样子——左边一列短横线（每问一条、小标题短一点、当前那问加深），鼠标移上去展开成带标题的列表；
+  // 宽窄窗都用它，不再有「目录」按钮 / 收起 / 固定在左边
+  const side = show;
   tocEl.hidden = !side;
-  tocBtn.hidden = !(show && !side);
+  tocEl.classList.add('is-float'); bodyWrap.classList.add('has-ftoc');
+  tocBtn.hidden = true;
   tocFab.hidden = tocBtn.hidden;
   tocBtn.setText(n >= 2 ? `目录 · ${n} 问` : '目录');
   if (!show) closeTocPanel();
   if (side) {
     tocEl.empty();
-    const headRow = tocEl.createEl('div', { cls: 'lbchat-tochead' });
-    headRow.createEl('span', { text: '目录' });
-    const fold = headRow.createEl('button', { cls: 'lbchat-toc-fold', text: '‹', attr: { title: '收起目录（之后在右上角「目录」里打开）', 'aria-label': '收起目录' } }); fold.type = 'button';
-    fold.onclick = () => { tocCollapsed = true; LB.state.patch({ toc: 'collapsed' }); paintToc(); };
     const list = tocEl.createEl('div', { cls: 'lbchat-toclist' });
     fillToc(list);
     markHere();
@@ -3124,7 +3165,7 @@ function bindSources(el, sources, { pending = false } = {}) {
     }
     frag.append(document.createTextNode(node.textContent.slice(last))); node.replaceWith(frag);
   }
-  if (!pending) guideLinks(el, sources);
+  if (!pending) { guideLinks(el, sources); hideGuide(el); }
   mergeCites(el);
   if (pending) return;
   paraOpensSource(el, sources);
@@ -3134,7 +3175,8 @@ function bindSources(el, sources, { pending = false } = {}) {
 // 1026 她：点回答正文里带引用的那一段（不是点数字）→ 打开这段引的那篇原帖（不定位）；点数字才跳到对应的那一处。
 // 选字、点链接 / 按钮 / 图片 / 编辑框时不触发；一段引了几篇时开第一个引用的那篇。
 function paraOpensSource(el, sources) {
-  for (const blk of el.querySelectorAll(CITE_BLOCK())) if (blk.querySelector('button.lbchat-cite')) { blk.classList.add('lbchat-src-block'); blk.setAttribute('title', '点这段打开原帖；点数字跳到出处'); }
+  // 表格按整行算（点哪一格都开这一行引的那篇），其余按段落 / 列表项
+  for (const blk of el.querySelectorAll('p,li,tr,blockquote,h1,h2,h3,h4')) if (blk.querySelector('button.lbchat-cite') && !blk.parentElement?.closest('.lbchat-src-block')) { blk.classList.add('lbchat-src-block'); blk.setAttribute('title', '点这段打开原帖；点数字跳到出处'); }
   if (el.dataset.lbParaClick) return;
   el.dataset.lbParaClick = '1';
   el.addEventListener('click', e => {
@@ -3150,6 +3192,12 @@ function paraOpensSource(el, sources) {
 }
 // 1026 她：「来源导读」那几行前面的编号（9、10…14）很怪——导读行不放编号胶囊：《标题》本身是链接（只打开原帖），
 // 「必看 / 选看：…」后面写的位置是下滑虚线链接，点了跳过去（图N / 附件第N页 / 评论 cN / 正文「…」那段；认不出就只打开原帖）。
+function hideGuide(el) {
+  const head = [...el.querySelectorAll('h1,h2,h3,h4,p')].find(h => /^\s*#*\s*来源导读\s*$/.test(h.textContent || ''));
+  if (!head) return;
+  head.classList.add('lbchat-guide-hidden');
+  for (let n = head.nextElementSibling; n && !/^H[1-4]$/.test(n.tagName) && !/^\s*#/.test(n.textContent || ''); n = n.nextElementSibling) n.classList.add('lbchat-guide-hidden');
+}
 function guideTarget(loc) {
   let m;
   if ((m = /附件[^\d]{0,4}(\d+)/.exec(loc))) return { part: { field: 'attachments', page: Number(m[1]), text: '' } };
