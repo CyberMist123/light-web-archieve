@@ -952,6 +952,10 @@ class LinkBrainActions extends Plugin {
     // 10-03：「模型与提示词」并进「设置」（直达插件设置页）
     menu.addItem(i=>i.setTitle('设置').setIcon('settings-2').onClick(()=>this.openSetupPage('overview')));
     menu.addItem(i=>i.setTitle('导出资料').setIcon('folder-open').onClick(()=>this.openExportFolder()));
+    // 1026 她：问收藏的目录在窄窗口（笔记本半屏）也钉着；关掉 = 对话区不到 980 宽时目录收成边上的横线
+    menu.addItem(i=>{const it=i.setTitle('目录：窄窗也钉住').setIcon('list');if(typeof it.setChecked==='function')it.setChecked(this.settings?.tocPinNarrow!==false);it.onClick(async()=>{
+      this.settings=this.settings||{};this.settings.tocPinNarrow=this.settings.tocPinNarrow===false;await this.saveSettings();this.app.workspace.trigger('link-brain:chat-prefs');
+    });});
     menu.showAtMouseEvent(evt);
   }
   openExportFolder() {

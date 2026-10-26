@@ -1024,14 +1024,7 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 /* 1026 她：输入卡右边距——发送键别贴着卡片边 */
 .lbchat .lbchat-composer{padding-right:14px;}
 .lbchat .lbchat-cbar .lbchat-cbar-right{gap:6px;}
-/* 1026 她：顶上「LER&FABLE / 全部 N 篇 · 更新…」不要，下面整体上移；浏览收藏 / 问收藏 和右边工具同一行 */
-.lbchat .lbchat-titlerow{display:none;}
-.lbchat .lbchat-sub:not(.is-warn){display:none;}
-.lbchat .lbchat-titleblock:not(:has(.lbchat-sub.is-warn)){display:none;}
-.lbchat .lbchat-head{grid-template-columns:1fr auto;margin-bottom:10px;}
-.lbchat .lbchat-head .lb-page-nav{grid-column:1;grid-row:1;align-self:center;}
-.lbchat .lbchat-head .lbchat-tools{grid-column:2;grid-row:1;}
-.lbchat .lbchat-head .lbchat-titleblock{grid-column:1/-1;grid-row:2;}
+/* 1026 她：「LER&FABLE / 全部 N 篇 · 更新…」标题块放回来（之前隐藏过，又要回来了） */
 .lbchat .lbchat-cbar button.lbchat-send{width:34px;height:34px;}
 .lbchat-ctlrow{width:calc(100% - 28px);max-width:822px;margin:14px auto -14px;padding:8px 18px 22px;border-radius:16px 16px 0 0;background:var(--background-secondary);border:1px solid var(--background-modifier-border);border-bottom:0;font-size:12.5px;}
 .lbchat-ctlrow:not(:has(> :not([hidden]))){display:none;}
@@ -2522,7 +2515,8 @@ try {
     const w = bodyWrap.clientWidth || entries?.[0]?.contentRect?.width || 0;
     // ≥1242：左栏放在 850 对话列左边的空白里；1080–1242：对话列往右让出左栏的宽度（is-tight），不重叠
     const wide = w >= 1080, tight = wide && w < 1242;
-    if ((w >= FTOC_ROOMY) !== ftocRoomy) { ftocRoomy = w >= FTOC_ROOMY; ftocApplyPin(); }
+    ftocLastW = w;
+    if ((w >= ftocMinWidth()) !== ftocRoomy) { ftocRoomy = w >= ftocMinWidth(); ftocApplyPin(); }
     bodyWrap.classList.toggle('is-tight', tight);
     if (wide !== tocWide) { tocWide = wide; bodyWrap.classList.toggle('is-wide', wide); paintToc(); }
   });
@@ -2550,8 +2544,10 @@ function ftocIcon(el, name) { el.innerHTML = `<svg xmlns="http://www.w3.org/2000
 let ftocPinned = pageState.tocPin === true, ftocAllOpen = true;
 // 1026 她：笔记本上问收藏常只占半屏（≈900 宽），钉住的面板再占 260 就没法看了——对话区够宽（≥ FTOC_ROOMY）才真的钉住，
 // 窄了自动退回边上的横线（悬停展开），她的「钉住」选择照记着，窗口变宽又回来
-const FTOC_ROOMY = 980;
-let ftocRoomy = true;
+// 她（1026 晚）：窄到笔记本半屏也可以钉着——默认 560 起就钉住；「…」菜单里关掉「目录：窄窗也钉住」就回到 980
+const ftocMinWidth = () => (cfg().tocPinNarrow === false ? 980 : 560);
+let ftocRoomy = true, ftocLastW = 0;
+lbEvent(app.workspace.on('link-brain:chat-prefs', () => { if (ftocLastW) { ftocRoomy = ftocLastW >= ftocMinWidth(); ftocApplyPin(); } }));
 function ftocApplyPin() {
   const on = ftocPinned && ftocRoomy;
   tocEl.classList.toggle('is-pin', on);

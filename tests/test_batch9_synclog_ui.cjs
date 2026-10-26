@@ -280,7 +280,7 @@ async function pluginTests() {
   assert.equal(cats, 1, '管理分类保留');
   assert.deepEqual(opened, ['trash', 'export', 'settings:link-brain-actions', '刷新目录']);
   p.openAISettingsMenu({});
-  assert.deepEqual(loadPlugin.lastMenu.items.map(i => i.title), ['设置', '导出资料'], '「模型与提示词」并进「设置」');
+  assert.deepEqual(loadPlugin.lastMenu.items.map(i => i.title), ['设置', '导出资料', '目录：窄窗也钉住'], '「模型与提示词」并进「设置」；1026 加目录钉住开关');
   // 改标题 / 每行几列：存设置 + 通知开着的目录页
   const events = [];
   p.settings = { catalogColumns: 0, catalogTitle: '' };
