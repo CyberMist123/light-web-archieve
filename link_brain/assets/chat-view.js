@@ -748,6 +748,9 @@ LB.style('lbchat-style', `
 .lbchat-md > p:first-child{margin-top:0;}
 .lbchat-md > p:last-child{margin-bottom:0;}
 .lbchat .lbchat-md img{cursor:zoom-in;}
+/* 1026 她：带引用的段落点了打开原帖——鼠标是手形，悬停时底色轻轻变一下 */
+.lbchat .lbchat-md .lbchat-src-block{cursor:pointer;border-radius:4px;transition:background-color .15s;}
+.lbchat .lbchat-md .lbchat-src-block:hover{background:var(--background-modifier-hover);}
 /* 1026 她：来源导读里的标题 / 「必看：…」位置——下滑虚线链接，悬停变链接色 */
 .lbchat .lbchat-guide-link{cursor:pointer;border-bottom:1px dashed var(--text-faint);}
 .lbchat .lbchat-guide-link:hover,.lbchat .lbchat-guide-link:focus-visible{color:var(--link-color);border-bottom-color:var(--link-color);outline:none;}
@@ -3030,7 +3033,9 @@ function citePop() {   // 函数声明 + 懒建：页面开头恢复历史时 bi
     const t = document.createElement('div'); t.className = 't'; t.textContent = src?.title || '未命名'; box.append(t);
     if (p) {
       const w = document.createElement('div'); w.className = 'w'; w.textContent = where(p); box.append(w);
-      if (p.text) { const q = document.createElement('div'); q.className = 'q'; q.textContent = String(p.text).trim().slice(0, 240); box.append(q); }
+      // 1026 她：小红书正文末尾那串「#猫咪[话题]#」是噪音，卡片里不显示
+      const txt = String(p.text).replace(/#[^#\n]{1,30}?\[话题\]#?/g, '').replace(/[ \t]{2,}/g, ' ').replace(/^[\s#]+|[\s#]+$/g, '');
+      if (txt) { const q = document.createElement('div'); q.className = 'q'; q.textContent = txt.slice(0, 240); box.append(q); }
     }
     document.body.append(box);
     const r = btn.getBoundingClientRect(), bw = box.offsetWidth || 320, bh = box.offsetHeight || 80;
@@ -3122,8 +3127,26 @@ function bindSources(el, sources, { pending = false } = {}) {
   if (!pending) guideLinks(el, sources);
   mergeCites(el);
   if (pending) return;
+  paraOpensSource(el, sources);
   for (const a of el.querySelectorAll('a')) { const href = a.getAttribute('data-href') || a.getAttribute('href'); const src = sources.find(x => href === x.url || href === x.note || href === x.note?.replace(/\.md$/, '')); if (src) a.onclick = e => { e?.preventDefault?.(); e?.stopPropagation?.(); openNote(src); }; }
   floatAnswerImages(el);
+}
+// 1026 她：点回答正文里带引用的那一段（不是点数字）→ 打开这段引的那篇原帖（不定位）；点数字才跳到对应的那一处。
+// 选字、点链接 / 按钮 / 图片 / 编辑框时不触发；一段引了几篇时开第一个引用的那篇。
+function paraOpensSource(el, sources) {
+  for (const blk of el.querySelectorAll(CITE_BLOCK())) if (blk.querySelector('button.lbchat-cite')) { blk.classList.add('lbchat-src-block'); blk.setAttribute('title', '点这段打开原帖；点数字跳到出处'); }
+  if (el.dataset.lbParaClick) return;
+  el.dataset.lbParaClick = '1';
+  el.addEventListener('click', e => {
+    const t = e.target;
+    if (!t?.closest || t.closest('a,button,input,textarea,select,summary,img,video,.internal-embed,.lbchat-guide-link,.lbchat-editor')) return;
+    try { if (String(window.getSelection?.() || '').trim()) return; } catch {}
+    const blk = t.closest('.lbchat-src-block');
+    if (!blk || !el.contains(blk)) return;
+    const c = blk.querySelector('button.lbchat-cite');
+    const src = c && sources.find(x => String(x.citation) === c.dataset.cite);
+    if (src) openNote(src);
+  });
 }
 // 1026 她：「来源导读」那几行前面的编号（9、10…14）很怪——导读行不放编号胶囊：《标题》本身是链接（只打开原帖），
 // 「必看 / 选看：…」后面写的位置是下滑虚线链接，点了跳过去（图N / 附件第N页 / 评论 cN / 正文「…」那段；认不出就只打开原帖）。

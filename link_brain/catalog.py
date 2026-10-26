@@ -353,6 +353,16 @@ def item_problems(obj_dir: Path, report: dict[str, Any], vision: dict[str, Any],
     return list(out.values())
 
 
+_AT_NAME = re.compile(r"(?<![A-Za-z0-9_.])@[^\s@，,。.!！？?：:、\[\]【】（）()]{1,24}")
+_REPLY_TO = re.compile(r"^\s*回复\s*[^：:\s]{1,24}\s*[：:]")
+
+
+def _comment_search_text(text: Any) -> str:
+    """评论进检索的文字：去掉 @人名、开头的「回复 某某：」（人名不是内容，只会带来噪音命中）。"""
+    s = _REPLY_TO.sub("", str(text or ""))
+    return re.sub(r"[ \t]{2,}", " ", _AT_NAME.sub("", s)).strip()
+
+
 def _flat_comments(comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """一级评论 + 它的楼中楼，按楼层顺序摊平（顺序同 llm.comment_labels；目录只要原文，不要给模型的短编号）。"""
     out: list[dict[str, Any]] = []
@@ -471,7 +481,8 @@ def collect(vault: Path, source: str | None = None) -> list[dict[str, Any]]:
             "screen": str((transcript.get("screen") or {}).get("text") or ""),
             "body": str(note.get("body") or ""),
             # 评论只放原文进检索：评论者昵称不进（昵称「不是鱼露是鲈鱼」会被当成内容命中）；说话人由问收藏证据阶段另挂
-            "comments": "\n".join(str(c.get("text") or "") for c in _flat_comments(source_doc.get("comments") or [])),
+            # 1026 她：评论里 @ 的人名也是噪音（「@喵喵酱」「@Murrrrrphy」被当成内容命中）——@人名、「回复 某某：」不进检索
+            "comments": "\n".join(_comment_search_text(c.get("text")) for c in _flat_comments(source_doc.get("comments") or [])),
             # 图片文字 + 识图结果（表格 Markdown / 图片描述）一起进检索；精细识图（第二层 refined）成功就用它替代第一层
             "ocr": "\n".join(filter(None, (_image_search_text(im) for im in ok_images if not _is_comment_image(im)))),
             "comment_ocr": "\n".join(filter(None, (_image_search_text(im) for im in ok_images if _is_comment_image(im)))),

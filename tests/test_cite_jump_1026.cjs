@@ -242,6 +242,16 @@ const DATA = '_archive/catalog-data.json';
   const stamp0 = lastLog().at; await guide[0].onclick({ stopPropagation() {} }); await tick(300);
   assert.equal(lastLog().at, stamp0, '点标题只打开，不定位');
 
+  // ⑰ 点回答正文里带引用的那段（不是点数字）→ 打开那篇原帖，不定位；没引用的段落点了没反应
+  const openedBefore = opened.length, stamp1 = lastLog().at;
+  ps[2].dispatchEvent(dom.event('click', { bubbles: true })); await tick(600);
+  assert.equal(opened.length, openedBefore + 1); assert.equal(opened.at(-1), 'Web/b.md', '第 3 段引的是来源2');
+  assert.equal(lastLog().at, stamp1, '点段落只打开，不定位');
+  assert.ok(ps[2].classList.contains('lbchat-src-block'));
+  const plain = A.section.querySelectorAll('.lbchat-md p').find(p => p.textContent.includes('这一段讲配色卡片怎么用'));
+  plain.dispatchEvent(dom.event('click', { bubbles: true })); await tick(100);
+  assert.equal(opened.length, openedBefore + 1, '没引用的段落不打开');
+
   // ⑪ 来源标题只打开帖子、不定位
   const n = opened.length, stamp = lastLog().at;
   const title = A.section.querySelectorAll('.lbchat-src-title, .lbchat-src a, a').find(a => a.textContent.includes('另一篇') && typeof a.onclick === 'function');

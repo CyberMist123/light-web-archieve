@@ -1793,7 +1793,10 @@ def decide_mode(understood, pool, items, *, deep=False, expansion_terms=(), used
         if 1 <= len(main) <= TOC_FIND_MAIN:
             return "direct", {**info, "reason": "find-main"}
         if len(main) > TOC_FIND_MAIN or len(strong) >= TOC_FIND_SCATTER:
-            return "toc", {**info, "reason": "find-scatter"}
+            # 1026 她：「喵喵」这种一个词的找回题出了 20 条命中摘录的目录，很突兀——归类后再写。目录同盘点题一样，只给明说要清单的
+            if _BROWSE_RE.search(str((understood or {}).get("core") or "")):
+                return "toc", {**info, "reason": "find-scatter"}
+            return "direct", {**info, "reason": "find-scatter-direct"}
         return "direct", {**info, "reason": "find-few"}
     # 问事实（goal=ask）一律直接答：她要的是那个答案，不是目录（1015 评测：便宜的自助火锅 / 汕头猪杂粿被误出目录）
     return "direct", {**info, "reason": "ask"}
@@ -1937,7 +1940,9 @@ def toc_markdown(entries, total, core):
         meta = " · ".join(x for x in (e["author"], e["date"]) if x)
         hit = e["hit"]
         where = hit["label"] + (f" {hit['loc']}" if hit.get("loc") else "") + (f"（{hit['speaker']}）" if hit.get("speaker") else "")
-        quote = f"「{hit['text']}」" if hit.get("text") else ""
+        # 1026 她：小红书正文末尾那串「#猫咪[话题]#」不是命中内容，目录里不抄
+        text = re.sub(r"[ \t]{2,}", " ", re.sub(r"#[^#\n]{1,30}?\[话题\]#?", "", str(hit.get("text") or ""))).strip(" #")
+        quote = f"「{text}」" if text else ""
         lines.append(f"{e['n']}. **{e['title']}**" + (f" · {meta}" if meta else "") + f" — {where}{quote} [来源{e['n']}]")
     return "\n".join(lines)
 

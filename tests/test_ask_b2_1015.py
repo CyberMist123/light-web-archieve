@@ -166,7 +166,9 @@ def test_mode_find_with_main_post_is_direct():
 def test_mode_find_scattered_is_toc_and_precise_wins():
     pool = _pool(6)
     items = pool + [_it(f"z{i}", f"z{i}", "无关") for i in range(20)]
-    assert ask.decide_mode({"goal": "find", "core": "鱼露"}, pool, items)[0] == "toc"
+    # 1026 她：一个词的找回题命中很散也直接答（归类后写），明说要清单才出目录
+    assert ask.decide_mode({"goal": "find", "core": "鱼露"}, pool, items)[0] == "direct"
+    assert ask.decide_mode({"goal": "find", "core": "鱼露 列一下"}, pool, items)[0] == "toc"
     assert ask.decide_mode({"goal": "find", "core": "鱼露", "depth": "precise"}, pool, items)[0] == "direct"
     assert ask.decide_mode({"goal": "find", "core": "鱼露"}, pool, items, deep=True)[0] == "direct"
 
