@@ -43,24 +43,29 @@ def test_parse_note_url_and_reject_non_url():
         x.parse("6512abc123def456abc123de")
 
 
-def test_fetch_delegates_to_ingest_with_options(monkeypatch):
+def test_fetch_delegates_to_adapter_with_options(monkeypatch):
+    # ⑤b（#46）后重试抓取搬进 adapter，网页探附件随之进 web_raw.json：两处都打桩，不出网
+    from link_brain.sources.xiaohongshu import adapter
     seen = {}
 
-    def fake_retry(parsed, *, log, comment_floors, budget_left, progress, expand_floors):
-        seen.update(parsed=parsed, log=log, comment_floors=comment_floors, budget_left=budget_left,
-                    progress=progress, expand_floors=expand_floors)
+    def fake_retry(parsed, *, log, comment_floors, budget_left, progress, expand_floors, **kw):
+        seen.update(parsed=parsed, comment_floors=comment_floors, budget_left=budget_left,
+                    progress=progress, expand_floors=expand_floors, extra=kw)
         return {"note": "raw"}
 
-    monkeypatch.setattr(ingest, "_fetch_with_retry", fake_retry)
+    monkeypatch.setattr(adapter, "_fetch_with_retry", fake_retry)
+    monkeypatch.setattr(x, "_web_probe", lambda parsed, log: {"probe": 1})
     budget = lambda: 1.0
     progress = lambda *a, **k: None
-    opts = FetchOptions(comment_floors=5, budget_left=budget, progress=progress,
-                        extra={"expand_floors": "all"})
+    opts = FetchOptions(comment_floors=5, budget_left=budget, progress=progress, extra={})
     parsed = {"source_id": "n1", "note_id": "n1"}
     f = x.fetch(parsed, opts)
-    assert isinstance(f, Fetched) and f.raw_files == {"mcp_raw.json": {"note": "raw"}} and f.context == {}
-    assert seen["parsed"] == parsed and seen["comment_floors"] == 5 and seen["expand_floors"] == "all"
+    assert isinstance(f, Fetched)
+    assert f.raw_files == {"mcp_raw.json": {"note": "raw"}, "web_raw.json": {"probe": 1}}
+    assert f.context["web_probe"] == {"probe": 1} and "previous_source" not in f.context
+    assert seen["parsed"] == parsed and seen["comment_floors"] == 5 and seen["expand_floors"] is None
     assert seen["budget_left"] is budget and seen["progress"] is progress
+    assert seen["extra"]["fill_budget_s"] is None
 
 
 def test_normalize_passes_raw_and_web_probe(monkeypatch):
