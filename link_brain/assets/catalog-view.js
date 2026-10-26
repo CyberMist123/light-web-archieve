@@ -34,7 +34,7 @@ const CSS = `
 /* 1021 Collection+ 改版（设计交接包 DESIGN-SPEC §0–3、5、9）：界面只有黑白——文字、选中、细线都用正文色 / 边框色，不用 --interactive-accent；
    颜色只出现在封面里。令牌映射 Obsidian 变量，深浅色自动跟随。标题 / 数字字体随包（_archive/fonts，@font-face 见 fontFaceCss），离线可用 */
 .lbc-wrap{--c-bg:var(--background-primary);--c-ink:var(--text-normal);--c-muted:var(--text-muted);--c-faint:var(--text-faint);--c-line:var(--background-modifier-border);--c-soft:var(--background-secondary);
---f-display:"LB Cinzel","Cinzel","Trajan Pro","Times New Roman",serif;--f-serif:"Noto Serif SC","Source Han Serif SC","Source Han Serif CN","Songti SC","STSong","SimSun",serif;
+--f-display:${LB.BRAND_FONT_STACK};--f-serif:"Noto Serif SC","Source Han Serif SC","Source Han Serif CN","Songti SC","STSong","SimSun",serif;
 --f-latin:"LB Cormorant","Cormorant Garamond",Georgia,"Noto Serif SC","Songti SC","SimSun",serif;--f-sans:"Noto Sans SC","Segoe UI","Microsoft YaHei UI",sans-serif;
 --r-card:12px;--ctl-h:34px;--shadow-print:5px 5px 0 var(--text-normal);
 width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;display:block;padding:22px 24px 30px;overflow:visible;font-family:var(--f-sans);}
@@ -46,9 +46,7 @@ width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;disp
 .lbc-titleblock{display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-end;gap:4px 22px;padding:0 104px;min-width:0;}
 @container(max-width:1050px){.lbc-titleblock{padding-left:0;}}
 .lbc-titlerow{display:flex;align-items:flex-end;justify-content:center;min-width:0;max-width:100%;}
-.lbc-title{font:900 clamp(30px,6.5cqi,96px)/1.02 var(--f-display);font-style:normal;letter-spacing:.012em;text-transform:uppercase;transform:skewX(-13deg);display:inline-flex;align-items:baseline;white-space:nowrap;color:var(--c-ink);}
-.lbc-engr{position:relative;display:inline-block;}
-.lbc-engr::after{content:attr(data-text);position:absolute;left:0;top:0;color:transparent;-webkit-text-stroke:.016em var(--c-bg);transform:translateX(-.05em);pointer-events:none;}
+${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-title button.lbc-import{font:inherit!important;color:var(--c-ink)!important;width:auto!important;height:auto!important;padding:0!important;margin:0 0 0 .02em!important;border:0!important;background:transparent!important;box-shadow:none!important;border-radius:0!important;display:inline-block!important;vertical-align:baseline;line-height:inherit!important;cursor:pointer;transition:transform .45s cubic-bezier(.2,.8,.2,1);}
 .lbc-wrap .lbc-title button.lbc-import:hover{transform:rotate(90deg);}
 .lbc-wrap .lbc-title button.lbc-import[aria-busy="true"]{opacity:.5;cursor:progress;}
@@ -518,13 +516,8 @@ width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;disp
 `;
 // 1021：标题 / 数字字体随包发（catalog.py 重建时拷进 _archive/fonts/），@font-face 的地址运行时拼（vault 可能挂在别的库子目录里，过 lbPath；
 // 不连 Google Fonts，离线照样显示；文件不在时浏览器退回系统衬线字体）
-const FONT_FILES = { cinzel: '_archive/fonts/Cinzel-latin-variable.woff2', cormorant: '_archive/fonts/CormorantGaramond-Italic-latin-variable.woff2' };
-function fontFaceCss() {
-  const url = rel => { try { return String(app.vault.adapter.getResourcePath?.(lbPath(rel)) || ''); } catch { return ''; } };
-  const face = (family, rel, weight, style) => { const u = url(rel); return u ? `@font-face{font-family:"${family}";src:url("${u.replace(/"/g, '%22')}") format("woff2");font-weight:${weight};font-style:${style};font-display:swap;}\n` : ''; };
-  return face('LB Cinzel', FONT_FILES.cinzel, '400 900', 'normal') + face('LB Cormorant', FONT_FILES.cormorant, '300 700', 'italic');
-}
-LB.style('lbc-style', fontFaceCss() + CSS);
+// 1026：字体文件 / @font-face 和问收藏共用 LB.brandFontCss（lb-page-lib），只在那一处
+LB.style('lbc-style', LB.brandFontCss() + CSS);
 
 // ── 挂载点（C4）：dv.container 后面的兄弟 host；Dataview 重跑只清 container，碰不到页面 ──
 const mount = LB.mountHost('lbc-host');
@@ -729,7 +722,7 @@ const head = top.createEl('div', { cls: 'lbc-head' });
 const titleBlock = head.createEl('div', { cls: 'lbc-titleblock' });
 const titleRow = titleBlock.createEl('div', { cls: 'lbc-titlerow' });
 // 10-03：大标题可改（「…→改标题」，存插件设置 catalogTitle；空 = Collections）
-const titleOf = () => String(LB.provider()?.settings?.catalogTitle || '').trim() || 'Collections';
+const titleOf = LB.brandTitleText;   // 1026：和问收藏同一个来源（lb-page-lib）
 const titleText = titleRow.createEl('span', { cls: 'lbc-title' });
 // 1021 雕刻斜体大标题：字上再叠一层同样的字（data-text → ::after，描边用底色、往左错一点）= 一道刻线；改标题时 data-text 跟着换（setTitle）
 const titleLabel = titleText.createEl('span', { cls: 'lbc-title-text lbc-engr', text: titleOf() });

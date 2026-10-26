@@ -627,7 +627,31 @@ function lbPageLib(dv, app, role) {
     } catch { return false; }
   }
 
+  // ── 1026 她：目录页和问收藏的大标题是同一份——文字（插件设置 catalogTitle，空 = Collections）、随包字体、样式都只在这里，
+  // 两页都调它，免得一边改了另一边不同步。字体文件由 catalog.py 重建时拷进 _archive/fonts/（离线可用，文件不在退回系统衬线）。
+  const BRAND_FONTS = { cinzel: '_archive/fonts/Cinzel-latin-variable.woff2', cormorant: '_archive/fonts/CormorantGaramond-Italic-latin-variable.woff2' };
+  const BRAND_FONT_STACK = '"LB Cinzel","Cinzel","Trajan Pro","Times New Roman",serif';
+  const brandTitleText = () => String(provider()?.settings?.catalogTitle || '').trim() || 'Collections';
+  function brandFontCss() {
+    const url = rel => { try { return String(app.vault.adapter.getResourcePath?.(path(rel)) || ''); } catch { return ''; } };
+    const face = (family, rel, weight, style) => { const u = url(rel); return u ? `@font-face{font-family:"${family}";src:url("${u.replace(/"/g, '%22')}") format("woff2");font-weight:${weight};font-style:${style};font-display:swap;}\n` : ''; };
+    return face('LB Cinzel', BRAND_FONTS.cinzel, '400 900', 'normal') + face('LB Cormorant', BRAND_FONTS.cormorant, '300 700', 'italic');
+  }
+  // 雕刻斜体大标题：字上再叠一层同样的字（data-text → ::after，描边用底色、往左错一点）= 一道刻线
+  const brandCss = (titleSel, engrSel) => `${titleSel}{font:900 clamp(30px,6.5cqi,96px)/1.02 ${BRAND_FONT_STACK};font-style:normal;letter-spacing:.012em;text-transform:uppercase;transform:skewX(-13deg);display:inline-flex;align-items:baseline;white-space:nowrap;color:var(--text-normal);}
+${engrSel}{position:relative;display:inline-block;}
+${engrSel}::after{content:attr(data-text);position:absolute;left:0;top:0;color:transparent;-webkit-text-stroke:.016em var(--background-primary);transform:translateX(-.05em);pointer-events:none;}`;
+  // 在 parent 里建标题：外层 titleCls，里面一个刻线字 engrCls；返回 {box, label, set}，改标题时调 set()
+  function brandTitle(parent, titleCls, engrCls) {
+    const box = parent.createEl('span', { cls: titleCls });
+    const label = box.createEl('span', { cls: engrCls });
+    const set = () => { const t = brandTitleText(); if (label.textContent !== t) label.setText(t); if (label.dataset.text !== t) label.dataset.text = t; };
+    set();
+    return { box, label, set };
+  }
+
   return { root, path, provider, ensure, state, data, keep, rekeep, reuseDom, listen, onUnload, scroller, restoreScroll, onScroll, t, mark, role, get container() { return container; },
+    brandTitleText, brandFontCss, brandCss, brandTitle, BRAND_FONT_STACK,
     // 批次 D 地基
     mountHost, style, dataUpdatedAt, schemaIssue, schemaBlocks, CATALOG_SCHEMA, mobile, MOBILE_ONLY_TEXT, mobileNote, need, openPage,
     say, progress, undoNotice, confirm, busy, showMenu, menuOpen, trackFocus, restoreFocus, activeLeafHas };

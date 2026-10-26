@@ -476,7 +476,7 @@ function watchReaderVideos(note) {
 }
 
 // 样式挂 head（LB.style 按 id 去重；lb-shared 排在它前面）。X14：从目录页抄来的 .lb-page-nav / .lb-manage / .lbc-* 规则删了，那些在 lb-shared 里
-LB.style('lbchat-style', `
+LB.style('lbchat-style', LB.brandFontCss() + `
 .markdown-preview-view.lb-chatpage,.markdown-source-view.lb-chatpage{--file-line-width:100%;}
 .lb-chatpage .markdown-preview-sizer,.lb-chatpage .markdown-preview-section,.lb-chatpage .cm-sizer,.lb-chatpage .cm-contentContainer,.lb-chatpage .cm-content,.lb-chatpage .block-language-dataviewjs{width:100%!important;max-width:none!important;}
 .lb-chatpage .inline-title,.lb-chatpage .metadata-container{display:none!important;}
@@ -1033,6 +1033,8 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat-tocfab:hover{color:var(--text-normal)!important;}
 .lbchat-tocfab[hidden]{display:none!important;}
 .lbchat-tocpanel.is-side{max-height:70vh;}
+/* 1026 她：大标题和目录页同一份样式（lb-page-lib 的 brandCss），放在最后、选择器带 .lbchat，盖过上面旧的 .lbchat-title 字体 / 字号 */
+${LB.brandCss('.lbchat .lbchat-title', '.lbchat .lbchat-engr')}
 `);
 
 const host = LB.mountHost('lbchat-host');
@@ -1060,9 +1062,9 @@ const head = wrap.createEl('div', { cls: 'lbchat-head' });
 const titleBlock = head.createEl('div', { cls: 'lbchat-titleblock' });
 const titleRow = titleBlock.createEl('div', { cls: 'lbchat-titlerow' });
 // 1023：标题和目录页同一个来源（插件设置 catalogTitle，空 = Collections）；目录页「管理 → 改标题」广播 catalog-prefs 时就地换
-const chatTitleOf = () => String(LB.provider()?.settings?.catalogTitle || '').trim() || 'Collections';
-const chatTitle = titleRow.createEl('span', { cls: 'lbchat-title', text: chatTitleOf() });
-lbEvent(app.workspace.on('link-brain:catalog-prefs', () => { const t = chatTitleOf(); if (chatTitle.textContent !== t) chatTitle.setText(t); }));
+// 1026 她：字体 / 样式 / 文字都和目录页同一份（LB.brandTitle / brandCss / brandFontCss，在 lb-page-lib），别在这里另写
+const chatTitle = LB.brandTitle(titleRow, 'lbchat-title', 'lbchat-engr');
+lbEvent(app.workspace.on('link-brain:catalog-prefs', () => chatTitle.set()));
 const tools = head.createEl('div', { cls: 'lbchat-tools' });
 try { resizeObserver.observe(head); } catch {}
 let clearBtn = null;
