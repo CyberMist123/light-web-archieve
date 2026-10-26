@@ -211,6 +211,8 @@ R = {"status": "ok|failed|skipped", "text": str|None, "code": "<故障码或空>
 
 第二波 PR③ 把小红书的 9 个文件整文件搬进 `link_brain/sources/xiaohongshu/`（`adapter / accounts / favorites / fav_counts / comment_fill / restricted / albums / night_captcha / reader_install`）。旧路径（`link_brain/accounts.py`、`link_brain/adapters/xiaohongshu.py` 等）只剩 `sys.modules` 别名转发，和新路径是同一个模块对象，monkeypatch 打哪边都一样；**新代码从新路径 import**，全仓迁完后删转发文件。小红书包里找程序目录一律 `storage.repo_root()`，不按自己的 `__file__` 推（深了一层）。
 
+第二波 PR⑤b 起 `ingest.ingest_url` 只认来源接口：`ingest.recognize(target, parsed)` 认来源并解析（parsed 一定带 `source / source_id`），抓用 `src.fetch`（返回的 `raw_files` 原样写进 RAW），规范化 / 指纹 / 下载计划问 `src.normalize / fingerprint / media_plan`，meta 里来源决定的那几项（kind、标题、作者、发布时间、评论齐没齐、附件状态、工具版本）问 `src.meta_fields`。通用下载 `ingest.download_plan(plan, …)` 只认任务里的 `kind / role / url / stem / headers / payload`。来源私有的续读走能力：`comments_fill` → `src.fill(...)`。`index.latest_source_sha256` 重算指纹也问来源。
+
 共享代码不许新增对小红书包的 import：契约写在仓库根 `.importlinter`，守卫是 `tests/test_guards.py` 的 `test_import_contract`（AST 扫描 `tests/tools/import_scan.py`，不用装 import-linter）。`ignore_imports` 是搬家时的现有违规，只许删不许加；最大 import 环的模块数也只许减（`MAX_CYCLE`）。
 
 ---

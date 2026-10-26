@@ -110,7 +110,6 @@ ignore_imports =
     link_brain.crawl -> link_brain.sources.xiaohongshu.accounts
     link_brain.crawl -> link_brain.sources.xiaohongshu.comment_fill
     link_brain.index -> link_brain.sources.xiaohongshu.comment_fill
-    link_brain.ingest -> link_brain.sources.xiaohongshu.accounts
     link_brain.ingest -> link_brain.sources.xiaohongshu.adapter
     link_brain.ingest -> link_brain.sources.xiaohongshu.comment_fill
     link_brain.ingest -> link_brain.sources.xiaohongshu.restricted

@@ -425,7 +425,11 @@ def latest_source_sha256(conn: sqlite3.Connection, item_id: str) -> str | None:
     if not row:
         return None
     try:
-        sha = normalized_source_sha256(storage.read_json(storage.vault_root() / row["raw_dir"] / "source.json"))
+        doc = storage.read_json(storage.vault_root() / row["raw_dir"] / "source.json")
+        # 指纹口径归来源（1025 第二波 PR⑤b）：小红书就是 normalized_source_sha256
+        from . import sources
+        sha = sources.get(doc["source"]).fingerprint(doc) if doc.get("source") in sources.names() \
+            else normalized_source_sha256(doc)
     except (OSError, ValueError):
         return row["source_sha256"]
     if sha != row["source_sha256"]:
