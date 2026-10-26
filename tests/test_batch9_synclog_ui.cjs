@@ -147,7 +147,7 @@ async function scheduleTests() {
     async setSyncSchedule(f) { saved.push(f); state = { ...state, enabled: false, summary: '已关闭' }; return { ok: true }; },
   };
   const host = dom.document.body.createDiv();
-  const ed = factory(obs, plugin).render(host); await ed.ready;
+  const ed = factory(obs, plugin).render(host, { delay: 60000 }); await ed.ready;   // 停手自动存的那一下另有用例（test_settings_layout）；这里只看离开那一格立刻存
   const box = host.querySelector('.lb-sched');
   assert.equal(box.querySelector('.lb-sched-status').textContent, '当前：每周一 08:00 · 每 4 小时一次 · 下次 10/06 08:00　·　另有：登录时（不改动）', '一行人话');
   let rows = box.querySelectorAll('.lb-sched-row');
@@ -168,20 +168,21 @@ async function scheduleTests() {
   rows = box.querySelectorAll('.lb-sched-row');
   const kind = rows[2].querySelector('.lb-sched-kind'); kind.value = 'once'; kind.onchange();
   rows = box.querySelectorAll('.lb-sched-row');
-  await box.querySelector('.lb-sched-save').onclick();
+  // 1027：改了自动保存（没有「保存定时」「关闭定时」按钮）；格式不对不存，说一句
+  assert.ok(!box.querySelector('.lb-sched-save') && !box.querySelector('.lb-sched-off'), '没有保存 / 关闭按钮');
+  await ed.saveNow(); await flush();
   assert.match(box.querySelector('.lb-sched-msg').textContent, /一次性的要填日期和时间/, '没填日期不保存');
   assert.equal(saved.length, 0);
-  const at = rows[2].querySelector('.lb-sched-at'); at.value = '2026-10-09T17:00'; at.oninput();
-  await box.querySelector('.lb-sched-save').onclick(); await flush();
-  assert.deepEqual(saved[0], [{ kind: 'weekly', days: ['Monday', 'Thursday'], times: ['08:00'] }, { kind: 'daily', times: ['04:00', '16:00'] }, { kind: 'once', at: '2026-10-09 17:00' }]);
+  const at = rows[2].querySelector('.lb-sched-at'); at.value = '2026-10-09T17:00'; at.onchange(); await flush(); await flush();
+  assert.deepEqual(saved[0], [{ kind: 'weekly', days: ['Monday', 'Thursday'], times: ['08:00'] }, { kind: 'daily', times: ['04:00', '16:00'] }, { kind: 'once', at: '2026-10-09 17:00' }], '填完日期离开那一格就存');
   assert.match(box.querySelector('.lb-sched-msg').textContent, /^已保存：/);
-  await box.querySelector('.lb-sched-off').onclick(); await flush();
+  await ed.setEnabled(false); await flush();
   assert.equal(saved[1], 'off');
   assert.equal(box.querySelector('.lb-sched-status').textContent, '当前：已关闭');
   // 每几小时：1–6 下拉
   const k2 = box.querySelectorAll('.lb-sched-row')[0].querySelector('.lb-sched-kind'); k2.value = 'hourly'; k2.onchange();
   assert.equal(box.querySelectorAll('.lb-sched-row')[0].querySelectorAll('option').length, 4 + 6);
-  console.log('PASS schedule editor: rules ↔ rows, status one-liner, weekly multi-day, daily several times, once, hourly 1–6 + risk note, save via setSyncRules, off via setSyncSchedule');
+  console.log('PASS schedule editor: rules ↔ rows, status one-liner, weekly multi-day, daily several times, once, hourly 1–6 + risk note, autosave via setSyncRules (no save button), invalid not saved, off via setSyncSchedule');
 }
 
 function loadPlugin(dom, notices) {
@@ -268,18 +269,8 @@ async function pluginTests() {
   assert.deepEqual(plus, ['导入网址', '立即同步收藏', '---', '账号登录 / 换号']);
   loadPlugin.lastMenu.items[1].click(); loadPlugin.lastMenu.items[3].click(); loadPlugin.lastMenu.items[0].click();
   assert.deepEqual([synced, acct, imported], [2, 1, 1], '立即同步 / 账号面板（扫码 / 更换账号）/ 导入');
-  // 「…」：改标题 / 每行几列 / 管理分类 / 回收站 / 导出资料 / 设置 / 刷新目录（小字：重新整理分类）
-  const opened = [];
-  p.openLibraryPage = x => opened.push(x); p.openExportFolder = () => opened.push('export');
-  p.openPluginSettings = id => opened.push('settings:' + id); p.run = (args, label) => opened.push(label);
-  let cats = 0;
-  p.openManageMenu({ currentTarget: { getBoundingClientRect: () => ({ left: 0, bottom: 0 }) } }, { categories: () => cats++ });
-  const manage = loadPlugin.lastMenu.items;
-  // 1027：改标题 / 每行几列挪进目录页「编排」，旧菜单不再重复
-  assert.deepEqual(manage.map(i => i.title), ['管理分类', '回收站', '导出资料', '设置', '刷新目录（重新整理分类）']);
-  for (const i of manage) i.click();
-  assert.equal(cats, 1, '管理分类保留');
-  assert.deepEqual(opened, ['trash', 'export', 'settings:link-brain-actions', '刷新目录']);
+  // 「…」老菜单（openManageMenu）1027 删了：目录页 1021 起是自己画的「管理」胶囊（catalog-view.js），这个菜单没人调了
+  assert.equal(p.openManageMenu, undefined, 'openManageMenu 删了（死代码）');
   p.openAISettingsMenu({});
   assert.deepEqual(loadPlugin.lastMenu.items.map(i => i.title), ['设置', '导出资料', '目录：窄窗也钉住'], '「模型与提示词」并进「设置」；1026 加目录钉住开关');
   // 改标题 / 每行几列：存设置 + 通知开着的目录页

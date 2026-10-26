@@ -1,4 +1,4 @@
-// 1016：设置页「模型与提供商 → 用量与余额」（usage-ui.js）+ 问题面板 key 失效那条的「控制台」「充值」跳转。
+// 1016 → 1027：设置页④「AI 控制台」（usage-ui.js renderConsole）+ 问题面板 key 失效那条的「控制台」「充值」跳转。
 // 假 DOM + 假 runPy（不起真进程，CONVENTIONS §7.5）；网址只认后端给的 https。
 'use strict';
 const assert = require('node:assert/strict');
@@ -26,8 +26,9 @@ const SUMMARY = {
       models: { 'deepseek|deepseek-flash': feat({ provider: 'deepseek', model: 'deepseek-flash', calls: 3, cost: 0.0123 }),
         'google|gemini-3.5-flash': feat({ provider: 'google', model: 'gemini-3.5-flash', calls: 4, free: 4 }), 'cli|': feat({ provider: 'cli', model: '', calls: 2, free: 2 }) },
       unpriced_models: [{ provider: 'google', model: 'gemini-embedding-2', calls: 2 }] },
-    '7d': { total: feat({ calls: 9, cost: 1.5 }), features: { vision: feat({ calls: 5, failed: 2, items: 2, in: 20000, out: 900, cost: 1.4 }),
-      ask: feat({ calls: 3, cost: 0.1 }), embed: feat({ calls: 1, unpriced: 1 }) }, providers: {} },
+    '7d': { total: feat({ calls: 9, cost: 1.5, unpriced: 1 }), features: { vision: feat({ calls: 5, failed: 2, items: 2, in: 20000, out: 900, cost: 1.4 }),
+      ask: feat({ calls: 3, cost: 0.1 }), embed: feat({ calls: 1, unpriced: 1 }) },
+      providers: { deepseek: feat({ calls: 3, cost: 0.1 }), aliyun: feat({ calls: 5, cost: 1.4 }), google: feat({ calls: 1, unpriced: 1 }) } },
     '30d': { total: feat({ calls: 0 }), features: {}, providers: {} },
   },
   month: { deepseek: feat({ calls: 3, cost: 0.0123 }), aliyun: feat({ calls: 6, cost: 1.4, unpriced: 1 }) },
@@ -36,94 +37,102 @@ const SUMMARY = {
   recent_limit: 200,
 };
 
+// 1027：设置页④「AI 控制台」（usage-ui.js renderConsole）——一行今天 / 本月 / 每天最多花；点开左边折线（固定高度，只画真花了钱的）、右边三种看法 + 小表
+const DATES = Array.from({ length: 30 }, (_, i) => { const d = new Date(2026, 8, 28 + i); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
+SUMMARY.series = { dates: DATES,
+  providers: { deepseek: DATES.map((_, i) => (i === 29 ? 0.0123 : i === 28 ? null : i === 26 ? 0.5 : 0)), aliyun: DATES.map((_, i) => (i === 27 ? 1.4 : 0)) },
+  models: { 'deepseek|deepseek-flash': DATES.map((_, i) => (i === 29 ? 0.0123 : 0)) },
+  features: { ask: DATES.map((_, i) => (i === 29 ? 0.0123 : 0)), vision: DATES.map((_, i) => (i === 27 ? 1.4 : 0)), a: DATES.map(() => 0.01), b: DATES.map(() => 0.02), c: DATES.map(() => 0.03) } };
+
 async function settingsPane() {
   const dom = makeDom(), D = dom.document;
   const OBS = makeObsidian(D);
   const calls = [];
+  let saveFail = false;
   const plugin = {
+    settings: { budget: {} },
+    async saveSettings() { if (saveFail) throw new Error('磁盘满了'); },
+    notify(m) { (plugin.notes ||= []).push(m); },
     async runPy(args) {
       calls.push(args.join(' '));
-      if (args.includes('--balance')) return { code: 0, json: { ok: true, balances: {
-        deepseek: { ok: true, available: true, balances: [{ currency: 'CNY', total: '105.38', granted: '4.40', topped_up: '100.97' }] },
-        aliyun: { ok: false, unsupported: true, message: '百炼没有用 API key 能查的余额接口' } },
-        keys: { aliyun: { code: 'NEEDS_HUMAN.AUTH_FAILED', caps: ['visionAI', 'summaryAI'] } } } };
-      return { code: 0, json: { ok: true, summary: SUMMARY, links: LINKS, keys: {} } };
+      return { code: 0, json: { ok: true, summary: SUMMARY, links: LINKS, keys: {}, budget: { daily_yuan: 3, spent_today: 0.83, over: false } } };
     },
     failBox(c, what, e) { c.createEl('p', { cls: 'lb-fail', text: what + '：' + e.message }); },
   };
-  // 和 main.js 设置页同样的两块积木（card / link）
-  const tab = {
-    card(parent, title, section, { desc = '' } = {}) {
-      const card = parent.createDiv({ cls: 'lb-card', attr: { 'data-section': section } });
-      const head = card.createDiv({ cls: 'lb-card-head' }); head.createDiv({ cls: 'lb-card-title', text: title });
-      const body = card.createDiv({ cls: 'lb-card-body' }); if (desc) body.createEl('p', { cls: 'lb-card-desc', text: desc });
-      body.head = head; return body;
-    },
-    link(row, text, onClick) { let el; row.addButton(b => { b.setButtonText(text).onClick(onClick); el = b.buttonEl; el.addClass('lb-link'); }); return el; },
-  };
+  const tab = { help(row, text) { const q = row.nameEl.createSpan({ cls: 'lb-help', text: 'ⓘ' }); q.setAttribute('aria-label', text); return q; } };
   const ui = require(path.join(ROOT, DIR, 'usage-ui.js'))(OBS, plugin);
   const host = D.body.createDiv();
-  const stop = ui.render(host, tab);
+  const view = {};
+  const c = ui.renderConsole(host, tab, { view });
   await tick(); await tick(); await tick();
-
-  assert.deepEqual(calls, ['-m link_brain usage', '-m link_brain usage --balance'], '先读本地账本、再联网查余额');
-  const prov = id => host.querySelectorAll('.lb-usage-provider').find(r => r.getAttribute('data-provider') === id);
-  const ds = prov('deepseek'), qw = prov('aliyun');
-  assert.ok(ds && qw, 'DeepSeek、千问各一行');
-  assert.ok(ds.textContent.includes('余额 ¥105.38（充值 100.97 + 赠送 4.40）'), ds.textContent);
-  assert.ok(ds.textContent.includes('本月 ¥0.0123 · 3 次调用'));
-  assert.ok(qw.textContent.includes('这家查不了'), '千问不编余额');
-  assert.ok(qw.textContent.includes('key 用不了（可能欠费、过期或没开通）：影响识图、概要'), qw.textContent);   // 1016 她：别吓人
-  assert.ok(qw.textContent.includes('1 次的模型不在价格表里'));
-  const btn = (row, t) => row.querySelectorAll('button').find(b => b.textContent === t);
-  assert.deepEqual(ds.querySelectorAll('button').map(b => b.textContent), ['控制台', '充值', '看用量']);
-  assert.equal(host.querySelectorAll('button').filter(b => b.classList.contains('mod-cta')).length, 0, '跳转都是次要按钮，不抢主按钮');
-  btn(qw, '充值').click(); btn(ds, '看用量').click();
-  assert.deepEqual(opened.splice(0), [LINKS.aliyun.recharge, LINKS.deepseek.usage], '点了打开后端给的网址');
-
-  // 明细表：默认今天；切 7 天
+  assert.deepEqual(calls, ['-m link_brain usage'], '只读本地账本（余额在「更多 → 服务商与余额」才联网查）');
+  const vals = host.querySelectorAll('.lb-console-v').map(v => v.textContent);
+  assert.equal(vals[0], '¥0.83', '今天（北京时间，和上限同一天）');
+  assert.equal(vals[1], '¥1.41', '本月 = 各家本月合计');
+  assert.match(host.textContent, /另有 1 次未计价/);
+  const input = host.querySelector('input.lb-spend-input');
+  assert.equal(input.value, '3', '没存过：显示后端默认');
+  assert.match(host.querySelector('.lb-console-cap .lb-help').getAttribute('aria-label'), /后台的付费处理.*手动问收藏.*不受限/, 'ⓘ：只管后台付费处理');
+  input.value = '5'; input.fire('change'); await tick();
+  assert.equal(plugin.settings.budget.dailyYuan, 5, '改了就存');
+  saveFail = true; input.value = '9'; input.fire('change'); await tick(); saveFail = false;
+  assert.equal(plugin.settings.budget.dailyYuan, 5, '存失败改回'); assert.equal(input.value, '5');
+  // 默认收着：点开是左右两栏
+  const body = host.querySelector('.lb-console-body');
+  assert.equal(body.hidden, true, '默认收起');
+  host.querySelector('.lb-console-toggle').onclick(); await tick();
+  assert.equal(body.hidden, false); assert.equal(view.open, true, '展开记在这次会话里');
+  assert.ok(host.querySelector('.lb-console-grid .lb-console-left .lb-chart') && host.querySelector('.lb-console-grid .lb-console-right .lb-usage-grid'), '两栏：左图右表');
+  assert.equal(host.querySelector('.lb-chart').style.height, '190px', '折线固定 190px 高');
+  // 折线：近 7 天按服务商——DeepSeek、百炼两条；Gemini（全是免费的）不画；那天只有免费 / 未计价 = 断开，不画成 ¥0
+  const lines = () => host.querySelectorAll('.lb-chart [data-key]');
+  assert.deepEqual(lines().map(p => p.getAttribute('data-key')), ['aliyun', 'deepseek']);
+  const ds = lines().find(p => p.getAttribute('data-key') === 'deepseek').getAttribute('d');
+  assert.equal((ds.match(/M/g) || []).length, 2, 'null 那天断开成两段：' + ds);
+  assert.deepEqual(host.querySelectorAll('.lb-chart-key').map(k => k.textContent), ['阿里云百炼', 'DeepSeek · 虚线'], '图例：名字 + 线型（黑白，不靠颜色）');
+  // 表：服务商、近 7 天；免费 / 未计费、未计价各一行
   const cells = () => host.querySelectorAll('.lb-usage-grid tr').map(tr => tr.querySelectorAll('th,td').map(td => td.textContent));
-  assert.deepEqual(cells()[1], ['问收藏', '—', '3', '1200', '300', '¥0.0123']);
-  host.querySelectorAll('.lb-usage-win').find(b => b.getAttribute('data-win') === '7d').onclick();
-  const week = cells();
-  assert.deepEqual(week[1], ['识图', '2', '5（失败 2）', '2.0 万', '900', '¥1.40']);
-  assert.deepEqual(week.find(r => r[0] === '向量（embedding）').slice(-1), ['未计价'], '价格表里没有的不编金额：写「未计价」');
-  assert.equal(week[week.length - 1][0], '合计');
-  // 1026：按服务商 / 按 API 或模型 切换（今天那一段）；免费的写「免费 / 未计费」不算进 ¥；查不到价的点名「未计价」；每次调用一行可追溯
-  host.querySelectorAll('.lb-usage-win').find(b => b.getAttribute('data-win') === 'today').onclick();
-  assert.deepEqual(host.querySelectorAll('.lb-usage-dim').map(b => b.textContent), ['按服务商', '按 API 或模型', '按功能']);
-  host.querySelectorAll('.lb-usage-dim').find(b => b.getAttribute('data-dim') === 'providers').onclick();
-  assert.equal(host.querySelector('.lb-usage-grid').getAttribute('data-dim'), 'providers');
   let rows = cells();
-  assert.deepEqual(rows[0][0], '服务商');
-  assert.deepEqual(rows.find(r => r[0] === 'DeepSeek').slice(-1), ['¥0.0123']);
-  assert.deepEqual(rows.find(r => r[0] === 'Gemini').slice(-1), ['免费 / 未计费'], 'Gemini 免费 key：不算进 ¥');
-  assert.deepEqual(rows.find(r => r[0] === '本机命令行').slice(-1), ['免费 / 未计费'], '本机命令行（OpenCode 等）：不算进 ¥');
-  assert.deepEqual(rows.at(-1).slice(-1), ['¥0.0123 · 免费 6 次'], '合计只算真花的钱，免费的单说');
-  host.querySelectorAll('.lb-usage-dim').find(b => b.getAttribute('data-dim') === 'models').onclick();
+  assert.deepEqual(rows[0], ['服务商', '近 7 天']);
+  assert.deepEqual(rows.slice(-3), [['已计价合计', '¥1.50'], ['免费 / 未计费', '—'], ['未计价', '1 次']]);
+  assert.deepEqual(rows.find(r => r[0] === '向量（embedding）') || null, null);
+  // 换看法：功能（多于 4 条：前三条 + 「其他 N 项」）
+  host.querySelectorAll('.lb-usage-dim').find(b => b.getAttribute('data-dim') === 'features').onclick();
   rows = cells();
-  assert.deepEqual(rows[0][0], 'API / 模型');
-  assert.ok(rows.some(r => r[0] === 'deepseek-flash · DeepSeek' && r.at(-1) === '¥0.0123'), JSON.stringify(rows));
-  assert.ok(rows.some(r => r[0] === 'gemini-3.5-flash · Gemini' && r.at(-1) === '免费 / 未计费'));
-  assert.ok(rows.some(r => r[0] === '本机命令行（没记下是哪个）' && r.at(-1) === '免费 / 未计费'), '命令行空模型名也有名字');
-  assert.match(host.querySelector('.lb-usage-gaps').textContent, /未计价（价格表里查不到.*gemini-embedding-2 · Gemini：2 次/, '未计价的模型点名');
+  assert.deepEqual(rows[0], ['功能', '近 7 天']);
+  assert.ok(rows.some(r => r[0] === '识图' && r[1] === '¥1.40'));
+  assert.ok(rows.some(r => r[0] === '向量（embedding）' && r[1] === '未计价'), '价格表里没有的写「未计价」，不编金额');
+  assert.equal(lines().length, 4, '最多 4 条线');
+  assert.match(host.querySelectorAll('.lb-chart-key').at(-1).textContent, /^其他 2 项/);
+  // 时段：近 30 天——这段没调用过
+  const period = host.querySelector('select.lb-console-period');
+  period.value = '30d'; period.onchange(); await tick();
+  assert.ok(host.textContent.includes('这段时间没调用过 AI。'));
+  assert.ok(host.textContent.includes('以服务商账单为准'), '说清是估算');
+  // 每次调用一行（可追溯到哪一篇）
+  period.value = '7d'; period.onchange();
   const callsFold = host.querySelector('details[data-section="usage-calls"]');
   callsFold.open = true; callsFold.fire('toggle');
   const callRows = callsFold.querySelectorAll('tr').map(tr => tr.querySelectorAll('th,td').map(td => td.textContent));
   assert.deepEqual(callRows[0], ['时间', '功能', 'API / 模型', 'token（入 / 出）', '金额', '哪一篇']);
   assert.ok(callRows.some(r => r[1] === '问收藏' && r[2] === 'deepseek-flash · DeepSeek' && r[4] === '¥0.0041'), JSON.stringify(callRows));
   assert.ok(callRows.some(r => r[4] === '免费 / 未计费' && r[5] === 'n1'), '免费的那次也列着、带哪一篇');
-  host.querySelectorAll('.lb-usage-dim').find(b => b.getAttribute('data-dim') === 'features').onclick();
-  host.querySelectorAll('.lb-usage-win').find(b => b.getAttribute('data-win') === '30d').onclick();
-  assert.ok(host.textContent.includes('这段时间没调用过 AI。'));
-  assert.ok(host.textContent.includes('以控制台账单为准'), '说清是估算');
-  stop();
+  c.stop();
 
-  // 读不出来：卡片里一句原因 + 重试（不让整栏空掉）
+  // 纯函数：没花过钱的不画、只有免费的那天是 null、全是 0 的不进折线
+  const m = ui.chartModel({ summary: { series: { dates: ['a', 'b', 'c'], providers: { x: [0, 0, 0], y: [null, 0.2, 0] } } } }, 'providers', 3);
+  assert.deepEqual(m.lines.map(l => l.key), ['y']); assert.equal(m.lines[0].vals[0], null); assert.ok(m.max >= 0.2);
+  assert.deepEqual(ui.chartModel({ summary: {} }, 'models', 7).lines, [], '老后端没有 series：不画、不报错');
+  // 没有花钱的调用：图里一句，不画 ¥0 的线
+  const host3 = D.body.createDiv();
+  const empty = require(path.join(ROOT, DIR, 'usage-ui.js'))(OBS, { ...plugin, async runPy() { return { json: { ok: true, summary: { ...SUMMARY, series: { dates: DATES, providers: {} } }, budget: {} } }; } });
+  empty.renderConsole(host3, tab, { view: { open: true } }); await tick(); await tick();
+  assert.match(host3.querySelector('.lb-chart-empty').textContent, /免费 \/ 未计价的不画成 ¥0/);
+  // 读不出来：一句原因 + 重试
   const bad = require(path.join(ROOT, DIR, 'usage-ui.js'))(OBS, { ...plugin, async runPy() { throw new Error('找不到 Python'); } });
-  const host2 = D.body.createDiv(); bad.render(host2, tab); await tick(); await tick();
+  const host2 = D.body.createDiv(); bad.renderConsole(host2, tab, {}); await tick(); await tick();
   assert.ok(host2.querySelector('.lb-fail').textContent.includes('找不到 Python'));
-  console.log('PASS usage settings: per-provider balance / month cost / key warning + 控制台 · 充值 · 看用量 open backend URLs; table by window × 按服务商 / 按 API 或模型 / 按功能, free = 免费 / 未计费 (not in ¥), unpriced = 未计价 + named, per-call rows; failure says why');
+  console.log('PASS AI console: today / month / one daily cap (saves, reverts on failure); expands to chart (fixed 190px, paid only — free / unpriced days break the line, free-only keys not drawn, ≤4 lines + 其他) + table by 服务商 / 模型 / 功能 × 7 / 30 days with 免费 / 未计费 and 未计价 rows; per-call rows; failure says why');
 }
 
 function problemsLinks() {

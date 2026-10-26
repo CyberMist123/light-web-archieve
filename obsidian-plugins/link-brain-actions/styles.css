@@ -621,20 +621,9 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v6 .lb-sub .setting-item-name { padding-left: 1.2em; }
 .lb-settings .lb-v6 .lb-note { color: var(--text-faint); font-size: var(--font-ui-smaller); padding: var(--size-4-2, 8px) 0; }
 .lb-settings .lb-v6 input.lb-num { width: 6em; text-align: right; }
-/* 状态卡：灯 + 标题 + 立即同步；黄灯那一句是唯一带底色的东西（要她看的才突出） */
-.lb-settings .lb-lamp { width: 9px; height: 9px; border-radius: 50%; flex: none; order: -1; background: var(--color-green); box-shadow: 0 0 0 3px rgba(var(--color-green-rgb), .15); }
-.lb-settings .lb-lamp.is-busy { background: var(--color-blue); box-shadow: 0 0 0 3px rgba(var(--color-blue-rgb), .15); animation: lb-lamp-pulse 1.4s infinite; }
-.lb-settings .lb-lamp.is-warn { background: var(--color-orange); box-shadow: 0 0 0 3px rgba(var(--color-orange-rgb), .18); }
-@keyframes lb-lamp-pulse { 50% { opacity: .4; } }
-@media (prefers-reduced-motion: reduce) { .lb-settings .lb-lamp.is-busy { animation: none; } }
-.lb-settings .lb-v6 .lb-fix:empty { display: none; }
+/* key 用不了 / 额度用完那一句（④ 功能行下面）：唯一带底色的东西（要她看的才突出）；跳到的那一块闪一下 */
 .lb-settings .lb-v6 .lb-fix-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: var(--size-4-2, 8px) 0; padding: 8px 12px; border-radius: var(--radius-m, 8px);
   background: rgba(var(--color-orange-rgb), .1); color: var(--text-normal); font-size: var(--font-ui-small); }
-.lb-settings .lb-v6 .lb-jump .extra-setting-button { color: var(--text-faint); }
-/* 1026：状态行整行能点（以前只有小箭头能点）；跳到的那一块闪一下，告诉她「就是这里」 */
-.lb-settings .lb-v6 .lb-jump { cursor: pointer; }
-.lb-settings .lb-v6 .lb-jump:hover .setting-item-name, .lb-settings .lb-v6 .lb-jump:focus-visible .setting-item-name { color: var(--text-accent); }
-.lb-settings .lb-v6 .lb-jump:focus-visible { outline: 2px solid var(--background-modifier-border-focus); outline-offset: 2px; border-radius: var(--radius-s, 4px); }
 .lb-settings .lb-flash { animation: lb-flash 1.6s ease-out; border-radius: var(--radius-m, 8px); }
 @keyframes lb-flash { 0%, 30% { box-shadow: 0 0 0 3px rgba(var(--interactive-accent-rgb, 124, 58, 237), .45); background: rgba(var(--interactive-accent-rgb, 124, 58, 237), .08); } 100% { box-shadow: 0 0 0 3px transparent; background: transparent; } }
 @media (prefers-reduced-motion: reduce) { .lb-settings .lb-flash { animation: none; box-shadow: 0 0 0 2px var(--interactive-accent); } }
@@ -653,16 +642,6 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-usage-gaps ul { margin: 2px 0 0; padding-left: 1.2em; }
 .lb-settings .lb-usage-callgrid td:nth-child(2), .lb-settings .lb-usage-callgrid td:nth-child(3), .lb-settings .lb-usage-callgrid td:last-child { text-align: left; }
 .lb-settings .lb-spend-sub { font-size: var(--font-ui-smaller); color: var(--text-muted); margin-top: 2px; }
-/* AI 服务的服务商小片：细边、无底色 */
-.lb-settings .lb-v6 .lb-svc { padding: var(--size-4-3, 12px) 0; border-top: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border)); }
-.lb-settings .lb-v6 .lb-svc .setting-item-description { margin-top: 8px; }
-.lb-settings .lb-v6 .lb-prov { display: flex; flex-wrap: wrap; gap: 8px; }
-.lb-settings .lb-v6 .lb-pv { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid var(--background-modifier-border);
-  border-radius: 999px; font-size: var(--font-ui-smaller); background: transparent; height: auto; box-shadow: none; color: var(--text-normal); }
-.lb-settings .lb-v6 .lb-pv .lb-icon { flex: none; }
-.lb-settings .lb-v6 .lb-pv-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-green); }
-.lb-settings .lb-v6 .lb-pv.is-warn .lb-pv-dot { background: var(--color-orange); }
-.lb-settings .lb-v6 button.lb-pv.is-add { border-style: dashed; color: var(--text-accent); cursor: pointer; }
 /* 本机 AI 应用：照 Claudian 的 cli-installation——40px 图标位、右下角状态点、名字 + 等宽版本号、一句、开关 */
 .lb-settings .lb-v6 .lb-app { gap: 14px; }
 .lb-settings .lb-v6 .lb-app-icon { position: relative; display: flex; flex: 0 0 40px; height: 40px; align-items: center; justify-content: center; color: var(--text-normal); }
@@ -711,26 +690,10 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
   .lb-settings .lb-v6 .lb-guide-steps { order: -1; display: flex; flex-flow: row wrap; gap: 6px 14px; }
   .lb-settings .lb-v6 .lb-guide-line { display: none; }
 }
-/* 添加 key 的小窗 */
-.lb-key-paste { width: 100%; margin: 6px 0 10px; }
+/* 粘一把 key（④「更多 → 接口与密钥」、首次设置第 3 步）*/
+.lb-key-paste { width: 18em; max-width: 100%; }
 .lb-prov-links { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; }
-.lb-modal-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
-/* 1018 晚她：识别与问答一屏放得下（行矮一点）；更多只留名字、不要分隔线 */
-.lb-settings .lb-v6 [data-section="s-ai"] .setting-item { padding: var(--size-4-2, 8px) 0; }
-.lb-settings .lb-v6 [data-section="s-ai"] .lb-grp { padding-top: var(--size-4-3, 12px); }
-.lb-settings .lb-v6 [data-section="s-more"] details.lb-row-fold, .lb-settings .lb-v6 [data-section="s-more"] .setting-item { border-top: 0; }
-.lb-settings .lb-v6 [data-section="s-more"] details.lb-row-fold > summary { padding-top: var(--size-4-2, 8px); padding-bottom: var(--size-4-2, 8px); }
-.lb-settings .lb-v6 [data-section="s-more"] .lb-more-row { padding: var(--size-4-2, 8px) 0; }
-.lb-settings .lb-v6 [data-section="s-more"] .lb-more-row .setting-item-name { font-weight: var(--font-medium, 500); }
 
-/* 1018 晚：网页端怎么接——点开看步骤（照 ChatGPT 现在的界面），右边一键复制 */
-.lb-settings .lb-v6 details.lb-web-row > summary .lb-rf-act { position: absolute; right: 24px; top: 50%; transform: translateY(-50%); }
-.lb-settings .lb-v6 .lb-web-howto { font-size: var(--font-ui-smaller); color: var(--text-muted); }
-.lb-settings .lb-v6 .lb-web-howto ol { margin: 4px 0 10px; padding-left: 1.4em; }
-.lb-settings .lb-v6 .lb-web-howto li { margin: 2px 0; }
-.lb-settings .lb-v6 .lb-web-label { color: var(--text-normal); font-weight: var(--font-medium, 500); margin-top: 6px; }
-.lb-settings .lb-v6 .lb-web-addr { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.lb-settings .lb-v6 .lb-web-addr code { font-size: var(--font-ui-smaller); }
 
 /* 10-04 ⑩ 笔记正文「← 目录」：作者行最左边，浅色小字，不抢眼（media-nav.js 补进去） */
 .lb-note .lb-author-row > button.lb-back-catalog {
@@ -754,3 +717,143 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-player-stage.is-lb-fullscreen:hover .lb-player-fs-title { opacity: 1; }
 .lb-player-full[aria-pressed="true"] { color: var(--text-normal); text-decoration: underline; }
 .lb-fs-fallback { position: fixed !important; inset: 0 !important; z-index: var(--layer-modal, 50) !important; width: 100vw !important; height: 100vh !important; max-width: none !important; max-height: none !important; margin: 0 !important; }
+
+/* ——— 1027 设置页六组（design-1027/prototype.html「设置」第三版；她定：一页滚完、左边锚点、组底「＋ 更多」、说明在 ⓘ 里）———
+   LWA 的黑白：线、字都用墨色，开关 / 选中也用墨色（不用原型的绿）。窄了（设置窗口内容区 < 640px）锚点变成顶上一条横排、两栏变一栏。 */
+/* 变量全用样式集（styles.css 顶部 lb-tokens 块，唯一源 link_brain/assets/lb-tokens.css）；设置页根带 .lb-scope，跟着「Aa 样式」的字号倍数缩放 */
+.lb-settings .lb-v6.is-v7 { max-width: 1040px; container-type: inline-size; }
+.lb-settings .lb-v7 { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: var(--lb-space-6); align-items: start;
+  font-family: var(--lb-font-body); font-size: var(--lb-fs-body); color: var(--lb-ink); }
+.lb-settings .lb-v7 .is-hidden { display: none !important; }
+/* 左边锚点：跟着滚，当前那一组加粗 */
+.lb-settings .lb-v7 .lb-anchors { position: sticky; top: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 118px; z-index: 2; }
+.lb-settings .lb-v7 .lb-anchor { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; color: var(--lb-muted); text-decoration: none; font-size: var(--lb-fs-small); white-space: nowrap; }
+.lb-settings .lb-v7 .lb-anchor b { font: italic 400 15px/1 var(--lb-font-num); color: var(--lb-faint); min-width: 1.4em; }
+.lb-settings .lb-v7 .lb-anchor:hover, .lb-settings .lb-v7 .lb-anchor.is-current { color: var(--lb-ink); }
+.lb-settings .lb-v7 .lb-anchor.is-current { font-weight: 600; }
+.lb-settings .lb-v7 .lb-anchor.is-current b { color: var(--lb-ink); }
+.lb-settings .lb-v7 .lb-anchor-foot { margin-top: var(--lb-space-5); padding-top: var(--lb-space-3); border-top: 1px solid var(--lb-line); color: var(--lb-faint); font-size: var(--lb-fs-micro); line-height: 1.6; }
+/* 页头 */
+.lb-settings .lb-v7 .lb-v7-head { padding: var(--lb-space-2) 0 var(--lb-space-4); }
+.lb-settings .lb-v7 .lb-eyebrow { font-size: var(--lb-fs-micro); letter-spacing: .14em; color: var(--lb-muted); }
+.lb-settings .lb-v7 .lb-v7-head h1 { margin: 10px 0 6px; font: italic 400 calc(var(--lb-fs-h1) * 1.6)/1.2 var(--lb-font-serif); color: var(--lb-ink); letter-spacing: .02em; }
+.lb-settings .lb-v7 .lb-v7-lead { margin: 0; color: var(--lb-muted); font-size: var(--lb-fs-small); }
+.lb-settings .lb-v7 .lb-saved { color: var(--lb-faint); }
+/* 每一组：上面一条墨线 + 编号 + 组名；组里只有行间细线，不套框 */
+.lb-settings .lb-v7 .lb-group { margin-top: var(--lb-space-5); padding-top: var(--lb-space-4); border-top: 1px solid var(--lb-ink); scroll-margin-top: 12px; }
+.lb-settings .lb-v7 .lb-group-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: var(--lb-space-2); }
+.lb-settings .lb-v7 .lb-num { font: italic 400 18px/1 var(--lb-font-num); color: var(--lb-muted); }
+.lb-settings .lb-v7 .lb-group-head h2 { margin: 0; font: 400 calc(var(--lb-fs-h2) * 1.15)/1.3 var(--lb-font-serif); color: var(--lb-ink); letter-spacing: .04em; }
+.lb-settings .lb-v7 .lb-subhead { padding: var(--lb-space-4) 0 var(--lb-space-1); font-size: var(--lb-fs-micro); color: var(--lb-muted); letter-spacing: .06em; }
+.lb-settings .lb-v7 .lb-subhead + .setting-item, .lb-settings .lb-v7 .lb-subhead + * > .setting-item:first-child, .lb-settings .lb-v7 .lb-group-body > .setting-item:first-child { border-top: 0; }
+.lb-settings .lb-v7 .setting-item { padding: var(--lb-space-2) 0; min-height: calc(var(--lb-ctl-h) + 12px); }
+.lb-settings .lb-v7 .setting-item-name { font-size: var(--lb-fs-body); font-weight: 500; display: flex; align-items: center; flex-wrap: wrap; gap: 0 2px; }
+.lb-settings .lb-v7 .setting-item-description:empty { display: none; }
+.lb-settings .lb-v7 .setting-item-control { gap: var(--lb-space-2); flex-wrap: wrap; justify-content: flex-end; }
+.lb-settings .lb-v7 .setting-item-control input[type="number"] { width: 6em; text-align: right; }
+.lb-settings .lb-v7 .lb-unit { color: var(--lb-muted); font-size: var(--lb-fs-small); }
+.lb-settings .lb-v7 .checkbox-container.is-enabled { background-color: var(--lb-accent); }
+.lb-settings .lb-v7 .lb-help { width: auto; height: auto; border: 0; margin-left: 5px; font-size: 13px; color: var(--lb-faint); vertical-align: 0; }
+.lb-settings .lb-v7 .lb-help:hover, .lb-settings .lb-v7 .lb-help:focus-visible { color: var(--lb-ink); }
+.lb-settings .lb-v7 .setting-item.is-warn .setting-item-description { color: var(--lb-warn); }
+.lb-settings .lb-v7 .setting-item.is-disabled { opacity: .55; }
+/* 组底「＋ 更多」 */
+.lb-settings .lb-v7 details.lb-more { margin-top: var(--lb-space-2); border-top: 1px solid var(--lb-line); }
+.lb-settings .lb-v7 details.lb-more > summary { list-style: none; cursor: pointer; padding: var(--lb-space-3) 0; color: var(--lb-muted); font-size: var(--lb-fs-small); width: max-content; }
+.lb-settings .lb-v7 details.lb-more > summary::-webkit-details-marker { display: none; }
+.lb-settings .lb-v7 details.lb-more > summary:hover, .lb-settings .lb-v7 details.lb-more[open] > summary { color: var(--lb-ink); }
+.lb-settings .lb-v7 .lb-more-body { padding: 0 0 var(--lb-space-3); }
+.lb-settings .lb-v7 .lb-more-body > .lb-subhead:first-child { padding-top: 0; }
+/* 两张并排的卡：账号（小红书 / B 站）· 让其他 AI 读收藏（电脑端 / 网页端） */
+.lb-settings .lb-v7 .lb-twin { display: grid; grid-template-columns: 1fr 1fr; gap: var(--lb-space-3); margin: var(--lb-space-2) 0; }
+.lb-settings .lb-v7 .lb-twin-card { min-width: 0; padding: var(--lb-space-3) var(--lb-space-4); border: 1px solid var(--lb-line); border-radius: var(--lb-radius); background: var(--lb-surface); }
+.lb-settings .lb-v7 .lb-twin-card.is-soon { opacity: .55; }
+.lb-settings .lb-v7 .lb-twin-head { display: flex; align-items: center; gap: var(--lb-space-2); margin-bottom: var(--lb-space-1); }
+.lb-settings .lb-v7 .lb-twin-head strong { font-size: var(--lb-fs-body); }
+.lb-settings .lb-v7 .lb-twin-note { margin-left: auto; color: var(--lb-muted); font-size: var(--lb-fs-micro); }
+.lb-settings .lb-v7 .lb-twin-head .lb-card-toggle { margin-left: auto; }
+.lb-settings .lb-v7 .lb-twin-head .lb-card-toggle .setting-item { border: 0; padding: 0; min-height: 0; }
+.lb-settings .lb-v7 .lb-twin-head .lb-card-toggle .setting-item-info { display: none; }
+.lb-settings .lb-v7 .lb-twin-card .setting-item { padding: var(--lb-space-2) 0; }
+.lb-settings .lb-v7 .lb-twin-card > .setting-item-description { margin: 0 0 var(--lb-space-1); }
+.lb-settings .lb-v7 .lb-twin-card .lb-accounts > .setting-item:first-child, .lb-settings .lb-v7 .lb-twin-card .lb-apps > .setting-item:first-child { border-top: 0; }
+.lb-settings .lb-v7 .lb-twin-card .lb-app-icon { flex-basis: 28px; height: 28px; }
+/* 网页端卡片只有半宽：行改成上下排（名字在上、控件在下靠左），不挤 */
+.lb-settings .lb-v7 .lb-twin-card[data-section="remote"] .lb-connect .setting-item { flex-wrap: wrap; gap: var(--lb-space-1) var(--lb-space-2); }
+.lb-settings .lb-v7 .lb-twin-card[data-section="remote"] .lb-connect .setting-item-info { flex: 1 1 100%; }
+.lb-settings .lb-v7 .lb-twin-card[data-section="remote"] .lb-connect .setting-item-control { flex: 1 1 100%; justify-content: flex-start; }
+.lb-settings .lb-v7 .lb-twin-card[data-section="remote"] .lb-connect .setting-item-control input[type="text"] { flex: 1 1 12em; width: auto !important; }
+.lb-settings .lb-v7 .lb-connect-howto { margin: var(--lb-space-2) 0; }
+.lb-settings .lb-v7 .lb-connect-howto > summary { cursor: pointer; display: flex; align-items: center; gap: var(--lb-space-2); }
+.lb-settings .lb-v7 .lb-connect-howto ol { margin: 4px 0 8px; padding-left: 1.4em; }
+/* ④ 一项一行：线条图标 + 名字 */
+.lb-settings .lb-v7 .lb-feat-icon { display: inline-flex; width: 20px; height: 20px; margin-right: 8px; color: var(--lb-ink); flex: none; }
+.lb-settings .lb-v7 .lb-feat-icon svg { width: 18px; height: 18px; }
+.lb-settings .lb-v7 .lb-feat-tag { color: var(--lb-muted); font-size: var(--lb-fs-micro); }
+.lb-settings .lb-v7 .lb-feat-need { color: var(--lb-warn); font-size: var(--lb-fs-small); display: flex; gap: 6px; align-items: center; }
+.lb-settings .lb-v7 .lb-key-trouble:empty { display: none; }
+/* AI 控制台：一行（今天 · 本月 · 每天最多花）；点开左右两栏，左边折线固定高度、绝不撑出去 */
+.lb-settings .lb-v7 .lb-console { padding: var(--lb-space-1) 0 var(--lb-space-2); }
+.lb-settings .lb-v7 .lb-console-line { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--lb-space-3) var(--lb-space-6); }
+.lb-settings .lb-v7 button.lb-console-toggle { display: flex; align-items: flex-end; gap: var(--lb-space-6); height: auto; padding: 0; border: 0; background: transparent; box-shadow: none; cursor: pointer; color: inherit; text-align: left; }
+.lb-settings .lb-v7 .lb-console-cell { display: flex; flex-direction: column; gap: 2px; }
+.lb-settings .lb-v7 .lb-console-k { font-size: var(--lb-fs-micro); color: var(--lb-muted); display: inline-flex; align-items: center; }
+.lb-settings .lb-v7 .lb-console-v { font: italic 400 calc(var(--lb-fs-num) * 1.5)/1.1 var(--lb-font-num); font-variant-numeric: var(--lb-num-feat); color: var(--lb-ink); display: inline-flex; align-items: center; gap: 4px; }
+.lb-settings .lb-v7 .lb-console-sub { font-size: var(--lb-fs-micro); color: var(--lb-muted); }
+.lb-settings .lb-v7 .lb-console-sub:empty { display: none; }
+.lb-settings .lb-v7 .lb-console-more { align-self: center; font-size: var(--lb-fs-small); color: var(--lb-muted); text-decoration: underline; text-underline-offset: 3px; }
+.lb-settings .lb-v7 .lb-console-cap input.lb-spend-input { width: 5.5em; height: var(--lb-ctl-h); font: 400 var(--lb-fs-body) var(--lb-font-body); font-style: normal; }
+.lb-settings .lb-v7 .lb-console-over { color: var(--lb-warn); font-size: var(--lb-fs-small); margin-top: var(--lb-space-2); }
+.lb-settings .lb-v7 .lb-console-over:empty { display: none; }
+.lb-settings .lb-v7 .lb-console-body { margin-top: var(--lb-space-4); }
+.lb-settings .lb-v7 .lb-console-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: var(--lb-space-5); align-items: start; }
+.lb-settings .lb-v7 .lb-console-left, .lb-settings .lb-v7 .lb-console-right { min-width: 0; }
+.lb-settings .lb-v7 .lb-chart { position: relative; height: 190px; max-height: 190px; overflow: hidden; box-sizing: border-box; }
+.lb-settings .lb-v7 .lb-chart-svg { position: absolute; left: 46px; right: 4px; top: 0; bottom: 24px; width: calc(100% - 50px); height: calc(100% - 24px); overflow: visible; }
+.lb-settings .lb-v7 .lb-chart-grid { stroke: var(--lb-line); stroke-width: 1; }
+.lb-settings .lb-v7 .lb-chart-line { fill: none; stroke: var(--lb-ink); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.lb-settings .lb-v7 .lb-chart-y { position: absolute; left: 0; width: 42px; transform: translateY(-50%); font-size: var(--lb-fs-micro); color: var(--lb-muted); text-align: right; font-variant-numeric: tabular-nums; }
+.lb-settings .lb-v7 .lb-chart-x { position: absolute; left: 46px; right: 4px; bottom: 0; height: 18px; display: flex; justify-content: space-between; font-size: var(--lb-fs-micro); color: var(--lb-muted); }
+.lb-settings .lb-v7 .lb-chart-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 var(--lb-space-4); color: var(--lb-muted); font-size: var(--lb-fs-small); border: 1px dashed var(--lb-line); border-radius: var(--lb-radius); }
+.lb-settings .lb-v7 .lb-chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: var(--lb-space-2); font-size: var(--lb-fs-micro); color: var(--lb-muted); }
+.lb-settings .lb-v7 .lb-chart-key { display: inline-flex; align-items: center; gap: 6px; }
+.lb-settings .lb-v7 .lb-chart-swatch { display: inline-block; width: 18px; border-top: 2px solid var(--lb-ink); }
+.lb-settings .lb-v7 .lb-chart-swatch.is-1 { border-top-style: dashed; }
+.lb-settings .lb-v7 .lb-chart-swatch.is-2 { border-top-style: dotted; }
+.lb-settings .lb-v7 .lb-chart-swatch.is-3 { border-top-style: double; border-top-width: 3px; }
+.lb-settings .lb-v7 .lb-console-ctl { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--lb-space-2); margin-bottom: var(--lb-space-2); }
+.lb-settings .lb-v7 .lb-seg { display: inline-flex; border: 1px solid var(--lb-line); border-radius: var(--lb-radius); overflow: hidden; }
+.lb-settings .lb-v7 .lb-seg .lb-usage-dim { border: 0; border-radius: 0; margin: 0; height: 26px; padding: 0 10px; background: transparent; box-shadow: none; color: var(--lb-muted); font-size: var(--lb-fs-small); font-weight: 400; }
+.lb-settings .lb-v7 .lb-seg .lb-usage-dim + .lb-usage-dim { border-left: 1px solid var(--lb-line); }
+.lb-settings .lb-v7 .lb-seg .lb-usage-dim.is-active { background: var(--lb-ink); color: var(--lb-surface); }
+.lb-settings .lb-v7 .lb-console-right table.lb-usage-grid { width: 100%; max-width: 100%; table-layout: fixed; border-collapse: collapse; font-size: var(--lb-fs-small); }
+.lb-settings .lb-v7 .lb-console-right .lb-usage-grid th { text-align: left; font-weight: 500; color: var(--lb-muted); padding: 4px 0; border-bottom: 1px solid var(--lb-ink); }
+.lb-settings .lb-v7 .lb-console-right .lb-usage-grid td { padding: 5px 0; border-bottom: 1px solid var(--lb-line); vertical-align: top; overflow-wrap: anywhere; }
+.lb-settings .lb-v7 .lb-console-right .lb-usage-grid td:last-child, .lb-settings .lb-v7 .lb-console-right .lb-usage-grid th:last-child { width: 40%; text-align: right; padding-left: var(--lb-space-2); font-variant-numeric: var(--lb-num-feat); }
+.lb-settings .lb-v7 .lb-console-right .lb-usage-total td { font-weight: 600; border-bottom-color: var(--lb-ink); }
+.lb-settings .lb-v7 .lb-console-right .lb-usage-free td, .lb-settings .lb-v7 .lb-console-right .lb-usage-unpriced td { color: var(--lb-muted); }
+.lb-settings .lb-v7 .lb-usage-calls { margin-top: var(--lb-space-3); }
+.lb-settings .lb-v7 .lb-usage-callgrid { width: 100%; font-size: var(--lb-fs-micro); border-collapse: collapse; }
+.lb-settings .lb-v7 .lb-usage-callgrid td, .lb-settings .lb-v7 .lb-usage-callgrid th { padding: 3px 6px 3px 0; border-bottom: 1px solid var(--lb-line); text-align: left; }
+.lb-settings .lb-v7 .lb-usage-foot { margin-top: var(--lb-space-2); font-size: var(--lb-fs-micro); line-height: 1.6; }
+/* 两列的细项（识别细项 / 问答细项） */
+.lb-settings .lb-v7 .lb-pair { display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--lb-space-5); }
+.lb-settings .lb-v7 .lb-pair > .setting-item { min-width: 0; }
+.lb-settings .lb-v7 .lb-pair > .lb-test-row { grid-column: 1 / -1; }
+.lb-settings .lb-v7 .lb-api-route { margin: var(--lb-space-1) 0 var(--lb-space-2); }
+.lb-settings .lb-v7 .lb-api-route:empty { display: none; }
+.lb-settings .lb-v7 .lb-model-edit { margin: 0 0 var(--lb-space-2) var(--lb-space-4); padding-left: var(--lb-space-3); border-left: 1px solid var(--lb-line); }
+.lb-settings .lb-v7 .lb-key-paste-row .lb-prov-links { padding: 0 0 var(--lb-space-2); }
+.lb-settings .lb-v7 .lb-check-box:empty { display: none; }
+.lb-settings .lb-v7 .lb-check-box { padding: 0 0 var(--lb-space-2); font-size: var(--lb-fs-small); color: var(--lb-muted); }
+.lb-settings .lb-v7 .lb-check-line.is-warn { color: var(--lb-warn); }
+.lb-settings .lb-v7 .lb-acct-who { font-weight: 600; }
+/* 窄：锚点变横排吸在顶上，两栏变一栏 */
+@container (max-width: 640px) {
+  .lb-settings .lb-v7 { grid-template-columns: minmax(0, 1fr); gap: var(--lb-space-2); }
+  .lb-settings .lb-v7 .lb-anchors { flex-direction: row; overflow-x: auto; gap: var(--lb-space-4); padding: var(--lb-space-2) 0; background: var(--background-primary); border-bottom: 1px solid var(--lb-line); scrollbar-width: none; }
+  .lb-settings .lb-v7 .lb-anchor-foot { display: none; }
+  .lb-settings .lb-v7 .lb-twin, .lb-settings .lb-v7 .lb-pair, .lb-settings .lb-v7 .lb-console-grid { grid-template-columns: minmax(0, 1fr); }
+  .lb-settings .lb-v7 .lb-v7-head h1 { font-size: calc(var(--lb-fs-h1) * 1.3); }
+  .lb-settings .lb-v7 .lb-group { scroll-margin-top: 52px; }
+}

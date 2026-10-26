@@ -192,6 +192,34 @@ def _model_key(r: dict[str, Any]) -> str:
     return f"{r.get('p') or 'other'}|{r.get('m') or ''}"
 
 
+SERIES_DAYS = 30
+
+
+def series(priced: list[tuple[dict[str, Any], float | None, str]], start_today: datetime) -> dict[str, Any]:
+    """1027 设置页「AI 控制台」折线：近 30 天（这台电脑的日界，和 windows 同一口径）每天 × 服务商 / 模型 / 功能的人民币。
+    {dates: [30 天], providers|models|features: {键: [每天的值]}}；模型键和 windows.models 一样是「服务商|模型」。
+    只收真花了钱的键（30 天里至少一次 paid）；某天有调用但全是免费 / 未计价 → None（不画成 ¥0），那天一次都没调用 → 0。
+    免费 / 未计价的键不进折线，照旧在表里写「免费 / 未计费」「未计价」。"""
+    dates = [f"{start_today - timedelta(days=i):%Y-%m-%d}" for i in range(SERIES_DAYS - 1, -1, -1)]
+    at = {d: i for i, d in enumerate(dates)}
+    acc: dict[str, dict[str, dict[str, list]]] = {"providers": {}, "models": {}, "features": {}}
+    for r, c, st in priced:
+        i = at.get(f"{r['_ts']:%Y-%m-%d}")
+        if i is None:
+            continue
+        for dim, key in (("providers", r.get("p") or "other"), ("models", _model_key(r)), ("features", r.get("f") or "other")):
+            a = acc[dim].setdefault(key, {"cost": [0.0] * SERIES_DAYS, "paid": [0] * SERIES_DAYS, "calls": [0] * SERIES_DAYS})
+            a["calls"][i] += 1
+            if st == "paid" and c is not None:
+                a["paid"][i] += 1
+                a["cost"][i] += c
+    out: dict[str, Any] = {"dates": dates}
+    for dim, keys in acc.items():
+        out[dim] = {k: [round(a["cost"][i], 4) if a["paid"][i] else (None if a["calls"][i] else 0) for i in range(SERIES_DAYS)]
+                    for k, a in keys.items() if any(a["paid"])}
+    return out
+
+
 def summary(*, now: datetime | None = None) -> dict[str, Any]:
     """{windows: {today|7d|30d: {total, features, providers, models: {"p|m": {provider, model, …}}, unpriced_models}},
     month: {p: …}, daily: [{date, cost, calls}], recent: [每次调用一行], recent_limit}。
@@ -243,6 +271,7 @@ def summary(*, now: datetime | None = None) -> dict[str, Any]:
         key = f"{start_today - timedelta(days=i):%Y-%m-%d}"
         d = by_day.get(key) or {"cost": 0.0, "calls": 0}
         out["daily"].append({"date": key, "cost": round(d["cost"], 4), "calls": d["calls"]})
+    out["series"] = series(priced, start_today)
     out["features"] = FEATURES
     out["as_of"] = table.get("as_of")
     return out

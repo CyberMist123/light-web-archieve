@@ -7,7 +7,8 @@
 //           → 去哪弄密钥、大概多少钱 → 打开了的那几项的接口 / 密钥 / 模型。
 //   文案规矩：每项说明一行；「?」悬停只讲规则（后果写在按钮字或确认框里）；子选项只在父开关打开后出现；
 //           按钮不能点时旁边一句为什么；开关改了立刻存，存失败拨回原值并提示一句。
-// main.js 只接几行：homeUI() 按需 require；设置页调 renderStatus / renderRun（概览）、renderAI（AI）；onboarding-ui.startup 调 firstRun。
+// main.js 只接几行：homeUI() 按需 require；设置页（1027 六组）⑥ 修复「更多」调 renderStatus / renderRun，④ 的功能选择走 featureToggle / setFeature；
+//   onboarding-ui.startup 调 firstRun。1027：旧的 renderAI（「AI」一栏的开关清单 + 填推荐值）删掉——功能开关只在设置页④一处。
 // 本模块不起进程：一律经 plugin.runPy / spawnPy（CONVENTIONS §1.4、§6.1）；进度只显示后端发来的（§1.6）。
 'use strict';
 
@@ -27,7 +28,6 @@ const FEATURE_TEXT = {
   ai_vision: { name: '识图', short: '识图', desc: '看懂表格、流程图、截图，看到的也能搜到', price: [['vision', '']] },
 };
 const AI_ORDER = ['ocr', 'asr', 'capslock', 'ai_text', 'ai_vision'];
-const PARENT = { capslock: 'asr' };   // 子选项：父开关打开后才出现
 
 const num = v => (v === null || v === undefined || v === '' || typeof v === 'boolean' || !Number.isFinite(Number(v)) ? null : Number(v));
 
@@ -280,7 +280,8 @@ module.exports = function homeUI(obsidian, plugin) {
 
   // —— 画：概览 · 状态（账号 · 收藏同步 · 评论补齐 · 问题 · 这台电脑）——
   // machineOnly（1018 设置页 v6「更多 → 这台电脑」）：账号和收藏同步已经在最上面的状态卡里，这里只画评论补齐 · 问题 · 这台电脑
-  function renderStatus(c, tab, { machineOnly = false } = {}) {
+  // noProblems（1027 设置页⑥）：「问题记录」那一行由⑥自己画（入口只留一处），这里不再画
+  function renderStatus(c, tab, { machineOnly = false, noProblems = false } = {}) {
     const box = c.createDiv({ cls: 'lb-home-status', attr: { 'data-section': machineOnly ? 'machine' : 'status' } });
     const stops = [];
     if (!machineOnly) {
@@ -298,9 +299,11 @@ module.exports = function homeUI(obsidian, plugin) {
       plugin.notify((r && r.message) || '后台补评论已经在跑', { kind: 'ok' });
       paintFill();
     }, '在后台接着补没读全的评论（不用等夜里）');
-    const probs = new Setting(box).setName('问题').setDesc('');
-    probs.settingEl.addClass('lb-probs-row');
-    linkButton(probs, '打开问题列表', () => plugin.openProblems(), '看哪些地方没做成、系统已经做了什么');
+    const probs = noProblems ? null : new Setting(box).setName('问题').setDesc('');
+    if (probs) {
+      probs.settingEl.addClass('lb-probs-row');
+      linkButton(probs, '打开问题列表', () => plugin.openProblems(), '看哪些地方没做成、系统已经做了什么');
+    }
     const machine = new Setting(box).setName('这台电脑').setDesc('读取中…');
     machine.settingEl.addClass('lb-machine-row');
     help(tab, machine, '打开了的功能各自装好没有（Dataview 是目录页靠它显示的 Obsidian 插件）。没装好的，点下面「一键装好 / 跑完」会自动装。');
@@ -314,7 +317,7 @@ module.exports = function homeUI(obsidian, plugin) {
       const live = st && ['running', 'waiting', 'paused'].includes(st.state) && Date.now() - Date.parse(st.updated_at || '') < 10 * 60000;
       fillBtn?.toggleClass?.('is-hidden', !!live || !(S().fillInfo?.pending > 0));
       const n = sum ? (num(sum.needs_human) || 0) : 0, auto = sum ? (num(sum.auto) || 0) + (num(sum.gave_up) || 0) : 0;
-      probs.setDesc(!sum ? '还没有问题记录' : n ? `⚠ ${n} 件要你处理` + (auto ? ` · 另有 ${auto} 条在自动处理 / 已放弃` : '')
+      if (probs) probs.setDesc(!sum ? '还没有问题记录' : n ? `⚠ ${n} 件要你处理` + (auto ? ` · 另有 ${auto} 条在自动处理 / 已放弃` : '')
         : auto ? `${auto} 条在自动处理 / 已放弃，不用管` : '没有问题');
     };
     const paintMachine = () => {
@@ -432,153 +435,8 @@ module.exports = function homeUI(obsidian, plugin) {
     const cfg = plugin.settings[AI_CAP[id]] || {};
     return cfg.mode === 'cli' ? !!(cfg.command || cfg.preset) : cfg.mode === 'http' ? !!(cfg.endpoint && cfg.model && (cfg.apiKey || cfg.keyFile || cfg.apiKeyEnv || cfg.keyPool)) : false;
   };
-  const openUrl = url => { try { if (typeof window !== 'undefined' && window.open) window.open(url); } catch (e) { console.error('[lb] 网页没打开', e); } };
 
-  // —— 画：AI 一栏 ——
-  function renderAI(c, tab) {
-    const box = c.createDiv({ cls: 'lb-ai', attr: { 'data-section': 'ai' } });
-    box.createEl('p', { cls: 'lb-ai-lead', text: '要不要 AI：不填也能用；填了多出 问收藏、自动概要、识图。' });
-    const list = box.createDiv({ cls: 'lb-feat-list' });
-    const keys = box.createDiv({ cls: 'lb-ai-keys' });       // 去哪弄密钥、大概多少钱（开了要钱的才出）
-    const fields = box.createDiv({ cls: 'lb-feat-ai' });     // 打开了的那几项：接口 / 密钥 / 模型
-    const foot = box.createDiv({ cls: 'lb-ai-foot' });
-    let alive = true;
-
-    const paintList = () => {
-      list.empty();
-      const st = S();
-      if (!st.plan) {
-        if (st.planError) failBox(list, 'AI 和识别功能', st.planError, () => { st.planError = null; paintList(); loadPlan(true).then(() => alive && repaint()); });
-        else list.createEl('p', { cls: 'setting-item-description lb-loading', text: '读取功能清单' });
-        return;
-      }
-      const ids = effective(), cs = comps(), sel = new Set(ids);
-      for (const id of AI_ORDER) {
-        const comp = cs.find(x => x.id === id);
-        if (!comp) continue;
-        if (PARENT[id] && !sel.has(PARENT[id])) continue;   // 子选项：父开关打开后才出现
-        const f = FEATURE_TEXT[id] || {};
-        const row = new Setting(list).setName(f.name || comp.name || id);
-        row.settingEl.addClass('lb-feat'); row.settingEl.setAttribute?.('data-id', id);
-        if (PARENT[id]) row.settingEl.addClass('lb-sub');
-        const price = priceText(id, st.estimate);
-        if (price) row.nameEl.createSpan?.({ cls: 'lb-price' + (f.price === 'free' ? ' is-free' : ''), text: price });
-        const status = (st.run && st.run.installed && st.run.installed[id]) || comp.status;
-        let state = '';
-        if (sel.has(id) && comp.needs_key) state = aiReady(id) ? '✓ 填好了' : '⚠ 还要填密钥（在下面）';
-        else if (sel.has(id) && status && status !== 'ready') state = '⚠ ' + (STATUS_TEXT[status] || status) + '：到「更多 → 高级」点一键装好';
-        row.setDesc([f.desc || comp.desc || '', state].filter(Boolean).join(' · '));
-        if (!comp.needs_key) help(tab, row, `占磁盘约 ${fmtMB(comp.disk_mb)}、内存约 ${fmtMB(comp.ram_mb)}；装在这台电脑上，不联网、不收费。`);
-        else help(tab, row, '要一个 AI 服务商的密钥（API Key）；按用量计费，钱付给服务商，不经过本插件。');
-        row.addToggle(t => bindToggle(t, sel.has(id), async v => {
-          const snap = snapRuntime();
-          setup().selected = nextSelection(effective(), id, v, cs);
-          try { await applyRuntime(new Set(setup().selected)); await plugin.saveSettings(); }
-          catch (e) { for (const k of RUNTIME_KEYS) plugin.settings[k] = snap[k]; throw e; }
-          finally { paintAll(); }
-        }));
-      }
-    };
-
-    const paintKeys = () => {
-      keys.empty();
-      const ids = new Set(effective());
-      if (!S().plan || (!ids.has('ai_text') && !ids.has('ai_vision'))) return;
-      keys.createEl('h4', { text: '去哪弄密钥、大概多少钱' });
-      const est = S().estimate;
-      if (!est) { keys.createEl('p', { cls: 'setting-item-description lb-loading', text: '正在按你的收藏估价' }); return; }
-      if (est.error) { failBox(keys, '价格', new Error(est.error), () => { S().estimate = null; paintKeys(); loadEstimate(true).then(() => alive && repaint()); }); return; }
-      // 10-10 她的 data.json 事故：旧版这里对已经配好的也给「用 X 的接口」按钮，点了就把地址换成价格表里的通用地址、
-      // 换服务商时还删掉 keyFile / apiKeyEnv 这些密钥引用；「概要」那一项还错配到了问收藏（textAI）上。
-      // 规矩：没有她明确操作，永不删密钥引用字段、不改已经填好的地址。所以「填上它的地址和模型」只在那一格还空着时出现，
-      // 只填空白、一个字段都不删；概要有自己的设置（高级里「写概要用的模型」不是「和问收藏一样」）时不往问收藏上填。
-      const want = [];
-      const sumMode = (plugin.settings.summaryAI || {}).mode;
-      if (ids.has('ai_text')) want.push(['summary', '概要和打标签', !sumMode || sumMode === 'inherit' ? 'textAI' : null], ['ask', '问收藏', 'textAI']);
-      if (ids.has('ai_vision')) want.push(['vision', '识图', 'visionAI']);
-      const byProvider = new Map();
-      for (const [key, label, cap] of want) {
-        const it = (est.data.items || []).find(x => x && x.id === key);
-        if (!it || !it.provider) continue;
-        const g = byProvider.get(it.provider) || { provider: it.provider, key_url: it.key_url || '', uses: [], prices: [], caps: new Map() };
-        g.uses.push(label);
-        const v = num(it.yuan);
-        if (v != null) g.prices.push(`${label} 约 ${yuan(v)} / ${it.per === '次' ? '次' : (it.per || '100 篇')}`);
-        if (cap && it.endpoint && it.openai_compatible !== false && !g.caps.has(cap)) g.caps.set(cap, { endpoint: it.endpoint, model: it.api_model || it.model });
-        byProvider.set(it.provider, g);
-      }
-      for (const g of byProvider.values()) {
-        const row = new Setting(keys).setName(g.provider + '（' + g.uses.join('、') + '）');
-        row.settingEl.addClass('lb-key-row');
-        row.setDesc(g.prices.length ? g.prices.join(' · ') : '按用量');
-        if (g.key_url) linkButton(row, '去拿密钥', () => openUrl(g.key_url), '打开 ' + g.provider + ' 官网的密钥页面：注册 / 登录后新建一个，复制回来填到下面');
-        for (const [cap, sugg] of g.caps) {
-          const cur = plugin.settings[cap] || {};
-          const blank = v => !String(v || '').trim();
-          // 只给还没填地址的那一格（模型也空着，或者就是这一个）：已经填好的地址一律不提供「换」，要换她自己改下面那几格
-          if (!blank(cur.endpoint) || !(blank(cur.model) || cur.model === sugg.model)) continue;
-          linkButton(row, `填上它的地址和模型（${cap === 'visionAI' ? '识图' : '问收藏 · 概要'}）`, async () => {
-            const target = plugin.settings[cap] || (plugin.settings[cap] = {});
-            if (!blank(target.endpoint)) { paintAll(); return; }          // 点之前已经填上了：什么都不改
-            const previous = JSON.parse(JSON.stringify(target));
-            // 现在用的是本机命令行（Codex / Claude Code，不花钱）：换成接口就按用量付费——先说清再换（1010 审查）
-            if (previous.mode === 'cli' && !await plugin.confirm({ title: `换成 ${g.provider} 的接口？`,
-              body: `现在用的是本机命令行（不花钱）；换成 ${g.provider} 的接口以后按用量付费，还要填这家的密钥。`, ok: '换', danger: false })) return;
-            // 只填这几样空白；密钥引用（apiKey / keyFile / keyField / apiKeyEnv）和别的字段一个不动、一个不删
-            Object.assign(target, { mode: 'http', endpoint: sugg.endpoint }, blank(target.model) ? { model: sugg.model } : {});
-            try { await plugin.saveSettings(); }
-            catch (e) { for (const k of Object.keys(target)) delete target[k]; Object.assign(target, previous); plugin.notify('没保存上，原来的设置没动：' + errText(e), { kind: 'error' }); return; }
-            plugin.notify(`已填上 ${g.provider} 的地址和模型：再把这家的密钥填进下面「密钥」那一格`, { ms: 8000 });
-            paintAll();
-          }, '把这家的接口地址和推荐模型填进下面空着的那几格（只填空白，不动密钥）');
-        }
-      }
-      const asOf = est.data.prices && est.data.prices.as_of;
-      keys.createEl('p', { cls: 'setting-item-description lb-key-note', text: `按你库里平均每篇的字数和图片数估的${asOf ? '，价格按各家官网 ' + asOf + ' 的标价' : ''}；钱付给服务商，不经过本插件。` });
-    };
-
-    // 接口 / 密钥那几格：显示哪几块（问收藏 · 概要 / 识图）没变就不重建——别处触发的重画不打断正在打的字；force = 刚改了开关或填了推荐值
-    let fieldsKey = null;
-    const paintFields = (force = false) => {
-      const ids = new Set(effective());
-      const key = S().plan ? (ids.has('ai_text') ? 't' : '') + (ids.has('ai_vision') ? 'v' : '') : null;
-      if (!force && key === fieldsKey) return;
-      fieldsKey = key;
-      fields.empty();
-      if (!S().plan) return;
-      if (ids.has('ai_text')) { const t = fields.createDiv({ cls: 'lb-feat-cap', attr: { 'data-cap': 'textAI' } }); t.createEl('h4', { text: '问收藏 · 概要 · 打标签 用哪个 AI' }); tab?.sectionTextAI?.(t, { heading: false }); }
-      if (ids.has('ai_vision')) { const v = fields.createDiv({ cls: 'lb-feat-cap', attr: { 'data-cap': 'visionAI' } }); v.createEl('h4', { text: '识图用哪个 AI' }); tab?.sectionVisionAI?.(v); }
-    };
-
-    const paintFoot = () => {
-      foot.empty();
-      const ids = new Set(effective());
-      if (!S().plan || (!ids.has('ai_text') && !ids.has('ai_vision'))) return;
-      // 1009 她：开了 AI，以前没补的后台静默补（今晚夜跑；想现在补就点一键），卡片上不标「待补」
-      foot.createEl('p', { cls: 'setting-item-description lb-ai-silent', text: '以前没补的识图 / 概要会在后台慢慢补上（今晚夜跑；想现在补就去「更多 → 高级」点一键装好 / 跑完），卡片上不标「待补」。' });
-      const row = new Setting(foot).setName('只用免费的功能').setDesc('关掉问收藏、概要和识图，只留本机跑的那几样。');
-      row.settingEl.addClass('lb-light-row');
-      linkButton(row, '全部关掉（密钥留着）', async () => {
-        if (!await plugin.confirm({ title: '关掉全部 AI？', body: '问收藏、自动概要和识图都会停；填好的密钥不删，随时打开就能接着用。', ok: '全部关掉', danger: true })) return;
-        const snap = snapRuntime();
-        setup().selected = withDeps((S().plan.presets && S().plan.presets.light) || LIGHT, comps());
-        try { await applyRuntime(new Set(setup().selected)); await plugin.saveSettings(); }
-        catch (e) { for (const k of RUNTIME_KEYS) plugin.settings[k] = snap[k]; plugin.notify('没保存上，原来的选择没动：' + errText(e), { kind: 'error' }); }
-        paintAll();
-      }, '换成轻量版：不要任何密钥');
-    };
-
-    const paintAll = () => { if (!alive) return; paintList(); paintKeys(); paintFields(true); paintFoot(); };
-    // 别处触发的重画（一键装好 / 跑完的进度、价钱估出来了）：接口 / 密钥那几格只在要显示的块变了时才重建，正在打的字和焦点不丢
-    const paintLight = () => { if (!alive) return; paintList(); paintKeys(); paintFields(false); paintFoot(); };
-    painters.add(paintLight);
-    paintAll();
-    if (!S().plan) loadPlan().then(() => { if (alive) paintAll(); });
-    if (!S().estimate) loadEstimate().then(() => { if (alive) paintLight(); });
-    return () => { alive = false; painters.delete(paintLight); };
-  }
-
-  // 1018 AI 页重排：功能表每一行自己的开关（和上面 renderAI 列表里的开关同一套：依赖一起开、关掉把依赖它的也关、实际起作用的设置跟着对上）
+  // 1018 AI 页重排：功能表每一行自己的开关（依赖一起开、关掉把依赖它的也关、实际起作用的设置跟着对上）
   // 功能清单还没读回时 effective() 是空的（会画成「关」）：先读清单，再悄悄把开关拨到实际值——不触发保存
   function featureToggle(row, id, after) {
     const on = () => new Set(effective()).has(id);
@@ -595,6 +453,7 @@ module.exports = function homeUI(obsidian, plugin) {
       if (!cs.some(x => x.id === id)) throw new Error('功能清单里没有「' + id + '」');
       const snap = snapRuntime();
       setup().selected = nextSelection(effective(), id, v, cs);
+      setup().aiSynced = true;   // 1027：她在设置页点过 = 选择已经对齐（插件下次启动不再按「配好了 key」替她勾回去）
       try { await applyRuntime(new Set(setup().selected)); await plugin.saveSettings(); }
       catch (e) { for (const k of RUNTIME_KEYS) plugin.settings[k] = snap[k]; throw e; }
       finally { repaint(); if (after) after(); }
@@ -611,6 +470,7 @@ module.exports = function homeUI(obsidian, plugin) {
     if (new Set(effective()).has(id) === !!v) return;
     const snap = snapRuntime();
     setup().selected = nextSelection(effective(), id, v, cs);
+    setup().aiSynced = true;
     try { await applyRuntime(new Set(setup().selected)); await plugin.saveSettings(); }
     catch (e) { for (const k of RUNTIME_KEYS) plugin.settings[k] = snap[k]; throw e; }
     finally { repaint(); }
@@ -628,7 +488,7 @@ module.exports = function homeUI(obsidian, plugin) {
   }
   const isOn = id => new Set(effective()).has(id);
 
-  return { renderStatus, renderRun, renderAI, featureToggle, setFeature, applyPreset, isOn, aiReady, runAll, stopRun, firstRun, loadPlan, loadEstimate, state: S, bindToggle,
+  return { renderStatus, renderRun, featureToggle, setFeature, applyPreset, isOn, aiReady, runAll, stopRun, firstRun, loadPlan, loadEstimate, state: S, bindToggle,
     _internals: { repaint, withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine } };
 };
 module.exports._internals = { withDeps, withoutDependents, toggleSelection, initialSelection, totals, fmtMB, yuan, priceText, progressView, applyRunEvent, fillLine, LIGHT, FEATURE_TEXT, AI_ORDER };

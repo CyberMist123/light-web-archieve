@@ -74,6 +74,35 @@ def fills_for(provider: str) -> dict[str, dict[str, str]]:
     return out
 
 
+SLOT_CAPS = ("textAI", "summaryAI", "visionAI", "embedAI", "asrAI")
+
+
+def slots_for(provider: str, settings: dict[str, Any] | None = None) -> list[str]:
+    """1027 设置页「粘一把 key」换掉用不了的那家：设置里哪几格现在指着这家的接口（pricing.provider_of 一处认哪家，前端不猜）。
+    返回格子路径：「summaryAI」「summaryAI.fallback」「visionAI.refine」…；概要「跟随问答」那一格不算（它用的就是 textAI）。"""
+    from . import pricing
+    if settings is None:
+        from . import ai_config
+        try:
+            settings = ai_config.load()
+        except Exception:  # noqa: BLE001 - 设置读不动就当没有，前端如实说「没找到哪一项在用它」
+            settings = {}
+    out: list[str] = []
+    for cap in SLOT_CAPS:
+        cfg = settings.get(cap)
+        if not isinstance(cfg, dict):
+            continue
+        if cap == "summaryAI" and cfg.get("mode") in (None, "", "inherit"):
+            pass
+        elif cfg.get("endpoint") and pricing.provider_of(cfg.get("endpoint"), cfg.get("model") or "") == provider:
+            out.append(cap)
+        for sub in ("fallback", "refine"):
+            sc = cfg.get(sub)
+            if isinstance(sc, dict) and sc.get("endpoint") and pricing.provider_of(sc.get("endpoint"), sc.get("model") or "") == provider:
+                out.append(f"{cap}.{sub}")
+    return out
+
+
 def detect(key: str) -> dict[str, Any]:
     key = (key or "").strip()
     if not key or any(ch.isspace() for ch in key):
@@ -89,7 +118,7 @@ def detect(key: str) -> dict[str, Any]:
                 "message": "试了 " + "、".join(LABEL[p] for p in order) + "，都不认这把 key：看看是不是复制少了几个字，或者已经作废"}
     p = _pricing()
     prov = (p.get("providers") or {}).get(PROVIDERS[hit][0]) or {}
-    return {"ok": True, "code": "", "provider": hit, "name": LABEL[hit], "fills": fills_for(hit),
+    return {"ok": True, "code": "", "provider": hit, "name": LABEL[hit], "fills": fills_for(hit), "slots": slots_for(hit),
             "key_url": prov.get("key_url", ""), "message": f"认出是 {LABEL[hit]}"}
 
 

@@ -53,25 +53,27 @@ vm.runInContext(fs.readFileSync('obsidian-plugins/link-brain-actions/main.js', '
   + '\nmodule.exports.__SettingTab = LinkBrainSettingTab; module.exports.__merge = mergeSettings;', context);
 const Plugin = context.module.exports;
 
-// 画「AI」和「高级」两栏（各画一遍，记录叠在一起）
-function render(saved) {
+// 1027：设置页④「更多」——「接口与密钥」（先选一项：问答 → AI 识图 → 概要，一项一项画）+「识别细项」；画的就是设置页上那几个函数
+function render(saved, caps = ['ask', 'vision', 'summary']) {
   settings.length = 0;
   const calls = [];
-  const plugin = { app: { workspace: { getActiveFile: () => null } }, mcpArgv: () => ['python', '-m', 'link_brain', 'mcp'], testMcp: async () => { calls.push(['mcp']); return { json: plugin.reply }; }, settings: Plugin.__merge(saved), saveSettings: async () => {}, renderAccounts() {}, renderSyncRow() {},
-    capsWriterDir: () => null, onboardingUI: () => ({ renderFolder: () => null }), runPy: async (args) => { calls.push(args); return { json: plugin.reply, err: '' }; },
+  const OBS = context.require('obsidian');
+  const plugin = { app: { workspace: { getActiveFile: () => null, trigger() {} } }, mcpArgv: () => ['python', '-m', 'link_brain', 'mcp'], testMcp: async () => { calls.push(['mcp']); return { json: plugin.reply }; }, settings: Plugin.__merge(saved), saveSettings: async () => {}, renderAccounts() {}, renderSyncRow() {},
+    capsWriterDir: () => null, onboardingUI: () => ({ renderFolder: () => null }), runPy: async (args) => { calls.push(args); return { json: plugin.reply, err: '' }; }, notify: m => notices.push(m),
     failBox: (c, what, e) => c.createEl('p', { text: (what || '') + '这一块暂时读不到：' + e.message }) };
-  // 「AI」那一栏：home-ui 打开了的两项会原地画接口那几格（这里替身直接画两块）
-  plugin.homeUI = () => ({ renderStatus: () => () => {}, renderRun: () => () => {}, renderAI: (c, tab) => { tab.sectionTextAI(c, { heading: false }); tab.sectionVisionAI(c); return () => {}; } });
-  plugin.remoteUI = { renderConnect: () => () => {} };
-  plugin.settingsPages = () => require(require('path').resolve('obsidian-plugins/link-brain-actions/settings-pages.js'))(context.require('obsidian'), plugin);   // 1016 四个页签
+  plugin.homeUI = () => ({ featureToggle: row => row.addToggle(t => t.setValue(false)), state: () => ({ plan: {} }), isOn: () => false, setFeature: async () => {} });
+  plugin.settingsPages = () => require(require('path').resolve('obsidian-plugins/link-brain-actions/settings-pages.js'))(OBS, plugin);
+  const v6 = require(require('path').resolve('obsidian-plugins/link-brain-actions/settings-v6.js'))(OBS, plugin);
   const tab = new Plugin.__SettingTab({}, plugin);
-  // 1015：「AI」→「模型与提供商 → AI 功能」；原「高级」里的 AI 细项 →「识图 · 认字 · 语音」「问收藏模型」「提示词」三个子页签
-  // 1018 v6：这几块在「更多 → 每项功能用哪个模型」每一项展开里（问收藏 / 识图 / 概要 / 认字 / 语音）；展开时画的就是这几个方法，这里直接画
   plugin.settingsView = { tab: 'ai' }; tab.stops = [];
-  tab.renderAIFeatures(tab.containerEl); tab.renderSummaryAI(tab.containerEl); tab.renderOcrAI(tab.containerEl); tab.renderVoiceAI(tab.containerEl);
-  let text = tab.containerEl.allText() + '\n';
-  // 1016：AI 一页画全（接口那几块在页底「详细设置」折叠里），不再分子页签
-  return { tab, plugin, calls, text };
+  const box = tab.containerEl;
+  const api = v6._parts.apiConfig(box, tab, Promise.resolve(null));
+  let text = box.allText() + '\n';
+  for (const cap of caps.slice(1)) { api.lbPick(cap); text += box.allText() + '\n'; }
+  if (caps[0] !== 'ask') api.lbPick(caps[0]);
+  v6._parts.recogRows(box, tab);
+  text += box.allText() + '\n';
+  return { tab, plugin, calls, text, api };
 }
 const ALL_ON = { setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'asr', 'ai_text', 'ai_vision'], aiSynced: true } };
 
@@ -79,24 +81,23 @@ const ALL_ON = { setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'asr',
   // —— 新装（没有 data.json，功能都打开）——
   let { plugin, calls, text } = render(ALL_ON);
   const byName = n => settings.find(r => r.name === n);
-  // 「AI」那一栏没有方式下拉了（开关在功能清单上，命令行在「高级 → 开发者」）；接口 · 密钥 · 模型名
+  // 接口 · 密钥 · 模型名；「配置哪一项」先选一项（问答 / 概要 / AI 识图 / 精细识图 / 语音转文字（在线）/ 按意思搜）
   for (const n of ['接口地址', '密钥（API Key）', '模型名']) assert.ok(byName(n), `缺「${n}」`);
-  assert.ok(!settings.some(r => r.name === '文本 AI' && r.dropdown) && !byName('识图接口') && !byName('语音识别'), '没有方式下拉了');   // 1015：「文本 AI」只剩问收藏模型勾选列表里那一行
-  // 「高级」：写概要用的模型（和问收藏一样 / 另配一个接口 / 本机命令行 / 不写概要）——1023 接口和命令行平级
-  const sum = byName('写概要用的模型');
-  assert.ok(sum && sum.dropdown);
-  assert.deepEqual(sum.dropdown.options.map(o => o[0]), ['inherit', 'http', 'cli', 'off']);
+  assert.deepEqual(byName('配置哪一项').dropdown.options.map(o => o[0]), ['ask', 'summary', 'vision', 'refine', 'asr', 'embed']);
+  assert.ok(!byName('识图接口') && !byName('语音识别') && !byName('视频转文字改用在线接口') && !byName('写概要用的模型'), '旧的方式下拉 / 开关没了（④ 主界面每项一个下拉）');
+  assert.ok(byName('只换模型名'), '概要跟随问答：只换模型名');
   assert.ok(!byName('用哪个命令行'), '没选命令行时不出命令行下拉');
-  assert.equal(sum.dropdown.value, 'inherit');
-  assert.ok(!sum.dropdown.options.some(o => o[0] === 'media'), '不该再有 media');
-  assert.ok(byName('视频转文字改用在线接口').toggle, '在线转写是一个开关');
-  assert.equal(byName('视频转文字改用在线接口').toggle.value, false, '默认本机');
   assert.ok(!/旧版「本机千问配置」/.test(text), '新装不显示旧配置说明');
+  // 概要「单独配置」：接口 / 本机命令行两样（没有 media、没有「不写」——关在④主界面的下拉里）
+  render({ ...ALL_ON, summaryAI: { mode: 'http' } }, ['summary']);
+  const sum = settings.find(r => r.name === '单独配置用什么');
+  assert.deepEqual(sum.dropdown.options.map(o => o[0]), ['http', 'cli']);
+  ({ plugin, calls, text } = render(ALL_ON));
 
   // 每个能力块下一个测试按钮，调 selftest <能力>；后果写在按钮字上
   const tests = settings.flatMap(r => r.buttons).filter(b => /^测试/.test(b.label));
   assert.deepEqual(tests.map(b => b.label), ['测试（发一句话，几乎不花钱）', '测试识图（发一张小图，几乎不花钱）', '测试概要模型（发一段短文，几乎不花钱）',
-    '测试认字（本机跑，不花钱）', '测试语音转文字（本机跑，不花钱）'], '「AI 功能」里的两块在前，其余在「识图 · 认字 · 语音」');
+    '测试认字（本机跑，不花钱）', '测试语音转文字（本机跑，不花钱）'], '「接口与密钥」逐项的在前，「识别细项」两个在后');
   for (const b of tests) await b.onClickCb();
   assert.deepEqual(calls.map(a => a.at(-1)), ['text', 'vision', 'summary', 'ocr', 'asr']);
   assert.ok(calls.every(a => a[2] === 'selftest'));
@@ -114,15 +115,15 @@ const ALL_ON = { setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'asr',
   const capsDir = byName('CapsWriter 装在哪');
   assert.ok(capsDir && !/\\AI\\/.test(capsDir.texts[0].placeholder));
 
-  // （1018 起这些细项只在用户点开「更多 → 每项功能用哪个模型」里那一项时才画，不再按父开关藏；开关本身在「识别与问答」卡上，见 test_settings_layout）
 
   // —— 1023：概要选「本机命令行」→ 下拉列后端 AI 配置表里的命令行（含 OpenCode），选中只存 preset ——
   let tab;
-  ({ plugin, calls, tab } = render({ ...ALL_ON, summaryAI: { mode: 'cli', preset: 'claude' } }));
+  let api;
+  ({ plugin, calls, tab, api } = render({ ...ALL_ON, summaryAI: { mode: 'cli', preset: 'claude' } }, ['summary']));
   plugin.reply = { ok: true, ai_table: { caps: {}, cli: [{ id: 'codex', name: 'Codex', preset: 'codex', command: 'codex exec -' },
     { id: 'claude', name: 'Claude Code', preset: 'claude', command: 'claude -p' }, { id: 'opencode', name: 'OpenCode', preset: 'opencode', command: 'opencode run --pure' }] } };
   plugin.aiTableCache = null;
-  tab.renderSummaryAI(tab.containerEl);   // 表到了再画一遍（render 时还没给替身回包）
+  api.lbPick('summary');   // 表到了再画一遍（render 时还没给替身回包）
   await new Promise(r => setTimeout(r, 0)); await new Promise(r => setTimeout(r, 0));
   const pickRow = [...settings].reverse().find(r => r.name === '用哪个命令行' && r.dropdown);
   assert.ok(pickRow, '概要选了命令行：出命令行下拉');
@@ -140,5 +141,5 @@ const ALL_ON = { setup: { selected: ['core', 'reader', 'dataview', 'ocr', 'asr',
   const visionModel = settings.filter(r => r.name === '模型名')[1];
   await visionModel.texts[0].cb('qwen3.8-flash');
   assert.equal(plugin.settings.visionAI.mode, 'http', '改了识图那一格 → 存成新格式');
-  console.log('PASS AI settings (capability blocks under 更多 → 每项功能用哪个模型): one test button per capability → selftest <cap> (consequence in the label); no mode dropdowns for the newbie, summary model select without media; skipped shows 还没打开; legacy media told once, converted on edit');
+  console.log('PASS AI settings (1027 ④ 更多 → 接口与密钥 / 识别细项): one test button per capability → selftest <cap> (consequence in the label); one capability at a time; summary custom = 接口 / 命令行 (no media); skipped shows 还没打开; legacy media told once, converted on edit');
 })().catch(e => { console.error(e); process.exitCode = 1; });
