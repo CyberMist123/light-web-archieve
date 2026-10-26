@@ -522,7 +522,9 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-blk{display:block;}
 .lbc-blk-filters.is-off .lbc-ctl-l{display:none!important;}
 .lbc-blk-filters.is-off .lbc-ctl-r{margin-left:auto;}
-.lbc-wrap.is-arranging .lbc-top{position:relative;}
+.lbc-wrap.is-arranging .lbc-top{position:relative;top:0!important;}
+/* 1027 编排时「编排 / 管理」不占模块的位置：托盘里有「结束编排」，这两个按钮先收起 */
+.lbc-wrap.is-arranging .lbc-top>.lbc-tools{display:none!important;}
 /* 「调整」里选掉的筛选项（filters 模块 options.show）：只藏按钮，不清别的维度 */
 .lbc-blk-filters.lbc-f-no-scope .lbc-scope-tab,.lbc-blk-filters.lbc-f-no-type .lbc-type-tab,.lbc-blk-filters.lbc-f-no-type .lbc-ctl-sep,.lbc-blk-filters.lbc-f-no-tag .lbc-tagpick,
 .lbc-blk-filters.lbc-f-no-plat .lbc-platpick,.lbc-blk-filters.lbc-f-no-src .lbc-album,.lbc-blk-filters.lbc-f-no-sort .lbc-time,.lbc-blk-filters.lbc-f-no-view .lbc-vseg,
@@ -619,7 +621,7 @@ const ARRANGE_CSS = `
 .lbc-mp-cat{display:flex;align-items:center;gap:6px;}
 .lbc-mp-cat .lbc-mp-n{font:italic 13px/1 var(--f-latin);color:var(--c-muted);min-width:2em;text-align:right;}
 .lbc-mp .lb-sched{margin-top:4px;}
-.lbc-wrap.is-arranging .lbc-arrange-tray{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0 14px;border-bottom:1px solid var(--c-ink);}
+.lbc-wrap.is-arranging .lbc-arrange-tray{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0 14px;border-bottom:1px solid var(--c-ink);position:sticky;top:var(--lbc-tray-top,0px);z-index:6;background:var(--background-primary);}
 .lbc-arrange-tray .lbc-at-k{font:700 11px/1 var(--f-display);letter-spacing:.26em;color:var(--c-ink);}
 .lbc-arrange-tray .lbc-at-save{margin-left:auto;font-size:12px;color:var(--c-muted);}
 .lbc-arrange-tray .lbc-at-save.is-fail{color:var(--lb-danger);}
@@ -3673,9 +3675,9 @@ function sideFade() {
 let fadeRaf = 0;
 function sideFadeSoon() { if (fadeRaf) return; const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : f => setTimeout(f, 16); fadeRaf = raf(() => { fadeRaf = 0; sideFade(); }) || 1; }
 const mods = {};
-// 1026：托盘挪到收藏墙上面（编排的不只边栏了：页头三块、内容区、版式选项都在这里）
+// 1027：托盘在所有模块上面（页面最前，编排时吸顶、滚动也在）——模块怎么挪都不会把它挤到中间去
 const arrangeTray = arrangeBtn ? wrap.createEl('div', { cls: 'lbc-arrange-tray' }) : null;
-if (arrangeTray) wrap.insertBefore(arrangeTray, board);
+if (arrangeTray) wrap.insertBefore(arrangeTray, top);
 // 墙下面的几排（模块被拖到收藏墙那一排的下面时）
 const afterEl = wrap.createEl('div', { cls: 'lbc-after' }); afterEl.hidden = true;
 board.after(afterEl);
@@ -4585,6 +4587,7 @@ function paintStickyTop() {
   const toolsStatic = narrow() || arranging || firstMod !== 'title' || (topW > 0 && topW < 760);
   const v = pad + stickyHide ? `${-(pad + stickyHide)}px` : '0px';
   if (top.style.top !== v) top.style.top = v;
+  if (arrangeTray) { const tv = pad ? `${-pad}px` : '0px'; if (wrap.style.getPropertyValue('--lbc-tray-top') !== tv) wrap.style.setProperty('--lbc-tray-top', tv); }
   if (indexView && idx) paintIndexSticky();
   paintSideSticky(sc, pad);
   const twv = tw > 0 ? (tw + 20) + 'px' : '';

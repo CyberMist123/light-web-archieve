@@ -83,6 +83,14 @@ const center = r => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
       await waitSave(page, n0);
       const rec = (await saved(page)).modules.find(m => m.id === 'recent');
       assert.deepEqual([rec.x, rec.y, rec.width], [8, 0, 4]);
+      // 模块挪到最前：托盘仍在所有模块上面；往下滚也吸在顶上
+      const trayTop = await page.evaluate(() => { const t = document.querySelector('.lbc-arrange-tray').getBoundingClientRect(); return [...document.querySelectorAll('.lbc-m')].every(m => getComputedStyle(m).display === 'none' || m.getBoundingClientRect().top >= t.bottom - 1); });
+      assert.ok(trayTop, '托盘在第一个模块上方');
+      assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.lbc-tools')).display), 'none', '编排时「编排 / 管理」不和模块抢位置（托盘里有结束编排）');
+      await S.scrollTo(600); await S.settle(60);
+      const stuck = await page.evaluate(() => { const sc = document.querySelector('.workspace-leaf.mod-active .markdown-preview-view'); return Math.abs(document.querySelector('.lbc-arrange-tray').getBoundingClientRect().top - sc.getBoundingClientRect().top); });
+      assert.ok(stuck <= 1, `编排时托盘吸顶 ${stuck}`);
+      await S.scrollTo(0); await S.settle(60);
       shots.push(await S.screenshot('catalog-arrange-1027-beside-title'));
       // 标题 → 边栏「同步」上面
       const sync = await R(page, '.lbc-m-sync');

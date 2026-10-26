@@ -74,7 +74,7 @@ async function dragTo(P, id, x, y) {
     assert.ok(P.$('.lbc-wrap').classList.contains('is-arranging'));
     assert.deepEqual(P.$$('.lbc-mod-bar .lbc-mb-nm').map(x => x.textContent).sort(), ['Token 费用', '分类', '同步', '收藏墙', '最近导入', '标题 / Logo', '概览', '筛选与搜索'].sort(), '八个模块都有操作条');
     for (const id of ['title', 'cats', 'filters', 'recent', 'sync', 'token', 'overview', 'wall']) assert.ok(bar(P, id, 'drag') && bar(P, id, 'adjust') && bar(P, id, 'remove'), id + '：⠿ / 调整 / ×');
-    assert.equal(P.$('.lbc-arrange-tray').nextSibling, P.$('.lbc-board'), '托盘在收藏墙上面');
+    assert.equal(P.$('.lbc-arrange-tray').nextSibling, P.$('.lbc-top'), '托盘在所有模块上面（页面最前）');
     rects(P);
     // 最近导入 → 标题右边：标题那一排成两列（标题 8 格、最近导入 4 格）
     await dragTo(P, 'recent', 1150, 50);
@@ -92,6 +92,7 @@ async function dragTo(P, id, x, y) {
     assert.ok(mod(P, 'title').parentNode.classList.contains('lbc-side'));
     assert.ok(mod(P, 'title').parentNode.classList.contains('has-core'), '有标题的边栏列：边栏收起 / 窄屏时这一块留着');
     assert.deepEqual(topRows(P)[0], [['recent']], '标题走了，最近导入独占那一排');
+    assert.equal(P.$('.lbc-wrap').children.filter(c => !c.classList.contains('lbc-drop-ind'))[0], P.$('.lbc-arrange-tray'), '模块挪到最前，托盘仍在第一个模块上方');
     // 键盘：⠿ 上按 ↑ = 往上挪（同一列里换位置；到列头就单独成一排放上面）
     bar(P, 'sync', 'drag').onkeydown({ key: 'ArrowUp', preventDefault() {} });
     assert.deepEqual(boardCols(P)[0], ['sync', 'title', 'token', 'overview']);
@@ -187,6 +188,7 @@ async function dragTo(P, id, x, y) {
     assert.deepEqual(p.calls.filter(c => c[0] === 'prefs').at(-1), ['prefs', 'MY ARCHIVE']);
     assert.equal(p.settings.catalogTitle, 'MY ARCHIVE');
     assert.equal(P.$('.lbc-arrange-tray .lbc-at-save').textContent, '已保存');
+    assert.equal(P.$('.lbc-mp .lbc-mp-save').textContent, '已保存', '展开的调整里也变成「已保存」');
     // 收藏墙：列数 / 密度
     bar(P, 'wall', 'adjust').onclick(ev());
     const c3 = panel().querySelector('[data-k="cols"]'); c3.value = '3'; c3.onchange();
