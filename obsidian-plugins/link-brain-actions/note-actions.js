@@ -71,7 +71,7 @@ class NoteActions {
     }
     this.plugin.register?.(() => this.stopFetchTick());
     if (typeof this.plugin.addCommand === 'function') {
-      this.plugin.addCommand({ id: 'note-ask', name: '问这篇（打开问收藏，来源 = 当前笔记）', checkCallback: (checking) => {
+      this.plugin.addCommand({ id: 'note-ask', name: '问这篇：在问收藏里只问这一篇', checkCallback: (checking) => {
         const file = ws && typeof ws.getActiveFile === 'function' ? ws.getActiveFile() : null;
         if (!this.itemIdOf(file)) return false;
         if (!checking) this.ask(file);

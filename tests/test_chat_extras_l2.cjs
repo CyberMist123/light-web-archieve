@@ -199,23 +199,32 @@ async function n11() {
   assert.equal(P.calls.asks.length, 0, '不自动提交');
   assert.equal(P.plugin.pendingArchiveScope, undefined, '取走即删');
   assert.equal(C.dom.document.activeElement, C.search);
-  assert.ok(C.q('.lbchat-followbar').textContent.includes('只问这一篇：《番茄炒蛋》'));
+  // 1026：来源固定在输入框里那枚小条上（只问这篇 · 标题 ×），标题点了右侧打开这篇
+  const chip = C.q('.lbchat-composer .lbchat-scopechip');
+  assert.ok(chip && !chip.hidden && chip.textContent.includes('只问这篇') && chip.textContent.includes('番茄炒蛋'));
   assert.ok(C.search.placeholder.includes('问这篇'));
+  chip.querySelector('.lbchat-scopechip-title').onclick(); await tick(10);
+  assert.ok(P.calls.opened.includes('Web/xhs-1.md'), '小条上的标题打开这一篇');
   await C.A.rerun();
-  assert.ok(C.q('.lbchat-followbar').textContent.includes('只问这一篇'), 'Dataview 重跑后还在');
+  assert.ok(C.q('.lbchat-scopechip').textContent.includes('番茄炒蛋'), 'Dataview 重跑后还在');
   // 换页回来（整页重建）也还在：存在页面状态里
   const D = await openChat({ plugin: P, app: C.app, dom: C.dom, V: C.V });
-  assert.ok(D.q('.lbchat-followbar').textContent.includes('只问这一篇'));
+  assert.ok(D.q('.lbchat-scopechip').textContent.includes('番茄炒蛋'));
   await C.ask('几个蛋');
   assert.deepEqual(Array.from(P.calls.asks[0].sourceIds), ['xhs-1']);
   const turns = C.saved().turns;
   assert.equal(turns[0].mode, 'scope'); assert.equal(turns[0].scopeTitle, '番茄炒蛋');
-  assert.ok(C.answers().length === 1 && C.q('.lbchat-user .lbchat-scopetag').textContent.includes('只问这一篇：《番茄炒蛋》'));
-  assert.ok(!C.q('.lbchat-followbar').textContent.includes('只问这一篇'), '提交后清掉');
+  assert.ok(C.answers().length === 1 && C.q('.lbchat-user .lbchat-scopetag').textContent.includes('只问这篇：番茄炒蛋'));
+  assert.ok(C.q('.lbchat-scopechip').hidden, '提交后清掉');
+  // 回答能回到这一篇：气泡上的标签、回答下的「打开这篇」都开它
+  const nOpen = P.calls.opened.length;
+  C.q('.lbchat-user .lbchat-scopetag').onclick({ stopPropagation() {} }); await tick(10);
+  C.answers()[0].querySelectorAll('.lbchat-act').find(b => b.textContent === '打开这篇').onclick(); await tick(10);
+  assert.deepEqual(P.calls.opened.slice(nOpen), ['Web/xhs-1.md', 'Web/xhs-1.md']);
   // 取消
   P.plugin.pendingArchiveScope = { ids: ['xhs-2'], title: '可乐鸡翅', note: 'Web/xhs-2.md', at: Date.now() };
   C.app.workspace.trigger('link-brain:ask-pending'); await tick(10);
-  assert.ok(C.q('.lbchat-followbar').textContent.includes('可乐鸡翅'));
+  assert.ok(C.q('.lbchat-scopechip').textContent.includes('可乐鸡翅'));
   C.q('.lbchat-scope-cancel').onclick();
   await C.ask('下一问');
   assert.ok(!P.calls.asks.at(-1).sourceIds || !Array.from(P.calls.asks.at(-1).sourceIds).includes('xhs-2'));
