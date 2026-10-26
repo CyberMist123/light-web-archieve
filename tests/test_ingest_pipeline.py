@@ -121,3 +121,31 @@ def test_fake_source_deleted_during_fetch_not_published(fake):
 def test_unknown_link_with_several_sources_is_refused(fake):
     with pytest.raises(sources.SourceError):
         ingest.recognize("https://nowhere.invalid/x")
+
+
+def test_project_written_with_the_commit(fake, monkeypatch):
+    """PR⑤c：project 在提交那一次和 meta 一起写（原来 catch 入库后再单独读改写一次）；没写新版本就不动它。"""
+    _, calls, _ = fake
+    writes = []
+    real = storage.update_json
+    monkeypatch.setattr(storage, "update_json", lambda path, fn, **kw: writes.append(path.name) or real(path, fn, **kw))
+    ingest.ingest_url("https://fake.invalid/item42", project="  旅行  ")
+    meta = storage.read_json(storage.object_dir(NAME, SID) / "meta.json")
+    assert meta["project"] == domain.clean_project("旅行") and writes.count("meta.json") == 1
+    ingest.ingest_url("https://fake.invalid/item42", refresh=True, project="别的")
+    assert storage.read_json(storage.object_dir(NAME, SID) / "meta.json")["project"] == domain.clean_project("旅行")
+
+
+def test_after_commit_marks_and_renders_only_when_needed(fake, monkeypatch):
+    from link_brain import enrich, render
+    seen = []
+    monkeypatch.setattr(enrich, "mark_pending", lambda s, i, reason="": seen.append(("pending", reason)))
+    monkeypatch.setattr(render, "render_object", lambda s, i, **k: seen.append(("render", k.get("llm"))))
+    ingest.ingest_url("https://fake.invalid/item42")
+    assert ingest.after_commit(NAME, SID, fresh=True, reason="导入") is None
+    assert seen == [("pending", "导入"), ("render", False)]
+    seen.clear()
+    assert ingest.after_commit(NAME, SID, fresh=False) is None
+    assert seen == [("render", False)]          # 可见 md 不在（假渲染没写）：已在库的也补一份
+    monkeypatch.setattr(render, "render_object", lambda *a, **k: (_ for _ in ()).throw(OSError("盘满")))
+    assert ingest.after_commit(NAME, SID, fresh=True).startswith("渲染失败: OSError")
