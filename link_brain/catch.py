@@ -119,7 +119,7 @@ def _catch_one(
     from . import enrich as enrich_mod, render as render_mod
 
     try:
-        parsed = xhs.parse_input(url)
+        parsed = ingest_mod.recognize(url)[1]   # 1025 第二波 PR⑤b：经来源接口解析（带 source / source_id）
         if lock is not None and (refresh or _needs_fetch(parsed)):
             lock.ensure()
         summary = ingest_mod.ingest_url(
