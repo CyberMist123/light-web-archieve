@@ -207,8 +207,11 @@ def run(emit: Emit, *, child=_child, account_check=None) -> dict[str, Any]:
             from .. import comment_fill
             r = comment_fill.spawn_worker()
             st = comment_fill.survey()
-            say("comments", "ok", ("后台在补" if st["pending"] else "评论都补齐了") +
-                (f"（{st['pending']} 篇、{st['missing']} 条回复）" if st["pending"] else "") if r.get("ok") else "没拉起来")
+            if r.get("ok"):
+                say("comments", "ok", ("后台在补" if st["pending"] else "评论都补齐了") +
+                    (f"（{st['pending']} 篇、{st['missing']} 条回复）" if st["pending"] else ""))
+            else:
+                say("comments", "failed", f"后台补评论没拉起来：{r.get('message') or ''}"[:200])
         except Exception as exc:  # noqa: BLE001
             say("comments", "failed", f"后台补评论没拉起来：{errtext(exc)}"[:200])
     failed = [s for s in stages if s["state"] == "failed"]

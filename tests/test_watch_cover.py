@@ -23,8 +23,9 @@ def test_age_buckets_and_bad_input():
     assert w._age(ago(30), NOW) == "30s 前"
     assert w._age(ago(119), NOW) == "119s 前"          # 2 分钟以下是秒
     assert w._age(ago(120), NOW) == "2 分钟前"
-    assert w._age(ago(119 * 60), NOW) == "119 分钟前"
-    assert w._age(ago(120 * 60), NOW) == "2 小时前"    # 2 小时起按小时
+    assert w._age(ago(59 * 60), NOW) == "59 分钟前"
+    assert w._age(ago(60 * 60), NOW) == "1 小时前"     # 1 小时起按小时（1026 修：原来 60–119 分钟一直显示分钟，「1 小时前」永远不出现）
+    assert w._age(ago(120 * 60), NOW) == "2 小时前"
     assert w._age(ago(26 * 3600), NOW) == "26 小时前"
     assert w._age("not-a-ts", NOW) == ""               # 认不出的时间戳出空串
     assert w._age(None, NOW) == ""

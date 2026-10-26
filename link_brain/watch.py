@@ -53,7 +53,7 @@ def _age(ts: str, now: datetime) -> str:
     except (TypeError, ValueError):
         return ""
     s = int((now - (t if t.tzinfo else t.astimezone())).total_seconds())
-    return f"{s}s 前" if s < 120 else f"{s // 60} 分钟前" if s < 7200 else f"{s // 3600} 小时前"
+    return f"{s}s 前" if s < 120 else f"{s // 60} 分钟前" if s < 3600 else f"{s // 3600} 小时前"
 
 
 def render(snap: dict[str, Any], *, width: int = 100, color: bool = True) -> str:

@@ -163,7 +163,8 @@ def rerank(query: str, docs: list[dict[str, Any]], settings: dict[str, Any] | No
 
 
 def _scores(data: Any, n: int) -> dict[int, float]:
-    results = ((data or {}).get("output") or {}).get("results") if isinstance(data, dict) else None
+    output = data.get("output") if isinstance(data, dict) else None
+    results = output.get("results") if isinstance(output, dict) else None
     if not isinstance(results, list):
         raise RerankError("精排接口返回缺 output.results")
     scores: dict[int, float] = {}

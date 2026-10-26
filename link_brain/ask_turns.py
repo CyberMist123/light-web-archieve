@@ -98,15 +98,15 @@ def latest_for_who(who: Any, *, within_s: int = 900, now: datetime | None = None
     if not isinstance(who, str) or not who:
         return None
     now = now or datetime.now().astimezone()
-    best = None
+    best, best_ts = None, None
     for r in _rows():
         if r.get("who") != who:
             continue
         ts = _parse_ts(r.get("ts"))
         if ts is None or (now - ts).total_seconds() > within_s or (now - ts).total_seconds() < -60:
             continue
-        if best is None or str(r.get("ts") or "") > str(best.get("ts") or ""):
-            best = r
+        if best_ts is None or ts > best_ts:   # 按时刻比，不按字符串：+10:00 / +11:00 混着时字符串序不对
+            best, best_ts = r, ts
     return best
 
 
