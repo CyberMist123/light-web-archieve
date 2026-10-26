@@ -1,0 +1,64 @@
+{
+  "catalog": [
+    {
+      "id": "xhs-sample",
+      "title": "Sample",
+      "note": null,
+      "notes_path": "_archive/xiaohongshu/sample/notes.json",
+      "starred": false,
+      "starred_at": null,
+      "cover": null,
+      "cover_w": null,
+      "cover_h": null,
+      "summary": "",
+      "search_fields": {
+        "transcript": "",
+        "body": "Sample body",
+        "comments": "",
+        "ocr": "",
+        "attachments": "",
+        "notes": ""
+      },
+      "agent_md": "_archive/xiaohongshu/sample/derived/agent.md",
+      "attachment_files": [],
+      "attachment_missing": 0,
+      "attachment_errors": [],
+      "author": "",
+      "source": "xiaohongshu",
+      "url": null,
+      "github_urls": [],
+      "suggested_links": [],
+      "likes": null,
+      "pinyin": "sample",
+      "tags": [],
+      "albums": [],
+      "hashtags": [],
+      "cats": [
+        "其他"
+      ],
+      "kind": "image",
+      "date": "2026-09-04",
+      "published": "",
+      "ts": "2026-09-04T12:00:00+10:00",
+      "comments": 0,
+      "last_comment": null,
+      "attachment": "none",
+      "attachment_reason": "",
+      "problems": [],
+      "src": "",
+      "via": "",
+      "accounts": []
+    }
+  ],
+  "actionlog": {
+    "ts": "2026-09-04T12:00:00+10:00",
+    "action": "favorites",
+    "trigger": "manual",
+    "item": "",
+    "ok": false,
+    "code": "ACCOUNT_RISK",
+    "error_code": "300011",
+    "reject": "sub_comments",
+    "detail": "[ACCOUNT_RISK] error_code=300011 触发接口=sub_comments"
+  }
+}

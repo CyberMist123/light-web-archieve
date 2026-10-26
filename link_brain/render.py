@@ -17,7 +17,7 @@ from typing import Any
 
 import yaml
 
-from . import domain, index as index_mod, storage
+from . import domain, index as index_mod, sources, storage
 from . import attachments as attachments_mod
 from . import llm as llm_mod
 from . import mdsafe
@@ -308,6 +308,7 @@ def _comment_html(
     floor_limit: int | None = None,
     scoped: bool = False,
     label: str = "",
+    source_name: str | None = None,
 ) -> str:
     """Human comment row: author + text only; no date/location/overall count.
     label = 楼号（c3 / c3.1，同机读版 agent.md / llm.comment_labels），写成 data-cid 给问收藏「点引用跳到这条评论」用。"""
@@ -359,7 +360,7 @@ def _comment_html(
             except (TypeError, ValueError):
                 declared = 0
             if declared > len(subs):
-                parts.append(f'<div class="lb-more-replies">{_gap_text(comment, declared - len(subs), gap_reasons, floor_limit, scoped)}</div>')
+                parts.append(f'<div class="lb-more-replies">{_gap_text(comment, declared - len(subs), gap_reasons, floor_limit, scoped, source_name)}</div>')
             parts.append("</div>")
         else:
             try:
@@ -367,32 +368,15 @@ def _comment_html(
             except (TypeError, ValueError):
                 declared = 0
             if declared > 0:
-                parts.append(f'<div class="lb-replies"><div class="lb-more-replies">{_gap_text(comment, declared, gap_reasons, floor_limit, scoped)}</div></div>')
+                parts.append(f'<div class="lb-replies"><div class="lb-more-replies">{_gap_text(comment, declared, gap_reasons, floor_limit, scoped, source_name)}</div></div>')
     parts.append("</article>")
     return "".join(parts)
 
 
 def _gap_text(comment: dict[str, Any], missing: int, gap_reasons: dict[str, str] | None,
-              floor_limit: int | None = None, scoped: bool = False) -> str:
-    """这楼还有几条回复没拿到、为什么（1008 Owner：缺口如实标，不写假的「展开 N 条回复」）。
-    批次 D · N8：楼层上限外没展开的（原因不知道 / not_expanded）说人话：「另有 N 条回复没存（只存了前 10 楼的回复）」。"""
-    from .adapters import xiaohongshu as xhs
-    reason = (gap_reasons or {}).get(str(comment.get("comment_id") or ""))
-    if reason is None or (reason == "not_expanded" and not scoped):
-        floors = (("全部楼层" if floor_limit >= 2000 else f"前 {floor_limit} 楼")
-                  if isinstance(floor_limit, int) and floor_limit > 0 else "前几楼")
-        return f"另有 {missing} 条回复没存（只存了{floors}的回复）"
-    # 1009：设置楼数之内的缺口后台会自动补齐；读多少次都一样的（原站多显示 / 楼已删）照实说，不说「接着读」
-    if reason == "count_mismatch":
-        return f"原站多显示 {missing} 条回复（删了或被折叠，看不到）"
-    if reason == "gone":
-        return f"还有 {missing} 条回复没拿到（这楼在原帖里已经找不到了，存下的是当时那几条）"
-    if reason in ("old_reader", "not_expanded"):  # 只有 scoped（设置楼数之内）才会走到这里
-        from .comment_fill import reason_text
-        return f"还有 {missing} 条回复没拿到（{reason_text(reason)}，后台在补）"
-    why = xhs.REPLY_GAP_CN.get(reason, "没读全")
-    tail = "，后台在补" if reason in xhs.RESUMABLE_GAPS else ""
-    return f"还有 {missing} 条回复没拿到（{why}{tail}）"
+              floor_limit: int | None = None, scoped: bool = False, source_name: str | None = None) -> str:
+    src = sources.get(source_name or sources.names()[0])
+    return src.comment_gap_text(comment, missing, gap_reasons, floor_limit, scoped)
 
 
 # 批次 D · N8 / N14：评论区里「现在抓全部评论」的入口（点击由插件 note-actions.js 接；body.lb-actions-on 时才显示）
@@ -401,67 +385,17 @@ FETCH_COMMENTS_ACT = '<span class="lb-act lb-act-fetch-comments" role="button" t
 NOTE_VERIFY_ACT = '<span class="lb-act lb-act-note-verify" role="button" tabindex="0">打开验证</span>'
 
 
-def _restricted_note_html(view: dict[str, Any] | None) -> str:
-    """评论区顶上一行：「这篇在小红书网页版要验证才能看」+「打开验证」。没标着就不出。"""
-    r = (view or {}).get("restricted") if isinstance(view, dict) else None
-    if not r:
-        return ""
-    # 1017 她：「这些帖子是真的不见了」——不再让她去点验证，只如实说一句
-    from .restricted import GONE_TEXT
-    return f'<div class="lb-comments-note lb-restricted-note">{_safe(GONE_TEXT)}</div>'
+def _restricted_note_html(view: dict[str, Any] | None, source_name: str | None = None) -> str:
+    text = sources.get(source_name or sources.names()[0]).restricted_text(view)
+    return f'<div class="lb-comments-note lb-restricted-note">{_safe(text)}</div>' if text else ""
 
 
 def _comments_note_html(capture: dict[str, Any] | None, comments: list[dict[str, Any]],
-                        view: dict[str, Any] | None = None) -> str:
-    """评论区顶上的一行状态：读到几楼、展开几楼、还缺几条——只在没读全时出现。
-
-    1009：有 view（comment_fill.view_for_render）就按设置楼数现算——设置楼数之内没缺口就不出这一行；
-    有缺口写「后台在补」，连着几次补不上写「已记进问题面板」，不再写「下次同步接着读」「不再读」。"""
-    if view is not None:
-        missing = int(view.get("missing") or 0)
-        if missing <= 0:
-            return ""
-        from .comment_fill import floors_label
-        attempts = int(view.get("attempts") or 0)
-        why = view.get("why") or "没读全"
-        if view.get("stuck"):
-            tail = f"，试了 {attempts} 次没补上，已记进问题面板" if attempts else "，已记进问题面板"
-        else:
-            tail = "，后台在补" + (f"（已续读 {attempts} 次）" if attempts else "")
-        text = f"评论读到 {len(comments)} 楼，{floors_label(int(view.get('floors') or 10))}的楼中楼还缺 {missing} 条（{why}{tail}）"
-        return f'<div class="lb-comments-note">{_safe(text)}' + FETCH_COMMENTS_ACT.format(label="现在抓全部评论") + "</div>"
-    cl = (capture or {}).get("comment_load") or {}
-    missing = int(cl.get("replies_missing") or 0)
-    if missing <= 0:
-        if cl:
-            return ""
-        # 老读取组件没有 comment_load：按楼算楼中楼还缺几条（不编原因）
-        lack = 0
-        for c in comments or []:
-            try:
-                lack += max(0, int(c.get("sub_comment_count") or 0) - len(c.get("sub_comments") or []))
-            except (TypeError, ValueError):
-                continue
-        if lack <= 0:
-            return ""
-        return (f'<div class="lb-comments-note">{_safe(f"楼中楼还缺 {lack} 条（只存了前几楼的回复）")}'
-                + FETCH_COMMENTS_ACT.format(label="现在抓全部评论") + "</div>")
-    from .adapters import xiaohongshu as xhs
-    bits = [f"评论读到 {cl.get('floors_loaded') or len(comments)} 楼"]
-    if cl.get("floor_limit"):
-        bits.append(f"前 {cl['floor_limit']} 楼展开回复")
-    gaps = cl.get("gaps") or []
-    main = max(gaps, key=lambda g: int(g.get("missing") or 0)).get("reason") if gaps else cl.get("stop_reason")
-    why = xhs.REPLY_GAP_CN.get(str(main or ""), "没读全")
-    attempts = int(cl.get("fill_attempts") or 0)
-    if any(g.get("reason") in xhs.RESUMABLE_GAPS for g in gaps) and attempts < 3:
-        tail = "，下次同步接着读" + (f"（已续读 {attempts} 次）" if attempts else "")
-    elif attempts >= 3:
-        tail = f"，已续读 {attempts} 次，剩下的太长不再读"
-    else:
-        tail = ""
-    bits.append(f"楼中楼还缺 {missing} 条（{why}{tail}）")
-    return f'<div class="lb-comments-note">{_safe("，".join(bits))}' + FETCH_COMMENTS_ACT.format(label="现在抓全部评论") + "</div>"
+                        view: dict[str, Any] | None = None, source_name: str | None = None) -> str:
+    text = sources.get(source_name or sources.names()[0]).comment_status_text(capture, comments, view)
+    if not text:
+        return ""
+    return f'<div class="lb-comments-note">{_safe(text)}' + FETCH_COMMENTS_ACT.format(label="现在抓全部评论") + "</div>"
 
 
 def split_layers(existing_text: str | None) -> tuple[str | None, str | None]:
@@ -574,18 +508,7 @@ def merge_existing(primary: str | None, secondary: str | None) -> str | None:
 
 
 def _is_link_only(note_text: str | None) -> bool:
-    """附言是不是「只有一条分享链接、没别的话」——是的话就不该在留言层留一条噪音 cmt1。
-
-    去掉所有 URL 后，只剩空白 / 标点 / 小红书那句「先复制这段文字…」类模板 = 视为纯链接。
-    """
-    if not note_text:
-        return True
-    from .adapters.xiaohongshu import URL_RE
-
-    residual = URL_RE.sub("", note_text)
-    residual = re.sub(r"(先复制这段文字|再进【?小红书】?查看完整笔记|打开【?小红书】?浏览笔记|这段文字复制好)", "", residual)
-    residual = re.sub(r"[\s，。、；：！？…·\-—|｜/\\【】\[\]（）()<>「」]+", "", residual)
-    return not residual
+    return sources.get(sources.names()[0]).is_link_only(note_text)
 
 
 _AUTO_LINK_CMT_RE = re.compile(
@@ -849,7 +772,7 @@ def set_highlights(item_id: str, phrases: list[str], *, remove: bool = False, co
     """
     from . import storage
 
-    source, src_id = domain.parse_item_id(item_id) or ("xiaohongshu", item_id)
+    source, src_id = domain.parse_item_id(item_id) or (sources.names()[0], item_id)
     meta_path = storage.object_dir(source, src_id) / "meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     visible = storage.vault_root() / meta["visible_note"]
@@ -913,12 +836,12 @@ def _author_html(note: dict[str, Any]) -> str:
 
 
 def _fill_view(source: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any] | None:
-    """1009：评论补齐的现状（设置楼数、缺口、后台在补 / 已放弃）。读不到就退回旧口径（只看 comment_load）。"""
+    """Source comment state, with the existing capture-only fallback."""
     try:
-        from . import comment_fill
-        sid = meta.get("source_id") or source.get("source_id")
-        state = comment_fill.load_state(meta.get("source") or source.get("source") or "xiaohongshu", sid) if sid else {}
-        return comment_fill.view_for_render(source, state)
+        src = sources.get(meta.get("source") or source.get("source") or sources.names()[0])
+        if "comments_fill" not in src.capabilities:
+            return None
+        return src.comment_view(source, meta)
     except Exception:  # noqa: BLE001 - 渲染不能被这一行带崩
         return None
 
@@ -926,6 +849,7 @@ def _fill_view(source: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any] |
 def _comments_html(
     note: dict[str, Any], comments: list[dict[str, Any]], manifest: dict[str, Any], object_rel: str,
     capture: dict[str, Any] | None = None, view: dict[str, Any] | None = None,
+    source_name: str | None = None,
 ) -> str:
     """标签 + 互动 + 原站评论树。结构复杂又不用编辑，继续走 HTML。"""
     parts = [
@@ -933,8 +857,8 @@ def _comments_html(
         _tag_html(note.get("hashtags") or []),
         _engagement_html(note),
         '<div class="lb-comments">',
-        _restricted_note_html(view),
-        _comments_note_html(capture, comments, view),
+        _restricted_note_html(view, source_name),
+        _comments_note_html(capture, comments, view, source_name),
     ]
     cl = (capture or {}).get("comment_load") or {}
     gap_reasons = {str(g.get("comment_id") or ""): str(g.get("reason") or "")
@@ -948,7 +872,7 @@ def _comments_html(
         floor_limit = int(view.get("floors") or 10)
     if comments:
         parts.extend(_comment_html(c, object_rel, manifest, gap_reasons=gap_reasons, floor_limit=floor_limit,
-                                   scoped=view is not None, label=f"c{i}") for i, c in enumerate(comments, start=1))
+                                   scoped=view is not None, label=f"c{i}", source_name=source_name) for i, c in enumerate(comments, start=1))
     else:
         # 批次 D · N14：原帖有评论、这次没存下来 ≠ 暂无评论
         n = (note.get("engagement") or {}).get("comment_count")
@@ -962,24 +886,7 @@ def _comments_html(
 
 
 def source_open_url(note: dict[str, Any], meta: dict[str, Any]) -> str | None:
-    """给人点的原文链接。
-
-    光有 `canonical_url`（`/explore/<id>`）现在**会 404**——小红书要求带 `xsec_token`
-    （2026-09-05 Owner 实机报的）。所以显示用的链接把抓取时那个 token 带上；
-    `canonical_url` 仍然只当去重键用（硬约束 7），不动它。
-    """
-    canonical = meta.get("canonical_url") or note.get("canonical_url")
-    if not canonical:
-        return None
-    token = note.get("xsec_token")
-    if not token:
-        # 老对象的 source.json 可能没存 token，从当初那条 input_url 里捞
-        raw_input = meta.get("input_url") or ""
-        match = re.search(r"[?&]xsec_token=([^&\s]+)", raw_input)
-        token = match.group(1) if match else None
-    if not token:
-        return canonical
-    return f"{canonical}?xsec_token={token}&xsec_source=pc_feed"
+    return sources.get(meta.get("source") or sources.names()[0]).source_open_url(note, meta)
 
 
 def _meta_md(note: dict[str, Any], meta: dict[str, Any], object_rel: str) -> list[str]:
@@ -1015,7 +922,8 @@ def render_content_block(
         body += '<details class="lb-transcript"><summary>视频文字稿</summary>' + _body_html(note['transcript']) + '</details>'
     if note.get('screen_text'):
         body += '<details class="lb-transcript"><summary>视频画面文字</summary>' + _body_html(note['screen_text']) + '</details>'
-    detail = _comments_html(note, comments, manifest, object_rel, source.get("capture"), _fill_view(source, meta))
+    detail = _comments_html(note, comments, manifest, object_rel, source.get("capture"), _fill_view(source, meta),
+                            meta.get("source") or source.get("source"))
     # Owner 2026-09-15：头像/作者在**正文上方**（右栏顶部），不跟图片在左栏。
     # 左栏只有图片、sticky 固定；右栏 = 作者 → 正文 → 评论，随页滚动。
     # 批次 D · N15：.lb-note 带 data-lb-item，图片导航按它记住每篇钉没钉 / 第几张 / 正文滚到哪
@@ -1262,16 +1170,8 @@ def _annotate_block(meta: dict[str, Any]) -> str:
     )
 
 
-_URL_TAIL = ".,;:!?'\"*_~"
-
-
 def suggested_link_url(raw: Any) -> str:
-    """小模型给的链接 → 干净的 URL：从 http(s) 开头截到第一个空白 / 全角括号 / 中文字符 / 中文标点为止
-    （和 adapters.xiaohongshu.URL_RE 同一把尺子），再去掉句末的半角标点。不是 http(s) 开头就返回空串。"""
-    from .adapters.xiaohongshu import URL_RE
-
-    m = URL_RE.match(str(raw or "").strip())
-    return m.group(0).rstrip(_URL_TAIL) if m else ""
+    return sources.get(sources.names()[0]).suggested_link_url(raw)
 
 
 def link_label(url: str, limit: int = 60) -> str:
@@ -1378,7 +1278,7 @@ def render_agent_md(
     for att in note.get("attachments") or []:
         target = att.get("file") or att.get("url") or ""
         doc_id = att.get("doc_id")
-        md_path = storage.derived_dir("xiaohongshu", meta["source_id"]) / "attachments" / f"{doc_id}.md" if meta.get("source_id") else None
+        md_path = storage.derived_dir(meta.get("source") or source.get("source") or sources.names()[0], meta["source_id"]) / "attachments" / f"{doc_id}.md" if meta.get("source_id") else None
         from urllib.parse import quote
         links_text = f"[下载文件](../{quote(target, safe='/')})" if att.get("file") else (f"[来源]({target})" if target else "")
         if md_path and md_path.is_file():
@@ -1420,7 +1320,7 @@ def render_agent_md(
         # 10-03：写收藏库内的相对路径，不写本机绝对路径（远程阅读会把机读版原样发给远端，远端用 read_asset 按它看原图）
         if not meta.get("source_id"):
             return asset
-        pic = storage.object_dir("xiaohongshu", meta["source_id"]) / asset
+        pic = storage.object_dir(meta.get("source") or source.get("source") or sources.names()[0], meta["source_id"]) / asset
         try:
             return pic.relative_to(storage.vault_root()).as_posix()
         except ValueError:
@@ -1468,20 +1368,8 @@ def render_agent_md(
                 rows.append(f"{indent}  - {name} " + (note if got else "识别没成，" + note))
         comment_rows[label] = rows
 
-    cl = (source.get("capture") or {}).get("comment_load") or {}
-    gap_line: list[str] = []
-    view = _fill_view(source, meta)
-    if view is not None:
-        if int(view.get("missing") or 0) > 0:
-            from .comment_fill import floors_label
-            gap_line = [f"（评论读到 {len(comments)} 楼，{floors_label(int(view.get('floors') or 10))}的楼中楼还缺 "
-                        f"{view['missing']} 条：{view.get('why') or '没读全'}；下面标「还缺」的楼不全）", ""]
-    elif int(cl.get("replies_missing") or 0) > 0:
-        from .adapters import xiaohongshu as xhs
-        gaps = cl.get("gaps") or []
-        main = max(gaps, key=lambda g: int(g.get("missing") or 0)).get("reason") if gaps else cl.get("stop_reason")
-        gap_line = [f"（评论读到 {cl.get('floors_loaded') or len(comments)} 楼，楼中楼还缺 {cl['replies_missing']} 条："
-                    f"{xhs.REPLY_GAP_CN.get(str(main or ''), '没读全')}；下面标「还缺」的楼不全）", ""]
+    gap_line = sources.get(meta.get("source") or source.get("source") or sources.names()[0]).comment_gap_lines(
+        source, _fill_view(source, meta))
 
     def build(budget: tuple[int, int, int, int]) -> tuple[str, int]:
         n_comments, n_chars, image_total, screen_total = budget

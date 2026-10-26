@@ -345,14 +345,11 @@ def item_problems(obj_dir: Path, report: dict[str, Any], vision: dict[str, Any],
     elif isinstance(extracted, dict) and extracted.get("status") == "failed":
         add(extracted.get("code") or "TRANSIENT.SERVICE_BUSY", f"概要没生成：{extracted.get('error') or ''}",
             cap=_API_CAP["extracted"])
-    mark = _load_json(obj_dir / "derived" / "web_recheck.json") or {}
-    if isinstance(mark, dict) and mark.get("gone"):
-        add("PERMANENT.NOTE_GONE", "原帖打不开（可能已删或仅作者可见），本地存档还在")
-    restricted = _load_json(obj_dir / "derived" / "restricted.json") or {}
-    from .restricted import confirmed as _restricted_confirmed
-    if isinstance(restricted, dict) and _restricted_confirmed(restricted) and not (isinstance(mark, dict) and mark.get("gone")):
-        # 1017 她：「这些帖子是真的不见了」——隔天还打不开 = 原帖不在了：和 NOTE_GONE 同一个安静角标，不叫她去验证
-        add("PERMANENT.NOTE_GONE", "原帖打不开了（多半删了或仅作者可见），本地存档还在")
+    from . import sources
+    meta = _load_json(obj_dir / "meta.json") or {}
+    source_name = meta.get("source") or (obj_dir.parent.name if obj_dir.parent.name in sources.names() else sources.names()[0])
+    for flag in sources.get(source_name).item_flags(obj_dir):
+        add(flag["code"], flag["detail"])
     return list(out.values())
 
 
@@ -416,15 +413,20 @@ def pinyin_chars(items: list[dict[str, Any]]) -> dict[str, str]:
     return {c: lazy_pinyin(c)[0] for c in sorted(corpus | _common_hanzi()) if "\u4e00" <= c <= "\u9fff"}
 
 
-def collect(vault: Path, source: str = "xiaohongshu") -> list[dict[str, Any]]:
+def collect(vault: Path, source: str | None = None) -> list[dict[str, Any]]:
     from .render import parse_frontmatter, source_open_url
+    from . import sources
 
+    if source is None:
+        items = [item for name in sources.names() for item in collect(vault, name)]
+        items.sort(key=lambda it: it.get("ts") or "", reverse=True)
+        return items
+    src = sources.get(source)
     items: list[dict[str, Any]] = []
     big_cats = effective_big_cats()
     base = vault / "_archive" / source
     try:   # 1019 专辑：她在小红书里给收藏分的组（albums sync 读来的），和标签分开
-        from . import albums as albums_mod
-        album_map = albums_mod.note_albums() if source == "xiaohongshu" else {}
+        album_map = src.note_albums() if "albums" in src.capabilities else {}
     except Exception:  # noqa: BLE001 - 读不到就当没有专辑
         album_map = {}
     if not base.is_dir():
@@ -754,7 +756,7 @@ def _clear_dirty(vault: Path, seen: dict[str, Any] | None) -> None:
 
 
 @storage.locked("catalog-build", wait_s=120)  # CONVENTIONS §6.4：remove / attachments / topics / 插件都会调
-def build(vault: Path | None = None, *, source: str = "xiaohongshu") -> tuple[Path, int, Path]:
+def build(vault: Path | None = None, *, source: str | None = None) -> tuple[Path, int, Path]:
     vault = vault or storage.vault_root()
     now = datetime.now().astimezone()
     dirty_seen = dirty_state(vault)

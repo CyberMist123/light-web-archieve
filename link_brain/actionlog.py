@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable
 
-from . import storage
+from . import sources, storage
 
 FILE = "account-actions.jsonl"
 MAX_BYTES = 5 * 1024 * 1024
@@ -39,8 +39,7 @@ REPEAT_PAUSE = timedelta(hours=24)
 
 
 def path() -> Path:
-    from . import accounts
-    return accounts.home() / FILE
+    return sources.get(sources.names()[0]).action_home() / FILE
 
 
 def _now() -> datetime:
@@ -52,8 +51,7 @@ def trigger() -> str:
     if t:
         return t
     try:
-        from . import accounts
-        h = accounts.lock_holder() or {}
+        h = sources.get(sources.names()[0]).action_lock_holder() or {}
         if h.get("owner"):
             return str(h["owner"])
     except Exception:  # noqa: BLE001 - 只是标注
@@ -175,8 +173,8 @@ def action_for_tool(tool: str, arguments: dict[str, Any]) -> str:
 
 
 def action_for_route(route: str) -> str:
-    r = route.split("?", 1)[0]
-    return {"/api/v1/favorites": "favorites", "/api/v1/attachments/download": "attachments",
-            "/api/v1/notes/related-file": "attachments", "/api/v1/login/status": "login_check",
-            "/api/v1/notes/search-token": "search_token", "/api/v1/risk/probe": "probe",
-            "/api/v1/boards": "boards", "/api/v1/boards/notes": "board_notes"}.get(r, "")
+    for name in sources.names():
+        action = sources.get(name).action_for_route(route)
+        if action:
+            return action
+    return ""
