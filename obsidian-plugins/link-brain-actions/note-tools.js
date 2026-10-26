@@ -1,5 +1,6 @@
 // note-tools.js — 批次 D · L5：笔记工具。
 //   F1-b 恢复这篇：⋯ 菜单 / 文件列表右键 / 命令「恢复这篇」「撤销上次恢复」「从快照找回…」（后端 restore，先存快照、可撤销）；
+//        1026：「从快照找回…」每份写清是什么、找回怎么做（restore --list 的 summary / how），选了走 --from-snapshot（坏的不原样写回）；
 //   F1-d 打开改坏的笔记就地提示一次（noteDamage 与 link_brain/restore.py 的 diagnose 同口径，共用样本 tests/fixtures/note_damage_cases.json）；
 //   F3-a 导出：右上角 ⋮ 菜单「导出 ▸」子菜单（PDF / 压缩包）+ 命令。1010 她：顶栏右端那个带框的「导出 ▾」删掉。
 //   1010 她：笔记顶上插件那一行变成一行很轻的字「← 目录　原文↗　机读版」——「← 目录」由 markdown post-processor 注入（不烤进 md），
@@ -173,6 +174,24 @@ module.exports = (obsidian, plugin, deps = {}) => {
     const t = String(s.ts || '');
     return `${t.slice(5, 10)} ${t.slice(11, 16)} · ${SNAP_REASON[s.reason] || s.reason || '快照'} · ${fmtSize(Number(s.bytes) || 0)}`;
   }
+  // 1026 她（录屏 20:51）：「从快照中找回就成为这个样子」——以前选一份就原样写回，「恢复前」那份多半是坏页面。
+  // 现在每份快照下面写清它是什么（页面好不好、哪一版存档、里面有她写的几样）、找回会怎么做；坏的只取她写的、按存档重新排版。
+  async function recover(file, snapshot) {
+    const info = itemOf(file);
+    if (!info || !snapshot) return null;
+    if (restoring.has(file.path)) { plugin.notify('正在恢复这篇，稍等'); return null; }
+    restoring.add(file.path);
+    try {
+      await settle(file);
+      const r = await py(restoreArgs(info, ['--from-snapshot', snapshot]), { label: '从快照找回', timeoutMs: 120000 });
+      if (r.json && r.json.ok) {
+        warned.delete(file.path);
+        const back = r.json.snapshot;
+        plugin.notify(r.json.message || '已从快照找回', { kind: 'ok', ms: 12000, actions: back ? [{ label: '撤销', run: () => undo(file, back) }] : null });
+      } else plugin.notify(`没找回：${why(r, '原因不明')}（文件没动）`, { kind: 'error' });
+      return r.json;
+    } finally { restoring.delete(file.path); }
+  }
   async function pickSnapshot(file) {
     const info = itemOf(file);
     if (!info) return null;
@@ -180,11 +199,20 @@ module.exports = (obsidian, plugin, deps = {}) => {
     const snaps = (r.json && r.json.snapshots) || [];
     if (!snaps.length) { plugin.notify(r.json ? '这篇还没有快照' : `没读到快照：${why(r, '原因不明')}`); return null; }
     const Base = obsidian.SuggestModal;
+    const detail = s => [s.summary, s.how].filter(Boolean).join('；');
     class SnapModal extends Base {
-      constructor(a) { super(a); this.setPlaceholder?.('选一份快照写回（当前这版会先存一份，可再撤销）'); }
-      getSuggestions(q) { q = String(q || '').trim(); return snaps.filter(s => !q || snapLabel(s).includes(q)); }
-      renderSuggestion(s, el) { el.setText ? el.setText(snapLabel(s)) : (el.textContent = snapLabel(s)); }
-      onChooseSuggestion(s) { undo(file, s.name); }
+      constructor(a) { super(a); this.setPlaceholder?.('选一份快照找回（每份下面写着它是什么、找回会怎么做；当前这版会先存一份，可撤销）'); }
+      getSuggestions(q) { q = String(q || '').trim(); return snaps.filter(s => !q || snapLabel(s).includes(q) || detail(s).includes(q)); }
+      renderSuggestion(s, el) {
+        const D = el.ownerDocument || doc();
+        const head = D.createElement('div'); head.className = 'lb-snap-title'; head.textContent = snapLabel(s);
+        el.appendChild(head);
+        if (detail(s)) {
+          const sub = D.createElement('div'); sub.className = 'lb-snap-desc' + (s.broken ? ' is-broken' : '');
+          sub.textContent = detail(s); el.appendChild(sub);
+        }
+      }
+      onChooseSuggestion(s) { recover(file, s.name); }
     }
     const m = new SnapModal(app());
     m.open();
@@ -357,7 +385,7 @@ module.exports = (obsidian, plugin, deps = {}) => {
       cmd('export-note-pdf', '导出当前笔记为 PDF', f => exportPdf(f), i => !!i.itemId);
       cmd('export-note-zip', '导出当前笔记为压缩包', f => exportZip(f), i => !!i.itemId);
     },
-    restore, undo, pickSnapshot, exportPdf, exportZip, checkDamage, noteDamage, itemOf, backToCatalog,
+    restore, undo, recover, pickSnapshot, exportPdf, exportZip, checkDamage, noteDamage, itemOf, backToCatalog,
     _internals: { postProcess, fileMenu, addExportItems, hasSnapshots, videoBytes, snapLabel, reasonText, warned, restoring, exporting },
   };
   return inst;

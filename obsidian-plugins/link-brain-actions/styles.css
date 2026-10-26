@@ -697,3 +697,7 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 }
 .lb-note .lb-author-row > button.lb-back-catalog:hover { color: var(--text-normal); background: transparent; }
 .lb-note .lb-author-row > button.lb-back-catalog:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; }
+
+/* 1026 从快照找回：每份快照下面一行说明（页面好不好、哪一版存档、她写的几样、找回会怎么做） */
+.lb-snap-desc { font-size: var(--font-ui-smaller); color: var(--text-muted); white-space: normal; margin-top: 2px; }
+.lb-snap-desc.is-broken { color: var(--text-warning); }

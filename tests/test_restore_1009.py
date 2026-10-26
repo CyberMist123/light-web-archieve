@@ -186,3 +186,85 @@ def test_cli_json_and_exit_code(obj, capsys):
     code = cli.main(["restore", obj["item_id"], "--list", "--json"])
     data = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert code == 0 and data["snapshots"]
+
+
+# --------------------------------------------------------------------------
+# 1026 她（录屏 20:51）：「从快照中找回就成为这个样子」——快照多半是「恢复前」存下的那份坏页面（真库那篇：两栏正文块
+# 从第 8 张图中间断掉，15 张图只剩 8 张、作者 / 标题 / 正文全没了），以前「从快照找回」把它原样写回去，页面就是坏的。
+# --------------------------------------------------------------------------
+
+
+def _truncated(clean: str) -> str:
+    """照真库那份坏快照的样子：两栏正文块那一行中间被截掉一段（div 不配对 → NOTE_BLOCK_SPLIT）。"""
+    line = next(ln for ln in clean.split("\n") if ln.lstrip().startswith('<div class="lb-note'))
+    a = line.find('<div class="lb-main"')
+    b = line.find("</section>", a)
+    assert a > 0 and b > a
+    return clean.replace(line, line[:a] + line[b:], 1)
+
+
+def _with_mine(t: str) -> str:
+    """她写的：一条留言 + 一个属性（快照找回要把这些取回来）。"""
+    t = t.replace("---\ncssclasses", "---\nmood: 想再看\ncssclasses", 1)
+    return t.replace(render_mod.COMMENTS_START + "\n", render_mod.COMMENTS_START + "\n"
+                     "> [!link-brain-comment]\n> 「20261026 人」快照里的留言\n"
+                     "<!-- link-brain: id=c9 actor=human target=none status=open -->\n", 1)
+
+
+def test_snapshot_list_describes_each_snapshot(obj):
+    bad = _with_mine(_truncated(obj["clean"]))
+    assert restore.diagnose(bad) == ["NOTE_BLOCK_SPLIT"]
+    obj["vis"].write_text(bad, encoding="utf-8")
+    out = restore.restore(obj["item_id"])          # 存下的「恢复前」快照就是这份坏的
+    assert out["ok"]
+    snaps = restore.list_snaps(obj["item_id"])["snapshots"]
+    s = next(x for x in snaps if x["name"] == out["snapshot"])
+    assert s["broken"] is True and s["issues"] == ["NOTE_BLOCK_SPLIT"]
+    assert s["summary"].startswith("页面结构坏了（两栏正文块被换行拆开了）") and "1 个属性、1 条留言" in s["summary"]
+    assert "不会把坏的页面写回来" in s["how"]
+    # 「保留了 0 个属性、0 条留言、0 处重点」那种零不再念；说清按哪一版存档
+    obj["vis"].write_text(obj["clean"].replace(render_mod.CONTENT_END, "", 1), encoding="utf-8")
+    msg = restore.restore(obj["item_id"])["message"]
+    assert "0 个属性" not in msg and "抓的 v1 重新排版" in msg and "批注不受影响" in msg
+
+
+def test_recover_broken_snapshot_rebuilds_instead_of_writing_it_back(obj):
+    bad = _with_mine(_truncated(obj["clean"]))
+    obj["vis"].write_text(bad, encoding="utf-8")
+    snap = restore.restore(obj["item_id"])["snapshot"]
+    good = obj["vis"].read_text(encoding="utf-8")
+    out = restore.recover(obj["item_id"], snapshot=snap)
+    assert out["ok"] and out["mode"] == "rebuilt", out
+    after = obj["vis"].read_text(encoding="utf-8")
+    assert restore.diagnose(after) == [], "找回后页面正常，不是那份坏的"
+    assert after.count('<div class="lb-note') == 1 and '<div class="lb-main"' in after
+    fm = render_mod.parse_frontmatter(after)
+    assert fm["mood"] == "想再看" and "快照里的留言" in after, "她写的从快照里取回来了"
+    assert "页面是坏的（两栏正文块被换行拆开了）" in out["message"] and "取回了你写的 1 个属性、1 条留言" in out["message"]
+    # 撤销：回到找回前那一版（原样）
+    u = restore.undo(obj["item_id"], snapshot=out["snapshot"])
+    assert u["ok"] and obj["vis"].read_text(encoding="utf-8") == good
+
+
+def test_recover_intact_snapshot_writes_it_back_verbatim(obj):
+    older = obj["clean"]
+    name = history.snapshot(obj["dir"], older, "render")
+    obj["vis"].write_text(_with_mine(obj["clean"]), encoding="utf-8")
+    cur = obj["vis"].read_text(encoding="utf-8")
+    out = restore.recover(obj["item_id"], snapshot=name)
+    assert out["ok"] and out["mode"] == "verbatim"
+    assert obj["vis"].read_text(encoding="utf-8") == older and "原样写回" in out["message"]
+    assert restore.undo(obj["item_id"])["ok"] and obj["vis"].read_text(encoding="utf-8") == cur
+
+
+def test_cli_from_snapshot(obj, capsys):
+    obj["vis"].write_text(_truncated(obj["clean"]), encoding="utf-8")
+    snap = restore.restore(obj["item_id"])["snapshot"]
+    capsys.readouterr()
+    code = cli.main(["restore", obj["item_id"], "--from-snapshot", snap, "--json"])
+    data = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert code == 0 and data["ok"] and data["mode"] == "rebuilt" and data["restored_from"] == snap and data["snapshot"]
+    assert restore.diagnose(obj["vis"].read_text(encoding="utf-8")) == []
+    code = cli.main(["restore", obj["item_id"], "--from-snapshot", "visible-nope.txt", "--json"])
+    capsys.readouterr()
+    assert code == 2
