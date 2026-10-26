@@ -116,10 +116,8 @@ def _catch_one(
     refresh: bool = False, project: str = "",
 ) -> dict[str, Any]:
     """抓取阶段的一条链接。返回条目 dict；新抓的带内部键 `_source_id`（之后补识图用）。"""
-    from . import enrich as enrich_mod, render as render_mod
-
     try:
-        parsed = xhs.parse_input(url)
+        parsed = ingest_mod.recognize(url)[1]   # 1025 第二波 PR⑤b：经来源接口解析（带 source / source_id）
         if lock is not None and (refresh or _needs_fetch(parsed)):
             lock.ensure()
         summary = ingest_mod.ingest_url(
@@ -131,6 +129,7 @@ def _catch_one(
             verbose=verbose,
             refresh=refresh,
             parsed=parsed,
+            project=project or None,
         )
     except accounts.AccountBusyError as exc:
         return {"item_id": None, "status": "busy", "url": url, "error": f"{BUSY_MESSAGE}（{exc}）",
@@ -155,21 +154,8 @@ def _catch_one(
     fresh = not (summary.get("hit") or summary.get("refreshed_unchanged"))
     status = "new" if fresh else "hit"
     source_key, source_id = xhs.SOURCE, summary["note_id"]
-
-    if fresh and project:
-        _set_project(source_key, source_id, project)
-
-    render_error = None
-    try:
-        if fresh:
-            enrich_mod.mark_pending(source_key, source_id, reason="导入")
-        # 本地渲染（不调模型、不识图）；HIT 只在可见 md 丢了时补一份
-        meta_path = storage.object_dir(source_key, source_id) / "meta.json"
-        rel = storage.read_json(meta_path).get("visible_note") if meta_path.exists() else None
-        if fresh or not (rel and (storage.vault_root() / rel).exists()):
-            render_mod.render_object(source_key, source_id, verbose=False, llm=False)
-    except Exception as exc:  # noqa: BLE001 - 渲染失败不该吞掉已经落盘的归档
-        render_error = f"渲染失败: {type(exc).__name__}: {exc}"
+    # 1025 第二波 PR⑤c：project 在 ingest 提交那一次一起写进 meta；收尾统一走 ingest.after_commit
+    render_error = ingest_mod.after_commit(source_key, source_id, fresh=fresh, reason="导入")
 
     blocked_code = ""
     if fresh:
@@ -178,21 +164,6 @@ def _catch_one(
 
     return {"item_id": summary.get("item_id"), "status": status, "url": url, "_source_id": source_id,
             "_render_error": render_error, "_blocked_code": blocked_code}
-
-
-def _set_project(source_key: str, source_id: str, project: str) -> None:
-    """1020：AI 为哪个项目收的，记进 meta.project（目录「来源」按它分组，见 provenance.py）。只在新收的篇上记。"""
-    from . import domain
-
-    name = domain.clean_project(project)
-    meta_path = storage.object_dir(source_key, source_id) / "meta.json"
-    if not name or not meta_path.exists():
-        return
-
-    def change(meta):   # 1025 PR①：只动 project 这一个键，单篇锁里读改写（原来是锁外整份覆写）
-        meta["project"] = name
-
-    storage.update_json(meta_path, change, lock_name=storage.obj_lock_name(domain.item_id(source_key, source_id)))
 
 
 def _finish(entry: dict[str, Any], enriched: dict[str, Any] | None) -> dict[str, Any]:

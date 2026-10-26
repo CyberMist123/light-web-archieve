@@ -24,7 +24,7 @@ def _fixture():
 
 
 def _parsed(text="https://example.invalid/share"):
-    return {"note_id": NOTE_ID, "xsec_token": "FAKE_TOKEN", "canonical_url": xhs.CANONICAL_FMT.format(note_id=NOTE_ID),
+    return {"source": SRC, "source_id": NOTE_ID, "note_id": NOTE_ID, "xsec_token": "FAKE_TOKEN", "canonical_url": xhs.CANONICAL_FMT.format(note_id=NOTE_ID),
             "input_url": text, "input_kind": "url", "resolved_url": text}
 
 
@@ -88,7 +88,7 @@ def test_retarget_only_touches_staging_paths(vault):
 
 def test_crash_mid_download_leaves_no_version(vault, monkeypatch):
     tmp, _ = vault
-    monkeypatch.setattr(ingest, "download_media", lambda *a, **k: (_ for _ in ()).throw(Boom("下到一半进程被杀")))
+    monkeypatch.setattr(ingest, "download_plan", lambda *a, **k: (_ for _ in ()).throw(Boom("下到一半进程被杀")))
     with pytest.raises(Boom):
         ingest.ingest_url("https://example.invalid/share")
     assert storage.version_dirs(SRC, NOTE_ID) == {} and not _staging_left(tmp)
@@ -105,8 +105,9 @@ def test_orphan_version_is_adopted_not_refetched(vault, monkeypatch):
     assert storage.existing_versions(SRC, NOTE_ID) == [1] and calls["fetch"] == 1
     monkeypatch.setattr(ingest, "_write_meta", real)
 
-    out = ingest.ingest_url("https://example.invalid/share")
+    out = ingest.ingest_url("https://example.invalid/share", project="旅行")
     assert calls["fetch"] == 1, "孤儿版本应该收编，不该再联网抓"
+    assert _meta(tmp)["project"] == domain.clean_project("旅行"), "收编的孤儿算新收：project 要记上（PR⑤c 复审）"
     assert out["adopted"] is True and out["hit"] is False and out["version"] == 1
     assert storage.version_dirs(SRC, NOTE_ID).keys() == {1}
     assert _meta(tmp)["current_version"] == 1 and _meta(tmp)["versions"] == [1]

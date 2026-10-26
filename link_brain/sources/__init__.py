@@ -72,6 +72,7 @@ class MediaTask(TypedDict, total=False):
     stem: str
     kind: str
     headers: dict[str, str]
+    payload: dict[str, Any]   # 来源自己要的原始片段（如视频的备用地址 / 宽高），通用下载原样转给对应下载器
 
 
 class Source(Protocol):
