@@ -276,10 +276,17 @@ def resolve(target: str | None = None, path: str | None = None) -> tuple[dict[st
 # 动作
 # --------------------------------------------------------------------------
 
-def _kept_message(title: str, kept: dict[str, Any]) -> str:
-    bits = [f"保留了 {len(kept.get('frontmatter_keys') or [])} 个属性", f"{kept.get('comments', 0)} 条留言",
-            f"{kept.get('highlights', 0)} 处重点"]
-    msg = f"已按存档恢复「{title}」：" + "、".join(bits) + "；批注不受影响"
+def _kept_message(title: str, kept: dict[str, Any], archive: str = "") -> str:
+    """1026 她（录屏 21:12）看到「保留了 0 个属性、0 条留言、0 处重点」不知道发生了什么：说清按哪一版存档重写，
+    她没写过的就不念零。"""
+    n_keys, n_cmt, n_hl = len(kept.get("frontmatter_keys") or []), kept.get("comments", 0), kept.get("highlights", 0)
+    head = f"已按存档恢复「{title}」" + (f"（按 {archive} 重新排版）" if archive else "")
+    if n_keys or n_cmt or n_hl:
+        bits = [x for x in (f"{n_keys} 个属性" if n_keys else "", f"{n_cmt} 条留言" if n_cmt else "",
+                            f"{n_hl} 处重点" if n_hl else "") if x]
+        msg = head + "：你写的 " + "、".join(bits) + " 都留着；批注不受影响"
+    else:
+        msg = head + "；批注不受影响"
     if kept.get("moved_lines"):
         msg += f"；正文外手写的 {kept['moved_lines']} 行搬进了留言"
     if kept.get("unparsed_frontmatter_lines"):
@@ -327,7 +334,7 @@ def restore(target: str | None = None, path: str | None = None, *, dry_run: bool
         problems.resolve(STEP, obj["item_id"])
     except Exception:  # noqa: BLE001 - 问题记录写不上不挡恢复
         pass
-    msg = _kept_message(title, kept) if text is not None else "笔记文件不在了，已按存档重新生成"
+    msg = _kept_message(title, kept, archive_label(obj)) if text is not None else "笔记文件不在了，已按存档重新生成"
     return {"ok": True, "code": "", "message": msg, **base}
 
 
@@ -350,10 +357,115 @@ def undo(target: str | None = None, path: str | None = None, *, snapshot: str | 
             "restored_from": name, "kept": {}, "issues_before": []}
 
 
+def archive_label(obj: dict[str, Any]) -> str:
+    """「10-26 20:08 抓的 v3」：恢复按的是哪一版存档（读不到就空）。"""
+    try:
+        meta = storage.read_json(storage.object_dir(obj["source"], obj["source_id"]) / "meta.json")
+        v = int(meta.get("current_version") or 0)
+        src = storage.read_json(storage.raw_dir(obj["source"], obj["source_id"], v) / "source.json")
+        at = str((src.get("capture") or {}).get("captured_at") or "")
+    except (OSError, ValueError, KeyError, TypeError):
+        return ""
+    return (f"{at[5:10]} {at[11:16]} 抓的 " if len(at) >= 16 else "") + f"v{v}"
+
+
+_ASSET_VERSION = re.compile(r"/raw/v(\d{4})/")
+SNAP_REASON_CN = {"restore": "恢复前", "undo": "撤销前", "render": "重渲前", "heal": "自愈前"}
+
+
+def describe_snapshot(text: str) -> dict[str, Any]:
+    """1026 她（录屏 20:51）：「从快照中找回就成为这个样子」——快照多半是「恢复前」存的那份坏页面，以前原样写回去就是坏的。
+    找回之前先说清这份是什么：页面结构好不好（坏在哪）、排的是哪一版存档、里面有她写的几个属性 / 几条留言 / 几处重点，
+    以及找回会怎么做（坏的：只取她写的东西、按存档重新排版；好的：原样写回）。"""
+    issues = diagnose(text)
+    _, kept = seed_text(text)
+    versions = sorted({int(m) for m in _ASSET_VERSION.findall(text or "")})
+    n_keys, n_cmt, n_hl = len(kept.get("frontmatter_keys") or []), kept.get("comments", 0), kept.get("highlights", 0)
+    mine = "、".join(x for x in (f"{n_keys} 个属性" if n_keys else "", f"{n_cmt} 条留言" if n_cmt else "",
+                                f"{n_hl} 处重点" if n_hl else "") if x) or "没有你写的属性 / 留言 / 重点"
+    page = f"页面结构坏了（{reason_text(issues)}）" if issues else "页面完整"
+    ver = f"存档 v{versions[-1]} 那一版的排版" if versions else ""
+    how = ("找回会只取它里面你写的东西、按现在的存档重新排版（不会把坏的页面写回来）" if issues else "找回会原样写回这一份")
+    return {"broken": bool(issues), "issues": issues, "version": versions[-1] if versions else None, "kept": kept,
+            "summary": "，".join(x for x in (page, ver, mine) if x), "how": how}
+
+
 def list_snaps(target: str | None = None, path: str | None = None) -> dict[str, Any]:
     obj, vis = resolve(target, path)
     od = storage.object_dir(obj["source"], obj["source_id"])
-    return {"ok": True, "code": "", "item_id": obj["item_id"], "path": _rel(vis), "snapshots": history.list_snapshots(od)}
+    snaps = history.list_snapshots(od)
+    try:
+        cur_v = int(storage.read_json(od / "meta.json").get("current_version") or 0)
+    except (OSError, ValueError, TypeError):
+        cur_v = 0
+    for s in snaps:
+        try:
+            s.update(describe_snapshot(history.read_snapshot(od, s["name"])))
+        except (OSError, ValueError, UnicodeError):
+            s.update(broken=None, summary="读不出这份快照", how="")
+            continue
+        if not s["broken"] and s.get("version") and cur_v > s["version"]:
+            s["summary"] += f"（存档现在是 v{cur_v}，这份是旧的排版，评论可能少）"
+    return {"ok": True, "code": "", "item_id": obj["item_id"], "path": _rel(vis), "snapshots": snaps}
+
+
+def recover(target: str | None = None, path: str | None = None, *, snapshot: str) -> dict[str, Any]:
+    """从快照找回（1026）：当前这版先存一份「恢复前」快照（撤销就回到它）；快照页面完整 → 原样写回；
+    页面坏了 → 只取她写的（属性 / 留言 / 重点 / 正文外手写）、按存档重新排版（和「恢复这篇」同一套），写完再查一遍，还坏就放回原样。"""
+    obj, vis = resolve(target, path)
+    od = storage.object_dir(obj["source"], obj["source_id"])
+    try:
+        old = history.read_snapshot(od, snapshot)
+    except (ValueError, FileNotFoundError) as exc:
+        raise RestoreError(str(exc), 2) from None
+    desc = describe_snapshot(old)
+    title = obj.get("title") or vis.stem
+    cur = vis.read_text(encoding="utf-8") if vis.is_file() else None
+    backup = history.snapshot(od, cur, "restore") if cur is not None else None
+    base = {"item_id": obj["item_id"], "path": _rel(vis), "snapshot": backup, "restored_from": snapshot,
+            "kept": desc["kept"], "issues_before": desc["issues"]}
+
+    def rollback(msg: str) -> dict[str, Any]:
+        if cur is not None:
+            storage.atomic_write_text(vis, cur)
+        return {"ok": False, "code": CODE, "message": msg + "，已放回原样（文件没动）", "mode": None, **base}
+
+    when = _snap_when(snapshot)
+    if not desc["broken"]:
+        storage.atomic_write_text(vis, old)
+        after = vis.read_text(encoding="utf-8")
+        if diagnose(after):
+            return rollback("写回去后页面结构不对")
+        return {"ok": True, "code": "", "mode": "verbatim", **base,
+                "message": f"已从快照找回「{title}」：{when}那一份（{desc['summary']}），原样写回"}
+    seed, kept = seed_text(old)
+    base["kept"] = kept
+    try:
+        render_mod.render_object(obj["source"], obj["source_id"], target=vis, existing_override=seed)
+    except Exception as exc:  # noqa: BLE001 - 失败放回原样，如实说
+        return rollback(f"按存档重新排版没成功（{errtext(exc)}）")
+    left = diagnose(vis.read_text(encoding="utf-8") if vis.is_file() else "")
+    if left:
+        return rollback(f"重新排版后还是不对（{reason_text(left)}）")
+    try:
+        problems.resolve(STEP, obj["item_id"])
+    except Exception:  # noqa: BLE001
+        pass
+    mine = "、".join(x for x in (f"{len(kept.get('frontmatter_keys') or [])} 个属性" if kept.get("frontmatter_keys") else "",
+                                f"{kept['comments']} 条留言" if kept.get("comments") else "",
+                                f"{kept['highlights']} 处重点" if kept.get("highlights") else "") if x)
+    return {"ok": True, "code": "", "mode": "rebuilt", **base,
+            "message": (f"已从快照找回「{title}」：{when}那一份页面是坏的（{reason_text(desc['issues'])}），"
+                        + (f"取回了你写的 {mine}，" if mine else "")
+                        + f"按存档{('（' + archive_label(obj) + '）') if archive_label(obj) else ''}重新排版")}
+
+
+def _snap_when(name: str) -> str:
+    m = history.NAME_RE.match(name or "")
+    if not m:
+        return ""
+    d, t, reason = m.group(1), m.group(2), m.group(4)
+    return f"{d[4:6]}-{d[6:]} {t[:2]}:{t[2:4]}「{SNAP_REASON_CN.get(reason, reason)}」存的"
 
 
 def _looks_archived(text: str) -> bool:
@@ -421,7 +533,9 @@ def add_parser(sub) -> None:
     p.add_argument("target", nargs="?", help="item_id 或裸 source_id")
     p.add_argument("--path", help="收藏库相对路径（item_id 被删了时用）")
     p.add_argument("--undo", action="store_true", help="撤销：写回最近一次恢复前的快照")
-    p.add_argument("--snapshot", help="配 --undo：写回指定的快照")
+    p.add_argument("--snapshot", help="配 --undo：写回指定的快照（原样）")
+    p.add_argument("--from-snapshot", dest="from_snapshot",
+                   help="从快照找回：坏的快照只取她写的、按存档重新排版；好的原样写回（当前这版先存快照，可撤销）")
     p.add_argument("--list", action="store_true", help="列出这篇的快照")
     p.add_argument("--scan", action="store_true", help="只读扫描全部归档笔记")
     p.add_argument("--report", action="store_true", help="配 --scan：把坏的登记进问题面板")
@@ -438,6 +552,8 @@ def run(args) -> int:
             out = list_snaps(args.target, args.path)
         elif args.undo:
             out = undo(args.target, args.path, snapshot=args.snapshot)
+        elif getattr(args, "from_snapshot", None):
+            out = recover(args.target, args.path, snapshot=args.from_snapshot)
         else:
             if not args.target and not args.path:
                 raise RestoreError("要给 item_id 或 --path", 2)

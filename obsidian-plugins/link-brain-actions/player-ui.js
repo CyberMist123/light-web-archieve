@@ -10,6 +10,10 @@ const ORDER_TEXT = { newest: '新→旧', oldest: '旧→新', shuffle: '乱序'
 const SPEEDS = [1, 1.25, 1.5, 2, 0.75];
 const mmss = s => { const n = Math.round(Number(s) || 0); return n ? `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}` : ''; };
 const norm = t => String(t || '').trim().replace(/^#/, '').trim().toLowerCase();
+// 1026 她：「你看它不是全屏」——连播的「全屏」铺满屏幕的是整块画面（上一条 / 倍速 / 循环 / 下一条 / 标题都在），
+// 不是 <video> 自己（原生全屏会把这些控件丢掉）；和笔记页共用 media-nav 的那套（退出时滚动位置放回）。
+let FS = null;
+try { FS = require('./media-nav.js').fullscreen || null; } catch { FS = null; }
 
 module.exports = (obsidian, plugin, deps = {}) => {
   const app = () => plugin.app;
@@ -132,7 +136,7 @@ module.exports = (obsidian, plugin, deps = {}) => {
       return super.setState ? super.setState(state, result) : undefined;
     }
     async onOpen() { this.root = this.contentEl.createEl('div', { cls: 'lb-player' }); this.contentEl.addEventListener('keydown', e => this.onKey(e)); if (!this.contentEl.hasAttribute('tabindex')) this.contentEl.tabIndex = 0; }
-    async onClose() { this.release(); }
+    async onClose() { if (this.stage && this.stage.__lbFs && FS) await FS.exit(this.stage); this.release(); }
     release() { const v = this.video; if (v) { try { v.pause(); } catch {} v.removeAttribute('src'); try { v.load(); } catch {} } }
     paintResume(index) {
       this.ensureRoot(); this.root.empty?.(); this.root.textContent = '';
@@ -165,6 +169,11 @@ module.exports = (obsidian, plugin, deps = {}) => {
       this.loopBtn = btn('lb-player-loop', '循环', () => this.toggleLoop(), '单曲循环');
       this.loopBtn.setAttribute('aria-pressed', 'false');
       btn('lb-player-next', '下一条 ⏭', () => this.next());
+      this.fullBtn = btn('lb-player-full', '⛶ 全屏', () => this.toggleFull(), '全屏');
+      this.fullBtn.setAttribute('aria-pressed', 'false'); this.fullBtn.setAttribute('title', '铺满屏幕（F）；再点或 Esc 退出');
+      v.setAttribute('controlslist', 'nofullscreen');
+      v.addEventListener('dblclick', e => { e.preventDefault?.(); this.toggleFull(); });
+      this.fsTitle = this.stage.createEl('div', { cls: 'lb-player-fs-title' });
       this.endEl = this.stage.createEl('div', { cls: 'lb-player-end' }); this.endEl.style.display = 'none';
       try { plugin.mediaNav?.hoverControls?.(this.stage, v); } catch {}
       const t = this.root.createEl('div', { cls: 'lb-player-title' });
@@ -198,6 +207,7 @@ module.exports = (obsidian, plugin, deps = {}) => {
       const it = this.items[this.idx] || {};
       this.headText.textContent = `#${this.st.tag} · ${ORDER_TEXT[this.st.order] || ''} · 第 ${this.idx + 1} / ${this.items.length}`;
       this.titleText.textContent = [it.title, it.author, mmss(it.duration_sec)].filter(Boolean).join(' · ');
+      if (this.fsTitle) this.fsTitle.textContent = `第 ${this.idx + 1} / ${this.items.length} · ` + (it.title || '（无标题）');
       [...this.ol.children].forEach((li, i) => { li.classList.toggle('is-current', i === this.idx); li.classList.toggle('is-failed', this.failed.has(i)); });
     }
     next() { if (this.idx < this.items.length - 1) this.play(this.idx + 1); else this.finish(); }
@@ -224,6 +234,15 @@ module.exports = (obsidian, plugin, deps = {}) => {
         if (j && j.ok) this.load(j, 0);
       });
     }
+    toggleFull() {
+      if (!this.stage || !FS) { plugin.notify?.('这里开不了全屏：更新 Link Brain Actions 插件后再试', { kind: 'warn' }); return null; }
+      const list = this.ol ? [this.ol] : [];
+      return FS.toggle(this.stage, { keep: list, onChange: on => {
+        this.fullBtn?.setAttribute('aria-pressed', String(on));
+        if (this.fullBtn) this.fullBtn.textContent = on ? '⛶ 退出全屏' : '⛶ 全屏';
+        try { this.contentEl.focus?.(); } catch {}
+      } });
+    }
     toggleLoop() { this.loop = !this.loop; this.video.loop = this.loop; this.loopBtn.setAttribute('aria-pressed', String(this.loop)); this.loopBtn.classList.toggle('is-active', this.loop); }
     cycleSpeed() { this.speed = (this.speed + 1) % SPEEDS.length; this.video.playbackRate = SPEEDS[this.speed]; this.speedBtn.textContent = SPEEDS[this.speed] + '×'; }
     async openNote() {
@@ -241,6 +260,7 @@ module.exports = (obsidian, plugin, deps = {}) => {
       if (k === 'PageDown' || k === 'n' || k === 'N') { e.preventDefault?.(); this.next(); }
       else if (k === 'PageUp' || k === 'p' || k === 'P') { e.preventDefault?.(); this.prev(); }
       else if (k === 'l' || k === 'L') { e.preventDefault?.(); this.toggleLoop(); }
+      else if (k === 'f' || k === 'F') { e.preventDefault?.(); this.toggleFull(); }
     }
   }
 

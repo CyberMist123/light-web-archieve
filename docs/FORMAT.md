@@ -1058,7 +1058,10 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
 - 对象级 `derived/comments-fill.json`（可变）：`attempts` 续读次数 · `last_at` 上次开页 · `last_mode` expand|floors · `last_missing` ·
   `no_progress` 连着没多拿到的次数 · `floors_done` 按这个楼数重读过、楼没变多 · `gone_floors[]` · `stuck` / `stuck_floors` / `stuck_at` /
   `stuck_reason`（连着 3 次没进展：不再自动续，问题记录 `comments.fill` + `PERMANENT.COMMENTS_INCOMPLETE`）· `done_at` · `history[]`（最近 8 次）·
-  `legacy_released`（1011：以前因「not found in noteDetailMap」放弃的，补评论开跑时本地解开过一次的时刻，见 restricted.release_legacy_fill_stuck）。
+  `legacy_released`（1011：以前因「not found in noteDetailMap」放弃的，补评论开跑时本地解开过一次的时刻，见 restricted.release_legacy_fill_stuck）
+  · `floors_done = 100000`（1026：一级评论翻到底过——之后按楼数上限的浅续读不再把存档记回没读全）· `end_at` 翻到底的时刻 ·
+  `full_at` / `full {floors, replies, declared_total, reached_end, missing, gap_floors}` 她手动「抓全部评论」的时刻和那次结果（评论区顶上照它写）· `last_error` 上次没成的原因。
+- `capture.comment_load.last_read`（1026）：上一版已翻到底、这次只读了前几楼时，这次读的样子（`floor_limit / floors_loaded / has_more / stop_reason`）记在这里，`has_more / stop_reason` 留「到底了」。
 - 对象级 `derived/restricted.json`（1011，可变；网页版要验证才给看的笔记，`link_brain/restricted.py`）：`restricted` 现在是不是标着 ·
   `since` / `last_at` / `count` · `via[]`（comments.fill / comments / attachments：哪一步撞见的）· `detail` · `title` ·
   `search {on: 日期, at, result: running|found|not_found|same_token|no_title|error, error?}`（用标题搜新口令；每篇每天最多一次，先记再搜）·

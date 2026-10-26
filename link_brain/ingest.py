@@ -739,6 +739,31 @@ def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = Fa
         out.setdefault("sub_comments", None)
         out.setdefault("comments_complete", None)
         return out
+    if not target.startswith("http") and floors == "all":
+        # 1026（她：「抓全部评论……有一些它会不齐」）：整篇抓过、还有没齐的 → 这一下只接着补（没翻到底从停下那页往后翻，
+        # 翻到底了只展开缺回复的楼，带游标从存下的最后一条往后拉），不再从第 1 楼整篇重来；结果照实报「已抓几楼 / 翻没翻到底 / 还缺什么」
+        state0 = comment_fill.load_state(row["source"], row["source_id"])
+        _, source0 = comment_fill.current_source(row["source"], row["source_id"])
+        if comment_fill.manual_plan(source0, state0) == "resume":
+            if progress:
+                progress("start", "这篇整篇抓过：只接着补没齐的（没翻到底就从停下那页往后翻，翻到底了只展开缺回复的楼）")
+            try:
+                out = comment_fill.fill_one(row["item_id"], floors=comment_fill.FLOOR_ALL, verbose=verbose, manual=True,
+                                            progress=progress)
+            except Exception as exc:
+                _record_full_quietly(row, errtext(exc))
+                raise
+            if out.get("trashed"):
+                return {**out, "status": "trashed"}
+            rep = _record_full_quietly(row)
+            if progress:
+                progress("render", "写进笔记、刷新这一页")
+            catch_mod._ensure_rendered(xhs.SOURCE, row["source_id"], force=True, extract=False)
+            _, source1 = comment_fill.current_source(row["source"], row["source_id"])
+            return {**out, "resumed": True, "report": rep, "note_id": row["source_id"],
+                    "comments": len(source1.get("comments") or []),
+                    "sub_comments": sum(len(c.get("sub_comments") or []) for c in source1.get("comments") or []),
+                    "comments_complete": (source1.get("capture") or {}).get("comments_complete")}
     if not target.startswith("http"):
         # 1009：手动「现在抓全部评论」也并集合并（调小楼数 / 原帖删了评论都不丢已存的）
         from . import restricted
@@ -750,7 +775,12 @@ def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = Fa
 
         old_token = restricted.best_token(sid, note.get("xsec_token") or "")
         try:
-            summary = attempt(old_token)
+            try:
+                summary = attempt(old_token)
+            except Exception as exc:
+                if floors == "all" and not isinstance(exc, sources.ItemRestricted):
+                    _record_full_quietly(row, errtext(exc))   # 1026：没成也记一笔，评论区顶上照实写原因、下次接着
+                raise
         except sources.ItemRestricted as exc:
             # 1011：这篇在网页版要验证才能看：今天没搜过就用标题搜一次新口令、歇一会儿再开一次；还不行就如实说、给「打开验证」
             opened, summary = restricted.retry_with_fresh_token(
@@ -773,6 +803,8 @@ def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = Fa
         if not sc["missing"] and state.get("stuck"):
             from . import problems as problems_mod
             comment_fill._settle(row["source"], row["source_id"], state, row["item_id"], problems_mod)
+        if floors == "all":
+            summary = {**summary, "report": _record_full_quietly(row)}
     else:
         summary = ingest_url(url, refresh=True, comment_floors=floors, verbose=verbose, progress=progress)
     if summary.get("status") == "trashed":
@@ -781,6 +813,16 @@ def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = Fa
         progress("render", "写进笔记、刷新这一页")
     catch_mod._ensure_rendered(xhs.SOURCE, summary["note_id"], force=True, extract=False)
     return summary
+
+
+def _record_full_quietly(row, error: str = "") -> dict[str, Any] | None:
+    """手动抓全部评论的结果记进续读状态（comment_fill.record_full）；记不上不挡抓评论本身。"""
+    from . import comment_fill
+    try:
+        return comment_fill.record_full(row["source"], row["source_id"], error=error)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[comments] 抓取结果没记上：{errtext(exc)}", file=sys.stderr)
+        return None
 
 
 # 1010：手动「抓全部评论」的进度事件（--progress）。stdout 一行一个 JSON（和 setup run 同一写法），最后一行照旧是结果：
@@ -881,10 +923,16 @@ def run_comments(args) -> int:
                    'message': '评论没抓：这篇在小红书网页版要验证才能看——点评论区顶上的「打开验证」过一下，过完自动补抓'})
         return EXIT_ERROR
     out = {k: summary.get(k) for k in ("item_id", "note_id", "comments", "sub_comments", "comments_complete", "version",
-                                       "refreshed_unchanged", "filled", "reason") if k in summary}
+                                       "refreshed_unchanged", "filled", "reason", "report", "resumed") if k in summary}
     message = (f'评论没有变化（{summary.get("comments", 0)} 条）' if summary.get('refreshed_unchanged') else
                f'评论已更新：{summary.get("comments", 0)} 条一级、{summary.get("sub_comments", 0)} 条回复')
     if summary.get('comments_complete') is False:
         message += '；还有没读全的楼，夜里接着读'
+    report = summary.get("report")
+    if isinstance(report, dict) and report.get("text"):
+        # 1026：手动抓全部评论——照实说抓到哪了（已抓楼数 / 翻没翻到最后一页 / 还缺什么、为什么），还有没齐的告诉她再点能接着补
+        head = ("评论没有变化" if summary.get('refreshed_unchanged') else
+                "接着补抓完了" if summary.get("resumed") else "评论已更新")
+        message = f'{head}：{report["text"]}' + ('；再点「接着补抓」从停下的地方接着来' if report.get("resumable") else '')
     dump_json({**out, 'ok': True, 'code': '', 'message': message})
     return 0

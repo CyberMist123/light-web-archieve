@@ -104,17 +104,30 @@ function setup({ runPy, files = {}, root = '' } = {}) {
     const n = S.notices.at(-1);
     assert.ok(n.msg.startsWith('没恢复：找不到这条收藏')); assert.ok(!n.opts.actions);
   }
-  // ── 从快照找回：SuggestModal 文案；选中发 --undo --snapshot ──
+  // ── 从快照找回：SuggestModal 每份写清是什么、找回怎么做；选中发 --from-snapshot（1026：坏的不原样写回），成功带「撤销」 ──
   {
     const S = setup({ runPy: async args => args.includes('--list')
-      ? { json: { ok: true, snapshots: [{ name: 'visible-20261008-153000-restore.txt', ts: '2026-10-08T15:30:00', reason: 'restore', bytes: 43008 }] } }
+      ? { json: { ok: true, snapshots: [
+        { name: 'visible-20261008-153000-restore.txt', ts: '2026-10-08T15:30:00', reason: 'restore', bytes: 43008, broken: true,
+          summary: '页面结构坏了（两栏正文块被换行拆开了），存档 v1 那一版的排版，1 条留言', how: '找回会只取它里面你写的东西、按现在的存档重新排版（不会把坏的页面写回来）' },
+        { name: 'visible-20261008-152000-render.txt', ts: '2026-10-08T15:20:00', reason: 'render', bytes: 40960 }] } }
+      : args.includes('--from-snapshot') ? { json: { ok: true, mode: 'rebuilt', snapshot: 'visible-20261008-160000-restore.txt', message: '已从快照找回「做饭」：…按存档重新排版' } }
       : { json: { ok: true } } });
     const m = await S.inst.pickSnapshot(S.note);
     const list = m.getSuggestions('');
     const el = S.D.createElement('div'); m.renderSuggestion(list[0], el);
-    assert.equal(el.textContent, '10-08 15:30 · 恢复前 · 42 KB');
-    m.onChooseSuggestion(list[0]); await tick();
-    assert.ok(S.calls.at(-1).args.includes('--snapshot'));
+    assert.equal(el.querySelector('.lb-snap-title').textContent, '10-08 15:30 · 恢复前 · 42 KB');
+    const desc = el.querySelector('.lb-snap-desc');
+    assert.ok(desc.classList.contains('is-broken') && desc.textContent.includes('页面结构坏了') && desc.textContent.includes('不会把坏的页面写回来'));
+    const el2 = S.D.createElement('div'); m.renderSuggestion(list[1], el2);
+    assert.equal(el2.textContent, '10-08 15:20 · 重渲前 · 40 KB', '老后端没给说明：只有一行');
+    assert.equal(m.getSuggestions('坏了').length, 1, '说明也能搜');
+    m.onChooseSuggestion(list[0]); await tick(); await tick();
+    assert.deepEqual(S.calls.at(-1).args.slice(3), ['xhs-abc', '--path', 'Web/Xiaohongshu/做饭.md', '--from-snapshot', 'visible-20261008-153000-restore.txt', '--json']);
+    const n = S.notices.at(-1);
+    assert.ok(n.msg.startsWith('已从快照找回') && n.opts.actions[0].label === '撤销');
+    await n.opts.actions[0].run();
+    assert.deepEqual(S.calls.at(-1).args.slice(3), ['xhs-abc', '--path', 'Web/Xiaohongshu/做饭.md', '--undo', '--snapshot', 'visible-20261008-160000-restore.txt', '--json'], '撤销回到找回前那一版');
   }
   // ── 命令：只对归档笔记 ──
   {

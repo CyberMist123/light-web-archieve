@@ -37,6 +37,10 @@ def comment_status_text(capture: dict[str, Any] | None, comments: list[dict[str,
     1009：有 view（comment_fill.view_for_render）就按设置楼数现算——设置楼数之内没缺口就不出这一行；
     有缺口写「后台在补」，连着几次补不上写「已记进问题面板」，不再写「下次同步接着读」「不再读」。"""
     if view is not None:
+        full = view.get("full")
+        if isinstance(full, dict) and full.get("text"):
+            # 1026：她手动抓过全部评论：照实写抓到哪了（已抓楼数 / 翻没翻到最后一页 / 还缺什么、为什么 / 上次没成的原因）
+            return "全部评论 · " + str(full["text"])
         missing = int(view.get("missing") or 0)
         if missing <= 0:
             return ""
