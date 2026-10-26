@@ -138,19 +138,39 @@ def test_favorite_account_tag_is_deduplicated_and_survives_meta_rebuild(tmp_path
     assert [t["nickname"] for t in tags] == ["a", "b"]
 
 
-def test_wrong_account_stops_before_ingest(monkeypatch):
-    """0927：登错号（测试号）时整批不入库，报 WRONG_ACCOUNT；第一次同步的号被钉住。"""
-    from link_brain import accounts, favorites as fav
+def test_switching_account_syncs_whoever_is_logged_in(monkeypatch):
+    """1026 她定：没有「登错号」——登哪个号就同步哪个号；sync_account 只记上次同步的号，旧的登错号问题清掉。"""
+    from link_brain import accounts, favorites as fav, problems
     monkeypatch.setattr("link_brain.alert._alert", lambda *a, **k: None)
+    tagged = []
     def fake_fetch(nick):
         def _f(**kw):
             fav._CURRENT_ACCOUNT = {"nickname": nick, "user_id": ""}
             return [{"url": "https://example.invalid/x"}]
         return _f
-    monkeypatch.setattr(fav, "_sync_one", lambda *a, **k: {"item_id": "xhs-1", "status": "hit"})
+    monkeypatch.setattr(fav, "_sync_one", lambda *a, **k: (tagged.append(fav._CURRENT_ACCOUNT["nickname"]),
+                                                           {"item_id": "xhs-1", "status": "hit"})[1])
     monkeypatch.setattr(fav, "fetch_favorites", fake_fetch("momo"))
     assert fav.sync_favorites()["synced"] == 1
     assert accounts.config()["sync_account"] == "momo"
+    problems.report_blocked("login", "WRONG_ACCOUNT", "旧版留下的登错号")
     monkeypatch.setattr(fav, "fetch_favorites", fake_fetch("Mac！"))
     out = fav.sync_favorites()
-    assert out["synced"] == 0 and out["code"] == "WRONG_ACCOUNT"
+    assert out["synced"] == 1 and out.get("code") != "WRONG_ACCOUNT"
+    assert accounts.config()["sync_account"] == "Mac！"
+    assert tagged == ["momo", "Mac！"]
+    assert "NEEDS_HUMAN.WRONG_ACCOUNT" not in [r.get("code") for r in problems.load()]
+
+
+def test_snapshot_remembers_account_and_tags_with_it(monkeypatch):
+    """1026：全量名单记下是哪个号的；换了号的一截不合进上一个号的名单，下次读全量。"""
+    from link_brain import favorites as fav
+    fav._CURRENT_ACCOUNT = {"nickname": "momo", "user_id": "u1"}
+    fav._remember_list([{"note_id": "a1", "url": "https://example.invalid/a1"}], full=True)
+    snap = fav.load_snapshot()
+    assert snap["account"] == {"nickname": "momo", "user_id": "u1"}
+    fav._CURRENT_ACCOUNT = {"nickname": "Mac！", "user_id": ""}
+    fav._remember_list([{"note_id": "b1", "url": "https://example.invalid/b1"}], full=False)
+    snap = fav.load_snapshot()
+    assert [x["note_id"] for x in snap["items"]] == ["a1"] and snap.get("full_next")
+    assert fav.read_mode()[0] == "full"

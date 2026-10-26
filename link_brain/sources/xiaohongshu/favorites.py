@@ -189,12 +189,19 @@ def merge_with_snapshot(items: list[dict[str, Any]], snap: dict[str, Any]) -> li
 def _remember_list(items: list[dict[str, Any]], *, full: bool) -> None:
     """全量读全：名单整份换掉（full_at = 现在）；增量 / 一截：读到的合进名单最前面，其余原样，full_at 不动。"""
     now = datetime.now().astimezone().isoformat(timespec="seconds")
+    # 1026：名单记下是哪个号的（登哪个号同步哪个号，按名单补抓时 favorited_by 照名单的号记）
+    account = {k: v for k, v in _CURRENT_ACCOUNT.items() if k in ("nickname", "user_id") and v}
     if full:
-        _save_snapshot({"schema_version": 1, "full_at": now, "at": now, "items": [_slim(x) for x in items]})
+        _save_snapshot({"schema_version": 1, "full_at": now, "at": now, "account": account,
+                        "items": [_slim(x) for x in items]})
         return
     snap = load_snapshot()
     if not snap.get("items"):
         return  # 没有全量名单时，一截不当名单
+    owner = (snap.get("account") or {}).get("nickname") or ""
+    if owner and account.get("nickname") and owner != account["nickname"]:
+        mark_full_next("换了号：名单是上一个号的，下次读全量")
+        return  # 别把这个号的一截合进上一个号的名单
     merged = [_slim({k: v for k, v in x.items() if k != "_src"}) for x in merge_with_snapshot(items, snap)]
     _save_snapshot({**snap, "at": now, "items": merged})
 
@@ -272,8 +279,10 @@ def fetch_favorites(*, limit: int = 50, verbose: bool = False, mode: str = "full
         _LAST_READ["incremental"] = True
     global _CURRENT_ACCOUNT
     cfg = accounts.config()
-    _CURRENT_ACCOUNT = {"nickname": data.get("nickname") or cfg.get("nickname") or "",
-                        "user_id": cfg.get("user_id") or ""}
+    nick = data.get("nickname") or cfg.get("nickname") or ""
+    # 配置里的 user_id 只在同一个号时借用（换了号还借，就把新号的收藏记到旧号 id 上）
+    _CURRENT_ACCOUNT = {"nickname": nick,
+                        "user_id": data.get("user_id") or (cfg.get("user_id") if nick == cfg.get("nickname") else "") or ""}
     if verbose:
         print(f"[sync-favorites] {data.get('nickname')} 收藏 {len(items)} 条", file=sys.stderr)
     # 读全时把「笔记 id → 最新口令」存到本地（零开页），附件补查 / 下载优先用它（批次 D · L6 P8）；
@@ -578,8 +587,12 @@ def sync_favorites(
             print(f"[sync-favorites] {note}", file=sys.stderr)
             return {"favorites": 0, "synced": 0, "items": [], "read_mode": "snapshot", "note": note}
         cfg = accounts.config()
-        _CURRENT_ACCOUNT = {"nickname": "", "user_id": cfg.get("user_id") or ""}
-        _CURRENT_ACCOUNT["nickname"] = cfg.get("sync_account") or cfg.get("nickname") or ""
+        owner = snap.get("account") if isinstance(snap.get("account"), dict) else {}
+        if owner.get("nickname"):  # 1026：名单是哪个号读的，就记哪个号收藏的
+            _CURRENT_ACCOUNT = {"nickname": owner["nickname"], "user_id": owner.get("user_id") or ""}
+        else:
+            _CURRENT_ACCOUNT = {"nickname": "", "user_id": cfg.get("user_id") or ""}
+            _CURRENT_ACCOUNT["nickname"] = cfg.get("sync_account") or cfg.get("nickname") or ""
         favs = [{**x, "_src": "snapshot"} for x in snap["items"] if x.get("note_id")]
         if limit and limit > 0:
             favs = favs[:limit]
@@ -633,18 +646,20 @@ def sync_favorites(
     # 可疑 = 这次不算同步成功：sync_state.record 记 TRANSIENT.FAVORITES_SUSPICIOUS（一条，原因一句），
     # 基准不被这次顶掉（sync_state._update_baseline）；退出码 3 让夜跑今晚不再重读
 
-    # 0927 认号：收藏同步钉在一个号上。登错号（如测试号）时整批不入库、目录页亮「!」，
-    # 免得把别的号的收藏悄悄灌进库（0926–0927 测试号登着，夜跑收了它 33 篇）。换号走「更换账号」。
+    # 1026 她定：没有「登错号」——登哪个号就同步哪个号的收藏，favorited_by 按真实登录的号记。
+    # （0927 的「钉号、登错号整批不入库」撤掉。）sync_account 只记「上次同步的是哪个号」，换号不算出错。
     current = _CURRENT_ACCOUNT.get("nickname") or ""
-    pinned = accounts.config().get("sync_account") or ""
-    if current and not pinned:
+    previous = accounts.config().get("sync_account") or ""
+    if current and current != previous:
         accounts.save({"sync_account": current})
-    elif current and pinned and current != pinned:
-        msg = f"现在登录的是「{current}」，不是平时同步的「{pinned}」：没有同步。要换成这个号，请在账号面板点「更换账号」"
-        synclog.error("sync-favorites", msg, "WRONG_ACCOUNT")
-        # 登错号 = NEEDS_HUMAN.WRONG_ACCOUNT（sync_state.record 登记在 login，推一次）
-        return {"favorites": len(favs), "synced": 0, "login_account": "xhs", "code": "WRONG_ACCOUNT",
-                "items": [{"item_id": None, "status": "blocked", "url": None, "error": msg, "code": "WRONG_ACCOUNT"}]}
+        if previous:
+            print(f"[sync-favorites] 这次同步的是「{current}」的收藏（上次是「{previous}」）", file=sys.stderr)
+    if current:
+        try:
+            from ... import problems
+            problems.resolve("login", code="NEEDS_HUMAN.WRONG_ACCOUNT")
+        except Exception:  # noqa: BLE001
+            pass
 
     failures = _Failures()
     # 抓失败过的（已删 / 仅作者可见）排到最后，别让它们每晚先占掉时间

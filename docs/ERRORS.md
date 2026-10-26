@@ -218,7 +218,7 @@
 
 | 码 | 用户看到 | 常见根因 | 同次 | 自愈轮 | 现在修 / 下一步 |
 |---|---|---|---|---|---|
-| `NEEDS_HUMAN.NOT_LOGGED_IN` / `CAPTCHA_REQUIRED` / `ACCOUNT_RISK` / `RISK_HOLD` / `ACCOUNT_BLOCKED` / `WRONG_ACCOUNT` / `NOT_INSTALLED` | 需要登录 / 需要验证 / 账号风控 / 风控暂停中 / 账号要处理 / 登错号 / 未安装读取组件 | 号掉登录、撞安全验证、被跳到风控页、熔断中、登的不是同步号、组件没装 | 立即停车，不重试 | — | 人工：扫码登录 / 打开验证 / 账号与同步 |
+| `NEEDS_HUMAN.NOT_LOGGED_IN` / `CAPTCHA_REQUIRED` / `ACCOUNT_RISK` / `RISK_HOLD` / `ACCOUNT_BLOCKED` / `WRONG_ACCOUNT` / `NOT_INSTALLED` | 需要登录 / 需要验证 / 账号风控 / 风控暂停中 / 账号要处理 / 登错号 / 未安装读取组件 | 号掉登录、撞安全验证、被跳到风控页、熔断中、登的不是同步号（1026 起不再产生：登哪个号就同步哪个号）、组件没装 | 立即停车，不重试 | — | 人工：扫码登录 / 打开验证 / 账号与同步 |
 | `NEEDS_HUMAN.AUTH_FAILED` / `QUOTA_EXCEEDED`（step `ai.summary / ai.vision / ai.refine / ai.embed`，1008 起不按篇记） | AI key 失效 / AI 余额不足：一条写清哪个接口、哪把 key（尾号）、HTTP、原因、影响几篇、补齐约多少 token / 钱 | 401/403、欠费；向量索引拿不到 key | 不重试（重试没用）；同批连着 2 篇撞上就收手 | — | 人工：打开设置换 key / 充值，然后点这条的「现在修」补跑 |
 | `TRANSIENT.NETWORK` / `HTTP_429` / `HTTP_5XX` / `SERVICE_BUSY`（step `ai.*`） | 连不上接口 / 限流 / 接口那侧出错：同样一条，带影响几篇 | 断网、代理没开、接口地址错、限额、服务抖动 | 同批连着 2 篇撞上就收手，这篇不记失败次数 | ✔ 补跑待补的识图 / 概要 | 接口好了自动补；也可点「现在修」 |
 | `NEEDS_HUMAN.MISSING_DEPENDENCY`（1024 返修，原用 NOT_INSTALLED 撞了「未安装读取组件」） | 缺 Python 依赖：缺哪个包、做什么用、怎么装 | 不是用项目 .venv 起的、或 pip 没装全（如 jieba） | 不重试 | — | 人工：设置 → 开发者 → Python 路径指向装好依赖的 python，或 pip install；回归 `tests/test_deps_p0fix.py::test_missing_dependency_code_is_not_an_account_code` |
