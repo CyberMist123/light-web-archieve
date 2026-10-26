@@ -246,8 +246,8 @@ def media_plan(source_doc: dict[str, Any], opts: dict[str, Any]) -> list[MediaTa
             audio = group.get("audio")
             if audio and audio.get("url"):
                 tasks.append(dict(role="comment_audio", comment_id=group["comment_id"], url=audio["url"],
-                                  stem=f"comment-{group['comment_id']}-audio", kind="audio", headers=headers))
+                                  stem=f"comment-{group['comment_id']}-audio", kind="audio"))   # 语音 / 视频历来不带头（10-26 复审核对）
     if opts["downloadVideo"] and is_video and (note.get("video") or {}).get("video_url"):
         tasks.append(dict(role="video", index=1, url=note["video"]["video_url"],
-                          stem="video", kind="video", headers=headers, payload=note["video"]))
+                          stem="video", kind="video", payload=note["video"]))
     return tasks

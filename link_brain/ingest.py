@@ -144,27 +144,47 @@ def download_plan(plan: list[dict[str, Any]], raw_version_dir: Path, rel_prefix:
 
     if progress and total:
         progress("media", f"下载图片 / 语音 0/{total}", 0, total)
-    headers = next((t["headers"] for t in plan if t.get("headers")), None)
-    with httpx.Client(**({"headers": headers} if headers else {})) as client:
+    # 每条任务带自己的请求头（10-26 复审：原来整批共用第一条的头、视频丢头）；同一组头共用一个连接
+    clients: dict[tuple, httpx.Client] = {}
+
+    def client_for(t: dict[str, Any], **kw: Any) -> httpx.Client:
+        h = t.get("headers") or {}
+        key = tuple(sorted(h.items()))
+        if key not in clients:
+            clients[key] = httpx.Client(**({"headers": dict(h)} if h else {}), **kw)
+        return clients[key]
+
+    try:
         for t in plan:
             if t.get("kind") == "image":
                 entry: dict[str, Any] = {"role": t["role"], "index": t.get("index")}
                 if t.get("comment_id") is not None:
                     entry["comment_id"] = t["comment_id"]
                 entry["original_url"] = t["url"]
-                entry.update(download_image(t["url"], assets, t["stem"], client=client))
+                entry.update(download_image(t["url"], assets, t["stem"], client=client_for(t)))
                 if entry["file"]:
                     entry["file"] = f"{rel_prefix}/assets/{entry['file']}"
                 media.append(entry)
                 tick()
             elif t.get("kind") == "audio":
-                media.append(_download_comment_audio({"url": t["url"]}, t["comment_id"], assets, rel_prefix, client))
+                media.append(_download_comment_audio({"url": t["url"]}, t["comment_id"], assets, rel_prefix, client_for(t)))
                 tick()
-    for t in plan:
-        if t.get("kind") == "video":
-            from .videos import download
-            media.append(download(t.get("payload") or {"video_url": t["url"]}, raw_version_dir, rel_prefix))
-            tick()
+        for t in plan:
+            if t.get("kind") == "video":
+                from .videos import download
+                vclient = None
+                if t.get("headers"):   # 没给头的照旧让 videos 自己开连接（跟随跳转、90 秒）
+                    vclient = httpx.Client(headers=dict(t["headers"]), follow_redirects=True, timeout=90)
+                try:
+                    media.append(download(t.get("payload") or {"video_url": t["url"]}, raw_version_dir, rel_prefix,
+                                          **({"client": vclient} if vclient else {})))
+                finally:
+                    if vclient:
+                        vclient.close()
+                tick()
+    finally:
+        for c in clients.values():
+            c.close()
 
     declared = sum(1 for m in media if m["role"] in ("note_image", "comment_image", "video_cover"))
     ok = sum(
