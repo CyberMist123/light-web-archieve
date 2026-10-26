@@ -61,17 +61,17 @@ const PLUGIN = schedule => ({ methods: { getSyncSchedule: { result: schedule } }
           line: document.querySelector('.lbc-lab-line').getBoundingClientRect().width, sideDisplay: getComputedStyle(side).display, sidePos: getComputedStyle(side).position,
           scrollbar: side.offsetWidth - side.clientWidth, rec: document.querySelectorAll('.lbc-rec li').length,
           recEllipsis: (() => { const t = document.querySelector('.lbc-rec-t'); return getComputedStyle(t).textOverflow; })(),
-          syBig: getComputedStyle(document.querySelector('.lbc-sy-big')).fontSize, cost: document.querySelector('.lbc-sy-row.is-tot b').textContent };
+          syBig: getComputedStyle(document.querySelector('.lbc-sy-big')).fontSize, cost: document.querySelector('.lbc-mod-token .lbc-tk-big').textContent };
       });
       assert.equal(m.sideDisplay, 'block'); assert.equal(m.sidePos, 'sticky');
-      assert.deepEqual(m.mods, ['recent', 'sync', 'overview']);
+      assert.deepEqual(m.mods, ['recent', 'sync', 'token', 'overview'], '1027：Token 费用从同步里拆出来，自己一块');
       assert.ok(m.side.right < m.main.left && Math.abs(m.main.left - m.side.right - 40) <= 2, `${tag}：边栏在左、间距 40 ${JSON.stringify([m.side, m.main])}`);
       const ratio = m.side.width / (m.board.width - 40); assert.ok(ratio > 0.3 && ratio < 0.37, `${tag}：边栏约 4/12 ${ratio}`);
       assert.match(m.labFont, /LB Cinzel/); assert.equal(m.labSize, '11px'); assert.equal(m.labWeight, '700');
       assert.ok(Math.abs(parseFloat(m.labSpacing) - 11 * 0.26) < 0.2, `${tag}：字距 .26em ${m.labSpacing}`);
       assert.ok(m.line > 60, `${tag}：横线撑满 ${m.line}`);
       assert.equal(m.scrollbar, 0, `${tag}：边栏不显示滚动条`);
-      assert.equal(m.rec, 6); assert.equal(m.recEllipsis, 'ellipsis'); assert.equal(m.syBig, '30px'); assert.equal(m.cost, '约 ¥3.72');
+      assert.equal(m.rec, 6); assert.equal(m.recEllipsis, 'ellipsis'); assert.equal(m.syBig, '30px'); assert.equal(m.cost, '¥ 3.72');
       shots.push(await S.screenshot(`catalog-side-${tag}`));
       // ② 吸顶：滚 1500，页头 / 边栏不动，收藏墙动了；边栏贴在页头底下；页头上方不留缝
       const before = { top: await R(page, '.lbc-top'), side: await R(page, '.lbc-side'), card: await R(page, '.lbc-card') };

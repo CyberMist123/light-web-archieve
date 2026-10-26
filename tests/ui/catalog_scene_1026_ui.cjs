@@ -2,7 +2,7 @@
 //   ① 缩窄窗口（1400 / 1100 / 900 / 760 / 600 / 390，边栏开着）：分类一个都不被裁（放不下就换行）、搜索框 / 问收藏整个在视口里、没有横向滚动
 //   ② 放大 / 长标题：大标题不超出页头、不压到「编排 / 管理」（录屏 03:05「超出框架」）
 //   ③ 已收藏的星：白底小圆黑星（不是整块黑圆）；没收藏的平时看不见（visibility + opacity）
-//   ④ 编排：标题 / 分类行 / 筛选条 / 内容区头上都有操作条、托盘在收藏墙上面；换「宽」侧栏、「紧」间距后版面真的变
+//   ④ 编排（1027 八个模块平级）：每块都有操作条、托盘在收藏墙上面；拖宽边栏、紧间距、紧凑密度后版面真的变
 //   ⑤ 首页同步：上次 / 下次是可点的格子，下面「立即同步 · 查看同步记录」，没有设置齿轮
 // 截图进 LWA_QA_DIR（catalog-1026-*.png）
 'use strict';
@@ -91,33 +91,31 @@ const PLUGIN = (schedule, settings = {}) => ({ settings: { hiddenCats: [], ...se
       assert.deepEqual(sy, { gear: false, cells: ['上次同步', '下次同步'], acts: ['立即同步', '查看同步记录'] });
       await page.click('.lbc-mod-sync .lbc-sy-next'); await S.settle(40);
       assert.deepEqual((await page.evaluate(() => window.calls.filter(c => c[0] === 'openSetupPage' || c[0] === 'openSyncTime').at(-1))).slice(0, 2), ['openSetupPage', 'schedule'], '下次同步 → 设置里那一个同步时间编辑');
-      // ④ 编排
+      // ④ 编排（1027 起八个模块平级，细节见 catalog_arrange_ui）：每块都有操作条、托盘在收藏墙上面；拖宽边栏、卡片间距、收藏墙密度后版面真的变
       const w0 = await page.evaluate(() => document.querySelector('.lbc-side').getBoundingClientRect().width);
       await page.click('.lbc-tools .lb-arrange'); await S.settle(60);
-      const a = await page.evaluate(() => ({ bars: [...document.querySelectorAll('.lbc-blk-bar')].filter(b => getComputedStyle(b).display === 'flex').map(b => b.querySelector('.lbc-mb-nm').textContent),
+      const a = await page.evaluate(() => ({ bars: [...document.querySelectorAll('.lbc-mod-bar')].filter(b => getComputedStyle(b).display === 'flex').length,
         trayAbove: document.querySelector('.lbc-arrange-tray').getBoundingClientRect().bottom <= document.querySelector('.lbc-board').getBoundingClientRect().top + 1 }));
-      assert.deepEqual(a.bars, ['标题与 Logo', '分类行', '筛选条', '内容区（收藏墙）']); assert.ok(a.trayAbove, '托盘在收藏墙上面');
+      assert.equal(a.bars, 8, '八个模块都有操作条'); assert.ok(a.trayAbove, '托盘在收藏墙上面');
       shots.push(await S.screenshot('catalog-1026-arrange'));
-      await page.click('.lbc-arrange-tray [data-opt="sideW"][data-val="l"]'); await S.settle(80);
+      await page.focus('.lbc-board > .lbc-col-edge'); await page.keyboard.press('ArrowRight'); await S.settle(120);
       const w1 = await page.evaluate(() => document.querySelector('.lbc-side').getBoundingClientRect().width);
       assert.ok(w1 > w0 + 60, `侧栏变宽 ${w0} → ${w1}`);
-      const gap0 = await page.evaluate(() => { const c = [...document.querySelectorAll('.lbc-grid-inner > .lbc-col')]; return c[1].getBoundingClientRect().left - c[0].getBoundingClientRect().right; });
-      await page.click('.lbc-arrange-tray [data-opt="gap"][data-val="s"]'); await S.settle(80);
-      const gap1 = await page.evaluate(() => { const c = [...document.querySelectorAll('.lbc-grid-inner > .lbc-col')]; return c[1].getBoundingClientRect().left - c[0].getBoundingClientRect().right; });
-      assert.ok(gap1 < gap0 - 4, `区块间距变紧 ${gap0} → ${gap1}`);
+      const gapOf = () => page.evaluate(() => { const c = [...document.querySelectorAll('.lbc-grid-inner > .lbc-col')]; return c[1].getBoundingClientRect().left - c[0].getBoundingClientRect().right; });
+      const gap0 = await gapOf();
+      await page.click('.lbc-arrange-tray [data-act="style"]'); await page.selectOption('.lbc-arrange-tray [data-theme="gap"]', '17'); await S.settle(120);
+      const gap1 = await gapOf();
+      assert.ok(gap1 < gap0 - 4, `卡片间距变紧 ${gap0} → ${gap1}`);
       const n0 = await page.evaluate(() => document.querySelectorAll('.lbc-grid-inner > .lbc-col').length);
-      await page.click('.lbc-arrange-tray [data-opt="density"][data-val="s"]'); await S.settle(80);
+      await page.click('.lbc-m-wall .lbc-mod-bar [data-act="adjust"]'); await page.selectOption('.lbc-mp [data-k="density"]', 's'); await S.settle(120);
       const n1 = await page.evaluate(() => document.querySelectorAll('.lbc-grid-inner > .lbc-col').length);
       assert.equal(n1, n0 + 1, `紧凑多一列 ${n0} → ${n1}`);
-      await page.click('.lbc-board-main .lbc-mod-bar [data-act="swap"]'); await S.settle(80);
-      const right = await page.evaluate(() => document.querySelector('.lbc-side').getBoundingClientRect().left > document.querySelector('.lbc-board-main').getBoundingClientRect().left);
-      assert.ok(right, '边栏放到右边');
       shots.push(await S.screenshot('catalog-1026-arrange-options'));
       await page.click('.lbc-arrange-tray [data-act="done"]'); await S.settle(60);
       shots.push(await S.screenshot('catalog-1026-after-arrange'));
       assert.deepEqual(await S.pageErrors(), []);
       await page.close();
     }
-    console.log('PASS catalog_scene_1026_ui：1400–390 分类不裁 / 搜索问收藏可达 / 无横向滚动 · 长标题不出页头不压按钮 · 星标白底小圆 · 编排四块操作条 + 托盘 + 侧栏宽度 / 间距 / 密度 / 边栏放右生效 · 同步可点格子 + 两个按钮。截图：\n  ' + shots.join('\n  '));
+    console.log('PASS catalog_scene_1026_ui：1400–390 分类不裁 / 搜索问收藏可达 / 无横向滚动 · 长标题不出页头不压按钮 · 星标白底小圆 · 编排八块操作条 + 托盘 + 侧栏宽度 / 间距 / 密度生效 · 同步可点格子 + 两个按钮。截图：\n  ' + shots.join('\n  '));
   } finally { await browser.close(); }
 })().catch(e => { console.error('FAIL catalog_scene_1026_ui', e); process.exit(1); });

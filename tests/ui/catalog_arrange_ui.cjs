@@ -1,11 +1,12 @@
-// 1022 目录页改版第 5 段「编排」（Collection+ DESIGN-SPEC §8，她定：模块可拖动排序、隐藏，布局存插件设置，只桌面生效）· Obsidian 外壳 · 真 Chromium。
-//   ① 右上角「编排」胶囊在「管理」左边；点了进编排：边栏每块头上出黑色操作条（⠿ / ↑ ↓ / 隐藏），边栏顶部出托盘；模块本身点不动（不会误折叠 / 误打开）
-//   ② 真拖动（⠿ 按住拖到另一块下半区）换顺序；↑ ↓ 换顺序；首块 ↑、末块 ↓ 是灰的
-//   ③ 隐藏 → 托盘出「+ 概览」，点了加回来；布局写进插件设置 catalogLayout.side 并 saveSettings
-//   ④ 全隐藏 → 退出编排后边栏整列让开、边栏钮也不出、收藏墙铺满；再进编排边栏出来（托盘在）
-//   ⑤ 新开一页：按插件设置里的布局排（顺序 + 隐藏）；「恢复默认」= catalogLayout 写回 null
-//   ⑥ Esc 退出编排；手机 / 星标页没有「编排」；没插件时照样能排，提示一句「插件没开」
-// 截图进 LWA_QA_DIR（catalog-arrange-*.png），和 _handoff/collection-plus-handoff/prototype/ 的编排态对照
+// 1027 目录页就地编排（design-1027 §2，她批的结构和交互；外观仍是黑白雕刻）· Obsidian 外壳 · 真 Chromium · 真指针拖动。
+//   ① 「编排」在「管理」左边；平时没有操作条 / 托盘；默认版面 = 改版前（边栏 4 格、墙 8 格）
+//   ② 进编排：八个模块头上都有黑条（⠿ · 名字 · 调整 · ×），托盘在墙上面，边栏和墙之间一道可拖的边
+//   ③ 真拖：最近导入拖到标题右边 → 并排在吸顶区里；标题拖进边栏「同步」上面 → 标题在边栏里
+//   ④ 真拖边：边栏变宽两格（12 格吸附）
+//   ⑤ 调整在模块里展开（不弹窗、在模块框里）：最近导入改成 2 条；Aa 样式：卡片间距、界面大小真的变
+//   ⑥ × 移除 → ＋ 加回；Esc 退出；布局存进插件设置（saveSettings）；新开一页按存的摆
+//   ⑦ 手机 / 插件没开：没有「编排」
+// 截图进 LWA_QA_DIR（catalog-arrange-*.png）
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -26,10 +27,18 @@ function fixture() {
   const files = { '_archive/sync-status.json': JSON.stringify({ state: 'ready', updated_at: new Date().toISOString(), last_success: new Date(now - 3600e3).toISOString() }) };
   return { data, resources, schedule, files };
 }
-const order = page => page.evaluate(() => [...document.querySelectorAll('.lbc-side .lbc-mod')].filter(m => !m.hidden).map(m => m.dataset.mod));
 const saved = page => page.evaluate(() => JSON.parse(JSON.stringify(window.plugin?.settings?.catalogLayout ?? null)));
 const saves = page => page.evaluate(() => window.calls.filter(c => c[0] === 'saveSettings').length);
 const waitSave = async (page, n0) => { for (let i = 0; i < 40; i++) { if (await saves(page) > n0) return; await page.waitForTimeout(50); } throw new Error('400ms 后没有 saveSettings'); };
+const R = (page, sel) => page.evaluate(s => { const r = document.querySelector(s)?.getBoundingClientRect(); return r ? { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height } : null; }, sel);
+async function drag(page, from, to, { steps = 12 } = {}) {
+  await page.mouse.move(from.x, from.y); await page.mouse.down();
+  await page.mouse.move(from.x + 8, from.y + 8, { steps: 2 });
+  await page.mouse.move(to.x, to.y, { steps });
+  await page.waitForTimeout(40);
+  await page.mouse.up();
+}
+const center = r => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
 
 (async () => {
   shell.requirePlaywright();
@@ -39,92 +48,108 @@ const waitSave = async (page, n0) => { for (let i = 0; i < 40; i++) { if (await 
   const shots = [];
   try {
     for (const theme of ['light', 'dark']) {
-      // 高 1500：编排态三块同屏（Playwright 拖放途中去滚边栏会让 Chromium 取消这次拖动；真人拖到边缘浏览器自己会滚）
       const page = await browser.newPage({ viewport: { width: 1400, height: 1500 } });
       const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', theme, data, resources, plugin: plugin(), files });
       await page.evaluate(() => document.fonts.ready); await S.settle(80);
-      // ① 胶囊位置；进编排
-      const pos = await page.evaluate(() => { const a = document.querySelector('.lbc-tools .lb-arrange').getBoundingClientRect(), m = document.querySelector('.lbc-tools .lb-manage').getBoundingClientRect(); return { a: a.right, m: m.left, h: a.height, bar: getComputedStyle(document.querySelector('.lbc-mod-bar')).display, tray: getComputedStyle(document.querySelector('.lbc-arrange-tray')).display }; });
+      // ① 胶囊位置；平时没有操作条 / 托盘；默认比例
+      const pos = await page.evaluate(() => { const a = document.querySelector('.lbc-tools .lb-arrange').getBoundingClientRect(), m = document.querySelector('.lbc-tools .lb-manage').getBoundingClientRect(); return { a: a.right, m: m.left, h: a.height, bars: document.querySelectorAll('.lbc-mod-bar').length, tray: getComputedStyle(document.querySelector('.lbc-arrange-tray')).display }; });
       assert.ok(pos.a <= pos.m, `${theme}：编排在管理左边 ${JSON.stringify(pos)}`); assert.equal(Math.round(pos.h), 34);
-      assert.equal(pos.bar, 'none'); assert.equal(pos.tray, 'none', '平时不出操作条和托盘');
-      assert.deepEqual(await order(page), ['recent', 'sync', 'overview']);
-      await page.click('.lbc-tools .lb-arrange'); await S.settle(40);
-      const on = await page.evaluate(() => ({ cls: document.querySelector('.lbc-wrap').classList.contains('is-arranging'), pressed: document.querySelector('.lb-arrange').getAttribute('aria-pressed'),
-        bars: [...document.querySelectorAll('.lbc-side .lbc-mod-bar')].map(b => getComputedStyle(b).display), tray: getComputedStyle(document.querySelector('.lbc-arrange-tray')).display,
-        labPE: getComputedStyle(document.querySelector('.lbc-mod .lbc-lab')).pointerEvents,
-        upDisabled: document.querySelector('.lbc-mod-recent [data-act="up"]').disabled, downDisabled: document.querySelector('.lbc-mod-overview [data-act="down"]').disabled,
-        midUp: document.querySelector('.lbc-mod-sync [data-act="up"]').disabled }));
-      assert.ok(on.cls); assert.equal(on.pressed, 'true'); assert.deepEqual(on.bars, ['flex', 'flex', 'flex']); assert.equal(on.tray, 'flex');
-      assert.equal(on.labPE, 'none', '编排时模块本身点不动');
-      assert.ok(on.upDisabled && on.downDisabled && !on.midUp, '首块 ↑ / 末块 ↓ 是灰的');
-      const fold0 = await page.evaluate(() => document.querySelector('.lbc-mod-recent').classList.contains('is-folded'));
-      await page.mouse.click(...await page.evaluate(() => { const r = document.querySelector('.lbc-mod-recent .lbc-lab-en').getBoundingClientRect(); return [r.left + 5, r.top + 5]; }));
-      assert.equal(await page.evaluate(() => document.querySelector('.lbc-mod-recent').classList.contains('is-folded')), fold0, '编排时点小标题不折叠');
-      shots.push(await S.screenshot(`catalog-arrange-reading-${theme}-1400`));
+      assert.equal(pos.bars, 0, '平时不建操作条'); assert.equal(pos.tray, 'none');
+      const side0 = await R(page, '.lbc-side'), wall0 = await R(page, '.lbc-board-main');
+      const ratio = side0.width / (side0.width + wall0.width);
+      assert.ok(ratio > 0.3 && ratio < 0.34, `默认边栏 ≈ 4/12 ${ratio}`);
+      // ② 进编排
+      await page.click('.lbc-tools .lb-arrange'); await S.settle(60);
+      const on = await page.evaluate(() => ({ cls: document.querySelector('.lbc-wrap').classList.contains('is-arranging'),
+        bars: [...document.querySelectorAll('.lbc-mod-bar')].filter(b => getComputedStyle(b).display === 'flex').map(b => b.querySelector('.lbc-mb-nm').textContent),
+        tray: getComputedStyle(document.querySelector('.lbc-arrange-tray')).display,
+        trayAbove: document.querySelector('.lbc-arrange-tray').getBoundingClientRect().bottom <= document.querySelector('.lbc-board').getBoundingClientRect().top + 1,
+        edges: [...document.querySelectorAll('.lbc-col-edge')].filter(e => getComputedStyle(e).display === 'block').length,
+        labPE: getComputedStyle(document.querySelector('.lbc-mod .lbc-lab')).pointerEvents }));
+      assert.ok(on.cls); assert.deepEqual(on.bars.sort(), ['Token 费用', '分类', '同步', '收藏墙', '最近导入', '标题 / Logo', '概览', '筛选与搜索'].sort());
+      assert.equal(on.tray, 'flex'); assert.ok(on.trayAbove, '托盘在墙上面'); assert.equal(on.edges, 1, '边栏和墙之间一道边'); assert.equal(on.labPE, 'none', '编排时模块本身点不动');
+      shots.push(await S.screenshot(`catalog-arrange-1027-${theme}-1400`));
       if (theme === 'dark') { assert.deepEqual(await S.pageErrors(), []); await page.close(); continue; }
 
-      // ② 真拖动：最近导入 拖到 概览 下半区 → sync, overview, recent
+      // ③ 真拖：最近导入 → 标题右边
       let n0 = await saves(page);
-      // Playwright 正式的 HTML5 拖放（按下 ⠿ → 拖到概览下半区）；页面只认 ⠿ 按下后的那一块
-      const ovH = await page.evaluate(() => document.querySelector(".lbc-mod-overview").getBoundingClientRect().height);
-      await page.dragAndDrop(".lbc-mod-recent .lbc-mb-h", ".lbc-mod-overview", { targetPosition: { x: 40, y: Math.max(1, ovH - 4) } });
-      await S.settle(40);
-      assert.deepEqual(await order(page), ['sync', 'overview', 'recent'], '拖到概览下面');
-      await waitSave(page, n0);
-      assert.deepEqual(await saved(page), { side: [{ id: 'sync', hidden: false }, { id: 'overview', hidden: false }, { id: 'recent', hidden: false }] });
-      assert.equal(await page.evaluate(() => document.querySelectorAll('.lbc-mod.is-dragging,.lbc-mod.is-drop-before,.lbc-mod.is-drop-after').length), 0, '拖完不留拖动样式');
-      // ↑ ↓
-      await page.click('.lbc-mod-recent [data-act="up"]'); await S.settle(20);
-      assert.deepEqual(await order(page), ['sync', 'recent', 'overview']);
-      await page.click('.lbc-mod-sync [data-act="down"]'); await S.settle(20);
-      assert.deepEqual(await order(page), ['recent', 'sync', 'overview']);
-      // ③ 隐藏概览 → 托盘出「+ 概览」
-      n0 = await saves(page);
-      await page.click('.lbc-mod-overview [data-act="hide"]'); await S.settle(20);
-      assert.deepEqual(await order(page), ['recent', 'sync']);
-      assert.equal(await page.textContent('.lbc-arrange-tray [data-show="overview"]'), '+ 概览');
-      assert.ok(await page.evaluate(() => document.querySelector('.lbc-mod-sync [data-act="down"]').disabled), '隐藏后同步成了末块');
-      await waitSave(page, n0);
-      assert.deepEqual((await saved(page)).side.find(m => m.id === 'overview'), { id: 'overview', hidden: true });
-      shots.push(await S.screenshot('catalog-arrange-reading-light-1400-hidden'));
-      await page.click('.lbc-arrange-tray [data-show="overview"]'); await S.settle(20);
-      assert.deepEqual(await order(page), ['recent', 'sync', 'overview'], '+ 加回来（排在原位置）');
-      assert.equal(await page.evaluate(() => document.querySelector('.lbc-mod-overview').classList.contains('is-folded')), false, '加回来的模块是展开的');
-      // ④ 全隐藏 → 退出编排后边栏让开、墙铺满
-      for (const k of ['recent', 'sync', 'overview']) { await page.click(`.lbc-mod-${k} [data-act="hide"]`); await S.settle(10); }
-      assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.lbc-side')).display), 'block', '编排中全隐藏边栏还在（托盘要用）');
-      await page.click('.lbc-arrange-tray [data-act="done"]'); await S.settle(60);
-      const empty = await page.evaluate(() => ({ side: getComputedStyle(document.querySelector('.lbc-side')).display, tog: getComputedStyle(document.querySelector('.lbc-sidetoggle')).display,
-        grid: document.querySelector('.lbc-board-main').getBoundingClientRect().width - document.querySelector('.lbc-board').getBoundingClientRect().width, arranging: document.querySelector('.lbc-wrap').classList.contains('is-arranging') }));
-      assert.equal(empty.arranging, false); assert.equal(empty.side, 'none'); assert.equal(empty.tog, 'none'); assert.ok(Math.abs(empty.grid) <= 1, `墙铺满 ${empty.grid}`);
-      shots.push(await S.screenshot('catalog-arrange-reading-light-1400-allhidden'));
-      await page.click('.lbc-tools .lb-arrange'); await S.settle(40);
-      assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.lbc-arrange-tray')).display), 'flex', '再进编排边栏出来');
-      // 「恢复默认」→ null
-      n0 = await saves(page);
-      await page.click('.lbc-arrange-tray [data-act="reset"]'); await S.settle(20);
-      assert.deepEqual(await order(page), ['recent', 'sync', 'overview']);
-      await waitSave(page, n0); assert.equal(await saved(page), null);
-      // ⑥ Esc 退出
-      await page.keyboard.press('Escape'); await S.settle(20);
-      assert.equal(await page.evaluate(() => document.querySelector('.lbc-wrap').classList.contains('is-arranging')), false, 'Esc 退出编排');
-      assert.deepEqual(await S.pageErrors(), []);
-      await page.close();
-    }
-    // ⑤ 新开一页：按插件设置排；实时预览宿主同样能用
-    {
-      const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-      const S = await shell.page(page, { host: 'page-live', kind: 'catalog', theme: 'light', data, resources, files,
-        plugin: plugin({ catalogLayout: { side: [{ id: 'overview' }, { id: 'sync', hidden: true }, 'bogus', { id: 'recent' }] } }) });
+      const grip = id => R(page, `.lbc-m-${id} .lbc-mod-bar .lbc-mb-h`);
+      let title = await R(page, '.lbc-m-title');
+      await drag(page, center(await grip('recent')), { x: title.right - title.width * 0.06, y: title.top + title.height / 2 });
       await S.settle(80);
-      assert.deepEqual(await order(page), ['overview', 'recent'], '读插件设置：顺序 + 隐藏，不认识的丢掉');
-      await page.click('.lbc-tools .lb-arrange'); await S.settle(40);
-      assert.equal(await page.textContent('.lbc-arrange-tray [data-show="sync"]'), '+ 同步与用量');
-      shots.push(await S.screenshot('catalog-arrange-live-light-1400'));
+      const beside = await page.evaluate(() => { const t = document.querySelector('.lbc-m-title').getBoundingClientRect(), r = document.querySelector('.lbc-m-recent').getBoundingClientRect();
+        return { inTop: !!document.querySelector('.lbc-top .lbc-m-recent'), right: r.left >= t.right - 2, sameRow: Math.abs(r.top - t.top) < 40, drop: document.querySelector('.lbc-drop-ind')?.hidden, dragging: document.querySelectorAll('.is-dragging').length }; });
+      assert.deepEqual(beside, { inTop: true, right: true, sameRow: true, drop: true, dragging: 0 }, '最近导入并排在标题右边（吸顶区里）');
+      await waitSave(page, n0);
+      const rec = (await saved(page)).modules.find(m => m.id === 'recent');
+      assert.deepEqual([rec.x, rec.y, rec.width], [8, 0, 4]);
+      shots.push(await S.screenshot('catalog-arrange-1027-beside-title'));
+      // 标题 → 边栏「同步」上面
+      const sync = await R(page, '.lbc-m-sync');
+      await drag(page, center(await grip('title')), { x: sync.left + sync.width / 2, y: sync.top + 12 });
+      await S.settle(80);
+      assert.ok(await page.evaluate(() => !!document.querySelector('.lbc-side > .lbc-m-title')), '标题进了边栏');
+      assert.deepEqual(await page.evaluate(() => [...document.querySelector('.lbc-m-title').parentNode.children].filter(m => m.classList.contains('lbc-m')).map(m => m.dataset.m)), ['title', 'sync', 'token', 'overview']);
+      title = await R(page, '.lbc-title');
+      assert.ok(title.right <= (await R(page, '.lbc-side')).right + 2, '边栏里的标题不出边栏');
+      shots.push(await S.screenshot('catalog-arrange-1027-title-in-side'));
+      // ④ 真拖边：边栏宽两格
+      const sideA = await R(page, '.lbc-side'), board = await R(page, '.lbc-board');
+      const edge = await R(page, '.lbc-board > .lbc-col-edge');
+      const ep = { x: edge.left + edge.width / 2, y: edge.top + 60 };   // 边和整排一样高（墙很长）：在看得见的那一截上按
+      await drag(page, ep, { x: ep.x + board.width / 12 * 2, y: ep.y }, { steps: 8 });
+      await S.settle(120);
+      const sideB = await R(page, '.lbc-side');
+      assert.ok(sideB.width > sideA.width + board.width / 12 * 1.5, `边栏变宽两格 ${sideA.width} → ${sideB.width}`);
+      assert.equal(await page.evaluate(() => document.querySelector('.lbc-board').style.getPropertyValue('--lbc-board-cols')), 'minmax(0,6fr) minmax(0,6fr)');
+      // ⑤ 调整：最近导入 2 条（面板在模块框里）
+      await page.click('.lbc-m-recent .lbc-mod-bar [data-act="adjust"]'); await S.settle(40);
+      const inBox = await page.evaluate(() => { const p = document.querySelector('.lbc-mp').getBoundingClientRect(), m = document.querySelector('.lbc-m-recent').getBoundingClientRect(); return p.left >= m.left - 1 && p.right <= m.right + 1 && p.top >= m.top - 1; });
+      assert.ok(inBox, '调整在模块里展开');
+      await page.selectOption('.lbc-mp [data-k="count"]', '2'); await S.settle(40);
+      assert.equal(await page.evaluate(() => document.querySelectorAll('.lbc-m-recent .lbc-rec li').length), 2);
+      shots.push(await S.screenshot('catalog-arrange-1027-adjust'));
+      await page.keyboard.press('Escape'); await S.settle(30);
+      assert.equal(await page.$('.lbc-mp'), null, 'Esc 先收起调整');
+      // Aa 样式：卡片间距、界面大小
+      await page.click('.lbc-arrange-tray [data-act="style"]'); await S.settle(30);
+      const gapOf = () => page.evaluate(() => { const c = [...document.querySelectorAll('.lbc-grid-inner > .lbc-col')]; return c.length > 1 ? c[1].getBoundingClientRect().left - c[0].getBoundingClientRect().right : 0; });
+      const g0 = await gapOf();
+      await page.selectOption('.lbc-arrange-tray [data-theme="gap"]', '32'); await S.settle(150);
+      const g1 = await gapOf();
+      assert.ok(g1 > g0 + 4, `卡片间距变松 ${g0} → ${g1}`);
+      const tok0 = await R(page, '.lbc-m-token');
+      await page.selectOption('.lbc-arrange-tray [data-theme="scale"]', '1.2'); await S.settle(150);
+      const tok1 = await R(page, '.lbc-m-token');
+      assert.ok(tok1.height > tok0.height * 1.1, `界面放大 ${tok0.height} → ${tok1.height}`);
+      assert.equal(await page.evaluate(() => document.body.style.getPropertyValue('--lb-scale')), '1.2', '共享令牌 --lb-scale');
+      shots.push(await S.screenshot('catalog-arrange-1027-theme'));
+      await page.selectOption('.lbc-arrange-tray [data-theme="scale"]', '1'); await S.settle(80);
+      // ⑥ × / ＋
+      await page.click('.lbc-m-overview .lbc-mod-bar [data-act="remove"]'); await S.settle(40);
+      assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.lbc-m-overview')).display), 'none');
+      await page.click('.lbc-arrange-tray [data-show="overview"]'); await S.settle(40);
+      assert.notEqual(await page.evaluate(() => getComputedStyle(document.querySelector('.lbc-m-overview')).display), 'none', '＋ 加回');
+      n0 = await saves(page);
+      await page.mouse.click(5, 5);
+      await page.keyboard.press('Escape'); await S.settle(40);
+      assert.equal(await page.evaluate(() => document.querySelector('.lbc-wrap').classList.contains('is-arranging')), false, 'Esc 退出编排');
+      await waitSave(page, n0);
+      const L = await saved(page);
+      assert.equal(L.modules.find(m => m.id === 'recent').options.count, 2); assert.equal(L.theme.gap, 32);
       assert.deepEqual(await S.pageErrors(), []);
       await page.close();
+      // 新开一页按存的摆
+      const page2 = await browser.newPage({ viewport: { width: 1400, height: 1100 } });
+      const S2 = await shell.page(page2, { host: 'page-live', kind: 'catalog', theme: 'light', data, resources, files, plugin: plugin({ catalogLayout: L }) });
+      await S2.settle(80);
+      assert.ok(await page2.evaluate(() => !!document.querySelector('.lbc-side > .lbc-m-title') && !!document.querySelector('.lbc-top .lbc-m-recent')), '新开一页：标题在边栏、最近导入在吸顶区');
+      assert.equal(await page2.evaluate(() => document.querySelectorAll('.lbc-m-recent .lbc-rec li').length), 2);
+      shots.push(await S2.screenshot('catalog-arrange-1027-reopen-live'));
+      assert.deepEqual(await S2.pageErrors(), []);
+      await page2.close();
     }
-    // ⑥ 手机 / 星标页没有「编排」；没插件照样能排、提示一句
+    // ⑦ 手机 / 插件没开 / 星标页：没有「编排」
     {
       const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
       const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', theme: 'light', data, resources, files, mobile: true });
@@ -134,22 +159,20 @@ const waitSave = async (page, n0) => { for (let i = 0; i < 40; i++) { if (await 
     }
     {
       const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+      const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', theme: 'light', data, resources, files, plugin: null });
+      await S.settle(60);
+      assert.equal(await page.$('.lb-arrange'), null, '插件没开：只读，没有编排');
+      assert.ok(await page.$('.lbc-m-token'), '边栏照默认摆');
+      assert.deepEqual(await S.pageErrors(), []);
+      await page.close();
+    }
+    {
+      const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
       const S = await shell.page(page, { host: 'page-reading', kind: 'starred', theme: 'light', data: { ...data, items: data.items.map(x => ({ ...x, starred: true })) }, resources, files, plugin: plugin() });
       await S.settle(60);
       assert.equal(await page.$('.lb-arrange'), null, '星标页没有编排');
       await page.close();
     }
-    {
-      const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-      const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', theme: 'light', data, resources, files, plugin: null });
-      await S.settle(60);
-      await page.click('.lbc-tools .lb-arrange'); await S.settle(30);
-      await page.click('.lbc-mod-recent [data-act="down"]'); await S.settle(20);
-      assert.deepEqual(await order(page), ['sync', 'recent', 'overview']);
-      assert.match(await page.evaluate(() => document.body.textContent), /插件没开：这次的编排有效/);
-      assert.deepEqual(await S.pageErrors(), []);
-      await page.close();
-    }
-    console.log('PASS catalog_arrange_ui 1022：编排胶囊在管理左边 · 编排态操作条 + 托盘、模块点不动 · 真拖动 / ↑↓ 换序、首末灰 · 隐藏 / + 加回 · 全隐藏边栏让开墙铺满 · 布局存插件设置并 saveSettings · 新开按设置排 · 恢复默认 = null · Esc 退出 · 手机 / 星标页无编排 · 没插件照样排并提示（截图 ' + shots.map(f => path.basename(f)).join(' ') + '）');
+    console.log('PASS catalog_arrange_ui 1027：编排胶囊在管理左边 · 默认边栏 4/12 · 八个模块操作条 + 托盘 + 列边 · 真拖：最近导入并排到标题右边、标题进边栏 · 真拖边 +2 格 · 调整在模块里展开（最近导入 2 条）· Aa 样式间距 / 大小生效（共享令牌）· × / ＋ · Esc · 存进 catalogLayout 并按存的重开 · 手机 / 没插件 / 星标页无编排（截图 ' + shots.map(f => path.basename(f)).join(' ') + '）');
   } finally { await browser.close(); }
 })().catch(e => { console.error('FAIL catalog_arrange_ui', e); process.exit(1); });

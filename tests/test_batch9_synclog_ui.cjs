@@ -275,8 +275,9 @@ async function pluginTests() {
   let cats = 0;
   p.openManageMenu({ currentTarget: { getBoundingClientRect: () => ({ left: 0, bottom: 0 }) } }, { categories: () => cats++ });
   const manage = loadPlugin.lastMenu.items;
-  assert.deepEqual(manage.map(i => i.title), ['改标题…', '每行几列…', '管理分类', '回收站', '导出资料', '设置', '刷新目录（重新整理分类）']);
-  for (const i of manage.slice(2)) i.click();
+  // 1027：改标题 / 每行几列挪进目录页「编排」，旧菜单不再重复
+  assert.deepEqual(manage.map(i => i.title), ['管理分类', '回收站', '导出资料', '设置', '刷新目录（重新整理分类）']);
+  for (const i of manage) i.click();
   assert.equal(cats, 1, '管理分类保留');
   assert.deepEqual(opened, ['trash', 'export', 'settings:link-brain-actions', '刷新目录']);
   p.openAISettingsMenu({});

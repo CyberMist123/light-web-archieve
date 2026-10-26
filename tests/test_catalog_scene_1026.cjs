@@ -3,7 +3,7 @@
 //   ② 最近导入「查看全部」：按导入时间新→旧的完整列表，一页 50 条翻页，返回瀑布流；页码存 LB.state
 //   ③ Wiki = 长期研究主题（标了 [wiki] 的分类：打开 wiki / 看这些帖子 / 生成）；未归类兜底队列一直露着（分类行 0 篇也留着）
 //   ④ 管理：分组（整理分类 / 回收站与删除 / 外观与其它），回收站带篇数、点了打开回收站页；删除一个分类说清帖子去哪（并进 / 回到未归类，帖子不删）
-//   ⑤ 编排扩到页头三块 + 内容区：↑ ↓ 换序（DOM 真换）、隐藏筛选条只藏筛选项（搜索还在）、边栏放右边、版式三档；写进 catalogLayout，默认键不写
+//   ⑤ 编排：1027 起八个模块平级、拖到任何位置、调宽、就地调整——用例挪到 tests/test_catalog_arrange_1027.cjs
 //   ⑥ 删除后的提示带「打开回收站」
 'use strict';
 const assert = require('node:assert/strict');
@@ -134,15 +134,14 @@ const pickMenu = (P, re) => { const b = P.menuItems().find(x => re.test(x.textCo
       files: { '回收站.md': '---\nlb-page: trash\n---\n', '_archive/index-data.json': JSON.stringify(index), '_archive/trash-data.json': JSON.stringify({ items: [{ item_id: 'x', has_files: true }, { item_id: 'y', has_files: true }, { item_id: 'z', has_files: false }] }) } });
     P.$('.lb-manage').onclick(ev()); await tick(5);
     const groups = P.dom.document.body.querySelectorAll('.lbc-menu-label').map(x => x.textContent);
-    assert.deepEqual(groups, ['整理分类', '回收站与删除', '外观与其它']);
+    assert.deepEqual(groups, ['整理分类', '回收站与删除', '其它']);
     const titles = P.menuItems().map(b => b.textContent);
     assert.ok(titles.includes('回收站（2 篇，可恢复）'), titles);
     assert.ok(titles.some(t => /^索引编辑/.test(t)) && titles.some(t => /^删除一个分类…（只删分类，帖子不删）/.test(t)) && titles.some(t => /^彻底删除…/.test(t)), titles);
     pickMenu(P, /^回收站（2 篇/); await tick(5);
     assert.equal(P.app.workspace.opened.at(-1)[0], '回收站.md', '点回收站 = 打开回收站页');
-    P.$('.lb-manage').onclick(ev()); await tick(5);
-    pickMenu(P, /^改标题/); await tick(5);
-    assert.equal(calls.at(-1), 'title');
+    // 1027：改标题 / 每行几列挪进「编排」（标题模块 / 收藏墙模块的「调整」），管理菜单里不再重复
+    assert.ok(!titles.some(t => /^改标题|^每行几列/.test(t)), titles);
     // 删除一个分类：有内容的先问帖子去哪（这里取消）——说清帖子不删、可以回到未归类
     P.$('.lb-manage').onclick(ev()); await tick(5);
     pickMenu(P, /^删除一个分类/); await tick(5);
@@ -156,52 +155,6 @@ const pickMenu = (P, re) => { const b = P.menuItems().find(x => re.test(x.textCo
     assert.ok(P.$('.lbc-wrap').classList.contains('is-indexview'));
   }
 
-  // ── ⑤ 编排：页头三块 + 内容区 + 版式 ──
-  {
-    let saves = 0;
-    const plugin = { settings: { hiddenCats: [], catalogLayout: null }, async saveSettings() { saves++; } };
-    const P = await openCatalog({ data: dataOf(base()), plugin });
-    const order = () => P.$('.lbc-top').children.filter(c => c.classList.contains('lbc-blk')).map(c => c.dataset.blk);
-    assert.deepEqual(order(), ['title', 'cats', 'filters']);
-    assert.equal(P.$('.lbc-blk-bar'), null, '操作条第一次进编排才建');
-    P.$('.lb-arrange').onclick();
-    assert.deepEqual(P.$$('.lbc-blk-bar .lbc-mb-nm').map(x => x.textContent), ['标题与 Logo', '分类行', '筛选条', '内容区（收藏墙）']);
-    assert.ok(P.$('.lbc-wrap').classList.contains('is-arranging'));
-    assert.equal(P.$('.lbc-arrange-tray').parentNode, P.$('.lbc-wrap'), '托盘在收藏墙上面（不在边栏里）');
-    assert.equal(P.$('.lbc-blk-title .lbc-mod-bar [data-act="up"]').disabled, true, '第一块 ↑ 是灰的');
-    P.$('.lbc-blk-filters .lbc-mod-bar [data-act="up"]').onclick(ev());
-    assert.deepEqual(order(), ['title', 'filters', 'cats'], '筛选条挪到分类行上面');
-    P.$('.lbc-blk-filters .lbc-mod-bar [data-act="hide"]').onclick(ev());
-    assert.ok(P.$('.lbc-blk-filters').classList.contains('is-off'));
-    assert.ok(P.$('.lbc-blk-filters').contains(P.$('.lbc-search')), '隐藏筛选条：搜索框还在这一块里（CSS 只藏筛选项）');
-    assert.equal(P.$('.lbc-arrange-tray [data-show-top="filters"]').textContent, '+ 筛选条');
-    P.$('.lbc-board-main .lbc-mod-bar [data-act="swap"]').onclick(ev());
-    assert.ok(P.$('.lbc-wrap').classList.contains('is-side-right'));
-    P.$('.lbc-arrange-tray [data-opt="sideW"][data-val="l"]').onclick();
-    P.$('.lbc-arrange-tray [data-opt="gap"][data-val="s"]').onclick();
-    P.$('.lbc-arrange-tray [data-opt="density"][data-val="s"]').onclick();
-    assert.equal(P.$('.lbc-wrap').dataset.sideW, 'l'); assert.equal(P.$('.lbc-wrap').style.getPropertyValue('--lbc-sp'), '0.7');
-    assert.ok(P.$('.lbc-arrange-tray [data-opt="density"][data-val="s"]').classList.contains('is-on'));
-    await tick(450);
-    assert.ok(saves >= 1);
-    const L = plugin.settings.catalogLayout;
-    assert.deepEqual(L.top, [{ id: 'title', hidden: false }, { id: 'filters', hidden: true }, { id: 'cats', hidden: false }]);
-    assert.deepEqual([L.sideRight, L.sideW, L.gap, L.density], [true, 'l', 's', 's']);
-    // 新开一页按设置排
-    const Q = await openCatalog({ data: dataOf(base()), plugin });
-    assert.deepEqual(Q.$('.lbc-top').children.filter(c => c.classList.contains('lbc-blk')).map(c => c.dataset.blk), ['title', 'filters', 'cats']);
-    assert.ok(Q.$('.lbc-blk-filters').classList.contains('is-off') && Q.$('.lbc-wrap').classList.contains('is-side-right'));
-    // 恢复默认 = null；默认布局只写 side（不多写键）
-    Q.$('.lb-arrange').onclick();
-    Q.$('.lbc-arrange-tray [data-act="reset"]').onclick();
-    await tick(450);
-    assert.equal(plugin.settings.catalogLayout, null);
-    assert.deepEqual(Q.$('.lbc-top').children.filter(c => c.classList.contains('lbc-blk')).map(c => c.dataset.blk), ['title', 'cats', 'filters']);
-    Q.$('.lbc-mod-recent [data-act="down"]').onclick(ev());
-    await tick(450);
-    assert.deepEqual(Object.keys(plugin.settings.catalogLayout), ['side'], '默认的页头 / 版式不写进设置');
-  }
-
   // ── ⑥ 删了之后提示带「打开回收站」 ──
   {
     const plugin = { settings: { hiddenCats: [] }, notify, async deleteItems(ids) { return { results: ids.map(id => ({ item_id: id, status: 'deleted' })) }; } };
@@ -211,5 +164,5 @@ const pickMenu = (P, re) => { const b = P.menuItems().find(x => re.test(x.textCo
     const n = notes.at(-1);
     assert.match(n.message, /移到了回收站（可恢复）/); assert.deepEqual(n.actions.map(a => a.label), ['打开回收站']);
   }
-  console.log('PASS catalog 1026 scenes 02/03/08: platform → topic → tag → type compose and survive Wiki / grid switches (filter in Wiki returns to results) · 最近导入 查看全部 (sorted by import time, 50 per page, page kept) · Wiki = long-term topics + 未归类 always visible · 管理 grouped (trash with count, delete-category explains where posts go) · arrange covers title / cats / filters / content + side width / spacing / density, saved only when non-default · delete notice links the trash');
+  console.log('PASS catalog 1026 scenes 02/03/08: platform → topic → tag → type compose and survive Wiki / grid switches (filter in Wiki returns to results) · 最近导入 查看全部 (sorted by import time, 50 per page, page kept) · Wiki = long-term topics + 未归类 always visible · 管理 grouped (trash with count, delete-category explains where posts go) · delete notice links the trash');
 })().catch(e => { console.error(e); process.exit(1); });

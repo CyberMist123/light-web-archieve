@@ -255,7 +255,8 @@ R = {"status": "ok|failed|skipped", "text": str|None, "code": "<故障码或空>
 | `noteActions` / `noteTools` / `imageActions` / `playerUI` | onload 的四个挂载点 | 各线自己 | `require(<文件>)(obsidian, plugin).attach()`；各线只改自己那个文件 |
 | `focusCatalogSearch` / `pendingArchiveQuestion` | 命令 / 目录页 | 目录 / 问收藏页 | 已有 |
 | 事件 `link-brain:settings` | 插件 `saveSettings()` 每次保存后 | 页面（`dv.component.registerEvent`，自己 rAF 合并） | 模型增删改名、设置变化都走它，不另设 models-changed |
-| 事件 `link-brain:star` / `link-brain:catalog-prefs` | 插件 | 目录 / 批注块 | 已有 |
+| 事件 `link-brain:star` / `link-brain:catalog-prefs` | 插件 | 目录 / 批注块 | 已有（1027：目录页「编排」存完布局 / 标题也发 catalog-prefs，别的目录页、问收藏页就地换） |
+| 方法 `markSettingDirty(...keys)` + 串行的 `saveMerged` / `onExternalSettingsChange` | 页面就地改设置时（目录页编排：`catalogLayout` / `catalogTitle` / `catalogColumns` / `budget` / `hiddenCats`） | 插件 `saveMerged` | 1027 标题丢失根因修复：登记过的键下次保存一定写，不靠快照猜；保存与外部重读排一条队（`_saveChain`），外部重读保留本窗口改了还没存的键 |
 | 事件 `link-brain:ask-pending` / `link-brain:chat-session` | 插件 / 问收藏页 | 问收藏页 | 已有 |
 
 - 目录线（L1）：`pendingCatalogQuery` + 事件 `link-brain:catalog-query`（笔记线写、目录读，读完即删）。

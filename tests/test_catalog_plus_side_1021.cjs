@@ -1,5 +1,5 @@
 // 1021 目录页改版第 3 段（Collection+ 设计交接包 DESIGN-SPEC §4、§7）：左侧边栏，假 DOM 上真跑整段目录页脚本。
-//   ① 三个模块 RECENT / SYNC / OVERVIEW：小标题（英文 + 中文小字 + 横线 + 箭头）；RECENT 最新 6 篇（今天 HH:MM、否则 M/D），点行打开；
+//   ① 四个模块 RECENT / SYNC / TOKEN（1027 从 SYNC 拆出来）/ OVERVIEW：小标题（英文 + 中文小字 + 横线 + 箭头）；RECENT 最新 6 篇（今天 HH:MM、否则 M/D），点行打开；
 //      OVERVIEW 默认折叠、摘要一行，点开 4 个大数 + 近 14 天柱子（今天加粗）
 //   ② 折叠：点小标题 → 一行摘要；点摘要 → 展开；状态存 LB.state（返回后还在），不用 localStorage
 //   ③ SYNC：上次 / 下次（插件 getSyncSchedule）、频率、进度 + 「还有 x 小时 x 分」、今日新增、Token 费用（没数据「—」+ 悬停「还没有用量记录」，
@@ -54,10 +54,10 @@ const txt = el => (el ? el.textContent : null);
     await tick(5);
     const side = P.$('.lbc-side');
     assert.equal(side.hidden, false); assert.ok(P.$('.lbc-board').classList.contains('has-side'));
-    assert.deepEqual(P.$$('.lbc-mod').map(m => m.dataset.mod), ['recent', 'sync', 'overview'], '顺序：RECENT · SYNC · OVERVIEW');
-    assert.deepEqual(P.$$('.lbc-lab-en').map(txt), ['RECENT', 'SYNC', 'OVERVIEW']);
-    assert.deepEqual(P.$$('.lbc-lab small').map(txt), ['最近导入', '同步与用量', '概览']);
-    assert.equal(P.$$('.lbc-lab-line').length, 3); assert.equal(P.$$('.lbc-chev').length, 3);
+    assert.deepEqual(P.$$('.lbc-mod').map(m => m.dataset.mod), ['recent', 'sync', 'token', 'overview'], '顺序：RECENT · SYNC · TOKEN · OVERVIEW');
+    assert.deepEqual(P.$$('.lbc-lab-en').map(txt), ['RECENT', 'SYNC', 'TOKEN', 'OVERVIEW']);
+    assert.deepEqual(P.$$('.lbc-lab small').map(txt), ['最近导入', '同步', 'Token 费用', '概览']);
+    assert.equal(P.$$('.lbc-lab-line').length, 4); assert.equal(P.$$('.lbc-chev').length, 4);
     // RECENT：最新 6 篇，按 ts 倒序；今天 HH:MM，否则 M/D；分类小字
     const rows = P.$$('.lbc-rec li');
     assert.deepEqual(rows.map(li => li.dataset.id), ['t3', 't2', 't1', 'y1', 'f1', 'f2']);
@@ -94,8 +94,13 @@ const txt = el => (el ? el.textContent : null);
     assert.match(txt(sy.querySelectorAll('.lbc-sy-cap span')[1]), /^还有 4 小时 3[01] 分$/);
     const w = parseFloat(sy.querySelector('.lbc-sy-bar i').style.width); assert.ok(w > 25 && w < 35, '进度 = 上次到下次过了多少 ' + w);
     const rowsSy = sy.querySelectorAll('.lbc-sy-row').map(r => [txt(r.querySelector('span')), txt(r.querySelector('b'))]);
-    assert.deepEqual(rowsSy, [['今日新增', '3 篇'], ['Token 费用 · 本月', '约 ¥3.72']]);
-    assert.match(txt(sy.querySelector('.lbc-fold-sum')), /^下次 (今天|\d+\/\d+) \d\d:\d\d · 本月 约 ¥3\.72$/);
+    assert.deepEqual(rowsSy, [['今日新增', '3 篇']], '1027：费用不在同步模块里了');
+    assert.match(txt(sy.querySelector('.lbc-fold-sum')), /^下次 (今天|\d+\/\d+) \d\d:\d\d$/);
+    // TOKEN（1027）：本月估算（目录数据 usage_month，不起进程）+ 后台每日上限（没设过 = 默认）
+    const tk = P.$('.lbc-mod-token');
+    assert.equal(txt(tk.querySelector('.lbc-tk-big')), '¥ 3.72');
+    assert.deepEqual(tk.querySelectorAll('.lbc-sy-row').map(r => [txt(r.querySelector('span')), txt(r.querySelector('b'))]), [['后台每日上限', '默认']]);
+    assert.equal(txt(tk.querySelector('.lbc-fold-sum')), '本月 约 ¥3.72 · 上限 默认');
     // 1026：齿轮去掉；点「下次同步」= 打开设置里那一个同步时间编辑（openSetupPage('schedule')），点「上次同步」/「查看同步记录」= 同步记录，「立即同步」= syncNow，都不折叠模块
     assert.equal(sy.querySelector('.lbc-gear'), null, '首页不再多一个设置齿轮');
     sy.querySelector('.lbc-sy-next').onclick({ stopPropagation() {} });
@@ -112,13 +117,12 @@ const txt = el => (el ? el.textContent : null);
     // 折叠 SYNC：只剩摘要；返回后还是折叠
     sy.querySelector('.lbc-lab').onclick();
     assert.ok(sy.classList.contains('is-folded')); assert.equal(sy.querySelector('.lbc-fold-sum').hidden, false);
-    assert.deepEqual(state().sideFold, { recent: false, sync: true, overview: false });
+    assert.deepEqual(state().sideFold, { recent: false, sync: true, token: false, overview: false });
     const Q = await openCatalog({ data: catalogData(base()), plugin: mkPlugin(), keepState: true });
     assert.ok(Q.$('.lbc-mod-sync').classList.contains('is-folded') && !Q.$('.lbc-mod-overview').classList.contains('is-folded'), '返回后折叠状态还在');
-    // 没有用量记录：「—」+ 悬停说明（不显示 0）
+    // 没有用量记录：「—」+ 一句说明（不显示 0）
     Q.$('.lbc-mod-sync .lbc-fold-sum').onclick(); await tick(5);
-    const tot = Q.$('.lbc-mod-sync .lbc-sy-row.is-tot b');
-    assert.equal(txt(tot), '—'); assert.equal(tot.title, '还没有用量记录');
+    assert.equal(txt(Q.$('.lbc-mod-token .lbc-tk-big')), '—'); assert.equal(txt(Q.$('.lbc-mod-token .lbc-sy-note')), '还没有用量记录');
     // 键盘：小标题上 Enter 折叠
     const lab = Q.$('.lbc-mod-recent .lbc-lab');
     lab.onkeydown({ key: 'Enter', target: lab, currentTarget: lab, preventDefault() {} });
@@ -146,7 +150,7 @@ const txt = el => (el ? el.textContent : null);
     assert.ok(P.cards().every((c, i) => c === cardsBefore[i]) && P.$('.lbc-grid').firstChild === wallBefore, '收藏墙没重建');
     // 折叠时摘要也跟着变
     sy.querySelector('.lbc-lab').onclick();
-    assert.match(txt(sy.querySelector('.lbc-fold-sum')), /^同步中 3\/40 · 本月 —$/);
+    assert.match(txt(sy.querySelector('.lbc-fold-sum')), /^同步中 3\/40$/);
     sy.querySelector('.lbc-fold-sum').onclick();
     // 失败 / 阻塞：显示原因，点开问题列表
     P.V.set('_archive/sync-status.json', syncFile({ state: 'blocked', code: 'xhs.captcha', label: '撞到验证码', detail: '要你在小红书里过一下验证' }));
@@ -176,7 +180,7 @@ const txt = el => (el ? el.textContent : null);
     assert.ok(sy, '没插件也出 SYNC');
     assert.equal(sy.querySelectorAll('.lbc-sy-big').map(txt)[1], '—');
     assert.match(txt(sy.querySelector('.lbc-sy-note')), /插件没开/);
-    assert.match(txt(sy.querySelector('.lbc-fold-sum')), /^下次 — · 本月 —$/);
+    assert.match(txt(sy.querySelector('.lbc-fold-sum')), /^下次 —$/);
     assert.deepEqual(P.A.alerts || [], []);
     // 计划读失败：如实一句
     const bad = mkPlugin({ async getSyncSchedule() { throw new Error('后台没返回同步计划'); } });

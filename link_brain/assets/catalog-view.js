@@ -18,6 +18,15 @@ const perfCounts = { rank: 0, layout: 0, build: 0 };
 const syncPerf = () => { try { const P = (globalThis.__lbPerf = globalThis.__lbPerf || {}); (P[ROLE] = P[ROLE] || {}).counts = perfCounts; } catch {} };
 syncPerf();
 
+// 1027 字体样式集（编排「Aa 样式」和模块「调整」里能选的字体都从这里来）；页面变量读共享令牌 --lb-font-*（LB.applyTheme / 本页兜底写），没写就是这几套
+const FONT_STACKS = {
+  display: LB.BRAND_FONT_STACK,
+  serif: '"Noto Serif SC","Source Han Serif SC","Source Han Serif CN","Songti SC","STSong","SimSun",serif',
+  latin: '"LB Cormorant","Cormorant Garamond",Georgia,"Noto Serif SC","Songti SC","SimSun",serif',
+  sans: '"Noto Sans SC","Segoe UI","Microsoft YaHei UI",sans-serif',
+  kai: '"Kaiti SC","STKaiti","KaiTi",serif',
+  georgia: 'Georgia,"Times New Roman",serif',
+};
 // ── 样式（X14c：挂 document.head 的 #lbc-style，目录页和星标页共用；跨页可能撞名的选择器加 .lbc-wrap 前缀） ──
 const CSS = `
 .markdown-preview-view.lb-catalog,.markdown-source-view.lb-catalog{--file-line-width:100%;}
@@ -34,8 +43,8 @@ const CSS = `
 /* 1021 Collection+ 改版（设计交接包 DESIGN-SPEC §0–3、5、9）：界面只有黑白——文字、选中、细线都用正文色 / 边框色，不用 --interactive-accent；
    颜色只出现在封面里。令牌映射 Obsidian 变量，深浅色自动跟随。标题 / 数字字体随包（_archive/fonts，@font-face 见 fontFaceCss），离线可用 */
 .lbc-wrap{--c-bg:var(--background-primary);--c-ink:var(--text-normal);--c-muted:var(--text-muted);--c-faint:var(--text-faint);--c-line:var(--background-modifier-border);--c-soft:var(--background-secondary);
---f-display:${LB.BRAND_FONT_STACK};--f-serif:"Noto Serif SC","Source Han Serif SC","Source Han Serif CN","Songti SC","STSong","SimSun",serif;
---f-latin:"LB Cormorant","Cormorant Garamond",Georgia,"Noto Serif SC","Songti SC","SimSun",serif;--f-sans:"Noto Sans SC","Segoe UI","Microsoft YaHei UI",sans-serif;
+--f-display:var(--lb-font-title,${FONT_STACKS.display});--f-serif:var(--lb-font-serif,${FONT_STACKS.serif});
+--f-latin:var(--lb-font-num,${FONT_STACKS.latin});--f-sans:var(--lb-font-body,${FONT_STACKS.sans});
 --r-card:12px;--ctl-h:34px;--shadow-print:5px 5px 0 var(--text-normal);
 /* 1026 她：字体规则统一——标题（雕刻 Cinzel / 衬线中文）· 数字（Cormorant 斜体、等宽数字）· 正文（无衬线）三套，字号只用这几档 */
 --fs-body:13.5px;--fs-small:12px;--fs-tab:15.5px;--num-feat:lining-nums tabular-nums;--lbc-sp:1;
@@ -49,11 +58,15 @@ width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;disp
 /* 右边让出「编排 / 管理」的实际宽度（JS 量好写进 --lbc-tools-w）；不够宽时左边不再对称预留，篇数 / 更新时间仍能排在标题右侧 */
 @container(max-width:1320px){.lbc-titleblock{padding-left:0;--lbc-title-pad:var(--lbc-tools-w,176px);}}
 /* 1026 窄（页头不到 760）：「编排 / 管理」退到标题上面一行，标题整行可用 */
-@container(max-width:760px){.lbc-head .lbc-tools{position:static;justify-content:flex-end;margin:0 0 8px;}.lbc-head .lbc-titleblock{padding:0;--lbc-title-pad:0px;}}
+@container(max-width:760px){.lbc-head .lbc-titleblock{padding:0;--lbc-title-pad:0px;}}
+/* 1027「编排 / 管理」不属于任何模块（标题挪走 / 移除了也还在）：钉在吸顶区右上角；页头窄、第一个不是标题、编排中 → 退成最上面一行（JS 设 .is-tools-static） */
+.lbc-top>.lbc-tools{position:absolute;top:0;right:0;}
+.lbc-top.is-tools-static>.lbc-tools{position:static;justify-content:flex-end;margin:0 0 8px;}
+.lbc-top.is-tools-static .lbc-titleblock{padding:0;--lbc-title-pad:0px;}
 .lbc-titlerow{display:flex;align-items:flex-end;justify-content:center;min-width:0;max-width:100%;}
 ${LB.brandCss('.lbc-title', '.lbc-engr')}
 /* 1026 场景 02：标题照共用的雕刻样式，字号再按右侧「编排 / 管理」让出的宽度收（长标题、放大都不出页头） */
-.lbc-title{font-size:clamp(24px,min(6.5cqi,calc((100cqi - var(--lbc-title-pad,0px) - 8px) / var(--lbc-title-em,8))),96px);}
+.lbc-title{font-size:clamp(24px,min(calc(6.5cqi * var(--lbc-title-k,1)),calc((100cqi - var(--lbc-title-pad,0px) - 8px) / var(--lbc-title-em,8))),calc(96px * var(--lbc-title-k,1)));font-family:var(--f-display);}
 .lbc-wrap .lbc-title button.lbc-import{font:inherit!important;color:var(--c-ink)!important;width:auto!important;height:auto!important;padding:0!important;margin:0 0 0 .02em!important;border:0!important;background:transparent!important;box-shadow:none!important;border-radius:0!important;display:inline-block!important;vertical-align:baseline;line-height:inherit!important;cursor:pointer;transition:transform .45s cubic-bezier(.2,.8,.2,1);}
 .lbc-wrap .lbc-title button.lbc-import:hover{transform:rotate(90deg);}
 .lbc-wrap .lbc-title button.lbc-import[aria-busy="true"]{opacity:.5;cursor:progress;}
@@ -150,26 +163,36 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-topics button.lbc-topic-del.is-armed{width:auto;padding:0 7px!important;background:var(--c-ink)!important;color:var(--c-bg);}
 @media(hover:none){.lbc-wrap .lbc-topics button.lbc-topic-del{display:grid;}}
 .lbc-wrap .lbc-topics input.lbc-topic-new{width:132px;height:auto!important;padding:4px 0!important;border:0!important;border-bottom:1px solid var(--c-ink)!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;color:var(--c-ink);font:14px/1.3 var(--f-serif);outline:none;}
-/* 边栏位（第 3 段做内容）：收藏墙外面一层，左边一列放边栏、右边收藏墙；边栏没内容 / 收起 / 窄屏时整块就是收藏墙 */
-.lbc-board{display:block;}
-.lbc-board-main{min-width:0;}
-.lbc-side[hidden]{display:none!important;}
-.lbc-board.has-side{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,8fr);column-gap:40px;align-items:start;}
-.lbc-wrap.is-side-collapsed .lbc-board.has-side{display:block;}
-.lbc-wrap.is-side-collapsed .lbc-side{display:none!important;}
-@media(max-width:760px){.lbc-board.has-side{display:block;}.lbc-board.has-side>.lbc-side{display:none!important;}}
-/* 1021 第 3 段 · 左侧边栏（DESIGN-SPEC §4、§7）：吸在页头下面（top / max-height 由 paintStickyTop 量好写到 .lbc-wrap 上），内容超高自己滚，
+/* 边栏位：收藏墙那一排（.lbc-board）= 几列边栏（aside.lbc-side，吸在页头下面）+ 收藏墙那一列（.lbc-wallcol）；列宽 = 编排里 12 格的比例（--lbc-board-cols，JS 写）。
+   1027 八个模块平级：页头那几排（吸顶区里）和墙下面的几排（.lbc-after）都是「一排 = 几列、一列 = 几个模块（.lbc-m）」 */
+.lbc-board{display:block;position:relative;}
+.lbc-board-main,.lbc-wallcol{min-width:0;}
+.lbc-side[hidden],.lbc-row[hidden],.lbc-rcol[hidden],.lbc-wallcol[hidden]{display:none!important;}
+.lbc-board.has-side{display:grid;grid-template-columns:var(--lbc-board-cols,minmax(0,4fr) minmax(0,8fr));column-gap:40px;align-items:start;}
+.lbc-row{position:relative;display:grid;column-gap:calc(40px * var(--lbc-sp,1));align-items:start;}
+.lbc-row.is-single{display:block;}
+.lbc-row>.lbc-rcol{min-width:0;container-type:inline-size;}
+.lbc-after{display:block;margin-top:calc(26px * var(--lbc-sp,1));}
+.lbc-m.is-gone{display:none!important;}
+.lbc-wrap .lbc-m{font-family:var(--f-sans);zoom:calc(var(--lb-scale,1) * var(--lbc-m-k,1));}
+/* 边栏收起 / 窄 / 索引视图：边栏列让开；放了标题 / 分类 / 筛选的那一列留下这几块（叠在墙上面），别的模块收起 */
+.lbc-wrap:is(.is-side-collapsed,.is-side-narrow,.is-indexview) .lbc-board.has-side,.lbc-wrap.is-side-empty .lbc-board.has-side{display:block;}
+.lbc-wrap:is(.is-side-collapsed,.is-side-narrow,.is-indexview) .lbc-side:not(.has-core){display:none!important;}
+.lbc-wrap:is(.is-side-collapsed,.is-side-narrow,.is-indexview) .lbc-side.has-core{position:static;max-height:none;overflow:visible;}
+.lbc-wrap:is(.is-side-collapsed,.is-side-narrow,.is-indexview) .lbc-side.has-core>.lbc-m:not(.is-core){display:none!important;}
+@media(max-width:760px){.lbc-board.has-side{display:block;}.lbc-board.has-side>.lbc-side:not(.has-core){display:none!important;}.lbc-board.has-side>.lbc-side.has-core>.lbc-m:not(.is-core){display:none!important;}}
+.lbc-wrap.is-side-narrow .lbc-row{display:block;}
+.lbc-wrap.is-side-narrow .lbc-row>.lbc-rcol+.lbc-rcol{margin-top:12px;}
+/* 1021 第 3 段 · 边栏（DESIGN-SPEC §4、§7）：吸在页头下面（top / max-height 由 paintStickyTop 量好写到 .lbc-wrap 上），内容超高自己滚，
    不显示滚动条；没到底时底部 56px 渐隐（.is-more），到底去掉。只有收藏墙随页面滚。窄于 760（按页面宽，.is-side-narrow）或手机不出 */
 .lbc-side{position:sticky;top:var(--lbc-side-top,0px);overflow-anchor:none;max-height:calc(var(--lbc-pane-h,100vh) - var(--lbc-top-h,0px) - 16px);overflow-x:hidden;overflow-y:auto;scrollbar-width:none;min-width:0;box-sizing:border-box;padding:6px 0 24px;}
 .lbc-side::-webkit-scrollbar{display:none;}
 .lbc-side.is-more{-webkit-mask-image:linear-gradient(#000 calc(100% - 56px),transparent);mask-image:linear-gradient(#000 calc(100% - 56px),transparent);}
-.lbc-wrap.is-side-narrow .lbc-board.has-side{display:block;}
-.lbc-wrap.is-side-narrow .lbc-side{display:none!important;}
 .lbc-wrap.is-side-narrow .lbc-ctl button.lbc-sidetoggle{display:none!important;}
 /* 「索引」视图自己左边有树（这次不动它）：边栏和边栏钮都让开，版式照旧 */
-.lbc-wrap.is-indexview .lbc-board.has-side{display:block;}
-.lbc-wrap.is-indexview .lbc-side,.lbc-wrap.is-indexview .lbc-ctl button.lbc-sidetoggle{display:none!important;}
+.lbc-wrap.is-indexview .lbc-ctl button.lbc-sidetoggle{display:none!important;}
 @media(max-width:760px){.lbc-wrap .lbc-ctl button.lbc-sidetoggle{display:none!important;}}
+.lbc-wrap.is-side-empty .lbc-ctl button.lbc-sidetoggle{display:none!important;}
 .lbc-mod{margin:0 0 26px;}
 .lbc-mod[hidden],.lbc-mod-body[hidden],.lbc-fold-sum[hidden],.lbc-sy-alert[hidden],.lbc-sy-note[hidden]{display:none!important;}
 .lbc-lab{display:flex;align-items:center;gap:14px;padding:4px 0 14px;cursor:pointer;user-select:none;color:var(--c-ink);}
@@ -181,39 +204,69 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-mod.is-folded .lbc-chev::before{transform:translateX(-2px) rotate(-45deg);}
 .lbc-wrap .lbc-lab button.lbc-gear{flex:none;width:22px!important;height:22px!important;padding:0!important;margin:0 -4px!important;border:0!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);display:grid;place-items:center;cursor:pointer;border-radius:999px!important;transition:color .15s,transform .4s;}
 .lbc-wrap .lbc-lab button.lbc-gear:hover{color:var(--c-ink);transform:rotate(60deg);}
-/* 1022 第 5 段编排：右上角「编排」胶囊 → 边栏每块头上出黑色操作条（⠿ 拖 / ↑ ↓ / 隐藏），边栏顶部出托盘（+ 隐藏的模块 / 恢复默认 / 完成） */
+/* 1027 编排（design-1027 §2）：右上角「编排」→ 每个模块头上一条黑色操作条（⠿ 拖到任何位置 · 名字 · 调整 · ×），列与列之间一道可拖的边（调宽，12 格吸附），
+   收藏墙上面一条托盘（＋ 模块 · Aa 样式 · 保存状态 · 恢复默认 · 结束编排）。「调整」在模块里面展开（不弹窗） */
 .lbc-wrap .lbc-tools button.lb-arrange{width:auto!important;height:var(--ctl-h)!important;padding:0 14px!important;border:1px solid var(--c-ink)!important;border-radius:999px!important;background:var(--c-bg)!important;color:var(--c-ink)!important;box-shadow:none!important;display:inline-flex;align-items:center;gap:7px;font:500 13px/1 var(--f-sans)!important;cursor:pointer;white-space:nowrap;}
 .lbc-wrap .lbc-tools button.lb-arrange:hover,.lbc-wrap.is-arranging .lbc-tools button.lb-arrange{background:var(--c-ink)!important;color:var(--c-bg)!important;}
 .lbc-wrap .lbc-tools button.lb-arrange svg{width:14px;height:14px;flex:none;}
 .lbc-wrap.is-indexview .lbc-tools button.lb-arrange,.lbc-wrap.is-side-narrow .lbc-tools button.lb-arrange{display:none!important;}
-.lbc-mod-bar,.lbc-arrange-tray{display:none;}
+.lbc-mod-bar,.lbc-arrange-tray,.lbc-col-edge{display:none;}
 .lbc-wrap.is-arranging .lbc-side{padding-left:12px;padding-right:12px;-webkit-mask-image:none;mask-image:none;}
-.lbc-wrap.is-arranging .lbc-mod{position:relative;margin-top:56px;outline:1.5px dashed var(--c-faint);outline-offset:10px;border-radius:2px;}
-.lbc-wrap.is-arranging .lbc-mod:hover{outline-color:var(--c-ink);}
+.lbc-wrap.is-arranging .lbc-m{position:relative;margin-top:46px;outline:1.5px dashed var(--c-faint);outline-offset:8px;border-radius:2px;}
+.lbc-wrap.is-arranging .lbc-m:hover,.lbc-wrap.is-arranging .lbc-m.is-panel{outline-color:var(--c-ink);}
+.lbc-wrap.is-arranging .lbc-m.is-off{min-height:28px;}
 .lbc-wrap.is-arranging .lbc-mod .lbc-lab,.lbc-wrap.is-arranging .lbc-mod .lbc-fold-sum,.lbc-wrap.is-arranging .lbc-mod .lbc-mod-body{pointer-events:none;user-select:none;}
-.lbc-wrap.is-arranging .lbc-mod-bar{display:flex;position:absolute;z-index:3;top:-40px;left:-10px;max-width:calc(100% + 20px);align-items:center;gap:2px;height:28px;padding:0 4px;box-sizing:border-box;background:var(--c-ink);color:var(--c-bg);border-radius:999px;font:12px/1 var(--f-sans);white-space:nowrap;}
+.lbc-wrap.is-arranging .lbc-mod-bar{display:flex;position:absolute;z-index:3;top:-38px;left:-8px;max-width:calc(100% + 16px);align-items:center;gap:2px;height:28px;padding:0 4px;box-sizing:border-box;background:var(--c-ink);color:var(--c-bg);border-radius:999px;font:12px/1 var(--f-sans);white-space:nowrap;}
 .lbc-mod-bar .lbc-mb-h{cursor:grab;width:26px;height:22px;display:grid;place-items:center;border-radius:999px;touch-action:none;flex:none;}
 .lbc-mod-bar .lbc-mb-h:active{cursor:grabbing;}
 .lbc-mod-bar .lbc-mb-h svg{width:10px;height:14px;}
-.lbc-mod-bar .lbc-mb-nm{padding:0 8px 0 2px;font-weight:500;}
+.lbc-mod-bar .lbc-mb-nm{padding:0 8px 0 2px;font-weight:500;overflow:hidden;text-overflow:ellipsis;}
 .lbc-mod-bar .lbc-mb-sep{width:1px;height:12px;background:currentColor;opacity:.3;margin:0 3px;flex:none;}
 .lbc-wrap .lbc-mod-bar button{width:auto!important;min-width:24px;height:22px!important;padding:0 7px!important;margin:0!important;border:0!important;border-radius:999px!important;background:transparent!important;color:inherit!important;box-shadow:none!important;font:inherit!important;cursor:pointer;}
-.lbc-wrap .lbc-mod-bar button:hover:not(:disabled){background:var(--c-bg)!important;color:var(--c-ink)!important;}
+.lbc-wrap .lbc-mod-bar button:hover:not(:disabled),.lbc-wrap .lbc-mod-bar button[aria-expanded="true"]{background:var(--c-bg)!important;color:var(--c-ink)!important;}
 .lbc-wrap .lbc-mod-bar button:disabled{opacity:.3;cursor:default;}
-.lbc-mod.is-dragging{opacity:.3;}
-.lbc-mod.is-drop-before::before,.lbc-mod.is-drop-after::after{content:"";position:absolute;z-index:4;left:-10px;right:-10px;height:4px;border-radius:3px;background:var(--c-ink);}
-.lbc-mod.is-drop-before::before{top:-50px;}
-.lbc-mod.is-drop-after::after{bottom:-15px;}
+.lbc-m.is-dragging{opacity:.35;}
+.lbc-drop-ind{position:fixed;z-index:60;background:var(--text-normal);border-radius:3px;pointer-events:none;}
+.lbc-drop-ind[hidden]{display:none;}
+.lbc-wrap.is-arranging .lbc-col-edge{display:block;position:absolute;top:0;bottom:0;width:14px;margin:0 0 0 -7px!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;cursor:col-resize;z-index:4;touch-action:none;}
+.lbc-col-edge::before{content:"";position:absolute;left:6px;top:0;bottom:0;width:2px;border-radius:2px;background:var(--c-faint);}
+.lbc-col-edge:hover::before,.lbc-col-edge:focus-visible::before,.lbc-col-edge.is-on::before{background:var(--c-ink);}
+.lbc-col-edge .lbc-ce-w{position:absolute;top:6px;left:12px;padding:3px 8px;border-radius:999px;background:var(--c-ink);color:var(--c-bg);font:12px/1 var(--f-sans);white-space:nowrap;display:none;}
+.lbc-col-edge.is-on .lbc-ce-w,.lbc-col-edge:focus-visible .lbc-ce-w{display:block;}
+/* 模块里展开的「调整」 */
+.lbc-mp{position:relative;z-index:2;margin:0 0 14px;padding:12px 14px;border:1px solid var(--c-ink);border-radius:4px;background:var(--c-bg);color:var(--c-ink);font:13px/1.5 var(--f-sans);zoom:1;}
+.lbc-mp-h{display:flex;align-items:center;gap:8px;margin:0 0 8px;font-weight:600;}
+.lbc-mp-h .lbc-mp-save{margin-left:auto;font-weight:400;font-size:12px;color:var(--c-muted);}
+.lbc-mp-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:6px 0;}
+.lbc-mp-row>label,.lbc-mp-k{color:var(--c-muted);font-size:12px;min-width:3.5em;}
+.lbc-mp-row label.lbc-mp-ck{color:var(--c-ink);font-size:13px;min-width:0;display:inline-flex;align-items:center;gap:4px;}
+.lbc-wrap .lbc-mp select,.lbc-wrap .lbc-mp input[type=text],.lbc-wrap .lbc-mp input[type=number]{height:28px;padding:0 8px;border:1px solid var(--c-line);border-radius:4px;background:var(--c-bg);color:var(--c-ink);font:13px var(--f-sans);max-width:100%;box-sizing:border-box;}
+.lbc-wrap .lbc-mp input[type=text]{flex:1 1 140px;min-width:0;}
+.lbc-wrap .lbc-mp input[type=number]{width:84px;}
+.lbc-wrap .lbc-mp button{width:auto!important;height:26px!important;padding:0 10px!important;margin:0!important;border:1px solid var(--c-line)!important;border-radius:999px!important;background:var(--c-bg)!important;color:var(--c-ink)!important;box-shadow:none!important;font:12.5px/1 var(--f-sans)!important;cursor:pointer;white-space:nowrap;}
+.lbc-wrap .lbc-mp button:hover:not(:disabled){border-color:var(--c-ink)!important;}
+.lbc-wrap .lbc-mp button:disabled{opacity:.4;cursor:default;}
+.lbc-mp-note{margin:6px 0 0;font-size:12px;color:var(--c-muted);}
+.lbc-mp-note.is-fail{color:var(--lb-danger);}
+.lbc-mp-cats{display:flex;flex-direction:column;gap:4px;margin:4px 0;}
+.lbc-mp-cat{display:flex;align-items:center;gap:6px;}
+.lbc-mp-cat .lbc-mp-n{font:italic 13px/1 var(--f-latin);color:var(--c-muted);min-width:2em;text-align:right;}
+.lbc-mp .lb-sched{margin-top:4px;}
 .lbc-wrap.is-arranging .lbc-arrange-tray{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0 14px;border-bottom:1px solid var(--c-ink);}
-.lbc-arrange-tray .lbc-at-k{font:700 11px/1 var(--f-display);letter-spacing:.26em;color:var(--c-ink);margin-right:auto;}
+.lbc-arrange-tray .lbc-at-k{font:700 11px/1 var(--f-display);letter-spacing:.26em;color:var(--c-ink);}
+.lbc-arrange-tray .lbc-at-save{margin-left:auto;font-size:12px;color:var(--c-muted);}
+.lbc-arrange-tray .lbc-at-save.is-fail{color:var(--lb-danger);}
 .lbc-arrange-tray .lbc-at-hint{order:9;flex:1 1 100%;font-size:12px;line-height:1.6;color:var(--c-muted);}
+.lbc-arrange-tray .lbc-at-row{order:8;flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;}
+.lbc-arrange-tray .lbc-at-row[hidden]{display:none;}
+.lbc-arrange-tray .lbc-at-row label{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--c-muted);}
+.lbc-wrap .lbc-arrange-tray select{height:28px;padding:0 8px;border:1px solid var(--c-line);border-radius:4px;background:var(--c-bg);color:var(--c-ink);font:13px var(--f-sans);}
 .lbc-wrap .lbc-arrange-tray button{width:auto!important;height:28px!important;padding:0 12px!important;margin:0!important;border:1px solid var(--c-ink)!important;border-radius:999px!important;background:var(--c-bg)!important;color:var(--c-ink)!important;box-shadow:none!important;font:13px/1 var(--f-sans)!important;cursor:pointer;white-space:nowrap;}
-.lbc-wrap .lbc-arrange-tray button:hover{background:var(--c-ink)!important;color:var(--c-bg)!important;}
+.lbc-wrap .lbc-arrange-tray button:hover:not(:disabled),.lbc-wrap .lbc-arrange-tray button[aria-expanded="true"]{background:var(--c-ink)!important;color:var(--c-bg)!important;}
+.lbc-wrap .lbc-arrange-tray button:disabled{opacity:.45;cursor:default;}
 .lbc-wrap .lbc-arrange-tray button.is-dash{border-style:dashed!important;color:var(--c-muted)!important;}
 .lbc-wrap .lbc-arrange-tray button.is-dash:hover{color:var(--c-bg)!important;}
 .lbc-wrap .lbc-arrange-tray button.is-solid{background:var(--c-ink)!important;color:var(--c-bg)!important;}
-.lbc-wrap.is-side-empty:not(.is-arranging) .lbc-board.has-side{display:block;}
-.lbc-wrap.is-side-empty:not(.is-arranging) .lbc-side,.lbc-wrap.is-side-empty:not(.is-arranging) .lbc-ctl button.lbc-sidetoggle{display:none!important;}
 .lbc-wrap .lbc-lab button.lbc-gear svg{width:15px;height:15px;}
 .lbc-fold-sum{font:14px/1.5 var(--f-serif);color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:-4px;cursor:pointer;}
 .lbc-fold-sum:hover{color:var(--c-ink);}
@@ -525,36 +578,22 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap button.lbc-totop svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
 .lbc-totop-dock.is-on button.lbc-totop{opacity:.82;pointer-events:auto;}
 .lbc-totop-dock.is-on button.lbc-totop:hover{opacity:1;color:var(--text-normal);border-color:var(--text-faint)!important;}
-/* ── 1026 编排扩到整页：页头三块（标题与 Logo · 分类行 · 筛选条）+ 内容区，每块头上同款黑条；隐藏的块只藏内容 ── */
+/* ── 1026 / 1027 页头那几块（标题与 Logo · 分类 · 筛选与搜索）：「筛选与搜索」移除时只藏筛选项，搜索 / 排序 / 问收藏一直在（她 1026 定） ── */
 .lbc-blk{display:block;}
-.lbc-blk-title.is-off .lbc-titlerow,.lbc-blk-cats.is-off>:not(.lbc-mod-bar),.lbc-blk-filters.is-off .lbc-ctl-l{display:none!important;}
+.lbc-blk-filters.is-off .lbc-ctl-l{display:none!important;}
 .lbc-blk-filters.is-off .lbc-ctl-r{margin-left:auto;}
-.lbc-wrap.is-arranging .lbc-blk,.lbc-wrap.is-arranging .lbc-board-main{position:relative;outline:1.5px dashed var(--c-faint);outline-offset:6px;border-radius:2px;margin-top:40px;}
-.lbc-wrap.is-arranging .lbc-blk:hover,.lbc-wrap.is-arranging .lbc-board-main:hover{outline-color:var(--c-ink);}
-.lbc-wrap.is-arranging .lbc-blk.is-off{opacity:.55;min-height:28px;}
-.lbc-wrap.is-arranging .lbc-blk-bar{top:-36px;left:-6px;}
 .lbc-wrap.is-arranging .lbc-top{position:relative;}
-/* 内容区：边栏放右边；侧栏宽度三档（窄 3/12 · 中 4/12 · 宽 5/12） */
-.lbc-wrap[data-side-w="s"] .lbc-board.has-side{grid-template-columns:minmax(0,3fr) minmax(0,9fr);}
-.lbc-wrap[data-side-w="l"] .lbc-board.has-side{grid-template-columns:minmax(0,5fr) minmax(0,7fr);}
-.lbc-wrap.is-side-right .lbc-board.has-side{grid-template-columns:minmax(0,8fr) minmax(0,4fr);}
-.lbc-wrap.is-side-right[data-side-w="s"] .lbc-board.has-side{grid-template-columns:minmax(0,9fr) minmax(0,3fr);}
-.lbc-wrap.is-side-right[data-side-w="l"] .lbc-board.has-side{grid-template-columns:minmax(0,7fr) minmax(0,5fr);}
-.lbc-wrap.is-side-right .lbc-side{order:2;}
-/* 区块间距：模块、栏、卡片、页头几行的间距一起按 --lbc-sp 缩放 */
+/* 「调整」里选掉的筛选项（filters 模块 options.show）：只藏按钮，不清别的维度 */
+.lbc-blk-filters.lbc-f-no-scope .lbc-scope-tab,.lbc-blk-filters.lbc-f-no-type .lbc-type-tab,.lbc-blk-filters.lbc-f-no-type .lbc-ctl-sep,.lbc-blk-filters.lbc-f-no-tag .lbc-tagpick,
+.lbc-blk-filters.lbc-f-no-plat .lbc-platpick,.lbc-blk-filters.lbc-f-no-src .lbc-album,.lbc-blk-filters.lbc-f-no-sort .lbc-time,.lbc-blk-filters.lbc-f-no-view .lbc-vseg,
+.lbc-blk-filters.lbc-f-no-ask .lbc-askbtn,.lbc-blk-filters.lbc-f-no-scope .lbc-topic-new-tab{display:none!important;}
+/* 区块间距（Aa 样式「卡片间距」）：模块、栏、卡片、页头几行的间距一起按 --lbc-sp 缩放 */
 .lbc-board.has-side{column-gap:calc(40px * var(--lbc-sp,1));}
 .lbc-mod{margin-bottom:calc(26px * var(--lbc-sp,1));}
 .lbc-card{margin-bottom:calc(26px * var(--lbc-sp,1));}
 .lbc-ctl{margin-top:calc(14px * var(--lbc-sp,1));}
 .lbc-cats{margin-top:calc(12px * var(--lbc-sp,1));}
-/* 托盘：收藏墙上面一整行；版式三组分段按钮 */
 .lbc-wrap.is-arranging .lbc-arrange-tray{margin:6px 0 18px;}
-.lbc-at-opts{order:8;flex:1 1 100%;display:flex;flex-wrap:wrap;gap:8px 22px;align-items:center;}
-.lbc-at-opt{display:inline-flex;align-items:center;gap:8px;}
-.lbc-at-optk{font-size:var(--fs-small);color:var(--c-muted);}
-.lbc-at-seg{display:inline-flex;padding:2px;gap:2px;border:1px solid var(--c-line);border-radius:999px;}
-.lbc-wrap .lbc-arrange-tray .lbc-at-seg button{height:24px!important;padding:0 10px!important;border:0!important;font-size:var(--fs-small)!important;background:transparent!important;color:var(--c-muted)!important;}
-.lbc-wrap .lbc-arrange-tray .lbc-at-seg button.is-on{background:var(--c-ink)!important;color:var(--c-bg)!important;}
 /* 1026 Wiki（长期研究主题）· 最近导入全部（翻页）——正文无衬线、数字 Cormorant、按钮细线胶囊，和边栏同一套字 */
 .lbc-wiki{text-align:left;padding:28px 5px 60px;}
 .lbc-wiki-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 18px;margin-bottom:18px;}
@@ -815,9 +854,9 @@ titleLabel.dataset.text = titleOf();
 const titleEm = t => Math.max(4, [...t].reduce((n, ch) => n + (/[　-鿿＀-￯]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.35 : 0.8), 0) + 0.9);
 function setTitle() { const t = titleOf(); if (titleLabel.textContent !== t) titleLabel.setText(t); if (titleLabel.dataset.text !== t) titleLabel.dataset.text = t; const em = titleEm(t).toFixed(2); if (titleText.style.getPropertyValue('--lbc-title-em') !== em) titleText.style.setProperty('--lbc-title-em', em); }
 setTitle();
-// 「编排 / 管理」放在标题前面（宽屏绝对定位在右上角，窄了退成标题上面一行）
-const tools = head.createEl('div', { cls: 'lbc-tools' });
-head.insertBefore(tools, titleBlock);
+// 「编排 / 管理」（1027：不属于任何模块——标题挪走 / 移除了也还在）：吸顶区第一个子节点，宽屏绝对定位在右上角，窄了 / 编排中退成最上面一行
+const tools = top.createEl('div', { cls: 'lbc-tools' });
+top.insertBefore(tools, head);
 const importButton = mobile ? null : titleText.createEl('button', { cls: 'lbc-import lbc-engr', text: '+' });
 if (importButton) importButton.dataset.text = '+';
 // F4：标题下那一行拆成三块——计数（只是字）· 可能相关（跳到那一组）· 更新（打开同步记录）
@@ -982,7 +1021,7 @@ if (manage) { manage.type = 'button'; manage.innerHTML = MANAGE_SVG; manage.crea
 // 1026 她（16:55「它甚至没有回收站」；分类删了内容去哪不清楚）：「管理」按用途分组——
 //   整理分类：索引编辑（分类树）/ 在 索引.md 里改 / 删除一个分类（只删分类，内容不删）
 //   回收站与删除：回收站（N 篇，可恢复）/ 彻底删除（在回收站里做，不能恢复）/ 怎么删一篇收藏
-//   外观与其它：改标题 / 每行几列 / 导出资料 / 设置 / 刷新目录
+//   其它：导出资料 / 设置 / 刷新目录（1027：改标题 / 每行几列挪进「编排」——标题模块、收藏墙模块的「调整」，这里不再重复）
 // 页面自己拼菜单（插件的 obsidian.Menu，插件不在时自制），各项调插件原有的方法
 let trashCount = null;
 async function readTrashCount() {
@@ -1006,9 +1045,7 @@ function manageItems() {
       if (await LB.confirm({ title: '彻底删除在回收站里做', body: '帖子要先「删除（移到回收站）」——在卡片上右键，或多选后点「删除选中」。到回收站里再点「彻底删除」才会连文件一起删掉，之后不再同步，不能恢复。', ok: '打开回收站' })) openTrash();
     } },
     { separator: true },
-    label('外观与其它'),
-    { title: '改标题…', icon: 'pencil', onClick: () => callPlugin('openCatalogTitle') },
-    { title: '每行几列…', icon: 'layout-grid', onClick: () => callPlugin('openColumnsPicker') },
+    label('其它'),
     { title: '导出资料', icon: 'folder-open', onClick: () => callPlugin('openExportFolder') },
     { title: '设置', icon: 'settings-2', onClick: () => callPlugin('openSetupPage') },
     { title: '刷新目录', sub: '重新整理分类', icon: 'refresh-cw', onClick: () => callPlugin('run', ['-m', 'link_brain', 'catalog'], '刷新目录', true) },
@@ -1033,9 +1070,10 @@ async function deleteCategoryFlow(path = '') {
   const to = await pickNode(`把「${n.name}」并进…（${n.count} 篇跟过去，帖子不删）`, { here: n.path });
   if (to) await treeEdit('merge', n, { to });
 }
-// 1022 第 5 段「编排」胶囊（只桌面目录页：手机 / 星标页没有边栏）：点了进编排，再点或「完成」/ Esc 退出
+// 1022 第 5 段「编排」胶囊（只桌面目录页：手机 / 星标页没有边栏）：点了进编排，再点或「结束编排」/ Esc 退出
+// 1027：插件没开就没有「编排」（只读：布局存不下来，不让她白排一通）
 const GRIP_SVG = '<svg viewBox="0 0 10 14" aria-hidden="true"><g fill="currentColor"><circle cx="2.5" cy="2.5" r="1.4"/><circle cx="7.5" cy="2.5" r="1.4"/><circle cx="2.5" cy="7" r="1.4"/><circle cx="7.5" cy="7" r="1.4"/><circle cx="2.5" cy="11.5" r="1.4"/><circle cx="7.5" cy="11.5" r="1.4"/></g></svg>';
-const arrangeBtn = mobile || simplePage ? null : tools.createEl('button', { cls: 'lb-arrange lbc-arrange' });
+const arrangeBtn = mobile || simplePage || !provider()?.settings ? null : tools.createEl('button', { cls: 'lb-arrange lbc-arrange' });
 if (arrangeBtn) {
   arrangeBtn.type = 'button'; arrangeBtn.innerHTML = GRIP_SVG; arrangeBtn.createEl('span', { text: '编排' });
   arrangeBtn.setAttribute('aria-pressed', 'false');
@@ -1059,10 +1097,10 @@ const ctlL = ctl.createEl('div', { cls: 'lbc-ctl-l' });
 const ctlR = ctl.createEl('div', { cls: 'lbc-ctl-r' });
 // 1026 她（02:25 手画的范围：标题 / Logo、分类、筛选、内容框都要能编排）：吸顶区分成三块——标题与 Logo · 分类行 · 筛选条，
 // 编排时能换顺序、隐藏（筛选条隐藏的只是左边的筛选项，搜索 / 排序 / 问收藏一直在）；吸顶仍是 .lbc-top 一整块，不拆
+// 1027：这三块和边栏模块、收藏墙平级（.lbc-m），位置由下面「编排」一节按 catalogLayout 摆
 const TOP_IDS = ['title', 'cats', 'filters'];
-const TOP_NAMES = { title: '标题与 Logo', cats: '分类行', filters: '筛选条' };
 const blocks = {};
-for (const id of TOP_IDS) { const b = top.createEl('div', { cls: 'lbc-blk lbc-blk-' + id }); b.dataset.blk = id; blocks[id] = b; }
+for (const id of TOP_IDS) { const b = top.createEl('div', { cls: 'lbc-blk lbc-blk-' + id + ' lbc-m lbc-m-' + id + ' is-core' }); b.dataset.blk = id; b.dataset.m = id; blocks[id] = b; }
 blocks.title.append(head); blocks.cats.append(catBar); blocks.filters.append(ctl);
 const SIDE_SVG = '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="1.5" width="12" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><rect class="lbc-side-col" x="1.7" y="2.2" width="3.6" height="9.6" stroke="currentColor" stroke-width="1"/></svg>';
 const sideBtn = mobile || simplePage ? null : ctlL.createEl('button', { cls: 'lbc-sidetoggle' });   // 星标页 / 手机没有边栏，也就没有这颗钮
@@ -1327,7 +1365,7 @@ function pickView(k) {
 // 边栏内容（第 3 段：RECENT / SYNC / OVERVIEW）在下面「左侧边栏」一节画；开 / 收由 setSideOpen 管（.lbc-wrap.is-side-collapsed），
 // 收起 / 窄屏时 CSS 让收藏墙铺满（列数按宽度 lbcColumns 自己变）。各模块折叠状态 sideFold 也存 LB.state（OVERVIEW 默认折叠）
 let sideOpen = true;
-const sideFold = { recent: false, sync: false, overview: true };
+const sideFold = { recent: false, sync: false, token: false, overview: true };
 let sideApi = null;   // 边栏画好后才有：{ paintSync(), paintData(), paintAll(), fade() }；同步状态 / 数据变了只重画边栏里那一块
 function setSideOpen(on) {
   sideOpen = !!on;
@@ -1772,7 +1810,9 @@ function setSelbarBusy(text) {
 const SIDE_ON = !mobile && !simplePage;
 const board = wrap.createEl('div', { cls: 'lbc-board' + (SIDE_ON ? ' has-side' : '') });
 const side = board.createEl('aside', { cls: 'lbc-side' }); side.hidden = !SIDE_ON;
-const boardMain = board.createEl('div', { cls: 'lbc-board-main' });
+// 1027：收藏墙那一列（编排时别的模块也能叠在墙上面 / 下面）；墙本身 = 模块 wall
+const wallCol = board.createEl('div', { cls: 'lbc-wallcol' });
+const boardMain = wallCol.createEl('div', { cls: 'lbc-board-main lbc-m lbc-m-wall' }); boardMain.dataset.m = 'wall';
 const ibar = boardMain.createEl('div', { cls: 'lbi-bar' }); ibar.hidden = true;
 const split = boardMain.createEl('div', { cls: 'lbi-split' });
 const ipanel = split.createEl('div', { cls: 'lbi-panel' }); ipanel.hidden = true;
@@ -2443,18 +2483,17 @@ function applyCols() {
 }
 const narrow = () => (typeof innerWidth === 'number' ? innerWidth : 1200) <= 700;
 function gridWidth() { if (roWidth > 0) return roWidth; const w = Number(grid.clientWidth) || 0; return w > 0 ? Math.max(0, w - 10) : 0; }
-// 1026 卡片密度（编排里的「紧凑 / 标准 / 宽松」）：自动列数上 +1 / 0 / −1；手动调过列数（Ctrl + 滚轮）就按手动的
+// 1026 卡片密度（1027 起在收藏墙模块的「调整」里：紧凑 / 标准 / 宽松）：自动列数上 +1 / 0 / −1；手动调过列数（Ctrl + 滚轮）就按手动的
 const DENSITY_DELTA = { s: 1, m: 0, l: -1 };
 function colCount() {
   if (simplePage) return 1;
   if (cols) return lbcColumns(gridWidth(), { cols, narrow: narrow() });
   const auto = lbcColumns(gridWidth(), { narrow: narrow() });
-  const d = DENSITY_DELTA[layoutOpt('density')] || 0;
+  const d = DENSITY_DELTA[wallDensity()] || 0;
   return Math.max(1, Math.min(COLS_MAX, auto + d));
 }
-// 区块间距（编排里的「紧 / 标准 / 松」）：卡片列距跟着缩放（CSS 里模块间距、栏距读同一个 --lbc-sp）
-const GAP_SCALE = { s: 0.7, m: 1, l: 1.35 };
-const gapPx = () => Math.round((narrow() ? 14 : 24) * (GAP_SCALE[layoutOpt('gap')] || 1));
+// 区块间距（1027 起是「Aa 样式」的卡片间距 theme.gap，px，标准 24）：卡片列距跟着缩放（CSS 里模块间距、栏距读同一个 --lbc-sp）
+const gapPx = () => Math.round((narrow() ? 14 : 24) * gapScale());
 function currentCols() { return cols || laidN || colCount(); }
 function setCols(next) {
   next = Math.max(COLS_MIN, Math.min(COLS_MAX, Math.round(next)));
@@ -2463,7 +2502,7 @@ function setCols(next) {
   relayoutIfNeeded();
   LB.say(`瀑布流 ${cols} 列`, { ms: 1500 });
   const p = provider();
-  if (p?.settings) { p.settings.catalogColumns = cols; clearTimeout(p.__lbColsSave); p.__lbColsSave = setTimeout(() => { try { p.saveSettings?.(); } catch {} }, 600); }
+  if (p?.settings) { p.settings.catalogColumns = cols; p.markSettingDirty?.('catalogColumns'); clearTimeout(p.__lbColsSave); p.__lbColsSave = setTimeout(() => { try { p.saveSettings?.(); } catch {} }, 600); }
   return true;
 }
 // dir > 0：卡片变大（列少）；dir < 0：卡片变小（列多）
@@ -3401,7 +3440,7 @@ if (app.workspace?.on && dv.component?.registerEvent) {
   // 星标以 catalog-data 为准 + link-brain:star 事件（§5.6）：只换这张卡的 ★，不重排（C2）
   lbEvent(app.workspace, app.workspace.on('link-brain:star', (id, on) => { const it = items.find(x => x.id === id); if (it && !it._starBusy && !!it.starred !== !!on) { it.starred = !!on; paintCard(id); paintSelbar(); } }));
   // 10-03：「…→改标题 / 每行几列」改完就地换（不重建卡片）
-  lbEvent(app.workspace, app.workspace.on('link-brain:catalog-prefs', () => { setTitle(); const c = savedCols(); if (c !== cols) { cols = c; applyCols(); relayoutIfNeeded(); } reloadSideLayout(); }));
+  lbEvent(app.workspace, app.workspace.on('link-brain:catalog-prefs', () => { setTitle(); const c = savedCols(); if (c !== cols) { cols = c; applyCols(); relayoutIfNeeded(); } reloadLayout(); }));
   lbEvent(app.workspace, app.workspace.on('link-brain:catalog-query', () => { if (takePendingQuery()) saveState(); }));
 }
 { const winTarget = typeof window !== 'undefined' && window && typeof window.addEventListener === 'function' ? window : null;
@@ -3424,21 +3463,9 @@ function leftText(ms) {
   const m = Math.max(1, Math.round(ms / 60000)), h = Math.floor(m / 60), r = m % 60;
   return h ? `还有 ${h} 小时${r ? ` ${r} 分` : ''}` : `还有 ${r} 分`;
 }
-function cnyText() {
-  const v = data?.usage_month?.cost_cny;
-  return v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) ? `约 ¥${Number(v).toFixed(2)}` : '';
-}
 function sideModule(key, en, zh, { gear = null } = {}) {
-  const sec = side.createEl('section', { cls: 'lbc-mod lbc-mod-' + key }); sec.dataset.mod = key;
-  // 1022 编排操作条（只在 .is-arranging 时显示）：⠿ 按住拖 / ↑ ↓ / 隐藏
-  const bar = sec.createEl('div', { cls: 'lbc-mod-bar' });
-  const grip = bar.createEl('span', { cls: 'lbc-mb-h' }); grip.innerHTML = GRIP_SVG;
-  grip.addEventListener('pointerdown', () => { if (arranging) sec.draggable = true; });
-  bar.createEl('span', { cls: 'lbc-mb-nm', text: zh }); bar.createEl('span', { cls: 'lbc-mb-sep' });
-  const mbBtn = (text, fn, extra) => { const b = bar.createEl('button', { text }); b.type = 'button'; if (extra) b.dataset.act = extra; b.onclick = e => { e?.stopPropagation?.(); fn(); }; return b; };
-  const up = mbBtn('↑', () => nudgeMod(key, -1), 'up'), dn = mbBtn('↓', () => nudgeMod(key, 1), 'down');
-  bar.createEl('span', { cls: 'lbc-mb-sep' });
-  mbBtn('隐藏', () => setModHidden(key, true), 'hide');
+  const sec = side.createEl('section', { cls: 'lbc-mod lbc-mod-' + key + ' lbc-m lbc-m-' + key }); sec.dataset.mod = key; sec.dataset.m = key;
+  // 1027 编排操作条（⠿ / 名字 / 调整 / ×）由「编排」一节第一次进编排时统一加（ensureBars），平时不建
   const lab = sec.createEl('div', { cls: 'lbc-lab' }); lab.setAttribute('role', 'button'); lab.tabIndex = 0;
   lab.createEl('span', { cls: 'lbc-lab-en', text: en }); lab.createEl('small', { text: zh });
   lab.createEl('span', { cls: 'lbc-lab-line' });
@@ -3453,7 +3480,7 @@ function sideModule(key, en, zh, { gear = null } = {}) {
   const toggle = () => { sideFold[key] = !sideFold[key]; paintFold(key); saveState(); if (!sideFold[key]) paintMod(key); sideFadeSoon(); };
   const onKey = e => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault?.(); toggle(); } };
   lab.onclick = toggle; sum.onclick = toggle; lab.onkeydown = onKey; sum.onkeydown = onKey;
-  return { key, sec, lab, sum, body, sig: null, up, dn };
+  return { key, sec, lab, sum, body, sig: null };
 }
 function paintFold(key) {
   const m = mods[key]; if (!m) return; const f = !!sideFold[key];
@@ -3474,10 +3501,10 @@ function openFromSide(it, e, forceNew = false) {
   saveState(); if (!newTab) leaving = true;
   app.workspace.openLinkText(lbPath(it.note), '', newTab);
 }
-// RECENT：最新 6 篇（按入库时间 ts）；今天显示 HH:MM，否则 M/D；点行打开笔记（同一窗格，Ctrl 开新标签）
+// RECENT：最新 6 篇（1027：条数在模块「调整」里改，2 / 4 / 6 / 8）（按入库时间 ts）；今天显示 HH:MM，否则 M/D；点行打开笔记（同一窗格，Ctrl 开新标签）
 function paintRecent() {
   const m = mods.recent; const now = Date.now();
-  const list = items.filter(it => importedAt(it) > 0).sort((a, b) => importedAt(b) - importedAt(a)).slice(0, 6);
+  const list = items.filter(it => importedAt(it) > 0).sort((a, b) => importedAt(b) - importedAt(a)).slice(0, modOpt('recent').count);
   const when = it => { const t = importedAt(it); return sameDay(t, now) ? hmOf(t) : mdOf(t); };
   setSum(m, list.length ? ['最新 ', [when(list[0])], ' · ' + String(list[0].title || '（无标题）')] : ['还没有收藏']);
   if (sideFold.recent) return;
@@ -3530,21 +3557,17 @@ function paintSync() {
   if (next && next < now - 60000 && Date.now() - scheduleAt > 60000) loadSchedule({ force: true });   // 下次那一刻过了：再问一次计划任务
   const running = st.state === 'running', stopped = st.state === 'blocked' || st.state === 'failed';
   const run = running ? syncRunText(st) : null;
-  const cost = cnyText();
   const nToday = (() => { const d = ymd(new Date(now)); let n = 0; for (const it of items) if (dayOf(it) === d) n++; return n; })();
   const bigWhen = t => t ? [sameDay(t, now) ? '今天' : mdOf(t), hmOf(t)] : null;
   const why = stopped ? [st.label || regEntry(st.code)?.label || (st.state === 'blocked' ? '同步停下了，要你处理' : '上次同步没成功'), st.detail || st.message || ''].filter(Boolean) : [];
-  // 摘要：下次 今天 21:04 · 本月 约 ¥3.72
+  // 摘要：下次 今天 21:04（1027：费用拆成自己的「Token 费用」模块）
   const nx = bigWhen(next);
-  setSum(m, [
-    ...(running ? [run.text] : stopped ? ['同步停了'] : nx ? ['下次 ', [nx.join(' ')]] : ['下次 —']),
-    ' · 本月 ', [cost || '—'],
-  ]);
+  setSum(m, running ? [run.text] : stopped ? ['同步停了'] : nx ? ['下次 ', [nx.join(' ')]] : ['下次 —']);
   if (sideFold.sync) return;
   const freq = schedule ? String(schedule.summary || '').replace(/\s*·\s*下次 .*$/, '') : '';
   const note = !p ? (mobile ? LB.MOBILE_ONLY_TEXT : '插件没开：下次同步、定时设置看不到（收藏照常可以浏览）')
     : scheduleErr ? '读不到同步计划：' + scheduleErr : '';
-  const sig = JSON.stringify([Math.floor(now / 30000), last, next, freq, note, running && run, why, nToday, cost, !!schedule, scheduleBusy]);
+  const sig = JSON.stringify([Math.floor(now / 30000), last, next, freq, note, running && run, why, nToday, !!schedule, scheduleBusy]);
   if (m.sig === sig) return; m.sig = sig;
   const b = m.body; b.empty();
   if (stopped) {
@@ -3584,14 +3607,6 @@ function paintSync() {
   if (note) b.createEl('p', { cls: 'lbc-sy-note', text: note });
   const row = (k, v, cls = '') => { const r = b.createEl('div', { cls: 'lbc-sy-row' + (cls ? ' ' + cls : '') }); r.createEl('span', { text: k }); return r.createEl('b', { text: v }); };
   row('今日新增', `${nToday} 篇`);
-  const c = row('Token 费用 · 本月', cost || '—', 'is-tot');
-  if (!cost) { c.classList.add('is-none'); c.title = '还没有用量记录'; }
-  else {
-    const um = data?.usage_month || {}, bf = um.by_feature || {};
-    const lines = Object.keys(bf).map(k => `${k} ¥${Number(bf[k]).toFixed(2)}`);
-    const extra = um.unpriced ? `（${um.unpriced} 次没有价格表，没算进去）` : '';
-    c.title = [`${um.month || '本月'} 调用 AI 的估算费用（人民币，按价格表 ${um.as_of || ''} 现价）${extra}`, ...lines].join('\n');
-  }
   if (!mobile) {
     const acts = b.createEl('div', { cls: 'lbc-sy-acts' });
     const now_ = acts.createEl('button', { text: running ? '正在同步…' : '立即同步' }); now_.type = 'button'; now_.dataset.act = 'sync'; now_.disabled = running;
@@ -3625,13 +3640,16 @@ function paintOverview() {
   cats.delete(UNC_LABEL);
   setSum(m, [[String(items.length)], ' 篇 · 近 7 天 ', ['+' + nWeek], ' · ★ ', [String(nStar)]]);
   if (sideFold.overview) return;
-  const sig = JSON.stringify([items.length, nWeek, nStar, cats.size, days.map(x => x.key + ':' + x.n)]);
+  const sig = JSON.stringify([items.length, nWeek, nStar, cats.size, days.map(x => x.key + ':' + x.n), modOpt('overview').metrics]);
   if (m.sig === sig) return; m.sig = sig;
   const b = m.body; b.empty();
   const figs = b.createEl('div', { cls: 'lbc-figs' });
-  for (const [n, l] of [[items.length, '全部收藏'], [nWeek, '近 7 天新增'], [nStar, '已收藏'], [cats.size, '在用分类']]) {
+  const show = new Set(modOpt('overview').metrics);   // 1027：显示哪几个数在模块「调整」里勾
+  for (const [k, n, l] of [['all', items.length, '全部收藏'], ['week', nWeek, '近 7 天新增'], ['star', nStar, '已收藏'], ['cats', cats.size, '在用分类']]) {
+    if (!show.has(k)) continue;
     const f = figs.createEl('div', { cls: 'lbc-fig' }); f.createEl('div', { cls: 'lbc-fig-n', text: String(n) }); f.createEl('div', { cls: 'lbc-fig-l', text: l });
   }
+  if (!show.has('bars')) return;
   const max = Math.max(1, ...days.map(x => x.n));
   const bars = b.createEl('div', { cls: 'lbc-bars' });
   days.forEach((x, i) => {
@@ -3644,249 +3662,887 @@ function paintOverview() {
   days.forEach((x, i) => dl.createEl('span', { text: i === 13 ? '今' : mdOf(x.d) }));
 }
 
-// 底部渐隐：边栏内容没到底才加（到底 / 不超高就去掉）
+// 底部渐隐：边栏内容没到底才加（到底 / 不超高就去掉）；1027 起边栏可以有好几列（每列各算各的）
+const asides = [side];
 function sideFade() {
   if (!SIDE_ON) return;
-  const more = (Number(side.scrollHeight) || 0) - (Number(side.scrollTop) || 0) - (Number(side.clientHeight) || 0) > 2;
-  side.classList.toggle('is-more', more);
+  for (const a of asides) {
+    const more = (Number(a.scrollHeight) || 0) - (Number(a.scrollTop) || 0) - (Number(a.clientHeight) || 0) > 2;
+    a.classList.toggle('is-more', more);
+  }
 }
 let fadeRaf = 0;
 function sideFadeSoon() { if (fadeRaf) return; const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : f => setTimeout(f, 16); fadeRaf = raf(() => { fadeRaf = 0; sideFade(); }) || 1; }
 const mods = {};
 // 1026：托盘挪到收藏墙上面（编排的不只边栏了：页头三块、内容区、版式选项都在这里）
-const arrangeTray = SIDE_ON ? wrap.createEl('div', { cls: 'lbc-arrange-tray' }) : null;
+const arrangeTray = arrangeBtn ? wrap.createEl('div', { cls: 'lbc-arrange-tray' }) : null;
 if (arrangeTray) wrap.insertBefore(arrangeTray, board);
+// 墙下面的几排（模块被拖到收藏墙那一排的下面时）
+const afterEl = wrap.createEl('div', { cls: 'lbc-after' }); afterEl.hidden = true;
+board.after(afterEl);
 
-// ── 1022 第 5 段编排（设计稿第 8 节，她定：模块可拖动排序、隐藏，布局存插件设置 catalogLayout，只桌面生效）──
-// 编排的是边栏三块（页头 / 分类 / 控制行是一整块吸顶，拆开会破坏吸顶与「返回后滚动位置还在」，不动）。
-// catalogLayout = {side: [{id, hidden}]}；缺的模块补在后面、不认识的丢掉；全隐藏 = 边栏整列让开（.is-side-empty），收藏墙铺满。
-// 没插件：这次照样能排，提示一句「插件没开，下次打开会恢复默认」。改完 400ms 存一次，并广播 link-brain:catalog-prefs，别的目录页就地换。
-const SIDE_IDS = ['recent', 'sync', 'overview'];
-const SIDE_NAMES = { recent: '最近导入', sync: '同步与用量', overview: '概览' };
-let arranging = false;
-function readSideLayout() {
-  const raw = provider()?.settings?.catalogLayout?.side;
-  const out = [], seen = new Set();
-  if (Array.isArray(raw)) for (const m of raw) {
-    const id = typeof m === 'string' ? m : m?.id;
-    if (SIDE_IDS.includes(id) && !seen.has(id)) { seen.add(id); out.push({ id, hidden: !!(m && typeof m === 'object' && m.hidden) }); }
+// ── 1027 编排（design-1027 §2，她批的结构和交互；外观仍是现在的黑白雕刻）：八个模块平级——
+//    标题 / Logo · 分类 · 筛选与搜索 · 最近导入 · 同步 · Token 费用 · 概览 · 收藏墙。
+// 布局 = 几排；一排 = 几列（宽度按 12 格，列宽是比例）；一列 = 从上到下几个模块。收藏墙所在的那一排是 .lbc-board（边栏列吸在页头下面、各自滚），
+// 它前面的几排进吸顶区 .lbc-top，后面的几排进 .lbc-after。任何模块都能拖到任何位置（叠在别的模块上下 / 放到它左右成新的一列），
+// 边缘拖动调宽（吸附到 1/12、最窄 2 格），× 移除（内容和功能都在，「＋ 模块」加回原位置），「调整」在模块里展开（字体、字号、这个模块自己的设置）。
+// 存插件设置 catalogLayout = {modules: [{id, x, y, width, hidden, typography: {font, size}, options}], theme: {titleFont, bodyFont, numberFont, scale, gap}}
+//   （design-1027 §5 的形状：y = 第几排，x = 这一列从第几格起，同一 (y, x) 的模块按数组顺序从上到下）；和默认一样的不写，全默认 = null。
+//   旧的 {side, top, sideRight, sideW, gap, density}（1022 / 1026）读的时候换算一次，下次保存写成新形状。
+// 标题文字、收藏墙列数、费用上限、分类、同步时间不在 catalogLayout 里：仍是各自唯一的来源（catalogTitle / catalogColumns / budget.dailyYuan / 索引.md / 计划任务）。
+// 手机 / 星标页 / 插件没开：照默认摆，只读（没有「编排」）。
+const MOD_IDS = ['title', 'cats', 'filters', 'recent', 'sync', 'token', 'overview', 'wall'];
+const MOD_NAMES = { title: '标题 / Logo', cats: '分类', filters: '筛选与搜索', recent: '最近导入', sync: '同步', token: 'Token 费用', overview: '概览', wall: '收藏墙' };
+const SIDE_MODS = ['recent', 'sync', 'token', 'overview'];
+const CORE_MODS = new Set(['title', 'cats', 'filters']);
+const OPT_DEFAULT = {
+  recent: { count: 6 },
+  overview: { metrics: ['all', 'week', 'star', 'cats', 'bars'] },
+  filters: { show: ['scope', 'type', 'tag', 'plat', 'src', 'sort', 'view', 'ask'] },
+  token: { period: 'month' },
+  wall: { density: 'm' },
+};
+const OPT_CHOICES = {
+  recent: { count: [2, 4, 6, 8] },
+  overview: { metrics: ['all', 'week', 'star', 'cats', 'bars'] },
+  filters: { show: ['scope', 'type', 'tag', 'plat', 'src', 'sort', 'view', 'ask'] },
+  token: { period: ['month', 'day'] },
+  wall: { density: ['s', 'm', 'l'] },
+};
+const FONT_SET = [['', '跟随全站'], [FONT_STACKS.display, 'Cinzel 雕刻'], [FONT_STACKS.serif, '衬线（思源宋体）'], [FONT_STACKS.sans, '无衬线（思源黑体）'],
+  [FONT_STACKS.latin, 'Cormorant 斜体'], [FONT_STACKS.kai, '楷体'], [FONT_STACKS.georgia, 'Georgia']];
+const SIZE_SET = [85, 100, 115, 130, 150];
+const SCALE_SET = [[0.9, '小'], [1, '标准'], [1.1, '大'], [1.2, '特大']];
+const GAP_SET = [[17, '紧凑'], [24, '标准'], [32, '宽松']];
+const THEME_DEFAULT = { titleFont: '', bodyFont: '', numberFont: '', scale: 1, gap: 24 };
+const DEFAULT_ROWS = () => [{ cols: [{ w: 12, mods: ['title'] }] }, { cols: [{ w: 12, mods: ['cats'] }] }, { cols: [{ w: 12, mods: ['filters'] }] },
+  { cols: [{ w: 4, mods: ['recent', 'sync', 'token', 'overview'] }, { w: 8, mods: ['wall'] }] }];
+const ENGINE = SIDE_ON;   // 手机 / 星标页：没有边栏模块，照默认摆
+const clone = v => JSON.parse(JSON.stringify(v));
+const cfgDefault = id => ({ hidden: false, font: '', size: 100, opt: clone(OPT_DEFAULT[id] || {}) });
+function cleanOpt(id, raw) {
+  const out = clone(OPT_DEFAULT[id] || {}), ch = OPT_CHOICES[id] || {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const k of Object.keys(out)) {
+    const v = raw[k];
+    if (Array.isArray(out[k])) { if (Array.isArray(v)) out[k] = ch[k].filter(x => v.includes(x)); }
+    else if (ch[k]?.includes(v)) out[k] = v;
   }
-  for (const id of SIDE_IDS) if (!seen.has(id)) out.push({ id, hidden: false });
   return out;
 }
-let sideLayout = readSideLayout();
-// 1026 页头三块的顺序 / 隐藏 + 内容区（边栏在左 / 右）+ 三个版式选项（侧栏宽度 / 区块间距 / 卡片密度，s / m / l，默认 m）
-const OPT_KEYS = { sideW: ['s', 'm', 'l'], gap: ['s', 'm', 'l'], density: ['s', 'm', 'l'] };
-const OPT_LABEL = { sideW: ['侧栏宽度', ['窄', '中', '宽']], gap: ['区块间距', ['紧', '标准', '松']], density: ['卡片密度', ['紧凑', '标准', '宽松']] };
-function readTopLayout() {
-  const raw = provider()?.settings?.catalogLayout?.top;
-  const out = [], seen = new Set();
-  if (Array.isArray(raw)) for (const m of raw) { const id = typeof m === 'string' ? m : m?.id; if (TOP_IDS.includes(id) && !seen.has(id)) { seen.add(id); out.push({ id, hidden: !!(m && typeof m === 'object' && m.hidden) }); } }
-  for (const id of TOP_IDS) if (!seen.has(id)) out.push({ id, hidden: false });
-  return out;
-}
-function readOpts() {
-  const L = provider()?.settings?.catalogLayout || {};
-  const o = { sideRight: L.sideRight === true };
-  for (const [k, vals] of Object.entries(OPT_KEYS)) o[k] = vals.includes(L[k]) ? L[k] : 'm';
+const fontOf = v => (typeof v === 'string' ? v.slice(0, 200) : '');
+const sizeOf = v => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= 60 && n <= 200 ? n : 100; };
+function cleanTheme(t) {
+  const o = { ...THEME_DEFAULT };
+  if (!t || typeof t !== 'object') return o;
+  for (const k of ['titleFont', 'bodyFont', 'numberFont']) o[k] = fontOf(t[k]);
+  const sc = Number(t.scale); if (Number.isFinite(sc) && sc >= 0.8 && sc <= 1.4) o.scale = Math.round(sc * 100) / 100;
+  const g = Number(t.gap); if (Number.isFinite(g) && g >= 8 && g <= 48) o.gap = Math.round(g);
   return o;
 }
-let topLayout = readTopLayout(), layoutOpts = readOpts();
-function layoutOpt(k) { return SIDE_ON ? layoutOpts?.[k] : (k === 'sideRight' ? false : 'm'); }
-let layoutWarned = false;
-function saveSideLayout({ reset = false } = {}) {
-  const p = provider();
-  if (!p?.settings) { if (!layoutWarned) { layoutWarned = true; LB.say('插件没开：这次的编排有效，下次打开目录会恢复默认', { kind: 'warn' }); } return; }
-  // 只写和默认不同的键（默认布局的设置保持原样短小；「恢复默认」= null）
-  const next = { ...(p.settings.catalogLayout && typeof p.settings.catalogLayout === 'object' ? p.settings.catalogLayout : {}), side: sideLayout.map(m => ({ id: m.id, hidden: !!m.hidden })) };
-  const topDefault = topLayout.every((m, i) => m.id === TOP_IDS[i] && !m.hidden);
-  if (topDefault) delete next.top; else next.top = topLayout.map(m => ({ id: m.id, hidden: !!m.hidden }));
-  if (layoutOpts.sideRight) next.sideRight = true; else delete next.sideRight;
-  for (const k of Object.keys(OPT_KEYS)) { if (layoutOpts[k] !== 'm') next[k] = layoutOpts[k]; else delete next[k]; }
-  p.settings.catalogLayout = reset ? null : next;
-  clearTimeout(p.__lbLayoutSave);
-  p.__lbLayoutSave = setTimeout(async () => {
-    try { await p.saveSettings?.(); try { app.workspace.trigger('link-brain:catalog-prefs', { layout: true }); } catch {} }
-    catch (e) { LB.say('布局没存上：' + (e?.message || e) + '（这次照样有效）', { kind: 'error' }); }
-  }, 400);
+// 一排的列宽凑成 12（列宽是比例；每列至少 2 格；一排最多 6 列）
+function fitRow(row) {
+  if (row.cols.length > 6) { const extra = row.cols.splice(6); for (const c of extra) row.cols[5].mods.push(...c.mods); }
+  for (const c of row.cols) c.w = Math.max(2, Math.min(12, Math.round(Number(c.w) || 0) || 2));
+  if (row.cols.length === 1) { row.cols[0].w = 12; return; }
+  let sum = row.cols.reduce((n, c) => n + c.w, 0);
+  if (sum !== 12) { for (const c of row.cols) c.w = Math.max(2, Math.round(c.w * 12 / sum)); sum = row.cols.reduce((n, c) => n + c.w, 0); }
+  let guard = 24;
+  while (sum !== 12 && guard--) {
+    const c = sum > 12 ? row.cols.filter(x => x.w > 2).sort((a, b) => b.w - a.w)[0] : row.cols.slice().sort((a, b) => b.w - a.w)[0];
+    if (!c) break; c.w += sum > 12 ? -1 : 1; sum += sum > 12 ? -1 : 1;
+  }
 }
-function sideVisible() { return sideLayout.filter(m => !m.hidden); }
-function applySideLayout() {
-  if (!SIDE_ON) return;
-  for (const m of sideLayout) { const mm = mods[m.id]; if (!mm) continue; side.appendChild(mm.sec); mm.sec.hidden = !!m.hidden; }
-  const vis = sideVisible();
-  vis.forEach((m, i) => { const mm = mods[m.id]; if (!mm) return; mm.up.disabled = i === 0; mm.dn.disabled = i === vis.length - 1; });
-  const wasEmpty = wrap.classList.contains('is-side-empty');
-  wrap.classList.toggle('is-side-empty', !vis.length);
-  if (arranging) paintTray();   // 托盘只在编排时看得见：平时不画（首开少建一批按钮）
-  if (wasEmpty !== !vis.length && !arranging) relayoutIfNeeded();
+// 整理：去掉空列 / 空排、每个模块只出现一次、缺的模块补回默认位置
+function normalizeRows(rows) {
+  const seen = new Set();
+  for (const r of rows) for (const c of r.cols) c.mods = c.mods.filter(id => MOD_IDS.includes(id) && !seen.has(id) && seen.add(id));
+  for (const r of rows) r.cols = r.cols.filter(c => c.mods.length);
+  rows = rows.filter(r => r.cols.length);
+  const missing = MOD_IDS.filter(id => !seen.has(id));
+  for (const id of missing) {
+    if (id === 'wall') { rows.push({ cols: [{ w: 12, mods: ['wall'] }] }); continue; }
+    if (SIDE_MODS.includes(id)) {
+      // 放回边栏那一列（和别的边栏模块在一起，按默认顺序插）；没有就在墙左边开一列
+      let col = null;
+      for (const r of rows) for (const c of r.cols) if (!col && c.mods.some(m => SIDE_MODS.includes(m))) col = c;
+      if (!col) { const br = rows.find(r => r.cols.some(c => c.mods.includes('wall'))); col = { w: 4, mods: [] }; br.cols.unshift(col); }
+      const order = SIDE_MODS.indexOf(id); let at = col.mods.length;
+      for (let i = 0; i < col.mods.length; i++) if (SIDE_MODS.includes(col.mods[i]) && SIDE_MODS.indexOf(col.mods[i]) > order) { at = i; break; }
+      col.mods.splice(at, 0, id);
+      continue;
+    }
+    const k = TOP_IDS.indexOf(id);
+    rows.splice(Math.min(k, rows.length), 0, { cols: [{ w: 12, mods: [id] }] });
+  }
+  for (const r of rows) fitRow(r);
+  return rows;
+}
+// 1022 / 1026 的旧布局 → 新的（只在设置里还没有 modules 时换算一次）
+function migrateLegacy(L, cfg, theme) {
+  const ids = (list, allowed) => { const out = [], seen = new Set(); if (Array.isArray(list)) for (const m of list) { const id = typeof m === 'string' ? m : m?.id; if (allowed.includes(id) && !seen.has(id)) { seen.add(id); out.push({ id, hidden: !!(m && typeof m === 'object' && m.hidden) }); } } for (const id of allowed) if (!seen.has(id)) out.push({ id, hidden: false }); return out; };
+  const top_ = ids(L.top, TOP_IDS), side_ = ids(L.side, ['recent', 'sync', 'overview']);
+  for (const m of [...top_, ...side_]) cfg[m.id].hidden = m.hidden;
+  const sideMods = side_.map(m => m.id); sideMods.splice(sideMods.indexOf('sync') + 1, 0, 'token');
+  const sw = { s: 3, m: 4, l: 5 }[L.sideW] || 4;
+  const sideCol = { w: sw, mods: sideMods }, wallC = { w: 12 - sw, mods: ['wall'] };
+  if (['s', 'm', 'l'].includes(L.density)) cfg.wall.opt.density = L.density;
+  if (L.gap === 's') theme.gap = 17; else if (L.gap === 'l') theme.gap = 32;
+  return [...top_.map(m => ({ cols: [{ w: 12, mods: [m.id] }] })), { cols: L.sideRight === true ? [wallC, sideCol] : [sideCol, wallC] }];
+}
+function parseLayout(L) {
+  const cfg = {}; for (const id of MOD_IDS) cfg[id] = cfgDefault(id);
+  let theme = cleanTheme(L && L.theme), rows;
+  if (L && typeof L === 'object' && Array.isArray(L.modules)) {
+    const byY = new Map(), seen = new Set();
+    L.modules.forEach((m, i) => {
+      const id = m && m.id; if (!MOD_IDS.includes(id) || seen.has(id)) return; seen.add(id);
+      const y = Number.isFinite(Number(m.y)) ? Number(m.y) : 1e6 + i, x = Number.isFinite(Number(m.x)) ? Number(m.x) : 0;
+      cfg[id] = { hidden: !!m.hidden, font: fontOf(m.typography?.font), size: sizeOf(m.typography?.size), opt: cleanOpt(id, m.options) };
+      if (!byY.has(y)) byY.set(y, new Map());
+      const row = byY.get(y); if (!row.has(x)) row.set(x, { w: Number(m.width) || 0, mods: [] });
+      const col = row.get(x); col.w = Math.max(col.w, Number(m.width) || 0); col.mods.push(id);
+    });
+    rows = [...byY.entries()].sort((a, b) => a[0] - b[0]).map(([, cols]) => ({ cols: [...cols.entries()].sort((a, b) => a[0] - b[0]).map(([, c]) => c) }));
+  } else if (L && typeof L === 'object' && ['side', 'top', 'sideRight', 'sideW', 'gap', 'density'].some(k => k in L)) rows = migrateLegacy(L, cfg, theme);
+  else rows = DEFAULT_ROWS();
+  return { rows: normalizeRows(rows), cfg, theme };
+}
+function readLayout() { const L = provider()?.settings?.catalogLayout; return parseLayout(L && typeof L === 'object' ? L : null); }
+let layout = ENGINE ? readLayout() : { rows: DEFAULT_ROWS(), cfg: Object.fromEntries(MOD_IDS.map(id => [id, cfgDefault(id)])), theme: { ...THEME_DEFAULT } };
+const modCfg = id => layout.cfg[id] || cfgDefault(id);
+function modOpt(id) { return modCfg(id).opt; }
+function wallDensity() { return modOpt('wall').density || 'm'; }
+function gapScale() { return Math.round(((layout.theme.gap || 24) / 24) * 100) / 100; }
+function layoutToSetting() {
+  const out = {};
+  const sameRows = JSON.stringify(layout.rows) === JSON.stringify(normalizeRows(DEFAULT_ROWS()));
+  const sameCfg = MOD_IDS.every(id => JSON.stringify(layout.cfg[id]) === JSON.stringify(cfgDefault(id)));
+  if (!sameRows || !sameCfg) {
+    const list = [];
+    layout.rows.forEach((r, y) => { let x = 0; for (const c of r.cols) { for (const id of c.mods) {
+      const g = layout.cfg[id], m = { id, x, y, width: c.w, hidden: !!g.hidden };
+      if (g.font || g.size !== 100) m.typography = { font: g.font, size: g.size };
+      if (JSON.stringify(g.opt) !== JSON.stringify(OPT_DEFAULT[id] || {})) m.options = clone(g.opt);
+      list.push(m);
+    } x += c.w; } });
+    out.modules = list;
+  }
+  if (JSON.stringify(layout.theme) !== JSON.stringify(THEME_DEFAULT)) out.theme = { ...layout.theme };
+  return Object.keys(out).length ? out : null;
+}
+
+// ── 摆放（只在位置真变了时挪节点：挪会让里面的搜索框失焦） ──
+const modEl = id => id === 'wall' ? boardMain : blocks[id] || mods[id]?.sec || null;
+const present = id => !!modEl(id);
+const topRowEls = [], afterRowEls = [];
+let boardColEls = [];
+function rowEl(pool, i) {
+  if (!pool[i]) { const r = document.createElement('div'); r.className = 'lbc-row'; pool[i] = { el: r, cols: [] }; }
+  return pool[i];
+}
+function colEl(row, j) {
+  if (!row.cols[j]) { const c = document.createElement('div'); c.className = 'lbc-rcol'; row.cols[j] = c; }
+  return row.cols[j];
+}
+const kidsOf = el => [...(el.children || [])];
+function fillCol(colNode, ids) {
+  let k = 0;
+  for (const id of ids) {
+    const el = modEl(id); if (!el) continue;
+    const at = kidsOf(colNode).filter(c => c.classList?.contains('lbc-m'));
+    if (at[k] !== el) colNode.insertBefore(el, at[k] || null);
+    k++;
+  }
+}
+function placeRows(container, data_, pool, ref) {
+  const used = [];
+  data_.forEach((r, i) => {
+    const row = rowEl(pool, i); used.push(row.el);
+    r.cols.forEach((c, j) => { const cn = colEl(row, j); if (cn.parentNode !== row.el || kidsOf(row.el).filter(x => x.classList?.contains('lbc-rcol'))[j] !== cn) row.el.insertBefore(cn, kidsOf(row.el).filter(x => x.classList?.contains('lbc-rcol'))[j] || null); fillCol(cn, c.mods); });
+    for (const extra of row.cols.splice(r.cols.length)) extra.remove();
+  });
+  const cur = kidsOf(container).filter(x => x.classList?.contains('lbc-row'));
+  if (used.some((el, i) => cur[i] !== el)) for (const el of used) container.insertBefore(el, ref && ref.parentNode === container ? ref : null);
+  for (const extra of pool.splice(data_.length)) extra.el.remove();
+}
+function newAside() { const a = document.createElement('aside'); a.className = 'lbc-side'; a.addEventListener('scroll', () => sideFade(), { passive: true }); try { roRef?.observe(a); } catch {} return a; }
+function placeBoard(r) {
+  const want = []; let ai = 0;
+  for (const c of r.cols) {
+    let node;
+    if (c.mods.includes('wall')) node = wallCol;
+    else { if (!asides[ai]) asides[ai] = newAside(); node = asides[ai++]; }
+    want.push(node); fillCol(node, c.mods);
+  }
+  // 多出来的边栏列：第一列（side）留着当空位（藏起来），别的摘掉
+  for (let i = asides.length - 1; i >= Math.max(ai, 1); i--) { if (asides[i] !== side) asides[i].remove(); asides.splice(i, 1); }
+  boardColEls = want.slice();
+  if (!ai) { side.hidden = true; want.unshift(side); }
+  const cur = kidsOf(board).filter(x => x === wallCol || x.classList?.contains('lbc-side'));
+  if (want.length !== cur.length || want.some((el, i) => cur[i] !== el)) for (const el of want) board.insertBefore(el, null);
+}
+const isGone = id => { const g = modCfg(id); return g.hidden && id !== 'filters'; };   // 「筛选与搜索」移除 = 只藏筛选项（搜索一直在）
+function visibleIn(ids) { return ids.some(id => present(id) && !isGone(id)); }
+function templateOf(cols) { const vis = cols.filter(c => visibleIn(c.mods)); return { vis, tpl: vis.map(c => `minmax(0,${c.w}fr)`).join(' ') }; }
+function paintVisibility() {
+  for (const id of MOD_IDS) {
+    const el = modEl(id); if (!el) continue;
+    const g = modCfg(id);
+    el.classList.toggle('is-gone', isGone(id));
+    el.classList.toggle('is-off', id === 'filters' && !!g.hidden);
+    // 字体 / 字号：字体改的是这一块里的正文 / 衬线（标题块连雕刻字一起）；字号 = 这一块缩放（标题按比例放大上限）
+    const set = (k, v) => { if (v) { if (el.style.getPropertyValue(k) !== v) el.style.setProperty(k, v); } else if (el.style.getPropertyValue(k)) el.style.removeProperty(k); };
+    set('--f-sans', g.font); set('--f-serif', g.font); if (id === 'title') set('--f-display', g.font);
+    const k = g.size === 100 ? '' : String(g.size / 100);
+    if (id === 'title') { set('--lbc-title-k', k); set('--lbc-m-k', ''); } else set('--lbc-m-k', k);
+  }
+  const fshow = new Set(modOpt('filters').show);
+  for (const k of OPT_CHOICES.filters.show) blocks.filters.classList.toggle('lbc-f-no-' + k, !fshow.has(k));
+  const bi = boardIndex();
+  const paintRow = (pool, data_) => data_.forEach((r, i) => {
+    const row = pool[i]; if (!row) return;
+    const { vis, tpl } = templateOf(r.cols);
+    row.el.hidden = !vis.length;
+    r.cols.forEach((c, j) => { if (row.cols[j]) row.cols[j].hidden = !visibleIn(c.mods); });
+    row.el.classList.toggle('is-single', vis.length <= 1);
+    const t = vis.length > 1 ? tpl : '';
+    if (row.el.style.gridTemplateColumns !== t) row.el.style.gridTemplateColumns = t;
+  });
+  paintRow(topRowEls, layout.rows.slice(0, bi));
+  paintRow(afterRowEls, layout.rows.slice(bi + 1));
+  afterEl.hidden = !afterRowEls.some(r => !r.el.hidden);
+  // 收藏墙那一排
+  const br = layout.rows[bi];
+  let ai = 0, nVis = 0;
+  for (const c of br.cols) {
+    const node = c.mods.includes('wall') ? wallCol : asides[ai++];
+    const vis = visibleIn(c.mods);
+    if (node === wallCol) node.hidden = !vis; else { node.hidden = !SIDE_ON || !vis; if (vis) nVis++; node.classList.toggle('has-core', c.mods.some(id => CORE_MODS.has(id) && present(id) && !isGone(id))); }
+  }
+  const { tpl } = templateOf(br.cols);
+  if (board.style.getPropertyValue('--lbc-board-cols') !== tpl) { if (tpl) board.style.setProperty('--lbc-board-cols', tpl); else board.style.removeProperty('--lbc-board-cols'); }
+  wrap.classList.toggle('is-side-empty', SIDE_ON && !nVis);
+  for (const id of MOD_IDS) { const el = modEl(id); if (el) el.classList.toggle('is-core', CORE_MODS.has(id)); }
+}
+function boardIndex() { const i = layout.rows.findIndex(r => r.cols.some(c => c.mods.includes('wall'))); return i < 0 ? layout.rows.length - 1 : i; }
+function applyLayout({ relayout = true } = {}) {
+  const bi = boardIndex();
+  placeRows(top, layout.rows.slice(0, bi), topRowEls, selbar);
+  placeRows(afterEl, layout.rows.slice(bi + 1), afterRowEls, null);
+  placeBoard(layout.rows[bi]);
+  paintVisibility();
+  applyThemeNow();
+  if (arranging) { paintTray(); paintEdges(); for (const id of MOD_IDS) paintBar(id); }
+  if (pageReady && relayout) { laidN = 0; relayoutIfNeeded(); paintStickyTop(); }
   sideFadeSoon();
 }
-function reloadSideLayout() {
-  if (!SIDE_ON) return;
-  const next = readSideLayout(), nextTop = readTopLayout(), nextOpts = readOpts();
-  if (JSON.stringify([next, nextTop, nextOpts]) === JSON.stringify([sideLayout, topLayout, layoutOpts])) return;
-  sideLayout = next; topLayout = nextTop; layoutOpts = nextOpts; applySideLayout(); applyTopLayout();
-}
-// 页头三块按 topLayout 排（只在顺序真变了时挪节点：挪会让里面的搜索框失焦）；隐藏 = .is-off（CSS 只藏块里的内容，编排时还看得见操作条）
-function applyTopLayout() {
-  if (!SIDE_ON) return;
-  const want = topLayout.map(m => blocks[m.id]);
-  const cur = [...top.children].filter(el => el.classList?.contains('lbc-blk'));
-  if (want.some((b, i) => cur[i] !== b)) { const ref = selbar && selbar.parentNode === top ? selbar : null; for (const b of want) top.insertBefore(b, ref); }
-  const vis = topLayout.filter(m => !m.hidden);
-  for (const m of topLayout) {
-    const b = blocks[m.id]; b.classList.toggle('is-off', !!m.hidden);
-    const bar = b.__bar;
-    if (bar) { const i = topLayout.indexOf(m); bar.querySelector('[data-act="up"]').disabled = i === 0; bar.querySelector('[data-act="down"]').disabled = i === topLayout.length - 1; const h = bar.querySelector('[data-act="hide"]'); h.textContent = m.hidden ? '显示' : '隐藏'; }
+// ── 全站样式（Aa 样式）：共享令牌 --lb-font-title / --lb-font-body / --lb-font-num / --lb-scale / --lb-gap；
+//    有 LB.applyTheme（共享样式令牌那条线）就交给它，没有就本页兜底写到 body 上（同一组变量名，合进来以后两边一样） ──
+function applyThemeNow() {
+  const t = layout.theme;
+  if (typeof LB.applyTheme === 'function') { try { LB.applyTheme({ ...t }); } catch (e) { console.error('[lb] 样式没套上', e); } }
+  else {
+    const el = wrap.ownerDocument?.body || document.body;
+    const set = (k, v) => { if (!el?.style) return; if (v) { if (el.style.getPropertyValue(k) !== v) el.style.setProperty(k, v); } else if (el.style.getPropertyValue(k)) el.style.removeProperty(k); };
+    set('--lb-font-title', t.titleFont); set('--lb-font-body', t.bodyFont); set('--lb-font-num', t.numberFont);
+    set('--lb-scale', t.scale !== 1 ? String(t.scale) : ''); set('--lb-gap', t.gap !== 24 ? t.gap + 'px' : '');
   }
-  void vis;
-  // 内容区：边栏在左 / 右；三个版式选项
-  wrap.classList.toggle('is-side-right', !!layoutOpts.sideRight);
-  wrap.dataset.sideW = layoutOpts.sideW; wrap.dataset.gap = layoutOpts.gap; wrap.dataset.density = layoutOpts.density;
-  const sp = String(GAP_SCALE[layoutOpts.gap] || 1);
+  const sp = String(gapScale());
   if (wrap.style.getPropertyValue('--lbc-sp') !== sp) wrap.style.setProperty('--lbc-sp', sp);
-  if (contentSwap) contentSwap.textContent = layoutOpts.sideRight ? '⇄ 边栏放左边' : '⇄ 边栏放右边';
-  if (arranging) paintTray();
-  if (pageReady) { laidN = 0; relayoutIfNeeded(); paintStickyTop(); }
 }
-function nudgeTop(id, d) {
-  const i = topLayout.findIndex(m => m.id === id), j = i + d;
-  if (i < 0 || j < 0 || j >= topLayout.length) return;
-  [topLayout[i], topLayout[j]] = [topLayout[j], topLayout[i]];
-  applyTopLayout(); saveSideLayout();
+
+// ── 保存：改完马上生效，后台 400ms 防抖存（saveSettings → link-brain:settings，再广播 link-brain:catalog-prefs 让别的目录页就地换）；
+//    托盘 / 展开的「调整」里一处小字：保存中… / 已保存 / 没保存上（改动还在页面上，可重试）——CONVENTIONS §1.5 ──
+let saveTimer = null, saveSeq = 0, saveState_ = { kind: 'idle', text: '' }, pendingKeys = new Set();
+function setSaveState(kind, text) { saveState_ = { kind, text }; paintSaveState(); }
+function paintSaveState() {
+  for (const el of [arrangeTray?.querySelector?.('.lbc-at-save'), openPanel?.el?.querySelector?.('.lbc-mp-save')]) {
+    if (!el) continue;
+    el.textContent = saveState_.text; el.classList.toggle('is-fail', saveState_.kind === 'fail');
+    el.title = saveState_.kind === 'fail' ? saveState_.text : '';
+  }
+  const retry = arrangeTray?.querySelector?.('[data-act="retry"]'); if (retry) retry.hidden = saveState_.kind !== 'fail';
 }
-function setTopHidden(id, hidden) {
-  const m = topLayout.find(x => x.id === id); if (!m || m.hidden === !!hidden) return;
-  m.hidden = !!hidden; applyTopLayout(); saveSideLayout();
+function saveSettingSoon(...keys) {
+  const p = provider(); if (!p?.settings) return;
+  for (const k of keys) pendingKeys.add(k);
+  setSaveState('pending', '保存中…');
+  clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 400);
 }
-function setLayoutOpt(k, v) {
-  if (k === 'sideRight') layoutOpts.sideRight = !!v; else if (OPT_KEYS[k]?.includes(v)) layoutOpts[k] = v; else return;
-  applyTopLayout(); saveSideLayout();
+function saveLayout() { const p = provider(); if (!p?.settings) return; p.settings.catalogLayout = layoutToSetting(); saveSettingSoon('catalogLayout'); }
+async function flushSave() {
+  clearTimeout(saveTimer); saveTimer = null;
+  const p = provider(); if (!p?.settings) return;
+  const keys = [...pendingKeys]; pendingKeys = new Set();
+  const seq = ++saveSeq;
+  setSaveState('saving', '保存中…');
+  try {
+    p.markSettingDirty?.(...keys);
+    if (keys.includes('catalogTitle') && typeof p.setCatalogPrefs === 'function') await p.setCatalogPrefs({ title: p.settings.catalogTitle });
+    else await p.saveSettings?.();
+    if (seq === saveSeq) setSaveState('ok', '已保存');
+    try { app.workspace.trigger('link-brain:catalog-prefs', { layout: true }); } catch {}
+  } catch (e) {
+    for (const k of keys) pendingKeys.add(k);
+    if (seq === saveSeq) setSaveState('fail', '没保存上，改动还在页面上，可重试：' + (e?.message || e));
+  }
 }
-// 每块头上一条黑色操作条（和边栏模块同款）：名字 · ↑ ↓ · 隐藏 / 显示
-function blockBar(el, name, { up, down, hide } = {}) {
-  const bar = document.createElement('div'); bar.className = 'lbc-mod-bar lbc-blk-bar';
+cleanups.push(() => { if (saveTimer) flushSave(); });   // 离开页面时防抖还没到：照存
+// 别的目录页 / 设置页改了布局：就地换（自己刚存的那份一样，不动）
+function reloadLayout() {
+  if (!ENGINE || saveTimer) return;
+  const next = readLayout();
+  if (JSON.stringify(next) === JSON.stringify(layout)) return;
+  layout = next; applyLayout();
+  if (openPanel) refreshPanel();
+}
+
+// ── 移动：拖动 / 方向键 / 「调整」里的上下左右 ──
+function locate(id) {
+  for (let ri = 0; ri < layout.rows.length; ri++) { const r = layout.rows[ri]; for (let ci = 0; ci < r.cols.length; ci++) { const k = r.cols[ci].mods.indexOf(id); if (k >= 0) return { ri, ci, k, row: r, col: r.cols[ci] }; } }
+  return null;
+}
+// 从原位置摘下来：这一列空了就整列去掉，宽度给同一排的墙那一列（有的话）或旁边那一列；这一排空了整排去掉
+function detachMod(id) {
+  const at = locate(id); if (!at) return;
+  at.col.mods.splice(at.k, 1);
+  if (!at.col.mods.length) {
+    at.row.cols.splice(at.ci, 1);
+    if (at.row.cols.length) { const heir = at.row.cols.find(c => c.mods.includes('wall')) || at.row.cols[Math.min(at.ci, at.row.cols.length - 1)]; heir.w += at.col.w; }
+    else layout.rows.splice(at.ri, 1);
+  }
+}
+// 在 ref 这一列的左 / 右开一列：宽度从 ref 那一列分（宽的分 4 格、中等 3 格、窄的 2 格）；分不出来返回 false
+function splitCol(row, ci, side_, id) {
+  const ref = row.cols[ci];
+  if (row.cols.length >= 6) return false;
+  let nw = ref.w >= 8 ? 4 : ref.w >= 5 ? 3 : 2;
+  let donor = ref;
+  if (donor.w - nw < 2) donor = row.cols.filter(c => c.w - nw >= 2).sort((a, b) => b.w - a.w)[0];
+  if (!donor) { nw = 2; donor = row.cols.filter(c => c.w >= 4).sort((a, b) => b.w - a.w)[0]; }
+  if (!donor) return false;
+  donor.w -= nw;
+  row.cols.splice(side_ === 'left' ? ci : ci + 1, 0, { w: nw, mods: [id] });
+  return true;
+}
+function moveModule(id, refId, zone) {
+  if (!ENGINE || id === refId) return false;
+  const before = JSON.stringify(layout.rows);
+  detachMod(id);
+  const at = locate(refId);
+  if (!at) { layout.rows = JSON.parse(before); return false; }
+  if (zone === 'left' || zone === 'right') { if (!splitCol(at.row, at.ci, zone, id)) at.col.mods.splice(at.k + 1, 0, id); }
+  else at.col.mods.splice(at.k + (zone === 'after' ? 1 : 0), 0, id);
+  layout.rows = normalizeRows(layout.rows);
+  if (JSON.stringify(layout.rows) === before) return false;
+  applyLayout(); saveLayout();
+  return true;
+}
+// ↑ / ↓：同一列里换位置；到了一列的头 / 尾：单独成一排，放到这一排的上 / 下面（本来就单独一排就和上 / 下一排换）
+function stepModule(id, d) {
+  const at = locate(id); if (!at) return false;
+  const before = JSON.stringify(layout.rows);
+  const j = at.k + d;
+  if (j >= 0 && j < at.col.mods.length) { [at.col.mods[at.k], at.col.mods[j]] = [at.col.mods[j], at.col.mods[at.k]]; }
+  else if (at.row.cols.length === 1 && at.col.mods.length === 1) {
+    const rj = at.ri + d; if (rj < 0 || rj >= layout.rows.length) return false;
+    [layout.rows[at.ri], layout.rows[rj]] = [layout.rows[rj], layout.rows[at.ri]];
+  } else {
+    // 收藏墙那一排的列尾再往下 = 跑到无尽的墙下面去了：键盘不这样挪（真要放墙下面就拖）
+    if (d > 0 && at.ri === boardIndex()) return false;
+    detachMod(id);
+    const ri = locate(at.row.cols.find(c => c.mods.length)?.mods[0])?.ri;
+    const base = ri == null ? Math.min(at.ri, layout.rows.length) : ri;
+    layout.rows.splice(d < 0 ? base : base + 1, 0, { cols: [{ w: 12, mods: [id] }] });
+  }
+  layout.rows = normalizeRows(layout.rows);
+  if (JSON.stringify(layout.rows) === before) return false;
+  applyLayout(); saveLayout(); return true;
+}
+// ← / →：挪进左 / 右边那一列（放在最后）；那边没有列就在这一边开一列
+function sideStep(id, d) {
+  const at = locate(id); if (!at) return false;
+  const before = JSON.stringify(layout.rows);
+  const nb = at.row.cols[at.ci + d];
+  if (nb) { detachMod(id); const again = locate(nb.mods[0]); again.col.mods.push(id); }
+  else if (at.col.mods.length > 1) { at.col.mods.splice(at.k, 1); if (!splitCol(at.row, at.ci, d < 0 ? 'left' : 'right', id)) at.col.mods.splice(at.k, 0, id); }
+  else return false;
+  layout.rows = normalizeRows(layout.rows);
+  if (JSON.stringify(layout.rows) === before) return false;
+  applyLayout(); saveLayout(); return true;
+}
+function setModHidden(id, hidden, { undo = true } = {}) {
+  const g = modCfg(id); if (g.hidden === !!hidden) return;
+  g.hidden = !!hidden;
+  if (hidden && openPanel?.id === id) closePanel();
+  applyLayout(); saveLayout();
+  if (hidden) {
+    if (SIDE_MODS.includes(id) && sideFold[id]) { /* 折着的照旧折着 */ }
+    if (undo) LB.undoNotice(id === 'filters' ? '已收起筛选项（搜索、排序、问收藏还在）' : `已移除「${MOD_NAMES[id]}」：内容和功能都还在，「＋ 模块」能加回来`, async () => setModHidden(id, false, { undo: false }));
+    trayModsOpen = true; if (arranging) paintTray();
+  } else if (SIDE_MODS.includes(id)) { sideFold[id] = false; paintFold(id); paintMod(id); saveState(); }
+}
+// 调宽：row 里第 j 列和第 j+1 列（都看得见的相邻两列）之间那道边，du 格（左正右负按第 j 列算）
+function resizeCols(bi_, j, du) {
+  const r = layout.rows[bi_]; if (!r) return false;
+  const vis = r.cols.filter(c => visibleIn(c.mods)); const a = vis[j], b = vis[j + 1]; if (!a || !b) return false;
+  const n = Math.max(2 - a.w, Math.min(b.w - 2, du)); if (!n) return false;
+  a.w += n; b.w -= n;
+  paintVisibility(); paintEdges();
+  return true;
+}
+
+// ── 操作条（第一次进编排才建）：⠿（按住拖到任何位置；聚焦后方向键移动）· 名字 · 调整 · × ──
+const bars = {};
+function ensureBar(id) {
+  const el = modEl(id); if (!el || bars[id]) return bars[id];
+  const bar = document.createElement('div'); bar.className = 'lbc-mod-bar lbc-m-bar' + (TOP_IDS.includes(id) ? ' lbc-blk-bar' : '');
   el.insertBefore(bar, el.firstChild);
-  bar.createEl('span', { cls: 'lbc-mb-nm', text: name });
-  const btn = (text, act, fn, sep = true) => { if (sep) bar.createEl('span', { cls: 'lbc-mb-sep' }); const b = bar.createEl('button', { text }); b.type = 'button'; b.dataset.act = act; b.onclick = e => { e?.stopPropagation?.(); fn(); }; return b; };
-  if (up) btn('↑', 'up', up);
-  if (down) btn('↓', 'down', down, false);
-  if (hide) btn('隐藏', 'hide', hide);
-  return bar;
+  const grip = bar.createEl('button', { cls: 'lbc-mb-h' }); grip.type = 'button'; grip.innerHTML = GRIP_SVG; grip.dataset.act = 'drag';
+  grip.setAttribute('aria-label', `拖动「${MOD_NAMES[id]}」；方向键：上下换位置、左右换列`);
+  grip.addEventListener('pointerdown', e => startModDrag(e, id, grip));
+  grip.onkeydown = e => {
+    const k = e.key; let done = false;
+    if (k === 'ArrowUp' || k === 'ArrowDown') done = stepModule(id, k === 'ArrowUp' ? -1 : 1);
+    else if (k === 'ArrowLeft' || k === 'ArrowRight') done = sideStep(id, k === 'ArrowLeft' ? -1 : 1);
+    else return;
+    e.preventDefault?.(); if (done) try { grip.focus({ preventScroll: false }); } catch {}
+  };
+  bar.createEl('span', { cls: 'lbc-mb-nm', text: MOD_NAMES[id] });
+  bar.createEl('span', { cls: 'lbc-mb-sep' });
+  const adj = bar.createEl('button', { text: '调整' }); adj.type = 'button'; adj.dataset.act = 'adjust'; adj.setAttribute('aria-expanded', 'false');
+  adj.onclick = e => { e?.stopPropagation?.(); togglePanel(id); };
+  const x = bar.createEl('button', { text: '×' }); x.type = 'button'; x.dataset.act = 'remove';
+  x.setAttribute('aria-label', id === 'filters' ? '收起筛选项（搜索保留）' : `移除「${MOD_NAMES[id]}」`);
+  x.onclick = e => { e?.stopPropagation?.(); setModHidden(id, true); };
+  bars[id] = { bar, grip, adj, x };
+  return bars[id];
 }
-let contentSwap = null;
-// 操作条第一次进编排时才建（平时用不到，首开少建一批节点）
-function ensureBlockBars() {
-  if (!SIDE_ON || contentSwap) return;
-  for (const id of TOP_IDS) blocks[id].__bar = blockBar(blocks[id], TOP_NAMES[id], { up: () => nudgeTop(id, -1), down: () => nudgeTop(id, 1), hide: () => setTopHidden(id, !topLayout.find(m => m.id === id)?.hidden) });
-  const cbar = blockBar(boardMain, '内容区（收藏墙）', {});
-  cbar.createEl('span', { cls: 'lbc-mb-sep' });
-  contentSwap = cbar.createEl('button', { text: '⇄ 边栏放右边' }); contentSwap.type = 'button'; contentSwap.dataset.act = 'swap';
-  contentSwap.onclick = e => { e?.stopPropagation?.(); setLayoutOpt('sideRight', !layoutOpts.sideRight); };
-  contentSwap.textContent = layoutOpts.sideRight ? '⇄ 边栏放左边' : '⇄ 边栏放右边';
-  for (const m of topLayout) { const bar = blocks[m.id].__bar, i = topLayout.indexOf(m); bar.querySelector('[data-act="up"]').disabled = i === 0; bar.querySelector('[data-act="down"]').disabled = i === topLayout.length - 1; bar.querySelector('[data-act="hide"]').textContent = m.hidden ? '显示' : '隐藏'; }
+function paintBar(id) {
+  const b = bars[id]; if (!b) return;
+  b.adj.setAttribute('aria-expanded', String(openPanel?.id === id));
+  modEl(id)?.classList.toggle('is-panel', openPanel?.id === id);
+  if (id === 'filters') { b.x.textContent = modCfg(id).hidden ? '＋' : '×'; b.x.setAttribute('aria-label', modCfg(id).hidden ? '筛选项放回来' : '收起筛选项（搜索保留）'); b.x.onclick = e => { e?.stopPropagation?.(); setModHidden('filters', !modCfg('filters').hidden); }; }
 }
+
+// ── 拖动：按住 ⠿ 拖；落点按指针在目标模块上的位置——左 / 右五分之一 = 放到它左 / 右边成新的一列，其余上半 = 放它上面、下半 = 放它下面
+//    （收藏墙很高：中间那一大片按左右半边当「放到墙的左 / 右边」，最上 / 最下 80px 才是墙的上 / 下面）。Esc 取消 ──
+let drag = null;
+const dropInd = (() => { const d = document.createElement('div'); d.className = 'lbc-drop-ind'; d.hidden = true; return d; })();
+function dropTarget(x, y, self) {
+  let best = null, bestD = Infinity;
+  for (const id of MOD_IDS) {
+    if (id === self || !present(id) || isGone(id)) continue;
+    const el = modEl(id), r = el.getBoundingClientRect?.(); if (!r || !(r.width > 0)) continue;
+    const dx = x < r.left ? r.left - x : x > r.right ? x - r.right : 0, dy = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+    const d_ = Math.hypot(dx, dy); if (d_ < bestD) { bestD = d_; best = { id, r }; }
+  }
+  if (!best || bestD > 80) return null;
+  const { r } = best, rx = (x - r.left) / (r.width || 1);
+  let zone;
+  if (best.id === 'wall' && r.height > 240) zone = y < r.top + 80 ? 'before' : y > r.bottom - 80 ? 'after' : rx < 0.5 ? 'left' : 'right';
+  else zone = rx < 0.2 ? 'left' : rx > 0.8 ? 'right' : y < r.top + r.height / 2 ? 'before' : 'after';
+  return { id: best.id, zone, r };
+}
+function paintDrop(t) {
+  if (!t) { dropInd.hidden = true; return; }
+  const { r, zone } = t, s = dropInd.style; dropInd.hidden = false;
+  if (zone === 'left' || zone === 'right') { s.left = ((zone === 'left' ? r.left : r.right) - 2) + 'px'; s.top = Math.max(0, r.top) + 'px'; s.width = '4px'; s.height = Math.max(24, Math.min(r.bottom, (typeof innerHeight === 'number' ? innerHeight : 900)) - Math.max(0, r.top)) + 'px'; }
+  else { s.left = r.left + 'px'; s.top = ((zone === 'before' ? r.top - 12 : r.bottom + 8)) + 'px'; s.width = r.width + 'px'; s.height = '4px'; }
+}
+function startModDrag(e, id, grip) {
+  if (!arranging || (e.button != null && e.button !== 0)) return;
+  e.preventDefault?.();
+  drag = { id, grip, pointer: e.pointerId, target: null, raf: 0, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, moved: false };
+  try { grip.setPointerCapture?.(e.pointerId); } catch {}
+  modEl(id).classList.add('is-dragging');
+  if (!dropInd.parentNode) wrap.append(dropInd);
+}
+function onDragMove(e) {
+  if (!drag) return;
+  drag.x = e.clientX; drag.y = e.clientY;
+  if (!drag.moved && Math.hypot(drag.x - drag.x0, drag.y - drag.y0) < 6) return;   // 只是点了一下 ⠿：不算拖
+  drag.moved = true;
+  // 拖到上下边缘：滚动容器跟着滚
+  const sc = LB.scroller(); const vh = typeof innerHeight === 'number' ? innerHeight : 900;
+  if (sc) { if (e.clientY > vh - 60) sc.scrollTop += 18; else if (e.clientY < 80) sc.scrollTop -= 18; }
+  if (drag.raf) return;
+  const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : f => setTimeout(f, 16);
+  drag.raf = raf(() => { if (!drag) return; drag.raf = 0; drag.target = dropTarget(drag.x, drag.y, drag.id); paintDrop(drag.target); }) || 1;
+}
+function endModDrag(cancel = false) {
+  if (!drag) return;
+  const d = drag; drag = null;
+  try { d.grip.releasePointerCapture?.(d.pointer); } catch {}
+  modEl(d.id)?.classList.remove('is-dragging'); dropInd.hidden = true;
+  const t = cancel || !d.moved ? null : (d.target || dropTarget(d.x, d.y, d.id));
+  if (t) moveModule(d.id, t.id, t.zone);
+}
+function docOn(type, fn) { if (typeof document === 'undefined' || !document.addEventListener) return; document.addEventListener(type, fn); cleanups.push(() => { try { document.removeEventListener(type, fn); } catch {} }); }
+const onDragUp = () => endModDrag(false), onDragCancel = () => endModDrag(true);
+docOn('pointermove', onDragMove); docOn('pointerup', onDragUp); docOn('pointercancel', onDragCancel);
+
+// ── 列与列之间的边（编排时）：拖动调宽，吸附到 1/12，最窄 2 格；聚焦后左右键 ──
+const edgeEls = [];
+function edgeContainers() {
+  const bi = boardIndex(), out = [];
+  layout.rows.forEach((r, i) => {
+    const vis = r.cols.filter(c => visibleIn(c.mods)); if (vis.length < 2) return;
+    let host, nodes;
+    if (i === bi) { host = board; nodes = boardColEls.filter(n => !n.hidden); }
+    else { const pool = i < bi ? topRowEls[i] : afterRowEls[i - bi - 1]; if (!pool) return; host = pool.el; nodes = pool.cols.filter(n => !n.hidden); }
+    out.push({ ri: i, host, nodes, vis });
+  });
+  return out;
+}
+function paintEdges() {
+  for (const e of edgeEls.splice(0)) e.remove();
+  if (!arranging || !ENGINE || wrap.classList.contains('is-side-narrow')) return;
+  for (const { ri, host, nodes, vis } of edgeContainers()) {
+    const hr = host.getBoundingClientRect?.() || { left: 0 };
+    for (let j = 0; j + 1 < nodes.length; j++) {
+      const a = nodes[j].getBoundingClientRect?.(), b = nodes[j + 1].getBoundingClientRect?.();
+      const ed = document.createElement('button'); ed.type = 'button'; ed.className = 'lbc-col-edge';
+      ed.dataset.row = String(ri); ed.dataset.edge = String(j);
+      ed.setAttribute('aria-label', `调宽：左边 ${vis[j].w}/12、右边 ${vis[j + 1].w}/12（左右键）`);
+      const badge = document.createElement('span'); badge.className = 'lbc-ce-w'; badge.textContent = `${vis[j].w} / ${vis[j + 1].w}`; ed.append(badge);
+      if (a && b) ed.style.left = Math.round((a.right + b.left) / 2 - hr.left) + 'px';
+      ed.onkeydown = e => { if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return; e.preventDefault?.(); if (resizeCols(ri, j, e.key === 'ArrowLeft' ? -1 : 1)) { saveLayout(); relayoutSoon(); const again = edgeEls.find(x => x.dataset.row === String(ri) && x.dataset.edge === String(j)); try { again?.focus(); } catch {} } };
+      ed.addEventListener('pointerdown', e => startEdgeDrag(e, ri, j, ed, host));
+      host.append(ed); edgeEls.push(ed);
+    }
+  }
+}
+let edgeDrag = null;
+function startEdgeDrag(e, ri, j, ed, host) {
+  if (!arranging || (e.button != null && e.button !== 0)) return;
+  e.preventDefault?.();
+  const r = layout.rows[ri], vis = r.cols.filter(c => visibleIn(c.mods)), sum = vis.reduce((n, c) => n + c.w, 0);
+  const width = Number(host.getBoundingClientRect?.().width) || 1;
+  edgeDrag = { ri, j, x0: e.clientX, a0: vis[j].w, unit: width / sum, applied: 0, ed, pointer: e.pointerId };
+  try { ed.setPointerCapture?.(e.pointerId); } catch {}
+  ed.classList.add('is-on');
+}
+function onEdgeMove(e) {
+  if (!edgeDrag) return;
+  const d = edgeDrag, want = Math.round((e.clientX - d.x0) / d.unit), du = want - d.applied;
+  if (!du) return;
+  const vis = layout.rows[d.ri].cols.filter(c => visibleIn(c.mods));
+  const before = vis[d.j].w;
+  if (resizeCols(d.ri, d.j, du)) { d.applied += vis[d.j].w - before; d.ed = edgeEls.find(x => x.dataset.row === String(d.ri) && x.dataset.edge === String(d.j)) || d.ed; d.ed.classList.add('is-on'); }
+}
+function endEdgeDrag() {
+  if (!edgeDrag) return;
+  const d = edgeDrag; edgeDrag = null;
+  try { d.ed.releasePointerCapture?.(d.pointer); } catch {}
+  d.ed.classList.remove('is-on');
+  if (d.applied) { saveLayout(); relayoutSoon(); }
+}
+docOn('pointermove', onEdgeMove); docOn('pointerup', endEdgeDrag);
+let relayoutTimer = null;
+function relayoutSoon() { clearTimeout(relayoutTimer); relayoutTimer = setTimeout(() => { if (pageReady) { laidN = 0; relayoutIfNeeded(); paintStickyTop(); paintEdges(); } }, 60); }
+cleanups.push(() => clearTimeout(relayoutTimer));
+
+// ── 「调整」：在模块里展开（一次只开一个；改了马上生效、后台存；输入框不因为保存 / 后台重跑被重建） ──
+let openPanel = null;
+function closePanel() {
+  if (!openPanel) return;
+  const p = openPanel; openPanel = null;
+  try { p.destroy?.(); } catch {}
+  p.el.remove();
+  paintBar(p.id);
+}
+function togglePanel(id) { if (openPanel?.id === id) { closePanel(); return; } closePanel(); openPanel = buildPanel(id); paintBar(id); paintSaveState(); }
+function refreshPanel() { if (!openPanel) return; const id = openPanel.id; closePanel(); openPanel = buildPanel(id); paintBar(id); paintSaveState(); }
+function mkSelect(parent, choices, value, onChange, label) {
+  const s = parent.createEl('select'); if (label) s.setAttribute('aria-label', label);
+  for (const [v, t] of choices) { const o = s.createEl('option', { text: t }); o.value = String(v); }
+  s.value = String(value);
+  s.onchange = () => onChange(s.value);
+  return s;
+}
+function mkRow(box, k) { const r = box.createEl('div', { cls: 'lbc-mp-row' }); if (k) r.createEl('span', { cls: 'lbc-mp-k', text: k }); return r; }
+function buildPanel(id) {
+  const host = modEl(id), bar = bars[id]?.bar;
+  const box = document.createElement('div'); box.className = 'lbc-mp'; box.dataset.panel = id;
+  host.insertBefore(box, bar ? bar.nextSibling : host.firstChild);
+  const h = box.createEl('div', { cls: 'lbc-mp-h' });
+  h.createEl('span', { text: MOD_NAMES[id] + ' · 调整' });
+  h.createEl('span', { cls: 'lbc-mp-save' });
+  const g = modCfg(id);
+  const p = provider();
+  const panel = { id, el: box, destroy: null };
+  // 字体 / 字号（全站的在托盘「Aa 样式」里；这里是这一块自己的）
+  const r1 = mkRow(box, '字体');
+  const fonts = FONT_SET.some(([v]) => v === g.font) ? FONT_SET : [...FONT_SET, [g.font, g.font]];
+  mkSelect(r1, fonts, g.font, v => { g.font = v; paintVisibility(); saveLayout(); }, MOD_NAMES[id] + '字体').dataset.k = 'font';
+  if (id !== 'wall') {
+    r1.createEl('span', { cls: 'lbc-mp-k', text: '字号' });
+    mkSelect(r1, SIZE_SET.map(n => [n, n + '%']), g.size, v => { g.size = sizeOf(v); paintVisibility(); saveLayout(); relayoutSoon(); }, MOD_NAMES[id] + '字号').dataset.k = 'size';
+  }
+  // 这个模块自己的设置
+  const body = box.createEl('div', { cls: 'lbc-mp-body' });
+  panelBody[id]?.(body, g, p, panel);
+  // 上下左右（键盘 / 不想拖的时候）
+  const mv = mkRow(box, '位置');
+  const mb = (t, act, fn) => { const b = mv.createEl('button', { text: t }); b.type = 'button'; b.dataset.act = act; b.onclick = e => { e?.stopPropagation?.(); fn(); }; return b; };
+  mb('↑ 上移', 'up', () => stepModule(id, -1)); mb('↓ 下移', 'down', () => stepModule(id, 1));
+  mb('← 左移', 'left', () => sideStep(id, -1)); mb('→ 右移', 'right', () => sideStep(id, 1));
+  mb('收起', 'close', () => closePanel());
+  return panel;
+}
+const panelBody = {
+  title(body, g, p) {
+    const r = mkRow(body, '标题');
+    const inp = r.createEl('input', { type: 'text' }); inp.dataset.k = 'title';
+    inp.placeholder = 'Collections'; inp.maxLength = 40; inp.value = String(p?.settings?.catalogTitle || '');
+    inp.addEventListener('input', () => {
+      if (!p?.settings) return;
+      p.settings.catalogTitle = inp.value.trim().slice(0, 40);
+      setTitle(); saveSettingSoon('catalogTitle');
+    });
+    body.createEl('p', { cls: 'lbc-mp-note', text: '留空 = Collections。问收藏页的标题同一个。' });
+  },
+  cats(body) {
+    if (!idx) {
+      body.createEl('p', { cls: 'lbc-mp-note', text: '分类在 索引.md 里（还没生成索引）：' });
+      const b = mkRow(body).createEl('button', { text: '打开 索引.md' }); b.type = 'button'; b.onclick = () => editCategories();
+      return;
+    }
+    const hidden = new Set(provider()?.settings?.hiddenCats || []);
+    const list = body.createEl('div', { cls: 'lbc-mp-cats' });
+    const roots = idx.roots || [];
+    roots.forEach((path, i) => {
+      const n = idxByPath.get(path); if (!n) return;
+      const row = list.createEl('div', { cls: 'lbc-mp-cat' }); row.dataset.path = path;
+      const ck = row.createEl('input', { type: 'checkbox' }); ck.checked = !hidden.has(n.name); ck.setAttribute('aria-label', `分类行里显示「${n.name}」`); ck.dataset.k = 'show';
+      ck.onchange = () => {
+        const q = provider(); if (!q?.settings) return;
+        const set = new Set(q.settings.hiddenCats || []); if (ck.checked) set.delete(n.name); else set.add(n.name);
+        q.settings.hiddenCats = [...set]; renderCatBar(); saveSettingSoon('hiddenCats');
+      };
+      const name = row.createEl('input', { type: 'text' }); name.value = n.name; name.maxLength = 60; name.dataset.k = 'name'; name.setAttribute('aria-label', `给「${n.name}」改名`);
+      const commit = async () => { const v = name.value.trim(); if (!v || v === n.name) { name.value = n.name; return; } name.disabled = true; const r = await treeEdit('rename', n, { name: v }); name.disabled = false; if (!r?.ok) name.value = v; else refreshPanel(); };
+      name.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault?.(); commit(); } else if (e.key === 'Escape') { e.stopPropagation?.(); name.value = n.name; } };
+      name.onchange = () => commit();
+      row.createEl('span', { cls: 'lbc-mp-n', text: String(n.count || 0) });
+      const up = row.createEl('button', { text: '↑' }); up.type = 'button'; up.dataset.act = 'cat-up'; up.disabled = i === 0; up.setAttribute('aria-label', `「${n.name}」往前`);
+      const dn = row.createEl('button', { text: '↓' }); dn.type = 'button'; dn.dataset.act = 'cat-down'; dn.disabled = i === roots.length - 1; dn.setAttribute('aria-label', `「${n.name}」往后`);
+      up.onclick = async () => { const r = await treeEdit('move', n, { to: '', before: roots[i - 1] }); if (r?.ok) refreshPanel(); };
+      dn.onclick = async () => { const r = await treeEdit('move', n, { to: '', before: roots[i + 2] || '' }); if (r?.ok) refreshPanel(); };
+    });
+    const add = mkRow(body, '加一个');
+    const inp = add.createEl('input', { type: 'text' }); inp.placeholder = '新分类名'; inp.maxLength = 60; inp.dataset.k = 'new';
+    const go = add.createEl('button', { text: '＋ 加分类' }); go.type = 'button'; go.dataset.act = 'cat-add';
+    const doAdd = async () => {
+      const v = inp.value.trim(); if (!v) { inp.focus?.(); return; }
+      go.disabled = true;
+      const r = await indexAction('indexEdit', null, '正在改索引…', 'add', '', { name: v });
+      go.disabled = false;
+      if (r?.ok) { inp.value = ''; await treeEditDone(r); refreshPanel(); } else if (r) LB.say(r.message || '没加上', { kind: 'error' });
+    };
+    go.onclick = () => doAdd();
+    inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault?.(); doAdd(); } };
+    const more = mkRow(body);
+    const tree = more.createEl('button', { text: '分类树（子类、合并、拖拽）→' }); tree.type = 'button'; tree.onclick = () => { setArranging(false); openIndexEditor(); };
+    body.createEl('p', { cls: 'lbc-mp-note', text: '改名 / 换顺序 / 加分类都写回 索引.md（能撤销）；取消勾选只是分类行里不显示，帖子不动。删除分类在「管理」里。' });
+  },
+  filters(body, g) {
+    const r = mkRow(body, '显示');
+    const NAMES = { scope: '范围', type: '类型', tag: 'Tag', plat: '平台', src: '来源 / 专辑', sort: '排序', view: '视图', ask: '问收藏' };
+    for (const k of OPT_CHOICES.filters.show) {
+      const l = r.createEl('label', { cls: 'lbc-mp-ck' }); const ck = l.createEl('input', { type: 'checkbox' }); ck.checked = g.opt.show.includes(k); ck.dataset.k = k; l.append(NAMES[k]);
+      ck.onchange = () => {
+        const set = new Set(g.opt.show); if (ck.checked) set.add(k); else set.delete(k);
+        g.opt.show = OPT_CHOICES.filters.show.filter(x => set.has(x));
+        paintVisibility(); saveLayout();
+      };
+    }
+    body.createEl('p', { cls: 'lbc-mp-note', text: '搜索框一直在。藏起来的筛选按钮只是不显示，已经选着的筛选照样生效。' });
+  },
+  recent(body, g) {
+    mkSelect(mkRow(body, '显示'), OPT_CHOICES.recent.count.map(n => [n, n + ' 条']), g.opt.count, v => { g.opt.count = Number(v); mods.recent && (mods.recent.sig = null); paintRecent(); saveLayout(); }, '最近导入条数').dataset.k = 'count';
+  },
+  sync(body, g, p, panel) {
+    // 同步时间只有一个编辑器（schedule-ui 的 render，设置页「收藏与同步」、首次设置用的同一个）：嵌在这里，保存 = 真去改计划任务，结果照实说
+    const holder = body.createEl('div', { cls: 'lbc-mp-sched' });
+    if (p && typeof p.scheduleUI === 'function') {
+      try {
+        const ed = p.scheduleUI().render(holder, { primary: false, onSaved: () => loadSchedule({ force: true }) });
+        panel.destroy = () => { try { ed.destroy(); } catch {} };
+        return;
+      } catch (e) { holder.empty(); holder.createEl('p', { cls: 'lbc-mp-note is-fail', text: '同步时间编辑器没画上：' + (e?.message || e) }); }
+    }
+    const b = mkRow(body).createEl('button', { text: '改同步时间（设置 · 收藏与同步）' }); b.type = 'button'; b.onclick = () => openSyncSettings();
+  },
+  token(body, g, p) {
+    mkSelect(mkRow(body, '显示'), [['month', '本月（人民币估算）'], ['day', '今天（北京时间）']], g.opt.period, v => { g.opt.period = v; mods.token && (mods.token.sig = null); paintToken(); saveLayout(); }, 'Token 费用显示哪一段').dataset.k = 'period';
+    const r = mkRow(body, '后台每日上限 ¥');
+    const inp = r.createEl('input', { type: 'number' }); inp.min = '0'; inp.step = '1'; inp.dataset.k = 'budget'; inp.setAttribute('aria-label', '后台每日费用上限（元，0 = 不限）');
+    const cur = p?.settings?.budget?.dailyYuan; inp.value = cur === undefined || cur === '' || cur == null ? '' : String(cur);
+    inp.placeholder = usage?.budget && Number.isFinite(+usage.budget.daily_yuan) ? String(+usage.budget.daily_yuan) : '默认';
+    const note = body.createEl('p', { cls: 'lbc-mp-note', text: '每天（北京时间）花到这个数，夜里补识图、补概要就只用免费的；你自己问收藏不受限。0 = 不限。和设置页「AI」里是同一个。' });
+    inp.onchange = () => {
+      const q = provider(); if (!q?.settings) return;
+      const raw = String(inp.value).trim();
+      if (raw === '') { const b = { ...(q.settings.budget || {}) }; delete b.dailyYuan; q.settings.budget = b; }
+      else { const n = Math.round(Number(raw) * 100) / 100; if (!Number.isFinite(n) || n < 0) { note.textContent = '上限要是 0 或正数（0 = 不限），还没改'; note.classList.add('is-fail'); return; } q.settings.budget = { ...(q.settings.budget || {}), dailyYuan: n }; }
+      note.classList.remove('is-fail');
+      mods.token && (mods.token.sig = null); paintToken(); saveSettingSoon('budget');
+    };
+  },
+  overview(body, g) {
+    const r = mkRow(body, '显示');
+    const NAMES = { all: '全部收藏', week: '近 7 天', star: '已收藏', cats: '在用分类', bars: '近 14 天柱图' };
+    for (const k of OPT_CHOICES.overview.metrics) {
+      const l = r.createEl('label', { cls: 'lbc-mp-ck' }); const ck = l.createEl('input', { type: 'checkbox' }); ck.checked = g.opt.metrics.includes(k); ck.dataset.k = k; l.append(NAMES[k]);
+      ck.onchange = () => { const set = new Set(g.opt.metrics); if (ck.checked) set.add(k); else set.delete(k); g.opt.metrics = OPT_CHOICES.overview.metrics.filter(x => set.has(x)); mods.overview && (mods.overview.sig = null); paintOverview(); saveLayout(); };
+    }
+  },
+  wall(body, g, p) {
+    const r = mkRow(body, '每行');
+    mkSelect(r, [[0, '自动'], [2, '2 列'], [3, '3 列'], [4, '4 列'], [5, '5 列'], [6, '6 列']], cols || 0, v => {
+      const n = colsOf(v); cols = n; applyCols(); saveState();
+      const q = provider(); if (q?.settings) { q.settings.catalogColumns = n; saveSettingSoon('catalogColumns'); }
+      laidN = 0; relayoutIfNeeded();
+    }, '收藏墙每行几列').dataset.k = 'cols';
+    r.createEl('span', { cls: 'lbc-mp-k', text: '密度' });
+    mkSelect(r, [['s', '紧凑（多一列）'], ['m', '标准'], ['l', '宽松（少一列）']], g.opt.density, v => { g.opt.density = v; saveLayout(); laidN = 0; relayoutIfNeeded(); }, '卡片密度').dataset.k = 'density';
+    body.createEl('p', { cls: 'lbc-mp-note', text: '在目录页上按 Ctrl + 加号 / 减号、Ctrl + 滚轮也能调列数（同一个设置）。密度只在「自动」时起作用。' });
+    void p;
+  },
+};
+
+// ── Token 费用（1027 从同步模块拆出来）：本月 = 目录数据里的 usage_month（不起进程）；今天 = 插件跑一次 usage（60 秒内复用） ──
+let usage = null, usageAt = 0, usageBusy = false, usageErr = '';
+async function loadUsage({ force = false } = {}) {
+  const p = provider();
+  if (!p || typeof p.runPy !== 'function' || usageBusy || mobile) return;
+  if (!force && usageAt && Date.now() - usageAt < 60000) return;
+  usageBusy = true;
+  try { const r = await p.runPy(['-m', 'link_brain', 'usage'], { label: '读 AI 用量', timeoutMs: 45000, fallback: '没读出来' }); if (!r?.json || r.json.ok === false) throw new Error(r?.json?.message || '没读出来'); usage = r.json; usageErr = ''; }
+  catch (e) { usageErr = e?.message || String(e); }
+  finally { usageBusy = false; usageAt = Date.now(); }
+  if (mods.token) mods.token.sig = null;
+  paintToken();
+}
+const yuan = v => (v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) ? '¥' + Number(v).toFixed(2) : '—');
+function paintToken() {
+  const m = mods.token; if (!m) return;
+  const p = provider(), period = modOpt('token').period === 'day' ? 'day' : 'month';
+  const um = data?.usage_month || {};
+  const capSet = p?.settings?.budget?.dailyYuan;
+  const cap = capSet !== undefined && capSet !== '' && capSet != null ? Number(capSet) : (usage?.budget && Number.isFinite(+usage.budget.daily_yuan) ? +usage.budget.daily_yuan : null);
+  const capText = cap == null || !Number.isFinite(cap) ? '默认' : cap > 0 ? '¥' + cap : '不限';
+  const val = period === 'month' ? (um.cost_cny ?? null) : (usage?.budget ? usage.budget.spent_today : null);
+  setSum(m, [period === 'month' ? '本月 ' : '今天 ', [val == null ? '—' : '约 ' + yuan(val)], ' · 上限 ' + capText]);
+  if (period === 'day' && !usage && !usageAt) loadUsage();
+  if (sideFold.token) return;
+  const sig = JSON.stringify([period, val, capText, usageBusy, usageErr, um.month, um.unpriced, um.by_feature]);
+  if (m.sig === sig) return; m.sig = sig;
+  const b = m.body; b.empty();
+  const big = b.createEl('div', { cls: 'lbc-sy-big lbc-tk-big' });
+  if (val == null) big.setText('—'); else { big.append('¥ '); big.createEl('i', { text: Number(val).toFixed(2) }); }
+  b.createEl('div', { cls: 'lbc-sy-cap lbc-tk-cap' }).createEl('span', { text: period === 'month' ? `${um.month || '本月'} · 人民币估算` : '今天（北京时间）· 人民币估算' });
+  const row = (k, v) => { const r = b.createEl('div', { cls: 'lbc-sy-row' }); r.createEl('span', { text: k }); return r.createEl('b', { text: v }); };
+  const c = row('后台每日上限', capText);
+  c.title = '每天（北京时间）花到这个数，夜里补识图、补概要就只用免费的；你自己问收藏不受限。改：编排 → Token 费用 → 调整，或设置「AI」';
+  if (period === 'month') {
+    const bf = um.by_feature || {};
+    if (val == null) b.createEl('p', { cls: 'lbc-sy-note', text: '还没有用量记录' });
+    else big.title = [`${um.month || '本月'} 调用 AI 的估算费用（人民币，按价格表 ${um.as_of || ''} 现价）${um.unpriced ? `（${um.unpriced} 次没有价格表，没算进去）` : ''}`, ...Object.keys(bf).map(k => `${k} ¥${Number(bf[k]).toFixed(2)}`)].join('\n');
+  } else if (usageBusy && !usage) b.createEl('p', { cls: 'lbc-sy-note', text: '正在读今天的用量…' });
+  else if (usageErr && !usage) b.createEl('p', { cls: 'lbc-sy-note', text: '读不到今天的用量：' + usageErr });
+  else if (!p) b.createEl('p', { cls: 'lbc-sy-note', text: mobile ? LB.MOBILE_ONLY_TEXT : '插件没开：看不到今天的用量' });
+  else if (usage?.budget?.over) b.createEl('p', { cls: 'lbc-sy-note', text: '今天到上限了：后台补跑先只用免费的，北京时间明天 0 点恢复。' });
+}
+
+// ── 托盘（编排时在收藏墙上面）：＋ 模块 · Aa 样式 · 保存状态 · 恢复默认 · 结束编排 ──
+let trayModsOpen = false, trayStyleOpen = false;
 function paintTray() {
   if (!arrangeTray) return;
+  const ae = document.activeElement, focusKey = ae && arrangeTray.contains(ae) ? (ae.dataset?.act || ae.dataset?.show || ae.dataset?.theme || '') : '';
   arrangeTray.empty();
   arrangeTray.createEl('span', { cls: 'lbc-at-k', text: 'ARRANGE' });
-  for (const m of topLayout.filter(x => x.hidden)) {
-    const b = arrangeTray.createEl('button', { cls: 'is-dash', text: '+ ' + TOP_NAMES[m.id] }); b.type = 'button'; b.dataset.showTop = m.id;
-    b.onclick = () => setTopHidden(m.id, false);
+  const btn = (text, attrs = {}, cls = '') => { const b = arrangeTray.createEl('button', { cls, text }); b.type = 'button'; for (const [k, v] of Object.entries(attrs)) b.dataset[k] = v; return b; };
+  const nHidden = MOD_IDS.filter(id => present(id) && modCfg(id).hidden).length;
+  const modsB = btn('＋ 模块' + (nHidden ? `（${nHidden}）` : ''), { act: 'mods' }); modsB.setAttribute('aria-expanded', String(trayModsOpen));
+  modsB.onclick = () => { trayModsOpen = !trayModsOpen; paintTray(); };
+  const styleB = btn('Aa 样式', { act: 'style' }); styleB.setAttribute('aria-expanded', String(trayStyleOpen));
+  styleB.onclick = () => { trayStyleOpen = !trayStyleOpen; paintTray(); };
+  arrangeTray.createEl('span', { cls: 'lbc-at-save' });
+  const retry = btn('重试', { act: 'retry' }); retry.hidden = true; retry.onclick = () => flushSave();
+  const reset = btn('恢复默认', { act: 'reset' });
+  reset.onclick = () => {
+    closePanel();
+    layout = parseLayout(null); applyLayout(); saveLayout();
+    LB.say('目录页已恢复默认布局（标题、列数、分类、同步时间不受影响）', { kind: 'ok' });
+  };
+  const done = btn('结束编排', { act: 'done' }, 'is-solid'); done.onclick = () => setArranging(false);
+  // ＋ 模块：八个都列出来，移除了的点一下加回原位置
+  const list = arrangeTray.createEl('div', { cls: 'lbc-at-row lbc-at-mods' }); list.hidden = !trayModsOpen;
+  for (const id of MOD_IDS) {
+    if (!present(id)) continue;
+    const off = modCfg(id).hidden;
+    const b = list.createEl('button', { cls: off ? 'is-dash' : '', text: (off ? '＋ ' : '✓ ') + MOD_NAMES[id] }); b.type = 'button';
+    if (off) { b.dataset.show = id; b.onclick = () => setModHidden(id, false); } else { b.disabled = true; b.setAttribute('aria-label', MOD_NAMES[id] + '（在页面上）'); }
   }
-  for (const m of sideLayout.filter(x => x.hidden)) {
-    const b = arrangeTray.createEl('button', { cls: 'is-dash', text: '+ ' + SIDE_NAMES[m.id] }); b.type = 'button'; b.dataset.show = m.id;
-    b.onclick = () => setModHidden(m.id, false);
-  }
-  const reset = arrangeTray.createEl('button', { text: '恢复默认' }); reset.type = 'button'; reset.dataset.act = 'reset';
-  reset.onclick = () => { sideLayout = SIDE_IDS.map(id => ({ id, hidden: false })); topLayout = TOP_IDS.map(id => ({ id, hidden: false })); layoutOpts = { sideRight: false, sideW: 'm', gap: 'm', density: 'm' }; applySideLayout(); applyTopLayout(); saveSideLayout({ reset: true }); LB.say('目录页已恢复默认布局', { kind: 'ok' }); };
-  const done = arrangeTray.createEl('button', { cls: 'is-solid', text: '完成' }); done.type = 'button'; done.dataset.act = 'done';
-  done.onclick = () => setArranging(false);
-  // 版式：三个直接能点的选项（不做滑杆，三档够用）
-  const opts = arrangeTray.createEl('div', { cls: 'lbc-at-opts' });
-  for (const [k, [name, labels]] of Object.entries(OPT_LABEL)) {
-    const g = opts.createEl('div', { cls: 'lbc-at-opt' }); g.dataset.opt = k;
-    g.createEl('span', { cls: 'lbc-at-optk', text: name });
-    const seg = g.createEl('div', { cls: 'lbc-at-seg' }); seg.setAttribute('role', 'group');
-    OPT_KEYS[k].forEach((v, i) => {
-      const on = layoutOpts[k] === v;
-      const b = seg.createEl('button', { cls: on ? 'is-on' : '', text: labels[i] }); b.type = 'button'; b.dataset.opt = k; b.dataset.val = v; b.setAttribute('aria-pressed', String(on));
-      b.onclick = () => setLayoutOpt(k, v);
-    });
-  }
-  arrangeTray.createEl('div', { cls: 'lbc-at-hint', text: '每块头上的黑条：↑ ↓ 换位置、隐藏；边栏模块还能按住 ⠿ 拖。隐藏的在这里点「+」加回来。只在电脑上生效。' });
+  // Aa 样式：全站三套字 + 界面大小 + 卡片间距（共享令牌，问收藏 / 笔记页用同一组）
+  const st = arrangeTray.createEl('div', { cls: 'lbc-at-row lbc-at-style' }); st.hidden = !trayStyleOpen;
+  const t = layout.theme;
+  const pick = (label, key, choices) => {
+    const l = st.createEl('label', { text: label });
+    const opts = choices.some(([v]) => String(v) === String(t[key])) ? choices : [...choices, [t[key], String(t[key])]];
+    const s = mkSelect(l, opts, t[key], v => { t[key] = typeof THEME_DEFAULT[key] === 'number' ? Number(v) : v; layout.theme = cleanTheme(t); applyThemeNow(); saveLayout(); if (key === 'gap' || key === 'scale') relayoutSoon(); }, label);
+    s.dataset.theme = key;
+  };
+  pick('标题字', 'titleFont', FONT_SET.map(([v, n]) => [v, v ? n : '跟随（Cinzel 雕刻）']));
+  pick('正文字', 'bodyFont', FONT_SET.map(([v, n]) => [v, v ? n : '跟随（思源黑体）']));
+  pick('数字', 'numberFont', FONT_SET.map(([v, n]) => [v, v ? n : '跟随（Cormorant 斜体）']));
+  pick('界面大小', 'scale', SCALE_SET);
+  pick('卡片间距', 'gap', GAP_SET);
+  arrangeTray.createEl('div', { cls: 'lbc-at-hint', text: '按住 ⠿ 拖到任何位置（放到一块的左右边 = 并排）；拖两列之间的竖线调宽；「调整」改这一块的字和设置；× 移除（「＋ 模块」加回）。改了马上生效、自动保存，只在电脑上。' });
+  paintSaveState();
+  if (focusKey) { const again = [...arrangeTray.querySelectorAll('button, select')].find(b => (b.dataset?.act || b.dataset?.show || b.dataset?.theme || '') === focusKey); try { again?.focus({ preventScroll: true }); } catch {} }
 }
-function nudgeMod(key, d) {
-  const vis = sideVisible(); const i = vis.findIndex(m => m.id === key), j = i + d;
-  if (i < 0 || j < 0 || j >= vis.length) return;
-  const a = sideLayout.indexOf(vis[i]), b = sideLayout.indexOf(vis[j]);
-  [sideLayout[a], sideLayout[b]] = [sideLayout[b], sideLayout[a]];
-  applySideLayout(); saveSideLayout();
+function onArrangeKey(e) {
+  if (!arranging || e.key !== 'Escape') return;
+  if (drag) { e.preventDefault?.(); endModDrag(true); return; }
+  if (edgeDrag) { e.preventDefault?.(); endEdgeDrag(); return; }
+  const t = e.target;
+  if (t && typeof t.closest === 'function' && t.closest('input, textarea, select, [contenteditable]')) return;   // 输入框里的 Esc 不退出编排
+  e.preventDefault?.();
+  if (openPanel) { const id = openPanel.id; closePanel(); try { bars[id]?.adj.focus(); } catch {} return; }
+  setArranging(false);
 }
-function moveModTo(key, target, after) {
-  if (key === target) return;
-  const from = sideLayout.findIndex(m => m.id === key); if (from < 0) return;
-  const [it] = sideLayout.splice(from, 1);
-  const at = sideLayout.findIndex(m => m.id === target);
-  sideLayout.splice(at < 0 ? sideLayout.length : at + (after ? 1 : 0), 0, it);
-  applySideLayout(); saveSideLayout();
-}
-function setModHidden(key, hidden) {
-  const m = sideLayout.find(x => x.id === key); if (!m || m.hidden === !!hidden) return;
-  m.hidden = !!hidden;
-  applySideLayout(); saveSideLayout();
-  if (!hidden) { sideFold[key] = false; paintFold(key); paintMod(key); saveState(); }
-  else if (!arranging) LB.say(`已隐藏「${SIDE_NAMES[key]}」：点右上角「编排」可以加回来`, { kind: 'ok' });
-}
-function onArrangeKey(e) { if (arranging && e.key === 'Escape') { e.preventDefault?.(); setArranging(false); } }
+let arranging = false;
 function setArranging(on) {
-  if (!SIDE_ON || arranging === !!on) return;
+  if (!arrangeBtn || arranging === !!on) return;
   arranging = !!on;
-  if (arranging) ensureBlockBars();
-  if (arranging && !sideOpen) setSideOpen(true);
+  if (arranging) { for (const id of MOD_IDS) ensureBar(id); if (!sideOpen) setSideOpen(true); }
+  else { closePanel(); endModDrag(true); endEdgeDrag(); if (saveTimer) flushSave(); }
   wrap.classList.toggle('is-arranging', arranging);
-  if (arrangeBtn) arrangeBtn.setAttribute('aria-pressed', String(arranging));
+  arrangeBtn.setAttribute('aria-pressed', String(arranging));
   if (typeof document !== 'undefined') { if (arranging) document.addEventListener('keydown', onArrangeKey, true); else document.removeEventListener('keydown', onArrangeKey, true); }
-  if (!arranging) endModDrag();
-  paintTray();
-  if (wrap.classList.contains('is-side-empty')) relayoutIfNeeded();   // 全隐藏时进出编排，边栏这一列出来 / 让开
+  paintTray(); for (const id of MOD_IDS) paintBar(id);
+  paintStickyTop();
+  paintEdges();
   sideFadeSoon();
 }
 cleanups.push(() => { try { document.removeEventListener('keydown', onArrangeKey, true); } catch {} });
-// 拖动：只认 ⠿ 按下后的那一块（pointerdown 才设 draggable），落点按目标块上下半区放前 / 放后
-let dragKey = null, dropAt = null;
-function clearDrop() { for (const k of Object.keys(mods)) mods[k].sec.classList.remove('is-drop-before', 'is-drop-after'); }
-function endModDrag() { clearDrop(); for (const k of Object.keys(mods)) { mods[k].sec.classList.remove('is-dragging'); mods[k].sec.draggable = false; } dragKey = null; dropAt = null; }
-function paintMod(key) { if (key === 'recent') paintRecent(); else if (key === 'sync') paintSync(); else if (key === 'overview') paintOverview(); }
+function paintMod(key) { if (key === 'recent') paintRecent(); else if (key === 'sync') paintSync(); else if (key === 'overview') paintOverview(); else if (key === 'token') paintToken(); }
+let roRef = null;
 if (SIDE_ON) {
   mods.recent = sideModule('recent', 'RECENT', '最近导入');
-  mods.sync = sideModule('sync', 'SYNC', '同步与用量');   // 1026：齿轮去掉（首页设置入口太多），改时间点「下次同步」
+  mods.sync = sideModule('sync', 'SYNC', '同步');   // 1026：齿轮去掉（首页设置入口太多），改时间点「下次同步」；1027：费用拆到 Token 费用
+  mods.token = sideModule('token', 'TOKEN', 'Token 费用');
   mods.overview = sideModule('overview', 'OVERVIEW', '概览');
   for (const k of Object.keys(mods)) paintFold(k);
-
-  // 1022 编排：托盘在边栏最上面（只 .is-arranging 时显示）；拖动换位置
-  side.addEventListener('dragstart', e => {
-    const sec = e.target?.closest?.('.lbc-mod');
-    if (!arranging || !sec || !sec.draggable) { e.preventDefault?.(); return; }
-    dragKey = sec.dataset.mod; sec.classList.add('is-dragging');
-    try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragKey); } catch {}
-  });
-  side.addEventListener('dragover', e => {
-    if (!dragKey) return;
-    const sec = e.target?.closest?.('.lbc-mod'); clearDrop();
-    if (!sec || sec.hidden || sec.dataset.mod === dragKey) { dropAt = null; return; }
-    e.preventDefault?.();
-    const r = sec.getBoundingClientRect(); const after = e.clientY > r.top + r.height / 2;
-    sec.classList.add(after ? 'is-drop-after' : 'is-drop-before'); dropAt = { key: sec.dataset.mod, after };
-  });
-  side.addEventListener('drop', e => { if (!dragKey) return; e.preventDefault?.(); const d = dropAt, k = dragKey; endModDrag(); if (d) moveModTo(k, d.key, d.after); });
-  side.addEventListener('dragend', () => endModDrag());
-  const onUp = () => { if (!dragKey) for (const k of Object.keys(mods)) mods[k].sec.draggable = false; };
-  if (typeof document !== 'undefined') { document.addEventListener('pointerup', onUp); cleanups.push(() => document.removeEventListener('pointerup', onUp)); }
-  applySideLayout();
-  applyTopLayout();
   side.addEventListener('scroll', () => sideFade(), { passive: true });
+}
+applyLayout({ relayout: false });
+if (SIDE_ON) {
   const visible = () => sideOpen && !wrap.classList.contains('is-side-narrow') && !wrap.classList.contains('is-indexview') && !(typeof document !== 'undefined' && document.hidden);
   // 半分钟走一次倒计时 / 「今天」的界线（只重画 SYNC / RECENT 那几个字；签名没变就不动 DOM）
   const sideTimer = setInterval(() => { if (!visible()) return; paintSync(); paintRecent(); }, 30000);
@@ -3896,8 +4552,8 @@ if (SIDE_ON) {
   let live = false;
   sideApi = {
     paintSync: () => { if (!live) return; paintSync(); sideFadeSoon(); },
-    paintData: () => { if (!live) return; paintRecent(); paintOverview(); paintSync(); sideFadeSoon(); },
-    paintAll: () => { if (!live) return; paintRecent(); paintSync(); paintOverview(); sideFadeSoon(); },
+    paintData: () => { if (!live) return; paintRecent(); paintOverview(); paintSync(); paintToken(); sideFadeSoon(); },
+    paintAll: () => { if (!live) return; paintRecent(); paintSync(); paintToken(); paintOverview(); sideFadeSoon(); },
     start: () => { if (live) return; live = true; sideApi.paintAll(); },
     fade: sideFade,
   };
@@ -3913,15 +4569,20 @@ function paintStickyTop() {
   let pad = 0;
   try { const cs = (typeof getComputedStyle === 'function') ? getComputedStyle(sc) : null; pad = parseFloat(cs?.paddingTop) || 0; } catch {}
   // 1026：搜索框离页头顶多远按两个框的位置差量（页头里分了几块，offsetTop 的参照会变）
-  stickyHide = narrow() ? Math.max(0, Math.round((searchBox.getBoundingClientRect?.().top || 0) - (top.getBoundingClientRect?.().top || 0)) - 8) : 0;
+  stickyHide = narrow() && top.contains(searchBox) ? Math.max(0, Math.round((searchBox.getBoundingClientRect?.().top || 0) - (top.getBoundingClientRect?.().top || 0)) - 8) : 0;
   // 先读后写（RELEASE-BAR §2 首开）：工具条宽度、分类行放不放得下在这一次排版里一起量，写放在最后，不多触发整页重排
-  const tw = Math.round(Number(tools.offsetWidth) || 0), catWrap = catWrapWanted();
+  const tw = Math.round(Number(tools.offsetWidth) || 0), catWrap = catWrapWanted(), topW = Number(top.clientWidth) || 0;
+  // 1027「编排 / 管理」：吸顶区第一块是标题、够宽、不在编排 → 钉在右上角（标题两边让出它的宽度）；否则退成最上面一行
+  const firstMod = (() => { for (const r of top.children || []) { if (!r.classList?.contains('lbc-row') || r.hidden) continue; for (const c of r.children || []) { if (c.hidden) continue; for (const m of c.children || []) if (m.classList?.contains('lbc-m') && !m.classList.contains('is-gone')) return m.dataset?.m || ''; } } return ''; })();
+  const toolsStatic = narrow() || arranging || firstMod !== 'title' || (topW > 0 && topW < 760);
   const v = pad + stickyHide ? `${-(pad + stickyHide)}px` : '0px';
   if (top.style.top !== v) top.style.top = v;
   if (indexView && idx) paintIndexSticky();
   paintSideSticky(sc, pad);
   const twv = tw > 0 ? (tw + 20) + 'px' : '';
-  if (twv && head.style.getPropertyValue('--lbc-tools-w') !== twv) head.style.setProperty('--lbc-tools-w', twv);
+  if (twv && top.style.getPropertyValue('--lbc-tools-w') !== twv) top.style.setProperty('--lbc-tools-w', twv);
+  if (top.classList.contains('is-tools-static') !== toolsStatic) top.classList.toggle('is-tools-static', toolsStatic);
+  if (arranging) paintEdges();
   if (catWrap != null && catBar.classList.contains('is-wrap') !== catWrap) catBar.classList.toggle('is-wrap', catWrap);
 }
 // 1021 第 3 段：边栏吸在页头下面——--lbc-top-h = 吸住时页头露出来的高度，--lbc-side-top = 边栏的 sticky top（和 .lbc-top 同一个参照：
@@ -3956,7 +4617,7 @@ if (typeof ResizeObserver === 'function') {
   ro.observe(grid);
   ro.observe(wrap);
   // 1021 边栏吸顶：页头高度（多选栏 / 主题行出来收起）、滚动容器高度变了都要重算 --lbc-top-h / --lbc-pane-h；边栏内容高度变了重算渐隐
-  if (SIDE_ON) { ro.observe(top); const sc = LB.scroller(); if (sc) ro.observe(sc); ro.observe(side); }
+  if (SIDE_ON) { ro.observe(top); const sc = LB.scroller(); if (sc) ro.observe(sc); for (const a of asides) ro.observe(a); roRef = ro; }
   cleanups.push(() => ro.disconnect());
 }
 
