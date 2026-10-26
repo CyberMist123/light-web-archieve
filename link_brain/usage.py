@@ -32,6 +32,7 @@ FEATURES = {
 FEATURE_OF_CAP = {"summaryAI": "summary", "visionAI": "vision", "visionAI.refine": "refine", "textAI": "ask",
                   "embedAI": "embed", "asrAI": "asr", "rerank": "rerank"}
 WINDOWS = {"today": 1, "7d": 7, "30d": 30}
+RECENT_LIMIT = 200   # 设置页「每次调用」列最近多少次（再早的在账本文件里）
 DIR_NAME = "usage"
 BALANCE_URL = "https://api.deepseek.com/user/balance"
 
@@ -163,11 +164,13 @@ def cli_model(command: Any) -> str:
 
 
 def _blank() -> dict[str, Any]:
-    return {"calls": 0, "failed": 0, "items": set(), "in": 0, "out": 0, "sec": 0.0, "cost": 0.0, "unpriced": 0}
+    return {"calls": 0, "failed": 0, "items": set(), "in": 0, "out": 0, "sec": 0.0, "cost": 0.0, "unpriced": 0, "free": 0}
 
 
-def _add(acc: dict[str, Any], r: dict[str, Any], cost: float | None) -> None:
+def _add(acc: dict[str, Any], r: dict[str, Any], cost: float | None, status: str = "") -> None:
     acc["calls"] += 1
+    if status == "free":
+        acc["free"] += 1
     acc["failed"] += 0 if r.get("ok", True) else 1
     if r.get("item"):
         acc["items"].add(r["item"])
@@ -181,38 +184,58 @@ def _add(acc: dict[str, Any], r: dict[str, Any], cost: float | None) -> None:
 
 
 def _done(acc: dict[str, Any]) -> dict[str, Any]:
-    return {**{k: acc[k] for k in ("calls", "failed", "in", "out", "unpriced")}, "items": len(acc["items"]),
+    return {**{k: acc[k] for k in ("calls", "failed", "in", "out", "unpriced", "free")}, "items": len(acc["items"]),
             "sec": round(acc["sec"], 1), "cost": round(acc["cost"], 4)}
 
 
+def _model_key(r: dict[str, Any]) -> str:
+    return f"{r.get('p') or 'other'}|{r.get('m') or ''}"
+
+
 def summary(*, now: datetime | None = None) -> dict[str, Any]:
-    """{windows: {today|7d|30d: {total, features: {f: …}, providers: {p: …}}}, month: {p: cost}, daily: [{date, cost, calls}]}"""
+    """{windows: {today|7d|30d: {total, features, providers, models: {"p|m": {provider, model, …}}, unpriced_models}},
+    month: {p: …}, daily: [{date, cost, calls}], recent: [每次调用一行], recent_limit}。
+    每格 {calls, failed, items, in, out, sec, cost, free, unpriced}：cost 只算 paid 的钱；free = 免费 / 未计费的次数（不算进 ¥）；
+    unpriced = 价格表里查不到的次数（没算钱，也不当 0）。三种看法（按服务商 / 按 API 或模型 / 按功能）同一套规则（pricing.bill_of）。"""
     now = now or _now()
     table = pricing.table()
     rows = load(max(WINDOWS.values()) + 1, now=now)
     start_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     month_start = start_today.replace(day=1)
     out: dict[str, Any] = {"windows": {}, "month": {}, "daily": []}
-    priced = [(r, cost_of(r, table)) for r in rows]
+    priced = [(r, *pricing.bill_of(r, table)) for r in rows]
     for name, days in WINDOWS.items():
         since = start_today - timedelta(days=days - 1)
-        total, feats, provs = _blank(), {}, {}
-        for r, c in priced:
+        total, feats, provs, models = _blank(), {}, {}, {}
+        for r, c, st in priced:
             if r["_ts"] < since:
                 continue
-            _add(total, r, c)
-            _add(feats.setdefault(r.get("f") or "other", _blank()), r, c)
-            _add(provs.setdefault(r.get("p") or "other", _blank()), r, c)
+            _add(total, r, c, st)
+            _add(feats.setdefault(r.get("f") or "other", _blank()), r, c, st)
+            _add(provs.setdefault(r.get("p") or "other", _blank()), r, c, st)
+            _add(models.setdefault(_model_key(r), _blank()), r, c, st)
+        model_rows = {k: {"provider": k.split("|", 1)[0], "model": k.split("|", 1)[1], **_done(a)} for k, a in models.items()}
         out["windows"][name] = {"total": _done(total),
                                 "features": {f: _done(a) for f, a in sorted(feats.items(), key=lambda kv: list(FEATURES).index(kv[0]) if kv[0] in FEATURES else 99)},
-                                "providers": {p: _done(a) for p, a in provs.items()}}
+                                "providers": {p: _done(a) for p, a in provs.items()},
+                                "models": model_rows,
+                                "unpriced_models": sorted(({"provider": m["provider"], "model": m["model"], "calls": m["unpriced"]}
+                                                           for m in model_rows.values() if m["unpriced"]), key=lambda m: -m["calls"])}
     month: dict[str, Any] = {}
-    for r, c in priced:
+    for r, c, st in priced:
         if r["_ts"] >= month_start:
-            _add(month.setdefault(r.get("p") or "other", _blank()), r, c)
+            _add(month.setdefault(r.get("p") or "other", _blank()), r, c, st)
     out["month"] = {p: _done(a) for p, a in month.items()}
+    # 每次调用一行（最近的在前）：账本原样 + 这一次算出来的钱和状态；不带 key、不带内容（账本里本来就没有）
+    recent = sorted(priced, key=lambda x: x[0]["_ts"], reverse=True)[:RECENT_LIMIT]
+    out["recent"] = [{"ts": r["_ts"].isoformat(timespec="seconds"), "f": r.get("f") or "other", "p": r.get("p") or "other",
+                      "m": r.get("m") or "", "in": int(r.get("in") or 0), "out": int(r.get("out") or 0),
+                      **({"sec": r["sec"]} if r.get("sec") else {}), **({"item": r["item"]} if r.get("item") else {}),
+                      "ok": bool(r.get("ok", True)), "cost": None if c is None else round(c, 5), "status": st}
+                     for r, c, st in recent]
+    out["recent_limit"] = RECENT_LIMIT
     by_day: dict[str, dict[str, Any]] = {}
-    for r, c in priced:
+    for r, c, _st in priced:
         d = by_day.setdefault(f"{r['_ts']:%Y-%m-%d}", {"cost": 0.0, "calls": 0})
         d["calls"] += 1
         d["cost"] += c or 0.0

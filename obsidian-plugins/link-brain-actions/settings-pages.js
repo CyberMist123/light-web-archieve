@@ -166,7 +166,9 @@ module.exports = function (obsidian, plugin) {
     };
     const [today] = cell('今天（北京时间）', fmtYuan(b.spent_today));
     if (b.over) today.addClass('is-warn');
-    cell('本月', fmtYuan(monthTotal));
+    const [monthCell] = cell('本月', fmtYuan(monthTotal));
+    const monthUnpriced = Object.values(month).reduce((a, m) => a + (+(m && m.unpriced) || 0), 0);
+    if (monthUnpriced) monthCell.createDiv({ cls: 'lb-spend-sub', text: `另有 ${monthUnpriced} 次未计价` });
     const [capCell, capVal] = cell('每天上限', '');
     // 默认上限只在后端（budget.DEFAULT_YUAN）：没存过就显示后端给的 daily_yuan
     const saved = s.budget && s.budget.dailyYuan !== undefined && s.budget.dailyYuan !== '' ? +s.budget.dailyYuan : null;
@@ -270,7 +272,8 @@ module.exports = function (obsidian, plugin) {
       const money = [];
       if (b && b.ok) money.push(balanceText(b));
       else if (b && b.unsupported) money.push('余额要去控制台看');
-      if (m) money.push(`本月 ${fmtYuan(m.cost)} · ${m.calls} 次`);
+      // 1026：全是免费 key / 本机命令行的那家写「免费 / 未计费」，不写 ¥0.00；查不到价的次数单说
+      if (m) money.push(m.calls && m.free === m.calls ? `本月免费 / 未计费 · ${m.calls} 次` : `本月 ${fmtYuan(m.cost)} · ${m.calls} 次` + (m.free ? `（免费 ${m.free} 次）` : '') + (m.unpriced ? `（未计价 ${m.unpriced} 次）` : ''));
       else if (r.id === 'google') money.push('免费额度，不花钱');
       if (money.length) desc.createDiv({ text: money.join(' · ') });
       const k = keys[r.id];
@@ -280,7 +283,9 @@ module.exports = function (obsidian, plugin) {
     }
   }
 
-  function renderAI(c, tab, { noPrompts = false } = {}) {
+  // inlineUsage（1026 设置页「模型与费用」）：「花了多少」不收进折叠，平铺在钥匙串下面（按服务商 / 按 API 或模型 / 按功能切换 + 每次调用）；
+  // load（可选）：设置页 v6 已经读过的用量（一分钟内复用），不再起一遍后台
+  function renderAI(c, tab, { noPrompts = false, inlineUsage = false, load: loadFn = null } = {}) {
     const s = plugin.settings;
     let alive = true, data = null;
     const spend = c.createDiv({ cls: 'lb-spend', attr: { 'data-section': 'ai-spend' } });
@@ -290,7 +295,9 @@ module.exports = function (obsidian, plugin) {
     heading(c, '钥匙串', 'ai-api');
     c.createEl('p', { cls: 'lb-sec-desc', text: '按服务商列：key 从哪来、花了多少、管哪些功能。key 在上面每一项展开里改。' });
     const ring = c.createDiv({ cls: 'lb-keyring' });
-    const usageBody = fold(c, '花了多少：各功能明细（今天 / 7 天 / 30 天）', 'ai-usage');
+    let usageBody = null;
+    if (inlineUsage) { heading(c, '花了多少', 'ai-usage'); usageBody = c.createDiv({ cls: 'lb-usage-inline' }); }
+    else usageBody = fold(c, '花了多少：各功能明细（今天 / 7 天 / 30 天）', 'ai-usage');
     if (!noPrompts) {
       const promptBody = fold(c, '提示词（一般不用改）', 'ai-prompts');
       safe(tab, promptBody, '提示词', () => tab.renderPrompts(promptBody));
@@ -308,21 +315,33 @@ module.exports = function (obsidian, plugin) {
     }, '换成轻量版：不要任何密钥');
 
     let usageDrawn = false;
-    const usageFold = usageBody.parentElement;
+    const drawUsage = () => {
+      usageDrawn = true;
+      usageBody.empty?.();
+      safe(tab, usageBody, '用量', () => tab.stops.push(plugin.usageUI().render(usageBody.createDiv({ cls: 'lb-usage-host' }), tab, { tableOnly: true, data })));
+    };
+    const usageFold = inlineUsage ? null : usageBody.parentElement;
     usageFold?.addEventListener?.('toggle', () => {
       if (usageDrawn || !usageFold.open) return;
-      usageDrawn = true;
-      safe(tab, usageBody, '用量', () => tab.stops.push(plugin.usageUI().render(usageBody.createDiv({ cls: 'lb-usage-host' }), tab, { tableOnly: true, data })));
+      drawUsage();
     });
+    let first = true;
     async function load() {
       spend.empty(); routes.empty(); ring.empty();
       routes.createEl('p', { cls: 'setting-item-description lb-loading', text: '正在读每个功能用谁、花了多少…' });
       try {
-        const r = await plugin.runPy(['-m', 'link_brain', 'usage'], { label: '读 AI 用量', timeoutMs: 45000, fallback: '没读出来' });
+        let json = null;
+        if (loadFn) json = await loadFn(!first);
+        else {
+          const r = await plugin.runPy(['-m', 'link_brain', 'usage'], { label: '读 AI 用量', timeoutMs: 45000, fallback: '没读出来' });
+          json = r && r.json;
+        }
+        first = false;
         if (!alive) return;
-        if (!r.json || r.json.ok === false) throw new Error((r.json && r.json.message) || '没读出来');
-        data = r.json;
+        if (!json || json.ok === false) throw new Error((json && json.message) || '没读出来');
+        data = json;
         paintSpend(spend, data, tab); paintRoutes(routes, data, tab, load); paintKeyring(ring, data, tab);
+        if (inlineUsage) drawUsage();
       } catch (e) { if (alive) { routes.empty(); plugin.failBox?.(routes, 'AI 用量', e, () => load()); } return; }
       try {
         const r = await plugin.runPy(['-m', 'link_brain', 'usage', '--balance'], { label: '查余额', timeoutMs: 30000, fallback: '余额没查到' });
