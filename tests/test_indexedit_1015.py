@@ -192,3 +192,32 @@ def test_small_facets_fold_into_other():
     out = posttags.node_facets(P(), R(), d)["职业"]
     assert [f["name"] for f in out] == ["法务", "其他"]
     assert out[-1]["other"] and out[-1]["items"] == ["i4", "i5", "i6"]
+
+
+# ── 1027 目录页编排「分类」模块：加一个分类（同一条 index edit 路径，写回 索引.md、能撤销） ──
+
+def test_edit_add_root_and_child_with_undo(vault, fake):
+    write_catalog(vault, ITEMS)
+    write_index(vault, OWNER)
+    p = vault / "索引.md"
+    r = ie.edit("add", "", name="旅行", vault=vault)
+    assert r["ok"] and r["path"] == "旅行" and r["undo"]
+    text = p.read_text(encoding="utf-8")
+    assert [n for n in it.parse(text).walk() if n.path == "旅行"][0].parent is None
+    again = ie.edit("add", "", name="旅行", vault=vault)
+    assert again["ok"] and again.get("unchanged")
+    c = ie.edit("add", "美食", name="甜品", vault=vault)
+    assert c["ok"] and c["path"] == "美食/甜品" and "美食/甜品" in paths(p.read_text(encoding="utf-8"))
+    assert not ie.edit("add", "", name="  ", vault=vault)["ok"]
+    assert not ie.edit("add", "没有这个", name="x", vault=vault)["ok"]
+    u = ie.edit("undo", c["undo"], vault=vault)
+    assert u["ok"] and "美食/甜品" not in paths(p.read_text(encoding="utf-8"))
+    assert "旅行" in paths(p.read_text(encoding="utf-8"))
+
+
+def test_cli_index_edit_add_json(vault, fake, capsys):
+    write_catalog(vault, ITEMS)
+    write_index(vault, OWNER)
+    code = cli.main(["index", "edit", "--op", "add", "--path", "", "--name", "摄影"])
+    j = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert code == 0 and j["ok"] and j["path"] == "摄影" and "摄影" in j["message"]

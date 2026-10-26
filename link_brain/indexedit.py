@@ -397,10 +397,13 @@ def undo(uid: str, vault: Path | None = None) -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def edit(op: str, path: str, *, to: str = "", name: str = "", before: str = "", vault: Path | None = None) -> dict[str, Any]:
-    """op：rename（name）/ move（to = 新的上级，空 = 第一级；before = 插在哪个兄弟前面）/ merge（to = 并进谁）/ undo（path = 撤销号）。"""
+    """op：rename（name）/ move（to = 新的上级，空 = 第一级；before = 插在哪个兄弟前面）/ merge（to = 并进谁）/ undo（path = 撤销号）
+    / add（1027 目录页编排「分类」模块：path = 上级，空 = 第一级；name = 新分类名；能撤销，和别的操作同一个写法 / 备份）。"""
     vault = vault or storage.vault_root()
     if op == "undo":
         return undo(path, vault)
+    if op == "add":
+        return _add(path, name, vault)
     if op not in {"rename", "move", "merge"}:
         return {"ok": False, "code": ARGS, "message": f"不认识的操作：{op}"}
     if not path:
@@ -456,3 +459,50 @@ def edit(op: str, path: str, *, to: str = "", name: str = "", before: str = "", 
     data = it.build(vault, force=True, auto_draft=False)
     return {"ok": True, "code": "", "message": msg, "path": new_path, "undo": uid,
             "unclassified": (data.get("unclassified") or {}).get("count", 0)}
+
+
+def _add(parent: str, name: str, vault: Path) -> dict[str, Any]:
+    """加一个分类（插在上级整棵子树最后；缩进 / 行首符号照抄 it.edit_new_node）。同名已在就不加。"""
+    new_name = node_name_for_write(name or "")
+    if not new_name:
+        return {"ok": False, "code": ARGS, "message": "新分类要有名字"}
+    with storage.file_lock(it.LOCK, wait_s=30, owner="index.edit"):
+        try:
+            got = it.read_for_edit(it.index_path(vault))
+        except it.NotUtf8:
+            return {"ok": False, "code": ARGS, "message": f"{it.index_rel()} 不是 UTF-8 编码，没敢改它：在 Obsidian 里打开它存一下再试"}
+        if got is None:
+            return {"ok": False, "code": ARGS, "message": f"{it.index_rel()} 不在了，先刷新一次索引"}
+        text, raw, bom = got
+        parsed = parse(text)
+        up = parsed.find(parent) if parent else None
+        if parent and up is None:
+            return {"ok": False, "code": ARGS, "message": f"索引里没有「{parent}」（可能刚改过，刷新一下）"}
+        if up is not None and _depth(up) >= MAX_DEPTH:
+            return {"ok": False, "code": ARGS, "message": f"分类最多 {MAX_DEPTH} 级，「{up.name}」下面不能再加"}
+        new_path = ((up.path + SEP) if up is not None else "") + new_name.replace(SEP, "∕")
+        if parsed.find(new_path) is not None:
+            return {"ok": True, "code": "", "message": f"「{new_name}」已经在了", "path": new_path, "unchanged": True}
+        try:
+            new_text = it.edit_new_node(text, up.path if up is not None else "", new_name)
+        except (KeyError, ValueError) as exc:
+            return {"ok": False, "code": ARGS, "message": str(exc).strip("'\"") or "没加上"}
+        if parse(new_text).find(new_path) is None:
+            return {"ok": False, "code": ARGS, "message": "加完对不上了，没写（请在 索引.md 里手动加）"}
+        ov_raw = _read_bytes(indexai.overrides_path(vault))
+        cache_raw = _read_bytes(indexai.cache_path(vault))
+        it.write_index(new_text, "add", vault, old=raw, bom=bom)
+        new_bytes = (it._BOM if bom else b"") + new_text.encode("utf-8")
+        uid = _push_undo(vault, raw, new_bytes, ov_raw, cache_raw, f"add {new_path}")
+    data = it.build(vault, force=True, auto_draft=False)
+    where = f"「{up.name}」下面" if up is not None else "第一级"
+    return {"ok": True, "code": "", "message": f"已在{where}加了分类「{new_name}」（还没有帖子：按内容归类或手动挪进来）", "path": new_path,
+            "undo": uid, "unclassified": (data.get("unclassified") or {}).get("count", 0)}
+
+
+def _depth(n: Node) -> int:
+    d = 1
+    while n.parent is not None:
+        d += 1
+        n = n.parent
+    return d

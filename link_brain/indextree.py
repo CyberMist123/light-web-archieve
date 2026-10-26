@@ -2558,10 +2558,10 @@ def add_parser(sub) -> None:
     pdm.add_argument("--id", required=True)
     ped = isub.add_parser("edit", help="1015 大纲树：目录页直接改树——rename 改名 / move 挪（--to 新上级，空 = 第一级；--before 插在哪个兄弟前）"
                                        " / merge 并进 --to / undo（--path = 撤销号）；写回 索引.md（只动那几行、写前备份）")
-    ped.add_argument("--op", required=True, choices=["rename", "move", "merge", "undo"])
-    ped.add_argument("--path", required=True, help="节点路径；undo 时是撤销号")
+    ped.add_argument("--op", required=True, choices=["rename", "move", "merge", "undo", "add"])
+    ped.add_argument("--path", required=True, help="节点路径；undo 时是撤销号；add 时是上级（空 = 第一级）")
     ped.add_argument("--to", default="", help="move：新的上级（空 = 第一级）；merge：并进哪个节点")
-    ped.add_argument("--name", default="", help="rename：新名字")
+    ped.add_argument("--name", default="", help="rename / add：新名字")
     ped.add_argument("--before", default="", help="move：插在这个兄弟节点前面（名字或路径；空 = 放最后）")
     pf = isub.add_parser("facet", help="给几篇加 / 去掉某个节点下的细分标签（压过 AI）")
     pf.add_argument("--item", dest="items", action="append", default=[])

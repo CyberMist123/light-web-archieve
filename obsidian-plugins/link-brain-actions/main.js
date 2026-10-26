@@ -877,20 +877,45 @@ class LinkBrainActions extends Plugin {
   // 写前合并：只把「这个窗口加载后真改过」的顶层键写进去，其余键取磁盘最新值——别处（命令行 / 网页 / 另一窗口）改的不会被内存旧值盖掉。
   // _diskSnap = 上次和磁盘对齐时每个顶层键的 JSON；内存值和它不同 = 本窗口改过。
   snapDisk(raw) { this._diskSnap = {}; for (const [k, v] of Object.entries(raw || {})) this._diskSnap[k] = JSON.stringify(v); }
-  async saveMerged() {
-    let disk = null;
-    try { disk = await this.loadData(); } catch { disk = null; }
+  // 1027 根因修复（她的目录标题「LER&…」10-17 → 10-26 之间从 data.json 里没了）：saveMerged 靠「内存值 ≠ 快照」认本窗口改过的键，
+  // 但两次保存（改标题、页面防抖存的列数 / 编排、设置页、remote beforeSave）以前不排队：后一次的 loadData 读在前一次写盘之前、
+  // 比较却用前一次写完才更新的快照 → 刚改的标题被当成「没改过」，用读到的旧磁盘值 '' 覆盖内存和 data.json。外部重读（盯文件 /
+  // Obsidian onExternalSettingsChange）插在保存的两个 await 之间也一样，还会把「改了、防抖还没存」的键冲回旧值。
+  // 现在：保存和外部重读走同一条串行链；外部重读保留本窗口改了还没存的键；读不出 data.json（另一个窗口正写到一半）先重试，不拿旧内存整份盖。
+  _settingsChain(fn) {
+    const run = () => fn();
+    const p = (this._saveChain || Promise.resolve()).then(run, run);
+    this._saveChain = p.catch(() => {});
+    return p;
+  }
+  async _loadDataSettled() {
+    let last = null;
+    for (let i = 0; i < 3; i++) {
+      try { return { ok: true, raw: await this.loadData() }; }
+      catch (e) { last = e; await new Promise(r => setTimeout(r, 150)); }
+    }
+    return { ok: false, error: last };
+  }
+  saveMerged() { return this._settingsChain(() => this._saveMergedNow()); }
+  async _saveMergedNow() {
+    const got = await this._loadDataSettled();
+    const disk = got.ok ? got.raw : null;   // 三次都读不出（文件真坏了）：照旧整份写内存，算是修复它
     const out = { ...(disk || {}) };
     const snap = this._diskSnap || {};
+    const dirty = this._dirtyKeys || new Set();   // 明说改过的键（markSettingDirty）：不靠快照猜，一定写
+    this._dirtyKeys = new Set();
     for (const [k, v] of Object.entries(this.settings)) {
       const mine = JSON.stringify(v);
-      if (!disk || !(k in disk) || mine !== snap[k]) out[k] = v;          // 本窗口改过（或磁盘没有）→ 用内存
+      if (!disk || !(k in disk) || mine !== snap[k] || dirty.has(k)) out[k] = v;   // 本窗口改过（或磁盘没有）→ 用内存
       else this.settings[k] = refreshInPlace(this.settings[k], disk[k]);    // 没改过 → 磁盘为准，并进内存原来的对象（引用不变）
     }
     this._selfWriteAt = Date.now();
-    await this.saveData(out);
+    try { await this.saveData(out); }
+    catch (e) { for (const k of dirty) this._dirtyKeys.add(k); throw e; }   // 没写上：登记留着，下次照写
     this.snapDisk(out);
   }
+  // 1027：页面 / 编排就地改的键先登记，下次保存一定写（目录页 catalogTitle / catalogColumns / catalogLayout / budget）
+  markSettingDirty(...keys) { if (!this._dirtyKeys) this._dirtyKeys = new Set(); for (const k of keys) if (k) this._dirtyKeys.add(String(k)); }
   // 盯 data.json：别处写了就整份重读（Obsidian 自带 onExternalSettingsChange 只在部分版本 / 同步场景触发，这里兜底）
   watchSettingsFile() {
     try {
@@ -905,7 +930,20 @@ class LinkBrainActions extends Plugin {
     } catch (e) { console.error('[lb] 盯不住设置文件', e); }
   }
   // 10-09：data.json 被别处改了（命令行 / 同步 / 另一个窗口）→ Obsidian 调这里：整份重读，别让内存旧值下次保存时盖回去
-  async onExternalSettingsChange() { try { const raw = await this.loadData(); this.snapDisk(raw); refreshInPlace(this.settings, mergeSettings(raw)); await this.remoteUI?.attach?.(); this.app?.workspace?.trigger?.('link-brain:settings'); } catch (e) { console.error('[lb] 外部改了设置，重读失败', e); } }
+  // 1027：和保存走同一条串行链；本窗口改了还没存的键（内存 ≠ 旧快照）不被磁盘值冲掉，下次保存照写
+  onExternalSettingsChange() { return this._settingsChain(() => this._reloadExternalNow()); }
+  async _reloadExternalNow() {
+    try {
+      const got = await this._loadDataSettled(); if (!got.ok) throw got.error;
+      const raw = got.raw, old = this._diskSnap || {}, mine = {};
+      for (const [k, v] of Object.entries(this.settings || {})) if (k in old && JSON.stringify(v) !== old[k]) mine[k] = v;
+      this.snapDisk(raw);
+      const next = mergeSettings(raw);
+      for (const k of Object.keys(mine)) next[k] = mine[k];
+      refreshInPlace(this.settings, next);
+      await this.remoteUI?.attach?.(); this.app?.workspace?.trigger?.('link-brain:settings');
+    } catch (e) { console.error('[lb] 外部改了设置，重读失败', e); }
+  }
   // 1008：setup.selected 是列表、还没对齐过 → 已配好的 textAI / summaryAI 勾上 ai_text、visionAI 勾上 ai_vision。返回有没有改动。
   syncSetupSelectionWithAI() {
     const su = this.settings.setup;
@@ -954,8 +992,7 @@ class LinkBrainActions extends Plugin {
   // 右上「…」（10-03 她定）：改标题 / 每行几列 / 管理分类 / 回收站 / 导出资料 / 设置 / 刷新目录（小字：重新整理分类）
   openManageMenu(evt, actions = {}) {
     const menu = new obsidian.Menu();
-    menu.addItem(i=>i.setTitle('改标题…').setIcon('pencil').onClick(()=>this.openCatalogTitle()));
-    menu.addItem(i=>i.setTitle('每行几列…').setIcon('layout-grid').onClick(()=>this.openColumnsPicker()));
+    // 1027：改标题 / 每行几列挪进目录页「编排」（标题模块 / 收藏墙模块的「调整」），这里不再重复
     if(actions.categories)menu.addItem(i=>i.setTitle('管理分类').setIcon('tags').onClick(actions.categories));
     // 第 3 批：回收站页按页头 lb-page: trash 找（她改了名也找得到）；旧版没标记的那份由 catalog 重建时补上标记
     menu.addItem(i=>i.setTitle('回收站').setIcon('trash-2').onClick(()=>this.openLibraryPage('trash')));
@@ -1355,9 +1392,14 @@ class LinkBrainActions extends Plugin {
   reportUI() { return require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'report-ui.js'))(obsidian, this); }
   // 10-03：目录页标题（大标题 Collections 可改）和瀑布流列数（2–6；和 Ctrl + 滚轮同一个设置）。改完通知开着的目录页 / 星标页就地换。
   async setCatalogPrefs({ title, columns } = {}) {
-    if (title !== undefined) this.settings.catalogTitle = String(title || '').trim().slice(0, 40);
-    if (columns !== undefined) { const n = Number(columns) || 0; this.settings.catalogColumns = n >= 2 && n <= 6 ? Math.round(n) : 0; }
+    if (title !== undefined) { this.settings.catalogTitle = String(title || '').trim().slice(0, 40); this.markSettingDirty('catalogTitle'); }
+    if (columns !== undefined) { const n = Number(columns) || 0; this.settings.catalogColumns = n >= 2 && n <= 6 ? Math.round(n) : 0; this.markSettingDirty('catalogColumns'); }
     await this.saveSettings();
+    // 1027：写完回读核一次（标题丢过：只改了内存、data.json 里还是空的）——对不上就当没保存，调用方照「没保存上」说
+    if (title !== undefined) {
+      let disk = null; try { disk = await this.loadData(); } catch {}
+      if (disk && String(disk.catalogTitle || '') !== this.settings.catalogTitle) throw new Error('标题没写进设置文件（data.json），再点一次保存');
+    }
     try { this.app.workspace.trigger('link-brain:catalog-prefs', { title: this.settings.catalogTitle, columns: this.settings.catalogColumns }); } catch {}
   }
   openCatalogTitle() { new CatalogTitleModal(this).open(); }
