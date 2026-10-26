@@ -858,12 +858,16 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat-toc.is-float:hover,.lbchat-toc.is-float:focus-within{width:max-content;min-width:220px;max-width:min(420px,46%);}
 .lbchat-toc.is-float.is-pin{width:300px;max-width:300px;}
 .lbchat-bodywrap.is-ftoc-pin{padding-left:318px;box-sizing:border-box;}
-.lbchat-toc.is-float:hover,.lbchat-toc.is-float:focus-within,.lbchat-toc.is-float.is-pin{overflow-y:auto;padding:6px 8px 12px;background:color-mix(in srgb,var(--background-secondary) 85%,var(--background-primary));border-color:var(--background-modifier-border);box-shadow:0 8px 28px rgba(0,0,0,.12);}
+.lbchat-toc.is-float:hover,.lbchat-toc.is-float:focus-within,.lbchat-toc.is-float.is-pin{overflow-y:auto;padding:6px 8px 12px;}
+/* 外观照 floating-toc：悬停 = 插件那层灰底（base-20 和 secondary 八二开）+ 1px 边、平的不带阴影；钉住 = 透明、无边 */
+.lbchat-toc.is-float:hover,.lbchat-toc.is-float:focus-within{background:color-mix(in srgb,var(--color-base-20,var(--background-secondary)) 80%,var(--background-secondary) 20%);border:1px solid var(--background-modifier-border);border-radius:var(--radius-m,8px);box-shadow:none;}
+.lbchat-toc.is-float.is-pin,.lbchat-toc.is-float.is-pin:hover,.lbchat-toc.is-float.is-pin:focus-within{background:transparent;border-color:transparent;box-shadow:none;}
 .lbchat-ftoc-bar{display:flex;align-items:center;gap:2px;padding:2px 0 6px;}
 .lbchat button.lbchat-ftoc-tool{width:28px;height:26px;padding:0!important;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-muted);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border-radius:6px!important;}
 .lbchat button.lbchat-ftoc-tool:hover{color:var(--text-normal);background:var(--background-modifier-hover)!important;}
 .lbchat button.lbchat-ftoc-tool.is-on{color:var(--interactive-accent);}
-.lbchat-ftoc-tool svg,.lbchat-ftoc-chev svg{width:16px;height:16px;display:block;}
+.lbchat-ftoc-tool svg{width:16px;height:16px;display:block;}
+.lbchat-ftoc-chev svg{width:.65em;height:.65em;display:block;}
 .lbchat .lbchat-ftoc-search{width:100%;box-sizing:border-box;margin:0 0 6px;height:28px;font-size:12.5px;}
 .lbchat-ftoc-list{display:flex;flex-direction:column;}
 .lbchat-ftoc-item{display:flex;align-items:flex-start;gap:2px;min-height:30px;white-space:normal;padding:2px 0;}
@@ -871,7 +875,7 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat-ftoc-item[data-level="2"]{padding-left:14px;}
 .lbchat-ftoc-item[data-level="3"]{padding-left:30px;}
 .lbchat-ftoc-chev{flex:none;width:18px;height:18px;margin-top:4px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-faint);cursor:pointer;border-radius:4px;}
-.lbchat-ftoc-chev:hover{color:var(--text-normal);background:var(--background-modifier-hover);}
+.lbchat-ftoc-chev:hover{background:var(--background-modifier-hover);}
 .lbchat-ftoc-chev.is-empty{cursor:default;visibility:hidden;}
 .lbchat-ftoc-text{flex:0 1 auto;min-width:0;overflow-wrap:anywhere;padding:3px 4px;border-radius:6px;cursor:pointer;color:var(--text-normal);}
 .lbchat-ftoc-text:hover{background:var(--background-modifier-hover);}
@@ -2425,6 +2429,12 @@ const FTOC_ICON = {
   down: '<path d="m6 9 6 6 6-6"/>',
   right: '<path d="m9 18 6-6-6-6"/>',
 };
+// 条目前的折叠箭头用插件自己的那两个实心箭头（米色 #d3c6aa），不是工具条那种线条图标
+const FTOC_FOLD = {
+  open: '<svg viewBox="0 0 1026 1024" xmlns="http://www.w3.org/2000/svg"><path fill="#d3c6aa" d="M857.088 224.256q28.672-28.672 69.12-28.672t69.12 28.672q29.696 28.672 29.696 68.608t-29.696 68.608l-382.976 380.928q-12.288 14.336-30.72 19.968t-38.912 4.608-40.448-8.704-34.304-22.016l-376.832-374.784q-29.696-28.672-29.696-68.608t29.696-68.608q14.336-14.336 32.256-21.504t36.864-7.168 37.376 7.168 32.768 21.504l313.344 309.248z"/></svg>',
+  shut: '<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg"><path fill="#d3c6aa" d="M757.792745 435.407215L419.597482 96.904967c-40.010393-40.010393-104.886579-40.010393-144.896972 0-40.010393 40.010393-40.010393 104.988908 0 144.9993L540.344959 507.855701 274.70051 773.807135c-40.010393 40.112721-40.010393 104.988908 0 144.9993 40.010393 40.010393 104.886579 40.010393 144.896972 0l338.092935-338.39992c40.112721-40.010393 40.112721-104.988908 0.102328-144.9993z"/></svg>',
+};
+function ftocFold(el, open) { el.innerHTML = FTOC_FOLD[open ? 'open' : 'shut']; }
 function ftocIcon(el, name) { el.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${FTOC_ICON[name]}</svg>`; }
 let ftocPinned = pageState.tocPin === true, ftocAllOpen = true;
 const ftocFolded = new Set();
@@ -2469,7 +2479,7 @@ function fillFloatToc() {
     const row = list.createEl('div', { cls: 'lbchat-ftoc-item' }); row.dataset.level = String(it.level); if (it.key) row.dataset.key = it.key;
     const hasKids = items[i + 1]?.level > it.level;
     const chev = row.createEl('span', { cls: 'lbchat-ftoc-chev' + (hasKids ? '' : ' is-empty') });
-    if (hasKids) { ftocIcon(chev, ftocFolded.has(i) ? 'right' : 'down'); chev.onclick = e => { e?.stopPropagation?.(); ftocFolded.has(i) ? ftocFolded.delete(i) : ftocFolded.add(i); applyFold(); }; }
+    if (hasKids) { ftocFold(chev, !ftocFolded.has(i)); chev.onclick = e => { e?.stopPropagation?.(); ftocFolded.has(i) ? ftocFolded.delete(i) : ftocFolded.add(i); applyFold(); }; }
     const txt = row.createEl('span', { cls: 'lbchat-ftoc-text', text: it.text, attr: { title: it.text } });
     row.createEl('span', { cls: 'lbchat-ftoc-tag', text: it.tag });
     txt.onclick = () => { const el = it.el(); if (el) jumpTo(el, { flash: true }); };
@@ -2485,7 +2495,7 @@ function fillFloatToc() {
       const folded = it.level > hideBelow;
       row.hidden = q ? !it.text.toLowerCase().includes(q) : folded;
       const chev = row.querySelector('.lbchat-ftoc-chev');
-      if (chev && !chev.classList.contains('is-empty')) ftocIcon(chev, ftocFolded.has(i) ? 'right' : 'down');
+      if (chev && !chev.classList.contains('is-empty')) ftocFold(chev, !ftocFolded.has(i));
       if (!q && !folded && ftocFolded.has(i)) hideBelow = it.level;
     });
   }
