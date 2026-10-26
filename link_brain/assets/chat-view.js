@@ -1000,7 +1000,27 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat .lbchat-cbar .lbchat-modebox{margin:0;}
 .lbchat .lbchat-cbar .lbchat-model{max-width:150px;font-size:13px;color:var(--text-muted);}
 /* 1026 她：「Sonnet」离发送键太远——下拉框按文字宽度收窄、靠右贴着按钮 */
-.lbchat .lbchat-cbar .lbchat-model{width:auto;field-sizing:content;text-align:right;padding:0 2px!important;margin-right:2px;}
+.lbchat .lbchat-cbar .lbchat-model{display:none!important;}
+/* 1026 她：模型按钮（胶囊）+ 上拉卡片，照 Codex 的样子；按钮和发送键之间留开一点 */
+.lbchat button.lbchat-modelbtn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px!important;margin-right:10px;border:0!important;box-shadow:none!important;border-radius:999px!important;background:var(--background-modifier-hover)!important;color:var(--text-muted);font:inherit;font-size:13px;cursor:pointer;white-space:nowrap;}
+.lbchat button.lbchat-modelbtn:hover{color:var(--text-normal);}
+.lbchat button.lbchat-modelbtn[hidden]{display:none!important;}
+.lbchat-modelbtn-chev{font-size:11px;opacity:.7;transform:translateY(-2px);}
+.lbchat-modelpop{position:fixed;z-index:9999;width:260px;max-height:60vh;overflow:auto;padding:8px 6px;box-sizing:border-box;border-radius:16px;background:var(--background-primary);border:1px solid var(--background-modifier-border);box-shadow:0 12px 36px rgba(0,0,0,.16);font-family:var(--font-interface);font-size:14px;}
+.lbchat-modelpop-title{padding:6px 12px 8px;color:var(--text-faint);font-size:13px;}
+.lbchat-modelpop-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 12px;border-radius:10px;cursor:pointer;color:var(--text-normal);}
+.lbchat-modelpop-item:hover{background:var(--background-modifier-hover);}
+.lbchat-modelpop-item.is-off .lbchat-modelpop-name{color:var(--text-muted);}
+.lbchat-modelpop-sub{margin-left:8px;font-size:11.5px;color:var(--text-faint);}
+.lbchat-modelpop-check{flex:none;width:16px;text-align:center;color:var(--text-normal);}
+/* 1026 她：提问气泡悬停出「编辑」，点了放回输入框重发 */
+.lbchat .lbchat-user{position:relative;}
+.lbchat .lbchat-user{padding-right:52px!important;}
+.lbchat button.lbchat-user-edit{position:absolute;right:10px;top:8px;opacity:0;transition:opacity .12s;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-faint);font-size:12px;height:auto;padding:2px 4px!important;cursor:pointer;white-space:nowrap;}
+.lbchat .lbchat-user:hover button.lbchat-user-edit,.lbchat button.lbchat-user-edit:focus-visible{opacity:1;}
+.lbchat button.lbchat-user-edit:hover{color:var(--text-normal);}
+/* 1026 她：输入卡右边距——发送键别贴着卡片边 */
+.lbchat .lbchat-composer{padding-right:14px;}
 .lbchat .lbchat-cbar .lbchat-cbar-right{gap:6px;}
 /* 1026 她：顶上「LER&FABLE / 全部 N 篇 · 更新…」不要，下面整体上移；浏览收藏 / 问收藏 和右边工具同一行 */
 .lbchat .lbchat-titlerow{display:none;}
@@ -1109,8 +1129,42 @@ const fillModels = () => {
   if (!list.length || readOnly) { modelPick.hidden = true; return; } modelPick.hidden = false;
   for (const m of list) modelPick.createEl('option', { text: m.name + (aiReady(m.name) === false ? '（未配置）' : '') }).value = m.name;
   modelPick.value = list.some(m => m.name === keep) ? keep : list.some(m => m.name === cfg().activeModel) ? cfg().activeModel : list[0].name;
+  try { paintModelBtn(); } catch {}   // 首次调用时按钮还没建（TDZ），之后每次重填都同步
 };
+// 1026 她：模型下拉换成上拉卡片（照 Codex 那种）：圆角浮层「选择模型」，每行一个模型、当前的打勾；原生 select 留着当状态（别处都读它）
+const modelBtn = composer.createEl('button', { cls: 'lbchat-modelbtn', attr: { title: '回答用的模型（设置 → AI → 问答模型里增删）', 'aria-haspopup': 'listbox' } }); modelBtn.type = 'button';
+let modelPop = null;
+const closeModelPop = () => { if (!modelPop) return; try { document.removeEventListener('mousedown', modelPop._lbOut, true); document.removeEventListener('keydown', modelPop._lbKey, true); } catch {} modelPop.remove(); modelPop = null; };
+const paintModelBtn = () => {
+  modelBtn.hidden = modelPick.hidden;
+  modelBtn.empty();
+  modelBtn.createSpan({ cls: 'lbchat-modelbtn-name', text: modelPick.value || '' });
+  modelBtn.createSpan({ cls: 'lbchat-modelbtn-chev', text: '⌄' });
+};
+modelBtn.onclick = e => {
+  e?.stopPropagation?.();
+  if (modelPop) { closeModelPop(); return; }
+  const pop = document.body.createDiv({ cls: 'lbchat-modelpop', attr: { role: 'listbox' } });
+  pop.createDiv({ cls: 'lbchat-modelpop-title', text: '选择模型' });
+  for (const opt of [...modelPick.options]) {
+    const off = aiReady(opt.value) === false;
+    const row = pop.createDiv({ cls: 'lbchat-modelpop-item' + (opt.value === modelPick.value ? ' is-on' : '') + (off ? ' is-off' : ''), attr: { role: 'option' } });
+    const name = row.createSpan({ cls: 'lbchat-modelpop-name', text: opt.value });
+    if (off) name.createSpan({ cls: 'lbchat-modelpop-sub', text: '未配置' });
+    row.createSpan({ cls: 'lbchat-modelpop-check', text: opt.value === modelPick.value ? '✓' : '' });
+    row.onclick = () => { modelPick.value = opt.value; modelPick.onchange?.(); paintModelBtn(); closeModelPop(); };
+  }
+  const r = modelBtn.getBoundingClientRect();
+  pop.style.bottom = Math.max(8, window.innerHeight - r.top + 8) + 'px';
+  pop.style.left = Math.max(8, Math.min(r.right - 260, window.innerWidth - 268)) + 'px';
+  pop._lbOut = ev => { if (!pop.contains(ev.target) && ev.target !== modelBtn && !modelBtn.contains(ev.target)) closeModelPop(); };
+  pop._lbKey = ev => { if (ev.key === 'Escape') closeModelPop(); };
+  document.addEventListener('mousedown', pop._lbOut, true); document.addEventListener('keydown', pop._lbKey, true);
+  modelPop = pop;
+};
+LB.onUnload(() => closeModelPop());
 fillModels();
+paintModelBtn();
 modelPick.onchange = async () => { const p = provider(); paintCfgHint(); if (!p) return; p.settings.activeModel = modelPick.value; await p.saveSettings?.(); };
 // 语音：点一下开始录，再点一下结束；识别结果直接填进输入框（不加 /）。全局按住 CapsLock 也行。
 const mic = composer.createEl('button', { cls: 'lbchat-mic', attr: { title: '语音提问（再点一次结束）' } }); mic.type = 'button';
@@ -1126,7 +1180,7 @@ const send = composer.createEl('button', { cls: 'lbchat-send', attr: { title: '�
 // 1020 她：照 Codex / CC 的输入框排——输入区独占一行，工具排在下面一行
 const cbar = composer.createDiv({ cls: 'lbchat-cbar' });
 cbar.createDiv({ cls: 'lbchat-cbar-left' }).append(modeBox);
-cbar.createDiv({ cls: 'lbchat-cbar-right' }).append(modelPick, mic, stop, send);
+cbar.createDiv({ cls: 'lbchat-cbar-right' }).append(modelPick, modelBtn, mic, stop, send);
 send.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
 if (readOnly) composer.hidden = true;
 // 回答进行中照常能打字：再发就进队列（像 Codex 追加提问），可点 × 取消，上一条答完自动接着问。
@@ -1330,6 +1384,8 @@ async function buildTurn(t) {
   const key = t.id;
   if (t.role === 'user') {
     const el = createDiv({ cls: 'lbchat-turn lbchat-user' }); el.dataset.key = key;
+    // 1026 她：问过的话能改了重发——点「编辑」把这句放回输入框（光标在末尾），改完照常发送
+    if (!readOnly) { const eb = el.createEl('button', { cls: 'lbchat-user-edit', text: '编辑', attr: { title: '放回输入框，改完重新发送' } }); eb.type = 'button'; eb.onclick = ev => { ev?.stopPropagation?.(); search.value = t.content || ''; search.dispatchEvent?.(new Event('input')); search.focus(); try { search.setSelectionRange(search.value.length, search.value.length); } catch {} }; }
     if (t.mode === 'scope') el.createEl('span', { cls: 'lbchat-scopetag', text: `只问这一篇：《${t.scopeTitle || ''}》` });
     if (t.mode === 'search') el.createEl('span', { cls: 'lbchat-qmark', text: '搜' });
     if (t.report) el.createEl('span', { cls: 'lbchat-qmark', text: '报告' });
