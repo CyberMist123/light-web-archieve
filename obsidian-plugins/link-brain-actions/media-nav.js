@@ -91,10 +91,10 @@ class MediaNav {
   }
   attach() {
     if (this.attached) return true;
-    if (this.oldPluginEnabled()) { this.catalogBack(); this.skipped = true; console.info('[lb] 旧插件 ' + OLD_PLUGIN_ID + ' 还开着：图片导航先由它负责'); return false; }
+    if (this.oldPluginEnabled()) { this.skipped = true; console.info('[lb] 旧插件 ' + OLD_PLUGIN_ID + ' 还开着：图片导航先由它负责'); return false; }
     this.attached = true;
     this.onload();
-    this.catalogBack();   // 「← 目录」和图片导航无关：旧插件开着也照样加（上面那条分支）
+    // 1026 她：作者行的「← 目录」不要了（顶栏那行已有「← 目录」）——不再调 catalogBack()；方法留着，以后要再加回来只改这里
     return true;
   }
   notice(msg) {
