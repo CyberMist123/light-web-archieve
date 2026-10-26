@@ -850,40 +850,36 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat-bodywrap.is-tight{padding-left:188px;box-sizing:border-box;}
 .lbchat-bodywrap.is-tight > .lbchat-toc{left:4px;}
 .lbchat-toc-item{color:var(--text-muted);}
-/* 1026 floating-toc 复刻：平时一列短横线（层级越深越短、当前那条高亮），悬停 / 钉住展开成面板（工具条 + 带层级小标的列表） */
-/* 1026 她：目录要贴在侧边（同 floating-toc：页面最左边一条窄栏），不压在回答上——对话区左边常留一条 44px 的槽 */
+/* 1026 floating-toc 复刻——尺寸照插件源码默认值（pkm-er/obsidian-floating-toc-plugin styles.css）：
+   条目字号 0.7rem、行高 1.5rem、展开时每条 padding 0 1rem、面板 fit-content 最宽 18rem、不换行（长了省略号）；
+   层级标 8px --text-muted；工具条图标 12px、按钮 padding 0 10px + 右边距 5px。她：要这个大小、透明——悬停 / 钉住都不铺底、不加边 */
 .lbchat-bodywrap.has-ftoc{padding-left:44px;box-sizing:border-box;}
-.lbchat-toc.is-float{left:-18px!important;top:12px;bottom:auto;width:34px;max-height:calc(100% - 40px);overflow:hidden;padding:8px 4px;border-radius:8px;border:1px solid transparent;z-index:6;font-family:var(--font-interface);font-size:var(--font-ui-small,13px);line-height:1.4;color:var(--text-normal);transition:background-color .16s,box-shadow .16s;}
-/* 1026 她：展开时按内容宽（不截断，长标题换行），最宽 420；钉住时固定 300 宽、对话往右让 */
-.lbchat-toc.is-float:hover,.lbchat-toc.is-float:focus-within{width:max-content;min-width:220px;max-width:min(420px,46%);}
-.lbchat-toc.is-float.is-pin{width:260px;max-width:260px;}
-.lbchat-bodywrap.is-ftoc-pin{padding-left:276px;box-sizing:border-box;}
-.lbchat-toc.is-float:hover,.lbchat-toc.is-float:focus-within,.lbchat-toc.is-float.is-pin{overflow-y:auto;padding:6px 8px 12px;}
-/* 外观照 floating-toc：悬停 = 插件那层灰底（base-20 和 secondary 八二开）+ 1px 边、平的不带阴影；钉住 = 透明、无边 */
-.lbchat-toc.is-float:hover,.lbchat-toc.is-float:focus-within{background:color-mix(in srgb,var(--color-base-20,var(--background-secondary)) 80%,var(--background-secondary) 20%);border:1px solid var(--background-modifier-border);border-radius:var(--radius-m,8px);box-shadow:none;}
-.lbchat-toc.is-float.is-pin,.lbchat-toc.is-float.is-pin:hover,.lbchat-toc.is-float.is-pin:focus-within{background:transparent;border-color:transparent;box-shadow:none;}
-.lbchat-ftoc-bar{display:flex;align-items:center;gap:2px;padding:2px 0 6px;}
-.lbchat button.lbchat-ftoc-tool{width:28px;height:26px;padding:0!important;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-muted);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border-radius:6px!important;}
+.lbchat-toc.is-float{left:-18px!important;top:12px;bottom:auto;width:34px;max-height:calc(100% - 40px);overflow:hidden;padding:8px 4px;border:0;background:transparent;box-shadow:none;z-index:6;font-family:var(--font-interface);font-size:.7rem;color:var(--text-normal);scrollbar-width:none;}
+.lbchat-toc.is-float::-webkit-scrollbar{display:none;}
+.lbchat-toc.is-float:hover,.lbchat-toc.is-float:focus-within,.lbchat-toc.is-float.is-pin{width:fit-content;min-width:6rem;max-width:18rem;overflow-y:auto;padding:.5rem 0 1.5rem;background:transparent;border:0;box-shadow:none;}
+.lbchat-toc.is-float.is-pin{width:18rem;}
+.lbchat-bodywrap.is-ftoc-pin{padding-left:calc(18rem + 8px);box-sizing:border-box;}
+.lbchat-ftoc-bar{display:flex;align-items:center;padding:0 1rem 4px;}
+.lbchat button.lbchat-ftoc-tool{width:auto;height:22px;padding:0 10px!important;margin-right:5px;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-muted);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border-radius:4px!important;}
 .lbchat button.lbchat-ftoc-tool:hover{color:var(--text-normal);background:var(--background-modifier-hover)!important;}
 .lbchat button.lbchat-ftoc-tool.is-on{color:var(--interactive-accent);}
-.lbchat-ftoc-tool svg{width:16px;height:16px;display:block;}
+.lbchat-ftoc-tool svg{width:12px;height:12px;display:block;}
 .lbchat-ftoc-chev svg{width:.65em;height:.65em;display:block;}
-.lbchat .lbchat-ftoc-search{width:100%;box-sizing:border-box;margin:0 0 6px;height:28px;font-size:12.5px;}
+.lbchat .lbchat-ftoc-search{width:calc(100% - 2rem);box-sizing:border-box;margin:0 1rem 4px;height:24px;font-size:.7rem;}
 .lbchat-ftoc-list{display:flex;flex-direction:column;}
-.lbchat-ftoc-item{display:flex;align-items:flex-start;gap:2px;min-height:24px;white-space:normal;padding:1px 0;}
+.lbchat-ftoc-item{display:flex;align-items:center;gap:2px;min-height:1.5rem;white-space:nowrap;padding:0 1rem;max-width:18rem;box-sizing:border-box;}
+.lbchat-ftoc-item[hidden]{display:none!important;}
+.lbchat-ftoc-item[data-level="2"]{padding-left:calc(1rem + 12px);}
+.lbchat-ftoc-item[data-level="3"]{padding-left:calc(1rem + 24px);}
 .lbchat-ftoc-item.is-post > .lbchat-ftoc-text{color:var(--text-muted);}
 .lbchat-ftoc-item.is-post > .lbchat-ftoc-text:hover{color:var(--text-normal);}
-.lbchat-ftoc-item[hidden]{display:none!important;}
-.lbchat-ftoc-item[data-level="2"]{padding-left:14px;}
-.lbchat-ftoc-item[data-level="3"]{padding-left:30px;}
-.lbchat-ftoc-chev{flex:none;width:16px;height:16px;margin-top:3px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-faint);cursor:pointer;border-radius:4px;}
+.lbchat-ftoc-chev{flex:none;width:12px;height:12px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;border-radius:3px;}
 .lbchat-ftoc-chev:hover{background:var(--background-modifier-hover);}
 .lbchat-ftoc-chev.is-empty{cursor:default;visibility:hidden;}
-.lbchat-ftoc-text{flex:0 1 auto;min-width:0;overflow-wrap:anywhere;padding:2px 4px;border-radius:6px;cursor:pointer;color:var(--text-normal);}
+.lbchat-ftoc-text{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;padding:.25rem;border-radius:.5rem;cursor:pointer;color:var(--text-normal);}
 .lbchat-ftoc-text:hover{background:var(--background-modifier-hover);}
-.lbchat-ftoc-tag{flex:none;font-size:10px;color:var(--text-faint);margin:5px 0 0 2px;}
-.lbchat-ftoc-item.is-here > .lbchat-ftoc-text{color:var(--interactive-accent);font-weight:600;}
-.lbchat-ftoc-item.is-here > .lbchat-ftoc-chev{color:var(--interactive-accent);}
+.lbchat-ftoc-tag{flex:none;font-size:8px;color:var(--text-muted);margin-left:1px;}
+.lbchat-ftoc-item.is-here > .lbchat-ftoc-text{color:var(--interactive-accent);font-weight:bold;}
 /* 收起时：只剩横线 */
 .lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-bar,.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-search{display:none;}
 .lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item{min-height:16px;height:16px;padding:0;position:relative;}
@@ -1021,9 +1017,18 @@ const wrap = host.createEl('div', { cls: 'lbchat' });
 // 1026 她：输入框没固定在页底、跟着乱动——外层阅读视图被滚动过（或页头高度变了）时高度没重算。现在：外层一滚就拉回顶、重算；
 // 页头尺寸变了也重算。问收藏页自己不该整页滚，滚的是里面的对话区。
 const outerScroller = root.closest('.markdown-preview-view, .cm-scroller');
-const fitPane = () => { if (outerScroller && outerScroller.scrollTop > 0) outerScroller.scrollTop = 0; const viewport = root.closest('.workspace-leaf-content') || (pane && ['auto', 'scroll', 'hidden'].includes(getComputedStyle(pane).overflowY) ? pane : null); const bottom = Math.min(window.innerHeight, viewport?.getBoundingClientRect().bottom || window.innerHeight); wrap.style.height = Math.max(240, bottom - wrap.getBoundingClientRect().top - 16) + 'px'; };
+// 1026 她：其他笔记页滚不动了——Obsidian 同一个标签页换到别的笔记时复用这个滚动区，页面卸载没及时跑的话，下面的监听还在把它拉回顶。
+// 现在只在问收藏页还挂在这个滚动区里时才管；不在了立刻摘掉监听、什么都不动。
+const chatAlive = () => root.isConnected && !!outerScroller && outerScroller.contains(root);
+const fitPane = () => { if (outerScroller && !chatAlive()) { dropOuter(); return; } if (outerScroller && outerScroller.scrollTop > 0) outerScroller.scrollTop = 0; const viewport = root.closest('.workspace-leaf-content') || (pane && ['auto', 'scroll', 'hidden'].includes(getComputedStyle(pane).overflowY) ? pane : null); const bottom = Math.min(window.innerHeight, viewport?.getBoundingClientRect().bottom || window.innerHeight); wrap.style.height = Math.max(240, bottom - wrap.getBoundingClientRect().top - 16) + 'px'; };
 const resizeObserver = new ResizeObserver(fitPane); resizeObserver.observe(pane || document.documentElement);
-if (outerScroller) { const onOuter = () => requestAnimationFrame(fitPane); outerScroller.addEventListener('scroll', onOuter, { passive: true }); LB.onUnload(() => outerScroller.removeEventListener('scroll', onOuter)); }
+let dropOuter = () => {};
+if (outerScroller) {
+  const onOuter = () => { if (!chatAlive()) { dropOuter(); return; } requestAnimationFrame(fitPane); };
+  outerScroller.addEventListener('scroll', onOuter, { passive: true });
+  dropOuter = () => { outerScroller.removeEventListener('scroll', onOuter); try { resizeObserver.disconnect(); } catch {} dropOuter = () => {}; };
+  LB.onUnload(() => dropOuter());
+}
 LB.onUnload(() => resizeObserver.disconnect());
 requestAnimationFrame(fitPane);
 const head = wrap.createEl('div', { cls: 'lbchat-head' });
