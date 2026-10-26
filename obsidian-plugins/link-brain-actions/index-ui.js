@@ -212,8 +212,8 @@ module.exports = function indexUI(obsidian, plugin, deps = {}) {
       plugin.indexEmpty = indexEmpty;                  // 空分类：删 / 留
       plugin.indexClassify = indexClassify;            // 手动「按内容归类」（后台自动的由 Python 自己拉起）
       plugin.addCommand?.({ id: 'index-edit', name: '编辑索引（打开 索引.md）', callback: () => openFile(indexRel()) });
-      plugin.addCommand?.({ id: 'index-draft', name: '索引：AI 起草一版（写在草稿里）', callback: () => indexDraft().catch(e => plugin.notify('没起草成：' + (e?.message || e), { kind: 'error' })) });
-      plugin.addCommand?.({ id: 'index-suggest', name: '索引：未归类建议', callback: () => openIndexSuggestions() });
+      plugin.addCommand?.({ id: 'index-draft', name: '维护：索引 AI 起草一版（写在草稿里）', callback: () => indexDraft().catch(e => plugin.notify('没起草成：' + (e?.message || e), { kind: 'error' })) });
+      plugin.addCommand?.({ id: 'index-suggest', name: '维护：索引未归类建议', callback: () => openIndexSuggestions() });
     },
     detach() { clearT(timer); timer = null; },
   };

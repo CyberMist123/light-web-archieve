@@ -800,10 +800,10 @@ class LinkBrainActions extends Plugin {
     // 1023 ARCH-AUDIT 第 1 批：上次同步被打断 / 别处导入过，目录还没跟上 → 打开 Obsidian 20 秒后补建一次（没有待重建就秒回、不碰文件；不占「正在跑」）
     if (this.app.workspace?.onLayoutReady) this.app.workspace.onLayoutReady(() => { this.freshTimer = setTimeout(() => this.spawnPy(['-m', 'link_brain', 'catalog', '--if-dirty']).catch(() => {}), 20000); });
     // 1009：没有分步引导了——首次打开按轻量版自动装好并跑一次（home-ui firstRun），设置页顶部就是功能开关；命令 id 不变
-    this.addCommand({ id: 'open-onboarding', name: '打开设置（概览 · 一键装好 / 跑完）', callback: () => this.openSetupPage('overview') });
+    this.addCommand({ id: 'open-onboarding', name: '打开设置', callback: () => this.openSetupPage('overview') });
     this.settingTab = new LinkBrainSettingTab(this.app, this);
     this.addSettingTab(this.settingTab);
-    this.addCommand({id:'search-collections',name:'跳转目录并搜索收藏',callback:async()=>{
+    this.addCommand({id:'search-collections',name:'搜索收藏',callback:async()=>{
       this.focusCatalogSearch=true;
       await this.openLibraryPage('catalog');
       this.app.workspace.getMostRecentLeaf()?.view.containerEl.querySelector('.lbc-search')?.focus();
@@ -813,13 +813,13 @@ class LinkBrainActions extends Plugin {
 
     this.addCommand({
       id: "rebuild-catalog",
-      name: "刷新收藏目录（重新整理分类）",
+      name: "维护：重建收藏目录（重新整理分类）",
       callback: () => this.run(["-m", "link_brain", "catalog"], "重建目录"),
     });
 
     this.addCommand({
       id: "fetch-attachments",
-      name: "补下附件字节（要登录态，会开浏览器）",
+      name: "维护：补下附件字节（要登录态，会开浏览器）",
       callback: () => this.run(["-m", "link_brain", "attachments", "--all"], "补附件", true),
     });
 
@@ -839,7 +839,7 @@ class LinkBrainActions extends Plugin {
       menu.addItem(i => i.setTitle('抓全部评论').setIcon('messages-square').onClick(() => this.fetchAllComments(file)));
       menu.addItem(i => i.setTitle('精细识别这篇的图').setIcon('scan-eye').onClick(() => this.refineImages(file)));
     }));
-    this.addCommand({ id: 'refine-images', name: '精细识别这篇的图（强模型补跑流程图/表格）', checkCallback: checking => this.archiveCommand(checking, file => this.refineImages(file)) });
+    this.addCommand({ id: 'refine-images', name: '维护：精细识别这篇的图（强模型补跑流程图/表格）', checkCallback: checking => this.archiveCommand(checking, file => this.refineImages(file)) });
     // 0928 Owner：归档笔记默认用阅读视图打开——编辑视图里点一下 HTML 块会变回源码，批注也挪不到图片下面。
     // 只在打开的那一下切一次；之后自己切到编辑视图不会被切回来。
     // 1011 她：打开一篇先露出原始 Markdown 再变正常页。根因：目录 / 链接 / 同步记录都走 openLinkText、不带 mode，
@@ -864,20 +864,20 @@ class LinkBrainActions extends Plugin {
 
     this.addCommand({
       id: "ingest-inbox",
-      name: "投喂文件：导入里面的新链接",
+      name: "维护：导入投喂文件里的新链接",
       callback: () => this.ingestInbox(),
     });
 
     this.addCommand({
       id: "ingest-clipboard",
-      name: "投喂：导入剪贴板里的链接",
+      name: "维护：导入剪贴板里的链接",
       callback: () => this.ingestClipboard(),
     });
 
-    this.addRibbonIcon("refresh-cw", "Link Brain：重建收藏目录", () =>
-      this.run(["-m", "link_brain", "catalog"], "重建目录"),
-    );
-    this.addRibbonIcon("download", "Link Brain：投喂新链接", () => this.ingestInbox());
+    // 1026 她（录屏 00:26）：日常入口留在手边、维护命令别挤——侧边两个图标换成日常的「目录」「导入网址」，
+    // 重建目录 / 投喂文件 / 剪贴板这些统一叫「维护：…」，命令面板里照样能搜到
+    this.addRibbonIcon("library", "Link Brain：打开收藏目录", () => this.openLibraryPage('catalog'));
+    this.addRibbonIcon("download", "Link Brain：导入网址（可批量）", () => this.openImportModal());
     // 体验预算「插件对 Obsidian 启动的拖慢 ≤ 0.5 秒」的量法（CONVENTIONS §5.8）
     this.onloadMs = Date.now() - started;
     try { console.debug(`[lb] plugin onload ${this.onloadMs}ms`); } catch {}
@@ -1278,8 +1278,8 @@ class LinkBrainActions extends Plugin {
   commandTable() {
     return [
       { id: 'open-catalog', name: '打开收藏目录', callback: () => this.openLibraryPage('catalog') },
-      { id: 'open-ask', name: '打开问收藏', callback: () => this.openLibraryPage('chat') },
-      { id: 'open-problems', name: '打开问题列表', callback: () => this.openProblems() },
+      { id: 'open-ask', name: '问收藏', callback: () => this.openLibraryPage('chat') },
+      { id: 'open-problems', name: '维护：打开问题列表', callback: () => this.openProblems() },
       { id: 'open-sync-log', name: '打开同步记录', callback: () => this.openSyncLog() },
       { id: 'open-trash', name: '打开回收站', callback: () => this.openLibraryPage('trash') },
     ];
