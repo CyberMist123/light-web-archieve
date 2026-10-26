@@ -2523,6 +2523,14 @@ def answer(question: str, history=None, include=None, on_delta=None, model: str 
     thread_id / parent_turn_id（1018 v2.1 §5）：这一问接哪条会话线 / 哪一轮（登记在 ask_turns）；追问继承上一答按它查，不再按问题原文找。
     who：哪个凭据问的（远程 MCP 兜底绑定只认同一凭据）。avoid：上一轮已经讲过的对象名（「其他」类追问不再提）。
     接口约定见 docs/FORMAT.md「问收藏响应：档位 / 目录 / 展开」。"""
+    if mode == "chat":   # 1026 她：追问 = 接着这段聊，不重新检索
+        token = _ON_DELTA.set(on_delta)
+        ptoken = _ON_PHASE.set(on_phase)
+        try:
+            return chat_followup(question, history, model)
+        finally:
+            _ON_PHASE.reset(ptoken)
+            _ON_DELTA.reset(token)
     report = isinstance(question, str) and bool(REPORT_MARK.match(question))
     if report:   # 1020「回答 · 报告」开关选了报告：去掉标记，这一问出陈列版、直接答（不出目录）
         question = REPORT_MARK.sub("", question)
@@ -2537,6 +2545,50 @@ def answer(question: str, history=None, include=None, on_delta=None, model: str 
         _LAYOUT_REQ.reset(ltoken)
         _ON_PHASE.reset(ptoken)
         _ON_DELTA.reset(token)
+
+
+# 1026 她：「追问」不再在上一答的来源里重新检索——检索一轮就够；追问时带着前面的对话（上一答已经引用了收藏）直接问模型，
+# 提示词只留几句：可以用自己的知识补充 / 比较 / 给建议，用到收藏照旧标 [来源N]（编号沿用上一答），不写来源导读。
+CHAT_FOLLOW_RULES = (
+    "你在和她接着聊上面这段关于她收藏的对话。直接回答她这一问，不复述上一答，不写开场白。\n"
+    "上一答里的 [来源N] 是她收藏里的原帖；你可以用自己的知识解释、补充、比较、给建议，这些不标编号；"
+    "用到上一答里收藏的内容时照旧标 [来源N]（编号沿用上一答，不编新号）。拿不准就直说，不编造收藏里没有的细节。\n"
+    "排版：一段讲一件事；要点多就用短列表；不写「来源导读」。"
+)
+CHAT_FOLLOW_TURNS = 6          # 带最近几轮对话
+CHAT_FOLLOW_CHARS = 6000       # 每轮最多带多少字（上一答很长时截断）
+
+
+def chat_followup(question, history=None, model=''):
+    """追问（mode=chat）：不检索，带最近几轮对话直接问模型。返回和普通回答同形（sources 留空，页面沿用上一答的来源）。"""
+    question = (question or "").strip()
+    if not question:
+        return {"status": "error", "markdown": "没有问题内容。"}
+    settings = ai_config.with_model(ai_config.load(), model)
+    missing = _text_ai_missing(settings)
+    if missing:
+        return {"status": "error", "kind": "answer", "markdown": "问答模型还没配好（设置 → AI → 文本 AI）：" + missing,
+                "error_kind": "not_configured", "error": missing, "sources": [], "related": [], "model_called": False}
+    turns = [h for h in (history or []) if isinstance(h, dict) and str(h.get("content") or "").strip()][-CHAT_FOLLOW_TURNS:]
+    convo = "\n\n".join(f"{'她' if h.get('role') == 'user' else '你（上一答）'}：{str(h.get('content'))[:CHAT_FOLLOW_CHARS]}" for h in turns)
+    _phase("接着上面的对话回答")
+    res = call_text(CHAT_FOLLOW_RULES, (convo + "\n\n" if convo else "") + "她这一问：" + question, settings)
+    if res.get("status") == "cancelled":
+        out = _stopped(res.get("text") or "")
+        out["sources"], out["related"] = [], []
+        return out
+    if res.get("status") != "ok" or not (res.get("text") or "").strip():
+        skipped = res.get("status") == "skipped"
+        return {"status": "error", "kind": "answer", "markdown": ("问答模型还没配好（设置 → AI → 文本 AI）：" if skipped else "AI 回答失败：") + str(res.get("error") or "空响应"),
+                "error_kind": "not_configured" if skipped else "api", "code": str(res.get("code") or ""), "error": str(res.get("error") or "空响应")[:300],
+                "sources": [], "related": [], "model_called": True}
+    from .mdsafe import neutralize
+    from . import answer_prompt
+    _thought, visible = answer_prompt.split_thought(res["text"])
+    markdown = neutralize(visible)
+    if res.get("truncated"):
+        markdown += "\n\n> 回答达到输出上限，尚未完成。"
+    return {"status": "ok", "mode": "chat", "markdown": markdown, "sources": [], "related": [], "model_called": True}
 
 
 def resolve_expand(question, expand):

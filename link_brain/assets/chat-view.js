@@ -853,7 +853,17 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 /* 1026 floating-toc 复刻——尺寸照插件源码默认值（pkm-er/obsidian-floating-toc-plugin styles.css）：
    条目字号 0.7rem、行高 1.5rem、展开时每条 padding 0 1rem、面板 fit-content 最宽 18rem、不换行（长了省略号）；
    层级标 8px --text-muted；工具条图标 12px、按钮 padding 0 10px + 右边距 5px。她：要这个大小、透明——悬停 / 钉住都不铺底、不加边 */
-.lbchat-bodywrap.has-ftoc{padding-left:44px;box-sizing:border-box;}
+.lbchat-bodywrap.has-ftoc{padding-left:44px;padding-right:44px;box-sizing:border-box;}
+/* 1026 她：出了目录后底部输入框和对话列不对称——对话列左右各让 44（居中不变）；钉住时对话列往右让了一块，输入框跟着挪同样的半宽 */
+.lbchat-bodywrap.is-ftoc-pin{padding-right:0;}
+.lbchat.ftoc-pinned .lbchat-composer,.lbchat.ftoc-pinned .lbchat-ctlrow{transform:translateX(calc((18rem + 8px) / 2));}
+.lbchat.ftoc-pinned .lbchat-composer{max-width:min(850px,calc(100% - 18rem - 8px));}
+.lbchat.ftoc-pinned .lbchat-ctlrow{max-width:min(822px,calc(100% - 18rem - 36px));}
+/* 1026 她：「浏览收藏 / 问收藏」上面那块空白不要——问收藏页所在笔记的阅读视图顶边距收掉 */
+.lbchat{padding-top:4px!important;}
+.markdown-preview-view:has(.lbchat){padding-top:4px!important;}
+.markdown-preview-view:has(.lbchat) .markdown-preview-sizer{padding-top:0!important;min-height:0!important;}
+.markdown-preview-view:has(.lbchat) .mod-header,.markdown-preview-view:has(.lbchat) .inline-title{display:none!important;}
 .lbchat-toc.is-float{left:-18px!important;top:12px;bottom:auto;width:34px;max-height:calc(100% - 40px);overflow:hidden;padding:8px 4px;border:0;background:transparent;box-shadow:none;z-index:6;font-family:var(--font-interface);font-size:.7rem;color:var(--text-normal);scrollbar-width:none;}
 .lbchat-toc.is-float::-webkit-scrollbar{display:none;}
 .lbchat-toc.is-float:hover,.lbchat-toc.is-float:focus-within,.lbchat-toc.is-float.is-pin{width:fit-content;min-width:6rem;max-width:18rem;overflow-y:auto;padding:.5rem 0 1.5rem;background:transparent;border:0;box-shadow:none;}
@@ -1324,7 +1334,7 @@ async function buildTurn(t) {
     if (t.mode === 'search') el.createEl('span', { cls: 'lbchat-qmark', text: '搜' });
     if (t.report) el.createEl('span', { cls: 'lbchat-qmark', text: '报告' });
     if (t.mode === 'reask') el.createEl('span', { cls: 'lbchat-qmark', text: `按留下的 ${t.sources || ''} 条来源重答` });
-    if (t.mode === 'follow') el.createEl('span', { cls: 'lbchat-qmark is-follow', text: `在当前 ${t.sources || ''} 条来源里追问` });
+    if (t.mode === 'follow') el.createEl('span', { cls: 'lbchat-qmark is-follow', text: '接着上面聊' });
     if (t.mode === 'expand') el.createEl('span', { cls: 'lbchat-qmark is-follow', text: `展开 · ${t.sources || ''} 条来源` });
     el.appendText(t.content);
     return { el, sig: sigOf(t), dispose: () => {} };
@@ -1687,7 +1697,7 @@ function paintFollow() {
   const bound = session.follow === 'sources';
   followBar.hidden = readOnly || lane !== 'chat' || (!session.turns.length && !scope);
   clearBox.hidden = readOnly || lane !== 'chat' || !session.turns.length;
-  search.placeholder = scope ? `问这篇：${scope.title || ''}…` : !session.turns.length ? (cfg().chatPlaceholder || '问点什么呢？') : ids.length && bound ? '在当前来源里继续追问…' : '继续追问…';
+  search.placeholder = scope ? `问这篇：${scope.title || ''}…` : !session.turns.length ? (cfg().chatPlaceholder || '问点什么呢？') : ids.length && bound ? '接着聊…' : '继续追问…';
   if (!clearBox.hidden) {
     clearBtn = clearBox.createEl('button', { cls: 'lbchat-follow-switch lbchat-clearall', text: '清空上下文', attr: { title: session.private ? '开始新对话（隐私模式：这段不进历史，8 秒内可撤销）' : '开始新对话（这段已自动存进历史）' } });
     clearBtn.type = 'button';
@@ -1706,7 +1716,7 @@ function paintFollow() {
   }
   // 追问 = 接着这段、只在上面留下的来源里答（还没有来源就接着这段重新搜）；新对话 = 重新搜整个收藏，这段自动进历史（隐私模式不进）
   segSwitch(followBar, 'lbchat-followmode', [
-    ['sources', '追问', ids.length ? `接着这段问，只在上面这 ${ids.length} 条来源里答` : '接着这段问'],
+    ['sources', '追问', '接着这段聊：不重新检索，带着上面的对话直接问，模型可以用自己的知识'],
     ['search', '新对话', session.private ? '下一问重新搜整个收藏（隐私模式：不开新段）' : '下一问重新搜整个收藏，这段自动存进历史'],
   ], bound ? 'sources' : 'search', async key => { session.follow = key; session.followPicked = true; paintFollow(); await keepSession(); });
 }
@@ -2091,10 +2101,14 @@ async function submit(raw, opts = {}) {
   const ids = ex ? ex.ids : Array.isArray(opts.sourceIds) ? opts.sourceIds : sc ? sc.ids : null;
   const reask = Array.isArray(ids);
   const bound = !reask && !fresh ? boundIds() : [];
-  const pinned = reask ? ids : bound.length ? bound : null;
+  // 1026 她：「追问」= 接着这段聊——不再在上一答的来源里重新检索（检索一轮就够），带对话直接问模型，模型可以用自己的知识；
+  // 新回答沿用上一答的来源，里面的 [来源N] 照样能点
+  const chatFollow = !ex && !sc && !reask && !fresh && bound.length > 0;
+  const chatSources = chatFollow ? (lastAnswer()?.sources || []) : [];
+  const pinned = reask ? ids : bound.length && !chatFollow ? bound : null;
   const mode = ex ? 'expand' : sc ? 'scope' : reask ? 'reask' : bound.length ? 'follow' : 'ask';
   // A5「重试」要原样再问一次：记下这一问用的来源 / 是否重新检索
-  const retry = ex ? { expand: { ...ex, ids: [...ex.ids] } } : reask ? { sourceIds: [...ids] } : bound.length ? { sourceIds: [...bound] } : fresh ? { fresh: true } : {};
+  const retry = ex ? { expand: { ...ex, ids: [...ex.ids] } } : reask ? { sourceIds: [...ids] } : chatFollow ? {} : bound.length ? { sourceIds: [...bound] } : fresh ? { fresh: true } : {};
   if (sc && scope) clearScope();
   // 1015「默认清空」：重新搜的新问题（含「问这篇」）默认开新对话；她选了「接着这段」/ 隐私模式 / 重试那一问时不清
   // 1020：只有「新对话」档才开新段（「追问」档接着这段，没来源时照常重新搜）；keepThread 这个旧偏好不再出现在界面
@@ -2132,6 +2146,7 @@ async function submit(raw, opts = {}) {
     const link = prevAnswer ? { parentTurnId: prevAnswer.turnId, ...(prevAnswer.threadId ? { threadId: prevAnswer.threadId } : {}) } : {};
     const r = await p.answerArchive({ question: backendQ, model: modelPick.hidden ? '' : modelPick.value, history, ...(pinned ? { sourceIds: pinned } : {}), ...constraints, ...link, tag: 'chat',
       ...(ex ? { turnId: ex.turnId, expandIds: [...ex.ids] } : {}),
+      ...(chatFollow ? { mode: 'chat' } : {}),
       onPhase: showPhase,
       onDelta: delta => {
         shown += delta;
@@ -2144,7 +2159,7 @@ async function submit(raw, opts = {}) {
       // 停止：留下已经生成的那半截，明确标「已停止」；算失败轮次（不进追问上下文、不给收藏 / 导出）
       const part = (r.markdown || shown || '').trim();
       turn = { id: answerId, role: 'assistant', failed: true, stopped: true, content: (part ? part + '\n\n' : '') + '> 已停止生成。', sources: r.sources || [], related: r.related || [], q, askedAt, retry, mode };
-    } else turn = { id: answerId, role: 'assistant', content: r.markdown || '没有可用的回答。', sources: r.sources || [], related: r.related || [], q, askedAt, ...answerShape(r), ...(ex ? { expandOf: ex.of || '' } : {}) };
+    } else turn = { id: answerId, role: 'assistant', content: r.markdown || '没有可用的回答。', sources: (r.sources || []).length ? r.sources : chatSources, related: r.related || [], q, askedAt, ...answerShape(r), ...(ex ? { expandOf: ex.of || '' } : {}) };
   } catch (e) {
     const payload = e && e.payload || {};
     const sources = payload.sources || [], related = payload.related || [];
@@ -2453,6 +2468,7 @@ function ftocApplyPin() {
   const on = ftocPinned && ftocRoomy;
   tocEl.classList.toggle('is-pin', on);
   bodyWrap.classList.toggle('is-ftoc-pin', on && !tocEl.hidden);
+  wrap.classList.toggle('ftoc-pinned', on && !tocEl.hidden);
 }
 const ftocFolded = new Set();
 // 目录条目：每问一条（层级 1，「问」），回答里的小标题 / 报告分类挂在下面（H1、H2 → 2，H3 → 3）
@@ -2467,14 +2483,18 @@ function ftocItems() {
     for (const h of [...ael.querySelectorAll('.lbchat-md h1, .lbchat-md h2, .lbchat-md h3')].filter(h => !h.classList.contains('lbchat-guide-hidden')).slice(0, 20)) {
       out.push({ level: h.tagName === 'H3' ? 3 : 2, tag: h.tagName, text: String(h.textContent || '').trim(), el: () => h });
     }
-    // 1026 她：目录里也放这一答用到的帖子（主要依据里回答引用过的）——不照搬标题，用模型在来源导读里给这篇写的那句定位
-    // （「机制最完整」「最省事的入口」）；点了在右栏打开这篇。没有导读的老回答不列。
+    // 1026 她：目录里也放这一答引用过的帖子，写成「[号] 短标题」——号 = 回答里这篇第一次出现的那个上标数字，
+    // 短标题 = 标题去掉表情、截到第一个分隔符（｜：，— 等），最多 14 字；点了在右栏打开这篇
     const removed = new Set(g.a.removed || []);
-    for (const src of (g.a.sources || []).filter(x => x.tier === 'primary' && x.guide && !removed.has(srcKey(x)))) {
-      const role = String(src.guide).replace(/^\s*\[?来源[^\]]*\]?\s*/, '').replace(/^《[^》]*》\s*[—–-]+\s*/, '').split(/[。；;]/)[0].trim();
-      if (!role) continue;
-      out.push({ level: 2, tag: '帖', text: role, title: `${src.title || ''}：${role}`, open: () => openNote(src) });
+    const shortTitle = t => { const c = String(t || '').replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '').replace(/[《》「」【】]/g, '').trim(); const cut = c.split(/[｜|：:，,。！!？?—–]|\s-\s/)[0].trim(); return (cut.length >= 4 ? cut : c).slice(0, 14); };
+    const posts = [];
+    for (const src of (g.a.sources || []).filter(x => x.tier === 'primary' && !removed.has(srcKey(x)))) {
+      const cap = ael.querySelector(`.lbchat-md button.lbchat-cite[data-cite="${src.citation}"]`);
+      if (!cap) continue;   // 回答没引用到的不列
+      posts.push({ n: Number(cap.dataset.n || cap.textContent) || 0, src });
     }
+    posts.sort((x, y) => x.n - y.n);
+    for (const { n, src } of posts) out.push({ level: 2, tag: '帖', text: `[${n}] ${shortTitle(src.title)}`, title: src.title || '', open: () => openNote(src) });
   });
   return out;
 }

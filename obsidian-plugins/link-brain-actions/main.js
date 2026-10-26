@@ -1946,12 +1946,14 @@ class LinkBrainActions extends Plugin {
   // tag / onStart（批次 D 地基）：只是透传给 requestAnswer，请求体不变
   // turnId / expandIds（1015 先目录后展开）：「展开」带上被展开那一答的 turn_id 和条目来源 id；没有就不发，请求和以前一样
   // parentTurnId / threadId（1018 v2.1 §5 会话状态）：追问带上一答的 turn_id 和会话线 id，后端按它继承上一答的来源（不再按问题原文找）；没有就不发
-  async answerArchive({ question, history = [], onDelta, onPhase, model = '', sourceIds = null, excludeIds = null, pinIds = null, tag = null, onStart = null, turnId = null, expandIds = null, parentTurnId = null, threadId = null } = {}) {
+  async answerArchive({ question, history = [], onDelta, onPhase, model = '', sourceIds = null, excludeIds = null, pinIds = null, tag = null, onStart = null, turnId = null, expandIds = null, parentTurnId = null, threadId = null, mode = null } = {}) {
     const q=(question||'').trim();if(!q)throw new Error('问题是空的');
     const ids=v=>Array.isArray(v)?v.filter(x=>typeof x==='string'&&x):[];
     const str=(k,v)=>(typeof v==='string'&&v?{[k]:v}:{});
     const constraints={...(ids(excludeIds).length?{exclude_ids:ids(excludeIds)}:{}),...(ids(pinIds).length?{pin_ids:ids(pinIds)}:{}),...str('turn_id',turnId),...(ids(expandIds).length?{expand_ids:ids(expandIds)}:{}),...str('parent_turn_id',parentTurnId),...str('thread_id',threadId)};
-    const payload=await this.requestAnswer(Array.isArray(sourceIds)?{question:q,history,model,source_ids:sourceIds,...constraints}:{question:q,history,model,...constraints},onDelta,onPhase,{tag,onStart});
+    // 1026：追问 mode=chat——接着这段聊，后端不重新检索（不带 source_ids）
+    const chat=mode==='chat'?{mode:'chat'}:{};
+    const payload=await this.requestAnswer(Array.isArray(sourceIds)&&!chat.mode?{question:q,history,model,source_ids:sourceIds,...constraints}:{question:q,history,model,...constraints,...chat},onDelta,onPhase,{tag,onStart});
     if(payload.status==='cancelled')return payload;
     if(payload.status!=='ok'){
       // A5：kind 判定——没配 AI → config；worker 里崩了 → crash；其余（接口拒绝 / 限流 / 网络）→ api
