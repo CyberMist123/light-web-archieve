@@ -25,10 +25,10 @@ const { tick, makePlugin, openChat } = require('./_fake_L2.cjs');
   assert.equal(P.plugin.chatInFlight.phase, '生成回答：用 3 条材料');
   assert.ok(!B.q('.lbchat-stop').hidden, 'B 上也有 ■');
 
-  // (7) 作答中在 B 点「清空」或历史条目：不执行，说「正在回答」
+  // (7) 1026 她「还在回答，切不了」：作答中「清空」照样能点（这一问在后台接着答、答完进它自己那段；细节见 test_chat_bg_1026）
   const n0 = B.saved().turns.length;
   const clear = B.q('.lbchat-clearall');
-  assert.ok(clear.disabled, '作答中「清空」不可点');
+  assert.ok(!clear.disabled, '作答中「清空」不再锁住');
   // (6) B 的 ■：停的是问收藏那一问（tag 'chat'）
   B.q('.lbchat-stop').onclick();
   assert.deepEqual(P.calls.stops, ['chat']);
@@ -68,12 +68,5 @@ const { tick, makePlugin, openChat } = require('./_fake_L2.cjs');
   // 两页画出来的一样
   assert.deepEqual(B.qa('.lbchat-turn').map(e => e.dataset.key), C2.qa('.lbchat-turn').map(e => e.dataset.key));
 
-  // (7') 作答中点历史条目 / 清空：不执行，提示「正在回答」
-  await C2.ask('五');
-  B.q('.lbchat-hist').onclick({ stopPropagation() {} }); await tick(5);
-  const item = B.dom.document.querySelectorAll('.lbchat-histq')[0];
-  await item.onclick(); await tick(5);
-  assert.ok([...B.A.notices, ...A.A.notices].some(m => m.includes('正在回答')), B.A.notices.join('|'));   // 1019：B 可能挂回了 A 暂存的整页，提示记在 A 的假 Notice 上
-  P.reply({ status: 'ok', markdown: '答五', sources: [], related: [] }); await tick(40);
-  console.log('PASS chat L2 A2: inflight on plugin (switch page and come back → live text + real phase), ■ stops tag chat, follow-up queued on plugin and asked once after the old closure writes back, answers merged after their own question (no overwrite), busy blocks history / clear with 正在回答');
+  console.log('PASS chat L2 A2: inflight on plugin (switch page and come back → live text + real phase), ■ stops tag chat, follow-up queued on plugin and asked once after the old closure writes back, answers merged after their own question (no overwrite); 清空 no longer locked while answering (1026)');
 })().catch(e => { console.error(e); process.exit(1); });

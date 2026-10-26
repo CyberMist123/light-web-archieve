@@ -244,7 +244,7 @@ const TOC = [
 
   // 样式表括号配平（1015 一次清理留下半截 @media，把后面的规则全吞进窄屏里）
   {
-    const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'link_brain', 'assets', 'chat-view.js'), 'utf8').split("LB.style('lbchat-style', `")[1].split('`);')[0].replace(/\/\*[\s\S]*?\*\//g, '');
+    const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'link_brain', 'assets', 'chat-view.js'), 'utf8').split("LB.style('lbchat-style'")[1].split('`').slice(1).join('`').split('`);')[0].replace(/\/\*[\s\S]*?\*\//g, '');
     let d = 0; for (const c of css) { if (c === '{') d++; if (c === '}') d--; assert.ok(d >= 0 && d <= 2, 'CSS 括号'); }
     assert.equal(d, 0, 'CSS 括号配平');
   }
