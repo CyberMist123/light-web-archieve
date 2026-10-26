@@ -12,7 +12,7 @@
  "供应商猜测": {},
  "写死的字体栈": {
   "link_brain/assets/annotate-view.js": 1,
-  "link_brain/assets/catalog-view.js": 4,
+  "link_brain/assets/catalog-view.js": 1,
   "link_brain/assets/chat-view.js": 6,
   "link_brain/assets/lb-page-lib.js": 3,
   "link_brain/assets/trash-view.js": 2

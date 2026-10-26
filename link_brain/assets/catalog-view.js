@@ -18,14 +18,11 @@ const perfCounts = { rank: 0, layout: 0, build: 0 };
 const syncPerf = () => { try { const P = (globalThis.__lbPerf = globalThis.__lbPerf || {}); (P[ROLE] = P[ROLE] || {}).counts = perfCounts; } catch {} };
 syncPerf();
 
-// 1027 字体样式集（编排「Aa 样式」和模块「调整」里能选的字体都从这里来）；页面变量读共享令牌 --lb-font-*（LB.applyTheme / 本页兜底写），没写就是这几套
-const FONT_STACKS = {
-  display: LB.BRAND_FONT_STACK,
-  serif: '"Noto Serif SC","Source Han Serif SC","Source Han Serif CN","Songti SC","STSong","SimSun",serif',
-  latin: '"LB Cormorant","Cormorant Garamond",Georgia,"Noto Serif SC","Songti SC","SimSun",serif',
-  sans: '"Noto Sans SC","Segoe UI","Microsoft YaHei UI",sans-serif',
-  kai: '"Kaiti SC","STKaiti","KaiTi",serif',
-  georgia: 'Georgia,"Times New Roman",serif',
+// 1027 字体样式集（编排「Aa 样式」和模块「调整」里能选的字体）：只写字体名，默认栈在共享令牌 lb-tokens.css（--lb-font-*-base），
+// LB.themeVars 把名字排在默认栈前面（没装的字照样退回默认）；页面里的 --f-* 全部读令牌，不再手写字体栈
+const FONT_NAMES = {
+  cinzel: 'LB Cinzel, Cinzel', song: 'Noto Serif SC, Source Han Serif SC, Songti SC, SimSun', hei: 'Noto Sans SC, Microsoft YaHei UI',
+  cormorant: 'LB Cormorant, Cormorant Garamond', kai: 'KaiTi, STKaiti, Kaiti SC', georgia: 'Georgia',
 };
 // ── 样式（X14c：挂 document.head 的 #lbc-style，目录页和星标页共用；跨页可能撞名的选择器加 .lbc-wrap 前缀） ──
 const CSS = `
@@ -43,8 +40,7 @@ const CSS = `
 /* 1021 Collection+ 改版（设计交接包 DESIGN-SPEC §0–3、5、9）：界面只有黑白——文字、选中、细线都用正文色 / 边框色，不用 --interactive-accent；
    颜色只出现在封面里。令牌映射 Obsidian 变量，深浅色自动跟随。标题 / 数字字体随包（_archive/fonts，@font-face 见 fontFaceCss），离线可用 */
 .lbc-wrap{--c-bg:var(--background-primary);--c-ink:var(--text-normal);--c-muted:var(--text-muted);--c-faint:var(--text-faint);--c-line:var(--background-modifier-border);--c-soft:var(--background-secondary);
---f-display:var(--lb-font-title,${FONT_STACKS.display});--f-serif:var(--lb-font-serif,${FONT_STACKS.serif});
---f-latin:var(--lb-font-num,${FONT_STACKS.latin});--f-sans:var(--lb-font-body,${FONT_STACKS.sans});
+--f-display:var(--lb-font-title);--f-serif:var(--lb-font-serif);--f-latin:var(--lb-font-num);--f-sans:var(--lb-font-body);
 --r-card:12px;--ctl-h:34px;--shadow-print:5px 5px 0 var(--text-normal);
 /* 1026 她：字体规则统一——标题（雕刻 Cinzel / 衬线中文）· 数字（Cormorant 斜体、等宽数字）· 正文（无衬线）三套，字号只用这几档 */
 --fs-body:13.5px;--fs-small:12px;--fs-tab:15.5px;--num-feat:lining-nums tabular-nums;--lbc-sp:1;
@@ -211,62 +207,6 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-tools button.lb-arrange svg{width:14px;height:14px;flex:none;}
 .lbc-wrap.is-indexview .lbc-tools button.lb-arrange,.lbc-wrap.is-side-narrow .lbc-tools button.lb-arrange{display:none!important;}
 .lbc-mod-bar,.lbc-arrange-tray,.lbc-col-edge{display:none;}
-.lbc-wrap.is-arranging .lbc-side{padding-left:12px;padding-right:12px;-webkit-mask-image:none;mask-image:none;}
-.lbc-wrap.is-arranging .lbc-m{position:relative;margin-top:46px;outline:1.5px dashed var(--c-faint);outline-offset:8px;border-radius:2px;}
-.lbc-wrap.is-arranging .lbc-m:hover,.lbc-wrap.is-arranging .lbc-m.is-panel{outline-color:var(--c-ink);}
-.lbc-wrap.is-arranging .lbc-m.is-off{min-height:28px;}
-.lbc-wrap.is-arranging .lbc-mod .lbc-lab,.lbc-wrap.is-arranging .lbc-mod .lbc-fold-sum,.lbc-wrap.is-arranging .lbc-mod .lbc-mod-body{pointer-events:none;user-select:none;}
-.lbc-wrap.is-arranging .lbc-mod-bar{display:flex;position:absolute;z-index:3;top:-38px;left:-8px;max-width:calc(100% + 16px);align-items:center;gap:2px;height:28px;padding:0 4px;box-sizing:border-box;background:var(--c-ink);color:var(--c-bg);border-radius:999px;font:12px/1 var(--f-sans);white-space:nowrap;}
-.lbc-mod-bar .lbc-mb-h{cursor:grab;width:26px;height:22px;display:grid;place-items:center;border-radius:999px;touch-action:none;flex:none;}
-.lbc-mod-bar .lbc-mb-h:active{cursor:grabbing;}
-.lbc-mod-bar .lbc-mb-h svg{width:10px;height:14px;}
-.lbc-mod-bar .lbc-mb-nm{padding:0 8px 0 2px;font-weight:500;overflow:hidden;text-overflow:ellipsis;}
-.lbc-mod-bar .lbc-mb-sep{width:1px;height:12px;background:currentColor;opacity:.3;margin:0 3px;flex:none;}
-.lbc-wrap .lbc-mod-bar button{width:auto!important;min-width:24px;height:22px!important;padding:0 7px!important;margin:0!important;border:0!important;border-radius:999px!important;background:transparent!important;color:inherit!important;box-shadow:none!important;font:inherit!important;cursor:pointer;}
-.lbc-wrap .lbc-mod-bar button:hover:not(:disabled),.lbc-wrap .lbc-mod-bar button[aria-expanded="true"]{background:var(--c-bg)!important;color:var(--c-ink)!important;}
-.lbc-wrap .lbc-mod-bar button:disabled{opacity:.3;cursor:default;}
-.lbc-m.is-dragging{opacity:.35;}
-.lbc-drop-ind{position:fixed;z-index:60;background:var(--text-normal);border-radius:3px;pointer-events:none;}
-.lbc-drop-ind[hidden]{display:none;}
-.lbc-wrap.is-arranging .lbc-col-edge{display:block;position:absolute;top:0;bottom:0;width:14px;margin:0 0 0 -7px!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;cursor:col-resize;z-index:4;touch-action:none;}
-.lbc-col-edge::before{content:"";position:absolute;left:6px;top:0;bottom:0;width:2px;border-radius:2px;background:var(--c-faint);}
-.lbc-col-edge:hover::before,.lbc-col-edge:focus-visible::before,.lbc-col-edge.is-on::before{background:var(--c-ink);}
-.lbc-col-edge .lbc-ce-w{position:absolute;top:6px;left:12px;padding:3px 8px;border-radius:999px;background:var(--c-ink);color:var(--c-bg);font:12px/1 var(--f-sans);white-space:nowrap;display:none;}
-.lbc-col-edge.is-on .lbc-ce-w,.lbc-col-edge:focus-visible .lbc-ce-w{display:block;}
-/* 模块里展开的「调整」 */
-.lbc-mp{position:relative;z-index:2;margin:0 0 14px;padding:12px 14px;border:1px solid var(--c-ink);border-radius:4px;background:var(--c-bg);color:var(--c-ink);font:13px/1.5 var(--f-sans);zoom:1;}
-.lbc-mp-h{display:flex;align-items:center;gap:8px;margin:0 0 8px;font-weight:600;}
-.lbc-mp-h .lbc-mp-save{margin-left:auto;font-weight:400;font-size:12px;color:var(--c-muted);}
-.lbc-mp-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:6px 0;}
-.lbc-mp-row>label,.lbc-mp-k{color:var(--c-muted);font-size:12px;min-width:3.5em;}
-.lbc-mp-row label.lbc-mp-ck{color:var(--c-ink);font-size:13px;min-width:0;display:inline-flex;align-items:center;gap:4px;}
-.lbc-wrap .lbc-mp select,.lbc-wrap .lbc-mp input[type=text],.lbc-wrap .lbc-mp input[type=number]{height:28px;padding:0 8px;border:1px solid var(--c-line);border-radius:4px;background:var(--c-bg);color:var(--c-ink);font:13px var(--f-sans);max-width:100%;box-sizing:border-box;}
-.lbc-wrap .lbc-mp input[type=text]{flex:1 1 140px;min-width:0;}
-.lbc-wrap .lbc-mp input[type=number]{width:84px;}
-.lbc-wrap .lbc-mp button{width:auto!important;height:26px!important;padding:0 10px!important;margin:0!important;border:1px solid var(--c-line)!important;border-radius:999px!important;background:var(--c-bg)!important;color:var(--c-ink)!important;box-shadow:none!important;font:12.5px/1 var(--f-sans)!important;cursor:pointer;white-space:nowrap;}
-.lbc-wrap .lbc-mp button:hover:not(:disabled){border-color:var(--c-ink)!important;}
-.lbc-wrap .lbc-mp button:disabled{opacity:.4;cursor:default;}
-.lbc-mp-note{margin:6px 0 0;font-size:12px;color:var(--c-muted);}
-.lbc-mp-note.is-fail{color:var(--lb-danger);}
-.lbc-mp-cats{display:flex;flex-direction:column;gap:4px;margin:4px 0;}
-.lbc-mp-cat{display:flex;align-items:center;gap:6px;}
-.lbc-mp-cat .lbc-mp-n{font:italic 13px/1 var(--f-latin);color:var(--c-muted);min-width:2em;text-align:right;}
-.lbc-mp .lb-sched{margin-top:4px;}
-.lbc-wrap.is-arranging .lbc-arrange-tray{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0 14px;border-bottom:1px solid var(--c-ink);}
-.lbc-arrange-tray .lbc-at-k{font:700 11px/1 var(--f-display);letter-spacing:.26em;color:var(--c-ink);}
-.lbc-arrange-tray .lbc-at-save{margin-left:auto;font-size:12px;color:var(--c-muted);}
-.lbc-arrange-tray .lbc-at-save.is-fail{color:var(--lb-danger);}
-.lbc-arrange-tray .lbc-at-hint{order:9;flex:1 1 100%;font-size:12px;line-height:1.6;color:var(--c-muted);}
-.lbc-arrange-tray .lbc-at-row{order:8;flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;}
-.lbc-arrange-tray .lbc-at-row[hidden]{display:none;}
-.lbc-arrange-tray .lbc-at-row label{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--c-muted);}
-.lbc-wrap .lbc-arrange-tray select{height:28px;padding:0 8px;border:1px solid var(--c-line);border-radius:4px;background:var(--c-bg);color:var(--c-ink);font:13px var(--f-sans);}
-.lbc-wrap .lbc-arrange-tray button{width:auto!important;height:28px!important;padding:0 12px!important;margin:0!important;border:1px solid var(--c-ink)!important;border-radius:999px!important;background:var(--c-bg)!important;color:var(--c-ink)!important;box-shadow:none!important;font:13px/1 var(--f-sans)!important;cursor:pointer;white-space:nowrap;}
-.lbc-wrap .lbc-arrange-tray button:hover:not(:disabled),.lbc-wrap .lbc-arrange-tray button[aria-expanded="true"]{background:var(--c-ink)!important;color:var(--c-bg)!important;}
-.lbc-wrap .lbc-arrange-tray button:disabled{opacity:.45;cursor:default;}
-.lbc-wrap .lbc-arrange-tray button.is-dash{border-style:dashed!important;color:var(--c-muted)!important;}
-.lbc-wrap .lbc-arrange-tray button.is-dash:hover{color:var(--c-bg)!important;}
-.lbc-wrap .lbc-arrange-tray button.is-solid{background:var(--c-ink)!important;color:var(--c-bg)!important;}
 .lbc-wrap .lbc-lab button.lbc-gear svg{width:15px;height:15px;}
 .lbc-fold-sum{font:14px/1.5 var(--f-serif);color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:-4px;cursor:pointer;}
 .lbc-fold-sum:hover{color:var(--c-ink);}
@@ -636,6 +576,65 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 // 1021：标题 / 数字字体随包发（catalog.py 重建时拷进 _archive/fonts/），@font-face 的地址运行时拼（vault 可能挂在别的库子目录里，过 lbPath；
 // 不连 Google Fonts，离线照样显示；文件不在时浏览器退回系统衬线字体）
 // 1026：字体文件 / @font-face 和问收藏共用 LB.brandFontCss（lb-page-lib），只在那一处
+// 1027 编排才用的样式（操作条 / 托盘 / 调整 / 列边）：第一次进编排时才挂（首开少解析一段样式）
+const ARRANGE_CSS = `
+.lbc-wrap.is-arranging .lbc-side{padding-left:12px;padding-right:12px;-webkit-mask-image:none;mask-image:none;}
+.lbc-wrap.is-arranging .lbc-m{position:relative;margin-top:46px;outline:1.5px dashed var(--c-faint);outline-offset:8px;border-radius:2px;}
+.lbc-wrap.is-arranging .lbc-m:hover,.lbc-wrap.is-arranging .lbc-m.is-panel{outline-color:var(--c-ink);}
+.lbc-wrap.is-arranging .lbc-m.is-off{min-height:28px;}
+.lbc-wrap.is-arranging .lbc-mod .lbc-lab,.lbc-wrap.is-arranging .lbc-mod .lbc-fold-sum,.lbc-wrap.is-arranging .lbc-mod .lbc-mod-body{pointer-events:none;user-select:none;}
+.lbc-wrap.is-arranging .lbc-mod-bar{display:flex;position:absolute;z-index:3;top:-38px;left:-8px;max-width:calc(100% + 16px);align-items:center;gap:2px;height:28px;padding:0 4px;box-sizing:border-box;background:var(--c-ink);color:var(--c-bg);border-radius:999px;font:12px/1 var(--f-sans);white-space:nowrap;}
+.lbc-mod-bar .lbc-mb-h{cursor:grab;width:26px;height:22px;display:grid;place-items:center;border-radius:999px;touch-action:none;flex:none;}
+.lbc-mod-bar .lbc-mb-h:active{cursor:grabbing;}
+.lbc-mod-bar .lbc-mb-h svg{width:10px;height:14px;}
+.lbc-mod-bar .lbc-mb-nm{padding:0 8px 0 2px;font-weight:500;overflow:hidden;text-overflow:ellipsis;}
+.lbc-mod-bar .lbc-mb-sep{width:1px;height:12px;background:currentColor;opacity:.3;margin:0 3px;flex:none;}
+.lbc-wrap .lbc-mod-bar button{width:auto!important;min-width:24px;height:22px!important;padding:0 7px!important;margin:0!important;border:0!important;border-radius:999px!important;background:transparent!important;color:inherit!important;box-shadow:none!important;font:inherit!important;cursor:pointer;}
+.lbc-wrap .lbc-mod-bar button:hover:not(:disabled),.lbc-wrap .lbc-mod-bar button[aria-expanded="true"]{background:var(--c-bg)!important;color:var(--c-ink)!important;}
+.lbc-wrap .lbc-mod-bar button:disabled{opacity:.3;cursor:default;}
+.lbc-m.is-dragging{opacity:.35;}
+.lbc-drop-ind{position:fixed;z-index:60;background:var(--text-normal);border-radius:3px;pointer-events:none;}
+.lbc-drop-ind[hidden]{display:none;}
+.lbc-wrap.is-arranging .lbc-col-edge{display:block;position:absolute;top:0;bottom:0;width:14px;margin:0 0 0 -7px!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;cursor:col-resize;z-index:4;touch-action:none;}
+.lbc-col-edge::before{content:"";position:absolute;left:6px;top:0;bottom:0;width:2px;border-radius:2px;background:var(--c-faint);}
+.lbc-col-edge:hover::before,.lbc-col-edge:focus-visible::before,.lbc-col-edge.is-on::before{background:var(--c-ink);}
+.lbc-col-edge .lbc-ce-w{position:absolute;top:6px;left:12px;padding:3px 8px;border-radius:999px;background:var(--c-ink);color:var(--c-bg);font:12px/1 var(--f-sans);white-space:nowrap;display:none;}
+.lbc-col-edge.is-on .lbc-ce-w,.lbc-col-edge:focus-visible .lbc-ce-w{display:block;}
+/* 模块里展开的「调整」 */
+.lbc-mp{position:relative;z-index:2;margin:0 0 14px;padding:12px 14px;border:1px solid var(--c-ink);border-radius:4px;background:var(--c-bg);color:var(--c-ink);font:13px/1.5 var(--f-sans);zoom:1;}
+.lbc-mp-h{display:flex;align-items:center;gap:8px;margin:0 0 8px;font-weight:600;}
+.lbc-mp-h .lbc-mp-save{margin-left:auto;font-weight:400;font-size:12px;color:var(--c-muted);}
+.lbc-mp-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:6px 0;}
+.lbc-mp-row>label,.lbc-mp-k{color:var(--c-muted);font-size:12px;min-width:3.5em;}
+.lbc-mp-row label.lbc-mp-ck{color:var(--c-ink);font-size:13px;min-width:0;display:inline-flex;align-items:center;gap:4px;}
+.lbc-wrap .lbc-mp select,.lbc-wrap .lbc-mp input[type=text],.lbc-wrap .lbc-mp input[type=number]{height:28px;padding:0 8px;border:1px solid var(--c-line);border-radius:4px;background:var(--c-bg);color:var(--c-ink);font:13px var(--f-sans);max-width:100%;box-sizing:border-box;}
+.lbc-wrap .lbc-mp input[type=text]{flex:1 1 140px;min-width:0;}
+.lbc-wrap .lbc-mp input[type=number]{width:84px;}
+.lbc-wrap .lbc-mp button{width:auto!important;height:26px!important;padding:0 10px!important;margin:0!important;border:1px solid var(--c-line)!important;border-radius:999px!important;background:var(--c-bg)!important;color:var(--c-ink)!important;box-shadow:none!important;font:12.5px/1 var(--f-sans)!important;cursor:pointer;white-space:nowrap;}
+.lbc-wrap .lbc-mp button:hover:not(:disabled){border-color:var(--c-ink)!important;}
+.lbc-wrap .lbc-mp button:disabled{opacity:.4;cursor:default;}
+.lbc-mp-note{margin:6px 0 0;font-size:12px;color:var(--c-muted);}
+.lbc-mp-note.is-fail{color:var(--lb-danger);}
+.lbc-mp-cats{display:flex;flex-direction:column;gap:4px;margin:4px 0;}
+.lbc-mp-cat{display:flex;align-items:center;gap:6px;}
+.lbc-mp-cat .lbc-mp-n{font:italic 13px/1 var(--f-latin);color:var(--c-muted);min-width:2em;text-align:right;}
+.lbc-mp .lb-sched{margin-top:4px;}
+.lbc-wrap.is-arranging .lbc-arrange-tray{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0 14px;border-bottom:1px solid var(--c-ink);}
+.lbc-arrange-tray .lbc-at-k{font:700 11px/1 var(--f-display);letter-spacing:.26em;color:var(--c-ink);}
+.lbc-arrange-tray .lbc-at-save{margin-left:auto;font-size:12px;color:var(--c-muted);}
+.lbc-arrange-tray .lbc-at-save.is-fail{color:var(--lb-danger);}
+.lbc-arrange-tray .lbc-at-hint{order:9;flex:1 1 100%;font-size:12px;line-height:1.6;color:var(--c-muted);}
+.lbc-arrange-tray .lbc-at-row{order:8;flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;}
+.lbc-arrange-tray .lbc-at-row[hidden]{display:none;}
+.lbc-arrange-tray .lbc-at-row label{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--c-muted);}
+.lbc-wrap .lbc-arrange-tray select{height:28px;padding:0 8px;border:1px solid var(--c-line);border-radius:4px;background:var(--c-bg);color:var(--c-ink);font:13px var(--f-sans);}
+.lbc-wrap .lbc-arrange-tray button{width:auto!important;height:28px!important;padding:0 12px!important;margin:0!important;border:1px solid var(--c-ink)!important;border-radius:999px!important;background:var(--c-bg)!important;color:var(--c-ink)!important;box-shadow:none!important;font:13px/1 var(--f-sans)!important;cursor:pointer;white-space:nowrap;}
+.lbc-wrap .lbc-arrange-tray button:hover:not(:disabled),.lbc-wrap .lbc-arrange-tray button[aria-expanded="true"]{background:var(--c-ink)!important;color:var(--c-bg)!important;}
+.lbc-wrap .lbc-arrange-tray button:disabled{opacity:.45;cursor:default;}
+.lbc-wrap .lbc-arrange-tray button.is-dash{border-style:dashed!important;color:var(--c-muted)!important;}
+.lbc-wrap .lbc-arrange-tray button.is-dash:hover{color:var(--c-bg)!important;}
+.lbc-wrap .lbc-arrange-tray button.is-solid{background:var(--c-ink)!important;color:var(--c-bg)!important;}
+`;
 LB.style('lbc-style', LB.brandFontCss() + CSS);
 
 // ── 挂载点（C4）：dv.container 后面的兄弟 host；Dataview 重跑只清 container，碰不到页面 ──
@@ -3709,8 +3708,10 @@ const OPT_CHOICES = {
   token: { period: ['month', 'day'] },
   wall: { density: ['s', 'm', 'l'] },
 };
-const FONT_SET = [['', '跟随全站'], [FONT_STACKS.display, 'Cinzel 雕刻'], [FONT_STACKS.serif, '衬线（思源宋体）'], [FONT_STACKS.sans, '无衬线（思源黑体）'],
-  [FONT_STACKS.latin, 'Cormorant 斜体'], [FONT_STACKS.kai, '楷体'], [FONT_STACKS.georgia, 'Georgia']];
+const FONT_SET = [['', '跟随全站'], [FONT_NAMES.cinzel, 'Cinzel 雕刻'], [FONT_NAMES.song, '衬线（思源宋体）'], [FONT_NAMES.hei, '无衬线（思源黑体）'],
+  [FONT_NAMES.cormorant, 'Cormorant 斜体'], [FONT_NAMES.kai, '楷体'], [FONT_NAMES.georgia, 'Georgia']];
+// 模块自己的字体：同一套名字 → 令牌的写法（名字在前、默认栈在后）
+const fontVar = (name, role) => { if (!name) return ''; try { const v = LB.themeVars?.({ [role]: name })?.[role === 'titleFont' ? '--lb-font-title' : '--lb-font-body']; if (v) return v; } catch {} return name; };
 const SIZE_SET = [85, 100, 115, 130, 150];
 const SCALE_SET = [[0.9, '小'], [1, '标准'], [1.1, '大'], [1.2, '特大']];
 const GAP_SET = [[17, '紧凑'], [24, '标准'], [32, '宽松']];
@@ -3893,7 +3894,8 @@ function paintVisibility() {
     el.classList.toggle('is-off', id === 'filters' && !!g.hidden);
     // 字体 / 字号：字体改的是这一块里的正文 / 衬线（标题块连雕刻字一起）；字号 = 这一块缩放（标题按比例放大上限）
     const set = (k, v) => { if (v) { if (el.style.getPropertyValue(k) !== v) el.style.setProperty(k, v); } else if (el.style.getPropertyValue(k)) el.style.removeProperty(k); };
-    set('--f-sans', g.font); set('--f-serif', g.font); if (id === 'title') set('--f-display', g.font);
+    const fb = fontVar(g.font, 'bodyFont');
+    set('--f-sans', fb); set('--f-serif', fb); if (id === 'title') set('--f-display', fontVar(g.font, 'titleFont'));
     const k = g.size === 100 ? '' : String(g.size / 100);
     if (id === 'title') { set('--lbc-title-k', k); set('--lbc-m-k', ''); } else set('--lbc-m-k', k);
   }
@@ -3939,11 +3941,15 @@ function applyLayout({ relayout = true } = {}) {
 }
 // ── 全站样式（Aa 样式）：共享令牌 --lb-font-title / --lb-font-body / --lb-font-num / --lb-scale / --lb-gap；
 //    有 LB.applyTheme（共享样式令牌那条线）就交给它，没有就本页兜底写到 body 上（同一组变量名，合进来以后两边一样） ──
+let themeTouched = false;   // 首开、样式是默认的：不写变量（少一次整页样式重算）
 function applyThemeNow() {
   const t = layout.theme;
-  if (typeof LB.applyTheme === 'function') { try { LB.applyTheme({ ...t }); } catch (e) { console.error('[lb] 样式没套上', e); } }
+  const isDefault = JSON.stringify(t) === JSON.stringify(THEME_DEFAULT);
+  if (isDefault && !themeTouched) { if (wrap.style.getPropertyValue('--lbc-sp')) wrap.style.removeProperty('--lbc-sp'); return; }
+  themeTouched = true;
+  if (typeof LB.applyTheme === 'function') { try { LB.applyTheme(JSON.stringify(t) === JSON.stringify(THEME_DEFAULT) ? null : { ...t }, mount); } catch (e) { console.error('[lb] 样式没套上', e); } }
   else {
-    const el = wrap.ownerDocument?.body || document.body;
+    const el = mount;
     const set = (k, v) => { if (!el?.style) return; if (v) { if (el.style.getPropertyValue(k) !== v) el.style.setProperty(k, v); } else if (el.style.getPropertyValue(k)) el.style.removeProperty(k); };
     set('--lb-font-title', t.titleFont); set('--lb-font-body', t.bodyFont); set('--lb-font-num', t.numberFont);
     set('--lb-scale', t.scale !== 1 ? String(t.scale) : ''); set('--lb-gap', t.gap !== 24 ? t.gap + 'px' : '');
@@ -3982,6 +3988,8 @@ async function flushSave() {
     if (keys.includes('catalogTitle') && typeof p.setCatalogPrefs === 'function') await p.setCatalogPrefs({ title: p.settings.catalogTitle });
     else await p.saveSettings?.();
     if (seq === saveSeq) setSaveState('ok', '已保存');
+    // 「Aa 样式」是全站的：插件把同一份 theme 写到 body（设置页、问收藏、笔记页跟着走）
+    if (keys.includes('catalogLayout')) { try { p.applyTheme?.(); } catch {} }
     try { app.workspace.trigger('link-brain:catalog-prefs', { layout: true }); } catch {}
   } catch (e) {
     for (const k of keys) pendingKeys.add(k);
@@ -4296,13 +4304,13 @@ const panelBody = {
   title(body, g, p) {
     const r = mkRow(body, '标题');
     const inp = r.createEl('input', { type: 'text' }); inp.dataset.k = 'title';
-    inp.placeholder = 'Collections'; inp.maxLength = 40; inp.value = String(p?.settings?.catalogTitle || '');
+    inp.placeholder = '留空 = 默认标题'; inp.maxLength = 40; inp.value = String(p?.settings?.catalogTitle || '');
     inp.addEventListener('input', () => {
       if (!p?.settings) return;
       p.settings.catalogTitle = inp.value.trim().slice(0, 40);
       setTitle(); saveSettingSoon('catalogTitle');
     });
-    body.createEl('p', { cls: 'lbc-mp-note', text: '留空 = Collections。问收藏页的标题同一个。' });
+    body.createEl('p', { cls: 'lbc-mp-note', text: '留空 = 默认标题。问收藏页的标题同一个。' });
   },
   cats(body) {
     if (!idx) {
@@ -4497,9 +4505,9 @@ function paintTray() {
     const s = mkSelect(l, opts, t[key], v => { t[key] = typeof THEME_DEFAULT[key] === 'number' ? Number(v) : v; layout.theme = cleanTheme(t); applyThemeNow(); saveLayout(); if (key === 'gap' || key === 'scale') relayoutSoon(); }, label);
     s.dataset.theme = key;
   };
-  pick('标题字', 'titleFont', FONT_SET.map(([v, n]) => [v, v ? n : '跟随（Cinzel 雕刻）']));
-  pick('正文字', 'bodyFont', FONT_SET.map(([v, n]) => [v, v ? n : '跟随（思源黑体）']));
-  pick('数字', 'numberFont', FONT_SET.map(([v, n]) => [v, v ? n : '跟随（Cormorant 斜体）']));
+  pick('标题字', 'titleFont', FONT_SET.map(([v, n]) => [v, v ? n : '默认（Cinzel 雕刻）']));
+  pick('正文字', 'bodyFont', FONT_SET.map(([v, n]) => [v, v ? n : '默认（思源黑体）']));
+  pick('数字', 'numberFont', FONT_SET.map(([v, n]) => [v, v ? n : '默认（Cormorant 斜体）']));
   pick('界面大小', 'scale', SCALE_SET);
   pick('卡片间距', 'gap', GAP_SET);
   arrangeTray.createEl('div', { cls: 'lbc-at-hint', text: '按住 ⠿ 拖到任何位置（放到一块的左右边 = 并排）；拖两列之间的竖线调宽；「调整」改这一块的字和设置；× 移除（「＋ 模块」加回）。改了马上生效、自动保存，只在电脑上。' });
@@ -4520,7 +4528,7 @@ let arranging = false;
 function setArranging(on) {
   if (!arrangeBtn || arranging === !!on) return;
   arranging = !!on;
-  if (arranging) { for (const id of MOD_IDS) ensureBar(id); if (!sideOpen) setSideOpen(true); }
+  if (arranging) { LB.style('lbc-arrange-style', ARRANGE_CSS); for (const id of MOD_IDS) ensureBar(id); if (!sideOpen) setSideOpen(true); }
   else { closePanel(); endModDrag(true); endEdgeDrag(); if (saveTimer) flushSave(); }
   wrap.classList.toggle('is-arranging', arranging);
   arrangeBtn.setAttribute('aria-pressed', String(arranging));

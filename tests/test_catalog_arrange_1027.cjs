@@ -174,15 +174,18 @@ async function dragTo(P, id, x, y) {
     const size = panel().querySelector('[data-k="size"]'); size.value = '130'; size.onchange();
     assert.equal(mod(P, 'recent').style.getPropertyValue('--lbc-m-k'), '1.3');
     const font = panel().querySelector('[data-k="font"]'); font.value = font.querySelectorAll('option')[2].value; font.onchange();
-    assert.match(mod(P, 'recent').style.getPropertyValue('--f-sans'), /Noto Serif SC/);
+    assert.match(mod(P, 'recent').style.getPropertyValue('--f-sans'), /^"Noto Serif SC",.*var\(--lb-font-body-base\)$/);
     // 标题文字：输入即改，存走 setCatalogPrefs（插件写完回读核对）
     bar(P, 'title', 'adjust').onclick(ev());
     assert.equal(panel().dataset.panel, 'title', '一次只开一个');
-    const t = panel().querySelector('[data-k="title"]'); t.value = 'LER&FABLE'; t.fire('input');
-    assert.equal(P.$('.lbc-title-text').textContent, 'LER&FABLE', '标题当场换');
+    const t = panel().querySelector('[data-k="title"]'); t.value = 'MY ARCHIVE'; t.fire('input');
+    assert.equal(P.$('.lbc-title-text').textContent, 'MY ARCHIVE', '标题当场换');
+    // 后台 Dataview 重跑（同步 / 补处理）：编排态、展开的调整、输入框都不重建
+    await P.A.rerun(); await tick(5);
+    assert.ok(P.$('.lbc-wrap').classList.contains('is-arranging') && P.$('.lbc-mp [data-k="title"]') === t && t.value === 'MY ARCHIVE', '重跑后输入框还是同一个、字还在');
     await tick(450);
-    assert.deepEqual(p.calls.filter(c => c[0] === 'prefs').at(-1), ['prefs', 'LER&FABLE']);
-    assert.equal(p.settings.catalogTitle, 'LER&FABLE');
+    assert.deepEqual(p.calls.filter(c => c[0] === 'prefs').at(-1), ['prefs', 'MY ARCHIVE']);
+    assert.equal(p.settings.catalogTitle, 'MY ARCHIVE');
     assert.equal(P.$('.lbc-arrange-tray .lbc-at-save').textContent, '已保存');
     // 收藏墙：列数 / 密度
     bar(P, 'wall', 'adjust').onclick(ev());
@@ -239,7 +242,7 @@ async function dragTo(P, id, x, y) {
     assert.equal(Q.$$('.lbc-mod-recent .lbc-rec li').length, 2);
     assert.equal(mod(Q, 'recent').style.getPropertyValue('--lbc-m-k'), '1.3');
     assert.ok(mod(Q, 'filters').classList.contains('lbc-f-no-tag'));
-    assert.equal(Q.$('.lbc-title-text').textContent, 'LER&FABLE');
+    assert.equal(Q.$('.lbc-title-text').textContent, 'MY ARCHIVE');
   }
 
   // ── ⑥ Aa 样式 ──
@@ -250,17 +253,17 @@ async function dragTo(P, id, x, y) {
     P.$('.lbc-arrange-tray [data-act="style"]').onclick();
     assert.equal(P.$('.lbc-at-style').hidden, false);
     const sel = k => P.$(`.lbc-arrange-tray [data-theme="${k}"]`);
-    const tf = sel('titleFont'); tf.value = tf.querySelectorAll("option").find(o => /^Georgia/.test(o.value)).value; tf.onchange();
-    const body = P.dom.document.body.style;
-    assert.match(body.getPropertyValue('--lb-font-title'), /^Georgia/, '标题字 → 共享令牌 --lb-font-title');
+    const tf = sel('titleFont'); tf.value = 'Georgia'; tf.onchange();
+    const host = P.$('.lbc-wrap').parentNode.style;   // LB.applyTheme 写在本页 host 上（共享令牌那条线的接口）
+    assert.equal(host.getPropertyValue('--lb-font-title'), '"Georgia",var(--lb-font-title-base)', '标题字 → 共享令牌 --lb-font-title（名字在前、默认栈兜底）');
     const gp = sel('gap'); gp.value = '17'; gp.onchange();
-    assert.equal(P.$('.lbc-wrap').style.getPropertyValue('--lbc-sp'), '0.71'); assert.equal(body.getPropertyValue('--lb-gap'), '17px');
+    assert.equal(P.$('.lbc-wrap').style.getPropertyValue('--lbc-sp'), '0.71'); assert.equal(host.getPropertyValue('--lb-gap'), '17px');
     const sc = sel('scale'); sc.value = '1.1'; sc.onchange();
-    assert.equal(body.getPropertyValue('--lb-scale'), '1.1');
+    assert.equal(host.getPropertyValue('--lb-scale'), '1.1');
     await tick(450);
-    assert.deepEqual(L(p).theme, { titleFont: 'Georgia,"Times New Roman",serif', bodyFont: '', numberFont: '', scale: 1.1, gap: 17 }, 'catalogLayout.theme');
+    assert.deepEqual(L(p).theme, { titleFont: 'Georgia', bodyFont: '', numberFont: '', scale: 1.1, gap: 17 }, 'catalogLayout.theme');
     const gp2 = sel('gap'); gp2.value = '24'; gp2.onchange(); const sc2 = sel('scale'); sc2.value = '1'; sc2.onchange(); const tf2 = sel('titleFont'); tf2.value = ''; tf2.onchange();
-    assert.equal(body.getPropertyValue('--lb-scale'), '', '回到默认就把令牌摘掉');
+    assert.equal(host.getPropertyValue('--lb-scale'), '', '回到默认就把令牌摘掉');
     await tick(450);
     assert.equal(L(p), null);
   }

@@ -1,4 +1,4 @@
-// 1027 她的目录标题（自定义的「LER&…」）在 data.json 里成了空串（10-17 的备份里已经是空的，页面上却一直显示着——只在内存里）。
+// 1027 她的目录标题（自定义的自定义的标题）在 data.json 里成了空串（10-17 的备份里已经是空的，页面上却一直显示着——只在内存里）。
 // 根因：saveMerged 用「内存值 ≠ 快照」认本窗口改过哪些键，但保存之间不排队——
 //   改标题的那次保存 S1 和页面 / 设置页同时触发的另一次保存 S2 交叠：S2 的 loadData 读的是 S1 写盘前的旧文件，比较却用 S1 写完才更新的快照，
 //   于是刚改的标题被判成「没改过」，内存和 data.json 一起被旧值 '' 盖掉。外部重读（盯文件 / onExternalSettingsChange）插在保存中间同理，
@@ -39,13 +39,13 @@ function makePlugin(saved, { readDelays = [] } = {}) {
   {
     // 第 1 次读（改标题那次）5ms 交回；第 2 次读（另一次保存）在写盘之前就开始读、30ms 后才交回；之后的回读不延迟
     const p = makePlugin({ catalogTitle: '', catalogColumns: 4 }, { readDelays: [5, 30] });
-    const a = p.setCatalogPrefs({ title: 'LER&FABLE' });
+    const a = p.setCatalogPrefs({ title: 'MY ARCHIVE' });
     await sleep(1);
     p.settings.catalogColumns = 5;
     const b = p.saveSettings();
     await Promise.all([a, b]);
-    assert.equal(p.settings.catalogTitle, 'LER&FABLE', '内存里的标题被旧磁盘值盖掉了');
-    assert.equal(p.disk().catalogTitle, 'LER&FABLE', 'data.json 里的标题被另一次保存写回了空串');
+    assert.equal(p.settings.catalogTitle, 'MY ARCHIVE', '内存里的标题被旧磁盘值盖掉了');
+    assert.equal(p.disk().catalogTitle, 'MY ARCHIVE', 'data.json 里的标题被另一次保存写回了空串');
     assert.equal(p.disk().catalogColumns, 5, '另一次保存的列数也要在');
   }
   // —— 2. 外部重读赶在防抖保存之前 ——

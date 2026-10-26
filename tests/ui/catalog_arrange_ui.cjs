@@ -122,7 +122,7 @@ const center = r => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
       await page.selectOption('.lbc-arrange-tray [data-theme="scale"]', '1.2'); await S.settle(150);
       const tok1 = await R(page, '.lbc-m-token');
       assert.ok(tok1.height > tok0.height * 1.1, `界面放大 ${tok0.height} → ${tok1.height}`);
-      assert.equal(await page.evaluate(() => document.body.style.getPropertyValue('--lb-scale')), '1.2', '共享令牌 --lb-scale');
+      assert.equal(await page.evaluate(() => document.querySelector('.lb-page-host').style.getPropertyValue('--lb-scale')), '1.2', '共享令牌 --lb-scale（LB.applyTheme 写在本页 host）');
       shots.push(await S.screenshot('catalog-arrange-1027-theme'));
       await page.selectOption('.lbc-arrange-tray [data-theme="scale"]', '1'); await S.settle(80);
       // ⑥ × / ＋
