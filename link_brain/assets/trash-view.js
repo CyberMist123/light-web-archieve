@@ -15,18 +15,18 @@ LB.style('lb-trash-style', `
 /* 10-04（她定）整页外面那层 dataviewjs 代码块的框隐形 */
 .lb-trashpage :is(.el-pre:has(.block-language-dataviewjs),pre:has(.block-language-dataviewjs),.block-language-dataviewjs,.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs),.lb-trashpage :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs):hover{border:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;border-radius:0!important;}
 .lb-trashpage :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-lang-dataviewjs) .edit-block-button{display:none!important;}
-.lbt-wrap{max-width:820px;margin:0 auto;padding:22px 16px 40px;box-sizing:border-box;font-family:"Noto Sans SC","Segoe UI","Microsoft YaHei UI",sans-serif;}
-.lbt-head{position:sticky;top:0;z-index:2;background:var(--background-primary);display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px 16px;padding:0 0 12px;}
+.lbt-wrap{max-width:820px;margin:0 auto;padding:22px 16px 40px;box-sizing:border-box;font-family:var(--lb-font-body);}
+.lbt-head{position:sticky;top:0;z-index:2;background:var(--lb-surface);display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px 16px;padding:0 0 12px;}
 .lbt-title{font-family:Georgia,'Playfair Display','Times New Roman',serif;font-style:italic;font-size:30px;font-weight:700;line-height:1.1;}
 .lbt-wrap .lb-page-nav{grid-column:1;grid-row:2;justify-self:start;padding:0;background:transparent;}
 .lbt-tools{grid-column:2;grid-row:1;justify-self:end;}
-.lbt-note{grid-column:1/-1;font-size:12px;line-height:1.6;color:var(--text-muted);margin:0;}
-.lbt-row{display:flex;gap:16px;align-items:center;padding:12px 0;border-bottom:1px solid var(--background-modifier-border);position:relative;}
+.lbt-note{grid-column:1/-1;font-size:var(--lb-fs-small);line-height:1.6;color:var(--lb-muted);margin:0;}
+.lbt-row{display:flex;gap:16px;align-items:center;padding:12px 0;border-bottom:1px solid var(--lb-line);position:relative;}
 .lbt-row.is-busy{opacity:.6;}
-.lbt-cover{flex:0 0 64px;width:64px;height:72px;object-fit:cover;border-radius:8px;background:var(--background-secondary);}
+.lbt-cover{flex:0 0 64px;width:64px;height:72px;object-fit:cover;border-radius:var(--lb-radius);background:var(--lb-soft);}
 .lbt-text{flex:1;min-width:0;}
 .lbt-name{font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.lbt-meta{font-size:12px;color:var(--text-muted);margin-top:2px;}
+.lbt-meta{font-size:var(--lb-fs-small);color:var(--lb-muted);margin-top:2px;}
 .lbt-actions{display:flex;gap:8px;flex:none;}
 .lbt-actions{align-items:center;}
 /* 1023：红色保留，但不要整块实心红（Obsidian 的 mod-warning 底色 + 我们的红字 = 按钮上看不见字）：红字红框、底透明，悬停才浅红底 */
@@ -34,25 +34,25 @@ LB.style('lb-trash-style', `
 .lbt-wrap button.lbt-danger:hover{background:rgba(224,62,62,.08)!important;}
 .lbt-tools{display:flex;gap:10px;align-items:center;}
 /* 已彻底删除的记录：收进右上角一个小图标，点开才看；可选中重新导入，可切瀑布流 / 目录 */
-.lbt-wrap button.lbt-rec-btn{display:inline-flex;align-items:center;gap:6px;background:transparent!important;box-shadow:none!important;border:1px solid var(--background-modifier-border)!important;color:var(--text-muted);font-size:12px;}
-.lbt-wrap button.lbt-rec-btn.is-on{color:var(--text-normal);border-color:var(--text-normal)!important;}
+.lbt-wrap button.lbt-rec-btn{display:inline-flex;align-items:center;gap:6px;background:transparent!important;box-shadow:none!important;border:1px solid var(--lb-line)!important;color:var(--lb-muted);font-size:var(--lb-fs-small);}
+.lbt-wrap button.lbt-rec-btn.is-on{color:var(--lb-ink);border-color:var(--lb-ink)!important;}
 .lbt-wrap button.lbt-rec-btn svg{width:14px;height:14px;}
-.lbt-recs{margin:6px 0 22px;padding:14px 0 6px;border-top:1px solid var(--text-normal);}
+.lbt-recs{margin:6px 0 22px;padding:14px 0 6px;border-top:1px solid var(--lb-ink);}
 .lbt-recs[hidden]{display:none!important;}
-.lbt-recs-bar{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-bottom:12px;font-size:12px;color:var(--text-muted);}
+.lbt-recs-bar{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-bottom:12px;font-size:var(--lb-fs-small);color:var(--lb-muted);}
 .lbt-recs-bar .lbt-sp{flex:1;}
-.lbt-seg{display:inline-flex;padding:2px;border-radius:999px;background:var(--background-secondary);}
-.lbt-wrap .lbt-seg button{height:auto!important;padding:4px 12px!important;border:0!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--text-muted);font-size:12px;transition:background .15s,color .15s;}
-.lbt-wrap .lbt-seg button.is-on{background:var(--text-normal)!important;color:var(--background-primary)!important;}
+.lbt-seg{display:inline-flex;padding:2px;border-radius:var(--lb-radius-pill);background:var(--lb-soft);}
+.lbt-wrap .lbt-seg button{height:auto!important;padding:4px 12px!important;border:0!important;border-radius:var(--lb-radius-pill)!important;background:transparent!important;box-shadow:none!important;color:var(--lb-muted);font-size:var(--lb-fs-small);transition:background .15s,color .15s;}
+.lbt-wrap .lbt-seg button.is-on{background:var(--lb-ink)!important;color:var(--lb-surface)!important;}
 .lbt-recs-list.is-grid{columns:3 180px;column-gap:12px;}
-.lbt-rec{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--background-modifier-border);cursor:pointer;font-size:13px;break-inside:avoid;}
-.lbt-recs-list.is-grid .lbt-rec{flex-direction:column;gap:6px;padding:12px;margin:0 0 12px;border:1px solid var(--background-modifier-border);border-radius:10px;}
-.lbt-recs-list.is-grid .lbt-rec.is-sel{border-color:var(--text-normal);}
+.lbt-rec{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--lb-line);cursor:pointer;font-size:13px;break-inside:avoid;}
+.lbt-recs-list.is-grid .lbt-rec{flex-direction:column;gap:6px;padding:12px;margin:0 0 12px;border:1px solid var(--lb-line);border-radius:10px;}
+.lbt-recs-list.is-grid .lbt-rec.is-sel{border-color:var(--lb-ink);}
 .lbt-rec input{margin:3px 0 0;flex:none;}
 .lbt-rec-t{flex:1;min-width:0;line-height:1.5;}
-.lbt-rec-d{font-size:12px;color:var(--text-muted);white-space:nowrap;}
-.lbt-empty{padding:40px 0;color:var(--text-muted);}
-.lbt-empty-sub{font-size:12px;color:var(--text-faint);margin-top:6px;}
+.lbt-rec-d{font-size:var(--lb-fs-small);color:var(--lb-muted);white-space:nowrap;}
+.lbt-empty{padding:40px 0;color:var(--lb-muted);}
+.lbt-empty-sub{font-size:var(--lb-fs-small);color:var(--lb-faint);margin-top:6px;}
 `);
 const mount = LB.mountHost('lbt-host');
 const wrap = mount.createEl('div', { cls: 'lbt-wrap' });

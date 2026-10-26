@@ -372,3 +372,43 @@ provider().killTree(pid)   // 同一排除规则
 各页面里的字由各自所属的线改（目录 L1、问收藏 L2、批注 L3、插件与设置 L4）；`tests/test_terms_x5.cjs`（L4）全部合入后设为必过。
 
 ---
+
+## 9. 样式集（1027）
+
+**规则**
+1. 字体、字号、颜色、间距、圆角、控件高度**只用样式集里的名字**（`var(--lb-*)` + 下面几个共用类）。新界面不许再手写字体栈、写死灰色（`var(--text-muted)` 这类直接写也算）或另起一套同义变量；旧代码动到时顺手换。`tests/test_guards.py` 的「写死的字体栈」规则扫 `link_brain/assets/*.js`，基线只许减。
+2. **唯一源** `link_brain/assets/lb-tokens.css`。副本由 `python tools/sync_tokens.py` 拷（`--check` 只查），只替换 `/* lb-tokens:begin … lb-tokens:end */` 之间：lb-page-lib.js 的 `LB_SHARED_CSS`（页面自己注入 head，手机上没有插件也在）、插件 `styles.css` 顶部（设置页）、`link-brain.css` 和它的副本 `note.css`（笔记页）。`tests/test_tokens_1027.py` 锁四份逐字相同、约定名字一个不少。别在副本里改。
+3. 黑白为主：颜色全映射 Obsidian 主题变量（深浅色、第三方主题跟着走），`--lb-accent` = 墨色；橙 / 红（`--lb-warn` / `--lb-danger`）只给状态。
+4. 她能改的五个——标题字体 / 正文字体 / 数字字体 / 字号倍数 / 卡片间距——存插件设置 `catalogLayout.theme = {titleFont, bodyFont, numberFont, scale, gap}`，只经下面的函数写成页面根上的行内变量，不许各页自己 setProperty：
+   - 页面：`LB.applyTheme(theme?, el?)` → 变量表。theme 不传 = 读插件设置（手机上 = 默认），`null` / `{}` = 回默认；el 不传 = 本页 host。`LB.themeVars(theme)` 只算不写；`LB.TOKENS_CSS` = 样式集原文。
+   - 插件：`plugin.applyTheme(theme?, el?)`（el 不传 = `document.body`，全局生效）；`plugin.lbTheme()` = `{lbThemeVars, lbApplyTheme(el, theme)}`（`lb-theme.js`，和 lb-page-lib.js 里 `/* lb-theme:begin */` 那段逐字相同，同一个同步工具拷）。
+   - 换算：字体名放前面、默认栈兜底（`--lb-font-*-base`），去掉引号 / 分号 / 括号；`scale` 限 0.5–2；`gap` 像素数（或 `s` / `m` / `l` = 24px × 0.7 / 1 / 1.35）限 0–96。
+5. 字号和颜色定义在 `body,.lb-page-host,.lb-scope` 上：CSS 变量里的 `var()` 在定义它的那层就算死，所以页面根上改了 `--lb-scale` 要在那一层重算。自己做的独立根（设置页某块预览、弹层）要跟着倍数走就加 `.lb-scope`（`applyTheme` 写非 body 元素时自动加）。五个可改项只在 body 给默认值，页面根不得重新给默认值。
+6. 笔记页自己的局部量改叫 `--lbn-*`（`--lbn-gap / --lbn-radius / --lbn-line / --lbn-surface`），不和样式集同名不同值。
+
+**形状**（`--lb-fs-*` 都乘 `--lb-scale`）
+
+| 变量 | 值（倍数 1 时） | 用途 |
+|---|---|---|
+| `--lb-font-title` | `"LB Cinzel","Cinzel","Trajan Pro","Times New Roman",serif`（= `LB.BRAND_FONT_STACK`） | 雕刻大标题、小标题（kicker） |
+| `--lb-font-serif` | `"Noto Serif SC","Source Han Serif SC",…,serif` | 中文标题 / 卡片标题 |
+| `--lb-font-num` | `"LB Cormorant","Cormorant Garamond",Georgia,…,serif` | 数字（斜体、等宽数字 `--lb-num-feat`） |
+| `--lb-font-body` | `"Noto Sans SC","Segoe UI","Microsoft YaHei UI",sans-serif` | 正文、按钮、输入 |
+| `--lb-fs-display` / `-h1` / `-h2` | `clamp(30px,6.5cqi,96px)` / 18px / 16px | 页面大标题 / 一级 / 二级 |
+| `--lb-fs-body` / `-small` / `-micro` | 13.5px / 12px / 11px | 正文 / 小字 / 角标 |
+| `--lb-fs-num-lg` / `-num` | 34px / 15px | 大数字 / 行内数字 |
+| `--lb-ink` `--lb-muted` `--lb-faint` | `--text-normal` / `--text-muted` / `--text-faint` | 字色三档 |
+| `--lb-line` `--lb-surface` `--lb-soft` | `--background-modifier-border` / `--background-primary` / `--background-secondary` | 线 / 底 / 浅底 |
+| `--lb-accent` | `--text-normal` | 强调 = 墨色（黑白） |
+| `--lb-warn` `--lb-danger`（+ `-bg` / `-border`、`--lb-ok`、`--lb-star`） | 同 §5.11 | 只给状态 |
+| `--lb-space-1…6` | 4 / 8 / 12 / 16 / 24 / 32px | 间距 |
+| `--lb-radius` / `--lb-radius-pill` / `--lb-ctl-h` | 8px / 999px / 34px | 圆角 / 胶囊 / 控件高 |
+| `--lb-scale` / `--lb-gap` | 1 / 24px | 她的字号倍数 / 卡片间距 |
+
+共用类：`.lb-btn`（细框按钮，`.is-primary` 墨底）· `.lb-btn-pill`（墨线胶囊，悬停 / `.is-on` 反白）· `.lb-input` · `.lb-label`（小字灰）· `.lb-num`（数字字体斜体等宽；不作用于 `input.lb-num`）· `.lb-kicker`（RECENT / SYNC 这种小标题：标题字体 11px 700 字距 .26em 大写）。
+
+**迁移点**
+- 1027 已迁：lb-page-lib 共用规则（导航 / 管理 / 遮罩 / 手机提示的灰和字号）、`brandCss`（字号 `--lb-fs-display`、字体 `--lb-font-title`）；问收藏、回收站页样式里的灰 / 线 / 底、12 / 11 / 13.5px、8px / 999px 圆角、正文字体栈；笔记页三处正文字体栈。
+- 剩下（基线里）：目录页 `.lbc-wrap` 自己的 `--c-* / --f-* / --fs-*`（目录线改编排时换成 `--lb-*`，`--f-display` 已经读 `LB.BRAND_FONT_STACK`）；问收藏 / 回收站标题旧的 Georgia 栈（问收藏已被 brandCss 盖住，回收站还在用）；`.lb-manage` 的 Arial（「…」字形）；批注块 `var(--font-interface),sans-serif`。设置页（settings-v6 / usage-ui / remote-ui）的 `var(--text-*)` 由设置线换。
+
+---

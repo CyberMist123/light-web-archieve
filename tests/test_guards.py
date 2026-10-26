@@ -47,6 +47,7 @@ class Rule:
     ok_marker: str = ""          # 行尾带这个标记的行不计
     skip_comments: bool = True   # 整行注释不扫
     flags: int = 0               # 正则开关（如 re.I）
+    skip_block: str = ""         # 跳过 /* <名>:begin … <名>:end */ 之间的行（逐字副本，源头另有锁）
     _rx: re.Pattern = field(init=False, repr=False, compare=False)
 
     def __post_init__(self):
@@ -117,6 +118,12 @@ RULES: dict[str, Rule] = {
         r"os\.replace\(tmp|mkstemp\(|\.tmp[\"']\)|with_suffix\([\"']\.tmp[\"']\)|NamedTemporaryFile\(",
         PY_ONLY, {"link_brain/storage.py"}, "CONVENTIONS §6.5：写 .tmp 再 os.replace 用 storage.*"),
     # ---- 公开仓不带本机路径（原 test_hardening_1001.test_no_private_default_paths_in_public_modules，扫全部）----
+    # ---- 1027 样式集：字体栈只在 link_brain/assets/lb-tokens.css（各副本里的 lb-tokens 块不计）----
+    "写死的字体栈": _rule(
+        r"font-family:\s*(?!var\(|inherit|initial|unset)[\"']?[A-Za-z]|,\s*[\"']?(?:sans-serif|serif|monospace)\b",
+        ("link_brain/assets/*.js",), (),
+        "CONVENTIONS「样式集」：新界面用 var(--lb-font-title / serif / num / body)，不再手写字体栈；基线是 1027 时剩下的",
+        skip_block="lb-tokens"),
     "本机私有路径": _rule(
         r"[A-Za-z]:[\\/]Users[\\/](?!<|%|\{)[^\\/\s]+[\\/]",
         PY_GLOBS + JS_GLOBS, (), "AGENTS.md 第 5 条：不进本机用户路径", skip_comments=False, flags=re.I),
@@ -141,7 +148,15 @@ def scan(rule: Rule, root: Path = ROOT) -> dict[str, int]:
         if rel in rule.allowed:
             continue
         n = 0
+        in_block = False
         for line in p.read_text("utf-8", errors="replace").splitlines():
+            if rule.skip_block:
+                if f"/* {rule.skip_block}:begin" in line:
+                    in_block = True
+                if in_block:
+                    if f"{rule.skip_block}:end */" in line:
+                        in_block = False
+                    continue
             s = line.lstrip()
             if rule.skip_comments and (s.startswith("#") or s.startswith("//")):
                 continue
