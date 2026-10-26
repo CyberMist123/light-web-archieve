@@ -1002,10 +1002,10 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 /* 1026 她：「Sonnet」离发送键太远——下拉框按文字宽度收窄、靠右贴着按钮 */
 .lbchat .lbchat-cbar .lbchat-model{display:none!important;}
 /* 1026 她：模型按钮（胶囊）+ 上拉卡片，照 Codex 的样子；按钮和发送键之间留开一点 */
-.lbchat button.lbchat-modelbtn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px!important;margin-right:10px;border:0!important;box-shadow:none!important;border-radius:999px!important;background:var(--background-modifier-hover)!important;color:var(--text-muted);font:inherit;font-size:13px;cursor:pointer;white-space:nowrap;}
+/* 1026 她：模型名照原来透明的样子——不铺灰底、不要箭头；和发送键的间距 = 输入文字到卡片左边框的距离 */
+.lbchat button.lbchat-modelbtn{display:inline-flex;align-items:center;height:32px;padding:0!important;margin-right:13px;border:0!important;box-shadow:none!important;border-radius:0!important;background:transparent!important;color:var(--text-muted);font:inherit;font-size:13px;cursor:pointer;white-space:nowrap;}
 .lbchat button.lbchat-modelbtn:hover{color:var(--text-normal);}
 .lbchat button.lbchat-modelbtn[hidden]{display:none!important;}
-.lbchat-modelbtn-chev{font-size:11px;opacity:.7;transform:translateY(-2px);}
 .lbchat-modelpop{position:fixed;z-index:9999;width:260px;max-height:60vh;overflow:auto;padding:8px 6px;box-sizing:border-box;border-radius:16px;background:var(--background-primary);border:1px solid var(--background-modifier-border);box-shadow:0 12px 36px rgba(0,0,0,.16);font-family:var(--font-interface);font-size:14px;}
 .lbchat-modelpop-title{padding:6px 12px 8px;color:var(--text-faint);font-size:13px;}
 .lbchat-modelpop-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 12px;border-radius:10px;cursor:pointer;color:var(--text-normal);}
@@ -1139,7 +1139,6 @@ const paintModelBtn = () => {
   modelBtn.hidden = modelPick.hidden;
   modelBtn.empty();
   modelBtn.createSpan({ cls: 'lbchat-modelbtn-name', text: modelPick.value || '' });
-  modelBtn.createSpan({ cls: 'lbchat-modelbtn-chev', text: '⌄' });
 };
 modelBtn.onclick = e => {
   e?.stopPropagation?.();
