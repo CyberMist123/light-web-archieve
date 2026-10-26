@@ -15,6 +15,7 @@ const shell = require('../_obsidian_shell.cjs');
 function fixture() {
   const data = shell.makeCatalogData({ n: 48 });
   data.topics = ['合同法', 'graph', '睡眠'];
+  data.schema = 1;   // 和页面的 CATALOG_SCHEMA 对上（不然标题下多一句「旧版程序生成的」，把篇数那行挤下去）
   const authors = ['法学笔记本', '小锅日记', '喵学研究所', 'Ann'];
   const day = (() => { const d = new Date(); const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; })();
   data.items.forEach((it, i) => {
@@ -61,7 +62,9 @@ function fixture() {
       });
       assert.ok(m.fontOk, `${tag}：随包的 Cinzel 真加载上了（${m.titleFamily}）`);
       assert.equal(m.dataText, m.titleText, `${tag}：刻线层和标题同字`);
-      assert.ok(m.catsScroll <= 1 && m.catsJustify === 'center' && m.catsWrap === 'wrap', `${tag}：分类行居中、换行、不横向滚 ${JSON.stringify(m)}`);
+      // 1023 她要分类单行铺开（space-between）；1026 她：窗口窄了不许裁——放不下就换行居中
+      assert.ok(m.catsScroll <= 1 && (m.catsWrap === 'nowrap' ? m.catsJustify === 'space-between' : m.catsJustify === 'center' && m.catsWrap === 'wrap'), `${tag}：分类行放得下单行铺开、放不下换行居中，都不横向滚 ${JSON.stringify(m)}`);
+      if (width < 1000) assert.equal(m.catsWrap, 'wrap', `${tag}：窄屏换行`);
       assert.ok(m.ctl.every(h => h === 34), `${tag}：控制行右组同高 34px ${m.ctl}`);
       assert.ok(m.hOverflow <= 1, `${tag}：没有横向滚动 ${m.hOverflow}`);
       if (width >= 1000) {
@@ -117,7 +120,8 @@ function fixture() {
       await page.hover('.lbc-topic-wrap >> nth=1'); await S.settle(60);
       assert.equal(await page.evaluate(() => getComputedStyle(document.querySelectorAll('.lbc-topic-del')[1]).display), 'grid', '悬停胶囊出 ×');
       shots.push(await S.screenshot('catalog-plus-topics'));
-      await page.click('.lbc-view[data-view="list"]'); await S.settle();
+      // 1023 起「列表」入口藏了；1026 表格用在「最近导入 → 查看全部」（同一套 .lbc-ltable 样式）
+      await page.click('.lbc-rec-all'); await S.settle();
       const list = await page.evaluate(() => ({ grid: document.querySelector('.lbc-grid').hidden, rows: document.querySelectorAll('.lbc-ltable tr.lbc-lrow').length, w: document.querySelector('.lbc-ltable').getBoundingClientRect().width, main: document.querySelector('.lbc-board-main').getBoundingClientRect().width }));
       // 1021 第 3 段：左边有边栏，列表铺满右边收藏墙那一栏（8/12）
       assert.ok(list.grid && list.rows > 0 && list.w > 700 && list.w >= list.main - 12, `列表视图 ${JSON.stringify(list)}`);

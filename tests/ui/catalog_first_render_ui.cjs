@@ -54,14 +54,16 @@ const shell = require('../_obsidian_shell.cjs');
     const a = await page.screenshot({ clip });
     await page.addStyleTag({ content: '.lbc-card{content-visibility:visible!important}' }); await page.waitForTimeout(300);
     const z = await page.screenshot({ clip });
-    const diff = await page.evaluate(async ([a, z]) => {
+    // 1026：只比卡片边缘一圈（往里 12px、往外到截图边）——阴影 / 描边被裁只会出现在这里；卡里面的小字（Cormorant 斜体日期）两次光栅化会差几个像素，和裁不裁无关
+    const diff = await page.evaluate(async ([a, z, w, h]) => {
       const load = src => new Promise(r => { const i = new Image(); i.onload = () => r(i); i.src = 'data:image/png;base64,' + src; });
       const [ia, iz] = await Promise.all([load(a), load(z)]);
       const px = i => { const c = document.createElement('canvas'); c.width = i.width; c.height = i.height; const x = c.getContext('2d'); x.drawImage(i, 0, 0); return x.getImageData(0, 0, i.width, i.height).data; };
       const da = px(ia), dz = px(iz); let n = 0;
-      for (let k = 0; k < da.length; k += 4) if (Math.abs(da[k] - dz[k]) + Math.abs(da[k + 1] - dz[k + 1]) + Math.abs(da[k + 2] - dz[k + 2]) > 30) n++;
+      const W = ia.width, inside = k => { const p = k / 4, x = p % W, y = Math.floor(p / W); return x > 20 + 12 && x < 20 + w - 12 && y > 24 + 12 && y < 24 + h - 12; };
+      for (let k = 0; k < da.length; k += 4) if (!inside(k) && Math.abs(da[k] - dz[k]) + Math.abs(da[k + 1] - dz[k + 1]) + Math.abs(da[k + 2] - dz[k + 2]) > 30) n++;
       return n;
-    }, [a.toString('base64'), z.toString('base64')]);
+    }, [a.toString('base64'), z.toString('base64'), b.width, b.height]);
     assert.ok(diff <= 20, `悬停阴影 / 选中描边没被裁（差异像素 ${diff}）`);
     assert.deepEqual(await on.S.pageErrors(), []);
     console.log(`PASS catalog first render: 700 cards content-visibility:auto with estimated intrinsic size, Layout ${on.ms.toFixed(0)}ms vs ${off.ms.toFixed(0)}ms without, scroll to end and back keeps first row, hover / selected not clipped`);

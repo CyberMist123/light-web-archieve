@@ -87,7 +87,8 @@ async function open(browser, { width = 1280, height = 900, theme = 'light', idx,
 const tabs = page => page.evaluate(() => [...document.querySelectorAll('.lbc-cats .lbc-cat, .lbc-vseg .lbc-view')].map(b => ({ text: b.textContent, on: b.classList.contains('is-active') || b.classList.contains('is-on') })));
 const chips = page => page.evaluate(() => [...document.querySelectorAll('.lbc-subcats .lbc-subcat')].map(b => ({ text: b.textContent, on: b.classList.contains('is-active'), path: b.dataset.path })));
 const cardTitles = page => page.evaluate(() => [...document.querySelectorAll('.lbc-grid .lbc-card .lbc-ctitle')].map(e => e.textContent));
-const clickTab = async (page, text) => { await page.evaluate(t => [...document.querySelectorAll('.lbc-cats .lbc-cat, .lbc-vseg .lbc-view')].find(b => b.textContent === t).click(), text); };
+// 1026：「索引」不在视图开关里常驻了——没开着时从 Wiki 页的「分类树 · 索引编辑」进（开着时开关里多一项「索引」，点了回去）
+const clickTab = async (page, text) => { await page.evaluate(t => { const b = [...document.querySelectorAll('.lbc-cats .lbc-cat, .lbc-vseg .lbc-view')].find(x => x.textContent === t); if (b) b.click(); else if (t === '索引') { document.querySelector('.lbc-view[data-view="wiki"]').click(); document.querySelector('.lbc-wiki .lbc-index-open').click(); } }, text); };
 const treeRows = page => page.evaluate(() => [...document.querySelectorAll('.lbi-panel .lbi-row')].map(r => ({ path: r.dataset.path, text: r.querySelector('.lbi-label').textContent,
   cls: r.className, acts: [...r.querySelectorAll('.lbi-acts button')].map(b => b.textContent) })));
 const clickRow = async (page, path) => { await page.evaluate(p => [...document.querySelectorAll('.lbi-row')].find(n => n.dataset.path === p).querySelector('.lbi-label').click(), path); };
@@ -106,8 +107,9 @@ const calls = async (S, name) => (await S.calls()).filter(c => c[0] === name);
       // ① 顶部分类
       const names = (await tabs(page)).map(t => t.text);
       // 1021：分类行只放「全部 + 分类」；范围（今日新增 / 已收藏 / 视频 / 附件）在控制行，「索引」是视图切换的第三项
-      const fixedNames = await page.evaluate(() => [...document.querySelectorAll('.lbc-ctl .lbc-scope-tab, .lbc-vseg .lbc-view')].map(b => b.textContent));
-      for (const fixed of ['全部', '今日新增', '已收藏', '视频', '附件', '索引']) assert.ok(fixedNames.includes(fixed), `${theme}：固定入口「${fixed}」还在 ${fixedNames}`);
+      // 1026：类型（图文 / 视频 / 附件）单独一组；视图开关平时只有瀑布流 / Wiki
+      const fixedNames = await page.evaluate(() => [...document.querySelectorAll('.lbc-ctl .lbc-scope-tab, .lbc-ctl .lbc-type-tab, .lbc-vseg .lbc-view')].map(b => b.textContent));
+      for (const fixed of ['全部', '今日新增', '已收藏', '图文', '视频', '附件', '瀑布流', 'Wiki']) assert.ok(fixedNames.includes(fixed), `${theme}：固定入口「${fixed}」还在 ${fixedNames}`);
       assert.deepEqual(names.slice(0, names.indexOf('瀑布流')), ['全部', '做饭', 'AI', '旅行', '悉尼', '学习', '家居', '未归类'], `${theme}：分类 = 全部 + 索引第一级（0 篇的不出）+ 未归类`);
       // ② 大类 → 二级小标签
       await clickTab(page, '做饭'); await S.settle();
@@ -191,7 +193,7 @@ const calls = async (S, name) => (await S.calls()).filter(c => c[0] === name);
       assert.notEqual(await card.locator('.lbc-reclass').evaluate(b => getComputedStyle(b).display), 'none', `${theme}：悬停出现「归类…」`);
       await card.locator('.lbc-reclass').click(); await S.settle();
       const menu = await page.evaluate(() => [...document.querySelectorAll('.menu .menu-item-title, .lbc-menu .lbc-menu-item')].map(e => e.textContent));
-      assert.deepEqual(menu.slice(0, 3), ['移到…（只放这一类）', '也放进…', '从「家常菜」拿掉'], `${theme}：归类菜单 ${menu}`);
+      assert.deepEqual(menu.slice(0, 3), ['移到…（只放这一类）', '也放进…', '从「家常菜」拿掉（只改分类，帖子还在）'], `${theme}：归类菜单 ${menu}`);
       // 1015 她：标签逐条列出太长 → 收进「标签 ▸」二级（测试外壳没有 setSubmenu：平铺在「标签」下面、前面空一格）
       assert.ok(menu.includes('标签') && menu.includes('　红烧') && menu.includes('　加一个标签…') && !menu.some(t => t.startsWith('标签：')), `${theme}：归类菜单里标签收进二级 ${menu}`);
       await page.evaluate(() => [...document.querySelectorAll('.menu .menu-item, .lbc-menu .lbc-menu-item')].find(e => e.textContent.includes('移到')).click()); await S.settle();
