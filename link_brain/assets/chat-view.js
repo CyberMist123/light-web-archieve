@@ -850,19 +850,37 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat-bodywrap.is-tight{padding-left:188px;box-sizing:border-box;}
 .lbchat-bodywrap.is-tight > .lbchat-toc{left:4px;}
 .lbchat-toc-item{color:var(--text-muted);}
-/* 1026 floating-toc 样式：平时只是一列短横线，悬停展开成浮层列表 */
+/* 1026 floating-toc 复刻：平时一列短横线（层级越深越短、当前那条高亮），悬停 / 钉住展开成面板（工具条 + 带层级小标的列表） */
 .lbchat-bodywrap.has-ftoc.is-tight{padding-left:0;}
-.lbchat-toc.is-float{left:4px!important;top:16px;bottom:auto;width:30px;max-height:calc(100% - 40px);overflow:hidden;padding:10px 6px;border-radius:10px;border:1px solid transparent;z-index:6;transition:width .18s ease,background-color .18s,box-shadow .18s;}
-.lbchat-toc.is-float:hover,.lbchat-toc.is-float:focus-within{width:260px;overflow-y:auto;background:var(--background-primary);border-color:var(--background-modifier-border);box-shadow:0 8px 28px rgba(0,0,0,.14);}
-.lbchat-toc.is-float .lbchat-tocgrp{border-left:0;padding:3px 0;}
-.lbchat-toc.is-float:not(:hover):not(:focus-within) .lbchat-toc-row{display:block;padding:0;}
-.lbchat-toc.is-float:not(:hover):not(:focus-within) .lbchat-toc-board{margin:0;}
-.lbchat-toc.is-float:not(:hover):not(:focus-within) button{display:block;position:relative;width:100%;height:9px;min-height:0;padding:0!important;font-size:0!important;line-height:0!important;}
-.lbchat-toc.is-float:not(:hover):not(:focus-within) button::before{content:'';position:absolute;left:0;top:3px;height:2px;width:16px;border-radius:2px;background:var(--text-faint);opacity:.55;}
-.lbchat-toc.is-float:not(:hover):not(:focus-within) .lbchat-toc-h::before{left:5px;width:10px;opacity:.4;}
-.lbchat-toc.is-float:not(:hover):not(:focus-within) .lbchat-tocgrp.is-here .lbchat-toc-q::before{background:var(--text-normal);opacity:.9;width:18px;}
-.lbchat-toc.is-float:not(:hover):not(:focus-within) .lbchat-toc-a,.lbchat-toc.is-float:not(:hover):not(:focus-within) .lbchat-toc-s,.lbchat-toc.is-float:not(:hover):not(:focus-within) .lbchat-toc-tag,.lbchat-toc.is-float:not(:hover):not(:focus-within) .lbchat-dot,.lbchat-toc.is-float:not(:hover):not(:focus-within) .lbchat-toc-sub{display:none;}
-.lbchat-toc.is-float .lbchat-tocgrp.is-here{color:var(--text-normal);}
+.lbchat-toc.is-float{left:6px!important;top:12px;bottom:auto;width:34px;max-height:calc(100% - 40px);overflow:hidden;padding:8px 4px;border-radius:8px;border:1px solid transparent;z-index:6;font-size:13.5px;color:var(--text-normal);transition:width .16s ease,background-color .16s,box-shadow .16s;}
+.lbchat-toc.is-float:hover,.lbchat-toc.is-float:focus-within,.lbchat-toc.is-float.is-pin{width:300px;overflow-y:auto;padding:6px 8px 12px;background:color-mix(in srgb,var(--background-secondary) 85%,var(--background-primary));border-color:var(--background-modifier-border);box-shadow:0 8px 28px rgba(0,0,0,.12);}
+.lbchat-ftoc-bar{display:flex;align-items:center;gap:2px;padding:2px 0 6px;}
+.lbchat button.lbchat-ftoc-tool{width:28px;height:26px;padding:0!important;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--text-muted);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border-radius:6px!important;}
+.lbchat button.lbchat-ftoc-tool:hover{color:var(--text-normal);background:var(--background-modifier-hover)!important;}
+.lbchat button.lbchat-ftoc-tool.is-on{color:var(--interactive-accent);}
+.lbchat-ftoc-tool svg,.lbchat-ftoc-chev svg{width:16px;height:16px;display:block;}
+.lbchat .lbchat-ftoc-search{width:100%;box-sizing:border-box;margin:0 0 6px;height:28px;font-size:12.5px;}
+.lbchat-ftoc-list{display:flex;flex-direction:column;}
+.lbchat-ftoc-item{display:flex;align-items:center;gap:2px;min-height:30px;white-space:nowrap;}
+.lbchat-ftoc-item[hidden]{display:none!important;}
+.lbchat-ftoc-item[data-level="2"]{padding-left:14px;}
+.lbchat-ftoc-item[data-level="3"]{padding-left:30px;}
+.lbchat-ftoc-chev{flex:none;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-faint);cursor:pointer;border-radius:4px;}
+.lbchat-ftoc-chev:hover{color:var(--text-normal);background:var(--background-modifier-hover);}
+.lbchat-ftoc-chev.is-empty{cursor:default;visibility:hidden;}
+.lbchat-ftoc-text{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;padding:3px 4px;border-radius:6px;cursor:pointer;}
+.lbchat-ftoc-text:hover{background:var(--background-modifier-hover);}
+.lbchat-ftoc-tag{flex:none;font-size:10.5px;color:var(--text-faint);margin-left:2px;}
+.lbchat-ftoc-item.is-here > .lbchat-ftoc-text{color:var(--interactive-accent);font-weight:600;}
+.lbchat-ftoc-item.is-here > .lbchat-ftoc-chev{color:var(--interactive-accent);}
+/* 收起时：只剩横线 */
+.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-bar,.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-search{display:none;}
+.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item{min-height:10px;height:10px;padding:0;position:relative;}
+.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item > *{display:none;}
+.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item::before{content:'';position:absolute;left:2px;top:4px;height:2px;width:22px;border-radius:2px;background:var(--text-faint);opacity:.6;}
+.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item[data-level="2"]::before{left:8px;width:16px;opacity:.45;}
+.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item[data-level="3"]::before{left:14px;width:10px;opacity:.35;}
+.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item.is-here::before{background:var(--interactive-accent);opacity:1;}
 /* 「下一问」开关行：两个开关一行放不下就折行 */
 .lbchat-followbar{flex-wrap:wrap;row-gap:2px;}
 /* 已保存：Enter 存、作者小框、× 在标题行 */
@@ -2348,8 +2366,7 @@ function paintToc() {
   if (!show) closeTocPanel();
   if (side) {
     tocEl.empty();
-    const list = tocEl.createEl('div', { cls: 'lbchat-toclist' });
-    fillToc(list);
+    fillFloatToc();
     markHere();
   }
   if (tocPanel) { const list = tocPanel.querySelector('.lbchat-toclist'); if (list) fillToc(list, closeTocPanel); }
@@ -2390,6 +2407,86 @@ try {
   });
   tro.observe(bodyWrap); LB.onUnload(() => tro.disconnect());
 } catch {}
+// 1026 她：目录照 floating-toc 插件复刻——平时左边一列短横线（按层级长短、当前位置高亮），悬停 / 钉住时展开成面板：
+// 顶上一排工具（钉住 · 在目录里搜 · 到顶 · 到底 · 复制目录 · 全部折叠 / 展开），下面每条带层级小标（问 / H2 / H3），
+// 有下级的条目前面一个折叠箭头，当前读到的那条用强调色加粗。图标同插件（Lucide），内联 SVG。
+const FTOC_ICON = {
+  pin: '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  top: '<path d="m17 11-5-5-5 5"/><path d="m17 18-5-5-5 5"/>',
+  bottom: '<path d="m7 6 5 5 5-5"/><path d="m7 13 5 5 5-5"/>',
+  copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+  down: '<path d="m6 9 6 6 6-6"/>',
+  right: '<path d="m9 18 6-6-6-6"/>',
+};
+function ftocIcon(el, name) { el.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${FTOC_ICON[name]}</svg>`; }
+let ftocPinned = pageState.tocPin === true, ftocAllOpen = true;
+const ftocFolded = new Set();
+// 目录条目：每问一条（层级 1，「问」），回答里的小标题 / 报告分类挂在下面（H1、H2 → 2，H3 → 3）
+function ftocItems() {
+  const out = [];
+  tocGroups().forEach((g, i) => {
+    out.push({ level: 1, tag: '问', key: g.q.id, text: `${i + 1}  ${g.q.content}`, el: () => views.get(g.q.id)?.el });
+    const ael = g.a && !g.a.failed ? views.get(g.a.id)?.el : null;
+    if (!ael) return;
+    const secs = [...ael.querySelectorAll('.lbboard-sec')];
+    if (secs.length) for (const sec of secs.slice(0, 20)) { const name = sec.querySelector('.lbboard-cat')?.firstChild?.textContent || ''; if (name) out.push({ level: 2, tag: '类', text: name, el: () => sec }); }
+    for (const h of [...ael.querySelectorAll('.lbchat-md h1, .lbchat-md h2, .lbchat-md h3')].filter(h => !h.classList.contains('lbchat-guide-hidden')).slice(0, 20)) {
+      out.push({ level: h.tagName === 'H3' ? 3 : 2, tag: h.tagName, text: String(h.textContent || '').trim(), el: () => h });
+    }
+  });
+  return out;
+}
+function fillFloatToc() {
+  tocEl.empty();
+  tocEl.classList.toggle('is-pin', ftocPinned);
+  const items = ftocItems();
+  const bar = tocEl.createEl('div', { cls: 'lbchat-ftoc-bar' });
+  const tool = (name, title, onclick) => { const b = bar.createEl('button', { cls: 'lbchat-ftoc-tool is-' + name, attr: { title, 'aria-label': title } }); b.type = 'button'; ftocIcon(b, name); b.onclick = e => { e?.stopPropagation?.(); onclick(b); }; return b; };
+  const pin = tool('pin', '钉住目录', () => { ftocPinned = !ftocPinned; tocEl.classList.toggle('is-pin', ftocPinned); pin.classList.toggle('is-on', ftocPinned); LB.state.patch({ tocPin: ftocPinned }); });
+  pin.classList.toggle('is-on', ftocPinned);
+  const search = tocEl.createEl('input', { cls: 'lbchat-ftoc-search', attr: { type: 'search', placeholder: '在目录里搜…' } }); search.hidden = true;
+  tool('search', '在目录里搜', () => { search.hidden = !search.hidden; if (!search.hidden) search.focus(); else { search.value = ''; applyFold(); } });
+  tool('top', '回到最前', () => { bodyEl.scrollTop = 0; lastTop = 0; LB.state.patch({ scrollTop: 0 }); markHere(); });
+  tool('bottom', '回到最新', () => toBottom.onclick());
+  tool('copy', '复制目录', async () => {
+    const text = items.map(it => '    '.repeat(it.level - 1) + '- ' + it.text.replace(/^\d+\s+/, '')).join('\n');
+    try { await navigator.clipboard.writeText(text); notice('目录已复制', 1500); } catch (e) { notice('没复制上：' + errText(e)); }
+  });
+  const all = tool(ftocAllOpen ? 'down' : 'right', '全部折叠 / 展开', () => {
+    ftocAllOpen = !ftocAllOpen; ftocIcon(all, ftocAllOpen ? 'down' : 'right');
+    ftocFolded.clear(); if (!ftocAllOpen) items.forEach((it, i) => { if (items[i + 1]?.level > it.level) ftocFolded.add(i); });
+    applyFold();
+  });
+  const list = tocEl.createEl('div', { cls: 'lbchat-ftoc-list' });
+  const rows = items.map((it, i) => {
+    const row = list.createEl('div', { cls: 'lbchat-ftoc-item' }); row.dataset.level = String(it.level); if (it.key) row.dataset.key = it.key;
+    const hasKids = items[i + 1]?.level > it.level;
+    const chev = row.createEl('span', { cls: 'lbchat-ftoc-chev' + (hasKids ? '' : ' is-empty') });
+    if (hasKids) { ftocIcon(chev, ftocFolded.has(i) ? 'right' : 'down'); chev.onclick = e => { e?.stopPropagation?.(); ftocFolded.has(i) ? ftocFolded.delete(i) : ftocFolded.add(i); applyFold(); }; }
+    const txt = row.createEl('span', { cls: 'lbchat-ftoc-text', text: it.text, attr: { title: it.text } });
+    row.createEl('span', { cls: 'lbchat-ftoc-tag', text: it.tag });
+    txt.onclick = () => { const el = it.el(); if (el) jumpTo(el, { flash: true }); };
+    row._lbItem = it;
+    return row;
+  });
+  function applyFold() {
+    const q = String(search.value || '').trim().toLowerCase();
+    let hideBelow = Infinity;
+    rows.forEach((row, i) => {
+      const it = items[i];
+      if (it.level <= hideBelow) hideBelow = Infinity;
+      const folded = it.level > hideBelow;
+      row.hidden = q ? !it.text.toLowerCase().includes(q) : folded;
+      const chev = row.querySelector('.lbchat-ftoc-chev');
+      if (chev && !chev.classList.contains('is-empty')) ftocIcon(chev, ftocFolded.has(i) ? 'right' : 'down');
+      if (!q && !folded && ftocFolded.has(i)) hideBelow = it.level;
+    });
+  }
+  search.oninput = applyFold;
+  search.onkeydown = e => { if (e.key === 'Escape') { search.value = ''; search.hidden = true; applyFold(); } };
+  applyFold();
+}
 // 当前位置：视口顶边以上最后一个问题那一组 is-here；左栏只改自己的 scrollTop（不用 scrollIntoView，免得带着外层一起滚）
 let hereQueued = false;
 function markHere() {
@@ -2399,7 +2496,14 @@ function markHere() {
   for (const el of bodyEl.querySelectorAll('.lbchat-user')) { if (el.getBoundingClientRect().top - top <= 24) key = el.dataset.key; else break; }
   if (!key) key = bodyEl.querySelector('.lbchat-user')?.dataset.key || null;
   let here = null;
-  for (const g of tocEl.querySelectorAll('.lbchat-tocgrp')) { const on = g.dataset.key === key; g.classList.toggle('is-here', on); if (on) here = g; }
+  const frows = [...tocEl.querySelectorAll('.lbchat-ftoc-item')];
+  if (frows.length) {   // floating-toc：读到哪一条就亮哪一条（问题或小标题）
+    for (const row of frows) { const el = row._lbItem?.el?.(); if (el && bodyEl.contains(el) && el.getBoundingClientRect().top - top <= 24) here = row; }
+    if (!here) here = frows[0];
+    for (const row of frows) row.classList.toggle('is-here', row === here);
+    if (here.hidden) { let k = frows.indexOf(here); while (k > 0 && frows[k].hidden) k--; here = frows[k]; }
+  }
+  else for (const g of tocEl.querySelectorAll('.lbchat-tocgrp')) { const on = g.dataset.key === key; g.classList.toggle('is-here', on); if (on) here = g; }
   if (here) {
     const rt = tocEl.getBoundingClientRect(), gt = here.getBoundingClientRect();
     if (gt.top < rt.top) tocEl.scrollTop -= rt.top - gt.top + 8;
