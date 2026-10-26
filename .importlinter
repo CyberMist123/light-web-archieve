@@ -99,12 +99,9 @@ source_modules =
     link_brain.wiki
 forbidden_modules = link_brain.sources.xiaohongshu
 ignore_imports =
-    link_brain.actionlog -> link_brain.sources.xiaohongshu.accounts
     link_brain.attachments -> link_brain.sources.xiaohongshu.accounts
     link_brain.attachments -> link_brain.sources.xiaohongshu.adapter
     link_brain.attachments -> link_brain.sources.xiaohongshu.restricted
-    link_brain.catalog -> link_brain.sources.xiaohongshu.albums
-    link_brain.catalog -> link_brain.sources.xiaohongshu.restricted
     link_brain.catch -> link_brain.sources.xiaohongshu.accounts
     link_brain.catch -> link_brain.sources.xiaohongshu.adapter
     link_brain.crawl -> link_brain.sources.xiaohongshu.accounts
@@ -119,9 +116,6 @@ ignore_imports =
     link_brain.problems -> link_brain.sources.xiaohongshu.restricted
     link_brain.provenance -> link_brain.sources.xiaohongshu.adapter
     link_brain.read -> link_brain.sources.xiaohongshu.adapter
-    link_brain.render -> link_brain.sources.xiaohongshu.adapter
-    link_brain.render -> link_brain.sources.xiaohongshu.comment_fill
-    link_brain.render -> link_brain.sources.xiaohongshu.restricted
     link_brain.videos -> link_brain.sources.xiaohongshu.adapter
 
 [importlinter:contract:xhs-no-ai]

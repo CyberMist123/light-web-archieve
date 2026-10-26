@@ -303,8 +303,8 @@ def test_write_baseline_refuses_growth_by_default(tmp_path, monkeypatch):
 sys.path.insert(0, str(ROOT / "tests" / "tools"))
 import import_scan  # noqa: E402
 
-# 最大环的模块数（PR③ 搬家后 78）。只许减：拆掉一截就把数字改小。
-MAX_CYCLE = 78
+# 最大环的模块数（PR⑥a 后 77）。只许减：拆掉一截就把数字改小。
+MAX_CYCLE = 77
 
 
 @pytest.fixture(scope="module")
