@@ -153,6 +153,7 @@ const CITE_MIN_SCORE = 2;
 function rankExcerpts(src, target, context) {
   const all = (src?.excerpts || []).filter(p => p && p.text);
   const t = target && typeof target === 'object' && !Array.isArray(target) ? target : { seg: target };
+  if (t.part) return { parts: [t.part], why: '' };   // 来源导读里写明的位置（评论 cN / 附件第 N 页 / 正文「…」那段），直接去那里
   const want = [...new Set([].concat(t.seg || []).map(Number).filter(Boolean))];
   const normalized = String(context || '').replace(/\s/g, '').toLowerCase();
   const score = p => { const text = String(p.text).replace(/\s/g, '').toLowerCase(); let n = 0; for (let i = 0; i < normalized.length - 3; i++) if (text.includes(normalized.slice(i, i + 4))) n++; return n; };
@@ -332,8 +333,8 @@ async function openAttachmentAt(src, part) {
   const atts = (src?.attachments || []).filter(a => a && (a.markdown || a.file));
   if (!atts.length) return { opened: false };
   const lines = String(part.text || '').split('\n').map(x => x.trim()).filter(x => x.length >= 8).sort((a, b) => b.length - a.length).slice(0, 4);
-  let pick = null, page = 0;
-  for (const att of atts) {
+  let pick = null, page = Number(part.page) || 0;   // 来源导读「附件第 N 页」直接给了页码，就不用去文字版里找
+  for (const att of page ? [] : atts) {
     const rel = vaultRel(att.markdown); if (!rel) continue;
     let md = ''; try { md = await app.vault.adapter.read(rel); } catch { continue; }
     const at = lines.map(l => md.indexOf(l)).find(i => i >= 0);
@@ -616,21 +617,25 @@ LB.style('lbchat-style', `
 /* ⑤ 回答排版：标题别太大、段距行距舒服、列表缩进正常、引用块浅色左线；跟随主题变量（明暗都行） */
 .lbchat .lbchat-turn{margin-bottom:28px;}
 .lbchat .lbchat-user{font-size:14px;line-height:1.7;padding:9px 15px;border-radius:16px 16px 4px 16px;color:var(--text-normal);}
-.lbchat .lbchat-answer{font-size:14.5px;line-height:1.78;color:var(--text-normal);}
-.lbchat .lbchat-answer p{margin:0 0 .7em;}
-.lbchat .lbchat-answer h1,.lbchat .lbchat-answer h2,.lbchat .lbchat-answer h3,.lbchat .lbchat-answer h4,.lbchat .lbchat-answer h5,.lbchat .lbchat-answer h6{font-family:inherit;font-weight:650;line-height:1.5;color:var(--text-normal);letter-spacing:0;border:0;padding:0;}
-.lbchat .lbchat-answer h1{font-size:1.16em;margin:1.15em 0 .45em;}
-.lbchat .lbchat-answer h2{font-size:1.08em;margin:1.05em 0 .4em;}
-.lbchat .lbchat-answer h3,.lbchat .lbchat-answer h4,.lbchat .lbchat-answer h5,.lbchat .lbchat-answer h6{font-size:1em;margin:.9em 0 .3em;}
+.lbchat .lbchat-answer{font-size:14.5px;line-height:1.85;color:var(--text-normal);}
+/* 1026 她：回答要像排好版的文档——小节标题比正文大、带一点暖色；列表每条之间留气口；「**关键词**——白话解释」的加粗词醒目 */
+.lbchat .lbchat-answer{--lb-ans-head:#8a4b2f;}
+.theme-dark .lbchat .lbchat-answer{--lb-ans-head:#e0a985;}
+.lbchat .lbchat-answer p{margin:0 0 .9em;}
+.lbchat .lbchat-answer h1,.lbchat .lbchat-answer h2,.lbchat .lbchat-answer h3,.lbchat .lbchat-answer h4,.lbchat .lbchat-answer h5,.lbchat .lbchat-answer h6{font-family:inherit;font-weight:650;line-height:1.45;color:var(--lb-ans-head);letter-spacing:0;border:0;padding:0;}
+.lbchat .lbchat-answer h1{font-size:1.3em;margin:1.4em 0 .55em;}
+.lbchat .lbchat-answer h2{font-size:1.22em;margin:1.4em 0 .5em;}
+.lbchat .lbchat-answer h3{font-size:1.1em;margin:1.25em 0 .45em;}
+.lbchat .lbchat-answer h4,.lbchat .lbchat-answer h5,.lbchat .lbchat-answer h6{font-size:1em;margin:1em 0 .35em;}
 .lbchat .lbchat-md > :first-child,.lbchat .lbchat-md > :first-child > :first-child{margin-top:0;}
-.lbchat .lbchat-answer ul,.lbchat .lbchat-answer ol{margin:.15em 0 .75em;padding-left:1.45em;}
-.lbchat .lbchat-answer li{margin:.18em 0;padding-left:.1em;}
-.lbchat .lbchat-answer li > ul,.lbchat .lbchat-answer li > ol{margin:.1em 0 .2em;}
+.lbchat .lbchat-answer ul,.lbchat .lbchat-answer ol{margin:.2em 0 1em;padding-left:1.45em;}
+.lbchat .lbchat-answer li{margin:.5em 0;padding-left:.15em;}
+.lbchat .lbchat-answer li > ul,.lbchat .lbchat-answer li > ol{margin:.25em 0 .3em;}
 .lbchat .lbchat-answer li > p{margin:0;}
-.lbchat .lbchat-answer blockquote{margin:.5em 0 .8em;padding:.05em 0 .05em .9em;border:0;border-left:2px solid var(--background-modifier-border);background:transparent;color:var(--text-muted);font-style:normal;}
+.lbchat .lbchat-answer blockquote{margin:.5em 0 .9em;padding:.05em 0 .05em .9em;border:0;border-left:2px solid var(--background-modifier-border);background:transparent;color:var(--text-muted);font-style:normal;}
 .lbchat .lbchat-answer blockquote p{margin:.2em 0;}
-.lbchat .lbchat-answer hr{border:0;border-top:1px solid var(--background-modifier-border);margin:1.1em 0;}
-.lbchat .lbchat-answer strong{font-weight:600;}
+.lbchat .lbchat-answer hr{border:0;border-top:1px solid var(--background-modifier-border);margin:1.3em 0;}
+.lbchat .lbchat-answer strong{font-weight:650;color:var(--text-normal);}
 .lbchat .lbchat-answer code{font-size:.88em;padding:.1em .35em;border-radius:4px;background:var(--background-secondary);}
 .lbchat .lbchat-answer pre code{padding:0;background:transparent;}
 .lbchat .lbchat-answer table{border-collapse:collapse;margin:.4em 0 .9em;font-size:.95em;}
@@ -726,6 +731,9 @@ LB.style('lbchat-style', `
 .lbchat-md > p:first-child{margin-top:0;}
 .lbchat-md > p:last-child{margin-bottom:0;}
 .lbchat .lbchat-md img{cursor:zoom-in;}
+/* 1026 她：来源导读里的标题 / 「必看：…」位置——下滑虚线链接，悬停变链接色 */
+.lbchat .lbchat-guide-link{cursor:pointer;border-bottom:1px dashed var(--text-faint);}
+.lbchat .lbchat-guide-link:hover,.lbchat .lbchat-guide-link:focus-visible{color:var(--link-color);border-bottom-color:var(--link-color);outline:none;}
 /* 1026 她：回答里的图挪到它说明的那段旁边，靠右并排；标题 / 表格 / 来源块另起，不被图挤；窄了就回到上下排 */
 .lbchat .lbchat-md .lbchat-float-img{float:right;width:min(40%,280px);margin:2px 0 8px 16px;clear:right;}
 .lbchat .lbchat-md .lbchat-float-img img{width:100%!important;height:auto!important;max-width:100%;border-radius:8px;}
@@ -3094,10 +3102,46 @@ function bindSources(el, sources, { pending = false } = {}) {
     }
     frag.append(document.createTextNode(node.textContent.slice(last))); node.replaceWith(frag);
   }
+  if (!pending) guideLinks(el, sources);
   mergeCites(el);
   if (pending) return;
   for (const a of el.querySelectorAll('a')) { const href = a.getAttribute('data-href') || a.getAttribute('href'); const src = sources.find(x => href === x.url || href === x.note || href === x.note?.replace(/\.md$/, '')); if (src) a.onclick = e => { e?.preventDefault?.(); e?.stopPropagation?.(); openNote(src); }; }
   floatAnswerImages(el);
+}
+// 1026 她：「来源导读」那几行前面的编号（9、10…14）很怪——导读行不放编号胶囊：《标题》本身是链接（只打开原帖），
+// 「必看 / 选看：…」后面写的位置是下滑虚线链接，点了跳过去（图N / 附件第N页 / 评论 cN / 正文「…」那段；认不出就只打开原帖）。
+function guideTarget(loc) {
+  let m;
+  if ((m = /附件[^\d]{0,4}(\d+)/.exec(loc))) return { part: { field: 'attachments', page: Number(m[1]), text: '' } };
+  if ((m = /图\s*(\d+)/.exec(loc))) return { img: Number(m[1]) };
+  if ((m = /(?:^|[^a-z])c(\d+(?:\.\d+)?)/i.exec(loc))) return { part: { field: 'comments', comment_labels: ['c' + m[1]], text: '' } };
+  if ((m = /「([^」]{4,})」/.exec(loc))) return { part: { field: 'body', text: m[1] } };
+  return null;
+}
+function guideLinks(el, sources) {
+  const head = [...el.querySelectorAll('h1,h2,h3,h4,p')].find(h => /^\s*#*\s*来源导读\s*$/.test(h.textContent || ''));
+  if (!head) return;
+  const texts = n => { const out = []; for (const c of [...(n.childNodes || [])]) { if (c.nodeType === 3) out.push(c); else if (!c.classList?.contains('lbchat-cite')) out.push(...texts(c)); } return out; };
+  const link = (text, onclick) => { const s = document.createElement('span'); s.className = 'lbchat-guide-link'; s.textContent = text; s.setAttribute('role', 'button'); s.tabIndex = 0; s.onclick = e => { e?.stopPropagation?.(); onclick(s); }; s.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault?.(); onclick(s); } }; return s; };
+  const wrap = (node, a, b, mk) => { const t = node.textContent; const frag = document.createDocumentFragment(); if (a) frag.append(document.createTextNode(t.slice(0, a))); frag.append(mk(t.slice(a, b))); if (b < t.length) frag.append(document.createTextNode(t.slice(b))); node.replaceWith(frag); };
+  for (let n = head.nextElementSibling; n && !/^H[1-4]$/.test(n.tagName) && !/^\s*#/.test(n.textContent || ''); n = n.nextElementSibling) {
+    const lines = /^(UL|OL)$/.test(n.tagName) ? n.querySelectorAll('li') : [n];
+    for (const li of lines) {
+      const cite = li.querySelector('.lbchat-cite');
+      const src = cite && sources.find(x => String(x.citation) === cite.dataset.cite);
+      if (!src) continue;
+      const after = cite.nextSibling; cite.remove();
+      if (after && after.nodeType === 3) after.textContent = String(after.textContent).replace(/^\s+/, '');
+      const tnode = texts(li).find(x => /《[^》]+》/.test(x.textContent));
+      if (tnode) { const m = /《[^》]+》/.exec(tnode.textContent); wrap(tnode, m.index, m.index + m[0].length, t => link(t, () => openNote(src))); }
+      const lnode = texts(li).find(x => /(必看|选看|想深挖再看|再看|可看)[：:]\s*\S/.test(x.textContent));
+      if (lnode) {
+        const m = /(必看|选看|想深挖再看|再看|可看)[：:]\s*/.exec(lnode.textContent);
+        const a = m.index + m[0].length, b = lnode.textContent.replace(/[。.；;\s]+$/, '').length;
+        if (b > a) wrap(lnode, a, b, t => link(t, s => { const tg = guideTarget(t); return tg ? openNote(src, false, t, s, tg) : openNote(src); }));
+      }
+    }
+  }
 }
 // 1026 她：回答里的图（![[…|360]]）插在两段字中间太突兀——挪到它说明的那段旁边，靠右并排（文字绕排）；窄屏照旧上下排。
 // 图单独成一段 → 挪进前一段开头；图跟在一段字末尾 → 挪到这段开头。只挪 DOM，不改回答原文。

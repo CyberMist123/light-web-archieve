@@ -47,6 +47,9 @@ const DATA = '_archive/catalog-data.json';
     '附件里写了规则 [来源5 段1]',                                         // P14（附件）
     '这一段讲配色卡片怎么用',
     '![[_archive/xiaohongshu/a/raw/v0001/assets/image-002.webp|360]]',   // 图单独一段：挪到上一段旁边
+    '## 来源导读',
+    '- [来源1]《前端规范》— 配色起点。必看：图1。',
+    '- [来源5]《带附件》— 规则写在附件里。必看：附件第2页',
   ].join('\n\n');
   const turns = [{ role: 'user', content: '前端怎么做' },
     { role: 'assistant', content: md, q: '前端怎么做', sources: [srcA, srcB, srcOld, srcDup, srcAtt], related: [] }];
@@ -215,6 +218,17 @@ const DATA = '_archive/catalog-data.json';
   assert.equal(em.parentElement.tagName, 'P'); assert.ok(em.parentElement.textContent.includes('这一段讲配色卡片怎么用'));
   assert.equal(em.parentElement.firstChild, em, '在那段开头（浮动从段首开始）');
   assert.ok(!A.section.querySelectorAll('.lbchat-md p').some(p => !p.textContent.trim() && !p.querySelector('img')), '没留下空段');
+
+  // ⑯ 来源导读：行首不放编号胶囊；《标题》是链接（只打开原帖）；「必看：…」位置是虚线链接，点了跳过去
+  const guide = A.section.querySelectorAll('.lbchat-guide-link');
+  assert.deepEqual(guide.map(g => g.textContent), ['《前端规范》', '图1', '《带附件》', '附件第2页']);
+  assert.ok(guide.every(g => !g.parentElement.querySelector('.lbchat-cite')), '导读行没有编号胶囊');
+  await guide[1].onclick({ stopPropagation() {} }); await tick(300);
+  assert.equal(lastLog().target, 'asset:raw/v0001/assets/image-001.webp', '「必看：图1」跳图1');
+  await guide[3].onclick({ stopPropagation() {} }); await tick(300);
+  assert.equal(lastLog().target, 'attachment:_archive/xhs/att/attachments/x.pdf#page=2', '「附件第2页」直接开到第 2 页');
+  const stamp0 = lastLog().at; await guide[0].onclick({ stopPropagation() {} }); await tick(300);
+  assert.equal(lastLog().at, stamp0, '点标题只打开，不定位');
 
   // ⑪ 来源标题只打开帖子、不定位
   const n = opened.length, stamp = lastLog().at;
