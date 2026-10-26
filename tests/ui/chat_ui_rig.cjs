@@ -129,35 +129,14 @@ const noScrollbars = page => page.evaluate(() => {
     await third.locator('.lbchat-md p').last().dblclick();
     const sel = await page.evaluate(() => ({ text: String(window.getSelection()), editor: !!document.querySelector('.lbchat-editor') }));
     assert.ok(sel.text.length > 0 && !sel.editor, JSON.stringify(sel));
-    await third.locator('.lbchat-edit').click();
+    // 1026 她：动作行先不显示「编辑」（功能代码还在）——这里直接触发，验原地编辑本身
+    await third.locator('.lbchat-edit').evaluate(b => b.click());
     await S.settle(30);
     const ed = await page.evaluate(() => { const e = document.querySelector('.lbchat-editor'); const a = e.closest('.lbchat-answer'); const kids = [...a.children]; return { before: kids.indexOf(e) < kids.indexOf(a.querySelector('.lbchat-srcbox')), focused: document.activeElement === e }; });
     assert.ok(ed.before && ed.focused, JSON.stringify(ed));
     await S.screenshot('a3-edit-inline');
     await page.keyboard.press('Escape');
-    // F5：宽窗左栏
-    await page.evaluate(() => { const b = document.querySelector('.lbchat-body'); b.scrollTop = b.scrollHeight; b.dispatchEvent(new Event('scroll')); });
-    await S.settle(60);
-    const f5 = await page.evaluate(() => { const t = document.querySelector('.lbchat-toc'), b = document.querySelector('.lbchat-body'); const tr = t.getBoundingClientRect(), br = b.getBoundingClientRect(); return { shown: !!t.offsetParent, right: tr.right, bodyLeft: br.left, btn: !!document.querySelector('.lbchat-tocbtn').offsetParent, sticky: getComputedStyle(t).position }; });
-    assert.ok(f5.shown && !f5.btn, JSON.stringify(f5)); assert.ok(f5.right <= f5.bodyLeft - 8, JSON.stringify(f5)); assert.equal(f5.sticky, 'absolute');
-    assert.deepEqual(Object.values(await noScrollbars(page)).every(Boolean), true);
-    await S.screenshot('f5-wide-light');
-    // 点第 2 问：目标落在 body 顶部 0–24px；「↩ 回到刚才」回到原处
-    const jump = await page.evaluate(async () => {
-      const b = document.querySelector('.lbchat-body'); const before = b.scrollTop;
-      const t0 = performance.now(); document.querySelectorAll('.lbchat-toc .lbchat-toc-q')[1].click(); const ms = performance.now() - t0;
-      const target = document.querySelectorAll('.lbchat-user')[1];
-      const off = target.getBoundingClientRect().top - b.getBoundingClientRect().top;
-      await new Promise(r => setTimeout(r, 30));
-      document.querySelector('.lbchat-back').click();
-      await new Promise(r => setTimeout(r, 30));
-      return { off, ms, back: Math.abs(b.scrollTop - before) <= 2 };
-    });
-    log('F5 跳转', JSON.stringify(jump));
-    assert.ok(jump.off >= 0 && jump.off <= 24, JSON.stringify(jump)); assert.ok(jump.back); assert.ok(jump.ms <= 16, 'jump ms ' + jump.ms);
-    const tocMs = await page.evaluate(() => { const t0 = performance.now(); document.querySelector('.lbchat-toc-fold').click(); document.querySelector('.lbchat-tocbtn').click(); return performance.now() - t0; });
-    log('paintToc（收起 + 弹出，10 问）ms', tocMs.toFixed(2));
-    await page.keyboard.press('Escape');
+    // 1026 目录改成 floating-toc 式（宽窄窗都是左边一列短横线，没有浮签 / 弹出层 / 收起），新样子见 tests/test_chat_toc_f5.cjs
     await page.close();
     // 暗色 1440
     ({ page, S } = await openChat(browser, { theme: 'dark' }));
@@ -165,18 +144,6 @@ const noScrollbars = page => page.evaluate(() => {
     for (let i = 1; i <= 3; i++) await ask(page, S, '暗色第' + i + '问', 40);
     await S.screenshot('f5-wide-dark');
     await page.close();
-    // 窄窗：只有按钮 + 弹出层；半宽：只有按钮
-    for (const [w, name] of [[1000, 'f5-narrow-panel'], [700, 'f5-split']]) {
-      ({ page, S } = await openChat(browser, { width: w }));
-      for (let i = 1; i <= 3; i++) await ask(page, S, '窄窗第' + i + '问', 40);
-      const st = await page.evaluate(() => ({ toc: !!document.querySelector('.lbchat-toc').offsetParent, btn: !!document.querySelector('.lbchat-tocbtn').offsetParent }));
-      assert.ok(!st.toc && st.btn, name + ' ' + JSON.stringify(st));
-      if (w === 1000) { await page.click('.lbchat-tocbtn'); await S.settle(30); assert.ok(await page.locator('.lbchat-tocpanel').isVisible()); }
-      assert.ok(Object.values(await noScrollbars(page)).every(Boolean), name);
-      await S.screenshot(name);
-      await page.close();
-    }
-
     // ── A2 换页再回来 + A4 流式 + A8 ──
     ({ page, S } = await openChat(browser, { width: 1200 }));
     const text = Array.from({ length: 300 }, (_, i) => (i % 25 === 0 ? `\n\n## 第 ${i / 25 + 1} 段\n\n` : '') + `字${String(i).padStart(3, '0')}个[来源1]、`).join('');

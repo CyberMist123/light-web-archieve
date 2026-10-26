@@ -117,8 +117,9 @@ const ask = async (page, S, text, wait = 150) => { await page.click('.lbchat-sea
     assert.ok(!(await own.textContent()).includes('配图'));
     // 1020 她：分类导航不在正文里，进左边目录（浮动板）：先看这几个 + 三类，类下面是条目
     assert.equal(await page.locator('.lbboard-navbtn').count(), 0);
-    assert.deepEqual(await page.locator('.lbchat-toc .lbchat-toc-cat').allTextContents(), ['先看这几个', '多 agent 框架', '群聊界面', '记忆与会话', '评论区还提到']);
-    assert.equal(await page.locator('.lbchat-toc .lbchat-toc-sub').count(), 10, '合成一行的名字在目录里也逐个列');
+    // 1026 目录改成 floating-toc 式：每个类别是「类」一行（不再逐个列条目名）
+    const cats = await page.locator('.lbchat-toc .lbchat-ftoc-item').evaluateAll(rows => rows.filter(r => r.querySelector('.lbchat-ftoc-tag')?.textContent === '类').map(r => r.querySelector('.lbchat-ftoc-text').textContent));
+    assert.deepEqual(cats, ['多 agent 框架', '群聊界面', '记忆与会话', '评论区还提到']);
     // 网址：有的给链接，「看原帖」的写无链接
     assert.equal(await page.locator('.lbboard-row a.lbboard-url').count(), 3);
     assert.equal(await page.locator('.lbboard-row', { hasText: '鼠鼠施工队' }).locator('a.lbboard-url').getAttribute('href'), 'https://github.com/example/shushu', '裸域名补成 https 链接');
@@ -163,8 +164,8 @@ const ask = async (page, S, text, wait = 150) => { await page.click('.lbchat-sea
     assert.equal(await page.evaluate(() => document.querySelector('#fake-reader details').open), true, '收起的评论自动展开');
     await page.locator('.lbboard-row', { hasText: '鼠鼠施工队' }).locator('.lbboard-text').first().click(); await S.settle(250);
     assert.equal(await hit(), 'img:image-002.webp', '图片切到第 2 张');
-    // 目录里点条目跳到那一条
-    await page.locator('.lbchat-toc .lbchat-toc-sub', { hasText: '群聊 session 管理' }).click(); await S.settle(60);
+    // 目录里点类别跳到那一类（1026 floating-toc 式目录不再逐个列条目）
+    await page.locator('.lbchat-toc .lbchat-ftoc-text', { hasText: '记忆与会话' }).dispatchEvent('click'); await S.settle(60);
     // 「存成笔记」：报告/ 下一篇 md，带封面嵌图、出处双链、网址
     await page.locator('.lbchat-savenote').click(); await S.settle(80);
     const note = await page.evaluate(() => { const k = Object.keys(window.__files || {}).find(x => /报告\//.test(x)); return k ? [k, window.__files[k]] : null; })
@@ -205,17 +206,7 @@ const ask = async (page, S, text, wait = 150) => { await page.click('.lbchat-sea
     shots.push(await S.screenshot('board-dark'));
     await page.close();
 
-    // 窄窗（右侧开着原帖时问收藏这一栏 < 1080）：对话区左边贴「目录」浮签，点了在旁边弹出目录浮动板
-    ({ page, S } = await openChat(browser, { width: 900, height: 900 }));
-    await ask(page, S, '多agent群聊 帮我整理成 wiki');
-    assert.equal(await page.locator('.lbchat-toc').isVisible().catch(() => false), false);
-    assert.ok(await page.locator('.lbchat-tocfab').isVisible(), '窄窗有目录浮签');
-    await page.locator('.lbchat-tocfab').click(); await S.settle(40);
-    assert.ok(await page.locator('.lbchat-tocpanel.is-side').isVisible());
-    assert.ok((await page.locator('.lbchat-tocpanel .lbchat-toc-cat').count()) >= 4);
-    shots.push(await S.screenshot('board-narrow-toc'));
-    await page.close();
-
+    // 1026 目录改成 floating-toc 式（宽窄窗都是左边一列短横线，没有浮签 / 弹出层 / 收起），新样子见 tests/test_chat_toc_f5.cjs
     ({ page, S } = await openChat(browser, { width: 420, height: 900 }));
     await ask(page, S, '多agent群聊 帮我整理成 wiki');
     const noH = await page.evaluate(() => { const b = document.querySelector('.lbchat-body') || document.body; return b.scrollWidth <= b.clientWidth + 1; });

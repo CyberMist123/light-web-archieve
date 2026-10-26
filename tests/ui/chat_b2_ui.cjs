@@ -78,14 +78,7 @@ const rect = (page, sel) => page.evaluate(s => { const e = document.querySelecto
     // 点「已展开 ↓」跳回展开那一段
     await page.locator('.lbchat-answer').first().scrollIntoViewIfNeeded();
     await page.locator('.lbchat-tocard-expand').first().click(); await S.settle(40);
-    // 收起左栏 → 「☰ 目录」出现，点了放回来
-    await page.click('.lbchat-toc-fold'); await S.settle(30);
-    assert.equal(await rect(page, '.lbchat-toc'), null);
-    assert.ok(await rect(page, '.lbchat-tocbtn'), '收起后页头有「目录」');
-    await page.click('.lbchat-tocbtn'); await S.settle(30);
-    shots.push(await S.screenshot('b2-toc-collapsed-panel'));
-    await page.click('.lbchat-tocpanel .lbchat-toc-fold'); await S.settle(30);
-    assert.ok(await rect(page, '.lbchat-toc'), '收起可恢复');
+    // 1026 目录改成 floating-toc 式，没有收起 / 「目录」按钮了（新样子见 tests/test_chat_toc_f5.cjs）
     await page.close();
 
     // ── 1150 宽：左栏 + 对话列让位，不重叠 ──
@@ -97,16 +90,12 @@ const rect = (page, sel) => page.evaluate(s => { const e = document.querySelecto
     shots.push(await S.screenshot('b2-toc-1150'));
     await page.close();
 
-    // ── 窄窗：「☰ 目录」弹出层；目录卡不横向溢出 ──
+    // ── 窄窗：目录卡不横向溢出（1026 起窄窗也是左边一列短横线，没有「☰ 目录」弹出层，见 tests/test_chat_toc_f5.cjs）──
     ({ page, S } = await openChat(browser, { width: 820, height: 900 }));
     await ask(page, S, '我要吃辣的');
-    assert.equal(await rect(page, '.lbchat-toc'), null);
-    assert.ok(await rect(page, '.lbchat-tocbtn'), '窄窗也有目录入口（1 问也有）');
     const noH = await page.evaluate(() => document.querySelector('.lbchat-body').scrollWidth <= document.querySelector('.lbchat-body').clientWidth + 1);
     assert.ok(noH, '目录卡不横向溢出');
-    await page.click('.lbchat-tocbtn'); await S.settle(40);
-    assert.equal(await page.locator('.lbchat-tocpanel .lbchat-toc-item').count(), 5);
-    shots.push(await S.screenshot('b2-toc-narrow-panel'));
+    shots.push(await S.screenshot('b2-toc-narrow'));
     await page.close();
 
     // ── 暗色 ──
