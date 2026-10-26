@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+from link_brain.sources.xiaohongshu import attachments as xhs_attachments
+
 import json
 from datetime import datetime, timedelta, timezone
 
@@ -37,7 +39,7 @@ def _mark(sid):
 @pytest.fixture
 def guest_env(monkeypatch, tmp_path):
     """账号那一侧任何调用都炸：游客段一次都不许碰。"""
-    monkeypatch.setattr(att, "PROBE_GAP_SECONDS", (0, 0))
+    monkeypatch.setattr(xhs_attachments, "PROBE_GAP_SECONDS", (0, 0))
     monkeypatch.setenv("XHS_PROFILE_DIR", str(tmp_path / "profile"))
     (tmp_path / "profile").mkdir()
 
@@ -46,8 +48,8 @@ def guest_env(monkeypatch, tmp_path):
 
     for name in ("ensure_reader", "api", "account_session", "check_risk_hold", "risk_hold", "pace"):
         monkeypatch.setattr(accounts, name, boom)
-    monkeypatch.setattr(att, "_probe_logged_in", boom)
-    monkeypatch.setattr(att, "acquire", boom)
+    monkeypatch.setattr(xhs_attachments, "_probe_logged_in", boom)
+    monkeypatch.setattr(xhs_attachments, "acquire", boom)
     monkeypatch.setattr("link_brain.alert._alert", lambda *a, **k: None)
     return tmp_path
 
@@ -125,7 +127,7 @@ def test_guest_budget_reaches_limit_with_220s_reserve(guest_env, monkeypatch):
         _obj(f"cc{i:02d}")
     out = att.recheck_guest(budget_left=att.budget_from_minutes(30))
     assert out["checked"] == int((1800 - att.guest_cost()) // 78) + 1 and out["stopped_reason"] == "out_of_time"
-    monkeypatch.setattr(att, "PROBE_GAP_SECONDS", (30, 90))
+    monkeypatch.setattr(xhs_attachments, "PROBE_GAP_SECONDS", (30, 90))
     assert att.guest_cost() == 220
 
 
@@ -183,7 +185,7 @@ def test_tail_only_looks_at_guest_unseen_and_gone_needs_two_nights(tail_env, mon
     _unseen("gg01")
     _obj("gg02")  # 没查过的归游客段，收尾段不看
     seen = []
-    monkeypatch.setattr(att, "_probe_logged_in", lambda n, t: seen.append(n) or {
+    monkeypatch.setattr(xhs_attachments, "_probe_logged_in", lambda n, t: seen.append(n) or {
         "ok": False, "path": "/explore", "wall": True, "has_note": False, "gone_like": True, "error": "落到 /explore"})
     monkeypatch.setattr(att, "_now_local", lambda: datetime(2026, 10, 9, 4, 30, tzinfo=TZ))
     assert cli.main(["attachments", "--recheck", "--logged-in-tail"]) == 0
@@ -204,7 +206,7 @@ def test_tail_fresh_token_settles_gone_in_one_night(tail_env, monkeypatch, capsy
     storage.write_json(att.fav_tokens_path(), {"tokens": {"hh01": {"token": "NEW_FAKE",
                                                                   "at": datetime.now().astimezone().isoformat()}}})
     used = []
-    monkeypatch.setattr(att, "_probe_logged_in", lambda n, t: used.append(t) or {
+    monkeypatch.setattr(xhs_attachments, "_probe_logged_in", lambda n, t: used.append(t) or {
         "ok": False, "path": "/404", "gone_like": True, "error": "404"})
     att.recheck_tail()
     assert used == ["NEW_FAKE"] and _mark("hh01")["gone"] is True
@@ -214,7 +216,7 @@ def test_tail_login_wall_stops_and_never_judges_gone(tail_env, monkeypatch, caps
     _unseen("ii01")
     _unseen("ii02")
     calls = []
-    monkeypatch.setattr(att, "_probe_logged_in", lambda n, t: calls.append(n) or {
+    monkeypatch.setattr(xhs_attachments, "_probe_logged_in", lambda n, t: calls.append(n) or {
         "ok": False, "needs_human": True, "code": "NOT_LOGGED_IN", "path": "/login", "error": "游客"})
     assert cli.main(["attachments", "--recheck", "--logged-in-tail"]) == 5
     assert len(calls) == 1 and not _mark("ii01").get("gone")
@@ -224,7 +226,7 @@ def test_tail_stops_on_first_service_failure(tail_env, monkeypatch, capsys):
     for i in range(4):
         _unseen(f"jj{i:02d}")
     calls = []
-    monkeypatch.setattr(att, "_probe_logged_in", lambda n, t: calls.append(n) or {
+    monkeypatch.setattr(xhs_attachments, "_probe_logged_in", lambda n, t: calls.append(n) or {
         "ok": False, "code": "TIMEOUT", "error": "TIMEOUT 读取服务响应超时"})
     assert cli.main(["attachments", "--recheck", "--logged-in-tail"]) == 0
     assert len(calls) == 1, "09-29 连着 4 次 TIMEOUT 还开页：第一次就收工"
@@ -235,7 +237,7 @@ def test_tail_limit_five(tail_env, monkeypatch, capsys):
     for i in range(8):
         _unseen(f"kk{i:02d}")
     calls = []
-    monkeypatch.setattr(att, "_probe_logged_in", lambda n, t: calls.append(n) or {"ok": True, "related_file": None})
+    monkeypatch.setattr(xhs_attachments, "_probe_logged_in", lambda n, t: calls.append(n) or {"ok": True, "related_file": None})
     assert cli.main(["attachments", "--recheck", "--logged-in-tail"]) == 0
     assert len(calls) == 5
 
@@ -268,7 +270,7 @@ def test_download_backoff_across_nights(monkeypatch):
         tries.append(kw.get("tries"))
         raise att.AttachmentError("下载超时")
 
-    monkeypatch.setattr(att, "acquire", failing)
+    monkeypatch.setattr(xhs_attachments, "acquire", failing)
     monkeypatch.setattr(att, "local_download", lambda name: None)
     att.download_for_object("xiaohongshu", "mm01")
     assert tries == [None]

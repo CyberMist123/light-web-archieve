@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+from link_brain.sources.xiaohongshu import attachments as xhs_attachments
+
 import os
 import subprocess
 from pathlib import Path
@@ -103,8 +105,8 @@ def no_real_xhs_processes_or_hosts(monkeypatch, tmp_path):
     monkeypatch.setattr(ai_config_mod, "_LEGACY_NOTE_DONE", False)
     # 附件 / 补查的「像人一样歇」测试里不等
     from link_brain import attachments as att_mod
-    monkeypatch.setattr(att_mod, "PACE_SECONDS", (0.0, 0.0))
-    monkeypatch.setattr(att_mod, "PROBE_GAP_SECONDS", (0.0, 0.0))
+    monkeypatch.setattr(xhs_attachments, "PACE_SECONDS", (0.0, 0.0))
+    monkeypatch.setattr(xhs_attachments, "PROBE_GAP_SECONDS", (0.0, 0.0))
 
 
 @pytest.fixture(autouse=True)
@@ -183,7 +185,7 @@ def no_web_probe(request, monkeypatch):
     )
     # 0929：游客探测失败后会用登录号再看一次——测试里同样不联网
     from link_brain import attachments as att_mod
-    monkeypatch.setattr(att_mod, "_probe_logged_in",
+    monkeypatch.setattr(xhs_attachments, "_probe_logged_in",
                         lambda note_id, token: {"ok": False, "error": "测试环境不联网"})
 
 

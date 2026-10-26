@@ -251,3 +251,9 @@ def media_plan(source_doc: dict[str, Any], opts: dict[str, Any]) -> list[MediaTa
         tasks.append(dict(role="video", index=1, url=note["video"]["video_url"],
                           stem="video", kind="video", payload=note["video"]))
     return tasks
+
+
+def attachment_backend():
+    """按需加载取件能力，普通来源识别不加载附件队列及转换模块。"""
+    import importlib
+    return importlib.import_module(__name__ + ".attachments")

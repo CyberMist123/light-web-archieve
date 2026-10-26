@@ -6,6 +6,8 @@ login --status 带熔断起因、--extract 先落同步状态再补概要。
 """
 from __future__ import annotations
 
+from link_brain.sources.xiaohongshu import attachments as xhs_attachments
+
 import contextlib
 import json
 import os
@@ -205,7 +207,7 @@ def _fake_download(clock, monkeypatch, minutes, downloads):
         path = staging_dir / file_name
         path.write_bytes(b"%PDF-1.4 test")
         return path
-    monkeypatch.setattr(att_mod, "fetch_bytes", fetch_bytes)
+    monkeypatch.setattr(xhs_attachments, "fetch_bytes", fetch_bytes)
     monkeypatch.setattr(pdftext, "convert_object_attachments", lambda *a, **k: [])
     monkeypatch.setattr(att_mod, "convert_downloads", lambda *a, **k: [])
 
@@ -254,7 +256,7 @@ def test_recheck_budget_stops_probing_and_keeps_undownloaded_note_pending(env, c
         clock["t"] += 60
         probes.append(note_id)
         return {"ok": True, "related_file": RELATED, "error": None}
-    monkeypatch.setattr(att_mod, "_probe_logged_in", logged)
+    monkeypatch.setattr(xhs_attachments, "_probe_logged_in", logged)
     downloads = []
     _fake_download(clock, monkeypatch, 2, downloads)
     # 补查一篇最坏 = 90 秒游客 + 150 秒登录号 = 4 分钟；下载一次最坏 5 分钟

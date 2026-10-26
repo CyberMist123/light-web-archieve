@@ -99,9 +99,6 @@ source_modules =
     link_brain.wiki
 forbidden_modules = link_brain.sources.xiaohongshu
 ignore_imports =
-    link_brain.attachments -> link_brain.sources.xiaohongshu.accounts
-    link_brain.attachments -> link_brain.sources.xiaohongshu.adapter
-    link_brain.attachments -> link_brain.sources.xiaohongshu.restricted
     link_brain.catch -> link_brain.sources.xiaohongshu.accounts
     link_brain.catch -> link_brain.sources.xiaohongshu.adapter
     link_brain.crawl -> link_brain.sources.xiaohongshu.accounts

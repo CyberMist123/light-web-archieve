@@ -1,5 +1,7 @@
 # Current State
 
+- 2026-10-26（第二波 PR⑥b，`codex/wave2-pr6b`，未部署）：小红书附件取件、探测、口令、节奏成本及账号包装搬入来源包；共享层保留本地记录、转换、挂载、问题登记、队列 / 对账 / 状态和命令骨架，经 `sources.get` 的可选 attachments 能力调取件，旧名转发。删除三条 import 豁免，最大环仍 77，守卫基线只减；旧测试仅迁 monkeypatch 目标和对应导入。未接 after_commit，入库后补抓时机不变。Windows 原生悉尼时区 pytest：main 2482 / 分支 2484 passed，各 2 skipped，退出 0；Node 两边 82 文件全过。显式 IANA TZ 在 Windows 上两边同 8 条时区失败，无新增。红线输出与测试清单见 `tests/acceptance/20261026-wave2-pr6b.md`；不开 PR、不合并。
+
 - 2026-10-26（直接推 main，作者新规：不开 PR、本地全量 + node 绿就推）：合入 Codex 的 PR⑥a（render / catalog / actionlog 走来源接口，原 #71）；账号面板关窗后熔断还在时给「没看到验证，恢复」按钮（原 #82）；Codex 复审 #46 查出的下载计划请求头问题——每条任务用自己的头，小红书只给图片带 UA / Referer、语音视频照旧不带。全量 2465 passed、node 82。
 - 2026-10-26（第二波 PR⑥a，`codex/wave2-pr6a`，未部署）：render / catalog / actionlog 改经 sources 分派；小红书包承接评论缺口文字、链接清理、专辑、条目标记与动作路由，删除六条共享层 import 豁免；保留现有 Markdown、目录与日志文案。脱敏样本逐字对比及多来源替身测试见 `tests/test_shared_sources.py`；不涉及 attachments 搬家、入库或收藏同步。验证：Windows 原生悉尼时区 pytest 全量退出 0（2328 passed、2 个原有 skip），Node unit 82 文件全过；显式 IANA TZ 在 Windows Python 上的时区差异已在 PR 说明。
 

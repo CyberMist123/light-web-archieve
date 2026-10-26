@@ -307,6 +307,12 @@ import import_scan  # noqa: E402
 MAX_CYCLE = 77
 
 
+def test_shared_attachments_has_no_xhs_import(import_graph):
+    edges = {(a, b) for a, b in import_graph if a == "link_brain.attachments"
+             and b.startswith("link_brain.sources.xiaohongshu")}
+    assert not edges, sorted(edges)
+
+
 @pytest.fixture(scope="module")
 def import_graph():
     return import_scan.edges()

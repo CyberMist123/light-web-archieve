@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from link_brain.sources.xiaohongshu import attachments as xhs_attachments
+
 import json
 from pathlib import Path
 
@@ -26,7 +28,7 @@ RELATED_FILE = {
 
 def setup_env(tmp_path, monkeypatch):
     monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path))
-    monkeypatch.setattr(att_mod, "_pace", lambda attempt=1: None)  # 测试不歇
+    monkeypatch.setattr(xhs_attachments, "_pace", lambda attempt=1: None)  # 测试不歇
     monkeypatch.setattr(
         xhs, "parse_input",
         lambda text, client=None: {
@@ -90,7 +92,7 @@ def test_download_lands_object_level_and_keeps_raw_sealed(tmp_path, monkeypatch)
     raw_dir = storage.raw_dir(source, source_id, 1)
     before = {p.name: p.read_bytes() for p in raw_dir.iterdir() if p.is_file()}
 
-    monkeypatch.setattr(att_mod, "fetch_bytes", fake_fetch())
+    monkeypatch.setattr(xhs_attachments, "fetch_bytes", fake_fetch())
     out = att_mod.download_for_object(source, source_id)
 
     assert [r["status"] for r in out["results"]] == ["downloaded"]
@@ -115,7 +117,7 @@ def test_second_run_skips_unless_force(tmp_path, monkeypatch):
     cli.main(["ingest", "https://example.invalid/share"])
     _, source, source_id = _ids()
     calls: list[str] = []
-    monkeypatch.setattr(att_mod, "fetch_bytes", fake_fetch(calls=calls))
+    monkeypatch.setattr(xhs_attachments, "fetch_bytes", fake_fetch(calls=calls))
 
     att_mod.download_for_object(source, source_id)
     out = att_mod.download_for_object(source, source_id)
@@ -139,7 +141,7 @@ def test_attachment_without_doc_id_is_skipped(tmp_path, monkeypatch):
     def _boom(**kw):
         raise AssertionError("没有 doc_id 时不该开浏览器")
 
-    monkeypatch.setattr(att_mod, "fetch_bytes", _boom)
+    monkeypatch.setattr(xhs_attachments, "fetch_bytes", _boom)
     out = att_mod.download_for_object(source, source_id)
     # 0929：不再静默跳过——游客、登录号都找不到文件编号时，记成失败并写明原因
     assert [r["status"] for r in out["results"]] == ["failed"]
@@ -156,7 +158,7 @@ def test_attachment_hint_resolved_by_logged_in_probe(tmp_path, monkeypatch):
     )
     cli.main(["ingest", "https://example.invalid/share"])
     _, source, source_id = _ids()
-    monkeypatch.setattr(att_mod, "_probe_logged_in", lambda note_id, token: {
+    monkeypatch.setattr(xhs_attachments, "_probe_logged_in", lambda note_id, token: {
         "ok": True, "related_file": {"docId": "123", "name": "p.docx", "bizExtra": "{}"}, "error": None})
     seen = {}
 
@@ -164,7 +166,7 @@ def test_attachment_hint_resolved_by_logged_in_probe(tmp_path, monkeypatch):
         seen.update(kw)
         raise att_mod.AttachmentError("测试不真下")
 
-    monkeypatch.setattr(att_mod, "acquire", _acquire)
+    monkeypatch.setattr(xhs_attachments, "acquire", _acquire)
     monkeypatch.setattr(att_mod, "local_download", lambda name: None)
     out = att_mod.download_for_object(source, source_id)
     assert seen["doc_id"] == "123" and seen["name"] == "p.docx"
@@ -175,7 +177,7 @@ def test_visible_note_links_local_file_after_download(tmp_path, monkeypatch):
     setup_env(tmp_path, monkeypatch)
     cli.main(["ingest", "https://example.invalid/share"])
     _, source, source_id = _ids()
-    monkeypatch.setattr(att_mod, "fetch_bytes", fake_fetch())
+    monkeypatch.setattr(xhs_attachments, "fetch_bytes", fake_fetch())
     att_mod.download_for_object(source, source_id)
 
     render_mod.render_object(source, source_id)
@@ -198,7 +200,7 @@ def test_bad_download_is_deleted_and_retried(tmp_path, monkeypatch):
         path.write_bytes(b"<html>busy</html>" if len(calls) == 1 else good)
         return path
 
-    monkeypatch.setattr(att_mod, "fetch_bytes", _fetch)
+    monkeypatch.setattr(xhs_attachments, "fetch_bytes", _fetch)
     out = att_mod.download_for_object(source, source_id)
     assert [r["status"] for r in out["results"]] == ["downloaded"] and len(calls) == 2
     assert (storage.derived_dir(source, source_id) / "attachments" / f"{DOC_ID}.md").exists()
@@ -216,7 +218,7 @@ def test_same_name_file_already_in_library_is_not_downloaded(tmp_path, monkeypat
     def _boom(**kw):
         raise AssertionError("库里已有同名文件，不该开浏览器")
 
-    monkeypatch.setattr(att_mod, "fetch_bytes", _boom)
+    monkeypatch.setattr(xhs_attachments, "fetch_bytes", _boom)
     att_mod.download_for_object(source, source_id)
     assert DOC_ID in att_mod.load_downloaded(source, source_id)
 
@@ -232,7 +234,7 @@ def test_service_down_is_not_retried(tmp_path, monkeypatch):
         calls.append(doc_id)
         raise att_mod.AttachmentServiceDown("读取服务响应超时", "TIMEOUT")
 
-    monkeypatch.setattr(att_mod, "fetch_bytes", _fetch)
+    monkeypatch.setattr(xhs_attachments, "fetch_bytes", _fetch)
     out = att_mod.download_for_object(source, source_id)
     assert len(calls) == 1
     assert [r["status"] for r in out["results"]] != ["downloaded"]

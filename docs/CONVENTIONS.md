@@ -207,6 +207,8 @@ R = {"status": "ok|failed|skipped", "text": str|None, "code": "<故障码或空>
 
 具体来源实现 `matches / find_urls / parse / fetch / normalize / fingerprint / media_plan`，`parse` 在保留来源私有旧键的同时给出 `source / source_id`。来源私有能力经 `capabilities` 声明（`account / favorites_sync / comments_fill / attachments / albums`），由入口层直接调用，不加到通用接口里。
 
+第二波 PR⑥b：`attachments` 是可选能力；共享附件层先 `sources.get(source)`，只有能力存在才调用 `src.attachment_backend()`，按需加载来源包的 `attachments` 模块。它提供 `acquire / resolve_hint / probe_state / recheck / recheck_guest / recheck_tail`、口令维护、节奏成本及账号执行包装；来源不支持附件时，下载与补查队列跳过，不开页、不报错。共享层保留附件记录 / resolved / 退避读写、本地转换与挂载、队列 / 对账 / 状态和命令骨架；来源解释补查记录，渲染与目录收尾仍由共享层执行。旧 `link_brain.attachments` 名字保留转发，异常类保持原对象；测试替换搬走的函数或节奏常量时，monkeypatch 应打在来源包的新路径，旧名字赋值不会替换真身。入库后 `grab_after_ingest` 的既有调用时机不变，本次未接入 `after_commit`。
+
 第二波 PR⑥a：共享 `render / catalog / actionlog` 只经 `sources.get(name)` 调来源。展示接口为 `source_open_url(note, meta)`、`suggested_link_url(raw)`、`is_link_only(text)`、`item_flags(obj_dir)`（`[{code, detail}]`，交目录原有问题登记表显示）；链接清理保留普通外链的既有匹配规则，不等于只找本站链接的 `find_urls`。`comments_fill` 能力提供 `comment_view(source_doc, meta)`、`comment_gap_text(comment, missing, gap_reasons, floor_limit, scoped)`、`comment_status_text(capture, comments, view)`、`comment_gap_lines(source_doc, view)` 和 `restricted_text(view)`：来源只给原有文字，HTML 外壳仍由 render 生成。`albums` 能力提供 `note_albums()`，无此能力不调用。`account` 能力提供 `action_home()`、`action_lock_holder()`、`action_for_route(route)`；路由返回空串表示不认得，actionlog 按注册顺序查找。catalog 默认遍历 `names()`，显式 `source=` 仍只收该来源；渲染对象路径优先取 meta 的 source，缺字段的旧调用沿用已注册的首个来源。
 
 第二波 PR② 先建立接口和异常别名；既有共享层的小红书解析、抓取和下载调用在后续 PR 中迁移。本 PR 的小红书 `fetch` 只转接现有重试函数，网页附件探测 / 登录号补看仍留在 ingest；`find_urls` 暂时保留与 catch 相同的实现，由契约测试核对。`media_plan` 只列计划，现有下载函数照旧。

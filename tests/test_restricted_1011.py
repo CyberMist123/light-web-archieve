@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+from link_brain.sources.xiaohongshu import attachments as xhs_attachments
+
 import json
 import re
 from datetime import datetime, timedelta
@@ -282,8 +284,8 @@ def test_attachment_restricted_no_triple_retry_and_skipped_after(env, monkeypatc
     def fake_fetch(**kw):
         fetches.append(kw["xsec_token"])
         raise attachments.AttachmentRestricted(restricted.TEXT)
-    monkeypatch.setattr(attachments, "fetch_bytes", fake_fetch)
-    monkeypatch.setattr(attachments, "_pace", lambda attempt=1: None)
+    monkeypatch.setattr(xhs_attachments, "fetch_bytes", fake_fetch)
+    monkeypatch.setattr(xhs_attachments, "_pace", lambda attempt=1: None)
     _search(monkeypatch, {"found": True, "xsec_token": "FRESH"})
     out = attachments.download_for_object("xiaohongshu", NOTE_ID)
     assert fetches == ["FAKE_TOKEN_FOR_TESTS", "FRESH"], "不进 3 次循环：旧口令一次 + 新口令一次"
@@ -301,8 +303,8 @@ def test_attachment_restricted_no_triple_retry_and_skipped_after(env, monkeypatc
 
 def test_attachment_fallback_defers_when_budget_is_short(env, monkeypatch):
     _declare_attachment(monkeypatch)
-    monkeypatch.setattr(attachments, "fetch_bytes", lambda **kw: (_ for _ in ()).throw(attachments.AttachmentRestricted("x")))
-    monkeypatch.setattr(attachments, "_pace", lambda attempt=1: None)
+    monkeypatch.setattr(xhs_attachments, "fetch_bytes", lambda **kw: (_ for _ in ()).throw(attachments.AttachmentRestricted("x")))
+    monkeypatch.setattr(xhs_attachments, "_pace", lambda attempt=1: None)
     searched = []
     _search(monkeypatch, {"found": True, "xsec_token": "FRESH"}, searched)
     left = {"v": attachments.attempt_cost(1) + 5}
@@ -317,7 +319,7 @@ def test_logged_in_recheck_skips_restricted_notes(env, monkeypatch):
     storage.write_json(obj / "derived" / "web_recheck.json", {"ok": False, "stage": "guest_unseen",
                                                              "guest_at": datetime.now().astimezone().isoformat()})
     probed = []
-    monkeypatch.setattr(attachments, "_probe_logged_in", lambda *a: probed.append(a) or {"ok": False})
+    monkeypatch.setattr(xhs_attachments, "_probe_logged_in", lambda *a: probed.append(a) or {"ok": False})
     monkeypatch.setattr(attachments, "write_recheck_status", lambda *a, **k: {})
     out = attachments.recheck_tail(limit=5)
     assert probed == [] and out["checked"] == 0 and out["gone"] == 0

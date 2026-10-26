@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+from link_brain.sources.xiaohongshu import attachments as xhs_attachments
+
 import json
 import os
 import sys
@@ -243,7 +245,7 @@ def test_rate_limited_keeps_earlier_failure_and_last_success(env, capsys):
 
 def test_logged_in_probe_hitting_guest_stops_the_batch(env, monkeypatch, capsys):
     """入库时游客探测失败 → 用登录号补看；补看发现号掉了 → 整批停车（exit 5），不再开下一篇。"""
-    monkeypatch.setattr(att_mod, "_probe_logged_in",
+    monkeypatch.setattr(xhs_attachments, "_probe_logged_in",
                         lambda n, t: {"ok": False, "needs_human": True, "code": "NOT_LOGGED_IN", "error": "没登录"})
     env.favs = [_fav(i) for i in _ids(3)]
     code, out = _run(capsys)
@@ -431,7 +433,7 @@ def test_hint_already_attached_by_hand_is_not_probed_again(env, monkeypatch, cap
     f.write_bytes(b"%PDF-1.4 hand")
     att_mod.manual_attach("xiaohongshu", "cccccccccccccccc0001", str(f))
     assert storage.read_json(att_mod.attachments_path("xiaohongshu", "cccccccccccccccc0001"))["files"][0]["name"] == hint
-    monkeypatch.setattr(att_mod, "resolve_hint", lambda *a, **k: pytest.fail("已经挂好的线索不许再开页"))
+    monkeypatch.setattr(xhs_attachments, "resolve_hint", lambda *a, **k: pytest.fail("已经挂好的线索不许再开页"))
     monkeypatch.setattr(att_mod, "convert_downloads", lambda *a, **k: [])
     assert cli.main(["attachments", "--all"]) == 0
 
@@ -440,7 +442,7 @@ def test_recheck_hitting_logged_out_exits_5(env, monkeypatch, capsys):
     monkeypatch.setattr(att_mod, "grab_after_ingest", lambda *a, **k: None)
     assert cli.main(["catch", f"存一下 {URL}"]) == 0  # conftest：网页探测失败 → 待补查
     capsys.readouterr()
-    monkeypatch.setattr(att_mod, "_probe_logged_in",
+    monkeypatch.setattr(xhs_attachments, "_probe_logged_in",
                         lambda n, t: {"ok": False, "needs_human": True, "code": "ACCOUNT_RISK", "error": "跳到了登录异常页"})
     monkeypatch.setattr("link_brain.alert._alert", lambda *a, **k: None)
     assert cli.main(["attachments", "--recheck", "--limit", "20"]) == 5

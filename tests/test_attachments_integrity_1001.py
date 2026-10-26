@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from link_brain.sources.xiaohongshu import attachments as xhs_attachments
+
 import json
 
 import pytest
@@ -51,9 +53,9 @@ def test_resolved_hint_goes_to_object_file_not_sealed_raw(tmp_path, monkeypatch)
         probes.append(note_id)
         return {"ok": True, "related_file": RELATED_FILE, "error": None}
 
-    monkeypatch.setattr(att_mod, "_probe_logged_in", logged)
+    monkeypatch.setattr(xhs_attachments, "_probe_logged_in", logged)
     monkeypatch.setattr(att_mod, "local_download", lambda name: None)
-    monkeypatch.setattr(att_mod, "fetch_bytes", fake_fetch())
+    monkeypatch.setattr(xhs_attachments, "fetch_bytes", fake_fetch())
     out = att_mod.download_for_object(source, source_id)
 
     assert [r["status"] for r in out["results"]] == ["downloaded"]
@@ -84,7 +86,7 @@ def test_recheck_found_file_is_declared_so_all_picks_it_up(tmp_path, monkeypatch
     def broken_download(**kw):
         raise att_mod.AttachmentError("下到一半断了")
 
-    monkeypatch.setattr(att_mod, "fetch_bytes", broken_download)
+    monkeypatch.setattr(xhs_attachments, "fetch_bytes", broken_download)
     out = att_mod.recheck()
     assert out["failed"] and _raw_snapshot(source, source_id) == before
 
@@ -96,9 +98,9 @@ def test_recheck_found_file_is_declared_so_all_picks_it_up(tmp_path, monkeypatch
     assert status == "metadata_only"  # attachments --all 按这个挑对象
 
     seen = []
-    monkeypatch.setattr(att_mod, "resolve_hint", lambda *a: pytest.fail("编号已知，不该再去找"))
+    monkeypatch.setattr(xhs_attachments, "resolve_hint", lambda *a: pytest.fail("编号已知，不该再去找"))
     monkeypatch.setattr(att_mod, "local_download", lambda name: None)
-    monkeypatch.setattr(att_mod, "fetch_bytes", fake_fetch(calls=seen))
+    monkeypatch.setattr(xhs_attachments, "fetch_bytes", fake_fetch(calls=seen))
     res = att_mod.download_for_object(source, source_id)
     assert seen == [DOC_ID] and [r["status"] for r in res["results"]] == ["downloaded"]
 
@@ -112,7 +114,7 @@ def test_second_manual_attach_adds_record_instead_of_replacing(tmp_path, monkeyp
     setup_env(tmp_path, monkeypatch)
     cli.main(["ingest", "https://example.invalid/share"])
     item_id, source, source_id = _ids()
-    monkeypatch.setattr(att_mod, "fetch_bytes", fake_fetch())
+    monkeypatch.setattr(xhs_attachments, "fetch_bytes", fake_fetch())
     att_mod.download_for_object(source, source_id)
     obj = storage.object_dir(source, source_id)
     first_md = obj / "derived" / "attachments" / f"{DOC_ID}.md"
@@ -169,7 +171,7 @@ def test_same_name_different_file_does_not_overwrite_bytes(tmp_path, monkeypatch
     setup_env(tmp_path, monkeypatch)
     cli.main(["ingest", "https://example.invalid/share"])
     _, source, source_id = _ids()
-    monkeypatch.setattr(att_mod, "fetch_bytes", fake_fetch())
+    monkeypatch.setattr(xhs_attachments, "fetch_bytes", fake_fetch())
     att_mod.download_for_object(source, source_id)
     obj = storage.object_dir(source, source_id)
     original = (obj / "attachments" / "教程.pdf").read_bytes()
@@ -203,7 +205,7 @@ def test_reclaimed_manual_record_merges_into_real_doc_id(tmp_path, monkeypatch):
     md_dir.mkdir(parents=True, exist_ok=True)
     (md_dir / "manual-教程.md").write_text("# 已转好的", encoding="utf-8")
 
-    monkeypatch.setattr(att_mod, "fetch_bytes", lambda **kw: pytest.fail("库里已有同名文件，不该上网"))
+    monkeypatch.setattr(xhs_attachments, "fetch_bytes", lambda **kw: pytest.fail("库里已有同名文件，不该上网"))
     att_mod.download_for_object(source, source_id)
 
     known = att_mod.load_downloaded(source, source_id)
@@ -275,7 +277,7 @@ def test_unconvertible_download_is_kept_and_not_refetched(tmp_path, monkeypatch)
     cli.main(["ingest", "https://example.invalid/share"])
     _, source, source_id = _ids()
     calls = []
-    monkeypatch.setattr(att_mod, "fetch_bytes", fake_fetch(encrypted_pdf(), calls=calls))
+    monkeypatch.setattr(xhs_attachments, "fetch_bytes", fake_fetch(encrypted_pdf(), calls=calls))
     out = att_mod.download_for_object(source, source_id)
 
     assert [r["status"] for r in out["results"]] == ["downloaded"] and calls == [DOC_ID], "下一次就够，不删了重下"
