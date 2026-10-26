@@ -1276,6 +1276,19 @@ def _recheck_run() -> dict[str, Any] | None:
 MIGRATIONS_NAME = "problem-migrations.json"
 
 
+def retire_wrong_account() -> int:
+    """1026 她定没有「登错号」（登哪个号就同步哪个号）：旧版留下的 WRONG_ACCOUNT 问题和 sync-status 里的「登错号暂停」
+    一并收掉（幂等：没有就 0 开销）。返回收掉几条。永不抛异常。"""
+    try:
+        n = resolve("login", code="NEEDS_HUMAN.WRONG_ACCOUNT")
+        from . import sync_state
+        n += sync_state.clear_legacy_wrong_account()
+        return n
+    except Exception as exc:  # noqa: BLE001
+        print(f"[problems] 旧的登错号没收掉（{errtext(exc)}）", file=sys.stderr)
+        return 0
+
+
 def migrate_orphan_refine() -> int:
     """一次性迁移（1008，B2-7）：卡片上有「AI 结果不可用」标（vision.json 里有 refine failed 的图）、问题记录里却没有
     没解决的条目——当时问题面板还没接上这类报错。补登记一次，好让她在面板里看得到、能隐藏。
@@ -1579,6 +1592,7 @@ def run(args) -> int:
     if cmd == "list":
         from . import ai_health, usage
         reconcile_account()  # 1017：账号那几行先和读取服务的实时状态对齐（号好着就撤掉旧的掉登录 / 限频）
+        retire_wrong_account()  # 1026：没有登错号了，旧记录收掉
         try:
             from . import restricted as _restricted
             _restricted.quiet_unconfirmed()  # 1017：只撞见过一天的「网页版要验证」收掉，等隔天再开一次

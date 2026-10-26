@@ -83,6 +83,22 @@ def current():
     return status
 
 
+def clear_legacy_wrong_account() -> int:
+    """1026：旧版停在「登错号」的 sync-status 改回 ready（现在登哪个号就同步哪个号）。改了返回 1，否则 0。"""
+    try:
+        with storage.file_lock(LOCK, wait_s=LOCK_WAIT_S, owner='link_brain.sync_state.clear_legacy_wrong_account'):
+            raw = _read_raw()
+            if not (raw.get('state') == 'blocked' and raw.get('code') == 'WRONG_ACCOUNT'):
+                return 0
+            storage.write_json(path(), {**raw, 'state': 'ready', 'code': '', 'detail': '',
+                                        'message': '登哪个号就同步哪个号，下次同步照常进行',
+                                        'updated_at': datetime.now().astimezone().isoformat()})
+    except (storage.LockBusy, OSError):
+        return 0
+    _refresh_summary()
+    return 1
+
+
 def page_state():
     """problems-summary.json 的 sync 段（只读）：修正后的状态 + 上次同步时间 + 本次新收几篇 + 还剩几篇逐晚处理。
 

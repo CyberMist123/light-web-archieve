@@ -174,3 +174,13 @@ def test_snapshot_remembers_account_and_tags_with_it(monkeypatch):
     snap = fav.load_snapshot()
     assert [x["note_id"] for x in snap["items"]] == ["a1"] and snap.get("full_next")
     assert fav.read_mode()[0] == "full"
+
+def test_retire_legacy_wrong_account():
+    """1026：旧版留下的「登错号」问题和 sync-status 暂停一并收掉，第二次 0 开销。"""
+    from link_brain import problems, storage, sync_state
+    problems.report_blocked("login", "WRONG_ACCOUNT", "旧版留下的登错号")
+    storage.write_json(sync_state.path(), {"state": "blocked", "code": "WRONG_ACCOUNT", "detail": "x", "message": "m"})
+    assert problems.retire_wrong_account() >= 2
+    assert sync_state.load()["state"] == "ready" and sync_state.load()["code"] == ""
+    assert "NEEDS_HUMAN.WRONG_ACCOUNT" not in [r.get("code") for r in problems.load()]
+    assert problems.retire_wrong_account() == 0
