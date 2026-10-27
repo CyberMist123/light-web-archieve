@@ -377,7 +377,7 @@ provider().killTree(pid)   // 同一排除规则
 
 ## 9. 样式集（1027）
 
-**模版**（1027b 她定方向）：`docs/style-guide.html`（浏览器直接打开）= 每种东西只出现一次的样子——两种字（雕刻字只给英文小标题 / 品牌标题，其余全是正文字）、不斜体、八档字号、颜色 / 间距 / 圆角 / 控件。没按模版来的地方：`python tools/style_audit.py --md docs/STYLE-DEVIATIONS.md` 逐条列出（先列不改，她定了再按 A 字体 → B 字号 → C 颜色换）。
+**模版**（1027b 她定方向）：`docs/style-guide.html`（单文件，样式集和字体都内嵌，哪里打开都照样显示；源是 `docs/style-guide.src.html`，改完跑 `python tools/build_style_guide.py`）= 每种东西只出现一次的样子——两种字（雕刻字只给英文小标题 / 品牌标题，其余全是正文字）、不斜体、八档字号、颜色 / 间距 / 圆角 / 控件。没按模版来的地方：`python tools/style_audit.py --md docs/STYLE-DEVIATIONS.md` 逐条列出（先列不改，她定了再按 A 字体 → B 字号 → C 颜色换）。
 
 **规则**
 1. 字体、字号、颜色、间距、圆角、控件高度**只用样式集里的名字**（`var(--lb-*)` + 下面几个共用类）。新界面不许再手写字体栈、写死灰色（`var(--text-muted)` 这类直接写也算）或另起一套同义变量；旧代码动到时顺手换。`tests/test_guards.py` 的「写死的字体栈」规则扫 `link_brain/assets/*.js`，基线只许减。

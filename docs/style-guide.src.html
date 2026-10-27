@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LWA 样式模版</title>
+<!-- 1027b 她：「全部的设计样式给我一个统一的模版」。这是源文件：改这里，再跑 python tools/build_style_guide.py
+     生成 docs/style-guide.html（样式集 lb-tokens.css 和两个随包字体都内嵌进去，单文件、任何预览里都照样显示）。
+     页面 / 插件里没按模版来的地方见 docs/STYLE-DEVIATIONS.md（python tools/style_audit.py --md 生成）。 -->
+<style>
+/*@FONTS@*/
+/*@TOKENS@*/
+</style>
+<style>
+/* 在 Obsidian 外面看：先给出样式集要映射的那几个 Obsidian 主题变量（浅 / 深） */
+body.theme-light{--text-normal:#222;--text-muted:#6b6b6b;--text-faint:#a3a3a3;--background-primary:#fff;--background-secondary:#f6f6f6;--background-modifier-border:#e3e3e3;--background-modifier-hover:rgba(0,0,0,.05);--text-warning:#c46a00;--text-error:#c62828;--text-success:#2e7d32;}
+body.theme-dark{--text-normal:#dadada;--text-muted:#9a9a9a;--text-faint:#666;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#363636;--background-modifier-hover:rgba(255,255,255,.06);--text-warning:#e0a040;--text-error:#ef6b6b;--text-success:#6bbf73;}
+
+/* ── 模版的约定（这一页之外的界面以后都照这个） ──
+   两种字：雕刻字 --lb-font-title 只给英文小标题（kicker）和品牌大标题；其余一切（中文标题、正文、数字、按钮、输入）= --lb-font-body。
+   不斜体。数字用正文字 + 等宽数字（--lb-num-feat）。 */
+body{margin:0;background:var(--lb-surface);color:var(--lb-ink);font:var(--lb-fs-body)/1.6 var(--lb-font-body);}
+.sg{max-width:980px;margin:0 auto;padding:var(--lb-space-6) var(--lb-space-4) 80px;container-type:inline-size;}
+.sg-top{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--lb-space-4);flex-wrap:wrap;}
+.sg-brand{font:900 clamp(30px,8cqi,64px)/1 var(--lb-font-title);letter-spacing:.012em;text-transform:uppercase;transform:skewX(-13deg);margin:var(--lb-space-2) 0 0;}
+.sg-lead{color:var(--lb-muted);margin:var(--lb-space-3) 0 0;max-width:640px;}
+.sg-sec{margin-top:calc(var(--lb-space-6) * 1.5);}
+/* 小标题：kicker（雕刻字）+ 中文（正文字）+ 撑满的细线 —— 全站分区都用这一种 */
+.sg-head{display:flex;align-items:center;gap:14px;margin:0 0 var(--lb-space-4);}
+.sg-head small{font:var(--lb-fs-small)/1 var(--lb-font-body);color:var(--lb-muted);letter-spacing:.04em;}
+.sg-head i{flex:1;height:1px;background:var(--lb-ink);min-width:12px;}
+.sg-note{color:var(--lb-muted);font-size:var(--lb-fs-small);margin:var(--lb-space-2) 0 0;}
+.sg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:var(--lb-space-4);}
+.sg-cell{border:1px solid var(--lb-line);border-radius:var(--lb-radius);padding:var(--lb-space-4);min-width:0;}
+.sg-cell code,.sg code{font:var(--lb-fs-micro)/1.5 ui-monospace,Consolas,monospace;color:var(--lb-muted);word-break:break-all;}
+.sg-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--lb-space-3);}
+.sg-table{width:100%;border-collapse:collapse;}
+.sg-table td,.sg-table th{text-align:left;padding:var(--lb-space-2) var(--lb-space-3) var(--lb-space-2) 0;border-top:1px solid var(--lb-line);vertical-align:baseline;}
+.sg-table th{font-weight:500;color:var(--lb-muted);font-size:var(--lb-fs-small);border-top:0;}
+.sg-swatch{width:100%;height:44px;border-radius:var(--lb-radius);border:1px solid var(--lb-line);margin-bottom:var(--lb-space-2);}
+.sg-space{display:flex;align-items:flex-end;gap:var(--lb-space-4);flex-wrap:wrap;}
+.sg-space div{background:var(--lb-ink);height:12px;}
+.sg-dont{color:var(--lb-danger);}
+/* 例子：列表行、大数字、分段切换、小块、编排虚线框 */
+.ex-list{list-style:none;margin:0;padding:0;}
+.ex-list li{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:var(--lb-space-3);align-items:baseline;padding:10px 0;border-top:1px solid var(--lb-line);font-size:var(--lb-fs-body);}
+.ex-list time{color:var(--lb-muted);font-variant-numeric:var(--lb-num-feat);}
+.ex-list span:last-child{color:var(--lb-muted);font-size:var(--lb-fs-small);}
+.ex-stat{font:600 var(--lb-fs-num-lg)/1.05 var(--lb-font-body);font-variant-numeric:var(--lb-num-feat);letter-spacing:-.01em;}
+.ex-stat-l{color:var(--lb-muted);font-size:var(--lb-fs-small);margin-top:var(--lb-space-1);}
+.ex-seg{display:inline-flex;gap:2px;}
+.ex-seg button{height:24px;padding:0 12px;border:1px solid transparent;border-radius:var(--lb-radius-pill);background:transparent;color:var(--lb-muted);font:var(--lb-fs-small)/1 var(--lb-font-body);cursor:pointer;}
+.ex-seg button.is-on{border-color:var(--lb-ink);color:var(--lb-ink);font-weight:600;}
+.ex-chip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border:1px solid var(--lb-line);border-radius:var(--lb-radius-pill);font-size:var(--lb-fs-small);background:transparent;color:var(--lb-ink);}
+.ex-chip b{font-weight:400;color:var(--lb-faint);font-variant-numeric:var(--lb-num-feat);}
+.ex-chip.is-on{background:var(--lb-ink);border-color:var(--lb-ink);color:var(--lb-surface);}
+.ex-chip.is-on b{color:inherit;opacity:.7;}
+.ex-box{position:relative;margin:46px 8px 22px;outline:1.5px dashed var(--lb-faint);outline-offset:8px;border-radius:2px;padding:2px 0;}
+.ex-box:hover{outline-color:var(--lb-ink);}
+.ex-bar{position:absolute;top:-38px;left:-8px;display:flex;align-items:center;gap:2px;height:28px;padding:0 10px;background:var(--lb-ink);color:var(--lb-surface);border-radius:var(--lb-radius-pill);font-size:var(--lb-fs-small);}
+.ex-grip-y{position:absolute;left:50%;bottom:-14px;width:28px;height:8px;margin-left:-14px;border-radius:var(--lb-radius-pill);background:var(--lb-surface);border:1.5px solid var(--lb-ink);box-sizing:border-box;}
+.ex-grip-x{position:absolute;top:50%;right:-14px;width:2px;height:40px;margin-top:-20px;background:var(--lb-ink);border-radius:2px;}
+.ex-kv{display:flex;justify-content:space-between;align-items:baseline;padding:10px 0;border-top:1px solid var(--lb-line);}
+.ex-kv span{color:var(--lb-muted);}
+.ex-kv b{font-weight:600;font-variant-numeric:var(--lb-num-feat);}
+/* before / after：「现在」那一栏故意用旧写法（衬线 / Cormorant 斜体），只为对照 */
+.ba{display:grid;grid-template-columns:1fr 1fr;gap:var(--lb-space-5);}
+.ba-col{border:1px solid var(--lb-line);border-radius:var(--lb-radius);padding:var(--lb-space-4) var(--lb-space-5);min-width:0;}
+.ba-tag{display:inline-block;font-size:var(--lb-fs-micro);color:var(--lb-muted);border:1px solid var(--lb-line);border-radius:var(--lb-radius-pill);padding:2px 10px;margin-bottom:var(--lb-space-3);}
+.ba-tag.is-new{color:var(--lb-surface);background:var(--lb-ink);border-color:var(--lb-ink);}
+.old-meta{font:italic 16px/1.3 var(--lb-font-num);color:var(--lb-muted);}
+.old-meta b,.new-meta b{color:var(--lb-ink);font-weight:600;}
+.new-meta{font:var(--lb-fs-body)/1.5 var(--lb-font-body);color:var(--lb-muted);font-variant-numeric:var(--lb-num-feat);}
+.old-zh{font:12px/1 var(--lb-font-serif)!important;letter-spacing:.1em!important;}
+.old-big{font:500 30px/1.1 var(--lb-font-num);}
+.old-cap{font:italic 13px/1.4 var(--lb-font-num);color:var(--lb-muted);margin:var(--lb-space-1) 0 var(--lb-space-2);}
+.old-num{font:italic 600 17px/1.2 var(--lb-font-num)!important;}
+.old-set,.new-set{display:flex;align-items:baseline;gap:12px;margin-top:var(--lb-space-4);padding-top:var(--lb-space-3);border-top:1px solid var(--lb-ink);}
+.old-n{font:italic 18px/1 var(--lb-font-num);color:var(--lb-muted);}
+.old-h2{font:400 18px/1.3 var(--lb-font-serif);letter-spacing:.04em;}
+.new-set span:first-child{color:var(--lb-muted);font-variant-numeric:var(--lb-num-feat);}
+.new-set span:last-child{font-weight:600;font-size:var(--lb-fs-h1);}
+@container (max-width:620px){.ba{grid-template-columns:1fr;}}
+.sg-theme{position:fixed;top:12px;right:12px;z-index:5;}
+@container (max-width:560px){.sg-table .sg-hide{display:none;}}
+</style>
+</head>
+<body class="theme-light">
+<button class="lb-btn-pill sg-theme" type="button" id="sgTheme">深色</button>
+<main class="sg">
+  <div class="sg-top">
+    <div>
+      <div class="lb-kicker">STYLE GUIDE · 样式模版</div>
+      <h1 class="sg-brand">LWA</h1>
+    </div>
+  </div>
+  <p class="sg-lead">以后所有页面（目录、问收藏、笔记页、回收站、设置）都只用这一页上的东西。名字都来自 <code>link_brain/assets/lb-tokens.css</code>（唯一源）；没按这里来的地方列在 <code>docs/STYLE-DEVIATIONS.md</code>。</p>
+
+  <!-- 0 三条规矩 -->
+  <section class="sg-sec">
+    <div class="sg-head"><span class="lb-kicker">RULES</span><small>三条规矩</small><i></i></div>
+    <table class="sg-table">
+      <tr><td>1</td><td><b>两种字。</b>雕刻字只给英文小标题（RECENT / SYNC 这种）和品牌大标题；其余一切——中文标题、正文、数字、按钮、输入——都用正文字。<span class="sg-dont">不再用衬线中文、Cormorant 数字。</span></td></tr>
+      <tr><td>2</td><td><b>不斜体。</b>数字用正文字 + 等宽数字（<code>--lb-num-feat</code>），对得齐就够了。</td></tr>
+      <tr><td>3</td><td><b>只用名字，不写死。</b>字号 / 颜色 / 间距 / 圆角 / 控件高都用 <code>var(--lb-*)</code>；黑白为主，橙 / 红只给状态，颜色只出现在封面里。</td></tr>
+    </table>
+  </section>
+
+  <!-- 0.5 现在 vs 模版 -->
+  <section class="sg-sec">
+    <div class="sg-head"><span class="lb-kicker">BEFORE / AFTER</span><small>现在的样子 vs 模版</small><i></i></div>
+    <div class="ba">
+      <div class="ba-col">
+        <div class="ba-tag">现在（部署前的目录页 / 设置页）</div>
+        <div class="old-meta"><b>1438</b> 篇 · 全部 1474 · 更新 10/27 00:25</div>
+        <div class="sg-head" style="margin:var(--lb-space-4) 0 var(--lb-space-3)"><span class="lb-kicker" style="color:var(--lb-ink)">TOKEN</span><small class="old-zh">Token 费用</small><i></i></div>
+        <div class="old-big">¥ <i>46.24</i></div>
+        <div class="old-cap">2026-10 · 人民币估算</div>
+        <div class="ex-kv"><span>后台每日上限</span><b class="old-num">¥3</b></div>
+        <div class="old-set"><span class="old-n">02</span><span class="old-h2">收藏与同步</span></div>
+        <p class="sg-note">四种字：雕刻字 · 衬线中文 · Cormorant 斜体数字 · 黑体正文。</p>
+      </div>
+      <div class="ba-col">
+        <div class="ba-tag is-new">模版</div>
+        <div class="new-meta"><b>1438</b> 篇 · 全部 1474 · 更新 10/27 00:25</div>
+        <div class="sg-head" style="margin:var(--lb-space-4) 0 var(--lb-space-3)"><span class="lb-kicker" style="color:var(--lb-ink)">TOKEN</span><small>Token 费用</small><i></i></div>
+        <div class="ex-seg"><button>天</button><button>周</button><button class="is-on">月</button></div>
+        <div class="ex-stat">¥ 46.24</div>
+        <div class="ex-stat-l">2026-10 · 人民币估算</div>
+        <div class="ex-kv"><span>后台每日上限</span><b>¥3 ⌄</b></div>
+        <div class="new-set"><span>02</span><span>收藏与同步</span></div>
+        <p class="sg-note">两种字：雕刻字（只在英文小标题）· 正文字。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 1 字体 -->
+  <section class="sg-sec">
+    <div class="sg-head"><span class="lb-kicker">TYPE</span><small>字体</small><i></i></div>
+    <div class="sg-grid">
+      <div class="sg-cell"><div class="lb-kicker" style="font-size:16px">RECENT · SYNC</div><p class="sg-note">雕刻字 <code>--lb-font-title</code> · 700 · 字距 .26em · 大写。只给英文小标题和品牌标题。</p></div>
+      <div class="sg-cell"><div style="font:600 var(--lb-fs-h1)/1.4 var(--lb-font-body)">收藏与同步 1438 篇</div><p class="sg-note">正文字 <code>--lb-font-body</code>。标题加粗 600、正文 400，数字同一种字。</p></div>
+      <div class="sg-cell"><div style="font:var(--lb-fs-h1)/1.4 var(--lb-font-serif);color:var(--lb-faint)">收藏与同步 <span style="font:italic var(--lb-fs-h1) var(--lb-font-num)">1438</span></div><p class="sg-note sg-dont">退役：衬线中文 <code>--lb-font-serif</code>、Cormorant 斜体 <code>--lb-font-num</code>。</p></div>
+    </div>
+  </section>
+
+  <!-- 2 字号 -->
+  <section class="sg-sec">
+    <div class="sg-head"><span class="lb-kicker">SCALE</span><small>字号（都乘「Aa 样式」的倍数）</small><i></i></div>
+    <table class="sg-table">
+      <tr><th>名字</th><th>大小</th><th>样子</th><th class="sg-hide">用在</th></tr>
+      <tr><td><code>--lb-fs-display</code></td><td>30–96px</td><td><span class="lb-kicker" style="font-size:22px;letter-spacing:.02em">COLLECTIONS+</span></td><td class="sg-hide">品牌大标题（只有雕刻字）</td></tr>
+      <tr><td><code>--lb-fs-num-lg</code></td><td>34px</td><td><span class="ex-stat">¥ 46.24</span></td><td class="sg-hide">一块里最重要的那个数</td></tr>
+      <tr><td><code>--lb-fs-h1</code></td><td>18px</td><td style="font-size:var(--lb-fs-h1);font-weight:600">一级标题</td><td class="sg-hide">页面 / 分组标题</td></tr>
+      <tr><td><code>--lb-fs-h2</code></td><td>16px</td><td style="font-size:var(--lb-fs-h2);font-weight:600">二级标题</td><td class="sg-hide">卡片标题、小节</td></tr>
+      <tr><td><code>--lb-fs-num</code></td><td>15px</td><td style="font-size:var(--lb-fs-num);font-weight:600;font-variant-numeric:var(--lb-num-feat)">0 篇 · ¥3</td><td class="sg-hide">行尾的数</td></tr>
+      <tr><td><code>--lb-fs-body</code></td><td>13.5px</td><td>正文、按钮、输入、列表行</td><td class="sg-hide">默认</td></tr>
+      <tr><td><code>--lb-fs-small</code></td><td>12px</td><td style="font-size:var(--lb-fs-small);color:var(--lb-muted)">说明、标签、分类小字</td><td class="sg-hide">次要信息</td></tr>
+      <tr><td><code>--lb-fs-micro</code></td><td>11px</td><td style="font-size:var(--lb-fs-micro);color:var(--lb-muted)">角标、脚注</td><td class="sg-hide">最小，少用</td></tr>
+    </table>
+    <p class="sg-note">只有这八档。要别的大小 = 先问能不能用这八档之一。</p>
+  </section>
+
+  <!-- 3 颜色 -->
+  <section class="sg-sec">
+    <div class="sg-head"><span class="lb-kicker">COLOR</span><small>颜色（跟 Obsidian 主题走，深浅色自动换）</small><i></i></div>
+    <div class="sg-grid">
+      <div><div class="sg-swatch" style="background:var(--lb-ink)"></div><b>墨</b> <code>--lb-ink</code><div class="sg-note">字、选中、细黑线、强调</div></div>
+      <div><div class="sg-swatch" style="background:var(--lb-muted)"></div><b>次</b> <code>--lb-muted</code><div class="sg-note">说明、标签</div></div>
+      <div><div class="sg-swatch" style="background:var(--lb-faint)"></div><b>淡</b> <code>--lb-faint</code><div class="sg-note">占位、不可用、计数</div></div>
+      <div><div class="sg-swatch" style="background:var(--lb-line)"></div><b>线</b> <code>--lb-line</code><div class="sg-note">分隔线、输入框边</div></div>
+      <div><div class="sg-swatch" style="background:var(--lb-surface)"></div><b>底</b> <code>--lb-surface</code><div class="sg-note">页面 / 卡片底</div></div>
+      <div><div class="sg-swatch" style="background:var(--lb-soft)"></div><b>浅底</b> <code>--lb-soft</code><div class="sg-note">侧栏、弹层里的一块</div></div>
+      <div><div class="sg-swatch" style="background:var(--lb-warn)"></div><b>要处理</b> <code>--lb-warn</code><div class="sg-note">只给状态</div></div>
+      <div><div class="sg-swatch" style="background:var(--lb-danger)"></div><b>失败 / 删除</b> <code>--lb-danger</code><div class="sg-note">只给状态</div></div>
+    </div>
+  </section>
+
+  <!-- 4 间距 / 圆角 / 控件 -->
+  <section class="sg-sec">
+    <div class="sg-head"><span class="lb-kicker">SPACE</span><small>间距 · 圆角 · 控件高</small><i></i></div>
+    <div class="sg-space">
+      <div style="width:var(--lb-space-1)"></div><code>1 · 4</code>
+      <div style="width:var(--lb-space-2)"></div><code>2 · 8</code>
+      <div style="width:var(--lb-space-3)"></div><code>3 · 12</code>
+      <div style="width:var(--lb-space-4)"></div><code>4 · 16</code>
+      <div style="width:var(--lb-space-5)"></div><code>5 · 24</code>
+      <div style="width:var(--lb-space-6)"></div><code>6 · 32</code>
+    </div>
+    <p class="sg-note">间距只用 <code>--lb-space-1…6</code>。圆角两种：<code>--lb-radius</code> 8px（框、卡、输入）和 <code>--lb-radius-pill</code>（胶囊按钮、小块）。控件高一种：<code>--lb-ctl-h</code> 34px（小号 24–28px 只在块内的切换 / 小块）。收藏墙卡片间距 = 她在「Aa 样式」里选的 <code>--lb-gap</code>。</p>
+  </section>
+
+  <!-- 5 按钮 / 输入 -->
+  <section class="sg-sec">
+    <div class="sg-head"><span class="lb-kicker">CONTROLS</span><small>按钮 · 输入 · 下拉</small><i></i></div>
+    <div class="sg-row">
+      <button class="lb-btn-pill" type="button">编排</button>
+      <button class="lb-btn-pill is-on" type="button">已选中</button>
+      <button class="lb-btn" type="button">次要按钮</button>
+      <button class="lb-btn is-primary" type="button">主要按钮</button>
+      <button class="lb-btn" type="button" disabled>不可用</button>
+    </div>
+    <div class="sg-row" style="margin-top:var(--lb-space-3)">
+      <input class="lb-input" placeholder="搜索收藏 · #标签" style="width:240px">
+      <select class="lb-input"><option>每天</option><option>工作日</option></select>
+      <label class="lb-label">小标签 <code>.lb-label</code></label>
+    </div>
+    <p class="sg-note">胶囊 <code>.lb-btn-pill</code> = 页面顶上的入口（编排 / 管理 / 排序）；方角 <code>.lb-btn</code> = 面板里的动作，一组里最多一个 <code>is-primary</code>。文字链接（下划线）只用于「改」「去看」这种行内小动作。</p>
+  </section>
+
+  <!-- 6 小标题 -->
+  <section class="sg-sec">
+    <div class="sg-head"><span class="lb-kicker">HEADER</span><small>分区小标题</small><i></i></div>
+    <div class="sg-head" style="margin:0"><span class="lb-kicker" style="color:var(--lb-ink)">RECENT</span><small>最近导入</small><i></i><span style="color:var(--lb-ink)">⌄</span></div>
+    <p class="sg-note">英文 kicker（雕刻字）+ 中文名（正文字 12px，次色）+ 撑满的墨色细线 + 右边折叠箭头。目录边栏、设置分组、问收藏分区都用这一种，不另造。</p>
+  </section>
+
+  <!-- 7 块里的东西 -->
+  <section class="sg-sec">
+    <div class="sg-head"><span class="lb-kicker">PARTS</span><small>块里常用的几样</small><i></i></div>
+    <div class="sg-grid" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">
+      <div class="sg-cell">
+        <ul class="ex-list">
+          <li><time>10/26</time><span>给 crush 复制颜文字却点成…</span><span>同人</span></li>
+          <li><time>10/24</time><span>依旧零帧起手不打草稿之人</span><span>艺术</span></li>
+          <li><time>10/23</time><span>蹲蹲好心的女孩儿…</span><span>工程</span></li>
+        </ul>
+        <p class="sg-note">列表行：日期（次色、等宽数字）· 标题（一行省略）· 分类小字。只有上分隔线。</p>
+      </div>
+      <div class="sg-cell">
+        <div class="ex-seg" role="tablist"><button>天</button><button>周</button><button class="is-on">月</button></div>
+        <div class="ex-stat" style="margin-top:var(--lb-space-2)">¥ 46.24</div>
+        <div class="ex-stat-l">2026-10 · 人民币估算</div>
+        <div class="ex-kv" style="margin-top:var(--lb-space-3)"><span>后台每日上限</span><b>¥3</b></div>
+        <p class="sg-note">分段切换（选中 = 墨色描边胶囊）· 大数字（正文字 600、不斜体）· 键值行。</p>
+      </div>
+      <div class="sg-cell">
+        <div class="sg-row" style="gap:6px">
+          <span class="ex-chip is-on">不限</span><span class="ex-chip">美食 <b>213</b></span><span class="ex-chip">旅游 <b>84</b></span><span class="ex-chip">AI <b>297</b></span>
+        </div>
+        <p class="sg-note">小块（筛选、建议新增）：胶囊、12px；数在后面用淡色；选中 = 墨底反白。</p>
+      </div>
+      <div class="sg-cell">
+        <div class="ex-box">
+          <div class="ex-bar">⠿ 同步 · 调整 · ×</div>
+          <div class="ex-kv" style="border-top:0"><span>今日新增</span><b>0 篇</b></div>
+          <div class="ex-grip-y" title="拖动调高度"></div><div class="ex-grip-x" title="拖动调宽度"></div>
+        </div>
+        <p class="sg-note">编排时：虚线框（悬停变墨色）· 顶上黑色操作条 · 下边框拉手调高、侧边框调宽。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 现在差多少 -->
+  <section class="sg-sec">
+    <div class="sg-head"><span class="lb-kicker">AUDIT</span><small>现在没按模版来的地方</small><i></i></div>
+    <table class="sg-table">
+      <tr><th>文件</th><th>A 字体</th><th>B 字号</th><th>C 颜色</th></tr>
+      <tr><td><code>catalog-view.js</code> 目录页</td><td>36</td><td>139</td><td>15</td></tr>
+      <tr><td><code>chat-view.js</code> 问收藏</td><td>3</td><td>84</td><td>14</td></tr>
+      <tr><td><code>styles.css</code> 插件 / 设置页</td><td>5</td><td>43</td><td>15</td></tr>
+      <tr><td><code>link-brain.css</code> 笔记页</td><td>0</td><td>19</td><td>28</td></tr>
+      <tr><td><code>annotate-view.js</code> 批注</td><td>0</td><td>12</td><td>7</td></tr>
+      <tr><td>其余三个</td><td>2</td><td>8</td><td>7</td></tr>
+    </table>
+    <p class="sg-note">逐条（file:line）在 <code>docs/STYLE-DEVIATIONS.md</code>；重新数一遍：<code>python tools/style_audit.py --md docs/STYLE-DEVIATIONS.md</code>。建议换的顺序：A 字体（看得最明显、改动最小：把衬线 / 数字两个变量指到正文字）→ B 字号（并到八档）→ C 颜色（封面配色、阴影留着，其余换成名字）。</p>
+  </section>
+</main>
+<script>
+(() => {
+  const b = document.body, t = document.getElementById('sgTheme');
+  const set = dark => { b.classList.toggle('theme-dark', dark); b.classList.toggle('theme-light', !dark); t.textContent = dark ? '浅色' : '深色'; };
+  let dark = false;
+  try { dark = matchMedia('(prefers-color-scheme: dark)').matches; } catch {}
+  set(dark);
+  t.onclick = () => { dark = !dark; set(dark); };
+  document.querySelectorAll('.ex-seg button').forEach(x => x.onclick = () => { x.parentNode.querySelectorAll('button').forEach(y => y.classList.toggle('is-on', y === x)); });
+})();
+</script>
+</body>
+</html>
