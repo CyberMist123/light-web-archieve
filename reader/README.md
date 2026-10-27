@@ -34,8 +34,8 @@ go build -o relatedfile.exe ./cmd/relatedfile   # 附件探测用的游客浏览
 **一个号、一个会话**
 - 使用持久浏览器目录（`XHS_PROFILE_DIR`，默认 `~/.link-brain/xhs-profile`）保存登录，不导出 cookie；
   所有打开浏览器的操作在进程内串行，同一个号不会出现第二个网页会话互相顶掉。
-- 关闭浏览器前把站点下发的会话 cookie 补上有效期落盘——否则每次调用后登录即丢失。
-- 登录落在 xiaohongshu.com 还是 rednote.com 因账号而异：登录成功时逐个复核，记在 profile 的 `site-host` 里，之后读取统一用它（`XHS_HOST` 可强制指定）。
+- 关闭浏览器前仅为非空的 `web_session` 会话 Cookie 补 30 天有效期；安全令牌不延期，已有持久 Cookie 不续期。站点域名按 DNS 边界匹配。
+- 登录完成后在本次实际域名复核同一账号，确认后记入 profile 的 `site-host`；不再循环探测另一个域名的旧会话。`XHS_HOST` 可显式指定，但必须与确认的登录域名一致。
 
 **登录**
 - `POST /api/v1/login/window`：打开小红书官方登录页（有界面），用户在官方页面扫码，成功后窗口自动关闭。
@@ -131,3 +131,16 @@ go build -o relatedfile.exe ./cmd/relatedfile   # 附件探测用的游客浏览
   验证风控探针（看得见 / 看不见的验证组件、出现又消失）和真实入口（读收藏、登录检查、MCP 读详情、验证窗口）的接线，以及出事证据落盘、
   页签点不动 / 列表卡住 / 收藏接口被拒即停、动作时限过期后风控检查照样读得到页面。不访问小红书。
 - 扫码或验证进行中，`/api/v1/*` 下其它会开浏览器的接口立即返回 409，不排队干等（`/mcp` 的工具调用不在此列，会排在浏览器锁后面）。
+
+
+## 登录维护与换号（2026-10-28）
+
+登录窗口和远程二维码共用账号身份复核。验证码尚在时不报告成功；账号风险/验证熔断期间不新开扫码，登录成功只解除未登录熔断。选择“切换账号”会先主动退出认证 Cookie，再由用户扫码；设备标识与 Profile 保留。普通状态检查不会自动转入扫码，定时检查使用 `scripts/xhs-login-check.ps1` 的浅查模式。
+
+旧版本错误延期的安全 Cookie 可使用 `clean_legacy_session_cookies.py --profile <目录>` 离线预览；确认后加 `--apply`。需要 Reader 和关联浏览器完全关闭，工具先完整备份，只清理三种已知安全 Cookie 中具有旧 30 天特征的持久项，保留认证凭证、设备数据和备份；重复执行会跳过。日期特征不能绝对证明 Cookie 来源，先看预览，不自动清理。
+
+当前补丁已经包含 reader-15 至 reader-20 演进的最终实现以及登录修复；已撤销的探针和自动重试不会重新引入。补丁在干净上游上应用后通过 `go test ./...`、`go vet ./...` 和编译。登录相关真实 Chromium 离线验收可用：
+
+```powershell
+go test -tags localbrowser ./browser ./xiaohongshu -run 'TestLocalBrowserCookiePersistence|TestLocalBrowserLoginPolicy' -count=1
+```
