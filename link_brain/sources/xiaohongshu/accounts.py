@@ -665,6 +665,29 @@ def idle_row() -> dict:
     return out
 
 
+def _iso_ts(text) -> float | None:
+    try:
+        return datetime.fromisoformat(str(text).replace('Z', '+00:00')).timestamp() if text else None
+    except ValueError:
+        return None
+
+
+def _newer_account_problem(checked_at: str) -> dict | None:
+    """1027b：浅查只拿到读取服务「记得的」登录态（checked_at = 它上次真去浏览器里看的时刻，可能是几小时前）。
+    同步状态里在那之后又记了一次掉登录 / 要验证（真用号撞见的）→ 以新的为准，返回那一条同步状态；否则 None。"""
+    try:
+        from ... import sync_state
+        st = sync_state.load() or {}
+    except Exception:  # noqa: BLE001 - 读不到同步状态就按读取服务说的
+        return None
+    if st.get('state') != 'blocked' or st.get('code') not in sync_state.ACCOUNT_CODES:
+        return None
+    seen, saw = _iso_ts(st.get('updated_at')), _iso_ts(checked_at)
+    if seen is None:
+        return None
+    return st if saw is None or seen > saw else None
+
+
 def status_report(*, deep=True, launch=True) -> tuple[dict, str]:
     """(界面那一行, login_state)。login_state ∈ logged_in / guest / unknown / risk_hold。
 
@@ -712,8 +735,20 @@ def status_report(*, deep=True, launch=True) -> tuple[dict, str]:
         if session.get('verifying'):
             return error_row(ReaderError('VERIFY_WINDOW_OPEN')), 'unknown'
         name = config().get('nickname', '')
-        if not deep and session.get('logged_in') is not None:
+        # 1027b 她：「账号卡说已登录（刚刚确认），同步却说未登录」——浅查报的是读取服务记得的结果，不是刚查的；
+        # 带上它真正查的时刻（checked_at），插件按它写「N 分钟前确认」；只有真查过（深查）才算「登录好了」去清掉账号类问题
+        from_memory = not deep and session.get('logged_in') is not None
+        # 只认读取服务记得的、而且是设置页那种不拉起服务的浅查（launch=False）：验证窗口 / 恢复这些流程里它刚真看过，照旧算数
+        guess = from_memory and not launch
+        checked_at = str(session.get('checked_at') or '') if from_memory else datetime.now().astimezone().isoformat()
+        if from_memory:
             ok = session['logged_in']
+            later = _newer_account_problem(checked_at) if ok and guess else None
+            if later:   # 它上次看是登录的，但之后真用号时撞见了掉登录 / 验证：以后者为准
+                code = str(later.get('code') or 'NOT_LOGGED_IN')
+                out = error_row(ReaderError(code, detail=str(later.get('detail') or later.get('message') or '')))
+                out['checked_at'] = str(later.get('updated_at') or '')
+                return out, 'guest' if code == 'NOT_LOGGED_IN' else 'risk_hold'
         else:
             holder = lock_holder()
             if holder:
@@ -734,9 +769,14 @@ def status_report(*, deep=True, launch=True) -> tuple[dict, str]:
             if ok and data.get('username'):
                 name = data['username']
                 save({'nickname': name, 'user_id': data.get('user_id', '')})
-        _note_account('OK' if ok else 'NOT_LOGGED_IN', '登录检查：未登录')
+        if ok and not guess:
+            _note_account('OK')   # 真查过是登录的才清账号类问题（浅查只是读取服务记得的，不能凭它把「掉登录」消掉）
+        elif not ok:
+            _note_account('NOT_LOGGED_IN', '登录检查：未登录')
         if ok:
-            return row('xhs', '小红书账号', 'ready', '已登录' + (f'：{name}' if name else ''), account=name), 'logged_in'
+            out = row('xhs', '小红书账号', 'ready', '已登录' + (f'：{name}' if name else ''), account=name)
+            out['checked_at'] = checked_at
+            return out, 'logged_in'
         if config().get('nickname'):
             return error_row(ReaderError('NOT_LOGGED_IN')), 'guest'
         out = row('xhs', '小红书账号', 'not_logged_in', '未登录', '点击「扫码登录」，用收藏所在的账号扫码。',
