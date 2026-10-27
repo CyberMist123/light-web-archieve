@@ -1,5 +1,107 @@
+diff --git a/boards_api.go b/boards_api.go
+new file mode 100644
+index 0000000..b6b98f2
+--- /dev/null
++++ b/boards_api.go
+@@ -0,0 +1,96 @@
++package main
++
++import (
++	"context"
++	"errors"
++	"net/http"
++	"strconv"
++	"time"
++
++	"github.com/gin-gonic/gin"
++	"github.com/go-rod/rod"
++	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
++)
++
++// 专辑（1019）：
++//   GET /api/v1/boards                      自己的专辑列表（进一次收藏页签：和读收藏共用 favMinInterval 限频）
++//   GET /api/v1/boards/notes?board_id=<id>  某个专辑里的笔记（直接开专辑页；节奏由调用方管，和读笔记同一套开页间隔）
++// 熔断 / 浏览器锁 / 登录检查和读收藏同一套；风控原样报（写熔断）。
++
++// runBoardPage 开浏览器、做登录检查，再跑 fn；统一按读收藏的方式回错。
++func (s *AppServer) runBoardPage(c *gin.Context, timeout time.Duration, failCode, failText string,
++	fn func(ctx context.Context, page *rod.Page) (any, error)) {
++	ctx, cancel := context.WithTimeout(context.Background(), timeout)
++	defer cancel()
++	b, berr := s.xiaohongshuService.openBrowser()
++	if berr != nil {
++		s.respondServiceError(c, berr, http.StatusInternalServerError, failCode, failText)
++		return
++	}
++	defer b.Close()
++	page := b.NewPage()
++	var out any
++	var fail error
++	err := rod.Try(func() {
++		ok, err := xiaohongshu.NewLogin(page).CheckLoginStatus(ctx)
++		if err != nil {
++			fail = err
++			return
++		}
++		s.xiaohongshuService.state.observe(ok)
++		if !ok {
++			fail = &xiaohongshu.RiskError{Code: xiaohongshu.RiskNotLoggedIn, Detail: "读专辑：读取服务的号是游客"}
++			return
++		}
++		out, fail = fn(ctx, page)
++	})
++	if err != nil && fail == nil {
++		fail = err
++		if r := xiaohongshu.RiskPage(page); r != nil {
++			fail = r
++		}
++	}
++	if r := xiaohongshu.AsRisk(fail); r != nil {
++		s.respondRisk(c, r)
++		return
++	}
++	if fail != nil && errors.Is(fail, xiaohongshu.ErrTabNotActive) {
++		c.JSON(http.StatusServiceUnavailable, gin.H{"error": favTabStuckText(fail), "code": codeFavTabStuck, "details": fail.Error()})
++		return
++	}
++	if fail != nil {
++		respondError(c, http.StatusInternalServerError, failCode, failText, fail.Error())
++		return
++	}
++	respondSuccess(c, out, "ok")
++}
++
++func (s *AppServer) boardsHandler(c *gin.Context) {
++	var wait time.Duration
++	s.xiaohongshuService.state.set(func(l *loginState) {
++		if since := time.Since(l.lastFav); since < favMinInterval {
++			wait = favMinInterval - since
++		} else {
++			l.lastFav = time.Now()
++		}
++	})
++	if wait > 0 {
++		respondError(c, http.StatusTooManyRequests, "RATE_LIMITED", "收藏刚读过，为免触发风控请稍后再试",
++			map[string]any{"retry_after_s": int(wait.Seconds())})
++		return
++	}
++	s.runBoardPage(c, 5*time.Minute, "BOARDS_FAILED", "读专辑列表失败", func(ctx context.Context, page *rod.Page) (any, error) {
++		return xiaohongshu.ListBoards(ctx, page)
++	})
++}
++
++func (s *AppServer) boardNotesHandler(c *gin.Context) {
++	id := c.Query("board_id")
++	maxScrolls := 40
++	if n, err := strconv.Atoi(c.Query("max_scrolls")); err == nil && n >= 0 && n <= 200 {
++		maxScrolls = n
++	}
++	s.runBoardPage(c, 8*time.Minute, "BOARD_NOTES_FAILED", "读专辑笔记失败", func(ctx context.Context, page *rod.Page) (any, error) {
++		return xiaohongshu.BoardNotes(ctx, page, id, maxScrolls)
++	})
++}
 diff --git a/browser/browser.go b/browser/browser.go
-index 59bbe39..287465c 100644
+index 59bbe39..d43f1d7 100644
 --- a/browser/browser.go
 +++ b/browser/browser.go
 @@ -1,13 +1,21 @@
@@ -25,7 +127,7 @@ index 59bbe39..287465c 100644
  )
  
  type browserConfig struct {
-@@ -19,6 +27,153 @@ type browserConfig struct {
+@@ -19,6 +27,137 @@ type browserConfig struct {
  
  type Option func(*browserConfig)
  
@@ -83,30 +185,14 @@ index 59bbe39..287465c 100644
 +			logrus.Warnf("persist cookies: get failed: %v", err)
 +			return
 +		}
-+		exp := proto.TimeSinceEpoch(time.Now().Add(30 * 24 * time.Hour).Unix())
-+		var fix []*proto.NetworkCookieParam
-+		var names []string
-+		for _, c := range res.Cookies {
-+			d := strings.ToLower(c.Domain)
-+			if !strings.Contains(d, "xiaohongshu.com") && !strings.Contains(d, "rednote.com") {
-+				continue
-+			}
-+			if c.Name == "web_session" {
-+				names = append(names, fmt.Sprintf("web_session@%s(session=%v,empty=%v)", c.Domain, c.Session, c.Value == ""))
-+			}
-+			if !c.Session || c.Value == "" {
-+				continue
-+			}
-+			fix = append(fix, &proto.NetworkCookieParam{Name: c.Name, Value: c.Value, Domain: c.Domain, Path: c.Path,
-+				Secure: c.Secure, HTTPOnly: c.HTTPOnly, SameSite: c.SameSite, Expires: exp})
-+		}
++		fix := persistentCookies(res.Cookies, time.Now())
 +		if len(fix) > 0 {
 +			if err := (proto.StorageSetCookies{Cookies: fix}).Call(br); err != nil {
 +				logrus.Warnf("persist cookies: set failed: %v", err)
 +				return
 +			}
 +		}
-+		logrus.Infof("persist cookies: made %d session cookies persistent; %v", len(fix), names)
++		logrus.Infof("persist cookies: made %d session cookies persistent", len(fix))
 +	})
 +	if err != nil {
 +		logrus.Warnf("persist cookies: %v", err)
@@ -179,7 +265,7 @@ index 59bbe39..287465c 100644
  // WithProxy 设置代理（http/https/socks5）。空字符串视为不启用。
  func WithProxy(proxy string) Option {
  	return func(c *browserConfig) {
-@@ -47,7 +202,58 @@ func maskProxyCredentials(proxyURL string) string {
+@@ -47,7 +186,58 @@ func maskProxyCredentials(proxyURL string) string {
  	return strings.Replace(proxyURL, u.User.String()+"@", cred+"@", 1)
  }
  
@@ -239,7 +325,7 @@ index 59bbe39..287465c 100644
  	cfg := &browserConfig{}
  	for _, opt := range options {
  		opt(cfg)
-@@ -62,6 +268,22 @@ func NewBrowser(headless bool, options ...Option) *headless_browser.Browser {
+@@ -62,6 +252,22 @@ func NewBrowser(headless bool, options ...Option) *headless_browser.Browser {
  		panic(fmt.Sprintf("内置浏览器不可用，拒绝启动: %v", err))
  	}
  
@@ -262,7 +348,7 @@ index 59bbe39..287465c 100644
  	opts := []headless_browser.Option{
  		headless_browser.WithHeadless(headless),
  		// 用内置浏览器的默认配置，不强制 UA。
-@@ -73,6 +295,7 @@ func NewBrowser(headless bool, options ...Option) *headless_browser.Browser {
+@@ -73,6 +279,7 @@ func NewBrowser(headless bool, options ...Option) *headless_browser.Browser {
  		headless_browser.WithExtraFlags(map[string]string{"fingerprint-brand": "Chrome"}),
  	}
  	opts = append(opts, headless_browser.WithChromeBinPath(binPath))
@@ -270,22 +356,13 @@ index 59bbe39..287465c 100644
  
  	// 代理（由调用方经 Option 传入，env 读取放在入口层）。
  	if cfg.proxy != "" {
-@@ -86,16 +309,21 @@ func NewBrowser(headless bool, options ...Option) *headless_browser.Browser {
+@@ -86,16 +293,33 @@ func NewBrowser(headless bool, options ...Option) *headless_browser.Browser {
  		logrus.Infof("fingerprint seed pinned: %d", cfg.fingerprintSeed)
  	}
  
 -	// 加载 cookies
 -	cookiePath := cookies.GetCookiesFilePath()
 -	cookieLoader := cookies.NewLoadCookie(cookiePath)
--
--	if data, err := cookieLoader.LoadCookies(); err == nil {
--		opts = append(opts, headless_browser.WithCookies(string(data)))
--		logrus.Debugf("loaded cookies from filesuccessfully")
--	} else {
--		logrus.Warnf("failed to load cookies: %v", err)
--	}
--
--	return headless_browser.New(opts...)
 +	// 0926：04:00 夜跑时启动卡死在这里（Chromium 没吐出调试地址），profileMu 永不释放，
 +	// 之后所有状态/登录/问答请求排队到超时。启动超过 launchTimeout 就整个进程退出，
 +	// 下一次调用由 Python ensure_reader 重新拉起一个干净的服务。
@@ -303,7 +380,167 @@ index 59bbe39..287465c 100644
 +	started = true
 +	setLockPID(raw.PID())
 +	return &Browser{Browser: raw, Headless: headless, profile: profileDir}
++}
+ 
+-	if data, err := cookieLoader.LoadCookies(); err == nil {
+-		opts = append(opts, headless_browser.WithCookies(string(data)))
+-		logrus.Debugf("loaded cookies from filesuccessfully")
+-	} else {
+-		logrus.Warnf("failed to load cookies: %v", err)
++// NewBrowserWaitGuarded checks the login hold after acquiring the shared profile.
++func NewBrowserWaitGuarded(wait time.Duration, guard func() error, headless bool, options ...Option) (*Browser, error) {
++	if !lockProfile(callerName(), wait) {
++		return nil, ErrProfileBusy
+ 	}
+-
+-	return headless_browser.New(opts...)
++	if err := guard(); err != nil {
++		unlockProfile()
++		return nil, err
++	}
++	return launchFn(headless, options...), nil
  }
+diff --git a/browser/cookie_policy.go b/browser/cookie_policy.go
+new file mode 100644
+index 0000000..8040566
+--- /dev/null
++++ b/browser/cookie_policy.go
+@@ -0,0 +1,30 @@
++package browser
++
++import (
++	"github.com/go-rod/rod/lib/proto"
++	"strings"
++	"time"
++)
++
++// IsSiteCookieDomain accepts the site and its DNS subdomains, never lookalikes.
++func IsSiteCookieDomain(domain string) bool {
++	d := strings.TrimPrefix(strings.ToLower(domain), ".")
++	return d == "xiaohongshu.com" || strings.HasSuffix(d, ".xiaohongshu.com") || d == "rednote.com" || strings.HasSuffix(d, ".rednote.com")
++}
++
++// PersistableCookie is deliberately limited to the observed web login credential.
++func PersistableCookie(name string) bool { return name == "web_session" }
++
++// LoginCookie includes credentials removed only by an explicit logout/switch.
++func LoginCookie(name string) bool { return name == "web_session" || name == "id_token" }
++
++func persistentCookies(cookies []*proto.NetworkCookie, now time.Time) []*proto.NetworkCookieParam {
++	var out []*proto.NetworkCookieParam
++	for _, c := range cookies {
++		if c == nil || !IsSiteCookieDomain(c.Domain) || !PersistableCookie(c.Name) || !c.Session || c.Value == "" {
++			continue
++		}
++		out = append(out, &proto.NetworkCookieParam{Name: c.Name, Value: c.Value, Domain: c.Domain, Path: c.Path, Secure: c.Secure, HTTPOnly: c.HTTPOnly, SameSite: c.SameSite, Expires: proto.TimeSinceEpoch(now.Add(30 * 24 * time.Hour).Unix())})
++	}
++	return out
++}
+diff --git a/browser/cookie_policy_localbrowser_test.go b/browser/cookie_policy_localbrowser_test.go
+new file mode 100644
+index 0000000..919a900
+--- /dev/null
++++ b/browser/cookie_policy_localbrowser_test.go
+@@ -0,0 +1,42 @@
++//go:build localbrowser
++
++package browser
++
++import (
++	"github.com/go-rod/rod/lib/proto"
++	"github.com/stretchr/testify/require"
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++func TestLocalBrowserCookiePersistence(t *testing.T) {
++	dir := t.TempDir()
++	t.Setenv("XHS_PROFILE_DIR", dir)
++	require.NoError(t, os.WriteFile(filepath.Join(dir, "Local State"), []byte("{}"), 0600))
++	b := NewBrowser(true, WithProxy("http://127.0.0.1:9"))
++	t.Cleanup(b.Close)
++	page := b.NewPage()
++	var cookies []*proto.NetworkCookieParam
++	for _, name := range []string{"web_session", "websectiga", "sec_poison_id", "acw_tc"} {
++		cookies = append(cookies, &proto.NetworkCookieParam{Name: name, Value: "synthetic", Domain: ".xiaohongshu.com", Path: "/", Secure: true, HTTPOnly: true})
++	}
++	require.NoError(t, (proto.StorageSetCookies{Cookies: cookies}).Call(page.Browser()))
++	b.Close()
++	reopened := NewBrowser(true, WithProxy("http://127.0.0.1:9"))
++	t.Cleanup(reopened.Close)
++	page = reopened.NewPage()
++	result, err := (proto.StorageGetCookies{}).Call(page.Browser())
++	require.NoError(t, err)
++	found := false
++	for _, c := range result.Cookies {
++		if c.Name == "web_session" {
++			found = true
++			require.False(t, c.Session)
++			require.True(t, c.Expires > 0)
++		} else {
++			require.True(t, c.Session, "security cookie must not be extended")
++		}
++	}
++	require.True(t, found, "login cookie did not survive browser restart")
++}
+diff --git a/browser/cookie_policy_test.go b/browser/cookie_policy_test.go
+new file mode 100644
+index 0000000..2dccbe0
+--- /dev/null
++++ b/browser/cookie_policy_test.go
+@@ -0,0 +1,51 @@
++package browser
++
++import (
++	"github.com/go-rod/rod/lib/proto"
++	"testing"
++	"time"
++)
++
++func TestCookiePersistencePolicy(t *testing.T) {
++	now := time.Unix(1700000000, 0)
++	for _, domain := range []string{".xiaohongshu.com", "www.rednote.com", ".REDNOTE.COM"} {
++		c := &proto.NetworkCookie{Name: "web_session", Domain: domain, Path: "/", Value: "synthetic", Session: true, HTTPOnly: true, Secure: true, SameSite: proto.NetworkCookieSameSiteLax}
++		got := persistentCookies([]*proto.NetworkCookie{c}, now)
++		if len(got) != 1 {
++			t.Fatal("login credential was not persisted")
++		}
++		p := got[0]
++		if p.Expires != proto.TimeSinceEpoch(now.Add(30*24*time.Hour).Unix()) || p.Value != c.Value || p.Domain != domain || p.Path != "/" || !p.HTTPOnly || !p.Secure || p.SameSite != c.SameSite {
++			t.Fatal("persistence changed credential attributes")
++		}
++		if !c.Session {
++			t.Fatal("input mutated")
++		}
++	}
++	for _, name := range []string{"websectiga", "sec_poison_id", "acw_tc", "id_token", "a1", "gid", "webId"} {
++		if len(persistentCookies([]*proto.NetworkCookie{{Name: name, Domain: ".xiaohongshu.com", Value: "synthetic", Session: true}}, now)) != 0 {
++			t.Fatalf("extended %s", name)
++		}
++	}
++	for _, domain := range []string{"evilxiaohongshu.com", "xiaohongshu.com.evil.test", "rednote.com.evil.test", ""} {
++		if IsSiteCookieDomain(domain) {
++			t.Fatalf("accepted lookalike %s", domain)
++		}
++	}
++	for _, c := range []*proto.NetworkCookie{nil, {Name: "web_session", Domain: ".rednote.com", Session: true}, {Name: "web_session", Domain: ".rednote.com", Value: "synthetic", Expires: proto.TimeSinceEpoch(1800000000)}} {
++		if len(persistentCookies([]*proto.NetworkCookie{c}, now)) != 0 {
++			t.Fatal("empty or already persistent cookie renewed")
++		}
++	}
++}
++
++func TestLogoutPreservesDeviceAndSecurityCookies(t *testing.T) {
++	for _, name := range []string{"a1", "webId", "gid", "abRequestId", "websectiga", "sec_poison_id", "acw_tc"} {
++		if LoginCookie(name) {
++			t.Fatalf("logout would delete %s", name)
++		}
++	}
++	if !LoginCookie("web_session") || !LoginCookie("id_token") {
++		t.Fatal("logout leaves credential")
++	}
++}
 diff --git a/browser/killtree_other.go b/browser/killtree_other.go
 new file mode 100644
 index 0000000..a6afb28
@@ -1019,6 +1256,59 @@ index 0100028..dcfb07b 100644
  		t.Setenv("COOKIES_PATH", "")
  		t.Chdir(t.TempDir())
  
+diff --git a/download_stuck_1020_test.go b/download_stuck_1020_test.go
+new file mode 100644
+index 0000000..50c7bf2
+--- /dev/null
++++ b/download_stuck_1020_test.go
+@@ -0,0 +1,47 @@
++package main
++
++import (
++	"context"
++	"testing"
++	"time"
++
++	"github.com/go-rod/rod"
++)
++
++// 1020：开页卡住要在时限内回错误，不能像 1019 那样攥着号锁 15 分钟。
++func TestNewPageWithinTimesOut(t *testing.T) {
++	block := make(chan struct{})
++	defer close(block)
++	start := time.Now()
++	_, err := newPageWithin(context.Background(), 50*time.Millisecond, func() *rod.Page { <-block; return nil })
++	if err == nil {
++		t.Fatal("卡住的开页应该回错误")
++	}
++	if time.Since(start) > 2*time.Second {
++		t.Fatalf("超时没生效：等了 %s", time.Since(start))
++	}
++}
++
++func TestNewPageWithinHonoursContext(t *testing.T) {
++	block := make(chan struct{})
++	defer close(block)
++	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
++	defer cancel()
++	if _, err := newPageWithin(ctx, time.Minute, func() *rod.Page { <-block; return nil }); err == nil {
++		t.Fatal("总时限到了应该回错误")
++	}
++}
++
++func TestNewPageWithinPanicBecomesError(t *testing.T) {
++	if _, err := newPageWithin(context.Background(), time.Second, func() *rod.Page { panic("cdp gone") }); err == nil {
++		t.Fatal("开页 panic 应该变成错误")
++	}
++}
++
++func TestNewPageWithinReturnsPage(t *testing.T) {
++	want := &rod.Page{}
++	got, err := newPageWithin(context.Background(), time.Second, func() *rod.Page { return want })
++	if err != nil || got != want {
++		t.Fatalf("got=%v err=%v", got, err)
++	}
++}
 diff --git a/go.mod b/go.mod
 index 74c4654..0195322 100644
 --- a/go.mod
@@ -1030,7 +1320,7 @@ index 74c4654..0195322 100644
 +
 +replace github.com/xpzouying/headless_browser => ./third_party/headless_browser
 diff --git a/handlers_api.go b/handlers_api.go
-index abed0f7..1a5503e 100644
+index abed0f7..5861f9e 100644
 --- a/handlers_api.go
 +++ b/handlers_api.go
 @@ -3,6 +3,7 @@ package main
@@ -1051,7 +1341,17 @@ index abed0f7..1a5503e 100644
  		return
  	}
  
-@@ -89,8 +89,7 @@ func (s *AppServer) publishHandler(c *gin.Context) {
+@@ -54,8 +54,7 @@ func (s *AppServer) checkLoginStatusHandler(c *gin.Context) {
+ func (s *AppServer) getLoginQrcodeHandler(c *gin.Context) {
+ 	result, err := s.xiaohongshuService.GetLoginQrcode(c.Request.Context())
+ 	if err != nil {
+-		respondError(c, http.StatusInternalServerError, "STATUS_CHECK_FAILED",
+-			"获取登录二维码失败", err.Error())
++		s.respondServiceError(c, err, http.StatusInternalServerError, "STATUS_CHECK_FAILED", "获取登录二维码失败")
+ 		return
+ 	}
+ 
+@@ -89,8 +88,7 @@ func (s *AppServer) publishHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.PublishContent(c.Request.Context(), &req)
  	if err != nil {
@@ -1061,7 +1361,7 @@ index abed0f7..1a5503e 100644
  		return
  	}
  
-@@ -108,8 +107,7 @@ func (s *AppServer) publishVideoHandler(c *gin.Context) {
+@@ -108,8 +106,7 @@ func (s *AppServer) publishVideoHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.PublishVideo(c.Request.Context(), &req)
  	if err != nil {
@@ -1071,7 +1371,7 @@ index abed0f7..1a5503e 100644
  		return
  	}
  
-@@ -120,8 +118,7 @@ func (s *AppServer) publishVideoHandler(c *gin.Context) {
+@@ -120,8 +117,7 @@ func (s *AppServer) publishVideoHandler(c *gin.Context) {
  func (s *AppServer) listFeedsHandler(c *gin.Context) {
  	result, err := s.xiaohongshuService.ListFeeds(c.Request.Context())
  	if err != nil {
@@ -1081,7 +1381,7 @@ index abed0f7..1a5503e 100644
  		return
  	}
  
-@@ -156,8 +153,7 @@ func (s *AppServer) searchFeedsHandler(c *gin.Context) {
+@@ -156,8 +152,7 @@ func (s *AppServer) searchFeedsHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.SearchFeeds(c.Request.Context(), keyword, filters)
  	if err != nil {
@@ -1091,7 +1391,7 @@ index abed0f7..1a5503e 100644
  		return
  	}
  
-@@ -176,12 +172,19 @@ func (s *AppServer) getFeedDetailHandler(c *gin.Context) {
+@@ -176,12 +171,19 @@ func (s *AppServer) getFeedDetailHandler(c *gin.Context) {
  	var result *FeedDetailResponse
  	var err error
  
@@ -1111,7 +1411,7 @@ index abed0f7..1a5503e 100644
  		}
  		result, err = s.xiaohongshuService.GetFeedDetailWithConfig(c.Request.Context(), req.FeedID, req.XsecToken, req.LoadAllComments, config)
  	} else {
-@@ -189,8 +192,7 @@ func (s *AppServer) getFeedDetailHandler(c *gin.Context) {
+@@ -189,8 +191,7 @@ func (s *AppServer) getFeedDetailHandler(c *gin.Context) {
  	}
  
  	if err != nil {
@@ -1121,7 +1421,7 @@ index abed0f7..1a5503e 100644
  		return
  	}
  
-@@ -208,8 +210,7 @@ func (s *AppServer) userProfileHandler(c *gin.Context) {
+@@ -208,8 +209,7 @@ func (s *AppServer) userProfileHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.UserProfile(c.Request.Context(), req.UserID, req.XsecToken, req.Tab)
  	if err != nil {
@@ -1131,7 +1431,7 @@ index abed0f7..1a5503e 100644
  		return
  	}
  
-@@ -228,8 +229,7 @@ func (s *AppServer) postCommentHandler(c *gin.Context) {
+@@ -228,8 +228,7 @@ func (s *AppServer) postCommentHandler(c *gin.Context) {
  	// 发表评论
  	result, err := s.xiaohongshuService.PostCommentToFeed(c.Request.Context(), req.FeedID, req.XsecToken, req.Content)
  	if err != nil {
@@ -1141,7 +1441,7 @@ index abed0f7..1a5503e 100644
  		return
  	}
  
-@@ -247,8 +247,7 @@ func (s *AppServer) replyCommentHandler(c *gin.Context) {
+@@ -247,8 +246,7 @@ func (s *AppServer) replyCommentHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.ReplyCommentToFeed(c.Request.Context(), req.FeedID, req.XsecToken, req.CommentID, req.UserID, req.Content)
  	if err != nil {
@@ -1151,7 +1451,7 @@ index abed0f7..1a5503e 100644
  		return
  	}
  
-@@ -272,8 +271,7 @@ func (s *AppServer) likeFeedHandler(c *gin.Context) {
+@@ -272,8 +270,7 @@ func (s *AppServer) likeFeedHandler(c *gin.Context) {
  		result, err = s.xiaohongshuService.LikeFeed(c.Request.Context(), req.FeedID, req.XsecToken)
  	}
  	if err != nil {
@@ -1161,7 +1461,7 @@ index abed0f7..1a5503e 100644
  		return
  	}
  
-@@ -297,8 +295,7 @@ func (s *AppServer) favoriteFeedHandler(c *gin.Context) {
+@@ -297,8 +294,7 @@ func (s *AppServer) favoriteFeedHandler(c *gin.Context) {
  		result, err = s.xiaohongshuService.FavoriteFeed(c.Request.Context(), req.FeedID, req.XsecToken)
  	}
  	if err != nil {
@@ -1171,7 +1471,7 @@ index abed0f7..1a5503e 100644
  		return
  	}
  
-@@ -321,8 +318,7 @@ func (s *AppServer) myProfileHandler(c *gin.Context) {
+@@ -321,8 +317,7 @@ func (s *AppServer) myProfileHandler(c *gin.Context) {
  	// 获取当前登录用户信息
  	result, err := s.xiaohongshuService.GetMyProfile(c.Request.Context(), c.Query("tab"))
  	if err != nil {
@@ -1181,7 +1481,7 @@ index abed0f7..1a5503e 100644
  		return
  	}
  
-@@ -333,8 +329,7 @@ func (s *AppServer) myProfileHandler(c *gin.Context) {
+@@ -333,8 +328,7 @@ func (s *AppServer) myProfileHandler(c *gin.Context) {
  func (s *AppServer) getUnreadCountHandler(c *gin.Context) {
  	result, err := s.xiaohongshuService.GetUnreadCount(c.Request.Context())
  	if err != nil {
@@ -1191,7 +1491,7 @@ index abed0f7..1a5503e 100644
  		return
  	}
  
-@@ -360,8 +355,7 @@ func (s *AppServer) listNotificationsHandler(c *gin.Context) {
+@@ -360,8 +354,7 @@ func (s *AppServer) listNotificationsHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.ListNotifications(c.Request.Context(), req.Tab, req.Limit)
  	if err != nil {
@@ -1201,7 +1501,7 @@ index abed0f7..1a5503e 100644
  		return
  	}
  
-@@ -379,8 +373,7 @@ func (s *AppServer) replyNotificationHandler(c *gin.Context) {
+@@ -379,8 +372,7 @@ func (s *AppServer) replyNotificationHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.ReplyNotification(c.Request.Context(), req.CommentID, req.Content)
  	if err != nil {
@@ -1211,7 +1511,7 @@ index abed0f7..1a5503e 100644
  		return
  	}
  
-@@ -398,8 +391,7 @@ func (s *AppServer) likeNotificationHandler(c *gin.Context) {
+@@ -398,8 +390,7 @@ func (s *AppServer) likeNotificationHandler(c *gin.Context) {
  
  	result, err := s.xiaohongshuService.LikeNotification(c.Request.Context(), req.CommentID, req.Unlike)
  	if err != nil {
@@ -1223,10 +1523,10 @@ index abed0f7..1a5503e 100644
  
 diff --git a/linkbrain_api.go b/linkbrain_api.go
 new file mode 100644
-index 0000000..e61b5a8
+index 0000000..54ff7c6
 --- /dev/null
 +++ b/linkbrain_api.go
-@@ -0,0 +1,1165 @@
+@@ -0,0 +1,1233 @@
 +package main
 +
 +// Link Brain 单账号接口（0925）：一个号、一个持久 profile，评论 / 私密收藏 / 附件
@@ -2022,7 +2322,8 @@ index 0000000..e61b5a8
 +		return
 +	}
 +	if err != nil {
-+		status := map[string]int{"NO_DOWNLOAD_BUTTON": http.StatusBadGateway, "DOWNLOAD_TIMEOUT": http.StatusGatewayTimeout}[code]
++		status := map[string]int{"NO_DOWNLOAD_BUTTON": http.StatusBadGateway, "DOWNLOAD_TIMEOUT": http.StatusGatewayTimeout,
++			codeBrowserStuck: http.StatusGatewayTimeout}[code]
 +		if status == 0 {
 +			status, code = http.StatusInternalServerError, "DOWNLOAD_FAILED"
 +		}
@@ -2138,7 +2439,13 @@ index 0000000..e61b5a8
 +		return "", codeRiskHold, berr
 +	}
 +	defer b.Close()
-+	page := b.NewPage()
++	// 1020：19 号那趟开完浏览器后 15 分钟没一行日志、看门狗杀进程收场——开页限时，之后每个 CDP 调用都绑 ctx（3 分钟），
++	// 卡住就回 BROWSER_STUCK 收工，不再攥着号锁等看门狗
++	page, perr := newPageWithin(ctx, newPageMax, b.NewPage)
++	if perr != nil {
++		return "", codeBrowserStuck, perr
++	}
++	page = page.Context(ctx)
 +	var path, code string
 +	var fail error
 +	stopIfRisk := func() bool {
@@ -2150,7 +2457,7 @@ index 0000000..e61b5a8
 +	}
 +	err := rod.Try(func() {
 +		_ = proto.BrowserSetDownloadBehavior{Behavior: proto.BrowserSetDownloadBehaviorBehaviorAllow,
-+			DownloadPath: dest, EventsEnabled: true}.Call(page.Browser())
++			DownloadPath: dest, EventsEnabled: true}.Call(page.Browser().Context(ctx))
 +		// 0927 像人：先打开笔记看一会儿、往下翻一翻，再去附件页（人是从笔记里点进附件的）
 +		if req.NoteID != "" {
 +			nu := fmt.Sprintf("%s/explore/%s?xsec_token=%s&xsec_source=pc_feed", xiaohongshu.SiteHost(),
@@ -2233,7 +2540,41 @@ index 0000000..e61b5a8
 +		fail = err
 +		stopIfRisk()
 +	}
++	if fail != nil && code == "" && ctx.Err() != nil {
++		code = codeBrowserStuck
++	}
 +	return path, code, fail
++}
++
++// codeBrowserStuck 浏览器在下载那一趟里卡住（开页没返回 / 3 分钟总时限到了还没完）。Python 侧见到它当「服务那侧的失败」：
++// 这一批不再重试，按退避等下次。
++const codeBrowserStuck = "BROWSER_STUCK"
++
++const newPageMax = 45 * time.Second
++
++// newPageWithin 开页限时：stealth.MustPage / MustPage 卡住时自己没有任何超时。超时回错误；
++// 卡住的那个 goroutine 等调用方 defer 的 b.Close()（自带上限、超时杀树）关掉浏览器后自己退出。
++func newPageWithin(ctx context.Context, max time.Duration, open func() *rod.Page) (*rod.Page, error) {
++	type result struct {
++		page *rod.Page
++		err  error
++	}
++	ch := make(chan result, 1)
++	go func() {
++		var p *rod.Page
++		err := rod.Try(func() { p = open() })
++		ch <- result{p, err}
++	}()
++	t := time.NewTimer(max)
++	defer t.Stop()
++	select {
++	case r := <-ch:
++		return r.page, r.err
++	case <-t.C:
++		return nil, fmt.Errorf("开新页面 %s 没返回（浏览器卡住）", max)
++	case <-ctx.Done():
++		return nil, fmt.Errorf("开新页面时到了总时限：%w", ctx.Err())
++	}
 +}
 +
 +// downloadClickAt 第几个 tick 点（重点）一次「下载」：刚渲染出来的按钮常点了没反应（0925）。
@@ -2264,10 +2605,14 @@ index 0000000..e61b5a8
 +// 在读取用的域名上复核一次，然后关窗落盘。用户手动关窗 = 取消。
 +//
 +// 1001：拿浏览器锁最多等 windowLockWait，拿不到就 finish 为 failed；窗口里出错（panic）也 finish，
-+// 状态不会永远停在 waiting。5 分钟扫码时限从拿到锁之后才开始算。扫码成功 = 解除风控熔断；
++// 状态不会永远停在 waiting。5 分钟扫码时限从拿到锁之后才开始算。扫码成功仅解除掉登录熔断；
 +// 1008（审查）：一打开就是登录态（没扫码）只解登录类熔断，验证码 / 安全跳转类保留。
 +func (s *AppServer) loginWindowHandler(c *gin.Context) {
 +	st := &s.xiaohongshuService.state
++	if err := s.xiaohongshuService.loginGuard(); err != nil {
++		respondHold(c, asHold(err))
++		return
++	}
 +	if code := st.busy(); code != "" {
 +		respondError(c, http.StatusConflict, code, "已有登录或验证窗口在进行", nil)
 +		return
@@ -2284,8 +2629,8 @@ index 0000000..e61b5a8
 +			logrus.Warnf("登录窗口 #%d: %s", seq, errText)
 +		}
 +		switch result {
-+		case "success": // 真扫了码：已验证的登录，什么熔断都解
-+			s.xiaohongshuService.clearRisk(fmt.Sprintf("登录窗口 #%d 登录成功", seq))
++		case "success": // 登录只解除掉登录熔断，不证明账号风险已经解除
++			s.xiaohongshuService.clearRiskIf(xiaohongshu.RiskNotLoggedIn, fmt.Sprintf("登录窗口 #%d 登录成功", seq))
 +		case loginAlready:
 +			// 1008（审查）：一打开就是登录态、没扫码——只证明登录还在，只解掉登录类熔断（和扫码入口的捷径一致）。
 +			// 验证码 / 安全跳转类保留：那类验证只在读收藏那一下出，/explore 页面干净不说明没事
@@ -2295,6 +2640,10 @@ index 0000000..e61b5a8
 +		logrus.Infof("登录窗口 #%d 结束：%s", seq, result)
 +	}()
 +	respondSuccess(c, map[string]any{"opened": true, "timeout": timeout.String()}, "登录窗口已打开")
++}
++
++var openLoginBrowser = func(s *XiaohongshuService) (*browser.Browser, error) {
++	return browser.NewBrowserWaitGuarded(windowLockWait, s.loginGuard, false, browser.WithFingerprintSeed(configs.FingerprintSeed()), browser.WithProxy(configs.Proxy()))
 +}
 +
 +// runLoginWindowFn 测试里替换成桩（真窗口要人扫码）。
@@ -2310,7 +2659,10 @@ index 0000000..e61b5a8
 +			result, user, errText = "failed", nil, fmt.Sprintf("登录窗口出错：%v", r)
 +		}
 +	}()
-+	b, err := openWindowBrowser()
++	if err := s.xiaohongshuService.loginGuard(); err != nil {
++		return "failed", nil, err.Error()
++	}
++	b, err := openLoginBrowser(s.xiaohongshuService)
 +	if err != nil {
 +		return "failed", nil, fmt.Sprintf("读取服务正忙（别的操作占着浏览器超过 %s），稍后再点登录", windowLockWait)
 +	}
@@ -2322,31 +2674,45 @@ index 0000000..e61b5a8
 +	page := b.NewPage()
 +	host := xiaohongshu.LoginHost()
 +	err = rod.Try(func() {
-+		_ = page.Timeout(30 * time.Second).Navigate(host + "/explore")
++		if err := page.Timeout(30 * time.Second).Navigate(host + "/explore"); err != nil {
++			result, errText = "failed", err.Error()
++			return
++		}
 +		login := xiaohongshu.NewLogin(page)
-+		// 已经登录：直接结束（loginAlready：对外照旧是 success，但只解登录类熔断，见 loginWindowHandler）
-+		if _, e := page.Timeout(8 * time.Second).Element(".login-container"); e != nil {
-+			if ok, _ := login.CheckLoginStatus(ctx); ok {
-+				result = loginAlready
-+				user, _ = login.CurrentUser(ctx)
++		if ok, checkErr := login.InspectLogin(ctx); checkErr != nil {
++			s.xiaohongshuService.noteRisk(checkErr)
++			result, errText = "failed", checkErr.Error()
++			return
++		} else if ok {
++			user, checkErr = login.ConfirmLogin(ctx)
++			if checkErr != nil {
++				s.xiaohongshuService.noteRisk(checkErr)
++				result, errText = "failed", checkErr.Error()
 +				return
 +			}
++			result = loginAlready
++			return
++		}
++		if _, e := page.Timeout(8 * time.Second).Element(".login-container"); e != nil {
 +			_ = rod.Try(func() {
 +				page.Timeout(10*time.Second).MustElementR("button, div, span", `^\s*登录\s*$`).MustClick()
 +			})
 +		}
-+		done := make(chan bool, 1)
-+		go func() { done <- login.WaitForLogin(ctx) }()
++		done := make(chan error, 1)
++		go func() { done <- login.WaitForLoginResult(ctx) }()
 +		for {
 +			select {
-+			case ok := <-done:
-+				if !ok {
++			case waitErr := <-done:
++				if waitErr != nil {
++					s.xiaohongshuService.noteRisk(waitErr)
++					result, errText = "failed", waitErr.Error()
 +					return
 +				}
-+				user, _ = login.CurrentUser(ctx)
-+				// 会话落在哪个域名因号而异：逐个复核并记住（之后读取都用它）
-+				if login.RememberSiteHost(ctx) == "" {
-+					result, errText = "failed", "扫码成功但两个域名都没有确认到登录，请重试一次"
++				var confirmErr error
++				user, confirmErr = login.ConfirmLogin(ctx)
++				if confirmErr != nil {
++					s.xiaohongshuService.noteRisk(confirmErr)
++					result, errText = "failed", confirmErr.Error()
 +					return
 +				}
 +				result = "success"
@@ -2378,9 +2744,10 @@ index 0000000..e61b5a8
 +			panic(err)
 +		}
 +		for _, ck := range res.Cookies {
-+			d := strings.ToLower(ck.Domain)
-+			if strings.Contains(d, "xiaohongshu.com") || strings.Contains(d, "rednote.com") {
-+				_ = proto.NetworkDeleteCookies{Name: ck.Name, Domain: ck.Domain, Path: ck.Path}.Call(page)
++			if browser.IsSiteCookieDomain(ck.Domain) && browser.LoginCookie(ck.Name) {
++				if err := (proto.NetworkDeleteCookies{Name: ck.Name, Domain: ck.Domain, Path: ck.Path}).Call(page); err != nil {
++					panic(err)
++				}
 +			}
 +		}
 +	})
@@ -2388,9 +2755,48 @@ index 0000000..e61b5a8
 +		respondError(c, http.StatusInternalServerError, "LOGOUT_FAILED", "退出登录失败", err.Error())
 +		return
 +	}
++	_ = os.Remove(filepath.Join(browser.ProfileDir(), "site-host"))
 +	s.xiaohongshuService.state.observe(false)
 +	s.xiaohongshuService.state.set(func(l *loginState) { l.user = nil; l.state = "idle" })
 +	respondSuccess(c, map[string]any{"logged_out": true}, "已退出登录")
++}
+diff --git a/login_policy_test.go b/login_policy_test.go
+new file mode 100644
+index 0000000..e9eaa5b
+--- /dev/null
++++ b/login_policy_test.go
+@@ -0,0 +1,32 @@
++package main
++
++import (
++	"context"
++	"github.com/stretchr/testify/require"
++	"github.com/xpzouying/xiaohongshu-mcp/browser"
++	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
++	"testing"
++)
++
++func TestRiskStopsQRBeforeBrowserLaunch(t *testing.T) {
++	for _, code := range []string{xiaohongshu.RiskAccount, xiaohongshu.RiskCaptcha, xiaohongshu.RiskRateLimited} {
++		t.Run(code, func(t *testing.T) {
++			app, _ := testApp(t)
++			app.xiaohongshuService.tripRisk(code, "synthetic")
++			restore := browser.StubLaunchForTest(func() { t.Fatal("risk opened browser") })
++			defer restore()
++			_, err := app.xiaohongshuService.GetLoginQrcode(context.Background())
++			require.NotNil(t, asHold(err))
++			require.NotNil(t, app.xiaohongshuService.hold.get())
++			status, _ := doJSON(t, setupRoutes(app), "GET", "/api/v1/login/qrcode", "")
++			require.Equal(t, 423, status)
++		})
++	}
++}
++
++func TestLoginGuardAllowsExplicitGuestLogin(t *testing.T) {
++	app, _ := testApp(t)
++	app.xiaohongshuService.tripRisk(xiaohongshu.RiskNotLoggedIn, "synthetic")
++	require.NoError(t, app.xiaohongshuService.loginGuard())
++	require.NotNil(t, app.xiaohongshuService.hold.get(), "checking must not clear hold")
 +}
 diff --git a/main.go b/main.go
 index c100268..a7b7099 100644
@@ -4499,24 +4905,24 @@ index 0000000..1854369
 +}
 diff --git a/risk_hold.go b/risk_hold.go
 new file mode 100644
-index 0000000..7bedd11
+index 0000000..aa43022
 --- /dev/null
 +++ b/risk_hold.go
-@@ -0,0 +1,497 @@
+@@ -0,0 +1,507 @@
 +package main
 +
 +// 风控熔断（1001）：撞到验证码 / 安全跳转页 / 需要登录却是游客之后，拒绝一切会开浏览器的请求，
 +// 直到有人处理。状态落在 <XHS_PROFILE_DIR>/risk-hold.json，重启服务后仍生效。
 +//
-+// 解除只有三条路：登录窗口成功（已验证登录）、人工验证窗口完成、POST /api/v1/risk/clear（外加远程扫码
-+// /login/qrcode 扫码成功，它也是一次已验证的登录；取码时发现「已是登录态」只解 NOT_LOGGED_IN）。
-+// 1008（审查）：登录窗口同理——真扫了码才全解；一打开就发现「已是登录态」（没扫码）只解 NOT_LOGGED_IN，
++// 登录仅解除 NOT_LOGGED_IN；账号风险保留，人工处理后才允许显式解除。历史入口：
++// 登录窗口与 /login/qrcode 都按同一登录规则执行。
++// 登录窗口无论扫码完成还是已有登录，都只解 NOT_LOGGED_IN，
 +// 验证码 / 安全跳转类保留（那类验证只在读收藏那一下出，/explore 页面干净不说明没事）。
 +// 1008 第二轮：看不见的验证组件（HIDDEN_WIDGET）不写熔断：停本次、回 503，下次照常。
 +// 1008（B3）验证窗口：验证码 / 安全跳转类要求窗口里**出现过**风控、关窗前最后一次读数又干净（她真拖过了）才解除；
 +// 从头到尾没出现过 → 不自动解除，/login/session 给 verify_result="no_captcha_seen"，交给她亲手确认（risk/clear）。
 +// 掉登录类仍按「关窗前看到已登录、页面干净」解除。
-+// 登录窗口、验证窗口、扫码、/login/session、/login/logout、/risk/clear 不受熔断拦截。
++// 登录/扫码另由 loginGuard 拦截安全风险；验证窗口、状态、退出及人工解除保留专用入口。
 +//
 +// 两道闸：请求进来时（riskGuard / mcpRiskMiddleware），以及拿到浏览器锁之后、启动之前
 +// （XiaohongshuService.openBrowser → holdGuard）。后一道挡住「排在锁后面时前一个请求撞了风控」。
@@ -4596,9 +5002,9 @@ index 0000000..7bedd11
 +	IncidentPage bool   `json:"incident_page,omitempty"` // 记下了出事页面（验证窗口会直接开它）
 +	Evidence     string `json:"evidence,omitempty"`
 +	AutoProbeAt  string `json:"auto_probe_at,omitempty"` // 1011：冷却后自查过的时刻（同一次熔断只查一次）
-+	Until        string `json:"until,omitempty"`   // 1015：限频冷却到几点
-+	Strikes      int    `json:"strikes,omitempty"` // 1015：24 小时内第几次限频
-+	Probing      bool   `json:"probing,omitempty"` // 1015：冷却已到点，正放行请求自探（不拦）
++	Until        string `json:"until,omitempty"`         // 1015：限频冷却到几点
++	Strikes      int    `json:"strikes,omitempty"`       // 1015：24 小时内第几次限频
++	Probing      bool   `json:"probing,omitempty"`       // 1015：冷却已到点，正放行请求自探（不拦）
 +}
 +
 +func (h *riskHold) view(withEvidence bool) *riskHoldView {
@@ -4628,7 +5034,9 @@ index 0000000..7bedd11
 +	Last    string `json:"last"`
 +}
 +
-+func (h *holdStore) strikesPath() string { return filepath.Join(filepath.Dir(h.path), "rate-limit-strikes.json") }
++func (h *holdStore) strikesPath() string {
++	return filepath.Join(filepath.Dir(h.path), "rate-limit-strikes.json")
++}
 +
 +func (h *holdStore) readStrikes(now time.Time) int {
 +	data, err := os.ReadFile(h.strikesPath())
@@ -5000,12 +5408,20 @@ index 0000000..7bedd11
 +	}
 +	return map[string]any{"owner": l.Owner, "since": l.Since.Format(time.RFC3339), "held_s": int(now.Sub(l.Since).Seconds())}
 +}
++
++// Login is an explicit action, but account/security holds never authorize it.
++func (s *XiaohongshuService) loginGuard() error {
++	if h := s.hold.get(); h != nil && h.Code != xiaohongshu.RiskNotLoggedIn {
++		return &holdError{hold: h}
++	}
++	return nil
++}
 diff --git a/risk_hold_test.go b/risk_hold_test.go
 new file mode 100644
-index 0000000..0dc758d
+index 0000000..a7b36d2
 --- /dev/null
 +++ b/risk_hold_test.go
-@@ -0,0 +1,565 @@
+@@ -0,0 +1,572 @@
 +package main
 +
 +import (
@@ -5194,6 +5610,8 @@ index 0000000..0dc758d
 +
 +	for _, ep := range []struct{ method, path, body string }{
 +		{"GET", "/api/v1/favorites", ""},
++		{"GET", "/api/v1/boards", ""},
++		{"GET", "/api/v1/boards/notes?board_id=6ad41c8f000000000a029255", ""},
 +		{"GET", "/api/v1/login/status", ""},
 +		{"POST", "/api/v1/attachments/download", `{"doc_id":"d","note_id":"n","dest_dir":"x"}`},
 +		{"POST", "/api/v1/notes/related-file", `{"note_id":"n"}`},
@@ -5474,9 +5892,9 @@ index 0000000..0dc758d
 +	} {
 +		t.Run(name, func(t *testing.T) {
 +			app, _ := testApp(t)
-+			old := openWindowBrowser
-+			openWindowBrowser = stub
-+			t.Cleanup(func() { openWindowBrowser = old })
++			old := openLoginBrowser
++			openLoginBrowser = func(*XiaohongshuService) (*browser.Browser, error) { return stub() }
++			t.Cleanup(func() { openLoginBrowser = old })
 +			router := setupRoutes(app)
 +
 +			code, _ := doJSON(t, router, "POST", "/api/v1/login/window", "")
@@ -5532,8 +5950,8 @@ index 0000000..0dc758d
 +		{loginAlready, xiaohongshu.RiskNotLoggedIn, false},
 +		{loginAlready, xiaohongshu.RiskCaptcha, true},
 +		{loginAlready, xiaohongshu.RiskAccount, true},
-+		{"success", xiaohongshu.RiskCaptcha, false},
-+		{"success", xiaohongshu.RiskAccount, false},
++		{"success", xiaohongshu.RiskCaptcha, true},
++		{"success", xiaohongshu.RiskAccount, true},
 +	} {
 +		t.Run(c.result+"/"+c.hold, func(t *testing.T) {
 +			app, _ := testApp(t)
@@ -5546,6 +5964,11 @@ index 0000000..0dc758d
 +			app.xiaohongshuService.state.set(func(l *loginState) { l.lastFav = time.Now() })
 +			router := setupRoutes(app)
 +			code, _ := doJSON(t, router, "POST", "/api/v1/login/window", "")
++			if c.hold != xiaohongshu.RiskNotLoggedIn {
++				require.Equal(t, http.StatusLocked, code)
++				require.NotNil(t, app.xiaohongshuService.hold.get())
++				return
++			}
 +			require.Equal(t, http.StatusOK, code)
 +			for i := 0; i < 50 && app.xiaohongshuService.state.waiting(); i++ {
 +				time.Sleep(20 * time.Millisecond)
@@ -5859,10 +6282,10 @@ index 0000000..b7602b5
 +	return NewAppServer(NewXiaohongshuService())
 +}
 diff --git a/routes.go b/routes.go
-index 26b7bf4..d73675e 100644
+index 26b7bf4..7942bf4 100644
 --- a/routes.go
 +++ b/routes.go
-@@ -41,7 +41,20 @@ func setupRoutes(appServer *AppServer) *gin.Engine {
+@@ -41,7 +41,22 @@ func setupRoutes(appServer *AppServer) *gin.Engine {
  
  	// API 路由组
  	api := router.Group("/api/v1")
@@ -5873,6 +6296,8 @@ index 26b7bf4..d73675e 100644
 +		api.POST("/risk/probe", appServer.riskProbeHandler) // 1011 冷却后自查（只认验证码类，见 risk_autoprobe.go）
 +		api.GET("/favorites", appServer.favoritesHandler)
 +		api.POST("/favorites", appServer.favoritesHandler) // 1011 增量读：body {expect, known_ids, stop_after_known}
++		api.GET("/boards", appServer.boardsHandler)            // 1019 专辑列表：只读，和读收藏同一份限频
++		api.GET("/boards/notes", appServer.boardNotesHandler) // 1019 某个专辑里的笔记：只读
 +		api.POST("/verify/window", appServer.verifyWindowHandler)
 +		api.POST("/login/window", appServer.loginWindowHandler)
 +		api.POST("/login/logout", appServer.logoutHandler)
@@ -5884,7 +6309,7 @@ index 26b7bf4..d73675e 100644
  		api.GET("/login/qrcode", appServer.getLoginQrcodeHandler)
  		api.DELETE("/login/cookies", appServer.deleteCookiesHandler)
 diff --git a/service.go b/service.go
-index f40bb5d..3550763 100644
+index f40bb5d..d821cea 100644
 --- a/service.go
 +++ b/service.go
 @@ -5,11 +5,11 @@ import (
@@ -5944,7 +6369,17 @@ index f40bb5d..3550763 100644
  
  	response := &LoginStatusResponse{
  		IsLoggedIn: isLoggedIn,
-@@ -136,9 +149,16 @@ func (s *XiaohongshuService) CheckLoginStatus(ctx context.Context) (*LoginStatus
+@@ -125,7 +138,8 @@ func (s *XiaohongshuService) CheckLoginStatus(ctx context.Context) (*LoginStatus
+ 	// 已登录时从当前页读取真实账号信息；读不到只记 warn，不影响状态返回。
+ 	if isLoggedIn {
+ 		if user, err := loginAction.CurrentUser(ctx); err != nil {
+-			logrus.Warnf("failed to get current user info: %v", err)
++			s.state.observe(false)
++			return nil, err
+ 		} else {
+ 			response.Username = user.Nickname
+ 			response.UserID = user.UserID
+@@ -136,9 +150,22 @@ func (s *XiaohongshuService) CheckLoginStatus(ctx context.Context) (*LoginStatus
  }
  
  // GetLoginQrcode 获取登录的扫码二维码
@@ -5952,8 +6387,15 @@ index f40bb5d..3550763 100644
 +// 0925 加固：旧实现里 FetchQrcodeImage 的 Must* 一 panic，浏览器既不关、profile 锁也不放，
 +// 之后整个服务的每个请求都排在锁后面永久卡死。现在：出码限时 45s，任何失败（含 panic）都关浏览器。
  func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeResponse, error) {
- 	b := newBrowser()
+-	b := newBrowser()
 -	page := b.NewPage()
++	if err := s.loginGuard(); err != nil {
++		return nil, err
++	}
++	b, berr := browser.NewBrowserGuarded(s.loginGuard, configs.IsHeadless(), browser.WithFingerprintSeed(configs.FingerprintSeed()), browser.WithProxy(configs.Proxy()))
++	if berr != nil {
++		return nil, berr
++	}
 +	var page *rod.Page
 +	if err := rod.Try(func() { page = b.NewPage() }); err != nil {
 +		b.Close() // 1001：建页失败也要关浏览器、放锁
@@ -5962,7 +6404,7 @@ index f40bb5d..3550763 100644
  
  	deferFunc := func() {
  		_ = page.Close()
-@@ -147,29 +167,37 @@ func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeRe
+@@ -147,29 +174,46 @@ func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeRe
  
  	loginAction := xiaohongshu.NewLogin(page)
  
@@ -5979,6 +6421,7 @@ index f40bb5d..3550763 100644
 +	qcancel()
  	if err != nil {
 -		return nil, err
++		s.noteRisk(err)
 +		if d := os.Getenv("LB_DEBUG_DIR"); d != "" {
 +			if shot, e := page.Timeout(10*time.Second).Screenshot(false, nil); e == nil {
 +				_ = os.WriteFile(filepath.Join(d, "qrcode-failed.png"), shot, 0o644)
@@ -5988,6 +6431,14 @@ index f40bb5d..3550763 100644
 +		return nil, fmt.Errorf("没有拿到登录二维码（页面可能要求安全验证或改版）: %w", err)
 +	}
 +	if loggedIn {
++		user, confirmErr := loginAction.ConfirmLogin(ctx)
++		if confirmErr != nil {
++			s.noteRisk(confirmErr)
++			deferFunc()
++			return nil, confirmErr
++		}
++		s.state.observe(true)
++		s.state.set(func(l *loginState) { l.user = user })
 +		deferFunc()
 +		// 已是登录态只说明「没掉登录」：只解 NOT_LOGGED_IN；验证码 / 安全跳转要验证窗口或 risk/clear 来解
 +		s.clearRiskIf(xiaohongshu.RiskNotLoggedIn, "扫码入口复核：已是登录态")
@@ -6015,7 +6466,7 @@ index f40bb5d..3550763 100644
  	}, nil
  }
  
-@@ -182,6 +210,7 @@ func (s *XiaohongshuService) waitScanInBackground(
+@@ -182,6 +226,7 @@ func (s *XiaohongshuService) waitScanInBackground(
  ) {
  	ctxTimeout, cancel := context.WithTimeout(context.Background(), timeout)
  	seq := s.logins.start(cancel)
@@ -6023,37 +6474,42 @@ index f40bb5d..3550763 100644
  	logrus.Infof("等待扫码登录，会话 #%d，超时 %s", seq, timeout)
  
  	go func() {
-@@ -190,15 +219,25 @@ func (s *XiaohongshuService) waitScanInBackground(
+@@ -189,16 +234,30 @@ func (s *XiaohongshuService) waitScanInBackground(
+ 		defer cancel()
  		defer s.logins.finish(seq)
  
- 		if loginAction.WaitForLogin(ctxTimeout) {
+-		if loginAction.WaitForLogin(ctxTimeout) {
 -			if err := saveCookies(page); err != nil {
 -				logrus.Errorf("扫码成功但保存 cookies 失败，会话 #%d: %v", seq, err)
--				return
-+			var user *xiaohongshu.CurrentUser
-+			uctx, ucancel := context.WithTimeout(context.Background(), 20*time.Second)
-+			if u, err := loginAction.CurrentUser(uctx); err == nil {
-+				user = u
-+			} else {
-+				logrus.Warnf("扫码成功但读不到账号信息: %v", err)
++		waitErr := loginAction.WaitForLoginResult(ctxTimeout)
++		if waitErr == nil {
++			user, err := loginAction.ConfirmLogin(ctxTimeout)
++			if err != nil {
++				s.noteRisk(err)
++				s.state.finish(seq, "failed", nil, err.Error())
+ 				return
  			}
 -			logrus.Infof("扫码登录成功，cookies 已保存，会话 #%d", seq)
-+			ucancel()
 +			// 先关浏览器（Close 里把会话 cookie 落盘），再对外报成功：
 +			// 调用方看到 success 时磁盘上已经是可用的登录态。
 +			closeBrowser()
-+			s.clearRisk(fmt.Sprintf("扫码登录 #%d 成功", seq))
++			s.clearRiskIf(xiaohongshu.RiskNotLoggedIn, fmt.Sprintf("扫码登录 #%d 成功", seq))
 +			s.state.finish(seq, "success", user, "")
 +			logrus.Infof("扫码登录成功，登录态已落盘，会话 #%d", seq)
  			return
  		}
  
++		s.noteRisk(waitErr)
++		if ctxTimeout.Err() == nil {
++			s.state.finish(seq, "failed", nil, waitErr.Error())
++			return
++		}
  		// 没等到扫码：要么超时，要么被新取的二维码取代
 +		s.state.finish(seq, "timeout", nil, "")
  		logrus.Infof("登录会话 #%d 结束，未检测到扫码（超时或已被新的二维码取代）", seq)
  	}()
  }
-@@ -274,7 +313,10 @@ func (s *XiaohongshuService) processImages(images []string) ([]string, error) {
+@@ -274,7 +333,10 @@ func (s *XiaohongshuService) processImages(images []string) ([]string, error) {
  
  // publishContent 执行内容发布
  func (s *XiaohongshuService) publishContent(ctx context.Context, content xiaohongshu.PublishImageContent) error {
@@ -6065,7 +6521,7 @@ index f40bb5d..3550763 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -353,7 +395,10 @@ func (s *XiaohongshuService) PublishVideo(ctx context.Context, req *PublishVideo
+@@ -353,7 +415,10 @@ func (s *XiaohongshuService) PublishVideo(ctx context.Context, req *PublishVideo
  
  // publishVideo 执行视频发布
  func (s *XiaohongshuService) publishVideo(ctx context.Context, content xiaohongshu.PublishVideoContent) error {
@@ -6077,7 +6533,7 @@ index f40bb5d..3550763 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -369,7 +414,10 @@ func (s *XiaohongshuService) publishVideo(ctx context.Context, content xiaohongs
+@@ -369,7 +434,10 @@ func (s *XiaohongshuService) publishVideo(ctx context.Context, content xiaohongs
  
  // ListFeeds 获取Feeds列表
  func (s *XiaohongshuService) ListFeeds(ctx context.Context) (*FeedsListResponse, error) {
@@ -6089,7 +6545,7 @@ index f40bb5d..3550763 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -392,7 +440,10 @@ func (s *XiaohongshuService) ListFeeds(ctx context.Context) (*FeedsListResponse,
+@@ -392,7 +460,10 @@ func (s *XiaohongshuService) ListFeeds(ctx context.Context) (*FeedsListResponse,
  }
  
  func (s *XiaohongshuService) SearchFeeds(ctx context.Context, keyword string, filters ...xiaohongshu.FilterOption) (*FeedsListResponse, error) {
@@ -6101,7 +6557,7 @@ index f40bb5d..3550763 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -401,6 +452,11 @@ func (s *XiaohongshuService) SearchFeeds(ctx context.Context, keyword string, fi
+@@ -401,6 +472,11 @@ func (s *XiaohongshuService) SearchFeeds(ctx context.Context, keyword string, fi
  	action := xiaohongshu.NewSearchAction(page)
  
  	feeds, err := action.Search(ctx, keyword, filters...)
@@ -6113,7 +6569,7 @@ index f40bb5d..3550763 100644
  	if err != nil {
  		return nil, err
  	}
-@@ -420,7 +476,14 @@ func (s *XiaohongshuService) GetFeedDetail(ctx context.Context, feedID, xsecToke
+@@ -420,7 +496,14 @@ func (s *XiaohongshuService) GetFeedDetail(ctx context.Context, feedID, xsecToke
  
  // GetFeedDetailWithConfig 使用配置获取Feed详情
  func (s *XiaohongshuService) GetFeedDetailWithConfig(ctx context.Context, feedID, xsecToken string, loadAllComments bool, config xiaohongshu.CommentLoadConfig) (*FeedDetailResponse, error) {
@@ -6129,7 +6585,7 @@ index f40bb5d..3550763 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -428,8 +491,13 @@ func (s *XiaohongshuService) GetFeedDetailWithConfig(ctx context.Context, feedID
+@@ -428,8 +511,13 @@ func (s *XiaohongshuService) GetFeedDetailWithConfig(ctx context.Context, feedID
  
  	action := xiaohongshu.NewFeedDetailAction(page)
  
@@ -6144,7 +6600,7 @@ index f40bb5d..3550763 100644
  		return nil, err
  	}
  
-@@ -441,6 +509,16 @@ func (s *XiaohongshuService) GetFeedDetailWithConfig(ctx context.Context, feedID
+@@ -441,6 +529,16 @@ func (s *XiaohongshuService) GetFeedDetailWithConfig(ctx context.Context, feedID
  	return response, nil
  }
  
@@ -6161,7 +6617,7 @@ index f40bb5d..3550763 100644
  // UserProfile 获取用户信息
  func (s *XiaohongshuService) UserProfile(ctx context.Context, userID, xsecToken, tab string) (*UserProfileResponse, error) {
  	parsed, err := xiaohongshu.ParseProfileTab(tab)
-@@ -448,7 +526,10 @@ func (s *XiaohongshuService) UserProfile(ctx context.Context, userID, xsecToken,
+@@ -448,7 +546,10 @@ func (s *XiaohongshuService) UserProfile(ctx context.Context, userID, xsecToken,
  		return nil, err
  	}
  
@@ -6173,7 +6629,7 @@ index f40bb5d..3550763 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -472,7 +553,10 @@ func (s *XiaohongshuService) UserProfile(ctx context.Context, userID, xsecToken,
+@@ -472,7 +573,10 @@ func (s *XiaohongshuService) UserProfile(ctx context.Context, userID, xsecToken,
  
  // PostCommentToFeed 发表评论到Feed
  func (s *XiaohongshuService) PostCommentToFeed(ctx context.Context, feedID, xsecToken, content string) (*PostCommentResponse, error) {
@@ -6185,7 +6641,7 @@ index f40bb5d..3550763 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -489,7 +573,10 @@ func (s *XiaohongshuService) PostCommentToFeed(ctx context.Context, feedID, xsec
+@@ -489,7 +593,10 @@ func (s *XiaohongshuService) PostCommentToFeed(ctx context.Context, feedID, xsec
  
  // LikeFeed 点赞笔记
  func (s *XiaohongshuService) LikeFeed(ctx context.Context, feedID, xsecToken string) (*ActionResult, error) {
@@ -6197,7 +6653,7 @@ index f40bb5d..3550763 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -504,7 +591,10 @@ func (s *XiaohongshuService) LikeFeed(ctx context.Context, feedID, xsecToken str
+@@ -504,7 +611,10 @@ func (s *XiaohongshuService) LikeFeed(ctx context.Context, feedID, xsecToken str
  
  // UnlikeFeed 取消点赞笔记
  func (s *XiaohongshuService) UnlikeFeed(ctx context.Context, feedID, xsecToken string) (*ActionResult, error) {
@@ -6209,7 +6665,7 @@ index f40bb5d..3550763 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -519,7 +609,10 @@ func (s *XiaohongshuService) UnlikeFeed(ctx context.Context, feedID, xsecToken s
+@@ -519,7 +629,10 @@ func (s *XiaohongshuService) UnlikeFeed(ctx context.Context, feedID, xsecToken s
  
  // FavoriteFeed 收藏笔记
  func (s *XiaohongshuService) FavoriteFeed(ctx context.Context, feedID, xsecToken string) (*ActionResult, error) {
@@ -6221,7 +6677,7 @@ index f40bb5d..3550763 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -534,7 +627,10 @@ func (s *XiaohongshuService) FavoriteFeed(ctx context.Context, feedID, xsecToken
+@@ -534,7 +647,10 @@ func (s *XiaohongshuService) FavoriteFeed(ctx context.Context, feedID, xsecToken
  
  // UnfavoriteFeed 取消收藏笔记
  func (s *XiaohongshuService) UnfavoriteFeed(ctx context.Context, feedID, xsecToken string) (*ActionResult, error) {
@@ -6233,7 +6689,7 @@ index f40bb5d..3550763 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -549,7 +645,10 @@ func (s *XiaohongshuService) UnfavoriteFeed(ctx context.Context, feedID, xsecTok
+@@ -549,7 +665,10 @@ func (s *XiaohongshuService) UnfavoriteFeed(ctx context.Context, feedID, xsecTok
  
  // ReplyCommentToFeed 回复指定评论
  func (s *XiaohongshuService) ReplyCommentToFeed(ctx context.Context, feedID, xsecToken, commentID, userID, content string) (*ReplyCommentResponse, error) {
@@ -6245,7 +6701,7 @@ index f40bb5d..3550763 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -572,7 +671,10 @@ func (s *XiaohongshuService) ReplyCommentToFeed(ctx context.Context, feedID, xse
+@@ -572,7 +691,10 @@ func (s *XiaohongshuService) ReplyCommentToFeed(ctx context.Context, feedID, xse
  
  // GetUnreadCount 获取通知未读数
  func (s *XiaohongshuService) GetUnreadCount(ctx context.Context) (*xiaohongshu.NotificationCount, error) {
@@ -6257,7 +6713,7 @@ index f40bb5d..3550763 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -588,7 +690,10 @@ func (s *XiaohongshuService) ListNotifications(ctx context.Context, tab string,
+@@ -588,7 +710,10 @@ func (s *XiaohongshuService) ListNotifications(ctx context.Context, tab string,
  		return nil, err
  	}
  
@@ -6269,7 +6725,7 @@ index f40bb5d..3550763 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -599,7 +704,10 @@ func (s *XiaohongshuService) ListNotifications(ctx context.Context, tab string,
+@@ -599,7 +724,10 @@ func (s *XiaohongshuService) ListNotifications(ctx context.Context, tab string,
  
  // LikeNotification 给通知里的评论点赞或取消点赞
  func (s *XiaohongshuService) LikeNotification(ctx context.Context, commentID string, unlike bool) (*xiaohongshu.NotificationLikeResult, error) {
@@ -6281,7 +6737,7 @@ index f40bb5d..3550763 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -610,7 +718,10 @@ func (s *XiaohongshuService) LikeNotification(ctx context.Context, commentID str
+@@ -610,7 +738,10 @@ func (s *XiaohongshuService) LikeNotification(ctx context.Context, commentID str
  
  // ReplyNotification 在通知页就地回复评论
  func (s *XiaohongshuService) ReplyNotification(ctx context.Context, commentID, content string) (*xiaohongshu.NotificationReplyResult, error) {
@@ -6293,7 +6749,7 @@ index f40bb5d..3550763 100644
  	defer b.Close()
  
  	page := b.NewPage()
-@@ -619,13 +730,31 @@ func (s *XiaohongshuService) ReplyNotification(ctx context.Context, commentID, c
+@@ -619,13 +750,31 @@ func (s *XiaohongshuService) ReplyNotification(ctx context.Context, commentID, c
  	return xiaohongshu.NewNotificationAction(page).Reply(ctx, commentID, content)
  }
  
@@ -6326,7 +6782,7 @@ index f40bb5d..3550763 100644
  func saveCookies(page *rod.Page) error {
  	cks, err := page.Browser().GetCookies()
  	if err != nil {
-@@ -641,17 +770,6 @@ func saveCookies(page *rod.Page) error {
+@@ -641,17 +790,6 @@ func saveCookies(page *rod.Page) error {
  	return cookieLoader.SaveCookies(data)
  }
  
@@ -6344,7 +6800,7 @@ index f40bb5d..3550763 100644
  // GetMyProfile 获取当前登录用户的个人信息
  func (s *XiaohongshuService) GetMyProfile(ctx context.Context, tab string) (*UserProfileResponse, error) {
  	parsed, err := xiaohongshu.ParseProfileTab(tab)
-@@ -661,13 +779,39 @@ func (s *XiaohongshuService) GetMyProfile(ctx context.Context, tab string) (*Use
+@@ -661,13 +799,39 @@ func (s *XiaohongshuService) GetMyProfile(ctx context.Context, tab string) (*Use
  
  	var result *xiaohongshu.UserProfileResponse
  
@@ -7066,6 +7522,337 @@ index c86d1ba..0369176 100644
  }
  
  type SearchFeedsRequest struct {
+diff --git a/xiaohongshu/boards.go b/xiaohongshu/boards.go
+new file mode 100644
+index 0000000..47f3c6e
+--- /dev/null
++++ b/xiaohongshu/boards.go
+@@ -0,0 +1,269 @@
++package xiaohongshu
++
++import (
++	"context"
++	"fmt"
++	"math/rand"
++	"regexp"
++	"strconv"
++	"time"
++
++	"github.com/go-rod/rod"
++	"github.com/sirupsen/logrus"
++	"github.com/xpzouying/xiaohongshu-mcp/humanize"
++)
++
++// 专辑（1019，POC 见 board_probe 历史提交 reader-15*）：
++//   - 列表：首页 → 侧栏「我」→ 收藏页签 → 点「专辑・N」子页签（subTab=board），数据在 state.board.userBoardList，
++//     /api/sns/web/v1/board/user 每页 30 个，往下滚加载下一页。算一次进收藏页签（调用方和读收藏共用限频）。
++//   - 某个专辑的笔记：在同一页直接打开站内链接 /board/<id>?source=web_user_page（登录态 SSR 直接带数据），
++//     state.board.boardFeedsMap[<id>] = {notes, cursor, hasMore}，多的往下滚。专辑卡片在横向列表里常在视口外，不点卡片。
++// 只读：不点笔记、不点关注；每轮滚动前后查风控，撞了原样返回。
++
++type Board struct {
++	ID      string `json:"id"`
++	Name    string `json:"name"`
++	Total   int    `json:"total"`
++	Privacy int    `json:"privacy"`
++	Desc    string `json:"desc,omitempty"`
++}
++
++type BoardNote struct {
++	NoteID    string `json:"note_id"`
++	Title     string `json:"title,omitempty"`
++	XsecToken string `json:"xsec_token,omitempty"`
++	Time      int64  `json:"time,omitempty"`
++}
++
++type BoardListResult struct {
++	Boards   []Board `json:"boards"`
++	Expected int     `json:"expected"` // 页签上写的「专辑・N」；读不到为 0
++	Partial  bool    `json:"partial"`
++	Scrolls  int     `json:"scrolls"`
++}
++
++type BoardNotesResult struct {
++	Board   Board       `json:"board"`
++	Notes   []BoardNote `json:"notes"`
++	HasMore bool        `json:"has_more"`
++	Partial bool        `json:"partial"`
++	Scrolls int         `json:"scrolls"`
++}
++
++var boardCountRe = regexp.MustCompile(`专辑\s*[・·•]?\s*(\d+)`)
++
++const boardToggleSel = `() => {
++  const ok = el => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
++    return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
++  const hits = [...document.querySelectorAll('div,span,a,button,li')]
++    .filter(el => /^专辑\s*[・·•]?\s*\d*$/.test((el.innerText || '').trim()) && ok(el));
++  hits.sort((a, b) => a.getElementsByTagName('*').length - b.getElementsByTagName('*').length);
++  return hits[0] || null;
++}`
++
++const boardListJS = `() => {
++  const unwrap = x => x?.value ?? x?._value ?? x?._rawValue ?? x;
++  const bd = unwrap(window.__INITIAL_STATE__?.board) || {};
++  return (unwrap(bd.userBoardList) || []).map(unwrap).filter(b => b && b.id).map(b => ({
++    id: String(b.id), name: String(b.name || ''), total: Number(b.total) || 0, privacy: Number(b.privacy) || 0,
++    desc: b.desc && b.desc !== '暂无简介' ? String(b.desc).slice(0, 200) : ''}));
++}`
++
++// 滚一截：窗口往下，另外把专辑卡片所在的可滚容器（横向 / 纵向）推到头——专辑列表可能是横向列表。
++const boardScrollJS = `() => {
++  window.scrollBy(0, Math.round(innerHeight * (0.7 + Math.random() * 0.25)));
++  const a = document.querySelector('a[href*="/board/"]');
++  for (let el = a && a.parentElement; el && el !== document.body; el = el.parentElement) {
++    const s = getComputedStyle(el);
++    if (el.scrollWidth > el.clientWidth + 20 && /(auto|scroll)/.test(s.overflowX)) { el.scrollLeft = el.scrollWidth; break; }
++    if (el.scrollHeight > el.clientHeight + 20 && /(auto|scroll)/.test(s.overflowY)) { el.scrollTop = el.scrollHeight; break; }
++  }
++}`
++
++func boardPause(ctx context.Context) error {
++	select {
++	case <-ctx.Done():
++		return ctx.Err()
++	case <-time.After(time.Duration(2500+rand.Intn(2500)) * time.Millisecond):
++		return nil
++	}
++}
++
++func evalInto(ctx context.Context, page *rod.Page, js string, out any) error {
++	var err error
++	rerr := rod.Try(func() {
++		err = page.Context(ctx).Timeout(10 * time.Second).MustEval(js).Unmarshal(out)
++	})
++	if rerr != nil {
++		return rerr
++	}
++	return err
++}
++
++// ListBoards 读自己的专辑列表（滚到页签上写的个数为止；连着两轮没多就停，如实报 partial）。
++func ListBoards(ctx context.Context, page *rod.Page) (*BoardListResult, error) {
++	defer SetPageIntent(page, string(TabFavorites))()
++	u := NewUserProfileAction(page)
++	if err := NewNavigate(page).ToProfilePage(ctx); err != nil {
++		return nil, fmt.Errorf("进主页失败: %w", err)
++	}
++	if r := RiskPage(page); r != nil {
++		return nil, r
++	}
++	if err := u.selectTab(ctx, page, TabFavorites); err != nil {
++		return nil, err
++	}
++	if r := RiskPage(page); r != nil {
++		return nil, r
++	}
++	var toggle *rod.Element
++	_ = rod.Try(func() { toggle = page.Context(ctx).Timeout(10 * time.Second).MustElementByJS(boardToggleSel) })
++	if toggle == nil {
++		return nil, fmt.Errorf("%w: 收藏页签里没找到「专辑」", ErrTabNotActive)
++	}
++	res := &BoardListResult{}
++	if txt, err := toggle.Text(); err == nil {
++		if m := boardCountRe.FindStringSubmatch(txt); m != nil {
++			res.Expected, _ = strconv.Atoi(m[1])
++		}
++	}
++	humanize.Delay(ctx, humanize.BeforeClick)
++	_ = rod.Try(func() { _ = humanize.Click(toggle.Context(ctx).Timeout(8 * time.Second)) })
++	var boards []Board
++	start := time.Now()
++	for len(boards) == 0 && time.Since(start) < 15*time.Second {
++		if err := boardPause(ctx); err != nil {
++			return nil, err
++		}
++		_ = evalInto(ctx, page, boardListJS, &boards)
++	}
++	if r := RiskPage(page); r != nil {
++		return nil, r
++	}
++	still := 0
++	for res.Scrolls < 12 && (res.Expected == 0 || len(boards) < res.Expected) && len(boards) > 0 {
++		_ = rod.Try(func() { page.Context(ctx).Timeout(5 * time.Second).MustEval(boardScrollJS) })
++		res.Scrolls++
++		if err := boardPause(ctx); err != nil {
++			return nil, err
++		}
++		if r := RiskPage(page); r != nil {
++			return nil, r
++		}
++		var now []Board
++		_ = evalInto(ctx, page, boardListJS, &now)
++		if len(now) <= len(boards) {
++			if still++; still >= 2 {
++				break
++			}
++			continue
++		}
++		still, boards = 0, now
++	}
++	res.Boards = boards
++	res.Partial = len(boards) == 0 || (res.Expected > 0 && len(boards) < res.Expected)
++	logrus.Infof("专辑列表：读到 %d 个（页签写 %d），滚 %d 次", len(boards), res.Expected, res.Scrolls)
++	return res, nil
++}
++
++const boardNotesJS = `(id) => {
++  const unwrap = x => x?.value ?? x?._value ?? x?._rawValue ?? x;
++  const bd = unwrap(window.__INITIAL_STATE__?.board) || {};
++  const f = unwrap((unwrap(bd.boardFeedsMap) || {})[id]) || null;
++  const d = unwrap((unwrap(bd.boardDetails) || {})[id]) || unwrap(bd.boardDetails) || {};
++  const det = d && d.id === id ? d : (unwrap(d[id]) || {});
++  return {
++    status: String(unwrap(bd.boardPageStatus) || ''), path: location.pathname, ready: !!f,
++    board: {id, name: String(det.name || ''), total: Number(det.total) || 0, privacy: Number(det.privacy) || 0,
++      desc: det.desc && det.desc !== '暂无简介' ? String(det.desc).slice(0, 200) : ''},
++    has_more: !!(f && unwrap(f.hasMore)),
++    notes: ((f && unwrap(f.notes)) || []).map(unwrap).filter(n => n && (n.noteId || n.note_id || n.id)).map(n => ({
++      note_id: String(n.noteId || n.note_id || n.id), title: String(n.displayTitle || n.display_title || '').slice(0, 80),
++      xsec_token: String(n.xsecToken || n.xsec_token || ''), time: Number(n.time || n.lastUpdateTime) || 0})),
++  };
++}`
++
++type boardNotesState struct {
++	Status  string      `json:"status"`
++	Path    string      `json:"path"`
++	Ready   bool        `json:"ready"`
++	Board   Board       `json:"board"`
++	HasMore bool        `json:"has_more"`
++	Notes   []BoardNote `json:"notes"`
++}
++
++func readBoardNotes(ctx context.Context, page *rod.Page, id string) boardNotesState {
++	var st boardNotesState
++	_ = rod.Try(func() {
++		_ = page.Context(ctx).Timeout(10*time.Second).MustEval(boardNotesJS, id).Unmarshal(&st)
++	})
++	return st
++}
++
++var boardIDRe = regexp.MustCompile(`^[0-9a-f]{24}$`)
++
++// BoardNotes 读一个专辑里的笔记（滚到 hasMore=false；连着两轮没多 / 滚满 maxScrolls 就停，如实报 partial）。
++func BoardNotes(ctx context.Context, page *rod.Page, id string, maxScrolls int) (*BoardNotesResult, error) {
++	if !boardIDRe.MatchString(id) {
++		return nil, fmt.Errorf("专辑 id 不对：%q", id)
++	}
++	url := fmt.Sprintf("%s/board/%s?source=web_user_page", SiteHost(), id)
++	humanize.Delay(ctx, humanize.BeforeClick)
++	if err := rod.Try(func() { page.Context(ctx).Timeout(40 * time.Second).MustNavigate(url).MustWaitLoad() }); err != nil {
++		if r := RiskPage(page); r != nil {
++			return nil, r
++		}
++		return nil, fmt.Errorf("打开专辑页失败: %w", err)
++	}
++	if r := RiskPage(page); r != nil {
++		return nil, r
++	}
++	var st boardNotesState
++	start := time.Now()
++	for time.Since(start) < 20*time.Second {
++		if st = readBoardNotes(ctx, page, id); st.Ready {
++			break
++		}
++		if err := boardPause(ctx); err != nil {
++			return nil, err
++		}
++	}
++	if !st.Ready {
++		if r := RiskPage(page); r != nil {
++			return nil, r
++		}
++		return nil, fmt.Errorf("专辑页 20 秒没带出笔记（页面状态 %q，地址 %s）", st.Status, st.Path)
++	}
++	res := &BoardNotesResult{}
++	still := 0
++	for st.HasMore && res.Scrolls < maxScrolls {
++		_ = rod.Try(func() {
++			page.Context(ctx).Timeout(5 * time.Second).MustEval(`() => window.scrollBy(0, Math.round(innerHeight * (0.8 + Math.random() * 0.3)))`)
++		})
++		res.Scrolls++
++		if err := boardPause(ctx); err != nil {
++			return nil, err
++		}
++		if res.Scrolls%3 == 0 {
++			if r := RiskPage(page); r != nil {
++				return nil, r
++			}
++		}
++		now := readBoardNotes(ctx, page, id)
++		if len(now.Notes) <= len(st.Notes) && now.HasMore {
++			if still++; still >= 2 {
++				break
++			}
++			continue
++		}
++		still, st = 0, now
++	}
++	if r := RiskPage(page); r != nil {
++		return nil, r
++	}
++	res.Board, res.Notes, res.HasMore = st.Board, st.Notes, st.HasMore
++	res.Board.ID = id
++	res.Partial = st.HasMore
++	logrus.Infof("专辑 %s：读到 %d 篇（写 %d），滚 %d 次，has_more=%v", id, len(st.Notes), st.Board.Total, res.Scrolls, st.HasMore)
++	return res, nil
++}
+diff --git a/xiaohongshu/boards_localbrowser_test.go b/xiaohongshu/boards_localbrowser_test.go
+new file mode 100644
+index 0000000..7bb358c
+--- /dev/null
++++ b/xiaohongshu/boards_localbrowser_test.go
+@@ -0,0 +1,50 @@
++//go:build localbrowser
++
++package xiaohongshu
++
++import (
++	"context"
++	"testing"
++	"time"
++
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++// 专辑页：首屏 2 篇、hasMore=true；往下滚一次补第 3 篇并 hasMore=false。boardDetails 是专辑本身（不是按 id 的表）。
++const boardFixtureID = "6ad41c8f000000000a029255"
++
++const boardFixture = `<div style="height:6000px">专辑</div><script>
++const id = '` + boardFixtureID + `';
++const n = i => ({noteId: 'n' + i + '00000000000000000000', displayTitle: '第' + i + '篇', xsecToken: 't' + i, time: 1700000000000 + i});
++window.__INITIAL_STATE__ = {board: {boardPageStatus: 'resolved',
++  boardDetails: {id, name: '课', total: 3, privacy: 1, desc: '暂无简介'},
++  boardFeedsMap: {[id]: {notes: [n(1), n(2)], hasMore: true, cursor: 'c2'}}}};
++let more = true;
++addEventListener('scroll', () => { if (!more) return; more = false;
++  const f = window.__INITIAL_STATE__.board.boardFeedsMap[id]; f.notes = f.notes.concat([n(3)]); f.hasMore = false; });
++</script>`
++
++func TestLocalBrowserBoardNotesScrollsToEnd(t *testing.T) {
++	srv := fixtureServer(t, map[string]string{"/board/" + boardFixtureID: boardFixture})
++	t.Setenv("XHS_HOST", srv.URL)
++	page := localPage(t)
++	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
++	defer cancel()
++	res, err := BoardNotes(ctx, page, boardFixtureID, 10)
++	require.NoError(t, err)
++	assert.Equal(t, "课", res.Board.Name)
++	assert.Equal(t, 3, res.Board.Total)
++	assert.Equal(t, 1, res.Board.Privacy)
++	assert.Equal(t, "", res.Board.Desc)
++	require.Len(t, res.Notes, 3)
++	assert.Equal(t, "n100000000000000000000", res.Notes[0].NoteID)
++	assert.Equal(t, "t3", res.Notes[2].XsecToken)
++	assert.False(t, res.HasMore)
++	assert.False(t, res.Partial)
++}
++
++func TestBoardNotesRejectsBadID(t *testing.T) {
++	_, err := BoardNotes(context.Background(), nil, "../x", 1)
++	require.Error(t, err)
++}
 diff --git a/xiaohongshu/comment_floors.go b/xiaohongshu/comment_floors.go
 new file mode 100644
 index 0000000..ab1209a
@@ -11388,13 +12175,14 @@ index ce158e3..af09658 100644
  	if result == "" {
  		return nil, errors.ErrNoFeeds
 diff --git a/xiaohongshu/login.go b/xiaohongshu/login.go
-index 67e002d..ecd9384 100644
+index 67e002d..a4f3a3e 100644
 --- a/xiaohongshu/login.go
 +++ b/xiaohongshu/login.go
-@@ -3,10 +3,14 @@ package xiaohongshu
+@@ -3,10 +3,16 @@ package xiaohongshu
  import (
  	"context"
  	"encoding/json"
++	"net/url"
 +	"os"
 +	"path/filepath"
 +	"strings"
@@ -11403,10 +12191,11 @@ index 67e002d..ecd9384 100644
  	"github.com/go-rod/rod"
  	"github.com/pkg/errors"
 +	"github.com/sirupsen/logrus"
++	"github.com/xpzouying/xiaohongshu-mcp/browser"
  )
  
  type LoginAction struct {
-@@ -19,21 +23,182 @@ func NewLogin(page *rod.Page) *LoginAction {
+@@ -19,21 +25,264 @@ func NewLogin(page *rod.Page) *LoginAction {
  
  func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
  	// 加超时保护：只是查登录态的快速检查，不应无限挂（登录扫码的等待在 Login/WaitForLogin 里）
@@ -11424,8 +12213,7 @@ index 67e002d..ecd9384 100644
 +	}
 +	return false, nil
 +}
- 
--	time.Sleep(1 * time.Second)
++
 +// 站点有两个前台域名：xiaohongshu.com 和 rednote.com。
 +// 扫码登录落到哪个由站点决定（本机实测：扫完跳 www.rednote.com），
 +// 而 cookie 是按域名发的 —— 在另一个域名上查登录态，永远是未登录。
@@ -11436,10 +12224,7 @@ index 67e002d..ecd9384 100644
 +	}
 +	return []string{SiteHost()}
 +}
- 
--	exists, _, err := pp.Has(`.main-container .user .link-wrapper .channel`)
--	if err != nil {
--		return false, errors.Wrap(err, "check login status failed")
++
 +// SiteHost 是所有功能页（搜索、详情、通知、主页…）该用的域名。
 +//
 +// 为什么必须可配：会话是按域名发的。本机扫码登录落在 www.rednote.com，
@@ -11449,63 +12234,138 @@ index 67e002d..ecd9384 100644
 +// rednote.com 搜到 22 条且 guest=false。
 +//
 +// 不做每次自动探测：那要多一次导航，每个工具调用都要付这个钱。
-+// 域名由 XHS_HOST 钉死，登录时的自动双域名探测只用来判断登录态。
++// 使用本次确认的登录域名；XHS_HOST 可显式指定，不自动探测其它域名。
 +func SiteHost() string {
 +	if h := os.Getenv("XHS_HOST"); h != "" {
 +		return strings.TrimRight(h, "/")
- 	}
++	}
 +	// 登录落在哪个域名因号而异（实测有的号落 xiaohongshu.com，有的落 rednote.com），
 +	// 登录成功时探明后记在 profile 目录的 site-host 里，之后所有读取都用它。
-+	if dir := os.Getenv("XHS_PROFILE_DIR"); dir != "" {
++	if dir := browser.ProfileDir(); dir != "" {
 +		if b, err := os.ReadFile(filepath.Join(dir, "site-host")); err == nil {
-+			if h := strings.TrimSpace(string(b)); strings.HasPrefix(h, "https://") {
++			if h := strings.TrimSpace(string(b)); validLoginOrigin(h) {
 +				return strings.TrimRight(h, "/")
 +			}
 +		}
 +	}
 +	return "https://www.xiaohongshu.com"
 +}
- 
--	if !exists {
--		return false, errors.Wrap(err, "login status element not found")
-+// RememberSiteHost 在所有候选域名上逐个复核登录，记住第一个真正已登录的；都不是则返回空。
-+func (a *LoginAction) RememberSiteHost(ctx context.Context) string {
-+	for _, host := range []string{"https://www.xiaohongshu.com", "https://www.rednote.com"} {
-+		if ok, _ := a.checkHost(ctx, host); ok {
-+			if dir := os.Getenv("XHS_PROFILE_DIR"); dir != "" && os.Getenv("XHS_HOST") == "" {
-+				_ = os.WriteFile(filepath.Join(dir, "site-host"), []byte(host), 0o644)
-+			}
-+			logrus.Infof("登录会话落在 %s，已记为读取域名", host)
-+			return host
++
++// ConfirmLogin verifies the account on the actual login origin before saving it.
++func (a *LoginAction) ConfirmLogin(ctx context.Context) (*CurrentUser, error) {
++	origin := a.currentOrigin(ctx)
++	return confirmLogin(ctx, origin, a.CurrentUser, func(ctx context.Context, host string) (bool, error) {
++		ok, err := a.checkHost(ctx, host)
++		if err == nil && ok && a.currentOrigin(ctx) != host {
++			return false, errors.New("复核发生跨域跳转，未保存登录状态")
 +		}
- 	}
-+	return ""
++		return ok, err
++	}, func(host string) error {
++		return os.WriteFile(filepath.Join(browser.ProfileDir(), "site-host"), []byte(host), 0600)
++	})
 +}
- 
--	return true, nil
++
++func validLoginOrigin(host string) bool {
++	u, err := url.Parse(host)
++	return err == nil && u.Scheme == "https" && u.User == nil && u.Port() == "" && u.Path == "" && u.RawQuery == "" && u.Fragment == "" && (u.Host == "www.xiaohongshu.com" || u.Host == "www.rednote.com")
++}
++
++// No alternate-domain fallback: another account's old session is not evidence
++// that the account just scanned has logged in successfully.
++func confirmLogin(ctx context.Context, origin string, current func(context.Context) (*CurrentUser, error), check func(context.Context, string) (bool, error), save func(string) error) (*CurrentUser, error) {
++	if !validLoginOrigin(origin) {
++		return nil, errors.New("无法确认本次登录域名")
++	}
++	before, err := current(ctx)
++	if err != nil {
++		return nil, err
++	}
++	if before == nil || before.UserID == "" {
++		return nil, errors.New("无法确认登录账号")
++	}
++	ok, err := check(ctx, origin)
++	if err != nil {
++		return nil, err
++	}
++	if !ok {
++		return nil, errors.New("登录复核未通过；已停止，不自动重新扫码")
++	}
++	after, err := current(ctx)
++	if err != nil {
++		return nil, err
++	}
++	if after == nil || after.UserID != before.UserID {
++		return nil, errors.New("登录复核账号不一致；已停止")
++	}
++	if forced := os.Getenv("XHS_HOST"); forced != "" && strings.TrimRight(forced, "/") != origin {
++		return nil, errors.New("读取域名设置与本次登录域名不同")
++	}
++	if err := save(origin); err != nil {
++		return nil, err
++	}
++	return after, nil
++}
++
 +// LoginHost 是出二维码的页面域名。XHS_LOGIN_HOST 可单独指定（本机实测扫码落 rednote.com
 +// 时两个域名都会拿到 web_session，之后用 xiaohongshu.com 读收藏/附件都认）。
 +func LoginHost() string {
 +	if h := os.Getenv("XHS_LOGIN_HOST"); h != "" {
 +		return strings.TrimRight(h, "/")
 +	}
-+	return loginHosts()[0]
++	return SiteHost()
 +}
-+
+ 
+-	time.Sleep(1 * time.Second)
 +func (a *LoginAction) checkHost(ctx context.Context, host string) (bool, error) {
 +	pp := a.page.Context(ctx).Timeout(20 * time.Second)
 +	if err := pp.Navigate(host + "/explore"); err != nil {
 +		return false, err
 +	}
-+	ok, err := a.awaitLoginState(ctx, 18*time.Second)
-+	if !ok {
-+		// 1001：被跳到 /website-login/* 或弹验证时，「没登录」是假象，要按风控停车。
-+		// 1008 第二轮：看不见的验证组件不改「没登录」的结论（游客页上有个没画出来的组件，号照样是掉了）
-+		if r := RiskPage(a.page); r != nil && !r.Hidden() {
-+			err = r
-+		}
++	return a.InspectLogin(ctx)
++}
+ 
+-	exists, _, err := pp.Has(`.main-container .user .link-wrapper .channel`)
++// LoginRisk inspects the current page only. Never probe another page during login.
++func (a *LoginAction) LoginRisk(ctx context.Context) error {
++	p, err := readRiskProbe(a.page.Context(ctx))
+ 	if err != nil {
+-		return false, errors.Wrap(err, "check login status failed")
++		return err
+ 	}
++	if risk := ClassifyRiskQuery(p.Path, p.Search, false); risk != nil {
++		return risk
 +	}
-+	logrus.Infof("XHS login_check logged_in=%v guest=%v host=%s error=%v", ok, !ok && err == nil, host, err)
++	return nil
++}
+ 
+-	if !exists {
+-		return false, errors.Wrap(err, "login status element not found")
++func (a *LoginAction) readLoginState(ctx context.Context) (string, error) {
++	p, err := readRiskProbe(a.page.Context(ctx))
++	if err != nil {
++		return "", err
++	}
++	if risk := ClassifyRiskQuery(p.Path, p.Search, false); risk != nil {
++		return "", risk
+ 	}
++	if p.Captcha {
++		return "verify", nil
++	}
++	res, err := a.page.Context(ctx).Timeout(10 * time.Second).Eval(loginStateJS)
++	if err != nil {
++		return "", err
++	}
++	return res.Value.String(), nil
++}
++
++func (a *LoginAction) InspectLogin(ctx context.Context) (bool, error) {
++	if err := a.LoginRisk(ctx); err != nil {
++		return false, err
++	}
++	ok, err := a.awaitLoginState(ctx, 18*time.Second)
++	if risk := a.LoginRisk(ctx); risk != nil {
++		return false, risk
++	}
 +	return ok, err
 +}
 +
@@ -11522,7 +12382,12 @@ index 67e002d..ecd9384 100644
 + if (location.pathname.startsWith("/website-login")) return "risk";
 + const unwrap = x => x?.value ?? x?._value ?? x?._rawValue ?? x;
 + const user = unwrap(window.__INITIAL_STATE__?.user?.userInfo);
-+ if (user && user.guest === false && (user.userId || user.user_id)) return "user";
++ // 1027：新设备扫完登录码，站点再弹「请通过验证——用已登录该账号的 App 扫码验证身份」；这时状态里已经是 user，
++ // 当成登录成功就会去复核域名、整页导航把验证码冲掉（她扫验证码时窗口已经关了）。弹窗在就还没登完，接着等。
++ if (user && user.guest === false && (user.userId || user.user_id)) {
++  const t = document.body ? document.body.innerText : "";
++  return (t.includes("扫码验证身份") || t.includes("请通过验证")) ? "verify" : "user";
++ }
 + if (document.querySelector(".login-container, .login-modal, .side-bar-component.login-btn")) return "guest";
 + // 0925：全新 profile 的 xiaohongshu.com 首页没有任何登录框标记，只有状态里的 guest:true。
 + // SSR 首帧对已登录会话也是 guest，所以单列成 guestflag，由 awaitLoginState 等满 12s 才采信。
@@ -11542,23 +12407,28 @@ index 67e002d..ecd9384 100644
 +	const stableNeeded = 6              // 6 × 500ms = 连续 3 秒
 +	const guestSettle = 8 * time.Second // 客户端补用户信息的时间窗，没过就不认 guest
 +
-+	pp := a.page.Context(ctx)
 +	start := time.Now()
 +	deadline := start.Add(budget)
 +	userStable, guestStable := 0, 0
-+
+ 
+-	return true, nil
 +	for {
-+		res, err := pp.Timeout(10 * time.Second).Eval(loginStateJS)
++		state, err := a.readLoginState(ctx)
++		if err != nil {
++			return false, err
++		}
 +		if err == nil {
-+			switch res.Value.String() {
++			switch state {
 +			case "risk": // 安全跳转页：不再等，交给 checkHost 用 RiskPage 定码
-+				return false, nil
++				return false, a.LoginRisk(ctx)
 +			case "user":
 +				guestStable = 0
 +				userStable++
 +				if userStable >= stableNeeded {
 +					return true, nil
 +				}
++			case "verify":
++				return false, &RiskError{Code: RiskCaptcha, Detail: "请在验证窗口完成身份验证"}
 +			case "guest":
 +				userStable = 0
 +				guestStable++
@@ -11598,7 +12468,7 @@ index 67e002d..ecd9384 100644
  }
  
  // CurrentUser 当前登录用户的基础信息。
-@@ -49,7 +214,7 @@ func (a *LoginAction) CurrentUser(ctx context.Context) (*CurrentUser, error) {
+@@ -49,7 +298,7 @@ func (a *LoginAction) CurrentUser(ctx context.Context) (*CurrentUser, error) {
  
  	res, err := pp.Eval(`() => {
  		const u = window.__INITIAL_STATE__ && window.__INITIAL_STATE__.user;
@@ -11607,21 +12477,27 @@ index 67e002d..ecd9384 100644
  		if (!info || info.guest) return "";
  		return JSON.stringify({nickname: info.nickname, userId: info.userId || info.user_id});
  	}`)
-@@ -70,20 +235,89 @@ func (a *LoginAction) CurrentUser(ctx context.Context) (*CurrentUser, error) {
+@@ -67,23 +316,95 @@ func (a *LoginAction) CurrentUser(ctx context.Context) (*CurrentUser, error) {
+ 		return nil, errors.Wrap(err, "unmarshal current user failed")
+ 	}
+ 
++	if user.UserID == "" {
++		return nil, errors.New("当前页面缺少账号身份")
++	}
  	return &user, nil
  }
  
-+// currentOrigin 返回页面当前所在的域名。取不到就退回第一个候选域名。
++// currentOrigin 只接受当前页面真实的站点域名；读不到时不猜测。
 +func (a *LoginAction) currentOrigin(ctx context.Context) string {
 +	pp := a.page.Context(ctx).Timeout(10 * time.Second)
 +	res, err := pp.Eval(`() => location.origin`)
 +	if err != nil {
-+		return loginHosts()[0]
++		return ""
 +	}
-+	if origin := res.Value.String(); strings.HasPrefix(origin, "http") {
++	if origin := res.Value.String(); validLoginOrigin(origin) {
 +		return origin
 +	}
-+	return loginHosts()[0]
++	return ""
 +}
 +
 +// snapshot 在关键节点存一张截图和一段页面文本，用来回答"当时页面到底长什么样"。
@@ -11685,12 +12561,12 @@ index 67e002d..ecd9384 100644
 +	// 这里强制整页重载再验一次：服务端之后就是这么用的，这儿过不了就别把
 +	// cookies 存下去骗自己。
 +	a.snapshot(ctx, "1-after-scan")
-+
+ 
 +	// 关键：在"登录后实际落到的那个域名"上复验，而不是回头去查写死的域名。
 +	// 会话跟着域名走，查错域名 = 必然报未登录。
 +	origin := a.currentOrigin(ctx)
 +	logrus.Infof("检测到登录（会话域名 %s），正在用整页重载复验...", origin)
- 
++
 +	ok, err := a.checkHost(ctx, origin)
 +	a.snapshot(ctx, "2-after-reload")
 +	if err != nil {
@@ -11702,7 +12578,7 @@ index 67e002d..ecd9384 100644
  	return nil
  }
  
-@@ -91,15 +325,29 @@ func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error
+@@ -91,15 +412,37 @@ func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error
  	pp := a.page.Context(ctx)
  
  	// 导航到小红书首页，这会触发二维码弹窗
@@ -11715,9 +12591,17 @@ index 67e002d..ecd9384 100644
  
 -	if exists, _, _ := pp.Has(".main-container .user .link-wrapper .channel"); exists {
 +	// 和 CheckLoginStatus 用同一套判据，别再靠 .channel 这种不可靠 selector。
-+	if ok, _ := a.awaitLoginState(ctx, 18*time.Second); ok {
++	if err := a.LoginRisk(ctx); err != nil {
++		return "", false, err
++	}
++	if ok, err := a.awaitLoginState(ctx, 18*time.Second); err != nil {
++		return "", false, err
++	} else if ok {
  		return "", true, nil
  	}
++	if err := a.LoginRisk(ctx); err != nil {
++		return "", false, err
++	}
  
 -	src, err := pp.MustElement(".login-container .qrcode-img").Attribute("src")
 +	// 登过号的 profile 打开首页会自动弹登录框；全新 profile（第一次用的人）只有侧栏一个「登录」按钮，
@@ -11737,37 +12621,42 @@ index 67e002d..ecd9384 100644
  	if err != nil {
  		return "", false, errors.Wrap(err, "get qrcode src failed")
  	}
-@@ -110,20 +358,48 @@ func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error
+@@ -110,20 +453,49 @@ func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error
  	return *src, false, nil
  }
  
+-func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
+-	pp := a.page.Context(ctx)
 +// WaitForLogin 在当前页面上等扫码完成。不导航——扫码后是前端就地切状态，
 +// 一导航就把二维码冲掉了。
- func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
- 	pp := a.page.Context(ctx)
++// WaitForLogin is retained for older CLI callers.
++func (a *LoginAction) WaitForLogin(ctx context.Context) bool { return a.WaitForLoginResult(ctx) == nil }
++
++func (a *LoginAction) WaitForLoginResult(ctx context.Context) error {
  	ticker := time.NewTicker(500 * time.Millisecond)
  	defer ticker.Stop()
- 
+-
 +	stable := 0
  	for {
  		select {
  		case <-ctx.Done():
- 			return false
+-			return false
++			return ctx.Err()
  		case <-ticker.C:
 -			el, err := pp.Element(".main-container .user .link-wrapper .channel")
 -			if err == nil && el != nil {
 -				return true
-+			res, err := pp.Timeout(10 * time.Second).Eval(loginStateJS)
++			state, err := a.readLoginState(ctx)
 +			if err != nil {
-+				continue
- 			}
-+			if res.Value.String() == "user" {
++				return err
++			}
++			if state == "user" {
 +				stable++
-+				if stable >= 6 {
-+					return true
-+				}
 +			} else {
 +				stable = 0
+ 			}
++			if stable >= 6 {
++				return nil
 +			}
 +		}
 +	}
@@ -11789,6 +12678,169 @@ index 67e002d..ecd9384 100644
  		}
  	}
  }
+diff --git a/xiaohongshu/login_confirmation_test.go b/xiaohongshu/login_confirmation_test.go
+new file mode 100644
+index 0000000..d797c37
+--- /dev/null
++++ b/xiaohongshu/login_confirmation_test.go
+@@ -0,0 +1,98 @@
++package xiaohongshu
++
++import (
++	"context"
++	"errors"
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++func TestLoginHostDefaultRememberedAndOverride(t *testing.T) {
++	t.Setenv("XHS_HOST", "")
++	t.Setenv("XHS_LOGIN_HOST", "")
++	dir := t.TempDir()
++	t.Setenv("XHS_PROFILE_DIR", dir)
++	if got := LoginHost(); got != "https://www.xiaohongshu.com" {
++		t.Fatalf("default login URL: %q", got)
++	}
++	if err := os.WriteFile(filepath.Join(dir, "site-host"), []byte("https://www.rednote.com"), 0600); err != nil {
++		t.Fatal(err)
++	}
++	if got := LoginHost(); got != "https://www.rednote.com" {
++		t.Fatalf("remembered login URL: %q", got)
++	}
++	t.Setenv("XHS_HOST", "https://www.xiaohongshu.com")
++	if LoginHost() != "https://www.xiaohongshu.com" {
++		t.Fatal("reader override not used")
++	}
++	t.Setenv("XHS_LOGIN_HOST", "https://www.rednote.com/")
++	if LoginHost() != "https://www.rednote.com" {
++		t.Fatal("login override not used")
++	}
++}
++
++func TestConfirmLoginKeepsScannedAccountAndOrigin(t *testing.T) {
++	t.Setenv("XHS_HOST", "")
++	for _, tc := range []struct {
++		name, after string
++		ok          bool
++		err         error
++		want        bool
++	}{
++		{"new account", "new", true, nil, true},
++		{"old account", "old", true, nil, false},
++		{"guest", "new", false, nil, false},
++		{"restricted", "new", false, &RiskError{Code: RiskAccount}, false},
++		{"network", "new", false, errors.New("offline"), false},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			reads, checks, saves := 0, 0, 0
++			current := func(context.Context) (*CurrentUser, error) {
++				reads++
++				id := "new"
++				if reads > 1 {
++					id = tc.after
++				}
++				return &CurrentUser{UserID: id}, nil
++			}
++			check := func(_ context.Context, host string) (bool, error) {
++				checks++
++				if host != "https://www.rednote.com" {
++					t.Fatal("navigated old domain")
++				}
++				return tc.ok, tc.err
++			}
++			save := func(host string) error {
++				saves++
++				if host != "https://www.rednote.com" {
++					t.Fatal("stored wrong domain")
++				}
++				return nil
++			}
++			u, err := confirmLogin(context.Background(), "https://www.rednote.com", current, check, save)
++			if (err == nil) != tc.want || checks != 1 {
++				t.Fatalf("result=%v checks=%d", err, checks)
++			}
++			if tc.want {
++				if saves != 1 || u.UserID != "new" {
++					t.Fatal("new identity not saved")
++				}
++			} else if saves != 0 {
++				t.Fatal("unconfirmed login saved")
++			}
++		})
++	}
++}
++
++func TestConfirmLoginRejectsMissingIdentityBeforeNavigation(t *testing.T) {
++	_, err := confirmLogin(context.Background(), "https://www.rednote.com", func(context.Context) (*CurrentUser, error) { return &CurrentUser{}, nil }, func(context.Context, string) (bool, error) { t.Fatal("navigated without identity"); return true, nil }, func(string) error { t.Fatal("saved without identity"); return nil })
++	if err == nil {
++		t.Fatal("accepted missing identity")
++	}
++	for _, host := range []string{"https://www.rednote.com.evil.test", "https://user@www.rednote.com", "http://www.rednote.com", "https://www.rednote.com/path"} {
++		if validLoginOrigin(host) {
++			t.Fatal("accepted untrusted origin")
++		}
++	}
++}
+diff --git a/xiaohongshu/login_policy_localbrowser_test.go b/xiaohongshu/login_policy_localbrowser_test.go
+new file mode 100644
+index 0000000..d62edb7
+--- /dev/null
++++ b/xiaohongshu/login_policy_localbrowser_test.go
+@@ -0,0 +1,53 @@
++//go:build localbrowser
++
++package xiaohongshu
++
++import (
++	"context"
++	"github.com/stretchr/testify/require"
++	"testing"
++	"time"
++)
++
++func TestLocalBrowserLoginPolicy(t *testing.T) {
++	srv := fixtureServer(t, map[string]string{
++		"/guest":               `<div class="login-container">guest</div><script>window.clicks=0;document.onclick=()=>window.clicks++;</script>`,
++		"/verify":              `<script>window.__INITIAL_STATE__={user:{userInfo:{guest:false,userId:'new'}}}</script>` + captchaWidget,
++		"/brief":               `<script>window.__INITIAL_STATE__={user:{userInfo:{guest:false,userId:'new'}}};setTimeout(()=>window.__INITIAL_STATE__.user.userInfo={guest:true},700)</script>`,
++		"/success":             `<script>window.__INITIAL_STATE__={user:{userInfo:{guest:false,userId:'new'}}}</script>`,
++		"/website-login/error": `<script>window.__INITIAL_STATE__={user:{userInfo:{guest:false,userId:'old'}}}</script>`,
++	})
++	page := localPage(t)
++	login := NewLogin(page)
++	t.Run("guest check never clicks login", func(t *testing.T) {
++		page.MustNavigate(srv.URL + "/guest").MustWaitLoad()
++		ok, err := login.InspectLogin(context.Background())
++		require.NoError(t, err)
++		require.False(t, ok)
++		require.Equal(t, 0, page.MustEval(`()=>window.clicks`).Int())
++	})
++	for _, path := range []string{"/verify", "/brief"} {
++		t.Run(path, func(t *testing.T) {
++			page.MustNavigate(srv.URL + path).MustWaitLoad()
++			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
++			defer cancel()
++			require.Error(t, login.WaitForLoginResult(ctx))
++			require.Contains(t, page.MustInfo().URL, path)
++		})
++	}
++	t.Run("risk stops without navigation", func(t *testing.T) {
++		page.MustNavigate(srv.URL + "/website-login/error?error_code=300011").MustWaitLoad()
++		err := login.WaitForLoginResult(context.Background())
++		require.NotNil(t, AsRisk(err))
++		require.Contains(t, page.MustInfo().URL, "/website-login/error")
++	})
++	t.Run("stable identity", func(t *testing.T) {
++		page.MustNavigate(srv.URL + "/success").MustWaitLoad()
++		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
++		defer cancel()
++		require.NoError(t, login.WaitForLoginResult(ctx))
++		user, err := login.CurrentUser(ctx)
++		require.NoError(t, err)
++		require.Equal(t, "new", user.UserID)
++	})
++}
 diff --git a/xiaohongshu/navigate.go b/xiaohongshu/navigate.go
 index b5c25df..3acac51 100644
 --- a/xiaohongshu/navigate.go
@@ -13182,10 +14234,10 @@ index 0000000..6c3ddcc
 +}
 diff --git a/xiaohongshu/risk_test.go b/xiaohongshu/risk_test.go
 new file mode 100644
-index 0000000..255f114
+index 0000000..2cb5529
 --- /dev/null
 +++ b/xiaohongshu/risk_test.go
-@@ -0,0 +1,452 @@
+@@ -0,0 +1,457 @@
 +package xiaohongshu
 +
 +import (
@@ -13270,6 +14322,11 @@ index 0000000..255f114
 +// TestLoginStateJSFlagsRiskRedirect 登录判据先认安全跳转页，避免把风控页当「游客」等满 18 秒。
 +func TestLoginStateJSFlagsRiskRedirect(t *testing.T) {
 +	assert.Contains(t, loginStateJS, `location.pathname.startsWith("/website-login")) return "risk"`)
++}
++
++// TestLoginStateJSHoldsDuringIdentityVerify 1027：新设备扫完码还要「扫码验证身份」，弹窗在场不算登录成功。
++func TestLoginStateJSHoldsDuringIdentityVerify(t *testing.T) {
++	assert.Contains(t, loginStateJS, `t.includes("扫码验证身份") || t.includes("请通过验证")) ? "verify" : "user"`)
 +}
 +
 +// fastFavCfg 单测用：毫秒级的等待，四级滚法。
