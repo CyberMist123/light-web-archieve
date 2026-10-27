@@ -1,5 +1,6 @@
 # Current State
 
+- 2026-10-27 傍晚（`claude/catalog-tweak-1027`）她要统一的设计模版：`docs/style-guide.html`（只用样式集名字，浅 / 深 / 窄屏验过）+ `tools/style_audit.py` 生成的 `docs/STYLE-DEVIATIONS.md`（A 字体 46 · B 字号 305 · C 颜色 86 处，先列不改）
 - 2026-10-27 下午（`claude/catalog-tweak-1027`，未部署）她看完部署后的目录页 / 设置页：① 设置页边距放宽、只用一种字体（标题 / 序号 / PREFERENCES 都改正文字）② 编排时拉虚线边框改大小：下边框调高（边栏四块，存 options.h，双击恢复）、左右边框调宽（同列边）③ 最近导入去掉「查看全部」：默认折成一行，点开在框里往下滚、滚到底接着出 ④ 同步：藏「立即同步 / 查看同步记录」，「每天 18:00 · 改」就地展开同步时间编辑器 ⑤ Token 费用块里切 天 / 周（近 7 天）/ 月，后台每日上限直接下拉改 ⑥ 边栏四块只留雕刻小标题 + 正文字，计数行不再斜体 ⑦「最新在前」弹层加 主题 / 分类 两行 ⑧ 索引树悬停「改名 / ＋子类」、树底「＋ 加分类」，索引条两行并一行。node 91 + 页面 30 + pytest 全过；没在 Obsidian 真机验
 - 2026-10-27（分支 `worktree-agent-a2c01daae7e3cb0c0`，**未部署**；已合样式集分支 e4cb38d）目录页就地编排重做：八个模块平级、拖到任何位置 / 拖边调宽 / × 与 ＋ / 模块里展开「调整」/「Aa 样式」走共享令牌，布局存 `catalogLayout.modules + theme`（旧 side/top 自动换算）；Token 费用从同步拆出；管理菜单去掉改标题 / 每行几列；目录标题丢失根因修在 `saveMerged`（串行 + 登记改过的键 + 改标题回读核对）；index edit 加 `add`。验收 `tests/acceptance/20261027-catalog-arrange.md`，Obsidian 里待她看。
 - 2026-10-27（设置页六组，`worktree-agent-aaba3a47ff38efb0f`，已合样式集分支，未部署）照 design-1027 第三版把设置页重做成一页六组（账号登录 · 收藏与同步 · 目录与批注 · 高级功能 · CLI 与外接 MCP · 修复，左边锚点、组底「＋ 更多」、说明进 ⓘ、改了就存）：同步时间自动存 + 「同步」开关；④每项一个下拉对上双重门禁；AI 控制台（usage.summary 加 series，折线只画真花了钱的）；key 只一个入口，修了「换一个 key」换不掉坏 key；删死代码和没人读的默认键（她 data.json 里的不动）。验收清单 tests/acceptance/20261027-settings.md（Obsidian 里待她）。

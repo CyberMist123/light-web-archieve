@@ -377,6 +377,8 @@ provider().killTree(pid)   // 同一排除规则
 
 ## 9. 样式集（1027）
 
+**模版**（1027b 她定方向）：`docs/style-guide.html`（浏览器直接打开）= 每种东西只出现一次的样子——两种字（雕刻字只给英文小标题 / 品牌标题，其余全是正文字）、不斜体、八档字号、颜色 / 间距 / 圆角 / 控件。没按模版来的地方：`python tools/style_audit.py --md docs/STYLE-DEVIATIONS.md` 逐条列出（先列不改，她定了再按 A 字体 → B 字号 → C 颜色换）。
+
 **规则**
 1. 字体、字号、颜色、间距、圆角、控件高度**只用样式集里的名字**（`var(--lb-*)` + 下面几个共用类）。新界面不许再手写字体栈、写死灰色（`var(--text-muted)` 这类直接写也算）或另起一套同义变量；旧代码动到时顺手换。`tests/test_guards.py` 的「写死的字体栈」规则扫 `link_brain/assets/*.js`，基线只许减。
 2. **唯一源** `link_brain/assets/lb-tokens.css`。副本由 `python tools/sync_tokens.py` 拷（`--check` 只查），只替换 `/* lb-tokens:begin … lb-tokens:end */` 之间：lb-page-lib.js 的 `LB_SHARED_CSS`（页面自己注入 head，手机上没有插件也在）、插件 `styles.css` 顶部（设置页）、`link-brain.css` 和它的副本 `note.css`（笔记页）。`tests/test_tokens_1027.py` 锁四份逐字相同、约定名字一个不少。别在副本里改。
