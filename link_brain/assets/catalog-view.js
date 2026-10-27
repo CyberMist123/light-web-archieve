@@ -599,7 +599,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-mod .lbc-sy-big,.lbc-mod .lbc-fig-n{font:italic 400 var(--lbc-num-lg)/1.05 var(--f-latin);letter-spacing:0;}
 .lbc-mod .lbc-sy-big i{font-style:italic;}
 .lbc-mod .lbc-sy-row b,.lbc-mod .lbc-sy-row.is-tot b{font:italic 500 var(--lbc-num)/1.2 var(--f-latin);}
-.lbc-mod .lbc-fold-sum i{font-size:var(--lbc-num);}
+.lbc-mod .lbc-fold-sum i{font-size:inherit;color:inherit;}   /* 1027b 她：折起来那一行是一句话——字、数一个颜色一个大小 */
 .lbc-mod :is(.lbc-rec time,.lbc-sy-cap,.lbc-bar span,.lbc-days){font-size:var(--lbc-num-sm);}
 .lbc-mod .lbc-rec time{font-style:italic;}
 /* 最近导入：列表框高 = 条数（调整里 2 / 4 / 6 / 8），框里往下滚接着出更早的 */
@@ -608,10 +608,14 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-mod.has-h>.lbc-mod-body{max-height:var(--lbc-m-h);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;}
 .lbc-mod-recent.has-h>.lbc-mod-body{max-height:none;overflow:visible;}
 .lbc-mod-recent.has-h .lbc-rec{max-height:var(--lbc-m-h);}
+/* 1027b 她：最近导入的帖子之间不要横线；列表框里不要浮动的滚动条（滚轮 / 触控板照样滚） */
+.lbc-mod-recent .lbc-rec li{border-top:0;}
+.lbc-mod-recent .lbc-rec{scrollbar-width:none;}
+.lbc-mod-recent .lbc-rec::-webkit-scrollbar{display:none;}
 /* 同步：「每天 18:00 · 改」点开就地改时间 */
 .lbc-wrap button.lbc-sy-edit{display:inline-flex;align-items:baseline;gap:8px;width:auto;height:auto!important;padding:0!important;margin:-4px 0 10px!important;border:0!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);font:var(--fs-small)/1.5 var(--f-sans);cursor:pointer;text-align:left;white-space:normal;}
 .lbc-wrap button.lbc-sy-edit:hover{color:var(--c-ink);}
-.lbc-sy-pen{color:var(--c-ink);text-decoration:underline;text-underline-offset:3px;}
+.lbc-sy-pen{color:var(--c-ink);text-decoration:none;}
 .lbc-sy-sched{margin:0 0 12px;padding:10px 12px;border:1px solid var(--c-line);border-radius:6px;font:var(--fs-small)/1.5 var(--f-sans);}
 /* Token：天 / 周 / 月 */
 .lbc-tk-seg{display:flex;gap:2px;margin:0 0 10px;}

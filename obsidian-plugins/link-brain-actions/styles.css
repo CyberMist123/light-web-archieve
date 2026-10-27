@@ -728,7 +728,7 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 /* 左边锚点：跟着滚，当前那一组加粗 */
 .lb-settings .lb-v7 .lb-anchors { position: sticky; top: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 118px; z-index: 2; }
 .lb-settings .lb-v7 .lb-anchor { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; color: var(--lb-muted); text-decoration: none; font-size: var(--lb-fs-small); white-space: nowrap; }
-.lb-settings .lb-v7 .lb-anchor b { font: italic 400 15px/1 var(--lb-font-num); color: var(--lb-faint); min-width: 1.4em; }
+.lb-settings .lb-v7 .lb-anchor b { font: 400 var(--lb-fs-small)/1 var(--lb-font-body); font-variant-numeric: var(--lb-num-feat); color: var(--lb-faint); min-width: 1.6em; }
 .lb-settings .lb-v7 .lb-anchor:hover, .lb-settings .lb-v7 .lb-anchor.is-current { color: var(--lb-ink); }
 .lb-settings .lb-v7 .lb-anchor.is-current { font-weight: 600; }
 .lb-settings .lb-v7 .lb-anchor.is-current b { color: var(--lb-ink); }
@@ -794,14 +794,14 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v7 .lb-key-trouble:empty { display: none; }
 /* AI 控制台：一行（今天 · 本月 · 每天最多花）；点开左右两栏，左边折线固定高度、绝不撑出去 */
 .lb-settings .lb-v7 .lb-console { padding: var(--lb-space-1) 0 var(--lb-space-2); }
-.lb-settings .lb-v7 .lb-console-line { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--lb-space-3) var(--lb-space-6); }
-.lb-settings .lb-v7 button.lb-console-toggle { display: flex; align-items: flex-end; gap: var(--lb-space-6); height: auto; padding: 0; border: 0; background: transparent; box-shadow: none; cursor: pointer; color: inherit; text-align: left; }
+.lb-settings .lb-v7 .lb-console-line { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--lb-space-3) var(--lb-space-6); }
+.lb-settings .lb-v7 button.lb-console-toggle { display: flex; align-items: flex-start; gap: var(--lb-space-6); height: auto; padding: 0; border: 0; background: transparent; box-shadow: none; cursor: pointer; color: inherit; text-align: left; }
 .lb-settings .lb-v7 .lb-console-cell { display: flex; flex-direction: column; gap: 2px; }
 .lb-settings .lb-v7 .lb-console-k { font-size: var(--lb-fs-micro); color: var(--lb-muted); display: inline-flex; align-items: center; }
 .lb-settings .lb-v7 .lb-console-v { font: italic 400 calc(var(--lb-fs-num) * 1.5)/1.1 var(--lb-font-num); font-variant-numeric: var(--lb-num-feat); color: var(--lb-ink); display: inline-flex; align-items: center; gap: 4px; }
 .lb-settings .lb-v7 .lb-console-sub { font-size: var(--lb-fs-micro); color: var(--lb-muted); }
 .lb-settings .lb-v7 .lb-console-sub:empty { display: none; }
-.lb-settings .lb-v7 .lb-console-more { align-self: center; font-size: var(--lb-fs-small); color: var(--lb-muted); text-decoration: underline; text-underline-offset: 3px; }
+.lb-settings .lb-v7 .lb-console-more { align-self: flex-start; margin-top: calc(var(--lb-fs-micro) * 1.5 + 8px); font-size: var(--lb-fs-small); color: var(--lb-muted); text-decoration: underline; text-underline-offset: 3px; }
 .lb-settings .lb-v7 .lb-console-cap input.lb-spend-input { width: 5.5em; height: var(--lb-ctl-h); font: 400 var(--lb-fs-body) var(--lb-font-body); font-style: normal; }
 .lb-settings .lb-v7 .lb-console-over { color: var(--lb-warn); font-size: var(--lb-fs-small); margin-top: var(--lb-space-2); }
 .lb-settings .lb-v7 .lb-console-over:empty { display: none; }
@@ -851,11 +851,12 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 /* 窄：锚点变横排吸在顶上，两栏变一栏 */
 @container (max-width: 640px) {
   .lb-settings .lb-v7 { grid-template-columns: minmax(0, 1fr); gap: var(--lb-space-2); padding: 0; }
-  .lb-settings .lb-v7 .lb-anchors { flex-direction: row; overflow-x: auto; gap: var(--lb-space-4); padding: var(--lb-space-2) 0; background: var(--background-primary); border-bottom: 1px solid var(--lb-line); scrollbar-width: none; }
+  .lb-settings .lb-v7 .lb-anchors { flex-direction: row; overflow-x: auto; justify-content: space-between; gap: var(--lb-space-4); padding: var(--lb-space-3) 0; margin-bottom: var(--lb-space-4); background: var(--background-primary); border-bottom: 1px solid var(--lb-line); scrollbar-width: none;
+    box-shadow: 0 -64px 0 var(--background-primary); z-index: 5; }   /* 1027b 她：「固定的条位置不定」——滚动区顶上的内边距里会露出底下的字，往上用底色盖住 */
   .lb-settings .lb-v7 .lb-anchor-foot { display: none; }
   .lb-settings .lb-v7 .lb-twin, .lb-settings .lb-v7 .lb-pair, .lb-settings .lb-v7 .lb-console-grid { grid-template-columns: minmax(0, 1fr); }
   .lb-settings .lb-v7 .lb-v7-head h1 { font-size: calc(var(--lb-fs-h1) * 1.3); }
-  .lb-settings .lb-v7 .lb-group { scroll-margin-top: 52px; }
+  .lb-settings .lb-v7 .lb-group { scroll-margin-top: 84px; }   /* 1027b 她：「标题离上面这个太近」——跳过去时组标题离锚点条留一段 */
 }
 
 /* 1027b 她：设置页不要花哨，只用正文字——标题（衬线）、序号（Cormorant 斜体）、PREFERENCES（雕刻字）都改正文字、不斜体。
@@ -864,3 +865,7 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v7 .lb-v7-head h1 { font-weight: 600; letter-spacing: 0; }
 .lb-settings .lb-v7 .lb-group-head h2 { font-weight: 600; letter-spacing: .02em; }
 .lb-settings .lb-v7 .lb-eyebrow { font-weight: 600; letter-spacing: .08em; }
+/* 1027b 一把 key 都没有时，「高级功能」最上面那一格 */
+.lb-settings .lb-v7 .lb-key-first { margin: 0 0 var(--lb-space-4); padding: var(--lb-space-4) var(--lb-space-5); border: 1px solid var(--lb-ink); border-radius: var(--lb-radius); }
+.lb-settings .lb-v7 .lb-key-first-lead { margin: 0 0 var(--lb-space-2); color: var(--lb-muted); font-size: var(--lb-fs-small); }
+.lb-settings .lb-v7 .lb-key-first .setting-item { border-top: 0; }

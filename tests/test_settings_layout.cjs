@@ -292,6 +292,9 @@ async function inventory(p) {
   rowNamed(cat, '目录的样子').querySelector('button').onclick(); assert.equal(arranged, 1, '去目录编排');
   // ④ 高级功能：一项一行带图标
   const adv = group(root, 'g-advanced');
+  // 1027b：一把 key 都没有时「粘一把 key」就在④最上面（不用点「更多」），而且只这一处
+  assert.ok(visible(adv.querySelector('.lb-key-first [data-section="ai-key-paste"]'), root), '没有 key：填 key 在高级功能最上面、看得见');
+  assert.equal(root.querySelectorAll('[data-section="ai-key-paste"]').length, 1);
   assert.deepEqual(adv.querySelectorAll('.lb-feat').map(r => nameOf(r) + ':' + r.querySelector('.lb-feat-icon')?.getAttribute('data-icon')),
     ['转 Markdown:doc', '语音转文字:audio', '识图:image', '问答模型:chat', '概要与标签:summary', '按意思搜:search']);
   assert.ok(adv.querySelectorAll('.lb-feat-icon svg').length === 6, '线条图标');
@@ -324,7 +327,8 @@ async function inventory(p) {
   assert.ok(!/访问令牌|端口/.test(visibleRows(cn).join()), '访问令牌、端口在「更多」里（10-10 她定）');
   // ⑥ 修复：当前状态 + 检查 / 全部修一遍；问题记录只有一个入口
   const rp = group(root, 'g-repair');
-  assert.deepEqual(visibleRows(rp), ['当前状态', '问题记录']);
+  // 1027b 她：「一键装好」和「重新走首次设置」放最前面（这里没有 home-ui，一键装好那块不画）
+  assert.deepEqual(visibleRows(rp), ['重新走一遍首次设置', '当前状态', '问题记录']);
   assert.deepEqual(rowNamed(rp, '当前状态').querySelectorAll('button').map(b => b.textContent), ['检查', '全部修一遍']);
   assert.match(descText(rowNamed(rp, '当前状态')), /⚠ 1 件要你处理 · 另有 2 条在自动处理/);
   await openAll(root);

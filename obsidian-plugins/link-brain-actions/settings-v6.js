@@ -241,7 +241,7 @@ module.exports = function (obsidian, plugin) {
   }
   function keyBox(parent, tab, { onDone = null } = {}) {
     const wrap = parent.createDiv({ cls: 'lb-key-paste-row', attr: { 'data-section': 'ai-key-paste' } });
-    const r = row(wrap, tab, '粘一把 key', '粘贴进来自动认出是哪家：这家的 key 用不了就换掉它，否则填进还空着的几项。只存在这台电脑的插件设置里。');
+    const r = row(wrap, tab, '粘一把 key', '从 AI 服务商网站复制一串 key 粘进来，自动认出是哪家、填进要用它的几项（这家原来的 key 坏了就换掉）。只存在这台电脑上。');
     let input = null, btn = null;
     r.addText(t => { input = t.inputEl; t.inputEl.type = 'password'; t.inputEl.addClass?.('lb-key-paste'); t.setPlaceholder('粘贴 API key'); t.inputEl.setAttribute?.('autocomplete', 'off'); t.inputEl.setAttribute?.('aria-label', 'API key'); });
     r.addButton(b => { btn = b; b.setButtonText('认出并用上').onClick(async () => {
@@ -251,7 +251,7 @@ module.exports = function (obsidian, plugin) {
       if (res) { input.value = ''; onDone && onDone(res); }
     }); });
     const links = wrap.createDiv({ cls: 'lb-prov-links setting-item-description' });
-    links.createSpan({ text: '还没有？去拿：' });
+    links.createSpan({ text: '还没有 key？在这里拿（Google 的有免费额度，最省事）：' });
     for (const id of ['google', 'deepseek', 'aliyun', 'openai']) {
       const l = (pages.LINKS || {})[id];
       if (!l || !l.key) continue;
@@ -523,7 +523,9 @@ module.exports = function (obsidian, plugin) {
     // 旧版「本机千问配置」（mode=media）：只如实说一句，不在界面里偷偷改写；改了对应那一格就存成新格式
     if (['textAI', 'visionAI', 'asrAI', 'ocr'].some(k => s[k] && s[k].mode === 'media'))
       box.createEl('p', { cls: 'setting-item-description lb-legacy-note', text: '你的设置里还有旧版「本机千问配置」：程序已经按等价的新设置在跑（识图、概要走千问兼容接口，语音走本机 CapsWriter，认字在本机）。改一下对应那一格就会存成新格式。' });
-    keyBox(box, tab, { onDone: () => draw() });
+    // 一把 key 都没有时这一格在「高级功能」最上面（只留一处）；有了 key 才回到这里
+    if (hasAnyKey()) keyBox(box, tab, { onDone: () => draw() });
+    else box.createEl('p', { cls: 'setting-item-description', text: '还没有 key：在「高级功能」最上面粘一把。' });
     const CAPS = [['ask', '问答模型'], ['summary', '概要与标签'], ['vision', 'AI 识图'], ['refine', '精细识图'], ['asr', '语音转文字（在线）'], ['embed', '按意思搜']];
     const v = tab.view ? tab.view() : {};
     const pick = row(box, tab, '配置哪一项', '一次只看一项：它用哪个接口、模型、key，下面就能测。', { section: 'ai-keys-pick' });
@@ -595,8 +597,20 @@ module.exports = function (obsidian, plugin) {
     draw();
     return box;
   }
+  // 这台电脑上配过任何一把在线接口的 key 没有（只看设置，不联网）
+  function hasAnyKey() {
+    const s = S();
+    const has = c => !!(c && (c.apiKey || c.keyFile || c.apiKeyEnv || (Array.isArray(c.keyPool) ? c.keyPool.length : c.keyPool)));
+    return ['textAI', 'visionAI', 'summaryAI', 'asrAI', 'embedAI', 'refineAI', 'ocr'].some(k => has(s[k])) || (s.models || []).some(has);
+  }
   function groupAdvanced(g, tab) {
     const s = S();
+    // 1027b 她：「作为初次使用者，填 api key 是否不太方便？」——是：要点开「＋ 更多」才看得到。一把都没有时直接摆在最上面
+    if (!hasAnyKey()) {
+      const first = g.createDiv({ cls: 'lb-key-first', attr: { 'data-section': 'ai-key-first' } });
+      first.createEl('p', { cls: 'lb-key-first-lead', text: '本机的功能（转 Markdown、本机认字、本机语音）不用 key 就能用。要用 AI 识图、问收藏、概要，先粘一把 API key：' });
+      keyBox(first, tab, { onDone: () => tab.display() });
+    }
     featureRows(g, tab);
     const usageP = loadUsage().catch(() => null);
     // key 用不了 / 额度用完：一句 + 去充值 + 换 key（落到「更多 → 接口与密钥」那一格，粘新 key 就换掉坏的那几格）
@@ -806,6 +820,13 @@ module.exports = function (obsidian, plugin) {
   // ———————————————————— ⑥ 修复 ————————————————————
   function groupRepair(g, tab) {
     const s = S();
+    // 1027b 她：「一键装好」和「重新走首次设置」放前面——第一次用、或者哪里坏了，先找的就是这两个
+    const h0 = home();
+    if (h0) safe(tab, g, '一键装好', () => tab.stops.push(h0.renderRun(g, tab)));
+    tab.link(row(g, tab, '重新走一遍首次设置', '再走一遍「登录 · 同步 · 识别与问答 · 接入其他 AI」；改的还是这一页上的同一份设置。', { section: 'first-run' }), '开始', async () => {
+      s.onboarding = { ...(s.onboarding || {}), force: true, guideDone: false, step: 0 };
+      await tab.save(); tab.display(); try { tab.containerEl.scrollTop = 0; } catch {}
+    }, '回到首次设置');
     const st = row(g, tab, '当前状态', '哪里没做成、系统已经怎么处理的，按问题记录算；点「检查」再看一遍这台电脑缺什么。', { section: 'repair-state' });
     st.setDesc('读取中…');
     const out = g.createDiv({ cls: 'lb-check-box' });
@@ -857,18 +878,14 @@ module.exports = function (obsidian, plugin) {
     more(g, tab, 'repair-more', b => {
       const h = home();
       sub(b, '这台电脑', 'machine');
-      if (h) { tab.stops.push(h.renderStatus(b, tab, { machineOnly: true, noProblems: true })); tab.stops.push(h.renderRun(b, tab)); }
+      if (h) tab.stops.push(h.renderStatus(b, tab, { machineOnly: true, noProblems: true }));   // 「一键装好」挪到这一组最前面了
       sub(b, '后台程序', 'developer');
       tab.renderBackendRows(b);
       tab.link(row(b, tab, '目录显示不对', '重新整理一遍目录页（几秒到一分钟），不改任何收藏文件。', { section: 'rebuild' }), '重建目录',
         async () => { await plugin.run(['-m', 'link_brain', 'catalog'], '重建目录'); }, '重新整理一遍目录页');
       tab.link(row(b, tab, '诊断信息', '插件 / Python 版本、各步上次运行结果、最近 50 条问题；已经去掉密钥、账号和本机路径。', { section: 'diagnostic' }), '复制（已脱敏）',
         () => plugin.problemsUI?.().copyReport(), '复制脱敏后的诊断信息，发给帮你看的人');
-      tab.link(row(b, tab, '重新走一遍首次设置', '再走一遍「登录 · 同步 · 识别与问答 · 接入其他 AI」；改的还是这一页上的同一份设置。'), '开始', async () => {
-        s.onboarding = { ...(s.onboarding || {}), force: true, guideDone: false, step: 0 };
-        await tab.save(); tab.display(); try { tab.containerEl.scrollTop = 0; } catch {}
-      }, '回到首次设置');
-    }, { holds: ['machine', 'developer', 'run', 'rebuild', 'diagnostic'] });
+    }, { holds: ['machine', 'developer', 'rebuild', 'diagnostic'] });
   }
 
   // ———————————————————— 一页：左边锚点 + 六组 ————————————————————
