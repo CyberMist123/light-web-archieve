@@ -951,3 +951,5 @@ repo_path: D:\LIGHT WEB ARCHIEVE
   ——**不用管**，别动它。
 
 - 2026-10-27：登录持久化/身份复核修复在 fix/session-policy-1027；离线测试记录见 docs/login-session-policy-1027.md。未部署、未操作真实账号；完整 Reader 补丁导回待验收确认。
+
+- 2026-10-28：登录策略已部署；用户扫码后关闭浏览器再查仍登录且身份一致。完整 Reader 补丁已导回并在干净上游应用验证；未清真实 Profile，详情见 docs/login-session-policy-1027.md。
