@@ -694,13 +694,22 @@ function lbPageLib(dv, app, role) {
   const BRAND_FONTS = { cinzel: '_archive/fonts/Cinzel-latin-variable.woff2', cormorant: '_archive/fonts/CormorantGaramond-Italic-latin-variable.woff2' };
   const BRAND_FONT_STACK = '"LB Cinzel","Cinzel","Trajan Pro","Times New Roman",serif';
   const brandTitleText = () => String(provider()?.settings?.catalogTitle || '').trim() || 'Collections';
+  // 1027b「LB CJK Upright」：本机的衬线中文，只管中文码段、自己声明成 italic——斜体数字里混着的中文（「0 篇」「人民币估算」）
+  // 落到它就是原样直立的宋体 / 思源宋体，浏览器不再硬斜（Cormorant 没有中文）。本机没有这些字就什么都不做（照旧落到系统衬线）
+  const CJK_SERIF_LOCAL = ['Noto Serif SC', 'Source Han Serif SC', 'Source Han Serif CN', 'Songti SC', 'STSong', 'SimSun'];
+  function cjkUprightCss() {
+    const family = 'LB CJK Upright', src = CJK_SERIF_LOCAL.map(n => `local("${n}")`).join(',');
+    return `@font-face{font-family:"${family}";src:${src};font-style:italic;font-weight:100 900;unicode-range:U+2E80-2FFF,U+3000-303F,U+3040-30FF,U+3400-4DBF,U+4E00-9FFF,U+F900-FAFF,U+FF00-FFEF;}
+`;
+  }
   function brandFontCss() {
     const url = rel => { try { return String(app.vault.adapter.getResourcePath?.(path(rel)) || ''); } catch { return ''; } };
     const face = (family, rel, weight, style, range = '') => { const u = url(rel); return u ? `@font-face{font-family:"${family}";src:url("${u.replace(/"/g, '%22')}") format("woff2");font-weight:${weight};font-style:${style};font-display:swap;${range ? 'unicode-range:' + range + ';' : ''}}\n` : ''; };
     // 1027b「LB Digits」= 同一个 Cormorant 文件，只管数字和数字旁的符号：放在中文文字的字体栈最前面，文字里的数字是 Cormorant 斜体，
     // 字母（「AI」「Token」）和中文照样是那段文字自己的字、直立（名字是名字，只有数是斜的）
     return face('LB Cinzel', BRAND_FONTS.cinzel, '400 900', 'normal') + face('LB Cormorant', BRAND_FONTS.cormorant, '300 700', 'italic')
-      + face('LB Digits', BRAND_FONTS.cormorant, '300 700', 'italic', 'U+0030-0039,U+0025,U+002B-002F,U+003A,U+00A5,U+FFE5');
+      + face('LB Digits', BRAND_FONTS.cormorant, '300 700', 'italic', 'U+0030-0039,U+0025,U+002B-002F,U+003A,U+00A5,U+FFE5')
+      + cjkUprightCss();
   }
   // 雕刻斜体大标题：字上再叠一层同样的字（data-text → ::after，描边用底色、往左错一点）= 一道刻线
   const brandCss = (titleSel, engrSel) => `${titleSel}{font:900 var(--lb-fs-display)/1.02 var(--lb-font-title);font-style:normal;letter-spacing:.012em;text-transform:uppercase;transform:skewX(-13deg);display:inline-flex;align-items:baseline;white-space:nowrap;color:var(--lb-ink);}

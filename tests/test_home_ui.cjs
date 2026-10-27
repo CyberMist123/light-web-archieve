@@ -124,9 +124,8 @@ const PLAN = { ok: true, components: [
   const runArgs = runs.find(a => a.includes('run'));
   assert.deepEqual(Array.from(runArgs), ['-m', 'link_brain', 'setup', 'run']);
   assert.deepEqual(Array.from(p.settings.setup.selected), ['core', 'reader', 'dataview', 'ocr'], '跑之前把「没选过」落成轻量版');
-  const steps = pane.querySelectorAll('.lb-run-step').map(r => r.textContent);
-  assert.deepEqual(steps.map(s => s.slice(0, 1)), ['✓', '✗', '–', '✓'], '各步 ✓ / ✗ / 跳过');
-  assert.match(steps[1], /确认小红书登录.*扫码登录/);
+  // 1027b 她：「不影响实际体验的就别显示了」——跑完只留一句结果（里面说清要你做什么），不再摆每一步的 ✓ / ✗
+  assert.equal(pane.querySelectorAll('.lb-run-step').length, 0, '跑完不列每一步');
   assert.match(pane.querySelector('.lb-run-result').textContent, /先处理小红书/);
   const last = notices.at(-1);
   assert.equal(last.o.actions[0].label, '去扫码 / 验证');

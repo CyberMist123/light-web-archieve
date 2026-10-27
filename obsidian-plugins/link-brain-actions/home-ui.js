@@ -389,6 +389,8 @@ module.exports = function homeUI(obsidian, plugin) {
           text: why || '装好打开的功能，再把同步收藏、认图片里的字、概要、整理目录一口气跑完（没开 AI 就只跑免费的部分）。' });
       }
       if (!run) return;
+      // 1027b 她：跑完了只留一句结果——每一步的 ✓ / ✗（比如没开的 CapsLock）不影响用，不再摆出来；跑的时候照旧一步步显示
+      if (busy) {
       const steps = runBox.createDiv({ cls: 'lb-run-steps' });
       const order = Object.values(run.stages).sort((a, b) => (a.index || 0) - (b.index || 0));
       for (const sg of order) {
@@ -396,6 +398,7 @@ module.exports = function homeUI(obsidian, plugin) {
         row.createSpan({ cls: 'lb-run-mark', text: STAGE_MARK[sg.state] || '○' });
         row.createSpan({ cls: 'lb-run-label', text: sg.label || '' });
         if (sg.text) row.createSpan({ cls: 'lb-run-text', text: sg.text });
+      }
       }
       if (busy && run.install) {
         const pv = progressView(run.install);

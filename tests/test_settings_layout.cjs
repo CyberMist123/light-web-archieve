@@ -330,7 +330,7 @@ async function inventory(p) {
   // 1027b 她：「一键装好」和「重新走首次设置」放最前面（这里没有 home-ui，一键装好那块不画）
   assert.deepEqual(visibleRows(rp), ['重新走一遍首次设置', '当前状态', '问题记录']);
   assert.deepEqual(rowNamed(rp, '当前状态').querySelectorAll('button').map(b => b.textContent), ['检查', '全部修一遍']);
-  assert.match(descText(rowNamed(rp, '当前状态')), /⚠ 1 件要你处理 · 另有 2 条在自动处理/);
+  assert.equal(descText(rowNamed(rp, '当前状态')), '⚠ 1 件要你处理', '1027b：只说要你动手的，自动处理 / 已放弃不提');
   await openAll(root);
   assert.equal(root.querySelectorAll('button').filter(b => /打开问题列表/.test(b.textContent) || (b.textContent === '打开' && b.closest('.setting-item') && nameOf(b.closest('.setting-item')) === '问题记录')).length, 1, '问题记录只有一个入口（更多里不再有「问题」那一行）');
   await rowNamed(rp, '当前状态').querySelectorAll('button')[0].onclick(); await settle();

@@ -586,8 +586,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 /* 1027b 她（第二次说清）：目录页就要雕刻字 + Cormorant 斜体数字（「就像 OVERVIEW 这种」），但四块风格统一、大小别差太多。
    数字只有三档：大 --lbc-num-lg（上次 / 下次同步、Token、概览四个数一样大，都斜体 400）· 行尾 --lbc-num（今日新增、上限、摘要里的数）· 小 --lbc-num-sm（日期、说明、柱子刻度） */
 /* 1027b：数字字体里混着的中文（「0 篇」「人民币估算」）——Cormorant 没有中文，浏览器会把落下去的宋体硬斜成假斜体。
-   这个字面只管中文码段、自己声明成 italic：斜体文字里的中文就用它（= 衬线中文原样直立），数字照旧落到 Cormorant。 */
-@font-face{font-family:"LB CJK Upright";src:local("Noto Serif SC"),local("Source Han Serif SC"),local("Source Han Serif CN"),local("Songti SC"),local("STSong"),local("SimSun");font-style:italic;font-weight:100 900;unicode-range:U+2E80-2FFF,U+3000-303F,U+3040-30FF,U+3400-4DBF,U+4E00-9FFF,U+F900-FAFF,U+FF00-FFEF;}
+   这个字面（「LB CJK Upright」，在 lb-page-lib 的 brandFontCss 里）只管中文码段、自己声明成 italic：斜体文字里的中文就用它（= 衬线中文原样直立），数字照旧落到 Cormorant。 */
 .lbc-wrap{--lbc-num-lg:clamp(24px,8cqi,34px);--lbc-num:15px;--lbc-num-sm:13px;font-synthesis-style:none;}
 /* 1027b 她（第三次）：「字体都不一样，统一」——边栏四块里的中文只用一种：衬线中文、直体（概览 / 全部收藏 / 后台每日上限 / 列表标题 / 按钮一样）；
    数字和拉丁字母 Cormorant 斜体；中文混在数字里（「0 篇」「人民币估算」）落到衬线中文，且不许浏览器硬斜（font-synthesis-style:none，整页都关） */
@@ -1027,13 +1026,13 @@ function paintProblems() {
   if (!s && st.state === 'blocked') need = 1;   // 还没有 problems-summary.json（老库第一次）：同步卡在要人处理时照样亮
   probBtn.empty();
   if (need) probBtn.createEl('span', { cls: 'lbc-prob-n lbc-prob-need', text: String(need) });
-  // 1019 她：自动处理中的（会自己重试、3 天不好自动升级成要你处理）不亮数字；只数要你处理 + 已放弃
-  void auto;
-  if (gaveUp) probBtn.createEl('span', { cls: 'lbc-prob-n lbc-prob-other', text: String(gaveUp) });
-  probBtn.hidden = !need && !gaveUp;
+  // 1019 她：自动处理中的不亮数字。1027b 她：「不影响实际体验的，就别显示了」——已放弃的（某一篇的附件 / 评论没补上）也不亮，
+  // 只数要你动手的；全部的还在问题记录里
+  void auto; void gaveUp;
+  probBtn.hidden = !need;
   const lines = [];
   if (st.state === 'blocked' || st.state === 'failed') { const why = st.detail || st.message || ''; const head_ = st.label || regEntry(st.code)?.label || ''; if (head_ || why) lines.push(head_ && why ? head_ + '：' + why : head_ || why); }
-  const counts = [need && `要你处理 ${need}`, auto && `正在自动处理 ${auto}`, gaveUp && `已放弃 ${gaveUp}`].filter(Boolean);
+  const counts = [need && `要你处理 ${need}`].filter(Boolean);
   if (counts.length) lines.push(counts.join(' · '));
   probBtn.title = probBtn.hidden ? '' : [...lines, '点击查看问题列表'].join('\n');
   syncing.hidden = st.state !== 'running';

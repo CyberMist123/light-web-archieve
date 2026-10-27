@@ -837,7 +837,9 @@ module.exports = function (obsidian, plugin) {
       try { ({ sum } = await plugin.readSyncFiles()); } catch {}
       if (!alive) return;
       const n = sum ? (+sum.needs_human || 0) : 0, auto = sum ? (+sum.auto || 0) + (+sum.gave_up || 0) : 0;
-      st.setDesc(!sum ? '还没有问题记录' : n ? `⚠ ${n} 件要你处理` + (auto ? ` · 另有 ${auto} 条在自动处理 / 已放弃` : '') : auto ? `没有要你处理的 · ${auto} 条在自动处理 / 已放弃` : '没有问题');
+      // 1027b 她：「不影响实际体验的，就别显示了」——只说要你动手的；自动处理 / 已放弃的在「问题记录」里
+      void auto;
+      st.setDesc(!sum ? '还没有问题记录' : n ? `⚠ ${n} 件要你处理` : '没有要你处理的');
       st.settingEl.toggleClass?.('is-warn', n > 0);
     };
     const check = tab.link(st, '检查', async () => {

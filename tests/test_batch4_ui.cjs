@@ -69,9 +69,9 @@ async function catalogEntryTests() {
   const entry = q('.lbc-problems');
   assert.equal(entry.hidden, false);
   assert.equal(entry.querySelector('.lbc-prob-need').textContent, '2', '要你处理 = 橙色数字');
-  assert.equal(entry.querySelector('.lbc-prob-other').textContent, '1', '1019：灰色只数已放弃（自动处理中 3、未开启 7 不计）');
+  assert.equal(entry.querySelector('.lbc-prob-other'), null, '1027b 她：不影响实际体验的不显示——已放弃 / 自动处理中都不计数，只数要你处理的');
   assert.ok(entry.title.startsWith('需要登录：读取号掉登录'), '悬停第一行 = 登记表标签 + 原因：' + entry.title);
-  assert.ok(entry.title.includes('要你处理 2 · 正在自动处理 3 · 已放弃 1'), entry.title);
+  assert.ok(entry.title.includes('要你处理 2') && !/自动处理|已放弃/.test(entry.title), entry.title);
   assert.equal(q('.lbc-syncing').hidden, true);
   assert.equal(q('.lbc-syncinfo'), null, '第 6 批：标题下的同步概况行删了（挪进「本周同步情况」窗口）');
   assert.equal(q('.lbc-account-status'), null, '旧「!」没了');
@@ -102,7 +102,7 @@ async function catalogEntryTests() {
   assert.equal(card('a'), firstCard, '卡片没重建');
   assert.equal(V.reads[DATA] || 0, 0, '没重读 catalog-data');
   assert.equal(entry.querySelector('.lbc-prob-need'), null, '要你处理清零后橙色数字消失');
-  assert.equal(entry.querySelector('.lbc-prob-other').textContent, '1');
+  assert.equal(entry.hidden, true, '1027b：只剩已放弃 / 自动处理的，入口不亮');
   // 新一次同步开始：sync-status.json 比 summary 新 → 「· 同步中…」
   V.set(SYNC, JSON.stringify({ state: 'running', pid: 999999, updated_at: '2026-10-02T06:00:00+10:00' }));
   fire('modify', SYNC); await tick(10);
