@@ -166,3 +166,26 @@ def test_page_summary_has_last_risk_for_sync_button_note(monkeypatch):
     problems.report("login", "CAPTCHA_REQUIRED", "10-08 05:19 在读收藏时判到验证")
     lr = problems.page_summary()["last_risk"]
     assert lr["code"] == "NEEDS_HUMAN.CAPTCHA_REQUIRED" and lr["open"] is True
+
+
+# ── 1027b 她：「账号卡说已登录（刚刚确认），同步却说未登录」 ──
+def test_shallow_status_trusts_newer_sync_logout_over_reader_memory(clean, monkeypatch, capsys):
+    """读取服务记得「登录的」（上次真查在 10:00），之后同步真用号撞见掉登录：浅查以后者为准，不报 ✓。"""
+    sync_state.account_problem("NOT_LOGGED_IN", "读收藏：小红书未登录或登录已失效")
+    FakeReader(monkeypatch, {"/api/v1/login/session": {"logged_in": True, "state": "idle",
+                                                       "checked_at": "2026-10-27T10:00:00+11:00"}})
+    assert cli.main(["login", "--status", "--shallow", "--json"]) == 3
+    out = json.loads(capsys.readouterr().out)
+    assert out["state"] == "expired" and out["code"] == "NOT_LOGGED_IN" and out["action"] == "login"
+    assert sync_state.load()["state"] == "blocked", "浅查不许把掉登录的同步状态改回去"
+
+
+def test_shallow_status_does_not_resolve_login_problem_and_reports_real_check_time(clean, monkeypatch, capsys):
+    """读取服务记得「登录的」、之后没有更新的掉登录：照旧 ✓，但带上它真查的时刻；凭记忆不清掉已开着的登录问题。"""
+    problems.report("login", "NOT_LOGGED_IN", "掉登录")
+    FakeReader(monkeypatch, {"/api/v1/login/session": {"logged_in": True, "state": "idle",
+                                                       "checked_at": "2099-01-01T00:00:00+11:00"}})
+    assert cli.main(["login", "--status", "--shallow", "--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["state"] == "ready" and out["checked_at"] == "2099-01-01T00:00:00+11:00"
+    assert problems.is_open("login", None, "NOT_LOGGED_IN"), "浅查（只是读取服务记得的）不能把掉登录消掉"

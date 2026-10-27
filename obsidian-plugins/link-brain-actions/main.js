@@ -406,7 +406,17 @@ const ACCOUNT_CACHE_MS = 10 * 60000;
 const ACCOUNT_CODES = ['NOT_LOGGED_IN', 'CAPTCHA_REQUIRED', 'ACCOUNT_RISK', 'RISK_HOLD', 'WRONG_ACCOUNT'];
 function confirmedAgo(at, now = Date.now()) {
   const min = Math.floor((now - at) / 60000);
-  return min < 1 ? '刚刚确认' : `${min} 分钟前确认`;
+  if (min < 1) return '刚刚确认';
+  if (min < 60) return `${min} 分钟前确认`;
+  if (min < 24 * 60) return `${Math.floor(min / 60)} 小时前确认`;
+  const d = new Date(at);
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} 确认`;
+}
+// 1027b 她：「账号卡说已登录（刚刚确认），同步却说未登录」——浅查报的是读取服务记得的结果，后端带上它真正查的时刻（checked_at）；
+// 「N 分钟前确认」按那个时刻写，不按这边问它的时刻（否则几小时前的结果也写成「刚刚确认」）
+function checkedAtOf(row, fallback) {
+  const t = Date.parse(row?.checked_at || '');
+  return Number.isFinite(t) && t <= Date.now() + 60000 ? t : fallback;
 }
 // 1008（L6·B1）：设置页「立即同步」旁的如实说明——上次几点在哪一步判到验证（不拦、不冷却，只照实说）。
 // 数据：problems-summary.json 的 last_risk（Python problems.last_risk）；还开着或 24 小时内的才说。
@@ -1547,10 +1557,10 @@ class LinkBrainActions extends Plugin {
     // deep=true（「重新检查」/ 主按钮重试）才深查。
     const refresh = async (deep = false) => {
       const cached = this.accountCache;
-      if (!deep && cached && !(await this.accountCacheStale())) { paint({...cached.row, _at: cached.at}); return; }
-      if (!deep && this.accountCache) paint({...this.accountCache.row, _at: this.accountCache.at}, true);
+      if (!deep && cached && !(await this.accountCacheStale())) { paint({...cached.row, _at: checkedAtOf(cached.row, cached.at)}); return; }
+      if (!deep && this.accountCache) paint({...this.accountCache.row, _at: checkedAtOf(this.accountCache.row, this.accountCache.at)}, true);
       else paint({state: 'checking'}, true);
-      try { const r = await platform.status(this, deep); paint({...r, _at: Date.now()}); }
+      try { const r = await platform.status(this, deep); paint({...r, _at: checkedAtOf(r, Date.now())}); }
       catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); }
     };
     const login = async (force = false) => {

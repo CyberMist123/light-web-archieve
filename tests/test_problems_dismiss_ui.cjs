@@ -195,6 +195,12 @@ async function pluginTests() {
   await tick(5);
   assert.equal(calls.length, 1, '缓存里的不起进程');
   assert.ok(box2.textContent.includes('3 分钟前确认'), box2.textContent);
+  // 1027b：浅查带回读取服务真查的时刻（checked_at）——按它写，不写「刚刚确认」
+  p.accountCache.row = { ...p.accountCache.row, checked_at: new Date(Date.now() - 2 * 3600000 - 60000).toISOString() };
+  const boxAgo = dom.document.body.createDiv();
+  p.renderAccountRow(boxAgo, { id: 'xhs', name: '小红书', status: (pl, deep) => pl.accountStatus({ deep }) });
+  await tick(5);
+  assert.ok(boxAgo.textContent.includes('2 小时前确认') && !boxAgo.textContent.includes('刚刚确认'), boxAgo.textContent);
   // 同步状态里出现了比缓存新的账号类故障：缓存作废，浅查一次
   files['_archive/sync-status.json'] = JSON.stringify({ state: 'blocked', code: 'CAPTCHA_REQUIRED', updated_at: new Date().toISOString() });
   const box3 = dom.document.body.createDiv();
