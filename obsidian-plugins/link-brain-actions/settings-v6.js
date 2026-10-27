@@ -896,7 +896,6 @@ module.exports = function (obsidian, plugin) {
     const main = page.createDiv({ cls: 'lb-v7-main' });
     const head = main.createDiv({ cls: 'lb-v7-head' });
     head.createDiv({ cls: 'lb-eyebrow lb-kicker', text: 'PREFERENCES / 按你的习惯' });
-    head.createEl('h1', { text: '让收藏自己归位。' });
     const lead = head.createEl('p', { cls: 'lb-v7-lead', text: '常用的留在眼前，其余都在「更多」。改动自动保存。' });
     const saved = lead.createSpan({ cls: 'lb-saved', attr: { role: 'status' } });
     const groups = {};

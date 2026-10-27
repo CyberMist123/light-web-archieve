@@ -1583,7 +1583,7 @@ class LinkBrainActions extends Plugin {
       const menu = new obsidian.Menu();
       menu.addItem(i => i.setTitle('重新检查').setIcon('rotate-cw').onClick(() => refresh(true)));
       if (current?.state === 'ready') {
-        menu.addItem(i => i.setTitle('更换账号').setIcon('user-cog').onClick(async () => {
+        if (!inCard) menu.addItem(i => i.setTitle('更换账号').setIcon('user-cog').onClick(async () => {   // 1027b 卡片上已有「换个账号」按钮，⋯ 里不再重复
           paint({state: 'busy', next_step: '正在退出当前账号'}, true);
           try { await platform.logout(this); await login(true); } catch (e) { paint({state: 'error', next_step: e.message, action: 'login'}); }
         }));

@@ -62,7 +62,8 @@ width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;disp
 .lbc-titlerow{display:flex;align-items:flex-end;justify-content:center;min-width:0;max-width:100%;}
 ${LB.brandCss('.lbc-title', '.lbc-engr')}
 /* 1026 场景 02：标题照共用的雕刻样式，字号再按右侧「编排 / 管理」让出的宽度收（长标题、放大都不出页头） */
-.lbc-title{font-size:clamp(24px,min(calc(6.5cqi * var(--lbc-title-k,1)),calc((100cqi - var(--lbc-title-pad,0px) - 8px) / var(--lbc-title-em,8))),calc(96px * var(--lbc-title-k,1)));font-family:var(--f-display);}
+.lbc-title{font-size:clamp(24px,min(calc(6.5cqi * var(--lbc-title-k,1)),calc((100cqi - var(--lbc-title-pad,0px) - var(--lbc-sub-w,0px) - 8px) / var(--lbc-title-em,8))),calc(96px * var(--lbc-title-k,1)));font-family:var(--f-display);}
+@container(max-width:760px){.lbc-title{--lbc-sub-w:0px;}}   /* 窄：计数行本来就在下面一行，不用给它让位 */
 .lbc-wrap .lbc-title button.lbc-import{font:inherit!important;color:var(--c-ink)!important;width:auto!important;height:auto!important;padding:0!important;margin:0 0 0 .02em!important;border:0!important;background:transparent!important;box-shadow:none!important;border-radius:0!important;display:inline-block!important;vertical-align:baseline;line-height:inherit!important;cursor:pointer;transition:transform .45s cubic-bezier(.2,.8,.2,1);}
 .lbc-wrap .lbc-title button.lbc-import:hover{transform:rotate(90deg);}
 .lbc-wrap .lbc-title button.lbc-import[aria-busy="true"]{opacity:.5;cursor:progress;}
@@ -209,7 +210,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap.is-indexview .lbc-tools button.lb-arrange,.lbc-wrap.is-side-narrow .lbc-tools button.lb-arrange{display:none!important;}
 .lbc-mod-bar,.lbc-arrange-tray,.lbc-col-edge{display:none;}
 .lbc-wrap .lbc-lab button.lbc-gear svg{width:15px;height:15px;}
-.lbc-fold-sum{font:14px/1.5 var(--f-serif);color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:-4px;cursor:pointer;}
+.lbc-fold-sum{font:var(--fs-body)/1.45 var(--f-serif);color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:10px 0;cursor:pointer;}   /* 1027b 她：折起来那一行和展开的列表一行一样大、一样远 */
 .lbc-fold-sum:hover{color:var(--c-ink);}
 .lbc-fold-sum i{font:italic 15px/1 var(--f-latin);font-variant-numeric:lining-nums tabular-nums;color:var(--c-ink);}
 .lbc-rec{list-style:none;margin:0;padding:0;}
@@ -926,6 +927,18 @@ const importButton = mobile ? null : titleText.createEl('button', { cls: 'lbc-im
 if (importButton) importButton.dataset.text = '+';
 // F4：标题下那一行拆成三块——计数（只是字）· 可能相关（跳到那一组）· 更新（打开同步记录）
 const subLine = titleBlock.createEl('div', { cls: 'lbc-subline' });
+// 1027b 她：「标题应该这样（计数行在标题右边），现在怎么到下面去了」——筛选时计数行变长，标题照旧按整行宽度定字号，计数行就被挤下去。
+// 量计数行的实际宽度写进 --lbc-sub-w（+ 22px 间距），标题字号让出这一截；只在它真的变了时写（不来回抖）
+let subW = -1;
+// 计数行太长（带着「数据较旧」这类提醒、超过整行 45%）就不让位：让它照旧换到下面，标题不被压成小字
+function fitSubline() {
+  const w = Math.ceil(Number(subLine.scrollWidth) || 0), full = Number(titleBlock.clientWidth) || 0;
+  const want = w && full && w <= full * 0.45 ? w + 22 : 0;
+  if (Math.abs(want - subW) < 2) return;
+  subW = want;
+  if (want) titleBlock.style.setProperty('--lbc-sub-w', want + 'px'); else titleBlock.style.removeProperty('--lbc-sub-w');
+}
+if (typeof ResizeObserver === 'function') { const ro = new ResizeObserver(() => fitSubline()); ro.observe(subLine); ro.observe(titleBlock); cleanups.push(() => ro.disconnect()); }
 const countEl = subLine.createEl('span', { cls: 'lbc-sub lbc-count' });
 const sepPossible = subLine.createEl('span', { cls: 'lbc-sub-sep', text: '·' });
 const possibleLink = subLine.createEl('button', { cls: 'lbc-sub lbc-sub-link lbc-possible-link' }); possibleLink.type = 'button';
@@ -1097,23 +1110,15 @@ async function readTrashCount() {
 const openTrash = () => LB.openPage('trash');
 async function callPlugin(method, ...args) { const p = await want(method); if (!p) return; try { await p[method](...args); } catch (err) { LB.say('没做成：' + (err?.message || err), { kind: 'error' }); } }
 function manageItems() {
-  const label = t => ({ title: t, isLabel: true, disabled: true, onClick: () => {} });
+  // 1027b 她：「管理就留索引编辑、刷新目录（手动）、导出资料、设置、回收站就行。设置放最上面」
+  //   （删分类在索引树里右键 / 「改名」那一排；彻底删除在回收站里；在 索引.md 里改 = 索引条上的「编辑 索引.md」）
   return [
-    label('整理分类'),
-    { title: '索引编辑（分类树：拖拽、改名、合并）', icon: 'list-tree', onClick: () => openIndexEditor() },
-    { title: '在 索引.md 里改', icon: 'file-text', onClick: () => editCategories() },
-    idx ? { title: '删除一个分类…（只删分类，帖子不删）', icon: 'folder-minus', onClick: () => deleteCategoryFlow() } : null,
-    { separator: true },
-    label('回收站与删除'),
-    { title: trashCount ? `回收站（${trashCount} 篇，可恢复）` : '回收站（删掉的帖子在这里，可恢复）', icon: 'trash-2', onClick: openTrash },
-    { title: '彻底删除…（到回收站里删，不能恢复）', icon: 'trash', onClick: async () => {
-      if (await LB.confirm({ title: '彻底删除在回收站里做', body: '帖子要先「删除（移到回收站）」——在卡片上右键，或多选后点「删除选中」。到回收站里再点「彻底删除」才会连文件一起删掉，之后不再同步，不能恢复。', ok: '打开回收站' })) openTrash();
-    } },
-    { separator: true },
-    label('其它'),
-    { title: '导出资料', icon: 'folder-open', onClick: () => callPlugin('openExportFolder') },
     { title: '设置', icon: 'settings-2', onClick: () => callPlugin('openSetupPage') },
-    { title: '刷新目录', sub: '重新整理分类', icon: 'refresh-cw', onClick: () => callPlugin('run', ['-m', 'link_brain', 'catalog'], '刷新目录', true) },
+    { separator: true },
+    { title: '索引编辑', icon: 'list-tree', onClick: () => openIndexEditor() },
+    { title: '刷新目录（手动）', icon: 'refresh-cw', onClick: () => callPlugin('run', ['-m', 'link_brain', 'catalog'], '刷新目录', true) },
+    { title: '导出资料', icon: 'folder-open', onClick: () => callPlugin('openExportFolder') },
+    { title: trashCount ? `回收站（${trashCount} 篇）` : '回收站', icon: 'trash-2', onClick: openTrash },
   ];
 }
 if (manage) manage.onclick = async e => {
@@ -2210,6 +2215,7 @@ function openNodeMenu(e, n, row) {
     } },
     parentPath ? { title: '提到第一级', onClick: () => treeEdit('move', n, { to: '' }) } : null,
     { separator: true },
+    { title: '删除这个分类…（只删分类，帖子不删）', onClick: () => deleteCategoryFlow(n.path) },   // 1027b 从「管理」挪到这里
     { title: '在 索引.md 里改', onClick: () => editCategories(n.path) },
   ], e, row, { x: e?.clientX || 0, y: e?.clientY || 0 });
 }

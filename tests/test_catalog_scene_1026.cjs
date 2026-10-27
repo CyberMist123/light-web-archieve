@@ -2,7 +2,7 @@
 //   ① 筛选条各维度叠加：平台（B站 / 小红书）→ 主题 → Tag → 类型，一路缩小、前面选的不丢；换到 Wiki 再回瀑布流筛选还在；在 Wiki 里点筛选 = 回瀑布流看结果
 //   ② 最近导入（1027b 她：不要「查看全部」）：折成一行，点开往下是列表，框里滚到底接着出更早的
 //   ③ Wiki = 长期研究主题（标了 [wiki] 的分类：打开 wiki / 看这些帖子 / 生成）；未归类兜底队列一直露着（分类行 0 篇也留着）
-//   ④ 管理：分组（整理分类 / 回收站与删除 / 外观与其它），回收站带篇数、点了打开回收站页；删除一个分类说清帖子去哪（并进 / 回到未归类，帖子不删）
+//   ④ 管理（1027b 她：只留 设置 / 索引编辑 / 刷新目录 / 导出资料 / 回收站，设置最上面）；删除一个分类在索引树上右键，说清帖子去哪（并进 / 回到未归类，帖子不删）
 //   ⑤ 编排：1027 起八个模块平级、拖到任何位置、调宽、就地调整——用例挪到 tests/test_catalog_arrange_1027.cjs
 //   ⑥ 删除后的提示带「打开回收站」
 'use strict';
@@ -124,26 +124,24 @@ const pickMenu = (P, re) => { const b = P.menuItems().find(x => re.test(x.textCo
     const P = await openCatalog({ data: dataOf(base()), plugin, frontmatter: { '回收站.md': { 'lb-page': 'trash' } },
       files: { '回收站.md': '---\nlb-page: trash\n---\n', '_archive/index-data.json': JSON.stringify(index), '_archive/trash-data.json': JSON.stringify({ items: [{ item_id: 'x', has_files: true }, { item_id: 'y', has_files: true }, { item_id: 'z', has_files: false }] }) } });
     P.$('.lb-manage').onclick(ev()); await tick(5);
-    const groups = P.dom.document.body.querySelectorAll('.lbc-menu-label').map(x => x.textContent);
-    assert.deepEqual(groups, ['整理分类', '回收站与删除', '其它']);
+    // 1027b 她：管理只留五样，设置在最上面
     const titles = P.menuItems().map(b => b.textContent);
-    assert.ok(titles.includes('回收站（2 篇，可恢复）'), titles);
-    assert.ok(titles.some(t => /^索引编辑/.test(t)) && titles.some(t => /^删除一个分类…（只删分类，帖子不删）/.test(t)) && titles.some(t => /^彻底删除…/.test(t)), titles);
+    assert.deepEqual(titles, ['设置', '索引编辑', '刷新目录（手动）', '导出资料', '回收站（2 篇）']);
+    assert.equal(P.dom.document.body.querySelectorAll('.lbc-menu-label').length, 0, '不再分组');
     pickMenu(P, /^回收站（2 篇/); await tick(5);
     assert.equal(P.app.workspace.opened.at(-1)[0], '回收站.md', '点回收站 = 打开回收站页');
-    // 1027：改标题 / 每行几列挪进「编排」（标题模块 / 收藏墙模块的「调整」），管理菜单里不再重复
-    assert.ok(!titles.some(t => /^改标题|^每行几列/.test(t)), titles);
-    // 删除一个分类：有内容的先问帖子去哪（这里取消）——说清帖子不删、可以回到未归类
     P.$('.lb-manage').onclick(ev()); await tick(5);
-    pickMenu(P, /^删除一个分类/); await tick(5);
-    P.dom.document.body.querySelector('.lbi-pick-row[data-path="咖啡"]').onclick(); await tick(5);
-    assert.equal(calls.at(-1), 'confirm:删掉分类「咖啡」：里面的 4 篇帖子去哪？');
-    const note = notes.at(-1);
-    assert.match(note.message, /没删。要让这 4 篇回到「未归类」/);
+    pickMenu(P, /^设置$/); await tick(5);
+    assert.equal(calls.at(-1), 'setup:undefined', '设置 = 打开设置页');
     // 索引编辑 = 分类树视图
     P.$('.lb-manage').onclick(ev()); await tick(5);
     pickMenu(P, /^索引编辑/);
     assert.ok(P.$('.lbc-wrap').classList.contains('is-indexview'));
+    // 删除一个分类挪到树上右键：有内容的先问帖子去哪（这里取消）——说清帖子不删、可以回到未归类
+    P.$('.lbi-row[data-path="咖啡"] .lbi-label').oncontextmenu(ev()); await tick(5);
+    pickMenu(P, /^删除这个分类/); await tick(5);
+    assert.equal(calls.at(-1), 'confirm:删掉分类「咖啡」：里面的 4 篇帖子去哪？');
+    assert.match(notes.at(-1).message, /没删。要让这 4 篇回到「未归类」/);
   }
 
   // ── ⑥ 删了之后提示带「打开回收站」 ──

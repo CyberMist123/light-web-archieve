@@ -864,7 +864,11 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v7 :is(.lb-v7-head h1, .lb-group-head h2, .lb-num, .lb-anchor b, .lb-eyebrow, .lb-console-v) { font-family: var(--lb-font-body) !important; font-style: normal !important; }
 .lb-settings .lb-v7 .lb-v7-head h1 { font-weight: 600; letter-spacing: 0; }
 .lb-settings .lb-v7 .lb-group-head h2 { font-weight: 600; letter-spacing: .02em; }
-.lb-settings .lb-v7 .lb-eyebrow { font-weight: 600; letter-spacing: .08em; }
+.lb-settings .lb-v7 .lb-eyebrow { font-weight: 500; font-size: var(--lb-fs-micro); letter-spacing: .12em; color: var(--lb-muted); }
+/* 1027b 她：页头「有点突兀」——小字（PREFERENCES）+ 一句说明两行就够，离下面第一组别空一大截 */
+.lb-settings .lb-v7 .lb-v7-head { padding: var(--lb-space-1) 0 0; }
+.lb-settings .lb-v7 .lb-v7-lead { margin-top: var(--lb-space-2); }
+.lb-settings .lb-v7 .lb-v7-head + .lb-group { margin-top: var(--lb-space-5); }
 /* 1027b 一把 key 都没有时，「高级功能」最上面那一格 */
 .lb-settings .lb-v7 .lb-key-first { margin: 0 0 var(--lb-space-4); padding: var(--lb-space-4) var(--lb-space-5); border: 1px solid var(--lb-ink); border-radius: var(--lb-radius); }
 .lb-settings .lb-v7 .lb-key-first-lead { margin: 0 0 var(--lb-space-2); color: var(--lb-muted); font-size: var(--lb-fs-small); }
