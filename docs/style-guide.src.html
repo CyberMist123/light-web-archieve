@@ -26,14 +26,14 @@ body{margin:0;background:var(--background-primary);color:var(--text-normal);font
    .p-cat 目录页：雕刻字（英文小标题 / 品牌）· 衬线中文（所有中文，直体）· Cormorant 斜体（所有数字、日期、拉丁字母）
           中文混在数字里落到衬线中文、不许硬斜（font-synthesis-style:none）
    .p-set 设置页：只用黑体正文；标题加粗，不斜体；数字用等宽数字对齐 */
-.p-cat{font-variant-numeric:lining-nums tabular-nums;font-family:"LB Cormorant",var(--lb-font-serif);--txt-font:"LB Cormorant",var(--lb-font-serif);--num-font:"LB CJK Upright",var(--lb-font-num);--num-style:italic;--num-w:400;--zh-font:var(--lb-font-serif);--zh-sp:.1em;--kick-font:var(--lb-font-title);
+.p-cat{font-variant-numeric:lining-nums tabular-nums;font-family:"LB Digits",var(--lb-font-serif);--txt-font:"LB Digits",var(--lb-font-serif);--num-font:"LB CJK Upright",var(--lb-font-num);--num-style:italic;--num-w:400;--zh-font:var(--lb-font-serif);--zh-sp:.1em;--kick-font:var(--lb-font-title);
   --num-lg:34px;--num:15px;--num-sm:13px;}
 .p-set{font-family:var(--lb-font-body);--txt-font:var(--lb-font-body);--num-font:var(--lb-font-body);--num-style:normal;--num-w:600;--zh-font:var(--lb-font-body);--zh-sp:.04em;--kick-font:var(--lb-font-body);
   --num-lg:24px;--num:var(--lb-fs-body);--num-sm:var(--lb-fs-small);}
 
 /* 模版自己的说明文字（表格、注释）一律正文字；只有「目录页」例子（.sg-cell.p-cat / td.p-cat）才是目录页的字 */
 .sg-sec.p-cat{font-family:var(--lb-font-body);}
-.sg-sec.p-cat .sg-note .p-cat,.sg-cell.p-cat,td.p-cat{font-variant-numeric:lining-nums tabular-nums;font-family:"LB Cormorant",var(--lb-font-serif);}
+.sg-sec.p-cat .sg-note .p-cat,.sg-cell.p-cat,td.p-cat{font-family:"LB Digits",var(--lb-font-serif);}
 .sg-cell.p-cat .sg-note{font-family:var(--lb-font-body);}
 .p-cat,.p-cat *{font-variant-numeric:lining-nums tabular-nums!important;}
 .sg{max-width:1040px;margin:0 auto;padding:var(--lb-space-6) var(--lb-space-4) 80px;container-type:inline-size;}
@@ -68,7 +68,10 @@ body{margin:0;background:var(--background-primary);color:var(--text-normal);font
 .lab{font-size:var(--lb-fs-small);color:var(--lb-muted);margin-top:6px;}
 .figs{display:grid;grid-template-columns:1fr 1fr;gap:var(--lb-space-4) var(--lb-space-5);}
 .kv{display:flex;justify-content:space-between;align-items:baseline;gap:var(--lb-space-3);padding:10px 0;border-top:1px solid var(--lb-line);}
-.kv>span{color:var(--lb-muted);}
+.kv>span:first-child{color:var(--lb-muted);}
+.kv>span:last-child{color:var(--lb-ink);}
+.p-set .kv>span:first-child{color:var(--lb-ink);font-weight:500;}
+.p-set .kv>span:last-child,.p-set .kv>span:last-child.n{font-weight:400;}
 .list{list-style:none;margin:0;padding:0;}
 .list li{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:var(--lb-space-3);align-items:baseline;padding:10px 0;border-top:1px solid var(--lb-line);}
 .list li>span:nth-child(2){white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -80,14 +83,20 @@ body{margin:0;background:var(--background-primary);color:var(--text-normal);font
 .chip .n-sm{color:var(--lb-faint);}
 .chip.is-on{background:var(--lb-ink);border-color:var(--lb-ink);color:var(--lb-surface);}
 .chip.is-on .n-sm{color:inherit;opacity:.7;}
-.set-head{display:flex;align-items:baseline;gap:12px;margin:var(--lb-space-4) 0 var(--lb-space-2);padding-top:var(--lb-space-3);border-top:1px solid var(--lb-ink);}
+.set-head{display:flex;align-items:baseline;gap:10px;margin:var(--lb-space-4) 0 var(--lb-space-2);padding-top:var(--lb-space-3);border-top:1px solid var(--lb-ink);}
 .set-head h3{margin:0;font:600 var(--lb-fs-h1)/1.3 var(--zh-font);letter-spacing:.02em;}
 .p-cat .set-head h3{font-weight:400;letter-spacing:.04em;}
+.set-num{font:400 var(--lb-fs-h1)/1.3 var(--num-font);font-style:var(--num-style);color:var(--lb-faint);min-width:1.4em;}
 .box{position:relative;margin:46px 8px 22px;outline:1.5px dashed var(--lb-faint);outline-offset:8px;border-radius:2px;padding:2px 0;}
 .box:hover{outline-color:var(--lb-ink);}
-.box-bar{position:absolute;top:-38px;left:-8px;display:flex;align-items:center;height:28px;padding:0 10px;background:var(--lb-ink);color:var(--lb-surface);border-radius:var(--lb-radius-pill);font-size:var(--lb-fs-small);}
-.grip-y{position:absolute;left:50%;bottom:-14px;width:28px;height:8px;margin-left:-14px;border-radius:var(--lb-radius-pill);background:var(--lb-surface);border:1.5px solid var(--lb-ink);box-sizing:border-box;}
-.grip-x{position:absolute;top:50%;right:-14px;width:2px;height:40px;margin-top:-20px;background:var(--lb-ink);border-radius:2px;}
+.box-bar{position:absolute;top:-38px;left:-8px;display:flex;align-items:center;gap:2px;height:28px;padding:0 6px;white-space:nowrap;font-family:var(--lb-font-body);background:var(--lb-ink);color:var(--lb-surface);border-radius:var(--lb-radius-pill);font-size:var(--lb-fs-small);}
+.bb{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:var(--lb-radius-pill);cursor:pointer;}
+.bb:hover{background:var(--lb-surface);color:var(--lb-ink);}
+.bb-nm{font-weight:500;padding:0 8px 0 2px;}
+.bb-sep{width:1px;height:12px;background:currentColor;opacity:.3;margin:0 3px;}
+.grip-y{position:absolute;left:50%;bottom:-12.75px;width:28px;height:8px;margin-left:-14px;border-radius:var(--lb-radius-pill);background:var(--lb-surface);border:1.5px solid var(--lb-ink);box-sizing:border-box;}
+.grip-x{position:absolute;top:-8px;bottom:-8px;right:-9.75px;width:2px;background:var(--lb-ink);border-radius:2px;opacity:0;transition:opacity .15s;}
+.box:hover .grip-x{opacity:1;}
 </style>
 </head>
 <body>
@@ -225,15 +234,15 @@ body{margin:0;background:var(--background-primary);color:var(--text-normal);font
         </div>
         <p class="sg-note">小块（筛选、建议新增）：胶囊；数跟在后面用小档、淡色；选中 = 墨底反白。</p>
         <div class="box">
-          <div class="box-bar">⠿ 同步 · 调整 · ×</div>
+          <div class="box-bar"><span class="bb">⠿</span><b class="bb-nm">同步</b><i class="bb-sep"></i><span class="bb">A−</span><span class="bb">A+</span><span class="bb">字体 ▾</span><i class="bb-sep"></i><span class="bb">调整</span><span class="bb">×</span></div>
           <div class="kv" style="border-top:0"><span>今日新增</span><span class="n">0 篇</span></div>
           <div class="grip-y"></div><div class="grip-x"></div>
         </div>
-        <p class="sg-note">编排时：虚线框（悬停变墨色）· 黑色操作条 · 下边框拉手调高、侧边框调宽。</p>
+        <p class="sg-note">编排时：虚线框（悬停变墨色）· 黑色操作条（拖 ⠿ 挪位置；A− / A+ 字号一下一档；字体 ▾ 点一下换；调整 = 这一块别的设置；× 移除）· 下边框拉手调高、悬停时侧边框出现竖线可拖宽。拉手正好压在虚线上。</p>
       </div>
       <div class="sg-cell p-set">
-        <div class="set-head"><span class="n-sm">02</span><h3>收藏与同步</h3></div>
-        <div class="kv"><span>同步时间</span><span>每天 <span class="n">18:00</span></span></div>
+        <div class="set-head"><span class="set-num">02</span><h3>收藏与同步</h3></div>
+        <div class="kv"><span>同步时间</span><span class="n">每天 18:00</span></div>
         <div class="kv"><span>每天新收</span><span class="n">200 篇</span></div>
         <p class="sg-note">设置页的分组：序号（小档）+ 标题（正文字 600）+ 上方墨线；行 = 名字在左、值 / 控件在右。</p>
       </div>

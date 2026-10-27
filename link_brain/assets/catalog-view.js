@@ -592,9 +592,9 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
    数字和拉丁字母 Cormorant 斜体；中文混在数字里（「0 篇」「人民币估算」）落到衬线中文，且不许浏览器硬斜（font-synthesis-style:none，整页都关） */
 /* 直立中文字面只给边栏四块（挂到全页 / 页头会让首开慢 8–15ms；边栏是首帧之后才画的） */
 .lbc-mod{--f-latin:"LB CJK Upright",var(--lb-font-num);}
-.lbc-mod{--f-sans:"LB Cormorant",var(--f-serif);--f-serif:"LB Cormorant",var(--lb-font-serif);}
+.lbc-mod{--f-sans:"LB Digits",var(--f-serif);--f-serif:"LB Digits",var(--lb-font-serif);}
 .lbc-mod,.lbc-mod *{font-variant-numeric:lining-nums tabular-nums!important;}   /* Cormorant 默认是高低不齐的旧式数字：边栏里一律等高（font: 简写会把它重置，所以每个元素都给） */
-/* 标签里的数字 / 字母（「近 7 天」「Token 费用」）也落 Cormorant，中文落衬线 */
+/* 标签 / 名字里的数字（「近 7 天」「样例 4」）落 Cormorant 斜体；字母和中文是衬线直立（「AI」「Token」是名字，不斜） */
 .lbc-mod .lbc-lab small{letter-spacing:.1em;}
 .lbc-mod .lbc-sy-big,.lbc-mod .lbc-fig-n{font:italic 400 var(--lbc-num-lg)/1.05 var(--f-latin);letter-spacing:0;}
 .lbc-mod .lbc-sy-big i{font-style:italic;}
@@ -639,6 +639,7 @@ const ARRANGE_CSS = `
 .lbc-mod-bar .lbc-mb-h svg{width:10px;height:14px;}
 .lbc-mod-bar .lbc-mb-nm{padding:0 8px 0 2px;font-weight:500;overflow:hidden;text-overflow:ellipsis;}
 .lbc-mod-bar .lbc-mb-sep{width:1px;height:12px;background:currentColor;opacity:.3;margin:0 3px;flex:none;}
+.lbc-wrap .lbc-mod-bar button.lbc-mb-sz{min-width:26px;padding:0 5px!important;}
 .lbc-wrap .lbc-mod-bar button{width:auto!important;min-width:24px;height:22px!important;padding:0 7px!important;margin:0!important;border:0!important;border-radius:999px!important;background:transparent!important;color:inherit!important;box-shadow:none!important;font:inherit!important;cursor:pointer;}
 .lbc-wrap .lbc-mod-bar button:hover:not(:disabled),.lbc-wrap .lbc-mod-bar button[aria-expanded="true"]{background:var(--c-bg)!important;color:var(--c-ink)!important;}
 .lbc-wrap .lbc-mod-bar button:disabled{opacity:.3;cursor:default;}
@@ -4274,6 +4275,22 @@ function ensureBar(id) {
   };
   bar.createEl('span', { cls: 'lbc-mb-nm', text: MOD_NAMES[id] });
   bar.createEl('span', { cls: 'lbc-mb-sep' });
+  // 1027b 她：「调整样式不方便」——字号、字体直接在操作条上：A− / A+ 一下一档（85 / 100 / 115 / 130 / 150%），「字体 ▾」弹一张单子点一下就换；
+  // 别的设置还在「调整」里（和这里是同一份 g.font / g.size，改哪边另一边跟着）
+  let sm = null, lg = null;
+  if (id !== 'wall') {
+    sm = bar.createEl('button', { cls: 'lbc-mb-sz', text: 'A−' }); sm.type = 'button'; sm.dataset.act = 'smaller';
+    lg = bar.createEl('button', { cls: 'lbc-mb-sz', text: 'A+' }); lg.type = 'button'; lg.dataset.act = 'bigger';
+    sm.onclick = e => { e?.stopPropagation?.(); stepSize(id, -1); };
+    lg.onclick = e => { e?.stopPropagation?.(); stepSize(id, 1); };
+  }
+  const ft = bar.createEl('button', { text: '字体 ▾' }); ft.type = 'button'; ft.dataset.act = 'font'; ft.setAttribute('aria-haspopup', 'menu');
+  ft.onclick = e => {
+    e?.stopPropagation?.();
+    const g = modCfg(id), r = ft.getBoundingClientRect?.() || { left: 0, bottom: 0 };
+    popMenu(FONT_SET.map(([v, n]) => ({ title: n, checked: (g.font || '') === v, onClick: () => setModFont(id, v) })), e, ft, { x: r.left, y: r.bottom + 4 });
+  };
+  bar.createEl('span', { cls: 'lbc-mb-sep' });
   const adj = bar.createEl('button', { text: '调整' }); adj.type = 'button'; adj.dataset.act = 'adjust'; adj.setAttribute('aria-expanded', 'false');
   adj.onclick = e => { e?.stopPropagation?.(); togglePanel(id); };
   const x = bar.createEl('button', { text: '×' }); x.type = 'button'; x.dataset.act = 'remove';
@@ -4293,8 +4310,24 @@ function ensureBar(id) {
     ry.onkeydown = e => { if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return; e.preventDefault?.(); setModHeight(id, (modH(modOpt(id).h) || heightBox(id)) + (e.key === 'ArrowUp' ? -20 : 20), true); };
     el.append(ry);
   }
-  bars[id] = { bar, grip, adj, x, rx, ry };
+  bars[id] = { bar, grip, adj, x, rx, ry, sm, lg, ft };
+  paintBar(id);
   return bars[id];
+}
+function stepSize(id, d) {
+  const g = modCfg(id); let i = SIZE_SET.indexOf(g.size);
+  if (i < 0) i = Math.max(0, SIZE_SET.findIndex(n => n >= g.size));
+  const n = SIZE_SET[Math.max(0, Math.min(SIZE_SET.length - 1, i + d))];
+  if (n === g.size) return;
+  g.size = n; if (!layout.cfg[id]) layout.cfg[id] = g;
+  paintVisibility(); saveLayout(); relayoutSoon(); paintBar(id);
+  if (openPanel?.id === id) refreshPanel();
+}
+function setModFont(id, v) {
+  const g = modCfg(id); if ((g.font || '') === v) return;
+  g.font = v; if (!layout.cfg[id]) layout.cfg[id] = g;
+  paintVisibility(); saveLayout(); paintBar(id);
+  if (openPanel?.id === id) refreshPanel();
 }
 // 这一块在哪一排、它右边（最后一列就左边）那条列边是第几条；不和别的列并排 → null
 function colPos(id) {
@@ -4334,6 +4367,13 @@ docOn('pointermove', e => { if (!hDrag) return; const d = hDrag, h = Math.round(
 docOn('pointerup', () => { if (!hDrag) return; const d = hDrag; hDrag = null; try { d.el.releasePointerCapture?.(d.pointer); } catch {} d.el.classList.remove('is-on'); if (d.moved) saveLayout(); });
 function paintBar(id) {
   const b = bars[id]; if (!b) return;
+  if (b.sm) {
+    const sz = modCfg(id).size;
+    b.sm.disabled = sz <= SIZE_SET[0]; b.lg.disabled = sz >= SIZE_SET[SIZE_SET.length - 1];
+    b.sm.title = b.lg.title = `字号 ${sz}%`;
+    b.sm.setAttribute('aria-label', `「${MOD_NAMES[id]}」字小一档（现在 ${sz}%）`); b.lg.setAttribute('aria-label', `「${MOD_NAMES[id]}」字大一档（现在 ${sz}%）`);
+  }
+  if (b.ft) { const f = modCfg(id).font || ''; const nm = (FONT_SET.find(([v]) => v === f) || [f, f])[1]; b.ft.title = '字体：' + nm; b.ft.setAttribute('aria-label', `「${MOD_NAMES[id]}」字体（现在：${nm}）`); }
   b.adj.setAttribute('aria-expanded', String(openPanel?.id === id));
   modEl(id)?.classList.toggle('is-panel', openPanel?.id === id);
   if (id === 'filters') { b.x.textContent = modCfg(id).hidden ? '＋' : '×'; b.x.setAttribute('aria-label', modCfg(id).hidden ? '筛选项放回来' : '收起筛选项（搜索保留）'); b.x.onclick = e => { e?.stopPropagation?.(); setModHidden('filters', !modCfg('filters').hidden); }; }

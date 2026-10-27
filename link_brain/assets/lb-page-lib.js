@@ -696,8 +696,11 @@ function lbPageLib(dv, app, role) {
   const brandTitleText = () => String(provider()?.settings?.catalogTitle || '').trim() || 'Collections';
   function brandFontCss() {
     const url = rel => { try { return String(app.vault.adapter.getResourcePath?.(path(rel)) || ''); } catch { return ''; } };
-    const face = (family, rel, weight, style) => { const u = url(rel); return u ? `@font-face{font-family:"${family}";src:url("${u.replace(/"/g, '%22')}") format("woff2");font-weight:${weight};font-style:${style};font-display:swap;}\n` : ''; };
-    return face('LB Cinzel', BRAND_FONTS.cinzel, '400 900', 'normal') + face('LB Cormorant', BRAND_FONTS.cormorant, '300 700', 'italic');
+    const face = (family, rel, weight, style, range = '') => { const u = url(rel); return u ? `@font-face{font-family:"${family}";src:url("${u.replace(/"/g, '%22')}") format("woff2");font-weight:${weight};font-style:${style};font-display:swap;${range ? 'unicode-range:' + range + ';' : ''}}\n` : ''; };
+    // 1027b「LB Digits」= 同一个 Cormorant 文件，只管数字和数字旁的符号：放在中文文字的字体栈最前面，文字里的数字是 Cormorant 斜体，
+    // 字母（「AI」「Token」）和中文照样是那段文字自己的字、直立（名字是名字，只有数是斜的）
+    return face('LB Cinzel', BRAND_FONTS.cinzel, '400 900', 'normal') + face('LB Cormorant', BRAND_FONTS.cormorant, '300 700', 'italic')
+      + face('LB Digits', BRAND_FONTS.cormorant, '300 700', 'italic', 'U+0030-0039,U+0025,U+002B-002F,U+003A,U+00A5,U+FFE5');
   }
   // 雕刻斜体大标题：字上再叠一层同样的字（data-text → ::after，描边用底色、往左错一点）= 一道刻线
   const brandCss = (titleSel, engrSel) => `${titleSel}{font:900 var(--lb-fs-display)/1.02 var(--lb-font-title);font-style:normal;letter-spacing:.012em;text-transform:uppercase;transform:skewX(-13deg);display:inline-flex;align-items:baseline;white-space:nowrap;color:var(--lb-ink);}

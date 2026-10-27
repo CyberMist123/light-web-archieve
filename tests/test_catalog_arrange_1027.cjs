@@ -170,6 +170,26 @@ async function dragTo(P, id, x, y) {
     assert.equal(tk.classList.contains('has-h'), false, '双击 = 跟内容走');
     await tick(450);
     assert.equal(L(p).modules.find(m => m.id === 'token').options, undefined);
+    // 1027b 操作条上直接改字号 / 字体（不用开「调整」）
+    const bt = act => P.$(`.lbc-m-sync .lbc-mod-bar [data-act="${act}"]`);
+    assert.ok(bt('smaller') && bt('bigger') && bt('font'), '操作条上有 A− / A+ / 字体');
+    assert.equal(P.$('.lbc-board-main .lbc-mod-bar [data-act="bigger"]'), null, '收藏墙没有字号');
+    bt('bigger').onclick(ev());
+    assert.equal(mod(P, 'sync').style.getPropertyValue('--lbc-m-k'), '1.15', 'A+ 一档 = 115%');
+    for (let i = 0; i < 5; i++) bt('bigger').onclick(ev());
+    assert.equal(mod(P, 'sync').style.getPropertyValue('--lbc-m-k'), '1.5'); assert.equal(bt('bigger').disabled, true, '到 150% 不能再大');
+    for (let i = 0; i < 5; i++) bt('smaller').onclick(ev());
+    assert.equal(mod(P, 'sync').style.getPropertyValue('--lbc-m-k'), '0.85'); assert.equal(bt('smaller').disabled, true);
+    bt('bigger').onclick(ev());
+    assert.equal(mod(P, 'sync').style.getPropertyValue('--lbc-m-k'), '', '回到 100% = 不写');
+    bt('font').onclick(ev()); await tick(5);
+    // 测试插件没有 showMenu：走页面自制菜单（挂在 body 上）
+    const item = P.dom.document.body.querySelectorAll('.lbc-menu-item').find(b => /思源宋体/.test(b.textContent));
+    assert.ok(item, '字体菜单列出全部字体');
+    item.onclick(ev());
+    assert.match(mod(P, 'sync').style.getPropertyValue('--f-sans'), /Noto Serif SC/, '字体菜单点一下就换');
+    await tick(450);
+    assert.match(L(p).modules.find(m => m.id === 'sync').typography.font, /Noto Serif SC/, '存进 catalogLayout');
   }
 
   // ── ⑤ 调整 ──

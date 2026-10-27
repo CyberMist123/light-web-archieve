@@ -4,7 +4,7 @@
 注意：目录页边栏四块（RECENT / SYNC / TOKEN / OVERVIEW）和设置页在 1027b 已经把 serif / 数字字体变量改指正文字，
 那里的 A 类条目页面上已经是正文字了（这里按源码列，换的时候顺手删掉旧写法）。
 
-## A 字体（第二、三套字 / 斜体） · 56 处
+## A 字体（第二、三套字 / 斜体） · 57 处
 
 ### `link_brain/assets/catalog-view.js`（46）
 
@@ -47,13 +47,13 @@
 - [link_brain/assets/catalog-view.js:570](../link_brain/assets/catalog-view.js#L570) `.lbc-rpage{font:italic 15px/1 var(--f-latin);font-va`
 - [link_brain/assets/catalog-view.js:588](../link_brain/assets/catalog-view.js#L588) `这个字面只管中文码段、自己声明成 italic：斜体文字里的中文就用它（= 衬线中文原样直立），数字照旧落`
 - [link_brain/assets/catalog-view.js:594](../link_brain/assets/catalog-view.js#L594) `.lbc-mod{--f-latin:"LB CJK Upright",var(--lb-font-num);}`
-- [link_brain/assets/catalog-view.js:595](../link_brain/assets/catalog-view.js#L595) `.lbc-mod{--f-sans:"LB Cormorant",var(--f-serif);--f-serif:"LB Cormorant",var(`
+- [link_brain/assets/catalog-view.js:595](../link_brain/assets/catalog-view.js#L595) `.lbc-mod{--f-sans:"LB Digits",var(--f-serif);--f-serif:"LB Digits",var(--l`
 - [link_brain/assets/catalog-view.js:599](../link_brain/assets/catalog-view.js#L599) `.lbc-mod .lbc-sy-big,.lbc-mod .lbc-fig-n{font:italic 400 var(--lbc-num-lg)/1.05 va`
 - [link_brain/assets/catalog-view.js:600](../link_brain/assets/catalog-view.js#L600) `.lbc-mod .lbc-sy-big i{font-style:italic;}`
 - [link_brain/assets/catalog-view.js:601](../link_brain/assets/catalog-view.js#L601) `.lbc-sy-row b,.lbc-mod .lbc-sy-row.is-tot b{font:italic 500 var(--lbc-num)/1.2 var(--`
 - [link_brain/assets/catalog-view.js:604](../link_brain/assets/catalog-view.js#L604) `.lbc-mod .lbc-rec time{font-style:italic;}`
 - [link_brain/assets/catalog-view.js:621](../link_brain/assets/catalog-view.js#L621) `ansparent;box-shadow:none;color:var(--c-ink);font:italic 500 var(--lbc-num)/1 var(--f-`
-- [link_brain/assets/catalog-view.js:681](../link_brain/assets/catalog-view.js#L681) `.lbc-mp-cat .lbc-mp-n{font:italic 13px/1 var(--f-latin);color:v`
+- [link_brain/assets/catalog-view.js:682](../link_brain/assets/catalog-view.js#L682) `.lbc-mp-cat .lbc-mp-n{font:italic 13px/1 var(--f-latin);color:v`
 
 ### `link_brain/assets/chat-view.js`（3）
 
@@ -65,9 +65,10 @@
 
 - [link_brain/assets/trash-view.js:20](../link_brain/assets/trash-view.js#L20) `.lbt-title{font-family:Georgia,'Playfair Display','Times New`
 
-### `link_brain/assets/lb-page-lib.js`（1）
+### `link_brain/assets/lb-page-lib.js`（2）
 
-- [link_brain/assets/lb-page-lib.js:700](../link_brain/assets/lb-page-lib.js#L700) `LB Cormorant', BRAND_FONTS.cormorant, '300 700', 'italic');`
+- [link_brain/assets/lb-page-lib.js:702](../link_brain/assets/lb-page-lib.js#L702) `LB Cormorant', BRAND_FONTS.cormorant, '300 700', 'italic')`
+- [link_brain/assets/lb-page-lib.js:703](../link_brain/assets/lb-page-lib.js#L703) `e('LB Digits', BRAND_FONTS.cormorant, '300 700', 'italic', 'U+0030-0039,U+0025,U+002B-`
 
 ### `obsidian-plugins/link-brain-actions/styles.css`（5）
 
@@ -204,21 +205,21 @@
 - [link_brain/assets/catalog-view.js:582](../link_brain/assets/catalog-view.js#L582) `.lbc-cats{gap:4px 22px;font-size:16.5px;margin-top:8px;}.lbc-ctl{gap:`
 - [link_brain/assets/catalog-view.js:584](../link_brain/assets/catalog-view.js#L584) `.lbc-ctitle{font-size:14.5px;}.lbc-card-more{opacity:1;}.l`
 - [link_brain/assets/catalog-view.js:636](../link_brain/assets/catalog-view.js#L636) `ar(--c-ink);color:var(--c-bg);border-radius:999px;font:12px/1 var(--f-sans);white-space:n`
-- [link_brain/assets/catalog-view.js:651](../link_brain/assets/catalog-view.js#L651) `s:999px;background:var(--c-ink);color:var(--c-bg);font:12px/1 var(--f-sans);white-space:n`
-- [link_brain/assets/catalog-view.js:665](../link_brain/assets/catalog-view.js#L665) `ius:4px;background:var(--c-bg);color:var(--c-ink);font:13px/1.5 var(--f-sans);zoom:1;}`
-- [link_brain/assets/catalog-view.js:667](../link_brain/assets/catalog-view.js#L667) `p-h .lbc-mp-save{margin-left:auto;font-weight:400;font-size:12px;color:var(--c-muted);}`
-- [link_brain/assets/catalog-view.js:669](../link_brain/assets/catalog-view.js#L669) `.lbc-mp-row>label,.lbc-mp-k{color:var(--c-muted);font-size:12px;min-width:3.5em;}`
-- [link_brain/assets/catalog-view.js:670](../link_brain/assets/catalog-view.js#L670) `.lbc-mp-row label.lbc-mp-ck{color:var(--c-ink);font-size:13px;min-width:0;display:inline-fl`
-- [link_brain/assets/catalog-view.js:671](../link_brain/assets/catalog-view.js#L671) `ius:4px;background:var(--c-bg);color:var(--c-ink);font:13px var(--f-sans);max-width:100%;`
-- [link_brain/assets/catalog-view.js:674](../link_brain/assets/catalog-view.js#L674) `:var(--c-ink)!important;box-shadow:none!important;font:12.5px/1 var(--f-sans)!important;cur`
-- [link_brain/assets/catalog-view.js:677](../link_brain/assets/catalog-view.js#L677) `.lbc-mp-note{margin:6px 0 0;font-size:12px;color:var(--c-muted);}`
-- [link_brain/assets/catalog-view.js:681](../link_brain/assets/catalog-view.js#L681) `.lbc-mp-cat .lbc-mp-n{font:italic 13px/1 var(--f-latin);color:var(--`
-- [link_brain/assets/catalog-view.js:684](../link_brain/assets/catalog-view.js#L684) `.lbc-arrange-tray .lbc-at-k{font:700 11px/1 var(--f-display);letter-spa`
-- [link_brain/assets/catalog-view.js:685](../link_brain/assets/catalog-view.js#L685) `.lbc-arrange-tray .lbc-at-save{margin-left:auto;font-size:12px;color:var(--c-muted);}`
-- [link_brain/assets/catalog-view.js:687](../link_brain/assets/catalog-view.js#L687) `c-arrange-tray .lbc-at-hint{order:9;flex:1 1 100%;font-size:12px;line-height:1.6;color:var(--c`
-- [link_brain/assets/catalog-view.js:690](../link_brain/assets/catalog-view.js#L690) `el{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--c-muted);}`
-- [link_brain/assets/catalog-view.js:691](../link_brain/assets/catalog-view.js#L691) `ius:4px;background:var(--c-bg);color:var(--c-ink);font:13px var(--f-sans);}`
-- [link_brain/assets/catalog-view.js:692](../link_brain/assets/catalog-view.js#L692) `:var(--c-ink)!important;box-shadow:none!important;font:13px/1 var(--f-sans)!important;cur`
+- [link_brain/assets/catalog-view.js:652](../link_brain/assets/catalog-view.js#L652) `s:999px;background:var(--c-ink);color:var(--c-bg);font:12px/1 var(--f-sans);white-space:n`
+- [link_brain/assets/catalog-view.js:666](../link_brain/assets/catalog-view.js#L666) `ius:4px;background:var(--c-bg);color:var(--c-ink);font:13px/1.5 var(--f-sans);zoom:1;}`
+- [link_brain/assets/catalog-view.js:668](../link_brain/assets/catalog-view.js#L668) `p-h .lbc-mp-save{margin-left:auto;font-weight:400;font-size:12px;color:var(--c-muted);}`
+- [link_brain/assets/catalog-view.js:670](../link_brain/assets/catalog-view.js#L670) `.lbc-mp-row>label,.lbc-mp-k{color:var(--c-muted);font-size:12px;min-width:3.5em;}`
+- [link_brain/assets/catalog-view.js:671](../link_brain/assets/catalog-view.js#L671) `.lbc-mp-row label.lbc-mp-ck{color:var(--c-ink);font-size:13px;min-width:0;display:inline-fl`
+- [link_brain/assets/catalog-view.js:672](../link_brain/assets/catalog-view.js#L672) `ius:4px;background:var(--c-bg);color:var(--c-ink);font:13px var(--f-sans);max-width:100%;`
+- [link_brain/assets/catalog-view.js:675](../link_brain/assets/catalog-view.js#L675) `:var(--c-ink)!important;box-shadow:none!important;font:12.5px/1 var(--f-sans)!important;cur`
+- [link_brain/assets/catalog-view.js:678](../link_brain/assets/catalog-view.js#L678) `.lbc-mp-note{margin:6px 0 0;font-size:12px;color:var(--c-muted);}`
+- [link_brain/assets/catalog-view.js:682](../link_brain/assets/catalog-view.js#L682) `.lbc-mp-cat .lbc-mp-n{font:italic 13px/1 var(--f-latin);color:var(--`
+- [link_brain/assets/catalog-view.js:685](../link_brain/assets/catalog-view.js#L685) `.lbc-arrange-tray .lbc-at-k{font:700 11px/1 var(--f-display);letter-spa`
+- [link_brain/assets/catalog-view.js:686](../link_brain/assets/catalog-view.js#L686) `.lbc-arrange-tray .lbc-at-save{margin-left:auto;font-size:12px;color:var(--c-muted);}`
+- [link_brain/assets/catalog-view.js:688](../link_brain/assets/catalog-view.js#L688) `c-arrange-tray .lbc-at-hint{order:9;flex:1 1 100%;font-size:12px;line-height:1.6;color:var(--c`
+- [link_brain/assets/catalog-view.js:691](../link_brain/assets/catalog-view.js#L691) `el{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--c-muted);}`
+- [link_brain/assets/catalog-view.js:692](../link_brain/assets/catalog-view.js#L692) `ius:4px;background:var(--c-bg);color:var(--c-ink);font:13px var(--f-sans);}`
+- [link_brain/assets/catalog-view.js:693](../link_brain/assets/catalog-view.js#L693) `:var(--c-ink)!important;box-shadow:none!important;font:13px/1 var(--f-sans)!important;cur`
 
 ### `link_brain/assets/chat-view.js`（84）
 

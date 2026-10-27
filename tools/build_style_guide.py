@@ -16,17 +16,19 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "docs" / "style-guide.src.html"
 OUT = ROOT / "docs" / "style-guide.html"
 TOKENS = ROOT / "link_brain" / "assets" / "lb-tokens.css"
-FONTS = [("LB Cinzel", "Cinzel-latin-variable.woff2", "400 900", "normal"),
-         ("LB Cormorant", "CormorantGaramond-Italic-latin-variable.woff2", "300 700", "italic")]
+FONTS = [("LB Cinzel", "Cinzel-latin-variable.woff2", "400 900", "normal", ""),
+         ("LB Cormorant", "CormorantGaramond-Italic-latin-variable.woff2", "300 700", "italic", ""),
+         # 和 lb-page-lib.js brandFontCss 的「LB Digits」同一个：只管数字，名字里的字母不斜
+         ("LB Digits", "CormorantGaramond-Italic-latin-variable.woff2", "300 700", "italic", "U+0030-0039,U+0025,U+002B-002F,U+003A,U+00A5,U+FFE5")]
 
 
 def build() -> str:
     src = SRC.read_text(encoding="utf-8")
     faces = []
-    for family, name, weight, style in FONTS:
+    for family, name, weight, style, rng in FONTS:
         data = base64.b64encode((ROOT / "link_brain" / "assets" / "fonts" / name).read_bytes()).decode("ascii")
         faces.append(f'@font-face{{font-family:"{family}";src:url(data:font/woff2;base64,{data}) format("woff2");'
-                     f"font-weight:{weight};font-style:{style};font-display:block;}}")
+                     f"font-weight:{weight};font-style:{style};font-display:block;" + (f"unicode-range:{rng};" if rng else "") + "}")
     for mark in ("/*@FONTS@*/", "/*@TOKENS@*/"):
         if src.count(mark) != 1:
             raise SystemExit(f"{SRC.name} 里 {mark} 应该正好一处")
