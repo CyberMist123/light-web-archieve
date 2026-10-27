@@ -35,6 +35,8 @@ body,.lb-page-host,.lb-scope{--lb-ink:var(--text-normal);--lb-muted:var(--text-m
 .lb-kicker{font:700 var(--lb-fs-micro)/1 var(--lb-font-title);letter-spacing:.26em;text-transform:uppercase;color:var(--lb-muted);}
 /* lb-tokens:end */
 
+/* 斜体数字里混的中文：直立的衬线中文（和目录页同一条 @font-face） */
+@font-face{font-family:"LB CJK Upright";src:local("Noto Serif SC"),local("Source Han Serif SC"),local("Source Han Serif CN"),local("Songti SC"),local("STSong"),local("SimSun");font-style:italic;font-weight:100 900;unicode-range:U+2E80-2FFF,U+3000-303F,U+3040-30FF,U+3400-4DBF,U+4E00-9FFF,U+F900-FAFF,U+FF00-FFEF;}
 </style>
 <style>
 /* 在 Obsidian 外面看：先给出样式集要映射的那几个 Obsidian 主题变量。深色不靠脚本：跟系统走，右上角按钮可强制 */
@@ -42,16 +44,22 @@ body,.lb-page-host,.lb-scope{--lb-ink:var(--text-normal);--lb-muted:var(--text-m
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){color-scheme:dark;--text-normal:#dadada;--text-muted:#9a9a9a;--text-faint:#666;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#363636;--background-modifier-hover:rgba(255,255,255,.06);--text-warning:#e0a040;--text-error:#ef6b6b;--text-success:#6bbf73;}}
 :root[data-theme="dark"]{color-scheme:dark;--text-normal:#dadada;--text-muted:#9a9a9a;--text-faint:#666;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#363636;--background-modifier-hover:rgba(255,255,255,.06);--text-warning:#e0a040;--text-error:#ef6b6b;--text-success:#6bbf73;}
 /* 样式集的颜色定义在 body 上（var() 在定义那层算死）：深浅一换 body 跟着重算 */
-body{margin:0;background:var(--background-primary);color:var(--text-normal);font:var(--lb-fs-body)/1.6 var(--lb-font-body);}
+body{margin:0;background:var(--background-primary);color:var(--text-normal);font:var(--lb-fs-body)/1.6 var(--lb-font-body);font-synthesis-style:none;}
 
 /* ── 两套「面孔」：同一组名字，目录页 = 展示型，设置页 = 工具型 ──
-   .p-cat 目录页：雕刻字（英文小标题 / 品牌）· 衬线中文（小标题旁的中文名、分类行）· Cormorant 斜体（所有数字、日期）· 黑体正文（其余）
+   .p-cat 目录页：雕刻字（英文小标题 / 品牌）· 衬线中文（所有中文，直体）· Cormorant 斜体（所有数字、日期、拉丁字母）
+          中文混在数字里落到衬线中文、不许硬斜（font-synthesis-style:none）
    .p-set 设置页：只用黑体正文；标题加粗，不斜体；数字用等宽数字对齐 */
-.p-cat{--num-font:var(--lb-font-num);--num-style:italic;--num-w:400;--zh-font:var(--lb-font-serif);--zh-sp:.1em;--kick-font:var(--lb-font-title);
+.p-cat{font-variant-numeric:lining-nums tabular-nums;font-family:"LB Cormorant",var(--lb-font-serif);--txt-font:"LB Cormorant",var(--lb-font-serif);--num-font:"LB CJK Upright",var(--lb-font-num);--num-style:italic;--num-w:400;--zh-font:var(--lb-font-serif);--zh-sp:.1em;--kick-font:var(--lb-font-title);
   --num-lg:34px;--num:15px;--num-sm:13px;}
-.p-set{--num-font:var(--lb-font-body);--num-style:normal;--num-w:600;--zh-font:var(--lb-font-body);--zh-sp:.04em;--kick-font:var(--lb-font-body);
+.p-set{font-family:var(--lb-font-body);--txt-font:var(--lb-font-body);--num-font:var(--lb-font-body);--num-style:normal;--num-w:600;--zh-font:var(--lb-font-body);--zh-sp:.04em;--kick-font:var(--lb-font-body);
   --num-lg:24px;--num:var(--lb-fs-body);--num-sm:var(--lb-fs-small);}
 
+/* 模版自己的说明文字（表格、注释）一律正文字；只有「目录页」例子（.sg-cell.p-cat / td.p-cat）才是目录页的字 */
+.sg-sec.p-cat{font-family:var(--lb-font-body);}
+.sg-sec.p-cat .sg-note .p-cat,.sg-cell.p-cat,td.p-cat{font-variant-numeric:lining-nums tabular-nums;font-family:"LB Cormorant",var(--lb-font-serif);}
+.sg-cell.p-cat .sg-note{font-family:var(--lb-font-body);}
+.p-cat,.p-cat *{font-variant-numeric:lining-nums tabular-nums!important;}
 .sg{max-width:1040px;margin:0 auto;padding:var(--lb-space-6) var(--lb-space-4) 80px;container-type:inline-size;}
 .sg-brand{font:900 clamp(30px,8cqi,64px)/1 var(--lb-font-title);letter-spacing:.012em;text-transform:uppercase;transform:skewX(-13deg);margin:var(--lb-space-2) 0 0;}
 .sg-lead{color:var(--lb-muted);margin:var(--lb-space-3) 0 0;max-width:680px;}
@@ -90,7 +98,7 @@ body{margin:0;background:var(--background-primary);color:var(--text-normal);font
 .list li>span:nth-child(2){white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .list li>span:last-child{color:var(--lb-muted);font-size:var(--lb-fs-small);}
 .seg{display:inline-flex;gap:2px;margin-bottom:var(--lb-space-2);}
-.seg button{height:24px;padding:0 12px;border:1px solid transparent;border-radius:var(--lb-radius-pill);background:transparent;color:var(--lb-muted);font:var(--lb-fs-small)/1 var(--lb-font-body);cursor:pointer;}
+.seg button{height:24px;padding:0 12px;border:1px solid transparent;border-radius:var(--lb-radius-pill);background:transparent;color:var(--lb-muted);font:var(--lb-fs-small)/1 var(--txt-font);cursor:pointer;}
 .seg button.is-on{border-color:var(--lb-ink);color:var(--lb-ink);font-weight:600;}
 .chip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border:1px solid var(--lb-line);border-radius:var(--lb-radius-pill);font-size:var(--lb-fs-small);color:var(--lb-ink);}
 .chip .n-sm{color:var(--lb-faint);}
@@ -119,9 +127,9 @@ body{margin:0;background:var(--background-primary);color:var(--text-normal);font
     <table class="sg-table">
       <tr><th></th><th>目录页（展示型）</th><th>设置页（工具型）</th></tr>
       <tr><td>英文小标题</td><td>雕刻字 Cinzel，700，字距 .26em</td><td>正文字 600，字距 .08em，次色</td></tr>
-      <tr><td>中文小标题</td><td>衬线中文，字距 .1em，次色</td><td>正文字 600</td></tr>
-      <tr><td>数字 / 日期</td><td><b>全部</b> Cormorant 斜体（不再有直体数字混进来）</td><td>正文字，等宽数字对齐，不斜体</td></tr>
-      <tr><td>正文 / 按钮 / 输入</td><td colspan="2">正文字（黑体），两边一样</td></tr>
+      <tr><td>中文</td><td><b>所有中文一种字：衬线中文，直体</b>——小标题、标签、列表标题、按钮都一样；混在数字里的「篇」「人民币估算」也不斜</td><td><b>所有中文一种字：正文字（黑体）</b>，标题加粗</td></tr>
+      <tr><td>数字 / 日期 / 拉丁字母</td><td><b>全部</b> Cormorant 斜体</td><td>正文字，等宽数字对齐，不斜体</td></tr>
+      <tr><td>输入框里打的字</td><td colspan="2">正文字（黑体），两边一样——打字要清楚</td></tr>
       <tr><td>数字大小</td><td><b>只三档</b>：大 34 · 行尾 15 · 小 13（一块里最重要的数用大档，各块一样大）</td><td>只三档：大 24 · 正文 13.5 · 小 12</td></tr>
       <tr><td>颜色 / 间距 / 圆角</td><td colspan="2">两边同一套（下面「颜色」「间距」）；黑白为主，橙 / 红只给状态，颜色只出现在封面里</td></tr>
     </table>
@@ -167,9 +175,9 @@ body{margin:0;background:var(--background-primary);color:var(--text-normal);font
     <div class="k-head"><span class="k-en">Type</span><span class="k-zh">字体</span><span class="k-line"></span></div>
     <div class="sg-grid">
       <div class="sg-cell"><div class="k-en" style="font-size:16px">Recent · Sync</div><p class="sg-note">雕刻字 <code>--lb-font-title</code>。目录页的英文小标题、品牌大标题。</p></div>
-      <div class="sg-cell"><div style="font:18px/1.4 var(--lb-font-serif);letter-spacing:.1em">最近导入 · 美食</div><p class="sg-note">衬线中文 <code>--lb-font-serif</code>。目录页：小标题旁的中文名、分类行。</p></div>
+      <div class="sg-cell"><div style="font:18px/1.4 var(--lb-font-serif)">最近导入 · 后台每日上限</div><p class="sg-note">衬线中文 <code>--lb-font-serif</code>。目录页的<b>所有</b>中文。</p></div>
       <div class="sg-cell"><div class="n-lg" style="font-size:28px">1438 · 10/26 · ¥3</div><p class="sg-note">Cormorant 斜体 <code>--lb-font-num</code>。目录页：所有数字和日期。</p></div>
-      <div class="sg-cell"><div style="font:600 18px/1.4 var(--lb-font-body)">收藏与同步 1438 篇</div><p class="sg-note">正文字 <code>--lb-font-body</code>。两边的正文；设置页的一切。</p></div>
+      <div class="sg-cell"><div style="font:600 18px/1.4 var(--lb-font-body)">收藏与同步 1438 篇</div><p class="sg-note">正文字 <code>--lb-font-body</code>。设置页的一切；两边的输入框。</p></div>
     </div>
   </section>
 
@@ -182,7 +190,7 @@ body{margin:0;background:var(--background-primary);color:var(--text-normal);font
       <tr><td>大数字</td><td class="p-cat"><span class="n-lg">¥ 46.24</span></td><td class="p-set"><span class="n-lg">¥ 46.24</span></td><td class="sg-hide">一块里最重要的那个数</td></tr>
       <tr><td>标题</td><td style="font:18px var(--lb-font-serif);letter-spacing:.04em">收藏与同步</td><td style="font:600 18px var(--lb-font-body)">收藏与同步</td><td class="sg-hide"><code>--lb-fs-h1</code> 18</td></tr>
       <tr><td>行尾的数</td><td class="p-cat"><span class="n">0 篇 · ¥3</span></td><td class="p-set"><span class="n">0 篇 · ¥3</span></td><td class="sg-hide">今日新增、上限、计数</td></tr>
-      <tr><td>正文</td><td colspan="2">正文、按钮、输入、列表行（<code>--lb-fs-body</code> 13.5）</td><td class="sg-hide">默认</td></tr>
+      <tr><td>正文</td><td class="p-cat">后台每日上限 · 列表标题</td><td class="p-set">后台每日上限 · 列表标题</td><td class="sg-hide"><code>--lb-fs-body</code> 13.5</td></tr>
       <tr><td>小字</td><td class="p-cat"><span class="n-sm">10/26 · 2026-10</span> <span style="font-size:var(--lb-fs-small);color:var(--lb-muted)">说明</span></td><td class="p-set"><span class="n-sm">10/26 · 2026-10</span> <span style="font-size:var(--lb-fs-small);color:var(--lb-muted)">说明</span></td><td class="sg-hide"><code>--lb-fs-small</code> 12 / 日期 13</td></tr>
     </table>
     <p class="sg-note">就这几档。目录页边栏四块（最近导入 / 同步 / Token / 概览）1027b 已经并成三档；分类行、收藏墙卡片、问收藏还有 30 / 24 / 17 / 12.5 这些零散大小，见 <code>docs/STYLE-DEVIATIONS.md</code> 的 B 类。</p>

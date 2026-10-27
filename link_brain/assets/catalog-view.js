@@ -70,8 +70,9 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-tools button.lb-manage{width:auto!important;height:var(--ctl-h)!important;padding:0 14px!important;border:1px solid var(--c-ink)!important;border-radius:999px!important;background:var(--c-bg)!important;color:var(--c-ink)!important;box-shadow:none!important;font:500 13.5px/1 var(--f-sans)!important;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;transition:background .15s,color .15s;}
 .lbc-wrap .lbc-tools button.lb-manage:hover{background:var(--c-ink)!important;color:var(--c-bg)!important;}
 .lbc-wrap .lbc-tools button.lb-manage svg{width:14px;height:14px;flex:none;}
-.lbc-subline{display:flex;gap:2px 8px;align-items:baseline;justify-content:flex-start;flex-wrap:wrap;min-width:0;padding-bottom:14px;font:italic 16px/1.3 var(--f-latin);color:var(--c-muted);letter-spacing:.02em;font-variant-numeric:lining-nums tabular-nums;}
+.lbc-subline{display:flex;gap:2px 8px;align-items:baseline;justify-content:flex-start;flex-wrap:wrap;min-width:0;padding-bottom:14px;font:16px/1.3 var(--f-latin);color:var(--c-muted);letter-spacing:.02em;font-variant-numeric:lining-nums tabular-nums;}
 .lbc-sub{font:inherit;color:var(--c-muted);white-space:nowrap;}
+/* 1027b 计数行不写 italic：随包的 Cormorant 只有斜体那一面，数字照样是斜的；中文（篇 / 全部 / 更新）落到衬线中文就是直立的，不被硬斜 */
 .lbc-count b{font-weight:600;color:var(--c-ink);}
 .lbc-sub-sep{font:inherit;color:var(--c-faint);user-select:none;}
 .lbc-wrap button.lbc-sub-link{font:inherit;letter-spacing:inherit;color:var(--c-muted);background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important;height:auto!important;min-height:0;cursor:pointer;border-radius:3px;}
@@ -583,7 +584,18 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-ctitle{font-size:14.5px;}.lbc-card-more{opacity:1;}.lbc-selbar button{padding:6px 10px;}}
 /* 1027b 她（第二次说清）：目录页就要雕刻字 + Cormorant 斜体数字（「就像 OVERVIEW 这种」），但四块风格统一、大小别差太多。
    数字只有三档：大 --lbc-num-lg（上次 / 下次同步、Token、概览四个数一样大，都斜体 400）· 行尾 --lbc-num（今日新增、上限、摘要里的数）· 小 --lbc-num-sm（日期、说明、柱子刻度） */
-.lbc-wrap{--lbc-num-lg:clamp(24px,8cqi,34px);--lbc-num:15px;--lbc-num-sm:13px;}
+/* 1027b：数字字体里混着的中文（「0 篇」「人民币估算」）——Cormorant 没有中文，浏览器会把落下去的宋体硬斜成假斜体。
+   这个字面只管中文码段、自己声明成 italic：斜体文字里的中文就用它（= 衬线中文原样直立），数字照旧落到 Cormorant。 */
+@font-face{font-family:"LB CJK Upright";src:local("Noto Serif SC"),local("Source Han Serif SC"),local("Source Han Serif CN"),local("Songti SC"),local("STSong"),local("SimSun");font-style:italic;font-weight:100 900;unicode-range:U+2E80-2FFF,U+3000-303F,U+3040-30FF,U+3400-4DBF,U+4E00-9FFF,U+F900-FAFF,U+FF00-FFEF;}
+.lbc-wrap{--lbc-num-lg:clamp(24px,8cqi,34px);--lbc-num:15px;--lbc-num-sm:13px;font-synthesis-style:none;}
+/* 1027b 她（第三次）：「字体都不一样，统一」——边栏四块里的中文只用一种：衬线中文、直体（概览 / 全部收藏 / 后台每日上限 / 列表标题 / 按钮一样）；
+   数字和拉丁字母 Cormorant 斜体；中文混在数字里（「0 篇」「人民币估算」）落到衬线中文，且不许浏览器硬斜（font-synthesis-style:none，整页都关） */
+/* 直立中文字面只给边栏四块（挂到全页 / 页头会让首开慢 8–15ms；边栏是首帧之后才画的） */
+.lbc-mod{--f-latin:"LB CJK Upright",var(--lb-font-num);}
+.lbc-mod{--f-sans:"LB Cormorant",var(--f-serif);--f-serif:"LB Cormorant",var(--lb-font-serif);}
+.lbc-mod,.lbc-mod *{font-variant-numeric:lining-nums tabular-nums!important;}   /* Cormorant 默认是高低不齐的旧式数字：边栏里一律等高（font: 简写会把它重置，所以每个元素都给） */
+/* 标签里的数字 / 字母（「近 7 天」「Token 费用」）也落 Cormorant，中文落衬线 */
+.lbc-mod .lbc-lab small{letter-spacing:.1em;}
 .lbc-mod .lbc-sy-big,.lbc-mod .lbc-fig-n{font:italic 400 var(--lbc-num-lg)/1.05 var(--f-latin);letter-spacing:0;}
 .lbc-mod .lbc-sy-big i{font-style:italic;}
 .lbc-mod .lbc-sy-row b,.lbc-mod .lbc-sy-row.is-tot b{font:italic 500 var(--lbc-num)/1.2 var(--f-latin);}

@@ -377,7 +377,7 @@ provider().killTree(pid)   // 同一排除规则
 
 ## 9. 样式集（1027）
 
-**模版**（1027b 她定方向）：`docs/style-guide.html`（单文件，样式集和字体内嵌；源 `docs/style-guide.src.html`，改完跑 `python tools/build_style_guide.py`）。同一组名字两张面孔——**目录页**（展示型）：雕刻字英文小标题、衬线中文小标题 / 分类、**所有数字和日期 Cormorant 斜体**、其余黑体，数字只三档（大 34 · 行尾 15 · 小 13）；**设置页**（工具型）：只用正文字、标题加粗、不斜体。颜色 / 间距 / 圆角 / 部件两边同一套，深浅色都要有。没按模版来的地方：`python tools/style_audit.py --md docs/STYLE-DEVIATIONS.md`。
+**模版**（1027b 她定方向）：`docs/style-guide.html`（单文件，样式集和字体内嵌；源 `docs/style-guide.src.html`，改完跑 `python tools/build_style_guide.py`）。同一组名字两张面孔——**目录页**（展示型）：雕刻字英文小标题、**所有中文一种字 = 衬线中文、直体**（混在数字里的「篇」也不许硬斜：边栏用 `LB CJK Upright` 字面，计数行用「不写 italic、靠 Cormorant 只有斜体面」）、**所有数字 / 日期 / 拉丁字母 Cormorant 斜体、等高数字**，数字只三档（大 34 · 行尾 15 · 小 13）；**设置页**（工具型）：只用正文字、标题加粗、不斜体。颜色 / 间距 / 圆角 / 部件两边同一套，深浅色都要有。没按模版来的地方：`python tools/style_audit.py --md docs/STYLE-DEVIATIONS.md`。
 
 **规则**
 1. 字体、字号、颜色、间距、圆角、控件高度**只用样式集里的名字**（`var(--lb-*)` + 下面几个共用类）。新界面不许再手写字体栈、写死灰色（`var(--text-muted)` 这类直接写也算）或另起一套同义变量；旧代码动到时顺手换。`tests/test_guards.py` 的「写死的字体栈」规则扫 `link_brain/assets/*.js`，基线只许减。
