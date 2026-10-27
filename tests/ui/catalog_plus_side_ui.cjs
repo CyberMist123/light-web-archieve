@@ -53,13 +53,16 @@ const PLUGIN = schedule => ({ methods: { getSyncSchedule: { result: schedule } }
       const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
       const S = await shell.page(page, { host, kind: 'catalog', theme, data, resources, plugin: PLUGIN(schedule), files: { '_archive/sync-status.json': sync() } });
       await page.evaluate(() => document.fonts.ready); await S.settle(80);
+      // 1027b 最近导入默认折成一行：点开再量
+      await page.click('.lbc-mod-recent .lbc-fold-sum'); await S.settle(40);
       const m = await page.evaluate(() => {
         const r = s => { const e = document.querySelector(s); const b = e.getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, width: b.width }; };
         const side = document.querySelector('.lbc-side'), lab = document.querySelector('.lbc-lab-en');
         return { side: r('.lbc-side'), main: r('.lbc-board-main'), board: r('.lbc-board'), mods: [...document.querySelectorAll('.lbc-mod')].map(x => x.dataset.mod),
           labFont: getComputedStyle(lab).fontFamily, labSize: getComputedStyle(lab).fontSize, labWeight: getComputedStyle(lab).fontWeight, labSpacing: getComputedStyle(lab).letterSpacing,
           line: document.querySelector('.lbc-lab-line').getBoundingClientRect().width, sideDisplay: getComputedStyle(side).display, sidePos: getComputedStyle(side).position,
-          scrollbar: side.offsetWidth - side.clientWidth, rec: document.querySelectorAll('.lbc-rec li').length,
+          scrollbar: side.offsetWidth - side.clientWidth,
+          rec: (() => { const ul = document.querySelector('.lbc-rec'), b = ul.getBoundingClientRect().bottom; return [...ul.querySelectorAll('li')].filter(li => li.getBoundingClientRect().bottom <= b + 1).length; })(),
           recEllipsis: (() => { const t = document.querySelector('.lbc-rec-t'); return getComputedStyle(t).textOverflow; })(),
           syBig: getComputedStyle(document.querySelector('.lbc-sy-big')).fontSize, cost: document.querySelector('.lbc-mod-token .lbc-tk-big').textContent };
       });
@@ -71,7 +74,7 @@ const PLUGIN = schedule => ({ methods: { getSyncSchedule: { result: schedule } }
       assert.ok(Math.abs(parseFloat(m.labSpacing) - 11 * 0.26) < 0.2, `${tag}：字距 .26em ${m.labSpacing}`);
       assert.ok(m.line > 60, `${tag}：横线撑满 ${m.line}`);
       assert.equal(m.scrollbar, 0, `${tag}：边栏不显示滚动条`);
-      assert.equal(m.rec, 6); assert.equal(m.recEllipsis, 'ellipsis'); assert.equal(m.syBig, '30px'); assert.equal(m.cost, '¥ 3.72');
+      assert.equal(m.rec, 6, `${tag}：列表框高 = 6 条（其余在框里滚）`); assert.equal(m.recEllipsis, 'ellipsis'); assert.equal(m.syBig, '30px'); assert.equal(m.cost, '¥ 3.72');
       shots.push(await S.screenshot(`catalog-side-${tag}`));
       // ② 吸顶：滚 1500，页头 / 边栏不动，收藏墙动了；边栏贴在页头底下；页头上方不留缝
       const before = { top: await R(page, '.lbc-top'), side: await R(page, '.lbc-side'), card: await R(page, '.lbc-card') };

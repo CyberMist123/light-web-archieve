@@ -136,7 +136,7 @@ const calls = async (S, name) => (await S.calls()).filter(c => c[0] === name);
       assert.ok(rows.find(r => r.path === '做饭/家常菜') && !rows.find(r => r.path === 'AI/伴侣'), `${theme}：默认只展开选中的那一支`);
       assert.ok(rows.find(r => r.path === '∅未归类' && r.text === `未归类${idx.unclassified.count}`), `${theme}：未归类在最后`);
       const empty = rows.find(r => r.path === '空节点');
-      assert.ok(empty.cls.includes('is-empty') && empty.text === '空节点0' && empty.acts.join() === '删,留', `${theme}：空分类变淡、0、删 / 留 ${JSON.stringify(empty)}`);
+      assert.ok(empty.cls.includes('is-empty') && empty.text === '空节点0' && empty.acts.slice(0, 2).join() === '删,留' && empty.acts.slice(2).join() === '改名,＋子类', `${theme}：空分类变淡、0、删 / 留 ${JSON.stringify(empty)}`);
       const virt = rows.find(r => r.path === '做饭/空气炸锅');
       assert.ok(virt.cls.includes('is-virtual') && /AI 建/.test(virt.text) && virt.acts.slice(0, 2).join() === '保留,不要', `${theme}：AI 建的子类 ${JSON.stringify(virt)}`);
       await clickFold(page, 'AI'); await S.settle();

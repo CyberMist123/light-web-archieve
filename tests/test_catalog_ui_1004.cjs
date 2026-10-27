@@ -151,8 +151,11 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
   timeTab().onclick(ev);
   const tm = () => dom.document.body.querySelector('.lbc-time-menu');
   assert.deepEqual(tm().querySelectorAll('.lbc-seg-btn').map(b => b.textContent), ['默认', '最近导入']);
-  assert.deepEqual(tm().querySelectorAll('.lbc-chip').map(b => b.textContent), ['全部', '今天', '7 天', '30 天', '自定义']);
-  assert.deepEqual(tm().querySelectorAll('.lbc-menu-item.is-on').map(b => b.textContent), ['最近导入', '全部']);
+  const tmRow = k => tm().querySelectorAll('.lbc-tm-row').find(r => r.querySelector('.lbc-tm-label').textContent === k);
+  assert.deepEqual(tmRow('时间').querySelectorAll('.lbc-chip').map(b => b.textContent), ['全部', '今天', '7 天', '30 天', '自定义']);
+  assert.deepEqual([...tmRow('排序').querySelectorAll('.lbc-menu-item.is-on'), ...tmRow('时间').querySelectorAll('.lbc-menu-item.is-on')].map(b => b.textContent), ['最近导入', '全部']);
+  // 1027b：同一个弹层里还能按分类筛（主题行只在有主题时出）
+  assert.equal(tmRow('分类').querySelector('.lbc-chip').textContent, '不限');
   assert.equal(tm().querySelectorAll('.lbc-chip').find(b => b.textContent === '全部').getAttribute('aria-checked'), 'true');
   assert.equal(tm().querySelector('.lbc-range').hidden, true, '没选自定义时不露起止');
   pick('7 天').onclick(ev);
@@ -168,7 +171,7 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
   pick('自定义').onclick(ev);
   assert.ok(tm(), '点自定义菜单不关');
   assert.equal(range.hidden, false, '点自定义露出起止');
-  assert.deepEqual(tm().querySelectorAll('.lbc-chip.is-on').map(b => b.textContent), ['自定义']);
+  assert.deepEqual(tmRow('时间').querySelectorAll('.lbc-chip.is-on').map(b => b.textContent), ['自定义']);
   assert.deepEqual(ids(), ['today', 'd3', 'd20'], '还没点筛选：结果不变');
   const [from, to] = range.querySelectorAll('input');
   from.value = ymd(new Date(now - 2 * DAY)); to.value = ymd(new Date(now - 25 * DAY));
@@ -177,7 +180,7 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
   assert.ok(/^\d\d-\d\d~\d\d-\d\d · 最近导入$/.test(timeTab().textContent));
   timeTab().onclick(ev);
   assert.equal(tm().querySelector('.lbc-range').hidden, false, '已是自定义：再打开直接露起止');
-  assert.deepEqual(tm().querySelectorAll('.lbc-chip.is-on').map(b => b.textContent), ['自定义']);
+  assert.deepEqual(tmRow('时间').querySelectorAll('.lbc-chip.is-on').map(b => b.textContent), ['自定义']);
   tm().__lbcClose();
   // 换页回来还在
   await open(true);

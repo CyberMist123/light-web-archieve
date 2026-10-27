@@ -1,6 +1,6 @@
 // 1026 她的录屏（场景 02 首页编排 / 03 找资料 / 08 首页同步入口）：假 DOM 上真跑整段目录页脚本。
 //   ① 筛选条各维度叠加：平台（B站 / 小红书）→ 主题 → Tag → 类型，一路缩小、前面选的不丢；换到 Wiki 再回瀑布流筛选还在；在 Wiki 里点筛选 = 回瀑布流看结果
-//   ② 最近导入「查看全部」：按导入时间新→旧的完整列表，一页 50 条翻页，返回瀑布流；页码存 LB.state
+//   ② 最近导入（1027b 她：不要「查看全部」）：折成一行，点开往下是列表，框里滚到底接着出更早的
 //   ③ Wiki = 长期研究主题（标了 [wiki] 的分类：打开 wiki / 看这些帖子 / 生成）；未归类兜底队列一直露着（分类行 0 篇也留着）
 //   ④ 管理：分组（整理分类 / 回收站与删除 / 外观与其它），回收站带篇数、点了打开回收站页；删除一个分类说清帖子去哪（并进 / 回到未归类，帖子不删）
 //   ⑤ 编排：1027 起八个模块平级、拖到任何位置、调宽、就地调整——用例挪到 tests/test_catalog_arrange_1027.cjs
@@ -59,32 +59,23 @@ const pickMenu = (P, re) => { const b = P.menuItems().find(x => re.test(x.textCo
     assert.deepEqual(Q.ids().sort(), ['bili-c', 'bili-d']);
   }
 
-  // ── ② 最近导入「查看全部」 ──
+  // ── ② 最近导入：点开往下滚 ──
   {
     const many = Array.from({ length: 120 }, (_, i) => item('xhs-' + i, '第 ' + i + ' 篇', { ts: new Date(Date.UTC(2026, 8, 1) + i * 3600e3).toISOString() }));
     const plugin = { settings: { hiddenCats: [] }, async getSyncSchedule() { return null; } };
     const P = await openCatalog({ data: dataOf(many), plugin });
     await tick(5);
-    const more = P.$('.lbc-mod-recent .lbc-rec-all');
-    assert.ok(more, 'RECENT 底下有「查看全部」'); assert.equal(more.textContent, '查看全部 120 篇 →');
-    assert.equal(P.$$('.lbc-mod-recent .lbc-rec li').length, 6, '边栏照旧只预览 6 条');
-    more.onclick(ev());
-    const rows = () => P.$$('.lbc-recent tr.lbc-rrow').map(r => r.dataset.id);
-    assert.equal(P.$('.lbc-recent').hidden, false); assert.equal(P.$('.lbc-grid').hidden, true);
-    assert.equal(rows().length, 50); assert.equal(rows()[0], 'xhs-119', '新→旧'); assert.equal(rows()[49], 'xhs-70');
-    assert.equal(P.$('.lbc-rpage').textContent, '第 1 / 3 页');
-    assert.equal(P.$('.lbc-rpager [data-act="prev"]').disabled, true);
-    P.$('.lbc-rpager [data-act="next"]').onclick();
-    assert.equal(rows()[0], 'xhs-69'); assert.equal(P.$('.lbc-rpage').textContent, '第 2 / 3 页');
-    P.$('.lbc-rpager [data-act="next"]').onclick();
-    assert.equal(rows().length, 20); assert.equal(P.$('.lbc-rpager [data-act="next"]').disabled, true);
-    assert.deepEqual([state().view, state().recentPage], ['recent', 3]);
-    P.$('.lbc-recent tr.lbc-rrow').onclick({ ctrlKey: false });
-    assert.deepEqual(P.app.workspace.opened.at(-1), ['Web/xhs-119.md'.replace('119', rows()[0].slice(4)), '', false], '点行打开（同一窗格）');
-    const Q = await openCatalog({ data: dataOf(many), plugin, keepState: true });
-    assert.equal(Q.$('.lbc-rpage').textContent, '第 3 / 3 页', '返回后还在第 3 页');
-    Q.$('.lbc-recent [data-act="back"]').onclick();
-    assert.equal(Q.$('.lbc-recent').hidden, true); assert.equal(Q.$('.lbc-grid').hidden, false);
+    assert.equal(P.$('.lbc-mod-recent .lbc-rec-all'), null, '没有「查看全部」');
+    const rc = P.$('.lbc-mod-recent');
+    assert.ok(rc.classList.contains('is-folded')); rc.querySelector('.lbc-fold-sum').onclick();
+    const ul = rc.querySelector('.lbc-rec');
+    const ids = () => P.$$('.lbc-mod-recent .lbc-rec li').map(li => li.dataset.id);
+    assert.equal(ids().length, 40, '先画 40 条（框高 6 条，在框里滚）'); assert.equal(ids()[0], 'xhs-119', '新→旧');
+    // 滚到底：接着出更早的
+    Object.defineProperty(ul, 'scrollHeight', { value: 2000, configurable: true }); Object.defineProperty(ul, 'clientHeight', { value: 240, configurable: true });
+    ul.scrollTop = 1700; ul.dispatchEvent({ type: 'scroll' });
+    assert.equal(ids().length, 80); assert.equal(ids()[79], 'xhs-40');
+    assert.equal(P.$('.lbc-recent')?.hidden ?? true, true, '还在瀑布流（不切到别的视图）');
   }
 
   // ── ③ Wiki · 未归类 ──
@@ -164,5 +155,5 @@ const pickMenu = (P, re) => { const b = P.menuItems().find(x => re.test(x.textCo
     const n = notes.at(-1);
     assert.match(n.message, /移到了回收站（可恢复）/); assert.deepEqual(n.actions.map(a => a.label), ['打开回收站']);
   }
-  console.log('PASS catalog 1026 scenes 02/03/08: platform → topic → tag → type compose and survive Wiki / grid switches (filter in Wiki returns to results) · 最近导入 查看全部 (sorted by import time, 50 per page, page kept) · Wiki = long-term topics + 未归类 always visible · 管理 grouped (trash with count, delete-category explains where posts go) · delete notice links the trash');
+  console.log('PASS catalog 1026 scenes 02/03/08: platform → topic → tag → type compose and survive Wiki / grid switches (filter in Wiki returns to results) · 最近导入 folded line → list scrolls in place, loads more at the bottom (no 查看全部) · Wiki = long-term topics + 未归类 always visible · 管理 grouped (trash with count, delete-category explains where posts go) · delete notice links the trash');
 })().catch(e => { console.error(e); process.exit(1); });

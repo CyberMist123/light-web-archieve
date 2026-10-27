@@ -87,8 +87,8 @@ const PLUGIN = (schedule, settings = {}) => ({ settings: { hiddenCats: [], ...se
       assert.deepEqual([star.offVis, star.offOp], ['hidden', '0'], '没收藏的平时看不见');
       // ⑤ 同步模块
       const sy = await page.evaluate(() => ({ gear: !!document.querySelector('.lbc-mod-sync .lbc-gear'), cells: [...document.querySelectorAll('.lbc-mod-sync button.lbc-sy-cell')].map(b => b.querySelector('.lbc-sy-k').textContent),
-        acts: [...document.querySelectorAll('.lbc-mod-sync .lbc-sy-acts button')].map(b => b.textContent) }));
-      assert.deepEqual(sy, { gear: false, cells: ['上次同步', '下次同步'], acts: ['立即同步', '查看同步记录'] });
+        acts: [...document.querySelectorAll('.lbc-mod-sync .lbc-sy-acts button')].map(b => b.textContent), edit: !!document.querySelector('.lbc-mod-sync button.lbc-sy-freq .lbc-sy-pen') }));
+      assert.deepEqual(sy, { gear: false, cells: ['上次同步', '下次同步'], acts: [], edit: true }, '1027b：立即同步 / 查看同步记录藏了，频率那行能改时间');
       await page.click('.lbc-mod-sync .lbc-sy-next'); await S.settle(40);
       assert.deepEqual((await page.evaluate(() => window.calls.filter(c => c[0] === 'openSetupPage' || c[0] === 'openSyncTime').at(-1))).slice(0, 2), ['openSetupPage', 'schedule'], '下次同步 → 设置里那一个同步时间编辑');
       // ④ 编排（1027 起八个模块平级，细节见 catalog_arrange_ui）：每块都有操作条、托盘在收藏墙上面；拖宽边栏、卡片间距、收藏墙密度后版面真的变

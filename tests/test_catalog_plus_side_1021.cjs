@@ -58,9 +58,14 @@ const txt = el => (el ? el.textContent : null);
     assert.deepEqual(P.$$('.lbc-lab-en').map(txt), ['RECENT', 'SYNC', 'TOKEN', 'OVERVIEW']);
     assert.deepEqual(P.$$('.lbc-lab small').map(txt), ['最近导入', '同步', 'Token 费用', '概览']);
     assert.equal(P.$$('.lbc-lab-line').length, 4); assert.equal(P.$$('.lbc-chev').length, 4);
-    // RECENT：最新 6 篇，按 ts 倒序；今天 HH:MM，否则 M/D；分类小字
+    // RECENT（1027b）：默认折成一行「最新 …」；点开往下是列表（框高 = 6 条，框里往下滚接着出），按 ts 倒序；今天 HH:MM，否则 M/D；分类小字
+    const rc = P.$('.lbc-mod-recent');
+    assert.ok(rc.classList.contains('is-folded'), '最近导入默认折叠'); assert.match(txt(rc.querySelector('.lbc-fold-sum')), /^最新 00:09 · /);
+    assert.equal(rc.querySelector('.lbc-rec-all'), null, '没有「查看全部」');
+    rc.querySelector('.lbc-fold-sum').onclick();
+    assert.equal(rc.querySelector('.lbc-rec').style.getPropertyValue('--lbc-rec-rows'), '6', '框高 = 6 条');
     const rows = P.$$('.lbc-rec li');
-    assert.deepEqual(rows.map(li => li.dataset.id), ['t3', 't2', 't1', 'y1', 'f1', 'f2']);
+    assert.deepEqual(rows.slice(0, 6).map(li => li.dataset.id), ['t3', 't2', 't1', 'y1', 'f1', 'f2']);
     assert.deepEqual(rows.slice(0, 3).map(li => txt(li.querySelector('time'))), ['00:09', '00:07', '00:05']);
     const y = daysAgo(1); assert.equal(txt(rows[3].querySelector('time')), `${y.getMonth() + 1}/${y.getDate()}`);
     assert.equal(txt(rows[0].querySelector('.lbc-rec-c')), '未归类'); assert.equal(txt(rows[2].querySelector('.lbc-rec-c')), '吃的');
@@ -90,7 +95,8 @@ const txt = el => (el ? el.textContent : null);
     const big = sy.querySelectorAll('.lbc-sy-big').map(txt);
     assert.equal(big[0], `今天 ${p2(lastOk.getHours())}:${p2(lastOk.getMinutes())}`.replace(/^今天/, lastOk.getDate() === now.getDate() ? '今天' : `${lastOk.getMonth() + 1}/${lastOk.getDate()}`));
     assert.match(big[1], /(今天|\d+\/\d+) \d\d:\d\d/);
-    assert.equal(txt(sy.querySelector('.lbc-sy-freq')), '每天 04:00 · 每 6 小时一次', '频率 = summary 去掉「下次」');
+    assert.equal(txt(sy.querySelector('.lbc-sy-freq-t')), '每天 04:00 · 每 6 小时一次', '频率 = summary 去掉「下次」');
+    assert.equal(txt(sy.querySelector('.lbc-sy-freq .lbc-sy-pen')), '改', '1027b：频率那行就能改时间');
     assert.match(txt(sy.querySelectorAll('.lbc-sy-cap span')[1]), /^还有 4 小时 3[01] 分$/);
     const w = parseFloat(sy.querySelector('.lbc-sy-bar i').style.width); assert.ok(w > 25 && w < 35, '进度 = 上次到下次过了多少 ' + w);
     const rowsSy = sy.querySelectorAll('.lbc-sy-row').map(r => [txt(r.querySelector('span')), txt(r.querySelector('b'))]);
@@ -99,25 +105,39 @@ const txt = el => (el ? el.textContent : null);
     // TOKEN（1027）：本月估算（目录数据 usage_month，不起进程）+ 后台每日上限（没设过 = 默认）
     const tk = P.$('.lbc-mod-token');
     assert.equal(txt(tk.querySelector('.lbc-tk-big')), '¥ 3.72');
-    assert.deepEqual(tk.querySelectorAll('.lbc-sy-row').map(r => [txt(r.querySelector('span')), txt(r.querySelector('b'))]), [['后台每日上限', '默认']]);
+    // 1027b：天 / 周 / 月 在块里切；上限直接下拉改（没设过 = 默认）
+    assert.deepEqual(tk.querySelectorAll('.lbc-tk-seg button').map(txt), ['天', '周', '月']);
+    assert.equal(tk.querySelector('.lbc-tk-seg button.is-on').dataset.period, 'month');
+    const capSel = tk.querySelector('.lbc-tk-cap-row select');
+    assert.equal(txt(tk.querySelector('.lbc-tk-cap-row span')), '后台每日上限'); assert.equal(capSel.value, '');
+    assert.deepEqual(capSel.querySelectorAll('option').map(o => o.value), ['', '0', '1', '2', '3', '5', '10', '20', '50']);
     assert.equal(txt(tk.querySelector('.lbc-fold-sum')), '本月 约 ¥3.72 · 上限 默认');
-    // 1026：齿轮去掉；点「下次同步」= 打开设置里那一个同步时间编辑（openSetupPage('schedule')），点「上次同步」/「查看同步记录」= 同步记录，「立即同步」= syncNow，都不折叠模块
+    // 1026：齿轮去掉；点「下次同步」= 打开设置里那一个同步时间编辑（openSetupPage('schedule')），点「上次同步」= 同步记录，都不折叠模块；1027b「立即同步 / 查看同步记录」按钮藏了
     assert.equal(sy.querySelector('.lbc-gear'), null, '首页不再多一个设置齿轮');
     sy.querySelector('.lbc-sy-next').onclick({ stopPropagation() {} });
     await tick(5);
     assert.deepEqual(plugin.calls.at(-1), ['setup', 'schedule']);
     sy.querySelector('.lbc-sy-last').onclick({ stopPropagation() {} }); await tick(5);
     assert.deepEqual(plugin.calls.at(-1), ['synclog']);
-    sy.querySelector('.lbc-sy-acts [data-act="log"]').onclick({ stopPropagation() {} }); await tick(5);
-    assert.deepEqual(plugin.calls.at(-1), ['synclog']);
-    sy.querySelector('.lbc-sy-acts [data-act="sync"]').onclick({ stopPropagation() {} }); await tick(5);
-    assert.deepEqual(plugin.calls.at(-1), ['sync']);
-    assert.deepEqual(sy.querySelectorAll('.lbc-sy-acts button').map(b => b.textContent), ['立即同步', '查看同步记录']);
+    assert.equal(sy.querySelector('.lbc-sy-acts'), null, '1027b：立即同步 / 查看同步记录 不在首页');
+    // 点「每天 … 改」：块里展开同步时间编辑（插件没有 scheduleUI 时退回「去设置里改」），再点收起
+    sy.querySelector('.lbc-sy-freq').onclick({ stopPropagation() {} });
+    assert.ok(sy.querySelector('.lbc-sy-sched'), '展开同步时间编辑'); assert.equal(txt(sy.querySelector('.lbc-sy-pen')), '收起');
+    sy.querySelector('.lbc-sy-freq').onclick({ stopPropagation() {} });
+    assert.equal(sy.querySelector('.lbc-sy-sched'), null);
     assert.equal(sy.classList.contains('is-folded'), false);
     // 折叠 SYNC：只剩摘要；返回后还是折叠
     sy.querySelector('.lbc-lab').onclick();
     assert.ok(sy.classList.contains('is-folded')); assert.equal(sy.querySelector('.lbc-fold-sum').hidden, false);
     assert.deepEqual(state().sideFold, { recent: false, sync: true, token: false, overview: false });
+    // 切到「周」：近 7 天 = usage summary 的 7d 窗口（插件跑一次 usage）
+    tk.querySelector('.lbc-tk-seg [data-period="week"]').onclick({ stopPropagation() {} }); await tick(5);
+    assert.equal(tk.querySelector('.lbc-tk-seg button.is-on').dataset.period, 'week');
+    assert.match(txt(tk.querySelector('.lbc-fold-sum')), /^近 7 天 /);
+    // 上限下拉改 = 写 budget.dailyYuan
+    const capSel2 = tk.querySelector('.lbc-tk-cap-row select'); capSel2.value = '5'; capSel2.onchange();
+    assert.equal(plugin.settings.budget.dailyYuan, 5);
+    tk.querySelector('.lbc-tk-seg [data-period="month"]').onclick({ stopPropagation() {} }); await tick(5);
     const Q = await openCatalog({ data: catalogData(base()), plugin: mkPlugin(), keepState: true });
     assert.ok(Q.$('.lbc-mod-sync').classList.contains('is-folded') && !Q.$('.lbc-mod-overview').classList.contains('is-folded'), '返回后折叠状态还在');
     // 没有用量记录：「—」+ 一句说明（不显示 0）
@@ -169,6 +189,8 @@ const txt = el => (el ? el.textContent : null);
     P.V.set('_archive/catalog-data.json', JSON.stringify(catalogData([...base(), item('n1', '刚进来的', { ts: iso(new Date(Math.max(Date.now(), todayAt(0, 10).getTime()))), date: today })])));
     await P.A.rerun(); await tick(10);
     assert.equal(P.$('.lbc-wrap'), wrapBefore);
+    assert.match(txt(P.$('.lbc-mod-recent .lbc-fold-sum')), /刚进来的/, 'RECENT 换成新数据（折着的那一行）');
+    P.$('.lbc-mod-recent .lbc-fold-sum').onclick();
     assert.equal(P.$('.lbc-rec li').dataset.id, 'n1', 'RECENT 换成新数据');
   }
 

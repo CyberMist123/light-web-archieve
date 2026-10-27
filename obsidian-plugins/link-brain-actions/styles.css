@@ -722,7 +722,7 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
    LWA 的黑白：线、字都用墨色，开关 / 选中也用墨色（不用原型的绿）。窄了（设置窗口内容区 < 640px）锚点变成顶上一条横排、两栏变一栏。 */
 /* 变量全用样式集（styles.css 顶部 lb-tokens 块，唯一源 link_brain/assets/lb-tokens.css）；设置页根带 .lb-scope，跟着「Aa 样式」的字号倍数缩放 */
 .lb-settings .lb-v6.is-v7 { max-width: 1040px; container-type: inline-size; }
-.lb-settings .lb-v7 { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: var(--lb-space-6); align-items: start;
+.lb-settings .lb-v7 { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: calc(var(--lb-space-6) * 1.5); align-items: start; padding: 0 var(--lb-space-5);
   font-family: var(--lb-font-body); font-size: var(--lb-fs-body); color: var(--lb-ink); }
 .lb-settings .lb-v7 .is-hidden { display: none !important; }
 /* 左边锚点：跟着滚，当前那一组加粗 */
@@ -740,13 +740,13 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v7 .lb-v7-lead { margin: 0; color: var(--lb-muted); font-size: var(--lb-fs-small); }
 .lb-settings .lb-v7 .lb-saved { color: var(--lb-faint); }
 /* 每一组：上面一条墨线 + 编号 + 组名；组里只有行间细线，不套框 */
-.lb-settings .lb-v7 .lb-group { margin-top: var(--lb-space-5); padding-top: var(--lb-space-4); border-top: 1px solid var(--lb-ink); scroll-margin-top: 12px; }
-.lb-settings .lb-v7 .lb-group-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: var(--lb-space-2); }
+.lb-settings .lb-v7 .lb-group { margin-top: var(--lb-space-6); padding-top: var(--lb-space-5); border-top: 1px solid var(--lb-ink); scroll-margin-top: 12px; }
+.lb-settings .lb-v7 .lb-group-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: var(--lb-space-4); }
 .lb-settings .lb-v7 .lb-num { font: italic 400 18px/1 var(--lb-font-num); color: var(--lb-muted); }
 .lb-settings .lb-v7 .lb-group-head h2 { margin: 0; font: 400 calc(var(--lb-fs-h2) * 1.15)/1.3 var(--lb-font-serif); color: var(--lb-ink); letter-spacing: .04em; }
 .lb-settings .lb-v7 .lb-subhead { padding: var(--lb-space-4) 0 var(--lb-space-1); font-size: var(--lb-fs-micro); color: var(--lb-muted); letter-spacing: .06em; }
 .lb-settings .lb-v7 .lb-subhead + .setting-item, .lb-settings .lb-v7 .lb-subhead + * > .setting-item:first-child, .lb-settings .lb-v7 .lb-group-body > .setting-item:first-child { border-top: 0; }
-.lb-settings .lb-v7 .setting-item { padding: var(--lb-space-2) 0; min-height: calc(var(--lb-ctl-h) + 12px); }
+.lb-settings .lb-v7 .setting-item { padding: var(--lb-space-3) 0; gap: var(--lb-space-5); min-height: calc(var(--lb-ctl-h) + 12px); }
 .lb-settings .lb-v7 .setting-item-name { font-size: var(--lb-fs-body); font-weight: 500; display: flex; align-items: center; flex-wrap: wrap; gap: 0 2px; }
 .lb-settings .lb-v7 .setting-item-description:empty { display: none; }
 .lb-settings .lb-v7 .setting-item-control { gap: var(--lb-space-2); flex-wrap: wrap; justify-content: flex-end; }
@@ -765,8 +765,8 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v7 .lb-more-body { padding: 0 0 var(--lb-space-3); }
 .lb-settings .lb-v7 .lb-more-body > .lb-subhead:first-child { padding-top: 0; }
 /* 两张并排的卡：账号（小红书 / B 站）· 让其他 AI 读收藏（电脑端 / 网页端） */
-.lb-settings .lb-v7 .lb-twin { display: grid; grid-template-columns: 1fr 1fr; gap: var(--lb-space-3); margin: var(--lb-space-2) 0; }
-.lb-settings .lb-v7 .lb-twin-card { min-width: 0; padding: var(--lb-space-3) var(--lb-space-4); border: 1px solid var(--lb-line); border-radius: var(--lb-radius); background: var(--lb-surface); }
+.lb-settings .lb-v7 .lb-twin { display: grid; grid-template-columns: 1fr 1fr; gap: var(--lb-space-4); margin: var(--lb-space-3) 0; }
+.lb-settings .lb-v7 .lb-twin-card { min-width: 0; padding: var(--lb-space-4) var(--lb-space-5); border: 1px solid var(--lb-line); border-radius: var(--lb-radius); background: var(--lb-surface); }
 .lb-settings .lb-v7 .lb-twin-card.is-soon { opacity: .55; }
 .lb-settings .lb-v7 .lb-twin-head { display: flex; align-items: center; gap: var(--lb-space-2); margin-bottom: var(--lb-space-1); }
 .lb-settings .lb-v7 .lb-twin-head strong { font-size: var(--lb-fs-body); }
@@ -850,10 +850,18 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v7 .lb-acct-who { font-weight: 600; }
 /* 窄：锚点变横排吸在顶上，两栏变一栏 */
 @container (max-width: 640px) {
-  .lb-settings .lb-v7 { grid-template-columns: minmax(0, 1fr); gap: var(--lb-space-2); }
+  .lb-settings .lb-v7 { grid-template-columns: minmax(0, 1fr); gap: var(--lb-space-2); padding: 0; }
   .lb-settings .lb-v7 .lb-anchors { flex-direction: row; overflow-x: auto; gap: var(--lb-space-4); padding: var(--lb-space-2) 0; background: var(--background-primary); border-bottom: 1px solid var(--lb-line); scrollbar-width: none; }
   .lb-settings .lb-v7 .lb-anchor-foot { display: none; }
   .lb-settings .lb-v7 .lb-twin, .lb-settings .lb-v7 .lb-pair, .lb-settings .lb-v7 .lb-console-grid { grid-template-columns: minmax(0, 1fr); }
   .lb-settings .lb-v7 .lb-v7-head h1 { font-size: calc(var(--lb-fs-h1) * 1.3); }
   .lb-settings .lb-v7 .lb-group { scroll-margin-top: 52px; }
 }
+
+/* 1027b 她：设置页只用一种字体——标题（衬线）、序号（Cormorant 斜体）、PREFERENCES（雕刻字）都改成正文字、不斜体。
+   放在文件最后（同权重后写的赢）；字体变量带 !important：「Aa 样式」写在根上的行内变量只换正文字，这页不再出第二种字 */
+.lb-settings .lb-v7 { --lb-font-serif: var(--lb-font-body) !important; --lb-font-num: var(--lb-font-body) !important; --lb-font-title: var(--lb-font-body) !important; }
+.lb-settings .lb-v7 .lb-v7-head h1 { font-style: normal; font-weight: 600; letter-spacing: 0; }
+.lb-settings .lb-v7 .lb-num, .lb-settings .lb-v7 .lb-anchor b { font-style: normal; }
+.lb-settings .lb-v7 .lb-group-head h2 { font-weight: 600; letter-spacing: .02em; }
+.lb-settings .lb-v7 .lb-eyebrow { font-weight: 600; letter-spacing: .08em; }

@@ -115,7 +115,8 @@ const center = r => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
       const inBox = await page.evaluate(() => { const p = document.querySelector('.lbc-mp').getBoundingClientRect(), m = document.querySelector('.lbc-m-recent').getBoundingClientRect(); return p.left >= m.left - 1 && p.right <= m.right + 1 && p.top >= m.top - 1; });
       assert.ok(inBox, '调整在模块里展开');
       await page.selectOption('.lbc-mp [data-k="count"]', '2'); await S.settle(40);
-      assert.equal(await page.evaluate(() => document.querySelectorAll('.lbc-m-recent .lbc-rec li').length), 2);
+      // 1027b：条数 = 列表框高（其余在框里滚）；折着的会自己展开
+      assert.equal(await page.evaluate(() => { const ul = document.querySelector('.lbc-m-recent .lbc-rec'), b = ul.getBoundingClientRect().bottom; return [...ul.querySelectorAll('li')].filter(li => li.getBoundingClientRect().bottom <= b + 1).length; }), 2);
       shots.push(await S.screenshot('catalog-arrange-1027-adjust'));
       await page.keyboard.press('Escape'); await S.settle(30);
       assert.equal(await page.$('.lbc-mp'), null, 'Esc 先收起调整');
@@ -152,7 +153,8 @@ const center = r => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
       const S2 = await shell.page(page2, { host: 'page-live', kind: 'catalog', theme: 'light', data, resources, files, plugin: plugin({ catalogLayout: L }) });
       await S2.settle(80);
       assert.ok(await page2.evaluate(() => !!document.querySelector('.lbc-side > .lbc-m-title') && !!document.querySelector('.lbc-top .lbc-m-recent')), '新开一页：标题在边栏、最近导入在吸顶区');
-      assert.equal(await page2.evaluate(() => document.querySelectorAll('.lbc-m-recent .lbc-rec li').length), 2);
+      await page2.click('.lbc-m-recent .lbc-fold-sum'); await S2.settle(30);   // 新的一页：最近导入照默认折着
+      assert.equal(await page2.evaluate(() => document.querySelector('.lbc-m-recent .lbc-rec').style.getPropertyValue('--lbc-rec-rows')), '2');
       shots.push(await S2.screenshot('catalog-arrange-1027-reopen-live'));
       assert.deepEqual(await S2.pageErrors(), []);
       await page2.close();

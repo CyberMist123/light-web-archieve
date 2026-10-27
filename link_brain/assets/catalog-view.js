@@ -70,7 +70,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-tools button.lb-manage{width:auto!important;height:var(--ctl-h)!important;padding:0 14px!important;border:1px solid var(--c-ink)!important;border-radius:999px!important;background:var(--c-bg)!important;color:var(--c-ink)!important;box-shadow:none!important;font:500 13.5px/1 var(--f-sans)!important;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;transition:background .15s,color .15s;}
 .lbc-wrap .lbc-tools button.lb-manage:hover{background:var(--c-ink)!important;color:var(--c-bg)!important;}
 .lbc-wrap .lbc-tools button.lb-manage svg{width:14px;height:14px;flex:none;}
-.lbc-subline{display:flex;gap:2px 8px;align-items:baseline;justify-content:flex-start;flex-wrap:wrap;min-width:0;padding-bottom:14px;font:italic 16px/1.3 var(--f-latin);color:var(--c-muted);letter-spacing:.02em;font-variant-numeric:lining-nums tabular-nums;}
+.lbc-subline{display:flex;gap:2px 8px;align-items:baseline;justify-content:flex-start;flex-wrap:wrap;min-width:0;padding-bottom:14px;font:400 var(--fs-body,13.5px)/20.8px var(--f-sans);color:var(--c-muted);letter-spacing:0;font-variant-numeric:lining-nums tabular-nums;}
 .lbc-sub{font:inherit;color:var(--c-muted);white-space:nowrap;}
 .lbc-count b{font-weight:600;color:var(--c-ink);}
 .lbc-sub-sep{font:inherit;color:var(--c-faint);user-select:none;}
@@ -311,6 +311,13 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbi-row:hover .lbi-acts,.lbi-row:focus-within .lbi-acts,.lbi-row.is-current .lbi-acts{display:inline-flex;}
 @media(hover:none){.lbi-acts{display:inline-flex;}}
 .lbi-acts button.lbi-link{font-size:11.5px!important;}
+/* 1027b 索引：悬停「改名 / ＋子类」、树底「＋ 加分类」、条上工具靠右 */
+.lbi-tools{display:inline-flex;gap:14px;margin-left:auto;}
+.lbi-add{gap:6px;padding-top:2px;padding-bottom:2px;}
+.lbc-wrap .lbi-add input{flex:1 1 auto;min-width:0;height:26px;padding:0 8px;border:1px solid var(--c-ink);border-radius:4px;background:var(--c-bg);color:var(--c-ink);font:13px var(--f-sans);box-shadow:none;}
+.lbc-wrap button.lbi-add-btn{display:block;width:auto!important;height:28px!important;margin:8px 0 0 14px!important;padding:0 12px!important;border:1px dashed var(--c-line)!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);font:12.5px/1 var(--f-sans);cursor:pointer;}
+.lbc-wrap button.lbi-add-btn:hover{border-color:var(--c-ink)!important;color:var(--c-ink);}
+.lbi-tree-tip{margin:8px 0 0 14px;font-size:11.5px;line-height:1.6;color:var(--c-faint);}
 .lbi-wiki-mark{flex:none;font-size:10.5px;color:var(--text-faint);}
 .lbi-wiki-mark.has-page{color:var(--text-muted);}
 .lbi-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px;margin:2px 5px 4px;font-size:13px;line-height:1.7;}
@@ -366,7 +373,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-menu .lbc-range input{height:26px;font-size:12px;padding:0 4px;}
 .lbc-menu .lbc-range button{height:26px;padding:0 10px;font-size:12px;}
 /* 1011 时间菜单紧凑版：左边一列小标签，右边一行分段 / 一行小块；选中用强调色填满（亮 / 暗主题都跟 Obsidian 变量走） */
-.lbc-menu.lbc-time-menu{padding:8px 10px;min-width:0;max-width:min(380px,calc(100vw - 16px));box-sizing:border-box;}
+.lbc-menu.lbc-time-menu{padding:8px 10px;min-width:0;max-width:min(460px,calc(100vw - 16px));box-sizing:border-box;}
 .lbc-time-menu .lbc-tm-row{display:flex;align-items:flex-start;gap:10px;padding:3px 0;}
 .lbc-time-menu .lbc-tm-label{flex:0 0 auto;width:2.6em;line-height:26px;font-size:12px;color:var(--text-muted);}
 .lbc-time-menu .lbc-seg{display:inline-flex;padding:2px;gap:2px;border-radius:8px;background:var(--background-modifier-hover);}
@@ -574,6 +581,34 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-cats{gap:4px 22px;font-size:16.5px;margin-top:8px;}.lbc-ctl{gap:6px 16px;margin-top:10px;}.lbc-ctl-l{gap:0 16px;}.lbc-ctl-r{margin-left:0;width:100%;}
 .lbc-ctl-r .lbc-searchbox{flex:1 1 180px;}.lbc-wrap .lbc-ctl-r input.lbc-search{width:100%!important;}.lbc-topics{padding-left:0;}
 .lbc-ctitle{font-size:14.5px;}.lbc-card-more{opacity:1;}.lbc-selbar button{padding:6px 10px;}}
+/* 1027b 她：边栏四块「字体太多」——只留两种：小标题的雕刻字（RECENT / SYNC …）+ 正文字；数字、中文小标题、摘要、说明都用正文字、不斜体
+   （变量在块上重指：模块自己的「调整 → 字体」改 --f-sans，这里跟着走） */
+.lbc-mod{--f-serif:var(--f-sans);--f-latin:var(--f-sans);}
+.lbc-mod :is(i,.lbc-fold-sum i,.lbc-rec time,.lbc-sy-big,.lbc-sy-big i,.lbc-sy-cap,.lbc-sy-row b,.lbc-fig-n){font-style:normal;}
+.lbc-mod .lbc-lab small{letter-spacing:.04em;}
+.lbc-mod .lbc-sy-big{font-weight:600;letter-spacing:-.01em;}
+.lbc-mod .lbc-fig-n{font-weight:600;}
+.lbc-mod .lbc-sy-row b{font-weight:600;font-size:15px;}
+/* 最近导入：列表框高 = 条数（调整里 2 / 4 / 6 / 8），框里往下滚接着出更早的 */
+.lbc-rec{max-height:calc(var(--lbc-rec-rows,6) * (var(--fs-body,13.5px) * 1.45 + 21px));overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;}
+/* 拖出来的高度：内容超出在块里滚（最近导入是列表那一框） */
+.lbc-mod.has-h>.lbc-mod-body{max-height:var(--lbc-m-h);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;}
+.lbc-mod-recent.has-h>.lbc-mod-body{max-height:none;overflow:visible;}
+.lbc-mod-recent.has-h .lbc-rec{max-height:var(--lbc-m-h);}
+/* 同步：「每天 18:00 · 改」点开就地改时间 */
+.lbc-wrap button.lbc-sy-edit{display:inline-flex;align-items:baseline;gap:8px;width:auto;height:auto!important;padding:0!important;margin:-4px 0 10px!important;border:0!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);font:var(--fs-small)/1.5 var(--f-sans);cursor:pointer;text-align:left;white-space:normal;}
+.lbc-wrap button.lbc-sy-edit:hover{color:var(--c-ink);}
+.lbc-sy-pen{color:var(--c-ink);text-decoration:underline;text-underline-offset:3px;}
+.lbc-sy-sched{margin:0 0 12px;padding:10px 12px;border:1px solid var(--c-line);border-radius:6px;font:var(--fs-small)/1.5 var(--f-sans);}
+/* Token：天 / 周 / 月 */
+.lbc-tk-seg{display:flex;gap:2px;margin:0 0 10px;}
+.lbc-wrap .lbc-tk-seg button{width:auto!important;height:24px!important;padding:0 12px!important;margin:0!important;border:1px solid transparent!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);font:var(--fs-small)/1 var(--f-sans);cursor:pointer;}
+.lbc-wrap .lbc-tk-seg button:hover{color:var(--c-ink);}
+.lbc-wrap .lbc-tk-seg button.is-on{border-color:var(--c-ink)!important;color:var(--c-ink);font-weight:600;}
+.lbc-wrap select.lbc-tk-capsel{height:28px;padding:0 24px 0 8px;border:1px solid var(--c-line);border-radius:6px;background-color:transparent;box-shadow:none;color:var(--c-ink);font:600 var(--fs-body)/1 var(--f-sans);font-variant-numeric:var(--num-feat);cursor:pointer;}
+.lbc-wrap select.lbc-tk-capsel:hover,.lbc-wrap select.lbc-tk-capsel:focus{border-color:var(--c-ink);outline:none;}
+.lbc-tk-cap-row{align-items:center;}
+.lbc-m-rs{display:none;}
 `;
 // 1021：标题 / 数字字体随包发（catalog.py 重建时拷进 _archive/fonts/），@font-face 的地址运行时拼（vault 可能挂在别的库子目录里，过 lbPath；
 // 不连 Google Fonts，离线照样显示；文件不在时浏览器退回系统衬线字体）
@@ -602,6 +637,17 @@ const ARRANGE_CSS = `
 .lbc-col-edge:hover::before,.lbc-col-edge:focus-visible::before,.lbc-col-edge.is-on::before{background:var(--c-ink);}
 .lbc-col-edge .lbc-ce-w{position:absolute;top:6px;left:12px;padding:3px 8px;border-radius:999px;background:var(--c-ink);color:var(--c-bg);font:12px/1 var(--f-sans);white-space:nowrap;display:none;}
 .lbc-col-edge.is-on .lbc-ce-w,.lbc-col-edge:focus-visible .lbc-ce-w{display:block;}
+/* 1027b 拉虚线边框改大小：下边框调高、左 / 右边框调宽（并排时） */
+.lbc-wrap.is-arranging .lbc-m-rs:not([hidden]){display:block;position:absolute;z-index:4;margin:0!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;touch-action:none;}
+.lbc-wrap.is-arranging .lbc-m-rs-y{left:-8px;right:-8px;bottom:-14px;height:12px;cursor:ns-resize;}
+.lbc-wrap.is-arranging .lbc-m-rs-x{top:-8px;bottom:-8px;right:-14px;width:12px;cursor:ew-resize;}
+.lbc-wrap.is-arranging .lbc-m-rs-x.is-left{right:auto;left:-14px;}
+.lbc-m-rs::before{content:"";position:absolute;border-radius:2px;background:var(--c-ink);opacity:0;transition:opacity .15s;}
+.lbc-m-rs-y::before{left:0;right:0;top:5px;height:2px;}
+.lbc-m-rs-x::before{top:0;bottom:0;left:5px;width:2px;}
+.lbc-m-rs:hover::before,.lbc-m-rs:focus-visible::before,.lbc-m-rs.is-on::before{opacity:1;}
+.lbc-m-rs-y::after{content:"";position:absolute;left:50%;top:2px;width:28px;height:8px;margin-left:-14px;border-radius:999px;background:var(--c-bg);border:1.5px solid var(--c-faint);box-sizing:border-box;}
+.lbc-m-rs-y:hover::after,.lbc-m-rs-y.is-on::after{border-color:var(--c-ink);}
 /* 模块里展开的「调整」 */
 .lbc-mp{position:relative;z-index:2;margin:0 0 14px;padding:12px 14px;border:1px solid var(--c-ink);border-radius:4px;background:var(--c-bg);color:var(--c-ink);font:13px/1.5 var(--f-sans);zoom:1;}
 .lbc-mp-h{display:flex;align-items:center;gap:8px;margin:0 0 8px;font-weight:600;}
@@ -1366,7 +1412,7 @@ function pickView(k) {
 // 边栏内容（第 3 段：RECENT / SYNC / OVERVIEW）在下面「左侧边栏」一节画；开 / 收由 setSideOpen 管（.lbc-wrap.is-side-collapsed），
 // 收起 / 窄屏时 CSS 让收藏墙铺满（列数按宽度 lbcColumns 自己变）。各模块折叠状态 sideFold 也存 LB.state（OVERVIEW 默认折叠）
 let sideOpen = true;
-const sideFold = { recent: false, sync: false, token: false, overview: true };
+const sideFold = { recent: true, sync: false, token: false, overview: true };   // 1027b 她：最近导入平时就一行「最新 …」，点开往下滚
 let sideApi = null;   // 边栏画好后才有：{ paintSync(), paintData(), paintAll(), fade() }；同步状态 / 数据变了只重画边栏里那一块
 function setSideOpen(on) {
   sideOpen = !!on;
@@ -1571,7 +1617,8 @@ function importedAt(it) { const t = Date.parse(it.ts || it.date || ''); return N
 function timeLabel() {
   const range = timeRange === 'custom' ? `${(timeFrom || '…').slice(5)}~${(timeTo || '…').slice(5)}` : TIME_RANGES[timeRange] || '';
   // 1021 排序胶囊：默认 = 数据顺序（导入新→旧），有搜索词时默认是按相关度
-  return [range, timeSort === 'recent' ? '最近导入' : ''].filter(Boolean).join(' · ') || (committed ? '按相关度' : '最新在前');
+  const topic = activeTopic && activeTopic !== '*' ? '★' + activeTopic : '';
+  return [topic, range, timeSort === 'recent' ? '最近导入' : ''].filter(Boolean).join(' · ') || (committed ? '按相关度' : '最新在前');
 }
 function inTimeRange(it) {
   if (!timeRange) return true;
@@ -1685,6 +1732,25 @@ function openTimeMenu(anchor) {
   const to = range.createEl('input'); to.type = 'date'; to.value = timeTo; to.setAttribute('aria-label', '止');
   const ok = range.createEl('button', { cls: 'mod-cta', text: '筛选' }); ok.type = 'button';
   ok.onclick = ev => { ev?.stopPropagation?.(); let a = from.value || '', b = to.value || ''; if (!a && !b) return; if (a && b && a > b) [a, b] = [b, a]; timeFrom = a; timeTo = b; timeRange = 'custom'; todayOnly = false; apply(); };
+  // 1027b 她：点「最新在前」就能按主题 / 按分类筛（和分类行、范围里的主题是同一个筛选，点已选中的 = 取消）
+  const topics = topicNames();
+  if (topics.length) {
+    const tc = line('主题').createEl('div', { cls: 'lbc-chips' }); tc.setAttribute('role', 'group');
+    opt(tc, 'lbc-chip', '不限', !activeTopic, () => { activeTopic = ''; apply(); });
+    for (const name of topics) {
+      const n = items.filter(it => (it.topics || []).includes(name)).length;
+      opt(tc, 'lbc-chip', `★ ${name} ${n}`, activeTopic === name, () => { activeTopic = activeTopic === name ? '' : name; apply(); }).dataset.topic = name;
+    }
+  }
+  const roots = idx ? idx.roots.map(p_ => idxByPath.get(p_)).filter(n => n && n.count) : (data.cats_order || []).map(c => ({ path: c, name: c, count: items.filter(it => catNameOf(it) === c).length })).filter(n => n.count);
+  if (roots.length) {
+    const cc = line('分类').createEl('div', { cls: 'lbc-chips' }); cc.setAttribute('role', 'group');
+    opt(cc, 'lbc-chip', '不限', !activeCat, () => { activeCat = ''; activeFacets = []; apply(); });
+    for (const n of roots) {
+      const on = activeCat === n.path || activeCat.startsWith(n.path + '/');
+      opt(cc, 'lbc-chip', `${n.name} ${n.count}`, on, () => { activeCat = on ? '' : n.path; activeFacets = []; apply(); }).dataset.path = n.path;
+    }
+  }
   const place = () => { const r = anchor.getBoundingClientRect(); placeMenu(menu, r.left, r.bottom + 4); };
   place();
   focusFirst(menu);
@@ -1722,6 +1788,7 @@ if (saved.ts) {
   if (Number(saved.recentPage) > 0) recentPage = Math.floor(Number(saved.recentPage));
   if (saved.side === false) sideOpen = false;
   if (saved.sideFold && typeof saved.sideFold === 'object') for (const k of Object.keys(sideFold)) if (typeof saved.sideFold[k] === 'boolean') sideFold[k] = saved.sideFold[k];
+  if (saved.sideFoldRev !== 2) sideFold.recent = true;
 }
 setScope(scopeOf());   // 1021 范围单选：旧版本存下的叠加状态只留一个（顺序同 scopeOf）
 if (!sideOpen) wrap.classList.add('is-side-collapsed');
@@ -1730,7 +1797,7 @@ let scrollTop = savedScroll;
 function saveState() {
   LB.state.save({ q: committed, raw: lastRaw, input: search.value, cat: activeCat, topic: activeTopic, album: activeAlbum, src: activeSrc, today: todayOnly, todo: todoOnly, media: mediaFilter, tag: activeTag, plat: activePlat, star: starOnly,
     selectMode, select: [...selected], scrollTop, cols, timeSort, timeRange, timeFrom, timeTo, exportImages,
-    iview: indexView, fold: [...foldOverride].slice(-200), view: viewMode, recentPage, side: sideOpen, sideFold: { ...sideFold } });
+    iview: indexView, fold: [...foldOverride].slice(-200), view: viewMode, recentPage, side: sideOpen, sideFold: { ...sideFold }, sideFoldRev: 2 });
 }
 
 // ── 多选栏（C1 放进吸顶区、C15 常用的留在栏上） ──
@@ -1878,11 +1945,12 @@ function renderIndexBar() {
   } else l1.createEl('span', { cls: 'lbi-sum', text: '没有未归类的' });
   const st = classifyStatus();
   if (st) {
-    l1.createEl('span', { cls: 'lbi-status' + (st.warn ? ' is-warn' : ''), text: st.text });
+    const sEl = l1.createEl('span', { cls: 'lbi-status' + (st.warn ? ' is-warn' : ''), text: st.warn ? '⚠ 上次按内容归类没成' : st.text });
+    if (st.warn) sEl.title = st.text;
     if (st.action && !mobile) panelButton(l1, st.action, b => runClassify(b), 'lbi-link is-strong lbi-classify-btn');
   }
-  const tools = ibar.createEl('div', { cls: 'lbi-line' });
-  panelButton(tools, '编辑索引', () => openVaultFile(idx.file || '索引.md'), 'lbi-link lbi-edit');
+  const tools = l1.createEl('span', { cls: 'lbi-tools' });
+  panelButton(tools, '编辑 索引.md', () => openVaultFile(idx.file || '索引.md'), 'lbi-link lbi-edit');
   const props = Array.isArray(idx.proposals) ? idx.proposals : [];
   if (!mobile) {
     panelButton(tools, idx.text_ai?.ok ? 'AI 起草一版新树' : '起草一版', b => indexAction('indexDraft', b, '正在起草…'), 'lbi-link lbi-draft-btn');
@@ -1996,9 +2064,44 @@ function treeRow(box, n, depth, { cls = '', kids = null } = {}) {
       panelButton(acts, '留', b => keepOrDropEmpty(n, 'keep', b), 'lbi-link lbi-empty-keep');
     }
     if (n.wiki) wikiActs(acts, n);
+    // 1027b 她：索引里「不方便直接新增 / 编辑」——双击、右键之外，悬停就有「改名 / ＋子类」
+    if (editable) {
+      panelButton(acts, '改名', () => startRename(row, n), 'lbi-link lbi-q-rename');
+      panelButton(acts, '＋子类', () => startAdd(n.path, row), 'lbi-link lbi-q-add');
+    }
     if (!acts.childElementCount) acts.remove();
   }
   if (open) for (const k of children) treeRow(box, k, depth + 1);
+}
+// 加分类：在那一行下面（第一级 = 树底下）出一个输入框，回车加、Esc / 失焦空着就收起；写回 索引.md、能撤销（indexEdit add，和编排「分类」模块同一个）
+let adding = '';
+function startAdd(parent, afterRow) {
+  if (renaming || adding) { ipanel.querySelector('.lbi-add input')?.focus?.(); return; }
+  adding = parent || '#';
+  if (parent) { foldOverride.set(parent, true); }
+  const box = document.createElement('div'); box.className = 'lbi-row lbi-add';
+  const depth = parent ? parent.split('/').length : 0;
+  box.style.paddingLeft = (depth * 14 + 14) + 'px';
+  const inp = document.createElement('input'); inp.type = 'text'; inp.maxLength = 60; inp.placeholder = parent ? `「${pathText(parent)}」下面的新子类` : '新分类名';
+  inp.setAttribute('aria-label', inp.placeholder);
+  const go = document.createElement('button'); go.type = 'button'; go.className = 'lbi-link is-strong'; go.textContent = '加';
+  box.append(inp, go);
+  if (afterRow && afterRow.parentNode) afterRow.after(box); else (ipanel.querySelector('.lbi-tree') || ipanel).append(box);
+  const end = () => { adding = ''; box.remove(); panelKey = null; renderIndexPanel(); };
+  let busy = false;
+  const doAdd = async () => {
+    const v = inp.value.trim(); if (!v) { end(); return; }
+    if (busy) return; busy = true; go.disabled = true; inp.disabled = true;
+    const r = await indexAction('indexEdit', null, '正在改索引…', 'add', parent || '', { name: v });
+    adding = ''; box.remove();
+    await treeEditDone(r);
+    if (!r?.ok) { panelKey = null; renderIndexPanel(); }
+  };
+  go.onmousedown = e => e.preventDefault?.();   // 点「加」时输入框别先失焦收起
+  go.onclick = e => { e?.stopPropagation?.(); doAdd(); };
+  inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault?.(); doAdd(); } else if (e.key === 'Escape') { e.preventDefault?.(); e.stopPropagation?.(); end(); } };
+  inp.onblur = () => { if (!busy && !inp.value.trim()) end(); };
+  try { inp.focus({ preventScroll: false }); } catch { inp.focus?.(); }
 }
 // ── 1015 大纲树（她裁定 D）：目录页直接改树——拖拽调层级 / 换顺序、双击改名、右键「改名 / 合并到… / 挪到…」；
 //    Python（index edit）写回 索引.md：只动那几行、格式照旧、写前备份；每一步都能撤销 ──
@@ -2173,6 +2276,7 @@ function patchTreeCounts() {
 function renderIndexPanel() {
   if (!idx) { ipanel.empty(); panelKey = null; return; }
   if (renaming && ipanel.querySelector('.lbi-rename')) return;
+  if (adding && ipanel.querySelector('.lbi-add')) return;
   const key = treeShape();
   if (key === panelKey) { patchTreeCounts(); return; }
   panelKey = key;
@@ -2184,6 +2288,11 @@ function renderIndexPanel() {
   for (const r of roots) treeRow(tree, r, 0);
   const unc = idx.unclassified?.count || 0;
   if (unc) treeRow(tree, { path: UNC, name: UNC_LABEL, count: unc }, 0, { cls: ' is-unc', kids: [] });
+  if (!mobile && provider()) {
+    const add = tree.createEl('button', { cls: 'lbi-add-btn', text: '＋ 加分类' }); add.type = 'button';
+    add.onclick = e => { e?.stopPropagation?.(); startAdd('', add); };
+    tree.createEl('p', { cls: 'lbi-tree-tip', text: '悬停一行：改名 / ＋子类；拖动换层级和顺序；右键还有合并、挪到…。都写回 索引.md，能撤销。' });
+  }
   if (keepScroll) ipanel.scrollTop = keepScroll;
 }
 // 选中节点的细分标签：一行 chips（篇数 = 和已选的同时有的篇数），多选越选越窄，「清除」回到这一类全部
@@ -3502,18 +3611,29 @@ function openFromSide(it, e, forceNew = false) {
   saveState(); if (!newTab) leaving = true;
   app.workspace.openLinkText(lbPath(it.note), '', newTab);
 }
-// RECENT：最新 6 篇（1027：条数在模块「调整」里改，2 / 4 / 6 / 8）（按入库时间 ts）；今天显示 HH:MM，否则 M/D；点行打开笔记（同一窗格，Ctrl 开新标签）
+// RECENT：按入库时间 ts 新→旧；今天显示 HH:MM，否则 M/D；点行打开笔记（同一窗格，Ctrl 开新标签）
+// 1027b 她：不要「查看全部」——折起来是一行「最新 …」，点开往下就是列表，框高 = 「调整」里的条数（2 / 4 / 6 / 8）或拖出来的高度，
+// 在框里往下滚接着出更早的（每次多画 RECENT_STEP 条，不一次铺 1000+ 行）
+const RECENT_STEP = 40;
+let recentShown = RECENT_STEP;
 function paintRecent() {
   const m = mods.recent; const now = Date.now();
-  const list = items.filter(it => importedAt(it) > 0).sort((a, b) => importedAt(b) - importedAt(a)).slice(0, modOpt('recent').count);
+  const all = items.filter(it => importedAt(it) > 0).sort((a, b) => importedAt(b) - importedAt(a));
+  const list = all.slice(0, Math.max(modOpt('recent').count, recentShown));
   const when = it => { const t = importedAt(it); return sameDay(t, now) ? hmOf(t) : mdOf(t); };
   setSum(m, list.length ? ['最新 ', [when(list[0])], ' · ' + String(list[0].title || '（无标题）')] : ['还没有收藏']);
   if (sideFold.recent) return;
-  const sig = ymd(new Date(now)) + '|' + list.map(it => [it.id, importedAt(it), it.title, catNameOf(it)].join('\u0001')).join('\u0002');
+  const sig = ymd(new Date(now)) + '|' + modOpt('recent').count + '|' + list.map(it => [it.id, importedAt(it), it.title, catNameOf(it)].join('\u0001')).join('\u0002');
   if (m.sig === sig) return; m.sig = sig;
+  const keep = m.body.querySelector?.('.lbc-rec')?.scrollTop || 0;
   m.body.empty();
   if (!list.length) { m.body.createEl('div', { cls: 'lbc-rec-empty', text: '还没有收藏' }); return; }
   const ul = m.body.createEl('ul', { cls: 'lbc-rec' });
+  ul.style.setProperty('--lbc-rec-rows', String(modOpt('recent').count));
+  ul.addEventListener('scroll', () => {
+    if (recentShown >= all.length) return;
+    if (ul.scrollHeight - ul.scrollTop - ul.clientHeight < 120) { recentShown += RECENT_STEP; paintRecent(); }
+  }, { passive: true });
   for (const it of list) {
     const li = ul.createEl('li'); li.tabIndex = 0; li.setAttribute('role', 'button'); li.dataset.id = it.id;
     li.createEl('time', { text: when(it) });
@@ -3523,9 +3643,7 @@ function paintRecent() {
     li.onauxclick = e => { if (e.button === 1) { e.preventDefault?.(); openFromSide(it, e, true); } };
     li.onkeydown = e => { if (e.key === 'Enter') openFromSide(it, e); };
   }
-  // 1026 她：最近导入能看更多——「查看全部」进按导入时间排的完整列表（翻页）；这里照旧只预览最新几条
-  const more = m.body.createEl('button', { cls: 'lbc-rec-all', text: `查看全部 ${items.filter(it => importedAt(it) > 0).length} 篇 →` }); more.type = 'button';
-  more.onclick = e => { e?.stopPropagation?.(); openRecentAll(); };
+  if (keep) ul.scrollTop = keep;
 }
 
 // SYNC：上次 / 下次（大号 Cormorant）+ 频率 + 从上次到下次的时间进度；同步中 = 真实进度；失败 / 阻塞 = 原因（点开问题列表）
@@ -3568,7 +3686,7 @@ function paintSync() {
   const freq = schedule ? String(schedule.summary || '').replace(/\s*·\s*下次 .*$/, '') : '';
   const note = !p ? (mobile ? LB.MOBILE_ONLY_TEXT : '插件没开：下次同步、定时设置看不到（收藏照常可以浏览）')
     : scheduleErr ? '读不到同步计划：' + scheduleErr : '';
-  const sig = JSON.stringify([Math.floor(now / 30000), last, next, freq, note, running && run, why, nToday, !!schedule, scheduleBusy]);
+  const sig = JSON.stringify([syncEditOpen ? 0 : Math.floor(now / 30000), last, next, freq, note, running && run, why, nToday, !!schedule, syncEditOpen ? 0 : scheduleBusy, syncEditOpen]);
   if (m.sig === sig) return; m.sig = sig;
   const b = m.body; b.empty();
   if (stopped) {
@@ -3604,17 +3722,34 @@ function paintSync() {
     cap.createEl('span', { text: '' });
     cap.createEl('span', { text: !p ? '' : !schedule && !scheduleErr ? '正在读同步计划…' : next ? leftText(next - now) : '没有下次' });
   }
-  if (freq && !running) b.createEl('div', { cls: 'lbc-sy-freq', text: freq });
+  // 1027b 她：同步时间在这里就能改——点「每天 18:00 · 改」在块里展开同一个同步时间编辑器（schedule-ui，和设置页同一处），再点收起
+  if (!running && (freq || p)) {
+    const editable = !!p && !mobile;
+    const f = b.createEl(editable ? 'button' : 'div', { cls: 'lbc-sy-freq' + (editable ? ' lbc-sy-edit' : '') });
+    f.createEl('span', { cls: 'lbc-sy-freq-t', text: freq || '没有定时' });
+    if (editable) {
+      f.type = 'button'; f.title = '改同步时间'; f.dataset.act = 'sched'; f.setAttribute('aria-expanded', String(syncEditOpen));
+      f.createEl('span', { cls: 'lbc-sy-pen', text: syncEditOpen ? '收起' : '改' });
+      f.onclick = e => { e?.stopPropagation?.(); syncEditOpen = !syncEditOpen; m.sig = null; paintSync(); sideFadeSoon(); };
+      if (syncEditOpen) syncEditor(b, p);
+    }
+  }
   if (note) b.createEl('p', { cls: 'lbc-sy-note', text: note });
   const row = (k, v, cls = '') => { const r = b.createEl('div', { cls: 'lbc-sy-row' + (cls ? ' ' + cls : '') }); r.createEl('span', { text: k }); return r.createEl('b', { text: v }); };
   row('今日新增', `${nToday} 篇`);
-  if (!mobile) {
-    const acts = b.createEl('div', { cls: 'lbc-sy-acts' });
-    const now_ = acts.createEl('button', { text: running ? '正在同步…' : '立即同步' }); now_.type = 'button'; now_.dataset.act = 'sync'; now_.disabled = running;
-    now_.onclick = async e => { e?.stopPropagation?.(); const q = await want('syncNow'); if (!q) return; const done = LB.busy(now_, '正在同步…'); try { await q.syncNow(); } catch (err) { LB.say('同步没开始：' + (err?.message || err), { kind: 'error' }); } finally { done(); } };
-    const log = acts.createEl('button', { text: '查看同步记录' }); log.type = 'button'; log.dataset.act = 'log';
-    log.onclick = e => { e?.stopPropagation?.(); openUpdated(e); };
+  // 1027b 她：「立即同步 / 查看同步记录」两个按钮藏掉（同步记录 = 点「上次同步」；立即同步在设置「收藏与同步」、命令面板里）
+}
+let syncEditOpen = false, syncEd = null;
+function syncEditor(b, p) {
+  try { syncEd?.destroy?.(); } catch {}
+  syncEd = null;
+  const holder = b.createEl('div', { cls: 'lbc-sy-sched' });
+  holder.onclick = e => e?.stopPropagation?.();
+  if (typeof p.scheduleUI === 'function') {
+    try { syncEd = p.scheduleUI().render(holder, { primary: false, onSaved: () => loadSchedule({ force: true }) }); return; }
+    catch (e) { holder.empty(); holder.createEl('p', { cls: 'lbc-sy-note', text: '同步时间编辑器没画上：' + (e?.message || e) }); }
   }
+  const go = holder.createEl('button', { cls: 'lbc-sy-edit', text: '去设置里改同步时间 →' }); go.type = 'button'; go.onclick = () => openSyncSettings();
 }
 async function openSyncSettings(btn) {
   // 1026：同步时间只有一个编辑处（设置「收藏与同步」data-section="sync-time"）：新插件有 openSyncTime 就直达，旧的走 openSetupPage('schedule')（落到同一处）
@@ -3697,17 +3832,18 @@ const MOD_NAMES = { title: '标题 / Logo', cats: '分类', filters: '筛选与�
 const SIDE_MODS = ['recent', 'sync', 'token', 'overview'];
 const CORE_MODS = new Set(['title', 'cats', 'filters']);
 const OPT_DEFAULT = {
-  recent: { count: 6 },
-  overview: { metrics: ['all', 'week', 'star', 'cats', 'bars'] },
+  recent: { count: 6, h: 0 },
+  sync: { h: 0 },
+  overview: { metrics: ['all', 'week', 'star', 'cats', 'bars'], h: 0 },
   filters: { show: ['scope', 'type', 'tag', 'plat', 'src', 'sort', 'view', 'ask'] },
-  token: { period: 'month' },
+  token: { period: 'month', h: 0 },
   wall: { density: 'm' },
 };
 const OPT_CHOICES = {
   recent: { count: [2, 4, 6, 8] },
   overview: { metrics: ['all', 'week', 'star', 'cats', 'bars'] },
   filters: { show: ['scope', 'type', 'tag', 'plat', 'src', 'sort', 'view', 'ask'] },
-  token: { period: ['month', 'day'] },
+  token: { period: ['day', 'week', 'month'] },
   wall: { density: ['s', 'm', 'l'] },
 };
 const FONT_SET = [['', '跟随全站'], [FONT_NAMES.cinzel, 'Cinzel 雕刻'], [FONT_NAMES.song, '衬线（思源宋体）'], [FONT_NAMES.hei, '无衬线（思源黑体）'],
@@ -3729,11 +3865,14 @@ function cleanOpt(id, raw) {
   for (const k of Object.keys(out)) {
     const v = raw[k];
     if (Array.isArray(out[k])) { if (Array.isArray(v)) out[k] = ch[k].filter(x => v.includes(x)); }
+    else if (k === 'h') out.h = modH(v);
     else if (ch[k]?.includes(v)) out[k] = v;
   }
   return out;
 }
 const fontOf = v => (typeof v === 'string' ? v.slice(0, 200) : '');
+// 1027b 边栏模块的高度（编排时拖下边框）：0 = 跟内容走；否则 80–1600px，内容超出在块里滚
+const modH = v => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= 80 ? Math.min(1600, n) : 0; };
 const sizeOf = v => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= 60 && n <= 200 ? n : 100; };
 function cleanTheme(t) {
   const o = { ...THEME_DEFAULT };
@@ -3900,6 +4039,7 @@ function paintVisibility() {
     set('--f-sans', fb); set('--f-serif', fb); if (id === 'title') set('--f-display', fontVar(g.font, 'titleFont'));
     const k = g.size === 100 ? '' : String(g.size / 100);
     if (id === 'title') { set('--lbc-title-k', k); set('--lbc-m-k', ''); } else set('--lbc-m-k', k);
+    if (SIDE_MODS.includes(id)) { const h = modH(g.opt?.h); el.classList.toggle('has-h', !!h); set('--lbc-m-h', h ? h + 'px' : ''); }
   }
   const fshow = new Set(modOpt('filters').show);
   for (const k of OPT_CHOICES.filters.show) blocks.filters.classList.toggle('lbc-f-no-' + k, !fshow.has(k));
@@ -4126,9 +4266,59 @@ function ensureBar(id) {
   const x = bar.createEl('button', { text: '×' }); x.type = 'button'; x.dataset.act = 'remove';
   x.setAttribute('aria-label', id === 'filters' ? '收起筛选项（搜索保留）' : `移除「${MOD_NAMES[id]}」`);
   x.onclick = e => { e?.stopPropagation?.(); setModHidden(id, true); };
-  bars[id] = { bar, grip, adj, x };
+  // 1027b 她：拉着虚线边框就改大小——下边框调高（边栏四块），左 / 右边框调宽（和旁边一列并排时；吸附 1/12，和列间竖线同一套）
+  const rx = document.createElement('button'); rx.type = 'button'; rx.className = 'lbc-m-rs lbc-m-rs-x'; rx.hidden = true;
+  rx.addEventListener('pointerdown', e => { const at = colPos(id); if (!at) return; e.stopPropagation?.(); startEdgeDrag(e, at.ri, at.edge, rx, at.host); });
+  rx.onkeydown = e => { const at = colPos(id); if (!at || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return; e.preventDefault?.(); if (resizeCols(at.ri, at.edge, e.key === 'ArrowLeft' ? -1 : 1)) { saveLayout(); relayoutSoon(); } };
+  el.append(rx);
+  let ry = null;
+  if (SIDE_MODS.includes(id)) {
+    ry = document.createElement('button'); ry.type = 'button'; ry.className = 'lbc-m-rs lbc-m-rs-y';
+    ry.setAttribute('aria-label', `调「${MOD_NAMES[id]}」的高度（上下键；双击 = 跟内容走）`); ry.title = '拖动调高度 · 双击恢复跟内容走';
+    ry.addEventListener('pointerdown', e => startHeightDrag(e, id, ry));
+    ry.ondblclick = e => { e?.stopPropagation?.(); setModHeight(id, 0, true); };
+    ry.onkeydown = e => { if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return; e.preventDefault?.(); setModHeight(id, (modH(modOpt(id).h) || heightBox(id)) + (e.key === 'ArrowUp' ? -20 : 20), true); };
+    el.append(ry);
+  }
+  bars[id] = { bar, grip, adj, x, rx, ry };
   return bars[id];
 }
+// 这一块在哪一排、它右边（最后一列就左边）那条列边是第几条；不和别的列并排 → null
+function colPos(id) {
+  for (const c of edgeContainers()) {
+    const j = c.vis.findIndex(col => col.mods.includes(id)); if (j < 0) continue;
+    return { ri: c.ri, host: c.host, j, n: c.vis.length, edge: j < c.vis.length - 1 ? j : j - 1, left: j === c.vis.length - 1 };
+  }
+  return null;
+}
+function paintResizers() {
+  for (const id of MOD_IDS) {
+    const b = bars[id]; if (!b?.rx) continue;
+    const at = arranging && !isGone(id) ? colPos(id) : null;
+    b.rx.hidden = !at;
+    if (at) { b.rx.classList.toggle('is-left', at.left); b.rx.setAttribute('aria-label', `调「${MOD_NAMES[id]}」的宽度（左右键）`); b.rx.title = '拖动调宽度'; }
+  }
+}
+// 高度：拖的是内容框（最近导入 = 列表那一框）；松手存
+const heightBox = id => { const el = modEl(id); const box = id === 'recent' ? el?.querySelector?.('.lbc-rec') || mods.recent?.body : mods[id]?.body; return Math.round(Number(box?.getBoundingClientRect?.().height) || 0); };
+function setModHeight(id, h, save) {
+  const g = modCfg(id); const v = h ? Math.max(80, modH(h) || 80) : 0;
+  if ((g.opt.h || 0) === v) return;
+  g.opt = { ...g.opt, h: v }; if (!layout.cfg[id]) layout.cfg[id] = g;
+  paintVisibility(); sideFadeSoon();
+  if (save) saveLayout();
+}
+let hDrag = null;
+function startHeightDrag(e, id, el) {
+  if (!arranging || (e.button != null && e.button !== 0)) return;
+  e.preventDefault?.(); e.stopPropagation?.();
+  if (sideFold[id]) { sideFold[id] = false; paintFold(id); paintMod(id); }
+  hDrag = { id, y0: e.clientY, h0: modH(modOpt(id).h) || heightBox(id) || 200, el, pointer: e.pointerId, moved: false };
+  try { el.setPointerCapture?.(e.pointerId); } catch {}
+  el.classList.add('is-on');
+}
+docOn('pointermove', e => { if (!hDrag) return; const d = hDrag, h = Math.round(d.h0 + e.clientY - d.y0); if (Math.abs(e.clientY - d.y0) < 2 && !d.moved) return; d.moved = true; setModHeight(d.id, h, false); });
+docOn('pointerup', () => { if (!hDrag) return; const d = hDrag; hDrag = null; try { d.el.releasePointerCapture?.(d.pointer); } catch {} d.el.classList.remove('is-on'); if (d.moved) saveLayout(); });
 function paintBar(id) {
   const b = bars[id]; if (!b) return;
   b.adj.setAttribute('aria-expanded', String(openPanel?.id === id));
@@ -4208,6 +4398,7 @@ function edgeContainers() {
 }
 function paintEdges() {
   for (const e of edgeEls.splice(0)) e.remove();
+  paintResizers();
   if (!arranging || !ENGINE || wrap.classList.contains('is-side-narrow')) return;
   for (const { ri, host, nodes, vis } of edgeContainers()) {
     const hr = host.getBoundingClientRect?.() || { left: 0 };
@@ -4372,7 +4563,8 @@ const panelBody = {
     body.createEl('p', { cls: 'lbc-mp-note', text: '搜索框一直在。藏起来的筛选按钮只是不显示，已经选着的筛选照样生效。' });
   },
   recent(body, g) {
-    mkSelect(mkRow(body, '显示'), OPT_CHOICES.recent.count.map(n => [n, n + ' 条']), g.opt.count, v => { g.opt.count = Number(v); mods.recent && (mods.recent.sig = null); paintRecent(); saveLayout(); }, '最近导入条数').dataset.k = 'count';
+    // 1027b 条数 = 列表框高几条（其余在框里滚）；改的时候折着就展开，马上看得到
+    mkSelect(mkRow(body, '框高'), OPT_CHOICES.recent.count.map(n => [n, n + ' 条']), g.opt.count, v => { g.opt.count = Number(v); if (sideFold.recent) { sideFold.recent = false; paintFold('recent'); saveState(); } mods.recent && (mods.recent.sig = null); paintRecent(); saveLayout(); }, '最近导入列表框高几条').dataset.k = 'count';
   },
   sync(body, g, p, panel) {
     // 同步时间只有一个编辑器（schedule-ui 的 render，设置页「收藏与同步」、首次设置用的同一个）：嵌在这里，保存 = 真去改计划任务，结果照实说
@@ -4387,19 +4579,16 @@ const panelBody = {
     const b = mkRow(body).createEl('button', { text: '改同步时间（设置 · 收藏与同步）' }); b.type = 'button'; b.onclick = () => openSyncSettings();
   },
   token(body, g, p) {
-    mkSelect(mkRow(body, '显示'), [['month', '本月（人民币估算）'], ['day', '今天（北京时间）']], g.opt.period, v => { g.opt.period = v; mods.token && (mods.token.sig = null); paintToken(); saveLayout(); }, 'Token 费用显示哪一段').dataset.k = 'period';
+    mkSelect(mkRow(body, '显示'), TOKEN_PERIODS.map(([k, , long]) => [k, long]), g.opt.period, v => setTokenPeriod(v), 'Token 费用显示哪一段').dataset.k = 'period';
     const r = mkRow(body, '后台每日上限 ¥');
     const inp = r.createEl('input', { type: 'number' }); inp.min = '0'; inp.step = '1'; inp.dataset.k = 'budget'; inp.setAttribute('aria-label', '后台每日费用上限（元，0 = 不限）');
     const cur = p?.settings?.budget?.dailyYuan; inp.value = cur === undefined || cur === '' || cur == null ? '' : String(cur);
     inp.placeholder = usage?.budget && Number.isFinite(+usage.budget.daily_yuan) ? String(+usage.budget.daily_yuan) : '默认';
     const note = body.createEl('p', { cls: 'lbc-mp-note', text: '每天（北京时间）花到这个数，夜里补识图、补概要就只用免费的；你自己问收藏不受限。0 = 不限。和设置页「AI」里是同一个。' });
     inp.onchange = () => {
-      const q = provider(); if (!q?.settings) return;
-      const raw = String(inp.value).trim();
-      if (raw === '') { const b = { ...(q.settings.budget || {}) }; delete b.dailyYuan; q.settings.budget = b; }
-      else { const n = Math.round(Number(raw) * 100) / 100; if (!Number.isFinite(n) || n < 0) { note.textContent = '上限要是 0 或正数（0 = 不限），还没改'; note.classList.add('is-fail'); return; } q.settings.budget = { ...(q.settings.budget || {}), dailyYuan: n }; }
+      const err = setBudget(inp.value);
+      if (err) { note.textContent = err; note.classList.add('is-fail'); return; }
       note.classList.remove('is-fail');
-      mods.token && (mods.token.sig = null); paintToken(); saveSettingSoon('budget');
     };
   },
   overview(body, g) {
@@ -4438,33 +4627,73 @@ async function loadUsage({ force = false } = {}) {
   paintToken();
 }
 const yuan = v => (v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) ? '¥' + Number(v).toFixed(2) : '—');
+// 1027b 她：费用能在块里直接切 天 / 周 / 月；周 = 近 7 天（usage summary 的 7d 窗口，和设置页「用量」同一口径）
+const TOKEN_PERIODS = [['day', '天', '今天（北京时间）'], ['week', '周', '近 7 天'], ['month', '月', '本月（人民币估算）']];
+function setTokenPeriod(v) {
+  const g = modCfg('token'); if (!TOKEN_PERIODS.some(([k]) => k === v) || g.opt.period === v) return;
+  g.opt.period = v; if (mods.token) mods.token.sig = null; paintToken(); saveLayout();
+}
+// 后台每日上限：'' = 默认（删掉 dailyYuan）；返回错误文字或 ''
+function setBudget(raw) {
+  const q = provider(); if (!q?.settings) return '插件没开，改不了';
+  raw = String(raw ?? '').trim();
+  if (raw === '') { const b = { ...(q.settings.budget || {}) }; delete b.dailyYuan; q.settings.budget = b; }
+  else { const n = Math.round(Number(raw) * 100) / 100; if (!Number.isFinite(n) || n < 0) return '上限要是 0 或正数（0 = 不限），还没改'; q.settings.budget = { ...(q.settings.budget || {}), dailyYuan: n }; }
+  if (mods.token) mods.token.sig = null; paintToken(); saveSettingSoon('budget');
+  return '';
+}
+const CAP_CHOICES = [0, 1, 2, 3, 5, 10, 20, 50];
 function paintToken() {
   const m = mods.token; if (!m) return;
-  const p = provider(), period = modOpt('token').period === 'day' ? 'day' : 'month';
+  const p = provider(), period = TOKEN_PERIODS.some(([k]) => k === modOpt('token').period) ? modOpt('token').period : 'month';
   const um = data?.usage_month || {};
   const capSet = p?.settings?.budget?.dailyYuan;
-  const cap = capSet !== undefined && capSet !== '' && capSet != null ? Number(capSet) : (usage?.budget && Number.isFinite(+usage.budget.daily_yuan) ? +usage.budget.daily_yuan : null);
+  const capIsSet = capSet !== undefined && capSet !== '' && capSet != null;
+  const cap = capIsSet ? Number(capSet) : (usage?.budget && Number.isFinite(+usage.budget.daily_yuan) ? +usage.budget.daily_yuan : null);
   const capText = cap == null || !Number.isFinite(cap) ? '默认' : cap > 0 ? '¥' + cap : '不限';
-  const val = period === 'month' ? (um.cost_cny ?? null) : (usage?.budget ? usage.budget.spent_today : null);
-  setSum(m, [period === 'month' ? '本月 ' : '今天 ', [val == null ? '—' : '约 ' + yuan(val)], ' · 上限 ' + capText]);
-  if (period === 'day' && !usage && !usageAt) loadUsage();
+  const wk = usage?.summary?.windows?.['7d']?.total;
+  const val = period === 'month' ? (um.cost_cny ?? null) : period === 'week' ? (wk ? wk.cost : null) : (usage?.budget ? usage.budget.spent_today : null);
+  const pname = { day: '今天 ', week: '近 7 天 ', month: '本月 ' }[period];
+  setSum(m, [pname, [val == null ? '—' : '约 ' + yuan(val)], ' · 上限 ' + capText]);
+  if (period !== 'month' && !usage && !usageAt) loadUsage();
   if (sideFold.token) return;
-  const sig = JSON.stringify([period, val, capText, usageBusy, usageErr, um.month, um.unpriced, um.by_feature]);
+  const sig = JSON.stringify([period, val, capText, capIsSet, usageBusy, usageErr, um.month, um.unpriced, um.by_feature, !!p]);
   if (m.sig === sig) return; m.sig = sig;
   const b = m.body; b.empty();
+  // 天 / 周 / 月：块里一排小字切换（和「调整」里的同一个设置）
+  const seg = b.createEl('div', { cls: 'lbc-tk-seg', attr: { role: 'tablist', 'aria-label': '费用看哪一段' } });
+  for (const [k, short, long] of TOKEN_PERIODS) {
+    const t = seg.createEl('button', { cls: k === period ? 'is-on' : '', text: short }); t.type = 'button'; t.dataset.period = k; t.title = long;
+    t.setAttribute('role', 'tab'); t.setAttribute('aria-selected', String(k === period));
+    t.onclick = e => { e?.stopPropagation?.(); setTokenPeriod(k); };
+  }
   const big = b.createEl('div', { cls: 'lbc-sy-big lbc-tk-big' });
   if (val == null) big.setText('—'); else { big.append('¥ '); big.createEl('i', { text: Number(val).toFixed(2) }); }
-  b.createEl('div', { cls: 'lbc-sy-cap lbc-tk-cap' }).createEl('span', { text: period === 'month' ? `${um.month || '本月'} · 人民币估算` : '今天（北京时间）· 人民币估算' });
-  const row = (k, v) => { const r = b.createEl('div', { cls: 'lbc-sy-row' }); r.createEl('span', { text: k }); return r.createEl('b', { text: v }); };
-  const c = row('后台每日上限', capText);
-  c.title = '每天（北京时间）花到这个数，夜里补识图、补概要就只用免费的；你自己问收藏不受限。改：编排 → Token 费用 → 调整，或设置「AI」';
+  b.createEl('div', { cls: 'lbc-sy-cap lbc-tk-cap' }).createEl('span', { text: period === 'month' ? `${um.month || '本月'} · 人民币估算` : period === 'week' ? '近 7 天 · 人民币估算' : '今天（北京时间）· 人民币估算' });
+  // 后台每日上限：直接下拉改（和设置「AI」、「调整」里是同一个 budget.dailyYuan）
+  const r = b.createEl('div', { cls: 'lbc-sy-row lbc-tk-cap-row' }); r.createEl('span', { text: '后台每日上限' });
+  r.title = '每天（北京时间）花到这个数，夜里补识图、补概要就只用免费的；你自己问收藏不受限。';
+  if (p?.settings && !mobile) {
+    const dflt = usage?.budget && Number.isFinite(+usage.budget.daily_yuan) && !capIsSet ? +usage.budget.daily_yuan : null;
+    const opts = [['', dflt != null ? `默认（¥${dflt}）` : '默认'], ...CAP_CHOICES.map(n => [String(n), n ? '¥' + n : '不限'])];
+    if (capIsSet && !CAP_CHOICES.includes(Number(capSet))) opts.push([String(capSet), '¥' + capSet]);
+    const sel = r.createEl('select', { cls: 'lbc-tk-capsel' }); sel.setAttribute('aria-label', '后台每日费用上限');
+    for (const [v, t] of opts) sel.createEl('option', { value: v, text: t });
+    sel.value = capIsSet ? String(capSet) : '';
+    sel.onclick = e => e?.stopPropagation?.();
+    sel.onchange = () => {
+      const v = sel.value;   // 别的数（比如 ¥4）在「编排 → Token 费用 → 调整」里填
+      const err = setBudget(v);
+      if (err) { LB.say(err, { kind: 'error' }); sel.value = capIsSet ? String(capSet) : ''; }
+    };
+  } else r.createEl('b', { text: capText });
   if (period === 'month') {
     const bf = um.by_feature || {};
     if (val == null) b.createEl('p', { cls: 'lbc-sy-note', text: '还没有用量记录' });
     else big.title = [`${um.month || '本月'} 调用 AI 的估算费用（人民币，按价格表 ${um.as_of || ''} 现价）${um.unpriced ? `（${um.unpriced} 次没有价格表，没算进去）` : ''}`, ...Object.keys(bf).map(k => `${k} ¥${Number(bf[k]).toFixed(2)}`)].join('\n');
-  } else if (usageBusy && !usage) b.createEl('p', { cls: 'lbc-sy-note', text: '正在读今天的用量…' });
-  else if (usageErr && !usage) b.createEl('p', { cls: 'lbc-sy-note', text: '读不到今天的用量：' + usageErr });
-  else if (!p) b.createEl('p', { cls: 'lbc-sy-note', text: mobile ? LB.MOBILE_ONLY_TEXT : '插件没开：看不到今天的用量' });
+  } else if (usageBusy && !usage) b.createEl('p', { cls: 'lbc-sy-note', text: '正在读用量…' });
+  else if (usageErr && !usage) b.createEl('p', { cls: 'lbc-sy-note', text: '读不到用量：' + usageErr });
+  else if (!p) b.createEl('p', { cls: 'lbc-sy-note', text: mobile ? LB.MOBILE_ONLY_TEXT : '插件没开：看不到今天 / 近 7 天的用量' });
   else if (usage?.budget?.over) b.createEl('p', { cls: 'lbc-sy-note', text: '今天到上限了：后台补跑先只用免费的，北京时间明天 0 点恢复。' });
 }
 

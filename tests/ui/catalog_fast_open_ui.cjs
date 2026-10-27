@@ -93,7 +93,8 @@ async function openTimed(browser, { rev = null, data, code = null, files = {}, p
       assert.ok(med(ms) <= 300, `边栏开着首开 ${med(ms).toFixed(0)}ms ≤ 300ms`);
       assert.ok(a.filling && Math.min(...a.colsBottom) >= a.vh, `边栏开着第一屏铺满 ${a.colsBottom.map(Math.round)}`);
       await a.S.settle(60);
-      assert.equal(await a.page.evaluate(() => document.querySelectorAll('.lbc-side .lbc-rec li').length), 6, '第一帧之后边栏填上了');
+      // 1027b 最近导入默认折成一行：填上 = 那一行「最新 …」有字
+      assert.match(await a.page.evaluate(() => document.querySelector('.lbc-side .lbc-mod-recent .lbc-fold-sum').textContent), /^最新 /, '第一帧之后边栏填上了');
       sideMs = med(ms);
       await a.page.close();
     }

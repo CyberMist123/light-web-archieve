@@ -14,11 +14,16 @@ const measure = page => page.evaluate(() => {
   if (!m) return null;
   const R = e => { const r = e.getBoundingClientRect(); return { top: Math.round(r.top), left: Math.round(r.left), right: Math.round(r.right), width: Math.round(r.width), height: Math.round(r.height) }; };
   const cs = e => getComputedStyle(e);
-  const seg = [...m.querySelectorAll('.lbc-seg-btn')], chips = [...m.querySelectorAll('.lbc-chip')];
+  // 1027b：弹层下面多了「主题 / 分类」两行；这里量的「时间」只是时间那一行，「两行高」只量排序 + 时间
+  const rowOf = k => [...m.querySelectorAll('.lbc-tm-row')].find(r => r.querySelector('.lbc-tm-label')?.textContent === k);
+  const timeRow = rowOf('时间');
+  const seg = [...m.querySelectorAll('.lbc-seg-btn')], chips = timeRow ? [...timeRow.querySelectorAll('.lbc-chip')] : [];
   const range = m.querySelector('.lbc-range');
   const on = chips.find(c => c.classList.contains('is-on')), off = chips.find(c => !c.classList.contains('is-on'));
   return {
     menu: R(m), vw: innerWidth, overflowX: m.scrollWidth - m.clientWidth,
+    core: timeRow ? Math.round(timeRow.getBoundingClientRect().bottom - m.getBoundingClientRect().top + 8) : null,
+    catRow: !!rowOf('分类'),
     items: m.querySelectorAll('.lbc-menu-item').length,
     seg: seg.map(R), segText: seg.map(b => b.textContent),
     chips: chips.map(R), chipText: chips.map(b => b.textContent),
@@ -43,7 +48,7 @@ const sameRow = rs => rs.length > 0 && rs.every(r => Math.abs(r.top - rs[0].top)
       const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', theme: 'light', data, rev: OLD_REV });
       await page.click('.lbc-time'); await S.settle();
       const old = await measure(page);
-      oldHeight = old.menu.height;
+      oldHeight = old.menu.height;   // 改前那版没有主题 / 分类行：整个弹层就是排序 + 时间
       out.old = { height: old.menu.height, width: old.menu.width, chips: old.chips.length, seg: old.seg.length };
       if (old.chips.length === 5 && old.seg.length === 2) { oldHeight = null; console.log('（对照版已经是紧凑版：只记读数）'); }
       await page.close();
@@ -65,8 +70,10 @@ const sameRow = rs => rs.length > 0 && rs.every(r => Math.abs(r.top - rs[0].top)
         assert.ok(a.chips.every(r => r.width < 90 && r.height <= 30), `${tag}：小块是小块 ${JSON.stringify(a.chips)}`);
         // ② 起止不占位、整体矮
         assert.equal(a.rangeShown, false, `${tag}：没选自定义时不露起止`);
-        if (width >= 1280) assert.ok(a.menu.height <= 100, `${tag}：两行高 ≤ 100，实际 ${a.menu.height}`);
-        if (oldHeight != null && width >= 1280) assert.ok(a.menu.height < oldHeight / 2, `${tag}：比改前（${oldHeight}px）矮一半以上，实际 ${a.menu.height}`);
+        if (width >= 1280) assert.ok(a.core <= 100, `${tag}：排序 + 时间两行高 ≤ 100，实际 ${a.core}`);
+        if (oldHeight != null && width >= 1280) assert.ok(a.core < oldHeight / 2, `${tag}：比改前（${oldHeight}px）矮一半以上，实际 ${a.core}`);
+        assert.ok(a.catRow, `${tag}：1027b 同一个弹层里能按分类筛`);
+        assert.ok(a.menu.height <= 900 - 16, `${tag}：加了分类行也不出视口 ${a.menu.height}`);
         // ③ 选中态一眼可辨
         assert.notEqual(a.onBg, a.offBg, `${tag}：选中的块背景和没选中的不同`);
         assert.notEqual(a.onColor, a.onBg, `${tag}：选中的块字色和背景不同`);

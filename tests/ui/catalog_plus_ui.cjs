@@ -120,13 +120,13 @@ function fixture() {
       await page.hover('.lbc-topic-wrap >> nth=1'); await S.settle(60);
       assert.equal(await page.evaluate(() => getComputedStyle(document.querySelectorAll('.lbc-topic-del')[1]).display), 'grid', '悬停胶囊出 ×');
       shots.push(await S.screenshot('catalog-plus-topics'));
-      // 1023 起「列表」入口藏了；1026 表格用在「最近导入 → 查看全部」（同一套 .lbc-ltable 样式）
-      await page.click('.lbc-rec-all'); await S.settle();
-      const list = await page.evaluate(() => ({ grid: document.querySelector('.lbc-grid').hidden, rows: document.querySelectorAll('.lbc-ltable tr.lbc-lrow').length, w: document.querySelector('.lbc-ltable').getBoundingClientRect().width, main: document.querySelector('.lbc-board-main').getBoundingClientRect().width }));
-      // 1021 第 3 段：左边有边栏，列表铺满右边收藏墙那一栏（8/12）
-      assert.ok(list.grid && list.rows > 0 && list.w > 700 && list.w >= list.main - 12, `列表视图 ${JSON.stringify(list)}`);
-      shots.push(await S.screenshot('catalog-plus-list'));
-      await page.click('.lbc-ltable tr.lbc-lrow >> nth=0'); await S.settle();
+      // 1027b 她：最近导入不要「查看全部」——折成一行，点开就在边栏里往下滚（收藏墙不动）
+      assert.equal(await page.$('.lbc-rec-all'), null);
+      await page.click('.lbc-mod-recent .lbc-fold-sum'); await S.settle();
+      const list = await page.evaluate(() => { const ul = document.querySelector('.lbc-mod-recent .lbc-rec'); return { grid: document.querySelector('.lbc-grid').hidden, rows: ul.querySelectorAll('li').length, scrolls: ul.scrollHeight > ul.clientHeight + 4, oy: getComputedStyle(ul).overflowY }; });
+      assert.ok(!list.grid && list.rows > 6 && list.scrolls && list.oy === 'auto', `最近导入在框里滚 ${JSON.stringify(list)}`);
+      shots.push(await S.screenshot('catalog-plus-recent'));
+      await page.click('.lbc-mod-recent .lbc-rec li >> nth=0'); await S.settle();
       assert.equal((await page.evaluate(() => window.opened.at(-1)))[2], false, '点行在同一窗格打开');
       assert.deepEqual(await S.pageErrors(), []);
       await page.close();

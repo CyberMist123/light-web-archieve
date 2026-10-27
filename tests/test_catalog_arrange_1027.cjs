@@ -153,6 +153,23 @@ async function dragTo(P, id, x, y) {
     await tick(450);
     assert.equal(L(p).modules.find(m => m.id === 'sync').width, 2);
     assert.equal(L(p).modules.find(m => m.id === 'wall').width, 10);
+    // 1027b 拉虚线边框：边栏模块的侧边框 = 同一个调宽（左右键）；下边框调高（上下键 / 双击恢复），存进 options.h
+    const rx = P.$('.lbc-mod-sync .lbc-m-rs-x');
+    assert.ok(rx && !rx.hidden, '并排时侧边框可拖'); assert.equal(rx.classList.contains('is-left'), false, '边栏在左：拖右边框');
+    rx.onkeydown({ key: 'ArrowRight', preventDefault() {} });
+    assert.equal(P.$('.lbc-board').style.getPropertyValue('--lbc-board-cols'), 'minmax(0,3fr) minmax(0,9fr)');
+    assert.ok(P.$('.lbc-board-main .lbc-m-rs-x.is-left'), '墙在右：拖它的左边框');
+    assert.equal(P.$('.lbc-board-main .lbc-m-rs-y'), null, '墙没有调高');
+    const ry = P.$('.lbc-mod-token .lbc-m-rs-y');
+    ry.onkeydown({ key: 'ArrowDown', preventDefault() {} }); ry.onkeydown({ key: 'ArrowDown', preventDefault() {} });
+    const tk = P.$('.lbc-mod-token');
+    assert.ok(tk.classList.contains('has-h')); const h = parseInt(tk.style.getPropertyValue('--lbc-m-h'), 10); assert.ok(h >= 80, '高度 ' + h);
+    await tick(450);
+    assert.equal(L(p).modules.find(m => m.id === 'token').options.h, h, '高度存进 catalogLayout');
+    ry.ondblclick({ stopPropagation() {} });
+    assert.equal(tk.classList.contains('has-h'), false, '双击 = 跟内容走');
+    await tick(450);
+    assert.equal(L(p).modules.find(m => m.id === 'token').options, undefined);
   }
 
   // ── ⑤ 调整 ──
@@ -169,8 +186,9 @@ async function dragTo(P, id, x, y) {
     const panel = () => P.$('.lbc-mp');
     assert.equal(panel().dataset.panel, 'recent'); assert.equal(bar(P, 'recent', 'adjust').getAttribute('aria-expanded'), 'true');
     assert.ok(mod(P, 'recent').contains(panel()), '在模块里展开（不弹窗）');
+    if (mod(P, 'recent').classList.contains('is-folded')) mod(P, 'recent').querySelector('.lbc-fold-sum').onclick();   // 1027b 默认折着
     const cnt = panel().querySelector('[data-k="count"]'); cnt.value = '2'; cnt.onchange();
-    assert.equal(P.$$('.lbc-mod-recent .lbc-rec li').length, 2, '最近导入只列 2 条');
+    assert.equal(P.$('.lbc-mod-recent .lbc-rec').style.getPropertyValue('--lbc-rec-rows'), '2', '最近导入框高 = 2 条（框里滚看更多）');
     // 字号 / 字体（这一块自己的）
     const size = panel().querySelector('[data-k="size"]'); size.value = '130'; size.onchange();
     assert.equal(mod(P, 'recent').style.getPropertyValue('--lbc-m-k'), '1.3');
@@ -241,7 +259,8 @@ async function dragTo(P, id, x, y) {
     await tick(450);
     const Q = await openCatalog({ data: catalogData(base()), plugin: p, files: { '_archive/index-data.json': JSON.stringify(index) } });
     await tick(5);
-    assert.equal(Q.$$('.lbc-mod-recent .lbc-rec li').length, 2);
+    mod(Q, 'recent').querySelector('.lbc-fold-sum').onclick();
+    assert.equal(Q.$('.lbc-mod-recent .lbc-rec').style.getPropertyValue('--lbc-rec-rows'), '2');
     assert.equal(mod(Q, 'recent').style.getPropertyValue('--lbc-m-k'), '1.3');
     assert.ok(mod(Q, 'filters').classList.contains('lbc-f-no-tag'));
     assert.equal(Q.$('.lbc-title-text').textContent, 'MY ARCHIVE');
