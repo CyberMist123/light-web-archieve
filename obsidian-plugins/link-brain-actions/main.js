@@ -1501,7 +1501,7 @@ class LinkBrainActions extends Plugin {
     return () => Promise.all(refreshers.map(r => r()));
   }
 
-  // inCard（1027 设置页①）：平台名已经在卡片标题上；登好了右边就是「换个账号」（以前藏在 ⋯ 里）
+  // inCard（1027 设置页①）：平台名已经在卡片标题上。1027b 她：登着时不另放「换个账号」按钮，状态检查 / 切换账号 / 退出账号 都在 ⋯ 里（和「＋ → 账号登录 / 换号」同一套）
   renderAccountRow(box, platform, { inCard = false } = {}) {
     const row = new Setting(box).setClass('lb-acct-row');
     row.nameEl.empty();
@@ -1519,7 +1519,7 @@ class LinkBrainActions extends Plugin {
     // 每种状态：状态字 · 下一步一句话 · 主按钮。第 4 批：带故障码的几种（掉登录 / 验证 / 服务没起 / 未安装）状态字取 Python 登记表
     // （state_registry，按行里的 code），下一步取后端给的 next_step（accounts.SOLUTIONS）；这里只留没有故障码的状态字和按钮名。
     const VIEW = {
-      ready: ['✓ 已登录', '', inCard ? '换个账号' : ''],
+      ready: ['✓ 已登录', '', ''],   // 1027b 她：登着的时候不另放「换个账号」大按钮（和 ⋯ 里的重复）；切换 / 退出在 ⋯ 里
       expired: ['', '', '重新登录'],
       not_logged_in: ['', '', '登录'],
       captcha: ['', '', '去验证'],
@@ -1576,10 +1576,7 @@ class LinkBrainActions extends Plugin {
     primary.onClick(async () => {
       primary.setDisabled(true);
       const act = current?.action;
-      if (inCard && current?.state === 'ready') {   // 换个账号 = 退出当前的再扫码（和 ⋯ 里「更换账号」同一条路）
-        paint({state: 'busy', next_step: '正在退出当前账号'}, true);
-        try { await platform.logout(this); await login(true); } catch (e) { paint({state: 'error', next_step: e.message, action: 'login'}); }
-      } else if (current?.state === 'captcha' || act === 'verify') {
+      if (current?.state === 'captcha' || act === 'verify') {
         try { paint(await platform.verify(this)); } catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); }
       } else if (['expired', 'not_logged_in'].includes(current?.state) || act === 'login') await login();
       else await refresh(true);
@@ -1591,13 +1588,14 @@ class LinkBrainActions extends Plugin {
     });
     more.onClick(() => {
       const menu = new obsidian.Menu();
-      menu.addItem(i => i.setTitle('重新检查').setIcon('rotate-cw').onClick(() => refresh(true)));
+      // 1027b 她：回到原来的样子——设置页卡片和「＋ → 账号登录 / 换号」同一套：状态检查 · 切换账号 · 退出账号（只在 ⋯ 里各一处）
+      menu.addItem(i => i.setTitle('状态检查').setIcon('rotate-cw').onClick(() => refresh(true)));
       if (current?.state === 'ready') {
-        if (!inCard) menu.addItem(i => i.setTitle('更换账号').setIcon('user-cog').onClick(async () => {   // 1027b 卡片上已有「换个账号」按钮，⋯ 里不再重复
+        menu.addItem(i => i.setTitle('切换账号').setIcon('user-cog').onClick(async () => {   // = 退出当前的再扫码
           paint({state: 'busy', next_step: '正在退出当前账号'}, true);
           try { await platform.logout(this); await login(true); } catch (e) { paint({state: 'error', next_step: e.message, action: 'login'}); }
         }));
-        menu.addItem(i => i.setTitle('退出登录').setIcon('log-out').onClick(async () => {
+        menu.addItem(i => i.setTitle('退出账号').setIcon('log-out').onClick(async () => {
           paint({state: 'busy', next_step: '正在退出'}, true);
           try { const r = await platform.logout(this); this.accountCache = { row: r, at: Date.now(), deep: true }; paint(r); } catch (e) { paint({state: 'error', next_step: e.message, action: 'retry'}); }
         }));

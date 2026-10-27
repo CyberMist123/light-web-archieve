@@ -195,6 +195,14 @@ async function pluginTests() {
   await tick(5);
   assert.equal(calls.length, 1, '缓存里的不起进程');
   assert.ok(box2.textContent.includes('3 分钟前确认'), box2.textContent);
+  // 1027b 她：登着时卡片上不另放「换个账号」大按钮；⋯ 里是 状态检查 / 切换账号 / 退出账号，各一处（设置页卡片和「＋ → 账号登录 / 换号」同一套）
+  const cardBox = dom.document.body.createDiv();
+  p.renderAccountRow(cardBox, { id: 'xhs', name: '小红书', status: (pl, deep) => pl.accountStatus({ deep }) }, { inCard: true });
+  await tick(5);
+  assert.ok(!cardBox.querySelectorAll('button').some(b => /换个账号|更换账号|切换账号/.test(b.textContent) && b.style.display !== 'none'), '登着时没有单独的换号大按钮');
+  cardBox.querySelector('.extra-setting-button').dispatchEvent({ type: 'click' });
+  assert.deepEqual(obs.Menu.open.items.map(i => i.title), ['状态检查', '切换账号', '退出账号']);
+  obs.Menu.open.hide();
   // 1027b：浅查带回读取服务真查的时刻（checked_at）——按它写，不写「刚刚确认」
   p.accountCache.row = { ...p.accountCache.row, checked_at: new Date(Date.now() - 2 * 3600000 - 60000).toISOString() };
   const boxAgo = dom.document.body.createDiv();
