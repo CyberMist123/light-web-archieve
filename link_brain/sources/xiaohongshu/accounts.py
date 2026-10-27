@@ -756,13 +756,7 @@ def status_report(*, deep=True, launch=True) -> tuple[dict, str]:
             if isinstance(session.get('lock'), dict) and session['lock']:
                 return error_row(ReaderError('BUSY', detail=f"读取服务正在处理「{session['lock'].get('owner')}」")), 'unknown'
             with account_session('login-status', wait_s=0):
-                try:
-                    data = api('GET', '/api/v1/login/status', timeout=45)
-                except ReaderError as exc:
-                    if exc.code != 'TIMEOUT':
-                        raise
-                    restart_reader()  # 真卡死才会重启（见 restart_reader）；只是忙会抛 BUSY
-                    data = api('GET', '/api/v1/login/status', timeout=60)
+                data = api('GET', '/api/v1/login/status', timeout=45)
             if data.get('login_pending'):
                 return error_row(ReaderError('LOGIN_IN_PROGRESS')), 'unknown'
             ok = data.get('is_logged_in') is True
@@ -814,6 +808,8 @@ img{{width:240px;height:240px;margin:22px 0 8px;image-rendering:pixelated}}
 
 
 def _finish_login(s: dict) -> dict:
+    if not s.get('user_id'):
+        raise ReaderError('LOGIN_UNCONFIRMED', '尚未确认登录账号，未保存账号信息')
     name = s.get('nickname') or ''
     previous = config().get('user_id')
     save({'nickname': name, 'user_id': s.get('user_id', '')})
@@ -840,16 +836,18 @@ def _after_login(s: dict) -> dict:
     return done
 
 
+def _check_login_hold() -> None:
+    hold = _hold_file()
+    if not hold or hold.get('code') == 'NOT_LOGGED_IN':
+        hold = hold_from_session(ensure_reader())
+    if hold and hold.get('code') != 'NOT_LOGGED_IN':
+        raise ReaderError('RISK_HOLD', '账号处于安全暂停中；先处理风险，不重复扫码或切换账号')
+
+
 def login(*, timeout=420) -> dict:  # 服务端最长：等锁 60 秒 + 扫码 300 秒，再留余量
     """打开小红书官方登录窗口，人在官方页面扫码；这里只轮询服务内存态，窗口由服务关闭并落盘。"""
-    ensure_reader()
-    try:
-        api('POST', '/api/v1/login/window', timeout=20)
-    except ReaderError as exc:
-        if exc.code != 'TIMEOUT':
-            raise
-        restart_reader()
-        api('POST', '/api/v1/login/window', timeout=20)
+    _check_login_hold()
+    api('POST', '/api/v1/login/window', timeout=20)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         time.sleep(1.5)
@@ -860,14 +858,17 @@ def login(*, timeout=420) -> dict:  # 服务端最长：等锁 60 秒 + 扫码 3
         if state == 'cancelled':
             return row('xhs', '小红书账号', 'not_logged_in', '已取消登录', '需要时再点「扫码登录」。', action='login')
         if state == 'failed':
-            return row('xhs', '小红书账号', 'error', '登录没有完成', '点「扫码登录」再试一次。', action='login')
+            hold = hold_from_session(s)
+            if hold:
+                return hold_row(hold)
+            return row('xhs', '小红书账号', 'error', '登录没有完成', '登录未确认，已停止；没有自动重新扫码。', action='login')
         if state == 'timeout':
             break
     return row('xhs', '小红书账号', 'not_logged_in', '登录窗口已超时', '点「扫码登录」重新打开。', action='login')
 
 
 def logout() -> dict:
-    ensure_reader()
+    _check_login_hold()
     api('POST', '/api/v1/login/logout', timeout=90)
     data = config()
     for key in ('nickname', 'user_id', 'sync_account'):  # 主动换号/退出 = 下次同步认新号
@@ -879,10 +880,10 @@ def logout() -> dict:
 
 def login_qr(*, timeout=270, open_browser=True) -> dict:
     """远程扫码用（如把二维码发到手机）：出码成网页 → 只轮询内存状态 → 成功时服务已把登录态落盘。"""
-    ensure_reader()
+    _check_login_hold()
     qr = api('GET', '/api/v1/login/qrcode', timeout=90)
     if qr.get('is_logged_in'):
-        return xhs_status()
+        return _after_login(api('GET', '/api/v1/login/session', timeout=10))
     image = qr.get('img', '')
     if not image.startswith('data:image/'):
         raise ReaderError('QR_FAILED', '读取服务没有返回二维码，请重试。')
@@ -900,6 +901,11 @@ def login_qr(*, timeout=270, open_browser=True) -> dict:
             if s.get('state') == 'success':
                 result = _after_login(s)
                 page.write_text(_login_page(result['message'], done=True, ok=result['state'] == 'ready'), 'utf-8')
+                return result
+            if s.get('state') in ('failed', 'cancelled'):
+                hold = hold_from_session(s)
+                result = hold_row(hold) if hold else row('xhs', '小红书账号', 'error', '登录没有完成', '登录未确认，已停止；没有自动重新扫码。', action='login')
+                page.write_text(_login_page(result['message'], done=True), 'utf-8')
                 return result
             if s.get('state') == 'timeout':
                 break
