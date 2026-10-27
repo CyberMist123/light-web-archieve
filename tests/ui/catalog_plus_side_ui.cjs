@@ -64,7 +64,9 @@ const PLUGIN = schedule => ({ methods: { getSyncSchedule: { result: schedule } }
           scrollbar: side.offsetWidth - side.clientWidth,
           rec: (() => { const ul = document.querySelector('.lbc-rec'), b = ul.getBoundingClientRect().bottom; return [...ul.querySelectorAll('li')].filter(li => li.getBoundingClientRect().bottom <= b + 1).length; })(),
           recEllipsis: (() => { const t = document.querySelector('.lbc-rec-t'); return getComputedStyle(t).textOverflow; })(),
-          syBig: getComputedStyle(document.querySelector('.lbc-sy-big')).fontSize, cost: document.querySelector('.lbc-mod-token .lbc-tk-big').textContent };
+          syBig: getComputedStyle(document.querySelector('.lbc-sy-big')).fontSize, cost: document.querySelector('.lbc-mod-token .lbc-tk-big').textContent,
+          tkBig: getComputedStyle(document.querySelector('.lbc-mod-token .lbc-tk-big')).fontSize, syStyle: getComputedStyle(document.querySelector('.lbc-sy-big')).fontStyle,
+          syFam: getComputedStyle(document.querySelector('.lbc-sy-big')).fontFamily };
       });
       assert.equal(m.sideDisplay, 'block'); assert.equal(m.sidePos, 'sticky');
       assert.deepEqual(m.mods, ['recent', 'sync', 'token', 'overview'], '1027：Token 费用从同步里拆出来，自己一块');
@@ -74,7 +76,7 @@ const PLUGIN = schedule => ({ methods: { getSyncSchedule: { result: schedule } }
       assert.ok(Math.abs(parseFloat(m.labSpacing) - 11 * 0.26) < 0.2, `${tag}：字距 .26em ${m.labSpacing}`);
       assert.ok(m.line > 60, `${tag}：横线撑满 ${m.line}`);
       assert.equal(m.scrollbar, 0, `${tag}：边栏不显示滚动条`);
-      assert.equal(m.rec, 6, `${tag}：列表框高 = 6 条（其余在框里滚）`); assert.equal(m.recEllipsis, 'ellipsis'); assert.equal(m.syBig, '30px'); assert.equal(m.cost, '¥ 3.72');
+      assert.equal(m.rec, 6, `${tag}：列表框高 = 6 条（其余在框里滚）`); assert.equal(m.recEllipsis, 'ellipsis'); assert.equal(m.syBig, m.tkBig, `${tag}：1027b 大数字一档（同步 = Token）`); assert.ok(parseFloat(m.syBig) >= 24 && parseFloat(m.syBig) <= 34, m.syBig); assert.equal(m.syStyle, 'italic'); assert.match(m.syFam, /Cormorant/, '目录页数字照旧 Cormorant 斜体'); assert.equal(m.cost, '¥ 3.72');
       shots.push(await S.screenshot(`catalog-side-${tag}`));
       // ② 吸顶：滚 1500，页头 / 边栏不动，收藏墙动了；边栏贴在页头底下；页头上方不留缝
       const before = { top: await R(page, '.lbc-top'), side: await R(page, '.lbc-side'), card: await R(page, '.lbc-card') };

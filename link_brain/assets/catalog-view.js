@@ -70,7 +70,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-tools button.lb-manage{width:auto!important;height:var(--ctl-h)!important;padding:0 14px!important;border:1px solid var(--c-ink)!important;border-radius:999px!important;background:var(--c-bg)!important;color:var(--c-ink)!important;box-shadow:none!important;font:500 13.5px/1 var(--f-sans)!important;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;transition:background .15s,color .15s;}
 .lbc-wrap .lbc-tools button.lb-manage:hover{background:var(--c-ink)!important;color:var(--c-bg)!important;}
 .lbc-wrap .lbc-tools button.lb-manage svg{width:14px;height:14px;flex:none;}
-.lbc-subline{display:flex;gap:2px 8px;align-items:baseline;justify-content:flex-start;flex-wrap:wrap;min-width:0;padding-bottom:14px;font:400 var(--fs-body,13.5px)/20.8px var(--f-sans);color:var(--c-muted);letter-spacing:0;font-variant-numeric:lining-nums tabular-nums;}
+.lbc-subline{display:flex;gap:2px 8px;align-items:baseline;justify-content:flex-start;flex-wrap:wrap;min-width:0;padding-bottom:14px;font:italic 16px/1.3 var(--f-latin);color:var(--c-muted);letter-spacing:.02em;font-variant-numeric:lining-nums tabular-nums;}
 .lbc-sub{font:inherit;color:var(--c-muted);white-space:nowrap;}
 .lbc-count b{font-weight:600;color:var(--c-ink);}
 .lbc-sub-sep{font:inherit;color:var(--c-faint);user-select:none;}
@@ -581,14 +581,15 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-cats{gap:4px 22px;font-size:16.5px;margin-top:8px;}.lbc-ctl{gap:6px 16px;margin-top:10px;}.lbc-ctl-l{gap:0 16px;}.lbc-ctl-r{margin-left:0;width:100%;}
 .lbc-ctl-r .lbc-searchbox{flex:1 1 180px;}.lbc-wrap .lbc-ctl-r input.lbc-search{width:100%!important;}.lbc-topics{padding-left:0;}
 .lbc-ctitle{font-size:14.5px;}.lbc-card-more{opacity:1;}.lbc-selbar button{padding:6px 10px;}}
-/* 1027b 她：边栏四块「字体太多」——只留两种：小标题的雕刻字（RECENT / SYNC …）+ 正文字；数字、中文小标题、摘要、说明都用正文字、不斜体
-   （变量在块上重指：模块自己的「调整 → 字体」改 --f-sans，这里跟着走） */
-.lbc-mod{--f-serif:var(--f-sans);--f-latin:var(--f-sans);}
-.lbc-mod :is(i,.lbc-fold-sum i,.lbc-rec time,.lbc-sy-big,.lbc-sy-big i,.lbc-sy-cap,.lbc-sy-row b,.lbc-fig-n){font-style:normal;}
-.lbc-mod .lbc-lab small{letter-spacing:.04em;}
-.lbc-mod .lbc-sy-big{font-weight:600;letter-spacing:-.01em;}
-.lbc-mod .lbc-fig-n{font-weight:600;}
-.lbc-mod .lbc-sy-row b{font-weight:600;font-size:15px;}
+/* 1027b 她（第二次说清）：目录页就要雕刻字 + Cormorant 斜体数字（「就像 OVERVIEW 这种」），但四块风格统一、大小别差太多。
+   数字只有三档：大 --lbc-num-lg（上次 / 下次同步、Token、概览四个数一样大，都斜体 400）· 行尾 --lbc-num（今日新增、上限、摘要里的数）· 小 --lbc-num-sm（日期、说明、柱子刻度） */
+.lbc-wrap{--lbc-num-lg:clamp(24px,8cqi,34px);--lbc-num:15px;--lbc-num-sm:13px;}
+.lbc-mod .lbc-sy-big,.lbc-mod .lbc-fig-n{font:italic 400 var(--lbc-num-lg)/1.05 var(--f-latin);letter-spacing:0;}
+.lbc-mod .lbc-sy-big i{font-style:italic;}
+.lbc-mod .lbc-sy-row b,.lbc-mod .lbc-sy-row.is-tot b{font:italic 500 var(--lbc-num)/1.2 var(--f-latin);}
+.lbc-mod .lbc-fold-sum i{font-size:var(--lbc-num);}
+.lbc-mod :is(.lbc-rec time,.lbc-sy-cap,.lbc-bar span,.lbc-days){font-size:var(--lbc-num-sm);}
+.lbc-mod .lbc-rec time{font-style:italic;}
 /* 最近导入：列表框高 = 条数（调整里 2 / 4 / 6 / 8），框里往下滚接着出更早的 */
 .lbc-rec{max-height:calc(var(--lbc-rec-rows,6) * (var(--fs-body,13.5px) * 1.45 + 21px));overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;}
 /* 拖出来的高度：内容超出在块里滚（最近导入是列表那一框） */
@@ -605,7 +606,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-tk-seg button{width:auto!important;height:24px!important;padding:0 12px!important;margin:0!important;border:1px solid transparent!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);font:var(--fs-small)/1 var(--f-sans);cursor:pointer;}
 .lbc-wrap .lbc-tk-seg button:hover{color:var(--c-ink);}
 .lbc-wrap .lbc-tk-seg button.is-on{border-color:var(--c-ink)!important;color:var(--c-ink);font-weight:600;}
-.lbc-wrap select.lbc-tk-capsel{height:28px;padding:0 24px 0 8px;border:1px solid var(--c-line);border-radius:6px;background-color:transparent;box-shadow:none;color:var(--c-ink);font:600 var(--fs-body)/1 var(--f-sans);font-variant-numeric:var(--num-feat);cursor:pointer;}
+.lbc-wrap select.lbc-tk-capsel{height:28px;padding:0 24px 0 8px;border:1px solid var(--c-line);border-radius:6px;background-color:transparent;box-shadow:none;color:var(--c-ink);font:italic 500 var(--lbc-num)/1 var(--f-latin);font-variant-numeric:var(--num-feat);cursor:pointer;}
 .lbc-wrap select.lbc-tk-capsel:hover,.lbc-wrap select.lbc-tk-capsel:focus{border-color:var(--c-ink);outline:none;}
 .lbc-tk-cap-row{align-items:center;}
 .lbc-m-rs{display:none;}

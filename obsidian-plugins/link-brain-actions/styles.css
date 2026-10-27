@@ -858,10 +858,9 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
   .lb-settings .lb-v7 .lb-group { scroll-margin-top: 52px; }
 }
 
-/* 1027b 她：设置页只用一种字体——标题（衬线）、序号（Cormorant 斜体）、PREFERENCES（雕刻字）都改成正文字、不斜体。
-   放在文件最后（同权重后写的赢）；字体变量带 !important：「Aa 样式」写在根上的行内变量只换正文字，这页不再出第二种字 */
-.lb-settings .lb-v7 { --lb-font-serif: var(--lb-font-body) !important; --lb-font-num: var(--lb-font-body) !important; --lb-font-title: var(--lb-font-body) !important; }
-.lb-settings .lb-v7 .lb-v7-head h1 { font-style: normal; font-weight: 600; letter-spacing: 0; }
-.lb-settings .lb-v7 .lb-num, .lb-settings .lb-v7 .lb-anchor b { font-style: normal; }
+/* 1027b 她：设置页不要花哨，只用正文字——标题（衬线）、序号（Cormorant 斜体）、PREFERENCES（雕刻字）都改正文字、不斜体。
+   放在文件最后（同权重后写的赢）；不改样式集变量本身（别处还要用），只给这几样元素换字 */
+.lb-settings .lb-v7 :is(.lb-v7-head h1, .lb-group-head h2, .lb-num, .lb-anchor b, .lb-eyebrow, .lb-console-v) { font-family: var(--lb-font-body) !important; font-style: normal !important; }
+.lb-settings .lb-v7 .lb-v7-head h1 { font-weight: 600; letter-spacing: 0; }
 .lb-settings .lb-v7 .lb-group-head h2 { font-weight: 600; letter-spacing: .02em; }
 .lb-settings .lb-v7 .lb-eyebrow { font-weight: 600; letter-spacing: .08em; }

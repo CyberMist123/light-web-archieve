@@ -4,11 +4,12 @@
 注意：目录页边栏四块（RECENT / SYNC / TOKEN / OVERVIEW）和设置页在 1027b 已经把 serif / 数字字体变量改指正文字，
 那里的 A 类条目页面上已经是正文字了（这里按源码列，换的时候顺手删掉旧写法）。
 
-## A 字体（第二、三套字 / 斜体） · 46 处
+## A 字体（第二、三套字 / 斜体） · 52 处
 
-### `link_brain/assets/catalog-view.js`（36）
+### `link_brain/assets/catalog-view.js`（42）
 
 - [link_brain/assets/catalog-view.js:43](../link_brain/assets/catalog-view.js#L43) `--f-display:var(--lb-font-title);--f-serif:var(--lb-font-serif);--f-latin:var(--lb-font-num);`
+- [link_brain/assets/catalog-view.js:73](../link_brain/assets/catalog-view.js#L73) `ex-wrap:wrap;min-width:0;padding-bottom:14px;font:italic 16px/1.3 var(--f-latin);color`
 - [link_brain/assets/catalog-view.js:91](../link_brain/assets/catalog-view.js#L91) `one;margin:12px 0 0;padding:0 0 2px;font:18px/1.4 var(--f-serif);}`
 - [link_brain/assets/catalog-view.js:101](../link_brain/assets/catalog-view.js#L101) `flow:visible;margin:8px 0 0;padding:0;font-family:var(--f-serif);}`
 - [link_brain/assets/catalog-view.js:102](../link_brain/assets/catalog-view.js#L102) `none!important;color:var(--c-muted);font:13px/1.6 var(--f-serif);cursor:pointer;transition:col`
@@ -43,7 +44,12 @@
 - [link_brain/assets/catalog-view.js:555](../link_brain/assets/catalog-view.js#L555) `.lbc-wiki-n{font:italic 15px/1 var(--f-latin);font-va`
 - [link_brain/assets/catalog-view.js:566](../link_brain/assets/catalog-view.js#L566) `.lbc-recent-t{font:600 16px/1.4 var(--f-serif);}`
 - [link_brain/assets/catalog-view.js:569](../link_brain/assets/catalog-view.js#L569) `.lbc-rpage{font:italic 15px/1 var(--f-latin);font-va`
-- [link_brain/assets/catalog-view.js:668](../link_brain/assets/catalog-view.js#L668) `.lbc-mp-cat .lbc-mp-n{font:italic 13px/1 var(--f-latin);color:v`
+- [link_brain/assets/catalog-view.js:587](../link_brain/assets/catalog-view.js#L587) `.lbc-mod .lbc-sy-big,.lbc-mod .lbc-fig-n{font:italic 400 var(--lbc-num-lg)/1.05 va`
+- [link_brain/assets/catalog-view.js:588](../link_brain/assets/catalog-view.js#L588) `.lbc-mod .lbc-sy-big i{font-style:italic;}`
+- [link_brain/assets/catalog-view.js:589](../link_brain/assets/catalog-view.js#L589) `.lbc-sy-row b,.lbc-mod .lbc-sy-row.is-tot b{font:italic 500 var(--lbc-num)/1.2 var(--`
+- [link_brain/assets/catalog-view.js:592](../link_brain/assets/catalog-view.js#L592) `.lbc-mod .lbc-rec time{font-style:italic;}`
+- [link_brain/assets/catalog-view.js:609](../link_brain/assets/catalog-view.js#L609) `ansparent;box-shadow:none;color:var(--c-ink);font:italic 500 var(--lbc-num)/1 var(--f-`
+- [link_brain/assets/catalog-view.js:669](../link_brain/assets/catalog-view.js#L669) `.lbc-mp-cat .lbc-mp-n{font:italic 13px/1 var(--f-latin);color:v`
 
 ### `link_brain/assets/chat-view.js`（3）
 
@@ -67,13 +73,13 @@
 - [obsidian-plugins/link-brain-actions/styles.css:746](../obsidian-plugins/link-brain-actions/styles.css#L746) `in: 0; font: 400 calc(var(--lb-fs-h2) * 1.15)/1.3 var(--lb-font-serif); color: var(--lb-ink); letter`
 - [obsidian-plugins/link-brain-actions/styles.css:801](../obsidian-plugins/link-brain-actions/styles.css#L801) `.lb-settings .lb-v7 .lb-console-v { font: italic 400 calc(var(--lb-fs-num) * 1`
 
-## B 字号（写死 px） · 305 处
+## B 字号（写死 px） · 304 处
 
-### `link_brain/assets/catalog-view.js`（139）
+### `link_brain/assets/catalog-view.js`（138）
 
 - [link_brain/assets/catalog-view.js:65](../link_brain/assets/catalog-view.js#L65) `.lbc-title{font-size:clamp(24px,min(calc(6.5cqi * var(--lbc-t`
 - [link_brain/assets/catalog-view.js:70](../link_brain/assets/catalog-view.js#L70) `:var(--c-ink)!important;box-shadow:none!important;font:500 13.5px/1 var(--f-sans)!important;dis`
-- [link_brain/assets/catalog-view.js:73](../link_brain/assets/catalog-view.js#L73) `rt;flex-wrap:wrap;min-width:0;padding-bottom:14px;font:400 var(--fs-body,13.5px)/20.8px var(--f-sans);color:v`
+- [link_brain/assets/catalog-view.js:73](../link_brain/assets/catalog-view.js#L73) `rt;flex-wrap:wrap;min-width:0;padding-bottom:14px;font:italic 16px/1.3 var(--f-latin);color:var(`
 - [link_brain/assets/catalog-view.js:80](../link_brain/assets/catalog-view.js#L80) `ible-link,.lbc-wrap button.lbc-syncing,.lbc-stale{font:12px/1.3 var(--f-sans);font-style:`
 - [link_brain/assets/catalog-view.js:85](../link_brain/assets/catalog-view.js#L85) `ing:0 4px;box-sizing:border-box;border-radius:8px;font-size:10.5px;font-style:normal;font-weight`
 - [link_brain/assets/catalog-view.js:89](../link_brain/assets/catalog-view.js#L89) `.lbc-mobile-note{font-size:12px;line-height:1.5;color:var(--t`
@@ -193,23 +199,22 @@
 - [link_brain/assets/catalog-view.js:578](../link_brain/assets/catalog-view.js#L578) `.lbc-menu .lbc-menu-label{font-size:11px;letter-spacing:.12em;color:va`
 - [link_brain/assets/catalog-view.js:581](../link_brain/assets/catalog-view.js#L581) `.lbc-cats{gap:4px 22px;font-size:16.5px;margin-top:8px;}.lbc-ctl{gap:`
 - [link_brain/assets/catalog-view.js:583](../link_brain/assets/catalog-view.js#L583) `.lbc-ctitle{font-size:14.5px;}.lbc-card-more{opacity:1;}.l`
-- [link_brain/assets/catalog-view.js:591](../link_brain/assets/catalog-view.js#L591) `.lbc-mod .lbc-sy-row b{font-weight:600;font-size:15px;}`
-- [link_brain/assets/catalog-view.js:623](../link_brain/assets/catalog-view.js#L623) `ar(--c-ink);color:var(--c-bg);border-radius:999px;font:12px/1 var(--f-sans);white-space:n`
-- [link_brain/assets/catalog-view.js:638](../link_brain/assets/catalog-view.js#L638) `s:999px;background:var(--c-ink);color:var(--c-bg);font:12px/1 var(--f-sans);white-space:n`
-- [link_brain/assets/catalog-view.js:652](../link_brain/assets/catalog-view.js#L652) `ius:4px;background:var(--c-bg);color:var(--c-ink);font:13px/1.5 var(--f-sans);zoom:1;}`
-- [link_brain/assets/catalog-view.js:654](../link_brain/assets/catalog-view.js#L654) `p-h .lbc-mp-save{margin-left:auto;font-weight:400;font-size:12px;color:var(--c-muted);}`
-- [link_brain/assets/catalog-view.js:656](../link_brain/assets/catalog-view.js#L656) `.lbc-mp-row>label,.lbc-mp-k{color:var(--c-muted);font-size:12px;min-width:3.5em;}`
-- [link_brain/assets/catalog-view.js:657](../link_brain/assets/catalog-view.js#L657) `.lbc-mp-row label.lbc-mp-ck{color:var(--c-ink);font-size:13px;min-width:0;display:inline-fl`
-- [link_brain/assets/catalog-view.js:658](../link_brain/assets/catalog-view.js#L658) `ius:4px;background:var(--c-bg);color:var(--c-ink);font:13px var(--f-sans);max-width:100%;`
-- [link_brain/assets/catalog-view.js:661](../link_brain/assets/catalog-view.js#L661) `:var(--c-ink)!important;box-shadow:none!important;font:12.5px/1 var(--f-sans)!important;cur`
-- [link_brain/assets/catalog-view.js:664](../link_brain/assets/catalog-view.js#L664) `.lbc-mp-note{margin:6px 0 0;font-size:12px;color:var(--c-muted);}`
-- [link_brain/assets/catalog-view.js:668](../link_brain/assets/catalog-view.js#L668) `.lbc-mp-cat .lbc-mp-n{font:italic 13px/1 var(--f-latin);color:var(--`
-- [link_brain/assets/catalog-view.js:671](../link_brain/assets/catalog-view.js#L671) `.lbc-arrange-tray .lbc-at-k{font:700 11px/1 var(--f-display);letter-spa`
-- [link_brain/assets/catalog-view.js:672](../link_brain/assets/catalog-view.js#L672) `.lbc-arrange-tray .lbc-at-save{margin-left:auto;font-size:12px;color:var(--c-muted);}`
-- [link_brain/assets/catalog-view.js:674](../link_brain/assets/catalog-view.js#L674) `c-arrange-tray .lbc-at-hint{order:9;flex:1 1 100%;font-size:12px;line-height:1.6;color:var(--c`
-- [link_brain/assets/catalog-view.js:677](../link_brain/assets/catalog-view.js#L677) `el{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--c-muted);}`
-- [link_brain/assets/catalog-view.js:678](../link_brain/assets/catalog-view.js#L678) `ius:4px;background:var(--c-bg);color:var(--c-ink);font:13px var(--f-sans);}`
-- [link_brain/assets/catalog-view.js:679](../link_brain/assets/catalog-view.js#L679) `:var(--c-ink)!important;box-shadow:none!important;font:13px/1 var(--f-sans)!important;cur`
+- [link_brain/assets/catalog-view.js:624](../link_brain/assets/catalog-view.js#L624) `ar(--c-ink);color:var(--c-bg);border-radius:999px;font:12px/1 var(--f-sans);white-space:n`
+- [link_brain/assets/catalog-view.js:639](../link_brain/assets/catalog-view.js#L639) `s:999px;background:var(--c-ink);color:var(--c-bg);font:12px/1 var(--f-sans);white-space:n`
+- [link_brain/assets/catalog-view.js:653](../link_brain/assets/catalog-view.js#L653) `ius:4px;background:var(--c-bg);color:var(--c-ink);font:13px/1.5 var(--f-sans);zoom:1;}`
+- [link_brain/assets/catalog-view.js:655](../link_brain/assets/catalog-view.js#L655) `p-h .lbc-mp-save{margin-left:auto;font-weight:400;font-size:12px;color:var(--c-muted);}`
+- [link_brain/assets/catalog-view.js:657](../link_brain/assets/catalog-view.js#L657) `.lbc-mp-row>label,.lbc-mp-k{color:var(--c-muted);font-size:12px;min-width:3.5em;}`
+- [link_brain/assets/catalog-view.js:658](../link_brain/assets/catalog-view.js#L658) `.lbc-mp-row label.lbc-mp-ck{color:var(--c-ink);font-size:13px;min-width:0;display:inline-fl`
+- [link_brain/assets/catalog-view.js:659](../link_brain/assets/catalog-view.js#L659) `ius:4px;background:var(--c-bg);color:var(--c-ink);font:13px var(--f-sans);max-width:100%;`
+- [link_brain/assets/catalog-view.js:662](../link_brain/assets/catalog-view.js#L662) `:var(--c-ink)!important;box-shadow:none!important;font:12.5px/1 var(--f-sans)!important;cur`
+- [link_brain/assets/catalog-view.js:665](../link_brain/assets/catalog-view.js#L665) `.lbc-mp-note{margin:6px 0 0;font-size:12px;color:var(--c-muted);}`
+- [link_brain/assets/catalog-view.js:669](../link_brain/assets/catalog-view.js#L669) `.lbc-mp-cat .lbc-mp-n{font:italic 13px/1 var(--f-latin);color:var(--`
+- [link_brain/assets/catalog-view.js:672](../link_brain/assets/catalog-view.js#L672) `.lbc-arrange-tray .lbc-at-k{font:700 11px/1 var(--f-display);letter-spa`
+- [link_brain/assets/catalog-view.js:673](../link_brain/assets/catalog-view.js#L673) `.lbc-arrange-tray .lbc-at-save{margin-left:auto;font-size:12px;color:var(--c-muted);}`
+- [link_brain/assets/catalog-view.js:675](../link_brain/assets/catalog-view.js#L675) `c-arrange-tray .lbc-at-hint{order:9;flex:1 1 100%;font-size:12px;line-height:1.6;color:var(--c`
+- [link_brain/assets/catalog-view.js:678](../link_brain/assets/catalog-view.js#L678) `el{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--c-muted);}`
+- [link_brain/assets/catalog-view.js:679](../link_brain/assets/catalog-view.js#L679) `ius:4px;background:var(--c-bg);color:var(--c-ink);font:13px var(--f-sans);}`
+- [link_brain/assets/catalog-view.js:680](../link_brain/assets/catalog-view.js#L680) `:var(--c-ink)!important;box-shadow:none!important;font:13px/1 var(--f-sans)!important;cur`
 
 ### `link_brain/assets/chat-view.js`（84）
 
