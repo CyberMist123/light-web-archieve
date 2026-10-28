@@ -995,7 +995,9 @@ def account_wait_reason() -> tuple[str, str]:
     if isinstance(session, dict):
         if session.get("logged_in") is False:
             return "NOT_LOGGED_IN", "小红书掉登录了：在设置 / 问题入口扫码登录，登好自动接着补"
-        if session.get("verifying") or str(session.get("state") or "idle") not in ("idle", ""):
+        # 1028：只认「正在扫码」（state=waiting）和验证窗口开着；登录完留下的 success / failed 不算忙
+        #（以前「不是 idle 就当忙」：登录成功后 state 一直是 success，补跑干等了 48 分钟）
+        if session.get("verifying") or str(session.get("state") or "") == "waiting":
             return "BUSY", "正在扫码 / 验证，等它完了再接着补"
     return "", ""
 

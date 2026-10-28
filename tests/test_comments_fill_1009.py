@@ -371,3 +371,12 @@ def test_status_with_stale_heartbeat_counts_as_stopped(monkeypatch):
     for ago, want in ((timedelta(hours=7), "stopped"), (timedelta(minutes=2), "running")):
         st_mod.write_json(comment_fill.status_path(), {"state": "running", "pid": 7640, "updated_at": (now - ago).isoformat()})
         assert comment_fill.read_status()["state"] == want
+
+
+def test_wait_reason_ignores_finished_login_state(monkeypatch):
+    """1028：登录成功后读取服务的 state 停在 success——不算「正在扫码」；waiting / 验证窗口开着才算忙。"""
+    from link_brain.sources.xiaohongshu import accounts as acc
+    for session, want in (({"state": "success", "logged_in": True}, ""), ({"state": "failed", "logged_in": True}, ""),
+                          ({"state": "waiting", "logged_in": True}, "BUSY"), ({"state": "idle", "verifying": True}, "BUSY")):
+        monkeypatch.setattr(acc, "ensure_reader", lambda s=session: s)
+        assert comment_fill.account_wait_reason()[0] == want, session
