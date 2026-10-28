@@ -7144,7 +7144,7 @@ index 0000000..6d90694
 +}
 diff --git a/sub_recovery_test.go b/sub_recovery_test.go
 new file mode 100644
-index 0000000..9e9259d
+index 0000000..c75bb85
 --- /dev/null
 +++ b/sub_recovery_test.go
 @@ -0,0 +1,46 @@
@@ -7186,7 +7186,7 @@ index 0000000..9e9259d
 +func TestSubRecoverySessionReportsWaitWithoutOpeningBrowser(t *testing.T) {
 +	app, _, launched := queuedApp(t)
 +	require.NoError(t, app.xiaohongshuService.pauseSubComments(&xiaohongshu.RiskError{
-+		Code: xiaohongshu.RiskAccount, ErrorCode: "300011", RejectAPI: "sub_comments"}))
++		Code: xiaohongshu.RiskAccount, ErrorCode: "300011", RejectAPI: "edith.xiaohongshu.com/api/sns/web/v2/comment/sub/page"}))
 +	code, out := doJSON(t, setupRoutes(app), "GET", "/api/v1/login/session", "")
 +	require.Equal(t, 200, code)
 +	data := out["data"].(map[string]any)
@@ -15218,7 +15218,7 @@ index 7c22952..1fe60ee 100644
  }
 diff --git a/xiaohongshu/sub_recovery.go b/xiaohongshu/sub_recovery.go
 new file mode 100644
-index 0000000..a2a1d93
+index 0000000..cd413d0
 --- /dev/null
 +++ b/xiaohongshu/sub_recovery.go
 @@ -0,0 +1,39 @@
@@ -15229,7 +15229,7 @@ index 0000000..a2a1d93
 +// IsSubCommentRisk only scopes a refusal explicitly attributed to reply reads.
 +func IsSubCommentRisk(err error) bool {
 +	r := AsRisk(err)
-+	return r != nil && r.RejectAPI == "sub_comments" &&
++	return r != nil && RejectKind(r.RejectAPI) == "sub_comments" &&
 +		(r.Code == RiskAccount || r.Code == RiskRateLimited) &&
 +		(r.ErrorCode == "300011" || r.ErrorCode == "300013")
 +}
@@ -15305,7 +15305,7 @@ index 0000000..fd4bc6b
 +}
 diff --git a/xiaohongshu/sub_recovery_test.go b/xiaohongshu/sub_recovery_test.go
 new file mode 100644
-index 0000000..8fd472f
+index 0000000..9ebe4f7
 --- /dev/null
 +++ b/xiaohongshu/sub_recovery_test.go
 @@ -0,0 +1,29 @@
@@ -15319,7 +15319,7 @@ index 0000000..8fd472f
 +func TestSubRecoveryKeepsNoteAndHonestReplyGap(t *testing.T) {
 +	note := &FeedDetailResponse{Note: FeedDetail{NoteID: "test-note", Title: "saved text"}, Comments: CommentList{HasMore: true,
 +		List: []Comment{{ID: "floor-1", SubCommentCount: "20", SubComments: []Comment{{ID: "reply-1"}}}}}}
-+	r := &RiskError{Code: RiskAccount, ErrorCode: "300011", RejectAPI: "sub_comments"}
++	r := &RiskError{Code: RiskAccount, ErrorCode: "300011", RejectAPI: "edith.xiaohongshu.com/api/sns/web/v2/comment/sub/page"}
 +	out := partialSubRisk(note, CommentLoadResult{FloorLimit: 50, Clicks: 1, FloorsLoaded: 100, RepliesMissing: 0}, r)
 +	require.NotNil(t, out)
 +	require.Equal(t, "saved text", out.Note.Title)
@@ -15330,10 +15330,10 @@ index 0000000..8fd472f
 +	require.Equal(t, "reply-1", out.Comments.List[0].SubComments[0].ID)
 +	require.Nil(t, partialSubRisk(nil, CommentLoadResult{}, r))
 +	for _, r := range []*RiskError{
-+		{Code: RiskCaptcha, ErrorCode: "300011", RejectAPI: "sub_comments"},
-+		{Code: RiskNotLoggedIn, ErrorCode: "300011", RejectAPI: "sub_comments"},
++		{Code: RiskCaptcha, ErrorCode: "300011", RejectAPI: "edith.xiaohongshu.com/api/sns/web/v2/comment/sub/page"},
++		{Code: RiskNotLoggedIn, ErrorCode: "300011", RejectAPI: "edith.xiaohongshu.com/api/sns/web/v2/comment/sub/page"},
 +		{Code: RiskAccount, ErrorCode: "300011", RejectAPI: "fav"},
-+		{Code: RiskAccount, RejectAPI: "sub_comments"},
++		{Code: RiskAccount, RejectAPI: "edith.xiaohongshu.com/api/sns/web/v2/comment/sub/page"},
 +	} {
 +		require.Nil(t, partialSubRisk(note, CommentLoadResult{}, r))
 +	}
