@@ -23,7 +23,7 @@ from . import login, ytdlp
 
 name = "bilibili"
 version = "bilibili/1"
-capabilities: frozenset[str] = frozenset()
+capabilities: frozenset[str] = frozenset({"albums"})   # albums：收藏夹名当目录里的「专辑」（note_albums，读关系表）
 visible_subdir = ("Web", "Bilibili")
 
 CANONICAL_FMT = "https://www.bilibili.com/video/{bvid}"
@@ -385,7 +385,16 @@ def comment_view(source: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]
 
 
 def note_albums() -> dict[str, list[str]]:
-    return {}
+    """BV → 它所在的收藏夹名（关系表里 active 的；favorites.update_relations 写）。目录页按它分「专辑」。"""
+    from . import favorites
+    out: dict[str, list[str]] = {}
+    for row in favorites.load_relations().values():
+        bv, title = row.get("bvid"), (row.get("folder_title") or "").strip()
+        if bv and title and row.get("active", True):
+            lst = out.setdefault(bv, [])
+            if title not in lst:
+                lst.append(title)
+    return out
 
 
 def action_home() -> Path:

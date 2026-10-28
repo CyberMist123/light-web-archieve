@@ -120,6 +120,15 @@ def build_parser() -> argparse.ArgumentParser:
     pb.add_argument("--json", action="store_true")
     pb = bsub.add_parser("logout", help="删掉本地保存的 B 站登录态")
     pb.add_argument("--json", action="store_true")
+    pb = bsub.add_parser("sync", help="同步自己全部收藏夹：收藏夹名当专辑，逐条下视频 / 字幕 / 弹幕；超过时长上限和多 P 的只记清单")
+    pb.add_argument("--dry-run", dest="dry_run", action="store_true", help="只扫描、列计划，不下载")
+    pb.add_argument("--limit", type=int, default=None, help="本轮最多下载几条")
+    pb.add_argument("--max-duration", dest="max_duration", type=int, default=3600, help="超过这么多秒的只记链接（默认 3600）")
+    pb.add_argument("--gap", type=float, default=5.0, help="两条下载之间歇几秒（默认 5）")
+    pb.add_argument("--min-free-gb", dest="min_free_gb", type=float, default=10.0, help="磁盘余量低于多少 GB 就停（默认 10）")
+    pb.add_argument("--folder", action="append", default=None, help="只同步这些收藏夹（名字或 id，可多次）")
+    pb.add_argument("--allow", action="append", default=None, help="放行这些 BV（不看时长上限，可多次）")
+    pb.add_argument("--json", action="store_true")
 
     p = sub.add_parser("ingest", help="归档一个链接（小红书 URL / xhslink 短链 / 分享文本，或 B 站 BV 链接）")
     p.add_argument("target", help="链接或包含链接的分享文本")
@@ -635,6 +644,9 @@ def _dispatch(args) -> int:
         from .sources.bilibili import login as bili_login
 
         cmd = getattr(args, "bilibili_cmd", None)
+        if cmd == "sync":
+            from .sources.bilibili import sync as bili_sync
+            return bili_sync.run(args)
         if cmd == "login":
             from pathlib import Path as _P
             st = bili_login.qr_login(timeout_s=args.timeout, qr_png=_P(args.qr_png) if args.qr_png else None)

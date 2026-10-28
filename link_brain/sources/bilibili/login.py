@@ -104,6 +104,26 @@ def status(*, client: httpx.Client | None = None) -> dict[str, Any]:
             "vip": bool((nav.get("vipStatus") or 0))}
 
 
+def my_mid(client: httpx.Client | None = None) -> int | None:
+    """自己的 mid（列收藏夹要用 up_mid）。只给程序内部用，报告 / 日志里一律 mask_mid。查不到 → None。"""
+    own = client is None
+    client = client or http_client()
+    try:
+        resp = client.get(NAV_API)
+        nav = (resp.json() or {}).get("data") if resp.status_code == 200 else None
+    except Exception:  # noqa: BLE001
+        return None
+    finally:
+        if own:
+            client.close()
+    if isinstance(nav, dict) and nav.get("isLogin") and nav.get("mid"):
+        try:
+            return int(nav["mid"])
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
 def _cookie_text(url: str) -> dict[str, str]:
     """登录成功时 poll 返回的 url 带跨域 cookie 参数；只取登录那几个键。"""
     q = parse_qs(urlparse(url).query)

@@ -26,7 +26,7 @@ def test_registered_sources_implement_protocol():
     }
     assert sources.names() == ["xiaohongshu", "bilibili"]   # 1029：B 站阶段一
     expected = {"xiaohongshu": (xhs.ADAPTER_VERSION, frozenset({"account", "favorites_sync", "comments_fill", "attachments", "albums"})),
-                "bilibili": ("bilibili/1", frozenset())}
+                "bilibili": ("bilibili/1", frozenset({"albums"}))}
     for name in sources.names():
         src = sources.get(name)
         assert all(hasattr(src, member) for member in members)
