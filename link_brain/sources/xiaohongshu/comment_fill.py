@@ -1090,13 +1090,31 @@ def account_wait_reason() -> tuple[str, str]:
     return "", ""
 
 
-def spawn_worker() -> dict[str, Any]:
-    """拉起后台补跑（脱离调用方，单实例：已经在跑就不再起）。"""
+def worker_argv(python: str, *, only: list[str] | None = None, floors: str | None = None, limit: int = 0,
+                budget_min: float = 0) -> list[str]:
+    """后台补跑的命令行（纯函数）。1028（已知 bug #4）：--only / --floors / --limit / --budget-min 透传，以前写死，
+    `comments --fill-pending --detach --only X --floors 50` 起的后台进程把全库都补、楼数按设置。"""
+    argv = [python, "-m", "link_brain", "comments", "--fill-pending", "--until-done"]
+    for x in only or []:
+        if str(x).strip():
+            argv += ["--only", str(x).strip()]
+    if floors:
+        argv += ["--floors", str(floors)]
+    if limit and int(limit) > 0:
+        argv += ["--limit", str(int(limit))]
+    if budget_min and float(budget_min) > 0:
+        argv += ["--budget-min", f"{float(budget_min):g}"]
+    return argv
+
+
+def spawn_worker(*, only: list[str] | None = None, floors: str | None = None, limit: int = 0,
+                 budget_min: float = 0) -> dict[str, Any]:
+    """拉起后台补跑（脱离调用方，单实例：已经在跑就不再起）。参数原样传给后台进程（见 worker_argv）。"""
     st = read_status()
     if st.get("state") in ("running", "waiting", "paused"):
         return {"ok": True, "started": False, "already": True, "pid": st.get("pid"), "message": "后台补评论已经在跑"}
     from ... import deps, procs
-    argv = [deps.python_exe(), "-m", "link_brain", "comments", "--fill-pending", "--until-done"]   # P0 1024：和插件同一个解释器
+    argv = worker_argv(deps.python_exe(), only=only, floors=floors, limit=limit, budget_min=budget_min)   # P0 1024：和插件同一个解释器
     env = dict(os.environ)
     env[storage.ENV_VAULT] = str(storage.vault_root())
     env["PYTHONIOENCODING"] = "utf-8"

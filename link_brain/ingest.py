@@ -916,7 +916,11 @@ def run_comments(args) -> int:
         if getattr(args, "detach", False):
             from . import comment_fill
             from .read import outcome
-            r = comment_fill.spawn_worker()
+            only = [x for x in ",".join(getattr(args, "only", None) or []).split(",") if x.strip()]
+            fl = str(getattr(args, "floors", "") or "")
+            r = comment_fill.spawn_worker(only=only, floors=fl if only and fl else None,
+                                          limit=int(getattr(args, "limit", 0) or 0),
+                                          budget_min=float(getattr(args, "budget_min", 0) or 0))
             dump_json(outcome(r, ok=bool(r.get("ok")), message=r.get("message") or ""))
             return EXIT_OK if r.get("ok") else EXIT_ERROR
         return run_fill_pending(args)

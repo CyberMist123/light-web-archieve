@@ -266,3 +266,30 @@ def test_refresh_unions_comments_and_never_publishes_zero(tmp_path, monkeypatch,
     # raw 目录里没有多出来的版本
     assert sorted(p.name for p in (storage.object_dir("xiaohongshu", NOTE_ID) / "raw").glob("v*")) == \
         [storage.version_name(meta0["current_version"]), storage.version_name(meta1["current_version"])]
+
+
+# ---------------------------------------------------------------- 已知 bug #4：--detach 透传参数
+def test_detach_passes_only_floors_limit_budget_to_worker(tmp_path, monkeypatch, capsys):
+    from link_brain import procs, deps
+    import json as _json
+    monkeypatch.setenv("LINK_BRAIN_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("LINK_BRAIN_VAULT", str(tmp_path / "vault"))
+    (tmp_path / "vault" / "_archive").mkdir(parents=True)
+    monkeypatch.setattr(cf, "read_status", lambda: {})
+    monkeypatch.setattr(deps, "python_exe", lambda: "py")
+    seen = {}
+    monkeypatch.setattr(procs, "spawn_detached", lambda argv, **k: seen.update(argv=argv) or 777)
+    assert cli.main(["comments", "--fill-pending", "--detach", "--only", "xhs-a,xhs-b", "--only", "xhs-c",
+                     "--floors", "50", "--limit", "3", "--budget-min", "40"]) == 0
+    out = _json.loads(capsys.readouterr().out)
+    assert out["ok"] and out["started"]
+    argv = seen["argv"]
+    assert argv[:6] == ["py", "-m", "link_brain", "comments", "--fill-pending", "--until-done"]
+    assert [argv[i + 1] for i, a in enumerate(argv) if a == "--only"] == ["xhs-a", "xhs-b", "xhs-c"]
+    assert argv[argv.index("--floors") + 1] == "50"
+    assert argv[argv.index("--limit") + 1] == "3" and argv[argv.index("--budget-min") + 1] == "40"
+    # 不带参数：和以前一模一样（--floors 的默认值 all 不传，免得把全库按「全部」补）
+    assert cf.worker_argv("py") == ["py", "-m", "link_brain", "comments", "--fill-pending", "--until-done"]
+    assert cli.main(["comments", "--fill-pending", "--detach"]) == 0
+    capsys.readouterr()
+    assert seen["argv"] == ["py", "-m", "link_brain", "comments", "--fill-pending", "--until-done"]
