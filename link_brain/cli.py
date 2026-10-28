@@ -174,6 +174,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max", type=int, default=6, help="sync：这次最多开几个专辑")
     p.add_argument("--budget-min", dest="budget_min", type=float, default=25, help="sync：最多花几分钟")
     p.add_argument("--no-list", dest="no_list", action="store_true", help="sync：不读专辑列表，只看已知专辑")
+    p.add_argument("--board", action="append", help="sync：只看这个专辑（名字或 id，可写多次），并报还没进库的几篇")
     p.add_argument("--json", action="store_true")
 
     p = sub.add_parser("item", help="读一篇的机读版（可只取一段）或拿第 N 张原图的路径（和 MCP read 同一套）")

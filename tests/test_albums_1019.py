@@ -93,3 +93,28 @@ def test_album_filter_exact_then_contains():
     assert [i["id"] for i in ask_intent.apply_strict_filters(items, {"album": "课"})] == ["b"]
     assert [i["id"] for i in ask_intent.apply_strict_filters(items, {"album": "治愈"})] == ["a"]
     assert ask_intent.apply_strict_filters(items, {"album": "没有"}) == []
+
+
+def test_pick_boards_by_id_name_then_contains():
+    data = {"boards": {"b1": {"name": "温暖治愈"}, "b2": {"name": "课"}, "b3": {"name": "课程"}}}
+    assert albums.pick_boards(data, ["b2", "温暖", "课", "程", "没有", "b2"]) == (
+        [("b2", "点名"), ("b1", "点名"), ("b3", "点名")], ["没有"])
+    assert albums.pick_boards(data, ["治愈", "课"])[0] == [("b1", "点名"), ("b2", "点名")]
+    assert albums.pick_boards({"boards": {"x": {"name": "AI 一"}, "y": {"name": "AI 二"}}}, ["AI"]) == ([], ["AI"])   # 撞多个
+
+
+def test_sync_named_board_skips_list_and_reports_missing(reader, monkeypatch):
+    calls, _ = reader
+    albums.sync(max_boards=5, sleep=lambda s: None)                     # 先有本地列表
+    calls.clear()
+    monkeypatch.setattr(albums, "_library_ids", lambda: {"n1"})
+    code, out = albums.sync(boards=["课"], sleep=lambda s: None)
+    assert code == 0 and calls == ["/api/v1/boards/notes?board_id=b2"]  # 认得 → 不读列表、不按顺序挑
+    assert out["boards"][0]["missing"] == 1 and out["boards"][0]["missing_ids"] == ["n2"]
+
+
+def test_sync_named_unknown_board_reads_list_first(reader):
+    calls, _ = reader
+    code, out = albums.sync(boards=["课", "没这个"], sleep=lambda s: None)
+    assert code == 0 and calls == ["/api/v1/boards", "/api/v1/boards/notes?board_id=b2"]
+    assert out["unknown"] == ["没这个"]

@@ -10,6 +10,8 @@
      不到 LIST_GAP_MIN 分钟就不读，用上次的列表）。一天最多读一次（LIST_EVERY_H）。
   2. 挑要看的专辑：没看过的 → 篇数变了的 → 上次没读全的 → 最久没看的（超过 RECHECK_DAYS 天），每次最多 --max 个；
      一个一个开（GET /api/v1/boards/notes），之间歇 LWA_FETCH_REST（默认 60–180 秒），和补抓笔记一样慢。
+     1028：`--board 名字或id`（可多个）= 只看她点名的专辑，不按上面的顺序挑；本地列表里都认得就不读专辑列表。
+     每个专辑报一下「还没进库的几篇」（只报不抓：抓帖仍走收藏同步，那边有每日额度和熔断）。
   撞风控 / 掉登录 → 停，退出 5；号被占 → 退出 6。读到的随读随存，中途停下也不丢。
 """
 from __future__ import annotations
@@ -142,6 +144,33 @@ def due_boards(data: dict[str, Any], now: datetime, limit: int) -> list[tuple[st
     return [(bid, why) for _, _, bid, why in rows[:max(limit, 0)]]
 
 
+def pick_boards(data: dict[str, Any], wanted: list[str]) -> tuple[list[tuple[str, str]], list[str]]:
+    """她点名的专辑 → ([(专辑 id, "点名")], [认不出的])。按 id → 整名 → 包含（和 album 过滤同一口径）；包含撞上多个算认不出。"""
+    boards = data.get("boards") or {}
+    picked: list[tuple[str, str]] = []
+    unknown: list[str] = []
+    for w in wanted:
+        w = str(w or "").strip()
+        if not w:
+            continue
+        if w in boards:
+            hits = [w]
+        else:
+            hits = [bid for bid, b in boards.items() if str(b.get("name") or "").strip() == w]
+            if not hits:
+                hits = [bid for bid, b in boards.items() if w in str(b.get("name") or "")]
+        if len(hits) != 1:
+            unknown.append(w)
+        elif (hits[0], "点名") not in picked:
+            picked.append((hits[0], "点名"))
+    return picked, unknown
+
+
+def _library_ids() -> set[str]:
+    from . import fav_counts
+    return fav_counts.library_ids()
+
+
 def merge_notes(data: dict[str, Any], bid: str, result: dict[str, Any], now: datetime) -> int:
     row = data.setdefault("boards", {}).setdefault(bid, {"notes": []})
     board = result.get("board") or {}
@@ -167,8 +196,8 @@ def _rest() -> float:
 
 
 def sync(*, max_boards: int = 6, budget_min: float = 25, list_boards: bool = True, verbose: bool = True,
-         sleep=time.sleep, clock=time.monotonic) -> tuple[int, dict[str, Any]]:
-    """返回 (退出码, 摘要)。随读随存。"""
+         boards: list[str] | None = None, sleep=time.sleep, clock=time.monotonic) -> tuple[int, dict[str, Any]]:
+    """返回 (退出码, 摘要)。随读随存。boards = 她点名的专辑（名字或 id），给了就只看这些。"""
     def say(msg: str) -> None:
         if verbose:
             print(msg, file=sys.stderr)
@@ -177,6 +206,10 @@ def sync(*, max_boards: int = 6, budget_min: float = 25, list_boards: bool = Tru
     now = _now()
     out: dict[str, Any] = {"listed": None, "boards": [], "stopped": ""}
     end = clock() + budget_min * 60
+    if boards:
+        _, unknown = pick_boards(data, boards)
+        list_boards = list_boards and bool(unknown)   # 点名的本地都认得：不必进收藏页签读列表
+    library: set[str] | None = None
     try:
         with accounts.account_session("albums", wait_s=60):
             accounts.check_risk_hold()
@@ -196,7 +229,13 @@ def sync(*, max_boards: int = 6, budget_min: float = 25, list_boards: bool = Tru
                         say(f"[albums] 专辑列表：{out['listed']}（页签写 {data.get('expected')} 个）")
                 if why:
                     say(f"[albums] {why}")
-            todo = due_boards(data, now, max_boards)
+            if boards:
+                todo, unknown = pick_boards(data, boards)
+                if unknown:
+                    out["unknown"] = unknown
+                    say(f"[albums] 认不出这些专辑（名字对不上或撞了多个）：{'、'.join(unknown)}")
+            else:
+                todo = due_boards(data, now, max_boards)
             for i, (bid, why) in enumerate(todo):
                 if clock() > end:
                     out["stopped"] = "budget"
@@ -213,8 +252,16 @@ def sync(*, max_boards: int = 6, budget_min: float = 25, list_boards: bool = Tru
                 res = accounts.api("GET", f"/api/v1/boards/notes?board_id={bid}", timeout=540)
                 n = merge_notes(data, bid, res, _now())
                 save(data)
-                out["boards"].append({"id": bid, "name": name, "why": why, "notes": n, "partial": bool(res.get("partial"))})
-                say(f"[albums] 「{name}」（{why}）：{n} 篇" + ("，没读全" if res.get("partial") else ""))
+                if library is None:
+                    library = _library_ids()
+                missing = [nid for nid in data["boards"][bid]["notes"] if nid not in library]
+                row = {"id": bid, "name": name, "why": why, "notes": n, "partial": bool(res.get("partial")),
+                       "missing": len(missing)}
+                if boards:
+                    row["missing_ids"] = missing
+                out["boards"].append(row)
+                say(f"[albums] 「{name}」（{why}）：{n} 篇" + ("，没读全" if res.get("partial") else "")
+                    + (f"，{len(missing)} 篇还没进库" if missing else ""))
     except accounts.AccountBusyError as exc:
         out["stopped"] = f"号被占着：{exc}"
         return EXIT_BUSY, out
@@ -245,6 +292,7 @@ def run(args) -> int:
             print(f"{b.get('name')}｜{b.get('total')} 篇｜{seen}" + ("｜私密" if b.get("privacy") else ""))
         print(f"共 {len(boards)} 个专辑（列表读于 {str(data.get('listed_at') or '')[:16]}）")
         return 0
-    code, out = sync(max_boards=args.max, budget_min=args.budget_min, list_boards=not args.no_list)
+    code, out = sync(max_boards=args.max, budget_min=args.budget_min, list_boards=not args.no_list,
+                     boards=getattr(args, "board", None))
     print(json.dumps(out, ensure_ascii=False))
     return code
