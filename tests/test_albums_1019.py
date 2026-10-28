@@ -118,3 +118,51 @@ def test_sync_named_unknown_board_reads_list_first(reader):
     code, out = albums.sync(boards=["课", "没这个"], sleep=lambda s: None)
     assert code == 0 and calls == ["/api/v1/boards", "/api/v1/boards/notes?board_id=b2"]
     assert out["unknown"] == ["没这个"]
+
+
+def test_captcha_hold_pauses_clears_and_retries(monkeypatch):
+    """1028 她：熔断 → 停 5 分钟 → 解除 → 接着跑；次数用完照旧停车；掉登录不自动接。"""
+    from link_brain.sources.xiaohongshu import accounts as acc
+    calls, slept = [], []
+    state = {"fail": 1}
+
+    def fake(method, route, **kw):
+        calls.append(route)
+        if route == "/api/v1/risk/clear":
+            return {"cleared": True}
+        if state["fail"] > 0:
+            state["fail"] -= 1
+            raise acc.ReaderError("CAPTCHA_REQUIRED", "要验证")
+        return {"ok": 1}
+    monkeypatch.setattr(acc, "_api_logged", fake)
+    monkeypatch.setattr(acc, "_api", fake)
+    monkeypatch.setattr(acc.time, "sleep", slept.append)
+    monkeypatch.setattr(acc, "CAPTCHA_AUTO_MAX", 2)
+    monkeypatch.setattr(acc, "_auto_cleared", 0)
+    assert acc.api("GET", "/api/v1/boards") == {"ok": 1}
+    assert calls == ["/api/v1/boards", "/api/v1/risk/clear", "/api/v1/boards"] and slept == [300]
+    state["fail"] = 5                                        # 一直撞：用完 2 次照旧抛
+    with pytest.raises(acc.ReaderError):
+        acc.api("GET", "/api/v1/boards")
+    monkeypatch.setattr(acc, "_auto_cleared", 0)
+    calls.clear()
+    monkeypatch.setattr(acc, "_api_logged", lambda *a, **k: (_ for _ in ()).throw(acc.ReaderError("NOT_LOGGED_IN", "掉了")))
+    with pytest.raises(acc.ReaderError):
+        acc.api("GET", "/api/v1/boards")
+    assert calls == []                                       # 掉登录不解除
+
+
+def test_check_risk_hold_waits_out_captcha_then_clears(monkeypatch):
+    from link_brain.sources.xiaohongshu import accounts as acc
+    slept, cleared = [], []
+    since = datetime.now().astimezone() - timedelta(minutes=2)
+    monkeypatch.setattr(acc, "risk_hold", lambda: {"code": "CAPTCHA_REQUIRED", "since": since.isoformat()})
+    monkeypatch.setattr(acc, "_api", lambda m, r, **k: cleared.append(r) or {})
+    monkeypatch.setattr(acc.time, "sleep", slept.append)
+    monkeypatch.setattr(acc, "CAPTCHA_AUTO_MAX", 1)
+    monkeypatch.setattr(acc, "_auto_cleared", 0)
+    acc.check_risk_hold()                                    # 不抛：歇满 5 分钟（还差 ~3 分钟）就解除
+    assert cleared == ["/api/v1/risk/clear"] and 170 < slept[0] <= 180
+    monkeypatch.setattr(acc, "risk_hold", lambda: {"code": "NOT_LOGGED_IN", "since": since.isoformat()})
+    with pytest.raises(acc.ReaderError):
+        acc.check_risk_hold()

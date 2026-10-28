@@ -221,7 +221,53 @@ def _account_guard() -> None:
     raise ReaderError('DEV_COPY_BLOCKED', f'这份代码不在允许用号的程序目录里（{p} 的 allowed_roots），开发副本 / 测试脚本不许联系读取服务')
 
 
+# 1028 她：「熔断 → 停 5 分钟 → 即刻继续」。验证类熔断（判到验证码）不再停车等她：歇 CAPTCHA_PAUSE_S 秒、
+# 解除（POST /api/v1/risk/clear）、同一个请求再发一次。10-28 那次是验证框只到「题库加载中」就判了熔断，她去看已经没了。
+# 掉登录 / 被跳安全页不在这里（等也等不好）。每个进程最多自动接着 CAPTCHA_AUTO_MAX 次，再撞就照旧停车；设 0 = 关掉、回到以前。
+CAPTCHA_PAUSE_S = float(os.environ.get('LWA_CAPTCHA_PAUSE_S') or 300)
+CAPTCHA_AUTO_MAX = int(os.environ.get('LWA_CAPTCHA_AUTO_MAX') or 3)
+_auto_cleared = 0
+
+
+def _captcha_hold(exc_or_hold) -> bool:
+    if isinstance(exc_or_hold, ReaderError):
+        if exc_or_hold.code == 'CAPTCHA_REQUIRED':
+            return True
+        if exc_or_hold.code != 'RISK_HOLD':
+            return False
+        exc_or_hold = exc_or_hold.hold
+    return isinstance(exc_or_hold, dict) and str(exc_or_hold.get('code') or '') == 'CAPTCHA_REQUIRED'
+
+
+def _pause_and_clear(why: str, wait_s: float) -> bool:
+    """歇够再解除熔断；能接着跑回 True（这个进程的次数用完 / 解除失败回 False，调用方照旧停车）。"""
+    global _auto_cleared
+    if _auto_cleared >= CAPTCHA_AUTO_MAX:
+        return False
+    _auto_cleared += 1
+    if wait_s > 0:
+        print(f'[accounts] {why}：歇 {wait_s / 60:.0f} 分钟后解除熔断接着跑（本进程第 {_auto_cleared} 次）', file=sys.stderr)
+        time.sleep(wait_s)
+    try:
+        _api('POST', '/api/v1/risk/clear', timeout=20)
+    except ReaderError as exc:
+        print(f'[accounts] 解除熔断没成：{exc.code} {exc}', file=sys.stderr)
+        return False
+    _note_account('OK')
+    return True
+
+
 def api(method: str, route: str, *, timeout: float = 45, body: dict | None = None) -> dict:
+    """调读取服务；撞到验证类熔断按 1028 的规矩歇 5 分钟、解除、再发一次（见上）。"""
+    try:
+        return _api_logged(method, route, timeout=timeout, body=body)
+    except ReaderError as exc:
+        if route.startswith('/api/v1/risk/') or not _captcha_hold(exc) or not _pause_and_clear('撞到验证', CAPTCHA_PAUSE_S):
+            raise
+    return api(method, route, timeout=timeout, body=body)
+
+
+def _api_logged(method: str, route: str, *, timeout: float = 45, body: dict | None = None) -> dict:
     """调读取服务的 HTTP 接口；碰号的那几类（actionlog.action_for_route 认得的）记一行用号行为日志（1016）。"""
     from ... import actionlog
     action = actionlog.action_for_route(route)
@@ -484,6 +530,13 @@ def check_risk_hold() -> None:
     """批量入口开工前调：熔断中就抛 ReaderError('RISK_HOLD')，调用方停车（退出码 5），一页都不开。
     1015：限频冷却中抛 ReaderError('XHS_RATE_LIMITED')（也是一页不开，但不要人处理）；冷却到点不抛（放行自探）。"""
     hold = risk_hold()
+    if hold and _captcha_hold(hold):   # 1028：验证类熔断从写下起歇满 CAPTCHA_PAUSE_S 就解除接着跑
+        try:
+            since = datetime.fromisoformat(str(hold.get('since'))).timestamp()
+        except (TypeError, ValueError):
+            since = time.time()
+        if _pause_and_clear('熔断中（验证）', max(0.0, since + CAPTCHA_PAUSE_S - time.time())):
+            return
     if hold:
         raise hold_error(hold)
 

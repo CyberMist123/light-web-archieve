@@ -13,6 +13,9 @@
 
 from __future__ import annotations
 
+import os as _os
+_os.environ.setdefault('LWA_CAPTCHA_AUTO_MAX', '0')   # 1028 撞验证自动歇 5 分钟接着跑：测试里默认关掉，要测的用例自己开
+
 from link_brain.sources.xiaohongshu import attachments as xhs_attachments
 
 import os
