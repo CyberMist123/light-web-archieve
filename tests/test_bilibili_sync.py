@@ -138,3 +138,45 @@ def test_note_albums_reads_relations(vault):
     favorites.update_relations(snap2)
     assert bili.note_albums() == {"BV1aaaaaaaa1": ["音乐", "学习"], "BV1aaaaaaaa2": ["音乐"]}
     assert "albums" in bili.capabilities
+
+
+def test_fresh_complete_snapshot_is_reused_without_rescan(vault, monkeypatch):
+    from datetime import datetime
+    snap = {"owner_mid": 1, "media_id": 11, "title": "音乐", "complete": True, "media_count": 1, "status": "complete",
+            "fetched_at": datetime.now().astimezone().isoformat(timespec="seconds"), "items": [_item("BV1aaaaaaaa1", "一")]}
+    storage.write_json(favorites.last_complete_path(1, 11), snap)
+    assert sync._fresh_snapshot(1, 11, 1, 6.0) is not None
+    assert sync._fresh_snapshot(1, 11, 2, 6.0) is None          # 总数变了 → 重扫
+    old = {**snap, "fetched_at": "2026-01-01T00:00:00+11:00"}
+    storage.write_json(favorites.last_complete_path(1, 12), old)
+    assert sync._fresh_snapshot(1, 12, 1, 6.0) is None          # 太旧 → 重扫
+
+
+def test_choose_deny_writes_tombstone_and_plan_excludes(vault, monkeypatch):
+    from link_brain import index as index_mod, ingest
+    from link_brain.sources.bilibili import ytdlp
+    out = sync.choose(allow=["BV1aaaaaaaa2"], deny=["BV1aaaaaaaa1"])
+    assert out["allowed"] == ["BV1aaaaaaaa2"] and out["denied"] == ["BV1aaaaaaaa1"]
+    ch = sync.load_choices()
+    assert "BV1aaaaaaaa2" in ch["allow"] and "BV1aaaaaaaa1" in ch["deny"]
+    conn = index_mod.connect()
+    try:
+        t = index_mod.get_tombstone(conn, "bilibili", "BV1aaaaaaaa1")
+        assert t is not None and t["item_id"] == "bili-BV1aaaaaaaa1"
+    finally:
+        conn.close()
+
+    def no_download(*a, **k):
+        raise AssertionError("屏蔽的不该下载")
+    monkeypatch.setattr(ytdlp, "run", no_download)
+    monkeypatch.setattr(ytdlp, "ffmpeg_ok", lambda: True)
+    got = ingest.ingest_url("https://www.bilibili.com/video/BV1aaaaaaaa1")
+    assert got["status"] == "trashed"
+    pl = sync.plan(SNAPS, allow=set(ch["allow"]), deny=set(ch["deny"]))
+    assert [r["bvid"] for r in pl["buckets"]["denied"]] == ["BV1aaaaaaaa1"]
+    assert "BV1aaaaaaaa2" in {r["bvid"] for r in pl["buckets"]["download"]} and pl["buckets"]["long"] == []
+    text = sync.render_pending_note({"buckets": {**pl["buckets"], "downloaded": [], "failed": []},
+                                     "counts": {**pl["counts"], "folders": 2}, "bv_total": pl["bv_total"]})
+    assert "## 你删了的" in text and "短 MV" in text
+    assert sync.choose(undo=["BV1aaaaaaaa2"])["undone"] == ["BV1aaaaaaaa2"]
+    assert "BV1aaaaaaaa2" not in sync.load_choices()["allow"]

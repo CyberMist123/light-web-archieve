@@ -29,6 +29,9 @@ MIN_FREE_GB = 10.0
 FAIL_STREAK = 5          # 连着这么多条失败 → 多半是风控 / 断网：歇 PAUSE_S 再接着
 PAUSE_S = 600.0
 MAX_PAUSES = 3           # 歇过这么多次还连败 → 停下如实报，别整夜撞接口
+RESCAN_HOURS = 6.0       # 收藏夹的完整快照不到这么久就直接复用，不再扫（1029 实测：71 个收藏夹连扫两遍就 412）
+FOLDER_GAP_S = 3.0       # 两个收藏夹之间歇一下；翻页间隔见 PAGE_GAP_S
+PAGE_GAP_S = 2.0
 PENDING_NOTE = "B站待选清单.md"
 LAST_SYNC = "last-sync.json"
 
@@ -57,7 +60,7 @@ def _free_gb(path: Path) -> float:
 # ---- 计划 -----------------------------------------------------------------------------------------------------------
 
 def plan(snaps: list[dict[str, Any]], *, max_duration_s: int = MAX_DURATION_S, allow: set[str] | None = None,
-         in_library: Callable[[str], bool] = lambda bvid: False) -> dict[str, Any]:
+         deny: set[str] | None = None, in_library: Callable[[str], bool] = lambda bvid: False) -> dict[str, Any]:
     """多个收藏夹的快照 → 按 BV 去重后的分流。每条 {bvid, title, upper, duration, page_count, folders[], fav_time, url, reason}。
 
     - download：正常单 P、时长 ≤ 上限（或在 allow 里）、还没入库；
@@ -65,6 +68,7 @@ def plan(snaps: list[dict[str, Any]], *, max_duration_s: int = MAX_DURATION_S, a
     - long：超过上限（她选了再下：`--allow BV`）；multi_p：多 P（批次 B 做，先列着）；
     - invalid：原站已失效；non_video：音频 / 合集 / 其它类型。"""
     allow = allow or set()
+    deny = deny or set()
     by_bv: dict[str, dict[str, Any]] = {}
     others: list[dict[str, Any]] = []
     for s in snaps:
@@ -87,9 +91,13 @@ def plan(snaps: list[dict[str, Any]], *, max_duration_s: int = MAX_DURATION_S, a
                     got["folders"].append(folder)
                 if not got["title"] and row["title"]:
                     got.update(title=row["title"], upper=row["upper"], duration=row["duration"], page_count=row["page_count"])
-    buckets: dict[str, list[dict[str, Any]]] = {"download": [], "hit": [], "long": [], "multi_p": [], "invalid": [], "non_video": others}
+    buckets: dict[str, list[dict[str, Any]]] = {"download": [], "hit": [], "long": [], "multi_p": [], "invalid": [],
+                                                "non_video": others, "denied": []}
     for bv, row in by_bv.items():
-        if row["invalid"]:
+        if bv in deny:
+            row["reason"] = "你删了：任何情况下都不保存（已写删除屏蔽）"
+            buckets["denied"].append(row)
+        elif row["invalid"]:
             buckets["invalid"].append(row)
         elif in_library(bv):
             buckets["hit"].append(row)
@@ -143,7 +151,8 @@ def render_pending_note(result: dict[str, Any]) -> str:
                 ("多 P 视频（分 P 下载下一批做）", b.get("multi_p") or []),
                 ("这次没下成（下次同步会再试）", b.get("failed") or []),
                 ("原站已失效（只留记录）", b.get("invalid") or []),
-                ("不是视频稿件（音频 / 合集等，暂不支持）", b.get("non_video") or [])]
+                ("不是视频稿件（音频 / 合集等，暂不支持）", b.get("non_video") or []),
+                ("你删了的（不再下载，只留记录）", b.get("denied") or [])]
     for title, rows in sections:
         if not rows:
             continue
@@ -157,10 +166,96 @@ def pending_note_path() -> Path:
     return storage.visible_dir(SOURCE) / PENDING_NOTE
 
 
+# ---- 她的选择（持久）：allow = 放行（不看时长上限）；deny = 删 = 任何情况下都不保存（同小红书回收站：写删除屏蔽，本地留一条记录）--------
+
+CHOICES = "choices.json"
+
+
+def choices_path() -> Path:
+    return favorites.sync_root() / CHOICES
+
+
+def load_choices() -> dict[str, dict[str, Any]]:
+    try:
+        data = storage.read_json(choices_path())
+    except (OSError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    return {"allow": dict(data.get("allow") or {}), "deny": dict(data.get("deny") or {})}
+
+
+def _known(bvid: str) -> dict[str, Any]:
+    """待选清单 / 关系表里这条的标题等（给屏蔽记录和选择表留一条看得懂的记录）。"""
+    try:
+        last = storage.read_json(favorites.sync_root() / LAST_SYNC)
+        for rows in (last.get("buckets") or {}).values():
+            for r in rows or []:
+                if isinstance(r, dict) and r.get("bvid") == bvid:
+                    return {"title": r.get("title"), "upper": r.get("upper"), "duration": r.get("duration"), "folders": r.get("folders")}
+    except (OSError, ValueError, AttributeError):
+        pass
+    for row in favorites.load_relations().values():
+        if row.get("bvid") == bvid:
+            return {"title": None, "folders": [row.get("folder_title")]}
+    return {}
+
+
+def choose(*, allow: list[str] | None = None, deny: list[str] | None = None, undo: list[str] | None = None) -> dict[str, Any]:
+    """记下她的选择。deny 的同时写删除屏蔽（index.write_tombstone，source=bilibili）：以后 ingest / catch / sync 一律不再保存；
+    已经在库的不动（删库走现有 delete 命令）。undo 从两张表里拿掉（屏蔽本身用 trash --forget 解除，这里不代劳）。"""
+    from ... import domain, index as index_mod
+    now = _now()
+    out: dict[str, list[str]] = {"allowed": [], "denied": [], "undone": [], "already_in_library": []}
+    conn = index_mod.connect()
+    try:
+        def apply(data: dict[str, Any]) -> None:
+            data.setdefault("allow", {})
+            data.setdefault("deny", {})
+            for bv in undo or []:
+                if data["allow"].pop(bv, None) is not None or data["deny"].pop(bv, None) is not None:
+                    out["undone"].append(bv)
+            for bv in allow or []:
+                data["deny"].pop(bv, None)
+                data["allow"][bv] = {**_known(bv), "chosen_at": now}
+                out["allowed"].append(bv)
+            for bv in deny or []:
+                data["allow"].pop(bv, None)
+                info = _known(bv)
+                data["deny"][bv] = {**info, "chosen_at": now}
+                out["denied"].append(bv)
+                if index_mod.find_object(conn, SOURCE, bv) is not None:
+                    out["already_in_library"].append(bv)
+                    continue
+                if index_mod.get_tombstone(conn, SOURCE, bv) is None:
+                    index_mod.write_tombstone(conn, {"source": SOURCE, "source_id": bv, "item_id": domain.item_id(SOURCE, bv),
+                                                     "title": info.get("title") or bv, "url": CANONICAL_FMT.format(bvid=bv),
+                                                     "cover": None, "deleted_at": now, "trash_dir": f"_archive/bilibili-sync/denied/{bv}",
+                                                     "state": "done"})
+            data["updated_at"] = now
+        storage.update_json(choices_path(), apply, lock_name="bilibili-choices", missing_ok=True)
+    finally:
+        conn.close()
+    return out
+
+
 # ---- 跑 ------------------------------------------------------------------------------------------------------------
+
+def _fresh_snapshot(owner_mid: int, media_id: int, media_count: int, rescan_hours: float) -> dict[str, Any] | None:
+    """上次完整快照够新、总数没变 → 直接用它（不联网）。"""
+    snap = favorites.load_last_complete(owner_mid, media_id)
+    if not snap or not snap.get("complete") or snap.get("media_count") != media_count:
+        return None
+    try:
+        age_h = (datetime.now().astimezone() - datetime.fromisoformat(str(snap.get("fetched_at")))).total_seconds() / 3600
+    except (TypeError, ValueError):
+        return None
+    return snap if 0 <= age_h <= rescan_hours else None
+
 
 def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s: int = MAX_DURATION_S, gap_s: float = GAP_S,
              min_free_gb: float = MIN_FREE_GB, folders: list[str] | None = None, allow: list[str] | None = None,
+             rescan_hours: float = RESCAN_HOURS, folder_gap_s: float = FOLDER_GAP_S,
              log: Callable[[str], None] | None = None, sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
     """返回 {ok, code, message, counts, buckets, folders, ...}；stdout 不碰（调用方打 JSON），人话走 log。"""
     say = log or (lambda m: print(m, file=sys.stderr, flush=True))
@@ -186,14 +281,23 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
             rows = [f for f in rows if f["title"] in want or str(f["media_id"]) in want or str(f["fid"]) in want]
         say(f"收藏夹 {len(rows)} 个：" + "、".join(f"{f['title']}({f['media_count']})" for f in rows))
         snaps: list[dict[str, Any]] = []
-        for f in rows:
-            r = favorites.sync_folder(client, f["media_id"], owner_mid=mid, log=say)
-            snap = r["snapshot"]
+        reused = 0
+        for n, f in enumerate(rows):
+            fresh = _fresh_snapshot(mid, f["media_id"], f["media_count"], rescan_hours)
+            if fresh is not None:
+                snap, reused = fresh, reused + 1
+            else:
+                if n and folder_gap_s:
+                    sleep(folder_gap_s)
+                r = favorites.sync_folder(client, f["media_id"], owner_mid=mid, log=say, page_gap_s=PAGE_GAP_S)
+                snap = r["snapshot"]
             snaps.append(snap)
             out["folders"].append({"title": f["title"], "media_id_masked": favorites.mask_mid(f["media_id"]),
                                    "private": f["private"], "media_count": f["media_count"], "status": snap.get("status"),
                                    "complete": bool(snap.get("complete")), "items": len(snap.get("items") or []),
-                                   "error": (snap.get("error") or {}).get("message")})
+                                   "reused": fresh is not None, "error": (snap.get("error") or {}).get("message")})
+        if reused:
+            say(f"{reused} 个收藏夹复用了 {rescan_hours:g} 小时内的完整快照，没重扫")
         out["counts"]["folders"] = len(rows)
 
         from ... import index as index_mod
@@ -201,14 +305,16 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
         try:
             def in_library(bvid: str) -> bool:
                 return index_mod.find_object(conn, SOURCE, bvid) is not None
-            pl = plan(snaps, max_duration_s=max_duration_s, allow=set(allow or []), in_library=in_library)
+            ch = load_choices()
+            pl = plan(snaps, max_duration_s=max_duration_s, allow=set(allow or []) | set(ch["allow"]), deny=set(ch["deny"]),
+                      in_library=in_library)
         finally:
             conn.close()
         out["bv_total"] = pl["bv_total"]
         b = pl["buckets"]
         out["counts"].update(pl["counts"])
         say(f"去重后 {pl['bv_total']} 个 BV：待下 {len(b['download'])}，已在库 {len(b['hit'])}，超时长 {len(b['long'])}，"
-            f"多 P {len(b['multi_p'])}，失效 {len(b['invalid'])}，非视频 {len(b['non_video'])}")
+            f"多 P {len(b['multi_p'])}，失效 {len(b['invalid'])}，非视频 {len(b['non_video'])}，已排除 {len(b['denied'])}")
         queue = b["download"][: limit] if limit else b["download"]
         b["downloaded"], b["failed"] = [], []
         if dry_run:
@@ -311,6 +417,19 @@ def _persist(out: dict[str, Any]) -> None:
         print(f"[bilibili sync] 目录没重建：{errtext(exc)}", file=sys.stderr)
 
 
+def run_choose(args) -> int:
+    from ... import read as read_mod
+    from ...cli import EXIT_OK
+    out = choose(allow=getattr(args, "allow", None) or [], deny=getattr(args, "deny", None) or [], undo=getattr(args, "undo", None) or [])
+    ch = load_choices()
+    msg = (f"放行 {len(out['allowed'])} 条、删 {len(out['denied'])} 条、撤销 {len(out['undone'])} 条；"
+           f"现在放行表 {len(ch['allow'])} 条、屏蔽表 {len(ch['deny'])} 条")
+    if out["already_in_library"]:
+        msg += f"；{len(out['already_in_library'])} 条已经在库里，没动（要删走 delete）"
+    read_mod.dump_json(read_mod.outcome({**out, "allow": sorted(ch["allow"]), "deny": sorted(ch["deny"])}, ok=True, message=msg))
+    return EXIT_OK
+
+
 def run(args) -> int:
     from ... import read as read_mod
     from ...cli import EXIT_ERROR, EXIT_NEEDS_HUMAN, EXIT_OK
@@ -320,7 +439,7 @@ def run(args) -> int:
                    folders=getattr(args, "folder", None) or None, allow=getattr(args, "allow", None) or None)
     payload = {k: v for k, v in out.items() if k != "buckets"}
     payload["pending"] = {k: [{"bvid": r.get("bvid"), "title": r.get("title"), "duration": r.get("duration"), "reason": r.get("reason")}
-                              for r in v] for k, v in (out.get("buckets") or {}).items() if k in ("long", "multi_p", "failed")}
+                              for r in v] for k, v in (out.get("buckets") or {}).items() if k in ("long", "multi_p", "failed", "denied")}
     read_mod.dump_json(read_mod.outcome(payload, ok=bool(out.get("ok")), message=out.get("message") or "", code=out.get("code") or ""))
     if out.get("ok"):
         return EXIT_OK

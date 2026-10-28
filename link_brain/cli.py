@@ -129,6 +129,11 @@ def build_parser() -> argparse.ArgumentParser:
     pb.add_argument("--folder", action="append", default=None, help="只同步这些收藏夹（名字或 id，可多次）")
     pb.add_argument("--allow", action="append", default=None, help="放行这些 BV（不看时长上限，可多次）")
     pb.add_argument("--json", action="store_true")
+    pb = bsub.add_parser("choose", help="对待选清单做选择：--allow 放行（下次同步就下）；--deny 删 = 写删除屏蔽，任何情况下都不保存；--undo 撤销")
+    pb.add_argument("--allow", action="append", default=None, help="放行的 BV（可多次）")
+    pb.add_argument("--deny", action="append", default=None, help="删掉的 BV（可多次；同小红书回收站的屏蔽）")
+    pb.add_argument("--undo", action="append", default=None, help="从放行 / 删表里拿掉（屏蔽本身用 trash --forget 解除）")
+    pb.add_argument("--json", action="store_true")
 
     p = sub.add_parser("ingest", help="归档一个链接（小红书 URL / xhslink 短链 / 分享文本，或 B 站 BV 链接）")
     p.add_argument("target", help="链接或包含链接的分享文本")
@@ -650,6 +655,9 @@ def _dispatch(args) -> int:
         if cmd == "sync":
             from .sources.bilibili import sync as bili_sync
             return bili_sync.run(args)
+        if cmd == "choose":
+            from .sources.bilibili import sync as bili_sync
+            return bili_sync.run_choose(args)
         if cmd == "login":
             from pathlib import Path as _P
             st = bili_login.qr_login(timeout_s=args.timeout, qr_png=_P(args.qr_png) if args.qr_png else None)
