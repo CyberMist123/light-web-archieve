@@ -199,6 +199,7 @@ def expand_window_resume(source: dict[str, Any], targets: list[str]) -> str | No
 # （「缺 53 → 53」「缺 213 → 213」原地打转）。现在把每楼存下的最后一条回复当游标交给读取组件，它点之前把页面里
 # 这楼的游标改过去，站点就从那里接着往后拉（读取组件 reader-10 起认 expand_resume，老组件忽略即从头展开）。
 
+SUB_LIMIT_MAX = 150  # 1029 她：120 测过没撞墙，试 120–150；和读取组件 sub_budget.go 的 subLimitMax 一起改
 SUB_PER_HOUR = 30  # 读取组件楼中楼闸：每小时最多点几次「展开回复」（XHS_SUB_PER_HOUR，同 reader 的默认）
 
 
@@ -294,7 +295,7 @@ def _per_hour() -> int:
         from . import accounts
         v = int(json.loads((accounts.profile_dir() / "sub-per-hour.json").read_text(encoding="utf-8")).get("per_hour") or 0)
         if v > 0:
-            per_hour = min(v, 120)
+            per_hour = min(v, SUB_LIMIT_MAX)
     except Exception:  # noqa: BLE001
         pass
     return per_hour
