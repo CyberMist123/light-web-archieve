@@ -925,10 +925,26 @@ def task_rows(force: bool = False) -> list[dict[str, Any]]:
     return rows
 
 
-# 1018：夜跑里不碰号的步骤（只在本机算）。夜跑停在这些步骤上时补评论不用让路——以前整个夜跑任务没结束就一直等，
-# 收藏同步 10:25 做完、后面识图 / 概要 / 向量 / 目录跑到 11:32，补评论白等 67 分钟。认不出的步骤照旧让路（宁可多等）。
-LOCAL_NIGHTLY_STEPS = ("enrich", "vision", "videos", "embed", "problems", "catalog", "attachments --audit", "report",
-                       "tidy", "backup")
+# 1018：夜跑停在不碰号的步骤上时补评论不用让路——以前整个夜跑任务没结束就一直等，收藏同步 10:25 做完、后面识图 /
+# 概要 / 向量 / 目录跑到 11:32，补评论白等 67 分钟。
+# 1028（审查 A7）：碰不碰号以 nightly.STEPS 里 Step.account 为准，不再自己抄一份前缀名单（名单漏了「attachments --recheck
+# --guest-only」150 分钟和「index catch-up」，每晚白等最多 3 小时）。认不出的步骤照旧让路（宁可多等）。
+
+
+def step_touches_account(name: str) -> bool | None:
+    """夜跑这一步碰不碰号：True / False；nightly.STEPS 里没有这个名字 → None（认不出）。"""
+    name = (name or "").strip()
+    if not name:
+        return None
+    try:
+        from ... import nightly
+        steps = nightly.STEPS
+    except Exception:  # noqa: BLE001 - 夜跑模块读不动：当认不出
+        return None
+    for st in steps:
+        if st.name == name:
+            return bool(st.account)
+    return None
 
 
 def nightly_step(log_paths: list[Path] | None = None) -> str:
@@ -966,7 +982,7 @@ def nightly_busy(now: datetime | None = None, rows: list[dict[str, Any]] | None 
     for r in rows:
         if str(r.get("state") or "") == "Running":
             cur = nightly_step() if step is None else step
-            if cur and cur.startswith(LOCAL_NIGHTLY_STEPS):
+            if step_touches_account(cur) is False:
                 continue  # 这一步只在本机算、不用号：不用让
             return "夜跑在跑，号让给它，做完接着补"
     for r in rows:
