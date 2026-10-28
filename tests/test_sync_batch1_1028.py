@@ -96,3 +96,81 @@ def test_run_loop_skips_expand_entries_while_gate_closed(tmp_path, monkeypatch):
     assert cf.run(args, sleep=lambda s: None) == 0
     assert opened == []
     assert any("限频 1 次" in str(s.get("message")) for s in seen)
+
+
+# ---------------------------------------------------------------- A5 拉起读取服务限流 + 等待按墙钟
+import os
+import types
+
+
+def test_ensure_reader_spawns_at_most_once_per_gap(tmp_path, monkeypatch):
+    from link_brain import procs
+    from link_brain.sources.xiaohongshu import accounts
+    monkeypatch.setenv("LINK_BRAIN_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("LINK_BRAIN_VAULT", str(tmp_path / "vault"))
+    monkeypatch.delenv("LINK_BRAIN_XHS_ENDPOINT", raising=False)
+    monkeypatch.setattr(accounts, "reader_exe", lambda: str(tmp_path / "link-brain-reader.exe"))
+    monkeypatch.setattr(accounts, "api", lambda *a, **k: (_ for _ in ()).throw(accounts.ReaderError("DISCONNECTED")))
+    spawned = []
+    monkeypatch.setattr(procs, "spawn_detached", lambda argv, **k: spawned.append(argv) or 4242)
+    for _ in range(3):
+        try:
+            accounts.ensure_reader(wait=0)
+        except accounts.ReaderError as exc:
+            assert exc.code == "DISCONNECTED"
+        else:
+            raise AssertionError("服务没应答该抛 DISCONNECTED")
+    assert len(spawned) == 1, "10 分钟内只拉起一次"
+    assert 0 <= (accounts.last_spawn_age() or 0) < 5
+    # 时间戳过期了（别的进程 11 分钟前拉的）→ 再拉一次
+    (tmp_path / "home" / "reader-spawn.txt").write_text(str(__import__("time").time() - 11 * 60), "utf-8")
+    try:
+        accounts.ensure_reader(wait=0)
+    except accounts.ReaderError:
+        pass
+    assert len(spawned) == 2
+    # 时间戳坏了：当没拉过
+    (tmp_path / "home" / "reader-spawn.txt").write_text("坏的", "utf-8")
+    assert accounts.last_spawn_age() is None
+
+
+def _loop_env(tmp_path, monkeypatch, entries):
+    """跑 comment_fill.run 的最小环境：survey 固定、fill_one 打桩、状态写入记到列表。"""
+    seen = []
+    monkeypatch.setattr(cf.Status, "update", lambda self, **f: (self.data.update(f), seen.append(dict(self.data))))
+    monkeypatch.setattr(cf, "survey", lambda *a, **k: {"floors": 10, "ready": list(entries), "cooling": [], "stuck": [],
+                                                       "restricted": [], "missing": sum(e["missing"] for e in entries),
+                                                       "pending": len(entries)})
+    monkeypatch.setattr(cf, "_rebuild_catalog", lambda: None)
+    monkeypatch.setattr(cf, "forget_unproven_gone", lambda: 0)
+    monkeypatch.setattr(cf, "remember_reached_end", lambda: 0)
+    monkeypatch.setattr(cf, "nightly_busy", lambda *a, **k: "")
+    from link_brain.sources.xiaohongshu import accounts
+    monkeypatch.setattr(accounts, "lock_wanted", lambda: False)
+    monkeypatch.setenv("LINK_BRAIN_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("LINK_BRAIN_VAULT", str(tmp_path / "vault"))
+    (tmp_path / "vault" / "_archive").mkdir(parents=True, exist_ok=True)
+    return seen
+
+
+ENTRY = {"item_id": "xhs-a", "title": "a", "mode": "floors", "targets": [], "missing": 3, "more_floors": True, "attempts": 0}
+
+
+def test_wait_budget_counts_wall_clock_not_only_naps(tmp_path, monkeypatch):
+    """号要人处理时的 12 小时上限按墙钟算：拉起服务 / 深查花掉的时间也算进去，不会因为「只歇了 N 次」多等。"""
+    seen = _loop_env(tmp_path, monkeypatch, [ENTRY])
+    monkeypatch.setattr(cf, "account_wait_reason", lambda: ("ACCOUNT_RISK", "被跳到安全页"))
+    monkeypatch.setattr(cf, "sub_quota", lambda now=None: (30, None))
+    clock = [0.0]
+    naps = []
+
+    def sleep(s):
+        naps.append(s)
+        clock[0] += s + 3600  # 每次歇完还被别的事（拉起服务 / 深查）耗掉一小时
+
+    args = types.SimpleNamespace(until_done=True, budget_min=0, limit=0, verbose=False, only=None, floors="",
+                                 then_background=False, wait_lock_min=2)
+    assert cf.run(args, sleep=sleep, clock=lambda: clock[0]) == 0
+    assert sum(naps) < cf.MAX_WAIT_S, "按歇的时间算远没到 12 小时，按墙钟算到了"
+    assert clock[0] > cf.MAX_WAIT_S
+    assert "等了 12 小时" in str(seen[-1]["message"])

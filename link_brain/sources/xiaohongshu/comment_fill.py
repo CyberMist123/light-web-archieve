@@ -1078,7 +1078,7 @@ def spawn_worker() -> dict[str, Any]:
 # --------------------------------------------------------------------------
 
 
-def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
+def run(args, *, sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> int:
     """`comments --fill-pending [--until-done] [--budget-min M] [--limit N] [--then-background]`。
 
     夜跑这一步（不带 --until-done）：预算内能续的各续一次；号要人处理退出 5、号被占退出 6；没补完、带 --then-background
@@ -1131,7 +1131,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
     exit_code = 0
     stop_msg = ""
     since_catalog = 0
-    waited_s = 0
+    wait_since: float | None = None   # 1028（A5）：号不能用从几时等起——按墙钟算，不只算歇的那段（拉起服务的 40 秒、深查都算）
     attempts_this_run: dict[str, int] = {}
 
     def nap(seconds: float, **fields: Any) -> None:
@@ -1226,8 +1226,9 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
                     exit_code = 5 if code in accounts.NEEDS_HUMAN_CODES or code in ("RISK_HOLD",) else 0
                     deferred = len(ready)
                     break
-                waited_s += WAIT_HUMAN_S if code in accounts.NEEDS_HUMAN_CODES else WAIT_BUSY_S
-                if waited_s > MAX_WAIT_S:
+                if wait_since is None:
+                    wait_since = clock()
+                if clock() - wait_since > MAX_WAIT_S:
                     stop_msg = f"等了 {MAX_WAIT_S // 3600} 小时还没好（{why}），先停；处理好后下次同步 / 夜跑 / 打开 Obsidian 会接着补"
                     deferred = len(ready)
                     break
@@ -1253,7 +1254,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
                     nap(REST_MIN * 60, state="waiting", current=None, wait_code="REST",
                         message=status.text("补评论歇一会") + f" · 连着补了 {WORK_MIN} 分钟，像人一样歇 {REST_MIN} 分钟")
                     continue
-            waited_s = 0
+            wait_since = None
             item_id = entry["item_id"]
             status.update(state="running", current={"item_id": item_id, "title": entry["title"][:60]}, wait_code="",
                           message=status.text("正在补评论") + f" · {entry['title'][:24]}")
