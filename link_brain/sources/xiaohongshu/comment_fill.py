@@ -1077,9 +1077,19 @@ def account_wait_reason() -> tuple[str, str]:
     if hold and accounts.is_rate_limited(hold):
         return accounts.RATE_LIMIT_CODE, accounts.rate_limit_text(hold)  # 1015：限频冷却，到点自己接着补
     if hold:
+        # 1028（审查 B1）：按熔断的起因说话——只有 CAPTCHA_REQUIRED 是「弹了验证」；ACCOUNT_RISK 是被跳到登录 / 安全页、
+        # NOT_LOGGED_IN 是掉登录，文案和按钮用 accounts.SOLUTIONS 的原话（以前除掉登录外一律说「弹了验证、点打开验证」）
         code = str(hold.get("code") or "RISK_HOLD")
-        what = "掉登录了：在设置 / 问题入口扫码登录" if code == "NOT_LOGGED_IN" else "弹了验证（不是掉登录）：点问题入口「打开验证」"
-        return code, f"小红书{what}，处理好自动接着补（{accounts.hold_text(hold) or '暂停中'}）"
+        solution = accounts.SOLUTIONS.get(code)
+        if code == "CAPTCHA_REQUIRED":
+            what = "小红书弹了验证（不是掉登录）：点问题入口「打开验证」"
+        elif code == "NOT_LOGGED_IN":
+            what = "小红书掉登录了：在设置 / 问题入口扫码登录"
+        elif solution:
+            what = f"{solution[1]}：{solution[2]}"
+        else:
+            what = f"风控暂停中（{code}）：到问题入口处理"
+        return code, f"{what}，处理好自动接着补（{accounts.hold_text(hold) or '暂停中'}）"
     if isinstance(session, dict):
         if session.get("logged_in") is False:
             return "NOT_LOGGED_IN", "小红书掉登录了：在设置 / 问题入口扫码登录，登好自动接着补"

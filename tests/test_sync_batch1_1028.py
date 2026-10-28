@@ -293,3 +293,23 @@ def test_detach_passes_only_floors_limit_budget_to_worker(tmp_path, monkeypatch,
     assert cli.main(["comments", "--fill-pending", "--detach"]) == 0
     capsys.readouterr()
     assert seen["argv"] == ["py", "-m", "link_brain", "comments", "--fill-pending", "--until-done"]
+
+
+# ---------------------------------------------------------------- B1 熔断提示按起因说
+def test_wait_reason_text_follows_hold_cause(monkeypatch):
+    from link_brain.sources.xiaohongshu import accounts as acc
+    since = "2026-10-28T20:32:00+11:00"
+    cases = {
+        "CAPTCHA_REQUIRED": ("弹了验证", "打开验证"),
+        "ACCOUNT_RISK": (acc.SOLUTIONS["ACCOUNT_RISK"][1], acc.SOLUTIONS["ACCOUNT_RISK"][2]),   # 被跳到登录 / 安全页 + 它的下一步
+        "NOT_LOGGED_IN": ("掉登录", "扫码登录"),
+    }
+    for code, (must, step) in cases.items():
+        monkeypatch.setattr(acc, "ensure_reader", lambda c=code: {"state": "idle", "logged_in": True,
+                                                                  "risk_hold": {"code": c, "since": since, "detail": "x"}})
+        got_code, why = cf.account_wait_reason()
+        assert got_code == code
+        assert must in why and step in why, (code, why)
+        assert why.count("小红书") <= 2 and not why.startswith("小红书小红书"), why
+        if code != "CAPTCHA_REQUIRED":
+            assert "弹了验证" not in why, (code, why)
