@@ -195,6 +195,15 @@ def _known(bvid: str) -> dict[str, Any]:
                     return {"title": r.get("title"), "upper": r.get("upper"), "duration": r.get("duration"), "folders": r.get("folders")}
     except (OSError, ValueError, AttributeError):
         pass
+    try:   # 收藏夹快照里有标题 / UP / 时长（last-sync.json 还没写出来时靠它）
+        for sp in sorted((favorites.sync_root() / "folders").glob("*.json")):
+            snap = storage.read_json(sp)
+            for it in (snap.get("items") or []) if isinstance(snap, dict) else []:
+                if isinstance(it, dict) and it.get("bvid") == bvid and it.get("title"):
+                    return {"title": it.get("title"), "upper": it.get("upper_name"), "duration": it.get("duration"),
+                            "folders": [snap.get("title") or ""]}
+    except (OSError, ValueError):
+        pass
     for row in favorites.load_relations().values():
         if row.get("bvid") == bvid:
             return {"title": None, "folders": [row.get("folder_title")]}
@@ -227,7 +236,8 @@ def choose(*, allow: list[str] | None = None, deny: list[str] | None = None, und
                 if index_mod.find_object(conn, SOURCE, bv) is not None:
                     out["already_in_library"].append(bv)
                     continue
-                if index_mod.get_tombstone(conn, SOURCE, bv) is None:
+                tomb = index_mod.get_tombstone(conn, SOURCE, bv)
+                if tomb is None or (info.get("title") and (tomb["title"] or bv) == bv):   # 没屏蔽过，或上次只记了 BV 号现在有标题了
                     index_mod.write_tombstone(conn, {"source": SOURCE, "source_id": bv, "item_id": domain.item_id(SOURCE, bv),
                                                      "title": info.get("title") or bv, "url": CANONICAL_FMT.format(bvid=bv),
                                                      "cover": None, "deleted_at": now, "trash_dir": f"_archive/bilibili-sync/denied/{bv}",
