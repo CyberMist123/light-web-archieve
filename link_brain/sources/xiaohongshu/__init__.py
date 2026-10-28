@@ -131,15 +131,17 @@ def fetch(parsed: Parsed, opts: FetchOptions) -> Fetched:
                                     expand_resume=ex.get("expand_resume"), floors_resume=ex.get("floors_resume"))
     problems.resolve("ingest", None)  # 抓到了 = 读取服务好着：之前「服务没起来 / 超时」那几条步骤级问题算解决（要在网页探测之前）
     probe = _web_probe(parsed, log)
-    context: dict[str, Any] = {"web_probe": probe, "log": log, "log_comment_load": True}
+    context: dict[str, Any] = {"web_probe": probe, "log": log, "log_comment_load": True, "refresh": bool(opts.refresh)}
     meta_path = storage.object_dir(name, parsed["note_id"]) / "meta.json"
-    if expand_floors and meta_path.is_file():
+    # 续展要上一版合并；1028（审查 A1）普通重抓（refresh）也要：评论只能并集，不许这次读少了就把当前版本换成少的
+    if (expand_floors or opts.refresh) and meta_path.is_file():
         prev_meta = storage.read_json(meta_path)
         ver = prev_meta.get("current_version")
         prev_src = storage.raw_dir(name, parsed["note_id"], ver) / "source.json" if ver else None
         if prev_src is not None and prev_src.is_file():  # 上一版不完整（待重建索引）就不合并，照常存
             context["previous_source"] = storage.read_json(prev_src)
-            context["expand_floors"] = list(expand_floors)
+            if expand_floors:
+                context["expand_floors"] = list(expand_floors)
     return Fetched(raw_files={"mcp_raw.json": raw, "web_raw.json": probe}, context=context)
 
 
@@ -182,10 +184,15 @@ def normalize(fetched: Fetched, parsed: Parsed, *, captured_at: str) -> dict[str
     doc = adapter.normalize(fetched.raw_files["mcp_raw.json"], parsed, captured_at=captured_at,
                             web_probe=ctx.get("web_probe"))
     log = ctx.get("log") or (lambda _m: None)
+    ctx["fresh_comments"] = len(doc.get("comments") or [])   # 这次页面上真读到几楼（ingest 据此判「没读到评论，保留旧版」）
     if ctx.get("expand_floors") and ctx.get("previous_source") is not None:
         # 1008 续读：这次只展开了指定的楼，其它楼的楼中楼沿用上一版（不然新版本反而少了）
         from .comment_fill import _merge_fill
         doc = _merge_fill(doc, ctx["previous_source"], set(ctx["expand_floors"]), captured_at, log)
+    elif ctx.get("refresh") and ctx.get("previous_source") is not None:
+        # 1028（审查 A1）：普通重抓也并集合并评论——楼数设置比存的少 / 软限流回空评论，当前版本不能反而变少
+        from .comment_fill import merge_refresh
+        doc = merge_refresh(doc, ctx["previous_source"], captured_at, log)
     if ctx.get("log_comment_load"):
         from .comment_fill import _log_comment_load
         _log_comment_load(doc, log)

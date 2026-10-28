@@ -573,6 +573,31 @@ def ingest_url(
         meta_path = storage.object_dir(src.name, sid) / "meta.json"
 
         if refresh and existing is not None:
+            prev_doc = fetched.context.get("previous_source")
+            had = len((prev_doc or {}).get("comments") or [])
+            if fetched.context.get("fresh_comments") == 0 and had > 0:
+                # 1028（审查 A1）：这次一楼评论都没读到（软限流回空 / 页面没渲染出评论区），而上一版有——不发布新版本，
+                # 照实说「这次没读到评论，保留旧版」；索引也不动（别拿空评论的 doc 盖掉）
+                log(f"refresh：这次没读到评论（上一版有 {had} 楼），不写新 RAW 版本、不动索引，只更新 last_checked_at")
+                meta = _touch_checked(meta_path, existing["item_id"], captured_at)
+                index_mod.add_relation(conn, item_id=meta["item_id"], **rel)
+                return {
+                    "hit": False,
+                    "refreshed_unchanged": True,
+                    "comments_kept": True,
+                    "reason": f"这次没读到评论（上一版有 {had} 楼），保留旧版",
+                    "item_id": meta["item_id"],
+                    "note_id": sid,
+                    "kind": meta["kind"],
+                    "raw_dir": storage.raw_dir(src.name, sid, meta["current_version"]),
+                    "version": meta["current_version"],
+                    "manifest": None,
+                    "failed": [],
+                    **_comment_counts(prev_doc or {}),
+                    "comments_complete": meta.get("comments_complete"),
+                    "attachments_status": meta["attachments_status"],
+                    "exit_code": EXIT_OK,
+                }
             prior_sha = index_mod.latest_source_sha256(conn, existing["item_id"])
             if prior_sha is not None and prior_sha == new_sha:
                 log("refresh：规范化比对无变化，不写新 RAW 版本，只更新 last_checked_at")
@@ -923,8 +948,9 @@ def run_comments(args) -> int:
                    'message': '评论没抓：这篇在小红书网页版要验证才能看——点评论区顶上的「打开验证」过一下，过完自动补抓'})
         return EXIT_ERROR
     out = {k: summary.get(k) for k in ("item_id", "note_id", "comments", "sub_comments", "comments_complete", "version",
-                                       "refreshed_unchanged", "filled", "reason", "report", "resumed") if k in summary}
-    message = (f'评论没有变化（{summary.get("comments", 0)} 条）' if summary.get('refreshed_unchanged') else
+                                       "refreshed_unchanged", "filled", "reason", "report", "resumed", "comments_kept") if k in summary}
+    message = (summary.get("reason") if summary.get("comments_kept") else   # 1028（A1）：这次没读到评论，保留旧版——照实说
+               f'评论没有变化（{summary.get("comments", 0)} 条）' if summary.get('refreshed_unchanged') else
                f'评论已更新：{summary.get("comments", 0)} 条一级、{summary.get("sub_comments", 0)} 条回复')
     if summary.get('comments_complete') is False:
         message += '；还有没读全的楼，夜里接着读'

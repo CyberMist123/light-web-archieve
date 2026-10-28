@@ -1404,6 +1404,19 @@ def status_payload() -> dict[str, Any]:
 
 # ---- 评论续读落盘（1025 第二波 PR⑤b 从 ingest.py 搬来，内容不变）--------------------------------------
 
+def merge_refresh(doc: dict[str, Any], old: dict[str, Any], captured_at: str, log) -> dict[str, Any]:
+    """普通重抓（refresh，不是续读；1028 审查 A1）：正文 / 图片 / 附件按这次抓到的，**评论和上一版并集**、comment_load
+    按合并后重算。以前这条路直接拿这次的评论当新版本：楼数设置 10 楼 < 存的 60 楼、或软限流回了空评论，当前版本就只剩
+    几楼 / 0 楼——「调小不删已抓的」只在续读路径成立。"""
+    merged = _merge_fill(doc, old, set(), captured_at, lambda m: log(m.replace("续读合并", "重抓合并", 1)))
+    capture = {**(doc.get("capture") or {}), "comment_load": (merged.get("capture") or {}).get("comment_load")}
+    if "comments_complete" in (merged.get("capture") or {}):
+        capture["comments_complete"] = merged["capture"]["comments_complete"]
+    if "comments_cursor" in (merged.get("capture") or {}):
+        capture["comments_cursor"] = merged["capture"]["comments_cursor"]
+    return {**doc, "comments": merged.get("comments") or [], "capture": capture}
+
+
 def _merge_fill(source: dict[str, Any], old: dict[str, Any], expanded: set[str], captured_at: str, log,
                 *, keep_order: bool = False, old_end: bool = False) -> dict[str, Any]:
     """续读（1009）：正文 / 图片 / 附件沿用上一版（这次只为评论开页），评论和上一版并集合并，comment_load 重算缺口。

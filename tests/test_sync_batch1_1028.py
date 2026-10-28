@@ -223,3 +223,46 @@ def test_auto_clear_refuses_when_budget_deadline_too_close(monkeypatch):
     base = cf.fill_reserve_s()
     monkeypatch.setattr(accounts, "CAPTCHA_AUTO_MAX", 3)
     assert cf.fill_reserve_s() == base + accounts.CAPTCHA_PAUSE_S
+
+
+# ---------------------------------------------------------------- A1 普通重抓不许把评论变少 / 变 0
+from link_brain import cli, storage
+from link_brain.adapters import xiaohongshu as xhs
+from test_comments_fill_1009 import _floor, _raw, _ingest, NOTE_ID
+from test_render import setup_env
+
+
+def _floors_of(src):
+    return [(c["comment_id"], len(c.get("sub_comments") or [])) for c in src.get("comments") or []]
+
+
+def test_refresh_unions_comments_and_never_publishes_zero(tmp_path, monkeypatch, capsys):
+    """`ingest --refresh` / `comments <链接>` 走普通抓取：评论和上一版并集；这次一楼没读到就不发布新版本。"""
+    setup_env(tmp_path, monkeypatch)
+    _ingest(monkeypatch, capsys, _raw([_floor("c1", 2, 2), _floor("c2", 2, 2), _floor("c3", 2, 2)], has_more=False))
+    meta0, src0 = cf.current_source("xiaohongshu", NOTE_ID)
+    assert len(src0["comments"]) == 3
+    url = "https://example.invalid/share"
+
+    # ① 这次只读到 1 楼、且那楼多了 1 条回复（楼数设置比存的少 / 页面只给首屏）→ 并集：3 楼都在，c1 变 3 条
+    monkeypatch.setattr(xhs, "fetch_detail", lambda *a, **k: _raw([_floor("c1", 3, 3)], has_more=True))
+    assert cli.main(["ingest", url, "--refresh"]) in (0, 2)
+    capsys.readouterr()
+    meta1, src1 = cf.current_source("xiaohongshu", NOTE_ID)
+    assert meta1["current_version"] == meta0["current_version"] + 1
+    assert dict(_floors_of(src1)) == {"c1": 3, "c2": 2, "c3": 2}
+    # 上一版翻到底的结论留着（1026 规矩）：这次 has_more=true 只说明楼数上限外还有
+    assert src1["capture"]["comment_load"]["has_more"] is False
+
+    # ② 这次 0 楼（软限流回空）→ 不发布新版本、当前版本不动、照实说原因
+    monkeypatch.setattr(xhs, "fetch_detail", lambda *a, **k: _raw([], has_more=False))
+    import json as _json
+    assert cli.main(["comments", url]) == 0
+    out = _json.loads(capsys.readouterr().out)
+    assert out.get("comments_kept") is True and "没读到评论" in out["message"]
+    meta2, src2 = cf.current_source("xiaohongshu", NOTE_ID)
+    assert meta2["current_version"] == meta1["current_version"]
+    assert dict(_floors_of(src2)) == {"c1": 3, "c2": 2, "c3": 2}
+    # raw 目录里没有多出来的版本
+    assert sorted(p.name for p in (storage.object_dir("xiaohongshu", NOTE_ID) / "raw").glob("v*")) == \
+        [storage.version_name(meta0["current_version"]), storage.version_name(meta1["current_version"])]
