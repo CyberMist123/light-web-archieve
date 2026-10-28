@@ -848,11 +848,17 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v7 .lb-check-box { padding: 0 0 var(--lb-space-2); font-size: var(--lb-fs-small); color: var(--lb-muted); }
 .lb-settings .lb-v7 .lb-check-line.is-warn { color: var(--lb-warn); }
 .lb-settings .lb-v7 .lb-acct-who { font-weight: 600; }
+/* 1028 页顶「懒人安装」：一行标题 + 一键装好那块（home-ui renderRun）；⑤ 在 Telegram 里能做什么：只读说明行，名字 / 说明都露在外面 */
+.lb-settings .lb-v7 .lb-lazy { margin-top: var(--lb-space-4); padding: var(--lb-space-3) var(--lb-space-4); border: 1px solid var(--lb-line); border-radius: var(--lb-radius); }
+.lb-settings .lb-v7 .lb-lazy-title { display: block; margin-bottom: var(--lb-space-2); font-size: var(--lb-fs-body); color: var(--lb-ink); }
+.lb-settings .lb-v7 .lb-lazy .lb-run-actions { display: flex; align-items: center; gap: var(--lb-space-3); flex-wrap: wrap; }
+.lb-settings .lb-v7 .lb-tg .lb-tg-row .setting-item-description { white-space: normal; }
 /* 窄：锚点变横排吸在顶上，两栏变一栏 */
 @container (max-width: 640px) {
   .lb-settings .lb-v7 { grid-template-columns: minmax(0, 1fr); gap: var(--lb-space-2); padding: 0; }
-  .lb-settings .lb-v7 .lb-anchors { flex-direction: row; overflow-x: auto; justify-content: space-between; gap: var(--lb-space-4); padding: var(--lb-space-3) 0; margin-bottom: var(--lb-space-4); background: var(--background-primary); border-bottom: 1px solid var(--lb-line); scrollbar-width: none;
-    box-shadow: 0 -64px 0 var(--background-primary); z-index: 5; }   /* 1027b 她：「固定的条位置不定」——滚动区顶上的内边距里会露出底下的字，往上用底色盖住 */
+  .lb-settings .lb-v7 .lb-anchors { flex-direction: row; overflow-x: auto; justify-content: space-between; gap: var(--lb-space-4); margin-bottom: var(--lb-space-4); background: var(--background-primary); border-bottom: 1px solid var(--lb-line); scrollbar-width: none; z-index: 5;
+    /* 1028 她：「应该整一块固定」——条往上伸到滚动区最顶（--lb-stick-pad = 页面离滚动区顶的高度，settings-v6 量），吸在最顶上，内边距里不再露字 */
+    top: calc(-1 * var(--lb-stick-pad, 0px)); margin-top: calc(-1 * var(--lb-stick-pad, 0px)); padding: calc(var(--lb-stick-pad, 0px) + var(--lb-space-4)) 0 var(--lb-space-4); }
   .lb-settings .lb-v7 .lb-anchor-foot { display: none; }
   .lb-settings .lb-v7 .lb-twin, .lb-settings .lb-v7 .lb-pair, .lb-settings .lb-v7 .lb-console-grid { grid-template-columns: minmax(0, 1fr); }
   .lb-settings .lb-v7 .lb-v7-head h1 { font-size: calc(var(--lb-fs-h1) * 1.3); }

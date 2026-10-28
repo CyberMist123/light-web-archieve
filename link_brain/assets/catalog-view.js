@@ -1978,6 +1978,8 @@ function renderIndexBar() {
     panelButton(tools, idx.text_ai?.ok ? 'AI 起草一版新树' : '起草一版', b => indexAction('indexDraft', b, '正在起草…'), 'lbi-link lbi-draft-btn');
     if (unc && !props.length) panelButton(tools, '未归类建议', b => indexAction('openIndexSuggestions', b, '正在找建议…'), 'lbi-link lbi-suggest-btn');
   }
+  // 1028 她：「索引得有个地方退出来」——视图开关里的「索引」常被藏着（窄屏 / 只剩一项），这里固定留一个出口，回到进来之前的收藏墙
+  panelButton(tools, '退出索引编辑 ×', () => pickView('grid'), 'lbi-link is-strong lbi-exit');
   if (props.length) {
     const chips = ibar.createEl('div', { cls: 'lbi-chips' });
     chips.createEl('span', { cls: 'lbi-chips-label', text: '建议新增' });

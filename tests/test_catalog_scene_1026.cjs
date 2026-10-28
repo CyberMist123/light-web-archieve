@@ -108,6 +108,12 @@ const pickMenu = (P, re) => { const b = P.menuItems().find(x => re.test(x.textCo
     assert.ok(P.$('.lbc-view[data-view="index"]').classList.contains('is-on'));
     P.$('.lbc-view[data-view="grid"]').onclick();
     assert.equal(P.$('.lbc-view[data-view="index"]'), null, '回瀑布流后「索引」那一项收起');
+    // 1028 她：「索引得有个地方退出来」——索引条上固定有「退出索引编辑」，点了回收藏墙
+    P.$('.lbc-view[data-view="wiki"]').onclick();
+    P.$('.lbc-wiki .lbc-index-open').onclick(ev());
+    assert.ok(P.$('.lbc-wrap').classList.contains('is-indexview'));
+    P.$('.lbi-tools .lbi-exit').onclick(ev());
+    assert.ok(!P.$('.lbc-wrap').classList.contains('is-indexview'), '退出索引编辑 = 回收藏墙');
     // 0 篇的未归类也留着（淡色）
     const R = await openCatalog({ data: dataOf(items), plugin, files: { '_archive/index-data.json': JSON.stringify({ ...index, unclassified: { count: 0, items: [] } }) } });
     const t = R.cat('未归类');

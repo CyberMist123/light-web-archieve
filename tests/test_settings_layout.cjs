@@ -316,7 +316,10 @@ async function inventory(p) {
   assert.match(helpOf({ querySelector: () => con.querySelector('.lb-console-cap .lb-help') ? { getAttribute: a => con.querySelector('.lb-console-cap .lb-help').getAttribute(a) } : null }), /手动问收藏.*不受限/, '上限只管后台付费处理');
   // ⑤ CLI 与外接 MCP
   const cn = group(root, 'g-connect');
-  assert.deepEqual(cn.querySelectorAll('.lb-subhead').map(x => x.textContent), ['本机命令行', '让其他 AI 读收藏']);
+  assert.deepEqual(cn.querySelectorAll('.lb-subhead').map(x => x.textContent), ['本机命令行', '让其他 AI 读收藏', '在 Telegram 里能做什么']);
+  // 1028 她：MCP 那组把 TG 实际能做的写出来（发链接入库 / 在 TG 里问收藏 / 批注 @ 它），说明露在外面不藏 ⓘ
+  assert.deepEqual(cn.querySelectorAll('.lb-tg-row').map(nameOf), ['发链接就入库', '在 TG 里问收藏', '批注里 @ 它']);
+  assert.ok(cn.querySelectorAll('.lb-tg-row').every(r => descText(r).length > 10), 'TG 每行都有一句说明');
   assert.deepEqual(cn.querySelectorAll('.lb-twin-card strong').map(x => x.textContent), ['电脑端', '网页端']);
   assert.deepEqual(cn.querySelectorAll('.lb-app').map(r => r.getAttribute('data-app')), ['claude-code', 'claude-desktop', 'codex', 'opencode', 'other']);
   assert.equal(cn.querySelector('.lb-mcp-state').textContent, '● 已接入 1 个');

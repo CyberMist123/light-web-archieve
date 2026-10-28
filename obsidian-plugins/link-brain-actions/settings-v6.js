@@ -807,6 +807,22 @@ module.exports = function (obsidian, plugin) {
     wh.createEl('strong', { text: '网页端' });
     web.createEl('p', { cls: 'setting-item-description', text: 'ChatGPT、claude.ai 网页版和手机 App，要你自己的网址。只读。' });
     safe(tab, web, '网页端', () => tab.stops.push(plugin.remoteUI?.renderConnect(web, () => tab.display(), tab, { part: 'web', toggleHost: wh })));
+    // 1028 她：「MCP 显示实际 tg 功能（现在没有介绍）」——TG 机器人那边接的是同一套只读 MCP，再加两条只在 TG 有的路：
+    //   发链接入库（机器人调 catch --origin tg，目录里记在「Fable」组）、批注 @ 它（note notify 交给通知命令，回复写回批注框）
+    sub(g, '在 Telegram 里能做什么', 'mcp-tg');
+    const tg = g.createDiv({ cls: 'lb-tg', attr: { 'data-section': 'mcp-tg' } });
+    for (const [name, desc, help] of [
+      ['发链接就入库', '私聊发小红书链接，机器人后台收进库，几分钟内连结果一起回你。',
+        '目录里记在「Fable」那一组；已经在库的直接告诉你在哪，不重抓。'],
+      ['在 TG 里问收藏', '走上面这套只读 MCP：搜、问、读全文 / 附件 / 图片、看最近收的。',
+        '也能看分类索引、Wiki 和你的批注。只读，不会改也不会删。'],
+      ['批注里 @ 它', '批注以「@名字」开头，定时送到机器人，回复写回同一个批注框。',
+        '手机上写的也算。名字在 ③ 目录与批注 →「更多」→「留言对象」里填；还要配好通知命令（~/.link-brain/notify-cmd.txt）。'],
+    ]) {
+      const r = new Setting(tg).setName(name).setDesc(desc);
+      r.settingEl.addClass('lb-tg-row');
+      tab.help(r, help);
+    }
     const open = row(g, tab, '开放收藏库', 'AI 只能看，不能改也不能删：可见笔记，加上每篇的机读版、附件全文、批注。别的文件夹在「更多」里加。', { section: 'mcp-folders' });
     safe(tab, g, '开放收藏库', () => plugin.remoteUI?.xhsToggle(open, tab));
     more(g, tab, 'connect-more', b => {
@@ -820,9 +836,7 @@ module.exports = function (obsidian, plugin) {
   // ———————————————————— ⑥ 修复 ————————————————————
   function groupRepair(g, tab) {
     const s = S();
-    // 1027b 她：「一键装好」和「重新走首次设置」放前面——第一次用、或者哪里坏了，先找的就是这两个
-    const h0 = home();
-    if (h0) safe(tab, g, '一键装好', () => tab.stops.push(h0.renderRun(g, tab)));
+    // 1027b 她：「重新走首次设置」放前面——第一次用、或者哪里坏了，先找的就是它（「一键装好」1028 挪到页顶「懒人安装」）
     tab.link(row(g, tab, '重新走一遍首次设置', '再走一遍「登录 · 同步 · 识别与问答 · 接入其他 AI」；改的还是这一页上的同一份设置。', { section: 'first-run' }), '开始', async () => {
       s.onboarding = { ...(s.onboarding || {}), force: true, guideDone: false, step: 0 };
       await tab.save(); tab.display(); try { tab.containerEl.scrollTop = 0; } catch {}
@@ -880,7 +894,7 @@ module.exports = function (obsidian, plugin) {
     more(g, tab, 'repair-more', b => {
       const h = home();
       sub(b, '这台电脑', 'machine');
-      if (h) tab.stops.push(h.renderStatus(b, tab, { machineOnly: true, noProblems: true }));   // 「一键装好」挪到这一组最前面了
+      if (h) tab.stops.push(h.renderStatus(b, tab, { machineOnly: true, noProblems: true }));   // 「一键装好」在页顶「懒人安装」
       sub(b, '后台程序', 'developer');
       tab.renderBackendRows(b);
       tab.link(row(b, tab, '目录显示不对', '重新整理一遍目录页（几秒到一分钟），不改任何收藏文件。', { section: 'rebuild' }), '重建目录',
@@ -900,6 +914,13 @@ module.exports = function (obsidian, plugin) {
     head.createDiv({ cls: 'lb-eyebrow lb-kicker', text: 'PREFERENCES / 按你的习惯' });
     const lead = head.createEl('p', { cls: 'lb-v7-lead', text: '常用的留在眼前，其余都在「更多」。改动自动保存。' });
     const saved = lead.createSpan({ cls: 'lb-saved', attr: { role: 'status' } });
+    // 1028 她：页顶加「懒人安装」——第一次用不想一项项看，点一下装好打开的功能、把同步 / 认字 / 概要 / 整理目录跑完（原来在 ⑥ 修复最前面，挪到这里，只留一处）
+    const h0 = home();
+    if (h0) {
+      const lazy = head.createDiv({ cls: 'lb-lazy', attr: { 'data-section': 'lazy-install' } });
+      lazy.createEl('strong', { cls: 'lb-lazy-title', text: '懒人安装' });
+      safe(tab, lazy, '懒人安装', () => tab.stops.push(h0.renderRun(lazy, tab)));
+    }
     const groups = {};
     for (const [id, n, title] of GROUPS) {
       const a = nav.createEl('a', { cls: 'lb-anchor', attr: { href: '#' + id, 'data-target': id } });
@@ -927,10 +948,41 @@ module.exports = function (obsidian, plugin) {
         let cur = GROUPS[0][0];
         for (const [id] of GROUPS) { const r = groups[id].section.getBoundingClientRect?.(); if (r && r.top - top <= 120) cur = id; }
         mark(cur);
+        fitStick();
       });
     };
     scroller?.addEventListener?.('scroll', onScroll, { passive: true });
     tab.stops.push(() => scroller?.removeEventListener?.('scroll', onScroll));
+    // 1028 她：窄屏吸顶的锚点条要「整一块固定」，不是一条细条、上面还漏出底下的字。
+    //   条吸住的位置离滚动区可见的顶边还差一段（Obsidian 内容区的内边距 / 外层再套的滚动区，各版本不一样），这段里就露字。
+    //   不猜是哪一种：吸住时量条离可见顶边差多少，交给 CSS（--lb-stick-pad）——条往上伸这么高、吸到最顶上，伸出去的部分是底色
+    let stickPad = 0;
+    const viewTop = () => {
+      // 真正在滚的那一层（可能是 containerEl，也可能是它外面一层）
+      for (let el = page.parentElement; el; el = el.parentElement) {
+        const cs = el.ownerDocument?.defaultView?.getComputedStyle?.(el);
+        if (cs && /(auto|scroll)/.test(cs.overflowY) && el.scrollHeight > el.clientHeight) return el.getBoundingClientRect().top;
+      }
+      return scroller?.getBoundingClientRect ? scroller.getBoundingClientRect().top : null;
+    };
+    const fitStick = () => {
+      try {
+        const cs = nav.ownerDocument?.defaultView?.getComputedStyle?.(nav);
+        if (!cs || cs.flexDirection !== 'row' || !nav.getBoundingClientRect) return;   // 宽屏锚点在左栏，不用盖
+        const top = viewTop();
+        if (top == null) return;
+        const gap = Math.round(nav.getBoundingClientRect().top - top);
+        // 没吸住时条还在原位（离顶边远），这时只按「页面离顶边多高」先伸一下；吸住了（离顶边很近）再精确补差
+        const pageGap = Math.round(page.getBoundingClientRect().top - top + stickPad);
+        const want = gap > 0 && gap < 160 ? stickPad + gap : !stickPad && pageGap > 0 && pageGap < 160 ? pageGap : stickPad;
+        if (want !== stickPad) { stickPad = want; page.style?.setProperty?.('--lb-stick-pad', stickPad + 'px'); }
+      } catch {}
+    };
+    (typeof requestAnimationFrame === 'function' ? requestAnimationFrame : f => setTimeout(f, 0))(fitStick);
+    const win = scroller?.ownerDocument?.defaultView;
+    const refit = () => { stickPad = 0; page.style?.setProperty?.('--lb-stick-pad', '0px'); fitStick(); };
+    win?.addEventListener?.('resize', refit);
+    tab.stops.push(() => win?.removeEventListener?.('resize', refit));
     // 「已保存」只在真写进 data.json 之后出现（saveSettings 成功后广播 link-brain:settings）
     const ws = plugin.app.workspace;
     if (ws && typeof ws.on === 'function') {
