@@ -527,12 +527,15 @@ function syncStateHead(st) {
   return [head, done != null && `已完成 ${done}${total != null ? '/' + total : ''} 篇`, left != null && `剩 ${left} 篇`].filter(Boolean).join(' · ');
 }
 // 1009：后台补评论（_archive/comments-fill-status.json，Python comment_fill 写）→ 状态栏一行。
-// 还在跑 / 等着 / 暂停（且 10 分钟内刷新过，等待时它每分钟刷一次）才显示；要她处理的（验证 / 掉登录）标出来，点了开问题入口。
+// 还在跑 / 等着 / 暂停（且 15 分钟内刷新过——Python 的 STALE_MIN，续读期间也每分钟刷一次心跳）才显示；要她处理的（验证 / 掉登录）标出来，点了开问题入口。
 const FILL_HUMAN_CODES = ['CAPTCHA_REQUIRED', 'NOT_LOGGED_IN', 'ACCOUNT_RISK', 'RISK_HOLD', 'ACCOUNT_BLOCKED'];
+// 1028：多久没刷新算停了——状态文件里 Python 写的 stale_min（comment_fill.STALE_MIN）优先，旧文件按 15 分钟
+const FILL_STALE_MIN_DEFAULT = 15;
+const FILL_STALE_MS = st => (Number(st?.stale_min) > 0 ? Number(st.stale_min) : FILL_STALE_MIN_DEFAULT) * 60000;
 function commentFillLine(st, now = Date.now()) {
   if (!st || typeof st !== 'object' || !['running', 'waiting', 'paused'].includes(st.state)) return null;
   const at = Date.parse(st.updated_at || '');
-  if (!Number.isFinite(at) || now - at > 10 * 60000) return null;
+  if (!Number.isFinite(at) || now - at > FILL_STALE_MS(st)) return null;
   const human = FILL_HUMAN_CODES.includes(String(st.wait_code || ''));
   const num = v => (Number.isFinite(Number(v)) ? Number(v) : null);
   const done = num(st.done), total = num(st.total);

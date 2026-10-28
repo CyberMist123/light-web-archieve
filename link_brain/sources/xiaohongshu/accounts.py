@@ -227,6 +227,14 @@ def _account_guard() -> None:
 CAPTCHA_PAUSE_S = float(os.environ.get('LWA_CAPTCHA_PAUSE_S') or 300)
 CAPTCHA_AUTO_MAX = int(os.environ.get('LWA_CAPTCHA_AUTO_MAX') or 3)
 _auto_cleared = 0
+_auto_clear_deadline: float | None = None   # time.monotonic()；1028（B2）有预算的夜跑步骤设它：歇完会超过就不自动解
+
+
+def set_auto_clear_deadline(deadline: float | None) -> None:
+    """有预算的批量步骤（夜跑 comments --fill-pending --budget-min）告诉这里截止时刻（time.monotonic()）：
+    歇 CAPTCHA_PAUSE_S 再重发会超过它就不进自动解熔断，照旧抛错停车（别在预算尽头歇 5 分钟被整棵杀）。None = 不限。"""
+    global _auto_clear_deadline
+    _auto_clear_deadline = deadline
 
 
 def _captcha_hold(exc_or_hold) -> bool:
@@ -243,6 +251,9 @@ def _pause_and_clear(why: str, wait_s: float) -> bool:
     """歇够再解除熔断；能接着跑回 True（这个进程的次数用完 / 解除失败回 False，调用方照旧停车）。"""
     global _auto_cleared
     if _auto_cleared >= CAPTCHA_AUTO_MAX:
+        return False
+    if _auto_clear_deadline is not None and time.monotonic() + max(0.0, wait_s) + 60 > _auto_clear_deadline:
+        print(f'[accounts] {why}：剩的时间不够歇 {wait_s / 60:.0f} 分钟再重发，这次不自动解熔断', file=sys.stderr)
         return False
     _auto_cleared += 1
     if wait_s > 0:

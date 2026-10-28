@@ -1,6 +1,6 @@
 // 1009：后台补评论的进度（_archive/comments-fill-status.json）→ 底部状态栏一行。
 // 断言：在跑显示「⟳ 补评论 · 已补 x/y 篇」；等验证 / 掉登录标「⚠ 补评论暂停 · 等你处理」（点了开问题入口）；
-// 让夜跑时说「让夜跑先跑」；做完 / 停了 / 10 分钟没刷新（进程没了）都不显示。不起真进程。
+// 让夜跑时说「让夜跑先跑」；做完 / 停了 / 15 分钟没刷新（进程没了；状态文件带 stale_min 就按它）都不显示。不起真进程。
 'use strict';
 const fs = require('fs'), vm = require('vm'), assert = require('assert/strict');
 
@@ -33,9 +33,12 @@ const iso = ms => new Date(ms).toISOString();
   const r = line({ state: 'waiting', wait_code: 'COOLING', done: 190, total: 197, updated_at: iso(now - 60000) }, now);
   assert.equal(r.text, '⏸ 补评论 · 190/197 篇');
 }
-// 不显示：做完、停了、10 分钟没刷新、没有文件
+// 不显示：做完、停了、15 分钟没刷新（1028：和 Python STALE_MIN 同一个数；文件里带 stale_min 就按它）、没有文件
 assert.equal(line({ state: 'done', updated_at: iso(now) }, now), null);
 assert.equal(line({ state: 'stopped', updated_at: iso(now) }, now), null);
-assert.equal(line({ state: 'running', updated_at: iso(now - 11 * 60000) }, now), null);
+assert.equal(line({ state: 'running', updated_at: iso(now - 16 * 60000) }, now), null);
+assert.ok(line({ state: 'running', updated_at: iso(now - 11 * 60000) }, now), '11 分钟没刷新还算活着（续读一篇期间每分钟有心跳，15 分钟才算停）');
+assert.equal(line({ state: 'running', stale_min: 5, updated_at: iso(now - 6 * 60000) }, now), null);
+assert.ok(line({ state: 'running', stale_min: 40, updated_at: iso(now - 30 * 60000) }, now));
 assert.equal(line(null, now), null);
 console.log('test_comment_fill_status: ok');

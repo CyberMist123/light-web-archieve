@@ -19,11 +19,13 @@
 from __future__ import annotations
 from ...errtext import errtext
 
+import contextlib
 import json
 import os
 import random
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timedelta
 
@@ -53,9 +55,18 @@ TASK_CACHE_S = 300
 WAIT_HUMAN_S = 180          # 号要人处理（验证 / 掉登录）时多久看一眼（只读内存状态，不开页）
 WAIT_BUSY_S = 60
 HEARTBEAT_S = 60
-STALE_MIN = 40              # 状态心跳这么久没动 = 补跑已经停了（pid 可能被复用）；一篇续读最长约 32 分钟不刷心跳（1028 审查 B2）
+STALE_MIN = 15              # 状态心跳这么久没动 = 补跑已经停了（pid 可能被复用）。1028 审查 B2：fill_one 全程有心跳线程
+                            # 每 HEARTBEAT_S 秒刷一次（含撞验证歇 5 分钟、重试、等锁），所以能收回 15；插件状态栏用同一个数
 MAX_WAIT_S = 12 * 3600      # 号要人处理时最多等这么久（只看内存状态）；再久就先退出，下次同步 / 夜跑 / 打开 Obsidian 再拉起
 CATALOG_EVERY = 25          # 每补齐这么多篇重建一次目录（卡片上的评论数跟上）
+
+
+def fill_reserve_s() -> float:
+    """夜跑那一步（有预算）剩多少秒以内就不再开新的一篇：一篇最长 FILL_BUDGET_S + 90 秒请求超时 + 开页间隔；
+    1028（B2）：撞验证类熔断会歇 LWA_CAPTCHA_PAUSE_S 再发一次，这段也要算进去（开着自动解熔断时）。"""
+    from . import accounts
+    pause = accounts.CAPTCHA_PAUSE_S if accounts.CAPTCHA_AUTO_MAX > 0 else 0.0
+    return FILL_BUDGET_S + 150 + pause
 
 # 缺口原因 → 人话（可见页 / 状态 / 问题面板）
 REASON_CN = {
@@ -899,13 +910,35 @@ class Status:
         self.done_ids: set[str] = set()
         self.seen_ids: set[str] = set()
 
+    _mutex = threading.Lock()
+
     def update(self, **fields: Any) -> None:
-        self.data.update(fields)
-        self.data["updated_at"] = _now().isoformat(timespec="seconds")
+        with self._mutex:   # 心跳线程和主线程都会写
+            self.data.update(fields)
+            self.data["updated_at"] = _now().isoformat(timespec="seconds")
+            self.data["stale_min"] = STALE_MIN   # 插件按这个数判「停了」，别两边各写一个
+            try:
+                storage.write_json(status_path(), self.data)
+            except OSError as exc:
+                print(f"[comments] 状态没写上：{exc}", file=sys.stderr)
+
+    @contextlib.contextmanager
+    def heartbeat(self, every: float = HEARTBEAT_S):
+        """1028（B2）：一篇续读期间（等锁、开页、撞验证歇 5 分钟、服务重试）每 every 秒刷一次 updated_at——
+        以前这段最长 32 分钟没心跳，插件把状态栏那行藏掉、read_status 还会把真在跑的判成停了。"""
+        stop = threading.Event()
+
+        def beat() -> None:
+            while not stop.wait(every):
+                self.update()
+
+        t = threading.Thread(target=beat, name="comments-fill-heartbeat", daemon=True)
+        t.start()
         try:
-            storage.write_json(status_path(), self.data)
-        except OSError as exc:
-            print(f"[comments] 状态没写上：{exc}", file=sys.stderr)
+            yield
+        finally:
+            stop.set()
+            t.join(timeout=5)
 
     def counts(self, sv: dict[str, Any]) -> None:
         ids = {e["item_id"] for e in sv["ready"] + sv["cooling"]}
@@ -1096,6 +1129,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep, clock: Callable[[]
     limit = int(getattr(args, "limit", 0) or 0)
     verbose = bool(getattr(args, "verbose", False))
     deadline = time.monotonic() + budget * 60 if budget > 0 else None
+    accounts.set_auto_clear_deadline(deadline)   # 1028（B2）：剩的时间不够歇 5 分钟再重发就不自动解熔断，照旧停车
     try:
         lock = storage.file_lock(LOCK_NAME, wait_s=0, owner="comments-fill", stale_s=10 * 60)
         lock.__enter__()
@@ -1190,7 +1224,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep, clock: Callable[[]
                 else:
                     stop_msg, deferred = f"{gate_why}，下次接着补", len(ready)
                     break
-            if deadline is not None and deadline - time.monotonic() < FILL_BUDGET_S + 150:
+            if deadline is not None and deadline - time.monotonic() < fill_reserve_s():
                 deferred = len(ready)
                 break
             if until_done:
@@ -1261,7 +1295,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep, clock: Callable[[]
             attempts_this_run[item_id] = attempts_this_run.get(item_id, 0) + 1
             lock_wait = 300.0 if until_done else float(getattr(args, "wait_lock_min", 2) or 2) * 60
             try:
-                with accounts.account_session("comments-fill", wait_s=lock_wait, polite=until_done):
+                with status.heartbeat(), accounts.account_session("comments-fill", wait_s=lock_wait, polite=until_done):
                     out = fill_one(item_id, floors=floors, verbose=verbose, manual=bool(only))
             except accounts.AccountBusyError as exc:
                 attempts_this_run[item_id] -= 1

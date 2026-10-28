@@ -174,3 +174,52 @@ def test_wait_budget_counts_wall_clock_not_only_naps(tmp_path, monkeypatch):
     assert sum(naps) < cf.MAX_WAIT_S, "按歇的时间算远没到 12 小时，按墙钟算到了"
     assert clock[0] > cf.MAX_WAIT_S
     assert "等了 12 小时" in str(seen[-1]["message"])
+
+
+# ---------------------------------------------------------------- B2 续读期间的心跳 + 自动解熔断看截止时间
+import time as _time
+
+
+def test_status_heartbeat_keeps_updated_at_fresh_during_fill(tmp_path, monkeypatch):
+    """fill_one 跑 3 个心跳周期，updated_at 至少刷 2 次；状态文件带 stale_min 给插件用。"""
+    monkeypatch.setenv("LINK_BRAIN_VAULT", str(tmp_path / "vault"))
+    (tmp_path / "vault" / "_archive").mkdir(parents=True)
+    st = cf.Status(10, background=True)
+    writes = []
+    real = st.update
+
+    def spy(**f):
+        real(**f)
+        writes.append(st.data["updated_at"])
+    monkeypatch.setattr(st, "update", spy)
+    with st.heartbeat(every=0.05):
+        _time.sleep(0.3)
+    assert len(writes) >= 2
+    assert cf.read_status()["stale_min"] == cf.STALE_MIN == 15
+    # 心跳停了之后不再写
+    n = len(writes)
+    _time.sleep(0.15)
+    assert len(writes) == n
+
+
+def test_auto_clear_refuses_when_budget_deadline_too_close(monkeypatch):
+    from link_brain.sources.xiaohongshu import accounts
+    monkeypatch.setattr(accounts, "CAPTCHA_AUTO_MAX", 3)
+    monkeypatch.setattr(accounts, "_auto_cleared", 0)
+    monkeypatch.setattr(accounts.time, "sleep", lambda s: None)
+    cleared = []
+    monkeypatch.setattr(accounts, "_api", lambda *a, **k: cleared.append(a) or {})
+    try:
+        accounts.set_auto_clear_deadline(_time.monotonic() + 120)      # 只剩 2 分钟，歇 5 分钟不够
+        assert accounts._pause_and_clear("测试", 300) is False and cleared == []
+        accounts.set_auto_clear_deadline(_time.monotonic() + 3600)     # 够
+        assert accounts._pause_and_clear("测试", 300) is True and len(cleared) == 1
+        accounts.set_auto_clear_deadline(None)                         # 不限
+        assert accounts._pause_and_clear("测试", 300) is True and len(cleared) == 2
+    finally:
+        accounts.set_auto_clear_deadline(None)
+    # 夜跑那一步的预留时间把歇 5 分钟算进去
+    monkeypatch.setattr(accounts, "CAPTCHA_AUTO_MAX", 0)
+    base = cf.fill_reserve_s()
+    monkeypatch.setattr(accounts, "CAPTCHA_AUTO_MAX", 3)
+    assert cf.fill_reserve_s() == base + accounts.CAPTCHA_PAUSE_S
