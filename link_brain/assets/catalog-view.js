@@ -195,6 +195,8 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap.is-side-narrow .lbc-top .lbc-row.is-free>.lbc-rcol{width:auto!important;margin-left:0!important;padding-right:0;padding-top:0;flex:0 1 auto;}
 .lbc-wrap.is-side-narrow .lbc-top .lbc-row.is-free>.lbc-rcol+.lbc-rcol{margin-top:0;}
 .lbc-wrap.is-side-narrow .lbc-top .lbc-row.is-free>.lbc-rcol:has(.lbc-m-title,.lbc-m-cats,.lbc-m-search){flex:1 1 100%;}
+/* 1028：星标页 / 手机没有边栏、不会挂 is-side-narrow——按屏宽也把页头积木排成可换行的一排（390 宽不横滚，catalog_ui_smoke） */
+@media(max-width:760px){.lbc-top .lbc-row.is-free{display:flex;flex-wrap:wrap;align-items:center;column-gap:16px;}.lbc-top .lbc-row.is-free>.lbc-rcol{width:auto!important;max-width:100%;min-width:0!important;margin-left:0!important;padding-right:0;padding-top:0;flex:0 1 auto;}.lbc-top .lbc-row.is-free>.lbc-rcol:has(.lbc-m-title,.lbc-m-cats,.lbc-m-search,.lbc-m-scope){flex:1 1 100%;}.lbc-top .lbc-scope,.lbc-top .lbc-subline{flex-wrap:wrap;}}
 /* 1021 第 3 段 · 边栏（DESIGN-SPEC §4、§7）：吸在页头下面（top / max-height 由 paintStickyTop 量好写到 .lbc-wrap 上），内容超高自己滚，
    不显示滚动条；没到底时底部 56px 渐隐（.is-more），到底去掉。只有收藏墙随页面滚。窄于 760（按页面宽，.is-side-narrow）或手机不出 */
 .lbc-side{position:sticky;top:var(--lbc-side-top,0px);overflow-anchor:none;max-height:calc(var(--lbc-pane-h,100vh) - var(--lbc-top-h,0px) - 16px);overflow-x:hidden;overflow-y:auto;scrollbar-width:none;min-width:0;box-sizing:border-box;padding:6px 0 24px;}

@@ -104,10 +104,13 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
     const page=await runCatalogPage(data);
     assert.equal(page.root.querySelectorAll('.lbc-topics').length,0);
     assert.equal(page.root.querySelectorAll('.lbc-thq').length,0);
-    // 1026：吸顶区分三块（标题与 Logo · 分类行 · 筛选条）；1027：每块是一排里的一个模块（编排能挪到任何位置），「编排 / 管理」在最前，多选栏照旧是最后一个子节点
-    assert.deepEqual(page.root.querySelector('.lbc-top').children.map(c=>c.className),['lbc-tools','lbc-row is-single','lbc-row is-single','lbc-row is-single','lbc-selbar'],'C1：多选栏在吸顶区里（最后一个子节点）');
-    assert.deepEqual(page.root.querySelectorAll('.lbc-top .lbc-row').map(r=>r.querySelector('.lbc-m').dataset.m),['title','cats','filters']);
-    assert.deepEqual(page.root.querySelectorAll('.lbc-blk').map(b=>b.children.filter(c=>!c.classList.contains('lbc-mod-bar')).map(c=>c.className)),[['lbc-head'],['lbc-cats'],['lbc-ctl']],'1021 分类行 / 控制行分开');
+    // 1026：吸顶区分三排（标题 · 分类行 · 筛选条）；1028：页头拆成积木——标题排 = 标题 + 计数行，筛选条 = 范围 · AI 标签 · 类型 · 专辑 · 我的收藏 / Tag · 排序 · 视图 · 搜索 · 问收藏；
+    //   「编排 / 管理」在最前，多选栏照旧是最后一个子节点
+    assert.deepEqual(page.root.querySelector('.lbc-top').children.map(c=>c.className),['lbc-tools','lbc-row is-free','lbc-row is-single','lbc-row is-free','lbc-selbar'],'C1：多选栏在吸顶区里（最后一个子节点）');
+    assert.deepEqual(page.root.querySelectorAll('.lbc-top .lbc-row').map(r=>r.querySelectorAll('.lbc-m').map(m=>m.dataset.m)),
+      [['title','meta'],['cats'],['scope','topics','types','albums','picks','sort','view','search','ask']]);
+    const blk=id=>page.root.querySelector('.lbc-blk-'+id).children.filter(c=>!c.classList.contains('lbc-mod-bar')).map(c=>c.className);
+    assert.deepEqual([blk('title'),blk('cats'),blk('types')],[['lbc-head'],['lbc-cats'],['lbc-scope lbc-scope-types']],'1021 分类行 / 控制行分开');
     assert.equal(page.cards().length,3);
   }
   // 有主题（1021）：控制行里前两个主题是快捷标签（★ 名，篇数在 data-n）；选中一个主题时控制行下面才出主题行（全部主题 / 各主题 / + 新主题）
@@ -117,7 +120,8 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
   assert.deepEqual(quick().map(c=>[c.textContent,c.dataset.n]),[['★AI 记忆层','2'],['★睡眠','1']]);
   assert.equal(page.root.querySelectorAll('.lbc-topics').length,0,'没选主题时不出主题行');
   quick()[0].onclick();
-  assert.deepEqual(page.root.querySelector('.lbc-blk-filters').children.filter(c=>!c.classList.contains('lbc-mod-bar')).map(c=>c.className),['lbc-ctl','lbc-topics'],'主题行紧跟在控制行下面');
+  const tbar=page.root.querySelector('.lbc-topics');   // 1028：筛选条拆成积木后，主题行是吸顶区里紧跟筛选条那一排的一行
+  assert.ok(tbar.previousSibling.querySelector('.lbc-m-scope')&&tbar.nextSibling.classList.contains('lbc-selbar'),'主题行紧跟在控制行下面');
   assert.deepEqual(page.chips().map(c=>c.textContent),['★AI 记忆层','★睡眠']);
   assert.equal(page.chips()[0].querySelector('.lbc-topic-star').textContent,'★');
   assert.deepEqual(page.cards(),['长期记忆方案','睡前记忆整理']);
