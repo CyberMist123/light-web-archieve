@@ -718,6 +718,19 @@ def idle_row() -> dict:
     return out
 
 
+def sub_cooldown_row(session: dict) -> tuple[dict, str] | None:
+    until = _iso_ts(session.get('sub_comments_until'))
+    if not until or until <= time.time() or hold_from_session(session) or session.get('logged_in') is False \
+            or session.get('verifying') or session.get('state') == 'waiting':
+        return None
+    when = datetime.fromtimestamp(until).astimezone().strftime('%m-%d %H:%M')
+    out = row('xhs', '小红书账号', 'idle', '楼中楼自动恢复中',
+              f'正文仍可收录；回复暂停到 {when} 后自动接着补，无需重新登录。')
+    out['code'] = ''
+    out['sub_comments_until'] = session['sub_comments_until']
+    return out, 'logged_in' if session.get('logged_in') is True else 'unknown'
+
+
 def _iso_ts(text) -> float | None:
     try:
         return datetime.fromisoformat(str(text).replace('Z', '+00:00')).timestamp() if text else None
@@ -761,6 +774,8 @@ def status_report(*, deep=True, launch=True) -> tuple[dict, str]:
             return error_row(exc), 'unknown'
         except Exception as exc:  # noqa: BLE001
             return error_row(exc), 'unknown'
+        if cooldown := sub_cooldown_row(session):
+            return cooldown
         if not hold_from_session(session) and session.get('logged_in') is None \
                 and session.get('state') != 'waiting' and not session.get('verifying'):
             return idle_row(), 'unknown'
@@ -780,6 +795,8 @@ def status_report(*, deep=True, launch=True) -> tuple[dict, str]:
     except Exception as exc:  # noqa: BLE001 - 状态检查永不抛给界面
         return error_row(exc), 'unknown'
     try:
+        if cooldown := sub_cooldown_row(session):
+            return cooldown
         hold = hold_from_session(session)
         if hold:
             return hold_row(hold), 'risk_hold'

@@ -289,8 +289,23 @@ def _per_hour() -> int:
     return per_hour
 
 
+def sub_cooldown(now: datetime | None = None) -> datetime | None:
+    """读取器的楼中楼冷却；正文读取和账号登录不受影响。"""
+    from . import accounts
+    try:
+        data = json.loads((accounts.profile_dir() / "sub-comments-hold.json").read_text(encoding="utf-8"))
+        until = _parse(data.get("until"))
+    except (OSError, ValueError, TypeError):
+        return None
+    return until if until and until > (now or _now()) else None
+
+
 def sub_quota(now: datetime | None = None) -> tuple[int, datetime | None]:
     """楼中楼这一小时还能点几次 + 最早哪一刻空出一次（读读取组件落盘的 sub-expand.json，只读；读不到按满额）。"""
+    now = now or _now()
+    until = sub_cooldown(now)
+    if until:
+        return 0, until
     per_hour = _per_hour()
     try:
         from . import accounts
@@ -1151,12 +1166,14 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
                     entry = floors_first[0]
                 elif until_done:
                     wait = max(60.0, min(1800.0, ((free_at or _now()) - _now()).total_seconds() + 30))
+                    cooling = sub_cooldown()
                     nap(wait, state="waiting", current=None, wait_code="SUB_QUOTA",
-                        message=status.text("补评论歇一会") + f" · 楼中楼这一小时的额度用完了，"
-                        f"{(free_at or _now() + timedelta(seconds=wait)):%H:%M} 接着补")
+                        message=status.text("补评论歇一会") + (f" · 楼中楼暂时受限，{cooling:%m-%d %H:%M} 后自动接着补，无需重新登录"
+                        if cooling else f" · 楼中楼这一小时的额度用完了，{(free_at or _now() + timedelta(seconds=wait)):%H:%M} 接着补"))
                     continue
                 else:
-                    stop_msg, deferred = "楼中楼这一小时的额度用完了，下次接着补", len(ready)
+                    stop_msg = "楼中楼暂时受限，后台冷却后接着补，无需重新登录" if sub_cooldown() else "楼中楼这一小时的额度用完了，下次接着补"
+                    deferred = len(ready)
                     break
             if deadline is not None and deadline - time.monotonic() < FILL_BUDGET_S + 150:
                 deferred = len(ready)
