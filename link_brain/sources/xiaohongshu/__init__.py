@@ -184,7 +184,8 @@ def normalize(fetched: Fetched, parsed: Parsed, *, captured_at: str) -> dict[str
     doc = adapter.normalize(fetched.raw_files["mcp_raw.json"], parsed, captured_at=captured_at,
                             web_probe=ctx.get("web_probe"))
     log = ctx.get("log") or (lambda _m: None)
-    ctx["fresh_comments"] = len(doc.get("comments") or [])   # 这次页面上真读到几楼（ingest 据此判「没读到评论，保留旧版」）
+    # 这次页面上真读到几楼（ingest 据此判「没读到评论，保留旧版」）；adapter.normalize 被打桩成别的东西时不算
+    ctx["fresh_comments"] = len(doc.get("comments") or []) if isinstance(doc, dict) else 0
     if ctx.get("expand_floors") and ctx.get("previous_source") is not None:
         # 1008 续读：这次只展开了指定的楼，其它楼的楼中楼沿用上一版（不然新版本反而少了）
         from .comment_fill import _merge_fill

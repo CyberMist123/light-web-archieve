@@ -1082,7 +1082,7 @@ def _deep_login_state(now: float | None = None) -> str:
     try:
         _, state = accounts.status_report(deep=True, launch=True)   # launch=False 会退成浅查，查不到真状态
     except Exception as exc:  # noqa: BLE001 - 深查出错当查不清
-        print(f"[comments] 深查登录没成：{type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"[comments] 深查登录没成：{errtext(exc)}", file=sys.stderr)
         state = "unknown"
     _deep_check.update(at=now, state=state)
     return state
