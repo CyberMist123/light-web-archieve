@@ -288,9 +288,48 @@ def _per_hour() -> int:
     return per_hour
 
 
+SUB_PAUSE_PER_STRIKE = timedelta(hours=24)   # 读取组件 sub_budget.subPauseAfterStrike：每次限频楼中楼暂停 24 小时 × 次数
+RATE_STRIKE_WINDOW = timedelta(hours=24)     # 读取组件 rateLimitStrikeWindow：两次限频隔这么久以内算连续
+
+
+def _profile_json(name: str) -> dict[str, Any]:
+    try:
+        from . import accounts
+        data = json.loads((accounts.profile_dir() / name).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:  # noqa: BLE001 - 文件没有 / 坏了 = 没有这条
+        return {}
+
+
+def sub_gate_closed(now: datetime | None = None) -> tuple[str, datetime | None]:
+    """读取组件的楼中楼闸现在是不是因为「熔断 / 冷却自查」或「限频后暂停」关着（Go sub_budget.subGateWhy 的前两条，
+    1028 审查 A6：以前 Python 只看每小时点击数，限频后 24–72 小时里把只展开楼中楼的篇一篇篇白开）。
+    返回 (原因, 大概几点会开)；('', None) = 不因这两条关。只读 profile 目录里的文件，不碰号。"""
+    now = now or _now()
+    hold = _profile_json("risk-hold.json")
+    if hold.get("code"):
+        from . import accounts
+        if accounts.is_rate_limited(hold):
+            until = accounts.rate_limit_until(hold)
+            return ("读取服务在限频冷却 / 到点自探中，楼中楼不点", until if until and until > now else None)
+        return (f"读取服务在熔断 / 冷却自查中（{hold.get('code')}），楼中楼不点", None)
+    strikes = _profile_json("rate-limit-strikes.json")
+    n = _int(strikes.get("strikes"))
+    last = _parse(strikes.get("last"))
+    if n > 0 and last and now - last <= RATE_STRIKE_WINDOW:
+        until = last + n * SUB_PAUSE_PER_STRIKE
+        if now < until:
+            return (f"24 小时内被限频 {n} 次，楼中楼暂停到 {until:%m-%d %H:%M}", until)
+    return "", None
+
+
 def sub_quota(now: datetime | None = None) -> tuple[int, datetime | None]:
-    """楼中楼这一小时还能点几次 + 最早哪一刻空出一次（读读取组件落盘的 sub-expand.json，只读；读不到按满额）。"""
+    """楼中楼这一小时还能点几次 + 最早哪一刻空出一次（读读取组件落盘的 sub-expand.json，只读；读不到按满额）。
+    1028（A6）：闸因熔断 / 限频后暂停关着时直接 0（和读取组件 subGateWhy 同一口径）。"""
     per_hour = _per_hour()
+    why, until = sub_gate_closed(now)
+    if why:
+        return 0, until
     try:
         from . import accounts
         data = json.loads((accounts.profile_dir() / "sub-expand.json").read_text(encoding="utf-8"))
@@ -1139,16 +1178,17 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep) -> int:
                 # 1017：楼中楼这一小时的额度用完了——只展开楼中楼的篇（expand）开了也是白开（sub_paused），先等额度；
                 # 要多读楼的（floors）照常
                 floors_first = [e for e in ready if e["mode"] == "floors"]
+                gate_why = sub_gate_closed()[0] or "楼中楼这一小时的额度用完了"
                 if floors_first:
                     entry = floors_first[0]
                 elif until_done:
                     wait = max(60.0, min(1800.0, ((free_at or _now()) - _now()).total_seconds() + 30))
                     nap(wait, state="waiting", current=None, wait_code="SUB_QUOTA",
-                        message=status.text("补评论歇一会") + f" · 楼中楼这一小时的额度用完了，"
+                        message=status.text("补评论歇一会") + f" · {gate_why}，"
                         f"{(free_at or _now() + timedelta(seconds=wait)):%H:%M} 接着补")
                     continue
                 else:
-                    stop_msg, deferred = "楼中楼这一小时的额度用完了，下次接着补", len(ready)
+                    stop_msg, deferred = f"{gate_why}，下次接着补", len(ready)
                     break
             if deadline is not None and deadline - time.monotonic() < FILL_BUDGET_S + 150:
                 deferred = len(ready)
