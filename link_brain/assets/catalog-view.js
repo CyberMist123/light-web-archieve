@@ -1205,8 +1205,8 @@ const catBar = top.createEl('div', { cls: 'lbc-cats' });
 // 控制行（1021）：边栏钮 + 范围单选 + 星标主题 + 类型 + 来源 / 专辑 / Tag；右边 排序 · 视图 · 搜索 · 问收藏。
 // 1028 她（照蓝线拆）：每一组是自己的一块积木（.lbc-m），能单独拖、调宽、移除——范围 · AI 标签 · 类型 · 我的收藏 / Tag · 排序 · 视图 · 搜索 · 问收藏。
 //   每块自己带 .lbc-ctl（按钮样式照旧）；标题和计数行也拆成两块。吸顶仍是 .lbc-top 一整块
-const TOP_IDS = ['title', 'meta', 'cats', 'scope', 'topics', 'types', 'picks', 'sort', 'view', 'search', 'ask'];
-const CTL_IDS = ['scope', 'topics', 'types', 'picks', 'sort', 'view', 'search', 'ask'];
+const TOP_IDS = ['title', 'meta', 'cats', 'scope', 'topics', 'types', 'albums', 'picks', 'sort', 'view', 'search', 'ask'];
+const CTL_IDS = ['scope', 'topics', 'types', 'albums', 'picks', 'sort', 'view', 'search', 'ask'];
 const blocks = {};
 for (const id of TOP_IDS) { const b = top.createEl('div', { cls: 'lbc-blk lbc-blk-' + id + ' lbc-m lbc-m-' + id + ' is-core' + (CTL_IDS.includes(id) ? ' lbc-ctl lbc-ctl-piece' : '') }); b.dataset.blk = id; b.dataset.m = id; blocks[id] = b; }
 blocks.title.append(head); blocks.meta.append(subLine); blocks.cats.append(catBar);
@@ -1220,6 +1220,7 @@ if (sideBtn) {
 const scopeBox = blocks.scope.createEl('div', { cls: 'lbc-scope' });
 const topicsBox = blocks.topics.createEl('div', { cls: 'lbc-scope lbc-scope-topics' });
 const typesBox = blocks.types.createEl('div', { cls: 'lbc-scope lbc-scope-types' });
+const albumsBox = blocks.albums.createEl('div', { cls: 'lbc-scope lbc-scope-albums' });   // 1028 她：专辑放在类型后面，直接点得到
 const picksBox = blocks.picks.createEl('div', { cls: 'lbc-scope lbc-scope-picks' });
 const timeTab = blocks.sort.createEl('button', { cls: 'lbc-time lbc-pill' }); timeTab.type = 'button';
 timeTab.onclick = e => { e?.stopPropagation?.(); openTimeMenu(timeTab); };
@@ -1336,6 +1337,7 @@ function pickScope(key) {
 }
 const topicNames = () => (Array.isArray(data.topics) ? data.topics.filter(n => typeof n === 'string' && n) : []);
 const canEditTopics = () => !mobile && !!provider();
+const ALBUM_TABS = 4;   // 专辑平铺几个；再多就收进「专辑 ▾」
 function renderScope() {
   // 先把已经不存在的主题 / 来源 / 专辑清掉（换数据后）——计数按清完的来源算
   const names = topicNames();
@@ -1345,7 +1347,7 @@ function renderScope() {
   const albums = albumCounts();
   if (!albums.some(([n]) => n === activeAlbum)) activeAlbum = '';
   const ae = document.activeElement;
-  const scopeBoxes = [scopeBox, topicsBox, typesBox, picksBox];
+  const scopeBoxes = [scopeBox, topicsBox, typesBox, albumsBox, picksBox];
   const focusedKey = ae && scopeBoxes.some(b => b.contains(ae)) ? (ae.dataset?.scope ?? ae.dataset?.type ?? null) : null;
   for (const b of scopeBoxes) b.empty();
   const today = ymd(new Date());
@@ -1428,16 +1430,29 @@ function renderScope() {
       ...srcs.map(([n, c]) => ({ title: `${n}（${c}）`, checked: n === activeSrc, onClick: () => pick(n) })),
     ], e, chip);
   }
-  if (albums.length) {
-    // 1019 她：专辑收进这一颗「专辑 ▾」，点开选
-    const chip = picksBox.createEl('button', { cls: 'lbc-pick lbc-album' + (activeAlbum ? ' is-active' : ''), text: activeAlbum ? `专辑：${activeAlbum} ▾` : '专辑 ▾' });
+  // 1028 她：专辑是自己的一块（默认在类型后面）。篇数多的前 ALBUM_TABS 个直接平铺成标签（点一下筛、再点取消）；
+  //   更多的收进「专辑 ▾」（选中的不在前几个时，那颗写「专辑：名字 ▾」）。没读过专辑：一颗灰的「专辑 ▾」说怎么来
+  const pickAlbum = name => { leaveSideViews(); activeAlbum = name; renderCatBar(); render(); scrollToResults(); };
+  const shown = albums.length > ALBUM_TABS + 1 ? albums.slice(0, ALBUM_TABS) : albums;
+  for (const [n, c] of shown) {
+    const on = n === activeAlbum;
+    const b = albumsBox.createEl('button', { cls: 'lbc-cat lbc-scope-tab lbc-album-tab' + (on ? ' is-active' : ''), text: n });
+    b.type = 'button'; b.dataset.scope = 'album:' + n; b.dataset.n = String(c); b.setAttribute('aria-pressed', String(on));
+    b.onclick = () => pickAlbum(on ? '' : n);
+  }
+  if (albums.length > shown.length) {
+    const rest = activeAlbum && !shown.some(([n]) => n === activeAlbum);
+    const chip = albumsBox.createEl('button', { cls: 'lbc-pick lbc-album' + (rest ? ' is-active' : ''), text: rest ? `专辑：${activeAlbum} ▾` : '专辑 ▾' });
     chip.type = 'button'; chip.dataset.scope = 'album';
-    chip.setAttribute('aria-pressed', String(!!activeAlbum));
-    const pick = name => { leaveSideViews(); activeAlbum = name; renderCatBar(); render(); scrollToResults(); };
+    chip.setAttribute('aria-pressed', String(!!rest));
     chip.onclick = e => popMenu([
-      ...(activeAlbum ? [{ title: '全部专辑（取消筛选）', onClick: () => pick('') }, { separator: true }] : []),
-      ...albums.map(([n, c]) => ({ title: `${n}（${c}）`, checked: n === activeAlbum, onClick: () => pick(n === activeAlbum ? '' : n) })),
+      ...(activeAlbum ? [{ title: '全部专辑（取消筛选）', onClick: () => pickAlbum('') }, { separator: true }] : []),
+      ...albums.map(([n, c]) => ({ title: `${n}（${c}）`, checked: n === activeAlbum, onClick: () => pickAlbum(n === activeAlbum ? '' : n) })),
     ], e, chip);
+  } else if (!albums.length && !starredPage) {
+    const chip = albumsBox.createEl('button', { cls: 'lbc-pick lbc-album-none', text: '专辑 ▾' });
+    chip.type = 'button'; chip.dataset.scope = 'album';
+    chip.onclick = e => popMenu([{ title: '还没读过小红书专辑（同步时会读，读完这里出专辑名）', disabled: true, onClick: () => {} }], e, chip);
   }
   if (focusedKey != null) { const again = scopeBoxes.flatMap(x => [...x.querySelectorAll('button')]).find(b => (b.dataset?.scope ?? b.dataset?.type) === focusedKey); try { again?.focus({ preventScroll: true }); } catch { again?.focus?.(); } }
 }
@@ -3897,8 +3912,8 @@ board.after(afterEl);
 // 1028 她：「像搭积木一样」——页头拆成小块（标题 · 计数行 · 分类 · 范围 · AI 标签 · 类型 · 我的收藏 / Tag · 排序 · 视图 · 搜索 · 问收藏），宽度按 48 格，
 //   页头 / 墙下面的每一排里每一块有自己的起点 x（可以留空、随便横着摆）；收藏墙那一排仍是几列铺满（边栏一列里的块始终一样宽）。
 const GRID = 48, MIN_W = 3;
-const MOD_IDS = ['title', 'meta', 'cats', 'scope', 'topics', 'types', 'picks', 'sort', 'view', 'search', 'ask', 'recent', 'sync', 'token', 'overview', 'wall'];
-const MOD_NAMES = { title: '标题', meta: '计数行', cats: '分类', scope: '范围', topics: 'AI 标签', types: '类型', picks: '我的收藏 / Tag', sort: '排序', view: '视图', search: '搜索', ask: '问收藏',
+const MOD_IDS = ['title', 'meta', 'cats', 'scope', 'topics', 'types', 'albums', 'picks', 'sort', 'view', 'search', 'ask', 'recent', 'sync', 'token', 'overview', 'wall'];
+const MOD_NAMES = { title: '标题', meta: '计数行', cats: '分类', scope: '范围', topics: 'AI 标签', types: '类型', albums: '专辑', picks: '我的收藏 / Tag', sort: '排序', view: '视图', search: '搜索', ask: '问收藏',
   recent: '最近导入', sync: '同步', token: 'Token 费用', overview: '概览', wall: '收藏墙' };
 const SIDE_MODS = ['recent', 'sync', 'token', 'overview'];
 const CORE_MODS = new Set(TOP_IDS);
@@ -3927,8 +3942,8 @@ const THEME_DEFAULT = { titleFont: '', bodyFont: '', numberFont: '', scale: 1, g
 const DEFAULT_ROWS = () => [
   { cols: [{ x: 0, w: 34, mods: ['title'] }, { x: 34, w: 14, mods: ['meta'] }] },
   { cols: [{ x: 0, w: 48, mods: ['cats'] }] },
-  { cols: [{ x: 0, w: 12, mods: ['scope'] }, { x: 12, w: 6, mods: ['topics'] }, { x: 18, w: 6, mods: ['types'] }, { x: 24, w: 4, mods: ['picks'] },
-    { x: 29, w: 4, mods: ['sort'] }, { x: 33, w: 3, mods: ['view'] }, { x: 36, w: 8, mods: ['search'] }, { x: 44, w: 4, mods: ['ask'] }] },
+  { cols: [{ x: 0, w: 12, mods: ['scope'] }, { x: 12, w: 6, mods: ['topics'] }, { x: 18, w: 5, mods: ['types'] }, { x: 23, w: 4, mods: ['albums'] }, { x: 27, w: 4, mods: ['picks'] },
+    { x: 31, w: 3, mods: ['sort'] }, { x: 34, w: 3, mods: ['view'] }, { x: 37, w: 7, mods: ['search'] }, { x: 44, w: 4, mods: ['ask'] }] },
   { cols: [{ w: 16, mods: ['recent', 'sync', 'token', 'overview'] }, { w: 32, mods: ['wall'] }] }];
 const ENGINE = SIDE_ON;   // 手机 / 星标页：没有边栏模块，照默认摆
 const clone = v => JSON.parse(JSON.stringify(v));
@@ -4062,12 +4077,12 @@ function upgradeRows(rows, cfg, { filtersHidden = false, show = null } = {}) {
     r.cols = out;
   }
   const hide = id => { if (cfg[id]) cfg[id].hidden = true; };
-  if (filtersHidden) for (const id of ['scope', 'topics', 'types', 'picks']) hide(id);
+  if (filtersHidden) for (const id of ['scope', 'topics', 'types', 'albums', 'picks']) hide(id);
   if (Array.isArray(show)) {
     const has = k => show.includes(k);
     if (!has('scope')) { hide('scope'); hide('topics'); }
     if (!has('type')) hide('types');
-    if (!has('tag') && !has('plat') && !has('src')) hide('picks');
+    if (!has('tag') && !has('plat') && !has('src')) { hide('picks'); hide('albums'); }
     for (const k of ['sort', 'view', 'ask']) if (!has(k)) hide(k);
   }
   return rows;

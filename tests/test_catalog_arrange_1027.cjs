@@ -39,7 +39,7 @@ const mod = (P, id) => P.$('.lbc-m-' + id);
 const bar = (P, id, act) => mod(P, id).querySelector(`.lbc-mod-bar [data-act="${act}"]`);
 const topRows = P => P.$('.lbc-top').children.filter(c => c.classList.contains('lbc-row') && !c.hidden).map(r => r.children.filter(c => c.classList.contains('lbc-rcol') && !c.hidden).map(c => c.children.filter(m => m.classList.contains('lbc-m') && !m.classList.contains('is-gone')).map(m => m.dataset.m)));
 const boardCols = P => P.$('.lbc-board').children.filter(c => (c.classList.contains('lbc-side') || c.classList.contains('lbc-wallcol')) && !c.hidden).map(c => c.children.filter(m => m.classList.contains('lbc-m') && !m.classList.contains('is-gone')).map(m => m.dataset.m));
-const FILTER_ROW = [['scope'], ['topics'], ['types'], ['picks'], ['sort'], ['view'], ['search'], ['ask']];
+const FILTER_ROW = [['scope'], ['topics'], ['types'], ['albums'], ['picks'], ['sort'], ['view'], ['search'], ['ask']];
 const colOf = (P, id) => mod(P, id).parentNode;
 const xw = (P, id) => [Number(colOf(P, id).dataset.x), Number(colOf(P, id).dataset.w)];
 // 编排用的假几何：页宽 1200（一格 25px）；页头每一排 40 高、排和排之间空 30；块按自己的 x / w 落位。边栏 380 宽、墙 780 宽
@@ -95,7 +95,7 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
     const P = await openCatalog({ data: catalogData(base()), plugin: p });
     P.$('.lb-arrange').onclick();
     assert.ok(P.$('.lbc-wrap').classList.contains('is-arranging'));
-    assert.equal(P.$$('.lbc-mod-bar').length, 16, '十六块都有工具条');
+    assert.equal(P.$$('.lbc-mod-bar').length, 17, '十七块都有工具条（1028 加了专辑）');
     for (const id of ['title', 'meta', 'scope', 'search', 'recent', 'wall']) assert.ok(bar(P, id, 'drag') && bar(P, id, 'adjust') && bar(P, id, 'remove'), id + '：⠿ / 调整 / ×');
     assert.equal(P.$('.lbc-arrange-tray').nextSibling, P.$('.lbc-top'), '编排条在所有模块上面（页面最前）');
     rects(P);
@@ -114,14 +114,14 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
     await dragTo(P, 'ask', 1005, 140);
     assert.deepEqual(topRows(P)[1], [['recent'], ['ask']], '放进空地');
     assert.deepEqual(xw(P, 'ask'), [40, 4]);
-    assert.deepEqual(topRows(P)[3], FILTER_ROW.slice(0, 7), '筛选条那一排少了问收藏，别的不动');
+    assert.deepEqual(topRows(P)[3], FILTER_ROW.slice(0, -1), '筛选条那一排少了问收藏，别的不动');
     // 再拖一点，靠近计数行的左边（第 38 格）就吸过去
     rects(P);
     await dragTo(P, 'ask', 930, 140);   // 第 37 格
-    assert.deepEqual(xw(P, 'ask'), [36, 4], '离别的块的边 1 格以内吸住（搜索框左边第 36 格）');
+    assert.deepEqual(xw(P, 'ask'), [37, 4], '离别的块的边 1 格以内吸住（搜索框左边第 37 格）');
     await tick(450);
     const a = L(p).modules.find(m => m.id === 'ask');
-    assert.deepEqual([a.x, a.y, a.width], [36, 1, 4], '存成 {x, y, width}（48 格）'); assert.equal(L(p).grid, 48);
+    assert.deepEqual([a.x, a.y, a.width], [37, 1, 4], '存成 {x, y, width}（48 格）'); assert.equal(L(p).grid, 48);
     // 从块里面按住拖（不是 ⠿）：真拖了，松手那一下 click 不落到按钮上
     rects(P);
     const sb = mod(P, 'sort');
@@ -157,7 +157,7 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
     await tick(450);
     const Q = await openCatalog({ data: catalogData(base()), plugin: p });
     assert.deepEqual(topRows(Q).map(r => r[0][0]), ['meta', 'cats', 'recent', 'scope']);
-    assert.deepEqual(xw(Q, 'meta'), [33, 14]); assert.deepEqual(xw(Q, 'ask'), [36, 4]);
+    assert.deepEqual(xw(Q, 'meta'), [33, 14]); assert.deepEqual(xw(Q, 'ask'), [37, 4]);
     assert.deepEqual(boardCols(Q)[0], ['sync', 'title', 'token', 'overview'], '往返一致');
   }
 

@@ -146,24 +146,43 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
   assert.deepEqual(page.cards(),['长期记忆方案','睡前记忆整理']);
   // 全页不设 aria-label
   assert.equal(page.root.querySelector('.lbc-wrap').all().filter(e=>('aria-label' in e.attrs||'title' in e.attrs)&&!e.classList.contains('lbc-updated')&&!e.classList.contains('lbc-totop')).length,0,'卡片 / 筛选条不设 aria-label、title（「更新」的 title 是她要的悬停全句）');
-  // 1019 专辑：没同步过专辑不出按钮；有专辑出一颗「专辑 ▾」，菜单选一个就筛、再选取消
+  // 1019 专辑 → 1028 她：专辑是自己的一块（类型后面），篇数多的前几个直接平铺成标签，点一下筛、再点取消；多了收进「专辑 ▾」
   {
+    const ev={preventDefault(){},stopPropagation(){}};
     const alb={...base,items:base.items.map(it=>({...it,albums:it.id==='b'?['做饭']:it.id==='c'?['做饭','睡前']:[]}))};
     const pg=await runCatalogPage(alb);
-    const btn=()=>pg.root.querySelector('.lbc-album');
-    assert.ok(btn(),'有专辑才出按钮');assert.equal(btn().textContent,'专辑 ▾');
-    btn().onclick({preventDefault(){},stopPropagation(){}});
-    const item=t=>pg.dom.document.body.querySelectorAll('.lbc-menu-item').find(e=>e.textContent===t);
-    assert.ok(item('做饭（2）')&&item('睡前（1）'),'按篇数多的在前，带篇数');
-    item('做饭（2）').onclick({preventDefault(){},stopPropagation(){}});
+    const tabs=()=>pg.root.querySelectorAll('.lbc-album-tab');
+    const tab=t=>tabs().find(e=>e.textContent===t);
+    assert.deepEqual(tabs().map(e=>[e.textContent,e.dataset.n]),[['做饭','2'],['睡前','1']],'按篇数多的在前，篇数在 data-n');
+    assert.ok(tabs().every(e=>pg.root.querySelector('.lbc-m-albums').contains(e)),'在「专辑」那一块里');
+    assert.equal(pg.root.querySelector('.lbc-album'),null,'专辑不多：不出「专辑 ▾」');
+    tab('做饭').onclick(ev);
     assert.deepEqual(pg.cards(),['快手菜','睡前记忆整理']);
-    assert.equal(btn().textContent,'专辑：做饭 ▾');assert.ok(btn().classList.contains('is-active'));
-    // 1021：分类「全部」只管分类；专辑在自己的菜单里取消
+    assert.ok(tab('做饭').classList.contains('is-active'));assert.equal(tab('做饭').getAttribute('aria-pressed'),'true');
+    // 1021：分类「全部」只管分类；专辑再点一下取消
     pg.cat('全部').onclick();
     assert.equal(pg.cards().length,2,'分类「全部」不动专辑');
-    btn().onclick({preventDefault(){},stopPropagation(){}});item('全部专辑（取消筛选）').onclick({preventDefault(){},stopPropagation(){}});
-    assert.equal(pg.cards().length,3);assert.equal(btn().textContent,'专辑 ▾');
-    const none=await runCatalogPage(base);assert.equal(none.root.querySelector('.lbc-album'),null);
+    tab('做饭').onclick(ev);
+    assert.equal(pg.cards().length,3);assert.ok(!tab('做饭').classList.contains('is-active'));
+    // 专辑多：前 4 个平铺，其余在「专辑 ▾」里；选了菜单里的，那颗写「专辑：名字 ▾」
+    const names=['一','二','三','四','五','六'];
+    const many={...base,items:base.items.map((it,i)=>({...it,albums:i===0?names:i===1?names.slice(0,5):['一']}))};
+    const pm=await runCatalogPage(many);
+    assert.deepEqual(pm.root.querySelectorAll('.lbc-album-tab').map(e=>e.textContent),['一','二','三','四']);
+    const chip=()=>pm.root.querySelector('.lbc-album');
+    assert.equal(chip().textContent,'专辑 ▾');
+    chip().onclick(ev);
+    const item=t=>pm.dom.document.body.querySelectorAll('.lbc-menu-item').find(e=>e.textContent===t);
+    assert.ok(item('五（2）')&&item('六（1）'),'菜单里是全部专辑，带篇数');
+    item('六（1）').onclick(ev);
+    assert.deepEqual(pm.cards(),['长期记忆方案']);
+    assert.equal(chip().textContent,'专辑：六 ▾');assert.ok(chip().classList.contains('is-active'));
+    chip().onclick(ev);item('全部专辑（取消筛选）').onclick(ev);
+    assert.equal(pm.cards().length,3);assert.equal(chip().textContent,'专辑 ▾');
+    // 没读过专辑：没有专辑标签，一颗灰的「专辑 ▾」说怎么来
+    const none=await runCatalogPage(base);
+    assert.equal(none.root.querySelectorAll('.lbc-album-tab').length,0);assert.equal(none.root.querySelector('.lbc-album'),null);
+    assert.ok(none.root.querySelector('.lbc-album-none'));
   }
   // 主题名不认识的旧 activeTopic / 坏数据不炸
   const bad=await runCatalogPage({...base,topics:[null,'',42]});
