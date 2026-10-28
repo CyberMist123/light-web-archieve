@@ -18,9 +18,13 @@ const { tick, src, rel, makePlugin, openChat } = require('./_fake_L2.cjs');
   await C.ask('第三问');
   // (b) 第 2 问起出现：横线条（is-float），按钮一直不出
   assert.equal(toc().hidden, false); assert.ok(toc().classList.contains('is-float')); assert.equal(C.q('.lbchat-tocbtn').hidden, true);
-  // (c) 条目：问题带「问」，小标题带 H2，引用过的帖子「[号] 短标题」带「帖」（没引用的主要b 不列）；失败那问只有问题
-  const rows = items().map(r => [r.dataset.level, r.querySelector('.lbchat-ftoc-text').textContent, r.querySelector('.lbchat-ftoc-tag').textContent]);
-  assert.deepEqual(rows, [['1', '1  担担面有没有汤', '问'], ['2', '[1] 主要a', '帖'], ['1', '2  怎么做', '问'], ['2', '步骤', 'H2'], ['2', '要点与避坑', 'H2'], ['2', '[1] 主要a', '帖'], ['1', '3  第三问', '问']]);
+  // (c) 条目：问题 / 小标题 / 引用过的帖子（没引用的主要b 不列）；失败那问只有问题
+  // 1028 她：不再挂「问 / H2 / H3 / 帖」小字；帖子序号去掉方括号、单独一段斜体数字（.lbchat-ftoc-n）；问题行 is-q、帖子行 is-post
+  assert.equal(toc().querySelectorAll('.lbchat-ftoc-tag').length, 0, '没有层级小字');
+  const kind = r => (r.classList.contains('is-q') ? 'q' : r.classList.contains('is-post') ? 'post' : 'h');
+  const rows = items().map(r => [r.dataset.level, kind(r), r.querySelector('.lbchat-ftoc-n')?.textContent || '', r.querySelector('.lbchat-ftoc-text').textContent]);
+  assert.deepEqual(rows, [['1', 'q', '', '1  担担面有没有汤'], ['2', 'post', '1', '1主要a'], ['1', 'q', '', '2  怎么做'], ['2', 'h', '', '步骤'], ['2', 'h', '', '要点与避坑'], ['2', 'post', '1', '1主要a'], ['1', 'q', '', '3  第三问']]);
+  assert.ok(!toc().textContent.includes('[1]'), '序号不带方括号');
   // 工具条六个按钮（钉住 / 搜 / 到顶 / 到底 / 复制 / 全部折叠）
   assert.equal(toc().querySelectorAll('.lbchat-ftoc-tool').length, 6);
   // (d) 点第 1 问：跳过去、出现「↩ 回到刚才」，回到底部跟随
@@ -63,5 +67,21 @@ const { tick, src, rel, makePlugin, openChat } = require('./_fake_L2.cjs');
   assert.ok(tocRules.length && tocRules.every(l => !l.includes('sticky')));
   assert.ok(tocRules.some(l => l.startsWith('.lbchat-toc.is-float{') && l.includes('scrollbar-width:none')));
   assert.ok(/\.lbchat \.lbchat-body,[^{]*\{scrollbar-width:none;\}/.test(css));
-  console.log('PASS chat L2 F5 (floating-toc): from the 2nd question, 问 / H2 / [n] 帖 rows, 6-tool bar, jump + ↩ 回到刚才, fold a group, ↑ 引用处 flashes, hidden on 已保存 / clear, no sticky, no scrollbars');
+  // (j) 1028 她：目录样式——问题加粗大一号墨色；帖子楷体（局部变量）浅灰、行距 1.9、比节标题多缩一级；序号用数字字体斜体；当前那一节墨色细线 + 500，不用紫色
+  const rule = sel => { const i = css.indexOf(sel + '{'); assert.ok(i >= 0, '缺规则 ' + sel); return css.slice(i + sel.length + 1, css.indexOf('}', i)); };
+  const q = rule('.lbchat-ftoc-item.is-q > .lbchat-ftoc-text');
+  assert.ok(q.includes('font-size:var(--lb-fs-body)') && q.includes('font-weight:700') && q.includes('color:var(--lb-ink)'), q);
+  const post = rule('.lbchat-ftoc-item.is-post > .lbchat-ftoc-text');
+  assert.ok(post.includes('font-family:var(--lbchat-kai)') && post.includes('color:var(--lb-faint)') && post.includes('line-height:1.9'), post);
+  assert.ok(rule('.lbchat-ftoc-item.is-post').includes('calc(1rem + 24px)'), '帖子比节标题（+12px）再缩一级');
+  assert.ok(/--lbchat-kai:"KaiTi"[^;]*var\(--lb-font-serif\)/.test(css), '楷体局部变量，兜底用样式集衬线（不写死 serif）');
+  const num = rule('.lbchat-toc-n,.lbchat-ftoc-n');
+  assert.ok(num.includes('font-family:var(--lb-font-num)') && num.includes('font-style:italic'), num);
+  const here = rule('.lbchat-ftoc-item.is-here > .lbchat-ftoc-text');
+  assert.ok(here.includes('box-shadow:inset 2px 0 0 var(--lb-ink)') && !here.includes('interactive-accent'), here);
+  assert.ok(rule('.lbchat-ftoc-item.is-here:not(.is-q) > .lbchat-ftoc-text').includes('font-weight:500'));
+  assert.ok(!/is-here[^{]*\{[^}]*interactive-accent/.test(css.split('\n').filter(l => l.includes('ftoc') || l.includes('tocgrp')).join('\n')), '当前那一节不再用紫色');
+  const pq = rule('.lbchat-toc button.lbchat-toc-q,.lbchat-tocpanel button.lbchat-toc-q');
+  assert.ok(pq.includes('font-size:var(--lb-fs-body)') && pq.includes('font-weight:700'), '弹出目录里的问题也加粗大一号：' + pq);
+  console.log('PASS chat L2 F5 (floating-toc): from the 2nd question, question / heading / post rows (1028: no 问/H2/帖 tags, italic n, kai posts, ink here-line), 6-tool bar, jump + ↩ 回到刚才, fold a group, ↑ 引用处 flashes, hidden on 已保存 / clear, no sticky, no scrollbars');
 })().catch(e => { console.error(e); process.exit(1); });

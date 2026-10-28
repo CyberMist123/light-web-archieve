@@ -3,9 +3,10 @@
 //   ② 正在答时照样能切历史 / 清空：这一问在后台接着答、答完进它自己那段；输入框上面一行「后台还在回答 · 回去看」，回去接着看出字；
 //      隐私模式那段（切走就找不回）才拦
 //   ③ 换页切走、整页暂存再挂回新视图（recreate）后：「问这篇」照样取走、来源固定在输入框里那枚小条上（改前 root 指着旧容器，直接返回）
-//   ④ 报告：动作在报告顶上（目录 / 来源 / 编辑 / 复制 / 导出 / 存到已保存），没有「展开细节」；存上后旁边「已保存 · 打开」，点了到「已保存」那一条
-//   ⑤ 右栏证据条：回到报告 / 上一条 / 下一条 / 「来源 N · 正文 / 评论第 N 楼」；点下一条右栏换、左栏不动；找不到时原帖开着、给「再找一次」；
-//      从「可能相关」打开再「回到报告」：左栏回到原位、那一行还展开着
+//   ④ 报告：动作（目录 / 来源 / 编辑 / 复制 / 导出 / 存到已保存）——1028 她：在这一答最下面、来源之后（顶上那版是 bug），没有「展开细节」；
+//      存上后旁边「已保存 · 打开」，点了到「已保存」那一条
+//   ⑤ 1028 她：右栏顶上的证据条（← 回到报告 · 来源：xxx · 上一条 / 下一条）不画了；点引用照样右栏定位、左栏不动、左边那一处亮着；
+//      找不到时原帖开着、提示里给「再找一次」；从「可能相关」打开也不画条
 'use strict';
 const assert = require('node:assert/strict');
 const { tick, makePlugin, openChat, src } = require('./_fake_L2.cjs');
@@ -113,12 +114,20 @@ async function reportTop() {
   await C.ask('ai 做梦');
   const ans = C.answers()[0];
   assert.ok(ans.classList.contains('is-report'));
-  const top = ans.querySelector('.lbchat-actions-top');
-  assert.ok(top && ans.firstElementChild === top, '动作在报告顶上');
+  // 1028 她：操作条在这一答最下面（来源之后），上边一道细线
+  const top = ans.querySelector('.lbchat-actions-report');
+  assert.ok(top && ans.lastElementChild === top, '动作在这一答最下面');
+  assert.ok(!ans.querySelector('.lbchat-actions-top'), '顶上不再有操作条');
+  const srcbox = ans.querySelector('.lbchat-srcbox');
+  assert.ok(srcbox && srcbox.nextElementSibling === top, '紧跟在来源后面');
+  assert.ok(ans.firstElementChild.classList.contains('lbchat-md'), '正文在最前（紧挨问题气泡的是正文，不是操作条）');
   const labels = top.querySelectorAll('.lbchat-act').map(b => b.textContent).filter(Boolean);
-  for (const k of ['目录', '来源', '编辑', '复制', '存成笔记'].slice(0, 4)) assert.ok(labels.includes(k), k + ' 在顶上：' + labels.join(','));
+  for (const k of ['目录', '来源', '编辑', '复制', '存成笔记'].slice(0, 4)) assert.ok(labels.includes(k), k + ' 在操作条里：' + labels.join(','));
   assert.ok(top.querySelector('.lbchat-export') && top.querySelector('.lbchat-bookmark'));
   assert.ok(!labels.includes('展开细节'), '报告不给「展开细节」');
+  const css = [...C.dom.document.head.querySelectorAll('style')].map(x => x.textContent).join('\n');
+  const rule = /\.lbchat \.lbchat-actions-report\{([^}]*)\}/.exec(css)?.[1] || '';
+  assert.ok(/border-top:1px solid/.test(rule) && /border-bottom:0/.test(rule), '上边细线、下边不要线：' + rule);
   // 来源：跳到主要依据并展开
   top.querySelectorAll('.lbchat-act').find(b => b.textContent === '来源').onclick(); await tick(5);
   assert.ok(ans.querySelector('details.lbchat-src').open);
@@ -129,7 +138,7 @@ async function reportTop() {
   await tag.querySelector('.lbchat-saved-open').onclick(); await tick(20);
   const item = C.q('.lbchat-arc-item');
   assert.ok(item && item.open, '到了「已保存」，那一条展开着');
-  console.log('PASS chat bg ④: report actions on top (目录 / 来源 / 编辑 / 复制 / 导出 / 存成笔记 / 书签), no 展开细节, saved tag + one-click open');
+  console.log('PASS chat bg ④: report actions at the bottom after sources, border-top only (目录 / 来源 / 编辑 / 复制 / 导出 / 存成笔记 / 书签), no 展开细节, saved tag + one-click open');
 }
 
 async function evidenceBar() {
@@ -166,47 +175,36 @@ async function evidenceBar() {
   C.body.scrollTop = 37; C.body.dispatchEvent(new C.dom.Event('scroll')); await tick(5);
   const cites = () => C.answers()[0].querySelectorAll('.lbchat-md button.lbchat-cite');
   const bar = () => [...container.children].find(x => x.classList.contains('lb-evbar'));
+  // 1028 她：右栏顶上不再画证据条（回到报告 / 来源：xxx / 上一条 / 下一条 都不要）；定位、左栏不动、左边亮着照旧
   cites()[0].onclick({ stopPropagation() {} }); await tick(400);
-  assert.ok(bar(), '右栏最上面有证据条');
-  assert.equal(container.firstElementChild, bar(), '在 view-content 前面');
-  assert.ok(bar().textContent.includes('← 回到报告'));
-  assert.ok(bar().querySelector('.lb-evbar-label').textContent.startsWith('来源 1 · 正文（1/3）'), bar().textContent);
-  assert.ok(bar().querySelector('.is-prev').disabled && !bar().querySelector('.is-next').disabled);
-  // 下一条：右栏换到评论第 3 楼，左栏位置不动
-  bar().querySelector('.is-next').onclick({ stopPropagation() {} }); await tick(400);
-  assert.equal(bar().querySelector('.lb-evbar-label').textContent, '来源 1 · 评论第 3 楼（2/3）');
+  assert.ok(!bar(), '右栏顶上没有证据条');
+  assert.ok(!container.textContent.includes('回到报告'));
+  assert.equal(container.firstElementChild, content, 'view-content 还是右栏第一块');
+  assert.equal(leaf.view.file.path, 'Web/a.md', '右栏开了原帖');
+  cites()[1].onclick({ stopPropagation() {} }); await tick(400);
   assert.ok(JSON.parse(C.V.get('_archive/locate-last.json')).target === 'comment:c3');
   assert.equal(C.body.scrollTop, 37, '左栏没被带走');
   assert.ok(cites()[1].classList.contains('is-on'), '左边亮着当前这一处');
-  // 找不到：原帖开着，给「再找一次」
-  bar().querySelector('.is-next').onclick({ stopPropagation() {} }); await tick(400);
-  assert.ok(bar().textContent.includes('没找到这一处') && bar().querySelector('.is-retry'), bar().textContent);
+  assert.ok(!bar());
+  // 找不到：原帖开着，提示里给「再找一次」（不靠证据条）
+  cites()[2].onclick({ stopPropagation() {} }); await tick(400);
+  assert.ok(!bar(), '找不到时也不画条');
   assert.equal(leaf.view.file.path, 'Web/a.md', '原帖还开着');
   const warn = C.A.noticeLog.find(n => n.message.includes('没找到引用的那一处'));
   assert.ok(warn && warn.buttons.some(b => b.label === '再找一次'), C.A.notices.join('|'));
   const before = JSON.parse(C.V.get('_archive/locate-history.json')).length;
-  bar().querySelector('.is-retry').onclick({ stopPropagation() {} }); await tick(400);
+  warn.buttons.find(b => b.label === '再找一次').click(); await tick(400);
   assert.equal(JSON.parse(C.V.get('_archive/locate-history.json')).length, before + 1, '再找了一次');
-  // 回到报告：左栏回到点之前的位置
-  C.body.scrollTop = 0;
-  await bar().querySelector('.is-back').onclick({ stopPropagation() {} }); await tick(10);
-  assert.equal(C.body.scrollTop, 37);
-  // 从「可能相关」打开：证据条写来源标题；回到报告时那一行还展开着、亮一下
+  // 从「可能相关」打开：同样不画条
   const more = C.answers()[0].querySelector('details.lbchat-src-more'); more.open = true;
   const relRow = C.rowOf('相关一篇');
   relRow.querySelector('a').onclick(); await tick(100);
-  assert.ok(bar().querySelector('.lb-evbar-label').textContent.includes('相关一篇'));
-  assert.ok(!bar().querySelector('.is-next'), '不是引用就不给上一条 / 下一条');
-  more.open = false; C.body.scrollTop = 5;
-  await bar().querySelector('.is-back').onclick({ stopPropagation() {} }); await tick(10);
-  assert.equal(C.body.scrollTop, 37);
-  const row = C.rowOf('相关一篇');
-  assert.ok(row.closest('details').open, '「可能相关」又展开了');
-  assert.ok(row.classList.contains('lbchat-flash'));
+  assert.equal(leaf.view.file.path, 'Web/r.md');
+  assert.ok(!bar(), '从「可能相关」打开也没有证据条');
   // 悬停卡片也写短的辨识信息
   cites()[1].dispatchEvent(new C.dom.Event('focus'));
   assert.ok(doc.body.querySelector('.lbchat-citepop .w').textContent.startsWith('来源 1 · 评论第 3 楼'));
-  console.log('PASS chat bg ⑤: evidence bar in the reader (回到报告 / ‹ › / 来源 N · 正文 / 评论第 N 楼 (i/n)); next updates the reader, left stays; not found keeps the note + 再找一次; back from 可能相关 restores place and reopens the row');
+  console.log('PASS chat bg ⑤ (1028): no evidence bar in the reader; cite locate still works, left stays + lit; not found keeps the note + 再找一次 in the notice; 可能相关 opens without a bar');
 }
 
 (async () => {

@@ -56,9 +56,9 @@ const SESSION = '_archive/chat-session.json';
   // 下面验 R2 的「重新检索」那条路：开关点「新对话」（1020 起「追问 · 新对话」两个词并排），状态跟会话一起存
   const seg = label => all('.lbchat-followmode .lbchat-seg-opt').find(b => b.textContent === label);
   assert.ok(seg('追问').classList.contains('is-on'));
-  await seg('新对话').onclick(); await tick(5);
+  await seg('新问题').onclick(); await tick(5);   // 1028 她：「新对话」→「新问题」
   assert.equal(JSON.parse(V.get(SESSION)).follow, 'search');
-  assert.ok(seg('新对话').classList.contains('is-on'));
+  assert.ok(seg('新问题').classList.contains('is-on'));
 
   // ③ 证据身份：来源行悬停看得到楼号 / 图序号
   const linkA = turnEls()[0].querySelectorAll('a').find(a => a.textContent.includes('主要a'));
@@ -102,8 +102,8 @@ const SESSION = '_archive/chat-session.json';
   A = await open();
   saved = JSON.parse(V.get(SESSION));
   assert.deepEqual(saved.pinned, ['b']);
-  assert.equal(saved.follow, 'search', '「新对话」刷新后还在');
-  assert.ok(seg('新对话').classList.contains('is-on'));
+  assert.equal(saved.follow, 'search', '「新问题」刷新后还在');
+  assert.ok(seg('新问题').classList.contains('is-on'));
   assert.equal(rowButton(turnEls()[0], '主要b', '.lbchat-src-pin').textContent, '已保留');
 
   // 重答（第一轮删过 c）：交留下的来源（保留的排最前），排除照样带上；10-04 ②：保留的也作为 pinIds 带上（后端排最前、要求逐条用到）

@@ -323,7 +323,7 @@ const LOCATE_WHY = {
   'attachment-missing': '附件没存到本地，见原帖',
 };
 const RETRY_WHY = new Set(['not-found', 'not-rendered', 'no-reader']);
-// ── 1026 她：右栏「← 回到报告 · ‹ 上一条 · 来源 N · 图X（2/7）· 下一条 ›」（证据对照条）──
+// ── 1026 她：右栏「← 回到报告 · ‹ 上一条 · 来源 N · 图X（2/7）· 下一条 ›」（证据对照条）；1028 她：不画了（见 paintEvBar）──
 // 挂在右栏阅读格最上面（.view-content 前面），每次开来源后重画；只读页面自己的状态（evNav），不碰插件
 let evNav = null, nextOrigin = null;
 function takeOrigin() { const o = nextOrigin; nextOrigin = null; return o; }
@@ -347,12 +347,6 @@ function evLabel(src, part, target = {}) {
   } else if (img) where = '图' + img;
   return where ? `${head} · ${where}` : head;
 }
-// 这一答里能翻的证据：正文里的引用胶囊按阅读顺序、同一出处只算一次
-function citeList(answer) {
-  const seen = new Set(), out = [];
-  for (const b of answer?.querySelectorAll?.('.lbchat-md button.lbchat-cite') || []) { if (!b._lbCite) continue; const k = citeKey(b); if (seen.has(k)) continue; seen.add(k); out.push(b); }
-  return out;
-}
 function openCite(b) {
   const c = b?._lbCite; if (!c) return null;
   citePop().hide();
@@ -366,6 +360,7 @@ function retryLocate() {
   return openNote(n.src, false, n.context, n.origin || n.btn, n.seg);
 }
 // 回到报告：左栏回到点之前看的位置（来源行所在的折叠区展开着），亮一下点进来的那一处；焦点还给问收藏页
+// 1028：右栏证据条不画了，眼下没有入口；落位 / 闪一下的逻辑留着
 async function backToReport() {
   const n = evNav;
   try { const owner = provider()?.archiveLeaves?.(root)?.owner; if (owner) app.workspace.setActiveLeaf?.(owner, { focus: true }); } catch {}
@@ -386,33 +381,14 @@ async function backToReport() {
   paintFloaters(); markHere();
   return true;
 }
+// 1028 她：右栏顶上这条（← 回到报告 · 来源：xxx · ‹ 上一条 / 下一条 ›）不要了——回报告用左栏本身就行（左栏还开着，
+// 点进来的那一行会亮一下）。整条不画（连同上一条 / 下一条）；以前画上的（页面没重开）顺手摘掉。
+// 没找到那一处时照旧由 LB.say 提示 + 「再找一次」（locateInReader）。
 function paintEvBar(gen) {
   const n = evNav; if (!n || n.gen !== gen || gen !== openGen) return null;
   const box = readerLeaf()?.view?.containerEl; if (!box) return null;
-  const doc = box.ownerDocument || document;
-  let bar = [...box.children].find(c => c.classList?.contains('lb-evbar'));
-  if (!bar) {
-    bar = doc.createElement('div'); bar.className = 'lb-evbar';
-    const content = [...box.children].find(c => c.classList?.contains('view-content'));
-    if (content) box.insertBefore(bar, content); else box.prepend(bar);
-  }
-  bar.textContent = '';
-  const btn = (text, cls, title, fn) => { const b = doc.createElement('button'); b.type = 'button'; b.className = 'lb-evbar-btn ' + cls; b.textContent = text; b.title = title; b.onclick = e => { e?.stopPropagation?.(); return fn(); }; bar.append(b); return b; };
-  btn('← 回到报告', 'is-back', '回到问收藏里点进来的地方', () => backToReport());
-  const list = n.btn ? citeList(n.btn.closest?.('.lbchat-answer')) : [];
-  const i = n.btn ? list.findIndex(b => citeKey(b) === citeKey(n.btn)) : -1;
-  const nav = list.length > 1 && i >= 0;
-  if (nav) btn('‹ 上一条', 'is-prev', '这份回答里的上一处出处', () => openCite(list[i - 1])).disabled = i === 0;
-  const lab = doc.createElement('span'); lab.className = 'lb-evbar-label';
-  lab.textContent = n.btn ? evLabel(n.src, n.part, n.seg) + (nav ? `（${i + 1}/${list.length}）` : '') : (n.src?.title ? '来源：' + n.src.title : '来源');
-  lab.title = n.src?.title || '';
-  bar.append(lab);
-  if (nav) btn('下一条 ›', 'is-next', '这份回答里的下一处出处', () => openCite(list[i + 1])).disabled = i === list.length - 1;
-  if (n.cite && n.ok === false && RETRY_WHY.has(n.why)) {
-    const miss = doc.createElement('span'); miss.className = 'lb-evbar-miss'; miss.textContent = '没找到这一处'; bar.append(miss);
-    btn('再找一次', 'is-retry', '原帖画好了再找一遍', () => retryLocate());
-  }
-  return bar;
+  for (const c of [...box.children]) if (c.classList?.contains('lb-evbar')) c.remove();
+  return null;
 }
 // 定位落到的元素是什么（日志里证明跳对了：图片 src / 评论楼号 / 段序号）
 function locateTargetDesc(el) {
@@ -913,11 +889,12 @@ LB.style('lbchat-style', LB.brandFontCss() + `
 .lbchat-tochead{display:flex;align-items:center;justify-content:space-between;padding:0 8px 6px;color:var(--lb-faint);font-size:11.5px;}
 .lbchat button.lbchat-toc-fold{font:inherit;font-size:13px;height:auto;padding:0 4px;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--lb-faint);cursor:pointer;}
 .lbchat-tocgrp{padding:4px 8px 6px;border-left:2px solid transparent;}
-.lbchat-tocgrp.is-here{border-left-color:var(--interactive-accent);color:var(--lb-ink);}
+.lbchat-tocgrp.is-here{border-left-color:var(--lb-ink);color:var(--lb-ink);}
 .lbchat-toc button,.lbchat-tocpanel button{font:inherit;font-size:var(--lb-fs-small);height:auto;border:0!important;box-shadow:none!important;background:transparent!important;color:inherit;cursor:pointer;padding:1px 0;text-align:left;}
 .lbchat-toc button:hover,.lbchat-tocpanel button:hover{color:var(--interactive-accent);}
 button.lbchat-toc-q{display:block;width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--lb-ink)!important;}
-.lbchat-tocgrp:not(.is-here) button.lbchat-toc-q{color:var(--lb-muted)!important;}
+/* 1028 她：问题加粗、大一号（small → body）、墨色 */
+.lbchat-toc button.lbchat-toc-q,.lbchat-tocpanel button.lbchat-toc-q{font-size:var(--lb-fs-body);font-weight:700;color:var(--lb-ink)!important;}
 .lbchat-toc-tag{font-size:10.5px;color:var(--interactive-accent);margin-right:4px;}
 .lbchat-toc-row{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;padding-left:12px;color:var(--lb-faint);}
 button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11.5px!important;}
@@ -953,7 +930,11 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 /* 目录：1080–1242 时对话列往右让出左栏 */
 .lbchat-bodywrap.is-tight{padding-left:188px;box-sizing:border-box;}
 .lbchat-bodywrap.is-tight > .lbchat-toc{left:4px;}
-.lbchat-toc-item{color:var(--lb-muted);}
+/* 1028 她：目录里的帖子 / 条目 = 楷体、浅灰、行距松；序号斜体数字（样式集没有楷体变量，这里定一个局部的，兜底样式集衬线） */
+.lbchat,.lbchat-tocpanel{--lbchat-kai:"KaiTi","STKaiti","Kaiti SC","BiauKai",var(--lb-font-serif);}
+.lbchat button.lbchat-toc-h,.lbchat-tocpanel button.lbchat-toc-h{color:var(--lb-ink);}
+.lbchat-toc button.lbchat-toc-item,.lbchat-tocpanel button.lbchat-toc-item{font-family:var(--lbchat-kai);color:var(--lb-faint);line-height:1.9;letter-spacing:.02em;}
+.lbchat-toc-n,.lbchat-ftoc-n{font-family:var(--lb-font-num);font-style:italic;font-variant-numeric:var(--lb-num-feat,normal);margin-right:6px;}
 /* 1026 floating-toc 复刻——尺寸照插件源码默认值（pkm-er/obsidian-floating-toc-plugin styles.css）：
    条目字号 0.7rem、行高 1.5rem、展开时每条 padding 0 1rem、面板 fit-content 最宽 18rem、不换行（长了省略号）；
    层级标 8px --text-muted；工具条图标 12px、按钮 padding 0 10px + 右边距 5px。她：要这个大小、透明——悬停 / 钉住都不铺底、不加边 */
@@ -985,15 +966,19 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat-ftoc-item[hidden]{display:none!important;}
 .lbchat-ftoc-item[data-level="2"]{padding-left:calc(1rem + 12px);}
 .lbchat-ftoc-item[data-level="3"]{padding-left:calc(1rem + 24px);}
-.lbchat-ftoc-item.is-post > .lbchat-ftoc-text{color:var(--lb-muted);}
-.lbchat-ftoc-item.is-post > .lbchat-ftoc-text:hover{color:var(--lb-ink);}
+/* 1028 她：问题加粗大一号墨色；节标题墨色、缩一级；帖子楷体浅灰、行距松、比节标题再缩一级 */
+.lbchat-ftoc-item.is-q > .lbchat-ftoc-text{font-size:var(--lb-fs-body);font-weight:700;color:var(--lb-ink);}
+.lbchat-ftoc-item.is-post{padding-left:calc(1rem + 24px);}
+.lbchat-ftoc-item.is-post > .lbchat-ftoc-text{font-family:var(--lbchat-kai);color:var(--lb-faint);line-height:1.9;letter-spacing:.02em;}
+.lbchat-ftoc-item.is-post > .lbchat-ftoc-text:hover{color:var(--lb-muted);}
 .lbchat-ftoc-chev{flex:none;width:12px;height:12px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;border-radius:3px;}
 .lbchat-ftoc-chev:hover{background:var(--background-modifier-hover);}
 .lbchat-ftoc-chev.is-empty{cursor:default;visibility:hidden;}
 .lbchat-ftoc-text{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;padding:.25rem;border-radius:.5rem;cursor:pointer;color:var(--lb-ink);}
 .lbchat-ftoc-text:hover{background:var(--background-modifier-hover);}
-.lbchat-ftoc-tag{flex:none;font-size:8px;color:var(--lb-muted);margin-left:1px;}
-.lbchat-ftoc-item.is-here > .lbchat-ftoc-text{color:var(--interactive-accent);font-weight:bold;}
+/* 1028 她：当前所在那一节不用紫色——左边一道 2px 墨色细线 + 字重 500（问题本身照旧粗） */
+.lbchat-ftoc-item.is-here > .lbchat-ftoc-text{color:var(--lb-ink);box-shadow:inset 2px 0 0 var(--lb-ink);border-radius:0;}
+.lbchat-ftoc-item.is-here:not(.is-q) > .lbchat-ftoc-text{font-weight:500;}
 /* 收起时：只剩横线 */
 .lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-bar,.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-search{display:none;}
 .lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item{min-height:16px;height:16px;padding:0;position:relative;}
@@ -1001,7 +986,7 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item::before{content:'';position:absolute;left:4px;top:7px;height:2px;width:26px;border-radius:1px;background:var(--lb-muted);opacity:.55;}
 .lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item[data-level="2"]::before{left:4px;width:22px;opacity:.45;}
 .lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item[data-level="3"]::before{left:4px;width:18px;opacity:.38;}
-.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item.is-here::before{background:var(--interactive-accent);opacity:1;}
+.lbchat-toc.is-float:not(:hover):not(:focus-within):not(.is-pin) .lbchat-ftoc-item.is-here::before{background:var(--lb-ink);opacity:1;}
 /* 「下一问」开关行：两个开关一行放不下就折行 */
 .lbchat-followbar{flex-wrap:wrap;row-gap:2px;}
 /* 已保存：Enter 存、作者小框、× 在标题行 */
@@ -1026,7 +1011,7 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat .lbchat-mmd button.lbchat-mmd-btn:hover{color:var(--lb-ink);}
 .lbchat-mmd.is-full{position:fixed;inset:24px;z-index:9998;max-height:none;background:var(--lb-surface);border:1px solid var(--lb-line);box-shadow:0 12px 40px rgba(0,0,0,.28);}
 .lbchat-mmd.is-full .lbchat-mmd-stage svg{max-width:none;}
-/* 1020 输入框上方一行：左「追问 · 新对话」，右「收起来源 · 清空上下文」；两个词并排的开关（选中的加深 + 下划线） */
+/* 1020 输入框上方一行：左「追问 · 新问题」（1028 改名），右「收起来源 · 清空上下文」；两个词并排的开关（选中的加深 + 下划线） */
 .lbchat-ctlrow{flex:none;width:100%;max-width:850px;margin:10px auto -16px;box-sizing:border-box;display:flex;align-items:center;gap:14px;padding:0 14px;font-size:var(--lb-fs-small);color:var(--lb-faint);}
 .lbchat-ctlrow .lbchat-followbar{flex:1 1 auto;min-width:0;width:auto;max-width:none;margin:0;padding:0;}
 .lbchat-ctlrow .lbchat-srcbar{flex:none;width:auto;max-width:none;margin:0;padding:0;gap:12px;}
@@ -1065,8 +1050,8 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbboard-row.is-link{margin:0 -8px;padding-left:8px;padding-right:8px;}
 .lbboard-topcard.is-link{padding:6px;margin:-6px;}
 .lbchat-toc-board{display:flex;flex-direction:column;align-items:flex-start;gap:1px;margin:2px 0 4px 14px;}
-.lbchat button.lbchat-toc-h.lbchat-toc-cat{color:var(--lb-muted);margin-top:3px;}
-.lbchat button.lbchat-toc-h.lbchat-toc-sub{padding-left:14px!important;color:var(--lb-faint);font-size:var(--lb-fs-micro)!important;}
+.lbchat button.lbchat-toc-h.lbchat-toc-cat,.lbchat-tocpanel button.lbchat-toc-h.lbchat-toc-cat{color:var(--lb-ink);margin-top:3px;}
+.lbchat button.lbchat-toc-h.lbchat-toc-sub,.lbchat-tocpanel button.lbchat-toc-h.lbchat-toc-sub{padding-left:14px!important;font-family:var(--lbchat-kai);color:var(--lb-faint);line-height:1.9;letter-spacing:.02em;}
 .lbboard-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:4px;}
 .lbboard-line{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;}
 .lbboard-name{font-weight:600;font-size:14.5px;line-height:1.4;color:var(--lb-ink);}
@@ -1096,7 +1081,7 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbboard-topcard.is-multi .lbboard-topbody{flex:1 1 auto;}
 .lbboard-topitem + .lbboard-topitem{margin-top:6px;padding-top:6px;border-top:1px dashed var(--lb-line);}
 @media (max-width:520px){.lbboard-row .lbboard-cover{width:64px;height:86px;}.lbboard-top{grid-template-columns:repeat(2,minmax(0,1fr));}}
-/* ── 1020 输入框照 Codex：灰色窄条（追问 · 新对话 / 收起来源 · 清空上下文）连在白色输入卡顶上；输入卡里上面输入、下面一排工具 ── */
+/* ── 1020 输入框照 Codex：灰色窄条（追问 · 新问题 / 收起来源 · 清空上下文）连在白色输入卡顶上；输入卡里上面输入、下面一排工具 ── */
 .lbchat .lbchat-composer{flex-direction:column;align-items:stretch;gap:2px;padding:12px 12px 10px 16px;border-radius:22px;position:relative;z-index:1;box-shadow:0 4px 18px #00000012;margin-top:0;}
 .lbchat .lbchat-search{flex:none;width:100%;height:44px;min-height:44px;padding:6px 2px!important;font-size:14.5px;}
 .lbchat-cbar{display:flex;align-items:center;justify-content:space-between;gap:10px;}
@@ -1154,7 +1139,8 @@ ${LB.brandCss('.lbchat .lbchat-title', '.lbchat .lbchat-engr')}
 .lbchat-bgbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;max-width:850px;width:100%;box-sizing:border-box;margin:0 auto 6px;padding:4px 14px;font-size:12.5px;color:var(--lb-muted);}
 .lbchat-bgbar[hidden]{display:none;}
 .lbchat-bgbar-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.lbchat .lbchat-actions-top{margin:0 0 14px;padding-bottom:8px;border-bottom:1px solid var(--lb-line);flex-wrap:wrap;row-gap:6px;}
+/* 1028 她：报告操作条在最下面（来源之后），上边一道细线、下边不要线 */
+.lbchat .lbchat-actions-report{margin:14px 0 0;padding-top:8px;border-top:1px solid var(--lb-line);border-bottom:0;flex-wrap:wrap;row-gap:6px;}
 .lbchat-savedtag{display:inline-flex;align-items:center;font-size:var(--lb-fs-small);color:var(--lb-muted);}
 .lbchat-savedtag[hidden]{display:none;}
 .lbchat .lbchat-answer.is-report{font-size:15px;line-height:1.85;}
@@ -1164,13 +1150,6 @@ ${LB.brandCss('.lbchat .lbchat-title', '.lbchat .lbchat-engr')}
 .lbchat .lbchat-answer.is-report .lbboard-src{font-size:12.5px;}
 .lbchat .lbchat-answer.is-report h1,.lbchat .lbchat-answer.is-report h2,.lbchat .lbchat-answer.is-report h3,.lbchat .lbboard-sec{scroll-margin-top:12px;}
 .lbchat button.lbchat-cite.is-on{outline:1.5px solid var(--interactive-accent);outline-offset:1px;}
-.lb-evbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 12px;border-bottom:1px solid var(--lb-line);background:var(--lb-surface);font-size:12.5px;color:var(--lb-muted);font-family:var(--font-interface);}
-.lb-evbar button.lb-evbar-btn{font:inherit;height:auto;padding:2px 8px;border-radius:6px!important;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--lb-muted);cursor:pointer;}
-.lb-evbar button.lb-evbar-btn:hover:not(:disabled){color:var(--lb-ink);background:var(--background-modifier-hover)!important;}
-.lb-evbar button.lb-evbar-btn:disabled{opacity:.4;cursor:default;}
-.lb-evbar button.lb-evbar-btn.is-back{color:var(--lb-ink);font-weight:600;}
-.lb-evbar-label{padding:0 4px;color:var(--lb-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:28ch;}
-.lb-evbar-miss{color:var(--lb-warn,var(--text-warning));}
 
 `);
 
@@ -1601,10 +1580,10 @@ async function buildTurn(t) {
     return { el, sig: sigOf(t), dispose: () => {} };
   }
   const el = createDiv({ cls: 'lbchat-turn lbchat-answer' }); el.dataset.key = key;
-  // 1026 她：报告的主要动作放在报告顶上（目录 / 来源 / 编辑 / 复制 / 导出 / 存成笔记 / 存到已保存），不用滚到底
+  // 1028 她：报告的操作条（目录 / 来源 / 编辑 / 复制 / 导出 / 存成笔记 / 存到已保存）读完再操作——放在这一答最下面、来源之后
+  // （1026 放在报告顶上，紧挨问题气泡，是 bug）；普通回答本来就在来源之后，不动
   const report = !t.failed && isReport(t);
   if (report) el.classList.add('is-report');
-  const topActs = report ? el.createEl('div', { cls: 'lbchat-actions lbchat-actions-top' }) : null;
   const md = el.createEl('div', { cls: 'lbchat-md' });
   let dispose = () => {};
   if (t.failed && t.error) md.createEl('div', { cls: 'lbchat-fail', text: t.content });   // A5：失败轮正文就一句人话
@@ -1615,7 +1594,7 @@ async function buildTurn(t) {
   }
   el._lbToc = el.createEl('div', { cls: 'lbchat-tocard-box' });
   el._lbSrc = el.createEl('div', { cls: 'lbchat-srcbox' });
-  el._lbActs = topActs || el.createEl('div', { cls: 'lbchat-actions' });
+  el._lbActs = el.createEl('div', { cls: 'lbchat-actions' + (report ? ' lbchat-actions-report' : '') });
   paintExtras(el, t);
   return { el, sig: sigOf(t), dispose };
 }
@@ -1721,7 +1700,7 @@ function paintExtras(el, t) {
   if (el._lbToc) { const tb = createDiv({ cls: 'lbchat-tocard-box' }); drawTocCard(tb, el, t); el._lbToc.replaceWith(tb); el._lbToc = tb; }
   const box = createDiv({ cls: 'lbchat-srcbox' });
   drawSources(box, el, t);
-  const acts = createDiv({ cls: 'lbchat-actions' + (el._lbActs.classList.contains('lbchat-actions-top') ? ' lbchat-actions-top' : '') });
+  const acts = createDiv({ cls: 'lbchat-actions' + (el._lbActs.classList.contains('lbchat-actions-report') ? ' lbchat-actions-report' : '') });
   drawActions(acts, el, t);
   el._lbSrc.replaceWith(box); el._lbSrc = box;
   el._lbActs.replaceWith(acts); el._lbActs = acts;
@@ -1986,12 +1965,12 @@ function segSwitch(parent, cls, opts, current, onPick) {
 }
 function paintFollow() {
   followBar.empty(); clearBox.empty(); clearBtn = null;
-  const ids = lane === 'chat' ? keptIds(lastAnswer()) : [];
   const bound = session.follow === 'sources';
   followBar.hidden = readOnly || lane !== 'chat' || (!session.turns.length && !scope);
   clearBox.hidden = readOnly || lane !== 'chat' || !session.turns.length;
   paintScopeChip();
-  search.placeholder = scope ? '问这篇里的内容…' : !session.turns.length ? (cfg().chatPlaceholder || '问点什么呢？') : ids.length && bound ? '接着聊…' : '继续追问…';
+  // 1028 她：提示跟着「追问 · 新问题」开关走（首次 / 问这篇照旧）
+  search.placeholder = scope ? '问这篇里的内容…' : !session.turns.length ? (cfg().chatPlaceholder || '问点什么呢？') : bound ? '接着问，只用上面这些来源…' : '问个新问题，重新从全部收藏里找…';
   if (!clearBox.hidden) {
     clearBtn = clearBox.createEl('button', { cls: 'lbchat-follow-switch lbchat-clearall', text: '清空上下文', attr: { title: session.private ? '开始新对话（隐私模式：这段不进历史，8 秒内可撤销）' : '开始新对话（这段已自动存进历史）' } });
     clearBtn.type = 'button';
@@ -2000,10 +1979,11 @@ function paintFollow() {
   }
   if (followBar.hidden) return;
   if (scope) { followBar.hidden = true; return; }   // 只问这篇：来源固定在输入框里那枚小条上（paintScopeChip），这一行不再重复
-  // 追问 = 接着这段、只在上面留下的来源里答（还没有来源就接着这段重新搜）；新对话 = 重新搜整个收藏，这段自动进历史（隐私模式不进）
+  // 追问 = 接着这段、只在上面留下的来源里答（还没有来源就接着这段重新搜）；新问题 = 重新搜整个收藏，这段自动进历史（隐私模式不进）
+  // 1028 她：「新对话」改叫「新问题」（容易以为是清空），行为不变
   segSwitch(followBar, 'lbchat-followmode', [
-    ['sources', '追问', '接着这段聊：不重新检索，带着上面的对话直接问，模型可以用自己的知识'],
-    ['search', '新对话', session.private ? '下一问重新搜整个收藏（隐私模式：不开新段）' : '下一问重新搜整个收藏，这段自动存进历史'],
+    ['sources', '追问', '不重新检索，带着上面的对话和来源接着答。'],
+    ['search', '新问题', session.private ? '重新从全部收藏里找（隐私模式：不开新段）。' : '重新从全部收藏里找；这一段自动存进历史。'],
   ], bound ? 'sources' : 'search', async key => { session.follow = key; session.followPicked = true; paintFollow(); await keepSession(); });
 }
 // A6：问答 AI 没配好的事先提示——空白页在「答案来自你的收藏…」下面一行，有会话时在输入框上方一行；「去设置」打开设置页 AI 栏
@@ -2690,7 +2670,8 @@ function fillToc(box, onPick) {
         ab.onclick = () => { if (ael) jumpTo(ael, { flash: true }); onPick?.(); };
         // 目录型回答：条目（前 8 条）也进左栏，点了跳到目录卡那一行
         if (ael && !g.a.failed && g.a.answerMode === 'toc') for (const it of (g.a.toc || []).slice(0, 8)) {
-          const hb = row.createEl('button', { cls: 'lbchat-toc-h lbchat-toc-item', text: `${it.n} ${it.title}`.slice(0, 14), attr: { title: it.title } }); hb.type = 'button';
+          const hb = row.createEl('button', { cls: 'lbchat-toc-h lbchat-toc-item', attr: { title: it.title } }); hb.type = 'button';
+          hb.createEl('span', { cls: 'lbchat-toc-n', text: String(it.n) }); hb.appendText(String(it.title || '').slice(0, 12));   // 1028 她：序号斜体数字
           hb.onclick = () => { const li = [...ael.querySelectorAll('.lbchat-tocard-item')].find(x => x.dataset.id === it.id); jumpTo(li || ael, { flash: true }); onPick?.(); };
         }
         // 1020 报告版：分类 → 条目两级进目录（她：分类导航做成浮动板），点了跳到那一类 / 那一条
@@ -2849,7 +2830,8 @@ function ftocItems() {
       posts.push({ n: Number(cap.dataset.n || cap.textContent) || 0, src });
     }
     posts.sort((x, y) => x.n - y.n);
-    for (const { n, src } of posts) out.push({ level: 2, tag: '帖', text: `[${n}] ${shortTitle(src.title)}`, title: src.title || '', open: () => openNote(src) });
+    // 1028 她：序号不加方括号，单独一段用斜体数字画（num）；text 只放短标题（目录里搜 / 复制目录照旧带号）
+    for (const { n, src } of posts) out.push({ level: 2, tag: '帖', num: n, text: shortTitle(src.title), title: src.title || '', open: () => openNote(src) });
   });
   return out;
 }
@@ -2866,7 +2848,7 @@ function fillFloatToc() {
   tool('top', '回到最前', () => { bodyEl.scrollTop = 0; lastTop = 0; LB.state.patch({ scrollTop: 0 }); markHere(); });
   tool('bottom', '回到最新', () => toBottom.onclick());
   tool('copy', '复制目录', async () => {
-    const text = items.map(it => '    '.repeat(it.level - 1) + '- ' + it.text.replace(/^\d+\s+/, '')).join('\n');
+    const text = items.map(it => '    '.repeat(it.level - 1) + '- ' + (it.num ? `[${it.num}] ${it.text}` : it.text.replace(/^\d+\s+/, ''))).join('\n');
     try { await navigator.clipboard.writeText(text); notice('目录已复制', 1500); } catch (e) { notice('没复制上：' + errText(e)); }
   });
   const all = tool(ftocAllOpen ? 'down' : 'right', '全部折叠 / 展开', () => {
@@ -2876,13 +2858,16 @@ function fillFloatToc() {
   });
   const list = tocEl.createEl('div', { cls: 'lbchat-ftoc-list' });
   const rows = items.map((it, i) => {
-    const row = list.createEl('div', { cls: 'lbchat-ftoc-item' }); row.dataset.level = String(it.level); if (it.key) row.dataset.key = it.key;
+    const row = list.createEl('div', { cls: 'lbchat-ftoc-item' }); row.dataset.level = String(it.level); row.dataset.tag = it.tag; if (it.key) row.dataset.key = it.key;   // 1028：层级只记在 data-tag 上，不再画出来
     const hasKids = items[i + 1]?.level > it.level;
     const chev = row.createEl('span', { cls: 'lbchat-ftoc-chev' + (hasKids ? '' : ' is-empty') });
     if (hasKids) { ftocFold(chev, !ftocFolded.has(i)); chev.onclick = e => { e?.stopPropagation?.(); ftocFolded.has(i) ? ftocFolded.delete(i) : ftocFolded.add(i); applyFold(); }; }
-    const txt = row.createEl('span', { cls: 'lbchat-ftoc-text', text: it.text, attr: { title: it.title || it.text } });
+    // 1028 她：不再挂「问 / H2 / H3 / 帖」小字；问题加粗大一号，帖子楷体灰、序号斜体数字
+    const txt = row.createEl('span', { cls: 'lbchat-ftoc-text', attr: { title: it.title || it.text } });
+    if (it.num) txt.createEl('span', { cls: 'lbchat-ftoc-n', text: String(it.num) });
+    txt.appendText(it.text);
     if (it.open) row.classList.add('is-post');
-    row.createEl('span', { cls: 'lbchat-ftoc-tag', text: it.tag });
+    if (it.level === 1) row.classList.add('is-q');
     txt.onclick = () => { if (it.open) { it.open(); return; } const el = it.el(); if (el) jumpTo(el, { flash: true }); };
     row._lbItem = it;
     return row;
@@ -2894,7 +2879,7 @@ function fillFloatToc() {
       const it = items[i];
       if (it.level <= hideBelow) hideBelow = Infinity;
       const folded = it.level > hideBelow;
-      row.hidden = q ? !it.text.toLowerCase().includes(q) : folded;
+      row.hidden = q ? !((it.num ? it.num + ' ' : '') + it.text).toLowerCase().includes(q) : folded;
       const chev = row.querySelector('.lbchat-ftoc-chev');
       if (chev && !chev.classList.contains('is-empty')) ftocFold(chev, !ftocFolded.has(i));
       if (!q && !folded && ftocFolded.has(i)) hideBelow = it.level;

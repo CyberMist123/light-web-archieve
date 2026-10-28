@@ -62,10 +62,10 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   const bar = one('.lbchat-followbar');
   const seg = label => all('.lbchat-followmode .lbchat-seg-opt').find(b => b.textContent === label);
   assert.equal(bar.hidden, false);
-  assert.ok(seg('追问').classList.contains('is-on') && !seg('新对话').classList.contains('is-on'));
+  assert.ok(seg('追问').classList.contains('is-on') && !seg('新问题').classList.contains('is-on'));   // 1028 她：「新对话」→「新问题」
   assert.ok(!bar.textContent.includes('改为'), '不再写「改为……」');
   assert.equal(one('.lbchat-clearbox .lbchat-clearall').textContent, '清空上下文');
-  assert.equal(one('.lbchat-search').placeholder, '接着聊…');
+  assert.equal(one('.lbchat-search').placeholder, '接着问，只用上面这些来源…');   // 1028 她：追问档提示
 
   // ⑥ 来源入口：收起时 summary 后面有提示小字；每行 标题 + 保留 + × 在同一行里
   const box = () => all('.lbchat-src')[all('.lbchat-src').length - 2];
@@ -95,10 +95,10 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
 
   // 点「新对话」：下一问重新检索（不带 sourceIds），开一段新对话（这段进历史），状态存进会话文件
   const before1020 = saved().id;
-  await seg('新对话').onclick(); await tick(5);
+  await seg('新问题').onclick(); await tick(5);   // 1028 她：「新对话」→「新问题」
   assert.equal(saved().follow, 'search');
-  assert.ok(seg('新对话').classList.contains('is-on'));
-  assert.equal(one('.lbchat-search').placeholder, '继续追问…');
+  assert.ok(seg('新问题').classList.contains('is-on'));
+  assert.equal(one('.lbchat-search').placeholder, '问个新问题，重新从全部收藏里找…');   // 1028 她：新问题档提示
   await ask('换个城市呢');
   assert.equal(asks[2].sourceIds, undefined);
   assert.notEqual(saved().id, before1020, '新对话 = 开新一段');
@@ -107,8 +107,8 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
 
   // 刷新页面：新开的这段按偏好默认（追问）；点回「追问」照样存
   await open();
-  await seg('新对话').onclick(); await tick(5);
-  assert.ok(seg('新对话').classList.contains('is-on'));
+  await seg('新问题').onclick(); await tick(5);   // 1028 她：「新对话」→「新问题」
+  assert.ok(seg('新问题').classList.contains('is-on'));
   await seg('追问').onclick(); await tick(5);
   assert.equal(saved().follow, 'sources');
 
@@ -145,5 +145,5 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('catalog-search.js') + '\n' 
   await ask('再说说');
   assert.equal(asks.at(-1).mode, 'chat');
 
-  console.log('PASS chat 1004: title + removed, 清空 beside the source line above the composer (no confirm, new conversation, old one kept in history, resets follow), composer + removed (回答 · 报告 beside the model), 追问 · 新对话 switch, follow-up bound to kept sources by default (pinned first, removed dropped, stopped answers skipped), 新对话 persisted, fresh after clear / catalog jump, source rows show 保留 / × with hint, scrollbar + block frame CSS');
+  console.log('PASS chat 1004: title + removed, 清空 beside the source line above the composer (no confirm, new conversation, old one kept in history, resets follow), composer + removed (回答 · 报告 beside the model), 追问 · 新问题 switch, follow-up bound to kept sources by default (pinned first, removed dropped, stopped answers skipped), 新问题 persisted, fresh after clear / catalog jump, source rows show 保留 / × with hint, scrollbar + block frame CSS');
 })().catch(e => { console.error(e); process.exit(1); });
