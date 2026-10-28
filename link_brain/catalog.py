@@ -607,12 +607,16 @@ _DATAVIEWJS = _page_bootstrap(CATALOG_SCRIPT_NAME)
 CHAT_SCRIPT_NAME = "chat-page.js"
 _CHAT_SCRIPT = _PAGE_LIB + "\n" + (_ASSETS / "catalog-search.js").read_text(encoding="utf-8") + "\n" + (_ASSETS / "chat-view.js").read_text(encoding="utf-8") + "\n"
 _CHATJS = _page_bootstrap(CHAT_SCRIPT_NAME)
+# 10-29 个人 Wiki 页（wiki-view.js；数据在 PersonalWiki/，写盘只经插件 wikiCall → `pwiki` 命令）：和问收藏同一个引导做法
+WIKI_SCRIPT_NAME = "wiki-page.js"
+_WIKI_SCRIPT = _PAGE_LIB + "\n" + (_ASSETS / "catalog-search.js").read_text(encoding="utf-8") + "\n" + (_ASSETS / "wiki-view.js").read_text(encoding="utf-8") + "\n"
+_WIKI_HEADER = "---\nlb-page: wiki\ncssclasses: [lb-wikipage]\n---\n\n"
 _PAGE_HEADER = "---\ncssclasses: [lb-catalog]\n---\n\n"
 _CHAT_HEADER = "---\ncssclasses: [lb-chatpage]\n---\n\n"
 
 
 def library_pages(vault):
-    defaults = {"catalog": CATALOG_NAME, "chat": "收藏搜索.md", "starred": "星标收藏.md", "trash": "回收站.md"}
+    defaults = {"catalog": CATALOG_NAME, "chat": "收藏搜索.md", "starred": "星标收藏.md", "trash": "回收站.md", "wiki": "Wiki.md"}
     pages = dict(defaults)
     for file in vault.glob("*.md"):
         text = file.read_text(encoding="utf-8")
@@ -868,10 +872,12 @@ def build(vault: Path | None = None, *, source: str | None = None) -> tuple[Path
     _write_if_changed(vault / "_archive" / CATALOG_SCRIPT_NAME, _CATALOG_SCRIPT)
     _write_if_changed(vault / "_archive" / STARRED_SCRIPT_NAME, _STARRED_SCRIPT)
     _write_if_changed(vault / "_archive" / CHAT_SCRIPT_NAME, _CHAT_SCRIPT)
+    _write_if_changed(vault / "_archive" / WIKI_SCRIPT_NAME, _WIKI_SCRIPT)
     publish_fonts(vault)
     _write_if_changed(catalog_path, _PAGE_HEADER.replace("---\n", "---\nlb-page: catalog\n", 1) + _DATAVIEWJS + "\n")
 
     _write_if_changed(vault / pages["chat"], _CHAT_HEADER.replace("---\n", "---\nlb-page: chat\n", 1) + _CHATJS + "\n")
+    _write_if_changed(vault / pages["wiki"], _WIKI_HEADER + _page_bootstrap(WIKI_SCRIPT_NAME) + "\n")
 
     _write_if_changed(vault / pages["starred"], _PAGE_HEADER.replace("---\n", "---\nlb-page: starred\n", 1) + _page_bootstrap(STARRED_SCRIPT_NAME) + "\n")
 

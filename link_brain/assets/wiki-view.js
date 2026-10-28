@@ -1,0 +1,1978 @@
+// wiki-view.js — 个人 Wiki 页（10-29）。长相照 design-1028-wiki/prototype.design.html（design.md），结构 / 交互照 prototype.html。
+// 前面已内联 lb-page-lib.js 和 catalog-search.js（catalog.py 拼成 _archive/wiki-page.js，Wiki.md 只放引导）。
+// 数据：
+//   - 读：直接读 PersonalWiki/*.md（顶层，.history / .trash 不算），文件头解析和 personal_wiki.parse_page 同一套（含 Obsidian 块状列表）；
+//     hash = 全文（CRLF→LF）SHA-1 前 16 位，和 personal_wiki.content_hash 对得上——保存时当 base_hash 交回去。
+//     目录 / 文件夹 / 标签 / 引用 / 小标题 / 待办都在这里现算（同原型的 reindex；文件夹 = role: topic 的页 + 它的 index_tag，顺序看文件夹页的 order）。
+//   - 写：一律 provider().wikiCall(op, {args, input}) → `pwiki` 命令（单 writer），页面从不 adapter.write 进 PersonalWiki。
+//     改动先显示在界面上（乐观），写盘成功后用返回的 hash 接着存；失败按 §1.5 回滚 + 把她的改动留成「没保存上的改动」（页顶可一键再存 / 覆盖），
+//     提示固定句式「没保存上，内容还在，可重试：<原因>」。CONFLICT（别处改过）= 换成磁盘上的版本，她的那份留在页顶。
+//   - 收藏：LB.data.load() 的 items；正文引用 [标题](lwa:<id>) 点了照问收藏的做法开到右栏（provider().openArchiveSource）。
+// 渲染：沿用原型自己的块解析 + 行内渲染（它记着「块 ↔ 源码行」，点一段改一段靠它），不走 Obsidian 的 MarkdownRenderer——
+//   简单、稳、单测里可跑；代价是只认原型那几种写法（标题 / 列表 / 待办 / 引用 / 代码 / ```pages / 分隔线 / 图片 / 链接）。
+// 和设计稿的出入（见 docs/WIKI-UNIFY-LATER.md）：页头三页切换沿用现有 .lb-page-nav 胶囊；历史放在本页右侧的侧栏里（不占 Obsidian 右栏）；
+//   宽度三档用 ResizeObserver 给根加 is-mid / is-narrow（不用容器查询：容器查询会让里面的 position:fixed 弹层 / 抽屉相对 host 定位）。
+// 手机 / 插件没启用：只读（能看、能跳、能开原文，不出编辑框和写盘按钮）。
+const LB = lbPageLib(dv, app, 'wiki');
+if (await LB.reuseDom()) return;
+const D = (dv.container && dv.container.ownerDocument) || document;
+const WIN = D.defaultView || (typeof window !== 'undefined' ? window : null);
+const G = typeof globalThis !== 'undefined' ? globalThis : {};
+{ const pane = dv.container.closest && dv.container.closest('.markdown-preview-view, .markdown-source-view'); if (pane) pane.classList.add('lb-wikipage'); }
+const provider = LB.provider;
+const readOnly = !!LB.mobile || typeof provider()?.wikiCall !== 'function';
+const WDIR = 'PersonalWiki';
+const SVGNS = 'http://www.w3.org/2000/svg';
+const INDEX_DELAY_MS = 3000;   // 存完几秒后重建 _archive/wiki-index.json（给问收藏 / MCP 用），连着存只建一次
+const FONT_FILE = '_archive/fonts/CormorantGaramond-Italic-latin-variable.woff2';
+
+// ═════════════ 样式（挂 head；颜色只用 --lb-* / Obsidian 变量，字体只用 --lb-font-*；数字斜体只在 .lbw 里） ═════════════
+const fontFace = (family, rel, range, extra = '') => {
+  let u = '';
+  try { u = String(app.vault.adapter.getResourcePath?.(LB.path(rel)) || ''); } catch (e) { u = ''; }
+  return u ? `@font-face{font-family:"${family}";src:url("${u.replace(/"/g, '%22')}") format("woff2");font-weight:300 700;font-style:italic;font-display:swap;unicode-range:${range};${extra}}\n` : '';
+};
+LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_FILE, 'U+0030-0039', 'size-adjust:114%;') + `
+.markdown-preview-view.lb-wikipage,.markdown-source-view.lb-wikipage{--file-line-width:100%;}
+.lb-wikipage .markdown-preview-sizer,.lb-wikipage .markdown-preview-section,.lb-wikipage .cm-sizer,.lb-wikipage .cm-contentContainer,.lb-wikipage .cm-content,.lb-wikipage .block-language-dataviewjs{width:100%!important;max-width:none!important;}
+.lb-wikipage .inline-title,.lb-wikipage .metadata-container{display:none!important;}
+.lb-wikipage .block-language-dataviewjs{overflow:visible!important;}
+.markdown-source-view.lb-wikipage .cm-embed-block.cm-lang-dataviewjs,.markdown-source-view.lb-wikipage .cm-embed-block.cm-lang-dataviewjs:hover{overflow:visible!important;}
+.lb-wikipage :is(.el-pre:has(.block-language-dataviewjs),pre:has(.block-language-dataviewjs),.block-language-dataviewjs,.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs),.lb-wikipage :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs):hover{border:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;border-radius:0!important;}
+.lb-wikipage :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-lang-dataviewjs) .edit-block-button{display:none!important;}
+/* 根：纸和墨；「LB Digits Inline」只挂在这里的宋体 / 黑体栈最前（正文里随手写的数字也斜，别的页不受影响） */
+.lbw{--lbw-serif:"LB Digits Inline",var(--lb-font-serif);--lbw-sans:"LB Digits Inline",var(--lb-font-body);--lbw-mono:var(--font-monospace);--lbw-print:5px 5px 0 var(--lb-ink);
+  position:relative;box-sizing:border-box;padding:30px 56px 0;color:var(--lb-ink);background:var(--lb-surface);font:400 15px/1.7 var(--lbw-serif);font-variant-numeric:lining-nums;-webkit-font-smoothing:antialiased;}
+.lbw *,.lbw *::before,.lbw *::after{box-sizing:border-box;}
+.lbw [hidden]{display:none!important;}
+.lbw button{font:inherit;color:inherit;background:none;border:0;box-shadow:none;height:auto;margin:0;padding:0;border-radius:0;cursor:pointer;text-align:inherit;}
+.lbw button:hover{background:none;box-shadow:none;}
+.lbw button:focus-visible,.lbw a:focus-visible,.lbw input:focus-visible,.lbw textarea:focus-visible{outline:2px solid var(--lb-ink);outline-offset:2px;box-shadow:none;}
+.lbw a{color:inherit;}
+.lbw ::selection{background:var(--lb-ink);color:var(--lb-surface);}
+.lbw-ico{display:block;flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;}
+.lbw-kick{font:700 10.5px/1.3 var(--lb-font-title);letter-spacing:.26em;text-transform:uppercase;color:var(--lb-ink);}
+.lbw-zh{font:400 13px/1.3 var(--lbw-serif);letter-spacing:.14em;color:var(--lb-muted);}
+.lbw-cap{font:400 12.5px/1.6 var(--lbw-sans);color:var(--lb-muted);}
+.lbw-num{font-family:var(--lb-font-num);font-style:italic;font-weight:500;font-variant-numeric:lining-nums tabular-nums;font-size:1.16em;letter-spacing:.01em;}
+.lbw-code{font:.84em/1 var(--lbw-mono);color:var(--lb-muted);}
+.lbw-kbd{display:inline-block;font:500 11px/1 var(--lbw-sans);padding:3px 6px;border:1px solid var(--lb-line);border-radius:4px;color:var(--lb-muted);white-space:nowrap;}
+.lbw .lbw-pill{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 16px;border:1px solid var(--lb-ink);border-radius:999px;background:transparent;color:var(--lb-ink);font:500 13px/1 var(--lbw-sans);white-space:nowrap;}
+.lbw .lbw-pill:hover,.lbw .lbw-pill.is-solid{background:var(--lb-ink);color:var(--lb-surface);}
+.lbw .lbw-pill:disabled{opacity:.45;cursor:default;}
+.lbw .lbw-qbtn{height:32px;padding:0 12px;border-radius:999px;color:var(--lb-muted);font:400 13px var(--lbw-sans);}
+.lbw .lbw-qbtn:hover{background:var(--lb-soft);color:var(--lb-ink);}
+.lbw-sech{display:flex;align-items:center;gap:14px;margin:0 0 26px;}
+.lbw-sech .lbw-kick{font-size:12px;letter-spacing:.32em;}
+.lbw-sech .lbw-rule{flex:1;height:1px;background:var(--lb-ink);}
+.lbw-sech .lbw-cap{font-size:12px;white-space:nowrap;}
+.lbw .lbw-chev{width:28px;height:28px;display:grid;place-items:center;border-radius:999px;color:var(--lb-ink);transition:transform .15s;}
+.lbw .lbw-chev.is-shut{transform:rotate(-90deg);}
+.lbw-legend{display:flex;align-items:center;gap:14px;font:400 12px/1 var(--lbw-sans);color:var(--lb-muted);white-space:nowrap;}
+.lbw-legend i{display:inline-block;width:22px;height:0;border-top:1px solid var(--lb-muted);vertical-align:middle;margin-right:6px;}
+.lbw-legend i.is-x{border-top-style:dashed;}
+/* 页头：刻线大标题 + … + 历史；下面现有的三页胶囊 + 篇数行，压一条墨线 */
+.lbw-hrow{display:flex;align-items:flex-end;gap:14px;}
+.lbw .lbw-brand{font-size:84px;line-height:.92;transform-origin:left bottom;padding-left:.06em;}
+.lbw-acts{display:flex;align-items:center;gap:6px;padding-bottom:6px;}
+.lbw .lbw-hbtn{width:36px;height:36px;display:grid;place-items:center;border:1px solid var(--lb-line);border-radius:999px;color:var(--lb-muted);}
+.lbw .lbw-hbtn.is-more{border-color:transparent;font:500 20px/1 var(--lbw-sans);letter-spacing:.06em;}
+.lbw .lbw-hbtn:hover,.lbw .lbw-hbtn.is-on{background:var(--lb-soft);color:var(--lb-ink);}
+.lbw-hnav{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 24px;margin-top:22px;padding-bottom:12px;border-bottom:1px solid var(--lb-ink);}
+.lbw .lbw-hnav .lb-page-nav{justify-self:auto;}
+.lbw-sub{font:400 12.5px/1.2 var(--lbw-sans);color:var(--lb-muted);}
+.lbw-sub .lbw-num{color:var(--lb-ink);font-size:15px;}
+.lbw-ro{margin:14px 0 0;font:400 12.5px/1.6 var(--lbw-sans);color:var(--lb-muted);}
+/* 主体：左浮动目录 + 正文（+ 右侧历史栏） */
+.lbw-body{display:grid;grid-template-columns:minmax(0,1fr);column-gap:40px;}
+.lbw.has-side .lbw-body{grid-template-columns:minmax(0,1fr) minmax(300px,380px);}
+.lbw-main{display:grid;grid-template-columns:248px minmax(0,680px);column-gap:64px;padding:44px 0 120px;}
+.lbw.is-home .lbw-main{grid-template-columns:248px minmax(0,1fr);}
+.lbw-toc{position:sticky;top:20px;align-self:start;max-height:calc(100vh - 40px);overflow:auto;padding:0 4px 0 12px;margin-left:-12px;scrollbar-width:thin;}
+.lbw-tools{display:flex;align-items:center;height:32px;margin:0 0 12px -9px;}
+.lbw .lbw-tools button{width:32px;height:32px;display:grid;place-items:center;border-radius:999px;color:var(--lb-muted);}
+.lbw .lbw-tools button:hover,.lbw .lbw-tools button.is-on{background:var(--lb-soft);color:var(--lb-ink);}
+.lbw-say{margin-left:auto;padding-left:6px;font:400 11.5px/1 var(--lbw-sans);color:var(--lb-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lbw-findw{display:flex;align-items:center;gap:8px;height:38px;margin:0 0 14px;border-bottom:1px solid var(--lb-ink);}
+.lbw .lbw-find{flex:1;min-width:0;height:36px;border:0;border-radius:0;padding:0;background:none;box-shadow:none;color:var(--lb-ink);font:400 15px/1 var(--lbw-serif);}
+.lbw .lbw-find:focus,.lbw .lbw-find:focus-visible{outline:none;box-shadow:none;}
+.lbw-toc mark{background:none;color:var(--lb-ink);font-weight:700;text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px;}
+.lbw-tmap{margin:0 0 12px;padding:0 0 12px;border-bottom:1px solid var(--lb-line);}
+.lbw-tmap-row{display:flex;align-items:center;gap:6px;height:30px;}
+.lbw .lbw-tmap-h{display:flex;align-items:center;gap:8px;flex:1;min-width:0;height:30px;color:var(--lb-ink);}
+.lbw-tmap-h .lbw-kick{font-size:10px;}
+.lbw-tmap-h .lbw-zh{font-size:12px;letter-spacing:.12em;}
+.lbw-tmap-h .lbw-rule{flex:1;height:1px;background:var(--lb-line);}
+.lbw-tmap-h .lbw-tw{color:var(--lb-muted);transition:transform .15s;}
+.lbw-tmap-h .lbw-tw.is-shut{transform:rotate(-90deg);}
+.lbw .lbw-mpin{width:28px;height:28px;display:grid;place-items:center;border-radius:999px;color:var(--lb-muted);}
+.lbw .lbw-mpin:hover{background:var(--lb-soft);color:var(--lb-ink);}
+.lbw .lbw-mpin.is-on{color:var(--lb-ink);}
+.lbw-mpin.is-on .lbw-ico{fill:currentColor;}
+.lbw-tmap .lbw-graph{margin-top:6px;}
+.lbw .lbw-trow{position:relative;display:flex;align-items:baseline;gap:8px;width:100%;padding:4px;text-align:left;color:var(--lb-ink);font:400 14px/1.5 var(--lbw-serif);}
+.lbw-tgroup + .lbw-tgroup{margin-top:8px;}
+.lbw .lbw-tfold{padding:7px 2px 7px 0;font:600 14.5px/1.35 var(--lbw-serif);}
+.lbw-tfold .lbw-tw{flex:none;width:12px;align-self:center;color:var(--lb-muted);transition:transform .15s;transform:rotate(-90deg);}
+.lbw-tfold .lbw-tw .lbw-ico{width:12px;height:12px;stroke-width:2;}
+.lbw-tfold.is-open .lbw-tw{transform:none;}
+.lbw-tfold > .lbw-num{flex:none;min-width:14px;font-size:17px;color:var(--lb-muted);}
+.lbw-tfold .lbw-nm{min-width:0;}
+.lbw-tfold .lbw-c{margin-left:auto;font-size:16px;color:var(--lb-muted);}
+.lbw-tfold:hover .lbw-nm{text-decoration:underline;text-underline-offset:4px;}
+.lbw-tfold.is-current::before{content:"";position:absolute;left:-12px;top:9px;bottom:9px;width:2px;background:var(--lb-ink);}
+.lbw .lbw-tpage{display:block;padding:4px 4px 4px 34px;}
+.lbw .lbw-tpage:hover{background:var(--lb-soft);border-radius:2px;}
+.lbw-tpage.is-current{font-weight:700;}
+.lbw-tpage.is-current::before{content:"";position:absolute;left:20px;top:7px;bottom:7px;width:2px;background:var(--lb-ink);}
+.lbw-tpage[draggable=true]{cursor:grab;}
+.lbw-tpage[draggable=true]:hover::after{content:"\\2807";position:absolute;left:5px;top:4px;font:400 13px/1.5 var(--lbw-sans);color:var(--lb-muted);}
+.lbw-tpage.is-drop-before{box-shadow:inset 0 2px 0 var(--lb-ink);}
+.lbw-tpage.is-drop-after{box-shadow:inset 0 -2px 0 var(--lb-ink);}
+.lbw .lbw-thead{padding:2px 4px 2px 46px;font:400 12.5px/1.55 var(--lbw-serif);color:var(--lb-muted);}
+.lbw-thead .lbw-num{font-size:14px;}
+.lbw .lbw-thead.is-l3{padding-left:60px;}
+.lbw .lbw-thead.is-l4{padding-left:72px;}
+.lbw .lbw-thead.is-fold{padding-left:34px;}
+.lbw .lbw-thead:hover{color:var(--lb-ink);}
+.lbw-ttags{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:18px;padding-top:14px;border-top:1px solid var(--lb-line);}
+.lbw .lbw-ttags button{font:400 12.5px/1.6 var(--lbw-sans);color:var(--lb-muted);}
+.lbw .lbw-ttags button:hover,.lbw .lbw-ttags button.is-on{color:var(--lb-ink);text-decoration:underline;text-underline-offset:4px;}
+.lbw-tnone{margin:6px 0 0;font:400 12.5px/1.6 var(--lbw-sans);color:var(--lb-muted);}
+.lbw-fab,.lbw-scrim{display:none;}
+/* 关系图（目录小图 + 首页大图同一套） */
+.lbw-graph{display:block;width:100%;height:auto;overflow:visible;}
+.lbw-graph .e{stroke:var(--lb-line);stroke-width:1.2;}
+.lbw-graph .e.x{stroke:var(--lb-muted);stroke-width:1;stroke-dasharray:3 4;}
+.lbw-graph .nd{cursor:pointer;}
+.lbw-graph .hit{fill:transparent;}
+.lbw-graph .dot{fill:var(--lb-muted);transition:fill .12s;}
+.lbw-graph .nd:hover .dot,.lbw-graph .nd.is-cur .dot,.lbw-graph .nd.is-hub .dot{fill:var(--lb-ink);}
+.lbw-graph .nd.is-ring .dot{fill:var(--lb-surface);stroke:var(--lb-ink);stroke-width:1.3;}
+.lbw-graph .nd.is-ring:hover .dot{fill:var(--lb-soft);}
+.lbw-graph text{pointer-events:none;paint-order:stroke;stroke:var(--lb-surface);stroke-width:4px;stroke-linejoin:round;}
+.lbw-graph .lab{font:400 11.5px var(--lbw-serif);fill:var(--lb-muted);}
+.lbw-graph .lab.cur{font-weight:700;font-size:12px;fill:var(--lb-ink);}
+.lbw-graph .lab.ring{font-weight:600;fill:var(--lb-ink);}
+.lbw-graph .lab.hub{font:700 15px var(--lbw-serif);fill:var(--lb-ink);letter-spacing:.04em;}
+.lbw-graph .lab.hov{opacity:0;}
+.lbw-graph .nd:hover .lab.hov{opacity:1;fill:var(--lb-ink);}
+.lbw-graph .hubn{fill:var(--lb-surface);stroke:none;font-family:var(--lb-font-num);font-style:italic;font-weight:500;}
+/* 正文 */
+.lbw-crumb{display:flex;align-items:baseline;flex-wrap:wrap;gap:9px;font:400 13px/1.4 var(--lbw-serif);color:var(--lb-muted);}
+.lbw .lbw-crumb button{color:var(--lb-muted);font:inherit;}
+.lbw .lbw-crumb button.lbw-kick{font:700 10px/1.3 var(--lb-font-title);letter-spacing:.26em;}
+.lbw .lbw-crumb button:hover{color:var(--lb-ink);}
+.lbw-crumb .lbw-sep{color:var(--lb-faint);}
+.lbw .lbw-ptitle{display:block;width:100%;height:auto;margin:12px 0 0;padding:0 0 4px;border:0;border-bottom:1px solid transparent;border-radius:0;background:transparent;box-shadow:none;font:700 36px/1.25 var(--lbw-serif);letter-spacing:.02em;color:var(--lb-ink);}
+.lbw .lbw-ptitle:hover{border-bottom-color:var(--lb-line);}
+.lbw .lbw-ptitle:focus,.lbw .lbw-ptitle:focus-visible{outline:none;box-shadow:none;border-bottom-color:var(--lb-ink);}
+.lbw .lbw-ptitle[readonly]{border-bottom-color:transparent;}
+.lbw-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin-top:14px;font:400 12.5px/1.6 var(--lbw-sans);color:var(--lb-muted);}
+.lbw-meta .lbw-num{font-size:16px;color:var(--lb-ink);}
+.lbw-meta .lbw-dot{color:var(--lb-faint);}
+.lbw-chips{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;margin-left:4px;}
+.lbw .lbw-chip{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 11px;border:1px solid var(--lb-ink);border-radius:999px;font:400 12px/1 var(--lbw-sans);color:var(--lb-ink);text-decoration:none;}
+.lbw .lbw-chip:hover{background:var(--lb-ink);color:var(--lb-surface);}
+.lbw-chip .lbw-x{display:none;margin:0 -4px 0 2px;padding:0 3px;opacity:.7;}
+.lbw-chip:hover .lbw-x{display:inline;}
+.lbw .lbw-chipadd{display:inline-grid;place-items:center;width:24px;height:24px;border:1px dashed var(--lb-muted);border-radius:999px;color:var(--lb-muted);}
+.lbw-chipadd .lbw-ico{width:12px;height:12px;}
+.lbw .lbw-chipadd:hover{border-style:solid;border-color:var(--lb-ink);color:var(--lb-ink);}
+.lbw .lbw-chipin{height:24px;width:120px;border:0;border-bottom:1px solid var(--lb-ink);border-radius:0;padding:0 2px;background:transparent;box-shadow:none;color:var(--lb-ink);font:400 12.5px var(--lbw-sans);}
+.lbw .lbw-chipin:focus{outline:none;box-shadow:none;}
+.lbw-draft{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin-top:22px;padding:10px 14px;border:1px solid var(--lb-warn);border-radius:2px;font:400 12.5px/1.6 var(--lbw-sans);color:var(--lb-ink);}
+.lbw-draft .lbw-dt{color:var(--lb-warn);font-weight:500;}
+.lbw-draft .lbw-sp{flex:1;}
+.lbw-doc{margin-top:36px;font:400 15.5px/1.95 var(--lbw-serif);color:var(--lb-ink);overflow-wrap:anywhere;}
+.lbw-doc p{margin:0;}
+.lbw-doc h1,.lbw-doc h2,.lbw-doc h3,.lbw-doc h4{margin:0;color:var(--lb-ink);}
+.lbw-doc h1{font:700 24px/1.4 var(--lbw-serif);padding-top:28px;}
+.lbw-doc h2{display:flex;align-items:baseline;gap:12px;padding-top:26px;font:700 19px/1.4 var(--lbw-serif);}
+.lbw-doc h2::after{content:"";flex:1;align-self:center;height:1px;background:var(--lb-line);}
+.lbw-doc h3{font:700 16.5px/1.5 var(--lbw-serif);padding-top:12px;}
+.lbw-doc h4{font:600 15px/1.5 var(--lbw-serif);color:var(--lb-muted);}
+.lbw-doc .lbw-hn{font-weight:500;color:var(--lb-muted);margin-right:10px;}
+.lbw-doc h2 .lbw-hn{margin-right:0;font-size:22px;}
+.lbw-doc ul,.lbw-doc ol{margin:0;padding:0;}
+.lbw-doc ul{list-style:none;}
+.lbw-doc ol{padding-left:1.7em;}
+.lbw-doc ol > li::marker{font-family:var(--lb-font-num);font-style:italic;font-size:1.1em;color:var(--lb-muted);}
+.lbw-doc ul > li{position:relative;padding-left:24px;}
+.lbw-doc li + li{margin-top:5px;}
+.lbw-doc ul > li::before{content:"";position:absolute;left:3px;top:.98em;width:9px;height:1px;background:var(--lb-ink);}
+.lbw-doc ul > li.lbw-task{display:flex;align-items:flex-start;gap:11px;padding-left:2px;}
+.lbw-doc ul > li.lbw-task::before{display:none;}
+.lbw .lbw-task input{flex:none;appearance:none;-webkit-appearance:none;width:14px;height:14px;margin:.55em 0 0;border:1px solid var(--lb-ink);border-radius:2px;background:transparent;cursor:pointer;}
+.lbw .lbw-task input:checked{background:var(--lb-ink);box-shadow:inset 0 0 0 2.5px var(--lb-surface);}
+.lbw .lbw-task input:disabled{cursor:default;}
+.lbw-task.is-done > span{color:var(--lb-muted);text-decoration:line-through;text-decoration-color:var(--lb-faint);}
+.lbw-doc blockquote{margin:0;padding:2px 0 2px 18px;border-left:1px solid var(--lb-faint);font:400 13.5px/1.9 var(--lbw-sans);color:var(--lb-muted);}
+.lbw-doc pre{margin:0;padding:12px 0;border-top:1px solid var(--lb-line);border-bottom:1px solid var(--lb-line);background:none;overflow:auto;font:12.5px/1.7 var(--lbw-mono);color:var(--lb-ink);}
+.lbw-doc code{font:.84em var(--lbw-mono);color:var(--lb-muted);background:none;padding:0;}
+.lbw-doc pre code{color:inherit;font-size:inherit;}
+.lbw-doc hr{border:0;border-top:1px solid var(--lb-line);margin:10px 0;}
+.lbw-doc img{max-width:100%;border-radius:12px;}
+.lbw-blk{position:relative;margin:0 -16px;padding:3px 16px;border-radius:2px;transition:background-color .12s;}
+.lbw:not(.is-ro) .lbw-blk{cursor:text;}
+.lbw-blk + .lbw-blk{margin-top:12px;}
+.lbw:not(.is-ro) .lbw-blk:hover{background:var(--lb-soft);}
+.lbw .lbw-addblk{display:block;margin-top:18px;padding:4px 0;color:var(--lb-muted);cursor:text;font:400 14px/1.6 var(--lbw-serif);}
+.lbw .lbw-addblk:hover{color:var(--lb-ink);}
+.lbw .lbw-srced{display:block;width:100%;min-height:60vh;resize:vertical;margin-top:22px;border:1px solid var(--lb-ink);border-radius:2px;padding:16px 18px;background:var(--lb-surface);color:var(--lb-ink);font:13.5px/1.8 var(--lbw-mono);box-shadow:var(--lbw-print);}
+.lbw .lbw-srced:focus{outline:none;}
+.lbw-fm{margin-top:18px;font:12px/1.6 var(--lbw-mono);color:var(--lb-muted);white-space:pre;overflow:auto;}
+.lbw-hint{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin-top:56px;padding-top:14px;border-top:1px solid var(--lb-line);font:400 12px/1.6 var(--lbw-sans);color:var(--lb-muted);}
+.lbw-hint > span{display:inline-flex;align-items:center;gap:6px;}
+/* 三种可点的东西：实线 = Wiki 页；点线 + 编号圈 = 收藏；灰字 = #标签 */
+.lbw .lbw-pl{color:var(--lb-ink);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:5px;cursor:pointer;}
+.lbw .lbw-pl:hover{text-decoration-thickness:2px;}
+.lbw .lbw-ext{color:var(--lb-ink);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:5px;text-decoration-color:var(--lb-muted);}
+.lbw .lbw-ext:hover{text-decoration-color:var(--lb-ink);}
+.lbw-ext .lbw-m{margin-left:2px;font:400 .8em var(--lbw-sans);color:var(--lb-muted);}
+.lbw .lbw-cite{color:var(--lb-ink);text-decoration:underline dotted;text-decoration-thickness:1.6px;text-underline-offset:5px;text-decoration-color:var(--lb-muted);cursor:pointer;}
+.lbw .lbw-cite:hover{text-decoration-color:var(--lb-ink);}
+.lbw-cite .lbw-ref{display:inline-grid;place-items:center;min-width:18px;height:18px;margin:0 2px 0 4px;padding:0 4px;border:1px solid var(--lb-ink);border-radius:999px;vertical-align:2px;font:italic 500 13px/1 var(--lb-font-num);color:var(--lb-ink);text-decoration:none;}
+.lbw .lbw-cite.is-open{text-decoration-style:solid;text-decoration-color:var(--lb-ink);text-decoration-thickness:1px;}
+.lbw-cite.is-open .lbw-ref{background:var(--lb-ink);color:var(--lb-surface);}
+.lbw .lbw-cite.is-missing{color:var(--lb-muted);text-decoration-style:dashed;text-decoration-color:var(--lb-warn);}
+.lbw-cite.is-missing .lbw-ref{border-style:dashed;border-color:var(--lb-warn);color:var(--lb-warn);font:400 10.5px/1 var(--lbw-sans);}
+.lbw .lbw-htag{font:400 .86em var(--lbw-sans);color:var(--lb-muted);text-decoration:none;cursor:pointer;}
+.lbw .lbw-htag:hover{color:var(--lb-ink);text-decoration:underline;text-underline-offset:4px;}
+/* 自动列表 / 文件清单 */
+.lbw-plist{border-top:1px solid var(--lb-ink);}
+.lbw-plist-h{display:flex;align-items:baseline;gap:10px;padding:10px 0 6px;}
+.lbw-plist-h .lbw-kick{font-size:10px;}
+.lbw-plist-h .lbw-cap{font-size:12px;}
+.lbw-plist-h > .lbw-num{margin-left:auto;font-size:16px;color:var(--lb-muted);}
+.lbw .lbw-prow{display:grid;grid-template-columns:34px minmax(0,1fr) auto;column-gap:14px;align-items:baseline;width:100%;padding:9px 0;border-top:1px solid var(--lb-line);text-align:left;color:var(--lb-ink);text-decoration:none;font:inherit;}
+.lbw-prow > .lbw-num{font-size:16px;color:var(--lb-muted);}
+.lbw-prow > .lbw-k{font:400 11.5px/1.6 var(--lbw-sans);color:var(--lb-muted);}
+.lbw-prow .lbw-pt{min-width:0;}
+.lbw-prow .lbw-t{display:block;font:600 15px/1.5 var(--lbw-serif);}
+.lbw-prow .lbw-l{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font:400 13px/1.6 var(--lbw-serif);color:var(--lb-muted);}
+.lbw-prow .lbw-d{font:400 12px/1.6 var(--lbw-sans);color:var(--lb-muted);}
+.lbw-prow .lbw-d.lbw-num{font-size:14px;}
+.lbw .lbw-prow:hover .lbw-t{text-decoration:underline;text-underline-offset:4px;}
+.lbw-rest{margin-top:48px;}
+.lbw-rnone{margin:10px 0 0;color:var(--lb-muted);font:400 13px/1.6 var(--lbw-sans);}
+/* 编辑态：墨线框 + 错版投影，上面压一条黑色层级条 */
+.lbw-edbar{position:relative;z-index:2;display:flex;flex-wrap:wrap;align-items:center;gap:2px;width:max-content;max-width:calc(100% - 4px);margin:22px 0 -18px -4px;padding:4px;border-radius:999px;background:var(--lb-ink);color:var(--lb-surface);font:400 12.5px/1 var(--lbw-sans);}
+.lbw .lbw-edbar button{height:28px;padding:0 11px;border-radius:999px;color:inherit;font:inherit;}
+.lbw .lbw-edbar button:hover{background:color-mix(in srgb,var(--lb-surface) 16%,transparent);}
+.lbw .lbw-edbar button.is-on{background:var(--lb-surface);color:var(--lb-ink);font-weight:500;}
+.lbw .lbw-edbar button:disabled{opacity:.45;cursor:default;background:none;}
+.lbw-edbar .lbw-sep{width:1px;height:14px;margin:0 5px;background:var(--lb-surface);opacity:.28;}
+.lbw-edbar .lbw-k{padding:0 12px 0 8px;opacity:.62;font-size:11.5px;white-space:nowrap;}
+.lbw .lbw-ed{display:block;width:calc(100% + 32px);height:auto;margin:0 -16px;min-height:3.2em;resize:none;overflow:hidden;padding:28px 16px 12px;border:1px solid var(--lb-ink);border-radius:2px;background:var(--lb-surface);box-shadow:var(--lbw-print);color:var(--lb-ink);font:400 15.5px/1.95 var(--lbw-serif);}
+.lbw .lbw-ed:focus{outline:none;box-shadow:var(--lbw-print);}
+.lbw-ed + .lbw-blk,.lbw-blk + .lbw-edbar{margin-top:18px;}
+/* 目录首页 */
+.lbw-gap{margin-top:80px;}
+.lbw-ov{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px 32px;}
+.lbw-ov .lbw-big{display:block;font:italic 400 88px/.9 var(--lb-font-num);letter-spacing:-.01em;font-variant-numeric:lining-nums;color:var(--lb-ink);}
+.lbw-ov .lbw-lab{display:block;margin-top:14px;font:400 14px/1.4 var(--lbw-sans);color:var(--lb-ink);}
+.lbw-folders{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:40px;}
+.lbw .lbw-fold{position:relative;display:block;height:300px;width:100%;text-align:left;color:var(--lb-ink);font:inherit;}
+.lbw-fold-tab{position:absolute;left:0;top:0;width:46%;height:36px;display:flex;align-items:center;padding:0 14px;border:1px solid var(--lb-ink);border-bottom:0;border-radius:10px 16px 0 0;background:var(--lb-soft);}
+.lbw-fold-tab .lbw-kick{font-size:9.5px;letter-spacing:.22em;white-space:nowrap;overflow:hidden;}
+.lbw-fold-back{position:absolute;left:0;right:0;top:35px;bottom:0;border:1px solid var(--lb-ink);border-radius:0 14px 14px 14px;background:var(--lb-soft);}
+.lbw-fold-sheet{position:absolute;left:30%;right:6%;top:18px;height:150px;padding:12px 14px;border:1px solid var(--lb-line);border-radius:2px;background:var(--lb-surface);transform:rotate(-2.2deg);transform-origin:20% 100%;transition:transform .28s cubic-bezier(.2,.8,.2,1);font:400 10.5px/1.75 var(--lbw-sans);color:var(--lb-muted);overflow:hidden;white-space:nowrap;}
+.lbw-fold-sheet.is-s2{left:42%;right:2%;top:26px;transform:rotate(3deg);transform-origin:80% 100%;}
+.lbw-fold-sheet .lbw-num{font-size:12px;margin-right:4px;}
+.lbw-fold-sheet span{display:block;overflow:hidden;text-overflow:ellipsis;}
+.lbw-fold-face{position:absolute;left:0;right:0;top:82px;bottom:0;display:flex;flex-direction:column;padding:18px 22px 20px;border:1px solid var(--lb-ink);border-radius:2px 14px 14px 14px;background:var(--lb-surface);transition:transform .2s,box-shadow .2s;}
+.lbw .lbw-fold:hover .lbw-fold-face,.lbw .lbw-fold:focus-visible .lbw-fold-face{transform:translate(-3px,-3px);box-shadow:var(--lbw-print);}
+.lbw .lbw-fold:hover .lbw-fold-sheet{transform:translateY(-14px) rotate(-4deg);}
+.lbw .lbw-fold:hover .lbw-fold-sheet.is-s2{transform:translateY(-8px) rotate(5deg);}
+.lbw-fold-num{position:absolute;right:20px;top:12px;font:italic 500 96px/1 var(--lb-font-num);font-variant-numeric:lining-nums;color:var(--lb-ink);}
+.lbw-fold-dots{display:flex;flex-wrap:wrap;gap:6px;max-width:56%;margin-top:4px;}
+.lbw-fold-dots i{display:block;width:7px;height:7px;border-radius:50%;background:var(--lb-ink);}
+.lbw-fold-dots i.is-o{background:none;box-shadow:inset 0 0 0 1.2px var(--lb-ink);}
+.lbw-fold-name{margin-top:auto;font:700 30px/1.15 var(--lbw-serif);letter-spacing:.02em;overflow-wrap:anywhere;}
+.lbw-fold-cap{margin-top:8px;font:400 12px/1.4 var(--lbw-sans);color:var(--lb-muted);}
+.lbw-fold-cap .lbw-num{font-size:15px;color:var(--lb-ink);}
+.lbw-fold.is-loose .lbw-fold-tab,.lbw-fold.is-loose .lbw-fold-back,.lbw-fold.is-loose .lbw-fold-face{border-style:dashed;}
+.lbw-fold.is-new .lbw-fold-tab,.lbw-fold.is-new .lbw-fold-face{border:1px dashed var(--lb-muted);background:none;}
+.lbw-fold.is-new .lbw-fold-tab{border-bottom:0;}
+.lbw-fold.is-new .lbw-fold-face{top:35px;align-items:center;justify-content:center;gap:6px;border-radius:0 14px 14px 14px;}
+.lbw .lbw-fold.is-new:hover .lbw-fold-face{transform:none;box-shadow:none;border-color:var(--lb-ink);}
+.lbw-fold.is-new .lbw-plus{font:300 64px/1 var(--lb-font-num);color:var(--lb-muted);}
+.lbw-map{position:relative;padding:34px 30px 30px;background-color:var(--lb-surface);background-image:radial-gradient(var(--lb-line) 1.1px,transparent 1.3px);background-size:20px 20px;}
+.lbw-map .lbw-crop{position:absolute;width:14px;height:14px;border:0 solid var(--lb-ink);}
+.lbw-map .is-tl{left:0;top:0;border-left-width:1px;border-top-width:1px;}
+.lbw-map .is-tr{right:0;top:0;border-right-width:1px;border-top-width:1px;}
+.lbw-map .is-bl{left:0;bottom:0;border-left-width:1px;border-bottom-width:1px;}
+.lbw-map .is-br{right:0;bottom:0;border-right-width:1px;border-bottom-width:1px;}
+.lbw-map .lbw-corner{position:absolute;font:400 11px/1 var(--lbw-sans);color:var(--lb-muted);letter-spacing:.04em;}
+.lbw-map .lbw-corner .lbw-num{font-size:15px;color:var(--lb-ink);}
+.lbw-map .lbw-corner.is-n{left:16px;top:12px;}
+.lbw-map .lbw-corner.is-mark{right:18px;bottom:14px;font:700 9px/1 var(--lb-font-title);letter-spacing:.24em;}
+.lbw-fhead{display:flex;align-items:flex-end;gap:22px;margin-top:10px;}
+.lbw-fhead .lbw-big{flex:none;font:italic 500 128px/.78 var(--lb-font-num);font-variant-numeric:lining-nums;letter-spacing:-.02em;color:var(--lb-ink);}
+.lbw .lbw-fhead .lbw-ptitle{margin:0;font-size:42px;line-height:1.1;padding-bottom:6px;}
+/* 右侧历史栏（设计稿放在 Obsidian 右栏；这里放在本页里，见文件头） */
+.lbw-side{position:sticky;top:20px;align-self:start;max-height:calc(100vh - 40px);overflow:auto;margin-top:44px;padding:0 0 40px 24px;border-left:1px solid var(--lb-line);}
+.lbw-rbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;font:400 13.5px/1.4 var(--lbw-sans);color:var(--lb-muted);}
+.lbw .lbw-rbar button{color:var(--lb-muted);font:inherit;}
+.lbw .lbw-rbar button:hover{color:var(--lb-ink);}
+.lbw-rbar .is-on{color:var(--lb-ink);font-weight:600;}
+.lbw-verbar{display:flex;align-items:center;gap:10px;margin:22px 0 14px;}
+.lbw .lbw-verbar input{flex:1;min-width:0;height:34px;border:0;border-bottom:1px solid var(--lb-ink);border-radius:0;padding:0;background:transparent;box-shadow:none;color:var(--lb-ink);font:400 14px var(--lbw-serif);}
+.lbw .lbw-verbar input:focus{outline:none;box-shadow:none;}
+.lbw .lbw-ver{display:grid;grid-template-columns:auto 1fr auto;gap:2px 12px;align-items:baseline;width:100%;padding:9px 6px;border-top:1px solid var(--lb-line);text-align:left;font:400 14px/1.5 var(--lbw-serif);}
+.lbw .lbw-ver:hover,.lbw .lbw-ver.is-on{background:var(--lb-soft);}
+.lbw-ver .lbw-k{font:400 11px/1.6 var(--lbw-sans);border:1px solid var(--lb-line);border-radius:999px;padding:0 8px;color:var(--lb-muted);}
+.lbw-ver.is-on .lbw-k{border-color:var(--lb-ink);color:var(--lb-ink);}
+.lbw-ver .lbw-w{grid-column:2/4;color:var(--lb-muted);font-size:13px;}
+.lbw-note{font:400 12px/1.65 var(--lbw-sans);color:var(--lb-muted);}
+.lbw-diff{font:12.5px/1.65 var(--lbw-mono);border-top:1px solid var(--lb-ink);border-bottom:1px solid var(--lb-line);overflow:auto;max-height:46vh;margin:12px 0;}
+.lbw-diff div{padding:0 8px;white-space:pre-wrap;word-break:break-all;}
+.lbw-diff .is-a{background:color-mix(in srgb,var(--lb-ok) 14%,transparent);}
+.lbw-diff .is-d{background:color-mix(in srgb,var(--lb-danger) 12%,transparent);text-decoration:line-through;text-decoration-color:var(--lb-muted);}
+.lbw-diff .is-c{color:var(--lb-muted);}
+/* 弹层（@ 补全、菜单、新建）：墨线框 + 错版投影 */
+.lbw-pop{position:fixed;z-index:30;min-width:240px;max-width:380px;background:var(--lb-surface);border:1px solid var(--lb-ink);border-radius:2px;box-shadow:var(--lbw-print);padding:0 0 4px;color:var(--lb-ink);}
+.lbw-pop.is-menu{padding:4px 0;}
+.lbw-pop.is-sug{width:380px;}
+.lbw-pop .lbw-ph{display:flex;align-items:center;gap:10px;padding:11px 14px 9px;margin-bottom:4px;border-bottom:1px solid var(--lb-line);}
+.lbw-pop .lbw-ph .lbw-kick{font-size:10px;}
+.lbw-pop .lbw-ph .lbw-cap{font-size:12px;}
+.lbw-pop .lbw-ph .lbw-q{margin-left:auto;font:600 13px var(--lbw-serif);color:var(--lb-ink);}
+.lbw .lbw-pop button{display:block;width:100%;text-align:left;padding:8px 14px;font:500 14px/1.45 var(--lbw-serif);color:var(--lb-ink);}
+.lbw-pop button small{display:block;margin-top:2px;font:400 11.5px/1.4 var(--lbw-sans);color:var(--lb-muted);}
+.lbw .lbw-pop button:hover{background:var(--lb-soft);}
+.lbw .lbw-pop button.is-on{background:var(--lb-ink);color:var(--lb-surface);}
+.lbw-pop button.is-on small{color:var(--lb-surface);opacity:.72;}
+.lbw .lbw-pop button:disabled{opacity:.45;cursor:default;background:none;color:var(--lb-ink);}
+.lbw-pop hr{border:0;border-top:1px solid var(--lb-line);margin:4px 0;}
+.lbw-pop .lbw-pf{display:flex;flex-wrap:wrap;gap:4px 14px;padding:8px 14px 6px;margin-top:4px;border-top:1px solid var(--lb-line);font:400 11px/1.4 var(--lbw-sans);color:var(--lb-muted);}
+.lbw-mbg{position:fixed;inset:0;z-index:40;background:var(--background-modifier-cover);display:grid;place-items:center;padding:16px;}
+.lbw-modal{width:min(440px,100%);background:var(--lb-surface);border:1px solid var(--lb-ink);border-radius:2px;padding:24px 26px 22px;display:grid;gap:20px;box-shadow:var(--lbw-print);color:var(--lb-ink);}
+.lbw-modal .lbw-mh{display:grid;gap:6px;}
+.lbw-modal .lbw-mh .lbw-kick{font-size:10px;color:var(--lb-muted);}
+.lbw-modal h3{margin:0;font:700 22px/1.3 var(--lbw-serif);letter-spacing:.02em;}
+.lbw-modal label{display:grid;gap:4px;font:400 12.5px/1.5 var(--lbw-sans);color:var(--lb-muted);}
+.lbw .lbw-modal input[type=text],.lbw .lbw-modal select{height:38px;border:0;border-bottom:1px solid var(--lb-ink);border-radius:0;padding:0;background:var(--lb-surface);box-shadow:none;color:var(--lb-ink);font:400 16px var(--lbw-serif);}
+.lbw .lbw-modal input[type=text]:focus,.lbw .lbw-modal select:focus{outline:none;box-shadow:none;border-bottom-width:2px;}
+.lbw-modal label.lbw-chk{display:flex;gap:10px;align-items:center;color:var(--lb-ink);font-size:13px;}
+.lbw .lbw-modal .lbw-chk input{appearance:none;-webkit-appearance:none;width:14px;height:14px;margin:0;border:1px solid var(--lb-ink);border-radius:2px;cursor:pointer;}
+.lbw .lbw-modal .lbw-chk input:checked{background:var(--lb-ink);box-shadow:inset 0 0 0 2.5px var(--lb-surface);}
+.lbw-modal .lbw-acts2{display:flex;justify-content:flex-end;align-items:center;gap:8px;}
+/* 中等宽（右边开着原文格）：目录变窄；再窄：目录收成左下角「目录」，点开从底部升起 */
+.lbw.is-mid{padding:24px 32px 0;}
+.lbw.is-mid .lbw-brand{font-size:64px;}
+.lbw.is-mid .lbw-main,.lbw.is-mid.is-home .lbw-main{grid-template-columns:200px minmax(0,1fr);column-gap:40px;padding-top:36px;}
+.lbw.is-mid .lbw-ptitle{font-size:32px;}
+.lbw.is-mid .lbw-ov .lbw-big{font-size:72px;}
+.lbw.is-mid .lbw-fhead .lbw-big{font-size:104px;}
+.lbw.is-mid .lbw-fhead .lbw-ptitle{font-size:36px;}
+.lbw.is-mid.has-side .lbw-body{grid-template-columns:minmax(0,1fr);}
+.lbw.is-mid .lbw-side{position:fixed;top:0;right:0;bottom:0;width:min(400px,100%);max-height:none;z-index:20;margin:0;padding:26px 24px 40px;background:var(--lb-surface);border-left:1px solid var(--lb-ink);}
+.lbw.is-narrow{padding:18px 18px 0;}
+.lbw.is-narrow .lbw-brand{font-size:46px;}
+.lbw.is-narrow .lbw-hrow{gap:8px;}
+.lbw.is-narrow .lbw-acts{padding-bottom:2px;gap:2px;}
+.lbw.is-narrow .lbw-hnav{flex-direction:column-reverse;align-items:flex-start;gap:10px;margin-top:14px;}
+.lbw.is-narrow .lbw-main,.lbw.is-narrow.is-home .lbw-main{display:block;padding:30px 0 120px;}
+.lbw.is-narrow .lbw-ptitle{font-size:28px;margin-top:10px;}
+.lbw.is-narrow .lbw-meta{margin-top:10px;}
+.lbw.is-narrow .lbw-chips{margin-left:0;}
+.lbw.is-narrow .lbw-doc{margin-top:28px;}
+.lbw.is-narrow .lbw-doc h2{padding-top:22px;font-size:18px;}
+.lbw.is-narrow .lbw-edbar{border-radius:18px;}
+.lbw.is-narrow .lbw-toc{display:none;position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;margin:0;max-height:78vh;z-index:15;background:var(--lb-surface);border-top:1px solid var(--lb-ink);border-radius:18px 18px 0 0;padding:26px 20px 28px;}
+.lbw.is-narrow .lbw-toc::before{content:"";position:absolute;left:50%;top:10px;width:40px;height:4px;margin-left:-20px;border-radius:999px;background:var(--lb-line);}
+.lbw.is-narrow .lbw-toc.is-open{display:block;}
+.lbw.is-narrow .lbw-toc.is-open + .lbw-scrim{display:block;position:fixed;inset:0;z-index:14;background:var(--background-modifier-cover);}
+.lbw.is-narrow .lbw-tools button,.lbw.is-narrow .lbw-mpin{width:44px;height:44px;}
+.lbw.is-narrow .lbw-tpage{padding-top:9px;padding-bottom:9px;}
+.lbw.is-narrow .lbw-tmap .lbw-graph{max-width:280px;margin-left:auto;margin-right:auto;}
+.lbw.is-narrow .lbw-fab{display:inline-flex;align-items:center;gap:8px;position:fixed;left:16px;bottom:22px;z-index:13;height:44px;padding:0 18px 0 14px;border:1px solid var(--lb-ink);border-radius:999px;background:var(--lb-surface);box-shadow:3px 3px 0 var(--lb-ink);font:500 14px/1 var(--lbw-sans);color:var(--lb-ink);}
+.lbw.is-narrow .lbw-sech{gap:10px;margin-bottom:20px;}
+.lbw.is-narrow .lbw-sech .lbw-cap,.lbw.is-narrow .lbw-sech .lbw-legend{display:none;}
+.lbw.is-narrow .lbw-gap{margin-top:52px;}
+.lbw.is-narrow .lbw-ov{grid-template-columns:repeat(2,minmax(0,1fr));gap:26px 18px;}
+.lbw.is-narrow .lbw-ov .lbw-big{font-size:64px;}
+.lbw.is-narrow .lbw-folders{grid-template-columns:repeat(2,minmax(0,1fr));gap:24px 16px;}
+.lbw.is-narrow .lbw-fold{height:206px;}
+.lbw.is-narrow .lbw-fold-tab{height:28px;padding:0 10px;}
+.lbw.is-narrow .lbw-fold-back{top:27px;}
+.lbw.is-narrow .lbw-fold-sheet{left:49%;right:5%;top:12px;height:96px;padding:8px 10px;font-size:9.5px;}
+.lbw.is-narrow .lbw-fold-sheet.is-s2{display:none;}
+.lbw.is-narrow .lbw-fold-face{top:58px;padding:12px 14px 14px;}
+.lbw.is-narrow .lbw-fold-num{right:12px;top:6px;font-size:58px;}
+.lbw.is-narrow .lbw-fold-name{font-size:21px;}
+.lbw.is-narrow .lbw-fold.is-new .lbw-fold-face{top:27px;}
+.lbw.is-narrow .lbw-map{padding:26px 6px 22px;}
+.lbw.is-narrow .lbw-fhead{gap:14px;}
+.lbw.is-narrow .lbw-fhead .lbw-big{font-size:76px;}
+.lbw.is-narrow .lbw-fhead .lbw-ptitle{font-size:28px;}
+.lbw.is-narrow .lbw-hint{margin-top:44px;}
+@media (prefers-reduced-motion: reduce){.lbw-fold-sheet,.lbw-fold-face,.lbw-tw,.lbw-chev{transition:none;}}
+${LB.brandCss('.lbw .lbw-brand', '.lbw .lbw-engr')}
+.lbw .lbw-brand{font-size:84px;line-height:.92;transform-origin:left bottom;}
+.lbw.is-mid .lbw-brand{font-size:64px;}
+.lbw.is-narrow .lbw-brand{font-size:46px;}
+`);
+
+// ═════════════ 小工具 ═════════════
+const pad2 = n => String(n).padStart(2, '0');
+const norm = s => String(s || '').trim().toLowerCase();
+const toDate = v => { if (!v) return null; const d = new Date(v); return isNaN(d) ? null : d; };
+const fmtAt = v => { const d = toDate(v); return d ? `${d.getFullYear()}.${pad2(d.getMonth() + 1)}.${pad2(d.getDate())}` : ''; };
+const mmdd = v => { const d = toDate(v); return d ? `${pad2(d.getMonth() + 1)}.${pad2(d.getDate())}` : ''; };
+const fmtTime = v => { const d = toDate(v); return d ? `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}` : ''; };
+const errText = e => String((e && e.message) || e || '未知原因');
+const cmpStr = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+// 建元素：h(tag, {cls, text, attr, data, on}, ...子节点)；子节点可以是字符串 / 元素 / 数组 / null
+function add(el, kids) {
+  for (const k of [kids].flat(Infinity)) if (k != null && k !== false && k !== '') el.append(typeof k === 'object' ? k : String(k));
+  return el;
+}
+function h(tag, p, ...kids) {
+  const e = D.createElement(tag);
+  if (p) {
+    if (p.cls) e.className = p.cls;
+    if (p.text != null) e.textContent = String(p.text);
+    if (p.attr) for (const [k, v] of Object.entries(p.attr)) if (v != null && v !== false) e.setAttribute(k, v === true ? '' : String(v));
+    if (p.data) for (const [k, v] of Object.entries(p.data)) if (v != null) e.dataset[k] = String(v);
+    if (p.on) for (const [k, f] of Object.entries(p.on)) e.addEventListener(k, f);
+  }
+  return add(e, kids);
+}
+const btn = (p, ...kids) => { const b = h('button', { ...p, attr: { type: 'button', ...(p && p.attr) } }, ...kids); return b; };
+const S = (tag, attrs, ...kids) => { const e = D.createElementNS(SVGNS, tag); for (const [k, v] of Object.entries(attrs || {})) if (v != null) e.setAttribute(k, String(v)); return add(e, kids); };
+const sr = text => h('span', { cls: 'lb-visually-hidden', text });   // 给读屏的隐藏文字（不用 title / aria-label：Obsidian 会画成浮框）
+const NUM = s => h('span', { cls: 'lbw-num', text: s });
+// 文字里的数字包成斜体数字
+function nums(str) { const out = []; let last = 0; const s = String(str ?? ''); for (const m of s.matchAll(/\d[\d.:/%,]*/g)) { if (m.index > last) out.push(s.slice(last, m.index)); out.push(NUM(m[0])); last = m.index + m[0].length; } if (last < s.length) out.push(s.slice(last)); return out; }
+const kbd = t => h('span', { cls: 'lbw-kbd', text: t });
+let uid = 0;
+const nextId = pre => `lbw-${pre}-${++uid}`;
+const ICONS = {
+  home: [['rect', { x: 4, y: 4, width: 6.5, height: 6.5, rx: 1 }], ['rect', { x: 13.5, y: 4, width: 6.5, height: 6.5, rx: 1 }], ['rect', { x: 4, y: 13.5, width: 6.5, height: 6.5, rx: 1 }], ['rect', { x: 13.5, y: 13.5, width: 6.5, height: 6.5, rx: 1 }]],
+  pin: [['path', { d: 'M9 3h6l-1 6 4 4H6l4-4z' }], ['path', { d: 'M12 13v8' }]],
+  find: [['circle', { cx: 11, cy: 11, r: 6.5 }], ['path', { d: 'm20 20-4.2-4.2' }]],
+  up: [['path', { d: 'm7 11 5-5 5 5' }], ['path', { d: 'm7 18 5-5 5 5' }]],
+  down: [['path', { d: 'm7 6 5 5 5-5' }], ['path', { d: 'm7 13 5 5 5-5' }]],
+  plus: [['path', { d: 'M12 5v14M5 12h14' }]],
+  fold: [['path', { d: 'm6 9 6 6 6-6' }]],
+  panel: [['rect', { x: 3.5, y: 4.5, width: 17, height: 15, rx: 2 }], ['path', { d: 'M9.5 4.5v15' }]],
+  hist: [['path', { d: 'M3 3v5h5' }], ['path', { d: 'M3.05 13A9 9 0 1 0 6 5.3L3 8' }], ['path', { d: 'M12 7v5l3.5 2' }]],
+  list: [['path', { d: 'M4 7h16M4 12h16M4 17h10' }]],
+};
+const icon = name => S('svg', { class: 'lbw-ico', viewBox: '0 0 24 24', 'aria-hidden': 'true' }, (ICONS[name] || []).map(([t, a]) => S(t, a)));
+
+// SHA-1（和 personal_wiki.content_hash 同口径：CRLF / 单独的 CR → LF，UTF-8）；没有 crypto.subtle 时用下面的纯 JS 版
+function sha1js(bytes) {
+  const ml = bytes.length, len = ((ml + 9 + 63) >> 6) << 6;
+  const buf = new Uint8Array(len); buf.set(bytes); buf[ml] = 0x80;
+  const view = new DataView(buf.buffer);
+  view.setUint32(len - 4, (ml * 8) >>> 0); view.setUint32(len - 8, Math.floor(ml * 8 / 4294967296));
+  let h0 = 0x67452301, h1 = 0xEFCDAB89, h2 = 0x98BADCFE, h3 = 0x10325476, h4 = 0xC3D2E1F0;
+  const w = new Uint32Array(80);
+  for (let o = 0; o < len; o += 64) {
+    for (let i = 0; i < 16; i++) w[i] = view.getUint32(o + i * 4);
+    for (let i = 16; i < 80; i++) { const x = w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]; w[i] = (x << 1) | (x >>> 31); }
+    let a = h0, b = h1, c = h2, d = h3, e = h4;
+    for (let i = 0; i < 80; i++) {
+      const f = i < 20 ? (b & c) | (~b & d) : i < 40 ? b ^ c ^ d : i < 60 ? (b & c) | (b & d) | (c & d) : b ^ c ^ d;
+      const k = i < 20 ? 0x5A827999 : i < 40 ? 0x6ED9EBA1 : i < 60 ? 0x8F1BBCDC : 0xCA62C1D6;
+      const t = (((a << 5) | (a >>> 27)) + f + e + k + w[i]) >>> 0;
+      e = d; d = c; c = ((b << 30) | (b >>> 2)) >>> 0; b = a; a = t;
+    }
+    h0 = (h0 + a) >>> 0; h1 = (h1 + b) >>> 0; h2 = (h2 + c) >>> 0; h3 = (h3 + d) >>> 0; h4 = (h4 + e) >>> 0;
+  }
+  return [h0, h1, h2, h3, h4].map(x => x.toString(16).padStart(8, '0')).join('');
+}
+async function sha1hex(text) {
+  const bytes = new TextEncoder().encode(String(text ?? '').replace(/\r\n?/g, '\n'));
+  const c = typeof crypto !== 'undefined' ? crypto : null;
+  if (c && c.subtle && typeof c.subtle.digest === 'function') {
+    try { const out = await c.subtle.digest('SHA-1', bytes); return [...new Uint8Array(out)].map(b => b.toString(16).padStart(2, '0')).join(''); }
+    catch (e) { console.debug('[lb] wiki sha1 退回纯 JS', e); }
+  }
+  return sha1js(bytes);
+}
+const contentHash = async text => (await sha1hex(text)).slice(0, 16);
+
+// ═════════════ 页面文件：文件头 + 正文（和 personal_wiki.parse_page 同一套） ═════════════
+const FIELD_ORDER = ['id', 'title', 'role', 'index_tag', 'order', 'tags', 'created', 'updated'];
+const cleanTag = t => String(t ?? '').replace(/[\s,，#\[\]"]+/g, '').trim();
+const RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\..*)?$/i;
+const validId = id => /^[\p{L}\p{N}\p{M}_-]{1,64}$/u.test(id || '') && !RESERVED.test(id);
+const unquote = s => s.replace(/^['"]+|['"]+$/g, '');
+function scalar(v) {
+  v = v.trim();
+  if (v.startsWith('"') || v.startsWith('[')) {
+    try { return JSON.parse(v); }
+    catch (e) { if (v.startsWith('[')) return v.slice(1, -1).split(',').map(s => unquote(s.trim())).filter(Boolean); }   // 原型写的 [a, b]（不带引号）
+  }
+  return v;
+}
+function parsePage(text) {
+  text = String(text).replace(/\r\n/g, '\n');
+  const meta = {};
+  let body = text;
+  const m = /^---\n([\s\S]*?)\n---\n?/.exec(text);
+  if (m) {
+    body = text.slice(m[0].length);
+    const groups = [];
+    for (const line of m[1].split('\n')) {
+      if (groups.length && (!line.trim() || line[0] === ' ' || line[0] === '\t' || line.startsWith('- ') || line === '-')) groups[groups.length - 1].push(line);
+      else if (line.trim()) groups.push([line]);
+    }
+    for (const g of groups) {
+      while (g.length > 1 && !g[g.length - 1].trim()) g.pop();
+      const mm = /^([\w-]+):\s*(.*)$/.exec(g[0]);
+      if (!mm || !FIELD_ORDER.includes(mm[1])) continue;
+      const items = g.slice(1).filter(x => /^\s*-/.test(x)).map(x => x.replace(/^\s*-\s?/, '').trim());
+      if (!mm[2].trim() && items.length) meta[mm[1]] = items.filter(Boolean).map(x => (x.startsWith('"') ? scalar(x) : x.replace(/^'+|'+$/g, '')));
+      else meta[mm[1]] = scalar(mm[2]);
+    }
+  }
+  const asList = v => (typeof v === 'string' ? [v] : Array.isArray(v) ? v : []).filter(x => String(x).trim());
+  const role = String(meta.role || 'page');
+  return {
+    id: String(meta.id || ''), title: String(meta.title || '').trim(), role: role === 'topic' ? 'topic' : 'page',
+    index_tag: cleanTag(meta.index_tag), order: asList(meta.order).map(String), tags: asList(meta.tags).map(cleanTag).filter(Boolean),
+    created: String(meta.created || ''), updated: String(meta.updated || ''), body: body.replace(/^\n+/, ''),
+  };
+}
+
+// ═════════════ 索引（从正文派生，同原型 reindex / personal_wiki.derive） ═════════════
+const CITE_RE = /\[([^\]\n]+)\]\(lwa:([\w-]+)\)/g;
+const WL_RE = /\[\[([^\]|\n]+)(?:\|([^\]\n]+))?\]\]/g;
+const TAG_RE = /(?:^|(?<=[\s(（，。、；：·]))#([^\s#\[\]()（）,，。、;；:：!！?？"'<>*`·]+)/gm;
+const stripCode = body => String(body || '').replace(/```[\s\S]*?```/g, m => m.replace(/[^\n]/g, ''));
+const plain = s => String(s || '').replace(WL_RE, (_, t, a) => a || t).replace(CITE_RE, '$1').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/[*`]/g, '').trim();
+function leadOf(p) {
+  const blocks = stripCode(p.body).split(/\n\s*\n/).map(s => s.trim()).filter(Boolean);
+  for (const b of blocks) if (!/^(#|>|[-*+]\s|\d+\.)/.test(b)) return plain(b.split('\n')[0]).slice(0, 80);
+  for (const b of blocks) { const m = /^\s*([-*+]|\d+\.)\s+(\[[ xX]\]\s+)?(.*)$/.exec(b.split('\n')[0]); if (m) return plain(m[3]).slice(0, 80); }
+  return '';
+}
+function derive(p) {
+  const b = stripCode(p.body);
+  p._cites = [...new Set([...b.matchAll(CITE_RE)].map(m => m[2]))];
+  const inline = [...new Set([...b.matchAll(TAG_RE)].map(m => m[1]).filter(t => !/^\d+$/.test(t)))];
+  p._allTags = [...new Set([...(p.tags || []), ...inline])];
+  p._heads = []; p._tasks = [];
+  b.split('\n').forEach((l, i) => {
+    const hh = /^(#{1,4})\s+(.*)$/.exec(l); if (hh) p._heads.push({ level: hh[1].length, text: plain(hh[2]), line: i });
+    const t = /^\s*[-*+]\s+\[( |x|X)\]\s+(.*)$/.exec(l); if (t) p._tasks.push({ done: t[1] !== ' ', text: plain(t[2]), line: i });
+  });
+  p._lead = leadOf(p);
+  p._chars = String(p.body || '').replace(/\s/g, '').length;
+  return p;
+}
+const PAGES = new Map();
+let IDX = { byTitle: new Map(), byTag: new Map(), catTags: new Set() };
+function reindex() {
+  const byTitle = new Map(), byTag = new Map(), catTags = new Set();
+  for (const p of PAGES.values()) {
+    if (!p._heads) derive(p);
+    byTitle.set(norm(p.title), p);
+    if (p.role === 'topic' && p.index_tag) catTags.add(p.index_tag);
+    for (const t of p._allTags) { if (!byTag.has(t)) byTag.set(t, []); byTag.get(t).push(p); }
+  }
+  IDX = { byTitle, byTag, catTags };
+}
+const pageByTitle = t => IDX.byTitle.get(norm(t)) || null;
+const byUpdated = (a, b) => String(b.updated || '').localeCompare(String(a.updated || ''));
+// 文件夹编号按建立先后（created），改名 / 改内容不会让编号跳
+const topics = () => [...PAGES.values()].filter(p => p.role === 'topic' && p.index_tag).sort((a, b) => cmpStr(a.created || '~', b.created || '~') || cmpStr(a.file || '', b.file || ''));
+const folderOf = tag => topics().find(p => p.index_tag === tag) || null;
+const foldersOf = p => p._allTags.filter(t => IDX.catTags.has(t)).map(folderOf).filter(Boolean);
+const citedBy = id => [...PAGES.values()].filter(p => p._cites.includes(id));
+function pagesIn(t) {
+  const list = (IDX.byTag.get(t.index_tag) || []).filter(p => p.role === 'page');
+  const rank = id => { const k = (t.order || []).indexOf(id); return k < 0 ? 1e6 : k; };
+  return list.sort((a, b) => rank(a.id) - rank(b.id) || byUpdated(a, b));
+}
+const loosePages = () => [...PAGES.values()].filter(p => p.role === 'page' && !foldersOf(p).length).sort(byUpdated);
+const savedOf = p => ({ title: p.title, tags: [...(p.tags || [])], body: p.body, order: [...(p.order || [])] });
+const sameState = (a, b) => !!a && !!b && a.title === b.title && a.body === b.body && (a.tags || []).join('\n') === (b.tags || []).join('\n') && (a.order || []).join('\n') === (b.order || []).join('\n');
+
+// ═════════════ 读盘（快，不起 Python） ═════════════
+const wdir = () => LB.path(WDIR);
+const isPageFile = f => /\.md$/i.test(f) && !f.slice(wdir().length + 1).includes('/');
+async function listPages() {
+  let listing;
+  try { listing = await app.vault.adapter.list(wdir()); } catch (e) { return null; }   // 还没有 PersonalWiki/：空 Wiki
+  return (listing?.files || []).filter(isPageFile).sort(cmpStr);
+}
+async function readDisk() {
+  const files = await listPages();
+  const out = new Map();
+  for (const f of files || []) {
+    let text;
+    try { text = await app.vault.adapter.read(f); } catch (e) { console.debug('[lb] wiki 读不到', f, e); continue; }
+    const name = f.slice(f.lastIndexOf('/') + 1);
+    const p = parsePage(text);
+    if (!validId(p.id) || out.has(p.id)) { p.id = 'pf-' + (await sha1hex(name)).slice(0, 10); p.adopted = false; }
+    if (!p.title) p.title = name.replace(/\.md$/i, '');
+    p.file = name; p.path = f; p.hash = await contentHash(text);
+    out.set(p.id, p);
+  }
+  return out;
+}
+// 磁盘签名（文件名 + mtime:size）：Dataview 重跑 / 文件事件时先比它，没变就不读
+async function diskSig() {
+  const files = await listPages();
+  if (!files) return 'none';
+  const parts = [];
+  for (const f of files) { let st = null; try { st = await app.vault.adapter.stat?.(f); } catch (e) { st = null; } parts.push(f + ':' + (st ? st.mtime + ':' + st.size : '?')); }
+  return parts.join('|');
+}
+const DATA_FIELDS = ['id', 'title', 'role', 'index_tag', 'order', 'tags', 'created', 'updated', 'body', 'file', 'path', 'hash', 'adopted'];
+function adoptDisk(cur, d) { for (const k of DATA_FIELDS) { if (k in d) cur[k] = d[k]; else delete cur[k]; } cur._saved = savedOf(d); cur._stale = false; derive(cur); }
+// 磁盘 → 内存：hash 一样的不动（自己刚存的那份也是）；正在存 / 正在改（点开的那段、整页 Markdown 框）/ 正在恢复或重读的那页先不换——
+// 她手上的字是照旧 hash 那版改的，保存时 base_hash 还是旧的 → 后端回 CONFLICT，她的字进草稿，不会拿新 hash 静悄悄盖掉别处的改动（10-29 审查 1）
+const editingPage = p => !!p && ((p._ops || 0) > 0 || (ED && ED.p === p) || (UI.src && UI.view === 'page' && UI.id === p.id));
+function mergeDisk(disk) {
+  let changed = false, skipped = false;
+  for (const [id, d] of disk) {
+    const cur = PAGES.get(id);
+    if (cur && cur.hash === d.hash) { if (cur.file !== d.file) { cur.file = d.file; cur.path = d.path; } continue; }
+    if (editingPage(cur)) { cur._stale = true; skipped = true; continue; }
+    if (cur) adoptDisk(cur, d); else { d._saved = savedOf(d); PAGES.set(id, derive(d)); }
+    changed = true;
+  }
+  for (const [id, cur] of [...PAGES]) {
+    if (disk.has(id)) continue;
+    if (editingPage(cur)) { skipped = true; continue; }
+    PAGES.delete(id); changed = true;
+  }
+  return { changed, skipped };
+}
+// 改完 / 关掉编辑框时：期间磁盘变过（_stale）而且这页空闲，就补一次重读（忙的话 settled 里补）
+const refreshIfStale = p => { if (p && p._stale && !((p._ops || 0) > 0)) scheduleRefresh(50); };
+let lastSig = null, refreshing = null;
+async function refresh(force = false) {
+  if (refreshing) return refreshing;
+  refreshing = (async () => {
+    const sig = await diskSig();
+    if (!force && sig === lastSig) return false;
+    const disk = await readDisk();
+    const { changed, skipped } = mergeDisk(disk);
+    lastSig = skipped ? null : sig;   // 有页这次没换（正在改）：签名不记，下次照样重读
+    if (changed) { reindex(); afterRefresh(); }
+    return changed;
+  })();
+  try { return await refreshing; } finally { refreshing = null; }
+}
+let refreshTimer = 0;
+const scheduleRefresh = (ms = 500) => { clearTimeout(refreshTimer); refreshTimer = setTimeout(() => { refresh().catch(e => console.debug('[lb] wiki refresh', e)); }, ms); };
+
+// 收藏（引用 / @ 补全 / 标签页的 ARCHIVE 用）
+let DATA = {}, ITEMS = [], ITEM_BY = new Map();
+async function loadItems() {
+  try { DATA = await LB.data.load(); } catch (e) { DATA = {}; }
+  ITEMS = LB.schemaBlocks(DATA) ? [] : (Array.isArray(DATA.items) ? DATA.items : []);
+  ITEM_BY = new Map(ITEMS.map(it => [it.id, it]));
+}
+const itemType = it => (it.kind === 'video' ? '视频' : it.attachment && it.attachment !== 'none' ? '附件' : '图文');
+
+// ═════════════ 界面状态（§5.3：路由 / 收起的文件夹存 sessionStorage；MAP 图钉存本库的 localStorage，重启后还在） ═════════════
+const saved0 = LB.state.load();
+const UI = { view: saved0.view || 'home', id: saved0.id || null, tag: saved0.tag || null, ovShut: !!saved0.ovShut,
+  find: null, tocMin: false, mapOpen: false, src: false, tagEdit: false, caret: null, hist: null, openCite: null, drag: null, drawer: false };
+function loadPrefs() {
+  let v = null;
+  try { v = typeof app.loadLocalStorage === 'function' ? app.loadLocalStorage('lb-wiki-prefs') : null; } catch (e) { v = null; }
+  if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = null; } }
+  const base = v && typeof v === 'object' ? v : (saved0.prefs || {});
+  return { closed: { ...(base.closed || {}) }, mapPin: !!base.mapPin };
+}
+const PREFS = loadPrefs();
+function saveUi() {
+  LB.state.save({ view: UI.view, id: UI.id, tag: UI.tag, ovShut: UI.ovShut, prefs: PREFS });
+  try { if (typeof app.saveLocalStorage === 'function') app.saveLocalStorage('lb-wiki-prefs', PREFS); } catch (e) { console.debug('[lb] wiki prefs', e); }
+}
+// 没保存上的改动：内存（同一次 Obsidian 会话里换页再回来还在）+ 本库 localStorage（重启也在）
+const DRAFTS = (G.__lbWikiDrafts = G.__lbWikiDrafts || (() => { try { const v = typeof app.loadLocalStorage === 'function' ? app.loadLocalStorage('lb-wiki-drafts') : null; return v && typeof v === 'object' ? v : {}; } catch (e) { return {}; } })());
+function persistDrafts() { try { if (typeof app.saveLocalStorage === 'function') app.saveLocalStorage('lb-wiki-drafts', DRAFTS); } catch (e) { console.debug('[lb] wiki drafts', e); } }
+
+// ═════════════ 骨架 ═════════════
+const mount = LB.mountHost('lbw-host');
+const wrap = h('div', { cls: 'lbw' + (readOnly ? ' is-ro' : '') + (LB.mobile ? ' is-mobile' : '') });
+mount.append(wrap);
+try { LB.applyTheme(); } catch (e) { console.debug('[lb] wiki theme', e); }
+const R = {};
+const head = add(h('header', { cls: 'lbw-head' }), h('h2', { cls: 'lb-visually-hidden', text: '个人 Wiki' }));
+const hrow = h('div', { cls: 'lbw-hrow' });
+head.append(hrow);
+const brand = LB.brandTitle(hrow, 'lbw-brand', 'lbw-engr');
+{ const ref = app.workspace.on?.('link-brain:catalog-prefs', () => brand.set()); if (ref) LB.onUnload(() => { try { app.workspace.offref(ref); } catch (e) { console.debug(e); } }); }
+const acts = h('div', { cls: 'lbw-acts' });
+hrow.append(acts);
+if (!readOnly) {
+  R.more = btn({ cls: 'lbw-hbtn is-more', on: { click: e => showMoreMenu(e, R.more) } }, h('span', { text: '…', attr: { 'aria-hidden': 'true' } }), sr('更多'));
+  R.histBtn = btn({ cls: 'lbw-hbtn', on: { click: () => toggleHistory() } }, icon('hist'), sr('这一页的历史版本'));
+  add(acts, [R.more, R.histBtn]);
+}
+const hnav = h('div', { cls: 'lbw-hnav' });
+const nav = h('nav', { cls: 'lb-page-nav' },
+  btn({ text: '浏览收藏', on: { click: () => LB.openPage('catalog') } }),
+  btn({ text: '问收藏', on: { click: () => LB.openPage('chat') } }),
+  btn({ text: 'Wiki', cls: 'is-current', attr: { 'aria-current': 'page' }, on: { click: () => go('home') } }));
+R.sub = h('div', { cls: 'lbw-sub' });
+add(hnav, [nav, R.sub]);
+head.append(hnav);
+wrap.append(head);
+if (readOnly) wrap.append(h('p', { cls: 'lbw-ro', text: LB.mobile ? '手机上只能看：Wiki 回电脑上改' : 'Link Brain Actions 插件没启用，Wiki 只能看' }));
+const body = h('div', { cls: 'lbw-body' });
+const main = h('div', { cls: 'lbw-main' });
+R.toc = h('aside', { cls: 'lbw-toc' });
+R.scrim = h('div', { cls: 'lbw-scrim', on: { click: () => setDrawer(false) } });
+R.center = h('main', { cls: 'lbw-center' });
+add(main, [R.toc, R.scrim, R.center]);
+R.side = h('aside', { cls: 'lbw-side' }); R.side.hidden = true;
+add(body, [main, R.side]);
+R.fab = btn({ cls: 'lbw-fab', on: { click: () => setDrawer(!UI.drawer) } }, icon('list'), '目录');
+R.layer = h('div', { cls: 'lbw-layer' });
+add(wrap, [body, R.fab, R.layer]);
+
+// 三种宽度（design.md §8）：≥1040 宽；680–1040 开着原文格；<680 手机（目录收成「目录」按钮 + 底部抽屉）
+let lastW = 0;
+function paintWidth(w) {
+  w = Number(w) || wrap.clientWidth || 0;
+  wrap.classList.toggle('is-mid', w > 0 && w < 1040);
+  wrap.classList.toggle('is-narrow', w > 0 && w < 680);
+  const moved = Math.abs(w - lastW) > 40; lastW = w;
+  if (moved && UI.view === 'home' && !ED) { clearTimeout(paintWidth.t); paintWidth.t = setTimeout(() => { if (UI.view === 'home' && !ED) renderCenter(); }, 150); }
+}
+if (typeof ResizeObserver === 'function') {
+  try { const ro = new ResizeObserver(es => { for (const e of es) paintWidth(e.contentRect && e.contentRect.width); }); ro.observe(wrap); LB.onUnload(() => ro.disconnect()); }
+  catch (e) { console.debug('[lb] wiki resize', e); }
+}
+function setDrawer(on) { UI.drawer = !!on; R.toc.classList.toggle('is-open', UI.drawer); }
+
+// ═════════════ 路由 ═════════════
+const current = () => (UI.view === 'page' ? PAGES.get(UI.id) || null : null);
+function go(view, arg) {
+  commitEditor(false); closePop(); flushSrc();
+  const same = view === UI.view && (view === 'page' ? arg === UI.id : view === 'tag' ? arg === UI.tag : true);
+  UI.view = view; UI.id = view === 'page' ? arg : null; UI.tag = view === 'tag' ? arg : null;
+  if (!same) { UI.src = false; UI.tagEdit = false; UI.mapOpen = false; }
+  saveUi(); setDrawer(false);
+  if (UI.hist) { if (view === 'page') UI.hist = { id: arg, versions: null, sel: null, texts: {} }; else UI.hist = null; loadHistory(); }
+  render();
+  if (!same) { const sc = LB.scroller(); if (sc) sc.scrollTop = 0; }
+}
+const goPage = p => p && go('page', p.id);
+const goTag = t => go('tag', t);
+function render() {
+  closePop();
+  if (UI.view === 'page' && !PAGES.has(UI.id)) { UI.view = 'home'; UI.id = null; }
+  wrap.classList.toggle('is-home', UI.view === 'home');
+  renderCenter(); renderSub(); renderToc(); renderSide();
+}
+function renderKeepScroll() { const sc = LB.scroller(), top = sc ? sc.scrollTop : 0; render(); if (sc) sc.scrollTop = top; }
+function afterRefresh() {
+  renderSub(); renderToc();
+  const srcFocused = UI.src && R.srcEd && D.activeElement === R.srcEd;
+  if (!ED && !srcFocused && !(R.tagIn && D.activeElement === R.tagIn) && !(R.title && D.activeElement === R.title)) {
+    const sc = LB.scroller(), top = sc ? sc.scrollTop : 0;
+    if (UI.view === 'page' && !PAGES.has(UI.id)) { UI.view = 'home'; UI.id = null; }
+    wrap.classList.toggle('is-home', UI.view === 'home');
+    renderCenter(); if (sc) sc.scrollTop = top;
+  }
+  if (UI.hist && UI.hist.versions) loadHistory();
+}
+function renderSub() {
+  const pages = [...PAGES.values()].filter(p => p.role === 'page');
+  const last = pages.map(p => p.updated).filter(Boolean).sort().pop();
+  const d = toDate(last);
+  R.sub.textContent = '';
+  add(R.sub, nums(`全部 ${pages.length} 页` + (d ? ` · 更新 ${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}` : '')));
+}
+
+// ═════════════ Markdown → 块（每块记住源码行号，点一段改一段靠它；原型原样） ═════════════
+const isListLine = l => /^\s*([-*+]|\d+[.)])\s+/.test(l);
+const isBlockStart = l => /^#{1,6}\s/.test(l) || /^```/.test(l) || /^>/.test(l) || isListLine(l) || /^(-{3,}|\*{3,})\s*$/.test(l);
+function parseBlocks(src) {
+  const L = String(src || '').split('\n'), out = [];
+  let i = 0;
+  while (i < L.length) {
+    const l = L[i];
+    if (!l.trim()) { i++; continue; }
+    const s = i;
+    if (/^```/.test(l)) { i++; while (i < L.length && !/^```\s*$/.test(L[i])) i++; i = Math.min(i + 1, L.length); out.push({ type: 'code', s, e: i }); continue; }
+    if (/^#{1,6}\s/.test(l)) { out.push({ type: 'h', s, e: ++i }); continue; }
+    if (/^(-{3,}|\*{3,})\s*$/.test(l)) { out.push({ type: 'hr', s, e: ++i }); continue; }
+    if (/^>/.test(l)) { while (i < L.length && /^>/.test(L[i])) i++; out.push({ type: 'quote', s, e: i }); continue; }
+    if (isListLine(l)) { while (i < L.length && L[i].trim() && (isListLine(L[i]) || /^\s{2,}\S/.test(L[i]))) i++; out.push({ type: 'list', s, e: i }); continue; }
+    while (i < L.length && L[i].trim() && !(i > s && isBlockStart(L[i]))) i++;
+    out.push({ type: 'p', s, e: i });
+  }
+  return { lines: L, blocks: out };
+}
+// 行内：按最早出现的写法逐段切（同原型 inline 的优先级），直接建 DOM（不拼 HTML）
+const INLINE = [
+  ['code', /`([^`]+)`/], ['img', /!\[([^\]]*)\]\(([^)\s]+)\)/], ['cite', /\[([^\]\n]+)\]\(lwa:([\w-]+)\)/],
+  ['wl', /\[\[([^\]|\n]+)(?:\|([^\]\n]+))?\]\]/], ['link', /\[([^\]\n]+)\]\(([^)\s]+)\)/],
+  ['url', /(^|[^\w/"=])(https?:\/\/[^\s<]+)/], ['bold', /\*\*([^*]+)\*\*/], ['em', /(^|[^*])\*([^*\n]+)\*/],
+  ['tag', /(^|[\s(（，。、；：·])#([^\s#\[\]()（）,，。、;；:：!！?？"'<>*`·]+)/],
+];
+const PRE_GROUP = { url: 1, em: 1, tag: 1 };
+let CITE_NO = new Map();
+const safeHref = u => (/^https?:\/\//i.test(u) ? u : '#');
+function imgSrc(u) {
+  if (/^(https?:|data:image\/)/i.test(u)) return u;
+  try { return String(app.vault.adapter.getResourcePath(LB.path(WDIR + '/' + u.replace(/^\.?\//, '')))); } catch (e) { return ''; }
+}
+function extLink(text, href) {
+  const a = h('a', { cls: 'lbw-ext', attr: { href: safeHref(href), target: '_blank', rel: 'noopener' } }, text, h('span', { cls: 'lbw-m', text: '↗' }));
+  a.addEventListener('click', e => e.stopPropagation());
+  return a;
+}
+function citeEl(text, id) {
+  const it = ITEM_BY.get(id);
+  const a = h('a', { cls: 'lbw-cite' + (it ? '' : ' is-missing') + (UI.openCite === id ? ' is-open' : ''), attr: { href: '#' }, data: { item: id } }, text,
+    h('span', { cls: 'lbw-ref', text: it ? String(CITE_NO.get(id) || '') : '缺' }));
+  a.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); openCite(id); });
+  return a;
+}
+function inl(src, parent) {
+  let s = String(src ?? '');
+  while (s) {
+    let best = null;
+    for (const [k, re] of INLINE) {
+      const m = re.exec(s); if (!m) continue;
+      const pre = PRE_GROUP[k] ? m[1] : '';
+      const at = m.index + pre.length;
+      if (!best || at < best.at) best = { k, m, at };
+    }
+    if (!best) { parent.append(s); break; }
+    const { k, m, at } = best;
+    if (at > 0) parent.append(s.slice(0, at));
+    s = s.slice(m.index + m[0].length);
+    if (k === 'code') parent.append(h('code', { text: m[1] }));
+    else if (k === 'img') { const src2 = imgSrc(m[2]); parent.append(src2 ? h('img', { attr: { alt: m[1], src: src2, loading: 'lazy' } }) : m[0]); }
+    else if (k === 'cite') parent.append(citeEl(m[1], m[2]));
+    else if (k === 'wl') {
+      const p = pageByTitle(m[1]);
+      if (p) { const a = h('a', { cls: 'lbw-pl', attr: { href: '#' }, text: m[2] || m[1] }); a.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goPage(p); }); parent.append(a); }
+      else parent.append(m[2] || m[1]);
+    }
+    else if (k === 'link') parent.append(extLink(m[1], m[2]));
+    else if (k === 'url') parent.append(extLink(m[2], m[2]));
+    else if (k === 'bold') parent.append(inl(m[1], h('strong')));
+    else if (k === 'em') parent.append(inl(m[2], h('em')));
+    else if (k === 'tag') {
+      if (/^\d+$/.test(m[2])) parent.append('#' + m[2]);
+      else { const t = m[2]; const a = h('a', { cls: 'lbw-htag', attr: { href: '#' }, data: { tag: t }, text: '#' + t }); a.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goTag(t); }); parent.append(a); }
+    }
+  }
+  return parent;
+}
+function renderList(p, lines, s0) {
+  const items = [];
+  lines.forEach((l, k) => {
+    const m = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(l);
+    if (m) items.push({ ind: m[1].replace(/\t/g, '  ').length, ord: /\d/.test(m[2]), text: m[3], line: s0 + k });
+    else if (items.length) items[items.length - 1].text += ' ' + l.trim();
+  });
+  const roots = [], stack = [];
+  for (const it of items) {
+    while (stack.length && it.ind < stack[stack.length - 1].ind) stack.pop();
+    let top = stack[stack.length - 1];
+    if (!top || it.ind > top.ind) {
+      const list = h(it.ord ? 'ol' : 'ul');
+      if (top && top.li) top.li.append(list); else roots.push(list);
+      stack.push(top = { ind: it.ind, list, li: null });
+    }
+    const t = /^\[( |x|X)\]\s+(.*)$/.exec(it.text);
+    let li;
+    if (t) {
+      const done = t[1] !== ' ', lid = nextId('tk');
+      const cb = h('input', { attr: { type: 'checkbox', 'aria-labelledby': lid }, data: { line: it.line } });
+      cb.checked = done; cb.disabled = readOnly || busyPage(p);
+      cb.addEventListener('click', e => { e.stopPropagation(); if (readOnly || cb.disabled) { e.preventDefault(); return; } toggleTask(p, it.line); });
+      li = h('li', { cls: 'lbw-task' + (done ? ' is-done' : '') }, cb, inl(t[2], h('span', { attr: { id: lid } })));
+    } else li = inl(it.text, h('li'));
+    top.list.append(li); top.li = li;
+  }
+  return roots;
+}
+// ```pages 自动列表（folder: / tag:，渲染时现算，不写回正文）
+function renderQuery(src, self) {
+  const q = {};
+  for (const l of src.split('\n')) { const m = /^(\w+):\s*(.*)$/.exec(l.trim()); if (m) q[m[1]] = m[2].trim(); }
+  const tags = (q.tag || '').split(/[,，\s]+/).filter(Boolean);
+  const fTag = q.folder || (!tags.length && self.role === 'topic' ? self.index_tag : '');
+  const f = fTag ? folderOf(fTag) : null;
+  const list = f ? pagesIn(f).filter(p => p !== self)
+    : [...PAGES.values()].filter(p => p !== self && p.role === 'page' && tags.every(t => p._allTags.includes(t))).sort(byUpdated);
+  const what = f ? (f === self ? '本文件夹 · 按目录里拖好的顺序' : `「${f.title}」 · 按目录里拖好的顺序`) : `${tags.map(t => '#' + t).join(' ')} · 最近改的在前`;
+  return h('div', { cls: 'lbw-plist' },
+    h('div', { cls: 'lbw-plist-h' }, h('span', { cls: 'lbw-kick', text: 'PAGES' }), h('span', { cls: 'lbw-cap', text: what }), NUM(String(list.length))),
+    list.length ? list.map((p, i) => prow(p, i)) : h('p', { cls: 'lbw-rnone', text: '还没有' }));
+}
+function renderBlock(b, lines, self) {
+  const src = lines.slice(b.s, b.e);
+  switch (b.type) {
+    case 'h': {
+      const m = /^(#{1,6})\s+(.*)$/.exec(src[0]); const n = Math.min(m[1].length, 4);
+      const k = (self._heads || []).findIndex(x => x.line === b.s);
+      return h('h' + n, { data: { hline: b.s } }, k >= 0 ? h('span', { cls: 'lbw-num lbw-hn', text: String(k + 1) }) : null, inl(m[2], h('span')));
+    }
+    case 'hr': return h('hr');
+    case 'quote': { const q = h('blockquote'); src.forEach((l, k) => { if (k) q.append(h('br')); inl(l.replace(/^>\s?/, ''), q); }); return q; }
+    case 'list': return renderList(self, src, b.s);
+    case 'code': {
+      const lang = src[0].replace(/^```/, '').trim();
+      const inner = src.slice(1, /^```\s*$/.test(src[src.length - 1]) && src.length > 1 ? -1 : undefined).join('\n');
+      return lang === 'pages' ? renderQuery(inner, self) : h('pre', null, h('code', { text: inner }));
+    }
+    default: { const pEl = h('p'); src.forEach((l, k) => { if (k) pEl.append(h('br')); inl(l, pEl); }); return pEl; }
+  }
+}
+
+// ═════════════ 目录（浮动：工具行 · Ctrl+F · MAP · 编号文件夹 → 页面 → 当前页小标题 · 标签） ═════════════
+function renderToc() {
+  const tocEl = R.toc;
+  const keepFind = R.findIn && D.activeElement === R.findIn;
+  tocEl.textContent = '';
+  tocEl.append(h('h2', { cls: 'lb-visually-hidden', text: 'Wiki 目录' }));
+  const say = h('span', { cls: 'lbw-say', attr: { 'aria-hidden': 'true' } });
+  const tb = (name, text, on, run) => {
+    const b = btn({ cls: on ? 'is-on' : '', on: { click: run, mouseenter: () => { say.textContent = text; }, mouseleave: () => { say.textContent = ''; }, focus: () => { say.textContent = text; }, blur: () => { say.textContent = ''; } } }, icon(name), sr(text));
+    return b;
+  };
+  const tools = h('div', { cls: 'lbw-tools' },
+    tb('home', '目录首页', UI.view === 'home', () => go('home')),
+    tb('find', '搜标题 · Ctrl F', UI.find != null, () => toggleFind()),
+    tb('up', '全部收起', false, () => { for (const t of topics()) PREFS.closed[t.id] = true; PREFS.closed.__loose = true; UI.tocMin = false; saveUi(); renderToc(); }),
+    tb('down', '全部展开', false, () => { PREFS.closed = {}; UI.tocMin = false; saveUi(); renderToc(); }),
+    readOnly ? null : tb('plus', '新页面', false, () => newPageModal()),
+    tb('panel', UI.tocMin ? '展开目录' : '收起目录', UI.tocMin, () => { UI.tocMin = !UI.tocMin; renderToc(); }),
+    say);
+  tocEl.append(tools);
+  if (UI.find != null) {
+    const fid = nextId('find');
+    R.findIn = h('input', { cls: 'lbw-find', attr: { id: fid, placeholder: '搜标题', autocomplete: 'off', spellcheck: 'false' } });
+    R.findIn.value = UI.find;
+    R.findIn.addEventListener('input', () => { UI.find = R.findIn.value; renderTree(); });
+    R.findIn.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); toggleFind(false); }
+      else if (e.key === 'Enter') { e.preventDefault(); const b = R.tree && R.tree.querySelector('[data-page]'); const p = b && PAGES.get(b.dataset.page); if (p) { UI.find = null; goPage(p); } }
+    });
+    tocEl.append(h('div', { cls: 'lbw-findw' }, h('label', { cls: 'lb-visually-hidden', attr: { for: fid }, text: '搜标题' }), R.findIn, kbd('Esc')));
+  } else R.findIn = null;
+  // MAP：目录最上面。没固定时点「MAP」展开 / 收起（换页自动收起）；图钉固定后一直显示
+  const shown = PREFS.mapPin || UI.mapOpen;
+  const cur = current();
+  const mapRow = h('div', { cls: 'lbw-tmap-row' },
+    btn({ cls: 'lbw-tmap-h', attr: { 'aria-expanded': String(shown) }, on: { click: () => { if (PREFS.mapPin) { PREFS.mapPin = false; UI.mapOpen = false; saveUi(); } else UI.mapOpen = !UI.mapOpen; renderToc(); } } },
+      h('span', { cls: 'lbw-kick', text: 'MAP' }), h('span', { cls: 'lbw-zh', text: '关系图' }), h('span', { cls: 'lbw-rule' }), add(h('span', { cls: 'lbw-tw' + (shown ? '' : ' is-shut') }), icon('fold'))),
+    btn({ cls: 'lbw-mpin' + (PREFS.mapPin ? ' is-on' : ''), attr: { 'aria-pressed': String(!!PREFS.mapPin) }, on: { click: () => { PREFS.mapPin = !PREFS.mapPin; UI.mapOpen = PREFS.mapPin; saveUi(); renderToc(); LB.say(PREFS.mapPin ? '关系图固定在目录顶上了' : '取消固定：点「MAP」才展开'); } } },
+      icon('pin'), sr(PREFS.mapPin ? '取消固定关系图' : '固定关系图')));
+  tocEl.append(h('div', { cls: 'lbw-tmap' }, mapRow, shown ? (cur ? miniGraph(cur) : bigMap(248, 190, true)) : null));
+  R.tree = h('div', { cls: 'lbw-tree' });
+  tocEl.append(R.tree);
+  renderTree();
+  if (keepFind && R.findIn) { R.findIn.focus(); try { R.findIn.setSelectionRange(R.findIn.value.length, R.findIn.value.length); } catch (e) { console.debug(e); } }
+}
+function markText(s, q) {
+  if (!q) return [s];
+  const out = []; const low = s.toLowerCase(); let i = 0, j;
+  while ((j = low.indexOf(q, i)) >= 0) { if (j > i) out.push(s.slice(i, j)); out.push(h('mark', { text: s.slice(j, j + q.length) })); i = j + q.length; }
+  if (i < s.length) out.push(s.slice(i));
+  return out;
+}
+function renderTree() {
+  const tree = R.tree; if (!tree) return;
+  tree.textContent = '';
+  if (UI.tocMin) return;
+  const cur = current();
+  const q = UI.find == null ? '' : norm(UI.find);
+  const hit = p => !q || norm(p.title).includes(q);
+  const headRows = (p, extra = '') => p._heads.map((x, k) => btn({ cls: `lbw-trow lbw-thead is-l${x.level} ${extra}`, data: { toc: x.line }, on: { click: () => scrollToHead(x.line) } }, NUM(String(k + 1)), h('span', { text: x.text })));
+  const pageRow = (p, fid) => {
+    const row = btn({ cls: 'lbw-trow lbw-tpage' + (cur === p ? ' is-current' : ''), attr: cur === p ? { 'aria-current': 'page' } : null, data: { page: p.id, fid: fid || null }, on: { click: () => goPage(p) } }, markText(p.title, q));
+    if (fid && !q && !readOnly) bindDrag(row, p.id, fid);
+    return [row, cur === p && !q ? headRows(p) : null];
+  };
+  let any = 0;
+  topics().forEach((t, k) => {
+    const list = pagesIn(t).filter(hit);
+    if (q && !list.length && !hit(t)) return;
+    any += list.length + (hit(t) ? 1 : 0);
+    const open = q ? true : !PREFS.closed[t.id];
+    const tw = add(h('span', { cls: 'lbw-tw' }), icon('fold'));
+    tw.addEventListener('click', e => { e.stopPropagation(); PREFS.closed[t.id] = !PREFS.closed[t.id]; saveUi(); renderTree(); });
+    const row = btn({ cls: 'lbw-trow lbw-tfold' + (open ? ' is-open' : '') + (cur === t ? ' is-current' : ''), attr: cur === t ? { 'aria-current': 'page' } : null, data: { page: t.id }, on: { click: () => goPage(t) } },
+      tw, NUM(String(k + 1)), h('span', { cls: 'lbw-nm' }, markText(t.title, q)), h('span', { cls: 'lbw-c lbw-num', text: String(pagesIn(t).length) }));
+    tree.append(h('div', { cls: 'lbw-tgroup' }, row, cur === t && !q ? headRows(t, 'is-fold') : null, open ? list.map(p => pageRow(p, t.id)) : null));
+  });
+  const loose = loosePages().filter(hit);
+  if (loose.length) {
+    any += loose.length;
+    const open = q ? true : !PREFS.closed.__loose;
+    const row = btn({ cls: 'lbw-trow lbw-tfold' + (open ? ' is-open' : ''), data: { fold: '__loose' }, on: { click: () => { PREFS.closed.__loose = !PREFS.closed.__loose; saveUi(); renderTree(); } } },
+      add(h('span', { cls: 'lbw-tw' }), icon('fold')), NUM('·'), h('span', { cls: 'lbw-nm', text: '未归类' }), h('span', { cls: 'lbw-c lbw-num', text: String(loose.length) }));
+    tree.append(h('div', { cls: 'lbw-tgroup' }, row, open ? loose.map(p => pageRow(p, null)) : null));
+  }
+  if (q && !any) tree.append(h('p', { cls: 'lbw-tnone', text: `没有标题含「${UI.find}」的页` }), h('p', { cls: 'lbw-tnone', text: '正文里的字用问收藏去搜' }));
+  else if (q) tree.append(h('p', { cls: 'lbw-tnone' }, kbd('Enter'), ' 打开第一条'));
+  if (!q) {
+    const tags = [...IDX.byTag.entries()].filter(([t]) => !IDX.catTags.has(t)).sort((a, b) => b[1].length - a[1].length);
+    if (tags.length) tree.append(h('div', { cls: 'lbw-ttags' }, tags.map(([t]) => btn({ cls: UI.view === 'tag' && UI.tag === t ? 'is-on' : '', data: { tag: t }, text: '#' + t, on: { click: () => goTag(t) } }))));
+  }
+  if (!PAGES.size) tree.append(h('p', { cls: 'lbw-tnone', text: readOnly ? '还没有页面' : '还没有页面：点上面的 ＋ 新建' }));
+}
+function toggleFind(force) {
+  const on = force ?? UI.find == null;
+  UI.find = on ? (UI.find ?? '') : null; UI.tocMin = false;
+  if (on) setDrawer(true);
+  renderToc();
+  if (on && R.findIn) { R.findIn.focus(); R.findIn.select?.(); }
+}
+function scrollToHead(line) {
+  const el = R.center.querySelector(`[data-hline="${line}"]`);
+  if (el) { try { el.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { el.scrollIntoView(); } }
+  setDrawer(false);
+}
+// 目录里拖动排序（同一个文件夹内；顺序记在文件夹页的 order 里）
+function clearDrop() { for (const n of R.toc.querySelectorAll('.is-drop-before, .is-drop-after')) n.classList.remove('is-drop-before', 'is-drop-after'); }
+function bindDrag(row, pid, fid) {
+  row.setAttribute('draggable', 'true');
+  row.addEventListener('dragstart', ev => { UI.drag = { pid, fid }; try { if (ev.dataTransfer) { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', pid); } } catch (e) { console.debug(e); } });
+  row.addEventListener('dragover', ev => {
+    clearDrop();
+    if (!UI.drag || UI.drag.fid !== fid || UI.drag.pid === pid) return;
+    ev.preventDefault();
+    const b = row.getBoundingClientRect();
+    row.classList.add(ev.clientY < b.top + b.height / 2 ? 'is-drop-before' : 'is-drop-after');
+  });
+  row.addEventListener('drop', ev => {
+    const d = UI.drag; UI.drag = null;
+    const before = row.classList.contains('is-drop-before');
+    clearDrop();
+    if (!d || d.fid !== fid || d.pid === pid) return;
+    ev.preventDefault();
+    moveInFolder(fid, d.pid, pid, before);
+  });
+  row.addEventListener('dragend', () => { UI.drag = null; clearDrop(); });
+}
+function moveInFolder(fid, pid, targetId, before) {
+  const t = PAGES.get(fid); if (!t || readOnly) return;
+  const ids = pagesIn(t).map(p => p.id).filter(id => id !== pid);
+  let at = ids.indexOf(targetId); if (at < 0) at = ids.length; else if (!before) at++;
+  ids.splice(at, 0, pid);
+  if (busyPage(t)) { LB.say('这个文件夹正在保存，好了再拖', { kind: 'warn' }); renderToc(); return; }   // 非文字的小改动：忙时直接不收（不进草稿）
+  mutate(t, n => { n.order = ids; }, { note: '调整顺序' });
+  renderToc(); if (UI.view === 'page' && UI.id === fid && !ED) renderCenter();
+}
+
+// ═════════════ 关系图：按文件夹排环（hubSpots + ringLayout），不用力导向 ═════════════
+function relations(p) {
+  const out = new Map();
+  const put = (q, why) => { if (q !== p && q.role === 'page') { const w = out.get(q.id) || []; w.push(why); out.set(q.id, w); } };
+  for (const t of p._allTags) if (!IDX.catTags.has(t)) for (const q of IDX.byTag.get(t) || []) put(q, 'tag');
+  for (const id of p._cites) for (const q of citedBy(id)) put(q, 'cite');
+  return out;
+}
+function hubSpots(n, W, H) {
+  if (n <= 1) return [{ x: W / 2, y: H / 2 }];
+  if (n <= 3) { const step = W * 0.9 / n; return Array.from({ length: n }, (_, i) => ({ x: W / 2 + (i - (n - 1) / 2) * step, y: H / 2 })); }
+  return Array.from({ length: n }, (_, i) => { const a = i / n * Math.PI * 2 - Math.PI / 2; return { x: W / 2 + Math.cos(a) * W * 0.3, y: H / 2 + Math.sin(a) * H * 0.28 }; });
+}
+function ringLayout(hubs, members, W, H, o = {}) {
+  const pos = new Map(), spots = hubSpots(hubs.length, W, H), n = hubs.length;
+  const span = n <= 1 ? W : n <= 3 ? W * 0.9 / n : W * 0.3;
+  const rx = o.rx || Math.min(span * 0.34, W * 0.36), ry = o.ry || H * (n > 3 ? 0.16 : 0.34);
+  const owner = new Map();
+  hubs.forEach((hb, i) => { pos.set(hb.id, { ...spots[i], hub: true }); for (const p of members.get(hb.id) || []) if (p !== hb) owner.set(p.id, [...(owner.get(p.id) || []), i]); });
+  hubs.forEach((hb, i) => {
+    const ring = (members.get(hb.id) || []).filter(p => p !== hb && owner.get(p.id).length === 1);
+    ring.forEach((p, k) => { const a = -Math.PI / 2 + (k + 0.5) / ring.length * Math.PI * 2; pos.set(p.id, { x: spots[i].x + Math.cos(a) * rx, y: spots[i].y + Math.sin(a) * ry, ang: a }); });
+  });
+  const bridges = [...owner].filter(([, hs]) => hs.length > 1);
+  bridges.forEach(([id, hs], k) => {
+    const x = hs.reduce((s, i) => s + spots[i].x, 0) / hs.length, y = hs.reduce((s, i) => s + spots[i].y, 0) / hs.length;
+    pos.set(id, { x: x + (k - (bridges.length - 1) / 2) * Math.min(90, W * 0.12), y: Math.min(H - 16, y + ry * 0.85), ang: Math.PI / 2 });
+  });
+  return pos;
+}
+function labAt(P, txt, cls, off) {
+  const a = P.ang ?? Math.PI / 2, c = Math.cos(a), s = Math.sin(a);
+  let anchor = 'middle', x = P.x + c * off, y = P.y + s * off + 4;
+  if (c > 0.35) anchor = 'start'; else if (c < -0.35) anchor = 'end'; else y = s < 0 ? P.y - off - 3 : P.y + off + 11;
+  return S('text', { class: cls, x: x.toFixed(1), y: y.toFixed(1), 'text-anchor': anchor }, txt);
+}
+function drawGraph(nodes, edges, pos, W, H, o = {}) {
+  const f = v => v.toFixed(1);
+  const did = nextId('g');
+  const svg = S('svg', { class: 'lbw-graph', viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-labelledby': did }, S('desc', { id: did }, o.label || '关系图'));
+  for (const [i, j, x] of edges) { if (!pos.has(i) || !pos.has(j)) continue; const A = pos.get(i), B = pos.get(j); svg.append(S('line', { class: 'e' + (x ? ' x' : ''), x1: f(A.x), y1: f(A.y), x2: f(B.x), y2: f(B.y) })); }
+  for (const n of nodes) {
+    if (!pos.has(n.id)) continue;
+    const P = pos.get(n.id), isCur = n === o.cur;
+    let g;
+    if (P.hub) {
+      const Rr = o.hubR || 9;
+      if (o.solid) g = S('g', { class: 'nd is-hub' }, S('circle', { class: 'dot', cx: f(P.x), cy: f(P.y), r: Rr }), S('text', { class: 'hubn', x: f(P.x), y: f(P.y + Rr * 0.32), 'text-anchor': 'middle', style: `font-size:${f(Rr * 0.95)}px` }, o.hubNo?.get(n.id) || ''),
+        S('text', { class: 'lab hub', x: f(P.x), y: f(P.y + Rr + (o.hubGap || 20)), 'text-anchor': 'middle', style: o.small ? 'font-size:12px' : null }, n.title));
+      else g = S('g', { class: 'nd is-ring' + (isCur ? ' is-cur' : '') }, S('circle', { class: 'dot', cx: f(P.x), cy: f(P.y), r: Rr }), S('text', { class: 'lab ring', x: f(P.x), y: f(P.y + Rr + 15), 'text-anchor': 'middle' }, n.title));
+    } else {
+      const r = isCur ? (o.curR || 5.5) : (o.r || 3);
+      const show = o.labels === 'all' || isCur || (o.also && o.also.has(n.id));
+      const t = !isCur && n.title.length > 10 ? n.title.slice(0, 10) + '…' : n.title;
+      g = S('g', { class: 'nd' + (isCur ? ' is-cur' : '') }, S('circle', { class: 'hit', cx: f(P.x), cy: f(P.y), r: r + 7 }), S('circle', { class: 'dot', cx: f(P.x), cy: f(P.y), r }), labAt(P, t, isCur ? 'lab cur' : show ? 'lab' : 'lab hov', r + (o.off || 6)));
+    }
+    g.addEventListener('click', () => goPage(n));
+    svg.append(g);
+  }
+  return svg;
+}
+function miniGraph(cur) {
+  const W = 248, H = 180;
+  const hubs = cur.role === 'topic' ? [cur] : foldersOf(cur);
+  const members = new Map(), nodes = new Map([[cur.id, cur]]), edges = [];
+  for (const hb of hubs) { nodes.set(hb.id, hb); const list = pagesIn(hb); members.set(hb.id, [...list]); for (const q of list) { nodes.set(q.id, q); edges.push([hb.id, q.id]); } }
+  const also = new Set();
+  if (cur.role === 'page') for (const [id] of relations(cur)) {
+    const q = PAGES.get(id); also.add(id); edges.push([cur.id, id, true]);
+    if (!nodes.has(id)) { nodes.set(id, q); if (hubs.length) members.get(hubs[0].id).push(q); }
+  }
+  let pos;
+  if (hubs.length) pos = ringLayout(hubs, members, W, H, hubs.length === 1 ? { rx: W * 0.36, ry: H * 0.35 } : {});
+  else {
+    pos = new Map([[cur.id, { x: W / 2, y: H / 2 }]]);
+    const ring = [...nodes.values()].filter(n => n !== cur);
+    ring.forEach((p, k) => { const a = -Math.PI / 2 + (k + 0.5) / ring.length * Math.PI * 2; pos.set(p.id, { x: W / 2 + Math.cos(a) * W * 0.34, y: H / 2 + Math.sin(a) * H * 0.34, ang: a }); });
+  }
+  return drawGraph([...nodes.values()], edges, pos, W, H, { cur, labels: 'cur', also, hubR: 9, label: `「${cur.title}」的关系图：所在文件夹、同文件夹的页、共享标签或引了同一篇收藏的页` });
+}
+function bigMap(W = 1000, H = 440, small = false, quiet = false) {
+  const ts = topics();
+  const members = new Map(), nodes = new Map(), edges = [], hubNo = new Map();
+  ts.forEach((t, k) => { hubNo.set(t.id, pad2(k + 1)); nodes.set(t.id, t); const list = pagesIn(t); members.set(t.id, list); for (const p of list) { nodes.set(p.id, p); edges.push([t.id, p.id]); } });
+  const pos = ringLayout(ts, members, W, H);
+  loosePages().forEach((p, k) => { nodes.set(p.id, p); pos.set(p.id, { x: W - (small ? 14 : 40) - k * (small ? 14 : 70), y: H - (small ? 10 : 24), ang: -Math.PI / 2 }); });
+  const pages = [...nodes.values()].filter(n => n.role === 'page');
+  for (let i = 0; i < pages.length; i++) for (let j = i + 1; j < pages.length; j++) if (pages[i]._cites.some(c => pages[j]._cites.includes(c))) edges.push([pages[i].id, pages[j].id, true]);
+  return drawGraph([...nodes.values()], edges, pos, W, H, { labels: small || quiet ? 'none' : 'all', solid: true, small, hubNo, hubR: small ? 11 : quiet ? 17 : 24, r: small ? 2.6 : quiet ? 3 : 4, hubGap: small ? 14 : quiet ? 16 : 20, label: '整个 Wiki 的关系图：文件夹是大圆，页面绕着它；实线 = 同一个文件夹，虚线 = 引了同一篇收藏' });
+}
+
+// ═════════════ 中间：首页 / 文件夹页 / 页面 / 标签页 ═════════════
+function renderCenter() {
+  // ④ 重画只画不存。正常路径上提交点都在重画之前；万一还有没提交的字（编辑框开着 / 整页 Markdown 框里有新字），收进草稿，不存也不丢
+  if (ED) { stashUnsaved(ED.p); closeEditor(); }
+  { const sp = current(), box = liveSrc(sp); if (box && !box.readOnly && box.value !== sp.body) { stashUnsaved(sp); box._lbDead = true; } }
+  R.center.textContent = '';
+  R.saved = R.doc = R.add = R.title = R.srcEd = R.tagIn = null;
+  if (UI.view === 'tag') renderTag(UI.tag);
+  else if (UI.view === 'page' && PAGES.get(UI.id)) { const p = PAGES.get(UI.id); if (p.role === 'topic') renderFolder(p); else renderPage(p); }
+  else renderHome();
+}
+const secHead = (kick, zh, ...tail) => h('div', { cls: 'lbw-sech' }, h('span', { cls: 'lbw-kick', text: kick }), h('span', { cls: 'lbw-zh', text: zh }), h('span', { cls: 'lbw-rule' }), tail);
+function renderHome() {
+  const pages = [...PAGES.values()].filter(p => p.role === 'page');
+  const cited = new Set(pages.flatMap(p => p._cites));
+  const ts = topics();
+  const sheet = (list, cls = '') => h('span', { cls: 'lbw-fold-sheet' + cls }, list.slice(0, 6).map((p, k) => h('span', null, NUM(pad2(k + 1)), p.title)));
+  const dots = list => h('span', { cls: 'lbw-fold-dots', attr: { 'aria-hidden': 'true' } }, list.map(p => h('i', { cls: p._tasks.some(x => !x.done) ? 'is-o' : '' })));
+  const folder = (t, k) => {
+    const list = pagesIn(t);
+    const d = toDate([t, ...list].map(p => p.updated).filter(Boolean).sort().pop());
+    return btn({ cls: 'lbw-fold', data: { page: t.id }, on: { click: () => goPage(t) } },
+      h('span', { cls: 'lbw-fold-tab' }, h('span', { cls: 'lbw-kick', text: String(t.index_tag).toUpperCase().slice(0, 14) })), h('span', { cls: 'lbw-fold-back' }), h('span', { cls: 'lbw-fold-sheet is-s2' }), sheet(list),
+      h('span', { cls: 'lbw-fold-face' }, h('span', { cls: 'lbw-fold-num', text: pad2(k + 1) }), dots(list), h('span', { cls: 'lbw-fold-name', text: t.title }),
+        h('span', { cls: 'lbw-fold-cap' }, NUM(String(list.length)), ' 页', d ? [' · 更新 ', NUM(`${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}`)] : null)));
+  };
+  const loose = loosePages();
+  const cw = R.center.clientWidth || 900;
+  const W = Math.round(Math.max(300, Math.min(1000, cw - 60))), H = W < 560 ? 300 : 440;
+  const week = Date.now() - 7 * 86400000;
+  const stat = (n, lab) => h('div', null, h('span', { cls: 'lbw-big', text: String(n) }), h('span', { cls: 'lbw-lab', text: lab }));
+  const ovBtn = btn({ cls: 'lbw-chev' + (UI.ovShut ? ' is-shut' : ''), attr: { 'aria-expanded': String(!UI.ovShut) }, on: { click: () => { UI.ovShut = !UI.ovShut; saveUi(); renderCenter(); } } }, icon('fold'), sr(UI.ovShut ? '展开概览' : '收起概览'));
+  add(R.center, [
+    h('section', null, secHead('OVERVIEW', '概览', ovBtn), UI.ovShut ? null : h('div', { cls: 'lbw-ov' },
+      stat(pages.length, '全部页面'), stat(pages.filter(p => (toDate(p.updated)?.getTime() || 0) >= week).length, '近 7 天改过'), stat(cited.size, '引用的收藏'), stat(ts.length, '文件夹'))),
+    h('section', { cls: 'lbw-gap' }, secHead('INDEX', '目录', h('span', { cls: 'lbw-cap' }, NUM(pad2(ts.length)), ' 个文件夹 · ', NUM(String(pages.length)), ' 页')),
+      h('div', { cls: 'lbw-folders' }, ts.map(folder),
+        loose.length ? btn({ cls: 'lbw-fold is-loose', on: { click: () => { PREFS.closed.__loose = false; saveUi(); renderToc(); setDrawer(true); LB.say('未归类的页在左边目录最下面；加个文件夹标签就归进去了'); } } },
+          h('span', { cls: 'lbw-fold-tab' }, h('span', { cls: 'lbw-kick', text: 'INBOX' })), h('span', { cls: 'lbw-fold-back' }), sheet(loose),
+          h('span', { cls: 'lbw-fold-face' }, h('span', { cls: 'lbw-fold-num', text: '··' }), dots(loose), h('span', { cls: 'lbw-fold-name', text: '未归类' }), h('span', { cls: 'lbw-fold-cap' }, NUM(String(loose.length)), ' 页'))) : null,
+        readOnly ? null : btn({ cls: 'lbw-fold is-new', on: { click: () => newPageModal({ folder: true }) } }, h('span', { cls: 'lbw-fold-tab' }, h('span', { cls: 'lbw-kick', text: 'NEW' })),
+          h('span', { cls: 'lbw-fold-face' }, h('span', { cls: 'lbw-plus', text: '+', attr: { 'aria-hidden': 'true' } }), h('span', { cls: 'lbw-cap', text: '新文件夹' }))))),
+    h('section', { cls: 'lbw-gap' }, secHead('MAP', '关系图', h('span', { cls: 'lbw-legend' }, h('span', null, h('i'), '同一个文件夹'), h('span', null, h('i', { cls: 'is-x' }), '引了同一篇收藏'))),
+      h('div', { cls: 'lbw-map' }, ['is-tl', 'is-tr', 'is-bl', 'is-br'].map(c => h('span', { cls: 'lbw-crop ' + c })),
+        h('span', { cls: 'lbw-corner is-n' }, 'N° ', NUM(pad2(pages.length))), h('span', { cls: 'lbw-corner is-mark', text: 'LWA / WIKI' }), bigMap(W, H, false, W < 640))),
+  ]);
+  if (!PAGES.size) R.center.prepend(h('p', { cls: 'lbw-rnone', text: readOnly ? 'Wiki 里还没有页面。' : 'Wiki 里还没有页面：点下面的「新文件夹」，或目录上的 ＋ 新建一页。' }));
+}
+const crumb = parts => h('nav', { cls: 'lbw-crumb' }, btn({ cls: 'lbw-kick', text: 'INDEX', on: { click: () => go('home') } }), parts.map(x => [h('span', { cls: 'lbw-sep', text: '/', attr: { 'aria-hidden': 'true' } }), x]));
+function hint(items) {
+  if (LB.mobile) items = ['手机上只读，回电脑上改'];
+  else if (readOnly) items = ['插件没启用，只能看'];
+  return h('div', { cls: 'lbw-hint' }, items.map(x => h('span', null, x)));
+}
+function prow(p, i) {
+  return btn({ cls: 'lbw-prow', data: { page: p.id }, on: { click: e => { e.stopPropagation(); goPage(p); } } }, NUM(pad2(i + 1)),
+    h('span', { cls: 'lbw-pt' }, h('span', { cls: 'lbw-t', text: p.title }), h('span', { cls: 'lbw-l', text: p._lead })), h('span', { cls: 'lbw-d lbw-num', text: mmdd(p.updated) }));
+}
+function titleInput(p, label) {
+  const tid = nextId('title');
+  const ti = h('input', { cls: 'lbw-ptitle', attr: { id: tid, type: 'text' } });
+  ti.value = p.title;
+  R.title = ti;
+  if (readOnly) ti.setAttribute('readonly', '');
+  else {
+    // 事件总是绑上（10-29 四审：忙的时候画出来的框，存完由 paintLock 解冻、不重画，没绑事件就改了也存不上）；忙不忙在处理时判
+    if (busyPage(p)) ti.readOnly = true;
+    ti.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (e.key === 'Escape') ti.value = p.title; ti.blur(); } });
+    ti.addEventListener('blur', () => {
+      if (!ti.isConnected || ti.readOnly || busyPage(p)) return;   // 后台摘下（换视图）不当成改名；页面忙（只读）时不收
+      const v = ti.value.trim();
+      if (!v || v === p.title) { ti.value = p.title; return; }
+      const other = pageByTitle(v);
+      if (other && other !== p) { LB.say(`已经有一页叫「${v}」了`, { kind: 'warn' }); ti.value = p.title; return; }
+      if (mutate(p, n => { n.title = v; })) { renderToc(); renderSub(); } else ti.value = p.title;
+    });
+  }
+  return [h('label', { cls: 'lb-visually-hidden', attr: { for: tid }, text: label }), ti];
+}
+function savedSpan(p) { R.saved = h('span', { cls: 'lbw-saved' }); paintSaved(p); return R.saved; }
+function paintSaved(p) {
+  if (!R.saved || !p || current() !== p) return;
+  R.saved.textContent = '';
+  if (busyPage(p)) R.saved.append('保存中…'); else R.saved.append(NUM(fmtAt(p.updated)));
+}
+function renderFolder(t) {
+  const k = topics().indexOf(t);
+  const listed = /```pages/.test(t.body);
+  const bodyTxt = stripCode(t.body);
+  const rest = listed ? [] : pagesIn(t).filter(p => !bodyTxt.includes(p.title));
+  add(R.center, [
+    crumb([h('span', null, '文件夹 ', NUM(pad2(k + 1)))]),
+    h('div', { cls: 'lbw-fhead' }, h('span', { cls: 'lbw-big', text: pad2(k + 1) }), titleInput(t, '文件夹名')),
+    h('div', { cls: 'lbw-meta' }, savedSpan(t), h('span', { cls: 'lbw-dot', text: '·' }), h('span', null, NUM(String(pagesIn(t).length)), ' 页'), h('span', { cls: 'lbw-dot', text: '·' }), h('span', null, NUM(String(t._chars)), ' 字')),
+    draftBar(t),
+    docNodes(t, '写这个文件夹的索引：分几块、先看什么、为什么关注……'),
+    rest.length ? h('div', { cls: 'lbw-rest' }, h('div', { cls: 'lbw-plist' }, h('div', { cls: 'lbw-plist-h' }, h('span', { cls: 'lbw-kick', text: 'MORE' }), h('span', { cls: 'lbw-cap', text: '还没写进上面的页' }), NUM(String(rest.length))), rest.map((p, i) => prow(p, i)))) : null,
+    hint(['随时可改，点哪段改哪段', h('span', null, '想要自动列表就写 ', h('span', { cls: 'lbw-code', text: '```pages' })), h('span', null, kbd('Ctrl Alt 0–4'), ' 改层级')]),
+  ]);
+}
+function renderPage(p) {
+  const fs = foldersOf(p);
+  const chips = h('span', { cls: 'lbw-chips' }, p.tags.map(t => {
+    const x = readOnly ? null : h('span', { cls: 'lbw-x', text: '×', attr: { 'aria-hidden': 'true' } });
+    if (x) x.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); if (busyPage(p)) return; mutate(p, n => { n.tags = n.tags.filter(g => g !== t); }); renderKeepScroll(); });
+    const a = h('a', { cls: 'lbw-chip', attr: { href: '#' }, data: { tag: t } }, '#' + t, x);
+    a.addEventListener('click', e => { e.preventDefault(); goTag(t); });
+    return a;
+  }));
+  if (!readOnly) {
+    if (UI.tagEdit) {
+      const iid = nextId('tag'), lid = nextId('tags');
+      const tg = h('input', { cls: 'lbw-chipin', attr: { id: iid, placeholder: '标签 / 文件夹', list: lid, type: 'text' } });
+      R.tagIn = tg;
+      let done = false;
+      const fin = commit => { if (done) return; done = true; const v = cleanTag(tg.value); UI.tagEdit = false; if (commit && v && !p.tags.includes(v) && !busyPage(p)) mutate(p, n => { n.tags = [...n.tags, v]; }); renderKeepScroll(); };
+      tg.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); fin(true); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fin(false); } });
+      tg.addEventListener('blur', () => { if (tg.isConnected) fin(true); });
+      add(chips, [h('label', { cls: 'lb-visually-hidden', attr: { for: iid }, text: '加标签或文件夹' }), tg, h('datalist', { attr: { id: lid } }, [...IDX.byTag.keys()].map(t => h('option', { attr: { value: t } })))]);
+    } else chips.append(btn({ cls: 'lbw-chipadd', on: { click: () => { UI.tagEdit = true; renderKeepScroll(); } } }, icon('plus'), sr('加标签')));
+  }
+  add(R.center, [
+    crumb(fs[0] ? [btn({ text: fs[0].title, on: { click: () => goPage(fs[0]) } })] : []),
+    titleInput(p, '标题'),
+    h('div', { cls: 'lbw-meta' }, savedSpan(p), h('span', { cls: 'lbw-dot', text: '·' }), h('span', null, NUM(String(p._chars)), ' 字'),
+      p._cites.length ? [h('span', { cls: 'lbw-dot', text: '·' }), h('span', null, '引用 ', NUM(String(p._cites.length)), ' 篇收藏')] : null, chips),
+    draftBar(p),
+    docNodes(p, '写下第一句：为什么关注这件事？'),
+    hint(['点哪段改哪段', h('span', null, kbd('@'), ' 引用收藏'), h('span', null, kbd('Ctrl Alt 0–4'), ' 改层级'), h('span', null, kbd('Esc'), ' 收起')]),
+  ]);
+  if (R.tagIn) R.tagIn.focus();
+}
+function renderTag(tag) {
+  const list = (IDX.byTag.get(tag) || []).filter(p => p.role === 'page').sort(byUpdated);
+  const inItems = ITEMS.filter(it => (it.tags || []).includes(tag));
+  add(R.center, [
+    crumb([h('span', { text: '标签' })]),
+    h('div', { cls: 'lbw-fhead' }, h('span', { cls: 'lbw-big', text: '#' }), h('h1', { cls: 'lbw-ptitle', text: tag })),
+    h('div', { cls: 'lbw-meta' }, h('span', null, NUM(String(list.length)), ' 页'), h('span', { cls: 'lbw-dot', text: '·' }), h('span', null, '收藏里 ', NUM(String(inItems.length)), ' 篇')),
+    add(h('div', { cls: 'lbw-plist', attr: { style: 'margin-top:40px' } }), h('div', { cls: 'lbw-plist-h' }, h('span', { cls: 'lbw-kick', text: 'PAGES' }), h('span', { cls: 'lbw-cap', text: `带 #${tag} 的页` }), NUM(String(list.length))),
+      list.length ? list.map((p, i) => prow(p, i)) : h('p', { cls: 'lbw-rnone', text: '没有' })),
+    add(h('div', { cls: 'lbw-plist', attr: { style: 'margin-top:48px' } }), h('div', { cls: 'lbw-plist-h' }, h('span', { cls: 'lbw-kick', text: 'ARCHIVE' }), h('span', { cls: 'lbw-cap', text: `收藏里带 #${tag} 的 · 用得上再引用` }), NUM(String(inItems.length))),
+      inItems.length ? inItems.slice(0, 200).map(it => btn({ cls: 'lbw-prow', data: { item: it.id }, on: { click: () => openCite(it.id) } }, h('span', { cls: 'lbw-k', text: itemType(it) }),
+        h('span', { cls: 'lbw-pt' }, h('span', { cls: 'lbw-t', text: it.title || '未命名收藏' }), h('span', { cls: 'lbw-l', text: it.summary || '' })), h('span', { cls: 'lbw-d', text: citedBy(it.id).length ? '已引用' : '' })))
+        : h('p', { cls: 'lbw-rnone', text: '没有' })),
+  ]);
+}
+function frontText(p) {
+  return ['---', `id: ${p.id}`, `title: ${p.title}`, `role: ${p.role}`, p.index_tag ? `index_tag: ${p.index_tag}` : null, p.order && p.order.length ? `order: ${JSON.stringify(p.order)}` : null,
+    `tags: ${JSON.stringify(p.tags)}`, p.created ? `created: ${p.created}` : null, p.updated ? `updated: ${p.updated}` : null, '---'].filter(Boolean).join('\n');
+}
+function docNodes(p, placeholder) {
+  if (UI.src && !readOnly) {
+    const ta = h('textarea', { cls: 'lbw-srced', attr: { spellcheck: 'false' } });
+    ta.value = p.body; R.srcEd = ta;
+    let t = 0;
+    if (busyPage(p)) ta.readOnly = true;
+    // 2 秒没动自动存；失焦 / Esc 立刻存。计时器到点时框已经被换掉（重画 / 换页）就什么都不做——换掉之前已经存过，旧框里的字不能再拿去存（10-29 审查 1）
+    ta.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => applySrc(p, ta), 2000); });
+    ta.addEventListener('blur', () => { clearTimeout(t); applySrc(p, ta); });
+    ta.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); clearTimeout(t); applySrc(p, ta); UI.src = false; renderKeepScroll(); refreshIfStale(p); } });
+    return [h('div', { cls: 'lbw-fm', text: frontText(p) + '　← 文件头由页面维护' }), ta];
+  }
+  CITE_NO = new Map(p._cites.map((id, i) => [id, i + 1]));
+  const { lines, blocks } = parseBlocks(p.body);
+  const docEl = h('div', { cls: 'lbw-doc' });
+  blocks.forEach((b, i) => {
+    const blk = add(h('div', { cls: 'lbw-blk', data: { i } }), renderBlock(b, lines, p));
+    if (!readOnly) blk.addEventListener('click', e => clickBlock(e, blk, p, i));
+    docEl.append(blk);
+  });
+  R.doc = docEl;
+  if (readOnly) return [docEl, blocks.length ? null : h('p', { cls: 'lbw-rnone', text: '这一页还是空的' })];
+  R.add = btn({ cls: 'lbw-addblk', text: blocks.length ? '＋ 接着写…' : placeholder, on: { click: () => openEditor(0, null, true) } });
+  return [docEl, R.add];
+}
+// 这一页现在开着、还作数的整页 Markdown 框（被恢复 / 冲突作废的框 _lbDead，不再拿去存）
+function applySrc(p, ta) {
+  if (!ta.isConnected || R.srcEd !== ta || ta._lbDead || ta.readOnly || ta.value === p.body) return;   // 冻住 / 作废的框不存（④）
+  if (mutate(p, n => { n.body = ta.value; })) renderToc();
+}
+function flushSrc() { if (UI.src && R.srcEd && R.srcEd.isConnected) { const p = current(); if (p) applySrc(p, R.srcEd); } }
+
+// ═════════════ 编辑：随时可改，点哪段改哪段（原型 openEditor / commitEditor） ═════════════
+let ED = null;   // {i, s, e, ta, p, bar}
+const lineOffset = (lines, n) => { let o = 0; for (let k = 0; k < n; k++) o += lines[k].length + 1; return o; };
+function clickBlock(e, blk, p, i) {
+  if (e && e.defaultPrevented) return;
+  const sel = WIN && typeof WIN.getSelection === 'function' ? WIN.getSelection() : null;
+  if (sel && sel.anchorNode && !sel.isCollapsed && blk.contains(sel.anchorNode)) return;   // 在选字，不打断
+  let caret = null;
+  try {
+    if (sel && sel.anchorNode && blk.contains(sel.anchorNode) && typeof D.createRange === 'function') {
+      const r = D.createRange(); r.selectNodeContents(blk); r.setEnd(sel.anchorNode, sel.anchorOffset);
+      caret = approxCaret(p, i, r.toString().length);
+    }
+  } catch (err) { caret = null; }
+  openEditor(i, caret);
+}
+function approxCaret(p, i, pos) {
+  const { lines, blocks } = parseBlocks(p.body); const b = blocks[i]; if (!b) return null;
+  const src = lines.slice(b.s, b.e).join('\n');
+  let seen = 0, k = 0;
+  while (k < src.length) {
+    if (k === 0 || src[k - 1] === '\n') { const m = /^(\s*([-*+]|\d+[.)])\s+(\[[ xX]\]\s+)?|#{1,6}\s+|>\s?)/.exec(src.slice(k)); if (m && m[0]) { k += m[0].length; continue; } }
+    if (seen >= pos) return k;
+    if (src.startsWith('](', k)) { const e = src.indexOf(')', k); if (e > 0) { k = e + 1; continue; } }
+    if (/[\[\]*`]/.test(src[k])) { k++; continue; }
+    if (src[k] !== '\n') seen++;
+    k++;
+  }
+  return src.length;
+}
+function editPage() { if (UI.view !== 'page') return null; return PAGES.get(UI.id) || null; }
+function openEditor(i, caret = null, isNew = false) {
+  const p = editPage(); if (!p || readOnly || UI.src) return;
+  // ② 页面忙（保存 / 恢复 / 覆盖在路上）：不开；等队列空了再开，期间页面内容被换过（冲突、恢复）就不开了——行号会对不上
+  if (busyPage(p)) {
+    const body0 = p.body;
+    p._q.then(() => setTimeout(() => { if (current() === p && p.body === body0 && !ED && !UI.src) openEditor(i, caret, isNew); }, 0));
+    return;
+  }
+  if (ED && ED.p !== p) commitEditor(false);
+  if (ED) {
+    const was = parseBlocks(ED.p.body).blocks[i], from = ED.s, n0 = ED.p.body.split('\n').length;
+    commitEditor(true);
+    if (!isNew) {
+      if (!was) return;
+      const line = was.s > from ? was.s + p.body.split('\n').length - n0 : was.s;
+      i = parseBlocks(p.body).blocks.findIndex(b => b.s === line);
+      if (i < 0) return;
+    }
+    // 10-29 四审：刚提交的那段已经入队（页面忙了）——目标段交给上面「等队列空了再开」那条路：
+    // 存上了按当时的正文重新找段再开；撞冲突 / 被换掉（正文变了）就不开，不留旧行号的编辑框
+    return openEditor(i, caret, isNew);
+  }
+  if (!R.doc) return;
+  const { lines, blocks } = parseBlocks(p.body);
+  let s, e, text, holder;
+  if (isNew) { s = lines.length; e = s; text = ''; holder = h('div'); R.doc.append(holder); }
+  else { const b = blocks[i]; if (!b) return; s = b.s; e = b.e; text = lines.slice(s, e).join('\n'); holder = R.doc.querySelector(`.lbw-blk[data-i="${i}"]`); if (!holder) return; }
+  const ta = h('textarea', { cls: 'lbw-ed', attr: { spellcheck: 'false' } });
+  ta.value = text;
+  ta.placeholder = p.body.trim() ? '接着写…' : (p.role === 'topic' ? '一句话说说这个文件夹放什么' : '写下第一句：为什么关注这件事？');
+  const lv = (t, v, extra) => btn({ text: t, data: { lv: v }, ...(extra || {}) });
+  const bar = h('div', { cls: 'lbw-edbar' }, lv('正文', 0), lv('H1', 1), lv('H2', 2), lv('H3', 3), lv('H4', 4), h('span', { cls: 'lbw-sep' }), lv('列表', 'ul'), lv('待办', 'task'),
+    h('span', { cls: 'lbw-sep' }), btn({ text: 'AI 改写 · 稍后', attr: { disabled: true } }), h('span', { cls: 'lbw-k', text: 'Ctrl Alt 0–4 · Esc 收起' }));
+  bar.addEventListener('mousedown', ev => ev.preventDefault());
+  for (const b of bar.querySelectorAll('[data-lv]')) b.addEventListener('click', () => setLevel(ta, b.dataset.lv));
+  holder.replaceWith(bar);
+  bar.after(ta);
+  ED = { i, s, e, ta, p, bar };
+  for (const evName of ['input', 'keyup', 'click']) ta.addEventListener(evName, () => paintLevel(bar, ta));
+  ta.addEventListener('input', () => { autoGrow(ta); suggest(ta); });
+  ta.addEventListener('keydown', edKey);
+  ta.addEventListener('blur', () => setTimeout(() => {
+    if (!ED || ED.ta !== ta || D.activeElement === ta) return;
+    if (!ta.isConnected) { stashUnsaved(ED.p); return; }   // §5.9：后台把它摘下（换页 / 关页）不提交，只把字留成草稿
+    closePop(); commitEditor(true);
+  }, 120));
+  paintLevel(bar, ta);
+  autoGrow(ta); ta.focus();
+  const pos = caret == null ? ta.value.length : Math.min(caret, ta.value.length);
+  ta.setSelectionRange(pos, pos);
+  if (R.add) R.add.hidden = true;
+}
+function autoGrow(ta) { try { ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 2) + 'px'; } catch (e) { console.debug(e); } }
+const selStart = ta => (typeof ta.selectionStart === 'number' ? ta.selectionStart : ta.value.length);
+const selEnd = ta => (typeof ta.selectionEnd === 'number' ? ta.selectionEnd : selStart(ta));
+function replaceRange(ta, text, a, b) {
+  if (typeof ta.setRangeText === 'function') { ta.setRangeText(text, a, b, 'end'); return; }
+  ta.value = ta.value.slice(0, a) + text + ta.value.slice(b);
+  ta.setSelectionRange(a + text.length, a + text.length);
+}
+const curLines = ta => { const v = ta.value; const a = v.lastIndexOf('\n', selStart(ta) - 1) + 1; let b = v.indexOf('\n', selEnd(ta)); if (b < 0) b = v.length; return [a, b]; };
+const stripMark = l => l.replace(/^(#{1,6}\s+|\s*[-*+]\s+\[[ xX]\]\s+|\s*[-*+]\s+|\s*\d+[.)]\s+)/, '');
+function setLevel(ta, lv) {
+  const [a, b] = curLines(ta);
+  const n = Number(lv);
+  const pre = lv === 'ul' ? '- ' : lv === 'task' ? '- [ ] ' : n ? '#'.repeat(n) + ' ' : '';
+  const out = ta.value.slice(a, b).split('\n').map(l => (l.trim() ? pre + stripMark(l) : l)).join('\n');
+  replaceRange(ta, out, a, b); autoGrow(ta); ta.focus();
+  if (ED && ED.bar) paintLevel(ED.bar, ta);
+}
+function paintLevel(bar, ta) {
+  const [a, b] = curLines(ta); const l = ta.value.slice(a, b).split('\n')[0];
+  const lv = /^(#{1,4})\s/.exec(l)?.[1].length || (/^\s*[-*+]\s+\[[ xX]\]/.test(l) ? 'task' : /^\s*[-*+]\s/.test(l) ? 'ul' : 0);
+  for (const x of bar.querySelectorAll('[data-lv]')) x.classList.toggle('is-on', String(lv) === x.dataset.lv);
+}
+// 把编辑框里的字拼回整页正文（不改 p）：{body, shift}
+function spliceBody(body, s, e, value) {
+  const lines = body.split('\n');
+  const text = value.replace(/\s+$/, '');
+  const old = lines.slice(s, e).join('\n');
+  if (text === old) return { body, shift: 0, changed: false };
+  let shift = 0;
+  const repl = text ? text.split('\n') : [];
+  if (repl.length && s > 0 && (lines[s - 1] || '').trim()) { repl.unshift(''); shift = 1; }
+  if (repl.length && e < lines.length && (lines[e] || '').trim()) repl.push('');
+  lines.splice(s, e - s, ...repl);
+  return { body: lines.join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+/, ''), shift, changed: true };
+}
+const intendedBody = p => (ED && ED.p === p ? spliceBody(p.body, ED.s, ED.e, ED.ta.value).body : p.body);
+function commitEditor(rerender = true) {
+  if (!ED) return;
+  const { s, ta, p, bar } = ED;
+  bar?.remove();
+  const lines = p.body.split('\n');
+  const r = spliceBody(p.body, ED.s, ED.e, ta.value);
+  const caretAbs = lineOffset(lines, s) + Math.min(selStart(ta), ta.value.replace(/\s+$/, '').length);
+  ED = null; closePop();
+  if (r.changed) mutate(p, n => { n.body = r.body; });
+  UI.caret = { page: p.id, abs: Math.min(caretAbs + r.shift, p.body.length) };
+  if (rerender) renderKeepScroll(); else ta.remove();
+  refreshIfStale(p);
+}
+function edKey(ev) {
+  if (POP.el && popKey(ev)) return;
+  const k = String(ev.key || '');
+  if (ev.ctrlKey && ev.altKey && /^[0-4]$/.test(k)) { ev.preventDefault(); setLevel(ev.target || ED.ta, k); return; }
+  if (k === 'Escape' && !ev.isComposing) { ev.preventDefault(); ev.stopPropagation(); commitEditor(true); }
+  else if (k === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
+    ev.preventDefault();
+    const p = ED.p, i = ED.i; commitEditor(true);
+    const n = parseBlocks(p.body).blocks.length;
+    if (i + 1 < n) openEditor(i + 1, 0); else openEditor(0, null, true);
+  }
+}
+function toggleTask(p, line) {
+  if (ED && ED.p === p) { commitEditor(true); return; }   // 先存好正在改的那一段（行号会变），再勾
+  if (busyPage(p)) return;
+  mutate(p, n => {
+    const lines = n.body.split('\n');
+    if (lines[line] != null) lines[line] = lines[line].replace(/\[( |x|X)\]/, m => (m === '[ ]' ? '[x]' : '[ ]'));
+    n.body = lines.join('\n');
+  });
+  renderKeepScroll();
+}
+
+// ═════════════ @ 引用收藏 ═════════════
+const POP = { el: null, items: [], on: 0, ta: null, from: 0 };
+function closePop() { if (POP.el) POP.el.remove(); POP.el = null; POP.ta = null; }
+// 弹层 position:fixed：Obsidian 某层祖先若有 contain / transform，fixed 会相对它算——放好后量一次，差多少挪回多少
+function placeFixed(el, x, y) {
+  el.style.left = x + 'px'; el.style.top = y + 'px';
+  try { const r = el.getBoundingClientRect(); if (r && (r.left || r.top) && (Math.abs(r.left - x) > 1 || Math.abs(r.top - y) > 1)) { el.style.left = (2 * x - r.left) + 'px'; el.style.top = (2 * y - r.top) + 'px'; } }
+  catch (e) { console.debug(e); }
+}
+function citeTitle(it) { return String(it.title || '未命名收藏').replace(/[\[\]\n]/g, ' ').trim(); }
+function suggest(ta) {
+  const before = ta.value.slice(0, selStart(ta));
+  const m = /(^|[\s（(，。：:；])@([^\s@]*)$/.exec(before);
+  if (!m) { closePop(); return; }
+  const cur = ED ? ED.p : current(), q = m[2];
+  let pool;
+  if (q) { const r = rankItems(ITEMS, q, DATA.pinyin_chars || {}, DATA.aliases || []); pool = [...r.exact, ...r.possible].map(x => x.it); }
+  else pool = ITEMS.filter(it => cur && (it.tags || []).some(t => cur._allTags.includes(t)));
+  let list = pool.slice(0, 6).map(it => { const used = citedBy(it.id); return { id: it.id, title: citeTitle(it), sub: `${itemType(it)}${it.author ? ' · ' + it.author : ''}${used.length ? ' · 已在《' + used[0].title + '》引用' : ''}` }; });
+  if (!list.length) list = [{ id: '', title: '收藏里没找到', sub: '', off: true }];
+  closePop();
+  const el = h('div', { cls: 'lbw-pop is-sug', attr: { role: 'listbox' } },
+    h('div', { cls: 'lbw-ph' }, h('span', { cls: 'lbw-kick', text: 'ARCHIVE' }), h('span', { cls: 'lbw-cap', text: q ? '从收藏里引用' : '和本页标签相关 · 接着打字搜' }), q ? h('span', { cls: 'lbw-q', text: '@' + q }) : null),
+    list.map((x, k) => { const b = btn({ cls: k === 0 && !x.off ? 'is-on' : '', data: { k }, attr: { disabled: !!x.off } }, x.title, x.sub ? h('small', { text: x.sub }) : null); b.addEventListener('click', () => pickPop(k)); return b; }),
+    h('div', { cls: 'lbw-pf' }, h('span', { text: '↑↓ 选' }), h('span', { text: 'Enter 插入，接着写一句为什么' }), h('span', { text: 'Esc 关' })));
+  el.addEventListener('mousedown', e => e.preventDefault());
+  R.layer.append(el);
+  const r = ta.getBoundingClientRect();
+  const vw = (WIN && WIN.innerWidth) || 1200, vh = (WIN && WIN.innerHeight) || 800;
+  const below = r.top + 28 + before.split('\n').length * 30 + 6, ph = el.offsetHeight || 0;
+  placeFixed(el, Math.max(8, Math.min(r.left + 12, vw - 392)), below + ph <= vh - 8 ? below : Math.max(8, r.top - ph - 14));
+  Object.assign(POP, { el, items: list, on: 0, ta, from: m.index + m[1].length });
+}
+function popKey(ev) {
+  const k = ev.key;
+  if (!POP.ta) return false;   // 菜单弹层：只管 Esc（全局那条）
+  if (k === 'ArrowDown' || k === 'ArrowUp') { ev.preventDefault(); POP.on = (POP.on + (k === 'ArrowDown' ? 1 : -1) + POP.items.length) % POP.items.length; POP.el.querySelectorAll('button').forEach((b, i) => b.classList.toggle('is-on', i === POP.on)); return true; }
+  if (k === 'Enter' || k === 'Tab') { ev.preventDefault(); pickPop(POP.on); return true; }
+  if (k === 'Escape') { ev.preventDefault(); ev.stopPropagation(); closePop(); return true; }
+  return false;
+}
+function pickPop(k) {
+  const x = POP.items[k], ta = POP.ta; if (!x || x.off || !ta) return;
+  replaceRange(ta, `[${x.title}](lwa:${x.id}) — `, POP.from, selStart(ta));
+  closePop(); autoGrow(ta); ta.focus();
+}
+
+// ═════════════ 收藏引用：开到右栏（和问收藏同一个 openArchiveSource） ═════════════
+function markOpenCite() { for (const a of wrap.querySelectorAll('.lbw-cite')) a.classList.toggle('is-open', !!UI.openCite && a.dataset.item === UI.openCite); }
+function openCite(id) {
+  const it = ITEM_BY.get(id);
+  if (!it) { LB.say('这篇收藏找不到了（可能进了回收站）：正文里的引用留着标题，标成虚线', { kind: 'warn' }); return null; }
+  if (!it.note) { LB.say('这篇收藏没有笔记文件，打不开原文', { kind: 'warn' }); return null; }
+  UI.openCite = id; markOpenCite();
+  const p = provider();
+  const fail = e => LB.say('打不开原文：' + errText(e), { kind: 'error' });
+  try {
+    if (p && typeof p.openArchiveSource === 'function') return Promise.resolve(p.openArchiveSource(it.note, LB.container, false, [])).catch(fail);
+    return Promise.resolve(app.workspace.openLinkText(LB.path(it.note), '', false)).catch(fail);
+  } catch (e) { fail(e); return null; }
+}
+
+// ═════════════ 写盘：只经插件 wikiCall（§1：写盘成功才算；失败回滚 + 草稿 + 固定句式） ═════════════
+// 10-29 三审后重写成一个小状态机（之前一路打补丁的竞态，都出在「保存在路上时页面还能改」和「重画时顺手存一次」）：
+//  ① 每页一条串行队列：保存 / 恢复 / 覆盖 / 存版本 / 删除都是队列里的一项（enqueue），没有旁路。
+//  ② 队列里有东西（busyPage）时这页只读：块编辑框不开（点了等队列空了再开；期间页面被换过就不开），整页 Markdown 框只读，
+//     标题 / 标签 / 待办 / 拖动都不收。所以带内容的保存只在页面空闲时入队（mutate 是唯一入口），队列里最多一项，
+//     不会有「排在别的操作后面、轮到时拿新 hash 盖掉别处版本 / 恢复内容」的保存。
+//  ③ 要写的内容在入队那一刻定下（她到此为止打的字：mutate 把开着的编辑框 / 整页 Markdown 框的字一并收进来）；
+//     之后不再从界面上补收。恢复 / 存版本 / 删除不带内容，参数（hash）在轮到时取。
+//  ④ 重画只画不存。存只发生在明确的提交点：Esc / 失焦 / 换页 / 整页 Markdown 的自动保存（框活着、没冻住时）。
+//     重画时万一还有没提交的字（不该发生），收进草稿，不存也不丢。
+//  ⑤ 保存失败：这一项的内容进草稿（新的顶掉旧的）；CONFLICT 换成磁盘上的版本，其它回到上次存上的样子；队列空了照常能改。
+//  ⑥ 覆盖 = 一份正文（编辑框里有她新打的字就用它，否则用草稿）入队一次保存；只有这一次存上才删草稿。
+async function wcall(op, opts = {}) {
+  const p = provider();
+  if (LB.mobile || !p || typeof p.wikiCall !== 'function') throw Object.assign(new Error(LB.mobile ? LB.MOBILE_ONLY_TEXT : '插件没启用，Wiki 只能看'), { code: 'NO_PLUGIN' });
+  return p.wikiCall(op, opts);
+}
+const NOT_SAVED = '没保存上，内容还在，可重试：';
+const stateOf = p => ({ title: p.title, tags: [...p.tags], body: p.body, ...(p.role === 'topic' ? { order: [...(p.order || [])] } : {}) });
+const busyPage = p => !!p && (p._ops || 0) > 0;
+const liveSrc = p => (p && UI.src && UI.view === 'page' && UI.id === p.id && R.srcEd && R.srcEd.isConnected && !R.srcEd._lbDead ? R.srcEd : null);
+function closeEditor() { if (!ED) return; const { ta, bar } = ED; ED = null; closePop(); bar?.remove(); ta.remove(); }
+// ① 队列：task 自己处理成功 / 失败（不抛）；队列空了 settled
+function enqueue(p, task) {
+  p._ops = (p._ops || 0) + 1; paintLock(p); paintSaved(p);
+  const job = (p._q || Promise.resolve()).then(task).catch(e => console.debug('[lb] wiki op', e))
+    .then(() => { p._ops = Math.max(0, (p._ops || 1) - 1); if (!p._ops) settled(p); });
+  p._q = job;
+  return job;
+}
+// 队列空了：解冻（整页 Markdown 框内容没被换就原地解冻，换了就重画）；只画不存；期间磁盘变过就补一次重读
+function settled(p) {
+  paintLock(p); paintSaved(p);
+  if (current() === p && !ED) {
+    const box = liveSrc(p);
+    if (box && box.value === p.body) box.readOnly = false;
+    else renderKeepScroll();
+  }
+  if (p._stale) scheduleRefresh(50);
+  if (UI.hist && UI.hist.id === p.id && UI.hist.versions) loadHistory();
+}
+function paintLock(p) {
+  if (readOnly || current() !== p) return;
+  const lock = busyPage(p);
+  wrap.classList.toggle('is-saving', lock);
+  if (R.title) R.title.readOnly = lock;
+  if (lock && R.srcEd && !R.srcEd._lbDead) R.srcEd.readOnly = true;
+  for (const cb of R.center.querySelectorAll('.lbw-task input')) cb.disabled = lock;
+}
+// ② ③ 带内容的改动的唯一入口：change(next) 在「这一页现在的样子 + 她编辑框里还没提交的字」上改；空闲才入队一次保存，忙时进草稿（不丢）
+function mutate(p, change, { kind = 'auto', note = '' } = {}) {
+  if (readOnly || !p) return false;
+  const next = stateOf(p);
+  if (ED && ED.p === p) { next.body = intendedBody(p); closeEditor(); }
+  const box = liveSrc(p);
+  if (box && !box.readOnly && box.value !== next.body) next.body = box.value;
+  change(next);
+  if (busyPage(p)) {
+    DRAFTS[p.id] = { ...next, at: Date.now(), conflict: false };
+    persistDrafts();
+    LB.say('这一页正在保存：这次的改动先放在页顶「没保存上的改动」里', { kind: 'warn' });
+    return false;
+  }
+  Object.assign(p, next); derive(p); reindex();
+  saveNow(p, { kind, note });
+  return true;
+}
+function saveNow(p, { kind = 'auto', note = '', fromDraft = null } = {}) {
+  const want = stateOf(p);
+  let ok = false;
+  return enqueue(p, async () => {
+    try {
+      const res = await wcall('save', { input: { id: p.id, base_hash: p.hash || '', ...want, kind, note } });
+      applySaved(p, res.page);
+      if (fromDraft && DRAFTS[p.id] === fromDraft) { delete DRAFTS[p.id]; persistDrafts(); }
+      scheduleIndex(); ok = true;
+    } catch (e) { await saveFailed(p, want, e); }
+  }).then(() => ok);
+}
+function applySaved(p, page) {
+  if (!page || typeof page !== 'object') return;
+  for (const k of ['hash', 'updated', 'created', 'file', 'role', 'index_tag']) if (page[k] != null) p[k] = page[k];
+  if (page.id && page.id !== p.id) { PAGES.delete(p.id); p.id = page.id; PAGES.set(p.id, p); }
+  delete p.adopted;
+  p._saved = { title: page.title ?? p.title, tags: [...(page.tags || p.tags)], body: page.body ?? p.body, order: [...(page.order || p.order || [])] };
+  p._stale = false;
+  reindex(); renderSub();
+  if (UI.view === 'page' && UI.id === p.id) renderToc();
+}
+function revertTo(p, s) { p.title = s.title; p.tags = [...s.tags]; p.body = s.body; if (p.role === 'topic') p.order = [...(s.order || [])]; derive(p); }
+async function reloadPage(p) {
+  const saved = p._saved || savedOf(p);
+  try { const d = (await readDisk()).get(p.id); if (d) adoptDisk(p, d); else revertTo(p, saved); }
+  catch (err) { console.debug('[lb] wiki reload after conflict', err); revertTo(p, saved); }
+}
+// ⑤ 失败：这一项的内容进草稿；CONFLICT 换成磁盘版本，其它回到上次存上的样子（重画等队列空了在 settled 里做）
+async function saveFailed(p, want, e) {
+  const code = (e && e.code) || '';
+  const saved = p._saved || savedOf(p);
+  const draft = { ...want, at: Date.now(), conflict: code === 'CONFLICT' };
+  if (code === 'TITLE_TAKEN') draft.title = saved.title;
+  const keep = !sameState(draft, { ...saved, order: p.role === 'topic' ? saved.order : undefined });
+  if (keep) { DRAFTS[p.id] = draft; persistDrafts(); }
+  if (code === 'CONFLICT') await reloadPage(p); else revertTo(p, saved);
+  reindex(); renderSub(); renderToc();
+  const why = code === 'CONFLICT' ? '这页刚在别处改过（Obsidian 或另一个窗口），已换成磁盘上的版本；你的改动在页顶「没保存上的改动」里'
+    : code === 'TITLE_TAKEN' ? errText(e) + '；标题已改回原来的' : errText(e);
+  LB.say(NOT_SAVED + why, { kind: 'error', actions: keep ? [{ label: code === 'CONFLICT' ? '用我这份覆盖' : '再存一次', run: () => overwrite(p.id) }] : [] });
+}
+// 把还没提交的字留成草稿（编辑框被后台摘下 / 重画时还开着）：不存，也不丢
+function stashUnsaved(p) {
+  if (!p) return;
+  const next = stateOf(p);
+  if (ED && ED.p === p) next.body = intendedBody(p);
+  const box = liveSrc(p);
+  if (box && !box.readOnly) next.body = box.value;
+  if (next.body === p.body) return;
+  DRAFTS[p.id] = { ...next, at: Date.now(), conflict: false, unsaved: true };
+  persistDrafts();
+}
+// ⑥ 覆盖：一份正文、一次保存；只有这次存上才删草稿
+function overwrite(id) {
+  const p = PAGES.get(id), d = DRAFTS[id];
+  if (!p || !d) { LB.say('这份改动对应的页找不到了', { kind: 'warn' }); return; }
+  if (readOnly) return;
+  if (busyPage(p)) { LB.say('这一页正在保存，好了再点', { kind: 'warn' }); return; }
+  let body = d.body ?? p.body;
+  if (ED && ED.p === p) { const typed = intendedBody(p); closeEditor(); if (typed !== p.body) body = typed; }
+  const box = liveSrc(p);
+  if (box) { if (!box.readOnly && box.value !== p.body) body = box.value; box._lbDead = true; }
+  p.title = d.title ?? p.title; p.tags = [...(d.tags || p.tags)]; p.body = body; if (p.role === 'topic' && d.order) p.order = [...d.order];
+  derive(p); reindex();
+  saveNow(p, { note: d.conflict ? '用没保存上的改动覆盖' : '', fromDraft: d });
+  if (current() === p) renderKeepScroll();
+}
+// 恢复 / 存版本 / 删除之前：她手上的字先作为一次普通保存入队（③）
+function commitHere(p) { if (ED && ED.p === p) commitEditor(true); else flushSrc(); }
+function draftBar(p) {
+  const d = DRAFTS[p.id];
+  if (!d) return null;
+  const n = String(d.body || '').replace(/\s/g, '').length;
+  const bar = h('div', { cls: 'lbw-draft', attr: { role: 'status' } },
+    h('span', { cls: 'lbw-dt', text: d.unsaved ? '上次没提交的改动' : '没保存上的改动' }),
+    h('span', null, nums(`${fmtTime(new Date(d.at).toISOString())} · ${n} 字`)),
+    d.conflict ? h('span', { text: '这页在别处改过；覆盖后，被换下的那版留在历史里' }) : null,
+    h('span', { cls: 'lbw-sp' }));
+  if (!readOnly) bar.append(btn({ cls: 'lbw-pill is-solid', text: d.conflict ? '用我这份覆盖' : '再存一次', data: { draft: 'apply' }, on: { click: () => overwrite(p.id) } }));
+  bar.append(btn({ cls: 'lbw-qbtn', text: '复制', data: { draft: 'copy' }, on: { click: async () => {
+    try { await WIN.navigator.clipboard.writeText(d.body || ''); LB.say('已复制这份改动的正文', { kind: 'ok' }); }
+    catch (e) { LB.say('没复制上：' + errText(e), { kind: 'error' }); }
+  } } }));
+  bar.append(btn({ cls: 'lbw-qbtn', text: '丢掉', data: { draft: 'drop' }, on: { click: async () => {
+    if (!(await LB.confirm({ title: '丢掉这份没保存上的改动？', body: '丢掉后找不回来。', ok: '丢掉', danger: true }))) return;
+    if (DRAFTS[p.id] === d) { delete DRAFTS[p.id]; persistDrafts(); }
+    if (!ED) renderKeepScroll();
+  } } }));
+  return bar;
+}
+let indexTimer = 0;
+function scheduleIndex() {
+  clearTimeout(indexTimer);
+  indexTimer = setTimeout(async () => {
+    try { await wcall('index', {}); }
+    catch (e) { LB.say('Wiki 索引没更新上（页面本身已经存好）：' + errText(e), { kind: 'warn' }); }
+  }, INDEX_DELAY_MS);
+}
+
+// ═════════════ 历史（本页右侧栏）：版本列表 · 和现在的逐行差异 · 恢复 · 保存版本 ═════════════
+const KIND = { create: '新建', auto: '自动', manual: '版本', restore: '恢复', external: '外部编辑', import: '导入', ai: 'AI', rename: '改名' };
+function toggleHistory() {
+  if (UI.hist) { UI.hist = null; renderSide(); return; }
+  const p = current();
+  if (!p) { LB.say('先打开一页，再看它的历史'); return; }
+  UI.hist = { id: p.id, versions: null, sel: null, texts: {} };
+  renderSide(); loadHistory();
+}
+let histGen = 0;
+async function loadHistory() {
+  const H = UI.hist; if (!H || !H.id) { renderSide(); return; }
+  const gen = ++histGen;
+  try {
+    const r = await wcall('history', { args: [H.id] });
+    if (gen !== histGen || UI.hist !== H) return;
+    H.versions = Array.isArray(r?.versions) ? r.versions : []; H.error = '';
+  } catch (e) { if (gen !== histGen || UI.hist !== H) return; H.versions = H.versions || []; H.error = errText(e); }
+  renderSide();
+}
+async function pickVersion(ver) {
+  const H = UI.hist; if (!H) return;
+  H.sel = ver; renderSide();
+  if (H.texts[ver]) return;
+  try { const r = await wcall('version', { args: [H.id, String(ver)] }); if (UI.hist === H) { H.texts[ver] = r?.version || { body: '' }; renderSide(); } }
+  catch (e) { if (UI.hist === H) { H.texts[ver] = { error: errText(e) }; renderSide(); } }
+}
+function lineDiff(a, b) {
+  const A = String(a).split('\n'), B = String(b).split('\n'), n = A.length, m = B.length;
+  if (n * m > 4e6) return [...A.map(l => ['d', l]), ...B.map(l => ['a', l])];
+  const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const out = []; let i = 0, j = 0;
+  while (i < n && j < m) { if (A[i] === B[j]) { out.push(['c', A[i]]); i++; j++; } else if (dp[i + 1][j] >= dp[i][j + 1]) out.push(['d', A[i++]]); else out.push(['a', B[j++]]); }
+  while (i < n) out.push(['d', A[i++]]); while (j < m) out.push(['a', B[j++]]);
+  return out;
+}
+function renderSide() {
+  const H = UI.hist, side = R.side;
+  wrap.classList.toggle('has-side', !!H);
+  if (R.histBtn) R.histBtn.classList.toggle('is-on', !!H);
+  side.hidden = !H; side.textContent = '';
+  if (!H) return;
+  const p = PAGES.get(H.id);
+  side.append(h('div', { cls: 'lbw-rbar' }, btn({ text: '← 收起', on: { click: () => { UI.hist = null; renderSide(); } } }), h('span', { cls: 'is-on', text: '历史' }), h('span', { text: p ? p.title : '' })));
+  if (!p) { side.append(h('p', { cls: 'lbw-note', text: '这一页找不到了。' })); return; }
+  const noteIn = h('input', { attr: { type: 'text', placeholder: '这一版改了什么（可不写）' } });
+  const saveVer = btn({ cls: 'lbw-pill', text: '保存版本', on: { click: async () => {
+    const done = LB.busy(saveVer, '保存中…');
+    if (ED && ED.p === p) commitEditor(true);
+    const ok = await saveVersion(p, noteIn.value.trim() || '手动保存');
+    done();
+    if (ok) { LB.say('记了一版', { kind: 'ok' }); H.sel = null; loadHistory(); }
+  } } });
+  side.append(h('div', { cls: 'lbw-verbar' }, h('label', { cls: 'lb-visually-hidden', text: '这一版的说明' }), noteIn, saveVer));
+  if (H.error) side.append(h('p', { cls: 'lbw-note', text: '历史没读到：' + H.error }));
+  if (!H.versions) { side.append(h('p', { cls: 'lbw-note', text: '正在读历史…' })); return; }
+  if (!H.versions.length) side.append(h('p', { cls: 'lbw-note', text: '还没有历史：存一次就有了' }));
+  for (const v of H.versions) {
+    side.append(btn({ cls: 'lbw-ver' + (H.sel === v.ver ? ' is-on' : ''), data: { ver: v.ver }, on: { click: () => pickVersion(v.ver) } },
+      h('span', { cls: 'lbw-k', text: KIND[v.kind] || v.kind || '' }), h('span', null, nums(fmtTime(v.at))),
+      h('span', { cls: 'lbw-note' }, v.add || v.del ? nums(`+${v.add || 0} −${v.del || 0}`) : null), v.note ? h('span', { cls: 'lbw-w', text: v.note }) : null));
+  }
+  if (H.sel != null) {
+    const t = H.texts[H.sel];
+    if (!t) side.append(h('p', { cls: 'lbw-note', text: '正在读这一版…' }));
+    else if (t.error) side.append(h('p', { cls: 'lbw-note', text: '这一版没读到：' + t.error }));
+    else {
+      const d = lineDiff(t.body || '', p.body);
+      const changed = d.some(x => x[0] !== 'c') || (t.title != null && t.title !== p.title);
+      if (!changed) side.append(h('p', { cls: 'lbw-note', text: '和现在一样' }));
+      else {
+        side.append(h('div', { cls: 'lbw-diff' }, d.map(([k, l]) => h('div', { cls: 'is-' + k, text: (k === 'a' ? '+ ' : k === 'd' ? '− ' : '  ') + (l || ' ') }))));
+        const rb = btn({ cls: 'lbw-pill', text: '恢复到这一版', data: { restore: H.sel }, on: { click: () => restoreVersion(p, H.sel, rb) } });
+        side.append(rb, ' ', h('span', { cls: 'lbw-note', text: '恢复也记成新的一版' }));
+      }
+    }
+  }
+  side.append(h('p', { cls: 'lbw-note', attr: { style: 'margin-top:22px' }, text: '连着打字每 2 分钟合成一次自动快照；「保存版本」单独记一条。历史存在 PersonalWiki/.history 里。' }));
+}
+// 恢复 / 存版本：队列里的一项（①），不带内容，hash 在轮到时取；她手上的字先作为一次普通保存入队（③）
+function restoreVersion(p, ver, b) {
+  if (readOnly) return null;
+  commitHere(p);
+  const done = LB.busy(b, '恢复中…');
+  return enqueue(p, async () => {
+    try {
+      const r = await wcall('restore', { args: [p.id, String(ver), '--base-hash', p.hash || ''] });
+      const pg = r && r.page;
+      if (pg) { p.title = pg.title ?? p.title; p.tags = [...(pg.tags || p.tags)]; if (pg.body != null) p.body = pg.body; derive(p); applySaved(p, pg); }
+      LB.say((r && r.message) || '已恢复；恢复前的内容也在历史里', { kind: 'ok' });
+      scheduleIndex();
+      if (UI.hist) UI.hist.sel = null;
+    } catch (e) {
+      if (e && e.code === 'CONFLICT') { await reloadPage(p); LB.say('没恢复上：这页刚在别处改过，已换成磁盘上的版本，再点一次恢复', { kind: 'error' }); }
+      else LB.say('没恢复上：' + errText(e), { kind: 'error' });
+    } finally { done(); }
+  });
+}
+function saveVersion(p, note) {
+  if (readOnly) return Promise.resolve(false);
+  commitHere(p);
+  let ok = false;
+  return enqueue(p, async () => {
+    try { const res = await wcall('save', { input: { id: p.id, base_hash: p.hash || '', kind: 'manual', note } }); applySaved(p, res.page); scheduleIndex(); ok = true; }
+    catch (e) {
+      if (e && e.code === 'CONFLICT') { await reloadPage(p); LB.say('版本没记上：这页刚在别处改过，已换成磁盘上的版本', { kind: 'error' }); }
+      else LB.say('版本没记上：' + errText(e), { kind: 'error' });
+    }
+  }).then(() => ok);
+}
+
+// ═════════════ 新建（页内弹层，不用 window.prompt） ═════════════
+function closeModal() { const m = R.layer.querySelector('.lbw-mbg'); if (m) m.remove(); }
+function newPageModal(opts = {}) {
+  if (readOnly) return;
+  closePop(); closeModal();
+  const cur = current();
+  const inherit = cur ? (cur.role === 'topic' ? cur.index_tag : foldersOf(cur)[0]?.index_tag || '') : '';
+  const tin = h('input', { attr: { type: 'text', name: 'ptitle', placeholder: opts.folder ? '例如：做饭' : '例如：住宿偏好' } });
+  const sel = opts.folder ? null : h('select', { attr: { name: 'cat' } }, h('option', { attr: { value: '' }, text: '先不归类' }),
+    topics().map(t => { const o = h('option', { attr: { value: t.index_tag }, text: t.title }); if (t.index_tag === inherit) o.setAttribute('selected', ''); return o; }));
+  if (sel) sel.value = inherit;
+  const chk = opts.folder ? null : h('input', { attr: { type: 'checkbox', name: 'prompts' } });
+  const ok = h('button', { cls: 'lbw-pill is-solid', text: '创建', attr: { type: 'submit' } });
+  const form = h('form', { cls: 'lbw-modal', attr: { autocomplete: 'off' } },
+    h('div', { cls: 'lbw-mh' }, h('span', { cls: 'lbw-kick', text: opts.folder ? 'NEW FOLDER' : 'NEW PAGE' }), h('h3', { text: opts.folder ? '新文件夹' : '新页面' })),
+    h('label', null, opts.folder ? '文件夹名' : '标题', tin),
+    sel ? h('label', null, '放进哪个文件夹', sel) : null,
+    chk ? h('label', { cls: 'lbw-chk' }, chk, ' 放几个可删的写作提示') : null,
+    h('div', { cls: 'lbw-acts2' }, btn({ cls: 'lbw-qbtn', text: '取消', on: { click: closeModal } }), ok));
+  const bg = h('div', { cls: 'lbw-mbg', attr: { role: 'dialog', 'aria-modal': 'true' } }, form);
+  bg.addEventListener('mousedown', e => { if (e.target === bg) closeModal(); });
+  bg.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeModal(); } });
+  let busy = false;
+  form.onsubmit = async e => {
+    e?.preventDefault?.();
+    if (busy) return;
+    const title = tin.value.trim(); if (!title) { tin.focus(); return; }
+    const exist = pageByTitle(title);
+    if (exist) { LB.say(`已经有「${title}」了，直接打开`); closeModal(); goPage(exist); return; }
+    const args = [title];
+    if (opts.folder) args.push('--topic');
+    else { if (sel && sel.value) args.push('--folder', sel.value); if (chk && chk.checked) args.push('--prompts'); }
+    busy = true;
+    const done = LB.busy(ok, '创建中…');
+    try {
+      const r = await wcall('create', { args });
+      done(); closeModal();
+      const pg = r && r.page;
+      if (!pg || !pg.id) throw new Error('后端没返回新页面');
+      const p = { ...pg, tags: [...(pg.tags || [])], order: [...(pg.order || [])], body: String(pg.body || '') };
+      p._saved = savedOf(p); PAGES.set(p.id, derive(p)); reindex();
+      scheduleIndex();
+      LB.say(r.message || `已新建《${p.title}》`, { kind: 'ok' });
+      goPage(p);
+      if (p.role === 'page') { if (p.body) openEditor(0); else openEditor(0, null, true); }
+    } catch (err) { done(); busy = false; LB.say((opts.folder ? '文件夹没建上：' : '页面没建上：') + errText(err), { kind: 'error' }); }
+  };
+  R.layer.append(bg);
+  tin.focus();
+}
+async function deletePage(p) {
+  if (readOnly || !p) return;
+  if (!(await LB.confirm({ title: `删除《${p.title}》？`, body: '会挪进 PersonalWiki/.trash（可以从那里找回），历史留着。', ok: '删除', danger: true }))) return;
+  commitHere(p);
+  let gone = false;
+  await enqueue(p, async () => {
+    try {
+      const r = await wcall('delete', { args: [p.id, '--base-hash', p.hash || ''] });
+      PAGES.delete(p.id); reindex(); gone = true;
+      if (UI.hist && UI.hist.id === p.id) UI.hist = null;
+      scheduleIndex();
+      LB.say(r?.message || `已删《${p.title}》`, { kind: 'ok' });
+    } catch (e) {
+      if (e && e.code === 'CONFLICT') { await reloadPage(p); LB.say('没删掉：这页刚在别处改过，已换成磁盘上的版本，看过再删', { kind: 'error' }); }
+      else LB.say('没删掉：' + errText(e), { kind: 'error' });
+    }
+  });
+  if (gone) go('home');
+}
+// 「…」菜单：插件的 obsidian.Menu（LB.showMenu）；插件太旧没有 showMenu 时用页内的小菜单
+function showMoreMenu(evt, anchor) {
+  const p = current();
+  const items = [
+    { title: UI.src ? '回到正文' : '整页 Markdown', disabled: !p, onClick: () => { commitEditor(false); flushSrc(); if (UI.src && liveSrc(p)) liveSrc(p)._lbDead = true; UI.src = !UI.src; renderKeepScroll(); } },
+    { title: '新页面', onClick: () => newPageModal() },
+    { title: '新文件夹', onClick: () => newPageModal({ folder: true }) },
+    { title: 'AI 一起改', sub: '稍后：搭框架、修订这一节、从问收藏接过来', disabled: true },
+    { separator: true },
+    { title: '重新读入', sub: '在 Obsidian 里直接改过 PersonalWiki 时', onClick: () => refresh(true) },
+    p ? { title: '删除这一页', danger: true, onClick: () => deletePage(p) } : null,
+  ].filter(Boolean);
+  if (LB.showMenu(items, evt)) return;
+  closePop();
+  const el = h('div', { cls: 'lbw-pop is-menu', attr: { role: 'menu' } }, items.map(it => it.separator ? h('hr')
+    : btn({ attr: { disabled: !!it.disabled, role: 'menuitem' }, on: { click: () => { closePop(); it.onClick?.(); } } }, it.title, it.sub ? h('small', { text: it.sub }) : null)));
+  R.layer.append(el);
+  const r = anchor.getBoundingClientRect();
+  const vw = (WIN && WIN.innerWidth) || 1200;
+  placeFixed(el, Math.max(8, Math.min(r.left, vw - (el.offsetWidth || 260) - 8)), r.bottom + 6);
+  POP.el = el; POP.ta = null;
+}
+
+// ═════════════ 全局按键（只给她正在看的这一页）：Ctrl+F 搜标题；Esc 依次关 弹层 → 搜索 → 抽屉 → 历史 ═════════════
+// 挂在 window 的捕获阶段（同目录页 onFindKey）：先于 Obsidian 自带的查找拿到 Ctrl+F；没有 window.addEventListener（单测）退回 document
+const keyTarget = WIN && typeof WIN.addEventListener === 'function' ? WIN : D;
+LB.listen('keys', keyTarget, 'keydown', e => {
+  if (e.isComposing) return;
+  if (!wrap.isConnected || !(wrap.closest('.workspace-leaf.mod-active') || LB.activeLeafHas(wrap))) return;
+  // Obsidian 自己的弹窗（设置、命令面板、确认框）开着，或者按键落在 Wiki 外面的输入框里：都不归 Wiki（10-29 审查 4）
+  if (D.querySelector('.modal-container')) return;
+  const tgt = e.target;
+  if (tgt && tgt.nodeType === 1 && !wrap.contains(tgt) && typeof tgt.closest === 'function' && tgt.closest('input, textarea, select, [contenteditable="true"]')) return;
+  const k = String(e.key || '');
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (k.toLowerCase() === 'f' || e.code === 'KeyF')) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation?.(); toggleFind(true); return; }
+  if (k !== 'Escape' || LB.menuOpen() || ED) return;
+  let done = true;
+  if (R.layer.querySelector('.lbw-mbg')) closeModal();
+  else if (POP.el) closePop();
+  else if (UI.find != null) toggleFind(false);
+  else if (UI.drawer) setDrawer(false);
+  else if (UI.hist) { UI.hist = null; renderSide(); }
+  else done = false;
+  if (done) { e.preventDefault(); e.stopPropagation(); }
+}, true);
+LB.listen('pop-out', D, 'mousedown', e => { if (POP.el && !(e.target && e.target.closest && (e.target.closest('.lbw-pop') || e.target.closest('.lbw-ed')))) closePop(); });
+// PersonalWiki 里的文件变了（Obsidian 里直接改 / 别的窗口存了）：防抖后按磁盘签名重读
+for (const ev of ['modify', 'create', 'delete', 'rename']) {
+  try {
+    const ref = app.vault.on(ev, (f, old) => { const pre = wdir() + '/'; if (String(f?.path || '').startsWith(pre) || String(old || '').startsWith(pre)) scheduleRefresh(); });
+    LB.onUnload(() => { try { app.vault.offref(ref); } catch (e) { console.debug(e); } });
+  } catch (e) { console.debug('[lb] wiki vault event', e); }
+}
+LB.onUnload(() => clearTimeout(refreshTimer));
+
+// ═════════════ 开跑 ═════════════
+await loadItems();
+LB.t('items');
+{ const disk = await readDisk(); mergeDisk(disk); lastSig = await diskSig(); }
+reindex();
+LB.t('pages');
+paintWidth();
+render();
+LB.t('render');
+// 登记这一版 DOM（§5.1 / §5.9）：catalog-data 变了只换收藏（引用编号 / 缺失标记）；Dataview 重跑时按磁盘签名看 PersonalWiki 有没有变
+LB.keep(wrap, { version: await LB.data.version(), update: async () => { await loadItems(); if (!ED && !(UI.src && R.srcEd && D.activeElement === R.srcEd)) { const sc = LB.scroller(), top = sc ? sc.scrollTop : 0; renderCenter(); if (sc) sc.scrollTop = top; } },
+  onReuse: () => { paintWidth(); refresh().catch(e => console.debug('[lb] wiki refresh', e)); } });

@@ -1315,6 +1315,7 @@ class LinkBrainActions extends Plugin {
     return [
       { id: 'open-catalog', name: '打开收藏目录', callback: () => this.openLibraryPage('catalog') },
       { id: 'open-ask', name: '问收藏', callback: () => this.openLibraryPage('chat') },
+      { id: 'open-wiki', name: '打开个人 Wiki', callback: () => this.openLibraryPage('wiki') },
       { id: 'open-problems', name: '维护：打开问题列表', callback: () => this.openProblems() },
       { id: 'open-sync-log', name: '打开同步记录', callback: () => this.openSyncLog() },
       { id: 'open-trash', name: '打开回收站', callback: () => this.openLibraryPage('trash') },
@@ -2015,6 +2016,23 @@ class LinkBrainActions extends Plugin {
       throw this.answerError(payload.markdown||payload.error||'回答失败',{kind,code,detail:payload.error||'',payload});
     }
     return payload;
+  }
+
+  // 10-29 个人 Wiki：页面所有写操作（create / save / history / version / restore / delete / index）只走这里 → `pwiki` 命令。
+  // 插件级排队（wikiChain）：几个 Wiki 页 / 换页前的旧闭包同时保存也一条一条写，不交叉。
+  // 成功返回后端 JSON；失败抛 Error（message = 后端那句给人看的话，code = CONFLICT / BAD_ARGS / … ），页面照 CONVENTIONS §1.5 提示。
+  wikiCall(op, { args = [], input = null, timeoutMs = 60000 } = {}) {
+    const run = async () => {
+      const r = await this.runPy(['-m', 'link_brain', 'pwiki', op, ...args.map(String)], {
+        input: input == null ? null : JSON.stringify(input), timeoutMs, label: '个人 Wiki', fallback: 'Wiki 没保存上', okCodes: [0, 1, 2] });
+      const j = r.json;
+      if (!j) throw Object.assign(new Error(stderrTail(r.err) || 'Wiki 后端没返回结果'), { code: 'NO_JSON' });
+      if (!j.ok) throw Object.assign(new Error(j.message || 'Wiki 没保存上'), { code: j.code || '', result: j });
+      return j;
+    };
+    const next = Promise.resolve(this.wikiChain).catch(() => {}).then(run);
+    this.wikiChain = next.catch(() => {});
+    return next;
   }
 
   async exportArchiveBundle(ids, images=true, answer='', options={}) {

@@ -1220,6 +1220,8 @@ const pageNav = head.createEl('nav', { cls: 'lb-page-nav' });
 const browse = pageNav.createEl('button', { text: '浏览收藏' });
 browse.onclick = () => { const p = provider(); if (p?.openLibraryPage) p.openLibraryPage('catalog'); else LB.openPage('catalog'); };
 const ask = pageNav.createEl('button', { text: '问收藏', cls: 'is-current' }); ask.setAttribute('aria-current', 'page');
+// 10-29 个人 Wiki：和问收藏平级的第三页（样子先沿用胶囊，统一见 docs/WIKI-UNIFY-LATER.md）
+pageNav.createEl('button', { text: 'Wiki' }).onclick = () => { const p = provider(); if (p?.openLibraryPage) p.openLibraryPage('wiki'); else LB.openPage('wiki'); };
 if (!readOnly) { const manage = tools.createEl('button', { cls: 'lb-manage', text: '…' }); manage.onclick = e => provider()?.openAISettingsMenu(e); }
 // ⑤ 历史入口（时钟）：点开 = 全部历史对话，按天分组，点一行恢复；可多选删除；顶上「隐私模式」开关
 const histBtn = tools.createEl('button', { cls: 'lbchat-hist', attr: { 'aria-label': '历史对话', title: '历史对话（按天，点一段恢复）' } });

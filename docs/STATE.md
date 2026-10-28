@@ -965,3 +965,5 @@ repo_path: D:\LIGHT WEB ARCHIEVE
 - 2026-10-27：登录持久化/身份复核修复在 fix/session-policy-1027；离线测试记录见 docs/login-session-policy-1027.md。未部署、未操作真实账号；完整 Reader 补丁导回待验收确认。
 
 - 2026-10-28：登录策略已部署；用户扫码后关闭浏览器再查仍登录且身份一致。完整 Reader 补丁已导回并在干净上游应用验证；未清真实 Profile，详情见 docs/login-session-policy-1027.md。
+
+- 2026-10-29：个人 Wiki（feat/personal-wiki-backend）：后端 `link_brain/personal_wiki.py` + `pwiki` CLI；页面 `link_brain/assets/wiki-view.js`（照 design-1028-wiki 设计稿；写盘只经插件 `wikiCall`，每页一条操作队列）；`Wiki.md` 入口、问收藏 / 回收站导航「Wiki」、插件命令「打开个人 Wiki」。GPT（Codex）审了 6 轮，问题都已修；测试 tests/test_personal_wiki_1029.py、tests/test_wiki_view_1029.cjs。真库已导入 20 页（PersonalWiki/），页面未部署；待她在预览库（worktree vault）看过。以后统一的前端见 docs/WIKI-UNIFY-LATER.md。
