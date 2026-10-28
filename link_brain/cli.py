@@ -114,6 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
     bsub = p.add_subparsers(dest="bilibili_cmd")
     pb = bsub.add_parser("login", help="终端出二维码，用手机 B 站 App 扫码；成功后保存登录态")
     pb.add_argument("--timeout", type=int, default=180, help="扫码等待秒数（默认 180）")
+    pb.add_argument("--qr-png", dest="qr_png", default=None, help="把二维码另存成 PNG（终端画不出时用图片扫）")
     pb.add_argument("--json", action="store_true")
     pb = bsub.add_parser("status", help="查当前登录态：已登录 / 需重新登录 / 未知（不打印任何凭证）")
     pb.add_argument("--json", action="store_true")
@@ -635,7 +636,8 @@ def _dispatch(args) -> int:
 
         cmd = getattr(args, "bilibili_cmd", None)
         if cmd == "login":
-            st = bili_login.qr_login(timeout_s=args.timeout)
+            from pathlib import Path as _P
+            st = bili_login.qr_login(timeout_s=args.timeout, qr_png=_P(args.qr_png) if args.qr_png else None)
         elif cmd == "logout":
             removed = bili_login.logout()
             st = {"state": "logged_out", "detail": "已删掉本地登录态" if removed else "本来就没有登录态", "mid_masked": ""}

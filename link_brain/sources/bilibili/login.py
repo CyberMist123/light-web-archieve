@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import http.cookiejar
+from datetime import datetime
 import os
 import sys
 import time
@@ -129,37 +130,59 @@ def _save_jar(resp_jar: http.cookiejar.CookieJar, extra: dict[str, str]) -> Path
     return path
 
 
-def _print_qr(url: str, out) -> None:
+def _print_qr(url: str, out, qr_png: Path | None = None) -> None:
+    """终端画二维码；qr_png 给了就另存一张 PNG（终端画不出 / 远程时用图片扫）。"""
     try:
         import qrcode  # bili23 带进来的依赖；没有就只给链接
 
         qr = qrcode.QRCode(border=1)
         qr.add_data(url)
         qr.make(fit=True)
+        if qr_png is not None:
+            qr_png.parent.mkdir(parents=True, exist_ok=True)
+            qr.make_image().save(str(qr_png))
+            print(f"二维码图片已存到 {qr_png}", file=out)
         qr.print_ascii(out=out, invert=True)
     except Exception:  # noqa: BLE001
-        print("（本机没有 qrcode 包，无法在终端画二维码：pip install qrcode 后重试，或把下面链接转成二维码扫）", file=out)
+        print("（本机没有 qrcode 包，无法画二维码：pip install qrcode 后重试，或把下面链接转成二维码扫）", file=out)
     print("二维码链接（只用于本次扫码，几分钟后失效）：", url, file=out)
 
 
-def qr_login(*, timeout_s: int = 180, out=None) -> dict[str, Any]:
+def qr_login(*, timeout_s: int = 180, out=None, qr_png: Path | None = None) -> dict[str, Any]:
     """扫码登录：出二维码 → 轮询 → 成功就写 cookie 文件并复查 nav。返回 status() 的形状（state / detail）。
-    人话进度打到 out（默认 stderr），不打 cookie 值。"""
+    人话进度打到 out（默认 stderr），不打 cookie 值；qr_png 另存二维码图片。Ctrl-C = 取消，不算失败。"""
     out = out or sys.stderr
+    try:
+        return _qr_login(timeout_s=timeout_s, out=out, qr_png=qr_png)
+    except KeyboardInterrupt:
+        print("已取消扫码", file=out)
+        return {"state": "logged_out", "detail": "扫码被取消，没登录", "mid_masked": ""}
+
+
+def _generate(client: httpx.Client) -> tuple[str, str] | dict[str, Any]:
+    """取一张新二维码：(url, qrcode_key)；失败返回 status 形状的 dict。"""
+    try:
+        r = client.get(QR_GENERATE_API, params={"source": "main-fe-header", "go_url": "https://www.bilibili.com/"})
+        payload = r.json()
+    except Exception as exc:  # noqa: BLE001
+        return {"state": "unknown", "detail": f"取二维码失败（{errtext(exc)}）", "mid_masked": ""}
+    if payload.get("code") != 0:
+        return {"state": "unknown", "detail": f"取二维码失败：{payload.get('message') or payload.get('code')}", "mid_masked": ""}
+    data = payload.get("data") or {}
+    url, key = data.get("url") or "", data.get("qrcode_key") or ""
+    if not url or not key:
+        return {"state": "unknown", "detail": "二维码接口没有返回链接", "mid_masked": ""}
+    return url, key
+
+
+def _qr_login(*, timeout_s: int, out, qr_png: Path | None) -> dict[str, Any]:
     with httpx.Client(headers=HEADERS, timeout=30) as client:
-        try:
-            r = client.get(QR_GENERATE_API, params={"source": "main-fe-header", "go_url": "https://www.bilibili.com/"})
-            payload = r.json()
-        except Exception as exc:  # noqa: BLE001
-            return {"state": "unknown", "detail": f"取二维码失败（{errtext(exc)}）", "mid_masked": ""}
-        if payload.get("code") != 0:
-            return {"state": "unknown", "detail": f"取二维码失败：{payload.get('message') or payload.get('code')}", "mid_masked": ""}
-        data = payload.get("data") or {}
-        url, key = data.get("url") or "", data.get("qrcode_key") or ""
-        if not url or not key:
-            return {"state": "unknown", "detail": "二维码接口没有返回链接", "mid_masked": ""}
-        _print_qr(url, out)
-        print(f"请用手机哔哩哔哩 App 扫码并确认（最多等 {timeout_s} 秒）…", file=out)
+        got = _generate(client)
+        if isinstance(got, dict):
+            return got
+        url, key = got
+        _print_qr(url, out, qr_png)
+        print(f"请用手机哔哩哔哩 App 扫码并确认（最多等 {timeout_s} 秒；B 站二维码约 3 分钟过期，过期会自动换新码）…", file=out)
         deadline = time.monotonic() + timeout_s
         told_scanned = False
         while time.monotonic() < deadline:
@@ -176,7 +199,15 @@ def qr_login(*, timeout_s: int = 180, out=None) -> dict[str, Any]:
                 print(f"已保存登录态到 {path.name}（目录 {path.parent}）", file=out)
                 return status()
             if code == QR_EXPIRED:
-                return {"state": "logged_out", "detail": "二维码已过期，没登录：再运行一次重新出码", "mid_masked": ""}
+                # 没扫到就过期了：自动换一张新码接着等（PNG 会被覆盖；用图片扫的要重新打开图片）
+                got = _generate(client)
+                if isinstance(got, dict):
+                    return {"state": "logged_out", "detail": f"二维码已过期，换新码失败：{got['detail']}", "mid_masked": ""}
+                url, key = got
+                print(f"二维码已过期，已换新码（{datetime.now().strftime('%H:%M:%S')}）：", file=out)
+                _print_qr(url, out, qr_png)
+                told_scanned = False
+                continue
             if code == QR_SCANNED and not told_scanned:
                 print("已扫码，请在手机上点确认…", file=out)
                 told_scanned = True
