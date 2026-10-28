@@ -15,7 +15,7 @@ from typing import Any, Mapping
 # 身份
 # ---------------------------------------------------------------------------
 
-PREFIX: dict[str, str] = {"xiaohongshu": "xhs"}      # 来源 → item_id 前缀；加来源各加一行
+PREFIX: dict[str, str] = {"xiaohongshu": "xhs", "bilibili": "bili"}      # 来源 → item_id 前缀；加来源各加一行（1029 B 站）
 _SOURCE_OF = {v: k for k, v in PREFIX.items()}
 
 

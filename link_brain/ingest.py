@@ -11,6 +11,7 @@ import hashlib
 import io
 import copy
 import json
+import shutil
 import sys
 import time
 from datetime import datetime
@@ -129,6 +130,50 @@ def _download_comment_audio(audio: dict[str, Any], comment_id: str, assets: Path
     return entry
 
 
+def _adopt_local_file(t: dict[str, Any], assets: Path, rel_prefix: str) -> dict[str, Any]:
+    """1029 B 站：来源的下载器（yt-dlp）已经把文件写在**本次独立的临时目录**里，这里只挪进 assets/、算 bytes / sha256。
+    payload = {path（None = 没拿到）, cleanup, mime, status（ok / failed / unavailable，默认 ok）, error, image（True 则读宽高）, extra{…}}。
+    manifest 条目至少有 role / index / file / original_url / mime / bytes / sha256 / download_status / error（FORMAT §4）。"""
+    pl = t.get("payload") or {}
+    extra = dict(pl.get("extra") or {})
+    entry: dict[str, Any] = {"role": t["role"], "index": t.get("index"), "file": None, "original_url": t.get("url"),
+                             "requested_url": t.get("url"), "mime": pl.get("mime"), "width": None, "height": None,
+                             "bytes": None, "sha256": None, "download_status": "failed", "error": pl.get("error")}
+    entry.update(extra)
+    status = pl.get("status") or "ok"
+    src = Path(pl["path"]) if pl.get("path") else None
+    if status != "ok" or src is None:
+        entry["download_status"] = status if status in ("failed", "unavailable", "skipped") else "failed"
+        entry["error"] = entry["error"] or "没拿到文件"
+        return entry
+    try:
+        if not src.is_file() or src.stat().st_size == 0:
+            entry["error"] = "下载器写出的文件不存在或为空"
+            return entry
+        assets.mkdir(parents=True, exist_ok=True)
+        dest = assets / f"{t['stem']}{src.suffix.lower()}"
+        shutil.move(str(src), str(dest))
+        data_len = dest.stat().st_size
+        h = hashlib.sha256()
+        with dest.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+        if pl.get("image"):
+            try:
+                from PIL import Image
+                with Image.open(dest) as im:
+                    entry["width"], entry["height"] = im.size
+                    entry["mime"] = Image.MIME.get(im.format or "", None) or entry["mime"]
+            except Exception as exc:  # noqa: BLE001 - 封面读不出来只记错，不影响视频
+                entry["error"] = f"Pillow 读不出封面: {errtext(exc)}"
+                dest.unlink(missing_ok=True)
+                return entry
+        entry.update(file=f"{rel_prefix}/assets/{dest.name}", bytes=data_len, sha256=h.hexdigest(), download_status="ok", error=None)
+    except OSError as exc:
+        entry["error"] = f"挪文件失败: {errtext(exc)}"[:200]
+    return entry
+
+
 def download_plan(plan: list[dict[str, Any]], raw_version_dir: Path, rel_prefix: str, *, progress=None) -> dict[str, Any]:
     """照来源给的下载计划（`src.media_plan`）把图 / 语音 / 视频下进这个版本的 assets/，返回 manifest.json 的内容
     （docs/FORMAT.md §4）。通用：不认识任何来源的数据结构，只认任务里的 kind / role / url / stem。
@@ -169,6 +214,9 @@ def download_plan(plan: list[dict[str, Any]], raw_version_dir: Path, rel_prefix:
             elif t.get("kind") == "audio":
                 media.append(_download_comment_audio({"url": t["url"]}, t["comment_id"], assets, rel_prefix, client_for(t)))
                 tick()
+            elif t.get("kind") == "file":
+                media.append(_adopt_local_file(t, assets, rel_prefix))   # 1029 B 站：下载器已写在临时目录里的文件
+                tick()
         for t in plan:
             if t.get("kind") == "video":
                 from .videos import download
@@ -185,6 +233,9 @@ def download_plan(plan: list[dict[str, Any]], raw_version_dir: Path, rel_prefix:
     finally:
         for c in clients.values():
             c.close()
+        # kind=file 的任务共用一个临时下载目录：文件都挪走了就把目录删掉（删不掉的下次 sweep）
+        for d in {(t.get("payload") or {}).get("cleanup") for t in plan if t.get("kind") == "file"} - {None}:
+            shutil.rmtree(d, ignore_errors=True)
 
     declared = sum(1 for m in media if m["role"] in ("note_image", "comment_image", "video_cover"))
     ok = sum(
@@ -455,12 +506,9 @@ def recognize(target: str, parsed: dict[str, Any] | None = None):
     if parsed is not None and parsed.get("source"):
         return sources.get(parsed["source"]), parsed
     found = sources.detect(target)
-    if found:
-        src = found[0][0]
-    elif len(sources.names()) == 1:
-        src = sources.get(sources.names()[0])
-    else:
-        raise sources.SourceError(f"认不出这是哪个网站的链接：{target[:80]}")
+    # 认不出是哪家的（分享文案里只有短链 / 口令等）→ 交给第一个注册的来源（小红书）自己解析，它会报「不是我的链接」。
+    # 1029 加了 B 站之后仍这么办：B 站链接 detect 一定认得出（bilibili.com/video/BV… / b23.tv / 光 BV 号），不会走到这里。
+    src = found[0][0] if found else sources.get(sources.names()[0])
     return src, (parsed if parsed is not None else src.parse(target))
 
 
@@ -620,6 +668,12 @@ def ingest_url(
                 return out
         raw_dir = storage.raw_dir(src.name, sid, version)
         index_mod.add_relation(conn, item_id=meta["item_id"], **rel)
+        hook = getattr(src, "after_publish", None)   # 1029 B 站：发布后把站点字幕写成 derived/transcript.json（可选钩子）
+        if hook is not None:
+            try:
+                hook(parsed, version, manifest, doc)
+            except Exception as exc:  # noqa: BLE001 - 派生文件写不上不影响已落盘的 RAW
+                log(f"after_publish 失败（不影响归档）: {errtext(exc)}")
 
         failed = [m for m in manifest["media"] if m["download_status"] == "failed"]
         return {
@@ -682,7 +736,7 @@ def run(args) -> int:
     # ingest 落盘成功（含缺内容 gate 的情况）后自动 render，不阻断 ingest 本身的退出码。
     # 1024：不现场识图（花钱、慢）——这篇标成 enrich 待办，识图 / 概要由 enrich（夜跑 / 自愈轮）补
     if summary.get("item_id"):
-        source_key, source_id = xhs.SOURCE, summary["note_id"]
+        source_key, source_id = domain.parse_item_id(summary["item_id"]) or (xhs.SOURCE, summary["note_id"])
         from . import enrich as enrich_mod
         enrich_mod.mark_pending(source_key, source_id, reason="导入")
         try:
@@ -700,10 +754,15 @@ def run(args) -> int:
         f"  comments_complete={summary['comments_complete']}"
         f"  附件={summary['attachments_status']}"
     )
+    for m in manifest["media"]:   # 1029 B 站：视频 / 字幕 / 弹幕逐项状态（小红书的图片在上一行汇总过）
+        if m.get("role") in ("video", "subtitle", "danmaku"):
+            tag = m.get("lang") or ""
+            print(f"  {m['role']}{(' ' + tag) if tag else ''}: {m['download_status']}"
+                  f"{('  ' + m['file']) if m.get('file') else ''}{('  ' + str(m.get('error'))) if m.get('error') else ''}")
     if summary["failed"]:
         print("  缺内容 gate：以下媒体没拿到 ——", file=sys.stderr)
         for item in summary["failed"]:
-            print(f"    [{item['role']}#{item['index']}] {item['original_url']} : {item['error']}",
+            print(f"    [{item['role']}#{item.get('index')}] {item.get('original_url')} : {item.get('error')}",
                   file=sys.stderr)
     return summary["exit_code"]
 

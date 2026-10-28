@@ -316,14 +316,14 @@ D:\LIGHT WEB ARCHIEVE\vault\
 
 | 字段 | 说明 |
 |---|---|
-| `role` | `note_image` / `comment_image` / `video_cover` / `video` / `comment_audio` / `avatar`。`video` = 视频本体（`videos.py:15`，一条，`download_status` ok / failed）；`comment_audio` = 语音评论（`ingest.py:112-115`，带 `comment_id`，没有 `requested_url / mime / width / height`）；`avatar` 当前代码不写（1025 核） |
+| `role` | `note_image` / `comment_image` / `video_cover` / `video` / `comment_audio` / `avatar` / `subtitle` / `danmaku`。`video` = 视频本体（`videos.py:15`，一条，`download_status` ok / failed）；`comment_audio` = 语音评论（`ingest.py:112-115`，带 `comment_id`，没有 `requested_url / mime / width / height`）；`avatar` 当前代码不写（1025 核）；`subtitle` / `danmaku`（1029 B 站来源，见下「2026-10-29 B 站来源」）：站点字幕 SRT / 弹幕 XML，`subtitle` 条目多一个 `lang` 和 `cues`，`danmaku` 多一个 `count`，`download_status` 多一个值 `unavailable`（来源确实没有这项，不算失败） |
 | `file` | 相对对象目录的路径；下载失败为 `null` |
 | `original_url` | `source.json` 里那条记录的 url（身份用） |
 | `requested_url` | 实际请求的那个 URL（可能去过 CDN 档位后缀） |
 | `mime` | 按响应 `Content-Type` 记；扩展名由它决定 |
 | `width` / `height` | Pillow 读出的真实宽高，不是页面声明值 |
 | `sha256` | 落盘 bytes 的 sha256，小写 hex |
-| `download_status` | `ok` / `failed` / `skipped`（如视频本体） |
+| `download_status` | `ok` / `failed` / `skipped`（如视频本体）/ `unavailable`（1029 起：来源本来就没有这项，如 B 站视频没有站点字幕；`file` 为 `null`，`error` 写原因） |
 | `error` | 失败原因，成功为 `null` |
 
 **图片下载三检**（全过才算 `ok`）：① HTTP 2xx；② `Content-Type` 以 `image/` 开头；③ Pillow 能打开并读出宽高。
@@ -1359,3 +1359,42 @@ append-only，一次模型接口调用一行（`link_brain/usage.py`，CONVENTIO
 ```json
 {"ts": "2026-10-25T01:00:00+11:00", "key": "embed|xhs-a|NETWORK", "step": "embed", "item_id": "xhs-a", "code": "TRANSIENT.NETWORK", "reason": "断网", "action": "retry_later", "count": 1, "eid": "1761350400123456789-4242-140000-0"}
 ```
+
+## 2026-10-29 B 站来源（阶段一：单视频）
+
+来源 `bilibili`（`link_brain/sources/bilibili/`），`item_id` 前缀 `bili`（`domain.PREFIX`）。身份：`source_id = BV号`；链接带 `?p=N`（N>1）时 `BV号_pN`（本轮只验单 P）。
+下载引擎是 **yt-dlp**（任务书首选的 PyPI `bili23-downloader` 3.0.0 的 parse / download 是占位实现、非官方发布，1029 实测不可用，见 STATE）；
+登录态是 Netscape cookie 文件 `~/.link-brain/bilibili/cookies.txt`（`python -m link_brain bilibili login` 扫码写入；`config.json` 的 `bilibili.cookies_file` 可改位置），
+**不进 vault / 仓库 / 日志**，状态只显示 已登录 / 需重新登录 / 未知 + 脱敏 mid。
+
+```
+vault/
+├─ Web/Bilibili/<标题清洗后>.md                         ← 可见笔记（来源声明 visible_subdir；撞名才加 __<id 后 8 位>）
+└─ _archive/bilibili/<BV号>/
+   ├─ meta.json                                          ← 同 §2；kind 恒为 video，attachments_status 恒为 none，comments_complete 恒为 unknown
+   ├─ raw/v0001/
+   │  ├─ ytdlp_info.json                                 ← yt-dlp info.json 过白名单后的字段（无 formats / url / http_headers / 字幕 data）
+   │  ├─ source.json
+   │  ├─ manifest.json
+   │  └─ assets/
+   │     ├─ video.mp4                                    ← 合并后的可播放文件（AVC+MP4 优先，≤1080p）
+   │     ├─ cover-001.jpg                                ← 封面（role video_cover）
+   │     ├─ subtitle.<lang>.srt                          ← 站点字幕，一种语言一个文件（role subtitle，index 从 1 起）
+   │     └─ danmaku.xml                                  ← 弹幕原始 XML（role danmaku）
+   └─ derived/
+      ├─ transcript.json                                 ← 站点字幕的纯文字：{status: ok|no_subtitle, engine: "bilibili-cc", text, lang, file}
+      └─ agent.md                                        ← 现有渲染；字幕文字进「## 视频文字稿」，目录检索走 search_fields.transcript
+```
+
+`source.json` 在 §3 之外多这几项（都在 `note` 里）：`bvid`、`page`、`cid`、`video`（`video_url` 恒 `null`——不存签名播放地址；`cover_url` / `duration_sec` /
+`downloaded` / `width` / `height` / `vcodec` / `acodec` / `has_audio` / `quality`）、`subtitles[]`（`{lang, status: ok|failed|unavailable, cues, chars, error|reason}`）、
+`danmaku`（`{status: ok|empty_source|failed, count, error}`）、`engagement.viewed`。`capture.downloader = {name: "yt-dlp", version, exit_code, cookies_used, seconds}`，
+`capture.login = logged_in | anonymous | unknown`。原始弹幕 XML 不过滤不改动。
+
+manifest 的 B 站条目（§4 字段之外）：`video` 带 `duration_sec / width / height / vcodec / acodec`（ffprobe 读出的真实值，容器可读 + 有视频流 + 时长 > 0 才是 `ok`）；
+`subtitle` 带 `lang / cues / format`（至少一条合法时间戳 + 文字才 `ok`；来源无字幕 / 游客拿不到字幕列表 → `unavailable`，不生成空 SRT）；
+`danmaku` 带 `count / format`（XML 可解析才 `ok`，原站 0 条 → `ok` + `empty_source: true`；接口失败 / 文件没写出 → `failed`）。
+视频本体没拿到或 ffprobe 认不出 → **不发布版本**（`SourceError`，重导可重试），不写半截 RAW。
+
+`derived/transcript.json` 的 `status` 多一个值 `no_subtitle`（`videos.DONE_STATUSES`）：B 站来源无站点字幕，本轮不对它起 ASR；画面文字（本地 OCR）照现有规则。
+

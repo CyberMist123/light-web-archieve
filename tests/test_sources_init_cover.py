@@ -31,7 +31,7 @@ def test_fetched_context_default():
 
 
 def test_get_returns_registered_module_and_rejects_unknown():
-    assert sources.names() == ["xiaohongshu"]
+    assert sources.names() == ["xiaohongshu", "bilibili"]   # 1029：B 站阶段一
     mod = sources.get("xiaohongshu")
     assert mod.name == "xiaohongshu" and mod.version == "xiaohongshu/1"
     assert "favorites_sync" in mod.capabilities and isinstance(mod.capabilities, frozenset)

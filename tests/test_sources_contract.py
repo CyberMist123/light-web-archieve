@@ -24,13 +24,14 @@ def test_registered_sources_implement_protocol():
     members = set(get_type_hints(sources.Source)) | {
         key for key, value in vars(sources.Source).items() if not key.startswith("_") and callable(value)
     }
-    assert sources.names() == ["xiaohongshu"]
+    assert sources.names() == ["xiaohongshu", "bilibili"]   # 1029：B 站阶段一
+    expected = {"xiaohongshu": (xhs.ADAPTER_VERSION, frozenset({"account", "favorites_sync", "comments_fill", "attachments", "albums"})),
+                "bilibili": ("bilibili/1", frozenset())}
     for name in sources.names():
         src = sources.get(name)
         assert all(hasattr(src, member) for member in members)
         assert src.name == name and name in domain.PREFIX
-        assert src.version == xhs.ADAPTER_VERSION
-        assert src.capabilities == frozenset({"account", "favorites_sync", "comments_fill", "attachments", "albums"})
+        assert (src.version, src.capabilities) == expected[name]
         for method in ("matches", "find_urls", "parse", "fetch", "normalize", "fingerprint", "media_plan"):
             assert callable(getattr(src, method))
             assert get_type_hints(getattr(src, method))

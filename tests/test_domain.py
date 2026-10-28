@@ -43,14 +43,16 @@ def test_item_id_round_trip_and_short_id():
     assert domain.short_id("xhs-") == ""          # 和原来 removeprefix 的结果一样，别拼出 xhs-xhs-
 
 
-@pytest.mark.parametrize("text", ["", "xhs-", "bili-1", "6512ab", None, "https://x/y"])
+@pytest.mark.parametrize("text", ["", "xhs-", "bili-", "yt-1", "6512ab", None, "https://x/y"])
 def test_parse_item_id_rejects_unknown_shapes(text):
     assert domain.parse_item_id(text) is None
 
 
 def test_item_id_refuses_to_guess():
     with pytest.raises(ValueError):
-        domain.item_id("bilibili", "1")
+        domain.item_id("youtube", "1")
+    assert domain.item_id("bilibili", "BV1xx411c7mD") == "bili-BV1xx411c7mD"   # 1029：B 站来源
+    assert domain.parse_item_id("bili-BV1xx411c7mD") == ("bilibili", "BV1xx411c7mD")
     with pytest.raises(ValueError):
         domain.item_id("xiaohongshu", "")
     with pytest.raises(ValueError):

@@ -109,7 +109,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("target", help="item_id（xhs-<note_id>）")
     p.add_argument("--wait", action="store_true", help="等窗口关掉再如实回报结果（只轮询读取服务内存状态，不开页）")
 
-    p = sub.add_parser("ingest", help="归档一个链接（URL / xhslink 短链 / 分享文本）")
+    # 1029 阶段一：B 站登录态（扫码一次、之后 yt-dlp 复用；凭证在 ~/.link-brain/bilibili/，不进 vault）
+    p = sub.add_parser("bilibili", help="B 站：login 扫码登录 / status 查登录态 / logout 清本地登录态（导入 BV 链接走 ingest / catch）")
+    bsub = p.add_subparsers(dest="bilibili_cmd")
+    pb = bsub.add_parser("login", help="终端出二维码，用手机 B 站 App 扫码；成功后保存登录态")
+    pb.add_argument("--timeout", type=int, default=180, help="扫码等待秒数（默认 180）")
+    pb.add_argument("--json", action="store_true")
+    pb = bsub.add_parser("status", help="查当前登录态：已登录 / 需重新登录 / 未知（不打印任何凭证）")
+    pb.add_argument("--json", action="store_true")
+    pb = bsub.add_parser("logout", help="删掉本地保存的 B 站登录态")
+    pb.add_argument("--json", action="store_true")
+
+    p = sub.add_parser("ingest", help="归档一个链接（小红书 URL / xhslink 短链 / 分享文本，或 B 站 BV 链接）")
     p.add_argument("target", help="链接或包含链接的分享文本")
     p.add_argument("--origin", choices=ORIGINS, default="cli", help="从哪个端进来的")
     p.add_argument("--actor", default="human", help="human 或 ai:<name>")
@@ -610,10 +621,34 @@ def _dispatch(args) -> int:
         from . import serve
         return serve.run(args)
     if args.command == "ingest":
-        from . import ingest as ingest_mod
+        from . import ingest as ingest_mod, sources
 
+        found = sources.detect(args.target)
+        if found and found[0][0].name != "xiaohongshu":   # 1029：B 站链接不拿小红书的账号锁
+            return ingest_mod.run(args)
         with _account_lock(args, "ingest"):
             return ingest_mod.run(args)
+
+    if args.command == "bilibili":
+        from . import read as read_mod
+        from .sources.bilibili import login as bili_login
+
+        cmd = getattr(args, "bilibili_cmd", None)
+        if cmd == "login":
+            st = bili_login.qr_login(timeout_s=args.timeout)
+        elif cmd == "logout":
+            removed = bili_login.logout()
+            st = {"state": "logged_out", "detail": "已删掉本地登录态" if removed else "本来就没有登录态", "mid_masked": ""}
+        else:
+            st = bili_login.status()
+        ok = st["state"] == "logged_in" or (cmd == "logout")
+        payload = read_mod.outcome({"state": st["state"], "mid_masked": st.get("mid_masked", "")}, ok=ok,
+                                   message=st["detail"], code="" if ok else ("NOT_LOGGED_IN" if st["state"] == "logged_out" else "UNKNOWN"))
+        if getattr(args, "json", False):
+            read_mod.dump_json(payload)
+        else:
+            print(st["detail"])
+        return EXIT_OK if ok else (EXIT_NEEDS_HUMAN if st["state"] == "logged_out" else EXIT_ERROR)
 
     if args.command == "enrich":
         from . import enrich as enrich_mod

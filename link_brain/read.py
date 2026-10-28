@@ -70,6 +70,11 @@ def _resolve_source_id(conn, target: str) -> tuple[str, str] | None:
             return row["source"], row["source_id"]
         return parsed_id
     try:
+        from . import sources
+        found = sources.detect(target)   # 1029：小红书 / B 站都经来源接口认
+        if found:
+            parsed = found[0][0].parse(found[0][1])
+            return parsed["source"], parsed["source_id"]
         parsed = xhs.parse_input(target)
         return xhs.SOURCE, parsed["note_id"]
     except Exception:  # noqa: BLE001 - 不是能解析的链接，就当作原始 item_id 再试一次

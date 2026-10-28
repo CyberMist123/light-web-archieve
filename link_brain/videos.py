@@ -52,6 +52,8 @@ def backfill(row):
 
 
 def _backfill(row):
+    if row['source'] != xhs.SOURCE:   # 1029：B 站视频在导入时就下好了（没下到不发布），这里不补
+        return {'item_id': row['item_id'], 'status': 'skipped', 'bytes': 0}
     obj = storage.object_dir(row['source'], row['source_id'])
     meta = storage.read_json(obj/'meta.json')
     old = storage.raw_dir(row['source'], row['source_id'], meta['current_version'])
@@ -104,9 +106,9 @@ def screen_text_enabled():
 
 # 1001 审计 A-6 / xc-5：转写失败要留下原因；「没人声 / 没音轨」是结论不是失败；
 # 同一原因连续失败 GIVE_UP_AFTER 次就退避 BACKOFF_DAYS 天，退避中不重试、不算失败（这步不再天天 exit=2）。
-DONE_STATUSES = ('ok', 'no_speech', 'no_audio')
+DONE_STATUSES = ('ok', 'no_speech', 'no_audio', 'no_subtitle')   # no_subtitle（1029）：B 站来源无站点字幕，本轮不起 ASR
 # skipped = 语音识别没开 / 没配（CONVENTIONS §4.4）：不算失败，不计次数；开了以后下次自然补上
-QUIET_STATUSES = ('ok', 'hit', 'no_speech', 'no_audio', 'backoff', 'skipped')
+QUIET_STATUSES = ('ok', 'hit', 'no_speech', 'no_audio', 'no_subtitle', 'backoff', 'skipped')
 GIVE_UP_AFTER = 3
 BACKOFF_DAYS = 7
 _NO_AUDIO = ('does not contain any stream', 'matches no streams', 'Output file is empty')

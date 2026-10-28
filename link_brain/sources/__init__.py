@@ -107,7 +107,8 @@ class Source(Protocol):
     def action_for_route(self, route: str) -> str: ...
 
 
-_REGISTRY: dict[str, str] = {"xiaohongshu": "link_brain.sources.xiaohongshu"}
+_REGISTRY: dict[str, str] = {"xiaohongshu": "link_brain.sources.xiaohongshu",
+                             "bilibili": "link_brain.sources.bilibili"}   # 1029 阶段一：B 站单视频
 
 
 def get(name: str) -> Source:

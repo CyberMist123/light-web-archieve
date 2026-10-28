@@ -118,7 +118,9 @@ def _catch_one(
     """抓取阶段的一条链接。返回条目 dict；新抓的带内部键 `_source_id`（之后补识图用）。"""
     try:
         parsed = ingest_mod.recognize(url)[1]   # 1025 第二波 PR⑤b：经来源接口解析（带 source / source_id）
-        if lock is not None and (refresh or _needs_fetch(parsed)):
+        source_key = parsed.get("source") or xhs.SOURCE
+        # 1029：账号锁是小红书读取服务的；别的来源（B 站）不拿它
+        if lock is not None and source_key == xhs.SOURCE and (refresh or _needs_fetch(parsed)):
             lock.ensure()
         summary = ingest_mod.ingest_url(
             url,
@@ -153,16 +155,16 @@ def _catch_one(
         return {**summary, 'url': url}
     fresh = not (summary.get("hit") or summary.get("refreshed_unchanged"))
     status = "new" if fresh else "hit"
-    source_key, source_id = xhs.SOURCE, summary["note_id"]
+    source_id = summary["note_id"]
     # 1025 第二波 PR⑤c：project 在 ingest 提交那一次一起写进 meta；收尾统一走 ingest.after_commit
     render_error = ingest_mod.after_commit(source_key, source_id, fresh=fresh, reason="导入")
 
     blocked_code = ""
-    if fresh:
+    if fresh and "attachments" in sources.get(source_key).capabilities:
         from . import attachments as attachments_mod
         blocked_code = attachments_mod.grab_after_ingest(source_key, source_id) or ""  # 0927：导入时就下附件
 
-    return {"item_id": summary.get("item_id"), "status": status, "url": url, "_source_id": source_id,
+    return {"item_id": summary.get("item_id"), "status": status, "url": url, "_source_id": source_id, "_source": source_key,
             "_render_error": render_error, "_blocked_code": blocked_code}
 
 
@@ -171,8 +173,9 @@ def _finish(entry: dict[str, Any], enriched: dict[str, Any] | None) -> dict[str,
     source_id = entry.get("_source_id")
     if not source_id:
         return {k: v for k, v in entry.items() if not k.startswith("_")}
+    source_key = entry.get("_source") or xhs.SOURCE
     try:
-        payload = read_mod.item_payload(xhs.SOURCE, source_id, status=entry["status"])
+        payload = read_mod.item_payload(source_key, source_id, status=entry["status"])
     except Exception as exc:  # noqa: BLE001
         return {
             "item_id": entry.get("item_id"),
@@ -181,7 +184,7 @@ def _finish(entry: dict[str, Any], enriched: dict[str, Any] | None) -> dict[str,
             "error": f"读归档失败: {type(exc).__name__}: {exc}",
         }
     # 10-09：raw 包目录（绝对路径），给 TG 钩子等调用方直接用，不用从 agent.md 往上推
-    payload.setdefault("raw_dir", str(storage.object_dir(xhs.SOURCE, source_id).resolve()))
+    payload.setdefault("raw_dir", str(storage.object_dir(source_key, source_id).resolve()))
     problem = entry.get("_render_error")
     if enriched and enriched.get("status") == "failed":
         problem = f"识图/概要没补完（归档已存好，夜里会补）：{enriched.get('error')}"
@@ -208,7 +211,7 @@ def catch_message(
     seen: set[str] = set()
     with contextlib.ExitStack() as stack:
         lock = _LazyLock(stack, "catch", wait_lock_s)
-        for url in find_xhs_urls(message):
+        for _src, url in sources.detect(message):   # 1029：按来源接口认链接（小红书 + B 站），顺序 = 注册顺序 × 出现顺序
             entry = _catch_one(url, message=message, origin=origin, actor=actor, verbose=verbose,
                                lock=lock, refresh=refresh, project=project)
             item_id = entry.get("item_id")
@@ -228,7 +231,7 @@ def catch_message(
     for entry in entries:
         enriched = None
         if entry.get("status") == "new" and entry.get("_source_id"):
-            enriched = enrich_mod.enrich_one(xhs.SOURCE, entry["_source_id"], llm=extract)
+            enriched = enrich_mod.enrich_one(entry.get("_source") or xhs.SOURCE, entry["_source_id"], llm=extract)
         items.append(_finish(entry, enriched))
     return {"found": len(items), "items": items}
 

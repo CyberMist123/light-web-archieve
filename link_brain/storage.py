@@ -84,8 +84,23 @@ def index_db_path() -> Path:
     return archive_root() / INDEX_DB_NAME
 
 
-def visible_dir() -> Path:
+def visible_dir(source: str | None = None) -> Path:
+    """可见笔记目录。不传来源 = 小红书那层（`Web/Xiaohongshu`，老调用方不变）；传来源 → 来源自己声明的 `visible_subdir`
+    （1029 B 站：`Web/Bilibili`），没声明的退回默认。"""
+    if source:
+        from . import sources
+        try:
+            sub = getattr(sources.get(source), "visible_subdir", None)
+        except sources.SourceError:
+            sub = None
+        if sub:
+            return vault_root().joinpath(*sub)
     return vault_root().joinpath(*VISIBLE_SUBDIR)
+
+
+def visible_root() -> Path:
+    """所有来源可见笔记的公共上层（`Web/`）：按 item_id 找她改过名 / 挪过位置的笔记时从这里扫。"""
+    return vault_root().joinpath(*VISIBLE_SUBDIR[:1])
 
 
 def object_dir(source: str, source_id: str) -> Path:

@@ -84,12 +84,13 @@ def owner_item_id(path: Path) -> str | None:
     return frontmatter_item_id(text)
 
 
-def find_visible_by_item_id(item_id: str) -> list[Path]:
+def find_visible_by_item_id(item_id: str, root: Path | None = None) -> list[Path]:
     """可见目录（含子目录）里属于这个对象的所有 md，新的在前（1001，审计 render-8：她改了名 / 挪了位置）。
 
     `_` / `.` 开头的子目录（_media 之类）不看；每个文件只读开头一段，frontmatter 就在那。
+    1029：默认从各来源共用的上层 `Web/` 扫（B 站笔记在 `Web/Bilibili`）。
     """
-    root = storage.visible_dir()
+    root = root or storage.visible_root()
     if not root.is_dir() or not item_id:
         return []
     hits = []
@@ -1214,7 +1215,7 @@ def agent_info_line(note: dict[str, Any], meta: dict[str, Any]) -> str:
     if note.get("published_at") or meta.get("published_at"):
         parts.append(f"发布 {_date(note.get('published_at') or meta.get('published_at'))}")
     engagement = note.get("engagement") or {}
-    names = {"liked": "赞", "collected": "藏", "comment_count": "评", "shared": "转"}
+    names = {"liked": "赞", "collected": "藏", "comment_count": "评", "shared": "转", "viewed": "播放"}
     stats = [f"{names.get(k, k)} {v}" for k, v in engagement.items() if v is not None and str(v) != ""]
     if stats:
         parts.append(" / ".join(stats))
@@ -1556,7 +1557,7 @@ def render_object(
         conn.execute('UPDATE objects SET title=? WHERE item_id=?', (title, meta['item_id']))
         conn.commit(); conn.close()
 
-    visible_dir = storage.visible_dir()
+    visible_dir = storage.visible_dir(source_key)   # 1029：按来源分目录（Web/Xiaohongshu、Web/Bilibili）
     visible_dir.mkdir(parents=True, exist_ok=True)
     clean_path = resolve_visible_path(
         visible_dir,

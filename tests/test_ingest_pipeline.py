@@ -118,8 +118,12 @@ def test_fake_source_deleted_during_fetch_not_published(fake):
     assert out["status"] == "trashed" and storage.version_dirs(NAME, SID) == {}
 
 
-def test_unknown_link_with_several_sources_is_refused(fake):
-    with pytest.raises(sources.SourceError):
+def test_unknown_link_goes_to_first_source_which_refuses(fake, monkeypatch):
+    """1029：认不出是哪家的链接交给第一个注册的来源（小红书）自己解析——它报「不是我的链接」（SourceError），不再由共享代码猜。"""
+    def not_mine(text, client=None):
+        raise sources.SourceError("不是小红书链接")
+    monkeypatch.setattr(xhs, "parse_input", not_mine)
+    with pytest.raises(sources.SourceError, match="不是小红书链接"):
         ingest.recognize("https://nowhere.invalid/x")
 
 
