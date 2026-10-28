@@ -140,24 +140,29 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw .lbw-ttags button:hover,.lbw .lbw-ttags button.is-on{color:var(--lb-ink);text-decoration:underline;text-underline-offset:4px;}
 .lbw-tnone{margin:6px 0 0;font:400 12.5px/1.6 var(--lbw-sans);color:var(--lb-muted);}
 .lbw-fab,.lbw-scrim{display:none;}
-/* 关系图（目录小图 + 首页大图同一套） */
-.lbw-graph{display:block;width:100%;height:auto;overflow:visible;}
-.lbw-graph .e{stroke:var(--lb-line);stroke-width:1.2;}
+/* 关系图（10-29：力导向、可拖、可缩放；目录小图 / 首页 / 全局图浮层同一套） */
+.lbw-graph{display:block;width:100%;height:auto;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab;}
+.lbw-graph:active{cursor:grabbing;}
+.lbw-graph .e{stroke:var(--lb-line);stroke-width:1.2;vector-effect:non-scaling-stroke;transition:opacity .15s;}
 .lbw-graph .e.x{stroke:var(--lb-muted);stroke-width:1;stroke-dasharray:3 4;}
-.lbw-graph .nd{cursor:pointer;}
+.lbw-graph .e.is-hl{stroke:var(--lb-ink);}
+.lbw-graph .nd{cursor:pointer;transition:opacity .15s;}
 .lbw-graph .hit{fill:transparent;}
 .lbw-graph .dot{fill:var(--lb-muted);transition:fill .12s;}
-.lbw-graph .nd:hover .dot,.lbw-graph .nd.is-cur .dot,.lbw-graph .nd.is-hub .dot{fill:var(--lb-ink);}
-.lbw-graph .nd.is-ring .dot{fill:var(--lb-surface);stroke:var(--lb-ink);stroke-width:1.3;}
-.lbw-graph .nd.is-ring:hover .dot{fill:var(--lb-soft);}
-.lbw-graph text{pointer-events:none;paint-order:stroke;stroke:var(--lb-surface);stroke-width:4px;stroke-linejoin:round;}
-.lbw-graph .lab{font:400 11.5px var(--lbw-serif);fill:var(--lb-muted);}
-.lbw-graph .lab.cur{font-weight:700;font-size:12px;fill:var(--lb-ink);}
-.lbw-graph .lab.ring{font-weight:600;fill:var(--lb-ink);}
-.lbw-graph .lab.hub{font:700 15px var(--lbw-serif);fill:var(--lb-ink);letter-spacing:.04em;}
-.lbw-graph .lab.hov{opacity:0;}
-.lbw-graph .nd:hover .lab.hov{opacity:1;fill:var(--lb-ink);}
+.lbw-graph .nd:hover .dot,.lbw-graph .nd.is-hl .dot,.lbw-graph .nd.is-cur .dot,.lbw-graph .nd.is-hub .dot{fill:var(--lb-ink);}
+.lbw-graph .nd.is-cur .dot{stroke:var(--lb-surface);stroke-width:2;vector-effect:non-scaling-stroke;}
+.lbw-graph text{pointer-events:none;paint-order:stroke;stroke:var(--lb-surface);stroke-width:3px;stroke-linejoin:round;}
+.lbw-graph .lab{font-family:var(--lbw-serif);font-weight:400;fill:var(--lb-muted);transition:opacity .15s;}
+.lbw-graph .lab.cur,.lbw-graph .nd.is-also .lab,.lbw-graph.has-hover .nd.is-hl .lab{fill:var(--lb-ink);}
+.lbw-graph .lab.cur{font-weight:700;}
+.lbw-graph .lab.hub{font-weight:700;fill:var(--lb-ink);letter-spacing:.04em;}
+.lbw-graph.has-hover .nd:not(.is-hl),.lbw-graph.has-hover .e:not(.is-hl){opacity:.2;}
 .lbw-graph .hubn{fill:var(--lb-surface);stroke:none;font-family:var(--lb-font-num);font-style:italic;font-weight:500;}
+.lbw-gbg{position:fixed;inset:0;z-index:40;background:var(--background-modifier-cover);display:grid;place-items:center;padding:16px;}
+.lbw-gpanel{width:min(1400px,92vw);background:var(--lb-surface);border:1px solid var(--lb-ink);border-radius:2px;box-shadow:var(--lbw-print);padding:16px 20px 14px;color:var(--lb-ink);}
+.lbw-gpanel .lbw-sech{margin:0 0 10px;}
+.lbw-gpanel .lbw-graph{background-image:radial-gradient(var(--lb-line) 1.1px,transparent 1.3px);background-size:20px 20px;}
+.lbw-gpanel .lbw-legend > span + span{margin-left:4px;}
 /* 正文 */
 .lbw-crumb{display:flex;align-items:baseline;flex-wrap:wrap;gap:9px;font:400 13px/1.4 var(--lbw-serif);color:var(--lb-muted);}
 .lbw .lbw-crumb button{color:var(--lb-muted);font:inherit;}
@@ -442,7 +447,15 @@ function h(tag, p, ...kids) {
   return add(e, kids);
 }
 const btn = (p, ...kids) => { const b = h('button', { ...p, attr: { type: 'button', ...(p && p.attr) } }, ...kids); return b; };
-const S = (tag, attrs, ...kids) => { const e = D.createElementNS(SVGNS, tag); for (const [k, v] of Object.entries(attrs || {})) if (v != null) e.setAttribute(k, String(v)); return add(e, kids); };
+const S = (tag, attrs, ...kids) => {
+  const e = D.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null) continue;
+    if (k === 'class' && e.classList) { for (const c of String(v).split(/\s+/)) if (c) e.classList.add(c); }
+    else e.setAttribute(k, String(v));
+  }
+  return add(e, kids);
+};
 const sr = text => h('span', { cls: 'lb-visually-hidden', text });   // 给读屏的隐藏文字（不用 title / aria-label：Obsidian 会画成浮框）
 const NUM = s => h('span', { cls: 'lbw-num', text: s });
 // 文字里的数字包成斜体数字
@@ -461,6 +474,7 @@ const ICONS = {
   panel: [['rect', { x: 3.5, y: 4.5, width: 17, height: 15, rx: 2 }], ['path', { d: 'M9.5 4.5v15' }]],
   hist: [['path', { d: 'M3 3v5h5' }], ['path', { d: 'M3.05 13A9 9 0 1 0 6 5.3L3 8' }], ['path', { d: 'M12 7v5l3.5 2' }]],
   list: [['path', { d: 'M4 7h16M4 12h16M4 17h10' }]],
+  expand: [['path', { d: 'M4 9V4h5' }], ['path', { d: 'M20 9V4h-5' }], ['path', { d: 'M4 15v5h5' }], ['path', { d: 'M20 15v5h-5' }]],
 };
 const icon = name => S('svg', { class: 'lbw-ico', viewBox: '0 0 24 24', 'aria-hidden': 'true' }, (ICONS[name] || []).map(([t, a]) => S(t, a)));
 
@@ -585,7 +599,7 @@ const byUpdated = (a, b) => String(b.updated || '').localeCompare(String(a.updat
 const topics = () => [...PAGES.values()].filter(p => p.role === 'topic' && p.index_tag).sort((a, b) => cmpStr(a.created || '~', b.created || '~') || cmpStr(a.file || '', b.file || ''));
 const folderOf = tag => topics().find(p => p.index_tag === tag) || null;
 const foldersOf = p => p._allTags.filter(t => IDX.catTags.has(t)).map(folderOf).filter(Boolean);
-const citedBy = id => [...PAGES.values()].filter(p => p._cites.includes(id));
+const citedBy = id => { const k = citeKey(id); return [...PAGES.values()].filter(p => p._cites.some(c => citeKey(c) === k)); };
 function pagesIn(t) {
   const list = (IDX.byTag.get(t.index_tag) || []).filter(p => p.role === 'page');
   const rank = id => { const k = (t.order || []).indexOf(id); return k < 0 ? 1e6 : k; };
@@ -667,12 +681,23 @@ let refreshTimer = 0;
 const scheduleRefresh = (ms = 500) => { clearTimeout(refreshTimer); refreshTimer = setTimeout(() => { refresh().catch(e => console.debug('[lb] wiki refresh', e)); }, ms); };
 
 // 收藏（引用 / @ 补全 / 标签页的 ARCHIVE 用）
-let DATA = {}, ITEMS = [], ITEM_BY = new Map();
+let DATA = {}, ITEMS = [], ITEM_BY = new Map(), ITEM_SHORT = new Map();
+// 收藏 id 带来源前缀（domain.item_id：xhs-… / bili-… …）；引用里写成短 id（从 MCP 搜索结果抄来的，不带前缀）也要认：
+// 先按完整 id 找；找不到再找「来源前缀-短 id」唯一的那一篇（几个来源撞了同一个短 id 就不猜，当缺失）
+// 来源前缀只认 link_brain/domain.py 的 PREFIX（xhs / bili）；那边加来源，这里跟着加一个（别的「abc-123」不是来源前缀，不拆）
+const SOURCE_PREFIXES = ['xhs', 'bili'];
+const ID_PREFIX = new RegExp('^(' + SOURCE_PREFIXES.join('|') + ')-(.+)$');
 async function loadItems() {
   try { DATA = await LB.data.load(); } catch (e) { DATA = {}; }
   ITEMS = LB.schemaBlocks(DATA) ? [] : (Array.isArray(DATA.items) ? DATA.items : []);
   ITEM_BY = new Map(ITEMS.map(it => [it.id, it]));
+  ITEM_SHORT = new Map();
+  for (const it of ITEMS) { const m = ID_PREFIX.exec(String(it.id || '')); if (m) ITEM_SHORT.set(m[2], ITEM_SHORT.has(m[2]) ? null : it); }
 }
+const resolveItem = id => ITEM_BY.get(id) || (ITEM_BY.has(id) ? null : ITEM_SHORT.get(id)) || null;
+// 比较「是不是同一篇收藏」一律用它：能找到的用收藏的完整 id，找不到的用原文
+const citeKey = id => (resolveItem(id) || {}).id || id;
+const citeKeys = p => new Set(p._cites.map(citeKey));
 const itemType = it => (it.kind === 'video' ? '视频' : it.attachment && it.attachment !== 'none' ? '附件' : '图文');
 
 // ═════════════ 界面状态（§5.3：路由 / 收起的文件夹存 sessionStorage；MAP 图钉存本库的 localStorage，重启后还在） ═════════════
@@ -830,9 +855,9 @@ function extLink(text, href) {
   return a;
 }
 function citeEl(text, id) {
-  const it = ITEM_BY.get(id);
-  const a = h('a', { cls: 'lbw-cite' + (it ? '' : ' is-missing') + (UI.openCite === id ? ' is-open' : ''), attr: { href: '#' }, data: { item: id } }, text,
-    h('span', { cls: 'lbw-ref', text: it ? String(CITE_NO.get(id) || '') : '缺' }));
+  const it = resolveItem(id);
+  const a = h('a', { cls: 'lbw-cite' + (it ? '' : ' is-missing') + (it && UI.openCite === it.id ? ' is-open' : ''), attr: { href: '#' }, data: { item: id } }, text,
+    h('span', { cls: 'lbw-ref', text: it ? String(CITE_NO.get(it.id) || '') : '缺' }));
   a.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); openCite(id); });
   return a;
 }
@@ -970,8 +995,10 @@ function renderToc() {
     btn({ cls: 'lbw-tmap-h', attr: { 'aria-expanded': String(shown) }, on: { click: () => { if (PREFS.mapPin) { PREFS.mapPin = false; UI.mapOpen = false; saveUi(); } else UI.mapOpen = !UI.mapOpen; renderToc(); } } },
       h('span', { cls: 'lbw-kick', text: 'MAP' }), h('span', { cls: 'lbw-zh', text: '关系图' }), h('span', { cls: 'lbw-rule' }), add(h('span', { cls: 'lbw-tw' + (shown ? '' : ' is-shut') }), icon('fold'))),
     btn({ cls: 'lbw-mpin' + (PREFS.mapPin ? ' is-on' : ''), attr: { 'aria-pressed': String(!!PREFS.mapPin) }, on: { click: () => { PREFS.mapPin = !PREFS.mapPin; UI.mapOpen = PREFS.mapPin; saveUi(); renderToc(); LB.say(PREFS.mapPin ? '关系图固定在目录顶上了' : '取消固定：点「MAP」才展开'); } } },
-      icon('pin'), sr(PREFS.mapPin ? '取消固定关系图' : '固定关系图')));
-  tocEl.append(h('div', { cls: 'lbw-tmap' }, mapRow, shown ? (cur ? miniGraph(cur) : bigMap(248, 190, true)) : null));
+      icon('pin'), sr(PREFS.mapPin ? '取消固定关系图' : '固定关系图')),
+    btn({ cls: 'lbw-mpin', data: { global: '1' }, on: { click: () => openGlobalGraph() } }, icon('expand'), sr('打开全局图')));
+  if (R.miniGraph) { R.miniGraph.destroy(); R.miniGraph = null; }   // 收起 / 重画：旧图停掉
+  tocEl.append(h('div', { cls: 'lbw-tmap' }, mapRow, shown ? tocGraph(cur) : null));
   R.tree = h('div', { cls: 'lbw-tree' });
   tocEl.append(R.tree);
   renderTree();
@@ -1069,7 +1096,18 @@ function moveInFolder(fid, pid, targetId, before) {
   renderToc(); if (UI.view === 'page' && UI.id === fid && !ED) renderCenter();
 }
 
-// ═════════════ 关系图：按文件夹排环（hubSpots + ringLayout），不用力导向 ═════════════
+// ═════════════ 关系图（10-29 她：照 Quartz 的 graph 组件——力导向、会动、可拖、可缩放、悬停高亮邻居；不用外部库） ═════════════
+// 数据（连线规则和以前一样）：
+//   局部图（目录 MAP）：当前页 + 所在文件夹（圆心）+ 同文件夹的页（实线）+ 共享标签 / 同引一篇收藏的页（虚线）——深度 1；
+//   全局图（首页 MAP、「全局图」浮层）：所有文件夹 + 所有页；文件夹—页实线，引了同一篇收藏的两页虚线。
+// 模拟（forceSim）：自己写的小 d3-force，参数含义和 d3 一样：link（静止长度、强度 1/min(两端度数)）、many-body 斥力（两两精确算，
+//   300 个点每帧约 4.5 万对）、collide、center；alpha 冷却（alphaDecay = 1 − 0.001^(1/300)，velocityDecay 0.4），alpha < 0.001 停；
+//   拖动时 alphaTarget 0.3 重新加热。起点用 d3 的葵花籽排布、抖动用固定种子——同样的数据每次排出来一样。
+// 画（forceGraph）：SVG + requestAnimationFrame；平移 / 缩放是一层 <g> 的变换。开始时自动适配（字也算进边框，不切字），她动过视图就不再自动适配。
+// 交互（同 Quartz）：拖点（跟着指针走，松手放开）、滚轮 / 双指缩放（以指针为中心）、拖空白平移、悬停高亮自己和邻居（其余淡到 0.2）、点一下打开；
+//   字：悬停的点和邻居、当前页、文件夹名（局部图里还有虚线另一头）一直显示，别的随缩放淡入（Quartz：(k × opacityScale − 1) / 3.75）。
+// 生命周期：重画 / 卸载时 destroy（停 rAF、断开观察器）；看不见（MAP 收起就不建、滚出视口、整页被摘下）就暂停，回来再接着动；
+//   prefers-reduced-motion：同步算到收敛只画结果，拖动松手后也是一次算好。上一次的位置按图的种类记着，重画同一张图不再从头动一遍。
 function relations(p) {
   const out = new Map();
   const put = (q, why) => { if (q !== p && q.role === 'page') { const w = out.get(q.id) || []; w.push(why); out.set(q.id, w); } };
@@ -1077,94 +1115,315 @@ function relations(p) {
   for (const id of p._cites) for (const q of citedBy(id)) put(q, 'cite');
   return out;
 }
-function hubSpots(n, W, H) {
-  if (n <= 1) return [{ x: W / 2, y: H / 2 }];
-  if (n <= 3) { const step = W * 0.9 / n; return Array.from({ length: n }, (_, i) => ({ x: W / 2 + (i - (n - 1) / 2) * step, y: H / 2 })); }
-  return Array.from({ length: n }, (_, i) => { const a = i / n * Math.PI * 2 - Math.PI / 2; return { x: W / 2 + Math.cos(a) * W * 0.3, y: H / 2 + Math.sin(a) * H * 0.28 }; });
+const GRAPHS = new Set();
+const POS_CACHE = {};
+LB.onUnload(() => { for (const g of [...GRAPHS]) g.destroy(); });
+const rafFn = typeof requestAnimationFrame === 'function' ? f => requestAnimationFrame(f) : f => setTimeout(f, 16);
+const cafFn = typeof cancelAnimationFrame === 'function' ? id => cancelAnimationFrame(id) : id => clearTimeout(id);
+function reducedMotion() {
+  try {
+    if (typeof matchMedia === 'function') return !!matchMedia('(prefers-reduced-motion: reduce)').matches;
+    return !!(WIN && typeof WIN.matchMedia === 'function' && WIN.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch (e) { return false; }
 }
-function ringLayout(hubs, members, W, H, o = {}) {
-  const pos = new Map(), spots = hubSpots(hubs.length, W, H), n = hubs.length;
-  const span = n <= 1 ? W : n <= 3 ? W * 0.9 / n : W * 0.3;
-  const rx = o.rx || Math.min(span * 0.34, W * 0.36), ry = o.ry || H * (n > 3 ? 0.16 : 0.34);
-  const owner = new Map();
-  hubs.forEach((hb, i) => { pos.set(hb.id, { ...spots[i], hub: true }); for (const p of members.get(hb.id) || []) if (p !== hb) owner.set(p.id, [...(owner.get(p.id) || []), i]); });
-  hubs.forEach((hb, i) => {
-    const ring = (members.get(hb.id) || []).filter(p => p !== hb && owner.get(p.id).length === 1);
-    ring.forEach((p, k) => { const a = -Math.PI / 2 + (k + 0.5) / ring.length * Math.PI * 2; pos.set(p.id, { x: spots[i].x + Math.cos(a) * rx, y: spots[i].y + Math.sin(a) * ry, ang: a }); });
+function forceSim(nodes, links, o) {
+  let seed = 0x2f6b;
+  const jiggle = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296 - 0.5) * 1e-6;
+  nodes.forEach((n, i) => {
+    if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) { const r = 10 * Math.sqrt(0.5 + i), a = i * Math.PI * (3 - Math.sqrt(5)); n.x = r * Math.cos(a); n.y = r * Math.sin(a); }
+    n.vx = 0; n.vy = 0;
   });
-  const bridges = [...owner].filter(([, hs]) => hs.length > 1);
-  bridges.forEach(([id, hs], k) => {
-    const x = hs.reduce((s, i) => s + spots[i].x, 0) / hs.length, y = hs.reduce((s, i) => s + spots[i].y, 0) / hs.length;
-    pos.set(id, { x: x + (k - (bridges.length - 1) / 2) * Math.min(90, W * 0.12), y: Math.min(H - 16, y + ry * 0.85), ang: Math.PI / 2 });
-  });
-  return pos;
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  const L = [], deg = new Map();
+  for (const l of links) {
+    const s = byId.get(l.source), t = byId.get(l.target);
+    if (!s || !t || s === t) continue;
+    L.push({ s, t, dashed: !!l.dashed });
+    deg.set(s, (deg.get(s) || 0) + 1); deg.set(t, (deg.get(t) || 0) + 1);
+  }
+  for (const l of L) { const a = deg.get(l.s), b = deg.get(l.t); l.strength = 1 / Math.min(a, b); l.bias = a / (a + b); }
+  const sim = {
+    nodes, links: L, byId, alpha: 1, alphaMin: 0.001, alphaDecay: 1 - Math.pow(0.001, 1 / 300), alphaTarget: 0, velocityDecay: 0.4,
+    get done() { return sim.alpha < sim.alphaMin && sim.alphaTarget === 0; },
+    tick() {
+      sim.alpha += (sim.alphaTarget - sim.alpha) * sim.alphaDecay;
+      const a = sim.alpha, N = nodes.length;
+      for (const l of L) {   // link：拉向静止长度
+        let x = l.t.x + l.t.vx - l.s.x - l.s.vx || jiggle(), y = l.t.y + l.t.vy - l.s.y - l.s.vy || jiggle();
+        let d = Math.sqrt(x * x + y * y);
+        d = (d - o.distance) / d * a * l.strength; x *= d; y *= d;
+        l.t.vx -= x * l.bias; l.t.vy -= y * l.bias; l.s.vx += x * (1 - l.bias); l.s.vy += y * (1 - l.bias);
+      }
+      for (let i = 0; i < N; i++) {   // many-body 斥力 + collide（同一个两两循环）
+        const p = nodes[i];
+        for (let j = i + 1; j < N; j++) {
+          const q = nodes[j];
+          let x = q.x - p.x, y = q.y - p.y, l2 = x * x + y * y;
+          if (l2 === 0) { x = jiggle(); y = jiggle(); l2 = x * x + y * y; }
+          const lc = l2 < 1 ? Math.sqrt(l2) : l2;
+          const w = o.charge * a / lc;
+          p.vx += x * w; p.vy += y * w; q.vx -= x * w; q.vy -= y * w;
+          const rr = p.r + q.r + o.pad;
+          let cx = q.x + q.vx - p.x - p.vx, cy = q.y + q.vy - p.y - p.vy, c2 = cx * cx + cy * cy;
+          if (c2 < rr * rr) {
+            if (c2 === 0) { cx = jiggle(); cy = jiggle(); c2 = cx * cx + cy * cy; }
+            const l = Math.sqrt(c2), m = (rr - l) / l * o.collide, rp = p.r * p.r, rq = q.r * q.r, k = rq / (rp + rq);
+            cx *= m; cy *= m;
+            p.vx -= cx * k; p.vy -= cy * k; q.vx += cx * (1 - k); q.vy += cy * (1 - k);
+          }
+        }
+      }
+      let sx = 0, sy = 0;
+      for (const n of nodes) {
+        if (n.fx != null) { n.x = n.fx; n.y = n.fy; n.vx = 0; n.vy = 0; }
+        else { n.vx *= 1 - sim.velocityDecay; n.vy *= 1 - sim.velocityDecay; n.x += n.vx; n.y += n.vy; }
+        sx += n.x; sy += n.y;
+      }
+      if (N) { sx = sx / N * o.center; sy = sy / N * o.center; for (const n of nodes) if (n.fx == null) { n.x -= sx; n.y -= sy; } }   // center
+    },
+    settle(max = 800) { let i = 0; while (!sim.done && i++ < max) sim.tick(); return i; },
+  };
+  return sim;
 }
-function labAt(P, txt, cls, off) {
-  const a = P.ang ?? Math.PI / 2, c = Math.cos(a), s = Math.sin(a);
-  let anchor = 'middle', x = P.x + c * off, y = P.y + s * off + 4;
-  if (c > 0.35) anchor = 'start'; else if (c < -0.35) anchor = 'end'; else y = s < 0 ? P.y - off - 3 : P.y + off + 11;
-  return S('text', { class: cls, x: x.toFixed(1), y: y.toFixed(1), 'text-anchor': anchor }, txt);
-}
-function drawGraph(nodes, edges, pos, W, H, o = {}) {
-  const f = v => v.toFixed(1);
+// 字宽估算（中文一个字 1em，拉丁字母 0.6em）：适配视图时把字也算进去
+const labelWidth = (t, fs) => [...String(t || '')].reduce((s, c) => s + (/[⺀-￿]/.test(c) ? 1 : 0.6), 0) * fs;
+function forceGraph({ nodes, links, current = null, also = new Set(), width, height, mode, label, onOpen }) {
+  const W = Math.max(120, Math.round(width)), H = Math.max(100, Math.round(height));
+  const local = mode === 'local' || mode === 'mini';
+  const FS = local ? 9.5 : 11;
+  const opacityScale = mode === 'home' ? 2.5 : 1;
+  const reduce = reducedMotion();
+  const degc = new Map();
+  for (const l of links) { degc.set(l.source, (degc.get(l.source) || 0) + 1); degc.set(l.target, (degc.get(l.target) || 0) + 1); }
+  for (const n of nodes) { const d = degc.get(n.id) || 0; n.r = n.hub ? (local ? 7 : 9) + Math.sqrt(d) * 1.1 : n.id === current ? 5.5 + Math.sqrt(d) * 0.8 : 2.6 + Math.sqrt(d) * 0.9; }
+  const cache = POS_CACHE[mode] || (POS_CACHE[mode] = new Map());
+  let cached = 0;
+  for (const n of nodes) { const c = cache.get(n.id); if (c) { n.x = c.x; n.y = c.y; cached++; } }
+  const sim = forceSim(nodes, links, { distance: local ? 34 : 42, charge: local ? -70 : -60, center: 0.3, collide: 0.7, pad: 4 });
+  if (nodes.length && cached === nodes.length) sim.alpha = 0.02;   // 位置都记着：只轻轻收一下
+  else if (cached) sim.alpha = 0.5;
   const did = nextId('g');
-  const svg = S('svg', { class: 'lbw-graph', viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-labelledby': did }, S('desc', { id: did }, o.label || '关系图'));
-  for (const [i, j, x] of edges) { if (!pos.has(i) || !pos.has(j)) continue; const A = pos.get(i), B = pos.get(j); svg.append(S('line', { class: 'e' + (x ? ' x' : ''), x1: f(A.x), y1: f(A.y), x2: f(B.x), y2: f(B.y) })); }
+  const svg = S('svg', { class: 'lbw-graph is-live is-' + mode, viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-labelledby': did }, S('desc', { id: did }, label || '关系图'));
+  const vp = S('g', { class: 'vp' }), gL = S('g'), gN = S('g');
+  vp.append(gL, gN); svg.append(vp);
+  const lineEls = sim.links.map(l => { const e = S('line', { class: 'e' + (l.dashed ? ' x' : '') }); gL.append(e); return e; });
+  const neigh = new Map(nodes.map(n => [n, new Set([n])]));
+  for (const l of sim.links) { neigh.get(l.s).add(l.t); neigh.get(l.t).add(l.s); }
+  const nodeEls = new Map(), labEls = new Map();
+  let hover = null, drag = null, pan = null, pinch = null;
   for (const n of nodes) {
-    if (!pos.has(n.id)) continue;
-    const P = pos.get(n.id), isCur = n === o.cur;
-    let g;
-    if (P.hub) {
-      const Rr = o.hubR || 9;
-      if (o.solid) g = S('g', { class: 'nd is-hub' }, S('circle', { class: 'dot', cx: f(P.x), cy: f(P.y), r: Rr }), S('text', { class: 'hubn', x: f(P.x), y: f(P.y + Rr * 0.32), 'text-anchor': 'middle', style: `font-size:${f(Rr * 0.95)}px` }, o.hubNo?.get(n.id) || ''),
-        S('text', { class: 'lab hub', x: f(P.x), y: f(P.y + Rr + (o.hubGap || 20)), 'text-anchor': 'middle', style: o.small ? 'font-size:12px' : null }, n.title));
-      else g = S('g', { class: 'nd is-ring' + (isCur ? ' is-cur' : '') }, S('circle', { class: 'dot', cx: f(P.x), cy: f(P.y), r: Rr }), S('text', { class: 'lab ring', x: f(P.x), y: f(P.y + Rr + 15), 'text-anchor': 'middle' }, n.title));
-    } else {
-      const r = isCur ? (o.curR || 5.5) : (o.r || 3);
-      const show = o.labels === 'all' || isCur || (o.also && o.also.has(n.id));
-      const t = !isCur && n.title.length > 10 ? n.title.slice(0, 10) + '…' : n.title;
-      g = S('g', { class: 'nd' + (isCur ? ' is-cur' : '') }, S('circle', { class: 'hit', cx: f(P.x), cy: f(P.y), r: r + 7 }), S('circle', { class: 'dot', cx: f(P.x), cy: f(P.y), r }), labAt(P, t, isCur ? 'lab cur' : show ? 'lab' : 'lab hov', r + (o.off || 6)));
+    const fs = n.hub ? FS * 1.15 : FS;
+    n.lw = labelWidth(n.title, fs); n.fs = fs;
+    const g = S('g', { class: 'nd' + (n.hub ? ' is-hub' : '') + (n.id === current ? ' is-cur' : '') + (also.has(n.id) ? ' is-also' : ''), 'data-node': n.id });
+    g.append(S('circle', { class: 'hit', r: (n.r + 6).toFixed(1) }), S('circle', { class: 'dot', r: n.r.toFixed(1) }));
+    if (n.hub && n.no) g.append(S('text', { class: 'hubn', y: (n.r * 0.34).toFixed(1), 'text-anchor': 'middle', style: `font-size:${(n.r * 0.95).toFixed(1)}px` }, n.no));
+    const lab = S('text', { class: 'lab' + (n.hub ? ' hub' : '') + (n.id === current ? ' cur' : ''), y: (n.r + fs * 1.15).toFixed(1), 'text-anchor': 'middle', style: `font-size:${fs.toFixed(1)}px` }, n.title);
+    g.append(lab); labEls.set(n, lab);
+    g.addEventListener('pointerenter', () => { if (!drag && !pan) setHover(n); });
+    g.addEventListener('pointerleave', () => { if (!drag) setHover(null); });
+    gN.append(g); nodeEls.set(n, g);
+  }
+  // ── 视图：平移 / 缩放 / 自动适配 ──
+  const view = { k: 1, x: W / 2, y: H / 2 };
+  let userView = false, lastK = -1;
+  function fitTarget() {
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const n of nodes) { const hw = Math.max(n.r, n.lw / 2); x0 = Math.min(x0, n.x - hw); x1 = Math.max(x1, n.x + hw); y0 = Math.min(y0, n.y - n.r); y1 = Math.max(y1, n.y + n.r + n.fs * 1.5); }
+    if (!Number.isFinite(x0)) return { k: 1, x: W / 2, y: H / 2 };
+    const pad = 10, k = Math.max(0.15, Math.min((W - 2 * pad) / Math.max(1, x1 - x0), (H - 2 * pad) / Math.max(1, y1 - y0), local ? 1.6 : 2.2));
+    return { k, x: W / 2 - (x0 + x1) / 2 * k, y: H / 2 - (y0 + y1) / 2 * k };
+  }
+  function fit(ease = 1) { const t = fitTarget(); view.k += (t.k - view.k) * ease; view.x += (t.x - view.x) * ease; view.y += (t.y - view.y) * ease; applyView(); }
+  function applyView() {
+    vp.setAttribute('transform', `translate(${view.x.toFixed(2)},${view.y.toFixed(2)}) scale(${view.k.toFixed(4)})`);
+    if (Math.abs(view.k - lastK) > 0.01) { lastK = view.k; paintLabels(); }
+  }
+  function paintLabels() {
+    const base = Math.max(0, Math.min(1, (view.k * opacityScale - 1) / 3.75));
+    const hl = hover ? neigh.get(hover) : null;
+    for (const [n, t] of labEls) t.style.opacity = String(n.hub || n.id === current || also.has(n.id) || (hl && hl.has(n)) ? 1 : Number(base.toFixed(3)));
+  }
+  function setHover(n) {
+    if (hover === n) return;
+    hover = n;
+    const hl = n ? neigh.get(n) : null;
+    svg.classList.toggle('has-hover', !!n);
+    for (const [m, g] of nodeEls) g.classList.toggle('is-hl', !!hl && hl.has(m));
+    sim.links.forEach((l, i) => lineEls[i].classList.toggle('is-hl', !!n && (l.s === n || l.t === n)));
+    paintLabels();
+  }
+  function render() {
+    sim.links.forEach((l, i) => { const e = lineEls[i]; e.setAttribute('x1', l.s.x.toFixed(1)); e.setAttribute('y1', l.s.y.toFixed(1)); e.setAttribute('x2', l.t.x.toFixed(1)); e.setAttribute('y2', l.t.y.toFixed(1)); });
+    for (const [n, g] of nodeEls) g.setAttribute('transform', `translate(${n.x.toFixed(1)},${n.y.toFixed(1)})`);
+  }
+  // ── 动画循环 ──
+  let rafId = 0, alive = true, paused = false, visible = true;
+  const remember = () => { for (const n of nodes) cache.set(n.id, { x: n.x, y: n.y }); };
+  function wake() { if (!alive || rafId || reduce) return; rafId = rafFn(frame); }
+  function frame() {
+    rafId = 0;
+    if (!alive) return;
+    if (!svg.isConnected || !visible) { paused = true; return; }   // 看不见就停，resume / 观察器叫醒
+    sim.tick();
+    if (!userView) fit(sim.done ? 1 : 0.18);
+    render();
+    if (!sim.done || drag) rafId = rafFn(frame);
+    else remember();
+  }
+  function settleNow() { sim.settle(); if (!userView) fit(1); render(); remember(); }
+  function reheat(t) { sim.alphaTarget = t; wake(); }
+  // ── 指针：拖点 / 平移 / 双指缩放；滚轮缩放 ──
+  const pointers = new Map();
+  const pid = e => (e.pointerId == null ? 0 : e.pointerId);
+  const toLocal = e => { const r = svg.getBoundingClientRect(); const sx = r.width ? W / r.width : 1, sy = r.height ? H / r.height : 1; return { x: ((e.clientX || 0) - (r.left || 0)) * sx, y: ((e.clientY || 0) - (r.top || 0)) * sy }; };
+  const toWorld = pt => ({ x: (pt.x - view.x) / view.k, y: (pt.y - view.y) / view.k });
+  function zoomAt(pt, k2) {
+    k2 = Math.max(0.15, Math.min(6, k2));
+    view.x = pt.x - (pt.x - view.x) * k2 / view.k; view.y = pt.y - (pt.y - view.y) * k2 / view.k; view.k = k2;
+    userView = true; applyView();
+  }
+  svg.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button) return;
+    const pt = toLocal(e); pointers.set(pid(e), pt);
+    try { if (typeof svg.setPointerCapture === 'function' && e.pointerId != null) svg.setPointerCapture(e.pointerId); } catch (err) { console.debug('[lb] wiki graph capture', err); }
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, k: view.k, last: view.k };
+      if (drag) { drag.n.fx = drag.n.fy = null; drag = null; sim.alphaTarget = 0; }
+      pan = null; return;
     }
-    g.addEventListener('click', () => goPage(n));
-    svg.append(g);
+    const ge = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-node]') : null;
+    const n = ge ? sim.byId.get(ge.getAttribute('data-node')) : null;
+    if (n) {
+      userView = true;   // 拖着的时候视图不再自动适配（不然缩放 / 平移每帧在变，点会离开指针）
+      const w = toWorld(pt);
+      drag = { n, start: pt, moved: false, dx: n.x - w.x, dy: n.y - w.y };   // 点和指针的相对位置，拖到哪儿都保持
+      n.fx = n.x; n.fy = n.y; setHover(n); reheat(0.3);
+    }
+    else pan = { start: pt, x: view.x, y: view.y, moved: false };
+    if (typeof e.preventDefault === 'function') e.preventDefault();
+  });
+  svg.addEventListener('pointermove', e => {
+    if (!pointers.has(pid(e))) return;
+    const pt = toLocal(e); pointers.set(pid(e), pt);
+    if (pinch && pointers.size >= 2) {
+      const [a, b] = [...pointers.values()];
+      zoomAt({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, pinch.k * (Math.hypot(a.x - b.x, a.y - b.y) || 1) / pinch.d);
+      return;
+    }
+    if (drag) {
+      if (Math.hypot(pt.x - drag.start.x, pt.y - drag.start.y) > 3) drag.moved = true;
+      const w = toWorld(pt); drag.n.fx = drag.n.x = w.x + drag.dx; drag.n.fy = drag.n.y = w.y + drag.dy;
+      render(); return;
+    }
+    if (pan) {
+      const dx = pt.x - pan.start.x, dy = pt.y - pan.start.y;
+      if (Math.hypot(dx, dy) > 3) pan.moved = true;
+      view.x = pan.x + dx; view.y = pan.y + dy; userView = true; applyView();
+    }
+  });
+  // 结束拖动：放开那个点、alphaTarget 归零（模拟照常冷下来停掉）。松手 / 取消 / 丢了指针捕获 / 销毁都走这里
+  function endDrag() {
+    if (!drag) return null;
+    const d = drag; drag = null;
+    d.n.fx = null; d.n.fy = null; sim.alphaTarget = 0;
+    if (alive) { if (reduce) settleNow(); else wake(); }
+    return d;
   }
-  return svg;
+  const up = e => {
+    pointers.delete(pid(e));
+    if (pinch) { if (pointers.size < 2) pinch = null; return; }
+    const d = endDrag();
+    if (d && !d.moved && e.type === 'pointerup' && typeof onOpen === 'function') onOpen(d.n);
+    pan = null;
+  };
+  svg.addEventListener('pointerup', up);
+  svg.addEventListener('pointercancel', up);
+  svg.addEventListener('lostpointercapture', () => { pointers.clear(); pinch = null; pan = null; endDrag(); });
+  svg.addEventListener('wheel', e => { if (typeof e.preventDefault === 'function') e.preventDefault(); zoomAt(toLocal(e), view.k * Math.exp(-(Number(e.deltaY) || 0) * 0.0015)); }, { passive: false });
+  // 滚出视口就停（目录很长时 MAP 不在眼前）
+  let io = null;
+  if (typeof IntersectionObserver === 'function') {
+    try { io = new IntersectionObserver(es => { for (const en of es) visible = !!en.isIntersecting; if (visible && paused) { paused = false; wake(); } }); io.observe(svg); }
+    catch (e) { io = null; }
+  }
+  const api = {
+    svg, sim, view, nodes, links: sim.links, mode, alive: true,
+    get running() { return !!rafId; }, get hover() { return hover; },
+    nodeEl: id => nodeEls.get(sim.byId.get(id)), setHover, settleNow,
+    resume() { if (alive && paused) { paused = false; wake(); } },
+    destroy() { if (!alive) return; alive = false; api.alive = false; endDrag(); pointers.clear(); pan = null; pinch = null; if (rafId) cafFn(rafId); rafId = 0; if (io) io.disconnect(); remember(); GRAPHS.delete(api); },
+  };
+  svg.__lbwGraph = api;
+  GRAPHS.add(api);
+  if (reduce) settleNow();   // 减少动态效果：同步算到收敛，只画结果
+  else { fit(1); render(); wake(); }   // 记着位置的图（alpha 0.02）也交给 rAF 收尾：几帧就停，不在主线程上一口气 O(n²) 硬算
+  return api;
 }
-function miniGraph(cur) {
-  const W = 248, H = 180;
+function hubNumbers() { const m = new Map(); topics().forEach((t, k) => m.set(t.id, pad2(k + 1))); return m; }
+const gnode = (p, nos) => ({ id: p.id, title: p.title, hub: p.role === 'topic', no: nos.get(p.id) || '' });
+function localGraphData(cur) {
+  const nos = hubNumbers();
   const hubs = cur.role === 'topic' ? [cur] : foldersOf(cur);
-  const members = new Map(), nodes = new Map([[cur.id, cur]]), edges = [];
-  for (const hb of hubs) { nodes.set(hb.id, hb); const list = pagesIn(hb); members.set(hb.id, [...list]); for (const q of list) { nodes.set(q.id, q); edges.push([hb.id, q.id]); } }
+  const nodes = new Map([[cur.id, gnode(cur, nos)]]), links = [], seen = new Set();
+  const link = (a, b, dashed) => { const k = a < b ? a + '|' + b : b + '|' + a; if (a === b || seen.has(k)) return; seen.add(k); links.push({ source: a, target: b, dashed }); };
+  for (const hb of hubs) { nodes.set(hb.id, gnode(hb, nos)); for (const q of pagesIn(hb)) { if (!nodes.has(q.id)) nodes.set(q.id, gnode(q, nos)); link(hb.id, q.id, false); } }
   const also = new Set();
-  if (cur.role === 'page') for (const [id] of relations(cur)) {
-    const q = PAGES.get(id); also.add(id); edges.push([cur.id, id, true]);
-    if (!nodes.has(id)) { nodes.set(id, q); if (hubs.length) members.get(hubs[0].id).push(q); }
-  }
-  let pos;
-  if (hubs.length) pos = ringLayout(hubs, members, W, H, hubs.length === 1 ? { rx: W * 0.36, ry: H * 0.35 } : {});
-  else {
-    pos = new Map([[cur.id, { x: W / 2, y: H / 2 }]]);
-    const ring = [...nodes.values()].filter(n => n !== cur);
-    ring.forEach((p, k) => { const a = -Math.PI / 2 + (k + 0.5) / ring.length * Math.PI * 2; pos.set(p.id, { x: W / 2 + Math.cos(a) * W * 0.34, y: H / 2 + Math.sin(a) * H * 0.34, ang: a }); });
-  }
-  return drawGraph([...nodes.values()], edges, pos, W, H, { cur, labels: 'cur', also, hubR: 9, label: `「${cur.title}」的关系图：所在文件夹、同文件夹的页、共享标签或引了同一篇收藏的页` });
+  if (cur.role === 'page') for (const [id] of relations(cur)) { const q = PAGES.get(id); if (!q) continue; also.add(id); if (!nodes.has(id)) nodes.set(id, gnode(q, nos)); link(cur.id, id, true); }
+  return { nodes: [...nodes.values()], links, also };
 }
-function bigMap(W = 1000, H = 440, small = false, quiet = false) {
-  const ts = topics();
-  const members = new Map(), nodes = new Map(), edges = [], hubNo = new Map();
-  ts.forEach((t, k) => { hubNo.set(t.id, pad2(k + 1)); nodes.set(t.id, t); const list = pagesIn(t); members.set(t.id, list); for (const p of list) { nodes.set(p.id, p); edges.push([t.id, p.id]); } });
-  const pos = ringLayout(ts, members, W, H);
-  loosePages().forEach((p, k) => { nodes.set(p.id, p); pos.set(p.id, { x: W - (small ? 14 : 40) - k * (small ? 14 : 70), y: H - (small ? 10 : 24), ang: -Math.PI / 2 }); });
-  const pages = [...nodes.values()].filter(n => n.role === 'page');
-  for (let i = 0; i < pages.length; i++) for (let j = i + 1; j < pages.length; j++) if (pages[i]._cites.some(c => pages[j]._cites.includes(c))) edges.push([pages[i].id, pages[j].id, true]);
-  return drawGraph([...nodes.values()], edges, pos, W, H, { labels: small || quiet ? 'none' : 'all', solid: true, small, hubNo, hubR: small ? 11 : quiet ? 17 : 24, r: small ? 2.6 : quiet ? 3 : 4, hubGap: small ? 14 : quiet ? 16 : 20, label: '整个 Wiki 的关系图：文件夹是大圆，页面绕着它；实线 = 同一个文件夹，虚线 = 引了同一篇收藏' });
+function globalGraphData() {
+  const nos = hubNumbers();
+  const nodes = new Map(), links = [];
+  for (const t of topics()) { nodes.set(t.id, gnode(t, nos)); for (const p of pagesIn(t)) { if (!nodes.has(p.id)) nodes.set(p.id, gnode(p, nos)); links.push({ source: t.id, target: p.id }); } }
+  for (const p of loosePages()) nodes.set(p.id, gnode(p, nos));
+  const pages = [...PAGES.values()].filter(p => p.role === 'page' && nodes.has(p.id));
+  const keys = pages.map(citeKeys);
+  for (let i = 0; i < pages.length; i++) for (let j = i + 1; j < pages.length; j++) {
+    if (!keys[i].size || !keys[j].size) continue;
+    for (const k of keys[i]) if (keys[j].has(k)) { links.push({ source: pages[i].id, target: pages[j].id, dashed: true }); break; }
+  }
+  return { nodes: [...nodes.values()], links };
 }
+const GLOBAL_LABEL = '整个 Wiki 的关系图：文件夹是大圆，页面绕着它；实线 = 同一个文件夹，虚线 = 引了同一篇收藏';
+const openNode = n => { const p = PAGES.get(n.id); if (p) goPage(p); };
+// 目录顶上的小图：有当前页 = 局部图；首页 / 标签页 = 全局图的缩小版
+function tocGraph(cur) {
+  if (R.miniGraph) { R.miniGraph.destroy(); R.miniGraph = null; }
+  R.miniGraph = cur
+    ? forceGraph({ ...localGraphData(cur), current: cur.id, width: 248, height: 200, mode: 'local', label: `「${cur.title}」的关系图：所在文件夹、同文件夹的页、共享标签或引了同一篇收藏的页`, onOpen: openNode })
+    : forceGraph({ ...globalGraphData(), width: 248, height: 200, mode: 'mini', label: GLOBAL_LABEL, onOpen: openNode });
+  return R.miniGraph.svg;
+}
+function homeGraph(W, H) {
+  if (R.homeGraph) { R.homeGraph.destroy(); R.homeGraph = null; }
+  R.homeGraph = forceGraph({ ...globalGraphData(), width: W, height: H, mode: 'home', label: GLOBAL_LABEL, onOpen: openNode });
+  return R.homeGraph.svg;
+}
+// 「全局图」浮层：Esc / 点遮罩关
+function openGlobalGraph() {
+  closeGlobalGraph(); closePop();
+  const vw = (WIN && WIN.innerWidth) || 1200, vh = (WIN && WIN.innerHeight) || 800;
+  const W = Math.round(Math.max(320, Math.min(1400, vw * 0.92 - 44))), H = Math.round(Math.max(240, Math.min(900, vh * 0.86 - 70)));
+  const g = forceGraph({ ...globalGraphData(), current: UI.view === 'page' ? UI.id : null, width: W, height: H, mode: 'global', label: GLOBAL_LABEL, onOpen: n => { closeGlobalGraph(); openNode(n); } });
+  const close = btn({ cls: 'lbw-mpin', on: { click: () => closeGlobalGraph() } }, h('span', { text: '×', attr: { 'aria-hidden': 'true' } }), sr('关掉全局图'));
+  const panel = h('div', { cls: 'lbw-gpanel', attr: { role: 'dialog', 'aria-modal': 'true' } },
+    h('div', { cls: 'lbw-sech' }, h('span', { cls: 'lbw-kick', text: 'MAP' }), h('span', { cls: 'lbw-zh', text: '全局图' }), h('span', { cls: 'lbw-rule' }),
+      h('span', { cls: 'lbw-legend' }, h('span', null, h('i'), '同一个文件夹'), h('span', null, h('i', { cls: 'is-x' }), '引了同一篇收藏'), h('span', { text: '拖动 · 滚轮缩放 · Esc 关' })), close),
+    g.svg);
+  const bg = h('div', { cls: 'lbw-gbg' }, panel);
+  bg.addEventListener('click', e => { if (e.target === bg) closeGlobalGraph(); });
+  R.layer.append(bg);
+  R.gOverlay = { bg, g };
+}
+function closeGlobalGraph() { const o = R.gOverlay; if (!o) return; R.gOverlay = null; o.g.destroy(); o.bg.remove(); }
 
 // ═════════════ 中间：首页 / 文件夹页 / 页面 / 标签页 ═════════════
 function renderCenter() {
   // ④ 重画只画不存。正常路径上提交点都在重画之前；万一还有没提交的字（编辑框开着 / 整页 Markdown 框里有新字），收进草稿，不存也不丢
   if (ED) { stashUnsaved(ED.p); closeEditor(); }
   { const sp = current(), box = liveSrc(sp); if (box && !box.readOnly && box.value !== sp.body) { stashUnsaved(sp); box._lbDead = true; } }
+  if (R.homeGraph) { R.homeGraph.destroy(); R.homeGraph = null; }
   R.center.textContent = '';
   R.saved = R.doc = R.add = R.title = R.srcEd = R.tagIn = null;
   if (UI.view === 'tag') renderTag(UI.tag);
@@ -1174,7 +1433,7 @@ function renderCenter() {
 const secHead = (kick, zh, ...tail) => h('div', { cls: 'lbw-sech' }, h('span', { cls: 'lbw-kick', text: kick }), h('span', { cls: 'lbw-zh', text: zh }), h('span', { cls: 'lbw-rule' }), tail);
 function renderHome() {
   const pages = [...PAGES.values()].filter(p => p.role === 'page');
-  const cited = new Set(pages.flatMap(p => p._cites));
+  const cited = new Set(pages.flatMap(p => [...citeKeys(p)]));
   const ts = topics();
   const sheet = (list, cls = '') => h('span', { cls: 'lbw-fold-sheet' + cls }, list.slice(0, 6).map((p, k) => h('span', null, NUM(pad2(k + 1)), p.title)));
   const dots = list => h('span', { cls: 'lbw-fold-dots', attr: { 'aria-hidden': 'true' } }, list.map(p => h('i', { cls: p._tasks.some(x => !x.done) ? 'is-o' : '' })));
@@ -1204,7 +1463,7 @@ function renderHome() {
           h('span', { cls: 'lbw-fold-face' }, h('span', { cls: 'lbw-plus', text: '+', attr: { 'aria-hidden': 'true' } }), h('span', { cls: 'lbw-cap', text: '新文件夹' }))))),
     h('section', { cls: 'lbw-gap' }, secHead('MAP', '关系图', h('span', { cls: 'lbw-legend' }, h('span', null, h('i'), '同一个文件夹'), h('span', null, h('i', { cls: 'is-x' }), '引了同一篇收藏'))),
       h('div', { cls: 'lbw-map' }, ['is-tl', 'is-tr', 'is-bl', 'is-br'].map(c => h('span', { cls: 'lbw-crop ' + c })),
-        h('span', { cls: 'lbw-corner is-n' }, 'N° ', NUM(pad2(pages.length))), h('span', { cls: 'lbw-corner is-mark', text: 'LWA / WIKI' }), bigMap(W, H, false, W < 640))),
+        h('span', { cls: 'lbw-corner is-n' }, 'N° ', NUM(pad2(pages.length))), h('span', { cls: 'lbw-corner is-mark', text: 'LWA / WIKI' }), homeGraph(W, H))),
   ]);
   if (!PAGES.size) R.center.prepend(h('p', { cls: 'lbw-rnone', text: readOnly ? 'Wiki 里还没有页面。' : 'Wiki 里还没有页面：点下面的「新文件夹」，或目录上的 ＋ 新建一页。' }));
 }
@@ -1285,7 +1544,7 @@ function renderPage(p) {
     crumb(fs[0] ? [btn({ text: fs[0].title, on: { click: () => goPage(fs[0]) } })] : []),
     titleInput(p, '标题'),
     h('div', { cls: 'lbw-meta' }, savedSpan(p), h('span', { cls: 'lbw-dot', text: '·' }), h('span', null, NUM(String(p._chars)), ' 字'),
-      p._cites.length ? [h('span', { cls: 'lbw-dot', text: '·' }), h('span', null, '引用 ', NUM(String(p._cites.length)), ' 篇收藏')] : null, chips),
+      p._cites.length ? [h('span', { cls: 'lbw-dot', text: '·' }), h('span', null, '引用 ', NUM(String(citeKeys(p).size)), ' 篇收藏')] : null, chips),
     draftBar(p),
     docNodes(p, '写下第一句：为什么关注这件事？'),
     hint(['点哪段改哪段', h('span', null, kbd('@'), ' 引用收藏'), h('span', null, kbd('Ctrl Alt 0–4'), ' 改层级'), h('span', null, kbd('Esc'), ' 收起')]),
@@ -1299,9 +1558,9 @@ function renderTag(tag) {
     crumb([h('span', { text: '标签' })]),
     h('div', { cls: 'lbw-fhead' }, h('span', { cls: 'lbw-big', text: '#' }), h('h1', { cls: 'lbw-ptitle', text: tag })),
     h('div', { cls: 'lbw-meta' }, h('span', null, NUM(String(list.length)), ' 页'), h('span', { cls: 'lbw-dot', text: '·' }), h('span', null, '收藏里 ', NUM(String(inItems.length)), ' 篇')),
-    add(h('div', { cls: 'lbw-plist', attr: { style: 'margin-top:40px' } }), h('div', { cls: 'lbw-plist-h' }, h('span', { cls: 'lbw-kick', text: 'PAGES' }), h('span', { cls: 'lbw-cap', text: `带 #${tag} 的页` }), NUM(String(list.length))),
+    h('div', { cls: 'lbw-plist', attr: { style: 'margin-top:40px' } }, h('div', { cls: 'lbw-plist-h' }, h('span', { cls: 'lbw-kick', text: 'PAGES' }), h('span', { cls: 'lbw-cap', text: `带 #${tag} 的页` }), NUM(String(list.length))),
       list.length ? list.map((p, i) => prow(p, i)) : h('p', { cls: 'lbw-rnone', text: '没有' })),
-    add(h('div', { cls: 'lbw-plist', attr: { style: 'margin-top:48px' } }), h('div', { cls: 'lbw-plist-h' }, h('span', { cls: 'lbw-kick', text: 'ARCHIVE' }), h('span', { cls: 'lbw-cap', text: `收藏里带 #${tag} 的 · 用得上再引用` }), NUM(String(inItems.length))),
+    h('div', { cls: 'lbw-plist', attr: { style: 'margin-top:48px' } }, h('div', { cls: 'lbw-plist-h' }, h('span', { cls: 'lbw-kick', text: 'ARCHIVE' }), h('span', { cls: 'lbw-cap', text: `收藏里带 #${tag} 的 · 用得上再引用` }), NUM(String(inItems.length))),
       inItems.length ? inItems.slice(0, 200).map(it => btn({ cls: 'lbw-prow', data: { item: it.id }, on: { click: () => openCite(it.id) } }, h('span', { cls: 'lbw-k', text: itemType(it) }),
         h('span', { cls: 'lbw-pt' }, h('span', { cls: 'lbw-t', text: it.title || '未命名收藏' }), h('span', { cls: 'lbw-l', text: it.summary || '' })), h('span', { cls: 'lbw-d', text: citedBy(it.id).length ? '已引用' : '' })))
         : h('p', { cls: 'lbw-rnone', text: '没有' })),
@@ -1323,7 +1582,7 @@ function docNodes(p, placeholder) {
     ta.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); clearTimeout(t); applySrc(p, ta); UI.src = false; renderKeepScroll(); refreshIfStale(p); } });
     return [h('div', { cls: 'lbw-fm', text: frontText(p) + '　← 文件头由页面维护' }), ta];
   }
-  CITE_NO = new Map(p._cites.map((id, i) => [id, i + 1]));
+  CITE_NO = new Map(); for (const id of p._cites) { const k = citeKey(id); if (!CITE_NO.has(k)) CITE_NO.set(k, CITE_NO.size + 1); }
   const { lines, blocks } = parseBlocks(p.body);
   const docEl = h('div', { cls: 'lbw-doc' });
   blocks.forEach((b, i) => {
@@ -1547,12 +1806,12 @@ function pickPop(k) {
 }
 
 // ═════════════ 收藏引用：开到右栏（和问收藏同一个 openArchiveSource） ═════════════
-function markOpenCite() { for (const a of wrap.querySelectorAll('.lbw-cite')) a.classList.toggle('is-open', !!UI.openCite && a.dataset.item === UI.openCite); }
+function markOpenCite() { for (const a of wrap.querySelectorAll('.lbw-cite')) a.classList.toggle('is-open', !!UI.openCite && citeKey(a.dataset.item) === UI.openCite); }
 function openCite(id) {
-  const it = ITEM_BY.get(id);
+  const it = resolveItem(id);
   if (!it) { LB.say('这篇收藏找不到了（可能进了回收站）：正文里的引用留着标题，标成虚线', { kind: 'warn' }); return null; }
   if (!it.note) { LB.say('这篇收藏没有笔记文件，打不开原文', { kind: 'warn' }); return null; }
-  UI.openCite = id; markOpenCite();
+  UI.openCite = it.id; markOpenCite();
   const p = provider();
   const fail = e => LB.say('打不开原文：' + errText(e), { kind: 'error' });
   try {
@@ -1946,7 +2205,8 @@ LB.listen('keys', keyTarget, 'keydown', e => {
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (k.toLowerCase() === 'f' || e.code === 'KeyF')) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation?.(); toggleFind(true); return; }
   if (k !== 'Escape' || LB.menuOpen() || ED) return;
   let done = true;
-  if (R.layer.querySelector('.lbw-mbg')) closeModal();
+  if (R.gOverlay) closeGlobalGraph();
+  else if (R.layer.querySelector('.lbw-mbg')) closeModal();
   else if (POP.el) closePop();
   else if (UI.find != null) toggleFind(false);
   else if (UI.drawer) setDrawer(false);
@@ -1975,4 +2235,4 @@ render();
 LB.t('render');
 // 登记这一版 DOM（§5.1 / §5.9）：catalog-data 变了只换收藏（引用编号 / 缺失标记）；Dataview 重跑时按磁盘签名看 PersonalWiki 有没有变
 LB.keep(wrap, { version: await LB.data.version(), update: async () => { await loadItems(); if (!ED && !(UI.src && R.srcEd && D.activeElement === R.srcEd)) { const sc = LB.scroller(), top = sc ? sc.scrollTop : 0; renderCenter(); if (sc) sc.scrollTop = top; } },
-  onReuse: () => { paintWidth(); refresh().catch(e => console.debug('[lb] wiki refresh', e)); } });
+  onReuse: () => { paintWidth(); for (const g of GRAPHS) g.resume(); refresh().catch(e => console.debug('[lb] wiki refresh', e)); } });

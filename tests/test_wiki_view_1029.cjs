@@ -165,9 +165,9 @@ function fakePlugin() {
   return plugin;
 }
 
-async function open({ plugin = null, isMobile = false, params = {} } = {}) {
+async function open({ plugin = null, isMobile = false, params = {}, files = null } = {}) {
   delete globalThis.__lbState; delete globalThis.__lbListeners; delete globalThis.__lbWikiDrafts; delete globalThis.__lbPark;
-  const made = makeApp({ files: FILES, plugin, isMobile, frontmatter: { '目录.md': { 'lb-page': 'catalog' }, '收藏搜索.md': { 'lb-page': 'chat' }, 'Wiki.md': { 'lb-page': 'wiki' } } });
+  const made = makeApp({ files: files ? { ...FILES, ...files } : FILES, plugin, isMobile, frontmatter: { '目录.md': { 'lb-page': 'catalog' }, '收藏搜索.md': { 'lb-page': 'chat' }, 'Wiki.md': { 'lb-page': 'wiki' } } });
   if (plugin) plugin.V = made.V;
   const dom = makeDom();
   const A = dataviewBlock({ dom, app: made.app, code: CODE, params });
@@ -722,7 +722,318 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     assert.ok(VB.get('PersonalWiki/住宿偏好（改名）.md'));
   });
 
+  // ═════ 10-29 五轮（她在真 Obsidian 里用过之后）：短 id 引用；关系图照 Quartz 做成力导向 ═════
+  // 手动驱动的 requestAnimationFrame：step(n) 跑 n 帧；记下 cancelAnimationFrame
+  const manualRaf = () => {
+    const q = new Map(), cancelled = []; let id = 0;
+    return {
+      q, cancelled,
+      params: { requestAnimationFrame: f => { q.set(++id, f); return id; }, cancelAnimationFrame: i => { cancelled.push(i); q.delete(i); } },
+      step(n = 1) { for (let k = 0; k < n; k++) { const fs = [...q.values()]; q.clear(); for (const f of fs) f(16 * k); } },
+    };
+  };
+  const homeG = B => { const svg = B.q('.lbw-map svg.lbw-graph'); assert.ok(svg && svg.__lbwGraph, '首页 MAP 是活的关系图'); return svg.__lbwGraph; };
+  const ptr = (B, el, type, x, y, extra = {}) => el.dispatchEvent(new B.window.Event(type, { bubbles: true, pointerId: 1, pointerType: 'mouse', button: 0, clientX: x, clientY: y, ...extra }));
+
+  // 五轮1：收藏 id 带来源前缀（xhs-…），引用写成短 id 也认；撞号（两个来源同一个短 id）不猜；处处按同一篇算
+  await reviewCase('五轮1 短 id 引用', async () => {
+    const items = [...ITEMS,
+      { id: 'xhs-6a84ab', title: '示例长 id 收藏', tags: ['茶'], summary: '冷泡的做法', author: '示例作者 C', note: 'Web/示例/xhs-6a84ab.md', kind: 'image', attachment: 'none', search_fields: { body: '冷泡 做法' } },
+      { id: 'xhs-dup1', title: '撞号一', tags: [], note: 'Web/示例/a.md', search_fields: { body: '' } },
+      { id: 'bili-dup1', title: '撞号二', tags: [], note: 'Web/示例/b.md', search_fields: { body: '' } }];
+    const files = {
+      '_archive/catalog-data.json': JSON.stringify({ built_at: '2026-10-29T09:00:00+08:00', items }),
+      'PersonalWiki/短引用.md': '---\nid: pw-short\ntitle: 短引用\nrole: page\ntags: ["茶"]\ncreated: 2026-10-05T10:00:00+08:00\nupdated: 2026-10-05T10:00:00+08:00\n---\n\n- [抄来的短 id](lwa:6a84ab) — 从搜索里抄的\n- [写全的](lwa:xhs-6a84ab)\n- [撞号的](lwa:dup1)\n',
+      'PersonalWiki/另一页.md': '---\nid: pw-other\ntitle: 另一页\nrole: page\ntags: []\ncreated: 2026-10-06T10:00:00+08:00\nupdated: 2026-10-06T10:00:00+08:00\n---\n\n参考 [同一篇](lwa:xhs-6a84ab)。\n',
+    };
+    const P = fakePlugin(); const { A: B } = await open({ plugin: P, files });
+    tocPage(B, '短引用').click();
+    const cs = B.qa('.lbw-cite');
+    assert.equal(cs.length, 3);
+    assert.ok(!cs[0].classList.contains('is-missing'), '短 id 找得到');
+    assert.equal(cs[0].querySelector('.lbw-ref').textContent, '1');
+    assert.equal(cs[1].querySelector('.lbw-ref').textContent, '1', '短 id 和完整 id 是同一篇：同一个编号');
+    assert.ok(cs[2].classList.contains('is-missing') && cs[2].querySelector('.lbw-ref').textContent === '缺', '两个来源撞了同一个短 id：不猜');
+    assert.ok(B.q('.lbw-meta').textContent.includes('引用 2 篇收藏'), '按篇数算（短 id + 完整 id 算一篇，撞号的那篇单算）：' + B.q('.lbw-meta').textContent);
+    cs[0].click(); await tick(2);
+    assert.equal(P.opened.at(-1)[0], 'Web/示例/xhs-6a84ab.md', '开原文：解析出来的那篇');
+    assert.ok(B.q('.lbw-cite.is-open'), '开着的那篇圈变实心');
+    // @：「已在《…》引用」按同一篇算；插入写完整 id
+    B.qa('.lbw-blk')[0].click(); const ta = B.q('.lbw-ed');
+    ta.value = '@冷泡'; ta.setSelectionRange(ta.value.length, ta.value.length);
+    ta.dispatchEvent(new B.window.Event('input'));
+    const pop = B.q('.lbw-pop');
+    assert.ok(pop && pop.querySelector('button.is-on').textContent.startsWith('示例长 id 收藏'));
+    assert.ok(pop.querySelector('small').textContent.includes('已在《'), '@ 补全：已在别的页引用（短 id 写的也算）');
+    key(B, ta, 'Enter');
+    assert.ok(ta.value.startsWith('[示例长 id 收藏](lwa:xhs-6a84ab) — '), '插入写完整的带前缀 id');
+    key(B, ta, 'Escape'); await tick(30);
+    // 标签页：PAGES / ARCHIVE 两张清单（这一轮顺手发现：以前 add() 只收了表头，清单是空的）；ARCHIVE 里这篇「已引用」
+    B.qa('.lbw-ttags button').find(b => b.textContent === '#茶').click();
+    const row = B.q('.lbw-prow[data-item="xhs-6a84ab"]');
+    assert.ok(row && row.textContent.includes('已引用'), 'ARCHIVE：这篇已引用：' + (row ? row.textContent : 'no row; prows=' + JSON.stringify(B.qa('.lbw-prow').map(r => [r.getAttribute('data-item'), r.textContent]))));
+    // 全局图：一页写短 id、一页写完整 id，算「引了同一篇」→ 虚线
+    B.q('[data-global]').click();
+    const gg = B.q('.lbw-gbg svg.lbw-graph').__lbwGraph;
+    assert.ok(gg.links.some(l => l.dashed && [l.s.id, l.t.id].sort().join() === 'pw-other,pw-short'), '关系图：同引一篇的虚线（短 id 也认）');
+  });
+
+  // 五轮2：力导向一步步冷却、收敛后自己停；同样的数据排出来一样；不重叠；适配后字不出框
+  await reviewCase('五轮2 收敛、确定、不切字', async () => {
+    const run = async () => {
+      const R1 = manualRaf();
+      const { A: B } = await open({ plugin: fakePlugin(), params: R1.params });
+      const g = homeG(B);
+      assert.ok(g.running, '开页就在动（排着 rAF）');
+      const a0 = g.sim.alpha; R1.step(5);
+      assert.ok(g.sim.alpha < a0, 'alpha 在冷却');
+      let frames = 5;
+      while (g.running && frames < 3000) { R1.step(); frames++; }
+      assert.ok(!g.running && g.sim.done, '收敛后自己停，不再排帧');
+      assert.ok(frames > 100 && frames < 1500, '帧数合理：' + frames);
+      const [, , W, H] = g.svg.getAttribute('viewBox').split(' ').map(Number);
+      for (const n of g.nodes) {
+        const k = g.view.k, sx = n.x * k + g.view.x, sy = n.y * k + g.view.y, hw = Math.max(n.r, n.lw / 2) * k;
+        assert.ok(sx - hw >= -1 && sx + hw <= W + 1 && sy - n.r * k >= -1 && sy + (n.r + n.fs * 1.5) * k <= H + 1, '点和字都在框里：' + n.title);
+      }
+      for (let i = 0; i < g.nodes.length; i++) for (let j = i + 1; j < g.nodes.length; j++) {
+        const a = g.nodes[i], b = g.nodes[j];
+        assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= (a.r + b.r) * 0.8, '不叠在一起：' + a.title + ' / ' + b.title);
+      }
+      return g.nodes.map(n => [n.id, Number(n.x.toFixed(3)), Number(n.y.toFixed(3))]);
+    };
+    const s1 = await run(), s2 = await run();
+    assert.deepEqual(s1, s2, '同样的数据：排出来一样（起点确定、抖动固定种子）');
+  });
+
+  // 五轮3：拖点（跟着指针走、重新加热、别的点跟着动；松手放开）；悬停高亮邻居其余淡掉；点一下打开；滚轮缩放
+  await reviewCase('五轮3 拖动 / 悬停 / 点开 / 缩放', async () => {
+    const R1 = manualRaf();
+    const { A: B } = await open({ plugin: fakePlugin(), params: R1.params });
+    const g = homeG(B);
+    while (g.running) R1.step();
+    const n = g.nodes.find(x => x.id === 'pw-kyoto'), el = g.nodeEl('pw-kyoto');
+    const x0 = n.x;
+    ptr(B, el, 'pointerdown', 100, 100);
+    assert.equal(g.sim.alphaTarget, 0.3, '按下：重新加热');
+    assert.ok(g.running, '按下：又动起来');
+    ptr(B, g.svg, 'pointermove', 170, 130);
+    assert.ok(Math.abs(n.x - x0) > 1 && n.fx === n.x, '点跟着指针走');
+    const others = g.nodes.filter(m => m !== n), before = others.map(m => [m.x, m.y]);
+    R1.step(15);
+    assert.ok(others.some((m, i) => Math.hypot(m.x - before[i][0], m.y - before[i][1]) > 0.01), '加热后别的点跟着动');
+    ptr(B, g.svg, 'pointerup', 170, 130);
+    assert.equal(n.fx, null, '松手放开'); assert.equal(g.sim.alphaTarget, 0);
+    assert.equal(B.q('.lbw-ptitle'), null, '拖动不算点开');
+    while (g.running) R1.step();
+    // 悬停：自己和邻居高亮，别的淡掉；字跟着
+    g.nodeEl('pw-travel').dispatchEvent(new B.window.Event('pointerenter'));
+    assert.ok(g.svg.classList.contains('has-hover'));
+    for (const id of ['pw-travel', 'pw-stay', 'pw-kyoto']) assert.ok(g.nodeEl(id).classList.contains('is-hl'), id + ' 高亮');
+    const tea = g.nodes.find(x => x.title === '冷泡茶比例');
+    assert.ok(!g.nodeEl(tea.id).classList.contains('is-hl'), '不相连的点淡掉');
+    const labOf = id => g.nodeEl(id).querySelector('text.lab') || g.nodeEl(id).querySelectorAll('text').at(-1);
+    assert.equal(String(labOf('pw-stay').style.opacity), '1', '邻居的字显示');
+    g.nodeEl('pw-travel').dispatchEvent(new B.window.Event('pointerleave'));
+    assert.ok(!g.svg.classList.contains('has-hover'));
+    // 字随缩放淡入（Quartz：(k × opacityScale − 1) / 3.75）
+    const op0 = Number(labOf('pw-stay').style.opacity);
+    g.svg.dispatchEvent(new B.window.Event('wheel', { deltaY: -800, clientX: 200, clientY: 150 }));
+    assert.ok(g.view.k > 1 && Number(labOf('pw-stay').style.opacity) >= op0, '放大后普通页的字更清楚');
+    // 点一下 = 打开
+    const st = g.nodeEl('pw-stay');
+    ptr(B, st, 'pointerdown', 50, 50); ptr(B, g.svg, 'pointerup', 50, 50);
+    assert.equal(B.q('.lbw-ptitle').value, '住宿偏好', '点关系图里的页 = 打开');
+    assert.equal(g.alive, false, '换页：首页大图停掉');
+    // 目录里的局部图：当前页大一号；点文件夹打开文件夹页；收起 MAP 就停掉
+    B.q('.lbw-tmap-h').click();
+    const mg = B.q('.lbw-tmap svg.lbw-graph').__lbwGraph;
+    assert.equal(mg.mode, 'local');
+    assert.ok(mg.nodeEl('pw-stay').classList.contains('is-cur'));
+    assert.ok(mg.nodes.find(x => x.id === 'pw-stay').r > mg.nodes.find(x => x.id === 'pw-kyoto').r, '当前页大一号');
+    assert.ok(mg.nodeEl('pw-travel').classList.contains('is-hub'), '文件夹是圆心（墨色实心 + 斜体编号）');
+    ptr(B, mg.nodeEl('pw-travel'), 'pointerdown', 10, 10); ptr(B, mg.svg, 'pointerup', 10, 10);
+    assert.equal(B.q('.lbw-ptitle').value, '旅行', '点文件夹 = 打开文件夹页');
+    assert.equal(mg.alive, false, '换页：旧的局部图停掉');
+    assert.equal(B.q('.lbw-tmap svg.lbw-graph'), null, '没钉住：换页后 MAP 收起（原型的规矩）');
+    B.q('.lbw-tmap-h').click();
+    const mg2 = B.q('.lbw-tmap svg.lbw-graph').__lbwGraph;
+    assert.ok(mg2.alive && mg2.nodeEl('pw-travel').classList.contains('is-cur'), '展开：文件夹页的局部图');
+    B.q('.lbw-tmap-h').click();
+    assert.equal(B.q('.lbw-tmap svg.lbw-graph'), null); assert.equal(mg2.alive, false, '收起 MAP：图停掉');
+  });
+
+  // 五轮4：「全局图」浮层：MAP 一行的图标钮打开；Esc / 点遮罩关；关掉就停；点里面的页 = 关浮层 + 打开
+  await reviewCase('五轮4 全局图浮层', async () => {
+    const R1 = manualRaf();
+    const { A: B, dom: d2 } = await open({ plugin: fakePlugin(), params: R1.params });
+    const gb = B.q('[data-global]');
+    assert.ok(gb && gb.querySelector('.lb-visually-hidden').textContent === '打开全局图', '图标钮 + 隐藏文字');
+    gb.click();
+    let og = B.q('.lbw-gbg svg.lbw-graph').__lbwGraph;
+    assert.equal(og.mode, 'global'); assert.ok(og.running);
+    key(B, d2.document, 'Escape');
+    assert.equal(B.q('.lbw-gbg'), null, 'Esc 关'); assert.equal(og.alive, false, '关掉就停');
+    B.q('[data-global]').click();
+    og = B.q('.lbw-gbg svg.lbw-graph').__lbwGraph;
+    B.q('.lbw-gbg').click();
+    assert.equal(B.q('.lbw-gbg'), null, '点遮罩关'); assert.equal(og.alive, false);
+    B.q('[data-global]').click();
+    og = B.q('.lbw-gbg svg.lbw-graph').__lbwGraph;
+    ptr(B, og.nodeEl('pw-kyoto'), 'pointerdown', 5, 5); ptr(B, og.svg, 'pointerup', 5, 5);
+    assert.equal(B.q('.lbw-gbg'), null, '点了页：浮层关掉');
+    assert.equal(B.q('.lbw-ptitle').value, '京都想住的地方', '打开那一页');
+  });
+
+  // 五轮5：卸载就停 rAF（cancelAnimationFrame），之后不再排帧
+  await reviewCase('五轮5 卸载停 rAF', async () => {
+    const R1 = manualRaf();
+    const { A: B } = await open({ plugin: fakePlugin(), params: R1.params });
+    const g = homeG(B);
+    assert.ok(g.running && R1.q.size >= 1);
+    R1.step(3);
+    B.detach();
+    assert.equal(g.alive, false, '卸载：图销毁');
+    assert.ok(R1.cancelled.length >= 1, '卸载：调了 cancelAnimationFrame');
+    R1.step(3);
+    assert.equal(R1.q.size, 0, '卸载后不再排帧');
+  });
+
+  // 五轮6：prefers-reduced-motion：同步算到收敛只画结果，不排动画帧；拖动松手后一次算好
+  await reviewCase('五轮6 减少动态效果', async () => {
+    const R1 = manualRaf();
+    const { A: B } = await open({ plugin: fakePlugin(), params: { ...R1.params, matchMedia: () => ({ matches: true }) } });
+    const g = homeG(B);
+    assert.ok(g.sim.done && !g.running, '一开始就是收敛好的样子');
+    assert.equal(R1.q.size, 0, '不排动画帧');
+    const n = g.nodes.find(x => x.id === 'pw-kyoto');
+    ptr(B, g.nodeEl('pw-kyoto'), 'pointerdown', 100, 100);
+    ptr(B, g.svg, 'pointermove', 150, 120);
+    assert.equal(n.fx, n.x, '拖动照样跟手');
+    ptr(B, g.svg, 'pointerup', 150, 120);
+    assert.ok(g.sim.done && !g.running && R1.q.size === 0, '松手后一次算好，不排帧');
+  });
+
+  // 五轮7：约 300 个点也要顺：每一步模拟平均几毫秒
+  await reviewCase('五轮7 300 个点', async () => {
+    const files = {};
+    for (let f = 0; f < 6; f++) files[`PersonalWiki/夹${f}.md`] = `---\nid: pw-f${f}\ntitle: 夹${f}\nrole: topic\nindex_tag: t${f}\ntags: ["t${f}"]\ncreated: 2026-10-0${f + 1}T10:00:00+08:00\nupdated: 2026-10-0${f + 1}T10:00:00+08:00\n---\n\n\`\`\`pages\n\`\`\`\n`;
+    for (let i = 0; i < 294; i++) files[`PersonalWiki/页${i}.md`] = `---\nid: pw-p${i}\ntitle: 页${i}\nrole: page\ntags: ["t${i % 6}"]\ncreated: 2026-10-10T10:00:00+08:00\nupdated: 2026-10-10T10:00:00+08:00\n---\n\n${i % 7 === 0 ? '参考 [示例咖啡地图](lwa:it-1)。' : '一句话。'}\n`;
+    const R1 = manualRaf();
+    const { A: B } = await open({ plugin: fakePlugin(), params: R1.params, files });
+    const g = homeG(B);
+    assert.ok(g.nodes.length >= 300, '点数：' + g.nodes.length);
+    const t0 = process.hrtime.bigint();
+    R1.step(40);
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6 / 40;
+    assert.ok(ms < 12, '每帧（模拟 + 改 SVG 属性）平均 ' + ms.toFixed(2) + 'ms');
+    while (g.running) R1.step();
+    assert.ok(g.sim.done && g.nodes.every(n => Number.isFinite(n.x) && Number.isFinite(n.y)));
+  });
+
+  // ═════ 10-29 六轮（关系图 + 短 id 的复查） ═════
+  // 六轮1：拖动时不再自动适配（视图不动），点和指针的相对位置保持（按下时点在指针右下 d，拖到哪儿还是右下 d）
+  await reviewCase('六轮1 拖动时视图不跳、点不漂', async () => {
+    const R1 = manualRaf();
+    const { A: B } = await open({ plugin: fakePlugin(), params: R1.params });
+    const g = homeG(B);
+    R1.step(5);                                   // 还在动（自动适配还在跟）
+    const n = g.nodes.find(x => x.id === 'pw-kyoto');
+    const v0 = { ...g.view };
+    const sx0 = n.x * v0.k + v0.x, sy0 = n.y * v0.k + v0.y;
+    ptr(B, g.nodeEl('pw-kyoto'), 'pointerdown', 100, 100);
+    ptr(B, g.svg, 'pointermove', 170, 130);
+    R1.step(12);
+    assert.deepEqual({ ...g.view }, v0, '拖着的时候视图不动（不再自动适配）');
+    const sx = n.x * g.view.k + g.view.x, sy = n.y * g.view.k + g.view.y;
+    assert.ok(Math.abs(sx - (sx0 + 70)) < 0.01 && Math.abs(sy - (sy0 + 30)) < 0.01, `点跟着指针走、相对位置不变：(${sx.toFixed(2)},${sy.toFixed(2)}) vs (${(sx0 + 70).toFixed(2)},${(sy0 + 30).toFixed(2)})`);
+    ptr(B, g.svg, 'pointerup', 170, 130);
+  });
+
+  // 六轮2：只认已知来源前缀（domain.py 的 PREFIX：xhs / bili）；别的「abc-123」不当来源前缀——不误认、也不把唯一的短 id 搅成「撞号」
+  await reviewCase('六轮2 只认已知来源前缀', async () => {
+    const items = [...ITEMS,
+      { id: 'xhs-123', title: '小红书那篇', tags: [], note: 'Web/示例/x.md', search_fields: { body: '' } },
+      { id: 'demo-123', title: '不是来源前缀', tags: [], note: 'Web/示例/d.md', search_fields: { body: '' } },
+      { id: 'demo-abc', title: '只有怪前缀', tags: [], note: 'Web/示例/e.md', search_fields: { body: '' } },
+      { id: 'bili-777', title: 'B 站那篇', tags: [], note: 'Web/示例/b.md', search_fields: { body: '' } }];
+    const files = {
+      '_archive/catalog-data.json': JSON.stringify({ built_at: '2026-10-29T09:00:00+08:00', items }),
+      'PersonalWiki/前缀.md': '---\nid: pw-pre\ntitle: 前缀\nrole: page\ntags: []\ncreated: 2026-10-05T10:00:00+08:00\nupdated: 2026-10-05T10:00:00+08:00\n---\n\n- [a](lwa:123)\n- [b](lwa:abc)\n- [c](lwa:777)\n',
+    };
+    const P = fakePlugin(); const { A: B } = await open({ plugin: P, files });
+    tocPage(B, '前缀').click();
+    const cs = B.qa('.lbw-cite');
+    assert.ok(!cs[0].classList.contains('is-missing'), '123 → xhs-123（demo-123 不是来源前缀，不算撞号）');
+    cs[0].click(); await tick(2);
+    assert.equal(P.opened.at(-1)[0], 'Web/示例/x.md');
+    assert.ok(cs[1].classList.contains('is-missing'), 'abc 只有 demo-abc：demo 不是来源前缀，不认');
+    assert.ok(!cs[2].classList.contains('is-missing'), '777 → bili-777');
+  });
+
+  // 六轮3：再次打开（位置都记着的）全局图：不在主线程上一口气算完，照常交给 rAF 收尾；减少动态效果才同步算
+  await reviewCase('六轮3 记着位置的图不同步硬算', async () => {
+    const R1 = manualRaf();
+    const { A: B, dom: d2 } = await open({ plugin: fakePlugin(), params: R1.params });
+    B.q('[data-global]').click();
+    let og = B.q('.lbw-gbg svg.lbw-graph').__lbwGraph;
+    while (og.running) R1.step();
+    key(B, d2.document, 'Escape');
+    B.q('[data-global]').click();
+    og = B.q('.lbw-gbg svg.lbw-graph').__lbwGraph;
+    assert.ok(og.running && !og.sim.done, '再开：交给 rAF，不当场同步算完');
+    let frames = 0; while (og.running && frames < 500) { R1.step(); frames++; }
+    assert.ok(og.sim.done && frames < 400, '几帧就收好：' + frames);
+  });
+
+  // 六轮4：拖到一半丢了指针捕获 / 卸载：结束拖动、alphaTarget 归零，模拟不会一直热着
+  await reviewCase('六轮4 丢捕获 / 卸载时结束拖动', async () => {
+    const R1 = manualRaf();
+    const { A: B } = await open({ plugin: fakePlugin(), params: R1.params });
+    const g = homeG(B);
+    while (g.running) R1.step();
+    const n = g.nodes.find(x => x.id === 'pw-stay');
+    ptr(B, g.nodeEl('pw-stay'), 'pointerdown', 100, 100);
+    ptr(B, g.svg, 'pointermove', 130, 100);
+    g.svg.dispatchEvent(new B.window.Event('lostpointercapture', { pointerId: 1 }));
+    assert.equal(n.fx, null, '丢捕获：放开那个点'); assert.equal(g.sim.alphaTarget, 0, '丢捕获：不再加热');
+    let frames = 0; while (g.running && frames < 1000) { R1.step(); frames++; }
+    assert.ok(!g.running && g.sim.done, '丢捕获后照常冷下来、停掉');
+    // 卸载时正拖着
+    ptr(B, g.nodeEl('pw-stay'), 'pointerdown', 100, 100);
+    assert.equal(g.sim.alphaTarget, 0.3);
+    B.detach();
+    assert.equal(g.alive, false);
+    assert.equal(n.fx, null, '卸载：放开那个点'); assert.equal(g.sim.alphaTarget, 0, '卸载：不再加热');
+    R1.step(3); assert.equal(R1.q.size, 0);
+  });
+
+  // 六轮5：滚出视口就停、回来接着动；Dataview 重跑挂回同一张图（不重建），照常动
+  await reviewCase('六轮5 出视口暂停 / 重跑复用', async () => {
+    const R1 = manualRaf();
+    const ios = [];
+    class FakeIO { constructor(cb) { this.cb = cb; ios.push(this); } observe(el) { this.el = el; } disconnect() { this.off = true; } }
+    const { A: B } = await open({ plugin: fakePlugin(), params: { ...R1.params, IntersectionObserver: FakeIO } });
+    const g = homeG(B);
+    const io = ios.find(x => x.el === g.svg);
+    assert.ok(io, '观察着这张图');
+    R1.step(3);
+    io.cb([{ isIntersecting: false }]);
+    R1.step(1);
+    assert.equal(g.running, false, '出视口：停（不再排帧）');
+    const a = g.sim.alpha; R1.step(5); assert.equal(g.sim.alpha, a, '停着不算');
+    io.cb([{ isIntersecting: true }]);
+    assert.ok(g.running, '回来：接着动');
+    const svg = g.svg;
+    await B.rerun(); await tick(5);
+    assert.equal(B.q('.lbw-map svg.lbw-graph'), svg, '重跑：同一张图挂回去');
+    assert.ok(g.alive && g.running, '重跑后照常动');
+    let frames = 0; while (g.running && frames < 1500) { R1.step(); frames++; }
+    assert.ok(g.sim.done);
+    B.detach(); assert.ok(io.off, '卸载：观察器断开');
+  });
+
   if (failed.length) { console.error('FAIL wiki page review cases: ' + failed.join(' / ')); process.exit(1); }
-  console.log('PASS wiki page (10-29): host + rerun reuse, TOC folders/pages/heads, block edit → save(base_hash = content_hash) → next uses returned hash, CONFLICT keeps text (fixed sentence + draft + overwrite), cite → openArchiveSource / missing, @ insert, task toggle, history diff, drag order, Ctrl+F, create modal, no title/aria-label, index debounce, sha1 fallback, read-only / mobile; review 1–5 (source mode vs external edit, conflict reread vs queued save, restore vs editor, Ctrl+F under Obsidian modal, mid-queue failure); second review (restore with source box open, typing after save sent + CONFLICT, restore failure stays editable, reread throws not stuck, Esc / Ctrl+F from inputs outside the Wiki); third review (per-page op queue + page lock: restore while a source save is in flight, overwrite = one save and the draft survives its failure); fourth review (click another block while editing waits for the save and cancels if the page was replaced; title stays bound after switching to source mode mid-save)');
+  console.log('PASS wiki page (10-29): host + rerun reuse, TOC folders/pages/heads, block edit → save(base_hash = content_hash) → next uses returned hash, CONFLICT keeps text (fixed sentence + draft + overwrite), cite → openArchiveSource / missing, @ insert, task toggle, history diff, drag order, Ctrl+F, create modal, no title/aria-label, index debounce, sha1 fallback, read-only / mobile; review 1–5 (source mode vs external edit, conflict reread vs queued save, restore vs editor, Ctrl+F under Obsidian modal, mid-queue failure); second review (restore with source box open, typing after save sent + CONFLICT, restore failure stays editable, reread throws not stuck, Esc / Ctrl+F from inputs outside the Wiki); third review (per-page op queue + page lock: restore while a source save is in flight, overwrite = one save and the draft survives its failure); fourth review (click another block while editing waits for the save and cancels if the page was replaced; title stays bound after switching to source mode mid-save); fifth round (short-id citations resolve to the prefixed item everywhere; Quartz-style force graph: deterministic convergence, fit without clipped labels, drag + reheat, hover fade, click opens, zoom label fade, global overlay, rAF cancelled on unload, reduced motion, 300 nodes); sixth round (drag keeps view + pointer offset, only known source prefixes, cached graph finishes via rAF, lostpointercapture / unload end the drag, offscreen pause + rerun reuse)');
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });
