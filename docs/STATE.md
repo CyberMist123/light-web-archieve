@@ -1,5 +1,6 @@
 # Current State
 
+- 2026-10-28 23:4x（`claude/card-badge-1028`）她：卡片左上的选中圈出来时压着「文件」角标。改成圈出来（悬停 / 聚焦 / 选中 / 多选态 / 触屏常显）时角标挪到圈右边（left 46px）、「文件」前的小图标收起；圈不在时照旧。浏览器外壳里量过：改前角标左沿 389.7 落在圈里（圈右沿 419.7），改后 425.7。test_assets_syntax / arrange_1027 / catalog_host_c4 / page_lib_foundation 过。
 - 2026-10-28 23:3x（`fix/catalog-node-tests-1028`）node 测试转绿：test_catalog_interactions 的吸顶区 / 主题行断言跟上页头积木（main 上一直卡在第 108 行，PR #84 的 node CI 因此红）；catalog_ui_smoke 星标页 390 宽横滚是真 bug——窄屏规则只挂在 is-side-narrow（有边栏才有），补 @media(max-width:760px) 同款；ui/catalog_arrange_ui、catalog_scene_1026_ui 块数 16→17（专辑积木），拖边吸到类型|专辑的第 23 格。CI 那套 run-node --unit 91/91；全量 node 只剩 ui/catalog_fast_open_ui 性能压线（main 上同样 82ms vs 门槛 81ms，机器忙时更差），没动。
 - 2026-10-28 21:5x（`claude/albums-board-1028`）补评论干等 bug：account_wait_reason 把读取服务登录完留下的 state=success 当「正在扫码 / 验证」（BUSY），20:15 登录后补跑一直等。改成只认 state=waiting 或 verifying（和 accounts 其它地方一致）。楼中楼每小时极限实测：sub-per-hour.json 60（21:02）→ 90（22:02）→ 120（23:02），撞 300013 读取服务自动删回 30；因这个 bug 前 50 分钟没点。
 - 2026-10-28 21:0x（`claude/albums-board-1028`）后台补评论「已经在跑」误判：13:33 停掉的补跑 pid 被 svchost 复用，状态一直 running，7 小时没人拉起。read_status 加心跳超时（updated_at 超过 STALE_MIN=15 分钟 = 停了）。另记：`comments --detach` 不带 --only / --floors（spawn_worker argv 固定），指定篇要前台跑。她那条「跑路」帖：50 楼抓到 60 楼一级、161 条回复，前 50 楼缺 843 条回复（楼中楼每小时 30 次额度用完 sub_paused），已挂 --only --floors 50 --until-done 续读。

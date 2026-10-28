@@ -493,6 +493,11 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap button.lbc-check:hover{background:var(--c-soft)!important;color:var(--c-muted);}
 .lbc-wrap button.lbc-check.is-on{background:var(--c-ink)!important;border-color:var(--c-bg)!important;color:var(--c-bg);opacity:1;pointer-events:auto;}
 @media(hover:none){.lbc-wrap button.lbc-check{opacity:1;pointer-events:auto;}.lbc-card-more{opacity:1;}}
+/* 1028 她：选中圈出来时别压着左上的角标——角标挪到圈右边、「文件」前的小图标收起；圈不在时照旧 */
+.lbc-wrap:not(.lbc-simple) .lbc-card :is(.lbc-badges){transition:opacity .15s,background .12s,translate .25s cubic-bezier(.2,.8,.2,1),left .15s;}
+.lbc-wrap:not(.lbc-simple) .lbc-card:is(:hover,:focus-within,.is-selected) .lbc-badges,.lbc-wrap.is-selecting:not(.lbc-simple) .lbc-badges{left:46px;}
+.lbc-wrap:not(.lbc-simple) .lbc-card:is(:hover,:focus-within,.is-selected) .lbc-badges .lbc-attach:not(.lbc-video) svg,.lbc-wrap.is-selecting:not(.lbc-simple) .lbc-badges .lbc-attach:not(.lbc-video) svg{display:none;}
+@media(hover:none){.lbc-wrap:not(.lbc-simple) .lbc-badges{left:46px;}.lbc-wrap:not(.lbc-simple) .lbc-badges .lbc-attach:not(.lbc-video) svg{display:none;}}
 /* 1021「列表」视图：简单表格（标题 / 分类 / 作者 / 导入时间 / ♡），和瀑布流共用筛选、搜索结果；点行打开笔记 */
 .lbc-list{padding:10px 5px 30px;overflow-x:auto;}
 /* 1023「Wiki」占位：以后放长期研究 / 可合并的主题，索引也会并进来；现在只是空页 */
