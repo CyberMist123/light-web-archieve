@@ -193,12 +193,15 @@ def test_status_heartbeat_keeps_updated_at_fresh_during_fill(tmp_path, monkeypat
         writes.append(st.data["updated_at"])
     monkeypatch.setattr(st, "update", spy)
     with st.heartbeat(every=0.05):
-        _time.sleep(0.3)
+        # 不按固定秒数睁眼（Windows runner 上原子写一次 JSON 就要几百毫秒，0.3 秒只写到 1 次）：等到写满 2 次为止，最多 10 秒
+        deadline = _time.monotonic() + 10
+        while len(writes) < 2 and _time.monotonic() < deadline:
+            _time.sleep(0.02)
     assert len(writes) >= 2
     assert cf.read_status()["stale_min"] == cf.STALE_MIN == 15
     # 心跳停了之后不再写
     n = len(writes)
-    _time.sleep(0.15)
+    _time.sleep(0.3)
     assert len(writes) == n
 
 
