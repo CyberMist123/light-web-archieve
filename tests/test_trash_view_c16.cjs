@@ -32,7 +32,7 @@ async function open({ files, plugin, isMobile = false } = {}) {
   assert.ok(dom.document.getElementById('lb-trash-style'), '样式挂 head');
   const wrap = A.q('.lbt-wrap');
   assert.equal(A.q('.lbt-title').textContent, '回收站');
-  assert.deepEqual(A.qa('.lb-page-nav button').map(b => b.textContent), ['浏览收藏', '问收藏']);
+  assert.deepEqual(A.qa('.lb-page-nav button').map(b => b.textContent), ['浏览收藏', '问收藏', 'Wiki']);
   assert.equal(A.qa('.lbt-row').length, 2);
   assert.ok(A.qa('.lbt-row')[1].querySelector('.lbt-meta').textContent.includes('旧孤儿笔记'), 'deleted_at 缺失不抛错');
   assert.ok(A.q('.lbt-tools button'), '有文件时才建「清空回收站」');

@@ -317,6 +317,9 @@ def build_parser() -> argparse.ArgumentParser:
     from . import indextree, wiki as wiki_mod
     indextree.add_parser(sub)
     wiki_mod.add_parser(sub)
+    # 10-29 个人 Wiki（PersonalWiki/，她自己写的页；和上面的节点 wiki 是两回事）
+    from . import personal_wiki
+    personal_wiki.add_parser(sub)
 
     p = sub.add_parser("topic", help="星标主题：口头建、AI 配关键词，目录页 cats 栏下出一排 chip（输出 JSON）")
     tsub = p.add_subparsers(dest="topic_command")
@@ -816,6 +819,10 @@ def _dispatch(args) -> int:
     if args.command == "wiki":
         from . import wiki as wiki_mod
         return wiki_mod.run(args)
+
+    if args.command == "pwiki":
+        from . import personal_wiki
+        return personal_wiki.run(args)
 
     if args.command == "skills":
         from . import skills as skills_mod

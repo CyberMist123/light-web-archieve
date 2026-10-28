@@ -1398,3 +1398,32 @@ manifest 的 B 站条目（§4 字段之外）：`video` 带 `duration_sec / wid
 
 `derived/transcript.json` 的 `status` 多一个值 `no_subtitle`（`videos.DONE_STATUSES`）：B 站来源无站点字幕，本轮不对它起 ASR；画面文字（本地 OCR）照现有规则。
 
+## 2026-10-29 个人 Wiki `vault/PersonalWiki/`（第一批后端，`link_brain/personal_wiki.py`）
+
+她自己写的知识页，和「问收藏」平级的独立页面背后的存储（页面脚本还没接，下一批）。**只有 `personal_wiki.py` 写这个目录**（文件锁 `personal-wiki`，原子写走 `storage.*`）。
+
+- 一页 = `PersonalWiki/<标题>.md`（标题里的 `\ / : * ? " < > | # ^ [ ]` 换成 `-`，重名加 ` (2)`）。正文是唯一主副本，Obsidian 里照常打开 / 改。
+  文件头（Obsidian 按 YAML 读，所以字符串需要时加 JSON 引号、列表写成 JSON 数组）：
+
+  ```yaml
+  ---
+  id: pw-19a2f3c4d5e6b7   # 稳定 id；改名只换文件名。Obsidian 里新建、没写 id 的页按路径派生 pf-…，第一次在 Wiki 里保存时写进来
+  title: 住宿偏好
+  role: page             # page | topic（文件夹 = 大类）
+  index_tag: travel      # 只有 topic：这个文件夹对应的标签
+  order: ["pw-…", "pw-…"]   # 只有 topic：目录里拖出来的顺序
+  tags: ["travel", "hotels"]
+  created: 2026-10-29T10:00:00+08:00
+  updated: 2026-10-29T10:05:00+08:00
+  ---
+  ```
+  其它属性（她在 Obsidian 里加的）原样保留。页面属于哪个文件夹 = 带哪个文件夹的 `index_tag`（可以同时属于几个）。
+- 正文里的约定：收藏引用 `[标题](lwa:<item_id>)`；`#标签`（代码块里的不算、纯数字不算）；`- [ ] 待办`；` ```pages ` 自动列表（`folder:` / `tag:`，渲染时现算，不写回正文）。`[[页面]]` 照认，界面不提示。
+- 历史 `PersonalWiki/.history/<id>/`：每版一份整页快照 `<时间>-<kind>.md` + `log.json`（`{schema, id, versions:[{ver, file, ts, at, kind, note, hash}]}`）。
+  kind：`create / auto / manual / restore / external / import / ai / rename`。连着打字 2 分钟内的 `auto` 合成一条；文件和最后一版对不上（在 Obsidian 里改过）→ 下次保存或建索引时先记一条 `external`。每页最多 200 版（第一版不删）。**不用 Git**（RELEASE-BAR P8）。
+- 保存带 `base_hash`（打开 / 上次保存时拿到的 hash）：和磁盘对不上 = 期间别处改过，返回 `CONFLICT`，不覆盖。
+- 删除 = 挪进 `PersonalWiki/.trash/<时间>-<文件名>`，历史留着。
+- 索引 `_archive/wiki-index.json`（`pwiki index` 重建，可随时删）：`{schema, built_at, dir, pages:[{id,title,role,index_tag,order,tags,all_tags,cites,links,heads,tasks,open_tasks,lead,chars,created,updated,file,hash}], folders:[{id,title,index_tag,pages:[id…]}], loose:[id…], tags:{tag:[id…]}, cites:{item_id:[id…]}}`。
+- CLI（插件消费，最后一行 JSON，`read.outcome` 外形）：`pwiki list | get <id> | create <标题> [--folder 标签] [--topic] [--prompts] | save（stdin JSON：id, base_hash, title?, tags?, body?, order?, kind?, note?）| history <id> | version <id> <ver> | restore <id> <ver> [--base-hash] | delete <id> [--base-hash] | index | import <json 或原型的 wiki-data.local.js>`。
+  失败码：`BAD_ARGS` / `NOT_FOUND`（退出 2）、`CONFLICT` / `TITLE_TAKEN` / `LOCK_BUSY` / `WRITE_FAILED`（退出 1）。
+- 已知风险（Codex 审查 10-29）：页面写盘走 `storage.atomic_write_text`；Obsidian 一直开着某个 `.md` 时，`os.replace` 重试失败会退成原地覆写（storage 对 `.md` 的既有降级），那一刻失去「不留半截」的保证。没改 storage 规则：不降级，正在 Obsidian 里开着的页就存不上。读法兼容 Obsidian 属性面板的块状列表（`tags:` 下一行一个 `- x`），写回统一成 JSON 数组。

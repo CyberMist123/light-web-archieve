@@ -90,7 +90,7 @@ function lbApplyTheme(el, theme) {
 }
 /* lb-theme:end */
 // 页面样式的 id（CONVENTIONS §5.11）：lb-shared 必须排在它们前面（页面窄屏覆盖共用规则靠「后写的赢」）
-const LB_PAGE_STYLE_IDS = ['lbc-style', 'lbchat-style', 'lb-trash-style', 'lba-annot-style'];
+const LB_PAGE_STYLE_IDS = ['lbc-style', 'lbchat-style', 'lb-trash-style', 'lba-annot-style', 'lb-wiki-style'];
 function lbPageLib(dv, app, role) {
   // 1019 跨视图复用（park）：切走时页面整块摘下暂存在 G.__lbPark[role]，回来挂到新视图的容器后面；
   // 所以 dv / container 可换（rebind），所有「卸载时做」一律走 onUnload，由这里决定是暂存还是真拆。
