@@ -1065,8 +1065,32 @@ def nightly_busy(now: datetime | None = None, rows: list[dict[str, Any]] | None 
     return ""
 
 
+DEEP_CHECK_EVERY_S = 15 * 60   # 1028（审查 A3 的 Python 兜底）：session 说 logged_in=false 又没有熔断时，多久深查一次登录
+_deep_check: dict[str, Any] = {"at": None, "state": ""}
+
+
+def _deep_login_state(now: float | None = None) -> str:
+    """logged_in=false 且没有熔断时的深查（会开一页 /login/status、拿账号锁）：读取组件的 logged_in 是「最近一次实测」，
+    熔断解除（risk/clear）时它不重测，以前补跑据此干等 12 小时。15 分钟最多查一次；查不清（忙 / 锁被占）3 分钟后再查。
+    返回 accounts.status_report 的 login_state：logged_in / guest / unknown / risk_hold。"""
+    from . import accounts
+    now = time.monotonic() if now is None else now
+    at = _deep_check["at"]
+    ttl = DEEP_CHECK_EVERY_S if _deep_check["state"] in ("logged_in", "guest") else 180
+    if at is not None and now - at < ttl:
+        return _deep_check["state"]
+    try:
+        _, state = accounts.status_report(deep=True, launch=True)   # launch=False 会退成浅查，查不到真状态
+    except Exception as exc:  # noqa: BLE001 - 深查出错当查不清
+        print(f"[comments] 深查登录没成：{type(exc).__name__}: {exc}", file=sys.stderr)
+        state = "unknown"
+    _deep_check.update(at=now, state=state)
+    return state
+
+
 def account_wait_reason() -> tuple[str, str]:
-    """号现在能不能用（只问读取服务内存里的状态，不开页）：('', '') 能用；否则 (码, 一句原因)。"""
+    """号现在能不能用（只问读取服务内存里的状态，不开页）：('', '') 能用；否则 (码, 一句原因)。
+    1028（A3 兜底）：唯一会开页的分支——session 说 logged_in=false 又没有熔断，15 分钟深查一次，别干等。"""
     from . import accounts
     try:
         session = accounts.ensure_reader()
@@ -1093,6 +1117,11 @@ def account_wait_reason() -> tuple[str, str]:
         return code, f"{what}，处理好自动接着补（{accounts.hold_text(hold) or '暂停中'}）"
     if isinstance(session, dict):
         if session.get("logged_in") is False:
+            state = _deep_login_state()
+            if state == "logged_in":
+                return "", ""
+            if state == "unknown":
+                return "BUSY", "读取服务记得的是「没登录」，深查又没查清（忙 / 号被占），3 分钟后再看"
             return "NOT_LOGGED_IN", "小红书掉登录了：在设置 / 问题入口扫码登录，登好自动接着补"
         # 1028：只认「正在扫码」（state=waiting）和验证窗口开着；登录完留下的 success / failed 不算忙
         #（以前「不是 idle 就当忙」：登录成功后 state 一直是 success，补跑干等了 48 分钟）

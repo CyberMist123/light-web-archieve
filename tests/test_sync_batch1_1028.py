@@ -340,3 +340,31 @@ def test_survey_is_cached_while_waiting_and_recomputed_after_a_fill(tmp_path, mo
     assert opened == ["xhs-a"]
     # 5 轮等待 900 秒：开头 1 + 过了 600 秒重算 1 + 开页后重算 1 + 收尾 1 = 4，而不是每轮一次（7+）
     assert calls["survey"] == 4, calls
+
+
+# ---------------------------------------------------------------- A3 兜底：logged_in=false 又没熔断 → 15 分钟深查一次
+def test_logged_in_false_without_hold_triggers_deep_check_not_12h_wait(monkeypatch):
+    from link_brain.sources.xiaohongshu import accounts as acc
+    monkeypatch.setattr(acc, "ensure_reader", lambda: {"state": "idle", "logged_in": False, "risk_hold": None})
+    monkeypatch.setattr(cf, "_deep_check", {"at": None, "state": ""})
+    deep = []
+    monkeypatch.setattr(acc, "status_report", lambda **kw: (deep.append(kw) or ({"state": "ready"}, "logged_in")))
+    clock = [1000.0]
+    monkeypatch.setattr(cf.time, "monotonic", lambda: clock[0])
+    assert cf.account_wait_reason() == ("", "")                 # 深查说已登录：能用
+    assert deep == [{"deep": True, "launch": True}]
+    clock[0] += 60
+    assert cf.account_wait_reason() == ("", "") and len(deep) == 1   # 15 分钟内不再开页
+    clock[0] += 15 * 60
+    assert cf.account_wait_reason() == ("", "") and len(deep) == 2
+    # 深查说是游客 → 真掉登录，照旧等她
+    monkeypatch.setattr(acc, "status_report", lambda **kw: ({"state": "expired"}, "guest"))
+    clock[0] += 15 * 60
+    assert cf.account_wait_reason()[0] == "NOT_LOGGED_IN"
+    # 查不清（忙 / 锁被占）→ BUSY，3 分钟后再查
+    monkeypatch.setattr(acc, "status_report", lambda **kw: ({"state": "busy"}, "unknown"))
+    clock[0] += 15 * 60
+    assert cf.account_wait_reason()[0] == "BUSY"
+    monkeypatch.setattr(acc, "status_report", lambda **kw: ({"state": "ready"}, "logged_in"))
+    clock[0] += 200
+    assert cf.account_wait_reason() == ("", "")
