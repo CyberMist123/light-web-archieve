@@ -1,0 +1,80 @@
+{
+  "code": 0,
+  "message": "OK",
+  "ttl": 1,
+  "data": {
+    "info": {
+      "id": 1000101,
+      "fid": 10001,
+      "mid": 900001,
+      "attr": 0,
+      "title": "默认收藏夹",
+      "cover": "",
+      "cover_type": 2,
+      "upper": {
+        "mid": 900001,
+        "name": "样本用户",
+        "face": "",
+        "followed": false,
+        "vip_type": 0,
+        "vip_statue": 0
+      },
+      "intro": "",
+      "ctime": 1700000000,
+      "mtime": 1700000000,
+      "state": 0,
+      "fav_state": 0,
+      "like_state": 0,
+      "media_count": 21,
+      "is_top": false,
+      "type": 11,
+      "cnt_info": {
+        "collect": 0,
+        "play": 0,
+        "thumb_up": 0,
+        "share": 0
+      }
+    },
+    "medias": [
+      {
+        "id": 100000000001,
+        "type": 2,
+        "title": "样本视频",
+        "cover": "",
+        "intro": "",
+        "page": 1,
+        "duration": 60,
+        "upper": {
+          "mid": 800001,
+          "name": "样本UP",
+          "face": "",
+          "jump_link": ""
+        },
+        "attr": 0,
+        "cnt_info": {
+          "collect": 0,
+          "play": 0,
+          "danmaku": 0,
+          "vt": 0,
+          "play_switch": 0,
+          "reply": 0,
+          "view_text_1": "0"
+        },
+        "link": "bilibili://video/100000000001",
+        "ctime": 1700000000,
+        "pubtime": 1700000000,
+        "fav_time": 1700000100,
+        "bv_id": "BV1fake00001",
+        "bvid": "BV1fake00001",
+        "season": null,
+        "ogv": null,
+        "ugc": {
+          "first_cid": 200000000001
+        },
+        "media_list_link": ""
+      }
+    ],
+    "has_more": false,
+    "ttl": 1700000200
+  }
+}
