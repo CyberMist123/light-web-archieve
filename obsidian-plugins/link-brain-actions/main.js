@@ -1542,7 +1542,8 @@ class LinkBrainActions extends Plugin {
       (this.accountState || (this.accountState = {}))[platform.id] = r.state;
       try { this.setupNotify?.(); } catch (e) { console.error('[lb] 开始页没刷新', e); }
       const [plain, tip, button] = VIEW[r.state] || VIEW.unknown;
-      const label = (r.code && registryEntry(registry, r.code)?.label) || plain || r.message || VIEW.unknown[0];
+      const replyCooling = !!r.sub_comments_until && !r.code;
+      const label = replyCooling ? r.message : ((r.code && registryEntry(registry, r.code)?.label) || plain || r.message || VIEW.unknown[0]);
       who.setText(r.account ? (inCard ? r.account : ` · ${r.account}`) : '');
       // S4：缓存画出来的那一行带上「N 分钟前确认」
       state.setText((inCard && !r.account ? '' : ' · ') + label + (r._at && r.state === 'ready' ? `（${confirmedAgo(r._at)}）` : ''));
@@ -1550,7 +1551,7 @@ class LinkBrainActions extends Plugin {
       guide.setText(r.state === 'ready' ? '' : (r.next_step || tip || (plain ? r.message : '') || ''));
       guide.toggleClass('lb-loading', r.state === 'checking' || r.state === 'busy');
       if (running) bar.addClass('is-running'); else bar.removeClass('is-running');
-      const btnText = r.state === 'error' && r.action === 'login' ? '登录' : button;
+      const btnText = replyCooling ? '' : (r.state === 'error' && r.action === 'login' ? '登录' : button);
       if (btnText) { primary.setButtonText(btnText); primary.buttonEl.show(); primary.setDisabled(false); } else primary.buttonEl.hide();
       // 和问题面板同一把尺子（problems-ui.js 的 VERIFY_STILL_HELD）：关窗后熔断还在才给
       const held = r.state === 'captcha' && ['no_captcha_seen', 'still_risk', 'not_read', 'window_failed', 'still_held'].includes(String(r.verify_result || ''));
