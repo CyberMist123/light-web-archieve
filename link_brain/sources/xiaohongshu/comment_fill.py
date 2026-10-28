@@ -59,6 +59,7 @@ STALE_MIN = 15              # 状态心跳这么久没动 = 补跑已经停了�
                             # 每 HEARTBEAT_S 秒刷一次（含撞验证歇 5 分钟、重试、等锁），所以能收回 15；插件状态栏用同一个数
 MAX_WAIT_S = 12 * 3600      # 号要人处理时最多等这么久（只看内存状态）；再久就先退出，下次同步 / 夜跑 / 打开 Obsidian 再拉起
 CATALOG_EVERY = 25          # 每补齐这么多篇重建一次目录（卡片上的评论数跟上）
+SURVEY_EVERY_S = 600        # 1028（审查 #8）：等号 / 让路的循环里全库 survey 最多这么久重算一次；补过一篇 / 冷却到点才立刻重算
 
 
 def fill_reserve_s() -> float:
@@ -1206,12 +1207,24 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep, clock: Callable[[]
             left -= step
             status.update()
 
+    sv_cache: dict[str, Any] = {"sv": None, "at": 0.0, "floors": None, "dirty": True}
+
+    def current_survey(floors: int) -> dict[str, Any]:
+        """1028（#8）：以前每轮循环都 survey() 全库读一遍（等号时每分钟一次）；现在状态没变就复用，最多 SURVEY_EVERY_S 重算一次。
+        补过一篇 / 冷却到点（dirty）或楼数设置变了立刻重算。"""
+        stale = clock() - float(sv_cache["at"]) > SURVEY_EVERY_S
+        if sv_cache["sv"] is None or sv_cache["dirty"] or sv_cache["floors"] != floors or stale:
+            sv_cache["sv"] = (survey(floors, gap_min=ONLY_GAP_MIN, window=(ONLY_WINDOW_MIN, ONLY_MAX_OPENS)) if only
+                              else survey(floors))
+            sv_cache.update(at=clock(), floors=floors, dirty=False)
+        return sv_cache["sv"]
+
     try:
         work_since: list[float] = []  # 1016：这一段连续干活从几时起（跑满 WORK_MIN 分钟强制歇 REST_MIN 分钟）
         last_work_end = [0.0]  # 1018：上一篇做完的时刻——中间让路 / 等额度歇够了 REST_MIN，就算歇过了，别再强制歇
         while True:
             floors = target_floors()
-            sv = survey(floors, gap_min=ONLY_GAP_MIN, window=(ONLY_WINDOW_MIN, ONLY_MAX_OPENS)) if only else survey(floors)
+            sv = current_survey(floors)
             if only:
                 pick = lambda xs: [e for e in xs if e["item_id"] in only]  # noqa: E731
                 sv = {**sv, "ready": pick(sv["ready"]) + pick(sv["stuck"]), "cooling": pick(sv["cooling"]),
@@ -1232,6 +1245,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep, clock: Callable[[]
                     nap(wait, state="waiting", current=None, wait_code="COOLING",
                         message=status.text("补评论") + (f" · 同一篇 20 分钟最多开 2 次，{first:%H:%M} 接着补" if only else
                                                        f" · 同一篇隔 {fill_gap_min()} 分钟再开，{first:%H:%M} 接着补"))
+                    sv_cache["dirty"] = True   # 冷却到点：重算谁能开了
                     continue
                 break
             entry = ready[0]
@@ -1322,6 +1336,7 @@ def run(args, *, sleep: Callable[[float], None] = time.sleep, clock: Callable[[]
                           message=status.text("正在补评论") + f" · {entry['title'][:24]}")
             attempts_this_run[item_id] = attempts_this_run.get(item_id, 0) + 1
             lock_wait = 300.0 if until_done else float(getattr(args, "wait_lock_min", 2) or 2) * 60
+            sv_cache["dirty"] = True   # 开过页（不管成没成）：下一轮重算缺口
             try:
                 with status.heartbeat(), accounts.account_session("comments-fill", wait_s=lock_wait, polite=until_done):
                     out = fill_one(item_id, floors=floors, verbose=verbose, manual=bool(only))

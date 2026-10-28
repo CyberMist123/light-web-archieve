@@ -313,3 +313,30 @@ def test_wait_reason_text_follows_hold_cause(monkeypatch):
         assert why.count("小红书") <= 2 and not why.startswith("小红书小红书"), why
         if code != "CAPTCHA_REQUIRED":
             assert "弹了验证" not in why, (code, why)
+
+
+# ---------------------------------------------------------------- #8 等号时不每轮全库 survey
+def test_survey_is_cached_while_waiting_and_recomputed_after_a_fill(tmp_path, monkeypatch):
+    _loop_env(tmp_path, monkeypatch, [ENTRY])
+    calls = {"survey": 0}
+    opened = []
+
+    def counting_survey(*a, **k):
+        calls["survey"] += 1
+        entries = [] if opened else [ENTRY]   # 开过一次就没缺口了
+        return {"floors": 10, "ready": entries, "cooling": [], "stuck": [], "restricted": [],
+                "missing": 3 * len(entries), "pending": len(entries)}
+    monkeypatch.setattr(cf, "survey", counting_survey)
+    monkeypatch.setattr(cf, "sub_quota", lambda now=None: (30, None))
+    monkeypatch.setattr(cf.actionlog, "repeat_pause", lambda *a, **k: ("", None))
+    answers = iter([("ACCOUNT_RISK", "等她")] * 5)   # 先等 5 轮（每轮 180 秒），再放行
+    monkeypatch.setattr(cf, "account_wait_reason", lambda: next(answers, ("", "")))
+    monkeypatch.setattr(cf, "fill_one", lambda item_id, **k: opened.append(item_id) or {"done": True})
+    clock = [0.0]
+    sleep = lambda s: clock.__setitem__(0, clock[0] + s)  # noqa: E731
+    args = types.SimpleNamespace(until_done=True, budget_min=0, limit=0, verbose=False, only=None, floors="",
+                                 then_background=False, wait_lock_min=2)
+    assert cf.run(args, sleep=sleep, clock=lambda: clock[0]) == 0
+    assert opened == ["xhs-a"]
+    # 5 轮等待 900 秒：开头 1 + 过了 600 秒重算 1 + 开页后重算 1 + 收尾 1 = 4，而不是每轮一次（7+）
+    assert calls["survey"] == 4, calls
