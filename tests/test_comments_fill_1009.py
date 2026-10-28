@@ -360,3 +360,14 @@ def test_repair_plan_for_incomplete_comments_is_manual_retry():
     assert p["kind"] == "run" and p["action"] == "comments_fill_item" and p["auto"] is False
     assert repair.ACTIONS["comments_fill_item"].argv(ITEM) == ["comments", ITEM, "--fill"]
     assert repair.ACTIONS["comments_fill_item"].account is True
+
+
+def test_status_with_stale_heartbeat_counts_as_stopped(monkeypatch):
+    """1028：pid 被系统复用（还「活着」）但心跳 7 小时没动 → 算停了，spawn_worker 能重新拉起。"""
+    from datetime import datetime, timedelta
+    from link_brain import storage as st_mod
+    now = datetime.now().astimezone()
+    monkeypatch.setattr(st_mod, "pid_state", lambda pid: "alive")
+    for ago, want in ((timedelta(hours=7), "stopped"), (timedelta(minutes=2), "running")):
+        st_mod.write_json(comment_fill.status_path(), {"state": "running", "pid": 7640, "updated_at": (now - ago).isoformat()})
+        assert comment_fill.read_status()["state"] == want

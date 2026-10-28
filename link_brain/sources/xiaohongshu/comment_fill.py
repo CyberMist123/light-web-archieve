@@ -53,6 +53,7 @@ TASK_CACHE_S = 300
 WAIT_HUMAN_S = 180          # 号要人处理（验证 / 掉登录）时多久看一眼（只读内存状态，不开页）
 WAIT_BUSY_S = 60
 HEARTBEAT_S = 60
+STALE_MIN = 15              # 状态心跳这么久没动 = 补跑已经停了（pid 可能被别的进程复用）
 MAX_WAIT_S = 12 * 3600      # 号要人处理时最多等这么久（只看内存状态）；再久就先退出，下次同步 / 夜跑 / 打开 Obsidian 再拉起
 CATALOG_EVERY = 25          # 每补齐这么多篇重建一次目录（卡片上的评论数跟上）
 
@@ -839,7 +840,11 @@ def read_status() -> dict[str, Any]:
     if not isinstance(st, dict):
         return {}
     if st.get("state") in ("running", "waiting", "paused") and st.get("pid"):
-        if storage.pid_state(st.get("pid")) == "dead":
+        # 1028：pid 会被系统复用（10-28 13:33 停掉的补跑，pid 后来成了 svchost，「已经在跑」挡了 7 小时）——
+        # 心跳 STALE_MIN 分钟没动也算停了（一篇最长 FILL_BUDGET_S + 90 秒，等待时每 HEARTBEAT_S 秒写一次）
+        updated = _parse(st.get("updated_at"))
+        stale = updated is not None and _now() - updated > timedelta(minutes=STALE_MIN)
+        if stale or storage.pid_state(st.get("pid")) == "dead":
             st = {**st, "state": "stopped", "message": "后台补评论中途停了（进程不在了），下次同步 / 夜跑接着补"}
     return st
 
