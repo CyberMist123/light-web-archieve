@@ -1,0 +1,44 @@
+{
+  "code": 0,
+  "message": "OK",
+  "ttl": 1,
+  "data": {
+    "count": 3,
+    "season": null,
+    "list": [
+      {
+        "id": 1000101,
+        "fid": 10001,
+        "mid": 900001,
+        "attr": 0,
+        "title": "默认收藏夹",
+        "fav_state": 0,
+        "media_count": 21,
+        "is_kid_playlist": false,
+        "kid_playlist_desc": ""
+      },
+      {
+        "id": 1000201,
+        "fid": 10002,
+        "mid": 900001,
+        "attr": 2,
+        "title": "样本收藏夹二",
+        "fav_state": 0,
+        "media_count": 3,
+        "is_kid_playlist": false,
+        "kid_playlist_desc": ""
+      },
+      {
+        "id": 1000301,
+        "fid": 10003,
+        "mid": 900001,
+        "attr": 3,
+        "title": "私密样本",
+        "fav_state": 0,
+        "media_count": 0,
+        "is_kid_playlist": false,
+        "kid_playlist_desc": ""
+      }
+    ]
+  }
+}
