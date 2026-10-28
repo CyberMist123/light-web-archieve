@@ -371,6 +371,25 @@ def stuck_retry_due(state: dict[str, Any], now: datetime | None = None) -> bool:
     return (now or _now()) - at >= timedelta(days=days)
 
 
+def is_skipped(state: dict[str, Any]) -> bool:
+    """1029 她：这篇不补了（撞过风控的那篇）——后台补评论永远跳过，手动「现在抓全部评论」照跑。`comments <id> --unskip` 撤回。"""
+    return bool(state.get("skip"))
+
+
+def set_skip(item_id: str, on: bool, reason: str = "") -> dict[str, Any]:
+    """只改本地续读状态（不碰号）。"""
+    source_key, source_id = item_id.split("-", 1)
+    source_key = {"xhs": "xiaohongshu"}.get(source_key, source_key)
+    state = load_state(source_key, source_id)
+    if on:
+        state.update(skip=True, skip_at=_now().isoformat(timespec="seconds"), skip_reason=reason or "她说不补了")
+    else:
+        for k in ("skip", "skip_at", "skip_reason"):
+            state.pop(k, None)
+    save_state(source_key, source_id, state)
+    return {"item_id": item_id, "skip": bool(on), "reason": state.get("skip_reason", "")}
+
+
 def is_stuck(state: dict[str, Any], floors: int) -> bool:
     """连着几次补不上、已进问题面板：同一个楼数下先不自动续，到了慢速重试的日子（stuck_retry_due）再试一次。"""
     return (bool(state.get("stuck")) and _int(state.get("stuck_floors") or floors) >= floors
@@ -429,6 +448,8 @@ def survey(floors: int | None = None, now: datetime | None = None, gap_min: int 
         except (OSError, ValueError, KeyError):
             continue
         state = load_state(source_key, source_id)
+        if is_skipped(state):
+            continue
         sc = scope(source, floors, state)
         mode, targets = plan_fill(sc)
         if mode is None:
@@ -501,6 +522,8 @@ def fill_one(item_id: str, *, floors: int | None = None, verbose: bool = False, 
         if state.get("stuck"):
             _settle(source_key, source_id, state, item_id, problems)
         return {**base, "filled": False, "missing_after": 0, "reason": "没有缺口", "refreshed_unchanged": True}
+    if not manual and is_skipped(state):
+        return {**base, "filled": False, "missing_after": sc["missing"], "reason": "这篇她说不补了"}
     if not manual and is_stuck(state, floors):
         return {**base, "filled": False, "missing_after": sc["missing"], "reason": "连着几次补不上，已记进问题面板"}
 

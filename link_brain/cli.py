@@ -100,6 +100,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="配合 --fill-pending（夜跑用）：预算内没补完就转到后台接着补")
     p.add_argument("--fill-status", dest="fill_status", action="store_true",
                    help="评论补齐进度 JSON（本地读，不碰号；插件设置页 / 状态栏用）")
+    p.add_argument("--skip", action="store_true", help="1029：这篇以后后台补评论都跳过（只改本地状态，不碰号）")
+    p.add_argument("--unskip", action="store_true", help="撤回 --skip")
     p.add_argument("--wait-lock-min", dest="wait_lock_min", type=float, default=2,
                    help="号被别的任务占着时最多等几分钟（默认 2），等不到退出码 6")
     p.add_argument("--progress", action="store_true",
@@ -598,6 +600,14 @@ def _dispatch(args) -> int:
         return restricted.run_verify(args)
     if args.command == 'comments':
         from . import ingest
+        if getattr(args, 'skip', False) or getattr(args, 'unskip', False):
+            from .sources.xiaohongshu import comment_fill
+            from .read import dump_json
+            if not args.target:
+                print("要给 item_id（xhs-<note_id>）", file=sys.stderr)
+                return 2
+            dump_json(comment_fill.set_skip(args.target, bool(args.skip)))
+            return 0
         if getattr(args, 'fill_pending', False) or getattr(args, 'fill_status', False):
             return ingest.run_comments(args)  # 1009：补跑每篇自己拿账号锁（不整晚攥着）；进度只读本地
         # 1010：--progress（插件「抓全部评论」）——等号、读评论区、下评论图、写进笔记，一步一个进度事件（最后一行照旧是结果）

@@ -218,3 +218,25 @@ def test_old_reader_without_comment_load_renders_plain_hint(tmp_path, monkeypatc
     assert "前 10 楼的楼中楼还缺 7 条（以前只存了每楼前几条回复，后台在补）" in md
     later = datetime.now().astimezone() + timedelta(minutes=50)
     assert [sid for _, sid, _ in ingest_mod.pending_fills(now=later)] == [NOTE_ID]
+
+
+def test_skip_post_is_left_out_of_background_fill(tmp_path, monkeypatch, capsys):
+    """1029 她：撞过风控的那篇不补了——--skip 后 survey / 后台续读都跳过，--unskip 撤回。"""
+    setup_env(tmp_path, monkeypatch)
+    raw, cid = _fixture_with_gaps()
+    calls = []
+    monkeypatch.setattr(xhs, "fetch_detail", lambda *a, **k: calls.append(k) or raw)
+    assert cli.main(["ingest", "https://example.invalid/share"]) in (0, 2)
+    capsys.readouterr()
+    from link_brain import comment_fill
+    later = datetime.now().astimezone() + timedelta(minutes=50)
+    monkeypatch.setattr(comment_fill, "_now", lambda: later)
+    monkeypatch.setattr(comment_fill, "account_wait_reason", lambda: ("", ""))
+    assert cli.main(["comments", f"xhs-{NOTE_ID}", "--skip"]) == 0
+    assert json.loads(capsys.readouterr().out)["skip"] is True
+    assert comment_fill.survey()["ready"] == [] and comment_fill.survey()["pending"] == 0
+    n = len(calls)
+    assert comment_fill.fill_one(f"xhs-{NOTE_ID}")["reason"] == "这篇她说不补了" and len(calls) == n
+    assert cli.main(["comments", f"xhs-{NOTE_ID}", "--unskip"]) == 0
+    capsys.readouterr()
+    assert [e["item_id"] for e in comment_fill.survey()["ready"]] == [f"xhs-{NOTE_ID}"]
