@@ -195,6 +195,8 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap.is-side-narrow .lbc-top .lbc-row.is-free>.lbc-rcol{width:auto!important;margin-left:0!important;padding-right:0;padding-top:0;flex:0 1 auto;}
 .lbc-wrap.is-side-narrow .lbc-top .lbc-row.is-free>.lbc-rcol+.lbc-rcol{margin-top:0;}
 .lbc-wrap.is-side-narrow .lbc-top .lbc-row.is-free>.lbc-rcol:has(.lbc-m-title,.lbc-m-cats,.lbc-m-search){flex:1 1 100%;}
+/* 1028：星标页 / 手机没有边栏、不会挂 is-side-narrow——按屏宽也把页头积木排成可换行的一排（390 宽不横滚，catalog_ui_smoke） */
+@media(max-width:760px){.lbc-top .lbc-row.is-free{display:flex;flex-wrap:wrap;align-items:center;column-gap:16px;}.lbc-top .lbc-row.is-free>.lbc-rcol{width:auto!important;max-width:100%;min-width:0!important;margin-left:0!important;padding-right:0;padding-top:0;flex:0 1 auto;}.lbc-top .lbc-row.is-free>.lbc-rcol:has(.lbc-m-title,.lbc-m-cats,.lbc-m-search,.lbc-m-scope){flex:1 1 100%;}.lbc-top .lbc-scope,.lbc-top .lbc-subline{flex-wrap:wrap;}}
 /* 1021 第 3 段 · 边栏（DESIGN-SPEC §4、§7）：吸在页头下面（top / max-height 由 paintStickyTop 量好写到 .lbc-wrap 上），内容超高自己滚，
    不显示滚动条；没到底时底部 56px 渐隐（.is-more），到底去掉。只有收藏墙随页面滚。窄于 760（按页面宽，.is-side-narrow）或手机不出 */
 .lbc-side{position:sticky;top:var(--lbc-side-top,0px);overflow-anchor:none;max-height:calc(var(--lbc-pane-h,100vh) - var(--lbc-top-h,0px) - 16px);overflow-x:hidden;overflow-y:auto;scrollbar-width:none;min-width:0;box-sizing:border-box;padding:6px 0 24px;}
@@ -491,6 +493,11 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap button.lbc-check:hover{background:var(--c-soft)!important;color:var(--c-muted);}
 .lbc-wrap button.lbc-check.is-on{background:var(--c-ink)!important;border-color:var(--c-bg)!important;color:var(--c-bg);opacity:1;pointer-events:auto;}
 @media(hover:none){.lbc-wrap button.lbc-check{opacity:1;pointer-events:auto;}.lbc-card-more{opacity:1;}}
+/* 1028 她：选中圈出来时别压着左上的角标——角标挪到圈右边、「文件」前的小图标收起；圈不在时照旧 */
+.lbc-wrap:not(.lbc-simple) .lbc-card :is(.lbc-badges){transition:opacity .15s,background .12s,translate .25s cubic-bezier(.2,.8,.2,1),left .15s;}
+.lbc-wrap:not(.lbc-simple) .lbc-card:is(:hover,:focus-within,.is-selected) .lbc-badges,.lbc-wrap.is-selecting:not(.lbc-simple) .lbc-badges{left:46px;}
+.lbc-wrap:not(.lbc-simple) .lbc-card:is(:hover,:focus-within,.is-selected) .lbc-badges .lbc-attach:not(.lbc-video) svg,.lbc-wrap.is-selecting:not(.lbc-simple) .lbc-badges .lbc-attach:not(.lbc-video) svg{display:none;}
+@media(hover:none){.lbc-wrap:not(.lbc-simple) .lbc-badges{left:46px;}.lbc-wrap:not(.lbc-simple) .lbc-badges .lbc-attach:not(.lbc-video) svg{display:none;}}
 /* 1021「列表」视图：简单表格（标题 / 分类 / 作者 / 导入时间 / ♡），和瀑布流共用筛选、搜索结果；点行打开笔记 */
 .lbc-list{padding:10px 5px 30px;overflow-x:auto;}
 /* 1023「Wiki」占位：以后放长期研究 / 可合并的主题，索引也会并进来；现在只是空页 */

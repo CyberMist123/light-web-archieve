@@ -66,7 +66,7 @@ const center = r => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
         trayAbove: document.querySelector('.lbc-arrange-tray').getBoundingClientRect().bottom <= document.querySelector('.lbc-board').getBoundingClientRect().top + 1,
         edges: [...document.querySelectorAll('.lbc-board > .lbc-col-edge')].filter(e => getComputedStyle(e).display === 'block').length,
         labPE: getComputedStyle(document.querySelector('.lbc-mod .lbc-lab')).pointerEvents }));
-      assert.ok(on.cls); assert.equal(on.bars, 16, '十六块都有工具条'); assert.equal(on.shown, 0, '平时收着');
+      assert.ok(on.cls); assert.equal(on.bars, 17, '十七块都有工具条（1028 加了专辑）'); assert.equal(on.shown, 0, '平时收着');
       assert.equal(on.tray, 'flex'); assert.ok(on.trayAbove, '托盘在墙上面'); assert.equal(on.edges, 1, '边栏和墙之间一道边'); assert.equal(on.labPE, 'none', '编排时模块本身点不动');
       shots.push(await S.screenshot(`catalog-arrange-1027-${theme}-1400`));
       if (theme === 'dark') { assert.deepEqual(await S.pageErrors(), []); await page.close(); continue; }
@@ -109,7 +109,8 @@ const center = r => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
       await S.settle(120);
       const sideB = await R(page, '.lbc-side');
       assert.ok(sideB.width > sideA.width + board.width / 48 * 6, `边栏变宽 8 格 ${sideA.width} → ${sideB.width}`);
-      assert.equal(await page.evaluate(() => document.querySelector('.lbc-board').style.getPropertyValue('--lbc-board-cols')), 'minmax(0,24fr) minmax(0,24fr)');
+      // 拖到第 24 格，1 格以内有页头「类型 | 专辑」的边（第 23 格）→ 吸过去（1028 加了专辑积木，类型右边沿从 24 挪到 23）
+      assert.equal(await page.evaluate(() => document.querySelector('.lbc-board').style.getPropertyValue('--lbc-board-cols')), 'minmax(0,23fr) minmax(0,25fr)');
       // ⑤ 调整：最近导入 2 条（面板在模块框里）
       // 1028：点一下块 = 选中，选中的块工具条一直在（不靠鼠标停在上面）
       await page.click('.lbc-m-recent', { position: { x: 20, y: 20 } }); await S.settle(200);

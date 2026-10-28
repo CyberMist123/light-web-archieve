@@ -97,7 +97,7 @@ const PLUGIN = (schedule, settings = {}) => ({ settings: { hiddenCats: [], ...se
       // 1028 她：「不像图 2 那么突兀」——十六块都有工具条，平时收着，指着 / 选中那块才出来
       const a = await page.evaluate(() => ({ bars: document.querySelectorAll('.lbc-mod-bar').length, shown: [...document.querySelectorAll('.lbc-mod-bar')].filter(b => getComputedStyle(b).display === 'flex').length,
         trayAbove: document.querySelector('.lbc-arrange-tray').getBoundingClientRect().bottom <= document.querySelector('.lbc-board').getBoundingClientRect().top + 1 }));
-      assert.equal(a.bars, 16, '十六块都有工具条'); assert.equal(a.shown, 0, '平时不露工具条'); assert.ok(a.trayAbove, '编排条在收藏墙上面');
+      assert.equal(a.bars, 17, '十七块都有工具条（1028 加了专辑）'); assert.equal(a.shown, 0, '平时不露工具条'); assert.ok(a.trayAbove, '编排条在收藏墙上面');
       await page.hover('.lbc-m-sync'); await S.settle(60);
       assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.lbc-m-sync .lbc-mod-bar')).display), 'flex', '指着的那块露出工具条');
       shots.push(await S.screenshot('catalog-1026-arrange'));
