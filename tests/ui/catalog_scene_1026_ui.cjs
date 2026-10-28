@@ -2,7 +2,7 @@
 //   ① 缩窄窗口（1400 / 1100 / 900 / 760 / 600 / 390，边栏开着）：分类一个都不被裁（放不下就换行）、搜索框 / 问收藏整个在视口里、没有横向滚动
 //   ② 放大 / 长标题：大标题不超出页头、不压到「编排 / 管理」（录屏 03:05「超出框架」）
 //   ③ 已收藏的星：白底小圆黑星（不是整块黑圆）；没收藏的平时看不见（visibility + opacity）
-//   ④ 编排（1027 八个模块平级）：每块都有操作条、托盘在收藏墙上面；拖宽边栏、紧间距、紧凑密度后版面真的变
+//   ④ 编排（1027 八个模块平级；1028 十六块、工具条指着才出来）：每块都有工具条、编排条在收藏墙上面；拖宽边栏、紧间距、紧凑密度后版面真的变
 //   ⑤ 首页同步：上次 / 下次是可点的格子，下面「立即同步 · 查看同步记录」，没有设置齿轮
 // 截图进 LWA_QA_DIR（catalog-1026-*.png）
 'use strict';
@@ -94,11 +94,14 @@ const PLUGIN = (schedule, settings = {}) => ({ settings: { hiddenCats: [], ...se
       // ④ 编排（1027 起八个模块平级，细节见 catalog_arrange_ui）：每块都有操作条、托盘在收藏墙上面；拖宽边栏、卡片间距、收藏墙密度后版面真的变
       const w0 = await page.evaluate(() => document.querySelector('.lbc-side').getBoundingClientRect().width);
       await page.click('.lbc-tools .lb-arrange'); await S.settle(60);
-      const a = await page.evaluate(() => ({ bars: [...document.querySelectorAll('.lbc-mod-bar')].filter(b => getComputedStyle(b).display === 'flex').length,
+      // 1028 她：「不像图 2 那么突兀」——十六块都有工具条，平时收着，指着 / 选中那块才出来
+      const a = await page.evaluate(() => ({ bars: document.querySelectorAll('.lbc-mod-bar').length, shown: [...document.querySelectorAll('.lbc-mod-bar')].filter(b => getComputedStyle(b).display === 'flex').length,
         trayAbove: document.querySelector('.lbc-arrange-tray').getBoundingClientRect().bottom <= document.querySelector('.lbc-board').getBoundingClientRect().top + 1 }));
-      assert.equal(a.bars, 8, '八个模块都有操作条'); assert.ok(a.trayAbove, '托盘在收藏墙上面');
+      assert.equal(a.bars, 16, '十六块都有工具条'); assert.equal(a.shown, 0, '平时不露工具条'); assert.ok(a.trayAbove, '编排条在收藏墙上面');
+      await page.hover('.lbc-m-sync'); await S.settle(60);
+      assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.lbc-m-sync .lbc-mod-bar')).display), 'flex', '指着的那块露出工具条');
       shots.push(await S.screenshot('catalog-1026-arrange'));
-      await page.focus('.lbc-board > .lbc-col-edge'); await page.keyboard.press('ArrowRight'); await S.settle(120);
+      await page.focus('.lbc-board > .lbc-col-edge'); for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight'); await S.settle(120);   // 48 格：4 格 = 原来 12 格的 1 格
       const w1 = await page.evaluate(() => document.querySelector('.lbc-side').getBoundingClientRect().width);
       assert.ok(w1 > w0 + 60, `侧栏变宽 ${w0} → ${w1}`);
       const gapOf = () => page.evaluate(() => { const c = [...document.querySelectorAll('.lbc-grid-inner > .lbc-col')]; return c[1].getBoundingClientRect().left - c[0].getBoundingClientRect().right; });
@@ -107,7 +110,7 @@ const PLUGIN = (schedule, settings = {}) => ({ settings: { hiddenCats: [], ...se
       const gap1 = await gapOf();
       assert.ok(gap1 < gap0 - 4, `卡片间距变紧 ${gap0} → ${gap1}`);
       const n0 = await page.evaluate(() => document.querySelectorAll('.lbc-grid-inner > .lbc-col').length);
-      await page.click('.lbc-m-wall .lbc-mod-bar [data-act="adjust"]'); await page.selectOption('.lbc-mp [data-k="density"]', 's'); await S.settle(120);
+      await page.hover('.lbc-m-wall'); await page.click('.lbc-m-wall .lbc-mod-bar [data-act="adjust"]'); await page.selectOption('.lbc-mp [data-k="density"]', 's'); await S.settle(120);
       const n1 = await page.evaluate(() => document.querySelectorAll('.lbc-grid-inner > .lbc-col').length);
       assert.equal(n1, n0 + 1, `紧凑多一列 ${n0} → ${n1}`);
       shots.push(await S.screenshot('catalog-1026-arrange-options'));
@@ -116,6 +119,6 @@ const PLUGIN = (schedule, settings = {}) => ({ settings: { hiddenCats: [], ...se
       assert.deepEqual(await S.pageErrors(), []);
       await page.close();
     }
-    console.log('PASS catalog_scene_1026_ui：1400–390 分类不裁 / 搜索问收藏可达 / 无横向滚动 · 长标题不出页头不压按钮 · 星标白底小圆 · 编排八块操作条 + 托盘 + 侧栏宽度 / 间距 / 密度生效 · 同步可点格子 + 两个按钮。截图：\n  ' + shots.join('\n  '));
+    console.log('PASS catalog_scene_1026_ui：1400–390 分类不裁 / 搜索问收藏可达 / 无横向滚动 · 长标题不出页头不压按钮 · 星标白底小圆 · 编排十六块工具条（指着才出）+ 编排条 + 侧栏宽度 / 间距 / 密度生效 · 同步可点格子 + 两个按钮。截图：\n  ' + shots.join('\n  '));
   } finally { await browser.close(); }
 })().catch(e => { console.error('FAIL catalog_scene_1026_ui', e); process.exit(1); });

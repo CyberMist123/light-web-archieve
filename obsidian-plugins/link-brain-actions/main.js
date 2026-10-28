@@ -214,9 +214,12 @@ const DEFAULT_SETTINGS = {
   catalogColumns: 0,
   catalogTitle: "",   // 目录页大标题（空 = Collections）
   // 目录页编排（1027 design-1027 §5 的形状）：{modules: [{id, x, y, width, hidden, typography: {font, size}, options}], theme: {titleFont, bodyFont, numberFont, scale, gap}}；
-  // 八个模块 title / cats / filters / recent / sync / token / overview / wall；和默认一样的键不写，全默认 = null。旧的 {side, top, sideRight, sideW, gap, density}
+  // 1028 起 grid: 48、页头拆成小块（title / meta / cats / scope / topics / types / picks / sort / view / search / ask）+ recent / sync / token / overview / wall；1027 的 12 格 / filters 读的时候换算；和默认一样的键不写，全默认 = null。旧的 {side, top, sideRight, sideW, gap, density}
   // 由页面读的时候换算（catalog-view.js「编排」一节）。只桌面用；标题文字 / 列数 / 费用上限 / 分类 / 同步时间不在这里（各有唯一来源）
   catalogLayout: null,
+  // 1028 她：「存好了作为样式锁定，可以恢复默认或恢复样式 1」——存过的编排 [{name, layout}]（layout 和 catalogLayout 同一个形状）；当前用的是哪一个（空 = 没存过 / 默认）
+  catalogStyles: [],
+  catalogStyleCur: "",
   downloads: {folder: path.join(require("os").homedir(), "Downloads"), waitMinutes: 5},
   nickname: "",   // 批注署名（留空 = 不署名）
   annotateMention: "",   // 批注留言对象：填名字后「@名字」开头的批注标成留言给它（10-03：默认不启用）

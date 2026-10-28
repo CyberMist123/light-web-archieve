@@ -169,6 +169,15 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-board.has-side{display:grid;grid-template-columns:var(--lbc-board-cols,minmax(0,4fr) minmax(0,8fr));column-gap:40px;align-items:start;}
 .lbc-row{position:relative;display:grid;column-gap:calc(40px * var(--lbc-sp,1));align-items:start;}
 .lbc-row.is-single{display:block;}
+.lbc-row.is-free{display:flex;flex-wrap:wrap;align-items:flex-end;column-gap:0;row-gap:4px;}
+.lbc-row.is-free>.lbc-rcol{flex:0 0 auto;box-sizing:border-box;}
+.lbc-row.is-free>.lbc-rcol.is-tight{min-width:max-content;container-type:normal;}
+.lbc-row.is-free>.lbc-rcol.is-gap-r{padding-right:calc(20px * var(--lbc-sp,1));}
+.lbc-row.is-free>.lbc-rcol.is-tight.is-gap-r{padding-right:calc(12px * var(--lbc-sp,1));}
+.lbc-row.is-free>.lbc-rcol:has(>.lbc-m-search:only-child){min-width:150px;}
+/* 1028 右上角「编排 / 管理」钉着时：第一排里伸到它下面的块往下让出按钮的高度；标题那一块不到右边时不用给它留左右空 */
+.lbc-row.is-free>.lbc-rcol.is-under-tools{padding-top:calc(var(--ctl-h) + 10px);}
+.lbc-top.is-title-clear .lbc-titleblock{padding-left:0;padding-right:0;--lbc-title-pad:0px;}
 .lbc-row>.lbc-rcol{min-width:0;container-type:inline-size;}
 .lbc-after{display:block;margin-top:calc(26px * var(--lbc-sp,1));}
 .lbc-m.is-gone{display:none!important;}
@@ -181,6 +190,11 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 @media(max-width:760px){.lbc-board.has-side{display:block;}.lbc-board.has-side>.lbc-side:not(.has-core){display:none!important;}.lbc-board.has-side>.lbc-side.has-core>.lbc-m:not(.is-core){display:none!important;}}
 .lbc-wrap.is-side-narrow .lbc-row{display:block;}
 .lbc-wrap.is-side-narrow .lbc-row>.lbc-rcol+.lbc-rcol{margin-top:12px;}
+/* 1028 窄的时候：页头那几排小块照顺序换行排（不按 48 格），标题 / 分类 / 搜索占整行 */
+.lbc-wrap.is-side-narrow .lbc-top .lbc-row.is-free{display:flex;flex-wrap:wrap;align-items:center;column-gap:16px;}
+.lbc-wrap.is-side-narrow .lbc-top .lbc-row.is-free>.lbc-rcol{width:auto!important;margin-left:0!important;padding-right:0;padding-top:0;flex:0 1 auto;}
+.lbc-wrap.is-side-narrow .lbc-top .lbc-row.is-free>.lbc-rcol+.lbc-rcol{margin-top:0;}
+.lbc-wrap.is-side-narrow .lbc-top .lbc-row.is-free>.lbc-rcol:has(.lbc-m-title,.lbc-m-cats,.lbc-m-search){flex:1 1 100%;}
 /* 1021 第 3 段 · 边栏（DESIGN-SPEC §4、§7）：吸在页头下面（top / max-height 由 paintStickyTop 量好写到 .lbc-wrap 上），内容超高自己滚，
    不显示滚动条；没到底时底部 56px 渐隐（.is-more），到底去掉。只有收藏墙随页面滚。窄于 760（按页面宽，.is-side-narrow）或手机不出 */
 .lbc-side{position:sticky;top:var(--lbc-side-top,0px);overflow-anchor:none;max-height:calc(var(--lbc-pane-h,100vh) - var(--lbc-top-h,0px) - 16px);overflow-x:hidden;overflow-y:auto;scrollbar-width:none;min-width:0;box-sizing:border-box;padding:6px 0 24px;}
@@ -529,15 +543,19 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-totop-dock.is-on button.lbc-totop:hover{opacity:1;color:var(--text-normal);border-color:var(--text-faint)!important;}
 /* ── 1026 / 1027 页头那几块（标题与 Logo · 分类 · 筛选与搜索）：「筛选与搜索」移除时只藏筛选项，搜索 / 排序 / 问收藏一直在（她 1026 定） ── */
 .lbc-blk{display:block;}
-.lbc-blk-filters.is-off .lbc-ctl-l{display:none!important;}
-.lbc-blk-filters.is-off .lbc-ctl-r{margin-left:auto;}
+/* 1028 筛选条拆成的小块：每块一行按钮，靠左；块和块之间的距离由编排的列宽 / 间距定 */
+.lbc-wrap .lbc-ctl.lbc-ctl-piece{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:2px 22px;margin:calc(14px * var(--lbc-sp,1)) 0 0;padding:0 0 12px;min-width:0;}
+.lbc-wrap .lbc-ctl-piece.lbc-blk-search .lbc-searchbox{flex:1 1 160px;min-width:0;}
+.lbc-wrap .lbc-ctl-piece.lbc-blk-search input.lbc-search{width:100%!important;min-width:0;}
+.lbc-wrap .lbc-ctl-piece:empty,.lbc-wrap .lbc-ctl-piece.is-empty{display:none;}
+.lbc-blk-meta .lbc-subline{padding-bottom:0;}
+.lbc-blk-meta{align-self:end;padding-bottom:14px;}
+/* 计数行是窄的一块：「同步中…」→「同步中 12/40」多几个字就会多折一行、页头跳一下——给它留够同样的宽度 */
+.lbc-blk-meta .lbc-syncing{display:inline-block;min-width:7.5em;}
+.lbc-blk-meta .lbc-syncing[hidden]{display:inline-block!important;visibility:hidden;}   /* 平时也占着位置（看不见），开始同步时页头不变高 */
 .lbc-wrap.is-arranging .lbc-top{position:relative;top:0!important;}
 /* 1027 编排时「编排 / 管理」不占模块的位置：托盘里有「结束编排」，这两个按钮先收起 */
 .lbc-wrap.is-arranging .lbc-top>.lbc-tools{display:none!important;}
-/* 「调整」里选掉的筛选项（filters 模块 options.show）：只藏按钮，不清别的维度 */
-.lbc-blk-filters.lbc-f-no-scope .lbc-scope-tab,.lbc-blk-filters.lbc-f-no-type .lbc-type-tab,.lbc-blk-filters.lbc-f-no-type .lbc-ctl-sep,.lbc-blk-filters.lbc-f-no-tag .lbc-tagpick,
-.lbc-blk-filters.lbc-f-no-plat .lbc-platpick,.lbc-blk-filters.lbc-f-no-src .lbc-album,.lbc-blk-filters.lbc-f-no-sort .lbc-time,.lbc-blk-filters.lbc-f-no-view .lbc-vseg,
-.lbc-blk-filters.lbc-f-no-ask .lbc-askbtn,.lbc-blk-filters.lbc-f-no-scope .lbc-topic-new-tab{display:none!important;}
 /* 区块间距（Aa 样式「卡片间距」）：模块、栏、卡片、页头几行的间距一起按 --lbc-sp 缩放 */
 .lbc-board.has-side{column-gap:calc(40px * var(--lbc-sp,1));}
 .lbc-mod{margin-bottom:calc(26px * var(--lbc-sp,1));}
@@ -580,8 +598,8 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-menu .lbc-menu-label{font-size:11px;letter-spacing:.12em;color:var(--text-faint);}
 /* 窄屏 / 手机（§9）：分类行和控制行换行；控制行右组换到下一行、搜索框撑满；「管理」退到标题上面一行 */
 @media(max-width:700px){.lbc-wrap{padding:12px 6px 0;}.lbc-head{display:flex;flex-direction:column;}.lbc-titleblock{padding:0;gap:2px 14px;}.lbc-tools{position:static;order:-1;align-self:flex-end;margin:0 0 8px;}
-.lbc-cats{gap:4px 22px;font-size:16.5px;margin-top:8px;}.lbc-ctl{gap:6px 16px;margin-top:10px;}.lbc-ctl-l{gap:0 16px;}.lbc-ctl-r{margin-left:0;width:100%;}
-.lbc-ctl-r .lbc-searchbox{flex:1 1 180px;}.lbc-wrap .lbc-ctl-r input.lbc-search{width:100%!important;}.lbc-topics{padding-left:0;}
+.lbc-cats{gap:4px 22px;font-size:16.5px;margin-top:8px;}.lbc-wrap .lbc-ctl.lbc-ctl-piece{gap:0 16px;margin-top:6px;padding-bottom:6px;}
+.lbc-wrap .lbc-ctl-piece.lbc-blk-search{flex:1 1 100%;}.lbc-topics{padding-left:0;}
 .lbc-ctitle{font-size:14.5px;}.lbc-card-more{opacity:1;}.lbc-selbar button{padding:6px 10px;}}
 /* 1027b 她（第二次说清）：目录页就要雕刻字 + Cormorant 斜体数字（「就像 OVERVIEW 这种」），但四块风格统一、大小别差太多。
    数字只有三档：大 --lbc-num-lg（上次 / 下次同步、Token、概览四个数一样大，都斜体 400）· 行尾 --lbc-num（今日新增、上限、摘要里的数）· 小 --lbc-num-sm（日期、说明、柱子刻度） */
@@ -633,11 +651,21 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 // 1027 编排才用的样式（操作条 / 托盘 / 调整 / 列边）：第一次进编排时才挂（首开少解析一段样式）
 const ARRANGE_CSS = `
 .lbc-wrap.is-arranging .lbc-side{padding-left:12px;padding-right:12px;-webkit-mask-image:none;mask-image:none;}
-.lbc-wrap.is-arranging .lbc-m{position:relative;margin-top:46px;outline:1.5px dashed var(--c-faint);outline-offset:8px;border-radius:2px;}
-.lbc-wrap.is-arranging .lbc-m:hover,.lbc-wrap.is-arranging .lbc-m.is-panel{outline-color:var(--c-ink);}
-.lbc-wrap.is-arranging .lbc-m.is-off{min-height:28px;}
+/* 1028 她：「不像图 2 那么突兀」——平时只有一圈很淡的细框；指着 = 细框加深，选中 = 墨色细框；黑条换成白底小工具条，只在指着 / 选中时出来 */
+.lbc-wrap.is-arranging .lbc-m{position:relative;outline:1px solid transparent;outline-offset:4px;border-radius:3px;cursor:grab;user-select:none;-webkit-user-select:none;transition:outline-color .15s;}
+.lbc-wrap.is-arranging .lbc-top .lbc-m,.lbc-wrap.is-arranging .lbc-side .lbc-m{outline-color:var(--c-line);}
+.lbc-wrap.is-arranging .lbc-m:hover{outline-color:var(--c-faint);}
+.lbc-wrap.is-arranging .lbc-m.is-sel,.lbc-wrap.is-arranging .lbc-m.is-panel{outline:1.5px solid var(--c-ink);}
+.lbc-wrap.is-arranging .lbc-m.is-dragging{cursor:grabbing;}
+.lbc-wrap.is-arranging .lbc-side .lbc-m{margin-top:34px;}
+.lbc-wrap.is-arranging .lbc-top{padding-top:42px;}   /* 第一排块的小工具条在块上方 34px：留够，别伸到编排条底下被盖住（盖住就来回闪） */
+.lbc-wrap.is-arranging .lbc-top .lbc-row{margin-top:18px;}
 .lbc-wrap.is-arranging .lbc-mod .lbc-lab,.lbc-wrap.is-arranging .lbc-mod .lbc-fold-sum,.lbc-wrap.is-arranging .lbc-mod .lbc-mod-body{pointer-events:none;user-select:none;}
-.lbc-wrap.is-arranging .lbc-mod-bar{display:flex;position:absolute;z-index:3;top:-38px;left:-8px;max-width:calc(100% + 16px);align-items:center;gap:2px;height:28px;padding:0 4px;box-sizing:border-box;background:var(--c-ink);color:var(--c-bg);border-radius:999px;font:12px/1 var(--f-sans);white-space:nowrap;}
+.lbc-wrap.is-arranging .lbc-mod-bar{display:none;position:absolute;z-index:8;top:-34px;left:-5px;align-items:center;gap:1px;height:28px;padding:0 3px;box-sizing:border-box;background:var(--c-bg);color:var(--c-ink);border:1px solid var(--c-line);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.08);font:12px/1 var(--f-sans);white-space:nowrap;cursor:default;}
+.lbc-wrap.is-arranging .lbc-m:hover>.lbc-mod-bar,.lbc-wrap.is-arranging .lbc-m.is-sel>.lbc-mod-bar,.lbc-wrap.is-arranging .lbc-m.is-panel>.lbc-mod-bar,.lbc-wrap.is-arranging .lbc-mod-bar:focus-within{display:flex;animation:lbc-pop .14s ease-out;}
+.lbc-wrap.is-arranging .lbc-mod-bar::after{content:"";position:absolute;left:0;right:0;top:100%;height:12px;}   /* 工具条和块之间那道缝也算「指着这块」：鼠标从块挪到工具条上，工具条不消失 */
+@keyframes lbc-pop{from{opacity:0;transform:translateY(3px);}to{opacity:1;transform:none;}}
+.lbc-mod-bar .lbc-mb-nm{color:var(--c-muted);}
 .lbc-mod-bar .lbc-mb-h{cursor:grab;width:26px;height:22px;display:grid;place-items:center;border-radius:999px;touch-action:none;flex:none;}
 .lbc-mod-bar .lbc-mb-h:active{cursor:grabbing;}
 .lbc-mod-bar .lbc-mb-h svg{width:10px;height:14px;}
@@ -645,13 +673,19 @@ const ARRANGE_CSS = `
 .lbc-mod-bar .lbc-mb-sep{width:1px;height:12px;background:currentColor;opacity:.3;margin:0 3px;flex:none;}
 .lbc-wrap .lbc-mod-bar button.lbc-mb-sz{min-width:26px;padding:0 5px!important;}
 .lbc-wrap .lbc-mod-bar button{width:auto!important;min-width:24px;height:22px!important;padding:0 7px!important;margin:0!important;border:0!important;border-radius:999px!important;background:transparent!important;color:inherit!important;box-shadow:none!important;font:inherit!important;cursor:pointer;}
-.lbc-wrap .lbc-mod-bar button:hover:not(:disabled),.lbc-wrap .lbc-mod-bar button[aria-expanded="true"]{background:var(--c-bg)!important;color:var(--c-ink)!important;}
+.lbc-wrap .lbc-mod-bar button:hover:not(:disabled),.lbc-wrap .lbc-mod-bar button[aria-expanded="true"]{background:var(--background-modifier-hover,rgba(0,0,0,.05))!important;color:var(--c-ink)!important;}
 .lbc-wrap .lbc-mod-bar button:disabled{opacity:.3;cursor:default;}
 .lbc-m.is-dragging{opacity:.35;}
-.lbc-drop-ind{position:fixed;z-index:60;background:var(--text-normal);border-radius:3px;pointer-events:none;}
+.lbc-drop-ind{position:fixed;z-index:60;background:var(--text-normal);border-radius:3px;pointer-events:none;transition:left .08s,top .08s,width .08s,height .08s;}
+.lbc-drop-ind.is-slot{background:transparent;border:1.5px dashed var(--text-normal);box-sizing:border-box;border-radius:4px;}
+.lbc-guide{position:fixed;z-index:61;width:1px;background:var(--interactive-accent,#2f6fde);pointer-events:none;}
+.lbc-guide[hidden]{display:none;}
 .lbc-drop-ind[hidden]{display:none;}
 .lbc-wrap.is-arranging .lbc-col-edge{display:block;position:absolute;top:0;bottom:0;width:14px;margin:0 0 0 -7px!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;cursor:col-resize;z-index:4;touch-action:none;}
 .lbc-col-edge::before{content:"";position:absolute;left:6px;top:0;bottom:0;width:2px;border-radius:2px;background:var(--c-faint);}
+.lbc-col-edge.is-free{top:15%!important;bottom:15%!important;}
+.lbc-col-edge.is-free::before{opacity:0;transition:opacity .15s;}
+.lbc-row:hover>.lbc-col-edge.is-free::before,.lbc-col-edge.is-free.is-on::before,.lbc-col-edge.is-free:focus-visible::before{opacity:1;}
 .lbc-col-edge:hover::before,.lbc-col-edge:focus-visible::before,.lbc-col-edge.is-on::before{background:var(--c-ink);}
 .lbc-col-edge .lbc-ce-w{position:absolute;top:6px;left:12px;padding:3px 8px;border-radius:999px;background:var(--c-ink);color:var(--c-bg);font:12px/1 var(--f-sans);white-space:nowrap;display:none;}
 .lbc-col-edge.is-on .lbc-ce-w,.lbc-col-edge:focus-visible .lbc-ce-w{display:block;}
@@ -698,6 +732,13 @@ const ARRANGE_CSS = `
 .lbc-wrap .lbc-arrange-tray button:hover:not(:disabled),.lbc-wrap .lbc-arrange-tray button[aria-expanded="true"]{background:var(--c-ink)!important;color:var(--c-bg)!important;}
 .lbc-wrap .lbc-arrange-tray button:disabled{opacity:.45;cursor:default;}
 .lbc-wrap .lbc-arrange-tray button.is-dash{border-style:dashed!important;color:var(--c-muted)!important;}
+.lbc-arrange-tray .lbc-at-shelf{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:0 6px;}
+.lbc-arrange-tray .lbc-at-sk{font-size:12px;color:var(--c-muted);margin-right:2px;}
+.lbc-arrange-tray .lbc-at-empty{font-size:12px;color:var(--c-faint);}
+.lbc-arrange-tray .lbc-at-shelf button{animation:lbc-pop .2s ease-out;}
+.lbc-wrap .lbc-arrange-tray input.lbc-at-rename{height:28px;width:9em;padding:0 10px;border:1px solid var(--c-ink);border-radius:999px;background:var(--c-bg);color:var(--c-ink);font:12.5px var(--f-sans);}
+.lbc-wrap.is-arranging .lbc-title-text{cursor:text;}
+.lbc-title-text.is-editing{outline:none;background:var(--background-modifier-hover,rgba(0,0,0,.05));border-radius:4px;}
 .lbc-wrap .lbc-arrange-tray button.is-dash:hover{color:var(--c-bg)!important;}
 .lbc-wrap .lbc-arrange-tray button.is-solid{background:var(--c-ink)!important;color:var(--c-bg)!important;}
 `;
@@ -931,6 +972,8 @@ const subLine = titleBlock.createEl('div', { cls: 'lbc-subline' });
 let subW = -1;
 // 计数行太长（带着「数据较旧」这类提醒、超过整行 45%）就不让位：让它照旧换到下面，标题不被压成小字
 function fitSubline() {
+  // 1028 计数行是自己的一块（「计数行」），不在标题块里时标题不用给它让位
+  if (subLine.parentNode !== titleBlock) { if (subW !== 0) { subW = 0; titleBlock.style.removeProperty('--lbc-sub-w'); } return; }
   const w = Math.ceil(Number(subLine.scrollWidth) || 0), full = Number(titleBlock.clientWidth) || 0;
   const want = w && full && w <= full * 0.45 ? w + 22 : 0;
   if (Math.abs(want - subW) < 2) return;
@@ -1159,31 +1202,30 @@ if (importButton) importButton.onclick = async e => {
 };
 // 大类筛选条 = 分类行（1021：只放「全部 + 一级分类 + 未归类」；范围筛选挪到下面的控制行）
 const catBar = top.createEl('div', { cls: 'lbc-cats' });
-// 控制行（1021）：左 = 边栏钮 + 范围单选标签 + 前两个星标主题（+ 来源 / 专辑）；右 = 排序胶囊 · 瀑布流 / 列表 / 索引 · 搜索胶囊 · 问收藏胶囊。
-// 「浏览收藏」去掉（就在这页）；「问收藏 →」挪到搜索框右边
-const ctl = top.createEl('div', { cls: 'lbc-ctl' });
-const ctlL = ctl.createEl('div', { cls: 'lbc-ctl-l' });
-const ctlR = ctl.createEl('div', { cls: 'lbc-ctl-r' });
-// 1026 她（02:25 手画的范围：标题 / Logo、分类、筛选、内容框都要能编排）：吸顶区分成三块——标题与 Logo · 分类行 · 筛选条，
-// 编排时能换顺序、隐藏（筛选条隐藏的只是左边的筛选项，搜索 / 排序 / 问收藏一直在）；吸顶仍是 .lbc-top 一整块，不拆
-// 1027：这三块和边栏模块、收藏墙平级（.lbc-m），位置由下面「编排」一节按 catalogLayout 摆
-const TOP_IDS = ['title', 'cats', 'filters'];
+// 控制行（1021）：边栏钮 + 范围单选 + 星标主题 + 类型 + 来源 / 专辑 / Tag；右边 排序 · 视图 · 搜索 · 问收藏。
+// 1028 她（照蓝线拆）：每一组是自己的一块积木（.lbc-m），能单独拖、调宽、移除——范围 · AI 标签 · 类型 · 我的收藏 / Tag · 排序 · 视图 · 搜索 · 问收藏。
+//   每块自己带 .lbc-ctl（按钮样式照旧）；标题和计数行也拆成两块。吸顶仍是 .lbc-top 一整块
+const TOP_IDS = ['title', 'meta', 'cats', 'scope', 'topics', 'types', 'picks', 'sort', 'view', 'search', 'ask'];
+const CTL_IDS = ['scope', 'topics', 'types', 'picks', 'sort', 'view', 'search', 'ask'];
 const blocks = {};
-for (const id of TOP_IDS) { const b = top.createEl('div', { cls: 'lbc-blk lbc-blk-' + id + ' lbc-m lbc-m-' + id + ' is-core' }); b.dataset.blk = id; b.dataset.m = id; blocks[id] = b; }
-blocks.title.append(head); blocks.cats.append(catBar); blocks.filters.append(ctl);
+for (const id of TOP_IDS) { const b = top.createEl('div', { cls: 'lbc-blk lbc-blk-' + id + ' lbc-m lbc-m-' + id + ' is-core' + (CTL_IDS.includes(id) ? ' lbc-ctl lbc-ctl-piece' : '') }); b.dataset.blk = id; b.dataset.m = id; blocks[id] = b; }
+blocks.title.append(head); blocks.meta.append(subLine); blocks.cats.append(catBar);
 const SIDE_SVG = '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="1.5" width="12" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><rect class="lbc-side-col" x="1.7" y="2.2" width="3.6" height="9.6" stroke="currentColor" stroke-width="1"/></svg>';
-const sideBtn = mobile || simplePage ? null : ctlL.createEl('button', { cls: 'lbc-sidetoggle' });   // 星标页 / 手机没有边栏，也就没有这颗钮
+const sideBtn = mobile || simplePage ? null : blocks.scope.createEl('button', { cls: 'lbc-sidetoggle' });   // 星标页 / 手机没有边栏，也就没有这颗钮
 if (sideBtn) {
   sideBtn.type = 'button'; sideBtn.innerHTML = SIDE_SVG;
   sideBtn.createEl('span', { cls: 'lb-visually-hidden', text: '收起 / 展开边栏' });   // 不设 aria-label / title：Obsidian 会渲染成悬浮框（她不要）
   sideBtn.onclick = () => setSideOpen(!sideOpen);
 }
-const scopeBox = ctlL.createEl('div', { cls: 'lbc-scope' });
-const timeTab = ctlR.createEl('button', { cls: 'lbc-time lbc-pill' }); timeTab.type = 'button';
+const scopeBox = blocks.scope.createEl('div', { cls: 'lbc-scope' });
+const topicsBox = blocks.topics.createEl('div', { cls: 'lbc-scope lbc-scope-topics' });
+const typesBox = blocks.types.createEl('div', { cls: 'lbc-scope lbc-scope-types' });
+const picksBox = blocks.picks.createEl('div', { cls: 'lbc-scope lbc-scope-picks' });
+const timeTab = blocks.sort.createEl('button', { cls: 'lbc-time lbc-pill' }); timeTab.type = 'button';
 timeTab.onclick = e => { e?.stopPropagation?.(); openTimeMenu(timeTab); };
-const vseg = ctlR.createEl('div', { cls: 'lbc-vseg' }); vseg.setAttribute('role', 'group');
+const vseg = blocks.view.createEl('div', { cls: 'lbc-vseg' }); vseg.setAttribute('role', 'group');
 const SEARCH_SVG = '<svg viewBox="0 0 14 14" aria-hidden="true"><circle cx="6" cy="6" r="4.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M9.4 9.4 13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
-const searchBox = ctlR.createEl('label', { cls: 'lbc-searchbox' }); searchBox.innerHTML = SEARCH_SVG;
+const searchBox = blocks.search.createEl('label', { cls: 'lbc-searchbox' }); searchBox.innerHTML = SEARCH_SVG;
 const search = searchBox.createEl('input', { cls: 'lbc-search' });
 search.type = 'search'; search.placeholder = '搜索收藏 · #标签';
 const searchX = searchBox.createEl('button', { cls: 'lbc-search-x', text: '×' }); searchX.type = 'button'; searchX.hidden = true;
@@ -1191,7 +1233,7 @@ const paintSearchX = () => { searchX.hidden = !search.value; };
 searchX.onmousedown = e => e.preventDefault();
 searchX.onclick = e => { e.preventDefault(); e.stopPropagation(); search.value = ''; search.dispatchEvent(new Event('input', { bubbles: true })); paintSearchX(); search.focus(); };
 search.addEventListener('input', paintSearchX);
-const ask = ctlR.createEl('button', { cls: 'lbc-askbtn lbc-pill', text: '问收藏 →' }); ask.type = 'button';
+const ask = blocks.ask.createEl('button', { cls: 'lbc-askbtn lbc-pill', text: '问收藏 →' }); ask.type = 'button';
 ask.onclick = () => LB.openPage('chat');
 function clearFilters({ keepStar = starredPage } = {}) { activeCat = ''; todayOnly = false; todoOnly = false; mediaFilter = ''; activeTag = ''; activePlat = ''; activeTopic = ''; activeAlbum = ''; timeRange = ''; timeSort = ''; timeFrom = ''; timeTo = ''; starOnly = keepStar; indexView = false; }
 // C19：重建前记下横向位置和焦点所在的 tab，重建后还原；只有用户点 tab 引起的重建才把选中项滚进视野
@@ -1303,8 +1345,9 @@ function renderScope() {
   const albums = albumCounts();
   if (!albums.some(([n]) => n === activeAlbum)) activeAlbum = '';
   const ae = document.activeElement;
-  const focusedKey = ae && scopeBox.contains(ae) ? (ae.dataset?.scope ?? null) : null;
-  scopeBox.empty();
+  const scopeBoxes = [scopeBox, topicsBox, typesBox, picksBox];
+  const focusedKey = ae && scopeBoxes.some(b => b.contains(ae)) ? (ae.dataset?.scope ?? ae.dataset?.type ?? null) : null;
+  for (const b of scopeBoxes) b.empty();
   const today = ymd(new Date());
   let nToday = 0, nStar = 0, nVideo = 0, nAtt = 0, nTodo = 0; const topicN = new Map();
   for (const it of items) {
@@ -1317,8 +1360,8 @@ function renderScope() {
   }
   const cur = scopeOf();
   // 篇数放 data-n（CSS ::after 画成斜体小数字）：按钮的字还是「视频」「已收藏」，读屏 / 测试按名字找得到
-  const mk = (key, label, n, on, click = null) => {
-    const b = scopeBox.createEl('button', { cls: 'lbc-cat lbc-scope-tab' + (on ? ' is-active' : ''), text: label });
+  const mk = (key, label, n, on, click = null, box = scopeBox) => {
+    const b = box.createEl('button', { cls: 'lbc-cat lbc-scope-tab' + (on ? ' is-active' : ''), text: label });
     b.type = 'button'; b.dataset.scope = key; b.setAttribute('aria-pressed', String(on));
     if (n != null) b.dataset.n = String(n);
     b.onclick = click || (() => pickScope(key));
@@ -1331,27 +1374,26 @@ function renderScope() {
   if (nTodo) mk('todo', '待补附件', nTodo, cur === 'todo');
   // 前两个星标主题（topics.json 的顺序）；选中任何一个主题时控制行下面出主题行（全部主题 / 其余主题 / + 新主题）
   for (const name of names.slice(0, 2)) {
-    const b = mk('topic:' + name, '', topicN.get(name) || 0, cur === 'topic:' + name);
+    const b = mk('topic:' + name, '', topicN.get(name) || 0, cur === 'topic:' + name, null, topicsBox);
     b.classList.add('lbc-thq');
     b.createEl('span', { cls: 'lbc-topic-star', text: '★' }); b.append(name);
   }
   // 还没有任何主题：留一个入口建第一个（要插件；手机上不出）
   if (!names.length && canEditTopics() && !starredPage) {
-    const b = scopeBox.createEl('button', { cls: 'lbc-pick lbc-topic-new-tab', text: '+ 星标主题' }); b.type = 'button'; b.dataset.scope = 'topic-new';
+    const b = topicsBox.createEl('button', { cls: 'lbc-pick lbc-topic-new-tab', text: '+ 星标主题' }); b.type = 'button'; b.dataset.scope = 'topic-new';
     b.onclick = () => { topicAdding = true; topicFocusNew = true; renderTopicBar(); };
   }
-  // 1026 类型（一组，组内单选、和范围叠加）：前面一道细竖线隔开
-  scopeBox.createEl('span', { cls: 'lbc-ctl-sep', attr: { 'aria-hidden': 'true' } });
+  // 1026 类型（一组，组内单选、和范围叠加）；1028 起是自己的一块（「类型」），不再用细竖线隔
   const nImg = items.length - nVideo;
   for (const [k, n] of [['image', nImg], ['video', nVideo], ['attachment', nAtt]]) {
     const on = mediaFilter === k;
-    const b = scopeBox.createEl('button', { cls: 'lbc-cat lbc-type-tab' + (on ? ' is-active' : ''), text: TYPE_LABEL[k] });
+    const b = typesBox.createEl('button', { cls: 'lbc-cat lbc-type-tab' + (on ? ' is-active' : ''), text: TYPE_LABEL[k] });
     b.type = 'button'; b.dataset.type = k; b.dataset.n = String(n); b.setAttribute('aria-pressed', String(on));
     b.onclick = () => pickType(k);
   }
   // Tag ▾：当前条件下最多的 40 个标签，选一个再缩小
   if (!starredPage || items.length) {
-    const tchip = scopeBox.createEl('button', { cls: 'lbc-pick lbc-tagpick' + (activeTag ? ' is-active' : ''), text: activeTag ? `#${activeTag}` : 'Tag' });
+    const tchip = picksBox.createEl('button', { cls: 'lbc-pick lbc-tagpick' + (activeTag ? ' is-active' : ''), text: activeTag ? `#${activeTag}` : 'Tag' });
     tchip.type = 'button'; tchip.dataset.scope = 'tag'; tchip.setAttribute('aria-pressed', String(!!activeTag));
     tchip.onclick = e => { const list = tagCounts(); popMenu([
       ...(activeTag ? [{ title: '全部 Tag（取消）', onClick: () => pickTag('') }, { separator: true }] : []),
@@ -1363,7 +1405,7 @@ function renderScope() {
   const plats = platCounts();
   if (activePlat && !plats.some(([p]) => p === activePlat)) activePlat = '';
   if (plats.length > 1) {
-    const pchip = scopeBox.createEl('button', { cls: 'lbc-pick lbc-platpick' + (activePlat ? ' is-active' : ''), text: activePlat ? platLabel(activePlat) : '全部平台' });
+    const pchip = picksBox.createEl('button', { cls: 'lbc-pick lbc-platpick' + (activePlat ? ' is-active' : ''), text: activePlat ? platLabel(activePlat) : '全部平台' });
     pchip.type = 'button'; pchip.dataset.scope = 'plat'; pchip.setAttribute('aria-pressed', String(!!activePlat));
     pchip.onclick = e => popMenu([
       { title: `全部平台（${items.length}）`, checked: !activePlat, onClick: () => pickPlat('') },
@@ -1375,7 +1417,7 @@ function renderScope() {
     // 1020 来源：默认「我的收藏」不算筛选（不高亮），切到别的来源才高亮
     const mine = allItems.length - srcs.reduce((n, [, c]) => n + c, 0);
     const label = activeSrc === '' ? '我的收藏' : activeSrc === '*' ? '全部来源' : activeSrc;
-    const chip = scopeBox.createEl('button', { cls: 'lbc-pick lbc-album lbc-src' + (activeSrc ? ' is-active' : ''), text: `${label} ▾` });
+    const chip = picksBox.createEl('button', { cls: 'lbc-pick lbc-album lbc-src' + (activeSrc ? ' is-active' : ''), text: `${label} ▾` });
     chip.type = 'button'; chip.dataset.scope = 'src';
     chip.setAttribute('aria-pressed', String(!!activeSrc));
     const pick = s_ => { leaveSideViews(); activeSrc = s_; applySrc(); dataRev++; renderCatBar(); render(); scrollToResults(); };
@@ -1388,7 +1430,7 @@ function renderScope() {
   }
   if (albums.length) {
     // 1019 她：专辑收进这一颗「专辑 ▾」，点开选
-    const chip = scopeBox.createEl('button', { cls: 'lbc-pick lbc-album' + (activeAlbum ? ' is-active' : ''), text: activeAlbum ? `专辑：${activeAlbum} ▾` : '专辑 ▾' });
+    const chip = picksBox.createEl('button', { cls: 'lbc-pick lbc-album' + (activeAlbum ? ' is-active' : ''), text: activeAlbum ? `专辑：${activeAlbum} ▾` : '专辑 ▾' });
     chip.type = 'button'; chip.dataset.scope = 'album';
     chip.setAttribute('aria-pressed', String(!!activeAlbum));
     const pick = name => { leaveSideViews(); activeAlbum = name; renderCatBar(); render(); scrollToResults(); };
@@ -1397,7 +1439,7 @@ function renderScope() {
       ...albums.map(([n, c]) => ({ title: `${n}（${c}）`, checked: n === activeAlbum, onClick: () => pick(n === activeAlbum ? '' : n) })),
     ], e, chip);
   }
-  if (focusedKey != null) { const again = [...scopeBox.querySelectorAll('button')].find(b => b.dataset?.scope === focusedKey); try { again?.focus({ preventScroll: true }); } catch { again?.focus?.(); } }
+  if (focusedKey != null) { const again = scopeBoxes.flatMap(x => [...x.querySelectorAll('button')]).find(b => (b.dataset?.scope ?? b.dataset?.type) === focusedKey); try { again?.focus({ preventScroll: true }); } catch { again?.focus?.(); } }
 }
 // 排序胶囊：文字跟当前状态（默认「最新在前」；有搜索词时默认是按相关度；选了范围就是「近 7 天」等），点开仍是原来的时间菜单
 function paintTime() {
@@ -1524,7 +1566,7 @@ function renderTopicBar() {
   const can = canEditTopics();
   if (topicAdding && !can) topicAdding = false;
   if (!activeTopic && !topicAdding) { if (topicBar) { topicBar.remove(); topicBar = null; } return; }
-  if (!topicBar) { topicBar = top.createEl('div', { cls: 'lbc-topics' }); ctl.parentNode.insertBefore(topicBar, ctl.nextSibling); }
+  if (!topicBar) { topicBar = top.createEl('div', { cls: 'lbc-topics' }); let ref = null; try { ref = selbar; } catch {} top.insertBefore(topicBar, ref && ref.parentNode === top ? ref : null); }
   const ae = document.activeElement;
   const typing = ae && topicBar.contains(ae) && ae.classList?.contains('lbc-topic-new');
   const draft = typing ? ae.value : (topicBar.querySelector?.('input.lbc-topic-new')?.value || '');
@@ -3852,22 +3894,24 @@ board.after(afterEl);
 //   旧的 {side, top, sideRight, sideW, gap, density}（1022 / 1026）读的时候换算一次，下次保存写成新形状。
 // 标题文字、收藏墙列数、费用上限、分类、同步时间不在 catalogLayout 里：仍是各自唯一的来源（catalogTitle / catalogColumns / budget.dailyYuan / 索引.md / 计划任务）。
 // 手机 / 星标页 / 插件没开：照默认摆，只读（没有「编排」）。
-const MOD_IDS = ['title', 'cats', 'filters', 'recent', 'sync', 'token', 'overview', 'wall'];
-const MOD_NAMES = { title: '标题 / Logo', cats: '分类', filters: '筛选与搜索', recent: '最近导入', sync: '同步', token: 'Token 费用', overview: '概览', wall: '收藏墙' };
+// 1028 她：「像搭积木一样」——页头拆成小块（标题 · 计数行 · 分类 · 范围 · AI 标签 · 类型 · 我的收藏 / Tag · 排序 · 视图 · 搜索 · 问收藏），宽度按 48 格，
+//   页头 / 墙下面的每一排里每一块有自己的起点 x（可以留空、随便横着摆）；收藏墙那一排仍是几列铺满（边栏一列里的块始终一样宽）。
+const GRID = 48, MIN_W = 3;
+const MOD_IDS = ['title', 'meta', 'cats', 'scope', 'topics', 'types', 'picks', 'sort', 'view', 'search', 'ask', 'recent', 'sync', 'token', 'overview', 'wall'];
+const MOD_NAMES = { title: '标题', meta: '计数行', cats: '分类', scope: '范围', topics: 'AI 标签', types: '类型', picks: '我的收藏 / Tag', sort: '排序', view: '视图', search: '搜索', ask: '问收藏',
+  recent: '最近导入', sync: '同步', token: 'Token 费用', overview: '概览', wall: '收藏墙' };
 const SIDE_MODS = ['recent', 'sync', 'token', 'overview'];
-const CORE_MODS = new Set(['title', 'cats', 'filters']);
+const CORE_MODS = new Set(TOP_IDS);
 const OPT_DEFAULT = {
   recent: { count: 6, h: 0 },
   sync: { h: 0 },
   overview: { metrics: ['all', 'week', 'star', 'cats', 'bars'], h: 0 },
-  filters: { show: ['scope', 'type', 'tag', 'plat', 'src', 'sort', 'view', 'ask'] },
   token: { period: 'month', h: 0 },
   wall: { density: 'm' },
 };
 const OPT_CHOICES = {
   recent: { count: [2, 4, 6, 8] },
   overview: { metrics: ['all', 'week', 'star', 'cats', 'bars'] },
-  filters: { show: ['scope', 'type', 'tag', 'plat', 'src', 'sort', 'view', 'ask'] },
   token: { period: ['day', 'week', 'month'] },
   wall: { density: ['s', 'm', 'l'] },
 };
@@ -3879,8 +3923,13 @@ const SIZE_SET = [85, 100, 115, 130, 150];
 const SCALE_SET = [[0.9, '小'], [1, '标准'], [1.1, '大'], [1.2, '特大']];
 const GAP_SET = [[17, '紧凑'], [24, '标准'], [32, '宽松']];
 const THEME_DEFAULT = { titleFont: '', bodyFont: '', numberFont: '', scale: 1, gap: 24 };
-const DEFAULT_ROWS = () => [{ cols: [{ w: 12, mods: ['title'] }] }, { cols: [{ w: 12, mods: ['cats'] }] }, { cols: [{ w: 12, mods: ['filters'] }] },
-  { cols: [{ w: 4, mods: ['recent', 'sync', 'token', 'overview'] }, { w: 8, mods: ['wall'] }] }];
+// 默认 = 1027 的样子：标题一排（计数行在右边）、分类一排、筛选条一排（左边几组 + 右边 排序 · 视图 · 搜索 · 问收藏）、边栏 16 / 墙 32
+const DEFAULT_ROWS = () => [
+  { cols: [{ x: 0, w: 34, mods: ['title'] }, { x: 34, w: 14, mods: ['meta'] }] },
+  { cols: [{ x: 0, w: 48, mods: ['cats'] }] },
+  { cols: [{ x: 0, w: 12, mods: ['scope'] }, { x: 12, w: 6, mods: ['topics'] }, { x: 18, w: 6, mods: ['types'] }, { x: 24, w: 4, mods: ['picks'] },
+    { x: 29, w: 4, mods: ['sort'] }, { x: 33, w: 3, mods: ['view'] }, { x: 36, w: 8, mods: ['search'] }, { x: 44, w: 4, mods: ['ask'] }] },
+  { cols: [{ w: 16, mods: ['recent', 'sync', 'token', 'overview'] }, { w: 32, mods: ['wall'] }] }];
 const ENGINE = SIDE_ON;   // 手机 / 星标页：没有边栏模块，照默认摆
 const clone = v => JSON.parse(JSON.stringify(v));
 const cfgDefault = id => ({ hidden: false, font: '', size: 100, opt: clone(OPT_DEFAULT[id] || {}) });
@@ -3907,19 +3956,41 @@ function cleanTheme(t) {
   const g = Number(t.gap); if (Number.isFinite(g) && g >= 8 && g <= 48) o.gap = Math.round(g);
   return o;
 }
-// 一排的列宽凑成 12（列宽是比例；每列至少 2 格；一排最多 6 列）
+// 一排凑整：收藏墙那一排 = 几列铺满 48 格（x 不用）；别的排 = 每块自己的起点 x + 宽 w，不重叠、不出 48 格，空着的地方就空着
+const isBoardRow = r => r.cols.some(c => c.mods.includes('wall'));
 function fitRow(row) {
-  if (row.cols.length > 6) { const extra = row.cols.splice(6); for (const c of extra) row.cols[5].mods.push(...c.mods); }
-  for (const c of row.cols) c.w = Math.max(2, Math.min(12, Math.round(Number(c.w) || 0) || 2));
-  if (row.cols.length === 1) { row.cols[0].w = 12; return; }
-  let sum = row.cols.reduce((n, c) => n + c.w, 0);
-  if (sum !== 12) { for (const c of row.cols) c.w = Math.max(2, Math.round(c.w * 12 / sum)); sum = row.cols.reduce((n, c) => n + c.w, 0); }
-  let guard = 24;
-  while (sum !== 12 && guard--) {
-    const c = sum > 12 ? row.cols.filter(x => x.w > 2).sort((a, b) => b.w - a.w)[0] : row.cols.slice().sort((a, b) => b.w - a.w)[0];
-    if (!c) break; c.w += sum > 12 ? -1 : 1; sum += sum > 12 ? -1 : 1;
+  const board = isBoardRow(row);
+  const cap = board ? 6 : 12;
+  if (row.cols.length > cap) { const extra = row.cols.splice(cap); for (const c of extra) row.cols[cap - 1].mods.push(...c.mods); }
+  for (const c of row.cols) c.w = Math.max(MIN_W, Math.min(GRID, Math.round(Number(c.w) || 0) || MIN_W));
+  if (board) {
+    for (const c of row.cols) delete c.x;
+    if (row.cols.length === 1) { row.cols[0].w = GRID; return; }
+    let sum = row.cols.reduce((n, c) => n + c.w, 0);
+    if (sum !== GRID) { for (const c of row.cols) c.w = Math.max(MIN_W, Math.round(c.w * GRID / sum)); sum = row.cols.reduce((n, c) => n + c.w, 0); }
+    let guard = 96;
+    while (sum !== GRID && guard--) {
+      const c = sum > GRID ? row.cols.filter(x => x.w > MIN_W).sort((a, b) => b.w - a.w)[0] : row.cols.slice().sort((a, b) => b.w - a.w)[0];
+      if (!c) break; c.w += sum > GRID ? -1 : 1; sum += sum > GRID ? -1 : 1;
+    }
+    return;
   }
+  // 自由排：先按起点排好；放不下（总宽超 48）就按比例缩，再从左往右推开重叠、从右往左收回出界
+  let auto = 0;
+  for (const c of row.cols) { const x = Math.round(Number(c.x)); c.x = Number.isFinite(x) ? Math.max(0, x) : auto; auto = c.x + c.w; }
+  row.cols.sort((a, b) => a.x - b.x);
+  let sum = row.cols.reduce((n, c) => n + c.w, 0);
+  if (sum > GRID) {
+    for (const c of row.cols) c.w = Math.max(MIN_W, Math.floor(c.w * GRID / sum));
+    sum = row.cols.reduce((n, c) => n + c.w, 0);
+    while (sum > GRID) { const c = row.cols.filter(x => x.w > MIN_W).sort((a, b) => b.w - a.w)[0]; if (!c) break; c.w--; sum--; }
+  }
+  let end = 0;
+  for (const c of row.cols) { if (c.x < end) c.x = end; end = c.x + c.w; }
+  let lim = GRID;
+  for (let k = row.cols.length - 1; k >= 0; k--) { const c = row.cols[k]; if (c.x + c.w > lim) c.x = Math.max(0, lim - c.w); lim = c.x; }
 }
+const defaultSlot = id => { const rs = DEFAULT_ROWS(); for (let ri = 0; ri < rs.length; ri++) for (const c of rs[ri].cols) if (c.mods.includes(id)) return { ri, x: c.x ?? 0, w: c.w }; return { ri: 0, x: 0, w: GRID }; };
 // 整理：去掉空列 / 空排、每个模块只出现一次、缺的模块补回默认位置
 function normalizeRows(rows) {
   const seen = new Set();
@@ -3928,51 +3999,101 @@ function normalizeRows(rows) {
   rows = rows.filter(r => r.cols.length);
   const missing = MOD_IDS.filter(id => !seen.has(id));
   for (const id of missing) {
-    if (id === 'wall') { rows.push({ cols: [{ w: 12, mods: ['wall'] }] }); continue; }
+    if (id === 'wall') { rows.push({ cols: [{ w: GRID, mods: ['wall'] }] }); continue; }
     if (SIDE_MODS.includes(id)) {
       // 放回边栏那一列（和别的边栏模块在一起，按默认顺序插）；没有就在墙左边开一列
       let col = null;
       for (const r of rows) for (const c of r.cols) if (!col && c.mods.some(m => SIDE_MODS.includes(m))) col = c;
-      if (!col) { const br = rows.find(r => r.cols.some(c => c.mods.includes('wall'))); col = { w: 4, mods: [] }; br.cols.unshift(col); }
+      if (!col) { const br = rows.find(isBoardRow); col = { w: 16, mods: [] }; br.cols.unshift(col); }
       const order = SIDE_MODS.indexOf(id); let at = col.mods.length;
       for (let i = 0; i < col.mods.length; i++) if (SIDE_MODS.includes(col.mods[i]) && SIDE_MODS.indexOf(col.mods[i]) > order) { at = i; break; }
       col.mods.splice(at, 0, id);
       continue;
     }
-    const k = TOP_IDS.indexOf(id);
-    rows.splice(Math.min(k, rows.length), 0, { cols: [{ w: 12, mods: [id] }] });
+    // 页头的小块：默认那一排的伙伴在哪一排、那个位置又空着 → 放回去；不然单独成一排，放在墙那一排上面
+    const d = defaultSlot(id), mates = DEFAULT_ROWS()[d.ri].cols.flatMap(c => c.mods);
+    let bi = rows.findIndex(isBoardRow); if (bi < 0) bi = rows.length;
+    const host = rows.slice(0, bi).find(r => r.cols.some(c => c.mods.some(m => mates.includes(m))) && !r.cols.some(c => c.x < d.x + d.w && d.x < c.x + c.w));
+    if (host) host.cols.push({ x: d.x, w: d.w, mods: [id] });
+    else rows.splice(Math.min(d.ri, bi), 0, { cols: [{ x: d.x, w: d.w, mods: [id] }] });
   }
   for (const r of rows) fitRow(r);
   return rows;
 }
-// 1022 / 1026 的旧布局 → 新的（只在设置里还没有 modules 时换算一次）
+// 1022 / 1026 的旧布局 → 1027 的「排 / 列」（12 格；下面 upgradeRows 再换成 48 格的小块）
 function migrateLegacy(L, cfg, theme) {
   const ids = (list, allowed) => { const out = [], seen = new Set(); if (Array.isArray(list)) for (const m of list) { const id = typeof m === 'string' ? m : m?.id; if (allowed.includes(id) && !seen.has(id)) { seen.add(id); out.push({ id, hidden: !!(m && typeof m === 'object' && m.hidden) }); } } for (const id of allowed) if (!seen.has(id)) out.push({ id, hidden: false }); return out; };
-  const top_ = ids(L.top, TOP_IDS), side_ = ids(L.side, ['recent', 'sync', 'overview']);
-  for (const m of [...top_, ...side_]) cfg[m.id].hidden = m.hidden;
+  const top_ = ids(L.top, ['title', 'cats', 'filters']), side_ = ids(L.side, ['recent', 'sync', 'overview']);
+  let filtersHidden = false;
+  for (const m of [...top_, ...side_]) { if (m.id === 'filters') filtersHidden = m.hidden; else cfg[m.id].hidden = m.hidden; }
   const sideMods = side_.map(m => m.id); sideMods.splice(sideMods.indexOf('sync') + 1, 0, 'token');
   const sw = { s: 3, m: 4, l: 5 }[L.sideW] || 4;
   const sideCol = { w: sw, mods: sideMods }, wallC = { w: 12 - sw, mods: ['wall'] };
   if (['s', 'm', 'l'].includes(L.density)) cfg.wall.opt.density = L.density;
   if (L.gap === 's') theme.gap = 17; else if (L.gap === 'l') theme.gap = 32;
-  return [...top_.map(m => ({ cols: [{ w: 12, mods: [m.id] }] })), { cols: L.sideRight === true ? [wallC, sideCol] : [sideCol, wallC] }];
+  return { rows: [...top_.map(m => ({ cols: [{ x: 0, w: 12, mods: [m.id] }] })), { cols: L.sideRight === true ? [wallC, sideCol] : [sideCol, wallC] }], filtersHidden };
+}
+// 1027（12 格、「筛选与搜索」一整块、标题带计数行）→ 1028（48 格小块）：宽度 ×4；筛选条那一列按默认比例拆成八块铺在原来的宽度里；
+// 标题那一列：整排只有它 → 右边分出计数行，否则计数行叠在标题下面。旧「筛选项收起」= 左边四块（范围 · AI 标签 · 类型 · 我的收藏 / Tag）移除；
+// 旧「调整」里选掉的筛选项 = 对应的块移除
+function upgradeRows(rows, cfg, { filtersHidden = false, show = null } = {}) {
+  const FROW = DEFAULT_ROWS()[2].cols;
+  for (const r of rows) {
+    let x = 0;
+    for (const c of r.cols) { c.x = Number.isFinite(Number(c.x)) ? Number(c.x) * 4 : x; c.w = (Number(c.w) || 3) * 4; x = c.x + c.w; }
+    const out = [];
+    for (const c of r.cols) {
+      const k = c.mods.indexOf('filters');
+      if (k >= 0) {
+        c.mods.splice(k, 1);
+        if (c.mods.length) out.push(c);
+        const kw = c.w / GRID;
+        let px = c.x;
+        for (const fc of FROW) { const w = Math.max(MIN_W, Math.round(fc.w * kw)); out.push({ x: px, w, mods: fc.mods.slice() }); px += w; }
+        continue;
+      }
+      const t = c.mods.indexOf('title');
+      if (t >= 0 && !c.mods.includes('meta')) {
+        if (r.cols.length === 1 && c.mods.length === 1) { const tw = Math.max(MIN_W, c.w - 14); out.push({ x: c.x, w: tw, mods: ['title'] }, { x: c.x + tw, w: 14, mods: ['meta'] }); continue; }
+        c.mods.splice(t + 1, 0, 'meta');
+      }
+      out.push(c);
+    }
+    r.cols = out;
+  }
+  const hide = id => { if (cfg[id]) cfg[id].hidden = true; };
+  if (filtersHidden) for (const id of ['scope', 'topics', 'types', 'picks']) hide(id);
+  if (Array.isArray(show)) {
+    const has = k => show.includes(k);
+    if (!has('scope')) { hide('scope'); hide('topics'); }
+    if (!has('type')) hide('types');
+    if (!has('tag') && !has('plat') && !has('src')) hide('picks');
+    for (const k of ['sort', 'view', 'ask']) if (!has(k)) hide(k);
+  }
+  return rows;
 }
 function parseLayout(L) {
   const cfg = {}; for (const id of MOD_IDS) cfg[id] = cfgDefault(id);
   let theme = cleanTheme(L && L.theme), rows;
   if (L && typeof L === 'object' && Array.isArray(L.modules)) {
+    const v48 = Number(L.grid) === GRID;
     const byY = new Map(), seen = new Set();
+    let oldF = null;
     L.modules.forEach((m, i) => {
-      const id = m && m.id; if (!MOD_IDS.includes(id) || seen.has(id)) return; seen.add(id);
+      const id = m && m.id;
+      if (!(MOD_IDS.includes(id) || (!v48 && id === 'filters')) || seen.has(id)) return; seen.add(id);
       const y = Number.isFinite(Number(m.y)) ? Number(m.y) : 1e6 + i, x = Number.isFinite(Number(m.x)) ? Number(m.x) : 0;
-      cfg[id] = { hidden: !!m.hidden, font: fontOf(m.typography?.font), size: sizeOf(m.typography?.size), opt: cleanOpt(id, m.options) };
+      if (id === 'filters') oldF = { hidden: !!m.hidden, show: Array.isArray(m.options?.show) ? m.options.show : null };
+      else cfg[id] = { hidden: !!m.hidden, font: fontOf(m.typography?.font), size: sizeOf(m.typography?.size), opt: cleanOpt(id, m.options) };
       if (!byY.has(y)) byY.set(y, new Map());
-      const row = byY.get(y); if (!row.has(x)) row.set(x, { w: Number(m.width) || 0, mods: [] });
-      const col = row.get(x); col.w = Math.max(col.w, Number(m.width) || 0); col.mods.push(id);
+      const row = byY.get(y); if (!row.has(x)) row.set(x, { x, w: Number(m.width) || 0, mods: [] });
+      const col = row.get(x); col.w = Math.max(col.w, Number(m.width) || 0); col.mods.push(id); if (m.fixed === true) col.fixed = true;
     });
     rows = [...byY.entries()].sort((a, b) => a[0] - b[0]).map(([, cols]) => ({ cols: [...cols.entries()].sort((a, b) => a[0] - b[0]).map(([, c]) => c) }));
-  } else if (L && typeof L === 'object' && ['side', 'top', 'sideRight', 'sideW', 'gap', 'density'].some(k => k in L)) rows = migrateLegacy(L, cfg, theme);
-  else rows = DEFAULT_ROWS();
+    if (!v48) rows = upgradeRows(rows, cfg, { filtersHidden: !!oldF?.hidden, show: oldF?.show });
+  } else if (L && typeof L === 'object' && ['side', 'top', 'sideRight', 'sideW', 'gap', 'density'].some(k => k in L)) {
+    const m = migrateLegacy(L, cfg, theme); rows = upgradeRows(m.rows, cfg, { filtersHidden: m.filtersHidden });
+  } else rows = DEFAULT_ROWS();
   return { rows: normalizeRows(rows), cfg, theme };
 }
 function readLayout() { const L = provider()?.settings?.catalogLayout; return parseLayout(L && typeof L === 'object' ? L : null); }
@@ -3987,13 +4108,14 @@ function layoutToSetting() {
   const sameCfg = MOD_IDS.every(id => JSON.stringify(layout.cfg[id]) === JSON.stringify(cfgDefault(id)));
   if (!sameRows || !sameCfg) {
     const list = [];
-    layout.rows.forEach((r, y) => { let x = 0; for (const c of r.cols) { for (const id of c.mods) {
+    layout.rows.forEach((r, y) => { let x = 0; const board = isBoardRow(r); for (const c of r.cols) { if (!board) x = c.x; for (const id of c.mods) {
       const g = layout.cfg[id], m = { id, x, y, width: c.w, hidden: !!g.hidden };
+      if (c.fixed && !board) m.fixed = true;
       if (g.font || g.size !== 100) m.typography = { font: g.font, size: g.size };
       if (JSON.stringify(g.opt) !== JSON.stringify(OPT_DEFAULT[id] || {})) m.options = clone(g.opt);
       list.push(m);
     } x += c.w; } });
-    out.modules = list;
+    out.modules = list; out.grid = GRID;
   }
   if (JSON.stringify(layout.theme) !== JSON.stringify(THEME_DEFAULT)) out.theme = { ...layout.theme };
   return Object.keys(out).length ? out : null;
@@ -4049,7 +4171,7 @@ function placeBoard(r) {
   const cur = kidsOf(board).filter(x => x === wallCol || x.classList?.contains('lbc-side'));
   if (want.length !== cur.length || want.some((el, i) => cur[i] !== el)) for (const el of want) board.insertBefore(el, null);
 }
-const isGone = id => { const g = modCfg(id); return g.hidden && id !== 'filters'; };   // 「筛选与搜索」移除 = 只藏筛选项（搜索一直在）
+const isGone = id => !!modCfg(id).hidden;
 function visibleIn(ids) { return ids.some(id => present(id) && !isGone(id)); }
 function templateOf(cols) { const vis = cols.filter(c => visibleIn(c.mods)); return { vis, tpl: vis.map(c => `minmax(0,${c.w}fr)`).join(' ') }; }
 function paintVisibility() {
@@ -4057,7 +4179,6 @@ function paintVisibility() {
     const el = modEl(id); if (!el) continue;
     const g = modCfg(id);
     el.classList.toggle('is-gone', isGone(id));
-    el.classList.toggle('is-off', id === 'filters' && !!g.hidden);
     // 字体 / 字号：字体改的是这一块里的正文 / 衬线（标题块连雕刻字一起）；字号 = 这一块缩放（标题按比例放大上限）
     const set = (k, v) => { if (v) { if (el.style.getPropertyValue(k) !== v) el.style.setProperty(k, v); } else if (el.style.getPropertyValue(k)) el.style.removeProperty(k); };
     const fb = fontVar(g.font, 'bodyFont');
@@ -4066,17 +4187,35 @@ function paintVisibility() {
     if (id === 'title') { set('--lbc-title-k', k); set('--lbc-m-k', ''); } else set('--lbc-m-k', k);
     if (SIDE_MODS.includes(id)) { const h = modH(g.opt?.h); el.classList.toggle('has-h', !!h); set('--lbc-m-h', h ? h + 'px' : ''); }
   }
-  const fshow = new Set(modOpt('filters').show);
-  for (const k of OPT_CHOICES.filters.show) blocks.filters.classList.toggle('lbc-f-no-' + k, !fshow.has(k));
   const bi = boardIndex();
+  // 1028 页头 / 墙下面的排：48 格，每块宽 w 格、离前一块空 (x − 前一块的尾) 格（空着的地方就空着）；只有一块、而且铺满整排 = 普通块。
+  //   筛选那些小块（.is-tight）至少有自己内容那么宽：不在块里折行；前面的块比格子宽时后面的往右顺延（fitFreeGaps 量了再定空多少），实在挤不下整块换行
+  const TIGHT = new Set(CTL_IDS.filter(id => id !== 'search'));   // 搜索框能缩（最窄 140px）
+  const setS = (el, k, v) => { if (el.style[k] !== v) el.style[k] = v; };
   const paintRow = (pool, data_) => data_.forEach((r, i) => {
     const row = pool[i]; if (!row) return;
-    const { vis, tpl } = templateOf(r.cols);
+    const vis = r.cols.filter(c => visibleIn(c.mods));
     row.el.hidden = !vis.length;
-    r.cols.forEach((c, j) => { if (row.cols[j]) row.cols[j].hidden = !visibleIn(c.mods); });
-    row.el.classList.toggle('is-single', vis.length <= 1);
-    const t = vis.length > 1 ? tpl : '';
-    if (row.el.style.gridTemplateColumns !== t) row.el.style.gridTemplateColumns = t;
+    const single = vis.length === 1 && vis[0].x === 0 && vis[0].w === GRID;
+    row.el.classList.toggle('is-single', single);
+    row.el.classList.toggle('is-free', !single);
+    let end = 0;
+    r.cols.forEach((c, j) => {
+      const node = row.cols[j]; if (!node) return;
+      const on = visibleIn(c.mods);
+      node.hidden = !on;
+      node.dataset.x = String(c.x); node.dataset.w = String(c.w);
+      if (!on) return;
+      end = c.x + c.w;
+      const tight = c.mods.every(id => TIGHT.has(id));
+      // 筛选小块：没拉过宽度 = 跟内容一样宽（格子只当起点用）；拉过（fixed）= 拉的那么宽，内容更宽时照内容
+      setS(node, 'width', single || (tight && !c.fixed) ? '' : `calc(${c.w} * 100% / ${GRID})`);
+      if (single) setS(node, 'marginLeft', '');
+      node.classList.toggle('is-gap-r', !single && c.x + c.w < GRID);
+      node.classList.toggle('is-tight', tight);
+    });
+    if (row.el.style.gridTemplateColumns) row.el.style.gridTemplateColumns = '';
+    void end;
   });
   paintRow(topRowEls, layout.rows.slice(0, bi));
   paintRow(afterRowEls, layout.rows.slice(bi + 1));
@@ -4092,7 +4231,28 @@ function paintVisibility() {
   const { tpl } = templateOf(br.cols);
   if (board.style.getPropertyValue('--lbc-board-cols') !== tpl) { if (tpl) board.style.setProperty('--lbc-board-cols', tpl); else board.style.removeProperty('--lbc-board-cols'); }
   wrap.classList.toggle('is-side-empty', SIDE_ON && !nVis);
+  fitFreeGaps();
   for (const id of MOD_IDS) { const el = modEl(id); if (el) el.classList.toggle('is-core', CORE_MODS.has(id)); }
+}
+// 1028 自由排的「起点」：块左边离这一排左边 = x 格；前面的块因为内容比格子宽占多了，就从它后面接着放（不重叠）。量现在的宽度再写 margin-left（px），
+// 先读后写；窄屏（换行排）不管
+function fitFreeGaps() {
+  if (wrap.classList.contains('is-side-narrow')) { for (const pool of [...topRowEls, ...afterRowEls]) for (const n of pool?.cols || []) if (n.style.marginLeft) n.style.marginLeft = ''; return; }
+  const bi = boardIndex(), plan = [];
+  layout.rows.forEach((r, i) => {
+    if (i === bi) return;
+    const pool = i < bi ? topRowEls[i] : afterRowEls[i - bi - 1]; if (!pool || pool.el.hidden || !pool.el.classList.contains('is-free')) return;
+    const W = Number(pool.el.clientWidth) || 0; if (!W) return;
+    const unit = W / GRID, items = [];
+    r.cols.forEach((c, j) => { const node = pool.cols[j]; if (node && !node.hidden) items.push({ node, x: c.x, w: Math.max(0, Number(node.getBoundingClientRect?.().width) || 0) }); });
+    // 先按起点算每块前面要空多少；整排放不下时把空隙按比例压小（块本身不缩），还不够才换行
+    let cur = 0;
+    for (const it of items) { it.m = Math.max(0, it.x * unit - cur); cur += it.m + it.w; }
+    const slack = W - items.reduce((n, it) => n + it.w, 0) - 1, sumM = items.reduce((n, it) => n + it.m, 0);
+    const k = sumM > 0 && sumM > slack ? Math.max(0, slack) / sumM : 1;
+    for (const it of items) { const m = Math.floor(it.m * k); plan.push([it.node, m ? m + 'px' : '']); }
+  });
+  for (const [node, v] of plan) if (node.style.marginLeft !== v) node.style.marginLeft = v;
 }
 function boardIndex() { const i = layout.rows.findIndex(r => r.cols.some(c => c.mods.includes('wall'))); return i < 0 ? layout.rows.length - 1 : i; }
 function applyLayout({ relayout = true } = {}) {
@@ -4102,6 +4262,7 @@ function applyLayout({ relayout = true } = {}) {
   placeBoard(layout.rows[bi]);
   paintVisibility();
   applyThemeNow();
+  fitFreeGaps();
   if (arranging) { paintTray(); paintEdges(); for (const id of MOD_IDS) paintBar(id); }
   if (pageReady && relayout) { laidN = 0; relayoutIfNeeded(); paintStickyTop(); }
   sideFadeSoon();
@@ -4166,7 +4327,8 @@ async function flushSave() {
 cleanups.push(() => { if (saveTimer) flushSave(); });   // 离开页面时防抖还没到：照存
 // 别的目录页 / 设置页改了布局：就地换（自己刚存的那份一样，不动）
 function reloadLayout() {
-  if (!ENGINE || saveTimer) return;
+  // 1028：正在拖块 / 拖边 / 拖高度时不重读——上一次保存刚写完发的通知会把磁盘上的旧布局读回来，盖掉手上正拖着的宽度（「拖边没反应」的根因）；松手会存，存完再对齐
+  if (!ENGINE || saveTimer || drag || edgeDrag || hDrag) return;
   const next = readLayout();
   if (JSON.stringify(next) === JSON.stringify(layout)) return;
   layout = next; applyLayout();
@@ -4178,37 +4340,65 @@ function locate(id) {
   for (let ri = 0; ri < layout.rows.length; ri++) { const r = layout.rows[ri]; for (let ci = 0; ci < r.cols.length; ci++) { const k = r.cols[ci].mods.indexOf(id); if (k >= 0) return { ri, ci, k, row: r, col: r.cols[ci] }; } }
   return null;
 }
-// 从原位置摘下来：这一列空了就整列去掉，宽度给同一排的墙那一列（有的话）或旁边那一列；这一排空了整排去掉
+// 从原位置摘下来：这一列空了就整列去掉——墙那一排把宽度给墙（或旁边那一列），自由排就空着；这一排空了整排去掉
 function detachMod(id) {
-  const at = locate(id); if (!at) return;
+  const at = locate(id); if (!at) return null;
+  const was = { w: at.col.w, x: at.col.x };
   at.col.mods.splice(at.k, 1);
   if (!at.col.mods.length) {
+    const board = isBoardRow(at.row);
     at.row.cols.splice(at.ci, 1);
-    if (at.row.cols.length) { const heir = at.row.cols.find(c => c.mods.includes('wall')) || at.row.cols[Math.min(at.ci, at.row.cols.length - 1)]; heir.w += at.col.w; }
+    if (at.row.cols.length) { if (board) { const heir = at.row.cols.find(c => c.mods.includes('wall')) || at.row.cols[Math.min(at.ci, at.row.cols.length - 1)]; heir.w += was.w; } }
     else layout.rows.splice(at.ri, 1);
   }
+  return was;
 }
-// 在 ref 这一列的左 / 右开一列：宽度从 ref 那一列分（宽的分 4 格、中等 3 格、窄的 2 格）；分不出来返回 false
-function splitCol(row, ci, side_, id) {
+// 在 ref 这一列的左 / 右开一列。墙那一排：宽度从 ref 那一列分（宽的分 16 格、中等 12 格、窄的 8 格）；自由排：照它原来的宽度贴过去，挤不下 fitRow 会往旁边推
+function splitCol(row, ci, side_, id, w0) {
   const ref = row.cols[ci];
+  if (!isBoardRow(row)) {
+    // 自由排：旁边有空地就放空地（最多照它原来的宽度）；没有就和 ref 分 ref 的地方，别的块不动
+    if (row.cols.length >= 12) return false;
+    const want = Math.max(MIN_W, Math.min(GRID, w0 || 8));
+    const prevEnd = ci > 0 ? row.cols[ci - 1].x + row.cols[ci - 1].w : 0, nextX = row.cols[ci + 1]?.x ?? GRID;
+    const free = side_ === 'left' ? ref.x - prevEnd : nextX - (ref.x + ref.w);
+    let nw, x;
+    if (free >= MIN_W) { nw = Math.min(want, free); x = side_ === 'left' ? ref.x - nw : ref.x + ref.w; }
+    else {
+      nw = Math.min(want, ref.w - MIN_W); if (nw < MIN_W) return false;
+      ref.w -= nw;
+      if (side_ === 'left') { x = ref.x; ref.x += nw; } else x = ref.x + ref.w;
+    }
+    row.cols.splice(side_ === 'left' ? ci : ci + 1, 0, { x, w: nw, mods: [id] });
+    return true;
+  }
   if (row.cols.length >= 6) return false;
-  let nw = ref.w >= 8 ? 4 : ref.w >= 5 ? 3 : 2;
+  let nw = ref.w >= 32 ? 16 : ref.w >= 20 ? 12 : 8;
   let donor = ref;
-  if (donor.w - nw < 2) donor = row.cols.filter(c => c.w - nw >= 2).sort((a, b) => b.w - a.w)[0];
-  if (!donor) { nw = 2; donor = row.cols.filter(c => c.w >= 4).sort((a, b) => b.w - a.w)[0]; }
+  if (donor.w - nw < MIN_W) donor = row.cols.filter(c => c.w - nw >= MIN_W).sort((a, b) => b.w - a.w)[0];
+  if (!donor) { nw = MIN_W; donor = row.cols.filter(c => c.w >= MIN_W * 2).sort((a, b) => b.w - a.w)[0]; }
   if (!donor) return false;
   donor.w -= nw;
   row.cols.splice(side_ === 'left' ? ci : ci + 1, 0, { w: nw, mods: [id] });
   return true;
 }
-function moveModule(id, refId, zone) {
+// zone：before / after = 叠在 ref 上 / 下；left / right = 并排；slot = 放进自由排的空地（opt.row = 那一排对象，opt.x = 起点）；newrow = 在 opt.row 的上 / 下（opt.below）单独成一排
+function moveModule(id, refId, zone, opt = {}) {
   if (!ENGINE || id === refId) return false;
   const before = JSON.stringify(layout.rows);
-  detachMod(id);
-  const at = locate(refId);
-  if (!at) { layout.rows = JSON.parse(before); return false; }
-  if (zone === 'left' || zone === 'right') { if (!splitCol(at.row, at.ci, zone, id)) at.col.mods.splice(at.k + 1, 0, id); }
-  else at.col.mods.splice(at.k + (zone === 'after' ? 1 : 0), 0, id);
+  const was = detachMod(id) || {};
+  const w0 = was.w;
+  if (zone === 'slot' || zone === 'newrow') {
+    const ri = layout.rows.indexOf(opt.row);
+    const w = Math.max(MIN_W, Math.min(GRID, opt.w || w0 || 8));
+    if (zone === 'slot' && ri >= 0 && !isBoardRow(opt.row)) opt.row.cols.push({ x: Math.max(0, Math.min(GRID - w, Math.round(opt.x || 0))), w, mods: [id] });
+    else { const at = ri < 0 ? (opt.below ? layout.rows.length : 0) : ri + (opt.below ? 1 : 0); layout.rows.splice(at, 0, { cols: [{ x: Math.max(0, Math.min(GRID - w, Math.round(opt.x || 0))), w, mods: [id] }] }); }
+  } else {
+    const at = locate(refId);
+    if (!at) { layout.rows = JSON.parse(before); return false; }
+    if (zone === 'left' || zone === 'right') { if (!splitCol(at.row, at.ci, zone, id, w0)) at.col.mods.splice(at.k + 1, 0, id); }
+    else at.col.mods.splice(at.k + (zone === 'after' ? 1 : 0), 0, id);
+  }
   layout.rows = normalizeRows(layout.rows);
   if (JSON.stringify(layout.rows) === before) return false;
   applyLayout(); saveLayout();
@@ -4226,23 +4416,32 @@ function stepModule(id, d) {
   } else {
     // 收藏墙那一排的列尾再往下 = 跑到无尽的墙下面去了：键盘不这样挪（真要放墙下面就拖）
     if (d > 0 && at.ri === boardIndex()) return false;
-    detachMod(id);
+    const x = isBoardRow(at.row) ? 0 : at.col.x;
+    const was = detachMod(id) || {};
     const ri = locate(at.row.cols.find(c => c.mods.length)?.mods[0])?.ri;
     const base = ri == null ? Math.min(at.ri, layout.rows.length) : ri;
-    layout.rows.splice(d < 0 ? base : base + 1, 0, { cols: [{ w: 12, mods: [id] }] });
+    layout.rows.splice(d < 0 ? base : base + 1, 0, { cols: [{ x, w: isBoardRow(at.row) ? GRID : (was.w || GRID), mods: [id] }] });
   }
   layout.rows = normalizeRows(layout.rows);
   if (JSON.stringify(layout.rows) === before) return false;
   applyLayout(); saveLayout(); return true;
 }
-// ← / →：挪进左 / 右边那一列（放在最后）；那边没有列就在这一边开一列
+// ← / →：自由排里一次挪 1 格（碰到旁边那块就停）；墙那一排：挪进左 / 右边那一列（放在最后），那边没有列就在这一边开一列
 function sideStep(id, d) {
   const at = locate(id); if (!at) return false;
   const before = JSON.stringify(layout.rows);
-  const nb = at.row.cols[at.ci + d];
-  if (nb) { detachMod(id); const again = locate(nb.mods[0]); again.col.mods.push(id); }
-  else if (at.col.mods.length > 1) { at.col.mods.splice(at.k, 1); if (!splitCol(at.row, at.ci, d < 0 ? 'left' : 'right', id)) at.col.mods.splice(at.k, 0, id); }
-  else return false;
+  if (!isBoardRow(at.row) && at.col.mods.length === 1) {
+    const nb = at.row.cols[at.ci + d];
+    const lo = at.ci > 0 ? at.row.cols[at.ci - 1].x + at.row.cols[at.ci - 1].w : 0, hi = (at.row.cols[at.ci + 1]?.x ?? GRID) - at.col.w;
+    const nx = at.col.x + d;
+    if (nx < lo || nx > hi) { if (!nb) return false; [at.row.cols[at.ci], at.row.cols[at.ci + d]] = [nb, at.col]; const a = at.row.cols[Math.min(at.ci, at.ci + d)], b = at.row.cols[Math.max(at.ci, at.ci + d)]; const x0 = Math.min(a.x, b.x); a.x = x0; b.x = x0 + a.w; }
+    else at.col.x = nx;
+  } else {
+    const nb = at.row.cols[at.ci + d];
+    if (nb) { detachMod(id); const again = locate(nb.mods[0]); again.col.mods.push(id); }
+    else if (at.col.mods.length > 1) { at.col.mods.splice(at.k, 1); if (!splitCol(at.row, at.ci, d < 0 ? 'left' : 'right', id, at.col.w)) at.col.mods.splice(at.k, 0, id); }
+    else return false;
+  }
   layout.rows = normalizeRows(layout.rows);
   if (JSON.stringify(layout.rows) === before) return false;
   applyLayout(); saveLayout(); return true;
@@ -4251,19 +4450,27 @@ function setModHidden(id, hidden, { undo = true } = {}) {
   const g = modCfg(id); if (g.hidden === !!hidden) return;
   g.hidden = !!hidden;
   if (hidden && openPanel?.id === id) closePanel();
+  if (hidden && selId === id) selId = '';
   applyLayout(); saveLayout();
   if (hidden) {
-    if (SIDE_MODS.includes(id) && sideFold[id]) { /* 折着的照旧折着 */ }
-    if (undo) LB.undoNotice(id === 'filters' ? '已收起筛选项（搜索、排序、问收藏还在）' : `已移除「${MOD_NAMES[id]}」：内容和功能都还在，「＋ 模块」能加回来`, async () => setModHidden(id, false, { undo: false }));
-    trayModsOpen = true; if (arranging) paintTray();
+    if (undo) LB.undoNotice(`「${MOD_NAMES[id]}」放进备选了：内容和功能都还在，编排条上「备选」里点一下就回来`, async () => setModHidden(id, false, { undo: false }));
+    if (arranging) paintTray();
   } else if (SIDE_MODS.includes(id)) { sideFold[id] = false; paintFold(id); paintMod(id); saveState(); }
 }
-// 调宽：row 里第 j 列和第 j+1 列（都看得见的相邻两列）之间那道边，du 格（左正右负按第 j 列算）
+// 调宽。墙那一排：第 j 列和第 j+1 列（都看得见的相邻两列）之间那道边，du 格（左正右负按第 j 列算）；
+// 自由排：第 j 块的右边，du 格——往右最多到下一块的起点（或 48 格），往左最窄 MIN_W
 function resizeCols(bi_, j, du) {
   const r = layout.rows[bi_]; if (!r) return false;
-  const vis = r.cols.filter(c => visibleIn(c.mods)); const a = vis[j], b = vis[j + 1]; if (!a || !b) return false;
-  const n = Math.max(2 - a.w, Math.min(b.w - 2, du)); if (!n) return false;
-  a.w += n; b.w -= n;
+  const vis = r.cols.filter(c => visibleIn(c.mods)); const a = vis[j]; if (!a) return false;
+  if (!isBoardRow(r)) {
+    const i = r.cols.indexOf(a), lim = r.cols[i + 1]?.x ?? GRID;
+    const n = Math.max(MIN_W - a.w, Math.min(lim - a.x - a.w, du)); if (!n) return false;
+    a.w += n; a.fixed = true;
+  } else {
+    const b = vis[j + 1]; if (!b) return false;
+    const n = Math.max(MIN_W - a.w, Math.min(b.w - MIN_W, du)); if (!n) return false;
+    a.w += n; b.w -= n;
+  }
   paintVisibility(); paintEdges();
   return true;
 }
@@ -4305,7 +4512,7 @@ function ensureBar(id) {
   const adj = bar.createEl('button', { text: '调整' }); adj.type = 'button'; adj.dataset.act = 'adjust'; adj.setAttribute('aria-expanded', 'false');
   adj.onclick = e => { e?.stopPropagation?.(); togglePanel(id); };
   const x = bar.createEl('button', { text: '×' }); x.type = 'button'; x.dataset.act = 'remove';
-  x.setAttribute('aria-label', id === 'filters' ? '收起筛选项（搜索保留）' : `移除「${MOD_NAMES[id]}」`);
+  x.setAttribute('aria-label', `「${MOD_NAMES[id]}」放进备选`); x.title = '放进备选（编排条上点一下就回来）';
   x.onclick = e => { e?.stopPropagation?.(); setModHidden(id, true); };
   // 1027b 她：拉着虚线边框就改大小——下边框调高（边栏四块），左 / 右边框调宽（和旁边一列并排时；吸附 1/12，和列间竖线同一套）
   const rx = document.createElement('button'); rx.type = 'button'; rx.className = 'lbc-m-rs lbc-m-rs-x'; rx.hidden = true;
@@ -4322,6 +4529,14 @@ function ensureBar(id) {
     el.append(ry);
   }
   bars[id] = { bar, grip, adj, x, rx, ry, sm, lg, ft };
+  // 1028 积木：块的任何地方都能按住拖（按钮、输入框、链接、拉手除外——它们照常用）；点一下 = 选中
+  el.addEventListener('pointerdown', e => {
+    if (!arranging || (e.button != null && e.button !== 0)) return;
+    const t = e.target;
+    if (t && typeof t.closest === 'function' && t.closest('.lbc-mod-bar, .lbc-m-rs, .lbc-col-edge, .lbc-mp, input, textarea, select, a, [contenteditable="true"]')) return;
+    e.stopPropagation?.();
+    startModDrag(e, id, el, { soft: true });
+  });
   paintBar(id);
   return bars[id];
 }
@@ -4387,14 +4602,68 @@ function paintBar(id) {
   if (b.ft) { const f = modCfg(id).font || ''; const nm = (FONT_SET.find(([v]) => v === f) || [f, f])[1]; b.ft.title = '字体：' + nm; b.ft.setAttribute('aria-label', `「${MOD_NAMES[id]}」字体（现在：${nm}）`); }
   b.adj.setAttribute('aria-expanded', String(openPanel?.id === id));
   modEl(id)?.classList.toggle('is-panel', openPanel?.id === id);
-  if (id === 'filters') { b.x.textContent = modCfg(id).hidden ? '＋' : '×'; b.x.setAttribute('aria-label', modCfg(id).hidden ? '筛选项放回来' : '收起筛选项（搜索保留）'); b.x.onclick = e => { e?.stopPropagation?.(); setModHidden('filters', !modCfg('filters').hidden); }; }
 }
 
-// ── 拖动：按住 ⠿ 拖；落点按指针在目标模块上的位置——左 / 右五分之一 = 放到它左 / 右边成新的一列，其余上半 = 放它上面、下半 = 放它下面
-//    （收藏墙很高：中间那一大片按左右半边当「放到墙的左 / 右边」，最上 / 最下 80px 才是墙的上 / 下面）。Esc 取消 ──
+// ── 拖动（1028 积木）：按住块的任何地方（按钮、输入框除外）或 ⠿ 拖；挪不到 6px = 只是点了一下（选中），位置不动。
+//    落点：页头 / 墙下面那几排的空地 = 就放在那儿（起点按指针算、靠近别的块的边就吸住，出一条对齐线）；排和排之间 = 单独成一排；
+//    压在别的块上 = 和以前一样：左 / 右五分之一并排，其余上半放它上面、下半放它下面（收藏墙中间那一大片按左右半边算）。Esc 取消 ──
 let drag = null;
 const dropInd = (() => { const d = document.createElement('div'); d.className = 'lbc-drop-ind'; d.hidden = true; return d; })();
+const guideEl = (() => { const d = document.createElement('div'); d.className = 'lbc-guide'; d.hidden = true; return d; })();
+// 自由排（页头 / 墙下面）的 DOM 和布局：[{ri, row, el, rect}]
+function freeRows() {
+  const bi = boardIndex(), out = [];
+  layout.rows.forEach((r, i) => {
+    if (i === bi) return;
+    const pool = i < bi ? topRowEls[i] : afterRowEls[i - bi - 1]; if (!pool || pool.el.hidden) return;
+    const rect = pool.el.getBoundingClientRect?.(); if (!rect || !(rect.width > 0)) return;
+    out.push({ ri: i, row: r, el: pool.el, rect });
+  });
+  return out;
+}
+// 所有自由排里块的左右边（格数），给吸附用；skip = 正在拖 / 拉的那一块
+function snapEdges(skip) {
+  const xs = new Set();
+  for (const r of layout.rows) { if (isBoardRow(r)) { let x = 0; for (const c of r.cols) { if (visibleIn(c.mods)) { xs.add(x); xs.add(x + c.w); } x += c.w; } continue; }
+    for (const c of r.cols) if (visibleIn(c.mods) && !c.mods.includes(skip)) { xs.add(c.x); xs.add(c.x + c.w); } }
+  return [...xs];
+}
+const snapTo = (v, list, tol = 1) => { let best = null; for (const e of list) if (Math.abs(e - v) <= tol && (best == null || Math.abs(e - v) < Math.abs(best - v))) best = e; return best; };
+function paintGuide(px) {
+  if (px == null) { guideEl.hidden = true; return; }
+  if (!guideEl.parentNode) wrap.append(guideEl);
+  const wr = wrap.getBoundingClientRect?.() || { top: 0, height: 900 };
+  guideEl.hidden = false; const s = guideEl.style; s.left = Math.round(px) + 'px'; s.top = Math.max(0, wr.top) + 'px'; s.height = Math.max(40, Math.min(wr.bottom ?? 900, typeof innerHeight === 'number' ? innerHeight : 900) - Math.max(0, wr.top)) + 'px';
+}
 function dropTarget(x, y, self) {
+  // 1) 页头 / 墙下面的排：指针在某一排的高度里、底下没有别的块 → 放进这一排的空地；在两排之间 → 单独成一排
+  const w = Math.max(MIN_W, locate(self)?.col?.w || 8);
+  const rows = freeRows();
+  for (const fr of rows) {
+    const { rect } = fr;
+    if (y < rect.top - 6 || y > rect.bottom + 6) continue;
+    const over = (topRowEls[fr.ri]?.cols || afterRowEls[fr.ri - boardIndex() - 1]?.cols || []).some(n => { if (n.hidden || n.contains(modEl(self))) return false; const r = n.getBoundingClientRect?.(); return r && x >= r.left && x <= r.right; });
+    if (over) break;
+    const unit = rect.width / GRID;
+    let gx = Math.round((x - (drag?.dx || 0) - rect.left) / unit);
+    const edges = snapEdges(self);
+    const sl = snapTo(gx, edges), sr = snapTo(gx + w, edges);
+    let snap = null;
+    if (sl != null) { gx = sl; snap = sl; } else if (sr != null) { gx = sr - w; snap = sr; }
+    gx = Math.max(0, Math.min(GRID - w, gx));
+    return { zone: 'slot', row: fr.row, x: gx, w, r: { left: rect.left + gx * unit, right: rect.left + (gx + w) * unit, top: rect.top, bottom: rect.bottom, width: w * unit, height: rect.height }, guide: snap == null ? null : rect.left + snap * unit };
+  }
+  if (rows.length) {
+    const first = rows[0], last = rows[rows.length - 1], bi = boardIndex();
+    const topRows = rows.filter(fr => fr.ri < bi);
+    for (let k = 0; k + 1 < topRows.length; k++) {
+      const a = topRows[k].rect, b = topRows[k + 1].rect;
+      if (y > a.bottom + 6 && y < b.top - 6) return { zone: 'newrow', row: topRows[k].row, below: true, x: 0, w, r: { left: a.left, top: (a.bottom + b.top) / 2, width: a.width, height: 0, right: a.right, bottom: (a.bottom + b.top) / 2 } };
+    }
+    if (topRows.length && y < first.rect.top - 6 && y > first.rect.top - 60) return { zone: 'newrow', row: first.row, below: false, x: 0, w, r: { left: first.rect.left, top: first.rect.top - 8, width: first.rect.width, height: 0, right: first.rect.right, bottom: first.rect.top - 8 } };
+    void last;
+  }
+  // 2) 压在别的块上：并排 / 上面 / 下面
   let best = null, bestD = Infinity;
   for (const id of MOD_IDS) {
     if (id === self || !present(id) || isGone(id)) continue;
@@ -4410,24 +4679,28 @@ function dropTarget(x, y, self) {
   return { id: best.id, zone, r };
 }
 function paintDrop(t) {
-  if (!t) { dropInd.hidden = true; return; }
+  if (!t) { dropInd.hidden = true; dropInd.classList.remove('is-slot'); paintGuide(null); return; }
   const { r, zone } = t, s = dropInd.style; dropInd.hidden = false;
-  if (zone === 'left' || zone === 'right') { s.left = ((zone === 'left' ? r.left : r.right) - 2) + 'px'; s.top = Math.max(0, r.top) + 'px'; s.width = '4px'; s.height = Math.max(24, Math.min(r.bottom, (typeof innerHeight === 'number' ? innerHeight : 900)) - Math.max(0, r.top)) + 'px'; }
+  dropInd.classList.toggle('is-slot', zone === 'slot');
+  if (zone === 'slot') { s.left = r.left + 'px'; s.top = r.top + 'px'; s.width = r.width + 'px'; s.height = Math.max(24, r.height) + 'px'; }
+  else if (zone === 'left' || zone === 'right') { s.left = ((zone === 'left' ? r.left : r.right) - 2) + 'px'; s.top = Math.max(0, r.top) + 'px'; s.width = '4px'; s.height = Math.max(24, Math.min(r.bottom, (typeof innerHeight === 'number' ? innerHeight : 900)) - Math.max(0, r.top)) + 'px'; }
+  else if (zone === 'newrow') { s.left = r.left + 'px'; s.top = (r.top - 2) + 'px'; s.width = r.width + 'px'; s.height = '4px'; }
   else { s.left = r.left + 'px'; s.top = ((zone === 'before' ? r.top - 12 : r.bottom + 8)) + 'px'; s.width = r.width + 'px'; s.height = '4px'; }
+  paintGuide(t.guide ?? null);
 }
-function startModDrag(e, id, grip) {
+function startModDrag(e, id, grip, { soft = false } = {}) {
   if (!arranging || (e.button != null && e.button !== 0)) return;
-  e.preventDefault?.();
-  drag = { id, grip, pointer: e.pointerId, target: null, raf: 0, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, moved: false };
+  if (!soft) e.preventDefault?.();   // 从块里面按下（soft）：不拦，点一下照常是点按钮；真拖了松手时吞掉那一下 click
+  const er = modEl(id)?.getBoundingClientRect?.();
+  drag = { id, grip, pointer: e.pointerId, target: null, raf: 0, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, moved: false, dx: er ? e.clientX - er.left : 0 };
   try { grip.setPointerCapture?.(e.pointerId); } catch {}
-  modEl(id).classList.add('is-dragging');
   if (!dropInd.parentNode) wrap.append(dropInd);
 }
 function onDragMove(e) {
   if (!drag) return;
   drag.x = e.clientX; drag.y = e.clientY;
-  if (!drag.moved && Math.hypot(drag.x - drag.x0, drag.y - drag.y0) < 6) return;   // 只是点了一下 ⠿：不算拖
-  drag.moved = true;
+  if (!drag.moved && Math.hypot(drag.x - drag.x0, drag.y - drag.y0) < 6) return;   // 只是点了一下：不算拖（1028 她：「点一下 a，a 就跳到下面去了」）
+  if (!drag.moved) { drag.moved = true; modEl(drag.id)?.classList.add('is-dragging'); }
   // 拖到上下边缘：滚动容器跟着滚
   const sc = LB.scroller(); const vh = typeof innerHeight === 'number' ? innerHeight : 900;
   if (sc) { if (e.clientY > vh - 60) sc.scrollTop += 18; else if (e.clientY < 80) sc.scrollTop -= 18; }
@@ -4439,40 +4712,67 @@ function endModDrag(cancel = false) {
   if (!drag) return;
   const d = drag; drag = null;
   try { d.grip.releasePointerCapture?.(d.pointer); } catch {}
-  modEl(d.id)?.classList.remove('is-dragging'); dropInd.hidden = true;
-  const t = cancel || !d.moved ? null : (d.target || dropTarget(d.x, d.y, d.id));
-  if (t) moveModule(d.id, t.id, t.zone);
+  modEl(d.id)?.classList.remove('is-dragging'); paintDrop(null);
+  if (!d.moved) { if (!cancel) selectMod(d.id); return; }
+  // 真拖过：松手那一下 click 别落到块里的按钮上（不然拖完筛选条，顺手点了「视频」）
+  if (typeof document !== 'undefined' && document.addEventListener) { const eat = ev => { ev.stopPropagation?.(); ev.preventDefault?.(); }; document.addEventListener('click', eat, true); setTimeout(() => document.removeEventListener('click', eat, true), 0); }
+  const t = cancel ? null : (d.target || dropTarget(d.x, d.y, d.id));
+  if (!t) return;
+  if (t.zone === 'slot' || t.zone === 'newrow') moveModule(d.id, null, t.zone, { row: t.row, x: t.x, w: t.w, below: t.below });
+  else moveModule(d.id, t.id, t.zone);
+  selectMod(d.id);
 }
 function docOn(type, fn) { if (typeof document === 'undefined' || !document.addEventListener) return; document.addEventListener(type, fn); cleanups.push(() => { try { document.removeEventListener(type, fn); } catch {} }); }
 const onDragUp = () => endModDrag(false), onDragCancel = () => endModDrag(true);
 docOn('pointermove', onDragMove); docOn('pointerup', onDragUp); docOn('pointercancel', onDragCancel);
 
-// ── 列与列之间的边（编排时）：拖动调宽，吸附到 1/12，最窄 2 格；聚焦后左右键 ──
+// ── 选中（1028）：编排时点一下块 = 选中，只有选中 / 指着的那块露出小工具条和拉手；点空白处取消 ──
+let selId = '';
+function selectMod(id) {
+  if (selId === id) return;
+  if (selId) modEl(selId)?.classList.remove('is-sel');
+  selId = id && present(id) ? id : '';
+  if (selId) modEl(selId)?.classList.add('is-sel');
+}
+
+// ── 调宽（编排时）：墙那一排 = 列与列之间的竖线；自由排 = 每块右边一道竖线。吸附到格子，靠近别的块的边就吸住（出对齐线）；聚焦后左右键 ──
 const edgeEls = [];
 function edgeContainers() {
   const bi = boardIndex(), out = [];
   layout.rows.forEach((r, i) => {
-    const vis = r.cols.filter(c => visibleIn(c.mods)); if (vis.length < 2) return;
+    const vis = r.cols.filter(c => visibleIn(c.mods));
+    const free = i !== bi;
+    if (!free && vis.length < 2) return;
+    if (free && !vis.length) return;
     let host, nodes;
     if (i === bi) { host = board; nodes = boardColEls.filter(n => !n.hidden); }
     else { const pool = i < bi ? topRowEls[i] : afterRowEls[i - bi - 1]; if (!pool) return; host = pool.el; nodes = pool.cols.filter(n => !n.hidden); }
-    out.push({ ri: i, host, nodes, vis });
+    out.push({ ri: i, host, nodes, vis, free });
   });
   return out;
 }
 function paintEdges() {
+  // 重画前记下焦点在哪一道边上，画完放回去（键盘连按左右键调宽时不断）
+  const ae = typeof document !== 'undefined' ? document.activeElement : null;
+  const keep = ae && edgeEls.includes(ae) ? [ae.dataset.row, ae.dataset.edge] : null;
+  try { paintEdgesNow(); } finally { if (keep) { const again = edgeEls.find(x => x.dataset.row === keep[0] && x.dataset.edge === keep[1]); try { again?.focus({ preventScroll: true }); } catch {} } }
+}
+function paintEdgesNow() {
   for (const e of edgeEls.splice(0)) e.remove();
   paintResizers();
   if (!arranging || !ENGINE || wrap.classList.contains('is-side-narrow')) return;
-  for (const { ri, host, nodes, vis } of edgeContainers()) {
+  for (const { ri, host, nodes, vis, free } of edgeContainers()) {
     const hr = host.getBoundingClientRect?.() || { left: 0 };
-    for (let j = 0; j + 1 < nodes.length; j++) {
-      const a = nodes[j].getBoundingClientRect?.(), b = nodes[j + 1].getBoundingClientRect?.();
-      const ed = document.createElement('button'); ed.type = 'button'; ed.className = 'lbc-col-edge';
+    const n = free ? nodes.length : nodes.length - 1;
+    for (let j = 0; j < n; j++) {
+      const a = nodes[j].getBoundingClientRect?.(), b = free ? null : nodes[j + 1].getBoundingClientRect?.();
+      const ed = document.createElement('button'); ed.type = 'button'; ed.className = 'lbc-col-edge' + (free ? ' is-free' : '');
       ed.dataset.row = String(ri); ed.dataset.edge = String(j);
-      ed.setAttribute('aria-label', `调宽：左边 ${vis[j].w}/12、右边 ${vis[j + 1].w}/12（左右键）`);
-      const badge = document.createElement('span'); badge.className = 'lbc-ce-w'; badge.textContent = `${vis[j].w} / ${vis[j + 1].w}`; ed.append(badge);
-      if (a && b) ed.style.left = Math.round((a.right + b.left) / 2 - hr.left) + 'px';
+      const label = free ? `调宽「${vis[j].mods.map(id => MOD_NAMES[id]).join(' / ')}」：现在 ${vis[j].w}/48（左右键）` : `调宽：左边 ${vis[j].w}/48、右边 ${vis[j + 1].w}/48（左右键）`;
+      ed.setAttribute('aria-label', label);
+      const badge = document.createElement('span'); badge.className = 'lbc-ce-w'; badge.textContent = free ? `${vis[j].w}` : `${vis[j].w} / ${vis[j + 1].w}`; ed.append(badge);
+      if (a && free) ed.style.left = Math.round(a.right - hr.left) + 'px';
+      else if (a && b) ed.style.left = Math.round((a.right + b.left) / 2 - hr.left) + 'px';
       ed.onkeydown = e => { if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return; e.preventDefault?.(); if (resizeCols(ri, j, e.key === 'ArrowLeft' ? -1 : 1)) { saveLayout(); relayoutSoon(); const again = edgeEls.find(x => x.dataset.row === String(ri) && x.dataset.edge === String(j)); try { again?.focus(); } catch {} } };
       ed.addEventListener('pointerdown', e => startEdgeDrag(e, ri, j, ed, host));
       host.append(ed); edgeEls.push(ed);
@@ -4483,25 +4783,34 @@ let edgeDrag = null;
 function startEdgeDrag(e, ri, j, ed, host) {
   if (!arranging || (e.button != null && e.button !== 0)) return;
   e.preventDefault?.();
-  const r = layout.rows[ri], vis = r.cols.filter(c => visibleIn(c.mods)), sum = vis.reduce((n, c) => n + c.w, 0);
+  const r = layout.rows[ri], vis = r.cols.filter(c => visibleIn(c.mods)), free = !isBoardRow(r);
+  const sum = free ? GRID : vis.reduce((n, c) => n + c.w, 0);
   const width = Number(host.getBoundingClientRect?.().width) || 1;
-  edgeDrag = { ri, j, x0: e.clientX, a0: vis[j].w, unit: width / sum, applied: 0, ed, pointer: e.pointerId };
+  edgeDrag = { ri, j, x0: e.clientX, a0: vis[j].w, unit: width / sum, applied: 0, ed, pointer: e.pointerId, free, left: host.getBoundingClientRect?.().left || 0 };
   try { ed.setPointerCapture?.(e.pointerId); } catch {}
   ed.classList.add('is-on');
 }
 function onEdgeMove(e) {
   if (!edgeDrag) return;
-  const d = edgeDrag, want = Math.round((e.clientX - d.x0) / d.unit), du = want - d.applied;
-  if (!du) return;
+  const d = edgeDrag;
+  let want = Math.round((e.clientX - d.x0) / d.unit);
   const vis = layout.rows[d.ri].cols.filter(c => visibleIn(c.mods));
-  const before = vis[d.j].w;
-  if (resizeCols(d.ri, d.j, du)) { d.applied += vis[d.j].w - before; d.ed = edgeEls.find(x => x.dataset.row === String(d.ri) && x.dataset.edge === String(d.j)) || d.ed; d.ed.classList.add('is-on'); }
+  const a = vis[d.j]; if (!a) return;
+  // 吸附：拉的这条边离别的块的左 / 右边 1 格以内就吸过去（墙那一排按累计宽度算）
+  const x0 = d.free ? a.x : vis.slice(0, d.j).reduce((n, c) => n + c.w, 0);
+  const snap = snapTo(x0 + d.a0 + want, snapEdges(a.mods[0]).filter(v => v > x0));
+  if (snap != null) want = snap - x0 - d.a0;
+  paintGuide(snap == null ? null : d.left + snap * d.unit);
+  const du = want - d.applied;
+  if (!du) return;
+  const before = a.w;
+  if (resizeCols(d.ri, d.j, du)) { d.applied += a.w - before; d.ed = edgeEls.find(x => x.dataset.row === String(d.ri) && x.dataset.edge === String(d.j)) || d.ed; d.ed.classList.add('is-on'); }
 }
 function endEdgeDrag() {
   if (!edgeDrag) return;
   const d = edgeDrag; edgeDrag = null;
   try { d.ed.releasePointerCapture?.(d.pointer); } catch {}
-  d.ed.classList.remove('is-on');
+  d.ed.classList.remove('is-on'); paintGuide(null);
   if (d.applied) { saveLayout(); relayoutSoon(); }
 }
 docOn('pointermove', onEdgeMove); docOn('pointerup', endEdgeDrag);
@@ -4612,19 +4921,6 @@ const panelBody = {
     const more = mkRow(body);
     const tree = more.createEl('button', { text: '分类树（子类、合并、拖拽）→' }); tree.type = 'button'; tree.onclick = () => { setArranging(false); openIndexEditor(); };
     body.createEl('p', { cls: 'lbc-mp-note', text: '改名 / 换顺序 / 加分类都写回 索引.md（能撤销）；取消勾选只是分类行里不显示，帖子不动。删除分类在「管理」里。' });
-  },
-  filters(body, g) {
-    const r = mkRow(body, '显示');
-    const NAMES = { scope: '范围', type: '类型', tag: 'Tag', plat: '平台', src: '来源 / 专辑', sort: '排序', view: '视图', ask: '问收藏' };
-    for (const k of OPT_CHOICES.filters.show) {
-      const l = r.createEl('label', { cls: 'lbc-mp-ck' }); const ck = l.createEl('input', { type: 'checkbox' }); ck.checked = g.opt.show.includes(k); ck.dataset.k = k; l.append(NAMES[k]);
-      ck.onchange = () => {
-        const set = new Set(g.opt.show); if (ck.checked) set.add(k); else set.delete(k);
-        g.opt.show = OPT_CHOICES.filters.show.filter(x => set.has(x));
-        paintVisibility(); saveLayout();
-      };
-    }
-    body.createEl('p', { cls: 'lbc-mp-note', text: '搜索框一直在。藏起来的筛选按钮只是不显示，已经选着的筛选照样生效。' });
   },
   recent(body, g) {
     // 1027b 条数 = 列表框高几条（其余在框里滚）；改的时候折着就展开，马上看得到
@@ -4761,43 +5057,108 @@ function paintToken() {
   else if (usage?.budget?.over) b.createEl('p', { cls: 'lbc-sy-note', text: '今天到上限了：后台补跑先只用免费的，北京时间明天 0 点恢复。' });
 }
 
-// ── 托盘（编排时在收藏墙上面）：＋ 模块 · Aa 样式 · 保存状态 · 恢复默认 · 结束编排 ──
-let trayModsOpen = false, trayStyleOpen = false;
+// ── 存过的样式（1028 她：「存好了作为样式锁定。可以恢复默认 or 恢复样式 1（自己定名字）」）：插件设置 catalogStyles = [{name, layout}]、catalogStyleCur = 当前那个 ──
+function stylesList() { const v = provider()?.settings?.catalogStyles; return Array.isArray(v) ? v.filter(x => x && typeof x.name === 'string' && x.name.trim()) : []; }
+const curStyleName = () => String(provider()?.settings?.catalogStyleCur || '');
+const sameLayout = L => JSON.stringify(parseLayout(L && typeof L === 'object' ? clone(L) : null)) === JSON.stringify(layout);
+function styleDirty() { const st = stylesList().find(x => x.name === curStyleName()); return st ? !sameLayout(st.layout) : !!curStyleName(); }
+function nextStyleName(list) { let n = list.length + 1; while (list.some(x => x.name === '样式 ' + n)) n++; return '样式 ' + n; }
+// 存：当前有名字就存回那一个，没有就新起一个「样式 N」；存完锁住（退出编排）
+function saveStyle({ asNew = false } = {}) {
+  const p = provider(); if (!p?.settings) return;
+  const list = stylesList().map(x => ({ ...x }));
+  let name = asNew ? '' : curStyleName();
+  const L = clone(layoutToSetting() || {});
+  const st = name && list.find(x => x.name === name);
+  if (st) st.layout = L; else { name = nextStyleName(list); list.push({ name, layout: L }); }
+  p.settings.catalogStyles = list; p.settings.catalogStyleCur = name;
+  saveSettingSoon('catalogStyles', 'catalogStyleCur');
+  setArranging(false);
+  LB.say(`存好了：「${name}」，已锁定（点「编排」再改）`, { kind: 'ok' });
+}
+// 换：name 空 = 恢复默认
+function applyStyle(name) {
+  const p = provider();
+  const st = name ? stylesList().find(x => x.name === name) : null;
+  if (name && !st) return;
+  closePanel(); selectMod('');
+  layout = parseLayout(st ? clone(st.layout) : null);
+  if (p?.settings) p.settings.catalogStyleCur = st ? name : '';
+  applyLayout(); saveLayout(); saveSettingSoon('catalogStyleCur');
+  if (arranging) paintTray();
+  LB.say(st ? `换成了「${name}」` : '目录页已恢复默认布局（标题、列数、分类、同步时间不受影响）', { kind: 'ok' });
+}
+function renameStyle(old, nu) {
+  const p = provider(); nu = String(nu || '').trim().slice(0, 24);
+  if (!p?.settings || !nu || nu === old) return false;
+  const list = stylesList().map(x => ({ ...x }));
+  if (list.some(x => x.name === nu)) { LB.say(`已经有一个叫「${nu}」的样式了`, { kind: 'warn' }); return false; }
+  const st = list.find(x => x.name === old); if (!st) return false;
+  st.name = nu; p.settings.catalogStyles = list;
+  if (curStyleName() === old) p.settings.catalogStyleCur = nu;
+  saveSettingSoon('catalogStyles', 'catalogStyleCur'); paintTray(); return true;
+}
+function deleteStyle(name) {
+  const p = provider(); if (!p?.settings) return;
+  const before = stylesList();
+  p.settings.catalogStyles = before.filter(x => x.name !== name);
+  const wasCur = curStyleName() === name; if (wasCur) p.settings.catalogStyleCur = '';
+  saveSettingSoon('catalogStyles', 'catalogStyleCur'); paintTray();
+  LB.undoNotice(`删了样式「${name}」（页面现在的样子不变）`, async () => { p.settings.catalogStyles = before; if (wasCur) p.settings.catalogStyleCur = name; saveSettingSoon('catalogStyles', 'catalogStyleCur'); paintTray(); });
+}
+// 改名：样式名那颗按钮就地变成输入框，回车确定、Esc 放弃
+function editStyleName(btn, name) {
+  const inp = document.createElement('input'); inp.type = 'text'; inp.className = 'lbc-at-rename'; inp.value = name; inp.maxLength = 24; inp.setAttribute('aria-label', '样式名字');
+  btn.replaceWith(inp); try { inp.focus(); inp.select(); } catch {}
+  let done = false;
+  const end = ok => { if (done) return; done = true; if (!(ok && renameStyle(name, inp.value))) paintTray(); };
+  inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault?.(); end(true); } else if (e.key === 'Escape') { e.preventDefault?.(); e.stopPropagation?.(); end(false); } };
+  inp.onblur = () => end(true);
+}
+
+// ── 编排条（编排时在页头上面）：ARRANGE · 备选（× 掉的块，点一下回来）· Aa 样式 · 样式 ▾ · 存为样式 · 保存状态 · 完成 ──
+let trayStyleOpen = false;
 function paintTray() {
   if (!arrangeTray) return;
   const ae = document.activeElement, focusKey = ae && arrangeTray.contains(ae) ? (ae.dataset?.act || ae.dataset?.show || ae.dataset?.theme || '') : '';
   arrangeTray.empty();
   arrangeTray.createEl('span', { cls: 'lbc-at-k', text: 'ARRANGE' });
-  const btn = (text, attrs = {}, cls = '') => { const b = arrangeTray.createEl('button', { cls, text }); b.type = 'button'; for (const [k, v] of Object.entries(attrs)) b.dataset[k] = v; return b; };
-  const nHidden = MOD_IDS.filter(id => present(id) && modCfg(id).hidden).length;
-  const modsB = btn('＋ 模块' + (nHidden ? `（${nHidden}）` : ''), { act: 'mods' }); modsB.setAttribute('aria-expanded', String(trayModsOpen));
-  modsB.onclick = () => { trayModsOpen = !trayModsOpen; paintTray(); };
-  const styleB = btn('Aa 样式', { act: 'style' }); styleB.setAttribute('aria-expanded', String(trayStyleOpen));
+  const btn = (parent, text, attrs = {}, cls = '') => { const b = parent.createEl('button', { cls, text }); b.type = 'button'; for (const [k, v] of Object.entries(attrs)) b.dataset[k] = v; return b; };
+  // 备选：移除了的块都在这里（虚线小胶囊），点一下回到原来的位置
+  const shelf = arrangeTray.createEl('div', { cls: 'lbc-at-shelf', attr: { 'aria-label': '备选' } });
+  shelf.createEl('span', { cls: 'lbc-at-sk', text: '备选' });
+  const off = MOD_IDS.filter(id => present(id) && modCfg(id).hidden);
+  if (!off.length) shelf.createEl('span', { cls: 'lbc-at-empty', text: '空（× 掉的块会放在这里）' });
+  for (const id of off) { const b = btn(shelf, '＋ ' + MOD_NAMES[id], { show: id }, 'is-dash'); b.onclick = () => { setModHidden(id, false); selectMod(id); }; }
+  const styleB = btn(arrangeTray, 'Aa 样式', { act: 'style' }); styleB.setAttribute('aria-expanded', String(trayStyleOpen));
   styleB.onclick = () => { trayStyleOpen = !trayStyleOpen; paintTray(); };
-  arrangeTray.createEl('span', { cls: 'lbc-at-save' });
-  const retry = btn('重试', { act: 'retry' }); retry.hidden = true; retry.onclick = () => flushSave();
-  const reset = btn('恢复默认', { act: 'reset' });
-  reset.onclick = () => {
-    closePanel();
-    layout = parseLayout(null); applyLayout(); saveLayout();
-    LB.say('目录页已恢复默认布局（标题、列数、分类、同步时间不受影响）', { kind: 'ok' });
+  // 样式 ▾：恢复默认 · 存过的每一个（点了换过去）· 改名 · 删掉
+  const cur = curStyleName(), dirty = styleDirty();
+  const pickB = btn(arrangeTray, `样式：${cur || '默认'}${dirty ? '（改过）' : ''} ▾`, { act: 'styles' }); pickB.setAttribute('aria-haspopup', 'menu');
+  pickB.onclick = e => {
+    const list = stylesList();
+    popMenu([
+      { title: '恢复默认', checked: !cur, onClick: () => applyStyle('') },
+      ...(list.length ? [{ separator: true }] : []),
+      ...list.map(st => ({ title: st.name, checked: st.name === cur, onClick: () => applyStyle(st.name) })),
+      ...(cur ? [{ separator: true }, { title: `给「${cur}」改名`, onClick: () => { const again = arrangeTray.querySelector('[data-act="styles"]'); if (again) editStyleName(again, cur); } },
+        { title: `删掉「${cur}」`, onClick: () => deleteStyle(cur) }] : []),
+      ...(cur ? [{ title: '另存为新样式', onClick: () => saveStyle({ asNew: true }) }] : []),
+    ], e, pickB);
   };
-  const done = btn('结束编排', { act: 'done' }, 'is-solid'); done.onclick = () => setArranging(false);
-  // ＋ 模块：八个都列出来，移除了的点一下加回原位置
-  const list = arrangeTray.createEl('div', { cls: 'lbc-at-row lbc-at-mods' }); list.hidden = !trayModsOpen;
-  for (const id of MOD_IDS) {
-    if (!present(id)) continue;
-    const off = modCfg(id).hidden;
-    const b = list.createEl('button', { cls: off ? 'is-dash' : '', text: (off ? '＋ ' : '✓ ') + MOD_NAMES[id] }); b.type = 'button';
-    if (off) { b.dataset.show = id; b.onclick = () => setModHidden(id, false); } else { b.disabled = true; b.setAttribute('aria-label', MOD_NAMES[id] + '（在页面上）'); }
-  }
+  const saveB = btn(arrangeTray, cur ? (dirty ? `存回「${cur}」` : '存好了') : '存为样式', { act: 'save-style' });
+  saveB.title = '存下现在的样子，存完锁住（不会误拖）；点「编排」再改';
+  saveB.onclick = () => saveStyle();
+  arrangeTray.createEl('span', { cls: 'lbc-at-save' });
+  const retry = btn(arrangeTray, '重试', { act: 'retry' }); retry.hidden = true; retry.onclick = () => flushSave();
+  const done = btn(arrangeTray, '完成', { act: 'done' }, 'is-solid'); done.onclick = () => setArranging(false);
   // Aa 样式：全站三套字 + 界面大小 + 卡片间距（共享令牌，问收藏 / 笔记页用同一组）
   const st = arrangeTray.createEl('div', { cls: 'lbc-at-row lbc-at-style' }); st.hidden = !trayStyleOpen;
   const t = layout.theme;
   const pick = (label, key, choices) => {
     const l = st.createEl('label', { text: label });
     const opts = choices.some(([v]) => String(v) === String(t[key])) ? choices : [...choices, [t[key], String(t[key])]];
-    const s = mkSelect(l, opts, t[key], v => { t[key] = typeof THEME_DEFAULT[key] === 'number' ? Number(v) : v; layout.theme = cleanTheme(t); applyThemeNow(); saveLayout(); if (key === 'gap' || key === 'scale') relayoutSoon(); }, label);
+    const s = mkSelect(l, opts, t[key], v => { t[key] = typeof THEME_DEFAULT[key] === 'number' ? Number(v) : v; layout.theme = cleanTheme(t); applyThemeNow(); saveLayout(); if (key === 'gap' || key === 'scale') relayoutSoon(); paintTray(); }, label);
     s.dataset.theme = key;
   };
   pick('标题字', 'titleFont', FONT_SET.map(([v, n]) => [v, v ? n : '默认（Cinzel 雕刻）']));
@@ -4805,10 +5166,29 @@ function paintTray() {
   pick('数字', 'numberFont', FONT_SET.map(([v, n]) => [v, v ? n : '默认（Cormorant 斜体）']));
   pick('界面大小', 'scale', SCALE_SET);
   pick('卡片间距', 'gap', GAP_SET);
-  arrangeTray.createEl('div', { cls: 'lbc-at-hint', text: '按住 ⠿ 拖到任何位置（放到一块的左右边 = 并排）；拖两列之间的竖线调宽；「调整」改这一块的字和设置；× 移除（「＋ 模块」加回）。改了马上生效、自动保存，只在电脑上。' });
+  arrangeTray.createEl('div', { cls: 'lbc-at-hint', text: '按住一块拖到任何位置：放进空地 = 就在那儿，压在别的块左右 = 并排，排与排之间 = 单独一排；靠近别的块的边会吸住。拉块右边的竖线调宽，点标题字直接改。× 放进备选。改了马上生效、自动保存；「存为样式」存下来并锁住。只在电脑上。' });
   paintSaveState();
   if (focusKey) { const again = [...arrangeTray.querySelectorAll('button, select')].find(b => (b.dataset?.act || b.dataset?.show || b.dataset?.theme || '') === focusKey); try { again?.focus({ preventScroll: true }); } catch {} }
 }
+// ── 标题：编排时点一下标题字就地改（回车确定、Esc 放弃；空 = 默认标题），和「管理 → 改标题」是同一个 catalogTitle ──
+function editTitleInline() {
+  const p = provider(); if (!p?.settings || titleLabel.isContentEditable) return;
+  const old = String(p.settings.catalogTitle || '');
+  titleLabel.contentEditable = 'true'; titleLabel.classList.add('is-editing');
+  titleLabel.setText(old || titleOf());
+  try { titleLabel.focus(); document.getSelection?.()?.selectAllChildren?.(titleLabel); } catch {}
+  let done = false;
+  const end = ok => {
+    if (done) return; done = true;
+    titleLabel.contentEditable = 'false'; titleLabel.classList.remove('is-editing');
+    const v = String(titleLabel.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    if (ok && v !== old && v !== titleOf()) { p.settings.catalogTitle = v; saveSettingSoon('catalogTitle'); }
+    setTitle();
+  };
+  titleLabel.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault?.(); end(true); } else if (e.key === 'Escape') { e.preventDefault?.(); e.stopPropagation?.(); end(false); } };
+  titleLabel.onblur = () => end(true);
+}
+titleLabel.addEventListener('click', e => { if (!arranging || drag) return; e.stopPropagation?.(); editTitleInline(); });
 function onArrangeKey(e) {
   if (!arranging || e.key !== 'Escape') return;
   if (drag) { e.preventDefault?.(); endModDrag(true); return; }
@@ -4817,6 +5197,7 @@ function onArrangeKey(e) {
   if (t && typeof t.closest === 'function' && t.closest('input, textarea, select, [contenteditable]')) return;   // 输入框里的 Esc 不退出编排
   e.preventDefault?.();
   if (openPanel) { const id = openPanel.id; closePanel(); try { bars[id]?.adj.focus(); } catch {} return; }
+  if (selId) { selectMod(''); return; }
   setArranging(false);
 }
 let arranging = false;
@@ -4824,7 +5205,7 @@ function setArranging(on) {
   if (!arrangeBtn || arranging === !!on) return;
   arranging = !!on;
   if (arranging) { LB.style('lbc-arrange-style', ARRANGE_CSS); for (const id of MOD_IDS) ensureBar(id); if (!sideOpen) setSideOpen(true); }
-  else { closePanel(); endModDrag(true); endEdgeDrag(); if (saveTimer) flushSave(); }
+  else { closePanel(); endModDrag(true); endEdgeDrag(); selectMod(''); if (saveTimer) flushSave(); }
   wrap.classList.toggle('is-arranging', arranging);
   arrangeBtn.setAttribute('aria-pressed', String(arranging));
   if (typeof document !== 'undefined') { if (arranging) document.addEventListener('keydown', onArrangeKey, true); else document.removeEventListener('keydown', onArrangeKey, true); }
@@ -4834,6 +5215,8 @@ function setArranging(on) {
   sideFadeSoon();
 }
 cleanups.push(() => { try { document.removeEventListener('keydown', onArrangeKey, true); } catch {} });
+// 编排时点空白处：取消选中
+wrap.addEventListener('pointerdown', e => { if (!arranging || !selId) return; const t = e.target; if (t && typeof t.closest === 'function' && t.closest('.lbc-m, .lbc-arrange-tray, .lbc-col-edge, .menu, .lbc-mp')) return; selectMod(''); });
 function paintMod(key) { if (key === 'recent') paintRecent(); else if (key === 'sync') paintSync(); else if (key === 'overview') paintOverview(); else if (key === 'token') paintToken(); }
 let roRef = null;
 if (SIDE_ON) {
@@ -4886,8 +5269,27 @@ function paintStickyTop() {
   const twv = tw > 0 ? (tw + 20) + 'px' : '';
   if (twv && top.style.getPropertyValue('--lbc-tools-w') !== twv) top.style.setProperty('--lbc-tools-w', twv);
   if (top.classList.contains('is-tools-static') !== toolsStatic) top.classList.toggle('is-tools-static', toolsStatic);
+  paintUnderTools(toolsStatic, tw);
+  fitFreeGaps();
   if (arranging) paintEdges();
   if (catWrap != null && catBar.classList.contains('is-wrap') !== catWrap) catBar.classList.toggle('is-wrap', catWrap);
+}
+// 1028 页头第一排：右上角钉着「编排 / 管理」时，伸到它下面的块（默认是计数行）加 is-under-tools 往下让；标题那一块够不到右边 → 标题两边不用再留按钮的空
+function paintUnderTools(toolsStatic, tw) {
+  const bi = boardIndex();
+  const firstI = layout.rows.findIndex((r, i) => i < bi && topRowEls[i] && !topRowEls[i].el.hidden);
+  let titleClear = false;
+  layout.rows.forEach((r, i) => {
+    if (i >= bi || !topRowEls[i]) return;
+    r.cols.forEach((c, j) => {
+      const node = topRowEls[i].cols[j]; if (!node) return;
+      const toolsCols = tw > 0 ? Math.ceil((tw + 20) / Math.max(1, (Number(top.clientWidth) || 1200) / GRID)) : 8;
+      const under = !toolsStatic && i === firstI && c.x + c.w > GRID - toolsCols && !c.mods.includes('title');
+      if (node.classList.contains('is-under-tools') !== under) node.classList.toggle('is-under-tools', under);
+      if (c.mods.includes('title') && (i !== firstI || c.x + c.w <= GRID - toolsCols)) titleClear = true;
+    });
+  });
+  if (top.classList.contains('is-title-clear') !== titleClear) top.classList.toggle('is-title-clear', titleClear);
 }
 // 1021 第 3 段：边栏吸在页头下面——--lbc-top-h = 吸住时页头露出来的高度，--lbc-side-top = 边栏的 sticky top（和 .lbc-top 同一个参照：
 // 页头 top 是 -(pad + stickyHide)，边栏就贴在它底下），--lbc-pane-h = 滚动容器可视高度（边栏 max-height 用）。窄于 760（按页面宽）不出边栏
