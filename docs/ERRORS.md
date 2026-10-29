@@ -1,6 +1,6 @@
 # 报错台账（ERRORS）
 
-- 2026-10-29：收藏页正常却因展开回复要求扫码 → sub_comments 拒绝被升级成整号熔断且丢弃正文 → 保留正文、楼中楼冷却 72 小时，补评论等到期限再续；设置页显示无需重新登录。回归：`tests/test_sub_recovery_1029.py`，读取器 `TestSubRecoveryKeepsNoteAndHonestReplyGap`、`TestSubRecoveryMigratesOnlyReplyHoldAndSurvivesRestart`。
+- 2026-10-29：收藏页正常却因展开回复要求扫码 → sub_comments 拒绝被升级成整号熔断且丢弃正文 → 保留正文、楼中楼冷却 24 小时（1029 她改：72→24），补评论等到期限再续；设置页显示无需重新登录。回归：`tests/test_sub_recovery_1029.py`，读取器 `TestSubRecoveryKeepsNoteAndHonestReplyGap`、`TestSubRecoveryMigratesOnlyReplyHoldAndSurvivesRestart`。
 
 开源前的经验库：每条 = **用户看到什么 → 根因 → 修法 / 自愈动作 → 回归用例**。
 目标（作者 10-04 定）：风控以外的报错期待是 0；凌晨跑完出 bug **当场修**，不留到第二天；实际报错都要显示出来；

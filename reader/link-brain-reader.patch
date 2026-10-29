@@ -7098,7 +7098,7 @@ index 0000000..6d90694
 +)
 +
 +const subCooldownFile = "sub-comments-hold.json"
-+const subCooldownDuration = 72 * time.Hour
++const subCooldownDuration = 24 * time.Hour
 +
 +func subCooldownUntil(dir string) time.Time {
 +	b, err := os.ReadFile(filepath.Join(dir, subCooldownFile))
@@ -7172,7 +7172,7 @@ index 0000000..c75bb85
 +		}
 +		require.Nil(t, s.hold.blocking())
 +		require.Nil(t, loadHoldStore(path).blocking())
-+		require.Equal(t, since.Add(72*time.Hour), subCooldownUntil(dir))
++		require.Equal(t, since.Add(24*time.Hour), subCooldownUntil(dir))
 +		s.installSubGate(dir)
 +		require.Contains(t, xiaohongshu.SubExpandGate(), "无需重新登录")
 +		defer xiaohongshu.SetSubGate(nil, nil)
