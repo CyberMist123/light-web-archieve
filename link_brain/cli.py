@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 PROG = "python -m link_brain"
@@ -127,6 +128,8 @@ def build_parser() -> argparse.ArgumentParser:
     pb.add_argument("--limit", type=int, default=None, help="本轮最多下载几条")
     pb.add_argument("--max-duration", dest="max_duration", type=int, default=3600, help="超过这么多秒的只记链接（默认 3600）")
     pb.add_argument("--gap", type=float, default=5.0, help="两条下载之间歇几秒（默认 5）")
+    pb.add_argument("--workers", type=int, default=int(os.environ.get("LWA_BILI_WORKERS") or 1),
+                    help="并行下载几路（只并行 yt-dlp，入库仍一条一条；撞限流自动退回 1；默认 1 或 LWA_BILI_WORKERS）")
     pb.add_argument("--min-free-gb", dest="min_free_gb", type=float, default=10.0, help="磁盘余量低于多少 GB 就停（默认 10）")
     pb.add_argument("--folder", action="append", default=None, help="只同步这些收藏夹（名字或 id，可多次）")
     pb.add_argument("--allow", action="append", default=None, help="放行这些 BV（不看时长上限，可多次）")

@@ -265,7 +265,7 @@ def _fresh_snapshot(owner_mid: int, media_id: int, media_count: int, rescan_hour
 
 def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s: int = MAX_DURATION_S, gap_s: float = GAP_S,
              min_free_gb: float = MIN_FREE_GB, folders: list[str] | None = None, allow: list[str] | None = None,
-             rescan_hours: float = RESCAN_HOURS, folder_gap_s: float = FOLDER_GAP_S,
+             rescan_hours: float = RESCAN_HOURS, folder_gap_s: float = FOLDER_GAP_S, workers: int = 1,
              log: Callable[[str], None] | None = None, sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
     """返回 {ok, code, message, counts, buckets, folders, ...}；stdout 不碰（调用方打 JSON），人话走 log。"""
     say = log or (lambda m: print(m, file=sys.stderr, flush=True))
@@ -335,9 +335,18 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
             return out
 
         from ... import ingest as ingest_mod
+        from . import ytdlp
         vault = storage.vault_root()
         streak, pauses = 0, 0
+        # 1029 她：workers>1 时后面几条的 yt-dlp 先在后台下（瓶颈是单连接拉 CDN）；入库照旧一条一条。撞限流就退回一条一条下
+        parallel = workers > 1
+        ytdlp.prefetch_start(workers if parallel else 1)
+        if parallel:
+            say(f"并行下载 {workers} 路（入库仍一条一条）")
         for i, r in enumerate(queue, start=1):
+            if parallel:
+                for nxt in queue[i - 1:i - 1 + workers + 1]:
+                    ytdlp.prefetch(ytdlp.download_url(nxt["bvid"]))
             if streak >= FAIL_STREAK:
                 pauses += 1
                 if pauses > MAX_PAUSES:
@@ -383,9 +392,14 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
                 streak += 1
                 if getattr(exc, "code", "") in ("HTTP_429", "NETWORK"):
                     streak = FAIL_STREAK   # 限流 / 断网：不用等连败，下一条前就歇
+                    if parallel:
+                        parallel = False
+                        ytdlp.prefetch_stop()
+                        say("    限流 / 断网：退回一条一条下")
                 say(f"    失败：{r['reason']}")
             if gap_s and i < len(queue):
                 sleep(gap_s)
+        ytdlp.prefetch_stop()
         b["skipped_by_limit"] = b["download"][len(queue):]
         b["not_reached"] = queue[len(b["downloaded"]) + len(b["failed"]):]
         out["buckets"] = b
@@ -401,6 +415,8 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
         out.update(ok=ok, code=code, message=msg)
         return out
     finally:
+        from . import ytdlp
+        ytdlp.prefetch_stop()   # 半路炸了也别留着后台下载拖住进程退出
         try:
             client.close()
         except Exception:  # noqa: BLE001
@@ -446,7 +462,8 @@ def run(args) -> int:
     out = run_sync(dry_run=bool(getattr(args, "dry_run", False)), limit=getattr(args, "limit", None),
                    max_duration_s=int(getattr(args, "max_duration", MAX_DURATION_S) or MAX_DURATION_S),
                    gap_s=float(getattr(args, "gap", GAP_S) or 0), min_free_gb=float(getattr(args, "min_free_gb", MIN_FREE_GB) or 0),
-                   folders=getattr(args, "folder", None) or None, allow=getattr(args, "allow", None) or None)
+                   folders=getattr(args, "folder", None) or None, allow=getattr(args, "allow", None) or None,
+                   workers=max(1, int(getattr(args, "workers", 1) or 1)))
     payload = {k: v for k, v in out.items() if k != "buckets"}
     payload["pending"] = {k: [{"bvid": r.get("bvid"), "title": r.get("title"), "duration": r.get("duration"), "reason": r.get("reason")}
                               for r in v] for k, v in (out.get("buckets") or {}).items() if k in ("long", "multi_p", "failed", "denied")}

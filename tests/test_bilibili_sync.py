@@ -180,3 +180,77 @@ def test_choose_deny_writes_tombstone_and_plan_excludes(vault, monkeypatch):
     assert "## 你删了的" in text and "短 MV" in text
     assert sync.choose(undo=["BV1aaaaaaaa2"])["undone"] == ["BV1aaaaaaaa2"]
     assert "BV1aaaaaaaa2" not in sync.load_choices()["allow"]
+
+
+def test_prefetch_runs_downloads_in_parallel_and_run_reuses_them(tmp_path, monkeypatch):
+    """1029：并行只并行 yt-dlp；run() 领到后台下好的结果，不再重下；没人领的被清掉。"""
+    import threading
+    import time as _t
+    from link_brain.sources.bilibili import ytdlp
+    live, peak, lock = [0], [0], threading.Lock()
+
+    def fake_download(url, **kw):
+        with lock:
+            live[0] += 1
+            peak[0] = max(peak[0], live[0])
+        _t.sleep(0.2)
+        with lock:
+            live[0] -= 1
+        d = tmp_path / url.rsplit("/", 2)[-2]
+        d.mkdir(exist_ok=True)
+        return {"dir": d, "cookies_used": True, "duration_s": 0.2, "url": url, "fresh": False}
+    monkeypatch.setattr(ytdlp, "_download", lambda url, **kw: fake_download(url, **kw))
+    urls = [ytdlp.download_url(f"BV1bbbbbbbb{i}") for i in range(4)]
+    ytdlp.prefetch_start(4)
+    try:
+        assert all(ytdlp.prefetch(u) for u in urls) and not ytdlp.prefetch(urls[0])   # 同一条不排两次
+        got = ytdlp.run(urls[0])
+        assert got["url"] == urls[0] and got["fresh"] is False
+        assert ytdlp.run(urls[1])["url"] == urls[1]
+    finally:
+        ytdlp.prefetch_stop()
+    assert peak[0] >= 2                       # 真的同时在下
+    _t.sleep(0.5)
+    assert not (tmp_path / "BV1bbbbbbbb3").exists()   # 下完没人领 → 清掉
+    # 没开池时 run() 就是原来那样现下
+    monkeypatch.setattr(ytdlp, "_download", lambda url, **kw: {"dir": tmp_path, "cookies_used": True, "duration_s": 0, "url": url, "fresh": True})
+    assert ytdlp.run(urls[2])["fresh"] is True
+
+
+def test_run_sync_parallel_prefetches_ahead_and_falls_back_on_rate_limit(vault, monkeypatch):
+    from link_brain import ingest, catalog, sources
+    from link_brain.sources.bilibili import login, ytdlp
+
+    class Client:
+        def close(self):
+            pass
+    many = [{"media_id": 21, "title": "多", "items": [_item(f"BV1cccccccc{i}", f"v{i}", 60, fav_time=10 - i) for i in range(6)]}]
+    monkeypatch.setattr(favorites, "default_client", lambda: (Client(), {"state": "logged_in"}))
+    monkeypatch.setattr(login, "my_mid", lambda client=None: 1)
+    monkeypatch.setattr(favorites, "list_folders", lambda client, mid: {
+        "status": "ok", "folders": [{"media_id": 21, "fid": 1, "owner_mid": mid, "title": "多", "private": False, "media_count": 6}]})
+    snap = {**many[0], "owner_mid": 1, "complete": True, "status": "complete", "fetched_at": "t"}
+    monkeypatch.setattr(favorites, "sync_folder", lambda client, mid_, **kw: {"snapshot": snap, "diff": None, "relations": None,
+                                                                             "summary": {}, "prev_complete_at": None})
+    queued = []
+    monkeypatch.setattr(ytdlp, "prefetch", lambda url: queued.append(url) or True)
+    seen = []
+
+    def fake_ingest(url, **kw):
+        seen.append(url)
+        if len(seen) == 2:
+            err = sources.SourceError("B 站限流")
+            err.code = "HTTP_429"
+            raise err
+        return {"item_id": "bili-" + url.rsplit("/", 1)[1], "hit": False, "manifest": {"media": []}}
+    monkeypatch.setattr(ingest, "ingest_url", fake_ingest)
+    monkeypatch.setattr(ingest, "after_commit", lambda *a, **k: None)
+    monkeypatch.setattr(catalog, "ensure_fresh", lambda **k: None)
+    logs = []
+    out = sync.run_sync(gap_s=0, workers=3, log=logs.append, sleep=lambda s: None)
+    assert len(seen) == 6                                   # 入库仍一条一条走完
+    assert queued[:4] == [ytdlp.download_url(f"BV1cccccccc{i}") for i in range(4)]   # 第一条时先排 workers+1 条
+    assert any("退回一条一条下" in m for m in logs)
+    # 每条都把后面 workers+1 条的窗口再递一遍（真 prefetch 去重）；第 2 条撞限流后就不再往后排
+    assert len(queued) == 8 and set(queued) == {ytdlp.download_url(f"BV1cccccccc{i}") for i in range(5)}
+    assert out["counts"]["downloaded"] == 5 and out["counts"]["failed"] == 1

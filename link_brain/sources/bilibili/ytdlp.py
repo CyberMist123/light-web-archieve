@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -176,11 +177,67 @@ def classify_error(stderr: str) -> tuple[str, str]:
     return "TRANSIENT.DOWNLOAD_FAILED", "下载器失败"
 
 
+# 1029 她：收藏同步并行下载。瓶颈是单连接拉 CDN（实测 130–430 KB/s），入库本身几秒——所以只并行 yt-dlp 这一步：
+# sync 把后面几条先丢进 prefetch，入库照旧一条一条走，走到那条时 run() 直接拿已下好的结果。
+# 同一进程内存登记、不落盘；临时目录照旧归调用方（入库后清），没被领走的由 prefetch_stop 清。
+_PREFETCH: dict[str, Future] = {}
+_POOL: ThreadPoolExecutor | None = None
+
+
+def prefetch_start(workers: int) -> None:
+    global _POOL
+    prefetch_stop()
+    if workers > 1:
+        _POOL = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="bili-dl")
+
+
+def prefetch(url: str) -> bool:
+    """排一条后台下载；没开池 / 已经排过就不排。"""
+    if _POOL is None or url in _PREFETCH:
+        return False
+    _PREFETCH[url] = _POOL.submit(_download, url)
+    return True
+
+
+def _discard(fut: Future) -> None:
+    try:
+        shutil.rmtree(fut.result()["dir"], ignore_errors=True)
+    except Exception:  # noqa: BLE001 - 取消 / 下载器炸了：没有目录可清
+        pass
+
+
+def prefetch_stop() -> None:
+    """不等正在跑的 yt-dlp（跑完自己清目录），没开始的取消，下完没人领的清掉。"""
+    global _POOL
+    pool, _POOL = _POOL, None
+    for fut in _PREFETCH.values():
+        if not fut.cancel():
+            fut.add_done_callback(_discard)
+    _PREFETCH.clear()
+    if pool is not None:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
 def run(url: str, *, log=lambda _m: None, timeout_s: int | None = None, use_cookies: bool = True) -> dict[str, Any]:
-    """起一次 yt-dlp 下载到全新临时目录。返回：
+    """起一次 yt-dlp 下载到全新临时目录（sync 预先排过的就直接领结果）。返回：
     {dir, exit_code, argv（不含 cookie 路径值）, stderr_tail（脱敏）, info（白名单后的 info.json）, files: {video, cover, danmaku, subtitles[]},
      cookies_used, duration_s, need_login_subtitle}
     子进程失败但视频文件已完整落地也算部分成功，由调用方按文件逐项定状态。"""
+    fut = _PREFETCH.pop(url, None)
+    if fut is not None and not fut.cancelled():
+        try:
+            result = fut.result()
+        except Exception:  # noqa: BLE001 - 后台那趟炸了：前台重下一次
+            result = None
+        if result is not None and (use_cookies or not result["cookies_used"]):
+            log(f"yt-dlp（后台已下好，{result['duration_s']} 秒）")
+            return result
+        if result is not None:
+            shutil.rmtree(result["dir"], ignore_errors=True)
+    return _download(url, log=log, timeout_s=timeout_s, use_cookies=use_cookies)
+
+
+def _download(url: str, *, log=lambda _m: None, timeout_s: int | None = None, use_cookies: bool = True) -> dict[str, Any]:
     out_dir = new_tmp_dir()
     cookies = login.cookies_path() if (use_cookies and login.has_cookies()) else None
     argv = build_argv(url, out_dir, cookies=cookies)

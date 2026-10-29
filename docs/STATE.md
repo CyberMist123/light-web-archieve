@@ -972,3 +972,5 @@ repo_path: D:\LIGHT WEB ARCHIEVE
 - 2026-10-29：个人 Wiki（feat/personal-wiki-backend）：后端 `link_brain/personal_wiki.py` + `pwiki` CLI；页面 `link_brain/assets/wiki-view.js`（照 design-1028-wiki 设计稿；写盘只经插件 `wikiCall`，每页一条操作队列）；`Wiki.md` 入口、问收藏 / 回收站导航「Wiki」、插件命令「打开个人 Wiki」。GPT（Codex）审了 6 轮，问题都已修；测试 tests/test_personal_wiki_1029.py、tests/test_wiki_view_1029.cjs。真库已导入 20 页（PersonalWiki/）；10-29 02:20 部署 5ca0d32（ff 进 main、插件拷进 vault、catalog 生成 Wiki.md），她实际用后（10-29 夜）：引用短 id 对不上已修（真库 14 页改成带前缀 id，页面也认短 id）；关系图照 Quartz 改成力导向、可拖、可缩放、悬停高亮、全局图。规格见 docs/WIKI-SPEC.md。以后统一的前端见 docs/WIKI-UNIFY-LATER.md。
 
 - 2026-10-29：`comments <id> --skip/--unskip` 单篇不补开关（eddd2d7）；已 skip xhs-63e0f512（1029 两次 300011 都在这篇）。
+
+- 2026-10-29：B 站收藏同步并行下载 `bilibili sync --workers N`（或 LWA_BILI_WORKERS）：只并行 yt-dlp（瓶颈是单连接拉 CDN 130–430 KB/s），入库仍一条一条；撞 412/429 或断网自动退回一路。
