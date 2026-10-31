@@ -43,14 +43,17 @@ style.textContent = `
 .lba-input-row > .lba-annot-input{flex:1 1 auto;min-width:0;}
 .lba-input-row > .lba-star{flex:none;padding-top:7px;}
 /* 1015 作者：划的重点也算进批注区（一行一条，点了跳到正文那一处；取消在正文里点那一处） */
-.lba-marks{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;}
+.lba-marks{display:flex;flex-direction:column;gap:18px;margin-bottom:18px;}
 .lba-marks[hidden]{display:none;}
-.lba-mark-row{font-size:13px;line-height:1.6;color:var(--text-normal);cursor:pointer;padding-left:9px;border-left:3px solid rgb(255,214,10);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.lba-mark-row:hover{color:var(--text-accent);}
-.lba-mark-row.lb-hl-green{border-left-color:rgb(80,200,120);}
-.lba-mark-row.lb-hl-blue{border-left-color:rgb(80,160,255);}
-.lba-mark-row.lb-hl-pink{border-left-color:rgb(255,120,170);}
-.lba-mark-row.lb-hl-purple{border-left-color:rgb(170,120,255);}
+/* 1031 作者：摘录和批注同一个格式——上面一行「人 · 时间」，下面原文放进灰色细框（左边一道颜色条 = 划的颜色），字体字号同批注 */
+.lba-mark-item{font-size:14px;line-height:1.75;color:var(--text-normal);word-break:break-word;}
+.lba-mark-item .lba-ts{display:block;font-size:11px;color:var(--text-faint);margin-bottom:3px;}
+.lba-mark-row{display:block;padding:6px 12px;border:1px solid var(--background-modifier-border);border-left:3px solid rgb(255,214,10);border-radius:6px;color:var(--text-normal);cursor:pointer;white-space:pre-wrap;}
+.lba-mark-row:hover{border-color:var(--text-faint);border-left-color:rgb(255,214,10);}
+.lba-mark-row.lb-hl-green,.lba-mark-row.lb-hl-green:hover{border-left-color:rgb(80,200,120);}
+.lba-mark-row.lb-hl-blue,.lba-mark-row.lb-hl-blue:hover{border-left-color:rgb(80,160,255);}
+.lba-mark-row.lb-hl-pink,.lba-mark-row.lb-hl-pink:hover{border-left-color:rgb(255,120,170);}
+.lba-mark-row.lb-hl-purple,.lba-mark-row.lb-hl-purple:hover{border-left-color:rgb(170,120,255);}
 .lba-mark-flash{outline:2px solid var(--interactive-accent);outline-offset:2px;}
 .lba-star:hover{opacity:.85;}
 .lba-star-hint{font-size:11px;color:var(--text-muted);}
@@ -182,18 +185,33 @@ function placeUnderImages(root, box) {
 
 // 1015 作者：「高亮算进批注」——正文 / 评论里划的重点在批注区列一行一条（颜色条 + 原文），点了滚到正文那一处闪一下。
 // 只读页面上的 <mark>（重点本来就存在 md 里，不另存一份）；正文重画（划 / 取消 / 换色）由上面的 MutationObserver 带着重列。
+// 划的时刻记在框上（box.__lbaHl）：Dataview 重跑走 reuseDom 那条路时脚本后面的变量都还没声明，只有框还在；
+// 第一次挪框时 notes.json 还没读，先当没有时刻，读完由 repaintMarks 补上
+function repaintMarks() {
+  box.__lbaHl = Array.isArray(data.highlights) ? data.highlights : [];
+  const view = box.closest && box.closest('.markdown-reading-view, .markdown-preview-view');
+  if (view) paintMarks(view, box);
+}
+function markAuthor() { return app.plugins.plugins['link-brain-actions']?.settings?.nickname || ''; }
 function paintMarks(view, box) {
   const wrap = box && box.querySelector && box.querySelector('.lba-marks');
   if (!wrap || !view.querySelectorAll) return;
   const marks = [...view.querySelectorAll('.xhs-note .lb-scroll mark')].filter(m => !String(m.className || '').includes('lb-mark-pending') && String(m.textContent || '').trim());
-  const key = marks.map(m => (m.className || '') + '\u0001' + m.textContent).join('\u0002');
+  // 划的时刻在 notes.json 的 highlights（[{text, ts}]，划重点那一刻由 Python 记）；以前划的没有时刻，只写人
+  const hl = Array.isArray(box.__lbaHl) ? box.__lbaHl : [];
+  const tsOf = new Map(hl.filter(h => h && h.text && h.ts).map(h => [String(h.text).trim(), h.ts]));
+  const key = marks.map(m => (m.className || '') + '\u0001' + m.textContent + '\u0001' + (tsOf.get(String(m.textContent).trim()) || '')).join('\u0002') + '\u0002' + markAuthor();
   if (wrap.dataset.key === key) return;
   wrap.dataset.key = key;
   wrap.empty ? wrap.empty() : (wrap.textContent = '');
   wrap.hidden = !marks.length;
   for (const m of marks) {
     const color = (/(?:^|\s)(lb-hl-[a-z]+)/.exec(m.className || '') || [])[1] || '';
-    const row = wrap.createEl('div', { cls: 'lba-mark-row' + (color ? ' ' + color : ''), text: String(m.textContent).trim().slice(0, 80) });
+    const text = String(m.textContent).trim(), at = tsOf.get(text), who = markAuthor();
+    const item = wrap.createEl('div', { cls: 'lba-mark-item' });
+    const meta = [who, at ? fmtTs(at) : ''].filter(Boolean).join(' · ');
+    if (meta) item.createEl('span', { cls: 'lba-ts', text: meta });
+    const row = item.createEl('div', { cls: 'lba-mark-row' + (color ? ' ' + color : ''), text });
     row.title = '重点：点一下跳到原文那一处';
     row.onclick = () => {
       try { m.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch {}
@@ -615,6 +633,7 @@ await load();
 LB?.t('read');
 renderStar();
 renderList();
+repaintMarks();
 paintVt();
 emitAnnots();
 ta.value = data.draft || '';
@@ -626,6 +645,7 @@ LB?.keep(mount === root ? box : mount, { versionOf: { abs: notePath }, version: 
   await load();
   renderStar();
   if (!list.querySelector('.lba-edit-input')) renderList();
+  repaintMarks();
   emitAnnots();
   const typing = typeof document !== 'undefined' && document.activeElement === ta;
   if (!typing && !ta.disabled) { ta.value = data.draft || ''; fitHeight(ta); }

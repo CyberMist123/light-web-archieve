@@ -853,6 +853,7 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
 - 2026-10-15 第二批：`search_fields` 再分出三路（空的不写）——`comment_ocr` = 评论区图片的文字（资产名 `comment-<id>-<n>.*`，
   不再混在 `ocr` 里）；`screen` = 视频画面文字（以前拼在 `transcript` 尾巴上，`transcript` 现在只有口播稿）；
   `highlights` = 用户划的重点（可见笔记里的 `<mark>` / `==x==` + notes.json 的 `highlights`，一条一行，权重同批注）。
+  2026-10-31：`notes.json` 的 `highlights` 由 `highlight` 命令维护成 `[{text, ts}]`——划上那一刻记 `ts`（本地时区 ISO），换色不改，取消就删掉那条；批注区的摘录按它写「人 · 时间」（以前划的没有这条，只写人）。
   `comments` 仍只放评论原文（昵称不进检索，免得昵称当内容命中）；说话人由问收藏证据阶段按楼号另挂。语义索引同样分块（重建 embed 时补）。
 - `attachment_files` 逐条提供 `doc_id/name/downloaded/status/file/markdown/url`，文件和 Markdown
   路径为本机绝对路径（该索引仅用于本机 UI/CLI）；`attachment_missing` 是未落字节数。

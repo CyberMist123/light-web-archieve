@@ -59,7 +59,7 @@ def test_multi_phrases_one_write(tmp_path, monkeypatch):
     real = storage.atomic_write_text
     monkeypatch.setattr(storage, "atomic_write_text", lambda p, t, *a, **k: (writes.append(p), real(p, t, *a, **k)))
     r = render.set_highlights("xhs-deadbeef01", ["第一段讲图片怎么拍。", "第二段讲构图。"])
-    assert r["changed"] == ["第一段讲图片怎么拍。", "第二段讲构图。"] and len(writes) == 1
+    assert r["changed"] == ["第一段讲图片怎么拍。", "第二段讲构图。"] and writes.count(note) == 1, "正文一次写盘（notes.json 记划的时刻另算）"
     text = note.read_text(encoding="utf-8")
     assert "<mark>第一段讲图片怎么拍。</mark><br><mark>第二段讲构图。</mark>" in text
 
@@ -116,3 +116,28 @@ def test_cli_highlight_color(tmp_path, monkeypatch, capsys):
     code = cli.main(["highlight", "xhs-deadbeef01", "构图", "--color", "pink", "--json"])
     j = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert code == 0 and j["ok"] and '<mark class="lb-hl-pink">构图</mark>' in note.read_text(encoding="utf-8")
+
+
+def test_highlight_records_time_in_notes(tmp_path, monkeypatch):
+    """1031 作者：批注区摘录写「人 · 时间」——划的时刻记进 notes.json 的 highlights；换色不改时刻，取消抹掉，别的字段原样。"""
+    _setup(tmp_path, monkeypatch)
+    notes = tmp_path / "_archive" / "xiaohongshu" / "deadbeef01" / "notes.json"
+    notes.write_text(json.dumps({"starred": True, "annotations": [{"text": "111", "ts": "2026-10-31T23:47:00+11:00"}]}), encoding="utf-8")
+    render.set_highlights("xhs-deadbeef01", ["构图"])
+    doc = json.loads(notes.read_text(encoding="utf-8"))
+    assert [h["text"] for h in doc["highlights"]] == ["构图"] and doc["highlights"][0]["ts"]
+    assert doc["starred"] is True and doc["annotations"][0]["text"] == "111"
+    first = doc["highlights"][0]["ts"]
+    render.set_highlights("xhs-deadbeef01", ["构图"], color="green")
+    assert json.loads(notes.read_text(encoding="utf-8"))["highlights"][0]["ts"] == first, "换色不改时刻"
+    render.set_highlights("xhs-deadbeef01", ["构图"], remove=True)
+    assert "highlights" not in json.loads(notes.read_text(encoding="utf-8"))
+
+
+def test_highlight_leaves_corrupt_notes_alone(tmp_path, monkeypatch):
+    note = _setup(tmp_path, monkeypatch)
+    notes = tmp_path / "_archive" / "xiaohongshu" / "deadbeef01" / "notes.json"
+    notes.write_text("{坏", encoding="utf-8")
+    assert render.set_highlights("xhs-deadbeef01", ["构图"])["changed"] == ["构图"]
+    assert "<mark>构图</mark>" in note.read_text(encoding="utf-8")
+    assert notes.read_text(encoding="utf-8") == "{坏"

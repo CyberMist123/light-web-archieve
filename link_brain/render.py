@@ -11,7 +11,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -819,8 +819,39 @@ def set_highlights(item_id: str, phrases: list[str], *, remove: bool = False, co
         new = new[:idx] + marked + new[idx + len(esc):]
         out["changed"].append(phrase)
     if new != text:
+        _record_highlight_times(source, src_id, out["changed"], remove=remove)
         storage.atomic_write_text(visible, new)
     return out
+
+
+def _record_highlight_times(source: str, src_id: str, phrases: list[str], *, remove: bool) -> None:
+    """1031 作者：批注区里的摘录要写「人 · 时间」——划的时刻记进 notes.json 的 highlights（[{text, ts}]，FORMAT 里已有这个字段）。
+    换色不改时刻；取消就把那条抹掉。notes.json 读坏了就不记（时间只是显示，不为它动坏文件），重点照样划上。"""
+    from . import note as note_mod
+    try:
+        data = note_mod.load_notes(source, src_id)
+    except note_mod.NotesCorrupt:
+        return
+    raw = data.get("highlights")
+    rows = [h for h in raw if isinstance(h, dict) and h.get("text")] if isinstance(raw, list) else []
+    texts = {str(h["text"]) for h in rows}
+    if remove:
+        gone = set(phrases)
+        kept = [h for h in rows if str(h["text"]) not in gone]
+        if len(kept) == len(rows):
+            return
+        rows = kept
+    else:
+        now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        new_rows = [{"text": p, "ts": now} for p in phrases if p not in texts]
+        if not new_rows:
+            return
+        rows += new_rows
+    if rows:
+        data["highlights"] = rows
+    else:
+        data.pop("highlights", None)
+    note_mod.save_notes(source, src_id, data)
 
 
 def set_highlight(item_id: str, phrase: str, *, remove: bool = False) -> tuple[Path, bool]:
