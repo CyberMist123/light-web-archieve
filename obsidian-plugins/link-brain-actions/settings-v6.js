@@ -332,8 +332,13 @@ module.exports = function (obsidian, plugin) {
     if (!rel) { plugin.notify('还没有待选清单：同步一次就有'); return; }
     const f = plugin.app.vault.getAbstractFileByPath?.(plugin.lbPath(rel));
     if (!f) { plugin.notify('还没有待选清单：同步一次就有'); return; }
-    try { plugin.app.setting?.close?.(); } catch {}   // 1031 她「待选清单打不开」：原来开在设置窗口后面被挡住了
-    plugin.app.workspace.getLeaf('tab').openFile(f);
+    // 1031 她「待选清单打不开」：其实开了，但 Obsidian 1.14 的设置是独立窗口、挡在主窗口前面——先关设置，开好后把主窗口提到前面
+    try { plugin.app.setting?.close?.(); } catch {}
+    const leaf = plugin.app.workspace.getLeaf('tab');
+    Promise.resolve(leaf.openFile(f)).then(() => {
+      try { plugin.app.workspace.setActiveLeaf?.(leaf, { focus: true }); } catch {}
+      try { (leaf.view?.containerEl?.win || window).focus?.(); } catch {}
+    }).catch(e => plugin.notify('待选清单没打开：' + errText(e), { kind: 'error' }));
   }
   // 扫码弹窗：后端把二维码存成临时 PNG（`--qr-png`），这里每秒看一眼文件、画出来；过期换新码时文件被覆盖，图跟着换。
   // 关掉弹窗 = 取消（killTree 那个登录进程）。登录态存在本机 ~/.link-brain/bilibili/，扫一次以后自动复用。
