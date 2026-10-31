@@ -14,8 +14,8 @@ const { tick, item, openCatalog, ev } = require('./_fake_l1.cjs');
   assert.equal(P.card('b').querySelector('.lbc-star').hidden, true, '没收藏的不显示');
   assert.equal(P.$('.lbc-mobile-note').textContent, '手机上只能看：导入、同步、问 AI、收藏要在电脑上用');
   // 跳页：按 frontmatter 找到问收藏页，openLinkText（1021：「浏览收藏 / 问收藏」导航换成搜索框右边的「问收藏 →」胶囊）
-  assert.ok(P.$('.lbc-head .lb-space-switch'), '1101 设计交接包：三页共用页头的空间切换胶囊（手机上也有）');
-  P.$('.lb-space-chat').onclick(); await tick(5);
+  assert.ok(P.$('.lbc-tools .lbc-jumps .lbc-pnav-chat'), '1101 作者：右上角「问收藏」「Wiki」两颗跳转（手机上也有）');
+  P.$('.lbc-pnav-chat').onclick(); await tick(5);
   assert.equal(P.app.workspace.opened.at(-1)[0], '收藏搜索.md');
   // 「更新」：读 sync-log.jsonl 最后 5 行，浮层；点外面关
   await P.$('.lbc-updated').onclick(ev()); await tick(5);

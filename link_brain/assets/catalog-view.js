@@ -694,35 +694,28 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap select.lbc-tk-capsel:hover,.lbc-wrap select.lbc-tk-capsel:focus{border-color:var(--c-ink);outline:none;}
 .lbc-tk-cap-row{align-items:center;}
 .lbc-m-rs{display:none;}
-/* ── 1101 设计交接包（design/reference/browse.html）：三页同一个页头 ──
-   第一排（标题那一排）：字标 + ＋ ｜ 空间切换胶囊 ｜ 右边「共 N 篇 · 更新 …」（Cormorant 斜体）· 历史钟 · ···；下面一道 1px 墨线 */
-${LB.siteHeaderCss()}
-.lbc-titleblock{gap:16px 40px;}
-.lbc-title{font-size:calc(44px * var(--lbc-title-k,1));line-height:1.02;}
-@container(max-width:1000px){.lbc-title{font-size:calc(40px * var(--lbc-title-k,1));}}
-@container(max-width:640px){.lbc-title{font-size:calc(30px * var(--lbc-title-k,1));}}
-.lbc-wrap .lbc-title button.lbc-import{margin:0 0 0 .12em!important;}
-.lbc-top .lbc-row:has(.lbc-m-title){padding:28px 0 22px;border-bottom:1px solid var(--c-line);align-items:center;}
-.lbc-top:not(.is-tools-static)>.lbc-tools{top:28px;}
-.lbc-top .lbc-row:has(.lbc-m-title) .lbc-blk-meta{align-self:center;padding-bottom:0;}
-.lbc-top:not(.is-tools-static) .lbc-row:has(.lbc-m-title) .lbc-blk-meta{padding-right:calc(var(--lbc-tools-w,120px) + 6px);}
-.lbc-top .lbc-row:has(.lbc-m-title) .lbc-blk-meta .lbc-subline{justify-content:flex-end;font:italic 500 17px/1.2 var(--lb-font-num);color:var(--c-muted);}
-/* 「共 N 篇 · 更新 …」一行不折（窄了往左边空处伸）；只有「数据较旧 / 格式对不上」这种提醒另起一行 */
-/* 页头那一排不按编排的格子排（编排时照旧按格子）：标题 + 胶囊在左、计数行在右；放不下时计数行整行挪到下面一行、靠右——不压到胶囊上，也不一个字一个字折 */
-.lbc-wrap:not(.is-arranging) .lbc-top .lbc-row:has(.lbc-m-title){display:flex!important;flex-wrap:wrap;align-items:center;column-gap:24px;row-gap:6px;}
-.lbc-wrap:not(.is-arranging) .lbc-top .lbc-row:has(.lbc-m-title) > .lbc-rcol{width:auto!important;max-width:100%;container-type:normal;}
-.lbc-wrap:not(.is-arranging) .lbc-top .lbc-row:has(.lbc-m-title) > .lbc-rcol:has(> .lbc-m-title){flex:0 0 auto;max-width:100%;}
-.lbc-wrap:not(.is-arranging) .lbc-top .lbc-row:has(.lbc-m-title) > .lbc-rcol:has(> .lbc-m-meta){flex:1 1 280px;min-width:min(280px,100%);}
-.lbc-top .lbc-row:has(.lbc-m-title) .lbc-blk-meta .lbc-sub{white-space:nowrap;}
-.lbc-wrap:not(.is-arranging) .lbc-top .lbc-row:has(.lbc-m-title) .lbc-head{container-type:normal;}
-.lbc-wrap:not(.is-arranging) .lbc-top .lbc-row:has(.lbc-m-title):has(.lbc-m-meta) .lbc-titleblock{padding-right:0;--lbc-title-pad:0px;}
+/* ── 1101 作者：目录页页头——左边 COLLECTIONS +（36px，靠左），下面只一行「共 N 篇 · 更新 …」（直体无衬线，数字不斜）；
+   右上角和问收藏 / Wiki 同一个样子：问收藏 / Wiki 两颗白底浅阴影小长方形 · 历史钟 · ···；不要页头线 ── */
+.lbc-wrap:not(.is-arranging) .lbc-top .lbc-row:has(.lbc-m-title){display:block!important;padding:8px 0 10px;}
+.lbc-wrap:not(.is-arranging) .lbc-top .lbc-row:has(.lbc-m-title) > .lbc-rcol:has(> .lbc-m-meta:empty){display:none;}
+.lbc-wrap:not(.is-arranging) .lbc-top .lbc-row:has(.lbc-m-title) > .lbc-rcol:has(> .lbc-m-title){width:100%!important;max-width:none!important;margin:0!important;}
+.lbc-titleblock{flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:6px;padding:0 var(--lbc-tools-w,260px) 0 0!important;}
+.lbc-titlerow{justify-content:flex-start;padding-left:.1em;}
+.lbc-title{font-size:calc(36px * var(--lbc-title-k,1));line-height:1.05;}
 .lbc-top.is-tools-static .lbc-title{font-size:calc(30px * var(--lbc-title-k,1));}
-.lbc-top .lbc-row:has(.lbc-m-title) .lbc-blk-meta .lbc-stale{flex-basis:100%;white-space:normal;text-align:right;font:400 12px/1.5 var(--lb-font-body);}
-.lbc-top .lbc-row:has(.lbc-m-title) .lbc-blk-meta .lbc-sub,.lbc-top .lbc-row:has(.lbc-m-title) .lbc-blk-meta .lbc-count b{font:inherit;color:inherit;}
-.lbc-wrap .lbc-tools{gap:2px;}
-.lbc-wrap .lbc-tools button.lbc-icon-btn,.lbc-wrap .lbc-tools button.lb-manage{width:44px!important;height:44px!important;min-width:44px;padding:0!important;border:0!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--lb-ink)!important;display:grid;place-items:center;cursor:pointer;}
+.lbc-top.is-tools-static .lbc-titleblock{padding:0!important;}
+.lbc-titleblock .lbc-subline{padding:0;gap:2px 6px;flex-wrap:wrap;font:400 13px/1.5 var(--lb-font-body);font-style:normal;color:var(--c-muted);letter-spacing:0;}
+.lbc-titleblock .lbc-subline :is(.lbc-sub,.lbc-count b,.lbc-sub-link){font:inherit!important;font-style:normal!important;color:inherit;}
+.lbc-titleblock .lbc-subline .lbc-count b{color:var(--c-ink);font-weight:600!important;}
+.lbc-titleblock .lbc-subline .lbc-stale{color:var(--lb-warn);}
+.lbc-top:not(.is-tools-static)>.lbc-tools{top:8px;}
+.lbc-wrap .lbc-tools{gap:4px;align-items:center;}
+.lbc-wrap .lbc-tools .lbc-jumps{background:transparent;padding:0;gap:8px;margin-right:4px;}
+.lbc-wrap .lbc-tools .lbc-jumps button{height:auto!important;padding:9px 16px!important;border:0!important;border-radius:9px!important;font:500 13px/1.2 var(--lb-font-body)!important;background:var(--lb-surface)!important;color:var(--lb-ink)!important;box-shadow:0 1px 4px #0000000c!important;cursor:pointer;}
+.lbc-wrap .lbc-tools .lbc-jumps button:hover{box-shadow:0 2px 8px #00000018!important;}
+.lbc-wrap .lbc-tools button.lbc-icon-btn,.lbc-wrap .lbc-tools button.lb-manage{width:36px!important;height:36px!important;min-width:36px;padding:0!important;border:0!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--lb-ink)!important;display:grid;place-items:center;cursor:pointer;}
 .lbc-wrap .lbc-tools button.lbc-icon-btn:hover,.lbc-wrap .lbc-tools button.lb-manage:hover{background:var(--lb-soft)!important;}
-.lbc-wrap .lbc-tools button.lbc-icon-btn svg{width:20px;height:20px;}
+.lbc-wrap .lbc-tools button.lbc-icon-btn svg{width:18px;height:18px;}
 /* 1101 作者「太压抑了」：搜索不要黑下划线——浅灰底圆角，没有描边 */
 .lbc-wrap .lbc-searchbox{border:0!important;border-radius:999px!important;padding:0 14px!important;background:var(--lb-soft)!important;}
 /* 「近 7 天 · 最近导入 ↓」：纯文字按钮，前面一道细竖线隔开（不要胶囊框） */
@@ -1048,7 +1041,6 @@ const titleEm = t => Math.max(4, [...t].reduce((n, ch) => n + (/[　-鿿＀-￯]
 function setTitle() { const t = titleOf(); if (titleLabel.textContent !== t) titleLabel.setText(t); if (titleLabel.dataset.text !== t) titleLabel.dataset.text = t; const em = titleEm(t).toFixed(2); if (titleText.style.getPropertyValue('--lbc-title-em') !== em) titleText.style.setProperty('--lbc-title-em', em); }
 setTitle();
 // 1101 设计交接包：三页共用页头——字标 + ＋ 后面是空间切换胶囊（浏览收藏 / 问收藏 / Wiki）；星标页也是「浏览收藏」这一边（点了回目录）
-LB.spaceSwitch(titleBlock, starredPage ? '' : 'catalog');
 // 「编排 / 管理」（1027：不属于任何模块——标题挪走 / 移除了也还在）：吸顶区第一个子节点，宽屏绝对定位在右上角，窄了 / 编排中退成最上面一行
 const tools = top.createEl('div', { cls: 'lbc-tools' });
 top.insertBefore(tools, head);
@@ -1240,6 +1232,12 @@ if (app.vault.on && dv.component?.registerEvent) {
 // 1031 作者：「编排」和「管理」并成一颗「···」——菜单里 编排 · 每行几列 · 管理那几样
 // 1101 设计交接包：「···」左边一个历史钟 = 同步记录（和计数行里点「更新」同一个）
 const HIST_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l3.5 2"/></svg>';
+// 1101 作者：右上角和问收藏 / Wiki 页同一个样子——只写要跳过去的那两页（白底 + 浅阴影的小长方形），后面历史钟 · ···
+const jumps = tools.createEl('nav', { cls: 'lb-page-nav lbc-jumps' });
+for (const [role, label] of [...(starredPage ? [['catalog', '浏览收藏']] : []), ['chat', '问收藏'], ['wiki', 'Wiki']]) {
+  const b = jumps.createEl('button', { cls: 'lbc-pnav-' + role, text: label }); b.type = 'button';
+  b.onclick = () => { const p = provider(); if (role !== 'chat' && typeof p?.openLibraryPage === 'function') p.openLibraryPage(role); else LB.openPage(role); };
+}
 const histTool = tools.createEl('button', { cls: 'lbc-hist lbc-icon-btn' });
 histTool.type = 'button'; histTool.innerHTML = HIST_SVG; histTool.onclick = e => openUpdated(e); histTool.createEl('span', { cls: 'lb-visually-hidden', text: '同步记录' });
 const manage = mobile ? null : tools.createEl('button', { cls: 'lb-manage lbc-manage' });
@@ -1319,7 +1317,7 @@ const TOP_IDS = ['title', 'meta', 'cats', 'scope', 'topics', 'types', 'albums', 
 const CTL_IDS = ['scope', 'topics', 'types', 'albums', 'picks', 'sort', 'search'];
 const blocks = {};
 for (const id of TOP_IDS) { const b = top.createEl('div', { cls: 'lbc-blk lbc-blk-' + id + ' lbc-m lbc-m-' + id + ' is-core' + (CTL_IDS.includes(id) ? ' lbc-ctl lbc-ctl-piece' : '') }); b.dataset.blk = id; b.dataset.m = id; blocks[id] = b; }
-blocks.title.append(head); blocks.meta.append(subLine); blocks.cats.append(catBar);
+blocks.title.append(head); blocks.cats.append(catBar);   // 1101 作者：篇数行就在标题下面一行（留在标题块里），「计数行」模块空着、平时不显示
 const SIDE_SVG = '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="1.5" width="12" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><rect class="lbc-side-col" x="1.7" y="2.2" width="3.6" height="9.6" stroke="currentColor" stroke-width="1"/></svg>';
 const sideBtn = mobile || simplePage ? null : blocks.scope.createEl('button', { cls: 'lbc-sidetoggle' });   // 星标页 / 手机没有边栏，也就没有这颗钮
 if (sideBtn) {
