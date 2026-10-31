@@ -35,3 +35,9 @@ assert.match(css, /body\.lb-notip \.tooltip\{display:none!important;\}/);
 const main = fs.readFileSync(plug('main.js'), 'utf8');
 assert.match(main, /'no-tooltip\.js'\)\)\(obsidian, this\); this\.noTooltip\.attach\(\)/);
 console.log('PASS no-tooltip 1031: lb* 元素悬停摘 title（挪进 aria-label）+ body.lb-notip 藏 Obsidian 气泡；别的界面不碰');
+// 1031 她「这里还有」：标签页标题（Obsidian 按 aria-label 画黑气泡）也算
+const tab = D.createElement('div'); tab.className = 'workspace-tab-header tappable is-active'; tab.setAttribute('aria-label', '《一篇笔记》'); D.body.appendChild(tab);
+const tabInner = D.createElement('div'); tabInner.className = 'workspace-tab-header-inner'; tab.appendChild(tabInner);
+onOver({ target: tabInner });
+assert.ok(D.body.classList.contains('lb-notip'), '标签页标题悬停也藏黑气泡');
+console.log('PASS no-tooltip 1031: 标签页标题');

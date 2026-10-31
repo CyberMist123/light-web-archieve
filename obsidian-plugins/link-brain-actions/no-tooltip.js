@@ -1,4 +1,4 @@
-// no-tooltip.js — 1031 她：「这些气泡全取消吧」。LWA 自己的界面（类名 lb* 开头的元素和它们里面）悬停不出任何提示气泡：
+// no-tooltip.js — 1031 她：「这些气泡全取消吧」。LWA 自己的界面（类名 lb* 开头的元素和它们里面）和标签页标题，悬停不出任何提示气泡：
 // 浏览器按 title 画的白框、Obsidian 按 aria-label 画的黑气泡（全局 .tooltip）都不出。别的插件 / Obsidian 自己的界面不动。
 // 做法：鼠标移进 LWA 元素时（捕获阶段，抢在 Obsidian 的悬停处理和浏览器的 title 延时之前）——
 //   ① 这一串祖先上的 title 挪进 aria-label（读屏照样念，原来有 aria-label 的不覆盖），再删掉 title；
@@ -12,7 +12,7 @@ function inLwa(el) {
   // 走到 body 就停：body 自己挂着 .lb-notip（和别的 lb 开关类），算进来就处处都是 LWA 了
   for (let n = el, i = 0; n && i < DEPTH && n !== n.ownerDocument?.body; n = n.parentElement, i++) {
     const c = typeof n.className === 'string' ? n.className : typeof n.getAttribute === 'function' ? n.getAttribute('class') : '';   // SVG 的 className 不是字符串
-    if (c && LB_CLS.test(c)) return true;
+    if (c && (LB_CLS.test(c) || /(^|\s)workspace-tab-header(\s|$)/.test(c))) return true;   // 1031 她：标签页标题上的黑气泡也不要
   }
   return false;
 }

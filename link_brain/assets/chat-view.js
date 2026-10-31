@@ -2716,6 +2716,8 @@ function fillToc(box, onPick) {
 function tocWorth() {
   const asks = session.turns.filter(t => t.role === 'user').length;
   if (asks >= TOC_MIN_QUESTIONS) return true;
+  // 1031 她：「…」菜单「目录：一问也显示」（默认开）——只有一问也出目录；关掉回到下面的老规则（回答里有目录卡 / ≥2 个小标题才出）
+  if (asks >= 1 && cfg().tocOneAsk !== false) return true;
   return session.turns.some(t => t.role === 'assistant' && !t.failed && ((t.answerMode === 'toc' && (t.toc || []).length) || (views.get(t.id)?.el?.querySelectorAll('.lbchat-md h1, .lbchat-md h2, .lbchat-md h3, .lbboard-sec').length || 0) >= 2));
 }
 function paintToc() {
@@ -2769,8 +2771,6 @@ try {
     const w = bodyWrap.clientWidth || entries?.[0]?.contentRect?.width || 0;
     // ≥1242：左栏放在 850 对话列左边的空白里；1080–1242：对话列往右让出左栏的宽度（is-tight），不重叠
     const wide = w >= 1080, tight = wide && w < 1242;
-    ftocLastW = w;
-    if ((w >= ftocMinWidth()) !== ftocRoomy) { ftocRoomy = w >= ftocMinWidth(); ftocApplyPin(); }
     bodyWrap.classList.toggle('is-tight', tight);
     if (wide !== tocWide) { tocWide = wide; bodyWrap.classList.toggle('is-wide', wide); paintToc(); }
   });
@@ -2796,14 +2796,11 @@ const FTOC_FOLD = {
 function ftocFold(el, open) { el.innerHTML = FTOC_FOLD[open ? 'open' : 'shut']; }
 function ftocIcon(el, name) { el.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${FTOC_ICON[name]}</svg>`; }
 let ftocPinned = pageState.tocPin === true, ftocAllOpen = true;
-// 1026 她：笔记本上问收藏常只占半屏（≈900 宽），钉住的面板再占 260 就没法看了——对话区够宽（≥ FTOC_ROOMY）才真的钉住，
-// 窄了自动退回边上的横线（悬停展开），她的「钉住」选择照记着，窗口变宽又回来
-// 她（1026 晚）：窄到笔记本半屏也可以钉着——默认 560 起就钉住；「…」菜单里关掉「目录：窄窗也钉住」就回到 980
-const ftocMinWidth = () => (cfg().tocPinNarrow === false ? 980 : 560);
-let ftocRoomy = true, ftocLastW = 0;
-lbEvent(app.workspace.on('link-brain:chat-prefs', () => { if (ftocLastW) { ftocRoomy = ftocLastW >= ftocMinWidth(); ftocApplyPin(); } }));
+// 1031 她：钉住了就一直钉着，不再按窗口宽度自动收成边上的横线（原「目录：窄窗也钉住」开关一并去掉）
+// 「…」菜单「目录：一问也显示」改了（link-brain:chat-prefs）→ 重算目录要不要出
+lbEvent(app.workspace.on('link-brain:chat-prefs', () => paintToc()));
 function ftocApplyPin() {
-  const on = ftocPinned && ftocRoomy;
+  const on = ftocPinned;
   tocEl.classList.toggle('is-pin', on);
   bodyWrap.classList.toggle('is-ftoc-pin', on && !tocEl.hidden);
   wrap.classList.toggle('ftoc-pinned', on && !tocEl.hidden);
@@ -2843,7 +2840,7 @@ function fillFloatToc() {
   const items = ftocItems();
   const bar = tocEl.createEl('div', { cls: 'lbchat-ftoc-bar' });
   const tool = (name, title, onclick) => { const b = bar.createEl('button', { cls: 'lbchat-ftoc-tool is-' + name, attr: { title, 'aria-label': title } }); b.type = 'button'; ftocIcon(b, name); b.onclick = e => { e?.stopPropagation?.(); onclick(b); }; return b; };
-  const pin = tool('pin', '钉住目录', () => { ftocPinned = !ftocPinned; ftocApplyPin(); if (ftocPinned && !ftocRoomy) { notice('窗口宽一点时目录会一直钉在左边；现在太窄，先收成边上的横线', 3000); try { document.activeElement?.blur?.(); } catch {} } pin.classList.toggle('is-on', ftocPinned); LB.state.patch({ tocPin: ftocPinned }); });
+  const pin = tool('pin', '钉住目录', () => { ftocPinned = !ftocPinned; ftocApplyPin(); pin.classList.toggle('is-on', ftocPinned); LB.state.patch({ tocPin: ftocPinned }); });
   pin.classList.toggle('is-on', ftocPinned);
   const search = tocEl.createEl('input', { cls: 'lbchat-ftoc-search', attr: { type: 'search', placeholder: '在目录里搜…' } }); search.hidden = true;
   tool('search', '在目录里搜', () => { search.hidden = !search.hidden; if (!search.hidden) search.focus(); else { search.value = ''; applyFold(); } });

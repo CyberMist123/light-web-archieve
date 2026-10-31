@@ -467,12 +467,16 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-card:hover .lbc-star,.lbc-wrap .lbc-card:focus-within .lbc-star,.lbc-wrap.is-selecting .lbc-star{opacity:1;visibility:visible;pointer-events:auto;}
 .lbc-wrap .lbc-star:hover{background:var(--c-soft)!important;}
 /* 1026 她：已收藏的星原来是整块黑圆，每张卡一个黑点很突兀——改成白底小圆 + 黑星（不描边、一道很淡的影），悬停才出原来的细线圈 */
-.lbc-wrap .lbc-star.is-on{width:26px;height:26px;top:12px;right:12px;border-color:transparent!important;background:color-mix(in srgb,#fff 90%,transparent)!important;box-shadow:0 1px 3px #0000002e!important;color:#141414;opacity:1;visibility:visible;pointer-events:auto;}
+.lbc-wrap .lbc-star.is-on{width:26px;height:26px;top:12px;right:12px;border-color:transparent!important;background:color-mix(in srgb,#fff 90%,transparent)!important;box-shadow:0 1px 3px #0000002e!important;color:#141414;}
 .lbc-wrap .lbc-star.is-on svg{width:13px;height:13px;}
 .lbc-wrap .lbc-star.is-on:hover{border-color:var(--c-ink)!important;background:#fff!important;}
 .lbc-wrap .lbc-star.is-pop svg{animation:lbc-starpop .5s cubic-bezier(.3,1.6,.5,1);}
 @keyframes lbc-starpop{0%{transform:scale(.6) rotate(-20deg);}60%{transform:scale(1.35) rotate(8deg);}100%{transform:scale(1) rotate(0);}}
 .lbc-wrap .lbc-star.is-static{right:10px;cursor:default;}
+/* 1031 她：卡片上不再常显已收藏的星（太乱）——和没收藏的一样悬停才出现；点下去那一刻星弹一下 + 冒一句「已收藏 / 已取消收藏」，知道入库了就行 */
+.lbc-wrap .lbc-star.is-pop{opacity:1;visibility:visible;}
+.lbc-wrap .lbc-startoast{position:absolute;top:12px;right:46px;z-index:2;padding:3px 10px;border-radius:var(--lb-radius-pill);background:var(--c-ink);color:var(--c-bg);font-size:12px;line-height:1.6;white-space:nowrap;pointer-events:none;animation:lbc-startoast 1.2s ease-out forwards;}
+@keyframes lbc-startoast{0%{opacity:0;translate:6px 0;}15%{opacity:1;translate:0 0;}75%{opacity:1;}100%{opacity:0;translate:0 -6px;}}
 .lbc-wrap .lbc-card.is-starring .lbc-star{animation:lbc-pulse .8s ease-in-out infinite;cursor:progress;}
 @keyframes lbc-pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.15);}}
 .lbc-wrap .lbc-card.is-deleting{opacity:.45;pointer-events:none;}
@@ -2844,11 +2848,14 @@ function openCardMenu(e, card, it, { row = false } = {}) {
 
 // ── 收藏（C3：乐观更新 + busy，失败回滚；一次批量只起 1 个 Python 进程；CM3：写完 adopt，下次重跑 0 读） ──
 // 1015 她：收藏那一下星变黄、弹一下（只在点的那一刻，不在每次重画时）
-function popStar(id) {
-  const st = cardCache.get(id)?.el?.querySelector?.('.lbc-star');
+function popStar(id, on = true) {
+  const card = cardCache.get(id)?.el, st = card?.querySelector?.('.lbc-star');
   if (!st) return;
   st.classList.remove('is-pop'); void st.offsetWidth; st.classList.add('is-pop');
-  setTimeout(() => st.classList.remove('is-pop'), 600);
+  setTimeout(() => st.classList.remove('is-pop'), 1200);
+  card.querySelector('.lbc-startoast')?.remove();
+  const t = card.createEl('span', { cls: 'lbc-startoast', text: on ? '已收藏' : '已取消收藏' });
+  setTimeout(() => t.remove(), 1300);
 }
 async function starMany(list, { single = false } = {}) {
   const on = single ? !list[0]?.starred : !list.every(x => x.starred);
@@ -2856,7 +2863,7 @@ async function starMany(list, { single = false } = {}) {
   if (!todo.length) return;
   const p = await want('starNotes'); if (!p) return;
   for (const x of todo) { x._prevStar = !!x.starred; x.starred = on; x._starBusy = true; paintCard(x.id); }
-  if (on) for (const x of todo) popStar(x.id);
+  if (single || on) for (const x of todo) popStar(x.id, on);   // 1031：单篇点星取消也给一句；批量取消照旧不弹
   const restoreBar = !single ? setSelbarBusy(`正在${on ? '收藏' : '取消收藏'} ${todo.length} 篇…`) : () => {};
   let res = null, err = null;
   try { res = await p.starNotes(todo.map(x => x.id), on); } catch (e) { err = e; }

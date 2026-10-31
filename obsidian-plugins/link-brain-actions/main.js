@@ -1005,9 +1005,9 @@ class LinkBrainActions extends Plugin {
     // 10-03：「模型与提示词」并进「设置」（直达插件设置页）
     menu.addItem(i=>i.setTitle('设置').setIcon('settings-2').onClick(()=>this.openSetupPage('overview')));
     menu.addItem(i=>i.setTitle('导出资料').setIcon('folder-open').onClick(()=>this.openExportFolder()));
-    // 1026 她：问收藏的目录在窄窗口（笔记本半屏）也钉着；关掉 = 对话区不到 980 宽时目录收成边上的横线
-    menu.addItem(i=>{const it=i.setTitle('目录：窄窗也钉住').setIcon('list');if(typeof it.setChecked==='function')it.setChecked(this.settings?.tocPinNarrow!==false);it.onClick(async()=>{
-      this.settings=this.settings||{};this.settings.tocPinNarrow=this.settings.tocPinNarrow===false;await this.saveSettings();this.app.workspace.trigger('link-brain:chat-prefs');
+    // 1031 她：目录只有一问也显示（默认开）；关掉 = 至少两问、或回答里有 ≥2 个小标题才出。钉住后不再随窗口宽度收起，原「窄窗也钉住」去掉
+    menu.addItem(i=>{const it=i.setTitle('目录：一问也显示').setIcon('list');if(typeof it.setChecked==='function')it.setChecked(this.settings?.tocOneAsk!==false);it.onClick(async()=>{
+      this.settings=this.settings||{};this.settings.tocOneAsk=this.settings.tocOneAsk===false;await this.saveSettings();this.app.workspace.trigger('link-brain:chat-prefs');
     });});
     menu.showAtMouseEvent(evt);
   }

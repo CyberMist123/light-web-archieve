@@ -9,9 +9,13 @@ const { tick, src, rel, makePlugin, openChat } = require('./_fake_L2.cjs');
   const C = await openChat({ plugin: P });
   const toc = () => C.q('.lbchat-toc');
   const items = () => toc().querySelectorAll('.lbchat-ftoc-item');
-  // (a) 1 问、没小标题：没有目录；不再有「目录」按钮
+  // (a) 1031 她：「目录：一问也显示」默认开——1 问、没小标题也有目录；关掉回到老规则（没有目录）；不再有「目录」按钮
   await C.ask('担担面有没有汤');
-  assert.equal(toc().hidden, true); assert.equal(C.q('.lbchat-tocbtn').hidden, true);
+  assert.equal(toc().hidden, false, '默认一问也显示'); assert.equal(C.q('.lbchat-tocbtn').hidden, true);
+  P.plugin.settings.tocOneAsk = false; C.app.workspace.trigger('link-brain:chat-prefs'); await tick();
+  assert.equal(toc().hidden, true, '关掉：1 问、没小标题不出');
+  delete P.plugin.settings.tocOneAsk; C.app.workspace.trigger('link-brain:chat-prefs'); await tick();
+  assert.equal(toc().hidden, false);
   P.plugin.reply = () => ({ status: 'ok', markdown: '## 步骤\n\n先煮面 [来源1]\n\n## 要点与避坑\n\n别煮烂', sources: [src('a', 1), src('b', 2)], related: [rel('c', 3)] });
   await C.ask('怎么做');
   P.plugin.reply = () => Object.assign(new Error('x'), { kind: 'api', code: 'TRANSIENT.HTTP_429' });
