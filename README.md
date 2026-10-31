@@ -246,7 +246,7 @@ Copy-Item -Recurse -Force obsidian-plugins/link-brain-actions vault/.obsidian/pl
 4. 打开插件设置「概览」，点 **「一键装好 / 跑完」**：按轻量版（不要任何 key）装好缺的 → 确认小红书登录 → 同步 → 认图片里的字 → 整理目录。读取组件还没编好、还没登录的话，用号的几步先跳过，并写明要你做什么；照下面两步做完，扫码成功后自动接着跑。
 
 **读取组件与登录**
-1. Windows：插件「一键装好」会自动下载读取组件的预编译版（GitHub Release `reader-v0.2.0`，带 sha256 校验），放进 `%USERPROFILE%\.link-brainin\`；命令行是 `link-brain reader install`。其他系统或想自己编译：照 [`reader/README.md`](reader/README.md)（需要 Go 1.24+），或用环境变量 `LINK_BRAIN_XHS_EXE` 指定位置。
+1. Windows：插件「一键装好」会自动下载读取组件的预编译版（GitHub Release `reader-v0.2.0`，带 sha256 校验），放进 `%USERPROFILE%\.link-brain\bin\`；命令行是 `link-brain reader install`。其他系统或想自己编译：照 [`reader/README.md`](reader/README.md)（需要 Go 1.24+），或用环境变量 `LINK_BRAIN_XHS_EXE` 指定位置。
 2. 在插件设置「概览」的小红书账号那一行点 **登录**，用手机小红书扫码。**请用收藏所在的那个号。** 登录会保存下来，过期了才需要再扫。
 
 **第一次同步**
