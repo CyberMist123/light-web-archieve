@@ -100,6 +100,7 @@ module.exports = function (obsidian, plugin) {
     if (!el) { if (!quiet) plugin.notify('这一项还没画出来，稍等一下再点', { kind: 'warn' }); return null; }
     for (let n = el; n && n !== root; n = n.parentNode) {
       if (n.tagName === 'DETAILS' && !n.open) { try { n.open = true; n.lbDraw && n.lbDraw(); } catch {} }
+      if (n.hidden && typeof n.lbShow === 'function') { try { n.lbShow(); } catch {} }   // 1031：落点在没选中的平台页里（②小红书 / B 站切换）→ 先切过去
     }
     const land = () => {
       try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { try { el.scrollIntoView(); } catch {} }
@@ -782,6 +783,8 @@ module.exports = function (obsidian, plugin) {
     });
     const pick = id => { for (const x of tabs) { const on = x.id === id; x.t.classList.toggle('is-on', on); x.t.setAttribute('aria-selected', String(on)); x.pane.hidden = !on; } };
     pick('xhs');
+    // 1031：目录页侧栏「去同步 →」落在 B 站那一页（focusSection 往上找到藏着的平台页就先切过去）
+    for (const x of tabs) x.pane.lbShow = () => pick(x.id);
     sub(paneX, '同步');
     safe(tab, paneX, '收藏同步', () => tab.stops.push(plugin.renderSyncRow(paneX, { compact: true })));
     syncRows(paneX, tab);

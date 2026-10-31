@@ -231,11 +231,26 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-fold-sum i{font:italic 15px/1 var(--f-latin);font-variant-numeric:lining-nums tabular-nums;color:var(--c-ink);}
 .lbc-rec{list-style:none;margin:0;padding:0;}
 /* 1023：RECENT 行和 SYNC 行（.lbc-sy-row）同一套——无衬线 13.5px、10px 行距、只有上分隔线 */
-.lbc-rec li{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:12px;align-items:baseline;padding:10px 0;border-top:1px solid var(--c-line);cursor:pointer;margin:0;font-size:13.5px;}
+/* 1031 她「对齐怪」：分类列原来是 auto（每行各算各的宽，标题右边参差）——改成三列定宽：时间 44px · 标题占满省略 · 分类 5em 左对齐省略；
+   折起来那一行（.lbc-rec-sum）就是列表第一行，同一套 */
+.lbc-rec li,.lbc-fold-sum.lbc-rec-sum{display:grid;grid-template-columns:44px minmax(0,1fr) 5em;gap:12px;align-items:baseline;padding:10px 0;border-top:1px solid var(--c-line);cursor:pointer;margin:0;font-size:13.5px;}
 .lbc-rec li:hover .lbc-rec-t{text-decoration:underline;text-underline-offset:3px;}
-.lbc-rec time{font:italic 13.5px/1.2 var(--f-latin);color:var(--c-muted);font-variant-numeric:lining-nums tabular-nums;white-space:nowrap;}
+.lbc-rec time,.lbc-rec-sum time{font:italic 13.5px/1.2 var(--f-latin);color:var(--c-muted);font-variant-numeric:lining-nums tabular-nums;white-space:nowrap;}
 .lbc-rec-t{font:13.5px/1.45 var(--f-sans);color:var(--c-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.lbc-rec-c{font-size:12px;color:var(--c-muted);white-space:nowrap;}
+.lbc-rec-c{font-size:12px;color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;}
+.lbc-fold-sum.lbc-rec-sum{white-space:normal;border-top:0;margin:0;cursor:pointer;}
+.lbc-fold-sum.lbc-rec-sum:hover .lbc-rec-t{text-decoration:underline;text-underline-offset:3px;}
+/* 1031 侧栏「当前平台」切换（SYNC / OVERVIEW 小标题行右边）：两个小字，选中的黑色加粗、下面一道细线；库里只有一个平台时不出 */
+.lbc-plat-sw{flex:none;display:inline-flex;align-items:baseline;gap:5px;font:var(--fs-small,12px)/1 var(--f-sans);color:var(--c-muted);}
+.lbc-plat-sw[hidden]{display:none!important;}
+.lbc-wrap .lbc-plat-sw button{width:auto!important;height:auto!important;padding:2px 0!important;margin:0!important;border:0!important;border-bottom:1px solid transparent!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);font:inherit;cursor:pointer;white-space:nowrap;}
+.lbc-wrap .lbc-plat-sw button:hover{color:var(--c-ink);}
+.lbc-wrap .lbc-plat-sw button.is-on{color:var(--c-ink);font-weight:600;border-bottom-color:var(--c-ink)!important;}
+.lbc-plat-sep{opacity:.6;}
+@container (max-width:300px){.lbc-lab:has(.lbc-plat-sw:not([hidden])) small{display:none;}}
+.lbc-wrap:not(.is-arranging) .lbc-mod.is-plat-off{display:none!important;}
+.lbc-sy-freq.is-first{margin-top:14px!important;}
+.lbc-sy-bar.is-cut i{background:var(--c-muted);}
 .lbc-rec-empty{font:14px/1.5 var(--f-serif);color:var(--c-muted);padding:6px 0;}
 .lbc-sy-top{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;}
 .lbc-sy-k{font-size:12px;color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -247,7 +262,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-sy-cap{display:flex;justify-content:space-between;gap:12px;font:italic 13px/1.4 var(--f-latin);color:var(--c-muted);margin-bottom:10px;font-variant-numeric:lining-nums tabular-nums;}
 .lbc-sy-cap span:last-child{text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .lbc-sy-freq{font-size:12px;color:var(--c-muted);margin:-4px 0 10px;line-height:1.5;}
-.lbc-wrap button.lbc-sy-alert{display:block;width:100%;text-align:left;height:auto!important;margin:0 0 10px;padding:8px 10px!important;border:1px solid var(--c-ink)!important;border-radius:10px!important;background:transparent!important;box-shadow:none!important;color:var(--c-ink);font:13px/1.5 var(--f-sans);cursor:pointer;white-space:normal;}
+.lbc-wrap .lbc-sy-alert{display:block;box-sizing:border-box;width:100%;text-align:left;height:auto!important;margin:0 0 10px;padding:8px 10px!important;border:1px solid var(--c-ink)!important;border-radius:10px!important;background:transparent!important;box-shadow:none!important;color:var(--c-ink);font:13px/1.5 var(--f-sans);cursor:pointer;white-space:normal;}
 .lbc-wrap button.lbc-sy-alert:hover{background:var(--c-soft)!important;}
 .lbc-sy-alert b{font-weight:600;}
 .lbc-sy-note{font-size:12px;line-height:1.6;color:var(--c-muted);margin:0 0 10px;}
@@ -629,8 +644,8 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-mod .lbc-sy-big i{font-style:italic;}
 .lbc-mod .lbc-sy-row b,.lbc-mod .lbc-sy-row.is-tot b{font:italic 500 var(--lbc-num)/1.2 var(--f-latin);}
 .lbc-mod .lbc-fold-sum i{font-size:inherit;color:inherit;}   /* 1027b 她：折起来那一行是一句话——字、数一个颜色一个大小 */
-.lbc-mod :is(.lbc-rec time,.lbc-sy-cap,.lbc-bar span,.lbc-days){font-size:var(--lbc-num-sm);}
-.lbc-mod .lbc-rec time{font-style:italic;}
+.lbc-mod :is(.lbc-rec time,.lbc-rec-sum time,.lbc-sy-cap,.lbc-bar span,.lbc-days){font-size:var(--lbc-num-sm);}
+.lbc-mod :is(.lbc-rec,.lbc-rec-sum) time{font-style:italic;}
 /* 最近导入：列表框高 = 条数（调整里 2 / 4 / 6 / 8），框里往下滚接着出更早的 */
 .lbc-rec{max-height:calc(var(--lbc-rec-rows,6) * (var(--fs-body,13.5px) * 1.45 + 21px));overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;}
 /* 拖出来的高度：内容超出在块里滚（最近导入是列表那一框） */
@@ -1053,6 +1068,14 @@ async function reloadIndex() {
   renderCatBar();
   withAnchor(() => render());
 }
+// 1031：B 站同步是手动的（设置②「B 站同步」→ 后端 `bilibili sync`），状态 / 进度只读这一份（页面里不起 Python）；
+// 形状见 link_brain/sources/bilibili/sync.py 的 _progress / _persist：{state, started_at, finished_at, counts, progress{done,total,at}, stopped, message, ok, code}
+const BILI_LAST = '_archive/bilibili-sync/last-sync.json';
+let biliLast = null;
+async function refreshBili() {
+  biliLast = await readArchiveJson(BILI_LAST);
+  sideApi?.paintPlat();
+}
 async function refreshProblems() {
   const [raw, sum] = await Promise.all([readArchiveJson('_archive/sync-status.json'), readArchiveJson('_archive/problems-summary.json')]);
   probSummary = sum; syncState = mergeSync(raw, sum);
@@ -1135,14 +1158,17 @@ if (app.vault.on && dv.component?.registerEvent) {
   const watched = new Set([lbPath('_archive/sync-status.json'), lbPath('_archive/problems-summary.json')]);
   const dataPath = lbPath('_archive/catalog-data.json');
   const idxDataPath = lbPath('_archive/index-data.json');
-  let freshTimer = null, idxTimer = null;
+  const biliPath = lbPath(BILI_LAST);
+  let freshTimer = null, idxTimer = null, biliTimer = null;
   const onFile = file => {
     if (watched.has(file?.path)) refreshProblems();
     else if (file?.path === dataPath) { clearTimeout(freshTimer); freshTimer = setTimeout(() => checkFresh(), 800); }
     // 10-10：她改完 索引.md 保存 → 插件重算 index-data.json → 这里 300ms 防抖后换上新的分类 / 索引图（卡片不重建）
     else if (file?.path === idxDataPath) { clearTimeout(idxTimer); idxTimer = setTimeout(() => reloadIndex(), 300); }
+    // 1031：B 站同步每做完一条写一次 last-sync.json → 300ms 防抖后只重画侧栏 SYNC（B 站那一面）
+    else if (file?.path === biliPath) { clearTimeout(biliTimer); biliTimer = setTimeout(() => refreshBili(), 300); }
   };
-  cleanups.push(() => { clearTimeout(freshTimer); clearTimeout(idxTimer); });
+  cleanups.push(() => { clearTimeout(freshTimer); clearTimeout(idxTimer); clearTimeout(biliTimer); });
   lbEvent(app.vault, app.vault.on('modify', onFile));
   lbEvent(app.vault, app.vault.on('create', onFile));
 }
@@ -1519,6 +1545,9 @@ function pickView(k) {
 // 收起 / 窄屏时 CSS 让收藏墙铺满（列数按宽度 lbcColumns 自己变）。各模块折叠状态 sideFold 也存 LB.state（OVERVIEW 默认折叠）
 let sideOpen = true;
 const sideFold = { recent: true, sync: false, token: false, overview: true };   // 1027b 她：最近导入平时就一行「最新 …」，点开往下滚
+// 1031 她：侧栏的同步 / 概览 / Token 分平台看——一个「当前平台」（'xhs' 小红书 / 'bili' B 站，存 LB.state，默认小红书），三块都跟它；
+// 库里只有一个平台就不出切换（见「左侧边栏」一节 platSwitch）
+let sidePlat = 'xhs';
 let sideApi = null;   // 边栏画好后才有：{ paintSync(), paintData(), paintAll(), fade() }；同步状态 / 数据变了只重画边栏里那一块
 function setSideOpen(on) {
   sideOpen = !!on;
@@ -1895,6 +1924,7 @@ if (saved.ts) {
   if (saved.side === false) sideOpen = false;
   if (saved.sideFold && typeof saved.sideFold === 'object') for (const k of Object.keys(sideFold)) if (typeof saved.sideFold[k] === 'boolean') sideFold[k] = saved.sideFold[k];
   if (saved.sideFoldRev !== 2) sideFold.recent = true;
+  if (saved.sidePlat === 'bili' || saved.sidePlat === 'xhs') sidePlat = saved.sidePlat;
 }
 setScope(scopeOf());   // 1021 范围单选：旧版本存下的叠加状态只留一个（顺序同 scopeOf）
 if (!sideOpen) wrap.classList.add('is-side-collapsed');
@@ -1903,7 +1933,7 @@ let scrollTop = savedScroll;
 function saveState() {
   LB.state.save({ q: committed, raw: lastRaw, input: search.value, cat: activeCat, topic: activeTopic, album: activeAlbum, src: activeSrc, today: todayOnly, todo: todoOnly, media: mediaFilter, tag: activeTag, plat: activePlat, star: starOnly,
     selectMode, select: [...selected], scrollTop, cols, timeSort, timeRange, timeFrom, timeTo, exportImages,
-    iview: indexView, fold: [...foldOverride].slice(-200), view: viewMode, recentPage, side: sideOpen, sideFold: { ...sideFold }, sideFoldRev: 2 });
+    iview: indexView, fold: [...foldOverride].slice(-200), view: viewMode, recentPage, side: sideOpen, sideFold: { ...sideFold }, sideFoldRev: 2, sidePlat });
 }
 
 // ── 多选栏（C1 放进吸顶区、C15 常用的留在栏上） ──
@@ -3685,6 +3715,47 @@ function leftText(ms) {
   const m = Math.max(1, Math.round(ms / 60000)), h = Math.floor(m / 60), r = m % 60;
   return h ? `还有 ${h} 小时${r ? ` ${r} 分` : ''}` : `还有 ${r} 分`;
 }
+// 大号时间：[今天 / 10/31, 19:07]（后半斜体）
+const bigWhen = (t, now = Date.now()) => t ? [sameDay(t, now) ? '今天' : mdOf(t), hmOf(t)] : null;
+const countToday = (pool, now = Date.now()) => { const d = ymd(new Date(now)); let n = 0; for (const it of pool) if (dayOf(it) === d) n++; return n; };
+
+// ── 1031 她：同步 / 概览 / Token 分平台（小红书 / B 站）──
+// 切换放在 SYNC 和 OVERVIEW 的小标题行右边，两处是同一个 sidePlat（点哪个都一起变）：这两块的内容随平台变，切换就挨着内容；
+// 模块能在「编排」里挪开、× 掉，只放 SYNC 一处的话 SYNC 被拿掉，概览就卡在某个平台切不回来。
+// Token 只有小红书有（B 站不调 AI、没有费用）：选 B 站时整块藏起来（编排时照常显示，好挪）。
+// 口径：B 站 = id 前缀 bili- / source 'bilibili'；其余都算小红书这边（老库的手动导入也在这边，和以前的总数一样）。
+const SIDE_PLATS = [['xhs', '小红书'], ['bili', 'B 站']];
+const isBili = it => it.source === 'bilibili' || /^(bili|bilibili|bv)$/.test(platOf(it));
+function platHas() { let x = false, b = !!biliLast; for (const it of items) { if (isBili(it)) b = true; else x = true; if (x && b) break; } return { xhs: x, bili: b }; }
+function curPlat() { const h = platHas(); return h.xhs && h.bili ? sidePlat : h.bili ? 'bili' : 'xhs'; }
+function platPool() { const h = platHas(); if (!(h.xhs && h.bili)) return items; const b = sidePlat === 'bili'; return items.filter(it => isBili(it) === b); }
+function platSwitch(m) {
+  const sw = m.lab.createEl('span', { cls: 'lbc-plat-sw' });
+  m.lab.insertBefore(sw, m.lab.querySelector('.lbc-chev'));
+  sw.setAttribute('role', 'tablist'); sw.setAttribute('aria-label', '看哪个平台'); sw.hidden = true;
+  sw.onclick = e => e?.stopPropagation?.();   // 点切换不折叠模块
+  m.plat = SIDE_PLATS.map(([k, name], i) => {
+    if (i) sw.createEl('span', { cls: 'lbc-plat-sep', text: '/' });
+    const b = sw.createEl('button', { text: name }); b.type = 'button'; b.dataset.plat = k; b.setAttribute('role', 'tab');
+    b.onclick = e => { e?.stopPropagation?.(); setSidePlat(k); };
+    return b;
+  });
+  m.platSw = sw;
+}
+function paintPlatSw() {
+  const h = platHas(), two = h.xhs && h.bili, cur = curPlat();
+  for (const m of [mods.sync, mods.overview]) {
+    if (!m?.platSw) continue;
+    m.platSw.hidden = !two;
+    for (const b of m.plat) { const on = b.dataset.plat === cur; b.classList.toggle('is-on', on); b.setAttribute('aria-selected', String(on)); }
+  }
+}
+function setSidePlat(k) { if (sidePlat === k) return; sidePlat = k; saveState(); paintPlat(); }
+function paintPlat() {
+  paintPlatSw();
+  for (const k of ['sync', 'overview', 'token']) if (mods[k]) mods[k].sig = null;
+  paintSync(); paintOverview(); paintToken(); sideFadeSoon();
+}
 function sideModule(key, en, zh, { gear = null } = {}) {
   const sec = side.createEl('section', { cls: 'lbc-mod lbc-mod-' + key + ' lbc-m lbc-m-' + key }); sec.dataset.mod = key; sec.dataset.m = key;
   // 1027 编排操作条（⠿ / 名字 / 调整 / ×）由「编排」一节第一次进编排时统一加（ensureBars），平时不建
@@ -3733,7 +3804,13 @@ function paintRecent() {
   const all = items.filter(it => importedAt(it) > 0).sort((a, b) => importedAt(b) - importedAt(a));
   const list = all.slice(0, Math.max(modOpt('recent').count, recentShown));
   const when = it => { const t = importedAt(it); return sameDay(t, now) ? hmOf(t) : mdOf(t); };
-  setSum(m, list.length ? ['最新 ', [when(list[0])], ' · ' + String(list[0].title || '（无标题）')] : ['还没有收藏']);
+  // 1031 她「对齐怪」：折起来那一行就是列表第一行——同一套三列（时间 · 标题 · 分类），点开往下不挪位置
+  const first = list[0], sumSig = first ? [when(first), first.title, catNameOf(first)].join('\u0001') : '';
+  if (m.sumSig !== sumSig) {
+    m.sumSig = sumSig; m.sum.empty(); m.sum.classList.toggle('lbc-rec-sum', !!first);
+    if (!first) m.sum.setText('还没有收藏');
+    else { m.sum.createEl('time', { text: when(first) }); m.sum.createEl('span', { cls: 'lbc-rec-t', text: String(first.title || '（无标题）') }); m.sum.createEl('span', { cls: 'lbc-rec-c', text: catNameOf(first) }); }
+  }
   if (sideFold.recent) return;
   const sig = ymd(new Date(now)) + '|' + modOpt('recent').count + '|' + list.map(it => [it.id, importedAt(it), it.title, catNameOf(it)].join('\u0001')).join('\u0002');
   if (m.sig === sig) return; m.sig = sig;
@@ -3782,14 +3859,14 @@ function syncRunText(st) {
 }
 function paintSync() {
   const m = mods.sync; if (!m) return;
+  if (curPlat() === 'bili') { paintSyncBili(m); return; }
   const now = Date.now(), st = syncState || {}, p = provider();
   const last = Math.max(tsOf(st.last_success), tsOf(probSummary?.last_success), tsOf(probSummary?.sync?.last_success));
   const next = schedule && schedule.enabled !== false ? tsOf(schedule.next_run) : 0;
   if (next && next < now - 60000 && Date.now() - scheduleAt > 60000) loadSchedule({ force: true });   // 下次那一刻过了：再问一次计划任务
   const running = st.state === 'running', stopped = st.state === 'blocked' || st.state === 'failed';
   const run = running ? syncRunText(st) : null;
-  const nToday = (() => { const d = ymd(new Date(now)); let n = 0; for (const it of items) if (dayOf(it) === d) n++; return n; })();
-  const bigWhen = t => t ? [sameDay(t, now) ? '今天' : mdOf(t), hmOf(t)] : null;
+  const nToday = countToday(platPool(), now);   // 1031：两个平台都有时只数小红书这边
   // 1031：「部分收藏未同步成功 · ReadError:」看不懂——只有异常名没有原因的，说成人话；部分没成功不叫「没成功」
   const bareErr = d => /^[A-Za-z]*Error:?\s*$/.test(String(d || '').trim());
   const partial = st.message === '部分收藏未同步成功';
@@ -3876,6 +3953,85 @@ async function openSyncSettings(btn) {
   void btn;
 }
 
+// SYNC · B 站那一面（1031 她）：B 站只有手动同步——上次同步时间 · 这次新下 / 失败 · 在跑时 n/m · 被打断时「停在第几条、为什么」·「去同步」
+// （设置②「收藏与同步」切到 B 站）。没有下次同步 / 定时，只写一句「手动同步」。数据只读 last-sync.json（refreshBili），不起 Python。
+const BILI_RUN_LABEL = '下载 B 站收藏';   // 和设置页 settings-v6 的 BILI_RUN_LABEL 是同一个字（状态栏那一条任务的名字）
+const BILI_CUT = '进程被结束了（关机 / 点了「停止」/ Obsidian 关掉），没来得及收尾';   // 同 sync.py INTERRUPTED_REASON
+function biliView(l, now = Date.now()) {
+  if (!l) return { none: true };
+  const c = l.counts && typeof l.counts === 'object' ? l.counts : {};
+  const pg = l.progress && typeof l.progress === 'object' ? l.progress : null;
+  const done = Number(pg?.done), total = Number(pg?.total);
+  const prog = pg && Number.isFinite(done) && total > 0 ? { done, total } : null;
+  let state = String(l.state || (l.finished_at ? 'done' : l.ok === false ? 'failed' : ''));
+  if (state === 'running') {
+    // 后端每做完一条写一次 running；进程被杀就一直停在 running。插件在：看它是不是正在跑「下载 B 站收藏」；
+    // 没插件（手机）：最后一次写进度在 30 分钟内算还在跑
+    const p = provider();
+    const alive = p ? p.running === BILI_RUN_LABEL : now - Math.max(tsOf(pg?.at), tsOf(l.started_at)) < 30 * 60e3;
+    if (!alive) state = 'interrupted';
+  }
+  const why = state === 'interrupted' ? BILI_CUT : state === 'stopped' ? String(l.stopped || l.message || '') : state === 'failed' ? String(l.message || l.code || '') : '';
+  return { state, prog, why, downloaded: Number(c.downloaded) || 0, failed: Number(c.failed) || 0, multiP: Number(c.multi_p) || 0,
+    started: tsOf(l.started_at), when: tsOf(l.finished_at) || tsOf(pg?.at) || tsOf(l.started_at) };
+}
+function paintSyncBili(m) {
+  const now = Date.now(), p = provider(), v = biliView(biliLast, now);
+  if (syncEd) { try { syncEd.destroy?.(); } catch {} syncEd = null; }
+  syncEditOpen = false;
+  const nToday = countToday(platPool(), now);
+  const pg = v.prog ? `${v.prog.done}/${v.prog.total}` : '';
+  const running = v.state === 'running', cut = v.state === 'interrupted' || v.state === 'stopped', bad = cut || v.state === 'failed';
+  const lw = bigWhen(v.when, now);
+  setSum(m, v.none ? ['还没同步过 · 手动同步'] : running ? ['同步中 ', [pg || '…']] : cut ? (pg ? ['停在第 ', [pg], ' 条'] : ['上次同步中途停了'])
+    : v.state === 'failed' ? ['上次没同步成'] : ['上次 ', [lw ? lw.join(' ') : '—'], ' · 新下 ', [String(v.downloaded)], ' 条']);
+  if (sideFold.sync) return;
+  const go = !!p && !mobile;
+  const sig = 'bili|' + JSON.stringify([Math.floor(now / 30000), v, nToday, go]);
+  if (m.sig === sig) return; m.sig = sig;
+  const b = m.body; b.empty();
+  m.sec.dataset.state = running ? 'running' : bad ? 'stopped' : 'idle';
+  if (bad) {
+    const a = b.createEl(go ? 'button' : 'div', { cls: 'lbc-sy-alert' });
+    a.createEl('b', { text: v.state === 'failed' ? '上次没同步成' : pg ? `停在第 ${pg} 条` : '上次同步中途停了' });
+    if (v.why) a.append('：' + v.why);
+    if (v.state === 'interrupted') a.append('。已经下好的都在，再同步只补没下的');
+    if (go) { a.type = 'button'; a.append(' · 点这里去同步'); a.onclick = e => { e?.stopPropagation?.(); openBiliSync(); }; }
+  }
+  const topRow = b.createEl('div', { cls: 'lbc-sy-top' });
+  const cell = (k, val, cls) => {
+    const c = topRow.createEl('div', { cls }); c.createEl('div', { cls: 'lbc-sy-k', text: k });
+    const big = c.createEl('div', { cls: 'lbc-sy-big' }); if (Array.isArray(val)) { big.append(val[0] + ' '); big.createEl('i', { text: val[1] }); } else big.setText(val || '—');
+  };
+  cell(running ? '这次开始' : '上次同步', running ? bigWhen(v.started, now) : lw, 'lbc-sy-last');
+  if (running) cell('同步中', pg || '…', 'lbc-sy-now');
+  else cell('这次新下', v.none ? '—' : `${v.downloaded} 条`, 'lbc-sy-next');
+  const showBar = !!v.prog && (running || cut);
+  if (showBar) {
+    const pct = Math.min(1, v.prog.done / v.prog.total);
+    const bar = b.createEl('div', { cls: 'lbc-sy-bar' + (cut ? ' is-cut' : '') }); bar.createEl('i').style.width = (Math.round(pct * 1000) / 10) + '%';
+    const cap = b.createEl('div', { cls: 'lbc-sy-cap' });
+    cap.createEl('span', { text: Math.round(pct * 100) + '%' }); cap.createEl('span', { text: (running ? '第 ' : '停在第 ') + pg + ' 条' });
+  }
+  // 没有定时：这一行只说「手动同步」，右边「去同步 →」打开设置②并切到 B 站（和小红书那一面「每天 18:00 · 改」同一个位置）
+  const f = b.createEl(go ? 'button' : 'div', { cls: 'lbc-sy-freq' + (go ? ' lbc-sy-edit' : '') + (showBar ? '' : ' is-first') });
+  f.createEl('span', { cls: 'lbc-sy-freq-t', text: '手动同步 · 不定时' });
+  if (go) { f.type = 'button'; f.dataset.act = 'bili-go'; f.createEl('span', { cls: 'lbc-sy-pen', text: '去同步 →' }); f.onclick = e => { e?.stopPropagation?.(); openBiliSync(); }; }
+  if (v.none) b.createEl('p', { cls: 'lbc-sy-note', text: '这台电脑上还没同步过 B 站收藏' + (go ? '：点「去同步」，在设置「收藏与同步 → B 站」里扫码、同步' : '') });
+  if (!p) b.createEl('p', { cls: 'lbc-sy-note', text: mobile ? LB.MOBILE_ONLY_TEXT : '插件没开：B 站同步要在设置里点（收藏照常可以浏览）' });
+  const row = (k, val) => { const r = b.createEl('div', { cls: 'lbc-sy-row' }); r.createEl('span', { text: k }); r.createEl('b', { text: val }); };
+  if (running) row('已新下', `${v.downloaded} 条`);
+  else if (!v.none) { row('失败', `${v.failed} 条`); if (v.multiP) row('多 P 待选', `${v.multiP} 条`); }
+  row('今日新增', `${nToday} 篇`);
+}
+// 「去同步」：设置②「收藏与同步」并切到 B 站那一页（新插件 openBiliSync；旧插件没有就落到「收藏与同步」）
+async function openBiliSync() {
+  const q = provider();
+  if (q && typeof q.openBiliSync === 'function') { try { await q.openBiliSync(); } catch (e) { LB.say('设置没打开：' + (e?.message || e), { kind: 'error' }); } return; }
+  const p = await want('openSetupPage'); if (!p) return;
+  try { p.openSetupPage('sync'); } catch (e) { LB.say('设置没打开：' + (e?.message || e), { kind: 'error' }); }
+}
+
 // OVERVIEW：全部 / 近 7 天 / 已收藏 / 在用分类（48px 大数字）+ 近 14 天每日导入（黑细柱，今天加粗标数）
 function paintOverview() {
   const m = mods.overview; const now = new Date();
@@ -3883,21 +4039,22 @@ function paintOverview() {
   const byDay = new Map(days.map(x => [x.key, x]));
   const week = new Set(days.slice(-7).map(x => x.key));
   let nWeek = 0, nStar = 0; const cats = new Set();
-  for (const it of items) {
+  const pool = platPool();   // 1031：两个平台都有时，只算侧栏当前选的那个平台
+  for (const it of pool) {
     const dk = dayOf(it); const slot = byDay.get(dk); if (slot) slot.n++;
     if (week.has(dk)) nWeek++;
     if (it.starred) nStar++;
     cats.add(catNameOf(it));
   }
   cats.delete(UNC_LABEL);
-  setSum(m, [[String(items.length)], ' 篇 · 近 7 天 ', ['+' + nWeek], ' · ★ ', [String(nStar)]]);
+  setSum(m, [[String(pool.length)], ' 篇 · 近 7 天 ', ['+' + nWeek], ' · ★ ', [String(nStar)]]);
   if (sideFold.overview) return;
-  const sig = JSON.stringify([items.length, nWeek, nStar, cats.size, days.map(x => x.key + ':' + x.n), modOpt('overview').metrics]);
+  const sig = JSON.stringify([curPlat(), pool.length, nWeek, nStar, cats.size, days.map(x => x.key + ':' + x.n), modOpt('overview').metrics]);
   if (m.sig === sig) return; m.sig = sig;
   const b = m.body; b.empty();
   const figs = b.createEl('div', { cls: 'lbc-figs' });
   const show = new Set(modOpt('overview').metrics);   // 1027：显示哪几个数在模块「调整」里勾
-  for (const [k, n, l] of [['all', items.length, '全部收藏'], ['week', nWeek, '近 7 天新增'], ['star', nStar, '已收藏'], ['cats', cats.size, '在用分类']]) {
+  for (const [k, n, l] of [['all', pool.length, '全部收藏'], ['week', nWeek, '近 7 天新增'], ['star', nStar, '已收藏'], ['cats', cats.size, '在用分类']]) {
     if (!show.has(k)) continue;
     const f = figs.createEl('div', { cls: 'lbc-fig' }); f.createEl('div', { cls: 'lbc-fig-n', text: String(n) }); f.createEl('div', { cls: 'lbc-fig-l', text: l });
   }
@@ -5054,6 +5211,9 @@ function setBudget(raw) {
 const CAP_CHOICES = [0, 1, 2, 3, 5, 10, 20, 50];
 function paintToken() {
   const m = mods.token; if (!m) return;
+  // 1031 她：B 站没有 token 费用（不调 AI）——侧栏选 B 站时整块藏起来（CSS .is-plat-off；编排时照常显示，好挪）
+  const off = curPlat() === 'bili'; m.sec.classList.toggle('is-plat-off', off);
+  if (off) return;
   const p = provider(), period = TOKEN_PERIODS.some(([k]) => k === modOpt('token').period) ? modOpt('token').period : 'month';
   const um = data?.usage_month || {};
   const capSet = p?.settings?.budget?.dailyYuan;
@@ -5271,8 +5431,10 @@ let roRef = null;
 if (SIDE_ON) {
   mods.recent = sideModule('recent', 'RECENT', '最近导入');
   mods.sync = sideModule('sync', 'SYNC', '同步');   // 1026：齿轮去掉（首页设置入口太多），改时间点「下次同步」；1027：费用拆到 Token 费用
+  platSwitch(mods.sync);   // 1031：小红书 / B 站切换（两处同一个 sidePlat，见 platSwitch 上面的说明）
   mods.token = sideModule('token', 'TOKEN', 'Token 费用');
   mods.overview = sideModule('overview', 'OVERVIEW', '概览');
+  platSwitch(mods.overview);
   for (const k of Object.keys(mods)) paintFold(k);
   side.addEventListener('scroll', () => sideFade(), { passive: true });
 }
@@ -5287,8 +5449,9 @@ if (SIDE_ON) {
   let live = false;
   sideApi = {
     paintSync: () => { if (!live) return; paintSync(); sideFadeSoon(); },
-    paintData: () => { if (!live) return; paintRecent(); paintOverview(); paintSync(); paintToken(); sideFadeSoon(); },
-    paintAll: () => { if (!live) return; paintRecent(); paintSync(); paintToken(); paintOverview(); sideFadeSoon(); },
+    paintData: () => { if (!live) return; paintPlatSw(); paintRecent(); paintOverview(); paintSync(); paintToken(); sideFadeSoon(); },
+    paintPlat: () => { if (!live) return; paintPlat(); },
+    paintAll: () => { if (!live) return; paintPlatSw(); paintRecent(); paintSync(); paintToken(); paintOverview(); sideFadeSoon(); },
     start: () => { if (live) return; live = true; sideApi.paintAll(); },
     fade: sideFade,
   };
@@ -5389,7 +5552,7 @@ LB.listen('esc', document, 'keydown', e => {
 
 // ── 首屏 ──
 cols = savedCols(); applyCols();
-await refreshProblems();
+await Promise.all([refreshProblems(), refreshBili()]);
 restoreTarget = savedScroll;   // 1017：要恢复的滚动位置附近的卡同步建好（restoreScroll 一次到位）
 const restoredWithPending = takePendingQuery();
 // 上次离开时防抖还没触发（输入框里的字和上次搜的不一样）：恢复后补跑一次

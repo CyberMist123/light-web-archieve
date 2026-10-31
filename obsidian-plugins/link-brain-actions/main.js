@@ -742,14 +742,14 @@ const SETTING_SUBTABS = {};
 // 1018 v6：旧页签名 / 落点名 → 一页里的哪一段（data-section）
 // 1027（设置页六组）：① 账号登录 g-account ② 收藏与同步 g-sync ③ 目录与批注 g-catalog ④ 高级功能 g-advanced ⑤ CLI 与外接 MCP g-connect ⑥ 修复 g-repair；
 // 「同步时间」落在唯一的时间编辑器上（sync-time）；在「更多」里的落点由 settings-v6 focusSection 先把那一块打开画出来
-const V6_SECTION = { overview: 'g-account', status: 'g-account', 'collect-status': 'g-sync', sync: 'g-sync', schedule: 'sync-time', 'sync-time': 'sync-time',
+const V6_SECTION = { overview: 'g-account', status: 'g-account', 'collect-status': 'g-sync', sync: 'g-sync', schedule: 'sync-time', 'sync-time': 'sync-time', 'sync-bili': 'sync-bili',
   collect: 'sync-more', 'sync-more': 'sync-more', attach: 'attach', content: 'g-catalog', catalog: 'g-catalog',
   ai: 'g-advanced', features: 'g-advanced', 'ai-routes': 'ai-keys', 'ai-more': 'ai-keys', models: 'models', 'ai-api': 'ai-providers', 'ai-prompts': 'ai-prompts',
   cost: 'ai-console', usage: 'ai-console', 'ai-usage': 'ai-console', 'ai-spend': 'ai-spend', skills: 'skills',
   connect: 'g-connect', remote: 'remote', 'mcp-folders': 'mcp-folders', more: 'g-repair', developer: 'developer', advanced: 'developer' };
 // 旧名 → [页签, 子页签, 滚到哪一段]（问题面板「打开设置」带 'ai'、命令带 'overview'、「去扫码 / 验证」带 'status'、远程带 'remote'…）
 const TAB_ALIAS = { overview: ['overview'], general: ['overview'], status: ['overview', null, 'status'], start: ['overview'], home: ['overview'], run: ['overview'],
-  sync: ['sync'], content: ['sync', null, 'collect'], schedule: ['sync', null, 'schedule'], 'sync-time': ['sync', null, 'sync-time'], cost: ['ai', null, 'cost'],
+  sync: ['sync'], content: ['sync', null, 'collect'], schedule: ['sync', null, 'schedule'], 'sync-time': ['sync', null, 'sync-time'], 'sync-bili': ['sync', null, 'sync-bili'], cost: ['ai', null, 'cost'],
   features: ['overview'], ai: ['ai'], providers: ['ai'], models: ['ai', null, 'ai-more'], usage: ['ai', null, 'ai-usage'],
   more: ['more'], connect: ['connect'], remote: ['connect', null, 'remote'], skills: ['more', null, 'skills'],
   advanced: ['more', null, 'developer'], developer: ['more', null, 'developer'] };
@@ -980,6 +980,8 @@ class LinkBrainActions extends Plugin {
   openImportModal() { new ImportModal(this).open(); }
   // 1026：同步时间只有一个编辑器（设置页「收藏与同步」里，首次设置「同步」一步也是它）。首页齿轮、同步记录「改定时」、账号弹窗「定时…」都走这里
   openSyncTime() { return this.openSetupPage('sync-time'); }
+  // 1031：目录页侧栏 SYNC（B 站那一面）「去同步 →」：设置②「收藏与同步」并切到 B 站（data-section="sync-bili"）
+  openBiliSync() { return this.openSetupPage('sync-bili'); }
   // 1027 设置页③「目录的样子 → 去目录编排」：打开目录页并直接进编排（目录页读 pendingCatalogArrange + 事件 link-brain:catalog-arrange，读完即删）
   async openCatalogArrange() {
     this.pendingCatalogArrange = Date.now();
