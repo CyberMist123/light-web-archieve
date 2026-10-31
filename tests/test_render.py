@@ -321,3 +321,20 @@ def test_render_no_vision_does_not_call_vision(tmp_path, monkeypatch):
     assert calls == []
     assert cli.main(["render", item_id]) == 0
     assert calls == []  # 1024：render 默认也不识图（显式 --vision 才跑，见 test_p0_meta_1024）
+
+
+def test_untitled_note_title_skips_topic_tags(tmp_path, monkeypatch):
+    """1031：没标题的帖拿正文开头当标题，正文里的「#x[话题]#」不算；1101：正文只有话题串时用话题名，不落成「视频收藏」。"""
+    setup_env(tmp_path, monkeypatch)
+    cli.main(["ingest", "https://example.invalid/share"])
+    _, source, source_id = _get_item_id(tmp_path)
+    src_path = storage.raw_dir(source, source_id, 1) / "source.json"
+    meta_path = storage.object_dir(source, source_id) / "meta.json"
+    for body, want in (("澳洲这个苹果汁国内什么途径可以买到？#果汁爱好者[话题]# #澳洲[话题]#", "澳洲这个苹果汁国内什么途径可以买到？"),
+                       ("#生活需要分享欲[话题]# #日常[话题]#", "生活需要分享欲 日常")):
+        doc = storage.read_json(src_path); doc["note"]["title"] = None; doc["note"]["body"] = body; storage.write_json(src_path, doc)
+        meta = storage.read_json(meta_path); meta["title"] = None; storage.write_json(meta_path, meta)
+        render_mod.render_item(source, source_id)
+        title = storage.read_json(meta_path)["title"]
+        assert title == want
+        assert "#" not in storage.read_json(meta_path)["visible_note"]

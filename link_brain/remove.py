@@ -70,11 +70,14 @@ def _delete_item(conn, item_id: str) -> dict[str, Any]:
                 seen.add(extra.resolve())
                 candidates.append(extra)
         # 旧版 ⭐ 会把可见笔记复制到 vault 根；副本机制已删，这里仍要清扫历史遗留副本
-        star = vault / f"{sanitize_title(meta.get('title') or row['title'] or '未命名收藏')}.md"
-        if star.exists():
-            text = star.read_text(encoding='utf-8')
-            if item_id in text or row['source_id'] in text:
-                candidates.append(star)
+        # 1101：文件名规则 1031 改过（# ^ [ ] 换成 _），老副本是按旧规则起的名——两种都找
+        t0 = meta.get('title') or row['title'] or '未命名收藏'
+        for name in dict.fromkeys((sanitize_title(t0), sanitize_title(t0, legacy=True))):
+            star = vault / f"{name}.md"
+            if star.exists() and star not in candidates:
+                text = star.read_text(encoding='utf-8')
+                if item_id in text or row['source_id'] in text:
+                    candidates.append(star)
         for n, file in enumerate(candidates):
             if file.exists():
                 saved = f'notes/{n}-{file.name}'

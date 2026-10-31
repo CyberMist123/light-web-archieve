@@ -160,11 +160,6 @@ def _speech(audio, prev, now, cfg):
     return _failed(prev, got.get('error') or '语音识别失败', now, got.get('code') or 'TRANSIENT.SERVICE_BUSY', engine)
 
 
-def _has_screen_text(result):
-    screen = result.get('screen') or {}
-    return screen.get('status') == 'ok' and bool((screen.get('text') or '').strip())
-
-
 def _wants_screen(result):
     """画面文字：设置开着就抽；关着时，没人声 / 没音轨的视频也抽（否则这条视频一个字都没有）。本地 OCR，不花钱。"""
     return screen_text_enabled() or result.get('status') in ('no_speech', 'no_audio')

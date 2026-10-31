@@ -1140,7 +1140,7 @@ ${LB.brandCss('.lbchat .lbchat-title', '.lbchat .lbchat-engr')}
    一律按这一页的宽（W，百分比都相对 .lbchat 内容宽 = 对话区宽）算：
    没钉住：正文 850 居中；目录那条竖线贴在正文左边 40px（不再在整页最左）；页头左边和目录对齐、右边和正文对齐。
    钉住：目录 18rem + 24px + 正文 850 当一组居中（窄了组从左边 4px 开始、正文让到目录右边）；页头 / 输入框 / 输入框上面那几条跟着这一组走。 */
-.lbchat .lbchat-head{width:auto;max-width:none;box-sizing:border-box;margin:0 max(44px,calc(50% - 425px)) 14px max(4px,calc(50% - 465px));padding:0;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:2px 18px;}
+.lbchat .lbchat-head{width:auto;max-width:none;box-sizing:border-box;margin:0 max(0px,calc(50% - 425px)) 14px;padding:0;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:2px 18px;}
 .lbchat .lbchat-titleblock{grid-column:1;grid-row:1;}
 .lbchat .lbchat-head .lb-page-nav{grid-column:1;grid-row:2;justify-self:start;display:flex;gap:16px;padding:0;background:transparent;border:0;box-shadow:none;}
 .lbchat .lbchat-head .lb-page-nav button{height:auto;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;color:var(--lb-muted);font:inherit;font-size:13px;cursor:pointer;}
@@ -1148,9 +1148,11 @@ ${LB.brandCss('.lbchat .lbchat-title', '.lbchat .lbchat-engr')}
 .lbchat .lbchat-tools{grid-column:2;grid-row:1;align-self:center;}
 @media(max-width:560px){.lbchat .lbchat-head .lb-page-nav{grid-column:1;grid-row:2;}.lbchat .lbchat-tools{grid-column:2;}}
 .lbchat-bodywrap > .lbchat-toc.is-float{left:max(4px,calc(50% - 465px))!important;}
+/* 1101 自查：页头只在有目录时才让到目录左边；没目录（一两问 / 手机）时就和正文同宽 */
+.lbchat:has(> .lbchat-bodywrap.has-ftoc) .lbchat-head{margin-left:max(4px,calc(50% - 465px));margin-right:max(44px,calc(50% - 425px));}
 .lbchat-bodywrap.is-ftoc-pin{justify-content:flex-start;padding-left:max(316px,calc(50% - 269px));padding-right:max(16px,calc(50% - 581px));}
 .lbchat-bodywrap.is-ftoc-pin > .lbchat-toc.is-float{left:max(4px,calc(50% - 581px))!important;}
-.lbchat.ftoc-pinned .lbchat-head{margin-left:max(4px,calc(50% - 581px));margin-right:max(16px,calc(50% - 581px));}
+.lbchat.ftoc-pinned:has(> .lbchat-bodywrap.has-ftoc) .lbchat-head{margin-left:max(4px,calc(50% - 581px));margin-right:max(16px,calc(50% - 581px));}
 .lbchat button.lbchat-tab[hidden]{display:none!important;}
 /* 有目录（没钉住）时：输入框和上面那几条也只占正文那一栏（窄窗时以前比正文宽出一截） */
 .lbchat:has(> .lbchat-bodywrap.has-ftoc) :is(.lbchat-composer,.lbchat-srcbar,.lbchat-queue,.lbchat-followbar,.lbchat-bgbar,.lbchat-cfgbar,.lbchat-ro){width:auto;max-width:850px;margin-left:max(44px,calc(50% - 425px));margin-right:max(44px,calc(50% - 425px));}
@@ -1159,7 +1161,8 @@ ${LB.brandCss('.lbchat .lbchat-title', '.lbchat .lbchat-engr')}
 .lbchat:has(> .lbchat-bodywrap.has-ftoc) .lbchat-ctlrow{width:auto;max-width:822px;margin-left:max(58px,calc(50% - 411px));margin-right:max(58px,calc(50% - 411px));}
 .lbchat.ftoc-pinned:has(> .lbchat-bodywrap.has-ftoc) .lbchat-ctlrow{transform:none;width:auto;max-width:822px;margin-left:max(330px,calc(50% - 255px));margin-right:max(30px,calc(50% - 567px));}
 /* 1031 她：Ctrl + 加号 / 减号（Ctrl + 滚轮）调问答区的字——只缩放对话那一列，页头和输入框不动 */
-.lbchat .lbchat-body{zoom:var(--lbchat-zoom,1);}
+/* 1101 自查：缩放加在对话列里面那一层，不加在滚动的那一层（滚动位置 / 跳到某一问按的是不缩放的坐标） */
+.lbchat .lbchat-body > *{zoom:var(--lbchat-zoom,1);}
 /* 1026 第三轮（她录屏 04 / 05 / 06）：问这篇小条、生成状态、后台在答、报告顶上的动作、存上之后的「已保存 · 打开」、右栏证据条 */
 .lbchat .lbchat-scopechip{display:flex;align-items:center;gap:6px;align-self:flex-start;max-width:100%;margin:0 0 4px;padding:2px 4px 2px 10px;border-radius:var(--lb-radius-pill);background:var(--lb-soft);font-size:12.5px;line-height:1.6;color:var(--lb-muted);}
 .lbchat .lbchat-scopechip[hidden]{display:none;}

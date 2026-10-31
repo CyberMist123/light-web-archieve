@@ -37,8 +37,9 @@ PRESETS: dict[str, tuple[str, str]] = {
     "from_cites": ("从引用补要点", "根据下面引用的收藏材料，在相关位置补几条要点；每条后面跟上对应的 [标题](lwa:编号)，材料里没有的不要写。"),
     "draft": ("搭个框架", "这页几乎是空的：按标题和用户已经写的那一点，搭一个框架——几个 ## 小标题，每节一两句引导用户自己往下写的话（问句也行），不编具体事实。"),
 }
-BLOCK_PRESETS = ("polish", "concise", "expand", "list", "fix")
-PAGE_PRESETS = ("structure", "concise", "from_cites", "draft", "polish")
+# 1101 作者：页面上每种最多 3 个现成说法（别的在输入框里自己说）；PRESETS 里其余几个照样认（老调用 / 空页搭框架）
+BLOCK_PRESETS = ("polish", "concise", "expand")
+PAGE_PRESETS = ("structure", "concise", "from_cites")
 
 
 def main(argv: list[str]) -> int:

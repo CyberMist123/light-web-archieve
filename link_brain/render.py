@@ -59,8 +59,11 @@ PREVIEW_UNSUPPORTED_SUFFIXES = {".avif", ".heic"}
 ACTOR_LABELS = {"human": "人", "gpt": "gpt", "fable": "fable"}
 
 
-def sanitize_title(title: str) -> str:
-    cleaned = WINDOWS_ILLEGAL_RE.sub("_", title or "").strip()
+LEGACY_ILLEGAL_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')   # 1031 以前的规则（# ^ [ ] 还留在文件名里）：找老文件用
+
+
+def sanitize_title(title: str, *, legacy: bool = False) -> str:
+    cleaned = (LEGACY_ILLEGAL_RE if legacy else WINDOWS_ILLEGAL_RE).sub("_", title or "").strip()
     cleaned = re.sub(r"\s+", " ", cleaned).strip() or "untitled"
     cleaned = cleaned[:MAX_TITLE_LEN].rstrip(". ") or "untitled"
     return f"{cleaned}_" if cleaned.upper() in RESERVED_NAMES else cleaned
@@ -819,7 +822,10 @@ def set_highlights(item_id: str, phrases: list[str], *, remove: bool = False, co
         new = new[:idx] + marked + new[idx + len(esc):]
         out["changed"].append(phrase)
     if new != text:
-        _record_highlight_times(source, src_id, out["changed"], remove=remove)
+        try:
+            _record_highlight_times(source, src_id, out["changed"], remove=remove)
+        except OSError as exc:   # 1101 自查：时刻只是批注区显示用，notes.json 写不进去也照样把重点划上
+            print(f"[highlight] 划的时刻没记上：{exc}", file=sys.stderr)
         storage.atomic_write_text(visible, new)
     return out
 
@@ -1599,9 +1605,17 @@ def render_object(
     source_doc['note']['screen_text'] = (transcript_doc.get('screen') or {}).get('text', '')
     source_doc['note']['screen_v'] = (transcript_doc.get('screen') or {}).get('v')  # 10-08：v2 起画面文字按 OCR 行存，旧的是一帧一行
     if not (source_doc['note'].get('title') or meta.get('title')):
-        fallback = (extracted or {}).get('title') or transcript.split('。')[0] or source_doc['note'].get('body') or next((x.get('ocr') for x in vision_doc.get('images', []) if x.get('ocr')), '')
-        # 1031：没标题的小红书拿正文开头当标题，正文末尾那串「#果汁[话题]#」不算标题
-        title = re.sub(r'\s+', ' ', TOPIC_TOKEN_RE.sub('', str(fallback))).strip(' #')[:30] or '视频收藏'
+        # 1031：没标题的小红书拿正文开头当标题，正文末尾那串「#果汁[话题]#」不算标题；
+        # 1101 自查：正文只有话题串的（如「#生活需要分享欲[话题]#」）去掉后是空的——接着往下找（图片文字），再没有就用话题名，不落成「视频收藏」
+        def clean(t):
+            return re.sub(r'\s+', ' ', TOPIC_TOKEN_RE.sub('', str(t or ''))).strip(' #')[:30]
+        body = source_doc['note'].get('body') or ''
+        candidates = [(extracted or {}).get('title'), transcript.split('。')[0], body,
+                      *(x.get('ocr') for x in vision_doc.get('images', []) if x.get('ocr'))]
+        title = next((c for c in map(clean, candidates) if c), '')
+        if not title:
+            topics = ' '.join(m.group(1).strip() for m in TOPIC_TOKEN_RE.finditer(str(body)))
+            title = topics[:30] or ('视频收藏' if source_doc['note'].get('kind') == 'video' else '图文收藏')
         meta['title'] = title
         source_doc['note']['title'] = title
         # 1024：只补 title 这一个键，锁里重读再写（别拿开头读的旧副本整份写回）
