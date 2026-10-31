@@ -74,10 +74,10 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 /* 页头（10-31 晚和问收藏对齐）：一行——小号刻线标题 + 三页切换（透明底，当前那页白底小卡）；右边「AI · 历史 · …」方形带框按钮；下面篇数行压一条墨线 */
 /* 1101 设计交接包 §1「页头」：三页同一个——字标 + ＋ ｜ 空间切换胶囊 ｜ 右边 meta · 历史 · ···；下面一道 1px 墨线 */
 ${LB.siteHeaderCss()}
-.lbw-hrow{display:flex;align-items:center;flex-wrap:wrap;gap:12px 32px;padding:18px 0 14px;border-bottom:1px solid var(--lb-line);}
+.lbw-hrow{display:flex;align-items:center;flex-wrap:wrap;gap:16px 40px;padding:28px 0 22px;border-bottom:1px solid var(--lb-line);}
 .lbw-brandbox{display:flex;align-items:center;gap:2px;}
-.lbw .lbw-brand{font-size:32px;line-height:1.02;transform-origin:left center;padding-left:.04em;}
-.lbw .lbw-plus{width:32px;height:40px;display:grid;place-items:center;font:500 24px/1 var(--lb-font-title);color:var(--lb-ink);transition:transform .2s;}
+.lbw .lbw-brand{font-size:44px;line-height:1.02;transform-origin:left center;padding-left:.04em;}
+.lbw .lbw-plus{width:40px;height:44px;display:grid;place-items:center;font:500 30px/1 var(--lb-font-title);color:var(--lb-ink);transition:transform .2s;}
 .lbw .lbw-plus:hover{transform:rotate(90deg);}
 .lbw-acts{display:flex;align-items:center;gap:2px;margin-left:auto;}
 .lbw .lbw-hbtn{width:44px;height:44px;display:grid;place-items:center;border:0;border-radius:999px;background:transparent;box-shadow:none;color:var(--lb-ink);}
@@ -496,9 +496,9 @@ ${LB.siteHeaderCss()}
 .lbw.is-mid.is-tocoff.is-home:not(.is-narrow) .lbw-main{grid-template-columns:minmax(0,1fr);}
 @media (prefers-reduced-motion: reduce){.lbw-fold-sheet,.lbw-fold-face,.lbw-tw,.lbw-chev{transition:none;}}
 ${LB.brandCss('.lbw .lbw-brand', '.lbw .lbw-engr')}
-.lbw .lbw-brand{font-size:32px;line-height:1.02;transform-origin:left center;}
-.lbw.is-mid .lbw-brand{font-size:32px;}
-.lbw.is-narrow .lbw-brand{font-size:28px;}
+.lbw .lbw-brand{font-size:44px;line-height:1.02;transform-origin:left center;}
+.lbw.is-mid .lbw-brand{font-size:40px;}
+.lbw.is-narrow .lbw-brand{font-size:30px;}
 /* ── 1101 设计交接包（design/reference/wiki.html）：三栏 左目录 236 / 中正文 ≤720 / 右「本页 + 引用」236，栏距 56 ── */
 .lbw.has-rail .lbw-main{grid-template-columns:236px minmax(0,720px) 236px;column-gap:56px;}
 .lbw.has-rail.is-tocoff:not(.is-narrow) .lbw-main{grid-template-columns:minmax(0,720px) 236px;justify-content:center;}

@@ -1138,18 +1138,18 @@ ${LB.brandCss('.lbchat .lbchat-title', '.lbchat .lbchat-engr')}
 @media(max-width:560px){.lbchat .lbchat-head{grid-template-columns:1fr auto;}.lbchat .lbchat-head .lb-page-nav{grid-column:1/-1;grid-row:2;}.lbchat .lbchat-tools{grid-column:2;}}
 /* 1101 设计交接包 §1「页头」：目录 / 问收藏 / Wiki 三页同一个——字标 + ＋ ｜ 空间切换胶囊 ｜ 右边「已保存」· 历史 · ···，下面一道 1px 墨线，铺满整页宽 */
 ${LB.siteHeaderCss()}
-.lbchat .lbchat-head{display:flex;flex-direction:row;flex-wrap:wrap;justify-content:flex-start;align-items:center;gap:12px 32px;width:auto;max-width:none;box-sizing:border-box;margin:0 0 18px;padding:18px 0 14px;border-bottom:1px solid var(--lb-line);text-align:left;}
+.lbchat .lbchat-head{display:flex;flex-direction:row;flex-wrap:wrap;justify-content:flex-start;align-items:center;gap:16px 40px;width:auto;max-width:none;box-sizing:border-box;margin:0 0 18px;padding:28px 0 22px;border-bottom:1px solid var(--lb-line);text-align:left;}
 .lbchat .lbchat-titleblock{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;gap:2px;width:auto;max-width:100%;}
 .lbchat .lbchat-head > .lbchat-sub{flex-basis:100%;margin:-6px 0 0;text-align:left;}
 .lbchat .lbchat-titlerow{display:flex;align-items:center;}
-.lbchat .lbchat-title{font-size:32px;line-height:1.02;cursor:default;}
+.lbchat .lbchat-title{font-size:44px;line-height:1.02;cursor:default;}
 .lbchat .lbchat-tools{margin-left:auto;display:flex;align-items:center;flex-wrap:nowrap;gap:2px;}
 .lbchat .lbchat-tools button.lbchat-tab{margin-right:14px;padding:4px 0;border-bottom:0!important;font:400 13px/1.2 var(--lb-font-body)!important;color:var(--lb-muted);}
 .lbchat .lbchat-tools button.lbchat-tab.is-on{color:var(--lb-ink);font-weight:600;}
 .lbchat .lbchat-tools .lbchat-hist,.lbchat .lbchat-head .lb-manage{width:44px!important;height:44px!important;padding:0!important;border:0!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;display:grid;place-items:center;color:var(--lb-ink);}
 .lbchat .lbchat-tools .lbchat-hist:hover,.lbchat .lbchat-head .lb-manage:hover{background:var(--lb-soft)!important;}
 .lbchat .lbchat-tools .lbchat-hist svg{width:20px;height:20px;}
-@media(max-width:760px){.lbchat .lbchat-title{font-size:28px;}.lbchat .lbchat-head{gap:10px 22px;padding:14px 0 12px;}}
+@media(max-width:760px){.lbchat .lbchat-title{font-size:30px;}.lbchat .lbchat-head{gap:12px;padding:18px 0 14px;}}
 .lbchat-bodywrap > .lbchat-toc.is-float{left:max(4px,calc(50% - 465px))!important;}
 .lbchat-bodywrap.is-ftoc-pin{justify-content:flex-start;padding-left:max(316px,calc(50% - 269px));padding-right:max(16px,calc(50% - 581px));}
 .lbchat-bodywrap.is-ftoc-pin > .lbchat-toc.is-float{left:max(4px,calc(50% - 581px))!important;}
