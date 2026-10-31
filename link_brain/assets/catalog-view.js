@@ -118,7 +118,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-ctl-r{gap:10px;margin-left:auto;}
 .lbc-scope{display:contents;}
 /* Tag / 平台下拉的小箭头用 CSS 画（不用 ▾ 字符：首开时找后备字体要多排版 10ms） */
-.lbc-wrap .lbc-ctl button.lbc-tagpick::after,.lbc-wrap .lbc-ctl button.lbc-platpick::after,.lbc-wrap .lbc-ctl button.lbc-albpick::after{content:"";width:5px;height:5px;margin:0 2px 3px 7px;border-right:1.4px solid currentColor;border-bottom:1.4px solid currentColor;transform:rotate(45deg);}
+.lbc-wrap .lbc-ctl button.lbc-tagpick::after,.lbc-wrap .lbc-ctl button.lbc-platpick::after,.lbc-wrap .lbc-ctl button.lbc-fold-btn::after,.lbc-wrap .lbc-ctl button.lbc-albpick::after{content:"";width:5px;height:5px;margin:0 2px 3px 7px;border-right:1.4px solid currentColor;border-bottom:1.4px solid currentColor;transform:rotate(45deg);}
 .lbc-ctl-sep{flex:none;width:1px;height:16px;background:var(--c-line);margin:0 -8px;}
 .lbc-wrap .lbc-ctl button.lbc-cat,.lbc-wrap .lbc-ctl button.lbc-pick{position:relative;flex:none;height:var(--ctl-h)!important;display:inline-flex;align-items:center;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;color:var(--c-muted);font:15.5px/1 var(--f-serif);font-weight:400;cursor:pointer;white-space:nowrap;transition:color .15s;}
 .lbc-wrap .lbc-ctl button.lbc-cat:hover,.lbc-wrap .lbc-ctl button.lbc-pick:hover{color:var(--c-ink);}
@@ -773,6 +773,19 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap:not(.is-side-narrow):not(.is-arranging) .lbc-top .lbc-row.is-free:has(> .lbc-rcol > .lbc-m-sort) > .lbc-rcol:has(> .lbc-m-sort) ~ .lbc-rcol.is-grow{margin-left:0!important;flex:0 1 var(--lbc-search-w,180px)!important;}
 .lbc-wrap .lbc-top.is-squeeze-1{--lbc-search-w:160px;}
 .lbc-wrap .lbc-top.is-squeeze-3{--lbc-search-w:130px;}
+/* 1101 作者「半栏时保持一行」：收起来的按钮平时不出；.is-fold-1 主题收成「★ 主题 ▾」，.is-fold-2 来源 / 视频 / 文件 / 专辑收成「筛选 ▾」，
+   .is-fold-4 搜索框收成放大镜（点了 / 有字时展开，盖在这一排右边） */
+.lbc-wrap .lbc-ctl button.lbc-fold-btn{display:none!important;}
+.lbc-wrap .lbc-ctl button.lbc-topics-fold .lbc-topic-star,.lbc-wrap .lbc-ctl button.lbc-topics-fold{align-items:center;}
+.lbc-wrap .lbc-top.is-fold-1 .lbc-scope-topics > :not(.lbc-fold-btn){display:none!important;}
+.lbc-wrap .lbc-top.is-fold-1 .lbc-scope-topics > button.lbc-topics-fold{display:inline-flex!important;}
+.lbc-wrap .lbc-top.is-fold-2 .lbc-blk-types > .lbc-scope > :not(.lbc-fold-btn){display:none!important;}
+.lbc-wrap .lbc-top.is-fold-2 .lbc-blk-types button.lbc-filters-fold{display:inline-flex!important;}
+.lbc-wrap .lbc-top.is-fold-2 .lbc-row.is-free > .lbc-rcol:has(> .lbc-blk-albums){display:none!important;}
+.lbc-wrap .lbc-top.is-fold-4 .lbc-row.is-free > .lbc-rcol.is-grow{flex:0 0 auto!important;min-width:0!important;position:relative;}
+.lbc-wrap .lbc-top.is-fold-4 .lbc-searchbox:not(:focus-within):not(.has-text){flex:0 0 28px!important;width:28px!important;border-bottom-color:transparent!important;cursor:pointer;}
+.lbc-wrap .lbc-top.is-fold-4 .lbc-searchbox:not(:focus-within):not(.has-text) input{width:0!important;padding:0!important;opacity:0;}
+.lbc-wrap .lbc-top.is-fold-4 .lbc-searchbox:is(:focus-within,.has-text){position:absolute;right:0;bottom:8px;z-index:5;width:220px!important;background:var(--c-bg)!important;}
 /* 1101 作者「这里也没对齐」：筛选这一行不按编排格子的起点留空（已收藏和★主题之间空一大截）——块和块之间一律 28px，搜索那一列照旧靠右 */
 .lbc-wrap:not(.is-side-narrow):not(.is-arranging) .lbc-top .lbc-row.is-free:has(> .lbc-rcol > .lbc-m-scope) > .lbc-rcol:not(.is-grow){margin-left:var(--lbc-wall-ml,0px)!important;padding-right:var(--lbc-ctl-gap,26px)!important;}
 .lbc-wrap .lbc-top.is-squeeze-1{--lbc-ctl-gap:12px;}
@@ -1432,6 +1445,8 @@ timeTab.onclick = e => { e?.stopPropagation?.(); openTimeMenu(timeTab); };
 const SEARCH_SVG = '<svg viewBox="0 0 14 14" aria-hidden="true"><circle cx="6" cy="6" r="4.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M9.4 9.4 13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
 const searchBox = blocks.search.createEl('label', { cls: 'lbc-searchbox' }); searchBox.innerHTML = SEARCH_SVG;
 const search = searchBox.createEl('input', { cls: 'lbc-search' });
+// 1101：收成放大镜时，框里有字就一直展开（.has-text）
+search.addEventListener('input', () => searchBox.classList.toggle('has-text', !!search.value));
 search.type = 'search'; search.placeholder = '搜索收藏 · #标签';
 const searchX = searchBox.createEl('button', { cls: 'lbc-search-x', text: '×' }); searchX.type = 'button'; searchX.hidden = true;
 // 1101：「问收藏 · Wiki」不再跟在搜索框后面——页头里有空间切换胶囊了
@@ -1586,6 +1601,16 @@ function renderScope() {
     const b = topicsBox.createEl('button', { cls: 'lbc-pick lbc-topic-new-tab', text: '+ 星标主题' }); b.type = 'button'; b.dataset.scope = 'topic-new';
     b.onclick = () => { topicAdding = true; topicFocusNew = true; renderTopicBar(); };
   }
+  // 1101 作者「半栏时保持一行」：放不下时主题收成一颗「★ 主题 ▾」（fitFreeGaps 挂 .is-fold-1 才露出来）；里面列全部主题 + 「＋ 新主题」
+  if (!starredPage && (names.length || canEditTopics())) {
+    const tf = topicsBox.createEl('button', { cls: 'lbc-pick lbc-fold-btn lbc-topics-fold' + (cur.startsWith('topic:') ? ' is-active' : ''),
+      text: cur.startsWith('topic:') ? `★${cur.slice(6)}` : '★主题' });
+    tf.type = 'button'; tf.dataset.scope = 'topic-fold';
+    tf.onclick = () => chipMenu('主题', [
+      ...names.map(n => ({ title: `★ ${n}（${topicN.get(n) || 0}）`, checked: cur === 'topic:' + n, onClick: () => pickScope(cur === 'topic:' + n ? '' : 'topic:' + n) })),
+      ...(canEditTopics() ? [{ title: '＋ 新主题', onClick: () => { topicAdding = true; topicFocusNew = true; renderTopicBar(); } }] : []),
+    ], tf);
+  }
   // 1026 类型（一组，组内单选、和范围叠加）；1028 起是自己的一块（「类型」），不再用细竖线隔
   // 1031 作者：有两个以上平台（B 站进来了）时，「图文 / 视频」换成一个来源下拉；图文 / 视频只在小红书里分（B 站全是视频），
   // 选了小红书才跟出来；附件也只有小红书有，照旧放最后
@@ -1662,6 +1687,32 @@ function renderScope() {
       { separator: true },
       ...albums.map(([n, c]) => ({ title: `${n}（${c}）`, checked: n === activeAlbum, onClick: () => pickAlbum(n === activeAlbum ? '' : n) })),
     ] : [{ title: none, disabled: true, onClick: () => {} }], chip);
+  }
+  // 1101 作者「半栏时保持一行」：再放不下，来源 / 视频 / 文件 / 专辑收成一颗「筛选 ▾」（.is-fold-2 才露出来）；选了什么就写在按钮上
+  {
+    const on = [activePlat ? platLabel(activePlat) : '', mediaFilter ? TYPE_LABEL[mediaFilter] : '', activeAlbum ? '专辑：' + activeAlbum : ''].filter(Boolean);
+    const ff = typesBox.createEl('button', { cls: 'lbc-pick lbc-fold-btn lbc-filters-fold' + (on.length ? ' is-active' : ''), text: on.length ? on.join(' · ') : '筛选' });
+    ff.type = 'button'; ff.dataset.scope = 'filter-fold';
+    ff.onclick = () => {
+      const { menu, close } = menuShell('lbc-time-menu lbc-chip-menu', ff);
+      const rowOf = (label, list) => {
+        if (!list.length) return;
+        const row = menu.createEl('div', { cls: 'lbc-tm-row' }); row.createEl('span', { cls: 'lbc-tm-label', text: label });
+        const chips = row.createEl('div', { cls: 'lbc-chips' }); chips.setAttribute('role', 'group');
+        for (const it of list) {
+          const b = chips.createEl('button', { cls: 'lbc-menu-item lbc-chip' + (it.checked ? ' is-on' : ''), text: it.title });
+          b.type = 'button'; b.setAttribute('role', 'menuitemradio'); b.setAttribute('aria-checked', String(!!it.checked));
+          b.onclick = ev => { ev?.stopPropagation?.(); close(); it.onClick(); };
+        }
+      };
+      if (platsTab.length > 1) rowOf('来源', [{ title: '全部来源', checked: !activePlat, onClick: () => pickPlat('') },
+        ...platsTab.map(([pl]) => ({ title: platLabel(pl), checked: pl === activePlat, onClick: () => pickPlat(pl) }))]);
+      rowOf('类型', [...typesBox.querySelectorAll('.lbc-type-tab')].map(b => ({ title: b.textContent, checked: b.classList.contains('is-active'), onClick: () => b.onclick() })));
+      if (albumHost && albums.length) rowOf('专辑', [{ title: '全部专辑', checked: !activeAlbum, onClick: () => pickAlbum('') },
+        ...albums.map(([n]) => ({ title: n, checked: n === activeAlbum, onClick: () => pickAlbum(n) }))]);
+      const r = ff.getBoundingClientRect(); placeMenu(menu, r.left, r.bottom + 4);
+      focusFirst(menu);
+    };
   }
   if (focusedKey != null) { const again = scopeBoxes.flatMap(x => [...x.querySelectorAll('button')]).find(b => (b.dataset?.scope ?? b.dataset?.type) === focusedKey); try { again?.focus({ preventScroll: true }); } catch { again?.focus?.(); } }
 }
@@ -1892,6 +1943,8 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
 function importedAt(it) { const t = Date.parse(it.ts || it.date || ''); return Number.isFinite(t) ? t : 0; }
 function timeLabel() {
   const range = timeRange === 'custom' ? `${(timeFrom || '…').slice(5)}~${(timeTo || '…').slice(5)}` : TIME_RANGES[timeRange] || '';
+  // 1101 作者「半栏时保持一行」：收到第 3 级只写一段——选了时间范围写范围，没选写排序（时间范围在它的下拉里）
+  if (top.classList.contains('is-fold-3')) return range || (timeSort === 'recent' ? '最近导入' : committed ? '按相关度' : '最新在前');
   // 1021 排序胶囊：默认 = 数据顺序（导入新→旧），有搜索词时默认是按相关度
   const topic = activeTopic && activeTopic !== '*' ? '★' + activeTopic : '';
   // 1101 作者（设计稿「近 7 天 · 最近导入 ↓」）：总是「时间 · 排序」两段，没选时间范围写「全部时间」
@@ -4641,7 +4694,13 @@ function paintVisibility() {
 //   1 = 块和块、标签和标签之间的空收小；2 = 范围标签后面的篇数不显示；3 = 筛选字小一号、搜索框最窄到 120px；
 //   4 = 再挤：筛选字再小一号、按钮内边距收小、搜索框最窄 100px、窄到不出边栏时边栏钮也不显示。
 //   每次从 0 级量起（变宽了会自己松回去）；同一宽度、同一排内容只量一次
-const SQUEEZE_MAX = 4;
+const SQUEEZE_MAX = 4, FOLD_MAX = 4;
+let foldLvl = 0;
+function setFold(n) {
+  if (n === foldLvl) return;
+  for (let k = 1; k <= FOLD_MAX; k++) { const on = n >= k; if (top.classList.contains('is-fold-' + k) !== on) top.classList.toggle('is-fold-' + k, on); }
+  foldLvl = n; paintTime();
+}
 let squeezeKey = '', squeezeLvl = 0, wallAlignOff = false;
 function setSqueeze(n) { for (let k = 1; k <= SQUEEZE_MAX; k++) { const on = n >= k; if (top.classList.contains('is-squeeze-' + k) !== on) top.classList.toggle('is-squeeze-' + k, on); } squeezeLvl = n; }
 function ctlRowEl() { for (const id of ['search', 'sort', 'scope', 'types']) { const b = blocks[id]; const r = b && !b.classList.contains('is-gone') && b.closest?.('.lbc-row'); if (r && !r.hidden && top.contains(r)) return r; } return null; }
@@ -4653,14 +4712,18 @@ function rowIsOneLine(row) {
 function fitFreeGaps() {
   const row = ctlRowEl();
   if (!row) { if (squeezeLvl) setSqueeze(0); placeFreeGaps(); return; }
-  const key = (wrap.classList.contains('is-arranging') ? 'A' : '') + (row.clientWidth || 0) + '|' + [...row.querySelectorAll('.lbc-ctl-piece')].map(p => p.classList.contains('is-gone') ? '' : p.textContent).join('|');
+  const key = (wrap.classList.contains('is-arranging') ? 'A' : '') + (row.clientWidth || 0) + '|' + [...row.querySelectorAll('.lbc-ctl-piece:not(.lbc-blk-sort)')].map(p => p.classList.contains('is-gone') ? '' : p.textContent).join('|');
   if (key === squeezeKey) { placeFreeGaps(); return; }
-  // 1101：先试「★主题对齐收藏墙」（最多收紧一级）；放不下就不对齐，照原来逐级收紧
-  wallAlignOff = false; setSqueeze(0); placeFreeGaps();
+  // 1101：先试「★主题对齐收藏墙」（最多收紧一级）；放不下就不对齐，逐级收：
+  //   空收小 → 篇数不显示 → ★主题收进「★ 主题 ▾」→ 来源 / 视频 / 文件收进「筛选 ▾」→ 排序只写一段 → 搜索变成放大镜 → 最后才缩字
+  wallAlignOff = false; setFold(0); setSqueeze(0); placeFreeGaps();
   if (!rowIsOneLine(row)) { setSqueeze(1); placeFreeGaps(); }
   if (!rowIsOneLine(row)) {
-    wallAlignOff = true; setSqueeze(0); placeFreeGaps();
-    while (squeezeLvl < SQUEEZE_MAX && !rowIsOneLine(row)) { setSqueeze(squeezeLvl + 1); placeFreeGaps(); }
+    wallAlignOff = true;
+    for (const [sq, fd] of [[0, 0], [1, 0], [2, 0], [2, 1], [2, 2], [2, 3], [2, 4], [3, 4], [4, 4]]) {
+      setSqueeze(sq); setFold(fd); placeFreeGaps();
+      if (rowIsOneLine(row)) break;
+    }
   }
   squeezeKey = key;
 }
