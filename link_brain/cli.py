@@ -906,6 +906,22 @@ def _dispatch(args) -> int:
         from .read import dump_json
 
         urls = xhs.clean_share_text(args.text)
+        # 1101 作者：导入网址也认 B 站——标准成 bilibili.com/video/BV…（只留 p），b23.tv 短链展开一次（展不开原样留着，catch 再展）
+        from .sources import bilibili as bili
+        seen = {u.get("clean") for u in urls if isinstance(u, dict)}
+        for raw in bili.find_urls(args.text):
+            try:
+                url = bili._resolve_short(raw) if "b23.tv" in raw else raw
+            except Exception:  # noqa: BLE001 - 展开失败不挡清洗
+                url = raw
+            m = bili.VIDEO_PATH_RE.search(url)
+            if m:
+                from urllib.parse import parse_qs, urlsplit
+                pn = (parse_qs(urlsplit(url).query).get("p") or ["1"])[0]
+                url = f"https://www.bilibili.com/video/{m.group(1)}" + (f"?p={pn}" if pn.isdigit() and int(pn) > 1 else "")
+            if url not in seen:
+                seen.add(url)
+                urls.append({"raw": raw, "clean": url, "has_token": True})
         dump_json({"count": len(urls), "urls": urls})
         return EXIT_OK
 

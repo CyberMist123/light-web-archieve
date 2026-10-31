@@ -300,6 +300,7 @@ function refreshInPlace(cur, next) {
 // 保留 host+path 原样（不改 /explore/、/discovery/item/）、去重。短链的「跟随 redirect 换成长链」
 // 需要联网，走 Python（expandAndCleanLinks / clean 命令）；这里同步版只做能本地做的清洗。
 const XHS_HOSTS = /(^|\.)(xiaohongshu\.com|rednote\.com|xhslink\.com|xhslink\.cn)$/;
+const BILI_HOSTS = /(^|\.)(bilibili\.com|b23\.tv)$/i;
 // 大类可编辑文本 ↔ 数组。文本格式（好编辑）：每行「名称: 关键词1, 关键词2」。
 function parseCatsText(text) {
   const cats = [];
@@ -325,6 +326,16 @@ function linkSpans(text) {
   for(const m of String(text||'').matchAll(/https?:\/\/[^\s<>"'，。、；：！？（）()\[\]【】《》　-〿一-鿿＀-￯]+/gi)){
     const raw=m[0].replace(/[)\],.;]+$/, '');
     try{const u=new URL(raw);
+      // 1101 作者：导入网址也认 B 站——bilibili.com/video/BV… 只留分 P 的 p（trackid / vd_source / spm_id_from 等分享参数清掉，同一个 BV 只算一条）；
+      //   b23.tv 短链原样交给后端（catch 自己展开）
+      if(BILI_HOSTS.test(u.hostname)){
+        const bv=(u.pathname.match(/\/video\/(BV1[0-9A-Za-z]{9})/i)||[])[1];
+        let clean=null;
+        if(bv){const pn=Number(u.searchParams.get('p'))||1;clean=`https://www.bilibili.com/video/${bv}`+(pn>1?`?p=${pn}`:'');}
+        else if(/(^|\.)b23\.tv$/i.test(u.hostname)&&u.pathname.length>1)clean=`https://b23.tv${u.pathname.replace(/\/+$/,'')}`;
+        if(clean)spans.push({start:m.index,end:m.index+raw.length,raw,clean});
+        continue;
+      }
       if(!XHS_HOSTS.test(u.hostname))continue;
       // 只保留小红书读取所需的 xsec_token/xsec_source，其余分享追踪参数
       //（source / xhsshare / app_platform / share_id / track_code / apptime / author_share / shareRedId …）一律清掉。
@@ -366,7 +377,7 @@ class ImportModal extends Modal {
   constructor(plugin){super(plugin.app);this.plugin=plugin;}
   onOpen(){
     const el=this.contentEl;el.createEl('h2',{text:'导入网址'});
-    el.createEl('p',{text:'粘贴链接或整段分享文案，支持多条。自动清洗、去重、短链展开；目前支持小红书。'});
+    el.createEl('p',{text:'粘贴链接或整段分享文案，支持多条。自动清洗、去重、短链展开；支持小红书和 B 站。'});
     const input=el.createEl('textarea');input.style.cssText='width:100%;min-height:180px';input.placeholder='粘贴一个或多个链接…';
     this.input = input; input.value = this.plugin.importDraft || '';
     const preview=el.createEl('p',{text:'等待粘贴链接'});
@@ -387,7 +398,7 @@ class ImportModal extends Modal {
         if(cleaned.length){input.value=cleaned.map(c=>c.clean).join('\n');input.oninput();
           const noTok=cleaned.filter(c=>!c.has_token).length;
           preview.setText(`清洗出 ${cleaned.length} 条${noTok?`（${noTok} 条缺 xsec_token，可能打不开）`:''}`);
-        }else preview.setText('没识别到有效的小红书链接');
+        }else preview.setText('没识别到有效的小红书或 B 站链接');
       }catch(e){preview.setText('清洗失败：'+e.message);}
       finally{clean.setText(old);clean.disabled=false;}
     };
@@ -2476,7 +2487,7 @@ class LinkBrainActions extends Plugin {
   async importText(text, report = () => {}, progress = () => {}) {
     if(this.importing || this.running){const message=this.busyText();report(message+'。可以先关掉这个窗口，链接会留在框里');this.notify(message,{kind:'warn'});return {results:[],busy:true};}
     const urls=cleanLinks(text);
-    if(!urls.length){report('没有识别到支持的小红书链接');return {results:[],empty:true};}
+    if(!urls.length){report('没有识别到小红书或 B 站链接');return {results:[],empty:true};}
     this.importing=true;const results=[];
     try {
       progress(0,urls.length);

@@ -378,8 +378,9 @@ def download(bvid: str, page: int, out_dir: Path, *, quality: str, info: dict[st
     deadline = time.monotonic() + timeout_s
     own = client is None
     own_web = web_client is None
-    client = client or httpx.Client(headers={"User-Agent": TV_UA, "Referer": "https://www.bilibili.com/"},
-                                    timeout=60, follow_redirects=True)
+    # 1101 实测：电视端片源（upos-*.bilivideo.com / akamaized）带 Referer: bilibili.com 一律 403，不带才 206——
+    # 以前带着它，电视端次次「取流 HTTP 403」退回网页流（带水印）。这里只带电视端 UA
+    client = client or httpx.Client(headers={"User-Agent": TV_UA}, timeout=60, follow_redirects=True)
     web_client = web_client or login.http_client()
     v_tmp, a_tmp = out_dir / "tv-video.m4s", out_dir / "tv-audio.m4s"
     try:
