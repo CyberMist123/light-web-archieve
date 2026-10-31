@@ -953,6 +953,8 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat-toc.is-float::-webkit-scrollbar{display:none;}
 .lbchat-toc.is-float:hover,.lbchat-toc.is-float:focus-within,.lbchat-toc.is-float.is-pin{width:fit-content;min-width:6rem;max-width:18rem;overflow-y:auto;padding:.5rem 0 1.5rem;background:transparent;border:0;box-shadow:none;}
 .lbchat-toc.is-float.is-pin{width:18rem;}
+/* 1031 她：没钉住、悬停展开时恢复底色（压在正文上透明会叠字）；直角、细边、无阴影；钉住的仍透明 */
+.lbchat-toc.is-float:not(.is-pin):hover,.lbchat-toc.is-float:not(.is-pin):focus-within{background:var(--lb-surface);border:1px solid var(--lb-line);}
 .lbchat-bodywrap.is-ftoc-pin{padding-left:calc(18rem + 8px);box-sizing:border-box;}
 .lbchat-ftoc-bar{display:flex;align-items:center;padding:0 1rem 4px;}
 .lbchat button.lbchat-ftoc-tool{width:auto;height:22px;padding:0 10px!important;margin-right:5px;border:0!important;box-shadow:none!important;background:transparent!important;color:var(--lb-muted);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border-radius:4px!important;}
@@ -1124,6 +1126,16 @@ button.lbchat-toc-h{max-width:100%;white-space:nowrap;overflow:hidden;text-overf
 .lbchat-tocpanel.is-side{max-height:70vh;}
 /* 1026 她：大标题和目录页同一份样式（lb-page-lib 的 brandCss），放在最后、选择器带 .lbchat，盖过上面旧的 .lbchat-title 字体 / 字号 */
 ${LB.brandCss('.lbchat .lbchat-title', '.lbchat .lbchat-engr')}
+/* 1031 她：页头压成一行——左小字标、中间三个分页、右边对话 / 已保存 + 历史 + …；「全部 N 篇 · 更新」不占行，悬停字标才看到（数据格式提醒照常露出） */
+.lbchat .lbchat-head{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px 18px;margin:0 0 14px;}
+.lbchat .lbchat-titleblock{grid-column:1;grid-row:1;width:auto;align-items:flex-start;gap:0;}
+.lbchat .lbchat-title{font-size:18px;cursor:default;}
+.lbchat .lbchat-sub:not(.is-warn){display:none;}
+.lbchat .lbchat-head .lb-page-nav{grid-column:2;grid-row:1;justify-self:start;padding:3px;}
+.lbchat .lbchat-head .lb-page-nav button{padding:5px 12px;}
+.lbchat .lbchat-tools{grid-column:3;grid-row:1;flex-wrap:nowrap;gap:8px;}
+.lbchat .lbchat-head .lb-manage{width:32px;height:32px;font-size:20px!important;}
+@media(max-width:560px){.lbchat .lbchat-head{grid-template-columns:1fr auto;}.lbchat .lbchat-head .lb-page-nav{grid-column:1/-1;grid-row:2;}.lbchat .lbchat-tools{grid-column:2;}}
 /* 1026 第三轮（她录屏 04 / 05 / 06）：问这篇小条、生成状态、后台在答、报告顶上的动作、存上之后的「已保存 · 打开」、右栏证据条 */
 .lbchat .lbchat-scopechip{display:flex;align-items:center;gap:6px;align-self:flex-start;max-width:100%;margin:0 0 4px;padding:2px 4px 2px 10px;border-radius:var(--lb-radius-pill);background:var(--lb-soft);font-size:12.5px;line-height:1.6;color:var(--lb-muted);}
 .lbchat .lbchat-scopechip[hidden]{display:none;}
@@ -1212,8 +1224,8 @@ function paintSub() {
   const tail = schemaWhy ? ` · ${schemaWhy}` : '';
   // 1023：问收藏搜的是全部（含 Fable 收的、TG 发来的），写明「全部」，和目录页「N 篇 · 全部 M」对得上
   sub.classList.toggle('is-warn', !!schemaWhy);   // 1026：标题块平时不显示，只有数据格式对不上的提醒才露出来
-  if (!d || isNaN(d)) { sub.setText(`全部 ${items.length} 篇${tail}`); return; }
-  sub.setText(`全部 ${items.length} 篇 · 更新 ${d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}${tail}`);
+  const txt = (!d || isNaN(d)) ? `全部 ${items.length} 篇${tail}` : `全部 ${items.length} 篇 · 更新 ${d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}${tail}`;
+  sub.setText(txt); chatTitle.box.title = txt;   // 1031：字标上悬停看篇数 / 更新时间
 }
 paintSub();
 const pageNav = head.createEl('nav', { cls: 'lb-page-nav' });
