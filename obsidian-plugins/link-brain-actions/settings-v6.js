@@ -277,20 +277,25 @@ module.exports = function (obsidian, plugin) {
   // 一张卡：登录（网页 + 电视端两行状态、扫码弹窗）· 同步选项（存 settings.bilibili）· 「预估」「立即同步」· 上次同步摘要。
   // 后端：`bilibili status|login|logout|sync|last`（CONVENTIONS §1：最后一行 JSON，提示只用 json.message）。
   // 悬停气泡在 LWA 里全局去掉了：说明一律写成卡里看得见的字。
-  const BILI_DEFAULTS = { quality: 'max', maxDuration: 3600, danmaku: true, workers: 2 };
+  // 1031 她：同时下几路放到 1–8、默认 8（撞 412/429 后端自动退回一路）；skipFolders = 挑选页里关掉的收藏夹 id（'toview' = 稍后再看）
+  const BILI_DEFAULTS = { quality: 'max', maxDuration: 3600, danmaku: true, workers: 8, skipFolders: [] };
   const BILI_QUALITY = [['max', '最高'], ['1080', '1080p'], ['720', '720p']];
   const BILI_DURATION = [['1800', '30 分钟'], ['3600', '1 小时'], ['7200', '2 小时'], ['0', '不限']];
-  const BILI_WORKERS = [['1', '1 路'], ['2', '2 路'], ['3', '3 路'], ['4', '4 路']];
+  const BILI_WORKERS_MAX = 8;
+  const BILI_WORKERS = Array.from({ length: BILI_WORKERS_MAX }, (_, i) => [String(i + 1), `${i + 1} 路`]);
   const BILI_RUN_LABEL = '下载 B 站收藏';      // 状态栏那一条（别带「同步」两个字：那是小红书同步记录的口径，停止时会去记小红书的同步记录）
   const BILI_EST_LABEL = '预估 B 站收藏';
   let biliStatus = null;   // ①登录卡读到的状态，②「立即同步」先看一眼
   const biliOpts = () => ({ ...BILI_DEFAULTS, ...((S() || {}).bilibili || {}) });
+  // 关掉的收藏夹 id：只认非空字符串、去重、排序（存设置和传后端都用它）
+  const biliSkip = o => [...new Set((Array.isArray(o && o.skipFolders) ? o.skipFolders : []).map(x => String(x == null ? '' : x).trim()).filter(Boolean))].sort();
   function biliSyncArgs(o, { dryRun = false } = {}) {
     const q = BILI_QUALITY.some(([v]) => v === o.quality) ? o.quality : 'max';
-    const w = Math.min(4, Math.max(1, parseInt(o.workers, 10) || 1));
+    const w = Math.min(BILI_WORKERS_MAX, Math.max(1, parseInt(o.workers, 10) || 1));
     const d = Math.max(0, parseInt(o.maxDuration, 10) || 0);
     const args = ['-m', 'link_brain', 'bilibili', 'sync', '--json', '--quality', q, '--max-duration', String(d), '--workers', String(w)];
     if (o.danmaku === false) args.push('--no-danmaku');
+    for (const id of biliSkip(o)) args.push('--skip-folder', id);
     if (dryRun) args.push('--dry-run');
     return args;
   }
@@ -425,6 +430,167 @@ module.exports = function (obsidian, plugin) {
     loadStatus();
   }
 
+  // —— 挑选页（1031 她「没有让我选哪些下载」）：一个大弹窗，内容可滚动 ——
+  //   收藏夹：全部收藏夹 + 稍后再看，每个一个开关「同步这个收藏夹」，默认全开；关掉的存 settings.bilibili.skipFolders（按 id），
+  //     同步时传 `--skip-folder <id>`，后端整个跳过（不扫、不下）。
+  //   长视频：顶上选门槛（就是「超过多长先不下」那个设置），下面列超过门槛、还没入库的视频逐条勾；勾上 = `choose --allow`，取消 = `--undo`。
+  //   数据只读本地（`bilibili pick`：上次列到的收藏夹 + 本地快照），不连 B 站；没扫过就叫她先预估 / 同步一次。
+  //   底部「保存」「保存并开始同步」；关掉弹窗 = 不存。
+  function biliPicker({ onSaved, onSyncNow } = {}) {
+    const Modal = obsidian.Modal;
+    if (!Modal) { plugin.notify('这里打不开挑选页：Obsidian 太旧，没有弹窗组件', { kind: 'warn' }); return null; }
+    const modal = new Modal(plugin.app);
+    modal.modalEl?.addClass?.('lb-bili-pick-modal');
+    const c = modal.contentEl;
+    c.createEl('h2', { text: '挑选要同步的 B 站收藏' });
+    c.createEl('p', { cls: 'lb-bili-note', text: '关掉的收藏夹以后同步时整个跳过（不扫、不下；已经下好的不动）。超过时长的视频默认只记链接，勾上的下次同步就下。这里只读这台电脑上扫过的记录，不连 B 站。' });
+    const body = c.createDiv({ cls: 'lb-bili-pick-body' });
+    const foot = c.createDiv({ cls: 'lb-bili-pick-foot' });
+    const skip = new Set(biliSkip(biliOpts()));
+    const skip0 = [...skip].sort().join('\n');
+    const picks = new Map();   // bvid → { was（后端记的放行）, now（她现在勾的）}；换门槛重读时保留
+    let data = null;
+    const longRows = [];       // [{ it, cb, lab }]：当前画出来的长视频行
+    const offNote = it => (it.folder_ids || []).length > 0 && it.folder_ids.every(id => skip.has(String(id)));
+    const paintOff = () => {
+      for (const r of longRows) {
+        const off = offNote(r.it);
+        r.lab.toggleClass?.('is-off', off);
+        r.off.setText(off ? '所在收藏夹都关了，勾了也不会下' : '');
+      }
+    };
+    const countText = () => {
+      const items = (data && data.long && data.long.items) || [];
+      return `超过 ${fmtDur(biliOpts().maxDuration)}、还没入库的 ${items.length} 条，勾上 ${items.filter(it => picks.get(it.bvid)?.now).length} 条`;
+    };
+    let countEl = null;
+    const paint = () => {
+      body.empty();
+      longRows.length = 0;
+      const j = data || {};
+      // 收藏夹
+      const fsec = body.createDiv({ cls: 'lb-bili-pick-sec', attr: { 'data-section': 'bili-pick-folders' } });
+      fsec.createEl('h3', { text: '收藏夹' });
+      const folders = j.folders || [];
+      if (!folders.length) fsec.createDiv({ cls: 'lb-bili-warn', text: '还没扫过收藏夹：先关掉这里，点一次「预估」或「立即同步」，扫一遍收藏夹。' });
+      else {
+        fsec.createDiv({ cls: 'lb-bili-note', text: '默认全开；关掉 = 以后同步时整个跳过。新建的收藏夹自动算开着。' });
+        const tools = fsec.createDiv({ cls: 'lb-bili-pick-tools' });
+        const toggles = [];
+        const setAll = on => { for (const t of toggles) t.setValue(on); };
+        tools.createEl('button', { cls: 'lb-link', text: '全开' }).onclick = () => setAll(true);
+        tools.createEl('button', { cls: 'lb-link', text: '全关' }).onclick = () => setAll(false);
+        for (const f of folders) {
+          const id = String(f.id);
+          const desc = [f.media_count == null ? '条数等下次同步' : `${f.media_count} 条`, f.private ? '私密' : '',
+            f.kind === 'toview' ? '移出稍后再看的不删本地' : (f.scanned === false ? '还没扫过' : '')].filter(Boolean).join(' · ');
+          const r = new Setting(fsec).setName(f.title || id).setDesc(desc);
+          r.settingEl.addClass?.('lb-bili-pick-folder');
+          r.settingEl.setAttribute?.('data-folder', id);
+          r.addToggle(t => {
+            toggles.push(t);
+            t.toggleEl?.setAttribute?.('aria-label', '同步这个收藏夹：' + (f.title || id));
+            t.setValue(!skip.has(id)).onChange(v => { if (v) skip.delete(id); else skip.add(id); paintOff(); });
+          });
+        }
+      }
+      // 长视频
+      const lsec = body.createDiv({ cls: 'lb-bili-pick-sec', attr: { 'data-section': 'bili-pick-long' } });
+      lsec.createEl('h3', { text: '长视频' });
+      const th = new Setting(lsec).setName('超过多长先不下');
+      th.settingEl.addClass?.('lb-bili-pick-threshold');
+      th.addDropdown(d => {
+        for (const [v, t] of BILI_DURATION) d.addOption(v, t);
+        d.setValue(String(biliOpts().maxDuration));
+        d.selectEl?.setAttribute?.('aria-label', 'B 站时长上限');
+        d.onChange(async v => {
+          const before = String(biliOpts().maxDuration);
+          try { await saveBili('maxDuration', parseInt(v, 10) || 0); }
+          catch (e) { try { d.setValue(before); } catch {} plugin.notify('没保存上，已改回原来的：' + errText(e), { kind: 'error' }); return; }
+          try { onSaved && onSaved(); } catch {}
+          await load();
+        });
+      });
+      lsec.createDiv({ cls: 'lb-bili-note', text: '和「超过多长先不下」是同一个设置，改了马上存。' });
+      const d = biliOpts().maxDuration;
+      const items = (j.long && j.long.items) || [];
+      if (!d) { lsec.createDiv({ cls: 'lb-bili-note', text: '现在是「不限」：多长的都会下，没有要挑的。' }); return; }
+      if (!items.length) { lsec.createDiv({ cls: 'lb-bili-note', text: folders.length ? `没有超过 ${fmtDur(d)}、还没入库的视频。` : '' }); return; }
+      const bar = lsec.createDiv({ cls: 'lb-bili-pick-tools' });
+      countEl = bar.createSpan({ cls: 'lb-bili-pick-count', text: '' });
+      const setLong = on => { for (const r of longRows) { r.cb.checked = on; picks.get(r.it.bvid).now = on; } countEl.setText(countText()); };
+      bar.createEl('button', { cls: 'lb-link', text: '全选' }).onclick = () => setLong(true);
+      bar.createEl('button', { cls: 'lb-link', text: '全不选' }).onclick = () => setLong(false);
+      const list = lsec.createDiv({ cls: 'lb-bili-long-list' });
+      for (const it of items) {
+        if (!picks.has(it.bvid)) picks.set(it.bvid, { was: !!it.chosen, now: !!it.chosen });
+        const p = picks.get(it.bvid);
+        p.was = !!it.chosen;
+        const lab = list.createEl('label', { cls: 'lb-bili-long-row', attr: { 'data-bvid': it.bvid } });
+        const cb = lab.createEl('input', { attr: { type: 'checkbox' } });
+        cb.checked = !!p.now;
+        cb.onchange = () => { p.now = !!cb.checked; countEl.setText(countText()); };
+        lab.createSpan({ cls: 'lb-bili-long-dur', text: it.duration_text || '' });
+        lab.createSpan({ cls: 'lb-bili-long-title', text: it.title || it.bvid });
+        lab.createSpan({ cls: 'lb-bili-long-meta', text: [it.upper, (it.folders || []).join('、')].filter(Boolean).join(' · ') });
+        const off = lab.createSpan({ cls: 'lb-bili-long-off', text: '' });
+        longRows.push({ it, cb, lab, off });
+      }
+      countEl.setText(countText());
+      paintOff();
+    };
+    const load = async () => {
+      body.empty();
+      body.createDiv({ cls: 'lb-bili-note', text: '正在读这台电脑上扫过的收藏夹记录…' });
+      try {
+        const r = await plugin.runPy(['-m', 'link_brain', 'bilibili', 'pick', '--json', '--max-duration', String(biliOpts().maxDuration)], { label: 'B 站挑选页', timeoutMs: 60000 });
+        data = (r && r.json) || {};
+      } catch (e) {
+        body.empty();
+        if (plugin.failBox) plugin.failBox(body, '挑选页', e, load); else body.createDiv({ cls: 'lb-bili-warn', text: '读不到本地记录：' + errText(e) });
+        return;
+      }
+      paint();
+    };
+    // 存：先存收藏夹开关（设置），再把长视频的变化交给后端（choose）；哪步没成就说原因，弹窗不关、勾的都还在
+    const save = async () => {
+      const skipArr = [...skip].sort();
+      const allow = [], undo = [];
+      for (const [bv, p] of picks) { if (p.now && !p.was) allow.push(bv); if (!p.now && p.was) undo.push(bv); }
+      try {
+        if (skipArr.join('\n') !== skip0) await saveBili('skipFolders', skipArr);
+        if (allow.length || undo.length) {
+          const args = ['-m', 'link_brain', 'bilibili', 'choose', '--json'];
+          for (const bv of allow) args.push('--allow', bv);
+          for (const bv of undo) args.push('--undo', bv);
+          await plugin.runPy(args, { label: 'B 站选择', timeoutMs: 60000 });
+          for (const bv of allow) picks.get(bv).was = true;
+          for (const bv of undo) picks.get(bv).was = false;
+        }
+      } catch (e) { plugin.notify('没保存上，内容还在，可重试：' + errText(e), { kind: 'error' }); return false; }
+      const bits = [skipArr.length ? `跳过 ${skipArr.length} 个收藏夹` : '收藏夹全部同步'];
+      if (allow.length) bits.push(`放行 ${allow.length} 条长视频`);
+      if (undo.length) bits.push(`撤销 ${undo.length} 条`);
+      plugin.notify('已保存：' + bits.join('，'), { kind: 'ok' });
+      try { onSaved && onSaved(); } catch {}
+      return true;
+    };
+    const saveBtn = foot.createEl('button', { cls: 'lb-btn', text: '保存' });
+    const goBtn = foot.createEl('button', { cls: 'lb-btn mod-cta', text: '保存并开始同步' });
+    const lock = async (btn, text, after) => {
+      const done = plugin.busyButton(btn, text);
+      saveBtn.disabled = goBtn.disabled = true;
+      let ok = false;
+      try { ok = await save(); } finally { done(); saveBtn.disabled = goBtn.disabled = false; }
+      if (ok) { modal.close(); if (after) after(); }
+    };
+    saveBtn.onclick = () => lock(saveBtn, '正在保存…');
+    goBtn.onclick = () => lock(goBtn, '正在保存…', onSyncNow);
+    modal.open();
+    const ready = load();
+    return { modal, ready, save, skip, picks };
+  }
+
   // ② 收藏与同步 · B 站同步（1031 她：和小红书统一——①只放账号登录，同步选项 / 立即同步 / 上次 / 超长清单在②）
   function biliSync(card, tab) {
     // —— 同步选项 ——
@@ -432,8 +598,10 @@ module.exports = function (obsidian, plugin) {
     const o = biliOpts();
     select(row(opts, tab, '画质'), BILI_QUALITY, () => biliOpts().quality, v => saveBili('quality', v), { label: 'B 站画质' });
     opts.createDiv({ cls: 'setting-item-description lb-bili-note', text: '最高 = 能拿到的最高清晰度（大会员可到 4K / 8K），不要杜比视界（Obsidian 里放不了）。' });
-    select(row(opts, tab, '超过多长先不下'), BILI_DURATION, () => String(biliOpts().maxDuration), v => saveBili('maxDuration', parseInt(v, 10) || 0).then(() => loadLong()), { label: 'B 站时长上限' });
+    const durSel = select(row(opts, tab, '超过多长先不下'), BILI_DURATION, () => String(biliOpts().maxDuration), v => saveBili('maxDuration', parseInt(v, 10) || 0), { label: 'B 站时长上限' });
+    opts.createDiv({ cls: 'setting-item-description lb-bili-note', text: '超过的先只记链接；想下哪几条，在下面「挑选要同步的…」里勾。' });
     select(row(opts, tab, '同时下几路'), BILI_WORKERS, () => String(biliOpts().workers), v => saveBili('workers', parseInt(v, 10) || 1), { label: 'B 站并行路数' });
+    opts.createDiv({ cls: 'setting-item-description lb-bili-note', text: '路数多下得快；B 站一限流就自动退回一路接着下。' });
     const tg = (name, key) => row(opts, tab, name).addToggle(t => {
       let quiet = false;
       t.setValue(o[key] !== false).onChange(async v => {
@@ -444,43 +612,19 @@ module.exports = function (obsidian, plugin) {
     });
     tg('保存弹幕', 'danmaku');
 
-    // —— 1031 她：超过时长上限的收藏给清单，自己勾哪些要下（后端 `bilibili long` 只读本地快照；选了 = `choose --allow`，取消 = `--undo`）——
-    const longBox = card.createDiv({ cls: 'lb-bili-long', attr: { 'data-section': 'bili-long' } });
-    const loadLong = async () => {
-      longBox.empty();
-      const d = biliOpts().maxDuration;
-      if (!d) return;
-      let j = null;
-      try { j = (await plugin.runPy(['-m', 'link_brain', 'bilibili', 'long', '--json', '--max-duration', String(d)], { label: 'B 站超长收藏', timeoutMs: 60000 })).json; }
-      catch (e) { plugin.failBox ? plugin.failBox(longBox, '超长收藏清单', e, loadLong) : null; return; }
-      const items = (j && j.items) || [];
-      if (!items.length) return;
-      const det = longBox.createEl('details', { cls: 'lb-bili-long-list' });
-      det.createEl('summary', { text: `超过上限的收藏 ${items.length} 条（已选 ${items.filter(x => x.chosen).length} 条）：勾上的下次同步会下` });
-      const picks = new Map();
-      for (const it of items) {
-        const lab = det.createEl('label', { cls: 'lb-bili-long-row' });
-        const cb = lab.createEl('input', { attr: { type: 'checkbox' } }); cb.checked = !!it.chosen;
-        picks.set(it.bvid, { cb, was: !!it.chosen });
-        lab.createSpan({ cls: 'lb-bili-long-dur', text: it.duration_text || '' });
-        lab.createSpan({ cls: 'lb-bili-long-title', text: it.title || it.bvid });
-        lab.createSpan({ cls: 'lb-bili-long-meta', text: [it.upper, (it.folders || []).join('、')].filter(Boolean).join(' · ') });
-      }
-      const go = det.createEl('button', { cls: 'lb-btn', text: '保存选择并下载' });
-      go.onclick = async () => {
-        const allow = [], undo = [];
-        for (const [bv, p] of picks) { if (p.cb.checked && !p.was) allow.push(bv); if (!p.cb.checked && p.was) undo.push(bv); }
-        if (allow.length || undo.length) {
-          const args = ['-m', 'link_brain', 'bilibili', 'choose', '--json'];
-          for (const bv of allow) args.push('--allow', bv);
-          for (const bv of undo) args.push('--undo', bv);
-          try { await plugin.runPy(args, { label: 'B 站选择', timeoutMs: 60000 }); }
-          catch (e) { plugin.notify('选择没保存上：' + errText(e), { kind: 'error' }); return; }
-        }
-        await loadLong();
-        if (picks.size && [...picks.values()].some(p => p.cb.checked)) runBtn.onclick();
-      };
+    // —— 1031 她「没有让我选哪些下载」：显眼的「挑选要同步的…」→ 弹窗里开关收藏夹（含稍后再看）、逐条勾超长视频（取代原来折叠的超长清单）——
+    const pickBox = card.createDiv({ cls: 'lb-bili-pick-entry', attr: { 'data-section': 'bili-pick' } });
+    const pickBtn = pickBox.createEl('button', { cls: 'lb-btn is-primary lb-bili-pick-btn', text: '挑选要同步的…' });
+    const pickNote = pickBox.createDiv({ cls: 'setting-item-description lb-bili-note' });
+    const paintPick = () => {
+      const n = biliSkip(biliOpts()).length;
+      pickNote.setText((n ? `现在跳过 ${n} 个收藏夹。` : '现在全部收藏夹和稍后再看都同步。') + '点开可以关掉不想同步的收藏夹、勾选超过时长也要下的视频。');
     };
+    paintPick();
+    pickBtn.onclick = () => biliPicker({
+      onSaved: () => { paintPick(); try { durSel && durSel.setValue(String(biliOpts().maxDuration)); } catch {} },
+      onSyncNow: () => runBtn.onclick(),
+    });
 
     // —— 预估 / 立即同步 / 停止 ——
     const act = card.createDiv({ cls: 'lb-bili-actions', attr: { 'data-section': 'bili-sync' } });
@@ -555,7 +699,6 @@ module.exports = function (obsidian, plugin) {
     if (off) (tab.stops || (tab.stops = [])).push(off);   // 设置页关掉时（hide / disposeStops）注销
     paintRunning();
     loadLast();
-    loadLong();
   }
 
   // ———————————————————— ② 收藏与同步 ————————————————————
@@ -1380,6 +1523,6 @@ module.exports = function (obsidian, plugin) {
   }
 
   return { renderPage, renderGuide, needsGuide, syncTimeEditor, syncRows, featureRows, focusSection, addKey, replaceKey, pasteKey, keyTrouble, slotsFor,
-    bili: { biliCard, biliSync, biliSyncArgs, biliLoginLines, estimateText, lastText, BILI_DEFAULTS, BILI_RUN_LABEL },
+    bili: { biliCard, biliSync, biliSyncArgs, biliLoginLines, biliPicker, biliSkip, estimateText, lastText, BILI_DEFAULTS, BILI_WORKERS, BILI_RUN_LABEL },
     STEPS, PROV, SYNC_TIME, GROUPS, _values: { asrValue, visionValue, askValue, summaryValue, embedValue }, _parts: { apiConfig, recogRows, askRows } };
 };

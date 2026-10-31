@@ -649,15 +649,16 @@ def relation_key(owner_mid: Any, media_id: Any, key: str) -> str:
 
 
 def update_relations(snap: dict[str, Any], diff: dict[str, Any] | None = None, *,
-                     now: str | None = None) -> dict[str, int]:
+                     now: str | None = None, deactivate_missing: bool = True) -> dict[str, int]:
     """把一次扫描写进关系表（锁内读改写）。读到的：新建或刷新 last_seen / fav_time / active=true；
-    完整扫描（且对比没有 hold）里不在了的：active=false + inactive_since。从不删行。回各类计数。"""
+    完整扫描（且对比没有 hold）里不在了的：active=false + inactive_since。从不删行。回各类计数。
+    1031：deactivate_missing=False（稍后再看用）= 不在了的也不解除——看完就移出稍后再看是常态，本地那条仍归「稍后再看」专辑。"""
     owner, media_id = snap.get("owner_mid"), snap.get("media_id")
     stamp = now or snap.get("fetched_at") or _now_iso()
     counts = {"added": 0, "seen": 0, "reactivated": 0, "deactivated": 0, "held": 0}
     if not owner or not media_id:
         return counts
-    deactivate = bool(snap.get("complete")) and not (diff or {}).get("hold")
+    deactivate = deactivate_missing and bool(snap.get("complete")) and not (diff or {}).get("hold")
     if snap.get("complete") and (diff or {}).get("hold"):
         counts["held"] = len((diff or {}).get("unfavorited") or [])
 

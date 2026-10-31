@@ -36,6 +36,8 @@ FOLDER_GAP_S = 3.0       # 两个收藏夹之间歇一下；翻页间隔见 PAGE
 PAGE_GAP_S = 2.0
 PENDING_NOTE = "B站待选清单.md"
 LAST_SYNC = "last-sync.json"
+FOLDER_LIST = "folder-list.json"   # 1031：上次列到的全部收藏夹（含被关掉的），挑选页不连网就靠它列收藏夹
+WORKERS_MAX = 8          # 1031 她：同时下几路放到 8（撞 412/429 照旧自动退回一路）
 # 1031：停下来时给她的下一步（设置页直接显示 message；码是 CONVENTIONS §2 的细分码，裸写，和原来的 NOT_LOGGED_IN 一样）
 HINTS = {
     "NOT_LOGGED_IN": "在设置页「账号登录 → B 站」点「扫码登录」重新扫一次，再点「立即同步」（已经下好的不会重下）",
@@ -103,9 +105,11 @@ def plan(snaps: list[dict[str, Any]], *, max_duration_s: int = MAX_DURATION_S, a
     others: list[dict[str, Any]] = []
     for s in snaps:
         folder = s.get("title") or str(s.get("media_id"))
+        fid = str(s.get("media_id") or "")
         for it in s.get("items") or []:
             row = {"bvid": it.get("bvid") or "", "title": it.get("title") or "", "upper": it.get("upper_name") or "",
                    "duration": it.get("duration"), "page_count": int(it.get("page_count") or 0), "folders": [folder],
+                   "folder_ids": [fid] if fid else [],
                    "fav_time": it.get("fav_time"), "kind": it.get("kind"), "invalid": bool(it.get("invalid")),
                    "invalid_reason": it.get("invalid_reason"), "listed": it.get("listed", True)}
             if it.get("kind") != "video" or not row["bvid"]:
@@ -119,6 +123,8 @@ def plan(snaps: list[dict[str, Any]], *, max_duration_s: int = MAX_DURATION_S, a
             else:
                 if folder not in got["folders"]:
                     got["folders"].append(folder)
+                if fid and fid not in got.setdefault("folder_ids", []):
+                    got["folder_ids"].append(fid)
                 if not got["title"] and row["title"]:
                     got.update(title=row["title"], upper=row["upper"], duration=row["duration"], page_count=row["page_count"])
     buckets: dict[str, list[dict[str, Any]]] = {"download": [], "hit": [], "long": [], "multi_p": [], "invalid": [],
@@ -418,14 +424,18 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
              min_free_gb: float = MIN_FREE_GB, folders: list[str] | None = None, allow: list[str] | None = None,
              rescan_hours: float = RESCAN_HOURS, folder_gap_s: float = FOLDER_GAP_S, workers: int = 1,
              quality: str | None = None, danmaku: bool = True, tv: bool = True,
+             skip_folders: list[str] | None = None, toview: bool = True,
              log: Callable[[str], None] | None = None, sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
     """返回 {ok, code, message, counts, buckets, folders, estimate, options, ...}；stdout 不碰（调用方打 JSON），人话走 log。
-    1031：quality = max | 1080 | 720（不传 = ytdlp.DEFAULT_QUALITY）；danmaku=False 不存弹幕。这一趟 ytdlp.OPTIONS 改成这两样，结束复原。"""
+    1031：quality = max | 1080 | 720（不传 = ytdlp.DEFAULT_QUALITY）；danmaku=False 不存弹幕。这一趟 ytdlp.OPTIONS 改成这两样，结束复原。
+    1031 她（挑选页）：skip_folders = 关掉的收藏夹 id（"toview" = 稍后再看），整个跳过——不扫、不下；toview=True 时稍后再看
+    当成一个「稍后再看」收藏夹一起走 plan / 下载。"""
     from . import ytdlp
     say = log or (lambda m: print(m, file=sys.stderr, flush=True))
     started = _now()
     quality = ytdlp.normalize_quality(quality or ytdlp.DEFAULT_QUALITY)
-    workers = max(1, int(workers or 1))
+    workers = max(1, min(WORKERS_MAX, int(workers or 1)))
+    skip = {str(x).strip() for x in (skip_folders or []) if str(x).strip()}
     prev_opts = ytdlp.configure(quality=quality, danmaku=danmaku, tv=tv)
     try:
         client, st = favorites.default_client()
@@ -437,6 +447,7 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
                            "counts": {}, "buckets": {}, "stopped": None, "pid": os.getpid(), "pid_created": _created(os.getpid()),
                            "options": {"quality": quality, "danmaku": bool(danmaku), "workers": workers,
                                        "max_duration_s": max_duration_s, "vip": bool(st.get("vip")),
+                                       "skip_folders": sorted(skip),
                                        "tv": bool(tv) and tvapi.usable_token() is not None}}
     if not dry_run:
         # 1031：上次被关机 / 注销 / 「停止」杀掉的那一趟，临时目录里留着半截的下载——不管多新，进程没了的都清掉，那条这次重下
@@ -463,9 +474,14 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
             out.update(ok=False, code=code, message=msg + (f"；{HINTS[code]}" if code in HINTS else ""))
             return out
         rows = res["folders"]
-        if folders:
-            want = {f.strip() for f in folders if f.strip()}
+        _write_folder_list(mid, rows)
+        want = {f.strip() for f in folders if f.strip()} if folders else set()
+        if want:
             rows = [f for f in rows if f["title"] in want or str(f["media_id"]) in want or str(f["fid"]) in want]
+        skipped = [f for f in rows if str(f["media_id"]) in skip]
+        rows = [f for f in rows if str(f["media_id"]) not in skip]
+        if skipped:
+            say(f"跳过你关掉的收藏夹 {len(skipped)} 个：" + "、".join(f["title"] for f in skipped))
         say(f"收藏夹 {len(rows)} 个：" + "、".join(f"{f['title']}({f['media_count']})" for f in rows))
         snaps: list[dict[str, Any]] = []
         reused = 0
@@ -486,6 +502,27 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
         if reused:
             say(f"{reused} 个收藏夹复用了 {rescan_hours:g} 小时内的完整快照，没重扫")
         out["counts"]["folders"] = len(rows)
+        out["counts"]["skipped_folders"] = len(skipped)
+        # 1031 她：稍后再看一起同步，当成「稍后再看」专辑（关掉了 / 只同步指定收藏夹且没点名它 → 不读）
+        from . import toview as toview_mod
+        if toview and toview_mod.TOVIEW_ID not in skip and (not want or want & {toview_mod.TOVIEW_ID, toview_mod.TITLE}):
+            if rows and folder_gap_s:
+                sleep(folder_gap_s)
+            try:
+                tv_r = toview_mod.sync_toview(client, mid, log=say)
+            except Exception as exc:  # noqa: BLE001 - 稍后再看出岔子不耽误收藏夹那边
+                say(f"稍后再看没读到：{errtext(exc)[:200]}")
+                tv_r = {"snapshot": {"items": [], "status": "error", "complete": False}, "stale": False,
+                        "error": {"reason": "error", "message": errtext(exc)[:200]}}
+            snap = tv_r["snapshot"]
+            snaps.append(snap)
+            out["folders"].append({"title": toview_mod.TITLE, "media_id_masked": toview_mod.TOVIEW_ID, "kind": "toview",
+                                   "private": True, "media_count": snap.get("media_count"), "status": snap.get("status"),
+                                   "complete": bool(snap.get("complete")), "items": len(snap.get("items") or []),
+                                   "reused": bool(tv_r["stale"]), "error": (tv_r["error"] or {}).get("message")})
+            out["counts"]["toview"] = len(snap.get("items") or [])
+        elif toview_mod.TOVIEW_ID in skip:
+            out["counts"]["skipped_folders"] += 1
 
         from ... import index as index_mod
         conn = index_mod.connect()
@@ -716,16 +753,7 @@ def last_summary() -> dict[str, Any]:
 def long_list(*, max_duration_s: int = MAX_DURATION_S) -> dict[str, Any]:
     """1031 她：超过时长上限、还没入库的收藏列成清单，她在设置页自己勾哪些要下。只读本地收藏夹快照，不连 B 站。
     每条 {bvid, title, upper, duration, folders, url, chosen}；chosen = 已经放行（下次同步就下）。失效 / 多 P 不列。"""
-    snaps = []
-    for sp in sorted((favorites.sync_root() / "folders").glob("*.json")):
-        if sp.name.endswith(".last-complete.json"):
-            continue
-        try:
-            snap = storage.read_json(sp)
-        except (OSError, ValueError):
-            continue
-        if isinstance(snap, dict):
-            snaps.append(snap)
+    snaps = _local_snapshots()
     ch = load_choices()
     from ... import index as index_mod
     conn = index_mod.connect()
@@ -735,9 +763,92 @@ def long_list(*, max_duration_s: int = MAX_DURATION_S) -> dict[str, Any]:
     finally:
         conn.close()
     rows = [{"bvid": r["bvid"], "title": r["title"], "upper": r["upper"], "duration": r["duration"], "duration_text": _hms(r["duration"]),
-             "folders": r["folders"], "url": r["url"], "chosen": r["bvid"] in ch["allow"]} for r in pl["buckets"]["long"]]
+             "folders": r["folders"], "folder_ids": r.get("folder_ids") or [], "url": r["url"],
+             "chosen": r["bvid"] in ch["allow"]} for r in pl["buckets"]["long"]]
     rows.sort(key=lambda r: (r["chosen"], -(r["duration"] or 0)))
     return {"items": rows, "total": len(rows), "chosen": sum(1 for r in rows if r["chosen"]), "max_duration": max_duration_s}
+
+
+# ---- 挑选页（1031 她：「没有让我选哪些下载」）：收藏夹开关 + 超长视频逐条勾选。只读本地，不连 B 站 --------------------------
+
+def folder_list_path() -> Path:
+    return favorites.sync_root() / FOLDER_LIST
+
+
+def _write_folder_list(mid: Any, rows: list[dict[str, Any]]) -> None:
+    """列到的全部收藏夹（含关掉的）落盘：挑选页列收藏夹用。写不上不耽误同步。"""
+    try:
+        storage.write_json(folder_list_path(), {"owner_mid": mid, "fetched_at": _now(), "folders": [
+            {"id": str(f["media_id"]), "title": f["title"], "private": bool(f.get("private")), "media_count": f.get("media_count")}
+            for f in rows]})
+    except OSError as exc:
+        print(f"[bilibili sync] 收藏夹列表没写上：{errtext(exc)}", file=sys.stderr)
+
+
+def _local_snapshots() -> list[dict[str, Any]]:
+    out = []
+    for sp in sorted((favorites.sync_root() / "folders").glob("*.json")):
+        if sp.name.endswith(".last-complete.json"):
+            continue
+        try:
+            snap = storage.read_json(sp)
+        except (OSError, ValueError):
+            continue
+        if isinstance(snap, dict):
+            out.append(snap)
+    return out
+
+
+def picker(*, max_duration_s: int = MAX_DURATION_S) -> dict[str, Any]:
+    """挑选页的数据：{folders: [{id, title, media_count, private, kind, scanned}], long: long_list(...), message}。
+    收藏夹 = 上次列到的全部（folder-list.json）+ 本地快照里有的；稍后再看排第一。一个都没有 → 叫她先预估 / 同步一次。"""
+    from . import toview as toview_mod
+    try:
+        listed = storage.read_json(folder_list_path())
+    except (OSError, ValueError):
+        listed = {}
+    listed = listed if isinstance(listed, dict) else {}
+    owner = listed.get("owner_mid")
+    by_id: dict[str, dict[str, Any]] = {}
+    for f in listed.get("folders") or []:
+        if isinstance(f, dict) and f.get("id"):
+            by_id[str(f["id"])] = {"id": str(f["id"]), "title": f.get("title") or "", "media_count": f.get("media_count"),
+                                   "private": bool(f.get("private")), "kind": "folder", "scanned": False}
+    for snap in _local_snapshots():
+        if owner and snap.get("owner_mid") and str(snap.get("owner_mid")) != str(owner):
+            continue   # 别人的公开收藏夹（单独扫过的）不算她的
+        fid = str(snap.get("media_id") or "")
+        if not fid:
+            continue
+        is_tv = fid == toview_mod.TOVIEW_ID
+        row = by_id.setdefault(fid, {"id": fid, "title": snap.get("title") or "", "media_count": snap.get("media_count"),
+                                     "private": bool(snap.get("private")), "kind": "folder"})
+        row["scanned"] = True
+        if is_tv:
+            row["kind"] = "toview"
+        if row.get("media_count") is None:
+            row["media_count"] = snap.get("media_count") if snap.get("media_count") is not None else len(snap.get("items") or [])
+    folders = list(by_id.values())
+    if folders and toview_mod.TOVIEW_ID not in by_id:
+        # 列到过收藏夹但还没读过稍后再看（旧版本同步的）：照样给一行开关，条数等下次同步
+        folders.insert(0, {"id": toview_mod.TOVIEW_ID, "title": toview_mod.TITLE, "media_count": None, "private": True,
+                           "kind": "toview", "scanned": False})
+    folders.sort(key=lambda f: 0 if f["kind"] == "toview" else 1)
+    lo = long_list(max_duration_s=max_duration_s)
+    if not folders:
+        msg = "还没扫过收藏夹：先点一次「预估」或「立即同步」，扫一遍收藏夹"
+    else:
+        msg = f"收藏夹 {len(folders)} 个" + (f"；超过 {_hms(max_duration_s)} 还没入库的 {lo['total']} 条，已选 {lo['chosen']} 条"
+                                             if max_duration_s else "；没设时长上限，长视频不用挑")
+    return {"folders": folders, "long": lo, "fetched_at": listed.get("fetched_at"), "empty": not folders, "message": msg}
+
+
+def run_pick(args) -> int:
+    from ... import read as read_mod
+    from ...cli import EXIT_OK
+    out = picker(max_duration_s=max(0, int(getattr(args, "max_duration", MAX_DURATION_S) or 0)))
+    read_mod.dump_json(read_mod.outcome(out, ok=True, message=out["message"]))
+    return EXIT_OK
 
 
 def run_long(args) -> int:
@@ -807,7 +918,8 @@ def run(args) -> int:
                    max_duration_s=max(0, int(MAX_DURATION_S if getattr(args, "max_duration", None) is None else args.max_duration)),
                    gap_s=float(getattr(args, "gap", GAP_S) or 0), min_free_gb=float(getattr(args, "min_free_gb", MIN_FREE_GB) or 0),
                    folders=getattr(args, "folder", None) or None, allow=getattr(args, "allow", None) or None,
-                   workers=max(1, int(getattr(args, "workers", 1) or 1)),
+                   workers=max(1, min(WORKERS_MAX, int(getattr(args, "workers", 1) or 1))),
+                   skip_folders=getattr(args, "skip_folder", None) or None,
                    quality=getattr(args, "quality", None), danmaku=not bool(getattr(args, "no_danmaku", False)),
                    tv=not bool(getattr(args, "no_tv", False)))
     payload = {k: v for k, v in out.items() if k != "buckets"}

@@ -892,11 +892,26 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 
 /* 1031 她：LWA 界面悬停不出提示气泡。no-tooltip.js 在鼠标移进 lb* 元素时给 body 挂 .lb-notip，这里藏掉 Obsidian 的黑气泡 */
 body.lb-notip .tooltip{display:none!important;}
-/* 1031 她：超过时长上限的 B 站收藏清单（设置页②），勾哪些要下 */
-.lb-settings .lb-v7 .lb-bili-long-list { margin: var(--lb-space-2) 0; font-size: var(--lb-fs-small); }
-.lb-settings .lb-v7 .lb-bili-long-list > summary { cursor: pointer; color: var(--lb-ink); }
-.lb-settings .lb-v7 .lb-bili-long-row { display: grid; grid-template-columns: auto 5.5em minmax(0, 1fr); gap: 2px var(--lb-space-2); align-items: baseline; padding: 4px 0; border-bottom: 1px solid var(--lb-line); cursor: pointer; }
-.lb-settings .lb-v7 .lb-bili-long-dur { font-variant-numeric: tabular-nums; color: var(--lb-muted); }
-.lb-settings .lb-v7 .lb-bili-long-title { color: var(--lb-ink); overflow-wrap: anywhere; }
-.lb-settings .lb-v7 .lb-bili-long-meta { grid-column: 3; color: var(--lb-muted); font-size: var(--lb-fs-micro); }
-.lb-settings .lb-v7 .lb-bili-long-list > .lb-btn { margin-top: var(--lb-space-2); }
+/* 1031 她「没有让我选哪些下载」：设置页②「挑选要同步的…」入口 + 挑选弹窗（收藏夹开关、超长视频逐条勾）。弹窗大一点，中间可滚，底部按钮常在 */
+.lb-settings .lb-v7 .lb-bili-pick-entry { margin: var(--lb-space-3) 0 var(--lb-space-2); }
+.lb-settings .lb-v7 .lb-bili-pick-entry .lb-bili-pick-btn { height: auto; min-height: var(--lb-ctl-h); padding: 6px var(--lb-space-5); }
+.lb-bili-pick-modal { width: min(860px, calc(100vw - 32px)); max-width: none; }
+.lb-bili-pick-modal .modal-content { display: flex; flex-direction: column; min-height: 0; }
+.lb-bili-pick-modal .lb-bili-note { font-size: var(--lb-fs-small); color: var(--lb-muted); margin: var(--lb-space-1) 0 var(--lb-space-2); }
+.lb-bili-pick-modal .lb-bili-warn { color: var(--lb-warn); font-size: var(--lb-fs-small); margin: var(--lb-space-2) 0; }
+.lb-bili-pick-modal .lb-bili-pick-body { max-height: min(62vh, 640px); overflow-y: auto; overscroll-behavior: contain; padding-right: var(--lb-space-1); }
+.lb-bili-pick-modal .lb-bili-pick-sec + .lb-bili-pick-sec { margin-top: var(--lb-space-4); padding-top: var(--lb-space-3); border-top: 1px solid var(--lb-line); }
+.lb-bili-pick-modal .lb-bili-pick-sec > h3 { margin: 0 0 var(--lb-space-1); font-size: var(--lb-fs-h2); }
+.lb-bili-pick-modal .lb-bili-pick-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--lb-space-2); margin: var(--lb-space-1) 0; font-size: var(--lb-fs-small); }
+.lb-bili-pick-modal .lb-bili-pick-tools button.lb-link { background: transparent; box-shadow: none; border: 0; height: auto; padding: 2px 4px; color: var(--lb-ink); text-decoration: underline; cursor: pointer; }
+.lb-bili-pick-modal .lb-bili-pick-count { color: var(--lb-muted); margin-right: auto; }
+.lb-bili-pick-modal .lb-bili-pick-folder { padding: 6px 0; }
+.lb-bili-pick-modal .lb-bili-long-list { font-size: var(--lb-fs-small); }
+.lb-bili-pick-modal .lb-bili-long-row { display: grid; grid-template-columns: auto 5.5em minmax(0, 1fr); gap: 2px var(--lb-space-2); align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--lb-line); cursor: pointer; }
+.lb-bili-pick-modal .lb-bili-long-row.is-off { opacity: .55; }
+.lb-bili-pick-modal .lb-bili-long-dur { font-variant-numeric: tabular-nums; color: var(--lb-muted); }
+.lb-bili-pick-modal .lb-bili-long-title { color: var(--lb-ink); overflow-wrap: anywhere; }
+.lb-bili-pick-modal .lb-bili-long-meta, .lb-bili-pick-modal .lb-bili-long-off { grid-column: 3; color: var(--lb-muted); font-size: var(--lb-fs-micro); overflow-wrap: anywhere; }
+.lb-bili-pick-modal .lb-bili-long-off:empty { display: none; }
+.lb-bili-pick-modal .lb-bili-pick-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--lb-space-2); margin-top: var(--lb-space-3); padding-top: var(--lb-space-3); border-top: 1px solid var(--lb-line); }
+@media (max-width: 520px) { .lb-bili-pick-modal .lb-bili-long-row { grid-template-columns: auto minmax(0, 1fr); } .lb-bili-pick-modal .lb-bili-long-dur { grid-column: 2; } .lb-bili-pick-modal .lb-bili-long-title, .lb-bili-pick-modal .lb-bili-long-meta, .lb-bili-pick-modal .lb-bili-long-off { grid-column: 2; } }
