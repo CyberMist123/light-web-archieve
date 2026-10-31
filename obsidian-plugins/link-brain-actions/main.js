@@ -1577,6 +1577,10 @@ class LinkBrainActions extends Plugin {
       if (running) bar.addClass('is-running'); else bar.removeClass('is-running');
       const btnText = replyCooling ? '' : (r.state === 'error' && r.action === 'login' ? '登录' : button);
       if (btnText) { primary.setButtonText(btnText); primary.buttonEl.show(); primary.setDisabled(false); } else primary.buttonEl.hide();
+      // 1101 作者「这个有点古怪」：外面那颗主按钮本身就是重新检查（不是登录 / 去验证）时，⋯ 里不再放一个一样的「状态检查」；没登着时 ⋯ 里就空了，整颗不显示
+      const primaryChecks = !!btnText && !(r.state === 'captcha' || r.action === 'verify' || r.action === 'login' || ['expired', 'not_logged_in'].includes(r.state));
+      current = { ...r, _primaryChecks: primaryChecks };
+      if (more.extraSettingsEl?.style) more.extraSettingsEl.style.display = primaryChecks && r.state !== 'ready' ? 'none' : '';
       // 和问题面板同一把尺子（problems-ui.js 的 VERIFY_STILL_HELD）：关窗后熔断还在才给
       const held = r.state === 'captcha' && ['no_captcha_seen', 'still_risk', 'not_read', 'window_failed', 'still_held'].includes(String(r.verify_result || ''));
       if (held && typeof this.restoreHold === 'function') { restore.buttonEl.show(); restore.setDisabled(false); } else restore.buttonEl.hide();
@@ -1618,7 +1622,7 @@ class LinkBrainActions extends Plugin {
     more.onClick(() => {
       const menu = new obsidian.Menu();
       // 1027b 作者：回到原来的样子——设置页卡片和「＋ → 账号登录 / 换号」同一套：状态检查 · 切换账号 · 退出账号（只在 ⋯ 里各一处）
-      menu.addItem(i => i.setTitle('状态检查').setIcon('rotate-cw').onClick(() => refresh(true)));
+      if (!current?._primaryChecks) menu.addItem(i => i.setTitle('状态检查').setIcon('rotate-cw').onClick(() => refresh(true)));
       if (current?.state === 'ready') {
         menu.addItem(i => i.setTitle('切换账号').setIcon('user-cog').onClick(async () => {   // = 退出当前的再扫码
           paint({state: 'busy', next_step: '正在退出当前账号'}, true);
@@ -2878,6 +2882,11 @@ class LinkBrainSettingTab extends PluginSettingTab {
     q.setAttribute?.('tabindex', '0');
     try { if (typeof obsidian.setTooltip === 'function') obsidian.setTooltip(q, text, { placement: 'top' }); else q.setAttribute('aria-label', text); }
     catch { q.setAttribute?.('aria-label', text); }
+    // 1101 作者「这里的问号点不了」：ⓘ 只有指着才出说明；点一下 / 回车也弹出同一句（手机、触控板上没有悬停）
+    const say = e => { e?.preventDefault?.(); e?.stopPropagation?.(); new obsidian.Notice(text, 10000); };
+    q.addEventListener?.('click', say);
+    q.addEventListener?.('keydown', e => { if (e.key === 'Enter' || e.key === ' ') say(e); });
+    q.style && (q.style.cursor = 'pointer');
     return q;
   }
   // 开关改了立刻存；存失败把内存和开关都拨回原值并提示一句（Obsidian 1.14 的 ToggleComponent.setValue 会再触发 onChange，拨回时挡一下）
@@ -3052,7 +3061,10 @@ class LinkBrainSettingTab extends PluginSettingTab {
   renderBackendRows(c) {
     const s = this.plugin.settings;
     const backend = this.plugin.currentBackend ? this.plugin.currentBackend() : { mode: 'repo', command: `${PY} -m link_brain` };
+    // 1101 作者「后端命令可以改吗？不能改就不要写」：仓库模式（python -m link_brain）不用后端命令，那一行不出；反过来不是仓库模式就不出 Python 路径
+    const repo = backend.mode === 'repo';
     const backendRow = new Setting(c).setName('后端命令').setDesc(backendDesc(backend));
+    if (repo) backendRow.settingEl.style.display = 'none';
     this.help(backendRow, '插件调用的后台程序，默认 link-brain（用「' + BACKEND_INSTALL + '」装出来的）。');
     backendRow
       .addText(t => t.setPlaceholder(BACKEND_DEFAULT).setValue(s.backend?.command || '')
@@ -3068,6 +3080,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
     this.link(backendRow, '复制安装命令', () => this.plugin.copyText(BACKEND_INSTALL), '把「' + BACKEND_INSTALL + '」复制到剪贴板，到终端里运行');
     // P0 1024：仓库模式用哪个 Python；插件起进程、MCP 命令、计划任务注册都用它
     const pyRow = new Setting(c).setName('Python 路径').setDesc(backend.mode === 'repo' ? pythonDesc(backend.exe) : '仓库模式才用。');
+    if (!repo) pyRow.settingEl.style.display = 'none';
     this.help(pyRow, '空 = 程序目录下的 .venv（没有再用系统 python）。缺依赖时填装好依赖的那个 python.exe 的完整路径。');
     pyRow.addText(t => t.setPlaceholder('D:\\程序目录\\.venv\\Scripts\\python.exe').setValue(s.pythonPath || '')
       .onChange(v => {

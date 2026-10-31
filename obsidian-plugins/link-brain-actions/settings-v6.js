@@ -1306,22 +1306,24 @@ module.exports = function (obsidian, plugin) {
     safe(tab, web, '网页端', () => tab.stops.push(plugin.remoteUI?.renderConnect(web, () => tab.display(), tab, { part: 'web', toggleHost: wh })));
     // 1028 作者：「MCP 显示实际 tg 功能（现在没有介绍）」——TG 机器人那边接的是同一套只读 MCP，再加两条只在 TG 有的路：
     //   发链接入库（机器人调 catch --origin tg，目录里记在「Fable」组）、批注 @ 它（note notify 交给通知命令，回复写回批注框）
-    sub(g, '在 Telegram 里能做什么', 'mcp-tg');
+    // 1101 作者：不是「在 Telegram 里」——这套 MCP 任何 AI 都能连，标题说连上的 AI 能做什么；发链接入库要你自己的机器人后台对接（MCP 里没有）
+    sub(g, '连接 MCP 的 AI 能做什么', 'mcp-tg');
     const tg = g.createDiv({ cls: 'lb-tg', attr: { 'data-section': 'mcp-tg' } });
-    for (const [name, desc, help] of [
-      ['发链接就入库', '私聊发小红书链接，机器人后台收进库，几分钟内连结果一起回你。',
-        '目录里记在「Fable」那一组；已经在库的直接告诉你在哪，不重抓。'],
-      ['在 TG 里问收藏', '走上面这套只读 MCP：搜、问、读全文 / 附件 / 图片、看最近收的。',
+    for (const [name, desc, help, tag] of [
+      ['发链接就入库', '脚本入库转录，几分钟后发 AI 机读版链接。',
+        '要你的机器人后台对接（MCP 里没有这一项）：收到消息就在后台跑一次「link-brain catch "<消息原文>" --origin tg」，它找出里面的小红书链接收进库，只回一行 JSON（机读版在哪）。目录里记在「Fable」那一组；已经在库的直接告诉你在哪，不重抓。', '要后台对接'],
+      ['问收藏', '走上面这套只读 MCP：搜、问、读全文 / 附件 / 图片、看最近收的。',
         '也能看分类索引、Wiki 和你的批注。只读，不会改也不会删。'],
-      ['批注里 @ 它', '批注以「@名字」开头，定时送到机器人，回复写回同一个批注框。',
+      ['批注里 @ TA', '批注以「@名字」开头，定时送到 AI，回复写回同一个批注框。',
         '手机上写的也算。名字在 ③ 目录与批注 →「更多」→「留言对象」里填；还要配好通知命令（~/.link-brain/notify-cmd.txt）。'],
     ]) {
       const r = new Setting(tg).setName(name).setDesc(desc);
       r.settingEl.addClass('lb-tg-row');
       tab.help(r, help);
+      if (tag) r.nameEl.createSpan({ cls: 'lb-tg-tag', text: tag });
     }
-    const open = row(g, tab, '开放收藏库', 'AI 只能看，不能改也不能删：可见笔记，加上每篇的机读版、附件全文、批注。别的文件夹在「更多」里加。', { section: 'mcp-folders' });
-    safe(tab, g, '开放收藏库', () => plugin.remoteUI?.xhsToggle(open, tab));
+    const open = row(g, tab, '开放收藏库', '小红书和 B 站的收藏。AI 只能看，不能改也不能删：可见笔记，加上每篇的机读版、附件全文、批注。.obsidian、隐藏文件夹、插件设置、密钥、数据库和日志永远不开放。别的文件夹在「更多」里加。', { section: 'mcp-folders' });
+    safe(tab, g, '开放收藏库', () => plugin.remoteUI?.xhsToggle(open, null));   // 1101：说明并进上面那个 ⓘ（以前两个 ⓘ 并排）
     more(g, tab, 'connect-more', b => {
       sub(b, '还开放了哪些文件夹', 'mcp-folders-more');
       safe(tab, b, '开放的文件夹', () => tab.stops.push(plugin.remoteUI?.renderConnect(b.createDiv(), () => tab.display(), tab, { part: 'folders', skipXhs: true })));
@@ -1393,16 +1395,18 @@ module.exports = function (obsidian, plugin) {
       sub(b, '这台电脑', 'machine');
       if (h) tab.stops.push(h.renderStatus(b, tab, { machineOnly: true, noProblems: true }));   // 「一键装好」在页顶「懒人安装」
       sub(b, '后台程序', 'developer');
-      // 1101 作者：同步记录 bug 多，平时不放在页面上；要看再从这里打开
-      tab.toggleRow(b, '同步记录和进度', '', () => !!plugin.settings.devSyncLog, v => { plugin.settings.devSyncLog = !!v; }, {
-        help: '打开后：目录页右上角出现同步记录（钟），「更新」和边栏「上次同步」能点开同步记录，状态栏显示同步 / 补评论进度。平时关着。',
-        onChange: () => { plugin.taskChanged?.(); plugin.app.workspace?.trigger?.('link-brain:catalog-prefs'); } });
       tab.renderBackendRows(b);
       tab.link(row(b, tab, '目录显示不对', '重新整理一遍目录页（几秒到一分钟），不改任何收藏文件。', { section: 'rebuild' }), '重建目录',
         async () => { await plugin.run(['-m', 'link_brain', 'catalog'], '重建目录'); }, '重新整理一遍目录页');
       tab.link(row(b, tab, '诊断信息', '插件 / Python 版本、各步上次运行结果、最近 50 条问题；已经去掉密钥、账号和本机路径。', { section: 'diagnostic' }), '复制（已脱敏）',
         () => plugin.problemsUI?.().copyReport(), '复制脱敏后的诊断信息，发给帮你看的人');
-    }, { holds: ['machine', 'developer', 'rebuild', 'diagnostic'] });
+      // 1101 作者「同步记录和进度藏好一点」：放到最底下的「开发者选项」
+      sub(b, '开发者选项', 'devopts');
+      // 1101 作者：同步记录 bug 多，平时不放在页面上；要看再从这里打开
+      tab.toggleRow(b, '同步记录和进度', '', () => !!plugin.settings.devSyncLog, v => { plugin.settings.devSyncLog = !!v; }, {
+        help: '打开后：目录页右上角出现同步记录（钟），「更新」和边栏「上次同步」能点开同步记录，状态栏显示同步 / 补评论进度。平时关着。',
+        onChange: () => { plugin.taskChanged?.(); plugin.app.workspace?.trigger?.('link-brain:catalog-prefs'); } });
+    }, { holds: ['machine', 'developer', 'rebuild', 'diagnostic', 'devopts'] });
   }
 
   // ———————————————————— 一页：左边锚点 + 六组 ————————————————————

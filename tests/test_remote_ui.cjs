@@ -196,10 +196,10 @@ const LOCAL = { ok: true, clients: { 'claude-code': { installed: true, connected
     'pick-folder': { ok: true, path: 'E:\\资料\\读书', canceled: false }, 'remote folders --check': { ok: true } });
   r = factory(obsidian, env.plugin); await r.attach(); settings.length = 0; modals.length = 0; notices.length = 0;
   r.renderConnect(new FakeEl(), () => {}, null, { part: 'folders' }); await tick(8);
-  assert.ok(byName('小红书收藏库'), '整块画时有收藏库那个开关');
+  assert.ok(byName('收藏库（小红书 · B 站）'), '整块画时有收藏库那个开关');
   settings.length = 0;
   r.renderConnect(new FakeEl(), () => {}, null, { part: 'folders', skipXhs: true }); await tick(8);
-  assert.ok(!byName('小红书收藏库'), 'skipXhs：收藏库那个开关设置页自己常露，这里不画');
+  assert.ok(!byName('收藏库（小红书 · B 站）'), 'skipXhs：收藏库那个开关设置页自己常露，这里不画');
   const pick = byName('再开放一个文件夹');
   assert.deepEqual(pick.buttons.map(b => b.label), ['从库内选…', '选本机文件夹…', '添加']);
   fuzzyPick = 'Web/Xiaohongshu';

@@ -872,6 +872,7 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v7 .lb-lazy-title { display: block; margin-bottom: var(--lb-space-2); font-size: var(--lb-fs-body); color: var(--lb-ink); }
 .lb-settings .lb-v7 .lb-lazy .lb-run-actions { display: flex; align-items: center; gap: var(--lb-space-3); flex-wrap: wrap; }
 .lb-settings .lb-v7 .lb-tg .lb-tg-row .setting-item-description { white-space: normal; }
+.lb-settings .lb-v7 .lb-tg .lb-tg-tag { margin-left: 8px; padding: 1px 7px; border: 1px solid var(--background-modifier-border); border-radius: 999px; font-size: 11.5px; font-weight: 400; color: var(--text-muted); vertical-align: 2px; }
 /* 窄：锚点变横排吸在顶上，两栏变一栏 */
 @container (max-width: 640px) {
   .lb-settings .lb-v7 { grid-template-columns: minmax(0, 1fr); gap: var(--lb-space-2); padding: 0; }

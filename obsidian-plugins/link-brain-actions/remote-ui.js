@@ -18,7 +18,7 @@
 // 必须和 link_brain/remote/config.py 的 DEFAULTS 一致（tests/test_remote_cli.py 核对），改一处改两处。
 const REMOTE_DEFAULTS = {"enabled": false, "domain": "", "port": 18071, "folders": ["@xhs"]};
 const XHS = '@xhs';
-const XHS_LABEL = '小红书收藏库';
+const XHS_LABEL = '收藏库（小红书 · B 站）';   // 1101 作者：B 站也在里面，不要只叫小红书收藏库
 const DOMAIN_RE = /^https:\/\/([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
 const DOCS_URL = 'https://github.com/CyberMist123/light-web-archieve/blob/main/docs/remote-access.md';
 // 「连接其他 AI」的软件（id → 名字 / 本机还是网页）
@@ -238,7 +238,7 @@ module.exports = function remoteUI(obsidian, plugin) {
         if (reverting) return;
         try { await saveRemote(x => { x.folders = v ? [...new Set([...x.folders, XHS])] : x.folders.filter(f => f !== XHS); }); }
         catch (e) { reverting = true; try { t.setValue(!v); } catch {} finally { reverting = false; } new Notice('没保存上，开关已拨回原来的位置：' + e.message, 8000); return; }
-        new Notice((v ? '已开放' : '已不再开放') + '小红书收藏库' + (s().enabled ? '，几秒内生效' : ''));
+        new Notice((v ? '已开放' : '已不再开放') + '收藏库' + (s().enabled ? '，几秒内生效' : ''));
       });
     });
     return row;
