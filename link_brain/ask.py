@@ -2022,13 +2022,13 @@ def _relation_rules(understood):
     return out
 
 
-WIKI_HITS_MAX = 3         # 10-31：问收藏最多带几页她的个人 Wiki
+WIKI_HITS_MAX = 3         # 10-31：问收藏最多带几页用户的个人 Wiki
 WIKI_PAGE_CHARS = 1500    # 每页最多带多少字正文
 _WIKI_MARK = "【证据】仅供取证"
 
 
 def personal_wiki_hits(question, settings):
-    """她的个人 Wiki 里和这一问相关的页（过 ASK_MIN_SCORE 门槛，最多 3 页）：[{id, title, tags, text}]。
+    """用户的个人 Wiki 里和这一问相关的页（过 ASK_MIN_SCORE 门槛，最多 3 页）：[{id, title, tags, text}]。
     开关：设置 retrieval.personalWiki = false 关掉。读不了 / 出任何错 = 当没有 Wiki，不影响问收藏。"""
     try:
         if ((settings or {}).get("retrieval") or {}).get("personalWiki", True) is False:
@@ -2049,13 +2049,13 @@ def personal_wiki_hits(question, settings):
 
 
 def with_wiki_block(user_text, hits):
-    """把「她的 Wiki」一段插在【证据】前面（找不到就接在最后）。不进来源编号，模型不给它标 [来源N]。"""
+    """把「用户的 Wiki」一段插在【证据】前面（找不到就接在最后）。不进来源编号，模型不给它标 [来源N]。"""
     parts = []
     for h in hits:
         tags = " ".join("#" + t for t in h.get("tags") or [])
         parts.append(f"《{h['title']}》" + (f" {tags}" if tags else "") + "\n" + h["text"])
-    block = ("【她的 Wiki（她自己写的判断 / 偏好，优先于收藏里别人的说法；不是来源，不标 [来源N]，"
-             "用到时说「你在 Wiki《标题》里写过…」；和收藏冲突时以她写的为准并指出不同）】\n"
+    block = ("【用户的 Wiki（用户自己写的判断 / 偏好，优先于收藏里别人的说法；不是来源，不标 [来源N]，"
+             "用到时说「你在 Wiki《标题》里写过…」；和收藏冲突时以用户写的为准并指出不同）】\n"
              + "\n\n".join(parts) + "\n【Wiki 结束】")
     i = user_text.find(_WIKI_MARK)
     return user_text[:i] + block + "\n\n" + user_text[i:] if i >= 0 else user_text + "\n\n" + block
@@ -2427,7 +2427,7 @@ def _answer_qa(question, items, settings, history=None, source_ids=None, exclude
     _phase(f"生成回答：用 {len(sources)} 条材料")
     user_text = answer_prompt.user_message(question, note=answer_prompt.research_note(understood, question),
                                            today=answer_prompt.today_line(), blocks=blocks, dialog=dialog, avoid=avoid, lead=lead)
-    # 10-31：她的个人 Wiki 命中几页 → 作为「她自己的判断 / 偏好」一段放在证据前面。检索 / 选篇 / 来源编号都不动（召回评测口径不变）
+    # 10-31：作者的个人 Wiki 命中几页 → 作为「用户自己的判断 / 偏好」一段放在证据前面。检索 / 选篇 / 来源编号都不动（召回评测口径不变）
     wiki_hits = personal_wiki_hits(question, settings)
     if wiki_hits:
         user_text = with_wiki_block(user_text, wiki_hits)

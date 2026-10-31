@@ -238,7 +238,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   A.qa('.lbw-blk')[0].click();
   let ta = A.q('.lbw-ed');
   assert.ok(ta && A.q('.lbw-edbar'), '点一段出编辑框和层级工具条');
-  assert.deepEqual(texts(A, '.lbw-edbar button'), ['正文', 'H1', 'H2', 'H3', '列表', '待办', 'AI 改'], '10-31：浅色小工具条，AI 改接上了');
+  assert.deepEqual(texts(A, '.lbw-edbar button'), ['正文', 'H1', 'H2', 'H3', '列表', '待办'], '10-31：浅色小工具条（AI 从页头进，格式条上不放）');
   assert.ok(!A.q('.lbw-edbar button[disabled]'));
   assert.equal(ta.parentElement.tagName, 'P', '原地改：编辑框套在和阅读时同一个元素里');
   assert.equal(ta.value, '为什么记：每次订酒店都从头翻收藏。');
@@ -280,23 +280,23 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   saves = plugin.calls.filter(c => c.op === 'save');
   assert.ok(saves[2].input.body.startsWith('再看 [示例咖啡地图](lwa:it-1) —'));
 
-  // ── CONFLICT：别处改过 → 固定句式、她的字留在页顶草稿、页面换成磁盘版本；「用我这份覆盖」再存（base_hash = 新磁盘 hash） ──
+  // ── CONFLICT：别处改过 → 固定句式、用户的字留在页顶草稿、页面换成磁盘版本；「用我这份覆盖」再存（base_hash = 新磁盘 hash） ──
   const OTHER = STAY.replace('为什么记：每次订酒店都从头翻收藏。', '在别处改过的正文。');
   V.set('PersonalWiki/住宿偏好.md', OTHER);   // 「Obsidian 里改了」：假插件按磁盘核 base_hash，自然撞 CONFLICT
   A.qa('.lbw-blk')[0].click(); ta = A.q('.lbw-ed');
-  ta.value = '她刚写的一句话。';
+  ta.value = '用户刚写的一句话。';
   key(A, ta, 'Escape'); await tick(20);
   assert.ok(A.notices.some(m => m.startsWith('没保存上，内容还在，可重试：')), A.notices.join(' | '));
   assert.ok(A.q('.lbw-doc').textContent.includes('在别处改过的正文'), '换成磁盘上的版本');
   const draft = A.q('.lbw-draft');
-  assert.ok(draft && draft.textContent.includes('没保存上的改动'), '她的改动留在页顶');
+  assert.ok(draft && draft.textContent.includes('没保存上的改动'), '用户的改动留在页顶');
   const apply = A.qa('.lbw-draft button').find(b => b.textContent === '用我这份覆盖');
   assert.ok(apply);
   apply.click(); await tick(20);
   saves = plugin.calls.filter(c => c.op === 'save');
   const last = saves.at(-1);
   assert.equal(last.input.base_hash, pyHash(OTHER), '覆盖时 base_hash = 磁盘上那一版');
-  assert.ok(last.input.body.startsWith('她刚写的一句话。'), '存的是她那份');
+  assert.ok(last.input.body.startsWith('用户刚写的一句话。'), '存的是用户那份');
   assert.ok(!A.q('.lbw-draft'), '存上了，草稿条收起');
 
   // ── 待办勾选也是一次保存 ──
@@ -307,7 +307,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   assert.ok(saves.at(-1).input.body.includes('- [x] 预算上限？'));
 
   // ── 历史侧栏：版本列表、选一版看差异 ──
-  A.q('.lbw-hbtn:not(.is-more)').click(); await tick(10);
+  A.q('.lbw-hbtn[data-hist]').click(); await tick(10);
   assert.ok(!A.q('.lbw-side').hidden, '历史在本页右侧栏');
   assert.equal(A.qa('.lbw-ver').length, 2);
   A.qa('.lbw-ver')[1].click(); await tick(10);
@@ -415,20 +415,20 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     B.qa('.lbw-pop button').find(b => b.textContent.startsWith('整页 Markdown')).click();
     const src = B.q('.lbw-srced'); assert.ok(src, '整页 Markdown 编辑框');
     src.focus();
-    src.value = src.value.replace('为什么记：每次订酒店都从头翻收藏。', '为什么记：她在源码里改的。');
+    src.value = src.value.replace('为什么记：每次订酒店都从头翻收藏。', '为什么记：用户在源码里改的。');
     src.dispatchEvent(new B.window.Event('input'));
     VB.set(F, OTHER);
     await tick(700);   // 文件事件防抖（500ms）后页面重读磁盘
     key(B, src, 'Escape'); await tick(40);
     assert.ok(P.calls.some(c => c.op === 'save' && c.error && c.error.code === 'CONFLICT'), '保存撞 CONFLICT');
-    assert.ok(VB.get(F).includes('在别处改过的正文') && !VB.get(F).includes('她在源码里改的'), '别处的改动没被静悄悄盖掉');
-    assert.ok(B.q('.lbw-draft'), '她的那份留在页顶');
+    assert.ok(VB.get(F).includes('在别处改过的正文') && !VB.get(F).includes('用户在源码里改的'), '别处的改动没被静悄悄盖掉');
+    assert.ok(B.q('.lbw-draft'), '用户的那份留在页顶');
     assert.ok(B.notices.some(m => m.startsWith(NOT_SAVED)));
     await tick(2200);   // 源码框的 2 秒自动保存计时器：框被换掉以后不许再拿旧字存一次
     assert.ok(VB.get(F).includes('在别处改过的正文'), '旧源码框的计时器没有补存旧字');
   });
 
-  // 审查 2：CONFLICT 后正在重读磁盘时她想再改（勾待办）→ 三审起页面这时只读（待办勾选框灰掉、点了不排保存），不许在她没按「用我这份覆盖」时盖掉别处的版本
+  // 审查 2：CONFLICT 后正在重读磁盘时用户想再改（勾待办）→ 三审起页面这时只读（待办勾选框灰掉、点了不排保存），不许在用户没按「用我这份覆盖」时盖掉别处的版本
   await reviewCase('审查2 CONFLICT 重读期间又排了保存', async () => {
     const P = fakePlugin(); const { A: B, V: VB } = await open({ plugin: P });
     const read0 = VB.vault.adapter.read; let slow = 0;
@@ -436,7 +436,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     tocPage(B, '住宿偏好').click();
     B.qa('.lbw-blk')[0].click(); const t1 = B.q('.lbw-ed');
     VB.set(F, OTHER);
-    t1.value = '她刚写的一句话。';
+    t1.value = '用户刚写的一句话。';
     slow = 40;
     key(B, t1, 'Escape'); await tick(15);   // 保存撞 CONFLICT，页面正在慢慢重读磁盘
     assert.ok(P.calls.some(c => c.op === 'save' && c.error && c.error.code === 'CONFLICT'), '先撞 CONFLICT');
@@ -445,12 +445,12 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     cb.click();                               // 点了也不排保存
     await tick(400); slow = 0;
     assert.equal(P.calls.filter(c => c.op === 'save').length, 1, '重读期间没有排进第二次保存');
-    assert.ok(VB.get(F).includes('在别处改过的正文') && !VB.get(F).includes('她刚写的一句话'), '没按覆盖就不许盖掉别处的改动');
+    assert.ok(VB.get(F).includes('在别处改过的正文') && !VB.get(F).includes('用户刚写的一句话'), '没按覆盖就不许盖掉别处的改动');
     assert.ok(B.q('.lbw-doc').textContent.includes('在别处改过的正文'), '页面是磁盘上的版本');
     const ap = B.qa('.lbw-draft button').find(b => b.textContent === '用我这份覆盖');
     assert.ok(ap, '草稿条在');
     ap.click(); await tick(40);
-    assert.ok(VB.get(F).includes('她刚写的一句话'), '覆盖存的是她那份');
+    assert.ok(VB.get(F).includes('用户刚写的一句话'), '覆盖存的是用户那份');
     assert.ok(!B.q('.lbw-task input').disabled, '存完解冻，待办照常能勾');
     assert.equal(B.qa('.lbw-draft').length, 0);
   });
@@ -459,7 +459,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   await reviewCase('审查3 恢复进行中点段落', async () => {
     const P = fakePlugin(); const { A: B, V: VB } = await open({ plugin: P });
     tocPage(B, '住宿偏好').click();
-    B.q('.lbw-hbtn:not(.is-more)').click(); await tick(10);
+    B.q('.lbw-hbtn[data-hist]').click(); await tick(10);
     B.qa('.lbw-ver')[1].click(); await tick(10);
     P.delay = 60;
     B.q('.lbw-side [data-restore]').click(); await tick(5);
@@ -525,12 +525,12 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     const src = B.q('.lbw-srced'); assert.ok(src, '整页 Markdown 编辑框'); return src;
   };
   const openRestore = async B => {
-    B.q('.lbw-hbtn:not(.is-more)').click(); await tick(10);
+    B.q('.lbw-hbtn[data-hist]').click(); await tick(10);
     B.qa('.lbw-ver')[1].click(); await tick(10);
     return B.q('.lbw-side [data-restore]');
   };
 
-  // A：整页 Markdown 开着时恢复到旧版（她什么都没打）→ 恢复后不许把旧框里恢复前的正文自动存回去
+  // A：整页 Markdown 开着时恢复到旧版（用户什么都没打）→ 恢复后不许把旧框里恢复前的正文自动存回去
   await reviewCase('二审A 整页 Markdown 开着时恢复', async () => {
     const P = fakePlugin(); const { A: B, V: VB } = await open({ plugin: P });
     tocPage(B, '住宿偏好').click();
@@ -547,7 +547,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   });
 
   // B：整页 Markdown 已经发出一次保存 → 三审起框在保存回来之前只读（打不进字，不存在「发出之后又打的字」）；
-  // 撞 CONFLICT → 框换成磁盘版本、能接着改；草稿里是她发出去的全部字，覆盖能存上
+  // 撞 CONFLICT → 框换成磁盘版本、能接着改；草稿里是用户发出去的全部字，覆盖能存上
   await reviewCase('二审B 保存在路上框只读、撞 CONFLICT 后覆盖', async () => {
     const P = fakePlugin(); const { A: B, V: VB } = await open({ plugin: P });
     tocPage(B, '住宿偏好').click();
@@ -566,7 +566,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     const ap = B.qa('.lbw-draft button').find(b => b.textContent === '用我这份覆盖');
     assert.ok(ap, '草稿条在');
     ap.click(); await tick(40);
-    assert.ok(VB.get(F).includes('源码里第一句'), '覆盖存的是她那份：' + JSON.stringify(P.calls.filter(c => c.op === 'save').map(c => [c.input.body.slice(0, 40), c.error && c.error.code])) + ' disk=' + VB.get(F).slice(-80));
+    assert.ok(VB.get(F).includes('源码里第一句'), '覆盖存的是用户那份：' + JSON.stringify(P.calls.filter(c => c.op === 'save').map(c => [c.input.body.slice(0, 40), c.error && c.error.code])) + ' disk=' + VB.get(F).slice(-80));
   });
 
   // 补测：恢复失败 → 页面照常能改能存（块编辑框 + 整页 Markdown 框都解冻）
@@ -616,7 +616,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   await reviewCase('补测 Wiki 外的输入框里按 Esc / Ctrl+F', async () => {
     const P = fakePlugin(); const { A: B, dom: d2 } = await open({ plugin: P });
     tocPage(B, '住宿偏好').click();
-    B.q('.lbw-hbtn:not(.is-more)').click(); await tick(10);
+    B.q('.lbw-hbtn[data-hist]').click(); await tick(10);
     assert.equal(B.q('.lbw-side').hidden, false);
     const outside = d2.document.body.createEl('input');
     outside.dispatchEvent(new B.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
@@ -628,13 +628,13 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   });
 
   // ═════ 10-29 三审：保存在路上时点恢复；有草稿时在编辑框里打了新字再点「用我这份覆盖」 ═════
-  // 三审1：整页 Markdown 的保存还在路上（会撞 CONFLICT），她点了恢复 → 最后磁盘上是恢复的版本，没有任何保存把它盖回去；她的字在草稿里
+  // 三审1：整页 Markdown 的保存还在路上（会撞 CONFLICT），用户点了恢复 → 最后磁盘上是恢复的版本，没有任何保存把它盖回去；用户的字在草稿里
   await reviewCase('三审1 保存在路上时点恢复', async () => {
     const P = fakePlugin(); const { A: B, V: VB } = await open({ plugin: P });
     tocPage(B, '住宿偏好').click();
     const src = enterSrc(B);
     const rb = await openRestore(B);
-    VB.set(F, OTHER);                          // 别处先改了：她这次保存会撞 CONFLICT
+    VB.set(F, OTHER);                          // 别处先改了：用户这次保存会撞 CONFLICT
     P.delay = 50;
     src.focus();
     src.value = src.value.replace('为什么记：每次订酒店都从头翻收藏。', '为什么记：源码里改的。');
@@ -642,16 +642,16 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     rb.click();                                // 紧接着点恢复
     await tick(400); P.delay = 1; await tick(30);
     const ss = P.calls.filter(c => c.op === 'save');
-    assert.equal(ss.length, 1, '只有她那一次保存（撞 CONFLICT），恢复之后没有别的保存：' + ss.map(c => c.error ? c.error.code : 'ok').join(','));
+    assert.equal(ss.length, 1, '只有用户那一次保存（撞 CONFLICT），恢复之后没有别的保存：' + ss.map(c => c.error ? c.error.code : 'ok').join(','));
     assert.equal(ss[0].error && ss[0].error.code, 'CONFLICT');
     assert.ok(P.calls.some(c => c.op === 'restore' && c.result), '恢复做了');
     assert.ok(VB.get(F).includes('很早以前的正文。') && !VB.get(F).includes('在别处改过的正文'), '磁盘上是恢复的版本：' + VB.get(F).slice(-60));
     const box = B.q('.lbw-srced');
     assert.ok(box && box.value.includes('很早以前的正文。') && !box.readOnly, '框里是恢复后的正文，能接着改');
-    assert.ok(B.q('.lbw-draft'), '她的那份在草稿里');
+    assert.ok(B.q('.lbw-draft'), '用户的那份在草稿里');
   });
 
-  // 三审2：有草稿，她在编辑框里又打了新字，点「用我这份覆盖」→ 只发一次保存（她最新的字）；这次失败 → 草稿就是她最新的字，不许丢
+  // 三审2：有草稿，用户在编辑框里又打了新字，点「用我这份覆盖」→ 只发一次保存（用户最新的字）；这次失败 → 草稿就是用户最新的字，不许丢
   await reviewCase('三审2 打了新字再覆盖、覆盖失败', async () => {
     const P = fakePlugin(); const { A: B, V: VB } = await open({ plugin: P });
     tocPage(B, '住宿偏好').click();
@@ -661,19 +661,19 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     assert.ok(B.q('.lbw-draft'), '先有一份草稿');
     B.qa('.lbw-blk')[0].click(); t1 = B.q('.lbw-ed');
     assert.ok(t1, '页面能接着改');
-    t1.value = '她新打的字。';
+    t1.value = '用户新打的字。';
     const n0 = P.calls.filter(c => c.op === 'save').length;
     P.failAt = { op: 'save', n: n0 + 1, code: 'LOCK_BUSY', message: 'Wiki 正在保存别的改动，稍后再试' };
     B.qa('.lbw-draft button').find(b => b.textContent === '用我这份覆盖').click();
     await tick(60);
     const ss = P.calls.filter(c => c.op === 'save').slice(n0);
     assert.equal(ss.length, 1, '覆盖只发一次保存：' + ss.map(c => c.input.body.slice(0, 8)).join(' | '));
-    assert.ok(ss[0].input.body.startsWith('她新打的字。'), '这一次存的是她最新的字');
-    assert.ok(!VB.get(F).includes('她新打的字'), '这次没存上');
+    assert.ok(ss[0].input.body.startsWith('用户新打的字。'), '这一次存的是用户最新的字');
+    assert.ok(!VB.get(F).includes('用户新打的字'), '这次没存上');
     const ap = B.qa('.lbw-draft button').find(b => b.textContent === '用我这份覆盖' || b.textContent === '再存一次');
     assert.ok(ap, '草稿还在');
     ap.click(); await tick(60);
-    assert.ok(VB.get(F).includes('她新打的字。'), '再点一次：草稿里是她最新的字，存上了');
+    assert.ok(VB.get(F).includes('用户新打的字。'), '再点一次：草稿里是用户最新的字，存上了');
     assert.equal(B.qa('.lbw-draft').length, 0, '存上了草稿才收');
   });
 
@@ -731,7 +731,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     assert.ok(VB.get('PersonalWiki/住宿偏好（改名）.md'));
   });
 
-  // ═════ 10-29 五轮（她在真 Obsidian 里用过之后）：短 id 引用；关系图照 Quartz 做成力导向 ═════
+  // ═════ 10-29 五轮（用户在真 Obsidian 里用过之后）：短 id 引用；关系图照 Quartz 做成力导向 ═════
   // 手动驱动的 requestAnimationFrame：step(n) 跑 n 帧；记下 cancelAnimationFrame
   const manualRaf = () => {
     const q = new Map(), cancelled = []; let id = 0;

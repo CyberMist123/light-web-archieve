@@ -1,11 +1,11 @@
-"""个人 Wiki 检索（10-31）：问收藏 / MCP 读她自己写的 Wiki 页（`vault/PersonalWiki/*.md`）。
+"""个人 Wiki 检索（10-31）：问收藏 / MCP 读用户自己写的 Wiki 页（`vault/PersonalWiki/*.md`）。
 
 只读、纯本地、不联网、不调模型。页面读法照 `wiki_page.scan_dir`（和 personal_wiki 同一份解析，Obsidian 里改过也认）；库路径由调用方给
 （不 import personal_wiki / storage：ask 读 Wiki 不能把它们卷进大 import 环，见 tests/test_guards.py MAX_CYCLE）；
 `_archive/wiki-index.json` 不带正文，所以这里每次现扫目录（页数是几十到几百，读一遍很快），索引缺了也不影响。
 
 打分（中文不分词）：查询切成「词」——中文段切 2 字片段（虚词片段如「什么」「怎么」丢掉）、英文 / 数字按整词——
-看标题 / 标签 / 正文各盖住了几成，再加：问句里整段出现的最长连续片段、她的标签 / 页面标题原样出现在问句里。
+看标题 / 标签 / 正文各盖住了几成，再加：问句里整段出现的最长连续片段、用户的标签 / 页面标题原样出现在问句里。
 分数只用来排序和过门槛，不跨查询比较。
 """
 
@@ -126,7 +126,7 @@ def score_page(query: str, parts: list[str], row: dict[str, Any]) -> tuple[float
         s += 0.6 * min(run_t, RUN_CAP)
     if run_b >= 3:
         s += 0.4 * min(run_b, RUN_CAP)
-    # 她的标签 / 页面标题原样出现在问句里：很强的信号（「住宿偏好」「#露营」）
+    # 用户的标签 / 页面标题原样出现在问句里：很强的信号（「住宿偏好」「#露营」）
     s += 3 * min(2, sum(1 for t in tags if len(t) >= 2 and t in q))
     if len(title) >= 2 and title in q:
         s += 5

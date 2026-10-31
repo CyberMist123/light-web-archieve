@@ -132,8 +132,8 @@ def test_ask_puts_wiki_block_before_evidence_and_returns_wiki(monkeypatch, tmp_p
     write_pages(tmp_path)
     r = ask.answer("机场到市区怎么走")
     _prompt, material = seen[-1]
-    assert "【她的 Wiki" in material and "《机场交通》" in material and "机场快线" in material
-    assert material.index("【她的 Wiki") < material.index("【证据】")
+    assert "【用户的 Wiki" in material and "《机场交通》" in material and "机场快线" in material
+    assert material.index("【用户的 Wiki") < material.index("【证据】")
     assert r["status"] == "ok" and r["wiki"] == [{"id": "pw-aaaaaaaaaaaa03", "title": "机场交通"}]
     # 来源编号不动：Wiki 不进 sources
     assert all(not str(s.get("id", "")).startswith("pw-") for s in r["sources"])
@@ -142,12 +142,12 @@ def test_ask_puts_wiki_block_before_evidence_and_returns_wiki(monkeypatch, tmp_p
 def test_ask_without_wiki_hit_or_switched_off_is_unchanged(monkeypatch, tmp_path):
     seen = _setup(monkeypatch, tmp_path)
     r = ask.answer("机场到市区怎么走")          # 没有 PersonalWiki 目录
-    assert "【她的 Wiki" not in seen[-1][1] and "wiki" not in r
+    assert "【用户的 Wiki" not in seen[-1][1] and "wiki" not in r
     write_pages(tmp_path)
     monkeypatch.setattr(ask.ai_config, "load",
                         lambda: ask.ai_config._deep_merge(ask.ai_config.DEFAULTS, {"retrieval": {"personalWiki": False}}))
     r = ask.answer("机场到市区怎么走")
-    assert "【她的 Wiki" not in seen[-1][1] and "wiki" not in r and r["status"] == "ok"
+    assert "【用户的 Wiki" not in seen[-1][1] and "wiki" not in r and r["status"] == "ok"
 
 
 def test_ask_wiki_error_does_not_break_answer(monkeypatch, tmp_path):
@@ -158,7 +158,7 @@ def test_ask_wiki_error_does_not_break_answer(monkeypatch, tmp_path):
         raise RuntimeError("Wiki 读坏了")
     monkeypatch.setattr(pws, "search", boom)
     r = ask.answer("机场到市区怎么走")
-    assert r["status"] == "ok" and "wiki" not in r and "【她的 Wiki" not in seen[-1][1] and "【证据】" in seen[-1][1]
+    assert r["status"] == "ok" and "wiki" not in r and "【用户的 Wiki" not in seen[-1][1] and "【证据】" in seen[-1][1]
 
 
 def test_with_wiki_block_falls_back_to_append():
