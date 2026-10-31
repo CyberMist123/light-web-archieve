@@ -130,15 +130,20 @@ def build_parser() -> argparse.ArgumentParser:
     pb = bsub.add_parser("long", help="1031：超过时长上限、还没入库的收藏清单（只读本地快照，给设置页勾选；选了用 choose --allow）")
     pb.add_argument("--max-duration", dest="max_duration", type=int, default=3600, help="时长上限秒数（默认 3600）")
     pb.add_argument("--json", action="store_true")
-    pb = bsub.add_parser("sync", help="同步自己全部收藏夹：收藏夹名当专辑，逐条下视频 / 字幕 / 弹幕；超过时长上限和多 P 的只记清单")
+    pb = bsub.add_parser("pick", help="1031：挑选页的数据（只读本地快照，不连 B 站）：全部收藏夹（含稍后再看）+ 超过时长上限、还没入库的视频")
+    pb.add_argument("--max-duration", dest="max_duration", type=int, default=3600, help="时长上限秒数（默认 3600；0 = 不限，不列长视频）")
+    pb.add_argument("--json", action="store_true")
+    pb = bsub.add_parser("sync", help="同步自己全部收藏夹和稍后再看：收藏夹名当专辑（稍后再看 = 「稍后再看」专辑），逐条下视频 / 字幕 / 弹幕；超过时长上限和多 P 的只记清单")
     pb.add_argument("--dry-run", dest="dry_run", action="store_true", help="只扫描、列计划，不下载")
     pb.add_argument("--limit", type=int, default=None, help="本轮最多下载几条")
     pb.add_argument("--max-duration", dest="max_duration", type=int, default=3600, help="超过这么多秒的只记链接（默认 3600；0 = 不限）")
     pb.add_argument("--gap", type=float, default=5.0, help="两条下载之间歇几秒（默认 5）")
     pb.add_argument("--workers", type=int, default=int(os.environ.get("LWA_BILI_WORKERS") or 1),
-                    help="并行下载几路（只并行 yt-dlp，入库仍一条一条；撞限流自动退回 1；默认 1 或 LWA_BILI_WORKERS）")
+                    help="并行下载几路，1–8（只并行 yt-dlp，入库仍一条一条；撞限流自动退回 1；默认 1 或 LWA_BILI_WORKERS）")
     pb.add_argument("--min-free-gb", dest="min_free_gb", type=float, default=10.0, help="磁盘余量低于多少 GB 就停（默认 10）")
     pb.add_argument("--folder", action="append", default=None, help="只同步这些收藏夹（名字或 id，可多次）")
+    pb.add_argument("--skip-folder", dest="skip_folder", action="append", default=None,
+                    help="1031：跳过这些收藏夹（id，可多次；toview = 稍后再看）：不扫、不下")
     pb.add_argument("--allow", action="append", default=None, help="放行这些 BV（不看时长上限，可多次）")
     # 1031 她：画质默认最高；弹幕默认存
     pb.add_argument("--quality", choices=("max", "1080", "720"), default=None,
@@ -683,6 +688,9 @@ def _dispatch(args) -> int:
         if cmd == "choose":
             from .sources.bilibili import sync as bili_sync
             return bili_sync.run_choose(args)
+        if cmd == "pick":
+            from .sources.bilibili import sync as bili_sync
+            return bili_sync.run_pick(args)
         if cmd == "long":
             from .sources.bilibili import sync as bili_sync
             return bili_sync.run_long(args)
