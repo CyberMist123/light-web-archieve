@@ -98,6 +98,34 @@ async function open({ files, plugin, isMobile = false } = {}) {
   assert.equal(A.qa('.lbt-row button').length, 0, '手机不建按钮');
   assert.equal(A.q('.lbt-tools button'), null);
   assert.ok(A.q('.lbt-note').textContent.startsWith('手机上只能看'));
+  // 1031：小红书 / B 站分开看；多选 / 全选后一起恢复、一起彻底删除（一次调用带全部 id）
+  {
+    const mixed = [
+      { item_id: 'xhs-a', title: '小红书一', restorable: true, has_files: true },
+      { item_id: 'bili-BV1aa', title: 'B 站一', restorable: true, has_files: true },
+      { item_id: 'bili-BV1bb', title: 'B 站二', restorable: true, has_files: true },
+    ];
+    const got = [];
+    const pl = { trashAction: async (kind, ids) => { got.push([kind, ids]); return { results: ids.map(item_id => ({ item_id, status: kind === 'restore' ? 'restored' : 'purged' })) }; } };
+    ({ A } = await open({ plugin: pl, files: { [TRASH]: JSON.stringify({ items: mixed }) } }));
+    assert.deepEqual(A.qa('.lbt-plat button').map(b => b.textContent), ['全部', '小红书', 'B 站'], '两个平台都有才出切换');
+    A.qa('.lbt-plat button')[2].onclick();
+    assert.deepEqual(A.qa('.lbt-row .lbt-name').map(e => e.textContent), ['B 站一', 'B 站二'], '只看 B 站');
+    const bar = () => A.q('.lbt-bar');
+    const btn = act => bar().querySelectorAll('button').find(b => b.dataset.act === act);
+    assert.equal(btn('purge-sel').disabled, true, '没选时批量按钮灰着');
+    const all = bar().querySelector('.lbt-all input'); all.checked = true; all.onchange();
+    assert.equal(bar().querySelector('.lbt-all span').textContent, '已选 2 篇');
+    A.window.confirm = () => true;
+    await btn('purge-sel').onclick(); await tick(5);
+    assert.deepEqual(got.at(-1), ['purge', ['bili-BV1aa', 'bili-BV1bb']], '全选后一次删两篇（只是 B 站这边的）');
+    assert.ok(A.notices.at(-1).startsWith('已彻底删除 2 篇'));
+    assert.equal(A.qa('.lbt-plat button').length, 0, 'B 站删空了：只剩一个平台，不再出切换');
+    assert.deepEqual(A.qa('.lbt-row .lbt-name').map(e => e.textContent), ['小红书一'], '列剩下的全部');
+    const cb = A.qa('.lbt-row')[0].querySelector('input'); cb.checked = true; cb.onchange();
+    await btn('restore-sel').onclick(); await tick(5);
+    assert.deepEqual(got.at(-1), ['restore', ['xhs-a']], '勾一篇批量恢复');
+  }
   // 源码：不用 window.alert / confirm
   assert.ok(!/window\.(alert|confirm)\(/.test(asset('trash-view.js')));
   console.log('PASS trash page (C16): host + rerun reuse, page nav via LB.openPage, restore busy / single call / Notice with 打开, purge confirm + failure keeps button + reason, empty / missing data states, mobile read-only');

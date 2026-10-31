@@ -24,6 +24,7 @@ LB.style('lb-trash-style', `
 .lbt-row{display:flex;gap:16px;align-items:center;padding:12px 0;border-bottom:1px solid var(--lb-line);position:relative;}
 .lbt-row.is-busy{opacity:.6;}
 .lbt-cover{flex:0 0 64px;width:64px;height:72px;object-fit:cover;border-radius:var(--lb-radius);background:var(--lb-soft);}
+.lbt-cover.is-wide{flex-basis:112px;width:112px;height:63px;}
 .lbt-text{flex:1;min-width:0;}
 .lbt-name{font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .lbt-meta{font-size:var(--lb-fs-small);color:var(--lb-muted);margin-top:2px;}
@@ -52,6 +53,12 @@ LB.style('lb-trash-style', `
 .lbt-rec-t{flex:1;min-width:0;line-height:1.5;}
 .lbt-rec-d{font-size:var(--lb-fs-small);color:var(--lb-muted);white-space:nowrap;}
 .lbt-empty{padding:40px 0;color:var(--lb-muted);}
+/* 1031：回收站分小红书 / B 站看；可多选、全选后一起恢复 / 彻底删除（和目录页多选一个意思） */
+.lbt-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:4px 0 12px;border-bottom:1px solid var(--lb-line);font-size:var(--lb-fs-small);color:var(--lb-muted);}
+.lbt-bar .lbt-sp{flex:1;}
+.lbt-all{display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;}
+.lbt-all input,.lbt-row>input{margin:0;flex:none;cursor:pointer;}
+.lbt-row.is-sel{background:var(--lb-soft);}
 .lbt-empty-sub{font-size:var(--lb-fs-small);color:var(--lb-faint);margin-top:6px;}
 `);
 const mount = LB.mountHost('lbt-host');
@@ -78,6 +85,25 @@ async function readData() {
   try { const d = JSON.parse(await app.vault.adapter.read(LB.path(TRASH))); return d && Array.isArray(d.items) ? d : null; }
   catch { return null; }
 }
+// 1031：多选 / 全选后一起恢复或彻底删除（后端 trashAction 本来就收一串 id）
+async function actMany(kind, picked, btn) {
+  if (busy || LB.mobile || !picked.length) return;
+  if (kind === 'purge' && !(await LB.confirm({ title: `彻底删除这 ${picked.length} 篇的文件？`, body: '不能恢复；以后也不会再同步。', ok: '彻底删除', danger: true }))) return;
+  const p = LB.need('trashAction'); if (!p) return;
+  busy = true;
+  const done = LB.busy(btn, kind === 'restore' ? '恢复中…' : '删除中…');
+  try {
+    await p.trashAction(kind, picked.map(x => x.item_id));
+    done();
+    for (const x of picked) { sel.delete(x.item_id); if (kind === 'purge') { x.has_files = false; x.restorable = false; } }
+    if (kind === 'restore') items = items.filter(x => !picked.includes(x));
+    LB.say(kind === 'restore' ? `已恢复 ${picked.length} 篇，回到目录了` : `已彻底删除 ${picked.length} 篇，不会再同步`, { kind: 'ok' });
+    paintClear(); paintRecs(); paintList();
+  } catch (e) {
+    done();
+    LB.say((kind === 'restore' ? '没恢复上：' : '没删掉：') + (e?.message || e), { kind: 'error' });
+  } finally { busy = false; }
+}
 async function act(kind, item, btn, row) {
   if (busy || LB.mobile) return;
   const name = item ? '《' + (item.title || '未命名收藏') + '》' : '';
@@ -92,15 +118,16 @@ async function act(kind, item, btn, row) {
     done();
     if (kind === 'restore') {
       row?.remove();
-      items = items.filter(x => x !== item); paintClear();
+      items = items.filter(x => x !== item); sel.delete(item.item_id); paintClear(); paintList();
       const note = (r?.results || []).find(x => x.item_id === item.item_id)?.visible_note || '';
       LB.say(`已恢复${name}，回到目录了`, { kind: 'ok', actions: note ? [{ label: '打开', run: () => app.workspace.openLinkText(LB.path(note), '', false) }] : [] });
     } else if (kind === 'purge') {
       row?.classList.remove('is-busy');
       item.has_files = false; item.restorable = false;
       row?.remove();   // 1023：彻底删除的不再摆在列表里，收进「记录」小图标
+      sel.delete(item.item_id);
       LB.say('已彻底删除 1 篇，不会再同步', { kind: 'ok' });
-      paintClear(); paintRecs();
+      paintClear(); paintRecs(); paintList();
     } else {
       LB.say('回收站清空了，这些不会再同步', { kind: 'ok' });
       await draw();
@@ -111,6 +138,10 @@ async function act(kind, item, btn, row) {
   } finally { busy = false; }
 }
 let items = [];
+let plat = '';           // 1031：'' 全部 / 'xhs' 小红书 / 'bili' B 站（两个平台都有东西才出切换）
+const sel = new Set();   // 1031：多选的 item_id
+const platOf = it => /^bili-/.test(String(it.item_id || '')) ? 'bili' : 'xhs';
+try { const v = sessionStorage.getItem('lbt-plat'); if (v === 'xhs' || v === 'bili') plat = v; } catch {}
 // 1023：已彻底删除的只剩一条屏蔽记录（防止再同步回来）——平时不摆在列表里，收进右上角「记录」小图标
 let recsOpen = false, recsView = 'list';
 const recSel = new Set();
@@ -180,10 +211,14 @@ async function reimport(btn) {
 }
 async function draw() {
   const data = await readData();
-  list.empty();
   items = data ? data.items : [];
-  paintClear(); paintRecs();
-  if (!data) {
+  hasData = !!data;
+  paintClear(); paintRecs(); paintList();
+}
+let hasData = false;
+function paintList() {
+  list.empty();
+  if (!hasData) {
     const box = list.createEl('div', { cls: 'lbt-empty' });
     box.createEl('div', { text: '回收站还没有数据：刷新一次目录就会生成' });
     if (!LB.mobile) {
@@ -192,16 +227,48 @@ async function draw() {
     }
     return;
   }
-  const live = items.filter(x => x.has_files);
+  const liveAll = items.filter(x => x.has_files);
+  const both = liveAll.some(x => platOf(x) === 'bili') && liveAll.some(x => platOf(x) === 'xhs');
+  if (!both) plat = '';
+  const live = plat ? liveAll.filter(x => platOf(x) === plat) : liveAll;
+  for (const id of [...sel]) if (!live.some(x => x.item_id === id)) sel.delete(id);
   if (!live.length) {
     const box = list.createEl('div', { cls: 'lbt-empty' });
     box.createEl('div', { text: '回收站是空的' });
     box.createEl('div', { cls: 'lbt-empty-sub', text: '删除的收藏会先放在这里，可以恢复' });
     return;
   }
+  const bar = list.createEl('div', { cls: 'lbt-bar' });
+  if (both) {
+    const seg = bar.createEl('div', { cls: 'lbt-seg lbt-plat' });
+    for (const [k, label] of [['', '全部'], ['xhs', '小红书'], ['bili', 'B 站']]) {
+      const b = seg.createEl('button', { text: label, cls: plat === k ? 'is-on' : '' }); b.type = 'button'; b.dataset.plat = k;
+      b.onclick = () => { plat = k; sel.clear(); try { sessionStorage.setItem('lbt-plat', k); } catch {} paintList(); };
+    }
+  }
+  if (!LB.mobile) {
+    const all = bar.createEl('label', { cls: 'lbt-all' });
+    const cb = all.createEl('input', { type: 'checkbox' });
+    cb.checked = live.every(x => sel.has(x.item_id));
+    all.createEl('span', { text: sel.size ? `已选 ${sel.size} 篇` : '全选' });
+    cb.onchange = () => { if (cb.checked) for (const x of live) sel.add(x.item_id); else sel.clear(); paintList(); };
+    bar.createEl('span', { cls: 'lbt-sp' });
+    const picked = () => live.filter(x => sel.has(x.item_id));
+    const rb = bar.createEl('button', { text: '恢复' }); rb.type = 'button'; rb.dataset.act = 'restore-sel';
+    rb.disabled = !picked().some(x => x.restorable) || busy;
+    rb.onclick = () => actMany('restore', picked().filter(x => x.restorable), rb);
+    const db = bar.createEl('button', { text: '彻底删除', cls: 'lbt-danger' }); db.type = 'button'; db.dataset.act = 'purge-sel';
+    db.disabled = !sel.size || busy;
+    db.onclick = () => actMany('purge', picked(), db);
+  }
   for (const item of live) {
-    const row = list.createEl('div', { cls: 'lbt-row' });
-    if (item.cover && item.has_files) { const img = row.createEl('img', { cls: 'lbt-cover' }); img.alt = ''; img.loading = 'lazy'; img.src = app.vault.adapter.getResourcePath(LB.path(item.cover)); }
+    const on = sel.has(item.item_id);
+    const row = list.createEl('div', { cls: 'lbt-row' + (on ? ' is-sel' : '') });
+    if (!LB.mobile) {
+      const cb = row.createEl('input', { type: 'checkbox' }); cb.checked = on;
+      cb.onchange = () => { if (cb.checked) sel.add(item.item_id); else sel.delete(item.item_id); paintList(); };
+    }
+    if (item.cover && item.has_files) { const img = row.createEl('img', { cls: 'lbt-cover' + (platOf(item) === 'bili' ? ' is-wide' : '') }); img.alt = ''; img.loading = 'lazy'; img.src = app.vault.adapter.getResourcePath(LB.path(item.cover)); }
     const text = row.createEl('div', { cls: 'lbt-text' });
     text.createEl('div', { cls: 'lbt-name', text: item.title || '未命名收藏' });
     const day = typeof item.deleted_at === 'string' ? item.deleted_at.slice(0, 10) : '';
