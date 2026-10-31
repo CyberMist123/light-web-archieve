@@ -621,7 +621,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap:not(.is-side-narrow) .lbc-top.is-squeeze-1 .lbc-row.is-free>.lbc-rcol.is-tight.is-gap-r{padding-right:8px;}
 .lbc-wrap:not(.is-side-narrow) .lbc-top.is-squeeze-1 .lbc-row.is-free>.lbc-rcol.is-grow.is-gap-r{padding-right:8px;}
 .lbc-wrap.is-side-narrow .lbc-top.is-squeeze-1 .lbc-row.is-free{column-gap:10px;}
-.lbc-wrap .lbc-top.is-squeeze-1 .lbc-ctl button.lbc-pill{padding:0 10px!important;}
+.lbc-wrap .lbc-top.is-squeeze-1 .lbc-ctl button.lbc-pill{padding-left:10px!important;padding-right:10px!important;}
 .lbc-wrap .lbc-top.is-squeeze-2 .lbc-ctl button.lbc-scope-tab[data-n]::after{content:none;}
 .lbc-wrap .lbc-top.is-squeeze-3 .lbc-ctl button.lbc-cat,.lbc-wrap .lbc-top.is-squeeze-3 .lbc-ctl button.lbc-pick{font-size:14px;}
 .lbc-wrap .lbc-top.is-squeeze-3 .lbc-ctl.lbc-ctl-piece{column-gap:9px;}
@@ -632,7 +632,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap.is-side-narrow .lbc-top.is-squeeze-4 .lbc-ctl button.lbc-sidetoggle{display:none;}
 .lbc-wrap .lbc-top.is-squeeze-4 .lbc-ctl button.lbc-cat,.lbc-wrap .lbc-top.is-squeeze-4 .lbc-ctl button.lbc-pick{font-size:13px;}
 .lbc-wrap .lbc-top.is-squeeze-4 .lbc-ctl.lbc-ctl-piece{column-gap:6px;}
-.lbc-wrap .lbc-top.is-squeeze-4 .lbc-ctl button.lbc-pill{padding:0 7px!important;}
+.lbc-wrap .lbc-top.is-squeeze-4 .lbc-ctl button.lbc-pill{padding-left:7px!important;padding-right:7px!important;}
 .lbc-wrap .lbc-ctl-piece.lbc-blk-search input.lbc-search{width:100%!important;min-width:0;}
 .lbc-wrap .lbc-ctl-piece:empty,.lbc-wrap .lbc-ctl-piece.is-empty{display:none;}
 .lbc-blk-meta .lbc-subline{padding-bottom:0;}
@@ -763,6 +763,11 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 /* 1101 作者「编排了一下字体就变了」：小字下边多 2px，和 17px 分页同一条基线（底边都压在那道线上）；主题那一块后面多空一点，不和「全部来源」挤在一起。
    1101 作者「拿到 design 后第一版（0055a14）的式样是对的」：字照那一版——分页和来源 / 视频 / 文件都是 15.5px 衬线，排序 13.5px、搜索 14px 无衬线 */
 .lbc-wrap .lbc-ctl button.lbc-thq .lbc-topic-star{font-size:12px;margin-right:2px;}
+/* 1101 作者「这里也没对齐」：筛选这一行不按编排格子的起点留空（已收藏和★主题之间空一大截）——块和块之间一律 28px，搜索那一列照旧靠右 */
+.lbc-wrap:not(.is-side-narrow):not(.is-arranging) .lbc-top .lbc-row.is-free:has(> .lbc-rcol > .lbc-m-scope) > .lbc-rcol:not(.is-grow){margin-left:0!important;padding-right:var(--lbc-ctl-gap,26px)!important;}
+.lbc-wrap .lbc-top.is-squeeze-1{--lbc-ctl-gap:12px;}
+.lbc-wrap .lbc-top.is-squeeze-3{--lbc-ctl-gap:9px;}
+.lbc-wrap .lbc-top.is-squeeze-4{--lbc-ctl-gap:6px;}
 /* 1101 作者「这一行字体颜色需要一样」「全部和今日新增不用放数字」：整行同一种衬线、同一个灰；选中的那个墨色加粗 + 下划线；放大镜大一点 */
 .lbc-wrap .lbc-ctl button.lbc-time.lbc-pill{color:var(--c-muted)!important;}
 .lbc-wrap .lbc-searchbox input.lbc-search,.lbc-wrap .lbc-searchbox input.lbc-search::placeholder{color:var(--c-muted);}
