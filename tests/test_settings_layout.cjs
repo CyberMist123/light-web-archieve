@@ -266,7 +266,9 @@ async function inventory(p) {
   assert.ok(group(root, 'g-advanced')._scrolledIntoView, '点锚点滚到那一组');
   assert.ok(root.querySelector('.lb-anchor.is-current[data-target="g-advanced"]'));
   assert.equal(root.querySelectorAll('.lb-card[data-section="s-status"]').length, 0, '大状态卡没了');
-  assert.equal(root.querySelectorAll('button').filter(b => b.textContent === '立即同步').length, 1, '「立即同步」只有一个');
+  // 1031：B 站卡有自己的「立即同步」（下载 B 站收藏）；小红书的「立即同步」照旧只有②那一个
+  assert.equal(root.querySelectorAll('button').filter(b => b.textContent === '立即同步' && !b.closest?.('.lb-bili')).length, 1, '「立即同步」只有一个');
+  assert.equal(root.querySelectorAll('.lb-bili button').filter(b => b.textContent === '立即同步').length, 1, 'B 站卡一个「立即同步」');
   assert.ok(root.querySelectorAll('button').filter(b => b.classList.contains('mod-cta') && visible(b, root)).length <= 1, '最多一个主按钮');
   assert.match(pane(root).querySelector('.lb-v7-lead').textContent, /改动自动保存/);
   assert.ok(root.querySelectorAll('details.lb-more').every(d => !d.open && d.querySelector('summary').textContent === '＋ 更多'), '组底「＋ 更多」默认收着');
@@ -275,7 +277,10 @@ async function inventory(p) {
   assert.deepEqual(acc.querySelectorAll('.lb-twin-card').map(c => c.getAttribute('data-platform') + ':' + c.querySelector('strong').textContent), ['xhs:小红书', 'bilibili:B 站']);
   assert.ok(acc.querySelector('.lb-twin-card[data-platform="xhs"] .lb-acct-row'), '账号卡片在小红书那张卡里');
   assert.deepEqual(env.p.accountOpts, { inCard: true });
-  assert.ok(acc.querySelector('.lb-twin-card.is-soon button').disabled, 'B 站：以后支持');
+  assert.ok(!acc.querySelector('.lb-twin-card.is-soon'), '1031：B 站不再是「以后支持」');
+  const bili = acc.querySelector('.lb-twin-card[data-platform="bilibili"]');
+  assert.deepEqual(['画质', '超过多长只记链接', '同时下几路', '保存弹幕', '优先无水印片源'].filter(n => !rowNamed(bili, n)), [], 'B 站同步选项都在卡里');
+  assert.match(bili.textContent, /扫一次以后自动复用/, '登录态复用写成看得见的字');
   assert.ok(!/登错号|指定账号|目标账号/.test(acc.textContent), '没有「登错号」这回事');
   // ② 收藏与同步
   const sy = group(root, 'g-sync');

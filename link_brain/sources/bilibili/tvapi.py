@@ -216,10 +216,11 @@ def qr_login(*, timeout_s: int = 180, out=None, qr_png: Path | None = None, clie
 # ---- 取流 ------------------------------------------------------------------------------------------------------------
 
 def ids_for(bvid: str, page: int, info: dict[str, Any] | None, *, client: httpx.Client) -> tuple[int, int]:
-    """(aid, cid)：yt-dlp 的 info 里有就用，没有查一次网页端 view 接口（不要签名）。"""
+    """(aid, cid)：yt-dlp 的 info 里有就用（ytdlp.collect_files 从 _old_archive_ids / 弹幕地址补出来的，下载地址带了 ?p= 就是那一 P 的），
+    没有才查一次网页端 view 接口（不要签名；10-29 记过本机出口 IP 查它会 412，所以只当兜底）。"""
     info = info or {}
     try:
-        if info.get("aid") and info.get("cid") and int(page or 1) == 1:
+        if info.get("aid") and info.get("cid"):
             return int(info["aid"]), int(info["cid"])
     except (TypeError, ValueError):
         pass

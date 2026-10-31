@@ -258,6 +258,19 @@ def test_fetch_stream_ranges_and_falls_back_to_backup(tmp_path):
     assert n == len(data) and (tmp_path / "v.m4s").read_bytes() == data and not (tmp_path / "v.m4s.part").exists()
 
 
+def test_collect_files_derives_aid_cid_from_raw_info(tmp_path):
+    """yt-dlp 的 B 站 info 没有 aid / cid 键：从 _old_archive_ids 和弹幕地址补（电视端取流要用，不必再查 view 接口）。"""
+    (tmp_path / f"{BV}.info.json").write_text(json.dumps({
+        "id": BV, "_old_archive_ids": ["bilibili 170001_part1"],
+        "subtitles": {"danmaku": [{"ext": "xml", "url": "https://comment.bilibili.com/279786.xml"}]}}), encoding="utf-8")
+    info = ytdlp.collect_files(tmp_path)["info"]
+    assert info["aid"] == 170001 and info["cid"] == 279786
+    web = FakeClient(lambda *a: pytest.fail("有 aid / cid 就不该查 view 接口"))
+    assert tvapi.ids_for(BV, 1, info, client=web) == (170001, 279786)
+    view = {"code": 0, "data": {"aid": 5, "cid": 6, "pages": [{"cid": 6}, {"cid": 7}]}}
+    assert tvapi.ids_for(BV, 2, {}, client=FakeClient(lambda *a: Resp(view))) == (5, 7)
+
+
 def _fake_ytdlp(calls):
     def fake(argv, out_dir, timeout_s):
         calls.append(list(argv))

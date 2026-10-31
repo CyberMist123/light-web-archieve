@@ -138,6 +138,8 @@ def fetch(parsed: Parsed, opts: FetchOptions) -> Fetched:
     if not probe["ok"]:
         shutil.rmtree(result["dir"], ignore_errors=True)
         code, human = ytdlp.classify_error(result["stderr_tail"]) if not video else ("TRANSIENT.DOWNLOAD_FAILED", probe["error"])
+        if result["exit_code"] in ytdlp.SYSTEM_KILLED_CODES:   # 1031：10-29 那轮 yt-dlp 退出码 0x40010004 = 关机 / 注销
+            code, human = "TRANSIENT.INTERRUPTED", "下载被系统中断（关机 / 注销 / 进程被结束），下次同步重下"
         detail = result["stderr_tail"].splitlines()[-1] if result["stderr_tail"] else ""
         text = f"{human}（yt-dlp 退出码 {result['exit_code']}）" + (f"：{detail}" if detail else "")
         if code.endswith("NOT_LOGGED_IN"):

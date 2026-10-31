@@ -768,6 +768,16 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v7 .lb-twin { display: grid; grid-template-columns: 1fr 1fr; gap: var(--lb-space-4); margin: var(--lb-space-3) 0; }
 .lb-settings .lb-v7 .lb-twin-card { min-width: 0; padding: var(--lb-space-4) var(--lb-space-5); border: 1px solid var(--lb-line); border-radius: var(--lb-radius); background: var(--lb-surface); }
 .lb-settings .lb-v7 .lb-twin-card.is-soon { opacity: .55; }
+/* 1031 设置页① B 站卡：登录两行状态 + 扫码弹窗、同步选项、预估 / 立即同步 / 上次摘要（说明都是看得见的字，不靠悬停） */
+.lb-settings .lb-v7 .lb-bili-line { font-size: var(--lb-fs-small); color: var(--lb-ink); line-height: 1.6; }
+.lb-settings .lb-v7 .lb-bili-note { font-size: var(--lb-fs-micro); color: var(--lb-muted); margin: var(--lb-space-1) 0; }
+.lb-settings .lb-v7 .lb-bili-btns, .lb-settings .lb-v7 .lb-bili-actions { display: flex; flex-wrap: wrap; gap: var(--lb-space-2); margin: var(--lb-space-2) 0; }
+.lb-settings .lb-v7 .lb-bili-opts { margin-top: var(--lb-space-3); border-top: 1px solid var(--lb-line); }
+.lb-settings .lb-v7 .lb-bili-estimate, .lb-settings .lb-v7 .lb-bili-last { font-size: var(--lb-fs-small); margin: var(--lb-space-2) 0; }
+.lb-settings .lb-v7 .lb-bili-last-sub { color: var(--lb-muted); }
+.lb-settings .lb-v7 .lb-bili-warn { color: var(--lb-warn); }
+.lb-bili-qr-modal .lb-bili-qr { display: block; width: 220px; height: 220px; margin: var(--lb-space-3) auto; image-rendering: pixelated; background: #fff; }
+.lb-bili-qr-modal .lb-bili-qr-hint { text-align: center; color: var(--lb-muted); }
 .lb-settings .lb-v7 .lb-twin-head { display: flex; align-items: center; gap: var(--lb-space-2); margin-bottom: var(--lb-space-1); }
 .lb-settings .lb-v7 .lb-twin-head strong { font-size: var(--lb-fs-body); }
 .lb-settings .lb-v7 .lb-twin-note { margin-left: auto; color: var(--lb-muted); font-size: var(--lb-fs-micro); }

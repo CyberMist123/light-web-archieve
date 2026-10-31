@@ -88,6 +88,8 @@ class BiliBiliLangIE(BiliBiliIE):
 PLUGIN_VERSION = "1"
 TIMEOUT_S = int(os.environ.get("LWA_BILI_DOWNLOAD_TIMEOUT", str(40 * 60)))
 TMP_STALE_S = 6 * 3600
+# Windows 结束进程的退出码：0x40010004（关机 / 注销，DBG_TERMINATE_PROCESS）、0xC000013A（Ctrl+C / 控制台关掉）
+SYSTEM_KILLED_CODES = (0x40010004, 0xC000013A)
 SRT_TIME_RE = re.compile(r"^\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}")
 # 脱敏：cookie 键值、任何带 query 的地址（签名播放 URL 都长这样）
 _SECRET_RE = re.compile(r"(SESSDATA|bili_jct|DedeUserID__ckMd5|DedeUserID|sid|refresh_token|buvid3)=[^;&\s\"']+", re.I)
@@ -334,6 +336,25 @@ def _download(url: str, *, log=lambda _m: None, timeout_s: int | None = None, us
     return result
 
 
+def _ids_from_info(info: dict[str, Any]) -> dict[str, int]:
+    """yt-dlp 的 B 站 info 不直接给 aid / cid（1031 查 yt-dlp 2026.10.26 源码）：aid 在 `_old_archive_ids`（"bilibili <aid>_part<n>"），
+    cid 在弹幕地址（comment.bilibili.com/<cid>.xml，弹幕关了也照样列在 subtitles 里）。电视端取流要这两个；拿不到再查 view 接口。"""
+    out: dict[str, int] = {}
+    if not info.get("aid"):
+        for s in info.get("_old_archive_ids") or []:
+            m = re.match(r"bilibili (\d+)_part\d+", str(s))
+            if m:
+                out["aid"] = int(m.group(1))
+                break
+    if not info.get("cid"):
+        for v in ((info.get("subtitles") or {}).get("danmaku") or []):
+            m = re.search(r"/(\d+)\.xml", str((v or {}).get("url") or "")) if isinstance(v, dict) else None
+            if m:
+                out["cid"] = int(m.group(1))
+                break
+    return out
+
+
 def collect_files(out_dir: Path) -> dict[str, Any]:
     """只认这个目录里实际存在的文件（不预设名字）：*.info.json / *.mp4|mkv|flv / *.danmaku.xml / *.<lang>.srt / 封面图。"""
     info: dict[str, Any] = {}
@@ -347,6 +368,8 @@ def collect_files(out_dir: Path) -> dict[str, Any]:
                 info = json.loads(p.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 info = {}
+            if isinstance(info, dict):
+                info = {**info, **_ids_from_info(info)}
         elif p.suffix.lower() in (".mp4", ".mkv", ".flv", ".webm") and ".part" not in name:
             if files["video"] is None or p.suffix.lower() == ".mp4":
                 files["video"] = p
