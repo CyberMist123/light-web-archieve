@@ -6,7 +6,7 @@
 
 数据全在本地，不配任何 AI key 也能归档、浏览、搜索。
 
-> **当前状态：测试版，需要自己配置环境**（Python + 编译读取组件）。「装一个插件就能用」的打包还没发布，差什么见文末「边界」。
+> **当前状态：测试版，需要自己配置环境**（要装 Python；读取组件有 Windows 预编译版，一键装好会自己下载并校验）。「装一个插件就能用」的打包还没发布，差什么见文末「边界」。
 
 仿生 Steward 会梦见小红书吗？
 
@@ -246,7 +246,7 @@ Copy-Item -Recurse -Force obsidian-plugins/link-brain-actions vault/.obsidian/pl
 4. 打开插件设置「概览」，点 **「一键装好 / 跑完」**：按轻量版（不要任何 key）装好缺的 → 确认小红书登录 → 同步 → 认图片里的字 → 整理目录。读取组件还没编好、还没登录的话，用号的几步先跳过，并写明要你做什么；照下面两步做完，扫码成功后自动接着跑。
 
 **读取组件与登录**
-1. 按 [`reader/README.md`](reader/README.md) 编译 `link-brain-reader`（需要 Go 1.24+），放进 `%USERPROFILE%\.link-brain\bin\`，或用环境变量 `LINK_BRAIN_XHS_EXE` 指定位置。需要时会自动在后台启动。
+1. Windows：插件「一键装好」会自动下载读取组件的预编译版（GitHub Release `reader-v0.2.0`，带 sha256 校验），放进 `%USERPROFILE%\.link-brainin\`；命令行是 `link-brain reader install`。其他系统或想自己编译：照 [`reader/README.md`](reader/README.md)（需要 Go 1.24+），或用环境变量 `LINK_BRAIN_XHS_EXE` 指定位置。
 2. 在插件设置「概览」的小红书账号那一行点 **登录**，用手机小红书扫码。**请用收藏所在的那个号。** 登录会保存下来，过期了才需要再扫。
 
 **第一次同步**
@@ -313,7 +313,7 @@ link-brain nightly                     # 一整套夜跑（同步 → 附件 →
 - [Obsidian](https://obsidian.md)
 - [Dataview](https://github.com/blacksmithgu/obsidian-dataview) 插件，并打开 **Enable JavaScript Queries**
 - 本仓库自带插件 **Link Brain Actions**（`obsidian-plugins/link-brain-actions`，仅桌面端）
-- **link-brain-reader** 读取组件：所有要登录的操作都经过它。由 [xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp) 打补丁编译而来，需要 Go 1.24+ 和 Git，步骤见 [`reader/README.md`](reader/README.md)
+- **link-brain-reader** 读取组件：所有要登录的操作都经过它。由 [xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp) 打补丁编译而来，Windows 有预编译版（一键装好自动下载 + sha256 校验），自己编译要 Go 1.24+ 和 Git，步骤见 [`reader/README.md`](reader/README.md)
 
 **可选**
 - `ffmpeg`（放进 PATH）：视频转写、语音提问要用；B 站视频合成音画也要它
@@ -351,7 +351,7 @@ link-brain nightly                     # 一整套夜跑（同步 → 附件 →
 
 **安装还没到「装一个插件就行」**
 - `link-brain` 还没发布成可以一条命令安装的包，眼下要 clone 仓库后 `pip install -e .`。
-- 读取组件没有预编译发布件，要自己用 Go 编译。
+- 读取组件只有 Windows x64 的预编译版；macOS / Linux 要自己用 Go 编译。
 - Dataview 要手动安装并打开 JS 查询。
 - 还没在一台没有开发环境的陌生 Windows 上从头走完全流程。
 
