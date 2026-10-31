@@ -107,6 +107,8 @@ const key = (A, el, k, extra = {}) => el.dispatchEvent(new A.window.KeyboardEven
 const texts = (A, sel) => A.qa(sel).map(e => e.textContent);
 const body = (V, f) => fakeMeta(V.get('PersonalWiki/' + f)).body;
 const tools = A => A.qa('.lbw-tools button');
+// 1101：左栏那排小图标收进页头「···」——点「···」再点菜单里那一项
+const more = async (A, t) => { A.q('.lbw-hbtn.is-more').click(); await tick(1); const b = A.qa('.lbw-pop.is-menu button').find(x => x.textContent.startsWith(t)); assert.ok(b, '「···」里有 ' + t); b.click(); await tick(1); };
 // 把所有文件夹点开（每点一次目录会重画，所以每次重新找）再点那一页
 async function expandAll(A) { for (let k = 0; k < 9; k++) { const f = A.qa('.lbw-tfold').find(x => !x.classList.contains('is-open')); if (!f) return; f.querySelector('.lbw-tw').click(); await tick(1); } }
 const openPage = async (A, id) => { await expandAll(A); A.q(`.lbw-tpage[data-page="${id}"]`).click(); await tick(2); };
@@ -120,18 +122,18 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
     assert.deepEqual(texts(A, '.lbw-tpage'), [], '首页：文件夹都收起（以前全摊开）');
     await openPage(A, 'pw-stay');
     // 打开一页后清掉手动展开，看默认：只有「旅行」开着
-    tools(A)[2].click(); await tick(1);    // 全部收起（写进 PREFS.open）
+    await more(A, '全部收起');    // 全部收起（写进 PREFS.open）
     assert.deepEqual(texts(A, '.lbw-tpage'), []);
     A.qa('.lbw-tfold')[0].querySelector('.lbw-tw').click(); await tick(1);
     assert.deepEqual(texts(A, '.lbw-tpage'), ['住宿偏好', '京都'], 'order 里的在前；没排过的按建立先后（不按修改时间跳）');
     assert.ok(A.q('.lbw-tpage.is-current'), '当前页加粗');
-    assert.ok(A.qa('.lbw-thead').length >= 2, '当前页的小标题在目录里');
+    assert.ok(A.qa('.lbw-rail .lbw-rhead').length >= 2 && !A.q('.lbw-tree .lbw-thead'), '1101：当前页的小标题在右栏，不在目录里');
   });
 
   await run('目录整栏收起 / 左下角「目录」打开（记住）', async () => {
     const P = fakePlugin(); const { A } = await open({ plugin: P });
     const wrap = A.q('.lbw');
-    tools(A).find(b => b.textContent.includes('收起目录')).click(); await tick(1);
+    await more(A, '收起左边目录');
     assert.ok(wrap.classList.contains('is-tocoff'), '整栏收起');
     A.q('.lbw-fab').click(); await tick(1);
     assert.ok(!wrap.classList.contains('is-tocoff'), '「目录」钮打开');
@@ -334,14 +336,15 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
     assert.ok(body(V, '京都.md').startsWith('种草先挂着，町屋民宿。\n\n## 住哪'), body(V, '京都.md'));
   });
 
-  await run('页头和问收藏对齐：一行（标题 + 三页切换 + 右边 AI · 历史 · …）；页头「AI」默认改哪一截', async () => {
+  await run('1101 三页共用页头：字标 + ＋ ｜ 空间切换胶囊 ｜ 篇数 · 历史 · ···；「AI 整理本页」在正文面包屑那一行', async () => {
     const P = fakePlugin(); const { A } = await open({ plugin: P });
     const row = A.q('.lbw-hrow');
-    assert.ok(row.querySelector('.lb-page-nav'), '三页切换和标题在同一行');
-    assert.deepEqual(A.qa('.lbw-acts .lbw-hbtn').map(b => b.dataset.ai ? 'AI' : b.dataset.hist ? '历史' : b.classList.contains('is-more') ? '…' : '?'), ['AI', '历史', '…'], '从左到右 AI · 历史 · …');
-    A.q('.lbw-hbtn[data-ai]').click(); await tick(1);
-    assert.ok(A.notices.at(-1).includes('先打开一页'), '首页点 AI：先打开一页');
+    assert.ok(row.querySelector('.lb-space-switch') && row.querySelector('.lbw-plus'), '切换胶囊和 ＋ 在页头那一行');
+    assert.deepEqual(A.qa('.lbw-space-switch button, .lb-space-switch button').map(b => b.textContent), ['浏览收藏', '问收藏', 'Wiki']);
+    assert.deepEqual(A.qa('.lbw-acts .lbw-hbtn').map(b => b.dataset.hist ? '历史' : b.classList.contains('is-more') ? '…' : '?'), ['历史', '…'], '页头右边 历史 · ···（AI 不在页头）');
+    assert.ok(!A.q('.lbw-hbtn[data-ai]'), '首页没有「AI 整理本页」');
     await openPage(A, 'pw-kyoto');
+    assert.ok(A.q('.lbw-crumbrow .lbw-hbtn[data-ai]'), '打开一页：「AI 整理本页」在面包屑那一行');
     A.q('.lbw-hbtn[data-ai]').click(); await tick(2);
     assert.ok(A.q('.lbw-dock .lbw-ai[data-scope="page"]'), '没点过哪段：改整页');
     assert.ok(A.q('.lbw-dock-head [data-scope="page"]').classList.contains('is-on'));
@@ -414,7 +417,7 @@ const run = async (name, fn) => { try { await fn(); console.log('  ok   ' + name
       assert.ok(V.get('PersonalWiki/京都.md'), '找回了');
       assert.equal(A.q('.lbw-ptitle').value, '京都', '找回后打开它');
     }
-    tools(A)[0].click(); await tick(1);
+    await more(A, '目录首页');
     A.q('.lbw-fold.is-new').click();
     A.q('.lbw-modal input').value = '读书'; await A.q('.lbw-modal').requestSubmit(); await tick(10);
     assert.ok(A.q('.lbw-ed'), '新文件夹建好直接进编辑');

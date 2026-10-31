@@ -174,7 +174,7 @@ async function open({ plugin = null, isMobile = false, params = {}, files = null
   await A.run();
   await tick(5);
   // 10-31 起目录默认只展开当前页所在的文件夹；下面的老用例照旧从展开的目录里点页（「全部展开」= 工具行第 4 颗）
-  if (expand) { const b = A.qa('.lbw-tools button')[3]; if (b) { b.click(); await tick(1); } }
+  if (expand) { const m = A.q('.lbw-hbtn.is-more'); if (m) { m.click(); await tick(1); const b = A.qa('.lbw-pop.is-menu button').find(x => x.textContent.startsWith('全部展开')); if (b) { b.click(); await tick(1); } } }   // 1101 起「全部展开」在页头「···」里
   return { A, dom, ...made };
 }
 const texts = (A, sel) => A.qa(sel).map(e => e.textContent);
@@ -193,8 +193,8 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   assert.match(dom.document.getElementById('lb-wiki-style').textContent, /LB Digits Inline/);
   assert.match(dom.document.getElementById('lb-wiki-style').textContent, /\.lbw\{--lbw-serif:"LB Digits Inline",var\(--lb-font-serif\)/, 'Digits Inline 只挂在 .lbw 的字栈里');
   const wrap = A.q('.lbw');
-  assert.deepEqual(texts(A, '.lb-page-nav button'), ['浏览收藏', '问收藏', 'Wiki'], '页头沿用现有胶囊三页切换');
-  assert.ok(A.q('.lb-page-nav button.is-current').textContent === 'Wiki');
+  assert.deepEqual(texts(A, '.lb-space-switch button'), ['浏览收藏', '问收藏', 'Wiki'], '1101：页头是三页共用的空间切换胶囊');
+  assert.ok(A.q('.lb-space-switch button.is-current').textContent === 'Wiki');
   assert.match(A.q('.lbw-sub').textContent, /^全部 3 页 · 更新 \d\d\/\d\d \d\d:\d\d$/, '篇数行：只数 role=page，更新时间取最新');
   assert.equal(A.qa('.lbw-fold').length, 3, '首页：一个文件夹 + 未归类 + 新文件夹');
   assert.ok(A.q('.lbw-ov'), '首页有 OVERVIEW 数字');
@@ -205,7 +205,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   assert.ok(folds[0].includes('旅行') && folds[0].endsWith('2'), folds.join('|'));
   assert.ok(folds[1].includes('未归类'));
   assert.deepEqual(texts(A, '.lbw-tpage'), [], '首页：文件夹默认都收起（10-31：只展开当前页所在的那个）');
-  A.qa('.lbw-tools button')[3].click(); await tick(1);   // 全部展开
+  { A.q('.lbw-hbtn.is-more').click(); await tick(1); A.qa('.lbw-pop.is-menu button').find(x => x.textContent.startsWith('全部展开')).click(); await tick(1); }   // 全部展开（1101 起在页头「···」里）
   assert.deepEqual(texts(A, '.lbw-tpage'), ['住宿偏好', '京都想住的地方', '冷泡茶比例'], '文件夹里 order 在前，未归类在后；块状 tags 认得');
   assert.ok(!A.q('.lbw-tpage[data-page="pw-old"]'), '.trash 里的不算');
   assert.ok(texts(A, '.lbw-ttags button').includes('#hotels') && texts(A, '.lbw-ttags button').includes('#茶'));
@@ -218,8 +218,9 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
 
   // ── 打开一页：标题、元信息、当前页小标题进目录、引用编号 ──
   tocPage(A, '住宿偏好').click();
+  assert.deepEqual(texts(A, '.lbw-rail .lbw-rhead'), ['—摘要', '01在意什么', '02参考'], '1101：当前页的小标题在右栏「本页」（目录里不再展开）');
+  assert.equal(A.qa('.lbw-rail .lbw-rsrc').length, 2, '右栏「引用」列出这页引的收藏（找不到的也列，标灰）');
   assert.equal(A.q('.lbw-ptitle').value, '住宿偏好');
-  assert.deepEqual(texts(A, '.lbw-thead'), ['1在意什么', '2参考'], '当前页的 H1–H4 进目录');
   const cites = A.qa('.lbw-cite');
   assert.equal(cites.length, 2);
   assert.equal(cites[0].querySelector('.lbw-ref').textContent, '1', '编号 = 本页第一次出现的顺序');
@@ -337,10 +338,10 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   assert.deepEqual(texts(A, '.lbw-tpage'), ['京都想住的地方']);
   assert.ok(A.q('.lbw-tpage mark'));
   key(A, find, 'Escape');
-  assert.ok(!A.q('.lbw-find'));
+  assert.equal(A.q('.lbw-find').value, '', '1101：搜索框一直在左栏，Esc = 清空');
 
   // ── 新建：页内弹层（不用 window.prompt），wikiCall('create') ──
-  A.qa('.lbw-tools button').find(b => b.textContent.includes('新页面')).click();
+  A.q('.lbw-lnew').click();   // 1101：「目录 | 关系图」那一行右边的 ＋
   const form = A.q('.lbw-modal');
   assert.ok(form, '新页面弹层');
   form.querySelector('input').value = '新的一页';
@@ -383,7 +384,8 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   {
     const { A: C, app: app2 } = await open({ plugin: null });
     assert.ok(C.q('.lbw-ro').textContent.includes('只能看'));
-    assert.equal(C.q('.lbw-hbtn'), null, '没有「…」和历史');
+    assert.equal(C.q('.lbw-hbtn[data-hist]'), null, '没有历史');
+    assert.ok(C.q('.lbw-hbtn.is-more'), '1101：「···」只读时也在（看的操作：目录首页 / 全部展开 / 全部收起）');
     assert.ok(!C.q('.lbw-fold.is-new'), '没有新文件夹');
     C.qa('.lbw-tpage').find(b => b.textContent === '住宿偏好').click();
     assert.equal(C.q('.lbw-addblk'), null);
@@ -480,7 +482,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     const P = fakePlugin(); const { A: B, dom: d2 } = await open({ plugin: P });
     const m = d2.document.body.createEl('div', { cls: 'modal-container' });
     key(B, d2.document, 'f', { ctrlKey: true });
-    assert.equal(B.q('.lbw-find'), null, '弹窗开着：不抢 Ctrl+F');
+    assert.notEqual(d2.document.activeElement, B.q('.lbw-find'), '弹窗开着：不抢 Ctrl+F（1101 起搜索框一直在，看的是焦点没被拿走）');
     m.remove();
     key(B, d2.document, 'f', { ctrlKey: true });
     assert.ok(B.q('.lbw-find'), '弹窗关了照常');
@@ -622,7 +624,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     outside.dispatchEvent(new B.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     assert.equal(B.q('.lbw-side').hidden, false, '外面输入框里的 Esc 不关 Wiki 的历史栏');
     outside.dispatchEvent(new B.window.KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true }));
-    assert.equal(B.q('.lbw-find'), null, '外面输入框里的 Ctrl+F 不归 Wiki');
+    assert.notEqual(d2.document.activeElement, B.q('.lbw-find'), '外面输入框里的 Ctrl+F 不归 Wiki');
     key(B, d2.document, 'Escape');
     assert.equal(B.q('.lbw-side').hidden, true, '在 Wiki 里按 Esc 照常关');
   });
@@ -783,6 +785,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     const row = B.q('.lbw-prow[data-item="xhs-6a84ab"]');
     assert.ok(row && row.textContent.includes('已引用'), 'ARCHIVE：这篇已引用：' + (row ? row.textContent : 'no row; prows=' + JSON.stringify(B.qa('.lbw-prow').map(r => [r.getAttribute('data-item'), r.textContent]))));
     // 全局图：一页写短 id、一页写完整 id，算「引了同一篇」→ 虚线
+    if (!B.q('[data-global]')) B.q('.lbw-ltab[data-ltab="map"]').click();
     B.q('[data-global]').click();
     const gg = B.q('.lbw-gbg svg.lbw-graph').__lbwGraph;
     assert.ok(gg.links.some(l => l.dashed && [l.s.id, l.t.id].sort().join() === 'pw-other,pw-short'), '关系图：同引一篇的虚线（短 id 也认）');
@@ -855,8 +858,8 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     ptr(B, st, 'pointerdown', 50, 50); ptr(B, g.svg, 'pointerup', 50, 50);
     assert.equal(B.q('.lbw-ptitle').value, '住宿偏好', '点关系图里的页 = 打开');
     assert.equal(g.alive, false, '换页：首页大图停掉');
-    // 目录里的局部图：当前页大一号；点文件夹打开文件夹页；收起 MAP 就停掉
-    B.q('.lbw-tmap-h').click();
+    // 目录里的局部图（1101 起是左栏「关系图」那一页）：当前页大一号；点文件夹打开文件夹页；切回「目录」就停掉
+    B.q('.lbw-ltab[data-ltab="map"]').click();
     const mg = B.q('.lbw-tmap svg.lbw-graph').__lbwGraph;
     assert.equal(mg.mode, 'local');
     assert.ok(mg.nodeEl('pw-stay').classList.contains('is-cur'));
@@ -865,29 +868,30 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     ptr(B, mg.nodeEl('pw-travel'), 'pointerdown', 10, 10); ptr(B, mg.svg, 'pointerup', 10, 10);
     assert.equal(B.q('.lbw-ptitle').value, '旅行', '点文件夹 = 打开文件夹页');
     assert.equal(mg.alive, false, '换页：旧的局部图停掉');
-    assert.equal(B.q('.lbw-tmap svg.lbw-graph'), null, '没钉住：换页后 MAP 收起（原型的规矩）');
-    B.q('.lbw-tmap-h').click();
     const mg2 = B.q('.lbw-tmap svg.lbw-graph').__lbwGraph;
-    assert.ok(mg2.alive && mg2.nodeEl('pw-travel').classList.contains('is-cur'), '展开：文件夹页的局部图');
-    B.q('.lbw-tmap-h').click();
-    assert.equal(B.q('.lbw-tmap svg.lbw-graph'), null); assert.equal(mg2.alive, false, '收起 MAP：图停掉');
+    assert.ok(mg2.alive && mg2.nodeEl('pw-travel').classList.contains('is-cur'), '换页后还在「关系图」那一页：换成文件夹页的局部图');
+    B.q('.lbw-ltab[data-ltab="tree"]').click();
+    assert.equal(B.q('.lbw-tmap svg.lbw-graph'), null); assert.equal(mg2.alive, false, '切回「目录」：图停掉');
   });
 
   // 五轮4：「全局图」浮层：MAP 一行的图标钮打开；Esc / 点遮罩关；关掉就停；点里面的页 = 关浮层 + 打开
   await reviewCase('五轮4 全局图浮层', async () => {
     const R1 = manualRaf();
     const { A: B, dom: d2 } = await open({ plugin: fakePlugin(), params: R1.params });
+    B.q('.lbw-ltab[data-ltab="map"]').click();   // 1101：「打开全局图」在左栏「关系图」那一页
     const gb = B.q('[data-global]');
-    assert.ok(gb && gb.querySelector('.lb-visually-hidden').textContent === '打开全局图', '图标钮 + 隐藏文字');
+    assert.ok(gb && gb.textContent.includes('打开全局图'), '图标 + 字');
     gb.click();
     let og = B.q('.lbw-gbg svg.lbw-graph').__lbwGraph;
     assert.equal(og.mode, 'global'); assert.ok(og.running);
     key(B, d2.document, 'Escape');
     assert.equal(B.q('.lbw-gbg'), null, 'Esc 关'); assert.equal(og.alive, false, '关掉就停');
+    if (!B.q('[data-global]')) B.q('.lbw-ltab[data-ltab="map"]').click();
     B.q('[data-global]').click();
     og = B.q('.lbw-gbg svg.lbw-graph').__lbwGraph;
     B.q('.lbw-gbg').click();
     assert.equal(B.q('.lbw-gbg'), null, '点遮罩关'); assert.equal(og.alive, false);
+    if (!B.q('[data-global]')) B.q('.lbw-ltab[data-ltab="map"]').click();
     B.q('[data-global]').click();
     og = B.q('.lbw-gbg svg.lbw-graph').__lbwGraph;
     ptr(B, og.nodeEl('pw-kyoto'), 'pointerdown', 5, 5); ptr(B, og.svg, 'pointerup', 5, 5);
@@ -985,10 +989,12 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   await reviewCase('六轮3 记着位置的图不同步硬算', async () => {
     const R1 = manualRaf();
     const { A: B, dom: d2 } = await open({ plugin: fakePlugin(), params: R1.params });
+    if (!B.q('[data-global]')) B.q('.lbw-ltab[data-ltab="map"]').click();
     B.q('[data-global]').click();
     let og = B.q('.lbw-gbg svg.lbw-graph').__lbwGraph;
     while (og.running) R1.step();
     key(B, d2.document, 'Escape');
+    if (!B.q('[data-global]')) B.q('.lbw-ltab[data-ltab="map"]').click();
     B.q('[data-global]').click();
     og = B.q('.lbw-gbg svg.lbw-graph').__lbwGraph;
     assert.ok(og.running && !og.sim.done, '再开：交给 rAF，不当场同步算完');

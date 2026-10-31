@@ -730,9 +730,30 @@ ${engrSel}::after{content:attr(data-text);position:absolute;left:0;top:0;color:t
     set();
     return { box, label, set };
   }
+  // ── 1101 设计交接包（design/DESIGN.md §1 / §3「页头」）：目录 / 问收藏 / Wiki 三页同一个页头——
+  //   左：刻线字标 + ＋；中：空间切换胶囊（当前页实心墨色）；右：meta（篇数 · 更新 / 已保存）+ 历史 + ···；下面一道 1px 墨线。
+  //   结构各页自己拼（目录页的标题 / 计数行还是编排里的模块），这里只出切换胶囊和共用样式，数值照 components.css 的 .site-header / .space-switch
+  const SPACES = [['catalog', '浏览收藏'], ['chat', '问收藏'], ['wiki', 'Wiki']];
+  function openSpace(r) { const p = provider(); if (r !== 'chat' && typeof p?.openLibraryPage === 'function') p.openLibraryPage(r); else openPage(r); }
+  // current = 这一页是哪一个；onCurrent = 点当前那一个做什么（Wiki 回首页；不给就不响应）
+  function spaceSwitch(parent, current, { onCurrent = null } = {}) {
+    const nav = parent.createEl('nav', { cls: 'lb-space-switch' });   // 不设 aria-label / title：Obsidian 会渲染成悬浮框
+    for (const [r, label] of SPACES) {
+      const b = nav.createEl('button', { cls: 'lb-space lb-space-' + r + (r === current ? ' is-current' : ''), text: label }); b.type = 'button';
+      if (r === current) { b.setAttribute('aria-current', 'page'); if (onCurrent) b.onclick = () => onCurrent(); }
+      else b.onclick = () => openSpace(r);
+    }
+    return nav;
+  }
+  const siteHeaderCss = () => `.lb-space-switch{flex:none;display:inline-flex;gap:2px;padding:3px;border:1px solid var(--lb-line);border-radius:var(--lb-radius-pill);background:var(--lb-surface);}
+.lb-space-switch button.lb-space{height:auto!important;padding:9px 20px!important;margin:0!important;border:0!important;border-radius:var(--lb-radius-pill)!important;background:transparent!important;box-shadow:none!important;font:400 15px/1.4 var(--lb-font-serif)!important;color:var(--lb-muted)!important;cursor:pointer;white-space:nowrap;}
+.lb-space-switch button.lb-space:hover{color:var(--lb-ink)!important;}
+.lb-space-switch button.lb-space.is-current{background:var(--lb-ink)!important;color:var(--lb-surface)!important;font-weight:600!important;}
+.lb-sh-meta{margin-right:14px;font:italic 500 17px/1.2 var(--lb-font-num);font-variant-numeric:lining-nums;color:var(--lb-muted);white-space:nowrap;}
+@media(max-width:760px){.lb-space-switch{display:flex;width:100%;}.lb-space-switch button.lb-space{flex:1 1 0;padding:9px 0!important;}.lb-sh-meta{display:none;}}`;
 
   return { root, path, provider, ensure, state, data, keep, rekeep, reuseDom, listen, onUnload, scroller, restoreScroll, onScroll, t, mark, role, get container() { return container; },
-    brandTitleText, brandFontCss, brandCss, brandTitle, BRAND_FONT_STACK,
+    brandTitleText, brandFontCss, brandCss, brandTitle, BRAND_FONT_STACK, spaceSwitch, siteHeaderCss,
     // 1027 样式集（CONVENTIONS「样式集」）
     applyTheme, themeVars: lbThemeVars, TOKENS_CSS: LB_SHARED_CSS.slice(0, LB_SHARED_CSS.indexOf('/* lb-tokens:end */') + 19).trim(),
     // 批次 D 地基

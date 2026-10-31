@@ -72,19 +72,22 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw-legend i{display:inline-block;width:22px;height:0;border-top:1px solid var(--lb-muted);vertical-align:middle;margin-right:6px;}
 .lbw-legend i.is-x{border-top-style:dashed;}
 /* 页头（10-31 晚和问收藏对齐）：一行——小号刻线标题 + 三页切换（透明底，当前那页白底小卡）；右边「AI · 历史 · …」方形带框按钮；下面篇数行压一条墨线 */
-.lbw-hrow{display:flex;align-items:center;flex-wrap:wrap;gap:12px 28px;}
-.lbw .lbw-brand{font-size:34px;line-height:1;transform-origin:left center;padding-left:.04em;}
-.lbw .lbw-hrow .lb-page-nav{justify-self:auto;background:transparent;padding:0;}
-.lbw .lbw-hrow .lb-page-nav button{font-size:15px;padding:9px 14px;}
-.lbw-acts{display:flex;align-items:center;gap:10px;margin-left:auto;}
-/* 1101 作者：右上角 AI / 历史不要框——和问收藏页头一样只是图标，悬停才有浅底 */
-.lbw .lbw-hbtn{width:40px;height:40px;display:grid;place-items:center;border:0;border-radius:10px;background:transparent;box-shadow:none;color:var(--lb-ink);}
-.lbw .lbw-hbtn.is-ai{font:600 14px/1 var(--lbw-sans);letter-spacing:.02em;}
-.lbw .lbw-hbtn.is-more{width:32px;border-color:transparent;background:transparent;box-shadow:none;font:500 20px/1 var(--lbw-sans);letter-spacing:.06em;}
+/* 1101 设计交接包 §1「页头」：三页同一个——字标 + ＋ ｜ 空间切换胶囊 ｜ 右边 meta · 历史 · ···；下面一道 1px 墨线 */
+${LB.siteHeaderCss()}
+.lbw-hrow{display:flex;align-items:center;flex-wrap:wrap;gap:16px 40px;padding:28px 0 22px;border-bottom:1px solid var(--lb-ink);}
+.lbw-brandbox{display:flex;align-items:center;gap:2px;}
+.lbw .lbw-brand{font-size:44px;line-height:1.02;transform-origin:left center;padding-left:.04em;}
+.lbw .lbw-plus{width:40px;height:44px;display:grid;place-items:center;font:500 30px/1 var(--lb-font-title);color:var(--lb-ink);transition:transform .2s;}
+.lbw .lbw-plus:hover{transform:rotate(90deg);}
+.lbw-acts{display:flex;align-items:center;gap:2px;margin-left:auto;}
+.lbw .lbw-hbtn{width:44px;height:44px;display:grid;place-items:center;border:0;border-radius:999px;background:transparent;box-shadow:none;color:var(--lb-ink);}
+.lbw .lbw-hbtn .lbw-ico{width:20px;height:20px;}
 .lbw .lbw-hbtn:hover,.lbw .lbw-hbtn.is-on{background:var(--lb-soft);color:var(--lb-ink);}
-.lbw-hnav{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px 24px;margin-top:14px;padding-bottom:10px;border-bottom:1px solid var(--lb-ink);}
-.lbw-sub{font:400 12.5px/1.2 var(--lbw-sans);color:var(--lb-muted);}
-.lbw-sub .lbw-num{color:var(--lb-ink);font-size:15px;}
+/* 「AI 整理本页」：面包屑那一行右边，不要框（1101 作者），悬停才有浅底 */
+.lbw .lbw-hbtn.is-ai{width:auto;height:34px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;margin-left:auto;font:400 13px/1 var(--lbw-sans);}
+.lbw .lbw-hbtn.is-ai .lbw-ico{width:15px;height:15px;}
+.lbw-crumbrow{display:flex;align-items:center;gap:12px;min-height:34px;}
+.lbw-sub{color:var(--lb-muted);}
 .lbw-ro{margin:14px 0 0;font:400 12.5px/1.6 var(--lbw-sans);color:var(--lb-muted);}
 /* 主体：左浮动目录 + 正文（+ 右侧历史栏） */
 .lbw-body{display:grid;grid-template-columns:minmax(0,1fr);column-gap:40px;}
@@ -441,7 +444,7 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw-modal .lbw-acts2{display:flex;justify-content:flex-end;align-items:center;gap:8px;}
 /* 中等宽（右边开着原文格）：目录变窄；再窄：目录收成左下角「目录」，点开从底部升起 */
 .lbw.is-mid{padding:24px 32px 0;}
-.lbw.is-mid .lbw-brand{font-size:30px;}
+.lbw.is-mid .lbw-brand{font-size:40px;}
 .lbw.is-mid .lbw-main,.lbw.is-mid.is-home .lbw-main{grid-template-columns:200px minmax(0,1fr);column-gap:40px;padding-top:36px;}
 .lbw.is-mid .lbw-ptitle{font-size:32px;}
 .lbw.is-mid .lbw-ov .lbw-big{font-size:72px;}
@@ -450,10 +453,9 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw.is-mid.has-side .lbw-body{grid-template-columns:minmax(0,1fr);}
 .lbw.is-mid .lbw-side{position:fixed;top:0;right:0;bottom:0;width:min(400px,100%);max-height:none;z-index:20;margin:0;padding:26px 24px 40px;background:var(--lb-surface);border-left:1px solid var(--lb-ink);}
 .lbw.is-narrow{padding:18px 18px 0;}
-.lbw.is-narrow .lbw-brand{font-size:26px;}
+.lbw.is-narrow .lbw-brand{font-size:30px;}
 .lbw.is-narrow .lbw-hrow{gap:8px;}
 .lbw.is-narrow .lbw-acts{padding-bottom:2px;gap:2px;}
-.lbw.is-narrow .lbw-hnav{flex-direction:column-reverse;align-items:flex-start;gap:10px;margin-top:14px;}
 .lbw.is-narrow .lbw-main,.lbw.is-narrow.is-home .lbw-main{display:block;padding:30px 0 120px;}
 .lbw.is-narrow .lbw-ptitle{font-size:28px;margin-top:10px;}
 .lbw.is-narrow .lbw-meta{margin-top:10px;}
@@ -494,9 +496,59 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw.is-mid.is-tocoff.is-home:not(.is-narrow) .lbw-main{grid-template-columns:minmax(0,1fr);}
 @media (prefers-reduced-motion: reduce){.lbw-fold-sheet,.lbw-fold-face,.lbw-tw,.lbw-chev{transition:none;}}
 ${LB.brandCss('.lbw .lbw-brand', '.lbw .lbw-engr')}
-.lbw .lbw-brand{font-size:34px;line-height:1;transform-origin:left center;}
-.lbw.is-mid .lbw-brand{font-size:30px;}
-.lbw.is-narrow .lbw-brand{font-size:26px;}
+.lbw .lbw-brand{font-size:44px;line-height:1.02;transform-origin:left center;}
+.lbw.is-mid .lbw-brand{font-size:40px;}
+.lbw.is-narrow .lbw-brand{font-size:30px;}
+/* ── 1101 设计交接包（design/reference/wiki.html）：三栏 左目录 236 / 中正文 ≤720 / 右「本页 + 引用」236，栏距 56 ── */
+.lbw.has-rail .lbw-main{grid-template-columns:236px minmax(0,720px) 236px;column-gap:56px;}
+.lbw.has-rail.is-tocoff:not(.is-narrow) .lbw-main{grid-template-columns:minmax(0,720px) 236px;justify-content:center;}
+.lbw.is-mid.has-rail .lbw-main{grid-template-columns:200px minmax(0,1fr);column-gap:40px;}
+.lbw.is-mid.has-rail .lbw-rail{grid-column:2;position:static;margin-top:48px;}
+.lbw.has-side .lbw-rail{display:none;}
+.lbw-rail{position:sticky;top:20px;align-self:start;display:flex;flex-direction:column;gap:32px;min-width:0;}
+.lbw-rail[hidden]{display:none;}
+.lbw.is-narrow .lbw-rail{position:static;margin-top:40px;}
+.lbw-mhead{display:flex;align-items:center;gap:10px;margin:0 0 10px;}
+.lbw-mhead .lbw-kick{font:700 11px/1 var(--lb-font-title);letter-spacing:.26em;text-transform:uppercase;color:var(--lb-ink);}
+.lbw-mhead .lbw-zh{font:400 12px/1 var(--lbw-sans);color:var(--lb-muted);}
+.lbw-mhead .lbw-rule{flex:1;height:1px;background:var(--lb-ink);}
+.lbw .lbw-rhead{display:flex;justify-content:flex-start;align-items:baseline;gap:12px;width:100%;padding:5px 0;text-align:left;font:400 14px/1.5 var(--lbw-serif);color:var(--lb-muted);}
+.lbw .lbw-rhead.is-l3{padding-left:30px;font-size:13px;}
+.lbw .lbw-rhead .lbw-rn{flex:none;width:18px;font:italic 500 13px/1.5 var(--lb-font-num);font-variant-numeric:lining-nums;color:var(--lb-muted);}
+.lbw .lbw-rhead:hover,.lbw .lbw-rhead.is-here,.lbw .lbw-rhead.is-top{color:var(--lb-ink);}
+.lbw .lbw-rhead.is-here,.lbw .lbw-rhead.is-top{font-weight:600;}
+.lbw .lbw-rsrc{display:flex;justify-content:flex-start;align-items:flex-start;gap:14px;width:100%;padding:6px 0;text-align:left;}
+.lbw .lbw-rsrc.is-gone{opacity:.55;}
+.lbw-rthumb{flex:none;width:56px;height:70px;border-radius:8px;overflow:hidden;background:var(--lb-soft);display:flex;align-items:flex-end;}
+.lbw-rthumb img{width:100%;height:100%;object-fit:cover;display:block;}
+.lbw-rthumb.is-text span{padding:6px;font:700 10px/1.25 var(--lbw-sans);color:var(--lb-ink);}
+.lbw-rsrc-t{display:flex;flex-direction:column;gap:4px;min-width:0;}
+.lbw-rsrc-k{display:flex;align-items:center;gap:6px;font:400 12px/1 var(--lbw-sans);color:var(--lb-muted);}
+.lbw-rsrc-k .lbw-fnum{display:inline-grid;place-items:center;width:18px;height:18px;border:1px solid var(--lb-ink);border-radius:50%;font:italic 500 12px/1 var(--lb-font-num);font-variant-numeric:lining-nums;color:var(--lb-ink);}
+.lbw-rsrc-n{font:600 14px/1.45 var(--lbw-serif);color:var(--lb-ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.lbw .lbw-rsrc:hover .lbw-rsrc-n{text-decoration:underline;text-underline-offset:3px;}
+.lbw-rnote{margin:10px 0 0;font:400 12px/1.6 var(--lbw-sans);color:var(--lb-muted);}
+/* 左栏：「目录 | 关系图」下划线分页 + ＋，下面一条搜索（只有一道墨线） */
+.lbw-ltabs{display:flex;align-items:center;gap:22px;margin:0 0 14px;border-bottom:1px solid var(--lb-line);}
+.lbw .lbw-ltab{padding:6px 0 9px;margin-bottom:-1px;border-bottom:2.5px solid transparent;font:400 15px/1.3 var(--lbw-serif);color:var(--lb-muted);}
+.lbw .lbw-ltab.is-on{color:var(--lb-ink);font-weight:600;border-bottom-color:var(--lb-ink);}
+.lbw .lbw-lnew{margin-left:auto;width:32px;height:32px;display:grid;place-items:center;color:var(--lb-ink);border-radius:999px;}
+.lbw .lbw-lnew:hover{background:var(--lb-soft);}
+.lbw-findw{gap:8px;height:38px;margin:0 0 18px;border-bottom:1px solid var(--lb-ink);color:var(--lb-muted);}
+.lbw-findw .lbw-ico{width:15px;height:15px;flex:none;}
+.lbw .lbw-find{font-size:14px;}
+.lbw-tmap{border-bottom:0;}
+.lbw .lbw-tmap .lbw-mpin{display:inline-flex;align-items:center;gap:6px;width:auto;margin-top:10px;font:400 12.5px/1 var(--lbw-sans);color:var(--lb-muted);}
+/* 目录树：不要编号；当前页左边一个实心小圆点；篇数斜体靠右 */
+.lbw-tpage.is-current::before{left:22px;top:50%;bottom:auto;width:6px;height:6px;margin-top:-3px;border-radius:50%;}
+.lbw-tfold.is-current::before{display:none;}
+/* TAGS 标签：目录底下一块，描边小胶囊 */
+.lbw-ttags{display:block;margin-top:24px;padding-top:18px;}
+.lbw-tagpills{display:flex;flex-wrap:wrap;gap:8px;}
+.lbw .lbw-tagpills button{height:30px;padding:0 12px;border:1px solid var(--lb-line);border-radius:999px;font:400 13px/1 var(--lbw-sans);color:var(--lb-muted);text-decoration:none;}
+.lbw .lbw-tagpills button:hover,.lbw .lbw-tagpills button.is-on{border-color:var(--lb-ink);color:var(--lb-ink);text-decoration:none;}
+/* 数字一律齐线（Cormorant 默认旧式数字高低不齐；font 简写会把它重置掉，这里兜一次） */
+.lbw *{font-variant-numeric:lining-nums;}
 `);
 
 // ═════════════ 小工具 ═════════════
@@ -553,6 +605,9 @@ const ICONS = {
   hist: [['path', { d: 'M3 3v5h5' }], ['path', { d: 'M3.05 13A9 9 0 1 0 6 5.3L3 8' }], ['path', { d: 'M12 7v5l3.5 2' }]],
   list: [['path', { d: 'M4 7h16M4 12h16M4 17h10' }]],
   expand: [['path', { d: 'M4 9V4h5' }], ['path', { d: 'M20 9V4h-5' }], ['path', { d: 'M4 15v5h5' }], ['path', { d: 'M20 15v5h-5' }]],
+  // 1101 设计交接包：「AI 整理本页」前面的小星、页头「更多」的三个点
+  spark: [['path', { d: 'M12 4v4M12 16v4M4 12h4M16 12h4M6.3 6.3l2.8 2.8M14.9 14.9l2.8 2.8M6.3 17.7l2.8-2.8M14.9 9.1l2.8-2.8' }]],
+  more: [['circle', { cx: 5, cy: 12, r: 1.6, fill: 'currentColor', stroke: 'none' }], ['circle', { cx: 12, cy: 12, r: 1.6, fill: 'currentColor', stroke: 'none' }], ['circle', { cx: 19, cy: 12, r: 1.6, fill: 'currentColor', stroke: 'none' }]],
 };
 const icon = name => S('svg', { class: 'lbw-ico', viewBox: '0 0 24 24', 'aria-hidden': 'true' }, (ICONS[name] || []).map(([t, a]) => S(t, a)));
 
@@ -807,26 +862,27 @@ const R = {};
 const head = add(h('header', { cls: 'lbw-head' }), h('h2', { cls: 'lb-visually-hidden', text: '个人 Wiki' }));
 const hrow = h('div', { cls: 'lbw-hrow' });
 head.append(hrow);
-const brand = LB.brandTitle(hrow, 'lbw-brand', 'lbw-engr');
+// 1101 设计交接包：三页同一个页头——刻线字标 + ＋ ｜ 空间切换胶囊 ｜ 右边「全部 N 页 · 更新」· 历史 · ···；「AI」挪到正文右上角（「AI 整理本页」）
+const brandBox = h('div', { cls: 'lbw-brandbox' });
+hrow.append(brandBox);
+const brand = LB.brandTitle(brandBox, 'lbw-brand', 'lbw-engr');
+if (!readOnly) brandBox.append(btn({ cls: 'lbw-plus', on: { click: e => openPlus(e) } }, h('span', { text: '+', attr: { 'aria-hidden': 'true' } }), sr('收进来：添加一条收藏')));
+async function openPlus(e) { try { (await LB.ensure('openPlusMenu')).openPlusMenu(e); } catch (err) { LB.say('菜单没打开：' + errText(err), { kind: 'error' }); } }
 { const ref = app.workspace.on?.('link-brain:catalog-prefs', () => brand.set()); if (ref) LB.onUnload(() => { try { app.workspace.offref(ref); } catch (e) { console.debug(e); } }); }
-// 10-31 晚，作者：页头和问收藏对齐——一行：小号刻线标题 + 三页切换；右边从左到右「AI · 历史钟 · …」，方形带框的按钮（不要圆圈）
-const nav = h('nav', { cls: 'lb-page-nav' },
-  btn({ text: '浏览收藏', on: { click: () => LB.openPage('catalog') } }),
-  btn({ text: '问收藏', on: { click: () => LB.openPage('chat') } }),
-  btn({ text: 'Wiki', cls: 'is-current', attr: { 'aria-current': 'page' }, on: { click: () => go('home') } }));
-hrow.append(nav);
+LB.spaceSwitch(hrow, 'wiki', { onCurrent: () => go('home') });
 const acts = h('div', { cls: 'lbw-acts' });
 hrow.append(acts);
+R.sub = h('div', { cls: 'lbw-sub lb-sh-meta' });
+acts.append(R.sub);
 if (!readOnly) {
-  R.aiBtn = btn({ cls: 'lbw-hbtn is-ai', data: { ai: 'open' }, on: { click: () => openAiFromHead() } }, h('span', { text: 'AI', attr: { 'aria-hidden': 'true' } }), sr('让 AI 整理'));
+  // 「AI 整理本页」：只在打开一页时出现，放在那一页的面包屑那一行右边（renderPage 里挂上去）；不要框（1101 作者）
+  R.aiBtn = btn({ cls: 'lbw-hbtn is-ai', data: { ai: 'open' }, on: { click: () => openAiFromHead() } }, icon('spark'), h('span', { text: 'AI 整理本页' }));
   R.histBtn = btn({ cls: 'lbw-hbtn', data: { hist: '1' }, on: { click: () => toggleHistory() } }, icon('hist'), sr('这一页的历史版本'));
-  R.more = btn({ cls: 'lbw-hbtn is-more', on: { click: e => showMoreMenu(e, R.more) } }, h('span', { text: '…', attr: { 'aria-hidden': 'true' } }), sr('更多'));
-  add(acts, [R.aiBtn, R.histBtn, R.more]);
+  acts.append(R.histBtn);
 }
-const hnav = h('div', { cls: 'lbw-hnav' });
-R.sub = h('div', { cls: 'lbw-sub' });
-add(hnav, [R.sub]);
-head.append(hnav);
+// 「···」只读时也在：目录首页 / 全部展开 / 全部收起 / 收起目录这些看的操作收在这里（1101），写盘的几项只读时不列
+R.more = btn({ cls: 'lbw-hbtn is-more', on: { click: e => showMoreMenu(e, R.more) } }, icon('more'), sr('更多'));
+acts.append(R.more);
 wrap.append(head);
 if (readOnly) wrap.append(h('p', { cls: 'lbw-ro', text: LB.mobile ? '手机上只能看：Wiki 回电脑上改' : 'Link Brain Actions 插件没启用，Wiki 只能看' }));
 const body = h('div', { cls: 'lbw-body' });
@@ -834,7 +890,8 @@ const main = h('div', { cls: 'lbw-main' });
 R.toc = h('aside', { cls: 'lbw-toc' });
 R.scrim = h('div', { cls: 'lbw-scrim', on: { click: () => setDrawer(false) } });
 R.center = h('main', { cls: 'lbw-center' });
-add(main, [R.toc, R.scrim, R.center]);
+R.rail = h('aside', { cls: 'lbw-rail' }); R.rail.hidden = true;
+add(main, [R.toc, R.scrim, R.center, R.rail]);
 R.side = h('aside', { cls: 'lbw-side' }); R.side.hidden = true;
 add(body, [main, R.side]);
 R.fab = btn({ cls: 'lbw-fab', on: { click: () => { if (wrap.classList.contains('is-narrow')) setDrawer(!UI.drawer); else setTocOff(false); } } }, icon('list'), '目录');
@@ -1038,7 +1095,7 @@ function renderBlock(b, lines, self) {
     case 'h': {
       const m = /^(#{1,6})\s+(.*)$/.exec(src[0]); const n = Math.min(m[1].length, 4);
       const k = (self._heads || []).findIndex(x => x.line === b.s);
-      return h('h' + n, { data: { hline: b.s } }, k >= 0 ? h('span', { cls: 'lbw-num lbw-hn', text: String(k + 1) }) : null, inl(m[2], h('span')));
+      return h('h' + n, { data: { hline: b.s } }, k >= 0 ? h('span', { cls: 'lbw-num lbw-hn', text: pad2(k + 1) }) : null, inl(m[2], h('span')));
     }
     case 'hr': return h('hr');
     case 'quote': { const q = h('blockquote'); src.forEach((l, k) => { if (k) q.append(h('br')); inl(l.replace(/^>\s?/, ''), q); }); return q; }
@@ -1058,42 +1115,30 @@ function renderToc() {
   const keepFind = R.findIn && D.activeElement === R.findIn;
   tocEl.textContent = '';
   tocEl.append(h('h2', { cls: 'lb-visually-hidden', text: 'Wiki 目录' }));
-  const say = h('span', { cls: 'lbw-say', attr: { 'aria-hidden': 'true' } });
-  const tb = (name, text, on, run) => {
-    const b = btn({ cls: on ? 'is-on' : '', on: { click: run, mouseenter: () => { say.textContent = text; }, mouseleave: () => { say.textContent = ''; }, focus: () => { say.textContent = text; }, blur: () => { say.textContent = ''; } } }, icon(name), sr(text));
-    return b;
-  };
-  const tools = h('div', { cls: 'lbw-tools' },
-    tb('home', '目录首页', UI.view === 'home', () => go('home')),
-    tb('find', '搜 · Ctrl F', UI.find != null, () => toggleFind()),
-    tb('up', '全部收起', false, () => { PREFS.open = Object.fromEntries([...topics().map(t => [t.id, false]), [looseId, false]]); saveUi(); renderToc(); }),
-    tb('down', '全部展开', false, () => { PREFS.open = Object.fromEntries([...topics().map(t => [t.id, true]), [looseId, true]]); saveUi(); renderToc(); }),
-    readOnly ? null : tb('plus', '新页面', false, () => newPageModal()),
-    tb('panel', '收起目录', false, () => { if (wrap.classList.contains('is-narrow')) setDrawer(false); else setTocOff(true); }),
-    say);
-  tocEl.append(tools);
-  if (UI.find != null) {
-    const fid = nextId('find');
-    R.findIn = h('input', { cls: 'lbw-find', attr: { id: fid, placeholder: '搜标题和正文', autocomplete: 'off', spellcheck: 'false' } });
-    R.findIn.value = UI.find;
-    R.findIn.addEventListener('input', () => { UI.find = R.findIn.value; renderTree(); });
-    R.findIn.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); toggleFind(false); }
-      else if (e.key === 'Enter') { e.preventDefault(); const b = R.tree && (R.tree.querySelector('.lbw-tpage[data-page]') || R.tree.querySelector('[data-page]')); const p = b && PAGES.get(b.dataset.page); if (p) openFromFind(p); }
-    });
-    tocEl.append(h('div', { cls: 'lbw-findw' }, h('label', { cls: 'lb-visually-hidden', attr: { for: fid }, text: '搜标题' }), R.findIn, kbd('Esc')));
-  } else R.findIn = null;
-  // MAP：目录最上面。没固定时点「MAP」展开 / 收起（换页自动收起）；图钉固定后一直显示
-  const shown = PREFS.mapPin || UI.mapOpen;
+  // 1101 设计交接包 §4「Wiki」：左栏顶上只留「目录 | 关系图」（下划线分页）+ 新建 + 一条搜索；全部展开 / 全部收起 / 目录首页 / 收起目录收进页头「···」
+  const mapTab = PREFS.leftTab === 'map';
+  const tab = (key, text) => btn({ cls: 'lbw-ltab' + ((key === 'map') === mapTab ? ' is-on' : ''), data: { ltab: key }, attr: { 'aria-pressed': String((key === 'map') === mapTab) }, text,
+    on: { click: () => { PREFS.leftTab = key; saveUi(); renderToc(); } } });
+  tocEl.append(h('div', { cls: 'lbw-ltabs' }, tab('tree', '目录'), tab('map', '关系图'),
+    readOnly ? null : btn({ cls: 'lbw-lnew', on: { click: () => newPageModal() } }, icon('plus'), sr('新页面'))));
+  const fid = nextId('find');
+  const nPages = [...PAGES.values()].filter(x => x.role === 'page').length;
+  R.findIn = h('input', { cls: 'lbw-find', attr: { id: fid, placeholder: `搜索 ${nPages} 页`, autocomplete: 'off', spellcheck: 'false' } });
+  R.findIn.value = UI.find || '';
+  R.findIn.addEventListener('input', () => { UI.find = R.findIn.value ? R.findIn.value : null; renderTree(); });
+  R.findIn.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); toggleFind(false); }
+    else if (e.key === 'Enter') { e.preventDefault(); const b = R.tree && (R.tree.querySelector('.lbw-tpage[data-page]') || R.tree.querySelector('[data-page]')); const p = b && PAGES.get(b.dataset.page); if (p) openFromFind(p); }
+  });
+  tocEl.append(h('label', { cls: 'lbw-findw' }, icon('find'), h('span', { cls: 'lb-visually-hidden', text: '搜标题和正文' }), R.findIn));
   const cur = current();
-  const mapRow = h('div', { cls: 'lbw-tmap-row' },
-    btn({ cls: 'lbw-tmap-h', attr: { 'aria-expanded': String(shown) }, on: { click: () => { if (PREFS.mapPin) { PREFS.mapPin = false; UI.mapOpen = false; saveUi(); } else UI.mapOpen = !UI.mapOpen; renderToc(); } } },
-      h('span', { cls: 'lbw-kick', text: 'MAP' }), h('span', { cls: 'lbw-zh', text: '关系图' }), h('span', { cls: 'lbw-rule' }), add(h('span', { cls: 'lbw-tw' + (shown ? '' : ' is-shut') }), icon('fold'))),
-    btn({ cls: 'lbw-mpin' + (PREFS.mapPin ? ' is-on' : ''), attr: { 'aria-pressed': String(!!PREFS.mapPin) }, on: { click: () => { PREFS.mapPin = !PREFS.mapPin; UI.mapOpen = PREFS.mapPin; saveUi(); renderToc(); LB.say(PREFS.mapPin ? '关系图固定在目录顶上了' : '取消固定：点「MAP」才展开'); } } },
-      icon('pin'), sr(PREFS.mapPin ? '取消固定关系图' : '固定关系图')),
-    btn({ cls: 'lbw-mpin', data: { global: '1' }, on: { click: () => openGlobalGraph() } }, icon('expand'), sr('打开全局图')));
-  if (R.miniGraph) { R.miniGraph.destroy(); R.miniGraph = null; }   // 收起 / 重画：旧图停掉
-  tocEl.append(h('div', { cls: 'lbw-tmap' }, mapRow, shown ? tocGraph(cur) : null));
+  if (R.miniGraph) { R.miniGraph.destroy(); R.miniGraph = null; }   // 换页 / 重画：旧图停掉
+  if (mapTab) {
+    tocEl.append(h('div', { cls: 'lbw-tmap' }, tocGraph(cur),
+      btn({ cls: 'lbw-mpin', data: { global: '1' }, on: { click: () => openGlobalGraph() } }, icon('expand'), h('span', { text: '打开全局图' }))));
+    R.tree = null;
+    return;
+  }
   R.tree = h('div', { cls: 'lbw-tree' });
   tocEl.append(R.tree);
   renderTree();
@@ -1134,17 +1179,12 @@ function renderTree() {
   const hitTitle = p => !q || norm(p.title).includes(q);
   const snip = new Map();
   const hit = p => { if (hitTitle(p)) return true; const s = bodyHit(p, q); if (s) snip.set(p.id, s); return !!s; };
-  const headRows = (p, extra = '') => p._heads.map((x, k) => {
-    const r = btn({ cls: `lbw-trow lbw-thead is-l${x.level} ${extra}`, data: { toc: x.line }, on: { click: () => scrollToHead(x.line) } }, NUM(String(k + 1)), h('span', { text: x.text }));
-    return r;
-  });
   const pageRow = (p, fid) => {
     const row = btn({ cls: 'lbw-trow lbw-tpage' + (cur === p ? ' is-current' : ''), attr: cur === p ? { 'aria-current': 'page' } : null, data: { page: p.id, fid: fid || null }, on: { click: () => openFromFind(p) } },
       markText(p.title, q), snip.get(p.id) ? h('small', { cls: 'lbw-tsnip' }, markText(snip.get(p.id), q)) : null);
     if (!q && !readOnly) { bindDrag(row, p.id, fid); bindDrop(row, { pid: p.id, fid }); }
-    const heads = cur === p && !q ? headRows(p) : null;
-    if (heads && !readOnly) for (const r of heads) bindDrop(r, { pid: p.id, fid, after: true });
-    return [row, heads];
+    // 1101：当前页的小标题挪到右栏「本页」，目录里只列页面
+    return [row];
   };
   let any = 0;
   topics().forEach((t, k) => {
@@ -1155,9 +1195,9 @@ function renderTree() {
     const tw = add(h('span', { cls: 'lbw-tw' }), icon('fold'));
     tw.addEventListener('click', e => { e.stopPropagation(); setFolderOpen(t.id, !open); });
     const row = btn({ cls: 'lbw-trow lbw-tfold' + (open ? ' is-open' : '') + (cur === t ? ' is-current' : ''), attr: cur === t ? { 'aria-current': 'page' } : null, data: { page: t.id }, on: { click: () => goPage(t) } },
-      tw, NUM(String(k + 1)), h('span', { cls: 'lbw-nm' }, markText(t.title, q)), h('span', { cls: 'lbw-c lbw-num', text: String(pagesIn(t).length) }));
+      tw, h('span', { cls: 'lbw-nm' }, markText(t.title, q)), h('span', { cls: 'lbw-c lbw-num', text: String(pagesIn(t).length) }));
     if (!q && !readOnly) bindDrop(row, { fid: t.id, into: true });
-    tree.append(h('div', { cls: 'lbw-tgroup' }, row, cur === t && !q ? headRows(t, 'is-fold') : null, open ? list.map(p => pageRow(p, t.id)) : null));
+    tree.append(h('div', { cls: 'lbw-tgroup' }, row, open ? list.map(p => pageRow(p, t.id)) : null));
   });
   const loose = loosePages().filter(hit);
   if (loose.length || !q) {   // 没有未归类的页也留着这一行：拖页到这里 = 拿出文件夹
@@ -1166,7 +1206,7 @@ function renderTree() {
     const ltw = add(h('span', { cls: 'lbw-tw' }), icon('fold'));
     ltw.addEventListener('click', e => { e.stopPropagation(); setFolderOpen(looseId, !open); });
     const row = btn({ cls: 'lbw-trow lbw-tfold' + (open ? ' is-open' : ''), data: { fold: looseId }, on: { click: () => setFolderOpen(looseId, !open) } },
-      ltw, NUM('·'), h('span', { cls: 'lbw-nm', text: '未归类' }), h('span', { cls: 'lbw-c lbw-num', text: String(loose.length) }));
+      ltw, h('span', { cls: 'lbw-nm', text: '未归类' }), h('span', { cls: 'lbw-c lbw-num', text: String(loose.length) }));
     if (!q && !readOnly) bindDrop(row, { fid: null, into: true });
     tree.append(h('div', { cls: 'lbw-tgroup' }, row, open ? loose.map(p => pageRow(p, null)) : null));
   }
@@ -1174,7 +1214,9 @@ function renderTree() {
   else if (q) tree.append(h('p', { cls: 'lbw-tnone' }, kbd('Enter'), ' 打开第一页'));
   if (!q) {
     const tags = [...IDX.byTag.entries()].filter(([t]) => !IDX.catTags.has(t)).sort((a, b) => b[1].length - a[1].length);
-    if (tags.length) tree.append(h('div', { cls: 'lbw-ttags' }, tags.map(([t]) => btn({ cls: UI.view === 'tag' && UI.tag === t ? 'is-on' : '', data: { tag: t }, text: '#' + t, on: { click: () => goTag(t) } }))));
+    // 1101：目录底下一块「TAGS 标签」，标签是描边小胶囊
+    if (tags.length) tree.append(h('div', { cls: 'lbw-ttags' }, h('div', { cls: 'lbw-mhead' }, h('span', { cls: 'lbw-kick', text: 'TAGS' }), h('span', { cls: 'lbw-zh', text: '标签' })),
+      h('div', { cls: 'lbw-tagpills' }, tags.map(([t]) => btn({ cls: UI.view === 'tag' && UI.tag === t ? 'is-on' : '', data: { tag: t }, text: '#' + t, on: { click: () => goTag(t) } })))));
   }
   if (!PAGES.size) tree.append(h('p', { cls: 'lbw-tnone', text: readOnly ? '还没有页面' : '还没有页面：点上面的 ＋ 新建' }));
   spyHeads();
@@ -1192,12 +1234,40 @@ function revealCurrent() {
 }
 // 目录跟着读到哪：视口顶下面一点之上的最后一个小标题，在目录里加粗 + 左边一道线
 function spyHeads() {
-  if (!R.tree || UI.view !== 'page') return;
+  if (!R.rail || UI.view !== 'page') return;
   const sc = LB.scroller(); if (!sc) return;
   const top = sc.getBoundingClientRect().top + 96;
   let here = null;
   for (const el of R.center.querySelectorAll('[data-hline]')) { if (el.getBoundingClientRect().top <= top) here = el.dataset.hline; else break; }
-  for (const r of R.tree.querySelectorAll('.lbw-thead')) r.classList.toggle('is-here', here != null && r.dataset.toc === here);
+  for (const r of R.rail.querySelectorAll('.lbw-rhead')) r.classList.toggle('is-here', here != null && r.dataset.toc === here);
+}
+// ═════════════ 右栏（1101 设计交接包 §4：本页的小节大纲 + 这页引用的收藏；只在打开一页时有） ═════════════
+function renderRail() {
+  const rail = R.rail; if (!rail) return;
+  rail.textContent = '';
+  const cp = UI.view === 'page' ? current() : null, p = cp && cp.role === 'page' ? cp : null;
+  rail.hidden = !p;
+  wrap.classList.toggle('has-rail', !!p);
+  if (!p) return;
+  const mhead = (en, zh) => h('div', { cls: 'lbw-mhead' }, h('span', { cls: 'lbw-kick', text: en }), h('span', { cls: 'lbw-zh', text: zh }), h('span', { cls: 'lbw-rule' }));
+  const heads = p._heads.filter(x => x.level <= 3);
+  rail.append(h('section', { cls: 'lbw-rsec' }, mhead('ON THIS PAGE', '本页'),
+    btn({ cls: 'lbw-rhead is-top', on: { click: () => { const sc = LB.scroller(); if (sc) sc.scrollTop = 0; } } }, h('span', { cls: 'lbw-rn', text: '—' }), h('span', { text: '摘要' })),
+    heads.map((x, k) => btn({ cls: 'lbw-rhead is-l' + x.level, data: { toc: x.line }, on: { click: () => scrollToHead(x.line) } },
+      h('span', { cls: 'lbw-rn lbw-num', text: x.level === 2 ? pad2(heads.filter((y, j) => j <= k && y.level === 2).length) : '' }), h('span', { text: x.text })))));
+  const keys = [...new Set(p._cites.map(citeKey))];
+  const rows = keys.map((k, i) => {
+    const id = p._cites.find(c => citeKey(c) === k), it = resolveItem(id);
+    const title = it ? it.title : '（找不到这篇收藏）';
+    let src = '';
+    if (it && it.cover) { try { src = String(app.vault.adapter.getResourcePath(LB.path(it.cover)) || ''); } catch (e) { src = ''; } }
+    const thumb = h('span', { cls: 'lbw-rthumb' + (src ? '' : ' is-text') }, src ? h('img', { attr: { src, alt: '', loading: 'lazy' } }) : h('span', { text: String(title).slice(0, 8) }));
+    return btn({ cls: 'lbw-rsrc' + (it ? '' : ' is-gone'), data: { cite: k }, on: { click: () => openCite(id) } }, thumb,
+      h('span', { cls: 'lbw-rsrc-t' }, h('span', { cls: 'lbw-rsrc-k' }, h('span', { cls: 'lbw-fnum', text: String(i + 1) }), it ? (/^bili|^bv/i.test(it.id) ? 'B 站' : '小红书') : ''), h('span', { cls: 'lbw-rsrc-n', text: title })));
+  });
+  rail.append(h('section', { cls: 'lbw-rsec' }, mhead('SOURCES', '引用'), rows.length ? rows : h('p', { cls: 'lbw-rnote', text: '这页还没有引用收藏。' }),
+    readOnly ? null : h('p', { cls: 'lbw-rnote', text: '在正文里打 @ 可以再引用一篇收藏。' })));
+  spyHeads();
 }
 // 目录吸住（10-31 晚，作者：「目录往下拉，目录没有固定住」）：先靠 CSS sticky；用户的 Obsidian 里某层祖先让 sticky 失效时，
 // 量一下目录顶边是不是已经滚出阅读区，是的话用 translateY 把它拉回来（不超过正文那一栏的底）
@@ -1225,7 +1295,7 @@ function openFromFind(p) {
 function toggleFind(force) {
   const on = force ?? UI.find == null;
   UI.find = on ? (UI.find ?? '') : null;
-  if (on) { setTocOff(false); setDrawer(true); }
+  if (on) { setTocOff(false); setDrawer(true); if (PREFS.leftTab === 'map') { PREFS.leftTab = 'tree'; saveUi(); } }
   renderToc();
   if (on && R.findIn) { R.findIn.focus(); R.findIn.select?.(); }
 }
@@ -1632,6 +1702,7 @@ function renderCenter() {
   if (UI.view === 'tag') renderTag(UI.tag);
   else if (UI.view === 'page' && PAGES.get(UI.id)) { const p = PAGES.get(UI.id); if (p.role === 'topic') renderFolder(p); else renderPage(p); }
   else renderHome();
+  renderRail();
 }
 const secHead = (kick, zh, ...tail) => h('div', { cls: 'lbw-sech' }, h('span', { cls: 'lbw-kick', text: kick }), h('span', { cls: 'lbw-zh', text: zh }), h('span', { cls: 'lbw-rule' }), tail);
 function renderHome() {
@@ -1744,7 +1815,7 @@ function renderPage(p) {
     } else chips.append(btn({ cls: 'lbw-chipadd', on: { click: () => { UI.tagEdit = true; renderKeepScroll(); } } }, icon('plus'), sr('加标签')));
   }
   add(R.center, [
-    crumb(fs[0] ? [btn({ text: fs[0].title, on: { click: () => goPage(fs[0]) } })] : []),
+    h('div', { cls: 'lbw-crumbrow' }, crumb(fs[0] ? [btn({ text: fs[0].title, on: { click: () => goPage(fs[0]) } })] : []), R.aiBtn || null),
     titleInput(p, '标题'),
     h('div', { cls: 'lbw-meta' }, savedSpan(p), h('span', { cls: 'lbw-dot', text: '·' }), h('span', null, NUM(String(p._chars)), ' 字'),
       p._cites.length ? [h('span', { cls: 'lbw-dot', text: '·' }), h('span', null, '引用 ', NUM(String(citeKeys(p).size)), ' 篇收藏')] : null, chips),
@@ -2946,10 +3017,19 @@ async function undeletePage(name) {
 // 「…」菜单：插件的 obsidian.Menu（LB.showMenu）；插件太旧没有 showMenu 时用页内的小菜单
 function showMoreMenu(evt, anchor) {
   const p = current();
-  const items = [
+  const nav = [
+    { title: '目录首页', sub: '文件夹卡片和关系图', onClick: () => go('home') },
+    { title: '全部展开', onClick: () => { PREFS.open = Object.fromEntries([...topics().map(t => [t.id, true]), [looseId, true]]); saveUi(); renderToc(); } },
+    { title: '全部收起', onClick: () => { PREFS.open = Object.fromEntries([...topics().map(t => [t.id, false]), [looseId, false]]); saveUi(); renderToc(); } },
+    { title: PREFS.tocOff ? '打开左边目录' : '收起左边目录', onClick: () => { if (wrap.classList.contains('is-narrow')) setDrawer(!UI.drawer); else setTocOff(!PREFS.tocOff); } },
+  ];
+  const items = readOnly ? [...nav, { separator: true }, { title: '重新读入', sub: '在 Obsidian 里直接改过 PersonalWiki 时', onClick: () => refresh(true) }] : [
     { title: UI.src ? '回到正文' : '整页 Markdown', disabled: !p, onClick: () => { commitEditor(false); flushSrc(); if (UI.src && liveSrc(p)) liveSrc(p)._lbDead = true; UI.src = !UI.src; renderKeepScroll(); } },
     { title: '新页面', onClick: () => newPageModal() },
     { title: '新文件夹', onClick: () => newPageModal({ folder: true }) },
+    // 1101：以前左栏那排小图标（目录首页 / 全部展开 / 全部收起 / 收起目录）收到这里
+    { separator: true },
+    ...nav,
     { title: '按我的思路搭框架', sub: '写思路 → AI 出计划你改 → 按节去收藏里找材料补上', disabled: !p, onClick: () => p && openAiPlan(p) },
     { title: '让 AI 改整页', sub: '理顺结构 / 精简 / 从引用补要点 / 自己说怎么改', disabled: !p, onClick: () => p && openAiPage(p) },
     { separator: true },
