@@ -102,6 +102,22 @@ def save_token(data: dict[str, Any]) -> Path:
     return p
 
 
+def save_web_cookies(data: dict[str, Any]) -> bool:
+    """1031 她「给一个（扫码）就行」：电视端扫码成功时响应里带 cookie_info.cookies（网页端登录 cookie），
+    照网页端扫码的格式写进 cookies.txt，一次扫码两边都登上。没带 / 写不上返回 False（网页端照旧单独扫）。值不打印。"""
+    cookies = ((data.get("cookie_info") or {}).get("cookies")) or []
+    extra = {c.get("name"): str(c.get("value")) for c in cookies
+             if isinstance(c, dict) and c.get("name") in login.LOGIN_COOKIE_KEYS and c.get("value")}
+    if "SESSDATA" not in extra:
+        return False
+    try:
+        import http.cookiejar
+        login._save_jar(http.cookiejar.CookieJar(), extra)
+        return True
+    except OSError:
+        return False
+
+
 def clear_token() -> bool:
     try:
         token_path().unlink()
@@ -191,7 +207,10 @@ def qr_login(*, timeout_s: int = 180, out=None, qr_png: Path | None = None, clie
             if c == 0 and (payload.get("data") or {}).get("access_token"):
                 p = save_token(payload["data"])
                 print(f"已保存电视端登录态到 {p.name}（目录 {p.parent}）", file=out)
-                return token_status()
+                web = save_web_cookies(payload["data"])
+                if web:
+                    print("网页端登录态也一并存好了（同一次扫码）", file=out)
+                return {**token_status(), "web_saved": web}
             if c == QR_EXPIRED:
                 got = _auth_code(client)
                 if isinstance(got, dict):

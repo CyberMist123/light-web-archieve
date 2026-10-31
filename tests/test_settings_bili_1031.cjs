@@ -112,12 +112,13 @@ function makePlugin() {
   B.biliCard(card, tab); B.biliSync(card, tab);   // 1031：登录在①、同步在②，这里画在一起测
   await settle();
   const text = () => card.textContent;
-  assert.match(text(), /网页登录：已登录（12\*\*\*34） · 大会员/);
-  assert.match(text(), /电视端：没登录/);
-  assert.match(text(), /扫一次以后自动复用/, '复用说明是看得见的字');
+  // 1031 她「和小红书对齐、给一个（扫码）就行」：一行「昵称 / 号 · ✓ 已登录（大会员）」+ ⋯；电视端没登只给一句，不另放按钮
+  assert.ok(card.querySelector('.lb-acct-row .lb-acct-who') && card.querySelector('.lb-bili-more'), '和小红书同一套账号行 + ⋯');
+  assert.match(card.querySelector('.lb-acct-row').textContent, /12\*\*\*34 · ✓ 已登录（大会员）/);
+  assert.match(text(), /重新扫码登录」扫一次能拿无水印片源/);
+  assert.equal(card.querySelectorAll('.lb-acct-row button').filter(b => !b.hidden).length, 0, '网页端登着：没有大按钮');
   assert.match(text(), /上次：上次同步停在第 349\/849 条/, '被打断的那次：停在第几条、为什么');
   const btn = t => card.querySelectorAll('button').find(b => b.textContent === t);
-  assert.ok(btn('重新扫码') && btn('电视端扫码') && !btn('退出登录').hidden && btn('退出电视端').hidden);
   assert.equal(tab.stops.length, 1, '任务监听在设置页关掉时注销');
   btn('打开 B站待选清单').onclick();
   assert.equal(plugin.opened, LAST0.pending_note);

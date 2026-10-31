@@ -384,49 +384,71 @@ module.exports = function (obsidian, plugin) {
     });
   }
 
+  // 1031 她：「你看小红书多简洁？和这个对齐」——一行「昵称 · ✓ 已登录」+ ⋯ 菜单；只给一个「扫码登录」：
+  // 扫的是电视端码（后端同一次扫码把网页端 cookie 也存上，tvapi.save_web_cookies）；万一网页端没带上，再点一次扫网页端。
   function biliCard(card, tab) {
     const head = card.createDiv({ cls: 'lb-twin-head' });
     head.createEl('strong', { text: 'B 站' });
     head.createSpan({ cls: 'lb-twin-note', text: '收藏夹名当专辑' });
-    const loginBox = card.createDiv({ cls: 'lb-bili-login', attr: { 'data-section': 'bili-login' } });
-    const lines = loginBox.createDiv({ cls: 'lb-bili-lines' });
-    lines.createDiv({ cls: 'lb-bili-line', text: '正在查登录状态…' });
-    card.createEl('p', { cls: 'setting-item-description lb-bili-note', text: '扫一次以后自动复用：登录态只存在这台电脑（~/.link-brain/bilibili/），不进收藏库。' });
-    const btns = loginBox.createDiv({ cls: 'lb-bili-btns' });
-    const mk = (text, fn) => { const b = btns.createEl('button', { cls: 'lb-btn', text }); b.onclick = () => fn(b); return b; };
+    const box = card.createDiv({ cls: 'lb-accounts lb-bili-login', attr: { 'data-section': 'bili-login' } });
+    // 手搭和小红书 renderAccountRow 同一套类名（setting-item lb-acct-row / lb-acct-who / lb-acct-state / lb-acct-guide / ⋯），样子自动一致
+    const rowEl = box.createDiv({ cls: 'setting-item lb-acct-row' });
+    const info = rowEl.createDiv({ cls: 'setting-item-info' });
+    const nameEl = info.createDiv({ cls: 'setting-item-name' });
+    const who = nameEl.createSpan({ cls: 'lb-acct-who' });
+    const state = nameEl.createSpan({ cls: 'lb-acct-state', text: '检查中' });
+    const guide = info.createDiv({ cls: 'setting-item-description' }).createDiv({ cls: 'lb-acct-guide' });
+    const ctl = rowEl.createDiv({ cls: 'setting-item-control' });
+    const primaryEl = ctl.createEl('button', { cls: 'lb-bili-scan', text: '扫码登录' });
+    primaryEl.type = 'button'; primaryEl.hidden = true; primaryEl.onclick = () => login(primaryEl);
+    const moreEl = ctl.createDiv({ cls: 'clickable-icon extra-setting-button lb-bili-more', attr: { 'aria-label': '更多', role: 'button', tabindex: '0' } });
+    try { obsidian.setIcon ? obsidian.setIcon(moreEl, 'more-horizontal') : moreEl.setText('⋯'); } catch { moreEl.setText('⋯'); }
+    moreEl.addEventListener('click', e => openMenu(e));
+    const primary = { setButtonText: t => primaryEl.setText(t), buttonEl: { show: () => { primaryEl.hidden = false; }, hide: () => { primaryEl.hidden = true; } } };
+    const webOk = j => j && j.state === 'logged_in';
+    const tvOk = j => j && j.tv && j.tv.state === 'logged_in';
+    // 下一步只有一个：两边都没登 / 电视端没登 → 扫电视端（顺带网页端）；只差网页端 → 扫网页端
+    const nextScan = j => (!tvOk(j) ? 'tv' : !webOk(j) ? 'web' : null);
     const paintLogin = j => {
       biliStatus = j;
-      lines.empty();
-      for (const t of biliLoginLines(j)) lines.createDiv({ cls: 'lb-bili-line', text: t });
-      webIn.textContent = j && j.state === 'logged_in' ? '重新扫码' : '扫码登录';
-      tvIn.textContent = j && j.tv && j.tv.state === 'logged_in' ? '电视端重新扫码' : '电视端扫码';
-      webOut.hidden = !(j && j.state !== 'logged_out');
-      tvOut.hidden = !(j && j.tv && j.tv.state !== 'logged_out');
+      const any = webOk(j) || tvOk(j);
+      who.setText(webOk(j) ? (j.mid_masked || '') : '');   // 只给打码的号（真名不出状态，test_login_status_never_exposes_cookie_values）
+      const bits = [];
+      if (j && j.vip) bits.push('大会员');
+      if (tvOk(j)) bits.push('无水印片源');
+      state.setText(!j ? '无法确认' : (webOk(j) ? ' · ✓ 已登录' : any ? '还差一步' : j.state === 'unknown' ? '无法确认' : '没登录') + (webOk(j) && bits.length ? `（${bits.join(' · ')}）` : ''));
+      state.className = 'lb-acct-state is-' + (webOk(j) ? 'ready' : 'not_logged_in');
+      const next = nextScan(j);
+      guide.setText(!j ? '' : !next ? '' : next === 'web' ? '网页端还没登上：点「扫码登录」再扫一次（读收藏夹要用）'
+        : webOk(j) ? '电视端没登：点 ⋯ →「重新扫码登录」扫一次能拿无水印片源（不扫也能下）' : '用手机 B 站 App 扫一次码就行，之后自动复用');
+      if (next && !(webOk(j) && next === 'tv')) { primary.setButtonText('扫码登录'); primary.buttonEl.show(); } else primary.buttonEl.hide();
     };
     const loadStatus = async () => {
       try { const r = await plugin.runPy(['-m', 'link_brain', 'bilibili', 'status', '--json'], { label: 'B 站登录状态', timeoutMs: 60000, okCodes: [0, 1, 5] }); paintLogin(r.json); }
-      catch (e) { lines.empty(); plugin.failBox ? plugin.failBox(lines, 'B 站登录状态', e, loadStatus) : lines.createDiv({ text: '这一块暂时读不到，点重试' }); }
+      catch (e) { paintLogin(null); guide.setText('暂时读不到登录状态：' + errText(e)); }
     };
-    const login = tv => async b => {
-      const done = plugin.busyButton(b, '等扫码…');
+    const login = async (btn, which = nextScan(biliStatus) || 'tv') => {
+      const done = btn ? plugin.busyButton(btn, '等扫码…') : () => {};
       try {
-        const r = await biliQrLogin({ tv });
+        const r = await biliQrLogin({ tv: which === 'tv' });
         if (r.cancelled) { plugin.notify('已取消扫码'); return; }
         const ok = r.json && r.json.state === 'logged_in';
-        plugin.notify(ok ? (tv ? 'B 站电视端已登录' : 'B 站已登录') : ((r.json && r.json.message) || '没登录上'), { kind: ok ? 'ok' : 'warn' });
+        plugin.notify(ok ? 'B 站已登录' : ((r.json && r.json.message) || '没登录上'), { kind: ok ? 'ok' : 'warn' });
       } finally { done(); await loadStatus(); }
     };
-    const logout = tv => async b => {
-      if (!(await plugin.confirm({ title: tv ? '退出 B 站电视端登录？' : '退出 B 站登录？', body: '只删这台电脑上存的登录态，已下载的视频不动。', ok: '退出', danger: true }))) return;
-      const done = plugin.busyButton(b, '正在退出…');
-      try { const r = await plugin.runPy(['-m', 'link_brain', 'bilibili', 'logout', '--json', ...(tv ? ['--tv'] : [])], { label: 'B 站退出登录', timeoutMs: 60000 }); plugin.notify((r.json && r.json.message) || '已退出'); }
-      catch (e) { plugin.notify('没退出：' + errText(e), { kind: 'error' }); }
-      finally { done(); await loadStatus(); }
+    const logout = async () => {
+      if (!(await plugin.confirm({ title: '退出 B 站登录？', body: '只删这台电脑上存的登录态（网页端和电视端），已下载的视频不动。', ok: '退出', danger: true }))) return;
+      try {
+        for (const extra of [[], ['--tv']]) await plugin.runPy(['-m', 'link_brain', 'bilibili', 'logout', '--json', ...extra], { label: 'B 站退出登录', timeoutMs: 60000 });
+        plugin.notify('已退出 B 站登录');
+      } catch (e) { plugin.notify('没退出：' + errText(e), { kind: 'error' }); }
+      finally { await loadStatus(); }
     };
-    const webIn = mk('扫码登录', login(false)), webOut = mk('退出登录', logout(false));
-    const tvIn = mk('电视端扫码', login(true)), tvOut = mk('退出电视端', logout(true));
-    webOut.hidden = tvOut.hidden = true;
-
+    const openMenu = evt => plugin.showMenu && plugin.showMenu([
+      { title: '重新扫码登录', icon: 'qr-code', onClick: () => login(null, 'tv') },
+      { title: '检查登录状态', icon: 'refresh-cw', onClick: () => loadStatus() },
+      { title: '退出登录', icon: 'log-out', danger: true, onClick: () => logout() },
+    ], evt);
     loadStatus();
   }
 
@@ -741,15 +763,29 @@ module.exports = function (obsidian, plugin) {
     tab.fieldCommentFloors(body);
     return ed;
   }
+  // 1031 她：「小红书和 B 站会混淆」——顶上一个切换（小红书 · 实时同步 / B 站 · 暂不支持实时同步），选哪个只出哪个的设置。
+  // 每次打开设置页默认小红书（别处「改定时」跳过来的锚点都在小红书那页）。
   function groupSync(g, tab) {
     const s = S(), so = s.sync;
-    sub(g, '同步');
-    safe(tab, g, '收藏同步', () => tab.stops.push(plugin.renderSyncRow(g, { compact: true })));
-    syncRows(g, tab);
-    sub(g, 'B 站同步');
-    const bili = g.createDiv({ cls: 'lb-bili lb-bili-sync', attr: { 'data-section': 'sync-bili' } });
+    const sw = g.createDiv({ cls: 'lb-plat-switch', attr: { role: 'tablist', 'data-section': 'sync-switch' } });
+    const paneX = g.createDiv({ cls: 'lb-plat-pane', attr: { 'data-platform': 'xhs' } });
+    const paneB = g.createDiv({ cls: 'lb-plat-pane', attr: { 'data-platform': 'bilibili' } });
+    const tabs = [['xhs', '小红书', '实时同步', paneX], ['bilibili', 'B 站', '暂不支持实时同步 · 手动同步', paneB]].map(([id, name, note, pane]) => {
+      const t = sw.createEl('button', { cls: 'lb-plat-tab', attr: { role: 'tab', 'data-platform': id } });
+      t.type = 'button';
+      t.createSpan({ cls: 'lb-plat-name', text: name });
+      t.createSpan({ cls: 'lb-plat-note', text: note });
+      t.onclick = () => pick(id);
+      return { id, t, pane };
+    });
+    const pick = id => { for (const x of tabs) { const on = x.id === id; x.t.classList.toggle('is-on', on); x.t.setAttribute('aria-selected', String(on)); x.pane.hidden = !on; } };
+    pick('xhs');
+    sub(paneX, '同步');
+    safe(tab, paneX, '收藏同步', () => tab.stops.push(plugin.renderSyncRow(paneX, { compact: true })));
+    syncRows(paneX, tab);
+    const bili = paneB.createDiv({ cls: 'lb-bili lb-bili-sync', attr: { 'data-section': 'sync-bili' } });
     safe(tab, bili, 'B 站同步', () => biliSync(bili, tab));
-    more(g, tab, 'sync-more', b => {
+    more(paneX, tab, 'sync-more', b => {
       tab.fieldCollectionFolder(b);
       tab.toggleRow(b, '登录后马上同步', '', () => so.autoAfterLogin, v => { so.autoAfterLogin = v; }, { help: '第一次扫码登录成功后就开始同步。' });
       tab.fieldPerRunLimit(b);

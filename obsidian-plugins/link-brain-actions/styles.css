@@ -915,3 +915,12 @@ body.lb-notip .tooltip{display:none!important;}
 .lb-bili-pick-modal .lb-bili-long-off:empty { display: none; }
 .lb-bili-pick-modal .lb-bili-pick-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--lb-space-2); margin-top: var(--lb-space-3); padding-top: var(--lb-space-3); border-top: 1px solid var(--lb-line); }
 @media (max-width: 520px) { .lb-bili-pick-modal .lb-bili-long-row { grid-template-columns: auto minmax(0, 1fr); } .lb-bili-pick-modal .lb-bili-long-dur { grid-column: 2; } .lb-bili-pick-modal .lb-bili-long-title, .lb-bili-pick-modal .lb-bili-long-meta, .lb-bili-pick-modal .lb-bili-long-off { grid-column: 2; } }
+/* 1031 她：② 收藏与同步顶上切换小红书 / B 站（选哪个只出哪个的设置），样子跟①的两张平台卡同一套：细边、圆角、标题粗体 + 右侧小字 */
+.lb-settings .lb-v7 .lb-plat-switch { display: grid; grid-template-columns: 1fr 1fr; gap: var(--lb-space-3); margin: var(--lb-space-2) 0 var(--lb-space-4); }
+.lb-settings .lb-v7 button.lb-plat-tab { display: flex; align-items: baseline; justify-content: space-between; gap: var(--lb-space-2); height: auto; min-height: 52px; padding: var(--lb-space-3) var(--lb-space-4) !important; border: 1px solid var(--lb-line) !important; border-radius: 12px !important; background: var(--lb-surface) !important; box-shadow: none !important; color: var(--lb-muted); cursor: pointer; text-align: left; }
+.lb-settings .lb-v7 button.lb-plat-tab .lb-plat-name { font-weight: 700; font-size: var(--lb-fs-h2); color: var(--lb-ink); }
+.lb-settings .lb-v7 button.lb-plat-tab .lb-plat-note { font-size: var(--lb-fs-small); color: var(--lb-muted); white-space: nowrap; }
+.lb-settings .lb-v7 button.lb-plat-tab.is-on { border-color: var(--lb-ink) !important; box-shadow: inset 0 0 0 1px var(--lb-ink) !important; }
+.lb-settings .lb-v7 button.lb-plat-tab:not(.is-on) .lb-plat-name { color: var(--lb-muted); font-weight: 600; }
+.lb-settings .lb-v7 .lb-plat-pane[hidden] { display: none; }
+@media (max-width: 560px) { .lb-settings .lb-v7 .lb-plat-switch { grid-template-columns: 1fr; } .lb-settings .lb-v7 button.lb-plat-tab .lb-plat-note { white-space: normal; } }

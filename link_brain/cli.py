@@ -716,6 +716,7 @@ def _dispatch(args) -> int:
         ok = st["state"] == "logged_in" or (cmd == "logout")
         # 1031：每次都附电视端登录态（不联网，只看本地 token 和到期时间），设置页一张卡两行
         payload = read_mod.outcome({"state": st["state"], "mid_masked": st.get("mid_masked", ""), "vip": bool(st.get("vip")),
+                                    "web_saved": bool(st.get("web_saved")),
                                     "tv": bili_tv.token_status()}, ok=ok,
                                    message=st["detail"], code="" if ok else ("NOT_LOGGED_IN" if st["state"] in ("logged_out", "expired") else "UNKNOWN"))
         if getattr(args, "json", False):
