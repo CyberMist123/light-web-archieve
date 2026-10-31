@@ -5,7 +5,7 @@ import pytest
 
 from link_brain import storage
 from link_brain.sources import bilibili as bili
-from link_brain.sources.bilibili import favorites, sync
+from link_brain.sources.bilibili import favorites, sync, ytdlp
 
 
 def _item(bvid, title, duration=600, page=1, invalid=False, kind="video", fav_time=1, upper="UP"):
@@ -56,6 +56,7 @@ def test_pending_note_lists_links_only():
 def vault(tmp_path, monkeypatch):
     monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path / "vault"))
     monkeypatch.setenv("LINK_BRAIN_HOME", str(tmp_path / ".lbhome"))
+    monkeypatch.setattr(ytdlp, "missing_tools", lambda: [])   # 1031：开跑前的缺下载器检查不看测试机装没装
     return tmp_path
 
 
@@ -130,6 +131,49 @@ def test_run_sync_requires_login(vault, monkeypatch):
     monkeypatch.setattr(favorites, "default_client", lambda: (Client(), {"state": "logged_out", "detail": "没登录"}))
     out = sync.run_sync(log=lambda m: None)
     assert out["ok"] is False and out["code"] == "NOT_LOGGED_IN"
+
+
+def test_run_sync_stops_before_scanning_when_ytdlp_missing(vault, monkeypatch):
+    """1031：.venv 里没装 yt-dlp 时，开跑前就停、不连 B 站；上次的进度和计数留着，原因换成人话。"""
+    storage.write_json(favorites.sync_root() / "last-sync.json",
+                       {"state": "stopped", "stopped": "要人处理（MISSING_DEPENDENCY）：NeedsHuman: 旧的整段报错 D:/x/python.exe",
+                        "counts": {"failed": 1, "multi_p": 106}, "progress": {"done": 1, "total": 819}, "code": "MISSING_DEPENDENCY"})
+    monkeypatch.setattr(ytdlp, "missing_tools", lambda: ["yt-dlp"])
+    monkeypatch.setattr(favorites, "default_client", lambda: pytest.fail("缺下载器时不该去连 B 站"))
+    out = sync.run_sync(gap_s=0, log=lambda m: None)
+    assert out["ok"] is False and out["code"] == "MISSING_DEPENDENCY"
+    assert "yt-dlp" in out["stopped"] and "pip install -e ." in out["message"]
+    for text in (out["stopped"], out["message"]):
+        assert "NeedsHuman" not in text and "python.exe" not in text and "No module" not in text
+    last = storage.read_json(favorites.sync_root() / "last-sync.json")
+    assert last["stopped"] == out["stopped"] and last["state"] == "stopped"
+    assert last["progress"] == {"done": 1, "total": 819} and last["counts"]["multi_p"] == 106
+
+
+def test_missing_dependency_from_ytdlp_is_plain_words(vault, monkeypatch):
+    """yt-dlp 子进程报 No module named yt_dlp：停下的原因不带类名、退出码和解释器路径。"""
+    from link_brain import ingest, catalog
+    from link_brain.sources.bilibili import login
+
+    class Client:
+        def close(self):
+            pass
+    monkeypatch.setattr(favorites, "default_client", lambda: (Client(), {"state": "logged_in"}))
+    monkeypatch.setattr(login, "my_mid", lambda client=None: 1)
+    monkeypatch.setattr(favorites, "list_folders", lambda client, mid: {
+        "status": "ok", "folders": [{"media_id": 11, "fid": 1, "owner_mid": 1, "title": "音乐", "private": False, "media_count": 1}]})
+    snap = {"media_id": 11, "owner_mid": 1, "title": "音乐", "complete": True, "status": "complete",
+            "items": [_item("BV1aaaaaaaa1", "一", 100)]}
+    monkeypatch.setattr(favorites, "sync_folder", lambda *a, **k: {"snapshot": snap, "diff": None, "relations": None, "summary": {}, "prev_complete_at": None})
+    monkeypatch.setattr(ytdlp, "ffmpeg_ok", lambda: True)
+    monkeypatch.setattr(login, "status", lambda **k: {"state": "logged_in"}, raising=False)
+    monkeypatch.setattr(ytdlp, "run", lambda *a, **k: {"exit_code": 1, "files": {"video": None}, "dir": vault / "nope",
+                                                       "stderr_tail": r"D:\LWA\.venv\Scripts\python.exe: No module named yt_dlp"})
+    monkeypatch.setattr(catalog, "ensure_fresh", lambda **k: None)
+    out = sync.run_sync(gap_s=0, workers=1, tv=False, log=lambda m: None)
+    assert out["code"] == "MISSING_DEPENDENCY", out
+    assert out["stopped"].startswith("要人处理：缺下载器 yt-dlp")
+    assert "NeedsHuman" not in out["stopped"] and "python.exe" not in out["stopped"] and "退出码" not in out["stopped"]
 
 
 def test_note_albums_reads_relations(vault):

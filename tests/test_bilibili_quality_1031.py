@@ -20,6 +20,7 @@ BV = "BV1AbCdEfGhJ"
 def vault(tmp_path, monkeypatch):
     monkeypatch.setenv(storage.ENV_VAULT, str(tmp_path / "vault"))
     monkeypatch.setenv("LINK_BRAIN_HOME", str(tmp_path / ".lbhome"))
+    monkeypatch.setattr(ytdlp, "missing_tools", lambda: [])   # 1031：开跑前的缺下载器检查不看测试机装没装
     monkeypatch.setattr(login, "has_cookies", lambda: False)
     return tmp_path
 

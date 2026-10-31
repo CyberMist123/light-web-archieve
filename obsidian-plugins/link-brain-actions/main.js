@@ -2054,7 +2054,7 @@ class LinkBrainActions extends Plugin {
       return j;
     };
     // 10-31「让 AI 改」只读不写、要等模型几十秒：不排进写盘队列（排进去这期间所有保存都得干等），超时放宽到 5 分钟
-    if (op === 'ai' || op === 'trash') return run();
+    if (op === 'ai' || op === 'plan' || op === 'fill' || op === 'trash') return run();   // plan / fill：按思路搭框架，要检索 + 等模型
     const next = Promise.resolve(this.wikiChain).catch(() => {}).then(run);
     this.wikiChain = next.catch(() => {});
     return next;

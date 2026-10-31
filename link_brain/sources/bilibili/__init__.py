@@ -142,6 +142,8 @@ def fetch(parsed: Parsed, opts: FetchOptions) -> Fetched:
             code, human = "TRANSIENT.INTERRUPTED", "下载被系统中断（关机 / 注销 / 进程被结束），下次同步重下"
         detail = result["stderr_tail"].splitlines()[-1] if result["stderr_tail"] else ""
         text = f"{human}（yt-dlp 退出码 {result['exit_code']}）" + (f"：{detail}" if detail else "")
+        if code.endswith("MISSING_DEPENDENCY"):   # 1031：缺下载器只说缺什么，不把退出码和解释器路径糊上去
+            text = human
         if code.endswith("NOT_LOGGED_IN"):
             from .. import AccountBlocked
             err: SourceError = AccountBlocked(text)

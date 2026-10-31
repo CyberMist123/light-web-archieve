@@ -28,6 +28,7 @@ KEY_DEPS = (
     ('mcp', 'mcp', '接其他 AI', False),
     ('pypdfium2', 'pypdfium2', 'PDF 附件', False),
     ('python-docx', 'docx', 'Word 附件', False),
+    ('yt-dlp', 'yt_dlp', 'B 站下载', False),
 )
 
 

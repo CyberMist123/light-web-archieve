@@ -10,6 +10,7 @@ WBI key 直接 TypeError，`download` 的下载 / 字幕 / 弹幕步骤是占位
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -119,6 +120,41 @@ def ffmpeg_ok() -> bool:
     return bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 
 
+def python_label() -> str:
+    """给人看的「LWA 用的是哪个 Python」：程序目录的 .venv 就这么说，不把整条路径糊到卡片上。"""
+    from ... import deps
+    try:
+        if Path(sys.executable).resolve() == deps.venv_python().resolve():
+            return "程序目录 .venv 的 Python"
+    except OSError:
+        pass
+    return f"现在用的 Python {sys.version_info.major}.{sys.version_info.minor}"
+
+
+def missing_tools() -> list[str]:
+    """1031：开跑前查一遍（不连网、不起子进程）。yt-dlp 以 `python -m yt_dlp` 跑在当前解释器里（argv_base），
+    所以查的是当前这个 Python 有没有装；ffmpeg / ffprobe 查 PATH。"""
+    out = []
+    try:
+        if importlib.util.find_spec("yt_dlp") is None:
+            out.append("yt-dlp")
+    except (ImportError, ValueError):
+        out.append("yt-dlp")
+    if not ffmpeg_ok():
+        out.append("ffmpeg")
+    return out
+
+
+def missing_text(names: list[str]) -> str:
+    """缺什么 → 一句人话（不带命令行和路径；怎么装见 sync.HINTS["MISSING_DEPENDENCY"]）。"""
+    parts = []
+    if "yt-dlp" in names:
+        parts.append(f"缺下载器 yt-dlp（{python_label()} 里没装）")
+    if "ffmpeg" in names:
+        parts.append("这台电脑没装 ffmpeg（合并、校验视频要用）")
+    return "；".join(parts)
+
+
 def sanitize(text: str | None, limit: int = 600) -> str:
     s = _SECRET_RE.sub(r"\1=***", str(text or ""))
     s = _QUERY_RE.sub(r"\1?…", s)
@@ -205,7 +241,7 @@ def classify_error(stderr: str) -> tuple[str, str]:
     """yt-dlp 的报错 → (故障码, 给人看的一句)。只认几类，其余原样（脱敏）给人。"""
     low = (stderr or "").lower()
     if "no module named yt_dlp" in low or "起不来 yt-dlp" in low:
-        return "NEEDS_HUMAN.MISSING_DEPENDENCY", "没装 yt-dlp：python -m pip install -U yt-dlp"
+        return "NEEDS_HUMAN.MISSING_DEPENDENCY", missing_text(["yt-dlp"])
     if "ffmpeg" in low and ("not found" in low or "not installed" in low or "ffmpeg is required" in low):
         return "NEEDS_HUMAN.MISSING_DEPENDENCY", "没有 ffmpeg，无法合并音视频"
     if "login" in low and ("required" in low or "premium" in low or "members only" in low):
