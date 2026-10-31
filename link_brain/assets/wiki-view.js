@@ -5,8 +5,8 @@
 //     hash = 全文（CRLF→LF）SHA-1 前 16 位，和 personal_wiki.content_hash 对得上——保存时当 base_hash 交回去。
 //     目录 / 文件夹 / 标签 / 引用 / 小标题 / 待办都在这里现算（同原型的 reindex；文件夹 = role: topic 的页 + 它的 index_tag，顺序看文件夹页的 order）。
 //   - 写：一律 provider().wikiCall(op, {args, input}) → `pwiki` 命令（单 writer），页面从不 adapter.write 进 PersonalWiki。
-//     改动先显示在界面上（乐观），写盘成功后用返回的 hash 接着存；失败按 §1.5 回滚 + 把她的改动留成「没保存上的改动」（页顶可一键再存 / 覆盖），
-//     提示固定句式「没保存上，内容还在，可重试：<原因>」。CONFLICT（别处改过）= 换成磁盘上的版本，她的那份留在页顶。
+//     改动先显示在界面上（乐观），写盘成功后用返回的 hash 接着存；失败按 §1.5 回滚 + 把用户的改动留成「没保存上的改动」（页顶可一键再存 / 覆盖），
+//     提示固定句式「没保存上，内容还在，可重试：<原因>」。CONFLICT（别处改过）= 换成磁盘上的版本，用户的那份留在页顶。
 //   - 收藏：LB.data.load() 的 items；正文引用 [标题](lwa:<id>) 点了照问收藏的做法开到右栏（provider().openArchiveSource）。
 // 渲染：沿用原型自己的块解析 + 行内渲染（它记着「块 ↔ 源码行」，点一段改一段靠它），不走 Obsidian 的 MarkdownRenderer——
 //   简单、稳、单测里可跑；代价是只认原型那几种写法（标题 / 列表 / 待办 / 引用 / 代码 / ```pages / 分隔线 / 图片 / 链接）。
@@ -71,15 +71,17 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw-legend{display:flex;align-items:center;gap:14px;font:400 12px/1 var(--lbw-sans);color:var(--lb-muted);white-space:nowrap;}
 .lbw-legend i{display:inline-block;width:22px;height:0;border-top:1px solid var(--lb-muted);vertical-align:middle;margin-right:6px;}
 .lbw-legend i.is-x{border-top-style:dashed;}
-/* 页头：刻线大标题 + … + 历史；下面现有的三页胶囊 + 篇数行，压一条墨线 */
-.lbw-hrow{display:flex;align-items:flex-end;gap:14px;}
-.lbw .lbw-brand{font-size:84px;line-height:.92;transform-origin:left bottom;padding-left:.06em;}
-.lbw-acts{display:flex;align-items:center;gap:6px;padding-bottom:6px;}
-.lbw .lbw-hbtn{width:36px;height:36px;display:grid;place-items:center;border:1px solid var(--lb-line);border-radius:999px;color:var(--lb-muted);}
-.lbw .lbw-hbtn.is-more{border-color:transparent;font:500 20px/1 var(--lbw-sans);letter-spacing:.06em;}
+/* 页头（10-31 晚和问收藏对齐）：一行——小号刻线标题 + 三页切换（透明底，当前那页白底小卡）；右边「AI · 历史 · …」方形带框按钮；下面篇数行压一条墨线 */
+.lbw-hrow{display:flex;align-items:center;flex-wrap:wrap;gap:12px 28px;}
+.lbw .lbw-brand{font-size:34px;line-height:1;transform-origin:left center;padding-left:.04em;}
+.lbw .lbw-hrow .lb-page-nav{justify-self:auto;background:transparent;padding:0;}
+.lbw .lbw-hrow .lb-page-nav button{font-size:15px;padding:9px 14px;}
+.lbw-acts{display:flex;align-items:center;gap:10px;margin-left:auto;}
+.lbw .lbw-hbtn{width:40px;height:40px;display:grid;place-items:center;border:1px solid var(--lb-line);border-radius:10px;background:var(--lb-surface);box-shadow:0 1px 4px #0000000c;color:var(--lb-ink);}
+.lbw .lbw-hbtn.is-ai{font:600 14px/1 var(--lbw-sans);letter-spacing:.02em;}
+.lbw .lbw-hbtn.is-more{width:32px;border-color:transparent;background:transparent;box-shadow:none;font:500 20px/1 var(--lbw-sans);letter-spacing:.06em;}
 .lbw .lbw-hbtn:hover,.lbw .lbw-hbtn.is-on{background:var(--lb-soft);color:var(--lb-ink);}
-.lbw-hnav{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 24px;margin-top:22px;padding-bottom:12px;border-bottom:1px solid var(--lb-ink);}
-.lbw .lbw-hnav .lb-page-nav{justify-self:auto;}
+.lbw-hnav{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px 24px;margin-top:14px;padding-bottom:10px;border-bottom:1px solid var(--lb-ink);}
 .lbw-sub{font:400 12.5px/1.2 var(--lbw-sans);color:var(--lb-muted);}
 .lbw-sub .lbw-num{color:var(--lb-ink);font-size:15px;}
 .lbw-ro{margin:14px 0 0;font:400 12.5px/1.6 var(--lbw-sans);color:var(--lb-muted);}
@@ -272,7 +274,7 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw .lbw-prow:hover .lbw-t{text-decoration:underline;text-underline-offset:4px;}
 .lbw-rest{margin-top:48px;}
 .lbw-rnone{margin:10px 0 0;color:var(--lb-muted);font:400 13px/1.6 var(--lbw-sans);}
-/* 编辑态（10-31 她：「不要跳出来一个巨大的黑框，就正常改」）：原地改——编辑框套在和阅读时同一个元素里（p / h2 / li / blockquote），
+/* 编辑态（10-31 作者：「不要跳出来一个巨大的黑框，就正常改」）：原地改——编辑框套在和阅读时同一个元素里（p / h2 / li / blockquote），
    字体、字号、行距、缩进全继承，点开不跳；只有一条浅色小工具条浮在这一段右上角（绝对定位，不占地方） */
 .lbw-blk.is-editing{background:var(--lb-soft);cursor:text;}
 .lbw .lbw-ed,.lbw .lbw-ed:hover,.lbw .lbw-ed:focus,.lbw .lbw-ed:focus-visible{display:block;width:100%;min-width:0;height:auto;min-height:0;margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;outline:none;resize:none;overflow:hidden;font:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;caret-color:var(--lb-ink);}
@@ -326,6 +328,17 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw-ai-bad{margin:8px 0;padding:8px 10px;border:1px solid var(--lb-warn);border-radius:2px;color:var(--lb-warn);font:400 12.5px/1.7 var(--lbw-sans);}
 .lbw-ai-bad > div{color:var(--lb-ink);}
 .lbw-ai-srcs{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:8px;font:400 12.5px/1.7 var(--lbw-sans);}
+/* 底部 AI 对话框：方框、浮在正文那一栏底部（和问收藏底部输入框一个样子） */
+.lbw-dock{position:fixed;z-index:25;box-sizing:border-box;padding:10px 14px 12px;border:1px solid var(--lb-line);border-radius:14px;background:var(--lb-surface);box-shadow:0 8px 28px rgba(0,0,0,.18);font:400 13px/1.6 var(--lbw-sans);color:var(--lb-ink);}
+.lbw-dock-head{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;padding-bottom:8px;margin-bottom:8px;border-bottom:1px solid var(--lb-line);}
+.lbw-dock-head .lbw-kick{margin-right:4px;}
+.lbw .lbw-dock-head button{height:26px;padding:0 10px;border-radius:8px;color:var(--lb-muted);font:inherit;font-size:12.5px;}
+.lbw .lbw-dock-head button:hover{color:var(--lb-ink);background:var(--lb-soft);}
+.lbw .lbw-dock-head button.is-on{color:var(--lb-ink);background:var(--lb-soft);font-weight:600;}
+.lbw-dock-head .lbw-sp{flex:1;}
+.lbw-dock-body{max-height:52vh;overflow:auto;}
+.lbw-dock .lbw-ai{margin:0;padding:0;border:0;background:transparent;}
+.lbw-dock .lbw-ai-diff{max-height:none;}
 .lbw .lbw-selai{position:fixed;z-index:30;height:28px;padding:0 12px;border:1px solid var(--lb-ink);border-radius:999px;background:var(--lb-surface);color:var(--lb-ink);font:500 12.5px/1 var(--lbw-sans);box-shadow:2px 2px 0 var(--lb-ink);}
 .lbw-ai-out p{margin:0 0 6px;}
 /* 目录首页 */
@@ -422,7 +435,7 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw-modal .lbw-acts2{display:flex;justify-content:flex-end;align-items:center;gap:8px;}
 /* 中等宽（右边开着原文格）：目录变窄；再窄：目录收成左下角「目录」，点开从底部升起 */
 .lbw.is-mid{padding:24px 32px 0;}
-.lbw.is-mid .lbw-brand{font-size:64px;}
+.lbw.is-mid .lbw-brand{font-size:30px;}
 .lbw.is-mid .lbw-main,.lbw.is-mid.is-home .lbw-main{grid-template-columns:200px minmax(0,1fr);column-gap:40px;padding-top:36px;}
 .lbw.is-mid .lbw-ptitle{font-size:32px;}
 .lbw.is-mid .lbw-ov .lbw-big{font-size:72px;}
@@ -431,7 +444,7 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw.is-mid.has-side .lbw-body{grid-template-columns:minmax(0,1fr);}
 .lbw.is-mid .lbw-side{position:fixed;top:0;right:0;bottom:0;width:min(400px,100%);max-height:none;z-index:20;margin:0;padding:26px 24px 40px;background:var(--lb-surface);border-left:1px solid var(--lb-ink);}
 .lbw.is-narrow{padding:18px 18px 0;}
-.lbw.is-narrow .lbw-brand{font-size:46px;}
+.lbw.is-narrow .lbw-brand{font-size:26px;}
 .lbw.is-narrow .lbw-hrow{gap:8px;}
 .lbw.is-narrow .lbw-acts{padding-bottom:2px;gap:2px;}
 .lbw.is-narrow .lbw-hnav{flex-direction:column-reverse;align-items:flex-start;gap:10px;margin-top:14px;}
@@ -475,9 +488,9 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw.is-mid.is-tocoff.is-home:not(.is-narrow) .lbw-main{grid-template-columns:minmax(0,1fr);}
 @media (prefers-reduced-motion: reduce){.lbw-fold-sheet,.lbw-fold-face,.lbw-tw,.lbw-chev{transition:none;}}
 ${LB.brandCss('.lbw .lbw-brand', '.lbw .lbw-engr')}
-.lbw .lbw-brand{font-size:84px;line-height:.92;transform-origin:left bottom;}
-.lbw.is-mid .lbw-brand{font-size:64px;}
-.lbw.is-narrow .lbw-brand{font-size:46px;}
+.lbw .lbw-brand{font-size:34px;line-height:1;transform-origin:left center;}
+.lbw.is-mid .lbw-brand{font-size:30px;}
+.lbw.is-narrow .lbw-brand{font-size:26px;}
 `);
 
 // ═════════════ 小工具 ═════════════
@@ -702,7 +715,7 @@ async function diskSig() {
 const DATA_FIELDS = ['id', 'title', 'role', 'index_tag', 'order', 'tags', 'created', 'updated', 'body', 'file', 'path', 'hash', 'adopted'];
 function adoptDisk(cur, d) { for (const k of DATA_FIELDS) { if (k in d) cur[k] = d[k]; else delete cur[k]; } cur._saved = savedOf(d); cur._stale = false; derive(cur); }
 // 磁盘 → 内存：hash 一样的不动（自己刚存的那份也是）；正在存 / 正在改（点开的那段、整页 Markdown 框）/ 正在恢复或重读的那页先不换——
-// 她手上的字是照旧 hash 那版改的，保存时 base_hash 还是旧的 → 后端回 CONFLICT，她的字进草稿，不会拿新 hash 静悄悄盖掉别处的改动（10-29 审查 1）
+// 用户手上的字是照旧 hash 那版改的，保存时 base_hash 还是旧的 → 后端回 CONFLICT，用户的字进草稿，不会拿新 hash 静悄悄盖掉别处的改动（10-29 审查 1）
 const editingPage = p => !!p && ((p._ops || 0) > 0 || (ED && ED.p === p) || (UI.src && UI.view === 'page' && UI.id === p.id));
 function mergeDisk(disk) {
   let changed = false, skipped = false;
@@ -790,20 +803,23 @@ const hrow = h('div', { cls: 'lbw-hrow' });
 head.append(hrow);
 const brand = LB.brandTitle(hrow, 'lbw-brand', 'lbw-engr');
 { const ref = app.workspace.on?.('link-brain:catalog-prefs', () => brand.set()); if (ref) LB.onUnload(() => { try { app.workspace.offref(ref); } catch (e) { console.debug(e); } }); }
-const acts = h('div', { cls: 'lbw-acts' });
-hrow.append(acts);
-if (!readOnly) {
-  R.more = btn({ cls: 'lbw-hbtn is-more', on: { click: e => showMoreMenu(e, R.more) } }, h('span', { text: '…', attr: { 'aria-hidden': 'true' } }), sr('更多'));
-  R.histBtn = btn({ cls: 'lbw-hbtn', on: { click: () => toggleHistory() } }, icon('hist'), sr('这一页的历史版本'));
-  add(acts, [R.more, R.histBtn]);
-}
-const hnav = h('div', { cls: 'lbw-hnav' });
+// 10-31 晚，作者：页头和问收藏对齐——一行：小号刻线标题 + 三页切换；右边从左到右「AI · 历史钟 · …」，方形带框的按钮（不要圆圈）
 const nav = h('nav', { cls: 'lb-page-nav' },
   btn({ text: '浏览收藏', on: { click: () => LB.openPage('catalog') } }),
   btn({ text: '问收藏', on: { click: () => LB.openPage('chat') } }),
   btn({ text: 'Wiki', cls: 'is-current', attr: { 'aria-current': 'page' }, on: { click: () => go('home') } }));
+hrow.append(nav);
+const acts = h('div', { cls: 'lbw-acts' });
+hrow.append(acts);
+if (!readOnly) {
+  R.aiBtn = btn({ cls: 'lbw-hbtn is-ai', data: { ai: 'open' }, on: { click: () => openAiFromHead() } }, h('span', { text: 'AI', attr: { 'aria-hidden': 'true' } }), sr('让 AI 整理'));
+  R.histBtn = btn({ cls: 'lbw-hbtn', data: { hist: '1' }, on: { click: () => toggleHistory() } }, icon('hist'), sr('这一页的历史版本'));
+  R.more = btn({ cls: 'lbw-hbtn is-more', on: { click: e => showMoreMenu(e, R.more) } }, h('span', { text: '…', attr: { 'aria-hidden': 'true' } }), sr('更多'));
+  add(acts, [R.aiBtn, R.histBtn, R.more]);
+}
+const hnav = h('div', { cls: 'lbw-hnav' });
 R.sub = h('div', { cls: 'lbw-sub' });
-add(hnav, [nav, R.sub]);
+add(hnav, [R.sub]);
 head.append(hnav);
 wrap.append(head);
 if (readOnly) wrap.append(h('p', { cls: 'lbw-ro', text: LB.mobile ? '手机上只能看：Wiki 回电脑上改' : 'Link Brain Actions 插件没启用，Wiki 只能看' }));
@@ -822,13 +838,13 @@ add(wrap, [body, R.fab, R.layer]);
 
 // 三种宽度（design.md §8）：≥1040 宽；680–1040 开着原文格；<680 手机（目录收成「目录」按钮 + 底部抽屉）
 let lastW = 0;
-// 10-31 她：「Wiki 页一直在闪屏」——Dataview 每隔几秒重跑（库里有文件在变，比如 B 站同步在下），重跑那一下量到宽度 0，
+// 10-31 作者：「Wiki 页一直在闪屏」——Dataview 每隔几秒重跑（库里有文件在变，比如 B 站同步在下），重跑那一下量到宽度 0，
 // 以前当成「变宽了」：先切到宽屏布局再切回来，首页还整个重画（关系图从头动）。现在：量到 0 不算；档位切换留 24px 缓冲
 // （滚动条出 / 没让宽度在分界线上来回跳也不翻）；首页只在档位真变了才重画
 const BAND = (w, cur) => { const g = 24; const mid = cur.mid ? w < 1040 + g : w < 1040 - g; const narrow = cur.narrow ? w < 680 + g : w < 680 - g; return { mid, narrow }; };
 function paintWidth(w) {
   w = Number(w) || wrap.clientWidth || 0;
-  fitToc();
+  fitToc(); placeDock();
   if (w <= 0) return;
   const cur = { mid: wrap.classList.contains('is-mid'), narrow: wrap.classList.contains('is-narrow') };
   const b = lastW ? BAND(w, cur) : { mid: w < 1040, narrow: w < 680 };
@@ -850,7 +866,7 @@ function go(view, arg) {
   commitEditor(false); closePop(); flushSrc();
   const same = view === UI.view && (view === 'page' ? arg === UI.id : view === 'tag' ? arg === UI.tag : true);
   UI.view = view; UI.id = view === 'page' ? arg : null; UI.tag = view === 'tag' ? arg : null;
-  if (!same) { UI.src = false; UI.tagEdit = false; UI.mapOpen = false; if (UI.ai && UI.ai.id !== arg) UI.ai = null; }
+  if (!same) { UI.src = false; UI.tagEdit = false; UI.mapOpen = false; if (UI.ai && UI.ai.id !== arg) { UI.ai = null; renderDock(); } }
   saveUi(); setDrawer(false);
   if (UI.hist) { if (view === 'page') UI.hist = { id: arg, versions: null, sel: null, texts: {} }; else UI.hist = null; loadHistory(); }
   render();
@@ -1084,7 +1100,7 @@ function markText(s, q) {
   if (i < s.length) out.push(s.slice(i));
   return out;
 }
-// 文件夹展开：她手动开 / 关过的照她的（PREFS.open）；没动过的 = 只展开当前页所在的那个（10-31：以前全摊开，21 页就比一屏长）
+// 文件夹展开：用户手动开 / 关过的照用户的（PREFS.open）；没动过的 = 只展开当前页所在的那个（10-31：以前全摊开，21 页就比一屏长）
 const looseId = '__loose';
 function folderOpen(id) {
   if (PREFS.open && id in PREFS.open) return !!PREFS.open[id];
@@ -1177,6 +1193,18 @@ function spyHeads() {
   for (const el of R.center.querySelectorAll('[data-hline]')) { if (el.getBoundingClientRect().top <= top) here = el.dataset.hline; else break; }
   for (const r of R.tree.querySelectorAll('.lbw-thead')) r.classList.toggle('is-here', here != null && r.dataset.toc === here);
 }
+// 目录吸住（10-31 晚，作者：「目录往下拉，目录没有固定住」）：先靠 CSS sticky；用户的 Obsidian 里某层祖先让 sticky 失效时，
+// 量一下目录顶边是不是已经滚出阅读区，是的话用 translateY 把它拉回来（不超过正文那一栏的底）
+function pinToc() {
+  const t = R.toc; if (!t) return;
+  t.style.transform = '';
+  if (wrap.classList.contains('is-narrow') || PREFS.tocOff) return;
+  const sc = LB.scroller(); if (!sc) return;
+  const top = sc.getBoundingClientRect().top + 12, tr = t.getBoundingClientRect(), mr = main.getBoundingClientRect();
+  if (tr.top >= top - 1) return;
+  const shift = Math.min(top - tr.top, Math.max(0, mr.bottom - tr.bottom));
+  if (shift > 0) t.style.transform = `translateY(${Math.round(shift)}px)`;
+}
 // 目录的高度跟着 Obsidian 的阅读区，不跟着整个窗口（100vh 会把目录底部压到屏幕外）
 function fitToc() { const sc = LB.scroller(); if (sc && sc.clientHeight > 200) R.toc.style.maxHeight = (sc.clientHeight - 40) + 'px'; }
 function openFromFind(p) {
@@ -1265,14 +1293,14 @@ function moveInFolder(fid, pid, targetId, before, { quiet = false } = {}) {
   renderToc(); if (UI.view === 'page' && UI.id === fid && !ED) renderCenter();
 }
 
-// ═════════════ 关系图（10-29 她：照 Quartz 的 graph 组件——力导向、会动、可拖、可缩放、悬停高亮邻居；不用外部库） ═════════════
+// ═════════════ 关系图（10-29 作者：照 Quartz 的 graph 组件——力导向、会动、可拖、可缩放、悬停高亮邻居；不用外部库） ═════════════
 // 数据（连线规则和以前一样）：
 //   局部图（目录 MAP）：当前页 + 所在文件夹（圆心）+ 同文件夹的页（实线）+ 共享标签 / 同引一篇收藏的页（虚线）——深度 1；
 //   全局图（首页 MAP、「全局图」浮层）：所有文件夹 + 所有页；文件夹—页实线，引了同一篇收藏的两页虚线。
 // 模拟（forceSim）：自己写的小 d3-force，参数含义和 d3 一样：link（静止长度、强度 1/min(两端度数)）、many-body 斥力（两两精确算，
 //   300 个点每帧约 4.5 万对）、collide、center；alpha 冷却（alphaDecay = 1 − 0.001^(1/300)，velocityDecay 0.4），alpha < 0.001 停；
 //   拖动时 alphaTarget 0.3 重新加热。起点用 d3 的葵花籽排布、抖动用固定种子——同样的数据每次排出来一样。
-// 画（forceGraph）：SVG + requestAnimationFrame；平移 / 缩放是一层 <g> 的变换。开始时自动适配（字也算进边框，不切字），她动过视图就不再自动适配。
+// 画（forceGraph）：SVG + requestAnimationFrame；平移 / 缩放是一层 <g> 的变换。开始时自动适配（字也算进边框，不切字），用户动过视图就不再自动适配。
 // 交互（同 Quartz）：拖点（跟着指针走，松手放开）、滚轮 / 双指缩放（以指针为中心）、拖空白平移、悬停高亮自己和邻居（其余淡到 0.2）、点一下打开；
 //   字：悬停的点和邻居、当前页、文件夹名（局部图里还有虚线另一头）一直显示，别的随缩放淡入（Quartz：(k × opacityScale − 1) / 3.75）。
 // 生命周期：重画 / 卸载时 destroy（停 rAF、断开观察器）；看不见（MAP 收起就不建、滚出视口、整页被摘下）就暂停，回来再接着动；
@@ -1756,7 +1784,6 @@ function docNodes(p, placeholder) {
   const docEl = h('div', { cls: 'lbw-doc' });
   const A = UI.ai && UI.ai.id === p.id ? UI.ai : null;
   if (A && A.scope === 'part') { const at = relocate(A, p); if (at) Object.assign(A, at); }   // 别处加删了行：跟着挪
-  const lastIn = A && A.scope === 'part' ? blocks.reduce((k, b, j) => (b.s < A.end && b.e > A.start ? j : k), -1) : -1;
   blocks.forEach((b, i) => {
     const blk = add(h('div', { cls: 'lbw-blk' + (b.type === 'li' ? ' is-li' : '') + (aiLocked(p, b) ? (A && A.scope === 'page' ? ' is-ai-lock is-page' : ' is-ai-lock') : ''), data: { i } }), renderBlock(b, lines, p));
     if (!readOnly) {
@@ -1765,7 +1792,6 @@ function docNodes(p, placeholder) {
       blk.append(btn({ cls: 'lbw-ins', text: '+', on: { click: e => { e.stopPropagation(); openEditor(-1, 0, true, { kind: 'p', pre: '', at: b.e }); } } }, sr('在这段后面插一段')));
     }
     docEl.append(blk);
-    if (i === lastIn) docEl.append(aiPanel(A));
   });
   R.doc = docEl;
   if (readOnly) return [docEl, blocks.length ? null : h('p', { cls: 'lbw-rnone', text: '这一页还是空的' })];
@@ -1916,6 +1942,7 @@ function openEditor(i, caret = null, isNew = false, ins = null) {
   } else {
     const b = blocks[i]; if (!b) return;
     s = b.s; e = b.e; src = lines.slice(s, e).join('\n'); holder = R.doc.querySelector(`.lbw-blk[data-i="${i}"]`); if (!holder) return;
+    UI.lastLine = { page: p.id, line: s };   // 页头「AI」默认改这一节
     shape = shapeOf(b.type, lines[s]);
     if (shape.kind === 'h') { const k = (p._heads || []).findIndex(x => x.line === s); if (k >= 0) shape.hn = String(k + 1); }
   }
@@ -1927,7 +1954,7 @@ function openEditor(i, caret = null, isNew = false, ins = null) {
   ta.placeholder = isNew && !p.body.trim() ? (p.role === 'topic' ? '一句话说说这个文件夹放什么' : '写下第一句：为什么关注这件事？') : '';
   const lv = (t, v) => btn({ text: t, data: { lv: v } });
   const bar = h('div', { cls: 'lbw-edbar' }, lv('正文', 0), lv('H1', 1), lv('H2', 2), lv('H3', 3), h('span', { cls: 'lbw-sep' }), lv('列表', 'ul'), lv('待办', 'task'),
-    h('span', { cls: 'lbw-sep' }), btn({ cls: 'is-ai', text: 'AI 改', data: { ai: '1' }, on: { click: () => aiFromEditor() } }));
+  );
   bar.addEventListener('mousedown', ev => ev.preventDefault());
   for (const x of bar.querySelectorAll('[data-lv]')) x.addEventListener('click', () => setLevel(ta, x.dataset.lv));
   E.bar = bar;
@@ -2154,12 +2181,12 @@ function openCite(id) {
 //  ② 队列里有东西（busyPage）时这页只读：块编辑框不开（点了等队列空了再开；期间页面被换过就不开），整页 Markdown 框只读，
 //     标题 / 标签 / 待办 / 拖动都不收。所以带内容的保存只在页面空闲时入队（mutate 是唯一入口），队列里最多一项，
 //     不会有「排在别的操作后面、轮到时拿新 hash 盖掉别处版本 / 恢复内容」的保存。
-//  ③ 要写的内容在入队那一刻定下（她到此为止打的字：mutate 把开着的编辑框 / 整页 Markdown 框的字一并收进来）；
+//  ③ 要写的内容在入队那一刻定下（用户到此为止打的字：mutate 把开着的编辑框 / 整页 Markdown 框的字一并收进来）；
 //     之后不再从界面上补收。恢复 / 存版本 / 删除不带内容，参数（hash）在轮到时取。
 //  ④ 重画只画不存。存只发生在明确的提交点：Esc / 失焦 / 换页 / 整页 Markdown 的自动保存（框活着、没冻住时）。
 //     重画时万一还有没提交的字（不该发生），收进草稿，不存也不丢。
 //  ⑤ 保存失败：这一项的内容进草稿（新的顶掉旧的）；CONFLICT 换成磁盘上的版本，其它回到上次存上的样子；队列空了照常能改。
-//  ⑥ 覆盖 = 一份正文（编辑框里有她新打的字就用它，否则用草稿）入队一次保存；只有这一次存上才删草稿。
+//  ⑥ 覆盖 = 一份正文（编辑框里有用户新打的字就用它，否则用草稿）入队一次保存；只有这一次存上才删草稿。
 async function wcall(op, opts = {}) {
   const p = provider();
   if (LB.mobile || !p || typeof p.wikiCall !== 'function') throw Object.assign(new Error(LB.mobile ? LB.MOBILE_ONLY_TEXT : '插件没启用，Wiki 只能看'), { code: 'NO_PLUGIN' });
@@ -2182,7 +2209,7 @@ function enqueue(p, task, { hard = false } = {}) {
   return job;
 }
 // 队列空了：解冻（整页 Markdown 框内容没被换就原地解冻）；正文被换过（恢复 / 冲突 / 失败回滚：_repaint）才重画——
-// 普通保存不重画（她可能正在标题 / 标签框里打字）；只画不存；期间磁盘变过就补一次重读
+// 普通保存不重画（用户可能正在标题 / 标签框里打字）；只画不存；期间磁盘变过就补一次重读
 function settled(p) {
   paintLock(p); paintSaved(p);
   if (current() === p && !ED) {
@@ -2201,7 +2228,7 @@ function paintLock(p) {
   if (lock && R.srcEd && !R.srcEd._lbDead) R.srcEd.readOnly = true;
   for (const cb of R.center.querySelectorAll('.lbw-task input')) cb.disabled = lock;
 }
-// ② ③ 带内容的改动的唯一入口：change(next) 在「这一页现在的样子 + 她编辑框里还没提交的字」上改；
+// ② ③ 带内容的改动的唯一入口：change(next) 在「这一页现在的样子 + 用户编辑框里还没提交的字」上改；
 // 页面没在「整页换掉」就照改、排一次保存（10-31 起普通保存不锁页）；在换的话进草稿（不丢）。每次改之前的样子记进撤销栈（Ctrl+Z）
 const UNDO = new Map();
 function pushUndo(p) { const st = UNDO.get(p.id) || []; st.push({ title: p.title, tags: [...p.tags], body: p.body, ...(p.role === 'topic' ? { order: [...(p.order || [])] } : {}) }); if (st.length > 60) st.shift(); UNDO.set(p.id, st); }
@@ -2268,7 +2295,7 @@ async function reloadPage(p) {
 async function saveFailed(p, want, e) {
   const code = (e && e.code) || '';
   const saved = p._saved || savedOf(p);
-  // 草稿要的是她现在手上的全部（这次要存的 + 之后又改的 + 编辑框里还没收的字）；编辑框关掉（正文要换了，行号对不上）
+  // 草稿要的是用户现在手上的全部（这次要存的 + 之后又改的 + 编辑框里还没收的字）；编辑框关掉（正文要换了，行号对不上）
   const box = liveSrc(p);
   const latest = { ...stateOf(p), body: box && !box.readOnly ? box.value : intendedBody(p) };
   if (ED && ED.p === p) closeEditor();
@@ -2312,7 +2339,7 @@ function overwrite(id) {
   saveNow(p, { note: d.conflict ? '用没保存上的改动覆盖' : '', fromDraft: d });
   if (current() === p) renderKeepScroll();
 }
-// 恢复 / 存版本 / 删除之前：她手上的字先作为一次普通保存入队（③）
+// 恢复 / 存版本 / 删除之前：用户手上的字先作为一次普通保存入队（③）
 function commitHere(p) { if (ED && ED.p === p) commitEditor(true); else flushSrc(); }
 function draftBar(p) {
   const d = DRAFTS[p.id];
@@ -2384,12 +2411,11 @@ function lineDiff(a, b) {
   return out;
 }
 function renderSide() {
-  const H = UI.hist, side = R.side, A = UI.ai && UI.ai.scope === 'page' ? UI.ai : null, T = UI.trash;
-  const on = !!(H || A || T);
+  const H = UI.hist, side = R.side, T = UI.trash;
+  const on = !!(H || T);
   wrap.classList.toggle('has-side', on);
   if (R.histBtn) R.histBtn.classList.toggle('is-on', !!H);
   side.hidden = !on; side.textContent = '';
-  if (A) { renderAiSide(side); return; }
   if (T) { renderTrashSide(side); return; }
   if (!H) return;
   const p = PAGES.get(H.id);
@@ -2429,7 +2455,7 @@ function renderSide() {
   }
   side.append(h('p', { cls: 'lbw-note', attr: { style: 'margin-top:22px' }, text: '连着打字每 2 分钟合成一次自动快照；「保存版本」单独记一条。历史存在 PersonalWiki/.history 里。' }));
 }
-// 恢复 / 存版本：队列里的一项（①），不带内容，hash 在轮到时取；她手上的字先作为一次普通保存入队（③）
+// 恢复 / 存版本：队列里的一项（①），不带内容，hash 在轮到时取；用户手上的字先作为一次普通保存入队（③）
 function restoreVersion(p, ver, b) {
   if (readOnly) return null;
   commitHere(p);
@@ -2461,7 +2487,7 @@ function saveVersion(p, note) {
   }).then(() => ok);
 }
 
-// ═════════════ 让 AI 改（10-31 晚重做，她：「ai 是对 wiki 整体改，不是单行。还有选中段落不方便」） ═════════════
+// ═════════════ 让 AI 改（10-31 晚重做，作者：「ai 是对 wiki 整体改，不是单行。还有选中段落不方便」） ═════════════
 // 范围：编辑时点「AI 改」= 光标所在的那一节（上一个小标题到下一个同级小标题）；页面上拖选了字 = 选中的那几段（浮出「AI 改选中的」）；
 //   「…→让 AI 改整页」= 整页（右侧栏）。范围里的段在等 / 看的时候锁住不让改。
 // 结果：按字 / 词比（中文按字、英文按词，先按行对齐再细比），每一处改动单独勾选，「用选中的」一次拼好经 pwiki save（kind=ai）存——一步 Ctrl+Z 能撤；
@@ -2504,10 +2530,8 @@ function openAiPart(p, start, end, what) {
   if (readOnly || !p) return;
   const text = p.body.split('\n').slice(start, end).join('\n');
   if (!text.trim()) { LB.say('这一截是空的，先写一点再让 AI 改'); return; }
-  if (UI.ai && UI.ai.scope === 'page') UI.ai = null;
   UI.ai = { scope: 'part', id: p.id, start, end, text, what, state: 'ask', ask: '' };
-  renderSide(); renderKeepScroll();
-  const inp = R.center.querySelector('.lbw-ai input'); if (inp) inp.focus();
+  showAi();
 }
 // 编辑时工具条上的「AI 改」：先收好正在改的这段，再取它所在的那一节
 function aiFromEditor() {
@@ -2541,12 +2565,13 @@ function showSelAi() {
 function openAiPage(p, preset = '') {
   if (readOnly || !p) return;
   commitHere(p);
-  UI.hist = null; UI.trash = null;
   UI.ai = { scope: 'page', id: p.id, text: p.body, what: '整页', state: 'ask', ask: '' };
-  renderSide(); renderKeepScroll();
+  showAi();
   if (preset) runAi(UI.ai, preset, '');
 }
-function closeAi() { UI.ai = null; renderSide(); renderKeepScroll(); }
+function closeAi() { UI.ai = null; renderKeepScroll(); renderDock(); }
+// 开 / 换范围：正文重画（锁住的段加框），底部对话框画出来，光标进输入框
+function showAi() { hideSelAi(); renderKeepScroll(); renderDock(); const f = R.dock && R.dock.querySelector('textarea, input'); if (f) f.focus(); }
 async function runAi(A, preset, ask) {
   if (A !== UI.ai) return;
   const p = PAGES.get(A.id); if (!p) { closeAi(); return; }
@@ -2566,7 +2591,7 @@ async function runAi(A, preset, ask) {
   } catch (e) { if (A !== UI.ai) return; Object.assign(A, { state: 'error', error: errText(e) }); }
   paintAi(A);
 }
-const paintAi = A => { if (A.scope === 'page') renderSide(); else if (!ED) renderKeepScroll(); };
+const paintAi = A => { if (A === UI.ai) renderDock(); };
 // ── 按字 / 词比 ──
 // 切词：英文 / 数字按词，空白一段，其余（中文、标点）一个字一个
 const toks = s => String(s).match(/[A-Za-z0-9_]+(?:['’.-][A-Za-z0-9_]+)*|[^\S\n]+|\n|[\s\S]/gu) || [];
@@ -2622,7 +2647,7 @@ function applyAi(A) {
   const n = A.pick.size, all = A.segs.filter(x => x.t === 'ch').length;
   const ok = A.scope === 'page' ? mutate(p, x => { x.body = next; }, { kind: 'ai', note: `AI：${A.label}（用了 ${n}/${all} 处）` })
     : mutate(p, x => { x.body = spliceBody(x.body, at.start, at.end, next).body; }, { kind: 'ai', note: `AI：${A.label}（用了 ${n}/${all} 处）` });
-  if (ok) { UI.ai = null; renderSide(); renderKeepScroll(); LB.say(`用了 AI 改的 ${n} 处；不满意按 Ctrl+Z 撤销`, { kind: 'ok' }); }
+  if (ok) { UI.ai = null; renderKeepScroll(); renderDock(); LB.say(`用了 AI 改的 ${n} 处；不满意按 Ctrl+Z 撤销`, { kind: 'ok' }); }
 }
 // 逐处勾选的那块：没改的字照常显示，改动处 = 划掉的原文 + 新字，点一下切换「要 / 不要」
 function diffView(A) {
@@ -2672,28 +2697,68 @@ function aiBody(A) {
   }
   return out;
 }
-function aiPanel(A) {
-  const el = h('div', { cls: 'lbw-ai', data: { scope: 'part' } }, h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-bottom:8px' } }, h('span', { cls: 'lbw-kick', text: 'AI' }), h('span', { cls: 'lbw-ai-note', attr: { style: 'margin:0' }, text: '改' + A.what + '（上面虚线框里的）' })), aiBody(A));
-  el.addEventListener('click', e => e.stopPropagation());
-  return el;
+// ── 底部对话框（10-31 晚，作者：「ai 整理应该有一个比较舒服的对话框出现在底下」「和问收藏对齐，都是方型的框」）──
+// 页头「AI」打开：有选中的字 → 改选中的那几段；正在改某段 / 刚点过某段 → 那一节；都没有 → 整页（空页 → 按思路搭框架）。
+// 顶上一排切换范围（改这一节 / 改整页 / 按我的思路搭框架）。对话框 position:fixed 浮在正文那一栏底部，滚动 / 变宽时按阅读区重新摆
+// （placeFixed 会抵掉 Obsidian 祖先 contain / transform 造成的偏移）
+function openAiFromHead() {
+  const p = current();
+  if (!p || readOnly) { LB.say('先打开一页，再让 AI 整理'); return; }
+  if (UI.ai) { closeAi(); return; }
+  const sel = selectedRange();
+  if (sel) { openAiPart(sel.p, sel.start, sel.end, sel.what); return; }
+  if (ED && ED.p === p) { aiFromEditor(); return; }
+  const at = UI.lastLine && UI.lastLine.page === p.id ? UI.lastLine.line : null;
+  if (at != null && p.body.trim()) { const r = sectionRange(p, at); openAiPart(p, r.start, r.end, r.what); return; }
+  if (p.body.trim()) openAiPage(p); else openAiPlan(p);
 }
-function renderAiSide(side) {
-  const A = UI.ai, p = PAGES.get(A.id);
-  side.append(h('div', { cls: 'lbw-rbar' }, btn({ text: '← 收起', on: { click: closeAi } }), h('span', { cls: 'is-on', text: A.mode === 'plan' ? '按我的思路搭框架' : '让 AI 改整页' }), h('span', { text: p ? p.title : '' })));
-  if (!p) { side.append(h('p', { cls: 'lbw-note', text: '这一页找不到了。' })); return; }
-  side.append(h('div', { cls: 'lbw-ai', data: { scope: 'page', mode: A.mode || 'edit' } }, A.mode === 'plan' ? planBody(A) : aiBody(A)));
+function switchScope(k) {
+  const A = UI.ai, p = A && PAGES.get(A.id); if (!p) return;
+  if (A.state === 'run' || A.state === 'planning' || A.state === 'filling') { LB.say('AI 还在改：等它回来，或者先点「不等了」'); return; }
+  if (k === 'page') openAiPage(p);
+  else if (k === 'plan') openAiPlan(p);
+  else if (k === 'sec') {
+    if (!p.body.trim()) { LB.say('这页还是空的：用「按我的思路搭框架」'); return; }
+    const line = UI.lastLine && UI.lastLine.page === p.id ? UI.lastLine.line : (A.scope === 'part' ? A.start : 0);
+    const r = sectionRange(p, line); openAiPart(p, r.start, r.end, r.what);
+  }
 }
-// ═════════════ 按我的思路搭框架（10-31 第二块，她：「我给一段文字，但我有我的思路，ai 根据我的思路，把资料、wiki 框架配齐」） ═════════════
-// 右侧栏：写思路 → AI 出计划（每节标题 + 去收藏里搜什么）→ 她改 / 删 / 加节 → 「按这个去收藏里找」：每节用问收藏同一套检索，
-// 模型只许引候选编号、每条带一句原帖原话（后端核对，对不上的标出来）；她写的字不动，只往节下补，相反的说法单独一小节 →
+function renderDock() {
+  const A = UI.ai, p = A && PAGES.get(A.id);
+  if (!A || !p || UI.view !== 'page' || UI.id !== A.id) { if (R.dock) { R.dock.remove(); R.dock = null; } if (R.aiBtn) R.aiBtn.classList.remove('is-on'); return; }
+  const keep = R.dock && R.dock.querySelector('.lbw-dock-body'), top = keep ? keep.scrollTop : 0;
+  const d = h('div', { cls: 'lbw-dock', data: { scope: A.scope, mode: A.mode || 'edit' } });
+  const tab = (k, text, on) => btn({ cls: on ? 'is-on' : '', text, data: { scope: k }, on: { click: () => switchScope(k) } });
+  d.append(h('div', { cls: 'lbw-dock-head' }, h('span', { cls: 'lbw-kick', text: 'AI' }),
+    A.scope === 'part' ? tab('sec', '改' + A.what, true) : tab('sec', '改这一节', false),
+    tab('page', '改整页', A.scope === 'page' && A.mode !== 'plan'), tab('plan', '按我的思路搭框架', A.mode === 'plan'),
+    h('span', { cls: 'lbw-sp' }), btn({ cls: 'lbw-dock-x', text: '收起', data: { dock: 'close' }, on: { click: closeAi } })));
+  const bodyEl = h('div', { cls: 'lbw-dock-body' }, h('div', { cls: 'lbw-ai', data: { scope: A.scope, mode: A.mode || 'edit' } }, A.mode === 'plan' ? planBody(A) : aiBody(A)));
+  d.append(bodyEl);
+  d.addEventListener('click', e => e.stopPropagation());
+  if (R.dock) R.dock.replaceWith(d); else wrap.append(d);
+  R.dock = d;
+  if (R.aiBtn) R.aiBtn.classList.add('is-on');
+  bodyEl.scrollTop = top;
+  placeDock();
+}
+function placeDock() {
+  const d = R.dock; if (!d) return;
+  const sc = LB.scroller(), col = R.center.getBoundingClientRect();
+  const vb = sc ? sc.getBoundingClientRect() : { top: 0, bottom: (WIN && WIN.innerHeight) || 800 };
+  const w = Math.max(320, Math.min(780, col.width || 680));
+  d.style.width = w + 'px';
+  placeFixed(d, Math.max(8, (col.left || 0) + ((col.width || w) - w) / 2), Math.max((vb.top || 0) + 8, (vb.bottom || 800) - (d.offsetHeight || 220) - 14));
+}
+// ═════════════ 按我的思路搭框架（10-31 第二块，作者：「我给一段文字，但我有我的思路，ai 根据我的思路，把资料、wiki 框架配齐」） ═════════════
+// 右侧栏：写思路 → AI 出计划（每节标题 + 去收藏里搜什么）→ 用户改 / 删 / 加节 → 「按这个去收藏里找」：每节用问收藏同一套检索，
+// 模型只许引候选编号、每条带一句原帖原话（后端核对，对不上的标出来）；用户写的字不动，只往节下补，相反的说法单独一小节 →
 // 结果照第一块逐处勾选再存（kind=ai）。后端在 link_brain/wiki_plan.py（pwiki plan / fill）。
 function openAiPlan(p) {
   if (readOnly || !p) return;
   commitHere(p);
-  UI.hist = null; UI.trash = null;
   UI.ai = { scope: 'page', mode: 'plan', id: p.id, text: p.body, what: '整页', label: '按思路搭框架', state: 'idea', idea: '', sections: [] };
-  renderSide(); renderKeepScroll();
-  const ta = R.side.querySelector('.lbw-ai textarea'); if (ta) ta.focus();
+  showAi();
 }
 async function runPlan(A) {
   if (A !== UI.ai) return;
@@ -2731,7 +2796,7 @@ function planBody(A) {
     ta.value = A.idea || '';
     ta.addEventListener('input', () => { A.idea = ta.value; });
     out.push(ta, h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:8px' } }, btn({ cls: 'is-solid', text: '出计划', data: { plan: 'make' }, on: { click: () => runPlan(A) } }), btn({ text: '关', on: { click: closeAi } })));
-    out.push(A.error ? note(A.error, true) : note('她写过的字一个不动，AI 只往各节下面补；每条都带收藏出处和原帖原话。'));
+    out.push(A.error ? note(A.error, true) : note('你写过的字一个不动，AI 只往各节下面补；每条都带收藏出处和原帖原话。'));
   } else if (A.state === 'planning') {
     out.push(note('AI 在按你的思路拆节… 一般十几秒'), h('div', { cls: 'lbw-ai-row' }, btn({ text: '不等了', on: { click: closeAi } })));
   } else if (A.state === 'plan') {
@@ -2895,7 +2960,7 @@ function showMoreMenu(evt, anchor) {
   POP.el = el; POP.ta = null;
 }
 
-// ═════════════ 全局按键（只给她正在看的这一页）：Ctrl+F 搜标题；Esc 依次关 弹层 → 搜索 → 抽屉 → 历史 ═════════════
+// ═════════════ 全局按键（只给用户正在看的这一页）：Ctrl+F 搜标题；Esc 依次关 弹层 → 搜索 → 抽屉 → 历史 ═════════════
 // 挂在 window 的捕获阶段（同目录页 onFindKey）：先于 Obsidian 自带的查找拿到 Ctrl+F；没有 window.addEventListener（单测）退回 document
 const keyTarget = WIN && typeof WIN.addEventListener === 'function' ? WIN : D;
 LB.listen('keys', keyTarget, 'keydown', e => {
@@ -2948,7 +3013,7 @@ R.center.addEventListener('mouseup', () => setTimeout(showSelAi, 0));
 R.center.addEventListener('keyup', e => { if (e.shiftKey) showSelAi(); });
 LB.listen('wiki-selai', D, 'mousedown', e => { if (R.selAi && e.target !== R.selAi) hideSelAi(); });
 // 目录跟着读到哪（滚动时每帧最多算一次）
-{ const sc = LB.scroller(); let spyQ = 0; if (sc) LB.listen('wiki-spy', sc, 'scroll', () => { if (spyQ) return; spyQ = 1; (WIN && WIN.requestAnimationFrame ? WIN.requestAnimationFrame : f => setTimeout(f, 16))(() => { spyQ = 0; spyHeads(); }); }, { passive: true }); }
+{ const sc = LB.scroller(); let spyQ = 0; if (sc) LB.listen('wiki-spy', sc, 'scroll', () => { if (spyQ) return; spyQ = 1; (WIN && WIN.requestAnimationFrame ? WIN.requestAnimationFrame : f => setTimeout(f, 16))(() => { spyQ = 0; spyHeads(); pinToc(); placeDock(); }); }, { passive: true }); }
 // 登记这一版 DOM（§5.1 / §5.9）：catalog-data 变了只换收藏（引用编号 / 缺失标记）；Dataview 重跑时按磁盘签名看 PersonalWiki 有没有变
 LB.keep(wrap, { version: await LB.data.version(), update: async () => { await loadItems(); if (!ED && !(UI.src && R.srcEd && D.activeElement === R.srcEd)) { const sc = LB.scroller(), top = sc ? sc.scrollTop : 0; renderCenter(); if (sc) sc.scrollTop = top; } },
   onReuse: () => { paintWidth(); for (const g of GRAPHS) g.resume(); refresh().catch(e => console.debug('[lb] wiki refresh', e)); } });

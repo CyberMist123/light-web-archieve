@@ -14,8 +14,8 @@ const { tick, item, openCatalog, ev } = require('./_fake_l1.cjs');
   assert.equal(P.card('b').querySelector('.lbc-star').hidden, true, '没收藏的不显示');
   assert.equal(P.$('.lbc-mobile-note').textContent, '手机上只能看：导入、同步、问 AI、收藏要在电脑上用');
   // 跳页：按 frontmatter 找到问收藏页，openLinkText（1021：「浏览收藏 / 问收藏」导航换成搜索框右边的「问收藏 →」胶囊）
-  assert.equal(P.$('.lb-page-nav'), null, '1021：不再有「浏览收藏」导航');
-  P.$('.lbc-askbtn').onclick(); await tick(5);
+  assert.ok(P.$('.lbc-head .lb-page-nav'), '1031 她「和问收藏对齐」：标题后面三页切换');
+  P.$('.lbc-pnav-chat').onclick(); await tick(5);
   assert.equal(P.app.workspace.opened.at(-1)[0], '收藏搜索.md');
   // 「更新」：读 sync-log.jsonl 最后 5 行，浮层；点外面关
   await P.$('.lbc-updated').onclick(ev()); await tick(5);

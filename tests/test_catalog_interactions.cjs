@@ -108,7 +108,7 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
     //   「编排 / 管理」在最前，多选栏照旧是最后一个子节点
     assert.deepEqual(page.root.querySelector('.lbc-top').children.map(c=>c.className),['lbc-tools','lbc-row is-free','lbc-row is-single','lbc-row is-free','lbc-selbar'],'C1：多选栏在吸顶区里（最后一个子节点）');
     assert.deepEqual(page.root.querySelectorAll('.lbc-top .lbc-row').map(r=>r.querySelectorAll('.lbc-m').map(m=>m.dataset.m)),
-      [['title','meta'],['cats'],['scope','topics','types','albums','picks','sort','search','ask']]);   // 1031：「视图」去掉了
+      [['title','meta'],['cats'],['scope','topics','types','albums','picks','sort','search']]);   // 1031：「视图」「问收藏」去掉了
     const blk=id=>page.root.querySelector('.lbc-blk-'+id).children.filter(c=>!c.classList.contains('lbc-mod-bar')).map(c=>c.className);
     assert.deepEqual([blk('title'),blk('cats'),blk('types')],[['lbc-head'],['lbc-cats'],['lbc-scope lbc-scope-types']],'1021 分类行 / 控制行分开');
     assert.equal(page.cards().length,3);

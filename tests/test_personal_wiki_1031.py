@@ -119,7 +119,7 @@ def test_ai_block_prompt_has_rules_task_context_and_returns_suggestion_only(fake
     assert res["model"] == "demo-model" and res["lost_cites"] == []
     ins = fake_ai["instruction"]
     assert "<replacement>" in ins and "[标题](lwa:编号)" in ins   # 规矩：外框协议、引用不能丢
-    assert "润色" in ins and "语气轻一点" in ins                              # 现成说法 + 她自己说的
+    assert "润色" in ins and "语气轻一点" in ins                              # 现成说法 + 用户自己说的
     assert "《住宿偏好》" in ins and "整页" in ins                           # 上下文
     assert "为什么记：每次都从头翻。" in fake_ai["text"]
     assert fake_ai["cfg"]["noThinking"] is True and fake_ai["kw"].get("feature") == "other"

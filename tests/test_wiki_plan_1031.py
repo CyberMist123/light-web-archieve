@@ -1,5 +1,5 @@
 """个人 Wiki「按我的思路搭框架」（10-31 第二块，link_brain/wiki_plan.py）：出计划、按节检索（问收藏同一套 retrieve_payload）、
-只许引候选编号（程序换回 [标题](lwa:id)、删掉不存在的）、原话核对（不是原帖逐字子串的标出来）、她写的字不动只往节下补、相反的说法单列。
+只许引候选编号（程序换回 [标题](lwa:id)、删掉不存在的）、原话核对（不是原帖逐字子串的标出来）、用户写的字不动只往节下补、相反的说法单列。
 
 conftest 已把 vault 指到 tmp；检索和模型一律 monkeypatch，不联网。合成内容。
 """
@@ -54,7 +54,7 @@ def test_plan_returns_sections_from_her_idea(fake):
 
 
 def test_fill_cites_only_numbers_checks_quotes_keeps_her_words_and_lists_opposites(fake):
-    body = "我自己的看法：要分层。\n\n## 分层\n她写的一句，不能动。\n\n## 结尾\n她的结尾。"
+    body = "我自己的看法：要分层。\n\n## 分层\n用户写的一句，不能动。\n\n## 结尾\n用户的结尾。"
     p = pw.create_page("记忆", body=body)["page"]
     fake["reply"] = {"sections": [
         {"title": "分层", "points": [
@@ -69,8 +69,8 @@ def test_fill_cites_only_numbers_checks_quotes_keeps_her_words_and_lists_opposit
     assert "[S1]《分层记忆分享》" in text and "[S3]《召回门槛笔记》" in text   # 全页一套编号，同一篇只编一次
     assert text.count("[S1]") == 2
     new = res["text"]
-    assert new.startswith("我自己的看法：要分层。\n\n## 分层\n她写的一句，不能动。\n")   # 她的字不动
-    assert "## 结尾\n她的结尾。" in new
+    assert new.startswith("我自己的看法：要分层。\n\n## 分层\n用户写的一句，不能动。\n")   # 用户的字不动
+    assert "## 结尾\n用户的结尾。" in new
     assert "- 短期直接塞 20 轮。 [分层记忆分享](lwa:xhs-a1)\n  > 「短期记忆很简单直接塞20轮全量」\n" in new
     assert "编了一条不存在的" not in new and res["dropped"] == 1           # 不存在的编号整条删
     assert "原帖里没找到这句" in new and res["bad_quotes"][0]["quote"] == "这句原帖里没有"

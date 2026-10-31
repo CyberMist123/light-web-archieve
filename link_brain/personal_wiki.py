@@ -1,4 +1,4 @@
-"""个人 Wiki（10-29 第一批后端）：她自己写的知识页，和「问收藏」平级的独立页面背后的存储。
+"""个人 Wiki（10-29 第一批后端）：用户自己写的知识页，和「问收藏」平级的独立页面背后的存储。
 
 设计见 design-1028-wiki（不进仓）：页面长相以 prototype.design.html 为准、交互以 prototype.html 为准；这里只管数据。
 
@@ -6,7 +6,7 @@
   `id` 稳定，改名只换文件名；Obsidian 里直接打开 / 改也照样是普通 Markdown。
 - 文件夹（大类）= 一页 `role: topic` + 一个标签（`index_tag`）；页面带几个文件夹标签就出现在几个文件夹里，只维护一份。
   `order` 记在文件夹页上：目录里拖出来的顺序。
-- 收藏引用只存 `[标题](lwa:<item_id>)`；`[[页面]]` 照认，但界面不提示（她不用双链）。
+- 收藏引用只存 `[标题](lwa:<item_id>)`；`[[页面]]` 照认，但界面不提示（用户不用双链）。
 - 历史：每次保存在 `PersonalWiki/.history/<id>/` 留一份整页快照 + `log.json` 一条记录。连着打字 2 分钟内合成一次自动快照；
   手动「保存版本」、恢复、新建、外部编辑各自单独一条。**不用 Git**：发布标准 P8「不需要 Git」。
   Obsidian 里直接改过的（文件和最后一版快照对不上）在下次保存 / 建索引时记一条「外部编辑」，不猜是谁改的。
@@ -484,7 +484,7 @@ def build_index(vault: Path | None = None, *, record_external: bool = True) -> d
         if record_external:
             for e in entries.values():
                 if e["page"].get("adopted") is False:
-                    continue   # 没有 id 的页先不建历史：等她第一次在 Wiki 里保存、写上 id
+                    continue   # 没有 id 的页先不建历史：等用户第一次在 Wiki 里保存、写上 id
                 try:
                     _catch_external(root, e)
                 except OSError as exc:   # 索引照建，但没记上的历史要如实报出去（CONVENTIONS §1）

@@ -53,7 +53,7 @@ const center = r => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
       await page.evaluate(() => document.fonts.ready); await S.settle(80);
       // ① 胶囊位置；平时没有操作条 / 托盘；默认比例
       const pos = await page.evaluate(() => { const a = document.querySelector('.lbc-tools .lb-arrange').getBoundingClientRect(), m = document.querySelector('.lbc-tools .lb-manage').getBoundingClientRect(); return { a: a.right, m: m.left, h: a.height, bars: document.querySelectorAll('.lbc-mod-bar').length, tray: getComputedStyle(document.querySelector('.lbc-arrange-tray')).display }; });
-      assert.ok(pos.a <= pos.m, `${theme}：编排在管理左边 ${JSON.stringify(pos)}`); assert.equal(Math.round(pos.h), 34);
+      assert.ok(pos.a <= pos.m, `${theme}：编排在管理左边 ${JSON.stringify(pos)}`); assert.equal(Math.round(pos.h), 40);   // 1031：和问收藏 / Wiki 一样的 40px 方框按钮
       assert.equal(pos.bars, 0, '平时不建操作条'); assert.equal(pos.tray, 'none');
       const side0 = await R(page, '.lbc-side'), wall0 = await R(page, '.lbc-board-main');
       const ratio = side0.width / (side0.width + wall0.width);
@@ -66,7 +66,7 @@ const center = r => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
         trayAbove: document.querySelector('.lbc-arrange-tray').getBoundingClientRect().bottom <= document.querySelector('.lbc-board').getBoundingClientRect().top + 1,
         edges: [...document.querySelectorAll('.lbc-board > .lbc-col-edge')].filter(e => getComputedStyle(e).display === 'block').length,
         labPE: getComputedStyle(document.querySelector('.lbc-mod .lbc-lab')).pointerEvents }));
-      assert.ok(on.cls); assert.equal(on.bars, 16, '十六块都有工具条（1028 加了专辑，1031 去掉视图）'); assert.equal(on.shown, 0, '平时收着');
+      assert.ok(on.cls); assert.equal(on.bars, 15, '十五块都有工具条（1028 加了专辑，1031 去掉视图、问收藏）'); assert.equal(on.shown, 0, '平时收着');
       assert.equal(on.tray, 'flex'); assert.ok(on.trayAbove, '托盘在墙上面'); assert.equal(on.edges, 1, '边栏和墙之间一道边'); assert.equal(on.labPE, 'none', '编排时模块本身点不动');
       shots.push(await S.screenshot(`catalog-arrange-1027-${theme}-1400`));
       if (theme === 'dark') { assert.deepEqual(await S.pageErrors(), []); await page.close(); continue; }

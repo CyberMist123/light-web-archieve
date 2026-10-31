@@ -50,7 +50,7 @@ width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;disp
 .lbc-top{position:sticky;top:0;background:var(--background-primary);z-index:2;display:flow-root;}
 /* 页头：雕刻斜体大标题居中，篇数 / 更新时间在标题右侧、和标题底部对齐；「管理」细线胶囊钉在右上角 */
 .lbc-head{position:relative;display:block;margin:0;padding:4px 0 0;container-type:inline-size;}
-.lbc-titleblock{display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-end;gap:4px 22px;padding:0 var(--lbc-tools-w,176px);min-width:0;--lbc-title-pad:calc(2 * var(--lbc-tools-w,176px));}
+.lbc-titleblock{display:flex;flex-wrap:wrap;justify-content:flex-start;align-items:center;gap:8px 28px;padding:0 var(--lbc-tools-w,176px) 0 0;min-width:0;--lbc-title-pad:var(--lbc-tools-w,176px);}
 /* 右边让出「编排 / 管理」的实际宽度（JS 量好写进 --lbc-tools-w）；不够宽时左边不再对称预留，篇数 / 更新时间仍能排在标题右侧 */
 @container(max-width:1320px){.lbc-titleblock{padding-left:0;--lbc-title-pad:var(--lbc-tools-w,176px);}}
 /* 1026 窄（页头不到 760）：「编排 / 管理」退到标题上面一行，标题整行可用 */
@@ -59,17 +59,21 @@ width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;disp
 .lbc-top>.lbc-tools{position:absolute;top:0;right:0;}
 .lbc-top.is-tools-static>.lbc-tools{position:static;justify-content:flex-end;margin:0 0 8px;}
 .lbc-top.is-tools-static .lbc-titleblock{padding:0;--lbc-title-pad:0px;}
-.lbc-titlerow{display:flex;align-items:flex-end;justify-content:center;min-width:0;max-width:100%;}
+.lbc-titlerow{display:flex;align-items:flex-end;justify-content:flex-start;min-width:0;max-width:100%;padding-left:.1em;}
 ${LB.brandCss('.lbc-title', '.lbc-engr')}
 /* 1026 场景 02：标题照共用的雕刻样式，字号再按右侧「编排 / 管理」让出的宽度收（长标题、放大都不出页头） */
-.lbc-title{font-size:clamp(24px,min(calc(6.5cqi * var(--lbc-title-k,1)),calc((100cqi - var(--lbc-title-pad,0px) - var(--lbc-sub-w,0px) - 8px) / var(--lbc-title-em,8))),calc(96px * var(--lbc-title-k,1)));font-family:var(--f-display);}
-@container(max-width:760px){.lbc-title{--lbc-sub-w:0px;}}   /* 窄：计数行本来就在下面一行，不用给它让位 */
+/* 1031 她「应该和问收藏对齐（都是方型的框），目录页也是」：标题改成和问收藏 / Wiki 一样的小号刻线字（34px，窄了 30 / 26），靠左，后面紧跟三页切换 */
+.lbc-title{font-size:calc(34px * var(--lbc-title-k,1));line-height:1;font-family:var(--f-display);}
+@container(max-width:1000px){.lbc-title{font-size:calc(30px * var(--lbc-title-k,1));}}
+@container(max-width:640px){.lbc-title{font-size:calc(26px * var(--lbc-title-k,1));}}
+.lbc-head .lb-page-nav{background:transparent;padding:0;}
+.lbc-head .lb-page-nav button{font-size:15px;padding:9px 14px;}
 .lbc-wrap .lbc-title button.lbc-import{font:inherit!important;color:var(--c-ink)!important;width:auto!important;height:auto!important;padding:0!important;margin:0 0 0 .02em!important;border:0!important;background:transparent!important;box-shadow:none!important;border-radius:0!important;display:inline-block!important;vertical-align:baseline;line-height:inherit!important;cursor:pointer;transition:transform .45s cubic-bezier(.2,.8,.2,1);}
 .lbc-wrap .lbc-title button.lbc-import:hover{transform:rotate(90deg);}
 .lbc-wrap .lbc-title button.lbc-import[aria-busy="true"]{opacity:.5;cursor:progress;}
 .lbc-tools{position:absolute;top:0;right:0;z-index:1;display:flex;align-items:center;gap:8px;}
-.lbc-wrap .lbc-tools button.lb-manage{width:auto!important;height:var(--ctl-h)!important;padding:0 14px!important;border:1px solid var(--c-ink)!important;border-radius:999px!important;background:var(--c-bg)!important;color:var(--c-ink)!important;box-shadow:none!important;font:500 13.5px/1 var(--f-sans)!important;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;transition:background .15s,color .15s;}
-.lbc-wrap .lbc-tools button.lb-manage:hover{background:var(--c-ink)!important;color:var(--c-bg)!important;}
+.lbc-wrap .lbc-tools button.lb-manage,.lbc-wrap .lbc-tools button.lb-arrange{width:auto!important;height:40px!important;min-width:40px;padding:0 13px!important;border:1px solid var(--lb-line)!important;border-radius:10px!important;background:var(--lb-surface)!important;color:var(--lb-ink)!important;box-shadow:0 1px 4px #0000000c!important;font:500 var(--lb-fs-body)/1 var(--lb-font-body)!important;display:inline-flex;align-items:center;justify-content:center;gap:7px;cursor:pointer;white-space:nowrap;}
+.lbc-wrap .lbc-tools button.lb-manage:hover,.lbc-wrap .lbc-tools button.lb-arrange:hover,.lbc-wrap.is-arranging .lbc-tools button.lb-arrange{background:var(--lb-soft)!important;color:var(--lb-ink)!important;}
 .lbc-wrap .lbc-tools button.lb-manage svg{width:14px;height:14px;flex:none;}
 .lbc-subline{display:flex;gap:2px 8px;align-items:baseline;justify-content:flex-start;flex-wrap:wrap;min-width:0;padding-bottom:14px;font:16px/1.3 var(--f-latin);color:var(--c-muted);letter-spacing:.02em;font-variant-numeric:lining-nums tabular-nums;}
 .lbc-sub{font:inherit;color:var(--c-muted);white-space:nowrap;}
@@ -130,13 +134,6 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-ctl button.lbc-pill{height:var(--ctl-h)!important;box-sizing:border-box;display:inline-flex;align-items:center;gap:6px;padding:0 14px!important;border:1px solid var(--c-line)!important;border-radius:999px!important;background:var(--c-bg)!important;box-shadow:none!important;color:var(--c-ink);font:13.5px/1 var(--f-sans);font-weight:400;cursor:pointer;white-space:nowrap;transition:border-color .15s;}
 .lbc-wrap .lbc-ctl button.lbc-pill:hover,.lbc-wrap .lbc-ctl button.lbc-pill.is-active{border-color:var(--c-ink)!important;}
 .lbc-wrap .lbc-ctl button.lbc-time::after{content:"↓";font:15px/1 var(--f-latin);}
-/* 1031 去问收藏 / 去 Wiki：一颗胶囊两半，中间细竖线；悬停只换那一半的底（新规则只用样式集的 --lb-*） */
-.lbc-jumps{display:inline-flex;align-items:stretch;height:var(--lb-ctl-h);box-sizing:border-box;border:1px solid var(--lb-line);border-radius:var(--lb-radius-pill);overflow:hidden;background:var(--lb-surface);transition:border-color .15s;}
-.lbc-jumps:hover{border-color:var(--lb-ink);}
-.lbc-wrap .lbc-jumps button.lbc-askbtn{position:relative;height:auto!important;display:inline-flex;align-items:center;padding:0 13px!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;color:var(--lb-ink);font:var(--lb-fs-body)/1 var(--lb-font-body);cursor:pointer;white-space:nowrap;}
-.lbc-jumps .lbc-arr{margin-left:.35em;}
-.lbc-wrap .lbc-jumps button.lbc-askbtn:hover{background:var(--lb-soft)!important;}
-.lbc-wrap .lbc-jumps button.lbc-askbtn+button.lbc-askbtn::before{content:"";position:absolute;left:0;top:25%;bottom:25%;width:1px;background:var(--lb-line);}
 .lbc-searchbox{height:var(--ctl-h);box-sizing:border-box;display:inline-flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--c-line);border-radius:999px;background:var(--c-bg);color:var(--c-muted);transition:border-color .15s;cursor:text;}
 .lbc-searchbox:hover,.lbc-searchbox:focus-within{border-color:var(--c-ink);}
 .lbc-searchbox svg{width:14px;height:14px;flex:none;}
@@ -172,6 +169,8 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-row{position:relative;display:grid;column-gap:calc(40px * var(--lbc-sp,1));align-items:start;}
 .lbc-row.is-single{display:block;}
 .lbc-row.is-free{display:flex;flex-wrap:wrap;align-items:flex-end;column-gap:0;row-gap:4px;}
+/* 1031 标题改成小号一行：标题那一排顶对齐（和右上角「编排 / 管理」同一条线），计数行照旧在按钮下面 */
+.lbc-row.is-free:has(>.lbc-rcol>.lbc-m-title){align-items:flex-start;}
 .lbc-row.is-free>.lbc-rcol{flex:0 0 auto;box-sizing:border-box;}
 .lbc-row.is-free>.lbc-rcol.is-tight{min-width:max-content;container-type:normal;}
 .lbc-row.is-free>.lbc-rcol.is-gap-r{padding-right:calc(20px * var(--lbc-sp,1));}
@@ -196,7 +195,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap.is-side-narrow .lbc-top .lbc-row.is-free{display:flex;flex-wrap:wrap;align-items:center;column-gap:16px;}
 .lbc-wrap.is-side-narrow .lbc-top .lbc-row.is-free>.lbc-rcol{width:auto!important;margin-left:0!important;padding-right:0;padding-top:0;flex:0 1 auto;}
 .lbc-wrap.is-side-narrow .lbc-top .lbc-row.is-free>.lbc-rcol+.lbc-rcol{margin-top:0;}
-.lbc-wrap.is-side-narrow .lbc-top .lbc-row.is-free>.lbc-rcol:has(.lbc-m-title,.lbc-m-cats){flex:1 1 100%;}
+.lbc-wrap.is-side-narrow .lbc-top .lbc-row.is-free>.lbc-rcol:has(.lbc-m-title,.lbc-m-cats,.lbc-m-meta){flex:1 1 100%;}
 /* 1028：星标页 / 手机没有边栏、不会挂 is-side-narrow——按屏宽也把页头积木排成可换行的一排（390 宽不横滚，catalog_ui_smoke） */
 @media(max-width:760px){.lbc-top .lbc-row.is-free{display:flex;flex-wrap:wrap;align-items:center;column-gap:16px;}.lbc-top .lbc-row.is-free>.lbc-rcol{width:auto!important;max-width:100%;min-width:0!important;margin-left:0!important;padding-right:0;padding-top:0;flex:0 1 auto;}.lbc-top .lbc-row.is-free>.lbc-rcol:has(.lbc-m-title,.lbc-m-cats){flex:1 1 100%;}.lbc-top .lbc-row.is-free>.lbc-rcol.is-grow{flex:1 1 150px;}.lbc-top .lbc-scope,.lbc-top .lbc-subline{flex-wrap:wrap;}}
 /* 1021 第 3 段 · 边栏（DESIGN-SPEC §4、§7）：吸在页头下面（top / max-height 由 paintStickyTop 量好写到 .lbc-wrap 上），内容超高自己滚，
@@ -222,8 +221,6 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-lab button.lbc-gear:hover{color:var(--c-ink);transform:rotate(60deg);}
 /* 1027 编排（design-1027 §2）：右上角「编排」→ 每个模块头上一条黑色操作条（⠿ 拖到任何位置 · 名字 · 调整 · ×），列与列之间一道可拖的边（调宽，12 格吸附），
    收藏墙上面一条托盘（＋ 模块 · Aa 样式 · 保存状态 · 恢复默认 · 结束编排）。「调整」在模块里面展开（不弹窗） */
-.lbc-wrap .lbc-tools button.lb-arrange{width:auto!important;height:var(--ctl-h)!important;padding:0 14px!important;border:1px solid var(--c-ink)!important;border-radius:999px!important;background:var(--c-bg)!important;color:var(--c-ink)!important;box-shadow:none!important;display:inline-flex;align-items:center;gap:7px;font:500 13px/1 var(--f-sans)!important;cursor:pointer;white-space:nowrap;}
-.lbc-wrap .lbc-tools button.lb-arrange:hover,.lbc-wrap.is-arranging .lbc-tools button.lb-arrange{background:var(--c-ink)!important;color:var(--c-bg)!important;}
 .lbc-wrap .lbc-tools button.lb-arrange svg{width:14px;height:14px;flex:none;}
 .lbc-wrap.is-indexview .lbc-tools button.lb-arrange,.lbc-wrap.is-side-narrow .lbc-tools button.lb-arrange{display:none!important;}
 .lbc-mod-bar,.lbc-arrange-tray,.lbc-col-edge{display:none;}
@@ -249,7 +246,6 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-plat-sw button:hover{color:var(--c-ink);}
 .lbc-wrap .lbc-plat-sw button.is-on{color:var(--c-ink);font-weight:600;border-bottom-color:var(--c-ink)!important;}
 .lbc-plat-sep{opacity:.6;}
-@container (max-width:300px){.lbc-lab:has(.lbc-plat-sw:not([hidden])) small{display:none;}}
 .lbc-wrap:not(.is-arranging) .lbc-mod.is-plat-off{display:none!important;}
 .lbc-sy-freq.is-first{margin-top:16px!important;}
 .lbc-sy-bar.is-cut i{background:var(--c-muted);}
@@ -291,6 +287,12 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-days span:nth-child(odd):not(:last-child){visibility:hidden;}
 .lbc-side{container-type:inline-size;}
 @container (max-width:340px){.lbc-figs{grid-template-columns:repeat(2,minmax(0,1fr));}.lbc-fig-n{font-size:clamp(20px,calc(20cqi - 10px),48px);}}
+/* 1031 编排里边栏只给 3/12（窄窗时不到 200px）：小标题行先去掉中文副标题，再窄把「小红书 / B 站」挪到下一行；上次 / 下次同步上下叠，折起来那一句可以换行——不截断、不出界 */
+@container (max-width:280px){.lbc-sy-top{grid-template-columns:minmax(0,1fr);row-gap:14px;}}
+@container (max-width:300px){.lbc-lab{gap:10px;}.lbc-lab small{display:none;}.lbc-lab-line{min-width:8px;}}
+@container (max-width:240px){.lbc-lab{flex-wrap:wrap;row-gap:10px;}.lbc-lab-line{order:1;}.lbc-chev{order:2;}.lbc-plat-sw{order:3;flex-basis:100%;}
+  .lbc-fold-sum{white-space:normal;}
+  .lbc-rec li,.lbc-fold-sum.lbc-rec-sum{grid-template-columns:40px minmax(0,1fr);gap:10px;}.lbc-rec-c{display:none;}}
 /* 10-11「索引」视图：左边可折叠的树（带篇数），右边就是卡片网格（点哪个节点右边就是哪些）；窄了（<700px 或手机）树叠在上面。
    她的口味：不要灰框、不要看得见的滚动条——选中用正文色 + 左侧细线，空分类变淡，按钮都是字链 */
 .lbi-bar{display:flex;flex-direction:column;gap:8px;margin:6px 5px 14px;}
@@ -583,19 +585,17 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap:not(.is-side-narrow) .lbc-top.is-squeeze-1 .lbc-row.is-free>.lbc-rcol.is-grow.is-gap-r{padding-right:8px;}
 .lbc-wrap.is-side-narrow .lbc-top.is-squeeze-1 .lbc-row.is-free{column-gap:10px;}
 .lbc-wrap .lbc-top.is-squeeze-1 .lbc-ctl button.lbc-pill{padding:0 10px!important;}
-.lbc-wrap .lbc-top.is-squeeze-1 .lbc-jumps button.lbc-askbtn{padding:0 9px!important;}
 .lbc-wrap .lbc-top.is-squeeze-2 .lbc-ctl button.lbc-scope-tab[data-n]::after{content:none;}
 .lbc-wrap .lbc-top.is-squeeze-3 .lbc-ctl button.lbc-cat,.lbc-wrap .lbc-top.is-squeeze-3 .lbc-ctl button.lbc-pick{font-size:14px;}
 .lbc-wrap .lbc-top.is-squeeze-3 .lbc-ctl.lbc-ctl-piece{column-gap:9px;}
 .lbc-wrap .lbc-top.is-squeeze-3 .lbc-ctl button.lbc-cat[data-n]::after{content:none;}
 .lbc-wrap .lbc-top.is-squeeze-3 .lbc-row.is-free>.lbc-rcol.is-grow{min-width:120px;flex-basis:120px;}
-.lbc-wrap .lbc-top.is-squeeze-4 .lbc-jumps .lbc-arr{display:none;}
 .lbc-wrap .lbc-top.is-squeeze-4 .lbc-row.is-free>.lbc-rcol.is-grow{min-width:100px;flex-basis:100px;}
 .lbc-wrap.is-side-narrow .lbc-top.is-squeeze-4 .lbc-row.is-free{column-gap:8px;}
 .lbc-wrap.is-side-narrow .lbc-top.is-squeeze-4 .lbc-ctl button.lbc-sidetoggle{display:none;}
 .lbc-wrap .lbc-top.is-squeeze-4 .lbc-ctl button.lbc-cat,.lbc-wrap .lbc-top.is-squeeze-4 .lbc-ctl button.lbc-pick{font-size:13px;}
 .lbc-wrap .lbc-top.is-squeeze-4 .lbc-ctl.lbc-ctl-piece{column-gap:6px;}
-.lbc-wrap .lbc-top.is-squeeze-4 .lbc-ctl button.lbc-pill,.lbc-wrap .lbc-top.is-squeeze-4 .lbc-jumps button.lbc-askbtn{padding:0 7px!important;}
+.lbc-wrap .lbc-top.is-squeeze-4 .lbc-ctl button.lbc-pill{padding:0 7px!important;}
 .lbc-wrap .lbc-ctl-piece.lbc-blk-search input.lbc-search{width:100%!important;min-width:0;}
 .lbc-wrap .lbc-ctl-piece:empty,.lbc-wrap .lbc-ctl-piece.is-empty{display:none;}
 .lbc-blk-meta .lbc-subline{padding-bottom:0;}
@@ -998,6 +998,14 @@ titleLabel.dataset.text = titleOf();
 const titleEm = t => Math.max(4, [...t].reduce((n, ch) => n + (/[　-鿿＀-￯]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.35 : 0.8), 0) + 0.9);
 function setTitle() { const t = titleOf(); if (titleLabel.textContent !== t) titleLabel.setText(t); if (titleLabel.dataset.text !== t) titleLabel.dataset.text = t; const em = titleEm(t).toFixed(2); if (titleText.style.getPropertyValue('--lbc-title-em') !== em) titleText.style.setProperty('--lbc-title-em', em); }
 setTitle();
+// 1031 她「和问收藏对齐」：标题后面紧跟三页切换（和问收藏 / Wiki 页头同一个 .lb-page-nav）；筛选行原来的「问收藏 → | Wiki →」去掉（重复了）
+const pageNav = titleBlock.createEl('nav', { cls: 'lb-page-nav lbc-pagenav' });
+const openLib = role => { const p = provider(); if (p?.openLibraryPage) p.openLibraryPage(role); else LB.openPage(role); };
+for (const [role, label] of [['catalog', '浏览收藏'], ['chat', '问收藏'], ['wiki', 'Wiki']]) {
+  const cur = role === 'catalog' && !starredPage;
+  const b = pageNav.createEl('button', { text: label, cls: 'lbc-pnav-' + role + (cur ? ' is-current' : '') }); b.type = 'button';
+  if (cur) b.setAttribute('aria-current', 'page'); else b.onclick = () => (role === 'chat' ? LB.openPage('chat') : openLib(role));
+}
 // 「编排 / 管理」（1027：不属于任何模块——标题挪走 / 移除了也还在）：吸顶区第一个子节点，宽屏绝对定位在右上角，窄了 / 编排中退成最上面一行
 const tools = top.createEl('div', { cls: 'lbc-tools' });
 top.insertBefore(tools, head);
@@ -1257,8 +1265,9 @@ const catBar = top.createEl('div', { cls: 'lbc-cats' });
 // 1028 她（照蓝线拆）：每一组是自己的一块积木（.lbc-m），能单独拖、调宽、移除——范围 · AI 标签 · 类型 · 我的收藏 / Tag · 排序 · 视图 · 搜索 · 问收藏。
 //   每块自己带 .lbc-ctl（按钮样式照旧）；标题和计数行也拆成两块。吸顶仍是 .lbc-top 一整块
 // 1031 她：「瀑布流 / 分类 Wiki」视图切换不要了——'view' 这一块去掉；存过的布局里的 view 读的时候丢掉（parseLayout 只认 MOD_IDS）
-const TOP_IDS = ['title', 'meta', 'cats', 'scope', 'topics', 'types', 'albums', 'picks', 'sort', 'search', 'ask'];
-const CTL_IDS = ['scope', 'topics', 'types', 'albums', 'picks', 'sort', 'search', 'ask'];
+// 1031（晚）：「问收藏 → | Wiki →」那一块（'ask'）也去掉——三页切换挪到标题后面了；存过的布局里的 ask 同样读的时候丢掉
+const TOP_IDS = ['title', 'meta', 'cats', 'scope', 'topics', 'types', 'albums', 'picks', 'sort', 'search'];
+const CTL_IDS = ['scope', 'topics', 'types', 'albums', 'picks', 'sort', 'search'];
 const blocks = {};
 for (const id of TOP_IDS) { const b = top.createEl('div', { cls: 'lbc-blk lbc-blk-' + id + ' lbc-m lbc-m-' + id + ' is-core' + (CTL_IDS.includes(id) ? ' lbc-ctl lbc-ctl-piece' : '') }); b.dataset.blk = id; b.dataset.m = id; blocks[id] = b; }
 blocks.title.append(head); blocks.meta.append(subLine); blocks.cats.append(catBar);
@@ -1285,13 +1294,6 @@ const paintSearchX = () => { searchX.hidden = !search.value; };
 searchX.onmousedown = e => e.preventDefault();
 searchX.onclick = e => { e.preventDefault(); e.stopPropagation(); search.value = ''; search.dispatchEvent(new Event('input', { bubbles: true })); paintSearchX(); search.focus(); };
 search.addEventListener('input', paintSearchX);
-// 1031 她「问收藏 → / Wiki → 一个胶囊一个别的，看着乱」：两个去别页的入口合成一颗细线胶囊、中间一道竖线，字一样大
-const jumps = blocks.ask.createEl('div', { cls: 'lbc-jumps' });
-const ask = jumps.createEl('button', { cls: 'lbc-askbtn', text: '问收藏' }); ask.type = 'button'; ask.createEl('span', { cls: 'lbc-arr', text: '→' });   // 箭头单独一段：最挤的时候藏掉
-ask.onclick = () => LB.openPage('chat');
-// 1031 她「Wiki / 目录 / 问收藏没有打通跳转」：目录页去个人 Wiki 页的入口（和问收藏、Wiki 页页头的三页切换同一个目的地）
-const toWiki = jumps.createEl('button', { cls: 'lbc-askbtn lbc-wikibtn', text: 'Wiki' }); toWiki.type = 'button'; toWiki.createEl('span', { cls: 'lbc-arr', text: '→' });
-toWiki.onclick = () => { const p = provider(); if (p?.openLibraryPage) p.openLibraryPage('wiki'); else LB.openPage('wiki'); };
 function clearFilters({ keepStar = starredPage } = {}) { activeCat = ''; todayOnly = false; todoOnly = false; mediaFilter = ''; activeTag = ''; activePlat = ''; activeTopic = ''; activeAlbum = ''; timeRange = ''; timeSort = ''; timeFrom = ''; timeTo = ''; starOnly = keepStar; indexView = false; }
 // C19：重建前记下横向位置和焦点所在的 tab，重建后还原；只有用户点 tab 引起的重建才把选中项滚进视野
 function renderCatBar({ reveal = false } = {}) {
@@ -4043,8 +4045,8 @@ board.after(afterEl);
 // 1028 她：「像搭积木一样」——页头拆成小块（标题 · 计数行 · 分类 · 范围 · AI 标签 · 类型 · 我的收藏 / Tag · 排序 · 视图 · 搜索 · 问收藏），宽度按 48 格，
 //   页头 / 墙下面的每一排里每一块有自己的起点 x（可以留空、随便横着摆）；收藏墙那一排仍是几列铺满（边栏一列里的块始终一样宽）。
 const GRID = 48, MIN_W = 3;
-const MOD_IDS = ['title', 'meta', 'cats', 'scope', 'topics', 'types', 'albums', 'picks', 'sort', 'search', 'ask', 'recent', 'sync', 'token', 'overview', 'wall'];
-const MOD_NAMES = { title: '标题', meta: '计数行', cats: '分类', scope: '范围', topics: 'AI 标签', types: '类型', albums: '专辑', picks: '我的收藏 / Tag', sort: '排序', search: '搜索', ask: '问收藏',
+const MOD_IDS = ['title', 'meta', 'cats', 'scope', 'topics', 'types', 'albums', 'picks', 'sort', 'search', 'recent', 'sync', 'token', 'overview', 'wall'];
+const MOD_NAMES = { title: '标题', meta: '计数行', cats: '分类', scope: '范围', topics: 'AI 标签', types: '类型', albums: '专辑', picks: '我的收藏 / Tag', sort: '排序', search: '搜索',
   recent: '最近导入', sync: '同步', token: 'Token 费用', overview: '概览', wall: '收藏墙' };
 const SIDE_MODS = ['recent', 'sync', 'token', 'overview'];
 const CORE_MODS = new Set(TOP_IDS);
@@ -4074,7 +4076,7 @@ const DEFAULT_ROWS = () => [
   { cols: [{ x: 0, w: 34, mods: ['title'] }, { x: 34, w: 14, mods: ['meta'] }] },
   { cols: [{ x: 0, w: 48, mods: ['cats'] }] },
   { cols: [{ x: 0, w: 12, mods: ['scope'] }, { x: 12, w: 6, mods: ['topics'] }, { x: 18, w: 5, mods: ['types'] }, { x: 23, w: 4, mods: ['albums'] }, { x: 27, w: 4, mods: ['picks'] },
-    { x: 31, w: 3, mods: ['sort'] }, { x: 34, w: 10, mods: ['search'] }, { x: 44, w: 4, mods: ['ask'] }] },
+    { x: 31, w: 3, mods: ['sort'] }, { x: 34, w: 14, mods: ['search'] }] },
   { cols: [{ w: 16, mods: ['recent', 'sync', 'token', 'overview'] }, { w: 32, mods: ['wall'] }] }];
 const ENGINE = SIDE_ON;   // 手机 / 星标页：没有边栏模块，照默认摆
 const clone = v => JSON.parse(JSON.stringify(v));
@@ -4214,7 +4216,7 @@ function upgradeRows(rows, cfg, { filtersHidden = false, show = null } = {}) {
     if (!has('scope')) { hide('scope'); hide('topics'); }
     if (!has('type')) hide('types');
     if (!has('tag') && !has('plat') && !has('src')) { hide('picks'); hide('albums'); }
-    for (const k of ['sort', 'ask']) if (!has(k)) hide(k);
+    if (!has('sort')) hide('sort');
   }
   return rows;
 }
@@ -4384,12 +4386,12 @@ function paintVisibility() {
 }
 // 1031 她「两栏并排时页头那一行折成了 2 行，要 1 行放得下」：筛选那一排放不下时逐级收紧，每一级都重排一次看是否一行了——
 //   1 = 块和块、标签和标签之间的空收小；2 = 范围标签后面的篇数不显示；3 = 筛选字小一号、搜索框最窄到 120px；
-//   4 = 再挤：「问收藏 / Wiki」的箭头不显示、筛选字再小一号、按钮内边距收小、搜索框最窄 100px、窄到不出边栏时边栏钮也不显示。
+//   4 = 再挤：筛选字再小一号、按钮内边距收小、搜索框最窄 100px、窄到不出边栏时边栏钮也不显示。
 //   每次从 0 级量起（变宽了会自己松回去）；同一宽度、同一排内容只量一次
 const SQUEEZE_MAX = 4;
 let squeezeKey = '', squeezeLvl = 0;
 function setSqueeze(n) { for (let k = 1; k <= SQUEEZE_MAX; k++) { const on = n >= k; if (top.classList.contains('is-squeeze-' + k) !== on) top.classList.toggle('is-squeeze-' + k, on); } squeezeLvl = n; }
-function ctlRowEl() { for (const id of ['search', 'sort', 'ask', 'scope', 'types']) { const b = blocks[id]; const r = b && !b.classList.contains('is-gone') && b.closest?.('.lbc-row'); if (r && !r.hidden && top.contains(r)) return r; } return null; }
+function ctlRowEl() { for (const id of ['search', 'sort', 'scope', 'types']) { const b = blocks[id]; const r = b && !b.classList.contains('is-gone') && b.closest?.('.lbc-row'); if (r && !r.hidden && top.contains(r)) return r; } return null; }
 function rowIsOneLine(row) {
   const mids = [];
   for (const c of row.children || []) { if (!c.classList?.contains('lbc-rcol') || c.hidden) continue; const b = c.getBoundingClientRect?.(); if (b && b.width > 0 && b.height > 0) mids.push((b.top + b.bottom) / 2); }
