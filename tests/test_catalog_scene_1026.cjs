@@ -40,16 +40,6 @@ const pickMenu = (P, re) => { const b = P.menuItems().find(x => re.test(x.textCo
     assert.ok(!P.cat('视频') && !P.cat('图文'), 'B 站下不分图文 / 视频（全是视频）');
     assert.equal(P.$('.lbc-platpick').textContent, 'B站'); assert.equal(P.$('.lbc-tagpick').textContent, '#手冲');
     assert.deepEqual([state().plat, state().tag, state().topic], ['bili', '手冲', '咖啡'], '各维度都进 LB.state');
-    // 换到 Wiki 再回瀑布流：筛选不丢
-    P.$('.lbc-view[data-view="wiki"]').onclick();
-    assert.equal(P.$('.lbc-grid').hidden, true); assert.equal(P.$('.lbc-wiki').hidden, false);
-    P.$('.lbc-view[data-view="grid"]').onclick();
-    assert.deepEqual(P.ids(), ['bili-c'], '回瀑布流筛选还在');
-    // 在 Wiki 里点一个筛选：回瀑布流看结果（不是改了筛选却还停在 Wiki 空页上）
-    P.$('.lbc-view[data-view="wiki"]').onclick();
-    P.$('.lbc-platpick').onclick(ev()); pickMenu(P, /B站$/);   // 再点一次已选的 B站（筛选不变）
-    assert.equal(P.$('.lbc-wiki').hidden, true, '在 Wiki 里点筛选 = 回到瀑布流');
-    assert.deepEqual(P.ids().sort(), ['bili-c'].concat(), 'B站 · 咖啡 · #手冲');
     // 返回后都还在
     const Q = await openCatalog({ data: dataOf(base()), plugin: { settings: { hiddenCats: [] } }, keepState: true });
     assert.deepEqual(Q.ids(), ['bili-c']);
@@ -78,7 +68,7 @@ const pickMenu = (P, re) => { const b = P.menuItems().find(x => re.test(x.textCo
     assert.equal(P.$('.lbc-recent')?.hidden ?? true, true, '还在瀑布流（不切到别的视图）');
   }
 
-  // ── ③ Wiki · 未归类 ──
+  // ── ③ 未归类 · 索引编辑里的分类 wiki ──
   {
     const items = base();
     const index = { version: 1, file: '索引.md', total: 5, classified: 4, roots: ['咖啡', '吃的'],
@@ -88,32 +78,15 @@ const pickMenu = (P, re) => { const b = P.menuItems().find(x => re.test(x.textCo
     const plugin = { settings: { hiddenCats: [] } };
     const P = await openCatalog({ data: dataOf(items), plugin, files: { '_archive/index-data.json': JSON.stringify(index), 'wiki/咖啡.md': '# 咖啡', '索引.md': '- 咖啡 [wiki]\n- 吃的\n' } });
     assert.ok(P.cat('未归类'), '分类行有未归类');
-    P.$('.lbc-view[data-view="wiki"]').onclick();
-    assert.equal(P.$('.lbc-wiki h3').textContent, 'Wiki');
-    assert.match(P.$('.lbc-wiki-sub').textContent, /长期研究主题/);
-    const row = P.$('.lbc-wiki-row[data-path="咖啡"]');
-    assert.ok(row); assert.equal(row.querySelector('.lbc-wiki-st').textContent, 'wiki 生成后又进了 2 篇');
-    assert.ok(row.querySelector('.lbc-wiki-open') && row.querySelector('.lbc-wiki-gen'));
-    const unc = P.$('.lbc-wiki-unc');
-    assert.match(unc.textContent, /未归类1 篇/); assert.match(unc.textContent, /兜底队列/);
-    row.querySelector('.lbc-wiki-items').onclick(ev());
-    assert.equal(P.$('.lbc-wiki').hidden, true); assert.deepEqual(P.ids().sort(), ['bili-c', 'bili-d', 'xhs-a', 'xhs-b'], '看这些帖子 = 筛到这一类');
-    P.$('.lbc-view[data-view="wiki"]').onclick();
-    P.$('.lbc-wiki-unc .lbc-wiki-items').onclick(ev());
-    assert.deepEqual(P.ids(), ['bili-e'], '未归类');
-    // 分类树（索引编辑）从 Wiki 页进，开着时视图开关多一项「索引」亮着
-    P.$('.lbc-view[data-view="wiki"]').onclick();
-    P.$('.lbc-wiki .lbc-index-open').onclick(ev());
+    // 1031 她：页头「分类 Wiki」退场——分类的 wiki 在索引编辑里每个分类后面；索引编辑从「管理 → 索引编辑」进，「退出索引编辑」出来
+    assert.equal(P.$('.lbc-wiki'), null);
+    P.$('.lb-manage').onclick(ev()); await tick(5); pickMenu(P, /^索引编辑$/);
     assert.ok(P.$('.lbc-wrap').classList.contains('is-indexview'));
-    assert.ok(P.$('.lbc-view[data-view="index"]').classList.contains('is-on'));
-    P.$('.lbc-view[data-view="grid"]').onclick();
-    assert.equal(P.$('.lbc-view[data-view="index"]'), null, '回瀑布流后「索引」那一项收起');
-    // 1028 她：「索引得有个地方退出来」——索引条上固定有「退出索引编辑」，点了回收藏墙
-    P.$('.lbc-view[data-view="wiki"]').onclick();
-    P.$('.lbc-wiki .lbc-index-open').onclick(ev());
-    assert.ok(P.$('.lbc-wrap').classList.contains('is-indexview'));
+    assert.ok(P.$('.lbi-wiki-open'), '「咖啡」后面能打开它的 wiki');
     P.$('.lbi-tools .lbi-exit').onclick(ev());
     assert.ok(!P.$('.lbc-wrap').classList.contains('is-indexview'), '退出索引编辑 = 回收藏墙');
+    P.cat('未归类').onclick();
+    assert.deepEqual(P.ids(), ['bili-e'], '未归类');
     // 0 篇的未归类也留着（淡色）
     const R = await openCatalog({ data: dataOf(items), plugin, files: { '_archive/index-data.json': JSON.stringify({ ...index, unclassified: { count: 0, items: [] } }) } });
     const t = R.cat('未归类');
@@ -159,5 +132,5 @@ const pickMenu = (P, re) => { const b = P.menuItems().find(x => re.test(x.textCo
     const n = notes.at(-1);
     assert.match(n.message, /移到了回收站（可恢复）/); assert.deepEqual(n.actions.map(a => a.label), ['打开回收站']);
   }
-  console.log('PASS catalog 1026 scenes 02/03/08: platform → topic → tag → type compose and survive Wiki / grid switches (filter in Wiki returns to results) · 最近导入 folded line → list scrolls in place, loads more at the bottom (no 查看全部) · Wiki = long-term topics + 未归类 always visible · 管理 grouped (trash with count, delete-category explains where posts go) · delete notice links the trash');
+  console.log('PASS catalog 1026 scenes 02/03/08: platform → topic → tag → type compose and survive a return · 最近导入 folded line → list scrolls in place, loads more at the bottom (no 查看全部) · 未归类 always visible, category wiki inside 索引编辑 (管理 → 索引编辑, exit back) · 管理 grouped (trash with count, delete-category explains where posts go) · delete notice links the trash');
 })().catch(e => { console.error(e); process.exit(1); });

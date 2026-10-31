@@ -36,7 +36,8 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
     assert.equal(P.$('.lb-manage').textContent, '管理', '「…」换成「管理」胶囊');
     assert.ok(P.$('.lbc-tools').contains(P.$('.lb-manage')));
     assert.equal(P.$('.lb-page-nav'), null, '「浏览收藏」导航去掉');
-    assert.equal(P.$('.lbc-askbtn').textContent, '问收藏 →');
+    assert.equal(P.$('.lbc-askbtn').textContent, '问收藏→');   // 1031：箭头单独一段（.lbc-arr，CSS 留空），和「Wiki→」在一颗胶囊里
+    assert.deepEqual(P.$$('.lbc-jumps .lbc-askbtn').map(b => b.textContent), ['问收藏→', 'Wiki→']);
     assert.equal(P.$('.lbc-search').placeholder, '搜索收藏 · #标签');
     assert.ok(P.$('.lbc-searchbox').contains(P.$('.lbc-search')), '搜索框在胶囊里');
     // 篇数：数字加粗，字照旧
@@ -101,20 +102,16 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
     assert.deepEqual([state().today, state().media, state().star], [false, 'video', true], '类型单独一维，保留');
   }
 
-  // ── ③ 视图开关（1023 她拍板：只留瀑布流 + Wiki 空页；列表 / 索引入口藏起来）──
+  // ── ③ 视图开关（1023 她拍板：只留瀑布流 + Wiki；1031 她：开关整个不要了，分类 Wiki 退场）──
   {
     const P = await openCatalog({ data: dataOf(base()), plugin: { settings: { hiddenCats: [] } } });
-    const views = () => P.$$('.lbc-vseg .lbc-view').map(b => [b.textContent, b.classList.contains('is-on')]);
-    assert.deepEqual(views(), [['瀑布流', true], ['分类 Wiki', false]], '没有列表 / 索引入口');
-    P.$('.lbc-view[data-view="wiki"]').onclick();
-    assert.deepEqual(views(), [['瀑布流', false], ['分类 Wiki', true]]);
-    assert.equal(P.$('.lbc-grid').hidden, true); assert.equal(P.$('.lbc-wiki').hidden, false);
-    assert.equal(state().view, 'wiki', '视图选择存 LB.state');
+    assert.equal(P.$('.lbc-vseg'), null, '页头没有视图开关'); assert.equal(P.$('.lbc-m-view'), null);
+    assert.equal(P.$('.lbc-wiki'), null, '分类 Wiki 那页没了');
+    // 以前存过 view: 'wiki'：当瀑布流
+    globalThis.__lbState['lb:catalog'] = JSON.stringify({ ...state(), view: 'wiki' });
     const Q = await openCatalog({ data: dataOf(base()), plugin: { settings: { hiddenCats: [] } }, keepState: true });
-    assert.equal(Q.$('.lbc-wiki').hidden, false, '返回后还是 Wiki');
-    Q.$('.lbc-view[data-view="grid"]').onclick();
-    assert.equal(Q.$('.lbc-wiki').hidden, true); assert.equal(Q.$('.lbc-grid').hidden, false); assert.equal(Q.cards().length, 4);
-    assert.equal(state().view, 'grid');
+    assert.equal(Q.$('.lbc-grid').hidden, false); assert.equal(Q.cards().length, 4);
+    assert.equal(state().view, 'grid', '下次存成瀑布流');
   }
 
   // ── ④ 星标主题：建 / 删 ──

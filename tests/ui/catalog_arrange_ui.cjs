@@ -66,7 +66,7 @@ const center = r => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
         trayAbove: document.querySelector('.lbc-arrange-tray').getBoundingClientRect().bottom <= document.querySelector('.lbc-board').getBoundingClientRect().top + 1,
         edges: [...document.querySelectorAll('.lbc-board > .lbc-col-edge')].filter(e => getComputedStyle(e).display === 'block').length,
         labPE: getComputedStyle(document.querySelector('.lbc-mod .lbc-lab')).pointerEvents }));
-      assert.ok(on.cls); assert.equal(on.bars, 17, '十七块都有工具条（1028 加了专辑）'); assert.equal(on.shown, 0, '平时收着');
+      assert.ok(on.cls); assert.equal(on.bars, 16, '十六块都有工具条（1028 加了专辑，1031 去掉视图）'); assert.equal(on.shown, 0, '平时收着');
       assert.equal(on.tray, 'flex'); assert.ok(on.trayAbove, '托盘在墙上面'); assert.equal(on.edges, 1, '边栏和墙之间一道边'); assert.equal(on.labPE, 'none', '编排时模块本身点不动');
       shots.push(await S.screenshot(`catalog-arrange-1027-${theme}-1400`));
       if (theme === 'dark') { assert.deepEqual(await S.pageErrors(), []); await page.close(); continue; }

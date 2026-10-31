@@ -104,11 +104,11 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
     const page=await runCatalogPage(data);
     assert.equal(page.root.querySelectorAll('.lbc-topics').length,0);
     assert.equal(page.root.querySelectorAll('.lbc-thq').length,0);
-    // 1026：吸顶区分三排（标题 · 分类行 · 筛选条）；1028：页头拆成积木——标题排 = 标题 + 计数行，筛选条 = 范围 · AI 标签 · 类型 · 专辑 · 我的收藏 / Tag · 排序 · 视图 · 搜索 · 问收藏；
+    // 1026：吸顶区分三排（标题 · 分类行 · 筛选条）；1028：页头拆成积木——标题排 = 标题 + 计数行，筛选条 = 范围 · AI 标签 · 类型 · 专辑 · 我的收藏 / Tag · 排序 · 搜索 · 问收藏（1031 去掉视图）；
     //   「编排 / 管理」在最前，多选栏照旧是最后一个子节点
     assert.deepEqual(page.root.querySelector('.lbc-top').children.map(c=>c.className),['lbc-tools','lbc-row is-free','lbc-row is-single','lbc-row is-free','lbc-selbar'],'C1：多选栏在吸顶区里（最后一个子节点）');
     assert.deepEqual(page.root.querySelectorAll('.lbc-top .lbc-row').map(r=>r.querySelectorAll('.lbc-m').map(m=>m.dataset.m)),
-      [['title','meta'],['cats'],['scope','topics','types','albums','picks','sort','view','search','ask']]);
+      [['title','meta'],['cats'],['scope','topics','types','albums','picks','sort','search','ask']]);   // 1031：「视图」去掉了
     const blk=id=>page.root.querySelector('.lbc-blk-'+id).children.filter(c=>!c.classList.contains('lbc-mod-bar')).map(c=>c.className);
     assert.deepEqual([blk('title'),blk('cats'),blk('types')],[['lbc-head'],['lbc-cats'],['lbc-scope lbc-scope-types']],'1021 分类行 / 控制行分开');
     assert.equal(page.cards().length,3);
@@ -150,43 +150,46 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
   assert.deepEqual(page.cards(),['长期记忆方案','睡前记忆整理']);
   // 全页不设 aria-label
   assert.equal(page.root.querySelector('.lbc-wrap').all().filter(e=>('aria-label' in e.attrs||'title' in e.attrs)&&!e.classList.contains('lbc-updated')&&!e.classList.contains('lbc-totop')).length,0,'卡片 / 筛选条不设 aria-label、title（「更新」的 title 是她要的悬停全句）');
-  // 1019 专辑 → 1028 她：专辑是自己的一块（类型后面），篇数多的前几个直接平铺成标签，点一下筛、再点取消；多了收进「专辑 ▾」
+  // 1019 专辑 → 1031 她：专辑一颗「专辑 ▾」下拉，只列当前来源的；只有一个来源时就在「专辑」那一块里
   {
     const ev={preventDefault(){},stopPropagation(){}};
     const alb={...base,items:base.items.map(it=>({...it,albums:it.id==='b'?['做饭']:it.id==='c'?['做饭','睡前']:[]}))};
     const pg=await runCatalogPage(alb);
-    const tabs=()=>pg.root.querySelectorAll('.lbc-album-tab');
-    const tab=t=>tabs().find(e=>e.textContent===t);
-    assert.deepEqual(tabs().map(e=>[e.textContent,e.dataset.n]),[['做饭','2'],['睡前','1']],'按篇数多的在前，篇数在 data-n');
-    assert.ok(tabs().every(e=>pg.root.querySelector('.lbc-m-albums').contains(e)),'在「专辑」那一块里');
-    assert.equal(pg.root.querySelector('.lbc-album'),null,'专辑不多：不出「专辑 ▾」');
-    tab('做饭').onclick(ev);
+    const chip=()=>pg.root.querySelector('.lbc-albpick');
+    const item=t=>pg.dom.document.body.querySelectorAll('.lbc-menu-item').find(e=>e.textContent.replace(/^✓ /,'')===t);
+    assert.equal(pg.root.querySelectorAll('.lbc-album-tab').length,0,'不再平铺专辑标签');
+    assert.ok(pg.root.querySelector('.lbc-m-albums').contains(chip()),'在「专辑」那一块里');
+    assert.equal(chip().textContent,'专辑');assert.ok(chip().classList.contains('lbc-album'));
+    chip().onclick(ev);
+    assert.ok(item('全部专辑')&&item('做饭（2）')&&item('睡前（1）'),'菜单：全部专辑 + 按篇数多的在前、带篇数');
+    item('做饭（2）').onclick(ev);
     assert.deepEqual(pg.cards(),['快手菜','睡前记忆整理']);
-    assert.ok(tab('做饭').classList.contains('is-active'));assert.equal(tab('做饭').getAttribute('aria-pressed'),'true');
-    // 1021：分类「全部」只管分类；专辑再点一下取消
+    assert.equal(chip().textContent,'专辑：做饭');assert.ok(chip().classList.contains('is-active'));assert.equal(chip().getAttribute('aria-pressed'),'true');
+    // 1021：分类「全部」只管分类；菜单里「全部专辑」取消
     pg.cat('全部').onclick();
     assert.equal(pg.cards().length,2,'分类「全部」不动专辑');
-    tab('做饭').onclick(ev);
-    assert.equal(pg.cards().length,3);assert.ok(!tab('做饭').classList.contains('is-active'));
-    // 专辑多：前 4 个平铺，其余在「专辑 ▾」里；选了菜单里的，那颗写「专辑：名字 ▾」
-    const names=['一','二','三','四','五','六'];
-    const many={...base,items:base.items.map((it,i)=>({...it,albums:i===0?names:i===1?names.slice(0,5):['一']}))};
-    const pm=await runCatalogPage(many);
-    assert.deepEqual(pm.root.querySelectorAll('.lbc-album-tab').map(e=>e.textContent),['一','二','三','四']);
-    const chip=()=>pm.root.querySelector('.lbc-album');
-    assert.equal(chip().textContent,'专辑 ▾');
-    chip().onclick(ev);
-    const item=t=>pm.dom.document.body.querySelectorAll('.lbc-menu-item').find(e=>e.textContent===t);
-    assert.ok(item('五（2）')&&item('六（1）'),'菜单里是全部专辑，带篇数');
-    item('六（1）').onclick(ev);
-    assert.deepEqual(pm.cards(),['长期记忆方案']);
-    assert.equal(chip().textContent,'专辑：六 ▾');assert.ok(chip().classList.contains('is-active'));
-    chip().onclick(ev);item('全部专辑（取消筛选）').onclick(ev);
-    assert.equal(pm.cards().length,3);assert.equal(chip().textContent,'专辑 ▾');
-    // 没读过专辑：没有专辑标签，一颗灰的「专辑 ▾」说怎么来
+    chip().onclick(ev);item('全部专辑').onclick(ev);
+    assert.equal(pg.cards().length,3);assert.equal(chip().textContent,'专辑');
+    // 没有专辑数据：一颗灰的「专辑」，点开说缺什么
     const none=await runCatalogPage(base);
-    assert.equal(none.root.querySelectorAll('.lbc-album-tab').length,0);assert.equal(none.root.querySelector('.lbc-album'),null);
-    assert.ok(none.root.querySelector('.lbc-album-none'));
+    assert.ok(none.root.querySelector('.lbc-album-none'));assert.equal(none.root.querySelector('.lbc-album'),null);
+    // 两个来源：没选来源不出专辑；选了 B 站 = B 站收藏夹，紧跟在来源下拉后面、不出「附件」；选了小红书、没读过专辑 = 灰的，点开说缺什么
+    const two={...base,items:[...base.items.map(it=>({...it,id:'xhs-'+it.id})),{...base.items[0],id:'bili-x',title:'B站视频一',kind:'video',albums:['默认收藏夹']},{...base.items[1],id:'bili-y',title:'B站视频二',kind:'video',albums:['默认收藏夹','游戏']}]};
+    const pt=await runCatalogPage(two);
+    const ac=()=>pt.root.querySelector('.lbc-albpick');
+    const pick=t=>pt.dom.document.body.querySelectorAll('.lbc-menu-item').find(e=>e.textContent.replace(/^✓ /,'')===t);
+    assert.equal(ac(),null,'全部来源：不出专辑');
+    pt.root.querySelector('.lbc-platpick').onclick(ev);pick('B站').onclick(ev);
+    {const kids=pt.root.querySelector('.lbc-scope-types').children;assert.equal(kids[kids.indexOf(ac())-1],pt.root.querySelector('.lbc-platpick'),'紧跟来源下拉');}
+    assert.ok(!pt.root.querySelectorAll('.lbc-type-tab').some(b=>b.dataset.type==='attachment'),'B 站没有附件：不出「附件」');
+    ac().onclick(ev);
+    assert.ok(pick('默认收藏夹（2）')&&pick('游戏（1）'),'只列 B 站收藏夹');
+    pick('游戏（1）').onclick(ev);
+    assert.deepEqual(pt.cards(),['B站视频二']);
+    pt.root.querySelector('.lbc-platpick').onclick(ev);pick('小红书').onclick(ev);
+    assert.ok(ac().classList.contains('lbc-album-none'),'小红书没读过专辑：灰的');assert.equal(ac().textContent,'专辑','换来源后专辑筛选清掉');
+    ac().onclick(ev);
+    assert.ok(pt.dom.document.body.querySelectorAll('.lbc-menu-item').some(e=>/还没读过小红书专辑/.test(e.textContent)),'点开说缺什么');
   }
   // 主题名不认识的旧 activeTopic / 坏数据不炸
   const bad=await runCatalogPage({...base,topics:[null,'',42]});

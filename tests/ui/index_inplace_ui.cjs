@@ -34,6 +34,9 @@ function makeIndex(items, { dropFromHome = 0, aiCount = null, proposals = 2 } = 
     classify: { ai_ok: true, model: 'm', done: items.length, total: items.length, pending: 0, work: 0, spent: { yuan: 0.3 } } };
 }
 
+// 1031：页头视图开关去掉了——索引编辑从「管理 → 索引编辑」进
+const openIndexEdit = async page => { await page.click('.lb-manage'); await page.waitForTimeout(60); await page.evaluate(() => [...document.querySelectorAll('.menu .menu-item, .lbc-menu .lbc-menu-item')].find(e => e.textContent.trim().endsWith('索引编辑')).click()); };
+
 (async () => {
   shell.requirePlaywright();
   const browser = await shell.launch();
@@ -43,7 +46,7 @@ function makeIndex(items, { dropFromHome = 0, aiCount = null, proposals = 2 } = 
     const files = { '索引.md': '- 做饭\n', '_archive/index-data.json': JSON.stringify(makeIndex(data.items)) };
     const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', theme: 'light', data, files,
       plugin: { methods: { indexAccept: { result: { ok: true, message: '已写进' } }, indexRebuild: { result: null } } } });
-    await page.evaluate(() => (document.querySelector('.lbc-view[data-view="wiki"]').click(), document.querySelector('.lbc-wiki .lbc-index-open').click())); await S.settle();
+    await openIndexEdit(page); await S.settle();
     await page.evaluate(() => [...document.querySelectorAll('.lbi-row')].find(r => r.dataset.path === '做饭').querySelector('.lbi-label').click()); await S.settle();
     await page.evaluate(() => [...document.querySelectorAll('.lbi-row')].find(r => r.dataset.path === '做饭/家常菜').querySelector('.lbi-label').click()); await S.settle();
     await S.scrollTo(260); await S.settle();
