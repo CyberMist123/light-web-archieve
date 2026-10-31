@@ -490,7 +490,7 @@ async function inventory(p) {
   // —— 4. 旧落点名照认；落点在收着的「更多」里：先打开、画出来，再滚，焦点落进能改的那一格 ——
   env.p.app.setting = { activeTab: null, open() {}, openTabById() {} };
   env.p.openPluginSettings = () => {};
-  for (const [from, to, focus] of [['ai', 'ai', null], ['status', 'overview', 'status'], ['remote', 'connect', 'remote'], ['schedule', 'sync', 'schedule'],
+  for (const [from, to, focus] of [['ai', 'ai', null], ['status', 'overview', 'status'], ['remote', 'connect', 'remote'], ['schedule', 'sync', 'schedule'], ['sync-bili', 'sync', 'sync-bili'],
     ['advanced', 'more', 'developer'], ['skills', 'more', 'skills'], ['usage', 'ai', 'ai-usage'], ['nope', 'overview', null]]) {
     env.p.openSetupPage(from); assert.equal(env.p.settingsView.tab, to, from + ' → ' + to); assert.equal(env.p.settingsView.focus, focus, from + ' 的落点');
   }
@@ -507,6 +507,12 @@ async function inventory(p) {
       assert.ok(el._scrolledIntoView && el.classList.contains('lb-flash'), sec + '：滚过去、闪一下');
       if (ctl) assert.equal(dom.document.activeElement, el.querySelector(ctl), sec + '：焦点落进能改的那一格');
     }
+    // 1031：目录页侧栏「去同步 →」= openSetupPage('sync-bili')：落点在②藏着的 B 站那页 → 先切过去再滚
+    const paneB = r.querySelector('.lb-plat-pane[data-platform="bilibili"]');
+    assert.equal(paneB.hidden, true, '②默认小红书');
+    assert.ok(v6.focusSection(t, 'sync-bili'), 'sync-bili 找得到');
+    assert.equal(paneB.hidden, false, '落点在 B 站那页：先切到 B 站');
+    assert.ok(r.querySelector('.lb-plat-tab[data-platform="bilibili"]').classList.contains('is-on'));
     const ai = v6.focusSection(t, 'ai-spend');
     assert.equal(dom.document.activeElement, ai.querySelector('input.lb-spend-input'), '每天上限：焦点落进输入框');
     notices.length = 0;

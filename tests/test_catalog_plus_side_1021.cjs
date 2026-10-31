@@ -60,7 +60,11 @@ const txt = el => (el ? el.textContent : null);
     assert.equal(P.$$('.lbc-lab-line').length, 4); assert.equal(P.$$('.lbc-chev').length, 4);
     // RECENT（1027b）：默认折成一行「最新 …」；点开往下是列表（框高 = 6 条，框里往下滚接着出），按 ts 倒序；今天 HH:MM，否则 M/D；分类小字
     const rc = P.$('.lbc-mod-recent');
-    assert.ok(rc.classList.contains('is-folded'), '最近导入默认折叠'); assert.match(txt(rc.querySelector('.lbc-fold-sum')), /^最新 00:09 · /);
+    // 1031：折起来那一行 = 列表第一行，同一套三列（时间 · 标题 · 分类）
+    assert.ok(rc.classList.contains('is-folded'), '最近导入默认折叠');
+    const fs0 = rc.querySelector('.lbc-fold-sum');
+    assert.ok(fs0.classList.contains('lbc-rec-sum'));
+    assert.deepEqual([txt(fs0.querySelector('time')), txt(fs0.querySelector('.lbc-rec-t')), txt(fs0.querySelector('.lbc-rec-c'))], ['00:09', '今天第三篇·标题很长很长很长很长很长很长很长很长', '未归类']);
     assert.equal(rc.querySelector('.lbc-rec-all'), null, '没有「查看全部」');
     rc.querySelector('.lbc-fold-sum').onclick();
     assert.equal(rc.querySelector('.lbc-rec').style.getPropertyValue('--lbc-rec-rows'), '6', '框高 = 6 条');
@@ -147,7 +151,7 @@ const txt = el => (el ? el.textContent : null);
     const lab = Q.$('.lbc-mod-recent .lbc-lab');
     lab.onkeydown({ key: 'Enter', target: lab, currentTarget: lab, preventDefault() {} });
     assert.ok(Q.$('.lbc-mod-recent').classList.contains('is-folded'));
-    assert.match(txt(Q.$('.lbc-mod-recent .lbc-fold-sum')), /^最新 00:09 · 今天第三篇/);
+    assert.match(txt(Q.$('.lbc-mod-recent .lbc-fold-sum')), /^00:09今天第三篇/);
   }
 
   // ── ④ 同步状态变化：只重画 SYNC；收藏墙不重建、输入不丢 ──

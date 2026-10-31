@@ -249,7 +249,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-plat-sep{opacity:.6;}
 @container (max-width:300px){.lbc-lab:has(.lbc-plat-sw:not([hidden])) small{display:none;}}
 .lbc-wrap:not(.is-arranging) .lbc-mod.is-plat-off{display:none!important;}
-.lbc-sy-freq.is-first{margin-top:14px!important;}
+.lbc-sy-freq.is-first{margin-top:16px!important;}
 .lbc-sy-bar.is-cut i{background:var(--c-muted);}
 .lbc-rec-empty{font:14px/1.5 var(--f-serif);color:var(--c-muted);padding:6px 0;}
 .lbc-sy-top{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;}
