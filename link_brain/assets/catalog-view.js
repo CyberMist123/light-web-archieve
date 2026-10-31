@@ -471,6 +471,8 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-card.is-bili .lbc-body{padding:12px 0 0;}
 .lbc-card.is-bili .lbc-ctitle{font:500 15px/22px var(--f-sans);letter-spacing:0;color:var(--bili-t);height:44px;transition:color .2s;}
 .lbc-card.is-bili:hover .lbc-ctitle{color:#00aeec;}
+/* 1101 作者「B 站目录页就不要出现这俩了，会有点怪」：B 站卡片不出左上勾选圈和右上收藏星（已在多选时照旧能勾） */
+.lbc-wrap:not(.is-selecting) .lbc-card.is-bili :is(.lbc-check,.lbc-star){display:none!important;}
 .lbc-bili-day{display:flex;align-items:center;margin-top:6px;font:400 13px/17px var(--f-sans);color:var(--bili-m);white-space:nowrap;min-width:0;}
 .lbc-bili-up{display:flex;align-items:center;gap:4px;min-width:0;}
 .lbc-bili-up svg{flex:none;width:17px;height:17px;}
@@ -611,6 +613,8 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-row.is-free>.lbc-rcol.is-grow{flex:1 1 150px;width:auto!important;min-width:150px;max-width:340px;margin-left:auto!important;}
 /* 这一排里内容是空的小块（比如没选来源时的「专辑」）不占位，也不多出一道空 */
 .lbc-row.is-free>.lbc-rcol:has(>.lbc-ctl-piece:only-child>.lbc-scope:empty:only-child){display:none!important;}
+/* 1101：编排过一次后每块多了工具条和拉宽把手（不再是唯一子元素），不编排时照样不占位——不然空「专辑」留一小块，量「一行放得下吗」被当成折行，整排一直挤到最紧 */
+.lbc-wrap:not(.is-arranging) .lbc-row.is-free>.lbc-rcol:has(>.lbc-ctl-piece:only-child>.lbc-scope:empty):not(:has(>.lbc-ctl-piece>:not(.lbc-scope,.lbc-mod-bar,.lbc-m-rs))){display:none!important;}
 .lbc-wrap.is-side-narrow .lbc-top .lbc-row.is-free>.lbc-rcol.is-grow{flex:1 1 150px;}
 /* 1031 筛选那一排放不下时逐级收紧（fitFreeGaps 量了再加 .is-squeeze-N，见那里的说明） */
 .lbc-wrap .lbc-top.is-squeeze-1 .lbc-ctl.lbc-ctl-piece{column-gap:12px;}
@@ -746,17 +750,22 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-ctl button:is(.lbc-scope-tab,.lbc-topic-tab,.lbc-thq){height:auto!important;padding:12px 0 10px!important;font:400 17px/1.3 var(--f-serif)!important;color:var(--c-muted);}
 .lbc-wrap .lbc-ctl button:is(.lbc-scope-tab,.lbc-topic-tab,.lbc-thq).is-active{color:var(--c-ink);font-weight:600!important;}
 .lbc-wrap .lbc-ctl button:is(.lbc-scope-tab,.lbc-topic-tab,.lbc-thq).is-active::before{bottom:-1px!important;height:2.5px!important;}
-.lbc-wrap .lbc-ctl :is(button.lbc-pick,button.lbc-type-tab,button.lbc-time){height:auto!important;padding:12px 0 10px!important;margin-bottom:0!important;font:400 14px/1.3 var(--lb-font-body)!important;color:var(--c-muted);}
+.lbc-wrap .lbc-ctl :is(button.lbc-pick,button.lbc-type-tab,button.lbc-time){height:auto!important;padding:12px 0 12px!important;margin-bottom:0!important;font:400 14px/1.3 var(--lb-font-body)!important;color:var(--c-muted);}
 .lbc-wrap .lbc-ctl :is(button.lbc-pick,button.lbc-type-tab,button.lbc-time).is-active{color:var(--c-ink);font-weight:600!important;}
 .lbc-wrap .lbc-ctl :is(button.lbc-pick,button.lbc-type-tab).is-active::before{bottom:-1px!important;height:2.5px!important;}
 .lbc-wrap .lbc-ctl.lbc-ctl-piece.lbc-blk-search{justify-content:flex-end;padding-bottom:8px;}
 .lbc-wrap .lbc-searchbox{flex:0 1 220px!important;width:220px;height:auto!important;padding:6px 0!important;border:0!important;border-bottom:1px solid var(--c-ink)!important;border-radius:0!important;background:transparent!important;}
 .lbc-wrap .lbc-searchbox input.lbc-search{font:400 14px/1.3 var(--lb-font-body)!important;}
 .lbc-wrap .lbc-ctl.lbc-blk-sort::before{align-self:flex-end;margin-bottom:12px;}
-.lbc-wrap .lbc-ctl button.lbc-time.lbc-pill{height:auto!important;padding:12px 2px 10px!important;font:400 14px/1.3 var(--lb-font-body)!important;}
+/* 1101 作者「编排了一下字体就变了」：小字下边多 2px，和 17px 分页同一条基线（底边都压在那道线上）；★主题里的字母（AI）用 Cormorant 直体，
+   不落到思源宋体自带的等宽样西文；主题那一块后面多空一点，不和「全部来源」挤在一起 */
+.lbc-wrap .lbc-ctl button.lbc-thq{font-family:"LB Cormorant","Cormorant Garamond",Georgia,var(--f-serif)!important;}
+.lbc-wrap .lbc-ctl button.lbc-thq .lbc-topic-star{font-size:12px;margin-right:2px;}
+.lbc-wrap:not(.is-side-narrow) .lbc-top .lbc-row.is-free>.lbc-rcol.is-gap-r:has(>.lbc-m-topics){padding-right:28px;}
+.lbc-wrap .lbc-ctl button.lbc-time.lbc-pill{height:auto!important;padding:12px 2px 12px!important;font:400 14px/1.3 var(--lb-font-body)!important;}
 .lbc-wrap .lbc-tools button[hidden]{display:none!important;}
 /* 「近 7 天 · 最近导入 ↓」：纯文字按钮，前面一道细竖线隔开（不要胶囊框） */
-.lbc-wrap .lbc-ctl button.lbc-time.lbc-pill{border:0!important;border-radius:0!important;background:transparent!important;padding:12px 2px 10px!important;color:var(--c-ink);}
+.lbc-wrap .lbc-ctl button.lbc-time.lbc-pill{border:0!important;border-radius:0!important;background:transparent!important;padding:12px 2px 12px!important;color:var(--c-ink);}
 .lbc-wrap .lbc-ctl.lbc-blk-sort{position:relative;}
 .lbc-wrap .lbc-ctl.lbc-blk-sort::before{content:"";align-self:center;width:1px;height:16px;margin-right:12px;background:var(--c-line);}
 /* 数字一律齐线（Cormorant 默认旧式数字高低不齐；font 简写会把它重置掉，这里兜一次） */
@@ -4583,7 +4592,7 @@ function rowIsOneLine(row) {
 function fitFreeGaps() {
   const row = ctlRowEl();
   if (!row) { if (squeezeLvl) setSqueeze(0); placeFreeGaps(); return; }
-  const key = (row.clientWidth || 0) + '|' + [...row.querySelectorAll('.lbc-ctl-piece')].map(p => p.classList.contains('is-gone') ? '' : p.textContent).join('|');
+  const key = (wrap.classList.contains('is-arranging') ? 'A' : '') + (row.clientWidth || 0) + '|' + [...row.querySelectorAll('.lbc-ctl-piece')].map(p => p.classList.contains('is-gone') ? '' : p.textContent).join('|');
   if (key === squeezeKey) { placeFreeGaps(); return; }
   setSqueeze(0); placeFreeGaps();
   while (squeezeLvl < SQUEEZE_MAX && !rowIsOneLine(row)) { setSqueeze(squeezeLvl + 1); placeFreeGaps(); }
@@ -5565,6 +5574,7 @@ function setArranging(on) {
   paintTray(); for (const id of MOD_IDS) paintBar(id);
   paintStickyTop();
   paintEdges();
+  fitFreeGaps();   // 1101 作者「编排了一下字体就变了」：编排时那排被挤到最紧一级，点完成后宽度、文字都没变就不重量——键里带上编排与否
   sideFadeSoon();
 }
 cleanups.push(() => { try { document.removeEventListener('keydown', onArrangeKey, true); } catch {} });
