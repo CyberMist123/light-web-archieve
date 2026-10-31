@@ -549,6 +549,27 @@ ${LB.brandCss('.lbw .lbw-brand', '.lbw .lbw-engr')}
 .lbw .lbw-tagpills button:hover,.lbw .lbw-tagpills button.is-on{border-color:var(--lb-ink);color:var(--lb-ink);text-decoration:none;}
 /* 数字一律齐线（Cormorant 默认旧式数字高低不齐；font 简写会把它重置掉，这里兜一次） */
 .lbw *{font-variant-numeric:lining-nums;}
+/* ── 1101 作者：Wiki 不要页头；右上角一小撮「浏览收藏 / 问收藏 / Wiki」+ 历史 + ···（打开一页时在右栏上面），其余几栏从顶上开始 ── */
+.lbw-main{grid-template-rows:auto 1fr;padding-top:20px;}
+.lbw-corner{grid-row:1;grid-column:2 / -1;justify-self:end;display:flex;align-items:center;gap:6px;margin:0 0 18px;white-space:nowrap;}
+.lbw-main > .lbw-toc{grid-column:1;grid-row:1 / 3;}
+.lbw-main > .lbw-center{grid-column:2;grid-row:2;}
+.lbw.has-rail:not(.is-mid):not(.is-narrow) .lbw-corner{grid-column:3;}
+.lbw.has-rail:not(.is-mid):not(.is-narrow) .lbw-main > .lbw-center{grid-row:1 / 3;}
+.lbw.has-rail:not(.is-mid):not(.is-narrow) .lbw-main > .lbw-rail{grid-column:3;grid-row:2;}
+.lbw.is-mid.has-rail .lbw-main > .lbw-rail{grid-column:2;grid-row:3;}
+.lbw.is-tocoff:not(.is-narrow) .lbw-corner{grid-column:1 / -1;}
+.lbw.is-tocoff:not(.is-narrow) .lbw-main > .lbw-center{grid-column:1;}
+.lbw.is-tocoff.has-rail:not(.is-mid):not(.is-narrow) .lbw-corner,.lbw.is-tocoff.has-rail:not(.is-mid):not(.is-narrow) .lbw-main > .lbw-rail{grid-column:2;}
+.lbw.is-narrow .lbw-corner{display:flex;justify-content:flex-end;}
+.lbw .lbw-corner .lb-page-nav{background:transparent;padding:0;gap:2px;justify-self:auto;}
+.lbw .lbw-corner .lb-page-nav button{padding:7px 12px;font:400 13.5px/1.2 var(--lbw-sans)!important;color:var(--lb-muted);}
+.lbw .lbw-corner .lb-page-nav button.is-current{color:var(--lb-ink);font-weight:600!important;}
+.lbw .lbw-corner .lbw-acts{margin-left:0;gap:0;}
+.lbw .lbw-corner .lbw-hbtn{width:36px;height:36px;}
+.lbw .lbw-corner .lbw-hbtn .lbw-ico{width:18px;height:18px;}
+.lbw-sub{margin:-8px 0 16px 4px;font:400 12px/1.4 var(--lbw-sans);color:var(--lb-muted);}
+.lbw-sub .lbw-num{font:inherit;color:inherit;}
 `);
 
 // ═════════════ 小工具 ═════════════
@@ -859,21 +880,17 @@ const wrap = h('div', { cls: 'lbw' + (readOnly ? ' is-ro' : '') + (LB.mobile ? '
 mount.append(wrap);
 try { LB.applyTheme(); } catch (e) { console.debug('[lb] wiki theme', e); }
 const R = {};
-const head = add(h('header', { cls: 'lbw-head' }), h('h2', { cls: 'lb-visually-hidden', text: '个人 Wiki' }));
-const hrow = h('div', { cls: 'lbw-hrow' });
-head.append(hrow);
-// 1101 设计交接包：三页同一个页头——刻线字标 + ＋ ｜ 空间切换胶囊 ｜ 右边「全部 N 页 · 更新」· 历史 · ···；「AI」挪到正文右上角（「AI 整理本页」）
-const brandBox = h('div', { cls: 'lbw-brandbox' });
-hrow.append(brandBox);
-const brand = LB.brandTitle(brandBox, 'lbw-brand', 'lbw-engr');
-if (!readOnly) brandBox.append(btn({ cls: 'lbw-plus', on: { click: e => openPlus(e) } }, h('span', { text: '+', attr: { 'aria-hidden': 'true' } }), sr('收进来：添加一条收藏')));
-async function openPlus(e) { try { (await LB.ensure('openPlusMenu')).openPlusMenu(e); } catch (err) { LB.say('菜单没打开：' + errText(err), { kind: 'error' }); } }
-{ const ref = app.workspace.on?.('link-brain:catalog-prefs', () => brand.set()); if (ref) LB.onUnload(() => { try { app.workspace.offref(ref); } catch (e) { console.debug(e); } }); }
-LB.spaceSwitch(hrow, 'wiki', { onCurrent: () => go('home') });
+// 1101 作者：Wiki 不要页头（COLLECTIONS 那一整条不要）——三页切换 + 历史 + ··· 放到右上角（打开一页时就在右栏「ON THIS PAGE」上面）；
+// 切换照以前问收藏页的样子：没有外框，当前那页是白底小卡带一点阴影（.lb-page-nav），中英文同一种无衬线字
+R.corner = h('div', { cls: 'lbw-corner' }, h('h2', { cls: 'lb-visually-hidden', text: '个人 Wiki' }));
+const nav = h('nav', { cls: 'lb-page-nav' },
+  btn({ text: '浏览收藏', on: { click: () => LB.openPage('catalog') } }),
+  btn({ text: '问收藏', on: { click: () => LB.openPage('chat') } }),
+  btn({ text: 'Wiki', cls: 'is-current', attr: { 'aria-current': 'page' }, on: { click: () => go('home') } }));
 const acts = h('div', { cls: 'lbw-acts' });
-hrow.append(acts);
-R.sub = h('div', { cls: 'lbw-sub lb-sh-meta' });
-acts.append(R.sub);
+add(R.corner, [nav, acts]);
+// 「全部 N 页 · 更新 …」：放左栏搜索框下面一行小字（renderToc 里挂）
+R.sub = h('div', { cls: 'lbw-sub' });
 if (!readOnly) {
   // 「AI 整理本页」：只在打开一页时出现，放在那一页的面包屑那一行右边（renderPage 里挂上去）；不要框（1101 作者）
   R.aiBtn = btn({ cls: 'lbw-hbtn is-ai', data: { ai: 'open' }, on: { click: () => openAiFromHead() } }, icon('spark'), h('span', { text: 'AI 整理本页' }));
@@ -883,7 +900,6 @@ if (!readOnly) {
 // 「···」只读时也在：目录首页 / 全部展开 / 全部收起 / 收起目录这些看的操作收在这里（1101），写盘的几项只读时不列
 R.more = btn({ cls: 'lbw-hbtn is-more', on: { click: e => showMoreMenu(e, R.more) } }, icon('more'), sr('更多'));
 acts.append(R.more);
-wrap.append(head);
 if (readOnly) wrap.append(h('p', { cls: 'lbw-ro', text: LB.mobile ? '手机上只能看：Wiki 回电脑上改' : 'Link Brain Actions 插件没启用，Wiki 只能看' }));
 const body = h('div', { cls: 'lbw-body' });
 const main = h('div', { cls: 'lbw-main' });
@@ -891,7 +907,7 @@ R.toc = h('aside', { cls: 'lbw-toc' });
 R.scrim = h('div', { cls: 'lbw-scrim', on: { click: () => setDrawer(false) } });
 R.center = h('main', { cls: 'lbw-center' });
 R.rail = h('aside', { cls: 'lbw-rail' }); R.rail.hidden = true;
-add(main, [R.toc, R.scrim, R.center, R.rail]);
+add(main, [R.corner, R.toc, R.scrim, R.center, R.rail]);
 R.side = h('aside', { cls: 'lbw-side' }); R.side.hidden = true;
 add(body, [main, R.side]);
 R.fab = btn({ cls: 'lbw-fab', on: { click: () => { if (wrap.classList.contains('is-narrow')) setDrawer(!UI.drawer); else setTocOff(false); } } }, icon('list'), '目录');
@@ -1130,7 +1146,7 @@ function renderToc() {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); toggleFind(false); }
     else if (e.key === 'Enter') { e.preventDefault(); const b = R.tree && (R.tree.querySelector('.lbw-tpage[data-page]') || R.tree.querySelector('[data-page]')); const p = b && PAGES.get(b.dataset.page); if (p) openFromFind(p); }
   });
-  tocEl.append(h('label', { cls: 'lbw-findw' }, icon('find'), h('span', { cls: 'lb-visually-hidden', text: '搜标题和正文' }), R.findIn));
+  tocEl.append(h('label', { cls: 'lbw-findw' }, icon('find'), h('span', { cls: 'lb-visually-hidden', text: '搜标题和正文' }), R.findIn), R.sub);
   const cur = current();
   if (R.miniGraph) { R.miniGraph.destroy(); R.miniGraph = null; }   // 换页 / 重画：旧图停掉
   if (mapTab) {
