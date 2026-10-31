@@ -354,7 +354,7 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-tagpick-status, .lb-tagpick-msg { color: var(--text-muted); margin: 4px 0; }
 .lb-tagpick-list { max-height: 50vh; overflow-y: auto; scrollbar-width: none; }
 .lb-tagpick-list::-webkit-scrollbar { display: none; }
-.lb-tagpick-row { padding: 4px 8px; border-radius: 4px; cursor: pointer; }
+.lb-tagpick-row { padding: 4px 8px; border-radius: 4px; cursor: pointer; overflow-wrap: anywhere; }
 .lb-tagpick-row.is-selected { background: var(--background-modifier-hover); }
 .lb-tagpick-order { display: flex; gap: 6px; margin: 10px 0; }
 .lb-tagpick-order button.is-active { color: var(--text-on-accent); background: var(--interactive-accent); }
@@ -455,6 +455,8 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-index-suggest-row.is-done { opacity: .6; }
 .lb-index-suggest-main { flex: 1; min-width: 0; }
 .lb-index-suggest-sub { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-top: 2px; overflow-wrap: anywhere; }
+.lb-index-suggest-title { overflow-wrap: anywhere; }   /* 1031：英文连写的标签 / 路径不把「加入」挤出去 */
+.lb-index-suggest-row > button { flex: none; }
 
 /* —— 1015 她：设置页照 claudian 插件——顶部下划线页签（通用 / 模型与提供商 / 技能）→ 每组一张圆角卡片（标题加粗 + 分隔线）
    → 每行左标题 + 灰说明、右控件（开关紫色 / 下拉 / 输入框）。卡片是浅底上的白卡；深色主题跟着主题变量走。 */
@@ -788,6 +790,13 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v7 .lb-twin-card > .setting-item-description { margin: 0 0 var(--lb-space-1); }
 .lb-settings .lb-v7 .lb-twin-card .lb-accounts > .setting-item:first-child, .lb-settings .lb-v7 .lb-twin-card .lb-apps > .setting-item:first-child { border-top: 0; }
 .lb-settings .lb-v7 .lb-twin-card .lb-app-icon { flex-basis: 28px; height: 28px; }
+/* 1031 半宽卡里的应用行（电脑端）：卡只有 ~220px，Obsidian 给控件 flex:1、图标再加 16px 右边距、名字单行省略号 → 「Claude Code」「v2.1.302」被截成「Claud」「v2.1.:」。
+   开关只占自己那么宽，名字那栏拿剩下的、能折行 */
+.lb-settings .lb-v7 .lb-twin-card .lb-app { gap: var(--lb-space-2); }
+.lb-settings .lb-v7 .lb-twin-card .lb-app > .lb-app-icon { margin-inline-end: 0; }
+.lb-settings .lb-v7 .lb-twin-card .lb-app > .setting-item-info { flex: 1 1 0; min-width: 0; }
+.lb-settings .lb-v7 .lb-twin-card .lb-app > .setting-item-control { flex: 0 0 auto; }
+.lb-settings .lb-v7 .lb-twin-card .lb-app .setting-item-name { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
 /* 网页端卡片只有半宽：行改成上下排（名字在上、控件在下靠左），不挤 */
 .lb-settings .lb-v7 .lb-twin-card[data-section="remote"] .lb-connect .setting-item { flex-wrap: wrap; gap: var(--lb-space-1) var(--lb-space-2); }
 .lb-settings .lb-v7 .lb-twin-card[data-section="remote"] .lb-connect .setting-item-info { flex: 1 1 100%; }
@@ -870,9 +879,11 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
     /* 1028 她：「应该整一块固定」——条往上伸到滚动区最顶（--lb-stick-pad = 页面离滚动区顶的高度，settings-v6 量），吸在最顶上，内边距里不再露字 */
     top: calc(-1 * var(--lb-stick-pad, 0px)); margin-top: calc(-1 * var(--lb-stick-pad, 0px)); padding: calc(var(--lb-stick-pad, 0px) + var(--lb-space-4)) 0 var(--lb-space-4); }
   .lb-settings .lb-v7 .lb-anchor-foot { display: none; }
+  /* 1031：内容区再窄（420）一行放不下六个——以前横向滚、滚动条藏着，「05 CLI 与外接 MCP」「06 修复」看不见；放不下就折成两行 */
+  .lb-settings .lb-v7 .lb-anchors { flex-wrap: wrap; justify-content: flex-start; overflow-x: visible; column-gap: var(--lb-space-4); row-gap: 0; }
   .lb-settings .lb-v7 .lb-twin, .lb-settings .lb-v7 .lb-pair, .lb-settings .lb-v7 .lb-console-grid { grid-template-columns: minmax(0, 1fr); }
   .lb-settings .lb-v7 .lb-v7-head h1 { font-size: calc(var(--lb-fs-h1) * 1.3); }
-  .lb-settings .lb-v7 .lb-group { scroll-margin-top: 84px; }   /* 1027b 她：「标题离上面这个太近」——跳过去时组标题离锚点条留一段 */
+  .lb-settings .lb-v7 .lb-group { scroll-margin-top: 112px; }   /* 1027b 她：「标题离上面这个太近」——跳过去时组标题离锚点条留一段 */
 }
 
 /* 1027b 她：设置页不要花哨，只用正文字——标题（衬线）、序号（Cormorant 斜体）、PREFERENCES（雕刻字）都改正文字、不斜体。
@@ -904,8 +915,12 @@ body.lb-notip .tooltip{display:none!important;}
 .lb-bili-pick-modal .lb-bili-pick-sec > h3 { margin: 0 0 var(--lb-space-1); font-size: var(--lb-fs-h2); }
 .lb-bili-pick-modal .lb-bili-pick-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--lb-space-2); margin: var(--lb-space-1) 0; font-size: var(--lb-fs-small); }
 .lb-bili-pick-modal .lb-bili-pick-tools button.lb-link { background: transparent; box-shadow: none; border: 0; height: auto; padding: 2px 4px; color: var(--lb-ink); text-decoration: underline; cursor: pointer; }
-.lb-bili-pick-modal .lb-bili-pick-count { color: var(--lb-muted); margin-right: auto; }
+.lb-bili-pick-modal .lb-bili-pick-count { color: var(--lb-muted); margin-right: auto; flex: 1 1 12em; min-width: 0; }   /* 1031：窄窗里这句自己折行，「全选」「全不选」留在同一行 */
 .lb-bili-pick-modal .lb-bili-pick-folder { padding: 6px 0; }
+/* 1031：窄窗里长收藏夹名（英文连写）别把开关挤出去 / 省略号吃掉：名字折行 */
+.lb-bili-pick-modal .lb-bili-pick-folder .setting-item-info { min-width: 0; }
+.lb-bili-pick-modal .lb-bili-pick-folder .setting-item-name { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+.lb-bili-pick-modal .lb-bili-pick-folder .setting-item-control { flex: 0 0 auto; }
 .lb-bili-pick-modal .lb-bili-long-list { font-size: var(--lb-fs-small); }
 .lb-bili-pick-modal .lb-bili-long-row { display: grid; grid-template-columns: auto 5.5em minmax(0, 1fr); gap: 2px var(--lb-space-2); align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--lb-line); cursor: pointer; }
 .lb-bili-pick-modal .lb-bili-long-row.is-off { opacity: .55; }
@@ -923,4 +938,7 @@ body.lb-notip .tooltip{display:none!important;}
 .lb-settings .lb-v7 button.lb-plat-tab.is-on { border-color: var(--lb-ink) !important; box-shadow: inset 0 0 0 1px var(--lb-ink) !important; }
 .lb-settings .lb-v7 button.lb-plat-tab:not(.is-on) .lb-plat-name { color: var(--lb-muted); font-weight: 600; }
 .lb-settings .lb-v7 .lb-plat-pane[hidden] { display: none; }
-@media (max-width: 560px) { .lb-settings .lb-v7 .lb-plat-switch { grid-template-columns: 1fr; } .lb-settings .lb-v7 button.lb-plat-tab .lb-plat-note { white-space: normal; } }
+.lb-settings .lb-v7 button.lb-plat-tab .lb-plat-name { flex: none; white-space: nowrap; }
+.lb-settings .lb-v7 button.lb-plat-tab .lb-plat-note { min-width: 0; }
+/* 1031：设置是独立窗口，窄的是设置内容区不是屏幕——按内容区宽（容器）换一栏，不按视口（以前 @media 560px，设置窗 420 时不生效，「B 站」被挤成两行） */
+@container (max-width: 560px) { .lb-settings .lb-v7 .lb-plat-switch { grid-template-columns: minmax(0, 1fr); } .lb-settings .lb-v7 button.lb-plat-tab .lb-plat-note { white-space: normal; } }
