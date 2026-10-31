@@ -54,15 +54,18 @@ def test_plan_buckets_and_dedupe():
     assert [r["bvid"] for r in long_mp["buckets"]["long"]] == ["BV1aaaaaaaa7"] and not long_mp["buckets"]["download"]
 
 
-def test_pending_note_lists_links_only():
+def test_pending_note_is_one_sentence_pointing_to_page():
+    """1101 作者：清单里打勾显示成划线、还叫人敲命令行 / 找 Fable——改成一句话 + 指向「挑要下的视频」页。"""
     pl = sync.plan(SNAPS)
-    out = {"buckets": {**pl["buckets"], "downloaded": [], "failed": []}, "counts": {**pl["counts"], "folders": 2, "downloaded": 0, "failed": 0},
+    out = {"buckets": {**pl["buckets"], "downloaded": [], "failed": [{"bvid": "BV1x"}]}, "counts": {**pl["counts"], "folders": 2, "downloaded": 3, "failed": 1},
            "bv_total": pl["bv_total"], "finished_at": "2026-10-29T03:00:00+11:00"}
-    text = sync.render_pending_note(out)
-    assert "## 超过 1 小时" in text and "两小时讲座" in text and "https://www.bilibili.com/video/BV1aaaaaaaa2" in text
-    assert "2:01:40" in text and "## 多 P 超过 5 P 的" in text and "八 P 合集" in text and "三 P 课程" not in text
-    assert "## 原站已失效" in text and "## 不是视频稿件" in text
-    assert "短 MV" not in text   # 要下载的不在待选清单里
+    text = sync.render_pending_note(out, page="我的B站挑选.md")
+    assert "有 2 个视频超过 1 小时或分 P 超过 5 个" in text and "[[我的B站挑选|挑要下的视频]]" in text and "选中想要的点「下载」" in text and "点「删除」（放进回收站" in text
+    assert "没下成的 1 条不用管，下次同步会自动再试" in text and "本次新下 3 条" in text
+    for bad in ("- [ ]", "--allow", "Fable", "命令行", "两小时讲座", "https://"):
+        assert bad not in text, bad
+    none = sync.render_pending_note({"buckets": {}, "counts": {}})
+    assert "这次没有要挑的视频" in none and "[[B站挑选|挑要下的视频]]" in none
 
 
 @pytest.fixture
@@ -87,8 +90,10 @@ def test_run_sync_downloads_short_videos_only(vault, monkeypatch):
         "status": "ok", "folders": [{"media_id": 11, "fid": 1, "owner_mid": mid, "title": "音乐", "private": False, "media_count": 3},
                                     {"media_id": 12, "fid": 2, "owner_mid": mid, "title": "学习", "private": True, "media_count": 4}]})
     snaps = {s["media_id"]: {**s, "owner_mid": 1234567, "complete": True, "status": "complete", "fetched_at": "t"} for s in SNAPS}
-    monkeypatch.setattr(favorites, "sync_folder", lambda client, mid_, **kw: {"snapshot": snaps[mid_], "diff": None, "relations": None,
-                                                                              "summary": {}, "prev_complete_at": None})
+    def fake_folder(client, mid_, **kw):   # 真的 sync_folder 会把快照落盘（「挑要下的视频」页只读本地快照）
+        storage.write_json(favorites.snapshot_path(1234567, mid_), snaps[mid_])
+        return {"snapshot": snaps[mid_], "diff": None, "relations": None, "summary": {}, "prev_complete_at": None}
+    monkeypatch.setattr(favorites, "sync_folder", fake_folder)
     calls = []
 
     def fake_ingest(url, **kw):
@@ -106,8 +111,14 @@ def test_run_sync_downloads_short_videos_only(vault, monkeypatch):
     assert committed == ["BV1aaaaaaaa1", "BV1aaaaaaaa3", "BV1aaaaaaaa3_p2", "BV1aaaaaaaa3_p3", "BV1aaaaaaaa5"]   # 按 P 的 source_id 收尾
     assert out["counts"]["downloaded"] == 5 and out["counts"]["long"] == 1 and out["counts"]["multi_p"] == 1
     note = sync.pending_note_path()
-    assert note.is_file() and "两小时讲座" in note.read_text(encoding="utf-8")
+    assert note.is_file() and "[[B站挑选|挑要下的视频]]" in note.read_text(encoding="utf-8")
     assert note.parent.name == "Bilibili"
+    # 1101：同步完写出「挑要下的视频」页和它的数据
+    page = storage.vault_root() / "B站挑选.md"
+    assert page.read_text(encoding="utf-8").startswith("---\nlb-page: bili-pending\ncssclasses: [lb-bilipage]\n---\n")
+    assert "bili-pending-page.js" in page.read_text(encoding="utf-8")
+    pdata = storage.read_json(favorites.sync_root() / "pending-data.json")
+    assert [(r["bvid"], r["kind"]) for r in pdata["items"]] == [("BV1aaaaaaaa2", "long"), ("BV1aaaaaaaa6", "multi")]
     last = storage.read_json(favorites.sync_root() / "last-sync.json")
     assert last["counts"]["downloaded"] == 5 and "SESSDATA" not in str(last)
     assert all("media_id_masked" in f and "media_id" not in f for f in last["folders"])
@@ -238,9 +249,6 @@ def test_choose_deny_writes_tombstone_and_plan_excludes(vault, monkeypatch):
     pl = sync.plan(SNAPS, allow=set(ch["allow"]), deny=set(ch["deny"]))
     assert [r["bvid"] for r in pl["buckets"]["denied"]] == ["BV1aaaaaaaa1"]
     assert "BV1aaaaaaaa2" in {r["bvid"] for r in pl["buckets"]["download"]} and pl["buckets"]["long"] == []
-    text = sync.render_pending_note({"buckets": {**pl["buckets"], "downloaded": [], "failed": []},
-                                     "counts": {**pl["counts"], "folders": 2}, "bv_total": pl["bv_total"]})
-    assert "## 你删了的" in text and "短 MV" in text
     assert sync.choose(undo=["BV1aaaaaaaa2"])["undone"] == ["BV1aaaaaaaa2"]
     assert "BV1aaaaaaaa2" not in sync.load_choices()["allow"]
 

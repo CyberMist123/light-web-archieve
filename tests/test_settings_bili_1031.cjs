@@ -55,8 +55,11 @@ function makePlugin() {
   const p = { settings: {}, calls: [], runs: [], notices: [], saves: 0, saveFails: 0, running: null, runningProgress: '', listeners: new Set() };
   p.lbPath = x => x;
   p.app = { vault: { adapter: { read: async () => JSON.stringify({ state: 'running', started_at: new Date().toISOString(), progress: { done: 3, total: 515 } }) },
-    getAbstractFileByPath: f => (f === LAST0.pending_note ? { path: f } : null) },
+    getAbstractFileByPath: () => null, getMarkdownFiles: () => [] },
+    metadataCache: { getFileCache: () => null },
     workspace: { getLeaf: () => ({ openFile: f => { p.opened = f.path; } }) } };
+  p.pagesOpened = [];
+  p.openLibraryPage = async role => { p.pagesOpened.push(role); };
   p.settingsPages = () => ({ LINKS: {} });
   p.saveSettings = async () => { if (p.saveFails > 0) { p.saveFails--; throw new Error('磁盘满了（合成）'); } p.saves++; };
   p.notify = (m, o = {}) => p.notices.push({ m, ...o });
@@ -102,7 +105,7 @@ function makePlugin() {
   assert.equal(B.estimateText({ count: 0 }), '没有要下的：收藏里的视频都已经在库里了');
   const lt = B.lastText(LAST0);
   assert.match(lt.main, /下到第 349 条（一共 849 条）时停了，多半是关了电脑/);
-  assert.equal(lt.sub, '这次新下了 340 条；9 条没下成（下次同步会再试）；73 个分集很多的视频等你挑要不要下。另外 11 条太长、66 条已经被删 / 失效，先没下，不用管。', '1101 说人话；超时长 / 失效不算待处理');
+  assert.equal(lt.sub, '这次新下了 340 条；9 条没下成（下次同步会再试）；84 个视频（分集很多或比较长）等你挑要不要下。另外 66 条已经被删 / 失效，不用管。', '1101 说人话；太长 / 分 P 多的都在「挑要下的视频」页里；失效的不算');
   assert.equal(B.lastText(null).main, '还没同步过 B 站收藏');
 
   // —— 画卡：登录状态、选项、上次摘要 ——
@@ -120,7 +123,10 @@ function makePlugin() {
   assert.match(text(), /上次：上次同步没跑完：下到第 349 条/, '被打断的那次：停在第几条、为什么');
   const btn = t => card.querySelectorAll('button').find(b => b.textContent === t);
   assert.equal(tab.stops.length, 1, '任务监听在设置页关掉时注销');
-  assert.ok(btn('挑要下的视频…'), '1101：不再打开待选清单笔记，直接给「挑要下的视频…」（打开挑选弹窗）');
+  // 1101：不再开 Markdown 待选清单，开「挑要下的视频」页（页还没有就先让后端写一份）
+  await btn('挑要下的视频').onclick(); await settle();
+  assert.ok(plugin.calls.includes('bilibili pending --json --max-duration 3600'), '打开前先让后端重写页面和数据');
+  assert.deepEqual(plugin.pagesOpened, ['bili-pending']);
 
   // —— 选项改了就存；存失败拨回 ——
   const rowOf = n => card.querySelectorAll('.setting-item').find(r => r.querySelector('.setting-item-name').textContent === n);
@@ -152,7 +158,9 @@ function makePlugin() {
   const run = plugin.runs.at(-1);
   assert.equal(run.label, '下载 B 站收藏') ; assert.ok(!/同步/.test(run.label) && run.quiet && !run.args.includes('--dry-run'));
   const fin = plugin.notices.at(-1);
-  assert.match(fin.m, /新下 515 条/); assert.equal(fin.kind, 'ok'); assert.equal(fin.actions[0].label, '挑要下的视频…');
+  assert.match(fin.m, /新下 515 条/); assert.equal(fin.kind, 'ok'); assert.equal(fin.actions[0].label, '挑要下的视频');
+  await fin.actions[0].run(); await settle();
+  assert.deepEqual(plugin.pagesOpened, ['bili-pending', 'bili-pending'], '同步完的提示也能打开「挑要下的视频」');
   assert.match(text(), /上次：同步完：新下 515 条/);
   assert.ok(btn('停止').hidden, '跑完「停止」收起');
 

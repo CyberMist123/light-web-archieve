@@ -54,6 +54,7 @@ def item_row(raw: dict[str, Any]) -> dict[str, Any]:
         "upper_name": str(owner.get("name") or ""),
         "pubtime": int(raw.get("pubdate") or 0) or None,
         "duration": int(raw.get("duration") or 0) or None,
+        "cover": favorites._https(raw.get("pic")),   # 1101：待下载页卡片的封面网址（稍后再看的接口叫 pic）
         "listed": True,
     }
 

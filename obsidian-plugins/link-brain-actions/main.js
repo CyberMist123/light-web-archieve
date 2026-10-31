@@ -1355,6 +1355,7 @@ class LinkBrainActions extends Plugin {
       { id: 'open-problems', name: '维护：打开问题列表', callback: () => this.openProblems() },
       { id: 'open-sync-log', name: '打开同步记录', callback: () => this.openSyncLog() },
       { id: 'open-trash', name: '打开回收站', callback: () => this.openLibraryPage('trash') },
+      { id: 'open-bili-pending', name: 'B 站：挑要下的视频', callback: () => this.openBiliPending() },
     ];
   }
   archiveCommand(checking, run) {
@@ -2480,6 +2481,11 @@ class LinkBrainActions extends Plugin {
     if(code!==0&&code!==2)throw new Error(stderrTail(err)||out.trim()||'附件命令失败');
     return {text:out.trim(),warning:code===2?('文件已保存，但全文没转出来：'+(stderrTail(err,1)||'原因没报出来')):null};
   }
+
+  // 1101「挑要下的视频」页（bili-pending-view.js）调的三个：下载 / 不下（bilibili choose）、现在开始下载、打开那一页；实现都在 settings-v6.js 的 bili 段
+  biliChoose(picks) { return this.settingsV6().bili.choosePending(picks); }
+  biliSyncNow() { return this.settingsV6().bili.syncNow(); }
+  openBiliPending() { return this.settingsV6().bili.openPending(); }
 
   async trashAction(action, ids = []) {
     const {code,json,err}=await this.runPy(['-m','link_brain','trash',action,...ids],{label:'回收站',fallback:'回收站操作失败'});

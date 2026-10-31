@@ -1,6 +1,6 @@
-// 1031 作者「没有让我选哪些下载」：设置页②「挑选要同步的…」→ 挑选弹窗（settings-v6.js biliPicker）。
-//   收藏夹（含稍后再看）每个一个开关，关掉的存 settings.bilibili.skipFolders、同步时 --skip-folder；
-//   长视频：门槛下拉（同「超过多长先不下」）、逐条勾、全选 / 全不选；勾上 = choose --allow，取消 = --undo；
+// 1031 作者「没有让我选哪些下载」：设置页②的挑选弹窗（settings-v6.js biliPicker）。
+// 1101 起弹窗只管收藏夹（「选同步哪些收藏夹…」）：收藏夹（含稍后再看）每个一个开关，关掉的存 settings.bilibili.skipFolders、同步时 --skip-folder；
+//   太长 / 分 P 多的视频改到「挑要下的视频」页（bili-pending-view.js）——设置页上是主按钮「挑要下的视频…」，弹窗里不再有勾选。
 //   「保存」「保存并开始同步」；没扫过收藏夹时提示先预估 / 同步；存失败弹窗不关、句式固定。
 // 不起真进程（CONVENTIONS §7.5）：runPy / run 是替身；Modal 是替身。
 'use strict';
@@ -63,7 +63,10 @@ const PICK = {
 function makePlugin() {
   const p = { settings: {}, calls: [], runs: [], notices: [], saves: 0, saveFails: 0, chooseFails: 0, running: null, listeners: new Set(), pick: PICK };
   p.lbPath = x => x;
-  p.app = { vault: { adapter: { read: async () => '{}' }, getAbstractFileByPath: () => null }, workspace: { getLeaf: () => ({ openFile() {} }) } };
+  p.app = { vault: { adapter: { read: async () => '{}' }, getAbstractFileByPath: () => null, getMarkdownFiles: () => [] }, metadataCache: { getFileCache: () => null },
+    workspace: { getLeaf: () => ({ openFile() {} }) } };
+  p.pagesOpened = [];
+  p.openLibraryPage = async role => { p.pagesOpened.push(role); };
   p.settingsPages = () => ({ LINKS: {} });
   p.saveSettings = async () => { if (p.saveFails > 0) { p.saveFails--; throw new Error('磁盘满了（合成）'); } p.saves++; };
   p.notify = (m, o = {}) => p.notices.push({ m, ...o });
@@ -97,76 +100,65 @@ function makePlugin() {
   const B = V.bili;
   assert.deepEqual(B.biliSkip({ skipFolders: [12, ' toview ', null, '12'] }), ['12', 'toview'], 'id 一律字符串、去空、去重');
 
-  // —— 设置页②：显眼的入口按钮 + 看得见的说明；原来折叠的超长清单没了 ——
+  // —— 设置页②：主按钮「挑要下的视频…」开那一页；「选同步哪些收藏夹…」开弹窗 ——
   const tab = { stops: [], help() {} };
   const card = doc.createElement('div');
   doc.body.appendChild(card);
   B.biliSync(card, tab);
   await settle();
   const btnIn = (root, t) => root.querySelectorAll('button').find(b => b.textContent === t);
-  const entry = btnIn(card, '挑选要同步的…');
-  assert.ok(entry && entry.classList.contains('is-primary'), '入口是主样式按钮');
-  assert.match(card.textContent, /现在全部收藏夹和稍后再看都同步/);
-  assert.ok(!card.querySelector('details') && !card.querySelector('.lb-bili-long'), '折叠的超长清单被挑选页取代');
-  assert.ok(!plugin.calls.some(c => c.startsWith('bilibili long')), '设置页不再自己读超长清单');
+  const pend = btnIn(card, '挑要下的视频…');
+  assert.ok(pend && pend.classList.contains('is-primary'), '挑视频是主按钮');
+  assert.match(card.textContent, /超过 1 小时、分 P 超过 5 个的视频先只记链接，在「挑要下的视频」里选中点「下载」就会下。现在全部收藏夹和稍后再看都同步/);
+  assert.ok(!btnIn(card, '挑选要同步的…'), '旧入口名没了');
+  await pend.onclick(); await settle();
+  assert.deepEqual(plugin.pagesOpened, ['bili-pending']);
+  const entry = btnIn(card, '选同步哪些收藏夹…');
+  assert.ok(entry && !entry.classList.contains('is-primary'));
 
-  // —— 打开弹窗：只读本地（bilibili pick），列收藏夹开关和长视频 ——
+  // —— 打开弹窗：只读本地（bilibili pick），只列收藏夹开关，没有逐条勾选 ——
   entry.onclick();
   await settle();
   const m = modals.at(-1);
   assert.ok(m && m.isOpen && m.modalEl.classList.contains('lb-bili-pick-modal'));
   assert.ok(plugin.calls.includes('bilibili pick --json --max-duration 3600'));
   const box = m.contentEl;
+  assert.match(box.textContent, /选同步哪些 B 站收藏夹/);
   const folderRows = box.querySelectorAll('.lb-bili-pick-folder');
   assert.deepEqual(folderRows.map(r => r.querySelector('.setting-item-name').textContent), ['稍后再看', '音乐', '私房']);
   assert.match(folderRows[2].querySelector('.setting-item-description').textContent, /2 条 · 私密/);
   assert.match(folderRows[0].textContent, /移出稍后再看的不删本地/);
   assert.ok(folderRows.every(r => r.querySelector('.checkbox-container').checked), '默认全开');
-  const rows = () => box.querySelectorAll('.lb-bili-long-row');
-  assert.deepEqual(rows().map(r => r.getAttribute('data-bvid')), ['BV1a', 'BV1b', 'BV1c']);
-  assert.deepEqual(rows().map(r => r.querySelector('input').checked), [false, true, false], '已放行的勾着');
-  assert.match(box.textContent, /超过 1 小时、还没入库的 3 条，勾上 1 条/);
-  assert.match(rows()[2].textContent, /稍后再看、音乐/, '列出所在收藏夹');
+  assert.equal(box.querySelectorAll('.lb-bili-long-row').length, 0, '弹窗里不再逐条勾视频');
+  assert.ok(!box.querySelector('.lb-bili-pick-threshold'), '门槛只在设置页那一行');
 
-  // 关掉「私房」：只在私房里的那条变灰、写明不会下；纪录片还在音乐里，不灰
+  // 关掉「私房」；全开 / 全关
   const tgl = folderRows[2].querySelector('.checkbox-container');
   tgl.checked = false; tgl.onchange();
-  assert.ok(rows()[1].classList.contains('is-off') && /所在收藏夹都关了/.test(rows()[1].textContent));
-  assert.ok(!rows()[2].classList.contains('is-off'));
-  // 全选 / 全不选
-  btnIn(box, '全选').onclick();
-  assert.deepEqual(rows().map(r => r.querySelector('input').checked), [true, true, true]);
-  assert.match(box.textContent, /勾上 3 条/);
-  btnIn(box, '全不选').onclick();
-  const cbA = rows()[0].querySelector('input'); cbA.checked = true; cbA.onchange();
-  // → BV1a 新勾（allow）、BV1b 取消（undo）、BV1c 没变
+  btnIn(box, '全关').onclick();
+  assert.ok(folderRows.every(r => !r.querySelector('.checkbox-container').checked));
+  btnIn(box, '全开').onclick();
+  tgl.checked = false; tgl.onchange();
 
-  // —— 保存：choose 失败 → 弹窗不关、句式固定、勾的都还在 ——
-  plugin.chooseFails = 1;
+  // —— 保存：存失败 → 弹窗不关、句式固定、开关都还在 ——
+  plugin.saveFails = 1;
   await btnIn(box, '保存').onclick(); await settle();
   assert.ok(m.isOpen, '没存上不关弹窗');
-  assert.match(plugin.notices.at(-1).m, /^没保存上，内容还在，可重试：后台出错/);
+  assert.match(plugin.notices.at(-1).m, /^没保存上，内容还在，可重试：磁盘满了/);
   assert.equal(plugin.notices.at(-1).kind, 'error');
-  assert.equal(rows()[0].querySelector('input').checked, true);
-  // 再存：设置里记下关掉的收藏夹；choose 带 --allow / --undo
+  assert.equal(tgl.checked, false);
   await btnIn(box, '保存').onclick(); await settle();
   assert.ok(!m.isOpen, '存好关弹窗');
   assert.deepEqual(plugin.settings.bilibili.skipFolders, ['12']);
-  assert.equal(plugin.calls.filter(c => c.startsWith('bilibili choose')).at(-1), 'bilibili choose --json --allow BV1a --undo BV1b');
-  assert.match(plugin.notices.at(-1).m, /已保存：跳过 1 个收藏夹，放行 1 条，撤销 1 条/);
+  assert.ok(!plugin.calls.some(c => c.startsWith('bilibili choose')), '弹窗不再动放行表');
+  assert.match(plugin.notices.at(-1).m, /已保存：跳过 1 个收藏夹/);
   assert.match(card.textContent, /现在跳过 1 个收藏夹/, '设置页那行说明跟着变');
   assert.deepEqual(B.biliSyncArgs(plugin.settings.bilibili).filter((x, i, a) => a[i - 1] === '--skip-folder'), ['12'], '同步时传 --skip-folder');
 
-  // —— 再打开：私房是关着的；改门槛 = 存「超过多长先不下」并按新门槛重读；「保存并开始同步」→ 起同步 ——
-  btnIn(card, '挑选要同步的…').onclick(); await settle();
+  // —— 再打开：私房是关着的；「保存并开始同步」→ 起同步 ——
+  btnIn(card, '选同步哪些收藏夹…').onclick(); await settle();
   const m2 = modals.at(-1), box2 = m2.contentEl;
   assert.equal(box2.querySelectorAll('.lb-bili-pick-folder')[2].querySelector('.checkbox-container').checked, false, '关掉的记住了');
-  const th = box2.querySelector('.lb-bili-pick-threshold select');
-  assert.equal(th.value, '3600');
-  th.value = '7200'; await th.onchange(); await settle();
-  assert.equal(plugin.settings.bilibili.maxDuration, 7200, '门槛就是「超过多长先不下」');
-  assert.ok(plugin.calls.includes('bilibili pick --json --max-duration 7200'), '按新门槛重读');
-  // 稍后再看也能关
   const tvT = box2.querySelectorAll('.lb-bili-pick-folder')[0].querySelector('.checkbox-container');
   tvT.checked = false; tvT.onchange();
   await btnIn(box2, '保存并开始同步').onclick(); await settle(20);
@@ -175,19 +167,32 @@ function makePlugin() {
   const run = plugin.runs.at(-1);
   assert.equal(run.label, '下载 B 站收藏');
   assert.deepEqual(run.args.filter((x, i, a) => a[i - 1] === '--skip-folder'), ['12', 'toview']);
-  assert.equal(run.args[run.args.indexOf('--max-duration') + 1], '7200');
   assert.equal(run.args[run.args.indexOf('--workers') + 1], '8', '默认 8 路');
 
-  // —— 没扫过收藏夹：提示先预估 / 同步；门槛设成不限：没有要挑的 ——
+  // —— 没扫过收藏夹：提示先预估 / 同步 ——
   plugin.pick = { ok: true, empty: true, folders: [], long: { items: [], total: 0 }, message: '还没扫过收藏夹' };
   const api = B.biliPicker({}); await api.ready; await settle();
   assert.match(api.modal.contentEl.textContent, /还没扫过收藏夹：先关掉这里，点一次「预估」或「立即同步」/);
   api.modal.close();
-  plugin.settings.bilibili.maxDuration = 0;
-  plugin.pick = PICK;
-  const api2 = B.biliPicker({}); await api2.ready; await settle();
-  assert.match(api2.modal.contentEl.textContent, /现在是「不限」：多长的都会下，没有要挑的/);
-  assert.equal(api2.modal.contentEl.querySelectorAll('.lb-bili-long-row').length, 0);
-  api2.modal.close();
-  console.log('PASS settings ② B 站挑选页（1031）：入口按钮取代折叠清单；收藏夹（含稍后再看）开关存 skipFolders 并传 --skip-folder；长视频门槛同设置、逐条勾 / 全选 / 全不选 → choose --allow/--undo；存失败不关弹窗；保存并开始同步；没扫过 / 不限的提示');
+
+  // —— 「挑要下的视频」页调的插件方法：下载 / 不下 = choose --allow / --undo（带当前门槛，后端顺手重写页面数据）；choose 失败照实抛 ——
+  plugin.settings.bilibili.maxDuration = 7200;
+  await B.choosePending({ allow: ['BV1a'] });
+  assert.equal(plugin.calls.at(-1), 'bilibili choose --json --max-duration 7200 --allow BV1a');
+  await B.choosePending({ undo: ['BV1b'] });
+  assert.equal(plugin.calls.at(-1), 'bilibili choose --json --max-duration 7200 --undo BV1b');
+  await B.choosePending({ deny: ['BV1c', 'BV1d'] });
+  assert.equal(plugin.calls.at(-1), 'bilibili choose --json --max-duration 7200 --deny BV1c --deny BV1d', '删除 = --deny');
+  plugin.chooseFails = 1;
+  await assert.rejects(() => B.choosePending({ allow: ['BV1a'] }), /后台出错/);
+  // 现在开始下载：同设置页「立即同步」的参数；正在跑别的就不起
+  const n0 = plugin.runs.length;
+  await B.syncNow(); await settle(20);
+  assert.equal(plugin.runs.length, n0 + 1); assert.equal(plugin.runs.at(-1).label, '下载 B 站收藏');
+  assert.equal(plugin.runs.at(-1).args[plugin.runs.at(-1).args.indexOf('--max-duration') + 1], '7200');
+  plugin.running = '同步收藏';
+  assert.equal(await B.syncNow(), null); assert.equal(plugin.runs.length, n0 + 1);
+  assert.match(plugin.notices.at(-1).m, /正在同步收藏/);
+  plugin.running = null;
+  console.log('PASS settings ② B 站（1101）：主按钮「挑要下的视频…」开那一页；「选同步哪些收藏夹…」弹窗只管收藏夹（含稍后再看）开关、存 skipFolders 并传 --skip-folder；存失败弹窗不关；页面调的 choose --allow/--undo 带门槛、现在开始下载走同一个互斥任务');
 })().catch(e => { console.error(e); process.exit(1); });

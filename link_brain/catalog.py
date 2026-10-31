@@ -639,7 +639,8 @@ _CHAT_HEADER = "---\ncssclasses: [lb-chatpage]\n---\n\n"
 
 
 def library_pages(vault):
-    defaults = {"catalog": CATALOG_NAME, "chat": "收藏搜索.md", "starred": "星标收藏.md", "trash": "回收站.md", "wiki": "Wiki.md"}
+    defaults = {"catalog": CATALOG_NAME, "chat": "收藏搜索.md", "starred": "星标收藏.md", "trash": "回收站.md", "wiki": "Wiki.md",
+                "bili-pending": "B站挑选.md"}
     pages = dict(defaults)
     for file in vault.glob("*.md"):
         text = file.read_text(encoding="utf-8")

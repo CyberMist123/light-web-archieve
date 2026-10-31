@@ -155,6 +155,11 @@ def build_parser() -> argparse.ArgumentParser:
     pb.add_argument("--allow", action="append", default=None, help="放行的 BV（可多次）")
     pb.add_argument("--deny", action="append", default=None, help="删掉的 BV（可多次；同小红书回收站的屏蔽）")
     pb.add_argument("--undo", action="append", default=None, help="从放行 / 删表里拿掉（屏蔽本身用 trash --forget 解除）")
+    pb.add_argument("--max-duration", dest="max_duration", type=int, default=None,
+                    help="1101：重写「挑要下的视频」页用的时长上限秒数（默认按上次同步的）")
+    pb.add_argument("--json", action="store_true")
+    pb = bsub.add_parser("pending", help="1101：重写「挑要下的视频」页（B站挑选.md）和它的数据，返回待挑的视频；只读本地快照，不连 B 站")
+    pb.add_argument("--max-duration", dest="max_duration", type=int, default=None, help="时长上限秒数（默认按上次同步的；0 = 不限）")
     pb.add_argument("--json", action="store_true")
 
     p = sub.add_parser("ingest", help="归档一个链接（小红书 URL / xhslink 短链 / 分享文本，或 B 站 BV 链接）")
@@ -691,6 +696,9 @@ def _dispatch(args) -> int:
         if cmd == "pick":
             from .sources.bilibili import sync as bili_sync
             return bili_sync.run_pick(args)
+        if cmd == "pending":
+            from .sources.bilibili import sync as bili_sync
+            return bili_sync.run_pending(args)
         if cmd == "long":
             from .sources.bilibili import sync as bili_sync
             return bili_sync.run_long(args)
