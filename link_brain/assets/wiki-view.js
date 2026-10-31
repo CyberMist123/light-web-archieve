@@ -5,8 +5,8 @@
 //     hash = 全文（CRLF→LF）SHA-1 前 16 位，和 personal_wiki.content_hash 对得上——保存时当 base_hash 交回去。
 //     目录 / 文件夹 / 标签 / 引用 / 小标题 / 待办都在这里现算（同原型的 reindex；文件夹 = role: topic 的页 + 它的 index_tag，顺序看文件夹页的 order）。
 //   - 写：一律 provider().wikiCall(op, {args, input}) → `pwiki` 命令（单 writer），页面从不 adapter.write 进 PersonalWiki。
-//     改动先显示在界面上（乐观），写盘成功后用返回的 hash 接着存；失败按 §1.5 回滚 + 把她的改动留成「没保存上的改动」（页顶可一键再存 / 覆盖），
-//     提示固定句式「没保存上，内容还在，可重试：<原因>」。CONFLICT（别处改过）= 换成磁盘上的版本，她的那份留在页顶。
+//     改动先显示在界面上（乐观），写盘成功后用返回的 hash 接着存；失败按 §1.5 回滚 + 把用户的改动留成「没保存上的改动」（页顶可一键再存 / 覆盖），
+//     提示固定句式「没保存上，内容还在，可重试：<原因>」。CONFLICT（别处改过）= 换成磁盘上的版本，用户的那份留在页顶。
 //   - 收藏：LB.data.load() 的 items；正文引用 [标题](lwa:<id>) 点了照问收藏的做法开到右栏（provider().openArchiveSource）。
 // 渲染：沿用原型自己的块解析 + 行内渲染（它记着「块 ↔ 源码行」，点一段改一段靠它），不走 Obsidian 的 MarkdownRenderer——
 //   简单、稳、单测里可跑；代价是只认原型那几种写法（标题 / 列表 / 待办 / 引用 / 代码 / ```pages / 分隔线 / 图片 / 链接）。
@@ -274,7 +274,7 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw .lbw-prow:hover .lbw-t{text-decoration:underline;text-underline-offset:4px;}
 .lbw-rest{margin-top:48px;}
 .lbw-rnone{margin:10px 0 0;color:var(--lb-muted);font:400 13px/1.6 var(--lbw-sans);}
-/* 编辑态（10-31 她：「不要跳出来一个巨大的黑框，就正常改」）：原地改——编辑框套在和阅读时同一个元素里（p / h2 / li / blockquote），
+/* 编辑态（10-31 作者：「不要跳出来一个巨大的黑框，就正常改」）：原地改——编辑框套在和阅读时同一个元素里（p / h2 / li / blockquote），
    字体、字号、行距、缩进全继承，点开不跳；只有一条浅色小工具条浮在这一段右上角（绝对定位，不占地方） */
 .lbw-blk.is-editing{background:var(--lb-soft);cursor:text;}
 .lbw .lbw-ed,.lbw .lbw-ed:hover,.lbw .lbw-ed:focus,.lbw .lbw-ed:focus-visible{display:block;width:100%;min-width:0;height:auto;min-height:0;margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;outline:none;resize:none;overflow:hidden;font:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;caret-color:var(--lb-ink);}
@@ -715,7 +715,7 @@ async function diskSig() {
 const DATA_FIELDS = ['id', 'title', 'role', 'index_tag', 'order', 'tags', 'created', 'updated', 'body', 'file', 'path', 'hash', 'adopted'];
 function adoptDisk(cur, d) { for (const k of DATA_FIELDS) { if (k in d) cur[k] = d[k]; else delete cur[k]; } cur._saved = savedOf(d); cur._stale = false; derive(cur); }
 // 磁盘 → 内存：hash 一样的不动（自己刚存的那份也是）；正在存 / 正在改（点开的那段、整页 Markdown 框）/ 正在恢复或重读的那页先不换——
-// 她手上的字是照旧 hash 那版改的，保存时 base_hash 还是旧的 → 后端回 CONFLICT，她的字进草稿，不会拿新 hash 静悄悄盖掉别处的改动（10-29 审查 1）
+// 用户手上的字是照旧 hash 那版改的，保存时 base_hash 还是旧的 → 后端回 CONFLICT，用户的字进草稿，不会拿新 hash 静悄悄盖掉别处的改动（10-29 审查 1）
 const editingPage = p => !!p && ((p._ops || 0) > 0 || (ED && ED.p === p) || (UI.src && UI.view === 'page' && UI.id === p.id));
 function mergeDisk(disk) {
   let changed = false, skipped = false;
@@ -803,7 +803,7 @@ const hrow = h('div', { cls: 'lbw-hrow' });
 head.append(hrow);
 const brand = LB.brandTitle(hrow, 'lbw-brand', 'lbw-engr');
 { const ref = app.workspace.on?.('link-brain:catalog-prefs', () => brand.set()); if (ref) LB.onUnload(() => { try { app.workspace.offref(ref); } catch (e) { console.debug(e); } }); }
-// 10-31 晚她：页头和问收藏对齐——一行：小号刻线标题 + 三页切换；右边从左到右「AI · 历史钟 · …」，方形带框的按钮（不要圆圈）
+// 10-31 晚，作者：页头和问收藏对齐——一行：小号刻线标题 + 三页切换；右边从左到右「AI · 历史钟 · …」，方形带框的按钮（不要圆圈）
 const nav = h('nav', { cls: 'lb-page-nav' },
   btn({ text: '浏览收藏', on: { click: () => LB.openPage('catalog') } }),
   btn({ text: '问收藏', on: { click: () => LB.openPage('chat') } }),
@@ -838,7 +838,7 @@ add(wrap, [body, R.fab, R.layer]);
 
 // 三种宽度（design.md §8）：≥1040 宽；680–1040 开着原文格；<680 手机（目录收成「目录」按钮 + 底部抽屉）
 let lastW = 0;
-// 10-31 她：「Wiki 页一直在闪屏」——Dataview 每隔几秒重跑（库里有文件在变，比如 B 站同步在下），重跑那一下量到宽度 0，
+// 10-31 作者：「Wiki 页一直在闪屏」——Dataview 每隔几秒重跑（库里有文件在变，比如 B 站同步在下），重跑那一下量到宽度 0，
 // 以前当成「变宽了」：先切到宽屏布局再切回来，首页还整个重画（关系图从头动）。现在：量到 0 不算；档位切换留 24px 缓冲
 // （滚动条出 / 没让宽度在分界线上来回跳也不翻）；首页只在档位真变了才重画
 const BAND = (w, cur) => { const g = 24; const mid = cur.mid ? w < 1040 + g : w < 1040 - g; const narrow = cur.narrow ? w < 680 + g : w < 680 - g; return { mid, narrow }; };
@@ -1100,7 +1100,7 @@ function markText(s, q) {
   if (i < s.length) out.push(s.slice(i));
   return out;
 }
-// 文件夹展开：她手动开 / 关过的照她的（PREFS.open）；没动过的 = 只展开当前页所在的那个（10-31：以前全摊开，21 页就比一屏长）
+// 文件夹展开：用户手动开 / 关过的照用户的（PREFS.open）；没动过的 = 只展开当前页所在的那个（10-31：以前全摊开，21 页就比一屏长）
 const looseId = '__loose';
 function folderOpen(id) {
   if (PREFS.open && id in PREFS.open) return !!PREFS.open[id];
@@ -1193,7 +1193,7 @@ function spyHeads() {
   for (const el of R.center.querySelectorAll('[data-hline]')) { if (el.getBoundingClientRect().top <= top) here = el.dataset.hline; else break; }
   for (const r of R.tree.querySelectorAll('.lbw-thead')) r.classList.toggle('is-here', here != null && r.dataset.toc === here);
 }
-// 目录吸住（10-31 晚她：「目录往下拉，目录没有固定住」）：先靠 CSS sticky；她的 Obsidian 里某层祖先让 sticky 失效时，
+// 目录吸住（10-31 晚，作者：「目录往下拉，目录没有固定住」）：先靠 CSS sticky；用户的 Obsidian 里某层祖先让 sticky 失效时，
 // 量一下目录顶边是不是已经滚出阅读区，是的话用 translateY 把它拉回来（不超过正文那一栏的底）
 function pinToc() {
   const t = R.toc; if (!t) return;
@@ -1293,14 +1293,14 @@ function moveInFolder(fid, pid, targetId, before, { quiet = false } = {}) {
   renderToc(); if (UI.view === 'page' && UI.id === fid && !ED) renderCenter();
 }
 
-// ═════════════ 关系图（10-29 她：照 Quartz 的 graph 组件——力导向、会动、可拖、可缩放、悬停高亮邻居；不用外部库） ═════════════
+// ═════════════ 关系图（10-29 作者：照 Quartz 的 graph 组件——力导向、会动、可拖、可缩放、悬停高亮邻居；不用外部库） ═════════════
 // 数据（连线规则和以前一样）：
 //   局部图（目录 MAP）：当前页 + 所在文件夹（圆心）+ 同文件夹的页（实线）+ 共享标签 / 同引一篇收藏的页（虚线）——深度 1；
 //   全局图（首页 MAP、「全局图」浮层）：所有文件夹 + 所有页；文件夹—页实线，引了同一篇收藏的两页虚线。
 // 模拟（forceSim）：自己写的小 d3-force，参数含义和 d3 一样：link（静止长度、强度 1/min(两端度数)）、many-body 斥力（两两精确算，
 //   300 个点每帧约 4.5 万对）、collide、center；alpha 冷却（alphaDecay = 1 − 0.001^(1/300)，velocityDecay 0.4），alpha < 0.001 停；
 //   拖动时 alphaTarget 0.3 重新加热。起点用 d3 的葵花籽排布、抖动用固定种子——同样的数据每次排出来一样。
-// 画（forceGraph）：SVG + requestAnimationFrame；平移 / 缩放是一层 <g> 的变换。开始时自动适配（字也算进边框，不切字），她动过视图就不再自动适配。
+// 画（forceGraph）：SVG + requestAnimationFrame；平移 / 缩放是一层 <g> 的变换。开始时自动适配（字也算进边框，不切字），用户动过视图就不再自动适配。
 // 交互（同 Quartz）：拖点（跟着指针走，松手放开）、滚轮 / 双指缩放（以指针为中心）、拖空白平移、悬停高亮自己和邻居（其余淡到 0.2）、点一下打开；
 //   字：悬停的点和邻居、当前页、文件夹名（局部图里还有虚线另一头）一直显示，别的随缩放淡入（Quartz：(k × opacityScale − 1) / 3.75）。
 // 生命周期：重画 / 卸载时 destroy（停 rAF、断开观察器）；看不见（MAP 收起就不建、滚出视口、整页被摘下）就暂停，回来再接着动；
@@ -2181,12 +2181,12 @@ function openCite(id) {
 //  ② 队列里有东西（busyPage）时这页只读：块编辑框不开（点了等队列空了再开；期间页面被换过就不开），整页 Markdown 框只读，
 //     标题 / 标签 / 待办 / 拖动都不收。所以带内容的保存只在页面空闲时入队（mutate 是唯一入口），队列里最多一项，
 //     不会有「排在别的操作后面、轮到时拿新 hash 盖掉别处版本 / 恢复内容」的保存。
-//  ③ 要写的内容在入队那一刻定下（她到此为止打的字：mutate 把开着的编辑框 / 整页 Markdown 框的字一并收进来）；
+//  ③ 要写的内容在入队那一刻定下（用户到此为止打的字：mutate 把开着的编辑框 / 整页 Markdown 框的字一并收进来）；
 //     之后不再从界面上补收。恢复 / 存版本 / 删除不带内容，参数（hash）在轮到时取。
 //  ④ 重画只画不存。存只发生在明确的提交点：Esc / 失焦 / 换页 / 整页 Markdown 的自动保存（框活着、没冻住时）。
 //     重画时万一还有没提交的字（不该发生），收进草稿，不存也不丢。
 //  ⑤ 保存失败：这一项的内容进草稿（新的顶掉旧的）；CONFLICT 换成磁盘上的版本，其它回到上次存上的样子；队列空了照常能改。
-//  ⑥ 覆盖 = 一份正文（编辑框里有她新打的字就用它，否则用草稿）入队一次保存；只有这一次存上才删草稿。
+//  ⑥ 覆盖 = 一份正文（编辑框里有用户新打的字就用它，否则用草稿）入队一次保存；只有这一次存上才删草稿。
 async function wcall(op, opts = {}) {
   const p = provider();
   if (LB.mobile || !p || typeof p.wikiCall !== 'function') throw Object.assign(new Error(LB.mobile ? LB.MOBILE_ONLY_TEXT : '插件没启用，Wiki 只能看'), { code: 'NO_PLUGIN' });
@@ -2209,7 +2209,7 @@ function enqueue(p, task, { hard = false } = {}) {
   return job;
 }
 // 队列空了：解冻（整页 Markdown 框内容没被换就原地解冻）；正文被换过（恢复 / 冲突 / 失败回滚：_repaint）才重画——
-// 普通保存不重画（她可能正在标题 / 标签框里打字）；只画不存；期间磁盘变过就补一次重读
+// 普通保存不重画（用户可能正在标题 / 标签框里打字）；只画不存；期间磁盘变过就补一次重读
 function settled(p) {
   paintLock(p); paintSaved(p);
   if (current() === p && !ED) {
@@ -2228,7 +2228,7 @@ function paintLock(p) {
   if (lock && R.srcEd && !R.srcEd._lbDead) R.srcEd.readOnly = true;
   for (const cb of R.center.querySelectorAll('.lbw-task input')) cb.disabled = lock;
 }
-// ② ③ 带内容的改动的唯一入口：change(next) 在「这一页现在的样子 + 她编辑框里还没提交的字」上改；
+// ② ③ 带内容的改动的唯一入口：change(next) 在「这一页现在的样子 + 用户编辑框里还没提交的字」上改；
 // 页面没在「整页换掉」就照改、排一次保存（10-31 起普通保存不锁页）；在换的话进草稿（不丢）。每次改之前的样子记进撤销栈（Ctrl+Z）
 const UNDO = new Map();
 function pushUndo(p) { const st = UNDO.get(p.id) || []; st.push({ title: p.title, tags: [...p.tags], body: p.body, ...(p.role === 'topic' ? { order: [...(p.order || [])] } : {}) }); if (st.length > 60) st.shift(); UNDO.set(p.id, st); }
@@ -2295,7 +2295,7 @@ async function reloadPage(p) {
 async function saveFailed(p, want, e) {
   const code = (e && e.code) || '';
   const saved = p._saved || savedOf(p);
-  // 草稿要的是她现在手上的全部（这次要存的 + 之后又改的 + 编辑框里还没收的字）；编辑框关掉（正文要换了，行号对不上）
+  // 草稿要的是用户现在手上的全部（这次要存的 + 之后又改的 + 编辑框里还没收的字）；编辑框关掉（正文要换了，行号对不上）
   const box = liveSrc(p);
   const latest = { ...stateOf(p), body: box && !box.readOnly ? box.value : intendedBody(p) };
   if (ED && ED.p === p) closeEditor();
@@ -2339,7 +2339,7 @@ function overwrite(id) {
   saveNow(p, { note: d.conflict ? '用没保存上的改动覆盖' : '', fromDraft: d });
   if (current() === p) renderKeepScroll();
 }
-// 恢复 / 存版本 / 删除之前：她手上的字先作为一次普通保存入队（③）
+// 恢复 / 存版本 / 删除之前：用户手上的字先作为一次普通保存入队（③）
 function commitHere(p) { if (ED && ED.p === p) commitEditor(true); else flushSrc(); }
 function draftBar(p) {
   const d = DRAFTS[p.id];
@@ -2455,7 +2455,7 @@ function renderSide() {
   }
   side.append(h('p', { cls: 'lbw-note', attr: { style: 'margin-top:22px' }, text: '连着打字每 2 分钟合成一次自动快照；「保存版本」单独记一条。历史存在 PersonalWiki/.history 里。' }));
 }
-// 恢复 / 存版本：队列里的一项（①），不带内容，hash 在轮到时取；她手上的字先作为一次普通保存入队（③）
+// 恢复 / 存版本：队列里的一项（①），不带内容，hash 在轮到时取；用户手上的字先作为一次普通保存入队（③）
 function restoreVersion(p, ver, b) {
   if (readOnly) return null;
   commitHere(p);
@@ -2487,7 +2487,7 @@ function saveVersion(p, note) {
   }).then(() => ok);
 }
 
-// ═════════════ 让 AI 改（10-31 晚重做，她：「ai 是对 wiki 整体改，不是单行。还有选中段落不方便」） ═════════════
+// ═════════════ 让 AI 改（10-31 晚重做，作者：「ai 是对 wiki 整体改，不是单行。还有选中段落不方便」） ═════════════
 // 范围：编辑时点「AI 改」= 光标所在的那一节（上一个小标题到下一个同级小标题）；页面上拖选了字 = 选中的那几段（浮出「AI 改选中的」）；
 //   「…→让 AI 改整页」= 整页（右侧栏）。范围里的段在等 / 看的时候锁住不让改。
 // 结果：按字 / 词比（中文按字、英文按词，先按行对齐再细比），每一处改动单独勾选，「用选中的」一次拼好经 pwiki save（kind=ai）存——一步 Ctrl+Z 能撤；
@@ -2697,7 +2697,7 @@ function aiBody(A) {
   }
   return out;
 }
-// ── 底部对话框（10-31 晚她：「ai 整理应该有一个比较舒服的对话框出现在底下」「和问收藏对齐，都是方型的框」）──
+// ── 底部对话框（10-31 晚，作者：「ai 整理应该有一个比较舒服的对话框出现在底下」「和问收藏对齐，都是方型的框」）──
 // 页头「AI」打开：有选中的字 → 改选中的那几段；正在改某段 / 刚点过某段 → 那一节；都没有 → 整页（空页 → 按思路搭框架）。
 // 顶上一排切换范围（改这一节 / 改整页 / 按我的思路搭框架）。对话框 position:fixed 浮在正文那一栏底部，滚动 / 变宽时按阅读区重新摆
 // （placeFixed 会抵掉 Obsidian 祖先 contain / transform 造成的偏移）
@@ -2750,9 +2750,9 @@ function placeDock() {
   d.style.width = w + 'px';
   placeFixed(d, Math.max(8, (col.left || 0) + ((col.width || w) - w) / 2), Math.max((vb.top || 0) + 8, (vb.bottom || 800) - (d.offsetHeight || 220) - 14));
 }
-// ═════════════ 按我的思路搭框架（10-31 第二块，她：「我给一段文字，但我有我的思路，ai 根据我的思路，把资料、wiki 框架配齐」） ═════════════
-// 右侧栏：写思路 → AI 出计划（每节标题 + 去收藏里搜什么）→ 她改 / 删 / 加节 → 「按这个去收藏里找」：每节用问收藏同一套检索，
-// 模型只许引候选编号、每条带一句原帖原话（后端核对，对不上的标出来）；她写的字不动，只往节下补，相反的说法单独一小节 →
+// ═════════════ 按我的思路搭框架（10-31 第二块，作者：「我给一段文字，但我有我的思路，ai 根据我的思路，把资料、wiki 框架配齐」） ═════════════
+// 右侧栏：写思路 → AI 出计划（每节标题 + 去收藏里搜什么）→ 用户改 / 删 / 加节 → 「按这个去收藏里找」：每节用问收藏同一套检索，
+// 模型只许引候选编号、每条带一句原帖原话（后端核对，对不上的标出来）；用户写的字不动，只往节下补，相反的说法单独一小节 →
 // 结果照第一块逐处勾选再存（kind=ai）。后端在 link_brain/wiki_plan.py（pwiki plan / fill）。
 function openAiPlan(p) {
   if (readOnly || !p) return;
@@ -2796,7 +2796,7 @@ function planBody(A) {
     ta.value = A.idea || '';
     ta.addEventListener('input', () => { A.idea = ta.value; });
     out.push(ta, h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:8px' } }, btn({ cls: 'is-solid', text: '出计划', data: { plan: 'make' }, on: { click: () => runPlan(A) } }), btn({ text: '关', on: { click: closeAi } })));
-    out.push(A.error ? note(A.error, true) : note('她写过的字一个不动，AI 只往各节下面补；每条都带收藏出处和原帖原话。'));
+    out.push(A.error ? note(A.error, true) : note('你写过的字一个不动，AI 只往各节下面补；每条都带收藏出处和原帖原话。'));
   } else if (A.state === 'planning') {
     out.push(note('AI 在按你的思路拆节… 一般十几秒'), h('div', { cls: 'lbw-ai-row' }, btn({ text: '不等了', on: { click: closeAi } })));
   } else if (A.state === 'plan') {
@@ -2960,7 +2960,7 @@ function showMoreMenu(evt, anchor) {
   POP.el = el; POP.ta = null;
 }
 
-// ═════════════ 全局按键（只给她正在看的这一页）：Ctrl+F 搜标题；Esc 依次关 弹层 → 搜索 → 抽屉 → 历史 ═════════════
+// ═════════════ 全局按键（只给用户正在看的这一页）：Ctrl+F 搜标题；Esc 依次关 弹层 → 搜索 → 抽屉 → 历史 ═════════════
 // 挂在 window 的捕获阶段（同目录页 onFindKey）：先于 Obsidian 自带的查找拿到 Ctrl+F；没有 window.addEventListener（单测）退回 document
 const keyTarget = WIN && typeof WIN.addEventListener === 'function' ? WIN : D;
 LB.listen('keys', keyTarget, 'keydown', e => {

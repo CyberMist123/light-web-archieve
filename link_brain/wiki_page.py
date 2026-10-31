@@ -59,10 +59,10 @@ def parse_page(text: str) -> dict[str, Any]:
         # 一个属性 = 顶格的 `key: 值` + 后面缩进 / `- ` 开头的续行。Obsidian 属性面板写列表是块状的：
         #   tags:
         #     - travel
-        # 认出来当列表；不认识的属性连同续行原样留着（她在 Obsidian 里加的）
+        # 认出来当列表；不认识的属性连同续行原样留着（用户在 Obsidian 里加的）
         groups: list[list[str]] = []
         for line in m.group(1).split("\n"):
-            # 空行跟着上一个属性走（`summary: |` 这种多段文字中间的空行），写回时原样还给她
+            # 空行跟着上一个属性走（`summary: |` 这种多段文字中间的空行），写回时原样还给用户
             if groups and (not line.strip() or line[:1] in (" ", "\t") or line.startswith("- ") or line == "-"):
                 groups[-1].append(line)
             elif line.strip():

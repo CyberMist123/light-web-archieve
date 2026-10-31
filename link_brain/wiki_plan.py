@@ -1,7 +1,7 @@
-"""个人 Wiki「按我的思路搭框架」（10-31 第二块）：她写一段话 + 思路 → AI 先出计划（每节标题 + 去收藏里搜什么）→ 她改过、点头 →
+"""个人 Wiki「按我的思路搭框架」（10-31 第二块）：用户写一段话 + 思路 → AI 先出计划（每节标题 + 去收藏里搜什么）→ 用户改过、点头 →
 每节用问收藏同一套检索（retrieval.retrieve_payload，不现调扩词模型）找候选收藏 → 模型只许引候选编号 S1…Sn，每条要点附一句原帖原话 →
-程序把编号换成 [标题](lwa:id)、删掉不存在的编号、核对原话是不是原帖里的字（对不上的标出来），她写的字一个不动，只往节下补；
-和她相反的说法单独放「相反的说法」。只回建议（整页新正文），不写盘——页面照第一块逐处勾选，她点了才经 pwiki save（kind=ai）存。
+程序把编号换成 [标题](lwa:id)、删掉不存在的编号、核对原话是不是原帖里的字（对不上的标出来），用户写的字一个不动，只往节下补；
+和用户相反的说法单独放「相反的说法」。只回建议（整页新正文），不写盘——页面照第一块逐处勾选，用户点了才经 pwiki save（kind=ai）存。
 
 CLI：`python -m link_brain pwiki plan`（stdin {id, idea, text}）/ `pwiki fill`（stdin {id, idea, text, sections:[{title, query}]}），__main__ 直接转过来。
 借的思路（只借思路）：先出计划、批准再写（odere-pro/claude-wiki-pages-plugin）；资料编号 [S1] 只许引编号、程序换回并删掉不存在的（kytmanov/obsidian-llm-wiki-local）；
@@ -19,17 +19,17 @@ PER_SECTION = 5          # 每节最多几篇候选
 EXCERPT_CHARS = 700      # 每篇给模型看多少字摘录
 IDEA_LIMIT = 4000
 
-PLAN_RULES = """你在帮她给自己的个人 Wiki 页搭框架。她写了一段话，说了自己的思路 / 想要的几节。
-先只出计划，不写正文：按她的思路拆成几节（她点名了的节一定要有、顺序照她的；她没说的你可以补 1–2 节但别喧宾夺主），
-每节给：title（小标题，短）、query（去她的收藏里搜什么：一句关键词，中文，越具体越好）、why（这一节要回答什么，一句话）。
+PLAN_RULES = """你在帮用户给其个人 Wiki 页搭框架。用户写了一段话，说了自己的思路 / 想要的几节。
+先只出计划，不写正文：按用户的思路拆成几节（用户点名了的节一定要有、顺序照用户的；用户没说的你可以补 1–2 节但别喧宾夺主），
+每节给：title（小标题，短）、query（去用户的收藏里搜什么：一句关键词，中文，越具体越好）、why（这一节要回答什么，一句话）。
 只输出 JSON：{"sections":[{"title":"…","query":"…","why":"…"}]}，最多 8 节，不要别的字。"""
 
-FILL_RULES = """你在帮她往自己的个人 Wiki 页里补材料。她的思路和每一节要回答什么在下面；每节附了从她的收藏里检索到的候选材料，编号 S1、S2…
+FILL_RULES = """你在帮用户往其个人 Wiki 页里补材料。用户的思路和每一节要回答什么在下面；每节附了从用户的收藏里检索到的候选材料，编号 S1、S2…
 规矩：
 1. 每条要点只能来自候选材料，引用只写编号（如 S3），不许写别的编号、链接或你自己知道的东西；材料里没有的就不写，这一节可以空着。
 2. 每条要点附一句原帖原话 quote：必须从那篇材料里一字不差地抄（可以截短，但不能改字、不能拼接）。
-3. 和她的思路 / 已经写下的观点相反的说法，放进那一节的 against，不要混进 points。
-4. 要点用她的口吻写成一句话，中文全角标点，不要 emoji。
+3. 和用户的思路 / 已经写下的观点相反的说法，放进那一节的 against，不要混进 points。
+4. 要点用用户的口吻写成一句话，中文全角标点，不要 emoji。
 只输出 JSON：{"sections":[{"title":"和计划里一样","points":[{"text":"…","src":"S3","quote":"…"}],"against":[{"text":"…","src":"S5","quote":"…"}]}]}，不要别的字。"""
 
 
@@ -58,7 +58,7 @@ def _context(data: dict[str, Any]) -> tuple[dict[str, Any], str, str]:
 
 def make_plan(data: dict[str, Any]) -> dict[str, Any]:
     page, idea, text = _context(data)
-    got, model = _call(PLAN_RULES, f"页面标题：《{page.get('title') or ''}》\n\n她的思路：\n{idea}\n\n这页现在的正文（她写的，可能是空的）：\n{text[:6000] or '（空）'}")
+    got, model = _call(PLAN_RULES, f"页面标题：《{page.get('title') or ''}》\n\n用户的思路：\n{idea}\n\n这页现在的正文（用户写的，可能是空的）：\n{text[:6000] or '（空）'}")
     secs = []
     for s in (got.get("sections") or [])[:MAX_SECTIONS]:
         if not isinstance(s, dict):
@@ -98,7 +98,7 @@ def _heading_index(lines: list[str]) -> list[tuple[int, int, str]]:
 
 
 def merge_into(text: str, blocks: list[tuple[str, list[str]]]) -> str:
-    """把每节补的那几行接到她的正文里：已经有同名小标题的接在那一节末尾，没有的在页尾新开 ## 小标题。她写的行一行不动。"""
+    """把每节补的那几行接到用户的正文里：已经有同名小标题的接在那一节末尾，没有的在页尾新开 ## 小标题。用户写的行一行不动。"""
     lines = text.rstrip("\n").split("\n") if text.strip() else []
     tail: list[str] = []
     for title, add in blocks:
@@ -147,7 +147,7 @@ def fill(data: dict[str, Any]) -> dict[str, Any]:
         material.append(f"### 节：{s['title']}\n这一节要回答：{s.get('why') or s['title']}\n候选材料：\n" + ("\n\n".join(rows) if rows else "（收藏里没搜到）"))
     if not srcs:
         raise WikiError("NOT_FOUND", "每一节都没在收藏里搜到材料：换几个搜什么的词再试")
-    got, model = _call(FILL_RULES, f"页面标题：《{page.get('title') or ''}》\n\n她的思路：\n{idea}\n\n她已经写下的正文（不要改，只作参考）：\n{text[:4000] or '（空）'}\n\n"
+    got, model = _call(FILL_RULES, f"页面标题：《{page.get('title') or ''}》\n\n用户的思路：\n{idea}\n\n用户已经写下的正文（不要改，只作参考）：\n{text[:4000] or '（空）'}\n\n"
                        + "\n\n".join(material))
     valid = {x["n"]: x for x in srcs}
     used: set[str] = set()
