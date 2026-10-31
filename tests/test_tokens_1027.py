@@ -69,7 +69,7 @@ def test_brand_stack_is_the_title_token():
 
 
 def test_scaled_tokens_redeclared_on_page_roots():
-    """字号 / 颜色写在 body,.lb-page-host,.lb-scope 上：页面根上改了 --lb-scale 能就地重算；她能改的五个只在 body 给默认值。"""
+    """字号 / 颜色写在 body,.lb-page-host,.lb-scope 上：页面根上改了 --lb-scale 能就地重算；用户能改的五个只在 body 给默认值。"""
     css = sync_tokens.source_block("lb-tokens")
     scoped = re.search(r"body,\.lb-page-host,\.lb-scope\{([^}]*)\}", css).group(1)
     assert "--lb-fs-body:" in scoped and "--lb-ink:" in scoped

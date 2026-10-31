@@ -1,4 +1,4 @@
-"""1009 她：「选本机文件夹」要真的弹得出来。插件拿不到 Electron 对话框时由 Python 弹（tkinter → PowerShell 兜底）。
+"""1009 作者：「选本机文件夹」要真的弹得出来。插件拿不到 Electron 对话框时由 Python 弹（tkinter → PowerShell 兜底）。
 真机弹框截图见验收记录；这里只测分支和输出形状（不弹框）。"""
 
 from __future__ import annotations

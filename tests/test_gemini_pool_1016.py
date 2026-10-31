@@ -114,7 +114,7 @@ def test_summary_fallbacks_order(monkeypatch):
     monkeypatch.setattr(llm, "alternate_summary_config",
                         lambda p, s: {"endpoint": "https://deepseek/chat", "model": "ds", "apiKey": "dk"})
     out = llm.summary_fallbacks(primary, {"summaryAI": {"fallback": {"endpoint": "https://dashscope/chat", "model": "q"}}})
-    assert [c["model"] for c in out] == ["q", "ds"], "她定：Gemini 不行先换百炼，再换文本 AI"
+    assert [c["model"] for c in out] == ["q", "ds"], "作者定：Gemini 不行先换百炼，再换文本 AI"
 
 
 def test_per_minute_429_only_cools_down(monkeypatch):

@@ -1,10 +1,10 @@
 # 1023 ARCH-AUDIT 第 2 批验收记录（2026-10-23）
 
-云端会话，Linux + Python 3.13 venv，不是 Obsidian 实测。Obsidian 里只能她验的列在文末「待她：一步」。
+云端会话，Linux + Python 3.13 venv，不是 Obsidian 实测。Obsidian 里只能作者验的列在文末「待作者：一步」。
 
 范围（ARCH-AUDIT §10 第 2 批）：价格统一到 `link_brain/pricing.py`；「免费」只认显式标记；预算默认值只留后端；密钥只经 providers（夜跑并进去）；接口和本机命令行平级（概要能选 OpenCode）。
 
-## 一、改了什么（她能感觉到的）
+## 一、改了什么（用户能感觉到的）
 
 | 项 | 以前 | 现在 |
 |---|---|---|
@@ -15,7 +15,7 @@
 | 每天上限默认 3 元 | 后端一份、设置页两处各写一份 | 只在 `budget.DEFAULT_YUAN`；设置页显示后端给的 `daily_yuan` |
 | 供应商 | JS `providerOf` 自己按接口地址猜 | 删了；读后端每一格给的 `provider` |
 | Gemini 免费 key 从哪来 | providers 一套（环境变量 → key 文件），夜跑另一套（再加命令、注释、路径里的环境变量） | 只在 `providers.pool_load`：环境变量 → 取 key 的命令（同一进程只跑一次）→ key 文件，支持 `#` 注释和路径展开；夜跑调它 |
-| 本机命令行 | 命令写在插件默认值和 Python 默认值两处（插件那份少了加固参数）；概要只能「和问收藏一样 / 接口 / 不写」 | 命令只在 `ai_config.CLI_PRESETS`（Codex / Claude Code / OpenCode）；插件只存 `preset`。概要多一个「本机命令行」，下拉列后端表里的命令行（含她问收藏下拉里自己加的「OpenCode DS4.1」那种），也能自己写命令 |
+| 本机命令行 | 命令写在插件默认值和 Python 默认值两处（插件那份少了加固参数）；概要只能「和问收藏一样 / 接口 / 不写」 | 命令只在 `ai_config.CLI_PRESETS`（Codex / Claude Code / OpenCode）；插件只存 `preset`。概要多一个「本机命令行」，下拉列后端表里的命令行（含用户问收藏下拉里自己加的「OpenCode DS4.1」那种），也能自己写命令 |
 | 账本里的命令行 | `m` 常是空的（BUGS #9：321 次空模型名） | 记程序名 + 模型（如「claude sonnet」「opencode」），0 元 |
 | 概要 extracted.json | `cost_usd_est`（美元，查不到记 0） | `cost_yuan_est`（元，查不到 `null`）；FORMAT.md 已改，旧文件两种都可能遇到 |
 
@@ -33,7 +33,7 @@
 | 概要下拉 | node `test_ai_settings_ui.cjs` | 方式多「本机命令行」；选了出「用哪个命令行」，选项来自 `usage --table`；选 OpenCode 只存 preset | 过 |
 | 预算默认 | pytest | `budget.status({})` = DEFAULT_YUAN；两个设置页源码里没有 3 的兜底 | `test_budget_default_only_in_backend` 过 |
 | 同一组 key | pytest，四种来源（环境变量 / 命令 / key 文件 / 路径带 `$VAR` 的 key 文件）+ 设置里改了变量名 | `providers.pool_keys("gemini")` 和夜跑 `refine_keys()` 一模一样；命令一个进程只跑一次 | `test_nightly_and_providers_get_same_gemini_keys`×4、`test_renamed_env_from_settings_is_used_by_both`、`test_key_cmd_runs_once_per_process` 过；原 `test_batch5_delivery` 两条（命令只注入那一步、命令超时登记 SECRET_TIMEOUT 照跑）照过 |
-| 真实入口 | `python -m link_brain usage`（临时收藏库：她那种配置——问收藏 DeepSeek、概要 OpenCode、识图 Gemini 免费池；账本 4 行） | 今天 ¥1.56（只有 qwen3.8-max 那行花钱）、未计价 1（没标免费的 Gemini 行）；上限 3.0 来自后端；概要「本机 opencode · 免费（本机）」；识图「免费 · 2 把轮流用」 | 照预期 |
+| 真实入口 | `python -m link_brain usage`（临时收藏库：用户那种配置——问收藏 DeepSeek、概要 OpenCode、识图 Gemini 免费池；账本 4 行） | 今天 ¥1.56（只有 qwen3.8-max 那行花钱）、未计价 1（没标免费的 Gemini 行）；上限 3.0 来自后端；概要「本机 opencode · 免费（本机）」；识图「免费 · 2 把轮流用」 | 照预期 |
 | 真实入口 | `python -m link_brain usage --table` | 秒回，不读账本；概要 modes = inherit/http/cli；命令行 Codex / Claude Code（Sonnet）/ OpenCode | 照预期 |
 | 真实入口 | 临时 `~/.link-brain/config.json` 指 key 文件（带注释行） | 夜跑 `refine_keys()` 和 `providers.pool_keys` 都是 `['g1', 'g2']` | 照预期 |
 | 守卫 | `tests/test_single_source.py` | 本批白名单清空：价格表、Gemini 密钥来源、供应商猜测、前端预算默认值、CLI 命令抄本；写死的模型名去掉 visual.py；新增「价格读法」（不许再 `estimate._price` / `load_pricing` 直读、`refineKeysEnv` 只在 providers 读） | 12 条过 |
@@ -49,11 +49,11 @@
 ## 四、没做 / 要知道
 
 - **旧账本不回补**：10-23 以前的 Gemini 免费池调用没有 `free` 标记，仍算「未计价」（和以前一样不计钱），从这版起的新调用记 0 元。
-- **到了每天上限，没标免费、又查不到价的模型会被拦**（以前当免费照跑）。她的配置里 Gemini 走 `keyPool: gemini`，不受影响；如果哪一项是直接填的 Gemini key（不是池），到上限后会停，要么改成 keyPool，要么在 `~/.link-brain/pricing.json` 给它写价或 `"free": true`。
+- **到了每天上限，没标免费、又查不到价的模型会被拦**（以前当免费照跑）。用户的配置里 Gemini 走 `keyPool: gemini`，不受影响；如果哪一项是直接填的 Gemini key（不是池），到上限后会停，要么改成 keyPool，要么在 `~/.link-brain/pricing.json` 给它写价或 `"free": true`。
 - 取 key 的命令（`gemini_keys_cmd`）以前只有夜跑会跑；现在插件里点「测试识图」等、后端要用免费 key 时也会跑一次（同一进程只一次）。
 - 没做：用量按模型分组（BUGS #9 第一条）、`GEMINI_MODEL` 进 data.json（第 3 批）、`ai_health.provider_name` / `keyprobe.PROVIDERS` 的显示名表（第 3 批跟模型名一起）、「关掉视频下载」用例（TEST-MAP 里列在第 2 批，本次范围外）。
 
-## 待她：一步
+## 待作者：一步
 
 更新插件和后端后，在 Obsidian 里：
 

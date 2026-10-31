@@ -10,7 +10,7 @@
 | `pytest tests/test_guards.py` | import 契约 4 条按 `.importlinter` 基线（共享 → 小红书 24 条、小红书 → AI / 目录 6 条）无新增、无多余；最大环 78 | 绿 |
 | `pytest tests/test_account_guard_1008.py` | 碰号闸认仓库根 | 绿 |
 | 全量 pytest + node 与 main 对比 | 无新增失败 | 见 PR 描述 |
-| 部署后：插件设置页「检查账号」（只看 `login --status`，不开页） | 还是绿的（碰号闸认程序目录没搬坏） | **待她：部署后看一眼** |
+| 部署后：插件设置页「检查账号」（只看 `login --status`，不开页） | 还是绿的（碰号闸认程序目录没搬坏） | **待作者：部署后看一眼** |
 
 ## 不在本 PR 里
 共享层改走 `sources` 接口、收掉 `ignore_imports`（⑤b / ⑥）；`attachments` / `render` 拆分（⑥）；`pyproject` 加 import-linter 依赖（守卫用 AST 扫描，不需要）。

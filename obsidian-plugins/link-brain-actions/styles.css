@@ -7,7 +7,7 @@
    拷进 lb-page-lib.js 的 LB_SHARED_CSS（页面，手机上也有）、插件 styles.css（设置页）、link-brain.css / note.css（笔记页）。
    tests/test_tokens_1027.py 锁住四份逐字相同。规则：新界面只用这里的名字（CONVENTIONS「样式集」），不再手写字体栈 / 字号 / 灰。
    黑白为主：颜色全映射到 Obsidian 主题变量，深浅色都跟着走；橙 / 红只给状态。
-   她能改的五个（目录「Aa 样式」，存插件设置 catalogLayout.theme）：标题字体 / 正文字体 / 数字字体 / 字号倍数 / 卡片间距，
+   用户能改的五个（目录「Aa 样式」，存插件设置 catalogLayout.theme）：标题字体 / 正文字体 / 数字字体 / 字号倍数 / 卡片间距，
    由 LB.applyTheme / plugin.applyTheme 写成页面根上的行内变量，只在 body 上给默认值。 */
 body{--lb-warn:var(--text-warning,var(--color-orange));--lb-warn-bg:var(--background-secondary);--lb-warn-border:var(--background-modifier-border);--lb-danger:var(--text-error);--lb-danger-bg:var(--background-secondary);--lb-ok:var(--text-success,var(--color-green));--lb-star:var(--color-yellow,#d9a21b);}
 @supports (color: color-mix(in srgb, red, blue)){body{--lb-warn-bg:color-mix(in srgb,var(--lb-warn) 14%,var(--background-primary));--lb-warn-border:color-mix(in srgb,var(--lb-warn) 35%,var(--background-modifier-border));--lb-danger-bg:color-mix(in srgb,var(--text-error) 12%,var(--background-primary));}}
@@ -333,7 +333,7 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-menu-sub { font-size: 11px; color: var(--text-faint); line-height: 1.3; }
 .lb-cols-pick { display: flex; flex-wrap: wrap; gap: 8px; }
 
-/* 1010 她：笔记顶上插件那一行 = 一行很轻的字「← 目录　原文↗　机读版」（note-tools.js 注入「← 目录」、去掉「·」）；
+/* 1010 作者：笔记顶上插件那一行 = 一行很轻的字「← 目录　原文↗　机读版」（note-tools.js 注入「← 目录」、去掉「·」）；
    没有框、没有右侧控件（导出在右上角 ⋮ 菜单）。颜色 / 悬停沿用 link-brain.css 里这一行链接的规则（灰字，悬停主题色 + 下划线） */
 .xhs-note .callout[data-callout="lb-topbar"] p.lb-topbar-row { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 1.25em; row-gap: 2px; word-spacing: normal; }
 .xhs-note .callout[data-callout="lb-topbar"] a.lb-topbar-back { cursor: pointer; white-space: nowrap; }
@@ -389,7 +389,7 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-remote-sub { margin: 10px 0 2px; color: var(--text-muted); }
 .lb-remote-depth2 .setting-item-name { padding-left: 1.5em; }
 
-/* —— 1010 她：设置页分栏（概览 / 收藏与同步 / AI / 连接其他 AI / 高级），按新手重写 ——
+/* —— 1010 作者：设置页分栏（概览 / 收藏与同步 / AI / 连接其他 AI / 高级），按新手重写 ——
    每栏最多一个主按钮（mod-cta）；次要动作是「像链接的一行字」（.lb-link）；「?」悬停讲规则（.lb-help）；读不到的块（.lb-fail）。 */
 .lb-tab-intro { margin: 2px 0 12px; color: var(--text-muted); }
 .lb-tab-pane > h4, .lb-tab-pane .lb-connect-main > h4 { margin: 20px 0 4px; font-size: var(--font-ui-small); color: var(--text-muted); }
@@ -456,14 +456,14 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-index-suggest-main { flex: 1; min-width: 0; }
 .lb-index-suggest-sub { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-top: 2px; overflow-wrap: anywhere; }
 
-/* —— 1015 她：设置页照 claudian 插件——顶部下划线页签（通用 / 模型与提供商 / 技能）→ 每组一张圆角卡片（标题加粗 + 分隔线）
+/* —— 1015 作者：设置页照 claudian 插件——顶部下划线页签（通用 / 模型与提供商 / 技能）→ 每组一张圆角卡片（标题加粗 + 分隔线）
    → 每行左标题 + 灰说明、右控件（开关紫色 / 下拉 / 输入框）。卡片是浅底上的白卡；深色主题跟着主题变量走。 */
 .lb-settings { --lbs-card-bg: var(--background-primary); --lbs-page-bg: var(--background-secondary); --lbs-accent: var(--interactive-accent, #7c5cff); }
 .lb-settings .lb-tabs { gap: 2px; margin: 0 0 16px; }
 .lb-settings .lb-tabs .lb-tab { padding: 8px 14px; font-size: var(--font-ui-medium); border-bottom-width: 2px; }
 .lb-settings .lb-tabs .lb-tab.is-active { color: var(--lbs-accent); border-bottom-color: var(--lbs-accent); }
 .lb-settings .lb-tabs .lb-tab:hover { background: transparent; }
-/* 1016 她：不要框套框——页签下面直接是一行行设置；分组只用一行小标题 + 细线。原来的「卡片」（tab.card，别的模块还在用）一并压平。 */
+/* 1016 作者：不要框套框——页签下面直接是一行行设置；分组只用一行小标题 + 细线。原来的「卡片」（tab.card，别的模块还在用）一并压平。 */
 .lb-settings .lb-tab-pane { display: flex; flex-direction: column; gap: 0; max-width: 760px; }
 .lb-settings .lb-card { background: transparent; border: 0; border-radius: 0; padding: 0; box-shadow: none; margin: 0; }
 .lb-settings .lb-card-head { padding: 22px 0 4px; border-bottom: 0; }
@@ -589,7 +589,7 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 }
 
 /* ——— 1018 设置页 v6（一页五张卡 + 首次设置）———
-   1018 晚她：「框框套框框太丑、不突出重点，要像 Claudian 那样舒服」→ 照 Claudian 的设置样式（src/style/settings/groups.css、
+   1018 晚作者：「框框套框框太丑、不突出重点，要像 Claudian 那样舒服」→ 照 Claudian 的设置样式（src/style/settings/groups.css、
    cli-installation.css，MIT）：卡片 = 透明底 + 一圈细边 + 标题行下一条线；里面的行一律去掉 Obsidian 1.14 给每行加的底色 / 圆角 / 边框，
    只留行间细线；名字小一号、说明更小更淡。颜色全用 Obsidian 变量，亮 / 暗主题都跟着走。 */
 .lb-settings .lb-v6 { gap: 0; max-width: 760px; background: transparent; padding: 0; }
@@ -621,7 +621,7 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v6 .lb-sub .setting-item-name { padding-left: 1.2em; }
 .lb-settings .lb-v6 .lb-note { color: var(--text-faint); font-size: var(--font-ui-smaller); padding: var(--size-4-2, 8px) 0; }
 .lb-settings .lb-v6 input.lb-num { width: 6em; text-align: right; }
-/* key 用不了 / 额度用完那一句（④ 功能行下面）：唯一带底色的东西（要她看的才突出）；跳到的那一块闪一下 */
+/* key 用不了 / 额度用完那一句（④ 功能行下面）：唯一带底色的东西（要用户看的才突出）；跳到的那一块闪一下 */
 .lb-settings .lb-v6 .lb-fix-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: var(--size-4-2, 8px) 0; padding: 8px 12px; border-radius: var(--radius-m, 8px);
   background: rgba(var(--color-orange-rgb), .1); color: var(--text-normal); font-size: var(--font-ui-small); }
 .lb-settings .lb-flash { animation: lb-flash 1.6s ease-out; border-radius: var(--radius-m, 8px); }
@@ -704,7 +704,7 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-note .lb-author-row > button.lb-back-catalog:hover { color: var(--text-normal); background: transparent; }
 .lb-note .lb-author-row > button.lb-back-catalog:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; }
 
-/* 1026 从快照找回：每份快照下面一行说明（页面好不好、哪一版存档、她写的几样、找回会怎么做） */
+/* 1026 从快照找回：每份快照下面一行说明（页面好不好、哪一版存档、用户写的几样、找回会怎么做） */
 .lb-snap-desc { font-size: var(--font-ui-smaller); color: var(--text-muted); white-space: normal; margin-top: 2px; }
 .lb-snap-desc.is-broken { color: var(--text-warning); }
 
@@ -718,7 +718,7 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-player-full[aria-pressed="true"] { color: var(--text-normal); text-decoration: underline; }
 .lb-fs-fallback { position: fixed !important; inset: 0 !important; z-index: var(--layer-modal, 50) !important; width: 100vw !important; height: 100vh !important; max-width: none !important; max-height: none !important; margin: 0 !important; }
 
-/* ——— 1027 设置页六组（design-1027/prototype.html「设置」第三版；她定：一页滚完、左边锚点、组底「＋ 更多」、说明在 ⓘ 里）———
+/* ——— 1027 设置页六组（design-1027/prototype.html「设置」第三版；作者定：一页滚完、左边锚点、组底「＋ 更多」、说明在 ⓘ 里）———
    LWA 的黑白：线、字都用墨色，开关 / 选中也用墨色（不用原型的绿）。窄了（设置窗口内容区 < 640px）锚点变成顶上一条横排、两栏变一栏。 */
 /* 变量全用样式集（styles.css 顶部 lb-tokens 块，唯一源 link_brain/assets/lb-tokens.css）；设置页根带 .lb-scope，跟着「Aa 样式」的字号倍数缩放 */
 .lb-settings .lb-v6.is-v7 { max-width: 1040px; container-type: inline-size; }
@@ -867,21 +867,21 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 @container (max-width: 640px) {
   .lb-settings .lb-v7 { grid-template-columns: minmax(0, 1fr); gap: var(--lb-space-2); padding: 0; }
   .lb-settings .lb-v7 .lb-anchors { flex-direction: row; overflow-x: auto; justify-content: space-between; gap: var(--lb-space-4); margin-bottom: var(--lb-space-4); background: var(--background-primary); border-bottom: 1px solid var(--lb-line); scrollbar-width: none; z-index: 5;
-    /* 1028 她：「应该整一块固定」——条往上伸到滚动区最顶（--lb-stick-pad = 页面离滚动区顶的高度，settings-v6 量），吸在最顶上，内边距里不再露字 */
+    /* 1028 作者：「应该整一块固定」——条往上伸到滚动区最顶（--lb-stick-pad = 页面离滚动区顶的高度，settings-v6 量），吸在最顶上，内边距里不再露字 */
     top: calc(-1 * var(--lb-stick-pad, 0px)); margin-top: calc(-1 * var(--lb-stick-pad, 0px)); padding: calc(var(--lb-stick-pad, 0px) + var(--lb-space-4)) 0 var(--lb-space-4); }
   .lb-settings .lb-v7 .lb-anchor-foot { display: none; }
   .lb-settings .lb-v7 .lb-twin, .lb-settings .lb-v7 .lb-pair, .lb-settings .lb-v7 .lb-console-grid { grid-template-columns: minmax(0, 1fr); }
   .lb-settings .lb-v7 .lb-v7-head h1 { font-size: calc(var(--lb-fs-h1) * 1.3); }
-  .lb-settings .lb-v7 .lb-group { scroll-margin-top: 84px; }   /* 1027b 她：「标题离上面这个太近」——跳过去时组标题离锚点条留一段 */
+  .lb-settings .lb-v7 .lb-group { scroll-margin-top: 84px; }   /* 1027b 作者：「标题离上面这个太近」——跳过去时组标题离锚点条留一段 */
 }
 
-/* 1027b 她：设置页不要花哨，只用正文字——标题（衬线）、序号（Cormorant 斜体）、PREFERENCES（雕刻字）都改正文字、不斜体。
+/* 1027b 作者：设置页不要花哨，只用正文字——标题（衬线）、序号（Cormorant 斜体）、PREFERENCES（雕刻字）都改正文字、不斜体。
    放在文件最后（同权重后写的赢）；不改样式集变量本身（别处还要用），只给这几样元素换字 */
 .lb-settings .lb-v7 :is(.lb-v7-head h1, .lb-group-head h2, .lb-num, .lb-anchor b, .lb-eyebrow, .lb-console-v) { font-family: var(--lb-font-body) !important; font-style: normal !important; }
 .lb-settings .lb-v7 .lb-v7-head h1 { font-weight: 600; letter-spacing: 0; }
 .lb-settings .lb-v7 .lb-group-head h2 { font-weight: 600; letter-spacing: .02em; }
 .lb-settings .lb-v7 .lb-eyebrow { font-weight: 500; font-size: var(--lb-fs-micro); letter-spacing: .12em; color: var(--lb-muted); }
-/* 1027b 她：页头「有点突兀」——小字（PREFERENCES）+ 一句说明两行就够，离下面第一组别空一大截 */
+/* 1027b 作者：页头「有点突兀」——小字（PREFERENCES）+ 一句说明两行就够，离下面第一组别空一大截 */
 .lb-settings .lb-v7 .lb-v7-head { padding: var(--lb-space-1) 0 0; }
 .lb-settings .lb-v7 .lb-v7-lead { margin-top: var(--lb-space-2); }
 .lb-settings .lb-v7 .lb-v7-head + .lb-group { margin-top: var(--lb-space-5); }
@@ -890,9 +890,9 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v7 .lb-key-first-lead { margin: 0 0 var(--lb-space-2); color: var(--lb-muted); font-size: var(--lb-fs-small); }
 .lb-settings .lb-v7 .lb-key-first .setting-item { border-top: 0; }
 
-/* 1031 她：LWA 界面悬停不出提示气泡。no-tooltip.js 在鼠标移进 lb* 元素时给 body 挂 .lb-notip，这里藏掉 Obsidian 的黑气泡 */
+/* 1031 作者：LWA 界面悬停不出提示气泡。no-tooltip.js 在鼠标移进 lb* 元素时给 body 挂 .lb-notip，这里藏掉 Obsidian 的黑气泡 */
 body.lb-notip .tooltip{display:none!important;}
-/* 1031 她「没有让我选哪些下载」：设置页②「挑选要同步的…」入口 + 挑选弹窗（收藏夹开关、超长视频逐条勾）。弹窗大一点，中间可滚，底部按钮常在 */
+/* 1031 作者「没有让我选哪些下载」：设置页②「挑选要同步的…」入口 + 挑选弹窗（收藏夹开关、超长视频逐条勾）。弹窗大一点，中间可滚，底部按钮常在 */
 .lb-settings .lb-v7 .lb-bili-pick-entry { margin: var(--lb-space-3) 0 var(--lb-space-2); }
 .lb-settings .lb-v7 .lb-bili-pick-entry .lb-bili-pick-btn { height: auto; min-height: var(--lb-ctl-h); padding: 6px var(--lb-space-5); }
 .lb-bili-pick-modal { width: min(860px, calc(100vw - 32px)); max-width: none; }
@@ -915,7 +915,7 @@ body.lb-notip .tooltip{display:none!important;}
 .lb-bili-pick-modal .lb-bili-long-off:empty { display: none; }
 .lb-bili-pick-modal .lb-bili-pick-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--lb-space-2); margin-top: var(--lb-space-3); padding-top: var(--lb-space-3); border-top: 1px solid var(--lb-line); }
 @media (max-width: 520px) { .lb-bili-pick-modal .lb-bili-long-row { grid-template-columns: auto minmax(0, 1fr); } .lb-bili-pick-modal .lb-bili-long-dur { grid-column: 2; } .lb-bili-pick-modal .lb-bili-long-title, .lb-bili-pick-modal .lb-bili-long-meta, .lb-bili-pick-modal .lb-bili-long-off { grid-column: 2; } }
-/* 1031 她：② 收藏与同步顶上切换小红书 / B 站（选哪个只出哪个的设置），样子跟①的两张平台卡同一套：细边、圆角、标题粗体 + 右侧小字 */
+/* 1031 作者：② 收藏与同步顶上切换小红书 / B 站（选哪个只出哪个的设置），样子跟①的两张平台卡同一套：细边、圆角、标题粗体 + 右侧小字 */
 .lb-settings .lb-v7 .lb-plat-switch { display: grid; grid-template-columns: 1fr 1fr; gap: var(--lb-space-3); margin: var(--lb-space-2) 0 var(--lb-space-4); }
 .lb-settings .lb-v7 button.lb-plat-tab { display: flex; align-items: baseline; justify-content: space-between; gap: var(--lb-space-2); height: auto; min-height: 52px; padding: var(--lb-space-3) var(--lb-space-4) !important; border: 1px solid var(--lb-line) !important; border-radius: 12px !important; background: var(--lb-surface) !important; box-shadow: none !important; color: var(--lb-muted); cursor: pointer; text-align: left; }
 .lb-settings .lb-v7 button.lb-plat-tab .lb-plat-name { font-weight: 700; font-size: var(--lb-fs-h2); color: var(--lb-ink); }

@@ -1,4 +1,4 @@
-"""1011（她：自愈的就不要显示报错）：问题面板只列「现在还要人看一眼」的。
+"""1011（作者：自愈的就不要显示报错）：问题面板只列「现在还要人看一眼」的。
 
 - 已解决（自愈 / 修好）的：不进 `problems list`、不进顶部计数，只在「复制报错」里（状态「已解决」）；
 - 轻微的：评论续读放弃了、但楼中楼只缺 ≤2 条（不影响阅读）——同样不列、不计数、「全部修一遍」不为它开页，
@@ -90,7 +90,7 @@ def test_minor_skipped_by_repair_all_and_group_dismiss_but_single_still_runs():
 
 def test_minor_hidden_row_not_in_hidden_section(capsys):
     one = _incomplete("xhs-one", 2)
-    # 老数据：她以前隐藏过的轻微条目，现在既不在列表也不在「已隐藏」计数里
+    # 老数据：用户以前隐藏过的轻微条目，现在既不在列表也不在「已隐藏」计数里
     problems._append([{"ts": one["ts"], "key": one["key"], "step": "comments.fill", "item_id": "xhs-one",
                        "code": FILL, "dismiss": True, "by": "owner"}])
     out = _list(capsys)

@@ -120,7 +120,7 @@ def test_ask_crash_resolved_by_next_success_and_not_api_category(monkeypatch):
 
 
 def test_catalog_problem_context_sees_rows_only_in_pending(monkeypatch):
-    """runtime#7：她点的「隐藏」等不到锁写进了旁路，目录卡片不用等并回就该看到。"""
+    """runtime#7：用户点的「隐藏」等不到锁写进了旁路，目录卡片不用等并回就该看到。"""
     import json as _json
     from link_brain import catalog
     row = {"ts": "2026-10-01T04:00:00+10:00", "key": "ocr|xhs-p|OCR_EMPTY", "step": "ocr", "item_id": "xhs-p",

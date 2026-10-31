@@ -243,7 +243,7 @@ def test_migration_uses_settings_cats_and_never_overwrites(vault):
     assert "- 吃喝：" in text and "家常菜" in text and "- 学习：法学生" in text
     data = json.loads((vault / "_archive" / "catalog-data.json").read_text(encoding="utf-8"))
     assert data["cats_order"] == ["吃喝", "学习", it.UNCLASSIFIED]
-    # 她改过之后：再重建不覆盖
+    # 用户改过之后：再重建不覆盖
     (vault / "索引.md").write_text("- 我的分类：随手拍\n", encoding="utf-8")
     catalog.build(vault)
     assert (vault / "索引.md").read_text(encoding="utf-8") == "- 我的分类：随手拍\n"
@@ -345,7 +345,7 @@ def test_draft_with_ai_groups_units_and_cleans_hostile_output(vault, monkeypatch
     assert [n.path for n in p.walk()] == ["美食 做饭 吃", "美食 做饭 吃/菜谱 家常", "出去玩", "出去玩/成都", "AI", "AI/伴侣", "运动", "运动/拉伸"]
     assert p.find("美食 做饭 吃/菜谱 家常").tags == ["家常菜", "美食教程"]      # 标签由程序从小组里算，都是库里真有的
     assert not p.find("美食 做饭 吃").explicit                                # 大类不另配标签（= 子节点并集 + 按名字找）
-    assert all(not n.wiki for n in p.walk())                                  # wiki 只在注释里建议，她自己加
+    assert all(not n.wiki for n in p.walk())                                  # wiki 只在注释里建议，用户自己加
     assert "建议做 wiki 的节点（清单型的，想要就在那一行末尾加 [wiki]）：美食 做饭 吃/菜谱 家常" in draft
     assert r["stats"]["classified"] == len(rows)
     assert (vault / "索引.md").read_text(encoding="utf-8") == "- 旧的：家常菜\n"
@@ -372,19 +372,19 @@ def test_draft_ai_retries_once_when_tree_too_small_and_salvages_truncated(vault,
 def test_draft_falls_back_when_ai_fails_and_backs_up_old_draft(vault, monkeypatch):
     write_catalog(vault, _many_items())
     write_index(vault, "- x\n")
-    (vault / "索引.草稿.md").write_text("- 她改过的草稿\n", encoding="utf-8")
+    (vault / "索引.草稿.md").write_text("- 用户改过的草稿\n", encoding="utf-8")
     from link_brain import providers, text_stream
     monkeypatch.setattr(providers, "resolve", lambda cap, settings=None: {"mode": "http", "model": "m", "endpoint": "x", "apiKey": "k"})
     monkeypatch.setattr(text_stream, "call", lambda *a, **k: {"status": "failed", "code": "TRANSIENT.HTTP_5XX", "error": "503"})
     r = it.draft(vault)
     assert r["ok"] and r["mode"] == "tags" and "AI 没起草成" in r["message"]
     hist = list((vault / "_archive" / it.HISTORY_DIR).glob("*draft-old.txt"))
-    assert hist and hist[0].read_text(encoding="utf-8") == "- 她改过的草稿\n"
+    assert hist and hist[0].read_text(encoding="utf-8") == "- 用户改过的草稿\n"
 
 
 def test_use_draft_backs_up_index_and_replaces(vault):
     write_catalog(vault, _many_items())
-    write_index(vault, "%%\n她的注释\n%%\n- 她的：家常菜\n")
+    write_index(vault, "%%\n用户的注释\n%%\n- 用户的：家常菜\n")
     it.draft(vault, use_ai=False)
     draft = (vault / "索引.草稿.md").read_text(encoding="utf-8")
     r = it.use_draft(vault)
@@ -393,7 +393,7 @@ def test_use_draft_backs_up_index_and_replaces(vault):
     assert it.DRAFT_MARK not in now and now == "".join(l for l in draft.splitlines(True) if not l.startswith(it.DRAFT_MARK))
     assert not (vault / "索引.草稿.md").exists()
     backup = vault / "_archive" / it.HISTORY_DIR / r["backup"]
-    assert backup.read_text(encoding="utf-8") == "%%\n她的注释\n%%\n- 她的：家常菜\n"
+    assert backup.read_text(encoding="utf-8") == "%%\n用户的注释\n%%\n- 用户的：家常菜\n"
     data = json.loads((vault / "_archive" / "index-data.json").read_text(encoding="utf-8"))
     assert data["draft"] is None and data["roots"] == r["roots"]
     assert it.use_draft(vault)["ok"] is False                    # 没草稿了
@@ -452,9 +452,9 @@ def test_suggest_with_ai_validates_paths_and_tags(vault, monkeypatch):
 def test_apply_add_tags_keeps_format_comments_crlf_and_wiki_mark(vault):
     rows = [item(1, "a", ["家常菜", "快手菜"]), item(2, "b", ["快手菜"]), item(3, "c", ["快手菜"])]
     write_catalog(vault, rows)
-    original = ("%%\r\n她的说明：别动我\r\n%%\r\n"
+    original = ("%%\r\n用户的说明：别动我\r\n%%\r\n"
                 "- 美食\r\n"
-                "\t- 菜谱：家常菜，红烧肉 [wiki] %%她的备注%%\r\n"
+                "\t- 菜谱：家常菜，红烧肉 [wiki] %%用户的备注%%\r\n"
                 "\t- 甜品\r\n")
     write_index(vault, original)
     r = it.suggest(vault, use_ai=False)

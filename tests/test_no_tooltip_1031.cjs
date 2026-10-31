@@ -1,4 +1,4 @@
-// 1031 她「这些气泡全取消吧」：no-tooltip.js——鼠标移进 lb* 元素：一串祖先上的 title 挪进 aria-label 后删掉、body 挂 .lb-notip；
+// 1031 作者「这些气泡全取消吧」：no-tooltip.js——鼠标移进 lb* 元素：一串祖先上的 title 挪进 aria-label 后删掉、body 挂 .lb-notip；
 // 移到 LWA 外面摘掉 .lb-notip，别的界面的 title 不碰；原有 aria-label 不覆盖；styles.css 有藏 .tooltip 的规则；main.js 挂上了它。
 'use strict';
 const assert = require('node:assert/strict');
@@ -35,7 +35,7 @@ assert.match(css, /body\.lb-notip \.tooltip\{display:none!important;\}/);
 const main = fs.readFileSync(plug('main.js'), 'utf8');
 assert.match(main, /'no-tooltip\.js'\)\)\(obsidian, this\); this\.noTooltip\.attach\(\)/);
 console.log('PASS no-tooltip 1031: lb* 元素悬停摘 title（挪进 aria-label）+ body.lb-notip 藏 Obsidian 气泡；别的界面不碰');
-// 1031 她「这里还有」：标签页标题（Obsidian 按 aria-label 画黑气泡）也算
+// 1031 作者「这里还有」：标签页标题（Obsidian 按 aria-label 画黑气泡）也算
 const tab = D.createElement('div'); tab.className = 'workspace-tab-header tappable is-active'; tab.setAttribute('aria-label', '《一篇笔记》'); D.body.appendChild(tab);
 const tabInner = D.createElement('div'); tabInner.className = 'workspace-tab-header-inner'; tab.appendChild(tabInner);
 onOver({ target: tabInner });

@@ -50,13 +50,13 @@ const SESSION = '_archive/chat-session.json';
   const ask = async text => { A.section.querySelector('.lbchat-search').value = text; await A.section.querySelector('.lbchat-composer').onsubmit({ preventDefault() {} }); };
   await ask('展开重点细节'); await tick(20);
   assert.equal(asks.length, 1);
-  // 1026 她：追问 = 接着聊（mode=chat），不带来源 id、不重新检索
+  // 1026 作者：追问 = 接着聊（mode=chat），不带来源 id、不重新检索
   assert.deepEqual(Object.keys(asks[0]).filter(k => /Ids$/.test(k)), []);
   assert.equal(asks[0].mode, 'chat');
   // 下面验 R2 的「重新检索」那条路：开关点「新对话」（1020 起「追问 · 新对话」两个词并排），状态跟会话一起存
   const seg = label => all('.lbchat-followmode .lbchat-seg-opt').find(b => b.textContent === label);
   assert.ok(seg('追问').classList.contains('is-on'));
-  await seg('新问题').onclick(); await tick(5);   // 1028 她：「新对话」→「新问题」
+  await seg('新问题').onclick(); await tick(5);   // 1028 作者：「新对话」→「新问题」
   assert.equal(JSON.parse(V.get(SESSION)).follow, 'search');
   assert.ok(seg('新问题').classList.contains('is-on'));
 

@@ -1,4 +1,4 @@
-// 1026 她的录屏（场景 02 首页与编排）· Obsidian 外壳 · 真 Chromium。
+// 1026 作者的录屏（场景 02 首页与编排）· Obsidian 外壳 · 真 Chromium。
 //   ① 缩窄窗口（1400 / 1100 / 900 / 760 / 600 / 390，边栏开着）：分类一个都不被裁（放不下就换行）、搜索框 / 问收藏整个在视口里、没有横向滚动
 //   ② 放大 / 长标题：大标题不超出页头、不压到「编排 / 管理」（录屏 03:05「超出框架」）
 //   ③ 已收藏的星：白底小圆黑星（不是整块黑圆）；没收藏的平时看不见（visibility + opacity）
@@ -94,7 +94,7 @@ const PLUGIN = (schedule, settings = {}) => ({ settings: { hiddenCats: [], ...se
       // ④ 编排（1027 起八个模块平级，细节见 catalog_arrange_ui）：每块都有操作条、托盘在收藏墙上面；拖宽边栏、卡片间距、收藏墙密度后版面真的变
       const w0 = await page.evaluate(() => document.querySelector('.lbc-side').getBoundingClientRect().width);
       await page.click('.lbc-tools .lb-arrange'); await S.settle(60);
-      // 1028 她：「不像图 2 那么突兀」——十六块都有工具条，平时收着，指着 / 选中那块才出来
+      // 1028 作者：「不像图 2 那么突兀」——十六块都有工具条，平时收着，指着 / 选中那块才出来
       const a = await page.evaluate(() => ({ bars: document.querySelectorAll('.lbc-mod-bar').length, shown: [...document.querySelectorAll('.lbc-mod-bar')].filter(b => getComputedStyle(b).display === 'flex').length,
         trayAbove: document.querySelector('.lbc-arrange-tray').getBoundingClientRect().bottom <= document.querySelector('.lbc-board').getBoundingClientRect().top + 1 }));
       assert.equal(a.bars, 16, '十六块都有工具条（1028 加了专辑，1031 去掉视图）'); assert.equal(a.shown, 0, '平时不露工具条'); assert.ok(a.trayAbove, '编排条在收藏墙上面');

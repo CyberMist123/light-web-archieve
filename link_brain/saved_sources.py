@@ -1,4 +1,4 @@
-"""问收藏的「附加来源」：她在问收藏页「已保存」里存的回答和自己手写的判断。
+"""问收藏的「附加来源」：用户在问收藏页「已保存」里存的回答和自己手写的判断。
 
 数据在 vault `_archive/chat-archive.json` 的 `entries`（页面 chat-view.js 写，`{id, ts, kind: report|note, title, content, sources?}`），
 不进 catalog-data、不进向量库。问答召回时由 `merge()` 这一个接入点按词法并进候选（不碰召回核心），
@@ -95,7 +95,7 @@ def matching(question: str, saved: list[dict[str, Any]], terms) -> list[tuple[in
 def merge(question: str, matches: list[dict[str, Any]], saved: list[dict[str, Any]], terms, *,
           excluded=(), after: int = 0) -> list[dict[str, Any]]:
     """把命中的「我保存的」并进候选：强命中插在第 after 位（保留的来源之后）、弱命中插在 WEAK_SLOT 之后；
-    已经在候选里的（她保留 / 带上的）不重复，排除的不要。没命中 = 原样返回。"""
+    已经在候选里的（用户保留 / 带上的）不重复，排除的不要。没命中 = 原样返回。"""
     try:
         excluded = set(excluded or ())
         have = {it.get("id") for it in matches}

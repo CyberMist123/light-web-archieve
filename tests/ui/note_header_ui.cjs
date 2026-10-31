@@ -1,4 +1,4 @@
-// 1010 她：①笔记顶上插件那一行变成一行很轻的字「← 目录　原文↗　机读版」——没有框、没有右侧控件（导出挪进右上角 ⋮ 菜单）；
+// 1010 作者：①笔记顶上插件那一行变成一行很轻的字「← 目录　原文↗　机读版」——没有框、没有右侧控件（导出挪进右上角 ⋮ 菜单）；
 // ②「抓全部评论」要有真进度：画在评论区最上面一行 + 细条（note-actions.js paintFetch）。
 // 外壳 note-reading 宿主（真 Chromium，载入真 link-brain.css + 插件 styles.css），亮 / 暗 / 改过橙色的第三方主题各跑一遍：
 // 顶栏 callout 照 Obsidian 渲染出来的样子摆好（原文 · 机读版），跑 note-tools.js 的 markdown post-processor，量：

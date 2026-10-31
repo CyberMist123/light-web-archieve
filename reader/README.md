@@ -104,10 +104,10 @@ go build -o relatedfile.exe ./cmd/relatedfile   # 附件探测用的游客浏览
   HTTP 里的熔断对象不带 `url`（含本号主页和 `xsec_token`，只留给验证窗口用）；`423` 里也不带证据目录，只有 `/login/session` 带。
   只有这几种方式解除：登录窗口（或远程扫码）扫码成功、`POST /api/v1/verify/window` 人工验证完成、`POST /api/v1/risk/clear`，以及（1011，只限验证码类）`POST /api/v1/risk/probe` 冷却后自查干净（见下）。
   验证窗口不再「关窗即解除」：没有熔断时不开窗（回 `result:"no_hold"`）；有熔断就打开出事的那一页（去掉 `tab` 参数，不让页面自己去读收藏），出事时在收藏页签、或正要去收藏页签的，页面顶部提示「请点一下『收藏』页签看看有没有滑块」（窗口不替你点；出事页面不是主页时从首页经侧栏「我」进主页）。
-  解除都要求关窗前页面干净且看到已登录；验证码 / 安全跳转类另要求窗口里**出现过**验证（她真拖过了）；从头到尾没出现过就保持熔断，`/login/session` 给 `verify_result:"no_captcha_seen"`，由人确认没事后 `POST /api/v1/risk/clear`。连续两次读不到窗口才算关窗；有提示时每秒看一眼。
+  解除都要求关窗前页面干净且看到已登录；验证码 / 安全跳转类另要求窗口里**出现过**验证（用户真拖过了）；从头到尾没出现过就保持熔断，`/login/session` 给 `verify_result:"no_captcha_seen"`，由人确认没事后 `POST /api/v1/risk/clear`。连续两次读不到窗口才算关窗；有提示时每秒看一眼。
   取二维码时、或登录窗口一打开就发现「已是登录态」（没扫码），只解除 `NOT_LOGGED_IN`。
   笔记验证窗口（1011）：`POST /api/v1/verify/window` 带 `{note_id, xsec_token}` 且**没有熔断**时，开有界面的浏览器到这一篇（响应 `mode:"note"`），
-  她过完验证、看到笔记就关窗；关窗前页面上还要验证 / 被跳到安全页 → 按风控写熔断（`still_risk`），有登录框 → `NOT_LOGGED_IN`，
+  用户过完验证、看到笔记就关窗；关窗前页面上还要验证 / 被跳到安全页 → 按风控写熔断（`still_risk`），有登录框 → `NOT_LOGGED_IN`，
   窗口里看到过这篇正常渲染 → `note_ok`，否则 `note_not_seen`；`/login/session` 多给 `verify_note`（`note_id` / `ok` / 当时地址里的口令）。
   有熔断时一律先走熔断验证（`mode:"hold"`）。
 - 冷却后自查（1011）：`POST /api/v1/risk/probe`（body 可带 `{"cooldown_s": 2700}`）——第四条、单独的解除路，`risk/clear` 语义不变：

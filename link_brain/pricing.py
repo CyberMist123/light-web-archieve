@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 PRICING_PATH = Path(__file__).resolve().with_name("pricing.json")
-FREE_POOLS = ("gemini",)   # 这些 key 池是免费额度（她的 Gemini 免费 key）
+FREE_POOLS = ("gemini",)   # 这些 key 池是免费额度（用户的 Gemini 免费 key）
 PRICE_KEYS = ("input", "output", "price", "price_per_million")
 
 
@@ -130,7 +130,7 @@ def is_priced(info: dict[str, Any] | None) -> bool:
 
 def bill_of(row: dict[str, Any], pricing: dict[str, Any] | None = None) -> tuple[float | None, str]:
     """账本一行 → (元, 状态)。状态三种，设置页「花了多少」照它写：
-    free = 免费 / 未计费（本机命令行、Gemini 免费 key 池、价格表写了 free；她 1023 拍板：不算进 ¥）；
+    free = 免费 / 未计费（本机命令行、Gemini 免费 key 池、价格表写了 free；作者 1023 拍板：不算进 ¥）；
     paid = 按价格表算出来的钱；unpriced = 价格表里查不到（元 = None，不编、不当 0）。"""
     pricing = pricing if pricing is not None else table()
     if row.get("p") == "cli" or row.get("free") is True:

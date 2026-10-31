@@ -49,7 +49,7 @@ def test_background_paid_call_blocked_after_cap():
         assert got and got["code"] == budget.CODE and got["api_error"] is True
         assert budget.blocked(FREE) is None, "免费的照跑"
     with usage.tag("ask"):
-        assert budget.blocked(PAID) is None, "她自己问收藏不拦"
+        assert budget.blocked(PAID) is None, "用户自己问收藏不拦"
     assert ai_health.is_api_failure(got), "按接口故障归并，不按篇记失败"
     assert budget.CODE in ai_health.CAUSE
 

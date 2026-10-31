@@ -1,4 +1,4 @@
-// 1011 她：打开一篇先露出原始 Markdown 再变正常页。根因之一：目录 / 链接 / 同步记录走 openLinkText(不带 mode)，按默认（实时预览）
+// 1011 作者：打开一篇先露出原始 Markdown 再变正常页。根因之一：目录 / 链接 / 同步记录走 openLinkText(不带 mode)，按默认（实时预览）
 // 先渲一遍，插件 file-open 才切阅读视图。修：main.js patchOpenFile 在 WorkspaceLeaf.prototype.openFile 这一层给归档笔记补 mode:'preview'。
 // 这里：归档笔记（frontmatter.link_brain.item_id）不带 mode → 带上 preview、别的 openState（eState 跳行）照留；调用方给了 mode 的照它；
 // 普通笔记 / 非 md / 读不到属性缓存的不动（fail-open）；卸载还原原型；别的插件后来又包了一层时，卸载后我们这层变直通、不拆别人的链。
@@ -50,7 +50,7 @@ const file = pth => new obs.TFile(pth);
   assert.deepEqual(last().openState, { active: false, state: { mode: 'source', source: false } }, '调用方自己给了 mode 的照它的');
 
   await leaf.openFile(file('随手记.md'));
-  assert.equal(last().openState, undefined, '普通笔记不动（她自己的笔记照她的默认视图）');
+  assert.equal(last().openState, undefined, '普通笔记不动（用户自己的笔记照用户的默认视图）');
   await leaf.openFile(file('附件/合成.pdf'));
   assert.equal(last().openState, undefined, '非 md 不动');
 

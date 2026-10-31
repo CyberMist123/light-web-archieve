@@ -46,7 +46,7 @@ def test_atomic_write_retries_when_target_briefly_locked(tmp_path, monkeypatch):
 
 
 def test_render_crash_during_visible_write_keeps_previous_note(tmp_path, monkeypatch):
-    """生产路径：render_object 写可见 md 时被杀，她的旧笔记（含手写留言）原样还在。"""
+    """生产路径：render_object 写可见 md 时被杀，用户的旧笔记（含手写留言）原样还在。"""
     setup_env(tmp_path, monkeypatch)
     cli.main(["ingest", "https://example.invalid/share"])
     conn = index_mod.connect()

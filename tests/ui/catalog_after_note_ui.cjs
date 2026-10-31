@@ -1,9 +1,9 @@
-// 1010 她报：在目录页点开视频笔记、点「连播…」按标签连播，回到目录后目录往下滚不动、反复被拉回顶部。
+// 1010 作者报：在目录页点开视频笔记、点「连播…」按标签连播，回到目录后目录往下滚不动、反复被拉回顶部。
 // 复现（外壳 page-reading 宿主 = Obsidian 1.14.4 阅读视图，真 Chromium）：同一个标签页先显示一篇（默认钉住的）视频笔记，
 // 再换成目录页——Obsidian 同一标签页换文件复用同一个 .markdown-preview-view，旧笔记被摘下；然后真鼠标滚轮往下滚目录。
 // 根因（9db45ca 的 media-nav.js）：钉住时给预览容器挂的 scroll 监听（ensureLockedInView：笔记顶被滚出容器上沿就把容器往回滚）
 // 换页后没摘；摘下的笔记 getBoundingClientRect().top = 0、容器顶 = 标签栏 + 视图头的高度，每次滚动都被判成「笔记顶在上沿外」，
-// 往回滚一个容器顶那么多；往回滚又触发 scroll → 再往回滚……一直滚到 0。连播只是把她带回这个标签页的那条路。
+// 往回滚一个容器顶那么多；往回滚又触发 scroll → 再往回滚……一直滚到 0。连播只是把用户带回这个标签页的那条路。
 // 红线规矩（CONVENTIONS §7.8）：同一个用例先在 9db45ca（出问题那一版）的 media-nav.js 上跑红、读数打印出来记进验收文件，再对当前文件跑绿。
 'use strict';
 const assert = require('node:assert/strict');
@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const shell = require('../_obsidian_shell.cjs');
 
-const BEFORE = '9db45ca';   // 她报问题时生产上的那一版（main）
+const BEFORE = '9db45ca';   // 用户报问题时生产上的那一版（main）
 const NAV = 'obsidian-plugins/link-brain-actions';
 
 function svg(w, h, label) {
@@ -57,7 +57,7 @@ async function scenario(browser, { navRev = null, theme = 'light', savedScroll =
     await S.run();
     await S.settle(savedScroll ? 1800 : 300);   // 有存下的位置：等 restoreScroll 恢复完、守满 1.2 秒
     const restored = await S.scrollTop();
-    // ③ 真鼠标滚轮往下滚三格，停一停再读（她说的「反复被拉回顶部」：停手后还会不会被拉回去）
+    // ③ 真鼠标滚轮往下滚三格，停一停再读（用户说的「反复被拉回顶部」：停手后还会不会被拉回去）
     await S.hoverScroller();
     for (let i = 0; i < 3; i++) { await page.mouse.wheel(0, 300); await page.waitForTimeout(250); }
     const afterWheel = await S.scrollTop();

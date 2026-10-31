@@ -1,4 +1,4 @@
-"""1008（L6·B1 / S4 / 读取组件 d7 交接）：打开验证先查再开、关窗后如实回报、「没看到验证，恢复」要她亲手确认；
+"""1008（L6·B1 / S4 / 读取组件 d7 交接）：打开验证先查再开、关窗后如实回报、「没看到验证，恢复」要用户亲手确认；
 浅查不拉起服务不开页；扫码成功不等于熔断已解；读收藏「这次先停」的两种不走退出码 5；证据路径不出本机。
 
 读取服务一律是假的（FakeReader / monkeypatch），不起服务、不联网。合成数据。
@@ -89,7 +89,7 @@ def test_clear_hold_requires_owner_and_posts_once(clean, monkeypatch, capsys):
     assert cli.main(["login", "--clear-hold", "--by-owner", "--json"]) == 0
     assert fake.calls.count("/api/v1/risk/clear") == 1
     raw = [json.loads(x) for x in problems.path().read_text("utf-8").splitlines()]
-    assert any("她确认没看到验证" in str(x.get("repair_note")) for x in raw), "问题记录里留痕"
+    assert any("你确认没看到验证" in str(x.get("repair_note")) for x in raw), "问题记录里留痕"
     assert not problems.is_open("login", None, "CAPTCHA_REQUIRED")
 
 
@@ -168,7 +168,7 @@ def test_page_summary_has_last_risk_for_sync_button_note(monkeypatch):
     assert lr["code"] == "NEEDS_HUMAN.CAPTCHA_REQUIRED" and lr["open"] is True
 
 
-# ── 1027b 她：「账号卡说已登录（刚刚确认），同步却说未登录」 ──
+# ── 1027b 作者：「账号卡说已登录（刚刚确认），同步却说未登录」 ──
 def test_shallow_status_trusts_newer_sync_logout_over_reader_memory(clean, monkeypatch, capsys):
     """读取服务记得「登录的」（上次真查在 10:00），之后同步真用号撞见掉登录：浅查以后者为准，不报 ✓。"""
     sync_state.account_problem("NOT_LOGGED_IN", "读收藏：小红书未登录或登录已失效")

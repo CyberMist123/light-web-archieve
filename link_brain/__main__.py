@@ -14,7 +14,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 if __name__ == "__main__":
     # 10-31：个人 Wiki 的写盘命令走轻入口（只载 personal_wiki，0.3 秒；整套 cli 要 1.5 秒，每次保存页面就锁这么久）
-    if sys.argv[1:2] == ["pwiki"] and sys.argv[2:3] in (["plan"], ["fill"]):   # 按她的思路搭框架（出计划 / 按节检索补材料）：wiki_plan 自己接
+    if sys.argv[1:2] == ["pwiki"] and sys.argv[2:3] in (["plan"], ["fill"]):   # 按用户的思路搭框架（出计划 / 按节检索补材料）：wiki_plan 自己接
         from .wiki_plan import main as wiki_plan_main
         sys.exit(wiki_plan_main(sys.argv[2:]))
     if sys.argv[1:3] == ["pwiki", "ai"]:   # 让 AI 改（只回建议）：wiki_ai 自己接，personal_wiki 不 import 它

@@ -1,4 +1,4 @@
-// 1020 来源（她定）：目录默认只看她自己的收藏；「来源 ▾」切到 聊天分享 / fable / 项目 / 全部；切换记住；全是她自己的就没有这颗按钮。
+// 1020 来源（作者定）：目录默认只看用户自己的收藏；「来源 ▾」切到 聊天分享 / fable / 项目 / 全部；切换记住；全是用户自己的就没有这颗按钮。
 'use strict';
 const assert = require('node:assert/strict');
 const shell = require('../_obsidian_shell.cjs');
@@ -21,7 +21,7 @@ const shell = require('../_obsidian_shell.cjs');
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', data });
-    assert.equal(await cards(page), 22, '默认只看她自己的收藏');
+    assert.equal(await cards(page), 22, '默认只看用户自己的收藏');
     assert.deepEqual(await chip(page), { text: '我的收藏 ▾', active: false });
     await page.click('.lbc-src'); await S.settle();
     assert.deepEqual(await menu(page), ['我的收藏（22）', '全部（30）', '聊天分享（5）', 'fable（2）', 'ai群聊（1）']);
@@ -36,7 +36,7 @@ const shell = require('../_obsidian_shell.cjs');
     assert.equal(await cards(page), 1);
     assert.deepEqual(await S.pageErrors(), []);
 
-    // 全是她自己的：没有这颗按钮，全显示
+    // 全是用户自己的：没有这颗按钮，全显示
     const mine = shell.makeCatalogData({ n: 12 });
     const page2 = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     const S2 = await shell.page(page2, { host: 'page-reading', kind: 'catalog', data: mine });

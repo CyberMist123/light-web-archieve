@@ -1,4 +1,4 @@
-// 1021 她：回答里 [来源N 段k] → 胶囊只显示 [来源N]、记 data-seg；点了把段 k 的证据排第一交给插件 openArchiveSource（右侧跳那一段）；
+// 1021 作者：回答里 [来源N 段k] → 胶囊只显示 [来源N]、记 data-seg；点了把段 k 的证据排第一交给插件 openArchiveSource（右侧跳那一段）；
 // 没段号的 [来源N] 按点击那句的上下文挑最像的一段；导出的「引用过」也认带段号的引用。
 'use strict';
 const assert = require('node:assert/strict');

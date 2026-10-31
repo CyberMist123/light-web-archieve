@@ -34,7 +34,7 @@ class ServiceDown(NeedsHuman):
 
 
 class ItemRestricted(SourceError):
-    """1011：**只是这一篇**打不开——小红书网页版限制了它（她的浏览器里打开要「验证一下」），读取服务打开详情页、
+    """1011：**只是这一篇**打不开——小红书网页版限制了它（用户的浏览器里打开要「验证一下」），读取服务打开详情页、
     页面上没有这篇（读取组件 `[NOTE_RESTRICTED]`）。不是号出事：不停整批、不写熔断；处理见 link_brain/restricted.py。"""
 
     code = "NOTE_RESTRICTED"

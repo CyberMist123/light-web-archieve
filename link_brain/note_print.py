@@ -169,7 +169,7 @@ def print_html(target: str, font: str | None = None, *, data: dict[str, Any] | N
         body += '<details class="lb-transcript"><summary>视频画面文字</summary>' + render_mod._body_html(note["screen_text"]) + "</details>"
     main = f'{render_mod._author_html(note)}<div class="lb-scroll">{title}{body}</div>'
     detail = render_mod._comments_html(note, d["source"].get("comments") or [], manifest, rel, d["source"].get("capture"))
-    # 她划的重点：贴回「右栏 + 评论」（与 render 相同的「首个出现」规则）
+    # 用户划的重点：贴回「右栏 + 评论」（与 render 相同的「首个出现」规则）
     _layer = render_mod.existing_content_layer(d["visible_text"])
     marks = render_mod.collect_highlights(_layer)
     joined = (render_mod.reapply_highlights(main + "\x00SPLIT\x00" + detail, marks, render_mod.collect_highlight_colors(_layer))
@@ -268,7 +268,7 @@ def _pdf_ok(path: Path) -> int:
 def print_pdf(browser: str, html_path: Path, out_pdf: Path, timeout: float = PRINT_TIMEOUT_S) -> bool:
     profile = html_path.parent / "profile"
     # 1025：Chrome 153 的无头模式带 --user-data-dir 打印会一直挂到超时（干净 Linux 上复现：不带 user-data-dir 1 秒出 PDF，
-    # 带就挂；加 --incognito 就好）。独立 profile 目录仍要（不碰她真浏览器的资料），只是这一次不落盘
+    # 带就挂；加 --incognito 就好）。独立 profile 目录仍要（不碰用户真浏览器的资料），只是这一次不落盘
     args = [browser, "--headless=new", "--incognito", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
             "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync",
             f"--user-data-dir={profile}", "--no-pdf-header-footer", "--print-to-pdf-no-header",
@@ -429,7 +429,7 @@ def run(args) -> int:
         code = 0 if out.get("ok") else 1
     except ExportError as exc:
         out, code = {"ok": False, "code": exc.code, "message": str(exc), "results": []}, 1
-    except Exception as exc:  # noqa: BLE001 - 她点的操作：当场告知原因
+    except Exception as exc:  # noqa: BLE001 - 用户点的操作：当场告知原因
         out, code = {"ok": False, "code": "", "message": errtext(exc), "results": []}, 1
     print(out.get("message") or "", file=sys.stderr)
     dump_json(out)

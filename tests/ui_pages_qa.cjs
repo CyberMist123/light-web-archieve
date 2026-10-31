@@ -38,7 +38,7 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
     await page.locator('.lbchat-send:enabled').waitFor();assert.equal(await page.locator('.lbchat-src').getAttribute('open'),null);
    }
    if(kind==='catalog'){
-    // 1008 18:50 她：没收藏的 ☆ 平时隐藏（opacity 0），悬停才出现；批次 D · C3：点星走 starNotes 一次批量（这里的插件桩只有 starNote → 页面先重载插件再说一句，星回滚）
+    // 1008 18:50 作者：没收藏的 ☆ 平时隐藏（opacity 0），悬停才出现；批次 D · C3：点星走 starNotes 一次批量（这里的插件桩只有 starNote → 页面先重载插件再说一句，星回滚）
     const offCard=page.locator('.lbc-card').nth(await page.locator('.lbc-card').evaluateAll(cs=>cs.findIndex(c=>!c.querySelector('.lbc-star.is-on'))));/* 1015：真库第一篇可能已收藏（已收藏常驻黄星），取第一张没收藏的 */assert.equal(await offCard.locator('.lbc-star').evaluate(e=>getComputedStyle(e).opacity),'0');await page.evaluate(()=>{app.plugins.plugins['link-brain-actions'].starNotes=async(ids,on)=>({ok:true,results:ids.map(id=>({item_id:id,status:'ok',starred:on})),catalog_patched:false});});await offCard.hover();const offStar=offCard.locator('.lbc-star');await offStar.click();assert.equal(await offStar.getAttribute('aria-pressed'),'true');
     await page.getByRole('button',{name:'视频',exact:true}).click();assert.ok(await page.locator('.lbc-card').count()>0);assert.ok(await page.locator('.lbc-card').evaluateAll(cs=>cs.every(c=>c.querySelector('.lbc-video'))),'视频筛选下每张卡都有视频角标');/* 1015：角标只是标记（点卡片进笔记页再播），不再断言点角标直接开播 */await page.getByRole('button',{name:'全部',exact:true}).click();
     assert.equal(await page.locator('.lbc-grid').evaluate(el=>getComputedStyle(el).overflowY),'visible');

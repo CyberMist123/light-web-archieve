@@ -1,4 +1,4 @@
-// 目录页就地编排：假 DOM 上真跑整段目录页脚本。1027 起步；1028 她「像搭积木一样」：页头拆成小块、宽度按 48 格、页头每一排里块有自己的起点（能留空）。
+// 目录页就地编排：假 DOM 上真跑整段目录页脚本。1027 起步；1028 作者「像搭积木一样」：页头拆成小块、宽度按 48 格、页头每一排里块有自己的起点（能留空）。
 //   ① 默认布局和改版前一样（标题 + 计数行一排、分类一排、筛选条八小块一排；边栏 16 格：最近导入 · 同步 · Token 费用 · 概览，收藏墙 32 格）；打开不写设置
 //   ② 编排：每块都有小工具条（⠿ · 名字 · A− A+ 字体 · 调整 · ×）；拖到排与排之间 = 单独成一排、拖进页头空地 = 就放在那儿（靠近别的块的边吸住）、
 //      压在别的块上 = 并排 / 上下；点一下只是选中（不挪）；从块里面按住也能拖，拖完那一下不算点按钮；键盘挪
@@ -99,7 +99,7 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
     for (const id of ['title', 'meta', 'scope', 'search', 'recent', 'wall']) assert.ok(bar(P, id, 'drag') && bar(P, id, 'adjust') && bar(P, id, 'remove'), id + '：⠿ / 调整 / ×');
     assert.equal(P.$('.lbc-arrange-tray').nextSibling, P.$('.lbc-top'), '编排条在所有模块上面（页面最前）');
     rects(P);
-    // 点一下 ⠿（没挪）= 只是选中，位置不变（1028 她：「点一下 a，a 就跳到下面去了」）
+    // 点一下 ⠿（没挪）= 只是选中，位置不变（1028 作者：「点一下 a，a 就跳到下面去了」）
     await dragTo(P, 'meta', 855, 6);
     assert.deepEqual(topRows(P)[0], [['title'], ['meta']], '点一下不挪');
     assert.ok(mod(P, 'meta').classList.contains('is-sel'), '点一下 = 选中');

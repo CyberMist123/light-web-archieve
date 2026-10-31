@@ -200,7 +200,7 @@ async function focusRestore() {
   assert.notEqual(next, input, '整页重建了');
   assert.equal(dom.document.activeElement, next, '焦点还给新的搜索框');
   assert.deepEqual([next.selectionStart, next.selectionEnd], [2, 4], '选区也还原');
-  // 她聚焦后停手 5 秒（focusAt 是 5 秒前），这时整页重建：失焦（摘掉）那一刻记 blurAt，照样还焦点
+  // 用户聚焦后停手 5 秒（focusAt 是 5 秒前），这时整页重建：失焦（摘掉）那一刻记 blurAt，照样还焦点
   globalThis.__lbState[FK] = JSON.stringify({ ...rec(), focusAt: Date.now() - 5000 });
   await A.recreate();
   assert.equal(dom.document.activeElement, A.q('.lbc-search'), '停手很久后才重建：从重建那一刻算 3 秒，照样还');
@@ -209,7 +209,7 @@ async function focusRestore() {
   globalThis.__lbState[FK] = JSON.stringify({ focus: 'search', selStart: 0, selEnd: 0, focusAt: Date.now() - 5000, blurAt: Date.now() - 5000 });
   await A.recreate();
   assert.notEqual(dom.document.activeElement, A.q('.lbc-search'), '3 秒前的焦点不抢');
-  // 她自己点走（焦点到页面外）：清掉记录
+  // 用户自己点走（焦点到页面外）：清掉记录
   const box = A.q('.lbc-search'); box.focus();
   const outside = dom.document.body.createEl('input'); outside.focus();
   await tick(5);

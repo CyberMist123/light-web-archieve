@@ -120,7 +120,7 @@ def test_human_comments_hide_date_location_and_overall_count():
 
 
 def test_author_row_shows_date_without_ip_location_and_rerender_drops_old_one():
-    """10-04 她定：作者行只留日期，IP 属地不在可见笔记里显示；旧笔记靠重渲染去掉（content 层整段重写）。"""
+    """10-04 作者定：作者行只留日期，IP 属地不在可见笔记里显示；旧笔记靠重渲染去掉（content 层整段重写）。"""
     kw = dict(source=_source(), manifest=_manifest(), meta=_meta(),
               object_rel="_archive/xiaohongshu/0000000000000000deadbeef")
     block = render.render_content_block(**kw)

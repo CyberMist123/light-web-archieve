@@ -16,7 +16,7 @@ const links=Plugin.cleanLinks('分享：https://www.xiaohongshu.com/explore/abc?
 assert.equal(links.length,2);
 assert.equal(links[0],'https://www.xiaohongshu.com/explore/abc?xsec_token=keep');
 assert.equal(links[1],'https://xhslink.com/a/test');
-// rednote.com 现在也认（她的分享链接大多是这个域）；分享垃圾参数清掉、只留 xsec_token/source
+// rednote.com 现在也认（用户的分享链接大多是这个域）；分享垃圾参数清掉、只留 xsec_token/source
 const rn=Plugin.cleanLinks('https://www.rednote.com/discovery/item/6aa?xsec_token=T1&source=web&xhsshare=pc&shareRedId=x&xsec_source=pc_feed');
 assert.equal(rn.length,1);
 assert.ok(rn[0].includes('rednote.com/discovery/item/6aa'));
@@ -149,8 +149,8 @@ async function runCatalogPage(data,{view=fs.readFileSync('link_brain/assets/cata
   page.cat('记忆').onclick();
   assert.deepEqual(page.cards(),['长期记忆方案','睡前记忆整理']);
   // 全页不设 aria-label
-  assert.equal(page.root.querySelector('.lbc-wrap').all().filter(e=>('aria-label' in e.attrs||'title' in e.attrs)&&!e.classList.contains('lbc-updated')&&!e.classList.contains('lbc-totop')).length,0,'卡片 / 筛选条不设 aria-label、title（「更新」的 title 是她要的悬停全句）');
-  // 1019 专辑 → 1031 她：专辑一颗「专辑 ▾」下拉，只列当前来源的；只有一个来源时就在「专辑」那一块里
+  assert.equal(page.root.querySelector('.lbc-wrap').all().filter(e=>('aria-label' in e.attrs||'title' in e.attrs)&&!e.classList.contains('lbc-updated')&&!e.classList.contains('lbc-totop')).length,0,'卡片 / 筛选条不设 aria-label、title（「更新」的 title 是用户要的悬停全句）');
+  // 1019 专辑 → 1031 作者：专辑一颗「专辑 ▾」下拉，只列当前来源的；只有一个来源时就在「专辑」那一块里
   {
     const ev={preventDefault(){},stopPropagation(){}};
     const alb={...base,items:base.items.map(it=>({...it,albums:it.id==='b'?['做饭']:it.id==='c'?['做饭','睡前']:[]}))};

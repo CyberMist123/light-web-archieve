@@ -1,4 +1,4 @@
-"""1019 她：Gemini 换 key / 换备用是自然的，不该报错；掉登录只报一次（熔断中那条不再单推）。"""
+"""1019 作者：Gemini 换 key / 换备用是自然的，不该报错；掉登录只报一次（熔断中那条不再单推）。"""
 from __future__ import annotations
 
 from link_brain import ai_health, problems, providers
@@ -87,7 +87,7 @@ def test_interrupted_sync_is_minor():
 
 
 def test_daily_quota_used_up_is_silent_even_with_waiting_posts(configured):
-    """1021 她：免费 key 今天薅完是正常的，同步记录 / 问题面板都别报（篇留着明天补）。"""
+    """1021 作者：免费 key 今天薅完是正常的，同步记录 / 问题面板都别报（篇留着明天补）。"""
     cfg = providers.resolve("summaryAI")
     ai_health.record("summaryAI", {"status": "failed", "code": "TRANSIENT.HTTP_429", "api_error": True,
                                    "daily_limit": True, "error": "3 把免费 key 今天额度都用完了"},

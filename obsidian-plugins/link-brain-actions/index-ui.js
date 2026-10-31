@@ -1,4 +1,4 @@
-// 10-10 索引树（插件侧）：她保存 索引.md → 防抖 1.5 秒重算 _archive/index-data.json（目录页监听它换分类 / 索引图）；
+// 10-10 索引树（插件侧）：用户保存 索引.md → 防抖 1.5 秒重算 _archive/index-data.json（目录页监听它换分类 / 索引图）；
 // 起草（AI / 高频标签，只写 索引.草稿.md）· 用这版（先确认，后端写前备份）· 未归类建议（弹窗列建议，点「加入」才写回 索引.md）·
 // 生成 / 更新 wiki（先估价、确认，再带真实进度跑）。设置页那一节在 main.js fieldCategories（用设置页自己的 link / help 积木），按钮调这里挂到 plugin 上的方法。
 // 解析和归类只在 Python（link_brain/indextree.py）；这里只跑命令、说结果（CONVENTIONS §1.7：提示只用 json.message）。
@@ -39,8 +39,8 @@ module.exports = function indexUI(obsidian, plugin, deps = {}) {
       const j = json(r);
       if (j.ok === false) plugin.notify(j.message || '索引没重算上', { kind: 'error' });
       else if (!j.unchanged) {
-        // 写法提示：同一批提示只说一次（她边写边自动保存，别每次保存都弹）；目录页「索引」里一直有那一行
-        // 1015：level=info（第 4 级并进第 3 级当关键词）是她要的写法，不弹
+        // 写法提示：同一批提示只说一次（用户边写边自动保存，别每次保存都弹）；目录页「索引」里一直有那一行
+        // 1015：level=info（第 4 级并进第 3 级当关键词）是用户要的写法，不弹
         const warns = Array.isArray(j.warnings) ? j.warnings.filter(w => w && w.line && w.level !== 'info') : [];
         const sig = warns.map(w => w.text).join('|');
         if (warns.length && sig !== lastWarn) plugin.notify(`${indexRel()} 有 ${warns.length} 处写法要看一眼：${warns[0].text}`, { kind: 'warn' });

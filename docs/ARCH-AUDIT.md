@@ -274,7 +274,7 @@
 - `GEMINI_MODEL` 进 data.json（迁移写一次）；`nightly.refine_keys` 并入 `providers.pool_keys`；插件「配好了没」读后端 `key_state`。
 - 测试：pytest 同一组 env/config，`providers.pool_keys("gemini")` 与夜跑子进程拿到的 key 列表相同；守卫：`os.environ.get("LWA_GEMINI` 只在 providers；模型名字面量守卫转严格。
 
-### 第 4 批：账号 + 收藏关系 + 专辑（BUGS #8，动数据格式，需要她拍板）
+### 第 4 批：账号 + 收藏关系 + 专辑（BUGS #8，动数据格式，需要作者拍板）
 - `accounts.current()/known()`，按 user_id 认号，快照模式也看实际登录；`sync_account` 存 user_id；插件 `nickname`→`annotatorName`。
 - `provenance.is_favorite`；`ingest_kind` 不再覆盖；`fav-list` / `fav-tokens` / `albums.json` schema 2 带账号键；一次性迁移脚本（`--dry-run` 先出报告：多少篇补标、多少篇 legacy）。
 - 测试：
@@ -283,23 +283,23 @@
   - pytest：catch 重抓一篇已收藏帖后 `is_favorite` 仍为 True。
   - pytest：迁移脚本跑两遍结果相同（幂等），`count(is_favorite)` 在迁移前后 = 并集口径的数。
   - 守卫转严格。
-- ❓待她拍板：多号是否都算「我的收藏」；legacy 收藏归哪个号。
+- ❓待作者拍板：多号是否都算「我的收藏」；legacy 收藏归哪个号。
 
 ### 第 5 批：文案与 UI 共享表
 - `LB.pageTitle()`；`ui_registry.json`（problems 分组 / 动作、步骤名、sync 默认、默认回答提示词）；`errText` 规则只在 Python；§8 违规文案改正；`test_terms_x5.cjs` 设必过。
 - 测试：node 守卫（`'Collections'` 1 处、`GROUP_OF_CLASS` 不在 JS、`DEFAULT_ANSWER_PROMPT` 只在 Python）；pytest：`ui_registry.json` 的 sync 默认 == `ai_config.DEFAULTS["sync"]`；node：`commentFloors` 归一化对同一组输入与 Python 结果一致（共用 fixture）。
 
-顺序理由：第 1 批修的是她每天看到的错数；第 2 批纯后端、风险低、修钱数；第 3 批依赖第 2 批的 `pricing.py`/`provider_of`；第 4 批改数据格式、要迁移和拍板，放后；第 5 批只动 UI，可和 2/3 并行。
+顺序理由：第 1 批修的是用户每天看到的错数；第 2 批纯后端、风险低、修钱数；第 3 批依赖第 2 批的 `pricing.py`/`provider_of`；第 4 批改数据格式、要迁移和拍板，放后；第 5 批只动 UI，可和 2/3 并行。
 
-## 10. 1023 她拍板后的执行表（取代 §9 的批次顺序）
+## 10. 1023 作者拍板后的执行表（取代 §9 的批次顺序）
 
-规则：多个号的收藏、网页导入 = 我的收藏；TG 发来的网址 = Fable。不做「按单篇选择存不存视频」。按 GPT 架构图的分层立约定，不一次大搬家；每批一个 PR、她审过再合。
+规则：多个号的收藏、网页导入 = 我的收藏；TG 发来的网址 = Fable。不做「按单篇选择存不存视频」。按 GPT 架构图的分层立约定，不一次大搬家；每批一个 PR、用户审过再合。
 
 | 批 | 层 | 内容 | 必加测试 | 状态 |
 |---|---|---|---|---|
 | 0 | 全部 | 守卫测试 `tests/test_single_source.py`（1025 第二波 PR⓪ 并入 `tests/test_guards.py`，白名单变成 `tests/guards-baseline.json` 里的计数；Python 和 JS 一起扫；现存重复列 known 白名单，新增即红，迁走没删白名单也红）；`docs/TEST-MAP.md` 功能→测试对照、标出缺口；FORMAT.md 补 favorited_by / albums / counts | 守卫本身；白名单数 = 本文档列出的重复数 | ✅ 1023（counts 规格随第 1 批写） |
-| 1 | ⑤ 派生 | `mark_dirty` + `ensure_fresh`（同步含中断、catch、restore、relabel、albums）；build 幂等（内容没变不写页面 md / 脚本，版本不含 built_at）；重建合并；catalog-data `counts`，两页篇数读它 | 中断同步后新帖进目录；catch 后 dirty；同输入连跑两次 build 不改任何文件 mtime；两页「全部」数相等 | ✅ 1023 代码 + 单测；待她 Obsidian 真机看（见下）。index-data.json 仍每次重写（页面就地换分类、不重建卡片），留给后续 |
-| 2 | 横切配置 | AI 配置表（API / CLI 平级，功能声明可用类型；概要可选 OpenCode）；`pricing.py` 统一价格、免费只认显式标记（CLI / Gemini 免费池）；预算默认只在后端；密钥只经 providers；后端把表给设置页 | 四处钱数相等；未知模型 = 未计价且预算拦；CLI 行记模型名且显示免费；夜跑与 providers 拿到同一组 key | ✅ 1023 代码 + 单测（`tests/test_pricing_1023.py`）；守卫白名单「价格表」「Gemini 密钥来源」「供应商猜测」「前端预算默认值」「CLI 命令抄本」清空，「写死的模型名」去掉 visual.py，新增「价格读法」。待她 Obsidian 真机看（`tests/acceptance/20261023-arch-audit-b2.md`）。没做：用量按模型分组（BUGS #9 第一条）、`GEMINI_MODEL` 进 data.json（第 3 批）、Gemini 付费档官方单价（官方页没核到，表里写 null = 未计价） |
+| 1 | ⑤ 派生 | `mark_dirty` + `ensure_fresh`（同步含中断、catch、restore、relabel、albums）；build 幂等（内容没变不写页面 md / 脚本，版本不含 built_at）；重建合并；catalog-data `counts`，两页篇数读它 | 中断同步后新帖进目录；catch 后 dirty；同输入连跑两次 build 不改任何文件 mtime；两页「全部」数相等 | ✅ 1023 代码 + 单测；待作者 Obsidian 真机看（见下）。index-data.json 仍每次重写（页面就地换分类、不重建卡片），留给后续 |
+| 2 | 横切配置 | AI 配置表（API / CLI 平级，功能声明可用类型；概要可选 OpenCode）；`pricing.py` 统一价格、免费只认显式标记（CLI / Gemini 免费池）；预算默认只在后端；密钥只经 providers；后端把表给设置页 | 四处钱数相等；未知模型 = 未计价且预算拦；CLI 行记模型名且显示免费；夜跑与 providers 拿到同一组 key | ✅ 1023 代码 + 单测（`tests/test_pricing_1023.py`）；守卫白名单「价格表」「Gemini 密钥来源」「供应商猜测」「前端预算默认值」「CLI 命令抄本」清空，「写死的模型名」去掉 visual.py，新增「价格读法」。待作者 Obsidian 真机看（`tests/acceptance/20261023-arch-audit-b2.md`）。没做：用量按模型分组（BUGS #9 第一条）、`GEMINI_MODEL` 进 data.json（第 3 批）、Gemini 付费档官方单价（官方页没核到，表里写 null = 未计价） |
 | 3 | ③ 规则 | `is_favorite` / `collected_by`：TG → Fable；ingest_kind 不再覆盖；accounts 按 user_id；fav-list / fav-tokens / albums 带账号键；迁移脚本先 dry-run | 换号同步不清别的号的专辑；重抓不丢收藏；迁移幂等；TG 帖来源 = Fable | 规则半边 ✅ 1025 第二波 PR①（`domain.py`：is_favorite / collected_by / account_key / FIELD_OWNER，ingest_kind 归 ENTRY 不被重抓覆盖）；数据半边（accounts 按 user_id、fav-list / albums 带账号键、迁移脚本）待做，排在第二波 PR③ 之后 |
 | 4 | ① 界面 | 标题 / 文案 / 问题分组 / 默认值从后端表读；§8 违规文案改正；`test_terms_x5.cjs` 必过 | `'Collections'` 只 1 处；JS 不含规则表 | 待做 |
 

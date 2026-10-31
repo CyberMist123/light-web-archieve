@@ -1,5 +1,5 @@
 // 1020 批注 @Fable：AI 的回复（reply_to）排在被回那条正下方、缩进标 is-reply、显示回复者名字；
-// Python 在她开着这篇时写进回复，她再存批注也不会把回复冲掉（persist 先读盘再合并）。
+// Python 在用户开着这篇时写进回复，用户再存批注也不会把回复冲掉（persist 先读盘再合并）。
 'use strict';
 const assert = require('node:assert/strict');
 const { asset, makeDom, makeApp, dataviewBlock } = require('./_fakedom.cjs');
@@ -21,12 +21,12 @@ const CODE = asset('lb-page-lib.js') + '\n' + asset('annotate-view.js');
   const box = A.host.querySelector('.lba-annot');
   const texts = () => box.querySelectorAll('.lba-annot-text').map(x => x.textContent);
 
-  // Python（mention.reply）在她开着这篇时写进回复
+  // Python（mention.reply）在用户开着这篇时写进回复
   const doc = JSON.parse(made.V.get(NOTE));
   doc.annotations.push({ id: 'r1', ts: '2026-09-20T01:10:00.000Z', text: '我觉得可以先试第二个', to_fable: false, author: 'Fable', by: 'ai:fable', reply_to: 'a1' });
   made.V.set(NOTE, JSON.stringify(doc));
 
-  // 她接着写一条批注并定稿：先读盘再合并，回复留着
+  // 用户接着写一条批注并定稿：先读盘再合并，回复留着
   const ta = box.querySelector('.lba-annot-input');
   ta.focus(); ta.value = '再补一句';
   ta.blur?.(); await ta.onblur(); await tick(10);

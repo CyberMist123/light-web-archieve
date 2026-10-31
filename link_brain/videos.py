@@ -191,7 +191,7 @@ def _report(row, result):
         problems.report('videos.transcribe', result.get('code') or 'SKIPPED.NOT_CONFIGURED',
                         result.get('error') or '语音识别没开', action='skipped')
     elif status in ('no_speech', 'no_audio') and _has_screen_text(result):
-        # 1004：没人声但画面字幕读出来了 = 这条视频有文字可用，不算问题（她：有字幕还报错让人困扰）
+        # 1004：没人声但画面字幕读出来了 = 这条视频有文字可用，不算问题（作者：有字幕还报错让人困扰）
         problems.resolve('videos.transcribe', item_id)
     elif status == 'no_speech':
         problems.report('videos.transcribe', 'PERMANENT.NO_SPEECH', '视频里没听出人声，画面上也没认出字幕',

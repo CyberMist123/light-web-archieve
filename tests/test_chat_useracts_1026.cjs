@@ -1,4 +1,4 @@
-// 1026 她：提问气泡底下一排小图标——复制 / 重来（退回到这一问再问一遍）/ 编辑（放回输入框，发送时从这一问重来）
+// 1026 作者：提问气泡底下一排小图标——复制 / 重来（退回到这一问再问一遍）/ 编辑（放回输入框，发送时从这一问重来）
 'use strict';
 const assert = require('node:assert/strict');
 const { tick, makePlugin, openChat } = require('./_fake_L2.cjs');

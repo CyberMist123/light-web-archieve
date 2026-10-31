@@ -89,7 +89,7 @@ def test_write_decision():
     assert domain.write_decision("a", "b", committed=True) == "write"
 
 
-# ---- 收藏口径（1023 她定）---------------------------------------------------------------------------
+# ---- 收藏口径（1023 作者定）---------------------------------------------------------------------------
 
 
 def test_is_favorite_any_account_and_legacy_ingest_kind():
@@ -121,7 +121,7 @@ def test_collected_by_rules():
     assert domain.collected_by({"origin": "cc", "actor": "ai:cc", "project": "ai群聊"}) == "ai群聊"
     assert domain.collected_by({"origin": "cli", "actor": "ai:gpt"}) == "gpt"
     assert domain.collected_by({"actor": "robot"}) == "robot"
-    assert domain.collected_by({"origin": "tg", "actor": "human", "favorited_by": [{"user_id": "u"}]}) == ""   # 后来她收藏了
+    assert domain.collected_by({"origin": "tg", "actor": "human", "favorited_by": [{"user_id": "u"}]}) == ""   # 后来用户收藏了
 
 
 def test_clean_project():

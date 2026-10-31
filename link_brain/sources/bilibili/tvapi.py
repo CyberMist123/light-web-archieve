@@ -1,4 +1,4 @@
-"""B 站电视端取流（1031 她：最高画质 + 优先无水印片源）。
+"""B 站电视端取流（1031 作者：最高画质 + 优先无水印片源）。
 
 为什么走电视端：B 站网页端（yt-dlp 用的那条）给的部分稿件是压了 UP 主水印的二压片源；电视端（云视听小电视）的播放接口对很多稿件
 给的是没有水印的片源（粉丝多的 UP 基本都是），而且登录电视端后清晰度上限和网页大会员一样（4K / 8K / HDR）。
@@ -103,7 +103,7 @@ def save_token(data: dict[str, Any]) -> Path:
 
 
 def save_web_cookies(data: dict[str, Any]) -> bool:
-    """1031 她「给一个（扫码）就行」：电视端扫码成功时响应里带 cookie_info.cookies（网页端登录 cookie），
+    """1031 作者「给一个（扫码）就行」：电视端扫码成功时响应里带 cookie_info.cookies（网页端登录 cookie），
     照网页端扫码的格式写进 cookies.txt，一次扫码两边都登上。没带 / 写不上返回 False（网页端照旧单独扫）。值不打印。"""
     cookies = ((data.get("cookie_info") or {}).get("cookies")) or []
     extra = {c.get("name"): str(c.get("value")) for c in cookies

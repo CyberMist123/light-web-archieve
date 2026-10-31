@@ -18,7 +18,7 @@ _CLIENT = httpx.Client(timeout=httpx.Timeout(120, connect=15))
 # 第 3 批「停止」：调用方（serve.py 的问答 worker）把一个 threading.Event 放进这里；用户点停止 = set()。
 # cli_call 到点整棵杀命令行模型（procs.kill_tree，不碰读取服务）；http_call 关掉流。返回 status=cancelled。
 CANCEL: ContextVar = ContextVar('lb_text_cancel', default=None)
-# 1026 她：追问（接着聊）时让命令行模型能上网——只在问收藏「追问」里设 True（ask.chat_followup）。打开后：
+# 1026 作者：追问（接着聊）时让命令行模型能上网——只在问收藏「追问」里设 True（ask.chat_followup）。打开后：
 # claude 放开 WebSearch / WebFetch，codex 加 --search，opencode 放开 websearch / webfetch；Bash / 写文件 / 改文件照旧禁。
 # 其余调用（作答、概要、整理……）一律不开：那些提示词里塞着别人帖子的原文，能联网就多了一条被诱导外传的路。
 WEB_TOOLS: ContextVar = ContextVar('lb_text_web', default=False)

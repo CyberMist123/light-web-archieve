@@ -102,7 +102,7 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
     assert.deepEqual([state().today, state().media, state().star], [false, 'video', true], '类型单独一维，保留');
   }
 
-  // ── ③ 视图开关（1023 她拍板：只留瀑布流 + Wiki；1031 她：开关整个不要了，分类 Wiki 退场）──
+  // ── ③ 视图开关（1023 作者拍板：只留瀑布流 + Wiki；1031 作者：开关整个不要了，分类 Wiki 退场）──
   {
     const P = await openCatalog({ data: dataOf(base()), plugin: { settings: { hiddenCats: [] } } });
     assert.equal(P.$('.lbc-vseg'), null, '页头没有视图开关'); assert.equal(P.$('.lbc-m-view'), null);

@@ -19,9 +19,9 @@ JUDGE_CAP = 40      # 最多给判定模型看多少篇（首屏窗口 ≤ 80，
 HIT_CHARS = 200     # 每处命中给模型 / 表格看的原文长度
 
 JUDGE_INSTRUCTION = (
-    "你在帮一个人从她自己的收藏库里挑材料。下面是她的问题、系统对问题的理解，以及按相关度排好的候选篇（每篇：标题、作者、"
+    "你在帮一个人从用户自己的收藏库里挑材料。下面是用户的问题、系统对问题的理解，以及按相关度排好的候选篇（每篇：标题、作者、"
     "类型、概要、命中的原文片段和出自哪个字段）。请逐篇判断这篇对回答这个问题有没有用：\n"
-    "- deep_read：这篇的内容能直接用来回答（她问做法就是做法、问推荐它就是一个可推荐的候选、问比较它就是比较的一方），值得整篇读；\n"
+    "- deep_read：这篇的内容能直接用来回答（用户问做法就是做法、问推荐它就是一个可推荐的候选、问比较它就是比较的一方），值得整篇读；\n"
     "- tentative：可能有用但只沾边（比如只有一处顺带提到、或只是同类但不对题）；\n"
     "- reject：无关，或只是评论区偶然出现了同一个词，或是什么都沾一点的长文目录。\n"
     "原则：按内容判，不按「是不是唯一答案」判——推荐 / 盘点 / 比较类问题通常有多篇 deep_read；找回某一篇的问题只有最像的那一两篇 deep_read。"
@@ -232,7 +232,7 @@ def judge(result: dict[str, Any], settings: dict[str, Any], cap: int = JUDGE_CAP
     if not rows:
         result["judge"] = {"status": "skipped", "judged": 0, "error": "没有候选"}
         return result["judge"]
-    # 1020 她：回答前冒出一堆「1|deep_read|…」——判定是内部一步，别把它的输出流到回答区（同 _select_sources）
+    # 1020 作者：回答前冒出一堆「1|deep_read|…」——判定是内部一步，别把它的输出流到回答区（同 _select_sources）
     token = ask._ON_DELTA.set(None)
     try:
         res = ask.call_text(JUDGE_INSTRUCTION, judge_text(result, cap), settings) or {}

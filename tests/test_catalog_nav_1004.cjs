@@ -44,7 +44,7 @@ const DATA = '_archive/catalog-data.json';
   workspace.activeLeaf = { view: { containerEl: dom.document.body.createEl('div') } };
   let r = press();
   assert.equal(r.prevented, false); assert.notEqual(dom.document.activeElement, search);
-  // CM1：鼠标在页上、但当前活动标签页是别的视图（她在左栏写笔记）：Ctrl+F / Ctrl+= 都不拦，回到 Obsidian 自带的查找 / 整窗缩放
+  // CM1：鼠标在页上、但当前活动标签页是别的视图（用户在左栏写笔记）：Ctrl+F / Ctrl+= 都不拦，回到 Obsidian 自带的查找 / 整窗缩放
   for (const fn of wrap.listeners.mouseenter || []) fn({});
   r = press();
   assert.equal(r.prevented, false, 'hover 不再算');

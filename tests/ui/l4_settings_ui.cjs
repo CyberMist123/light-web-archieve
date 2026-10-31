@@ -14,7 +14,7 @@ const shell = require('../_obsidian_shell.cjs');
 const root = 'obsidian-plugins/link-brain-actions';
 const sources = Object.fromEntries(['main', 'home-ui', 'remote-ui', 'schedule-ui', 'onboarding-ui', 'index-ui', 'skills-ui', 'usage-ui', 'settings-pages', 'settings-v6', 'provider-icons', 'lb-theme'].map(name =>
   [name + '.js', fs.readFileSync(path.join(root, name + '.js'), 'utf8')]));
-// 新手主界面（「更多」收着时）上不该看到的词（她 1010 点名的术语；要留的旁边有人话解释）
+// 新手主界面（「更多」收着时）上不该看到的词（作者 1010 点名的术语；要留的旁边有人话解释）
 const JARGON = ['OAuth', 'Bearer', 'Authorization', 'launchd', 'systemd', '标准输入', '标准输出', '扩检索词', '归档摘要模型', '认领', '令牌', '没画上', '读不到状态：', '读不到功能清单：'];
 
 async function open(browser, theme, { failRemote = false, guide = false, width = 800, remoteOn = false } = {}) {

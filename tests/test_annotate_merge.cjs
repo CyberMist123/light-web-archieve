@@ -89,7 +89,7 @@ const diskTexts = () => onDisk().annotations.map(a => a.text);
   notices.length = 0;
   const C = await openView();
   assert.equal(disk.get(NOTE + '.corrupt'), broken, '原文件另存 .corrupt');
-  assert.ok(notices.some(m => m.includes('corrupt')), '提示她');
+  assert.ok(notices.some(m => m.includes('corrupt')), '提示用户');
   assert.equal(C.ta.disabled, true);
   await C.write('不该被存');
   assert.equal(disk.get(NOTE), broken, '读坏期间绝不拿空数据盖回去');

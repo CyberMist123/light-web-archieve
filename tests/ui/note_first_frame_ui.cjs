@@ -1,6 +1,6 @@
-// 1011 她：打开一篇笔记，先露出没渲染好的原始样子（属性块里一大段 link_brain JSON、蓝色「Lb topbar」框 + 原样链接、
+// 1011 作者：打开一篇笔记，先露出没渲染好的原始样子（属性块里一大段 link_brain JSON、蓝色「Lb topbar」框 + 原样链接、
 // 字面的 <!-- link-brain:content:start -->），停一下才变成正常页面。
-// 根因两层：①目录 / 链接走 openLinkText 不带 mode，按她的默认（实时预览）先渲一遍，插件 file-open 才切阅读视图（main.js
+// 根因两层：①目录 / 链接走 openLinkText 不带 mode，按用户的默认（实时预览）先渲一遍，插件 file-open 才切阅读视图（main.js
 // previewOpenState / patchOpenFile 修，node 用例 tests/test_note_open_preview_1011.cjs）；②cssclasses（link-brain xhs-note）要等
 // Obsidian 解析完属性才挂到视图上，在那之前 link-brain.css 里所有 .xhs-note 规则都不生效（本用例）。
 // 做法：外壳里照 Obsidian 的顺序摆——视图先出来、还没有 .xhs-note（阅读视图 / 实时预览各一遍），隔 3 帧才挂上类；
@@ -119,7 +119,7 @@ const raw = f => f.props || f.linkBrainJson || f.calloutTitle || f.calloutBox ||
       assert.ok(seq.slice(0, 3).every(f => f.calloutTitle === false && !f.calloutBox), mode + '：顶栏不是蓝框、没有「Lb topbar」标题');
       if (mode === 'live') assert.ok(seq.every(f => f.comment === false), 'live：<!-- link-brain:content:start --> 那一行哪一帧都不显示');
       assert.ok(seq.slice(3).every(f => f.cls && f.note === true && f.topbarLinks === true), mode + '：挂上 .xhs-note 那一帧起正文和顶栏立刻显示');
-      // ② cssclasses 一直不来（她把属性删了 / Obsidian 出岔子）：最多遮 1.2 秒，之后照样看得到（不永远空白）
+      // ② cssclasses 一直不来（用户把属性删了 / Obsidian 出岔子）：最多遮 1.2 秒，之后照样看得到（不永远空白）
       await open(page, mode);
       const never = await play(page, { mode, classAt: null, frames: 3, waitMs: 1400 });
       report.runs.push({ mode, case: 'class-never', frames: never });
@@ -142,7 +142,7 @@ const raw = f => f.props || f.linkBrainJson || f.calloutTitle || f.calloutBox ||
   if (REV) {
     console.log('红线读数（' + REV + '）：', JSON.stringify(red));
     const anyRaw = red.some(r => r.rawFrames.length);
-    if (!anyRaw) { console.error(`红线没红：${REV} 的 CSS 下也没露原始样子，用例没抓到她看到的那一下`); process.exit(1); }
+    if (!anyRaw) { console.error(`红线没红：${REV} 的 CSS 下也没露原始样子，用例没抓到用户看到的那一下`); process.exit(1); }
     console.log(`RED as expected on ${REV}: raw frames before .xhs-note → ` + red.map(r => `${r.mode} ${r.rawFrames.join('/')}`).join('; '));
     return;
   }

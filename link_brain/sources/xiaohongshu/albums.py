@@ -1,4 +1,4 @@
-"""小红书「专辑」（1019）：她自己给收藏分的组，和标签分开存。
+"""小红书「专辑」（1019）：用户自己给收藏分的组，和标签分开存。
 
 数据：`_archive/albums.json`
     {"schema": 1, "listed_at", "expected", "list_partial",
@@ -10,7 +10,7 @@
      不到 LIST_GAP_MIN 分钟就不读，用上次的列表）。一天最多读一次（LIST_EVERY_H）。
   2. 挑要看的专辑：没看过的 → 篇数变了的 → 上次没读全的 → 最久没看的（超过 RECHECK_DAYS 天），每次最多 --max 个；
      一个一个开（GET /api/v1/boards/notes），之间歇 LWA_FETCH_REST（默认 60–180 秒），和补抓笔记一样慢。
-     1028：`--board 名字或id`（可多个）= 只看她点名的专辑，不按上面的顺序挑；本地列表里都认得就不读专辑列表。
+     1028：`--board 名字或id`（可多个）= 只看用户点名的专辑，不按上面的顺序挑；本地列表里都认得就不读专辑列表。
      每个专辑报一下「还没进库的几篇」（只报不抓：抓帖仍走收藏同步，那边有每日额度和熔断）。
   撞风控 / 掉登录 → 停，退出 5；号被占 → 退出 6。读到的随读随存，中途停下也不丢。
 """
@@ -145,7 +145,7 @@ def due_boards(data: dict[str, Any], now: datetime, limit: int) -> list[tuple[st
 
 
 def pick_boards(data: dict[str, Any], wanted: list[str]) -> tuple[list[tuple[str, str]], list[str]]:
-    """她点名的专辑 → ([(专辑 id, "点名")], [认不出的])。按 id → 整名 → 包含（和 album 过滤同一口径）；包含撞上多个算认不出。"""
+    """用户点名的专辑 → ([(专辑 id, "点名")], [认不出的])。按 id → 整名 → 包含（和 album 过滤同一口径）；包含撞上多个算认不出。"""
     boards = data.get("boards") or {}
     picked: list[tuple[str, str]] = []
     unknown: list[str] = []
@@ -197,7 +197,7 @@ def _rest() -> float:
 
 def sync(*, max_boards: int = 6, budget_min: float = 25, list_boards: bool = True, verbose: bool = True,
          boards: list[str] | None = None, sleep=time.sleep, clock=time.monotonic) -> tuple[int, dict[str, Any]]:
-    """返回 (退出码, 摘要)。随读随存。boards = 她点名的专辑（名字或 id），给了就只看这些。"""
+    """返回 (退出码, 摘要)。随读随存。boards = 用户点名的专辑（名字或 id），给了就只看这些。"""
     def say(msg: str) -> None:
         if verbose:
             print(msg, file=sys.stderr)

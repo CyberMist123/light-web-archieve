@@ -162,7 +162,7 @@ def routing_menu(skills=None) -> list[dict[str, str]]:
     return [{"id": s["id"], "desc": s["description"][:80]} for s in skills if not s.get("hidden")]
 
 
-# 1020 陈列版（她：借鉴那份灵感板——分模块、每条配出处帖封面、概要 + 可以借鉴的点、网址、点图打开原帖）。
+# 1020 陈列版（作者：借鉴那份灵感板——分模块、每条配出处帖封面、概要 + 可以借鉴的点、网址、点图打开原帖）。
 # 1020 起由问收藏页「回答 · 报告」开关触发（ask.REPORT_MARK），技能 frontmatter 写 `lwa: {layout: board}` 的才能出陈列：模型照下面的 Markdown 写，页面（chat-view.js renderBoard）解析成陈列卡；
 # 解析不出来就照普通 Markdown 显示，所以格式只是约定、不是硬依赖。
 LAYOUTS = {"board"}
@@ -181,7 +181,7 @@ BOARD_FORMAT = """【陈列格式】这一问的回答会被页面做成陈列�
 规则：
 1. 盘全，不挑：材料里每篇点名、推荐、能独立指认的对象全部列上——正文、图片里的清单（逐项）、评论区，一个都别漏；
    和问题不太贴的也列，放进后面单独一组，组名把差别说清（如「有吓人点，想放松要慎入」「只点了名、帖里没展开」），不要删。
-2. 分组按「对她这次问的用处」排：最贴的组在前；3–8 组，组名用她的说法；「先看这几个」3–6 条，名字必须在下面出现过。
+2. 分组按「对用户这次问的用处」排：最贴的组在前；3–8 组，组名用用户的说法；「先看这几个」3–6 条，名字必须在下面出现过。
 3. 「帖里」要具体：期数 / 单集名、数字、评分、作者原话短引（加「」）、评论区的说法（写明「评论区」）；一到三句。
 4. 「借鉴」只写材料里有依据的用法（入门单集、在哪玩 / 听、适合什么时候、要注意什么）；没有就省掉「；借鉴：…」，不写空话。
 5. 配图：对象出现在哪张图里（材料片段标签写着「图N」或「评论cX的图N」），就在 [来源N] 前加 [看图：来源N 图M] 或 [看图：来源N 评论cX的图N]；
@@ -240,7 +240,7 @@ def import_skill(src: str | Path, *, overwrite: bool = False) -> dict[str, Any]:
 
 
 def choose(understood: dict[str, Any] | None, skills=None) -> dict[str, Any] | None:
-    """这一问用哪个技能：她点名的 > 模型选的 > general。找不到 = general（没有 general 文件 = None）。"""
+    """这一问用哪个技能：用户点名的 > 模型选的 > general。找不到 = general（没有 general 文件 = None）。"""
     skills = skills if skills is not None else load_all(report=True)[0]
     by_id = {s["id"]: s for s in skills if not s.get("hidden")}
     want = (understood or {}).get("skill")

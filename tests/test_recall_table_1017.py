@@ -34,7 +34,7 @@ def test_gather_rows_follow_pool_and_mark_production(monkeypatch):
 
 def test_judge_parses_only_well_formed_lines(monkeypatch):
     from link_brain import ask
-    canned = {"status": "ok", "text": "好的，判定如下：\n1|deep_read|正文就是她问的做法\n2 ｜ 剔除 ｜ 只有评论区顺带提了一句\n乱七八糟的一行\n9|keep|不存在的编号"}
+    canned = {"status": "ok", "text": "好的，判定如下：\n1|deep_read|正文就是用户问的做法\n2 ｜ 剔除 ｜ 只有评论区顺带提了一句\n乱七八糟的一行\n9|keep|不存在的编号"}
     monkeypatch.setattr(ask, "call_text", lambda *a, **k: canned)
     result = recall_table.gather("溏心蛋怎么做", ITEMS, SETTINGS)
     info = recall_table.judge(result, SETTINGS)

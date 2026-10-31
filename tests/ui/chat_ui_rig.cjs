@@ -129,7 +129,7 @@ const noScrollbars = page => page.evaluate(() => {
     await third.locator('.lbchat-md p').last().dblclick();
     const sel = await page.evaluate(() => ({ text: String(window.getSelection()), editor: !!document.querySelector('.lbchat-editor') }));
     assert.ok(sel.text.length > 0 && !sel.editor, JSON.stringify(sel));
-    // 1026 她：动作行先不显示「编辑」（功能代码还在）——这里直接触发，验原地编辑本身
+    // 1026 作者：动作行先不显示「编辑」（功能代码还在）——这里直接触发，验原地编辑本身
     await third.locator('.lbchat-edit').evaluate(b => b.click());
     await S.settle(30);
     const ed = await page.evaluate(() => { const e = document.querySelector('.lbchat-editor'); const a = e.closest('.lbchat-answer'); const kids = [...a.children]; return { before: kids.indexOf(e) < kids.indexOf(a.querySelector('.lbchat-srcbox')), focused: document.activeElement === e }; });

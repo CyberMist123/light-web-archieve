@@ -221,8 +221,8 @@ def _account_guard() -> None:
     raise ReaderError('DEV_COPY_BLOCKED', f'这份代码不在允许用号的程序目录里（{p} 的 allowed_roots），开发副本 / 测试脚本不许联系读取服务')
 
 
-# 1028 她：「熔断 → 停 5 分钟 → 即刻继续」。验证类熔断（判到验证码）不再停车等她：歇 CAPTCHA_PAUSE_S 秒、
-# 解除（POST /api/v1/risk/clear）、同一个请求再发一次。10-28 那次是验证框只到「题库加载中」就判了熔断，她去看已经没了。
+# 1028 作者：「熔断 → 停 5 分钟 → 即刻继续」。验证类熔断（判到验证码）不再停车等用户：歇 CAPTCHA_PAUSE_S 秒、
+# 解除（POST /api/v1/risk/clear）、同一个请求再发一次。10-28 那次是验证框只到「题库加载中」就判了熔断，用户去看已经没了。
 # 掉登录 / 被跳安全页不在这里（等也等不好）。每个进程最多自动接着 CAPTCHA_AUTO_MAX 次，再撞就照旧停车；设 0 = 关掉、回到以前。
 CAPTCHA_PAUSE_S = float(os.environ.get('LWA_CAPTCHA_PAUSE_S') or 300)
 CAPTCHA_AUTO_MAX = int(os.environ.get('LWA_CAPTCHA_AUTO_MAX') or 3)
@@ -685,7 +685,7 @@ def error_row(exc: Exception, key='xhs', label='小红书账号') -> dict:
 
 def hold_row(hold: dict, key='xhs', label='小红书账号') -> dict:
     """熔断中的一行：按撞到的是什么决定按钮——掉登录 / 登录异常页 → 扫码；验证码 → 打开验证。
-    1015：限频冷却 → 「等一会儿」，不给扫码 / 验证按钮（她点开也无事发生）。"""
+    1015：限频冷却 → 「等一会儿」，不给扫码 / 验证按钮（用户点开也无事发生）。"""
     if is_rate_limited(hold):
         state, message, step, action = SOLUTIONS[RATE_LIMIT_CODE]
         out = row(key, label, state, message, rate_limit_text(hold), str(hold.get('detail') or ''), action=action)
@@ -805,7 +805,7 @@ def status_report(*, deep=True, launch=True) -> tuple[dict, str]:
         if session.get('verifying'):
             return error_row(ReaderError('VERIFY_WINDOW_OPEN')), 'unknown'
         name = config().get('nickname', '')
-        # 1027b 她：「账号卡说已登录（刚刚确认），同步却说未登录」——浅查报的是读取服务记得的结果，不是刚查的；
+        # 1027b 作者：「账号卡说已登录（刚刚确认），同步却说未登录」——浅查报的是读取服务记得的结果，不是刚查的；
         # 带上它真正查的时刻（checked_at），插件按它写「N 分钟前确认」；只有真查过（深查）才算「登录好了」去清掉账号类问题
         from_memory = not deep and session.get('logged_in') is not None
         # 只认读取服务记得的、而且是设置页那种不拉起服务的浅查（launch=False）：验证窗口 / 恢复这些流程里它刚真看过，照旧算数
@@ -990,7 +990,7 @@ def login_qr(*, timeout=270, open_browser=True) -> dict:
 
 VERIFY_WAIT_SECONDS = 13 * 60   # 读取服务验证窗口最长 12 分钟，再留 1 分钟
 VERIFY_POLL_SECONDS = 2.0
-# /login/session 的 verify_result（读取组件 d7）→ 关窗后给她的话。not_logged_in 优先于 no_captcha_seen（服务端已排好）。
+# /login/session 的 verify_result（读取组件 d7）→ 关窗后给用户的话。not_logged_in 优先于 no_captcha_seen（服务端已排好）。
 VERIFY_RESULT_TEXT = {
     'no_captcha_seen': ('captcha', '窗口里没出现验证，暂停还在',
                         '如果你确实没看到滑块：点「没看到验证，恢复」（你确认后才恢复）；或者先放着，今晚夜跑会跳过用号的步骤，不会伤号。'),
@@ -1064,7 +1064,7 @@ def search_note_token(note_id: str, keyword: str) -> dict:
 
 
 VERIFY_NOTE_RESULT_TEXT = {
-    # /login/session 的 verify_result（笔记验证窗口，读取组件 1011）→ (过了没, 给她的一句话)
+    # /login/session 的 verify_result（笔记验证窗口，读取组件 1011）→ (过了没, 给用户的一句话)
     'note_ok': (True, '过了，这篇能打开了'),
     'note_not_seen': (False, '窗口里一直没看到这篇打开（还要验证，或没过完就关了）：可以再点一次「打开验证」'),
     'still_risk': (False, '关窗时页面上还有验证：号的验证暂停已经打开，点问题入口「打开验证」把它过完'),
@@ -1116,8 +1116,8 @@ def open_note_verify(note_id: str, token: str = '', *, wait: bool = True) -> dic
 
 
 def clear_hold(*, by_owner: bool) -> dict:
-    """「没看到验证，恢复」（B1 A5）：只有她亲手点、带 --by-owner 才发 POST /api/v1/risk/clear（一次）；
-    在问题记录留痕「她确认没看到验证」，再按内存登录态刷面板。绝不进「全部修一遍」或夜跑。"""
+    """「没看到验证，恢复」（B1 A5）：只有用户亲手点、带 --by-owner 才发 POST /api/v1/risk/clear（一次）；
+    在问题记录留痕「你确认没看到验证」，再按内存登录态刷面板。绝不进「全部修一遍」或夜跑。"""
     if not by_owner:
         out = row('xhs', '小红书账号', 'error', '没有恢复', '只有你亲手确认（--by-owner）才会解除暂停。', action='none')
         out['code'] = 'NOT_CONFIRMED'
@@ -1132,7 +1132,7 @@ def clear_hold(*, by_owner: bool) -> dict:
         for r in problems.load():
             if r.get('step') == 'login' and str(r.get('code') or '').split('.')[-1] in (*RISK_CODES, 'ACCOUNT_BLOCKED'):
                 problems.annotate(r, verify_result='owner_cleared', verify_at=now.isoformat(timespec='seconds'),
-                                  repair_note=f'她确认没看到验证，{now:%m-%d %H:%M} 亲手恢复')
+                                  repair_note=f'你确认没看到验证，{now:%m-%d %H:%M} 亲手恢复')
     except Exception:  # noqa: BLE001
         pass
     return _hold_cleared_row('已恢复（你确认没看到验证）')

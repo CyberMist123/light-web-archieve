@@ -33,7 +33,7 @@ const CSS = `
 /* C1 吸顶：Dataview 给容器写的行内 overflow-x:auto（兜底）、实时预览 1.14.4 的 .cm-embed-block:hover{overflow:hidden} 都会让 sticky 失效 */
 .lb-catalog .block-language-dataviewjs{overflow:visible!important;}
 .markdown-source-view.lb-catalog .cm-embed-block.cm-lang-dataviewjs,.markdown-source-view.lb-catalog .cm-embed-block.cm-lang-dataviewjs:hover{overflow:visible!important;}
-/* 10-04（她定）整页外面那层 dataviewjs 代码块的框（边框 / 底色 / 圆角 / 悬停「编辑代码块」按钮）隐形：阅读视图 + 实时预览 */
+/* 10-04（作者定）整页外面那层 dataviewjs 代码块的框（边框 / 底色 / 圆角 / 悬停「编辑代码块」按钮）隐形：阅读视图 + 实时预览 */
 .lb-catalog :is(.el-pre:has(.block-language-dataviewjs),pre:has(.block-language-dataviewjs),.block-language-dataviewjs,.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs),
 .lb-catalog :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-preview-code-block.cm-lang-dataviewjs):hover{border:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;border-radius:0!important;}
 .lb-catalog :is(.cm-embed-block:has(.block-language-dataviewjs),.cm-lang-dataviewjs) .edit-block-button{display:none!important;}
@@ -42,7 +42,7 @@ const CSS = `
 .lbc-wrap{--c-bg:var(--background-primary);--c-ink:var(--text-normal);--c-muted:var(--text-muted);--c-faint:var(--text-faint);--c-line:var(--background-modifier-border);--c-soft:var(--background-secondary);
 --f-display:var(--lb-font-title);--f-serif:var(--lb-font-serif);--f-latin:var(--lb-font-num);--f-sans:var(--lb-font-body);
 --r-card:12px;--ctl-h:34px;--shadow-print:5px 5px 0 var(--text-normal);
-/* 1026 她：字体规则统一——标题（雕刻 Cinzel / 衬线中文）· 数字（Cormorant 斜体、等宽数字）· 正文（无衬线）三套，字号只用这几档 */
+/* 1026 作者：字体规则统一——标题（雕刻 Cinzel / 衬线中文）· 数字（Cormorant 斜体、等宽数字）· 正文（无衬线）三套，字号只用这几档 */
 --fs-body:13.5px;--fs-small:12px;--fs-tab:15.5px;--num-feat:lining-nums tabular-nums;--lbc-sp:1;
 width:100%;max-width:1440px;margin:0 auto;box-sizing:border-box;height:auto;display:block;padding:22px 24px 30px;overflow:visible;font-family:var(--f-sans);}
 .lbc-wrap button{font-family:inherit;}
@@ -92,7 +92,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 /* 分类行：只放「全部 + 一级分类 + 未归类」；衬线、居中、可换行（不要横向滚动条），选中 2.5px 下划线 */
 .lbc-cats{display:flex;align-items:center;justify-content:space-between;flex-wrap:nowrap;gap:6px;overflow-x:auto;scrollbar-width:none;margin:12px 0 0;padding:0 0 2px;font:18px/1.4 var(--f-serif);}
 .lbc-cats::-webkit-scrollbar{display:none;}
-/* 1026 她：窗口窄了分类不许被裁——放不下一行就换行居中（JS 量出来加 .is-wrap） */
+/* 1026 作者：窗口窄了分类不许被裁——放不下一行就换行居中（JS 量出来加 .is-wrap） */
 .lbc-cats.is-wrap{flex-wrap:wrap;justify-content:center;column-gap:22px;overflow:visible;}
 .lbc-cats button.lbc-cat.is-empty{color:var(--c-faint);}
 .lbc-cats button.lbc-cat{flex:none;position:relative;cursor:pointer;color:var(--c-muted);border:0!important;background:transparent!important;box-shadow:none!important;padding:4px 0 8px!important;border-radius:0!important;height:auto!important;font:inherit;font-weight:400;transition:color .2s;}
@@ -228,12 +228,12 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap.is-indexview .lbc-tools button.lb-arrange,.lbc-wrap.is-side-narrow .lbc-tools button.lb-arrange{display:none!important;}
 .lbc-mod-bar,.lbc-arrange-tray,.lbc-col-edge{display:none;}
 .lbc-wrap .lbc-lab button.lbc-gear svg{width:15px;height:15px;}
-.lbc-fold-sum{font:var(--fs-body)/1.45 var(--f-serif);color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:10px 0;cursor:pointer;}   /* 1027b 她：折起来那一行和展开的列表一行一样大、一样远 */
+.lbc-fold-sum{font:var(--fs-body)/1.45 var(--f-serif);color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:10px 0;cursor:pointer;}   /* 1027b 作者：折起来那一行和展开的列表一行一样大、一样远 */
 .lbc-fold-sum:hover{color:var(--c-ink);}
 .lbc-fold-sum i{font:italic 15px/1 var(--f-latin);font-variant-numeric:lining-nums tabular-nums;color:var(--c-ink);}
 .lbc-rec{list-style:none;margin:0;padding:0;}
 /* 1023：RECENT 行和 SYNC 行（.lbc-sy-row）同一套——无衬线 13.5px、10px 行距、只有上分隔线 */
-/* 1031 她「对齐怪」：分类列原来是 auto（每行各算各的宽，标题右边参差）——改成三列定宽：时间 44px · 标题占满省略 · 分类 5em 左对齐省略；
+/* 1031 作者「对齐怪」：分类列原来是 auto（每行各算各的宽，标题右边参差）——改成三列定宽：时间 44px · 标题占满省略 · 分类 5em 左对齐省略；
    折起来那一行（.lbc-rec-sum）就是列表第一行，同一套 */
 .lbc-rec li,.lbc-fold-sum.lbc-rec-sum{display:grid;grid-template-columns:44px minmax(0,1fr) 5em;gap:12px;align-items:baseline;padding:10px 0;border-top:1px solid var(--c-line);cursor:pointer;margin:0;font-size:13.5px;}
 .lbc-rec li:hover .lbc-rec-t{text-decoration:underline;text-underline-offset:3px;}
@@ -292,7 +292,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-side{container-type:inline-size;}
 @container (max-width:340px){.lbc-figs{grid-template-columns:repeat(2,minmax(0,1fr));}.lbc-fig-n{font-size:clamp(20px,calc(20cqi - 10px),48px);}}
 /* 10-11「索引」视图：左边可折叠的树（带篇数），右边就是卡片网格（点哪个节点右边就是哪些）；窄了（<700px 或手机）树叠在上面。
-   她的口味：不要灰框、不要看得见的滚动条——选中用正文色 + 左侧细线，空分类变淡，按钮都是字链 */
+   作者的口味：不要灰框、不要看得见的滚动条——选中用正文色 + 左侧细线，空分类变淡，按钮都是字链 */
 .lbi-bar{display:flex;flex-direction:column;gap:8px;margin:6px 5px 14px;}
 .lbi-bar[hidden],.lbi-panel[hidden],.lbi-head[hidden]{display:none!important;}
 .lbi-line{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px;font-size:12px;line-height:1.7;color:var(--text-muted);}
@@ -439,7 +439,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-card:hover :is(.lbc-badges,.lbc-check,.lbc-star:not(.is-static),.lbc-reclass){translate:-3px -3px;}
 .lbc-card:focus-visible{outline:2px solid var(--c-ink);outline-offset:5px;border-radius:var(--r-card);}
 .lbc-card.is-selected .lbc-cover,.lbc-card.is-selected .lbc-nocover{outline:0;box-shadow:0 0 0 3px var(--c-ink)!important;filter:brightness(.94);}
-/* 1015 她：选中的框和卡片框叠在一起不舒服——选中只要贴着封面的一圈（不留缝、跟着圆角），选中的卡不再叠键盘焦点框 */
+/* 1015 作者：选中的框和卡片框叠在一起不舒服——选中只要贴着封面的一圈（不留缝、跟着圆角），选中的卡不再叠键盘焦点框 */
 .lbc-card.is-selected:focus-visible{outline:0;}
 .lbc-card.is-selected :is(.lbc-cover,.lbc-nocover){transition:none;}
 .lbc-card.is-selected:hover :is(.lbc-cover,.lbc-nocover){transform:none;}
@@ -480,20 +480,20 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-attach-hint{color:var(--c-muted);border-color:var(--c-line);}
 .lbc-wrap .lbc-badges .lbc-prob{pointer-events:auto;cursor:help;color:var(--c-muted);border-color:var(--c-line);}
 .lbc-wrap .lbc-badges svg{display:block;width:14px;height:14px;flex:none;stroke:currentColor;stroke-width:1.6;fill:none;}
-/* ☆ / 选中圈（1021 设计稿）：同款 30px 圆，白底黑字细线；没收藏的平时不显示、悬停才出现（1008 她定），已收藏 = 黑底白星并常显 */
+/* ☆ / 选中圈（1021 设计稿）：同款 30px 圆，白底黑字细线；没收藏的平时不显示、悬停才出现（1008 作者定），已收藏 = 黑底白星并常显 */
 .lbc-wrap .lbc-star{position:absolute;top:10px;right:10px;z-index:1;box-sizing:border-box;width:30px;height:30px;padding:0!important;border-radius:50%!important;border:1px solid var(--c-ink)!important;background:var(--c-bg)!important;box-shadow:none!important;color:var(--c-ink);display:grid;place-items:center;cursor:pointer;opacity:0;visibility:hidden;pointer-events:none;}
 .lbc-wrap .lbc-star[hidden]{display:none!important;}
 .lbc-wrap .lbc-star svg{width:14px;height:14px;fill:currentColor;stroke:none;}
 .lbc-wrap .lbc-card:hover .lbc-star,.lbc-wrap .lbc-card:focus-within .lbc-star,.lbc-wrap.is-selecting .lbc-star{opacity:1;visibility:visible;pointer-events:auto;}
 .lbc-wrap .lbc-star:hover{background:var(--c-soft)!important;}
-/* 1026 她：已收藏的星原来是整块黑圆，每张卡一个黑点很突兀——改成白底小圆 + 黑星（不描边、一道很淡的影），悬停才出原来的细线圈 */
+/* 1026 作者：已收藏的星原来是整块黑圆，每张卡一个黑点很突兀——改成白底小圆 + 黑星（不描边、一道很淡的影），悬停才出原来的细线圈 */
 .lbc-wrap .lbc-star.is-on{width:26px;height:26px;top:12px;right:12px;border-color:transparent!important;background:color-mix(in srgb,#fff 90%,transparent)!important;box-shadow:0 1px 3px #0000002e!important;color:#141414;}
 .lbc-wrap .lbc-star.is-on svg{width:13px;height:13px;}
 .lbc-wrap .lbc-star.is-on:hover{border-color:var(--c-ink)!important;background:#fff!important;}
 .lbc-wrap .lbc-star.is-pop svg{animation:lbc-starpop .5s cubic-bezier(.3,1.6,.5,1);}
 @keyframes lbc-starpop{0%{transform:scale(.6) rotate(-20deg);}60%{transform:scale(1.35) rotate(8deg);}100%{transform:scale(1) rotate(0);}}
 .lbc-wrap .lbc-star.is-static{right:10px;cursor:default;}
-/* 1031 她：卡片上不再常显已收藏的星（太乱）——和没收藏的一样悬停才出现；点下去那一刻星弹一下 + 冒一句「已收藏 / 已取消收藏」，知道入库了就行 */
+/* 1031 作者：卡片上不再常显已收藏的星（太乱）——和没收藏的一样悬停才出现；点下去那一刻星弹一下 + 冒一句「已收藏 / 已取消收藏」，知道入库了就行 */
 .lbc-wrap .lbc-star.is-pop{opacity:1;visibility:visible;}
 .lbc-wrap .lbc-startoast{position:absolute;top:12px;right:46px;z-index:2;padding:3px 10px;border-radius:var(--lb-radius-pill);background:var(--c-ink);color:var(--c-bg);font-size:12px;line-height:1.6;white-space:nowrap;pointer-events:none;animation:lbc-startoast 1.2s ease-out forwards;}
 @keyframes lbc-startoast{0%{opacity:0;translate:6px 0;}15%{opacity:1;translate:0 0;}75%{opacity:1;}100%{opacity:0;translate:0 -6px;}}
@@ -517,7 +517,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap button.lbc-check:hover{background:var(--c-soft)!important;color:var(--c-muted);}
 .lbc-wrap button.lbc-check.is-on{background:var(--c-ink)!important;border-color:var(--c-bg)!important;color:var(--c-bg);opacity:1;pointer-events:auto;}
 @media(hover:none){.lbc-wrap button.lbc-check{opacity:1;pointer-events:auto;}.lbc-card-more{opacity:1;}}
-/* 1028 她：选中圈出来时别压着左上的角标——角标挪到圈右边、「文件」前的小图标收起；圈不在时照旧 */
+/* 1028 作者：选中圈出来时别压着左上的角标——角标挪到圈右边、「文件」前的小图标收起；圈不在时照旧 */
 .lbc-wrap:not(.lbc-simple) .lbc-card :is(.lbc-badges){transition:opacity .15s,background .12s,translate .25s cubic-bezier(.2,.8,.2,1),left .15s;}
 .lbc-wrap:not(.lbc-simple) .lbc-card:is(:hover,:focus-within,.is-selected) .lbc-badges,.lbc-wrap.is-selecting:not(.lbc-simple) .lbc-badges{left:46px;}
 .lbc-wrap:not(.lbc-simple) .lbc-card:is(:hover,:focus-within,.is-selected) .lbc-badges .lbc-attach:not(.lbc-video) svg,.lbc-wrap.is-selecting:not(.lbc-simple) .lbc-badges .lbc-attach:not(.lbc-video) svg{display:none;}
@@ -567,12 +567,12 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap button.lbc-totop svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
 .lbc-totop-dock.is-on button.lbc-totop{opacity:.82;pointer-events:auto;}
 .lbc-totop-dock.is-on button.lbc-totop:hover{opacity:1;color:var(--text-normal);border-color:var(--text-faint)!important;}
-/* ── 1026 / 1027 页头那几块（标题与 Logo · 分类 · 筛选与搜索）：「筛选与搜索」移除时只藏筛选项，搜索 / 排序 / 问收藏一直在（她 1026 定） ── */
+/* ── 1026 / 1027 页头那几块（标题与 Logo · 分类 · 筛选与搜索）：「筛选与搜索」移除时只藏筛选项，搜索 / 排序 / 问收藏一直在（作者 1026 定） ── */
 .lbc-blk{display:block;}
 /* 1028 筛选条拆成的小块：每块一行按钮，靠左；块和块之间的距离由编排的列宽 / 间距定 */
 .lbc-wrap .lbc-ctl.lbc-ctl-piece{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:2px 22px;margin:calc(14px * var(--lbc-sp,1)) 0 0;padding:0 0 12px;min-width:0;}
 .lbc-wrap .lbc-ctl-piece.lbc-blk-search .lbc-searchbox{flex:1 1 160px;min-width:0;}
-/* 1031 她「搜索框是否需要扩大点，方便选到」：搜索那一列吃掉这一排剩下的宽度（最窄 150px，挤的时候 120px），整颗胶囊都能点进去 */
+/* 1031 作者「搜索框是否需要扩大点，方便选到」：搜索那一列吃掉这一排剩下的宽度（最窄 150px，挤的时候 120px），整颗胶囊都能点进去 */
 .lbc-row.is-free>.lbc-rcol.is-grow{flex:1 1 150px;width:auto!important;min-width:150px;max-width:340px;margin-left:auto!important;}
 /* 这一排里内容是空的小块（比如没选来源时的「专辑」）不占位，也不多出一道空 */
 .lbc-row.is-free>.lbc-rcol:has(>.lbc-ctl-piece:only-child>.lbc-scope:empty:only-child){display:none!important;}
@@ -639,12 +639,12 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-cats{gap:4px 22px;font-size:16.5px;margin-top:8px;}.lbc-wrap .lbc-ctl.lbc-ctl-piece{gap:0 16px;margin-top:6px;padding-bottom:6px;}
 .lbc-wrap .lbc-ctl-piece.lbc-blk-search{flex:1 1 100%;}.lbc-topics{padding-left:0;}
 .lbc-ctitle{font-size:14.5px;}.lbc-card-more{opacity:1;}.lbc-selbar button{padding:6px 10px;}}
-/* 1027b 她（第二次说清）：目录页就要雕刻字 + Cormorant 斜体数字（「就像 OVERVIEW 这种」），但四块风格统一、大小别差太多。
+/* 1027b 作者（第二次说清）：目录页就要雕刻字 + Cormorant 斜体数字（「就像 OVERVIEW 这种」），但四块风格统一、大小别差太多。
    数字只有三档：大 --lbc-num-lg（上次 / 下次同步、Token、概览四个数一样大，都斜体 400）· 行尾 --lbc-num（今日新增、上限、摘要里的数）· 小 --lbc-num-sm（日期、说明、柱子刻度） */
 /* 1027b：数字字体里混着的中文（「0 篇」「人民币估算」）——Cormorant 没有中文，浏览器会把落下去的宋体硬斜成假斜体。
    这个字面（「LB CJK Upright」，在 lb-page-lib 的 brandFontCss 里）只管中文码段、自己声明成 italic：斜体文字里的中文就用它（= 衬线中文原样直立），数字照旧落到 Cormorant。 */
 .lbc-wrap{--lbc-num-lg:clamp(24px,8cqi,34px);--lbc-num:15px;--lbc-num-sm:13px;font-synthesis-style:none;}
-/* 1027b 她（第三次）：「字体都不一样，统一」——边栏四块里的中文只用一种：衬线中文、直体（概览 / 全部收藏 / 后台每日上限 / 列表标题 / 按钮一样）；
+/* 1027b 作者（第三次）：「字体都不一样，统一」——边栏四块里的中文只用一种：衬线中文、直体（概览 / 全部收藏 / 后台每日上限 / 列表标题 / 按钮一样）；
    数字和拉丁字母 Cormorant 斜体；中文混在数字里（「0 篇」「人民币估算」）落到衬线中文，且不许浏览器硬斜（font-synthesis-style:none，整页都关） */
 /* 直立中文字面只给边栏四块（挂到全页 / 页头会让首开慢 8–15ms；边栏是首帧之后才画的） */
 .lbc-mod{--f-latin:"LB CJK Upright",var(--lb-font-num);}
@@ -655,7 +655,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-mod .lbc-sy-big,.lbc-mod .lbc-fig-n{font:italic 400 var(--lbc-num-lg)/1.05 var(--f-latin);letter-spacing:0;}
 .lbc-mod .lbc-sy-big i{font-style:italic;}
 .lbc-mod .lbc-sy-row b,.lbc-mod .lbc-sy-row.is-tot b{font:italic 500 var(--lbc-num)/1.2 var(--f-latin);}
-.lbc-mod .lbc-fold-sum i{font-size:inherit;color:inherit;}   /* 1027b 她：折起来那一行是一句话——字、数一个颜色一个大小 */
+.lbc-mod .lbc-fold-sum i{font-size:inherit;color:inherit;}   /* 1027b 作者：折起来那一行是一句话——字、数一个颜色一个大小 */
 .lbc-mod :is(.lbc-rec time,.lbc-rec-sum time,.lbc-sy-cap,.lbc-bar span,.lbc-days){font-size:var(--lbc-num-sm);}
 .lbc-mod :is(.lbc-rec,.lbc-rec-sum) time{font-style:italic;}
 /* 最近导入：列表框高 = 条数（调整里 2 / 4 / 6 / 8），框里往下滚接着出更早的 */
@@ -664,7 +664,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-mod.has-h>.lbc-mod-body{max-height:var(--lbc-m-h);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;}
 .lbc-mod-recent.has-h>.lbc-mod-body{max-height:none;overflow:visible;}
 .lbc-mod-recent.has-h .lbc-rec{max-height:var(--lbc-m-h);}
-/* 1027b 她：最近导入的帖子之间不要横线；列表框里不要浮动的滚动条（滚轮 / 触控板照样滚） */
+/* 1027b 作者：最近导入的帖子之间不要横线；列表框里不要浮动的滚动条（滚轮 / 触控板照样滚） */
 .lbc-mod-recent .lbc-rec li{border-top:0;}
 .lbc-mod-recent .lbc-rec{scrollbar-width:none;}
 .lbc-mod-recent .lbc-rec::-webkit-scrollbar{display:none;}
@@ -689,7 +689,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 // 1027 编排才用的样式（操作条 / 托盘 / 调整 / 列边）：第一次进编排时才挂（首开少解析一段样式）
 const ARRANGE_CSS = `
 .lbc-wrap.is-arranging .lbc-side{padding-left:12px;padding-right:12px;-webkit-mask-image:none;mask-image:none;}
-/* 1028 她：「不像图 2 那么突兀」——平时只有一圈很淡的细框；指着 = 细框加深，选中 = 墨色细框；黑条换成白底小工具条，只在指着 / 选中时出来 */
+/* 1028 作者：「不像图 2 那么突兀」——平时只有一圈很淡的细框；指着 = 细框加深，选中 = 墨色细框；黑条换成白底小工具条，只在指着 / 选中时出来 */
 .lbc-wrap.is-arranging .lbc-m{position:relative;outline:1px solid transparent;outline-offset:4px;border-radius:3px;cursor:grab;user-select:none;-webkit-user-select:none;transition:outline-color .15s;}
 .lbc-wrap.is-arranging .lbc-top .lbc-m,.lbc-wrap.is-arranging .lbc-side .lbc-m{outline-color:var(--c-line);}
 .lbc-wrap.is-arranging .lbc-m:hover{outline-color:var(--c-faint);}
@@ -817,8 +817,8 @@ if (LB.schemaBlocks(data)) {
   stopPage(LB.schemaIssue(data), { refresh: Number(data.schema) < LB.CATALOG_SCHEMA });
   return;
 }
-// 1020 来源（她定）：src='' 是她自己的收藏；她在 TG 发给 Fable 的和 Fable 自己收的都是「fable」（1025 起不再单列「聊天分享」）、CC / GPT 按项目收的（项目名）
-// 各是一个来源（catalog.py 的 src，规则在 domain.py）。目录默认只看她自己的收藏，「来源 ▾」切；已收藏页不分来源。
+// 1020 来源（作者定）：src='' 是用户自己的收藏；用户在 TG 发给 Fable 的和 Fable 自己收的都是「fable」（1025 起不再单列「聊天分享」）、CC / GPT 按项目收的（项目名）
+// 各是一个来源（catalog.py 的 src，规则在 domain.py）。目录默认只看用户自己的收藏，「来源 ▾」切；已收藏页不分来源。
 // items = 当前来源下的那些（下面所有计数 / 排名 / 专辑都按它算），allItems = 全部
 let allItems = data.items || [];
 let activeSrc = '';   // ''=我的收藏 / '*'=全部 / 其它=那个来源
@@ -849,7 +849,7 @@ refreshTags();
 // ── 10-10 索引树：_archive/index-data.json（Python 解析 索引.md、归类好的；页面只读，这里不解析、不归类） ──
 // 第一级 = 顶部分类 tab（activeCat 存节点路径，「美食/菜谱」）；选中一个大类时下面一行它的二级小标签；「索引」= 横向分叉树。
 // 没有这份文件（旧后端 / 还没重算过）= 照旧按 catalog-data 的 cats_order / items[].cats。
-const UNC = '∅未归类', UNC_LABEL = '未归类';   // 「未归类」那一档在页面里的键（节点路径不会以 ∅ 开头，她把一个节点叫「未归类」也不撞）
+const UNC = '∅未归类', UNC_LABEL = '未归类';   // 「未归类」那一档在页面里的键（节点路径不会以 ∅ 开头，用户把一个节点叫「未归类」也不撞）
 let idx = null, idxRev = 0;
 const idxByPath = new Map(), idxSets = new Map();
 let idxRaw = null;
@@ -899,7 +899,7 @@ function inCat(it) {
   for (const f of activeFacets) { const fs = facetIds(f); if (!fs || !fs.has(it.id)) return false; }
   return true;
 }
-// 10-11 细分标签（她：大类最多 3 级，下面还能细分 tag，一篇可以有几个——空气炸锅 + 牛排）：选中节点的 facets，多选 = AND
+// 10-11 细分标签（作者：大类最多 3 级，下面还能细分 tag，一篇可以有几个——空气炸锅 + 牛排）：选中节点的 facets，多选 = AND
 let activeFacets = [], facetNode = '';
 const facetsOf = path => (idxByPath.get(path)?.facets || []).filter(f => f && f.name);
 function facetIds(name) {
@@ -923,7 +923,7 @@ await loadIndex();
 // ── 页面状态 ──
 let committed = '', lastRaw = '';
 let activeCat = '', todayOnly = false, todoOnly = false, mediaFilter = '', starOnly = starredPage;
-// 1026 她（04:44 要先切瀑布流、再切视频、再切附件，反复选）：筛选条拆成几个维度，维度之间叠加（AND）、维度里面单选：
+// 1026 用户（04:44 要先切瀑布流、再切视频、再切附件，反复选）：筛选条拆成几个维度，维度之间叠加（AND）、维度里面单选：
 //   范围（全部 / 今日新增 / 已收藏 / ★主题，仍是单选）· 类型 mediaFilter（图文 image / 视频 video / 附件 attachment）· Tag activeTag · 平台 activePlat · 排序（时间胶囊）。
 //   分类行 / 子类照旧。换视图（瀑布流 / Wiki / 最近导入全部）一律不清筛选
 let activeTag = '', activePlat = '';
@@ -931,7 +931,7 @@ let indexView = false;                    // 10-10「索引」视图开着（网
 const foldOverride = new Map();           // 索引图里手动展开 / 收起过的节点：路径 → true 展开 / false 收起（默认：第二级以下收起）
 // 10-04 导入时间（catalog-data 的 ts = 首次入库时间）：排序 ''=默认 / 'recent'=最近导入；范围 ''=全部 / today / 7d / 30d / custom
 let timeSort = '', timeRange = '', timeFrom = '', timeTo = '';
-let activeTopic = '', topicBar = null, activeAlbum = '';   // 1019 专辑：她在小红书里分的组（目录项 albums 字段），和标签 / 主题分开
+let activeTopic = '', topicBar = null, activeAlbum = '';   // 1019 专辑：用户在小红书里分的组（目录项 albums 字段），和标签 / 主题分开
 let selectMode = false; const selected = new Set();
 let exportImages = true;
 let dataRev = 0;            // C2：只有拿到新数据 / 删除成功 / 有搜索词时标签变了才 +1
@@ -994,7 +994,7 @@ const titleText = titleRow.createEl('span', { cls: 'lbc-title' });
 // 1021 雕刻斜体大标题：字上再叠一层同样的字（data-text → ::after，描边用底色、往左错一点）= 一道刻线；改标题时 data-text 跟着换（setTitle）
 const titleLabel = titleText.createEl('span', { cls: 'lbc-title-text lbc-engr', text: titleOf() });
 titleLabel.dataset.text = titleOf();
-// 1026 她：放大 / 改了长标题时标题撑出框——字号按「这一行能放多宽 ÷ 标题大概几个字宽」算（CSS --lbc-title-em，Cinzel 大写约 0.78em 一个字，中文 1em）
+// 1026 作者：放大 / 改了长标题时标题撑出框——字号按「这一行能放多宽 ÷ 标题大概几个字宽」算（CSS --lbc-title-em，Cinzel 大写约 0.78em 一个字，中文 1em）
 const titleEm = t => Math.max(4, [...t].reduce((n, ch) => n + (/[　-鿿＀-￯]/.test(ch) ? 1.05 : /\s/.test(ch) ? 0.35 : 0.8), 0) + 0.9);
 function setTitle() { const t = titleOf(); if (titleLabel.textContent !== t) titleLabel.setText(t); if (titleLabel.dataset.text !== t) titleLabel.dataset.text = t; const em = titleEm(t).toFixed(2); if (titleText.style.getPropertyValue('--lbc-title-em') !== em) titleText.style.setProperty('--lbc-title-em', em); }
 setTitle();
@@ -1005,7 +1005,7 @@ const importButton = mobile ? null : titleText.createEl('button', { cls: 'lbc-im
 if (importButton) importButton.dataset.text = '+';
 // F4：标题下那一行拆成三块——计数（只是字）· 可能相关（跳到那一组）· 更新（打开同步记录）
 const subLine = titleBlock.createEl('div', { cls: 'lbc-subline' });
-// 1027b 她：「标题应该这样（计数行在标题右边），现在怎么到下面去了」——筛选时计数行变长，标题照旧按整行宽度定字号，计数行就被挤下去。
+// 1027b 作者：「标题应该这样（计数行在标题右边），现在怎么到下面去了」——筛选时计数行变长，标题照旧按整行宽度定字号，计数行就被挤下去。
 // 量计数行的实际宽度写进 --lbc-sub-w（+ 22px 间距），标题字号让出这一截；只在它真的变了时写（不来回抖）
 let subW = -1;
 // 计数行太长（带着「数据较旧」这类提醒、超过整行 45%）就不让位：让它照旧换到下面，标题不被压成小字
@@ -1091,7 +1091,7 @@ async function refreshBili() {
 async function refreshProblems() {
   const [raw, sum] = await Promise.all([readArchiveJson('_archive/sync-status.json'), readArchiveJson('_archive/problems-summary.json')]);
   probSummary = sum; syncState = mergeSync(raw, sum);
-  // 1031 她「如果是正在同步，不能说状态失败」：收藏那段先写了「部分没成功」、这一轮（补评论 / 附件）还在跑 → 按同步中显示
+  // 1031 作者「如果是正在同步，不能说状态失败」：收藏那段先写了「部分没成功」、这一轮（补评论 / 附件）还在跑 → 按同步中显示
   if (syncState && syncState.state === 'failed' && provider()?.syncRunOpen?.()) syncState = { ...syncState, state: 'running', partialFail: true };
   // 1023：内容没变的重建不改 catalog-data（不刷屏），「核对过」的时间在 catalog-state.checked_at——判「数据较旧」时一起算
   try { catalogCheckedAt = (await readArchiveJson('_archive/catalog-state.json'))?.checked_at || null; } catch {}
@@ -1117,7 +1117,7 @@ function paintProblems() {
   if (!s && st.state === 'blocked') need = 1;   // 还没有 problems-summary.json（老库第一次）：同步卡在要人处理时照样亮
   probBtn.empty();
   if (need) probBtn.createEl('span', { cls: 'lbc-prob-n lbc-prob-need', text: String(need) });
-  // 1019 她：自动处理中的不亮数字。1027b 她：「不影响实际体验的，就别显示了」——已放弃的（某一篇的附件 / 评论没补上）也不亮，
+  // 1019 作者：自动处理中的不亮数字。1027b 作者：「不影响实际体验的，就别显示了」——已放弃的（某一篇的附件 / 评论没补上）也不亮，
   // 只数要你动手的；全部的还在问题记录里
   void auto; void gaveUp;
   probBtn.hidden = !need;
@@ -1175,7 +1175,7 @@ if (app.vault.on && dv.component?.registerEvent) {
   const onFile = file => {
     if (watched.has(file?.path)) refreshProblems();
     else if (file?.path === dataPath) { clearTimeout(freshTimer); freshTimer = setTimeout(() => checkFresh(), 800); }
-    // 10-10：她改完 索引.md 保存 → 插件重算 index-data.json → 这里 300ms 防抖后换上新的分类 / 索引图（卡片不重建）
+    // 10-10：用户改完 索引.md 保存 → 插件重算 index-data.json → 这里 300ms 防抖后换上新的分类 / 索引图（卡片不重建）
     else if (file?.path === idxDataPath) { clearTimeout(idxTimer); idxTimer = setTimeout(() => reloadIndex(), 300); }
     // 1031：B 站同步每做完一条写一次 last-sync.json → 300ms 防抖后只重画侧栏 SYNC（B 站那一面）
     else if (file?.path === biliPath) { clearTimeout(biliTimer); biliTimer = setTimeout(() => refreshBili(), 300); }
@@ -1189,7 +1189,7 @@ if (app.vault.on && dv.component?.registerEvent) {
 const MANAGE_SVG = '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="1" width="5" height="5" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="8" y="1" width="5" height="5" fill="currentColor"/><rect x="1" y="8" width="12" height="5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
 const manage = mobile ? null : tools.createEl('button', { cls: 'lb-manage lbc-manage' });
 if (manage) { manage.type = 'button'; manage.innerHTML = MANAGE_SVG; manage.createEl('span', { text: '管理' }); }
-// 1026 她（16:55「它甚至没有回收站」；分类删了内容去哪不清楚）：「管理」按用途分组——
+// 1026 用户（16:55「它甚至没有回收站」；分类删了内容去哪不清楚）：「管理」按用途分组——
 //   整理分类：索引编辑（分类树）/ 在 索引.md 里改 / 删除一个分类（只删分类，内容不删）
 //   回收站与删除：回收站（N 篇，可恢复）/ 彻底删除（在回收站里做，不能恢复）/ 怎么删一篇收藏
 //   其它：导出资料 / 设置 / 刷新目录（1027：改标题 / 每行几列挪进「编排」——标题模块、收藏墙模块的「调整」，这里不再重复）
@@ -1203,7 +1203,7 @@ async function readTrashCount() {
 const openTrash = () => LB.openPage('trash');
 async function callPlugin(method, ...args) { const p = await want(method); if (!p) return; try { await p[method](...args); } catch (err) { LB.say('没做成：' + (err?.message || err), { kind: 'error' }); } }
 function manageItems() {
-  // 1027b 她：「管理就留索引编辑、刷新目录（手动）、导出资料、设置、回收站就行。设置放最上面」
+  // 1027b 作者：「管理就留索引编辑、刷新目录（手动）、导出资料、设置、回收站就行。设置放最上面」
   //   （删分类在索引树里右键 / 「改名」那一排；彻底删除在回收站里；在 索引.md 里改 = 索引条上的「编辑 索引.md」）
   return [
     { title: '设置', icon: 'settings-2', onClick: () => callPlugin('openSetupPage') },
@@ -1234,7 +1234,7 @@ async function deleteCategoryFlow(path = '') {
   if (to) await treeEdit('merge', n, { to });
 }
 // 1022 第 5 段「编排」胶囊（只桌面目录页：手机 / 星标页没有边栏）：点了进编排，再点或「结束编排」/ Esc 退出
-// 1027：插件没开就没有「编排」（只读：布局存不下来，不让她白排一通）
+// 1027：插件没开就没有「编排」（只读：布局存不下来，不让用户白排一通）
 const GRIP_SVG = '<svg viewBox="0 0 10 14" aria-hidden="true"><g fill="currentColor"><circle cx="2.5" cy="2.5" r="1.4"/><circle cx="7.5" cy="2.5" r="1.4"/><circle cx="2.5" cy="7" r="1.4"/><circle cx="7.5" cy="7" r="1.4"/><circle cx="2.5" cy="11.5" r="1.4"/><circle cx="7.5" cy="11.5" r="1.4"/></g></svg>';
 const arrangeBtn = mobile || simplePage || !provider()?.settings ? null : tools.createEl('button', { cls: 'lb-arrange lbc-arrange' });
 if (arrangeBtn) {
@@ -1254,9 +1254,9 @@ if (importButton) importButton.onclick = async e => {
 // 大类筛选条 = 分类行（1021：只放「全部 + 一级分类 + 未归类」；范围筛选挪到下面的控制行）
 const catBar = top.createEl('div', { cls: 'lbc-cats' });
 // 控制行（1021）：边栏钮 + 范围单选 + 星标主题 + 类型 + 来源 / 专辑 / Tag；右边 排序 · 视图 · 搜索 · 问收藏。
-// 1028 她（照蓝线拆）：每一组是自己的一块积木（.lbc-m），能单独拖、调宽、移除——范围 · AI 标签 · 类型 · 我的收藏 / Tag · 排序 · 视图 · 搜索 · 问收藏。
+// 1028 用户（照蓝线拆）：每一组是自己的一块积木（.lbc-m），能单独拖、调宽、移除——范围 · AI 标签 · 类型 · 我的收藏 / Tag · 排序 · 视图 · 搜索 · 问收藏。
 //   每块自己带 .lbc-ctl（按钮样式照旧）；标题和计数行也拆成两块。吸顶仍是 .lbc-top 一整块
-// 1031 她：「瀑布流 / 分类 Wiki」视图切换不要了——'view' 这一块去掉；存过的布局里的 view 读的时候丢掉（parseLayout 只认 MOD_IDS）
+// 1031 作者：「瀑布流 / 分类 Wiki」视图切换不要了——'view' 这一块去掉；存过的布局里的 view 读的时候丢掉（parseLayout 只认 MOD_IDS）
 const TOP_IDS = ['title', 'meta', 'cats', 'scope', 'topics', 'types', 'albums', 'picks', 'sort', 'search', 'ask'];
 const CTL_IDS = ['scope', 'topics', 'types', 'albums', 'picks', 'sort', 'search', 'ask'];
 const blocks = {};
@@ -1266,13 +1266,13 @@ const SIDE_SVG = '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="1.5
 const sideBtn = mobile || simplePage ? null : blocks.scope.createEl('button', { cls: 'lbc-sidetoggle' });   // 星标页 / 手机没有边栏，也就没有这颗钮
 if (sideBtn) {
   sideBtn.type = 'button'; sideBtn.innerHTML = SIDE_SVG;
-  sideBtn.createEl('span', { cls: 'lb-visually-hidden', text: '收起 / 展开边栏' });   // 不设 aria-label / title：Obsidian 会渲染成悬浮框（她不要）
+  sideBtn.createEl('span', { cls: 'lb-visually-hidden', text: '收起 / 展开边栏' });   // 不设 aria-label / title：Obsidian 会渲染成悬浮框（用户不要）
   sideBtn.onclick = () => setSideOpen(!sideOpen);
 }
 const scopeBox = blocks.scope.createEl('div', { cls: 'lbc-scope' });
 const topicsBox = blocks.topics.createEl('div', { cls: 'lbc-scope lbc-scope-topics' });
 const typesBox = blocks.types.createEl('div', { cls: 'lbc-scope lbc-scope-types' });
-const albumsBox = blocks.albums.createEl('div', { cls: 'lbc-scope lbc-scope-albums' });   // 1028 她：专辑放在类型后面，直接点得到
+const albumsBox = blocks.albums.createEl('div', { cls: 'lbc-scope lbc-scope-albums' });   // 1028 作者：专辑放在类型后面，直接点得到
 const picksBox = blocks.picks.createEl('div', { cls: 'lbc-scope lbc-scope-picks' });
 const timeTab = blocks.sort.createEl('button', { cls: 'lbc-time lbc-pill' }); timeTab.type = 'button';
 timeTab.onclick = e => { e?.stopPropagation?.(); openTimeMenu(timeTab); };
@@ -1285,11 +1285,11 @@ const paintSearchX = () => { searchX.hidden = !search.value; };
 searchX.onmousedown = e => e.preventDefault();
 searchX.onclick = e => { e.preventDefault(); e.stopPropagation(); search.value = ''; search.dispatchEvent(new Event('input', { bubbles: true })); paintSearchX(); search.focus(); };
 search.addEventListener('input', paintSearchX);
-// 1031 她「问收藏 → / Wiki → 一个胶囊一个别的，看着乱」：两个去别页的入口合成一颗细线胶囊、中间一道竖线，字一样大
+// 1031 作者「问收藏 → / Wiki → 一个胶囊一个别的，看着乱」：两个去别页的入口合成一颗细线胶囊、中间一道竖线，字一样大
 const jumps = blocks.ask.createEl('div', { cls: 'lbc-jumps' });
 const ask = jumps.createEl('button', { cls: 'lbc-askbtn', text: '问收藏' }); ask.type = 'button'; ask.createEl('span', { cls: 'lbc-arr', text: '→' });   // 箭头单独一段：最挤的时候藏掉
 ask.onclick = () => LB.openPage('chat');
-// 1031 她「Wiki / 目录 / 问收藏没有打通跳转」：目录页去个人 Wiki 页的入口（和问收藏、Wiki 页页头的三页切换同一个目的地）
+// 1031 作者「Wiki / 目录 / 问收藏没有打通跳转」：目录页去个人 Wiki 页的入口（和问收藏、Wiki 页页头的三页切换同一个目的地）
 const toWiki = jumps.createEl('button', { cls: 'lbc-askbtn lbc-wikibtn', text: 'Wiki' }); toWiki.type = 'button'; toWiki.createEl('span', { cls: 'lbc-arr', text: '→' });
 toWiki.onclick = () => { const p = provider(); if (p?.openLibraryPage) p.openLibraryPage('wiki'); else LB.openPage('wiki'); };
 function clearFilters({ keepStar = starredPage } = {}) { activeCat = ''; todayOnly = false; todoOnly = false; mediaFilter = ''; activeTag = ''; activePlat = ''; activeTopic = ''; activeAlbum = ''; timeRange = ''; timeSort = ''; timeFrom = ''; timeTo = ''; starOnly = keepStar; indexView = false; }
@@ -1319,7 +1319,7 @@ function renderCatBar({ reveal = false } = {}) {
       tab.dataset.path = p;
       if (!mobile) tab.oncontextmenu = e => { e.preventDefault(); editCategories(p); };
     }
-    // 1026 她：未归类是实际的兜底队列，不隐藏——0 篇也留着（淡色，点了说一句「都归好了」）
+    // 1026 作者：未归类是实际的兜底队列，不隐藏——0 篇也留着（淡色，点了说一句「都归好了」）
     const nUnc = idx.unclassified?.count || 0;
     const tab = mk(UNC_LABEL, !indexView && activeCat === UNC, nUnc ? tabClick(() => { activeCat = (activeCat === UNC ? '' : UNC); }) : () => LB.say('没有未归类的：每一篇都放进分类了'));
     tab.classList.add('lbc-unc-tab'); tab.dataset.n = String(nUnc);
@@ -1339,7 +1339,7 @@ function renderCatBar({ reveal = false } = {}) {
   paintTime();
   renderTopicBar();
 }
-// ── 1021 范围：单选（她：原来几个开关能叠加，容易点了好几个然后懵了）。内部仍是 todayOnly / starOnly / mediaFilter / todoOnly / activeTopic，
+// ── 1021 范围：单选（作者：原来几个开关能叠加，容易点了好几个然后懵了）。内部仍是 todayOnly / starOnly / mediaFilter / todoOnly / activeTopic，
 //    但同一时间只让一个生效：点一个清掉其他；再点当前项回到「全部」。'topic:*' = 全部主题（属于任何一个星标主题的）
 function scopeOf() {
   if (starOnly && !starredPage) return 'star';
@@ -1440,7 +1440,7 @@ function renderScope() {
     b.onclick = () => { topicAdding = true; topicFocusNew = true; renderTopicBar(); };
   }
   // 1026 类型（一组，组内单选、和范围叠加）；1028 起是自己的一块（「类型」），不再用细竖线隔
-  // 1031 她：有两个以上平台（B 站进来了）时，「图文 / 视频」换成一个来源下拉；图文 / 视频只在小红书里分（B 站全是视频），
+  // 1031 作者：有两个以上平台（B 站进来了）时，「图文 / 视频」换成一个来源下拉；图文 / 视频只在小红书里分（B 站全是视频），
   // 选了小红书才跟出来；附件也只有小红书有，照旧放最后
   const platsTab = platCounts();
   const typeTab = (k, label, n, on, onclick, extra = '') => {
@@ -1448,7 +1448,7 @@ function renderScope() {
     b.type = 'button'; b.dataset.type = k; b.dataset.n = String(n); b.setAttribute('aria-pressed', String(on)); b.onclick = onclick;
   };
   if (platsTab.length > 1) {
-    // 1031 她：「小红书 / B 站不需要显示数量；做成来源的可选择就行」——一个下拉（全部来源 / 小红书 / B站），不带数
+    // 1031 作者：「小红书 / B 站不需要显示数量；做成来源的可选择就行」——一个下拉（全部来源 / 小红书 / B站），不带数
     const pchip = typesBox.createEl('button', { cls: 'lbc-pick lbc-platpick' + (activePlat ? ' is-active' : ''), text: activePlat ? platLabel(activePlat) : '全部来源' });
     pchip.type = 'button'; pchip.dataset.scope = 'plat'; pchip.setAttribute('aria-pressed', String(!!activePlat));
     pchip.onclick = e => popMenu([
@@ -1495,7 +1495,7 @@ function renderScope() {
       ...srcs.map(([n, c]) => ({ title: `${n}（${c}）`, checked: n === activeSrc, onClick: () => pick(n) })),
     ], e, chip);
   }
-  // 1031 她：「来源选 B 站时加一个『专辑』下拉（B 站收藏夹 = 专辑）；小红书也要」——专辑只按当前来源列，一颗「专辑 ▾」下拉（不再平铺）：
+  // 1031 作者：「来源选 B 站时加一个『专辑』下拉（B 站收藏夹 = 专辑）；小红书也要」——专辑只按当前来源列，一颗「专辑 ▾」下拉（不再平铺）：
   //   库里有两个以上来源时，选了某个来源才出，紧跟在来源下拉后面；只有一个来源就一直在「专辑」那一块。
   //   这个来源没有专辑数据：一颗灰的「专辑 ▾」，点开说缺什么（小红书 = 读专辑那一步还没跑过）
   const pickAlbum = name => { leaveSideViews(); activeAlbum = name; renderCatBar(); render(); scrollToResults(); };
@@ -1524,7 +1524,7 @@ function paintTime() {
   timeTab.classList.toggle('is-active', on); timeTab.setAttribute('aria-pressed', String(on));
 }
 // ── 1021 视图：瀑布流 / 列表（入口藏着，代码留着）/ 索引编辑 / 最近导入全部；选择存 LB.state ──
-// 1031 她：页头的「瀑布流 / 分类 Wiki」开关不要了。分类 Wiki 那页退场（分类的 wiki 在「索引编辑」里每个分类后面生成 / 打开；
+// 1031 作者：页头的「瀑布流 / 分类 Wiki」开关不要了。分类 Wiki 那页退场（分类的 wiki 在「索引编辑」里每个分类后面生成 / 打开；
 //   个人 Wiki 走页头「Wiki →」）；存过 view: 'wiki' 的当瀑布流。索引编辑从「管理 → 索引编辑」进，「退出索引编辑 ×」出来
 let viewMode = 'grid', recentPage = 1;   // 1026 'recent' = 最近导入全部（翻到第几页）
 function pickView(k) {
@@ -1536,8 +1536,8 @@ function pickView(k) {
 // 边栏内容（第 3 段：RECENT / SYNC / OVERVIEW）在下面「左侧边栏」一节画；开 / 收由 setSideOpen 管（.lbc-wrap.is-side-collapsed），
 // 收起 / 窄屏时 CSS 让收藏墙铺满（列数按宽度 lbcColumns 自己变）。各模块折叠状态 sideFold 也存 LB.state（OVERVIEW 默认折叠）
 let sideOpen = true;
-const sideFold = { recent: true, sync: false, token: false, overview: true };   // 1027b 她：最近导入平时就一行「最新 …」，点开往下滚
-// 1031 她：侧栏的同步 / 概览 / Token 分平台看——一个「当前平台」（'xhs' 小红书 / 'bili' B 站，存 LB.state，默认小红书），三块都跟它；
+const sideFold = { recent: true, sync: false, token: false, overview: true };   // 1027b 作者：最近导入平时就一行「最新 …」，点开往下滚
+// 1031 作者：侧栏的同步 / 概览 / Token 分平台看——一个「当前平台」（'xhs' 小红书 / 'bili' B 站，存 LB.state，默认小红书），三块都跟它；
 // 库里只有一个平台就不出切换（见「左侧边栏」一节 platSwitch）
 let sidePlat = 'xhs';
 let sideApi = null;   // 边栏画好后才有：{ paintSync(), paintData(), paintAll(), fade() }；同步状态 / 数据变了只重画边栏里那一块
@@ -1580,7 +1580,7 @@ function renderSubBar() {
   }
   subBar.scrollLeft = left;
 }
-// 1026 她：窗口窄了分类行被裁掉——一行放得下就照旧单行铺开（space-between），放不下就整行换行居中（不横向滚、不裁）
+// 1026 作者：窗口窄了分类行被裁掉——一行放得下就照旧单行铺开（space-between），放不下就整行换行居中（不横向滚、不裁）
 function catWrapWanted() {
   const kids = [...catBar.children]; const cw = Number(catBar.clientWidth) || 0;
   if (!kids.length || !cw) return null;
@@ -1613,7 +1613,7 @@ function albumCounts() {   // 1031：只算当前来源（B 站收藏夹和小�
   for (const it of items) if (platOk(it)) for (const a of Array.isArray(it.albums) ? it.albums : []) if (typeof a === 'string' && a) m.set(a, (m.get(a) || 0) + 1);
   return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh'));
 }
-// 来源：不是她自己收藏的那几组各有几篇（多的在前）；全是她自己的就没有这颗按钮
+// 来源：不是用户自己收藏的那几组各有几篇（多的在前）；全是用户自己的就没有这颗按钮
 function srcCounts() {
   const m = new Map();
   for (const it of allItems) { const s = srcOf(it); if (s) m.set(s, (m.get(s) || 0) + 1); }
@@ -1820,7 +1820,7 @@ function popMenu(items, e, anchor, pos) {
   focusFirst(menu);
   return menu;
 }
-// 1011 紧凑版（她：一项一个整宽按钮太乱）：
+// 1011 紧凑版（作者：一项一个整宽按钮太乱）：
 //   排序  [默认 | 最近导入]                 ← 一行分段
 //   时间  [全部] [今天] [7 天] [30 天] [自定义] ← 一行小块（窄了折行）
 //         起 ~ 止 [筛选]                    ← 只在选了「自定义」时出现
@@ -1859,7 +1859,7 @@ function openTimeMenu(anchor) {
   const to = range.createEl('input'); to.type = 'date'; to.value = timeTo; to.setAttribute('aria-label', '止');
   const ok = range.createEl('button', { cls: 'mod-cta', text: '筛选' }); ok.type = 'button';
   ok.onclick = ev => { ev?.stopPropagation?.(); let a = from.value || '', b = to.value || ''; if (!a && !b) return; if (a && b && a > b) [a, b] = [b, a]; timeFrom = a; timeTo = b; timeRange = 'custom'; todayOnly = false; apply(); };
-  // 1027b 她：点「最新在前」就能按主题 / 按分类筛（和分类行、范围里的主题是同一个筛选，点已选中的 = 取消）
+  // 1027b 作者：点「最新在前」就能按主题 / 按分类筛（和分类行、范围里的主题是同一个筛选，点已选中的 = 取消）
   const topics = topicNames();
   if (topics.length) {
     const tc = line('主题').createEl('div', { cls: 'lbc-chips' }); tc.setAttribute('role', 'group');
@@ -1933,9 +1933,9 @@ const selbar = mobile ? null : top.createEl('div', { cls: 'lbc-selbar' });
 let selCount = null, starSel = null, aiBtn = null, expBtn = null, moreBtn = null, delBtn = null, clrBtn = null, selBusy = false;
 if (selbar) {
   selbar.hidden = true;
-  selbar.createEl('span', { cls: 'lbc-selhint', text: '按 Esc 退出多选' });   // 1015 她：放最左
+  selbar.createEl('span', { cls: 'lbc-selhint', text: '按 Esc 退出多选' });   // 1015 作者：放最左
   selCount = selbar.createEl('span', { cls: 'lbc-selcount' });
-  // 1008 她：目录页也要能收藏（★）——多选栏一键收藏 / 取消收藏选中的
+  // 1008 作者：目录页也要能收藏（★）——多选栏一键收藏 / 取消收藏选中的
   starSel = selbar.createEl('button', { cls: 'lbc-starsel', text: '收藏选中' }); starSel.type = 'button';
   starSel.onclick = () => starMany(items.filter(x => selected.has(x.id)));
   aiBtn = selbar.createEl('button', { cls: 'lbc-aisel', text: '给 AI（存成选集）' }); aiBtn.type = 'button';
@@ -1981,7 +1981,7 @@ function setSelbarVisible(on) {
   if (indexView && idx) paintIndexSticky();     // 吸顶区变高 / 变矮：左边的树跟着挪
   if (!sc) return;
   if (a) {
-    const fix = () => { if (!a.isConnected) return; const d = a.getBoundingClientRect().top - (y0 + (top.offsetHeight || 0) - h0); /* 1019 她：吸顶区变高，卡片跟着往下让，不被盖住 */ if (Math.abs(d) >= 0.5) sc.scrollTop = Math.max(0, sc.scrollTop + d); };
+    const fix = () => { if (!a.isConnected) return; const d = a.getBoundingClientRect().top - (y0 + (top.offsetHeight || 0) - h0); /* 1019 作者：吸顶区变高，卡片跟着往下让，不被盖住 */ if (Math.abs(d) >= 0.5) sc.scrollTop = Math.max(0, sc.scrollTop + d); };
     fix(); requestAnimationFrame(fix);
   } else {
     const d = (top.offsetHeight || 0) - h0;
@@ -2030,7 +2030,7 @@ async function indexAction(method, btn, busyText, ...args) {
   catch (e) { LB.say((busyText || '').replace(/^正在|…$/g, '') + '没成：' + (e?.message || e), { kind: 'error' }); return null; }
   finally { done(); }
 }
-// 插件那头的结果（{ok, message}）：说一句，成功了马上换上新的索引数据（文件监听也会来，但别让她等 300ms）
+// 插件那头的结果（{ok, message}）：说一句，成功了马上换上新的索引数据（文件监听也会来，但别让用户等 300ms）
 async function indexDone(r, okText = '好了') {
   if (!r) return false;
   LB.say(r.message || (r.ok ? okText : '没成'), { kind: r.ok ? 'ok' : 'error' });
@@ -2048,7 +2048,7 @@ function classifyStatus() {
   const c = idx?.classify; if (!c) return null;
   if (c.running) return { text: `AI 正在按内容归类${c.running.total ? ` ${c.running.done || 0}/${c.running.total}` : ''}…（归好的会陆续出来）` };
   if (!c.ai_ok) return { text: `没配文本 AI：先按名字和标签找（${c.why || '设置里没配'}）` };
-  // 1031 她「不要出现这么多东西」：临时失败（超时）下次自己再跑，不挂警告；连着没成两次才说，原因写成看得见的字
+  // 1031 作者「不要出现这么多东西」：临时失败（超时）下次自己再跑，不挂警告；连着没成两次才说，原因写成看得见的字
   if (c.error && c.work && Number(c.error.streak || 1) >= 2) return { text: `按内容归类连着 ${c.error.streak} 次没成：${c.error.error || c.error.code || ''}`, warn: true, action: '重试' };
   if (c.blocked) return { text: c.blocked.why, action: '按内容归类' };
   if (c.work) return { text: (c.pending ? `还有 ${c.pending} 篇没按内容归` : '有新改的分类还没核对') + money(c.yuan), action: '按内容归类' };
@@ -2059,7 +2059,7 @@ async function runClassify(btn) {
   const r = await indexAction('indexClassify', btn, '正在按内容归类…', { onProgress: ev => { try { btn.setText?.(`正在按内容归类 ${ev.done}/${ev.total}…`); } catch {} } });
   await indexDone(r, '按内容归好了');
 }
-// 1031 她（「索引编辑不好用」→「打标全自动，之后再手动调整；有新增就默认放入；懒人，不要出现这么多东西」）：
+// 1031 用户（「索引编辑不好用」→「打标全自动，之后再手动调整；有新增就默认放入；懒人，不要出现这么多东西」）：
 //   顶条只剩一行：整理分类 · 已归类 x / y · 未归类 · （在跑 / 连着没成两次 / 要花钱才出的）状态 · AI 新建了哪几个 · 右边「⋯ 更多」「完成」；
 //   树上能做什么照旧写在树下面那行小字里。建议新增 / 草稿 / 写法提醒 / 说明行都收进「⋯ 更多」（够 10 篇的建议后端已经自动写进 索引.md）
 function renderIndexBar() {
@@ -2094,12 +2094,12 @@ function renderIndexBar() {
   panelButton(tools, '完成', () => pickView('grid'), 'lbi-link is-strong lbi-exit');
   if (idx.drafting) ibar.createEl('p', { cls: 'lbi-hint', text: 'AI 正在起草一版新的分类树…（好了在「⋯ 更多」里看，不会改你的 索引.md）' });
 }
-// 「⋯ 更多」：不常用的都在这里（她要的时候才看得到）
+// 「⋯ 更多」：不常用的都在这里（用户要的时候才看得到）
 function openIndexMore(e, btn) {
   const file = idx.file || '索引.md';
   const props = Array.isArray(idx.proposals) ? idx.proposals : [];
   const unc = idx.unclassified?.count || 0;
-  const warns = (idx.warnings || []).filter(w => w && w.text && w.level !== 'info');   // 1015：第 4 级并进第 3 级（info）是她要的写法，不算
+  const warns = (idx.warnings || []).filter(w => w && w.text && w.level !== 'info');   // 1015：第 4 级并进第 3 级（info）是用户要的写法，不算
   const notes = (idx.comments || []).filter(c => c && c.line && !c.placeholder);
   const d = idx.draft?.exists ? idx.draft : null;
   const items = [{ title: `打开 ${file}`, onClick: () => openVaultFile(file) }];
@@ -2181,7 +2181,7 @@ function treeRow(box, n, depth, { cls = '', kids = null } = {}) {
       panelButton(acts, '留', b => keepOrDropEmpty(n, 'keep', b), 'lbi-link lbi-empty-keep');
     }
     if (n.wiki) wikiActs(acts, n);
-    // 1027b 她：索引里「不方便直接新增 / 编辑」——双击、右键之外，悬停就有「改名 / ＋子类」
+    // 1027b 作者：索引里「不方便直接新增 / 编辑」——双击、右键之外，悬停就有「改名 / ＋子类」
     if (editable) {
       panelButton(acts, '改名', () => startRename(row, n), 'lbi-link lbi-q-rename');
       panelButton(acts, '＋子类', () => startAdd(n.path, row), 'lbi-link lbi-q-add');
@@ -2220,7 +2220,7 @@ function startAdd(parent, afterRow) {
   inp.onblur = () => { if (!busy && !inp.value.trim()) end(); };
   try { inp.focus({ preventScroll: false }); } catch { inp.focus?.(); }
 }
-// ── 1015 大纲树（她裁定 D）：目录页直接改树——拖拽调层级 / 换顺序、双击改名、右键「改名 / 合并到… / 挪到…」；
+// ── 1015 大纲树（作者裁定 D）：目录页直接改树——拖拽调层级 / 换顺序、双击改名、右键「改名 / 合并到… / 挪到…」；
 //    Python（index edit）写回 索引.md：只动那几行、格式照旧、写前备份；每一步都能撤销 ──
 let dragPath = '', lastTreeDown = '';
 // 双击改名：第一下选中会重画树、页面还会滚到结果（行换了元素、甚至挪了位置），浏览器的 dblclick 到不了——
@@ -2460,7 +2460,7 @@ function paintCardFacets() {
     el.hidden = !text;
   }
 }
-// 右边网格上面一行：选中的是什么、几篇、她写的说明；建议新增 / AI 建的 / 空的分类在这里也能一键处理
+// 右边网格上面一行：选中的是什么、几篇、用户写的说明；建议新增 / AI 建的 / 空的分类在这里也能一键处理
 function renderIndexHead() {
   ihead.empty();
   const p = proposalOf(activeCat), n = idxByPath.get(activeCat);
@@ -2508,7 +2508,7 @@ function paintIndexSticky() {
   ipanel.style.top = Math.round(h - pad + 8) + 'px';
   ipanel.style.maxHeight = Math.max(220, (sc?.clientHeight || (typeof innerHeight === 'number' ? innerHeight : 800)) - h - 20) + 'px';
 }
-// ── 改归类（「移到… / 也放进… / 从这里拿掉」）：她手动改的存 index-overrides.json，永远压过 AI；能撤销 ──
+// ── 改归类（「移到… / 也放进… / 从这里拿掉」）：用户手动改的存 index-overrides.json，永远压过 AI；能撤销 ──
 async function reclassify(list, op, path) {
   if (!list.length) return;
   const p = await want('indexAssign'); if (!p) return;
@@ -2569,12 +2569,12 @@ function reclassItems(list) {
     { title: n ? `把${n}移到…` : '移到…（只放这一类）', onClick: async () => { const p = await pickNode(n ? `把${n}移到…` : `把《${(list[0].title || '').slice(0, 18)}》移到…`, { here: list.length === 1 ? (idx.assign?.[list[0].id] || [])[0] : '' }); if (p) reclassify(list, 'move', p); } },
     { title: n ? `把${n}也放进…` : '也放进…', onClick: async () => { const p = await pickNode(n ? `把${n}也放进…` : `《${(list[0].title || '').slice(0, 18)}》也放进…`); if (p) reclassify(list, 'add', p); } },
     inHere.length ? { title: `从「${here.name}」拿掉${inHere.length > 1 ? ` ${inHere.length} 篇` : ''}（只改分类，帖子还在）`, onClick: () => reclassify(inHere, 'remove', here.path) } : null,
-    // 10-11 细分标签 = 帖子的标签（她定：标签属于帖子）：打勾 = 这几篇都有；点一下加上 / 去掉（记成她改的，AI 压不过）；
+    // 10-11 细分标签 = 帖子的标签（作者定：标签属于帖子）：打勾 = 这几篇都有；点一下加上 / 去掉（记成用户改的，AI 压不过）；
     //   列的是这一类那一行的标签 + 这几篇自己身上的；最后一项起个新的
     ...(() => {
       const own = list.flatMap(x => idx.item_tags?.[x.id] || []);
       const names = [...new Set([...(here ? facetsOf(here.path).filter(f => !f.other).map(f => f.name) : []), ...own])].slice(0, 14);
-      // 1015 她：右键菜单太长（标签逐条列出）→ 收进一个「标签 ▸」二级菜单
+      // 1015 作者：右键菜单太长（标签逐条列出）→ 收进一个「标签 ▸」二级菜单
       const kids = names.map(name => {
         const all = list.every(x => (idx.item_tags?.[x.id] || []).includes(name));
         return { title: name, checked: all, onClick: () => setFacet(list, here?.path || '', all ? 'remove' : 'add', name) };
@@ -2622,7 +2622,7 @@ function openIndexEditor() {
   viewMode = 'grid'; indexView = true;
   renderCatBar({ reveal: true }); render(); scrollToResults();
 }
-// ── 1026 她（15:37「最近导入没法看更多，只有最新的几条」）：最近导入的完整列表——按导入时间新→旧，一页 50 条翻页；当前来源下全部，不受筛选影响 ──
+// ── 1026 用户（15:37「最近导入没法看更多，只有最新的几条」）：最近导入的完整列表——按导入时间新→旧，一页 50 条翻页；当前来源下全部，不受筛选影响 ──
 const RECENT_PAGE = 50;
 let recentKey = null;
 const recentBox = imain.createEl('div', { cls: 'lbc-recent' }); recentBox.hidden = true;
@@ -2662,7 +2662,7 @@ function renderRecent() {
   pager.createEl('span', { cls: 'lbc-rpage', text: `第 ${recentPage} / ${pages} 页` });
   const next = pager.createEl('button', { cls: 'lbc-wiki-btn', text: '下一页' }); next.type = 'button'; next.dataset.act = 'next'; next.disabled = recentPage >= pages; next.onclick = () => go(1);
 }
-// 10-03（她定）：Ctrl + 加号 / 减号、Ctrl + 鼠标滚轮调瀑布流列数，最少 2 列、最多 6 列（加号 / 往上滚 = 卡片变大、列变少）。
+// 10-03（作者定）：Ctrl + 加号 / 减号、Ctrl + 鼠标滚轮调瀑布流列数，最少 2 列、最多 6 列（加号 / 往上滚 = 卡片变大、列变少）。
 // 列数记在插件设置 catalogColumns（目录页和星标页同一个）；插件不在就记在页面状态。0 = 没调过，按页面宽度自动。
 const COLS_MIN = 2, COLS_MAX = 6;
 let cols = 0, colsTimer = null, hover = false, wheelAcc = 0, wheelAt = 0, roWidth = 0;
@@ -2698,7 +2698,7 @@ function setCols(next) {
 }
 // dir > 0：卡片变大（列少）；dir < 0：卡片变小（列多）
 function stepCols(dir) { return setCols(currentCols() + (dir > 0 ? -1 : 1)); }
-// 页面级快捷键只给「她正在看的那一页」（CM1：不再看鼠标停在哪）
+// 页面级快捷键只给「用户正在看的那一页」（CM1：不再看鼠标停在哪）
 const pageActive = () => LB.activeLeafHas(wrap);
 function onColsKey(e) {
   if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
@@ -2730,7 +2730,7 @@ LB.listen('ctrl-down', keyTarget, 'keydown', e => { if ((e.key === 'Control' || 
 LB.listen('ctrl-up', keyTarget, 'keyup', e => { if (e.key === 'Control' || e.key === 'Meta') wheelDetach(); }, { passive: true });
 LB.listen('ctrl-blur', keyTarget, 'blur', () => wheelDetach(), { passive: true });
 
-// ── 删除收藏（C3）：直接移到回收站（1019 她：不弹确认） → 只摘后端确认删掉的 ──
+// ── 删除收藏（C3）：直接移到回收站（1019 作者：不弹确认） → 只摘后端确认删掉的 ──
 let deleting = false;
 async function confirmDelete(list) {
   if (!list.length || deleting) return;
@@ -2835,7 +2835,7 @@ function openCardMenu(e, card, it, { row = false } = {}) {
 }
 
 // ── 收藏（C3：乐观更新 + busy，失败回滚；一次批量只起 1 个 Python 进程；CM3：写完 adopt，下次重跑 0 读） ──
-// 1015 她：收藏那一下星变黄、弹一下（只在点的那一刻，不在每次重画时）
+// 1015 作者：收藏那一下星变黄、弹一下（只在点的那一刻，不在每次重画时）
 function popStar(id, on = true) {
   const card = cardCache.get(id)?.el, st = card?.querySelector?.('.lbc-star');
   if (!st) return;
@@ -2909,7 +2909,7 @@ async function readSelections() {
   try { const doc = JSON.parse(await app.vault.adapter.read(lbPath(SELECTIONS))); return Array.isArray(doc?.selections) ? doc.selections.filter(r => r && typeof r.name === 'string') : []; }
   catch { return []; }
 }
-// 存一组：同名就合并（1019 她：abc 存过再存 bd = abcd，不覆盖、不弹窗）；每篇记加入时间（added），给 AI 看；写盘成功才提示（§1.5）
+// 存一组：同名就合并（1019 作者：abc 存过再存 bd = abcd，不覆盖、不弹窗）；每篇记加入时间（added），给 AI 看；写盘成功才提示（§1.5）
 async function storeSelection(name, list) {
   const rows = await readSelections();
   const now = new Date().toISOString();
@@ -2989,7 +2989,7 @@ function filterLabel() {
 function paintSub() {
   const r = lastRanked.key ? lastRanked : null;
   const filtered = !!(committed || todayOnly || todoOnly || starredPage || starOnly || mediaFilter || activeTag || activePlat || activeTopic || activeAlbum || activeCat || timeRange);
-  // 1011 她问「43 / 659 是什么」：43 = 当前筛选 / 搜索命中几篇，659 = 目录里一共几篇（库里所有对象：收藏同步进来的 + 分享 / 导入单篇的，
+  // 1011 用户问「43 / 659 是什么」：43 = 当前筛选 / 搜索命中几篇，659 = 目录里一共几篇（库里所有对象：收藏同步进来的 + 分享 / 导入单篇的，
   // 含后来取消收藏的；回收站里的不算）。和同步进度的「收藏已入库 A/T」不是一个数，悬停写明
   // 1023：默认只看「我的收藏」时，旁边带上全部几篇（问收藏页显示的是全部，两边对得上；ARCH-AUDIT §7）
   const allNote = !starredPage && allItems.length !== items.length ? ` · 全部 ${allItems.length}` : '';
@@ -3018,7 +3018,7 @@ function paintSub() {
 // ── 卡片（§5.5 按 id 复用；C10：签名里没有星标 / 选中，状态只改 class） ──
 const cardCache = new Map();
 let firstCover = null;
- // 1015 系列帖（她 H 节）：同一作者几篇标题共用一长串前缀 → 卡片上露后半截（「…第 3 集」），悬停看全名
+ // 1015 系列帖（用户 H 节）：同一作者几篇标题共用一长串前缀 → 卡片上露后半截（「…第 3 集」），悬停看全名
 let seriesFor = null, seriesCut = new Map();
 const SERIES_MIN = 8, SERIES_STRONG = /[】\]）)》｜|\-—–:：·•,，、]/;
 function seriesCuts() {
@@ -3139,7 +3139,7 @@ function getCard(row) {
 }
 function buildCard(it, fuzzy, low) {
   perfCounts.build++;
-  // 不设 aria-label：Obsidian 会把 aria-label 渲染成 hover 浮框（她不要那个「悬浮的点的字」）。
+  // 不设 aria-label：Obsidian 会把 aria-label 渲染成 hover 浮框（用户不要那个「悬浮的点的字」）。
   const card = document.createElement('article');
   card.className = 'lbc-card' + (fuzzy ? ' is-possible' : '');
   card.tabIndex = 0; card.setAttribute('role', 'link');
@@ -3347,7 +3347,7 @@ function planTops(plan, heights, g, offset = 0) {
   return tops;
 }
 function layoutInto(box, rows, n, { limit = rows.length, deferred = null } = {}) {
-  // 10-11：不再 box.empty() 再整批挂回（她：按 AI 建议刷新目录会闪一下）——列复用、卡片只在位置不对时挪，多余的摘掉
+  // 10-11：不再 box.empty() 再整批挂回（作者：按 AI 建议刷新目录会闪一下）——列复用、卡片只在位置不对时挪，多余的摘掉
   const W = gridWidth(), g = gapPx();
   const colW = n > 1 && W > 0 ? (W - g * (n - 1)) / n : (W || 230);
   box.style.setProperty('--lbc-gap', g + 'px');
@@ -3659,7 +3659,7 @@ function leftText(ms) {
 const bigWhen = (t, now = Date.now()) => t ? [sameDay(t, now) ? '今天' : mdOf(t), hmOf(t)] : null;
 const countToday = (pool, now = Date.now()) => { const d = ymd(new Date(now)); let n = 0; for (const it of pool) if (dayOf(it) === d) n++; return n; };
 
-// ── 1031 她：同步 / 概览 / Token 分平台（小红书 / B 站）──
+// ── 1031 作者：同步 / 概览 / Token 分平台（小红书 / B 站）──
 // 切换放在 SYNC 和 OVERVIEW 的小标题行右边，两处是同一个 sidePlat（点哪个都一起变）：这两块的内容随平台变，切换就挨着内容；
 // 模块能在「编排」里挪开、× 掉，只放 SYNC 一处的话 SYNC 被拿掉，概览就卡在某个平台切不回来。
 // Token 只有小红书有（B 站不调 AI、没有费用）：选 B 站时整块藏起来（编排时照常显示，好挪）。
@@ -3735,7 +3735,7 @@ function openFromSide(it, e, forceNew = false) {
   app.workspace.openLinkText(lbPath(it.note), '', newTab);
 }
 // RECENT：按入库时间 ts 新→旧；今天显示 HH:MM，否则 M/D；点行打开笔记（同一窗格，Ctrl 开新标签）
-// 1027b 她：不要「查看全部」——折起来是一行「最新 …」，点开往下就是列表，框高 = 「调整」里的条数（2 / 4 / 6 / 8）或拖出来的高度，
+// 1027b 作者：不要「查看全部」——折起来是一行「最新 …」，点开往下就是列表，框高 = 「调整」里的条数（2 / 4 / 6 / 8）或拖出来的高度，
 // 在框里往下滚接着出更早的（每次多画 RECENT_STEP 条，不一次铺 1000+ 行）
 const RECENT_STEP = 40;
 let recentShown = RECENT_STEP;
@@ -3744,7 +3744,7 @@ function paintRecent() {
   const all = items.filter(it => importedAt(it) > 0).sort((a, b) => importedAt(b) - importedAt(a));
   const list = all.slice(0, Math.max(modOpt('recent').count, recentShown));
   const when = it => { const t = importedAt(it); return sameDay(t, now) ? hmOf(t) : mdOf(t); };
-  // 1031 她「对齐怪」：折起来那一行就是列表第一行——同一套三列（时间 · 标题 · 分类），点开往下不挪位置
+  // 1031 作者「对齐怪」：折起来那一行就是列表第一行——同一套三列（时间 · 标题 · 分类），点开往下不挪位置
   const first = list[0], sumSig = first ? [when(first), first.title, catNameOf(first)].join('\u0001') : '';
   if (m.sumSig !== sumSig) {
     m.sumSig = sumSig; m.sum.empty(); m.sum.classList.toggle('lbc-rec-sum', !!first);
@@ -3830,7 +3830,7 @@ function paintSync() {
   }
   const topRow = b.createEl('div', { cls: 'lbc-sy-top' });
   // v = [前半, 斜体后半] / 字符串 / null（—）
-  // 1026 她（首页只留三件可点的同步信息）：上次同步 → 同步记录；下次同步 → 设置「收藏与同步」里那一个同步时间编辑（openSetupPage('schedule')，和向导同一处）
+  // 1026 用户（首页只留三件可点的同步信息）：上次同步 → 同步记录；下次同步 → 设置「收藏与同步」里那一个同步时间编辑（openSetupPage('schedule')，和向导同一处）
   const cell = (k, v, cls = '', click = null, tip = '') => {
     const c = topRow.createEl(click ? 'button' : 'div', { cls: cls + (click ? ' lbc-sy-cell' : '') });
     if (click) { c.type = 'button'; c.onclick = e => { e?.stopPropagation?.(); click(); }; if (tip) c.title = tip; }
@@ -3855,7 +3855,7 @@ function paintSync() {
     cap.createEl('span', { text: '' });
     cap.createEl('span', { text: !p ? '' : !schedule && !scheduleErr ? '正在读同步计划…' : next ? leftText(next - now) : '没有下次' });
   }
-  // 1027b 她：同步时间在这里就能改——点「每天 18:00 · 改」在块里展开同一个同步时间编辑器（schedule-ui，和设置页同一处），再点收起
+  // 1027b 作者：同步时间在这里就能改——点「每天 18:00 · 改」在块里展开同一个同步时间编辑器（schedule-ui，和设置页同一处），再点收起
   if (!running && (freq || p)) {
     const editable = !!p && !mobile;
     const f = b.createEl(editable ? 'button' : 'div', { cls: 'lbc-sy-freq' + (editable ? ' lbc-sy-edit' : '') });
@@ -3870,7 +3870,7 @@ function paintSync() {
   if (note) b.createEl('p', { cls: 'lbc-sy-note', text: note });
   const row = (k, v, cls = '') => { const r = b.createEl('div', { cls: 'lbc-sy-row' + (cls ? ' ' + cls : '') }); r.createEl('span', { text: k }); return r.createEl('b', { text: v }); };
   row('今日新增', `${nToday} 篇`);
-  // 1027b 她：「立即同步 / 查看同步记录」两个按钮藏掉（同步记录 = 点「上次同步」；立即同步在设置「收藏与同步」、命令面板里）
+  // 1027b 作者：「立即同步 / 查看同步记录」两个按钮藏掉（同步记录 = 点「上次同步」；立即同步在设置「收藏与同步」、命令面板里）
 }
 let syncEditOpen = false, syncEd = null;
 function syncEditor(b, p) {
@@ -3893,7 +3893,7 @@ async function openSyncSettings(btn) {
   void btn;
 }
 
-// SYNC · B 站那一面（1031 她）：B 站只有手动同步——上次同步时间 · 这次新下 / 失败 · 在跑时 n/m · 被打断时「停在第几条、为什么」·「去同步」
+// SYNC · B 站那一面（1031 作者）：B 站只有手动同步——上次同步时间 · 这次新下 / 失败 · 在跑时 n/m · 被打断时「停在第几条、为什么」·「去同步」
 // （设置②「收藏与同步」切到 B 站）。没有下次同步 / 定时，只写一句「手动同步」。数据只读 last-sync.json（refreshBili），不起 Python。
 const BILI_RUN_LABEL = '下载 B 站收藏';   // 和设置页 settings-v6 的 BILI_RUN_LABEL 是同一个字（状态栏那一条任务的名字）
 const BILI_CUT = '进程被结束了（关机 / 点了「停止」/ Obsidian 关掉），没来得及收尾';   // 同 sync.py INTERRUPTED_REASON
@@ -4030,7 +4030,7 @@ if (arrangeTray) wrap.insertBefore(arrangeTray, top);
 const afterEl = wrap.createEl('div', { cls: 'lbc-after' }); afterEl.hidden = true;
 board.after(afterEl);
 
-// ── 1027 编排（design-1027 §2，她批的结构和交互；外观仍是现在的黑白雕刻）：八个模块平级——
+// ── 1027 编排（design-1027 §2，作者批的结构和交互；外观仍是现在的黑白雕刻）：八个模块平级——
 //    标题 / Logo · 分类 · 筛选与搜索 · 最近导入 · 同步 · Token 费用 · 概览 · 收藏墙。
 // 布局 = 几排；一排 = 几列（宽度按 12 格，列宽是比例）；一列 = 从上到下几个模块。收藏墙所在的那一排是 .lbc-board（边栏列吸在页头下面、各自滚），
 // 它前面的几排进吸顶区 .lbc-top，后面的几排进 .lbc-after。任何模块都能拖到任何位置（叠在别的模块上下 / 放到它左右成新的一列），
@@ -4040,7 +4040,7 @@ board.after(afterEl);
 //   旧的 {side, top, sideRight, sideW, gap, density}（1022 / 1026）读的时候换算一次，下次保存写成新形状。
 // 标题文字、收藏墙列数、费用上限、分类、同步时间不在 catalogLayout 里：仍是各自唯一的来源（catalogTitle / catalogColumns / budget.dailyYuan / 索引.md / 计划任务）。
 // 手机 / 星标页 / 插件没开：照默认摆，只读（没有「编排」）。
-// 1028 她：「像搭积木一样」——页头拆成小块（标题 · 计数行 · 分类 · 范围 · AI 标签 · 类型 · 我的收藏 / Tag · 排序 · 视图 · 搜索 · 问收藏），宽度按 48 格，
+// 1028 作者：「像搭积木一样」——页头拆成小块（标题 · 计数行 · 分类 · 范围 · AI 标签 · 类型 · 我的收藏 / Tag · 排序 · 视图 · 搜索 · 问收藏），宽度按 48 格，
 //   页头 / 墙下面的每一排里每一块有自己的起点 x（可以留空、随便横着摆）；收藏墙那一排仍是几列铺满（边栏一列里的块始终一样宽）。
 const GRID = 48, MIN_W = 3;
 const MOD_IDS = ['title', 'meta', 'cats', 'scope', 'topics', 'types', 'albums', 'picks', 'sort', 'search', 'ask', 'recent', 'sync', 'token', 'overview', 'wall'];
@@ -4382,7 +4382,7 @@ function paintVisibility() {
   fitFreeGaps();
   for (const id of MOD_IDS) { const el = modEl(id); if (el) el.classList.toggle('is-core', CORE_MODS.has(id)); }
 }
-// 1031 她「两栏并排时页头那一行折成了 2 行，要 1 行放得下」：筛选那一排放不下时逐级收紧，每一级都重排一次看是否一行了——
+// 1031 作者「两栏并排时页头那一行折成了 2 行，要 1 行放得下」：筛选那一排放不下时逐级收紧，每一级都重排一次看是否一行了——
 //   1 = 块和块、标签和标签之间的空收小；2 = 范围标签后面的篇数不显示；3 = 筛选字小一号、搜索框最窄到 120px；
 //   4 = 再挤：「问收藏 / Wiki」的箭头不显示、筛选字再小一号、按钮内边距收小、搜索框最窄 100px、窄到不出边栏时边栏钮也不显示。
 //   每次从 0 级量起（变宽了会自己松回去）；同一宽度、同一排内容只量一次
@@ -4663,7 +4663,7 @@ function ensureBar(id) {
   };
   bar.createEl('span', { cls: 'lbc-mb-nm', text: MOD_NAMES[id] });
   bar.createEl('span', { cls: 'lbc-mb-sep' });
-  // 1027b 她：「调整样式不方便」——字号、字体直接在操作条上：A− / A+ 一下一档（85 / 100 / 115 / 130 / 150%），「字体 ▾」弹一张单子点一下就换；
+  // 1027b 作者：「调整样式不方便」——字号、字体直接在操作条上：A− / A+ 一下一档（85 / 100 / 115 / 130 / 150%），「字体 ▾」弹一张单子点一下就换；
   // 别的设置还在「调整」里（和这里是同一份 g.font / g.size，改哪边另一边跟着）
   let sm = null, lg = null;
   if (id !== 'wall') {
@@ -4684,7 +4684,7 @@ function ensureBar(id) {
   const x = bar.createEl('button', { text: '×' }); x.type = 'button'; x.dataset.act = 'remove';
   x.setAttribute('aria-label', `「${MOD_NAMES[id]}」放进备选`); x.title = '放进备选（编排条上点一下就回来）';
   x.onclick = e => { e?.stopPropagation?.(); setModHidden(id, true); };
-  // 1027b 她：拉着虚线边框就改大小——下边框调高（边栏四块），左 / 右边框调宽（和旁边一列并排时；吸附 1/12，和列间竖线同一套）
+  // 1027b 作者：拉着虚线边框就改大小——下边框调高（边栏四块），左 / 右边框调宽（和旁边一列并排时；吸附 1/12，和列间竖线同一套）
   const rx = document.createElement('button'); rx.type = 'button'; rx.className = 'lbc-m-rs lbc-m-rs-x'; rx.hidden = true;
   rx.addEventListener('pointerdown', e => { const at = colPos(id); if (!at) return; e.stopPropagation?.(); startEdgeDrag(e, at.ri, at.edge, rx, at.host); });
   rx.onkeydown = e => { const at = colPos(id); if (!at || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return; e.preventDefault?.(); if (resizeCols(at.ri, at.edge, e.key === 'ArrowLeft' ? -1 : 1)) { saveLayout(); relayoutSoon(); } };
@@ -4869,7 +4869,7 @@ function startModDrag(e, id, grip, { soft = false } = {}) {
 function onDragMove(e) {
   if (!drag) return;
   drag.x = e.clientX; drag.y = e.clientY;
-  if (!drag.moved && Math.hypot(drag.x - drag.x0, drag.y - drag.y0) < 6) return;   // 只是点了一下：不算拖（1028 她：「点一下 a，a 就跳到下面去了」）
+  if (!drag.moved && Math.hypot(drag.x - drag.x0, drag.y - drag.y0) < 6) return;   // 只是点了一下：不算拖（1028 作者：「点一下 a，a 就跳到下面去了」）
   if (!drag.moved) { drag.moved = true; modEl(drag.id)?.classList.add('is-dragging'); }
   // 拖到上下边缘：滚动容器跟着滚
   const sc = LB.scroller(); const vh = typeof innerHeight === 'number' ? innerHeight : 900;
@@ -5157,7 +5157,7 @@ async function loadUsage({ force = false } = {}) {
   paintToken();
 }
 const yuan = v => (v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) ? '¥' + Number(v).toFixed(2) : '—');
-// 1027b 她：费用能在块里直接切 天 / 周 / 月；周 = 近 7 天（usage summary 的 7d 窗口，和设置页「用量」同一口径）
+// 1027b 作者：费用能在块里直接切 天 / 周 / 月；周 = 近 7 天（usage summary 的 7d 窗口，和设置页「用量」同一口径）
 const TOKEN_PERIODS = [['day', '天', '今天（北京时间）'], ['week', '周', '近 7 天'], ['month', '月', '本月（人民币估算）']];
 function setTokenPeriod(v) {
   const g = modCfg('token'); if (!TOKEN_PERIODS.some(([k]) => k === v) || g.opt.period === v) return;
@@ -5175,7 +5175,7 @@ function setBudget(raw) {
 const CAP_CHOICES = [0, 1, 2, 3, 5, 10, 20, 50];
 function paintToken() {
   const m = mods.token; if (!m) return;
-  // 1031 她：B 站没有 token 费用（不调 AI）——侧栏选 B 站时整块藏起来（CSS .is-plat-off；编排时照常显示，好挪）
+  // 1031 作者：B 站没有 token 费用（不调 AI）——侧栏选 B 站时整块藏起来（CSS .is-plat-off；编排时照常显示，好挪）
   const off = curPlat() === 'bili'; m.sec.classList.toggle('is-plat-off', off);
   if (off) return;
   const p = provider(), period = TOKEN_PERIODS.some(([k]) => k === modOpt('token').period) ? modOpt('token').period : 'month';
@@ -5230,7 +5230,7 @@ function paintToken() {
   else if (usage?.budget?.over) b.createEl('p', { cls: 'lbc-sy-note', text: '今天到上限了：后台补跑先只用免费的，北京时间明天 0 点恢复。' });
 }
 
-// ── 存过的样式（1028 她：「存好了作为样式锁定。可以恢复默认 or 恢复样式 1（自己定名字）」）：插件设置 catalogStyles = [{name, layout}]、catalogStyleCur = 当前那个 ──
+// ── 存过的样式（1028 作者：「存好了作为样式锁定。可以恢复默认 or 恢复样式 1（自己定名字）」）：插件设置 catalogStyles = [{name, layout}]、catalogStyleCur = 当前那个 ──
 function stylesList() { const v = provider()?.settings?.catalogStyles; return Array.isArray(v) ? v.filter(x => x && typeof x.name === 'string' && x.name.trim()) : []; }
 const curStyleName = () => String(provider()?.settings?.catalogStyleCur || '');
 const sameLayout = L => JSON.stringify(parseLayout(L && typeof L === 'object' ? clone(L) : null)) === JSON.stringify(layout);

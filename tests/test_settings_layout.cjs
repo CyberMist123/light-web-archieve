@@ -1,7 +1,7 @@
 // 1027 设置页六组（design-1027/prototype.html「设置」第三版 + design.md §3；settings-v6.js）：一页滚完，左边锚点，
 //   ① 账号登录 ② 收藏与同步 ③ 目录与批注 ④ 高级功能 ⑤ CLI 与外接 MCP ⑥ 修复；每组常用的平铺，其余在组底「＋ 更多」（点开才画）；说明在 ⓘ 里；改了就存。
 // 守住以前的几条规矩（1009 / 1010 / 1015 / 1018 / 1026）：每个设置只出现在一处（比第 7 批的清单一项不少）；同步时间只有一个编辑器（设置页 · 首次设置 ·
-//   plugin.openSyncTime() 都落到它）；落点名照认；开关 / 下拉存失败拨回原值；从不删她的密钥引用、不改已经填好的地址（10-10 事故）。
+//   plugin.openSyncTime() 都落到它）；落点名照认；开关 / 下拉存失败拨回原值；从不删用户的密钥引用、不改已经填好的地址（10-10 事故）。
 // 1027 新加：同步时间改了自动存（没有「保存定时」）· 同步开关 · ④ 每项一个下拉对上双重门禁 · 「粘一把 key」换掉用不了的那家（以前只填空格子，换不掉）·
 //   首次设置和设置页是同一份值 · 没人读的键不再进默认值 · 「输入框提示字」那一行没了 · 精细识图模型改的是真正起作用的那一个。
 // 不起真进程（CONVENTIONS §7.5）：child_process 换成一碰就炸的桩，runPy / 账号卡片是替身，home-ui / remote-ui / onboarding-ui / schedule-ui / usage-ui 是真的。
@@ -279,7 +279,7 @@ async function inventory(p) {
   assert.deepEqual(env.p.accountOpts, { inCard: true });
   assert.ok(!acc.querySelector('.lb-twin-card.is-soon'), '1031：B 站不再是「以后支持」');
   const bili = acc.querySelector('.lb-twin-card[data-platform="bilibili"]');
-  // 1031 她「和小红书统一」：①只放登录；同步选项在②「B 站同步」；无水印默认、不出选项
+  // 1031 作者「和小红书统一」：①只放登录；同步选项在②「B 站同步」；无水印默认、不出选项
   assert.ok(bili.querySelector('.lb-bili-login') && !bili.querySelector('.lb-bili-opts'), '①的 B 站卡只有登录');
   const bsync = group(root, 'g-sync').querySelector('[data-section="sync-bili"]');
   assert.deepEqual(['画质', '超过多长先不下', '同时下几路', '保存弹幕'].filter(n => !rowNamed(bsync, n)), [], 'B 站同步选项在②');
@@ -288,7 +288,7 @@ async function inventory(p) {
   assert.ok(!/登错号|指定账号|目标账号/.test(acc.textContent), '没有「登错号」这回事');
   // ② 收藏与同步
   const sy = group(root, 'g-sync');
-  // 1031 她「小红书和 B 站会混淆」：顶上切换，默认小红书；切到 B 站只出 B 站的设置
+  // 1031 作者「小红书和 B 站会混淆」：顶上切换，默认小红书；切到 B 站只出 B 站的设置
   assert.deepEqual(sy.querySelectorAll('.lb-plat-tab').map(t => t.querySelector('.lb-plat-name').textContent + (t.classList.contains('is-on') ? '*' : '')), ['小红书*', 'B 站']);
   assert.match(sy.querySelector('.lb-plat-tab[data-platform="bilibili"]').textContent, /暂不支持实时同步/);
   assert.deepEqual(visibleRows(sy), ['收藏同步', '同步', '每天新收', '图片', '视频', '评论'], '同步关着：「同步时间」那一行收起来；B 站那页藏着');
@@ -332,7 +332,7 @@ async function inventory(p) {
   // ⑤ CLI 与外接 MCP
   const cn = group(root, 'g-connect');
   assert.deepEqual(cn.querySelectorAll('.lb-subhead').map(x => x.textContent), ['本机命令行', '让其他 AI 读收藏', '在 Telegram 里能做什么']);
-  // 1028 她：MCP 那组把 TG 实际能做的写出来（发链接入库 / 在 TG 里问收藏 / 批注 @ 它），说明露在外面不藏 ⓘ
+  // 1028 作者：MCP 那组把 TG 实际能做的写出来（发链接入库 / 在 TG 里问收藏 / 批注 @ 它），说明露在外面不藏 ⓘ
   assert.deepEqual(cn.querySelectorAll('.lb-tg-row').map(nameOf), ['发链接就入库', '在 TG 里问收藏', '批注里 @ 它']);
   assert.ok(cn.querySelectorAll('.lb-tg-row').every(r => descText(r).length > 10), 'TG 每行都有一句说明');
   assert.deepEqual(cn.querySelectorAll('.lb-twin-card strong').map(x => x.textContent), ['电脑端', '网页端']);
@@ -342,10 +342,10 @@ async function inventory(p) {
   assert.ok(!rowNamed(cn, '你的网址'), '网页端关着：网址、口令不出');
   assert.deepEqual(rowNamed(cn, '命令行程序').querySelector('select').querySelectorAll('option').map(o => o.textContent), ['不用（用接口）', 'Codex', 'Claude Code', 'OpenCode']);
   assert.ok(rowNamed(cn, '开放收藏库').querySelector('.checkbox-container').checked, '收藏库默认开放');
-  assert.ok(!/访问令牌|端口/.test(visibleRows(cn).join()), '访问令牌、端口在「更多」里（10-10 她定）');
+  assert.ok(!/访问令牌|端口/.test(visibleRows(cn).join()), '访问令牌、端口在「更多」里（10-10 作者定）');
   // ⑥ 修复：当前状态 + 检查 / 全部修一遍；问题记录只有一个入口
   const rp = group(root, 'g-repair');
-  // 1027b 她：「一键装好」和「重新走首次设置」放最前面（这里没有 home-ui，一键装好那块不画）
+  // 1027b 作者：「一键装好」和「重新走首次设置」放最前面（这里没有 home-ui，一键装好那块不画）
   assert.deepEqual(visibleRows(rp), ['重新走一遍首次设置', '当前状态', '问题记录']);
   assert.deepEqual(rowNamed(rp, '当前状态').querySelectorAll('button').map(b => b.textContent), ['检查', '全部修一遍']);
   assert.equal(descText(rowNamed(rp, '当前状态')), '⚠ 1 件要你处理', '1027b：只说要你动手的，自动处理 / 已放弃不提');
@@ -433,7 +433,7 @@ async function inventory(p) {
     const DETECT = REPLIES['keys detect'];
     REPLIES['keys detect'] = { ...DETECT, slots: ['summaryAI.fallback', 'visionAI.refine'] };
     e.p.v6Cache = {};
-    // 修之前的路（只填空格子）：一格都换不掉——这就是她点「换一个 key」没反应的原因
+    // 修之前的路（只填空格子）：一格都换不掉——这就是用户点「换一个 key」没反应的原因
     const was = JSON.stringify([e.p.settings.summaryAI, e.p.settings.visionAI]);
     await v6.addKey('sk-new-aliyun');
     assert.equal(JSON.stringify([e.p.settings.summaryAI, e.p.settings.visionAI]), was, '只填空格子：坏 key 那几格不动（旧 bug 的样子）');
@@ -549,7 +549,7 @@ async function inventory(p) {
     assert.equal(times().value, '04:00', '还没开定时：推荐值');
     times().value = '06:30'; times().oninput();
     await r.querySelectorAll('.lb-guide-nav button').find(b => b.textContent === '下一步').onclick(); await settle();
-    assert.deepEqual(saved.at(-1), [{ kind: 'daily', times: ['06:30'] }], '在这一步动过时间：「下一步」替她按这个时间打开');
+    assert.deepEqual(saved.at(-1), [{ kind: 'daily', times: ['06:30'] }], '在这一步动过时间：「下一步」替用户按这个时间打开');
     assert.equal(r.querySelector('.lb-card-title').textContent, '识别与问答');
     // 首次设置第 3 步和设置页④是同一批行（同一个值）：这里选的问答模型，设置页里就是它
     await pick(rowNamed(r, '问答模型'), 'Sonnet');
@@ -653,7 +653,7 @@ async function inventory(p) {
     t.hide();
   }
 
-  // —— 8. 没人读的键不再进默认值（她 data.json 里已有的照原样带着）——
+  // —— 8. 没人读的键不再进默认值（用户 data.json 里已有的照原样带着）——
   {
     const D = Plugin.__DEFAULTS;
     assert.equal(Object.keys(D.setup).join(), 'selected', 'setup.step / collapsed / passed 删了');
@@ -661,7 +661,7 @@ async function inventory(p) {
     assert.ok(!('expandTerms' in D.retrieval));
     assert.ok(!['model', 'endpoint', 'apiKey'].some(k => k in D.ocr));
     const kept = Plugin.__merge({ connect: { clients: ['chatgpt'] }, setup: { selected: ['core'], step: 3, passed: [1] } });
-    assert.equal(JSON.stringify(kept.connect), '{"clients":["chatgpt"]}', '她已有的不动');
+    assert.equal(JSON.stringify(kept.connect), '{"clients":["chatgpt"]}', '用户已有的不动');
     assert.equal(kept.setup.step, 3);
   }
 
@@ -715,7 +715,7 @@ async function inventory(p) {
     t.hide();
   }
 
-  // —— 11. 10-10 她的 data.json 事故：没有她明确操作，永不删密钥引用字段、不改已经填好的地址 ——
+  // —— 11. 10-10 用户的 data.json 事故：没有用户明确操作，永不删密钥引用字段、不改已经填好的地址 ——
   {
     const DEDICATED = 'https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions';
     const HERS = {

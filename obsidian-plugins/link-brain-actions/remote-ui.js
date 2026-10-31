@@ -1,8 +1,8 @@
-// 连接其他 AI（1009 她：连几个 MCP 要看好几个地方 → 一个模块；1010 她：设置页分栏，这是「连接其他 AI」一整栏）。
+// 连接其他 AI（1009 作者：连几个 MCP 要看好几个地方 → 一个模块；1010 作者：设置页分栏，这是「连接其他 AI」一整栏）。
 // main.js 只有几处接入：
 //   onload：this.remoteUI = require(<插件目录>/remote-ui.js)(obsidian, this); await this.remoteUI.attach();
 //   saveSettings：保存前 await this.remoteUI.beforeSave()（remote 段以磁盘为准，见下）
-//   设置页「连接其他 AI」：this.plugin.remoteUI?.renderConnect(c, redraw, tab)——远程访问的东西全在这一栏（1010 她：别拆两处）
+//   设置页「连接其他 AI」：this.plugin.remoteUI?.renderConnect(c, redraw, tab)——远程访问的东西全在这一栏（1010 作者：别拆两处）
 // 1027 设置页六组：⑤「CLI 与外接 MCP」里两张卡——电脑端（settings-v6.js 按 connect status 认出的应用，一个开关接上）· 网页端（这里的 part:'web'）：
 //   远程访问开没开、你的网址（紧挨着「还没有网址？」两条路）、连接地址、口令、ChatGPT / claude.ai 几步做法（只有 WEB_STEPS 这一份）、已经连上的；
 //   不支持口令的软件到⑤「更多」里生成访问令牌（renderAdvanced）。旧的「勾选软件」小片和 settings.connect.clients 删了。
@@ -259,7 +259,7 @@ module.exports = function remoteUI(obsidian, plugin) {
   }
 
   // 设置页⑤「更多」（1027；原「连接其他 AI」最下面的「高级」）：运行情况 · 端口 · 访问令牌（给不支持口令的软件）·
-  // 全部断开 · 后台服务 · 访问记录 · 测一下本机的连接程序。对新手只讲「口令」——令牌只在这里出现（10-10 她定）。
+  // 全部断开 · 后台服务 · 访问记录 · 测一下本机的连接程序。对新手只讲「口令」——令牌只在这里出现（10-10 作者定）。
   function renderAdvancedInto(container, tab = null) {
     if (!plugin.settings.remote) plugin.settings.remote = normalizeRemote(null);
     const box = container.createDiv({ cls: 'lb-remote-adv' });
@@ -344,7 +344,7 @@ module.exports = function remoteUI(obsidian, plugin) {
     // —— 设置页⑤「CLI 与外接 MCP → 让其他 AI 读收藏」（1027 六组）——
     // part：'web' = 「网页端」那张卡（远程访问开关 · 你的网址 · 连接地址 · 口令 · ChatGPT / claude.ai 几步 · 已经连上的）；
     //       'folders' = 开放给 AI 的文件夹（skipXhs：小红书收藏库那一个开关设置页自己常露，这里只画其他的 + 再开放一个）。
-    // toggleHost（'web'）：远程访问的开关画在卡片标题右边（她：开关在卡片上），状态一句在卡片里；关着时下面只有一句怎么用。
+    // toggleHost（'web'）：远程访问的开关画在卡片标题右边（作者：开关在卡片上），状态一句在卡片里；关着时下面只有一句怎么用。
     // 1027：旧的 'all' 整栏（勾选软件的小片 + 本机 Claude Code / Desktop 一键接上）删了——本机的在「电脑端」那张卡（connect status 认出的应用）。
     renderConnect(container, redrawAll, tab = null, { part = 'web', toggleHost = null, skipXhs = false } = {}) {
       if (!plugin.settings.remote) plugin.settings.remote = normalizeRemote(null);

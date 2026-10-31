@@ -33,7 +33,7 @@ class AttachmentNeedsHuman(AttachmentError):
 
 class AttachmentRestricted(AttachmentError):
     """1011：这篇在小红书网页版要验证才能看（读取组件 NOTE_RESTRICTED）——只是这一篇，不是号出事：不重试、不停整批，
-    记一条「网页版要验证」等她点「打开验证」（link_brain/restricted.py）。"""
+    记一条「网页版要验证」等用户点「打开验证」（link_brain/restricted.py）。"""
 
 
 class AttachmentServiceDown(AttachmentError):
@@ -351,7 +351,7 @@ def download_for_object(
 
     for att in attachments:
         if held_back:
-            # 1011：这篇在网页版要验证才能看——等她点「打开验证」，不再每晚开页（问题面板 / 卡片上已有一条，不再按附件另记）
+            # 1011：这篇在网页版要验证才能看——等用户点「打开验证」，不再每晚开页（问题面板 / 卡片上已有一条，不再按附件另记）
             known_rec = known.get(att.get("doc_id") or "") or {}
             if att.get("doc_id") and known_rec and (dest_dir / (known_rec.get("file") or "")).is_file():
                 results.append({**known_rec, "status": "already"})
@@ -429,7 +429,7 @@ def download_for_object(
         except (AttachmentError, subprocess.SubprocessError, OSError) as exc:
             results.append({"doc_id": doc_id, "status": "failed", "error": errtext(exc)})
             if isinstance(exc, AttachmentServiceDown):
-                # 1031 她「待补附件没自愈」：本机读取服务超时 / 重启不是这份附件的问题——不进 1/2/4/7 天跨夜退避，
+                # 1031 作者「待补附件没自愈」：本机读取服务超时 / 重启不是这份附件的问题——不进 1/2/4/7 天跨夜退避，
                 # 同一晚后面的「attachments --all」就会再试一次（以前被退避挡到第二天）
                 backoff[doc_id] = {"tries": 0, "local": True, "error": str(exc)[:120]}
                 continue
@@ -851,7 +851,7 @@ def _run(args, budget_left=None) -> int:
             print(backend.blocked_message(), file=sys.stderr)
             return EXIT_NEEDS_HUMAN
 
-    # 1031 她「补附件应该当天结束，马上补，而不是推迟重试」：这一轮没下好的，同一晚末尾再试一次（只一次、照时间预算），
+    # 1031 作者「补附件应该当天结束，马上补，而不是推迟重试」：这一轮没下好的，同一晚末尾再试一次（只一次、照时间预算），
     # 读取服务刚挂过就先歇一分钟等它起来；第二次还不行才按 1/2/4/7 天退避
     if retry_later and not deferred_objects:
         if service_down and _fits(budget_left, 60 + 60):
@@ -920,9 +920,9 @@ def _sync_index_status(source_key: str, source_id: str) -> None:
 
 GUEST_RETRY_DAYS = 7          # 游客读不到的：7 天内不再用游客看（交给收尾段），之后游客再试一次（口令可能换了）
 GUEST_LIMIT = 20
-GUEST_LIMIT_BACKLOG = 40      # 她 1008：积压期（没查清 >20 篇）游客段每晚上限提到 40
+GUEST_LIMIT_BACKLOG = 40      # 作者 1008：积压期（没查清 >20 篇）游客段每晚上限提到 40
 BACKLOG_THRESHOLD = 20
-TAIL_LIMIT = 5                # 她 1008：号正常的晚上收尾段每晚 ≤5 篇
+TAIL_LIMIT = 5                # 作者 1008：号正常的晚上收尾段每晚 ≤5 篇
 STATUS_NAME = "attachments-recheck-status.json"
 
 

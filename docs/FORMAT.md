@@ -112,9 +112,9 @@ D:\LIGHT WEB ARCHIEVE\vault\
 | `origin` | `tg` / `cmx` / `cc` / `cli` | 从哪个端进来的 |
 | `actor` | `human` / `ai:<name>` | 谁把它丢进来的 |
 | `ingest_kind` | `shared` / `favorite` | **第一次**怎么进来的（主动分享 / 收藏同步）；历史字段，不用来判断「现在是不是收藏」（见 `favorited_by`；ARCH-AUDIT 第 3 批起不再被重抓覆盖） |
-| `favorited_by` | `[{nickname, user_id, first_seen}]` / 缺省 | 0926 起：被哪些号收藏过（收藏同步 `favorites.tag_account` 写，重建 meta 时保留）。**「是不是我的收藏」以它为准**；1023 她定：多个号的收藏、网页导入都算我的收藏，TG 发来的算 Fable（`domain.collected_by`；1025 PR① 起 TG 发来的并进 `fable` 组、不再单独叫「聊天分享」，`domain.via` 记 `tg`） |
+| `favorited_by` | `[{nickname, user_id, first_seen}]` / 缺省 | 0926 起：被哪些号收藏过（收藏同步 `favorites.tag_account` 写，重建 meta 时保留）。**「是不是我的收藏」以它为准**；1023 作者定：多个号的收藏、网页导入都算我的收藏，TG 发来的算 Fable（`domain.collected_by`；1025 PR① 起 TG 发来的并进 `fable` 组、不再单独叫「聊天分享」，`domain.via` 记 `tg`） |
 | `space` | 缺省（= `knowledge`） | 1025 预留：以后加影音库时对象所在的空间；不写就是知识库，读的时候用 `domain.space_of` |
-| `visible_note_pinned` | `true` / 缺省 | 1001：`visible_note` 指的文件找不到时，按 frontmatter 的 `link_brain.item_id` 在可见目录（含子目录）找回她改过名 / 挪过位置的那份并沿用；此后重渲染不按标题挪回去 |
+| `visible_note_pinned` | `true` / 缺省 | 1001：`visible_note` 指的文件找不到时，按 frontmatter 的 `link_brain.item_id` 在可见目录（含子目录）找回用户改过名 / 挪过位置的那份并沿用；此后重渲染不按标题挪回去 |
 
 **字段归属（1025 第二波 PR①，`domain.FIELD_OWNER`，重抓 / 续读重建 meta 时按它合并，`domain.merge_meta`）：**
 
@@ -123,14 +123,14 @@ D:\LIGHT WEB ARCHIEVE\vault\
 | FETCH 抓取 | `schema_version` `item_id` `source` `source_id` `canonical_url` `input_url` `kind` `title` `author` `published_at` `last_checked_at` `current_version` `versions` `images_complete` `comments_complete` `tool_versions` | 取新值（`title` 抓回来是空时沿用旧的） |
 | ENTRY 入口 | `first_archived_at` `origin` `actor` `ingest_kind` `note` `project` `space` | 保留旧值（第一次怎么进来的） |
 | RENDER 渲染 | `visible_note` | 保留 |
-| OWNER 她本人 | `visible_note_pinned`（`relabel` 改 `origin` / `actor` / `project` 时改的是 ENTRY 的键，重抓同样保留） | 保留 |
+| OWNER 用户本人 | `visible_note_pinned`（`relabel` 改 `origin` / `actor` / `project` 时改的是 ENTRY 的键，重抓同样保留） | 保留 |
 | SYNC 收藏同步 | `favorited_by` | 保留 |
 | ATTACH 附件 | `attachments_status` | 首次取抓取值；之后不许从 `downloaded` 降回 `metadata_only`，别的变化照抓到的走 |
 
 目标：每个写 meta 的模块只许动自己那几个键，并在单篇锁里读改写（`storage.update_json`）。1025 已改到：ingest 重建、`favorites.tag_account`、`relabel`、`catch._set_project`；render / attachments 仍是整份写，PR⑥ 收。
 
 可见 md 的身份只认 frontmatter 里的 `link_brain.item_id`（YAML 写坏了退回正则找这一行）。
-她手写的属性 YAML 写坏时：单行 `键: 值` 解析不了的值原样当字符串留下；再解析不了就整段 frontmatter 原样保留、
+用户手写的属性 YAML 写坏时：单行 `键: 值` 解析不了的值原样当字符串留下；再解析不了就整段 frontmatter 原样保留、
 不改名，只在日志里记警告。
 
 ---
@@ -838,7 +838,7 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
 - 2026-10-02 第 2 批：`items[].cover_w / cover_h` 是封面原图宽高（取 manifest，拿不到为 null，目录页用来先占位）；
   `items[].starred / starred_at` 在 `note star` 时就地更新（不必等重建），目录页以它为准、不再逐篇读 notes.json。
 - 2026-10-08 批次 D：`items[].hashtags` = 原帖话题（source.json 的 `note.hashtags`，去掉开头 `#`，最多 30 个）；目录页「#x」筛选看 `tags ∪ hashtags`
-  （她改过的 frontmatter tags 可能删掉了某个原帖话题）。`note star <target...> [--off]` 一次接多个 id：
+  （用户改过的 frontmatter tags 可能删掉了某个原帖话题）。`note star <target...> [--off]` 一次接多个 id：
   `{ok, code, message, results:[{item_id, status, starred, starred_at, error}], count_ok, catalog_patched, catalog_stat?}`，
   catalog-data 整批只改一次；`catalog_stat = {mtime, size}` 是锁内写完那一刻的 stat（mtime = round(st_mtime_ns / 1e6)），只在真改了才给；
   只有一个 target 时额外带旧顶层键 `item_id / status / starred / starred_at`。全部 ok 退出码 0，否则 1。
@@ -852,7 +852,7 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
   `summary` 为模型摘要，检索权重低，不伪装成原文。`agent_md` 是 vault 相对路径。
 - 2026-10-15 第二批：`search_fields` 再分出三路（空的不写）——`comment_ocr` = 评论区图片的文字（资产名 `comment-<id>-<n>.*`，
   不再混在 `ocr` 里）；`screen` = 视频画面文字（以前拼在 `transcript` 尾巴上，`transcript` 现在只有口播稿）；
-  `highlights` = 她划的重点（可见笔记里的 `<mark>` / `==x==` + notes.json 的 `highlights`，一条一行，权重同批注）。
+  `highlights` = 用户划的重点（可见笔记里的 `<mark>` / `==x==` + notes.json 的 `highlights`，一条一行，权重同批注）。
   `comments` 仍只放评论原文（昵称不进检索，免得昵称当内容命中）；说话人由问收藏证据阶段按楼号另挂。语义索引同样分块（重建 embed 时补）。
 - `attachment_files` 逐条提供 `doc_id/name/downloaded/status/file/markdown/url`，文件和 Markdown
   路径为本机绝对路径（该索引仅用于本机 UI/CLI）；`attachment_missing` 是未落字节数。
@@ -907,7 +907,7 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
                                      //   标记去掉后再检索 / 作答，直接答不出目录；技能不是陈列型的换 wiki）时出现。markdown 照
                                      //   skills.BOARD_FORMAT 写（# 报告名 / > 一句 / ## 先看这几个 / ## 类别 / - **名字** · 网址 —— 帖里：…；借鉴：…[来源N]），
                                      //   网址只留材料里逐字出现的（ask.unseen_links，其余换「看原帖」）；问收藏页解析成陈列卡，解析不出 2 条就照普通 Markdown
- "suggest": "可补：在小红书搜「寿司醋」…",  // 库里没真命中时才有（她 1015 拍板：只给一行建议，不自动搜）
+ "suggest": "可补：在小红书搜「寿司醋」…",  // 库里没真命中时才有（作者 1015 拍板：只给一行建议，不自动搜）
  "expanded_from": "t…",              // 展开答才有：展开的是哪一答
  "mode_reason": "find-main | find-scatter | survey | ask | deep | precise | forced"}
 ```
@@ -920,10 +920,10 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
   来源类型：`body` 正文 · `ocr` 图片文字 · `comment_ocr` 评论区图片 · `comments` 评论区 · `transcript` 视频文字稿 ·
   `screen` 视频画面文字 · `attachments` 附件 · `notes` 批注 · `highlights` 划重点）、`date`；`excerpts[]` 的评论片段带
   `comment_labels`（楼号）和 `speakers`（「评论者：昵称（不是作者）」/「作者本人回复」）。目录条目另带 `hit`。
-- 档位规则（她 1015 拍板「多 → 目录；适中 / 要精准 → 直接答」）：深读或 `depth=precise` → direct；`survey` 真命中 ≥5 → toc；
+- 档位规则（作者 1015 拍板「多 → 目录；适中 / 要精准 → 直接答」）：深读或 `depth=precise` → direct；`survey` 真命中 ≥5 → toc；
   `find` 主角篇（标题 / 标签 / 概要就是它）1–3 篇 → direct，否则散在 ≥4 篇 → toc；`ask` 真命中 ≥8 → toc。
   留来源重答（`source_ids`）、手动保留（`pin_ids`）、展开都不出目录。
-  1017 阶段 1 改口径：`survey` 只在她明说要清单 / 目录（核心词里有「列出 / 清单 / 目录 / 盘点一下」）时才出目录，其余盘点题直接答。
+  1017 阶段 1 改口径：`survey` 只在用户明说要清单 / 目录（核心词里有「列出 / 清单 / 目录 / 盘点一下」）时才出目录，其余盘点题直接答。
 
 ### 问收藏响应 v2.1：判断＋导读、会话状态（2026-10-18）
 
@@ -954,7 +954,7 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
  "thought": "1 核心判断：…",            // 模型先写给自己看的 <想法> 块（不在 markdown 里；流式时也不显示；模型没写就没有这个键）
  "images": [{"n": 1, "image_no": 3, "asset": "_archive/…/image-003.webp"}],   // 回答里放的图（本地 markdown 里是 ![[…|360]]）
  "cached": false,                       // 撞到答案缓存（只记录，不再把上次结论注进提示词、不再挂「以前问过」那一行）
- "understanding": {"task": "…", "note": "研究笔记 100–200 字", "clues": ["她记得的线索"], "...": "旧字段照旧"},
+ "understanding": {"task": "…", "note": "研究笔记 100–200 字", "clues": ["用户记得的线索"], "...": "旧字段照旧"},
  "checks": {"defense": {"hits": 0, "allowed": 0, "over": false}, "copy": {"ratio": 0.12, "limit": 0.25, "over": false},
             "per_source": {"max_run": 1, "flagged": false}, "guide": {"present": true, "lines": 4, "cited": 4, "missing": [], "bad_locations": []},
             "...": "1017 的 alignment / absence / speaker / leak / padding / uncited 照旧"}}
@@ -1015,7 +1015,7 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
 
 - 轮次 `id`：页面按它缓存每一轮的 DOM、把答完的回答插回自己那条问题后面；同一文件内唯一。
 - 用户轮 `mode`：`ask`（照常检索）/ `follow`（绑上一轮留下的来源，`sources` = 条数）/ `reask`（按留下的重答）/ `scope`（问这篇，`scopeTitle` = 标题）/ `search`（旧版搜索轮）。
-- 回答轮失败：`failed: true` + `error: {kind: config|api|crash|timeout, code, detail}`，`content` 是页面给她看的一句人话；`retry` 是「重试」原样再问要带的参数（`{sourceIds}` / `{fresh: true}` / `{}`）。停止的：`failed: true, stopped: true`，`content` 末尾一行「> 已停止生成。」。旧版失败轮没有 `error`，照原文显示。
+- 回答轮失败：`failed: true` + `error: {kind: config|api|crash|timeout, code, detail}`，`content` 是页面给用户看的一句人话；`retry` 是「重试」原样再问要带的参数（`{sourceIds}` / `{fresh: true}` / `{}`）。停止的：`failed: true, stopped: true`，`content` 末尾一行「> 已停止生成。」。旧版失败轮没有 `error`，照原文显示。
 - `removed`：这一轮被 × 的来源 key（`id || note || title`）；`added`：从「其他相关」加入主要依据的 id。会话级 `excluded` / `pinned` 跨轮生效。
 - 历史目录 `_archive/chat-history/index.json`：`{"conversations": [{id, startedAt, updatedAt, title, turns}]}`，写前重读、按 id 合并。草稿不进文件（只在 `sessionStorage['lb:chat']`）。
 
@@ -1024,7 +1024,7 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
 ### 对象目录 `history/`（可见 md 的快照）
 - `_archive/<source>/<source_id>/history/visible-YYYYMMDD-HHMMSS[-n]-<reason>.txt`：整篇可见 md 的原文，原子写，每篇只留最近 20 份。
 - `reason` 词表：`restore`（恢复前）/ `undo`（撤销前）/ `render`（重渲染发现块外内容，先存一份）/ `heal`（夜里自愈前）。
-- 任何「整篇重写可见 md」的功能都先存快照。块外她手写的段落重渲染时一行一条搬进留言层（`id=moved-YYYYMMDDHHMMSS-n`，幂等）；机器碎片不搬，只在快照里留原样。
+- 任何「整篇重写可见 md」的功能都先存快照。块外用户手写的段落重渲染时一行一条搬进留言层（`id=moved-YYYYMMDDHHMMSS-n`，幂等）；机器碎片不搬，只在快照里留原样。
 
 ### `restore [<item_id>] [--path <收藏库相对路径>] [--undo [--snapshot NAME]] [--list] [--scan [--report]] [--dry-run] --json`
 - 恢复：`{ok, code, message, item_id, path, snapshot, issues_before, kept}`；失败 `code=PERMANENT.NOTE_DAMAGED`，文件不动。
@@ -1060,13 +1060,13 @@ LINK_BRAIN_ALERT_CMD="python C:\...\lwa-alert.py"
   `stuck_reason`（连着 3 次没进展：不再自动续，问题记录 `comments.fill` + `PERMANENT.COMMENTS_INCOMPLETE`）· `done_at` · `history[]`（最近 8 次）·
   `legacy_released`（1011：以前因「not found in noteDetailMap」放弃的，补评论开跑时本地解开过一次的时刻，见 restricted.release_legacy_fill_stuck）
   · `floors_done = 100000`（1026：一级评论翻到底过——之后按楼数上限的浅续读不再把存档记回没读全）· `end_at` 翻到底的时刻 ·
-  `full_at` / `full {floors, replies, declared_total, reached_end, missing, gap_floors}` 她手动「抓全部评论」的时刻和那次结果（评论区顶上照它写）· `last_error` 上次没成的原因。
+  `full_at` / `full {floors, replies, declared_total, reached_end, missing, gap_floors}` 用户手动「抓全部评论」的时刻和那次结果（评论区顶上照它写）· `last_error` 上次没成的原因。
 - `capture.comment_load.last_read`（1026）：上一版已翻到底、这次只读了前几楼时，这次读的样子（`floor_limit / floors_loaded / has_more / stop_reason`）记在这里，`has_more / stop_reason` 留「到底了」。
 - 对象级 `derived/restricted.json`（1011，可变；网页版要验证才给看的笔记，`link_brain/restricted.py`）：`restricted` 现在是不是标着 ·
   `since` / `last_at` / `count` · `via[]`（comments.fill / comments / attachments：哪一步撞见的）· `detail` · `title` ·
   `search {on: 日期, at, result: running|found|not_found|same_token|no_title|error, error?}`（用标题搜新口令；每篇每天最多一次，先记再搜）·
   `token` / `token_at`（搜到的 / 验证窗口里拿到的新口令，之后补评论 / 下附件优先用它）· `verify {at, result, text}`（上次「打开验证」的结论）·
-  `verified_at`（她过了验证；补评论按它也隔 45 分钟再开这篇）· `recapture {queued_at, comments, attachments}` · `cleared_at` / `cleared_why`。
+  `verified_at`（用户过了验证；补评论按它也隔 45 分钟再开这篇）· `recapture {queued_at, comments, attachments}` · `cleared_at` / `cleared_why`。
   标着的笔记：后台补评论（`survey().restricted`）、附件补下（结果 `status=restricted`，不进跨夜退避、不报「附件没下好」）、碰号的附件补查都跳过；
   问题记录 `note.restricted` + `PERMANENT.NOTE_RESTRICTED`（一篇一条）；卡片角标同码。`note-verify <item_id> [--wait]` →
   `{ok, code, message, item_id, mode: note|hold|unsupported, result: note_ok|note_not_seen|still_risk|not_logged_in|not_read|window_failed|opened, requeued?}`。
@@ -1170,7 +1170,7 @@ MCP（`mcp_tools.py`，本机 stdio 与远程同一份，只读）：`index`（�
 `guide`（`docs/deep-report.md` 全文）。`index` / `wiki` 要收藏库开放给这个客户端（`@xhs`），`guide` 不限。
 
 
-## 2026-10-11 索引树按内容归类（`link_brain/indexai.py`）+ 解析器认她的真写法
+## 2026-10-11 索引树按内容归类（`link_brain/indexai.py`）+ 解析器认用户的真写法
 
 **写法加的几条**（`indextree.parse`，旧写法全部照旧）：
 - 括号（`（）` `()` `【】` `［］`，`【wiki】` 除外）里的话 = 节点的**说明**（`desc`），给 AI 归类看、页面上显示；不参与「、」「，」拆节点，里面的冒号也不算写法。
@@ -1179,10 +1179,10 @@ MCP（`mcp_tools.py`，本机 stdio 与远程同一份，只读）：`index`（�
   有句号 / 问号 / 叹号；超过 40 个字；冒号后面（或没冒号的整行按 `,，、;；` 拆开）有一段 ≥5 字、含中文、带「可以 / 最多 / 不属于 / 放这 / 指向 / 如果 / 需要…」这类词；
   树写完以后（主树 = 节点行最多的那一块，按空行分块）比第一级还靠左的零散行。
 - **最多 3 级**：第 4 级往下的名字（和标签）并进第 3 级当关键词（`hints`，规则匹配和 AI 都用），warnings 里说一句。
-- 新建第一级节点插在**最后一个大类整棵子树的后面**（不再追加到文件尾，免得插到她末尾的说明下面）。
+- 新建第一级节点插在**最后一个大类整棵子树的后面**（不再追加到文件尾，免得插到用户末尾的说明下面）。
 
-**归类三层**（`classify(parsed, items, ai=, overrides=)`，后面的压过前面的）：①她写了标签的节点按标签收（永远算）；只写名字的按名字找标签 / 标题——
-**只对还没有 AI 结果的篇**；②AI 按内容（`index-ai.json` 的缓存）；③她手动改的（`index-overrides.json`）。
+**归类三层**（`classify(parsed, items, ai=, overrides=)`，后面的压过前面的）：①用户写了标签的节点按标签收（永远算）；只写名字的按名字找标签 / 标题——
+**只对还没有 AI 结果的篇**；②AI 按内容（`index-ai.json` 的缓存）；③用户手动改的（`index-overrides.json`）。
 
 ```jsonc
 // _archive/index-ai.json（indexai 写；锁 index-ai）
@@ -1193,14 +1193,14 @@ MCP（`mcp_tools.py`，本机 stdio 与远程同一份，只读）：`index`（�
  "leftover": {"hash": "<未归类集合>", "groups": [{"name": "澳洲超市好物", "parent": "", "items": ["xhs-…"]}], "at": "…"},
  "spent": {"calls": 46, "tokens_in": 131022, "tokens_out": 18208, "yuan": 0.41}, "runs": [/* 最近 20 次 */],
  "blocked": {"why": "…超过自动上限 ¥3"} | 无, "last_error": {"code", "error", "at"} | 无}
-// _archive/index-overrides.json（她手动改的；锁 index-overrides）
+// _archive/index-overrides.json（用户手动改的；锁 index-overrides）
 {"version": 1, "items": {"xhs-…": {"only": ["AI/ai功能/游戏"]} | {"add": [...], "remove": [...]}},
  "keep_empty": ["工程/工程管理"], "dismissed": ["<建议 id>"], "history": [{"id": "<撤销号>", "prev": {...}}]}
 ```
 - 不重复花钱：笔记签名没变、节点签名没变就不再问。新笔记 / 内容变了的整篇重判；新加 / 改了说明的节点只问「这批笔记里哪些属于它」（60 篇一批）；
   删掉的节点从缓存里拿掉，拿光了的那篇整篇重判；节点直接挂的篇数比上次细分时多了 3 篇以上才重新细分；未归类集合变了才重新分组。
 - 细分（`split`）：第 1–2 级、名字不是「综合 / 其他」的节点，直接挂着 ≥6 篇 → 问有没有 ≥3 篇的具体主题；`open` 的节点 → 直接挂成 **virtual** 子类
-  （最多 6 个，节点行 `virtual: true, proposal: <id>, line: 0`，篇目从父节点挪进来；她「保留」才写进 索引.md），别的节点 →「建议新增」。
+  （最多 6 个，节点行 `virtual: true, proposal: <id>, line: 0`，篇目从父节点挪进来；用户「保留」才写进 索引.md），别的节点 →「建议新增」。
 - 放不进的（`leftover`）：一起分组起名、写清放在树的哪里（位置对不上树就放第一级）。
 - 模型输出不可信：路径必须对得上树里的节点（整条路径 / 唯一末级名字），每篇最多 3 个，名字清洗，层级不超过 3，「其他 / 综合」不建。
 - 用哪个模型（`indexai.classifier_ai`）：问收藏的文本 AI，没 key 再用归档摘要模型（10-11 真库对照：千问 flash 关思考常把菜谱归进「家居好物」，质量第一）。
@@ -1226,8 +1226,8 @@ CLI（`read.outcome` 形状；退出码 0 成功 / 1 失败 / 2 参数不对或�
 
 ## 2026-10-11（二）细分标签（标签属于帖子）与原地更新
 
-她定（看过 Obsidian 之后）：**标签属于帖子**——一篇有哪些标签是事实；**树的节点只来自 `索引.md`**（加上她点过「加进索引」的建议），最多 3 级，
-只是把标签排成几级、从不改哪篇有哪个标签。10-11 上午那版「她写了 `...` 的节点下 AI 直接建子类（virtual）」撤掉；写了 `...` 的节点不再做「建议新增」细分。
+作者定（看过 Obsidian 之后）：**标签属于帖子**——一篇有哪些标签是事实；**树的节点只来自 `索引.md`**（加上用户点过「加进索引」的建议），最多 3 级，
+只是把标签排成几级、从不改哪篇有哪个标签。10-11 上午那版「用户写了 `...` 的节点下 AI 直接建子类（virtual）」撤掉；写了 `...` 的节点不再做「建议新增」细分。
 数据结构按「以后树的节点 = 一个标签查询」留好：每篇的标签全库一份，节点那一行只是查询结果。
 
 ```jsonc
@@ -1237,7 +1237,7 @@ CLI（`read.outcome` 形状；退出码 0 成功 / 1 失败 / 2 参数不对或�
  "posts": {"xhs-…": {"sig": "<标题 + 标签 + 概要的签名>", "ai": ["空气炸锅", "牛排"], "human_add": ["东北菜"], "human_remove": ["快手菜"],
                      "at": "…", "model": "qwen3.7-flash" | "tags"}},
  "merged_names": [...]}                                                // 已经和词表对过同义的名字（只给新名字花钱）
-// 一篇最后的标签 = ai + human_add − human_remove（她的永远赢）
+// 一篇最后的标签 = ai + human_add − human_remove（用户的永远赢）
 // _archive/post-tags-history.jsonl：一行一次改动，只追加——{"id", "ts", "who": "ai|human", "item", "before": [...], "after": [...], "op"?: "add|remove|merge|restore", "tag"?, "from"?}
 // index-data.json：nodes[].facets = 这个节点的帖子身上出现的标签 [{"name", "count", "items"}]（≥2 篇、篇多的前 12 个，不列和节点 / 子类 / 第 4 级关键词同名的）；
 //                  item_tags = {"xhs-…": [最后的标签]}（卡片小字、「归类…」打勾用）
@@ -1246,13 +1246,13 @@ CLI（`read.outcome` 形状；退出码 0 成功 / 1 失败 / 2 参数不对或�
   新收的 / 内容变了的才打（入库后的后台归类顺手就打了）；模型漏掉的那篇先用它自带的标签，不反复花钱。用**归档摘要模型**（便宜），没 key 用文本 AI，都没有 = 自带标签。
 - 同义合并：每次打完，把新名字和篇数多的老名字一起给**文本 AI**（更稳）看，只并完全同义的；程序再核一道（得有共同汉字或 3 个以上相同字母），
   一组最多并 5 个；`docs/tag-vocab.yaml` 的别名也算。帖子上的旧名字跟着换成规范名，每篇记一行 `op=merge`。
-- 她手动：`index facet --item X [--item Y] --path <节点，可空> --op add|remove --name <标签>` = 改这几篇的标签（`who=human`）→ `{undo: "t:<历史 id>"}`；
+- 用户手动：`index facet --item X [--item Y] --path <节点，可空> --op add|remove --name <标签>` = 改这几篇的标签（`who=human`）→ `{undo: "t:<历史 id>"}`；
   撤销 = `index assign --op undo --path t:<id>`；任何一行历史都能按 `posttags.restore(<id>)` 恢复成那一步之前（恢复本身也记一行）。
 - 估价 / 后台拉起同归类（`classify.work` 含要打标签的篇数，`tag_pending`）；用量里 `facet_usage` 单列打标签那个模型。
 
 页面（目录页「索引」）：选中节点时网格上面一行「细分」chips（数字 = 和已选的同时有的篇数），多选 = 同时有（越选越窄），「清除」回到这一类全部；
 卡片上一行淡字 = 这篇帖子的标签（这一行里有的排前面）；「归类…」菜单里列这一类那一行的标签 + 这几篇自己的标签（打勾 = 都有，点一下加 / 去掉）+「加一个标签…」。
-**原地更新**（她：按 AI 建议刷新目录会闪一下）：`index-data.json` 内容没变（同一次改动的第二个通知）什么都不做；选中这一类的篇目和已选细分标签没变 →
+**原地更新**（作者：按 AI 建议刷新目录会闪一下）：`index-data.json` 内容没变（同一次改动的第二个通知）什么都不做；选中这一类的篇目和已选细分标签没变 →
 结果集的键不变，网格不重摆；变了 → 列复用、卡片只在位置不对时挪（不再整批摘下再挂回）；树的形状没变只改数字（行元素不换、左栏滚动不动），
 形状变了重画也还原左栏滚动；上面一行按内容变了才重画。
 
@@ -1381,7 +1381,7 @@ vault/
    │     ├─ cover-001.jpg                                ← 封面（role video_cover）
    │     ├─ subtitle.<lang>.srt                          ← 站点字幕，一种语言一个文件（role subtitle，index 从 1 起）
    │     └─ danmaku.xml                                  ← 弹幕原始 XML（role danmaku）
-   ├─ notes.json                                        ← 批注 / ⭐（用户数据，可变）；带 video_t 的批注 = 她自己的弹幕（见下「B 站弹幕」）
+   ├─ notes.json                                        ← 批注 / ⭐（用户数据，可变）；带 video_t 的批注 = 用户自己的弹幕（见下「B 站弹幕」）
    └─ derived/
       ├─ transcript.json                                 ← 站点字幕的纯文字：{status: ok|no_subtitle, engine: "bilibili-cc", text, lang, file}
       └─ agent.md                                        ← 现有渲染；字幕文字进「## 视频文字稿」，目录检索走 search_fields.transcript
@@ -1399,11 +1399,11 @@ manifest 的 B 站条目（§4 字段之外）：`video` 带 `duration_sec / wid
 
 `derived/transcript.json` 的 `status` 多一个值 `no_subtitle`（`videos.DONE_STATUSES`）：B 站来源无站点字幕，本轮不对它起 ASR；画面文字（本地 OCR）照现有规则。
 
-### 2026-10-31 B 站弹幕：她自己的弹幕 = 带视频时间的批注（`notes.json` 的 `video_t`）
+### 2026-10-31 B 站弹幕：用户自己的弹幕 = 带视频时间的批注（`notes.json` 的 `video_t`）
 
 笔记页 B 站视频的弹幕层（插件 `danmaku.js`，media-nav 挂）播两样：「当前版本 manifest 里 role `danmaku` 的 XML」（原弹幕，只读），
-和这篇 `_archive/bilibili/<BV号>/notes.json` 里**带 `video_t` 的批注**（她自己的弹幕，白色滚动、带细框）。**只存本机、绝不发到 B 站**。
-1031 第二轮她定「弹幕直接复用批注」：没有另一套存储，写弹幕 = 在批注框里写批注（B 站视频笔记的批注框下面多一个「记在当前时间」的勾，默认勾着，
+和这篇 `_archive/bilibili/<BV号>/notes.json` 里**带 `video_t` 的批注**（用户自己的弹幕，白色滚动、带细框）。**只存本机、绝不发到 B 站**。
+1031 第二轮作者定「弹幕直接复用批注」：没有另一套存储，写弹幕 = 在批注框里写批注（B 站视频笔记的批注框下面多一个「记在当前时间」的勾，默认勾着，
 勾的状态记在本机 `localStorage['lb:annot-vt']`）。写盘就是批注原来那套（`annotate-view.js` 的 persist：先读磁盘、按条合并、删除墓碑、读坏了另存
 `.corrupt` 暂停保存）；Python 侧仍是 `note.load_notes / save_notes`。
 
@@ -1414,7 +1414,7 @@ manifest 的 B 站条目（§4 字段之外）：`video` 带 `duration_sec / wid
   "starred": false,
   "annotations": [
     { "id": "a…", "ts": "2026-10-31T06:35:12.000Z", "text": "批注原文（可多行）", "to_fable": false, "author": "",
-      "video_t": 12.346 },                       // 可选：视频第几秒（≥0 的数，3 位小数）。有 = 这条也是她的弹幕；没有 = 普通批注，不播
+      "video_t": 12.346 },                       // 可选：视频第几秒（≥0 的数，3 位小数）。有 = 这条也是用户的弹幕；没有 = 普通批注，不播
     { "id": "adm-m1", "ts": "…", "text": "…", "to_fable": false, "video_t": 0, "migrated_from": "danmaku-mine" }   // 迁移来的（见下）
   ],
   "deleted": ["…"],                              // 删除墓碑（按 id；老条目按 "ts:<ts>|<text>"），删掉的不播
@@ -1447,7 +1447,7 @@ manifest 的 B 站条目（§4 字段之外）：`video` 带 `duration_sec / wid
 
 ## 2026-10-29 个人 Wiki `vault/PersonalWiki/`（第一批后端，`link_brain/personal_wiki.py`）
 
-她自己写的知识页，和「问收藏」平级的独立页面背后的存储（页面脚本还没接，下一批）。**只有 `personal_wiki.py` 写这个目录**（文件锁 `personal-wiki`，原子写走 `storage.*`）。
+用户自己写的知识页，和「问收藏」平级的独立页面背后的存储（页面脚本还没接，下一批）。**只有 `personal_wiki.py` 写这个目录**（文件锁 `personal-wiki`，原子写走 `storage.*`）。
 
 - 一页 = `PersonalWiki/<标题>.md`（标题里的 `\ / : * ? " < > | # ^ [ ]` 换成 `-`，重名加 ` (2)`）。正文是唯一主副本，Obsidian 里照常打开 / 改。
   文件头（Obsidian 按 YAML 读，所以字符串需要时加 JSON 引号、列表写成 JSON 数组）：
@@ -1464,7 +1464,7 @@ manifest 的 B 站条目（§4 字段之外）：`video` 带 `duration_sec / wid
   updated: 2026-10-29T10:05:00+08:00
   ---
   ```
-  其它属性（她在 Obsidian 里加的）原样保留。页面属于哪个文件夹 = 带哪个文件夹的 `index_tag`（可以同时属于几个）。
+  其它属性（用户在 Obsidian 里加的）原样保留。页面属于哪个文件夹 = 带哪个文件夹的 `index_tag`（可以同时属于几个）。
 - 正文里的约定：收藏引用 `[标题](lwa:<item_id>)`；`#标签`（代码块里的不算、纯数字不算）；`- [ ] 待办`；` ```pages ` 自动列表（`folder:` / `tag:`，渲染时现算，不写回正文）。`[[页面]]` 照认，界面不提示。
 - 历史 `PersonalWiki/.history/<id>/`：每版一份整页快照 `<时间>-<kind>.md` + `log.json`（`{schema, id, versions:[{ver, file, ts, at, kind, note, hash}]}`）。
   kind：`create / auto / manual / restore / external / import / ai / rename`。连着打字 2 分钟内的 `auto` 合成一条；文件和最后一版对不上（在 Obsidian 里改过）→ 下次保存或建索引时先记一条 `external`。每页最多 200 版（第一版不删）。**不用 Git**（RELEASE-BAR P8）。

@@ -108,9 +108,9 @@ def test_image_catalog_reads_vision_descriptions(tmp_path):
 def test_shell_keeps_wangdiao_and_s1_minimal_fields():
     assert "忘掉" in ask_intent.strip_shell("有个帖子教人怎么不让机把过去的事忘掉")
     assert ask_intent.strip_shell("我有个鱼露忘了哪儿了") == "鱼露"
-    s1 = ask_intent.parse_s1({"goal": "find", "core": "吵架楼", "task": "find", "note": "她记得的是帖子的形态——评论很长、在吵架，不是主题。",
+    s1 = ask_intent.parse_s1({"goal": "find", "core": "吵架楼", "task": "find", "note": "用户记得的是帖子的形态——评论很长、在吵架，不是主题。",
                               "clues": ["评论特别长", "评论里在吵"], "task_x": "ignored"}, "有一个评论很长的吵架楼 找找")
-    assert s1["task"] == "find" and s1["clues"] == ["评论特别长", "评论里在吵"] and s1["note"].startswith("她记得")
+    assert s1["task"] == "find" and s1["clues"] == ["评论特别长", "评论里在吵"] and s1["note"].startswith("用户记得")
     assert "task" not in ask_intent.parse_s1({"task": "poem"}, "x")
     assert "note" not in ask_intent.parse_s1({"note": "短"}, "x")
     und = ask_intent.understand("有一个评论很长的吵架楼 找找", [], s1=s1)
@@ -120,7 +120,7 @@ def test_shell_keeps_wangdiao_and_s1_minimal_fields():
 
 
 def test_research_note_falls_back_to_fields():
-    assert answer_prompt.research_note({"note": "她在设计做梦功能。"}, "q") == "她在设计做梦功能。"
+    assert answer_prompt.research_note({"note": "用户在设计做梦功能。"}, "q") == "用户在设计做梦功能。"
     n = answer_prompt.research_note({"goal": "find", "core": "鱼露", "clues": ["瓶子是红的"]}, "q")
     assert "找回" in n and "鱼露" in n and "瓶子是红的" in n
 
@@ -191,8 +191,8 @@ def test_answer_pipeline_uses_template_strips_thought_and_attaches_guide(monkeyp
     monkeypatch.setattr(ask, "call_text", lambda p, t, s: calls.append(s) or orig(p, t, s))
     r = ask.answer("机场到市区怎么走", who="本机")
     prompt, material = seen[-1]
-    assert "【本题模板：做法】" in prompt and "你是读过她这些收藏的人" in prompt
-    assert "【她的原话】机场到市区怎么走" in material and "【研究笔记】" in material and "【今天】" in material
+    assert "【本题模板：做法】" in prompt and "你是读过用户这些收藏的人" in prompt
+    assert "【用户的原话】机场到市区怎么走" in material and "【研究笔记】" in material and "【今天】" in material
     assert "【证据】" in material and "【原始材料】" not in material
     for bad in ("缺口", "约", "尽量保留原文"):
         assert bad not in prompt.split("【本题模板")[0] or bad == "约"

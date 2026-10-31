@@ -1,4 +1,4 @@
-// 10-04 目录页界面批（她点名）：
+// 10-04 目录页界面批（用户点名）：
 // ⑫ 悬停卡片就有选中圈，点圈直接勾选（不用先进多选），勾了就是多选态、全取消就退出
 // ⑬ 有选中时右键：「导出」立即导出（沿用上次的「附带原图」，默认带图）；新增「给 AI（存成选集）」
 // ⑭ 选集：默认名「主题+MMDD」（共同标签 → 主题 → 大类 → 第一篇标题前 8 字），可改名，存 _archive/selections.json，同名先确认
@@ -110,7 +110,7 @@ const ymd = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), St
   dlg().querySelector('input').value = '  我的 图谱 '; await saveBtn().onclick(); await tick(5);
   doc = JSON.parse(V.get(SEL));
   assert.deepEqual(doc.selections.map(s => s.name), ['我的 图谱', 'graph' + mmdd], '新的在前');
-  // 1019 她：同名合并（不弹确认、不覆盖），新加的篇记加入时间
+  // 1019 作者：同名合并（不弹确认、不覆盖），新加的篇记加入时间
   A.window.confirm = () => { throw new Error('同名不该再弹确认'); };
   for (const id of ['d20']) card(id).querySelector('.lbc-check').onclick(ev);
   $$('.lbc-selbar button').find(b => b.textContent === '给 AI（存成选集）').onclick();

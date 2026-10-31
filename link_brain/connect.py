@@ -1,9 +1,9 @@
-"""连接 AI（1009 她：连几个 MCP 要看好几个地方 → 一个模块，选了哪个客户端就给那个客户端一步）。
+"""连接 AI（1009 作者：连几个 MCP 要看好几个地方 → 一个模块，选了哪个客户端就给那个客户端一步）。
 
 本机客户端一键写配置（写前备份、写完报结果、可撤销）：
 - Claude Code：`claude mcp add lwa -s user -e … -- <python> -m link_brain mcp`；撤销 = `claude mcp remove lwa -s user`。
   写之前把它的配置文件（`$CLAUDE_CONFIG_DIR/.claude.json`，没设就是家目录下那份）复制一份到 `~/.link-brain/connect-backups/`。
-  她的 Claude Code 配置里别的东西一律不碰（不整份回滚——那份文件 Claude Code 自己一直在写）。
+  用户的 Claude Code 配置里别的东西一律不碰（不整份回滚——那份文件 Claude Code 自己一直在写）。
 - Claude Desktop：改 `claude_desktop_config.json` 的 `mcpServers.lwa`（Windows `%APPDATA%\\Claude`，macOS
   `~/Library/Application Support/Claude`，`LWA_CLAUDE_DESKTOP_CONFIG` 可指到别处——测试一律指到临时目录）；
   写前备份整份文件；撤销 = 只删 `lwa` 这一项。
@@ -299,7 +299,7 @@ def remove_codex() -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------
-# 本机装了哪些 AI 应用（1018 她：照 Claudian 认本机 CLI——它支持 Claude Code / Codex / OpenCode / Pi / Grok Build /
+# 本机装了哪些 AI 应用（1018 作者：照 Claudian 认本机 CLI——它支持 Claude Code / Codex / OpenCode / Pi / Grok Build /
 # DeepSeek Harness，按 PATH + 各家常见安装目录找）。只看「装没装、什么版本」，不读它们的对话、不改别的东西。
 # 一键接入只给配置写法确定的：Claude Code、Claude 桌面版、Codex；其余如实写「复制设置自己加」。
 # --------------------------------------------------------------------------

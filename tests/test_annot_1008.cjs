@@ -40,7 +40,7 @@ async function open({ annotations = [{ id: 'a1', ts: '2026-09-01T00:00:00Z', tex
     assert.deepEqual(disk(made).annotations.map(a => a.text), ['旧的'], mode + '：摘下这一段不定稿');
     assert.equal(disk(made).draft, '正在打的', mode + '：半截字存成草稿，重开这篇还在');
   }
-  { // 她主动离开输入框（框还在原处）：照旧失焦即定稿（N3 不改）
+  { // 用户主动离开输入框（框还在原处）：照旧失焦即定稿（N3 不改）
     const { made, dom, ta } = await open({ side: false });
     ta.focus(); ta.value = '离开时定稿';
     dom.document.body.focus?.(); ta.blur?.(); await ta.onblur(); await tick(5);
@@ -172,7 +172,7 @@ async function open({ annotations = [{ id: 'a1', ts: '2026-09-01T00:00:00Z', tex
     assert.ok(/\.lba-star\.is-on\{[^}]*color:var\(--lb-star/.test(text), '1015：收藏的星是黄的');
     assert.ok(!/lb-slide|max-height|grid-template/.test((text.split('批次 D · N15')[1] || '').split('1015')[0]), '紧凑模式只调间距和顺序，不碰图片尺寸 / grid');
   }
-  // ── 1015 她：删「批注」二字；⭐ 在写批注框边上 ──
+  // ── 1015 作者：删「批注」二字；⭐ 在写批注框边上 ──
   {
     const { box } = await open();
     assert.ok(!box.querySelector('.lba-annot-title'), '没有「批注」两个字');

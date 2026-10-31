@@ -1,6 +1,6 @@
-"""1031 她「弹幕直接复用批注」：一次性把 `_archive/bilibili/<BV>/danmaku-mine.json` 迁成 notes.json 里带 video_t 的批注。
+"""1031 作者「弹幕直接复用批注」：一次性把 `_archive/bilibili/<BV>/danmaku-mine.json` 迁成 notes.json 里带 video_t 的批注。
 
-不丢数据、只追加（⭐ / 草稿 / 墓碑 / 原有批注原样）、可重跑（同 id / 她删过的不再加）、原文件改名 .migrated；
+不丢数据、只追加（⭐ / 草稿 / 墓碑 / 原有批注原样）、可重跑（同 id / 用户删过的不再加）、原文件改名 .migrated；
 读不懂的原文件 / 读坏的 notes.json 跳过不碰；--dry-run 不写不改名；只剩 .bak 时迁 .bak。conftest 已把 vault 指到 tmp。
 """
 
@@ -32,7 +32,7 @@ def test_migrates_items_into_notes_and_renames(capsys):
     }, ensure_ascii=False), encoding="utf-8")
     (d / "danmaku-mine.json").write_text(_mine([
         {"id": "m1", "time": 12.34567, "text": "第一条\n弹幕", "mode": 1, "color": 16777215, "size": 25, "created_at": "2026-10-31T17:35:12+11:00"},
-        {"id": "gone", "time": 3, "text": "她删过的", "created_at": "2026-10-31T17:36:00+11:00"},
+        {"id": "gone", "time": 3, "text": "用户删过的", "created_at": "2026-10-31T17:36:00+11:00"},
         {"id": "m2", "time": 0, "text": "试一下", "created_at": "2026-10-31T17:37:00+11:00"},
         {"id": "bad", "time": "x", "text": "坏时间"},
         {"id": "empty", "time": 5, "text": "   "},

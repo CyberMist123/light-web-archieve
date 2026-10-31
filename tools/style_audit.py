@@ -1,4 +1,4 @@
-"""样式审计（1027b，她：「全部的设计样式给我一个统一的模版，上次混乱太多了」）。
+"""样式审计（1027b，作者：「全部的设计样式给我一个统一的模版，上次混乱太多了」）。
 
 模版 = docs/style-guide.html（只用 link_brain/assets/lb-tokens.css 里的名字）。这里把页面 / 插件里**没按模版来**的地方一条条列出来：
   A 字体  第二、三套字：衬线（--lb-font-serif / --f-serif）、Cormorant 数字（--lb-font-num / --f-latin）、斜体、手写字体名
@@ -72,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f.ljust(52), f"{n['A']:>6} {n['B']:>7} {n['C']:>7}")
     if args.md:
         lines = ["# 样式偏差清单（tools/style_audit.py 生成，别手改）", "",
-                 "模版见 `docs/style-guide.html`。每一条 = 一处没按模版来；**先列不改**，她定了再按类一批批换。",
+                 "模版见 `docs/style-guide.html`。每一条 = 一处没按模版来；**先列不改**，作者定了再按类一批批换。",
                  "注意：目录页边栏四块（RECENT / SYNC / TOKEN / OVERVIEW）和设置页在 1027b 已经把 serif / 数字字体变量改指正文字，",
                  "那里的 A 类条目页面上已经是正文字了（这里按源码列，换的时候顺手删掉旧写法）。", ""]
         for cat, title in CAT.items():

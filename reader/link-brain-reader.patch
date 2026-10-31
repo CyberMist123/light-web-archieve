@@ -1772,13 +1772,13 @@ index 0000000..491c97e
 +	verifyTick      = 2 * time.Second
 +)
 +
-+// verifyAliveFails alive() 连续这么多次失败才算她关了窗口（页面跳转时会偶尔读不到一次）。
++// verifyAliveFails alive() 连续这么多次失败才算用户关了窗口（页面跳转时会偶尔读不到一次）。
 +const verifyAliveFails = 2
 +
 +// 验证窗口的结论（/login/session 的 verify_result）。
 +const (
 +	verifyCleared      = "cleared"         // 窗口里出现过风控、关窗前已消失（掉登录类：看到已登录）→ 已解除
-+	verifyNoCaptcha    = "no_captcha_seen" // 窗口里从头到尾没出现过验证 / 风控页 → 不自动解除，交给她确认（risk/clear）
++	verifyNoCaptcha    = "no_captcha_seen" // 窗口里从头到尾没出现过验证 / 风控页 → 不自动解除，交给用户确认（risk/clear）
 +	verifyStillRisk    = "still_risk"      // 关窗前页面仍在风控 → 保持
 +	verifyNotRead      = "not_read"        // 窗口里一次都没读到页面 → 保持
 +	verifyNotLoggedIn  = "not_logged_in"   // 掉登录 / 安全跳转类：关窗前没看到已登录 → 保持
@@ -1786,12 +1786,12 @@ index 0000000..491c97e
 +	verifyWindowFailed = "window_failed"   // 窗口没打开（浏览器被别的操作占着）
 +)
 +
-+// verifyHintText 出事在读收藏时（tab=fav 或 want_tab=fav）注入在验证窗口页面顶部的一行提示。窗口不替她点「收藏」：
-+// 熔断期间程序替她发收藏请求是自动化动作，要她明确同意（本批不做）。提示里不带「安全验证」字样、id 不带 captcha，
++// verifyHintText 出事在读收藏时（tab=fav 或 want_tab=fav）注入在验证窗口页面顶部的一行提示。窗口不替用户点「收藏」：
++// 熔断期间程序替用户发收藏请求是自动化动作，要用户明确同意（本批不做）。提示里不带「安全验证」字样、id 不带 captcha，
 +// 不会被风控探针当成浮层。「等两三秒再关窗」：窗口 1 秒看一眼，拖完立刻关可能没来得及看到滑块消失。
 +const verifyHintText = "请点一下『收藏』页签看看有没有滑块：出现滑块就拖完，等两三秒再关窗；没出现就直接关窗"
 +
-+// verifyHintTick 有提示（她要去点收藏、可能拖滑块）时看得勤一点，免得 2 秒一次漏看一闪而过的滑块。
++// verifyHintTick 有提示（用户要去点收藏、可能拖滑块）时看得勤一点，免得 2 秒一次漏看一闪而过的滑块。
 +const verifyHintTick = time.Second
 +
 +const verifyHintJS = `(text) => {
@@ -1833,12 +1833,12 @@ index 0000000..491c97e
 +}
 +
 +// verifyTarget 验证窗口打开哪一页（1008 B3）：熔断记下的出事页面；返回空串 = 走老路（首页 → 侧栏「我」）。
-+//   - 去掉 tab / subTab 参数：带着 tab=fav 直开主页，页面会自己去读收藏——那等于程序替她点了「收藏」；
++//   - 去掉 tab / subTab 参数：带着 tab=fav 直开主页，页面会自己去读收藏——那等于程序替用户点了「收藏」；
 +//   - /website-login/* 安全跳转页不直开（那是跳转的结果，不是出事的页面），走老路，被拦的话站点会自己再跳过去。
 +//
-+// hint = 要不要在页面顶部提示她自己点「收藏」：出事时停在收藏页签（tab=fav），或者程序正要去收藏页签（want_tab=fav：
++// hint = 要不要在页面顶部提示用户自己点「收藏」：出事时停在收藏页签（tab=fav），或者程序正要去收藏页签（want_tab=fav：
 +// 页签没点动接着弹验证——B4 最常见的出事路径——那一刻 activeTab 还是 note）。要提示时出事页面不是主页（如还在 /explore），
-+// 走老路落到她的主页，她才有「收藏」可点。
++// 走老路落到用户的主页，用户才有「收藏」可点。
 +func verifyTarget(h *riskHold) (target string, hint bool) {
 +	if h == nil {
 +		return "", false
@@ -1866,7 +1866,7 @@ index 0000000..491c97e
 +
 +// verifyWindowHandler 打开有界面的浏览器，由人手动过验证；关窗即结束。
 +// 1008（B3）：没有熔断直接回 result=no_hold、不开窗；有熔断就开出事的那一页（verifyTarget），
-+// 出事时在收藏页签的，页面顶部提示她自己点「收藏」（窗口不替她点）。
++// 出事时在收藏页签的，页面顶部提示用户自己点「收藏」（窗口不替用户点）。
 +func (s *AppServer) verifyWindowHandler(c *gin.Context) {
 +	st := &s.xiaohongshuService.state
 +	// 1011：body 可选 {note_id, xsec_token}——没有熔断时开这篇的笔记验证窗口（note_verify.go）；有熔断一律先处理熔断
@@ -1951,7 +1951,7 @@ index 0000000..491c97e
 +}
 +
 +// watchVerifyWindow 每 tick 看一眼：窗口还活着就采样，记住最后一次有效读数、有没有出现过风控；
-+// alive() 连续 verifyAliveFails 次失败（她关了窗口）或到时就返回。只失败一次（页面跳转）不算关窗。
++// alive() 连续 verifyAliveFails 次失败（用户关了窗口）或到时就返回。只失败一次（页面跳转）不算关窗。
 +// seenRisk 只要风控探针读到并命中就置位，不要求同一次也读到登录态（审查：一闪而过的滑块别因为登录态没读到而漏掉）。
 +func watchVerifyWindow(deadline time.Time, tick time.Duration, alive func() bool, sample func() verifyReading) (last verifyReading, seen, seenRisk bool) {
 +	fails := 0
@@ -1979,7 +1979,7 @@ index 0000000..491c97e
 +//   - 要有有效读数、关窗前最后一次没有风控、而且看到已登录（审查：验证码类也要——被踢到登录页、回到首页是游客、关窗，
 +//     不能当成验证过了）；
 +//   - 掉登录（NOT_LOGGED_IN）：看到已登录就解（登录是状态，看到了就是证据）；
-+//   - 验证码 / 安全跳转：1008（B3）要求窗口里**出现过**风控、最后又干净（她真拖过了）；从头到尾没出现过 →
++//   - 验证码 / 安全跳转：1008（B3）要求窗口里**出现过**风控、最后又干净（用户真拖过了）；从头到尾没出现过 →
 +//     不自动解除（no_captcha_seen）——验证只在读收藏那一下出，窗口里看不到不等于没事（10-08 04:02 就是这么被
 +//     误解除、05:11 手动同步又撞上的）。
 +func verifyClears(holdCode string, last verifyReading, seen, seenRisk bool) (bool, string, string) {
@@ -1993,7 +1993,7 @@ index 0000000..491c97e
 +	case holdCode == xiaohongshu.RiskNotLoggedIn:
 +		return true, verifyCleared, ""
 +	case !seenRisk:
-+		return false, verifyNoCaptcha, "窗口里从头到尾没出现过验证 / 风控页，不自动解除（要她确认没事再恢复）"
++		return false, verifyNoCaptcha, "窗口里从头到尾没出现过验证 / 风控页，不自动解除（要你确认没事再恢复）"
 +	}
 +	return true, verifyCleared, ""
 +}
@@ -2082,7 +2082,7 @@ index 0000000..491c97e
 +	return nil, err
 +}
 +
-+// favTabStuckText 页签没点中 / 没停住时给她看的话。
++// favTabStuckText 页签没点中 / 没停住时给用户看的话。
 +func favTabStuckText(err error) string {
 +	if errors.Is(err, xiaohongshu.ErrTabStuck) {
 +		return "页签点不动，疑似小红书在限流，今晚先不读收藏"
@@ -3102,13 +3102,13 @@ index 0000000..dd2e9a5
 @@ -0,0 +1,282 @@
 +package main
 +
-+// 1011：网页版限制的笔记（她的收藏里有，浏览器里打开要「验证一下」；读取服务打开详情页，页面上没有这篇）。
++// 1011：网页版限制的笔记（用户的收藏里有，浏览器里打开要「验证一下」；读取服务打开详情页，页面上没有这篇）。
 +//
 +//   POST /api/v1/notes/search-token  {note_id, keyword}  用标题搜一次，从搜索结果里按笔记 id 认出这篇、拿新的 xsec_token。
 +//                                    只开一页（搜索结果页），导航后和读完各查一次风控；搜不到回 found=false。
 +//                                    调用方（Python）管节奏：每篇每天最多一次、开页间隔、账号锁。
 +//   POST /api/v1/verify/window       body 带 {note_id, xsec_token} 且**没有熔断**时 = 笔记验证窗口：开有界面的浏览器到这篇，
-+//                                    她在窗口里过完验证、看到笔记就关窗。关窗前最后一次读数：
++//                                    用户在窗口里过完验证、看到笔记就关窗。关窗前最后一次读数：
 +//                                      · 页面上还有看得见的验证 / 被跳到安全页 → 按风控写熔断（still_risk），不放宽；
 +//                                      · 页面上有登录框（游客）→ NOT_LOGGED_IN 写熔断（not_logged_in）；
 +//                                      · 窗口里看到过这篇正常渲染 → note_ok（/login/session 的 verify_note 带 note_id / ok / token）；
@@ -3239,7 +3239,7 @@ index 0000000..dd2e9a5
 +// 笔记验证窗口的结论（/login/session 的 verify_result；其余沿用 verifyStillRisk / verifyNotRead / verifyNotLoggedIn / verifyWindowFailed）。
 +const (
 +	verifyNoteOK      = "note_ok"       // 窗口里看到过这篇正常渲染
-+	verifyNoteNotSeen = "note_not_seen" // 一直没看到这篇（还要验证 / 她没过完就关了）
++	verifyNoteNotSeen = "note_not_seen" // 一直没看到这篇（还要验证 / 用户没过完就关了）
 +)
 +
 +// noteVerifyURL 窗口打开哪一页：这篇的详情页（带上口令，口令过期也照样开，站点自己会处理）。
@@ -3256,7 +3256,7 @@ index 0000000..dd2e9a5
 +	verifyReading
 +	guest    bool   // 页面上有登录框
 +	rendered bool   // 这篇在页面状态里
-+	token    string // 当前地址里的 xsec_token（她过完验证后站点可能换了新的）
++	token    string // 当前地址里的 xsec_token（用户过完验证后站点可能换了新的）
 +}
 +
 +// noteWindowProbe 读一次笔记窗口（测试里替换）。
@@ -3594,7 +3594,7 @@ index 0000000..53381c4
 +	assert.NotNil(t, app.xiaohongshuService.hold.get())
 +}
 +
-+// TestNoteVerifyWindowWatchesNote 窗口里的读数：先是验证 → 她过完 → 这篇渲染出来 → 关窗：note_ok，交新口令，不写熔断。
++// TestNoteVerifyWindowWatchesNote 窗口里的读数：先是验证 → 用户过完 → 这篇渲染出来 → 关窗：note_ok，交新口令，不写熔断。
 +func TestNoteVerifyWindowWatchesNote(t *testing.T) {
 +	captcha := &xiaohongshu.RiskError{Code: xiaohongshu.RiskCaptcha, Detail: "x"}
 +	readings := []noteWindowReading{
@@ -3634,7 +3634,7 @@ index 0000000..206107e
 @@ -0,0 +1,262 @@
 +package main
 +
-+// 夜里撞验证后的「冷却后自查」（1011，她定：夜里正常跑就行，别为一次一阵子就消的滑块 4 点叫醒她）。
++// 夜里撞验证后的「冷却后自查」（1011，作者定：夜里正常跑就行，别为一次一阵子就消的滑块 4 点叫醒用户）。
 +//
 +// POST /api/v1/risk/probe —— 和人工的 POST /api/v1/risk/clear 是两条路，语义不放宽：
 +//   - 只认 CAPTCHA_REQUIRED（读收藏 / 开笔记时弹了滑块）；掉登录（NOT_LOGGED_IN）、安全跳转（ACCOUNT_RISK）一律不碰，
@@ -4263,7 +4263,7 @@ index 0000000..27b2f2e
 +}, 200);
 +</script>`, mode))
 +	case "/explore/n1":
-+		// 验证窗口用：已登录的笔记页，验证组件出现 1.5 秒后消失（她拖过了）
++		// 验证窗口用：已登录的笔记页，验证组件出现 1.5 秒后消失（用户拖过了）
 +		html(w, `<div class="note-container" style="height:300px">一篇笔记</div>
 +<div id="cap" class="red-captcha-container" style="position:fixed;top:100px;left:40px;width:320px;height:240px;background:#eee;z-index:99"></div>
 +<script>window.__INITIAL_STATE__ = {user: {userInfo: {value: {guest: false, userId: "me"}}}};
@@ -4324,7 +4324,7 @@ index 0000000..27b2f2e
 +//  1. 点「收藏」后收藏接口回 461 / code 300011、弹出验证组件 → 423 CAPTCHA_REQUIRED；risk-hold.json 带出事页面（url）、
 +//     页签（tab=fav）、证据目录；证据里有截图、命中元素、收藏接口的 HTTP 状态和 code；/login/session 带出这三项。
 +//  2. 打开验证窗口：开的是出事的那一页，但去掉了 tab=fav（不让页面自己去读收藏）；页面顶部有「请点一下『收藏』」提示；
-+//     窗口不替她点「收藏」（没有点击、没有收藏接口请求）；窗口里一次验证都没出现 → 关窗后熔断保留，verify_result=no_captcha_seen。
++//     窗口不替用户点「收藏」（没有点击、没有收藏接口请求）；窗口里一次验证都没出现 → 关窗后熔断保留，verify_result=no_captcha_seen。
 +func TestLocalBrowserCaptchaEvidenceThenVerifyWindow(t *testing.T) {
 +	evRoot := t.TempDir()
 +	t.Setenv("LINK_BRAIN_EVIDENCE_DIR", evRoot)
@@ -4404,7 +4404,7 @@ index 0000000..27b2f2e
 +	assert.Empty(t, q.Get("tab"), "去掉 tab=fav：不让页面自己去读收藏")
 +	assert.Empty(t, q.Get("subTab"))
 +	assert.GreaterOrEqual(t, sawHint, 1, "页面顶部有「请点一下『收藏』」提示")
-+	assert.Equal(t, clicksBefore, clicksAfter, "窗口不替她点「收藏」")
++	assert.Equal(t, clicksBefore, clicksAfter, "窗口不替用户点「收藏」")
 +	assert.Equal(t, apiBefore, site.count("/api/sns/web/v2/note/collect/page"), "窗口里没有收藏接口请求")
 +	assert.Equal(t, exploreBefore, site.count("/explore"), "开出事页面，不走首页 → 侧栏「我」")
 +
@@ -4448,7 +4448,7 @@ index 0000000..27b2f2e
 +}
 +
 +// TestLocalBrowserTabStuckThenCaptchaHintsFav 审查：页签点不动、紧接着弹验证（B4 最常见的出事路径）——那一刻 activeTab 还是 note，
-+// 但熔断记下 want_tab=fav；验证窗口照样开她的主页、提示她自己点「收藏」（窗口不替她点）。
++// 但熔断记下 want_tab=fav；验证窗口照样开用户的主页、提示用户自己点「收藏」（窗口不替用户点）。
 +func TestLocalBrowserTabStuckThenCaptchaHintsFav(t *testing.T) {
 +	evRoot := t.TempDir()
 +	t.Setenv("LINK_BRAIN_EVIDENCE_DIR", evRoot)
@@ -4476,7 +4476,7 @@ index 0000000..27b2f2e
 +	code, out = doJSON(t, router, "POST", "/api/v1/verify/window", "")
 +	require.Equal(t, http.StatusOK, code, "%v", out)
 +	vd := out["data"].(map[string]any)
-+	assert.Equal(t, true, vd["tab_hint"], "want_tab=fav：要提示她点「收藏」")
++	assert.Equal(t, true, vd["tab_hint"], "want_tab=fav：要提示用户点「收藏」")
 +	assert.Equal(t, true, vd["incident_page"])
 +	for i := 0; i < 300 && app.xiaohongshuService.state.snapshot()["verifying"] == true; i++ {
 +		time.Sleep(100 * time.Millisecond)
@@ -4485,12 +4485,12 @@ index 0000000..27b2f2e
 +	sawHint, clicksAfter := site.sawHint, len(site.clicks)
 +	site.mu.Unlock()
 +	assert.GreaterOrEqual(t, sawHint, 1, "页面顶部有「请点一下『收藏』」提示")
-+	assert.Equal(t, clicks, clicksAfter, "窗口不替她点「收藏」")
++	assert.Equal(t, clicks, clicksAfter, "窗口不替用户点「收藏」")
 +	assert.Equal(t, "no_captcha_seen", app.xiaohongshuService.state.snapshot()["verify_result"])
 +	assert.NotNil(t, app.xiaohongshuService.hold.get())
 +}
 +
-+// TestLocalBrowserVerifyWindowSeenRiskClears B3：窗口里出现过验证、关窗前已消失（她拖过了）→ 解除，verify_result=cleared。
++// TestLocalBrowserVerifyWindowSeenRiskClears B3：窗口里出现过验证、关窗前已消失（用户拖过了）→ 解除，verify_result=cleared。
 +func TestLocalBrowserVerifyWindowSeenRiskClears(t *testing.T) {
 +	app, _, site := newFakeSite(t, "dead")
 +	app.xiaohongshuService.hold.trip(xiaohongshu.RiskCaptcha, "读笔记撞验证",
@@ -4789,7 +4789,7 @@ index 0000000..1854369
 +}
 +
 +// TestVerifyTargetOpensIncidentPage 1008（B3）：验证窗口开出事的那一页，但去掉 tab / subTab（不让页面自己去读收藏）；
-+// 安全跳转页、外站、没记 url 的走老路（首页 → 侧栏「我」）。tab=fav 才提示她自己点「收藏」。
++// 安全跳转页、外站、没记 url 的走老路（首页 → 侧栏「我」）。tab=fav 才提示用户自己点「收藏」。
 +func TestVerifyTargetOpensIncidentPage(t *testing.T) {
 +	t.Setenv("XHS_HOST", "")
 +	cases := []struct {
@@ -4805,10 +4805,10 @@ index 0000000..1854369
 +		{riskHold{URL: "https://evil.example.com/user/profile/u1", Tab: "fav"}, "", true},
 +		{riskHold{URL: "javascript:alert(1)"}, "", false},
 +		{riskHold{}, "", false},
-+		// 审查：页签没点动接着弹验证——activeTab 还是 note，但程序要去收藏（want_tab=fav）：照样提示她点「收藏」
++		// 审查：页签没点动接着弹验证——activeTab 还是 note，但程序要去收藏（want_tab=fav）：照样提示用户点「收藏」
 +		{riskHold{URL: "https://www.xiaohongshu.com/user/profile/u1?xsec_token=t", Tab: "note", WantTab: "fav"},
 +			"https://www.xiaohongshu.com/user/profile/u1?xsec_token=t", true},
-+		// 要提示点收藏、出事页面却不是主页（还在 /explore）：走老路落到她的主页，她才有「收藏」可点
++		// 要提示点收藏、出事页面却不是主页（还在 /explore）：走老路落到用户的主页，用户才有「收藏」可点
 +		{riskHold{URL: "https://www.xiaohongshu.com/explore?channel_id=x", WantTab: "fav"}, "", true},
 +	}
 +	for _, c := range cases {
@@ -4922,8 +4922,8 @@ index 0000000..aa43022
 +// 登录窗口无论扫码完成还是已有登录，都只解 NOT_LOGGED_IN，
 +// 验证码 / 安全跳转类保留（那类验证只在读收藏那一下出，/explore 页面干净不说明没事）。
 +// 1008 第二轮：看不见的验证组件（HIDDEN_WIDGET）不写熔断：停本次、回 503，下次照常。
-+// 1008（B3）验证窗口：验证码 / 安全跳转类要求窗口里**出现过**风控、关窗前最后一次读数又干净（她真拖过了）才解除；
-+// 从头到尾没出现过 → 不自动解除，/login/session 给 verify_result="no_captcha_seen"，交给她亲手确认（risk/clear）。
++// 1008（B3）验证窗口：验证码 / 安全跳转类要求窗口里**出现过**风控、关窗前最后一次读数又干净（用户真拖过了）才解除；
++// 从头到尾没出现过 → 不自动解除，/login/session 给 verify_result="no_captcha_seen"，交给用户亲手确认（risk/clear）。
 +// 掉登录类仍按「关窗前看到已登录、页面干净」解除。
 +// 登录/扫码另由 loginGuard 拦截安全风险；验证窗口、状态、退出及人工解除保留专用入口。
 +//
@@ -5549,14 +5549,14 @@ index 0000000..a7b36d2
 +}
 +
 +// TestHoldCarriesWantTab 1008（审查）：页签没点动接着弹验证——出事时 activeTab 还是 note，但程序要去的是收藏（want_tab=fav）；
-+// 熔断记下它，验证窗口据此提示她点「收藏」。
++// 熔断记下它，验证窗口据此提示用户点「收藏」。
 +func TestHoldCarriesWantTab(t *testing.T) {
 +	app, _ := testApp(t)
 +	h := app.xiaohongshuService.hold.trip(xiaohongshu.RiskCaptcha, "页签点不动后弹验证", &xiaohongshu.Evidence{Dir: "D",
 +		URL: "https://www.xiaohongshu.com/user/profile/u1?xsec_token=t", Tab: "note", WantTab: "fav", Code: xiaohongshu.RiskCaptcha})
 +	assert.Equal(t, "fav", h.WantTab)
 +	target, hint := verifyTarget(h)
-+	assert.True(t, hint, "want_tab=fav 也要提示她点「收藏」")
++	assert.True(t, hint, "want_tab=fav 也要提示用户点「收藏」")
 +	assert.Equal(t, "https://www.xiaohongshu.com/user/profile/u1?xsec_token=t", target)
 +	_, out := doJSON(t, setupRoutes(app), "GET", "/api/v1/login/session", "")
 +	assert.Equal(t, "fav", out["data"].(map[string]any)["risk_hold"].(map[string]any)["want_tab"])
@@ -6886,7 +6886,7 @@ index 0000000..404e584
 +// subPerHour 每小时最多点几次「展开回复」（XHS_SUB_PER_HOUR 可调，最少 1）。
 +var subPerHour = envInt("XHS_SUB_PER_HOUR", 30)
 +
-+// subLimitName 1017：她说「额度调高一点试试，撞限频就退回来」——调高的额度写在 profile 目录的这个文件里
++// subLimitName 1017：用户说「额度调高一点试试，撞限频就退回来」——调高的额度写在 profile 目录的这个文件里
 +// （{"per_hour": 60}，比环境变量稳：谁拉起服务都认）；撞到限频 / 验证 / 账号异常（任何熔断）时服务自己把它删掉，退回 subPerHour。
 +const subLimitName = "sub-per-hour.json"
 +
@@ -8981,7 +8981,7 @@ index 0000000..ab1209a
 +	cfg := defaultFloorLoadCfg(config.MaxCommentItems, config.ClickMoreReplies || len(config.ExpandFloors) > 0, budget, config.MaxRepliesPerFloor)
 +	cfg.ExpandFloors = config.ExpandFloors
 +	if len(cfg.ExpandFloors) > 0 {
-+		// 1018 她：续展按楼序一楼补完再下一楼（不轮流各补 30 条）——补到哪，哪里就是完整的
++		// 1018 作者：续展按楼序一楼补完再下一楼（不轮流各补 30 条）——补到哪，哪里就是完整的
 +		cfg.RoundStep = 0
 +	}
 +	cfg.Resume = ParseReplyResume(config.ExpandResume)
@@ -10246,7 +10246,7 @@ index 0000000..5f0bc8d
 +	evidenceSnippet   = 1024 // meta.json 里中心点元素 outerHTML 上限（字节）
 +	evidenceDedupe    = 30 * time.Second
 +	evidenceDirLayout = "20060102-150405"
-+	// hitCSP hit.html 开头加一行 CSP：她双击打开时浏览器不去拉小红书的图片 / iframe / 脚本（那会带着她日常浏览器的登录态）。
++	// hitCSP hit.html 开头加一行 CSP：用户双击打开时浏览器不去拉小红书的图片 / iframe / 脚本（那会带着用户日常浏览器的登录态）。
 +	hitCSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">` + "\n"
 +	// evidencePruneEvery 服务常驻、几周不出事时也要清旧证据：/login/session 被轮询时顺手清，最多每小时一次。
 +	evidencePruneEvery = time.Hour
@@ -12515,7 +12515,7 @@ index 67e002d..a4f3a3e 100644
 + const unwrap = x => x?.value ?? x?._value ?? x?._rawValue ?? x;
 + const user = unwrap(window.__INITIAL_STATE__?.user?.userInfo);
 + // 1027：新设备扫完登录码，站点再弹「请通过验证——用已登录该账号的 App 扫码验证身份」；这时状态里已经是 user，
-+ // 当成登录成功就会去复核域名、整页导航把验证码冲掉（她扫验证码时窗口已经关了）。弹窗在就还没登完，接着等。
++ // 当成登录成功就会去复核域名、整页导航把验证码冲掉（用户扫验证码时窗口已经关了）。弹窗在就还没登完，接着等。
 + if (user && user.guest === false && (user.userId || user.user_id)) {
 +  const t = document.body ? document.body.innerText : "";
 +  return (t.includes("扫码验证身份") || t.includes("请通过验证")) ? "verify" : "user";
@@ -13105,7 +13105,7 @@ index 0000000..47b212e
 @@ -0,0 +1,161 @@
 +package xiaohongshu
 +
-+// 1011：网页版限制的笔记（她的收藏里有、浏览器里打开要「验证一下」，但读取服务打开详情页，页面上没有这篇）。
++// 1011：网页版限制的笔记（用户的收藏里有、浏览器里打开要「验证一下」，但读取服务打开详情页，页面上没有这篇）。
 +//
 +// 现象（真号日志）：「详情页关键容器未在 8s 内出现」→ 评论 0 楼 → 抽取时 `feed <id> not found in noteDetailMap`；
 +// 页面上没有看得见的验证浮层（否则 RiskPage 早就按 CAPTCHA_REQUIRED 停车写熔断了），也不是错误容器（那是「笔记不可访问」）。
@@ -13137,7 +13137,7 @@ index 0000000..47b212e
 +// NoteRestrictedCode 只是这一篇打不开（网页版要人工验证才给看），不是号出事。
 +const NoteRestrictedCode = "NOTE_RESTRICTED"
 +
-+// NoteRestrictedText 给她看的话（HTTP 响应的 error 字段）。
++// NoteRestrictedText 给用户看的话（HTTP 响应的 error 字段）。
 +const NoteRestrictedText = "这篇在小红书网页版要验证才能看"
 +
 +// EvidenceRestricted 证据触发名：详情页没渲染出这篇笔记（不是风控，只为真机核对页面长什么样）。
@@ -13532,7 +13532,7 @@ index 0000000..9496097
 +	RiskHiddenWidget = "HIDDEN_WIDGET"
 +)
 +
-+// HiddenWidgetText 给她看的话（HTTP 响应的 error 字段）。
++// HiddenWidgetText 给用户看的话（HTTP 响应的 error 字段）。
 +const HiddenWidgetText = "页面里有验证组件但没显示滑块，这次先停，下次照常读"
 +
 +// HiddenWidgetDetail RiskError.Detail（会进 MCP 报错文本）：不带 looks_blocked 认的那些字。
@@ -13590,7 +13590,7 @@ index 0000000..9496097
 +//
 +// 两条都跳过用户内容容器里的元素。riskProbeJS（判风控）和 evidenceJS（出事落证据）共用这一份，判据不会两处走样。
 +//
-+// 1008 第二轮（她：打开报错时既没有验证窗口也没掉登录，怀疑误检测）——「看得见」收紧成：
++// 1008 第二轮（作者：打开报错时既没有验证窗口也没掉登录，怀疑误检测）——「看得见」收紧成：
 +//   - 与视口有交集；祖先链（含自己）没有 display:none、visibility:hidden，透明度连乘 > 0.05，clip / clip-path 没把它裁没；
 +//   - 可见部分的中心点 elementFromPoint 命中它自己或子孙（没被别的东西盖住）；
 +//   - 面积 > 90% 视口的大容器（html / body / #app 一类）里得有验证内容（iframe / canvas / img 或「验证 / 拖动 / 滑块」字样，
@@ -13701,7 +13701,7 @@ index 0000000..9496097
 +// rateLimitedErrorCodes 安全跳转页 error_code 里算「限频」的（300013 = 访问频繁，请稍后再试）。
 +var rateLimitedErrorCodes = map[string]bool{"300013": true}
 +
-+// accountRiskErrorCodes 1016：算「真风控」的码（300011 = 账号异常，请稍后重试；10-15 那次她点进去确实要重新登录）。
++// accountRiskErrorCodes 1016：算「真风控」的码（300011 = 账号异常，请稍后重试；10-15 那次用户点进去确实要重新登录）。
 +var accountRiskErrorCodes = map[string]bool{"300011": true}
 +
 +// loginErrorQuery 取 /website-login/error 查询串里的 error_code 与 rejectUrl；不是这个路径返回空。
@@ -13992,7 +13992,7 @@ index 0000000..9496097
 +
 +// RiskPageRead 读一次页面（不复读、不落证据），另报这次到底读没读到页面（ok=false：页面已关/超时，结果不作数）。
 +// 验证窗口要靠它区分「没风险」和「根本没看到」：验证窗口每 2 秒读一次，滑块挂着时不能每 2 秒截一张图。
-+// 只报看得见的验证和安全跳转；看不见的验证组件（hidden-widget）不算——她在窗口里看不见、也拖不了它。
++// 只报看得见的验证和安全跳转；看不见的验证组件（hidden-widget）不算——用户在窗口里看不见、也拖不了它。
 +func RiskPageRead(page *rod.Page) (*RiskError, bool) {
 +	if page == nil {
 +		return nil, false
@@ -14546,7 +14546,7 @@ index 0000000..2cb5529
 +}
 +
 +// TestHiddenWidgetTextAvoidsBlockedHints HIDDEN_WIDGET 的报错文本会进 MCP 报错：不能带 Python looks_blocked 认的字，
-+// 否则会被当成「号出事」整批停车。给她看的 HTTP 文案照施工单。
++// 否则会被当成「号出事」整批停车。给用户看的 HTTP 文案照施工单。
 +func TestHiddenWidgetTextAvoidsBlockedHints(t *testing.T) {
 +	text := strings.ToLower((&RiskError{Code: RiskHiddenWidget, Detail: HiddenWidgetDetail}).Error())
 +	for _, hint := range []string{"captcha", "验证码", "滑块", "安全验证", "风控", "登录", "账号异常", "行为异常", "频繁"} {
@@ -14690,7 +14690,7 @@ index 0000000..2cb5529
 +		func() favProbe { return favProbe{Count: 600, HasMore: 0, Tab: "fav"} }, func(int) {}, noRisk)
 +	require.Nil(t, r)
 +	assert.Equal(t, FavStopEnd, res.Reason)
-+	assert.False(t, res.Partial, "页面明确说到底了：她真删了一批，照实算读全")
++	assert.False(t, res.Partial, "页面明确说到底了：用户真删了一批，照实算读全")
 +	assert.GreaterOrEqual(t, res.Level, 1)
 +}
 +
@@ -15467,7 +15467,7 @@ index 61216c7..3b81e90 100644
  
 +	// 宁可响亮地失败，也不要安静地返回空壳：
 +	// 空 nickname 意味着页面没渲染完或会话有问题，此时返回"成功"会让调用方
-+	// （和她）以为账号真的什么都没有。
++	// （和用户）以为账号真的什么都没有。
 +	if userPageData.BasicInfo.Nickname == "" {
 +		return nil, fmt.Errorf("主页数据是空壳（nickname 为空）——页面没渲染完或会话已失效，不当作成功返回")
 +	}
@@ -15502,7 +15502,7 @@ index 61216c7..3b81e90 100644
 -	// 创建导航动作
 -	navigate := NewNavigate(page)
 +	// 1008（审查）：落证据时记下「这一页是在为哪个子页签干活」（want_tab）——页签没点动接着弹验证时 activeTab 还是 note，
-+	// 验证窗口要靠它知道是读收藏出的事、提示她点「收藏」。
++	// 验证窗口要靠它知道是读收藏出的事、提示用户点「收藏」。
 +	if tab != "" && tab != TabNotes {
 +		defer SetPageIntent(u.page, string(tab))()
 +	}

@@ -353,7 +353,7 @@ def test_different_origin_still_adds_relation(vault):
     conn = index_mod.connect()
     try:
         index_mod.add_relation(conn, item_id=ITEM_ID, origin="telegram", actor="human", ingest_kind="shared",
-                               note="她分享时说的话", created_at="2026-10-24T00:00:00+00:00")
+                               note="用户分享时说的话", created_at="2026-10-24T00:00:00+00:00")
     finally:
         conn.close()
     assert _relations() == 2

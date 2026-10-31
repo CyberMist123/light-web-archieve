@@ -1,9 +1,9 @@
-// schedule-ui.js — 10-03 她定：定时同步更灵活（一次性某月某日某时 / 每周几可多选 + 时刻 / 每天一天几次 / 每 1–6 小时后台同步）。
+// schedule-ui.js — 10-03 作者定：定时同步更灵活（一次性某月某日某时 / 每周几可多选 + 时刻 / 每天一天几次 / 每 1–6 小时后台同步）。
 // 唯一的「自动同步时间」编辑器：设置页「收藏与同步」、首次设置「同步」一步都由 settings-v6.js 的 syncTimeEditor 包这一个组件；
 // 首页齿轮 / 同步记录「改定时」/ 账号弹窗「定时…」都走 plugin.openSyncTime() 跳到设置页里的它（1026 起不再有单独的定时弹窗）。
 // 1027（设置页六组）：改了自动保存——没有「保存定时」「关闭定时」两个按钮了。打字停 1.2 秒或离开那一格就存（合并着存，不每个字注册一次计划任务）；
 //   格式不对只在下面说一句、不存（留作草稿，下次打开接着改）；开 / 关是设置页「同步」那一个开关（setEnabled）。
-//   只在她动了编辑器之后才写——画出来、读到推荐值都不写；「同步」关着时改时间只记着，打开「同步」才按它注册。
+//   只在用户动了编辑器之后才写——画出来、读到推荐值都不写；「同步」关着时改时间只记着，打开「同步」才按它注册。
 // render(el, {onSaved, onState, delay}) → {ready, refresh(), isDirty(), saveNow(), setEnabled(on), enabled(), destroy()}。
 // 规则形状（Python sync_schedule.normalize_rules 校验，这里只做格式上的初筛，不拼任何命令）：
 //   {kind:'daily', times:['04:00','16:00']} · {kind:'weekly', days:['Monday'], times:['08:00']}
@@ -90,7 +90,7 @@ module.exports = function scheduleUI(obsidian, plugin) {
     const msg = box.createDiv({ cls: 'setting-item-description lb-sched-msg', attr: { role: 'status' } });
     let rows = [], cur = null, alive = true, timer = null, saving = null, again = false, edits = 0, savedEdits = 0;
 
-    // 她动了一下：过一会儿自动存（离开那一格 / 换了选项立刻存）
+    // 用户动了一下：过一会儿自动存（离开那一格 / 换了选项立刻存）
     const touched = (now = false) => {
       edits++;
       box.classList.add('is-dirty');

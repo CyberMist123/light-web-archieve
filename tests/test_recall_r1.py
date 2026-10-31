@@ -288,7 +288,7 @@ def test_deep_read_follows_model_scope_and_keeps_pin_guard():
     assert ask.prompt_count(q, pool, 8000, 8, intent={"scope": "many"}) == (3, False)
     # 模型说单篇，但第 1 名和这一问一个词都不沾：不深读
     assert ask.prompt_count("量子计算入门", pool, 8000, 8, intent={"scope": "single"}) == (3, False)
-    # 她留了来源重答 / 会话里保留了来源：从不深读，意图也不例外
+    # 用户留了来源重答 / 会话里保留了来源：从不深读，意图也不例外
     assert ask.prompt_count(q, pool, 8000, 8, pinned=True, intent={"scope": "single"}) == (3, False)
     # 启发式三道护栏照旧（无 key 时的 fallback）
     assert ask.deep_read_wanted("做了很多年的黑椒牛肉意面配方的完整做法", pool) is True
@@ -387,7 +387,7 @@ def test_expansion_routes_do_not_split_into_single_chars(lexical_only, monkeypat
     items = ([_item("bne1", "布里斯班一日游", "布里斯班"), _item("bne2", "南岸公园", "在布里斯班")]
              + [_item(f"x{k}", f"班级里的事{k}", "里面 上班 斯文") for k in range(40)])
     assert {it["id"] for _, it in retrieval.rank(items, ["布里斯班"], subword=False)} == {"bne1", "bne2"}
-    assert len(retrieval.rank(items, ["布里斯班"])) > 2   # 她原话里的稀有词照旧回退（目录 / 问收藏的原词路）
+    assert len(retrieval.rank(items, ["布里斯班"])) > 2   # 用户原话里的稀有词照旧回退（目录 / 问收藏的原词路）
     assert {it["id"] for _, it in retrieval.rank(items, ["布里斯班"], subword=False)} == \
         {it["id"] for _, it in retrieval.rank(items, ["布里斯班"], subword=False)}  # 记忆化按 subword 分开存
     monkeypatch.setattr(ask, "llm_expansions", lambda q, **k: {"terms": ["布里斯班"], "status": "cached"})
@@ -456,7 +456,7 @@ def test_four_entries_agree_with_semantic_and_expansion_on(four_entry, monkeypat
 # ── 7. 1020 首屏证据门槛：「可能相关」不再凑满 80 ──
 
 def test_window_is_not_padded_by_flat_semantic_band(monkeypatch):
-    """她 1019 的「房千cp」：真相关 1 篇（语义 0.62 + 原词全中），其余 70 多篇语义分挤在 0.41–0.50、原词只沾单字。
+    """作者 1019 的「房千cp」：真相关 1 篇（语义 0.62 + 原词全中），其余 70 多篇语义分挤在 0.41–0.50、原词只沾单字。
     以前语义前 40 名 + 语义检出全算证据 → 首屏凑满 80；现在只进有证据的。"""
     gold = _item("gold", "【房千房】我不是在吃醋", "房千 cp 甜文")
     noise = [_item(f"n{k:02d}", f"随手记{k}", "千字长文" if k < 10 else "无关正文") for k in range(90)]

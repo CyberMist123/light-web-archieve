@@ -1,4 +1,4 @@
-"""同步记录（10-03 她定）：`vault/_archive/sync-log.jsonl`，每次同步一行——目录页「同步记录」窗口的数据。
+"""同步记录（10-03 作者定）：`vault/_archive/sync-log.jsonl`，每次同步一行——目录页「同步记录」窗口的数据。
 
 一行 = 一次同步（插件「立即同步」/ 包内夜跑 / 仓外夜跑脚本 / 定时）：开始 · 结束 · 触发来源 · 新收几篇 ·
 正文 / 附件 / 视频 / 识图 / 概要 各几篇成功几篇失败（失败带标题和原因）· 步骤级报错。
@@ -17,7 +17,7 @@
 
 CLI：`python -m link_brain synclog list|begin|end|record|retry`（stdout 只有一行 JSON）。
 
-1011（她：「14:57 命令行 · 没有新内容」其实那趟收了 43 篇才被停掉；「夜跑在同步」其实是命令行；04:02 那条红的后来早好了）：
+1011（作者：「14:57 命令行 · 没有新内容」其实那趟收了 43 篇才被停掉；「夜跑在同步」其实是命令行；04:02 那条红的后来早好了）：
 - 收藏同步每存好 / 没抓到一篇就把攒着的写进去（`flush_progress`；以前只在命令结束时写，进程被结束那趟一条都留不下）；
   这一行记下抓取进程 `fetch_pid`，正常收尾标 `fetch_done`。读的时候抓取进程已经没了、又没正常收尾 = 「被中断」，
   照已经写进去的篇数说「被中断 · 已收 N 篇」。老记录（没有 fetch_pid、一条没写进去）按库里 first_archived_at
@@ -504,7 +504,7 @@ STEP_CN = {"catalog": "重写目录页", "catalog-final": "重写目录页（收
 
 def _problem_step(step: Any) -> str | None:
     """同步记录里的步骤名 → 问题记录里的 step：repair.nightly.catalog / nightly.catalog / catalog → nightly.catalog。
-    碰号的（收藏同步 / 登录 / 附件）不在这里认——那些照实挂着，等她处理或下次同步（docs/ERRORS.md：风控以外 0）。"""
+    碰号的（收藏同步 / 登录 / 附件）不在这里认——那些照实挂着，等用户处理或下次同步（docs/ERRORS.md：风控以外 0）。"""
     s = str(step or "")
     if s.startswith("repair."):
         s = s[len("repair."):]

@@ -221,7 +221,7 @@ def test_old_reader_without_comment_load_renders_plain_hint(tmp_path, monkeypatc
 
 
 def test_skip_post_is_left_out_of_background_fill(tmp_path, monkeypatch, capsys):
-    """1029 她：撞过风控的那篇不补了——--skip 后 survey / 后台续读都跳过，--unskip 撤回。"""
+    """1029 作者：撞过风控的那篇不补了——--skip 后 survey / 后台续读都跳过，--unskip 撤回。"""
     setup_env(tmp_path, monkeypatch)
     raw, cid = _fixture_with_gaps()
     calls = []
@@ -236,7 +236,7 @@ def test_skip_post_is_left_out_of_background_fill(tmp_path, monkeypatch, capsys)
     assert json.loads(capsys.readouterr().out)["skip"] is True
     assert comment_fill.survey()["ready"] == [] and comment_fill.survey()["pending"] == 0
     n = len(calls)
-    assert comment_fill.fill_one(f"xhs-{NOTE_ID}")["reason"] == "这篇她说不补了" and len(calls) == n
+    assert comment_fill.fill_one(f"xhs-{NOTE_ID}")["reason"] == "这篇你说不补了" and len(calls) == n
     assert cli.main(["comments", f"xhs-{NOTE_ID}", "--unskip"]) == 0
     capsys.readouterr()
     assert [e["item_id"] for e in comment_fill.survey()["ready"]] == [f"xhs-{NOTE_ID}"]

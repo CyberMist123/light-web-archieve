@@ -1,4 +1,4 @@
-// 1010 她报：笔记页「抓全部评论」提示说「底部状态栏能看进度」，其实没有进度。
+// 1010 作者报：笔记页「抓全部评论」提示说「底部状态栏能看进度」，其实没有进度。
 //   main.js fetchAllComments：调 `comments <id> --progress --wait-lock-min 10`，把后端一行一个的进度事件记进 plugin.commentFetch、
 //   发 'link-brain:comment-fetch'，底部状态栏「⟳ 抓全部评论 · 读评论区 0:05 / 下图 1/2」；做完留结果、过一会儿清掉。
 //   note-actions.js paintFetch：画在这篇（data-lb-item）评论区最上面一行 + 细条；别的笔记不画；读评论区时来回扫、下图按真计数；

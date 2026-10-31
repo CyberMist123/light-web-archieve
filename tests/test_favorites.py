@@ -139,7 +139,7 @@ def test_favorite_account_tag_is_deduplicated_and_survives_meta_rebuild(tmp_path
 
 
 def test_switching_account_syncs_whoever_is_logged_in(monkeypatch):
-    """1026 她定：没有「登错号」——登哪个号就同步哪个号；sync_account 只记上次同步的号，旧的登错号问题清掉。"""
+    """1026 作者定：没有「登错号」——登哪个号就同步哪个号；sync_account 只记上次同步的号，旧的登错号问题清掉。"""
     from link_brain import accounts, favorites as fav, problems
     monkeypatch.setattr("link_brain.alert._alert", lambda *a, **k: None)
     tagged = []

@@ -1,4 +1,4 @@
-"""1011：网页版限制的笔记（她收藏里有、浏览器里打开要「验证一下」，读取服务打开详情页、页面上没有这篇）。
+"""1011：网页版限制的笔记（用户收藏里有、浏览器里打开要「验证一下」，读取服务打开详情页、页面上没有这篇）。
 
 全部用假读取服务（monkeypatch fetch_detail / accounts.*），不联网、不碰号、不起组件。断言：
 - 读取组件的 `[NOTE_RESTRICTED]` 报错认成「只是这一篇」：不当成号出事（不停整批、不写熔断），风险码照样优先；
@@ -105,7 +105,7 @@ def _md() -> str:
 def test_reader_text_is_note_restricted_not_account_trouble():
     exc = xhs.tool_error("get_feed_detail", GO_TEXT)
     assert isinstance(exc, xhs.NoteRestrictedError) and not isinstance(exc, xhs.NeedsHumanError)
-    assert not xhs.looks_blocked(str(exc)), "给她看的话里不能有让别处当成「号出事」的字"
+    assert not xhs.looks_blocked(str(exc)), "给用户看的话里不能有让别处当成「号出事」的字"
     # 风险码永远优先（不放宽熔断）
     assert isinstance(xhs.tool_error("get_feed_detail", "[CAPTCHA_REQUIRED] x [NOTE_RESTRICTED]"), xhs.AccountBlockedError)
     assert isinstance(xhs.tool_error("get_feed_detail", "[RISK_HOLD] 熔断中"), xhs.AccountBlockedError)
@@ -150,7 +150,7 @@ def test_fill_restricted_not_found_is_one_quiet_item_and_is_skipped(env, monkeyp
     st = restricted.load(NOTE_ID)
     assert st["restricted"] is True and st["search"]["result"] == "not_found"
     rows = _rows()
-    assert rows == [] and pushed == []  # 1017 她：原帖是真的不见了——网页版打不开不进问题面板
+    assert rows == [] and pushed == []  # 1017 作者：原帖是真的不见了——网页版打不开不进问题面板
     # 不算评论「没进展」，也不报 COMMENTS_INCOMPLETE
     cf = comment_fill.load_state("xiaohongshu", NOTE_ID)
     assert not cf.get("no_progress") and not cf.get("stuck")
@@ -163,7 +163,7 @@ def test_fill_restricted_not_found_is_one_quiet_item_and_is_skipped(env, monkeyp
     # 第二次（同一天，又被手动点了一次「再试一次」）：照试一次，但今天不再搜；问题还是一条、次数不刷
     out2 = comment_fill.fill_one(ITEM, manual=True)
     assert out2["restricted"] is True and len(searched) == 1, "每篇每天最多搜一次"
-    assert _rows() == []  # 1017 她：原帖是真的不见了——网页版打不开不进问题面板
+    assert _rows() == []  # 1017 作者：原帖是真的不见了——网页版打不开不进问题面板
     # 后台（非手动）直接跳过、不开页
     n = len(calls)
     assert comment_fill.fill_one(ITEM)["restricted"] is True and len(calls) == n
@@ -217,7 +217,7 @@ def test_legacy_given_up_fill_is_released_once_then_classified(env, monkeypatch,
     args = SimpleNamespace(until_done=False, budget_min=0, limit=0, verbose=False, wait_lock_min=0.01, then_background=False)
     assert comment_fill.run(args, sleep=lambda s: None) == 0
     capsys.readouterr()
-    assert len(calls) == 1 and restricted.is_restricted(NOTE_ID) and _rows() == []  # 1017 她：原帖是真的不见了——网页版打不开不进问题面板
+    assert len(calls) == 1 and restricted.is_restricted(NOTE_ID) and _rows() == []  # 1017 作者：原帖是真的不见了——网页版打不开不进问题面板
     # 别的原因放弃的不动
     comment_fill.save_state("xiaohongshu", NOTE_ID, {"stuck": True, "stuck_floors": 10, "stuck_reason": "这楼当时没展开"})
     assert restricted.release_legacy_fill_stuck() == []
@@ -291,7 +291,7 @@ def test_attachment_restricted_no_triple_retry_and_skipped_after(env, monkeypatc
     assert fetches == ["FAKE_TOKEN_FOR_TESTS", "FRESH"], "不进 3 次循环：旧口令一次 + 新口令一次"
     assert [r["status"] for r in out["results"]] == ["restricted"]
     assert env.sleeps == [123.0]
-    assert restricted.is_restricted(NOTE_ID) and _rows() == []  # 1017 她：原帖是真的不见了——网页版打不开不进问题面板
+    assert restricted.is_restricted(NOTE_ID) and _rows() == []  # 1017 作者：原帖是真的不见了——网页版打不开不进问题面板
     assert _rows("attachments.download") == [], "不报「附件没下好」"
     state = storage.read_json(storage.object_dir("xiaohongshu", NOTE_ID) / "attachment-state.json")
     assert not state.get("download_backoff") and not state.get("errors"), "不进跨夜退避、卡片上不出「附件没下好」"
@@ -383,7 +383,7 @@ def test_note_verify_not_passed_keeps_mark(env, monkeypatch, capsys):
     assert out["ok"] is False and out["code"] == "NOTE_RESTRICTED" and "再点一次" in out["message"]
     assert restricted.is_restricted(NOTE_ID)
     assert restricted.load(NOTE_ID)["verify"]["result"] == "note_not_seen"
-    assert _rows() == []  # 1017 她：原帖是真的不见了——网页版打不开不进问题面板
+    assert _rows() == []  # 1017 作者：原帖是真的不见了——网页版打不开不进问题面板
 
 
 def test_note_verify_defers_to_account_hold_and_old_reader(env, monkeypatch, capsys):

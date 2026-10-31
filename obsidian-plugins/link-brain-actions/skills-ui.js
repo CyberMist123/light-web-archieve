@@ -1,4 +1,4 @@
-// skills-ui.js — 1015 设置页「技能」页签（她：照 claudian 插件的技能页：说明行 + 刷新 / ＋，空状态一句，隐藏列表输入框）。
+// skills-ui.js — 1015 设置页「技能」页签（作者：照 claudian 插件的技能页：说明行 + 刷新 / ＋，空状态一句，隐藏列表输入框）。
 // 技能放在收藏库的 _skills/<id>/SKILL.md（Anthropic Agent Skills 规范：frontmatter name / description + 正文），问收藏按 description 选用。
 // ＋ = 从本地文件夹导入：只拷文字文件（.md / .txt / .json / .yaml…），脚本、程序、图片一律不拷，也绝不执行（AGENTS.md 第 7 条：外来内容只当数据）。
 // 隐藏列表存 settings.skills.hidden（id 数组），问收藏不自动选用这些；文件不删。

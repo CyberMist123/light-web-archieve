@@ -85,7 +85,7 @@ def owner_item_id(path: Path) -> str | None:
 
 
 def find_visible_by_item_id(item_id: str, root: Path | None = None) -> list[Path]:
-    """可见目录（含子目录）里属于这个对象的所有 md，新的在前（1001，审计 render-8：她改了名 / 挪了位置）。
+    """可见目录（含子目录）里属于这个对象的所有 md，新的在前（1001，审计 render-8：用户改了名 / 挪了位置）。
 
     `_` / `.` 开头的子目录（_media 之类）不看；每个文件只读开头一段，frontmatter 就在那。
     1029：默认从各来源共用的上层 `Web/` 扫（B 站笔记在 `Web/Bilibili`）。
@@ -414,7 +414,7 @@ def split_layers(existing_text: str | None) -> tuple[str | None, str | None]:
     return existing_text[start:end], None
 
 
-# 批次 D · F1-c：受管块外的行，哪些是机器碎片（残缺的 HTML / 标记 / 围栏），其余算她手写
+# 批次 D · F1-c：受管块外的行，哪些是机器碎片（残缺的 HTML / 标记 / 围栏），其余算用户手写
 MACHINE_FRAGMENT = re.compile(
     r'class="lb-|<!--\s*link-brain|\[!(?:link-brain|lb-)|^```|annotate-view\.js|'
     r'^</?(?:div|section|figure|article|img|video|audio|details|summary|span|br|p)\b'
@@ -423,7 +423,7 @@ _DVJS_RE = re.compile(r"```dataviewjs\r?\n.*?```", re.S)
 
 
 def stray_human_lines(text: str | None) -> tuple[list[str], list[str]]:
-    """受管块之外的行 → (她手写的, 机器碎片)。新渲染的笔记两列都为空。"""
+    """受管块之外的行 → (用户手写的, 机器碎片)。新渲染的笔记两列都为空。"""
     if not text:
         return [], []
     body = text
@@ -484,7 +484,7 @@ def merge_existing(primary: str | None, secondary: str | None) -> str | None:
     """同一个对象有两份可见 md 时（改名前后各一份），把**手写的部分**并成一份再渲染。
 
     2026-09-04 去掉文件名的 `__<id8>` 后缀时踩到：`家克…` 那篇的干净名字上已经躺着一份旧文件，
-    里面有 Owner 手写的 `time/finder/from/comment`。直接改名会把她的东西盖掉，所以这里做并集：
+    里面有 Owner 手写的 `time/finder/from/comment`。直接改名会把用户的东西盖掉，所以这里做并集：
     tag 取并、Owner 自己加的 frontmatter 键 primary 优先、留言层把 secondary 里多出来的行接上。
     机器生成的 content 层不用管，本来就要重写。
     """
@@ -545,7 +545,7 @@ def strip_auto_link_comment(note_text: str) -> tuple[str, bool]:
     """去掉自动生成的、纯链接的 cmt1 留言（Owner 2026-09-16：旧笔记顶上那条短链留言噪音）。
 
     只动**自动生成**的 cmt1（`actor=human target=none`）且它去掉链接后没剩真话的；
-    她手写的留言、或带真话的 cmt1 一律不碰。
+    用户手写的留言、或带真话的 cmt1 一律不碰。
     """
     block, _ = split_layers(note_text)
     if not block:
@@ -668,7 +668,7 @@ def body_paragraph_spans(text: str) -> list[tuple[int, int]]:
 
 HIGHLIGHT_RE = re.compile(r"==([^=\n]{1,300})==")
 MARK_RE = re.compile(r"<mark>(.*?)</mark>", re.S)
-# 1015 她：划重点默认黄色，可以换几种颜色——非黄色的写成 <mark class="lb-hl-绿">（默认黄 = 不带 class，和以前的 <mark> 一样）
+# 1015 作者：划重点默认黄色，可以换几种颜色——非黄色的写成 <mark class="lb-hl-绿">（默认黄 = 不带 class，和以前的 <mark> 一样）
 HL_COLORS = ("yellow", "green", "blue", "pink", "purple")
 ANY_MARK_RE = re.compile(r'<mark(?:\s+class="lb-hl-([a-z]+)")?>(.*?)</mark>', re.S)
 
@@ -703,7 +703,7 @@ def existing_content_layer(text: str | None) -> str | None:
 def collect_highlights(text: str | None) -> list[str]:
     """把已划的重点收集成**原文片段**（长的排前，避免短的先吃掉长的）。
 
-    Owner 2026-09-15：正文改成 HTML 后，高亮走 `<mark>`（她命令加的、或在源码模式手写的都认）；
+    Owner 2026-09-15：正文改成 HTML 后，高亮走 `<mark>`（用户命令加的、或在源码模式手写的都认）；
     仍兼容旧的 `==重点==`。marks 存在 md 里，每次 render 从上一版收集、贴回去——自持久，不另建存储。
     """
     if not text:
@@ -829,7 +829,7 @@ def set_highlight(item_id: str, phrase: str, *, remove: bool = False) -> tuple[P
 
 def _author_html(note: dict[str, Any]) -> str:
     """作者那一行（圆点 + 昵称 + 日期）。这块没人要编辑，留在 HTML 里。
-    10-04 她定：IP 属地（ip_location）不在可见笔记里显示；RAW（source.json）里照旧留着，重渲染即去掉旧笔记里的。"""
+    10-04 作者定：IP 属地（ip_location）不在可见笔记里显示；RAW（source.json）里照旧留着，重渲染即去掉旧笔记里的。"""
     author = (note.get("author") or {}).get("nickname") or "匿名"
     meta = _date(note.get("published_at")) or ""
     return "".join([
@@ -898,7 +898,7 @@ def _meta_md(note: dict[str, Any], meta: dict[str, Any], object_rel: str) -> lis
     """笔记顶上那条灰色小字：原文链接 · 机读版 · 附件。
 
     全是 Obsidian 自己的链接（`[…](http)` / `[[vault 路径]]`），所以必须在 HTML 块外面。
-    机读版就是 `derived/agent.md`——Owner 说她在 Obsidian 里看不到机读视角，这条就是入口。
+    机读版就是 `derived/agent.md`——Owner 说用户在 Obsidian 里看不到机读视角，这条就是入口。
     """
     files = _attachments_md(note.get("attachments") or [], object_rel)
     return ["> [!link-brain-file]", *files] if files else []
@@ -982,7 +982,7 @@ _TOP_KEY_RE = re.compile(r"([^\s:#-][^:]*?):(?:\s+(.*))?$")
 def _tolerant_yaml(block: str) -> dict[str, Any] | None:
     """frontmatter → dict；整段 YAML 解析不了时逐个顶层键再试（1001，审计 ui-5）。
 
-    她在源码模式手写 `comment: 注意: 要回看` 这种（值里带「冒号+空格」）整段 YAML 就失效；
+    用户在源码模式手写 `comment: 注意: 要回看` 这种（值里带「冒号+空格」）整段 YAML 就失效；
     以前当成没有 frontmatter，接着被当成「别人的文件」改名、手写键全丢。
     这里单行的 `键: 值` 解析不了就把值当原样字符串；还有别的解析不了的返回 None（= 写坏了，调用方原样保留）。
     """
@@ -1125,7 +1125,7 @@ def render_visible_md(
     fm += extra_frontmatter_lines(existing_text)
     fm += ["---"]
     if frontmatter_broken(existing_text):
-        # 1001（审计 ui-5）：她手写的 frontmatter 连逐键容错都解析不了——整段原样保留，别重写成机器版、丢她的键
+        # 1001（审计 ui-5）：用户手写的 frontmatter 连逐键容错都解析不了——整段原样保留，别重写成机器版、丢用户的键
         fm = FRONTMATTER_RE.match(existing_text).group(0).rstrip("\r\n").split("\n")
 
     comments_block, _ = split_layers(existing_text)
@@ -1570,13 +1570,13 @@ def render_object(
     old_visible = None if target else meta.get("visible_note")
     old_path = storage.vault_root() / old_visible if old_visible else None
     if not target and (old_path is None or not old_path.exists()):
-        # 1001（审计 render-8）：meta 记的路径没文件了 = 她在 Obsidian 里改了名或挪了位置。
-        # 先按 frontmatter 的 item_id 在可见目录（含子目录）里找回那份，沿用她的名字和位置，别另写一份干净的
+        # 1001（审计 render-8）：meta 记的路径没文件了 = 用户在 Obsidian 里改了名或挪了位置。
+        # 先按 frontmatter 的 item_id 在可见目录（含子目录）里找回那份，沿用用户的名字和位置，别另写一份干净的
         found = find_visible_by_item_id(meta["item_id"])
         if found:
             old_path = found[0]
             if old_path != visible_path:
-                meta["visible_note_pinned"] = True  # 她自己定的名字 / 位置：之后标题变了也不挪回去
+                meta["visible_note_pinned"] = True  # 用户自己定的名字 / 位置：之后标题变了也不挪回去
             if len(found) > 1:
                 print(f"[render] {meta['item_id']} 可见目录里有 {len(found)} 份同一篇，沿用最新改动的 "
                       f"{old_path.name}", file=sys.stderr)

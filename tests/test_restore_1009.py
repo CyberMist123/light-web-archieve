@@ -132,7 +132,7 @@ def test_restore_path_pins_when_item_id_deleted(obj):
 def test_restore_renamed_and_moved_note(obj):
     sub = storage.visible_dir() / "子目录"
     sub.mkdir()
-    moved = sub / "她改的名字.md"
+    moved = sub / "用户改的名字.md"
     obj["vis"].rename(moved)
     rel = str(moved.relative_to(storage.vault_root())).replace("\\", "/")
     out = restore.restore(path=rel)
@@ -189,7 +189,7 @@ def test_cli_json_and_exit_code(obj, capsys):
 
 
 # --------------------------------------------------------------------------
-# 1026 她（录屏 20:51）：「从快照中找回就成为这个样子」——快照多半是「恢复前」存下的那份坏页面（真库那篇：两栏正文块
+# 1026 作者（录屏 20:51）：「从快照中找回就成为这个样子」——快照多半是「恢复前」存下的那份坏页面（真库那篇：两栏正文块
 # 从第 8 张图中间断掉，15 张图只剩 8 张、作者 / 标题 / 正文全没了），以前「从快照找回」把它原样写回去，页面就是坏的。
 # --------------------------------------------------------------------------
 
@@ -204,7 +204,7 @@ def _truncated(clean: str) -> str:
 
 
 def _with_mine(t: str) -> str:
-    """她写的：一条留言 + 一个属性（快照找回要把这些取回来）。"""
+    """用户写的：一条留言 + 一个属性（快照找回要把这些取回来）。"""
     t = t.replace("---\ncssclasses", "---\nmood: 想再看\ncssclasses", 1)
     return t.replace(render_mod.COMMENTS_START + "\n", render_mod.COMMENTS_START + "\n"
                      "> [!link-brain-comment]\n> 「20261026 人」快照里的留言\n"
@@ -239,7 +239,7 @@ def test_recover_broken_snapshot_rebuilds_instead_of_writing_it_back(obj):
     assert restore.diagnose(after) == [], "找回后页面正常，不是那份坏的"
     assert after.count('<div class="lb-note') == 1 and '<div class="lb-main"' in after
     fm = render_mod.parse_frontmatter(after)
-    assert fm["mood"] == "想再看" and "快照里的留言" in after, "她写的从快照里取回来了"
+    assert fm["mood"] == "想再看" and "快照里的留言" in after, "用户写的从快照里取回来了"
     assert "页面是坏的（两栏正文块被换行拆开了）" in out["message"] and "取回了你写的 1 个属性、1 条留言" in out["message"]
     # 撤销：回到找回前那一版（原样）
     u = restore.undo(obj["item_id"], snapshot=out["snapshot"])

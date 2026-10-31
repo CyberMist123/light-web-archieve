@@ -148,7 +148,7 @@ def test_favorites_captcha_stops_without_retry(clean, monkeypatch):
     # 第 4 批：推送只有 problems.report 一个出口——同步的结论由 sync_state.record 登记（_run 每次都调）
     from link_brain import problems, sync_state
     sync_state.record('finished', payload=out)
-    assert len(alerts) == 0  # 1019 她：验证先冷却自查，不当场叫她
+    assert len(alerts) == 0  # 1019 作者：验证先冷却自查，不当场叫用户
     assert [(r['step'], r['code']) for r in problems.load()] == [('login', 'TRANSIENT.NIGHT_CAPTCHA')]
 
 

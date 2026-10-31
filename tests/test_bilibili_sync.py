@@ -303,7 +303,7 @@ def test_run_sync_parallel_prefetches_ahead_and_falls_back_on_rate_limit(vault, 
 
 
 def test_long_list_for_picking(monkeypatch):
-    """1031 她：超过时长上限、还没入库的列出来让她勾；已放行的标 chosen；失效 / 多 P / 已入库 / 删掉的不列；只读本地快照。"""
+    """1031 作者：超过时长上限、还没入库的列出来让用户勾；已放行的标 chosen；失效 / 多 P / 已入库 / 删掉的不列；只读本地快照。"""
     from link_brain import index as index_mod
     root = favorites.sync_root() / "folders"
     root.mkdir(parents=True, exist_ok=True)

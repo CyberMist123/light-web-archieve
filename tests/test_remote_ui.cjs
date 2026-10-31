@@ -1,4 +1,4 @@
-// 1009 设置页「连接 AI」+「高级 → 远程服务」；1010 她：设置页分栏后是「连接其他 AI」一整栏，远程访问的东西都在这一栏（高级在最下面一个折叠里）。
+// 1009 设置页「连接 AI」+「高级 → 远程服务」；1010 作者：设置页分栏后是「连接其他 AI」一整栏，远程访问的东西都在这一栏（高级在最下面一个折叠里）。
 // 不起真进程（CONVENTIONS §7.5）：runPy 是替身，按子命令回预设 JSON；Obsidian 的 Setting / Modal / Notice / FuzzySuggestModal 是假的。
 // 断言：attach 把 data.json 的 remote 段挂回 settings；勾了哪个客户端就出哪一步（本机一键写配置 / 撤销；网页一屏给全）；
 // 远程服务开关先存再 enable、注册失败退回；域名格式不对不存；口令只走 stdin、令牌只在弹窗里出现，都不进 settings（= data.json）；
@@ -45,7 +45,7 @@ class FakeModal {
   open() { modals.push(this); this.opened = this.onOpen && this.onOpen(); }
   close() { this.closed = true; this.onClose && this.onClose(); }
 }
-let fuzzyPick = null;   // 「从库内选…」弹窗里她选哪一个
+let fuzzyPick = null;   // 「从库内选…」弹窗里用户选哪一个
 class FakeFuzzy extends FakeModal {
   setPlaceholder(p) { this.placeholder = p; }
   open() { modals.push(this); this.items = this.getItems(); const hit = this.items.find(i => this.getItemText(i) === fuzzyPick); if (hit) this.onChooseItem(hit); this.onClose(); }
@@ -245,7 +245,7 @@ const LOCAL = { ok: true, clients: { 'claude-code': { installed: true, connected
     env = makePlugin({ remote: { enabled: true, domain: '', folders: ['@xhs'] } }, { 'remote status': STATUS_RUNNING });
     const real = env.plugin.runPy; let statusRuns = 0;
     env.plugin.runPy = async (args, opts) => {
-      if (args[3] === 'status') { if (args[2] === 'remote') statusRuns++; await gate; }   // 状态读得慢：她已经开始打字了
+      if (args[3] === 'status') { if (args[2] === 'remote') statusRuns++; await gate; }   // 状态读得慢：用户已经开始打字了
       return real(args, opts);
     };
     r = factory(obsidian, env.plugin); await r.attach(); settings.length = 0;

@@ -1,5 +1,5 @@
 // usage-ui.js — 设置页④「AI 控制台」（1027 设置页六组；接 1026 的三种看法和每次调用）。
-//   一行：今天 ¥ · 本月 ¥ · 每天最多花 ¥[输入框]（budget.dailyYuan，只拦后台付费的补处理，她手动问收藏不拦）；
+//   一行：今天 ¥ · 本月 ¥ · 每天最多花 ¥[输入框]（budget.dailyYuan，只拦后台付费的补处理，用户手动问收藏不拦）；
 //   点开是左右两栏：左边一张折线（固定 190px 高，绝不撑出去；只画真花了钱的——免费 / 未计费、未计价的不画成 ¥0），
 //   右边 服务商 / 模型 / 功能 切换 + 近 7 / 30 天 + 一张小表（含「免费 / 未计费」「未计价」两行）；下面「每次调用」一行一次可追溯到哪一篇。
 // 数据只来自后端 `link_brain usage`（CONVENTIONS §1 最后一行 JSON）：summary.windows（表）· summary.series（折线，usage.series）·
@@ -23,7 +23,7 @@ module.exports = function (obsidian, plugin) {
     try { window.open(url); } catch (e) { console.error('[lb] 网页没打开', e); }
   };
 
-  // 一格金额：只按真算出来的钱写 ¥；免费的写「免费 / 未计费」（本机命令行、Gemini 免费 key 池，她 1023 拍板：不算进 ¥）；
+  // 一格金额：只按真算出来的钱写 ¥；免费的写「免费 / 未计费」（本机命令行、Gemini 免费 key 池，作者 1023 拍板：不算进 ¥）；
   // 价格表里查不到的写「未计价」，不编数、不当 0
   function moneyText(v) {
     v = v || {};

@@ -13,7 +13,7 @@ def _rerender(obj):
 
 
 def _human_after_annotate(text: str, lines: list[str]) -> str:
-    """在批注 dataviewjs 块之后（文件尾）加她手写的几行。"""
+    """在批注 dataviewjs 块之后（文件尾）加用户手写的几行。"""
     return text.rstrip("\n") + "\n\n" + "\n\n".join(lines) + "\n"
 
 

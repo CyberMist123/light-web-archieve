@@ -6,7 +6,7 @@
 //   ⑤ C4：聚焦搜索框打字，中间 Dataview 重跑 3 次 → 字不丢、焦点还在
 //   ⑥ C9：第一排是排名前 N 篇（rect.top 相差 ≤ 2、按 x 递增）；视口 1280 → 900 列数变了、带标记的卡片元素还在（没重建）
 //   ⑦ C2：点 ☆ 之后那张卡原地不动（rect 前后一样）、变成 ★
-//   ⑧ X14c：先开问收藏页（它的 head 样式里抄过 .lbc-star{opacity:0}）再开目录 → 没收藏的 ☆ 计算 opacity 是 0（1008 18:50 她：平时隐藏，悬停才出现）
+//   ⑧ X14c：先开问收藏页（它的 head 样式里抄过 .lbc-star{opacity:0}）再开目录 → 没收藏的 ☆ 计算 opacity 是 0（1008 18:50 作者：平时隐藏，悬停才出现）
 // 截图进 LWA_QA_DIR（默认系统临时目录下 lwa-qa；施工时设成 <worktree>/qa，不提交）
 'use strict';
 const assert = require('node:assert/strict');
@@ -39,7 +39,7 @@ const shell = require('../_obsidian_shell.cjs');
         const dock = await page.evaluate(() => { const d = document.querySelector('.lbc-totop-dock'); const b = d.querySelector('.lbc-totop').getBoundingClientRect(); return { on: d.classList.contains('is-on'), bottom: b.bottom, vh: innerHeight }; });
         assert.ok(dock.on, `${tag}：滚过 600 出现回顶钮`);
         assert.ok(dock.bottom <= dock.vh - 18 && dock.bottom >= dock.vh - 80, `${tag}：回顶钮钉在视口底部附近 ${JSON.stringify(dock)}`);
-        // ③ 多选栏在顶栏里；1500 处首次勾选，鼠标下那张卡相对吸顶区底边不动（a8bbfc4 / 1019 她：吸顶区变高时卡片跟着往下让、不被多选栏盖住——
+        // ③ 多选栏在顶栏里；1500 处首次勾选，鼠标下那张卡相对吸顶区底边不动（a8bbfc4 / 1019 作者：吸顶区变高时卡片跟着往下让、不被多选栏盖住——
         //    原来断言「绝对位置不动」，那一版起卡片会正好下移一个多选栏的高度，这条一直红着；1021 改成量离吸顶区底边的距离）
         const pick = await page.evaluate(() => {
           const top = document.querySelector('.lbc-top').getBoundingClientRect().bottom;

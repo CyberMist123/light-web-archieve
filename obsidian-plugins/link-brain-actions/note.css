@@ -8,7 +8,7 @@
    拷进 lb-page-lib.js 的 LB_SHARED_CSS（页面，手机上也有）、插件 styles.css（设置页）、link-brain.css / note.css（笔记页）。
    tests/test_tokens_1027.py 锁住四份逐字相同。规则：新界面只用这里的名字（CONVENTIONS「样式集」），不再手写字体栈 / 字号 / 灰。
    黑白为主：颜色全映射到 Obsidian 主题变量，深浅色都跟着走；橙 / 红只给状态。
-   她能改的五个（目录「Aa 样式」，存插件设置 catalogLayout.theme）：标题字体 / 正文字体 / 数字字体 / 字号倍数 / 卡片间距，
+   用户能改的五个（目录「Aa 样式」，存插件设置 catalogLayout.theme）：标题字体 / 正文字体 / 数字字体 / 字号倍数 / 卡片间距，
    由 LB.applyTheme / plugin.applyTheme 写成页面根上的行内变量，只在 body 上给默认值。 */
 body{--lb-warn:var(--text-warning,var(--color-orange));--lb-warn-bg:var(--background-secondary);--lb-warn-border:var(--background-modifier-border);--lb-danger:var(--text-error);--lb-danger-bg:var(--background-secondary);--lb-ok:var(--text-success,var(--color-green));--lb-star:var(--color-yellow,#d9a21b);}
 @supports (color: color-mix(in srgb, red, blue)){body{--lb-warn-bg:color-mix(in srgb,var(--lb-warn) 14%,var(--background-primary));--lb-warn-border:color-mix(in srgb,var(--lb-warn) 35%,var(--background-modifier-border));--lb-danger-bg:color-mix(in srgb,var(--text-error) 12%,var(--background-primary));}}
@@ -291,7 +291,7 @@ body,.lb-page-host,.lb-scope{--lb-ink:var(--text-normal);--lb-muted:var(--text-m
   border-radius: 3px;
   padding: 0 2px;
 }
-/* 1015 她：划重点默认黄色，可换绿 / 蓝 / 粉 / 紫；点一下已划的出小条（换色 / 取消） */
+/* 1015 作者：划重点默认黄色，可换绿 / 蓝 / 粉 / 紫；点一下已划的出小条（换色 / 取消） */
 .xhs-note mark { background: rgba(255, 214, 10, .42); color: inherit; }
 .theme-dark .xhs-note mark { background: rgba(255, 214, 10, .32); }
 .xhs-note mark.lb-hl-green { background: rgba(80, 200, 120, .34); }
@@ -311,7 +311,7 @@ body.lb-actions-on .xhs-note .lb-scroll mark { cursor: pointer; }
 .lb-hl-pop .lb-hl-dot-purple { background: rgb(170, 120, 255) !important; }
 .lb-hl-pop .lb-hl-off { height: auto !important; padding: 1px 6px !important; border: 0 !important; background: transparent !important; color: var(--text-muted); font-size: 12px; }
 .lb-hl-pop .lb-hl-off:hover { color: var(--text-normal); }
-/* 1015 她：正文下面「视频文字稿 / 视频画面文字」折叠标题改小字、浅色 */
+/* 1015 作者：正文下面「视频文字稿 / 视频画面文字」折叠标题改小字、浅色 */
 .xhs-note details.lb-transcript > summary { font-size: 12px; color: var(--text-faint); font-weight: 400; cursor: pointer; }
 .xhs-note details.lb-transcript > summary:hover { color: var(--text-muted); }
 
@@ -616,7 +616,7 @@ body.lb-actions-on .xhs-note .lb-scroll mark { cursor: pointer; }
 /* Evidence stays in the existing reader; no extra window. */
 .lb-evidence-bar{position:sticky;top:0;z-index:8;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;background:var(--background-primary);border-bottom:1px solid var(--background-modifier-border);font-size:12px;}
 .lb-evidence-bar details{max-width:100%;}.lb-evidence-bar blockquote{max-height:180px;overflow:auto;white-space:pre-wrap;}
-/* 1026 她：不要紫色框——淡黄底，像荧光笔 */
+/* 1026 作者：不要紫色框——淡黄底，像荧光笔 */
 .lb-evidence-hit{outline:none!important;background:rgba(255,214,102,.38)!important;border-radius:3px;}
 /* 1022 落到图 / 视频上：描圈会被轮播裁掉，改外发光脉冲 */
 .lb-media-hit{outline:none!important;box-shadow:0 0 0 3px rgba(255,190,70,.75)!important;border-radius:6px;}
@@ -707,7 +707,7 @@ body.lb-actions-on .xhs-note .lb-tags .lb-tag:hover { text-decoration: underline
 /* N6：评论图预写的 width/height 只做占位（防跳），高度仍按比例由宽度算，不让 height 属性变成真高度 */
 .xhs-note .lb-comment-image { height: auto; }
 
-/* ── 1011 她：打开一篇先露出原始 Markdown（属性块 + 带 link_brain 的 JSON、蓝色「Lb topbar」框、<!-- link-brain:content:start -->）再变正常页 ──
+/* ── 1011 作者：打开一篇先露出原始 Markdown（属性块 + 带 link_brain 的 JSON、蓝色「Lb topbar」框、<!-- link-brain:content:start -->）再变正常页 ──
    插件已让归档笔记直接以阅读视图打开（main.js previewOpenState）；这里是不靠 cssclasses 的第二道：cssclasses 要等 Obsidian
    解析完这篇的属性才挂到视图上，早一两帧视图上还没有 .xhs-note，上面那些 .xhs-note 规则全不生效。只用归档笔记独有的东西认：
    ①属性里有 link_brain 的属性块直接不显示；②顶栏 callout（lb-topbar 是我们自己的类型）不靠 .xhs-note 也去框、去标题；
@@ -730,13 +730,13 @@ body.lb-actions-on .xhs-note .lb-tags .lb-tag:hover { text-decoration: underline
 .xhs-note .lb-media-pin[aria-pressed=true]{color:rgb(0 0 0 / .85);}
 .theme-dark .xhs-note .lb-counter,.theme-dark .xhs-note .lb-media-pin{background:rgb(0 0 0 / .42);color:rgb(255 255 255 / .85);}
 
-/* 1026 她「你看它不是全屏」：视频「全屏」= 整块（画面 + 倍速 / 循环 / 连播那一行）铺满屏幕（media-nav fullscreen；不支持时 .lb-fs-fallback 铺满窗口） */
+/* 1026 作者「你看它不是全屏」：视频「全屏」= 整块（画面 + 倍速 / 循环 / 连播那一行）铺满屏幕（media-nav fullscreen；不支持时 .lb-fs-fallback 铺满窗口） */
 .xhs-note .lb-media.is-lb-fullscreen { background: #000; display: flex; flex-direction: column; justify-content: center; width: 100vw; height: 100vh; max-width: none; margin: 0; padding: 0; border-radius: 0; }
 .xhs-note .lb-media.is-lb-fullscreen .lb-carousel { flex: 1 1 auto; min-height: 0; height: auto !important; max-height: none !important; }
 .xhs-note .lb-media.is-lb-fullscreen .lb-slide { height: 100% !important; max-height: none !important; display: flex; align-items: center; justify-content: center; background: #000; }
 .xhs-note .lb-media.is-lb-fullscreen .lb-slide video, .xhs-note .lb-media.is-lb-fullscreen .lb-slide img { width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; object-fit: contain; border-radius: 0; }
-.xhs-note .lb-media.is-lb-fullscreen .lb-media-tools { display: none !important; }   /* 1031 她：全屏不显示这一行（Esc / 双击画面退出） */
-/* 1031 她：播放中这一行收起，鼠标在画面上动才露 2 秒（media-nav 挂 .lb-playing / .lb-tools-awake）；盖过悬停 / focus-within 常显 */
+.xhs-note .lb-media.is-lb-fullscreen .lb-media-tools { display: none !important; }   /* 1031 作者：全屏不显示这一行（Esc / 双击画面退出） */
+/* 1031 作者：播放中这一行收起，鼠标在画面上动才露 2 秒（media-nav 挂 .lb-playing / .lb-tools-awake）；盖过悬停 / focus-within 常显 */
 .xhs-note .lb-media.lb-playing:not(.lb-tools-awake) .lb-media-tools { opacity: 0 !important; pointer-events: none; }
 .xhs-note .lb-media.is-lb-fullscreen .lb-media-tools button { color: #fff; }
 .xhs-note .lb-media.is-lb-fullscreen .lb-media-pin { display: none; }

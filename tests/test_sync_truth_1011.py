@@ -1,4 +1,4 @@
-"""1011 她的三张截图：同一时刻三处数对不上、同步记录说错来源 / 把被停的一趟记成「没有新内容」/ 早好了的报错还红着。
+"""1011 作者的三张截图：同一时刻三处数对不上、同步记录说错来源 / 把被停的一趟记成「没有新内容」/ 早好了的报错还红着。
 
 - 数（fav_counts 一份口径）：进度条（favorites._Live）、同步记录第一排（synclog.backlog）、setup backfill 同一组 (总数, 已入库, 还差)。
 - 来源：没人看着（LINK_BRAIN_UNATTENDED）= 夜跑 / 定时，哪怕在控制台里（夜跑脚本由计划任务起在控制台，isatty 为真）。
@@ -143,7 +143,7 @@ def test_killed_sync_shows_interrupted_with_what_it_stored(monkeypatch):
     def fake_ingest(url, **kw):
         nid = url.split("/explore/")[1].split("?")[0]
         if len(stored) == 3:
-            raise _Killed()          # 第 4 篇抓到一半，进程被结束（她 17:00 为换新代码停掉的那种）
+            raise _Killed()          # 第 4 篇抓到一半，进程被结束（用户 17:00 为换新代码停掉的那种）
         stored.append(nid)
         return {"hit": False, "note_id": nid, "item_id": f"xhs-{nid}", "title": f"标题-{nid}"}
 

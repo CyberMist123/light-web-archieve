@@ -55,7 +55,7 @@ HISTORY_TAIL_DEFAULT = 60
 HISTORY_TAIL_MAX = 500
 SEARCH_DEFAULT = 15        # 1015 第二批：十几个合适来源都列一行防漏（E 节）
 SEARCH_MAX = 50            # 1018：brief 一页 30–50 篇当目录翻
-BRIEF_SUMMARY_CHARS = 120  # 目录行概要上限（她 / Fable 定 80–120 字）
+BRIEF_SUMMARY_CHARS = 120  # 目录行概要上限（用户 / Fable 定 80–120 字）
 ROW_TAGS = 8
 SEARCH_HITS = 3            # 每篇最多几段命中原文
 SEARCH_HIT_CHARS = 240
@@ -334,7 +334,7 @@ def search(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
            **({"filters": filters} if filters else {})}
     if not total and filters.get("album"):
         names = _album_names()
-        out["note"] = (f"没有在「{filters['album']}」专辑里的篇；她的专辑：" + "、".join(names[:30])) if names \
+        out["note"] = (f"没有在「{filters['album']}」专辑里的篇；用户的专辑：" + "、".join(names[:30])) if names \
             else "专辑还没同步过（albums sync 还没跑过）"
     elif not total and filters.get("tag"):
         out["note"] = f"没有带「{filters['tag']}」标签的篇；库里相近 / 常用的标签：" + "、".join(_tag_suggestions(filters["tag"]))
@@ -353,7 +353,7 @@ def ask(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
     """问收藏（1018 v2.1 §5：有会话状态）。
     thread_id：上一轮返回的 turn.thread_id，追问带它最准；context:{previous_question, source_ids}：存不了状态的客户端带这个。
     都没带时只在问句是追问（第 N 篇 / 刚才 / 其他 / 那 X 呢）才取**同一凭据** 15 分钟内的最后一轮，回答第一行写明接的是哪一问；
-    绑不到又是指代型 → 不检索，直接问她是哪篇。指代解析（第 N 篇 → 单篇；其他 → 排除上一轮；那 X 呢 → 换对象）见 ask_followup。"""
+    绑不到又是指代型 → 不检索，直接问用户是哪篇。指代解析（第 N 篇 → 单篇；其他 → 排除上一轮；那 X 呢 → 换对象）见 ask_followup。"""
     from . import ask as ask_mod, ask_followup
     if not ctx.policy.xhs:
         raise Denied("NOT_OPEN", "收藏库没有开放给你")
@@ -805,7 +805,7 @@ def selections(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
             stamp = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
             prev = next((r for r in raw_rows if r.get("name") == name), None)
             if prev and not overwrite:
-                # 1019 她：同名合并（abc + bd = abcd），不覆盖；overwrite=true 才整组替换
+                # 1019 作者：同名合并（abc + bd = abcd），不覆盖；overwrite=true 才整组替换
                 old_ids = [str(i) for i in prev.get("ids") or []]
                 added = dict(prev.get("added") or {})
                 for i in old_ids:
@@ -1041,12 +1041,12 @@ TOOLS: list[dict[str, Any]] = [
      "description": ("搜我的收藏（小红书归档 + 开放的文件夹）：关键词或一句话都行，和「问收藏」同一套召回（词法 + 语义 + 扩词缓存），"
                      "不花模型钱。每条一行：id · 标题 · 作者 · 一句话概要 · 收藏日期 · kinds（video / attachment / pdf / image）· "
                      "hits（命中的原文段，每段标来源类型 type：body 正文 / ocr 图片文字 / comment_ocr 评论区图片 / comments 评论区（带 speaker 说话人）/ "
-                     "transcript 视频文字稿 / screen 视频画面文字 / attachments 附件 / notes 她的批注 / highlights 她划的重点；"
+                     "transcript 视频文字稿 / screen 视频画面文字 / attachments 附件 / notes 用户的批注 / highlights 用户划的重点；"
                      "loc = 图N / 楼号 cN，图可以用 read 的 images 路径交给 image 看原图）· agent_md。"
-                     "每条还带 tags（标签）、albums（她在小红书里放进的专辑，有才给）和 source_url（原帖链接）。"
+                     "每条还带 tags（标签）、albums（用户在小红书里放进的专辑，有才给）和 source_url（原帖链接）。"
                      "**当目录翻**：不给 query、detail='brief'、limit 30–50 = 按入库时间新→旧一页页翻（不加载正文，概要 ≤120 字，"
                      "没概要的用正文开头）；先自己扫一圈挑感兴趣的再 read(id)，别只靠检索替你筛。"
-                     "过滤：added_on（某天入库）/ added_since / added_until（入库日期段）/ tag（按标签）/ album（按她的专辑）——这几个筛空就是空；"
+                     "过滤：added_on（某天入库）/ added_since / added_until（入库日期段）/ tag（按标签）/ album（按用户的专辑）——这几个筛空就是空；"
                      "author / since / until（发帖日期，一篇都没有时退回入库日期）/ kinds 筛空时那一维不算。"
                      "默认一页 15 条；found = 一共几条，next_offset 不为 null 时带 offset 续取。"
                      "要看全文用 read(id)（别去 files 读 Web/Xiaohongshu 下给人看的页面）。每次搜索会记进搜索历史。"),
@@ -1057,7 +1057,7 @@ TOOLS: list[dict[str, Any]] = [
          "added_since": {"type": "string", "description": "入库日期从（YYYY-MM-DD）"},
          "added_until": {"type": "string", "description": "入库日期到（YYYY-MM-DD）"},
          "tag": {"type": "string", "maxLength": 40, "description": "只要带这个标签的（整词优先，没有再按包含；筛空会给相近标签）"},
-         "album": {"type": "string", "maxLength": 60, "description": "只要她放进这个小红书专辑的（专辑是她自己分的组，和标签不同；筛空会列出她有哪些专辑）"},
+         "album": {"type": "string", "maxLength": 60, "description": "只要用户放进这个小红书专辑的（专辑是用户自己分的组，和标签不同；筛空会列出用户有哪些专辑）"},
          "since": {"type": "string", "description": "发帖日期从（YYYY-MM-DD；一篇都没有时退回入库日期）"},
          "until": {"type": "string", "description": "发帖日期到（YYYY-MM-DD）"},
          "kinds": {"type": "array", "items": {"type": "string", "enum": ["video", "attachment", "pdf", "image"]},
@@ -1126,7 +1126,7 @@ TOOLS: list[dict[str, Any]] = [
          "remove_sources": {"type": "array", "items": {"type": "string"}, "description": "update：从这个主题拿掉的文章 id"}}},
      "annotations": _ann(False)},
     {"name": "selections",
-     "description": ("暗号（选集）：她把几篇存成一组，给名字或编号，之后一句话取回。action=list 按日期倒序列出（编号 · 名字 · 篇数）；"
+     "description": ("暗号（选集）：用户把几篇存成一组，给名字或编号，之后一句话取回。action=list 按日期倒序列出（编号 · 名字 · 篇数）；"
                      "get 取回每篇的标题和源文档路径——ref 可以是「最新」、编号「2」、多个「3,4,5」或连写「345」"
                      "（编号都小于 10 时拆成 3、4、5；正好有 345 号就取 345 号）、或名字；"
                      "save 把一组文章 id 存成新暗号（name 可选，不给就自动叫「暗号N」）。"),
@@ -1151,7 +1151,7 @@ TOOLS: list[dict[str, Any]] = [
                    "description": "要最后几行"}}},
      "annotations": _ann(True)},
     {"name": "index",
-     "description": ("她的收藏「索引树」（她自己在库根 索引.md 里写的多级分类，一个节点按标签 / 名字收笔记）。"
+     "description": ("用户的收藏「索引树」（用户自己在库根 索引.md 里写的多级分类，一个节点按标签 / 名字收笔记）。"
                      "不带 path = 整棵树和每个节点的篇数（先看这个，知道收藏大概分布）；path=节点路径（如「美食/菜谱」，也可以只写唯一的名字）"
                      " = 这个节点的笔记：id · 标题 · 日期 · 一句概要（分页）；path='unclassified' = 哪个节点都没收的。"
                      "一篇可以在几个节点里，父节点含子节点。要看全文用 read(id)。"),
@@ -1188,14 +1188,14 @@ TOOLS: list[dict[str, Any]] = [
                        "description": "读整页：这一页最多多少字符"}}},
      "annotations": _ann(True)},
     {"name": "guide",
-     "description": ("取「收藏深度报告 / 节点 wiki」的方法全文：她让你从收藏里整理一个主题（「我收藏里关于 X 有什么」"
+     "description": ("取「收藏深度报告 / 节点 wiki」的方法全文：用户让你从收藏里整理一个主题（「我收藏里关于 X 有什么」"
                      "「给 X 做个汇总 / wiki」）时，先取这个照着做：广搜、通读核心帖、抽具体对象、每条写出处和借鉴、7 类左右。"
                      "带 skill = 取某个问答技能的写法要求（同 skills get）。"),
      "inputSchema": {"type": "object", "additionalProperties": False, "properties": {
          "skill": {"type": "string", "description": "可选：技能 id（skills list 给出的），取它的写法要求"}}},
      "annotations": _ann(True)},
     {"name": "skills",
-     "description": ("问收藏的技能（写法要求）：action=list 列出有哪些（通用 / 菜谱 / wiki / 旅行攻略 / 调研对比 / 灵感陈列 + 她导入的）；"
+     "description": ("问收藏的技能（写法要求）：action=list 列出有哪些（通用 / 菜谱 / wiki / 旅行攻略 / 调研对比 / 灵感陈列 + 用户导入的）；"
                      "action=get + id 取正文。回答菜谱、攻略、汇总这类问题前先取对应技能，照它组织；内容从 search / read 拿。"),
      "inputSchema": {"type": "object", "additionalProperties": False, "properties": {
          "action": {"type": "string", "enum": ["list", "get"], "default": "list"},
@@ -1285,7 +1285,7 @@ def run_browse(args) -> int:
             continue
         tags = " ".join("#" + t for t in (r.get("tags") or [])[:5])
         albums = " ".join("〔" + a + "〕" for a in r.get("albums") or [])
-        src = f"〈{r['src']}〉" if r.get("src") else ""   # 1020：不是她自己收藏的标谁收的
+        src = f"〈{r['src']}〉" if r.get("src") else ""   # 1020：不是用户自己收藏的标谁收的
         print("｜".join(x for x in (r["id"], r.get("date") or "", r.get("title") or "", src, albums, tags, r.get("summary") or "") if x))
     if res.get("note"):
         print(res["note"])

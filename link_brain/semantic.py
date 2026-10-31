@@ -22,7 +22,7 @@ from . import storage
 DB_NAME = "semantic.db"
 # 切块目标：正文/附件/转写 ~200-500 字一块；短字段整块
 CHUNK_MIN, CHUNK_MAX = 200, 500
-# notes = 她自己的批注（第 10 批）：单独成块，批注改了只有这一块的 hash 变，增量 embed 只补它
+# notes = 用户自己的批注（第 10 批）：单独成块，批注改了只有这一块的 hash 变，增量 embed 只补它
 _CHUNK_FIELDS = ("body", "ocr", "attachments", "transcript", "screen", "comments", "comment_ocr", "notes", "highlights")
 _MIN_CHARS = {"notes": 2, "highlights": 2}  # 批注常常就几个字（「好吃」「复刻过」），也要有向量
 

@@ -23,6 +23,6 @@
 - `tests/guards-baseline.json`：「手写原子写」→ `{}`（`--write` 重写，diff 仅此一处）。
 - `tests/test_atomic_write_leftovers.py` 新建（4 条用例，见上表）。
 
-## 待她：一步
+## 待作者：一步
 
 无。合并后不用部署、不用重建目录。

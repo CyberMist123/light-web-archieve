@@ -1,9 +1,9 @@
-"""帖子的细分标签（10-11 她定）：**标签属于帖子**——一篇有哪些标签是事实；索引树只是把标签排成几级，从不改哪篇有哪个标签。
+"""帖子的细分标签（10-11 作者定）：**标签属于帖子**——一篇有哪些标签是事实；索引树只是把标签排成几级，从不改哪篇有哪个标签。
 
-- 存 `_archive/post-tags.json`：全库一份词表（规范名 + 别名，同义的并成一个）+ 每篇的标签（AI 打的 + 她手动加的 − 她手动去掉的）。
+- 存 `_archive/post-tags.json`：全库一份词表（规范名 + 别名，同义的并成一个）+ 每篇的标签（AI 打的 + 用户手动加的 − 用户手动去掉的）。
 - 只看标题 + 自带标签 + 概要（不读全文），宽一点打（一篇 2–6 个）；新收的 / 内容变了的才打，旧的不重打（不重复花钱）。
 - 每一次改动都追加一行进 `_archive/post-tags-history.jsonl`（谁：ai / human，改前 / 改后，时间），随时能按那一行恢复。
-- 她在目录页「归类…」里加 / 去掉 = 改这篇的标签（记成 human），AI 以后重打也压不过她。
+- 用户在目录页「归类…」里加 / 去掉 = 改这篇的标签（记成 human），AI 以后重打也压不过用户。
 - 节点那一行细分 chips = 这个节点的篇里出现的标签（篇数多的前 12 个，≥2 篇）——以后「树的节点 = 一个标签查询」也直接能用这份数据。
 模型输出一律当不可信数据：名字清洗、长度限制、空词不要。
 """
@@ -36,7 +36,7 @@ GENERIC = {"综合", "其他", "其它", "杂项", "未分类", "未归类", "�
 _CJK = re.compile(r"[㐀-鿿]")
 
 _INSTRUCTION = """给下面每篇收藏（编号. 标题｜自带标签｜概要）打几个「细分标签」，方便以后按标签筛：
-- 一篇 3–6 个，宽一点打（她要的是能筛，宁多勿少）：具体的东西 / 做法 / 主题 / 工具 / 地点（比如：空气炸锅、牛排、减脂、拌面、悉尼、做梦、情绪、换窗、Obsidian）；
+- 一篇 3–6 个，宽一点打（用户要的是能筛，宁多勿少）：具体的东西 / 做法 / 主题 / 工具 / 地点（比如：空气炸锅、牛排、减脂、拌面、悉尼、做梦、情绪、换窗、Obsidian）；
 - 每个标签 2–6 个字（英文按词，比如 Vibe Coding）；不要「教程」「分享」「推荐」「其他」这种空词，不要整句；
 - 【已有标签】里有意思一样的就直接用那个写法，别另起同义词；
 - 只看给出的标题、标签、概要，不要编。
@@ -136,7 +136,7 @@ class Vocab:
 
 
 def final_tags(p: dict[str, Any]) -> list[str]:
-    """一篇最后的标签 = AI 打的 + 她加的 − 她去掉的（她的永远赢）。"""
+    """一篇最后的标签 = AI 打的 + 用户加的 − 用户去掉的（用户的永远赢）。"""
     rm = {key(x) for x in p.get("human_remove") or []}
     out = []
     for t in [*(p.get("ai") or []), *(p.get("human_add") or [])]:
@@ -264,7 +264,7 @@ def run(vault: Path, items: list[dict[str, Any]], cfg: dict[str, Any] | None, me
     return done
 
 
-_MERGE_INSTRUCTION = """下面是她收藏库里的标签（名字｜篇数）。把**意思相同**的并成一个：同一个东西的不同写法 / 中英文 / 带不带前后缀 / 简称全称
+_MERGE_INSTRUCTION = """下面是用户收藏库里的标签（名字｜篇数）。把**意思相同**的并成一个：同一个东西的不同写法 / 中英文 / 带不带前后缀 / 简称全称
 （比如「AI记忆」「AI 记忆系统」并成一个；「Vibe coding」「vibecoding」并成一个；「人机恋」「人机恋爱」并成一个）。
 只并完全同义的：大类和小类不并（「巫师3」不并进「游戏」、「猫咪行为」不并进「宠物狗」）、相关但不同的不并（「空气炸锅」和「烤箱」、「做梦」和「情绪」）。拿不准就别并。
 to 用篇数多、最常见的那个写法；没有要并的就给空数组。
@@ -330,11 +330,11 @@ def merge_vocab(vault: Path, cfg: dict[str, Any] | None, meter, *, chunk: int = 
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 她手动改 / 恢复
+# 用户手动改 / 恢复
 # ═══════════════════════════════════════════════════════════════════════════
 
 def edit(ids: list[str], op: str, name: str, vault: Path | None = None) -> dict[str, Any]:
-    """她给几篇加 / 去掉一个标签（op = add / remove）：改这几篇的标签，记成 human，AI 以后压不过。返回撤销号（= 这批历史的 id）。"""
+    """用户给几篇加 / 去掉一个标签（op = add / remove）：改这几篇的标签，记成 human，AI 以后压不过。返回撤销号（= 这批历史的 id）。"""
     vault = vault or storage.vault_root()
     ids = [str(i) for i in dict.fromkeys(ids) if str(i).strip()]
     tag = clean(name)
@@ -381,7 +381,7 @@ def restore(entry_id: str, vault: Path | None = None) -> dict[str, Any]:
             cur = final_tags(p)
             want = list(r.get("before") or [])
             ai = list(p.get("ai") or [])
-            # 让「最后的标签」正好等于改之前：她的加 / 去掉按差额重写（AI 打的那份不动，事实留在历史里）
+            # 让「最后的标签」正好等于改之前：用户的加 / 去掉按差额重写（AI 打的那份不动，事实留在历史里）
             add = [t for t in want if key(t) not in {key(x) for x in ai}]
             rm = [t for t in ai if key(t) not in {key(x) for x in want}]
             p = {**p, "human_add": add, "human_remove": rm}
@@ -417,7 +417,7 @@ def node_facets(parsed, result, d: dict[str, Any]) -> dict[str, list[dict[str, A
         big = [{"name": t, "count": len(v), "items": srt(v)} for t, v in members.items() if len(v) >= FACET_SHOW_MIN]
         big.sort(key=lambda r: (-r["count"], r["name"]))
         if big:
-            # 1015 她：只有 1–2 篇的细分（大厂法务2 / 米哈游2…）一个个列出来反人类 → 收进末尾一个「其他」（多选照旧能用）
+            # 1015 作者：只有 1–2 篇的细分（大厂法务2 / 米哈游2…）一个个列出来反人类 → 收进末尾一个「其他」（多选照旧能用）
             rows = big[:NODE_TOP]
             shown = {r["name"] for r in rows}
             rest = {i for t, v in members.items() if t not in shown for i in v}

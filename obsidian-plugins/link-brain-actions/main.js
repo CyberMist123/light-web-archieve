@@ -217,7 +217,7 @@ const DEFAULT_SETTINGS = {
   // 1028 起 grid: 48、页头拆成小块（title / meta / cats / scope / topics / types / picks / sort / view / search / ask）+ recent / sync / token / overview / wall；1027 的 12 格 / filters 读的时候换算；和默认一样的键不写，全默认 = null。旧的 {side, top, sideRight, sideW, gap, density}
   // 由页面读的时候换算（catalog-view.js「编排」一节）。只桌面用；标题文字 / 列数 / 费用上限 / 分类 / 同步时间不在这里（各有唯一来源）
   catalogLayout: null,
-  // 1028 她：「存好了作为样式锁定，可以恢复默认或恢复样式 1」——存过的编排 [{name, layout}]（layout 和 catalogLayout 同一个形状）；当前用的是哪一个（空 = 没存过 / 默认）
+  // 1028 作者：「存好了作为样式锁定，可以恢复默认或恢复样式 1」——存过的编排 [{name, layout}]（layout 和 catalogLayout 同一个形状）；当前用的是哪一个（空 = 没存过 / 默认）
   catalogStyles: [],
   catalogStyleCur: "",
   downloads: {folder: path.join(require("os").homedir(), "Downloads"), waitMinutes: 5},
@@ -237,7 +237,7 @@ const DEFAULT_SETTINGS = {
   collectionFolder: "",
   onboarding: { done: false },
   // 第 7 批「开始」页：selected = 勾的功能 id（null = 还没选过，用后端 plan 的「推荐」）。1027：step / collapsed / passed 没人读了，删掉
-  //（她 data.json 里已有的不动，照原样带着）。
+  //（用户 data.json 里已有的不动，照原样带着）。
   setup: { selected: null },
   // 批次 D：笔记页视频单曲循环（loop）；连播弹窗上次选的顺序（playlistOrder：newest / oldest / shuffle）。只给插件用，后端不读。
   media: { loop: false, playlistOrder: "newest" },
@@ -415,7 +415,7 @@ function confirmedAgo(at, now = Date.now()) {
   const d = new Date(at);
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} 确认`;
 }
-// 1027b 她：「账号卡说已登录（刚刚确认），同步却说未登录」——浅查报的是读取服务记得的结果，后端带上它真正查的时刻（checked_at）；
+// 1027b 作者：「账号卡说已登录（刚刚确认），同步却说未登录」——浅查报的是读取服务记得的结果，后端带上它真正查的时刻（checked_at）；
 // 「N 分钟前确认」按那个时刻写，不按这边问它的时刻（否则几小时前的结果也写成「刚刚确认」）
 function checkedAtOf(row, fallback) {
   const t = Date.parse(row?.checked_at || '');
@@ -527,7 +527,7 @@ function syncStateHead(st) {
   return [head, done != null && `已完成 ${done}${total != null ? '/' + total : ''} 篇`, left != null && `剩 ${left} 篇`].filter(Boolean).join(' · ');
 }
 // 1009：后台补评论（_archive/comments-fill-status.json，Python comment_fill 写）→ 状态栏一行。
-// 还在跑 / 等着 / 暂停（且 10 分钟内刷新过，等待时它每分钟刷一次）才显示；要她处理的（验证 / 掉登录）标出来，点了开问题入口。
+// 还在跑 / 等着 / 暂停（且 10 分钟内刷新过，等待时它每分钟刷一次）才显示；要用户处理的（验证 / 掉登录）标出来，点了开问题入口。
 const FILL_HUMAN_CODES = ['CAPTCHA_REQUIRED', 'NOT_LOGGED_IN', 'ACCOUNT_RISK', 'RISK_HOLD', 'ACCOUNT_BLOCKED'];
 function commentFillLine(st, now = Date.now()) {
   if (!st || typeof st !== 'object' || !['running', 'waiting', 'paused'].includes(st.state)) return null;
@@ -579,7 +579,7 @@ function syncProgressView(st, now = Date.now()) {
   }
   return null;
 }
-// 1011 她：同步记录里写「夜跑在同步（计划任务），这里停不了」，其实是命令行跑的。照后端记的来源说（sync-status.json 的 trigger，
+// 1011 作者：同步记录里写「夜跑在同步（计划任务），这里停不了」，其实是命令行跑的。照后端记的来源说（sync-status.json 的 trigger，
 // Python synclog.default_trigger：插件「立即同步」= manual、没人看着的夜跑 / 定时 = nightly / schedule、交互终端 = cli）。
 const EXTERNAL_SYNC_TEXT = {
   cli: '命令行在同步（终端里开的），这里停不了：要停就在那个终端按 Ctrl+C',
@@ -732,11 +732,11 @@ class ColumnsModal extends Modal {
 }
 
 
-// 1015 她：设置页照 claudian 插件改版——顶部三个页签（通用 / 模型与提供商 / 技能）→ 每组一张圆角卡片（标题 + 分隔线）→ 每行左标题灰说明、右控件。
+// 1015 作者：设置页照 claudian 插件改版——顶部三个页签（通用 / 模型与提供商 / 技能）→ 每组一张圆角卡片（标题 + 分隔线）→ 每行左标题灰说明、右控件。
 // 「模型与提供商」下面再分子页签。旧落点名照认：问题面板「打开设置」带 'ai'、命令带 'overview' / 'features'、「去扫码 / 验证」带 'status'、远程带 'remote'。
-// 1016 她：再改——四个页签 概览 · 同步 · AI · 更多（settings-pages.js）。原则：懒得动、不想看的不放；要确认的、要知道的才放，小白看得懂。
+// 1016 作者：再改——四个页签 概览 · 同步 · AI · 更多（settings-pages.js）。原则：懒得动、不想看的不放；要确认的、要知道的才放，小白看得懂。
 // 每页小标题 + 平铺的行，不套框；细项收进页底折叠。没有子页签了（SETTING_SUBTABS 留空对象，老代码照认）。
-// 1018 她：「接其他 AI」从「更多」的折叠里升成独立页签
+// 1018 作者：「接其他 AI」从「更多」的折叠里升成独立页签
 const SETTING_TABS = [['overview', '概览'], ['sync', '同步'], ['ai', 'AI'], ['connect', '接其他 AI'], ['more', '更多']];
 const SETTING_SUBTABS = {};
 // 1018 v6：旧页签名 / 落点名 → 一页里的哪一段（data-section）
@@ -784,7 +784,7 @@ class LinkBrainActions extends Plugin {
     try { this.remoteUI = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'remote-ui.js'))(obsidian, this); await this.remoteUI.attach(); } catch (e) { console.error('[lb] 远程阅读设置没加载上', e); }   // 第 6 批：远程阅读（MCP）
     // 第 5 批 B2：原「Link Brain Native Media Nav」插件并进来（图片 ←/→、滚轮翻页、点图放大、钉住媒体、视频倍速）
     try { this.mediaNav = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'media-nav.js'))(obsidian, this); this.mediaNav.attach(); } catch (e) { console.error('[lb] 图片导航没加载上', e); }
-    // 1031 她：LWA 自己的界面悬停不出提示气泡（title 白框 / Obsidian 黑气泡都不要），见 no-tooltip.js
+    // 1031 作者：LWA 自己的界面悬停不出提示气泡（title 白框 / Obsidian 黑气泡都不要），见 no-tooltip.js
     try { this.noTooltip = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'no-tooltip.js'))(obsidian, this); this.noTooltip.attach(); } catch (e) { console.error('[lb] 去提示气泡没加载上', e); }
     // 批次 D 地基：笔记页动作 / 笔记工具 / 图片动作 / 连播 各一个文件，挂到 this.noteActions / noteTools / imageActions / playerUI。
     // 各线只改自己那个文件（工厂 (obsidian, plugin) => ({attach(){}, detach?(){}})），onload 这里不再动；卸载清理各自用 plugin.register / registerEvent，
@@ -848,8 +848,8 @@ class LinkBrainActions extends Plugin {
     this.addCommand({ id: 'refine-images', name: '维护：精细识别这篇的图（强模型补跑流程图/表格）', checkCallback: checking => this.archiveCommand(checking, file => this.refineImages(file)) });
     // 0928 Owner：归档笔记默认用阅读视图打开——编辑视图里点一下 HTML 块会变回源码，批注也挪不到图片下面。
     // 只在打开的那一下切一次；之后自己切到编辑视图不会被切回来。
-    // 1011 她：打开一篇先露出原始 Markdown 再变正常页。根因：目录 / 链接 / 同步记录都走 openLinkText、不带 mode，
-    // Obsidian 先按默认（她是实时预览）渲一遍，下面 file-open 里才切阅读视图、再渲一遍——中间那一下就是原始的属性块 +
+    // 1011 作者：打开一篇先露出原始 Markdown 再变正常页。根因：目录 / 链接 / 同步记录都走 openLinkText、不带 mode，
+    // Obsidian 先按默认（用户是实时预览）渲一遍，下面 file-open 里才切阅读视图、再渲一遍——中间那一下就是原始的属性块 +
     // 「Lb topbar」框 + <!-- link-brain:content:start -->。现在在 leaf.openFile 这一层就带上 mode:'preview'，第一帧就是
     // 阅读视图；调用方自己给了 mode 的照它的。下面的 file-open 留作兜底（属性缓存还没好时打开的那种）。
     this.patchOpenFile();
@@ -880,7 +880,7 @@ class LinkBrainActions extends Plugin {
       callback: () => this.ingestClipboard(),
     });
 
-    // 1026 她（录屏 00:26）：日常入口留在手边、维护命令别挤——侧边两个图标换成日常的「目录」「导入网址」，
+    // 1026 作者（录屏 00:26）：日常入口留在手边、维护命令别挤——侧边两个图标换成日常的「目录」「导入网址」，
     // 重建目录 / 投喂文件 / 剪贴板这些统一叫「维护：…」，命令面板里照样能搜到
     this.addRibbonIcon("library", "Link Brain：打开收藏目录", () => this.openLibraryPage('catalog'));
     this.addRibbonIcon("download", "Link Brain：导入网址（可批量）", () => this.openImportModal());
@@ -896,7 +896,7 @@ class LinkBrainActions extends Plugin {
   // 写前合并：只把「这个窗口加载后真改过」的顶层键写进去，其余键取磁盘最新值——别处（命令行 / 网页 / 另一窗口）改的不会被内存旧值盖掉。
   // _diskSnap = 上次和磁盘对齐时每个顶层键的 JSON；内存值和它不同 = 本窗口改过。
   snapDisk(raw) { this._diskSnap = {}; for (const [k, v] of Object.entries(raw || {})) this._diskSnap[k] = JSON.stringify(v); }
-  // 1027 根因修复（她自定义的目录标题 10-17 → 10-26 之间在 data.json 里成了空串）：saveMerged 靠「内存值 ≠ 快照」认本窗口改过的键，
+  // 1027 根因修复（用户自定义的目录标题 10-17 → 10-26 之间在 data.json 里成了空串）：saveMerged 靠「内存值 ≠ 快照」认本窗口改过的键，
   // 但两次保存（改标题、页面防抖存的列数 / 编排、设置页、remote beforeSave）以前不排队：后一次的 loadData 读在前一次写盘之前、
   // 比较却用前一次写完才更新的快照 → 刚改的标题被当成「没改过」，用读到的旧磁盘值 '' 覆盖内存和 data.json。外部重读（盯文件 /
   // Obsidian onExternalSettingsChange）插在保存的两个 await 之间也一样，还会把「改了、防抖还没存」的键冲回旧值。
@@ -990,7 +990,7 @@ class LinkBrainActions extends Plugin {
     this.app.workspace?.trigger?.('link-brain:catalog-arrange');
   }
   openSyncSettings() { return this.openSyncTime(); }
-  // 「+」下拉（10-03 她定）：导入网址 / 立即同步收藏 / 账号登录 / 换号（断了登录就近重连、换号都走账号面板的扫码 / 更换账号）。
+  // 「+」下拉（10-03 作者定）：导入网址 / 立即同步收藏 / 账号登录 / 换号（断了登录就近重连、换号都走账号面板的扫码 / 更换账号）。
   // 定时在「同步记录」窗口顶部的「改定时」和设置页里。
   openPlusMenu(evt) {
     const menu = new obsidian.Menu();
@@ -1007,7 +1007,7 @@ class LinkBrainActions extends Plugin {
     // 10-03：「模型与提示词」并进「设置」（直达插件设置页）
     menu.addItem(i=>i.setTitle('设置').setIcon('settings-2').onClick(()=>this.openSetupPage('overview')));
     menu.addItem(i=>i.setTitle('导出资料').setIcon('folder-open').onClick(()=>this.openExportFolder()));
-    // 1031 她：目录只有一问也显示（默认开）；关掉 = 至少两问、或回答里有 ≥2 个小标题才出。钉住后不再随窗口宽度收起，原「窄窗也钉住」去掉
+    // 1031 作者：目录只有一问也显示（默认开）；关掉 = 至少两问、或回答里有 ≥2 个小标题才出。钉住后不再随窗口宽度收起，原「窄窗也钉住」去掉
     menu.addItem(i=>{const it=i.setTitle('目录：一问也显示').setIcon('list');if(typeof it.setChecked==='function')it.setChecked(this.settings?.tocOneAsk!==false);it.onClick(async()=>{
       this.settings=this.settings||{};this.settings.tocOneAsk=this.settings.tocOneAsk===false;await this.saveSettings();this.app.workspace.trigger('link-brain:chat-prefs');
     });});
@@ -1021,7 +1021,7 @@ class LinkBrainActions extends Plugin {
     if (this.running) { this.notify(this.busyText(), { kind: 'warn' }); return; }
     // --limit 0 = 全部收藏；新抓数量由设置里的「每天最多新抓」控制（Python 侧 _Quota）
     // 10-03 同步记录：标成「手动」，这次同步完就在 sync-log.jsonl 收尾一行
-    // 1009：同步完有没读全的评论 → 后台接着补（不用她再点）
+    // 1009：同步完有没读全的评论 → 后台接着补（不用用户再点）
     return this.run(['-m', 'link_brain', 'sync-favorites', '--limit', '0', '--extract'], '同步收藏', true, { env: { LINK_BRAIN_SYNC_TRIGGER: 'manual' } })
       .then(r => { this.ensureCommentFill('sync'); return r; });
   }
@@ -1292,7 +1292,7 @@ class LinkBrainActions extends Plugin {
 
   // 第 4 批（CONVENTIONS §3「pid 还活着」只留 Python 一份）：同步进程死了还停在 running 的，由 Python 改判 INTERRUPTED 写进
   // problems-summary.json 的 sync 段；这里以它为准，sync-status.json 比它新时（刚开始的一次同步）用新的。不再自己 process.kill 查 pid。
-  // 1031 她「如果是正在同步，不能说状态失败」：同步记录最后一轮还没收尾（finished_at 空）、60 分钟内还在更新 = 这一轮还在跑（补评论一篇能慢到十几分钟；死掉的那轮 finished_at 永远空，所以要有时限）
+  // 1031 作者「如果是正在同步，不能说状态失败」：同步记录最后一轮还没收尾（finished_at 空）、60 分钟内还在更新 = 这一轮还在跑（补评论一篇能慢到十几分钟；死掉的那轮 finished_at 永远空，所以要有时限）
   // （收藏那段先写了「部分没成功」，后面补评论 / 附件还在跑）。只读文件末尾 64KB（整份 1.5MB+），读不到当没在跑。
   syncRunOpen(now = Date.now()) {
     try {
@@ -1374,7 +1374,7 @@ class LinkBrainActions extends Plugin {
     this.openSettingsTab();
     if (already) this.settingTab.display();
   }
-  // 1010 她：设置页里任何一块画不出来 / 读不到，不把原始报错甩给人——一句「这一块暂时读不到，点重试」，原始报错折在「详情」里。
+  // 1010 作者：设置页里任何一块画不出来 / 读不到，不把原始报错甩给人——一句「这一块暂时读不到，点重试」，原始报错折在「详情」里。
   // home-ui / remote-ui / onboarding-ui 和设置页共用这一个。返回那一块（调用方可以再往里加按钮，比如「复制安装命令」）。
   failBox(container, what, err, retry = null) {
     const box = container.createDiv({ cls: 'lb-setup-error lb-fail' });
@@ -1391,7 +1391,7 @@ class LinkBrainActions extends Plugin {
   }
   // 设置页顶部（状态 + 功能 + 一键装好 / 跑完 + 首次零配置）整块在 home-ui.js
   settingsV6() { return this._settingsV6 || (this._settingsV6 = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'settings-v6.js'))(obsidian, this)); }
-  // 1027 样式集：变量在 styles.css 顶部的 lb-tokens 块；她的「Aa 样式」（settings.catalogLayout.theme）换算在 lb-theme.js（和页面 LB.applyTheme 同一段代码）。
+  // 1027 样式集：变量在 styles.css 顶部的 lb-tokens 块；用户的「Aa 样式」（settings.catalogLayout.theme）换算在 lb-theme.js（和页面 LB.applyTheme 同一段代码）。
   // applyTheme(theme?, el?)：theme 不传 = 读设置，null = 回默认；el 不传 = document.body（全局：设置页、各页面都跟着），传别的元素只改那一块（自动加 .lb-scope）。
   lbTheme() { return this._lbTheme || (this._lbTheme = require(path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir, 'lb-theme.js'))); }
   applyTheme(theme = this.settings?.catalogLayout?.theme, el = (typeof document !== 'undefined' ? document.body : null)) {
@@ -1524,7 +1524,7 @@ class LinkBrainActions extends Plugin {
     return () => Promise.all(refreshers.map(r => r()));
   }
 
-  // inCard（1027 设置页①）：平台名已经在卡片标题上。1027b 她：登着时不另放「换个账号」按钮，状态检查 / 切换账号 / 退出账号 都在 ⋯ 里（和「＋ → 账号登录 / 换号」同一套）
+  // inCard（1027 设置页①）：平台名已经在卡片标题上。1027b 作者：登着时不另放「换个账号」按钮，状态检查 / 切换账号 / 退出账号 都在 ⋯ 里（和「＋ → 账号登录 / 换号」同一套）
   renderAccountRow(box, platform, { inCard = false } = {}) {
     const row = new Setting(box).setClass('lb-acct-row');
     row.nameEl.empty();
@@ -1536,13 +1536,13 @@ class LinkBrainActions extends Plugin {
     const guide = row.descEl.createDiv({cls: 'lb-acct-guide'});
     let primary, restore, more, current = null;
     row.addButton(b => { primary = b; b.buttonEl.hide(); });
-    // 她截图（10-26）：验证窗口关了、熔断还在时，下一步说「点『没看到验证，恢复』」，账号面板上却没有这个按钮（只在问题面板有）
+    // 用户截图（10-26）：验证窗口关了、熔断还在时，下一步说「点『没看到验证，恢复』」，账号面板上却没有这个按钮（只在问题面板有）
     row.addButton(b => { restore = b; b.setButtonText('没看到验证，恢复'); b.buttonEl.hide(); });
     row.addExtraButton(b => { more = b; b.setIcon('more-horizontal').setTooltip('更多'); });
     // 每种状态：状态字 · 下一步一句话 · 主按钮。第 4 批：带故障码的几种（掉登录 / 验证 / 服务没起 / 未安装）状态字取 Python 登记表
     // （state_registry，按行里的 code），下一步取后端给的 next_step（accounts.SOLUTIONS）；这里只留没有故障码的状态字和按钮名。
     const VIEW = {
-      ready: ['✓ 已登录', '', ''],   // 1027b 她：登着的时候不另放「换个账号」大按钮（和 ⋯ 里的重复）；切换 / 退出在 ⋯ 里
+      ready: ['✓ 已登录', '', ''],   // 1027b 作者：登着的时候不另放「换个账号」大按钮（和 ⋯ 里的重复）；切换 / 退出在 ⋯ 里
       expired: ['', '', '重新登录'],
       not_logged_in: ['', '', '登录'],
       captcha: ['', '', '去验证'],
@@ -1557,7 +1557,7 @@ class LinkBrainActions extends Plugin {
     };
     let registry = {};
     const paint = (r, running = false) => {
-      // 1031 她：同步正在跑（读取服务中途重启那一下会查成「没在运行」）就说「同步中」，不报失败样子
+      // 1031 作者：同步正在跑（读取服务中途重启那一下会查成「没在运行」）就说「同步中」，不报失败样子
       if (['disconnected', 'unknown', 'error'].includes(r.state) && this.syncRunOpen()) r = { ...r, state: 'syncing', code: '', message: '同步中', next_step: '' };
       current = r;
       // 第 7 批：「开始」页第 ③ 步 / 总览看这个号登没登上（只记卡片此刻显示的状态，不另起进程查）
@@ -1615,7 +1615,7 @@ class LinkBrainActions extends Plugin {
     });
     more.onClick(() => {
       const menu = new obsidian.Menu();
-      // 1027b 她：回到原来的样子——设置页卡片和「＋ → 账号登录 / 换号」同一套：状态检查 · 切换账号 · 退出账号（只在 ⋯ 里各一处）
+      // 1027b 作者：回到原来的样子——设置页卡片和「＋ → 账号登录 / 换号」同一套：状态检查 · 切换账号 · 退出账号（只在 ⋯ 里各一处）
       menu.addItem(i => i.setTitle('状态检查').setIcon('rotate-cw').onClick(() => refresh(true)));
       if (current?.state === 'ready') {
         menu.addItem(i => i.setTitle('切换账号').setIcon('user-cog').onClick(async () => {   // = 退出当前的再扫码
@@ -1641,13 +1641,13 @@ class LinkBrainActions extends Plugin {
     const st = await this.readSyncStatus();
     if (st?.last_success) return;
     const limit = dailyNewLimitOf(this.settings.sync.dailyNewLimit);
-    // 1009 她：一口气跑完——同步收藏 → OCR / 识图 / 概要 → 目录 → 索引 → 评论补齐转后台（设置页顶部看进度）
+    // 1009 作者：一口气跑完——同步收藏 → OCR / 识图 / 概要 → 目录 → 索引 → 评论补齐转后台（设置页顶部看进度）
     new Notice('开始一口气跑完：同步收藏（已在库里的会跳过，' + (limit ? '每天最多新抓 ' + limit + ' 篇' : '每天新抓不限量') + '）→ OCR / 识图 / 概要 → 目录 → 索引。', 10000);
     try { await this.homeUI().runAll({ quiet: false }); } catch (e) { console.error('[lb] 一口气跑完没起来，退回只同步', e); this.syncNow(); }
   }
 
   // 手动拉取全部评论（Owner 0926：超过 50 楼 / 全量只在指定笔记上手动抓，慢，热门笔记可能十几分钟）。
-  // 1010 她：「说有进度条，其实没有」——现在是真进度：`comments <id> --progress` 每走一步报一个事件（等号 / 读评论区 / 合并 /
+  // 1010 作者：「说有进度条，其实没有」——现在是真进度：`comments <id> --progress` 每走一步报一个事件（等号 / 读评论区 / 合并 /
   // 下图 / 写进笔记，见 link_brain/ingest.py progress_emitter），记在 this.commentFetch；note-actions.js 画在这篇评论区顶上
   // （一行字 + 细条），底部状态栏「⟳ 抓全部评论 · 读评论区 1:05」同步。号被后台补评论占着时最多等 10 分钟（它这一篇补完就让）。
   async fetchAllComments(file = this.app.workspace.getActiveFile()) {
@@ -1874,7 +1874,7 @@ class LinkBrainActions extends Plugin {
     new Notice(r.message || (r.ok ? '过了，这篇能打开了' : '验证窗口关了，这篇还没打开'), 15000);
     return r;
   }
-  // 「没看到验证，恢复」：她亲手确认才解除暂停（login --clear-hold --by-owner，只发一次 risk/clear，问题记录里留痕）。
+  // 「没看到验证，恢复」：用户亲手确认才解除暂停（login --clear-hold --by-owner，只发一次 risk/clear，问题记录里留痕）。
   // 绝不进「全部修一遍」或夜跑。
   async restoreHold() {
     const ok = await this.confirm({
@@ -1935,7 +1935,7 @@ class LinkBrainActions extends Plugin {
   answerError(message,{kind='api',code='',detail='',payload=null}={}) {
     const e=new Error(message||'回答失败');e.kind=kind;e.code=code||'';e.detail=detail||'';if(payload)e.payload=payload;return e;
   }
-  // stderr 最后一行（崩溃时拼进提示；只给她本人看，不写问题记录）
+  // stderr 最后一行（崩溃时拼进提示；只给用户本人看，不写问题记录）
   answerErrLast() { const lines=String(this.answerErrTail||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean); return (lines.pop()||'').slice(0,200); }
   ensureAnswerWorker() {
     const command = this.currentBackend().command;
@@ -1984,7 +1984,7 @@ class LinkBrainActions extends Plugin {
   }
   // onPhase：后端真实阶段（检索收藏 / 挑选材料 / 生成回答），页面只显示这些，不轮播假文案（§1.6）。
   // 批次 D 地基：tag（'chat' / 'setup'…）记在这一问上，stopArchiveAnswer(tag) 只停同 tag 的；onStart(id) 在拿到请求 id 时回调（调用方只取消自己那一问）。
-  // 批次 D · L2 A13：冷启动（这一问要新起 worker，或刚起不到 4 秒）先报一步「正在启动问答」，不让她干等一个假阶段
+  // 批次 D · L2 A13：冷启动（这一问要新起 worker，或刚起不到 4 秒）先报一步「正在启动问答」，不让用户干等一个假阶段
   nowMs() { return typeof this.now==='function'?this.now():Date.now(); }
   requestAnswer(request,onDelta,onPhase,{tag=null,onStart=null}={}) {
     const cold=!this.answerWorker||this.nowMs()-(this.answerWorkerSpawnedAt||0)<4000;
@@ -2011,7 +2011,7 @@ class LinkBrainActions extends Plugin {
     return true;
   }
   // 带 tag 只停这个 tag 的请求（「开始」页试问一句不再停掉问收藏页正在生成的回答）；不带 tag 全停（旧调用兼容）
-  // 问收藏页她开始打字时预热（同一页 60 秒内只调一次）：没有 worker、也不在卸载时才起；返回是否新起了
+  // 问收藏页用户开始打字时预热（同一页 60 秒内只调一次）：没有 worker、也不在卸载时才起；返回是否新起了
   warmAnswerWorker() { if(this.answerWorker||this.unloading)return false; try{this.ensureAnswerWorker();return true;}catch(e){console.error('[lb] 预热问答进程没成',e);return false;} }
   stopArchiveAnswer(tag) { let n=0; for(const [id,p] of [...(this.answerPending?.entries()||[])]) { if(tag!=null&&p.tag!==tag)continue; if(this.cancelAnswer(id)) n++; } return n; }
   onunload(){this.unloading=true;if(this.syncTick)clearInterval(this.syncTick);clearTimeout(this.capsTimer);clearTimeout(this.onboardTimer);clearTimeout(this.fillTimer);clearTimeout(this.freshTimer);this.catalogCache=null;
@@ -2170,7 +2170,7 @@ class LinkBrainActions extends Plugin {
     if(target.lbEvidenceRequest!==request)return;
     target.view.containerEl.classList.add('lb-source-reader');
     ws.setActiveLeaf(owner,{focus:false});
-    // 0926 Owner：不要「原文 1/3 上一处/下一处」工具条。1021 她：但点引用要跳到正文那一处——只跳页面挑好的第一段证据，
+    // 0926 Owner：不要「原文 1/3 上一处/下一处」工具条。1021 作者：但点引用要跳到正文那一处——只跳页面挑好的第一段证据，
     // 不出条、只滚原帖自己的滚动区（不碰工作区），原句亮 6 秒。找不到就只打开原帖（fail-open）。
     target.view.containerEl.querySelector?.('.lb-evidence-bar')?.remove();
     if(Array.isArray(evidence)&&evidence.length){try{await this.locateOnePassage(target,evidence[0],request);}catch{}}
@@ -2217,7 +2217,7 @@ class LinkBrainActions extends Plugin {
     }
   }
   flashPassage(el, ms=6000) { el.classList.add('lb-evidence-hit'); setTimeout(()=>el.classList.remove('lb-evidence-hit'),ms); }
-  // 段落里重合最多的那一句包进临时 span（不用 <mark>：那是她划的重点），6 秒拆掉；整段很短或找不到句就整段亮
+  // 段落里重合最多的那一句包进临时 span（不用 <mark>：那是用户划的重点），6 秒拆掉；整段很短或找不到句就整段亮
   markPassageSentence(el, quote) {
     const compact=s=>String(s||'').normalize('NFKC').replace(/\s+/g,'').toLowerCase();
     const q=compact(quote);const nodes=[];const tw=document.createTreeWalker(el,NodeFilter.SHOW_TEXT);let all='';
@@ -2581,7 +2581,7 @@ class LinkBrainActions extends Plugin {
       if (!it) continue;
       if (it.separator) { menu.addSeparator(); continue; }
       count++;
-      // 1015 二级菜单（她：右键菜单太长，标签逐条列出 → 收进「标签 ▸」）：children = 子项；没有 setSubmenu 的老版本退回平铺
+      // 1015 二级菜单（作者：右键菜单太长，标签逐条列出 → 收进「标签 ▸」）：children = 子项；没有 setSubmenu 的老版本退回平铺
       const kids = Array.isArray(it.children) ? it.children.filter(Boolean) : null;
       if (kids) {
         let sub = null;
@@ -2768,10 +2768,10 @@ class ConfirmModal extends Modal {
 }
 
 // ── 设置页（数据只落本插件 data.json）──
-// 第 7 批：顶部分页；1009 她改成一页；1010 她：「原本的设置分栏还是需要的」——恢复分栏，同时按「什么都不懂的新用户」重写：
+// 第 7 批：顶部分页；1009 用户改成一页；1010 作者：「原本的设置分栏还是需要的」——恢复分栏，同时按「什么都不懂的新用户」重写：
 //   概览（状态 + 唯一主按钮「一键装好 / 跑完」）/ 收藏与同步 / AI / 连接其他 AI / 高级（「开发者」也在这里）。
 //   守住 1009 的两条：每个设置只出现在一处；装上自动跑轻量版、一键装好 / 跑完（docs/SETUP-CONTRACT.md 10-10 修订）。
-//   文案规矩（她 1010 定，参考 CC Switch）：每项说明压到一行，多的放「?」悬停；「?」只讲规则是什么，会覆盖 / 要重启 / 要花钱这类后果
+//   文案规矩（作者 1010 定，参考 CC Switch）：每项说明压到一行，多的放「?」悬停；「?」只讲规则是什么，会覆盖 / 要重启 / 要花钱这类后果
 //   写在按钮字或点了以后的确认框里；子选项只在父开关打开后出现；按钮不能点时旁边一句说为什么；开关改了立刻存，存失败拨回原值并提示一句；
 //   每栏最多一个主按钮，其余是次要的「链接」；原始报错不直接露，统一「这一块暂时读不到，点重试」+ 折起来的「详情」。
 // 只画当前那一栏：账号检查、同步状态监听只在用到的那一栏起；切栏 / 关设置页时注销。
@@ -2840,7 +2840,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
     // 缺后端程序 / 缺 Dataview / 旧图片导航插件还开着 → 最上面各一块提示（都正常时什么也不加），哪一栏都看得到
     this.hintsEl = c.createDiv({ cls: 'lb-setup-hints' });
     this.plugin.renderSetupHints?.(this.hintsEl);
-    // 1027 她批：不分页签，一页六组（左边锚点）；第一次用换成首次设置（settings-v6.js）。
+    // 1027 作者批：不分页签，一页六组（左边锚点）；第一次用换成首次设置（settings-v6.js）。
     // 旧的落点名（'ai' / 'sync' / 'remote' / 'status'…）照认：换成滚到哪一张卡 / 展开哪一行
     const pane = c.createDiv({ cls: 'lb-tab-pane lb-v6', attr: { 'data-tab': 'v6' } });
     let v6 = null;
@@ -3142,7 +3142,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
         help: '一天最多新收这么多篇，没收完的下次接着收；一次收太多容易被小红书限制，第一次的历史收藏会分几天收完。默认 50；清空回到 50；填 0 不限。' })
       .then(st => st.controlEl.createSpan({ cls: 'lb-unit', text: '篇' }));
   }
-  // 1010 她：「自动拉取」「手动拉取」合成一项「每篇评论抓几楼」，手动的差别放一行小字
+  // 1010 作者：「自动拉取」「手动拉取」合成一项「每篇评论抓几楼」，手动的差别放一行小字
   fieldCommentFloors(c) {
     const so = this.plugin.settings.sync;
     const row = new Setting(c).setName('评论');
@@ -3167,7 +3167,7 @@ class LinkBrainSettingTab extends PluginSettingTab {
     this.help(row, '附件自动下不来时，你手动下载的文件放这里，会被自动找到收进库。');
     return row;
   }
-  // 目录分类（10-10 索引树）：目录顶部的分类 = 索引.md 的第一级，她在 Obsidian 里直接改；原来的「名称: 关键词」文本框退场
+  // 目录分类（10-10 索引树）：目录顶部的分类 = 索引.md 的第一级，用户在 Obsidian 里直接改；原来的「名称: 关键词」文本框退场
   // （第一次整理目录时已按它生成 索引.md，顶部分类不变）。按钮只调 index-ui.js 挂到插件上的方法；那个文件没加载上就说一句。
   fieldCategories(c) {
     const s = this.plugin.settings, P = this.plugin;

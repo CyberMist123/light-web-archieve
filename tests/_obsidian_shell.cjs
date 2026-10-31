@@ -528,7 +528,7 @@ function makeHandle(page, host, errors) {
     // C1 探针：鼠标停在页面上（实时预览的 .cm-embed-block:hover{overflow:hidden} 要靠它触发），滚动容器往下滚 by 像素，
     // 量 target 顶边和滚动容器顶边的差 delta。口径照 L1：吸顶正常 = |delta| ≤ 1（贴住滚动容器顶）。
     // 滚动容器有上内边距（Obsidian 的 --file-margins，阅读视图 / 实时预览都是 32px）：Chromium 的 sticky top:0 停在内边距下沿，delta = padTop，
-    // 这时顶栏上方那条缝里看得见滚上去的卡片——探针判红（gap 里报出缝里是什么）。要不要接受这条缝是界面口味，归主审裁决，测试架不替她默认。
+    // 这时顶栏上方那条缝里看得见滚上去的卡片——探针判红（gap 里报出缝里是什么）。要不要接受这条缝是界面口味，归主审裁决，测试架不替用户默认。
     // 例外：缝里取点（左 / 中 / 右三处）只碰到滚动容器本身或目标自己（页面把缝盖住了）也算正常。吸顶失效 → delta ≈ 原位置 − by（一大段负数）。
     async probeSticky({ target = '.lbc-top', hover = true, by = 1500 } = {}) {
       if (hover) await S.hoverScroller();

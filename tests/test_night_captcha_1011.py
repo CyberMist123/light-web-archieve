@@ -74,7 +74,7 @@ def _rows(step="login", include_resolved=False):
     return [r for r in problems.load(include_resolved=include_resolved) if r["step"] == step]
 
 
-# ---------------------------------------------------------------- 撞上时：先不叫她
+# ---------------------------------------------------------------- 撞上时：先不叫用户
 
 def test_night_captcha_is_listed_not_pushed(night, pushes):
     problems.report_blocked("sync.favorites", "CAPTCHA_REQUIRED", "读收藏时判到验证")
@@ -90,8 +90,8 @@ def test_night_captcha_is_listed_not_pushed(night, pushes):
 
 
 def test_daytime_captcha_also_deferred(pushes):
-    """1019 她：非她本人不可的才叫她——白天撞的验证也先冷却自查。"""
-    problems.report_blocked("sync.favorites", "CAPTCHA_REQUIRED", "她自己点的同步撞了验证")
+    """1019 作者：非用户本人不可的才叫用户——白天撞的验证也先冷却自查。"""
+    problems.report_blocked("sync.favorites", "CAPTCHA_REQUIRED", "用户自己点的同步撞了验证")
     assert pushes == []
     assert _rows()[0]["code"] == "TRANSIENT.NIGHT_CAPTCHA"
 

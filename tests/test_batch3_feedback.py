@@ -33,7 +33,7 @@ def test_answer_reports_real_phases_in_order(fake_index, monkeypatch):
     phases = []
     r = ask.answer("AI 做梦", on_phase=phases.append)
     assert r["status"] == "ok"
-    # 阶段带真实条数（她要的「相关 xx / 共 xx 条」）：总数 = 索引条数，生成回答 = 实际送进模型的材料数
+    # 阶段带真实条数（用户要的「相关 xx / 共 xx 条」）：总数 = 索引条数，生成回答 = 实际送进模型的材料数
     n = len(FAKE_ITEMS)
     # 批次 D · L2 A13：扩词 / 意图先跑，第一步是「理解问题」
     assert phases[0] == "理解问题"

@@ -80,8 +80,8 @@ STEP_PREFIXES = ("nightly.", "cli.")  # cli.<子命令>：命令行兜底登记�
 NOTE_FIELDS = ("repair_state", "repair_note", "repair_at", "repair_eta_min",
                # 1008（B1 A2）：验证窗口关窗后的结论（读取服务 /login/session 的 verify_result）与时刻，面板据此给「没看到验证，恢复」
                "verify_result", "verify_at")
-# 1008（B2）隐藏：她手动、可恢复、照样导出（不违反 1004「实际报错照实显示、不藏」——藏的是她看过、决定不管的那条）。
-# 只有没解决的 PERMANENT（已放弃）能隐藏；NEEDS_HUMAN（要她处理）和 TRANSIENT（正在自动处理）一律不能。
+# 1008（B2）隐藏：用户手动、可恢复、照样导出（不违反 1004「实际报错照实显示、不藏」——藏的是用户看过、决定不管的那条）。
+# 只有没解决的 PERMANENT（已放弃）能隐藏；NEEDS_HUMAN（要用户处理）和 TRANSIENT（正在自动处理）一律不能。
 # 口径：一直隐藏到这个 key 被解决为止；同一 key 没解决又报一次 = 还是那件事，照样藏着（hidden_repeats 记又出现几次）；
 # 解决后又坏了才重新出现。写法：追加 {"ts","key","dismiss":true,"by":"owner"}；恢复追加 {"ts","key","dismiss":false}。
 DISMISSABLE_CLASSES = ("PERMANENT",)
@@ -131,7 +131,7 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     # —— 要人处理 ——
     "NEEDS_HUMAN.NOT_LOGGED_IN": dict(where="top+card", label="需要登录", hover="小红书账号掉登录了：点目录页顶部的问题入口扫码登录", group="needs_you"),
     "NEEDS_HUMAN.CAPTCHA_REQUIRED": dict(where="top+card", label="需要验证", hover="小红书弹了验证（不是掉登录）：点「打开验证」，窗口打开后点一下「收藏」页签（上次是读收藏时被拦的）；出现滑块就拖完再关窗，没出现就直接关窗", group="needs_you"),
-    # 1011：没人看着时撞的验证码先不叫她（night_captcha）：冷却后自查一次，干净就自动恢复；连着两晚没好才升级成上面那条
+    # 1011：没人看着时撞的验证码先不叫用户（night_captcha）：冷却后自查一次，干净就自动恢复；连着两晚没好才升级成上面那条
     "TRANSIENT.NIGHT_CAPTCHA": dict(where="list", label="夜里弹了验证（不是掉登录）", hover="{reason}", group="auto"),
     "NEEDS_HUMAN.ACCOUNT_RISK": dict(where="top+card", label="账号风控", hover="小红书把读取号跳到了登录/安全页：同步已全部暂停，点目录页顶部的问题入口处理", group="needs_you"),
     "NEEDS_HUMAN.RISK_HOLD": dict(where="top+card", label="风控暂停中", hover="风控暂停中：所有用号的同步都停了，点目录页顶部的问题入口处理，处理完自动恢复", group="needs_you"),
@@ -183,7 +183,7 @@ STATE_REGISTRY: dict[str, dict[str, str]] = {
     "PERMANENT.NO_AUDIO": dict(where="list", label="视频没有音轨", hover="没有可转写的声音，画面上也没认出字幕", group="gave_up"),
     "PERMANENT.NOTE_DAMAGED": dict(where="list", label="笔记页被改坏", hover="{reason}；一天没动会自动按存档恢复（改坏的那版存了快照，可撤销）", group="gave_up"),
     "PERMANENT.NO_SPEECH": dict(where="list", label="视频里没人说话", hover="只有背景音乐或环境声，画面上也没认出字幕", group="gave_up"),
-    # 1008：补查判定「原帖打不开」只上卡片、不进问题列表（她：没人声的不是问题）；分不清删了还是仅作者可见，别直说「已删除」
+    # 1008：补查判定「原帖打不开」只上卡片、不进问题列表（作者：没人声的不是问题）；分不清删了还是仅作者可见，别直说「已删除」
     "PERMANENT.NOTE_GONE": dict(where="card", label="原帖打不开", hover="原帖打不开（可能已删或仅作者可见），本地存档还在", group="gave_up"),
     "PERMANENT.MODEL_OUTPUT_INVALID": dict(where="card", label="AI 结果不可用", hover="{reason}", group="gave_up"),
     # 1015：识图接口内容审核拦下（去掉 OCR 文字重试过仍不收）——不是设置问题，OCR 文字照常可用
@@ -235,7 +235,7 @@ EXTERNAL_CODES = (
 
 GROUP_OF_CLASS = {"NEEDS_HUMAN": "needs_you", "TRANSIENT": "auto", "PERMANENT": "gave_up", "SKIPPED": "off"}
 
-# 1017（她）：面板按「是什么事」分类，不再按「系统放没放弃」分组——原因清楚的毛病挂在「已放弃」里看着闹心。
+# 1017（作者）：面板按「是什么事」分类，不再按「系统放没放弃」分组——原因清楚的毛病挂在「已放弃」里看着闹心。
 # group（等你处理 / 自动处理 / 已放弃 / 未开启）照旧留在行上，只管按钮和计数；面板分区看 category。
 CATEGORIES = (("account", "登录验证"), ("api", "AI 接口"), ("fetch", "拉取没拿全"), ("other", "其他"), ("off", "未开启"))
 # 1017：网页版要验证是「这一篇」的事，不是号的事——归拉取，登录验证区只留号本身
@@ -247,7 +247,7 @@ _FETCH_STEPS = {"sync.favorites", "ingest", "attachments.download", "attachments
 
 
 def category(row: dict[str, Any]) -> str:
-    """account（登录验证：号、要她点一下验证的那篇）· api（AI 接口：key / 余额 / 限流 / 模型输出）·
+    """account（登录验证：号、要用户点一下验证的那篇）· api（AI 接口：key / 余额 / 限流 / 模型输出）·
     fetch（拉取没拿全：收藏、正文、评论、附件）· other · off（未开启）。"""
     step = str(row.get("step") or "")
     try:
@@ -568,11 +568,11 @@ def _fold(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 
 
 def is_hidden(row: dict[str, Any]) -> bool:
-    """这条是她手动隐藏、还没解决的（隐藏的不进顶部计数，列表里放在「已隐藏」区）。"""
+    """这条是用户手动隐藏、还没解决的（隐藏的不进顶部计数，列表里放在「已隐藏」区）。"""
     return bool(row.get("dismissed_at")) and not row.get("resolved_at")
 
 
-# 1011（她：自愈的就不要显示报错）：评论续读放弃了、但设置楼数内的楼中楼只缺这么几条——不影响阅读，
+# 1011（作者：自愈的就不要显示报错）：评论续读放弃了、但设置楼数内的楼中楼只缺这么几条——不影响阅读，
 # 不进问题列表和顶部计数，只留在「复制报错」里（状态写「轻微」）。缺几条优先读行上的 missing，老行从原因里认。
 MINOR_CODES = {"PERMANENT.COMMENTS_INCOMPLETE": 2}
 _MISSING_RE = re.compile(r"楼中楼还缺\s*(\d+)\s*条")
@@ -587,19 +587,19 @@ def missing_count(row: dict[str, Any]) -> int | None:
     return int(m.group(1)) if m else None
 
 
-# 1017（她：限频冷却已经自动处理了还挂着，荒谬；只有掉登录才需要显示）：自己会好、不用人管的号状态不进面板和计数，
+# 1017（作者：限频冷却已经自动处理了还挂着，荒谬；只有掉登录才需要显示）：自己会好、不用人管的号状态不进面板和计数，
 # 只在「复制报错」里。号真出事（掉登录 / 验证 / 风控 / 第 4 次限频升级）是别的码，照列。
 QUIET_CODES = ("TRANSIENT.XHS_RATE_LIMITED",)
 
 
 def is_minor(row: dict[str, Any]) -> bool:
-    """没解决、但轻微到不该打扰她的（见 MINOR_CODES / QUIET_CODES）：问题列表 / 计数 / 「全部修一遍」都不算，诊断导出照留。"""
+    """没解决、但轻微到不该打扰用户的（见 MINOR_CODES / QUIET_CODES）：问题列表 / 计数 / 「全部修一遍」都不算，诊断导出照留。"""
     if row.get("resolved_at"):
         return False
     if str(row.get("code") or "") in QUIET_CODES:
         return True
     if row.get("step") == "sync.favorites" and row.get("code") == "TRANSIENT.INTERRUPTED":
-        return True  # 1019 她：关 Obsidian 打断一次同步，下次自己接着来，不占面板
+        return True  # 1019 作者：关 Obsidian 打断一次同步，下次自己接着来，不占面板
     limit = MINOR_CODES.get(str(row.get("code") or ""))
     if limit is None:
         return False
@@ -733,7 +733,7 @@ def compact() -> bool:
 
 def last_risk() -> dict[str, Any] | None:
     """最近一次撞验证 / 风控跳页（不管解没解决）：{at, code, text, open}。设置页「立即同步」旁如实写
-    「上次 HH:MM 在读收藏时判到验证」（她 1008：不拦、不冷却，只照实说）。读不动 = None。"""
+    「上次 HH:MM 在读收藏时判到验证」（作者 1008：不拦、不冷却，只照实说）。读不动 = None。"""
     try:
         rows = [r for r in _read_rows() if r.get("step") == "login" and not r.get("note") and "dismiss" not in r
                 and not r.get("resolved_at") and str(r.get("key", "")).rsplit("|", 1)[-1] in (*INCIDENT_CODES, "NIGHT_CAPTCHA")]
@@ -801,7 +801,7 @@ def _push(row: dict[str, Any]) -> None:
         where = row.get("title") or row.get("item_id") or step_label(step)
         title = f"{entry['label']}：{where}"
         if str(row.get("code") or "").endswith(".CAPTCHA_REQUIRED"):
-            title = "小红书弹了验证（不是掉登录）"  # 1011 她：一眼分清是验证还是掉登录
+            title = "小红书弹了验证（不是掉登录）"  # 1011 作者：一眼分清是验证还是掉登录
         # 正文 = 登记表那句「该做什么」（已填好）+ 原因详情（不重复时）
         reason = str(row.get("reason") or "")
         body = fill_hover(entry["hover"], reason, row.get("next_at"))
@@ -855,9 +855,9 @@ def report(step: str, code: str, reason: str, *, item_id: str | None = None, tit
         push = readable and cls == "NEEDS_HUMAN" and not _already_pushed(folded, step, full)
         if (readable and not push and cls == "NEEDS_HUMAN" and sub in INCIDENT_CODES
                 and not _already_pushed(folded, step, full, within=now - timedelta(minutes=INCIDENT_REPUSH_MIN))):
-            push = True  # 1008（她：撞验证「当时就通知」）：上一次推过之后又撞了一次新的，照样当场推
+            push = True  # 1008（作者：撞验证「当时就通知」）：上一次推过之后又撞了一次新的，照样当场推
         if push and sub == "RISK_HOLD" and _hold_cause_open([r for r in folded.values() if r.get("notified")]):
-            push = False  # 1019 她：掉登录 / 验证那条已经推过，「熔断中」是同一件事，不再推第二条
+            push = False  # 1019 作者：掉登录 / 验证那条已经推过，「熔断中」是同一件事，不再推第二条
         if push and sub in DELAYED_PUSH and len(days) < DELAYED_PUSH_DAYS:
             push = False  # key 失效 / 欠费：产品规则「连续几晚没修好」才推；先进列表（橙色计数照样有）
         row.pop("notified", None)
@@ -954,7 +954,7 @@ def report_blocked(step: str, code: str | None, reason: str, *, service: bool = 
                 reason = "小红书说访问太频繁（限频，不是封号），已自动冷却，到点自己再试，不用处理"
             return report("login", full, reason, title=title)
         if sub in ACCOUNT_CODES and full.startswith("NEEDS_HUMAN."):
-            # 1011：没人看着（夜跑 / 后台补评论）时撞的验证码先不叫她：登记 TRANSIENT.NIGHT_CAPTCHA，冷却后自查（night_captcha）
+            # 1011：没人看着（夜跑 / 后台补评论）时撞的验证码先不叫用户：登记 TRANSIENT.NIGHT_CAPTCHA，冷却后自查（night_captcha）
             from . import night_captcha
             if night_captcha.defer(sub):
                 return night_captcha.report_deferred(reason)
@@ -1039,7 +1039,7 @@ def resolve(step: str, item_id: str | None = None, code: str | None = None, *, _
 
 
 def reconcile_account(session: dict[str, Any] | None = None) -> int:
-    """1017（她：账号是否正常只看一个状态）：号的事只认读取服务的 /login/session（不拉起服务、不开页、不拿锁）。
+    """1017（作者：账号是否正常只看一个状态）：号的事只认读取服务的 /login/session（不拉起服务、不开页、不拿锁）。
     已登录、没熔断（限频冷却到点算没熔断）、没在扫码 / 验证 → 走 sync_state.account_ok()：login 下掉登录 / 验证 /
     风控 / 限频 / 夜里验证那几条一并已解决，同步状态里的账号「!」也撤。查不清（服务没起、超时）一律不动（fail-open）。
     返回解决了几条。永不抛异常。"""
@@ -1083,7 +1083,7 @@ def _used_fine_since(ts: str) -> bool:
 
 
 # 1015：同一次熔断只显示一条——起因（验证 / 安全跳转 / 掉登录 / 限频）那条还开着时，之后各步撞见「熔断中」登记的
-# RISK_HOLD 是同一件事（她截图里两条一起挂着），面板和计数都只留起因那条。
+# RISK_HOLD 是同一件事（用户截图里两条一起挂着），面板和计数都只留起因那条。
 HOLD_CAUSE_CODES = ("CAPTCHA_REQUIRED", "ACCOUNT_RISK", "NOT_LOGGED_IN", "ACCOUNT_BLOCKED", "XHS_RATE_LIMITED", "NIGHT_CAPTCHA")
 
 
@@ -1137,7 +1137,7 @@ def load(limit: int = MAX_KEYS, *, include_resolved: bool = False, include_minor
         out.append({**r, "label": entry["label"], "group": entry["group"], "where": entry["where"],
                     "hover": fill_hover(entry["hover"], r.get("reason"), r.get("next_at")),
                     "step_label": step_label(r.get("step")),
-                    # 1008：她手动隐藏的（面板放进默认收起的「已隐藏」区，可恢复）
+                    # 1008：用户手动隐藏的（面板放进默认收起的「已隐藏」区，可恢复）
                     "hidden": is_hidden(r), "hidden_repeats": int(r.get("hidden_repeats") or 0),
                     "dismissable": _dismissable(r), "minor": is_minor(r), "category": category(r)})
         if not r.get("resolved_at"):
@@ -1165,7 +1165,7 @@ def _catalog_titles(ids: set[str]) -> dict[str, str]:
     return out
 
 
-# 1017（她：评论没补全多条合并一条就行）：同一种「一篇一条」的毛病，面板里 ≥2 篇就并成一条「N 篇…」，展开是每一篇
+# 1017（作者：评论没补全多条合并一条就行）：同一种「一篇一条」的毛病，面板里 ≥2 篇就并成一条「N 篇…」，展开是每一篇
 # （各自的查看 / 打开验证）；某一篇修好（resolve）就从这条里撤掉，全撤完整条消失。诊断导出照旧一篇一行。
 FOLD_CODES = {
     "PERMANENT.COMMENTS_INCOMPLETE": ("篇评论没补全", "楼中楼还没读全，后台在接着读；读全的那篇会自己从这里消失"),
@@ -1213,7 +1213,7 @@ def summary() -> dict[str, Any]:
     """{needs_human, auto, gave_up, skipped, hidden, minor, last_runs: {step: {ts, ok}}}——顶部入口的计数。
     1011：轻微的（is_minor）不计数、另给 minor，只为诊断导出。
 
-    1008：她隐藏的不计数（另给 hidden）；last_runs 按步骤取最近一次登记 / 解决的时刻，ok = 这一步现在没有还开着的问题
+    1008：用户隐藏的不计数（另给 hidden）；last_runs 按步骤取最近一次登记 / 解决的时刻，ok = 这一步现在没有还开着的问题
     （以前取原始最后一行：注记行、某一篇的老失败都会顶上来，补查正常跑完不写行就一直停在「有问题」）。
     附件补查另以 _archive/attachments-recheck-status.json（每次运行都写，跳过也写）为准，比问题记录新就用它。"""
     rows = _read_rows()
@@ -1277,7 +1277,7 @@ MIGRATIONS_NAME = "problem-migrations.json"
 
 
 def retire_wrong_account() -> int:
-    """1026 她定没有「登错号」（登哪个号就同步哪个号）：旧版留下的 WRONG_ACCOUNT 问题和 sync-status 里的「登错号暂停」
+    """1026 作者定没有「登错号」（登哪个号就同步哪个号）：旧版留下的 WRONG_ACCOUNT 问题和 sync-status 里的「登错号暂停」
     一并收掉（幂等：没有就 0 开销）。返回收掉几条。永不抛异常。"""
     try:
         n = resolve("login", code="NEEDS_HUMAN.WRONG_ACCOUNT")
@@ -1291,7 +1291,7 @@ def retire_wrong_account() -> int:
 
 def migrate_orphan_refine() -> int:
     """一次性迁移（1008，B2-7）：卡片上有「AI 结果不可用」标（vision.json 里有 refine failed 的图）、问题记录里却没有
-    没解决的条目——当时问题面板还没接上这类报错。补登记一次，好让她在面板里看得到、能隐藏。
+    没解决的条目——当时问题面板还没接上这类报错。补登记一次，好让用户在面板里看得到、能隐藏。
     ts 用 vision.json 里那张图的 refine.at（不是「现在」）；PERMANENT 不推送。做过一次就记在 problem-migrations.json，
     之后零开销。不放在 catalog build 里（Obsidian「刷新目录」也会 build，刷新不该有写问题记录的副作用）。永不抛异常。"""
     try:
@@ -1430,7 +1430,7 @@ def undismiss(key: str, *, _now_fn=None) -> dict[str, Any]:
 
 
 def dismissed_pairs() -> set[tuple[str, str]]:
-    """{(item_id, 细分码)}：她隐藏了、还没解决的按篇问题（目录卡片角标据此不出标）。读不动就当没有。"""
+    """{(item_id, 细分码)}：用户隐藏了、还没解决的按篇问题（目录卡片角标据此不出标）。读不动就当没有。"""
     try:
         folded = _fold(_read_rows())
     except Exception:  # noqa: BLE001
@@ -1440,7 +1440,7 @@ def dismissed_pairs() -> set[tuple[str, str]]:
 
 
 def resolve_item(item_id: str, *, _now_fn=None) -> int:
-    """她删掉一篇笔记：这篇名下所有没解决的问题标成已解决（真正的「删除」只发生在这里）。永不抛异常。"""
+    """用户删掉一篇笔记：这篇名下所有没解决的问题标成已解决（真正的「删除」只发生在这里）。永不抛异常。"""
     try:
         folded = _fold(_read_rows())
         targets = [r for r in folded.values() if (r.get("item_id") or None) == item_id and not r.get("resolved_at")]
@@ -1555,7 +1555,7 @@ def add_parser(sub) -> None:
     pe = psub.add_parser("export", help="复制报错：脱敏后的诊断信息，输出 JSON {text}")
     pe.add_argument("--limit", type=int, default=50)
     pe.add_argument("--plugin-version", dest="plugin_version")
-    pd = psub.add_parser("dismiss", help="隐藏已放弃的问题（她手动、可恢复、照样导出），输出 JSON")
+    pd = psub.add_parser("dismiss", help="隐藏已放弃的问题（你手动隐藏、可恢复、照样导出），输出 JSON")
     pd_one = pd.add_mutually_exclusive_group(required=True)
     pd_one.add_argument("--key", help="只隐藏这一条")
     pd_one.add_argument("--group", choices=("gave_up",), help="整组隐藏「已放弃」")

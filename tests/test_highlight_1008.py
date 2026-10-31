@@ -90,7 +90,7 @@ def test_remove(tmp_path, monkeypatch, capsys):
     assert "<mark>" not in note.read_text(encoding="utf-8")
 
 
-# ── 1015 她：划重点默认黄、可换色（非黄 = <mark class="lb-hl-…">）、换色 / 取消都认带颜色的 ──
+# ── 1015 作者：划重点默认黄、可换色（非黄 = <mark class="lb-hl-…">）、换色 / 取消都认带颜色的 ──
 
 def test_color_add_recolor_remove_and_survive_rerender(tmp_path, monkeypatch):
     note = _setup(tmp_path, monkeypatch)

@@ -1,4 +1,4 @@
-"""1017（她）：问题面板——账号只认一个状态、限频冷却不挂、按「是什么事」分区、缺标题从目录补。"""
+"""1017（作者）：问题面板——账号只认一个状态、限频冷却不挂、按「是什么事」分区、缺标题从目录补。"""
 from __future__ import annotations
 
 import json
@@ -109,7 +109,7 @@ def test_missing_title_filled_from_catalog():
     assert problems.load()[0]["title"] == "合成标题"
 
 
-# ---- 1017 第二轮（她：「要验证」和号只看一个状态冲突；评论没补全多条合并一条；修好就消失）
+# ---- 1017 第二轮（作者：「要验证」和号只看一个状态冲突；评论没补全多条合并一条；修好就消失）
 
 from datetime import datetime, timedelta
 
@@ -177,14 +177,14 @@ def test_dismiss_fold_key_hides_every_member():
     assert out["ok"] and len(out["dismissed"]) == 2
 
 
-# ---- 1017 第三轮（她：我自己的号能看、验证窗口里看不到；只剩一条了）
+# ---- 1017 第三轮（作者：我自己的号能看、验证窗口里看不到；只剩一条了）
 
 def test_confirmed_restricted_but_archive_complete_is_not_listed(monkeypatch):
     t0 = datetime(2026, 10, 16, 20, 0).astimezone()
     monkeypatch.setattr(restricted, "archive_complete", lambda sid: True)
     _mark_at("n4", t0, monkeypatch)
     _mark_at("n4", t0 + timedelta(days=1), monkeypatch)
-    assert [r for r in problems.load() if r["step"] == "note.restricted"] == [], "正文都在、只缺几条回复：不叫她"
+    assert [r for r in problems.load() if r["step"] == "note.restricted"] == [], "正文都在、只缺几条回复：不叫用户"
 
 
 def test_quiet_unconfirmed_also_retires_confirmed_but_complete(monkeypatch):

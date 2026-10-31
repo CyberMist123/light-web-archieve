@@ -19,7 +19,7 @@ const LB_SHARED_CSS = `
    拷进 lb-page-lib.js 的 LB_SHARED_CSS（页面，手机上也有）、插件 styles.css（设置页）、link-brain.css / note.css（笔记页）。
    tests/test_tokens_1027.py 锁住四份逐字相同。规则：新界面只用这里的名字（CONVENTIONS「样式集」），不再手写字体栈 / 字号 / 灰。
    黑白为主：颜色全映射到 Obsidian 主题变量，深浅色都跟着走；橙 / 红只给状态。
-   她能改的五个（目录「Aa 样式」，存插件设置 catalogLayout.theme）：标题字体 / 正文字体 / 数字字体 / 字号倍数 / 卡片间距，
+   用户能改的五个（目录「Aa 样式」，存插件设置 catalogLayout.theme）：标题字体 / 正文字体 / 数字字体 / 字号倍数 / 卡片间距，
    由 LB.applyTheme / plugin.applyTheme 写成页面根上的行内变量，只在 body 上给默认值。 */
 body{--lb-warn:var(--text-warning,var(--color-orange));--lb-warn-bg:var(--background-secondary);--lb-warn-border:var(--background-modifier-border);--lb-danger:var(--text-error);--lb-danger-bg:var(--background-secondary);--lb-ok:var(--text-success,var(--color-green));--lb-star:var(--color-yellow,#d9a21b);}
 @supports (color: color-mix(in srgb, red, blue)){body{--lb-warn-bg:color-mix(in srgb,var(--lb-warn) 14%,var(--background-primary));--lb-warn-border:color-mix(in srgb,var(--lb-warn) 35%,var(--background-modifier-border));--lb-danger-bg:color-mix(in srgb,var(--text-error) 12%,var(--background-primary));}}
@@ -49,10 +49,10 @@ body,.lb-page-host,.lb-scope{--lb-ink:var(--text-normal);--lb-muted:var(--text-m
 .is-busy{cursor:progress;}
 .lb-busy-veil{position:absolute;inset:0;z-index:3;display:grid;place-items:center;border-radius:inherit;background:var(--lb-surface);opacity:.85;color:var(--lb-muted);font-size:var(--lb-fs-small);cursor:progress;}
 `;
-/* lb-theme:begin — 她的「Aa 样式」（插件设置 catalogLayout.theme = {titleFont, bodyFont, numberFont, scale, gap}）→ 行内 CSS 变量。
+/* lb-theme:begin — 用户的「Aa 样式」（插件设置 catalogLayout.theme = {titleFont, bodyFont, numberFont, scale, gap}）→ 行内 CSS 变量。
    唯一源在 link_brain/assets/lb-page-lib.js，插件 lb-theme.js 是逐字副本（python tools/sync_tokens.py 拷，tests/test_tokens_1027.py 锁）。
    lbThemeVars(theme) → {变量名: 值 | null}，null = 用默认（removeProperty）；lbApplyTheme(el, theme) 写到 el 的行内样式上，返回同一个对象。
-   字体：她给的名字（可逗号分隔几个）放在前面，后面接默认栈（--lb-font-*-base），没装的字照样退回默认；去掉引号 / 分号 / 括号等。
+   字体：用户给的名字（可逗号分隔几个）放在前面，后面接默认栈（--lb-font-*-base），没装的字照样退回默认；去掉引号 / 分号 / 括号等。
    字号倍数 scale 限 0.5–2；卡片间距 gap 是像素数（或 's' / 'm' / 'l' = 24px 的 0.7 / 1 / 1.35 倍），限 0–96。
    el 不是 body / html 时加 .lb-scope 类：字号 / 颜色变量在那一层按新倍数重算（CSS 变量里的 var() 在定义它的那层就算死了）。 */
 const LB_THEME_GENERIC = /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-serif|ui-sans-serif|ui-monospace|ui-rounded|math|emoji)$/i;
@@ -656,7 +656,7 @@ function lbPageLib(dv, app, role) {
   // ── 焦点兜底（C4）：整页重建（新容器）后 3 秒内把焦点和选区还给同一个输入框 ──
   // 记录单放 'lb:<role>:focus'（focusState），页面 state.save 整体覆盖页面状态时冲不掉它。
   // Chromium 摘掉有焦点的元素时同步发 blur（元素还连着、relatedTarget=null）：blur 时先记 blurAt（失焦那一刻），等一拍再看——
-  // 还在文档里 = 她点走了，清掉；已经摘掉 = 整页重建，留着。3 秒窗口从 max(focusAt, blurAt) 算：她停手好一会儿后才重建也照样还。
+  // 还在文档里 = 用户点走了，清掉；已经摘掉 = 整页重建，留着。3 秒窗口从 max(focusAt, blurAt) 算：用户停手好一会儿后才重建也照样还。
   function trackFocus(input, key) {
     if (!input || typeof input.addEventListener !== 'function') return;
     const save = () => { try { focusState.save({ focus: key, selStart: input.selectionStart ?? null, selEnd: input.selectionEnd ?? null, focusAt: Date.now() }); } catch {} };
@@ -677,7 +677,7 @@ function lbPageLib(dv, app, role) {
     try { if (st.selStart != null && typeof input.setSelectionRange === 'function') input.setSelectionRange(st.selStart, st.selEnd ?? st.selStart); } catch {}
     return true;
   }
-  // 元素在文档里、看得见，并且在当前活动标签页（activeLeaf）的容器里：快捷键只给「她正在看的那一页」
+  // 元素在文档里、看得见，并且在当前活动标签页（activeLeaf）的容器里：快捷键只给「用户正在看的那一页」
   function activeLeafHas(el) {
     try {
       if (!el || !el.isConnected) return false;
@@ -689,7 +689,7 @@ function lbPageLib(dv, app, role) {
     } catch { return false; }
   }
 
-  // ── 1026 她：目录页和问收藏的大标题是同一份——文字（插件设置 catalogTitle，空 = Collections）、随包字体、样式都只在这里，
+  // ── 1026 作者：目录页和问收藏的大标题是同一份——文字（插件设置 catalogTitle，空 = Collections）、随包字体、样式都只在这里，
   // 两页都调它，免得一边改了另一边不同步。字体文件由 catalog.py 重建时拷进 _archive/fonts/（离线可用，文件不在退回系统衬线）。
   const BRAND_FONTS = { cinzel: '_archive/fonts/Cinzel-latin-variable.woff2', cormorant: '_archive/fonts/CormorantGaramond-Italic-latin-variable.woff2' };
   const BRAND_FONT_STACK = '"LB Cinzel","Cinzel","Trajan Pro","Times New Roman",serif';
@@ -715,7 +715,7 @@ function lbPageLib(dv, app, role) {
   const brandCss = (titleSel, engrSel) => `${titleSel}{font:900 var(--lb-fs-display)/1.02 var(--lb-font-title);font-style:normal;letter-spacing:.012em;text-transform:uppercase;transform:skewX(-13deg);display:inline-flex;align-items:baseline;white-space:nowrap;color:var(--lb-ink);}
 ${engrSel}{position:relative;display:inline-block;}
 ${engrSel}::after{content:attr(data-text);position:absolute;left:0;top:0;color:transparent;-webkit-text-stroke:.016em var(--lb-surface);transform:translateX(-.05em);pointer-events:none;}`;
-  // ── 1027 样式集：她的「Aa 样式」（catalogLayout.theme）写到页面根上。theme 不传 = 读插件设置（手机上没插件 = 默认）；
+  // ── 1027 样式集：用户的「Aa 样式」（catalogLayout.theme）写到页面根上。theme 不传 = 读插件设置（手机上没插件 = 默认）；
   // el 不传 = 本页 host（mountHost 建的，复用旧 DOM 时取登记的那个），没有 host 退回容器。null / {} = 五个变量都回默认。返回写上的变量表。
   function applyTheme(theme, el) {
     if (theme === undefined) { try { theme = provider()?.settings?.catalogLayout?.theme || null; } catch { theme = null; } }

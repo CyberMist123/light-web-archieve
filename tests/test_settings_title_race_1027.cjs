@@ -1,4 +1,4 @@
-// 1027 她的目录标题（自定义的自定义的标题）在 data.json 里成了空串（10-17 的备份里已经是空的，页面上却一直显示着——只在内存里）。
+// 1027 用户的目录标题（自定义的自定义的标题）在 data.json 里成了空串（10-17 的备份里已经是空的，页面上却一直显示着——只在内存里）。
 // 根因：saveMerged 用「内存值 ≠ 快照」认本窗口改过哪些键，但保存之间不排队——
 //   改标题的那次保存 S1 和页面 / 设置页同时触发的另一次保存 S2 交叠：S2 的 loadData 读的是 S1 写盘前的旧文件，比较却用 S1 写完才更新的快照，
 //   于是刚改的标题被判成「没改过」，内存和 data.json 一起被旧值 '' 盖掉。外部重读（盯文件 / onExternalSettingsChange）插在保存中间同理，
@@ -52,12 +52,12 @@ function makePlugin(saved, { readDelays = [] } = {}) {
   {
     const p = makePlugin({ catalogTitle: '', catalogColumns: 4, nickname: '' });
     p.settings.catalogTitle = '我的收藏';               // 页面改了，防抖还没存
-    const d = p.disk(); d.nickname = '她'; p.writeDisk(d);   // 别处（另一个窗口 / 命令行）改了别的键
+    const d = p.disk(); d.nickname = '用户'; p.writeDisk(d);   // 别处（另一个窗口 / 命令行）改了别的键
     await p.onExternalSettingsChange();
     assert.equal(p.settings.catalogTitle, '我的收藏', '外部重读把还没存的标题冲掉了');
-    assert.equal(p.settings.nickname, '她', '别处改的键没并进来');
+    assert.equal(p.settings.nickname, '用户', '别处改的键没并进来');
     await p.saveSettings();
-    assert.equal(p.disk().catalogTitle, '我的收藏'); assert.equal(p.disk().nickname, '她');
+    assert.equal(p.disk().catalogTitle, '我的收藏'); assert.equal(p.disk().nickname, '用户');
   }
   // —— 3. 写完回读核对 ——
   {

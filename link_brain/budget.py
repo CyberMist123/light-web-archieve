@@ -1,10 +1,10 @@
-"""每天花费上限（1018 她定：设置页 AI 页顶上一格「每天上限」，超了后台只用免费的）。
+"""每天花费上限（1018 作者定：设置页 AI 页顶上一格「每天上限」，超了后台只用免费的）。
 
 - 上限在 data.json 的 `budget.dailyYuan`（元；0 / 空 = 不限）；没写过 = 默认 DEFAULT_YUAN。
 - 「今天」按北京时间分天（和阿里云 / DeepSeek 账单同一天）；花了多少 = 用量账本按 pricing.json 现价折算（usage.cost_of），
   所有功能都算进去（含问收藏）。
 - **只拦后台补跑**：识图、精细识图、概要、索引 / wiki 整理（usage.tag 的 vision / refine / summary / other）。
-  她自己问收藏、扩词、搜索用的向量、远程 Claude / ChatGPT 的调用一律不拦——到了上限也照常答。
+  用户自己问收藏、扩词、搜索用的向量、远程 Claude / ChatGPT 的调用一律不拦——到了上限也照常答。
 - 只拦要钱的模型（`pricing.is_paid`）：显式免费的（本机命令行、Gemini 免费 key 池）照常跑；**价格表里查不到的当要钱**（宁可多拦）。
 - 默认上限只在这里（DEFAULT_YUAN）；设置页显示 `status()` 给的 daily_yuan，不自己写默认值。
 - 拦下 = 返回 TRANSIENT.BUDGET（api_error=True）：按接口故障归并，不按篇记失败、篇留待补，明天（或调高上限后）自然补上。

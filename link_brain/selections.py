@@ -1,6 +1,6 @@
 """选集（10-04）：目录页把选中的几篇存成一个有名字的「选集」，给 AI（本地 MCP / 远程阅读）按名字取。
 
-使用场景：她在目录页多选 → 右键「给 AI（存成选集）」→ 起名（默认「主题+日期」，可改，这个名字就是「暗号」）→
+使用场景：用户在目录页多选 → 右键「给 AI（存成选集）」→ 起名（默认「主题+日期」，可改，这个名字就是「暗号」）→
 对 AI 说「看一下选集 xxx」，AI 用 list / get 这两个只读函数拿到这几篇的标题、链接、机读版路径和正文。
 
 存储：vault `_archive/selections.json` = {"selections": [{"name", "ids": [item id…], "created_at"}]}，由目录页（JS）写；
@@ -83,7 +83,7 @@ def list_selections(vault: Path | None = None) -> dict[str, Any]:
             "titles": [str(items[i].get("title") or i) if i in items else f"（已不在库里：{i}）" for i in r["ids"]]}
            for r in rows]
     return {"status": "ok", "count": len(out), "selections": out,
-            "hint": "她说「看一下选集 xxx」时，用选集名取这几篇（取选集的那个工具）"}
+            "hint": "用户说「看一下选集 xxx」时，用选集名取这几篇（取选集的那个工具）"}
 
 
 def get_selection(name: str, *, paths: Callable[[dict[str, Any]], dict[str, Any]],
@@ -91,7 +91,7 @@ def get_selection(name: str, *, paths: Callable[[dict[str, Any]], dict[str, Any]
     """按名字取一个选集。paths(item) 给这一篇对外的路径字段（本地 = 绝对路径；远程 = 过了白名单的相对路径，
     读不到的给 None）；read_text(item) 给机读版正文（不让读 = None）。正文按 TEXT_PER_ITEM / TEXT_TOTAL 截断。"""
     if not isinstance(name, str) or not name.strip():
-        return {"status": "error", "error": "name 不能为空（选集名字，比如她说的「选集 xxx」里的 xxx）"}
+        return {"status": "error", "error": "name 不能为空（选集名字，比如用户说的「选集 xxx」里的 xxx）"}
     rows = load(vault)
     hit, maybe = find(name, rows)
     if not hit:

@@ -200,7 +200,7 @@ def plan(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
     if step == SELF_STEP:
         return _manual("自愈轮自己出了错：点「复制报错」发给作者")
     if sub == "NIGHT_CAPTCHA":
-        # 1011：夜里撞的验证码先不叫她——冷却后自查归 night_captcha（夜跑 / 后台补评论里），自愈轮绝不开页、不清熔断
+        # 1011：夜里撞的验证码先不叫用户——冷却后自查归 night_captcha（夜跑 / 后台补评论里），自愈轮绝不开页、不清熔断
         return _wait(next_nightly(now), "夜里弹了验证（不是掉登录）：冷却后自己再看一眼，没事就自动恢复；"
                                         "连着两晚都还在才叫你。想现在处理就在设置里点「打开验证」")
     if sub == "XHS_RATE_LIMITED":
@@ -218,7 +218,7 @@ def plan(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
     if sub == "NOTE_GONE":
         return _manual("原帖已删除或不可见，本地存档还在，不用处理")
     if sub == "NOTE_RESTRICTED":
-        # 1011：网页版要她亲手过一下验证才给看——自愈轮绝不替她开页 / 过验证；按钮是「打开验证」（problems-ui.fixesFor）
+        # 1011：网页版要用户亲手过一下验证才给看——自愈轮绝不替用户开页 / 过验证；按钮是「打开验证」（problems-ui.fixesFor）
         return _manual("点「打开验证」，在弹出的窗口里过一下这篇的验证、看到笔记后关窗；过了自动补抓评论 / 附件")
     if sub in ("CHECKSUM_MISMATCH", "BAD_PACKAGE", "DISK_FULL"):
         return _manual("在设置 →「开始」里重新安装一次（磁盘不够先腾出空间）")
@@ -297,7 +297,7 @@ def auto_restore_enabled() -> bool:
 
 
 def _restore_plan(row: dict[str, Any], now: datetime) -> dict[str, Any]:
-    """批次 D · F1-d：笔记页被改坏。24 小时没动才自动恢复（别和她正在改的打架）；自动恢复失败过就不再自动。"""
+    """批次 D · F1-d：笔记页被改坏。24 小时没动才自动恢复（别和用户正在改的打架）；自动恢复失败过就不再自动。"""
     if row.get("action") == "gave_up" or row.get("repair_state") == "failed":
         return _run("restore", auto=False)
     mtime = None
@@ -381,7 +381,7 @@ def describe(row: dict[str, Any], now: datetime | None = None) -> dict[str, Any]
         permanent = str(row.get("code") or "").startswith("PERMANENT.")
         tries = int(row.get("count") or 1) + (1 if row.get("repair_state") == "failed" else 0)
         if permanent and act.name != "screen" and (row.get("repair_state") == "failed" or tries >= 2):
-            # 1008：已放弃的别再劝她点——说实话：同样原因失败过几次、再点多半一样、可以隐藏
+            # 1008：已放弃的别再劝用户点——说实话：同样原因失败过几次、再点多半一样、可以隐藏
             out["status_text"] = f"同样的原因已失败 {tries} 次，再点「再试一次」多半一样；不想看到就点「隐藏」"
         elif row.get("repair_state") == "failed":
             out["status_text"] = f"当场修过没好（{_hm(at)}）：可以再点「现在修」"
@@ -449,7 +449,7 @@ def _select(rows: list[dict[str, Any]], *, key: str | None, since: str | None, a
         if p["kind"] != "run" or p.get("group"):
             continue
         if r.get("hidden") or problems.is_hidden(r):
-            continue  # 1008：她隐藏了的，只在点名单条时才跑
+            continue  # 1008：用户隐藏了的，只在点名单条时才跑
         if r.get("minor") or problems.is_minor(r):
             continue  # 1011：轻微的（楼中楼只缺 ≤2 条）不进列表，「全部修一遍」也不为它开页
         if _gave_up_retried(r):

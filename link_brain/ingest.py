@@ -573,7 +573,7 @@ def ingest_url(
             index_mod.add_relation(conn, item_id=got["meta"]["item_id"], **rel)
             if not refresh and not fill:
                 doc = got["source"]
-                # 孤儿版本（从没写成 meta）= 对她来说是新帖：按新帖渲染 / 排识图；meta 在只是索引丢了 = 以前入过库，按已在库
+                # 孤儿版本（从没写成 meta）= 对用户来说是新帖：按新帖渲染 / 排识图；meta 在只是索引丢了 = 以前入过库，按已在库
                 orphan = lk.state is domain.Presence.ORPHAN
                 return {"hit": not orphan, "refreshed_unchanged": False, "adopted": True, "item_id": got["meta"]["item_id"],
                         "note_id": sid, "kind": got["meta"]["kind"], "raw_dir": got["raw_dir"],
@@ -792,14 +792,14 @@ def fetch_comments(target: str, *, floors: int | str = "all", verbose: bool = Fa
     if fill:
         if target.startswith("http"):
             raise FileNotFoundError("续读要给已归档的 item_id")
-        # 1009：按设置里的楼数现算缺口（老笔记没有 comment_load 也认），她点的照跑（不看 45 分钟间隔 / 已放弃）
+        # 1009：按设置里的楼数现算缺口（老笔记没有 comment_load 也认），用户点的照跑（不看 45 分钟间隔 / 已放弃）
         out = comment_fill.fill_one(row["item_id"], verbose=verbose, manual=True)
         out.setdefault("comments", None)
         out.setdefault("sub_comments", None)
         out.setdefault("comments_complete", None)
         return out
     if not target.startswith("http") and floors == "all":
-        # 1026（她：「抓全部评论……有一些它会不齐」）：整篇抓过、还有没齐的 → 这一下只接着补（没翻到底从停下那页往后翻，
+        # 1026（作者：「抓全部评论……有一些它会不齐」）：整篇抓过、还有没齐的 → 这一下只接着补（没翻到底从停下那页往后翻，
         # 翻到底了只展开缺回复的楼，带游标从存下的最后一条往后拉），不再从第 1 楼整篇重来；结果照实报「已抓几楼 / 翻没翻到底 / 还缺什么」
         state0 = comment_fill.load_state(row["source"], row["source_id"])
         _, source0 = comment_fill.current_source(row["source"], row["source_id"])
@@ -989,7 +989,7 @@ def run_comments(args) -> int:
         message += '；还有没读全的楼，夜里接着读'
     report = summary.get("report")
     if isinstance(report, dict) and report.get("text"):
-        # 1026：手动抓全部评论——照实说抓到哪了（已抓楼数 / 翻没翻到最后一页 / 还缺什么、为什么），还有没齐的告诉她再点能接着补
+        # 1026：手动抓全部评论——照实说抓到哪了（已抓楼数 / 翻没翻到最后一页 / 还缺什么、为什么），还有没齐的告诉用户再点能接着补
         head = ("评论没有变化" if summary.get('refreshed_unchanged') else
                 "接着补抓完了" if summary.get("resumed") else "评论已更新")
         message = f'{head}：{report["text"]}' + ('；再点「接着补抓」从停下的地方接着来' if report.get("resumable") else '')

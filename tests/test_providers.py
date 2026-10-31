@@ -131,7 +131,7 @@ def test_legacy_media_config_is_mapped_in_memory(tmp_path, monkeypatch):
     before = path.read_bytes()
 
     s = ai_config.load()
-    assert path.read_bytes() == before, "只在内存里换算，不改她的文件"
+    assert path.read_bytes() == before, "只在内存里换算，不改用户的文件"
     text = providers.resolve("textAI", ai_config.with_model(s))
     assert text["model"] == "deepseek-v4-flash" and text["apiKey"] == "DS-KEY"
     vis = providers.resolve("visionAI", s)
@@ -192,7 +192,7 @@ def test_embed_follows_configured_dashscope_endpoint(tmp_path, monkeypatch):
                                   "apiKey": "", "keyFile": str(keyfile), "keyField": "apiKey", "requireKey": True}})
     emb = providers.resolve("embedAI", ai_config.load())
     assert emb["endpoint"] == base + "/embeddings" and emb["apiKey"] == "QWEN-KEY"
-    # 她自己写了 embedAI 就不碰
+    # 用户自己写了 embedAI 就不碰
     write_data_json({"visionAI": {"mode": "http", "model": "v", "endpoint": base + "/chat/completions", "apiKey": "K"},
                      "embedAI": {"mode": "off"}})
     assert providers.resolve("embedAI", ai_config.load()) is None

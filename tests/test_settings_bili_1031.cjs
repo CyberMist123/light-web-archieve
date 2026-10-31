@@ -90,7 +90,7 @@ function makePlugin() {
   const B = V.bili;
 
   // —— 纯逻辑：参数、状态句、预估句、摘要句 ——
-  assert.deepEqual(B.BILI_DEFAULTS, { quality: 'max', maxDuration: 3600, danmaku: true, workers: 8, skipFolders: [] }, '默认最高画质、存弹幕、8 路、收藏夹全开（1031 她）');
+  assert.deepEqual(B.BILI_DEFAULTS, { quality: 'max', maxDuration: 3600, danmaku: true, workers: 8, skipFolders: [] }, '默认最高画质、存弹幕、8 路、收藏夹全开（1031 作者）');
   assert.deepEqual(B.biliSyncArgs(B.BILI_DEFAULTS), ['-m', 'link_brain', 'bilibili', 'sync', '--json', '--quality', 'max', '--max-duration', '3600', '--workers', '8']);
   assert.deepEqual(B.BILI_WORKERS.map(([v]) => v), ['1', '2', '3', '4', '5', '6', '7', '8'], '同时下几路 1–8');
   const a2 = B.biliSyncArgs({ quality: '720', maxDuration: 0, danmaku: false, workers: 19, tv: false, skipFolders: ['12', 'toview', '12', ''] }, { dryRun: true });
@@ -112,7 +112,7 @@ function makePlugin() {
   B.biliCard(card, tab); B.biliSync(card, tab);   // 1031：登录在①、同步在②，这里画在一起测
   await settle();
   const text = () => card.textContent;
-  // 1031 她「和小红书对齐、给一个（扫码）就行」：一行「昵称 / 号 · ✓ 已登录（大会员）」+ ⋯；电视端没登只给一句，不另放按钮
+  // 1031 作者「和小红书对齐、给一个（扫码）就行」：一行「昵称 / 号 · ✓ 已登录（大会员）」+ ⋯；电视端没登只给一句，不另放按钮
   assert.ok(card.querySelector('.lb-acct-row .lb-acct-who') && card.querySelector('.lb-bili-more'), '和小红书同一套账号行 + ⋯');
   assert.match(card.querySelector('.lb-acct-row').textContent, /12\*\*\*34 · ✓ 已登录（大会员）/);
   assert.match(text(), /重新扫码登录」扫一次能拿无水印片源/);
