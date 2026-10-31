@@ -8,6 +8,7 @@
 每一步是带时限的子进程（超时只结束这一步、放过读取服务和它的浏览器）；stdout 一行一个进度事件
 `{"type":"progress","stage","label","index","count","state":"running|ok|skipped|failed","text"}`，最后一行 result
 （CONVENTIONS §1 形状 + stages[]）。号要人处理（掉登录 / 验证）→ 碰号的步骤跳过、离线的照跑，结果里一句话说清先做哪一步。
+1101：没登小红书但本机登过 B 站 = 只用 B 站，小红书那几步跳过、不算要人处理。B 站收藏不在这里下（视频大，作者定的只手动同步）。
 """
 
 from __future__ import annotations
@@ -114,12 +115,13 @@ def _child(args: list[str], *, timeout_min: float, on_line: Callable[[str], None
     return (None if timed_out else p.returncode), timed_out
 
 
-def run(emit: Emit, *, child=_child, account_check=None) -> dict[str, Any]:
+def run(emit: Emit, *, child=_child, account_check=None, bili_check=None) -> dict[str, Any]:
     from . import components
     sel = selected()
     stages: list[dict[str, Any]] = []
     count = len(STAGES)
     blocked_why = ""
+    xhs_off = False   # 1101：没登小红书、登了 B 站 = 只用 B 站，小红书那几步跳过，不算要人处理
 
     def say(stage: str, state: str, text: str = "") -> dict[str, Any]:
         idx = [s for s, _ in STAGES].index(stage) + 1
@@ -152,7 +154,10 @@ def run(emit: Emit, *, child=_child, account_check=None) -> dict[str, Any]:
     say("login", "running", "")
     check = account_check or _account_state
     code, why = check()
-    if code:
+    if code in ("NOT_LOGGED_IN", "NOT_INSTALLED") and (bili_check or _bili_logged_in)():
+        xhs_off = True
+        say("login", "skipped", "没登小红书，只用 B 站：小红书的几步跳过（要用小红书就去扫码，再点一次）")
+    elif code:
         blocked_why = why
         say("login", "failed", why)
     else:
@@ -183,7 +188,9 @@ def run(emit: Emit, *, child=_child, account_check=None) -> dict[str, Any]:
             say(stage, "failed", f"出错退出（{rc}），原因见问题面板 / 同步记录")
         return rc
 
-    if blocked_why:
+    if xhs_off:
+        say("sync", "skipped", "没登小红书；B 站收藏在「收藏与同步 → B 站」手动同步")
+    elif blocked_why:
         say("sync", "skipped", "先处理小红书登录（见上一步）")
     else:
         rc = step("sync", ["sync-favorites", "--limit", "0", "--extract"], {"LINK_BRAIN_SYNC_TRIGGER": "manual"})
@@ -199,7 +206,9 @@ def run(emit: Emit, *, child=_child, account_check=None) -> dict[str, Any]:
         step("embed", ["embed"])
     else:
         say("embed", "skipped", "没开 AI：关键词搜索照常能用")
-    if blocked_why:
+    if xhs_off:
+        say("comments", "skipped", "没登小红书，不用补评论")
+    elif blocked_why:
         say("comments", "skipped", "先处理小红书登录")
     else:
         say("comments", "running", "")
@@ -221,8 +230,19 @@ def run(emit: Emit, *, child=_child, account_check=None) -> dict[str, Any]:
         message = "跑完了，有 " + str(len(failed)) + " 步没成：" + "；".join(f"{s['label']}（{s['text']}）" for s in failed)[:300]
     else:
         message = "都跑完了" + ("（轻量版）" if not ({"ai_text", "ai_vision"} & set(sel)) else "")
+        if xhs_off:
+            message += "；没登小红书，只整理了库里已有的。B 站收藏在「收藏与同步 → B 站」点「立即同步」"
     return {"type": "result", "ok": not failed and not blocked_why, "code": "NEEDS_HUMAN" if blocked_why else "",
             "message": message, "stages": stages, "selected": sel}
+
+
+def _bili_logged_in() -> bool:
+    """B 站登过（本机有 cookie 文件就算；不联网）。"""
+    try:
+        from ..sources.bilibili import login
+        return login.has_cookies()
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _account_state() -> tuple[str, str]:

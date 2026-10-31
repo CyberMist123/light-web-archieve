@@ -396,6 +396,15 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-help { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-left: 6px; border-radius: 50%;
   font-size: 11px; line-height: 1; color: var(--text-faint); border: 1px solid var(--background-modifier-border); cursor: help; vertical-align: 1px; }
 .lb-settings .lb-help:hover, .lb-settings .lb-help:focus-visible { color: var(--text-normal); border-color: var(--text-muted); outline: none; }
+/* 1101：首次设置「登录账号」「同步」两步借设置页 .lb-v7 的卡片 / 切换样式，但不要它的左栏锚点网格 */
+.lb-settings .lb-v7.lb-guide-v7 { display: block; padding: 0; }
+.lb-settings .lb-v7.lb-guide-v7 .lb-twin { margin-top: 0; }
+@container (max-width: 560px) { .lb-settings .lb-v7.lb-guide-v7 .lb-twin { grid-template-columns: minmax(0, 1fr); } }
+/* 1101：ⓘ 点开的那行说明（no-tooltip 之后悬停不出气泡，说明改成点开） */
+.lb-settings .lb-help { cursor: pointer; }
+.lb-settings .lb-help.is-open { color: var(--text-normal); }
+.lb-settings .lb-help-text { margin-top: 4px; font-size: var(--font-ui-smaller); line-height: 1.5; color: var(--text-muted); }
+.lb-settings .lb-help-text[hidden] { display: none; }
 .lb-settings button.lb-link { background: transparent !important; box-shadow: none !important; border: 0 !important; height: auto; padding: 2px 4px;
   color: var(--text-accent); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-size: var(--font-ui-small); }
 .lb-settings button.lb-link:hover { color: var(--text-accent-hover, var(--text-accent)); }
