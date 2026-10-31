@@ -291,6 +291,9 @@ def fingerprint(source_doc: dict[str, Any]) -> str:
         "subtitles": sorted(s.get("lang") or "" for s in note.get("subtitles") or [] if s.get("status") == "ok"),
         "danmaku": (note.get("danmaku") or {}).get("status") in ("ok", "empty_source"),
     }
+    # 1101：网页流（可能带水印）换成电视端片源（无水印）也算「变了」——只在电视端时多一个键，以前的指纹一个不变
+    if (note.get("video") or {}).get("stream") == "tv":
+        payload["tv_stream"] = True
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
