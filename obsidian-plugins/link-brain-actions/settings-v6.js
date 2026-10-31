@@ -797,8 +797,8 @@ module.exports = function (obsidian, plugin) {
   }
   // 1031 作者：「小红书和 B 站会混淆」——顶上一个切换（小红书 · 实时同步 / B 站 · 暂不支持实时同步），选哪个只出哪个的设置。
   // 每次打开设置页默认小红书（别处「改定时」跳过来的锚点都在小红书那页）。
-  function groupSync(g, tab) {
-    const s = S(), so = s.sync;
+  // 1101：首次设置「同步」一步也用这个切换（小红书一页 = 同步时间 / 存哪些，B 站一页 = 同步选项 / 挑选 / 立即同步）
+  function platPanes(g) {
     const sw = g.createDiv({ cls: 'lb-plat-switch', attr: { role: 'tablist', 'data-section': 'sync-switch' } });
     const paneX = g.createDiv({ cls: 'lb-plat-pane', attr: { 'data-platform': 'xhs' } });
     const paneB = g.createDiv({ cls: 'lb-plat-pane', attr: { 'data-platform': 'bilibili' } });
@@ -814,6 +814,11 @@ module.exports = function (obsidian, plugin) {
     pick('xhs');
     // 1031：目录页侧栏「去同步 →」落在 B 站那一页（focusSection 往上找到藏着的平台页就先切过去）
     for (const x of tabs) x.pane.lbShow = () => pick(x.id);
+    return { paneX, paneB, pick };
+  }
+  function groupSync(g, tab) {
+    const s = S(), so = s.sync;
+    const { paneX, paneB } = platPanes(g);
     sub(paneX, '同步');
     safe(tab, paneX, '收藏同步', () => tab.stops.push(plugin.renderSyncRow(paneX, { compact: true })));
     syncRows(paneX, tab);
@@ -1494,7 +1499,8 @@ module.exports = function (obsidian, plugin) {
   }
 
   // ———————————————————— 首次设置 ————————————————————
-  const STEPS = [['login', '登录小红书'], ['sync', '同步'], ['ai', '识别与问答'], ['connect', '接入其他 AI']];
+  // 1101 作者「开了 B 站同步，首次设置也要改」：第 1 步登录两张账号卡（和设置页①同一套），第 2 步同步用②的小红书 / B 站切换
+  const STEPS = [['login', '登录账号'], ['sync', '同步'], ['ai', '识别与问答'], ['connect', '接入其他 AI']];
   async function needsGuide() {
     const ob = S().onboarding || {};
     if (ob.force) return true;
@@ -1518,6 +1524,9 @@ module.exports = function (obsidian, plugin) {
       try { tab.containerEl.scrollTop = 0; } catch {}
       // 装好打开的功能 + 同步 + 补处理一口气跑完（进度在设置页⑥和底部状态栏）
       if (run && h) h.runAll({ quiet: false }).catch(e => console.error('[lb] 首次跑没跑完', e));
+      // B 站只做手动同步（1031 作者）：视频大，不替用户开下；登上了就提一句去哪点
+      if (run && biliStatus && biliStatus.state === 'logged_in') plugin.notify('B 站收藏不自动下（视频占地方）：在「收藏与同步 → B 站」先「预估」，再「立即同步」。', { ms: 12000,
+        actions: [{ label: '去 B 站同步', run: () => focusSection(tab, 'sync-bili') }] });
     };
     // 「同步」一步里的时间编辑器和设置页是同一个（syncTimeEditor）：在这一步动过时间、还没生效就离开 → 替用户按这个时间打开，存不上就留在这一步说原因
     let syncEd = null, edits0 = null;
@@ -1562,7 +1571,7 @@ module.exports = function (obsidian, plugin) {
       const id = step ? STEPS[step - 1][0] : 'welcome';
       if (id === 'welcome') {
         title('开始使用 LWA');
-        body.createEl('p', { cls: 'lb-guide-hint', text: '把小红书收藏存进这个库，图片、视频里的字都能搜，AI 能帮你翻。' });
+        body.createEl('p', { cls: 'lb-guide-hint', text: '把小红书、B 站的收藏存进这个库，图片、视频里的字都能搜，AI 能帮你翻。' });
         const big = (cls, name, desc, mode) => {
           const b = body.createEl('button', { cls: 'lb-big ' + cls });
           b.createDiv({ cls: 'lb-big-name', text: name }); b.createDiv({ cls: 'lb-big-desc', text: desc });
@@ -1573,14 +1582,19 @@ module.exports = function (obsidian, plugin) {
         return;
       }
       if (id === 'login') {
-        title('登录小红书', quick() ? '扫完就好' : '第 1 步');
-        body.createEl('p', { cls: 'lb-guide-hint', text: '用小红书 App 扫码。登录后马上开始收你最近的收藏；登录状态只存在这台电脑上。' });
-        safe(tab, body, '小红书账号', () => plugin.renderAccounts(body));
+        title('登录账号', quick() ? '扫完就好' : '第 1 步');
+        body.createEl('p', { cls: 'lb-guide-hint', text: '用哪个就登哪个，用手机 App 扫码。小红书登好马上开始收最近的收藏；B 站扫一次以后自动复用。登录状态只存在这台电脑上。' });
+        // 两张账号卡、平台切换的样式都挂在 .lb-v7 下（设置页那一套）；首次设置外层是 .lb-v6，这里套一层同样式的块
+        const v7 = body.createDiv({ cls: 'lb-v7 lb-guide-v7' });
+        safe(tab, v7, '账号登录', () => groupAccount(v7, tab));
       } else if (id === 'sync') {
         title('同步', '不改就用推荐值');
-        syncEd = syncRows(body, tab);
+        const { paneX, paneB } = platPanes(body.createDiv({ cls: 'lb-v7 lb-guide-v7' }));
+        syncEd = syncRows(paneX, tab);
         edits0 = null;
         if (syncEd && syncEd.ready) syncEd.ready.then(() => { if (syncEd) edits0 = JSON.stringify(syncEd.rows); });
+        const bili = paneB.createDiv({ cls: 'lb-bili lb-bili-sync', attr: { 'data-section': 'sync-bili' } });
+        safe(tab, bili, 'B 站同步', () => biliSync(bili, tab));
       } else if (id === 'ai') {
         title('识别与问答', '本机的免费，其余要 key');
         featureRows(body, tab, { guide: true });

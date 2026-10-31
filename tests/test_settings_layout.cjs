@@ -596,8 +596,10 @@ async function inventory(p) {
     assert.ok(pane(r3).querySelector('.lb-guide'), '库里还没有收藏：首次设置');
     assert.deepEqual(r3.querySelectorAll('.lb-big-name').map(x => x.textContent), ['推荐设置，一键开始', '自定义']);
     r3.querySelectorAll('button.lb-big')[0].onclick(); await settle();
-    assert.equal(r3.querySelector('.lb-card-title').textContent, '登录小红书');
+    assert.equal(r3.querySelector('.lb-card-title').textContent, '登录账号');
     assert.ok(r3.querySelector('.lb-acct-row'), '登录那一步就是账号卡片（扫码）');
+    // 1101：B 站开了同步，登录这一步两张卡（小红书 + B 站），和设置页①同一套
+    assert.ok(r3.querySelector('.lb-guide [data-section="account-xhs"]') && r3.querySelector('.lb-guide [data-section="account-bili"]'), '首次设置登录两张卡');
     const done = r3.querySelectorAll('.lb-guide-nav button').find(b => b.textContent === '完成');
     await done.onclick(); await settle();
     assert.equal(e3.p.settings.onboarding.guideDone, true);
@@ -611,11 +613,16 @@ async function inventory(p) {
     const titles = [];
     for (let i = 0; i < 4; i++) {
       titles.push(r4.querySelector('.lb-card-title').textContent);
+      if (i === 1) {   // 1101：同步这一步有小红书 / B 站切换，B 站那页是②的同一套（选项 / 挑选 / 立即同步）
+        assert.deepEqual(r4.querySelectorAll('.lb-guide .lb-plat-tab').map(b => b.getAttribute('data-platform')), ['xhs', 'bilibili']);
+        assert.ok(r4.querySelector('.lb-guide [data-section="sync-bili"] [data-section="bili-options"]'), '首次设置同步一步有 B 站选项');
+        assert.ok(r4.querySelector('.lb-guide [data-section="sync-time"]'), '小红书那页照旧是同步时间编辑器');
+      }
       const next = r4.querySelectorAll('.lb-guide-nav button').find(b => b.textContent === '下一步');
       if (next) { await next.onclick(); await settle(); }
     }
-    assert.deepEqual(titles, ['登录小红书', '同步', '识别与问答', '接入其他 AI（MCP）']);
-    assert.deepEqual(r4.querySelectorAll('.lb-guide-step').map(s => s.textContent.replace(/[\d✓]/g, '')), ['登录小红书', '同步', '识别与问答', '接入其他 AI']);
+    assert.deepEqual(titles, ['登录账号', '同步', '识别与问答', '接入其他 AI（MCP）']);
+    assert.deepEqual(r4.querySelectorAll('.lb-guide-step').map(s => s.textContent.replace(/[\d✓]/g, '')), ['登录账号', '同步', '识别与问答', '接入其他 AI']);
     t4.hide();
     // 「重新走一遍首次设置」在⑥「更多」里
     const e5 = makePlugin({});
@@ -702,6 +709,14 @@ async function inventory(p) {
     const floors = rowNamed(t.containerEl, '评论');
     assert.match(helpOf(floors), /每一楼的回复都会抓全.*楼数只往上补.*抓全部评论/, 'ⓘ 里讲规则');
     assert.equal(floors.querySelector('.lb-help').textContent, 'ⓘ');
+    // 1101「按问号没反应」：悬停气泡全局去掉后，ⓘ 点一下在这一行下面展开说明，再点收起
+    const q = floors.querySelector('.lb-help');
+    assert.ok(!floors.querySelector('.lb-help-text'), '没点之前不占行');
+    q.click();
+    assert.match(floors.querySelector('.lb-help-text').textContent, /每一楼的回复都会抓全/);
+    assert.equal(floors.querySelector('.lb-help-text').hidden, false); assert.equal(q.getAttribute('aria-expanded'), 'true');
+    q.click();
+    assert.equal(floors.querySelector('.lb-help-text').hidden, true); assert.equal(q.getAttribute('aria-expanded'), 'false');
     e.p.saveFails = 1; notices.length = 0;
     const sel = floors.querySelector('select'); sel.value = '50'; await sel.onchange();
     assert.equal(e.p.settings.sync.commentFloors, 10); assert.equal(sel.value, '10');

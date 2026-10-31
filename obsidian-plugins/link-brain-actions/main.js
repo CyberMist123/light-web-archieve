@@ -2870,14 +2870,28 @@ class LinkBrainSettingTab extends PluginSettingTab {
   }
 
   // —— 小积木 ——
-  // 「ⓘ」悬停 / 键盘焦点：只讲规则是什么（后果写在按钮字或确认框里）。1027 设置页：说明一律在这里，不占行
+  // 「ⓘ」：只讲规则是什么（后果写在按钮字或确认框里）。1027 设置页：说明一律在这里，不占行
+  // 1101 作者「按问号没反应」：1031 悬停气泡全局去掉（no-tooltip.js）后 ⓘ 就只剩悬停，什么也不出——改成点一下（或回车 / 空格）
+  //   在这一行名字下面展开一行说明，再点收起；读屏照样念 aria-label
   help(row, text) {
     const host = row && (row.nameEl || row.settingEl);
     if (!host || !text || typeof host.createSpan !== 'function') return null;
     const q = host.createSpan({ cls: 'lb-help', text: 'ⓘ' });
     q.setAttribute?.('tabindex', '0');
-    try { if (typeof obsidian.setTooltip === 'function') obsidian.setTooltip(q, text, { placement: 'top' }); else q.setAttribute('aria-label', text); }
-    catch { q.setAttribute?.('aria-label', text); }
+    q.setAttribute?.('role', 'button');
+    q.setAttribute?.('aria-label', text);
+    q.setAttribute?.('aria-expanded', 'false');
+    const under = (row && row.infoEl) || host.parentElement || host;
+    let box = null;
+    const flip = ev => {
+      ev?.preventDefault?.(); ev?.stopPropagation?.();
+      if (!box) { box = under.createDiv({ cls: 'lb-help-text', text }); box.hidden = true; }
+      box.hidden = !box.hidden;
+      q.toggleClass?.('is-open', !box.hidden);
+      q.setAttribute?.('aria-expanded', String(!box.hidden));
+    };
+    q.addEventListener?.('click', flip);
+    q.addEventListener?.('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') flip(ev); });
     return q;
   }
   // 开关改了立刻存；存失败把内存和开关都拨回原值并提示一句（Obsidian 1.14 的 ToggleComponent.setValue 会再触发 onChange，拨回时挡一下）

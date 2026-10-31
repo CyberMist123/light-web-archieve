@@ -386,7 +386,7 @@ module.exports = function homeUI(obsidian, plugin) {
         go.disabled = !!why;
         go.onclick = () => runAll();
         acts.createEl('span', { cls: 'setting-item-description' + (why ? ' lb-why' : ''),
-          text: why || '装好打开的功能，再把同步收藏、认图片里的字、概要、整理目录一口气跑完（没开 AI 就只跑免费的部分）。' });
+          text: why || '装好打开的功能，再把同步小红书收藏、认图片里的字、概要、整理目录一口气跑完（没开 AI 就只跑免费的部分）。B 站视频占地方，不在这里下：到「收藏与同步 → B 站」手动同步。' });
       }
       if (!run) return;
       // 1027b 作者：跑完了只留一句结果——每一步的 ✓ / ✗（比如没开的 CapsLock）不影响用，不再摆出来；跑的时候照旧一步步显示

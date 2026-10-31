@@ -15,7 +15,7 @@ def _settings(selected, **extra):
     storage.write_json(p, {"setup": {"selected": selected, "aiSynced": True}, **extra})
 
 
-def _fake_env(monkeypatch, *, account=("", ""), rc=None):
+def _fake_env(monkeypatch, *, account=("", ""), rc=None, bili=False):
     calls = []
 
     def child(args, *, timeout_min, on_line, env_extra=None):
@@ -25,7 +25,7 @@ def _fake_env(monkeypatch, *, account=("", ""), rc=None):
     monkeypatch.setattr(components, "check", lambda ids: {"ok": True, "results": [{"item_id": i, "status": "ready"} for i in ids]})
     monkeypatch.setattr(comment_fill, "spawn_worker", lambda: {"ok": True, "started": True})
     events = []
-    out = pipeline.run(events.append, child=child, account_check=lambda: account)
+    out = pipeline.run(events.append, child=child, account_check=lambda: account, bili_check=lambda: bili)
     return out, calls, events
 
 
@@ -56,6 +56,23 @@ def test_not_logged_in_skips_account_steps_but_still_tidies_and_says_what_to_do(
     assert out["ok"] is False and out["code"] == "NEEDS_HUMAN" and "扫码登录" in out["message"]
     st = {s["id"]: s["state"] for s in out["stages"]}
     assert st["sync"] == "skipped" and st["comments"] == "skipped" and st["login"] == "failed"
+
+
+def test_bili_only_user_skips_xhs_steps_without_needs_human(monkeypatch):
+    """1101：只登了 B 站（没登小红书）→ 小红书的同步 / 补评论跳过，整理目录照跑，不报「先处理小红书」。"""
+    _settings(["core", "reader", "dataview", "ocr"])
+    out, calls, _ = _fake_env(monkeypatch, account=("NOT_LOGGED_IN", "小红书掉登录了：扫码登录"), bili=True)
+    assert [c[0] for c in calls] == ["catalog"]
+    assert out["ok"] is True and out["code"] == "" and "B 站" in out["message"]
+    st = {s["id"]: s["state"] for s in out["stages"]}
+    assert st["login"] == "skipped" and st["sync"] == "skipped" and st["comments"] == "skipped"
+
+
+def test_captcha_still_needs_human_even_with_bili(monkeypatch):
+    """登了 B 站也不吞掉小红书的验证：那是号出事，照旧要人处理。"""
+    _settings(["core", "reader", "dataview", "ocr"])
+    out, _, _ = _fake_env(monkeypatch, account=("CAPTCHA_REQUIRED", "小红书弹了验证"), bili=True)
+    assert out["ok"] is False and out["code"] == "NEEDS_HUMAN"
 
 
 def test_failed_step_is_reported_plainly_and_the_rest_still_runs(monkeypatch):
