@@ -153,7 +153,7 @@ function makePlugin() {
   assert.ok(!m.isOpen, '存好关弹窗');
   assert.deepEqual(plugin.settings.bilibili.skipFolders, ['12']);
   assert.equal(plugin.calls.filter(c => c.startsWith('bilibili choose')).at(-1), 'bilibili choose --json --allow BV1a --undo BV1b');
-  assert.match(plugin.notices.at(-1).m, /已保存：跳过 1 个收藏夹，放行 1 条长视频，撤销 1 条/);
+  assert.match(plugin.notices.at(-1).m, /已保存：跳过 1 个收藏夹，放行 1 条，撤销 1 条/);
   assert.match(card.textContent, /现在跳过 1 个收藏夹/, '设置页那行说明跟着变');
   assert.deepEqual(B.biliSyncArgs(plugin.settings.bilibili).filter((x, i, a) => a[i - 1] === '--skip-folder'), ['12'], '同步时传 --skip-folder');
 

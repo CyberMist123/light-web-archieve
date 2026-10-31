@@ -468,7 +468,7 @@ module.exports = function (obsidian, plugin) {
     modal.modalEl?.addClass?.('lb-bili-pick-modal');
     const c = modal.contentEl;
     c.createEl('h2', { text: '挑选要同步的 B 站收藏' });
-    c.createEl('p', { cls: 'lb-bili-note', text: '关掉的收藏夹以后同步时整个跳过（不扫、不下；已经下好的不动）。超过时长的视频默认只记链接，勾上的下次同步就下。这里只读这台电脑上扫过的记录，不连 B 站。' });
+    c.createEl('p', { cls: 'lb-bili-note', text: '关掉的收藏夹以后同步时整个跳过（不扫、不下；已经下好的不动）。超过时长的视频、超过 5 P 的多 P 默认只记链接，勾上的下次同步就下。这里只读这台电脑上扫过的记录，不连 B 站。' });
     const body = c.createDiv({ cls: 'lb-bili-pick-body' });
     const foot = c.createDiv({ cls: 'lb-bili-pick-foot' });
     const skip = new Set(biliSkip(biliOpts()));
@@ -476,9 +476,10 @@ module.exports = function (obsidian, plugin) {
     const picks = new Map();   // bvid → { was（后端记的放行）, now（她现在勾的）}；换门槛重读时保留
     let data = null;
     const longRows = [];       // [{ it, cb, lab }]：当前画出来的长视频行
+    const multiRows = [];      // 同上：超过 5 P 的多 P 行（勾 = 放行，和长视频走同一个 choose --allow）
     const offNote = it => (it.folder_ids || []).length > 0 && it.folder_ids.every(id => skip.has(String(id)));
     const paintOff = () => {
-      for (const r of longRows) {
+      for (const r of [...longRows, ...multiRows]) {
         const off = offNote(r.it);
         r.lab.toggleClass?.('is-off', off);
         r.off.setText(off ? '所在收藏夹都关了，勾了也不会下' : '');
@@ -491,7 +492,7 @@ module.exports = function (obsidian, plugin) {
     let countEl = null;
     const paint = () => {
       body.empty();
-      longRows.length = 0;
+      longRows.length = 0; multiRows.length = 0;
       const j = data || {};
       // 收藏夹
       const fsec = body.createDiv({ cls: 'lb-bili-pick-sec', attr: { 'data-section': 'bili-pick-folders' } });
@@ -519,6 +520,31 @@ module.exports = function (obsidian, plugin) {
           });
         }
       }
+      // 多 P（1031 她：不超过 5 P 的同步时自动拆开一个 P 一条下；更多的在这里勾）
+      const mitems = (j.multi && j.multi.items) || [];
+      if (mitems.length) {
+        const msec = body.createDiv({ cls: 'lb-bili-pick-sec', attr: { 'data-section': 'bili-pick-multi' } });
+        msec.createEl('h3', { text: '多 P 视频' });
+        msec.createDiv({ cls: 'lb-bili-note', text: `不超过 ${j.multi.auto_max || 5} P 的同步时自动下（一个 P 一篇）；下面这些 P 数多，勾上的下次同步把每个 P 都下。` });
+        const mcount = msec.createDiv({ cls: 'lb-bili-pick-count' });
+        const mtext = () => `超过 ${j.multi.auto_max || 5} P 的 ${mitems.length} 条，勾上 ${mitems.filter(it => picks.get(it.bvid)?.now).length} 条`;
+        const mlist = msec.createDiv({ cls: 'lb-bili-long-list' });
+        for (const it of mitems) {
+          if (!picks.has(it.bvid)) picks.set(it.bvid, { was: !!it.chosen, now: !!it.chosen });
+          const p = picks.get(it.bvid);
+          p.was = !!it.chosen;
+          const lab = mlist.createEl('label', { cls: 'lb-bili-long-row', attr: { 'data-bvid': it.bvid } });
+          const cb = lab.createEl('input', { attr: { type: 'checkbox' } });
+          cb.checked = !!p.now;
+          cb.onchange = () => { p.now = !!cb.checked; mcount.setText(mtext()); };
+          lab.createSpan({ cls: 'lb-bili-long-dur', text: `${it.page_count} P` + (it.done ? `（已下 ${it.done}）` : '') });
+          lab.createSpan({ cls: 'lb-bili-long-title', text: it.title || it.bvid });
+          lab.createSpan({ cls: 'lb-bili-long-meta', text: [it.duration_text, it.upper, (it.folders || []).join('、')].filter(Boolean).join(' · ') });
+          const off = lab.createSpan({ cls: 'lb-bili-long-off', text: '' });
+          multiRows.push({ it, cb, lab, off });
+        }
+        mcount.setText(mtext());
+      }
       // 长视频
       const lsec = body.createDiv({ cls: 'lb-bili-pick-sec', attr: { 'data-section': 'bili-pick-long' } });
       lsec.createEl('h3', { text: '长视频' });
@@ -539,8 +565,8 @@ module.exports = function (obsidian, plugin) {
       lsec.createDiv({ cls: 'lb-bili-note', text: '和「超过多长先不下」是同一个设置，改了马上存。' });
       const d = biliOpts().maxDuration;
       const items = (j.long && j.long.items) || [];
-      if (!d) { lsec.createDiv({ cls: 'lb-bili-note', text: '现在是「不限」：多长的都会下，没有要挑的。' }); return; }
-      if (!items.length) { lsec.createDiv({ cls: 'lb-bili-note', text: folders.length ? `没有超过 ${fmtDur(d)}、还没入库的视频。` : '' }); return; }
+      if (!d) { lsec.createDiv({ cls: 'lb-bili-note', text: '现在是「不限」：多长的都会下，没有要挑的。' }); paintOff(); return; }
+      if (!items.length) { lsec.createDiv({ cls: 'lb-bili-note', text: folders.length ? `没有超过 ${fmtDur(d)}、还没入库的视频。` : '' }); paintOff(); return; }
       const bar = lsec.createDiv({ cls: 'lb-bili-pick-tools' });
       countEl = bar.createSpan({ cls: 'lb-bili-pick-count', text: '' });
       const setLong = on => { for (const r of longRows) { r.cb.checked = on; picks.get(r.it.bvid).now = on; } countEl.setText(countText()); };
@@ -594,7 +620,7 @@ module.exports = function (obsidian, plugin) {
         }
       } catch (e) { plugin.notify('没保存上，内容还在，可重试：' + errText(e), { kind: 'error' }); return false; }
       const bits = [skipArr.length ? `跳过 ${skipArr.length} 个收藏夹` : '收藏夹全部同步'];
-      if (allow.length) bits.push(`放行 ${allow.length} 条长视频`);
+      if (allow.length) bits.push(`放行 ${allow.length} 条`);
       if (undo.length) bits.push(`撤销 ${undo.length} 条`);
       plugin.notify('已保存：' + bits.join('，'), { kind: 'ok' });
       try { onSaved && onSaved(); } catch {}
@@ -701,7 +727,7 @@ module.exports = function (obsidian, plugin) {
         est.createDiv({ cls: 'lb-bili-est-main', text: estimateText(j.estimate) || j.message });
         const e = j.estimate || {};
         if (e.basis) est.createDiv({ cls: 'setting-item-description', text: `都是估计：体积按${e.basis.size}；速度按${e.basis.speed}。` });
-        if (j.counts && j.counts.multi_p) est.createDiv({ cls: 'setting-item-description', text: `另有多 P 的 ${j.counts.multi_p} 条只记在待选清单里。` });
+        if (j.counts && j.counts.multi_p) est.createDiv({ cls: 'setting-item-description', text: `另有超过 5 P 的多 P ${j.counts.multi_p} 条没算在内：在「挑选要同步的…」里勾了才下。` });
       } finally { done(); paintRunning(); }
     };
     runBtn.onclick = async () => {

@@ -180,6 +180,13 @@ def _int(v: Any) -> int | None:
         return None
 
 
+def _part_title(title: str, info: dict[str, Any]) -> str:
+    """多 P：yt-dlp 把标题写成「原标题 p02 分P标题」（id 带 _pN）→ 改成「原标题 · P2 分P标题」，同一个 BV 的几篇排在一起好认。"""
+    if not re.search(r"_p\d+$", str(info.get("id") or "")):
+        return title
+    return re.sub(r" p0*(\d+)(?: (.*))?$", lambda m: f" · P{m[1]}" + (f" {m[2]}" if m[2] else ""), title, count=1)
+
+
 def normalize(fetched: Fetched, parsed: Parsed, *, captured_at: str) -> dict[str, Any]:
     ctx = fetched.context
     res, probe = ctx["download"], ctx["probe"]
@@ -217,7 +224,7 @@ def normalize(fetched: Fetched, parsed: Parsed, *, captured_at: str) -> dict[str
         "cid": _int(info.get("cid")),
         "canonical_url": parsed["canonical_url"],
         "kind": "video",
-        "title": str(info.get("title") or "").strip() or parsed["source_id"],
+        "title": _part_title(str(info.get("title") or "").strip(), info) or parsed["source_id"],
         "body": str(info.get("description") or ""),
         "hashtags": [str(t).strip() for t in (info.get("tags") or []) if str(t).strip()][:30],
         "links": [],

@@ -1362,7 +1362,7 @@ append-only，一次模型接口调用一行（`link_brain/usage.py`，CONVENTIO
 
 ## 2026-10-29 B 站来源（阶段一：单视频）
 
-来源 `bilibili`（`link_brain/sources/bilibili/`），`item_id` 前缀 `bili`（`domain.PREFIX`）。身份：`source_id = BV号`；链接带 `?p=N`（N>1）时 `BV号_pN`（本轮只验单 P）。
+来源 `bilibili`（`link_brain/sources/bilibili/`），`item_id` 前缀 `bili`（`domain.PREFIX`）。身份：`source_id = BV号`；链接带 `?p=N`（N>1）时 `BV号_pN`。1031 起收藏同步按 P 拆：不多于 5 P 的每 P 一个对象（P1 仍是 `BV号`），多于 5 P 的她在挑选页勾了才拆；分 P 的 `note.title` = 「原标题 · PN 分 P 标题」（由 yt-dlp 的「原标题 pNN 分 P 标题」改写），`note.page` = N。
 下载引擎是 **yt-dlp**（任务书首选的 PyPI `bili23-downloader` 3.0.0 的 parse / download 是占位实现、非官方发布，1029 实测不可用，见 STATE）；
 登录态是 Netscape cookie 文件 `~/.link-brain/bilibili/cookies.txt`（`python -m link_brain bilibili login` 扫码写入；`config.json` 的 `bilibili.cookies_file` 可改位置），
 **不进 vault / 仓库 / 日志**，状态只显示 已登录 / 需重新登录 / 未知 + 脱敏 mid。

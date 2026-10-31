@@ -327,7 +327,8 @@ def _item(bvid, title, duration=600, page=1, invalid=False):
 
 
 SNAPS = [{"media_id": 1, "title": "夹", "items": [_item("BV1aaaaaaaa1", "短", 100), _item("BV1aaaaaaaa2", "长讲座", 7300),
-                                                   _item("BV1aaaaaaaa3", "三P", 300, page=3), _item("BV1aaaaaaaa4", "失效", invalid=True)]}]
+                                                   _item("BV1aaaaaaaa3", "三P", 300, page=3), _item("BV1aaaaaaaa6", "八P", 800, page=8),
+                                                   _item("BV1aaaaaaaa4", "失效", invalid=True)]}]
 
 
 def test_pending_note_only_flags_multi_p_and_moves_long_invalid_to_details():
@@ -336,7 +337,7 @@ def test_pending_note_only_flags_multi_p_and_moves_long_invalid_to_details():
            "bv_total": pl["bv_total"], "options": {"max_duration_s": 3600}}
     text = sync.render_pending_note(out)
     head, details = text.split("# 明细（不用处理，只是查得到）")
-    assert "多 P 待选 1" in head and "## 多 P 视频" in head and "三P" in head
+    assert "多 P 待选 1" in head and "## 多 P 超过 5 P 的" in head and "八P" in head and "三P" not in head   # 1031：≤5 P 的拆开下了
     assert "长讲座" not in head and "失效" not in head.split("---", 2)[-1].split("下面这些")[0]
     assert "## 超过 1 小时" in details and "长讲座" in details and "## 原站已失效" in details
 
@@ -364,9 +365,9 @@ def test_dry_run_has_estimate_and_options(vault, monkeypatch):
     _client_setup(monkeypatch, SNAPS[0])
     monkeypatch.setattr(sync, "library_samples", lambda: [])
     out = sync.run_sync(dry_run=True, quality="1080", workers=3, danmaku=False, log=lambda m: None)
-    assert out["ok"] and out["estimate"]["count"] == 1 and out["estimate"]["workers"] == 3
+    assert out["ok"] and out["estimate"]["count"] == 4 and out["estimate"]["workers"] == 3   # 短 1 条 + 三P 拆成 3 条
     assert out["options"] == {**out["options"], "quality": "1080", "danmaku": False, "workers": 3, "vip": True}
-    assert "估计" in out["message"] and "超过" not in out["message"] and "多 P 的 1 条" in out["message"]
+    assert "估计" in out["message"] and "超过" not in out["message"] and "多于 5 P 的多 P 1 条" in out["message"]
     assert ytdlp.OPTIONS["quality"] == ytdlp.DEFAULT_QUALITY and ytdlp.OPTIONS["danmaku"] is True   # 跑完复原
 
 

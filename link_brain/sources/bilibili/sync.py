@@ -1,10 +1,10 @@
 """B 站收藏夹同步（阶段二批次 B 的最短路径，1029 她：「今晚按收藏夹名当专辑都下载同步了吧；超过 1 小时的只放链接告诉我是啥，之后让我选」）。
 
 流程：登录态 → 列自己全部收藏夹（含私密）→ 逐个收藏夹扫描（favorites.sync_folder：快照 + 关系表）→ 跨收藏夹按 BV 去重 →
-分流：失效 / 非视频 / 多 P / 超过时长上限 → **只记清单不下载**；其余逐条走阶段一的单视频入库（ingest.ingest_url，ingest_kind=favorite）
+分流：失效 / 非视频 / 超过 5 P 的多 P / 超过时长上限 → **只记清单不下载**（1031 起 ≤5 P 的多 P 拆成每 P 一条下）；其余逐条走阶段一的单视频入库（ingest.ingest_url，ingest_kind=favorite）
 → 收藏夹名经 note_albums 成目录里的「专辑」→ 写 `_archive/bilibili-sync/last-sync.json` 和可见的待选清单 `Web/Bilibili/B站待选清单.md`。
 
-不做：多 P 下载（批次 B 正式做，此处列进待选）、取消收藏的处理（关系表已记 active，meta 不动）、定时（批次 C）。
+不做：取消收藏的处理（关系表已记 active，meta 不动）、定时（批次 C）。
 每条视频单独 try；登录失效 / 风控 / 缺依赖 → 整批停下如实报；磁盘余量低于阈值 → 停。再跑一次只补没入库的（索引命中即 HIT）。
 """
 from __future__ import annotations
@@ -37,6 +37,7 @@ PAGE_GAP_S = 2.0
 PENDING_NOTE = "B站待选清单.md"
 LAST_SYNC = "last-sync.json"
 FOLDER_LIST = "folder-list.json"   # 1031：上次列到的全部收藏夹（含被关掉的），挑选页不连网就靠它列收藏夹
+MULTI_P_AUTO = 5         # 1031 她：多 P 不超过这么多 P 的自动拆开、一个 P 一条下；更多的进挑选页，她勾了才下
 WORKERS_MAX = 8          # 1031 她：同时下几路放到 8（撞 412/429 照旧自动退回一路）
 # 1031：停下来时给她的下一步（设置页直接显示 message；码是 CONVENTIONS §2 的细分码，裸写，和原来的 NOT_LOGGED_IN 一样）
 HINTS = {
@@ -98,7 +99,8 @@ def plan(snaps: list[dict[str, Any]], *, max_duration_s: int = MAX_DURATION_S, a
 
     - download：正常单 P、时长 ≤ 上限（或在 allow 里）、还没入库；
     - hit：已在库（只补关系，不下载）；
-    - long：超过上限（她选了再下：`--allow BV`）；multi_p：多 P（批次 B 做，先列着）；
+    - long：超过上限（她选了再下：`--allow BV`）；multi_p：超过 MULTI_P_AUTO 个 P、她还没勾的（勾了 = allow）；
+      多 P 的其余情况拆成每 P 一条（page / source_id / url 带 ?p=N，P1 的 source_id 就是 BV 号），按 P 判在不在库；
     - invalid：原站已失效；non_video：音频 / 合集 / 其它类型。"""
     allow = allow or set()
     deny = deny or set()
@@ -136,21 +138,40 @@ def plan(snaps: list[dict[str, Any]], *, max_duration_s: int = MAX_DURATION_S, a
             buckets["denied"].append(row)
         elif row["invalid"]:
             buckets["invalid"].append(row)
+        elif row["page_count"] > 1 and bv not in allow and row["page_count"] > MULTI_P_AUTO:
+            row["reason"] = f"共 {row['page_count']} P，超过 {MULTI_P_AUTO} P：在「挑选要同步的…」里勾了才下"
+            buckets["multi_p"].append(row)
+        elif row["page_count"] > 1 and bv not in allow and max_duration_s and (row["duration"] or 0) > max_duration_s:
+            row["reason"] = f"{row['page_count']} P 共 {_hms(row['duration'])}，超过 {_hms(max_duration_s)}"
+            buckets["long"].append(row)
+        elif row["page_count"] > 1:
+            for part in _parts(row):
+                buckets["hit" if in_library(part["source_id"]) else "download"].append(part)
         elif in_library(bv):
             buckets["hit"].append(row)
-        elif row["page_count"] > 1:
-            row["reason"] = f"多 P（{row['page_count']} P）：分 P 下载批次 B 做"
-            buckets["multi_p"].append(row)
         elif bv not in allow and max_duration_s and (row["duration"] or 0) > max_duration_s:   # 1031：0 = 不限时长
             row["reason"] = f"时长 {_hms(row['duration'])}，超过 {_hms(max_duration_s)}"
             buckets["long"].append(row)
         else:
             buckets["download"].append(row)
-    # 收藏时间新的先下（她最近收的最想看）
+    # 收藏时间新的先下（她最近收的最想看）；同一个多 P 按 P 号排
     for k in ("download", "long", "multi_p"):
-        buckets[k].sort(key=lambda r: r.get("fav_time") or 0, reverse=True)
+        buckets[k].sort(key=lambda r: (-(r.get("fav_time") or 0), r.get("page") or 1))
     return {"buckets": buckets, "bv_total": len(by_bv),
             "counts": {k: len(v) for k, v in buckets.items()}}
+
+
+def _parts(row: dict[str, Any]) -> list[dict[str, Any]]:
+    """多 P → 每 P 一条。收藏列表只给总时长和 P 数：每 P 时长按平均估（预估用，duration_estimated）；标题入库时按 yt-dlp 的分 P 标题。"""
+    n = int(row["page_count"])
+    per = int((row.get("duration") or 0) / n) or None
+    out = []
+    for page in range(1, n + 1):
+        out.append({**row, "folders": list(row["folders"]), "folder_ids": list(row.get("folder_ids") or []), "page": page,
+                    "source_id": row["bvid"] if page == 1 else f"{row['bvid']}_p{page}",
+                    "url": CANONICAL_FMT.format(bvid=row["bvid"]) + (f"?p={page}" if page > 1 else ""),
+                    "title": f"{row['title']} · P{page}", "duration": per, "duration_estimated": True})
+    return out
 
 
 # ---- 待选清单（可见笔记，纯 Markdown，不是 LWA 对象）---------------------------------------------------------------
@@ -185,7 +206,7 @@ def render_pending_note(result: dict[str, Any]) -> str:
              f"失败 {result['counts'].get('failed', 0)} · 多 P 待选 {len(b.get('multi_p') or [])}",
              "",
              "下面这些**只记了链接，没下载**。想同步哪条就告诉 Fable / 在命令行加 `--allow BV号` 再跑一次 `bilibili sync`。", ""]
-    sections = [("多 P 视频（分 P 下载下一批做）", b.get("multi_p") or []),
+    sections = [(f"多 P 超过 {MULTI_P_AUTO} P 的（在「挑选要同步的…」里勾了才下）", b.get("multi_p") or []),
                 ("这次没下成（下次同步会再试）", b.get("failed") or [])]
     limit = (result.get("options") or {}).get("max_duration_s", MAX_DURATION_S)
     details = [(f"超过 {_dur(limit) if limit else '时长上限'}（只记链接，不用处理；想要的话放行后再同步）", b.get("long") or []),
@@ -556,7 +577,7 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
             out["buckets"] = b
             out["counts"].update(downloaded=0, failed=0)
             e = out["estimate"]
-            msg = f"预演：会下载 {len(queue)} 条" + (f"，多 P 的 {len(b['multi_p'])} 条只记链接" if b["multi_p"] else "")
+            msg = f"预演：会下载 {len(queue)} 条" + (f"，多于 {MULTI_P_AUTO} P 的多 P {len(b['multi_p'])} 条等你在挑选页勾" if b["multi_p"] else "")
             if e.get("size_bytes"):
                 msg += (f"；估计 {_gb(e['size_bytes']['low'])}–{_gb(e['size_bytes']['high'])}、"
                         f"{_dur(e['eta_s']['low'])}–{_dur(e['eta_s']['high'])}（{ytdlp.QUALITY_LABELS[quality]}，{workers} 路）")
@@ -580,7 +601,7 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
         for i, r in enumerate(queue, start=1):
             if parallel:
                 for nxt in queue[i - 1:i - 1 + workers + 1]:
-                    ytdlp.prefetch(ytdlp.download_url(nxt["bvid"]))
+                    ytdlp.prefetch(ytdlp.download_url(nxt["bvid"], int(nxt.get("page") or 1)))
             if streak >= FAIL_STREAK:
                 pauses += 1
                 if pauses > MAX_PAUSES:
@@ -606,7 +627,7 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
                     b["failed"].append(r)
                     continue
                 fresh = not (summary.get("hit") or summary.get("refreshed_unchanged"))
-                err = ingest_mod.after_commit(SOURCE, r["bvid"], fresh=fresh, reason="收藏同步")
+                err = ingest_mod.after_commit(SOURCE, r.get("source_id") or r["bvid"], fresh=fresh, reason="收藏同步")
                 r["item_id"] = summary.get("item_id")
                 failed_media = [m.get("role") for m in (summary.get("manifest") or {}).get("media") or [] if m.get("download_status") == "failed"]
                 if failed_media:
@@ -653,7 +674,7 @@ def run_sync(*, dry_run: bool = False, limit: int | None = None, max_duration_s:
         code = "" if ok else (stop_code or "SYNC_FAILED")
         # 1031 她：超时长 / 失效的不用管，结束提示里不再提；多 P 照旧只记清单
         msg = (f"同步完：新下 {len(b['downloaded'])} 条、已在库 {len(b['hit'])} 条、失败 {len(b['failed'])} 条"
-               + (f"；多 P 的 {len(b['multi_p'])} 条只记了链接，见「{PENDING_NOTE}」" if b["multi_p"] else ""))
+               + (f"；多于 {MULTI_P_AUTO} P 的多 P {len(b['multi_p'])} 条等你在「挑选要同步的…」里勾，也列在「{PENDING_NOTE}」" if b["multi_p"] else ""))
         if out["stopped"]:
             msg = out["stopped"] + "；" + (HINTS[stop_code] + "。" if stop_code in HINTS else "") + msg
         out.update(ok=ok, code=code, message=msg)
@@ -758,7 +779,7 @@ def last_summary() -> dict[str, Any]:
 
 def long_list(*, max_duration_s: int = MAX_DURATION_S) -> dict[str, Any]:
     """1031 她：超过时长上限、还没入库的收藏列成清单，她在设置页自己勾哪些要下。只读本地收藏夹快照，不连 B 站。
-    每条 {bvid, title, upper, duration, folders, url, chosen}；chosen = 已经放行（下次同步就下）。失效 / 多 P 不列。"""
+    每条 {bvid, title, upper, duration, folders, url, chosen}；chosen = 已经放行（下次同步就下）。失效不列；多 P 见 multi_list。"""
     snaps = _local_snapshots()
     ch = load_choices()
     from ... import index as index_mod
@@ -773,6 +794,28 @@ def long_list(*, max_duration_s: int = MAX_DURATION_S) -> dict[str, Any]:
              "chosen": r["bvid"] in ch["allow"]} for r in pl["buckets"]["long"]]
     rows.sort(key=lambda r: (r["chosen"], -(r["duration"] or 0)))
     return {"items": rows, "total": len(rows), "chosen": sum(1 for r in rows if r["chosen"]), "max_duration": max_duration_s}
+
+
+def multi_list() -> dict[str, Any]:
+    """1031 她：超过 MULTI_P_AUTO 个 P 的多 P 收藏列成清单，她在挑选页勾哪些要下（勾 = allow，下次同步拆成每 P 一条下）。
+    只读本地快照，不连 B 站。每条 {bvid, title, upper, page_count, duration, folders, url, chosen, done（已入库几 P）}。"""
+    snaps = _local_snapshots()
+    ch = load_choices()
+    from ... import index as index_mod
+    conn = index_mod.connect()
+    try:
+        pl = plan(snaps, max_duration_s=0, deny=set(ch["deny"]),
+                  in_library=lambda bv: index_mod.find_object(conn, SOURCE, bv) is not None)
+        rows = []
+        for r in pl["buckets"]["multi_p"]:
+            done = sum(1 for part in _parts(r) if index_mod.find_object(conn, SOURCE, part["source_id"]) is not None)
+            rows.append({"bvid": r["bvid"], "title": r["title"], "upper": r["upper"], "page_count": r["page_count"],
+                         "duration": r["duration"], "duration_text": _hms(r["duration"]), "folders": r["folders"],
+                         "folder_ids": r.get("folder_ids") or [], "url": r["url"], "chosen": r["bvid"] in ch["allow"], "done": done})
+    finally:
+        conn.close()
+    rows.sort(key=lambda r: (r["chosen"], r["page_count"]))
+    return {"items": rows, "total": len(rows), "chosen": sum(1 for r in rows if r["chosen"]), "auto_max": MULTI_P_AUTO}
 
 
 # ---- 挑选页（1031 她：「没有让我选哪些下载」）：收藏夹开关 + 超长视频逐条勾选。只读本地，不连 B 站 --------------------------
@@ -841,12 +884,15 @@ def picker(*, max_duration_s: int = MAX_DURATION_S) -> dict[str, Any]:
                            "kind": "toview", "scanned": False})
     folders.sort(key=lambda f: 0 if f["kind"] == "toview" else 1)
     lo = long_list(max_duration_s=max_duration_s)
+    mp = multi_list()
     if not folders:
         msg = "还没扫过收藏夹：先点一次「预估」或「立即同步」，扫一遍收藏夹"
     else:
         msg = f"收藏夹 {len(folders)} 个" + (f"；超过 {_hms(max_duration_s)} 还没入库的 {lo['total']} 条，已选 {lo['chosen']} 条"
                                              if max_duration_s else "；没设时长上限，长视频不用挑")
-    return {"folders": folders, "long": lo, "fetched_at": listed.get("fetched_at"), "empty": not folders, "message": msg}
+        if mp["total"]:
+            msg += f"；超过 {MULTI_P_AUTO} P 的多 P {mp['total']} 条，已选 {mp['chosen']} 条"
+    return {"folders": folders, "long": lo, "multi": mp, "fetched_at": listed.get("fetched_at"), "empty": not folders, "message": msg}
 
 
 def run_pick(args) -> int:

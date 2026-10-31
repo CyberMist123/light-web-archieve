@@ -17,7 +17,8 @@ def _item(bvid, title, duration=600, page=1, invalid=False, kind="video", fav_ti
 SNAPS = [
     {"media_id": 11, "title": "音乐", "items": [_item("BV1aaaaaaaa1", "短 MV", 180, fav_time=5),
                                                 _item("BV1aaaaaaaa2", "两小时讲座", 7300, fav_time=4),
-                                                _item("BV1aaaaaaaa3", "三 P 课程", 3000, page=3, fav_time=3)]},
+                                                _item("BV1aaaaaaaa3", "三 P 课程", 3000, page=3, fav_time=3),
+                                                _item("BV1aaaaaaaa6", "八 P 合集", 3000, page=8, fav_time=3)]},
     {"media_id": 12, "title": "学习", "items": [_item("BV1aaaaaaaa1", "短 MV", 180, fav_time=2),
                                                 _item("BV1aaaaaaaa4", "已失效视频", 100, invalid=True),
                                                 _item("", "一张专辑", 0, kind="audio"),
@@ -28,17 +29,29 @@ SNAPS = [
 def test_plan_buckets_and_dedupe():
     pl = sync.plan(SNAPS, in_library=lambda bv: bv == "BV1aaaaaaaa5")
     b = pl["buckets"]
-    assert pl["bv_total"] == 5
-    assert [r["bvid"] for r in b["download"]] == ["BV1aaaaaaaa1"]
+    assert pl["bv_total"] == 6
+    # 1031：≤5 P 的拆成每 P 一条（P1 的 source_id 就是 BV 号，其余 BV_pN，地址带 ?p=N）
+    assert [(r["bvid"], r.get("page", 1)) for r in b["download"]] == [("BV1aaaaaaaa1", 1), ("BV1aaaaaaaa3", 1), ("BV1aaaaaaaa3", 2), ("BV1aaaaaaaa3", 3)]
+    p3 = b["download"][3]
+    assert p3["source_id"] == "BV1aaaaaaaa3_p3" and p3["url"].endswith("/BV1aaaaaaaa3?p=3") and p3["title"] == "三 P 课程 · P3"
+    assert b["download"][1]["source_id"] == "BV1aaaaaaaa3" and "?p=" not in b["download"][1]["url"] and p3["duration"] == 1000
     assert b["download"][0]["folders"] == ["音乐", "学习"]          # 跨收藏夹只算一次、两个专辑都记
     assert [r["bvid"] for r in b["long"]] == ["BV1aaaaaaaa2"] and "超过" in b["long"][0]["reason"]
-    assert [r["bvid"] for r in b["multi_p"]] == ["BV1aaaaaaaa3"] and "3 P" in b["multi_p"][0]["reason"]
+    assert [r["bvid"] for r in b["multi_p"]] == ["BV1aaaaaaaa6"] and "8 P" in b["multi_p"][0]["reason"]
     assert [r["bvid"] for r in b["invalid"]] == ["BV1aaaaaaaa4"]
     assert [r["bvid"] for r in b["hit"]] == ["BV1aaaaaaaa5"]
     assert len(b["non_video"]) == 1
     # 放行长视频
     pl2 = sync.plan(SNAPS, allow={"BV1aaaaaaaa2"})
-    assert {r["bvid"] for r in pl2["buckets"]["download"]} == {"BV1aaaaaaaa1", "BV1aaaaaaaa2", "BV1aaaaaaaa5"}
+    assert {r["bvid"] for r in pl2["buckets"]["download"]} == {"BV1aaaaaaaa1", "BV1aaaaaaaa2", "BV1aaaaaaaa3", "BV1aaaaaaaa5"}
+    # 勾了的 8 P 拆成 8 条；已入库的那几 P 算 hit
+    pl3 = sync.plan(SNAPS, allow={"BV1aaaaaaaa6"}, in_library=lambda sid: sid in ("BV1aaaaaaaa6", "BV1aaaaaaaa6_p2"))
+    got = [r["source_id"] for r in pl3["buckets"]["download"] if r["bvid"] == "BV1aaaaaaaa6"]
+    assert got == [f"BV1aaaaaaaa6_p{n}" for n in range(3, 9)] and not pl3["buckets"]["multi_p"]
+    assert {r["source_id"] for r in pl3["buckets"]["hit"]} >= {"BV1aaaaaaaa6", "BV1aaaaaaaa6_p2"}
+    # ≤5 P 但总时长超过上限：整条进 long（勾了再拆）
+    long_mp = sync.plan([{"media_id": 1, "title": "x", "items": [_item("BV1aaaaaaaa7", "长多P", 9000, page=2)]}])
+    assert [r["bvid"] for r in long_mp["buckets"]["long"]] == ["BV1aaaaaaaa7"] and not long_mp["buckets"]["download"]
 
 
 def test_pending_note_lists_links_only():
@@ -47,7 +60,7 @@ def test_pending_note_lists_links_only():
            "bv_total": pl["bv_total"], "finished_at": "2026-10-29T03:00:00+11:00"}
     text = sync.render_pending_note(out)
     assert "## 超过 1 小时" in text and "两小时讲座" in text and "https://www.bilibili.com/video/BV1aaaaaaaa2" in text
-    assert "2:01:40" in text and "## 多 P 视频" in text and "三 P 课程" in text
+    assert "2:01:40" in text and "## 多 P 超过 5 P 的" in text and "八 P 合集" in text and "三 P 课程" not in text
     assert "## 原站已失效" in text and "## 不是视频稿件" in text
     assert "短 MV" not in text   # 要下载的不在待选清单里
 
@@ -82,17 +95,21 @@ def test_run_sync_downloads_short_videos_only(vault, monkeypatch):
         calls.append((url, kw.get("ingest_kind")))
         return {"item_id": "bili-" + url.rsplit("/", 1)[1], "hit": False, "manifest": {"media": []}}
     monkeypatch.setattr(ingest, "ingest_url", fake_ingest)
-    monkeypatch.setattr(ingest, "after_commit", lambda *a, **k: None)
+    committed = []
+    monkeypatch.setattr(ingest, "after_commit", lambda src, sid, **k: committed.append(sid))
     monkeypatch.setattr(catalog, "ensure_fresh", lambda **k: None)
     out = sync.run_sync(gap_s=0, log=lambda m: None)
     assert out["ok"] is True
-    assert calls == [("https://www.bilibili.com/video/BV1aaaaaaaa1", "favorite"), ("https://www.bilibili.com/video/BV1aaaaaaaa5", "favorite")]
-    assert out["counts"]["downloaded"] == 2 and out["counts"]["long"] == 1 and out["counts"]["multi_p"] == 1
+    assert calls == [("https://www.bilibili.com/video/BV1aaaaaaaa1", "favorite"),
+                     ("https://www.bilibili.com/video/BV1aaaaaaaa3", "favorite"), ("https://www.bilibili.com/video/BV1aaaaaaaa3?p=2", "favorite"),
+                     ("https://www.bilibili.com/video/BV1aaaaaaaa3?p=3", "favorite"), ("https://www.bilibili.com/video/BV1aaaaaaaa5", "favorite")]
+    assert committed == ["BV1aaaaaaaa1", "BV1aaaaaaaa3", "BV1aaaaaaaa3_p2", "BV1aaaaaaaa3_p3", "BV1aaaaaaaa5"]   # 按 P 的 source_id 收尾
+    assert out["counts"]["downloaded"] == 5 and out["counts"]["long"] == 1 and out["counts"]["multi_p"] == 1
     note = sync.pending_note_path()
     assert note.is_file() and "两小时讲座" in note.read_text(encoding="utf-8")
     assert note.parent.name == "Bilibili"
     last = storage.read_json(favorites.sync_root() / "last-sync.json")
-    assert last["counts"]["downloaded"] == 2 and "SESSDATA" not in str(last)
+    assert last["counts"]["downloaded"] == 5 and "SESSDATA" not in str(last)
     assert all("media_id_masked" in f and "media_id" not in f for f in last["folders"])
 
 
@@ -310,7 +327,7 @@ def test_long_list_for_picking(monkeypatch):
     storage.write_json(root / "1-10.json", {"title": "学习", "media_id": 10, "items": [
         _item("BV1long1", "长课", duration=7200), _item("BV1long2", "长剧", duration=5000),
         _item("BV1short", "短", duration=60), _item("BV1dead", "失效", duration=9000, invalid=True),
-        _item("BV1multi", "多P", duration=9000, page=3), _item("BV1have", "已入库", duration=9000), _item("BV1gone", "删了", duration=9000)]})
+        _item("BV1multi", "多P", duration=9000, page=8), _item("BV1have", "已入库", duration=9000), _item("BV1gone", "删了", duration=9000)]})
     storage.write_json(root / "1-10.last-complete.json", {"title": "旧的", "items": [_item("BV1old", "不该读", duration=9000)]})
     storage.write_json(sync.choices_path(), {"allow": {"BV1long2": {}}, "deny": {"BV1gone": {}}})
 
@@ -324,3 +341,28 @@ def test_long_list_for_picking(monkeypatch):
     assert [r["chosen"] for r in out["items"]] == [False, True]
     assert out["total"] == 2 and out["chosen"] == 1
     assert out["items"][0]["duration_text"] and out["items"][0]["folders"] == ["学习"]
+
+
+def test_multi_list_for_picking(vault, monkeypatch):
+    """1031 她：多于 5 P 的列进挑选页；勾过的标 chosen，已下了几 P 照实给；≤5 P 的不列（同步时自动拆开下）。"""
+    from link_brain import index as index_mod
+    root = favorites.sync_root() / "folders"
+    root.mkdir(parents=True, exist_ok=True)
+    storage.write_json(root / "1-10.json", {"title": "课", "media_id": 10, "items": [
+        _item("BV1six", "六P", duration=600, page=6), _item("BV1ten", "十P", duration=900, page=10), _item("BV1three", "三P", page=3)]})
+    storage.write_json(sync.choices_path(), {"allow": {"BV1ten": {}}, "deny": {}})
+
+    class Conn:
+        def close(self):
+            pass
+    monkeypatch.setattr(index_mod, "connect", lambda: Conn())
+    monkeypatch.setattr(index_mod, "find_object", lambda conn, src, sid: {} if sid in ("BV1ten", "BV1ten_p2") else None)
+    out = sync.multi_list()
+    assert [(r["bvid"], r["page_count"], r["chosen"], r["done"]) for r in out["items"]] == [("BV1six", 6, False, 0), ("BV1ten", 10, True, 2)]
+    assert out["auto_max"] == 5 and out["chosen"] == 1
+
+
+def test_part_title_from_ytdlp():
+    assert bili._part_title("合集 p02 第二讲", {"id": "BV1x_p2"}) == "合集 · P2 第二讲"
+    assert bili._part_title("合集 p01", {"id": "BV1x_p1"}) == "合集 · P1"
+    assert bili._part_title("歌名 p02 现场", {"id": "BV1x"}) == "歌名 p02 现场"   # 单 P 的标题碰巧带 p02：不动
