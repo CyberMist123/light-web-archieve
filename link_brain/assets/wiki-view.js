@@ -564,7 +564,7 @@ ${LB.brandCss('.lbw .lbw-brand', '.lbw .lbw-engr')}
 .lbw.is-narrow .lbw-corner{display:flex;justify-content:flex-end;}
 .lbw .lbw-corner .lb-page-nav{background:transparent;padding:0;gap:2px;justify-self:auto;}
 /* 按钮照 lb-page-lib 的 .lb-page-nav 原样（13px、9×16、当前页白底 + 0 1px 4px 浅阴影、字重 500）；只把字体定成无衬线（问收藏页当时继承的就是无衬线，Wiki 页默认是衬线） */
-.lbw .lbw-corner .lb-page-nav button{font-family:var(--lb-font-title-base,serif),var(--lb-font-serif);}   /* 1101 作者：跳转钮和目录页 / 问收藏一个字体 */
+.lbw .lbw-corner .lb-page-nav button{font-family:var(--lb-font-title),var(--lb-font-serif);}   /* 1101 作者：跳转钮和目录页 / 问收藏一个字体 */
 .lbw .lbw-corner .lbw-jumps{gap:8px;}
 .lbw .lbw-corner .lbw-jumps button{height:auto;padding:9px 16px;border-radius:9px;font-size:14px;line-height:1.2;background:var(--lb-surface)!important;color:var(--lb-ink);box-shadow:0 1px 4px #0000000c!important;font-weight:500;}
 .lbw .lbw-corner .lbw-jumps button:hover{box-shadow:0 2px 8px #00000018!important;}

@@ -400,8 +400,8 @@ def test_interrupted_run_is_reported_and_tmp_cleaned(vault, monkeypatch):
                         "progress": {"done": 349, "total": 849}})
     s = sync.last_summary()
     assert last is None or last.get("state") == "running"
-    assert s["state"] == "interrupted" and s["code"] == "INTERRUPTED" and "349/849" in s["message"]
-    assert "再点「立即同步」只补没下的" in s["message"] and s["details"] == {"long": 11, "invalid": 66, "non_video": 0, "denied": 0}
+    assert s["state"] == "interrupted" and s["code"] == "INTERRUPTED" and "第 349 条（一共 849 条）" in s["message"]
+    assert "点「立即同步」会接着下剩下的" in s["message"] and s["details"] == {"long": 11, "invalid": 66, "non_video": 0, "denied": 0}
     assert s["multi_p"] == 73 and s["pending_note"].endswith("B站待选清单.md")
 
 

@@ -67,6 +67,7 @@ ATTACHMENT_HINT_RE = re.compile(r"[^\n。！？]{0,40}(?:附件|在文件|文件
 
 
 from ... import sources
+from ... import domain
 
 AdapterError = sources.SourceError
 NeedsHumanError = sources.NeedsHuman
@@ -496,26 +497,8 @@ def _ms_to_iso(value: Any) -> str | None:
 
 
 def _int_or_none(value: Any) -> int | None:
-    """计数 → 整数。1101：小红书过万的数给的是「1.7万」「2万」「10万+」（也见过「1,234」「1.2w」「1亿」）——
-    以前只认纯数字，过万的点赞全成了 None（目录卡片上就没有点赞数）。还有「15.3K」「1.2M」。"""
-    if value is None or isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    text = str(value).strip().replace(",", "").rstrip("+").strip()
-    mult = 1
-    if text[-1:] in ("万", "w", "W"):
-        text, mult = text[:-1], 10_000
-    elif text[-1:] == "亿":
-        text, mult = text[:-1], 100_000_000
-    elif text[-1:] in ("k", "K"):   # 也见过「15.3K」
-        text, mult = text[:-1], 1_000
-    elif text[-1:] in ("m", "M"):
-        text, mult = text[:-1], 1_000_000
-    try:
-        return int(round(float(text) * mult)) if mult > 1 else int(text)
-    except (TypeError, ValueError):
-        return None
+    """计数 → 整数（「1.7万」「15.3K」「10万+」都认）；规则在 domain.count_value，目录也用同一个。"""
+    return domain.count_value(value)
 
 
 def _user(raw: dict[str, Any] | None) -> dict[str, Any]:

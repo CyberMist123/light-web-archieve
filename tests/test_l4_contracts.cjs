@@ -26,6 +26,7 @@ for (const item of JSON.parse(fs.readFileSync('tests/fixtures/with_model_cases.j
 }
 const plugin = new Plugin({ workspace: makeWorkspace() }, {});
 plugin.taskStatusEl = dom.document.createElement('div');
+plugin.settings = { ...(plugin.settings || {}), devSyncLog: true };   // 1101：状态栏进度只在开发者选项「同步记录和进度」打开时显示
 plugin.running = '同步收藏'; plugin.runningProgress = '2/5 篇';
 let called = 0; const off = plugin.onTask(() => called++);
 plugin.taskChanged(); assert.equal(plugin.taskStatusEl.hidden, false);

@@ -69,7 +69,7 @@ const tools = head.createEl('div', { cls: 'lbt-tools' });
 const nav = head.createEl('nav', { cls: 'lb-page-nav' });
 nav.createEl('button', { text: '浏览收藏' }).onclick = () => LB.openPage('catalog');
 nav.createEl('button', { text: '问收藏' }).onclick = () => LB.openPage('chat');
-nav.createEl('button', { text: 'Wiki' }).onclick = () => LB.openPage('wiki');
+nav.createEl('button', { text: 'WIKI' }).onclick = () => LB.openPage('wiki');
 head.createEl('p', { cls: 'lbt-note', text: LB.mobile ? LB.MOBILE_ONLY_TEXT : '在这里彻底删除的收藏不会再同步。建议在「设置 → 文件与链接 → 排除的文件」加 _trash' });
 const recsBox = wrap.createEl('div', { cls: 'lbt-recs' }); recsBox.hidden = true;
 const list =wrap.createEl('div', { cls: 'lbt-list' });

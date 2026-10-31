@@ -740,7 +740,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-top:not(.is-tools-static)>.lbc-tools{top:8px;}
 .lbc-wrap .lbc-tools{gap:4px;align-items:center;}
 .lbc-wrap .lbc-tools .lbc-jumps{background:transparent;padding:0;gap:8px;margin-right:4px;}
-.lbc-wrap .lbc-tools .lbc-jumps button{height:auto!important;padding:9px 16px!important;border:0!important;border-radius:9px!important;font:500 14px/1.2 var(--lb-font-title-base,serif),var(--lb-font-serif)!important;background:var(--lb-surface)!important;color:var(--lb-ink)!important;box-shadow:0 1px 4px #0000000c!important;cursor:pointer;}
+.lbc-wrap .lbc-tools .lbc-jumps button{height:auto!important;padding:9px 16px!important;border:0!important;border-radius:9px!important;font:500 14px/1.2 var(--lb-font-title),var(--lb-font-serif)!important;background:var(--lb-surface)!important;color:var(--lb-ink)!important;box-shadow:0 1px 4px #0000000c!important;cursor:pointer;}
 .lbc-wrap .lbc-tools .lbc-jumps button:hover{box-shadow:0 2px 8px #00000018!important;}
 .lbc-wrap .lbc-tools button.lbc-icon-btn,.lbc-wrap .lbc-tools button.lb-manage{width:36px!important;height:36px!important;min-width:36px;padding:0!important;border:0!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--lb-ink)!important;display:grid;place-items:center;cursor:pointer;}
 .lbc-wrap .lbc-tools button.lbc-icon-btn:hover,.lbc-wrap .lbc-tools button.lb-manage:hover{background:var(--lb-soft)!important;}

@@ -1049,7 +1049,7 @@ def _likes_of(note: dict[str, Any], obj_dir: Path, version: Any) -> int | None:
     if v is not None:
         return v
     try:
-        from .sources.xiaohongshu.adapter import _int_or_none
+        from .domain import count_value as _int_or_none
         raw = obj_dir / "raw" / f"v{int(version):04d}" / "mcp_raw.json"
         if not raw.is_file():
             return None

@@ -60,7 +60,7 @@ async function catalogEntryTests() {
   const fire = watchable(V);
   let opened = 0, aliveChecks = 0;
   let syncLogs = 0;
-  const plugin = { settings: { hiddenCats: [] }, openAttachments() {}, openCategories() {}, openLibraryPage() {}, openProblems() { opened++; }, openSyncLog() { syncLogs++; },
+  const plugin = { settings: { hiddenCats: [], devSyncLog: true }, openAttachments() {}, openCategories() {}, openLibraryPage() {}, openProblems() { opened++; }, openSyncLog() { syncLogs++; },
     refreshProblemSummary: async () => { aliveChecks++; return null; } };
   const app = makeApp(V, plugin);
   const A = dataviewBlock({ dom, app, code: LIB + '\n' + SEARCH + '\n' + asset('catalog-view.js') });
