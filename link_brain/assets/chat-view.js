@@ -1143,8 +1143,6 @@ ${LB.siteHeaderCss()}
 .lbchat .lbchat-head > .lbchat-sub{flex-basis:100%;margin:-6px 0 0;text-align:left;}
 .lbchat .lbchat-titlerow{display:flex;align-items:center;}
 .lbchat .lbchat-title{font-size:44px;line-height:1.02;cursor:default;}
-.lbchat button.lbchat-plus{width:40px;height:44px;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;font:500 30px/1 var(--lb-font-title)!important;color:var(--lb-ink);cursor:pointer;transition:transform .2s;}
-.lbchat button.lbchat-plus:hover{transform:rotate(90deg);}
 .lbchat .lbchat-tools{margin-left:auto;display:flex;align-items:center;flex-wrap:nowrap;gap:2px;}
 .lbchat .lbchat-tools button.lbchat-tab{margin-right:14px;padding:4px 0;border-bottom:0!important;font:400 13px/1.2 var(--lb-font-body)!important;color:var(--lb-muted);}
 .lbchat .lbchat-tools button.lbchat-tab.is-on{color:var(--lb-ink);font-weight:600;}
@@ -1239,11 +1237,7 @@ const titleRow = titleBlock.createEl('div', { cls: 'lbchat-titlerow' });
 // 1026 她：字体 / 样式 / 文字都和目录页同一份（LB.brandTitle / brandCss / brandFontCss，在 lb-page-lib），别在这里另写
 const chatTitle = LB.brandTitle(titleRow, 'lbchat-title', 'lbchat-engr');
 lbEvent(app.workspace.on('link-brain:catalog-prefs', () => chatTitle.set()));
-// 1101 设计交接包：字标后面一颗 ＋（收进来：添加一条收藏，和目录页同一个菜单）
-if (!readOnly) {
-  const plus = titleBlock.createEl('button', { cls: 'lbchat-plus', text: '+' }); plus.type = 'button';
-  plus.onclick = async e => { try { (await LB.ensure('openPlusMenu')).openPlusMenu(e); } catch (err) { notice('菜单没打开：' + errText(err)); } };
-}
+// 1101 作者：问收藏标题旁不要 ＋（设计稿三页都有，这一页不要；导入在浏览收藏页）
 LB.spaceSwitch(head, 'chat');
 const tools = head.createEl('div', { cls: 'lbchat-tools' });
 try { resizeObserver?.observe(head); } catch {}
