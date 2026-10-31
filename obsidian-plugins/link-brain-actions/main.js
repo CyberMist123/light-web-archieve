@@ -212,6 +212,7 @@ const DEFAULT_SETTINGS = {
   hiddenCats: [],
   // 10-03：目录页 / 星标页瀑布流列数（Ctrl + 加减号 / Ctrl + 滚轮 / 「…→每行几列」调，2–6；0 = 按页面宽度自动）
   catalogColumns: 0,
+  catalogHideLikesFrom: 0,   // 1101：目录卡片点赞数到这个数就不显示（0 = 都显示 / 1000 / 10000）
   // 1101 作者：同步记录 bug 多——默认关：目录页不放同步记录入口（钟 / 「更新」/ 边栏「上次同步」），状态栏不显示同步 / 补评论进度；设置 → 修复 → 后台程序里打开
   devSyncLog: false,
   catalogTitle: "",   // 目录页大标题（空 = Collections）

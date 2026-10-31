@@ -3237,7 +3237,7 @@ function seriesCuts() {
 }
 const cardTitle = it => seriesCuts().get(it.id) || it.title || '未命名';
 function cardSig(it, fuzzy, low) {
-  return JSON.stringify([it.title, cardTitle(it), it.cover, it.cover_w, it.cover_h, it.kind, it.attachment, it.attachment_reason, it.author, it.source, it.likes, it.note, it.problems || null, fuzzy, low || '',
+  return JSON.stringify([it.title, cardTitle(it), it.cover, it.cover_w, it.cover_h, it.kind, it.attachment, it.attachment_reason, it.author, it.source, fmtLikes(it.likes), it.note, it.problems || null, fuzzy, low || '',
     it.cover ? '' : [catNameOf(it), it.date], cardTopics(it), isBili(it) ? [it.views, it.duration, it.video, it.author, biliDay(it)] : 0]);
 }
 // 1101 她：B 站卡片照 B 站首页的写法——播放量「43.5万」、时长「11:41」/「1:02:03」、上传时间「7小时前 / 昨天 / 10月23日 / 2024年6月29日」
@@ -3328,7 +3328,11 @@ function tileType(it) {
   return ext ? ext + (files.length > 1 ? ` · ${files.length} 个` : '') : '附件';
 }
 const cardTopics = it => (Array.isArray(it.topics) ? it.topics.filter(t => typeof t === 'string' && t).slice(0, 2) : []);
-const fmtLikes = v => (v == null ? '' : '♡ ' + (Number(v) >= 10000 ? (Number(v) / 10000).toFixed(1) + '万' : v));
+let likesShownFor = null;   // 上次画卡时的点赞阈值（设置改了就重画一遍）
+// 1101 作者：设置里「点赞数」选了「上千 / 上万的不显示」，到那个数就不写
+const likesHideFrom = () => Number(provider()?.settings?.catalogHideLikesFrom) || 0;
+likesShownFor = likesHideFrom();
+const fmtLikes = v => { const th = likesHideFrom(); return v == null || (th && Number(v) >= th) ? '' : '♡ ' + (Number(v) >= 10000 ? (Number(v) / 10000).toFixed(1) + '万' : v); };
 const STAR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l2.55 5.17 5.7.83-4.13 4.02.98 5.68L12 16.62l-5.1 2.68.98-5.68L3.75 9.6l5.7-.83z"/></svg>';
 const CHECK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12.5l4 4 8-9"/></svg>';
 const VIDEO_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="m16 10 5-3v10l-5-3z"/></svg>';
@@ -3872,7 +3876,7 @@ if (app.workspace?.on && dv.component?.registerEvent) {
   // 星标以 catalog-data 为准 + link-brain:star 事件（§5.6）：只换这张卡的 ★，不重排（C2）
   lbEvent(app.workspace, app.workspace.on('link-brain:star', (id, on) => { const it = items.find(x => x.id === id); if (it && !it._starBusy && !!it.starred !== !!on) { it.starred = !!on; paintCard(id); paintSelbar(); } }));
   // 10-03：「…→改标题 / 每行几列」改完就地换（不重建卡片）
-  lbEvent(app.workspace, app.workspace.on('link-brain:catalog-prefs', () => { setTitle(); histTool.hidden = !devLog(); paintSyncProg(); updatedBtn.classList.toggle('is-plain', !devLog()); const c = savedCols(); if (c !== cols) { cols = c; applyCols(); relayoutIfNeeded(); } reloadLayout(); }));
+  lbEvent(app.workspace, app.workspace.on('link-brain:catalog-prefs', () => { setTitle(); if (likesHideFrom() !== likesShownFor) { likesShownFor = likesHideFrom(); laidKey = null; render(); } histTool.hidden = !devLog(); paintSyncProg(); updatedBtn.classList.toggle('is-plain', !devLog()); const c = savedCols(); if (c !== cols) { cols = c; applyCols(); relayoutIfNeeded(); } reloadLayout(); }));
   lbEvent(app.workspace, app.workspace.on('link-brain:catalog-query', () => { if (takePendingQuery()) saveState(); }));
 }
 { const winTarget = typeof window !== 'undefined' && window && typeof window.addEventListener === 'function' ? window : null;

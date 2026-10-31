@@ -851,6 +851,15 @@ module.exports = function (obsidian, plugin) {
     look.controlEl.querySelector?.('button')?.removeClass?.('lb-link');
     row(g, tab, '批注署名', '笔记底下你写的批注署这个名字；空着就不署名。', { section: 'annot' })
       .addText(t => t.setPlaceholder('不署名').setValue(s.nickname || '').onChange(async v => { s.nickname = v.trim(); await tab.save(); }));
+    // 1101 作者「设置里的自定义：小红书点赞到千 / 万的不显示点赞数」：卡片右下角的 ♡ 数，到这个数就不写（目录页就地换）
+    row(g, tab, '点赞数', '小红书卡片右下角的 ♡ 点赞数。', { section: 'likes' })
+      .addDropdown(d => {
+        for (const [v, t] of [['0', '都显示'], ['1000', '上千的不显示'], ['10000', '上万的不显示']]) d.addOption(v, t);
+        d.setValue(String(Number(s.catalogHideLikesFrom) || 0)).onChange(async v => {
+          s.catalogHideLikesFrom = Number(v) || 0; await tab.save();
+          plugin.app.workspace?.trigger?.('link-brain:catalog-prefs');
+        });
+      });
     more(g, tab, 'catalog-more', b => {
       row(b, tab, '留言对象', '批注开头写「@名字」，就算留给它的话（比如你的 AI 助手）；空着不启用。')
         .addText(t => t.setPlaceholder('不启用').setValue(s.annotateMention || '').onChange(async v => { s.annotateMention = v.trim(); await tab.save(); }));

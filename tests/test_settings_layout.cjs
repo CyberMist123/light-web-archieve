@@ -301,7 +301,7 @@ async function inventory(p) {
   assert.ok(!sy.querySelector('.lb-sched-save') && !sy.querySelector('.lb-sched-off'), '没有「保存定时」「关闭定时」按钮');
   // ③ 目录与批注：没有全局样式控件（在目录的「编排 → Aa 样式」）
   const cat = group(root, 'g-catalog');
-  assert.deepEqual(visibleRows(cat), ['目录的样子', '批注署名']);
+  assert.deepEqual(visibleRows(cat), ['目录的样子', '批注署名', '点赞数']);
   assert.ok(!/字号|字体|列数|布局/.test(visibleRows(cat).join()), '样式不在这里');
   let arranged = 0; env.p.openCatalogArrange = async () => { arranged++; };
   rowNamed(cat, '目录的样子').querySelector('button').onclick(); assert.equal(arranged, 1, '去目录编排');
