@@ -56,7 +56,7 @@ function fixture() {
           titleFamily: getComputedStyle(title).fontFamily, dataText: title.dataset.text, titleText: title.textContent,
           title: R('.lbc-titlerow'), sub: R('.lbc-subline'), manage: R('.lb-manage'), wrap: R('.lbc-wrap'),
           catsScroll: cats.scrollWidth - cats.clientWidth, catsJustify: getComputedStyle(cats).justifyContent, catsWrap: getComputedStyle(cats).flexWrap,
-          ctl: ['.lbc-time', '.lbc-vseg', '.lbc-searchbox', '.lbc-askbtn'].map(s => Math.round(R(s).height)),
+          ctl: ['.lbc-time', '.lbc-searchbox', '.lbc-jumps'].map(s => Math.round(R(s).height)),
           hOverflow: scroller.scrollWidth - scroller.clientWidth,
         };
       });

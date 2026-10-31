@@ -84,11 +84,13 @@ async function open(browser, { width = 1280, height = 900, theme = 'light', idx,
   const S = await shell.page(page, { host: 'page-reading', kind: 'catalog', theme, data, files, plugin: PLUGIN, mobile });
   return { page, S };
 }
-const tabs = page => page.evaluate(() => [...document.querySelectorAll('.lbc-cats .lbc-cat, .lbc-vseg .lbc-view')].map(b => ({ text: b.textContent, on: b.classList.contains('is-active') || b.classList.contains('is-on') })));
+const tabs = page => page.evaluate(() => [...document.querySelectorAll('.lbc-cats .lbc-cat')].map(b => ({ text: b.textContent, on: b.classList.contains('is-active') })));
+const inIndex = page => page.evaluate(() => document.querySelector('.lbc-wrap').classList.contains('is-indexview'));
 const chips = page => page.evaluate(() => [...document.querySelectorAll('.lbc-subcats .lbc-subcat')].map(b => ({ text: b.textContent, on: b.classList.contains('is-active'), path: b.dataset.path })));
 const cardTitles = page => page.evaluate(() => [...document.querySelectorAll('.lbc-grid .lbc-card .lbc-ctitle')].map(e => e.textContent));
-// 1026：「索引」不在视图开关里常驻了——没开着时从 Wiki 页的「分类树 · 索引编辑」进（开着时开关里多一项「索引」，点了回去）
-const clickTab = async (page, text) => { await page.evaluate(t => { const b = [...document.querySelectorAll('.lbc-cats .lbc-cat, .lbc-vseg .lbc-view')].find(x => x.textContent === t); if (b) b.click(); else if (t === '索引') { document.querySelector('.lbc-view[data-view="wiki"]').click(); document.querySelector('.lbc-wiki .lbc-index-open').click(); } }, text); };
+// 1031：页头视图开关去掉了——索引编辑从「管理 → 索引编辑」进
+const openIndexEdit = async page => { await page.click('.lb-manage'); await page.waitForTimeout(60); await page.evaluate(() => [...document.querySelectorAll('.menu .menu-item, .lbc-menu .lbc-menu-item')].find(e => e.textContent.trim().endsWith('索引编辑')).click()); };
+const clickTab = async (page, text) => { if (text === '索引') { await openIndexEdit(page); return; } await page.evaluate(t => [...document.querySelectorAll('.lbc-cats .lbc-cat')].find(x => x.textContent === t)?.click(), text); };
 const treeRows = page => page.evaluate(() => [...document.querySelectorAll('.lbi-panel .lbi-row')].map(r => ({ path: r.dataset.path, text: r.querySelector('.lbi-label').textContent,
   cls: r.className, acts: [...r.querySelectorAll('.lbi-acts button')].map(b => b.textContent) })));
 const clickRow = async (page, path) => { await page.evaluate(p => [...document.querySelectorAll('.lbi-row')].find(n => n.dataset.path === p).querySelector('.lbi-label').click(), path); };
@@ -107,10 +109,10 @@ const calls = async (S, name) => (await S.calls()).filter(c => c[0] === name);
       // ① 顶部分类
       const names = (await tabs(page)).map(t => t.text);
       // 1021：分类行只放「全部 + 分类」；范围（今日新增 / 已收藏 / 视频 / 附件）在控制行，「索引」是视图切换的第三项
-      // 1026：类型（图文 / 视频 / 附件）单独一组；视图开关平时只有瀑布流 / Wiki
-      const fixedNames = await page.evaluate(() => [...document.querySelectorAll('.lbc-ctl .lbc-scope-tab, .lbc-ctl .lbc-type-tab, .lbc-vseg .lbc-view')].map(b => b.textContent));
-      for (const fixed of ['全部', '今日新增', '已收藏', '图文', '视频', '附件', '瀑布流', 'Wiki']) assert.ok(fixedNames.includes(fixed), `${theme}：固定入口「${fixed}」还在 ${fixedNames}`);
-      assert.deepEqual(names.slice(0, names.indexOf('瀑布流')), ['全部', '做饭', 'AI', '旅行', '悉尼', '学习', '家居', '未归类'], `${theme}：分类 = 全部 + 索引第一级（0 篇的不出）+ 未归类`);
+      // 1026：类型（图文 / 视频 / 附件）单独一组；1031 视图开关去掉了
+      const fixedNames = await page.evaluate(() => [...document.querySelectorAll('.lbc-ctl .lbc-scope-tab, .lbc-ctl .lbc-type-tab')].map(b => b.textContent));
+      for (const fixed of ['全部', '今日新增', '已收藏', '图文', '视频', '附件']) assert.ok(fixedNames.includes(fixed), `${theme}：固定入口「${fixed}」还在 ${fixedNames}`);
+      assert.deepEqual(names, ['全部', '做饭', 'AI', '旅行', '悉尼', '学习', '家居', '未归类'], `${theme}：分类 = 全部 + 索引第一级（0 篇的不出）+ 未归类`);
       // ② 大类 → 二级小标签
       await clickTab(page, '做饭'); await S.settle();
       assert.equal((await cardTitles(page)).length, count('做饭'), `${theme}：点「做饭」只剩这一类`);
@@ -146,17 +148,19 @@ const calls = async (S, name) => (await S.calls()).filter(c => c[0] === name);
       assert.equal((await cardTitles(page)).length, count('做饭/家常菜'), `${theme}：点「家常菜」右边只剩这几篇`);
       const head = await page.evaluate(() => document.querySelector('.lbi-head').textContent);
       assert.match(head, /做饭 › 家常菜.*篇.*天天吃的那种/, `${theme}：网格上面一行说清选的是什么 + 她写的说明 ${head}`);
-      assert.ok((await tabs(page)).find(t => t.text === '索引').on, `${theme}：点节点不跳出索引视图`);
+      assert.ok(await inIndex(page), `${theme}：点节点不跳出索引视图`);
       assert.match(await page.evaluate(() => document.querySelector('.lbc-count').textContent), new RegExp(`^筛出 ${count('做饭/家常菜')} 篇（共 120）`));
-      // ④ 上面一行：未归类 / 状态 / 建议新增
-      const bar = await page.evaluate(() => ({ text: document.querySelector('.lbi-bar').textContent, chips: [...document.querySelectorAll('.lbi-chip')].map(b => b.textContent) }));
-      assert.match(bar.text, /未归类 \d+ 篇/, `${theme}：「未归类 N 篇」${bar.text}`);
+      // ④ 上面一行（1031 她「懒人，不要出现这么多东西」）：整理分类 · 已归类 · 未归类 · 要她点的状态 · ⋯ 更多 · 完成
+      const bar = await page.evaluate(() => ({ text: document.querySelector('.lbi-bar').textContent, chips: document.querySelectorAll('.lbi-chip').length }));
+      assert.match(bar.text, /整理分类已归类 \d+ \/ 120未归类 \d+/, `${theme}：顶条 ${bar.text}`);
       assert.match(bar.text, /还有 3 篇没按内容归，约 ¥0\.02/, `${theme}：按内容归类的状态`);
-      assert.match(bar.text, /4 行|1 行像是写给自己的说明/, `${theme}：说明行没当成分类，告诉她`);
-      assert.deepEqual(bar.chips, [`穿搭灵感${idx.unclassified.count}`, '红烧系列3'], `${theme}：建议新增 chips`);
+      assert.ok(!/像是写给自己的说明|建议新增|起草了一版/.test(bar.text) && bar.chips === 0, `${theme}：说明行 / 建议 / 草稿不常驻 ${bar.text}`);
       await page.click('.lbi-classify-btn'); await S.settle();
       assert.equal((await calls(S, 'indexClassify')).length, 1, `${theme}：「按内容归类」调插件`);
-      await page.evaluate(() => [...document.querySelectorAll('.lbi-chip')].find(b => b.dataset.id === 'p1').click()); await S.settle();
+      await page.click('.lbi-more'); await S.settle();
+      const moreItems = await page.evaluate(() => [...document.querySelectorAll('.menu .menu-item, .lbc-menu .lbc-menu-item, .lbc-menu .lbc-menu-group')].map(e => e.textContent.trim()));
+      assert.ok(moreItems.some(t => /^打开 索引\.md/.test(t)) && moreItems.some(t => /像说明，没当成分类/.test(t)) && moreItems.some(t => /^小建议（2 条/.test(t)), `${theme}：⋯ 更多 ${moreItems}`);
+      await page.evaluate(() => [...document.querySelectorAll('.menu .menu-item, .lbc-menu .lbc-menu-item')].find(e => /穿搭灵感/.test(e.textContent)).click()); await S.settle();
       assert.equal((await cardTitles(page)).length, idx.unclassified.count, `${theme}：点建议 = 右边看那几篇`);
       assert.match(await page.evaluate(() => document.querySelector('.lbi-head').textContent), /建议新增「穿搭灵感」.*第一级/);
       if (theme === 'light') await S.screenshot('index-split-light'); else await S.screenshot('index-split-dark');
@@ -221,7 +225,7 @@ const calls = async (S, name) => (await S.calls()).filter(c => c[0] === name);
       assert.ok(stick.gap >= 0 && stick.gap <= 16, `${theme}：树钉在吸顶区下面 ${JSON.stringify(stick)}`);
       // 不出索引视图搜索：右边照样筛
       await page.fill('.lbc-search', 'AI'); await page.keyboard.press('Enter'); await S.settle();
-      assert.ok((await tabs(page)).find(t => t.text === '索引').on, `${theme}：在索引视图里搜索不跳出`);
+      assert.ok(await inIndex(page), `${theme}：在索引视图里搜索不跳出`);
       const overflow = await page.evaluate(() => { const w = document.querySelector('.lbc-wrap'); return w.scrollWidth - w.clientWidth; });
       assert.ok(overflow <= 1, `${theme}：没有横向溢出 ${overflow}`);
       // 出了索引视图：卡片上不出「归类…」
@@ -235,6 +239,8 @@ const calls = async (S, name) => (await S.calls()).filter(c => c[0] === name);
     // ⑦ 窄屏 / 手机：树叠在网格上面
     for (const [label, opts] of [['narrow', { width: 560 }], ['mobile', { width: 390, mobile: true }]]) {
       const { page, S } = await open(browser, { ...opts, idx, data });
+      // 1031：手机上没有「管理」，分类 Wiki 也退场了——索引编辑（要插件）在手机上没有入口
+      if (opts.mobile) { assert.equal(await page.$('.lb-manage'), null, 'mobile：没有索引编辑入口'); assert.deepEqual(await S.pageErrors(), []); await page.close(); continue; }
       await clickTab(page, '索引'); await S.settle();
       const m = await page.evaluate(() => {
         const p = document.querySelector('.lbi-panel').getBoundingClientRect(), g = document.querySelector('.lbc-grid').getBoundingClientRect();
@@ -249,6 +255,17 @@ const calls = async (S, name) => (await S.calls()).filter(c => c[0] === name);
       assert.ok(m.overflow <= 1, `${label}：没有横向溢出 ${m.overflow}`);
       if (label === 'mobile') assert.ok(!m.acts && !m.classify, `手机上没有要插件的按钮 ${JSON.stringify(m)}`);
       if (label === 'narrow') await S.screenshot('index-split-narrow');
+      assert.deepEqual(await S.pageErrors(), []);
+      await page.close();
+    }
+    // ⑦b 1031：够 10 篇的建议后端自动写进了 索引.md——顶条说一句「AI 新建了 N 个分类」，名字点了 = 看那一类
+    {
+      const { page, S } = await open(browser, { idx: { ...idx, auto_adopted: { at: '2026-10-31T22:00:00+11:00', nodes: [{ path: 'AI/伴侣', name: '伴侣', count: 6 }, { path: '没了', name: '已删掉的', count: 3 }] } }, data });
+      await clickTab(page, '索引'); await S.settle();
+      const t = await page.evaluate(() => document.querySelector('.lbi-made')?.textContent);
+      assert.equal(t, 'AI 新建了 1 个分类：伴侣', `AI 新建（已删掉的不算）${t}`);
+      await page.click('.lbi-made-node'); await S.settle();
+      assert.match(await page.evaluate(() => document.querySelector('.lbi-head').textContent), /AI › 伴侣/);
       assert.deepEqual(await S.pageErrors(), []);
       await page.close();
     }

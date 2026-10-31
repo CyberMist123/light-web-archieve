@@ -39,7 +39,7 @@ const mod = (P, id) => P.$('.lbc-m-' + id);
 const bar = (P, id, act) => mod(P, id).querySelector(`.lbc-mod-bar [data-act="${act}"]`);
 const topRows = P => P.$('.lbc-top').children.filter(c => c.classList.contains('lbc-row') && !c.hidden).map(r => r.children.filter(c => c.classList.contains('lbc-rcol') && !c.hidden).map(c => c.children.filter(m => m.classList.contains('lbc-m') && !m.classList.contains('is-gone')).map(m => m.dataset.m)));
 const boardCols = P => P.$('.lbc-board').children.filter(c => (c.classList.contains('lbc-side') || c.classList.contains('lbc-wallcol')) && !c.hidden).map(c => c.children.filter(m => m.classList.contains('lbc-m') && !m.classList.contains('is-gone')).map(m => m.dataset.m));
-const FILTER_ROW = [['scope'], ['topics'], ['types'], ['albums'], ['picks'], ['sort'], ['view'], ['search'], ['ask']];
+const FILTER_ROW = [['scope'], ['topics'], ['types'], ['albums'], ['picks'], ['sort'], ['search'], ['ask']];   // 1031：「视图」那一块去掉了
 const colOf = (P, id) => mod(P, id).parentNode;
 const xw = (P, id) => [Number(colOf(P, id).dataset.x), Number(colOf(P, id).dataset.w)];
 // 编排用的假几何：页宽 1200（一格 25px）；页头每一排 40 高、排和排之间空 30；块按自己的 x / w 落位。边栏 380 宽、墙 780 宽
@@ -95,7 +95,7 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
     const P = await openCatalog({ data: catalogData(base()), plugin: p });
     P.$('.lb-arrange').onclick();
     assert.ok(P.$('.lbc-wrap').classList.contains('is-arranging'));
-    assert.equal(P.$$('.lbc-mod-bar').length, 17, '十七块都有工具条（1028 加了专辑）');
+    assert.equal(P.$$('.lbc-mod-bar').length, 16, '十六块都有工具条（1028 加了专辑，1031 去掉视图）');
     for (const id of ['title', 'meta', 'scope', 'search', 'recent', 'wall']) assert.ok(bar(P, id, 'drag') && bar(P, id, 'adjust') && bar(P, id, 'remove'), id + '：⠿ / 调整 / ×');
     assert.equal(P.$('.lbc-arrange-tray').nextSibling, P.$('.lbc-top'), '编排条在所有模块上面（页面最前）');
     rects(P);
@@ -354,7 +354,7 @@ const menuItem = (P, re) => P.dom.document.body.querySelectorAll('.lbc-menu-item
     // 1022 / 1026 的旧布局：筛选项收起 = 左边四小块移除，排序 / 视图 / 搜索 / 问收藏还在
     const old = mkPlugin({ settings: { catalogLayout: { side: [{ id: 'overview' }, { id: 'sync', hidden: true }, 'bogus', { id: 'recent' }], top: [{ id: 'title' }, { id: 'filters', hidden: true }, { id: 'cats' }], sideRight: true, sideW: 'l', gap: 's', density: 's' } } });
     const O = await openCatalog({ data: catalogData(base()), plugin: old });
-    assert.deepEqual(topRows(O), [[['title'], ['meta']], [['sort'], ['view'], ['search'], ['ask']], [['cats']]]);
+    assert.deepEqual(topRows(O), [[['title'], ['meta']], [['sort'], ['search'], ['ask']], [['cats']]]);
     assert.ok(mod(O, 'scope').classList.contains('is-gone') && mod(O, 'picks').classList.contains('is-gone'));
     assert.deepEqual(boardCols(O), [['wall'], ['overview', 'token', 'recent']], '边栏放右边、同步隐藏、Token 补在同步后面');
     assert.equal(O.$('.lbc-board').style.getPropertyValue('--lbc-board-cols'), 'minmax(0,28fr) minmax(0,20fr)', '宽侧栏 = 5/12 → 20/48');
