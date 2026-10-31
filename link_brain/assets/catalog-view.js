@@ -705,6 +705,11 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-mod-recent .lbc-rec li{border-top:0;}
 /* 1101 作者「recent 缩进、边距和下边的同步对齐，有点行间距」：Obsidian 给 li 的左缩进去掉，日期和 SYNC 的字左边齐；每行上下多一点空 */
 .lbc-wrap .lbc-mod-recent .lbc-rec li{margin:0!important;margin-inline-start:0!important;padding:5px 0!important;}
+/* 1101 作者「边距不太舒服」：编排拖出来的高度按整行往下取整，最后一行不被切一半（一行 = 字高 1.45 倍 + 上下各 5px）；标题和第一行之间收窄 */
+.lbc-wrap .lbc-mod-recent{--lbc-rec-row:calc(var(--fs-body,13.5px) * 1.45 + 10px);}
+.lbc-wrap .lbc-mod-recent .lbc-rec{max-height:calc(var(--lbc-rec-rows,6) * var(--lbc-rec-row));}
+.lbc-wrap .lbc-mod-recent.has-h .lbc-rec{max-height:round(down,var(--lbc-m-h),var(--lbc-rec-row));}
+.lbc-wrap .lbc-mod-recent > .lbc-lab{padding-bottom:6px;}
 .lbc-mod-recent .lbc-rec{scrollbar-width:none;}
 .lbc-mod-recent .lbc-rec::-webkit-scrollbar{display:none;}
 /* 同步：「每天 18:00 · 改」点开就地改时间 */
