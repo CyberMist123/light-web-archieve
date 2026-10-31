@@ -342,6 +342,7 @@ link-brain nightly                     # 一整套夜跑（同步 → 附件 →
 | [FFmpeg](https://ffmpeg.org) | B 站音画合成（只换容器不重编码）、视频转写；需自己装，不随仓库分发 | LGPL / GPL |
 | [Cinzel](https://github.com/NDISCOVER/Cinzel)、[Cormorant Garamond](https://github.com/CatharsisFonts/Cormorant) | 目录页标题和数字字体，拉丁子集随包分发（`link_brain/assets/fonts/`，附 OFL 原文） | SIL OFL 1.1 |
 | [YishenTu/claudian](https://github.com/YishenTu/claudian) | 设置页服务商图标的 SVG 数据、找本机命令行程序的路径清单 | MIT |
+| [lobehub/lobe-icons](https://github.com/lobehub/lobe-icons) | 设置页「接入其他 AI」里 Cursor、Windsurf、Gemini CLI、Qwen Code、Kimi、Cline、Roo Code、Trae、Cherry Studio、ZCode（Z.ai）、Hermes Agent 的图标 SVG（品牌图形的商标归各自公司） | MIT |
 | 内置问答技能 | travel 改编自 [skywain/trip-planner-skill](https://github.com/skywain/trip-planner-skill)（MIT），research 改编自 [Weizhena/Deep-Research-skills](https://github.com/Weizhena/Deep-Research-skills)（MIT），board 参考 [anthropics/skills](https://github.com/anthropics/skills) 的 frontend-design（Apache-2.0，只取设计原则）；细节见 `link_brain/_skills/NOTICE.md` | 见左 |
 | Python 依赖 | jieba、pypinyin、rapidfuzz、PyYAML、mcp、python-docx（MIT），httpx、numpy（BSD-3-Clause），Pillow（MIT-CMU），pypdfium2（Apache-2.0 / BSD-3-Clause），yt-dlp（Unlicense） | 以各包元数据为准 |
 

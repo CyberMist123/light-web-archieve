@@ -110,7 +110,10 @@ const REPLIES = {
     apps: [{ id: 'claude-code', name: 'Claude Code', installed: true, oneclick: true, version: '2.1.3', connected: false },
       { id: 'claude-desktop', name: 'Claude 桌面版', installed: true, oneclick: true, version: '', connected: true },
       { id: 'codex', name: 'Codex', installed: true, oneclick: true, version: '0.146.0', connected: false },
-      { id: 'opencode', name: 'OpenCode', installed: true, oneclick: false, version: '1.19.3', connected: false }],
+      { id: 'opencode', name: 'OpenCode', installed: true, oneclick: false, version: '1.19.3', connected: false,
+        snippet: '{"mcp":{"lwa":{"type":"local"}}}', hint: '粘进 ~/.config/opencode/opencode.json（mcp 段）' }],
+    others: [{ id: 'cursor', name: 'Cursor', oneclick: true, snippet: '{"mcpServers":{"lwa":{}}}', hint: '粘进 ~/.cursor/mcp.json（mcpServers）' },
+      { id: 'hermes', name: 'Hermes Agent', oneclick: false, snippet: 'mcp_servers:\n  lwa: {}\n', hint: '粘进 ~/.hermes/config.yaml（mcp_servers 段），会话里 /reload-mcp' }],
     not_installed: ['Pi', 'Grok Build'] },
   'usage --table': { ok: true, ai_table: { cli: [{ id: 'codex', name: 'Codex', preset: 'codex' }, { id: 'claude', name: 'Claude Code', preset: 'claude' }, { id: 'opencode', name: 'OpenCode', preset: 'opencode' }] } },
   'usage --balance': { ok: true, balances: {} },
@@ -336,7 +339,13 @@ async function inventory(p) {
   assert.deepEqual(cn.querySelectorAll('.lb-tg-row').map(nameOf), ['发链接就入库要后台对接', '问收藏', '批注里 @ TA']);
   assert.ok(cn.querySelectorAll('.lb-tg-row').every(r => descText(r).length > 10), 'TG 每行都有一句说明');
   assert.deepEqual(cn.querySelectorAll('.lb-twin-card strong').map(x => x.textContent), ['电脑端', '网页端']);
-  assert.deepEqual(cn.querySelectorAll('.lb-app').map(r => r.getAttribute('data-app')), ['claude-code', 'claude-desktop', 'codex', 'opencode', 'other']);
+  assert.deepEqual(cn.querySelectorAll('.lb-app').map(r => r.getAttribute('data-app')), ['claude-code', 'claude-desktop', 'codex', 'opencode', 'cursor', 'hermes', 'other']);
+  // 1101：没认出来的收在「更多应用」折叠里；复制设置复制的是它自己那种格式（Hermes 是 YAML、OpenCode 是 mcp 段），不是通用 JSON
+  const moreApps = cn.querySelector('[data-section="mcp-apps-more"]');
+  assert.ok(moreApps && moreApps.tagName.toLowerCase() === 'details' && /更多应用（2 个/.test(moreApps.querySelector('summary').textContent));
+  assert.deepEqual(moreApps.querySelectorAll('.lb-app').map(r => r.getAttribute('data-app')), ['cursor', 'hermes', 'other']);
+  assert.match(descText(cn.querySelector('[data-app="opencode"]')), /opencode\.json/);
+  assert.ok(cn.querySelector('[data-app="hermes"] .lb-app-icon svg'), 'Hermes 有图标（lobe-icons）');
   assert.equal(cn.querySelector('.lb-mcp-state').textContent, '● 已接入 1 个');
   assert.ok(cn.querySelector('[data-section="remote"] .lb-twin-head .checkbox-container'), '网页端的开关在卡片标题上');
   assert.ok(!rowNamed(cn, '你的网址'), '网页端关着：网址、口令不出');

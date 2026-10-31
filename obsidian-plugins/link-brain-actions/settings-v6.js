@@ -134,7 +134,8 @@ module.exports = function (obsidian, plugin) {
   };
   const loadApps = (force = false) => {
     if (force) delete cache.apps;
-    return cached('apps', 60000, async () => {
+    // 1101：照 Claudian（CachedProviderCLIResolver）——检测结果记在插件上，Obsidian 开着期间只检测一次；接 / 断、点重试才重新检测
+    return cached('apps', Infinity, async () => {
       const r = await plugin.runPy(['-m', 'link_brain', 'connect', 'status'], { label: '本机 AI 应用', timeoutMs: 60000, fallback: '没读出来' });
       if (!r.json || r.json.ok === false) throw new Error((r.json && r.json.message) || '没读出来');
       return r.json;
@@ -1249,7 +1250,7 @@ module.exports = function (obsidian, plugin) {
       list.empty();
       const apps = j.apps || [];
       onState && onState(apps);
-      if (!apps.length) list.createDiv({ cls: 'setting-item-description', text: '这台电脑上还没有能接入的 AI 应用（Claude Code、Codex、Claude 桌面版等）。装好后会出现在这里。' });
+      if (!apps.length) list.createDiv({ cls: 'setting-item-description', text: '这台电脑上还没认出能接入的 AI 应用（Claude Code、Codex、Cursor、Gemini CLI 等）。装好后会出现在这里。' });
       for (const a of apps) {
         const r = new Setting(list).setName(a.name);
         r.settingEl.addClass('lb-app'); r.settingEl.setAttribute?.('data-app', a.id);
@@ -1280,25 +1281,37 @@ module.exports = function (obsidian, plugin) {
               } else {
                 busy = true; try { t.setValue(!on); } catch {} finally { busy = false; }
                 r.setDesc(res.message || '没做成');
-                if (res.command) tab.link(r, '复制命令', () => plugin.copyText(res.command), '复制到终端自己运行');
+                const cmdLike = a.id === 'claude-code' || a.id === 'codex';
+                if (res.command) tab.link(r, cmdLike ? '复制命令' : '复制设置', () => plugin.copyText(res.command), cmdLike ? '复制到终端自己运行' : (a.hint || '复制 MCP 设置'));
               }
               delete cache.apps;
               busy = false;
             });
           });
         } else {
-          r.setDesc(how + ' · 复制设置，粘进它的 MCP 设置');
-          tab.link(r, '复制设置', () => plugin.copyText(j.json || ''), '复制 MCP 设置（JSON）');
+          // 复制设置：后端给的是它自己那种格式（OpenCode 的 mcp 段、Grok 的 TOML、Hermes / DeepSeek Harness 的 YAML…）
+          r.setDesc(how + ' · ' + (a.hint || '复制设置，粘进它的 MCP 设置'));
+          tab.link(r, '复制设置', () => plugin.copyText(a.snippet || j.json || ''), a.hint || '复制 MCP 设置');
         }
       }
-      // 别的能接 MCP 的软件（Cursor 之类，上面认不出来的）：复制设置自己粘
+      // 1101：这台电脑上没认出来的（没装、或装在认不出的地方）——收在一个折叠里，每家复制它自己格式的设置；最后一行给通用 JSON
       if (!guide) {
-        const other = new Setting(list).setName('其他应用').setDesc('Cursor 等：复制设置，粘进它的 MCP 设置');
+        const others = j.others || [];
+        const box = list.createEl('details', { cls: 'lb-apps-more', attr: { 'data-section': 'mcp-apps-more' } });
+        box.createEl('summary', { cls: 'setting-item-description', text: others.length ? `更多应用（${others.length} 个，这台电脑上没认出来）：复制设置自己粘` : '更多应用：复制设置自己粘' });
+        for (const o of others) {
+          const r = new Setting(box).setName(o.name).setDesc(o.hint || '复制设置，粘进它的 MCP 设置');
+          r.settingEl.addClass('lb-app'); r.settingEl.setAttribute?.('data-app', o.id);
+          const iconBox = r.settingEl.ownerDocument.createElement('div');
+          iconBox.className = 'lb-app-icon';
+          if (icons) icons.icon(iconBox, o.id, 22);
+          r.settingEl.insertBefore(iconBox, r.settingEl.firstChild);
+          tab.link(r, o.id === 'claude-code' ? '复制命令' : '复制设置', () => plugin.copyText(o.snippet || j.json || ''), o.hint || '复制 MCP 设置');
+        }
+        const other = new Setting(box).setName('其他应用').setDesc('上面没有的：复制通用设置（JSON，mcpServers），粘进它的 MCP 设置');
         other.settingEl.addClass('lb-app'); other.settingEl.setAttribute?.('data-app', 'other');
         tab.link(other, '复制设置', () => plugin.copyText(j.json || ''), '复制 MCP 设置（JSON）');
       }
-      const miss = j.not_installed || [];
-      if (miss.length && !guide) list.createDiv({ cls: 'lb-note setting-item-description', text: miss.join('、') + ' 没装，装好后会出现在这里。' });
     };
     loadApps().then(paint).catch(e => { if (alive) { list.empty(); plugin.failBox?.(list, '本机 AI 应用', e, () => { loadApps(true); tab.display(); }); } });
   }
@@ -1311,7 +1324,7 @@ module.exports = function (obsidian, plugin) {
     const ph = pc.createDiv({ cls: 'lb-twin-head' });
     ph.createEl('strong', { text: '电脑端' });
     const pcState = ph.createSpan({ cls: 'lb-twin-note lb-mcp-state', text: '读取中…' });
-    pc.createEl('p', { cls: 'setting-item-description', text: 'Claude Code / Codex / Claude 桌面版，一个开关接上。只读，随时能断开。' });
+    pc.createEl('p', { cls: 'setting-item-description', text: 'Claude Code、Codex、Cursor、Gemini CLI 等，一个开关接上；其余复制设置自己粘。只读，随时能断开。' });
     appRows(pc, tab, { onState: apps => { const n = apps.filter(a => a.connected).length; pcState.setText(n ? `● 已接入 ${n} 个` : '○ 还没接'); } });
     const web = twin.createDiv({ cls: 'lb-twin-card', attr: { 'data-section': 'remote' } });
     const wh = web.createDiv({ cls: 'lb-twin-head' });

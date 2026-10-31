@@ -11,10 +11,11 @@
 
 CLI（CONVENTIONS §1 形状）：
   python -m link_brain connect status                       每个本机客户端：找没找到、接没接上（只读文件，不改东西）
-  python -m link_brain connect add <claude-code|claude-desktop|codex>
-  python -m link_brain connect remove <claude-code|claude-desktop|codex>
+  python -m link_brain connect add <CLIENTS 里的一个>
+  python -m link_brain connect remove <CLIENTS 里的一个>
 - Codex：`codex mcp add lwa --env … -- <python> -m link_brain mcp`（配置由 codex 自己写进 ~/.codex/config.toml）；撤销 = `codex mcp remove lwa`。
-- status 另给 apps：照 Claudian 的找法列本机装了的 AI 应用（Claude Code / Codex / OpenCode / Pi / Grok Build / DeepSeek Harness / Claude 桌面版）。
+- Cursor / Gemini CLI / Qwen Code / Kimi Code / Pi / ZCode / Cline / Roo Code：改各自的 JSON 配置文件里 lwa 那一项（FILE_CLIENTS，同 Claude Desktop 的做法）。
+- status 另给 apps（本机认出来的，照 Claudian 的找法 + 各家配置目录）和 others（没认出来的），每个带 snippet（它自己格式的设置）和 hint（粘到哪）。
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from typing import Any
 from . import storage
 
 NAME = "lwa"
-CLIENTS = ("claude-code", "claude-desktop", "codex")
+CLIENTS = ("claude-code", "claude-desktop", "codex", "cursor", "gemini", "qwen", "kimi", "pi", "zcode", "cline", "roo")
 CLIENT_CN = {"claude-code": "Claude Code", "claude-desktop": "Claude Desktop", "codex": "Codex"}
 ENV_DESKTOP = "LWA_CLAUDE_DESKTOP_CONFIG"
 ENV_CLAUDE_EXE = "LWA_CLAUDE_EXE"
@@ -301,19 +302,236 @@ def remove_codex() -> dict[str, Any]:
 # --------------------------------------------------------------------------
 # 本机装了哪些 AI 应用（1018 作者：照 Claudian 认本机 CLI——它支持 Claude Code / Codex / OpenCode / Pi / Grok Build /
 # DeepSeek Harness，按 PATH + 各家常见安装目录找）。只看「装没装、什么版本」，不读它们的对话、不改别的东西。
-# 一键接入只给配置写法确定的：Claude Code、Claude 桌面版、Codex；其余如实写「复制设置自己加」。
+# 1101 作者：「市面上的 harness 都放上来」——每家照官方文档：用户级配置是 JSON、路径写死在文档里的做一键开关（只改 lwa
+# 那一项，写前备份、撤销只删 lwa）；TOML / YAML 或文档没写死路径的给「复制设置」（复制它自己那种格式的片段）。
+#   Cursor        ~/.cursor/mcp.json                       mcpServers   cursor.com/docs/context/mcp
+#   Gemini CLI    ~/.gemini/settings.json                  mcpServers   gemini-cli docs/tools/mcp-server.md（可带注释 → 读不懂就不改）
+#   Qwen Code     ~/.qwen/settings.json                    mcpServers   qwenlm.github.io/qwen-code-docs …/features/mcp
+#   Kimi Code     ~/.kimi-code/mcp.json（旧版 ~/.kimi）    mcpServers   kimi.com/code/docs …/customization/mcp.html
+#   Pi            ~/.pi/agent/mcp.json                     mcpServers   earendil-works/pi packages/coding-agent/docs/mcp.md
+#   ZCode         ~/.zcode/cli/config.json                 mcp.servers  zcode.z.ai/en/docs/mcp-services
+#   Cline / Roo   VS Code globalStorage/<扩展>/settings/…  mcpServers   cline core/storage/disk.ts；Roo src/shared/globalFileNames.ts
+#   复制设置：OpenCode（mcp 段，type local）· Grok Build（~/.grok/config.toml）· Hermes Agent（~/.hermes/config.yaml mcp_servers）·
+#   DeepSeek Harness（~/.dsh/cordis.patch.yml，YAML 补丁）· Windsurf（文档已迁到 Devin Desktop，路径不定）·
+#   Trae（全局 mcp.json 的位置文档没写，只有界面里的 Raw Config）· Cherry Studio（存在它自己的数据库里，界面能从 JSON 导入）。
 # --------------------------------------------------------------------------
 
-# id, 显示名, 命令名, 一键接入（True）还是只能复制设置（False）
+# id, 显示名, 命令名, 一键接入（True）还是只能复制设置（False）；顺序 = 设置页顺序
 APPS = (
     ("claude-code", "Claude Code", "claude", True),
     ("claude-desktop", "Claude 桌面版", "", True),
     ("codex", "Codex", "codex", True),
+    ("cursor", "Cursor", "", True),
+    ("gemini", "Gemini CLI", "gemini", True),
+    ("qwen", "Qwen Code", "qwen", True),
+    ("kimi", "Kimi Code", "kimi", True),
+    ("pi", "Pi", "pi", True),
+    ("zcode", "ZCode", "", True),
+    ("cline", "Cline", "", True),
+    ("roo", "Roo Code", "", True),
     ("opencode", "OpenCode", "opencode", False),
-    ("pi", "Pi", "pi", False),
     ("grok", "Grok Build", "grok", False),
+    ("hermes", "Hermes Agent", "hermes", False),
     ("deepseek", "DeepSeek Harness", "dsh", False),
+    ("windsurf", "Windsurf", "windsurf", False),
+    ("trae", "Trae", "", False),
+    ("cherry", "Cherry Studio", "", False),
 )
+APP_NAME = {aid: name for aid, name, _, _ in APPS}
+
+
+def _home() -> Path:
+    return Path.home()
+
+
+def _vscode_storages() -> list[Path]:
+    """VS Code 系编辑器的 globalStorage（Cline / Roo 的设置在 <这里>/<扩展 id>/settings/ 下）。"""
+    if os.name == "nt":
+        base = Path(os.environ.get("APPDATA") or (_home() / "AppData" / "Roaming"))
+    elif sys.platform == "darwin":
+        base = _home() / "Library" / "Application Support"
+    else:
+        base = _home() / ".config"
+    return [base / ed / "User" / "globalStorage" for ed in ("Code", "Code - Insiders", "VSCodium")]
+
+
+def _ext_settings(*folders: str) -> Path | None:
+    """第一个装了这个扩展（它的 settings 目录在）的编辑器里的 settings 目录；扩展目录名大小写两种都认。"""
+    for store in _vscode_storages():
+        for folder in folders:
+            d = store / folder / "settings"
+            if d.is_dir():
+                return d
+    return None
+
+
+def _kimi_dir() -> Path:
+    forced = os.environ.get("KIMI_CODE_HOME")
+    if forced:
+        return Path(forced)
+    new, old = _home() / ".kimi-code", _home() / ".kimi"
+    return old if (old.is_dir() and not new.is_dir()) else new
+
+
+def _pi_dir() -> Path:
+    return Path(os.environ.get("PI_CODING_AGENT_DIR") or (_home() / ".pi" / "agent"))
+
+
+def _cline_file() -> Path | None:
+    d = _ext_settings("saoudrizwan.claude-dev")
+    return d / "cline_mcp_settings.json" if d else None
+
+
+def _roo_file() -> Path | None:
+    d = _ext_settings("rooveterinaryinc.roo-cline", "RooVeterinaryInc.roo-cline")
+    return d / "mcp_settings.json" if d else None
+
+
+def _parent(fn):
+    def go() -> Path | None:
+        p = fn()
+        return p.parent if p else None
+    return go
+
+
+# 一键写 JSON 文件的这几家：id → (配置文件（None = 没装）, 认「装了」的目录, servers 在哪个键下)
+FILE_CLIENTS: dict[str, tuple[Any, Any, tuple[str, ...]]] = {
+    "cursor": (lambda: _home() / ".cursor" / "mcp.json", lambda: _home() / ".cursor", ("mcpServers",)),
+    "gemini": (lambda: _home() / ".gemini" / "settings.json", lambda: _home() / ".gemini", ("mcpServers",)),
+    "qwen": (lambda: _home() / ".qwen" / "settings.json", lambda: _home() / ".qwen", ("mcpServers",)),
+    "kimi": (lambda: _kimi_dir() / "mcp.json", _kimi_dir, ("mcpServers",)),
+    "pi": (lambda: _pi_dir() / "mcp.json", _pi_dir, ("mcpServers",)),
+    "zcode": (lambda: _home() / ".zcode" / "cli" / "config.json", lambda: _home() / ".zcode", ("mcp", "servers")),
+    "cline": (_cline_file, _parent(_cline_file), ("mcpServers",)),
+    "roo": (_roo_file, _parent(_roo_file), ("mcpServers",)),
+}
+# 复制设置时告诉用户粘到哪（一句话）
+PASTE_HINT = {
+    "claude-code": "复制到终端运行",
+    "claude-desktop": "粘进 claude_desktop_config.json（mcpServers）",
+    "codex": "粘进 ~/.codex/config.toml",
+    "cursor": "粘进 ~/.cursor/mcp.json（mcpServers）",
+    "gemini": "粘进 ~/.gemini/settings.json（mcpServers）",
+    "qwen": "粘进 ~/.qwen/settings.json（mcpServers）",
+    "kimi": "粘进 ~/.kimi-code/mcp.json（mcpServers）",
+    "pi": "粘进 ~/.pi/agent/mcp.json（mcpServers）",
+    "zcode": "粘进 ~/.zcode/cli/config.json（mcp.servers），或在 ZCode 的 MCP 设置里粘 JSON",
+    "cline": "Cline → MCP Servers → Configure，粘进 cline_mcp_settings.json",
+    "roo": "Roo Code → MCP 设置 → 编辑全局 MCP，粘进 mcp_settings.json",
+    "opencode": "粘进 ~/.config/opencode/opencode.json（mcp 段）",
+    "grok": "粘进 ~/.grok/config.toml",
+    "hermes": "粘进 ~/.hermes/config.yaml（mcp_servers 段），会话里 /reload-mcp",
+    "deepseek": "合并进 ~/.dsh/cordis.patch.yml（别整份覆盖）",
+    "windsurf": "Windsurf → MCP 设置 → 编辑 mcp_config.json，粘进去",
+    "trae": "Trae → 设置 → MCP → 手动配置 → Raw Config，粘进去",
+    "cherry": "Cherry Studio → 设置 → MCP → 添加 → 从 JSON 导入，粘进去",
+}
+
+
+def _toml_str(s: str) -> str:
+    return json.dumps(s, ensure_ascii=False)   # JSON 字符串的转义是 TOML 基本字符串的子集
+
+
+def snippet(app_id: str, spec: dict[str, Any] | None = None) -> str:
+    """这个应用自己那种格式的一段设置（复制设置用）。"""
+    spec = spec or server_spec()
+    cmd, args, env = spec["command"], spec["args"], spec["env"]
+
+    def flow(v: Any) -> str:   # YAML 认 JSON 的流式写法
+        return json.dumps(v, ensure_ascii=False)
+    if app_id == "claude-code":
+        return _cc_command_text(spec)
+    if app_id in ("codex", "grok"):
+        envs = ", ".join(f"{k} = {_toml_str(v)}" for k, v in env.items())
+        return (f"[mcp_servers.{NAME}]\ncommand = {_toml_str(cmd)}\nargs = [{', '.join(_toml_str(a) for a in args)}]\n"
+                f"env = {{ {envs} }}\n")
+    if app_id == "opencode":
+        return json.dumps({"mcp": {NAME: {"type": "local", "command": [cmd, *args], "environment": env, "enabled": True}}},
+                          ensure_ascii=False, indent=2)
+    if app_id == "zcode":
+        return json.dumps({"mcp": {"servers": {NAME: spec}}}, ensure_ascii=False, indent=2)
+    if app_id == "hermes":
+        return f"mcp_servers:\n  {NAME}:\n    command: {flow(cmd)}\n    args: {flow(args)}\n    env: {flow(env)}\n"
+    if app_id == "deepseek":
+        cfg = {"serverName": NAME, "transport": "stdio", "command": cmd, "args": args, "env": env}
+        return f"- insert:\n    - id: mcp-{NAME}\n      name: '@deepseek-ai/dsh-mcp-client'\n      config: {flow(cfg)}\n"
+    return json.dumps({"mcpServers": {NAME: spec}}, ensure_ascii=False, indent=2)
+
+
+def _servers_at(data: dict[str, Any], keys: tuple[str, ...], create: bool = False) -> dict[str, Any] | None:
+    cur: Any = data
+    for k in keys:
+        nxt = cur.get(k) if isinstance(cur, dict) else None
+        if not isinstance(nxt, dict):
+            if not create:
+                return None
+            nxt = cur[k] = {}
+        cur = nxt
+    return cur
+
+
+def file_client_has(app_id: str) -> bool:
+    path = FILE_CLIENTS[app_id][0]()
+    if not path:
+        return False
+    servers = _servers_at(_read_json(path) or {}, FILE_CLIENTS[app_id][2])
+    return bool(servers and isinstance(servers.get(NAME), dict))
+
+
+def _file_installed(app_id: str) -> bool:
+    d = FILE_CLIENTS[app_id][1]()
+    return bool(d) and Path(d).is_dir()
+
+
+def add_file_client(app_id: str) -> dict[str, Any]:
+    name = APP_NAME[app_id]
+    path, _, keys = FILE_CLIENTS[app_id]
+    path = path()
+    manual = {"ok": False, "client": app_id, "changed": False, "code": "", "manual": True, "command": snippet(app_id)}
+    if not path or not _file_installed(app_id):
+        return {**manual, "message": f"没找到 {name} 的配置目录：装好并打开过一次 {name} 再点，或复制设置自己粘"}
+    try:
+        data = _read_json(path, strict=True) or {}
+    except BadConfig as exc:
+        return {**manual, "message": f"{name} 的配置文件读不懂（可能带注释），没敢改：复制设置自己粘（{exc}）"}
+    spec = server_spec()
+    servers = _servers_at(data, keys, create=True)
+    if servers.get(NAME) == spec:
+        return {"ok": True, "client": app_id, "changed": False, "message": f"{name} 已经接上了"}
+    backup = _backup(path, app_id)
+    servers[NAME] = spec
+    path.parent.mkdir(parents=True, exist_ok=True)
+    storage.atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    return {"ok": True, "client": app_id, "changed": True, "backup": backup, "config": str(path),
+            "message": f"已写进 {name} 的 MCP 配置：重开 {name}（或新开会话）后工具名以 lwa 开头"}
+
+
+def remove_file_client(app_id: str) -> dict[str, Any]:
+    name = APP_NAME[app_id]
+    path = FILE_CLIENTS[app_id][0]()
+    try:
+        data = (_read_json(path, strict=True) if path else None) or {}
+    except BadConfig as exc:
+        return {"ok": False, "client": app_id, "changed": False, "code": "", "message": f"{name} 的配置文件读不懂，没敢改（{exc}）"}
+    servers = _servers_at(data, FILE_CLIENTS[app_id][2])
+    if not servers or NAME not in servers:
+        return {"ok": True, "client": app_id, "changed": False, "message": f"{name} 里本来就没有 lwa"}
+    backup = _backup(path, app_id)
+    servers.pop(NAME, None)
+    storage.atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    return {"ok": True, "client": app_id, "changed": True, "backup": backup, "message": f"已从 {name} 撤掉 lwa（重开 {name} 生效）"}
+
+
+def _dir_installed(app_id: str) -> bool:
+    """没有命令行、或命令行不在 PATH 时，看它自己的目录在不在（只认官方文档里写了的目录）。"""
+    if app_id in FILE_CLIENTS:
+        return _file_installed(app_id)
+    if app_id == "deepseek":   # 桌面版装在这（Claudian DeepSeekInstallation.ts）；配置目录 DSH_HOME 默认 ~/.dsh
+        local = os.environ.get("LOCALAPPDATA")
+        return bool(local and (Path(local) / "Programs" / "DeepSeek Harness").is_dir()) or (_home() / ".dsh").is_dir()
+    if app_id in ("hermes", "grok"):
+        return (_home() / f".{app_id}").is_dir()
+    return False
 
 
 def _extra_bin_dirs() -> list[Path]:
@@ -382,14 +600,14 @@ def claudian_paths() -> dict[str, str]:
     return out
 
 
-def find_binary(name: str, app_id: str = "") -> str | None:
+def find_binary(name: str, app_id: str = "", *, claudian: dict[str, str] | None = None) -> str | None:
     if not name:
         return None
     if name == "claude":
         forced = os.environ.get(ENV_CLAUDE_EXE)
         if forced:
             return forced if Path(forced).exists() else None
-    picked = claudian_paths().get(app_id or {v: k for k, v in CLAUDIAN_ID.items()}.get(name, name) or "")
+    picked = (claudian_paths() if claudian is None else claudian).get(app_id or {v: k for k, v in CLAUDIAN_ID.items()}.get(name, name) or "")
     if picked:
         return picked
     found = shutil.which(name)
@@ -415,31 +633,45 @@ def _version(exe: str) -> str:
     return m.group(0) if m else ""
 
 
-def apps() -> list[dict[str, Any]]:
-    """[{id, name, installed, version, oneclick, connected, path, via}]——只列这台电脑上装了的，顺序固定。
-    via = "claudian"（用的是 Claudian 里手填的路径）或 "auto"（自动检测）。"""
+def _connected(aid: str, desk: Path) -> bool:
+    if aid == "claude-code":
+        return bool(_claude_code_has())
+    if aid == "claude-desktop":
+        return NAME in (((_read_json(desk) or {}).get("mcpServers")) or {})
+    if aid == "codex":
+        return _codex_has()
+    if aid in FILE_CLIENTS:
+        return file_client_has(aid)
+    return False   # 复制设置的那几家：不去读它们的配置，如实不标「已接入」
+
+
+def _scan() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(装了的, 没认出来的)。装了 = 命令找得到，或它自己的配置目录在（Claude 桌面版、Cursor、Cline 这些）。
+    结果不在这边缓存：照 Claudian（CachedProviderCLIResolver）在插件那边记住，设置页开着期间只问一次，接 / 断之后作废。"""
     from concurrent.futures import ThreadPoolExecutor
     desk = claude_desktop_config()
-    found = {aid: (find_binary(binary, aid) if binary else None) for aid, _, binary, _ in APPS}
     via = claudian_paths()
-    probes = {
-        "claude-code": lambda: bool(_claude_code_has()),
-        "claude-desktop": lambda: NAME in (((_read_json(desk) or {}).get("mcpServers")) or {}),
-        "codex": _codex_has,
-    }
+    found = {aid: exe for aid, _, binary, _ in APPS if binary and (exe := find_binary(binary, aid, claudian=via))}
+    spec = server_spec()
+    have, rest = [], []
     with ThreadPoolExecutor(max_workers=8) as pool:
-        versions = {aid: pool.submit(_version, exe) for aid, exe in found.items() if exe}
-        connected = {aid: pool.submit(fn) for aid, fn in probes.items()}
-        out = []
-        for aid, name, binary, oneclick in APPS:
-            installed = _desktop_installed(desk) if aid == "claude-desktop" else bool(found[aid])
-            if not installed:
-                continue
-            out.append({"id": aid, "name": name, "installed": True, "oneclick": oneclick, "path": found.get(aid) or "",
-                        "via": "claudian" if aid in via else "auto",
-                        "version": versions[aid].result() if aid in versions else "",
-                        "connected": bool(connected[aid].result()) if aid in connected else False})
-    return out
+        versions = {aid: pool.submit(_version, exe) for aid, exe in found.items()}
+        connected = {aid: pool.submit(_connected, aid, desk) for aid, *_ in APPS}
+    for aid, name, _binary, oneclick in APPS:
+        installed = bool(found.get(aid)) or (_desktop_installed(desk) if aid == "claude-desktop" else _dir_installed(aid))
+        base = {"id": aid, "name": name, "oneclick": oneclick, "snippet": snippet(aid, spec), "hint": PASTE_HINT.get(aid, "")}
+        if not installed:
+            rest.append(base)
+            continue
+        have.append({**base, "installed": True, "path": found.get(aid) or "", "via": "claudian" if aid in via else "auto",
+                     "version": versions[aid].result() if aid in versions else "", "connected": bool(connected[aid].result())})
+    return have, rest
+
+
+def apps() -> list[dict[str, Any]]:
+    """[{id, name, installed, version, oneclick, connected, path, via, snippet, hint}]——只列这台电脑上装了的，顺序固定。
+    via = "claudian"（用的是 Claudian 里手填的路径）或 "auto"（自动检测）。"""
+    return _scan()[0]
 
 
 # --------------------------------------------------------------------------
@@ -450,22 +682,24 @@ def apps() -> list[dict[str, Any]]:
 def status() -> dict[str, Any]:
     cc = claude_code_config()
     desk = claude_desktop_config()
+    have, rest = _scan()
+    by = {a["id"]: a for a in have}
     clients = {
-        "claude-code": {"name": CLIENT_CN["claude-code"], "installed": bool(claude_exe()), "connected": bool(_claude_code_has()),
+        "claude-code": {"name": CLIENT_CN["claude-code"], "installed": "claude-code" in by,
+                        "connected": bool(by.get("claude-code", {}).get("connected")) or bool(_claude_code_has()),
                         "command": _cc_command_text(server_spec())},
         "claude-desktop": {"name": CLIENT_CN["claude-desktop"], "installed": _desktop_installed(desk),
                            "connected": NAME in (((_read_json(desk) or {}).get("mcpServers")) or {})},
     }
     spec = server_spec()
-    missing = [name for aid, name, binary, _ in APPS if binary and aid != "claude-code" and not find_binary(binary)]
-    return {"ok": True, "code": "", "message": "", "name": NAME, "clients": clients, "server": spec, "apps": apps(),
-            "not_installed": missing,
+    return {"ok": True, "code": "", "message": "", "name": NAME, "clients": clients, "server": spec, "apps": have,
+            "others": rest, "not_installed": [a["name"] for a in rest],
             "json": json.dumps({"mcpServers": {NAME: spec}}, ensure_ascii=False, indent=2),
             "config_paths": {"claude-code": str(cc), "claude-desktop": str(desk)}}
 
 
 def add_parser(sub) -> None:
-    p = sub.add_parser("connect", help="连接 AI：把收藏库接给本机的 Claude Code / Claude Desktop / Codex（写前备份、可撤销）")
+    p = sub.add_parser("connect", help="连接 AI：把收藏库接给本机的 AI 应用（Claude Code / Codex / Cursor / Gemini CLI …，写前备份、可撤销）")
     csub = p.add_subparsers(dest="connect_command", metavar="<status|add|remove>")
     csub.add_parser("status", help="各本机客户端接没接上（只读）")
     for name in ("add", "remove"):
@@ -481,7 +715,10 @@ def run(args) -> int:
         return 0
     fn = {("add", "claude-code"): add_claude_code, ("remove", "claude-code"): remove_claude_code,
           ("add", "claude-desktop"): add_claude_desktop, ("remove", "claude-desktop"): remove_claude_desktop,
-          ("add", "codex"): add_codex, ("remove", "codex"): remove_codex}[(cmd, args.client)]
+          ("add", "codex"): add_codex, ("remove", "codex"): remove_codex}.get((cmd, args.client))
+    if fn is None:   # 写 JSON 文件的那几家（FILE_CLIENTS）
+        client = args.client
+        fn = (lambda: add_file_client(client)) if cmd == "add" else (lambda: remove_file_client(client))
     try:
         out = fn()
     except OSError as exc:
