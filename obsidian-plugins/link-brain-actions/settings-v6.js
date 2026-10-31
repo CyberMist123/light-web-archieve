@@ -400,11 +400,13 @@ module.exports = function (obsidian, plugin) {
     const guide = info.createDiv({ cls: 'setting-item-description' }).createDiv({ cls: 'lb-acct-guide' });
     const ctl = rowEl.createDiv({ cls: 'setting-item-control' });
     const primaryEl = ctl.createEl('button', { cls: 'lb-bili-scan', text: '扫码登录' });
-    primaryEl.type = 'button'; primaryEl.hidden = true; primaryEl.onclick = () => login(primaryEl);
+    // 1031 她截图：登着还露「扫码登录」——Obsidian 给 button 写了 display，盖过 hidden 属性；显隐一律走 style.display
+    const showPrimary = on => { primaryEl.hidden = !on; primaryEl.style.display = on ? '' : 'none'; };
+    primaryEl.type = 'button'; showPrimary(false); primaryEl.onclick = () => login(primaryEl);
     const moreEl = ctl.createDiv({ cls: 'clickable-icon extra-setting-button lb-bili-more', attr: { 'aria-label': '更多', role: 'button', tabindex: '0' } });
     try { obsidian.setIcon ? obsidian.setIcon(moreEl, 'more-horizontal') : moreEl.setText('⋯'); } catch { moreEl.setText('⋯'); }
     moreEl.addEventListener('click', e => openMenu(e));
-    const primary = { setButtonText: t => primaryEl.setText(t), buttonEl: { show: () => { primaryEl.hidden = false; }, hide: () => { primaryEl.hidden = true; } } };
+    const primary = { setButtonText: t => primaryEl.setText(t), buttonEl: { show: () => showPrimary(true), hide: () => showPrimary(false) } };
     const webOk = j => j && j.state === 'logged_in';
     const tvOk = j => j && j.tv && j.tv.state === 'logged_in';
     // 下一步只有一个：两边都没登 / 电视端没登 → 扫电视端（顺带网页端）；只差网页端 → 扫网页端
@@ -653,7 +655,7 @@ module.exports = function (obsidian, plugin) {
     const estBtn = act.createEl('button', { cls: 'lb-btn', text: '预估' });
     const runBtn = act.createEl('button', { cls: 'lb-btn', text: '立即同步' });
     const stopBtn = act.createEl('button', { cls: 'lb-btn lb-bili-stop', text: '停止' });
-    stopBtn.hidden = true;
+    stopBtn.hidden = true; stopBtn.style.display = 'none';   // 同上：hidden 会被按钮样式盖掉
     const est = card.createDiv({ cls: 'lb-bili-estimate' });
     const last = card.createDiv({ cls: 'lb-bili-last', attr: { 'data-section': 'bili-last' } });
     const paintLast = l => {
@@ -668,7 +670,7 @@ module.exports = function (obsidian, plugin) {
       catch (e) { last.empty(); plugin.failBox ? plugin.failBox(last, '上次同步', e, loadLast) : null; }
     };
     const mine = () => plugin.running === BILI_RUN_LABEL || plugin.running === BILI_EST_LABEL;
-    const paintRunning = () => { const on = mine(); stopBtn.hidden = !on; estBtn.disabled = runBtn.disabled = !!plugin.running; };
+    const paintRunning = () => { const on = mine(); stopBtn.hidden = !on; stopBtn.style.display = on ? '' : 'none'; estBtn.disabled = runBtn.disabled = !!plugin.running; };
     stopBtn.onclick = async () => { if (await plugin.stopRunning()) { await loadLast(); } paintRunning(); };
     // 跑的时候每 3 秒读一次 last-sync.json 的进度（后端每条写一次），状态栏写「n/m 条」
     const watchProgress = since => {

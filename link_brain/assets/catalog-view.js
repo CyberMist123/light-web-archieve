@@ -1056,6 +1056,8 @@ async function reloadIndex() {
 async function refreshProblems() {
   const [raw, sum] = await Promise.all([readArchiveJson('_archive/sync-status.json'), readArchiveJson('_archive/problems-summary.json')]);
   probSummary = sum; syncState = mergeSync(raw, sum);
+  // 1031 她「如果是正在同步，不能说状态失败」：收藏那段先写了「部分没成功」、这一轮（补评论 / 附件）还在跑 → 按同步中显示
+  if (syncState && syncState.state === 'failed' && provider()?.syncRunOpen?.()) syncState = { ...syncState, state: 'running', partialFail: true };
   // 1023：内容没变的重建不改 catalog-data（不刷屏），「核对过」的时间在 catalog-state.checked_at——判「数据较旧」时一起算
   try { catalogCheckedAt = (await readArchiveJson('_archive/catalog-state.json'))?.checked_at || null; } catch {}
   paintProblems();
@@ -1337,7 +1339,7 @@ function tagCounts() {
 }
 function pickType(k) { mediaFilter = mediaFilter === k ? '' : k; leaveSideViews(); renderCatBar(); render(); scrollToResults(); }
 function pickTag(t) { activeTag = t; leaveSideViews(); renderCatBar(); render(); scrollToResults(); }
-function pickPlat(p) { activePlat = p; leaveSideViews(); renderCatBar(); render(); scrollToResults(); }
+function pickPlat(p) { activePlat = p; if (!/^(xhs|xiaohongshu)$/.test(p) && (mediaFilter === 'image' || mediaFilter === 'video')) mediaFilter = ''; leaveSideViews(); renderCatBar(); render(); scrollToResults(); }
 // Wiki / 最近导入全部 不是「结果」视图：在那里改了筛选就回到瀑布流看结果（筛选本身不动）
 function leaveSideViews() { indexView = false; if (viewMode === 'wiki' || viewMode === 'recent') viewMode = 'grid'; }
 function pickScope(key) {
@@ -1397,12 +1399,23 @@ function renderScope() {
     b.onclick = () => { topicAdding = true; topicFocusNew = true; renderTopicBar(); };
   }
   // 1026 类型（一组，组内单选、和范围叠加）；1028 起是自己的一块（「类型」），不再用细竖线隔
-  const nImg = items.length - nVideo;
-  for (const [k, n] of [['image', nImg], ['video', nVideo], ['attachment', nAtt]]) {
-    const on = mediaFilter === k;
-    const b = typesBox.createEl('button', { cls: 'lbc-cat lbc-type-tab' + (on ? ' is-active' : ''), text: TYPE_LABEL[k] });
-    b.type = 'button'; b.dataset.type = k; b.dataset.n = String(n); b.setAttribute('aria-pressed', String(on));
-    b.onclick = () => pickType(k);
+  // 1031 她：有两个以上平台（B 站进来了）时，「图文 / 视频」换成「小红书 / B 站」；图文 / 视频只在小红书里分（B 站全是视频），
+  // 选了小红书才跟出来；附件也只有小红书有，照旧放最后
+  const platsTab = platCounts();
+  const typeTab = (k, label, n, on, onclick, extra = '') => {
+    const b = typesBox.createEl('button', { cls: 'lbc-cat lbc-type-tab' + extra + (on ? ' is-active' : ''), text: label });
+    b.type = 'button'; b.dataset.type = k; b.dataset.n = String(n); b.setAttribute('aria-pressed', String(on)); b.onclick = onclick;
+  };
+  if (platsTab.length > 1) {
+    for (const [pl, n] of platsTab) typeTab('plat:' + pl, platLabel(pl), n, activePlat === pl, () => pickPlat(activePlat === pl ? '' : pl), ' lbc-plat-tab');
+    if (activePlat && /^(xhs|xiaohongshu)$/.test(activePlat)) {
+      let nv = 0, ni = 0; for (const it of items) if (platOf(it) === activePlat) { if (it.kind === 'video') nv++; else ni++; }
+      for (const [k, n] of [['image', ni], ['video', nv]]) typeTab(k, TYPE_LABEL[k], n, mediaFilter === k, () => pickType(k), ' lbc-type-sub');
+    }
+    typeTab('attachment', TYPE_LABEL.attachment, nAtt, mediaFilter === 'attachment', () => pickType('attachment'));
+  } else {
+    const nImg = items.length - nVideo;
+    for (const [k, n] of [['image', nImg], ['video', nVideo], ['attachment', nAtt]]) typeTab(k, TYPE_LABEL[k], n, mediaFilter === k, () => pickType(k));
   }
   // Tag ▾：当前条件下最多的 40 个标签，选一个再缩小
   if (!starredPage || items.length) {
@@ -1414,18 +1427,9 @@ function renderScope() {
         : [{ title: '当前条件下没有标签', disabled: true, onClick: () => {} }]),
     ], e, tchip); };
   }
-  // 平台 ▾：只有两个以上平台（以后 B 站进来）才出
   const plats = platCounts();
   if (activePlat && !plats.some(([p]) => p === activePlat)) activePlat = '';
-  if (plats.length > 1) {
-    const pchip = picksBox.createEl('button', { cls: 'lbc-pick lbc-platpick' + (activePlat ? ' is-active' : ''), text: activePlat ? platLabel(activePlat) : '全部平台' });
-    pchip.type = 'button'; pchip.dataset.scope = 'plat'; pchip.setAttribute('aria-pressed', String(!!activePlat));
-    pchip.onclick = e => popMenu([
-      { title: `全部平台（${items.length}）`, checked: !activePlat, onClick: () => pickPlat('') },
-      { separator: true },
-      ...plats.map(([p, c]) => ({ title: `${platLabel(p)}（${c}）`, checked: p === activePlat, onClick: () => pickPlat(p) })),
-    ], e, pchip);
-  }
+  // 1031：平台下拉不再出——平台在上面那一排（小红书 / B 站）
   if (srcs.length) {
     // 1020 来源：默认「我的收藏」不算筛选（不高亮），切到别的来源才高亮
     const mine = allItems.length - srcs.reduce((n, [, c]) => n + c, 0);
@@ -3774,10 +3778,14 @@ function paintSync() {
   const run = running ? syncRunText(st) : null;
   const nToday = (() => { const d = ymd(new Date(now)); let n = 0; for (const it of items) if (dayOf(it) === d) n++; return n; })();
   const bigWhen = t => t ? [sameDay(t, now) ? '今天' : mdOf(t), hmOf(t)] : null;
-  const why = stopped ? [st.label || regEntry(st.code)?.label || (st.state === 'blocked' ? '同步停下了，要你处理' : '上次同步没成功'), st.detail || st.message || ''].filter(Boolean) : [];
+  // 1031：「部分收藏未同步成功 · ReadError:」看不懂——只有异常名没有原因的，说成人话；部分没成功不叫「没成功」
+  const bareErr = d => /^[A-Za-z]*Error:?\s*$/.test(String(d || '').trim());
+  const partial = st.message === '部分收藏未同步成功';
+  const why = stopped ? [st.label || regEntry(st.code)?.label || (st.state === 'blocked' ? '同步停下了，要你处理' : partial ? '有几篇这次没同步上' : '上次同步没成功'),
+    bareErr(st.detail) ? '读取服务连接中断了一下，下次同步自动补' : (st.detail || (partial ? '' : st.message) || '')].filter(Boolean) : [];
   // 摘要：下次 今天 21:04（1027：费用拆成自己的「Token 费用」模块）
   const nx = bigWhen(next);
-  setSum(m, running ? [run.text] : stopped ? ['同步停了'] : nx ? ['下次 ', [nx.join(' ')]] : ['下次 —']);
+  setSum(m, running ? [run.text] : stopped ? [st.state === 'failed' && partial ? '有几篇没同步上' : '同步停了'] : nx ? ['下次 ', [nx.join(' ')]] : ['下次 —']);
   if (sideFold.sync) return;
   const freq = schedule ? String(schedule.summary || '').replace(/\s*·\s*下次 .*$/, '') : '';
   const note = !p ? (mobile ? LB.MOBILE_ONLY_TEXT : '插件没开：下次同步、定时设置看不到（收藏照常可以浏览）')

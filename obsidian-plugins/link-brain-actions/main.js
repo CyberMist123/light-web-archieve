@@ -1290,6 +1290,20 @@ class LinkBrainActions extends Plugin {
 
   // 第 4 批（CONVENTIONS §3「pid 还活着」只留 Python 一份）：同步进程死了还停在 running 的，由 Python 改判 INTERRUPTED 写进
   // problems-summary.json 的 sync 段；这里以它为准，sync-status.json 比它新时（刚开始的一次同步）用新的。不再自己 process.kill 查 pid。
+  // 1031 她「如果是正在同步，不能说状态失败」：同步记录最后一轮还没收尾（finished_at 空）、60 分钟内还在更新 = 这一轮还在跑（补评论一篇能慢到十几分钟；死掉的那轮 finished_at 永远空，所以要有时限）
+  // （收藏那段先写了「部分没成功」，后面补评论 / 附件还在跑）。只读文件末尾 64KB（整份 1.5MB+），读不到当没在跑。
+  syncRunOpen(now = Date.now()) {
+    try {
+      const file = path.join(this.app.vault.adapter.getBasePath(), this.lbPath('_archive/sync-log.jsonl'));
+      const size = fs.statSync(file).size, len = Math.min(size, 65536), buf = Buffer.alloc(len);
+      const fd = fs.openSync(file, 'r'); try { fs.readSync(fd, buf, 0, len, size - len); } finally { fs.closeSync(fd); }
+      const lines = buf.toString('utf8').split(String.fromCharCode(10)).filter(l => l.trim());
+      let last = null; try { last = JSON.parse(lines[lines.length - 1]); } catch { return null; }
+      if (!last || last.finished_at) return null;
+      const at = Date.parse(last.updated_at || last.started_at || '');
+      return Number.isFinite(at) && now - at < 60 * 60000 ? last : null;
+    } catch { return null; }
+  }
   async readSyncFiles() {
     const read = async p => { try { const v = JSON.parse(await this.app.vault.adapter.read(this.lbPath(p))); return v && typeof v === 'object' ? v : null; } catch { return null; } };
     const [raw, sum, fill] = await Promise.all([read('_archive/sync-status.json'), read('_archive/problems-summary.json'),
@@ -1531,6 +1545,7 @@ class LinkBrainActions extends Plugin {
       not_logged_in: ['', '', '登录'],
       captcha: ['', '', '去验证'],
       busy: ['进行中', '', ''],
+      syncing: ['同步中', '', ''],   // 1031：同步这一轮还没收尾（syncRunOpen）
       disconnected: ['', '', '重试'],
       unconfigured: ['', '', ''],
       error: ['没有完成', '', '重试'],
@@ -1540,6 +1555,8 @@ class LinkBrainActions extends Plugin {
     };
     let registry = {};
     const paint = (r, running = false) => {
+      // 1031 她：同步正在跑（读取服务中途重启那一下会查成「没在运行」）就说「同步中」，不报失败样子
+      if (['disconnected', 'unknown', 'error'].includes(r.state) && this.syncRunOpen()) r = { ...r, state: 'syncing', code: '', message: '同步中', next_step: '' };
       current = r;
       // 第 7 批：「开始」页第 ③ 步 / 总览看这个号登没登上（只记卡片此刻显示的状态，不另起进程查）
       (this.accountState || (this.accountState = {}))[platform.id] = r.state;

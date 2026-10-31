@@ -27,8 +27,9 @@ const pickMenu = (P, re) => { const b = P.menuItems().find(x => re.test(x.textCo
   // ── ① 维度叠加 ──
   {
     const P = await openCatalog({ data: dataOf(base()), plugin: { settings: { hiddenCats: [] } } });
-    assert.ok(P.$('.lbc-platpick'), '两个平台才出平台选择');
-    P.$('.lbc-platpick').onclick(ev()); pickMenu(P, /^B站（3）/);
+    // 1031 她：两个平台时「图文 / 视频」换成「小红书 / B 站」（类型那一排），不再有平台下拉
+    assert.ok(P.cat('B站') && P.cat('小红书') && !P.$('.lbc-platpick'), '两个平台：类型那排出平台');
+    P.cat('B站').onclick();
     assert.deepEqual(P.ids().sort(), ['bili-c', 'bili-d', 'bili-e'], 'B站');
     P.$('.lbc-thq').onclick();
     assert.deepEqual(P.ids().sort(), ['bili-c', 'bili-d'], 'B站 → 主题「咖啡」');
@@ -36,10 +37,9 @@ const pickMenu = (P, re) => { const b = P.menuItems().find(x => re.test(x.textCo
     assert.deepEqual(P.menuItems().map(b => b.textContent).sort(), ['#手冲（1）', '#拉花（1）'].sort(), 'Tag 菜单只列当前条件下有的');
     pickMenu(P, /^#手冲/);
     assert.deepEqual(P.ids(), ['bili-c'], '→ Tag');
-    P.cat('视频').onclick();
-    assert.deepEqual(P.ids(), ['bili-c'], '→ 类型视频，前面的都还在');
-    assert.equal(P.$('.lbc-platpick').textContent, 'B站'); assert.equal(P.$('.lbc-tagpick').textContent, '#手冲');
-    assert.deepEqual([state().plat, state().tag, state().media, state().topic], ['bili', '手冲', 'video', '咖啡'], '各维度都进 LB.state');
+    assert.ok(!P.cat('视频') && !P.cat('图文'), 'B 站下不分图文 / 视频（全是视频）');
+    assert.ok(P.cat('B站').classList.contains('is-active')); assert.equal(P.$('.lbc-tagpick').textContent, '#手冲');
+    assert.deepEqual([state().plat, state().tag, state().topic], ['bili', '手冲', '咖啡'], '各维度都进 LB.state');
     // 换到 Wiki 再回瀑布流：筛选不丢
     P.$('.lbc-view[data-view="wiki"]').onclick();
     assert.equal(P.$('.lbc-grid').hidden, true); assert.equal(P.$('.lbc-wiki').hidden, false);
@@ -47,13 +47,13 @@ const pickMenu = (P, re) => { const b = P.menuItems().find(x => re.test(x.textCo
     assert.deepEqual(P.ids(), ['bili-c'], '回瀑布流筛选还在');
     // 在 Wiki 里点一个筛选：回瀑布流看结果（不是改了筛选却还停在 Wiki 空页上）
     P.$('.lbc-view[data-view="wiki"]').onclick();
-    P.cat('视频').onclick();
+    P.cat('B站').onclick(); P.cat('B站').onclick();
     assert.equal(P.$('.lbc-wiki').hidden, true, '在 Wiki 里点筛选 = 回到瀑布流');
-    assert.deepEqual(P.ids().sort(), ['bili-c'].concat(), '视频取消了：B站 · 咖啡 · #手冲');
+    assert.deepEqual(P.ids().sort(), ['bili-c'].concat(), 'B站 · 咖啡 · #手冲');
     // 返回后都还在
     const Q = await openCatalog({ data: dataOf(base()), plugin: { settings: { hiddenCats: [] } }, keepState: true });
     assert.deepEqual(Q.ids(), ['bili-c']);
-    assert.ok(Q.$('.lbc-platpick').classList.contains('is-active') && Q.$('.lbc-tagpick').classList.contains('is-active'));
+    assert.ok(Q.cat('B站').classList.contains('is-active') && Q.$('.lbc-tagpick').classList.contains('is-active'));
     // 清除筛选一起清
     Q.$('.lbc-tagpick').onclick(ev()); pickMenu(Q, /全部 Tag/);
     assert.deepEqual(Q.ids().sort(), ['bili-c', 'bili-d']);
