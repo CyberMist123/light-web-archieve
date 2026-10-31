@@ -1160,8 +1160,9 @@ if (mobile) titleBlock.createEl('div', { cls: 'lb-mobile-note lbc-mobile-note', 
 let progTimer = null, progPeriod = 0;
 function paintSyncProg() {
   const p = provider();
-  const view = p && typeof p.syncProgressView === 'function' ? p.syncProgressView(syncState) : null;
-  if (p && typeof p.renderSyncProgress === 'function') p.renderSyncProgress(syncProg, view); else syncProg.hidden = true;
+  // 1101 作者「这个是从哪里冒出来的？删掉」：标题下的同步进度（含「同步完了 · 新收 N 篇」）和状态栏同一个开关——设置 → 开发者选项「同步记录和进度」打开才有
+  const view = devLog() && p && typeof p.syncProgressView === 'function' ? p.syncProgressView(syncState) : null;
+  if (view && typeof p.renderSyncProgress === 'function') p.renderSyncProgress(syncProg, view); else syncProg.hidden = true;
   const want = view?.resting ? 1000 : view ? 30000 : 0;   // 歇着每秒走倒计时；其余半分钟核一次（「同步完了」10 分钟后收起）
   if (want !== progPeriod) { clearInterval(progTimer); progTimer = want ? setInterval(paintSyncProg, want) : null; progPeriod = want; }
   return view;
@@ -3850,7 +3851,7 @@ if (app.workspace?.on && dv.component?.registerEvent) {
   // 星标以 catalog-data 为准 + link-brain:star 事件（§5.6）：只换这张卡的 ★，不重排（C2）
   lbEvent(app.workspace, app.workspace.on('link-brain:star', (id, on) => { const it = items.find(x => x.id === id); if (it && !it._starBusy && !!it.starred !== !!on) { it.starred = !!on; paintCard(id); paintSelbar(); } }));
   // 10-03：「…→改标题 / 每行几列」改完就地换（不重建卡片）
-  lbEvent(app.workspace, app.workspace.on('link-brain:catalog-prefs', () => { setTitle(); histTool.hidden = !devLog(); updatedBtn.classList.toggle('is-plain', !devLog()); const c = savedCols(); if (c !== cols) { cols = c; applyCols(); relayoutIfNeeded(); } reloadLayout(); }));
+  lbEvent(app.workspace, app.workspace.on('link-brain:catalog-prefs', () => { setTitle(); histTool.hidden = !devLog(); paintSyncProg(); updatedBtn.classList.toggle('is-plain', !devLog()); const c = savedCols(); if (c !== cols) { cols = c; applyCols(); relayoutIfNeeded(); } reloadLayout(); }));
   lbEvent(app.workspace, app.workspace.on('link-brain:catalog-query', () => { if (takePendingQuery()) saveState(); }));
 }
 { const winTarget = typeof window !== 'undefined' && window && typeof window.addEventListener === 'function' ? window : null;

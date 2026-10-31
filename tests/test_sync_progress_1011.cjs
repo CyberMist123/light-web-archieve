@@ -93,6 +93,7 @@ assert.equal(view({ state: 'failed', updated_at: iso(now), new: 3 }, now), null)
   const Plugin = ctx.module.exports;
   const plugin = new Plugin({ workspace: makeWorkspace() }, {});
   plugin.taskStatusEl = dom.document.createElement('div');
+  plugin.settings = { ...(plugin.settings || {}), devSyncLog: true };   // 1101：同步进度只在开发者选项「同步记录和进度」打开时显示
   const t = Date.now();
   plugin.externalSync = running(live({ phase: 'resting', next_at: iso(t + 77000), eta_at: iso(t + 3600000) }), t - 1000);
   plugin.taskChanged();
@@ -128,7 +129,7 @@ assert.equal(view({ state: 'failed', updated_at: iso(now), new: 3 }, now), null)
   const handlers = {};
   V.vault.on = (name, fn) => { (handlers[name] = handlers[name] || []).push(fn); return { name, fn }; };
   const fire = (name, p) => { for (const fn of handlers[name] || []) fn({ path: p }); };
-  const plugin = { settings: {}, running: null, syncProgressView: (s, n) => view(s, n ?? Date.now()), renderSyncProgress: render, refreshProblemSummary: async () => null };
+  const plugin = { settings: { devSyncLog: true }, running: null, syncProgressView: (s, n) => view(s, n ?? Date.now()), renderSyncProgress: render, refreshProblemSummary: async () => null };
   const app = { vault: V.vault, workspace: makeWorkspace(), plugins: { plugins: { 'link-brain-actions': plugin }, enablePlugin: async () => {}, disablePlugin: async () => {} }, metadataCache: { getCache: () => null } };
   delete globalThis.__lbState;
   const dom = makeDom();

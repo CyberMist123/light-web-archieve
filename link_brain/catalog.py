@@ -538,7 +538,7 @@ def collect(vault: Path, source: str | None = None) -> list[dict[str, Any]]:
                 "url": source_open_url(note, meta),
                 "github_urls": [url for url in observed_links if re.match(r'https?://github\.com/', url, re.I)],
                 "suggested_links": (data or {}).get('links_worth_opening', []),
-                "likes": (note.get('engagement') or {}).get('liked'),
+                "likes": _likes_of(note, obj_dir, version),
                 # 整音节、空格分隔（标点处「/」断开）：搜索只认整音节，见 retrieval.pinyin_match / catalog-search.js
                 "pinyin": pinyin_text(str(meta.get('title') or ''), summary, *tags),
                 "tags": tags,
@@ -1040,3 +1040,20 @@ def run(args) -> int:
         result['message'] += '；提示：' + result['dataview_hint']
     dump_json(result)
     return 0
+
+
+def _likes_of(note: dict[str, Any], obj_dir: Path, version: Any) -> int | None:
+    """点赞数。1101：以前抓到的「2万」「1.7万」没解析成数（source.json 里是 None）——这时回原始抓取 mcp_raw.json 里的
+    interactInfo.likedCount 再解析一次（只读，不改归档）；新抓的 adapter 已经能解析，不走这里。"""
+    v = (note.get("engagement") or {}).get("liked")
+    if v is not None:
+        return v
+    try:
+        from .sources.xiaohongshu.adapter import _int_or_none
+        raw = obj_dir / "raw" / f"v{int(version):04d}" / "mcp_raw.json"
+        if not raw.is_file():
+            return None
+        m = re.search(r'"likedCount"\s*:\s*"?([^",}]*)', raw.read_text(encoding="utf-8", errors="replace"))
+        return _int_or_none(m.group(1)) if m else None
+    except Exception:  # noqa: BLE001 - 点赞数只是展示，读不到就不显示
+        return None
