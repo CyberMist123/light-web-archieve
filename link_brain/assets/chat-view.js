@@ -1144,7 +1144,7 @@ ${LB.siteHeaderCss()}
 .lbchat .lbchat-head > .lbchat-titleblock{display:none;}
 .lbchat .lbchat-head > .lbchat-tools{margin-left:0;}
 .lbchat .lbchat-jumps{flex:none;display:inline-flex;gap:8px;padding:0;background:transparent;}
-.lbchat .lbchat-jumps button{font-family:var(--lb-font-body)!important;background:var(--lb-surface)!important;color:var(--lb-ink);box-shadow:0 1px 4px #0000000c!important;font-weight:500;}
+.lbchat .lbchat-jumps button{font-family:var(--lb-font-title-base,serif),var(--lb-font-serif)!important;background:var(--lb-surface)!important;color:var(--lb-ink);box-shadow:0 1px 4px #0000000c!important;font-weight:500;}
 .lbchat .lbchat-jumps button:hover{box-shadow:0 2px 8px #00000018!important;}
 .lbchat .lbchat-titleblock{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;gap:2px;width:auto;max-width:100%;}
 .lbchat .lbchat-head > .lbchat-sub{flex-basis:100%;margin:-6px 0 0;text-align:left;}
@@ -1247,7 +1247,7 @@ lbEvent(app.workspace.on('link-brain:catalog-prefs', () => chatTitle.set()));
 // 1101 作者：问收藏标题旁不要 ＋（设计稿三页都有，这一页不要；导入在浏览收藏页）
 // 1101 作者：问收藏不要页头（COLLECTIONS 不显示）——右上角只写要跳过去的那两页，白底 + 浅阴影的小长方形（以前 .lb-page-nav 当前页那个样子）
 { const jumps = head.createEl('nav', { cls: 'lb-page-nav lbchat-jumps' });
-  for (const [role, label] of [['catalog', '浏览收藏'], ['wiki', 'Wiki']]) {
+  for (const [role, label] of [['catalog', '浏览收藏'], ['wiki', 'WIKI']]) {
     const b = jumps.createEl('button', { text: label }); b.type = 'button';
     b.onclick = () => { const p = provider(); if (typeof p?.openLibraryPage === 'function') p.openLibraryPage(role); else LB.openPage(role); };
   } }

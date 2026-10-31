@@ -737,7 +737,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-top:not(.is-tools-static)>.lbc-tools{top:8px;}
 .lbc-wrap .lbc-tools{gap:4px;align-items:center;}
 .lbc-wrap .lbc-tools .lbc-jumps{background:transparent;padding:0;gap:8px;margin-right:4px;}
-.lbc-wrap .lbc-tools .lbc-jumps button{height:auto!important;padding:9px 16px!important;border:0!important;border-radius:9px!important;font:500 13px/1.2 var(--lb-font-body)!important;background:var(--lb-surface)!important;color:var(--lb-ink)!important;box-shadow:0 1px 4px #0000000c!important;cursor:pointer;}
+.lbc-wrap .lbc-tools .lbc-jumps button{height:auto!important;padding:9px 16px!important;border:0!important;border-radius:9px!important;font:500 13px/1.2 var(--lb-font-title-base,serif),var(--lb-font-serif)!important;background:var(--lb-surface)!important;color:var(--lb-ink)!important;box-shadow:0 1px 4px #0000000c!important;cursor:pointer;}
 .lbc-wrap .lbc-tools .lbc-jumps button:hover{box-shadow:0 2px 8px #00000018!important;}
 .lbc-wrap .lbc-tools button.lbc-icon-btn,.lbc-wrap .lbc-tools button.lb-manage{width:36px!important;height:36px!important;min-width:36px;padding:0!important;border:0!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;color:var(--lb-ink)!important;display:grid;place-items:center;cursor:pointer;}
 .lbc-wrap .lbc-tools button.lbc-icon-btn:hover,.lbc-wrap .lbc-tools button.lb-manage:hover{background:var(--lb-soft)!important;}
@@ -747,25 +747,26 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
    B站 / 专辑 / 视频 / 文件 / 排序 = 14px 无衬线小字；搜索 = 透明、宽 220、底下 1px 墨线（没有框） */
 .lbc-wrap .lbc-top .lbc-row:has(> .lbc-rcol > .lbc-m-scope){border-bottom:1px solid var(--c-line);align-items:flex-end!important;}
 .lbc-wrap .lbc-top .lbc-row:has(> .lbc-rcol > .lbc-m-scope) .lbc-ctl.lbc-ctl-piece{padding-bottom:0;align-items:flex-end;}
-.lbc-wrap .lbc-ctl button:is(.lbc-scope-tab,.lbc-topic-tab,.lbc-thq){height:auto!important;padding:12px 0 10px!important;font:400 17px/1.3 var(--f-serif)!important;color:var(--c-muted);}
+.lbc-wrap .lbc-ctl button:is(.lbc-scope-tab,.lbc-topic-tab,.lbc-thq){height:auto!important;padding:12px 0 10px!important;font:400 15.5px/1.3 var(--f-serif)!important;color:var(--c-muted);}
 .lbc-wrap .lbc-ctl button:is(.lbc-scope-tab,.lbc-topic-tab,.lbc-thq).is-active{color:var(--c-ink);font-weight:600!important;}
 .lbc-wrap .lbc-ctl button:is(.lbc-scope-tab,.lbc-topic-tab,.lbc-thq).is-active::before{bottom:-1px!important;height:2.5px!important;}
-.lbc-wrap .lbc-ctl :is(button.lbc-pick,button.lbc-type-tab,button.lbc-time){height:auto!important;padding:12px 0 12px!important;margin-bottom:0!important;font:400 14px/1.3 var(--lb-font-body)!important;color:var(--c-muted);}
+.lbc-wrap .lbc-ctl :is(button.lbc-pick,button.lbc-type-tab,button.lbc-time){height:auto!important;padding:12px 0 10px!important;margin-bottom:0!important;font:400 15.5px/1.3 var(--f-serif)!important;color:var(--c-muted);}
 .lbc-wrap .lbc-ctl :is(button.lbc-pick,button.lbc-type-tab,button.lbc-time).is-active{color:var(--c-ink);font-weight:600!important;}
 .lbc-wrap .lbc-ctl :is(button.lbc-pick,button.lbc-type-tab).is-active::before{bottom:-1px!important;height:2.5px!important;}
 .lbc-wrap .lbc-ctl.lbc-ctl-piece.lbc-blk-search{justify-content:flex-end;padding-bottom:8px;}
 .lbc-wrap .lbc-searchbox{flex:0 1 220px!important;width:220px;height:auto!important;padding:6px 0!important;border:0!important;border-bottom:1px solid var(--c-ink)!important;border-radius:0!important;background:transparent!important;}
-.lbc-wrap .lbc-searchbox input.lbc-search{font:400 14px/1.3 var(--lb-font-body)!important;}
+.lbc-wrap .lbc-searchbox input.lbc-search{font:400 15px/1.3 var(--f-serif)!important;}
 .lbc-wrap .lbc-ctl.lbc-blk-sort::before{align-self:flex-end;margin-bottom:12px;}
-/* 1101 作者「编排了一下字体就变了」：小字下边多 2px，和 17px 分页同一条基线（底边都压在那道线上）；★主题里的字母（AI）用 Cormorant 直体，
-   不落到思源宋体自带的等宽样西文；主题那一块后面多空一点，不和「全部来源」挤在一起 */
-.lbc-wrap .lbc-ctl button.lbc-thq{font-family:var(--lb-font-num)!important;font-style:normal;}
+/* 1101 作者「编排了一下字体就变了」：小字下边多 2px，和 17px 分页同一条基线（底边都压在那道线上）；主题那一块后面多空一点，不和「全部来源」挤在一起。
+   1101 作者「拿到 design 后第一版（0055a14）的式样是对的」：字照那一版——分页和来源 / 视频 / 文件都是 15.5px 衬线，排序 13.5px、搜索 14px 无衬线 */
 .lbc-wrap .lbc-ctl button.lbc-thq .lbc-topic-star{font-size:12px;margin-right:2px;}
+/* 1101 作者（设计稿「全部 2089 · 今日新增 0 · 已收藏」）：全部 / 今日新增 后面跟 Cormorant 斜体篇数；整行（排序、搜索也是）都用分页的衬线 */
+.lbc-wrap .lbc-top:not(.is-squeeze-2) .lbc-ctl button.lbc-scope-tab:is([data-scope=""],[data-scope="today"])[data-n]::after{content:attr(data-n);position:static;margin-left:6px;font:italic 500 16px/1 var(--f-latin);font-variant-numeric:oldstyle-nums proportional-nums;color:var(--c-muted);}
 .lbc-wrap:not(.is-side-narrow) .lbc-top .lbc-row.is-free>.lbc-rcol.is-gap-r:has(>.lbc-m-topics){padding-right:28px;}
-.lbc-wrap .lbc-ctl button.lbc-time.lbc-pill{height:auto!important;padding:12px 2px 12px!important;font:400 14px/1.3 var(--lb-font-body)!important;}
+.lbc-wrap .lbc-ctl button.lbc-time.lbc-pill{height:auto!important;padding:12px 2px 10px!important;font:400 15.5px/1.3 var(--f-serif)!important;}
 .lbc-wrap .lbc-tools button[hidden]{display:none!important;}
 /* 「近 7 天 · 最近导入 ↓」：纯文字按钮，前面一道细竖线隔开（不要胶囊框） */
-.lbc-wrap .lbc-ctl button.lbc-time.lbc-pill{border:0!important;border-radius:0!important;background:transparent!important;padding:12px 2px 12px!important;color:var(--c-ink);}
+.lbc-wrap .lbc-ctl button.lbc-time.lbc-pill{border:0!important;border-radius:0!important;background:transparent!important;padding:12px 2px 10px!important;color:var(--c-ink);}
 .lbc-wrap .lbc-ctl.lbc-blk-sort{position:relative;}
 .lbc-wrap .lbc-ctl.lbc-blk-sort::before{content:"";align-self:center;width:1px;height:16px;margin-right:12px;background:var(--c-line);}
 /* 数字一律齐线（Cormorant 默认旧式数字高低不齐；font 简写会把它重置掉，这里兜一次） */
@@ -1288,7 +1289,7 @@ if (app.vault.on && dv.component?.registerEvent) {
 const HIST_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l3.5 2"/></svg>';
 // 1101 作者：右上角和问收藏 / Wiki 页同一个样子——只写要跳过去的那两页（白底 + 浅阴影的小长方形），后面历史钟 · ···
 const jumps = tools.createEl('nav', { cls: 'lb-page-nav lbc-jumps' });
-for (const [role, label] of [...(starredPage ? [['catalog', '浏览收藏']] : []), ['chat', '问收藏'], ['wiki', 'Wiki']]) {
+for (const [role, label] of [...(starredPage ? [['catalog', '浏览收藏']] : []), ['chat', '问收藏'], ['wiki', 'WIKI']]) {
   const b = jumps.createEl('button', { cls: 'lbc-pnav-' + role, text: label }); b.type = 'button';
   b.onclick = () => { const p = provider(); if (role !== 'chat' && typeof p?.openLibraryPage === 'function') p.openLibraryPage(role); else LB.openPage(role); };
 }
@@ -1854,7 +1855,8 @@ function timeLabel() {
   const range = timeRange === 'custom' ? `${(timeFrom || '…').slice(5)}~${(timeTo || '…').slice(5)}` : TIME_RANGES[timeRange] || '';
   // 1021 排序胶囊：默认 = 数据顺序（导入新→旧），有搜索词时默认是按相关度
   const topic = activeTopic && activeTopic !== '*' ? '★' + activeTopic : '';
-  return [topic, range, timeSort === 'recent' ? '最近导入' : ''].filter(Boolean).join(' · ') || (committed ? '按相关度' : '最新在前');
+  // 1101 作者（设计稿「近 7 天 · 最近导入 ↓」）：总是「时间 · 排序」两段，没选时间范围写「全部时间」
+  return [topic, range || '全部时间', timeSort === 'recent' ? '最近导入' : committed ? '按相关度' : '最新在前'].filter(Boolean).join(' · ');
 }
 function inTimeRange(it) {
   if (!timeRange) return true;

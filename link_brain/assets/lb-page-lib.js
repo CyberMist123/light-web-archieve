@@ -733,7 +733,7 @@ ${engrSel}::after{content:attr(data-text);position:absolute;left:0;top:0;color:t
   // ── 1101 设计交接包（design/DESIGN.md §1 / §3「页头」）：目录 / 问收藏 / Wiki 三页同一个页头——
   //   左：刻线字标 + ＋；中：空间切换胶囊（当前页实心墨色）；右：meta（篇数 · 更新 / 已保存）+ 历史 + ···；下面一道 1px 墨线。
   //   结构各页自己拼（目录页的标题 / 计数行还是编排里的模块），这里只出切换胶囊和共用样式，数值照 components.css 的 .site-header / .space-switch
-  const SPACES = [['catalog', '浏览收藏'], ['chat', '问收藏'], ['wiki', 'Wiki']];
+  const SPACES = [['catalog', '浏览收藏'], ['chat', '问收藏'], ['wiki', 'WIKI']];
   function openSpace(r) { const p = provider(); if (r !== 'chat' && typeof p?.openLibraryPage === 'function') p.openLibraryPage(r); else openPage(r); }
   // current = 这一页是哪一个；onCurrent = 点当前那一个做什么（Wiki 回首页；不给就不响应）
   function spaceSwitch(parent, current, { onCurrent = null } = {}) {

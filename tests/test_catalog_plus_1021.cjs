@@ -37,7 +37,7 @@ const state = () => JSON.parse(globalThis.__lbState['lb:catalog']);
     assert.ok(P.$('.lbc-tools').contains(P.$('.lb-manage')));
     // 1101 作者：右上角和问收藏 / Wiki 页同一个样子——只写要跳过去的「问收藏」「Wiki」（白底浅阴影小长方形），标题旁不再有切换
     assert.equal(P.$('.lbc-head .lb-space-switch'), null);
-    assert.deepEqual(P.$$('.lbc-tools .lbc-jumps button').map(b => b.textContent), ['问收藏', 'Wiki']);
+    assert.deepEqual(P.$$('.lbc-tools .lbc-jumps button').map(b => b.textContent), ['问收藏', 'WIKI']);
     assert.equal(P.$('.lbc-pagenav'), null);
     assert.ok(P.$('.lbc-tools .lbc-hist'), '「···」左边一个历史钟（同步记录）');
     assert.equal(P.$('.lbc-askbtn'), null); assert.equal(P.$('.lbc-m-ask'), null);
