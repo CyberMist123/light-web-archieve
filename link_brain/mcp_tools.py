@@ -19,6 +19,7 @@
 - index     索引树（10-10）：无参数 = 整棵树带篇数；带节点路径 = 这个节点的笔记（id · 标题 · 日期 · 一句概要）；
             `unclassified` = 未归类。读 `_archive/index-data.json`（和 索引.md 对不上就当场重算，解析 / 归类只在 indextree）。
 - wiki      节点 wiki：无参数列出有哪些（已生成 / 标了还没生成）；带节点路径读全文（分页）。
+- pwiki     个人 Wiki（10-31，她自己写的 vault/PersonalWiki/）：无参数列页面；query 搜；id 读整页。检索在 personal_wiki_search。
 - guide     收藏深度报告的方法（docs/deep-report.md）：GPT 要自己写某个节点的汇总时先取它；带 skill = 取某个问答技能。
 - skills    问收藏的技能（1015 第二批）：list 列出 / get 取正文（写法要求，只读）。
 
@@ -946,6 +947,54 @@ def wiki(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
             "offset": offset, "next_offset": end if end < len(text) else None, "text": chunk}
 
 
+PWIKI_LIST_MAX = 500
+PWIKI_SEARCH_DEFAULT = 5
+PWIKI_SEARCH_MAX = 20
+
+
+def _pwiki_file(ctx: Ctx, name: str) -> str:
+    """页面文件：本机给绝对路径，远程给 vault 相对路径（不露本机路径）。"""
+    from . import wiki_page as wp
+    return str(ctx.policy.root / wp.DIR_NAME / name) if ctx.local else f"{wp.DIR_NAME}/{name}"
+
+
+def pwiki(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
+    """个人 Wiki（10-31）：她自己写的知识页 vault/PersonalWiki/。只读。
+    无参数 = 列出页面；query = 搜（标题 / 标签 / 正文）；id = 读整页（id 或标题都认，长页分页）。
+    和 `wiki`（索引树的节点 wiki，vault/wiki/）不是一回事。开放条件：收藏库开放，或设置里开放了 PersonalWiki 文件夹。"""
+    from . import personal_wiki_search as pws, wiki_page as wp   # 不 import personal_wiki（写手连着 storage，会卷进大 import 环）
+    if not (ctx.policy.xhs or wp.DIR_NAME in ctx.policy.user_folders):
+        raise Denied("NOT_OPEN", "个人 Wiki 没有开放给你")
+    vault = ctx.policy.root
+    ref = _str(args, "id", limit=200)
+    query = _str(args, "query", limit=500)
+    if ref:
+        page = pws.get(ref, vault)
+        if page is None:
+            near = [r["title"] for r in pws.search(ref, vault, limit=5)]
+            raise Denied("NOT_FOUND", f"个人 Wiki 里没有「{ref}」" + (f"；是不是：{'、'.join(near)}" if near else "")
+                         + "（不带参数调用看全部页面）")
+        body = page.pop("body")
+        offset = _int(args.get("offset"), 0, 0, len(body))
+        limit = _int(args.get("max_chars"), WIKI_READ_DEFAULT, 1, READ_MAX)
+        chunk = body[offset:offset + limit]
+        end = offset + len(chunk)
+        return {**page, "file": _pwiki_file(ctx, page["file"]), "total_chars": len(body), "offset": offset,
+                "next_offset": end if end < len(body) else None, "text": chunk,
+                "note": "这是她自己写的判断和偏好；正文里 [标题](lwa:<id>) 是她引用的收藏，可以用 read(id) 看原文"}
+    if query:
+        rows = pws.search(query, vault, limit=_int(args.get("limit"), PWIKI_SEARCH_DEFAULT, 1, PWIKI_SEARCH_MAX))
+        return {"query": query, "found": len(rows),
+                "results": [{**{k: r[k] for k in ("id", "title", "tags", "snippet", "score", "updated")},
+                             "file": _pwiki_file(ctx, r["file"])} for r in rows],
+                "note": "id 读整页：pwiki(id=…)" if rows else "个人 Wiki 里没搜到；收藏原文用 search"}
+    rows = pws.list_pages(vault)
+    limit = _int(args.get("limit"), PWIKI_LIST_MAX, 1, PWIKI_LIST_MAX)
+    return {"count": len(rows), "pages": [{k: r[k] for k in ("id", "title", "role", "tags", "lead", "updated")} for r in rows[:limit]],
+            "note": ("她自己写的知识页（role=topic 是文件夹页）。query 搜、id 读整页；里面是她的判断和偏好，和收藏原文冲突时以这里为准"
+                     if rows else "她还没写个人 Wiki")}
+
+
 def skills(ctx: Ctx, args: dict[str, Any]) -> dict[str, Any]:
     """问收藏的技能（1015 第二批）：list = 有哪些（id · 名字 · 一句说明 · 内置 / 用户）；get = 某个技能的正文（写法要求）。只读。"""
     from . import skills as skills_mod
@@ -1122,6 +1171,22 @@ TOOLS: list[dict[str, Any]] = [
          "max_chars": {"type": "integer", "minimum": 1, "maximum": READ_MAX, "default": WIKI_READ_DEFAULT,
                        "description": "这一页最多多少字符"}}},
      "annotations": _ann(True)},
+    {"name": "pwiki",
+     "description": ("她的个人 Wiki（vault/PersonalWiki/，她自己写的知识页：判断、偏好、结论、待办，正文里引用收藏）。"
+                     "**这是她自己写的判断和偏好，优先于收藏原文**：回答涉及她的口味 / 选择 / 计划时先看这里，"
+                     "和收藏里别人说的冲突时以她写的为准（可以指出收藏里有不同说法）。"
+                     "不带参数 = 列出全部页面（id · 标题 · 标签 · 首句 · 更新时间；role=topic 是文件夹页）；"
+                     "query = 按标题 / 标签 / 正文搜（每条带命中附近一段 snippet 和分数）；id = 读整页正文（id 或标题都行，长页分页）。"
+                     "正文里 [标题](lwa:<id>) 是她引用的收藏，用 read(id) 看原文。"
+                     "和 wiki 工具（索引树的节点 wiki）不是一回事。只读。"),
+     "inputSchema": {"type": "object", "additionalProperties": False, "properties": {
+         "query": {"type": "string", "maxLength": 500, "description": "要找什么：关键词或一句话"},
+         "id": {"type": "string", "maxLength": 200, "description": "页面 id（列表 / 搜索给出的）或标题：读整页"},
+         "limit": {"type": "integer", "minimum": 1, "maximum": PWIKI_LIST_MAX, "description": "搜索最多几条（默认 5，最多 20）/ 列表最多几页"},
+         "offset": {"type": "integer", "minimum": 0, "default": 0, "description": "读整页：从第几个字符开始"},
+         "max_chars": {"type": "integer", "minimum": 1, "maximum": READ_MAX, "default": WIKI_READ_DEFAULT,
+                       "description": "读整页：这一页最多多少字符"}}},
+     "annotations": _ann(True)},
     {"name": "guide",
      "description": ("取「收藏深度报告 / 节点 wiki」的方法全文：她让你从收藏里整理一个主题（「我收藏里关于 X 有什么」"
                      "「给 X 做个汇总 / wiki」）时，先取这个照着做：广搜、通读核心帖、抽具体对象、每条写出处和借鉴、7 类左右。"
@@ -1141,7 +1206,7 @@ TOOLS: list[dict[str, Any]] = [
 HANDLERS: dict[str, Callable[[Ctx, dict[str, Any]], dict[str, Any]]] = {
     "search": search, "ask": ask, "read": read, "image": image, "files": files, "topics": topics,
     "selections": selections, "recent": recent, "history": history,
-    "index": index, "wiki": wiki, "guide": guide, "skills": skills,
+    "index": index, "wiki": wiki, "pwiki": pwiki, "guide": guide, "skills": skills,
 }
 NAMES = [t["name"] for t in TOOLS]
 

@@ -2053,6 +2053,8 @@ class LinkBrainActions extends Plugin {
       if (!j.ok) throw Object.assign(new Error(j.message || 'Wiki 没保存上'), { code: j.code || '', result: j });
       return j;
     };
+    // 10-31「让 AI 改」只读不写、要等模型几十秒：不排进写盘队列（排进去这期间所有保存都得干等），超时放宽到 5 分钟
+    if (op === 'ai' || op === 'trash') return run();
     const next = Promise.resolve(this.wikiChain).catch(() => {}).then(run);
     this.wikiChain = next.catch(() => {});
     return next;

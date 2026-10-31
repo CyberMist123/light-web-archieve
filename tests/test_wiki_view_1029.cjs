@@ -165,7 +165,7 @@ function fakePlugin() {
   return plugin;
 }
 
-async function open({ plugin = null, isMobile = false, params = {}, files = null } = {}) {
+async function open({ plugin = null, isMobile = false, params = {}, files = null, expand = true } = {}) {
   delete globalThis.__lbState; delete globalThis.__lbListeners; delete globalThis.__lbWikiDrafts; delete globalThis.__lbPark;
   const made = makeApp({ files: files ? { ...FILES, ...files } : FILES, plugin, isMobile, frontmatter: { '目录.md': { 'lb-page': 'catalog' }, '收藏搜索.md': { 'lb-page': 'chat' }, 'Wiki.md': { 'lb-page': 'wiki' } } });
   if (plugin) plugin.V = made.V;
@@ -173,6 +173,8 @@ async function open({ plugin = null, isMobile = false, params = {}, files = null
   const A = dataviewBlock({ dom, app: made.app, code: CODE, params });
   await A.run();
   await tick(5);
+  // 10-31 起目录默认只展开当前页所在的文件夹；下面的老用例照旧从展开的目录里点页（「全部展开」= 工具行第 4 颗）
+  if (expand) { const b = A.qa('.lbw-tools button')[3]; if (b) { b.click(); await tick(1); } }
   return { A, dom, ...made };
 }
 const texts = (A, sel) => A.qa(sel).map(e => e.textContent);
@@ -181,7 +183,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
 
 (async () => {
   const plugin = fakePlugin();
-  const { A, dom, V, app } = await open({ plugin });
+  const { A, dom, V, app } = await open({ plugin, expand: false });
 
   // ── 挂 host、样式进 head、首页 ──
   assert.equal(A.container.children.length, 0, '页面挂在 host 上，不进 dv.container');
@@ -202,6 +204,8 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   const folds = texts(A, '.lbw-tfold');
   assert.ok(folds[0].includes('旅行') && folds[0].endsWith('2'), folds.join('|'));
   assert.ok(folds[1].includes('未归类'));
+  assert.deepEqual(texts(A, '.lbw-tpage'), [], '首页：文件夹默认都收起（10-31：只展开当前页所在的那个）');
+  A.qa('.lbw-tools button')[3].click(); await tick(1);   // 全部展开
   assert.deepEqual(texts(A, '.lbw-tpage'), ['住宿偏好', '京都想住的地方', '冷泡茶比例'], '文件夹里 order 在前，未归类在后；块状 tags 认得');
   assert.ok(!A.q('.lbw-tpage[data-page="pw-old"]'), '.trash 里的不算');
   assert.ok(texts(A, '.lbw-ttags button').includes('#hotels') && texts(A, '.lbw-ttags button').includes('#茶'));
@@ -234,8 +238,9 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   A.qa('.lbw-blk')[0].click();
   let ta = A.q('.lbw-ed');
   assert.ok(ta && A.q('.lbw-edbar'), '点一段出编辑框和层级工具条');
-  assert.deepEqual(texts(A, '.lbw-edbar button'), ['正文', 'H1', 'H2', 'H3', 'H4', '列表', '待办', 'AI 改写 · 稍后']);
-  assert.equal(A.q('.lbw-edbar button[disabled]').textContent, 'AI 改写 · 稍后');
+  assert.deepEqual(texts(A, '.lbw-edbar button'), ['正文', 'H1', 'H2', 'H3', '列表', '待办', 'AI 改'], '10-31：浅色小工具条，AI 改接上了');
+  assert.ok(!A.q('.lbw-edbar button[disabled]'));
+  assert.equal(ta.parentElement.tagName, 'P', '原地改：编辑框套在和阅读时同一个元素里');
   assert.equal(ta.value, '为什么记：每次订酒店都从头翻收藏。');
   ta.value = '为什么记：订酒店前先看这页。';
   key(A, ta, 'Escape'); await tick(10);
@@ -251,7 +256,9 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   A.qa('.lbw-blk')[0].click(); ta = A.q('.lbw-ed');
   ta.setSelectionRange(0, 0);
   key(A, ta, '2', { ctrlKey: true, altKey: true });
-  assert.ok(ta.value.startsWith('## 为什么记'), 'Ctrl+Alt+2 = H2');
+  assert.ok(ta.closest('h2') && ta.value.startsWith('为什么记'), 'Ctrl+Alt+2 = H2（记号不显示在框里，框换进 h2）');
+  key(A, ta, '0', { ctrlKey: true, altKey: true });
+  assert.equal(ta.parentElement.tagName, 'P', 'Ctrl+Alt+0 = 回到正文');
   ta.value = '为什么记：订酒店前先看这一页。';
   key(A, ta, 'Escape'); await tick(10);
   saves = plugin.calls.filter(c => c.op === 'save');
@@ -267,7 +274,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
   assert.ok(pop.querySelector('button.is-on').textContent.startsWith('示例咖啡地图'));
   assert.ok(pop.querySelector('small').textContent.includes('图文 · 示例作者 A · 已在《住宿偏好》引用'));
   key(A, ta, 'Enter');
-  assert.equal(ta.value, '再看 [示例咖啡地图](lwa:it-1) — ', 'Enter 插入引用，光标停在破折号后');
+  assert.equal(ta.value, '再看 [示例咖啡地图](@1) — ', 'Enter 插入引用（框里显示短号，存时换回完整 id），光标停在破折号后');
   assert.ok(!A.q('.lbw-pop'), '插入后弹层关掉');
   key(A, ta, 'Escape'); await tick(10);
   saves = plugin.calls.filter(c => c.op === 'save');
@@ -487,13 +494,12 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     P.delay = 30;
     P.failAt = { op: 'save', n: 2, code: 'LOCK_BUSY', message: 'Wiki 正在保存别的改动，稍后再试' };
     B.qa('.lbw-blk')[0].click(); const t1 = B.q('.lbw-ed'); t1.value = '第一处改动。'; key(B, t1, 'Escape');
-    assert.equal(B.q('.lbw-ptitle').readOnly, true, '保存在路上：标题框只读');
-    assert.equal(B.q('.lbw-task input').disabled, true, '保存在路上：待办灰掉');
+    // 10-31 起普通保存不锁页（以前每存一次这页只读 1.5 秒，Enter 下一段要干等）
+    assert.ok(!B.q('.lbw-ptitle').readOnly, '保存在路上：标题照常能改');
+    assert.ok(!B.q('.lbw-task input').disabled, '保存在路上：待办照常能勾');
     B.qa('.lbw-blk')[1].click();
-    assert.equal(B.q('.lbw-ed'), null, '保存在路上：不开编辑框（等存完）');
-    await tick(80);
-    assert.ok(B.q('.lbw-ed'), '存完了：刚才点的那段自动打开');
-    key(B, B.q('.lbw-ed'), 'Escape'); await tick(5);
+    assert.ok(B.q('.lbw-ed'), '保存在路上：点别的段马上打开');
+    key(B, B.q('.lbw-ed'), 'Escape'); await tick(80);
     const ti = B.q('.lbw-ptitle'); assert.ok(!ti.readOnly, '存完解冻');
     ti.focus(); ti.value = '住宿偏好（新）'; ti.blur(); await tick(80);    // 第二次保存：失败
     let ss = P.calls.filter(c => c.op === 'save');
@@ -551,7 +557,7 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     src.focus();
     src.value = src.value.replace('为什么记：每次订酒店都从头翻收藏。', '为什么记：源码里第一句。');
     src.blur(); await tick(5);             // 失焦 = 存（带旧 hash，路上）
-    assert.equal(src.readOnly, true, '保存在路上：整页 Markdown 框只读');
+    assert.ok(!src.readOnly, '10-31：保存在路上框照常能打字');
     await tick(250); P.delay = 1;
     const box2 = B.q('.lbw-srced');
     assert.ok(box2 && !box2.readOnly && box2.value.includes('在别处改过的正文'), '回来后：框里是磁盘上的版本，能接着改');
@@ -681,14 +687,19 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     ta.value = 'A 段改了。';
     VB.set(F, OTHER);                       // 别处先改了：A 的保存会撞 CONFLICT
     P.delay = 40;
-    B.q('.lbw-blk[data-i="2"]').click();   // 没按 Esc 直接点 B（列表那段，按段号点）
-    assert.equal(B.q('.lbw-ed'), null, 'A 还在存：B 不马上开');
+    B.q('.lbw-blk[data-i="2"]').click();   // 没按 Esc 直接点 B（列表第一条，按段号点）
+    const tb = B.q('.lbw-ed');
+    assert.ok(tb && tb.value === '安静 > 位置', '10-31：A 在存，B 马上就能改（列表按条开，记号不显示）');
+    tb.value = '安静 > 一切';
     await tick(200); P.delay = 1; await tick(20);
     const ss = P.calls.filter(c => c.op === 'save');
     assert.equal(ss.length, 1, '只有 A 那一次保存');
     assert.equal(ss[0].error && ss[0].error.code, 'CONFLICT');
-    assert.equal(B.q('.lbw-ed'), null, '页面被换成磁盘版本：B 的编辑框不开（旧行号作废）');
-    assert.ok(VB.get(F).includes('在别处改过的正文'));
+    assert.equal(B.q('.lbw-ed'), null, '页面被换成磁盘版本：B 的编辑框收起（旧行号作废）');
+    assert.ok(VB.get(F).includes('在别处改过的正文') && !VB.get(F).includes('一切'), '没按覆盖不盖掉别处');
+    B.qa('.lbw-draft button').find(b => b.textContent === '用我这份覆盖').click(); await tick(30);
+    assert.ok(VB.get(F).includes('A 段改了。') && VB.get(F).includes('- 安静 > 一切'), 'A、B 两处的字都在草稿里，覆盖都存上：' + JSON.stringify(VB.get(F)));
+    VB.set(F, OTHER); await tick(700);
     B.qa('.lbw-blk')[0].click();
     assert.equal(B.q('.lbw-ed').value, '在别处改过的正文。', '重新点：按新正文开');
   });
@@ -698,11 +709,10 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     B.qa('.lbw-blk')[0].click(); B.q('.lbw-ed').value = 'A 段改了。';
     P.delay = 40;
     B.q('.lbw-blk[data-i="1"]').click();   // 编辑框占了 0 号段的位置：按段号点
-    assert.equal(B.q('.lbw-ed'), null, 'A 还在存：B 不马上开');
-    await tick(120); P.delay = 1;
-    assert.equal(B.q('.lbw-ed') && B.q('.lbw-ed').value, '## 在意什么', 'A 存上后 B 自动打开，是对的那一段');
-    B.q('.lbw-ed').value = '## 在意的事'; key(B, B.q('.lbw-ed'), 'Escape'); await tick(30);
-    assert.ok(VB.get(F).includes('A 段改了。\n\n## 在意的事\n\n- 安静 > 位置') && !VB.get(F).includes('每次订酒店都从头翻收藏'), '两段都改在对的位置：' + JSON.stringify(VB.get(F)));
+    assert.equal(B.q('.lbw-ed') && B.q('.lbw-ed').value, '在意什么', '10-31：A 在存，B 马上打开，是对的那一段（标题记号不显示）');
+    assert.ok(B.q('.lbw-ed').closest('h2'));
+    B.q('.lbw-ed').value = '在意的事'; key(B, B.q('.lbw-ed'), 'Escape'); await tick(150); P.delay = 1; await tick(30);
+    assert.ok(VB.get(F).includes('A 段改了。\n\n## 在意的事\n- 安静 > 位置') && !VB.get(F).includes('每次订酒店都从头翻收藏'), '两段都改在对的位置：' + JSON.stringify(VB.get(F)));
   });
 
   // 四审2：块保存在路上时切到整页 Markdown → 重画出来的标题框先是只读的；存完解冻后改标题、失焦，照常存
@@ -713,11 +723,10 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     P.delay = 40;
     key(B, ta, 'Escape');
     enterSrc(B);
-    assert.equal(B.q('.lbw-ptitle').readOnly, true, '保存在路上：标题框只读');
-    await tick(120); P.delay = 1;
     const ti = B.q('.lbw-ptitle');
-    assert.ok(!ti.readOnly, '存完解冻');
-    ti.focus(); ti.value = '住宿偏好（改名）'; ti.blur(); await tick(30);
+    assert.ok(!ti.readOnly, '10-31：保存在路上标题照常能改');
+    ti.focus(); ti.value = '住宿偏好（改名）'; ti.blur(); await tick(150); P.delay = 1; await tick(30);
+    assert.ok((VB.get('PersonalWiki/住宿偏好（改名）.md') || '').includes('先改一段。'), '改名排在那次保存后面，两样都存上');
     assert.ok(P.calls.some(c => c.op === 'save' && c.input.title === '住宿偏好（改名）' && c.result), '失焦照常存标题');
     assert.ok(VB.get('PersonalWiki/住宿偏好（改名）.md'));
   });
@@ -766,8 +775,9 @@ const tocPage = (A, title) => A.qa('.lbw-tpage').find(b => b.textContent === tit
     assert.ok(pop && pop.querySelector('button.is-on').textContent.startsWith('示例长 id 收藏'));
     assert.ok(pop.querySelector('small').textContent.includes('已在《'), '@ 补全：已在别的页引用（短 id 写的也算）');
     key(B, ta, 'Enter');
-    assert.ok(ta.value.startsWith('[示例长 id 收藏](lwa:xhs-6a84ab) — '), '插入写完整的带前缀 id');
+    assert.ok(ta.value.startsWith('[示例长 id 收藏](@'), '框里显示短号');
     key(B, ta, 'Escape'); await tick(30);
+    assert.ok(P.calls.filter(c => c.op === 'save').at(-1).input.body.includes('[示例长 id 收藏](lwa:xhs-6a84ab) —'), '存的是完整的带前缀 id');
     // 标签页：PAGES / ARCHIVE 两张清单（这一轮顺手发现：以前 add() 只收了表头，清单是空的）；ARCHIVE 里这篇「已引用」
     B.qa('.lbw-ttags button').find(b => b.textContent === '#茶').click();
     const row = B.q('.lbw-prow[data-item="xhs-6a84ab"]');

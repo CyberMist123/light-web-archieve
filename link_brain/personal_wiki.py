@@ -14,13 +14,12 @@
 - 索引 `_archive/wiki-index.json` 从正文派生、随时可重建（目录、关系、引用、标题大纲、待办都在里面），页面 / MCP / 问收藏读它。
 - 只有这个模块写 PersonalWiki（单 writer），写盘一律 `storage.*` 原子写 + `personal-wiki` 文件锁。
 
-插件消费的 CLI：`python -m link_brain pwiki <list|get|create|save|history|version|restore|delete|index|import>`，
+插件消费的 CLI：`python -m link_brain pwiki <list|get|create|save|history|version|restore|delete|index|import|trash|undelete|ai>`，
 stdout 最后一行一个 JSON（`read.outcome` 外形），退出码 0 成功 / 1 失败 / 2 参数不对或找不到。
 """
 from __future__ import annotations
 
 import difflib
-import hashlib
 import json
 import os
 import re
@@ -33,8 +32,10 @@ from typing import Any
 
 from . import storage
 from .errtext import errtext
+from .wiki_page import (CITE_RE, DIR_NAME, FENCE_RE, FIELD_ORDER, HEAD_RE, ROLES, TAG_RE, TASK_RE, WL_RE,  # noqa: F401 - 照旧从这里能拿
+                        _RESERVED, _clean_tag, _derived_id, _plain, _scalar, _strip_code, _valid_id, content_hash, derive,
+                        lead_of, parse_page, scan_dir)
 
-DIR_NAME = "PersonalWiki"
 HISTORY_DIR = ".history"
 TRASH_DIR = ".trash"
 INDEX_NAME = "wiki-index.json"
@@ -43,17 +44,8 @@ LOCK_WAIT_S = 15
 MERGE_S = 120            # 连着打字：2 分钟内的自动快照合成一条
 KEEP_VERSIONS = 200      # 每页最多留几版（最早的「初始 / 新建」那版不删）
 SCHEMA = 1
-ROLES = ("page", "topic")
 KINDS = ("create", "auto", "manual", "restore", "external", "import", "ai", "rename")
-FIELD_ORDER = ("id", "title", "role", "index_tag", "order", "tags", "created", "updated")
 
-# 和页面（wiki-view.js / 原型）同一套认法
-WL_RE = re.compile(r"\[\[([^\]|\n]+)(?:\|([^\]\n]+))?\]\]")
-CITE_RE = re.compile(r"\[([^\]\n]+)\]\(lwa:([\w-]+)\)")
-TAG_RE = re.compile(r"(?:^|(?<=[\s(（，。、；：·]))#([^\s#\[\]()（）,，。、;；:：!！?？\"'<>*`·]+)", re.M)
-HEAD_RE = re.compile(r"^(#{1,4})\s+(.*)$")
-TASK_RE = re.compile(r"^\s*[-*+]\s+\[( |x|X)\]\s+(.*)$")
-FENCE_RE = re.compile(r"```[\s\S]*?```")
 _BAD_NAME = re.compile(r'[\\/:*?"<>|#^\[\]\x00-\x1f]')
 
 
@@ -78,14 +70,6 @@ def _history_dir(root: Path, page_id: str) -> Path:
     return root / HISTORY_DIR / _safe_id(page_id)
 
 
-# Windows 设备名：当文件 / 目录名（带不带扩展名都算）会写到一半才失败
-_RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\..*)?$", re.I)
-
-
-def _valid_id(pid: str) -> bool:
-    return bool(re.fullmatch(r"[\w-]{1,64}", pid or "")) and not _RESERVED.match(pid)
-
-
 def _safe_id(page_id: str) -> str:
     pid = str(page_id or "").strip()
     if not _valid_id(pid):
@@ -106,69 +90,6 @@ def _stamp() -> str:
 
 
 # ── 文件头 + 正文 ─────────────────────────────────────────────────────
-def _clean_tag(t: Any) -> str:
-    return re.sub(r"[\s,，#\[\]\"]+", "", str(t or "")).strip()
-
-
-def _scalar(v: str) -> Any:
-    v = v.strip()
-    if v.startswith('"') or v.startswith("["):
-        try:
-            return json.loads(v)
-        except ValueError:
-            if v.startswith("["):   # 原型写的 [a, b]（不带引号）
-                return [s.strip().strip("'\"") for s in v[1:-1].split(",") if s.strip()]
-    return v
-
-
-def parse_page(text: str) -> dict[str, Any]:
-    """文件全文 → {id, title, role, index_tag, order, tags, created, updated, body, extra}。没有文件头也能读（Obsidian 里新建的）。"""
-    text = text.replace("\r\n", "\n")
-    meta: dict[str, Any] = {}
-    extra: list[str] = []
-    body = text
-    m = re.match(r"^---\n([\s\S]*?)\n---\n?", text)
-    if m:
-        body = text[m.end():]
-        # 一个属性 = 顶格的 `key: 值` + 后面缩进 / `- ` 开头的续行。Obsidian 属性面板写列表是块状的：
-        #   tags:
-        #     - travel
-        # 认出来当列表；不认识的属性连同续行原样留着（她在 Obsidian 里加的）
-        groups: list[list[str]] = []
-        for line in m.group(1).split("\n"):
-            # 空行跟着上一个属性走（`summary: |` 这种多段文字中间的空行），写回时原样还给她
-            if groups and (not line.strip() or line[:1] in (" ", "\t") or line.startswith("- ") or line == "-"):
-                groups[-1].append(line)
-            elif line.strip():
-                groups.append([line])
-        for g in groups:
-            while len(g) > 1 and not g[-1].strip():
-                g.pop()   # 属性之间的空行不算任何一个属性的内容
-            mm = re.match(r"^([\w-]+):\s*(.*)$", g[0])
-            if mm and mm.group(1) in FIELD_ORDER:
-                items = [re.sub(r"^\s*-\s?", "", x).strip() for x in g[1:] if re.match(r"^\s*-", x)]
-                if not mm.group(2).strip() and items:
-                    meta[mm.group(1)] = [_scalar(x) if x.startswith('"') else x.strip("'") for x in items if x]
-                else:
-                    meta[mm.group(1)] = _scalar(mm.group(2))
-            else:
-                extra.extend(g)
-    as_list = lambda v: [x for x in ([v] if isinstance(v, str) else (v or [])) if str(x).strip()]  # noqa: E731
-    role = str(meta.get("role") or "page")
-    return {
-        "id": str(meta.get("id") or ""),
-        "title": str(meta.get("title") or "").strip(),
-        "role": role if role in ROLES else "page",
-        "index_tag": _clean_tag(meta.get("index_tag")),
-        "order": [str(x) for x in as_list(meta.get("order"))],
-        "tags": [t for t in (_clean_tag(x) for x in as_list(meta.get("tags"))) if t],
-        "created": str(meta.get("created") or ""),
-        "updated": str(meta.get("updated") or ""),
-        "body": body.lstrip("\n"),
-        "extra": extra,
-    }
-
-
 def _yaml_str(s: str) -> str:
     """Obsidian 按 YAML 读文件头：开头是 # [ { 之类、或含 ': ' 的标题要加引号（JSON 字符串就是合法 YAML）。"""
     if not s or re.search(r'^[\s#\[\]{}&*!|>\'"%@`,?:-]|: | #|[\n\r]|\s$', s):
@@ -192,10 +113,6 @@ def render_page(page: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n\n" + (body + "\n" if body else "")
 
 
-def content_hash(text: str) -> str:
-    return hashlib.sha1(text.replace("\r\n", "\n").encode("utf-8")).hexdigest()[:16]
-
-
 def file_name_for(title: str, page_id: str) -> str:
     name = _BAD_NAME.sub("-", title).strip(" .-")[:80].strip(" .-") or page_id
     if _RESERVED.match(name):
@@ -204,32 +121,9 @@ def file_name_for(title: str, page_id: str) -> str:
 
 
 # ── 扫描 ──────────────────────────────────────────────────────────────
-def _derived_id(rel: str) -> str:
-    """没写 id 的页（Obsidian 里直接新建的）：按相对路径给一个稳定 id，第一次经这里保存时写进文件头。"""
-    return "pf-" + hashlib.sha1(rel.encode("utf-8")).hexdigest()[:10]
-
-
 def scan(vault: Path | None = None) -> dict[str, dict[str, Any]]:
-    """id → {page, path, hash}。只看 PersonalWiki 顶层的 .md（.history / .trash 不算）。同一个 id 出现两次，后读到的那份换派生 id。"""
-    root = wiki_dir(vault)
-    out: dict[str, dict[str, Any]] = {}
-    if not root.is_dir():
-        return out
-    for path in sorted(root.glob("*.md")):
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        page = parse_page(text)
-        pid = page["id"]
-        if not _valid_id(pid) or pid in out:
-            pid = _derived_id(path.name)
-            page["id"] = pid
-            page["adopted"] = False
-        if not page["title"]:
-            page["title"] = path.stem
-        out[pid] = {"page": page, "path": path, "hash": content_hash(text)}
-    return out
+    """id → {page, path, hash}。只看 PersonalWiki 顶层的 .md（.history / .trash 不算）；解析在 wiki_page.scan_dir。"""
+    return scan_dir(wiki_dir(vault))
 
 
 def _find(entries: dict[str, dict[str, Any]], page_id: str) -> dict[str, Any]:
@@ -349,7 +243,6 @@ def _ensure_fresh(root: Path, entry: dict[str, Any]) -> None:
         raise WikiError("CONFLICT", "这页刚在别处改过（Obsidian 里），先重新打开再改")
 
 
-
 def _write(root: Path, entry_or_none: dict[str, Any] | None, page: dict[str, Any], kind: str, note: str) -> dict[str, Any]:
     text = render_page(page)
     old_path = entry_or_none["path"] if entry_or_none else None
@@ -405,7 +298,26 @@ def create_page(title: str, *, role: str = "page", folder: str = "", tags: list[
         page = {"id": pid, "title": title, "role": role, "index_tag": index_tag, "order": [], "tags": all_tags,
                 "created": now, "updated": now, "body": body, "extra": []}
         res = _write(root, None, page, "create", "新建")
+        if role == "page" and folder:
+            _append_order(root, scan(vault), _clean_tag(folder), pid)
     return _result(res)
+
+
+def _append_order(root: Path, entries: dict[str, dict[str, Any]], tag: str, pid: str) -> None:
+    """10-31：新页排到文件夹顺序末尾（以前不进 order，按修改时间排在已排好的后面，改一下内容就换位置）。
+    文件夹页正在 Obsidian 里改着（对不上）就算了，页面照样建好。"""
+    for e in entries.values():
+        fp = e["page"]
+        if fp.get("role") != "topic" or fp.get("index_tag") != tag or pid in (fp.get("order") or []):
+            continue
+        try:
+            page = dict(fp)
+            page.pop("adopted", None)
+            page["order"] = [*(fp.get("order") or []), pid]
+            _write(root, e, page, "auto", "新页排进来")
+        except (WikiError, OSError):
+            pass
+        return
 
 
 def save_page(page_id: str, *, title: str | None = None, tags: list[str] | None = None, body: str | None = None,
@@ -510,6 +422,48 @@ def delete_page(page_id: str, *, base_hash: str = "", vault: Path | None = None)
     return {"id": entry["page"]["id"], "title": entry["page"]["title"], "trashed": dest.name}
 
 
+def list_trash(vault: Path | None = None) -> list[dict[str, Any]]:
+    """删掉的页（.trash 里），新→旧：{name, id, title, at}。Obsidian 不显示点开头的文件夹，所以页面上要能列出来。"""
+    tdir = wiki_dir(vault) / TRASH_DIR
+    out = []
+    for f in sorted(tdir.glob("*.md"), reverse=True) if tdir.is_dir() else []:
+        try:
+            p = parse_page(f.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        m = re.match(r"^(\d{8})-(\d{6})", f.name)
+        at = f"{m.group(1)[:4]}-{m.group(1)[4:6]}-{m.group(1)[6:]}T{m.group(2)[:2]}:{m.group(2)[2:4]}" if m else ""
+        out.append({"name": f.name, "id": p.get("id") or "", "title": p.get("title") or f.stem, "at": at})
+    return out
+
+
+def undelete(name: str, vault: Path | None = None) -> dict[str, Any]:
+    """把 .trash 里的一页放回来（同 id 已经有了就换个新 id；同名就在标题后加「（找回）」），记一版「恢复」。"""
+    root = wiki_dir(vault)
+    if not name or "/" in name or "\\" in name or name.startswith("."):
+        raise WikiError("BAD_ARGS", "要找回哪一页？")
+    src = root / TRASH_DIR / name
+    with storage.file_lock(LOCK_NAME, wait_s=LOCK_WAIT_S):
+        try:
+            text = src.read_text(encoding="utf-8")
+        except FileNotFoundError as exc:
+            raise WikiError("NOT_FOUND", "删除记录里没有这一页了") from exc
+        entries = scan(vault)
+        p = parse_page(text)
+        pid = p.get("id") if _valid_id(str(p.get("id") or "")) and p.get("id") not in entries else new_id()
+        title = str(p.get("title") or src.stem).strip()
+        if _title_taken(entries, title):
+            title = f"{title}（找回）"
+        page = {**p, "id": pid, "title": title, "role": p.get("role") if p.get("role") in ROLES else "page"}
+        page.setdefault("order", []); page.setdefault("tags", []); page.setdefault("extra", [])
+        page.pop("adopted", None)
+        page["updated"] = _now()
+        page["created"] = page.get("created") or page["updated"]
+        res = _write(root, None, page, "restore", "从删除里找回")
+        src.unlink()
+    return _result(res)
+
+
 def _result(res: dict[str, Any], *, changed: bool = True) -> dict[str, Any]:
     page = dict(res["page"])
     page.pop("extra", None)
@@ -519,49 +473,7 @@ def _result(res: dict[str, Any], *, changed: bool = True) -> dict[str, Any]:
     return {"page": page, "changed": changed, "version": ({k: v.get(k) for k in ("ver", "at", "kind", "note")} if v else None)}
 
 
-# ── 索引（从正文派生；页面 / MCP / 问收藏读它） ───────────────────────
-def _strip_code(body: str) -> str:
-    return FENCE_RE.sub(lambda m: re.sub(r"[^\n]", "", m.group(0)), body)
-
-
-def _plain(s: str) -> str:
-    s = WL_RE.sub(lambda m: m.group(2) or m.group(1), s)
-    s = CITE_RE.sub(r"\1", s)
-    s = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", s)
-    return re.sub(r"[*`]", "", s).strip()
-
-
-def lead_of(body: str) -> str:
-    """首句：第一段正文；页面以列表开头就取第一条列表项（和设计稿一致）。"""
-    blocks = [b.strip() for b in re.split(r"\n\s*\n", _strip_code(body)) if b.strip()]
-    for b in blocks:
-        if not re.match(r"^(#|>|[-*+]\s|\d+\.)", b):
-            return _plain(b.split("\n")[0])[:80]
-    for b in blocks:
-        m = re.match(r"^\s*([-*+]|\d+\.)\s+(\[[ xX]\]\s+)?(.*)$", b.split("\n")[0])
-        if m:
-            return _plain(m.group(3))[:80]
-    return ""
-
-
-def derive(page: dict[str, Any]) -> dict[str, Any]:
-    b = _strip_code(page.get("body") or "")
-    cites = list(dict.fromkeys(m.group(2) for m in CITE_RE.finditer(b)))
-    inline = list(dict.fromkeys(t for t in TAG_RE.findall(b) if not t.isdigit()))
-    heads, tasks = [], []
-    for i, line in enumerate(b.split("\n")):
-        h = HEAD_RE.match(line)
-        if h:
-            heads.append({"level": len(h.group(1)), "text": _plain(h.group(2)), "line": i})
-        t = TASK_RE.match(line)
-        if t:
-            tasks.append({"done": t.group(1) != " ", "text": _plain(t.group(2)), "line": i})
-    return {"cites": cites, "links": [m.group(1).strip() for m in WL_RE.finditer(b)],
-            "all_tags": list(dict.fromkeys(list(page.get("tags") or []) + inline)),
-            "heads": heads, "tasks": tasks, "open_tasks": sum(1 for t in tasks if not t["done"]),
-            "lead": lead_of(page.get("body") or ""), "chars": len(re.sub(r"\s", "", page.get("body") or ""))}
-
-
+# ── 索引（从正文派生；页面 / MCP / 问收藏读它；派生函数在 wiki_page） ──
 def build_index(vault: Path | None = None, *, record_external: bool = True) -> dict[str, Any]:
     """重建 `_archive/wiki-index.json`。record_external：顺手给在 Obsidian 里直接改过的页补一条「外部编辑」历史。"""
     root = wiki_dir(vault)
@@ -682,6 +594,11 @@ def add_parser(sub) -> None:
     ws.add_parser("index", help="重建 _archive/wiki-index.json（顺手给 Obsidian 里改过的页记一条外部编辑）")
     im = ws.add_parser("import", help="导入页面：JSON 或原型的 wiki-data.local.js；已有同 id / 同名的跳过")
     im.add_argument("file")
+    ws.add_parser("trash", help="列出删掉的页（PersonalWiki/.trash）")
+    u = ws.add_parser("undelete", help="把删掉的一页放回来")
+    u.add_argument("name", help="trash 列出的 name")
+    a = ws.add_parser("ai", help="让文本 AI 改一段 / 整页：stdin 一个 JSON {id, scope:block|page, text, instruction, preset?}；只回建议，不写盘")
+    a.add_argument("--input", default="-", help="JSON 文件路径，默认 stdin")
 
 
 def _read_input(arg: str) -> dict[str, Any]:
@@ -695,8 +612,50 @@ def _read_input(arg: str) -> dict[str, Any]:
     return data
 
 
+def dump_json(payload: Any) -> None:
+    """同 read.dump_json（不 import read：它连带载小红书 adapter / httpx，pwiki 每次多花 1 秒多）。"""
+    line = json.dumps(payload, ensure_ascii=False) + "\n"
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is None:
+        sys.stdout.write(line)
+        return
+    sys.stdout.flush()
+    buffer.write(line.encode("utf-8"))
+    buffer.flush()
+
+
+def outcome(payload: dict[str, Any] | None, *, ok: bool, message: str, code: str | None = None) -> dict[str, Any]:
+    """同 read.outcome（CONVENTIONS §1 外形）。"""
+    base = dict(payload or {})
+    existing = base.get("code")
+    base["ok"] = bool(ok)
+    base["code"] = str(code) if code is not None else (str(existing) if existing not in (None, "") else "")
+    base["message"] = str(message or "")
+    return base
+
+
+def main_fast(argv: list[str]) -> int:
+    """`python -m link_brain pwiki …` 的轻入口（__main__ 直接调，不经 cli.main）：只载这个模块，起一次 0.3 秒左右，
+    以前整套 cli 要 1.5 秒，每次保存这一页就锁 1.5 秒（10-31 走查）。没想到的异常照样回一行 JSON。"""
+    import argparse
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+    ap = argparse.ArgumentParser(prog="python -m link_brain")
+    add_parser(ap.add_subparsers(dest="command"))
+    args = ap.parse_args(["pwiki", *argv])
+    try:
+        return run(args)
+    except Exception as exc:  # noqa: BLE001 - 最后一道兜底：插件要的是一行 JSON，不是 traceback
+        msg = f"Wiki 后端出错了：{errtext(exc)}"
+        dump_json(outcome({}, ok=False, code="TRANSIENT.STEP_CRASHED", message=msg))
+        print(msg, file=sys.stderr)
+        return 1
+
+
 def run(args) -> int:
-    from .read import dump_json, outcome
     cmd = getattr(args, "pwiki_command", None) or "list"
     try:
         if cmd == "list":
@@ -749,6 +708,14 @@ def run(args) -> int:
                               message=f"导入 {ok_n} 页，跳过 {sum(1 for r in results if r['status'] == 'skipped')} 页"
                               + (f"，{len(failed)} 页失败" if failed else ""), code="WRITE_FAILED" if failed else ""))
             return 1 if failed else 0
+        elif cmd == "trash":
+            rows = list_trash()
+            dump_json(outcome({"pages": rows}, ok=True, message=f"删掉的页 {len(rows)} 个"))
+        elif cmd == "undelete":
+            res = undelete(args.name)
+            dump_json(outcome(res, ok=True, message=f"已找回《{res['page']['title']}》"))
+        elif cmd == "ai":   # 由 wiki_ai.main 接（__main__ 直接转过去）：这里不 import wiki_ai，免得把本模块卷进大 import 环
+            raise WikiError("BAD_ARGS", "「pwiki ai」请用 python -m link_brain pwiki ai")
         else:
             raise WikiError("BAD_ARGS", f"不认识的子命令：{cmd}")
         return 0

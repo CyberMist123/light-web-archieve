@@ -57,7 +57,7 @@ def ctx(vault, folders=("@xhs",), local=False):
 def test_one_definition_schema_is_strict():
     names = [t["name"] for t in mt.TOOLS]
     assert names == ["search", "ask", "read", "image", "files", "topics", "selections", "recent", "history",
-                     "index", "wiki", "guide", "skills"]
+                     "index", "wiki", "pwiki", "guide", "skills"]
     for t in mt.TOOLS:
         s = t["inputSchema"]
         assert s["type"] == "object" and s["additionalProperties"] is False and t["description"]

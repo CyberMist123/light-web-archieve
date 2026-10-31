@@ -88,11 +88,16 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw.has-side .lbw-body{grid-template-columns:minmax(0,1fr) minmax(300px,380px);}
 .lbw-main{display:grid;grid-template-columns:248px minmax(0,680px);column-gap:64px;padding:44px 0 120px;}
 .lbw.is-home .lbw-main{grid-template-columns:248px minmax(0,1fr);}
+/* 10-31 目录整栏收起：正文居中加宽，左下角留「目录」钮 */
+.lbw.is-tocoff .lbw-main,.lbw.is-tocoff.is-home .lbw-main{grid-template-columns:minmax(0,760px);justify-content:center;}
+.lbw.is-tocoff.is-home .lbw-main{grid-template-columns:minmax(0,1fr);}
+.lbw.is-tocoff:not(.is-narrow) .lbw-toc{display:none;}
+.lbw.is-tocoff:not(.is-narrow) .lbw-fab{display:inline-flex;align-items:center;gap:8px;position:fixed;left:auto;bottom:22px;z-index:13;height:36px;margin-left:-8px;padding:0 14px 0 12px;border:1px solid var(--lb-line);border-radius:999px;background:var(--lb-surface);font:500 13px/1 var(--lbw-sans);color:var(--lb-ink);}
 .lbw-toc{position:sticky;top:20px;align-self:start;max-height:calc(100vh - 40px);overflow:auto;padding:0 4px 0 12px;margin-left:-12px;scrollbar-width:thin;}
 .lbw-tools{display:flex;align-items:center;height:32px;margin:0 0 12px -9px;}
-.lbw .lbw-tools button{width:32px;height:32px;display:grid;place-items:center;border-radius:999px;color:var(--lb-muted);}
+.lbw .lbw-tools button{flex:none;width:32px;height:32px;display:grid;place-items:center;border-radius:999px;color:var(--lb-muted);}
 .lbw .lbw-tools button:hover,.lbw .lbw-tools button.is-on{background:var(--lb-soft);color:var(--lb-ink);}
-.lbw-say{margin-left:auto;padding-left:6px;font:400 11.5px/1 var(--lbw-sans);color:var(--lb-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lbw-say{flex:1;min-width:0;text-align:right;padding-left:6px;font:400 11.5px/1 var(--lbw-sans);color:var(--lb-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .lbw-findw{display:flex;align-items:center;gap:8px;height:38px;margin:0 0 14px;border-bottom:1px solid var(--lb-ink);}
 .lbw .lbw-find{flex:1;min-width:0;height:36px;border:0;border-radius:0;padding:0;background:none;box-shadow:none;color:var(--lb-ink);font:400 15px/1 var(--lbw-serif);}
 .lbw .lbw-find:focus,.lbw .lbw-find:focus-visible{outline:none;box-shadow:none;}
@@ -125,11 +130,15 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw .lbw-tpage:hover{background:var(--lb-soft);border-radius:2px;}
 .lbw-tpage.is-current{font-weight:700;}
 .lbw-tpage.is-current::before{content:"";position:absolute;left:20px;top:7px;bottom:7px;width:2px;background:var(--lb-ink);}
-.lbw-tpage[draggable=true]{cursor:grab;}
+.lbw-trow[draggable=true]{cursor:grab;}
 .lbw-tpage[draggable=true]:hover::after{content:"\\2807";position:absolute;left:5px;top:4px;font:400 13px/1.5 var(--lbw-sans);color:var(--lb-muted);}
-.lbw-tpage.is-drop-before{box-shadow:inset 0 2px 0 var(--lb-ink);}
-.lbw-tpage.is-drop-after{box-shadow:inset 0 -2px 0 var(--lb-ink);}
-.lbw .lbw-thead{padding:2px 4px 2px 46px;font:400 12.5px/1.55 var(--lbw-serif);color:var(--lb-muted);}
+.lbw-trow.is-drop-before{box-shadow:inset 0 3px 0 var(--lb-ink);}
+.lbw-trow.is-drop-after{box-shadow:inset 0 -3px 0 var(--lb-ink);}
+.lbw-trow.is-drop-in{background:var(--lb-soft);outline:1px dashed var(--lb-ink);outline-offset:-1px;}
+.lbw-trow.is-dragging{opacity:.4;}
+.lbw .lbw-thead{padding:2px 4px 2px 46px;font:400 13px/1.55 var(--lbw-serif);color:var(--lb-muted);}
+.lbw .lbw-thead.is-here{color:var(--lb-ink);font-weight:600;}
+.lbw .lbw-thead.is-here::before{content:"";position:absolute;left:34px;top:6px;bottom:6px;width:2px;background:var(--lb-ink);}
 .lbw-thead .lbw-num{font-size:14px;}
 .lbw .lbw-thead.is-l3{padding-left:60px;}
 .lbw .lbw-thead.is-l4{padding-left:72px;}
@@ -139,6 +148,8 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw .lbw-ttags button{font:400 12.5px/1.6 var(--lbw-sans);color:var(--lb-muted);}
 .lbw .lbw-ttags button:hover,.lbw .lbw-ttags button.is-on{color:var(--lb-ink);text-decoration:underline;text-underline-offset:4px;}
 .lbw-tnone{margin:6px 0 0;font:400 12.5px/1.6 var(--lbw-sans);color:var(--lb-muted);}
+.lbw .lbw-tsnip{display:block;margin-top:1px;font:400 11.5px/1.5 var(--lbw-sans);color:var(--lb-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lbw-blk.is-flash{background:color-mix(in srgb,var(--lb-warn) 14%,transparent);}
 .lbw-fab,.lbw-scrim{display:none;}
 /* 关系图（10-29：力导向、可拖、可缩放；目录小图 / 首页 / 全局图浮层同一套） */
 .lbw-graph{display:block;width:100%;height:auto;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab;}
@@ -261,17 +272,41 @@ LB.style('lb-wiki-style', LB.brandFontCss() + fontFace('LB Digits Inline', FONT_
 .lbw .lbw-prow:hover .lbw-t{text-decoration:underline;text-underline-offset:4px;}
 .lbw-rest{margin-top:48px;}
 .lbw-rnone{margin:10px 0 0;color:var(--lb-muted);font:400 13px/1.6 var(--lbw-sans);}
-/* 编辑态：墨线框 + 错版投影，上面压一条黑色层级条 */
-.lbw-edbar{position:relative;z-index:2;display:flex;flex-wrap:wrap;align-items:center;gap:2px;width:max-content;max-width:calc(100% - 4px);margin:22px 0 -18px -4px;padding:4px;border-radius:999px;background:var(--lb-ink);color:var(--lb-surface);font:400 12.5px/1 var(--lbw-sans);}
-.lbw .lbw-edbar button{height:28px;padding:0 11px;border-radius:999px;color:inherit;font:inherit;}
-.lbw .lbw-edbar button:hover{background:color-mix(in srgb,var(--lb-surface) 16%,transparent);}
-.lbw .lbw-edbar button.is-on{background:var(--lb-surface);color:var(--lb-ink);font-weight:500;}
-.lbw .lbw-edbar button:disabled{opacity:.45;cursor:default;background:none;}
-.lbw-edbar .lbw-sep{width:1px;height:14px;margin:0 5px;background:var(--lb-surface);opacity:.28;}
-.lbw-edbar .lbw-k{padding:0 12px 0 8px;opacity:.62;font-size:11.5px;white-space:nowrap;}
-.lbw .lbw-ed{display:block;width:calc(100% + 32px);height:auto;margin:0 -16px;min-height:3.2em;resize:none;overflow:hidden;padding:28px 16px 12px;border:1px solid var(--lb-ink);border-radius:2px;background:var(--lb-surface);box-shadow:var(--lbw-print);color:var(--lb-ink);font:400 15.5px/1.95 var(--lbw-serif);}
-.lbw .lbw-ed:focus{outline:none;box-shadow:var(--lbw-print);}
-.lbw-ed + .lbw-blk,.lbw-blk + .lbw-edbar{margin-top:18px;}
+/* 编辑态（10-31 她：「不要跳出来一个巨大的黑框，就正常改」）：原地改——编辑框套在和阅读时同一个元素里（p / h2 / li / blockquote），
+   字体、字号、行距、缩进全继承，点开不跳；只有一条浅色小工具条浮在这一段右上角（绝对定位，不占地方） */
+.lbw-blk.is-editing{background:var(--lb-soft);cursor:text;}
+.lbw .lbw-ed,.lbw .lbw-ed:hover,.lbw .lbw-ed:focus,.lbw .lbw-ed:focus-visible{display:block;width:100%;min-width:0;height:auto;min-height:0;margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;outline:none;resize:none;overflow:hidden;font:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;caret-color:var(--lb-ink);}
+.lbw-ed::placeholder{color:var(--lb-faint);}
+.lbw-doc h2.is-ed::after{display:none;}
+.lbw-doc h2.is-ed .lbw-ed,.lbw-doc li.lbw-task .lbw-ed{flex:1;}
+.lbw-blk.is-raw .lbw-ed{font:12.5px/1.7 var(--lbw-mono);}
+.lbw-edbox{display:inline-block;width:14px;height:14px;flex:none;margin:.55em 0 0;border:1px solid var(--lb-ink);border-radius:2px;}
+.lbw-edbar{position:absolute;right:0;bottom:100%;z-index:3;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:0;max-width:100%;margin-bottom:3px;padding:2px 4px;border:1px solid var(--lb-line);border-radius:999px;background:var(--lb-surface);font:400 11.5px/1 var(--lbw-sans);color:var(--lb-muted);}
+.lbw .lbw-edbar button{height:22px;padding:0 7px;border-radius:999px;color:var(--lb-muted);font:inherit;}
+.lbw .lbw-edbar button:hover{color:var(--lb-ink);background:var(--lb-soft);}
+.lbw .lbw-edbar button.is-on{color:var(--lb-ink);font-weight:600;}
+.lbw .lbw-edbar button.is-ai{color:var(--lb-ink);}
+.lbw-edbar .lbw-sep{width:1px;height:10px;margin:0 3px;background:var(--lb-line);}
+/* 宽屏：工具条放到正文右边的空白里，不压上一行的字；中等宽 / 开着右栏 / 手机还在这段右上角 */
+.lbw:not(.is-mid):not(.has-side) .lbw-edbar{left:calc(100% + 10px);right:auto;bottom:auto;top:0;flex-wrap:nowrap;width:max-content;max-width:none;margin:0;}
+/* 段和段之间：左边空白里悬停出一个 ＋，点了在这段后面插一段 */
+.lbw .lbw-ins{position:absolute;left:-14px;top:3px;width:22px;height:22px;display:grid;place-items:center;border-radius:999px;color:var(--lb-faint);opacity:0;transition:opacity .12s;font:400 15px/1 var(--lbw-sans);}
+.lbw-blk:hover > .lbw-ins{opacity:1;}
+.lbw .lbw-ins:hover{color:var(--lb-ink);background:var(--lb-surface);}
+.lbw-blk.is-li + .lbw-blk.is-li{margin-top:3px;}
+.lbw-blk.is-editing > .lbw-ins{display:none;}
+/* 让 AI 改：这一段下面的小面板 / 整页在右侧栏 */
+.lbw-ai{margin:8px 0 4px;padding:12px 14px;border:1px solid var(--lb-line);border-radius:2px;background:var(--lb-surface);font:400 12.5px/1.6 var(--lbw-sans);color:var(--lb-ink);}
+.lbw-ai-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;}
+.lbw .lbw-ai-row button{height:26px;padding:0 10px;border:1px solid var(--lb-line);border-radius:999px;color:var(--lb-ink);font:inherit;}
+.lbw .lbw-ai-row button:hover{border-color:var(--lb-ink);}
+.lbw .lbw-ai-row button.is-solid{background:var(--lb-ink);border-color:var(--lb-ink);color:var(--lb-surface);}
+.lbw .lbw-ai input[type=text]{flex:1 1 220px;min-width:0;height:28px;border:0;border-bottom:1px solid var(--lb-ink);border-radius:0;padding:0 2px;background:transparent;box-shadow:none;color:var(--lb-ink);font:400 13px var(--lbw-sans);}
+.lbw .lbw-ai input[type=text]:focus{outline:none;box-shadow:none;}
+.lbw-ai-note{margin:8px 0 0;color:var(--lb-muted);}
+.lbw-ai-note.is-warn{color:var(--lb-warn);}
+.lbw-ai-out{margin:10px 0;padding:8px 12px;border-left:2px solid var(--lb-ink);font:400 15px/1.9 var(--lbw-serif);}
+.lbw-ai-out p{margin:0 0 6px;}
 /* 目录首页 */
 .lbw-gap{margin-top:80px;}
 .lbw-ov{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px 32px;}
@@ -603,7 +638,7 @@ const citedBy = id => { const k = citeKey(id); return [...PAGES.values()].filter
 function pagesIn(t) {
   const list = (IDX.byTag.get(t.index_tag) || []).filter(p => p.role === 'page');
   const rank = id => { const k = (t.order || []).indexOf(id); return k < 0 ? 1e6 : k; };
-  return list.sort((a, b) => rank(a.id) - rank(b.id) || byUpdated(a, b));
+  return list.sort((a, b) => rank(a.id) - rank(b.id) || cmpStr(a.created || '~', b.created || '~') || cmpStr(a.title, b.title));
 }
 const loosePages = () => [...PAGES.values()].filter(p => p.role === 'page' && !foldersOf(p).length).sort(byUpdated);
 const savedOf = p => ({ title: p.title, tags: [...(p.tags || [])], body: p.body, order: [...(p.order || [])] });
@@ -703,13 +738,13 @@ const itemType = it => (it.kind === 'video' ? '视频' : it.attachment && it.att
 // ═════════════ 界面状态（§5.3：路由 / 收起的文件夹存 sessionStorage；MAP 图钉存本库的 localStorage，重启后还在） ═════════════
 const saved0 = LB.state.load();
 const UI = { view: saved0.view || 'home', id: saved0.id || null, tag: saved0.tag || null, ovShut: !!saved0.ovShut,
-  find: null, tocMin: false, mapOpen: false, src: false, tagEdit: false, caret: null, hist: null, openCite: null, drag: null, drawer: false };
+  find: null, mapOpen: false, src: false, tagEdit: false, caret: null, hist: null, openCite: null, drag: null, drawer: false };
 function loadPrefs() {
   let v = null;
   try { v = typeof app.loadLocalStorage === 'function' ? app.loadLocalStorage('lb-wiki-prefs') : null; } catch (e) { v = null; }
   if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = null; } }
   const base = v && typeof v === 'object' ? v : (saved0.prefs || {});
-  return { closed: { ...(base.closed || {}) }, mapPin: !!base.mapPin };
+  return { open: { ...(base.open || {}) }, mapPin: !!base.mapPin, tocOff: !!base.tocOff };
 }
 const PREFS = loadPrefs();
 function saveUi() {
@@ -756,7 +791,8 @@ R.center = h('main', { cls: 'lbw-center' });
 add(main, [R.toc, R.scrim, R.center]);
 R.side = h('aside', { cls: 'lbw-side' }); R.side.hidden = true;
 add(body, [main, R.side]);
-R.fab = btn({ cls: 'lbw-fab', on: { click: () => setDrawer(!UI.drawer) } }, icon('list'), '目录');
+R.fab = btn({ cls: 'lbw-fab', on: { click: () => { if (wrap.classList.contains('is-narrow')) setDrawer(!UI.drawer); else setTocOff(false); } } }, icon('list'), '目录');
+wrap.classList.toggle('is-tocoff', !!PREFS.tocOff);
 R.layer = h('div', { cls: 'lbw-layer' });
 add(wrap, [body, R.fab, R.layer]);
 
@@ -764,6 +800,7 @@ add(wrap, [body, R.fab, R.layer]);
 let lastW = 0;
 function paintWidth(w) {
   w = Number(w) || wrap.clientWidth || 0;
+  fitToc();
   wrap.classList.toggle('is-mid', w > 0 && w < 1040);
   wrap.classList.toggle('is-narrow', w > 0 && w < 680);
   const moved = Math.abs(w - lastW) > 40; lastW = w;
@@ -781,7 +818,7 @@ function go(view, arg) {
   commitEditor(false); closePop(); flushSrc();
   const same = view === UI.view && (view === 'page' ? arg === UI.id : view === 'tag' ? arg === UI.tag : true);
   UI.view = view; UI.id = view === 'page' ? arg : null; UI.tag = view === 'tag' ? arg : null;
-  if (!same) { UI.src = false; UI.tagEdit = false; UI.mapOpen = false; }
+  if (!same) { UI.src = false; UI.tagEdit = false; UI.mapOpen = false; if (UI.ai && UI.ai.id !== arg) UI.ai = null; }
   saveUi(); setDrawer(false);
   if (UI.hist) { if (view === 'page') UI.hist = { id: arg, versions: null, sel: null, texts: {} }; else UI.hist = null; loadHistory(); }
   render();
@@ -793,6 +830,7 @@ function render() {
   closePop();
   if (UI.view === 'page' && !PAGES.has(UI.id)) { UI.view = 'home'; UI.id = null; }
   wrap.classList.toggle('is-home', UI.view === 'home');
+  if (R.histBtn) R.histBtn.hidden = UI.view !== 'page';   // 历史是一页的历史：首页 / 标签页不显示（10-31：以前点了只说「先打开一页」）
   renderCenter(); renderSub(); renderToc(); renderSide();
 }
 function renderKeepScroll() { const sc = LB.scroller(), top = sc ? sc.scrollTop : 0; render(); if (sc) sc.scrollTop = top; }
@@ -817,6 +855,7 @@ function renderSub() {
 
 // ═════════════ Markdown → 块（每块记住源码行号，点一段改一段靠它；原型原样） ═════════════
 const isListLine = l => /^\s*([-*+]|\d+[.)])\s+/.test(l);
+const indentOf = l => String(l).replace(/\t/g, '  ').length - String(l).replace(/\t/g, '  ').trimStart().length;
 const isBlockStart = l => /^#{1,6}\s/.test(l) || /^```/.test(l) || /^>/.test(l) || isListLine(l) || /^(-{3,}|\*{3,})\s*$/.test(l);
 function parseBlocks(src) {
   const L = String(src || '').split('\n'), out = [];
@@ -829,7 +868,8 @@ function parseBlocks(src) {
     if (/^#{1,6}\s/.test(l)) { out.push({ type: 'h', s, e: ++i }); continue; }
     if (/^(-{3,}|\*{3,})\s*$/.test(l)) { out.push({ type: 'hr', s, e: ++i }); continue; }
     if (/^>/.test(l)) { while (i < L.length && /^>/.test(L[i])) i++; out.push({ type: 'quote', s, e: i }); continue; }
-    if (isListLine(l)) { while (i < L.length && L[i].trim() && (isListLine(L[i]) || /^\s{2,}\S/.test(L[i]))) i++; out.push({ type: 'list', s, e: i }); continue; }
+    // 10-31：列表按条拆块（点一条只改这一条）；一条 = 这行 + 下面缩进更深的行（子项 / 续行）
+    if (isListLine(l)) { const ind = indentOf(l); i++; while (i < L.length && L[i].trim() && indentOf(L[i]) > ind) i++; out.push({ type: 'li', s, e: i }); continue; }
     while (i < L.length && L[i].trim() && !(i > s && isBlockStart(L[i]))) i++;
     out.push({ type: 'p', s, e: i });
   }
@@ -907,6 +947,7 @@ function renderList(p, lines, s0) {
     let top = stack[stack.length - 1];
     if (!top || it.ind > top.ind) {
       const list = h(it.ord ? 'ol' : 'ul');
+      if (it.ord) { const n = parseInt(/\d+/.exec(lines[it.line - s0])?.[0] || '1', 10); if (n > 1) list.setAttribute('start', String(n)); }
       if (top && top.li) top.li.append(list); else roots.push(list);
       stack.push(top = { ind: it.ind, list, li: null });
     }
@@ -947,7 +988,7 @@ function renderBlock(b, lines, self) {
     }
     case 'hr': return h('hr');
     case 'quote': { const q = h('blockquote'); src.forEach((l, k) => { if (k) q.append(h('br')); inl(l.replace(/^>\s?/, ''), q); }); return q; }
-    case 'list': return renderList(self, src, b.s);
+    case 'li': return renderList(self, src, b.s);
     case 'code': {
       const lang = src[0].replace(/^```/, '').trim();
       const inner = src.slice(1, /^```\s*$/.test(src[src.length - 1]) && src.length > 1 ? -1 : undefined).join('\n');
@@ -970,21 +1011,21 @@ function renderToc() {
   };
   const tools = h('div', { cls: 'lbw-tools' },
     tb('home', '目录首页', UI.view === 'home', () => go('home')),
-    tb('find', '搜标题 · Ctrl F', UI.find != null, () => toggleFind()),
-    tb('up', '全部收起', false, () => { for (const t of topics()) PREFS.closed[t.id] = true; PREFS.closed.__loose = true; UI.tocMin = false; saveUi(); renderToc(); }),
-    tb('down', '全部展开', false, () => { PREFS.closed = {}; UI.tocMin = false; saveUi(); renderToc(); }),
+    tb('find', '搜 · Ctrl F', UI.find != null, () => toggleFind()),
+    tb('up', '全部收起', false, () => { PREFS.open = Object.fromEntries([...topics().map(t => [t.id, false]), [looseId, false]]); saveUi(); renderToc(); }),
+    tb('down', '全部展开', false, () => { PREFS.open = Object.fromEntries([...topics().map(t => [t.id, true]), [looseId, true]]); saveUi(); renderToc(); }),
     readOnly ? null : tb('plus', '新页面', false, () => newPageModal()),
-    tb('panel', UI.tocMin ? '展开目录' : '收起目录', UI.tocMin, () => { UI.tocMin = !UI.tocMin; renderToc(); }),
+    tb('panel', '收起目录', false, () => { if (wrap.classList.contains('is-narrow')) setDrawer(false); else setTocOff(true); }),
     say);
   tocEl.append(tools);
   if (UI.find != null) {
     const fid = nextId('find');
-    R.findIn = h('input', { cls: 'lbw-find', attr: { id: fid, placeholder: '搜标题', autocomplete: 'off', spellcheck: 'false' } });
+    R.findIn = h('input', { cls: 'lbw-find', attr: { id: fid, placeholder: '搜标题和正文', autocomplete: 'off', spellcheck: 'false' } });
     R.findIn.value = UI.find;
     R.findIn.addEventListener('input', () => { UI.find = R.findIn.value; renderTree(); });
     R.findIn.addEventListener('keydown', e => {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); toggleFind(false); }
-      else if (e.key === 'Enter') { e.preventDefault(); const b = R.tree && R.tree.querySelector('[data-page]'); const p = b && PAGES.get(b.dataset.page); if (p) { UI.find = null; goPage(p); } }
+      else if (e.key === 'Enter') { e.preventDefault(); const b = R.tree && (R.tree.querySelector('.lbw-tpage[data-page]') || R.tree.querySelector('[data-page]')); const p = b && PAGES.get(b.dataset.page); if (p) openFromFind(p); }
     });
     tocEl.append(h('div', { cls: 'lbw-findw' }, h('label', { cls: 'lb-visually-hidden', attr: { for: fid }, text: '搜标题' }), R.findIn, kbd('Esc')));
   } else R.findIn = null;
@@ -1011,88 +1052,184 @@ function markText(s, q) {
   if (i < s.length) out.push(s.slice(i));
   return out;
 }
+// 文件夹展开：她手动开 / 关过的照她的（PREFS.open）；没动过的 = 只展开当前页所在的那个（10-31：以前全摊开，21 页就比一屏长）
+const looseId = '__loose';
+function folderOpen(id) {
+  if (PREFS.open && id in PREFS.open) return !!PREFS.open[id];
+  const c = current();
+  if (!c) return false;
+  if (id === looseId) return c.role === 'page' && !foldersOf(c).length;
+  const t = PAGES.get(id);
+  return !!t && (c === t || foldersOf(c).includes(t));
+}
+function setFolderOpen(id, on) { PREFS.open = { ...(PREFS.open || {}), [id]: !!on }; saveUi(); renderTree(); }
+// 搜：标题 + 正文都搜（10-31：以前只搜标题，搜不到还让去问收藏，可问收藏不读 Wiki）
+function bodyHit(p, q) {
+  if (!q) return '';
+  const plain = String(p.body || '').replace(/\]\(lwa:[\w-]+\)/g, ']').replace(/[#*`>\[\]]/g, '');
+  const k = plain.toLowerCase().indexOf(q);
+  if (k < 0) return '';
+  const a = Math.max(0, k - 14), b = Math.min(plain.length, k + q.length + 30);
+  return (a ? '…' : '') + plain.slice(a, b).replace(/\s+/g, ' ') + (b < plain.length ? '…' : '');
+}
 function renderTree() {
   const tree = R.tree; if (!tree) return;
   tree.textContent = '';
-  if (UI.tocMin) return;
   const cur = current();
   const q = UI.find == null ? '' : norm(UI.find);
-  const hit = p => !q || norm(p.title).includes(q);
-  const headRows = (p, extra = '') => p._heads.map((x, k) => btn({ cls: `lbw-trow lbw-thead is-l${x.level} ${extra}`, data: { toc: x.line }, on: { click: () => scrollToHead(x.line) } }, NUM(String(k + 1)), h('span', { text: x.text })));
+  const hitTitle = p => !q || norm(p.title).includes(q);
+  const snip = new Map();
+  const hit = p => { if (hitTitle(p)) return true; const s = bodyHit(p, q); if (s) snip.set(p.id, s); return !!s; };
+  const headRows = (p, extra = '') => p._heads.map((x, k) => {
+    const r = btn({ cls: `lbw-trow lbw-thead is-l${x.level} ${extra}`, data: { toc: x.line }, on: { click: () => scrollToHead(x.line) } }, NUM(String(k + 1)), h('span', { text: x.text }));
+    return r;
+  });
   const pageRow = (p, fid) => {
-    const row = btn({ cls: 'lbw-trow lbw-tpage' + (cur === p ? ' is-current' : ''), attr: cur === p ? { 'aria-current': 'page' } : null, data: { page: p.id, fid: fid || null }, on: { click: () => goPage(p) } }, markText(p.title, q));
-    if (fid && !q && !readOnly) bindDrag(row, p.id, fid);
-    return [row, cur === p && !q ? headRows(p) : null];
+    const row = btn({ cls: 'lbw-trow lbw-tpage' + (cur === p ? ' is-current' : ''), attr: cur === p ? { 'aria-current': 'page' } : null, data: { page: p.id, fid: fid || null }, on: { click: () => openFromFind(p) } },
+      markText(p.title, q), snip.get(p.id) ? h('small', { cls: 'lbw-tsnip' }, markText(snip.get(p.id), q)) : null);
+    if (!q && !readOnly) { bindDrag(row, p.id, fid); bindDrop(row, { pid: p.id, fid }); }
+    const heads = cur === p && !q ? headRows(p) : null;
+    if (heads && !readOnly) for (const r of heads) bindDrop(r, { pid: p.id, fid, after: true });
+    return [row, heads];
   };
   let any = 0;
   topics().forEach((t, k) => {
     const list = pagesIn(t).filter(hit);
-    if (q && !list.length && !hit(t)) return;
-    any += list.length + (hit(t) ? 1 : 0);
-    const open = q ? true : !PREFS.closed[t.id];
+    if (q && !list.length && !hitTitle(t)) return;
+    any += list.length + (hitTitle(t) && q ? 1 : 0);
+    const open = q ? true : folderOpen(t.id);
     const tw = add(h('span', { cls: 'lbw-tw' }), icon('fold'));
-    tw.addEventListener('click', e => { e.stopPropagation(); PREFS.closed[t.id] = !PREFS.closed[t.id]; saveUi(); renderTree(); });
+    tw.addEventListener('click', e => { e.stopPropagation(); setFolderOpen(t.id, !open); });
     const row = btn({ cls: 'lbw-trow lbw-tfold' + (open ? ' is-open' : '') + (cur === t ? ' is-current' : ''), attr: cur === t ? { 'aria-current': 'page' } : null, data: { page: t.id }, on: { click: () => goPage(t) } },
       tw, NUM(String(k + 1)), h('span', { cls: 'lbw-nm' }, markText(t.title, q)), h('span', { cls: 'lbw-c lbw-num', text: String(pagesIn(t).length) }));
+    if (!q && !readOnly) bindDrop(row, { fid: t.id, into: true });
     tree.append(h('div', { cls: 'lbw-tgroup' }, row, cur === t && !q ? headRows(t, 'is-fold') : null, open ? list.map(p => pageRow(p, t.id)) : null));
   });
   const loose = loosePages().filter(hit);
-  if (loose.length) {
+  if (loose.length || !q) {   // 没有未归类的页也留着这一行：拖页到这里 = 拿出文件夹
     any += loose.length;
-    const open = q ? true : !PREFS.closed.__loose;
-    const row = btn({ cls: 'lbw-trow lbw-tfold' + (open ? ' is-open' : ''), data: { fold: '__loose' }, on: { click: () => { PREFS.closed.__loose = !PREFS.closed.__loose; saveUi(); renderTree(); } } },
-      add(h('span', { cls: 'lbw-tw' }), icon('fold')), NUM('·'), h('span', { cls: 'lbw-nm', text: '未归类' }), h('span', { cls: 'lbw-c lbw-num', text: String(loose.length) }));
+    const open = q ? true : folderOpen(looseId);
+    const ltw = add(h('span', { cls: 'lbw-tw' }), icon('fold'));
+    ltw.addEventListener('click', e => { e.stopPropagation(); setFolderOpen(looseId, !open); });
+    const row = btn({ cls: 'lbw-trow lbw-tfold' + (open ? ' is-open' : ''), data: { fold: looseId }, on: { click: () => setFolderOpen(looseId, !open) } },
+      ltw, NUM('·'), h('span', { cls: 'lbw-nm', text: '未归类' }), h('span', { cls: 'lbw-c lbw-num', text: String(loose.length) }));
+    if (!q && !readOnly) bindDrop(row, { fid: null, into: true });
     tree.append(h('div', { cls: 'lbw-tgroup' }, row, open ? loose.map(p => pageRow(p, null)) : null));
   }
-  if (q && !any) tree.append(h('p', { cls: 'lbw-tnone', text: `没有标题含「${UI.find}」的页` }), h('p', { cls: 'lbw-tnone', text: '正文里的字用问收藏去搜' }));
-  else if (q) tree.append(h('p', { cls: 'lbw-tnone' }, kbd('Enter'), ' 打开第一条'));
+  if (q && !any) tree.append(h('p', { cls: 'lbw-tnone', text: `标题和正文里都没有「${UI.find}」` }));
+  else if (q) tree.append(h('p', { cls: 'lbw-tnone' }, kbd('Enter'), ' 打开第一页'));
   if (!q) {
     const tags = [...IDX.byTag.entries()].filter(([t]) => !IDX.catTags.has(t)).sort((a, b) => b[1].length - a[1].length);
     if (tags.length) tree.append(h('div', { cls: 'lbw-ttags' }, tags.map(([t]) => btn({ cls: UI.view === 'tag' && UI.tag === t ? 'is-on' : '', data: { tag: t }, text: '#' + t, on: { click: () => goTag(t) } }))));
   }
   if (!PAGES.size) tree.append(h('p', { cls: 'lbw-tnone', text: readOnly ? '还没有页面' : '还没有页面：点上面的 ＋ 新建' }));
+  spyHeads();
+  revealCurrent();
+}
+// 当前页那一行滚进目录可见范围（只动目录自己的 scrollTop，不带着外层一起滚）
+function revealCurrent() {
+  const run = () => {
+    const box = R.toc, row = R.tree && R.tree.querySelector('.lbw-tpage.is-current, .lbw-tfold.is-current');
+    if (!box || !row || box.scrollHeight <= box.clientHeight + 2) return;
+    const br = box.getBoundingClientRect(), rr = row.getBoundingClientRect();
+    if (rr.top < br.top + 40 || rr.bottom > br.bottom - 40) box.scrollTop += rr.top - br.top - box.clientHeight / 3;
+  };
+  if (WIN && typeof WIN.requestAnimationFrame === 'function') WIN.requestAnimationFrame(run); else run();
+}
+// 目录跟着读到哪：视口顶下面一点之上的最后一个小标题，在目录里加粗 + 左边一道线
+function spyHeads() {
+  if (!R.tree || UI.view !== 'page') return;
+  const sc = LB.scroller(); if (!sc) return;
+  const top = sc.getBoundingClientRect().top + 96;
+  let here = null;
+  for (const el of R.center.querySelectorAll('[data-hline]')) { if (el.getBoundingClientRect().top <= top) here = el.dataset.hline; else break; }
+  for (const r of R.tree.querySelectorAll('.lbw-thead')) r.classList.toggle('is-here', here != null && r.dataset.toc === here);
+}
+// 目录的高度跟着 Obsidian 的阅读区，不跟着整个窗口（100vh 会把目录底部压到屏幕外）
+function fitToc() { const sc = LB.scroller(); if (sc && sc.clientHeight > 200) R.toc.style.maxHeight = (sc.clientHeight - 40) + 'px'; }
+function openFromFind(p) {
+  const q = UI.find == null ? '' : norm(UI.find);
+  if (UI.find != null) UI.find = null;
+  goPage(p);
+  if (q && !norm(p.title).includes(q)) {   // 正文里搜到的：滚到那一段，闪一下
+    const blk = [...R.center.querySelectorAll('.lbw-blk')].find(b => norm(b.textContent).includes(q));
+    if (blk) { try { blk.scrollIntoView({ block: 'center' }); } catch (e) { console.debug(e); } blk.classList.add('is-flash'); setTimeout(() => blk.classList.remove('is-flash'), 1600); }
+  }
 }
 function toggleFind(force) {
   const on = force ?? UI.find == null;
-  UI.find = on ? (UI.find ?? '') : null; UI.tocMin = false;
-  if (on) setDrawer(true);
+  UI.find = on ? (UI.find ?? '') : null;
+  if (on) { setTocOff(false); setDrawer(true); }
   renderToc();
   if (on && R.findIn) { R.findIn.focus(); R.findIn.select?.(); }
+}
+// 整栏收起 / 打开目录（记住）；窄屏还是底部抽屉
+function setTocOff(off) {
+  off = !!off;
+  if (!!PREFS.tocOff === off) return;
+  PREFS.tocOff = off; saveUi();
+  wrap.classList.toggle('is-tocoff', off);
+  if (!off) { renderToc(); fitToc(); }
+  if (UI.view === 'home' && !ED) renderCenter();
 }
 function scrollToHead(line) {
   const el = R.center.querySelector(`[data-hline="${line}"]`);
   if (el) { try { el.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { el.scrollIntoView(); } }
   setDrawer(false);
 }
-// 目录里拖动排序（同一个文件夹内；顺序记在文件夹页的 order 里）
-function clearDrop() { for (const n of R.toc.querySelectorAll('.is-drop-before, .is-drop-after')) n.classList.remove('is-drop-before', 'is-drop-after'); }
+// 目录里拖页：同一个文件夹里 = 排顺序；拖到别的文件夹的页上 / 文件夹名上 = 挪进那个文件夹；拖到「未归类」= 拿出文件夹
+// （10-31：以前只能同文件夹内排，拖到当前页的小标题或别处就没反应；落点加大、插入线加粗）
+function clearDrop() { for (const n of R.toc.querySelectorAll('.is-drop-before, .is-drop-after, .is-drop-in')) n.classList.remove('is-drop-before', 'is-drop-after', 'is-drop-in'); }
 function bindDrag(row, pid, fid) {
   row.setAttribute('draggable', 'true');
-  row.addEventListener('dragstart', ev => { UI.drag = { pid, fid }; try { if (ev.dataTransfer) { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', pid); } } catch (e) { console.debug(e); } });
+  row.addEventListener('dragstart', ev => {
+    UI.drag = { pid, fid: fid || null }; row.classList.add('is-dragging');
+    try { if (ev.dataTransfer) { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', pid); } } catch (e) { console.debug(e); }
+  });
+  row.addEventListener('dragend', () => { UI.drag = null; row.classList.remove('is-dragging'); clearDrop(); });
+}
+function bindDrop(row, { pid = null, fid = null, into = false, after = false }) {
   row.addEventListener('dragover', ev => {
+    const d = UI.drag; if (!d || (pid && d.pid === pid && d.fid === (fid || null))) return;
+    ev.preventDefault(); ev.stopPropagation();
     clearDrop();
-    if (!UI.drag || UI.drag.fid !== fid || UI.drag.pid === pid) return;
-    ev.preventDefault();
+    if (into) { row.classList.add('is-drop-in'); return; }
     const b = row.getBoundingClientRect();
-    row.classList.add(ev.clientY < b.top + b.height / 2 ? 'is-drop-before' : 'is-drop-after');
+    row.classList.add(!after && ev.clientY < b.top + b.height / 2 ? 'is-drop-before' : 'is-drop-after');
   });
   row.addEventListener('drop', ev => {
     const d = UI.drag; UI.drag = null;
     const before = row.classList.contains('is-drop-before');
     clearDrop();
-    if (!d || d.fid !== fid || d.pid === pid) return;
-    ev.preventDefault();
-    moveInFolder(fid, d.pid, pid, before);
+    if (!d) return;
+    ev.preventDefault(); ev.stopPropagation();
+    movePage(d.pid, d.fid, fid || null, into ? null : pid, before);
   });
-  row.addEventListener('dragend', () => { UI.drag = null; clearDrop(); });
 }
-function moveInFolder(fid, pid, targetId, before) {
+function movePage(pid, fromFid, toFid, targetId, before) {
+  const p = PAGES.get(pid); if (!p || readOnly) return;
+  if (fromFid === toFid) { if (toFid) moveInFolder(toFid, pid, targetId, before); return; }   // 未归类里按修改时间排，不用排
+  const from = fromFid ? PAGES.get(fromFid) : null, to = toFid ? PAGES.get(toFid) : null;
+  if (busyPage(p) || (to && busyPage(to))) { LB.say('这一页正在恢复 / 删除，好了再拖', { kind: 'warn' }); renderToc(); return; }
+  let tags = p.tags.filter(t => !from || t !== from.index_tag);
+  if (!to) tags = tags.filter(t => !IDX.catTags.has(t));   // 拖到未归类 = 拿出所有文件夹
+  if (to && !tags.includes(to.index_tag)) tags = [...tags, to.index_tag];
+  mutate(p, n => { n.tags = tags; }, { note: to ? `挪到「${to.title}」` : '拿出文件夹' });
+  if (to) moveInFolder(to.id, pid, targetId, before, { quiet: true });
+  if (from && foldersOf(p).includes(from)) LB.say(`《${p.title}》正文里写了 #${from.index_tag}，所以还在「${from.title}」里`, { kind: 'warn' });
+  else LB.say(to ? `《${p.title}》挪到了「${to.title}」` : `《${p.title}》放回了未归类`, { kind: 'ok' });
+  if (to && !folderOpen(to.id)) PREFS.open = { ...(PREFS.open || {}), [to.id]: true };
+  renderToc();
+  if (!ED && (current() === p || current() === from || current() === to)) renderKeepScroll();
+}
+function moveInFolder(fid, pid, targetId, before, { quiet = false } = {}) {
   const t = PAGES.get(fid); if (!t || readOnly) return;
   const ids = pagesIn(t).map(p => p.id).filter(id => id !== pid);
-  let at = ids.indexOf(targetId); if (at < 0) at = ids.length; else if (!before) at++;
+  let at = targetId ? ids.indexOf(targetId) : -1; if (at < 0) at = ids.length; else if (!before) at++;
   ids.splice(at, 0, pid);
-  if (busyPage(t)) { LB.say('这个文件夹正在保存，好了再拖', { kind: 'warn' }); renderToc(); return; }   // 非文字的小改动：忙时直接不收（不进草稿）
+  if (busyPage(t)) { LB.say('这个文件夹正在恢复，好了再拖', { kind: 'warn' }); renderToc(); return; }
   mutate(t, n => { n.order = ids; }, { note: '调整顺序' });
+  if (quiet) return;
   renderToc(); if (UI.view === 'page' && UI.id === fid && !ED) renderCenter();
 }
 
@@ -1456,7 +1593,7 @@ function renderHome() {
       stat(pages.length, '全部页面'), stat(pages.filter(p => (toDate(p.updated)?.getTime() || 0) >= week).length, '近 7 天改过'), stat(cited.size, '引用的收藏'), stat(ts.length, '文件夹'))),
     h('section', { cls: 'lbw-gap' }, secHead('INDEX', '目录', h('span', { cls: 'lbw-cap' }, NUM(pad2(ts.length)), ' 个文件夹 · ', NUM(String(pages.length)), ' 页')),
       h('div', { cls: 'lbw-folders' }, ts.map(folder),
-        loose.length ? btn({ cls: 'lbw-fold is-loose', on: { click: () => { PREFS.closed.__loose = false; saveUi(); renderToc(); setDrawer(true); LB.say('未归类的页在左边目录最下面；加个文件夹标签就归进去了'); } } },
+        loose.length ? btn({ cls: 'lbw-fold is-loose', on: { click: () => { PREFS.open = { ...(PREFS.open || {}), [looseId]: true }; saveUi(); setTocOff(false); renderToc(); setDrawer(true); LB.say('未归类的页在左边目录最下面；拖到文件夹上就归进去了'); } } },
           h('span', { cls: 'lbw-fold-tab' }, h('span', { cls: 'lbw-kick', text: 'INBOX' })), h('span', { cls: 'lbw-fold-back' }), sheet(loose),
           h('span', { cls: 'lbw-fold-face' }, h('span', { cls: 'lbw-fold-num', text: '··' }), dots(loose), h('span', { cls: 'lbw-fold-name', text: '未归类' }), h('span', { cls: 'lbw-fold-cap' }, NUM(String(loose.length)), ' 页'))) : null,
         readOnly ? null : btn({ cls: 'lbw-fold is-new', on: { click: () => newPageModal({ folder: true }) } }, h('span', { cls: 'lbw-fold-tab' }, h('span', { cls: 'lbw-kick', text: 'NEW' })),
@@ -1502,7 +1639,7 @@ function savedSpan(p) { R.saved = h('span', { cls: 'lbw-saved' }); paintSaved(p)
 function paintSaved(p) {
   if (!R.saved || !p || current() !== p) return;
   R.saved.textContent = '';
-  if (busyPage(p)) R.saved.append('保存中…'); else R.saved.append(NUM(fmtAt(p.updated)));
+  if (savingPage(p)) R.saved.append('保存中…'); else R.saved.append(NUM(fmtAt(p.updated)));
 }
 function renderFolder(t) {
   const k = topics().indexOf(t);
@@ -1547,7 +1684,7 @@ function renderPage(p) {
       p._cites.length ? [h('span', { cls: 'lbw-dot', text: '·' }), h('span', null, '引用 ', NUM(String(citeKeys(p).size)), ' 篇收藏')] : null, chips),
     draftBar(p),
     docNodes(p, '写下第一句：为什么关注这件事？'),
-    hint(['点哪段改哪段', h('span', null, kbd('@'), ' 引用收藏'), h('span', null, kbd('Ctrl Alt 0–4'), ' 改层级'), h('span', null, kbd('Esc'), ' 收起')]),
+    hint(['点哪段改哪段', h('span', null, kbd('Enter'), ' 下一段 / 下一条'), h('span', null, kbd('@'), ' 引用收藏'), h('span', null, kbd('Ctrl Z'), ' 撤销'), h('span', null, kbd('Esc'), ' 收起'), '段落开头打 # / - / [] 换成标题 / 列表 / 待办']),
   ]);
   if (R.tagIn) R.tagIn.focus();
 }
@@ -1586,14 +1723,20 @@ function docNodes(p, placeholder) {
   const { lines, blocks } = parseBlocks(p.body);
   const docEl = h('div', { cls: 'lbw-doc' });
   blocks.forEach((b, i) => {
-    const blk = add(h('div', { cls: 'lbw-blk', data: { i } }), renderBlock(b, lines, p));
-    if (!readOnly) blk.addEventListener('click', e => clickBlock(e, blk, p, i));
+    const blk = add(h('div', { cls: 'lbw-blk' + (b.type === 'li' ? ' is-li' : ''), data: { i } }), renderBlock(b, lines, p));
+    if (!readOnly) {
+      blk.addEventListener('click', e => clickBlock(e, blk, p, i));
+      // 段和段之间插一段：左边空白里的 ＋（10-31：以前只能在页尾「接着写」）
+      blk.append(btn({ cls: 'lbw-ins', text: '+', on: { click: e => { e.stopPropagation(); openEditor(-1, 0, true, { kind: 'p', pre: '', at: b.e }); } } }, sr('在这段后面插一段')));
+    }
     docEl.append(blk);
+    if (UI.ai && UI.ai.scope === 'block' && UI.ai.id === p.id && UI.ai.start === b.s) docEl.append(aiPanel(UI.ai));
   });
   R.doc = docEl;
   if (readOnly) return [docEl, blocks.length ? null : h('p', { cls: 'lbw-rnone', text: '这一页还是空的' })];
-  R.add = btn({ cls: 'lbw-addblk', text: blocks.length ? '＋ 接着写…' : placeholder, on: { click: () => openEditor(0, null, true) } });
-  return [docEl, R.add];
+  R.add = btn({ cls: 'lbw-addblk', text: blocks.length ? '＋ 接着写…' : placeholder, on: { click: () => openEditor(-1, null, true) } });
+  const draft = blocks.length ? null : btn({ cls: 'lbw-addblk', text: '或者让 AI 先搭个框架', data: { ai: 'draft' }, on: { click: () => openAiPage(p, 'draft') } });
+  return [docEl, R.add, draft];
 }
 // 这一页现在开着、还作数的整页 Markdown 框（被恢复 / 冲突作废的框 _lbDead，不再拿去存）
 function applySrc(p, ta) {
@@ -1602,8 +1745,9 @@ function applySrc(p, ta) {
 }
 function flushSrc() { if (UI.src && R.srcEd && R.srcEd.isConnected) { const p = current(); if (p) applySrc(p, R.srcEd); } }
 
-// ═════════════ 编辑：随时可改，点哪段改哪段（原型 openEditor / commitEditor） ═════════════
-let ED = null;   // {i, s, e, ta, p, bar}
+// ═════════════ 编辑：原地改，点哪段改哪段（10-31 重做：不出黑框——编辑框套在和阅读时同一个元素里；列表按条、标题按行；
+//   Enter 接着下一条 / 下一段，空的一条再 Enter = 结束列表，开头 Backspace = 去掉列表 / 标题记号，↑↓ 走到上一段 / 下一段） ═════════════
+let ED = null;   // {i, s, e, ta, p, el, bar, kind, lv, pre, ind, ord, done, cites, citeOf, isNew}
 const lineOffset = (lines, n) => { let o = 0; for (let k = 0; k < n; k++) o += lines[k].length + 1; return o; };
 function clickBlock(e, blk, p, i) {
   if (e && e.defaultPrevented) return;
@@ -1618,6 +1762,7 @@ function clickBlock(e, blk, p, i) {
   } catch (err) { caret = null; }
   openEditor(i, caret);
 }
+// 点在渲染后的第几个字 → 源码里的位置（跳过行首记号、链接地址、** ` 这些看不见的字）
 function approxCaret(p, i, pos) {
   const { lines, blocks } = parseBlocks(p.body); const b = blocks[i]; if (!b) return null;
   const src = lines.slice(b.s, b.e).join('\n');
@@ -1633,59 +1778,148 @@ function approxCaret(p, i, pos) {
   return src.length;
 }
 function editPage() { if (UI.view !== 'page') return null; return PAGES.get(UI.id) || null; }
-function openEditor(i, caret = null, isNew = false) {
+// 一块源码的「样子」：段落 / 标题（几级）/ 列表一条 / 待办 / 引用 / 原样（代码、分隔线）；pre = 第一行的记号（编辑时不显示）
+function shapeOf(type, first) {
+  if (type === 'h') { const m = /^(#{1,6})\s+/.exec(first) || ['## ', '##']; return { kind: 'h', lv: Math.min(m[1].length, 4), pre: m[0] }; }
+  if (type === 'li') {
+    const m = /^(\s*)([-*+]|\d+[.)])\s+(\[( |x|X)\]\s+)?/.exec(first);
+    if (m) return { kind: m[3] ? 'task' : 'li', pre: m[0], ind: m[1], ord: /\d/.test(m[2]), done: !!m[4] && m[4] !== ' ' };
+  }
+  if (type === 'quote') return { kind: 'quote', pre: '' };
+  if (type === 'p') return { kind: 'p', pre: '' };
+  return { kind: 'raw', pre: '' };
+}
+// 下一条的样子：列表接着列表（编号 +1，待办不打勾），标题 / 段落后面接段落
+function nextShape(E) {
+  if (E.kind === 'task') return { kind: 'task', pre: E.ind + '- [ ] ', ind: E.ind };
+  if (E.kind === 'li') {
+    const m = /^(\s*)(\d+)([.)])/.exec(E.pre);
+    return { kind: 'li', ind: E.ind, ord: E.ord, pre: m ? `${m[1]}${Number(m[2]) + 1}${m[3]} ` : E.pre };
+  }
+  return { kind: 'p', pre: '' };
+}
+// 源码 ↔ 编辑框里显示的字：去掉第一行记号（引用块去每行的 >）；收藏引用的长编号换成 @1 @2（存的时候换回来）
+function citeToken(E, id) { if (!E.citeOf.has(id)) { const t = '@' + (E.citeOf.size + 1); E.citeOf.set(id, t); E.cites.set(t, id); } return E.citeOf.get(id); }
+function toDisplay(E, src) {
+  let s = String(src);
+  if (E.kind === 'quote') s = s.split('\n').map(l => l.replace(/^>\s?/, '')).join('\n');
+  else if (E.pre && s.startsWith(E.pre)) s = s.slice(E.pre.length);
+  else if (E.pre && E.pre.startsWith(s)) s = '';
+  return s.replace(/\]\(lwa:([\w-]+)\)/g, (m, id) => `](${citeToken(E, id)})`);
+}
+const untoken = (E, v) => String(v).replace(/\]\((@\d+)\)/g, (m, t) => (E.cites.has(t) ? `](lwa:${E.cites.get(t)})` : m));
+function fromDisplay(E, value) {
+  const v = untoken(E, String(value).replace(/\s+$/, ''));
+  if (!v.trim()) return '';
+  const L = v.split('\n');
+  if (E.kind === 'h') return '#'.repeat(E.lv) + ' ' + L.join('\n');
+  if (E.kind === 'quote') return L.map(l => '> ' + l).join('\n');
+  if (E.kind === 'li' || E.kind === 'task') {
+    // 框里另起一行（没缩进）= 另一条，照这一条的记号接上
+    let pre = E.pre;
+    return L.map((l, k) => {
+      if (!k) return pre + l;
+      if (/^\s/.test(l) || !l.trim()) return l;
+      pre = nextShape({ ...E, pre }).pre;
+      return pre + l;
+    }).join('\n');
+  }
+  return L.join('\n');
+}
+// 编辑框外面那一层：和阅读时同一个元素，样式全继承，点开不跳
+function shapeEl(E) {
+  const ta = E.ta, ind = E.ind ? { style: `margin-left:${E.ind.length * 0.6}em` } : null;
+  if (E.kind === 'h') { const el = h('h' + E.lv, { cls: 'is-ed' }); if (E.hn) el.append(h('span', { cls: 'lbw-num lbw-hn', text: E.hn })); el.append(ta); return el; }
+  if (E.kind === 'li') { const l = h(E.ord ? 'ol' : 'ul', null, h('li', { attr: ind }, ta)); const n = /^\s*(\d+)/.exec(E.pre); if (E.ord && n && +n[1] > 1) l.setAttribute('start', n[1]); return l; }
+  if (E.kind === 'task') return h('ul', null, h('li', { cls: 'lbw-task' + (E.done ? ' is-done' : ''), attr: ind }, h('span', { cls: 'lbw-edbox' }), ta));
+  if (E.kind === 'quote') return h('blockquote', null, ta);
+  if (E.kind === 'raw') return ta;
+  return h('p', null, ta);
+}
+function reshape(E) {
+  const a = selStart(E.ta), b = selEnd(E.ta);
+  const old = [...E.el.children].find(x => x !== E.bar);
+  const nu = shapeEl(E);
+  if (old) old.replaceWith(nu); else E.el.append(nu);
+  E.el.classList.toggle('is-li', E.kind === 'li' || E.kind === 'task');
+  E.el.classList.toggle('is-raw', E.kind === 'raw');
+  paintLevel(E);
+  E.ta.focus(); try { E.ta.setSelectionRange(a, b); } catch (e) { console.debug(e); }
+  autoGrow(E.ta);
+}
+// openEditor(i)：改第 i 块；openEditor(-1, caret, true, {at, kind, pre, text})：在第 at 行插一块新的（不给 at = 页尾）
+function openEditor(i, caret = null, isNew = false, ins = null) {
   const p = editPage(); if (!p || readOnly || UI.src) return;
-  // ② 页面忙（保存 / 恢复 / 覆盖在路上）：不开；等队列空了再开，期间页面内容被换过（冲突、恢复）就不开了——行号会对不上
+  // ② 页面在恢复 / 删除这类「整页换掉」的操作里：不开；等队列空了再开，期间正文被换过就不开了——行号会对不上
   if (busyPage(p)) {
     const body0 = p.body;
-    p._q.then(() => setTimeout(() => { if (current() === p && p.body === body0 && !ED && !UI.src) openEditor(i, caret, isNew); }, 0));
+    p._q.then(() => setTimeout(() => { if (current() === p && p.body === body0 && !ED && !UI.src) openEditor(i, caret, isNew, ins); }, 0));
     return;
   }
   if (ED && ED.p !== p) commitEditor(false);
   if (ED) {
-    const was = parseBlocks(ED.p.body).blocks[i], from = ED.s, n0 = ED.p.body.split('\n').length;
+    // 正在改别的段：先收好那段（行号会变），再按变化量找到要开的那段 / 要插的位置
+    const E = ED, n0 = p.body.split('\n').length;
+    const was = isNew ? null : parseBlocks(p.body).blocks[i];
     commitEditor(true);
-    if (!isNew) {
-      if (!was) return;
-      const line = was.s > from ? was.s + p.body.split('\n').length - n0 : was.s;
-      i = parseBlocks(p.body).blocks.findIndex(b => b.s === line);
-      if (i < 0) return;
-    }
-    // 10-29 四审：刚提交的那段已经入队（页面忙了）——目标段交给上面「等队列空了再开」那条路：
-    // 存上了按当时的正文重新找段再开；撞冲突 / 被换掉（正文变了）就不开，不留旧行号的编辑框
-    return openEditor(i, caret, isNew);
+    const delta = p.body.split('\n').length - n0;
+    if (isNew) return openEditor(-1, caret, true, ins && ins.at != null ? { ...ins, at: ins.at >= E.e ? ins.at + delta : ins.at } : ins);
+    if (!was) return;
+    const line = was.s >= E.e ? was.s + delta : was.s;
+    const k = parseBlocks(p.body).blocks.findIndex(b => b.s === line);
+    if (k >= 0) openEditor(k, caret);
+    return;
   }
   if (!R.doc) return;
   const { lines, blocks } = parseBlocks(p.body);
-  let s, e, text, holder;
-  if (isNew) { s = lines.length; e = s; text = ''; holder = h('div'); R.doc.append(holder); }
-  else { const b = blocks[i]; if (!b) return; s = b.s; e = b.e; text = lines.slice(s, e).join('\n'); holder = R.doc.querySelector(`.lbw-blk[data-i="${i}"]`); if (!holder) return; }
-  const ta = h('textarea', { cls: 'lbw-ed', attr: { spellcheck: 'false' } });
-  ta.value = text;
-  ta.placeholder = p.body.trim() ? '接着写…' : (p.role === 'topic' ? '一句话说说这个文件夹放什么' : '写下第一句：为什么关注这件事？');
-  const lv = (t, v, extra) => btn({ text: t, data: { lv: v }, ...(extra || {}) });
-  const bar = h('div', { cls: 'lbw-edbar' }, lv('正文', 0), lv('H1', 1), lv('H2', 2), lv('H3', 3), lv('H4', 4), h('span', { cls: 'lbw-sep' }), lv('列表', 'ul'), lv('待办', 'task'),
-    h('span', { cls: 'lbw-sep' }), btn({ text: 'AI 改写 · 稍后', attr: { disabled: true } }), h('span', { cls: 'lbw-k', text: 'Ctrl Alt 0–4 · Esc 收起' }));
+  let s, e, src = '', holder = null, shape;
+  if (isNew) {
+    s = e = Math.max(0, Math.min(ins && ins.at != null ? ins.at : lines.length, lines.length));
+    shape = { kind: 'p', pre: '', ...(ins || {}) };
+  } else {
+    const b = blocks[i]; if (!b) return;
+    s = b.s; e = b.e; src = lines.slice(s, e).join('\n'); holder = R.doc.querySelector(`.lbw-blk[data-i="${i}"]`); if (!holder) return;
+    shape = shapeOf(b.type, lines[s]);
+    if (shape.kind === 'h') { const k = (p._heads || []).findIndex(x => x.line === s); if (k >= 0) shape.hn = String(k + 1); }
+  }
+  const ta = h('textarea', { cls: 'lbw-ed', attr: { spellcheck: 'false', rows: '1' } });
+  const E = { i, s, e, ta, p, kind: 'p', lv: 2, pre: '', ind: '', ord: false, done: false, hn: '', ...shape, cites: new Map(), citeOf: new Map(), isNew };
+  delete E.text; delete E.at;
+  if (isNew) ta.value = String(shape.text || '').replace(/\]\(lwa:([\w-]+)\)/g, (m, id) => `](${citeToken(E, id)})`);
+  else ta.value = toDisplay(E, src);
+  ta.placeholder = isNew && !p.body.trim() ? (p.role === 'topic' ? '一句话说说这个文件夹放什么' : '写下第一句：为什么关注这件事？') : '';
+  const lv = (t, v) => btn({ text: t, data: { lv: v } });
+  const bar = h('div', { cls: 'lbw-edbar' }, lv('正文', 0), lv('H1', 1), lv('H2', 2), lv('H3', 3), h('span', { cls: 'lbw-sep' }), lv('列表', 'ul'), lv('待办', 'task'),
+    h('span', { cls: 'lbw-sep' }), btn({ cls: 'is-ai', text: 'AI 改', data: { ai: '1' }, on: { click: () => aiBlock() } }));
   bar.addEventListener('mousedown', ev => ev.preventDefault());
-  for (const b of bar.querySelectorAll('[data-lv]')) b.addEventListener('click', () => setLevel(ta, b.dataset.lv));
-  holder.replaceWith(bar);
-  bar.after(ta);
-  ED = { i, s, e, ta, p, bar };
-  for (const evName of ['input', 'keyup', 'click']) ta.addEventListener(evName, () => paintLevel(bar, ta));
-  ta.addEventListener('input', () => { autoGrow(ta); suggest(ta); });
+  for (const x of bar.querySelectorAll('[data-lv]')) x.addEventListener('click', () => setLevel(ta, x.dataset.lv));
+  E.bar = bar;
+  E.el = h('div', { cls: 'lbw-blk is-editing' }, bar, shapeEl(E));
+  E.el.classList.toggle('is-li', E.kind === 'li' || E.kind === 'task');
+  E.el.classList.toggle('is-raw', E.kind === 'raw');
+  if (holder) holder.replaceWith(E.el);
+  else {
+    const k = blocks.reduce((acc, b, j) => (b.e <= s ? j : acc), -1);
+    const after = k >= 0 ? R.doc.querySelector(`.lbw-blk[data-i="${k}"]`) : null;
+    if (after) after.after(E.el); else R.doc.prepend(E.el);
+  }
+  ED = E;
+  ta.addEventListener('input', () => { mdShortcut(E); autoGrow(ta); suggest(ta); });
   ta.addEventListener('keydown', edKey);
   ta.addEventListener('blur', () => setTimeout(() => {
-    if (!ED || ED.ta !== ta || D.activeElement === ta) return;
-    if (!ta.isConnected) { stashUnsaved(ED.p); return; }   // §5.9：后台把它摘下（换页 / 关页）不提交，只把字留成草稿
+    if (ED !== E || D.activeElement === ta) return;
+    if (!ta.isConnected) { stashUnsaved(E.p); return; }   // §5.9：后台把它摘下（换页 / 关页）不提交，只把字留成草稿
     closePop(); commitEditor(true);
   }, 120));
-  paintLevel(bar, ta);
+  paintLevel(E);
   autoGrow(ta); ta.focus();
-  const pos = caret == null ? ta.value.length : Math.min(caret, ta.value.length);
+  let pos = ta.value.length;
+  if (isNew && shape.text != null) pos = 0;
+  else if (caret != null) pos = Math.min(toDisplay({ ...E, cites: new Map(E.cites), citeOf: new Map(E.citeOf) }, src.slice(0, caret)).length, ta.value.length);
   ta.setSelectionRange(pos, pos);
   if (R.add) R.add.hidden = true;
 }
-function autoGrow(ta) { try { ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 2) + 'px'; } catch (e) { console.debug(e); } }
+function autoGrow(ta) { try { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; } catch (e) { console.debug(e); } }
 const selStart = ta => (typeof ta.selectionStart === 'number' ? ta.selectionStart : ta.value.length);
 const selEnd = ta => (typeof ta.selectionEnd === 'number' ? ta.selectionEnd : selStart(ta));
 function replaceRange(ta, text, a, b) {
@@ -1693,58 +1927,114 @@ function replaceRange(ta, text, a, b) {
   ta.value = ta.value.slice(0, a) + text + ta.value.slice(b);
   ta.setSelectionRange(a + text.length, a + text.length);
 }
-const curLines = ta => { const v = ta.value; const a = v.lastIndexOf('\n', selStart(ta) - 1) + 1; let b = v.indexOf('\n', selEnd(ta)); if (b < 0) b = v.length; return [a, b]; };
-const stripMark = l => l.replace(/^(#{1,6}\s+|\s*[-*+]\s+\[[ xX]\]\s+|\s*[-*+]\s+|\s*\d+[.)]\s+)/, '');
+// 工具条 / Ctrl+Alt+0–4：换这一块的样子（只换记号，字不动）
 function setLevel(ta, lv) {
-  const [a, b] = curLines(ta);
+  const E = ED; if (!E || E.ta !== ta) return;
   const n = Number(lv);
-  const pre = lv === 'ul' ? '- ' : lv === 'task' ? '- [ ] ' : n ? '#'.repeat(n) + ' ' : '';
-  const out = ta.value.slice(a, b).split('\n').map(l => (l.trim() ? pre + stripMark(l) : l)).join('\n');
-  replaceRange(ta, out, a, b); autoGrow(ta); ta.focus();
-  if (ED && ED.bar) paintLevel(ED.bar, ta);
+  if (lv === 'ul') Object.assign(E, { kind: 'li', ord: false, pre: E.ind + '- ' });
+  else if (lv === 'task') Object.assign(E, { kind: 'task', done: false, pre: E.ind + '- [ ] ' });
+  else if (n >= 1 && n <= 4) Object.assign(E, { kind: 'h', lv: n, pre: '#'.repeat(n) + ' ', hn: '' });
+  else Object.assign(E, { kind: E.kind === 'raw' ? 'raw' : 'p', pre: '', ind: '' });
+  reshape(E);
 }
-function paintLevel(bar, ta) {
-  const [a, b] = curLines(ta); const l = ta.value.slice(a, b).split('\n')[0];
-  const lv = /^(#{1,4})\s/.exec(l)?.[1].length || (/^\s*[-*+]\s+\[[ xX]\]/.test(l) ? 'task' : /^\s*[-*+]\s/.test(l) ? 'ul' : 0);
-  for (const x of bar.querySelectorAll('[data-lv]')) x.classList.toggle('is-on', String(lv) === x.dataset.lv);
+function paintLevel(E) {
+  const on = E.kind === 'h' ? String(E.lv) : E.kind === 'li' ? 'ul' : E.kind === 'task' ? 'task' : E.kind === 'p' ? '0' : '';
+  for (const x of E.bar.querySelectorAll('[data-lv]')) x.classList.toggle('is-on', x.dataset.lv === on);
 }
-// 把编辑框里的字拼回整页正文（不改 p）：{body, shift}
+// 段落开头打 Markdown 记号就换样子（# 标题、- 列表、1. 编号、[] 待办、> 引用），记号本身不留在框里
+function mdShortcut(E) {
+  if (E.kind !== 'p' || selStart(E.ta) > 7) return;
+  const v = E.ta.value, m = /^(#{1,4} |[-*+] \[[ xX]?\] |\[\] |[-*+] |\d+[.)] |> )/.exec(v);
+  if (!m) return;
+  const t = m[1];
+  if (t[0] === '#') Object.assign(E, { kind: 'h', lv: t.trim().length, pre: t, hn: '' });
+  else if (t.includes('[')) Object.assign(E, { kind: 'task', done: false, pre: '- [ ] ' });
+  else if (t[0] === '>') Object.assign(E, { kind: 'quote', pre: '' });
+  else if (/\d/.test(t)) Object.assign(E, { kind: 'li', ord: true, pre: t });
+  else Object.assign(E, { kind: 'li', ord: false, pre: '- ' });
+  E.ta.value = v.slice(t.length);
+  E.ta.setSelectionRange(0, 0);
+  reshape(E);
+}
+// 把一块的新源码拼回整页正文（不改 p）：{body, start, end, changed}；start / end = 这块现在在第几行（不含补的空行）
+// 段落之间补一个空行；列表一条挨着一条不补（补了会变成松散列表）
 function spliceBody(body, s, e, value) {
   const lines = body.split('\n');
-  const text = value.replace(/\s+$/, '');
+  const text = String(value).replace(/\s+$/, '');
   const old = lines.slice(s, e).join('\n');
-  if (text === old) return { body, shift: 0, changed: false };
-  let shift = 0;
+  if (text === old) return { body, start: s, end: e, changed: false };
   const repl = text ? text.split('\n') : [];
-  if (repl.length && s > 0 && (lines[s - 1] || '').trim()) { repl.unshift(''); shift = 1; }
-  if (repl.length && e < lines.length && (lines[e] || '').trim()) repl.push('');
-  lines.splice(s, e - s, ...repl);
-  return { body: lines.join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+/, ''), shift, changed: true };
+  let start = s;
+  if (repl.length) {
+    // 两行之间要不要空一行：挨着标题不用；列表挨着列表不用；其余（段落 / 列表 / 引用互相挨着）要空——
+    // 不空的话 Obsidian 会把段落当成上一条列表的续行
+    const listy = l => isListLine(l) || indentOf(l) > 0;
+    const gap = (a, b) => a != null && b != null && !!a.trim() && !!b.trim() && !/^#{1,6}\s/.test(a) && !/^#{1,6}\s/.test(b) && !(listy(a) && isListLine(b));
+    const before = s > 0 && gap(lines[s - 1], repl[0]) ? [''] : [];
+    const after = e < lines.length && gap(repl[repl.length - 1], lines[e]) ? [''] : [];
+    lines.splice(s, e - s, ...before, ...repl, ...after);
+    start = s + before.length;
+  } else {
+    lines.splice(s, e - s);
+    if (s > 0 && s < lines.length && !lines[s - 1].trim() && !lines[s].trim()) lines.splice(s, 1);
+    else if (s === 0 && lines.length && !lines[0].trim()) lines.splice(0, 1);
+  }
+  return { body: lines.join('\n'), start, end: start + repl.length, changed: true };
 }
-const intendedBody = p => (ED && ED.p === p ? spliceBody(p.body, ED.s, ED.e, ED.ta.value).body : p.body);
+const intendedBody = p => (ED && ED.p === p ? spliceBody(p.body, ED.s, ED.e, fromDisplay(ED, ED.ta.value)).body : p.body);
+// 收起编辑框：拼回正文（改了就经 mutate 存一次）；返回这块现在的位置 {start, end, empty}
 function commitEditor(rerender = true) {
-  if (!ED) return;
-  const { s, ta, p, bar } = ED;
-  bar?.remove();
-  const lines = p.body.split('\n');
-  const r = spliceBody(p.body, ED.s, ED.e, ta.value);
-  const caretAbs = lineOffset(lines, s) + Math.min(selStart(ta), ta.value.replace(/\s+$/, '').length);
+  if (!ED) return null;
+  const E = ED, { p, ta } = E;
+  const r = spliceBody(p.body, E.s, E.e, fromDisplay(E, ta.value));
   ED = null; closePop();
   if (r.changed) mutate(p, n => { n.body = r.body; });
-  UI.caret = { page: p.id, abs: Math.min(caretAbs + r.shift, p.body.length) };
-  if (rerender) renderKeepScroll(); else ta.remove();
+  UI.caret = { page: p.id, abs: Math.min(lineOffset(r.body.split('\n'), r.start) + selStart(ta), r.body.length) };
+  if (rerender) renderKeepScroll(); else E.el.remove();
   refreshIfStale(p);
+  return { start: r.start, end: r.end, empty: r.start === r.end };
+}
+// 走到相邻的一块：dir -1 = 上一块（光标放末尾），+1 = 下一块（光标放开头）
+function openNeighbor(p, loc, dir) {
+  const blocks = parseBlocks(p.body).blocks;
+  if (dir < 0) { let k = -1; blocks.forEach((b, j) => { if (b.e <= loc.start) k = j; }); if (k >= 0) openEditor(k, null); }
+  else { const k = blocks.findIndex(b => b.s >= loc.end); if (k >= 0) openEditor(k, 0); }
 }
 function edKey(ev) {
   if (POP.el && popKey(ev)) return;
-  const k = String(ev.key || '');
-  if (ev.ctrlKey && ev.altKey && /^[0-4]$/.test(k)) { ev.preventDefault(); setLevel(ev.target || ED.ta, k); return; }
-  if (k === 'Escape' && !ev.isComposing) { ev.preventDefault(); ev.stopPropagation(); commitEditor(true); }
-  else if (k === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
+  if (ev.isComposing || ev.keyCode === 229) return;   // 输入法正在选字：回车 / 退格都归输入法
+  const E = ED; if (!E) return;
+  const ta = E.ta, k = String(ev.key || '');
+  const at0 = selStart(ta) === 0 && selEnd(ta) === 0, atEnd = selStart(ta) === ta.value.length;
+  if (ev.ctrlKey && ev.altKey && /^[0-4]$/.test(k)) { ev.preventDefault(); setLevel(ta, k); return; }
+  if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && k.toLowerCase() === 'z') { ev.stopPropagation(); return; }   // 框里的撤销归框
+  if (k === 'Escape') { ev.preventDefault(); ev.stopPropagation(); commitEditor(true); return; }
+  const ctrlEnter = k === 'Enter' && (ev.ctrlKey || ev.metaKey);
+  if (ctrlEnter || (k === 'Enter' && !ev.shiftKey && !ev.altKey && E.kind !== 'raw' && E.kind !== 'quote')) {
     ev.preventDefault();
-    const p = ED.p, i = ED.i; commitEditor(true);
-    const n = parseBlocks(p.body).blocks.length;
-    if (i + 1 < n) openEditor(i + 1, 0); else openEditor(0, null, true);
+    if (!ctrlEnter && (E.kind === 'li' || E.kind === 'task') && !ta.value.trim()) { setLevel(ta, 0); return; }   // 空的一条再回车 = 结束列表
+    const rest = ctrlEnter ? '' : untoken(E, ta.value.slice(selEnd(ta)));
+    if (!ctrlEnter) ta.value = ta.value.slice(0, selStart(ta));
+    const next = ctrlEnter ? { kind: 'p', pre: '' } : nextShape(E);
+    const loc = commitEditor(true);
+    if (loc) openEditor(-1, 0, true, { ...next, at: loc.end, text: rest });
+    return;
+  }
+  if (k === 'Backspace' && at0) {
+    if (E.kind !== 'p' && E.kind !== 'raw') { ev.preventDefault(); setLevel(ta, 0); return; }   // 开头退格 = 去掉标题 / 列表记号
+    if (!ta.value) { ev.preventDefault(); const p = E.p, loc = commitEditor(true); if (loc) openNeighbor(p, loc, -1); }
+    return;
+  }
+  if (k === 'Tab' && (E.kind === 'li' || E.kind === 'task')) {
+    ev.preventDefault();
+    const ind = ev.shiftKey ? E.ind.slice(2) : E.ind + '  ';
+    E.pre = ind + E.pre.slice(E.ind.length); E.ind = ind;
+    reshape(E); return;
+  }
+  if ((k === 'ArrowUp' && at0) || (k === 'ArrowDown' && atEnd && !POP.el)) {
+    ev.preventDefault();
+    const p = E.p, loc = commitEditor(true);
+    if (loc) openNeighbor(p, loc, k === 'ArrowUp' ? -1 : 1);
   }
 }
 function toggleTask(p, line) {
@@ -1801,7 +2091,8 @@ function popKey(ev) {
 }
 function pickPop(k) {
   const x = POP.items[k], ta = POP.ta; if (!x || x.off || !ta) return;
-  replaceRange(ta, `[${x.title}](lwa:${x.id}) — `, POP.from, selStart(ta));
+  const ref = ED && ED.ta === ta ? citeToken(ED, x.id) : 'lwa:' + x.id;   // 编辑框里显示短号 @1，存的时候换回完整 id
+  replaceRange(ta, `[${x.title}](${ref}) — `, POP.from, selStart(ta));
   closePop(); autoGrow(ta); ta.focus();
 }
 
@@ -1839,24 +2130,28 @@ async function wcall(op, opts = {}) {
 }
 const NOT_SAVED = '没保存上，内容还在，可重试：';
 const stateOf = p => ({ title: p.title, tags: [...p.tags], body: p.body, ...(p.role === 'topic' ? { order: [...(p.order || [])] } : {}) });
-const busyPage = p => !!p && (p._ops || 0) > 0;
+// 10-31：只有「整页换掉」的操作（恢复 / 删除）锁页（_hard）；普通保存在后台排队、不锁——以前每存一次这页就只读 1.5 秒，Enter 下一段要干等
+const busyPage = p => !!p && (p._hard || 0) > 0;
+const savingPage = p => !!p && (p._ops || 0) > 0;
 const liveSrc = p => (p && UI.src && UI.view === 'page' && UI.id === p.id && R.srcEd && R.srcEd.isConnected && !R.srcEd._lbDead ? R.srcEd : null);
-function closeEditor() { if (!ED) return; const { ta, bar } = ED; ED = null; closePop(); bar?.remove(); ta.remove(); }
+function closeEditor() { if (!ED) return; const { el } = ED; ED = null; closePop(); el?.remove(); }
 // ① 队列：task 自己处理成功 / 失败（不抛）；队列空了 settled
-function enqueue(p, task) {
-  p._ops = (p._ops || 0) + 1; paintLock(p); paintSaved(p);
+function enqueue(p, task, { hard = false } = {}) {
+  p._ops = (p._ops || 0) + 1; if (hard) p._hard = (p._hard || 0) + 1;
+  paintLock(p); paintSaved(p);
   const job = (p._q || Promise.resolve()).then(task).catch(e => console.debug('[lb] wiki op', e))
-    .then(() => { p._ops = Math.max(0, (p._ops || 1) - 1); if (!p._ops) settled(p); });
+    .then(() => { p._ops = Math.max(0, (p._ops || 1) - 1); if (hard) p._hard = Math.max(0, (p._hard || 1) - 1); if (!p._ops) settled(p); });
   p._q = job;
   return job;
 }
-// 队列空了：解冻（整页 Markdown 框内容没被换就原地解冻，换了就重画）；只画不存；期间磁盘变过就补一次重读
+// 队列空了：解冻（整页 Markdown 框内容没被换就原地解冻）；正文被换过（恢复 / 冲突 / 失败回滚：_repaint）才重画——
+// 普通保存不重画（她可能正在标题 / 标签框里打字）；只画不存；期间磁盘变过就补一次重读
 function settled(p) {
   paintLock(p); paintSaved(p);
   if (current() === p && !ED) {
     const box = liveSrc(p);
-    if (box && box.value === p.body) box.readOnly = false;
-    else renderKeepScroll();
+    if (box && box.value === p.body) { box.readOnly = false; p._repaint = false; }
+    else if (p._repaint || box) { p._repaint = false; renderKeepScroll(); }
   }
   if (p._stale) scheduleRefresh(50);
   if (UI.hist && UI.hist.id === p.id && UI.hist.versions) loadHistory();
@@ -1869,8 +2164,18 @@ function paintLock(p) {
   if (lock && R.srcEd && !R.srcEd._lbDead) R.srcEd.readOnly = true;
   for (const cb of R.center.querySelectorAll('.lbw-task input')) cb.disabled = lock;
 }
-// ② ③ 带内容的改动的唯一入口：change(next) 在「这一页现在的样子 + 她编辑框里还没提交的字」上改；空闲才入队一次保存，忙时进草稿（不丢）
-function mutate(p, change, { kind = 'auto', note = '' } = {}) {
+// ② ③ 带内容的改动的唯一入口：change(next) 在「这一页现在的样子 + 她编辑框里还没提交的字」上改；
+// 页面没在「整页换掉」就照改、排一次保存（10-31 起普通保存不锁页）；在换的话进草稿（不丢）。每次改之前的样子记进撤销栈（Ctrl+Z）
+const UNDO = new Map();
+function pushUndo(p) { const st = UNDO.get(p.id) || []; st.push({ title: p.title, tags: [...p.tags], body: p.body, ...(p.role === 'topic' ? { order: [...(p.order || [])] } : {}) }); if (st.length > 60) st.shift(); UNDO.set(p.id, st); }
+function undoPage(p) {
+  const st = p && UNDO.get(p.id);
+  if (!st || !st.length) { LB.say('没有可以撤销的了（更早的改动在「历史」里）'); return; }
+  const prev = st.pop();
+  if (mutate(p, n => Object.assign(n, prev), { note: '撤销', undo: false })) { renderKeepScroll(); LB.say('撤销了上一步'); }
+  else st.push(prev);
+}
+function mutate(p, change, { kind = 'auto', note = '', undo = true } = {}) {
   if (readOnly || !p) return false;
   const next = stateOf(p);
   if (ED && ED.p === p) { next.body = intendedBody(p); closeEditor(); }
@@ -1883,21 +2188,27 @@ function mutate(p, change, { kind = 'auto', note = '' } = {}) {
     LB.say('这一页正在保存：这次的改动先放在页顶「没保存上的改动」里', { kind: 'warn' });
     return false;
   }
+  if (undo) pushUndo(p);
   Object.assign(p, next); derive(p); reindex();
   saveNow(p, { kind, note });
   return true;
 }
+// 保存：排进这页的队列；还没轮到的那次普通保存就不再另排（轮到时存的是那一刻的最新内容）
 function saveNow(p, { kind = 'auto', note = '', fromDraft = null } = {}) {
-  const want = stateOf(p);
-  let ok = false;
-  return enqueue(p, async () => {
+  if (kind === 'auto' && !fromDraft && p._pendingSave) return p._pendingSave;
+  let ok = false, job = null;
+  job = enqueue(p, async () => {
+    if (p._pendingSave === job) p._pendingSave = null;
+    const want = stateOf(p);
     try {
       const res = await wcall('save', { input: { id: p.id, base_hash: p.hash || '', ...want, kind, note } });
       applySaved(p, res.page);
-      if (fromDraft && DRAFTS[p.id] === fromDraft) { delete DRAFTS[p.id]; persistDrafts(); }
+      if (fromDraft && DRAFTS[p.id] === fromDraft) { delete DRAFTS[p.id]; persistDrafts(); p._repaint = true; }   // 草稿条要收起
       scheduleIndex(); ok = true;
     } catch (e) { await saveFailed(p, want, e); }
   }).then(() => ok);
+  if (kind === 'auto' && !fromDraft) p._pendingSave = job;
+  return job;
 }
 function applySaved(p, page) {
   if (!page || typeof page !== 'object') return;
@@ -1912,6 +2223,7 @@ function applySaved(p, page) {
 function revertTo(p, s) { p.title = s.title; p.tags = [...s.tags]; p.body = s.body; if (p.role === 'topic') p.order = [...(s.order || [])]; derive(p); }
 async function reloadPage(p) {
   const saved = p._saved || savedOf(p);
+  p._repaint = true;
   try { const d = (await readDisk()).get(p.id); if (d) adoptDisk(p, d); else revertTo(p, saved); }
   catch (err) { console.debug('[lb] wiki reload after conflict', err); revertTo(p, saved); }
 }
@@ -1919,11 +2231,19 @@ async function reloadPage(p) {
 async function saveFailed(p, want, e) {
   const code = (e && e.code) || '';
   const saved = p._saved || savedOf(p);
-  const draft = { ...want, at: Date.now(), conflict: code === 'CONFLICT' };
+  // 草稿要的是她现在手上的全部（这次要存的 + 之后又改的 + 编辑框里还没收的字）；编辑框关掉（正文要换了，行号对不上）
+  const box = liveSrc(p);
+  const latest = { ...stateOf(p), body: box && !box.readOnly ? box.value : intendedBody(p) };
+  if (ED && ED.p === p) closeEditor();
+  if (box) box._lbDead = true;   // 框里的字已经在草稿里；正文要换了，这个框不再拿去存
+  const draft = { ...want, ...latest, at: Date.now(), conflict: code === 'CONFLICT' };
+  p._repaint = true;
   if (code === 'TITLE_TAKEN') draft.title = saved.title;
   const keep = !sameState(draft, { ...saved, order: p.role === 'topic' ? saved.order : undefined });
   if (keep) { DRAFTS[p.id] = draft; persistDrafts(); }
-  if (code === 'CONFLICT') await reloadPage(p); else revertTo(p, saved);
+  // 冲突重读磁盘那一会儿锁页（待办 / 标题不收）：重读完之前的改动会被磁盘版本换掉，不能让它看起来存上了
+  if (code === 'CONFLICT') { p._hard = (p._hard || 0) + 1; paintLock(p); try { await reloadPage(p); } finally { p._hard = Math.max(0, p._hard - 1); } }
+  else revertTo(p, saved);
   reindex(); renderSub(); renderToc();
   const why = code === 'CONFLICT' ? '这页刚在别处改过（Obsidian 或另一个窗口），已换成磁盘上的版本；你的改动在页顶「没保存上的改动」里'
     : code === 'TITLE_TAKEN' ? errText(e) + '；标题已改回原来的' : errText(e);
@@ -1991,6 +2311,8 @@ function scheduleIndex() {
 const KIND = { create: '新建', auto: '自动', manual: '版本', restore: '恢复', external: '外部编辑', import: '导入', ai: 'AI', rename: '改名' };
 function toggleHistory() {
   if (UI.hist) { UI.hist = null; renderSide(); return; }
+  if (UI.ai && UI.ai.scope === 'page') UI.ai = null;
+  UI.trash = null;
   const p = current();
   if (!p) { LB.say('先打开一页，再看它的历史'); return; }
   UI.hist = { id: p.id, versions: null, sel: null, texts: {} };
@@ -2025,10 +2347,13 @@ function lineDiff(a, b) {
   return out;
 }
 function renderSide() {
-  const H = UI.hist, side = R.side;
-  wrap.classList.toggle('has-side', !!H);
+  const H = UI.hist, side = R.side, A = UI.ai && UI.ai.scope === 'page' ? UI.ai : null, T = UI.trash;
+  const on = !!(H || A || T);
+  wrap.classList.toggle('has-side', on);
   if (R.histBtn) R.histBtn.classList.toggle('is-on', !!H);
-  side.hidden = !H; side.textContent = '';
+  side.hidden = !on; side.textContent = '';
+  if (A) { renderAiSide(side); return; }
+  if (T) { renderTrashSide(side); return; }
   if (!H) return;
   const p = PAGES.get(H.id);
   side.append(h('div', { cls: 'lbw-rbar' }, btn({ text: '← 收起', on: { click: () => { UI.hist = null; renderSide(); } } }), h('span', { cls: 'is-on', text: '历史' }), h('span', { text: p ? p.title : '' })));
@@ -2076,7 +2401,7 @@ function restoreVersion(p, ver, b) {
     try {
       const r = await wcall('restore', { args: [p.id, String(ver), '--base-hash', p.hash || ''] });
       const pg = r && r.page;
-      if (pg) { p.title = pg.title ?? p.title; p.tags = [...(pg.tags || p.tags)]; if (pg.body != null) p.body = pg.body; derive(p); applySaved(p, pg); }
+      if (pg) { pushUndo(p); p.title = pg.title ?? p.title; p.tags = [...(pg.tags || p.tags)]; if (pg.body != null) p.body = pg.body; derive(p); applySaved(p, pg); p._repaint = true; }
       LB.say((r && r.message) || '已恢复；恢复前的内容也在历史里', { kind: 'ok' });
       scheduleIndex();
       if (UI.hist) UI.hist.sel = null;
@@ -2084,7 +2409,7 @@ function restoreVersion(p, ver, b) {
       if (e && e.code === 'CONFLICT') { await reloadPage(p); LB.say('没恢复上：这页刚在别处改过，已换成磁盘上的版本，再点一次恢复', { kind: 'error' }); }
       else LB.say('没恢复上：' + errText(e), { kind: 'error' });
     } finally { done(); }
-  });
+  }, { hard: true });
 }
 function saveVersion(p, note) {
   if (readOnly) return Promise.resolve(false);
@@ -2097,6 +2422,127 @@ function saveVersion(p, note) {
       else LB.say('版本没记上：' + errText(e), { kind: 'error' });
     }
   }).then(() => ok);
+}
+
+// ═════════════ 让 AI 改（10-31）：改一段（这段下面的小面板）/ 整页（右侧栏）；只拿建议，她点「用这版」才照常存（kind=ai，记进历史，Ctrl+Z 能撤） ═════════════
+// 模型 = 插件设置里的文本 AI（命令行模型 / 接口都行），提示词在 link_brain/wiki_ai.py；这里的说法和那边的 PRESETS 同一套 key
+const AI_PRESETS = {
+  block: [['polish', '润色'], ['concise', '精简'], ['expand', '说清楚一点'], ['list', '改成列表'], ['fix', '只改错字']],
+  page: [['structure', '理顺结构'], ['concise', '精简'], ['from_cites', '从引用补要点'], ['draft', '搭个框架'], ['polish', '润色']],
+};
+const aiRecent = () => { try { const v = typeof app.loadLocalStorage === 'function' ? app.loadLocalStorage('lb-wiki-ai-recent') : null; return Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, 6) : []; } catch (e) { return []; } };
+function rememberAsk(text) {
+  const t = String(text || '').trim(); if (!t) return;
+  try { if (typeof app.saveLocalStorage === 'function') app.saveLocalStorage('lb-wiki-ai-recent', [t, ...aiRecent().filter(x => x !== t)].slice(0, 6)); } catch (e) { console.debug('[lb] wiki ai recent', e); }
+}
+// 正在改的那段：先收好（存一次），记下它在第几行到第几行、原文是什么——AI 回来时原文变了就不套用
+function aiBlock() {
+  const E = ED; if (!E) return;
+  const p = E.p, loc = commitEditor(false);
+  if (!loc || loc.empty) { renderKeepScroll(); LB.say('这一段是空的，先写一点再让 AI 改'); return; }
+  UI.ai = { scope: 'block', id: p.id, start: loc.start, end: loc.end, text: p.body.split('\n').slice(loc.start, loc.end).join('\n'), state: 'ask', ask: '' };
+  renderKeepScroll();
+  const inp = R.center.querySelector('.lbw-ai input'); if (inp) inp.focus();
+}
+function openAiPage(p, preset = '') {
+  if (readOnly || !p) return;
+  commitHere(p);
+  UI.hist = null; UI.trash = null;
+  UI.ai = { scope: 'page', id: p.id, text: p.body, state: 'ask', ask: '' };
+  renderSide();
+  if (preset) runAi(UI.ai, preset, '');
+}
+function closeAi() { const A = UI.ai; UI.ai = null; if (A && A.scope === 'page') renderSide(); else renderKeepScroll(); }
+async function runAi(A, preset, ask) {
+  if (A !== UI.ai) return;
+  const p = PAGES.get(A.id); if (!p) { closeAi(); return; }
+  if (A.scope === 'page') A.text = p.body;
+  Object.assign(A, { state: 'run', preset, ask, label: preset ? (AI_PRESETS[A.scope].find(x => x[0] === preset) || [, preset])[1] : ask, result: null, error: '' });
+  if (ask) rememberAsk(ask);
+  paintAi(A);
+  try {
+    const r = await wcall('ai', { input: { id: A.id, scope: A.scope, text: A.text, preset, instruction: ask }, timeoutMs: 300000 });
+    if (A !== UI.ai) return;
+    Object.assign(A, { state: 'done', result: r });
+  } catch (e) { if (A !== UI.ai) return; Object.assign(A, { state: 'error', error: errText(e) }); }
+  paintAi(A);
+}
+const paintAi = A => { if (A.scope === 'page') renderSide(); else if (!ED) renderKeepScroll(); };
+function applyAi(A) {
+  const p = PAGES.get(A.id), r = A.result; if (!p || !r) return;
+  if (A.scope === 'page') {
+    if (p.body !== A.text) { LB.say('这页在等 AI 的时候改过了，没套用；可以再让它改一次', { kind: 'warn' }); return; }
+    if (mutate(p, n => { n.body = r.text; }, { kind: 'ai', note: 'AI：' + A.label })) { UI.ai = null; renderSide(); renderKeepScroll(); LB.say('用了 AI 这版；不满意按 Ctrl+Z 撤销', { kind: 'ok' }); }
+    return;
+  }
+  const now = p.body.split('\n').slice(A.start, A.end).join('\n');
+  if (now !== A.text) { LB.say('这段在等 AI 的时候改过了，没套用；可以再让它改一次', { kind: 'warn' }); return; }
+  if (mutate(p, n => { n.body = spliceBody(n.body, A.start, A.end, r.text).body; }, { kind: 'ai', note: 'AI：' + A.label })) { UI.ai = null; renderKeepScroll(); LB.say('用了 AI 这版；不满意按 Ctrl+Z 撤销', { kind: 'ok' }); }
+}
+// 面板：问（现成说法 / 自己说）→ 在改 → 看结果（用这版 / 再改 / 不要）
+function aiBody(A) {
+  const out = [];
+  if (A.state === 'ask' || A.state === 'error') {
+    const inp = h('input', { attr: { type: 'text', placeholder: '或者自己说：比如「语气轻一点」「补一句为什么」' } });
+    inp.value = A.ask || '';
+    const go2 = () => { const v = inp.value.trim(); if (v) runAi(A, '', v); else inp.focus(); };
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); go2(); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeAi(); } });
+    out.push(h('div', { cls: 'lbw-ai-row' }, AI_PRESETS[A.scope].map(([k, t]) => btn({ text: t, data: { preset: k }, on: { click: () => runAi(A, k, '') } }))));
+    const recent = aiRecent();
+    if (recent.length) out.push(h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:6px' } }, h('span', { cls: 'lbw-ai-note', attr: { style: 'margin:0' }, text: '用过的：' }), recent.map(t => btn({ text: t.length > 14 ? t.slice(0, 14) + '…' : t, on: { click: () => runAi(A, '', t) } }))));
+    out.push(h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:8px' } }, inp, btn({ cls: 'is-solid', text: '改', on: { click: go2 } }), btn({ text: '关', on: { click: closeAi } })));
+    if (A.state === 'error') out.push(h('p', { cls: 'lbw-ai-note is-warn', text: A.error }));
+    else out.push(h('p', { cls: 'lbw-ai-note', text: '用插件设置里的文本 AI；只给建议，你点「用这版」才改进去。' }));
+  } else if (A.state === 'run') {
+    out.push(h('p', { cls: 'lbw-ai-note', attr: { style: 'margin:0' }, text: `AI 在改（${A.label}）… 一般十几秒到一分钟` }), h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:8px' } }, btn({ text: '不等了', on: { click: closeAi } })));
+  } else if (A.state === 'done') {
+    const r = A.result || {};
+    if (A.scope === 'page') {
+      const d = lineDiff(A.text, r.text || '');
+      out.push(h('div', { cls: 'lbw-diff' }, d.map(([k, l]) => h('div', { cls: 'is-' + k, text: (k === 'a' ? '+ ' : k === 'd' ? '− ' : '  ') + (l || ' ') }))));
+    } else {
+      const { lines, blocks } = parseBlocks(r.text || '');
+      const p = PAGES.get(A.id);
+      out.push(h('div', { cls: 'lbw-ai-out lbw-doc', attr: { style: 'margin-top:10px' } }, blocks.map(b => h('div', { cls: 'lbw-blk' + (b.type === 'li' ? ' is-li' : '') }, renderBlock(b, lines, p || {})))));
+    }
+    if ((r.lost_cites || []).length) out.push(h('p', { cls: 'lbw-ai-note is-warn', text: `注意：AI 这版少了 ${r.lost_cites.length} 处收藏引用；要的话用了之后再补上，或者「再改一次」` }));
+    out.push(h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-top:8px' } }, btn({ cls: 'is-solid', text: '用这版', data: { ai: 'apply' }, on: { click: () => applyAi(A) } }),
+      btn({ text: '再改一次', on: { click: () => runAi(A, A.preset, A.ask) } }), btn({ text: '换个说法', on: { click: () => { A.state = 'ask'; paintAi(A); } } }), btn({ text: '不要', on: { click: closeAi } })),
+      h('p', { cls: 'lbw-ai-note', text: (r.model ? `模型：${r.model} · ` : '') + '用了之后不满意，Ctrl+Z 撤销，或者去「历史」里找回' }));
+  }
+  return out;
+}
+function aiPanel(A) {
+  const el = h('div', { cls: 'lbw-ai', data: { scope: 'block' } }, h('div', { cls: 'lbw-ai-row', attr: { style: 'margin-bottom:8px' } }, h('span', { cls: 'lbw-kick', text: 'AI' }), h('span', { cls: 'lbw-ai-note', attr: { style: 'margin:0' }, text: '改上面这一段' })), aiBody(A));
+  el.addEventListener('click', e => e.stopPropagation());
+  return el;
+}
+function renderAiSide(side) {
+  const A = UI.ai, p = PAGES.get(A.id);
+  side.append(h('div', { cls: 'lbw-rbar' }, btn({ text: '← 收起', on: { click: closeAi } }), h('span', { cls: 'is-on', text: '让 AI 改整页' }), h('span', { text: p ? p.title : '' })));
+  if (!p) { side.append(h('p', { cls: 'lbw-note', text: '这一页找不到了。' })); return; }
+  side.append(h('div', { cls: 'lbw-ai', data: { scope: 'page' } }, aiBody(A)));
+}
+// 最近删除（PersonalWiki/.trash）：列出来，一键找回
+function openTrash() {
+  UI.hist = null; UI.ai = null;
+  UI.trash = { rows: null, error: '' };
+  renderSide();
+  const T = UI.trash;
+  wcall('trash', {}).then(r => { if (UI.trash === T) { T.rows = Array.isArray(r?.pages) ? r.pages : []; renderSide(); } })
+    .catch(e => { if (UI.trash === T) { T.rows = []; T.error = errText(e); renderSide(); } });
+}
+function renderTrashSide(side) {
+  const T = UI.trash;
+  side.append(h('div', { cls: 'lbw-rbar' }, btn({ text: '← 收起', on: { click: () => { UI.trash = null; renderSide(); } } }), h('span', { cls: 'is-on', text: '最近删除' })));
+  if (T.error) side.append(h('p', { cls: 'lbw-note', text: '没读到：' + T.error }));
+  if (!T.rows) { side.append(h('p', { cls: 'lbw-note', text: '正在读…' })); return; }
+  if (!T.rows.length) side.append(h('p', { cls: 'lbw-note', text: '没有删掉的页' }));
+  for (const x of T.rows) {
+    const b = btn({ cls: 'lbw-pill', text: '找回', data: { undelete: x.name }, on: { click: () => { LB.busy(b, '找回中…'); undeletePage(x.name); } } });
+    side.append(h('div', { cls: 'lbw-ver', attr: { style: 'cursor:default' } }, h('span', { cls: 'lbw-k', text: '删除' }), h('span', null, nums(fmtTime(x.at))), h('span', { cls: 'lbw-w', text: x.title }), b));
+  }
+  side.append(h('p', { cls: 'lbw-note', attr: { style: 'margin-top:22px' }, text: '删掉的页放在 PersonalWiki/.trash 里（Obsidian 不显示点开头的文件夹），历史也都留着。' }));
 }
 
 // ═════════════ 新建（页内弹层，不用 window.prompt） ═════════════
@@ -2143,7 +2589,7 @@ function newPageModal(opts = {}) {
       scheduleIndex();
       LB.say(r.message || `已新建《${p.title}》`, { kind: 'ok' });
       goPage(p);
-      if (p.role === 'page') { if (p.body) openEditor(0); else openEditor(0, null, true); }
+      if (p.body) openEditor(0); else openEditor(-1, null, true);   // 新文件夹也直接能写（10-31：以前焦点丢了要再点一下）
     } catch (err) { done(); busy = false; LB.say((opts.folder ? '文件夹没建上：' : '页面没建上：') + errText(err), { kind: 'error' }); }
   };
   R.layer.append(bg);
@@ -2151,7 +2597,7 @@ function newPageModal(opts = {}) {
 }
 async function deletePage(p) {
   if (readOnly || !p) return;
-  if (!(await LB.confirm({ title: `删除《${p.title}》？`, body: '会挪进 PersonalWiki/.trash（可以从那里找回），历史留着。', ok: '删除', danger: true }))) return;
+  if (!(await LB.confirm({ title: `删除《${p.title}》？`, body: '删了可以找回：提示里点「撤销」，或者「…」→「最近删除」。历史也留着。', ok: '删除', danger: true }))) return;
   commitHere(p);
   let gone = false;
   await enqueue(p, async () => {
@@ -2160,13 +2606,28 @@ async function deletePage(p) {
       PAGES.delete(p.id); reindex(); gone = true;
       if (UI.hist && UI.hist.id === p.id) UI.hist = null;
       scheduleIndex();
-      LB.say(r?.message || `已删《${p.title}》`, { kind: 'ok' });
+      const name = r && r.trashed;
+      LB.say(`已删《${p.title}》`, { kind: 'ok', actions: name ? [{ label: '撤销', run: () => undeletePage(name) }] : [] });
     } catch (e) {
       if (e && e.code === 'CONFLICT') { await reloadPage(p); LB.say('没删掉：这页刚在别处改过，已换成磁盘上的版本，看过再删', { kind: 'error' }); }
       else LB.say('没删掉：' + errText(e), { kind: 'error' });
     }
-  });
+  }, { hard: true });
   if (gone) go('home');
+}
+// 找回删掉的页（.trash 在 Obsidian 里看不见：点开头的文件夹不显示，所以页面里要有入口）
+async function undeletePage(name) {
+  if (readOnly) return;
+  try {
+    const r = await wcall('undelete', { args: [name] });
+    const pg = r && r.page;
+    if (!pg || !pg.id) throw new Error('后端没返回这一页');
+    const p = { ...pg, tags: [...(pg.tags || [])], order: [...(pg.order || [])], body: String(pg.body || '') };
+    p._saved = savedOf(p); PAGES.set(p.id, derive(p)); reindex(); scheduleIndex();
+    if (UI.trash) UI.trash.rows = (UI.trash.rows || []).filter(x => x.name !== name);
+    LB.say(r.message || `已找回《${p.title}》`, { kind: 'ok' });
+    goPage(p);
+  } catch (e) { LB.say('没找回来：' + errText(e), { kind: 'error' }); }
 }
 // 「…」菜单：插件的 obsidian.Menu（LB.showMenu）；插件太旧没有 showMenu 时用页内的小菜单
 function showMoreMenu(evt, anchor) {
@@ -2175,8 +2636,9 @@ function showMoreMenu(evt, anchor) {
     { title: UI.src ? '回到正文' : '整页 Markdown', disabled: !p, onClick: () => { commitEditor(false); flushSrc(); if (UI.src && liveSrc(p)) liveSrc(p)._lbDead = true; UI.src = !UI.src; renderKeepScroll(); } },
     { title: '新页面', onClick: () => newPageModal() },
     { title: '新文件夹', onClick: () => newPageModal({ folder: true }) },
-    { title: 'AI 一起改', sub: '稍后：搭框架、修订这一节、从问收藏接过来', disabled: true },
+    { title: '让 AI 改整页', sub: '理顺结构 / 精简 / 从引用补要点 / 自己说怎么改', disabled: !p, onClick: () => p && openAiPage(p) },
     { separator: true },
+    { title: '最近删除', sub: '删掉的页在这里找回', onClick: () => openTrash() },
     { title: '重新读入', sub: '在 Obsidian 里直接改过 PersonalWiki 时', onClick: () => refresh(true) },
     p ? { title: '删除这一页', danger: true, onClick: () => deletePage(p) } : null,
   ].filter(Boolean);
@@ -2203,6 +2665,10 @@ LB.listen('keys', keyTarget, 'keydown', e => {
   if (tgt && tgt.nodeType === 1 && !wrap.contains(tgt) && typeof tgt.closest === 'function' && tgt.closest('input, textarea, select, [contenteditable="true"]')) return;
   const k = String(e.key || '');
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (k.toLowerCase() === 'f' || e.code === 'KeyF')) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation?.(); toggleFind(true); return; }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && k.toLowerCase() === 'z' && !ED && UI.view === 'page' && !readOnly
+    && !(tgt && tgt.nodeType === 1 && typeof tgt.closest === 'function' && tgt.closest('input, textarea, select, [contenteditable="true"]'))) {
+    e.preventDefault(); e.stopPropagation(); undoPage(current()); return;
+  }
   if (k !== 'Escape' || LB.menuOpen() || ED) return;
   let done = true;
   if (R.gOverlay) closeGlobalGraph();
@@ -2210,6 +2676,8 @@ LB.listen('keys', keyTarget, 'keydown', e => {
   else if (POP.el) closePop();
   else if (UI.find != null) toggleFind(false);
   else if (UI.drawer) setDrawer(false);
+  else if (UI.ai) closeAi();
+  else if (UI.trash) { UI.trash = null; renderSide(); }
   else if (UI.hist) { UI.hist = null; renderSide(); }
   else done = false;
   if (done) { e.preventDefault(); e.stopPropagation(); }
@@ -2233,6 +2701,8 @@ LB.t('pages');
 paintWidth();
 render();
 LB.t('render');
+// 目录跟着读到哪（滚动时每帧最多算一次）
+{ const sc = LB.scroller(); let spyQ = 0; if (sc) LB.listen('wiki-spy', sc, 'scroll', () => { if (spyQ) return; spyQ = 1; (WIN && WIN.requestAnimationFrame ? WIN.requestAnimationFrame : f => setTimeout(f, 16))(() => { spyQ = 0; spyHeads(); }); }, { passive: true }); }
 // 登记这一版 DOM（§5.1 / §5.9）：catalog-data 变了只换收藏（引用编号 / 缺失标记）；Dataview 重跑时按磁盘签名看 PersonalWiki 有没有变
 LB.keep(wrap, { version: await LB.data.version(), update: async () => { await loadItems(); if (!ED && !(UI.src && R.srcEd && D.activeElement === R.srcEd)) { const sc = LB.scroller(), top = sc ? sc.scrollTop : 0; renderCenter(); if (sc) sc.scrollTop = top; } },
   onReuse: () => { paintWidth(); for (const g of GRAPHS) g.resume(); refresh().catch(e => console.debug('[lb] wiki refresh', e)); } });

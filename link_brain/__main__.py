@@ -12,7 +12,13 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-from .cli import main
-
 if __name__ == "__main__":
+    # 10-31：个人 Wiki 的写盘命令走轻入口（只载 personal_wiki，0.3 秒；整套 cli 要 1.5 秒，每次保存页面就锁这么久）
+    if sys.argv[1:3] == ["pwiki", "ai"]:   # 让 AI 改（只回建议）：wiki_ai 自己接，personal_wiki 不 import 它
+        from .wiki_ai import main as wiki_ai_main
+        sys.exit(wiki_ai_main(sys.argv[3:]))
+    if sys.argv[1:2] == ["pwiki"]:
+        from .personal_wiki import main_fast
+        sys.exit(main_fast(sys.argv[2:]))
+    from .cli import main
     sys.exit(main())
