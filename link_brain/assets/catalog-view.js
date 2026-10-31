@@ -759,7 +759,7 @@ ${LB.brandCss('.lbc-title', '.lbc-engr')}
 .lbc-wrap .lbc-ctl.lbc-blk-sort::before{align-self:flex-end;margin-bottom:12px;}
 /* 1101 作者「编排了一下字体就变了」：小字下边多 2px，和 17px 分页同一条基线（底边都压在那道线上）；★主题里的字母（AI）用 Cormorant 直体，
    不落到思源宋体自带的等宽样西文；主题那一块后面多空一点，不和「全部来源」挤在一起 */
-.lbc-wrap .lbc-ctl button.lbc-thq{font-family:"LB Cormorant","Cormorant Garamond",Georgia,var(--f-serif)!important;}
+.lbc-wrap .lbc-ctl button.lbc-thq{font-family:var(--lb-font-num)!important;font-style:normal;}
 .lbc-wrap .lbc-ctl button.lbc-thq .lbc-topic-star{font-size:12px;margin-right:2px;}
 .lbc-wrap:not(.is-side-narrow) .lbc-top .lbc-row.is-free>.lbc-rcol.is-gap-r:has(>.lbc-m-topics){padding-right:28px;}
 .lbc-wrap .lbc-ctl button.lbc-time.lbc-pill{height:auto!important;padding:12px 2px 12px!important;font:400 14px/1.3 var(--lb-font-body)!important;}
