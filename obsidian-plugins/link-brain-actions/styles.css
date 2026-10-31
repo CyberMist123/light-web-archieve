@@ -819,6 +819,11 @@ button.lb-sched-add { align-self: flex-start; font-size: 12px; }
 .lb-settings .lb-v7 .lb-feat-icon svg { width: 18px; height: 18px; }
 .lb-settings .lb-v7 .lb-feat-tag { color: var(--lb-muted); font-size: var(--lb-fs-micro); }
 .lb-settings .lb-v7 .lb-feat-need { color: var(--lb-warn); font-size: var(--lb-fs-small); display: flex; gap: 6px; align-items: center; }
+.lb-settings .lb-v7 .lb-feat-now { color: var(--lb-muted); font-size: var(--lb-fs-small); margin-top: 4px; display: block; }
+.lb-settings .lb-v7 .lb-feat-now.is-ok { color: var(--text-normal); }
+.lb-settings .lb-v7 .lb-feat-now.lb-feat-need { color: var(--lb-warn); display: block; }
+.lb-settings .lb-v7 .lb-feat-now .lb-link { margin-left: 6px; }
+.lb-settings .lb-v7 .lb-feat-now-k { font-size: var(--lb-fs-micro); margin-right: 6px; padding: 0 5px; border-radius: var(--radius-s); background: var(--background-modifier-hover); color: var(--lb-muted); }
 .lb-settings .lb-v7 .lb-key-trouble:empty { display: none; }
 /* AI 控制台：一行（今天 · 本月 · 每天最多花）；点开左右两栏，左边折线固定高度、绝不撑出去 */
 .lb-settings .lb-v7 .lb-console { padding: var(--lb-space-1) 0 var(--lb-space-2); }

@@ -140,6 +140,24 @@ def _state(health: dict[str, Any], cap: str, on: bool, budget_over: bool, chain:
     return "waiting", "暂时不通，好了自动补"
 
 
+def _asr(settings: dict[str, Any], table: dict[str, Any]) -> dict[str, Any] | None:
+    """语音转文字（在线接口）用谁、每分钟多少钱（④ 那一行的状态句用）；本机 / 关着 = None（前端自己知道是免费的）。"""
+    from . import pricing, providers
+    if (settings.get("asrAI") or {}).get("mode") != "http":
+        return None
+    cfg = providers.resolve("asrAI", settings)
+    if not cfg:
+        return {"ready": False, "why": providers.why_not("asrAI", settings)}
+    out: dict[str, Any] = {"ready": True, "label": _label(cfg), "free": pricing.is_free(cfg, table)}
+    if out["free"]:
+        out["price"] = "免费"
+        return out
+    hit = pricing.price_of(str(cfg.get("model") or ""), table)
+    cost = pricing.audio_cost(table, hit[1], 1) if hit else None
+    out["price"] = "—，未计价" if cost is None else f"约 ¥{cost:.2f}/分钟" if cost >= 0.01 else "不到 1 分/分钟"
+    return out
+
+
 def routes(settings: dict[str, Any] | None = None) -> dict[str, Any]:
     from . import ai_config, ai_health, budget, pricing, usage
     settings = settings if settings is not None else ai_config.load()
@@ -164,4 +182,8 @@ def routes(settings: dict[str, Any] | None = None) -> dict[str, Any]:
     models = [m.get("name") for m in settings.get("models") or [] if isinstance(m, dict) and not m.get("hidden")]
     out[0]["choices"] = [m for m in models if m]
     out[0]["active"] = settings.get("activeModel") or ""
-    return {"features": out, "budget": bud}
+    try:
+        asr = _asr(settings, table)
+    except Exception:  # noqa: BLE001
+        asr = None
+    return {"features": out, "budget": bud, "asr": asr}
